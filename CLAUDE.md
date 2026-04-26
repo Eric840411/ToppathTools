@@ -42,6 +42,44 @@ When adding a new route:
 3. If it needs Gemini, import from `./gemini.js`
 4. No need to touch `index.ts` unless adding a brand new router
 
+# Game Edition Art Assistant (Claude + GPT-4o)
+
+For `game-edition` branch UI work, GPT-4o acts as the **美術副手** (art/UI assistant).
+
+## Script
+
+`scripts/openai-code.mjs` — calls GPT-4o using the key stored in `server/data.db` (settings table) or `OPENAI_API_KEY` env.
+
+```bash
+node scripts/openai-code.mjs "<prompt>"
+node scripts/openai-code.mjs "<prompt>" --model gpt-4o
+```
+
+## When to use GPT-4o (game-edition)
+
+Use GPT-4o for:
+- Generating game-style CSS (colors, animations, glow effects, dark themes)
+- Writing React components with game UI patterns (HP bars, quest cards, achievement badges)
+- Creating icon SVGs or placeholder game assets
+- Suggesting color palettes and typography for the game theme
+
+Keep Claude for:
+- Architecture decisions and code review
+- TypeScript type checking (`npx tsc --noEmit`)
+- Integrating GPT-4o output into existing files
+- Any backend logic (stays in `main` branch)
+
+## Workflow (game-edition)
+
+1. **Claude**: Design the component structure, write a detailed prompt
+2. **GPT-4o**: `node scripts/openai-code.mjs "<detailed UI prompt>"` → generates CSS/component
+3. **Claude**: Review, fix, apply with Edit/Write tools
+4. **Claude**: Run `npx tsc --noEmit` to verify
+
+> Key must be set in ⚙️ AI 模型和 Prompt 設定 → OpenAI Key (stored in DB)
+
+---
+
 # Code Generation Workflow (Claude + Gemini)
 
 To reduce Claude token usage, delegate code-writing tasks to Gemini whenever possible.
