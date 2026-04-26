@@ -68,6 +68,7 @@ export function GameApp() {
 
         <main style={{
           flex: 1,
+          minWidth: 0,
           overflow: 'auto',
           padding: 20,
           background: 'var(--bg-dark)',

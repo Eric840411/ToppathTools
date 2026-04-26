@@ -95,6 +95,7 @@ export function GameSidebar({ activeTab, onTabChange }: Props) {
   return (
     <nav style={{
       width: 'var(--sidebar-w)',
+      minWidth: 'var(--sidebar-w)',
       background: 'var(--bg-panel)',
       borderRight: '2px solid var(--border-mid)',
       display: 'flex',
