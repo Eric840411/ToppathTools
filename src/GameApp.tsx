@@ -22,7 +22,7 @@ import GeminiSettingsModal from './components/GeminiSettingsModal'
 import { JiraAccountModal, type AccountInfo } from './components/JiraAccountModal'
 import { APP_VERSION } from './version'
 
-import './game/theme/pixel.css'
+// pixel.css is loaded dynamically from main.tsx — do NOT import here
 
 const GLOBAL_ACCOUNT_KEY = 'global_jira_account'
 const loadGlobalAccount = (): AccountInfo | null => {
