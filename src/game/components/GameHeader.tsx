@@ -73,7 +73,7 @@ export function GameHeader({ account, onAccountClick, onSettingsClick, onChangel
           <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 8, color: 'var(--neon-cyan)', textShadow: 'var(--glow-cyan)', letterSpacing: 1 }}>
             QA COMMAND
           </div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-dim)' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-primary)' }}>
             TOPPATH TOOLS
           </div>
         </div>
@@ -110,7 +110,7 @@ export function GameHeader({ account, onAccountClick, onSettingsClick, onChangel
         <div style={{ fontFamily: 'var(--font-retro)', fontSize: 20, color: 'var(--neon-cyan)', lineHeight: 1, letterSpacing: 2 }}>
           {timeStr}
         </div>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-dim)' }}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-primary)' }}>
           {dateStr}
         </div>
       </div>

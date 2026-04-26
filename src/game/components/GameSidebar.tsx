@@ -122,8 +122,8 @@ export function GameSidebar({ activeTab, onTabChange }: Props) {
             fontSize: 18, flexShrink: 0,
           }}>🎖</div>
           <div>
-            <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 6, color: 'var(--neon-gold)', letterSpacing: 0.5 }}>QA MASTER</div>
-            <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 7, color: 'var(--text-bright)', marginTop: 3 }}>LV.99</div>
+            <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 7, color: 'var(--neon-gold)', letterSpacing: 0.5, textShadow: 'var(--glow-gold)' }}>QA MASTER</div>
+            <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 8, color: 'var(--text-bright)', marginTop: 3 }}>LV.99</div>
           </div>
         </div>
         <div style={{ marginBottom: 4 }}>
@@ -164,7 +164,7 @@ export function GameSidebar({ activeTab, onTabChange }: Props) {
                 <span style={{
                   fontFamily: 'var(--font-pixel)',
                   fontSize: 7,
-                  color: active ? 'var(--neon-cyan)' : 'var(--text-dim)',
+                  color: active ? 'var(--neon-cyan)' : 'var(--text-primary)',
                   textShadow: active ? 'var(--glow-cyan)' : 'none',
                   letterSpacing: 0.5,
                   flex: 1,
@@ -204,8 +204,8 @@ export function GameSidebar({ activeTab, onTabChange }: Props) {
                         <PixelIcon slot={child.iconSlot} emoji={child.icon} size={18} />
                         <span style={{
                           fontFamily: 'var(--font-pixel)',
-                          fontSize: 6,
-                          color: childActive ? 'var(--neon-cyan)' : 'var(--text-dim)',
+                          fontSize: 7,
+                          color: childActive ? 'var(--neon-cyan)' : 'var(--text-primary)',
                           letterSpacing: 0.5,
                           whiteSpace: 'nowrap',
                           overflow: 'hidden',
@@ -230,9 +230,9 @@ export function GameSidebar({ activeTab, onTabChange }: Props) {
         fontFamily: 'var(--font-mono)',
         fontSize: 10,
       }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-dim)', marginBottom: 4 }}>
-          <span>SYSTEM</span>
-          <span style={{ color: 'var(--neon-green)' }}>ONLINE</span>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+          <span style={{ color: 'var(--text-primary)' }}>SYSTEM</span>
+          <span style={{ color: 'var(--neon-green)', textShadow: 'var(--glow-green)' }}>ONLINE</span>
         </div>
         <div className="px-bar">
           <div className="px-bar__fill" style={{ width: '82%', background: 'var(--neon-green)', boxShadow: 'var(--glow-green)' }} />

@@ -19,15 +19,15 @@
   --neon-purple: #9945ff;
 
   /* ── Text ── */
-  --text-bright:  #e8f4ff;
-  --text-primary: #a8c4d8;
-  --text-dim:     #4a6a80;
-  --text-muted:   #2a3a48;
+  --text-bright:  #f0f8ff;
+  --text-primary: #c0d8ee;
+  --text-dim:     #7aaac8;
+  --text-muted:   #3a5068;
 
   /* ── Borders ── */
-  --border-bright: #1e4060;
-  --border-mid:    #0e2030;
-  --border-dim:    #081018;
+  --border-bright: #2e6090;
+  --border-mid:    #1a3a58;
+  --border-dim:    #0e2030;
 
   /* ── Glow helpers ── */
   --glow-cyan:   0 0 8px #00d4ff88, 0 0 20px #00d4ff44;
