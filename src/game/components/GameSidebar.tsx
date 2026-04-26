@@ -123,8 +123,8 @@ export function GameSidebar({ activeTab, onTabChange }: Props) {
             fontSize: 18, flexShrink: 0,
           }}>🎖</div>
           <div>
-            <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 7, color: 'var(--neon-gold)', letterSpacing: 0.5, textShadow: 'var(--glow-gold)' }}>QA MASTER</div>
-            <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 8, color: 'var(--text-bright)', marginTop: 3 }}>LV.99</div>
+            <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 10, color: 'var(--neon-gold)', letterSpacing: 0.5, textShadow: 'var(--glow-gold)' }}>QA MASTER</div>
+            <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 10, color: 'var(--text-bright)', marginTop: 3 }}>LV.99</div>
           </div>
         </div>
         <div style={{ marginBottom: 4 }}>
@@ -165,7 +165,7 @@ export function GameSidebar({ activeTab, onTabChange }: Props) {
                 <PixelIcon slot={item.iconSlot} emoji={item.icon} size={20} />
                 <span style={{
                   fontFamily: 'var(--font-pixel)',
-                  fontSize: 7,
+                  fontSize: 10,
                   color: active ? 'var(--neon-cyan)' : 'var(--text-primary)',
                   textShadow: active ? 'var(--glow-cyan)' : 'none',
                   letterSpacing: 0.5,
@@ -206,7 +206,7 @@ export function GameSidebar({ activeTab, onTabChange }: Props) {
                         <PixelIcon slot={child.iconSlot} emoji={child.icon} size={18} />
                         <span style={{
                           fontFamily: 'var(--font-pixel)',
-                          fontSize: 7,
+                          fontSize: 10,
                           color: childActive ? 'var(--neon-cyan)' : 'var(--text-primary)',
                           letterSpacing: 0.5,
                           whiteSpace: 'nowrap',
