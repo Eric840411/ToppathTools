@@ -79,16 +79,42 @@ body::after {
   border-image-slice: 150 126;
 }
 
-/* Panel — large outer section frame */
+/* Panel — large outer section frame (detailed cyan sci-fi) */
 .px-panel {
-  background: var(--bg-dark);
-  border: 24px solid transparent;
+  background: var(--bg-card);
+  border: 28px solid transparent;
   border-image-source: url('/game-assets/frames/panel-frame.png');
-  border-image-slice: 118 109;
-  border-image-width: 24px;
+  border-image-slice: 135;
+  border-image-width: 28px;
   border-image-repeat: stretch;
   padding: 20px;
   position: relative;
+  image-rendering: pixelated;
+}
+
+/* Component card variants (portrait-style, full background-image frames) */
+.px-card--green {
+  background-image: url('/game-assets/frames/frame-green.png');
+  background-size: 100% 100%;
+  background-color: transparent;
+  border-image: none;
+  border: none;
+  image-rendering: pixelated;
+}
+.px-card--red {
+  background-image: url('/game-assets/frames/frame-red.png');
+  background-size: 100% 100%;
+  background-color: transparent;
+  border-image: none;
+  border: none;
+  image-rendering: pixelated;
+}
+.px-card--orange {
+  background-image: url('/game-assets/frames/frame-orange.png');
+  background-size: 100% 100%;
+  background-color: transparent;
+  border-image: none;
+  border: none;
   image-rendering: pixelated;
 }
 
@@ -232,21 +258,42 @@ body::after {
 .px-log-line--info   { color: var(--neon-cyan); }
 .px-log-line--dim    { color: var(--text-dim); }
 
-/* ── Input ────────────────────────────────────────────────── */
+/* ── Input (forms-sheet style: dark bg + cyan border) ─────── */
 .px-input {
-  background: var(--bg-void);
-  border: 2px solid var(--border-mid);
+  background: rgba(2,8,20,0.85);
+  border: 2px solid var(--border-bright);
+  border-bottom-color: var(--neon-cyan);
   color: var(--text-bright);
   font-family: var(--font-mono);
   font-size: 12px;
   padding: 8px 10px;
-  border-radius: var(--radius-px);
+  border-radius: 0;
   outline: none;
   width: 100%;
-  transition: border-color var(--trans-mid);
+  transition: border-color var(--trans-mid), box-shadow var(--trans-mid);
 }
-.px-input:focus { border-color: var(--neon-cyan); box-shadow: var(--glow-cyan); }
+.px-input:focus {
+  border-color: var(--neon-cyan);
+  box-shadow: var(--glow-cyan), inset 0 0 8px rgba(0,212,255,0.08);
+}
 .px-input::placeholder { color: var(--text-muted); }
+
+/* Select inherits input style */
+select.px-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%2300d4ff'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+  cursor: pointer;
+}
+
+/* Textarea */
+textarea.px-input {
+  resize: vertical;
+  min-height: 80px;
+  line-height: 1.5;
+}
 
 /* ── Animations ───────────────────────────────────────────── */
 @keyframes px-blink {

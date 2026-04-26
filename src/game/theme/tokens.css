@@ -5,11 +5,11 @@
 :root {
   /* ── Backgrounds ── */
   --bg-void:    #020408;
-  --bg-dark:    #040810;
-  --bg-card:    #080f1c;
-  --bg-panel:   #060c18;
-  --bg-hover:   #0d1a2e;
-  --bg-active:  #0a1828;
+  --bg-dark:    rgba(2,4,10,0.55);
+  --bg-card:    rgba(6,12,24,0.82);
+  --bg-panel:   rgba(4,8,20,0.88);
+  --bg-hover:   rgba(13,26,46,0.85);
+  --bg-active:  rgba(8,20,40,0.90);
 
   /* ── Neon palette ── */
   --neon-cyan:   #00d4ff;

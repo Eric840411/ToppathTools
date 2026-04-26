@@ -54,6 +54,10 @@ export function GameApp() {
       height: '100vh',
       overflow: 'hidden',
       background: 'var(--bg-dark)',
+      backgroundImage: 'url(/game-assets/dashboard-bg.png)',
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+      backgroundAttachment: 'fixed',
     }}>
       <GameHeader
         account={globalAccount}
@@ -71,7 +75,7 @@ export function GameApp() {
           minWidth: 0,
           overflow: 'auto',
           padding: 20,
-          background: 'var(--bg-dark)',
+          background: 'transparent',
         }}>
           {activeTab === 'jira'          && <JiraPage />}
           {activeTab === 'lark'          && <LarkPage />}
