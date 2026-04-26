@@ -152,14 +152,15 @@ export function GameSidebar({ activeTab, onTabChange }: Props) {
                 style={{
                   width: '100%',
                   display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '9px 14px 9px 11px',
-                  background: active ? 'var(--bg-active)' : 'transparent',
+                  padding: '10px 20px 10px 14px',
+                  backgroundImage: `url('/game-assets/frames/${active ? 'nav-active' : 'nav-inactive'}.png')`,
+                  backgroundSize: '100% 100%',
+                  backgroundColor: 'transparent',
                   border: 'none',
-                  borderLeft: `3px solid ${active ? 'var(--neon-cyan)' : 'transparent'}`,
-                  boxShadow: active ? 'inset 0 0 12px #00d4ff0a' : 'none',
                   cursor: 'pointer',
-                  transition: 'background var(--trans-fast)',
+                  transition: 'filter var(--trans-fast)',
                   textAlign: 'left',
+                  imageRendering: 'pixelated',
                 }}
               >
                 <PixelIcon slot={item.iconSlot} emoji={item.icon} size={20} />
