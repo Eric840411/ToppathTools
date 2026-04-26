@@ -152,10 +152,11 @@ export function GameSidebar({ activeTab, onTabChange }: Props) {
                 style={{
                   width: '100%',
                   display: 'flex', alignItems: 'center', gap: 8,
-                  padding: '9px 14px',
+                  padding: '9px 14px 9px 11px',
                   background: active ? 'var(--bg-active)' : 'transparent',
-                  borderLeft: `3px solid ${active ? 'var(--neon-cyan)' : 'transparent'}`,
                   border: 'none',
+                  borderLeft: `3px solid ${active ? 'var(--neon-cyan)' : 'transparent'}`,
+                  boxShadow: active ? 'inset 0 0 12px #00d4ff0a' : 'none',
                   cursor: 'pointer',
                   transition: 'background var(--trans-fast)',
                   textAlign: 'left',
@@ -194,10 +195,10 @@ export function GameSidebar({ activeTab, onTabChange }: Props) {
                         style={{
                           width: '100%',
                           display: 'flex', alignItems: 'center', gap: 7,
-                          padding: '7px 10px 7px 12px',
+                          padding: '7px 10px 7px 10px',
                           background: childActive ? '#00d4ff14' : 'transparent',
-                          borderLeft: `2px solid ${childActive ? 'var(--neon-cyan)' : 'var(--border-dim)'}`,
                           border: 'none',
+                          borderLeft: `2px solid ${childActive ? 'var(--neon-cyan)' : 'var(--border-dim)'}`,
                           cursor: 'pointer',
                           textAlign: 'left',
                         }}
