@@ -21,6 +21,9 @@ import ChangelogModal from './components/ChangelogModal'
 import GeminiSettingsModal from './components/GeminiSettingsModal'
 import { JiraAccountModal, type AccountInfo } from './components/JiraAccountModal'
 import { APP_VERSION } from './version'
+import { GameProfileProvider } from './game/context/GameProfileContext'
+import { GameNotifications } from './game/components/GameNotifications'
+import { GameQuestPanel } from './game/components/GameQuestPanel'
 
 // pixel.css is loaded dynamically from main.tsx — do NOT import here
 
@@ -48,6 +51,7 @@ export function GameApp() {
   }
 
   return (
+    <GameProfileProvider>
     <div style={{
       display: 'flex',
       flexDirection: 'column',
@@ -105,6 +109,11 @@ export function GameApp() {
           onClearCurrent={() => { handleAccountClear(); setShowAccount(false) }}
         />
       )}
+
+      {/* Game systems */}
+      <GameNotifications />
+      <GameQuestPanel />
     </div>
+    </GameProfileProvider>
   )
 }

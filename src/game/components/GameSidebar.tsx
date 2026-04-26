@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useGameProfileCtx } from '../context/GameProfileContext'
 
 export type GameTabId =
   | 'jira' | 'lark'
@@ -78,6 +79,7 @@ function PixelIcon({ slot, emoji, size = 20 }: { slot?: string; emoji: string; s
 
 export function GameSidebar({ activeTab, onTabChange }: Props) {
   const [expanded, setExpanded] = useState<string | null>('osm')
+  const { level, xpPct, xpCurrent, xpNeeded } = useGameProfileCtx()
 
   const handleTopClick = (item: NavItem) => {
     if (item.children) {
@@ -124,16 +126,16 @@ export function GameSidebar({ activeTab, onTabChange }: Props) {
           }}>🎖</div>
           <div>
             <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 10, color: 'var(--neon-gold)', letterSpacing: 0.5, textShadow: 'var(--glow-gold)' }}>QA MASTER</div>
-            <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 10, color: 'var(--text-bright)', marginTop: 3 }}>LV.99</div>
+            <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 10, color: 'var(--text-bright)', marginTop: 3 }}>LV.{level}</div>
           </div>
         </div>
         <div style={{ marginBottom: 4 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
             <span className="px-label">XP</span>
-            <span className="px-label" style={{ color: 'var(--neon-gold)' }}>9999/9999</span>
+            <span className="px-label" style={{ color: 'var(--neon-gold)' }}>{xpCurrent}/{xpNeeded}</span>
           </div>
           <div className="px-bar px-bar--gold">
-            <div className="px-bar__fill" style={{ width: '100%' }} />
+            <div className="px-bar__fill" style={{ width: `${xpPct}%` }} />
           </div>
         </div>
       </div>
