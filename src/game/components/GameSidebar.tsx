@@ -99,6 +99,7 @@ export function GameSidebar({ activeTab, onTabChange }: Props) {
       width: 'var(--sidebar-w)',
       minWidth: 'var(--sidebar-w)',
       background: 'var(--bg-panel)',
+      backdropFilter: 'blur(8px)',
       borderRight: '2px solid var(--border-mid)',
       display: 'flex',
       flexDirection: 'column',

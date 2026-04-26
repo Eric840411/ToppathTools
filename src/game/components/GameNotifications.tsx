@@ -16,13 +16,12 @@ export function GameNotifications() {
   return (
     <div style={{
       position: 'fixed',
-      bottom: 24,
-      left: '50%',
-      transform: 'translateX(-50%)',
+      top: 80,
+      right: 20,
       zIndex: 99998,
       display: 'flex',
       flexDirection: 'column',
-      alignItems: 'center',
+      alignItems: 'flex-end',
       gap: 8,
       pointerEvents: 'none',
     }}>

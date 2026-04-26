@@ -79,7 +79,7 @@ export function GameApp() {
           minWidth: 0,
           overflow: 'auto',
           padding: 20,
-          background: 'transparent',
+          background: 'var(--bg-dark)',
         }}>
           {activeTab === 'jira'          && <JiraPage />}
           {activeTab === 'lark'          && <LarkPage />}

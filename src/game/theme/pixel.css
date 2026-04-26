@@ -325,6 +325,167 @@ main {
   word-break: break-word;
 }
 
+/* ── Game Modal Overrides ─────────────────────────────────── */
+/* Applied when App.css is not loaded (game mode only) */
+
+.modal-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  background: rgba(0, 0, 0, 0.75) !important;
+  backdrop-filter: blur(4px) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  z-index: 99000 !important;
+}
+
+.modal-box, .modal {
+  background: rgba(4, 10, 24, 0.98) !important;
+  border: 2px solid var(--border-bright) !important;
+  box-shadow: 0 0 0 1px var(--border-mid), var(--glow-cyan), 0 24px 60px rgba(0,0,0,0.8) !important;
+  border-radius: 0 !important;
+  color: var(--text-primary) !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+.modal-box::before, .modal::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--neon-cyan), var(--neon-purple), transparent);
+  opacity: 0.8;
+}
+
+.modal-header {
+  background: rgba(0, 212, 255, 0.05) !important;
+  border-bottom: 1px solid var(--border-mid) !important;
+  padding: 16px 20px !important;
+}
+.modal-header h2 {
+  color: var(--neon-cyan) !important;
+  font-family: var(--font-pixel) !important;
+  font-size: 10px !important;
+  letter-spacing: 1px !important;
+  text-shadow: var(--glow-cyan) !important;
+}
+.modal-header h3 {
+  color: var(--text-bright) !important;
+  font-family: var(--font-pixel) !important;
+  font-size: 9px !important;
+}
+
+.modal-close {
+  background: transparent !important;
+  border: 1px solid var(--border-bright) !important;
+  color: var(--text-dim) !important;
+  font-size: 14px !important;
+  width: 28px !important;
+  height: 28px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  transition: all var(--trans-fast) !important;
+}
+.modal-close:hover {
+  border-color: var(--neon-red) !important;
+  color: var(--neon-red) !important;
+  box-shadow: var(--glow-red) !important;
+  background: rgba(255,51,85,0.08) !important;
+}
+
+/* Modal tab navigation */
+.modal-tabs {
+  border-bottom: 1px solid var(--border-mid) !important;
+  background: transparent !important;
+}
+.modal-tab {
+  color: var(--text-dim) !important;
+  font-family: var(--font-pixel) !important;
+  font-size: 7px !important;
+  letter-spacing: 0.5px !important;
+  border-bottom: 2px solid transparent !important;
+}
+.modal-tab.active, .modal-tab[data-active="true"] {
+  color: var(--neon-cyan) !important;
+  border-bottom-color: var(--neon-cyan) !important;
+}
+
+/* Generic text inside modals — override light-mode colors */
+.modal-box p, .modal-box li, .modal-box span,
+.modal p, .modal li, .modal span {
+  color: var(--text-primary) !important;
+}
+.modal-box h1, .modal-box h2, .modal-box h3,
+.modal h1, .modal h2, .modal h3 {
+  color: var(--text-bright) !important;
+}
+.modal-box label, .modal label {
+  color: var(--text-primary) !important;
+}
+.modal-box input, .modal-box select, .modal-box textarea,
+.modal input, .modal select, .modal textarea {
+  background: rgba(2,6,16,0.9) !important;
+  border: 1px solid var(--border-bright) !important;
+  color: var(--text-bright) !important;
+  border-radius: 0 !important;
+}
+.modal-box input:focus, .modal-box select:focus,
+.modal input:focus, .modal select:focus {
+  border-color: var(--neon-cyan) !important;
+  box-shadow: var(--glow-cyan) !important;
+  outline: none !important;
+}
+.modal-box button:not(.modal-close),
+.modal button:not(.modal-close) {
+  font-family: var(--font-mono) !important;
+}
+/* Table/list rows inside modals */
+.modal-box table { color: var(--text-primary) !important; width: 100%; }
+.modal-box th { color: var(--neon-cyan) !important; font-family: var(--font-pixel) !important; font-size: 7px !important; }
+.modal-box td { color: var(--text-primary) !important; border-color: var(--border-dim) !important; }
+.modal-box tr:hover td { background: var(--bg-hover) !important; }
+
+/* ── Page content text readability ────────────────────────── */
+/* Ensure normal-mode page components text is visible in game mode */
+main h1, main h2, main h3, main h4 {
+  color: var(--text-bright) !important;
+}
+main p, main li, main td, main th {
+  color: var(--text-primary) !important;
+}
+main label {
+  color: var(--text-primary) !important;
+}
+main input:not(.px-input),
+main select:not(.px-input),
+main textarea:not(.px-input) {
+  background: rgba(2,6,16,0.9) !important;
+  border-color: var(--border-bright) !important;
+  color: var(--text-bright) !important;
+}
+main input:not(.px-input):focus,
+main select:not(.px-input):focus {
+  border-color: var(--neon-cyan) !important;
+  outline: none !important;
+}
+/* White card/box backgrounds from normal mode → game dark */
+main [class*="card"],
+main [class*="box"],
+main [class*="panel"],
+main [class*="container"] {
+  background-color: rgba(5,11,22,0.95) !important;
+  border-color: var(--border-mid) !important;
+  color: var(--text-primary) !important;
+}
+/* Tables */
+main table { border-collapse: collapse; }
+main th { background: rgba(0,212,255,0.06) !important; color: var(--neon-cyan) !important; }
+main tr:hover { background: var(--bg-hover) !important; }
+main thead th { border-bottom: 1px solid var(--border-mid) !important; }
+main td { border-color: var(--border-dim) !important; }
+
 /* ── Scrollbar ────────────────────────────────────────────── */
 ::-webkit-scrollbar       { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: var(--bg-void); }

@@ -37,6 +37,7 @@ export function GameHeader({ account, onAccountClick, onSettingsClick, onChangel
     <header style={{
       height: 'var(--header-h)',
       background: 'var(--bg-panel)',
+      backdropFilter: 'blur(8px)',
       borderBottom: '2px solid var(--border-mid)',
       display: 'flex',
       alignItems: 'center',
