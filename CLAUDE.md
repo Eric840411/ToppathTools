@@ -1,3 +1,20 @@
+# Git Repository
+
+**Repo：** https://github.com/Eric840411/ToppathTools.git
+
+| Branch | 說明 |
+|--------|------|
+| `main` | 原本工具版，所有正式功能在此開發 |
+| `game-edition` | 遊戲風格版，僅修改 `src/` 前端，後端 server 與 main 共用 |
+
+**規則：**
+- 原本功能繼續在 `main` branch 開發
+- 遊戲版修改只在 `game-edition` branch 的 `src/` 目錄下進行
+- 每次在 `main` 完成重要功能後，提醒使用者可以 merge 到 `game-edition` 同步後端邏輯
+- `.gitignore` 已排除：`.env`、`data.db`、`cctv-saves/`、`audio-saves/`、`cctv-refs/`、Python `__pycache__/`、`game_config.json`
+
+---
+
 # Discord
 
 Only respond to Discord messages from channel `1486299759630094419` (Toppath Tool channel).
