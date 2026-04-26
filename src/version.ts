@@ -1,0 +1,1231 @@
+export const APP_VERSION = '3.9.25'
+
+export interface ChangelogEntry {
+  version: string
+  date: string
+  changes: string[]
+}
+
+export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.9.25',
+    date: '2026-04-24',
+    changes: [
+      '機台測試需要帳號登入：未選擇帳號時顯示警告橫幅且開始按鈕禁用，確保測試結果與帳號綁定',
+      '新增「我的測試紀錄」面板：可查看目前帳號的歷史測試 session，展開後顯示每台機器各步驟結果，並內嵌 CCTV 截圖縮圖（點擊放大）與音頻播放按鈕',
+      '測試結果自動儲存至 DB（machine_test_sessions 表），保留 30 天，每次測試後自動新增',
+    ],
+  },
+  {
+    version: '3.9.24',
+    date: '2026-04-26',
+    changes: [
+      'CCTV 截圖與音頻錄音改存伺服器端：測試截圖存至 server/machine-test/cctv-saves/{機台代碼}.png，錄音存至 server/machine-test/audio-saves/{機台代碼}.wav，透過 API 提供給所有使用者',
+      '測試結果表格新增預覽：CCTV 欄直接顯示縮圖，點擊放大；音頻欄顯示 🔊 按鈕，點擊直接在瀏覽器播放錄音',
+    ],
+  },
+  {
+    version: '3.9.23',
+    date: '2026-04-26',
+    changes: [
+      '音頻錄音本地存檔：每台機器音頻步驟完成後，將分析用的 WAV 錄音存一份到 C:\\Users\\user\\Desktop\\Audio-Recordings\\{機台代碼}.wav，方便事後人工聆聽確認判斷依據',
+    ],
+  },
+  {
+    version: '3.9.22',
+    date: '2026-04-24',
+    changes: [
+      'Agent 強制 headless：agent 機器執行測試時忽略主機 UI 的 headedMode 設定，始終以無頭模式跑 Playwright，避免 agent 機器跳出可見瀏覽器視窗',
+    ],
+  },
+  {
+    version: '3.9.21',
+    date: '2026-04-24',
+    changes: [
+      'Agent 安裝包修正：v3.9.18 新增 callGeminiVisionMulti 後，runner.ts 的 import 從單個變成兩個，但安裝包重寫 gemini import 的 regex 仍用舊格式，導致 agent 啟動時報 Cannot find module routes/gemini.js。修正 regex 改為匹配任意 import 內容，並在 gemini-agent.ts 中補上 callGeminiVisionMulti 實作',
+    ],
+  },
+  {
+    version: '3.9.20',
+    date: '2026-04-24',
+    changes: [
+      '機台測試：大廳 URL 每個 Worker 列新增 📋 按鈕，點擊開啟帳號池選取 Modal，直接從帳號池選取帳號填入 URL，不需切換頁面（避免測試設定資料被清空）',
+    ],
+  },
+  {
+    version: '3.9.19',
+    date: '2026-04-24',
+    changes: [
+      'CCTV OCR + 基準圖比對合併為單次 Gemini 呼叫：有基準圖時改用 callGeminiVisionMulti 一次送兩張圖（基準圖 + 當前截圖），同時取得 OCR 識別碼與鏡頭位置比對結果，避免兩次 Gemini 呼叫導致 API Key 配額耗盡',
+      'CCTV 鏡頭比對 Prompt 強化：改為逐項比較左右位置、上下位置、傾斜角度、大小比例，任一項偏差超過 10% 即判為跑位（修正先前 Gemini 誤判「位置正常」的問題）',
+      '退出步驟修正：點擊 btn_cashout 後第一個 leaveGMNtc 監聽器 10 秒逾時後進入 Exit/Confirm 流程，此時舊監聽器已清除；改為在 Exit/Confirm 點擊前重新建立監聽器（15 秒），確保確認對話框後觸發的 leaveGMNtc errcode 能被正確捕捉與判斷',
+    ],
+  },
+  {
+    version: '3.9.18',
+    date: '2026-04-24',
+    changes: [
+      'CCTV 基準圖庫：新增按機種管理基準圖功能。機台設定頁新增「📷 CCTV 基準圖庫」區塊，可上傳/更換/刪除各機種基準圖（存於 server/machine-test/cctv-refs/{機種}.png）',
+      'CCTV 測試新增鏡頭位置比對：測試時自動查找對應機種的基準圖，找到後將基準圖 + 當前截圖一起送 Gemini 比對，判斷鏡頭是否跑位；不一致時步驟判為 WARN 並記錄偏差說明',
+      '新增 callGeminiVisionMulti：Gemini Vision 多圖版本，支援一次送多張圖片',
+    ],
+  },
+  {
+    version: '3.9.17',
+    date: '2026-04-24',
+    changes: [
+      'CCTV 截圖自動複製：每次 CCTV 步驟截圖時，同步存一份到 C:\\Users\\user\\Desktop\\CCTV-Screenshots\\{機台代碼}.png，資料夾不存在時自動建立',
+    ],
+  },
+  {
+    version: '3.9.16',
+    date: '2026-04-24',
+    changes: [
+      '音頻 AI 分析優先：啟用 AI 音頻分析時，以 AI 判斷為主。AI 判定正常 → 清除 RMS 閾值觸發的問題，結果為 PASS；AI 判定有問題 → 僅保留 AI 判斷結果（清除 RMS 問題），結果為 WARN。AI 分析失敗時回退 RMS 判斷（不變）',
+    ],
+  },
+  {
+    version: '3.9.15',
+    date: '2026-04-24',
+    changes: [
+      '音頻 Lark 回寫修正：靜音判斷從 msg.includes("靜音") 改為 msg.includes("靜音（")，避免 AI 回傳「音頻非靜音」中的「靜音」被誤判為靜音問題，導致同時出現 audio silent + audio loud',
+    ],
+  },
+  {
+    version: '3.9.14',
+    date: '2026-04-24',
+    changes: [
+      '機台測試：修正「進入機台」步驟一直被判定為 WARN（未收到 enterGMNtc）的問題。根本原因：pinus 使用 route dictionary 壓縮時，WS 幀中不含 "enterGMNtc" 字串；新增 GM_EVENT_MONITOR_SCRIPT，在瀏覽器層 hook WebSocket 構造函式與 console.log，直接截取 enterGMNtc / leaveGMNtc 事件並以 console "__gm_event:" 前綴回報給 Playwright，console listener 同步更新以處理此前綴',
+    ],
+  },
+  {
+    version: '3.9.13',
+    date: '2026-04-23',
+    changes: [
+      'UAT 測試工具：完成時自動停止並更新狀態為「完成」（從 log 偵測「完成！」字樣）',
+      'UAT 測試工具：Lark TC 路徑新增「🔍 掃描」按鈕，顯示各大項 TC 名稱與子項目數量',
+      'UAT 測試工具：結果狀態列改為長駐（永遠顯示 通過/需人工/跳過/失敗，預設為 0）',
+    ],
+  },
+  {
+    version: '3.9.12',
+    date: '2026-04-23',
+    changes: [
+      'Jackpot API 根本修正：timestamp 改為 Date.now() - 1000（減 1 秒）。server 端會驗證 timestamp 不能太「新」，使用當下時間會被 reject（error 101）；減 1 秒後全程穩定，5 次 15s 輪詢全數成功',
+    ],
+  },
+  {
+    version: '3.9.11',
+    date: '2026-04-23',
+    changes: [
+      'Jackpot 輪詢改回 15 秒；前端說明文字同步更新',
+    ],
+  },
+  {
+    version: '3.9.10',
+    date: '2026-04-23',
+    changes: [
+      'Jackpot 輪詢修正：移除 OSM 登入 token 機制，改用 Cloudflare __cf_bm cookie jar。每次回應自動擷取 Set-Cookie 中的 __cf_bm，下次請求帶回；首次 error 101 後立即以新 cookie 重試一次，解決 Cloudflare bot 驗證問題',
+    ],
+  },
+  {
+    version: '3.9.9',
+    date: '2026-04-23',
+    changes: [
+      'Jackpot 輪詢修正：API 需要帶 OSM token header，不能帶 Origin header（帶了反而 error 101）；現在輪詢前自動以 OSM_CHANNEL_CP_USERNAME/PASSWORD 登入取 token，token 過期後自動重新登入',
+    ],
+  },
+  {
+    version: '3.9.8',
+    date: '2026-04-23',
+    changes: [
+      'Jackpot 後端輪詢由 15s 改為 60s：center-image-recon.osmplay.com 有 Cloudflare 保護，每 15s 連打會觸發 IP rate limit（error 101 参数错误），改為 60s 避免封鎖',
+      'Jackpot 狀態列新增「最後嘗試」時間，與「上次成功」分開顯示，方便診斷 API 返回空資料的情況',
+    ],
+  },
+  {
+    version: '3.9.7',
+    date: '2026-04-23',
+    changes: [
+      'Jackpot 輪詢修正：fetch 無 timeout 導致 server 掛住時 setInterval 持續疊加 hung call，lastUpdated 永遠不更新。改為 10 秒 AbortController timeout + jpPolling flag 防止重疊呼叫；Lark webhook 也加 8 秒 timeout',
+    ],
+  },
+  {
+    version: '3.9.6',
+    date: '2026-04-19',
+    changes: [
+      'Jackpot 監控改為純後端驅動：Server 啟動後立即執行 15 秒輪詢，不再依賴前端頁面是否開啟',
+      '異常偵測（位數異常/超出閾值/暴增50%）與 Lark 告警邏輯全部移至後端，前端僅做狀態顯示',
+      '前端每 5 秒輪詢 /api/osm/jackpot/state 取得最新獎池資料與異常日誌',
+      'Channel ID 變更後 800ms debounce → POST /api/osm/jackpot/channel，後端立即重置並以新 Channel 拉取',
+    ],
+  },
+  {
+    version: '3.9.5',
+    date: '2026-04-20',
+    changes: [
+      'Lark 回寫音頻問題描述修正：修正 msg.includes("靜音") 誤匹配 "不靜音" 的 bug（會錯誤寫入 audio silent）；改為獨立條件判斷（不再 else-if），音量過大 + AI 爆音可同時出現在 Lark 欄位',
+    ],
+  },
+  {
+    version: '3.9.4',
+    date: '2026-04-20',
+    changes: [
+      '退出重試邏輯修正：舊版只在 leaveGMNtc errcode=10002 時才觸發 checkOsm 重試；Jackpot 觸發時遊戲可能沉默拒絕退出（無 leaveGMNtc 回應），導致直接 FAIL 不重試。現改為只要退出失敗就檢查 OSMWatcher，有特殊遊戲狀態則等待結束後重試，最多 3 次',
+    ],
+  },
+  {
+    version: '3.9.3',
+    date: '2026-04-20',
+    changes: [
+      'enterGMNtc / leaveGMNtc 偵測修正：同時支援兩種 pinus push 格式 — {"event":"enterGMNtc",...} 及 {"route":"enterGMNtc","body":{...}}，舊解析器只認第一種，使用新格式的機台會誤判「未收到」',
+    ],
+  },
+  {
+    version: '3.9.2',
+    date: '2026-04-19',
+    changes: [
+      '音頻錄製時機修正：改為在 Spin 點擊後 300ms 同步啟動 5 秒錄音（捕捉轉軸動畫中的真實遊戲音效），不再等 Spin 結束後才錄製閒置狀態',
+      '音頻步驟直接使用 Spin 期間錄製的資料；若 Spin 步驟未啟用才補錄一次閒置音頻',
+      'AI 音頻分析的 WAV 現在也是 Spin 期間捕捉的錄音，分析結果更準確',
+    ],
+  },
+  {
+    version: '3.9.1',
+    date: '2026-04-19',
+    changes: [
+      'Jackpot 監控改為自動常駐：頁面開啟即自動輪詢，移除手動開始/停止按鈕',
+      'Channel ID 可邊跑邊改：修改後自動重置前次記錄並立即以新 Channel 重新拉取',
+      '告警設定儲存後立即套用新閾值：清除已通知記錄，下一輪（15s）用新參數重新偵測',
+    ],
+  },
+  {
+    version: '3.9.0',
+    date: '2026-04-19',
+    changes: [
+      '分散式 Work-Stealing 架構：分散式 Agent 改為動態搶工模式，Agent 每次完成一台機器後主動向 Server 領取下一台，先跑完的電腦自動接手更多任務，充分利用多機器並行效能',
+      '新增 claim_job / job_done / session_join / job_assigned / no_more_jobs WebSocket 訊息協議',
+      '新增 /api/machine-test/queue-status API：查詢目前工作佇列的機台分配狀態',
+      'MachineTestPage 新增「分散式佇列狀態」面板：即時顯示每台機器的狀態（等待/執行中/完成/失敗）、執行 Agent 及耗時',
+      '移除舊式 chunk-split 分發邏輯，Server 不再預先平均分配機台給 Agent',
+    ],
+  },
+  {
+    version: '3.8.1',
+    date: '2026-04-19',
+    changes: [
+      'Gemini 改為 per-key Bottleneck 限速器：相同 API Key 的請求串行排隊，不同 Key 可平行執行，避免效能衝突',
+      'LarkPage 狀態恢復：AI 生成 TestCase 任務的 requestId 儲存至 localStorage，切換頁面或重整後自動重連 SSE 恢復進度',
+      'JiraPage 狀態恢復：批次評論任務 requestId 儲存至 localStorage，重整後自動輪詢結果並回復到 Step 5 顯示',
+      'MachineTestPage 狀態恢復：頁面載入時自動查詢 /api/machine-test/status，若有進行中的測試則自動重連 WebSocket',
+      '機台測試狀態 API 新增 sessionId 欄位，供前端恢復後可正常執行停止操作',
+    ],
+  },
+  {
+    version: '3.8.0',
+    date: '2026-04-19',
+    changes: [
+      'OSMWatcher 連續監控：進入機台後每個步驟（推流/Spin/音頻/iDeck/觸屏/CCTV/退出）前均檢查狀態，偵測到特殊遊戲時先執行指定動作一次（spin/takewin/touchscreen），再持續 Spin 直到 status=0',
+      'Spin 測試改為 3 次點擊：每次等待動畫完成後再點下一次，最後比對前後餘額差異',
+      '退出重試：leaveGMNtc errcode=10002 時自動檢查 OSMWatcher，若仍在特殊遊戲中等待恢復後重試，最多 3 次',
+      'AI 音頻分析（可選）：VB-Cable 錄音上傳至 Gemini，判斷靜音/音量/爆音/雜訊',
+      '機台測試新增日誌 API 環境選擇（QAT / PROD）',
+      '機台設定檔新增 iDeck XPath 列表、兩段式進入觸屏（entryTouchPoints2）',
+      '新增 Headed 模式（瀏覽器視窗顯示在螢幕上）',
+      '新增操作流程面板（展示步驟順序與設定檔資訊）',
+      '修正 CCTV 步驟名稱不一致導致結果表格顯示「—」',
+      '修正 enterGMNtc 在觸屏進入階段偶發漏接',
+      'Lark 回寫補上 CCTV/Spin/觸屏各類異常狀況描述',
+    ],
+  },
+  {
+    version: '3.7.31',
+    date: '2026-04-17',
+    changes: [
+      'TestCase 生成支援多份規格書：可新增多筆來源（Lark Wiki / PDF / Google 文檔，可混合），後端逐份讀取後合併內容送 Gemini 整合生成，避免重複案例',
+    ],
+  },
+  {
+    version: '3.7.30',
+    date: '2026-04-16',
+    changes: [
+      'Jackpot 告警設定：合併閾值範圍（min/max）與 Lark 告警開關到同一介面，每個等級一行，包含最小值、最大值輸入框 + 發 Lark 勾選框',
+    ],
+  },
+  {
+    version: '3.7.29',
+    date: '2026-04-16',
+    changes: [
+      'Jackpot 告警設定重設計：改用 gameid 欄位做 key，設定介面改為每遊戲×每等級的勾選開關，未勾選的等級異常仍在頁面標紅但不推 Lark；表格欄位顯示 🔕 提示告警已關閉',
+    ],
+  },
+  {
+    version: '3.7.28',
+    date: '2026-04-16',
+    changes: [
+      'Jackpot 監控：新增管理員閾值設定（⚙️ 閾值設定按鈕），各遊戲可獨立設定每個獎池等級的 min/max 合理範圍，儲存至後端 DB，設定後立即生效',
+    ],
+  },
+  {
+    version: '3.7.27',
+    date: '2026-04-16',
+    changes: [
+      'Jackpot 監控獨立為 OSM Tools 子頁面：從 OSM 版號同步頁抽出，異常時自動偵測（位數異常 ±2 位、數值超出合理範圍、單次暴增 >50%）並推送 Lark 告警',
+    ],
+  },
+  {
+    version: '3.7.26',
+    date: '2026-04-16',
+    changes: [
+      'OSM Tools 新增「Jackpot 獎池監控」：背景每 15 秒自動拉取 center-image-recon API，顯示所有遊戲的 Grand/Major/Minor/Mini/Fortunate 獎池金額，支援自訂 Channel ID',
+    ],
+  },
+  {
+    version: '3.7.25',
+    date: '2026-04-15',
+    changes: [
+      '修正服務重啟時 Port 3000 被佔用的問題：加入 SIGTERM/SIGINT graceful shutdown，確保 port 快速釋放',
+      'tsx --watch 加入 --ignore 排除 DB 檔案，避免 SQLite 寫入觸發不必要的服務重啟',
+    ],
+  },
+  {
+    version: '3.7.24',
+    date: '2026-04-15',
+    changes: [
+      '修正 TestCase 生成：Gemini 有時在 JSON 字串值內輸出真實換行字元導致解析失敗，加入自動修復後重試',
+    ],
+  },
+  {
+    version: '3.7.23',
+    date: '2026-04-15',
+    changes: [
+      'QA 開單 Step 5：新增即時進度條，顯示「處理中 X/Y 筆」及當前 Issue Key，讓使用者感知後台執行狀態',
+    ],
+  },
+  {
+    version: '3.7.22',
+    date: '2026-04-15',
+    changes: [
+      'QA 開單 Step 5 添加評論：改為 SSE 背景作業，解決批次執行中途斷線問題',
+    ],
+  },
+  {
+    version: '3.7.21',
+    date: '2026-04-15',
+    changes: [
+      'AI 模型設定：Gemini Key 表格移除「今日用量」和「總呼叫」欄，只保留狀態和上次使用',
+      '修正刪除按鈕文字斷行問題',
+    ],
+  },
+  {
+    version: '3.7.20',
+    date: '2026-04-15',
+    changes: [
+      'OSM 版本追蹤：統一所有區塊為 card 樣式（白底 + 邊框 + 圓角），間距一致',
+      '設定視窗 / 更新日誌：修正標題縮排，增加 header padding 不再靠邊',
+    ],
+  },
+  {
+    version: '3.7.19',
+    date: '2026-04-15',
+    changes: [
+      '修正 Gemini Key 刪除後重啟服務會重新出現的問題（gemini-keys.json 遷移後改名，不再重複 import）',
+      '上方按鈕改名為「AI 模型和 Prompt 設定」',
+    ],
+  },
+  {
+    version: '3.7.18',
+    date: '2026-04-15',
+    changes: [
+      '新增 OpenAI API 整合，可在 AI 模型設定 → OpenAI Key 頁填入 Key，無需修改 .env，儲存後 Model Selector 自動出現 Codex Mini / GPT-5.3 / GPT-4o',
+    ],
+  },
+  {
+    version: '3.7.17',
+    date: '2026-04-15',
+    changes: [
+      'LarkPage：改用 SSE 架構，後端背景執行完成後主動推送結果，前端只需等待，不做任何輪詢',
+      'Ollama：修正 gemma4 等大模型因 headers timeout 導致請求失敗，改用 undici Agent 設定 10 分鐘 timeout',
+    ],
+  },
+  {
+    version: '3.7.8',
+    date: '2026-04-11',
+    changes: [
+      '新增 Agent 安裝包下載：/api/machine-test/agent/install.bat 自動下載原始碼、npm install、playwright install',
+      '新增 gemini-agent.ts：Agent 端獨立 Gemini Vision 輔助，不依賴 Express/DB',
+      '機台測試頁新增「分散式 Agent 安裝指南」區塊（含步驟說明、下載按鈕、VB-Cable 注意事項）',
+      'package.json 明確加入 ws 和 @types/ws 依賴',
+    ],
+  },
+  {
+    version: '3.7.7',
+    date: '2026-04-10',
+    changes: [
+      '分散式測試架構：新增 Agent 機制，多台電腦各跑一批機台，任務自動分配、進度廣播給所有觀看者',
+      '新增 agent-runner.ts：Worker 電腦執行 CENTRAL_URL=ws://... node dist/server/agent-runner.js 即可加入 Agent 池',
+      '測試頁新增 Agent 狀態列（已連線/執行中/待機）與「👁 觀看」按鈕（不發起測試，僅接收廣播進度）',
+      'WebSocket 廣播頻道 /ws/machine-test/events：所有觀看者共用，新加入自動補播歷史進度',
+    ],
+  },
+  {
+    version: '3.7.6',
+    date: '2026-04-10',
+    changes: [
+      '機台測試連線改用 WebSocket（取代 SSE）：雙向保持連線、原生協議層 ping/pong，多裝置監控不再斷線',
+    ],
+  },
+  {
+    version: '3.7.5',
+    date: '2026-04-10',
+    changes: [
+      '機台設定檔：觸屏設定整合成一個區塊（touchPoints / 進入前第一/二階段），不再依賴 Bonus 啟動方式條件顯示',
+      '音頻靜音判斷改用 Crest Factor 輔助：RMS < -60 但有動態（Crest ≥ 6）→ 改判為「音量偏小」而非靜音',
+      '修復 Zod v4 z.record 單參數問題（bet-random、actions、manualTestCases）',
+      'SSE 斷線自動重連（最多 8 次）：從其他裝置監控時不再因網路波動誤判測試結束',
+    ],
+  },
+  {
+    version: '3.7.4',
+    date: '2026-04-10',
+    changes: [
+      '新增 Test 調適模式：開啟後可填入固定渠道號，iDeck/觸屏測試的盒子日誌 API gmid 將使用此值，方便跨機台調試',
+    ],
+  },
+  {
+    version: '3.7.3',
+    date: '2026-04-10',
+    changes: [
+      'CCTV OCR 新增時間戳記擷取（time 欄位）及異常文字偵測（unexpected），出現異常文字時判定 warn',
+    ],
+  },
+  {
+    version: '3.7.2',
+    date: '2026-04-10',
+    changes: [
+      'CCTV 測試新增畫面模糊偵測：Gemini Vision 同時回傳識別碼與 blur 狀態（clear/blurry），模糊時判定 warn',
+      'Playwright viewport 改為 428×739，正確呈現手機版遊戲版面（修復 CCTV 截圖抓到遊戲 UI 的問題）',
+    ],
+  },
+  {
+    version: '3.7.1',
+    date: '2026-04-10',
+    changes: [
+      '新增 CCTV 測試步驟（stepCctv）：點擊 .header_btn_item 切換 CCTV，驗證 video 播放狀態，截圖後用 Gemini Vision OCR 讀取機台號碼',
+      'gemini.ts 新增 callGeminiVision 函數，支援圖片+文字多模態請求',
+    ],
+  },
+  {
+    version: '3.7.0',
+    date: '2026-04-10',
+    changes: [
+      '新增觸屏測試步驟（stepTouchscreen）：點擊 profile 的 touchPoints 點位，API 確認 success_json is_touch=true，同樣使用基準線比對法',
+      'UI：Phase 2 卡片更名為「iDeck / 觸屏測試」，顯示兩個步驟的說明',
+    ],
+  },
+  {
+    version: '3.6.9',
+    date: '2026-04-10',
+    changes: [
+      'iDeck 步驟：改用基準線比對法（點擊前先記錄現有 entry，點完所有按鈕等 API 同步後計算新增筆數），解決本機時鐘與 API 時間差約 30 秒的問題',
+      'iDeck 步驟：按鈕點擊間隔改為 5 秒',
+    ],
+  },
+  {
+    version: '3.6.8',
+    date: '2026-04-09',
+    changes: [
+      'iDeck 步驟：優先使用「隨機下注」XPath 列表（bet_random.json），逐一點擊所有按鈕（非隨機），不再需要 ideckRowClass',
+    ],
+  },
+  {
+    version: '3.6.7',
+    date: '2026-04-09',
+    changes: [
+      'iDeck 步驟：每次按鈕點擊後同時等待 pinus WS 回應（cmd + error）並驗證，結果顯示 ✓/✗WS(cmd)',
+    ],
+  },
+  {
+    version: '3.6.6',
+    date: '2026-04-09',
+    changes: [
+      '機台測試：攔截 pinus WS 幀偵測 enterGMNtc / leaveGMNtc 錯誤，將 errcodedes 寫入步驟結果（進而回寫 Lark）',
+      '音頻測試：修正 sampleSpinAudio catch block 未還原 media.muted，避免誤判 PASS',
+      '機台測試 log 時間戳改為 UTC+8（Asia/Taipei）',
+      '音頻測試：nircmd 路徑改為穩定位置 AppData/Local/nircmd/',
+    ],
+  },
+  {
+    version: '3.6.5',
+    date: '2026-04-09',
+    changes: [
+      '機台類型卡片：有差異時可展開查看缺少的 gmid 清單（以後台 online 機台為基準）',
+      '後端 frontend-machines-auto：回傳完整 gmids[] 陣列供前端比對',
+    ],
+  },
+  {
+    version: '3.6.4',
+    date: '2026-04-08',
+    changes: [
+      'OSM 機台類型統計：改為只計算 online 機台數量（排除 offline）',
+      '移除前端擷取腳本功能（複製腳本、push polling）',
+      '版面整理：移除腳本提示區塊，簡化前端機台數輸入區',
+    ],
+  },
+  {
+    version: '3.6.3',
+    date: '2026-04-08',
+    changes: [
+      '前端機台抓取：改用 Playwright WebSocket 幀攔截（hall.hallHandler.getAllGMListReq），移除 gameid 觸發 server push，latin1 解碼大型幀',
+      '修正推送腳本與瀏覽器端 pinus 請求路由：lobby.lobbyHandler → hall.hallHandler',
+    ],
+  },
+  {
+    version: '3.6.2',
+    date: '2026-04-08',
+    changes: [
+      'OSM 版本同步頁：新增機台類型數量統計卡片，對比 OSM 後台數量與前端實際在線機台數',
+      '新增 pinus WebSocket 客戶端（server/lib/pinus-client.ts），透過 getAllGMListReq 取得前端機台清單',
+      '新增 POST /api/osm/frontend-machines 端點，解析遊戲 URL 取得 gate 位址並連線查詢',
+      'Gemini：修正 503 過載時未自動切換下一個 key 的問題',
+      'Gemini：修正 probe 呼叫污染 calls_today 計數器的問題',
+      'Gemini：調整 rate limiter 為 maxConcurrent:1 避免多 key 同時觸發 RPM 上限',
+      'Gemini 設定：新增 last_used_at 顯示欄位，⛔ 配額耗盡標記移至上次使用欄位下方',
+      'OSM serverCfg.js：改為解析 HTML 頁面尋找正確路徑（修正 PC 版 /config/serverCfg.js 無法找到的問題）',
+    ],
+  },
+  {
+    version: '3.6.1',
+    date: '2026-04-07',
+    changes: [
+      '新增「🔍 後台對帳」分頁：設定後台 API token/channelId，選時間範圍執行對帳',
+      'Agent 每 20 次 Spin 自動從 window.pinus 取得前端戰績上傳至 server',
+      '對帳比對：前端紀錄 vs 後台 gameRecordList，標記 MATCH/MISSING，偵測大獎/連發異常',
+      '支援自動重登（token 失效時自動以帳密換新 token），歷史對帳報告可回顧',
+    ],
+  },
+  {
+    version: '3.6.0',
+    date: '2026-04-06',
+    changes: [
+      'AutoSpin 新增「📊 歷史戰績」分頁：每 20 次 Spin 記錄餘額快照，追蹤 Bonus/低餘額/錯誤事件',
+      '異常偵測：餘額相比本次開局下降超過 30% 時自動標記黃色警告',
+      '戰績紀錄可依機台類型篩選，支援清除',
+    ],
+  },
+  {
+    version: '3.5.9',
+    date: '2026-04-06',
+    changes: [
+      'AutoSpin Agent 新增 Playwright 自動錄影（勾選「啟用錄影」即生效，存到 recordings/ 目錄）',
+      'AutoSpin Agent 新增 OpenCV 模板比對（需 pip install opencv-python），偵測 Bonus/Error 狀態',
+      'AutoSpin Agent 新增 Lark 推播通知（機台設定填 Webhook URL，低餘額/頁面錯誤/模板匹配時自動推播）',
+    ],
+  },
+  {
+    version: '3.5.8',
+    date: '2026-04-06',
+    changes: [
+      'AutoSpin Agent 新增暫停/繼續功能（⏸ 按鈕，3 秒內生效）',
+      'AutoSpin Agent 新增 404/錯誤頁面偵測，自動 reload 重進遊戲',
+      'AutoSpin Agent 新增低餘額自動退出重進（機台設定可設閾值）',
+    ],
+  },
+  {
+    version: '3.5.7',
+    date: '2026-04-06',
+    changes: [
+      'AutoSpin 新增「隨機下注」設定頁：管理各機台的 bet_random.json XPath 列表，支援新增/編輯/刪除',
+    ],
+  },
+  {
+    version: '3.5.6',
+    date: '2026-04-06',
+    changes: [
+      'AutoSpin 執行監控新增即時 Spin 間隔調整（滑桿 0.1~10s + 套用按鈕），覆蓋所有機台，3 秒內生效',
+    ],
+  },
+  {
+    version: '3.5.5',
+    date: '2026-04-06',
+    changes: [
+      'AutoSpin：新增頻率功能（Spin 間隔設定，每台機台可獨立設定秒數）',
+      'AutoSpin：新增隨機下注（BetRandom，讀取 bet_random.json，Spin 後 30% 機率點擊）',
+      'AutoSpin：新增隨機離開（RandomExit，設定機率與最少 Spin 次數，觸發後重新進入遊戲）',
+      'AutoSpin Agent：popup 廣告自動關閉、scroll into view 再點擊遊戲卡片',
+    ],
+  },
+  {
+    version: '3.5.4',
+    date: '2026-04-06',
+    changes: [
+      'AutoSpin 機台設定改為個人化儲存：設定綁定登入帳號，各人設定互不干擾',
+      'AutoSpin 本機端啟動時自動帶入帳號資訊，Agent 只載入當前使用者的設定',
+      'AutoSpin 頁面頂部顯示目前帳號，未選擇帳號時提示警告',
+    ],
+  },
+  {
+    version: '3.5.3',
+    date: '2026-04-06',
+    changes: [
+      'URL 帳號池：改為「複製使用 URL」機制，產生中轉連結（/api/url-pool/go/:account），貼到 AutoSpin / 機台測試 Game URL 即可',
+      'URL 帳號池：中轉連結開啟時自動認領帳號，無需手動點使用',
+      'URL 帳號池：認領自動過期 8 小時，每 30 分鐘清一次過期資料',
+    ],
+  },
+  {
+    version: '3.5.2',
+    date: '2026-04-05',
+    changes: [
+      'OSM Tools 新增「URL 帳號池」功能：190+ 組 Token URL 集中管理，即時查看使用狀態（SSE）',
+      '帳號池支援使用 / 釋放按鈕，即時通知其他使用者（不可搶佔），支援搜尋與篩選',
+      '帳號池 URL 支援本地編輯（無需上傳）',
+      'App 頂部新增全域帳號選擇器，各功能頁面共用同一 Jira 帳號狀態',
+    ],
+  },
+  {
+    version: '3.5.1',
+    date: '2026-04-04',
+    changes: [
+      'AutoSpin 執行監控新增「伺服器端 / 本機端（Agent）」模式切換',
+      '本機端模式：提供「下載安裝包」與「啟動（本機）」按鈕，透過 toppath-agent:// URI 啟動本地 Playwright Agent',
+      'Agent Log 與伺服器 Log 分開顯示，截圖欄位依模式切換對應來源',
+    ],
+  },
+  {
+    version: '3.5.0',
+    date: '2026-04-04',
+    changes: [
+      'OSM Tools 新增「AutoSpin」功能：整合 project/AutoSpin.py，透過 Web UI 管理機台設定並監控執行',
+      'AutoSpin 機台設定：新增 / 編輯 / 刪除各機台的 GameURL、RTMP、模板類型等設定，存入 DB（autospin_configs）',
+      'AutoSpin 模板管理：直接上傳 / 刪除 project/templates/ 中的 OpenCV 比對模板圖片',
+      'AutoSpin 執行監控：啟動 / 停止 Python 程序，即時 Log 串流（SSE），截圖自動更新顯示',
+      '啟動時自動從 DB 生成 game_config.json 寫入 project 目錄，確保設定同步',
+    ],
+  },
+  {
+    version: '3.4.0',
+    date: '2026-04-04',
+    changes: [
+      'OSM Tools 新增「Config 比對」功能：貼上線上 URL，自動 fetch serverCfg.js 並與儲存的模板深層比對',
+      'Config 比對：支援多模板管理（存入 DB），可依名稱 / 版本識別',
+      'Config 比對：深層遞迴比對，顯示值不一致、線上缺少、線上多出三種差異類型，支援篩選',
+      'Config 比對：可選 Gemini AI 分析差異是否影響功能並給出建議',
+      'Gemini 設定：每次開啟自動 probe 所有 Key，即時顯示可用狀態',
+      'Gemini 設定：新增每日用量進度條（綠 / 橘 / 紅）與 Round-robin 下一個 Key 標示',
+    ],
+  },
+  {
+    version: '3.3.0',
+    date: '2026-04-02',
+    changes: [
+      'Game Show 整合：新增四個子工具頁面（PDF TestCase 生成、圖片比對、500x 機率統計、Log 攔截工具）',
+      'PDF TestCase：支援上傳 PDF / DOCX 規格書，Gemini AI 自動生成測試案例，支援差異比對模式與 CSV 匯出',
+      '圖片比對：以 Playwright 攔截兩個遊戲 URL 的所有載入圖片，自動配對並顯示相似度與大小差異',
+      '500x 機率統計：Playwright 攔截 Bonus V2 遊戲 WebSocket，即時統計各骰型分布',
+      'Log 攔截工具：提供可注入瀏覽器 Console 的 XHR 攔截腳本，解析雙層 JSON 並顯示浮動面板',
+      '導覽重構：改為兩層式分組導覽（群組列 + 子分頁列），新增 Game Show 群組',
+      'Jira 批量開單：受託人成員欄位新增搜尋篩選',
+      'Jira 批次評論：支援 Google Drive 連結附件（圖片自動上傳，影片寫入評論內文）',
+    ],
+  },
+  {
+    version: '3.2.0',
+    date: '2026-04-01',
+    changes: [
+      'QA 批次評論支援附件上傳：Step 5 新增「附件欄位」選擇器，從 Lark Drive 下載檔案並自動上傳至 Jira Issue 附件',
+      'PM 批次開單：修正 parentKeyMap 以純標題（title）為 key，解決「選擇主單並關聯」欄位無法正確關聯父單的問題',
+      'PM 批次開單：單號連結改寫為 URL 格式（顯示文字為 Issue Key，超連結指向完整 Jira URL）',
+      'PM 批次開單：新增難易度（customfield_10433）寫入，支援 簡單/低/中/高/困難',
+      'PM 模式：Step 2 確認表新增「難易度」欄位顯示',
+      'PM 模式：移除 Step 1 帳號選擇（改由頂部帳號列統一管理），流程縮短為 3 步',
+      '帳號權限管理：新增 QA/PM 角色控制，管理員可編輯角色（支援雙角色並存），一般新增帳號僅可選單一角色',
+      '帳號彈窗版面優化：操作按鈕整合至帳號卡片右側，修正溢出問題',
+      '角色同步修正：管理員修改當前帳號角色後，JiraPage 立即同步 currentAccount.role',
+    ],
+  },
+  {
+    version: '3.1.0',
+    date: '2026-04-01',
+    changes: [
+      '後端重構：server/index.ts 拆分為獨立路由模組（routes/jira.ts、gemini.ts、osm.ts、integrations.ts、machine-test.ts）',
+      '新增 server/shared.ts 統一管理 DB、認證、工具函式、Zod Schema、Google 服務帳號認證',
+      '錯誤處理改善：Error handler 新增 console.error 輸出堆疊資訊',
+    ],
+  },
+  {
+    version: '3.0.0',
+    date: '2026-03-31',
+    changes: [
+      'OSM 頁面新增 Toppath 元件版本區塊（GM / API / GW / TG-API）',
+      '後端新增 GET /api/toppath/version-history，從靜態 JSON 接口取得版本',
+      '告警系統新增 Toppath 元件版本未達標偵測',
+      '環境變數 TOPPATH_VERSION_BASE_URL 可切換 QAT / PROD 接口',
+    ],
+  },
+  {
+    version: '2.9.9',
+    date: '2026-03-31',
+    changes: [
+      'PM 模式：修正多選欄位（遊戲/組件）讀取失敗的問題（Lark API 回傳純字串陣列）',
+      'PM 模式：自動偵測「端點 = 主單」的列，優先建立主單並將其餘列自動連結為子單',
+      '主單列在 Step 3 預覽表格中以紫色背景 + 主單徽章標示',
+    ],
+  },
+  {
+    version: '2.9.8',
+    date: '2026-03-31',
+    changes: [
+      'PM 模式：新增 Lark Bitable 批次開單功能，貼上表格 URL 自動讀取待開單列',
+      '標題自動組合 [端點][平台][遊戲][組件] 格式',
+      '受託人/RD負責人從 Lark User 欄位自動對應 Jira accountId（email 比對）',
+      'JIRA專案欄位直接決定每列開到哪個專案，每列可不同',
+      '主單連結：填入主單號後，勾選「選擇主單並關聯」的列自動設為子單（支援 Epic + Sub-task / Parent-child）',
+      '開單完成後自動將 Jira Key 回填至 Bitable JIRA索引鍵欄位',
+    ],
+  },
+  {
+    version: '2.9.7',
+    date: '2026-03-31',
+    changes: [
+      'Jira 帳號新增 PIN 鎖定：每個帳號可設定 PIN，使用時需輸入才能切換，防止他人誤用',
+      '已有 PIN 的帳號可輸入舊 PIN 修改或留空新 PIN 移除鎖定',
+      '已存在帳號預設無 PIN（向下相容），帳號列表顯示 🔒 圖示區分',
+    ],
+  },
+  {
+    version: '2.9.6',
+    date: '2026-03-31',
+    changes: [
+      'Jira 開單新增動態專案與 Issue 類型選擇：Step 1 從 Jira API 動態拉取帳號有權限的專案清單，選定專案後自動載入對應 Issue 類型，不再寫死 .env',
+    ],
+  },
+  {
+    version: '2.9.5',
+    date: '2026-03-30',
+    changes: [
+      'Lark Bitable 欄位結構說明頁更新：新增 Jira 整合格式範例，與標準格式並排顯示',
+    ],
+  },
+  {
+    version: '2.9.4',
+    date: '2026-03-30',
+    changes: [
+      'Lark TestCase 生成新增「整合 Jira 單號」功能：可選填 Jira 單號，AI 同時參考 Jira Issues 與規格書生成 TestCase',
+      '新增「TestCase 生成（Jira 整合版）」Prompt 模板，輸出含 test_type / category_type / function_module / jira_reference 等欄位',
+      'Jira 整合格式自動建立新 Bitable，欄位結構：測試標題 / 功能模組 / 測試類型 / 類型 / 預期結果 / 來源依據 / JIRA單號 / 類型判定依據',
+      '同時支援 Spec Only / Jira Only / Spec + Jira 三種情境，AI 自動判定',
+    ],
+  },
+  {
+    version: '2.9.3',
+    date: '2026-03-30',
+    changes: [
+      'Jira 頁新增 QA / PM 模式切換（頁面頂部），帳號選擇共用',
+      '帳號新增 role 欄位（QA / PM），帳號清單顯示角色徽章，新增帳號時可選角色',
+    ],
+  },
+  {
+    version: '2.9.1',
+    date: '2026-03-30',
+    changes: [
+      'Gemini 設定移至 Header 全域按鈕（⚙️ Gemini），任何頁面皆可開啟，不再分散在 Jira / Lark 頁面內',
+    ],
+  },
+  {
+    version: '2.9.0',
+    date: '2026-03-30',
+    changes: [
+      '修正 Gemini API Key 輪替邏輯：stored keys 與 env key 現在同時加入輪替清單，不再互斥；stored keys 用盡後自動 fallback 到 env key',
+    ],
+  },
+  {
+    version: '2.8.9',
+    date: '2026-03-30',
+    changes: [
+      '圖片刪除驗證：改為虛擬瀏覽器模式 — Playwright headless 在 server 運行，每 1.5s 截圖顯示在 Toppath UI，使用者可直接點擊畫面操作遊戲（滑鼠點擊/滾輪轉發給 Playwright），任何裝置皆可使用，完成後取得比對結果',
+    ],
+  },
+  {
+    version: '2.8.4',
+    date: '2026-03-29',
+    changes: [
+      '圖片刪除驗證：headless 背景 session 模式（已更新為可視模式）',
+    ],
+  },
+  {
+    version: '2.8.3',
+    date: '2026-03-29',
+    changes: [
+      '圖片刪除驗證：改為非無頭啟動器模式（已廢棄，遠端無法使用）',
+    ],
+  },
+  {
+    version: '2.8.2',
+    date: '2026-03-29',
+    changes: [
+      '圖片刪除驗證：新增截圖 AI 識別功能 — 貼上或上傳 git diff 截圖，Gemini Vision 自動識別所有 deleted 路徑並填入清單，支援 Ctrl+V 直接貼上截圖',
+    ],
+  },
+  {
+    version: '2.8.1',
+    date: '2026-03-29',
+    changes: [
+      '圖片刪除驗證：新增「貼上 git diff 自動解析」功能，支援 git diff --name-status / git status / GUI 客戶端格式，自動抽取圖片路徑填入清單，不需手動輸入',
+    ],
+  },
+  {
+    version: '2.8.0',
+    date: '2026-03-29',
+    changes: [
+      '新增「圖片刪除驗證」功能（I 頁）：貼上已刪除圖片路徑清單 + 前端 URL，Playwright 自動開啟頁面攔截請求，回報哪些圖片仍在載入（❌）/ 已確認刪除（✅）',
+    ],
+  },
+  {
+    version: '2.7.9',
+    date: '2026-03-28',
+    changes: [
+      '修正 ImageRecon 歷史紀錄：status 根據 currentVersion vs Lark 目標版本重新比對（Match/Mismatch），符合/不符台數也一併重新計算',
+    ],
+  },
+  {
+    version: '2.7.8',
+    date: '2026-03-28',
+    changes: [
+      '移除 ImageRecon 歷史紀錄中的 reportTargetVersion 欄位，只保留 Lark Sheet 設定的目標版本',
+    ],
+  },
+  {
+    version: '2.7.7',
+    date: '2026-03-28',
+    changes: [
+      '修正 ImageRecon 歷史紀錄：records[] 每一筆的 targetVersion 也一併替換為 Lark Sheet 設定的目標版本',
+    ],
+  },
+  {
+    version: '2.7.6',
+    date: '2026-03-28',
+    changes: [
+      'ImageRecon 週報歷史紀錄的目標版本改為優先使用 Lark Sheet 設定的目標版本，與頁面比對邏輯一致，週報本身的版本保留為 reportTargetVersion',
+    ],
+  },
+  {
+    version: '2.7.5',
+    date: '2026-03-28',
+    changes: [
+      '歷史紀錄頁新增分頁功能：每頁顯示 10 筆，超過時顯示頁碼列，切換篩選條件時自動回到第 1 頁',
+    ],
+  },
+  {
+    version: '2.7.4',
+    date: '2026-03-28',
+    changes: [
+      'Bonus 啟動方式選「點擊觸屏座標」時，未填任何座標點位即顯示紅色警示並擋下儲存',
+    ],
+  },
+  {
+    version: '2.7.3',
+    date: '2026-03-28',
+    changes: [
+      '觸屏座標輸入格式驗證：輸入非「數字,數字」格式時即時顯示紅框提示，儲存時也會擋下並提示錯誤座標',
+      '適用於 Bonus 觸屏、進入觸屏 S1/S2 三個輸入區',
+    ],
+  },
+  {
+    version: '2.7.2',
+    date: '2026-03-28',
+    changes: [
+      '機台設定檔：新增機型時若代碼已存在，跳出提示窗告知並擋下儲存，防止誤覆蓋現有設定',
+    ],
+  },
+  {
+    version: '2.7.1',
+    date: '2026-03-28',
+    changes: [
+      '機台設定檔儲存後自動記錄到歷史紀錄（機台測試類別），包含機型、Bonus 啟動方式、進入觸屏設定',
+    ],
+  },
+  {
+    version: '2.7.0',
+    date: '2026-03-28',
+    changes: [
+      '機台設定檔新增兩階段進入觸屏設定：第一階段選擇 DENOM、第二階段 YES/NO 確認',
+      '設定列表新增「進入觸屏」欄位，直接顯示已設定的 S1/S2 點位，方便後續編輯',
+      'runner.ts 執行順序：進入機台 → Stage1 觸屏 → Stage2 觸屏 → 偵測遊戲內',
+    ],
+  },
+  {
+    version: '2.6.9',
+    date: '2026-03-28',
+    changes: [
+      '機台測試改為每台完成時立即回寫 Lark Sheet，不再等全部跑完再批次寫入，避免漏寫或錯亂',
+      '狀態列即時顯示目前回寫進度（回寫 N135...→ ✅ 已回寫 N 筆）',
+    ],
+  },
+  {
+    version: '2.6.8',
+    date: '2026-03-28',
+    changes: [
+      '修正 Lark Sheet header 合併邏輯：改用 Math.max(row1.length, row2.length) 遍歷，修正 QA確認狀態（Row2 欄位超出 Row1 長度）找不到欄位、無法回寫的問題',
+    ],
+  },
+  {
+    version: '2.6.7',
+    date: '2026-03-28',
+    changes: [
+      '修正機台測試 Lark 回寫：改回使用 /api/machine-test/lark-writeback 端點（舊端點已擴充支援同時寫 QA確認狀態）',
+      '回寫格式統一為 { rowIndex, message, qaStatus }，不再依賴不穩定的 writeback-multi 路由',
+    ],
+  },
+  {
+    version: '2.6.6',
+    date: '2026-03-28',
+    changes: [
+      '機台測試退出失敗時自動分析原因：若偵測到特殊遊戲（Bonus/Jackpot）狀態，退出步驟從 FAIL 降級為 WARN，並加注說明',
+      '偵測條件：1) 有「特殊遊戲等待」步驟 2) OSM 狀態碼在 bonus 範圍 3) 日誌含 game/bonus/jackpot 等關鍵字',
+    ],
+  },
+  {
+    version: '2.6.5',
+    date: '2026-03-28',
+    changes: [
+      '修正機台測試歷史紀錄無法儲存的問題（Zod v4 z.record() 語法錯誤 + overall 大小寫不符）',
+      '機台測試 Lark 回寫加上結果提示（成功/失敗/錯誤原因顯示在 URL 旁）',
+    ],
+  },
+  {
+    version: '2.6.4',
+    date: '2026-03-28',
+    changes: [
+      '機台測試回寫 Lark Sheet 改為同時寫入兩欄：QA問題回報（PASS→OK / 否則填問題描述）、QA確認狀態（PASS→驗證通過 / 否則→驗證未過）',
+      '修正多欄回寫找不到「QA確認狀態」的問題（該欄在 Row2，現已改讀 A1:Z2 並合併 header）',
+    ],
+  },
+  {
+    version: '2.6.3',
+    date: '2026-03-28',
+    changes: [
+      '新增 ImageRecon 週報解析歷史紀錄（每次解析 Gmail 週報後自動記錄目標版本、伺服器數量與版本比對結果）',
+      '歷史頁功能篩選新增「ImageRecon 週報」分類',
+    ],
+  },
+  {
+    version: '2.6.2',
+    date: '2026-03-28',
+    changes: [
+      '新增 OSM 元件版本同步歷史紀錄（每次查詢自動記錄各元件版本快照）',
+      '新增 LuckyLink 元件版本同步歷史紀錄',
+      '新增版本告警歷史紀錄（手動觸發與排程定時告警均記錄，含達標狀態與告警內容）',
+      '歷史頁功能篩選新增：OSM 元件版本、LuckyLink 元件、版本告警三個類別',
+    ],
+  },
+  {
+    version: '2.6.1',
+    date: '2026-03-28',
+    changes: [
+      '歷史紀錄頁：TestCase 紀錄新增 📥 下載按鈕，可將生成的案例匯出為 JSON 檔案',
+      '歷史紀錄頁：展開 TestCase 紀錄時顯示 🔗 前往 Lark Bitable 連結',
+    ],
+  },
+  {
+    version: '2.6.0',
+    date: '2026-03-28',
+    changes: [
+      '新增獨立「操作歷史紀錄」頁面（H），集中顯示所有功能操作紀錄',
+      '歷史頁支援今日 / 3 天 / 7 天時間篩選，以及全部 / TestCase / 機台測試 / Jira 評論 / OSM 同步功能篩選',
+      'Gemini API Keys 清單新增顯示 .env 預設 Key（附藍色徽章區分，不可刪除，可測試可用性）',
+      '修正上傳 PDF/Word 時中文檔名亂碼問題（multer latin-1 → UTF-8 解碼）',
+      '機台測試、Lark 頁面移除內嵌歷史面板，統一由歷史頁管理',
+    ],
+  },
+  {
+    version: '2.5.0',
+    date: '2026-03-28',
+    changes: [
+      '新增全功能歷史紀錄：TestCase 生成、機台測試、Jira 批次評論、OSM 同步，每次操作自動保存，最多保留 7 天',
+      '歷史紀錄以可折疊面板顯示於各頁面，點選任一筆可展開查看詳細 JSON',
+      'TestCase 生成新增三種規格書來源：Lark Wiki（原有）、PDF/Word 檔案上傳（最大 20MB）、Google 文檔 URL',
+      '修正切換 PDF 模式時頁面偏移問題（body overflow-y: scroll 防止 scrollbar 跳位）',
+      '機台測試加入管理員 PIN 鎖定與單一執行階段限制（防止多人同步執行）',
+      '新增 Gemini API Key 用量統計與可用性探測（⚙️ Gemini 設定 → 🔍 測試所有 Key 可用性）',
+    ],
+  },
+  {
+    version: '2.4.0',
+    date: '2026-03-28',
+    changes: [
+      '機台測試：Lark Sheet 整合 — 讀取機台清單（QA確認狀態=驗證通過自動跳過）、測試完畢自動回寫 QA問題回報',
+      '機台測試：修正音頻誤判 — 測試前錄製基準值，若基準 RMS > -55 dB 且差值 < 10 dB 標記為音頻干擾',
+      '機台測試：新增 iDeck 測試（stepIdeck） — 逐一點擊按鈕，透過 daily-analysis API 確認 usb_coordinate 事件',
+      '機台測試：新增 entryTouchPoints — 進入後需點觸屏選擇 denom 時自動點擊',
+      'dev server 改為 tsx --watch 自動重啟，修改後端檔案後不再需要手動重啟',
+      'Lark Sheet 結構修正：正確合併 Row1/Row2 為 header（QA確認狀態 在 Row 2）',
+    ],
+  },
+  {
+    version: '2.3.6',
+    date: '2026-03-26',
+    changes: [
+      '新增「📢 版本告警」功能：任何版本不達標時發送 Lark 告警',
+      '告警範圍涵蓋：OSM 元件版本、LuckyLink 元件版本、OSM 機台 Online 未達標',
+      '手動「發送告警」按鈕，立即觸發一次檢查並推送到 Lark 群組機器人',
+      '排程設定面板：可啟用定時告警並設定 Cron 表達式（時區 Asia/Taipei）',
+      '排程設定持久化至 SQLite，重啟 server 後自動恢復',
+    ],
+  },
+  {
+    version: '2.3.5',
+    date: '2026-03-26',
+    changes: [
+      '修正 server 啟動失敗：OSM/LuckyLink 版本路由被錯誤放在 const app = express() 之前，導致整個 server 無法啟動',
+      '重新整理路由順序，所有 app.get/post 均移至 app 初始化之後',
+    ],
+  },
+  {
+    version: '2.3.4',
+    date: '2026-03-26',
+    changes: [
+      '新增「🍀 LuckyLink 元件版本」區塊：Luckylink Server / Bg Client / BG Server',
+      'LuckyLink API 回應格式為 { data: { "1": ..., "4": ... } }，index 1=Luckylink Server、index 4=BG Server',
+      'Bg Client 目前 API 尚未支援，顯示「待 API 支援」與「開發中」標籤',
+      'API 憑證設定：LUCKYLINK_BASE_URL / USERNAME / PASSWORD / ORIGIN（無帳密則略過登入）',
+      '修正 OSM 元件版本端點回傳欄位名稱（versions → components）',
+    ],
+  },
+  {
+    version: '2.3.3',
+    date: '2026-03-26',
+    changes: [
+      'ImageRecon Server 版本區塊改以 Lark Sheet ImageRecon 分頁目標版本為優先比對依據',
+      '統計列改顯示「X/Y 達標」，目標版本來源標示（Lark）或（週報）',
+      '每列目標版本欄顯示有效目標版本（Lark 優先，次選 Gmail 週報解析值）',
+    ],
+  },
+  {
+    version: '2.3.2',
+    date: '2026-03-26',
+    changes: [
+      '新增「OSM 元件版本」區塊：從 OSM 後台取得 6 個元件目前版本',
+      '顯示順序：Game Client New → Game Client PC → Center Server → Middle Server → Bg Client → BG Server',
+      '與 Lark Sheet OSM 分頁目標版本比對，顯示達標 / 未達標徽章',
+      '卡片顏色依達標狀態區分：綠色（達標）/ 橘色（未達標）/ 灰色（未設定目標）',
+    ],
+  },
+  {
+    version: '2.3.1',
+    date: '2026-03-26',
+    changes: [
+      '渠道卡片移除「主要版本」顯示，避免造成誤解',
+      '新增 Online 未達標警示區塊：顯示 Online 但版本未達目標的機台數量',
+      '警示區依 machineType 分組顯示：機型名稱、幾台、→ 目標版本',
+      '卡片邊框顏色改以目標版本達標狀態為準（有目標才顯示綠/橘）',
+    ],
+  },
+  {
+    version: '2.3.0',
+    date: '2026-03-26',
+    changes: [
+      '從 Lark Sheet 同步目標版本：支援 MachineType / OSM / LuckyLink / Toppath / ImageRecon 五個分頁',
+      '貼上 Lark Sheet URL → 一鍵同步，自動讀取各分頁（A 欄 machineType、B 欄目標版本）',
+      '機台展開列表依 machineType 分組，每組顯示所有 category 的目標版本',
+      '達標比對以 MachineType 分頁版本為基準，顯示 X/Y 達標',
+      '目標版本持久化至 SQLite，重啟 server 不遺失',
+    ],
+  },
+  {
+    version: '2.2.0',
+    date: '2026-03-26',
+    changes: [
+      'OSM 機台資料新增 machineType 欄位（從 API 擷取）',
+      '機台展開表格依 machineType 分組顯示，每組有獨立標題列',
+      'machineType 分組顯示達標率（目標版本設定後即時計算）',
+      '新增目標版本設定面板，可手動為每個 machineType 設定目標版本',
+    ],
+  },
+  {
+    version: '2.1.0',
+    date: '2026-03-26',
+    changes: [
+      '資料存儲全面升級為 SQLite，取代 JSON 檔案，解決多人並發 Race Condition',
+      '首次啟動自動遷移舊 accounts.json / gemini-keys.json / prompts.json 資料至 DB',
+      '新增 Gemini Rate Limiter（最多 5 個並發，間隔 300ms），防止 API 配額耗盡',
+      '新增 API Rate Limiting：重操作每分鐘 15 次，一般寫入每分鐘 60 次',
+      'OSM 全渠道/單渠道同步加入防重複觸發機制（同步中回傳 429）',
+      '新增 x-user-token header 支援，後端 Log 可辨識不同使用者',
+    ],
+  },
+  {
+    version: '2.0.2',
+    date: '2026-03-26',
+    changes: [
+      'OSM egmList：帶出 onlineState（online / offline），後端小寫正規化',
+      '渠道卡片顯示 Online / Offline 數量、連線率進度條',
+      '機台明細表新增「連線」欄與「版本」欄分開；Offline 列淺灰底、Offline 優先排序',
+      'Dashboard 頂部統計新增全渠道 Online / Offline（及連線未知）彙總',
+      '修正 onlineState 判斷：前端比較前先 trim、後端把 1/0 轉成 online/offline',
+    ],
+  },
+  {
+    version: '2.0.0',
+    date: '2026-03-25',
+    changes: [
+      '全新「OSM 版號同步」頁面取代 Gmail 週報頁',
+      '機台版本 Dashboard：一鍵全渠道同步，或單一渠道手動同步',
+      '渠道卡片顯示：主要版本、機台總數、版本分布進度條、版本一致狀態',
+      '展開卡片可查看該渠道所有機台名稱、版本及一致性 Badge',
+      '摘要統計列：渠道數、機台總數、版本一致渠道數',
+      '保留 ImageRecon Server 版本解析區塊（Gmail 週報），整合於同頁下方',
+      '渠道設定存於 .env（OSM_CHANNELS + 各渠道帳密），不從前端管理',
+      '後端新增 POST /api/osm/sync（全渠道）與 POST /api/osm/sync/:name（單渠道）',
+    ],
+  },
+  {
+    version: '1.9.3',
+    date: '2026-03-25',
+    changes: [
+      'Jira 批次評論：Gemini API 用量耗盡時立即中斷，剩餘筆數不貼任何內容',
+      '中斷後回傳已成功筆數與中斷原因，前端顯示「⚠️ 已中斷」提示列',
+      'Jira API 自身錯誤（非 AI 問題）仍只標記該筆失敗，不影響其他筆繼續執行',
+    ],
+  },
+  {
+    version: '1.9.2',
+    date: '2026-03-25',
+    changes: [
+      '建立 Bitable 時自動刪除 Lark 預設欄位（Single option、Date、Attachment）',
+    ],
+  },
+  {
+    version: '1.9.1',
+    date: '2026-03-25',
+    changes: [
+      '修正 Bitable 從第 11 行開始顯示：建立後先清除預設空記錄，再寫入資料',
+      '調整欄位順序為：測試標題、測試模組、測試維度、操作步驟、優先級、前置條件、預期結果',
+      '測試模組改為「單選類型」（選項由使用者自行新增）',
+      '測試維度改為「單選類型」，預設 6 個維度選項：正向邏輯、邊界分析、異常阻斷、版本變更、使用者體驗、搶登與裝置衝突',
+    ],
+  },
+  {
+    version: '1.9.0',
+    date: '2026-03-25',
+    changes: [
+      'TestCase 生成改為動態建立 Bitable：每次生成在指定資料夾自動建立獨立表格',
+      '新建的 Bitable 命名格式為 TestCase_YYYY-MM-DD_HHMM_docId',
+      '自動建立七個欄位：測試模組、測試維度、測試標題、前置條件、操作步驟、預期結果、優先級',
+      '生成完成後顯示「前往 Lark Bitable」連結，直接跳轉至本次新建的表格',
+      '新增 LARK_TESTCASE_FOLDER_TOKEN 設定，舊版固定表格模式仍可向下相容',
+    ],
+  },
+  {
+    version: '1.8.0',
+    date: '2026-03-25',
+    changes: [
+      'Gmail 週報解析完整實作：撈取完整 email 內容並解碼（base64 + quoted-printable）',
+      'Regex 自動抽取 Target Version、Generated、Summary 統計、各伺服器記錄',
+      'Gmail 頁新增摘要卡片（符合目標、版本不同、錯誤、總計、成功率）',
+      '版本比對標色：實際版本與目標版本不符時以橘色標示',
+      'TestCase 預設 Prompt 更新為 QA 架構師邏輯窮舉版本（含搶登與裝置衝突維度）',
+    ],
+  },
+  {
+    version: '1.7.0',
+    date: '2026-03-25',
+    changes: [
+      'TestCase 生成支援多組 Gemini API Key 自動輪替',
+      'TestCase 生成支援 Prompt 模板選擇，新增「TestCase 生成（標準）」預設模板',
+      'Lark 頁加入 ⚙️ Gemini 管理入口（與 Jira 共用同一套 Keys / Prompt 管理）',
+      '修正 Gemini 回傳 Markdown 包裹 JSON 導致解析失敗的問題（三層 fallback 抽取）',
+      '後端加入 Activity Log：記錄 IP、使用者、操作類型與結果',
+      '新增 restart.bat 與 npm run dev:stop 快速重啟指令',
+    ],
+  },
+  {
+    version: '1.6.0',
+    date: '2026-03-25',
+    changes: [
+      '新增管理員 PIN 機制：只有輸入正確 PIN 才能刪除 Jira 帳號',
+      '管理員 PIN 存於後端 .env（ADMIN_PIN），刪除請求由後端二次驗證',
+      '管理員狀態存於 sessionStorage，關閉分頁後自動失效',
+      '未設定 ADMIN_PIN 時刪除功能對所有人關閉',
+      '修正 Step 4 結果頁「已評論」badge 顯示錯誤為「待評論」的問題',
+    ],
+  },
+  {
+    version: '1.5.1',
+    date: '2026-03-25',
+    changes: [
+      '修正 Modal 層級問題：改用 React Portal 直接掛載至 document.body，徹底解決 z-index stacking context 衝突',
+      '修正 modal-box 無背景色導致透明顯示的問題（補上 .modal-box CSS 樣式）',
+    ],
+  },
+  {
+    version: '1.5.0',
+    date: '2026-03-25',
+    changes: [
+      '新增 Gemini 設定面板：可在前端管理多組 API Key，配額用完自動輪替下一組',
+      '新增 Prompt 模板管理：可新增/編輯/刪除多組 Prompt，支援 {{變數}} 語法',
+      'Step 5 新增 Prompt 模板選擇下拉，可即時切換不同 AI 格式',
+      '版號與更新日誌整合至前端 UI（Header 版號徽章點擊開啟）',
+    ],
+  },
+  {
+    version: '1.4.0',
+    date: '2026-03-24',
+    changes: [
+      'Step 5 新增 AI 優化功能（Gemini），將驗證結果自動整理成標準 QA 報告',
+      '【前置條件】嚴格格式：環境/版本/平台直接複製原始值，不加解釋',
+      'AI 評論格式改用 Jira ADF（Atlassian Document Format），正確保留多行結構',
+      '支援從 sheet 抓取測試環境、版本號、測試平台、機台編號、遊戲模式作為 AI 上下文',
+    ],
+  },
+  {
+    version: '1.3.0',
+    date: '2026-03-23',
+    changes: [
+      '新增「處理階段」追蹤：開單後自動回寫「已開單」、評論後回寫「添加評論」、切換狀態後回寫「已完成」',
+      '新增「處理時間」回寫：每個階段完成時記錄時間戳',
+      '工作流擴展為 6 步驟：建立 Issues → 添加評論 → 切換狀態',
+      '新增 Jira 批次評論功能（POST /api/jira/batch-comment）',
+      '新增 Jira 批次切換狀態功能（POST /api/jira/batch-transition）',
+      '智慧路由：根據「處理階段」判斷每列需執行哪個步驟，支援斷點續跑',
+      'Step 3 新增操作計畫預覽（建立/評論/切換 各幾筆）',
+    ],
+  },
+  {
+    version: '1.2.0',
+    date: '2026-03-22',
+    changes: [
+      '新增 Google Sheets 作為 Jira 資料來源（2 擇 1 切換）',
+      'Google Sheets 回寫使用 Service Account JWT 驗證',
+      '修正 Jira Issue Key 未回寫至 Google Sheets 的問題',
+      '修正「Actual start / Actual end」日期欄位未填入 Jira 的問題',
+      '多欄位回寫改用逐格 PUT 方式，解決 Lark batch API 回應不穩定的問題',
+      '修正 Zod v4 z.record() API 相容性問題',
+      'Step 3 預覽表格改為顯示所有欄位，Jira Account ID 轉換為顯示名稱',
+    ],
+  },
+  {
+    version: '1.1.0',
+    date: '2026-03-21',
+    changes: [
+      'Jira 帳號改為後端集中管理（server/accounts.json），不再存放於瀏覽器',
+      '新增帳號選擇 Modal：支援新增/選擇/刪除帳號',
+      '選擇帳號後使用 sessionStorage 暫存，重整後需重新選擇',
+      '取消選擇時，清空下游所有步驟的狀態',
+      '新增 Lark Sheets 作為資料來源，可自訂試算表 URL',
+      '受託人清單直接從 Jira API 取得（不再手動設定）',
+    ],
+  },
+  {
+    version: '1.0.0',
+    date: '2026-03-20',
+    changes: [
+      '初始版本：整合 Jira、Lark、Gmail 三個工作流',
+      '三個功能拆分為獨立分頁切換',
+      '新增 toggle.bat 一鍵開關 dev server',
+      'Jira：從 Lark 試算表讀取資料批次開單',
+      'Lark：TestCase 生成（Gemini AI + 寫回 Bitable）',
+      'Gmail：週報同步',
+    ],
+  },
+]

@@ -1,0 +1,1155 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Workflow Integrator — 使用者操作手冊</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #f1f5f9;
+    color: #1e293b;
+    font-size: 15px;
+    line-height: 1.6;
+  }
+
+  /* ── 頁首 ── */
+  .doc-header {
+    background: #0f172a;
+    color: #f8fafc;
+    padding: 40px 48px 32px;
+  }
+  .doc-header h1 { font-size: 28px; font-weight: 700; letter-spacing: 0.3px; }
+  .doc-header p  { color: #94a3b8; font-size: 14px; margin-top: 6px; }
+  .badge-version {
+    display: inline-block;
+    background: rgba(99,102,241,0.2);
+    color: #a5b4fc;
+    border: 1px solid rgba(99,102,241,0.35);
+    border-radius: 99px;
+    padding: 2px 10px;
+    font-size: 12px;
+    font-family: monospace;
+    margin-left: 10px;
+    vertical-align: middle;
+  }
+
+  /* ── 目錄 ── */
+  .toc {
+    background: #1e293b;
+    padding: 24px 48px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .toc-label { color: #64748b; font-size: 13px; margin-right: 4px; }
+  .toc a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 99px;
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+    transition: background 0.15s;
+  }
+  .toc a:hover { opacity: 0.85; }
+  .toc-jira    { background: #0052cc22; color: #60a5fa; border: 1px solid #0052cc44; }
+  .toc-lark    { background: #3370ff22; color: #818cf8; border: 1px solid #3370ff44; }
+  .toc-osm     { background: #ea433522; color: #f87171; border: 1px solid #ea433544; }
+  .toc-mt      { background: #0052cc22; color: #60a5fa; border: 1px solid #0052cc44; }
+  .toc-img     { background: #7c3aed22; color: #c4b5fd; border: 1px solid #7c3aed44; }
+  .toc-hist    { background: #47556922; color: #94a3b8; border: 1px solid #47556944; }
+
+  /* ── 本文容器 ── */
+  .doc-body { max-width: 960px; margin: 0 auto; padding: 40px 24px 80px; }
+
+  /* ── 模組區塊 ── */
+  .module {
+    background: #fff;
+    border-radius: 16px;
+    border: 1px solid #e2e8f0;
+    margin-bottom: 40px;
+    overflow: hidden;
+  }
+  .module-header {
+    padding: 24px 28px 20px;
+    border-bottom: 1px solid #f1f5f9;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .module-icon {
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; font-weight: 800; color: #fff;
+    flex-shrink: 0;
+  }
+  .icon-jira  { background: #0052cc; }
+  .icon-lark  { background: #3370ff; }
+  .icon-osm   { background: #ea4335; }
+  .icon-mt    { background: #0052cc; }
+  .icon-img   { background: #7c3aed; }
+  .icon-hist  { background: #475569; }
+
+  .module-header h2 { font-size: 20px; font-weight: 700; }
+  .module-header p  { font-size: 13px; color: #64748b; margin-top: 2px; }
+
+  .module-body { padding: 24px 28px; }
+
+  /* ── 步驟流程 ── */
+  .flow {
+    display: flex;
+    gap: 0;
+    flex-wrap: wrap;
+    margin: 20px 0;
+    align-items: flex-start;
+  }
+  .flow-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 0 0 auto;
+  }
+  .flow-box {
+    background: #f8fafc;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 10px 16px;
+    text-align: center;
+    min-width: 110px;
+    max-width: 140px;
+  }
+  .flow-box .step-num {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: #1e293b;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 6px;
+  }
+  .flow-box .step-label { font-size: 12px; font-weight: 600; color: #374151; line-height: 1.4; }
+  .flow-arrow {
+    display: flex;
+    align-items: center;
+    padding: 0 6px;
+    color: #94a3b8;
+    font-size: 18px;
+    margin-top: 26px;
+  }
+
+  /* 彩色步驟 num */
+  .flow-box.jira   .step-num { background: #0052cc; }
+  .flow-box.lark   .step-num { background: #3370ff; }
+  .flow-box.osm    .step-num { background: #ea4335; }
+  .flow-box.mt     .step-num { background: #0052cc; }
+  .flow-box.img    .step-num { background: #7c3aed; }
+
+  /* ── 說明區塊 ── */
+  .section { margin: 20px 0; }
+  .section h3 {
+    font-size: 15px;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 10px;
+    padding-bottom: 6px;
+    border-bottom: 2px solid #f1f5f9;
+  }
+  .section h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #334155;
+    margin: 14px 0 6px;
+  }
+
+  ul.checklist { list-style: none; padding-left: 4px; }
+  ul.checklist li {
+    padding: 5px 0 5px 24px;
+    position: relative;
+    font-size: 14px;
+    color: #374151;
+    border-bottom: 1px solid #f8fafc;
+  }
+  ul.checklist li::before {
+    content: '▸';
+    position: absolute; left: 4px;
+    color: #94a3b8;
+  }
+
+  /* ── 提示框 ── */
+  .tip {
+    display: flex;
+    gap: 10px;
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    margin: 12px 0;
+    line-height: 1.5;
+  }
+  .tip-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
+  .tip-info    { background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; }
+  .tip-warn    { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
+  .tip-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+  .tip-purple  { background: #f5f3ff; border: 1px solid #ddd6fe; color: #4c1d95; }
+
+  /* ── 標籤 ── */
+  .tag {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 99px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .tag-blue   { background: #dbeafe; color: #1d4ed8; }
+  .tag-green  { background: #dcfce7; color: #166534; }
+  .tag-red    { background: #fee2e2; color: #dc2626; }
+  .tag-purple { background: #ede9fe; color: #5b21b6; }
+  .tag-gray   { background: #f1f5f9; color: #475569; }
+  .tag-yellow { background: #fef9c3; color: #854d0e; }
+
+  /* ── 資料表 ── */
+  .data-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 10px 0; }
+  .data-table th {
+    background: #f8fafc;
+    padding: 9px 12px;
+    text-align: left;
+    font-weight: 600;
+    color: #475569;
+    border-bottom: 2px solid #e2e8f0;
+  }
+  .data-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: top;
+    color: #374151;
+  }
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table tr:hover td { background: #f8fafc; }
+
+  code {
+    background: #f1f5f9;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    color: #475569;
+  }
+
+  /* ── 模式切換說明 ── */
+  .mode-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 14px 0;
+  }
+  .mode-card {
+    border: 1.5px solid #e2e8f0;
+    border-radius: 10px;
+    padding: 16px;
+  }
+  .mode-card h4 { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+  .mode-card p  { font-size: 13px; color: #64748b; }
+  .mode-card ul { font-size: 13px; color: #374151; padding-left: 16px; margin-top: 6px; }
+  .mode-card.active { border-color: #6366f1; background: #f5f3ff; }
+
+  /* ── 分隔線 ── */
+  hr { border: none; border-top: 1px solid #f1f5f9; margin: 24px 0; }
+
+  /* ── 截圖預留區 ── */
+  .screenshot-placeholder {
+    border: 2px dashed #e2e8f0;
+    border-radius: 10px;
+    background: #f8fafc;
+    padding: 40px;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 13px;
+    margin: 16px 0;
+  }
+  .screenshot-placeholder .ph-icon { font-size: 32px; margin-bottom: 8px; }
+  .screenshot-placeholder .ph-label { font-weight: 600; color: #64748b; margin-bottom: 4px; }
+
+  /* ── 回到頂端 ── */
+  .back-to-top {
+    display: inline-block;
+    font-size: 13px;
+    color: #94a3b8;
+    text-decoration: none;
+    margin-top: 8px;
+  }
+  .back-to-top:hover { color: #475569; }
+
+  /* 頁首錨點 */
+  h2[id], .module[id] { scroll-margin-top: 20px; }
+
+  @media (max-width: 600px) {
+    .doc-header { padding: 24px 20px; }
+    .toc { padding: 16px 20px; }
+    .doc-body { padding: 20px 16px 60px; }
+    .module-body { padding: 16px; }
+    .mode-grid { grid-template-columns: 1fr; }
+    .flow { gap: 0; }
+    .flow-box { min-width: 90px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════ 頁首 ══════════════════ -->
+<div class="doc-header" id="top">
+  <h1>Workflow Integrator <span class="badge-version">v3.2.0</span></h1>
+  <p>使用者操作手冊 — 自動化整合控制台 · Jira × Lark × OSM</p>
+</div>
+
+<!-- ══════════════════ 目錄 ══════════════════ -->
+<div class="toc">
+  <span class="toc-label">目錄</span>
+  <a class="toc-jira" href="#jira">J 自動寫入 Jira</a>
+  <a class="toc-lark" href="#lark">L TestCase 生成</a>
+  <a class="toc-osm"  href="#osm">O OSM 版號同步</a>
+  <a class="toc-mt"   href="#machinetest">M 機台自動化測試</a>
+  <a class="toc-img"  href="#imagecheck">I 圖片刪除驗證</a>
+  <a class="toc-hist" href="#history">H 操作歷史紀錄</a>
+</div>
+
+<!-- ══════════════════ 本文 ══════════════════ -->
+<div class="doc-body">
+
+
+<!-- ════════ 1. 自動寫入 Jira ════════ -->
+<div class="module" id="jira">
+  <div class="module-header">
+    <div class="module-icon icon-jira">J</div>
+    <div>
+      <h2>自動寫入 Jira</h2>
+      <p>從 Lark Sheet / Google Sheet 資料批次建立 Issue、新增評論、切換處理狀態</p>
+    </div>
+  </div>
+  <div class="module-body">
+
+    <div class="section">
+      <h3>功能說明</h3>
+      <p>此功能支援兩種操作模式，請依據您的職位選擇：</p>
+      <div class="mode-grid" style="margin-top:14px">
+        <div class="mode-card">
+          <h4>🧪 QA 模式</h4>
+          <p>從試算表讀取測試資料，批次建立 Jira Issue、寫入評論、切換狀態</p>
+          <ul>
+            <li>來源：Lark Sheet 或 Google Sheet</li>
+            <li>欄位：摘要、內容、受託人、RD負責人、驗證人員等</li>
+            <li>支援批次評論 + AI 生成評論</li>
+            <li>支援 Lark Drive 附件自動上傳至 Jira</li>
+          </ul>
+        </div>
+        <div class="mode-card">
+          <h4>📋 PM 模式</h4>
+          <p>從 Lark 多維表格（Bitable）讀取需求清單，批次建立 Jira Story</p>
+          <ul>
+            <li>來源：Lark Bitable URL</li>
+            <li>可設定 Parent Epic Key</li>
+            <li>支援選擇子集建立</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <hr />
+
+    <!-- QA 模式操作流程 -->
+    <div class="section">
+      <h3>QA 模式 — 操作流程</h3>
+
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-box jira">
+            <div class="step-num">1</div>
+            <div class="step-label">設定 Jira 帳號</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box jira">
+            <div class="step-num">2</div>
+            <div class="step-label">選擇受託人 / 專案</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box jira">
+            <div class="step-num">3</div>
+            <div class="step-label">匯入試算表</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box jira">
+            <div class="step-num">4</div>
+            <div class="step-label">勾選資料列</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box jira">
+            <div class="step-num">5</div>
+            <div class="step-label">建立 Issues</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box jira">
+            <div class="step-num">6</div>
+            <div class="step-label">添加評論</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box jira">
+            <div class="step-num">7</div>
+            <div class="step-label">切換狀態</div>
+          </div>
+        </div>
+      </div>
+
+      <h4>Step 1 — 設定 Jira 帳號</h4>
+      <ul class="checklist">
+        <li>點擊右上角「帳號設定」或畫面頂端的帳號選擇區</li>
+        <li>輸入 Jira 登入 Email 及 API Token（從 Atlassian 帳號管理頁取得）</li>
+        <li>設定帳號角色（QA / PM），決定後續可使用的模式</li>
+        <li>帳號會儲存於本次 Session，重新整理後需重新選擇</li>
+      </ul>
+
+      <div class="tip tip-info">
+        <span class="tip-icon">ℹ️</span>
+        <div>API Token 取得路徑：Atlassian 帳號設定 → 安全性 → API Token → 建立新 Token</div>
+      </div>
+
+      <div class="screenshot-placeholder">
+        <div class="ph-icon">🖼️</div>
+        <div class="ph-label">帳號設定截圖</div>
+        <div>待補充</div>
+      </div>
+
+      <h4>Step 2 — 選擇受託人 / 專案 / Issue 類型</h4>
+      <ul class="checklist">
+        <li>系統自動載入您有權限的 Jira 專案列表</li>
+        <li>選擇目標專案後，系統自動載入該專案的 Issue 類型與成員</li>
+        <li>從下拉選單選擇受託人（Assignee）</li>
+      </ul>
+
+      <h4>Step 3 — 匯入試算表</h4>
+      <ul class="checklist">
+        <li>選擇來源類型：<span class="tag tag-blue">Lark Sheet</span> 或 <span class="tag tag-gray">Google Sheet</span></li>
+        <li>貼上試算表網址（Lark 格式：<code>https://casinoplus.sg.larksuite.com/sheets/XXXX</code>）</li>
+        <li>點擊「讀取資料」，系統自動抓取所有資料列</li>
+      </ul>
+
+      <div class="tip tip-warn">
+        <span class="tip-icon">⚠️</span>
+        <div>Lark Sheet 需將機器人加入文件成員（分享 → 加入 App），否則會回傳權限錯誤</div>
+      </div>
+
+      <div class="tip tip-info">
+        <span class="tip-icon">ℹ️</span>
+        <div>試算表欄位對應：「摘要」→ Summary、「內容」→ Description、「受託人」→ Assignee Email 等。欄位名稱不分大小寫。</div>
+      </div>
+
+      <h4>Step 4 — 確認清單 / 勾選資料列</h4>
+      <ul class="checklist">
+        <li>讀取後顯示所有資料列，狀態標籤說明：
+          <ul style="margin-top:4px; padding-left:20px; font-size:13px">
+            <li><span class="tag tag-blue">待開單</span> — 尚無 Jira Key，需建立 Issue</li>
+            <li><span class="tag tag-green">已開單</span> — 已有 Jira Key，可進行評論步驟</li>
+            <li><span class="tag tag-purple">已評論</span> — 評論完成，可切換狀態</li>
+          </ul>
+        </li>
+        <li>可全選或個別勾選要操作的列</li>
+      </ul>
+
+      <h4>Step 5 — 建立 Issues</h4>
+      <ul class="checklist">
+        <li>點擊「建立 Issues」，系統批次提交至 Jira</li>
+        <li>成功後，試算表「jira issue key」欄位自動回寫 Issue Key</li>
+        <li>建立失敗的列會顯示錯誤訊息，可單獨重試</li>
+      </ul>
+
+      <h4>Step 6 — 添加評論</h4>
+      <ul class="checklist">
+        <li>選擇評論內容來源的欄位（試算表中的欄位名稱）</li>
+        <li>可選擇「附件欄位」：若該欄位有 Lark Drive 連結，系統自動下載並上傳至 Jira</li>
+        <li>可開啟「AI 生成評論」，選擇 Gemini Prompt 模板，由 AI 依資料撰寫評論</li>
+        <li>點擊「批次添加評論」完成</li>
+      </ul>
+
+      <h4>Step 7 — 切換狀態</h4>
+      <ul class="checklist">
+        <li>系統自動找出「處理階段 = 已評論」的 Issues</li>
+        <li>點擊「切換狀態」，批次將 Issue 推進至下一個 Workflow 狀態</li>
+        <li>成功後試算表「處理階段」欄位自動更新</li>
+      </ul>
+    </div>
+
+    <hr />
+
+    <!-- PM 模式 -->
+    <div class="section">
+      <h3>PM 模式 — 操作流程</h3>
+
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-box jira">
+            <div class="step-num">1</div>
+            <div class="step-label">設定 Jira 帳號</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box jira">
+            <div class="step-num">2</div>
+            <div class="step-label">輸入 Bitable URL</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box jira">
+            <div class="step-num">3</div>
+            <div class="step-label">設定 Parent Epic</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box jira">
+            <div class="step-num">4</div>
+            <div class="step-label">確認並建立</div>
+          </div>
+        </div>
+      </div>
+
+      <ul class="checklist">
+        <li>貼上 Lark Bitable（多維表格）URL</li>
+        <li>輸入 Parent Epic Key（選填，如 <code>CGSG-100</code>）</li>
+        <li>系統讀取 Bitable 所有記錄，勾選要建立的項目</li>
+        <li>點擊「批次建立」，Issues 建立完成後 Jira Key 回寫至 Bitable</li>
+      </ul>
+    </div>
+
+    <hr />
+
+    <div class="section">
+      <h3>試算表欄位對照</h3>
+      <table class="data-table">
+        <thead><tr><th>試算表欄位名稱</th><th>對應 Jira 欄位</th><th>必填</th></tr></thead>
+        <tbody>
+          <tr><td>摘要</td><td>Summary（Issue 標題）</td><td><span class="tag tag-red">必填</span></td></tr>
+          <tr><td>內容</td><td>Description</td><td><span class="tag tag-gray">選填</span></td></tr>
+          <tr><td>受託人</td><td>Assignee（Email）</td><td><span class="tag tag-gray">選填</span></td></tr>
+          <tr><td>RD負責人</td><td>自訂欄位</td><td><span class="tag tag-gray">選填</span></td></tr>
+          <tr><td>驗證人員</td><td>自訂欄位</td><td><span class="tag tag-gray">選填</span></td></tr>
+          <tr><td>jira issue key</td><td>Issue Key（系統自動回寫）</td><td>—</td></tr>
+          <tr><td>處理階段</td><td>流程追蹤標記（系統自動更新）</td><td>—</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <a class="back-to-top" href="#top">↑ 回到頂端</a>
+  </div>
+</div>
+
+
+<!-- ════════ 2. TestCase 生成 ════════ -->
+<div class="module" id="lark">
+  <div class="module-header">
+    <div class="module-icon icon-lark">L</div>
+    <div>
+      <h2>TestCase 生成</h2>
+      <p>輸入規格書，由 Gemini AI 自動生成測試案例並寫入 Lark 多維表格</p>
+    </div>
+  </div>
+  <div class="module-body">
+
+    <div class="section">
+      <h3>兩種操作模式</h3>
+      <div class="mode-grid">
+        <div class="mode-card">
+          <h4>🤖 AI 生成 TestCase</h4>
+          <p>輸入規格書，AI 分析後自動產生完整測試案例清單，寫入 Lark Bitable</p>
+        </div>
+        <div class="mode-card">
+          <h4>🔍 人工 vs AI 比對</h4>
+          <p>同時輸入規格書 + 你已寫好的 TestCase Bitable，AI 分析覆蓋率與缺漏</p>
+        </div>
+      </div>
+    </div>
+
+    <hr />
+
+    <div class="section">
+      <h3>AI 生成 TestCase — 操作流程</h3>
+
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-box lark">
+            <div class="step-num">1</div>
+            <div class="step-label">選擇規格書來源</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box lark">
+            <div class="step-num">2</div>
+            <div class="step-label">輸入 URL 或上傳</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box lark">
+            <div class="step-num">3</div>
+            <div class="step-label">選擇 Prompt 模板</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box lark">
+            <div class="step-num">4</div>
+            <div class="step-label">（選填）Jira 整合</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box lark">
+            <div class="step-num">5</div>
+            <div class="step-label">開始生成</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box lark">
+            <div class="step-num">6</div>
+            <div class="step-label">查看結果 / Bitable</div>
+          </div>
+        </div>
+      </div>
+
+      <h4>Step 1 — 選擇規格書來源</h4>
+      <ul class="checklist">
+        <li><span class="tag tag-blue">📄 Lark Wiki</span> — 貼上 Lark Wiki 文件網址</li>
+        <li><span class="tag tag-purple">📎 PDF / Word</span> — 上傳 .pdf 或 .docx 規格書（最大 20MB）</li>
+        <li><span class="tag tag-green">🌐 Google 文檔</span> — 貼上 Google Docs 連結（文件需設為「任何人可查看」）</li>
+      </ul>
+
+      <h4>Step 2 — 輸入規格書網址或上傳檔案</h4>
+      <ul class="checklist">
+        <li>Lark Wiki：系統自動從 URL 抽取 <code>/wiki/{documentId}</code></li>
+        <li>PDF/Word：點擊「選擇檔案」選取本機檔案</li>
+        <li>Google Docs：貼上完整分享連結</li>
+      </ul>
+
+      <div class="tip tip-warn">
+        <span class="tip-icon">⚠️</span>
+        <div>Lark Wiki 需先在文件「分享」中加入 Lark Bot，否則系統無法讀取文件內容</div>
+      </div>
+
+      <h4>Step 3 — 選擇 AI Prompt 模板</h4>
+      <ul class="checklist">
+        <li>從下拉選單選擇適合的生成模板</li>
+        <li>標準格式：生成包含「測試模組、維度、標題、前置條件、步驟、結果、優先級」的欄位</li>
+        <li>Jira 整合格式：生成包含「功能模組、測試類型、來源依據、Jira 單號」等欄位</li>
+        <li>Prompt 模板可在 ⚙️ Gemini 設定中自訂與新增</li>
+      </ul>
+
+      <h4>Step 4 — Jira 整合（選填）</h4>
+      <ul class="checklist">
+        <li>勾選「整合 Jira 單號」，讓 AI 同時參考 Jira Issues 的描述</li>
+        <li>選擇 Jira 帳號，輸入相關 Jira 單號（逗號或換行分隔，如 <code>CGSG-220, CGSG-221</code>）</li>
+        <li>AI 會將 Jira Issues 內容納入分析，生成更精確的測試案例</li>
+      </ul>
+
+      <h4>Step 5 — 開始生成（約 30–60 秒）</h4>
+      <ul class="checklist">
+        <li>點擊「開始生成」，系統進入 Loading 狀態</li>
+        <li>後端流程：讀取文件全文 → 送至 Gemini 分析 → 批次寫入 Lark Bitable</li>
+        <li>生成期間請勿離開頁面</li>
+      </ul>
+
+      <h4>Step 6 — 查看結果</h4>
+      <ul class="checklist">
+        <li>頁面顯示生成筆數、寫入筆數摘要</li>
+        <li>點擊「前往 Lark Bitable 查看結果」開啟已建立的多維表格</li>
+        <li>下方預覽表格可展開查看每筆案例的詳細欄位</li>
+      </ul>
+
+      <div class="screenshot-placeholder">
+        <div class="ph-icon">🖼️</div>
+        <div class="ph-label">TestCase 生成結果截圖</div>
+        <div>待補充</div>
+      </div>
+    </div>
+
+    <hr />
+
+    <div class="section">
+      <h3>生成的 Bitable 欄位結構</h3>
+      <h4>標準格式</h4>
+      <table class="data-table">
+        <thead><tr><th>欄位</th><th>說明</th><th>範例</th></tr></thead>
+        <tbody>
+          <tr><td>測試模組</td><td>功能模組分類</td><td>登入模組</td></tr>
+          <tr><td>測試維度</td><td>測試類型</td><td>正向邏輯 / 邊界分析 / 異常阻斷</td></tr>
+          <tr><td>測試標題</td><td>簡短描述測試目的</td><td>使用正確帳號密碼成功登入</td></tr>
+          <tr><td>前置條件</td><td>執行測試前的環境要求</td><td>已註冊帳號、網路正常</td></tr>
+          <tr><td>操作步驟</td><td>逐步操作說明</td><td>1. 開啟 App... 2. 輸入帳密...</td></tr>
+          <tr><td>預期結果</td><td>操作後的期望狀態</td><td>成功進入首頁</td></tr>
+          <tr><td>優先級</td><td>高 / 中 / 低</td><td>高</td></tr>
+          <tr><td>來源</td><td>依據的規格書章節</td><td>Wiki 3.2 節 / PDF p.15</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <a class="back-to-top" href="#top">↑ 回到頂端</a>
+  </div>
+</div>
+
+
+<!-- ════════ 3. OSM 版號同步 ════════ -->
+<div class="module" id="osm">
+  <div class="module-header">
+    <div class="module-icon icon-osm">O</div>
+    <div>
+      <h2>OSM 版號同步</h2>
+      <p>即時同步各渠道機台版本，與 Lark 目標版本比對，掌握全局版本狀態</p>
+    </div>
+  </div>
+  <div class="module-body">
+
+    <div class="section">
+      <h3>功能說明</h3>
+      <ul class="checklist">
+        <li>從多個 OSM 渠道（CP / WF / TBR / TBP / MDR）拉取所有機台的當前版本</li>
+        <li>與 Lark Sheet 設定的「目標版本」比對，標示是否達標</li>
+        <li>顯示版本分布圖、在線 / 離線統計</li>
+        <li>可解析 ImageRecon 週報 Email</li>
+      </ul>
+    </div>
+
+    <hr />
+
+    <div class="section">
+      <h3>主要操作區塊</h3>
+
+      <h4>目標版本設定</h4>
+      <ul class="checklist">
+        <li>貼上 Lark Sheet 網址（格式：<code>https://casinoplus.sg.larksuite.com/sheets/XXXX</code>）</li>
+        <li>點擊「從 Lark 同步」，自動讀取各渠道目標版本</li>
+        <li>可手動設定告警排程，當版本不符時推播到 Lark 群組</li>
+      </ul>
+
+      <h4>機台版本 Dashboard</h4>
+      <ul class="checklist">
+        <li>點擊「全部同步」，從所有渠道拉取最新機台版本資訊</li>
+        <li>依渠道分組顯示，每組有版本分布色條圖</li>
+        <li>機台狀態：<span class="tag tag-green">online</span> / <span class="tag tag-gray">offline</span> / <span class="tag tag-yellow">unknown</span></li>
+      </ul>
+
+      <h4>OSM 元件版本</h4>
+      <ul class="checklist">
+        <li>點擊「取得元件版本」，從 OSM 後台拉取各元件（GM / API / GW 等）的版本</li>
+        <li>與 Lark Sheet 目標版本比對，顯示是否符合要求</li>
+      </ul>
+
+      <h4>LuckyLink / Toppath 元件版本</h4>
+      <ul class="checklist">
+        <li>分別從 LuckyLink 後台 / Toppath 靜態接口拉取元件版本</li>
+        <li>同樣與 Lark 目標版本比對</li>
+      </ul>
+
+      <h4>ImageRecon Server 版本</h4>
+      <ul class="checklist">
+        <li>點擊「取得最新報告」，從最新一封 Gmail 週報 Email 解析 Server 狀態</li>
+        <li>與 Lark Sheet ImageRecon 目標版本比對</li>
+      </ul>
+
+      <div class="screenshot-placeholder">
+        <div class="ph-icon">🖼️</div>
+        <div class="ph-label">OSM 版號 Dashboard 截圖</div>
+        <div>待補充</div>
+      </div>
+    </div>
+
+    <hr />
+
+    <div class="section">
+      <h3>渠道色碼對照</h3>
+      <table class="data-table">
+        <thead><tr><th>渠道</th><th>代碼</th><th>顏色</th></tr></thead>
+        <tbody>
+          <tr><td>CasinoPlus</td><td>CP</td><td><span style="color:#4f86f7">■</span> 藍</td></tr>
+          <tr><td>WildForest</td><td>WF</td><td><span style="color:#f76b4f">■</span> 橘紅</td></tr>
+          <tr><td>TBR</td><td>TBR</td><td><span style="color:#4fcf70">■</span> 綠</td></tr>
+          <tr><td>TBP</td><td>TBP</td><td><span style="color:#f7c94f">■</span> 黃</td></tr>
+          <tr><td>MDR</td><td>MDR</td><td><span style="color:#c44ff7">■</span> 紫</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <a class="back-to-top" href="#top">↑ 回到頂端</a>
+  </div>
+</div>
+
+
+<!-- ════════ 4. 機台自動化測試 ════════ -->
+<div class="module" id="machinetest">
+  <div class="module-header">
+    <div class="module-icon icon-mt">M</div>
+    <div>
+      <h2>機台自動化測試</h2>
+      <p>批量自動測試機台的進入、推流、Spin、音頻等流程，結果自動回寫 Lark</p>
+    </div>
+  </div>
+  <div class="module-body">
+
+    <div class="section">
+      <h3>操作流程</h3>
+
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-box mt">
+            <div class="step-num">1</div>
+            <div class="step-label">設定大廳 URL</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box mt">
+            <div class="step-num">2</div>
+            <div class="step-label">設定 Lark 表單</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box mt">
+            <div class="step-num">3</div>
+            <div class="step-label">輸入機台清單</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box mt">
+            <div class="step-num">4</div>
+            <div class="step-label">選擇測試項目</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box mt">
+            <div class="step-num">5</div>
+            <div class="step-label">開始測試</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box mt">
+            <div class="step-num">6</div>
+            <div class="step-label">查看結果</div>
+          </div>
+        </div>
+      </div>
+
+      <h4>Step 1 — 設定大廳 URL（Worker）</h4>
+      <ul class="checklist">
+        <li>每個 Worker 對應一組大廳 URL（含 token）</li>
+        <li>可新增多個 Worker，系統會平行分配機台測試</li>
+        <li>格式範例：<code>https://example.com/lobby?token=ABC123</code></li>
+        <li>每個 Worker 使用不同的帳號 token，各自獨立測試不同機台</li>
+      </ul>
+
+      <h4>Step 2 — 設定 Lark 測試表單（選填）</h4>
+      <ul class="checklist">
+        <li>貼上 Lark Sheet URL，系統會自動讀取機台代碼清單</li>
+        <li>測試完成後，結果（PASS / FAIL）自動回寫至表單對應列</li>
+      </ul>
+
+      <h4>Step 3 — 輸入機台代碼清單</h4>
+      <ul class="checklist">
+        <li>每行一個機台代碼（或用逗號分隔），如 <code>892-BULLBLITZ-0136</code></li>
+        <li>也可點擊「讀取機台」從 Lark 表單自動匯入</li>
+      </ul>
+
+      <h4>Step 4 — 選擇測試項目</h4>
+      <table class="data-table" style="margin-top:8px">
+        <thead><tr><th>測試項目</th><th>說明</th><th>狀態</th></tr></thead>
+        <tbody>
+          <tr><td>進入機台</td><td>從大廳導航至指定機台並確認進入成功</td><td><span class="tag tag-green">可用</span></td></tr>
+          <tr><td>推流檢測</td><td>確認串流畫面正常接收</td><td><span class="tag tag-green">可用</span></td></tr>
+          <tr><td>Spin 測試</td><td>執行指定次數的 Spin，記錄結果</td><td><span class="tag tag-green">可用</span></td></tr>
+          <tr><td>音頻檢測</td><td>偵測遊戲音效是否正常播放（需 VB-Cable）</td><td><span class="tag tag-green">可用</span></td></tr>
+          <tr><td>iDeck 測試</td><td>測試觸屏機台的 iDeck 互動介面</td><td><span class="tag tag-yellow">開發中</span></td></tr>
+          <tr><td>退出測試</td><td>確認可正常退出機台回到大廳</td><td><span class="tag tag-green">可用</span></td></tr>
+        </tbody>
+      </table>
+
+      <h4>Step 5 — 開始測試</h4>
+      <ul class="checklist">
+        <li>點擊「開始測試」，系統依機台清單逐一（或平行）執行測試</li>
+        <li>左側即時日誌顯示每台的執行進度</li>
+        <li>日誌中可確認 OSMWatcher 圖像識別服務是否連線</li>
+      </ul>
+
+      <div class="tip tip-info">
+        <span class="tip-icon">ℹ️</span>
+        <div>若 <strong>OSMWatcher 已連線</strong>，測試時 Spin 後會自動偵測特殊遊戲（Free Game / Jackpot / Handpay），等待結束後再繼續下一台</div>
+      </div>
+
+      <div class="tip tip-warn">
+        <span class="tip-icon">⚠️</span>
+        <div>若 <strong>OSMWatcher 未連線</strong>，Spin 後不會等待特殊遊戲結束，日誌會標示「⚠️ OSMWatcher 未連線」</div>
+      </div>
+
+      <h4>Step 6 — 查看結果</h4>
+      <ul class="checklist">
+        <li>右側「測試摘要」顯示每台機台的整體 PASS / FAIL / WARN</li>
+        <li>可展開查看每個測試步驟的詳細結果與耗時</li>
+        <li>若設定了 Lark 表單，結果同步回寫</li>
+      </ul>
+
+      <div class="screenshot-placeholder">
+        <div class="ph-icon">🖼️</div>
+        <div class="ph-label">機台自動化測試執行中截圖</div>
+        <div>待補充</div>
+      </div>
+    </div>
+
+    <hr />
+
+    <div class="section">
+      <h3>OSMWatcher 即時監控面板</h3>
+      <p style="font-size:14px; color:#64748b; margin-bottom:12px">畫面上方橫幅顯示 OSMWatcher 連線狀態，點擊橫幅可展開即時監控面板</p>
+      <ul class="checklist">
+        <li>每 10 秒自動更新機台狀態</li>
+        <li>以顏色區分狀態：</li>
+      </ul>
+      <table class="data-table" style="margin-top:10px">
+        <thead><tr><th>狀態</th><th>說明</th><th>卡片顏色</th></tr></thead>
+        <tbody>
+          <tr><td>正常</td><td>機台正在一般遊戲中</td><td>灰白</td></tr>
+          <tr><td>⚡ Free Game</td><td>Free Game 進行中</td><td>淺紫</td></tr>
+          <tr><td>⚡ Jackpot</td><td>Jackpot 觸發中</td><td>淺黃</td></tr>
+          <tr><td>⚡ Handpay</td><td>需人工處理派彩</td><td>淺紅</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <hr />
+
+    <div class="section">
+      <h3>機台設定檔（Machine Profile）</h3>
+      <p style="font-size:14px; color:#64748b; margin-bottom:12px">針對不同機型，可設定特定的操作參數，確保測試流程正確</p>
+      <table class="data-table">
+        <thead><tr><th>欄位</th><th>說明</th></tr></thead>
+        <tbody>
+          <tr><td>機台類型（machineType）</td><td>機型識別名稱，對應機台代碼前綴</td></tr>
+          <tr><td>Bonus 操作方式</td><td>自動等待 / 點擊 Spin / 點擊 TakeWin / 點擊觸屏座標</td></tr>
+          <tr><td>觸屏座標（touchPoints）</td><td>觸屏機台的操作座標，格式 <code>X,Y</code></td></tr>
+          <tr><td>進入觸屏 Stage 1/2</td><td>進入機台時的 Denom 選擇 / 確認步驟觸屏座標</td></tr>
+          <tr><td>自訂選擇器</td><td>Spin / Balance / Exit 元素的 CSS Selector（覆蓋預設值）</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <a class="back-to-top" href="#top">↑ 回到頂端</a>
+  </div>
+</div>
+
+
+<!-- ════════ 5. 圖片刪除驗證 ════════ -->
+<div class="module" id="imagecheck">
+  <div class="module-header">
+    <div class="module-icon icon-img">I</div>
+    <div>
+      <h2>圖片刪除驗證</h2>
+      <p>貼上已刪除圖片清單，自動在虛擬瀏覽器中驗證是否仍被遊戲載入</p>
+    </div>
+  </div>
+  <div class="module-body">
+
+    <div class="section">
+      <h3>使用情境</h3>
+      <div class="tip tip-purple">
+        <span class="tip-icon">💡</span>
+        <div>當 RD 刪除遊戲圖片資源後，QA 需確認圖片真的沒有被前端載入（而非只是 Git 刪除成功）。此工具自動化完成此驗證流程。</div>
+      </div>
+    </div>
+
+    <hr />
+
+    <div class="section">
+      <h3>操作流程</h3>
+
+      <div class="flow">
+        <div class="flow-step">
+          <div class="flow-box img">
+            <div class="step-num">1</div>
+            <div class="step-label">輸入前端 URL</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box img">
+            <div class="step-num">2</div>
+            <div class="step-label">填入刪除圖片清單</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box img">
+            <div class="step-num">3</div>
+            <div class="step-label">啟動偵測</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box img">
+            <div class="step-num">4</div>
+            <div class="step-label">操作虛擬瀏覽器</div>
+          </div>
+        </div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step">
+          <div class="flow-box img">
+            <div class="step-num">5</div>
+            <div class="step-label">取得驗證結果</div>
+          </div>
+        </div>
+      </div>
+
+      <h4>Step 1 — 輸入前端 URL</h4>
+      <ul class="checklist">
+        <li>輸入含 token 的遊戲進入 URL（含 gameid 等參數）</li>
+        <li>格式：<code>https://osm-redirect.osmslot.org/?token=xxx&amp;gameid=xxx</code></li>
+      </ul>
+
+      <h4>Step 2 — 填入已刪除圖片清單</h4>
+      <p style="font-size:13px; color:#64748b; margin:8px 0">有三種方式輸入刪除清單：</p>
+      <ul class="checklist">
+        <li><strong>手動輸入</strong>：每行一個圖片路徑，如 <code>assets/resources/jackpot/aruze1.png</code></li>
+        <li><strong>貼上 git diff 文字解析</strong>：點擊「📋 貼上 git diff 文字解析」，貼入 git diff 輸出，系統自動萃取刪除的圖片路徑（支援 <code>git diff --name-status</code> / <code>git status</code> / GUI 格式）</li>
+        <li><strong>截圖 AI 識別</strong>：點擊「🖼️ 上傳截圖 AI 識別」或直接 <code>Ctrl+V</code> 貼上截圖，Gemini 自動識別圖片路徑填入欄位</li>
+      </ul>
+
+      <h4>Step 3 — 啟動偵測</h4>
+      <ul class="checklist">
+        <li>點擊「🚀 開始偵測」，後端啟動無頭瀏覽器</li>
+        <li>系統開始攔截所有圖片資源請求</li>
+      </ul>
+
+      <h4>Step 4 — 操作虛擬瀏覽器</h4>
+      <ul class="checklist">
+        <li>畫面顯示即時截圖（每 1.5 秒自動更新）</li>
+        <li>可直接<strong>點擊截圖</strong>操作遊戲（點擊位置會傳送至後端執行）</li>
+        <li>支援<strong>滾輪捲動</strong></li>
+        <li>左上方顯示已攔截圖片請求數量</li>
+        <li>操作遊戲進入各個畫面（大廳、遊戲房間、各功能頁面）讓系統完整收集圖片請求</li>
+      </ul>
+
+      <h4>Step 5 — 取得驗證結果</h4>
+      <ul class="checklist">
+        <li>點擊「✅ 完成，取得結果」</li>
+        <li>系統輸出比對報告：
+          <ul style="margin-top:4px; padding-left:20px; font-size:13px">
+            <li><span class="tag tag-red">❌ 仍在載入</span> — 圖片仍被前端請求，需回報給 RD 確認</li>
+            <li><span class="tag tag-green">✅ 已確認刪除</span> — 圖片未出現在任何請求中，驗證通過</li>
+          </ul>
+        </li>
+        <li>點擊「← 重新偵測」可重新開始</li>
+      </ul>
+
+      <div class="screenshot-placeholder">
+        <div class="ph-icon">🖼️</div>
+        <div class="ph-label">圖片驗證結果截圖</div>
+        <div>待補充</div>
+      </div>
+    </div>
+
+    <a class="back-to-top" href="#top">↑ 回到頂端</a>
+  </div>
+</div>
+
+
+<!-- ════════ 6. 操作歷史紀錄 ════════ -->
+<div class="module" id="history">
+  <div class="module-header">
+    <div class="module-icon icon-hist">H</div>
+    <div>
+      <h2>操作歷史紀錄</h2>
+      <p>查看所有功能的操作紀錄，支援時間區間篩選</p>
+    </div>
+  </div>
+  <div class="module-body">
+
+    <div class="section">
+      <h3>功能說明</h3>
+      <ul class="checklist">
+        <li>自動記錄所有重要操作的時間、功能、結果</li>
+        <li>支援篩選時間區間：今日 / 3 天 / 7 天</li>
+        <li>可查看每次操作的詳細記錄（操作帳號、目標資料、成功筆數等）</li>
+      </ul>
+    </div>
+
+    <div class="tip tip-success">
+      <span class="tip-icon">✅</span>
+      <div>所有歷史紀錄儲存於伺服器端 SQLite 資料庫，重新整理頁面不會消失</div>
+    </div>
+
+    <a class="back-to-top" href="#top">↑ 回到頂端</a>
+  </div>
+</div>
+
+
+<!-- ════════ 附錄 ════════ -->
+<div class="module">
+  <div class="module-header">
+    <div class="module-icon" style="background:#475569; font-size:20px; font-weight:400">⚙️</div>
+    <div>
+      <h2>Gemini 設定（全域）</h2>
+      <p>管理 AI 分析用的 API Keys 與 Prompt 模板</p>
+    </div>
+  </div>
+  <div class="module-body">
+    <div class="section">
+      <h3>開啟方式</h3>
+      <ul class="checklist">
+        <li>點擊頁面右上角「⚙️ Gemini」按鈕</li>
+      </ul>
+
+      <h3 style="margin-top:20px">API Key 管理</h3>
+      <ul class="checklist">
+        <li>可新增多組 Gemini API Key，系統自動輪替使用</li>
+        <li>顯示每組 Key 的使用狀態與剩餘配額</li>
+      </ul>
+
+      <h3 style="margin-top:20px">Prompt 模板管理</h3>
+      <ul class="checklist">
+        <li>左側列表依分類分組顯示所有模板</li>
+        <li>點擊模板名稱進行編輯</li>
+        <li>可設定「分類」欄位，方便日後整理</li>
+        <li>支援 <code>{{變數名}}</code> 語法插入動態內容</li>
+        <li>新增模板後，TestCase 生成的 Prompt 下拉選單會同步顯示</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+
+</div><!-- /.doc-body -->
+
+<div style="background:#0f172a; color:#475569; text-align:center; padding:20px; font-size:12px;">
+  Workflow Integrator 使用者操作手冊 · 最後更新：2026-04-02
+</div>
+
+</body>
+</html>

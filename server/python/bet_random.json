@@ -1,0 +1,57 @@
+{
+  "891-RISINGROCKETS-0140": [
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][1]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][2]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][3]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'play-right-bg')][1]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][1]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][2]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][3]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][4]//div[contains(@class,'btn_bet')]"
+  ],
+  "873-TIANCIJINLONG-0017": [
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][1]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][2]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][3]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'play-right-bg')][1]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][1]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][2]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][3]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][4]//div[contains(@class,'btn_bet')]"
+  ],
+  "873-LIGHTNINGGONGS-0023": [
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][1]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][2]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][3]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][1]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][2]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][3]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][4]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][5]//div[contains(@class,'btn_bet')]"
+  ],
+  "873-BULLBLITZ-0135": [
+    "//div[@class='row4']//div[contains(@class,'row4-1')]//div[contains(@class,'van-play-col')][1]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row4']//div[contains(@class,'row4-1')]//div[contains(@class,'van-play-col')][2]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row4']//div[contains(@class,'row4-1')]//div[contains(@class,'van-play-col')][3]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row4']//div[contains(@class,'row4-1')]//div[contains(@class,'van-play-col')][4]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row4']//div[contains(@class,'row4-1')]//div[contains(@class,'van-play-col')][5]//div[contains(@class,'btn_bet')]"
+  ],
+  "892-BZZF-0019": [
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][1]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][2]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][1]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][2]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][3]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][4]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][5]//div[contains(@class,'btn_bet')]"
+  ],
+  "892-BZZF-0020": [
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][1]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][2]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][1]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][2]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][3]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][4]//div[contains(@class,'btn_bet')]",
+    "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][5]//div[contains(@class,'btn_bet')]"
+  ]
+}
