@@ -542,8 +542,8 @@ body {
       <div class="compare-grid">
         <label>執行模式
           <select id="cmp-run-mode">
-            <option value="compare" selected>雙檔比對（舊版 vs 新版）</option>
-            <option value="validate">單檔驗證（欄位缺失）</option>
+            <option value="compare">雙檔比對（舊版 vs 新版）</option>
+            <option value="validate" selected>單檔驗證（欄位缺失）</option>
           </select>
         </label>
       </div>
@@ -1119,7 +1119,12 @@ function updateUiByRunMode() {
 }
 
 runModeEl.addEventListener('change', updateUiByRunMode);
-updateUiByRunMode();
+// 確保 DOM 完全 ready 後再初始化（iframe 環境下更安全）
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', updateUiByRunMode);
+} else {
+  updateUiByRunMode();
+}
 
 async function refreshAutoFieldsFromUpload() {
   if (runModeEl.value !== 'validate' || !oldFileEl.files?.[0]) {
