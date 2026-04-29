@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.11.1'
+export const APP_VERSION = '3.11.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.11.2',
+    date: '2026-04-29',
+    changes: [
+      'fix(log-compare)：select onchange + body onload 直接掛 inline handler，修正 iframe 內 addEventListener 不觸發問題',
+    ],
+  },
   {
     version: '3.11.1',
     date: '2026-04-29',

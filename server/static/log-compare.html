@@ -531,7 +531,7 @@ body {
 
 </style>
 </head>
-<body>
+<body onload="updateUiByRunMode()">
   <header class="topbar">
     <h1>LOG 結構比對</h1>
     <p>支援雙檔結構比對與單檔欄位缺失驗證（data/root）</p>
@@ -541,7 +541,7 @@ body {
     <section class="compare-card">
       <div class="compare-grid">
         <label>執行模式
-          <select id="cmp-run-mode">
+          <select id="cmp-run-mode" onchange="updateUiByRunMode()">
             <option value="compare">雙檔比對（舊版 vs 新版）</option>
             <option value="validate" selected>單檔驗證（欄位缺失）</option>
           </select>
