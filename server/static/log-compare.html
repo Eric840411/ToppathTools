@@ -547,12 +547,12 @@ body {
           </select>
         </label>
       </div>
-      <div class="compare-grid">
-        <label id="cmp-old-file-label"><span id="cmp-old-file-text">舊版 JSON(原始)</span>
+      <div class="compare-grid cmp-file-grid-single">
+        <label id="cmp-old-file-label"><span id="cmp-old-file-text">驗證 JSON(原始)</span>
           <input id="cmp-old-file" type="file" accept=".json,application/json">
         </label>
-        <label id="cmp-new-file-label">新版 JSON(原始)
-          <input id="cmp-new-file" type="file" accept=".json,application/json">
+        <label id="cmp-new-file-label" class="hidden">新版 JSON(原始)
+          <input id="cmp-new-file" type="file" accept=".json,application/json" disabled>
         </label>
       </div>
       <div class="compare-grid">
@@ -590,7 +590,7 @@ body {
           <p class="cmp-examples-block"><strong>忽略欄位</strong>：預設已含 <code>host</code> 等；若要比對 root 的 host，請從忽略清單移除 <code>host</code>。</p>
         </div>
       </details>
-      <div class="compare-grid">
+      <div class="compare-grid hidden">
         <label class="row-checkbox">
           <input id="cmp-enable-outer" type="checkbox">
           啟用 data/root 欄位比對（jsondata path/type 固定必比）
@@ -599,10 +599,10 @@ body {
           <input id="cmp-outer-fields" type="text" placeholder="例如 balance,seq_index,root.host,root.status">
         </label>
       </div>
-      <label id="cmp-required-wrap" class="hidden">單檔驗證欄位（逗號分隔，支援 root. / data.）
+      <label id="cmp-required-wrap">單檔驗證欄位（逗號分隔，支援 root. / data.）
         <input id="cmp-required-fields" type="text" placeholder="例如 root.event,function_name,balance,seq_index">
       </label>
-      <section id="cmp-auto-fields-wrap" class="cmp-auto-fields hidden">
+      <section id="cmp-auto-fields-wrap" class="cmp-auto-fields">
         <div class="cmp-auto-fields-head">
           <strong>自動掃描欄位（單檔 JSON）</strong>
           <span id="cmp-auto-fields-note" class="cmp-auto-fields-note">上傳單檔後會依欄位出現率自動推薦（預設 >= 95%）</span>

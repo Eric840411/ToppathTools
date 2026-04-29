@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.11.0'
+export const APP_VERSION = '3.11.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.11.1',
+    date: '2026-04-29',
+    changes: [
+      'fix(log-compare)：單檔驗證模式預設隱藏第二個上傳欄，改用 HTML class 直接控制避免 iframe JS 初始化時序問題',
+    ],
+  },
   {
     version: '3.11.0',
     date: '2026-04-29',
