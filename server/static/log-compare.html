@@ -230,6 +230,29 @@ body {
   cursor: pointer;
 }
 .hidden { display: none !important; }
+
+/* ── CSS-only 模式切換（不靠 JS 事件，iframe 環境安全）── */
+/* 預設：單檔驗證模式 */
+#cmp-new-file-label { display: none !important; }
+.compare-grid:has(#cmp-enable-outer) { display: none !important; }
+
+/* 切換到雙檔比對時 */
+.compare-card:has(#cmp-run-mode option[value="compare"]:checked) #cmp-new-file-label {
+  display: block !important;
+}
+.compare-card:has(#cmp-run-mode option[value="compare"]:checked) .cmp-file-grid-single {
+  grid-template-columns: 1fr 1fr !important;
+}
+.compare-card:has(#cmp-run-mode option[value="compare"]:checked) #cmp-required-wrap {
+  display: none !important;
+}
+.compare-card:has(#cmp-run-mode option[value="compare"]:checked) #cmp-auto-fields-wrap {
+  display: none !important;
+}
+.compare-card:has(#cmp-run-mode option[value="compare"]:checked) .compare-grid:has(#cmp-enable-outer) {
+  display: grid !important;
+}
+
 .compare-summary { margin-top: 12px; }
 .compare-tabs {
   margin-top: 10px;
@@ -552,7 +575,7 @@ body {
           <input id="cmp-old-file" type="file" accept=".json,application/json">
         </label>
         <label id="cmp-new-file-label" class="hidden">新版 JSON(原始)
-          <input id="cmp-new-file" type="file" accept=".json,application/json" disabled>
+          <input id="cmp-new-file" type="file" accept=".json,application/json">
         </label>
       </div>
       <div class="compare-grid">
