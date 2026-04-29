@@ -23,6 +23,8 @@ export interface MachineTestSession {
   osmEnv?: 'qat' | 'prod'
   /** AI 音頻分析：錄音後傳送 WAV 至 Gemini 判斷靜音/音量/爆音/雜訊 */
   aiAudio?: boolean
+  /** Session ID — used as file prefix for cctv-saves / audio-saves */
+  sessionId?: string
 }
 
 export type StepStatus = 'pass' | 'fail' | 'warn' | 'skip'

@@ -85,7 +85,7 @@ const OSM_STATUS_LABELS: Record<number, string> = {
 
 // ─── Active Runners ───────────────────────────────────────────────────────────
 
-export const activeRunners = new Map<string, { stop: () => void }>()
+export const activeRunners = new Map<string, { stop: () => void; account: string }>()
 
 const machineTestSessionSchema = z.object({
   lobbyUrls: z.array(z.string().url()).min(1),
@@ -100,6 +100,7 @@ const machineTestSessionSchema = z.object({
     cctv: z.boolean().optional(),
     exit: z.boolean(),
   }),
+  account: z.string().optional(),
   debugGmid: z.string().optional(),
   cctvModelSpec: z.string().optional(),
   headedMode: z.boolean().optional(),
@@ -523,22 +524,34 @@ router.delete('/api/machine-test/cctv-refs/:machineType', (req, res) => {
 const CCTV_SAVES_DIR  = join(__dirname, '..', 'machine-test', 'cctv-saves')
 const AUDIO_SAVES_DIR = join(__dirname, '..', 'machine-test', 'audio-saves')
 
-// GET /api/machine-test/cctv-saves/:code — serve CCTV screenshot for a machine
+// GET /api/machine-test/cctv-saves/:code?sessionId=xxx — serve CCTV screenshot
+// Falls back to legacy {code}.png if sessionId-prefixed file not found
 router.get('/api/machine-test/cctv-saves/:code', (req, res) => {
-  const filePath = join(CCTV_SAVES_DIR, `${req.params.code}.png`)
-  if (!existsSync(filePath)) { res.status(404).end(); return }
+  const { code } = req.params
+  const { sessionId } = req.query as Record<string, string>
+  const candidates = sessionId
+    ? [join(CCTV_SAVES_DIR, `${sessionId}-${code}.png`), join(CCTV_SAVES_DIR, `${code}.png`)]
+    : [join(CCTV_SAVES_DIR, `${code}.png`)]
+  const filePath = candidates.find(existsSync)
+  if (!filePath) { res.status(404).end(); return }
   res.setHeader('Content-Type', 'image/png')
   res.setHeader('Cache-Control', 'no-cache')
   res.send(readFileSync(filePath))
 })
 
-// GET /api/machine-test/audio-saves/:code — serve audio recording for a machine
+// GET /api/machine-test/audio-saves/:code?sessionId=xxx — serve audio recording
+// Falls back to legacy {code}.wav if sessionId-prefixed file not found
 router.get('/api/machine-test/audio-saves/:code', (req, res) => {
-  const filePath = join(AUDIO_SAVES_DIR, `${req.params.code}.wav`)
-  if (!existsSync(filePath)) { res.status(404).end(); return }
+  const { code } = req.params
+  const { sessionId } = req.query as Record<string, string>
+  const candidates = sessionId
+    ? [join(AUDIO_SAVES_DIR, `${sessionId}-${code}.wav`), join(AUDIO_SAVES_DIR, `${code}.wav`)]
+    : [join(AUDIO_SAVES_DIR, `${code}.wav`)]
+  const filePath = candidates.find(existsSync)
+  if (!filePath) { res.status(404).end(); return }
   res.setHeader('Content-Type', 'audio/wav')
   res.setHeader('Cache-Control', 'no-cache')
-  res.setHeader('Content-Disposition', `inline; filename="${req.params.code}.wav"`)
+  res.setHeader('Content-Disposition', `inline; filename="${code}.wav"`)
   res.send(readFileSync(filePath))
 })
 
@@ -593,12 +606,15 @@ router.post('/api/machine-test/start', async (req, res, next) => {
     if (pin && provided !== pin) {
       return res.status(403).json({ ok: false, message: '管理員 PIN 錯誤' })
     }
-    // Single-session lock
-    if (activeRunners.size > 0) {
-      return res.status(429).json({ ok: false, message: '目前有測試正在執行中，請稍後再試' })
+    const session = machineTestSessionSchema.parse(req.body) as MachineTestSession
+    const sessionAccount = session.account ?? 'guest'
+
+    // Per-account lock: each account can only run one session at a time
+    const accountAlreadyRunning = [...activeRunners.values()].some(r => r.account === sessionAccount)
+    if (accountAlreadyRunning) {
+      return res.status(429).json({ ok: false, message: '你目前已有測試正在執行中，請稍後再試' })
     }
 
-    const session = machineTestSessionSchema.parse(req.body) as MachineTestSession
     const sessionId = `mt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
     const rawProfiles = db.prepare('SELECT * FROM machine_test_profiles').all() as (MachineTestProfile & { touchPoints: string | null; clickTake: number; ideck_xpaths?: string })[]
     const profiles = rawProfiles.map(r => ({
@@ -667,6 +683,7 @@ router.post('/api/machine-test/start', async (req, res, next) => {
       }
 
       activeRunners.set(sessionId, {
+        account: sessionAccount,
         stop: () => {
           agentStopFns.forEach(fn => fn())
           cancelDistSession(sessionId)
@@ -680,7 +697,7 @@ router.post('/api/machine-test/start', async (req, res, next) => {
       const runner = new MachineTestRunner(osmMachineStatus, profileMap, betRandomConfig)
       runner.on('event', broadcastToViewers)
       activeRunners.set(sessionId, runner)
-      runner.run(session).finally(() => activeRunners.delete(sessionId))
+      runner.run({ ...session, sessionId }).finally(() => activeRunners.delete(sessionId))
       res.json({ ok: true, sessionId, mode: 'local' })
     }
   } catch (err) {
@@ -701,15 +718,63 @@ router.post('/api/machine-test/save-history', (req, res) => {
     const fail = results.filter((r) => r.overall === 'fail').length
     const warn = results.filter((r) => r.overall === 'warn').length
     addHistory('machine-test', `機台測試`, `共 ${results.length} 台：PASS ${pass} / WARN ${warn} / FAIL ${fail}`, { results, account, accountLabel })
-    // Save per-account session if account provided
+
+    const sid = sessionId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const now = Date.now()
+
+    // Save per-account session blob
     if (account) {
-      const id = sessionId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       db.prepare('INSERT OR REPLACE INTO machine_test_sessions (id, account, label, started_at, results) VALUES (?, ?, ?, ?, ?)')
-        .run(id, account, accountLabel ?? account, Date.now(), JSON.stringify(results))
+        .run(sid, account, accountLabel ?? account, now, JSON.stringify(results))
     }
+
+    // Save per-machine rows (always, regardless of account)
+    const insertResult = db.prepare(
+      'INSERT OR REPLACE INTO machine_test_results (id, session_id, machine_code, tested_at, account, overall, steps, duration_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    )
+    const insertMany = db.transaction((rows: typeof results) => {
+      for (const r of rows) {
+        const steps = r.steps ?? []
+        const durationMs = Array.isArray(steps)
+          ? (steps as { durationMs?: number }[]).reduce((s, st) => s + (st.durationMs ?? 0), 0)
+          : 0
+        insertResult.run(
+          `${sid}-${r.machineCode}`,
+          sid,
+          String(r.machineCode ?? ''),
+          now,
+          account ?? '',
+          String(r.overall ?? 'unknown'),
+          JSON.stringify(steps),
+          durationMs,
+        )
+      }
+    })
+    insertMany(results)
+
     res.json({ ok: true })
   } catch (err) {
     res.status(400).json({ ok: false, message: String(err) })
+  }
+})
+
+// GET /api/machine-test/machine-results?machineCode=XXX&limit=20
+// GET /api/machine-test/machine-results?account=XXX&limit=50
+router.get('/api/machine-test/machine-results', (req, res) => {
+  const { machineCode, account, limit = '30' } = req.query as Record<string, string>
+  const lim = Math.min(parseInt(limit) || 30, 200)
+  if (machineCode) {
+    const rows = db.prepare(
+      'SELECT * FROM machine_test_results WHERE machine_code = ? ORDER BY tested_at DESC LIMIT ?'
+    ).all(machineCode, lim) as { id: string; session_id: string; machine_code: string; tested_at: number; account: string; overall: string; steps: string; duration_ms: number }[]
+    res.json({ ok: true, results: rows.map(r => ({ ...r, steps: JSON.parse(r.steps) })) })
+  } else if (account) {
+    const rows = db.prepare(
+      'SELECT * FROM machine_test_results WHERE account = ? ORDER BY tested_at DESC LIMIT ?'
+    ).all(account, lim) as { id: string; session_id: string; machine_code: string; tested_at: number; account: string; overall: string; steps: string; duration_ms: number }[]
+    res.json({ ok: true, results: rows.map(r => ({ ...r, steps: JSON.parse(r.steps) })) })
+  } else {
+    res.status(400).json({ ok: false, message: 'machineCode or account required' })
   }
 })
 

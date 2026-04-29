@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.9.25'
+export const APP_VERSION = '3.11.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,401 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.11.0',
+    date: '2026-04-29',
+    changes: [
+      '【新功能】Game Show 整合 bonus-v2：gs-stats 新增「ColorGame V2 電子骰」模式，解析 prepareBonusResult/d.v[10][143]，統計 Single 2同/3同、任意2同/3同，支援彩色分布圖與 CSV 匯出',
+      '【新功能】Game Show 整合 front-log-compare：gs-logchecker 新增「Log 結構比對」分頁，內嵌 iframe 雙檔JSON比對/單檔欄位驗證工具（/api/gs/log-compare）',
+      '更新 intercept.js 至最新 646 行版本，新增三層結構解析（root/data/jsondata）、排除噪音事件、自動推薦驗證欄位',
+    ],
+  },
+  {
+    version: '3.10.2',
+    date: '2026-04-29',
+    changes: [
+      '音頻亮度改用 ZCR（零交叉率）替代 DFT，使用 4096-sample 窗格（93ms），完全避開暫態干擾',
+      '判定門檻調整為 1500 Hz（ZCR-derived）；正常機台約 100~600 Hz，異常（清脆/金屬音）約 3000+ Hz',
+      '靜音閾值調整：排除比最響窗格低超過 10 dB 的窗格，防止 decay 尾聲噪音拉高重心',
+      '修正 stepAudio / stepCctv 參數傳遞錯誤（sessionPrefix undefined）',
+      '修正 keepWav 固定為 true，確保音頻檔案必存、wavBase64 一定有值',
+    ],
+  },
+  {
+    version: '3.10.1',
+    date: '2026-04-29',
+    changes: [
+      '特殊遊戲等待邏輯重構：一直等到 status=0（最長 15 分鐘），status=0 後再 Spin 10 秒 cooldown，全程標 PASS',
+      'FG/JP 的真正問題判斷移至退出步驟（errcode 10002 退不出去才算異常）',
+    ],
+  },
+  {
+    version: '3.10.0',
+    date: '2026-04-28',
+    changes: [
+      '【新功能】機台測試帳號級別鎖定：同帳號不可同時啟動多個測試，不同帳號可並行互不干擾',
+      '【新功能】CCTV 截圖與音頻錄音改用 {sessionId}-{machineCode} 作為檔名，每次測試獨立一份不互蓋',
+      'start 請求自動帶入 account email；前端 CCTV/音頻請求自動帶 ?sessionId= 參數，後端保留舊檔名 fallback',
+    ],
+  },
+  {
+    version: '3.9.69',
+    date: '2026-04-29',
+    changes: [
+      '新增 machine_test_results 表，每台機器獨立一筆 DB 紀錄（含 overall/steps/duration）',
+      'save-history 自動寫入 per-machine 紀錄，保留 90 天；新增 GET /api/machine-test/machine-results 查詢端點',
+    ],
+  },
+  {
+    version: '3.9.68',
+    date: '2026-04-28',
+    changes: [
+      '[遊戲版] 新增 Jack 角色（牌師），SWITCH CLASS 改為三職業循環：Warrior → Mage → Jack',
+    ],
+  },
+  {
+    version: '3.9.67',
+    date: '2026-04-28',
+    changes: [
+      '[遊戲版] 全域點擊音效 ui-click-arcane.wav，音量 35%，3 個 Audio 池支援快速連點',
+    ],
+  },
+  {
+    version: '3.9.66',
+    date: '2026-04-28',
+    changes: [
+      '[遊戲版] 加入角色立繪系統：Warrior / Mage 4 幀 idle 動畫，升級/完成任務觸發動畫，點擊顯示台詞',
+    ],
+  },
+  {
+    version: '3.9.65',
+    date: '2026-04-28',
+    changes: [
+      'Gemini API 所有 fetch 呼叫加入 30 秒 timeout，防止 CCTV OCR / 音頻分析卡住不動',
+    ],
+  },
+  {
+    version: '3.9.64',
+    date: '2026-04-28',
+    changes: [
+      '音頻檢測：正常音量範圍改為 -60 ~ -20 dB，超出範圍判 WARN',
+    ],
+  },
+  {
+    version: '3.9.63',
+    date: '2026-04-28',
+    changes: [
+      '音頻檢測：加入頻譜重心（Spectral Centroid）計算，> 1100 Hz 判定為音色偏亮/清脆 → WARN',
+    ],
+  },
+  {
+    version: '3.9.62',
+    date: '2026-04-28',
+    changes: [
+      '音頻檢測：靜音閾值改為 RMS < -80 dB，AI 無法覆蓋靜音判定',
+      '音頻檢測：AI prompt 加入 RMS/峰值/基準數值及正常範圍（-70~-30 dB）',
+      '音頻檢測：錄音延長至 10 秒，改為第一次 Spin 前即開始錄製',
+    ],
+  },
+  {
+    version: '3.9.61',
+    date: '2026-04-28',
+    changes: [
+      '[遊戲版] GameSidebar label-icons-18 圖示 margin-left 調整為 3px',
+    ],
+  },
+  {
+    version: '3.9.59',
+    date: '2026-04-28',
+    changes: [
+      '[遊戲版] GameSidebar 導覽圖示全面換用 label-icons-18 像素圖示集（banner/castle/crystal/gear/mech 等 12 種）',
+    ],
+  },
+  {
+    version: '3.9.58',
+    date: '2026-04-28',
+    changes: [
+      '[修復] LarkPage / JiraPage 還原 isGame 判斷：遊戲版顯示 DungeonIcon（plain），一般版保留原始 emoji，不互相影響',
+    ],
+  },
+  {
+    version: '3.9.57',
+    date: '2026-04-28',
+    changes: [
+      '[遊戲版] GameSidebar 側邊欄導覽圖示、GameHeader 帳號圖示全部改為 plain 模式，移除所有剩餘 DungeonIcon 外框',
+    ],
+  },
+  {
+    version: '3.9.56',
+    date: '2026-04-28',
+    changes: [
+      '[遊戲版] GameHeader CONFIG 按鈕、GameQuestPanel 浮動按鈕和任務標籤改用 plain 圖示，移除多餘外框',
+    ],
+  },
+  {
+    version: '3.9.55',
+    date: '2026-04-28',
+    changes: [
+      '[DungeonIcon] 新增 plain 模式：直接顯示像素圖，不帶邊框/背景；LarkPage 和 JiraPage 所有內嵌圖示改用 plain 模式',
+    ],
+  },
+  {
+    version: '3.9.54',
+    date: '2026-04-28',
+    changes: [
+      '[全版本] 將 LarkPage / JiraPage 的所有 emoji 改為 DungeonIcon，不再區分遊戲/一般模式，兩版本都顯示像素圖示',
+      '[遊戲版] pixel.css 新增 .dng-icon 完整樣式，修正遊戲模式圖示無 CSS 問題（原本只在 App.css 定義）',
+    ],
+  },
+  {
+    version: '3.9.53',
+    date: '2026-04-28',
+    changes: [
+      '[遊戲版] 全面替換 emoji → DungeonIcon：GameSidebar 導覽圖示、GameHeader CONFIG 按鈕、GameQuestPanel 任務/達成圖示',
+      '[遊戲版] JiraPage：帳號按鈕、PM 開單成功/失敗圖示、成員搜尋圖示改用 DungeonIcon（一般版保留 emoji）',
+      '[遊戲版] LarkPage：移除按鈕、選擇檔案、載入中、設定說明、執行結果摘要圖示全面改用 DungeonIcon',
+    ],
+  },
+  {
+    version: '3.9.52',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] LarkPage：修復來源類型選擇按鈕在遊戲版顯示 DungeonIcon 圖示（icon+emoji 雙模式）',
+    ],
+  },
+  {
+    version: '3.9.51',
+    date: '2026-04-27',
+    changes: [
+      '[架構] 新增 GameModeContext：GameApp 包一層 Provider（value=true），共用元件用 useIsGameMode() 判斷是否在遊戲版',
+      '[遊戲版] LarkPage：操作類型 tab 和來源類型 tab 在遊戲版顯示 DungeonIcon 像素圖示，一般版保留 emoji',
+      '[遊戲版] JiraAccountModal / GeminiSettingsModal / ChangelogModal：關閉按鈕在遊戲版顯示 DungeonIcon，一般版保留 ✕',
+    ],
+  },
+  {
+    version: '3.9.50',
+    date: '2026-04-27',
+    changes: [
+      '[修正] linter 誤將 DungeonIcon 加入共用元件（App.tsx、LarkPage.tsx、JiraAccountModal.tsx、GeminiSettingsModal.tsx、ChangelogModal.tsx），導致一般版本出現遊戲風格圖示 — 已還原這 5 個檔案至上一個 commit',
+    ],
+  },
+  {
+    version: '3.9.49',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] 修正頭像選擇後未即時同步：localStorage.setItem 在同 tab 不觸發 storage 事件，改用 CustomEvent toppath:avatar-changed 廣播，所有 useAvatar 實例即時更新',
+    ],
+  },
+  {
+    version: '3.9.48',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] 頭像庫升級：換用 20 款全新角色（Commander/Hacker/Medic/Pilot/Mechanic/Analyst/Scout/Security/Comms/Researcher，各兩性別）',
+      '[遊戲版] 頭像選擇器改為 Modal（5×4 網格），適合 20 個選項，支援 Esc 關閉',
+      '[遊戲版] Header 頭像改為獨立紫框按鈕，點擊開啟選擇 Modal；舊的 commander-vN 值自動 migrate 到預設',
+    ],
+  },
+  {
+    version: '3.9.47',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] 修正側邊欄大頭像未連動：GameSidebar 補上 useAvatar，選擇後左側與右側同步更新',
+    ],
+  },
+  {
+    version: '3.9.46',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] 新增自定義頭像功能：點擊 Header 的頭像圖示可切換 6 款像素風角色（commander ~ commander-v6）',
+      '[遊戲版] 頭像選擇存於 localStorage（toppath.avatar），重整後保留，支援跨分頁同步',
+      '[遊戲版] useAvatar hook：統一管理選擇邏輯、驗證存儲值、無效值自動 fallback 到 commander-v2',
+    ],
+  },
+  {
+    version: '3.9.45',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] 增加按鈕內距：px-btn padding 8→10/18→24px，submit-btn 12→14/28→36px，modal submit 8→10/28→32px',
+      '[遊戲版] 修正按鈕文字與邊框線太貼近問題',
+    ],
+  },
+  {
+    version: '3.9.44',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] 修正步驟指示器 "123456" 和 "1234" 顯示為純文字：補上 .step-dot/.step-indicator/.step-label 的 CSS（App.css 未載入）',
+      '[遊戲版] step-dot 改為 22px 圓形徽章，active=cyan 發光，done=green，視覺清晰',
+      '[遊戲版] 整體間距改善：section-card padding 加大、form-stack gap 加寬、modal-body 子元素間距加大',
+    ],
+  },
+  {
+    version: '3.9.43',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] 修正選擇委託人頭像過大：補上 member-list/card/avatar 的 game-mode CSS（App.css 未載入時沒有尺寸限制導致頭像撐大）',
+      '[遊戲版] 委託人頭像改為 36px 緊湊格，深色主題 + cyan 選中效果',
+    ],
+  },
+  {
+    version: '3.9.42',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] 彈窗內 submit-btn 改回純 CSS 樣式（PNG 框架在小尺寸下透明中心偏移，對齊不準）',
+      '[遊戲版] 彈窗按鈕：綠色 border + glow，完美 flex 置中，無圖片偏移問題',
+    ],
+  },
+  {
+    version: '3.9.41',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] 修正按鈕文字未置中：改用 display:flex + align-items:center + justify-content:center',
+      '[遊戲版] 彈窗移除多餘 CSS 邊框和發光效果（已有像素藝術框架，不需要 CSS border/glow）',
+      '[遊戲版] 彈窗移除 ::before 頂部漸層線（PNG 框架本身已有頂部裝飾）',
+    ],
+  },
+  {
+    version: '3.9.40',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] 修正彈窗內 submit-btn hover 框架消失：移除 background: 簡寫（會覆蓋 background-image），改用 background-color',
+      '[遊戲版] 修正彈窗內 submit-btn background-image: none 明確清除問題',
+      '[遊戲版] submit-btn 字體加大至 10px，padding 加寬，視覺更清晰',
+    ],
+  },
+  {
+    version: '3.9.39',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] submit-btn 改為固定寬度（max 300px）並自動置中，避免像素框架被拉伸變形',
+      '[遊戲版] submit-btn--wide 同步限制最大寬度（400px），不再全版面展開',
+    ],
+  },
+  {
+    version: '3.9.38',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] 整合所有像素藝術圖片：btn-green/red/gold、badge-pass/warn/fail/info、modal-frame、dashboard-bg',
+      '[遊戲版] .px-btn--primary/danger/gold 改用實際 PNG 框架（背景透明 + drop-shadow hover）',
+      '[遊戲版] .submit-btn 改用 btn-green.png（同 px-btn 方式）',
+      '[遊戲版] .px-badge 全系列改用像素藝術框架圖片',
+      '[遊戲版] 彈窗框架改用 modal-frame.png（border-image，1448×1086）',
+      '[遊戲版] 主背景更新為新的 dashboard-bg.png',
+    ],
+  },
+  {
+    version: '3.9.37',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] .px-btn 改用 border-image 正確方式套用 btn-cyan.png 框架（border-image-slice: 175 340）',
+      '[遊戲版] .px-btn--primary/--danger/--gold 改用 CSS 邊框 fallback（移除不存在的 PNG 引用，避免框架消失）',
+      '[遊戲版] .submit-btn 同步改用 CSS border 綠色邊框 fallback',
+    ],
+  },
+  {
+    version: '3.9.36',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] 修正按鈕黑色邊框：改用 background-size: calc(100%+64px) 裁掉圖片外圍深色光暈，搭配 background-position: center',
+      '[遊戲版] 修正 CONFIG 按鈕文字未置中：移除 inline padding 覆蓋，改用 minWidth 讓 flexbox 正確置中',
+      '[遊戲版] 所有 px-btn 變體（primary/danger/gold）同步使用相同裁切技術',
+    ],
+  },
+  {
+    version: '3.9.35',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] .px-btn 改用像素藝術框架圖片 btn-cyan.png（background-image: 100% 100% 縮放，透明中心顯示暗色背景）',
+      '[遊戲版] .px-btn--primary / --danger / --gold 改為等待各自 PNG 圖片（btn-green/red/gold.png），未到時保持 CSS 邊框',
+      '[遊戲版] .submit-btn 同步改用 btn-green.png 框架圖片樣式',
+      '[遊戲版] 按鈕 hover/active 改用 filter:brightness 和 box-shadow glow 做回饋',
+    ],
+  },
+  {
+    version: '3.9.34',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] 修正 section-card 沒有內距：game mode 不載入 App.css 導致 padding:20px 遺失，補回 padding: 20px',
+      '[遊戲版] 修正 form-stack 沒有 gap/margin：補回 flex + gap: 12px + margin-bottom: 16px',
+      '[遊戲版] 修正 field 沒有 flex 佈局：補回 display:flex + flex-direction:column + gap: 5px',
+    ],
+  },
+  {
+    version: '3.9.33',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] Layer A：彈窗統一化 — 所有彈窗統一 max-height: 86vh、flex 佈局、.modal 寬度固定 480px、modal-box 最大 820px',
+      '[遊戲版] Layer A：modal-body 統一 padding: 20px、overflow-y: auto、flex: 1 可捲動',
+      '[遊戲版] Layer A：所有彈窗開啟時有像素淡入動畫',
+      '[遊戲版] Layer B：OSM 頁面完整暗色主題 — osm-btn / osm-badge / osm-card / osm-channel-row / osm-comp-ver-card / osm-alert / osm-table / stat-chip 等全部覆蓋',
+      '[遊戲版] Layer C：AutoSpin、History 等 8 個使用 inline style 頁面的白色背景、淡色文字、圓角、分隔線全部替換為遊戲主題色',
+      '[遊戲版] Layer D：版面節奏統一 — page-layout gap、section-title margin、inline border-radius 統一歸零',
+    ],
+  },
+  {
+    version: '3.9.32',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] Phase 2 互動效果：切換頁面時有像素淡入滑動動畫（steps transition）',
+      '[遊戲版] 按鈕點擊時光掃效果（白光横掃 mix-blend-mode:screen）',
+      '[遊戲版] 側邊欄子選單啟用項目改為綠色左邊框指示器',
+      '[遊戲版] px-panel hover 時頂部掃描線動畫',
+      '[遊戲版] .px-corners 工具類：左上青色 + 右下金色角落裝飾',
+      '[遊戲版] .px-loading 動態點點動畫（LOADING...）',
+      '[遊戲版] .px-title-glitch 色差閃爍效果',
+      '[遊戲版] XP 進度條加上 25/50/75% 金色 checkpoint 刻度',
+      '[遊戲版] 表格行點擊時位移反饋',
+      '[遊戲版] 輸入框 focus 時左邊框加粗青色指示器',
+    ],
+  },
+  {
+    version: '3.9.31',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] 修正表格太擠：version-table / table-wrap 補上 padding: 8px 12px、vertical-align: top、word-break: break-word、line-height: 1.6，移除等寬字型覆蓋',
+      '[遊戲版] 修正 tc-detail 展開列字型：移除 pixel font 和 monospace font，改為保持原字型只調整顏色與行高',
+    ],
+  },
+  {
+    version: '3.9.30',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] 修正中文文字破版：移除 section-title / action-tab / field 標籤的 pixel font 和 text-transform 設定，改為只調整顏色和尺寸，確保中文字正常顯示',
+      '[遊戲版] 修正 CSS attribute selector：改用結構選擇器（.form-stack > div）代替 hex 顏色字串比對（瀏覽器會將 hex 轉成 rgb 導致無法匹配）',
+    ],
+  },
+  {
+    version: '3.9.29',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] 全頁排版美化：section-card 暗色底、section-title 像素字體、action-tab 像素按鈕、field 表單元素暗色主題',
+      '[遊戲版] 內聯樣式強制覆蓋：LarkPage spec 卡片、來源選擇 pill、輸入框、文字顏色全部對應暗色系',
+      '[遊戲版] summary-item / bitable-link-btn / tc-detail / version-table 全部套用像素風格',
+    ],
+  },
+  {
+    version: '3.9.28',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] 修正彈框 ✕ 位置：modal-header 補上 flex 佈局，關閉按鈕正確推到右側',
+      '[遊戲版] 全頁按鈕/UI 像素化：submit-btn（綠）/ btn-ghost（青框）/ source-btn / settings-btn / badge / alert-warn / alert-error / result-box / info-block 全部套用 pixel 風格',
+      '[遊戲版] modal-tabs 修正間距與點擊區域，modal-tab 補上 cursor 與 pixel font',
+    ],
+  },
+  {
+    version: '3.9.27',
+    date: '2026-04-27',
+    changes: [
+      '[遊戲版] Badge 全面重設計：依 badges_status.png 規格實作 GLOW（發光框線）/ SOLID（實心填色）/ OUTLINE（純框線）三種樣式，PASS/WARN/FAIL/SKIP/RUN/ONLINE/OFFLINE 各有對應色彩與 box-shadow 發光',
+      '[遊戲版] Button 全面重設計：依 buttons_states.png 規格實作 SECONDARY（青）/ PRIMARY（綠）/ DANGER（紅）三種樣式，每種均有 Default / Hover（發光）/ Pressed（實心填色）/ Disabled（灰暗）四個狀態',
+    ],
+  },
+  {
+    version: '3.9.26',
+    date: '2026-04-26',
+    changes: [
+      '[遊戲版] JiraAccountModal 像素風格套用：帳號卡片、角色徽章、動作按鈕（PIN/角色/刪除）、RoleToggle、管理員區塊全部改為暗色像素美術風格，submit 按鈕改為像素框線樣式',
+    ],
+  },
   {
     version: '3.9.25',
     date: '2026-04-24',

@@ -615,9 +615,9 @@ function toQAMessage(result: MachineResult): string {
 
 // ─── Audio Player (inline play/download for test recording) ───────────────────
 
-function AudioPlayer({ machineCode }: { machineCode: string }) {
+function AudioPlayer({ machineCode, sessionId }: { machineCode: string; sessionId?: string | null }) {
   const [open, setOpen] = useState(false)
-  const url = `/api/machine-test/audio-saves/${machineCode}`
+  const url = `/api/machine-test/audio-saves/${machineCode}${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`
   if (!open) {
     return (
       <button
@@ -740,15 +740,15 @@ function MyHistoryPanel({ account }: { account: AccountInfo }) {
                             })}
                             <td style={{ padding: '6px 8px', textAlign: 'center' }}>
                               <img
-                                src={`/api/machine-test/cctv-saves/${r.machineCode}`}
+                                src={`/api/machine-test/cctv-saves/${r.machineCode}?sessionId=${encodeURIComponent(s.id)}`}
                                 alt=""
                                 style={{ height: 24, width: 'auto', borderRadius: 2, cursor: 'pointer', border: '1px solid #e2e8f0' }}
-                                onClick={() => setCctvPreview(`/api/machine-test/cctv-saves/${r.machineCode}`)}
+                                onClick={() => setCctvPreview(`/api/machine-test/cctv-saves/${r.machineCode}?sessionId=${encodeURIComponent(s.id)}`)}
                                 onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
                               />
                             </td>
                             <td style={{ padding: '6px 8px', textAlign: 'center' }}>
-                              <AudioPlayer machineCode={r.machineCode} />
+                              <AudioPlayer machineCode={r.machineCode} sessionId={s.id} />
                             </td>
                           </tr>
                         ))}
@@ -1307,7 +1307,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
     const resp = await fetch('/api/machine-test/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-admin-pin': adminPin },
-      body: JSON.stringify({ lobbyUrls: lobbyUrls.filter(u => u.trim()), machineCodes, steps, osmEnv, ...(headedMode ? { headedMode: true } : {}), ...(aiAudio && steps.audio ? { aiAudio: true } : {}), ...(debugMode && debugGmid.trim() ? { debugGmid: debugGmid.trim() } : {}), ...(steps.cctv ? { cctvModelSpec: cctvModel } : {}) }),
+      body: JSON.stringify({ lobbyUrls: lobbyUrls.filter(u => u.trim()), machineCodes, steps, osmEnv, account: account?.email ?? '', ...(headedMode ? { headedMode: true } : {}), ...(aiAudio && steps.audio ? { aiAudio: true } : {}), ...(debugMode && debugGmid.trim() ? { debugGmid: debugGmid.trim() } : {}), ...(steps.cctv ? { cctvModelSpec: cctvModel } : {}) }),
     }).then(r => r.json()) as { ok: boolean; sessionId?: string; message?: string }
 
     if (!resp.ok || !resp.sessionId) {
@@ -1982,15 +1982,15 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
                                   <span title={step.message}>{statusIcon(step.status)}</span>
                                   {k === 'cctv' && (
                                     <img
-                                      src={`/api/machine-test/cctv-saves/${r.machineCode}`}
+                                      src={`/api/machine-test/cctv-saves/${r.machineCode}${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`}
                                       alt=""
                                       style={{ height: 28, width: 'auto', borderRadius: 3, cursor: 'pointer', border: '1px solid #e2e8f0' }}
-                                      onClick={() => setCctvPreview(`/api/machine-test/cctv-saves/${r.machineCode}`)}
+                                      onClick={() => setCctvPreview(`/api/machine-test/cctv-saves/${r.machineCode}${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`)}
                                       onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
                                     />
                                   )}
                                   {k === 'audio' && (
-                                    <AudioPlayer machineCode={r.machineCode} />
+                                    <AudioPlayer machineCode={r.machineCode} sessionId={sessionId} />
                                   )}
                                 </span>
                               ) : (

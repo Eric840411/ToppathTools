@@ -2,11 +2,12 @@
  * server/routes/gameshow.ts
  * Game Show 工具集後端路由
  * - POST /api/gs/pdf-testcase          — PDF/DOCX 上傳 → Gemini → TestCase 陣列
- * - GET  /api/gs/log-checker-script    — 回傳 intercept.js 注入腳本
+ * - GET  /api/gs/log-checker-script    — 回傳 intercept.js 注入腳本（646行最新版）
+ * - GET  /api/gs/log-compare           — 回傳 log-compare.html 頁面（LOG結構比對工具）
  * - POST /api/gs/img-compare/session   — 啟動圖片比對 session（背景 Playwright 擷取）
  * - GET  /api/gs/img-compare/status/:id — 查詢擷取進度與配對結果
  * - GET  /api/gs/img-compare/img/:id/:side/:idx — 回傳擷取圖片 buffer
- * - POST /api/gs/stats/start           — 啟動 WS 統計 session
+ * - POST /api/gs/stats/start           — 啟動 WS 統計 session（支援 ColorGame V2 bonus-v2 解析）
  * - POST /api/gs/stats/stop/:id        — 停止統計
  * - GET  /api/gs/stats/status/:id      — 查詢統計結果
  */
@@ -69,13 +70,52 @@ interface PairedResult {
   similarity?: number
 }
 
+// ColorGame V2 電子骰顏色代碼（bonus-v2 規格書）
+const COLOR_MAP: Record<number, string> = {
+  801: '黃', 802: '白', 803: '粉', 804: '藍', 805: '紅', 806: '綠'
+}
+
+interface BonusEntry {
+  single_m2: { color: string; rate: number }[]
+  single_m3: { color: string; rate: number }[]
+  any_double: { color: string; rate: number } | null
+  any_triple: { color: string; rate: number } | null
+}
+
 interface StatsSession {
   status: 'running' | 'stopped' | 'error'
   rounds: number
   distribution: Record<string, number>
+  // bonus-v2 模式額外統計
+  mode?: 'generic' | 'bonus-v2'
+  bonusRounds?: number
+  bonusDistribution?: {
+    single_m2: Record<string, number>   // key: `${color}` → count
+    single_m3: Record<string, number>
+    any_double: Record<string, number>  // key: `${color}` → count
+    any_triple: Record<string, number>
+  }
   error?: string
   createdAt: number
   stop?: () => void
+}
+
+/** 解析 d.v[10][143] 電子骰資料（bonus-v2 規格） */
+function parseBonusData(data143: Record<string, any>): BonusEntry {
+  const result: BonusEntry = { single_m2: [], single_m3: [], any_double: null, any_triple: null }
+  for (const [key, val] of Object.entries(data143)) {
+    const k = Number(key)
+    if (k >= 801 && k <= 806) {
+      const color = COLOR_MAP[k] ?? `色${k}`
+      if (val?.matchColors === 2) result.single_m2.push({ color, rate: val.rate ?? 0 })
+      else if (val?.matchColors === 3) result.single_m3.push({ color, rate: val.rate ?? 0 })
+    } else if (k === 807) {
+      result.any_double = { color: COLOR_MAP[val?.bonusColor] ?? String(val?.bonusColor ?? ''), rate: val?.rate ?? 0 }
+    } else if (k === 808) {
+      result.any_triple = { color: COLOR_MAP[val?.bonusColor] ?? String(val?.bonusColor ?? ''), rate: val?.rate ?? 0 }
+    }
+  }
+  return result
 }
 
 // ─── 記憶體 Store ─────────────────────────────────────────────────────────────
@@ -182,6 +222,19 @@ router.get('/api/gs/log-checker-script', (_req, res) => {
     res.json({ ok: true, script })
   } catch {
     res.json({ ok: false, message: '腳本檔案載入失敗' })
+  }
+})
+
+// ─── Log Compare Page ─────────────────────────────────────────────────────────
+
+router.get('/api/gs/log-compare', (_req, res) => {
+  try {
+    const htmlPath = join(__dirname, '../static/log-compare.html')
+    const html = readFileSync(htmlPath, 'utf-8')
+    res.set('Content-Type', 'text/html; charset=utf-8')
+    res.send(html)
+  } catch {
+    res.status(500).send('<p>log-compare.html 載入失敗</p>')
   }
 })
 
@@ -415,14 +468,18 @@ function parseWsFrame(data: string): string | null {
 }
 
 router.post('/api/gs/stats/start', async (req, res) => {
-  const { url } = req.body as { url?: string }
+  const { url, mode } = req.body as { url?: string; mode?: string }
   if (!url) return res.json({ ok: false, message: '需要 url' })
 
+  const statsMode = mode === 'bonus-v2' ? 'bonus-v2' : 'generic'
   const sessionId = crypto.randomBytes(8).toString('hex')
   const session: StatsSession = {
     status: 'running',
     rounds: 0,
     distribution: {},
+    mode: statsMode,
+    bonusRounds: statsMode === 'bonus-v2' ? 0 : undefined,
+    bonusDistribution: statsMode === 'bonus-v2' ? { single_m2: {}, single_m3: {}, any_double: {}, any_triple: {} } : undefined,
     createdAt: Date.now(),
   }
   statsSessions.set(sessionId, session)
@@ -439,12 +496,47 @@ router.post('/api/gs/stats/start', async (req, res) => {
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
       })
       const page = await context.newPage()
+      const processedRounds = new Set<string>()
 
       page.on('websocket', ws => {
         ws.on('framereceived', ({ payload }) => {
           if (session.status !== 'running') return
-          const data = typeof payload === 'string' ? payload : payload.toString()
-          const key = parseWsFrame(data)
+          let raw = typeof payload === 'string' ? payload : payload.toString()
+
+          // bonus-v2 模式：解析 ColorGame V2 WebSocket 協定
+          if (statsMode === 'bonus-v2') {
+            // 去掉 $#|#$ 前綴
+            if (raw.startsWith('$#|#$')) raw = raw.slice(5)
+            if (!raw.startsWith('{') && !raw.startsWith('[')) return
+            try {
+              const data = JSON.parse(raw)
+              if (data.e === 'notify' && data.d?.v?.[3] === 'prepareBonusResult') {
+                const roundId = String(data.d?.v?.[10]?.[0] ?? '')
+                if (roundId && processedRounds.has(roundId)) return
+                if (roundId) processedRounds.add(roundId)
+                const data143 = data.d?.v?.[10]?.[143]
+                if (data143 && typeof data143 === 'object' && Object.keys(data143).length > 0) {
+                  const parsed = parseBonusData(data143)
+                  session.bonusRounds = (session.bonusRounds ?? 0) + 1
+                  session.rounds = session.bonusRounds
+                  const bd = session.bonusDistribution!
+                  for (const { color } of parsed.single_m2) bd.single_m2[color] = (bd.single_m2[color] ?? 0) + 1
+                  for (const { color } of parsed.single_m3) bd.single_m3[color] = (bd.single_m3[color] ?? 0) + 1
+                  if (parsed.any_double) bd.any_double[parsed.any_double.color] = (bd.any_double[parsed.any_double.color] ?? 0) + 1
+                  if (parsed.any_triple) bd.any_triple[parsed.any_triple.color] = (bd.any_triple[parsed.any_triple.color] ?? 0) + 1
+                  // 也記錄到 distribution 供通用表格顯示（格式：類型-顏色）
+                  for (const { color } of parsed.single_m2) { const k = `2同-${color}`; session.distribution[k] = (session.distribution[k] ?? 0) + 1 }
+                  for (const { color } of parsed.single_m3) { const k = `3同-${color}`; session.distribution[k] = (session.distribution[k] ?? 0) + 1 }
+                  if (parsed.any_double) { const k = `任意2同`; session.distribution[k] = (session.distribution[k] ?? 0) + 1 }
+                  if (parsed.any_triple) { const k = `任意3同`; session.distribution[k] = (session.distribution[k] ?? 0) + 1 }
+                }
+              }
+            } catch { /* 略過無法解析的 frame */ }
+            return
+          }
+
+          // generic 模式：通用 WS 骰型解析
+          const key = parseWsFrame(raw)
           if (key) {
             session.distribution[key] = (session.distribution[key] ?? 0) + 1
             session.rounds++
@@ -475,7 +567,7 @@ router.post('/api/gs/stats/start', async (req, res) => {
     }) // end browserLimiter.schedule
   })()
 
-  res.json({ ok: true, sessionId })
+  res.json({ ok: true, sessionId, mode: statsMode })
 })
 
 router.post('/api/gs/stats/stop/:id', async (req, res) => {
@@ -486,11 +578,12 @@ router.post('/api/gs/stats/stop/:id', async (req, res) => {
   } else {
     session.status = 'stopped'
   }
+  const modeLabel = session.mode === 'bonus-v2' ? 'ColorGame V2 電子骰' : '通用 WS'
   addHistory(
     'gs-stats',
-    'GS 500x 機率統計',
+    `GS 統計（${modeLabel}）`,
     `共 ${session.rounds} 回合，${Object.keys(session.distribution).length} 種骰型`,
-    { rounds: session.rounds, distribution: session.distribution },
+    { rounds: session.rounds, distribution: session.distribution, mode: session.mode, bonusDistribution: session.bonusDistribution },
   )
   res.json({ ok: true })
 })
@@ -503,6 +596,9 @@ router.get('/api/gs/stats/status/:id', (req, res) => {
     status: session.status,
     rounds: session.rounds,
     distribution: session.distribution,
+    mode: session.mode ?? 'generic',
+    bonusRounds: session.bonusRounds,
+    bonusDistribution: session.bonusDistribution,
     error: session.error,
   })
 })
