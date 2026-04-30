@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.11.5'
+export const APP_VERSION = '3.11.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.11.6',
+    date: '2026-04-30',
+    changes: [
+      'revert(osm-status): remove API key auth from OSMWatcher webhook，恢復無需驗證',
+    ],
+  },
   {
     version: '3.11.5',
     date: '2026-04-30',
