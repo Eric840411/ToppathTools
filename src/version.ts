@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.11.3'
+export const APP_VERSION = '3.11.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.11.4',
+    date: '2026-04-30',
+    changes: [
+      'fix(osm-status)：OSMWatcher webhook 新增 API Key 驗證（OSM_WATCHER_API_KEY env），新增 generate-osm-api-key.bat 工具自動產生 key 並寫入 .env',
+      '新增 build-and-tunnel.bat：自動 build 前端並啟動 Cloudflare Tunnel 外網版',
+    ],
+  },
   {
     version: '3.11.3',
     date: '2026-04-29',

@@ -559,6 +559,14 @@ router.get('/api/machine-test/audio-saves/:code', (req, res) => {
 
 // POST /api/machine-test/osm-status — OSMWatcher webhook
 router.post('/api/machine-test/osm-status', (req, res) => {
+  // 若 .env 有設定 OSM_WATCHER_API_KEY，則驗證 ?key= query param
+  const requiredKey = process.env.OSM_WATCHER_API_KEY
+  if (requiredKey) {
+    const provided = (req.query.key as string) || req.headers['x-api-key']
+    if (provided !== requiredKey) {
+      return res.status(401).json({ error: 1, errordes: 'unauthorized' })
+    }
+  }
   try {
     const body = req.body as {
       timestamp?: number
