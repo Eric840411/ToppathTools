@@ -1,5 +1,15 @@
 # build-and-tunnel.ps1
-$ErrorActionPreference = 'Continue'
+$ErrorActionPreference = 'Stop'
+trap {
+    Write-Host ""
+    Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host $_.ScriptStackTrace -ForegroundColor DarkGray
+    Write-Host ""
+    Write-Host "Script stopped. Window will stay open." -ForegroundColor Yellow
+    $ErrorActionPreference = 'Continue'
+    Read-Host "Press Enter to close"
+    exit 1
+}
 $Host.UI.RawUI.WindowTitle = 'Toppath Tools - Build + Tunnel'
 
 $ROOT = Split-Path -Parent $MyInvocation.MyCommand.Path

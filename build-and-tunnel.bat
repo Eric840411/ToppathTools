@@ -1,2 +1,2 @@
 @echo off
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0build-and-tunnel.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -NoExit -File "%~dp0build-and-tunnel.ps1"
