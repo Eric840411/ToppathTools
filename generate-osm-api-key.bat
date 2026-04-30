@@ -51,7 +51,7 @@ echo   [LAN]
 echo   http://localhost:3000/api/machine-test/osm-status?key=%NEW_KEY%
 echo.
 echo   [WAN - Cloudflare Tunnel]
-echo   https://<tunnel-url>/api/machine-test/osm-status?key=%NEW_KEY%
+echo   https://^<tunnel-url^>/api/machine-test/osm-status?key=%NEW_KEY%
 echo.
 echo   NOTE: Restart server to apply new key.
 echo ================================================
