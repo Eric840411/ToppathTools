@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useGameProfileCtx } from '../context/GameProfileContext'
 import { ACHIEVEMENTS } from '../hooks/useGameProfile'
+import { DungeonIcon } from '../../components/DungeonIcon'
 
 export function GameQuestPanel() {
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<'quests' | 'achievements'>('quests')
-  const { todayQuests, questProgress, questsClaimed, achievements, counts, level, xp, xpPct, xpCurrent, xpNeeded } = useGameProfileCtx()
+  const { todayQuests, questProgress, questsClaimed, achievements, level, xp, xpPct, xpCurrent, xpNeeded } = useGameProfileCtx()
 
   return (
     <>
@@ -32,7 +33,7 @@ export function GameQuestPanel() {
           borderRadius: 2,
           transition: 'all 0.15s',
         }}
-      >🎯</button>
+      ><DungeonIcon name="result" tone="gold" plain /></button>
 
       {/* Panel */}
       {open && (
@@ -84,7 +85,7 @@ export function GameQuestPanel() {
                   cursor: 'pointer', letterSpacing: 0.5,
                 }}
               >
-                {t === 'quests' ? '🎯 QUESTS' : '🏅 BADGES'}
+                {t === 'quests' ? <><DungeonIcon name="result" tone="cyan" size="xs" plain /> QUESTS</> : '🏅 BADGES'}
               </button>
             ))}
           </div>
@@ -101,7 +102,7 @@ export function GameQuestPanel() {
                   <div key={q.id} style={{ marginBottom: 10 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
                       <span style={{ fontSize: 7, color: done ? 'var(--neon-green)' : 'var(--text-primary)', letterSpacing: 0.5 }}>
-                        {done ? '✔ ' : ''}{q.name}
+                        {done ? <><DungeonIcon name="status-ok" tone="green" size="xs" plain />{' '}</> : ''}{q.name}
                       </span>
                       <span style={{ fontSize: 7, color: 'var(--neon-gold)' }}>+{q.xp}XP</span>
                     </div>

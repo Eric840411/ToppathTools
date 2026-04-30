@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 
 // ── Level thresholds (cumulative XP) ──────────────────────
 export const LEVEL_XP = [0, 200, 500, 1000, 1800, 3000, 4500, 6500, 9000, 12000, 99999]

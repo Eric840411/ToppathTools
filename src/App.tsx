@@ -22,7 +22,7 @@ import { APP_VERSION } from './version'
 import './App.css'
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
-  | 'gs-pdf' | 'gs-imgcompare' | 'gs-stats' | 'gs-logchecker' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat'
+  | 'gs-pdf' | 'gs-imgcompare' | 'gs-stats' | 'gs-logchecker' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
 type GroupId = 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'history'
 
 type SubTab = {

@@ -53,7 +53,7 @@ const LEVEL_COLORS: Record<JpLevel, string> = {
 }
 
 export function JackpotPage() {
-  const [channelId, setChannelId] = useState('4171')
+  const [, setChannelId] = useState('4171')
   const [pendingChannelId, setPendingChannelId] = useState('4171')
   const [games, setGames] = useState<JackpotGame[]>([])
   const [lastUpdated, setLastUpdated] = useState<string | null>(null)
