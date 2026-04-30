@@ -24,10 +24,10 @@ Write-Host ""
 # ── Step 1: Stop existing processes ──────────────────────────────────────────
 Write-Host "[1/3] Stopping existing processes on port 3000 / 5173..." -ForegroundColor Yellow
 foreach ($port in @(3000, 5173)) {
-    $pid = (netstat -aon | Select-String ":$port\s" | Select-String 'LISTENING' | ForEach-Object { ($_ -split '\s+')[-1] } | Select-Object -First 1)
-    if ($pid) {
-        taskkill /PID $pid /F 2>$null | Out-Null
-        Write-Host "  [OK] Port $port stopped (PID $pid)" -ForegroundColor DarkGray
+    $procId = (netstat -aon | Select-String ":$port\s" | Select-String 'LISTENING' | ForEach-Object { ($_ -split '\s+')[-1] } | Select-Object -First 1)
+    if ($procId) {
+        taskkill /PID $procId /F 2>$null | Out-Null
+        Write-Host "  [OK] Port $port stopped (PID $procId)" -ForegroundColor DarkGray
     } else {
         Write-Host "  [--] Port $port not running" -ForegroundColor DarkGray
     }
