@@ -32,7 +32,8 @@ import {
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 const AUTOSPIN_PROJECT_DIR = process.env.AUTOSPIN_PROJECT ?? join(__dirname, '../python')
-const CCTV_REFS_DIR = join(__dirname, '..', 'machine-test', 'cctv-refs')
+const CCTV_REFS_DIR  = join(__dirname, '..', 'machine-test', 'cctv-refs')
+const AUDIO_REFS_DIR = join(__dirname, '..', 'machine-test', 'audio-refs')
 
 // Source files the agent package is allowed to download
 const AGENT_SOURCE_WHITELIST: Record<string, string> = {
@@ -49,6 +50,13 @@ export const router = Router()
 
 // ─── Machine Test Profiles ────────────────────────────────────────────────────
 
+const audioConfigSchema = z.object({
+  peakWarnDb:     z.number().optional().nullable(),
+  centroidWarnHz: z.number().optional().nullable(),
+  rmsMinDb:       z.number().optional().nullable(),
+  rmsMaxDb:       z.number().optional().nullable(),
+}).optional().nullable()
+
 const profileSchema = z.object({
   machineType:       z.string().min(1).toUpperCase(),
   bonusAction:       z.enum(['auto_wait', 'spin', 'takewin', 'touchscreen']).default('auto_wait'),
@@ -62,6 +70,7 @@ const profileSchema = z.object({
   entryTouchPoints:  z.array(z.string()).optional().nullable(),
   entryTouchPoints2: z.array(z.string()).optional().nullable(),
   ideckXpaths:       z.array(z.string()).optional().nullable(),
+  audioConfig:       audioConfigSchema,
 })
 
 type MachineTestProfile = z.infer<typeof profileSchema>
@@ -434,7 +443,9 @@ router.get('/api/machine-test/profiles', (_req, res) => {
     entryTouchPoints:  r.entryTouchPoints  ? JSON.parse(r.entryTouchPoints as unknown as string)  : [],
     entryTouchPoints2: r.entryTouchPoints2 ? JSON.parse(r.entryTouchPoints2 as unknown as string) : [],
     ideckXpaths:       (r as unknown as { ideck_xpaths?: string }).ideck_xpaths ? JSON.parse((r as unknown as { ideck_xpaths: string }).ideck_xpaths) : [],
+    audioConfig:       (r as unknown as { audioConfig?: string }).audioConfig ? JSON.parse((r as unknown as { audioConfig: string }).audioConfig) : null,
     clickTake: !!r.clickTake,
+    hasAudioRef: existsSync(join(AUDIO_REFS_DIR, `${r.machineType}.wav`)),
   }))
   res.json({ ok: true, profiles })
 })
@@ -449,17 +460,18 @@ router.put('/api/machine-test/profiles', (req, res, next) => {
       entryTouchPoints:  p.entryTouchPoints  ? JSON.stringify(p.entryTouchPoints)  : null,
       entryTouchPoints2: p.entryTouchPoints2 ? JSON.stringify(p.entryTouchPoints2) : null,
       ideck_xpaths:      JSON.stringify(p.ideckXpaths ?? []),
+      audioConfig:       p.audioConfig ? JSON.stringify(p.audioConfig) : null,
       clickTake: p.clickTake ? 1 : 0,
     }
     db.prepare(`
-      INSERT INTO machine_test_profiles (machineType, bonusAction, touchPoints, clickTake, gmid, spinSelector, balanceSelector, exitSelector, notes, entryTouchPoints, entryTouchPoints2, ideck_xpaths)
-      VALUES (@machineType, @bonusAction, @touchPoints, @clickTake, @gmid, @spinSelector, @balanceSelector, @exitSelector, @notes, @entryTouchPoints, @entryTouchPoints2, @ideck_xpaths)
+      INSERT INTO machine_test_profiles (machineType, bonusAction, touchPoints, clickTake, gmid, spinSelector, balanceSelector, exitSelector, notes, entryTouchPoints, entryTouchPoints2, ideck_xpaths, audioConfig)
+      VALUES (@machineType, @bonusAction, @touchPoints, @clickTake, @gmid, @spinSelector, @balanceSelector, @exitSelector, @notes, @entryTouchPoints, @entryTouchPoints2, @ideck_xpaths, @audioConfig)
       ON CONFLICT(machineType) DO UPDATE SET
         bonusAction=excluded.bonusAction, touchPoints=excluded.touchPoints, clickTake=excluded.clickTake,
         gmid=excluded.gmid, spinSelector=excluded.spinSelector, balanceSelector=excluded.balanceSelector,
         exitSelector=excluded.exitSelector, notes=excluded.notes,
         entryTouchPoints=excluded.entryTouchPoints, entryTouchPoints2=excluded.entryTouchPoints2,
-        ideck_xpaths=excluded.ideck_xpaths
+        ideck_xpaths=excluded.ideck_xpaths, audioConfig=excluded.audioConfig
     `).run(row)
     const s1 = p.entryTouchPoints?.length ? `S1:[${p.entryTouchPoints.join(',')}]` : ''
     const s2 = p.entryTouchPoints2?.length ? ` S2:[${p.entryTouchPoints2.join(',')}]` : ''
@@ -515,6 +527,41 @@ router.get('/api/machine-test/cctv-refs/:machineType/image', (req, res) => {
 router.delete('/api/machine-test/cctv-refs/:machineType', (req, res) => {
   const machineType = req.params.machineType.toUpperCase()
   const filePath = join(CCTV_REFS_DIR, `${machineType}.png`)
+  if (existsSync(filePath)) unlinkSync(filePath)
+  res.json({ ok: true })
+})
+
+// ─── Routes: Audio Reference Files ────────────────────────────────────────────
+
+// GET /api/machine-test/audio-refs  — list machine types that have a reference WAV
+router.get('/api/machine-test/audio-refs', (_req, res) => {
+  try {
+    mkdirSync(AUDIO_REFS_DIR, { recursive: true })
+    const files = readdirSync(AUDIO_REFS_DIR).filter(f => f.endsWith('.wav'))
+    const machineTypes = files.map(f => f.replace(/\.wav$/i, ''))
+    res.json({ ok: true, machineTypes })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err) })
+  }
+})
+
+// POST /api/machine-test/audio-refs/:machineType  — upload reference WAV
+router.post('/api/machine-test/audio-refs/:machineType', upload.single('audio'), (req, res) => {
+  const machineType = req.params.machineType.toUpperCase()
+  if (!req.file) { res.status(400).json({ ok: false, error: '未收到音頻檔案' }); return }
+  try {
+    mkdirSync(AUDIO_REFS_DIR, { recursive: true })
+    writeFileSync(join(AUDIO_REFS_DIR, `${machineType}.wav`), req.file.buffer)
+    res.json({ ok: true, machineType })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err) })
+  }
+})
+
+// DELETE /api/machine-test/audio-refs/:machineType  — delete reference WAV
+router.delete('/api/machine-test/audio-refs/:machineType', (req, res) => {
+  const machineType = req.params.machineType.toUpperCase()
+  const filePath = join(AUDIO_REFS_DIR, `${machineType}.wav`)
   if (existsSync(filePath)) unlinkSync(filePath)
   res.json({ ok: true })
 })
@@ -624,6 +671,7 @@ router.post('/api/machine-test/start', async (req, res, next) => {
       entryTouchPoints2: r.entryTouchPoints2 ? JSON.parse(r.entryTouchPoints2 as unknown as string) : [],
       ideckXpaths:       r.ideck_xpaths ? JSON.parse(r.ideck_xpaths) : [],
       clickTake: !!r.clickTake,
+      audioConfig:       (r as any).audioConfig ? JSON.parse((r as any).audioConfig) : null,
     })) as MachineProfile[]
     const profileMap = new Map(profiles.map(p => [p.machineType, p]))
     const betRandomPath = join(AUTOSPIN_PROJECT_DIR, 'bet_random.json')

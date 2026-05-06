@@ -1,0 +1,53 @@
+{
+  "name": "worker-gemini-busy",
+  "rows": 1,
+  "cols": 3,
+  "cell_width": 64,
+  "cell_height": 96,
+  "sheet_size": [
+    192,
+    96
+  ],
+  "duration": 120,
+  "source_size": [
+    1774,
+    887
+  ],
+  "key_color": [
+    232,
+    16,
+    208
+  ],
+  "frames": [
+    {
+      "file": "worker-gemini-busy-1.png",
+      "bbox": [
+        1,
+        13,
+        63,
+        83
+      ],
+      "touches_edge": false
+    },
+    {
+      "file": "worker-gemini-busy-2.png",
+      "bbox": [
+        1,
+        8,
+        63,
+        88
+      ],
+      "touches_edge": false
+    },
+    {
+      "file": "worker-gemini-busy-3.png",
+      "bbox": [
+        1,
+        14,
+        63,
+        82
+      ],
+      "touches_edge": false
+    }
+  ]
+}

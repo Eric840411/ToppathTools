@@ -1,0 +1,53 @@
+{
+  "name": "worker-ollama-working",
+  "rows": 1,
+  "cols": 3,
+  "cell_width": 64,
+  "cell_height": 96,
+  "sheet_size": [
+    192,
+    96
+  ],
+  "duration": 200,
+  "source_size": [
+    1774,
+    887
+  ],
+  "key_color": [
+    240,
+    16,
+    208
+  ],
+  "frames": [
+    {
+      "file": "worker-ollama-working-1.png",
+      "bbox": [
+        1,
+        9,
+        63,
+        86
+      ],
+      "touches_edge": false
+    },
+    {
+      "file": "worker-ollama-working-2.png",
+      "bbox": [
+        1,
+        10,
+        63,
+        85
+      ],
+      "touches_edge": false
+    },
+    {
+      "file": "worker-ollama-working-3.png",
+      "bbox": [
+        1,
+        5,
+        63,
+        91
+      ],
+      "touches_edge": false
+    }
+  ]
+}

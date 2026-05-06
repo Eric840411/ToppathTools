@@ -1,0 +1,31 @@
+{
+  "name": "map-lark-temple",
+  "rows": 1,
+  "cols": 1,
+  "cell_width": 64,
+  "cell_height": 64,
+  "sheet_size": [
+    64,
+    64
+  ],
+  "duration_ms": 200,
+  "source": "C:\\Users\\user\\.codex\\generated_images\\019de871-6dec-7b62-addf-596aef6e83e3\\ig_07a4345c6dbdf94c0169f602e670f481919583f54a6a9d5734.png",
+  "qc": [
+    {
+      "frame": 1,
+      "source_box": [
+        0,
+        0,
+        1254,
+        1254
+      ],
+      "alpha_bbox": [
+        2,
+        2,
+        62,
+        61
+      ]
+    }
+  ],
+  "prompt_file": "C:\\Users\\user\\Documents\\New project\\generated\\toppath-missing-sprites\\map-lark-temple\\prompt-used.txt"
+}

@@ -1,0 +1,121 @@
+﻿{
+    "generatedAt":  "2026-04-30",
+    "frameCount":  4,
+    "grid":  "2x2",
+    "background":  "transparent",
+    "source":  "generate2dsprite",
+    "classes":  [
+                    {
+                        "branch":  "base",
+                        "gender":  "male",
+                        "parent":  "",
+                        "slug":  "squire-male",
+                        "base":  "squire"
+                    },
+                    {
+                        "branch":  "base",
+                        "gender":  "female",
+                        "parent":  "",
+                        "slug":  "squire-female",
+                        "base":  "squire"
+                    },
+                    {
+                        "branch":  "advanced",
+                        "gender":  "male",
+                        "parent":  "squire",
+                        "slug":  "knight-captain-male",
+                        "base":  "squire"
+                    },
+                    {
+                        "branch":  "advanced",
+                        "gender":  "female",
+                        "parent":  "squire",
+                        "slug":  "knight-captain-female",
+                        "base":  "squire"
+                    },
+                    {
+                        "branch":  "base",
+                        "gender":  "male",
+                        "parent":  "",
+                        "slug":  "apprentice-mage-male",
+                        "base":  "apprentice-mage"
+                    },
+                    {
+                        "branch":  "base",
+                        "gender":  "female",
+                        "parent":  "",
+                        "slug":  "apprentice-mage-female",
+                        "base":  "apprentice-mage"
+                    },
+                    {
+                        "branch":  "advanced",
+                        "gender":  "male",
+                        "parent":  "apprentice-mage",
+                        "slug":  "arcane-sage-male",
+                        "base":  "apprentice-mage"
+                    },
+                    {
+                        "branch":  "advanced",
+                        "gender":  "female",
+                        "parent":  "apprentice-mage",
+                        "slug":  "arcane-sage-female",
+                        "base":  "apprentice-mage"
+                    },
+                    {
+                        "branch":  "base",
+                        "gender":  "male",
+                        "parent":  "",
+                        "slug":  "card-dealer-male",
+                        "base":  "card-dealer"
+                    },
+                    {
+                        "branch":  "base",
+                        "gender":  "female",
+                        "parent":  "",
+                        "slug":  "card-dealer-female",
+                        "base":  "card-dealer"
+                    },
+                    {
+                        "branch":  "advanced",
+                        "gender":  "male",
+                        "parent":  "card-dealer",
+                        "slug":  "fate-cardmaster-male",
+                        "base":  "card-dealer"
+                    },
+                    {
+                        "branch":  "advanced",
+                        "gender":  "female",
+                        "parent":  "card-dealer",
+                        "slug":  "fate-cardmaster-female",
+                        "base":  "card-dealer"
+                    },
+                    {
+                        "branch":  "base",
+                        "gender":  "male",
+                        "parent":  "",
+                        "slug":  "shadow-rogue-male",
+                        "base":  "shadow-rogue"
+                    },
+                    {
+                        "branch":  "base",
+                        "gender":  "female",
+                        "parent":  "",
+                        "slug":  "shadow-rogue-female",
+                        "base":  "shadow-rogue"
+                    },
+                    {
+                        "branch":  "advanced",
+                        "gender":  "male",
+                        "parent":  "shadow-rogue",
+                        "slug":  "night-assassin-male",
+                        "base":  "shadow-rogue"
+                    },
+                    {
+                        "branch":  "advanced",
+                        "gender":  "female",
+                        "parent":  "shadow-rogue",
+                        "slug":  "night-assassin-female",
+                        "base":  "shadow-rogue"
+                    }
+                ]
+}

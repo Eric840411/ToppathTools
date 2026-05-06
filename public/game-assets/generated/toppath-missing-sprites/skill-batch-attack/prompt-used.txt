@@ -1,0 +1,1 @@
+﻿Skill icon batch attack, 1 frame, 32x32 target, prompt based on game-design.md.

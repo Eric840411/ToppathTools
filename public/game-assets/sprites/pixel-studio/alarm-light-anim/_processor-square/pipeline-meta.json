@@ -1,0 +1,91 @@
+{
+  "target": "asset",
+  "mode": "custom",
+  "prompt": "Wall-mounted red warning light blinking on/off, 2 horizontal frames.",
+  "role": "",
+  "input": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\alarm-light-anim\\raw-sheet.png",
+  "threshold": 100,
+  "edge_threshold": 150,
+  "duration": 400,
+  "rows": 1,
+  "cols": 2,
+  "cell_size": 16,
+  "fit_scale": 0.88,
+  "trim_border": 4,
+  "edge_clean_depth": 3,
+  "align": "center",
+  "shared_scale": true,
+  "component_mode": "all",
+  "component_padding": 0,
+  "min_component_area": 1,
+  "edge_touch_margin": 0,
+  "frame_labels": [
+    "alarm-light-anim-1",
+    "alarm-light-anim-2"
+  ],
+  "frames": [
+    {
+      "grid": [
+        0,
+        0
+      ],
+      "source_box": [
+        0,
+        0,
+        887,
+        887
+      ],
+      "component_mode": "all",
+      "component_count": 9,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        248,
+        226,
+        682,
+        634
+      ],
+      "edge_touch": false,
+      "output_size": [
+        14,
+        13
+      ],
+      "paste_position": [
+        1,
+        1
+      ]
+    },
+    {
+      "grid": [
+        0,
+        1
+      ],
+      "source_box": [
+        887,
+        0,
+        1774,
+        887
+      ],
+      "component_mode": "all",
+      "component_count": 1,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        207,
+        226,
+        622,
+        633
+      ],
+      "edge_touch": false,
+      "output_size": [
+        13,
+        13
+      ],
+      "paste_position": [
+        1,
+        1
+      ]
+    }
+  ],
+  "edge_touch_frames": []
+}

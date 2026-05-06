@@ -293,18 +293,31 @@ export function AutoSpinPage() {
   const logBoxRef = useRef<HTMLDivElement>(null)
   const evtSourceRef = useRef<EventSource | null>(null)
   const captureTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Ref to always hold latest agentSessionId for interval callbacks (avoids stale closure)
+  const agentSessionIdRef = useRef<string | null>(null)
 
   const fetchStatus = useCallback(async () => {
     const r = await fetch('/api/autospin/status')
     const d = await r.json() as { running: boolean; sessionId: string | null }
     setRunning(d.running)
     if (d.sessionId && d.sessionId !== sessionId) setSessionId(d.sessionId)
-    // Agent status
+    // Agent status — also auto-connect SSE if a new session is detected
     const ar = await fetch('/api/autospin/agent/status')
     const ad = await ar.json() as { running: boolean; sessionId: string | null }
     setAgentRunning(ad.running)
-    if (ad.sessionId && ad.sessionId !== agentSessionId) setAgentSessionId(ad.sessionId)
-  }, [sessionId, agentSessionId])
+    if (ad.running && ad.sessionId && ad.sessionId !== agentSessionIdRef.current) {
+      agentSessionIdRef.current = ad.sessionId
+      setAgentSessionId(ad.sessionId)
+      connectSSE(ad.sessionId, true)
+      if (!captureTimerRef.current) {
+        captureTimerRef.current = setInterval(() => fetchAgentCaptures(ad.sessionId!), 5000)
+      }
+    }
+    if (!ad.running) {
+      agentSessionIdRef.current = null
+      setAgentSessionId(null)
+    }
+  }, [sessionId])
 
   const fetchCaptures = useCallback(async () => {
     const r = await fetch('/api/autospin/captures-list')
@@ -318,9 +331,10 @@ export function AutoSpinPage() {
     setAgentCaptures(d.files ?? [])
   }, [])
 
-  const connectSSE = useCallback((sid: string, isAgent = false) => {
+  const connectSSE = useCallback((sid: string, isAgent = false, fromIndex = 0) => {
     if (evtSourceRef.current) evtSourceRef.current.close()
-    const url = isAgent ? `/api/autospin/agent/stream/${sid}` : `/api/autospin/stream/${sid}`
+    const from = fromIndex > 0 ? `?from=${fromIndex}` : ''
+    const url = isAgent ? `/api/autospin/agent/stream/${sid}${from}` : `/api/autospin/stream/${sid}`
     const es = new EventSource(url)
     es.onmessage = (e) => {
       const { line } = JSON.parse(e.data) as { line: string }
@@ -361,11 +375,12 @@ export function AutoSpinPage() {
     const label = getGlobalUserLabel()
     const uri = `toppath-agent://start?server=${encodeURIComponent(serverUrl)}&user=${encodeURIComponent(label)}`
     window.location.href = uri
-    // Poll for agent connection
+    // Poll for agent connection (90s timeout to accommodate slow Terminal launch on Mac)
     const timer = setInterval(async () => {
       const r = await fetch('/api/autospin/agent/status')
       const d = await r.json() as { running: boolean; sessionId: string | null }
       if (d.running && d.sessionId) {
+        agentSessionIdRef.current = d.sessionId
         setAgentRunning(true)
         setAgentSessionId(d.sessionId)
         connectSSE(d.sessionId, true)
@@ -373,14 +388,31 @@ export function AutoSpinPage() {
         clearInterval(timer)
       }
     }, 2000)
-    setTimeout(() => clearInterval(timer), 30000) // stop polling after 30s
+    setTimeout(() => clearInterval(timer), 90000) // stop polling after 90s
   }
 
   const handleStopLocal = async () => {
+    setAgentLogs(prev => [...prev, '[系統] 正在停止 Agent...'])
+    // First get/connect SSE so we can see the stop feedback (handles "未連線" case)
+    const ar = await fetch('/api/autospin/agent/status')
+    const ad = await ar.json() as { running: boolean; sessionId: string | null }
+    if (ad.sessionId && ad.sessionId !== agentSessionIdRef.current) {
+      agentSessionIdRef.current = ad.sessionId
+      setAgentSessionId(ad.sessionId)
+      // Skip log replay — only want new stop feedback messages, not old logs
+      connectSSE(ad.sessionId, true, Number.MAX_SAFE_INTEGER)
+    }
     await fetch('/api/autospin/agent/stop-all', { method: 'POST' })
-    setAgentRunning(false); setAgentPaused(false)
+    setAgentPaused(false)
     if (captureTimerRef.current) { clearInterval(captureTimerRef.current); captureTimerRef.current = null }
-    if (evtSourceRef.current) { evtSourceRef.current.close(); evtSourceRef.current = null }
+    // Keep SSE open so agent's "[Agent] 已停止" message comes through.
+    // Auto-cleanup after 10 seconds.
+    setTimeout(() => {
+      setAgentRunning(false)
+      agentSessionIdRef.current = null
+      setAgentSessionId(null)
+      if (evtSourceRef.current) { evtSourceRef.current.close(); evtSourceRef.current = null }
+    }, 10000)
   }
 
   const [agentPaused, setAgentPaused] = useState(false)
@@ -417,7 +449,10 @@ export function AutoSpinPage() {
 
   useEffect(() => {
     fetchConfigs(); fetchTemplates(); fetchStatus(); fetchBetRandom()
+    // Periodically sync agent status — catches Mac agent connections that miss the initial polling window
+    const statusTimer = setInterval(fetchStatus, 10000)
     return () => {
+      clearInterval(statusTimer)
       if (evtSourceRef.current) evtSourceRef.current.close()
       if (captureTimerRef.current) clearInterval(captureTimerRef.current)
     }
@@ -985,12 +1020,27 @@ export function AutoSpinPage() {
                       style={{ padding: '8px 16px', background: '#f1f5f9', color: '#374151', border: '1px solid #e5e7eb', borderRadius: 6, fontWeight: 600, fontSize: 13, textDecoration: 'none' }}>
                       📥 下載安裝包
                     </a>
+                    <a href="/api/autospin/agent/download/install-mac.sh" download
+                      style={{ padding: '8px 16px', background: '#f1f5f9', color: '#374151', border: '1px solid #e5e7eb', borderRadius: 6, fontWeight: 600, fontSize: 13, textDecoration: 'none' }}>
+                      macOS Agent
+                    </a>
+                    <button onClick={() => {
+                      const apiPort = window.location.port === '5173' ? '3000' : window.location.port
+                      const serverUrl = `${window.location.protocol}//${window.location.hostname}${apiPort ? ':' + apiPort : ''}`
+                      const label = getGlobalUserLabel()
+                      const uri = `toppath-agent://start?server=${encodeURIComponent(serverUrl)}&user=${encodeURIComponent(label)}`
+                      const cmd = `~/toppath-agent/launch-agent-mac.sh "${uri}"`
+                      navigator.clipboard.writeText(cmd).then(() => alert('已複製！貼到 Mac Terminal 執行即可。'))
+                    }}
+                      style={{ padding: '8px 16px', background: '#f1f5f9', color: '#374151', border: '1px solid #e5e7eb', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+                      複製 Mac 啟動指令
+                    </button>
                     <button onClick={handleStartLocal} disabled={agentRunning}
                       style={{ padding: '8px 20px', background: agentRunning ? '#9ca3af' : '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: agentRunning ? 'default' : 'pointer' }}>
                       ▶ 啟動（本機）
                     </button>
-                    <button onClick={handleStopLocal} disabled={!agentRunning}
-                      style={{ padding: '8px 20px', background: !agentRunning ? '#9ca3af' : '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: !agentRunning ? 'default' : 'pointer' }}>
+                    <button onClick={handleStopLocal}
+                      style={{ padding: '8px 20px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
                       ⏹ 停止
                     </button>
                     {agentRunning && !agentPaused && (

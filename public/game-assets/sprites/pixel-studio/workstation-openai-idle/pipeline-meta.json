@@ -1,0 +1,38 @@
+{
+  "name": "workstation-openai-idle",
+  "rows": 1,
+  "cols": 2,
+  "cell_width": 160,
+  "cell_height": 128,
+  "sheet_size": [
+    320,
+    128
+  ],
+  "duration": 800,
+  "locked_geometry": true,
+  "runtime_rule": "Use fixed 160x128 frame box. Never scale by bbox. Frames share identical base geometry; only tiny screen pixels change.",
+  "frames": [
+    {
+      "file": "workstation-openai-idle-1.png",
+      "bbox": [
+        22,
+        19,
+        129,
+        108
+      ],
+      "touches_edge": false,
+      "locked_geometry": true
+    },
+    {
+      "file": "workstation-openai-idle-2.png",
+      "bbox": [
+        22,
+        19,
+        129,
+        108
+      ],
+      "touches_edge": false,
+      "locked_geometry": true
+    }
+  ]
+}

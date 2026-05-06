@@ -1,0 +1,1 @@
+FX XP burst, 3 frames, 32x32 target, based on game-design.md.

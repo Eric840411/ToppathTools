@@ -1,0 +1,1 @@
+﻿FX levelup, 4 frames, 80x80 target, based on game-design.md.

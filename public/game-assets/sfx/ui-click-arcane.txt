@@ -1,0 +1,4 @@
+style=arcane ui click
+duration_ms=120
+sample_rate=44100
+channels=mono

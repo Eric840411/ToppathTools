@@ -1,0 +1,31 @@
+{
+  "name": "stat-atk",
+  "rows": 1,
+  "cols": 1,
+  "cell_width": 16,
+  "cell_height": 16,
+  "sheet_size": [
+    16,
+    16
+  ],
+  "duration_ms": 200,
+  "source": "C:\\Users\\user\\.codex\\generated_images\\019de871-6dec-7b62-addf-596aef6e83e3\\ig_07a4345c6dbdf94c0169f5fffc1f68819193eea07f8b783f86.png",
+  "qc": [
+    {
+      "frame": 1,
+      "source_box": [
+        0,
+        0,
+        1254,
+        1254
+      ],
+      "alpha_bbox": [
+        1,
+        0,
+        15,
+        15
+      ]
+    }
+  ],
+  "prompt_file": "C:\\Users\\user\\Documents\\New project\\generated\\toppath-missing-sprites\\stat-atk\\prompt-used.txt"
+}

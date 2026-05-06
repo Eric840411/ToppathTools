@@ -1,0 +1,17 @@
+worker-gemini-idle: sheet=(128, 96) expected=(128, 96) frames=2/2 alpha=(0, 255) gif_frames=2 ok=True
+worker-gemini-working: sheet=(192, 96) expected=(192, 96) frames=3/3 alpha=(0, 255) gif_frames=3 ok=True
+worker-gemini-busy: sheet=(192, 96) expected=(192, 96) frames=3/3 alpha=(0, 255) gif_frames=3 ok=True
+worker-gemini-overloaded: sheet=(256, 96) expected=(256, 96) frames=4/4 alpha=(0, 255) gif_frames=4 ok=True
+worker-openai-idle: sheet=(128, 96) expected=(128, 96) frames=2/2 alpha=(0, 255) gif_frames=2 ok=True
+worker-openai-working: sheet=(192, 96) expected=(192, 96) frames=3/3 alpha=(0, 255) gif_frames=3 ok=True
+worker-openai-busy: sheet=(192, 96) expected=(192, 96) frames=3/3 alpha=(0, 255) gif_frames=3 ok=True
+worker-openai-overloaded: sheet=(256, 96) expected=(256, 96) frames=4/4 alpha=(0, 255) gif_frames=4 ok=True
+worker-ollama-idle: sheet=(128, 96) expected=(128, 96) frames=2/2 alpha=(0, 255) gif_frames=2 ok=True
+worker-ollama-working: sheet=(192, 96) expected=(192, 96) frames=3/3 alpha=(0, 255) gif_frames=3 ok=True
+worker-ollama-busy: sheet=(192, 96) expected=(192, 96) frames=3/3 alpha=(0, 255) gif_frames=3 ok=True
+worker-ollama-overloaded: sheet=(256, 96) expected=(256, 96) frames=4/4 alpha=(0, 255) gif_frames=4 ok=True
+torch-anim: sheet=(64, 24) expected=(64, 24) frames=4/4 alpha=(0, 255) gif_frames=4 ok=True
+neon-sign-anim: sheet=(256, 32) expected=(256, 32) frames=2/2 alpha=(0, 255) gif_frames=2 ok=True
+smoke-anim: sheet=(128, 32) expected=(128, 32) frames=4/4 alpha=(0, 255) gif_frames=4 ok=True
+alarm-light-anim: sheet=(32, 16) expected=(32, 16) frames=2/2 alpha=(0, 255) gif_frames=2 ok=True
+QC_OK=True

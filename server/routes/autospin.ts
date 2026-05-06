@@ -521,14 +521,16 @@ router.get('/api/autospin/agent/status', (_req, res) => {
 })
 
 // GET /api/autospin/agent/stream/:id — SSE log stream for frontend
+// Optional ?from=N skips the first N stored logs (avoids duplicate replay on reconnect)
 router.get('/api/autospin/agent/stream/:id', (req, res) => {
   const { id } = req.params
+  const fromIndex = parseInt(req.query.from as string ?? '0') || 0
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')
   res.flushHeaders()
   const s = agentSessions.get(id)
-  if (s) for (const line of s.logs) res.write(`data: ${JSON.stringify({ line })}\n\n`)
+  if (s) for (const line of s.logs.slice(fromIndex)) res.write(`data: ${JSON.stringify({ line })}\n\n`)
   if (!agentSseClients.has(id)) agentSseClients.set(id, new Set())
   agentSseClients.get(id)!.add(res)
   req.on('close', () => agentSseClients.get(id)?.delete(res))
@@ -558,6 +560,36 @@ router.get('/api/autospin/agent/download/launcher.bat', (req, res) => {
   res.setHeader('Content-Type', 'application/octet-stream')
   res.setHeader('Content-Disposition', 'attachment; filename="launch-agent.bat"')
   res.send(bat)
+})
+
+// GET /api/autospin/agent/download/launcher-mac.sh?server=... — serve macOS launcher script
+router.get('/api/autospin/agent/download/launcher-mac.sh', (req, res) => {
+  const serverUrl = (req.query.server as string) || `${req.protocol}://${req.get('host')}`
+  const sh = `#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_DIR="$HOME/toppath-agent"
+PYTHON_BIN="$INSTALL_DIR/.venv/bin/python"
+AGENT_SCRIPT="$INSTALL_DIR/toppath-agent.py"
+SERVER_URL="${serverUrl}"
+URI="\${1:-}"
+
+mkdir -p "$INSTALL_DIR"
+if [ ! -f "$AGENT_SCRIPT" ]; then
+  curl -fsSL "$SERVER_URL/api/autospin/agent/download/agent.py" -o "$AGENT_SCRIPT"
+fi
+
+if [ ! -x "$PYTHON_BIN" ]; then
+  osascript -e 'display dialog "Toppath Agent is not installed yet. Please run the macOS installer first." buttons {"OK"} default button "OK"' >/dev/null 2>&1 || true
+  exit 1
+fi
+
+cd "$INSTALL_DIR"
+exec "$PYTHON_BIN" "$AGENT_SCRIPT" "$URI"
+`
+  res.setHeader('Content-Type', 'application/x-sh; charset=utf-8')
+  res.setHeader('Content-Disposition', 'attachment; filename="launch-agent-mac.sh"')
+  res.send(sh)
 })
 
 // GET /api/autospin/agent/download/agent.py — serve agent script
@@ -655,6 +687,171 @@ pause
   res.setHeader('Content-Type', 'application/octet-stream')
   res.setHeader('Content-Disposition', 'attachment; filename="install-toppath-agent.bat"')
   res.send(bat)
+})
+
+// GET /api/autospin/agent/download/install-mac.sh — serve macOS installer with embedded server URL
+router.get('/api/autospin/agent/download/install-mac.sh', (req, res) => {
+  const serverUrl = `${req.protocol}://${req.get('host')}`
+  const sh = `#!/usr/bin/env bash
+set -euo pipefail
+
+echo "============================================"
+echo " Toppath Agent Installer for macOS"
+echo "============================================"
+echo
+
+TOPPATH_SERVER="${serverUrl}"
+INSTALL_DIR="$HOME/toppath-agent"
+APP_DIR="$HOME/Applications/Toppath Agent.app"
+MACOS_DIR="$APP_DIR/Contents/MacOS"
+LOG_FILE="$INSTALL_DIR/install.log"
+
+case "$TOPPATH_SERVER" in
+  *localhost*|*127.0.0.1*)
+    echo "[WARN] Server URL is $TOPPATH_SERVER"
+    echo "[WARN] A remote Mac cannot reach the server through localhost."
+    read -r -p "Enter actual server URL (e.g. http://192.168.1.100:3000): " INPUT_SERVER
+    if [ -z "$INPUT_SERVER" ]; then
+      echo "URL cannot be empty."
+      exit 1
+    fi
+    TOPPATH_SERVER="\${INPUT_SERVER%/}"
+    ;;
+esac
+
+echo "Using server: $TOPPATH_SERVER"
+echo
+
+echo "[1/6] Creating install directory..."
+mkdir -p "$INSTALL_DIR" "$HOME/Applications"
+{
+  echo "[LOG] Installation started: $(date)"
+  echo "[LOG] Install dir: $INSTALL_DIR"
+  echo "[LOG] Server: $TOPPATH_SERVER"
+} > "$LOG_FILE"
+
+echo "[2/6] Downloading agent script..."
+curl -fsSL "$TOPPATH_SERVER/api/autospin/agent/download/agent.py" -o "$INSTALL_DIR/toppath-agent.py"
+echo "[LOG] Step 2 OK" >> "$LOG_FILE"
+
+echo "[3/6] Preparing Python virtual environment..."
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "ERROR: python3 was not found. Install Python 3 first, then rerun this installer."
+  echo "[LOG] FAILED at step 3: python3 missing" >> "$LOG_FILE"
+  exit 1
+fi
+python3 -m venv "$INSTALL_DIR/.venv"
+"$INSTALL_DIR/.venv/bin/python" -m pip install --upgrade pip >> "$LOG_FILE" 2>&1
+echo "[LOG] Step 3 OK" >> "$LOG_FILE"
+
+echo "[4/6] Installing Python packages..."
+"$INSTALL_DIR/.venv/bin/python" -m pip install requests playwright opencv-python >> "$LOG_FILE" 2>&1
+echo "[LOG] Step 4 OK" >> "$LOG_FILE"
+
+echo "[5/6] Installing Playwright Chromium..."
+"$INSTALL_DIR/.venv/bin/python" -m playwright install chromium >> "$LOG_FILE" 2>&1
+echo "[LOG] Step 5 OK" >> "$LOG_FILE"
+
+echo "[6/6] Creating Toppath Agent.app and registering toppath-agent://..."
+rm -rf "$APP_DIR"
+
+# Wrapper script called by launchd — reads URI from temp file and runs the agent
+cat > "$INSTALL_DIR/launch-from-uri.sh" <<'LAUNCHER'
+#!/usr/bin/env bash
+INSTALL_DIR="$HOME/toppath-agent"
+URI_FILE="$INSTALL_DIR/.pending-url"
+LOG_FILE="$INSTALL_DIR/agent-launch.log"
+URI=\$(cat "\$URI_FILE" 2>/dev/null || echo "")
+rm -f "\$URI_FILE"
+echo "[\$(date)] Launch request: \$URI" >> "\$LOG_FILE"
+exec "\$INSTALL_DIR/.venv/bin/python" "\$INSTALL_DIR/toppath-agent.py" "\$URI"
+LAUNCHER
+chmod +x "$INSTALL_DIR/launch-from-uri.sh"
+
+# Install launchd user agent — runs agent silently in background, no Terminal window
+PLIST_DIR="$HOME/Library/LaunchAgents"
+PLIST_PATH="$PLIST_DIR/toppath.agent.plist"
+mkdir -p "$PLIST_DIR"
+cat > "$PLIST_PATH" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>toppath.agent</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>$INSTALL_DIR/launch-from-uri.sh</string>
+    </array>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>KeepAlive</key>
+    <false/>
+    <key>StandardOutPath</key>
+    <string>$INSTALL_DIR/agent-launch.log</string>
+    <key>StandardErrorPath</key>
+    <string>$INSTALL_DIR/agent-launch.log</string>
+</dict>
+</plist>
+PLIST
+launchctl unload "$PLIST_PATH" 2>/dev/null || true
+launchctl load -w "$PLIST_PATH"
+echo "[LOG] launchd agent loaded: $PLIST_PATH" >> "$LOG_FILE"
+
+# AppleScript URL scheme handler — writes URI to file, then kicks launchd agent (no Terminal)
+cat > "$INSTALL_DIR/ToppathAgentLauncher.applescript" <<'APPLESCRIPT'
+on open location this_url
+  set home_path to POSIX path of (path to home folder)
+  set url_file to home_path & "toppath-agent/.pending-url"
+  -- Write URI to temp file (no network permission needed for file I/O)
+  do shell script "printf '%s' " & quoted form of this_url & " > " & quoted form of url_file
+  -- Kick the launchd user agent — runs silently in background, no Terminal window
+  do shell script "launchctl kickstart -k gui/$(id -u)/toppath.agent 2>/dev/null || launchctl start toppath.agent 2>/dev/null || true"
+end open location
+
+on run
+  display dialog "Toppath Agent is installed. Use Start (Local) in Toppath Tools to launch it." buttons {"OK"} default button "OK"
+end run
+APPLESCRIPT
+
+if ! command -v osacompile >/dev/null 2>&1; then
+  echo "ERROR: osacompile was not found. This installer must run on macOS."
+  echo "[LOG] FAILED at step 6: osacompile missing" >> "$LOG_FILE"
+  exit 1
+fi
+osacompile -o "$APP_DIR" "$INSTALL_DIR/ToppathAgentLauncher.applescript"
+
+PLIST="$APP_DIR/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier tools.toppath.agent" "$PLIST" >/dev/null 2>&1 || true
+/usr/libexec/PlistBuddy -c "Set :CFBundleName Toppath Agent" "$PLIST" >/dev/null 2>&1 || true
+/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Toppath Agent" "$PLIST" >/dev/null 2>&1 || true
+/usr/libexec/PlistBuddy -c "Delete :CFBundleURLTypes" "$PLIST" >/dev/null 2>&1 || true
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes array" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0 dict" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLName string Toppath Agent Protocol" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes array" "$PLIST"
+/usr/libexec/PlistBuddy -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string toppath-agent" "$PLIST"
+
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [ -x "$LSREGISTER" ]; then
+  "$LSREGISTER" -f "$APP_DIR" >/dev/null 2>&1 || true
+fi
+open "$APP_DIR" >/dev/null 2>&1 || true
+
+echo "[LOG] Step 6 OK" >> "$LOG_FILE"
+echo "[LOG] Installation complete: $(date)" >> "$LOG_FILE"
+echo
+echo "============================================"
+echo " Installation complete!"
+echo " Click Start (Local) in Toppath Tools"
+echo " to launch the agent on this Mac."
+echo
+echo " Log file: $LOG_FILE"
+echo "============================================"
+`
+  res.setHeader('Content-Type', 'application/x-sh; charset=utf-8')
+  res.setHeader('Content-Disposition', 'attachment; filename="install-toppath-agent-mac.sh"')
+  res.send(sh)
 })
 
 // ─── History (戰績監控) endpoints ─────────────────────────────────────────────
@@ -1018,4 +1215,3 @@ router.get('/api/autospin/reconcile/reports/:id', (req, res) => {
   if (!row) return res.status(404).json({ ok: false })
   return res.json({ ok: true, report: { ...row, details: JSON.parse(row.details || '{}') } })
 })
-

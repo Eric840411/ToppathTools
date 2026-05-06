@@ -1,0 +1,1 @@
+UI frame class select, 640x400 transparent pixel-art class cards, based on game-design.md.

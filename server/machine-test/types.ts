@@ -47,6 +47,17 @@ export interface MachineResult {
 
 export type BonusAction = 'auto_wait' | 'spin' | 'takewin' | 'touchscreen'
 
+export interface AudioConfig {
+  /** Peak dB threshold — above this triggers 爆音風險. Default: -3 */
+  peakWarnDb?: number
+  /** Spectral centroid Hz threshold — above this triggers 音色偏亮. Default: 1500 */
+  centroidWarnHz?: number
+  /** RMS dB lower bound — below this triggers 音量偏低. Default: -60 */
+  rmsMinDb?: number
+  /** RMS dB upper bound — above this triggers 音量過大. Default: -20 */
+  rmsMaxDb?: number
+}
+
 export interface MachineProfile {
   machineType: string
   bonusAction: BonusAction
@@ -69,6 +80,8 @@ export interface MachineProfile {
   /** Stage 2 entry touchscreen: YES/NO confirmation */
   entryTouchPoints2?: string[] | null
   notes?: string | null
+  /** Per-machine audio analysis thresholds. Overrides global defaults when set. */
+  audioConfig?: AudioConfig | null
 }
 
 export type TestEventType =

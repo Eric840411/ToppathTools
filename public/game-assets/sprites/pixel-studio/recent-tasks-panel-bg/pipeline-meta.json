@@ -1,0 +1,33 @@
+{
+  "name": "recent-tasks-panel-bg",
+  "rows": 1,
+  "cols": 1,
+  "cell_width": 224,
+  "cell_height": 128,
+  "sheet_size": [
+    224,
+    128
+  ],
+  "duration": 1000,
+  "source_size": [
+    1659,
+    948
+  ],
+  "key_color": [
+    232,
+    8,
+    208
+  ],
+  "frames": [
+    {
+      "file": "recent-tasks-panel-bg-1.png",
+      "bbox": [
+        2,
+        3,
+        221,
+        124
+      ],
+      "touches_edge": false
+    }
+  ]
+}

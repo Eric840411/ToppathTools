@@ -1,0 +1,43 @@
+{
+  "name": "monitor-glow",
+  "rows": 1,
+  "cols": 2,
+  "cell_width": 48,
+  "cell_height": 48,
+  "sheet_size": [
+    96,
+    48
+  ],
+  "duration": 500,
+  "source_size": [
+    1774,
+    887
+  ],
+  "key_color": [
+    240,
+    16,
+    224
+  ],
+  "frames": [
+    {
+      "file": "monitor-glow-1.png",
+      "bbox": [
+        1,
+        12,
+        47,
+        35
+      ],
+      "touches_edge": false
+    },
+    {
+      "file": "monitor-glow-2.png",
+      "bbox": [
+        1,
+        11,
+        47,
+        36
+      ],
+      "touches_edge": false
+    }
+  ]
+}

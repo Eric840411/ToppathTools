@@ -1,52 +1,55 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useGameProfileCtx } from '../context/GameProfileContext'
+import { useAvatar } from '../hooks/useAvatar'
+import { CharacterSprite, type CharacterState } from './CharacterSprite'
+import { SkillBar } from './SkillBar'
+import { ClassSelectModal } from './ClassSelectModal'
 
 export type GameTabId =
   | 'jira' | 'lark'
   | 'osm' | 'machinetest' | 'imagecheck' | 'osm-config' | 'autospin' | 'url-pool' | 'jackpot' | 'osm-uat'
-  | 'gs-pdf' | 'gs-imgcompare' | 'gs-stats' | 'gs-logchecker'
+  | 'gs-imgcompare' | 'gs-stats' | 'gs-logchecker'
   | 'history'
 
 interface NavItem {
   id: GameTabId
   label: string
   icon: string
-  iconSlot?: string
+  labelIcon?: string
   children?: NavItem[]
 }
 
 const NAV: NavItem[] = [
-  { id: 'jira',    label: 'JIRA QUEST',    icon: '📋', iconSlot: 'jira' },
-  { id: 'lark',    label: 'TESTCASE LAB',  icon: '🔬', iconSlot: 'lark' },
+  { id: 'jira',    label: 'JIRA QUEST',    icon: '📋', labelIcon: 'banner'  },
+  { id: 'lark',    label: 'TESTCASE LAB',  icon: '🔬', labelIcon: 'crystal' },
   {
     id: 'osm',
     label: 'OSM TERRITORY',
     icon: '🗺',
-    iconSlot: 'osm',
+    labelIcon: 'castle',
     children: [
-      { id: 'osm',         label: 'VERSION SYNC',  icon: '📡', iconSlot: 'osm' },
-      { id: 'machinetest', label: 'MACHINE RAID',  icon: '⚔',  iconSlot: 'machinetest' },
-      { id: 'imagecheck',  label: 'IMAGE VERIFY',  icon: '🖼',  iconSlot: 'imagecheck' },
-      { id: 'osm-config',  label: 'CONFIG CHECK',  icon: '⚙',  iconSlot: 'osm-config' },
-      { id: 'autospin',    label: 'AUTO SENTINEL', icon: '🤖', iconSlot: 'autospin' },
-      { id: 'url-pool',    label: 'URL VAULT',     icon: '🔑', iconSlot: 'vault' },
-      { id: 'jackpot',     label: 'JACKPOT RADAR', icon: '📻', iconSlot: 'jackpot' },
-      { id: 'osm-uat',     label: 'UAT ASSAULT',   icon: '🎯', iconSlot: 'osm-uat' },
+      { id: 'osm',         label: 'VERSION SYNC',  icon: '📡', labelIcon: 'portals' },
+      { id: 'machinetest', label: 'MACHINE RAID',  icon: '⚔',  labelIcon: 'mech'    },
+      { id: 'imagecheck',  label: 'IMAGE VERIFY',  icon: '🖼',  labelIcon: 'crystal' },
+      { id: 'osm-config',  label: 'CONFIG CHECK',  icon: '⚙',  labelIcon: 'gear'    },
+      { id: 'autospin',    label: 'AUTO SENTINEL', icon: '🤖', labelIcon: 'mech'    },
+      { id: 'url-pool',    label: 'URL VAULT',     icon: '🔑', labelIcon: 'chest'   },
+      { id: 'jackpot',     label: 'JACKPOT RADAR', icon: '📻', labelIcon: 'slot'    },
+      { id: 'osm-uat',     label: 'UAT ASSAULT',   icon: '🎯', labelIcon: 'swords'  },
     ],
   },
   {
-    id: 'gs-pdf',
+    id: 'gs-imgcompare',
     label: 'GAMESHOW OPS',
     icon: '🎲',
-    iconSlot: 'gs-stats',
+    labelIcon: 'crown',
     children: [
-      { id: 'gs-pdf',        label: 'PDF ANALYSIS', icon: '📄', iconSlot: 'gs-pdf' },
-      { id: 'gs-imgcompare', label: 'IMG COMPARE',  icon: '🖼',  iconSlot: 'gs-imgcompare' },
-      { id: 'gs-stats',      label: 'PROB STATS',   icon: '📊', iconSlot: 'gs-stats' },
-      { id: 'gs-logchecker', label: 'LOG INTERCEPT',icon: '🪤', iconSlot: 'gs-logchecker' },
+      { id: 'gs-imgcompare', label: 'IMG COMPARE',  icon: '🖼',  labelIcon: 'crystal' },
+      { id: 'gs-stats',      label: 'PROB STATS',   icon: '📊', labelIcon: 'potion'  },
+      { id: 'gs-logchecker', label: 'LOG INTERCEPT',icon: '🪤', labelIcon: 'swords'  },
     ],
   },
-  { id: 'history', label: 'OP RECORDS', icon: '📜', iconSlot: 'history' },
+  { id: 'history', label: 'OP RECORDS', icon: '📜', labelIcon: 'scroll' },
 ]
 
 interface Props {
@@ -54,13 +57,17 @@ interface Props {
   onTabChange: (id: GameTabId) => void
 }
 
-function PixelIcon({ slot, emoji, size = 20 }: { slot?: string; emoji: string; size?: number }) {
-  if (slot) {
+function NavIcon({ labelIcon, emoji, size = 20 }: {
+  labelIcon?: string
+  emoji: string
+  size?: number
+}) {
+  if (labelIcon) {
     return (
       <img
-        src={`/game-assets/icons/${slot}.png`}
+        src={`/game-assets/label-icons-18/label-${labelIcon}-18.png`}
         width={size} height={size}
-        style={{ imageRendering: 'pixelated', flexShrink: 0 }}
+        style={{ imageRendering: 'pixelated', flexShrink: 0, marginLeft: 3, marginTop: 0 }}
         onError={e => {
           const el = e.target as HTMLImageElement
           el.style.display = 'none'
@@ -79,7 +86,32 @@ function PixelIcon({ slot, emoji, size = 20 }: { slot?: string; emoji: string; s
 
 export function GameSidebar({ activeTab, onTabChange }: Props) {
   const [expanded, setExpanded] = useState<string | null>('osm')
-  const { level, xpPct, xpCurrent, xpNeeded } = useGameProfileCtx()
+  const { level, xpPct, xpCurrent, xpNeeded, questsClaimed, classId, classDef } = useGameProfileCtx()
+  const { avatarSrc } = useAvatar()
+
+  const [charState, setCharState] = useState<CharacterState>('idle')
+  const [showClassSelect, setShowClassSelect] = useState(false)
+  const charTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const prevLevel = useRef(level)
+  const prevClaimed = useRef(questsClaimed.length)
+
+  const triggerCharState = (s: CharacterState, ms = 2500) => {
+    setCharState(s)
+    if (charTimer.current) clearTimeout(charTimer.current)
+    charTimer.current = setTimeout(() => setCharState('idle'), ms)
+  }
+
+  // React to level up
+  useEffect(() => {
+    if (level > prevLevel.current) triggerCharState('levelup', 3000)
+    prevLevel.current = level
+  }, [level])
+
+  // React to quest completion
+  useEffect(() => {
+    if (questsClaimed.length > prevClaimed.current) triggerCharState('celebrate', 2500)
+    prevClaimed.current = questsClaimed.length
+  }, [questsClaimed.length])
 
   const handleTopClick = (item: NavItem) => {
     if (item.children) {
@@ -109,13 +141,29 @@ export function GameSidebar({ activeTab, onTabChange }: Props) {
     }}>
       {/* Player stats block */}
       <div style={{ padding: '14px 12px 10px', borderBottom: '1px solid var(--border-dim)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 8 }}>
-          <img
-            src="/game-assets/icons/commander.png"
-            style={{ width: 56, height: 56, imageRendering: 'pixelated', border: '2px solid var(--border-bright)', display: 'block', margin: '0 auto' }}
-            onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
-            alt=""
-          />
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>
+          <div style={{
+            width: 74,
+            height: 74,
+            padding: 3,
+            border: '2px solid var(--border-bright)',
+            background: 'linear-gradient(180deg, rgba(8,18,36,0.95), rgba(3,8,18,0.98))',
+            boxShadow: '0 0 10px rgba(0,212,255,0.2)',
+          }}>
+            <img
+              src={avatarSrc}
+              style={{
+                width: '100%',
+                height: '100%',
+                display: 'block',
+                objectFit: 'cover',
+                imageRendering: 'pixelated',
+                background: '#040b16',
+              }}
+              onError={e => { (e.target as HTMLImageElement).src = '/game-assets/icons/commander-v2.png' }}
+              alt=""
+            />
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
           <div style={{
@@ -139,6 +187,64 @@ export function GameSidebar({ activeTab, onTabChange }: Props) {
             <div className="px-bar__fill" style={{ width: `${xpPct}%` }} />
           </div>
         </div>
+
+        {/* Character display */}
+        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+          {classId ? (
+            <>
+              <CharacterSprite characterClass={classId} state={charState} size={128} />
+              <SkillBar />
+            </>
+          ) : (
+            <>
+              {/* Silhouette placeholder when no class chosen */}
+              <div style={{
+                width: 85, height: 128,
+                background: 'rgba(0,212,255,0.04)',
+                border: '1px dashed var(--border-dim)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 32, opacity: 0.4,
+              }}>?</div>
+              <button
+                type="button"
+                onClick={() => setShowClassSelect(true)}
+                style={{
+                  fontFamily: 'var(--font-pixel)', fontSize: 8,
+                  color: 'var(--neon-gold)',
+                  background: 'rgba(255,215,0,0.08)',
+                  border: '1px solid var(--neon-gold)',
+                  padding: '4px 10px',
+                  cursor: 'pointer', letterSpacing: 0.5,
+                  boxShadow: '0 0 8px rgba(255,215,0,0.2)',
+                  animation: 'px-pulse 2s steps(2) infinite',
+                }}
+              >
+                ⭐ SELECT CLASS
+              </button>
+            </>
+          )}
+
+          {/* Class label or change hint */}
+          {classId && classDef && (
+            <button
+              type="button"
+              onClick={() => setShowClassSelect(false)}
+              style={{
+                fontFamily: 'var(--font-pixel)', fontSize: 7,
+                color: classDef.color,
+                background: 'transparent', border: 'none',
+                cursor: 'default', letterSpacing: 0.5,
+                textShadow: `0 0 4px ${classDef.color}`,
+              }}
+              title="職業已鎖定"
+            >
+              {classDef.nameZh}
+            </button>
+          )}
+        </div>
+
+        {/* Class select modal */}
+        {showClassSelect && <ClassSelectModal onClose={() => setShowClassSelect(false)} />}
       </div>
 
       {/* Nav items */}
@@ -166,7 +272,7 @@ export function GameSidebar({ activeTab, onTabChange }: Props) {
                   imageRendering: 'pixelated',
                 }}
               >
-                <PixelIcon slot={item.iconSlot} emoji={item.icon} size={20} />
+                <NavIcon labelIcon={item.labelIcon} emoji={item.icon} size={20} />
                 <span style={{
                   fontFamily: 'var(--font-pixel)',
                   fontSize: 10,
@@ -202,12 +308,16 @@ export function GameSidebar({ activeTab, onTabChange }: Props) {
                           padding: '7px 10px 7px 10px',
                           background: childActive ? '#00d4ff14' : 'transparent',
                           border: 'none',
-                          borderLeft: `2px solid ${childActive ? 'var(--neon-cyan)' : 'var(--border-dim)'}`,
+                          borderLeft: childActive
+                            ? '3px solid var(--neon-green)'
+                            : '2px solid var(--border-dim)',
+                          boxShadow: childActive ? 'inset 0 0 12px rgba(0,255,136,0.06)' : 'none',
                           cursor: 'pointer',
                           textAlign: 'left',
+                          transition: 'all 80ms steps(2)',
                         }}
                       >
-                        <PixelIcon slot={child.iconSlot} emoji={child.icon} size={18} />
+                        <NavIcon labelIcon={child.labelIcon} emoji={child.icon} size={18} />
                         <span style={{
                           fontFamily: 'var(--font-pixel)',
                           fontSize: 10,

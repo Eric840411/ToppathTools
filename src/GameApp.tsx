@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { useClickSound } from './game/hooks/useClickSound'
+import { GameModeProvider } from './components/GameModeContext'
 import { GameSidebar, type GameTabId } from './game/components/GameSidebar'
 import { GameHeader } from './game/components/GameHeader'
 
@@ -13,7 +15,6 @@ import { UrlPoolPage } from './pages/UrlPoolPage'
 import { JackpotPage } from './pages/JackpotPage'
 import { OsmUatPage } from './pages/OsmUatPage'
 import { HistoryPage } from './pages/HistoryPage'
-import { GsPdfTestCasePage } from './pages/gs/GsPdfTestCasePage'
 import { GsImgComparePage } from './pages/gs/GsImgComparePage'
 import { GsStatsPage } from './pages/gs/GsStatsPage'
 import { GsLogCheckerPage } from './pages/gs/GsLogCheckerPage'
@@ -24,6 +25,7 @@ import { APP_VERSION } from './version'
 import { GameProfileProvider } from './game/context/GameProfileContext'
 import { GameNotifications } from './game/components/GameNotifications'
 import { GameQuestPanel } from './game/components/GameQuestPanel'
+import { PixelStudioWidget } from './game/components/PixelStudioWidget'
 
 // pixel.css is loaded dynamically from main.tsx — do NOT import here
 
@@ -33,6 +35,7 @@ const loadGlobalAccount = (): AccountInfo | null => {
 }
 
 export function GameApp() {
+  useClickSound()
   const [activeTab, setActiveTab] = useState<GameTabId>('jira')
   const [showChangelog, setShowChangelog] = useState(false)
   const [showGemini, setShowGemini] = useState(false)
@@ -51,6 +54,7 @@ export function GameApp() {
   }
 
   return (
+    <GameModeProvider value={true}>
     <GameProfileProvider>
     <div style={{
       display: 'flex',
@@ -81,6 +85,7 @@ export function GameApp() {
           padding: 20,
           background: 'var(--bg-dark)',
         }}>
+          <div key={activeTab} className="px-tab-enter" style={{ minHeight: '100%' }}>
           {activeTab === 'jira'          && <JiraPage />}
           {activeTab === 'lark'          && <LarkPage />}
           {activeTab === 'osm'           && <OsmPage />}
@@ -92,10 +97,10 @@ export function GameApp() {
           {activeTab === 'jackpot'       && <JackpotPage />}
           {activeTab === 'osm-uat'       && <OsmUatPage />}
           {activeTab === 'history'       && <HistoryPage />}
-          {activeTab === 'gs-pdf'        && <GsPdfTestCasePage />}
           {activeTab === 'gs-imgcompare' && <GsImgComparePage />}
           {activeTab === 'gs-stats'      && <GsStatsPage />}
           {activeTab === 'gs-logchecker' && <GsLogCheckerPage />}
+          </div>
         </main>
       </div>
 
@@ -113,7 +118,9 @@ export function GameApp() {
       {/* Game systems */}
       <GameNotifications />
       <GameQuestPanel />
+      <PixelStudioWidget />
     </div>
     </GameProfileProvider>
+    </GameModeProvider>
   )
 }

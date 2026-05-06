@@ -1,0 +1,53 @@
+{
+  "name": "sweat-anim",
+  "rows": 1,
+  "cols": 3,
+  "cell_width": 8,
+  "cell_height": 12,
+  "sheet_size": [
+    24,
+    12
+  ],
+  "duration": 180,
+  "source_size": [
+    1774,
+    887
+  ],
+  "key_color": [
+    240,
+    16,
+    224
+  ],
+  "frames": [
+    {
+      "file": "sweat-anim-1.png",
+      "bbox": [
+        0,
+        3,
+        7,
+        8
+      ],
+      "touches_edge": true
+    },
+    {
+      "file": "sweat-anim-2.png",
+      "bbox": [
+        1,
+        1,
+        7,
+        11
+      ],
+      "touches_edge": false
+    },
+    {
+      "file": "sweat-anim-3.png",
+      "bbox": [
+        2,
+        0,
+        5,
+        11
+      ],
+      "touches_edge": true
+    }
+  ]
+}

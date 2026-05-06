@@ -112,10 +112,27 @@ db.exec(`
   );
 `)
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS machine_test_results (
+    id           TEXT PRIMARY KEY,
+    session_id   TEXT NOT NULL DEFAULT '',
+    machine_code TEXT NOT NULL,
+    tested_at    INTEGER NOT NULL,
+    account      TEXT NOT NULL DEFAULT '',
+    overall      TEXT NOT NULL,
+    steps        TEXT NOT NULL,
+    duration_ms  INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_mtr_machine ON machine_test_results (machine_code, tested_at);
+  CREATE INDEX IF NOT EXISTS idx_mtr_account  ON machine_test_results (account, tested_at);
+`)
+
 // Auto-purge history older than 7 days
 db.prepare('DELETE FROM operation_history WHERE created_at < ?').run(Date.now() - 7 * 24 * 60 * 60 * 1000)
 // Auto-purge machine test sessions older than 30 days
 db.prepare('DELETE FROM machine_test_sessions WHERE started_at < ?').run(Date.now() - 30 * 24 * 60 * 60 * 1000)
+// Auto-purge per-machine results older than 90 days
+db.prepare('DELETE FROM machine_test_results WHERE tested_at < ?').run(Date.now() - 90 * 24 * 60 * 60 * 1000)
 
 export function addHistory(feature: string, title: string, summary: string, detail: unknown) {
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
@@ -150,6 +167,10 @@ export function addHistory(feature: string, title: string, summary: string, deta
   if (!cols.find(c => c.name === 'ideck_xpaths')) {
     db.exec(`ALTER TABLE machine_test_profiles ADD COLUMN ideck_xpaths TEXT NOT NULL DEFAULT '[]'`)
     console.log('[DB] machine_test_profiles 已新增欄位：ideck_xpaths')
+  }
+  if (!cols.find(c => c.name === 'audioConfig')) {
+    db.exec('ALTER TABLE machine_test_profiles ADD COLUMN audioConfig TEXT')
+    console.log('[DB] machine_test_profiles 已新增欄位：audioConfig')
   }
 }
 
@@ -672,7 +693,7 @@ export const toJiraDateTime = (val: string | undefined): string | null => {
 
 // ─── Multer Upload ────────────────────────────────────────────────────────────
 
-export const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } })
+export const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 30 * 1024 * 1024 } })
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
@@ -697,6 +718,20 @@ export const larkGenerateSchema = z.object({
   jiraKeys: z.array(z.string()).default([]),
   jiraEmail: z.string().optional(),
   modelSpec: z.string().optional(),
+  // Diff mode: old spec sources (fetched separately, passed as {{old_spec}})
+  oldSources: z.array(z.object({
+    type: z.enum(['lark', 'gdocs', 'pdf', 'csv']),
+    url: z.string().optional(),
+    content: z.string().optional(), // csv text or pdf base64
+  })).optional(),
+  // Baseline mode: existing test cases source (json paste / lark url / csv / xlsx base64)
+  existingCasesSource: z.object({
+    type: z.enum(['json', 'lark', 'csv', 'xlsx']),
+    content: z.string().optional(), // json/csv text, or base64-encoded xlsx
+    url: z.string().optional(),     // lark bitable url
+  }).optional(),
+  // Second Pass: auto-fill empty fields after first generation
+  secondPass: z.boolean().optional(),
 })
 
 export const gmailLatestSchema = z.object({ query: z.string().optional() })

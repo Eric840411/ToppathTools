@@ -12,12 +12,12 @@ import { networkInterfaces } from 'os'
 import { join } from 'path'
 import { z } from 'zod'
 import { WebSocketServer } from 'ws'
-import { startDiscordBot } from './discord-bot.js'
+import { startDiscordBot, stopDiscordBot } from './discord-bot.js'
 
 // Route files
 import { router as jiraRouter } from './routes/jira.js'
 import { router as geminiRouter } from './routes/gemini.js'
-import { router as osmRouter, restartCron } from './routes/osm.js'
+import { router as osmRouter, restartCron, activeCronTask } from './routes/osm.js'
 import { router as integrationsRouter } from './routes/integrations.js'
 import { router as machineTestRouter, osmMachineStatus, activeRunners } from './routes/machine-test.js'
 import {
@@ -58,14 +58,51 @@ const server = createServer(app)
 const port = Number(process.env.PORT ?? 3000)
 
 // ─── Graceful Shutdown ────────────────────────────────────────────────────────
-// tsx --watch sends SIGTERM on file change. Without this, open SSE/WS connections
-// keep the process alive → port 3000 stays bound → next process gets EADDRINUSE.
-const gracefulShutdown = () => {
-  server.close()
-  setTimeout(() => process.exit(0), 800).unref()
+// tsx --watch sends SIGTERM on file change. Full cleanup ensures port is released
+// before the new process starts, so EADDRINUSE never happens.
+let isShuttingDown = false
+const gracefulShutdown = (signal: string) => {
+  if (isShuttingDown) return
+  isShuttingDown = true
+  console.log(`[Shutdown] ${signal} received`)
+
+  // 1. Terminate all WebSocket clients
+  console.log('[Shutdown] closing ws clients...')
+  wss.clients.forEach(ws => ws.terminate())
+  wss.close()
+
+  // 2. Stop active machine-test runners
+  for (const runner of activeRunners.values()) {
+    try { runner.stop() } catch {}
+  }
+  activeRunners.clear()
+
+  // 3. Stop cron job
+  console.log('[Shutdown] stopping cron...')
+  activeCronTask?.stop()
+
+  // 4. Destroy Discord bot connection
+  console.log('[Shutdown] stopping discord bot...')
+  stopDiscordBot()
+
+  // 5. Close HTTP server — closeAllConnections() force-closes SSE & keep-alive
+  console.log('[Shutdown] closing http server...')
+  if (typeof (server as any).closeAllConnections === 'function') {
+    ;(server as any).closeAllConnections()
+  }
+  server.close(() => {
+    console.log('[Shutdown] server closed — exiting')
+    process.exit(0)
+  })
+
+  // Force exit after 3s if server.close() hangs on any remaining connection
+  setTimeout(() => {
+    console.log('[Shutdown] force exit after 3s timeout')
+    process.exit(0)
+  }, 3000).unref()
 }
-process.on('SIGTERM', gracefulShutdown)
-process.on('SIGINT', gracefulShutdown)
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
+process.on('SIGINT',  () => gracefulShutdown('SIGINT'))
 const serverStartedAt = Date.now()
 const serverBootId = `${process.pid}-${serverStartedAt}`
 
@@ -297,16 +334,19 @@ wss.on('connection', (ws, req) => {
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 
+// EADDRINUSE: the old process is still shutting down — wait and retry.
+// Port cleanup is the old process's responsibility (gracefulShutdown above).
+// We no longer kill the port here; that caused race conditions in dev.
 let eaddrinuseRetries = 0
 server.on('error', (err: NodeJS.ErrnoException) => {
   if (err.code === 'EADDRINUSE') {
     eaddrinuseRetries++
-    if (eaddrinuseRetries > 3) {
+    if (eaddrinuseRetries > 8) {
       console.error(`[API] Port ${port} still in use after ${eaddrinuseRetries} retries, giving up.`)
       process.exit(1)
     }
-    console.error(`[API] Port ${port} already in use, retrying in 3s... (${eaddrinuseRetries}/3)`)
-    setTimeout(() => server.listen(port, '0.0.0.0'), 3000)
+    console.error(`[API] Port ${port} in use, retrying in 1s... (${eaddrinuseRetries}/8)`)
+    setTimeout(() => server.listen(port, '0.0.0.0'), 1000)
   } else {
     console.error('[API] Server error:', err)
   }

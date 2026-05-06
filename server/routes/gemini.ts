@@ -235,6 +235,7 @@ export const _callGeminiWithRotation = async (prompt: string, startIndex?: numbe
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(300000), // 5 min — large TestCase / second-pass prompts can take >2min
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: { temperature: 0.3 },
@@ -367,6 +368,7 @@ export const callGeminiVision = async (prompt: string, imageBase64: string, mime
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(300000),
           body: JSON.stringify({
             contents: [{
               parts: [
@@ -445,6 +447,7 @@ export const callGeminiVisionMulti = async (
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(300000),
           body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.1 } }),
         },
       )

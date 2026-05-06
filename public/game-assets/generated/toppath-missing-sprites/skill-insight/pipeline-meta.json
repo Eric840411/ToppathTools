@@ -1,0 +1,31 @@
+{
+  "name": "skill-insight",
+  "rows": 1,
+  "cols": 1,
+  "cell_width": 32,
+  "cell_height": 32,
+  "sheet_size": [
+    32,
+    32
+  ],
+  "duration_ms": 200,
+  "source": "C:\\Users\\user\\.codex\\generated_images\\019de871-6dec-7b62-addf-596aef6e83e3\\ig_07a4345c6dbdf94c0169f5fef6cd208191bfaf87dbc1aff637.png",
+  "qc": [
+    {
+      "frame": 1,
+      "source_box": [
+        0,
+        0,
+        1254,
+        1254
+      ],
+      "alpha_bbox": [
+        1,
+        1,
+        30,
+        30
+      ]
+    }
+  ],
+  "prompt_file": "C:\\Users\\user\\Documents\\New project\\generated\\toppath-missing-sprites\\skill-insight\\prompt-used.txt"
+}

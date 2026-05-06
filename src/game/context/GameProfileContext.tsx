@@ -1,5 +1,13 @@
 import { createContext, useContext, useEffect, type ReactNode } from 'react'
-import { useGameProfile, type GameNotification, type QuestDef } from '../hooks/useGameProfile'
+import {
+  useGameProfile,
+  type GameNotification,
+  type QuestDef,
+  type CharacterClass,
+  type ClassDef,
+  type StatKey,
+  type ActiveSkillEffect,
+} from '../hooks/useGameProfile'
 
 interface GameProfileCtx {
   xp: number
@@ -13,14 +21,29 @@ interface GameProfileCtx {
   questProgress: Record<string, number>
   questsClaimed: string[]
   notifications: GameNotification[]
+  // Class system
+  classId: CharacterClass | null
+  classDef: ClassDef | null
+  stats: Record<StatKey, number>
+  statPoints: number
+  skillCooldowns: Record<string, number>
+  activeEffects: ActiveSkillEffect[]
+  // Actions
   awardXP: (action: string, overrideXp?: number) => void
   dismissNotif: (id: string) => void
+  selectClass: (classId: CharacterClass) => void
+  activateSkill: (skillId: string) => boolean
+  allocateStat: (stat: StatKey) => void
 }
 
 const Ctx = createContext<GameProfileCtx | null>(null)
 
 export function GameProfileProvider({ children }: { children: ReactNode }) {
-  const { profile, levelInfo, todayQuests, awardXP, notifications, dismissNotif } = useGameProfile()
+  const {
+    profile, levelInfo, todayQuests,
+    awardXP, notifications, dismissNotif,
+    selectClass, activateSkill, allocateStat, classDef,
+  } = useGameProfile()
 
   // ── Fetch interceptor — award XP on successful API calls ──
   useEffect(() => {
@@ -63,8 +86,17 @@ export function GameProfileProvider({ children }: { children: ReactNode }) {
       questProgress: profile.questProgress,
       questsClaimed: profile.questsClaimed ?? [],
       notifications,
+      classId: profile.classId,
+      classDef,
+      stats: profile.stats,
+      statPoints: profile.statPoints,
+      skillCooldowns: profile.skillCooldowns,
+      activeEffects: profile.activeEffects,
       awardXP,
       dismissNotif,
+      selectClass,
+      activateSkill,
+      allocateStat,
     }}>
       {children}
     </Ctx.Provider>

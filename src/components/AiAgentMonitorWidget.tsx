@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { useIsGameMode } from './GameModeContext'
+import { PixelStudioWidget } from '../game/components/PixelStudioWidget'
 
 type Provider = 'gemini' | 'openai' | 'ollama'
 type TaskStatus = 'running' | 'done' | 'error'
@@ -23,12 +25,24 @@ interface MonitorResponse {
 }
 
 export default function AiAgentMonitorWidget() {
+  const isGame = useIsGameMode()
+  if (isGame) return <PixelStudioWidget />
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  return <LegacyAiAgentMonitorWidget />
+}
+
+function LegacyAiAgentMonitorWidget() {
   const [backendOnline, setBackendOnline] = useState(true)
   const [runningCount, setRunningCount] = useState(0)
   const [runningByProvider, setRunningByProvider] = useState<Record<Provider, number>>({ gemini: 0, openai: 0, ollama: 0 })
   const [latest, setLatest] = useState<AiTask[]>([])
   const [minimized, setMinimized] = useState(false)
-  const [pos, setPos] = useState({ x: 24, y: 24 })
+  const [pos, setPos] = useState(() => {
+    const defaultHeight = 300
+    if (typeof window === 'undefined') return { x: 24, y: 24 }
+    return { x: 24, y: Math.max(24, window.innerHeight - defaultHeight - 24) }
+  })
   const draggingRef = useRef(false)
   const dragOffsetRef = useRef({ x: 0, y: 0 })
 
@@ -164,4 +178,3 @@ export default function AiAgentMonitorWidget() {
     </div>
   )
 }
-

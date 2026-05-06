@@ -1,0 +1,1 @@
+﻿Boss Offline, 1 frame, 48x64 target, based on game-design.md.

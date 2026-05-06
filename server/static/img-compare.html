@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>圖片比對工具</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #f8fafc;
+      --surface:  #ffffff;
+      --surface2: #f1f5f9;
+      --surface3: #e2e8f0;
+      --border:   #e2e8f0;
+      --text:     #1e293b;
+      --muted:    #64748b;
+      --green:    #16a34a;
+      --yellow:   #ca8a04;
+      --red:      #dc2626;
+      --blue:     #2563eb;
+      --purple:   #7c3aed;
+      --orange:   #ea580c;
+      --accent:   #4f46e5;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft JhengHei', sans-serif;
+      font-size: 14px;
+      padding: 20px 24px 40px;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    .page-header { margin-bottom: 18px; }
+    .page-title  { font-size: 18px; font-weight: 700; color: var(--text); }
+    .page-subtitle { font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+    /* ── Card ── */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 20px;
+      margin-bottom: 14px;
+    }
+    .card-title {
+      font-size: 13px; font-weight: 700; color: var(--accent);
+      margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+    }
+
+    /* ── Inputs ── */
+    .url-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+    .input-group { display: flex; flex-direction: column; gap: 5px; }
+    .input-group label {
+      font-size: 11px; color: var(--muted); font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .input-group .label-a { color: var(--blue); }
+    .input-group .label-b { color: var(--purple); }
+
+    .mode-fieldset {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px 10px;
+      margin-bottom: 14px;
+      background: var(--surface2);
+    }
+    .mode-fieldset legend {
+      font-size: 11px; font-weight: 700; color: var(--accent); padding: 0 6px;
+    }
+    .mode-options { display: flex; flex-direction: column; gap: 8px; }
+    .mode-option {
+      display: flex; align-items: flex-start; gap: 10px;
+      cursor: pointer; font-size: 13px; color: var(--text);
+    }
+    .mode-option input { margin-top: 3px; accent-color: var(--accent); }
+    .mode-option .mode-title { font-weight: 600; }
+    .mode-option .mode-desc {
+      font-size: 11px; color: var(--muted); font-weight: 400;
+      margin-top: 2px; line-height: 1.4;
+    }
+
+    input[type="text"] {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--text);
+      padding: 8px 12px; font-size: 13px; outline: none;
+      transition: border-color .2s; width: 100%;
+    }
+    input[type="text"]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(79,70,229,.08); }
+
+    /* ── Buttons ── */
+    button {
+      padding: 8px 18px; border: none; border-radius: 6px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      transition: filter .15s, opacity .15s; white-space: nowrap;
+    }
+    button:hover:not(:disabled) { filter: brightness(1.08); }
+    button:disabled { opacity: .45; cursor: default; }
+    .btn-primary   { background: var(--accent); color: #fff; }
+    .btn-success   { background: #16a34a; color: #fff; }
+    .btn-secondary {
+      background: var(--surface2); color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-danger    { background: #dc2626; color: #fff; }
+    .btn-large     { padding: 10px 28px; font-size: 14px; }
+    .btn-sm        { padding: 5px 12px; font-size: 12px; }
+    .btn-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+    /* ── Progress ── */
+    #progress-area { margin-top: 16px; display: none; }
+    .progress-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .progress-card {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 14px;
+    }
+    .progress-label {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.5px; margin-bottom: 6px;
+    }
+    .progress-label.a { color: var(--blue); }
+    .progress-label.b { color: var(--purple); }
+    .progress-bar-wrap {
+      background: var(--surface3); border-radius: 4px; height: 4px;
+      margin-bottom: 6px; overflow: hidden;
+    }
+    .progress-bar { height: 100%; border-radius: 4px; transition: width .3s; width: 0%; }
+    .progress-bar.a { background: var(--blue); }
+    .progress-bar.b { background: var(--purple); }
+    .progress-msg  { font-size: 11px; color: var(--muted); }
+    .progress-count { font-size: 12px; font-weight: 600; margin-top: 2px; color: var(--text); }
+
+    /* ── Results ── */
+    #results { display: none; }
+
+    /* ── Tabs ── */
+    .tab-nav {
+      display: flex; gap: 4px; margin-bottom: 0;
+      border-bottom: 1px solid var(--border); padding-bottom: 0;
+    }
+    .tab-btn {
+      background: transparent; border: none;
+      border-bottom: 2px solid transparent; border-radius: 0;
+      color: var(--muted); font-size: 13px; font-weight: 600;
+      padding: 10px 18px; cursor: pointer;
+      transition: color .15s, border-color .15s; margin-bottom: -1px;
+    }
+    .tab-btn:hover { color: var(--text); filter: none; }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-panel { display: none; padding-top: 16px; }
+    .tab-panel.active { display: block; }
+
+    /* ── Overview stat cards ── */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px; margin-bottom: 14px;
+    }
+    .stat-card {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 14px; text-align: center;
+    }
+    .stat-card.ok    { border-left: 3px solid var(--green); }
+    .stat-card.warn  { border-left: 3px solid var(--yellow); }
+    .stat-card.error { border-left: 3px solid var(--red); }
+    .stat-card.info  { border-left: 3px solid var(--blue); }
+    .stat-value { font-size: 22px; font-weight: 700; color: var(--text); line-height: 1.2; }
+    .stat-label { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    /* ── Tables ── */
+    .result-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; overflow: hidden; margin-bottom: 14px;
+    }
+    .result-card-title {
+      font-size: 12px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.5px;
+      padding: 10px 14px; background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th {
+      background: var(--surface2); padding: 8px 12px;
+      font-size: 11px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.4px;
+      text-align: left; border-bottom: 1px solid var(--border);
+    }
+    td { padding: 8px 12px; font-size: 12px; border-bottom: 1px solid var(--border); }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface2); }
+
+    /* ── Thumb ── */
+    .thumb-wrap {
+      width: 52px; height: 40px; overflow: hidden;
+      background: var(--surface2); border-radius: 4px;
+      border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+    }
+    .thumb-wrap img { width: 100%; height: 100%; object-fit: contain; }
+    .no-img { font-size: 10px; color: var(--muted); }
+
+    /* ── Badge ── */
+    .badge {
+      display: inline-block; padding: 2px 6px; border-radius: 4px;
+      font-size: 10px; font-weight: 700;
+    }
+    .badge-green  { background: #dcfce7; color: #15803d; }
+    .badge-yellow { background: #fef9c3; color: #854d0e; }
+    .badge-red    { background: #fee2e2; color: #b91c1c; }
+    .badge-blue   { background: #dbeafe; color: #1d4ed8; }
+
+    /* ── Size diff ── */
+    .diff-up   { color: var(--red); font-weight: 600; }
+    .diff-down { color: var(--green); font-weight: 600; }
+    .diff-zero { color: var(--muted); }
+
+    /* ── Similarity bar ── */
+    .sim-wrap { display: flex; align-items: center; gap: 8px; }
+    .sim-bar-bg {
+      flex: 1; height: 6px; background: var(--surface3);
+      border-radius: 3px; overflow: hidden; min-width: 60px;
+    }
+    .sim-bar { height: 100%; border-radius: 3px; transition: width .3s; }
+    .sim-text { font-size: 11px; font-weight: 700; white-space: nowrap; }
+
+    /* ── Visual diff loading ── */
+    .diff-loading {
+      width: 72px; height: 52px; background: var(--surface2);
+      border-radius: 4px; display: flex; align-items: center;
+      justify-content: center; font-size: 10px; color: var(--muted);
+    }
+
+    /* ── Unmatched section ── */
+    .unmatched-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
+    .unmatched-col {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px;
+    }
+    .unmatched-col-title {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.5px; margin-bottom: 10px;
+    }
+    .unmatched-col-title.a { color: var(--blue); }
+    .unmatched-col-title.b { color: var(--purple); }
+    .unmatched-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px; border-radius: 6px; border: 1px solid var(--border);
+      margin-bottom: 6px; cursor: pointer;
+      transition: background .1s, border-color .1s;
+      background: var(--surface);
+    }
+    .unmatched-item:hover { background: var(--surface2); }
+    .unmatched-item.selected { background: rgba(79,70,229,.06); border-color: var(--accent); }
+    .unmatched-info { flex: 1; min-width: 0; }
+    .unmatched-name { font-size: 11px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .unmatched-size { font-size: 10px; color: var(--muted); }
+
+    /* ── Export buttons row ── */
+    .export-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+    /* ── Lightbox ── */
+    #lightbox {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.7); z-index: 1000;
+      padding: 24px; overflow-y: auto;
+    }
+    #lightbox.open { display: flex; flex-direction: column; }
+    .lb-header {
+      display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+    }
+    .lb-title { font-size: 14px; font-weight: 700; color: #fff; flex: 1; }
+    .lb-nav { display: flex; gap: 8px; }
+    .lb-close {
+      background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.2);
+      border-radius: 6px; color: #fff; font-size: 18px;
+      padding: 4px 10px; cursor: pointer; line-height: 1;
+    }
+    .lb-close:hover { background: rgba(255,255,255,.25); filter: none; }
+    .lb-nav .btn-secondary { background: rgba(255,255,255,.12); color: #fff; border-color: rgba(255,255,255,.2); }
+    .lb-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+    .lb-panel {
+      background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.15);
+      border-radius: 8px; padding: 14px;
+    }
+    .lb-panel-title {
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.5px; margin-bottom: 10px;
+    }
+    .lb-panel-title.a    { color: #93c5fd; }
+    .lb-panel-title.b    { color: #c4b5fd; }
+    .lb-panel-title.diff { color: #fdba74; }
+    .lb-img-wrap {
+      background: rgba(255,255,255,.05); border-radius: 6px; padding: 8px;
+      display: flex; align-items: center; justify-content: center;
+      min-height: 200px; margin-bottom: 10px;
+    }
+    .lb-img-wrap img { max-width: 100%; max-height: 400px; object-fit: contain; }
+    .lb-img-wrap canvas { max-width: 100%; }
+    .lb-meta { font-size: 11px; color: rgba(255,255,255,.5); line-height: 1.7; }
+    .lb-meta span { color: #fff; }
+
+    /* ── Pair modal ── */
+    #pair-modal {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,.6); z-index: 900;
+      align-items: center; justify-content: center;
+    }
+    #pair-modal.open { display: flex; }
+    .pair-modal-inner {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 24px;
+      max-width: 680px; width: 95%; max-height: 80vh; overflow-y: auto;
+    }
+    .pair-modal-title { font-size: 15px; font-weight: 700; margin-bottom: 6px; }
+    .pair-modal-sub { font-size: 12px; color: var(--muted); margin-bottom: 16px; line-height: 1.5; }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(8px);
+      background: #1e293b; color: #f8fafc; padding: 10px 20px;
+      border-radius: 8px; font-size: 13px; font-weight: 500;
+      opacity: 0; pointer-events: none; z-index: 2000;
+      transition: opacity .25s, transform .25s;
+    }
+    #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* ── Misc ── */
+    @media (max-width: 720px) {
+      .url-grid, .progress-grid, .lb-grid, .unmatched-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="page-header">
+    <div class="page-title">圖片比對工具</div>
+    <div class="page-subtitle">比對兩個環境的圖片資源差異 · HTTP 成功/失敗分開 · 視覺比對 · 大小分析</div>
+  </div>
+
+  <div class="card" id="input-card">
+    <div class="card-title">🔗 輸入網址</div>
+    <div class="url-grid">
+      <div class="input-group">
+        <label class="label-a">🔵 A 版（本機開發）</label>
+        <input type="text" id="url-a" placeholder="http://localhost:8080" autocomplete="off">
+      </div>
+      <div class="input-group">
+        <label class="label-b">🟣 B 版（原始環境，可留空）</label>
+        <input type="text" id="url-b" placeholder="https://staging.example.com" autocomplete="off">
+      </div>
+    </div>
+
+    <div style="font-size:12px;color:var(--muted);margin-top:-6px;margin-bottom:12px;">
+      其中一個可以留空（只擷取單側）。A 版必填才能進行比對分析。
+    </div>
+
+    <fieldset class="mode-fieldset" id="capture-mode-fieldset">
+      <legend>擷取模式</legend>
+      <div class="mode-options">
+        <label class="mode-option">
+          <input type="radio" name="captureMode" value="standard" checked>
+          <span>
+            <span class="mode-title">標準</span>
+            <div class="mode-desc">一般頁面；較快結束。適合靜態或一次性載入的圖片。</div>
+          </span>
+        </label>
+        <label class="mode-option">
+          <input type="radio" name="captureMode" value="polling">
+          <span>
+            <span class="mode-title">含列表輪詢</span>
+            <div class="mode-desc">房間列表等會<strong>定時刷新圖片</strong>時請選；會多等一陣子以涵蓋下一波請求（較久、較完整）。</div>
+          </span>
+        </label>
+      </div>
+    </fieldset>
+
+    <div class="btn-row">
+      <button class="btn-primary btn-large" id="btn-capture">🚀 開始擷取</button>
+      <button class="btn-secondary btn-sm" id="btn-reset" style="display:none">↺ 重新開始</button>
+    </div>
+
+    <div id="progress-area">
+      <div class="progress-grid">
+        <div class="progress-card">
+          <div class="progress-label a">🔵 A 版</div>
+          <div class="progress-bar-wrap"><div class="progress-bar a" id="prog-bar-a"></div></div>
+          <div class="progress-msg" id="prog-msg-a">等待中…</div>
+          <div class="progress-count" id="prog-cnt-a"></div>
+        </div>
+        <div class="progress-card">
+          <div class="progress-label b">🟣 B 版</div>
+          <div class="progress-bar-wrap"><div class="progress-bar b" id="prog-bar-b"></div></div>
+          <div class="progress-msg" id="prog-msg-b">等待中…</div>
+          <div class="progress-count" id="prog-cnt-b"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="results">
+    <div class="card" style="padding: 0; overflow: hidden;">
+      <div class="tab-nav" id="tab-nav">
+        <button class="tab-btn active" data-tab="overview">📊 總覽</button>
+        <button class="tab-btn" data-tab="http">📡 載入狀態</button>
+        <button class="tab-btn" data-tab="size">📦 資源大小</button>
+        <button class="tab-btn" data-tab="visual">🖼️ 視覺比對</button>
+      </div>
+      <div style="padding: 0 20px 20px;">
+        <div class="tab-panel active" id="tab-overview"></div>
+        <div class="tab-panel" id="tab-http"></div>
+        <div class="tab-panel" id="tab-size"></div>
+        <div class="tab-panel" id="tab-visual"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Lightbox -->
+  <div id="lightbox">
+    <div class="lb-header">
+      <div class="lb-title" id="lb-title">圖片詳細比對</div>
+      <div class="lb-nav">
+        <button class="btn-secondary btn-sm" id="lb-prev">← 上一張</button>
+        <button class="btn-secondary btn-sm" id="lb-next">下一張 →</button>
+      </div>
+      <button class="lb-close" id="lb-close">✕</button>
+    </div>
+    <div class="lb-grid">
+      <div class="lb-panel">
+        <div class="lb-panel-title a">🔵 A 版</div>
+        <div class="lb-img-wrap" id="lb-img-a"><span style="color:rgba(255,255,255,.4)">載入中…</span></div>
+        <div class="lb-meta" id="lb-meta-a"></div>
+      </div>
+      <div class="lb-panel">
+        <div class="lb-panel-title b">🟣 B 版</div>
+        <div class="lb-img-wrap" id="lb-img-b"><span style="color:rgba(255,255,255,.4)">載入中…</span></div>
+        <div class="lb-meta" id="lb-meta-b"></div>
+      </div>
+      <div class="lb-panel">
+        <div class="lb-panel-title diff">🔴 差異圖</div>
+        <div class="lb-img-wrap" id="lb-img-diff"><span style="color:rgba(255,255,255,.4)">計算中…</span></div>
+        <div class="lb-meta" id="lb-meta-diff"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Pair Modal -->
+  <div id="pair-modal">
+    <div class="pair-modal-inner">
+      <div class="pair-modal-title">🔗 手動配對未匹配圖片</div>
+      <div class="pair-modal-sub">點選左側 A 版圖片，再點選右側 B 版圖片，即可完成配對。已配對項目會從清單移除。</div>
+      <div id="pair-modal-body"></div>
+      <div class="btn-row" style="margin-top:16px">
+        <button class="btn-success" id="btn-pair-confirm">✅ 套用配對</button>
+        <button class="btn-secondary" id="btn-pair-cancel">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <!-- Monkey-patch: redirect /api/session and /api/capture to /api/gs/img-compare/* -->
+  <script>
+  (() => {
+    const originalFetch = window.fetch.bind(window);
+    const rewriteUrl = (url) => {
+      try {
+        const next = new URL(url, window.location.href);
+        if (next.origin === window.location.origin) {
+          if (next.pathname === '/api/session') next.pathname = '/api/gs/img-compare/session';
+          else if (next.pathname === '/api/capture') next.pathname = '/api/gs/img-compare/capture';
+        }
+        return next.href;
+      } catch { return url; }
+    };
+    window.fetch = (input, init) => {
+      if (input instanceof Request) {
+        const rw = rewriteUrl(input.url);
+        if (rw !== input.url) input = new Request(rw, input);
+      } else {
+        input = rewriteUrl(String(input));
+      }
+      return originalFetch(input, init);
+    };
+  })();
+  </script>
+  <script src="/api/gs/img-compare-app.js"></script>
+</body>
+</html>

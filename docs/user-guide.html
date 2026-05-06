@@ -3,1153 +3,1380 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Workflow Integrator — 使用者操作手冊</title>
+<title>Toppath Tools 使用指南與串接文檔</title>
 <style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
+  :root {
+    --bg: #f5f7fb;
+    --surface: #ffffff;
+    --ink: #172033;
+    --muted: #64748b;
+    --line: #dbe3ef;
+    --strong: #0f172a;
+    --blue: #1d4ed8;
+    --green: #047857;
+    --amber: #b45309;
+    --red: #b91c1c;
+    --violet: #6d28d9;
+  }
+  * { box-sizing: border-box; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #f1f5f9;
-    color: #1e293b;
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft JhengHei", Arial, sans-serif;
+    color: var(--ink);
+    background:
+      linear-gradient(90deg, rgba(15, 23, 42, 0.035) 1px, transparent 1px),
+      linear-gradient(rgba(15, 23, 42, 0.03) 1px, transparent 1px),
+      var(--bg);
+    background-size: 26px 26px;
+    line-height: 1.7;
     font-size: 15px;
-    line-height: 1.6;
   }
-
-  /* ── 頁首 ── */
-  .doc-header {
-    background: #0f172a;
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .hero {
+    position: relative;
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 78% 20%, rgba(56, 189, 248, .16), transparent 24%),
+      linear-gradient(135deg, #0b1120 0%, #111827 42%, #1e293b 100%);
     color: #f8fafc;
-    padding: 40px 48px 32px;
+    padding: 44px 52px 36px;
+    border-bottom: 1px solid rgba(255,255,255,.12);
   }
-  .doc-header h1 { font-size: 28px; font-weight: 700; letter-spacing: 0.3px; }
-  .doc-header p  { color: #94a3b8; font-size: 14px; margin-top: 6px; }
-  .badge-version {
-    display: inline-block;
-    background: rgba(99,102,241,0.2);
-    color: #a5b4fc;
-    border: 1px solid rgba(99,102,241,0.35);
-    border-radius: 99px;
-    padding: 2px 10px;
+  .hero::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255,255,255,.055) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px);
+    background-size: 34px 34px;
+    mask-image: linear-gradient(90deg, transparent, #000 24%, #000 84%, transparent);
+    pointer-events: none;
+  }
+  .hero-grid {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1.2fr) minmax(320px, .8fr);
+    gap: 32px;
+    align-items: center;
+    max-width: 1260px;
+    margin: 0 auto;
+  }
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #93c5fd;
+    border: 1px solid rgba(147,197,253,.36);
+    background: rgba(15, 23, 42, .72);
+    border-radius: 999px;
+    padding: 4px 10px;
     font-size: 12px;
-    font-family: monospace;
-    margin-left: 10px;
-    vertical-align: middle;
+    margin-bottom: 14px;
   }
-
-  /* ── 目錄 ── */
+  .eyebrow::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #22c55e;
+    box-shadow: 0 0 14px rgba(34,197,94,.75);
+  }
+  .hero h1 { margin: 0 0 8px; font-size: 30px; letter-spacing: 0; }
+  .hero p { margin: 4px 0; color: #cbd5e1; max-width: 1040px; }
+  .hero-art {
+    border: 1px solid rgba(148, 163, 184, .28);
+    background: rgba(2, 6, 23, .44);
+    border-radius: 18px;
+    padding: 18px;
+    box-shadow: 0 24px 80px rgba(0,0,0,.32);
+    backdrop-filter: blur(8px);
+  }
+  .console-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: #94a3b8;
+    font-size: 12px;
+    border-bottom: 1px solid rgba(148,163,184,.18);
+    padding-bottom: 10px;
+    margin-bottom: 14px;
+  }
+  .lights { display: flex; gap: 6px; }
+  .lights i { width: 9px; height: 9px; border-radius: 50%; display: block; }
+  .lights i:nth-child(1) { background: #ef4444; }
+  .lights i:nth-child(2) { background: #f59e0b; }
+  .lights i:nth-child(3) { background: #22c55e; }
+  .system-map {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 10px;
+    align-items: center;
+  }
+  .map-node {
+    min-height: 54px;
+    border: 1px solid rgba(148,163,184,.24);
+    border-radius: 12px;
+    padding: 10px 12px;
+    background: rgba(15,23,42,.72);
+  }
+  .map-node b { display: block; color: #f8fafc; font-size: 13px; }
+  .map-node span { display: block; color: #93c5fd; font-size: 12px; margin-top: 1px; }
+  .map-link {
+    color: #38bdf8;
+    font-family: Consolas, monospace;
+    font-size: 18px;
+    opacity: .9;
+  }
+  .signal-list {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .signal {
+    border: 1px solid rgba(148,163,184,.2);
+    border-radius: 10px;
+    padding: 8px 10px;
+    background: rgba(255,255,255,.055);
+  }
+  .signal strong { display: block; color: #fff; font-size: 15px; line-height: 1.2; }
+  .signal span { display: block; color: #94a3b8; font-size: 11px; }
+  .meta {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 18px;
+  }
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid rgba(255,255,255,.22);
+    background: rgba(255,255,255,.08);
+    color: #e2e8f0;
+    border-radius: 999px;
+    padding: 4px 12px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
   .toc {
-    background: #1e293b;
-    padding: 24px 48px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: rgba(255,255,255,.92);
+    border-bottom: 1px solid var(--line);
+    padding: 12px 44px;
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
-    align-items: center;
+    backdrop-filter: blur(12px);
   }
-  .toc-label { color: #64748b; font-size: 13px; margin-right: 4px; }
   .toc a {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 14px;
-    border-radius: 99px;
+    color: #334155;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 5px 10px;
     font-size: 13px;
-    font-weight: 500;
-    text-decoration: none;
-    transition: background 0.15s;
+    background: #f8fafc;
   }
-  .toc a:hover { opacity: 0.85; }
-  .toc-jira    { background: #0052cc22; color: #60a5fa; border: 1px solid #0052cc44; }
-  .toc-lark    { background: #3370ff22; color: #818cf8; border: 1px solid #3370ff44; }
-  .toc-osm     { background: #ea433522; color: #f87171; border: 1px solid #ea433544; }
-  .toc-mt      { background: #0052cc22; color: #60a5fa; border: 1px solid #0052cc44; }
-  .toc-img     { background: #7c3aed22; color: #c4b5fd; border: 1px solid #7c3aed44; }
-  .toc-hist    { background: #47556922; color: #94a3b8; border: 1px solid #47556944; }
-
-  /* ── 本文容器 ── */
-  .doc-body { max-width: 960px; margin: 0 auto; padding: 40px 24px 80px; }
-
-  /* ── 模組區塊 ── */
-  .module {
-    background: #fff;
-    border-radius: 16px;
-    border: 1px solid #e2e8f0;
-    margin-bottom: 40px;
+  main {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 34px 22px 72px;
+  }
+  section {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    margin: 0 0 24px;
     overflow: hidden;
+    box-shadow: 0 12px 34px rgba(15, 23, 42, .06);
   }
-  .module-header {
-    padding: 24px 28px 20px;
-    border-bottom: 1px solid #f1f5f9;
-    display: flex;
-    align-items: center;
+  .section-head {
+    position: relative;
+    padding: 20px 24px 16px;
+    border-bottom: 1px solid #eef2f7;
+    background:
+      linear-gradient(90deg, rgba(59,130,246,.08), transparent 55%),
+      #fbfdff;
+  }
+  .section-head::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 5px;
+    background: linear-gradient(#2563eb, #14b8a6);
+  }
+  .section-head h2 { margin: 0; font-size: 21px; color: var(--strong); }
+  .section-head p { margin: 5px 0 0; color: var(--muted); }
+  .body { padding: 22px 24px 26px; }
+  h3 {
+    font-size: 16px;
+    margin: 24px 0 10px;
+    color: var(--strong);
+    border-bottom: 1px solid #eef2f7;
+    padding-bottom: 6px;
+  }
+  h3:first-child { margin-top: 0; }
+  h4 { font-size: 14px; margin: 16px 0 6px; color: #334155; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0 14px 22px; padding: 0; }
+  li { margin: 4px 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 10px 0 18px;
+    font-size: 13px;
+  }
+  th, td {
+    border: 1px solid #e5edf7;
+    padding: 8px 10px;
+    vertical-align: top;
+    text-align: left;
+  }
+  th { background: #f8fafc; color: #334155; font-weight: 650; }
+  code, pre {
+    font-family: Consolas, "SFMono-Regular", Menlo, monospace;
+    font-size: 12px;
+  }
+  code {
+    background: #eef2f7;
+    color: #334155;
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+  pre {
+    background: #0f172a;
+    color: #dbeafe;
+    border-radius: 8px;
+    padding: 14px 16px;
+    overflow: auto;
+    line-height: 1.55;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 14px;
   }
-  .module-icon {
-    width: 44px; height: 44px;
-    border-radius: 12px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 18px; font-weight: 800; color: #fff;
-    flex-shrink: 0;
+  .tool-atlas {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    margin: 16px 0 22px;
   }
-  .icon-jira  { background: #0052cc; }
-  .icon-lark  { background: #3370ff; }
-  .icon-osm   { background: #ea4335; }
-  .icon-mt    { background: #0052cc; }
-  .icon-img   { background: #7c3aed; }
-  .icon-hist  { background: #475569; }
-
-  .module-header h2 { font-size: 20px; font-weight: 700; }
-  .module-header p  { font-size: 13px; color: #64748b; margin-top: 2px; }
-
-  .module-body { padding: 24px 28px; }
-
-  /* ── 步驟流程 ── */
-  .flow {
-    display: flex;
-    gap: 0;
-    flex-wrap: wrap;
-    margin: 20px 0;
-    align-items: flex-start;
-  }
-  .flow-step {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    flex: 0 0 auto;
-  }
-  .flow-box {
-    background: #f8fafc;
-    border: 1.5px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 10px 16px;
-    text-align: center;
-    min-width: 110px;
-    max-width: 140px;
-  }
-  .flow-box .step-num {
-    width: 22px; height: 22px;
-    border-radius: 50%;
-    background: #1e293b;
-    color: #fff;
-    font-size: 11px;
-    font-weight: 700;
-    display: flex; align-items: center; justify-content: center;
-    margin: 0 auto 6px;
-  }
-  .flow-box .step-label { font-size: 12px; font-weight: 600; color: #374151; line-height: 1.4; }
-  .flow-arrow {
-    display: flex;
-    align-items: center;
-    padding: 0 6px;
-    color: #94a3b8;
-    font-size: 18px;
-    margin-top: 26px;
-  }
-
-  /* 彩色步驟 num */
-  .flow-box.jira   .step-num { background: #0052cc; }
-  .flow-box.lark   .step-num { background: #3370ff; }
-  .flow-box.osm    .step-num { background: #ea4335; }
-  .flow-box.mt     .step-num { background: #0052cc; }
-  .flow-box.img    .step-num { background: #7c3aed; }
-
-  /* ── 說明區塊 ── */
-  .section { margin: 20px 0; }
-  .section h3 {
-    font-size: 15px;
-    font-weight: 700;
-    color: #0f172a;
-    margin-bottom: 10px;
-    padding-bottom: 6px;
-    border-bottom: 2px solid #f1f5f9;
-  }
-  .section h4 {
-    font-size: 14px;
-    font-weight: 600;
-    color: #334155;
-    margin: 14px 0 6px;
-  }
-
-  ul.checklist { list-style: none; padding-left: 4px; }
-  ul.checklist li {
-    padding: 5px 0 5px 24px;
+  .tool-card {
     position: relative;
-    font-size: 14px;
-    color: #374151;
-    border-bottom: 1px solid #f8fafc;
+    min-height: 166px;
+    overflow: hidden;
+    border: 1px solid #dbeafe;
+    border-radius: 12px;
+    padding: 16px;
+    background:
+      linear-gradient(135deg, rgba(255,255,255,.96), rgba(248,250,252,.96)),
+      #fff;
   }
-  ul.checklist li::before {
-    content: '▸';
-    position: absolute; left: 4px;
-    color: #94a3b8;
+  .tool-card::after {
+    content: attr(data-mark);
+    position: absolute;
+    right: 12px;
+    bottom: -18px;
+    color: rgba(37,99,235,.08);
+    font-size: 72px;
+    font-weight: 900;
+    line-height: 1;
   }
-
-  /* ── 提示框 ── */
-  .tip {
-    display: flex;
-    gap: 10px;
-    padding: 12px 16px;
-    border-radius: 8px;
+  .tool-card h4 {
+    margin: 0 0 6px;
+    color: var(--strong);
+    font-size: 15px;
+  }
+  .tool-card p {
+    margin: 0 0 10px;
+    color: var(--muted);
     font-size: 13px;
-    margin: 12px 0;
-    line-height: 1.5;
   }
-  .tip-icon { font-size: 16px; flex-shrink: 0; margin-top: 1px; }
-  .tip-info    { background: #eff6ff; border: 1px solid #bfdbfe; color: #1d4ed8; }
-  .tip-warn    { background: #fffbeb; border: 1px solid #fde68a; color: #92400e; }
-  .tip-success { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
-  .tip-purple  { background: #f5f3ff; border: 1px solid #ddd6fe; color: #4c1d95; }
-
-  /* ── 標籤 ── */
+  .mini-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    position: relative;
+    z-index: 1;
+  }
+  .route-chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 7px;
+    background: #0f172a;
+    color: #dbeafe;
+    padding: 3px 7px;
+    font-family: Consolas, monospace;
+    font-size: 11px;
+  }
+  .lane {
+    display: grid;
+    grid-template-columns: 150px minmax(0, 1fr);
+    border: 1px solid #e5edf7;
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 10px 0;
+  }
+  .lane b {
+    background: #f8fafc;
+    padding: 11px 12px;
+    border-right: 1px solid #e5edf7;
+    color: #334155;
+  }
+  .lane span {
+    padding: 11px 12px;
+    color: #475569;
+  }
+  .card {
+    border: 1px solid #e5edf7;
+    border-radius: 8px;
+    padding: 14px 16px;
+    background: #fbfdff;
+  }
+  .card h4 { margin-top: 0; color: var(--strong); }
+  .note {
+    border-left: 4px solid var(--blue);
+    background: #eff6ff;
+    padding: 10px 14px;
+    margin: 12px 0;
+    border-radius: 6px;
+    color: #1e3a8a;
+  }
+  .warn {
+    border-left-color: var(--amber);
+    background: #fffbeb;
+    color: #78350f;
+  }
+  .success {
+    border-left-color: var(--green);
+    background: #ecfdf5;
+    color: #064e3b;
+  }
   .tag {
     display: inline-block;
-    padding: 2px 9px;
-    border-radius: 99px;
+    border-radius: 999px;
+    padding: 1px 8px;
     font-size: 11px;
-    font-weight: 600;
-  }
-  .tag-blue   { background: #dbeafe; color: #1d4ed8; }
-  .tag-green  { background: #dcfce7; color: #166534; }
-  .tag-red    { background: #fee2e2; color: #dc2626; }
-  .tag-purple { background: #ede9fe; color: #5b21b6; }
-  .tag-gray   { background: #f1f5f9; color: #475569; }
-  .tag-yellow { background: #fef9c3; color: #854d0e; }
-
-  /* ── 資料表 ── */
-  .data-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 10px 0; }
-  .data-table th {
+    border: 1px solid #cbd5e1;
+    color: #475569;
     background: #f8fafc;
-    padding: 9px 12px;
-    text-align: left;
-    font-weight: 600;
-    color: #475569;
-    border-bottom: 2px solid #e2e8f0;
+    white-space: nowrap;
   }
-  .data-table td {
-    padding: 8px 12px;
-    border-bottom: 1px solid #f1f5f9;
-    vertical-align: top;
-    color: #374151;
-  }
-  .data-table tr:last-child td { border-bottom: none; }
-  .data-table tr:hover td { background: #f8fafc; }
-
-  code {
-    background: #f1f5f9;
-    padding: 1px 6px;
-    border-radius: 4px;
-    font-size: 12px;
-    font-family: 'SFMono-Regular', Consolas, monospace;
-    color: #475569;
-  }
-
-  /* ── 模式切換說明 ── */
-  .mode-grid {
+  .flow {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    margin: 14px 0;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+    margin: 12px 0 18px;
   }
-  .mode-card {
-    border: 1.5px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 16px;
-  }
-  .mode-card h4 { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
-  .mode-card p  { font-size: 13px; color: #64748b; }
-  .mode-card ul { font-size: 13px; color: #374151; padding-left: 16px; margin-top: 6px; }
-  .mode-card.active { border-color: #6366f1; background: #f5f3ff; }
-
-  /* ── 分隔線 ── */
-  hr { border: none; border-top: 1px solid #f1f5f9; margin: 24px 0; }
-
-  /* ── 截圖預留區 ── */
-  .screenshot-placeholder {
-    border: 2px dashed #e2e8f0;
-    border-radius: 10px;
+  .step {
+    border: 1px solid #e5edf7;
+    border-radius: 8px;
     background: #f8fafc;
-    padding: 40px;
-    text-align: center;
-    color: #94a3b8;
-    font-size: 13px;
-    margin: 16px 0;
+    padding: 10px 12px;
+    min-height: 78px;
   }
-  .screenshot-placeholder .ph-icon { font-size: 32px; margin-bottom: 8px; }
-  .screenshot-placeholder .ph-label { font-weight: 600; color: #64748b; margin-bottom: 4px; }
-
-  /* ── 回到頂端 ── */
-  .back-to-top {
+  .step b {
+    display: block;
+    color: var(--blue);
+    margin-bottom: 3px;
+  }
+  .back {
     display: inline-block;
-    font-size: 13px;
-    color: #94a3b8;
-    text-decoration: none;
     margin-top: 8px;
+    color: var(--muted);
+    font-size: 13px;
   }
-  .back-to-top:hover { color: #475569; }
-
-  /* 頁首錨點 */
-  h2[id], .module[id] { scroll-margin-top: 20px; }
-
-  @media (max-width: 600px) {
-    .doc-header { padding: 24px 20px; }
-    .toc { padding: 16px 20px; }
-    .doc-body { padding: 20px 16px 60px; }
-    .module-body { padding: 16px; }
-    .mode-grid { grid-template-columns: 1fr; }
-    .flow { gap: 0; }
-    .flow-box { min-width: 90px; }
+  footer {
+    padding: 22px;
+    text-align: center;
+    color: #64748b;
+    background: #e9eef6;
+    border-top: 1px solid var(--line);
+  }
+  @media (max-width: 760px) {
+    .hero { padding: 30px 22px; }
+    .toc { position: static; padding: 12px 16px; }
+    main { padding: 22px 14px 52px; }
+    .body, .section-head { padding-left: 16px; padding-right: 16px; }
+    .hero-grid, .grid, .flow, .tool-atlas, .system-map, .signal-list { grid-template-columns: 1fr; }
+    .hero-art { margin-top: 10px; }
+    .map-link { transform: rotate(90deg); text-align: center; }
+    .lane { grid-template-columns: 1fr; }
+    .lane b { border-right: none; border-bottom: 1px solid #e5edf7; }
+    table { display: block; overflow-x: auto; white-space: nowrap; }
   }
 </style>
 </head>
 <body>
-
-<!-- ══════════════════ 頁首 ══════════════════ -->
-<div class="doc-header" id="top">
-  <h1>Workflow Integrator <span class="badge-version">v3.2.0</span></h1>
-  <p>使用者操作手冊 — 自動化整合控制台 · Jira × Lark × OSM</p>
-</div>
-
-<!-- ══════════════════ 目錄 ══════════════════ -->
-<div class="toc">
-  <span class="toc-label">目錄</span>
-  <a class="toc-jira" href="#jira">J 自動寫入 Jira</a>
-  <a class="toc-lark" href="#lark">L TestCase 生成</a>
-  <a class="toc-osm"  href="#osm">O OSM 版號同步</a>
-  <a class="toc-mt"   href="#machinetest">M 機台自動化測試</a>
-  <a class="toc-img"  href="#imagecheck">I 圖片刪除驗證</a>
-  <a class="toc-hist" href="#history">H 操作歷史紀錄</a>
-</div>
-
-<!-- ══════════════════ 本文 ══════════════════ -->
-<div class="doc-body">
-
-
-<!-- ════════ 1. 自動寫入 Jira ════════ -->
-<div class="module" id="jira">
-  <div class="module-header">
-    <div class="module-icon icon-jira">J</div>
+<div class="hero" id="top">
+  <div class="hero-grid">
     <div>
-      <h2>自動寫入 Jira</h2>
-      <p>從 Lark Sheet / Google Sheet 資料批次建立 Issue、新增評論、切換處理狀態</p>
+      <div class="eyebrow">Operations atlas for QA / PM / OSM / Game Show</div>
+      <h1>Toppath Tools 使用指南與系統串接文檔</h1>
+      <p>本文件整理目前 Toppath Tools 內所有主要工具應用、操作流程、執行結果、API 端點與端口串接。文件來源包含現有 docs、docs/tools、前端頁面、Express route、啟動腳本與 WebSocket/SSE 串流設定。</p>
+      <div class="meta">
+        <span class="pill">專案：C:\Users\user\Desktop\Toppath tools</span>
+        <span class="pill">更新日期：2026-04-30</span>
+        <span class="pill">前端：React + Vite</span>
+        <span class="pill">後端：Express + WebSocket + SQLite</span>
+      </div>
+    </div>
+    <div class="hero-art" aria-label="Toppath Tools 系統串接圖">
+      <div class="console-top">
+        <div class="lights"><i></i><i></i><i></i></div>
+        <span>workflow-integrator-api · online</span>
+      </div>
+      <div class="system-map">
+        <div class="map-node"><b>React Tools</b><span>5173 / 5174</span></div>
+        <div class="map-link">⇄</div>
+        <div class="map-node"><b>Express Core</b><span>3000 / 3001</span></div>
+        <div class="map-node"><b>Jira · Lark · Gmail</b><span>external APIs</span></div>
+        <div class="map-link">⇆</div>
+        <div class="map-node"><b>OSM · Agents</b><span>WS / SSE / Tunnel</span></div>
+      </div>
+      <div class="signal-list">
+        <div class="signal"><strong>13+</strong><span>工具模組</span></div>
+        <div class="signal"><strong>90+</strong><span>API routes</span></div>
+        <div class="signal"><strong>2</strong><span>WebSocket channels</span></div>
+      </div>
     </div>
   </div>
-  <div class="module-body">
+</div>
 
-    <div class="section">
-      <h3>功能說明</h3>
-      <p>此功能支援兩種操作模式，請依據您的職位選擇：</p>
-      <div class="mode-grid" style="margin-top:14px">
-        <div class="mode-card">
-          <h4>🧪 QA 模式</h4>
-          <p>從試算表讀取測試資料，批次建立 Jira Issue、寫入評論、切換狀態</p>
-          <ul>
-            <li>來源：Lark Sheet 或 Google Sheet</li>
-            <li>欄位：摘要、內容、受託人、RD負責人、驗證人員等</li>
-            <li>支援批次評論 + AI 生成評論</li>
-            <li>支援 Lark Drive 附件自動上傳至 Jira</li>
-          </ul>
-        </div>
-        <div class="mode-card">
-          <h4>📋 PM 模式</h4>
-          <p>從 Lark 多維表格（Bitable）讀取需求清單，批次建立 Jira Story</p>
-          <ul>
-            <li>來源：Lark Bitable URL</li>
-            <li>可設定 Parent Epic Key</li>
-            <li>支援選擇子集建立</li>
-          </ul>
-        </div>
-      </div>
+<nav class="toc">
+  <a href="#overview">總覽</a>
+  <a href="#ports">端口串接</a>
+  <a href="#startup">啟動流程</a>
+  <a href="#jira">Jira</a>
+  <a href="#testcase">TestCase</a>
+  <a href="#osm">OSM Version</a>
+  <a href="#machine-test">機台測試</a>
+  <a href="#uat">OSM UAT</a>
+  <a href="#image-check">圖片檢查</a>
+  <a href="#config-compare">Config Compare</a>
+  <a href="#autospin">AutoSpin</a>
+  <a href="#url-pool">URL Pool</a>
+  <a href="#jackpot">Jackpot</a>
+  <a href="#gameshow">Game Show</a>
+  <a href="#history">History</a>
+  <a href="#ai-settings">AI 設定</a>
+  <a href="#api">API 總表</a>
+  <a href="#env">環境變數</a>
+</nav>
+
+<main>
+  <section id="overview">
+    <div class="section-head">
+      <h2>系統總覽</h2>
+      <p>Toppath Tools 是一套 QA、PM、OSM 維運與 Game Show 測試工具集合，前端以 tab 分群呈現，後端統一由 Express 提供 API、SSE 與 WebSocket。</p>
     </div>
-
-    <hr />
-
-    <!-- QA 模式操作流程 -->
-    <div class="section">
-      <h3>QA 模式 — 操作流程</h3>
-
-      <div class="flow">
-        <div class="flow-step">
-          <div class="flow-box jira">
-            <div class="step-num">1</div>
-            <div class="step-label">設定 Jira 帳號</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box jira">
-            <div class="step-num">2</div>
-            <div class="step-label">選擇受託人 / 專案</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box jira">
-            <div class="step-num">3</div>
-            <div class="step-label">匯入試算表</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box jira">
-            <div class="step-num">4</div>
-            <div class="step-label">勾選資料列</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box jira">
-            <div class="step-num">5</div>
-            <div class="step-label">建立 Issues</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box jira">
-            <div class="step-num">6</div>
-            <div class="step-label">添加評論</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box jira">
-            <div class="step-num">7</div>
-            <div class="step-label">切換狀態</div>
-          </div>
-        </div>
-      </div>
-
-      <h4>Step 1 — 設定 Jira 帳號</h4>
-      <ul class="checklist">
-        <li>點擊右上角「帳號設定」或畫面頂端的帳號選擇區</li>
-        <li>輸入 Jira 登入 Email 及 API Token（從 Atlassian 帳號管理頁取得）</li>
-        <li>設定帳號角色（QA / PM），決定後續可使用的模式</li>
-        <li>帳號會儲存於本次 Session，重新整理後需重新選擇</li>
-      </ul>
-
-      <div class="tip tip-info">
-        <span class="tip-icon">ℹ️</span>
-        <div>API Token 取得路徑：Atlassian 帳號設定 → 安全性 → API Token → 建立新 Token</div>
-      </div>
-
-      <div class="screenshot-placeholder">
-        <div class="ph-icon">🖼️</div>
-        <div class="ph-label">帳號設定截圖</div>
-        <div>待補充</div>
-      </div>
-
-      <h4>Step 2 — 選擇受託人 / 專案 / Issue 類型</h4>
-      <ul class="checklist">
-        <li>系統自動載入您有權限的 Jira 專案列表</li>
-        <li>選擇目標專案後，系統自動載入該專案的 Issue 類型與成員</li>
-        <li>從下拉選單選擇受託人（Assignee）</li>
-      </ul>
-
-      <h4>Step 3 — 匯入試算表</h4>
-      <ul class="checklist">
-        <li>選擇來源類型：<span class="tag tag-blue">Lark Sheet</span> 或 <span class="tag tag-gray">Google Sheet</span></li>
-        <li>貼上試算表網址（Lark 格式：<code>https://casinoplus.sg.larksuite.com/sheets/XXXX</code>）</li>
-        <li>點擊「讀取資料」，系統自動抓取所有資料列</li>
-      </ul>
-
-      <div class="tip tip-warn">
-        <span class="tip-icon">⚠️</span>
-        <div>Lark Sheet 需將機器人加入文件成員（分享 → 加入 App），否則會回傳權限錯誤</div>
-      </div>
-
-      <div class="tip tip-info">
-        <span class="tip-icon">ℹ️</span>
-        <div>試算表欄位對應：「摘要」→ Summary、「內容」→ Description、「受託人」→ Assignee Email 等。欄位名稱不分大小寫。</div>
-      </div>
-
-      <h4>Step 4 — 確認清單 / 勾選資料列</h4>
-      <ul class="checklist">
-        <li>讀取後顯示所有資料列，狀態標籤說明：
-          <ul style="margin-top:4px; padding-left:20px; font-size:13px">
-            <li><span class="tag tag-blue">待開單</span> — 尚無 Jira Key，需建立 Issue</li>
-            <li><span class="tag tag-green">已開單</span> — 已有 Jira Key，可進行評論步驟</li>
-            <li><span class="tag tag-purple">已評論</span> — 評論完成，可切換狀態</li>
-          </ul>
-        </li>
-        <li>可全選或個別勾選要操作的列</li>
-      </ul>
-
-      <h4>Step 5 — 建立 Issues</h4>
-      <ul class="checklist">
-        <li>點擊「建立 Issues」，系統批次提交至 Jira</li>
-        <li>成功後，試算表「jira issue key」欄位自動回寫 Issue Key</li>
-        <li>建立失敗的列會顯示錯誤訊息，可單獨重試</li>
-      </ul>
-
-      <h4>Step 6 — 添加評論</h4>
-      <ul class="checklist">
-        <li>選擇評論內容來源的欄位（試算表中的欄位名稱）</li>
-        <li>可選擇「附件欄位」：若該欄位有 Lark Drive 連結，系統自動下載並上傳至 Jira</li>
-        <li>可開啟「AI 生成評論」，選擇 Gemini Prompt 模板，由 AI 依資料撰寫評論</li>
-        <li>點擊「批次添加評論」完成</li>
-      </ul>
-
-      <h4>Step 7 — 切換狀態</h4>
-      <ul class="checklist">
-        <li>系統自動找出「處理階段 = 已評論」的 Issues</li>
-        <li>點擊「切換狀態」，批次將 Issue 推進至下一個 Workflow 狀態</li>
-        <li>成功後試算表「處理階段」欄位自動更新</li>
-      </ul>
-    </div>
-
-    <hr />
-
-    <!-- PM 模式 -->
-    <div class="section">
-      <h3>PM 模式 — 操作流程</h3>
-
-      <div class="flow">
-        <div class="flow-step">
-          <div class="flow-box jira">
-            <div class="step-num">1</div>
-            <div class="step-label">設定 Jira 帳號</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box jira">
-            <div class="step-num">2</div>
-            <div class="step-label">輸入 Bitable URL</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box jira">
-            <div class="step-num">3</div>
-            <div class="step-label">設定 Parent Epic</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box jira">
-            <div class="step-num">4</div>
-            <div class="step-label">確認並建立</div>
-          </div>
-        </div>
-      </div>
-
-      <ul class="checklist">
-        <li>貼上 Lark Bitable（多維表格）URL</li>
-        <li>輸入 Parent Epic Key（選填，如 <code>CGSG-100</code>）</li>
-        <li>系統讀取 Bitable 所有記錄，勾選要建立的項目</li>
-        <li>點擊「批次建立」，Issues 建立完成後 Jira Key 回寫至 Bitable</li>
-      </ul>
-    </div>
-
-    <hr />
-
-    <div class="section">
-      <h3>試算表欄位對照</h3>
-      <table class="data-table">
-        <thead><tr><th>試算表欄位名稱</th><th>對應 Jira 欄位</th><th>必填</th></tr></thead>
+    <div class="body">
+      <h3>前端功能分群</h3>
+      <table>
+        <thead><tr><th>群組</th><th>工具</th><th>主要用途</th></tr></thead>
         <tbody>
-          <tr><td>摘要</td><td>Summary（Issue 標題）</td><td><span class="tag tag-red">必填</span></td></tr>
-          <tr><td>內容</td><td>Description</td><td><span class="tag tag-gray">選填</span></td></tr>
-          <tr><td>受託人</td><td>Assignee（Email）</td><td><span class="tag tag-gray">選填</span></td></tr>
-          <tr><td>RD負責人</td><td>自訂欄位</td><td><span class="tag tag-gray">選填</span></td></tr>
-          <tr><td>驗證人員</td><td>自訂欄位</td><td><span class="tag tag-gray">選填</span></td></tr>
-          <tr><td>jira issue key</td><td>Issue Key（系統自動回寫）</td><td>—</td></tr>
-          <tr><td>處理階段</td><td>流程追蹤標記（系統自動更新）</td><td>—</td></tr>
+          <tr><td>Jira</td><td>Jira 批次建立</td><td>從 Lark Sheet、Google Sheet 或 Lark Bitable 讀資料，批次建立 Jira Issue、補留言、轉狀態。</td></tr>
+          <tr><td>TestCase</td><td>TestCase 生成</td><td>讀取需求 URL 或文件，透過 AI 產生測試案例，輸出或寫回 Lark。</td></tr>
+          <tr><td>OSM Tools</td><td>OSM Version、Machine Test、Image Check、Config Compare、AutoSpin、URL Pool、Jackpot、OSM UAT</td><td>處理 OSM 版本同步、機台自動測試、圖片比對、設定比對、長時間 Spin、共用 URL、Jackpot 監控與後台 UAT。</td></tr>
+          <tr><td>Game Show</td><td>PDF TestCase、圖片比對、500x 統計、Log Checker</td><td>針對 Game Show 需求文件、畫面、WebSocket 統計與 log 檢查做輔助測試。</td></tr>
+          <tr><td>History</td><td>歷史紀錄</td><td>查詢工具操作紀錄、執行結果與錯誤資訊。</td></tr>
+          <tr><td>全域設定</td><td>Jira 帳號、AI Key、Prompt、Agent Monitor</td><td>管理身分、AI 模型、API Key、Prompt 範本與 Agent 監控。</td></tr>
         </tbody>
       </table>
+
+      <h3>工具地圖</h3>
+      <p>以下是依 <code>docs/tools</code> 裡各工具說明整理出的快速索引。每張卡片都標出核心入口、即時通訊型態與主要輸出，方便維護、交接或除錯時快速定位。</p>
+      <div class="tool-atlas">
+        <div class="tool-card" data-mark="J">
+          <h4>Jira 批次建立</h4>
+          <p>Lark/Bitable/Sheet → Jira issue → key 回寫 → comment/transition。</p>
+          <div class="mini-tags">
+            <span class="route-chip">/api/jira/*</span>
+            <span class="tag">QA / PM</span>
+            <span class="tag">SSE comment</span>
+          </div>
+        </div>
+        <div class="tool-card" data-mark="T">
+          <h4>TestCase 生成</h4>
+          <p>需求文件或 Lark URL 經 AI 解析成標準測試案例欄位。</p>
+          <div class="mini-tags">
+            <span class="route-chip">/api/integrations/*</span>
+            <span class="tag">Gemini</span>
+            <span class="tag">Lark writeback</span>
+          </div>
+        </div>
+        <div class="tool-card" data-mark="O">
+          <h4>OSM Version Sync</h4>
+          <p>彙整 OSM、LuckyLink、Toppath、ImageRecon 版本與同步狀態。</p>
+          <div class="mini-tags">
+            <span class="route-chip">/api/osm/*</span>
+            <span class="tag">Lark sync</span>
+            <span class="tag">Gmail report</span>
+          </div>
+        </div>
+        <div class="tool-card" data-mark="M">
+          <h4>Machine Test</h4>
+          <p>Playwright 自動測試、OSMWatcher 狀態判斷、分散式 agent claim job。</p>
+          <div class="mini-tags">
+            <span class="route-chip">/api/machine-test/*</span>
+            <span class="tag">WS events</span>
+            <span class="tag">Work-Stealing</span>
+          </div>
+        </div>
+        <div class="tool-card" data-mark="A">
+          <h4>AutoSpin</h4>
+          <p>Python Agent 長時間 spin、模板辨識、遠端暫停/恢復/停止與對帳。</p>
+          <div class="mini-tags">
+            <span class="route-chip">/api/autospin/*</span>
+            <span class="tag">Agent download</span>
+            <span class="tag">SSE log</span>
+          </div>
+        </div>
+        <div class="tool-card" data-mark="G">
+          <h4>Game Show</h4>
+          <p>PDF 轉測項、圖片差異、ColorGame V2 WebSocket 統計、log compare。</p>
+          <div class="mini-tags">
+            <span class="route-chip">/api/gs/*</span>
+            <span class="tag">CSV export</span>
+            <span class="tag">WS capture</span>
+          </div>
+        </div>
+      </div>
+
+      <h3>後端架構</h3>
+      <div class="grid">
+        <div class="card">
+          <h4>Express API</h4>
+          <p>入口為 <code>server/index.ts</code>，依序掛載 <code>jira</code>、<code>gemini</code>、<code>osm</code>、<code>integrations</code>、<code>machine-test</code>、<code>gameshow</code>、<code>autospin</code>、<code>osm-uat</code> routes。</p>
+        </div>
+        <div class="card">
+          <h4>資料與紀錄</h4>
+          <p>SQLite DB 用於保存 Jira 帳號、操作歷史、AutoSpin 設定、機台測試結果等。共用紀錄邏輯在 <code>server/shared.ts</code>。</p>
+        </div>
+        <div class="card">
+          <h4>即時通訊</h4>
+          <p>SSE 用於單向進度串流；WebSocket 用於 Machine Test viewer 與分散式 agent 工作派發。</p>
+        </div>
+        <div class="card">
+          <h4>外部串接</h4>
+          <p>串接 Jira、Lark、Google Sheets、Gmail、OSM Backend、LuckyLink、Toppath、Gemini/OpenAI/Ollama、Discord、Cloudflare Tunnel。</p>
+        </div>
+      </div>
+      <a class="back" href="#top">回頂部</a>
     </div>
+  </section>
 
-    <a class="back-to-top" href="#top">↑ 回到頂端</a>
-  </div>
-</div>
+  <section id="ports">
+    <div class="section-head">
+      <h2>端口與串接關係</h2>
+      <p>本節是部署與除錯時最重要的對照表。</p>
+    </div>
+    <div class="body">
+      <h3>本機端口</h3>
+      <table>
+        <thead><tr><th>端口</th><th>服務</th><th>用途</th><th>來源</th></tr></thead>
+        <tbody>
+          <tr><td><code>3000</code></td><td>Express API / Production Web</td><td>正式 API 入口；production build 存在時也會直接 serve <code>dist/index.html</code>。Cloudflare Tunnel 也指向此端口。</td><td><code>server/index.ts</code>、<code>build-and-tunnel.ps1</code></td></tr>
+          <tr><td><code>5173</code></td><td>Vite Dev Server</td><td>一般開發前端入口，Proxy <code>/api</code> 與 <code>/ws</code> 到 <code>localhost:3000</code>。</td><td><code>vite.config.ts</code></td></tr>
+          <tr><td><code>3001</code></td><td>Internal Dev API</td><td>內部開發後端入口，可與 3000 並行。</td><td><code>server/index.dev.ts</code></td></tr>
+          <tr><td><code>5174</code></td><td>Internal Vite Dev</td><td>內部開發前端入口，Proxy 到 <code>localhost:3001</code>。</td><td><code>vite.dev.config.ts</code></td></tr>
+          <tr><td><code>20241</code></td><td>cloudflared 本機管理端口</td><td>Cloudflare Quick Tunnel 可能使用的本機管理端口，實際可由 cloudflared 自行分配。</td><td>docs 架構說明</td></tr>
+          <tr><td><code>11434</code></td><td>Ollama</td><td>若使用本機或區網 Ollama，預設 base URL 常見為 <code>http://host:11434</code>。</td><td><code>OLLAMA_BASE_URL</code></td></tr>
+        </tbody>
+      </table>
 
+      <h3>Proxy 串接</h3>
+      <table>
+        <thead><tr><th>前端入口</th><th>Proxy 規則</th><th>後端目標</th><th>說明</th></tr></thead>
+        <tbody>
+          <tr><td><code>http://localhost:5173</code></td><td><code>/api</code></td><td><code>http://localhost:3000</code></td><td>一般 API 呼叫。</td></tr>
+          <tr><td><code>http://localhost:5173</code></td><td><code>/ws</code></td><td><code>ws://localhost:3000</code></td><td>Machine Test WebSocket。</td></tr>
+          <tr><td><code>http://localhost:5173</code></td><td><code>/api/jira/batch-comment/stream</code></td><td><code>http://localhost:3000</code></td><td>SSE 端點，明確關閉壓縮以避免串流被緩衝。</td></tr>
+          <tr><td><code>http://localhost:5173</code></td><td><code>/api/integrations/lark/generate-testcases/stream</code></td><td><code>http://localhost:3000</code></td><td>TestCase 生成進度 SSE。</td></tr>
+          <tr><td><code>http://localhost:5174</code></td><td><code>/api</code>、<code>/ws</code></td><td><code>3001</code></td><td>Internal dev 模式使用。</td></tr>
+        </tbody>
+      </table>
 
-<!-- ════════ 2. TestCase 生成 ════════ -->
-<div class="module" id="lark">
-  <div class="module-header">
-    <div class="module-icon icon-lark">L</div>
-    <div>
+      <h3>Cloudflare Tunnel</h3>
+      <p><code>build-and-tunnel.ps1</code> 與 <code>generate-osm-api-key.ps1</code> 都會啟動 Quick Tunnel，目標固定為：</p>
+      <pre>cloudflared tunnel --url http://localhost:3000</pre>
+      <p>取得的公開網址會組合成 OSMWatcher Webhook：</p>
+      <pre>https://xxxx.trycloudflare.com/api/machine-test/osm-status</pre>
+      <div class="note warn">Tunnel URL 是臨時網址。只要 tunnel 重啟，OSMWatcher 端設定就需要更新成新的 webhook URL。</div>
+      <a class="back" href="#top">回頂部</a>
+    </div>
+  </section>
+
+  <section id="startup">
+    <div class="section-head">
+      <h2>啟動、建置與部署流程</h2>
+      <p>依使用場景選擇開發模式、內部開發模式或 production tunnel 模式。</p>
+    </div>
+    <div class="body">
+      <h3>一般開發模式</h3>
+      <pre>npm run dev:all</pre>
+      <ol>
+        <li>先執行 <code>dev:stop</code>，清掉 <code>3000</code>、<code>5173</code> 的殘留 process。</li>
+        <li>啟動 <code>tsx --watch server/index.ts</code>，API 監聽 <code>0.0.0.0:3000</code>。</li>
+        <li>啟動 <code>vite</code>，前端監聽 <code>0.0.0.0:5173</code>。</li>
+        <li>區網使用者可透過 <code>http://192.168.x.x:5173</code> 存取前端。</li>
+      </ol>
+
+      <h3>內部開發模式</h3>
+      <pre>npm run dev:internal</pre>
+      <ol>
+        <li>清掉 <code>3001</code>、<code>5174</code>。</li>
+        <li>後端由 <code>server/index.dev.ts</code> 設定 <code>PORT=3001</code>。</li>
+        <li>前端使用 <code>vite.dev.config.ts</code>，API/WS proxy 到 <code>3001</code>。</li>
+      </ol>
+
+      <h3>Production Build + Tunnel</h3>
+      <pre>雙擊 build-and-tunnel.bat
+或執行 powershell -ExecutionPolicy Bypass -File build-and-tunnel.ps1</pre>
+      <ol>
+        <li>停止 <code>3000</code>、<code>5173</code>。</li>
+        <li>執行 <code>npm run build</code> 產出 <code>dist</code>。</li>
+        <li>啟動 <code>npx tsx server/index.ts</code>，Express 會同時提供 API 與 production 前端。</li>
+        <li>啟動 Cloudflare Tunnel 指向 <code>http://localhost:3000</code>。</li>
+        <li>自動抓出 <code>trycloudflare.com</code> URL，組成 OSMWatcher Webhook 並複製到剪貼簿。</li>
+      </ol>
+      <a class="back" href="#top">回頂部</a>
+    </div>
+  </section>
+
+  <section id="jira">
+    <div class="section-head">
+      <h2>Jira 批次建立與流程管理</h2>
+      <p>支援 QA 與 PM 兩種工作流，核心是把 Lark/Google 資料整理成 Jira Issue，並回寫 key、補留言與轉狀態。</p>
+    </div>
+    <div class="body">
+      <h3>應用場景</h3>
+      <ul>
+        <li>QA 從 Lark Sheet 或 Google Sheet 匯入 Issue 清單，批次建立 Jira ticket。</li>
+        <li>PM 從 Lark Bitable 讀需求，依 Parent Epic 建立 Story 或相關 Issue。</li>
+        <li>建立完成後回寫 Jira Issue Key，後續可批次補上測試結果留言、附檔連結、AI 產生的說明與 verifier。</li>
+        <li>依 Jira workflow transition id 批次轉狀態。</li>
+      </ul>
+
+      <h3>主要流程</h3>
+      <div class="flow">
+        <div class="step"><b>1. 選帳號</b>設定 Jira email、API token、角色與 PIN。</div>
+        <div class="step"><b>2. 讀資料</b>貼上 Lark Sheet、Google Sheet 或 Bitable URL。</div>
+        <div class="step"><b>3. 預覽校對</b>檢查 summary、description、assignee、issue type、project。</div>
+        <div class="step"><b>4. 批次建立</b>呼叫 Jira REST API 建立 issue 並整理成功/失敗結果。</div>
+        <div class="step"><b>5. 回寫</b>將 Jira key 與狀態回寫到 Sheet/Bitable。</div>
+        <div class="step"><b>6. 補留言</b>批次將測試結果、檔案、AI 內容貼到 Jira comment。</div>
+        <div class="step"><b>7. 轉狀態</b>依 transition id 批次推進 Jira workflow。</div>
+        <div class="step"><b>8. 留紀錄</b>操作寫入 history，方便查詢。</div>
+      </div>
+
+      <h3>輸入與結果</h3>
+      <table>
+        <thead><tr><th>項目</th><th>內容</th></tr></thead>
+        <tbody>
+          <tr><td>必要輸入</td><td>Jira 帳號、API Token、Project、Issue Type、資料來源 URL。</td></tr>
+          <tr><td>常見欄位</td><td>Summary、Description、Assignee Email、RD、Verifier、Difficulty、Jira Issue Key、Result。</td></tr>
+          <tr><td>成功結果</td><td>回傳 issue key、Jira browse link、建立狀態；可回寫來源表格。</td></tr>
+          <tr><td>失敗結果</td><td>保留 Jira API 錯誤、欄位缺漏、權限問題或 assignee mapping 失敗原因。</td></tr>
+        </tbody>
+      </table>
+
+      <h3>角色與資料流</h3>
+      <div class="lane"><b>QA 模式</b><span>從 Lark Sheet / Google Sheet 讀入測試或缺陷清單，建立 Jira issue 後回寫 Jira Key，再用批次留言補上測試結果、附件連結與 AI 生成的說明。</span></div>
+      <div class="lane"><b>PM 模式</b><span>從 Lark Bitable 讀取需求結構，帶入 Parent Epic Key，建立 Story 或 Epic 相關 issue，適合需求拆分與 Jira 初始化。</span></div>
+      <div class="lane"><b>安全控管</b><span>Jira 帳號支援角色、PIN 驗證與 admin 驗證；敏感 token 不顯示在前端結果，只保留必要操作紀錄。</span></div>
+
+      <h3>相關 API</h3>
+      <pre>GET    /api/jira/accounts
+POST   /api/jira/accounts
+DELETE /api/jira/accounts/:email
+PATCH  /api/jira/accounts/:email/role
+POST   /api/jira/accounts/:email/verify-pin
+POST   /api/jira/accounts/:email/set-pin
+POST   /api/admin/verify
+GET    /api/jira/members
+GET    /api/jira/projects
+GET    /api/jira/issuetypes
+POST   /api/lark/sheets/records
+POST   /api/lark/sheets/writeback
+POST   /api/jira/batch-create
+POST   /api/jira/batch-comment
+GET    /api/jira/batch-comment/stream
+GET    /api/jira/batch-comment/status/:requestId
+POST   /api/jira/batch-transition
+POST   /api/jira/pm-read-bitable
+POST   /api/jira/pm-batch-create</pre>
+      <a class="back" href="#top">回頂部</a>
+    </div>
+  </section>
+
+  <section id="testcase">
+    <div class="section-head">
       <h2>TestCase 生成</h2>
-      <p>輸入規格書，由 Gemini AI 自動生成測試案例並寫入 Lark 多維表格</p>
+      <p>把需求文件、Lark 內容或檔案交給 AI，產出可回填到 Lark Bitable/Sheet 的測試案例。</p>
     </div>
-  </div>
-  <div class="module-body">
+    <div class="body">
+      <h3>應用場景</h3>
+      <ul>
+        <li>需求文件太長，需要快速整理測試點、前置條件、步驟與預期結果。</li>
+        <li>PM/QA 希望從 Lark URL 直接生成 TestCase，不手動複製內容。</li>
+        <li>需要用同一套 Prompt 模板維持輸出格式一致。</li>
+      </ul>
 
-    <div class="section">
-      <h3>兩種操作模式</h3>
-      <div class="mode-grid">
-        <div class="mode-card">
-          <h4>🤖 AI 生成 TestCase</h4>
-          <p>輸入規格書，AI 分析後自動產生完整測試案例清單，寫入 Lark Bitable</p>
-        </div>
-        <div class="mode-card">
-          <h4>🔍 人工 vs AI 比對</h4>
-          <p>同時輸入規格書 + 你已寫好的 TestCase Bitable，AI 分析覆蓋率與缺漏</p>
-        </div>
-      </div>
-    </div>
-
-    <hr />
-
-    <div class="section">
-      <h3>AI 生成 TestCase — 操作流程</h3>
-
+      <h3>主要流程</h3>
       <div class="flow">
-        <div class="flow-step">
-          <div class="flow-box lark">
-            <div class="step-num">1</div>
-            <div class="step-label">選擇規格書來源</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box lark">
-            <div class="step-num">2</div>
-            <div class="step-label">輸入 URL 或上傳</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box lark">
-            <div class="step-num">3</div>
-            <div class="step-label">選擇 Prompt 模板</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box lark">
-            <div class="step-num">4</div>
-            <div class="step-label">（選填）Jira 整合</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box lark">
-            <div class="step-num">5</div>
-            <div class="step-label">開始生成</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box lark">
-            <div class="step-num">6</div>
-            <div class="step-label">查看結果 / Bitable</div>
-          </div>
-        </div>
+        <div class="step"><b>1. 選模型</b>選 Gemini、OpenAI 或可用模型。</div>
+        <div class="step"><b>2. 輸入來源</b>Lark URL、需求文字、PDF/Word 等文件。</div>
+        <div class="step"><b>3. AI 解析</b>依 Prompt 產生測項、步驟、預期結果。</div>
+        <div class="step"><b>4. 預覽校正</b>確認欄位與語意。</div>
+        <div class="step"><b>5. 輸出</b>下載檔案或寫回 Lark。</div>
+        <div class="step"><b>6. 監控</b>SSE 顯示生成進度。</div>
       </div>
 
-      <h4>Step 1 — 選擇規格書來源</h4>
-      <ul class="checklist">
-        <li><span class="tag tag-blue">📄 Lark Wiki</span> — 貼上 Lark Wiki 文件網址</li>
-        <li><span class="tag tag-purple">📎 PDF / Word</span> — 上傳 .pdf 或 .docx 規格書（最大 20MB）</li>
-        <li><span class="tag tag-green">🌐 Google 文檔</span> — 貼上 Google Docs 連結（文件需設為「任何人可查看」）</li>
-      </ul>
-
-      <h4>Step 2 — 輸入規格書網址或上傳檔案</h4>
-      <ul class="checklist">
-        <li>Lark Wiki：系統自動從 URL 抽取 <code>/wiki/{documentId}</code></li>
-        <li>PDF/Word：點擊「選擇檔案」選取本機檔案</li>
-        <li>Google Docs：貼上完整分享連結</li>
-      </ul>
-
-      <div class="tip tip-warn">
-        <span class="tip-icon">⚠️</span>
-        <div>Lark Wiki 需先在文件「分享」中加入 Lark Bot，否則系統無法讀取文件內容</div>
-      </div>
-
-      <h4>Step 3 — 選擇 AI Prompt 模板</h4>
-      <ul class="checklist">
-        <li>從下拉選單選擇適合的生成模板</li>
-        <li>標準格式：生成包含「測試模組、維度、標題、前置條件、步驟、結果、優先級」的欄位</li>
-        <li>Jira 整合格式：生成包含「功能模組、測試類型、來源依據、Jira 單號」等欄位</li>
-        <li>Prompt 模板可在 ⚙️ Gemini 設定中自訂與新增</li>
-      </ul>
-
-      <h4>Step 4 — Jira 整合（選填）</h4>
-      <ul class="checklist">
-        <li>勾選「整合 Jira 單號」，讓 AI 同時參考 Jira Issues 的描述</li>
-        <li>選擇 Jira 帳號，輸入相關 Jira 單號（逗號或換行分隔，如 <code>CGSG-220, CGSG-221</code>）</li>
-        <li>AI 會將 Jira Issues 內容納入分析，生成更精確的測試案例</li>
-      </ul>
-
-      <h4>Step 5 — 開始生成（約 30–60 秒）</h4>
-      <ul class="checklist">
-        <li>點擊「開始生成」，系統進入 Loading 狀態</li>
-        <li>後端流程：讀取文件全文 → 送至 Gemini 分析 → 批次寫入 Lark Bitable</li>
-        <li>生成期間請勿離開頁面</li>
-      </ul>
-
-      <h4>Step 6 — 查看結果</h4>
-      <ul class="checklist">
-        <li>頁面顯示生成筆數、寫入筆數摘要</li>
-        <li>點擊「前往 Lark Bitable 查看結果」開啟已建立的多維表格</li>
-        <li>下方預覽表格可展開查看每筆案例的詳細欄位</li>
-      </ul>
-
-      <div class="screenshot-placeholder">
-        <div class="ph-icon">🖼️</div>
-        <div class="ph-label">TestCase 生成結果截圖</div>
-        <div>待補充</div>
-      </div>
-    </div>
-
-    <hr />
-
-    <div class="section">
-      <h3>生成的 Bitable 欄位結構</h3>
-      <h4>標準格式</h4>
-      <table class="data-table">
-        <thead><tr><th>欄位</th><th>說明</th><th>範例</th></tr></thead>
-        <tbody>
-          <tr><td>測試模組</td><td>功能模組分類</td><td>登入模組</td></tr>
-          <tr><td>測試維度</td><td>測試類型</td><td>正向邏輯 / 邊界分析 / 異常阻斷</td></tr>
-          <tr><td>測試標題</td><td>簡短描述測試目的</td><td>使用正確帳號密碼成功登入</td></tr>
-          <tr><td>前置條件</td><td>執行測試前的環境要求</td><td>已註冊帳號、網路正常</td></tr>
-          <tr><td>操作步驟</td><td>逐步操作說明</td><td>1. 開啟 App... 2. 輸入帳密...</td></tr>
-          <tr><td>預期結果</td><td>操作後的期望狀態</td><td>成功進入首頁</td></tr>
-          <tr><td>優先級</td><td>高 / 中 / 低</td><td>高</td></tr>
-          <tr><td>來源</td><td>依據的規格書章節</td><td>Wiki 3.2 節 / PDF p.15</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <a class="back-to-top" href="#top">↑ 回到頂端</a>
-  </div>
-</div>
-
-
-<!-- ════════ 3. OSM 版號同步 ════════ -->
-<div class="module" id="osm">
-  <div class="module-header">
-    <div class="module-icon icon-osm">O</div>
-    <div>
-      <h2>OSM 版號同步</h2>
-      <p>即時同步各渠道機台版本，與 Lark 目標版本比對，掌握全局版本狀態</p>
-    </div>
-  </div>
-  <div class="module-body">
-
-    <div class="section">
-      <h3>功能說明</h3>
-      <ul class="checklist">
-        <li>從多個 OSM 渠道（CP / WF / TBR / TBP / MDR）拉取所有機台的當前版本</li>
-        <li>與 Lark Sheet 設定的「目標版本」比對，標示是否達標</li>
-        <li>顯示版本分布圖、在線 / 離線統計</li>
-        <li>可解析 ImageRecon 週報 Email</li>
-      </ul>
-    </div>
-
-    <hr />
-
-    <div class="section">
-      <h3>主要操作區塊</h3>
-
-      <h4>目標版本設定</h4>
-      <ul class="checklist">
-        <li>貼上 Lark Sheet 網址（格式：<code>https://casinoplus.sg.larksuite.com/sheets/XXXX</code>）</li>
-        <li>點擊「從 Lark 同步」，自動讀取各渠道目標版本</li>
-        <li>可手動設定告警排程，當版本不符時推播到 Lark 群組</li>
-      </ul>
-
-      <h4>機台版本 Dashboard</h4>
-      <ul class="checklist">
-        <li>點擊「全部同步」，從所有渠道拉取最新機台版本資訊</li>
-        <li>依渠道分組顯示，每組有版本分布色條圖</li>
-        <li>機台狀態：<span class="tag tag-green">online</span> / <span class="tag tag-gray">offline</span> / <span class="tag tag-yellow">unknown</span></li>
-      </ul>
-
-      <h4>OSM 元件版本</h4>
-      <ul class="checklist">
-        <li>點擊「取得元件版本」，從 OSM 後台拉取各元件（GM / API / GW 等）的版本</li>
-        <li>與 Lark Sheet 目標版本比對，顯示是否符合要求</li>
-      </ul>
-
-      <h4>LuckyLink / Toppath 元件版本</h4>
-      <ul class="checklist">
-        <li>分別從 LuckyLink 後台 / Toppath 靜態接口拉取元件版本</li>
-        <li>同樣與 Lark 目標版本比對</li>
-      </ul>
-
-      <h4>ImageRecon Server 版本</h4>
-      <ul class="checklist">
-        <li>點擊「取得最新報告」，從最新一封 Gmail 週報 Email 解析 Server 狀態</li>
-        <li>與 Lark Sheet ImageRecon 目標版本比對</li>
-      </ul>
-
-      <div class="screenshot-placeholder">
-        <div class="ph-icon">🖼️</div>
-        <div class="ph-label">OSM 版號 Dashboard 截圖</div>
-        <div>待補充</div>
-      </div>
-    </div>
-
-    <hr />
-
-    <div class="section">
-      <h3>渠道色碼對照</h3>
-      <table class="data-table">
-        <thead><tr><th>渠道</th><th>代碼</th><th>顏色</th></tr></thead>
-        <tbody>
-          <tr><td>CasinoPlus</td><td>CP</td><td><span style="color:#4f86f7">■</span> 藍</td></tr>
-          <tr><td>WildForest</td><td>WF</td><td><span style="color:#f76b4f">■</span> 橘紅</td></tr>
-          <tr><td>TBR</td><td>TBR</td><td><span style="color:#4fcf70">■</span> 綠</td></tr>
-          <tr><td>TBP</td><td>TBP</td><td><span style="color:#f7c94f">■</span> 黃</td></tr>
-          <tr><td>MDR</td><td>MDR</td><td><span style="color:#c44ff7">■</span> 紫</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <a class="back-to-top" href="#top">↑ 回到頂端</a>
-  </div>
-</div>
-
-
-<!-- ════════ 4. 機台自動化測試 ════════ -->
-<div class="module" id="machinetest">
-  <div class="module-header">
-    <div class="module-icon icon-mt">M</div>
-    <div>
-      <h2>機台自動化測試</h2>
-      <p>批量自動測試機台的進入、推流、Spin、音頻等流程，結果自動回寫 Lark</p>
-    </div>
-  </div>
-  <div class="module-body">
-
-    <div class="section">
-      <h3>操作流程</h3>
-
-      <div class="flow">
-        <div class="flow-step">
-          <div class="flow-box mt">
-            <div class="step-num">1</div>
-            <div class="step-label">設定大廳 URL</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box mt">
-            <div class="step-num">2</div>
-            <div class="step-label">設定 Lark 表單</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box mt">
-            <div class="step-num">3</div>
-            <div class="step-label">輸入機台清單</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box mt">
-            <div class="step-num">4</div>
-            <div class="step-label">選擇測試項目</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box mt">
-            <div class="step-num">5</div>
-            <div class="step-label">開始測試</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box mt">
-            <div class="step-num">6</div>
-            <div class="step-label">查看結果</div>
-          </div>
-        </div>
-      </div>
-
-      <h4>Step 1 — 設定大廳 URL（Worker）</h4>
-      <ul class="checklist">
-        <li>每個 Worker 對應一組大廳 URL（含 token）</li>
-        <li>可新增多個 Worker，系統會平行分配機台測試</li>
-        <li>格式範例：<code>https://example.com/lobby?token=ABC123</code></li>
-        <li>每個 Worker 使用不同的帳號 token，各自獨立測試不同機台</li>
-      </ul>
-
-      <h4>Step 2 — 設定 Lark 測試表單（選填）</h4>
-      <ul class="checklist">
-        <li>貼上 Lark Sheet URL，系統會自動讀取機台代碼清單</li>
-        <li>測試完成後，結果（PASS / FAIL）自動回寫至表單對應列</li>
-      </ul>
-
-      <h4>Step 3 — 輸入機台代碼清單</h4>
-      <ul class="checklist">
-        <li>每行一個機台代碼（或用逗號分隔），如 <code>892-BULLBLITZ-0136</code></li>
-        <li>也可點擊「讀取機台」從 Lark 表單自動匯入</li>
-      </ul>
-
-      <h4>Step 4 — 選擇測試項目</h4>
-      <table class="data-table" style="margin-top:8px">
-        <thead><tr><th>測試項目</th><th>說明</th><th>狀態</th></tr></thead>
-        <tbody>
-          <tr><td>進入機台</td><td>從大廳導航至指定機台並確認進入成功</td><td><span class="tag tag-green">可用</span></td></tr>
-          <tr><td>推流檢測</td><td>確認串流畫面正常接收</td><td><span class="tag tag-green">可用</span></td></tr>
-          <tr><td>Spin 測試</td><td>執行指定次數的 Spin，記錄結果</td><td><span class="tag tag-green">可用</span></td></tr>
-          <tr><td>音頻檢測</td><td>偵測遊戲音效是否正常播放（需 VB-Cable）</td><td><span class="tag tag-green">可用</span></td></tr>
-          <tr><td>iDeck 測試</td><td>測試觸屏機台的 iDeck 互動介面</td><td><span class="tag tag-yellow">開發中</span></td></tr>
-          <tr><td>退出測試</td><td>確認可正常退出機台回到大廳</td><td><span class="tag tag-green">可用</span></td></tr>
-        </tbody>
-      </table>
-
-      <h4>Step 5 — 開始測試</h4>
-      <ul class="checklist">
-        <li>點擊「開始測試」，系統依機台清單逐一（或平行）執行測試</li>
-        <li>左側即時日誌顯示每台的執行進度</li>
-        <li>日誌中可確認 OSMWatcher 圖像識別服務是否連線</li>
-      </ul>
-
-      <div class="tip tip-info">
-        <span class="tip-icon">ℹ️</span>
-        <div>若 <strong>OSMWatcher 已連線</strong>，測試時 Spin 後會自動偵測特殊遊戲（Free Game / Jackpot / Handpay），等待結束後再繼續下一台</div>
-      </div>
-
-      <div class="tip tip-warn">
-        <span class="tip-icon">⚠️</span>
-        <div>若 <strong>OSMWatcher 未連線</strong>，Spin 後不會等待特殊遊戲結束，日誌會標示「⚠️ OSMWatcher 未連線」</div>
-      </div>
-
-      <h4>Step 6 — 查看結果</h4>
-      <ul class="checklist">
-        <li>右側「測試摘要」顯示每台機台的整體 PASS / FAIL / WARN</li>
-        <li>可展開查看每個測試步驟的詳細結果與耗時</li>
-        <li>若設定了 Lark 表單，結果同步回寫</li>
-      </ul>
-
-      <div class="screenshot-placeholder">
-        <div class="ph-icon">🖼️</div>
-        <div class="ph-label">機台自動化測試執行中截圖</div>
-        <div>待補充</div>
-      </div>
-    </div>
-
-    <hr />
-
-    <div class="section">
-      <h3>OSMWatcher 即時監控面板</h3>
-      <p style="font-size:14px; color:#64748b; margin-bottom:12px">畫面上方橫幅顯示 OSMWatcher 連線狀態，點擊橫幅可展開即時監控面板</p>
-      <ul class="checklist">
-        <li>每 10 秒自動更新機台狀態</li>
-        <li>以顏色區分狀態：</li>
-      </ul>
-      <table class="data-table" style="margin-top:10px">
-        <thead><tr><th>狀態</th><th>說明</th><th>卡片顏色</th></tr></thead>
-        <tbody>
-          <tr><td>正常</td><td>機台正在一般遊戲中</td><td>灰白</td></tr>
-          <tr><td>⚡ Free Game</td><td>Free Game 進行中</td><td>淺紫</td></tr>
-          <tr><td>⚡ Jackpot</td><td>Jackpot 觸發中</td><td>淺黃</td></tr>
-          <tr><td>⚡ Handpay</td><td>需人工處理派彩</td><td>淺紅</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <hr />
-
-    <div class="section">
-      <h3>機台設定檔（Machine Profile）</h3>
-      <p style="font-size:14px; color:#64748b; margin-bottom:12px">針對不同機型，可設定特定的操作參數，確保測試流程正確</p>
-      <table class="data-table">
+      <h3>結果格式</h3>
+      <table>
         <thead><tr><th>欄位</th><th>說明</th></tr></thead>
         <tbody>
-          <tr><td>機台類型（machineType）</td><td>機型識別名稱，對應機台代碼前綴</td></tr>
-          <tr><td>Bonus 操作方式</td><td>自動等待 / 點擊 Spin / 點擊 TakeWin / 點擊觸屏座標</td></tr>
-          <tr><td>觸屏座標（touchPoints）</td><td>觸屏機台的操作座標，格式 <code>X,Y</code></td></tr>
-          <tr><td>進入觸屏 Stage 1/2</td><td>進入機台時的 Denom 選擇 / 確認步驟觸屏座標</td></tr>
-          <tr><td>自訂選擇器</td><td>Spin / Balance / Exit 元素的 CSS Selector（覆蓋預設值）</td></tr>
+          <tr><td>測試分類</td><td>功能、UI、資料、錯誤處理、邊界條件等。</td></tr>
+          <tr><td>測試標題</td><td>簡短描述測試目的。</td></tr>
+          <tr><td>前置條件</td><td>帳號、環境、資料、遊戲狀態。</td></tr>
+          <tr><td>測試步驟</td><td>可執行的逐步操作。</td></tr>
+          <tr><td>預期結果</td><td>判定 PASS/FAIL 的結果描述。</td></tr>
+          <tr><td>優先級/備註</td><td>補充風險、來源章節與特殊條件。</td></tr>
         </tbody>
       </table>
+
+      <h3>相關 API</h3>
+      <pre>POST /api/integrations/lark/generate-testcases
+GET  /api/integrations/lark/generate-testcases/stream
+GET  /api/integrations/lark/generate-testcases/status/:requestId
+GET  /api/integrations/lark/generate-testcases/monitor
+POST /api/integrations/generate-testcases-file
+POST /api/google/sheets/records
+POST /api/google/sheets/writeback
+POST /api/sheets/writeback-multi</pre>
+      <a class="back" href="#top">回頂部</a>
     </div>
+  </section>
 
-    <a class="back-to-top" href="#top">↑ 回到頂端</a>
-  </div>
-</div>
-
-
-<!-- ════════ 5. 圖片刪除驗證 ════════ -->
-<div class="module" id="imagecheck">
-  <div class="module-header">
-    <div class="module-icon icon-img">I</div>
-    <div>
-      <h2>圖片刪除驗證</h2>
-      <p>貼上已刪除圖片清單，自動在虛擬瀏覽器中驗證是否仍被遊戲載入</p>
+  <section id="osm">
+    <div class="section-head">
+      <h2>OSM Version Sync 與版本監控</h2>
+      <p>集中管理 OSM、LuckyLink、Toppath 與 ImageRecon 版本資訊，並可同步到 Lark。</p>
     </div>
-  </div>
-  <div class="module-body">
+    <div class="body">
+      <h3>應用場景</h3>
+      <ul>
+        <li>查詢 CP、WF、TBR、TBP、MDR 等 channel 的 backend/frontend 版本。</li>
+        <li>同步 OSM 版本資料到 Lark 表格。</li>
+        <li>抓 LuckyLink、Toppath 版本歷史並整併成報表。</li>
+        <li>讀 Gmail 中 ImageRecon 週報，彙整 server 狀態。</li>
+        <li>管理目標機型與設定模板，用於後續比對或測試。</li>
+      </ul>
 
-    <div class="section">
-      <h3>使用情境</h3>
-      <div class="tip tip-purple">
-        <span class="tip-icon">💡</span>
-        <div>當 RD 刪除遊戲圖片資源後，QA 需確認圖片真的沒有被前端載入（而非只是 Git 刪除成功）。此工具自動化完成此驗證流程。</div>
-      </div>
-    </div>
-
-    <hr />
-
-    <div class="section">
-      <h3>操作流程</h3>
-
+      <h3>主要流程</h3>
       <div class="flow">
-        <div class="flow-step">
-          <div class="flow-box img">
-            <div class="step-num">1</div>
-            <div class="step-label">輸入前端 URL</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box img">
-            <div class="step-num">2</div>
-            <div class="step-label">填入刪除圖片清單</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box img">
-            <div class="step-num">3</div>
-            <div class="step-label">啟動偵測</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box img">
-            <div class="step-num">4</div>
-            <div class="step-label">操作虛擬瀏覽器</div>
-          </div>
-        </div>
-        <div class="flow-arrow">→</div>
-        <div class="flow-step">
-          <div class="flow-box img">
-            <div class="step-num">5</div>
-            <div class="step-label">取得驗證結果</div>
-          </div>
-        </div>
+        <div class="step"><b>1. 讀取 channels</b>從環境變數與 route 取得 channel 設定。</div>
+        <div class="step"><b>2. 查版本</b>呼叫 OSM/LuckyLink/Toppath backend。</div>
+        <div class="step"><b>3. 同步 Lark</b>依設定寫入 Bitable/Sheet。</div>
+        <div class="step"><b>4. 顯示報表</b>前端呈現各 channel 狀態與時間。</div>
       </div>
 
-      <h4>Step 1 — 輸入前端 URL</h4>
-      <ul class="checklist">
-        <li>輸入含 token 的遊戲進入 URL（含 gameid 等參數）</li>
-        <li>格式：<code>https://osm-redirect.osmslot.org/?token=xxx&amp;gameid=xxx</code></li>
+      <h3>結果</h3>
+      <ul>
+        <li>OSM version history：每個 channel 的 GM/API/GW 等版本資訊。</li>
+        <li>LuckyLink/Toppath history：對應服務版本與同步時間。</li>
+        <li>ImageRecon 報表：從 Gmail 抓取最新報告並彙整狀態。</li>
+        <li>同步結果：成功筆數、失敗筆數、錯誤訊息。</li>
       </ul>
 
-      <h4>Step 2 — 填入已刪除圖片清單</h4>
-      <p style="font-size:13px; color:#64748b; margin:8px 0">有三種方式輸入刪除清單：</p>
-      <ul class="checklist">
-        <li><strong>手動輸入</strong>：每行一個圖片路徑，如 <code>assets/resources/jackpot/aruze1.png</code></li>
-        <li><strong>貼上 git diff 文字解析</strong>：點擊「📋 貼上 git diff 文字解析」，貼入 git diff 輸出，系統自動萃取刪除的圖片路徑（支援 <code>git diff --name-status</code> / <code>git status</code> / GUI 格式）</li>
-        <li><strong>截圖 AI 識別</strong>：點擊「🖼️ 上傳截圖 AI 識別」或直接 <code>Ctrl+V</code> 貼上截圖，Gemini 自動識別圖片路徑填入欄位</li>
+      <h3>相關 API</h3>
+      <pre>GET    /api/osm/targets
+DELETE /api/osm/targets/:machineType
+POST   /api/osm/sync-targets-from-lark
+GET    /api/osm/version-history
+GET    /api/luckylink/version-history
+GET    /api/toppath/version-history
+GET    /api/osm/channels
+POST   /api/osm/sync
+POST   /api/osm/sync/:name
+POST   /api/osm/alert
+GET    /api/osm/alert/config
+POST   /api/osm/alert/config
+POST   /api/integrations/gmail/latest-report
+POST   /api/integrations/osm/version-sync</pre>
+      <a class="back" href="#top">回頂部</a>
+    </div>
+  </section>
+
+  <section id="machine-test">
+    <div class="section-head">
+      <h2>機台自動測試</h2>
+      <p>以 Playwright、自動操作、截圖、音訊與 OSMWatcher 狀態輔助，對機台 URL 執行登入、Spin、Bonus、iDeck、CCTV 等測試。</p>
+    </div>
+    <div class="body">
+      <h3>應用場景</h3>
+      <ul>
+        <li>批次測試多台機台，並將 PASS/FAIL/WARN 結果寫回 Lark。</li>
+        <li>測試遊戲登入、Spin、Bonus、音訊、iDeck、CCTV、錯誤畫面。</li>
+        <li>分散式 agent 由多台機器共同 claim job，加速大量機台測試。</li>
+        <li>OSMWatcher 透過 webhook 回報機台狀態，測試 runner 可依狀態判斷等待或繼續。</li>
       </ul>
 
-      <h4>Step 3 — 啟動偵測</h4>
-      <ul class="checklist">
-        <li>點擊「🚀 開始偵測」，後端啟動無頭瀏覽器</li>
-        <li>系統開始攔截所有圖片資源請求</li>
-      </ul>
-
-      <h4>Step 4 — 操作虛擬瀏覽器</h4>
-      <ul class="checklist">
-        <li>畫面顯示即時截圖（每 1.5 秒自動更新）</li>
-        <li>可直接<strong>點擊截圖</strong>操作遊戲（點擊位置會傳送至後端執行）</li>
-        <li>支援<strong>滾輪捲動</strong></li>
-        <li>左上方顯示已攔截圖片請求數量</li>
-        <li>操作遊戲進入各個畫面（大廳、遊戲房間、各功能頁面）讓系統完整收集圖片請求</li>
-      </ul>
-
-      <h4>Step 5 — 取得驗證結果</h4>
-      <ul class="checklist">
-        <li>點擊「✅ 完成，取得結果」</li>
-        <li>系統輸出比對報告：
-          <ul style="margin-top:4px; padding-left:20px; font-size:13px">
-            <li><span class="tag tag-red">❌ 仍在載入</span> — 圖片仍被前端請求，需回報給 RD 確認</li>
-            <li><span class="tag tag-green">✅ 已確認刪除</span> — 圖片未出現在任何請求中，驗證通過</li>
-          </ul>
-        </li>
-        <li>點擊「← 重新偵測」可重新開始</li>
-      </ul>
-
-      <div class="screenshot-placeholder">
-        <div class="ph-icon">🖼️</div>
-        <div class="ph-label">圖片驗證結果截圖</div>
-        <div>待補充</div>
+      <h3>主要流程</h3>
+      <div class="flow">
+        <div class="step"><b>1. 輸入 URL</b>設定 worker/lobby URL 與 token。</div>
+        <div class="step"><b>2. 讀 Lark</b>取得機台清單、機型、預期結果。</div>
+        <div class="step"><b>3. 選 Profile</b>套用機型觸控點、selector、bonus 動作。</div>
+        <div class="step"><b>4. 開始測試</b>本機或分散式 agent 執行。</div>
+        <div class="step"><b>5. 即時串流</b>WebSocket 推送 log、截圖、queue 狀態。</div>
+        <div class="step"><b>6. 寫回結果</b>測試完成後寫回 Lark 並保存歷史。</div>
       </div>
+
+      <h3>OSMWatcher 串接</h3>
+      <table>
+        <thead><tr><th>項目</th><th>內容</th></tr></thead>
+        <tbody>
+          <tr><td>Webhook</td><td><code>POST /api/machine-test/osm-status</code></td></tr>
+          <tr><td>公開 URL</td><td><code>https://xxxx.trycloudflare.com/api/machine-test/osm-status</code></td></tr>
+          <tr><td>Request</td><td><code>{ timestamp, channel, gmlist: [{ id, status }] }</code></td></tr>
+          <tr><td>Status</td><td><code>0=Idle</code>、<code>1=Free Game</code>、<code>2=Jackpot</code>、<code>3=Handpay</code></td></tr>
+          <tr><td>Response</td><td><code>{ "error": 0, "errordes": "success" }</code></td></tr>
+        </tbody>
+      </table>
+
+      <h3>測試項目細節</h3>
+      <table>
+        <thead><tr><th>測試項目</th><th>檢查重點</th><th>結果型態</th></tr></thead>
+        <tbody>
+          <tr><td>登入機台</td><td>依 profile 的 entry touch points 或 selector 進入遊戲，確認 canvas/video 出現。</td><td>PASS / FAIL</td></tr>
+          <tr><td>Spin 測試</td><td>點擊 spin、檢查 balance 變化、等待 OSMWatcher 回到 idle。</td><td>PASS / WARN / FAIL</td></tr>
+          <tr><td>音訊測試</td><td>透過 VB-Cable 或錄音流程分析 dB，也可交給 AI 判斷聲音狀態。</td><td>PASS / WARN</td></tr>
+          <tr><td>iDeck / Touch</td><td>依 XPath、row class 或 touchPoints 驗證按鍵與 daily-analysis API。</td><td>PASS / FAIL</td></tr>
+          <tr><td>CCTV / OCR</td><td>截圖後以 Gemini Vision 或 OCR 輔助判斷畫面與文字。</td><td>PASS / WARN / FAIL</td></tr>
+          <tr><td>離開機台</td><td>點擊 cashout/exit，檢查 leaveGMNtc 或 errcode 狀態。</td><td>PASS / SKIP</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Machine Profile 欄位</h3>
+      <p>這些欄位來自 <code>docs/tools/04-machine-test.md</code> 與後端 profile API，是機台測試能否穩定執行的核心設定。</p>
+      <table>
+        <thead><tr><th>欄位</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>machineType</code></td><td>機型識別，例如 JJBX，用於套用對應 selector、touch points、bonus action。</td></tr>
+          <tr><td><code>bonusAction</code></td><td>Bonus 狀態處理方式，例如 auto_wait、spin、takewin、touchscreen。</td></tr>
+          <tr><td><code>touchPoints</code></td><td>觸控測試座標，常用於 canvas 遊戲按鈕無法直接 selector 定位時。</td></tr>
+          <tr><td><code>spinSelector</code> / <code>balanceSelector</code> / <code>exitSelector</code></td><td>Spin、balance、離開按鈕的 CSS selector。</td></tr>
+          <tr><td><code>ideckRowClass</code> / <code>ideckXpaths</code></td><td>iDeck 操作用的 row class 與 XPath。</td></tr>
+          <tr><td><code>entryTouchPoints</code> / <code>entryTouchPoints2</code></td><td>進入機台第一階段、第二階段的觸控座標。</td></tr>
+          <tr><td><code>gmid</code></td><td>gameid fallback，比對 URL 與機台資料時使用。</td></tr>
+        </tbody>
+      </table>
+
+      <h3>即時通訊</h3>
+      <table>
+        <thead><tr><th>通道</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>WS /ws/machine-test/events</code></td><td>前端 viewer 監看測試 log、截圖、queue 與 session 狀態。</td></tr>
+          <tr><td><code>WS /ws/agent</code></td><td>分散式 agent 連線、註冊、claim job、回報 event、完成 job。</td></tr>
+        </tbody>
+      </table>
+
+      <h3>相關 API</h3>
+      <pre>POST   /api/machine-test/lark-machines
+POST   /api/machine-test/lark-writeback
+GET    /api/machine-test/profiles
+PUT    /api/machine-test/profiles
+DELETE /api/machine-test/profiles/:type
+GET    /api/machine-test/cctv-refs
+POST   /api/machine-test/cctv-refs/:machineType
+GET    /api/machine-test/cctv-refs/:machineType/image
+DELETE /api/machine-test/cctv-refs/:machineType
+GET    /api/machine-test/cctv-saves/:code
+GET    /api/machine-test/audio-saves/:code
+POST   /api/machine-test/osm-status
+GET    /api/machine-test/osm-status
+GET    /api/machine-test/queue-status
+POST   /api/machine-test/start
+POST   /api/machine-test/save-history
+GET    /api/machine-test/machine-results
+GET    /api/machine-test/sessions
+POST   /api/machine-test/stop/:id
+GET    /api/machine-test/status
+GET    /api/machine-test/agent/agent-package.json
+GET    /api/machine-test/agent/install.bat
+GET    /api/machine-test/agent/source/:file</pre>
+      <a class="back" href="#top">回頂部</a>
     </div>
+  </section>
 
-    <a class="back-to-top" href="#top">↑ 回到頂端</a>
-  </div>
-</div>
-
-
-<!-- ════════ 6. 操作歷史紀錄 ════════ -->
-<div class="module" id="history">
-  <div class="module-header">
-    <div class="module-icon icon-hist">H</div>
-    <div>
-      <h2>操作歷史紀錄</h2>
-      <p>查看所有功能的操作紀錄，支援時間區間篩選</p>
+  <section id="uat">
+    <div class="section-head">
+      <h2>OSM UAT 後台測試</h2>
+      <p>從 Lark Bitable 掃描 TestCase，自動執行 OSM 後台 UAT 測試並串流進度。</p>
     </div>
-  </div>
-  <div class="module-body">
-
-    <div class="section">
-      <h3>功能說明</h3>
-      <ul class="checklist">
-        <li>自動記錄所有重要操作的時間、功能、結果</li>
-        <li>支援篩選時間區間：今日 / 3 天 / 7 天</li>
-        <li>可查看每次操作的詳細記錄（操作帳號、目標資料、成功筆數等）</li>
+    <div class="body">
+      <h3>應用場景</h3>
+      <ul>
+        <li>根據 Lark Bitable 的 TC 清單執行後台功能驗證。</li>
+        <li>涵蓋排序、Bonus、Export、Config 等常見後台測試。</li>
+        <li>以 SSE 即時顯示執行進度、錯誤、停止狀態。</li>
       </ul>
+      <h3>主要流程</h3>
+      <div class="flow">
+        <div class="step"><b>1. 掃描 TC</b>提供 Lark URL，讀取可執行測項。</div>
+        <div class="step"><b>2. 選擇測項</b>確認要跑的測試類型與環境。</div>
+        <div class="step"><b>3. 執行</b>後端 runner 執行測試。</div>
+        <div class="step"><b>4. 串流結果</b>SSE 回傳 log、PASS/FAIL 與停止狀態。</div>
+      </div>
+      <h3>Agent 控制面</h3>
+      <div class="grid">
+        <div class="card">
+          <h4>下載與安裝</h4>
+          <p>前端可從後端下載 <code>install.bat</code>、<code>launcher.bat</code>、<code>agent.py</code>，讓測試機快速接入中央 server。</p>
+        </div>
+        <div class="card">
+          <h4>遠端操作</h4>
+          <p>Server 可對 agent 下達 start、stop、pause、resume、spin interval 等指令，也會接收 screenshot 與 log。</p>
+        </div>
+        <div class="card">
+          <h4>模板與辨識</h4>
+          <p>模板圖存放於 <code>server/python/templates</code>，AutoSpin 透過 OpenCV 比對畫面狀態、按鈕與錯誤提示。</p>
+        </div>
+        <div class="card">
+          <h4>對帳報表</h4>
+          <p>reconcile 會整理 agent 回傳的 game-record 與設定資料，產出可查詢的 reports。</p>
+        </div>
+      </div>
+      <h3>相關 API</h3>
+      <pre>GET  /api/osm-uat/stream
+GET  /api/osm-uat/status
+GET  /api/osm-uat/scan?larkUrl=...
+POST /api/osm-uat/run
+POST /api/osm-uat/stop</pre>
+      <a class="back" href="#top">回頂部</a>
     </div>
+  </section>
 
-    <div class="tip tip-success">
-      <span class="tip-icon">✅</span>
-      <div>所有歷史紀錄儲存於伺服器端 SQLite 資料庫，重新整理頁面不會消失</div>
+  <section id="image-check">
+    <div class="section-head">
+      <h2>圖片檢查</h2>
+      <p>針對改圖、素材或遊戲畫面做自動截圖與 AI/人工檢查，判斷圖片是否正確載入或出現異常。</p>
     </div>
-
-    <a class="back-to-top" href="#top">↑ 回到頂端</a>
-  </div>
-</div>
-
-
-<!-- ════════ 附錄 ════════ -->
-<div class="module">
-  <div class="module-header">
-    <div class="module-icon" style="background:#475569; font-size:20px; font-weight:400">⚙️</div>
-    <div>
-      <h2>Gemini 設定（全域）</h2>
-      <p>管理 AI 分析用的 API Keys 與 Prompt 模板</p>
+    <div class="body">
+      <h3>應用場景</h3>
+      <ul>
+        <li>RD 提供修改過的圖片清單，QA 需要快速檢查是否進入遊戲。</li>
+        <li>貼上遊戲 URL 與圖片 path，工具自動開啟頁面、截圖、標記檢查結果。</li>
+        <li>支援手動 click、scroll、停止 session、查看截圖。</li>
+      </ul>
+      <h3>主要流程</h3>
+      <div class="flow">
+        <div class="step"><b>1. 輸入 URL</b>遊戲或入口 URL，通常含 token/gameid。</div>
+        <div class="step"><b>2. 輸入圖片</b>貼上 git diff、圖片 path 或 AI 整理後的清單。</div>
+        <div class="step"><b>3. 開始檢查</b>後端啟動 browser session。</div>
+        <div class="step"><b>4. 擷取畫面</b>取得 screenshot 並解析。</div>
+        <div class="step"><b>5. 互動確認</b>必要時 click/scroll 後重抓畫面。</div>
+        <div class="step"><b>6. 輸出結果</b>列出已找到、疑似缺漏、需要人工確認的項目。</div>
+      </div>
+      <h3>相關 API</h3>
+      <pre>POST /api/image-check/parse-screenshot
+POST /api/image-check/start
+GET  /api/image-check/screenshot/:id
+POST /api/image-check/click/:id
+POST /api/image-check/scroll/:id
+GET  /api/image-check/status/:id
+POST /api/image-check/stop/:id</pre>
+      <a class="back" href="#top">回頂部</a>
     </div>
-  </div>
-  <div class="module-body">
-    <div class="section">
-      <h3>開啟方式</h3>
-      <ul class="checklist">
-        <li>點擊頁面右上角「⚙️ Gemini」按鈕</li>
+  </section>
+
+  <section id="config-compare">
+    <div class="section-head">
+      <h2>OSM Config Compare</h2>
+      <p>抓取遊戲前端設定、serverCfg.js 或 template，透過 AI/規則比對設定差異。</p>
+    </div>
+    <div class="body">
+      <h3>應用場景</h3>
+      <ul>
+        <li>比較新舊版本遊戲設定是否符合預期。</li>
+        <li>檢查 serverCfg.js 與模板設定差異。</li>
+        <li>抓取 frontend machines、gate info，自動整理機台清單。</li>
+      </ul>
+      <h3>結果</h3>
+      <ul>
+        <li>設定差異摘要。</li>
+        <li>可能風險與需確認欄位。</li>
+        <li>AI 解釋與原始設定片段。</li>
+      </ul>
+      <h3>相關 API</h3>
+      <pre>GET    /api/osm/config-templates
+POST   /api/osm/config-templates
+DELETE /api/osm/config-templates/:id
+POST   /api/osm/config-compare
+POST   /api/osm/frontend-machines
+POST   /api/osm/frontend-gate-info
+POST   /api/osm/machine-push/:requestId
+GET    /api/osm/machine-pull/:requestId
+POST   /api/osm/frontend-machines-auto</pre>
+      <a class="back" href="#top">回頂部</a>
+    </div>
+  </section>
+
+  <section id="autospin">
+    <div class="section-head">
+      <h2>AutoSpin</h2>
+      <p>使用 Python agent、OpenCV、模板辨識與遠端控制，執行長時間 Spin、紀錄與對帳。</p>
+    </div>
+    <div class="body">
+      <h3>應用場景</h3>
+      <ul>
+        <li>長時間跑 spin，觀察遊戲是否卡住或進入特殊狀態。</li>
+        <li>使用模板圖辨識按鈕、錯誤、bonus、彈窗等畫面。</li>
+        <li>支援下載 agent、遠端上傳 screenshot/log、暫停、恢復、停止。</li>
+        <li>提供 reconcile 功能，比對遊戲紀錄與設定。</li>
+      </ul>
+      <h3>主要流程</h3>
+      <div class="flow">
+        <div class="step"><b>1. 設定 config</b>機型、URL、動作、模板與 bet random。</div>
+        <div class="step"><b>2. 啟動 session</b>後端呼叫 Python 或等待 agent 連線。</div>
+        <div class="step"><b>3. 執行動作</b>依 actions.json 點擊、等待、辨識畫面。</div>
+        <div class="step"><b>4. 串流 log</b>SSE 顯示 session 或 agent log。</div>
+        <div class="step"><b>5. 保存結果</b>history、game-record、截圖與 reconcile report。</div>
+      </div>
+      <h3>相關 API</h3>
+      <pre>GET    /api/autospin/configs
+POST   /api/autospin/configs
+DELETE /api/autospin/configs/:machineType
+GET    /api/autospin/actions
+PUT    /api/autospin/actions
+GET    /api/autospin/bet-random
+PUT    /api/autospin/bet-random
+GET    /api/autospin/templates
+POST   /api/autospin/templates
+GET    /api/autospin/template-img/:filename
+DELETE /api/autospin/templates/:filename
+GET    /api/autospin/captures/:filename
+GET    /api/autospin/captures-list
+POST   /api/autospin/start
+POST   /api/autospin/stop
+GET    /api/autospin/status
+GET    /api/autospin/logs/:sessionId
+GET    /api/autospin/stream/:sessionId
+POST   /api/autospin/agent/start
+POST   /api/autospin/agent/:id/log
+POST   /api/autospin/agent/:id/screenshot
+POST   /api/autospin/agent/:id/stop
+GET    /api/autospin/agent/:id/should-stop
+POST   /api/autospin/agent/:id/pause
+POST   /api/autospin/agent/:id/resume
+POST   /api/autospin/agent/:id/spin-interval
+POST   /api/autospin/agent/stop-all
+GET    /api/autospin/agent/status
+GET    /api/autospin/agent/stream/:id
+GET    /api/autospin/agent/screenshot/:id/:name
+GET    /api/autospin/agent/screenshots/:id
+GET    /api/autospin/agent/download/launcher.bat
+GET    /api/autospin/agent/download/agent.py
+GET    /api/autospin/agent/download/install.bat
+POST   /api/autospin/agent/:id/history
+GET    /api/autospin/history
+DELETE /api/autospin/history
+GET    /api/autospin/reconcile/config
+PUT    /api/autospin/reconcile/config
+POST   /api/autospin/reconcile/test
+POST   /api/autospin/agent/:id/game-record
+POST   /api/autospin/reconcile/run
+GET    /api/autospin/reconcile/reports
+GET    /api/autospin/reconcile/reports/:id</pre>
+      <a class="back" href="#top">回頂部</a>
+    </div>
+  </section>
+
+  <section id="url-pool">
+    <div class="section-head">
+      <h2>URL Pool</h2>
+      <p>管理共用測試 URL，避免多個使用者同時拿到同一條 token URL。</p>
+    </div>
+    <div class="body">
+      <h3>應用場景</h3>
+      <ul>
+        <li>QA 需要領用一條可測 URL，避免互相覆蓋狀態。</li>
+        <li>依 account claim/release URL。</li>
+        <li>透過 <code>/api/url-pool/go/:account</code> 轉跳到目前領用的 URL。</li>
+        <li>SSE 即時更新 URL 池狀態。</li>
+      </ul>
+      <h3>相關 API</h3>
+      <pre>GET  /api/url-pool/stream
+GET  /api/url-pool/status
+GET  /api/url-pool/go/:account
+POST /api/url-pool/:account/claim
+POST /api/url-pool/:account/release
+GET  /api/url-pool/overrides
+PUT  /api/url-pool/:account/url</pre>
+      <a class="back" href="#top">回頂部</a>
+    </div>
+  </section>
+
+  <section id="jackpot">
+    <div class="section-head">
+      <h2>Jackpot 監控</h2>
+      <p>定期查詢 OSM jackpot 狀態，必要時發 Lark alert。</p>
+    </div>
+    <div class="body">
+      <h3>應用場景</h3>
+      <ul>
+        <li>每隔固定時間查詢指定 channel jackpot 狀態。</li>
+        <li>切換 channel、設定 threshold、webhook、通知條件。</li>
+        <li>對異常或達標狀態發送 Lark alert。</li>
+      </ul>
+      <h3>相關 API</h3>
+      <pre>GET  /api/osm/jackpot?channelid=...
+GET  /api/osm/jackpot/state
+POST /api/osm/jackpot/channel
+POST /api/osm/jackpot/lark-alert
+GET  /api/osm/jackpot/settings
+POST /api/osm/jackpot/settings</pre>
+      <a class="back" href="#top">回頂部</a>
+    </div>
+  </section>
+
+  <section id="gameshow">
+    <div class="section-head">
+      <h2>Game Show 工具</h2>
+      <p>Game Show 分組包含文件轉測項、圖片比對、WebSocket 統計與 log checker。</p>
+    </div>
+    <div class="body">
+      <h3>PDF TestCase 生成</h3>
+      <ul>
+        <li>上傳 PDF/Word 需求文件。</li>
+        <li>AI 擷取規則、流程、邊界條件並生成測試案例。</li>
+        <li>結果可匯出 CSV 或貼回管理表。</li>
       </ul>
 
-      <h3 style="margin-top:20px">API Key 管理</h3>
-      <ul class="checklist">
-        <li>可新增多組 Gemini API Key，系統自動輪替使用</li>
-        <li>顯示每組 Key 的使用狀態與剩餘配額</li>
+      <h3>圖片比對</h3>
+      <ul>
+        <li>建立比對 session，輸入新舊圖片或 URL。</li>
+        <li>取得比對狀態與左右兩側圖片。</li>
+        <li>輸出差異摘要與需要人工確認的項目。</li>
       </ul>
 
-      <h3 style="margin-top:20px">Prompt 模板管理</h3>
-      <ul class="checklist">
-        <li>左側列表依分類分組顯示所有模板</li>
-        <li>點擊模板名稱進行編輯</li>
-        <li>可設定「分類」欄位，方便日後整理</li>
-        <li>支援 <code>{{變數名}}</code> 語法插入動態內容</li>
-        <li>新增模板後，TestCase 生成的 Prompt 下拉選單會同步顯示</li>
+      <h3>500x 統計</h3>
+      <ul>
+        <li>使用 Playwright 開啟遊戲頁面。</li>
+        <li>攔截遊戲 WebSocket，統計骰型、bonus result 或 prepareBonusResult 事件。</li>
+        <li>與理論值比對，支援匯出 CSV。</li>
       </ul>
+      <table>
+        <thead><tr><th>ColorGame V2 項目</th><th>資料來源</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td>Single 2 顆</td><td><code>d.v[10][143][1]</code>，color 801-806</td><td>統計指定顏色雙骰出現率。</td></tr>
+          <tr><td>Single 3 顆</td><td><code>d.v[10][143][2]</code>，color 801-806</td><td>統計指定顏色三骰出現率。</td></tr>
+          <tr><td>Any Double</td><td><code>k807</code></td><td>統計任意雙骰事件。</td></tr>
+          <tr><td>Any Triple</td><td><code>k808</code></td><td>統計任意三骰事件。</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Log Checker</h3>
+      <ul>
+        <li>提供 log checker script 與 log compare 頁面。</li>
+        <li>攔截或比對 <code>/api/log</code> 類請求。</li>
+        <li>整理缺漏、格式錯誤或未符合規則的事件。</li>
+      </ul>
+
+      <h3>相關 API</h3>
+      <pre>POST /api/gs/pdf-testcase
+GET  /api/gs/log-checker-script
+GET  /api/gs/log-compare
+POST /api/gs/img-compare/session
+GET  /api/gs/img-compare/status/:id
+GET  /api/gs/img-compare/img/:id/:side/:idx
+POST /api/gs/stats/start
+POST /api/gs/stats/stop/:id
+GET  /api/gs/stats/status/:id</pre>
+      <a class="back" href="#top">回頂部</a>
     </div>
-  </div>
-</div>
+  </section>
 
+  <section id="history">
+    <div class="section-head">
+      <h2>History 歷史紀錄</h2>
+      <p>集中查詢各工具執行紀錄、使用者、IP、操作內容、結果與錯誤。</p>
+    </div>
+    <div class="body">
+      <h3>保存內容</h3>
+      <ul>
+        <li>API path、method、使用者、顯示名稱、IP。</li>
+        <li>操作名稱，例如 Jira 批次建立、TestCase 生成、Config Compare。</li>
+        <li>成功/失敗狀態、詳細訊息與時間。</li>
+        <li>Machine Test、AutoSpin 類工具會額外保存 session、machine result 或 agent history。</li>
+      </ul>
+      <h3>相關 API</h3>
+      <pre>GET /api/history
+GET /api/machine-test/machine-results
+GET /api/machine-test/sessions
+GET /api/autospin/history</pre>
+      <a class="back" href="#top">回頂部</a>
+    </div>
+  </section>
 
-</div><!-- /.doc-body -->
+  <section id="ai-settings">
+    <div class="section-head">
+      <h2>AI 設定、模型與 Prompt</h2>
+      <p>管理 Gemini/OpenAI/Ollama 可用模型、API Key、Prompt 範本與 AI agent 監控。</p>
+    </div>
+    <div class="body">
+      <h3>主要功能</h3>
+      <ul>
+        <li>儲存多組 Gemini API Key，並查看 key stats。</li>
+        <li>設定 OpenAI API Key。</li>
+        <li>偵測可用模型，提供前端 ModelSelector 使用。</li>
+        <li>維護 Prompt 範本，用於 TestCase、Jira comment、Config Compare 等場景。</li>
+        <li>AI Agent Monitor 顯示目前 AI 任務或 key 使用狀態。</li>
+      </ul>
+      <h3>相關 API</h3>
+      <pre>GET    /api/models/available
+GET    /api/ai-agent/monitor
+GET    /api/gemini/keys
+POST   /api/gemini/keys
+DELETE /api/gemini/keys/:label
+GET    /api/gemini/key-stats
+POST   /api/gemini/probe
+GET    /api/gemini/prompts
+POST   /api/gemini/prompts
+DELETE /api/gemini/prompts/:id
+GET    /api/openai/key
+POST   /api/openai/key
+DELETE /api/openai/key</pre>
+      <a class="back" href="#top">回頂部</a>
+    </div>
+  </section>
 
-<div style="background:#0f172a; color:#475569; text-align:center; padding:20px; font-size:12px;">
-  Workflow Integrator 使用者操作手冊 · 最後更新：2026-04-02
-</div>
+  <section id="api">
+    <div class="section-head">
+      <h2>API、SSE、WebSocket 總表</h2>
+      <p>所有端點都掛在同一個 Express server。開發模式下前端透過 Vite proxy 轉送。</p>
+    </div>
+    <div class="body">
+      <h3>健康檢查</h3>
+      <pre>GET /api/health</pre>
 
+      <h3>SSE 串流端點</h3>
+      <table>
+        <thead><tr><th>端點</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>/api/jira/batch-comment/stream</code></td><td>Jira 批次留言進度。</td></tr>
+          <tr><td><code>/api/integrations/lark/generate-testcases/stream</code></td><td>TestCase 生成進度。</td></tr>
+          <tr><td><code>/api/osm-uat/stream</code></td><td>OSM UAT 執行進度。</td></tr>
+          <tr><td><code>/api/url-pool/stream</code></td><td>URL Pool 狀態更新。</td></tr>
+          <tr><td><code>/api/autospin/stream/:sessionId</code></td><td>AutoSpin session log。</td></tr>
+          <tr><td><code>/api/autospin/agent/stream/:id</code></td><td>AutoSpin agent log。</td></tr>
+        </tbody>
+      </table>
+
+      <h3>WebSocket</h3>
+      <table>
+        <thead><tr><th>端點</th><th>用途</th><th>訊息概念</th></tr></thead>
+        <tbody>
+          <tr><td><code>/ws/machine-test/events</code></td><td>前端 viewer 監看測試事件。</td><td>replay buffer、log、screenshot、queue_update、session_done。</td></tr>
+          <tr><td><code>/ws/agent</code></td><td>分散式 agent 工作派發。</td><td>agent_ready、claim_job、job_assigned、job_done、agent_done。</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Route 檔案對照</h3>
+      <table>
+        <thead><tr><th>檔案</th><th>端點範圍</th><th>負責功能</th></tr></thead>
+        <tbody>
+          <tr><td><code>server/routes/jira.ts</code></td><td><code>/api/jira/*</code>、<code>/api/lark/sheets/*</code></td><td>Jira 帳號、讀寫 Lark Sheet、批次建立/comment/transition、PM Bitable。</td></tr>
+          <tr><td><code>server/routes/integrations.ts</code></td><td><code>/api/integrations/*</code>、<code>/api/google/*</code>、<code>/api/url-pool/*</code></td><td>TestCase、Gmail、Google Sheet、URL Pool。</td></tr>
+          <tr><td><code>server/routes/osm.ts</code></td><td><code>/api/osm/*</code>、<code>/api/luckylink/*</code>、<code>/api/toppath/*</code></td><td>OSM 版本、同步、設定比對、Jackpot。</td></tr>
+          <tr><td><code>server/routes/machine-test.ts</code></td><td><code>/api/machine-test/*</code>、<code>/api/image-check/*</code></td><td>機台測試、OSMWatcher、Agent、圖片檢查。</td></tr>
+          <tr><td><code>server/routes/autospin.ts</code></td><td><code>/api/autospin/*</code></td><td>AutoSpin session、agent、template、reconcile、history。</td></tr>
+          <tr><td><code>server/routes/gameshow.ts</code></td><td><code>/api/gs/*</code></td><td>Game Show PDF TestCase、圖片比對、統計、log checker。</td></tr>
+          <tr><td><code>server/routes/osm-uat.ts</code></td><td><code>/api/osm-uat/*</code></td><td>OSM UAT scan/run/stop/stream。</td></tr>
+          <tr><td><code>server/routes/gemini.ts</code></td><td><code>/api/gemini/*</code>、<code>/api/models/*</code>、<code>/api/openai/*</code>、<code>/api/history</code></td><td>AI key、模型、Prompt、history。</td></tr>
+        </tbody>
+      </table>
+      <a class="back" href="#top">回頂部</a>
+    </div>
+  </section>
+
+  <section id="env">
+    <div class="section-head">
+      <h2>環境變數與外部服務</h2>
+      <p>實際值在 <code>.env</code>，不要提交到 git。以下列出用途分類。</p>
+    </div>
+    <div class="body">
+      <h3>核心</h3>
+      <table>
+        <thead><tr><th>變數</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>PORT</code></td><td>Express server port，預設 <code>3000</code>。</td></tr>
+          <tr><td><code>ADMIN_PIN</code></td><td>管理功能驗證，例如帳號權限或敏感設定。</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Jira</h3>
+      <table>
+        <thead><tr><th>變數</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>JIRA_BASE_URL</code> / <code>VITE_JIRA_BASE_URL</code></td><td>Jira 網址，用於 API 與前端 browse link。</td></tr>
+          <tr><td><code>JIRA_PROJECT_ID</code></td><td>預設 Jira Project。</td></tr>
+          <tr><td><code>JIRA_ISSUE_TYPE_ID</code></td><td>預設 Issue Type。</td></tr>
+          <tr><td><code>JIRA_TRANSITION_ID</code></td><td>批次轉狀態使用。</td></tr>
+          <tr><td><code>JIRA_VERIFIER_FIELD_ID</code>、<code>JIRA_DIFFICULTY_FIELD_ID</code></td><td>客製欄位 mapping。</td></tr>
+          <tr><td><code>TEAM_ACCOUNT_IDS</code></td><td>團隊成員 accountId 對照。</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Lark / Google / Gmail</h3>
+      <table>
+        <thead><tr><th>變數</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>LARK_APP_ID</code>、<code>LARK_APP_SECRET</code>、<code>LARK_BASE_URL</code></td><td>Lark API 認證與 base URL。</td></tr>
+          <tr><td><code>LARK_WEBHOOK_URL</code></td><td>Lark alert webhook。</td></tr>
+          <tr><td><code>LARK_TESTCASE_FOLDER_TOKEN</code></td><td>TestCase Bitable/資料夾位置。</td></tr>
+          <tr><td><code>LARK_OSM_APP_TOKEN</code>、<code>LARK_OSM_TABLE_ID</code></td><td>OSM 版本同步表。</td></tr>
+          <tr><td><code>GOOGLE_API_KEY</code>、<code>GOOGLE_SERVICE_ACCOUNT_EMAIL</code>、<code>GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY</code></td><td>Google Sheet 讀寫。</td></tr>
+          <tr><td><code>GMAIL_CLIENT_ID</code>、<code>GMAIL_CLIENT_SECRET</code>、<code>GMAIL_REFRESH_TOKEN</code>、<code>GMAIL_QUERY</code></td><td>讀取 ImageRecon 或指定 Gmail 報表。</td></tr>
+        </tbody>
+      </table>
+
+      <h3>OSM / LuckyLink / Toppath</h3>
+      <table>
+        <thead><tr><th>變數</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>OSM_BASE_URL</code></td><td>OSM backend API。</td></tr>
+          <tr><td><code>OSM_CHANNELS</code></td><td>Channel 清單，例如 <code>CP,WF,TBR,TBP,MDR</code>。</td></tr>
+          <tr><td><code>OSM_CHANNEL_{NAME}_ID</code>、<code>USERNAME</code>、<code>PASSWORD</code>、<code>ORIGIN</code></td><td>各 channel 認證與來源設定。</td></tr>
+          <tr><td><code>LUCKYLINK_BASE_URL</code>、<code>LUCKYLINK_USERNAME</code>、<code>LUCKYLINK_PASSWORD</code>、<code>LUCKYLINK_ORIGIN</code></td><td>LuckyLink 版本查詢。</td></tr>
+        </tbody>
+      </table>
+
+      <h3>AI / AutoSpin / Discord</h3>
+      <table>
+        <thead><tr><th>變數</th><th>用途</th></tr></thead>
+        <tbody>
+          <tr><td><code>GEMINI_API_KEY</code>、<code>GEMINI_MODEL</code></td><td>Gemini 呼叫與預設模型。</td></tr>
+          <tr><td><code>OPENAI_API_KEY</code></td><td>OpenAI 模型呼叫。</td></tr>
+          <tr><td><code>OLLAMA_BASE_URL</code>、<code>OLLAMA_MODEL</code></td><td>區網或本機 Ollama 模型。</td></tr>
+          <tr><td><code>AUTOSPIN_PYTHON</code></td><td>AutoSpin 使用的 Python 路徑。</td></tr>
+          <tr><td><code>DISCORD_BOT_TOKEN</code>、<code>DISCORD_GUILD_ID</code>、<code>DISCORD_CURSOR_CHANNEL_ID</code>、<code>DISCORD_ALLOWED_USER_IDS</code></td><td>Discord Bot 通知與指令權限。</td></tr>
+        </tbody>
+      </table>
+      <a class="back" href="#top">回頂部</a>
+    </div>
+  </section>
+</main>
+
+<footer>
+  Toppath Tools 使用指南與系統串接文檔。更新日期：2026-04-30。
+</footer>
 </body>
 </html>

@@ -1,0 +1,155 @@
+{
+  "target": "asset",
+  "mode": "custom",
+  "prompt": "Gemini overloaded: chaotic blue-purple wizard with smoke, flying papers, panic loop, 4 horizontal frames.",
+  "role": "",
+  "input": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-gemini-overloaded\\raw-sheet.png",
+  "threshold": 100,
+  "edge_threshold": 150,
+  "duration": 100,
+  "rows": 1,
+  "cols": 4,
+  "cell_size": 96,
+  "fit_scale": 0.88,
+  "trim_border": 4,
+  "edge_clean_depth": 3,
+  "align": "center",
+  "shared_scale": true,
+  "component_mode": "all",
+  "component_padding": 0,
+  "min_component_area": 1,
+  "edge_touch_margin": 0,
+  "frame_labels": [
+    "worker-gemini-overloaded-1",
+    "worker-gemini-overloaded-2",
+    "worker-gemini-overloaded-3",
+    "worker-gemini-overloaded-4"
+  ],
+  "frames": [
+    {
+      "grid": [
+        0,
+        0
+      ],
+      "source_box": [
+        0,
+        0,
+        510,
+        770
+      ],
+      "component_mode": "all",
+      "component_count": 14,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        85,
+        86,
+        494,
+        659
+      ],
+      "edge_touch": false,
+      "output_size": [
+        60,
+        84
+      ],
+      "paste_position": [
+        18,
+        6
+      ]
+    },
+    {
+      "grid": [
+        0,
+        1
+      ],
+      "source_box": [
+        510,
+        0,
+        1020,
+        770
+      ],
+      "component_mode": "all",
+      "component_count": 26,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        68,
+        104,
+        477,
+        657
+      ],
+      "edge_touch": false,
+      "output_size": [
+        60,
+        81
+      ],
+      "paste_position": [
+        18,
+        7
+      ]
+    },
+    {
+      "grid": [
+        0,
+        2
+      ],
+      "source_box": [
+        1020,
+        0,
+        1530,
+        770
+      ],
+      "component_mode": "all",
+      "component_count": 37,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        19,
+        117,
+        453,
+        659
+      ],
+      "edge_touch": false,
+      "output_size": [
+        63,
+        79
+      ],
+      "paste_position": [
+        16,
+        8
+      ]
+    },
+    {
+      "grid": [
+        0,
+        3
+      ],
+      "source_box": [
+        1530,
+        0,
+        2040,
+        770
+      ],
+      "component_mode": "all",
+      "component_count": 16,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        19,
+        86,
+        433,
+        659
+      ],
+      "edge_touch": false,
+      "output_size": [
+        61,
+        84
+      ],
+      "paste_position": [
+        17,
+        6
+      ]
+    }
+  ],
+  "edge_touch_frames": []
+}

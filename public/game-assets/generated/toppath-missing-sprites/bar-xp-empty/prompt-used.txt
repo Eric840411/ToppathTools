@@ -1,0 +1,1 @@
+XP empty bar, 200x12 transparent pixel-art empty progress bar, based on game-design.md.

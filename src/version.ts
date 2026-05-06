@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.11.6'
+export const APP_VERSION = '3.16.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,143 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.16.0',
+    date: '2026-05-06',
+    changes: [
+      'feat(gameshow): 圖片比對工具重寫 — 使用 GitHub app.js 原始碼，monkey-patch shim 對接 /api/gs/img-compare/* 端點',
+      'feat(gameshow): 新增 SSE 串流擷取端點 POST /api/gs/img-compare/capture，即時推送 progress/done 事件',
+      'feat(gameshow): GET /api/gs/img-compare/session 建立新 session，取代舊 POST 端點',
+      'style(gameshow): 圖片比對 HTML 改為白底 app 風格（indigo 按鈕、border #e2e8f0 card）',
+      'feat(ui): 圖片比對和 Bonus V2 頁面改為 iframe 全頁呈現，不套 main-content padding',
+    ],
+  },
+  {
+    version: '3.15.0',
+    date: '2026-05-06',
+    changes: [
+      'feat(gameshow): 新增 Bonus V2 機率統計頁面 — Playwright WS 攔截，統計 m2/m3/任意 double/triple 骰型機率，Side Pool 觸發率，Detail 明細下載',
+      'feat(gameshow): bonus-v2-app.js 保持原始代碼不變，monkey-patch shim 重定向 fetch/EventSource 路徑至 /api/gs/bonus-v2/*',
+    ],
+  },
+  {
+    version: '3.14.2',
+    date: '2026-05-06',
+    changes: [
+      'fix(log-compare): 檔案上傳 grid 和外層欄位 grid 加上 compare-grid class，修正 app.js 啟動時 enableOuter.closest 找不到元素導致 TypeError crash，開始比對按鈕無法使用',
+    ],
+  },
+  {
+    version: '3.14.1',
+    date: '2026-05-06',
+    changes: [
+      'fix(server): 完整 graceful shutdown — 關閉 WS clients、cron、Discord bot、active runners 再 exit，確保 port 3000 釋放',
+      'fix(server): 移除 killPortSync，改由 dev:server script 在啟動前執行 dev:stop 一次性清 port',
+      'fix(server): shutdown log 每步驟明確打印，方便診斷 tsx restart 卡住位置',
+    ],
+  },
+  {
+    version: '3.14.0',
+    date: '2026-05-06',
+    changes: [
+      'feat(gameshow): Log 結構比對頁面重新設計，與 App 風格一致（白底 card、indigo 按鈕、統一 input 樣式）',
+      'chore: app.js 同步原始 repo 最新版（773 行，零修改），改以獨立 /api/gs/log-compare-app.js 端點提供',
+    ],
+  },
+  {
+    version: '3.13.9',
+    date: '2026-05-06',
+    changes: [
+      'feat(gameshow): Log Checker 前端全新設計 — Hero 功能標籤、步驟說明、複製＋下載按鈕、可折疊腳本預覽',
+      'chore: intercept.js 同步原始 repo 最新版（646 行，零修改）',
+    ],
+  },
+  {
+    version: '3.13.8',
+    date: '2026-05-06',
+    changes: [
+      'remove(gameshow): 移除 Game Show PDF TestCase 生成工具（含導覽入口）',
+    ],
+  },
+  {
+    version: '3.13.7',
+    date: '2026-05-05',
+    changes: [
+      'feat(testcase): Second Pass 支援規格書來源（AI 依規格書判斷缺漏欄位）+ 待補填案例（JSON/Lark/CSV/XLSX）',
+      'feat(testcase): Second Pass 支援 FormData 路徑（規格書為 PDF 時）',
+    ],
+  },
+  {
+    version: '3.13.6',
+    date: '2026-05-05',
+    changes: [
+      'feat(testcase): AI 補填（Second Pass）從 checkbox 獨立為操作類型 tab，可單獨使用',
+      'feat(testcase): Second Pass 模式支援規格書來源 + 待補填案例（JSON/Lark/CSV/XLSX）',
+      'feat(testcase): 流程說明動態顯示 Second Pass 步驟說明',
+    ],
+  },
+  {
+    version: '3.13.5',
+    date: '2026-05-05',
+    changes: [
+      'feat(testcase): AI 補填 Second Pass — 生成後自動偵測空白欄位，發第二次 Gemini 請求補完',
+      'feat(testcase): 新增 testcase-second-pass Prompt（DB 自動更新）',
+    ],
+  },
+  {
+    version: '3.13.4',
+    date: '2026-05-05',
+    changes: [
+      'fix(testcase): Diff 模式新規格書為 PDF 時，舊版規格書未傳送的 bug（FormData 路徑補傳 oldSources）',
+      'fix(testcase): generate-testcases-file 端點支援 oldSources / existingCasesSource（Diff/Baseline 模式）',
+      'fix(testcase): 全域上傳 PDF 上限從 20 MB 調整為 30 MB',
+    ],
+  },
+  {
+    version: '3.13.3',
+    date: '2026-05-05',
+    changes: [
+      'feat(testcase): 基線驗證來源支援 JSON paste / Lark Bitable URL / CSV paste / XLSX 上傳',
+      'feat(testcase): 安裝 xlsx (SheetJS)，後端解析 XLSX base64 轉 JSON；Lark Bitable 自動分頁讀取',
+    ],
+  },
+  {
+    version: '3.13.2',
+    date: '2026-05-05',
+    changes: [
+      'fix(testcase): 差異比對 / 基線驗證 Prompt 改用 {{version_tag}} 模板變數，後端自動注入今日日期（格式 YYYYMMDD_v1）',
+    ],
+  },
+  {
+    version: '3.13.1',
+    date: '2026-05-04',
+    changes: [
+      'fix(testcase): 更新差異比對 / 基線驗證 Prompt，輸出欄位新增 編號、規格來源、版本標籤',
+      'fix(testcase): seedTestcasePrompts 改用 INSERT OR REPLACE，確保 DB 中舊版 Prompt 自動更新',
+    ],
+  },
+  {
+    version: '3.13.0',
+    date: '2026-05-01',
+    changes: [
+      'feat(game): RPG 職業系統 — 5 職業（指揮官 / 駭客 / 守護者 / 遊俠 / 賢者）',
+      'feat(game): 職業技能 — 每職業 3 個主動技能，含 XP 倍率 / 即時 XP / CD 縮短效果',
+      'feat(game): 升級獎勵屬性點（statPoints），可手動分配 ATK / DEF / INT / SPD',
+      'feat(game): 職業立繪動畫 — CSS sprite sheet steps() 動畫（Idle/Attack/Hit/Victory）',
+      'feat(game): ClassSelectModal — 一次性職業選擇介面（5 張職業卡 + 屬性預覽）',
+      'feat(game): SkillBar — 技能欄顯示冷卻計時、解鎖等級、技能效果',
+      'feat(game): AWAKENED 成就 — 首次選擇職業觸發',
+    ],
+  },
+  {
+    version: '3.12.0',
+    date: '2026-04-30',
+    changes: [
+      'feat(machine-test): 每機種音頻閾值設定（peakWarnDb / centroidWarnHz / rmsMinDb / rmsMaxDb）',
+      'feat(machine-test): 音頻參考檔上傳 — 上傳 WAV 後取代現場第一次 Spin 錄音，直接以參考檔做閾值比對',
+      'feat(machine-test): 新增 /api/machine-test/audio-refs GET/POST/DELETE 端點',
+    ],
+  },
   {
     version: '3.11.6',
     date: '2026-04-30',

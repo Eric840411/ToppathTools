@@ -1,0 +1,1 @@
+﻿Sage attack regenerated without long beam, 3 frames, prompt based on game-design.md.

@@ -1,0 +1,128 @@
+{
+  "target": "asset",
+  "mode": "custom",
+  "prompt": "Ollama busy: cloak flapping, runes flashing, laptop overheating glow, concerned, 3 horizontal frames.",
+  "role": "",
+  "input": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-ollama-busy\\raw-sheet.png",
+  "threshold": 100,
+  "edge_threshold": 150,
+  "duration": 120,
+  "rows": 1,
+  "cols": 3,
+  "cell_size": 96,
+  "fit_scale": 0.88,
+  "trim_border": 4,
+  "edge_clean_depth": 3,
+  "align": "center",
+  "shared_scale": true,
+  "component_mode": "all",
+  "component_padding": 0,
+  "min_component_area": 1,
+  "edge_touch_margin": 0,
+  "frame_labels": [
+    "worker-ollama-busy-1",
+    "worker-ollama-busy-2",
+    "worker-ollama-busy-3"
+  ],
+  "frames": [
+    {
+      "grid": [
+        0,
+        0
+      ],
+      "source_box": [
+        0,
+        0,
+        572,
+        916
+      ],
+      "component_mode": "all",
+      "component_count": 33,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        50,
+        161,
+        564,
+        768
+      ],
+      "edge_touch": false,
+      "output_size": [
+        71,
+        84
+      ],
+      "paste_position": [
+        12,
+        6
+      ]
+    },
+    {
+      "grid": [
+        0,
+        1
+      ],
+      "source_box": [
+        572,
+        0,
+        1144,
+        916
+      ],
+      "component_mode": "all",
+      "component_count": 27,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        21,
+        161,
+        536,
+        768
+      ],
+      "edge_touch": false,
+      "output_size": [
+        71,
+        84
+      ],
+      "paste_position": [
+        12,
+        6
+      ]
+    },
+    {
+      "grid": [
+        0,
+        2
+      ],
+      "source_box": [
+        1144,
+        0,
+        1716,
+        916
+      ],
+      "component_mode": "all",
+      "component_count": 33,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        0,
+        221,
+        503,
+        768
+      ],
+      "edge_touch": true,
+      "output_size": [
+        70,
+        76
+      ],
+      "paste_position": [
+        13,
+        10
+      ]
+    }
+  ],
+  "edge_touch_frames": [
+    [
+      0,
+      2
+    ]
+  ]
+}

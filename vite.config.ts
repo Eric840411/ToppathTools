@@ -9,6 +9,24 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // SSE endpoints — must be listed before the generic /api rule
+      '/api/gs/img-compare/capture': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            proxyReq.setHeader('Accept-Encoding', 'identity')
+          })
+        },
+      },
+      '/api/gs/bonus-v2/events': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            proxyReq.setHeader('Accept-Encoding', 'identity')
+          })
+        },
+      },
       '/api/jira/batch-comment/stream': {
         target: 'http://localhost:3000',
         changeOrigin: true,

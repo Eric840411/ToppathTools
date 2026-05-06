@@ -1,9 +1,12 @@
 import { APP_VERSION, CHANGELOG } from '../version'
 import Portal from './Portal'
+import { DungeonIcon } from './DungeonIcon'
+import { useIsGameMode } from './GameModeContext'
 
 interface Props { onClose: () => void }
 
 export default function ChangelogModal({ onClose }: Props) {
+  const isGame = useIsGameMode()
   return (
     <Portal>
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -13,7 +16,9 @@ export default function ChangelogModal({ onClose }: Props) {
             <h2 style={{ margin: 0 }}>📋 更新日誌</h2>
             <span style={{ fontSize: 12, color: '#9ca3af' }}>Workflow Integrator</span>
           </div>
-          <button className="modal-close" onClick={onClose}>✕</button>
+          <button className={`modal-close${isGame ? ' dng-modal-close' : ''}`} onClick={onClose}>
+            {isGame ? <DungeonIcon name="close" tone="slate" /> : '✕'}
+          </button>
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 20 }}>

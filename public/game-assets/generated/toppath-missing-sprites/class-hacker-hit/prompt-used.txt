@@ -1,0 +1,1 @@
+﻿Hacker hit, 2 frames, 128x96 target, prompt based on game-design.md.

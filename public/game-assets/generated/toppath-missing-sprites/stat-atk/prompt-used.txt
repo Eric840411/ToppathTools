@@ -1,0 +1,1 @@
+﻿Stat ATK icon, 1 frame, 16x16 target, based on game-design.md.

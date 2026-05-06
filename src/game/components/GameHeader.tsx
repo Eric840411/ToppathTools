@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react'
+import { DungeonIcon } from '../../components/DungeonIcon'
 import type { AccountInfo } from '../../components/JiraAccountModal'
+import { useAvatar } from '../hooks/useAvatar'
+import { AvatarPickerModal } from './AvatarPickerModal'
 
 interface Props {
   account: AccountInfo | null
@@ -12,6 +15,8 @@ interface Props {
 export function GameHeader({ account, onAccountClick, onSettingsClick, onChangelogClick, version }: Props) {
   const [time, setTime] = useState(new Date())
   const [agentCount, setAgentCount] = useState(0)
+  const [showAvatarPicker, setShowAvatarPicker] = useState(false)
+  const { avatarSrc } = useAvatar()
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000)
@@ -47,6 +52,7 @@ export function GameHeader({ account, onAccountClick, onSettingsClick, onChangel
       position: 'relative',
       zIndex: 100,
     }}>
+
       {/* Top glow line */}
       <div style={{
         position: 'absolute', top: 0, left: 0, right: 0, height: 1,
@@ -121,55 +127,75 @@ export function GameHeader({ account, onAccountClick, onSettingsClick, onChangel
         type="button"
         onClick={onSettingsClick}
         className="px-btn"
-        style={{ fontSize: 7, padding: '5px 10px', flexShrink: 0 }}
+        style={{ fontSize: 7, flexShrink: 0, minWidth: 96 }}
         title="AI 模型和 Prompt 設定"
       >
-        ⚙ CONFIG
+        <span className="px-btn__label"><span className="px-btn__icon"><DungeonIcon name="settings" tone="cyan" size="xs" plain /></span><span className="px-btn__text">CONFIG</span></span>
       </button>
 
       {/* Commander (account) */}
-      <button
-        type="button"
-        onClick={onAccountClick}
-        style={{
-          display: 'flex', alignItems: 'center', gap: 8,
-          background: account ? '#00d4ff12' : 'var(--bg-card)',
-          border: `2px solid ${account ? 'var(--neon-cyan)' : 'var(--border-mid)'}`,
-          padding: '5px 10px',
-          cursor: 'pointer',
-          flexShrink: 0,
-          boxShadow: account ? 'var(--glow-cyan)' : 'none',
-          transition: 'all var(--trans-fast)',
-        }}
-      >
-        <div style={{
-          width: 28, height: 28,
-          border: '1px solid var(--border-bright)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          overflow: 'hidden', flexShrink: 0,
-          background: 'var(--bg-void)',
-        }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 0, flexShrink: 0 }}>
+        {/* Avatar — click to open picker modal */}
+        <button
+          type="button"
+          title="更換頭像"
+          onClick={() => setShowAvatarPicker(true)}
+          style={{
+            width: 40, height: 40,
+            border: '1px solid var(--neon-purple)',
+            background: 'var(--bg-void)',
+            cursor: 'pointer',
+            padding: 2,
+            flexShrink: 0,
+            overflow: 'hidden',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 0 6px rgba(153,69,255,0.3)',
+            transition: 'box-shadow var(--trans-fast)',
+          }}
+        >
           {account ? (
             <img
-              src="/game-assets/icons/commander.png"
-              width={28} height={28}
-              style={{ imageRendering: 'pixelated', objectFit: 'cover' }}
-              onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
+              src={avatarSrc}
+              width={34} height={34}
+              style={{ imageRendering: 'pixelated', objectFit: 'cover', display: 'block' }}
+              onError={e => { (e.target as HTMLImageElement).src = '/game-assets/icons/avatar-presets/avatar-01-male-commander-light.png' }}
               alt=""
             />
           ) : (
-            <span style={{ fontSize: 14 }}>👤</span>
+            <DungeonIcon name="account" tone="cyan" plain />
           )}
-        </div>
-        <div style={{ textAlign: 'left' }}>
-          <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 7, color: account ? 'var(--neon-cyan)' : 'var(--text-dim)', letterSpacing: 0.5 }}>
-            {account ? 'COMMANDER' : 'NO LOGIN'}
+        </button>
+
+        {/* Account info button */}
+        <button
+          type="button"
+          onClick={onAccountClick}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            background: account ? '#00d4ff12' : 'var(--bg-card)',
+            border: `2px solid ${account ? 'var(--neon-cyan)' : 'var(--border-mid)'}`,
+            borderLeft: 'none',
+            padding: '5px 10px',
+            cursor: 'pointer',
+            height: 40,
+            boxShadow: account ? 'var(--glow-cyan)' : 'none',
+            transition: 'all var(--trans-fast)',
+          }}
+        >
+          <div style={{ textAlign: 'left' }}>
+            <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 7, color: account ? 'var(--neon-cyan)' : 'var(--text-dim)', letterSpacing: 0.5 }}>
+              {account ? 'COMMANDER' : 'NO LOGIN'}
+            </div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-bright)', marginTop: 1 }}>
+              {account ? account.label : '[ SELECT ]'}
+            </div>
           </div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-bright)', marginTop: 1 }}>
-            {account ? account.label : '[ SELECT ]'}
-          </div>
-        </div>
-      </button>
+        </button>
+      </div>
+
+      {/* Avatar picker modal */}
+      {showAvatarPicker && <AvatarPickerModal onClose={() => setShowAvatarPicker(false)} />}
+
     </header>
   )
 }

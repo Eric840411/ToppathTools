@@ -10,10 +10,9 @@ import { ImageCheckPage } from './pages/ImageCheckPage'
 import { UrlPoolPage } from './pages/UrlPoolPage'
 import { JackpotPage } from './pages/JackpotPage'
 import { OsmUatPage } from './pages/OsmUatPage'
-import { GsPdfTestCasePage } from './pages/gs/GsPdfTestCasePage'
 import { GsImgComparePage } from './pages/gs/GsImgComparePage'
-import { GsStatsPage } from './pages/gs/GsStatsPage'
 import { GsLogCheckerPage } from './pages/gs/GsLogCheckerPage'
+import { GsBonusV2Page } from './pages/gs/GsBonusV2Page'
 import ChangelogModal from './components/ChangelogModal'
 import GeminiSettingsModal from './components/GeminiSettingsModal'
 import AiAgentMonitorWidget from './components/AiAgentMonitorWidget'
@@ -22,7 +21,7 @@ import { APP_VERSION } from './version'
 import './App.css'
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
-  | 'gs-pdf' | 'gs-imgcompare' | 'gs-stats' | 'gs-logchecker' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
+  | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
 type GroupId = 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'history'
 
 type SubTab = {
@@ -131,13 +130,6 @@ const groups: Group[] = [
     iconClass: 'tab-icon--colorgame',
     subtabs: [
       {
-        id: 'gs-pdf',
-        label: 'PDF TestCase 生成',
-        icon: 'T',
-        iconClass: 'tab-icon--lark',
-        description: '上傳 PDF / Word 規格書，AI 自動生成 TestCase，支援差異比對與 CSV 匯出',
-      },
-      {
         id: 'gs-imgcompare',
         label: '圖片比對',
         icon: 'C',
@@ -145,18 +137,18 @@ const groups: Group[] = [
         description: '輸入兩個遊戲 URL，自動攔截所有載入圖片，進行視覺 Diff 與資源大小比對',
       },
       {
-        id: 'gs-stats',
-        label: '500x 機率統計',
-        icon: 'S',
-        iconClass: 'tab-icon--osm',
-        description: '即時攔截 Bonus V2 遊戲 WebSocket，統計各骰型機率並與理論值比對',
-      },
-      {
         id: 'gs-logchecker',
         label: 'Log 攔截工具',
         icon: 'L',
         iconClass: 'tab-icon--history',
         description: '注入腳本攔截前端 /api/log 請求，驗證欄位完整性並匯出 CSV',
+      },
+      {
+        id: 'gs-bonusv2',
+        label: 'Bonus V2 統計',
+        icon: 'B',
+        iconClass: 'tab-icon--colorgame',
+        description: '攔截 Bonus V2 遊戲 WebSocket，統計各骰型機率並與理論值比對',
       },
     ],
   },
@@ -295,23 +287,27 @@ function App() {
 
       <div className="tab-desc">{currentDescription}</div>
 
-      <main className="main-content">
-        {activeGroup === 'jira' && <JiraPage />}
-        {activeGroup === 'lark' && <LarkPage />}
-        {activeGroup === 'osm-tools' && activeTab === 'osm' && <OsmPage />}
-        {activeGroup === 'osm-tools' && activeTab === 'machinetest' && <MachineTestPage account={globalAccount} />}
-        {activeGroup === 'osm-tools' && activeTab === 'imagecheck' && <ImageCheckPage />}
-        {activeGroup === 'osm-tools' && activeTab === 'osm-config' && <OsmConfigComparePage />}
-        {activeGroup === 'osm-tools' && activeTab === 'autospin' && <AutoSpinPage />}
-        {activeGroup === 'osm-tools' && activeTab === 'url-pool' && <UrlPoolPage currentAccount={globalAccount} />}
-        {activeGroup === 'osm-tools' && activeTab === 'jackpot' && <JackpotPage />}
-        {activeGroup === 'osm-tools' && activeTab === 'osm-uat' && <OsmUatPage />}
-        {activeGroup === 'history' && <HistoryPage />}
-        {activeGroup === 'color-game' && activeTab === 'gs-pdf' && <GsPdfTestCasePage />}
-        {activeGroup === 'color-game' && activeTab === 'gs-imgcompare' && <GsImgComparePage />}
-        {activeGroup === 'color-game' && activeTab === 'gs-stats' && <GsStatsPage />}
-        {activeGroup === 'color-game' && activeTab === 'gs-logchecker' && <GsLogCheckerPage />}
-      </main>
+      {(activeGroup === 'color-game' && (activeTab === 'gs-bonusv2' || activeTab === 'gs-imgcompare')) ? (
+        <>
+          {activeTab === 'gs-bonusv2' && <GsBonusV2Page />}
+          {activeTab === 'gs-imgcompare' && <GsImgComparePage />}
+        </>
+      ) : (
+        <main className="main-content">
+          {activeGroup === 'jira' && <JiraPage />}
+          {activeGroup === 'lark' && <LarkPage />}
+          {activeGroup === 'osm-tools' && activeTab === 'osm' && <OsmPage />}
+          {activeGroup === 'osm-tools' && activeTab === 'machinetest' && <MachineTestPage account={globalAccount} />}
+          {activeGroup === 'osm-tools' && activeTab === 'imagecheck' && <ImageCheckPage />}
+          {activeGroup === 'osm-tools' && activeTab === 'osm-config' && <OsmConfigComparePage />}
+          {activeGroup === 'osm-tools' && activeTab === 'autospin' && <AutoSpinPage />}
+          {activeGroup === 'osm-tools' && activeTab === 'url-pool' && <UrlPoolPage currentAccount={globalAccount} />}
+          {activeGroup === 'osm-tools' && activeTab === 'jackpot' && <JackpotPage />}
+          {activeGroup === 'osm-tools' && activeTab === 'osm-uat' && <OsmUatPage />}
+          {activeGroup === 'history' && <HistoryPage />}
+          {activeGroup === 'color-game' && activeTab === 'gs-logchecker' && <GsLogCheckerPage />}
+        </main>
+      )}
 
       {showChangelog && <ChangelogModal onClose={() => setShowChangelog(false)} />}
       {showGemini && <GeminiSettingsModal onClose={() => setShowGemini(false)} />}

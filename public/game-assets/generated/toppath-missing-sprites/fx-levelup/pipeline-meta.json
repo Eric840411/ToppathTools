@@ -1,0 +1,75 @@
+{
+  "name": "fx-levelup",
+  "rows": 1,
+  "cols": 4,
+  "cell_width": 80,
+  "cell_height": 80,
+  "sheet_size": [
+    320,
+    80
+  ],
+  "duration_ms": 100,
+  "source": "C:\\Users\\user\\.codex\\generated_images\\019de871-6dec-7b62-addf-596aef6e83e3\\ig_07a4345c6dbdf94c0169f61e8f7ab08191a02df215dbfb5379.png",
+  "qc": [
+    {
+      "frame": 1,
+      "source_box": [
+        0,
+        0,
+        496,
+        793
+      ],
+      "alpha_bbox": [
+        4,
+        1,
+        76,
+        78
+      ]
+    },
+    {
+      "frame": 2,
+      "source_box": [
+        496,
+        0,
+        992,
+        793
+      ],
+      "alpha_bbox": [
+        12,
+        1,
+        67,
+        78
+      ]
+    },
+    {
+      "frame": 3,
+      "source_box": [
+        992,
+        0,
+        1487,
+        793
+      ],
+      "alpha_bbox": [
+        12,
+        1,
+        67,
+        78
+      ]
+    },
+    {
+      "frame": 4,
+      "source_box": [
+        1487,
+        0,
+        1983,
+        793
+      ],
+      "alpha_bbox": [
+        19,
+        1,
+        61,
+        78
+      ]
+    }
+  ]
+}
