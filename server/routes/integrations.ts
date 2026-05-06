@@ -830,23 +830,49 @@ async function fetchExistingCasesFromSource(src: ExistingCasesSource): Promise<s
 // ─── Field Normalizer ─────────────────────────────────────────────────────────
 
 /**
- * Gemini occasionally outputs wrong or decorated field names, e.g.
- *   "前進條件" instead of "前置條件"
- *   "預形成結果" instead of "預期結果"
- *   "優先級(P0/P1/P2)" instead of "優先級"
- *   "編號(格式TC-001)" instead of "編號"
- * This map covers all known variants → canonical key.
+ * Canonical TestCase field names. Any key produced by Gemini that can't be
+ * matched exactly will be fuzzy-matched against this list so hallucinated
+ * variants (e.g. "前進條件", "預形成結果", "優先級(P0/P1/P2)") still land on
+ * the right column.
  */
-const TC_FIELD_ALIASES: Record<string, keyof TestCase> = {
-  // 前置條件 variants
-  '前進條件': '前置條件',
-  '前置條件': '前置條件',
-  // 預期結果 variants
-  '預形成結果': '預期結果',
-  '預期結果': '預期結果',
-  // decorated keys that include the format hint
-  '優先級(P0/P1/P2)': '優先級',
-  '編號(格式TC-001)': '編號',
+const TC_CANONICAL_FIELDS: Array<keyof TestCase> = [
+  '測試模組', '測試維度', '測試標題', '前置條件', '操作步驟', '預期結果',
+  '優先級', '編號', '規格來源', '版本標籤', '來源', 'status', 'replacedBy',
+]
+
+/**
+ * Fuzzy-match a raw key against the canonical field list.
+ * Strategy (in priority order):
+ *  1. Exact match
+ *  2. Strip full-width / half-width parenthetical decorations, then exact match
+ *  3. Canonical is a substring of the key (e.g. "前置條件(必填)" contains "前置條件")
+ *  4. Character overlap score ≥ 0.6 — picks the closest canonical name
+ * Returns undefined if no reasonable match found (key is kept as-is).
+ */
+function fuzzyMatchTCField(key: string): keyof TestCase | undefined {
+  // 1. Exact
+  if ((TC_CANONICAL_FIELDS as string[]).includes(key)) return key as keyof TestCase
+
+  // 2. Strip parentheticals: 優先級(P0/P1/P2) → 優先級, 前置條件（必填）→ 前置條件
+  const stripped = key.replace(/[(（][^)）]*[)）]/g, '').trim()
+  if ((TC_CANONICAL_FIELDS as string[]).includes(stripped)) return stripped as keyof TestCase
+
+  // 3. Canonical is substring of the (possibly decorated) key
+  for (const c of TC_CANONICAL_FIELDS) {
+    if (key.includes(c)) return c
+  }
+
+  // 4. Character overlap score — handles typos like "前進條件" vs "前置條件"
+  let bestScore = 0
+  let bestMatch: keyof TestCase | undefined
+  for (const c of TC_CANONICAL_FIELDS) {
+    const keyChars = new Set([...key])
+    const overlap = [...c].filter(ch => keyChars.has(ch)).length
+    const score = overlap / Math.max(c.length, key.length)
+    if (score > bestScore) { bestScore = score; bestMatch = c }
+  }
+  // Only accept if score is high enough to avoid false positives
+  return bestScore >= 0.6 ? bestMatch : undefined
 }
 
 function normalizeTestCaseFields(raw: unknown[]): TestCase[] {
@@ -854,10 +880,8 @@ function normalizeTestCaseFields(raw: unknown[]): TestCase[] {
     if (!item || typeof item !== 'object') return item as TestCase
     const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(item as Record<string, unknown>)) {
-      const canonical = TC_FIELD_ALIASES[k]
-      // Use canonical key if mapped; prefer first occurrence (don't overwrite)
-      const dest = canonical ?? k
-      if (!(dest in out)) out[dest] = v
+      const dest = fuzzyMatchTCField(k) ?? k
+      if (!(dest in out)) out[dest] = v   // first occurrence wins
     }
     return out as unknown as TestCase
   })
