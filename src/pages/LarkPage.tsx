@@ -122,6 +122,7 @@ export function LarkPage() {
   const [baselineXlsxB64, setBaselineXlsxB64] = useState('')
 
   // Jira 整合（可選）
+  const [enableSecondPass, setEnableSecondPass] = useState(false)
   const [useJira, setUseJira] = useState(false)
   const [jiraAccounts, setJiraAccounts] = useState<{ email: string; label: string }[]>([])
   const [jiraEmail, setJiraEmail] = useState('')
@@ -331,6 +332,7 @@ export function LarkPage() {
             ...(baselineType !== 'lark' ? { content: baselineType === 'xlsx' ? baselineXlsxB64 : baselineContent } : {}),
           }))
         }
+        form.append('secondPass', String(enableSecondPass))
         const resp = await fetch('/api/integrations/generate-testcases-file', { method: 'POST', body: form })
         const data = await resp.json() as GenerateResult
         setResult(data)
@@ -361,6 +363,7 @@ export function LarkPage() {
           jiraKeys: useJira ? jiraKeysInput.split(/[,\s\n]+/).map(k => k.trim()).filter(Boolean) : [],
           jiraEmail: useJira ? jiraEmail : undefined,
           modelSpec: selectedModel,
+          secondPass: enableSecondPass,
         }),
       })
       const submitData = await resp.json() as { ok: boolean; requestId?: string; message?: string }
@@ -899,6 +902,11 @@ export function LarkPage() {
 
           {action === 'generate' && (
             <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 16px', marginBottom: 4 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none', marginBottom: 10 }}>
+                <input type="checkbox" checked={enableSecondPass} onChange={e => setEnableSecondPass(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+                <span style={{ fontWeight: 600, fontSize: 14 }}>AI 補填空白欄位（Second Pass）</span>
+                <span style={{ fontSize: 12, color: '#9ca3af' }}>生成後自動對空白必填欄位補填，略增加 AI 呼叫時間</span>
+              </label>
               <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
                 <input type="checkbox" checked={useJira} onChange={e => setUseJira(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
                 <span style={{ fontWeight: 600, fontSize: 14 }}>整合 Jira 單號（可選）</span>
