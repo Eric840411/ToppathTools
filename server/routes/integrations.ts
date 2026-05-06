@@ -827,6 +827,42 @@ async function fetchExistingCasesFromSource(src: ExistingCasesSource): Promise<s
   return JSON.stringify(allRecords).slice(0, 16000)
 }
 
+// ─── Field Normalizer ─────────────────────────────────────────────────────────
+
+/**
+ * Gemini occasionally outputs wrong or decorated field names, e.g.
+ *   "前進條件" instead of "前置條件"
+ *   "預形成結果" instead of "預期結果"
+ *   "優先級(P0/P1/P2)" instead of "優先級"
+ *   "編號(格式TC-001)" instead of "編號"
+ * This map covers all known variants → canonical key.
+ */
+const TC_FIELD_ALIASES: Record<string, keyof TestCase> = {
+  // 前置條件 variants
+  '前進條件': '前置條件',
+  '前置條件': '前置條件',
+  // 預期結果 variants
+  '預形成結果': '預期結果',
+  '預期結果': '預期結果',
+  // decorated keys that include the format hint
+  '優先級(P0/P1/P2)': '優先級',
+  '編號(格式TC-001)': '編號',
+}
+
+function normalizeTestCaseFields(raw: unknown[]): TestCase[] {
+  return raw.map((item) => {
+    if (!item || typeof item !== 'object') return item as TestCase
+    const out: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(item as Record<string, unknown>)) {
+      const canonical = TC_FIELD_ALIASES[k]
+      // Use canonical key if mapped; prefer first occurrence (don't overwrite)
+      const dest = canonical ?? k
+      if (!(dest in out)) out[dest] = v
+    }
+    return out as unknown as TestCase
+  })
+}
+
 // ─── Second Pass Helper ───────────────────────────────────────────────────────
 
 const SECOND_PASS_REQUIRED_FIELDS: (keyof TestCase)[] = [
@@ -1100,7 +1136,7 @@ router.post('/api/integrations/lark/generate-testcases', async (req, res) => {
         addHistory('testcase', `TestCase 生成 — ${srcLabel}`, `生成 ${count} 筆，寫入 ${written} 筆`, { sourceLabel, cases: jiraResult.test_cases, bitableUrl })
         finishJob(requestId, { ok: true, generated: count, written, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira' })
       } else {
-        let cases = result as TestCase[]
+        let cases = normalizeTestCaseFields(result as unknown[])
         if (body.secondPass) {
           try { cases = await runSecondPass(cases, finalContent, body.modelSpec) }
           catch (e) { log('warn', clientIp, user, 'Second Pass 失敗（略過）', e instanceof Error ? e.message : String(e)) }
@@ -1286,7 +1322,7 @@ router.post(
     const sourceLabel = fileNames.join(', ')
     log('info', getClientIP(req), getUser(req), 'TestCase 生成開始（檔案）', sourceLabel)
     const cases = await generateWithGemini(finalContent, promptId, undefined, modelSpec, Object.keys(extraVars).length ? extraVars : undefined)
-    let casesArr = Array.isArray(cases) ? cases as TestCase[] : (cases as JiraTestCaseResult).test_cases as unknown as TestCase[]
+    let casesArr = normalizeTestCaseFields(Array.isArray(cases) ? cases as unknown[] : (cases as JiraTestCaseResult).test_cases as unknown[])
     const secondPassEnabled = req.body.secondPass === 'true' || req.body.secondPass === true
     if (secondPassEnabled) {
       try { casesArr = await runSecondPass(casesArr, finalContent, modelSpec) }
