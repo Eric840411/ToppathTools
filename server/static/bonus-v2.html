@@ -81,6 +81,24 @@
     .btn-muted   { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
     .btn-muted:hover:not(:disabled)   { background: #e2e8f0; }
     .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+    .mode-tabs { display: inline-flex; gap: 4px; padding: 4px; margin-bottom: 14px; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 10px; }
+    .mode-tab { background: transparent; color: #475569; border: none; border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 700; cursor: pointer; }
+    .mode-tab.active { background: #fff; color: #4f46e5; box-shadow: 0 1px 2px #0f172a12; }
+    .mode-panel[hidden] { display: none !important; }
+    textarea.copy-box {
+      width: 100%;
+      min-height: 78px;
+      resize: vertical;
+      padding: 10px 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      font-family: "Cascadia Code", "Fira Code", monospace;
+      font-size: 12px;
+      color: #0f172a;
+      background: #f8fafc;
+    }
+    .help-text { margin: 8px 0 0; color: #64748b; font-size: 12px; line-height: 1.6; }
+    .client-session { font-family: "Cascadia Code", "Fira Code", monospace; font-size: 12px; color: #475569; }
 
     /* ── Status Bar ── */
     .status-bar {
@@ -95,6 +113,11 @@
       font-size: 13px;
     }
     #statusDot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: #94a3b8; flex-shrink: 0;
+      transition: background .3s;
+    }
+    #clientStatusDot {
       width: 10px; height: 10px; border-radius: 50%;
       background: #94a3b8; flex-shrink: 0;
       transition: background .3s;
@@ -168,6 +191,12 @@
 </head>
 <body>
 <div class="page-wrap">
+  <div class="mode-tabs" role="tablist" aria-label="Bonus V2 capture mode">
+    <button id="serverModeTab" class="mode-tab active" type="button" role="tab" aria-selected="true">伺服器模式</button>
+    <button id="clientModeTab" class="mode-tab" type="button" role="tab" aria-selected="false">使用者端模式</button>
+  </div>
+
+  <div id="serverModePanel" class="mode-panel">
 
   <!-- 控制區 -->
   <div class="card">
@@ -387,6 +416,56 @@
     </div>
   </div>
 
+  </div>
+
+  <div id="clientModePanel" class="mode-panel" hidden>
+    <div class="card">
+      <div class="card-title">1. 建立 Session <span class="badge badge-green">Client WS</span></div>
+      <div class="btn-row" style="margin-top:0;">
+        <button id="clientCreateBtn" class="btn btn-primary" type="button">建立 Session</button>
+        <span id="clientSessionLabel" class="client-session">尚未建立</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">2. 注入腳本</div>
+      <textarea id="clientScriptUrl" class="copy-box" readonly placeholder="建立 Session 後產生 script URL"></textarea>
+      <p class="help-text">瀏覽器 console 可貼上：<span id="clientConsoleSnippet" class="client-session">(await fetch(...).then(r=&gt;r.text()).then(eval))</span></p>
+      <div class="btn-row">
+        <button id="clientCopyUrlBtn" class="btn btn-muted" type="button" disabled>Copy URL</button>
+        <button id="clientCopyScriptBtn" class="btn btn-muted" type="button" disabled>Copy Script</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">3. Live Stats</div>
+      <div class="status-bar">
+        <div id="clientStatusDot"></div>
+        <span id="clientStatusCount">0 撅</span>
+        <span id="clientStatusMsg">尚未連線</span>
+        <button id="clientStopBtn" class="btn btn-danger" type="button" disabled>停止</button>
+      </div>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-card-head">Single 2??(m2) <span id="client-total-m2">0</span></div>
+          <table><thead><tr><th>顏色</th><th>次數</th></tr></thead><tbody id="client-tbody-m2"></tbody></table>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-head">Single 3??(m3) <span id="client-total-m3">0</span></div>
+          <table><thead><tr><th>顏色</th><th>次數</th></tr></thead><tbody id="client-tbody-m3"></tbody></table>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-head">AnyDouble (ad) <span id="client-total-ad">0</span></div>
+          <table><thead><tr><th>顏色</th><th>次數</th></tr></thead><tbody id="client-tbody-ad"></tbody></table>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-head">AnyTriple (at) <span id="client-total-at">0</span></div>
+          <table><thead><tr><th>顏色</th><th>次數</th></tr></thead><tbody id="client-tbody-at"></tbody></table>
+        </div>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <!-- API 路徑重導向 shim（不修改 app.js，僅攔截 fetch/EventSource 請求路徑） -->
@@ -409,5 +488,122 @@
 })();
 </script>
 <script src="/api/gs/bonus-v2-app.js"></script>
+<script>
+;(function () {
+  var sessionId = '';
+  var eventSource = null;
+  var clientStats = { single_m2: {}, single_m3: {}, any_double: {}, any_triple: {} };
+
+  function $(id) { return document.getElementById(id); }
+
+  function setMode(mode) {
+    var server = mode === 'server';
+    $('serverModePanel').hidden = !server;
+    $('clientModePanel').hidden = server;
+    $('serverModeTab').classList.toggle('active', server);
+    $('clientModeTab').classList.toggle('active', !server);
+    $('serverModeTab').setAttribute('aria-selected', String(server));
+    $('clientModeTab').setAttribute('aria-selected', String(!server));
+  }
+
+  function scriptPath() {
+    return '/api/gs/bonus-v2-client-script?session=' + encodeURIComponent(sessionId);
+  }
+
+  function updateScriptFields() {
+    if (!sessionId) return;
+    var path = scriptPath();
+    $('clientScriptUrl').value = '<script src="' + path + '"><\/script>';
+    $('clientConsoleSnippet').textContent = "(await fetch('" + path + "').then(r=>r.text()).then(eval))";
+    $('clientCopyUrlBtn').disabled = false;
+    $('clientCopyScriptBtn').disabled = false;
+    $('clientStopBtn').disabled = false;
+  }
+
+  function bucketTotal(bucket) {
+    return Object.values(bucket || {}).reduce(function (sum, value) { return sum + Number(value || 0); }, 0);
+  }
+
+  function renderBucket(key, bucket) {
+    var tbody = $('client-tbody-' + key);
+    var totalEl = $('client-total-' + key);
+    var rows = Object.entries(bucket || {}).sort(function (a, b) { return b[1] - a[1] || a[0].localeCompare(b[0]); });
+    totalEl.textContent = String(bucketTotal(bucket));
+    tbody.innerHTML = rows.length
+      ? rows.map(function (row) { return '<tr><td>' + row[0] + '</td><td>' + row[1] + '</td></tr>'; }).join('')
+      : '<tr><td colspan="2" style="color:#94a3b8;text-align:center;">-</td></tr>';
+  }
+
+  function renderStats(rounds, stats) {
+    clientStats = stats || clientStats;
+    $('clientStatusCount').textContent = String(rounds || 0) + ' rounds';
+    renderBucket('m2', clientStats.single_m2);
+    renderBucket('m3', clientStats.single_m3);
+    renderBucket('ad', clientStats.any_double);
+    renderBucket('at', clientStats.any_triple);
+  }
+
+  function setClientStatus(text, color) {
+    $('clientStatusMsg').textContent = text;
+    $('clientStatusDot').style.background = color || '#94a3b8';
+  }
+
+  function connectEvents() {
+    if (eventSource) eventSource.close();
+    eventSource = new EventSource('/api/gs/bonus-v2-client/events/' + encodeURIComponent(sessionId));
+    setClientStatus('SSE connecting', '#f59e0b');
+    eventSource.onmessage = function (event) {
+      var data = JSON.parse(event.data);
+      if (data.type === 'stats') {
+        setClientStatus('running', '#22c55e');
+        renderStats(data.rounds, data.bonusDistribution);
+      } else if (data.type === 'done') {
+        setClientStatus('stopped', '#4f46e5');
+        eventSource.close();
+      }
+    };
+    eventSource.onerror = function () {
+      setClientStatus('SSE disconnected', '#ef4444');
+    };
+  }
+
+  $('serverModeTab').addEventListener('click', function () { setMode('server'); });
+  $('clientModeTab').addEventListener('click', function () { setMode('client'); });
+
+  $('clientCreateBtn').addEventListener('click', async function () {
+    var res = await fetch('/api/gs/bonus-v2-client/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ label: 'bonus-v2-client' })
+    });
+    var json = await res.json();
+    if (!json.ok) { alert(json.message || 'Session create failed'); return; }
+    sessionId = json.sessionId;
+    $('clientSessionLabel').textContent = sessionId;
+    updateScriptFields();
+    connectEvents();
+  });
+
+  $('clientCopyUrlBtn').addEventListener('click', function () {
+    navigator.clipboard.writeText($('clientScriptUrl').value);
+  });
+
+  $('clientCopyScriptBtn').addEventListener('click', async function () {
+    if (!sessionId) return;
+    var text = await fetch(scriptPath()).then(function (r) { return r.text(); });
+    await navigator.clipboard.writeText(text);
+  });
+
+  $('clientStopBtn').addEventListener('click', async function () {
+    if (!sessionId) return;
+    $('clientStopBtn').disabled = true;
+    await fetch('/api/gs/bonus-v2-client/stop/' + encodeURIComponent(sessionId), { method: 'POST' });
+    setClientStatus('stopped', '#4f46e5');
+    if (eventSource) eventSource.close();
+  });
+
+  renderStats(0, clientStats);
+})();
+</script>
 </body>
 </html>
