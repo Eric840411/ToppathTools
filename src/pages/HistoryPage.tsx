@@ -10,7 +10,7 @@ interface HistoryRecord {
 }
 
 type DaysFilter = 1 | 3 | 7
-type FeatureFilter = 'all' | 'testcase' | 'machine-test' | 'jira' | 'jira-comment' | 'osm-sync' | 'osm-components' | 'luckylink-components' | 'toppath-components' | 'osm-alert' | 'imagerecon' | 'image-check' | 'gs-pdf-testcase' | 'gs-img-compare' | 'gs-stats' | 'osm-config-compare'
+type FeatureFilter = 'all' | 'testcase' | 'machine-test' | 'jira' | 'jira-comment' | 'osm-sync' | 'osm-components' | 'luckylink-components' | 'toppath-components' | 'osm-alert' | 'imagerecon' | 'image-check' | 'gs-pdf-testcase' | 'gs-img-compare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config-compare'
 
 const FEATURE_LABELS: Record<string, string> = {
   'testcase': 'TestCase 生成',
@@ -26,7 +26,8 @@ const FEATURE_LABELS: Record<string, string> = {
   'image-check': '圖片刪除驗證',
   'gs-pdf-testcase': 'GS PDF TestCase',
   'gs-img-compare': 'GS 圖片比對',
-  'gs-stats': 'GS 500x 統計',
+  'gs-logchecker': 'GS Log 攔截',
+  'gs-bonusv2': 'GS Bonus V2 統計',
   'osm-config-compare': 'Config 比對',
 }
 
@@ -44,7 +45,8 @@ const FEATURE_COLORS: Record<string, string> = {
   'image-check': '#9333ea',
   'gs-pdf-testcase': '#c026d3',
   'gs-img-compare': '#0369a1',
-  'gs-stats': '#b45309',
+  'gs-logchecker': '#475569',
+  'gs-bonusv2': '#b45309',
   'osm-config-compare': '#065f46',
 }
 
@@ -126,7 +128,7 @@ export function HistoryPage() {
 
         {/* Feature */}
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          {(['all', 'jira', 'jira-comment', 'testcase', 'machine-test', 'image-check', 'osm-sync', 'osm-components', 'luckylink-components', 'toppath-components', 'osm-alert', 'imagerecon', 'gs-pdf-testcase', 'gs-img-compare', 'gs-stats', 'osm-config-compare'] as FeatureFilter[]).map(f => (
+          {(['all', 'jira', 'jira-comment', 'testcase', 'machine-test', 'image-check', 'osm-sync', 'osm-components', 'luckylink-components', 'toppath-components', 'osm-alert', 'imagerecon', 'gs-pdf-testcase', 'gs-img-compare', 'gs-logchecker', 'gs-bonusv2', 'osm-config-compare'] as FeatureFilter[]).map(f => (
             <button
               key={f}
               onClick={() => setFeature(f)}

@@ -215,10 +215,11 @@ router.post('/api/gs/pdf-testcase', upload.single('file'), async (req, res) => {
 
 // ─── Log Checker Script ───────────────────────────────────────────────────────
 
-router.get('/api/gs/log-checker-script', (_req, res) => {
+router.get('/api/gs/log-checker-script', (req, res) => {
   try {
     const scriptPath = join(__dirname, '../static/intercept.js')
     const script = readFileSync(scriptPath, 'utf-8')
+    addHistory('gs-logchecker', 'GS Log 攔截腳本下載', '使用者取得注入腳本', { ip: req.ip })
     res.json({ ok: true, script })
   } catch {
     res.json({ ok: false, message: '腳本檔案載入失敗' })
@@ -590,8 +591,8 @@ router.post('/api/gs/stats/stop/:id', async (req, res) => {
   }
   const modeLabel = session.mode === 'bonus-v2' ? 'ColorGame V2 電子骰' : '通用 WS'
   addHistory(
-    'gs-stats',
-    `GS 統計（${modeLabel}）`,
+    'gs-bonusv2',
+    `GS Bonus V2 統計（${modeLabel}）`,
     `共 ${session.rounds} 回合，${Object.keys(session.distribution).length} 種骰型`,
     { rounds: session.rounds, distribution: session.distribution, mode: session.mode, bonusDistribution: session.bonusDistribution },
   )
