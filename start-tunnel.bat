@@ -7,10 +7,16 @@ start "Toppath Server" cmd /k "cd /d "%~dp0" && npx tsx server/index.ts"
 :: Wait 4 seconds for server to boot
 timeout /t 4 /nobreak >nul
 
-:: Start cloudflared tunnel in new window
-start "Cloudflare Tunnel" cmd /k ""C:\Program Files (x86)\cloudflared\cloudflared.exe" tunnel --url http://localhost:3000"
+:: Start ngrok with fixed static domain
+start "ngrok Tunnel" cmd /k "ngrok http 3000 --domain=royal-parched-catcall.ngrok-free.app"
 
+echo.
 echo Two windows opened:
-echo   - "Toppath Server"    ^<-- Server log here
-echo   - "Cloudflare Tunnel" ^<-- Public URL here
+echo   - "Toppath Server"  ^<-- Server log
+echo   - "ngrok Tunnel"    ^<-- Tunnel status
+echo.
+echo [Fixed] OSMWatcher Webhook URL:
+echo   https://royal-parched-catcall.ngrok-free.app/api/machine-test/osm-status
+echo.
+echo This URL is permanent and will not change on restart.
 pause
