@@ -885,7 +885,12 @@ function normalizeTestCaseFields(raw: unknown[]): TestCase[] {
     if (!item || typeof item !== 'object') return item as TestCase
     const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(item as Record<string, unknown>)) {
-      const dest = fuzzyMatchTCField(k) ?? k
+      const matched = fuzzyMatchTCField(k)
+      if (!matched && !(TC_CANONICAL_FIELDS as string[]).includes(k)) {
+        // Key is unknown and couldn't be fuzzy-matched — log so we can track new hallucination patterns
+        console.warn(`[normalizeTC] unmatched field key: "${k}" (value preview: "${String(v).slice(0, 60)}")`)
+      }
+      const dest = matched ?? k
       if (!(dest in out)) out[dest] = v   // first occurrence wins
     }
     return out as unknown as TestCase
