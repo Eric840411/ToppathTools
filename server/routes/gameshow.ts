@@ -100,6 +100,16 @@ interface StatsSession {
   stop?: () => void
 }
 
+interface ClientCaptureSession {
+  label: string
+  rounds: number
+  bonusDistribution: { single_m2: Record<string, number>; single_m3: Record<string, number>; any_double: Record<string, number>; any_triple: Record<string, number> }
+  createdAt: number
+  lastSeen: number
+  status: 'running' | 'stopped'
+  sseClients: Set<import('express').Response>
+}
+
 /** 解析 d.v[10][143] 電子骰資料（bonus-v2 規格） */
 function parseBonusData(data143: Record<string, any>): BonusEntry {
   const result: BonusEntry = { single_m2: [], single_m3: [], any_double: null, any_triple: null }
@@ -122,6 +132,7 @@ function parseBonusData(data143: Record<string, any>): BonusEntry {
 
 const imgSessions = new Map<string, ImgSession>()
 const statsSessions = new Map<string, StatsSession>()
+const clientCaptureSessions = new Map<string, ClientCaptureSession>()
 
 // 定時清理超過 2 小時的 session
 setInterval(() => {
@@ -819,6 +830,118 @@ router.post('/api/gs/bonus-v2/start', async (req, res) => {
 
 router.post('/api/gs/bonus-v2/stop', async (_req, res) => {
   await bv2DoStop()
+  res.json({ ok: true })
+})
+
+function clientCaptureSendStats(session: ClientCaptureSession) {
+  const payload = JSON.stringify({ type: 'stats', rounds: session.rounds, bonusDistribution: session.bonusDistribution })
+  for (const c of session.sseClients) {
+    try { c.write(`data: ${payload}\n\n`) } catch { session.sseClients.delete(c) }
+  }
+}
+
+function clientCaptureMergeBucket(bucket: Record<string, number>, items: { color?: string }[] | undefined) {
+  for (const item of items ?? []) {
+    const color = String(item?.color ?? '')
+    if (!color) continue
+    bucket[color] = (bucket[color] ?? 0) + 1
+  }
+}
+
+router.get('/api/gs/bonus-v2-client-script', (req, res) => {
+  const session = String(req.query.session ?? '')
+  if (!session) return res.status(400).send('// missing session')
+  try {
+    const js = readFileSync(join(__dirname, '../static/bonus-v2-client.js'), 'utf-8')
+    res.set('Content-Type', 'application/javascript; charset=utf-8')
+    res.send(`window.__bonusV2Session = ${JSON.stringify(session)};\n${js}`)
+  } catch {
+    res.status(500).send('// bonus-v2-client.js load failed')
+  }
+})
+
+router.post('/api/gs/bonus-v2-client/session', (req, res) => {
+  const { label } = req.body as { label?: string }
+  const sessionId = crypto.randomBytes(8).toString('hex')
+  const now = Date.now()
+  clientCaptureSessions.set(sessionId, {
+    label: label || `Client ${new Date(now).toLocaleString('zh-TW', { hour12: false })}`,
+    rounds: 0,
+    bonusDistribution: { single_m2: {}, single_m3: {}, any_double: {}, any_triple: {} },
+    createdAt: now,
+    lastSeen: now,
+    status: 'running',
+    sseClients: new Set(),
+  })
+  res.json({ ok: true, sessionId })
+})
+
+router.post('/api/gs/bonus-v2-client/report', (req, res) => {
+  const { sessionId, round } = req.body as {
+    sessionId?: string
+    round?: {
+      single_m2?: { color?: string }[]
+      single_m3?: { color?: string }[]
+      any_double?: { color?: string } | null
+      any_triple?: { color?: string } | null
+    }
+  }
+  const session = sessionId ? clientCaptureSessions.get(sessionId) : null
+  if (!session) return res.status(404).json({ ok: false, message: 'Session not found' })
+  if (session.status !== 'running') return res.status(409).json({ ok: false, message: 'Session stopped' })
+  if (!round || typeof round !== 'object') return res.status(400).json({ ok: false, message: 'Invalid round' })
+
+  const bd = session.bonusDistribution
+  clientCaptureMergeBucket(bd.single_m2, round.single_m2)
+  clientCaptureMergeBucket(bd.single_m3, round.single_m3)
+  if (round.any_double?.color) bd.any_double[String(round.any_double.color)] = (bd.any_double[String(round.any_double.color)] ?? 0) + 1
+  if (round.any_triple?.color) bd.any_triple[String(round.any_triple.color)] = (bd.any_triple[String(round.any_triple.color)] ?? 0) + 1
+  session.rounds++
+  session.lastSeen = Date.now()
+  clientCaptureSendStats(session)
+  res.json({ ok: true })
+})
+
+router.get('/api/gs/bonus-v2-client/events/:id', (req, res) => {
+  const session = clientCaptureSessions.get(req.params.id)
+  if (!session) return res.status(404).end()
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  })
+  res.flushHeaders()
+  session.sseClients.add(res)
+  res.write(`data: ${JSON.stringify({ type: 'stats', rounds: session.rounds, bonusDistribution: session.bonusDistribution })}\n\n`)
+  const keepAlive = setInterval(() => { try { res.write(': keep-alive\n\n') } catch { clearInterval(keepAlive) } }, 15000)
+  req.on('close', () => {
+    clearInterval(keepAlive)
+    session.sseClients.delete(res)
+  })
+})
+
+router.post('/api/gs/bonus-v2-client/stop/:id', (req, res) => {
+  const session = clientCaptureSessions.get(req.params.id)
+  if (!session) return res.status(404).json({ ok: false, message: 'Session not found' })
+  session.status = 'stopped'
+  session.lastSeen = Date.now()
+  const distributionSize = Object.keys(session.bonusDistribution.single_m2).length
+    + Object.keys(session.bonusDistribution.single_m3).length
+    + Object.keys(session.bonusDistribution.any_double).length
+    + Object.keys(session.bonusDistribution.any_triple).length
+  addHistory(
+    'gs-bonusv2',
+    'GS Bonus V2 client capture',
+    `${session.rounds} rounds, ${distributionSize} distribution keys`,
+    { rounds: session.rounds, distribution: session.bonusDistribution, mode: 'bonus-v2-client', label: session.label },
+  )
+  for (const c of session.sseClients) {
+    try {
+      c.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`)
+      c.end()
+    } catch {}
+  }
+  session.sseClients.clear()
   res.json({ ok: true })
 })
 

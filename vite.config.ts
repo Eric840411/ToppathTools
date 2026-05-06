@@ -27,6 +27,15 @@ export default defineConfig({
           })
         },
       },
+      '/api/gs/bonus-v2-client/events': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq) => {
+            proxyReq.setHeader('Accept-Encoding', 'identity')
+          })
+        },
+      },
       '/api/jira/batch-comment/stream': {
         target: 'http://localhost:3000',
         changeOrigin: true,
