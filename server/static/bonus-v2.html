@@ -428,12 +428,15 @@
     </div>
 
     <div class="card">
-      <div class="card-title">2. 注入腳本</div>
-      <textarea id="clientScriptUrl" class="copy-box" readonly placeholder="建立 Session 後產生 script URL"></textarea>
-      <p class="help-text">瀏覽器 console 可貼上：<span id="clientConsoleSnippet" class="client-session">(await fetch(...).then(r=&gt;r.text()).then(eval))</span></p>
+      <div class="card-title">2. 下載 Agent</div>
+      <label class="field">遊戲 URL
+        <input id="agentGameUrl" type="text" placeholder="https://game.example.com/...?token=...">
+      </label>
+      <textarea id="agentCommand" class="copy-box" readonly placeholder="建立 Session 後產生命令"></textarea>
+      <p class="help-text">下載 Agent 後，在同一個資料夾執行下方命令。</p>
       <div class="btn-row">
-        <button id="clientCopyUrlBtn" class="btn btn-muted" type="button" disabled>Copy URL</button>
-        <button id="clientCopyScriptBtn" class="btn btn-muted" type="button" disabled>Copy Script</button>
+        <button id="agentDownloadBtn" class="btn btn-primary" type="button">下載 Agent</button>
+        <button id="agentCopyCommandBtn" class="btn btn-muted" type="button" disabled>複製指令</button>
       </div>
     </div>
 
@@ -506,18 +509,20 @@
     $('clientModeTab').setAttribute('aria-selected', String(!server));
   }
 
-  function scriptPath() {
-    return '/api/gs/bonus-v2-client-script?session=' + encodeURIComponent(sessionId);
+  function serverOrigin() {
+    return window.location.origin;
   }
 
-  function updateScriptFields() {
-    if (!sessionId) return;
-    var path = scriptPath();
-    $('clientScriptUrl').value = '<script src="' + path + '"><\/script>';
-    $('clientConsoleSnippet').textContent = "(await fetch('" + path + "').then(r=>r.text()).then(eval))";
-    $('clientCopyUrlBtn').disabled = false;
-    $('clientCopyScriptBtn').disabled = false;
-    $('clientStopBtn').disabled = false;
+  function buildAgentCommand() {
+    var url = ($('agentGameUrl').value || '<遊戲URL>').trim() || '<遊戲URL>';
+    var session = sessionId || 'SESSION_ID';
+    return 'node bonus-v2-agent.js --url=' + url + ' --session=' + session + ' --server=' + serverOrigin();
+  }
+
+  function updateAgentCommand() {
+    $('agentCommand').value = buildAgentCommand();
+    $('agentCopyCommandBtn').disabled = !sessionId;
+    $('clientStopBtn').disabled = !sessionId;
   }
 
   function bucketTotal(bucket) {
@@ -580,18 +585,18 @@
     if (!json.ok) { alert(json.message || 'Session create failed'); return; }
     sessionId = json.sessionId;
     $('clientSessionLabel').textContent = sessionId;
-    updateScriptFields();
+    updateAgentCommand();
     connectEvents();
   });
 
-  $('clientCopyUrlBtn').addEventListener('click', function () {
-    navigator.clipboard.writeText($('clientScriptUrl').value);
+  $('agentGameUrl').addEventListener('input', updateAgentCommand);
+
+  $('agentDownloadBtn').addEventListener('click', function () {
+    window.open('/api/gs/bonus-v2-client-agent');
   });
 
-  $('clientCopyScriptBtn').addEventListener('click', async function () {
-    if (!sessionId) return;
-    var text = await fetch(scriptPath()).then(function (r) { return r.text(); });
-    await navigator.clipboard.writeText(text);
+  $('agentCopyCommandBtn').addEventListener('click', function () {
+    navigator.clipboard.writeText($('agentCommand').value);
   });
 
   $('clientStopBtn').addEventListener('click', async function () {
@@ -603,6 +608,7 @@
   });
 
   renderStats(0, clientStats);
+  updateAgentCommand();
 })();
 </script>
 </body>

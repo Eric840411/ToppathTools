@@ -12,7 +12,7 @@
  * - GET  /api/gs/stats/status/:id      — 查詢統計結果
  */
 import { Router } from 'express'
-import { readFileSync } from 'fs'
+import { readFile, readFileSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { chromium } from 'playwright'
@@ -943,6 +943,17 @@ router.post('/api/gs/bonus-v2-client/stop/:id', (req, res) => {
   }
   session.sseClients.clear()
   res.json({ ok: true })
+})
+
+router.get('/api/gs/bonus-v2-client-agent', (_req, res) => {
+  readFile(join(__dirname, '../static/bonus-v2-agent.js'), 'utf-8', (err, content) => {
+    if (err) return res.status(500).send('bonus-v2-agent.js load failed')
+    res.set({
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="bonus-v2-agent.js"',
+    })
+    res.send(content)
+  })
 })
 
 // ─── Img Compare V2 (app.js 相容 SSE 串流版) ───────────────────────────────────
