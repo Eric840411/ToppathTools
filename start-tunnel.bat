@@ -8,7 +8,7 @@ start "Toppath Server" cmd /k "cd /d "%~dp0" && npx tsx server/index.ts"
 timeout /t 4 /nobreak >nul
 
 :: Start ngrok with fixed static domain
-start "ngrok Tunnel" cmd /k "ngrok http 3000 --domain=royal-parched-catcall.ngrok-free.app"
+start "ngrok Tunnel" cmd /k "ngrok http 3000 --domain=royal-parched-catcall.ngrok-free.dev"
 
 echo.
 echo Two windows opened:
@@ -16,7 +16,7 @@ echo   - "Toppath Server"  ^<-- Server log
 echo   - "ngrok Tunnel"    ^<-- Tunnel status
 echo.
 echo [Fixed] OSMWatcher Webhook URL:
-echo   https://royal-parched-catcall.ngrok-free.app/api/machine-test/osm-status
+echo   https://royal-parched-catcall.ngrok-free.dev/api/machine-test/osm-status
 echo.
 echo This URL is permanent and will not change on restart.
 pause
