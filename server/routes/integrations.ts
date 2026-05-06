@@ -904,7 +904,7 @@ const SECOND_PASS_REQUIRED_FIELDS: (keyof TestCase)[] = [
 ]
 
 /** Run a second Gemini call to fill empty fields in generated TestCases */
-async function runSecondPass(cases: TestCase[], specText: string, modelSpec?: string): Promise<TestCase[]> {
+async function runSecondPass(cases: TestCase[], specText: string, modelSpec?: string, promptId = 'testcase-second-pass'): Promise<TestCase[]> {
   const incomplete = cases.filter(tc =>
     SECOND_PASS_REQUIRED_FIELDS.some(f => !tc[f] || String(tc[f]).trim() === '')
   )
@@ -916,7 +916,7 @@ async function runSecondPass(cases: TestCase[], specText: string, modelSpec?: st
   }
   const secondResult = await generateWithGemini(
     specText,
-    'testcase-second-pass',
+    promptId,
     undefined,
     modelSpec,
     secondExtraVars,
@@ -1172,7 +1172,7 @@ router.post('/api/integrations/lark/generate-testcases', async (req, res) => {
       } else {
         let cases = normalizeTestCaseFields(result as unknown[])
         if (body.secondPass) {
-          try { cases = await runSecondPass(cases, finalContent, body.modelSpec) }
+          try { cases = await runSecondPass(cases, finalContent, body.secondPassModel ?? body.modelSpec, body.secondPassPromptId) }
           catch (e) { log('warn', clientIp, user, 'Second Pass 失敗（略過）', e instanceof Error ? e.message : String(e)) }
         }
         const { written, bitableUrl } = await writeTestCasesToBitable(cases, sourceLabel)
@@ -1359,7 +1359,9 @@ router.post(
     let casesArr = normalizeTestCaseFields(Array.isArray(cases) ? cases as unknown[] : (cases as JiraTestCaseResult).test_cases as unknown[])
     const secondPassEnabled = req.body.secondPass === 'true' || req.body.secondPass === true
     if (secondPassEnabled) {
-      try { casesArr = await runSecondPass(casesArr, finalContent, modelSpec) }
+      const spModel = req.body.secondPassModel ?? modelSpec
+      const spPrompt = req.body.secondPassPromptId ?? undefined
+      try { casesArr = await runSecondPass(casesArr, finalContent, spModel, spPrompt) }
       catch (e) { log('warn', getClientIP(req), getUser(req), 'Second Pass 失敗（略過）', e instanceof Error ? e.message : String(e)) }
     }
     const { written, bitableUrl } = await writeTestCasesToBitable(casesArr, sourceLabel)
