@@ -465,13 +465,6 @@ export function LarkPage() {
           >
             {isGame ? <DungeonIcon name="compare" tone="gold" plain /> : '🔍'} 人工 vs AI 比對
           </button>
-          <button
-            type="button"
-            className={`action-tab${action === 'secondpass' ? ' active' : ''}`}
-            onClick={() => { setAction('secondpass'); setStatus('idle'); setResult(null); setSelectedPromptId('testcase-second-pass') }}
-          >
-            ✏️ AI 補填（Second Pass）
-          </button>
         </div>
       </div>
 
@@ -878,7 +871,7 @@ export function LarkPage() {
             )}
           </div>
 
-          {(action === 'generate' || action === 'secondpass') && (
+          {action === 'generate' && (
             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 4 }}>
               <label className="field" style={{ flex: 1, margin: 0 }}>
                 <span>AI Prompt 模板</span>
@@ -903,14 +896,14 @@ export function LarkPage() {
           {action === 'generate' && (
             <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 16px', marginBottom: 4 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none', marginBottom: 10 }}>
-                <input type="checkbox" checked={enableSecondPass} onChange={e => setEnableSecondPass(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
-                <span style={{ fontWeight: 600, fontSize: 14 }}>AI 補填空白欄位（Second Pass）</span>
-                <span style={{ fontSize: 12, color: '#9ca3af' }}>生成後自動對空白必填欄位補填，略增加 AI 呼叫時間</span>
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
                 <input type="checkbox" checked={useJira} onChange={e => setUseJira(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
                 <span style={{ fontWeight: 600, fontSize: 14 }}>整合 Jira 單號（可選）</span>
                 <span style={{ fontSize: 12, color: '#9ca3af' }}>AI 將同時參考 Jira Issues 與規格書生成 TestCase</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
+                <input type="checkbox" checked={enableSecondPass} onChange={e => setEnableSecondPass(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+                <span style={{ fontWeight: 600, fontSize: 14 }}>AI 補填（Second Pass）</span>
+                <span style={{ fontSize: 12, color: '#9ca3af' }}>生成後自動補全空白欄位，發第二次 AI 請求</span>
               </label>
 
               {useJira && (
