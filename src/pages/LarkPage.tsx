@@ -123,6 +123,8 @@ export function LarkPage() {
 
   // Jira 整合（可選）
   const [enableSecondPass, setEnableSecondPass] = useState(false)
+  const [secondPassModel, setSecondPassModel] = useState('gemini')
+  const [secondPassPromptId, setSecondPassPromptId] = useState('testcase-second-pass')
   const [useJira, setUseJira] = useState(false)
   const [jiraAccounts, setJiraAccounts] = useState<{ email: string; label: string }[]>([])
   const [jiraEmail, setJiraEmail] = useState('')
@@ -333,6 +335,10 @@ export function LarkPage() {
           }))
         }
         form.append('secondPass', String(enableSecondPass))
+        if (enableSecondPass) {
+          form.append('secondPassModel', secondPassModel)
+          form.append('secondPassPromptId', secondPassPromptId)
+        }
         const resp = await fetch('/api/integrations/generate-testcases-file', { method: 'POST', body: form })
         const data = await resp.json() as GenerateResult
         setResult(data)
@@ -364,6 +370,7 @@ export function LarkPage() {
           jiraEmail: useJira ? jiraEmail : undefined,
           modelSpec: selectedModel,
           secondPass: enableSecondPass,
+          ...(enableSecondPass ? { secondPassModel, secondPassPromptId } : {}),
         }),
       })
       const submitData = await resp.json() as { ok: boolean; requestId?: string; message?: string }
@@ -894,46 +901,73 @@ export function LarkPage() {
           )}
 
           {action === 'generate' && (
-            <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 16px', marginBottom: 4 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none', marginBottom: 10 }}>
-                <input type="checkbox" checked={useJira} onChange={e => setUseJira(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
-                <span style={{ fontWeight: 600, fontSize: 14 }}>整合 Jira 單號（可選）</span>
-                <span style={{ fontSize: 12, color: '#9ca3af' }}>AI 將同時參考 Jira Issues 與規格書生成 TestCase</span>
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
-                <input type="checkbox" checked={enableSecondPass} onChange={e => setEnableSecondPass(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
-                <span style={{ fontWeight: 600, fontSize: 14 }}>AI 補填（Second Pass）</span>
-                <span style={{ fontSize: 12, color: '#9ca3af' }}>生成後自動補全空白欄位，發第二次 AI 請求</span>
-              </label>
+            <>
+              {/* Jira card */}
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 16px', marginBottom: 4 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
+                  <input type="checkbox" checked={useJira} onChange={e => setUseJira(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>整合 Jira 單號（可選）</span>
+                  <span style={{ fontSize: 12, color: '#9ca3af' }}>AI 將同時參考 Jira Issues 與規格書生成 TestCase</span>
+                </label>
+                {useJira && (
+                  <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <label className="field" style={{ margin: 0 }}>
+                      <span>Jira 帳號</span>
+                      <select
+                        value={jiraEmail}
+                        onChange={e => setJiraEmail(e.target.value)}
+                        style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13 }}
+                      >
+                        <option value="">請選擇帳號</option>
+                        {jiraAccounts.map(a => (
+                          <option key={a.email} value={a.email}>{a.label} ({a.email})</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field" style={{ margin: 0 }}>
+                      <span>Jira 單號（逗號或換行分隔，如 CGSG-220, CGSG-221）</span>
+                      <textarea
+                        value={jiraKeysInput}
+                        onChange={e => setJiraKeysInput(e.target.value)}
+                        placeholder="CGSG-220&#10;CGSG-221"
+                        rows={3}
+                        style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, resize: 'vertical', fontFamily: 'monospace' }}
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
 
-              {useJira && (
-                <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <label className="field" style={{ margin: 0 }}>
-                    <span>Jira 帳號</span>
-                    <select
-                      value={jiraEmail}
-                      onChange={e => setJiraEmail(e.target.value)}
-                      style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13 }}
-                    >
-                      <option value="">請選擇帳號</option>
-                      {jiraAccounts.map(a => (
-                        <option key={a.email} value={a.email}>{a.label} ({a.email})</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="field" style={{ margin: 0 }}>
-                    <span>Jira 單號（逗號或換行分隔，如 CGSG-220, CGSG-221）</span>
-                    <textarea
-                      value={jiraKeysInput}
-                      onChange={e => setJiraKeysInput(e.target.value)}
-                      placeholder="CGSG-220&#10;CGSG-221"
-                      rows={3}
-                      style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, resize: 'vertical', fontFamily: 'monospace' }}
-                    />
-                  </label>
-                </div>
-              )}
-            </div>
+              {/* Second Pass card */}
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 16px', marginBottom: 4 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
+                  <input type="checkbox" checked={enableSecondPass} onChange={e => setEnableSecondPass(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+                  <span style={{ fontWeight: 600, fontSize: 14 }}>AI 補填（Second Pass）</span>
+                  <span style={{ fontSize: 12, color: '#9ca3af' }}>生成後自動補全空白欄位，發第二次 AI 請求</span>
+                </label>
+                {enableSecondPass && (
+                  <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                    <label className="field" style={{ flex: 1, margin: 0 }}>
+                      <span>AI Prompt 模板</span>
+                      <select
+                        value={secondPassPromptId}
+                        onChange={e => setSecondPassPromptId(e.target.value)}
+                        style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 14 }}
+                      >
+                        {availablePrompts.length === 0
+                          ? <option value="testcase-second-pass">TestCase 補填（Second Pass）</option>
+                          : availablePrompts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)
+                        }
+                      </select>
+                    </label>
+                    <label className="field" style={{ margin: 0, minWidth: 180 }}>
+                      <span>AI 模型</span>
+                      <ModelSelector value={secondPassModel} onChange={setSecondPassModel} style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 14 }} />
+                    </label>
+                  </div>
+                )}
+              </div>
+            </>
           )}
 
 
