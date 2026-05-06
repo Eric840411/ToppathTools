@@ -155,6 +155,15 @@ async function handleMessage(content: string): Promise<string> {
 
 // ─── Discord Client ───────────────────────────────────────────────────────────
 
+let _discordClient: Client | null = null
+
+export function stopDiscordBot(): void {
+  if (_discordClient) {
+    _discordClient.destroy()
+    _discordClient = null
+  }
+}
+
 export function startDiscordBot(): void {
   const { botToken, channelId, allowedIds } = getConfig()
 
@@ -177,6 +186,7 @@ export function startDiscordBot(): void {
       GatewayIntentBits.MessageContent,
     ],
   })
+  _discordClient = client
 
   client.once(Events.ClientReady, (c) => {
     console.log(`[Discord] Bot 上線：${c.user.tag}，監聽頻道 ${channelId}`)

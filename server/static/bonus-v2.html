@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bonus V2 電子骰機率驗證</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      color: #374151;
+      background: #f8fafc;
+    }
+
+    .page-wrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+
+    /* ── Card ── */
+    .card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 20px 22px;
+      margin-bottom: 14px;
+    }
+    .card-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: #0f172a;
+      margin: 0 0 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 6px;
+    }
+    .badge-indigo { background: #ede9fe; color: #4f46e5; }
+    .badge-slate  { background: #f1f5f9; color: #475569; }
+    .badge-green  { background: #dcfce7; color: #16a34a; }
+
+    /* ── Grid ── */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+
+    /* ── Inputs ── */
+    label.field {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #475569;
+    }
+    input[type="text"], input[type="number"] {
+      padding: 8px 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #0f172a;
+      background: #fff;
+      outline: none;
+      transition: border-color .15s;
+      width: 100%;
+    }
+    input:focus { border-color: #6366f1; box-shadow: 0 0 0 3px #6366f115; }
+
+    /* ── Buttons ── */
+    .btn { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; padding: 8px 18px; border-radius: 8px; border: none; cursor: pointer; transition: opacity .15s, background .15s; }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .btn-primary { background: #4f46e5; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #4338ca; }
+    .btn-danger  { background: #ef4444; color: #fff; }
+    .btn-danger:hover:not(:disabled)  { background: #dc2626; }
+    .btn-muted   { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+    .btn-muted:hover:not(:disabled)   { background: #e2e8f0; }
+    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+
+    /* ── Status Bar ── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      margin-bottom: 14px;
+      font-size: 13px;
+    }
+    #statusDot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: #94a3b8; flex-shrink: 0;
+      transition: background .3s;
+    }
+    #statusDot.active { background: #22c55e; animation: pulse 1s infinite; }
+    #statusDot.done   { background: #4f46e5; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+    #statusCount { font-weight: 700; color: #0f172a; }
+    #statusMsg   { color: #64748b; flex: 1; }
+    .progress-wrap { flex: 1; background: #e2e8f0; border-radius: 6px; height: 6px; overflow: hidden; }
+    #progressBar   { height: 100%; background: #4f46e5; border-radius: 6px; width: 0; transition: width .4s; }
+
+    /* ── Stat Tables ── */
+    .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 12px; }
+    @media (max-width: 700px) { .stat-grid { grid-template-columns: 1fr; } }
+
+    .stat-card { border: 1px solid #e2e8f0; border-radius: 10px; overflow: hidden; }
+    .stat-card-head {
+      background: #f8fafc;
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #0f172a;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .stat-card-head span { font-weight: 400; color: #64748b; font-size: 11px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th {
+      padding: 6px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #64748b;
+      text-align: left;
+      border-bottom: 1px solid #e2e8f0;
+      background: #f8fafc;
+    }
+    td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; color: #374151; }
+    tr:last-child td { border-bottom: none; }
+
+    .diff-ok   { color: #16a34a; font-weight: 600; }
+    .diff-warn { color: #d97706; font-weight: 600; }
+    .diff-bad  { color: #dc2626; font-weight: 600; }
+    .diff-none { color: #94a3b8; }
+
+    /* ── Detail Table ── */
+    .detail-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .detail-scroll { max-height: 320px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; }
+    .detail-scroll table th { position: sticky; top: 0; z-index: 1; }
+    #emptyRow td { color: #94a3b8; text-align: center; font-size: 12px; padding: 16px 0; }
+
+    /* ── Debug Section ── */
+    .debug-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; font-size: 12px; font-weight: 600; color: #475569; }
+    #debugBody { margin-top: 10px; }
+    #debugLog {
+      background: #0f172a; color: #94a3b8;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-family: "Cascadia Code", "Fira Code", monospace;
+      font-size: 11px;
+      line-height: 1.6;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .debug-actions { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    .debug-count { font-size: 11px; color: #64748b; }
+  </style>
+</head>
+<body>
+<div class="page-wrap">
+
+  <!-- 控制區 -->
+  <div class="card">
+    <div class="card-title">
+      🎲 Bonus ColorGame V2 電子骰機率驗證
+      <span class="badge badge-indigo">Playwright WS 攔截</span>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:12px;">
+      <label class="field">遊戲 URL（含 token 參數）
+        <input id="urlInput" type="text" placeholder="https://game.example.com/...?token=...">
+      </label>
+      <label class="field">目標局數
+        <input id="roundsInput" type="number" value="100" min="1" max="9999">
+      </label>
+    </div>
+
+    <div class="btn-row" style="margin-top:0;">
+      <button id="startBtn" class="btn btn-primary">▶ 開始收集</button>
+      <button id="stopBtn"  class="btn btn-danger"  disabled>⏹ 停止</button>
+      <button id="clearBtn" class="btn btn-muted">🗑 清除資料</button>
+      <button id="exportStatsBtn"  class="btn btn-muted" disabled>⬇ 匯出統計 CSV</button>
+      <button id="exportDetailBtn" class="btn btn-muted" disabled>⬇ 匯出明細 CSV</button>
+    </div>
+  </div>
+
+  <!-- 狀態列 -->
+  <div class="status-bar">
+    <div id="statusDot"></div>
+    <span id="statusCount">0 / 0 局</span>
+    <div class="progress-wrap"><div id="progressBar"></div></div>
+    <span id="statusMsg">等待開始...</span>
+  </div>
+
+  <!-- 四大統計卡片 -->
+  <div class="card">
+    <div class="card-title">📊 倍率機率分布</div>
+    <div class="stat-grid">
+
+      <!-- Single 2同 -->
+      <div class="stat-card">
+        <div class="stat-card-head">Single 2同 (m2) <span id="total-m2">共 0 次抽中</span></div>
+        <table>
+          <thead><tr><th>倍率</th><th>期望</th><th>次數</th><th>實際%</th><th>差異</th></tr></thead>
+          <tbody id="tbody-m2"></tbody>
+        </table>
+      </div>
+
+      <!-- Single 3同 -->
+      <div class="stat-card">
+        <div class="stat-card-head">Single 3同 (m3) <span id="total-m3">共 0 次抽中</span></div>
+        <table>
+          <thead><tr><th>倍率</th><th>期望</th><th>次數</th><th>實際%</th><th>差異</th></tr></thead>
+          <tbody id="tbody-m3"></tbody>
+        </table>
+      </div>
+
+      <!-- AnyDouble -->
+      <div class="stat-card">
+        <div class="stat-card-head">AnyDouble (ad) <span id="total-ad">共 0 次抽中</span></div>
+        <table>
+          <thead><tr><th>倍率</th><th>期望</th><th>次數</th><th>實際%</th><th>差異</th></tr></thead>
+          <tbody id="tbody-ad"></tbody>
+        </table>
+      </div>
+
+      <!-- AnyTriple -->
+      <div class="stat-card">
+        <div class="stat-card-head">AnyTriple (at) <span id="total-at">共 0 次抽中</span></div>
+        <table>
+          <thead><tr><th>倍率</th><th>期望</th><th>次數</th><th>實際%</th><th>差異</th></tr></thead>
+          <tbody id="tbody-at"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主注區 / 旁注區 / 四次命中率 -->
+  <div class="grid-3" style="margin-bottom:14px;">
+
+    <!-- 主注區獎勵類型 CGBOV2-17 -->
+    <div class="card" style="margin-bottom:0;">
+      <div class="card-title" style="margin-bottom:10px;">
+        🎯 主注區獎勵類型
+        <span class="badge badge-slate" style="font-size:10px;">CGBOV2-17</span>
+      </div>
+      <div style="font-size:11px;color:#64748b;margin-bottom:8px;" id="total-bonus-type">共 0 次 Single</div>
+      <table>
+        <thead><tr><th>類型</th><th>次數</th><th>實際%</th><th>差異</th></tr></thead>
+        <tbody id="tbody-bonus-type">
+          <tr>
+            <td>2同</td>
+            <td id="cnt-bt-m2">0</td>
+            <td id="pct-bt-m2">—</td>
+            <td id="diff-bt-m2" class="diff-none">—</td>
+          </tr>
+          <tr>
+            <td>3同</td>
+            <td id="cnt-bt-m3">0</td>
+            <td id="pct-bt-m3">—</td>
+            <td id="diff-bt-m3" class="diff-none">—</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 旁注區獎勵類型 CGBOV2-18 -->
+    <div class="card" style="margin-bottom:0;">
+      <div class="card-title" style="margin-bottom:10px;">
+        🎰 旁注區獎勵類型
+        <span class="badge badge-slate" style="font-size:10px;">CGBOV2-18</span>
+      </div>
+      <div style="font-size:11px;color:#64748b;margin-bottom:8px;" id="total-side-pool">共 0 局</div>
+      <table>
+        <thead><tr><th>Pool</th><th>次數</th><th>實際%</th><th>差異</th></tr></thead>
+        <tbody id="tbody-side-pool">
+          <tr>
+            <td>AD 池</td>
+            <td id="cnt-sp-ad">0</td>
+            <td id="pct-sp-ad">—</td>
+            <td id="diff-sp-ad" class="diff-none">—</td>
+          </tr>
+          <tr>
+            <td>AT 池</td>
+            <td id="cnt-sp-at">0</td>
+            <td id="pct-sp-at">—</td>
+            <td id="diff-sp-at" class="diff-none">—</td>
+          </tr>
+          <tr>
+            <td>Both 池</td>
+            <td id="cnt-sp-both">0</td>
+            <td id="pct-sp-both">—</td>
+            <td id="diff-sp-both" class="diff-none">—</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 四次選色命中率 CGBOV2-14 -->
+    <div class="card" style="margin-bottom:0;">
+      <div class="card-title" style="margin-bottom:10px;">
+        🎨 四次選色命中率
+        <span class="badge badge-slate" style="font-size:10px;">CGBOV2-14</span>
+      </div>
+      <div style="font-size:11px;color:#64748b;margin-bottom:8px;" id="total-draw-count">共 0 局</div>
+      <table>
+        <thead><tr><th>第N次</th><th>基數</th><th>命中</th><th>實際%</th><th>差異</th></tr></thead>
+        <tbody id="tbody-draw-count">
+          <tr>
+            <td>第 1 次</td>
+            <td id="base-dc-1">—</td>
+            <td id="cnt-dc-1">0</td>
+            <td id="pct-dc-1">—</td>
+            <td id="diff-dc-1" class="diff-none">—</td>
+          </tr>
+          <tr>
+            <td>第 2 次</td>
+            <td id="base-dc-2">—</td>
+            <td id="cnt-dc-2">0</td>
+            <td id="pct-dc-2">—</td>
+            <td id="diff-dc-2" class="diff-none">—</td>
+          </tr>
+          <tr>
+            <td>第 3 次</td>
+            <td id="base-dc-3">—</td>
+            <td id="cnt-dc-3">0</td>
+            <td id="pct-dc-3">—</td>
+            <td id="diff-dc-3" class="diff-none">—</td>
+          </tr>
+          <tr>
+            <td>第 4 次</td>
+            <td id="base-dc-4">—</td>
+            <td id="cnt-dc-4">0</td>
+            <td id="pct-dc-4">—</td>
+            <td id="diff-dc-4" class="diff-none">—</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 明細紀錄 -->
+  <div class="card">
+    <div class="detail-head">
+      <div class="card-title" style="margin:0;">📋 收集明細 <span id="detailCount" style="font-weight:400;color:#64748b;font-size:12px;">(0 局)</span></div>
+    </div>
+    <div class="detail-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>時間</th>
+            <th>2同 顏色</th><th>2同 倍率</th>
+            <th>3同 顏色</th><th>3同 倍率</th>
+            <th>AD 顏色</th><th>AD 倍率</th>
+            <th>AT 顏色</th><th>AT 倍率</th>
+          </tr>
+        </thead>
+        <tbody id="detailTbody">
+          <tr id="emptyRow"><td colspan="10">尚無資料，開始收集後顯示</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Debug 區 -->
+  <div class="card" id="debugSection">
+    <div class="debug-toggle" id="debugToggle">
+      <span id="debugToggleIcon">▶</span>
+      Debug Log
+      <span class="debug-count" id="debugCount">(0 筆)</span>
+    </div>
+    <div id="debugBody" style="display:none;">
+      <div class="debug-actions">
+        <button id="debugCopyBtn" class="btn btn-muted" style="font-size:12px;padding:5px 12px;">複製</button>
+      </div>
+      <div id="debugLog"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- API 路徑重導向 shim（不修改 app.js，僅攔截 fetch/EventSource 請求路徑） -->
+<script>
+;(function () {
+  var PREFIX = '/api/gs/bonus-v2';
+  var _fetch = window.fetch;
+  window.fetch = function (url, opts) {
+    if (url === '/api/start')  url = PREFIX + '/start';
+    if (url === '/api/stop')   url = PREFIX + '/stop';
+    return _fetch.call(this, url, opts);
+  };
+  var _ES = window.EventSource;
+  function PatchedES(url, init) {
+    if (url === '/api/events') url = PREFIX + '/events';
+    return new _ES(url, init);
+  }
+  PatchedES.prototype = _ES.prototype;
+  window.EventSource = PatchedES;
+})();
+</script>
+<script src="/api/gs/bonus-v2-app.js"></script>
+</body>
+</html>

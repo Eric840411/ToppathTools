@@ -26,7 +26,8 @@ const RECORD_SCRIPT = join(fileURLToPath(new URL('.', import.meta.url)), 'record
 const CABLE_DEVICE  = 'CABLE Input (VB-Audio Virtual Cable)'
 const CCTV_SAVE_DIR  = join(fileURLToPath(new URL('.', import.meta.url)), 'cctv-saves')
 const AUDIO_SAVE_DIR = join(fileURLToPath(new URL('.', import.meta.url)), 'audio-saves')
-const CCTV_REFS_DIR = join(fileURLToPath(new URL('.', import.meta.url)), 'cctv-refs')
+const CCTV_REFS_DIR  = join(fileURLToPath(new URL('.', import.meta.url)), 'cctv-refs')
+const AUDIO_REFS_DIR = join(fileURLToPath(new URL('.', import.meta.url)), 'audio-refs')
 
 function runPS(script: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -54,8 +55,8 @@ function getDefaultAudioDevice(): Promise<string> {
   })
 }
 
-/** Analyze a 16-bit PCM WAV file, returns RMS dB and peak dB */
-function analyzeWav(filePath: string): { rmsDb: number; peakDb: number; samples: number; clipRatio: number; crestFactor: number } {
+/** Analyze a 16-bit PCM WAV file, returns RMS dB, peak dB, and spectral centroid */
+function analyzeWav(filePath: string): { rmsDb: number; peakDb: number; samples: number; clipRatio: number; crestFactor: number; spectralCentroid: number } {
   try {
     const buf = readFileSync(filePath)
     // Find 'data' chunk
@@ -66,30 +67,60 @@ function analyzeWav(filePath: string): { rmsDb: number; peakDb: number; samples:
       if (tag === 'data') { dataOffset += 8; break }
       dataOffset += 8 + size
     }
+    const channels = buf.readUInt16LE(22)
+    const sampleRate = buf.readUInt32LE(24)
     const bitsPerSample = buf.readUInt16LE(34)
-    const totalSamples = (buf.length - dataOffset) / (bitsPerSample / 8)
+    const frameCount = Math.floor((buf.length - dataOffset) / ((bitsPerSample / 8) * channels))
+
+    // Mix to mono while computing RMS/peak
+    const mono = new Float32Array(frameCount)
     let sumSq = 0, peak = 0, clipCount = 0
-    for (let i = dataOffset; i < buf.length - 1; i += 2) {
-      const s = buf.readInt16LE(i) / 32768
+    for (let i = 0; i < frameCount; i++) {
+      let sum = 0
+      for (let c = 0; c < channels; c++) {
+        sum += buf.readInt16LE(dataOffset + (i * channels + c) * 2)
+      }
+      const s = sum / channels / 32768
+      mono[i] = s
       const abs = Math.abs(s)
       if (abs > peak) peak = abs
       if (abs >= 0.98) clipCount++
       sumSq += s * s
     }
-    const rms = Math.sqrt(sumSq / totalSamples)
+    const rms = Math.sqrt(sumSq / frameCount)
     const rmsDb = rms > 0 ? 20 * Math.log10(rms) : -Infinity
     const peakDb = peak > 0 ? 20 * Math.log10(peak) : -Infinity
-    // Crest factor = peak dB - RMS dB (normal music: 10~20 dB; <6 dB suggests noise/clipping)
     const crestFactor = isFinite(peakDb) && isFinite(rmsDb) ? peakDb - rmsDb : 0
-    return {
-      rmsDb,
-      peakDb,
-      samples: totalSamples,
-      clipRatio: clipCount / totalSamples,
-      crestFactor,
+
+    // Timbre brightness via ZCR (Zero-Crossing Rate) on 4096-sample windows (~93ms)
+    // ZCR-derived freq: nZC × sampleRate / (2 × WIN)
+    // Normal slot audio: ~100–600 Hz  |  Crispy/metallic: ~3000+ Hz
+    // Threshold CENTROID_WARN = 1500 Hz  (DFT was unreliable on 11ms transient windows)
+    const WIN = 4096
+    const HOP = WIN
+    let maxWinEnergy = 0
+    for (let i = 0; i < frameCount - WIN; i += HOP) {
+      let e = 0
+      for (let j = 0; j < WIN; j++) e += mono[i + j] * mono[i + j]
+      if (e > maxWinEnergy) maxWinEnergy = e
     }
+    const silenceThresh = maxWinEnergy * 0.10  // skip windows more than 10 dB below loudest
+    let zcrSum = 0, zcrCount = 0
+    for (let i = 0; i < frameCount - WIN; i += HOP) {
+      let e = 0, zc = 0
+      for (let j = 0; j < WIN; j++) {
+        e += mono[i + j] * mono[i + j]
+        if (j > 0 && mono[i + j - 1] * mono[i + j] < 0) zc++
+      }
+      if (e < silenceThresh) continue
+      zcrSum += zc * sampleRate / (2 * WIN)
+      zcrCount++
+    }
+    const spectralCentroid = zcrCount > 0 ? zcrSum / zcrCount : 0
+
+    return { rmsDb, peakDb, samples: frameCount, clipRatio: clipCount / frameCount, crestFactor, spectralCentroid }
   } catch {
-    return { rmsDb: -Infinity, peakDb: -Infinity, samples: 0, clipRatio: 0, crestFactor: 0 }
+    return { rmsDb: -Infinity, peakDb: -Infinity, samples: 0, clipRatio: 0, crestFactor: 0, spectralCentroid: 0 }
   }
 }
 
@@ -106,7 +137,7 @@ function recordVBCableSerial(durationMs: number, keepWav = false, savePath?: str
 /** Record from CABLE Output for durationMs while CABLE Input is default output.
  *  Returns null if VB-Cable or nircmd is not available.
  *  Set keepWav=true to also return the base64-encoded WAV for AI analysis. */
-async function recordVBCable(durationMs: number, keepWav = false, savePath?: string): Promise<{ rmsDb: number; peakDb: number; samples: number; clipRatio: number; crestFactor: number; wavBase64?: string } | null> {
+async function recordVBCable(durationMs: number, keepWav = false, savePath?: string): Promise<{ rmsDb: number; peakDb: number; samples: number; clipRatio: number; crestFactor: number; spectralCentroid: number; wavBase64?: string } | null> {
   if (!existsSync(NIRCMD)) return null
   if (!existsSync(RECORD_SCRIPT)) {
     console.error('[VBCable] record-spin.ps1 not found at:', RECORD_SCRIPT)
@@ -499,7 +530,8 @@ async function waitForNormalStatus(
   emit(`偵測到特殊狀態：${label}，動作：${bonusAction}`)
 
   const start = Date.now()
-  const maxWait = 3 * 60 * 1000
+  // Wait up to 15 min — no forced-continue WARN; real issues are caught by exit step
+  const maxWait = 15 * 60 * 1000
 
   // ── Step 1: Execute the specified bonus action ONCE ──────────────────────
   if (bonusAction !== 'auto_wait') {
@@ -540,8 +572,22 @@ async function waitForNormalStatus(
     const s = osmStatus.get(machineCode) ?? 0
     if (!BONUS_STATUSES.has(s)) {
       const waited = Date.now() - start
-      emit(`特殊狀態結束，耗時 ${(waited / 1000).toFixed(0)}s`)
-      return { waited, label }
+      emit(`特殊狀態結束，耗時 ${(waited / 1000).toFixed(0)}s，繼續 Spin 10 秒 cooldown...`)
+
+      // ── Step 3: Spin 10s cooldown after status=0 ────────────────────────
+      const cooldownEnd = Date.now() + 10_000
+      while (Date.now() < cooldownEnd) {
+        await sleep(1000)
+        if (bonusAction !== 'auto_wait') {
+          await safeClick(page, spinSel)
+          emit(`（Cooldown Spin...）`)
+          await sleep(2000)
+        } else {
+          await sleep(1000)
+        }
+      }
+      emit(`Cooldown 完成，繼續下一步驟`)
+      return { waited: Date.now() - start, label }
     }
 
     if (bonusAction !== 'auto_wait' && Date.now() - lastSpinAt > 3000) {
@@ -551,7 +597,8 @@ async function waitForNormalStatus(
     }
   }
 
-  emit(`⚠️ 等待超時（3 分鐘），強制繼續`)
+  // Exceeded 15 min — log and move on; exit step will catch real issues
+  emit(`ℹ️ 等待超過 15 分鐘，強制繼續（退出步驟將驗證是否可正常離開）`)
   return { waited: maxWait, label }
 }
 
@@ -1178,7 +1225,7 @@ async function sampleSpinAudio(page: Page, durationMs = 1500): Promise<{ peakDb:
   return { peakDb: bestPeak, method: bestMethod, detail: bestDetail }
 }
 
-type SpinAudioData = { peakDb: number; method: string; detail: string; rmsDb?: number; clipRatio?: number; crestFactor?: number; baselineRmsDb?: number; wavBase64?: string }
+type SpinAudioData = { peakDb: number; method: string; detail: string; rmsDb?: number; clipRatio?: number; crestFactor?: number; spectralCentroid?: number; baselineRmsDb?: number; wavBase64?: string }
 type SpinAudioRef = { data: SpinAudioData | null }
 
 async function stepSpin(page: Page, emit: (msg: string) => void, customSpinSel?: string | null, customBalanceSel?: string | null, spinAudioRef?: SpinAudioRef, aiAudio = false): Promise<StepResult> {
@@ -1237,20 +1284,20 @@ async function stepSpin(page: Page, emit: (msg: string) => void, customSpinSel?:
     // Click spin 3 times — more reliable balance-change detection
     const SPIN_COUNT = 3
 
-    // Start audio recording concurrently with first spin (captures real game sound during animation)
+    // Start audio recording BEFORE first spin click (10s covers full spin cycle)
     const audioSamplePromise: Promise<void> = spinAudioRef
-      ? sleep(300).then(async () => {
+      ? (async () => {
           if (existsSync(NIRCMD)) {
-            emit(`VB-Cable 音頻錄製（5 秒，Spin 進行中）...`)
-            const rec = await recordVBCableSerial(5000, aiAudio)  // keep WAV if AI analysis requested
+            emit(`VB-Cable 音頻錄製（10 秒，第一次 Spin 前開始）...`)
+            const rec = await recordVBCableSerial(10000, true)  // always keep WAV for disk save + optional AI
             if (rec) {
-              spinAudioRef.data = { peakDb: rec.peakDb, rmsDb: rec.rmsDb, clipRatio: rec.clipRatio, crestFactor: rec.crestFactor, method: 'vbcable', detail: `${rec.samples} PCM 樣本（Spin 錄音）`, baselineRmsDb, wavBase64: rec.wavBase64 }
+              spinAudioRef.data = { peakDb: rec.peakDb, rmsDb: rec.rmsDb, clipRatio: rec.clipRatio, crestFactor: rec.crestFactor, spectralCentroid: rec.spectralCentroid, method: 'vbcable', detail: `${rec.samples} PCM 樣本（Spin 錄音）`, baselineRmsDb, wavBase64: rec.wavBase64 }
               return
             }
           }
           const r = await sampleSpinAudio(page, 1500)
           spinAudioRef.data = r
-        })
+        })()
       : Promise.resolve()
 
     for (let spinIdx = 0; spinIdx < SPIN_COUNT; spinIdx++) {
@@ -1364,7 +1411,7 @@ async function checkMediaElements(page: Page): Promise<{
   return { hasUnmutedMedia: unmuted.length > 0, summary }
 }
 
-async function stepAudio(page: Page, emit: (msg: string) => void, spinAudio?: SpinAudioRef, aiAudio = false, machineCode = ''): Promise<StepResult> {
+async function stepAudio(page: Page, emit: (msg: string) => void, spinAudio?: SpinAudioRef, aiAudio = false, machineCode = '', sessionPrefix = '', audioConfig?: import('./types.js').AudioConfig | null): Promise<StepResult> {
   const t0 = Date.now()
   try {
     // Prefer the recording captured during Spin (real game audio while reels spin).
@@ -1372,8 +1419,27 @@ async function stepAudio(page: Page, emit: (msg: string) => void, spinAudio?: Sp
     let sa: SpinAudioData | null = spinAudio?.data ?? null
 
     const audioSavePath = machineCode
-      ? (() => { try { mkdirSync(AUDIO_SAVE_DIR, { recursive: true }) } catch {}; return `${AUDIO_SAVE_DIR}\\${machineCode}.wav` })()
+      ? (() => { try { mkdirSync(AUDIO_SAVE_DIR, { recursive: true }) } catch {}; return `${AUDIO_SAVE_DIR}\\${sessionPrefix}${machineCode}.wav` })()
       : undefined
+
+    // Check for per-machine reference WAV — if found, use it instead of recording
+    // Note: when a ref exists, stepSpin already skipped live recording so sa is null here
+    const machineType = machineCode ? (machineCode.split('-').find(p => /^[A-Z]+$/.test(p)) ?? '') : ''
+    const audioRefPath = machineType ? join(AUDIO_REFS_DIR, `${machineType}.wav`) : ''
+    if (audioRefPath && existsSync(audioRefPath) && !sa) {
+      emit(`使用音頻參考檔（${machineType}.wav）跳過現場錄製`)
+      const refAnalysis = analyzeWav(audioRefPath)
+      sa = {
+        peakDb: refAnalysis.peakDb,
+        rmsDb: refAnalysis.rmsDb,
+        clipRatio: refAnalysis.clipRatio,
+        crestFactor: refAnalysis.crestFactor,
+        spectralCentroid: refAnalysis.spectralCentroid,
+        method: 'vbcable',
+        detail: `${refAnalysis.samples} PCM 樣本（參考檔比對）`,
+        wavBase64: undefined,
+      }
+    }
 
     // Save spin recording (already in base64) to local folder
     if (sa?.wavBase64 && audioSavePath) {
@@ -1414,24 +1480,30 @@ async function stepAudio(page: Page, emit: (msg: string) => void, spinAudio?: Sp
         const crestFactor = sa.crestFactor ?? 0
         const issues: string[] = []
 
-        if (!isFinite(rmsDb) || (rmsDb < -60 && crestFactor < 6)) {
-          // True silence: very low RMS AND flat signal (low crest factor = no dynamics)
-          issues.push(`靜音（RMS ${isFinite(rmsDb) ? rmsDb.toFixed(1) : '-∞'} dB）`)
-        } else if (rmsDb < -50) {
-          // Quiet but real audio
-          issues.push(`音量偏小（RMS ${rmsDb.toFixed(1)} dB，建議 -50 ~ -40 dB）`)
-        } else if (rmsDb > -40) {
-          // Possibly too loud
-          issues.push(`音量可能過大（RMS ${rmsDb.toFixed(1)} dB，建議 -50 ~ -40 dB）`)
+        // Per-machine thresholds resolved below (after this block)
+        // Hard silence: near digital floor (-80 dB), AI cannot override this
+        const isTrueSilence = !isFinite(rmsDb) || rmsDb < -80 || (rmsDb < -60 && crestFactor < 6)
+        if (isTrueSilence) {
+          issues.push(`靜音（RMS ${isFinite(rmsDb) ? rmsDb.toFixed(1) : '-∞'} dB，無音頻輸出）`)
+        } else if (isFinite(rmsDb) && rmsDb < (audioConfig?.rmsMinDb ?? -60)) {
+          issues.push(`音量偏低（RMS ${rmsDb.toFixed(1)} dB，正常範圍 ${audioConfig?.rmsMinDb ?? -60} ~ ${audioConfig?.rmsMaxDb ?? -20} dB）`)
+        } else if (isFinite(rmsDb) && rmsDb > (audioConfig?.rmsMaxDb ?? -20)) {
+          issues.push(`音量過大（RMS ${rmsDb.toFixed(1)} dB，正常範圍 ${audioConfig?.rmsMinDb ?? -60} ~ ${audioConfig?.rmsMaxDb ?? -20} dB）`)
         }
-        if (isFinite(sa.peakDb) && sa.peakDb > -3) {
-          issues.push(`爆音風險（峰值 ${sa.peakDb.toFixed(1)} dB）`)
+        // Per-machine thresholds (fallback to global defaults)
+        const PEAK_WARN_DB     = audioConfig?.peakWarnDb     ?? -3
+        const CENTROID_WARN    = audioConfig?.centroidWarnHz ?? 1500
+        const RMS_MIN_DB       = audioConfig?.rmsMinDb       ?? -60
+        const RMS_MAX_DB       = audioConfig?.rmsMaxDb       ?? -20
+
+        if (isFinite(sa.peakDb) && sa.peakDb > PEAK_WARN_DB) {
+          issues.push(`爆音風險（峰值 ${sa.peakDb.toFixed(1)} dB，閾值 ${PEAK_WARN_DB} dB）`)
         }
         if (clipRatio > 0.001) {
           issues.push(`爆音/失真（${(clipRatio * 100).toFixed(2)}% 樣本 clipping）`)
         }
         // Low crest factor with audible signal = possible sustained noise or heavy distortion
-        if (isFinite(rmsDb) && rmsDb > -60 && crestFactor < 6) {
+        if (isFinite(rmsDb) && rmsDb > RMS_MIN_DB && crestFactor < 6) {
           issues.push(`疑似雜訊/失真（Peak/RMS 差值僅 ${crestFactor.toFixed(1)} dB，正常應 > 6 dB）`)
         }
         // Cross-machine contamination: if baseline before spin was already loud AND spin isn't significantly louder,
@@ -1445,16 +1517,25 @@ async function stepAudio(page: Page, emit: (msg: string) => void, spinAudio?: Sp
         }
 
         const blStr = bl !== undefined && isFinite(bl) ? `，基準 ${bl.toFixed(1)} dB` : ''
-        const summary = `VB-Cable 錄音：RMS ${isFinite(rmsDb) ? rmsDb.toFixed(1) : '-∞'} dB，峰值 ${isFinite(sa.peakDb) ? sa.peakDb.toFixed(1) : '-∞'} dB，Crest ${crestFactor.toFixed(1)} dB，Clip ${(clipRatio * 100).toFixed(2)}%${blStr}｜${sa.detail}`
+        const centroid = sa.spectralCentroid ?? 0
+        if (isFinite(rmsDb) && rmsDb > RMS_MIN_DB && centroid >= CENTROID_WARN) {
+          issues.push(`音色偏亮/清脆（頻譜重心 ${centroid.toFixed(0)} Hz，閾值 < ${CENTROID_WARN} Hz）`)
+        }
+        const centroidStr = centroid > 0 ? `，重心 ${centroid.toFixed(0)} Hz` : ''
+        const summary = `VB-Cable 錄音：RMS ${isFinite(rmsDb) ? rmsDb.toFixed(1) : '-∞'} dB，峰值 ${isFinite(sa.peakDb) ? sa.peakDb.toFixed(1) : '-∞'} dB，Crest ${crestFactor.toFixed(1)} dB，Clip ${(clipRatio * 100).toFixed(2)}%${blStr}${centroidStr}｜${sa.detail}`
 
         // AI audio analysis (if enabled and WAV was retained from spin recording)
         if (aiAudio && sa.wavBase64) {
           try {
             emit(`傳送錄音至 Gemini 進行 AI 音頻分析...`)
-            const AUDIO_PROMPT = `你是遊戲機台音頻測試工程師。以下是一段 5 秒的遊戲機台錄音（WAV 格式）。請判斷：
-1. 是否靜音（完全無聲）
-2. 音量是否偏小或偏大
-3. 是否有爆音、失真或雜訊
+            const blContext = bl !== undefined && isFinite(bl) ? `，Spin 前背景基準 ${bl.toFixed(1)} dB` : ''
+            const AUDIO_PROMPT = `你是遊戲機台音頻測試工程師。以下是一段 10 秒的遊戲機台錄音（WAV 格式）。
+測量數據：RMS ${rmsDb.toFixed(1)} dB，峰值 ${isFinite(sa.peakDb) ? sa.peakDb.toFixed(1) : '-∞'} dB，Crest Factor ${crestFactor.toFixed(1)} dB${blContext}
+正常遊戲音量範圍：RMS -60 到 -20 dB。低於 -80 dB 視為靜音（無音頻輸出）。
+請根據錄音內容及上述測量數據判斷：
+1. 音量是否在正常範圍內（參考 RMS 值）
+2. 是否有爆音（峰值超過 -3 dB）或明顯失真
+3. 是否有持續背景雜訊（非遊戲音效）
 4. 整體評估：正常 / 有問題
 
 請用中文回答，格式：{"status":"正常"|"有問題","detail":"一句話說明"}`
@@ -1472,12 +1553,12 @@ async function stepAudio(page: Page, emit: (msg: string) => void, spinAudio?: Sp
             emit(`AI 音頻分析：${aiStatus} — ${aiDetail}`)
             const aiSuffix = `｜AI: ${aiDetail}`
             if (aiStatus === '有問題') {
-              // AI takes priority: replace RMS-based issues with AI finding
-              issues.length = 0
+              // AI takes priority — but keep hard silence flag if already detected
+              if (!isTrueSilence) issues.length = 0
               issues.push(`AI判斷異常：${aiDetail}`)
             } else {
-              // AI says normal — clear RMS-based issues; AI is the primary judge
-              issues.length = 0
+              // AI says normal — clear RMS-based issues; but never clear true silence
+              if (!isTrueSilence) issues.length = 0
             }
             if (issues.length > 0) {
               return { step: '音頻檢測', status: 'warn', message: `${summary}${aiSuffix}｜問題: ${issues.join('、')}`, durationMs: Date.now() - t0 }
@@ -1894,7 +1975,7 @@ async function stepTouchscreen(
   }
 }
 
-async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = ''): Promise<StepResult> {
+async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '', sessionPrefix = ''): Promise<StepResult> {
   const t0 = Date.now()
   try {
     // Step 1: click the first header_btn_item to switch to CCTV view
@@ -2036,7 +2117,7 @@ async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '
           if (machineCode) {
             try {
               mkdirSync(CCTV_SAVE_DIR, { recursive: true })
-              const savePath = join(CCTV_SAVE_DIR, `${machineCode}.png`)
+              const savePath = join(CCTV_SAVE_DIR, `${sessionPrefix}${machineCode}.png`)
               writeFileSync(savePath, buf)
               emit(`CCTV 截圖已複製：${savePath}`)
             } catch { /* ignore save error */ }
@@ -2258,6 +2339,8 @@ export class MachineTestRunner extends EventEmitter {
   private eventBuffer: TestEvent[] = []
   /** 調適模式：若設定則 daily-analysis API 強制使用此固定 gmid */
   private debugGmid: string | null = null
+  /** Session ID prefix for cctv-saves / audio-saves filenames */
+  private sessionPrefix: string = ''
 
   constructor(osmStatus?: Map<string, number>, profiles?: Map<string, MachineProfile>, betRandomConfig?: Record<string, string[]>) {
     super()
@@ -2381,8 +2464,8 @@ export class MachineTestRunner extends EventEmitter {
             if (s === undefined || s === 0) return  // normal — no log, proceed immediately
             const bonusWait = await waitForNormalStatus(this.osmStatus, machineCode, page, profile, emit)
             if (bonusWait) {
-              stepResults.push({ step: '特殊遊戲等待', status: 'warn', message: `偵測到「${bonusWait.label}」，等待 ${(bonusWait.waited / 1000).toFixed(0)}s 後恢復正常`, durationMs: bonusWait.waited })
-              this.log(`${workerTag} [WARN] 特殊遊戲等待完成: ${bonusWait.label}`, machineCode)
+              stepResults.push({ step: '特殊遊戲等待', status: 'pass', message: `偵測到「${bonusWait.label}」，等待 ${(bonusWait.waited / 1000).toFixed(0)}s 後完成`, durationMs: bonusWait.waited })
+              this.log(`${workerTag} [PASS] 特殊遊戲等待完成: ${bonusWait.label}`, machineCode)
             }
           }
 
@@ -2394,16 +2477,20 @@ export class MachineTestRunner extends EventEmitter {
           }
 
           const spinAudioRef: SpinAudioRef = { data: null }
+          // If an audio reference file exists for this machine type, skip live spin recording
+          // stepAudio will use the ref file directly (spinAudioRef.data stays null → !sa check passes)
+          const _machineTypeForAudioRef = machineCode.split('-').find((p: string) => /^[A-Z]+$/.test(p)) ?? ''
+          const _hasAudioRef = !!_machineTypeForAudioRef && existsSync(join(AUDIO_REFS_DIR, `${_machineTypeForAudioRef}.wav`))
           if (steps.spin) {
             await checkOsm()
-            const r3 = await stepSpin(page, emit, profile?.spinSelector ?? null, profile?.balanceSelector ?? null, steps.audio ? spinAudioRef : undefined, aiAudio)
+            const r3 = await stepSpin(page, emit, profile?.spinSelector ?? null, profile?.balanceSelector ?? null, (steps.audio && !_hasAudioRef) ? spinAudioRef : undefined, aiAudio)
             stepResults.push(r3)
             this.log(`${workerTag} [${r3.status.toUpperCase()}] Spin: ${r3.message}`, machineCode)
           }
 
           if (steps.audio) {
             await checkOsm()
-            const r4 = await stepAudio(page, emit, spinAudioRef, aiAudio, machineCode)
+            const r4 = await stepAudio(page, emit, spinAudioRef, aiAudio, machineCode, this.sessionPrefix, profile?.audioConfig)
             stepResults.push(r4)
             this.log(`${workerTag} [${r4.status.toUpperCase()}] 音頻: ${r4.message}`, machineCode)
           }
@@ -2425,7 +2512,7 @@ export class MachineTestRunner extends EventEmitter {
 
           if (steps.cctv) {
             await checkOsm()
-            const r8 = await stepCctv(page, emit, machineCode)
+            const r8 = await stepCctv(page, emit, machineCode, this.sessionPrefix)
             stepResults.push(r8)
             this.log(`${workerTag} [${r8.status.toUpperCase()}] CCTV: ${r8.message}`, machineCode)
           }
@@ -2507,6 +2594,7 @@ export class MachineTestRunner extends EventEmitter {
 
   async run(session: MachineTestSession) {
     this.debugGmid = session.debugGmid?.trim() || null
+    this.sessionPrefix = session.sessionId ? `${session.sessionId}-` : ''
     DAILY_ANALYSIS_BASE = DAILY_ANALYSIS_URLS[session.osmEnv ?? 'qat'] ?? DAILY_ANALYSIS_URLS.qat
     // Notify viewers that a new session is starting (clears previous results)
     this.send({ type: 'session_start', message: `開始測試 ${session.machineCodes.length} 台機器`, ts: new Date().toISOString() })

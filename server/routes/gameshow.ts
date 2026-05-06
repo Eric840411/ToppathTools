@@ -2,11 +2,12 @@
  * server/routes/gameshow.ts
  * Game Show 工具集後端路由
  * - POST /api/gs/pdf-testcase          — PDF/DOCX 上傳 → Gemini → TestCase 陣列
- * - GET  /api/gs/log-checker-script    — 回傳 intercept.js 注入腳本
+ * - GET  /api/gs/log-checker-script    — 回傳 intercept.js 注入腳本（646行最新版）
+ * - GET  /api/gs/log-compare           — 回傳 log-compare.html 頁面（LOG結構比對工具）
  * - POST /api/gs/img-compare/session   — 啟動圖片比對 session（背景 Playwright 擷取）
  * - GET  /api/gs/img-compare/status/:id — 查詢擷取進度與配對結果
  * - GET  /api/gs/img-compare/img/:id/:side/:idx — 回傳擷取圖片 buffer
- * - POST /api/gs/stats/start           — 啟動 WS 統計 session
+ * - POST /api/gs/stats/start           — 啟動 WS 統計 session（支援 ColorGame V2 bonus-v2 解析）
  * - POST /api/gs/stats/stop/:id        — 停止統計
  * - GET  /api/gs/stats/status/:id      — 查詢統計結果
  */
@@ -69,13 +70,52 @@ interface PairedResult {
   similarity?: number
 }
 
+// ColorGame V2 電子骰顏色代碼（bonus-v2 規格書）
+const COLOR_MAP: Record<number, string> = {
+  801: '黃', 802: '白', 803: '粉', 804: '藍', 805: '紅', 806: '綠'
+}
+
+interface BonusEntry {
+  single_m2: { color: string; rate: number }[]
+  single_m3: { color: string; rate: number }[]
+  any_double: { color: string; rate: number } | null
+  any_triple: { color: string; rate: number } | null
+}
+
 interface StatsSession {
   status: 'running' | 'stopped' | 'error'
   rounds: number
   distribution: Record<string, number>
+  // bonus-v2 模式額外統計
+  mode?: 'generic' | 'bonus-v2'
+  bonusRounds?: number
+  bonusDistribution?: {
+    single_m2: Record<string, number>   // key: `${color}` → count
+    single_m3: Record<string, number>
+    any_double: Record<string, number>  // key: `${color}` → count
+    any_triple: Record<string, number>
+  }
   error?: string
   createdAt: number
   stop?: () => void
+}
+
+/** 解析 d.v[10][143] 電子骰資料（bonus-v2 規格） */
+function parseBonusData(data143: Record<string, any>): BonusEntry {
+  const result: BonusEntry = { single_m2: [], single_m3: [], any_double: null, any_triple: null }
+  for (const [key, val] of Object.entries(data143)) {
+    const k = Number(key)
+    if (k >= 801 && k <= 806) {
+      const color = COLOR_MAP[k] ?? `色${k}`
+      if (val?.matchColors === 2) result.single_m2.push({ color, rate: val.rate ?? 0 })
+      else if (val?.matchColors === 3) result.single_m3.push({ color, rate: val.rate ?? 0 })
+    } else if (k === 807) {
+      result.any_double = { color: COLOR_MAP[val?.bonusColor] ?? String(val?.bonusColor ?? ''), rate: val?.rate ?? 0 }
+    } else if (k === 808) {
+      result.any_triple = { color: COLOR_MAP[val?.bonusColor] ?? String(val?.bonusColor ?? ''), rate: val?.rate ?? 0 }
+    }
+  }
+  return result
 }
 
 // ─── 記憶體 Store ─────────────────────────────────────────────────────────────
@@ -185,6 +225,29 @@ router.get('/api/gs/log-checker-script', (_req, res) => {
   }
 })
 
+// ─── Log Compare Page ─────────────────────────────────────────────────────────
+
+router.get('/api/gs/log-compare', (_req, res) => {
+  try {
+    const htmlPath = join(__dirname, '../static/log-compare.html')
+    const html = readFileSync(htmlPath, 'utf-8')
+    res.set('Content-Type', 'text/html; charset=utf-8')
+    res.send(html)
+  } catch {
+    res.status(500).send('<p>log-compare.html 載入失敗</p>')
+  }
+})
+
+router.get('/api/gs/log-compare-app.js', (_req, res) => {
+  try {
+    const jsPath = join(__dirname, '../static/log-compare-app.js')
+    res.set('Content-Type', 'application/javascript; charset=utf-8')
+    res.sendFile(jsPath)
+  } catch {
+    res.status(500).send('// log-compare-app.js 載入失敗')
+  }
+})
+
 // ─── Img Compare ─────────────────────────────────────────────────────────────
 
 function normalizeName(name: string): string {
@@ -237,8 +300,8 @@ function toMeta(img: CapturedImage) {
 }
 
 const CAPTURE_PRESETS = {
-  standard: { QUIET_MS: 3000, MAX_WAIT_MS: 30000, SCROLL_MAX_MS: 8000 },
-  polling:  { QUIET_MS: 10000, MAX_WAIT_MS: 90000, SCROLL_MAX_MS: 12000 },
+  standard: { QUIET_MS: 3000, MAX_WAIT_MS: 30000, SCROLL_MAX_MS: 8000,  MIN_PHASE_MS: 0,     label: '標準' },
+  polling:  { QUIET_MS: 10000, MAX_WAIT_MS: 90000, SCROLL_MAX_MS: 12000, MIN_PHASE_MS: 22000, label: '含列表輪詢' },
 }
 
 async function captureImages(
@@ -415,14 +478,18 @@ function parseWsFrame(data: string): string | null {
 }
 
 router.post('/api/gs/stats/start', async (req, res) => {
-  const { url } = req.body as { url?: string }
+  const { url, mode } = req.body as { url?: string; mode?: string }
   if (!url) return res.json({ ok: false, message: '需要 url' })
 
+  const statsMode = mode === 'bonus-v2' ? 'bonus-v2' : 'generic'
   const sessionId = crypto.randomBytes(8).toString('hex')
   const session: StatsSession = {
     status: 'running',
     rounds: 0,
     distribution: {},
+    mode: statsMode,
+    bonusRounds: statsMode === 'bonus-v2' ? 0 : undefined,
+    bonusDistribution: statsMode === 'bonus-v2' ? { single_m2: {}, single_m3: {}, any_double: {}, any_triple: {} } : undefined,
     createdAt: Date.now(),
   }
   statsSessions.set(sessionId, session)
@@ -439,12 +506,47 @@ router.post('/api/gs/stats/start', async (req, res) => {
         userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
       })
       const page = await context.newPage()
+      const processedRounds = new Set<string>()
 
       page.on('websocket', ws => {
         ws.on('framereceived', ({ payload }) => {
           if (session.status !== 'running') return
-          const data = typeof payload === 'string' ? payload : payload.toString()
-          const key = parseWsFrame(data)
+          let raw = typeof payload === 'string' ? payload : payload.toString()
+
+          // bonus-v2 模式：解析 ColorGame V2 WebSocket 協定
+          if (statsMode === 'bonus-v2') {
+            // 去掉 $#|#$ 前綴
+            if (raw.startsWith('$#|#$')) raw = raw.slice(5)
+            if (!raw.startsWith('{') && !raw.startsWith('[')) return
+            try {
+              const data = JSON.parse(raw)
+              if (data.e === 'notify' && data.d?.v?.[3] === 'prepareBonusResult') {
+                const roundId = String(data.d?.v?.[10]?.[0] ?? '')
+                if (roundId && processedRounds.has(roundId)) return
+                if (roundId) processedRounds.add(roundId)
+                const data143 = data.d?.v?.[10]?.[143]
+                if (data143 && typeof data143 === 'object' && Object.keys(data143).length > 0) {
+                  const parsed = parseBonusData(data143)
+                  session.bonusRounds = (session.bonusRounds ?? 0) + 1
+                  session.rounds = session.bonusRounds
+                  const bd = session.bonusDistribution!
+                  for (const { color } of parsed.single_m2) bd.single_m2[color] = (bd.single_m2[color] ?? 0) + 1
+                  for (const { color } of parsed.single_m3) bd.single_m3[color] = (bd.single_m3[color] ?? 0) + 1
+                  if (parsed.any_double) bd.any_double[parsed.any_double.color] = (bd.any_double[parsed.any_double.color] ?? 0) + 1
+                  if (parsed.any_triple) bd.any_triple[parsed.any_triple.color] = (bd.any_triple[parsed.any_triple.color] ?? 0) + 1
+                  // 也記錄到 distribution 供通用表格顯示（格式：類型-顏色）
+                  for (const { color } of parsed.single_m2) { const k = `2同-${color}`; session.distribution[k] = (session.distribution[k] ?? 0) + 1 }
+                  for (const { color } of parsed.single_m3) { const k = `3同-${color}`; session.distribution[k] = (session.distribution[k] ?? 0) + 1 }
+                  if (parsed.any_double) { const k = `任意2同`; session.distribution[k] = (session.distribution[k] ?? 0) + 1 }
+                  if (parsed.any_triple) { const k = `任意3同`; session.distribution[k] = (session.distribution[k] ?? 0) + 1 }
+                }
+              }
+            } catch { /* 略過無法解析的 frame */ }
+            return
+          }
+
+          // generic 模式：通用 WS 骰型解析
+          const key = parseWsFrame(raw)
           if (key) {
             session.distribution[key] = (session.distribution[key] ?? 0) + 1
             session.rounds++
@@ -475,7 +577,7 @@ router.post('/api/gs/stats/start', async (req, res) => {
     }) // end browserLimiter.schedule
   })()
 
-  res.json({ ok: true, sessionId })
+  res.json({ ok: true, sessionId, mode: statsMode })
 })
 
 router.post('/api/gs/stats/stop/:id', async (req, res) => {
@@ -486,11 +588,12 @@ router.post('/api/gs/stats/stop/:id', async (req, res) => {
   } else {
     session.status = 'stopped'
   }
+  const modeLabel = session.mode === 'bonus-v2' ? 'ColorGame V2 電子骰' : '通用 WS'
   addHistory(
     'gs-stats',
-    'GS 500x 機率統計',
+    `GS 統計（${modeLabel}）`,
     `共 ${session.rounds} 回合，${Object.keys(session.distribution).length} 種骰型`,
-    { rounds: session.rounds, distribution: session.distribution },
+    { rounds: session.rounds, distribution: session.distribution, mode: session.mode, bonusDistribution: session.bonusDistribution },
   )
   res.json({ ok: true })
 })
@@ -503,6 +606,417 @@ router.get('/api/gs/stats/status/:id', (req, res) => {
     status: session.status,
     rounds: session.rounds,
     distribution: session.distribution,
+    mode: session.mode ?? 'generic',
+    bonusRounds: session.bonusRounds,
+    bonusDistribution: session.bonusDistribution,
     error: session.error,
   })
+})
+
+// ─── Bonus V2 — 電子骰機率驗證工具 ───────────────────────────────────────────
+// Serves the standalone bonus-v2 HTML tool with its own Playwright WS interceptor.
+// API paths are remapped via a monkey-patch shim in the HTML so app.js is unchanged.
+
+const COLOR_MAP_BV2: Record<number, string> = {
+  801: '黃', 802: '白', 803: '粉', 804: '藍', 805: '紅', 806: '綠',
+}
+
+function parseBonusDataBV2(data143: Record<string, { matchColors?: number; rate?: number; bonusColor?: number }>) {
+  const result: {
+    single_m2: { color: string; rate: number }[]
+    single_m3: { color: string; rate: number }[]
+    any_double: { color: string; rate: number } | null
+    any_triple: { color: string; rate: number } | null
+  } = { single_m2: [], single_m3: [], any_double: null, any_triple: null }
+
+  for (const [key, val] of Object.entries(data143)) {
+    const k = Number(key)
+    if (k >= 801 && k <= 806) {
+      const color = COLOR_MAP_BV2[k] ?? `色${k}`
+      if (val.matchColors === 2) result.single_m2.push({ color, rate: val.rate ?? 0 })
+      else if (val.matchColors === 3) result.single_m3.push({ color, rate: val.rate ?? 0 })
+    } else if (k === 807) {
+      result.any_double = { color: COLOR_MAP_BV2[val.bonusColor ?? 0] ?? String(val.bonusColor), rate: val.rate ?? 0 }
+    } else if (k === 808) {
+      result.any_triple = { color: COLOR_MAP_BV2[val.bonusColor ?? 0] ?? String(val.bonusColor), rate: val.rate ?? 0 }
+    }
+  }
+  return result
+}
+
+type Bv2NotifyPayload = { e?: string; d?: { v?: unknown[] } }
+
+function bv2PayloadToText(payload: string | Buffer): string {
+  return (typeof payload === 'string' ? payload : payload.toString('utf8')).trim()
+}
+
+function bv2StripKnownPrefix(raw: string): string {
+  let text = raw.trim()
+  if (text.startsWith('$#|#$')) text = text.slice(5).trim()
+  return text
+}
+
+function bv2ParseJsonCandidate(raw: string): unknown | null {
+  const text = bv2StripKnownPrefix(raw)
+  const candidates = [text]
+  const firstObject = text.indexOf('{')
+  const firstArray = text.indexOf('[')
+  const firstJson = [firstObject, firstArray].filter(i => i >= 0).sort((a, b) => a - b)[0]
+  if (firstJson > 0) candidates.push(text.slice(firstJson))
+
+  for (const candidate of candidates) {
+    if (!candidate.startsWith('{') && !candidate.startsWith('[')) continue
+    try { return JSON.parse(candidate) } catch { /* try next candidate */ }
+  }
+  return null
+}
+
+function bv2FindPrepareBonusPayload(value: unknown): Bv2NotifyPayload | null {
+  if (!value || typeof value !== 'object') return null
+  if (!Array.isArray(value)) {
+    const obj = value as Bv2NotifyPayload
+    if (obj.e === 'notify' && obj.d?.v?.[3] === 'prepareBonusResult') return obj
+  }
+
+  const children = Array.isArray(value) ? value : Object.values(value as Record<string, unknown>)
+  for (const child of children) {
+    const found = bv2FindPrepareBonusPayload(child)
+    if (found) return found
+  }
+  return null
+}
+
+function bv2ShortFrame(raw: string): string {
+  return raw.replace(/\s+/g, ' ').slice(0, 220)
+}
+
+const bv2SseClients = new Set<import('express').Response>()
+let bv2Browser: import('playwright').Browser | null = null
+let bv2Collecting = false
+let bv2RoundCount = 0
+let bv2TargetRounds = 0
+
+function bv2SendSSE(event: string, data: unknown) {
+  const msg = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+  for (const c of bv2SseClients) {
+    try { c.write(msg) } catch { bv2SseClients.delete(c) }
+  }
+}
+
+async function bv2DoStop(reason?: string) {
+  if (!bv2Collecting && !bv2Browser) return
+  bv2Collecting = false
+  bv2SendSSE('status', {
+    collecting: false,
+    current: bv2RoundCount,
+    target: bv2TargetRounds,
+    message: reason ?? `已停止，共收集 ${bv2RoundCount} 局`,
+  })
+  if (bv2Browser) {
+    try { await bv2Browser.close() } catch {}
+    bv2Browser = null
+  }
+}
+
+router.get('/api/gs/bonus-v2', (_req, res) => {
+  try {
+    const html = readFileSync(join(__dirname, '../static/bonus-v2.html'), 'utf-8')
+    res.set('Content-Type', 'text/html; charset=utf-8').send(html)
+  } catch { res.status(500).send('<p>bonus-v2.html 載入失敗</p>') }
+})
+
+router.get('/api/gs/bonus-v2-app.js', (_req, res) => {
+  try {
+    const jsPath = join(__dirname, '../static/bonus-v2-app.js')
+    res.set('Content-Type', 'application/javascript; charset=utf-8')
+    res.sendFile(jsPath)
+  } catch { res.status(500).send('// bonus-v2-app.js 載入失敗') }
+})
+
+router.get('/api/gs/bonus-v2/events', (req, res) => {
+  res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' })
+  res.flushHeaders()
+  res.write(': heartbeat\n\n')
+  bv2SseClients.add(res)
+  bv2SendSSE('debug', { msg: 'Bonus V2 Debug 已連線，等待開始收集' })
+  bv2SendSSE('status', {
+    collecting: bv2Collecting,
+    current: bv2RoundCount,
+    target: bv2TargetRounds,
+    message: bv2Collecting ? '後端仍在收集中' : '目前未收集',
+  })
+  const hb = setInterval(() => { try { res.write(': heartbeat\n\n') } catch { clearInterval(hb) } }, 15000)
+  req.on('close', () => { clearInterval(hb); bv2SseClients.delete(res) })
+})
+
+router.post('/api/gs/bonus-v2/start', async (req, res) => {
+  if (bv2Collecting) return res.json({ ok: false, error: '已在收集中，請先停止' })
+  const { url, rounds } = req.body as { url: string; rounds: number }
+  if (!url || !/^https?:\/\//i.test(url)) return res.json({ ok: false, error: '請輸入有效的網址（http / https）' })
+
+  bv2TargetRounds = Math.max(1, parseInt(String(rounds)) || 100)
+  bv2SendSSE('debug', { msg: `收到開始收集請求：目標 ${bv2TargetRounds} 局，URL：${url}` })
+  bv2RoundCount = 0
+  bv2Collecting = true
+  const processedRounds = new Set<string>()
+  res.json({ ok: true })
+
+  try {
+    bv2Browser = await chromium.launch({ headless: false })
+    const context = await bv2Browser.newContext()
+    const page = await context.newPage()
+    let wsCount = 0
+
+    page.on('websocket', ws => {
+      wsCount++
+      let frameCount = 0
+      let ignoredDebugCount = 0
+      bv2SendSSE('debug', { msg: `偵測到 WebSocket 連線 #${wsCount}：${ws.url()}` })
+
+      ws.on('framereceived', frame => {
+        if (!bv2Collecting) return
+        frameCount++
+        const raw = bv2PayloadToText(frame.payload)
+        const data = bv2ParseJsonCandidate(raw)
+        const notify = bv2FindPrepareBonusPayload(data)
+        if (!notify) {
+          if (ignoredDebugCount < 5) {
+            ignoredDebugCount++
+            bv2SendSSE('debug', { msg: `WS #${wsCount} 收到 frame #${frameCount}，但尚未命中 prepareBonusResult：${bv2ShortFrame(raw)}` })
+          }
+          return
+        }
+
+        const v = notify.d?.v as unknown[] | undefined
+        const roundId = String((v?.[10] as unknown[])?.[0] ?? '')
+        if (roundId && processedRounds.has(roundId)) return
+        if (roundId) processedRounds.add(roundId)
+        const data143 = (v?.[10] as Record<string, unknown> | undefined)?.[143] as Record<string, { matchColors?: number; rate?: number; bonusColor?: number }> | undefined
+        if (data143 && typeof data143 === 'object' && Object.keys(data143).length > 0) {
+          bv2RoundCount++
+          const parsed = parseBonusDataBV2(data143)
+          bv2SendSSE('debug', { msg: `命中 prepareBonusResult，第 ${bv2RoundCount} 局` })
+          bv2SendSSE('round', { round: bv2RoundCount, time: new Date().toLocaleTimeString('zh-TW', { hour12: false }), ...parsed })
+          bv2SendSSE('status', { collecting: true, current: bv2RoundCount, target: bv2TargetRounds })
+          if (bv2RoundCount >= bv2TargetRounds) bv2DoStop(`已完成收集 ${bv2RoundCount} 局`)
+        } else if (ignoredDebugCount < 5) {
+          ignoredDebugCount++
+          bv2SendSSE('debug', { msg: `命中 prepareBonusResult，但找不到 v[10][143]：${bv2ShortFrame(raw)}` })
+        }
+      })
+    })
+
+    bv2SendSSE('status', { collecting: true, current: 0, target: bv2TargetRounds, message: '正在開啟遊戲頁面...' })
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 })
+    bv2SendSSE('status', { collecting: true, current: 0, target: bv2TargetRounds, message: '頁面已開啟，等待電子骰資料...' })
+  } catch (err) {
+    bv2Collecting = false
+    bv2SendSSE('error', { message: `啟動失敗：${err instanceof Error ? err.message : String(err)}` })
+    if (bv2Browser) { try { await bv2Browser.close() } catch {}; bv2Browser = null }
+  }
+})
+
+router.post('/api/gs/bonus-v2/stop', async (_req, res) => {
+  await bv2DoStop()
+  res.json({ ok: true })
+})
+
+// ─── Img Compare V2 (app.js 相容 SSE 串流版) ───────────────────────────────────
+
+router.get('/api/gs/img-compare', (_req, res) => {
+  try {
+    const htmlPath = join(__dirname, '../static/img-compare.html')
+    res.set('Content-Type', 'text/html; charset=utf-8')
+    res.sendFile(htmlPath)
+  } catch {
+    res.status(500).send('<p>img-compare.html 載入失敗</p>')
+  }
+})
+
+router.get('/api/gs/img-compare-app.js', (_req, res) => {
+  try {
+    const jsPath = join(__dirname, '../static/img-compare-app.js')
+    res.set('Content-Type', 'application/javascript; charset=utf-8')
+    res.sendFile(jsPath)
+  } catch {
+    res.status(500).send('// img-compare-app.js 載入失敗')
+  }
+})
+
+// GET /api/gs/img-compare/session — 建立新 session，供 app.js 在擷取前呼叫
+router.get('/api/gs/img-compare/session', (_req, res) => {
+  const sessionId = crypto.randomBytes(8).toString('hex')
+  imgSessions.set(sessionId, {
+    a: { status: { done: false, count: 0 }, images: [] },
+    b: { status: { done: false, count: 0 }, images: [] },
+    pairs: [],
+    createdAt: Date.now(),
+  })
+  res.json({ sessionId })
+})
+
+// POST /api/gs/img-compare/capture — SSE 串流擷取單一側圖片，供 app.js 呼叫
+router.post('/api/gs/img-compare/capture', async (req, res) => {
+  const { url, side, sessionId, captureMode } = req.body as {
+    url?: string; side?: string; sessionId?: string; captureMode?: string
+  }
+  if (!url || !sessionId) return res.status(400).json({ error: 'missing url or sessionId' })
+
+  const sideKey = ((side || 'A').toLowerCase() === 'b' ? 'b' : 'a') as 'a' | 'b'
+
+  let session = imgSessions.get(sessionId)
+  if (!session) {
+    session = {
+      a: { status: { done: false, count: 0 }, images: [] },
+      b: { status: { done: false, count: 0 }, images: [] },
+      pairs: [],
+      createdAt: Date.now(),
+    }
+    imgSessions.set(sessionId, session)
+  }
+  const sideRef = session[sideKey]
+  sideRef.status.done = false
+  sideRef.status.count = 0
+  sideRef.images = []
+
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  })
+  res.flushHeaders()
+
+  const send = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`)
+
+  const preset = captureMode === 'polling' ? CAPTURE_PRESETS.polling : CAPTURE_PRESETS.standard
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null
+
+  interface ClientImage {
+    filename: string; url: string; size: number; contentType: string;
+    httpStatus: number; imgSrc: string | null; cacheOnly: boolean;
+  }
+  const okList: (CapturedImage & { imgSrc?: string; cacheOnly?: boolean })[] = []
+  const failedList: { filename: string; url: string; httpStatus: number; contentType: string; bodyPreview?: string }[] = []
+  const seenKeys = new Set<string>()
+
+  try {
+    send({ type: 'status', message: '啟動瀏覽器…' })
+    browser = await chromium.launch({ headless: true })
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+    })
+    const page = await context.newPage()
+    let lastNewAt = Date.now()
+
+    page.on('response', async (response) => {
+      if (response.request().resourceType() !== 'image') return
+      const status = response.status()
+      const imgUrl = response.url()
+      let headers: Record<string, string>
+      try { headers = response.headers() } catch { return }
+      const ct = (headers['content-type'] || '').split(';')[0].trim().toLowerCase()
+      const rawName = imgUrl.split('/').pop()!.split('?')[0]
+      const filename = decodeURIComponent(rawName) || 'unknown'
+      lastNewAt = Date.now()
+
+      if (status === 304) {
+        const key = `304|${filename}`
+        if (seenKeys.has(key)) return
+        seenKeys.add(key)
+        const idx = okList.length
+        const imgObj = Object.assign(
+          { idx, filename, url: imgUrl, size: 0, contentType: ct || 'image/', buffer: null, httpStatus: 304 },
+          { imgSrc: null, cacheOnly: true },
+        )
+        okList.push(imgObj)
+        sideRef.images = okList as CapturedImage[]
+        sideRef.status.count = okList.length
+        send({ type: 'progress', count: okList.length, httpStatus: 304, filename, note: '快取命中' })
+        return
+      }
+
+      if (status >= 400 || !ct.startsWith('image/')) {
+        failedList.push({ filename, url: imgUrl, httpStatus: status, contentType: ct })
+        send({ type: 'progressFail', countFail: failedList.length, filename, httpStatus: status })
+        return
+      }
+
+      let buffer: Buffer | null = null
+      try { buffer = await response.body() } catch { return }
+      if (!buffer || buffer.length === 0) return
+      if (buffer.length > 8 * 1024 * 1024) return
+      const key = `${filename}|${buffer.length}|${ct}`
+      if (seenKeys.has(key)) return
+      seenKeys.add(key)
+      const idx = okList.length
+      const imgSrcPath = `/api/gs/img-compare/img/${sessionId}/${sideKey}/${idx}`
+      const imgObj = Object.assign(
+        { idx, filename, url: imgUrl, size: buffer.length, contentType: ct, buffer, httpStatus: status },
+        { imgSrc: imgSrcPath, cacheOnly: false },
+      )
+      okList.push(imgObj)
+      sideRef.images = okList as CapturedImage[]
+      sideRef.status.count = okList.length
+      send({ type: 'progress', count: okList.length, httpStatus: status, filename })
+    })
+
+    send({ type: 'status', message: '載入頁面…' })
+    try { await page.goto(url, { waitUntil: 'networkidle', timeout: 40_000 }) } catch { /* ignore */ }
+
+    try {
+      await page.evaluate(async (maxMs: number) => {
+        await new Promise<void>(resolve => {
+          let scrolled = 0
+          const timer = setInterval(() => {
+            window.scrollBy(0, 400); scrolled += 400
+            if (scrolled >= document.body.scrollHeight) { clearInterval(timer); resolve() }
+          }, 120)
+          setTimeout(() => { clearInterval(timer); resolve() }, maxMs)
+        })
+      }, preset.SCROLL_MAX_MS)
+    } catch { /* ignore */ }
+
+    const phaseStart = Date.now()
+    let lastTickSec = -1
+    while (true) {
+      const now = Date.now()
+      const idleFor = now - lastNewAt
+      const waited = now - phaseStart
+      const phaseElapsed = now - phaseStart
+      const minPhaseMet = phaseElapsed >= preset.MIN_PHASE_MS
+      const idleQuietMet = idleFor >= preset.QUIET_MS
+      const idleSec = Math.floor(idleFor / 1000)
+      if (idleSec !== lastTickSec) {
+        const minHint = minPhaseMet ? '' : ` · 最少擷取 ${Math.floor(phaseElapsed / 1000)}s / ${Math.floor(preset.MIN_PHASE_MS / 1000)}s`
+        send({ type: 'status', message: `等待收斂：成功 ${okList.length}、失敗 ${failedList.length}，靜止 ${idleSec}s / ${Math.floor(preset.QUIET_MS / 1000)}s${minHint}` })
+        lastTickSec = idleSec
+      }
+      if (idleQuietMet && minPhaseMet) break
+      if (waited >= preset.MAX_WAIT_MS) break
+      await page.waitForTimeout(300)
+    }
+
+    await browser.close(); browser = null
+    sideRef.status.done = true
+
+    const okForClient: ClientImage[] = okList.map(img => ({
+      filename: img.filename,
+      url: img.url,
+      size: img.size,
+      contentType: img.contentType,
+      httpStatus: img.httpStatus,
+      imgSrc: (img as any).imgSrc ?? null,
+      cacheOnly: (img as any).cacheOnly ?? false,
+    }))
+
+    send({ type: 'done', ok: okForClient, failed: failedList, totalOk: okList.length, totalFailed: failedList.length })
+    res.end()
+  } catch (e) {
+    if (browser) await browser.close().catch(() => {})
+    sideRef.status.done = true
+    send({ type: 'error', message: String(e) })
+    res.end()
+  }
 })

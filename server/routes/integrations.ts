@@ -5,6 +5,7 @@
 import { Router } from 'express'
 import mammoth from 'mammoth'
 import { PDFParse } from 'pdf-parse'
+import * as XLSX from 'xlsx'
 import { z } from 'zod'
 import {
   db,
@@ -41,6 +42,12 @@ interface TestCase {
   預期結果: string
   優先級: string
   來源?: string
+  // Extended fields (diff / baseline modes)
+  編號?: string
+  規格來源?: string
+  版本標籤?: string
+  status?: 'valid' | 'obsolete' | 'new'
+  replacedBy?: string | null
 }
 
 interface JiraTestCase {
@@ -169,25 +176,53 @@ function extractJsonBlock(raw: string): string {
  * Gemini 有時在 JSON 字串值內輸出真實的換行/tab，導致 JSON.parse 失敗。
  * 此函式掃描字元，將字串值內的 literal 控制字元轉義。
  */
+const VALID_JSON_ESCAPES = new Set(['"', '\\', '/', 'b', 'f', 'n', 'r', 't', 'u'])
+
 function sanitizeJsonLiterals(json: string): string {
   let inString = false
   let escaped = false
   let result = ''
   for (const char of json) {
-    if (escaped) { result += char; escaped = false; continue }
+    if (escaped) {
+      if (!VALID_JSON_ESCAPES.has(char)) {
+        // Bare backslash not followed by valid escape — add extra \ to escape it
+        result += '\\' + char
+      } else {
+        result += char
+      }
+      escaped = false
+      continue
+    }
     if (char === '\\' && inString) { escaped = true; result += char; continue }
     if (char === '"') { inString = !inString; result += char; continue }
     if (inString) {
       if (char === '\n') { result += '\\n'; continue }
       if (char === '\r') { result += '\\r'; continue }
       if (char === '\t') { result += '\\t'; continue }
+      if (char === '\b') { result += '\\b'; continue }
+      if (char === '\f') { result += '\\f'; continue }
     }
     result += char
   }
   return result
 }
 
-const generateWithGemini = async (docContent: string, promptId?: string, jiraIssues?: object[], modelSpec?: string): Promise<TestCase[] | JiraTestCaseResult> => {
+/** Last-resort: truncate an incomplete JSON array at the last complete object */
+function repairTruncatedArray(json: string): string {
+  const trimmed = json.trim()
+  if (!trimmed.startsWith('[')) return trimmed
+  const lastClose = trimmed.lastIndexOf('}')
+  if (lastClose === -1) return '[]'
+  return trimmed.slice(0, lastClose + 1) + ']'
+}
+
+const generateWithGemini = async (
+  docContent: string,
+  promptId?: string,
+  jiraIssues?: object[],
+  modelSpec?: string,
+  extraVars?: Record<string, string>,
+): Promise<TestCase[] | JiraTestCaseResult> => {
   const prompts = readGeminiPrompts()
   const tpl = (promptId ? prompts.find(p => p.id === promptId) : null)
     ?? prompts.find(p => p.id === 'testcase-default')
@@ -199,7 +234,9 @@ const generateWithGemini = async (docContent: string, promptId?: string, jiraIss
   const prompt = renderPrompt(tpl.template, {
     rawText: docContent.slice(0, 12000),
     docContent: docContent.slice(0, 12000),
+    specText: docContent.slice(0, 12000),   // alias used by testcase-second-pass
     jira_issues: jiraJson,
+    ...extraVars,
   })
   const raw = await callLLM(prompt, modelSpec)
   console.log('[TestCase] Gemini 原始回傳前 300 字：', raw.slice(0, 300))
@@ -208,11 +245,17 @@ const generateWithGemini = async (docContent: string, promptId?: string, jiraIss
   try {
     return JSON.parse(extracted)
   } catch {
-    // Gemini sometimes outputs literal newlines inside JSON strings — sanitize and retry
+    // Pass 2: escape literal control chars and bare backslashes in JSON strings
+    const sanitized = sanitizeJsonLiterals(extracted)
     try {
-      return JSON.parse(sanitizeJsonLiterals(extracted))
+      return JSON.parse(sanitized)
     } catch {
-      throw new Error(`Gemini 回傳格式非合法 JSON：${extracted.slice(0, 300)}`)
+      // Pass 3: truncated response — cut at last complete object
+      try {
+        return JSON.parse(repairTruncatedArray(sanitized))
+      } catch {
+        throw new Error(`Gemini 回傳格式非合法 JSON：${extracted.slice(0, 300)}`)
+      }
     }
   }
 }
@@ -303,6 +346,11 @@ const createBitableForTestCases = async (name: string, folderToken: string): Pro
     { field_name: '前置條件', type: 1 },
     { field_name: '預期結果', type: 1 },
     { field_name: '來源',     type: 1 },
+    { field_name: '編號',     type: 1 },
+    { field_name: '規格來源', type: 1 },
+    { field_name: '版本標籤', type: 1 },
+    { field_name: '狀態',     type: 1 },
+    { field_name: '取代者',   type: 1 },
   ]
 
   for (const field of extraFields) {
@@ -350,6 +398,11 @@ const writeTestCasesToBitable = async (cases: TestCase[], specUrl: string): Prom
       '預期結果': tc.預期結果,
       '優先級': tc.優先級,
       ...(tc.來源 ? { '來源': tc.來源 } : {}),
+      ...(tc.編號 ? { '編號': tc.編號 } : {}),
+      ...(tc.規格來源 ? { '規格來源': tc.規格來源 } : {}),
+      ...(tc.版本標籤 ? { '版本標籤': tc.版本標籤 } : {}),
+      ...(tc.status ? { '狀態': tc.status } : {}),
+      ...(tc.replacedBy != null ? { '取代者': String(tc.replacedBy) } : {}),
     },
   }))
 
@@ -711,6 +764,191 @@ const multiWritebackGoogle = async (sheetUrl: string, writes: MultiWrite[], acce
   return writes.map(w => ({ rowIndex: w.rowIndex, ok, error: ok ? undefined : errMsg }))
 }
 
+// ─── Baseline Source Helper ───────────────────────────────────────────────────
+
+type ExistingCasesSource = {
+  type: 'json' | 'lark' | 'csv' | 'xlsx'
+  content?: string
+  url?: string
+}
+
+/** Convert any baseline source to a JSON string for {{existing_cases}} injection */
+async function fetchExistingCasesFromSource(src: ExistingCasesSource): Promise<string> {
+  if (src.type === 'json') {
+    return (src.content ?? '').slice(0, 16000)
+  }
+
+  if (src.type === 'csv') {
+    const csv = src.content ?? ''
+    const lines = csv.split(/\r?\n/).filter(l => l.trim())
+    if (lines.length < 2) return '[]'
+    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''))
+    const rows = lines.slice(1).map(line => {
+      const cols = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''))
+      const obj: Record<string, string> = {}
+      headers.forEach((h, i) => { obj[h] = cols[i] ?? '' })
+      return obj
+    })
+    return JSON.stringify(rows).slice(0, 16000)
+  }
+
+  if (src.type === 'xlsx') {
+    const buf = Buffer.from(src.content ?? '', 'base64')
+    const wb = XLSX.read(buf, { type: 'buffer' })
+    const ws = wb.Sheets[wb.SheetNames[0]]
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { defval: '' })
+    return JSON.stringify(rows).slice(0, 16000)
+  }
+
+  // lark bitable
+  const url = src.url ?? ''
+  const appToken = url.match(/\/base\/([A-Za-z0-9]+)/)?.[1]
+  const tableId = new URL(url).searchParams.get('table')
+  if (!appToken || !tableId) return '[]'
+
+  const token = await getLarkToken()
+  const base = 'https://open.feishu.cn'
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+
+  const allRecords: Record<string, unknown>[] = []
+  let pageToken: string | undefined
+  do {
+    const qs = new URLSearchParams({ page_size: '200', ...(pageToken ? { page_token: pageToken } : {}) })
+    const resp = await fetch(`${base}/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records?${qs}`, { headers })
+    const data = await resp.json() as {
+      code: number
+      data?: { items?: Array<{ fields: Record<string, unknown> }>; has_more?: boolean; page_token?: string }
+    }
+    if (data.code !== 0) break
+    for (const item of data.data?.items ?? []) allRecords.push(item.fields)
+    pageToken = data.data?.has_more ? data.data.page_token : undefined
+  } while (pageToken)
+
+  return JSON.stringify(allRecords).slice(0, 16000)
+}
+
+// ─── Second Pass Helper ───────────────────────────────────────────────────────
+
+const SECOND_PASS_REQUIRED_FIELDS: (keyof TestCase)[] = [
+  '測試模組', '測試維度', '測試標題', '前置條件', '操作步驟', '預期結果', '優先級',
+]
+
+/** Run a second Gemini call to fill empty fields in generated TestCases */
+async function runSecondPass(cases: TestCase[], specText: string, modelSpec?: string): Promise<TestCase[]> {
+  const incomplete = cases.filter(tc =>
+    SECOND_PASS_REQUIRED_FIELDS.some(f => !tc[f] || String(tc[f]).trim() === '')
+  )
+  if (incomplete.length === 0) return cases
+
+  const secondExtraVars = {
+    incompleteCasesJson: JSON.stringify(incomplete).slice(0, 8000),
+    specText: specText.slice(0, 6000),
+  }
+  const secondResult = await generateWithGemini(
+    specText,
+    'testcase-second-pass',
+    undefined,
+    modelSpec,
+    secondExtraVars,
+  )
+  const filledCases: TestCase[] = Array.isArray(secondResult) ? secondResult as TestCase[] : []
+  if (filledCases.length === 0) return cases
+
+  // Build lookup by 編號; fall back to positional index within incomplete list
+  const filledByNum = new Map<string, TestCase>()
+  const filledByIdx = new Map<number, TestCase>()
+  filledCases.forEach((tc, i) => {
+    if (tc.編號) filledByNum.set(tc.編號, tc)
+    filledByIdx.set(i, tc)
+  })
+
+  let incompleteIdx = 0
+  return cases.map(tc => {
+    const wasIncomplete = incomplete.some(ic => ic === tc)
+    if (!wasIncomplete) return tc
+    const filled = filledByNum.get(tc.編號 ?? '') ?? filledByIdx.get(incompleteIdx)
+    incompleteIdx++
+    return filled ? { ...tc, ...Object.fromEntries(Object.entries(filled).filter(([, v]) => v !== '' && v != null)) } : tc
+  })
+}
+
+// ─── Default Prompt Seeding ──────────────────────────────────────────────────
+
+/** Ensure diff and baseline prompt templates exist in the DB (upsert on first use) */
+function seedTestcasePrompts() {
+  const upsert = db.prepare(
+    'INSERT OR REPLACE INTO gemini_prompts (id, name, template, category) VALUES (?, ?, ?, ?)'
+  )
+
+  upsert.run(
+    'testcase-diff',
+    'TestCase 差異比對',
+    `你是一位資深遊戲 QA 測試專家。請針對以下【舊版規格】與【新版規格】進行「差異增量掃描」，僅針對「變動或新增」的邏輯產出結構化測試案例。
+
+【舊版規格】
+{{old_spec}}
+
+【新版規格】
+{{docContent}}
+
+規則：
+- 只生成因差異而需要的測試案例，不重複產生未變動的部分
+- 有變動的案例在測試標題前加 [變更]，全新的加 [新增]
+- 每個測試案例必須有唯一的編號（格式：TC-001, TC-002...）
+- 規格來源填入對應的規格書標題或 URL
+- 版本標籤統一填入：{{version_tag}}
+- 嚴格輸出 JSON 陣列，不得含 Markdown 或其他文字
+
+輸出格式（JSON 陣列，每個物件含以下欄位）：
+測試模組, 測試維度, 測試標題, 前置條件, 操作步驟, 預期結果, 優先級(P0/P1/P2), 編號(格式TC-001), 規格來源, 版本標籤`,
+    'testcase',
+  )
+
+  upsert.run(
+    'testcase-baseline',
+    'TestCase 基線驗證',
+    `你是一位資深遊戲 QA 測試專家。請根據【新版規格書】與【既有 TestCase 清單】做覆蓋比對，輸出可直接執行的測試案例結果。
+
+【新版規格書】
+{{docContent}}
+
+【既有 TestCase 清單（JSON）】
+{{existing_cases}}
+
+任務：
+1. 保留仍然有效的測試案例（status: "valid"），保留其原有 編號、規格來源、版本標籤
+2. 標記已過時的案例（status: "obsolete"，replacedBy 填入取代者編號或 null）
+3. 針對規格變動或新增邏輯，產出新測試案例（status: "new"），分配新的 編號（延續既有最大號碼）、規格來源；版本標籤統一填入：{{version_tag}}
+
+嚴格輸出 JSON 陣列，不得含 Markdown 或其他文字。
+
+輸出格式（JSON 陣列，每個物件含以下欄位）：
+測試模組, 測試維度, 測試標題, 前置條件, 操作步驟, 預期結果, 優先級(P0/P1/P2), 編號(格式TC-001), 規格來源, 版本標籤, status("valid"/"obsolete"/"new"), replacedBy(string|null)`,
+    'testcase',
+  )
+
+  upsert.run(
+    'testcase-second-pass',
+    'TestCase AI 補填（Second Pass）',
+    `你是一位資深遊戲 QA 測試專家。以下是部分欄位為空的測試案例，請根據【規格書內容】補全缺少的欄位。
+
+【需補全的案例（JSON）】：
+{{incompleteCasesJson}}
+
+【規格書內容】：
+{{specText}}
+
+### 輸出規範：
+- 回傳完整的 JSON 陣列，每個物件保留原有「編號」不變
+- 僅補全空白欄位，非空欄位原樣保留
+- 每個欄位皆為必填，根據測試標題和規格內容合理推斷；若實在無法判斷，填「—」
+- 不包含 Markdown 標記，不包含任何說明文字`,
+    'testcase',
+  )
+}
+
+try { seedTestcasePrompts() } catch { /* non-fatal */ }
+
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 /**
@@ -806,7 +1044,53 @@ router.post('/api/integrations/lark/generate-testcases', async (req, res) => {
         ? `[注意：以下包含 ${docParts.length} 份規格書，請整合分析並生成完整測試案例，避免重複。]\n\n${docContent}`
         : docContent
 
-      const result = await generateWithGemini(finalContent, body.promptId, jiraIssues, body.modelSpec)
+      // Build extra template vars for diff / baseline modes
+      const extraVars: Record<string, string> = {}
+
+      // Diff mode: fetch old spec sources and pass as {{old_spec}}
+      if (body.oldSources && body.oldSources.length > 0) {
+        const oldParts: string[] = []
+        for (let i = 0; i < body.oldSources.length; i++) {
+          const src = body.oldSources[i]
+          if (src.type === 'gdocs') {
+            const docId = src.url?.match(/\/document\/d\/([^/?\s]+)/)?.[1]
+            if (!docId) continue
+            const exportUrl = `https://docs.google.com/document/d/${docId}/export?format=txt`
+            const resp = await fetch(exportUrl)
+            if (resp.ok) oldParts.push(await resp.text())
+          } else if (src.type === 'pdf') {
+            if (!src.content) continue
+            const buf = Buffer.from(src.content, 'base64')
+            const parsed = await PDFParse(buf)
+            oldParts.push(parsed.text)
+          } else if (src.type === 'csv') {
+            if (!src.content) continue
+            // Convert CSV rows to readable text for the prompt
+            const lines = src.content.split(/\r?\n/).filter(l => l.trim())
+            oldParts.push(lines.join('\n'))
+          } else {
+            // lark
+            const documentId = src.url?.match(/\/wiki\/([A-Za-z0-9]+)/)?.[1]
+            if (!documentId) continue
+            oldParts.push(await fetchLarkDocContent(documentId))
+          }
+        }
+        extraVars.old_spec = oldParts.join('\n\n').slice(0, 8000)
+      }
+
+      // Baseline / Second Pass: resolve existing cases from source (json / lark / csv / xlsx)
+      if (body.existingCasesSource) {
+        const casesStr = await fetchExistingCasesFromSource(body.existingCasesSource)
+        extraVars.existing_cases = casesStr
+        extraVars.incompleteCasesJson = casesStr  // alias for testcase-second-pass prompt
+      }
+
+      // Always inject today's date as version_tag (e.g. "20260505_v1")
+      const today = new Date()
+      const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '')
+      extraVars.version_tag = `${dateStr}_v1`
+
+      const result = await generateWithGemini(finalContent, body.promptId, jiraIssues, body.modelSpec, extraVars)
 
       if (!Array.isArray(result) && result && typeof result === 'object' && 'test_cases' in result) {
         const jiraResult = result as JiraTestCaseResult
@@ -816,7 +1100,11 @@ router.post('/api/integrations/lark/generate-testcases', async (req, res) => {
         addHistory('testcase', `TestCase 生成 — ${srcLabel}`, `生成 ${count} 筆，寫入 ${written} 筆`, { sourceLabel, cases: jiraResult.test_cases, bitableUrl })
         finishJob(requestId, { ok: true, generated: count, written, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira' })
       } else {
-        const cases = result as TestCase[]
+        let cases = result as TestCase[]
+        if (body.secondPass) {
+          try { cases = await runSecondPass(cases, finalContent, body.modelSpec) }
+          catch (e) { log('warn', clientIp, user, 'Second Pass 失敗（略過）', e instanceof Error ? e.message : String(e)) }
+        }
         const { written, bitableUrl } = await writeTestCasesToBitable(cases, sourceLabel)
         log('ok', clientIp, user, 'TestCase 生成完成', `生成 ${cases.length} 筆，寫入 ${written} 筆`)
         addHistory('testcase', `TestCase 生成 — ${srcLabel}`, `生成 ${cases.length} 筆，寫入 ${written} 筆`, { sourceLabel, cases, bitableUrl })
@@ -908,7 +1196,7 @@ router.get('/api/integrations/lark/generate-testcases/monitor', (req, res) => {
 /**
  * POST /api/integrations/generate-testcases-file
  * 上傳 PDF 或 DOCX 規格書，透過 Gemini 生成 TestCase 並寫入 Lark Bitable。
- * @limit 20MB per file（multer memoryStorage）。
+ * @limit 30MB per file（multer memoryStorage）。
  */
 const extractFileContent = async (file: Express.Multer.File): Promise<string> => {
   const originalname = Buffer.from(file.originalname, 'latin1').toString('utf8')
@@ -926,11 +1214,17 @@ const extractFileContent = async (file: Express.Multer.File): Promise<string> =>
   throw new Error(`不支援的格式：${originalname}`)
 }
 
-router.post('/api/integrations/generate-testcases-file', upload.array('files', 5), async (req, res, next) => {
+router.post(
+  '/api/integrations/generate-testcases-file',
+  upload.fields([{ name: 'files', maxCount: 5 }, { name: 'oldFiles', maxCount: 5 }]),
+  async (req, res, next) => {
   try {
-    // Support both `files[]` (multi) and legacy `file` (single via upload.single shim)
-    const uploadedFiles: Express.Multer.File[] = Array.isArray(req.files) ? req.files : (req.file ? [req.file] : [])
+    const fieldFiles = req.files as Record<string, Express.Multer.File[]> | Express.Multer.File[] | undefined
+    const uploadedFiles: Express.Multer.File[] = Array.isArray(fieldFiles)
+      ? fieldFiles
+      : (fieldFiles?.['files'] ?? (req.file ? [req.file] : []))
     if (uploadedFiles.length === 0) return res.status(400).json({ ok: false, message: '請上傳 PDF 或 Word（.docx）檔案' })
+    const oldUploadedFiles: Express.Multer.File[] = Array.isArray(fieldFiles) ? [] : (fieldFiles?.['oldFiles'] ?? [])
 
     const promptId: string | undefined = typeof req.body.promptId === 'string' ? req.body.promptId : undefined
     const modelSpec: string | undefined = typeof req.body.modelSpec === 'string' ? req.body.modelSpec : undefined
@@ -953,10 +1247,51 @@ router.post('/api/integrations/generate-testcases-file', upload.array('files', 5
       ? `[注意：以下包含 ${docParts.length} 份規格書，請整合分析並生成完整測試案例，避免重複。]\n\n${docContent}`
       : docContent
 
+    // Build extraVars for diff / baseline modes (passed via FormData as JSON strings)
+    const extraVars: Record<string, string> = {}
+    if (typeof req.body.oldSources === 'string') {
+      try {
+        const oldSrcs = JSON.parse(req.body.oldSources) as Array<{ type: string; url?: string; content?: string }>
+        if (Array.isArray(oldSrcs) && oldSrcs.length > 0) {
+          const oldParts: string[] = []
+          let oldFileIdx = 0
+          for (const src of oldSrcs) {
+            if (src.type === 'gdocs') {
+              const docId = src.url?.match(/\/document\/d\/([^/?\s]+)/)?.[1]
+              if (docId) { const r = await fetch(`https://docs.google.com/document/d/${docId}/export?format=txt`); if (r.ok) oldParts.push(await r.text()) }
+            } else if (src.type === 'pdf') {
+              // PDF sent as real file in oldFiles[] field
+              const f = oldUploadedFiles[oldFileIdx++]
+              if (f) { const parsed = await PDFParse(f.buffer); oldParts.push(parsed.text) }
+            } else if (src.type === 'csv' && src.content) {
+              oldParts.push(src.content)
+            } else if (src.type === 'lark' && src.url) {
+              const documentId = src.url.match(/\/wiki\/([A-Za-z0-9]+)/)?.[1]
+              if (documentId) oldParts.push(await fetchLarkDocContent(documentId))
+            }
+          }
+          if (oldParts.length) extraVars.old_spec = oldParts.join('\n\n').slice(0, 8000)
+        }
+      } catch { /* ignore parse errors */ }
+    }
+    if (typeof req.body.existingCasesSource === 'string') {
+      try {
+        const src = JSON.parse(req.body.existingCasesSource) as ExistingCasesSource
+        extraVars.existing_cases = await fetchExistingCasesFromSource(src)
+      } catch { /* ignore parse errors */ }
+    }
+    const today = new Date()
+    extraVars.version_tag = `${today.toISOString().slice(0, 10).replace(/-/g, '')}_v1`
+
     const sourceLabel = fileNames.join(', ')
     log('info', getClientIP(req), getUser(req), 'TestCase 生成開始（檔案）', sourceLabel)
-    const cases = await generateWithGemini(finalContent, promptId, undefined, modelSpec)
-    const casesArr = Array.isArray(cases) ? cases as TestCase[] : (cases as JiraTestCaseResult).test_cases as unknown as TestCase[]
+    const cases = await generateWithGemini(finalContent, promptId, undefined, modelSpec, Object.keys(extraVars).length ? extraVars : undefined)
+    let casesArr = Array.isArray(cases) ? cases as TestCase[] : (cases as JiraTestCaseResult).test_cases as unknown as TestCase[]
+    const secondPassEnabled = req.body.secondPass === 'true' || req.body.secondPass === true
+    if (secondPassEnabled) {
+      try { casesArr = await runSecondPass(casesArr, finalContent, modelSpec) }
+      catch (e) { log('warn', getClientIP(req), getUser(req), 'Second Pass 失敗（略過）', e instanceof Error ? e.message : String(e)) }
+    }
     const { written, bitableUrl } = await writeTestCasesToBitable(casesArr, sourceLabel)
 
     log('ok', getClientIP(req), getUser(req), 'TestCase 生成完成', `生成 ${casesArr.length} 筆，寫入 ${written} 筆`)
