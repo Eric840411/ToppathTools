@@ -857,19 +857,24 @@ function fuzzyMatchTCField(key: string): keyof TestCase | undefined {
   const stripped = key.replace(/[(（][^)）]*[)）]/g, '').trim()
   if ((TC_CANONICAL_FIELDS as string[]).includes(stripped)) return stripped as keyof TestCase
 
-  // 3. Canonical is substring of the (possibly decorated) key
-  for (const c of TC_CANONICAL_FIELDS) {
-    if (key.includes(c)) return c
-  }
+  // 3. Canonical is substring of key — prefer LONGEST match so "規格來源" beats
+  //    "來源" when the key is e.g. "規格的來源說明" (most-specific wins)
+  const subMatch = [...TC_CANONICAL_FIELDS]
+    .sort((a, b) => b.length - a.length)
+    .find(c => key.includes(c))
+  if (subMatch) return subMatch
 
-  // 4. Character overlap score — handles typos like "前進條件" vs "前置條件"
+  // 4. Character overlap score — handles typos like "前進條件" vs "前置條件".
+  //    When two candidates tie, prefer the longer (more specific) one.
   let bestScore = 0
   let bestMatch: keyof TestCase | undefined
+  const keyChars = new Set([...key])
   for (const c of TC_CANONICAL_FIELDS) {
-    const keyChars = new Set([...key])
     const overlap = [...c].filter(ch => keyChars.has(ch)).length
     const score = overlap / Math.max(c.length, key.length)
-    if (score > bestScore) { bestScore = score; bestMatch = c }
+    if (score > bestScore || (score === bestScore && bestMatch && c.length > bestMatch.length)) {
+      bestScore = score; bestMatch = c
+    }
   }
   // Only accept if score is high enough to avoid false positives
   return bestScore >= 0.6 ? bestMatch : undefined
