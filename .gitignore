@@ -29,6 +29,12 @@ dist-server
 dist-ssr
 *.local
 
+# Claude Code local settings
+.claude/settings.local.json
+
+# Junk files
+$null
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
