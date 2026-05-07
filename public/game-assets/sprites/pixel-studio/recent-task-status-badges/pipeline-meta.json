@@ -1,0 +1,26 @@
+{
+  "name": "recent-task-status-badges",
+  "rows": 1,
+  "cols": 3,
+  "cell_width": 48,
+  "cell_height": 14,
+  "sheet_size": [
+    144,
+    14
+  ],
+  "duration": 500,
+  "frames": [
+    {
+      "file": "recent-task-status-badges-1.png",
+      "role": "running"
+    },
+    {
+      "file": "recent-task-status-badges-2.png",
+      "role": "done"
+    },
+    {
+      "file": "recent-task-status-badges-3.png",
+      "role": "error"
+    }
+  ]
+}

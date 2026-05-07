@@ -1,0 +1,43 @@
+{
+  "name": "alarm-light-anim",
+  "rows": 1,
+  "cols": 2,
+  "cell_width": 16,
+  "cell_height": 16,
+  "sheet_size": [
+    32,
+    16
+  ],
+  "duration": 300,
+  "source_size": [
+    1774,
+    887
+  ],
+  "key_color": [
+    240,
+    8,
+    224
+  ],
+  "frames": [
+    {
+      "file": "alarm-light-anim-1.png",
+      "bbox": [
+        1,
+        0,
+        14,
+        15
+      ],
+      "touches_edge": true
+    },
+    {
+      "file": "alarm-light-anim-2.png",
+      "bbox": [
+        1,
+        0,
+        15,
+        15
+      ],
+      "touches_edge": true
+    }
+  ]
+}

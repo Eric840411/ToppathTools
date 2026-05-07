@@ -1,0 +1,63 @@
+{
+  "name": "worker-openai-overloaded",
+  "rows": 1,
+  "cols": 4,
+  "cell_width": 64,
+  "cell_height": 96,
+  "sheet_size": [
+    256,
+    96
+  ],
+  "duration": 150,
+  "source_size": [
+    2048,
+    768
+  ],
+  "key_color": [
+    232,
+    0,
+    208
+  ],
+  "frames": [
+    {
+      "file": "worker-openai-overloaded-1.png",
+      "bbox": [
+        1,
+        5,
+        62,
+        90
+      ],
+      "touches_edge": false
+    },
+    {
+      "file": "worker-openai-overloaded-2.png",
+      "bbox": [
+        1,
+        13,
+        62,
+        83
+      ],
+      "touches_edge": false
+    },
+    {
+      "file": "worker-openai-overloaded-3.png",
+      "bbox": [
+        1,
+        19,
+        62,
+        79
+      ],
+      "touches_edge": false
+    },
+    {
+      "file": "worker-openai-overloaded-4.png",
+      "bbox": [
+        1,
+        16,
+        62,
+        81
+      ],
+      "touches_edge": false
+    }
+  ]
+}

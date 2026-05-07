@@ -1,0 +1,96 @@
+{
+  "target": "asset",
+  "mode": "custom",
+  "prompt": "Ollama idle: mysterious hermit wizard in purple-gray cloak reading scroll/book, sleepy nod, old laptop nearby, 2 horizontal frames.",
+  "role": "",
+  "input": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-ollama-idle\\raw-sheet.png",
+  "threshold": 100,
+  "edge_threshold": 150,
+  "duration": 800,
+  "rows": 1,
+  "cols": 2,
+  "cell_size": 96,
+  "fit_scale": 0.88,
+  "trim_border": 4,
+  "edge_clean_depth": 3,
+  "align": "center",
+  "shared_scale": true,
+  "component_mode": "all",
+  "component_padding": 0,
+  "min_component_area": 1,
+  "edge_touch_margin": 0,
+  "frame_labels": [
+    "worker-ollama-idle-1",
+    "worker-ollama-idle-2"
+  ],
+  "frames": [
+    {
+      "grid": [
+        0,
+        0
+      ],
+      "source_box": [
+        0,
+        0,
+        724,
+        1086
+      ],
+      "component_mode": "all",
+      "component_count": 3,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        74,
+        183,
+        716,
+        893
+      ],
+      "edge_touch": false,
+      "output_size": [
+        76,
+        84
+      ],
+      "paste_position": [
+        10,
+        6
+      ]
+    },
+    {
+      "grid": [
+        0,
+        1
+      ],
+      "source_box": [
+        724,
+        0,
+        1448,
+        1086
+      ],
+      "component_mode": "all",
+      "component_count": 4,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        0,
+        188,
+        544,
+        893
+      ],
+      "edge_touch": true,
+      "output_size": [
+        64,
+        83
+      ],
+      "paste_position": [
+        16,
+        6
+      ]
+    }
+  ],
+  "edge_touch_frames": [
+    [
+      0,
+      1
+    ]
+  ]
+}

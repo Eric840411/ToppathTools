@@ -1,0 +1,1 @@
+XP fill bar, 200x12 transparent pixel-art filled progress bar, based on game-design.md.

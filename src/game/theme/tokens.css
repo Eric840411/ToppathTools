@@ -1,0 +1,55 @@
+/* ═══════════════════════════════════════════════════════════
+   TOPPATH QA COMMAND — Design Tokens (game-edition)
+   ═══════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Backgrounds ── */
+  --bg-void:    #020408;
+  --bg-dark:    rgba(3,7,16,0.92);
+  --bg-card:    rgba(5,11,22,0.95);
+  --bg-panel:   rgba(4,9,20,0.97);
+  --bg-hover:   rgba(10,20,40,0.96);
+  --bg-active:  rgba(6,16,34,0.98);
+
+  /* ── Neon palette ── */
+  --neon-cyan:   #00d4ff;
+  --neon-gold:   #ffd700;
+  --neon-green:  #00ff88;
+  --neon-red:    #ff3355;
+  --neon-purple: #9945ff;
+
+  /* ── Text ── */
+  --text-bright:  #f0f8ff;
+  --text-primary: #c0d8ee;
+  --text-dim:     #7aaac8;
+  --text-muted:   #3a5068;
+
+  /* ── Borders ── */
+  --border-bright: #2e6090;
+  --border-mid:    #1a3a58;
+  --border-dim:    #0e2030;
+
+  /* ── Glow helpers ── */
+  --glow-cyan:   0 0 8px #00d4ff88, 0 0 20px #00d4ff44;
+  --glow-gold:   0 0 8px #ffd70088, 0 0 20px #ffd70044;
+  --glow-green:  0 0 8px #00ff8888, 0 0 20px #00ff8844;
+  --glow-red:    0 0 8px #ff335588, 0 0 20px #ff335544;
+  --glow-purple: 0 0 8px #9945ff88, 0 0 20px #9945ff44;
+
+  /* ── Status ── */
+  --status-skip: #556677;
+
+  /* ── Typography ── */
+  --font-pixel: 'Press Start 2P', monospace;
+  --font-mono:  'Share Tech Mono', monospace;
+  --font-retro: 'VT323', monospace;
+
+  /* ── Layout ── */
+  --sidebar-w: 220px;
+  --header-h:  64px;
+  --radius-px: 2px;
+
+  /* ── Transitions ── */
+  --trans-fast: all 80ms steps(2);
+  --trans-mid:  all 160ms steps(4);
+}

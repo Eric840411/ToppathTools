@@ -1,0 +1,1 @@
+FX boss hit, 2 frames, 32x32 target, based on game-design.md.

@@ -1,0 +1,33 @@
+{
+  "name": "quest-board-bg",
+  "rows": 1,
+  "cols": 1,
+  "cell_width": 192,
+  "cell_height": 256,
+  "sheet_size": [
+    192,
+    256
+  ],
+  "duration": 1000,
+  "source_size": [
+    1086,
+    1448
+  ],
+  "key_color": [
+    248,
+    8,
+    232
+  ],
+  "frames": [
+    {
+      "file": "quest-board-bg-1.png",
+      "bbox": [
+        4,
+        7,
+        188,
+        249
+      ],
+      "touches_edge": false
+    }
+  ]
+}

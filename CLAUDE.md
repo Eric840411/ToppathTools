@@ -464,7 +464,10 @@ Keep Claude for:
 ## 版本管理規則
 
 - **Patch (x.x.N)**：bug fix、小調整、文字修正
-- **Minor (x.N.0)**：新功能、新步驟、新頁面、流程重構
+- **Minor (x.N.0)**：新功能、新步驟、新頁面、流程重構 ← **必須進版，不可用 patch 代替**
 - **Major (N.0.0)**：架構重寫、破壞性變更
 - 每次功能更動後必須同步更新 `src/version.ts` 的版本號和 CHANGELOG
 - 本 CLAUDE.md 的 Product Features 章節也需同步更新
+
+> **常見錯誤（禁止）**：新增功能卻只遞增 patch（例如從 3.9.x 一路流水號到 3.9.77 都沒進 minor）。
+> 判斷標準：只要有「新增功能 / 新頁面 / 新流程 / 新步驟」，一律 minor 進版（x.N.0）。

@@ -10,30 +10,16 @@ import { existsSync } from 'fs'
 import { createServer } from 'http'
 import { networkInterfaces } from 'os'
 import { join } from 'path'
+import { Readable } from 'stream'
 import { z } from 'zod'
-import { WebSocketServer } from 'ws'
-import { startDiscordBot, stopDiscordBot } from './discord-bot.js'
+import { WebSocket, WebSocketServer } from 'ws'
 
 // Route files
 import { router as jiraRouter } from './routes/jira.js'
 import { router as geminiRouter } from './routes/gemini.js'
 import { router as osmRouter, restartCron, activeCronTask } from './routes/osm.js'
-import { router as integrationsRouter } from './routes/integrations.js'
-import { router as machineTestRouter, osmMachineStatus, activeRunners } from './routes/machine-test.js'
-import {
-  viewerSockets,
-  broadcastBuffer,
-  agentConnections,
-  claimJob,
-  completeJob,
-  getJobStatuses,
-  cancelDistSession,
-  broadcastToViewers,
-  type AgentInfo,
-} from './agent-hub.js'
-import { router as gameshowRouter } from './routes/gameshow.js'
-import { router as autospinRouter } from './routes/autospin.js'
-import { router as osmUatRouter } from './routes/osm-uat.js'
+import { router as authRouter } from './routes/auth.js'
+import { router as workerStatusRouter } from './routes/worker-status.js'
 import { runWithRequestContext } from './request-context.js'
 
 // Shared logger
@@ -71,21 +57,15 @@ const gracefulShutdown = (signal: string) => {
   wss.clients.forEach(ws => ws.terminate())
   wss.close()
 
-  // 2. Stop active machine-test runners
-  for (const runner of activeRunners.values()) {
-    try { runner.stop() } catch {}
-  }
-  activeRunners.clear()
-
-  // 3. Stop cron job
+  // 2. Stop cron job
   console.log('[Shutdown] stopping cron...')
   activeCronTask?.stop()
 
-  // 4. Destroy Discord bot connection
+  // 3. Destroy Discord bot connection
   console.log('[Shutdown] stopping discord bot...')
-  stopDiscordBot()
+  stopDiscordBotRef?.()
 
-  // 5. Close HTTP server — closeAllConnections() force-closes SSE & keep-alive
+  // 4. Close HTTP server — closeAllConnections() force-closes SSE & keep-alive
   console.log('[Shutdown] closing http server...')
   if (typeof (server as any).closeAllConnections === 'function') {
     ;(server as any).closeAllConnections()
@@ -105,9 +85,31 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
 process.on('SIGINT',  () => gracefulShutdown('SIGINT'))
 const serverStartedAt = Date.now()
 const serverBootId = `${process.pid}-${serverStartedAt}`
+let stopDiscordBotRef: (() => void) | null = null
+let integrationsRouterPromise: Promise<express.Router> | null = null
+
+function shouldProxyPathToWorker(p: string): boolean {
+  if (p.startsWith('/api/gs/')) return true
+  if (p.startsWith('/api/image-check/')) return true
+  if (p.startsWith('/api/machine-test/')) return true
+  if (p === '/api/settings/tunnel-url') return true
+  if (p.startsWith('/api/osm-uat/')) return true
+  if (p.startsWith('/api/autospin/')) return true
+  if (p === '/api/jira/batch-create') return true
+  if (p === '/api/jira/batch-comment') return true
+  if (p === '/api/jira/batch-transition') return true
+  if (p === '/api/jira/pm-batch-create') return true
+  if (p === '/api/jira/batch-comment/stream') return true
+  if (p.startsWith('/api/jira/batch-comment/status/')) return true
+  return false
+}
 
 app.use(cors())
-app.use(express.json({ limit: '20mb' }))
+const jsonParser = express.json({ limit: '20mb' })
+app.use((req, res, next) => {
+  if (shouldProxyPathToWorker(req.path)) return next()
+  return jsonParser(req, res, next)
+})
 
 // ─── Activity Logger Middleware ───────────────────────────────────────────────
 
@@ -171,7 +173,7 @@ app.use((req, _res, next) => {
   runWithRequestContext(
     { ip, user, userDisplay, path: req.path, method: req.method, operation },
     () => {
-      if (req.path.startsWith('/api/')) {
+      if (req.path.startsWith('/api/') && !shouldSkipAccessLog(req)) {
         log('info', ip, user, `${req.method} ${req.path}`)
       }
       next()
@@ -192,17 +194,83 @@ app.get('/api/health', (_req, res) => {
 
 // ─── Mount Route Files ────────────────────────────────────────────────────────
 
+function workerUrl() {
+  return (process.env.WORKER_URL ?? 'http://127.0.0.1:3010').replace(/\/$/, '')
+}
+
+function shouldProxyToWorker(req: express.Request): boolean {
+  return shouldProxyPathToWorker(req.path)
+}
+
+function shouldSkipAccessLog(req: express.Request): boolean {
+  return req.path === '/api/machine-test/osm-status'
+}
+
+function shouldUseIntegrationsRouter(path: string): boolean {
+  return path.startsWith('/api/integrations/')
+    || path.startsWith('/api/google/')
+    || path.startsWith('/api/sheets/')
+    || path.startsWith('/api/url-pool/')
+    || path.startsWith('/internal/testcase-jobs/')
+}
+
+async function lazyIntegrationsRouter(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (!shouldUseIntegrationsRouter(req.path)) return next()
+  try {
+    integrationsRouterPromise ??= import('./routes/integrations.js').then(mod => mod.router)
+    const router = await integrationsRouterPromise
+    return router(req, res, next)
+  } catch (error) {
+    return next(error)
+  }
+}
+
+async function proxyToWorker(req: express.Request, res: express.Response, next: express.NextFunction) {
+  if (!shouldProxyToWorker(req)) return next()
+
+  try {
+    const headers = new Headers()
+    for (const [key, value] of Object.entries(req.headers)) {
+      if (!value) continue
+      const lower = key.toLowerCase()
+      if (lower === 'host' || lower === 'connection' || lower === 'content-length' || lower === 'expect') continue
+      headers.set(key, Array.isArray(value) ? value.join(', ') : value)
+    }
+    if (req.headers.host) headers.set('x-forwarded-host', req.headers.host)
+    headers.set('x-forwarded-proto', req.protocol)
+
+    const init: RequestInit & { duplex?: 'half' } = { method: req.method, headers }
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      const contentType = req.headers['content-type'] ?? ''
+      if (typeof contentType === 'string' && contentType.includes('application/json') && req.body !== undefined) {
+        headers.set('content-type', 'application/json')
+        init.body = JSON.stringify(req.body ?? {})
+      } else {
+        init.body = req as any
+        init.duplex = 'half'
+      }
+    }
+
+    const response = await fetch(`${workerUrl()}${req.originalUrl}`, init)
+    res.status(response.status)
+    response.headers.forEach((value, key) => {
+      if (key.toLowerCase() !== 'transfer-encoding') res.setHeader(key, value)
+    })
+    if (!response.body) return res.end()
+    Readable.fromWeb(response.body as any).pipe(res)
+  } catch (error) {
+    next(error)
+  }
+}
+
+app.use(proxyToWorker)
+
 app.use(jiraRouter)
 app.use(geminiRouter)
 app.use(osmRouter)
-app.use(integrationsRouter)
-app.use(machineTestRouter)
-app.use(gameshowRouter)
-app.use(autospinRouter)
-app.use(osmUatRouter)
-
-// Export osmMachineStatus so discord-bot can read machine statuses if needed
-export { osmMachineStatus }
+app.use(lazyIntegrationsRouter)
+app.use(authRouter)
+app.use(workerStatusRouter)
 
 // ─── Static Files (production build) ──────────────────────────────────────────
 
@@ -237,102 +305,63 @@ const wss = new WebSocketServer({ server })
 // ws forwards HTTP server errors — must handle to prevent unhandled 'error' crash
 wss.on('error', () => { /* handled by server.on('error') above */ })
 
+function shouldProxyWsToWorker(path: string): boolean {
+  return path === '/ws/machine-test/events' || path === '/ws/agent'
+}
+
+function proxyWsToWorker(clientWs: WebSocket, req: import('http').IncomingMessage, path: string) {
+  const targetBase = workerUrl().replace(/^http:/, 'ws:').replace(/^https:/, 'wss:')
+  const targetWs = new WebSocket(`${targetBase}${req.url ?? path}`, {
+    headers: {
+      'x-forwarded-host': req.headers.host ?? '',
+      'x-forwarded-proto': 'http',
+    },
+  })
+  const pending: Array<{ data: WebSocket.RawData; isBinary: boolean }> = []
+  let clientClosed = false
+
+  clientWs.on('message', (data, isBinary) => {
+    if (targetWs.readyState === WebSocket.OPEN) targetWs.send(data, { binary: isBinary })
+    else pending.push({ data, isBinary })
+  })
+  targetWs.on('open', () => {
+    if (clientClosed) {
+      targetWs.terminate()
+      return
+    }
+    for (const item of pending.splice(0)) targetWs.send(item.data, { binary: item.isBinary })
+  })
+  targetWs.on('message', (data, isBinary) => {
+    if (clientWs.readyState === WebSocket.OPEN) clientWs.send(data, { binary: isBinary })
+  })
+  targetWs.on('close', (code, reason) => {
+    if (clientWs.readyState === WebSocket.OPEN || clientWs.readyState === WebSocket.CONNECTING) {
+      clientWs.close(code, reason)
+    }
+  })
+  clientWs.on('close', (code, reason) => {
+    clientClosed = true
+    pending.length = 0
+    if (targetWs.readyState !== WebSocket.CLOSED) {
+      targetWs.terminate()
+    }
+  })
+  targetWs.on('error', () => {
+    if (clientWs.readyState === WebSocket.OPEN || clientWs.readyState === WebSocket.CONNECTING) {
+      clientWs.close(1011, 'Worker websocket error')
+    }
+  })
+}
+
 wss.on('connection', (ws, req) => {
   const path = req.url?.split('?')[0] ?? ''
-
-  // ── Viewer: browser clients watching test progress ──────────────────────────
-  if (path === '/ws/machine-test/events') {
-    viewerSockets.add(ws)
-    // Replay buffered events so late-joining viewers catch up
-    for (const ev of broadcastBuffer) {
-      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(ev))
-    }
-    ws.on('close', () => viewerSockets.delete(ws))
-    return
-  }
-
-  // ── Agent: worker machines running Playwright ────────────────────────────────
-  if (path === '/ws/agent') {
-    let agentId = ''
-
-    ws.on('message', (raw) => {
-      let msg: { type: string; agentId?: string; hostname?: string; sessionId?: string; event?: unknown; machineCode?: string; failed?: boolean }
-      try { msg = JSON.parse(raw.toString()) } catch { return }
-
-      if (msg.type === 'agent_ready' && msg.agentId) {
-        agentId = msg.agentId
-        const info: AgentInfo = { ws: ws as unknown as import('ws').WebSocket, agentId, hostname: msg.hostname ?? agentId, busy: false, sessionId: null }
-        agentConnections.set(agentId, info)
-        log('info', '-', '-', `Agent connected: ${agentId} (${info.hostname})`)
-        return
-      }
-
-      if (msg.type === 'event' && msg.sessionId && msg.event) {
-        // Inject agent hostname so viewers know which machine produced this log
-        const ev = msg.event as import('./machine-test/types.js').TestEvent
-        if (agentId) {
-          const info = agentConnections.get(agentId)
-          ev.agentHostname = info?.hostname ?? agentId
-        }
-        broadcastToViewers(ev)
-        return
-      }
-
-      // Work-stealing: agent requests next machine to test
-      if (msg.type === 'claim_job' && msg.sessionId) {
-        const code = claimJob(msg.sessionId, agentId)
-        const statuses = getJobStatuses(msg.sessionId)
-        if (statuses) broadcastToViewers({ type: 'queue_update', statuses, message: '', ts: new Date().toISOString() })
-        if (code) {
-          ws.send(JSON.stringify({ type: 'job_assigned', machineCode: code }))
-        } else {
-          ws.send(JSON.stringify({ type: 'no_more_jobs' }))
-        }
-        return
-      }
-
-      // Work-stealing: agent reports a machine test result
-      if (msg.type === 'job_done' && msg.sessionId && msg.machineCode) {
-        const allDone = completeJob(msg.sessionId, msg.machineCode, msg.failed ?? false)
-        const statuses = getJobStatuses(msg.sessionId)
-        if (statuses) broadcastToViewers({ type: 'queue_update', statuses, message: '', ts: new Date().toISOString() })
-        if (allDone) {
-          broadcastToViewers({ type: 'session_done', message: '所有機台測試完成', ts: new Date().toISOString() })
-          activeRunners.delete(msg.sessionId)
-        }
-        return
-      }
-
-      // Agent finished its claim-loop (got no_more_jobs) — mark as available
-      if (msg.type === 'agent_done' && msg.sessionId) {
-        if (agentId) {
-          const info = agentConnections.get(agentId)
-          if (info) { info.busy = false; info.sessionId = null }
-        }
-        return
-      }
-    })
-
-    ws.on('close', () => {
-      if (agentId) {
-        const info = agentConnections.get(agentId)
-        if (info?.sessionId) {
-          // Agent disconnected mid-session — cancel its portion
-          cancelDistSession(info.sessionId)
-          broadcastToViewers({ type: 'error', message: `Agent ${info.hostname} 連線中斷`, ts: new Date().toISOString() })
-          activeRunners.delete(info.sessionId)
-        }
-        agentConnections.delete(agentId)
-        log('info', '-', '-', `Agent disconnected: ${agentId}`)
-      }
-    })
+  if (shouldProxyWsToWorker(path)) {
+    proxyWsToWorker(ws, req, path)
     return
   }
 
   ws.close(1008, 'Invalid path')
 })
-
-// ─── Start ────────────────────────────────────────────────────────────────────
 
 // EADDRINUSE: the old process is still shutting down — wait and retry.
 // Port cleanup is the old process's responsibility (gracefulShutdown above).
@@ -369,5 +398,12 @@ server.listen(port, '0.0.0.0', () => {
   restartCron()
 
   // 啟動 Discord Bot
-  startDiscordBot()
+  if (process.env.DISCORD_BOT_TOKEN) {
+    import('./discord-bot.js')
+      .then(({ startDiscordBot, stopDiscordBot }) => {
+        stopDiscordBotRef = stopDiscordBot
+        startDiscordBot()
+      })
+      .catch((error) => console.error('[Discord] lazy load failed:', error))
+  }
 })

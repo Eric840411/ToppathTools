@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Portal from './Portal'
+import { DungeonIcon } from './DungeonIcon'
+import { useIsGameMode } from './GameModeContext'
 
 export interface AccountInfo {
   email: string
@@ -26,6 +28,7 @@ interface Props {
 }
 
 export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurrent }: Props) {
+  const isGame = useIsGameMode()
   const [tab, setTab] = useState<ModalTab>('select')
   const [accounts, setAccounts] = useState<AccountInfo[]>([])
   const [loading, setLoading] = useState(false)
@@ -262,7 +265,9 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Jira 帳號</h2>
-          <button type="button" className="modal-close" onClick={onClose}>✕</button>
+          <button type="button" className={`modal-close${isGame ? ' dng-modal-close' : ''}`} onClick={onClose}>
+            {isGame ? <DungeonIcon name="close" tone="slate" /> : '✕'}
+          </button>
         </div>
 
         {/* ── PIN 驗證彈窗（使用帳號時） ── */}

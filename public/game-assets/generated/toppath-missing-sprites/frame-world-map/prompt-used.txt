@@ -1,0 +1,1 @@
+UI frame world map, 640x360 transparent pixel-art map frame, based on game-design.md.

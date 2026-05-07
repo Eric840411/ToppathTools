@@ -21,10 +21,13 @@ import mammoth from 'mammoth'
 import crypto from 'crypto'
 import { upload, addHistory, browserLimiter } from '../shared.js'
 import { callGeminiWithRotation } from './gemini.js'
+import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 
 export const router = Router()
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+const SERVER_ROOT = join(process.cwd(), 'server')
+const STATIC_ROOT = join(SERVER_ROOT, 'static')
 
 // ─── 類型 ─────────────────────────────────────────────────────────────────────
 
@@ -62,6 +65,7 @@ interface ImgSession {
   b: { status: SideStatus; images: CapturedImage[] }
   pairs: PairedResult[]
   createdAt: number
+  heavyTask?: HeavyTaskToken
 }
 
 interface PairedResult {
@@ -98,6 +102,7 @@ interface StatsSession {
   error?: string
   createdAt: number
   stop?: () => void
+  heavyTask?: HeavyTaskToken
 }
 
 interface ClientCaptureSession {
@@ -228,7 +233,7 @@ router.post('/api/gs/pdf-testcase', upload.single('file'), async (req, res) => {
 
 router.get('/api/gs/log-checker-script', (req, res) => {
   try {
-    const scriptPath = join(__dirname, '../static/intercept.js')
+    const scriptPath = join(STATIC_ROOT, 'intercept.js')
     const script = readFileSync(scriptPath, 'utf-8')
     addHistory('gs-logchecker', 'GS Log 攔截腳本下載', '使用者取得注入腳本', { ip: req.ip })
     res.json({ ok: true, script })
@@ -241,7 +246,7 @@ router.get('/api/gs/log-checker-script', (req, res) => {
 
 router.get('/api/gs/log-compare', (_req, res) => {
   try {
-    const htmlPath = join(__dirname, '../static/log-compare.html')
+    const htmlPath = join(STATIC_ROOT, 'log-compare.html')
     const html = readFileSync(htmlPath, 'utf-8')
     res.set('Content-Type', 'text/html; charset=utf-8')
     res.send(html)
@@ -252,7 +257,7 @@ router.get('/api/gs/log-compare', (_req, res) => {
 
 router.get('/api/gs/log-compare-app.js', (_req, res) => {
   try {
-    const jsPath = join(__dirname, '../static/log-compare-app.js')
+    const jsPath = join(STATIC_ROOT, 'log-compare-app.js')
     res.set('Content-Type', 'application/javascript; charset=utf-8')
     res.sendFile(jsPath)
   } catch {
@@ -409,6 +414,9 @@ router.post('/api/gs/img-compare/session', async (req, res) => {
   const { urlA, urlB, mode } = req.body as { urlA?: string; urlB?: string; mode?: string }
   if (!urlA || !urlB) return res.json({ ok: false, message: '需要 urlA 與 urlB' })
 
+  const heavyTask = tryStartHeavyTask(req, 'gs-img-compare', 'Game Show 圖片比對')
+  if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
+
   const sessionId = crypto.randomBytes(8).toString('hex')
   const captureMode = (mode === 'polling' ? 'polling' : 'standard') as 'standard' | 'polling'
 
@@ -417,6 +425,7 @@ router.post('/api/gs/img-compare/session', async (req, res) => {
     b: { status: { done: false, count: 0 }, images: [] },
     pairs: [],
     createdAt: Date.now(),
+    heavyTask: heavyTask.token,
   }
   imgSessions.set(sessionId, session)
 
@@ -434,7 +443,9 @@ router.post('/api/gs/img-compare/session', async (req, res) => {
       `A：${session.a.images.length} 張，B：${session.b.images.length} 張，配對 ${session.pairs.filter(p => p.a && p.b).length} 對，僅A ${onlyA}，僅B ${onlyB}`,
       { urlA, urlB, countA: session.a.images.length, countB: session.b.images.length, pairs: session.pairs.length },
     )
-  }).catch(() => {})
+  }).catch(() => {}).finally(() => {
+    finishHeavyTask(heavyTask.token)
+  })
 
   res.json({ ok: true, sessionId })
 })
@@ -493,6 +504,9 @@ router.post('/api/gs/stats/start', async (req, res) => {
   const { url, mode } = req.body as { url?: string; mode?: string }
   if (!url) return res.json({ ok: false, message: '需要 url' })
 
+  const heavyTask = tryStartHeavyTask(req, 'gs-stats', 'Game Show WS 統計')
+  if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
+
   const statsMode = mode === 'bonus-v2' ? 'bonus-v2' : 'generic'
   const sessionId = crypto.randomBytes(8).toString('hex')
   const session: StatsSession = {
@@ -503,13 +517,15 @@ router.post('/api/gs/stats/start', async (req, res) => {
     bonusRounds: statsMode === 'bonus-v2' ? 0 : undefined,
     bonusDistribution: statsMode === 'bonus-v2' ? { single_m2: {}, single_m3: {}, any_double: {}, any_triple: {} } : undefined,
     createdAt: Date.now(),
+    heavyTask: heavyTask.token,
   }
   statsSessions.set(sessionId, session)
 
   // 背景執行 Playwright WS 攔截（受 browserLimiter 管控）
   ;(async () => {
-    session.status = 'running'
-    await browserLimiter.schedule(async () => {
+    try {
+      session.status = 'running'
+      await browserLimiter.schedule(async () => {
     let browser
     try {
       browser = await chromium.launch({ headless: true })
@@ -586,7 +602,10 @@ router.post('/api/gs/stats/start', async (req, res) => {
       session.status = 'error'
       session.error = String(e)
     }
-    }) // end browserLimiter.schedule
+      }) // end browserLimiter.schedule
+    } finally {
+      finishHeavyTask(heavyTask.token)
+    }
   })()
 
   res.json({ ok: true, sessionId, mode: statsMode })
@@ -600,6 +619,7 @@ router.post('/api/gs/stats/stop/:id', async (req, res) => {
   } else {
     session.status = 'stopped'
   }
+  finishHeavyTask(session.heavyTask)
   const modeLabel = session.mode === 'bonus-v2' ? 'ColorGame V2 電子骰' : '通用 WS'
   addHistory(
     'gs-bonusv2',
@@ -732,14 +752,14 @@ async function bv2DoStop(reason?: string) {
 
 router.get('/api/gs/bonus-v2', (_req, res) => {
   try {
-    const html = readFileSync(join(__dirname, '../static/bonus-v2.html'), 'utf-8')
+    const html = readFileSync(join(STATIC_ROOT, 'bonus-v2.html'), 'utf-8')
     res.set('Content-Type', 'text/html; charset=utf-8').send(html)
   } catch { res.status(500).send('<p>bonus-v2.html 載入失敗</p>') }
 })
 
 router.get('/api/gs/bonus-v2-app.js', (_req, res) => {
   try {
-    const jsPath = join(__dirname, '../static/bonus-v2-app.js')
+    const jsPath = join(STATIC_ROOT, 'bonus-v2-app.js')
     res.set('Content-Type', 'application/javascript; charset=utf-8')
     res.sendFile(jsPath)
   } catch { res.status(500).send('// bonus-v2-app.js 載入失敗') }
@@ -852,7 +872,7 @@ router.get('/api/gs/bonus-v2-client-script', (req, res) => {
   const session = String(req.query.session ?? '')
   if (!session) return res.status(400).send('// missing session')
   try {
-    const js = readFileSync(join(__dirname, '../static/bonus-v2-client.js'), 'utf-8')
+    const js = readFileSync(join(STATIC_ROOT, 'bonus-v2-client.js'), 'utf-8')
     res.set('Content-Type', 'application/javascript; charset=utf-8')
     res.send(`window.__bonusV2Session = ${JSON.stringify(session)};\n${js}`)
   } catch {
@@ -946,7 +966,7 @@ router.post('/api/gs/bonus-v2-client/stop/:id', (req, res) => {
 })
 
 router.get('/api/gs/bonus-v2-client-agent', (_req, res) => {
-  readFile(join(__dirname, '../static/bonus-v2-agent.js'), 'utf-8', (err, content) => {
+  readFile(join(STATIC_ROOT, 'bonus-v2-agent.js'), 'utf-8', (err, content) => {
     if (err) return res.status(500).send('bonus-v2-agent.js load failed')
     res.set({
       'Content-Type': 'text/plain; charset=utf-8',
@@ -960,7 +980,7 @@ router.get('/api/gs/bonus-v2-client-agent', (_req, res) => {
 
 router.get('/api/gs/img-compare', (_req, res) => {
   try {
-    const htmlPath = join(__dirname, '../static/img-compare.html')
+    const htmlPath = join(STATIC_ROOT, 'img-compare.html')
     res.set('Content-Type', 'text/html; charset=utf-8')
     res.sendFile(htmlPath)
   } catch {
@@ -970,7 +990,7 @@ router.get('/api/gs/img-compare', (_req, res) => {
 
 router.get('/api/gs/img-compare-app.js', (_req, res) => {
   try {
-    const jsPath = join(__dirname, '../static/img-compare-app.js')
+    const jsPath = join(STATIC_ROOT, 'img-compare-app.js')
     res.set('Content-Type', 'application/javascript; charset=utf-8')
     res.sendFile(jsPath)
   } catch {

@@ -1,0 +1,1 @@
+﻿Map landmark AutoSpin tower, 1 frame, 64x64 target, based on game-design.md.

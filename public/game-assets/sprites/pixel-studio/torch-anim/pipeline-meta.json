@@ -1,0 +1,63 @@
+{
+  "name": "torch-anim",
+  "rows": 1,
+  "cols": 4,
+  "cell_width": 16,
+  "cell_height": 24,
+  "sheet_size": [
+    64,
+    24
+  ],
+  "duration": 150,
+  "source_size": [
+    2048,
+    768
+  ],
+  "key_color": [
+    240,
+    8,
+    224
+  ],
+  "frames": [
+    {
+      "file": "torch-anim-1.png",
+      "bbox": [
+        2,
+        0,
+        13,
+        23
+      ],
+      "touches_edge": true
+    },
+    {
+      "file": "torch-anim-2.png",
+      "bbox": [
+        3,
+        2,
+        12,
+        23
+      ],
+      "touches_edge": false
+    },
+    {
+      "file": "torch-anim-3.png",
+      "bbox": [
+        0,
+        1,
+        15,
+        23
+      ],
+      "touches_edge": true
+    },
+    {
+      "file": "torch-anim-4.png",
+      "bbox": [
+        1,
+        0,
+        14,
+        23
+      ],
+      "touches_edge": true
+    }
+  ]
+}

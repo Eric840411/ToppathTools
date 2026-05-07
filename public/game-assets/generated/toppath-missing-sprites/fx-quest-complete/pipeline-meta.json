@@ -1,0 +1,30 @@
+{
+  "name": "fx-quest-complete",
+  "rows": 1,
+  "cols": 1,
+  "cell_width": 64,
+  "cell_height": 32,
+  "sheet_size": [
+    64,
+    32
+  ],
+  "duration_ms": 200,
+  "source": "C:\\Users\\user\\.codex\\generated_images\\019de871-6dec-7b62-addf-596aef6e83e3\\ig_07a4345c6dbdf94c0169f622184edc8191ba8c5aaa7cbc2d16.png",
+  "qc": [
+    {
+      "frame": 1,
+      "source_box": [
+        0,
+        0,
+        1774,
+        887
+      ],
+      "alpha_bbox": [
+        12,
+        2,
+        51,
+        31
+      ]
+    }
+  ]
+}

@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { JiraAccountModal, accountHasRole, type AccountInfo } from '../components/JiraAccountModal'
 import { SearchSelect } from '../components/SearchSelect'
 import { ModelSelector } from '../components/ModelSelector'
+import { DungeonIcon } from '../components/DungeonIcon'
+import { useIsGameMode } from '../components/GameModeContext'
+import { fetchAuthAccount, GLOBAL_ACCOUNT_KEY } from '../authSession'
 
 interface Member {
   accountId: string
@@ -80,10 +83,15 @@ const JIRA_KEY_COL = 'jira issue key'
 const STAGE_COL = '處理階段'
 
 function loadSessionAccount(): AccountInfo | null {
-  try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) ?? 'null') } catch { return null }
+  try {
+    return JSON.parse(sessionStorage.getItem(SESSION_KEY) ?? sessionStorage.getItem(GLOBAL_ACCOUNT_KEY) ?? 'null')
+  } catch {
+    return null
+  }
 }
 function saveSessionAccount(a: AccountInfo) {
   sessionStorage.setItem(SESSION_KEY, JSON.stringify(a))
+  sessionStorage.setItem(GLOBAL_ACCOUNT_KEY, JSON.stringify(a))
 }
 
 const getField = (r: SheetRecord, fieldName: string): string => {
@@ -133,11 +141,16 @@ const SHEET_FIELD: Record<string, string> = {
   releaseDate: '上線日期',
 }
 
-export function JiraPage() {
+interface JiraPageProps {
+  account?: AccountInfo | null
+}
+
+export function JiraPage({ account = null }: JiraPageProps) {
+  const isGame = useIsGameMode()
   const [mode, setMode] = useState<'qa' | 'pm'>('qa')
   const [step, setStep] = useState<Step>(1)
   const [showAccountModal, setShowAccountModal] = useState(false)
-  const [currentAccount, setCurrentAccount] = useState<AccountInfo | null>(null)
+  const [currentAccount, setCurrentAccount] = useState<AccountInfo | null>(account)
 
   // Step 1
   const [members, setMembers] = useState<Member[]>([])
@@ -198,6 +211,14 @@ export function JiraPage() {
 
   const emailHeader: Record<string, string> = currentAccount ? { 'x-jira-email': currentAccount.email } : {}
 
+  useEffect(() => {
+    if (!account) return
+    setCurrentAccount(account)
+    saveSessionAccount(account)
+    const knownBoot = sessionStorage.getItem(BACKEND_BOOT_KEY) ?? ''
+    if (knownBoot) sessionStorage.setItem(ACCOUNT_BOOT_KEY, knownBoot)
+  }, [account])
+
   // 從 trackedIssues 中取出需要評論/切換的列
   const toComment    = trackedIssues.filter(t => t.stage === '已開單' || t.stage === '')
   const toTransition = trackedIssues.filter(t => t.stage === '添加評論')
@@ -212,14 +233,22 @@ export function JiraPage() {
         if (bootId) sessionStorage.setItem(BACKEND_BOOT_KEY, bootId)
 
         const acc = loadSessionAccount()
-        if (!acc) return
         const accountBootId = sessionStorage.getItem(ACCOUNT_BOOT_KEY) ?? ''
-        if (!bootId || !accountBootId || accountBootId !== bootId) {
-          sessionStorage.removeItem(SESSION_KEY)
-          sessionStorage.removeItem(ACCOUNT_BOOT_KEY)
+        if (acc && bootId && accountBootId && accountBootId === bootId) {
+          if (!cancelled) setCurrentAccount(acc)
           return
         }
-        if (!cancelled) setCurrentAccount(acc)
+
+        if (acc) {
+          sessionStorage.removeItem(SESSION_KEY)
+          sessionStorage.removeItem(ACCOUNT_BOOT_KEY)
+        }
+
+        const authAccount = await fetchAuthAccount()
+        if (!authAccount) return
+        saveSessionAccount(authAccount)
+        if (bootId) sessionStorage.setItem(ACCOUNT_BOOT_KEY, bootId)
+        if (!cancelled) setCurrentAccount(authAccount)
       } catch {
         // 若 health 失敗，不做自動恢復，避免綁到未知後端實例
       }
@@ -886,11 +915,11 @@ export function JiraPage() {
             {mode === 'qa' ? STEP_LABELS[step] : { 1: '讀取表格', 2: '確認清單', 3: '開單結果' }[pmStep]}
           </span>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'none' }}>
           <button type="button"
             className={`settings-btn${currentAccount ? ' has-creds' : ''}`}
             onClick={() => setShowAccountModal(true)}>
-            👤 {currentAccount ? currentAccount.label : '選擇帳號'}
+            {isGame ? <DungeonIcon name="account" tone="cyan" size="xs" plain /> : '👤'} {currentAccount ? currentAccount.label : '選擇帳號'}
           </button>
         </div>
       </div>
@@ -922,7 +951,7 @@ export function JiraPage() {
                 </label>
                 {pmError && <div className="alert-error">{pmError}</div>}
               </div>
-              <button type="button" className="submit-btn" style={{ marginTop: 16 }}
+              <button type="button" className="submit-btn submit-btn--step" style={{ marginTop: 16 }}
                 disabled={!currentAccount || !pmBitableUrl.trim() || pmLoading} onClick={handlePmFetchBitable}>
                 {pmLoading ? '讀取中...' : '讀取表格'}
               </button>
@@ -1014,8 +1043,8 @@ export function JiraPage() {
               {pmError && <div className="alert-error" style={{ marginTop: 12 }}>{pmError}</div>}
 
               <div style={{ display: 'flex', gap: 10, marginTop: 16, alignItems: 'center' }}>
-                <button type="button" className="btn-ghost" style={{ whiteSpace: 'nowrap', flexShrink: 0 }} onClick={() => { setPmStep(1); setPmError('') }}>← 返回</button>
-                <button type="button" className="submit-btn" style={{ flex: 1 }}
+                <button type="button" className="btn-ghost btn-ghost--step" style={{ whiteSpace: 'nowrap', flexShrink: 0 }} onClick={() => { setPmStep(1); setPmError('') }}>← 返回</button>
+                <button type="button" className="submit-btn submit-btn--step" style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
                   disabled={pmSelectedIds.size === 0 || pmSubmitting} onClick={handlePmCreate}>
                   {pmSubmitting ? `開單中...` : `建立 ${pmSelectedIds.size} 筆 Issues`}
                 </button>
@@ -1048,7 +1077,7 @@ export function JiraPage() {
                     borderRadius: 8, border: `1px solid ${r.issueKey ? '#d1fae5' : '#fee2e2'}`,
                     background: r.issueKey ? '#f0fdf4' : '#fff5f5',
                   }}>
-                    <span style={{ fontSize: 18, flexShrink: 0 }}>{r.issueKey ? '✅' : '❌'}</span>
+                    <span style={{ fontSize: 18, flexShrink: 0 }}>{r.issueKey ? (isGame ? <DungeonIcon name="status-ok" tone="green" plain /> : '✅') : (isGame ? <DungeonIcon name="status-error" tone="red" plain /> : '❌')}</span>
                     {r.issueKey && (
                       <span style={{ fontWeight: 700, color: '#6366f1', fontSize: 13, whiteSpace: 'nowrap' }}>{r.issueKey}</span>
                     )}
@@ -1062,7 +1091,7 @@ export function JiraPage() {
                 ))}
               </div>
 
-              <button type="button" className="submit-btn" style={{ marginTop: 20, background: 'linear-gradient(135deg, #059669, #047857)' }} onClick={handlePmReset}>
+              <button type="button" className="submit-btn submit-btn--step" style={{ marginTop: 20, background: 'linear-gradient(135deg, #059669, #047857)' }} onClick={handlePmReset}>
                 重新開始
               </button>
             </div>
@@ -1118,7 +1147,7 @@ export function JiraPage() {
           {!membersLoading && members.length > 0 && (
             <>
               <div style={{ position: 'relative', marginBottom: 10 }}>
-                <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: 14, pointerEvents: 'none' }}>🔍</span>
+                <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: 14, pointerEvents: 'none' }}>{isGame ? <DungeonIcon name="search" tone="slate" size="xs" plain /> : '🔍'}</span>
                 <input
                   value={memberSearch}
                   onChange={e => setMemberSearch(e.target.value)}
@@ -1145,7 +1174,7 @@ export function JiraPage() {
             </>
           )}
 
-          <button type="button" className="submit-btn" style={{ marginTop: 20 }}
+          <button type="button" className="submit-btn submit-btn--step" style={{ marginTop: 20 }}
             disabled={!selectedAssignee || !selectedProjectId || !selectedIssueTypeId} onClick={() => setStep(2)}>
             下一步 →
           </button>
@@ -1157,13 +1186,13 @@ export function JiraPage() {
         <div className="section-card">
           <h2 className="section-title">Step 2 — 選擇資料來源</h2>
           <div className="source-toggle">
-            <button type="button" className={`source-btn${sheetSource === 'lark' ? ' active' : ''}`}
+            <button type="button" className={`source-btn source-btn--step${sheetSource === 'lark' ? ' active' : ''}`}
               onClick={() => { setSheetSource('lark'); setSheetUrl(''); setSheetError('') }}>
-              <span className="source-icon lark-icon">L</span>Lark Spreadsheet
+              <span className="source-icon lark-icon"></span>Lark Spreadsheet
             </button>
-            <button type="button" className={`source-btn${sheetSource === 'google' ? ' active' : ''}`}
+            <button type="button" className={`source-btn source-btn--step${sheetSource === 'google' ? ' active' : ''}`}
               onClick={() => { setSheetSource('google'); setSheetUrl(''); setSheetError('') }}>
-              <span className="source-icon google-icon">G</span>Google Sheets
+              <span className="source-icon google-icon"></span>Google Sheets
             </button>
           </div>
           <div className="form-stack" style={{ marginTop: 16 }}>
@@ -1184,7 +1213,7 @@ export function JiraPage() {
           {/* ── Sheet 欄位說明 ── */}
           <div className="jira-sheet-guide">
             <details>
-              <summary className="jira-sheet-guide-summary">📋 Sheet 欄位說明 — 查看必要 / 選填欄位與範例資料</summary>
+              <summary className="jira-sheet-guide-summary">{isGame ? <DungeonIcon name="guide" tone="cyan" size="xs" plain /> : '📋'} Sheet 欄位說明 — 查看必要 / 選填欄位與範例資料</summary>
               <div className="jira-sheet-guide-legend">
                 <span className="jira-col-tag jira-col-req">必填</span>必須有值才能建立 Issue
                 <span className="jira-col-tag jira-col-opt" style={{ marginLeft: 14 }}>選填</span>可留空，系統會略過
@@ -1243,15 +1272,15 @@ export function JiraPage() {
                 </table>
               </div>
               <p className="field-hint" style={{ marginTop: 8 }}>
-                ⚠️ 欄位名稱需完全符合（不區分大小寫）。「Jira Issue Key」與「處理階段」由系統自動回寫，請保留這兩欄但不要手動填入。
+                {isGame ? <DungeonIcon name="status-warn" tone="gold" size="xs" plain /> : '⚠️'} 欄位名稱需完全符合（不區分大小寫）。「Jira Issue Key」與「處理階段」由系統自動回寫，請保留這兩欄但不要手動填入。
               </p>
             </details>
           </div>
 
           <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-            <button type="button" className="btn-ghost" onClick={() => setStep(1)}>上一步</button>
-            <button type="button" className={`submit-btn${sheetLoading ? ' loading' : ''}`}
-              style={{ flex: 1 }} disabled={!sheetUrl.trim() || sheetLoading} onClick={handleFetchSheet}>
+            <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(1)}>上一步</button>
+            <button type="button" className={`submit-btn submit-btn--step${sheetLoading ? ' loading' : ''}`}
+              style={{ whiteSpace: 'nowrap', flexShrink: 0 }} disabled={!sheetUrl.trim() || sheetLoading} onClick={handleFetchSheet}>
               {sheetLoading ? '讀取中...' : '讀取 Sheet'}
             </button>
           </div>
@@ -1330,10 +1359,10 @@ export function JiraPage() {
               </div>
             )}
           <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-            <button type="button" className="btn-ghost" onClick={() => setStep(2)}>上一步</button>
+            <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(2)}>上一步</button>
             <button type="button"
-              className={`submit-btn${submitting ? ' loading' : ''}`}
-              style={{ flex: 1 }}
+              className={`submit-btn submit-btn--step${submitting ? ' loading' : ''}`}
+              style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
               disabled={selectedRows.size === 0 || submitting || !currentAccount}
               onClick={handleCreate}>
               {submitting ? '處理中...' : `開始執行（${selectedRows.size} 筆）`}
@@ -1356,10 +1385,10 @@ export function JiraPage() {
           {createResults.length > 0 && (
             <>
               <div className="result-summary">
-                <div className="summary-item ok">✅ 成功 {createResults.filter(r => r.issueKey).length} 筆</div>
+                <div className="summary-item ok">{isGame ? <DungeonIcon name="status-ok" tone="green" size="xs" plain /> : '✅'} 成功 {createResults.filter(r => r.issueKey).length} 筆</div>
                 <div className={`summary-item${createResults.filter(r => r.error).length > 0 ? ' error' : ''}`}>
                   {createResults.filter(r => r.error).length > 0
-                    ? `❌ 失敗 ${createResults.filter(r => r.error).length} 筆` : '✓ 無失敗'}
+                    ? <>{isGame ? <DungeonIcon name="status-error" tone="red" size="xs" plain /> : '❌'} 失敗 {createResults.filter(r => r.error).length} 筆</> : '✓ 無失敗'}
                 </div>
               </div>
               <div className="result-group">
@@ -1410,15 +1439,15 @@ export function JiraPage() {
 
           <div className="stage-nav" style={{ marginTop: 16 }}>
             {toComment.length > 0
-              ? <button type="button" className="submit-btn" style={{ flex: 1 }} onClick={() => setStep(5)}>
+              ? <button type="button" className="submit-btn submit-btn--step" style={{ whiteSpace: 'nowrap', flexShrink: 0 }} onClick={() => setStep(5)}>
                   下一步：添加評論 ({toComment.length} 筆) →
                 </button>
               : toTransition.length > 0
-                ? <button type="button" className="submit-btn" style={{ flex: 1 }} onClick={() => setStep(6)}>
+                ? <button type="button" className="submit-btn submit-btn--step" style={{ whiteSpace: 'nowrap', flexShrink: 0 }} onClick={() => setStep(6)}>
                     跳至：切換狀態 ({toTransition.length} 筆) →
                   </button>
                 : null}
-            <button type="button" className="btn-ghost" onClick={handleReset}>重新開始</button>
+            <button type="button" className="btn-ghost btn-ghost--step" onClick={handleReset}>重新開始</button>
           </div>
         </div>
       )}
@@ -1498,9 +1527,9 @@ export function JiraPage() {
                     ? <>
                         <span className="badge badge--ok">評論已添加 ✓</span>
                         {r.usedAi
-                          ? <span className="badge badge--purple">🤖 AI 優化</span>
+                          ? <span className="badge badge--purple">{isGame ? <DungeonIcon name="ai" tone="violet" size="xs" plain /> : '🤖'} AI 優化</span>
                           : useAiComment
-                            ? <span className="badge badge--warn">⚠ AI 跳過（欄位空白）</span>
+                            ? <span className="badge badge--warn">{isGame ? <DungeonIcon name="status-warn" tone="gold" size="xs" plain /> : '⚠'} AI 跳過（欄位空白）</span>
                             : null}
                       </>
                     : <span className="err-msg">{r.error ?? '失敗'}</span>}
@@ -1532,10 +1561,10 @@ export function JiraPage() {
           )}
 
           <div className="stage-nav" style={{ marginTop: 16 }}>
-            <button type="button" className="btn-ghost" onClick={() => setStep(4)}>上一步</button>
+            <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(4)}>上一步</button>
             {toComment.length > 0
-              ? <button type="button" className={`submit-btn${(commentSubmitting || !!pendingCommentRequestId) ? ' loading' : ''}`}
-                  style={{ flex: 1 }} disabled={!commentColumn || commentSubmitting || !!pendingCommentRequestId}
+              ? <button type="button" className={`submit-btn submit-btn--step${(commentSubmitting || !!pendingCommentRequestId) ? ' loading' : ''}`}
+                  style={{ whiteSpace: 'nowrap', flexShrink: 0 }} disabled={!commentColumn || commentSubmitting || !!pendingCommentRequestId}
                   onClick={handleAddComments}>
                   {(commentSubmitting || !!pendingCommentRequestId)
                     ? commentProgress
@@ -1546,7 +1575,7 @@ export function JiraPage() {
                     : `批次添加評論（${toComment.length} 筆）`}
                 </button>
               : null}
-            <button type="button" className="btn-ghost" onClick={() => setStep(6)}>
+            <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(6)}>
               {toTransition.length > 0 ? `切換狀態 (${toTransition.length} 筆) →` : '跳過 →'}
             </button>
           </div>
@@ -1588,16 +1617,16 @@ export function JiraPage() {
           )}
 
           <div className="stage-nav" style={{ marginTop: 16 }}>
-            <button type="button" className="btn-ghost" onClick={() => setStep(5)}>上一步</button>
+            <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(5)}>上一步</button>
             {toTransition.length > 0 && (
-              <button type="button" className={`submit-btn${transitionSubmitting ? ' loading' : ''}`}
-                style={{ flex: 1 }} disabled={transitionSubmitting} onClick={handleTransition}>
+              <button type="button" className={`submit-btn submit-btn--step${transitionSubmitting ? ' loading' : ''}`}
+                style={{ whiteSpace: 'nowrap', flexShrink: 0 }} disabled={transitionSubmitting} onClick={handleTransition}>
                 {transitionSubmitting ? '更新中...' : `批次切換狀態（${toTransition.length} 筆）`}
               </button>
             )}
           </div>
           {(transitionResults.length > 0 || toTransition.length === 0) && (
-            <button type="button" className="submit-btn" style={{ marginTop: 12, background: '#166534' }} onClick={handleReset}>
+            <button type="button" className="submit-btn submit-btn--step" style={{ marginTop: 12, background: '#166534' }} onClick={handleReset}>
               完成，重新開始
             </button>
           )}

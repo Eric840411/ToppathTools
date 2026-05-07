@@ -28,27 +28,29 @@ import {
   getJobStatuses,
   agentConnections,
 } from '../agent-hub.js'
+import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
-const AUTOSPIN_PROJECT_DIR = process.env.AUTOSPIN_PROJECT ?? join(__dirname, '../python')
-const CCTV_REFS_DIR  = join(__dirname, '..', 'machine-test', 'cctv-refs')
-const AUDIO_REFS_DIR = join(__dirname, '..', 'machine-test', 'audio-refs')
+const SERVER_ROOT = join(process.cwd(), 'server')
+const AUTOSPIN_PROJECT_DIR = process.env.AUTOSPIN_PROJECT ?? join(SERVER_ROOT, 'python')
+const CCTV_REFS_DIR  = join(SERVER_ROOT, 'machine-test', 'cctv-refs')
+const AUDIO_REFS_DIR = join(SERVER_ROOT, 'machine-test', 'audio-refs')
 
 // Source files the agent package is allowed to download
 const AGENT_SOURCE_WHITELIST: Record<string, string> = {
-  'agent-runner.ts':               join(__dirname, '../agent-runner.ts'),
-  'machine-test/runner.ts':        join(__dirname, '../machine-test/runner.ts'),
-  'machine-test/types.ts':         join(__dirname, '../machine-test/types.ts'),
-  'machine-test/gemini-agent.ts':  join(__dirname, '../machine-test/gemini-agent.ts'),
-  'machine-test/record-spin.ps1':  join(__dirname, '../machine-test/record-spin.ps1'),
-  'machine-test/record-audio.ps1': join(__dirname, '../machine-test/record-audio.ps1'),
-  'machine-test/set-audio-device.ps1': join(__dirname, '../machine-test/set-audio-device.ps1'),
+  'agent-runner.ts':               join(SERVER_ROOT, 'agent-runner.ts'),
+  'machine-test/runner.ts':        join(SERVER_ROOT, 'machine-test', 'runner.ts'),
+  'machine-test/types.ts':         join(SERVER_ROOT, 'machine-test', 'types.ts'),
+  'machine-test/gemini-agent.ts':  join(SERVER_ROOT, 'machine-test', 'gemini-agent.ts'),
+  'machine-test/record-spin.ps1':  join(SERVER_ROOT, 'machine-test', 'record-spin.ps1'),
+  'machine-test/record-audio.ps1': join(SERVER_ROOT, 'machine-test', 'record-audio.ps1'),
+  'machine-test/set-audio-device.ps1': join(SERVER_ROOT, 'machine-test', 'set-audio-device.ps1'),
 }
 
 export const router = Router()
 
-// ─── Machine Test Profiles ────────────────────────────────────────────────────
+// ?????? Machine Test Profiles ????????????????????????????????????????????????????????????????????????????????????????????????????????
 
 const audioConfigSchema = z.object({
   peakWarnDb:     z.number().optional().nullable(),
@@ -75,26 +77,60 @@ const profileSchema = z.object({
 
 type MachineTestProfile = z.infer<typeof profileSchema>
 
-// ─── OSM Machine Status Store ─────────────────────────────────────────────────
+// ?????? OSM Machine Status Store ??????????????????????????????????????????????????????????????????????????????????????????????????
 // Holds the latest status per machine ID, fed by OSMWatcher webhook.
 // Status codes: 0=normal, 1=fg1, 2=fg2, 3=jackpot, 4=jackpot_active,
 //               5=fg_active, 8=denom_switch, 9=handpay
 export const osmMachineStatus = new Map<string, number>()
 
+// Per-channel throttle: process at most 1 update per channel per second.
+// Extra requests still receive success ACK ??OSMWatcher never retries.
+const osmChannelLastProcessed = new Map<string, number>()
+const OSM_THROTTLE_MS = 1000
+let osmThrottleStats = { processed: 0, skipped: 0, windowStart: Date.now() }
+// Log throttle stats every 60s
+setInterval(() => {
+  const elapsed = ((Date.now() - osmThrottleStats.windowStart) / 1000).toFixed(0)
+  const total = osmThrottleStats.processed + osmThrottleStats.skipped
+  if (total > 0) {
+    console.log(`[OSMWatcher] ${elapsed}s window: ${total} requests ??${osmThrottleStats.processed} processed, ${osmThrottleStats.skipped} skipped (${Math.round(osmThrottleStats.skipped / total * 100)}% throttled)`)
+  }
+  osmThrottleStats = { processed: 0, skipped: 0, windowStart: Date.now() }
+}, 60_000)
+
 const OSM_STATUS_LABELS: Record<number, string> = {
-  0: '正常',
-  1: 'Free Game 觸發',
-  2: 'Free Game 觸發 (2)',
-  3: 'Jackpot 觸發',
-  4: 'Jackpot 進行中',
-  5: 'Free Game 進行中',
-  8: '面額切換',
-  9: 'Handpay（需人工處理）',
+  0: 'Normal',
+  1: 'Free Game \u9032\u884c\u4e2d',
+  2: 'Free Game \u9032\u884c\u4e2d(2)',
+  3: 'Jackpot \u9032\u884c\u4e2d',
+  4: 'Jackpot \u7d50\u675f',
+  5: 'Free Game \u7d50\u675f',
+  8: '\u932f\u8aa4',
+  9: 'Handpay',
 }
 
-// ─── Active Runners ───────────────────────────────────────────────────────────
+// ?????? OSM Jackpot Store ????????????????????????????????????????????????????????????????????????????????????????????????????????????????
+// Holds latest Grand/Fortune per gtype, fed by OSMWatcher webhook.
+const GTYPE_MAP: Record<number, string> = {
+  0:'JJBX', 1:'DFDC', 2:'DFDCP', 3:'BWJL', 4:'HJJL', 5:'WLZB', 6:'YQS', 7:'FDG',
+  8:'WLZB2', 9:'JJBXGrand', 10:'WLZBGOLD', 11:'WLZBPEARL', 12:'CC', 13:'FLCL',
+  14:'ARUZE', 15:'BB', 16:'TCJL', 17:'BZZF', 18:'BBHL', 19:'DT', 20:'MC0', 21:'MC1',
+  22:'BF', 23:'WLZBLIGHT', 24:'SB', 25:'DL', 26:'GZ', 27:'EC', 28:'MF', 29:'FISH',
+  30:'PUFF', 31:'SG', 32:'CLSJ', 33:'AA', 34:'LR', 35:'LL', 36:'LYF', 37:'RR',
+  38:'HOTPOT', 39:'LG', 40:'TP', 41:'MF2',
+}
+interface OsmJackpotEntry {
+  gtype: number
+  gameName: string
+  grand?: number
+  fortunate?: number
+  updatedAt: number
+}
+export const osmJackpotState = new Map<number, OsmJackpotEntry>()
 
-export const activeRunners = new Map<string, { stop: () => void; account: string }>()
+// ?????? Active Runners ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
+
+export const activeRunners = new Map<string, { stop: () => void; account: string; heavyTask?: HeavyTaskToken }>()
 
 const machineTestSessionSchema = z.object({
   lobbyUrls: z.array(z.string().url()).min(1),
@@ -117,7 +153,7 @@ const machineTestSessionSchema = z.object({
   aiAudio: z.boolean().optional(),
 })
 
-// ─── Image Check Sessions ─────────────────────────────────────────────────────
+// ?????? Image Check Sessions ??????????????????????????????????????????????????????????????????????????????????????????????????????????
 
 interface ImageCheckSession {
   deletedImages: string[]
@@ -129,15 +165,15 @@ interface ImageCheckSession {
 
 const imageCheckSessions = new Map<string, ImageCheckSession>()
 
-// ─── Routes: Lark Sheet integration ───────────────────────────────────────────
+// ?????? Routes: Lark Sheet integration ??????????????????????????????????????????????????????????????????????????????????????
 
-/** Read Lark Sheet, return rows with gmid excluding those marked 驗證通過 */
+/** Read Lark Sheet, return rows with gmid excluding those marked ??????? */
 router.post('/api/machine-test/lark-machines', async (req, res, next) => {
   try {
     const { sheetUrl } = z.object({ sheetUrl: z.string() }).parse(req.body)
     const { spreadsheetToken, sheetId } = parseLarkSheetUrl(sheetUrl)
     if (!spreadsheetToken) {
-      return res.status(400).json({ ok: false, message: '無法解析 Lark Sheet URL' })
+      return res.status(400).json({ ok: false, message: '?????? Lark Sheet URL' })
     }
 
     const token = await getLarkToken()
@@ -150,30 +186,30 @@ router.post('/api/machine-test/lark-machines', async (req, res, next) => {
     )
     const data = (await resp.json()) as { code?: number; data?: { valueRange?: { values?: unknown[][] } } }
     if (!resp.ok || data.code !== 0) {
-      return res.status(400).json({ ok: false, message: 'Lark API 錯誤', detail: data })
+      return res.status(400).json({ ok: false, message: 'Lark API ????', detail: data })
     }
 
     const rows = data.data?.valueRange?.values ?? []
     if (rows.length < 3) return res.json({ ok: true, machines: [] })
 
-    // Row 1 = main headers (gmid, QA問題回報…), Row 2 = sub-headers (QA確認狀態…), Row 3+ = data
+    // Row 1 = main headers (gmid, QA????????雓?????, Row 2 = sub-headers (QA????????????????, Row 3+ = data
     const headerRow1 = (rows[0] as unknown[]).map(c => (c !== null && c !== undefined ? String(c) : ''))
     const headerRow2 = (rows[1] as unknown[]).map(c => (c !== null && c !== undefined ? String(c) : ''))
     // Merge: prefer row1, fall back to row2
     const headers = headerRow1.map((h, i) => h || headerRow2[i] || '')
 
     const gmidCol = headers.findIndex(h => h === 'gmid')
-    const qaCol   = headers.findIndex(h => h.includes('QA確認狀態'))
+    const qaCol   = headers.findIndex(h => h.includes('QA'))
 
     if (gmidCol === -1) {
-      return res.status(400).json({ ok: false, message: '找不到 gmid 欄位（請確認欄位名稱為 "gmid"）' })
+      return res.status(400).json({ ok: false, message: 'missing gmid column' })
     }
 
     const machines = rows.slice(2).flatMap((row, i) => {
       const r = row as unknown[]
       const gmid = String(r[gmidCol] ?? '').trim()
       const qaStatus = qaCol !== -1 ? String(r[qaCol] ?? '').trim() : ''
-      if (!gmid || gmid === 'null' || qaStatus === '驗證通過') return []
+      if (!gmid || gmid === 'null' || qaStatus === '???????') return []
       return [{ gmid, rowIndex: i + 3 }]  // rowIndex is 1-based, +2 for two header rows, +1 for slice offset
     })
 
@@ -192,12 +228,12 @@ router.post('/api/machine-test/lark-writeback', async (req, res, next) => {
     }).parse(req.body)
 
     const { spreadsheetToken, sheetId } = parseLarkSheetUrl(body.sheetUrl)
-    if (!spreadsheetToken) return res.status(400).json({ ok: false, message: '無法解析 Sheet URL' })
+    if (!spreadsheetToken) return res.status(400).json({ ok: false, message: '?????? Sheet URL' })
 
     const token = await getLarkToken()
     const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
 
-    // Read both header rows to find QA問題回報 (Row1) and QA確認狀態 (Row2)
+    // Read both header rows to find QA????????雓????(Row1) and QA????????(Row2)
     const headerRange = sheetId ? `${sheetId}!A1:Z2` : 'A1:Z2'
     const headerResp = await fetch(
       `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${headerRange}`,
@@ -210,11 +246,11 @@ router.post('/api/machine-test/lark-writeback', async (req, res, next) => {
     const maxLen = Math.max(row1h.length, row2h.length)
     const mergedHeaders = Array.from({ length: maxLen }, (_, i) => row1h[i] || row2h[i] || '')
 
-    const msgColIdx = mergedHeaders.findIndex(h => h.includes('QA問題回報'))
-    const qaColIdx  = mergedHeaders.findIndex(h => h.includes('QA確認狀態'))
+    const msgColIdx = mergedHeaders.findIndex(h => h.includes('QA'))
+    const qaColIdx  = mergedHeaders.findIndex(h => h.includes('QA'))
 
     if (msgColIdx === -1) {
-      return res.status(400).json({ ok: false, message: '找不到「QA問題回報」欄位（欄位名需包含此文字）' })
+      return res.status(400).json({ ok: false, message: 'missing QA message column' })
     }
 
     const putCell = async (col: number, row: number, value: string) => {
@@ -247,7 +283,7 @@ router.post('/api/machine-test/lark-writeback', async (req, res, next) => {
   }
 })
 
-// ─── Routes: Image Check ───────────────────────────────────────────────────────
+// ?????? Routes: Image Check ??????????????????????????????????????????????????????????????????????????????????????????????????????????????
 
 // POST /api/image-check/parse-screenshot
 router.post('/api/image-check/parse-screenshot', async (req, res) => {
@@ -258,7 +294,7 @@ router.post('/api/image-check/parse-screenshot', async (req, res) => {
       imageBase64 = parsed.imageBase64
       mimeType = parsed.mimeType
     } catch (e) {
-      return res.status(400).json({ ok: false, message: `參數錯誤：${String(e)}` })
+      return res.status(400).json({ ok: false, message: `?????桀??????????{String(e)}` })
     }
 
     const storedKeys = readGeminiKeys()
@@ -267,7 +303,7 @@ router.post('/api/image-check/parse-screenshot', async (req, res) => {
       ...storedKeys,
       ...(envKey ? [{ label: 'env', key: envKey }] : []),
     ]
-    if (keyEntries.length === 0) return res.status(400).json({ ok: false, message: '沒有可用的 Gemini API Key，請先在設定中新增' })
+    if (keyEntries.length === 0) return res.status(400).json({ ok: false, message: 'missing Gemini API key' })
 
     const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
     const prompt = `This is a screenshot of a git diff or version control UI showing file changes.
@@ -275,7 +311,7 @@ Extract ALL file paths that are marked as "deleted" (shown in red, labeled "dele
 Return ONLY a JSON array of strings. Example: ["assets/foo.png","assets/bar.webp"]
 Only include paths with "/" and a file extension. Do NOT include .meta files.`
 
-    console.log(`[ImageCheck] 開始解析截圖，imageBase64 長度=${imageBase64.length}, mimeType=${mimeType}`)
+    console.log(`[ImageCheck] ????????????mageBase64 ?????=${imageBase64.length}, mimeType=${mimeType}`)
 
     let paths: string[] = []
     let lastError = ''
@@ -296,7 +332,7 @@ Only include paths with "/" and a file extension. Do NOT include .meta files.`
           },
         )
         const text = await resp.text()
-        console.log(`[ImageCheck] Gemini (${label}) HTTP=${resp.status} body前200字:`, text.slice(0, 200))
+        console.log(`[ImageCheck] Gemini (${label}) HTTP=${resp.status} body??00??`, text.slice(0, 200))
         const data = JSON.parse(text) as { candidates?: { content?: { parts?: { text?: string }[] } }[]; error?: { message?: string } }
         if (data.error) { lastError = data.error.message ?? 'Gemini error'; continue }
         const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
@@ -304,25 +340,25 @@ Only include paths with "/" and a file extension. Do NOT include .meta files.`
         if (match) {
           try { paths = JSON.parse(match[0]) as string[]; break } catch { lastError = 'JSON parse failed' }
         } else {
-          lastError = `Gemini 未回傳 JSON 陣列，原文：${responseText.slice(0, 100)}`
+          lastError = `Gemini ?????JSON ???????????${responseText.slice(0, 100)}`
         }
       } catch (e) { lastError = String(e) }
     }
 
     if (paths.length === 0 && lastError) {
-      return res.json({ ok: false, paths: [], message: `識別失敗：${lastError}` })
+      return res.json({ ok: false, paths: [], message: `??????????????{lastError}` })
     }
 
     const filtered = paths.filter(p => typeof p === 'string' && p.includes('/'))
-    console.log(`[ImageCheck] 識別完成，找到 ${filtered.length} 個路徑`)
+    console.log(`[ImageCheck] filtered paths: ${filtered.length}`)
     res.json({ ok: true, paths: filtered })
   } catch (err) {
-    console.error('[ImageCheck] 未預期錯誤：', err)
-    res.status(500).json({ ok: false, message: `伺服器錯誤：${String(err)}` })
+    console.error('[ImageCheck] ??????????????', err)
+    res.status(500).json({ ok: false, message: `image check parse failed: ${String(err)}` })
   }
 })
 
-// POST /api/image-check/start — launch headless browser, return sessionId
+// POST /api/image-check/start ??launch headless browser, return sessionId
 router.post('/api/image-check/start', async (req, res, next) => {
   try {
     const { url, deletedImages } = z.object({
@@ -331,7 +367,7 @@ router.post('/api/image-check/start', async (req, res, next) => {
     }).parse(req.body)
 
     if (browserLimiter.queued() >= 8) {
-      return res.status(429).json({ ok: false, message: `伺服器目前負載過高（排隊 ${browserLimiter.queued()} 個），請稍後再試` })
+      return res.status(429).json({ ok: false, message: `browser queue is full: ${browserLimiter.queued()}` })
     }
     const browser = await browserLimiter.schedule(() => chromium.launch({ headless: true }))
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
@@ -362,7 +398,7 @@ router.post('/api/image-check/start', async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-// GET /api/image-check/screenshot/:id — capture and return current page as JPEG
+// GET /api/image-check/screenshot/:id ??capture and return current page as JPEG
 router.get('/api/image-check/screenshot/:id', async (req, res) => {
   const s = imageCheckSessions.get(req.params.id)
   if (!s) return res.status(404).end()
@@ -374,11 +410,11 @@ router.get('/api/image-check/screenshot/:id', async (req, res) => {
   } catch { res.status(500).end() }
 })
 
-// POST /api/image-check/click/:id — forward click to Playwright
+// POST /api/image-check/click/:id ??forward click to Playwright
 router.post('/api/image-check/click/:id', async (req, res) => {
   const s = imageCheckSessions.get(req.params.id)
   if (!s) return res.status(404).json({ ok: false })
-  const { x, y } = req.body as { x: number; y: number }  // normalized 0–1
+  const { x, y } = req.body as { x: number; y: number }  // normalized 0??
   const vp = s.page.viewportSize() ?? { width: 1280, height: 800 }
   try {
     await s.page.mouse.click(x * vp.width, y * vp.height)
@@ -386,7 +422,7 @@ router.post('/api/image-check/click/:id', async (req, res) => {
   } catch { res.json({ ok: false }) }
 })
 
-// POST /api/image-check/scroll/:id — forward scroll to Playwright
+// POST /api/image-check/scroll/:id ??forward scroll to Playwright
 router.post('/api/image-check/scroll/:id', async (req, res) => {
   const s = imageCheckSessions.get(req.params.id)
   if (!s) return res.status(404).json({ ok: false })
@@ -399,17 +435,17 @@ router.post('/api/image-check/scroll/:id', async (req, res) => {
   } catch { res.json({ ok: false }) }
 })
 
-// GET /api/image-check/status/:id — live image count
+// GET /api/image-check/status/:id ??live image count
 router.get('/api/image-check/status/:id', (req, res) => {
   const s = imageCheckSessions.get(req.params.id)
-  if (!s) return res.status(404).json({ ok: false, message: '找不到此 session' })
+  if (!s) return res.status(404).json({ ok: false, message: '???????? session' })
   res.json({ ok: true, loadedImageCount: s.loadedImageUrls.length, elapsedMs: Date.now() - s.startedAt })
 })
 
-// POST /api/image-check/stop/:id — close browser and return results
+// POST /api/image-check/stop/:id ??close browser and return results
 router.post('/api/image-check/stop/:id', async (req, res) => {
   const s = imageCheckSessions.get(req.params.id)
-  if (!s) return res.status(404).json({ ok: false, message: '找不到此 session' })
+  if (!s) return res.status(404).json({ ok: false, message: '???????? session' })
   imageCheckSessions.delete(req.params.id)
   await s.browser.close().catch(() => {})
 
@@ -425,14 +461,14 @@ router.post('/api/image-check/stop/:id', async (req, res) => {
   const foundCount = results.filter(r => r.found).length
   addHistory(
     'image-check',
-    '圖片刪除驗證',
-    `驗證 ${results.length} 張圖片，仍載入 ${foundCount} 張，確認刪除 ${results.length - foundCount} 張`,
+    'Image Check',
+    `checked ${results.length}, found ${foundCount}, missing ${results.length - foundCount}`,
     { results, loadedImageCount: s.loadedImageUrls.length },
   )
   res.json({ ok: true, results, loadedImageCount: s.loadedImageUrls.length, foundCount, checkedCount: results.length })
 })
 
-// ─── Routes: Machine Test Profiles ────────────────────────────────────────────
+// ?????? Routes: Machine Test Profiles ????????????????????????????????????????????????????????????????????????????????????????
 
 // GET /api/machine-test/profiles
 router.get('/api/machine-test/profiles', (_req, res) => {
@@ -450,7 +486,7 @@ router.get('/api/machine-test/profiles', (_req, res) => {
   res.json({ ok: true, profiles })
 })
 
-// PUT /api/machine-test/profiles — upsert
+// PUT /api/machine-test/profiles ??upsert
 router.put('/api/machine-test/profiles', (req, res, next) => {
   try {
     const p = profileSchema.parse(req.body) as MachineTestProfile
@@ -475,7 +511,7 @@ router.put('/api/machine-test/profiles', (req, res, next) => {
     `).run(row)
     const s1 = p.entryTouchPoints?.length ? `S1:[${p.entryTouchPoints.join(',')}]` : ''
     const s2 = p.entryTouchPoints2?.length ? ` S2:[${p.entryTouchPoints2.join(',')}]` : ''
-    addHistory('machine-test', `機台設定檔：${p.machineType}`, `儲存 ${p.machineType} 設定（${p.bonusAction}${s1 ? ' 進入觸屏 ' + s1 + s2 : ''}）`, p)
+    addHistory('machine-test', `Profile ${p.machineType}`, `Saved profile ${p.machineType}`, p)
     res.json({ ok: true, profile: p })
   } catch (err) { next(err) }
 })
@@ -486,9 +522,9 @@ router.delete('/api/machine-test/profiles/:type', (req, res) => {
   res.json({ ok: true })
 })
 
-// ─── Routes: CCTV Reference Images ────────────────────────────────────────────
+// ?????? Routes: CCTV Reference Images ????????????????????????????????????????????????????????????????????????????????????????
 
-// GET /api/machine-test/cctv-refs  — list machine types that have a reference image
+// GET /api/machine-test/cctv-refs  ??list machine types that have a reference image
 router.get('/api/machine-test/cctv-refs', (_req, res) => {
   try {
     mkdirSync(CCTV_REFS_DIR, { recursive: true })
@@ -500,10 +536,10 @@ router.get('/api/machine-test/cctv-refs', (_req, res) => {
   }
 })
 
-// POST /api/machine-test/cctv-refs/:machineType  — upload reference image
+// POST /api/machine-test/cctv-refs/:machineType  ??upload reference image
 router.post('/api/machine-test/cctv-refs/:machineType', upload.single('image'), (req, res) => {
   const machineType = req.params.machineType.toUpperCase()
-  if (!req.file) { res.status(400).json({ ok: false, error: '未收到圖片' }); return }
+  if (!req.file) { res.status(400).json({ ok: false, error: 'missing image file' }); return }
   try {
     mkdirSync(CCTV_REFS_DIR, { recursive: true })
     writeFileSync(join(CCTV_REFS_DIR, `${machineType}.png`), req.file.buffer)
@@ -513,7 +549,7 @@ router.post('/api/machine-test/cctv-refs/:machineType', upload.single('image'), 
   }
 })
 
-// GET /api/machine-test/cctv-refs/:machineType/image  — serve reference image
+// GET /api/machine-test/cctv-refs/:machineType/image  ??serve reference image
 router.get('/api/machine-test/cctv-refs/:machineType/image', (req, res) => {
   const machineType = req.params.machineType.toUpperCase()
   const filePath = join(CCTV_REFS_DIR, `${machineType}.png`)
@@ -523,7 +559,7 @@ router.get('/api/machine-test/cctv-refs/:machineType/image', (req, res) => {
   res.send(readFileSync(filePath))
 })
 
-// DELETE /api/machine-test/cctv-refs/:machineType  — delete reference image
+// DELETE /api/machine-test/cctv-refs/:machineType  ??delete reference image
 router.delete('/api/machine-test/cctv-refs/:machineType', (req, res) => {
   const machineType = req.params.machineType.toUpperCase()
   const filePath = join(CCTV_REFS_DIR, `${machineType}.png`)
@@ -531,9 +567,9 @@ router.delete('/api/machine-test/cctv-refs/:machineType', (req, res) => {
   res.json({ ok: true })
 })
 
-// ─── Routes: Audio Reference Files ────────────────────────────────────────────
+// ?????? Routes: Audio Reference Files ????????????????????????????????????????????????????????????????????????????????????????
 
-// GET /api/machine-test/audio-refs  — list machine types that have a reference WAV
+// GET /api/machine-test/audio-refs  ??list machine types that have a reference WAV
 router.get('/api/machine-test/audio-refs', (_req, res) => {
   try {
     mkdirSync(AUDIO_REFS_DIR, { recursive: true })
@@ -545,10 +581,10 @@ router.get('/api/machine-test/audio-refs', (_req, res) => {
   }
 })
 
-// POST /api/machine-test/audio-refs/:machineType  — upload reference WAV
+// POST /api/machine-test/audio-refs/:machineType  ??upload reference WAV
 router.post('/api/machine-test/audio-refs/:machineType', upload.single('audio'), (req, res) => {
   const machineType = req.params.machineType.toUpperCase()
-  if (!req.file) { res.status(400).json({ ok: false, error: '未收到音頻檔案' }); return }
+  if (!req.file) { res.status(400).json({ ok: false, error: 'missing audio file' }); return }
   try {
     mkdirSync(AUDIO_REFS_DIR, { recursive: true })
     writeFileSync(join(AUDIO_REFS_DIR, `${machineType}.wav`), req.file.buffer)
@@ -558,7 +594,7 @@ router.post('/api/machine-test/audio-refs/:machineType', upload.single('audio'),
   }
 })
 
-// DELETE /api/machine-test/audio-refs/:machineType  — delete reference WAV
+// DELETE /api/machine-test/audio-refs/:machineType  ??delete reference WAV
 router.delete('/api/machine-test/audio-refs/:machineType', (req, res) => {
   const machineType = req.params.machineType.toUpperCase()
   const filePath = join(AUDIO_REFS_DIR, `${machineType}.wav`)
@@ -566,12 +602,12 @@ router.delete('/api/machine-test/audio-refs/:machineType', (req, res) => {
   res.json({ ok: true })
 })
 
-// ─── Routes: CCTV & Audio Saves (per-machine test files) ──────────────────────
+// ?????? Routes: CCTV & Audio Saves (per-machine test files) ????????????????????????????????????????????
 
-const CCTV_SAVES_DIR  = join(__dirname, '..', 'machine-test', 'cctv-saves')
-const AUDIO_SAVES_DIR = join(__dirname, '..', 'machine-test', 'audio-saves')
+const CCTV_SAVES_DIR  = join(SERVER_ROOT, 'machine-test', 'cctv-saves')
+const AUDIO_SAVES_DIR = join(SERVER_ROOT, 'machine-test', 'audio-saves')
 
-// GET /api/machine-test/cctv-saves/:code?sessionId=xxx — serve CCTV screenshot
+// GET /api/machine-test/cctv-saves/:code?sessionId=xxx ??serve CCTV screenshot
 // Falls back to legacy {code}.png if sessionId-prefixed file not found
 router.get('/api/machine-test/cctv-saves/:code', (req, res) => {
   const { code } = req.params
@@ -586,7 +622,7 @@ router.get('/api/machine-test/cctv-saves/:code', (req, res) => {
   res.send(readFileSync(filePath))
 })
 
-// GET /api/machine-test/audio-saves/:code?sessionId=xxx — serve audio recording
+// GET /api/machine-test/audio-saves/:code?sessionId=xxx ??serve audio recording
 // Falls back to legacy {code}.wav if sessionId-prefixed file not found
 router.get('/api/machine-test/audio-saves/:code', (req, res) => {
   const { code } = req.params
@@ -602,16 +638,34 @@ router.get('/api/machine-test/audio-saves/:code', (req, res) => {
   res.send(readFileSync(filePath))
 })
 
-// ─── Routes: OSM Status ────────────────────────────────────────────────────────
+// ?????? Routes: OSM Status ????????????????????????????????????????????????????????????????????????????????????????????????????????????????
 
-// POST /api/machine-test/osm-status — OSMWatcher webhook
+// POST /api/machine-test/osm-status ??OSMWatcher webhook
 router.post('/api/machine-test/osm-status', (req, res) => {
   try {
-    const body = req.body as {
+    const rawBody = req.body
+    const body = (typeof rawBody === 'string'
+      ? JSON.parse(rawBody.replace(/:\s*0+([1-9]\d*)(?=[,\]}])/g, ':$1'))
+      : rawBody) as {
       timestamp?: number
       channel?: string
+      gtype?: number
+      jackpot?: { id?: string; grand?: number; fortunate?: number; major?: number; minor?: number; mini?: number }
       gmlist?: { id: string; status: number; credit?: number; bet?: number; win?: number; fg?: number }[]
     }
+
+    // Throttle: at most 1 update per channel per second.
+    // Always ACK success so OSMWatcher never retries.
+    const channel = body.channel ?? '__default__'
+    const now = Date.now()
+    const last = osmChannelLastProcessed.get(channel) ?? 0
+    if (now - last < OSM_THROTTLE_MS) {
+      osmThrottleStats.skipped++
+      return res.json({ error: 0, errordes: 'success' })
+    }
+    osmChannelLastProcessed.set(channel, now)
+    osmThrottleStats.processed++
+
     if (Array.isArray(body.gmlist)) {
       for (const gm of body.gmlist) {
         if (typeof gm.id === 'string' && typeof gm.status === 'number') {
@@ -619,22 +673,38 @@ router.post('/api/machine-test/osm-status', (req, res) => {
         }
       }
     }
+    if (typeof body.gtype === 'number' && body.jackpot) {
+      const jp = body.jackpot
+      const existing = osmJackpotState.get(body.gtype) ?? { gtype: body.gtype, gameName: GTYPE_MAP[body.gtype] ?? `gtype${body.gtype}`, updatedAt: 0 }
+      osmJackpotState.set(body.gtype, {
+        ...existing,
+        ...(typeof jp.grand === 'number' ? { grand: jp.grand } : {}),
+        ...(typeof jp.fortunate === 'number' ? { fortunate: jp.fortunate } : {}),
+        updatedAt: body.timestamp ?? Date.now(),
+      })
+    }
     res.json({ error: 0, errordes: 'success' })
   } catch {
     res.json({ error: 0, errordes: 'success' }) // always ack to not break OSMWatcher
   }
 })
 
-// GET /api/machine-test/osm-status — query current statuses (for UI display)
+// GET /api/machine-test/osm-jackpot ??current Grand/Fortune per gtype (for AutoSpin page)
+router.get('/api/machine-test/osm-jackpot', (_req, res) => {
+  const data = [...osmJackpotState.values()].sort((a, b) => a.gtype - b.gtype)
+  res.json({ ok: true, jackpots: data })
+})
+
+// GET /api/machine-test/osm-status ??query current statuses (for UI display)
 router.get('/api/machine-test/osm-status', (_req, res) => {
   const entries: Record<string, { status: number; label: string }> = {}
   for (const [id, status] of osmMachineStatus.entries()) {
-    entries[id] = { status, label: OSM_STATUS_LABELS[status] ?? `未知(${status})` }
+    entries[id] = { status, label: OSM_STATUS_LABELS[status] ?? `\u672a\u77e5(${status})` }
   }
   res.json({ ok: true, machines: entries, count: osmMachineStatus.size })
 })
 
-// GET /api/machine-test/queue-status — current work-stealing queue state
+// GET /api/machine-test/queue-status ??current work-stealing queue state
 router.get('/api/machine-test/queue-status', (_req, res) => {
   const sessionId = [...activeRunners.keys()][0] ?? null
   if (!sessionId) return res.json({ ok: true, sessionId: null, statuses: [] })
@@ -642,16 +712,16 @@ router.get('/api/machine-test/queue-status', (_req, res) => {
   res.json({ ok: true, sessionId, statuses: statuses ?? [] })
 })
 
-// ─── Routes: Machine Test Session ─────────────────────────────────────────────
+// ?????? Routes: Machine Test Session ??????????????????????????????????????????????????????????????????????????????????????????
 
-// POST /api/machine-test/start — start session, returns sessionId
+// POST /api/machine-test/start ??start session, returns sessionId
 router.post('/api/machine-test/start', async (req, res, next) => {
   try {
     // PIN guard
     const pin = process.env.ADMIN_PIN ?? ''
     const provided = String(req.headers['x-admin-pin'] ?? '')
     if (pin && provided !== pin) {
-      return res.status(403).json({ ok: false, message: '管理員 PIN 錯誤' })
+      return res.status(403).json({ ok: false, message: '??????PIN ????' })
     }
     const session = machineTestSessionSchema.parse(req.body) as MachineTestSession
     const sessionAccount = session.account ?? 'guest'
@@ -659,8 +729,11 @@ router.post('/api/machine-test/start', async (req, res, next) => {
     // Per-account lock: each account can only run one session at a time
     const accountAlreadyRunning = [...activeRunners.values()].some(r => r.account === sessionAccount)
     if (accountAlreadyRunning) {
-      return res.status(429).json({ ok: false, message: '你目前已有測試正在執行中，請稍後再試' })
+      return res.status(429).json({ ok: false, message: 'machine test already running' })
     }
+
+    const heavyTask = tryStartHeavyTask(req, 'machine-test', 'Machine Test')
+    if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
 
     const sessionId = `mt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
     const rawProfiles = db.prepare('SELECT * FROM machine_test_profiles').all() as (MachineTestProfile & { touchPoints: string | null; clickTake: number; ideck_xpaths?: string })[]
@@ -690,20 +763,21 @@ router.post('/api/machine-test/start', async (req, res, next) => {
     const availableAgents = getAvailableAgents()
 
     if (availableAgents.length > 0) {
-      // ── Distributed: work-stealing queue — agents claim one machine at a time ─
+      // ???? Distributed: work-stealing queue ??agents claim one machine at a time ??
       const codes = session.machineCodes
 
       // Create work queue (agents pull from it via claim_job / job_done WS messages)
       registerDistSession(sessionId, codes, () => {
+        finishHeavyTask(heavyTask.token)
         activeRunners.delete(sessionId)
       })
 
       // Emit initial queue state + session_start
       const initialStatuses = getJobStatuses(sessionId) ?? []
       broadcastToViewers({ type: 'queue_update', statuses: initialStatuses, message: '', ts: new Date().toISOString() })
-      broadcastToViewers({ type: 'session_start', message: `開始測試 ${codes.length} 台機器（${availableAgents.length} 個 Agent 搶工）`, ts: new Date().toISOString() })
+      broadcastToViewers({ type: 'session_start', message: `start ${codes.length} machines with ${availableAgents.length} agents`, ts: new Date().toISOString() })
 
-      // Session config (no machineCodes — agent claims them dynamically)
+      // Session config (no machineCodes ??agent claims them dynamically)
       const sessionBase: MachineTestSession = { ...session, machineCodes: [] }
 
       const agentStopFns: (() => void)[] = []
@@ -735,17 +809,26 @@ router.post('/api/machine-test/start', async (req, res, next) => {
         stop: () => {
           agentStopFns.forEach(fn => fn())
           cancelDistSession(sessionId)
+          finishHeavyTask(heavyTask.token)
           activeRunners.delete(sessionId)
         },
+        heavyTask: heavyTask.token,
       })
 
       res.json({ ok: true, sessionId, mode: 'distributed', agents: availableAgents.length })
     } else {
-      // ── Local: run on this server ─────────────────────────────────────────
+      // ???? Local: run on this server ??????????????????????????????????????????????????????????????????????????????????
       const runner = new MachineTestRunner(osmMachineStatus, profileMap, betRandomConfig)
       runner.on('event', broadcastToViewers)
-      activeRunners.set(sessionId, runner)
-      runner.run({ ...session, sessionId }).finally(() => activeRunners.delete(sessionId))
+      activeRunners.set(sessionId, {
+        account: sessionAccount,
+        stop: () => runner.stop(),
+        heavyTask: heavyTask.token,
+      })
+      runner.run({ ...session, sessionId }).finally(() => {
+        finishHeavyTask(heavyTask.token)
+        activeRunners.delete(sessionId)
+      })
       res.json({ ok: true, sessionId, mode: 'local' })
     }
   } catch (err) {
@@ -753,7 +836,7 @@ router.post('/api/machine-test/start', async (req, res, next) => {
   }
 })
 
-// POST /api/machine-test/save-history — frontend calls this when session ends
+// POST /api/machine-test/save-history ??frontend calls this when session ends
 router.post('/api/machine-test/save-history', (req, res) => {
   try {
     const { results, account, accountLabel, sessionId } = z.object({
@@ -765,7 +848,7 @@ router.post('/api/machine-test/save-history', (req, res) => {
     const pass = results.filter((r) => r.overall === 'pass').length
     const fail = results.filter((r) => r.overall === 'fail').length
     const warn = results.filter((r) => r.overall === 'warn').length
-    addHistory('machine-test', `機台測試`, `共 ${results.length} 台：PASS ${pass} / WARN ${warn} / FAIL ${fail}`, { results, account, accountLabel })
+    addHistory('machine-test', 'Machine Test', `saved ${results.length} results, PASS ${pass} / WARN ${warn} / FAIL ${fail}`, { results, account, accountLabel })
 
     const sid = sessionId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const now = Date.now()
@@ -826,7 +909,7 @@ router.get('/api/machine-test/machine-results', (req, res) => {
   }
 })
 
-// GET /api/machine-test/sessions — personal history for an account
+// GET /api/machine-test/sessions ??personal history for an account
 router.get('/api/machine-test/sessions', (req, res) => {
   const account = req.query.account as string
   if (!account) { res.status(400).json({ ok: false, message: 'account required' }); return }
@@ -840,9 +923,10 @@ router.post('/api/machine-test/stop/:id', (req, res) => {
   const runner = activeRunners.get(req.params.id)
   if (runner) {
     runner.stop()
+    finishHeavyTask(runner.heavyTask)
     activeRunners.delete(req.params.id)  // unblock immediately so new sessions can start
     // Notify all viewers that the session has ended (stop was pressed)
-    broadcastToViewers({ type: 'session_done', message: '測試已手動停止', ts: new Date().toISOString() })
+    broadcastToViewers({ type: 'session_done', message: 'test stopped manually', ts: new Date().toISOString() })
     res.json({ ok: true })
   } else {
     res.status(404).json({ ok: false, message: 'Session not found' })
@@ -851,9 +935,9 @@ router.post('/api/machine-test/stop/:id', (req, res) => {
 
 // WebSocket events are handled in server/index.ts via /ws/machine-test/events
 
-// ─── Routes: Agent Package Download ───────────────────────────────────────────
+// ?????? Routes: Agent Package Download ??????????????????????????????????????????????????????????????????????????????????????
 
-/** GET /api/machine-test/agent/agent-package.json — minimal package.json for agent */
+/** GET /api/machine-test/agent/agent-package.json ??minimal package.json for agent */
 router.get('/api/machine-test/agent/agent-package.json', (_req, res) => {
   const pkg = {
     name: 'machine-test-agent',
@@ -878,12 +962,12 @@ router.get('/api/machine-test/agent/agent-package.json', (_req, res) => {
   res.send(JSON.stringify(pkg, null, 2))
 })
 
-/** GET /api/machine-test/agent/source/:file — serve whitelisted source files */
+/** GET /api/machine-test/agent/source/:file ??serve whitelisted source files */
 function serveAgentSource(relPath: string) {
   return (_req: import('express').Request, res: import('express').Response) => {
     const filePath = AGENT_SOURCE_WHITELIST[relPath]
     if (!filePath || !existsSync(filePath)) {
-      return res.status(404).json({ ok: false, message: `找不到檔案: ${relPath}` })
+      return res.status(404).json({ ok: false, message: `???????? ${relPath}` })
     }
     let content = readFileSync(filePath, 'utf-8')
     // For runner.ts, rewrite gemini import to use standalone agent version
@@ -903,7 +987,7 @@ for (const relPath of Object.keys(AGENT_SOURCE_WHITELIST)) {
   router.get(`/api/machine-test/agent/source/${relPath}`, serveAgentSource(relPath))
 }
 
-/** GET /api/machine-test/agent/install.bat — installer with embedded server URL */
+/** GET /api/machine-test/agent/install.bat ??installer with embedded server URL */
 router.get('/api/machine-test/agent/install.bat', (req, res) => {
   // Derive the server base URL from the request
   const proto = req.headers['x-forwarded-proto'] ?? 'http'
@@ -1007,7 +1091,7 @@ router.get('/api/machine-test/agent/install.bat', (req, res) => {
   res.send(bat)
 })
 
-// GET /api/machine-test/status — current session and agent status
+// GET /api/machine-test/status ??current session and agent status
 router.get('/api/machine-test/status', (_req, res) => {
   const agents = [...agentConnections.values()].map(a => ({
     agentId: a.agentId,
@@ -1016,4 +1100,18 @@ router.get('/api/machine-test/status', (_req, res) => {
   }))
   const activeSessionId = activeRunners.size > 0 ? [...activeRunners.keys()][0] : null
   res.json({ ok: true, active: activeRunners.size > 0, sessionId: activeSessionId, agents })
+})
+
+// GET /api/settings/tunnel-url ??get current tunnel webhook URL
+router.get('/api/settings/tunnel-url', (_req, res) => {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('tunnel_webhook_url') as { value: string } | undefined
+  res.json({ ok: true, url: row?.value ?? null })
+})
+
+// POST /api/settings/tunnel-url ??save current tunnel webhook URL
+router.post('/api/settings/tunnel-url', (req, res) => {
+  const { url } = req.body as { url?: string }
+  if (!url || typeof url !== 'string') return res.status(400).json({ ok: false, error: 'url required' })
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('tunnel_webhook_url', url)
+  res.json({ ok: true })
 })

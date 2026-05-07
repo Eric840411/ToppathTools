@@ -1,0 +1,1 @@
+UI frame character panel, 320x480 transparent pixel-art panel, based on game-design.md.

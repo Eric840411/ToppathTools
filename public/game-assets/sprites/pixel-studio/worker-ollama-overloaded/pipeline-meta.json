@@ -1,0 +1,63 @@
+{
+  "name": "worker-ollama-overloaded",
+  "rows": 1,
+  "cols": 4,
+  "cell_width": 64,
+  "cell_height": 96,
+  "sheet_size": [
+    256,
+    96
+  ],
+  "duration": 150,
+  "source_size": [
+    2048,
+    768
+  ],
+  "key_color": [
+    232,
+    0,
+    208
+  ],
+  "frames": [
+    {
+      "file": "worker-ollama-overloaded-1.png",
+      "bbox": [
+        3,
+        6,
+        60,
+        89
+      ],
+      "touches_edge": false
+    },
+    {
+      "file": "worker-ollama-overloaded-2.png",
+      "bbox": [
+        3,
+        21,
+        60,
+        77
+      ],
+      "touches_edge": false
+    },
+    {
+      "file": "worker-ollama-overloaded-3.png",
+      "bbox": [
+        3,
+        20,
+        60,
+        76
+      ],
+      "touches_edge": false
+    },
+    {
+      "file": "worker-ollama-overloaded-4.png",
+      "bbox": [
+        3,
+        22,
+        60,
+        74
+      ],
+      "touches_edge": false
+    }
+  ]
+}

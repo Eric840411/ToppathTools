@@ -1,0 +1,53 @@
+{
+  "name": "worker-openai-busy",
+  "rows": 1,
+  "cols": 3,
+  "cell_width": 64,
+  "cell_height": 96,
+  "sheet_size": [
+    192,
+    96
+  ],
+  "duration": 120,
+  "source_size": [
+    1774,
+    887
+  ],
+  "key_color": [
+    240,
+    0,
+    208
+  ],
+  "frames": [
+    {
+      "file": "worker-openai-busy-1.png",
+      "bbox": [
+        1,
+        13,
+        62,
+        82
+      ],
+      "touches_edge": false
+    },
+    {
+      "file": "worker-openai-busy-2.png",
+      "bbox": [
+        1,
+        18,
+        52,
+        78
+      ],
+      "touches_edge": false
+    },
+    {
+      "file": "worker-openai-busy-3.png",
+      "bbox": [
+        1,
+        12,
+        62,
+        83
+      ],
+      "touches_edge": false
+    }
+  ]
+}

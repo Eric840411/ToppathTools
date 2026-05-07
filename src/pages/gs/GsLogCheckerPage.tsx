@@ -1,9 +1,31 @@
 import { useEffect, useState } from 'react'
 
+type Tab = 'checker' | 'compare'
+
+const STEPS = [
+  { n: 1, icon: '🎮', title: '開啟遊戲頁面', desc: '在瀏覽器中開啟目標 Game Show 遊戲頁面' },
+  { n: 2, icon: '🛠', title: '開啟開發者工具', desc: '按下 F12 開啟 DevTools，切換至 Console 分頁' },
+  { n: 3, icon: '📋', title: '貼入腳本', desc: '複製右側腳本後貼入 Console，按 Enter 執行' },
+  { n: 4, icon: '🎯', title: '觸發遊戲操作', desc: '在遊戲中進行 Spin、進場等動作，面板即時攔截 Log' },
+  { n: 5, icon: '📊', title: '選取驗證欄位', desc: '勾選要驗證的欄位（balance、seq_index 等）' },
+  { n: 6, icon: '💾', title: '匯出報告', desc: '點擊面板中的「匯出 CSV」或「匯出 JSON」儲存結果' },
+]
+
+const FEATURES = [
+  { color: '#339af0', label: '自動攔截 /api/log XHR 請求' },
+  { color: '#51cf66', label: '解析三層結構（root / data / jsondata）' },
+  { color: '#fcc419', label: '空值欄位自動標紅 ✅ / ❌' },
+  { color: '#f783ac', label: '驗證欄位與匯出欄位可分別設定' },
+  { color: '#a9e34b', label: '匯出 CSV（含驗證狀態欄）與原始 JSON' },
+  { color: '#b197fc', label: '可拖曳浮動面板，自動排除噪音事件' },
+]
+
 export function GsLogCheckerPage() {
+  const [tab, setTab] = useState<Tab>('checker')
   const [script, setScript] = useState('')
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
+  const [showScript, setShowScript] = useState(false)
 
   useEffect(() => {
     fetch('/api/gs/log-checker-script')
@@ -18,7 +40,7 @@ export function GsLogCheckerPage() {
   const handleCopy = () => {
     const done = () => { setCopied(true); setTimeout(() => setCopied(false), 2000) }
     if (navigator.clipboard) {
-      navigator.clipboard.writeText(script).then(done).catch(() => fallbackCopy())
+      navigator.clipboard.writeText(script).then(done).catch(fallbackCopy)
     } else {
       fallbackCopy()
     }
@@ -33,59 +55,174 @@ export function GsLogCheckerPage() {
     document.body.removeChild(ta)
   }
 
+  const handleDownload = () => {
+    const blob = new Blob([script], { type: 'text/javascript' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = 'intercept.js'
+    a.click()
+  }
+
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto' }}>
-      <div className="section-card" style={{ marginBottom: 16 }}>
-        <h2 className="section-title">🔍 Log 攔截工具</h2>
-        <div style={{ fontSize: 14, color: '#475569', lineHeight: 1.7 }}>
-          <p>此工具會攔截前端頁面對 <code>/api/log</code> 的請求，解析兩層 JSON payload，驗證欄位完整性並顯示結果。</p>
-        </div>
-      </div>
-
-      <div className="two-col" style={{ marginBottom: 16 }}>
-        <div className="section-card">
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 12 }}>使用方式</h3>
-          <ol style={{ fontSize: 13, color: '#374151', lineHeight: 2, paddingLeft: 20 }}>
-            <li>開啟 Game Show 遊戲頁面</li>
-            <li>按 <code>F12</code> 開啟開發者工具</li>
-            <li>切換至 <strong>Console</strong> 分頁</li>
-            <li>將右側腳本完整複製後貼入 Console</li>
-            <li>按 Enter 執行，頁面右下角會出現浮動面板</li>
-            <li>在遊戲中觸發各種操作，面板即時顯示攔截結果</li>
-            <li>驗證完畢後可點擊「匯出 CSV」儲存記錄</li>
-          </ol>
-        </div>
-        <div className="section-card">
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 12 }}>面板功能說明</h3>
-          <ul style={{ fontSize: 13, color: '#374151', lineHeight: 2, paddingLeft: 20 }}>
-            <li>自動攔截所有 <code>/api/log</code> XHR 請求</li>
-            <li>解析雙層 JSON（outer + <code>jsondata</code> inner）</li>
-            <li>可設定要驗證的欄位，空值自動標紅</li>
-            <li>可分別設定「驗證欄位」與「匯出欄位」</li>
-            <li>匯出 CSV 包含欄位值與驗證狀態欄</li>
-            <li>面板可拖曳移動位置</li>
-          </ul>
-        </div>
-      </div>
-
-      <div className="section-card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', margin: 0 }}>注入腳本</h3>
-          <button type="button" onClick={handleCopy} disabled={!script}
-            style={{ padding: '7px 20px', borderRadius: 6, background: copied ? '#16a34a' : '#0f172a', color: '#fff', border: 'none', fontSize: 13, fontWeight: 600, cursor: script ? 'pointer' : 'default' }}>
-            {copied ? '✅ 已複製' : '📋 複製腳本'}
+    <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+      {/* Tab 切換 */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
+        {([
+          { key: 'checker', label: '🔍 Log 攔截工具' },
+          { key: 'compare', label: '📊 Log 結構比對' },
+        ] as { key: Tab; label: string }[]).map(t => (
+          <button key={t.key} type="button" onClick={() => setTab(t.key)}
+            style={{
+              padding: '9px 22px', borderRadius: 8, border: '1.5px solid', fontSize: 13,
+              fontWeight: 600, cursor: 'pointer',
+              borderColor: tab === t.key ? '#6366f1' : '#e2e8f0',
+              background: tab === t.key ? '#ede9fe' : '#f8fafc',
+              color: tab === t.key ? '#4f46e5' : '#475569',
+            }}>
+            {t.label}
           </button>
-        </div>
-        {loading ? (
-          <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>載入中...</div>
-        ) : script ? (
-          <pre style={{ background: '#0f172a', color: '#e2e8f0', padding: 16, borderRadius: 8, fontSize: 11, fontFamily: 'monospace', overflow: 'auto', maxHeight: 400, lineHeight: 1.5, margin: 0 }}>
-            {script}
-          </pre>
-        ) : (
-          <div style={{ padding: 20, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>腳本載入失敗，請檢查伺服器連線</div>
-        )}
+        ))}
       </div>
+
+      {/* ── Log 攔截工具 ── */}
+      {tab === 'checker' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* Hero */}
+          <div className="section-card" style={{ padding: '20px 24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+              <span style={{ fontSize: 28 }}>📋</span>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#0f172a' }}>Log Checker</div>
+                <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                  在 DevTools Console 注入腳本，即時攔截並驗證前端 <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4, color: '#16a34a', fontFamily: 'monospace' }}>/api/log</code> 的 XHR 回應
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {FEATURES.map(f => (
+                <span key={f.label} style={{
+                  padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 500,
+                  background: f.color + '18', color: f.color,
+                  border: `1px solid ${f.color}55`,
+                }}>{f.label}</span>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }}>
+
+            {/* 使用步驟 */}
+            <div className="section-card" style={{ padding: '20px 24px' }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ background: '#ede9fe', color: '#6366f1', borderRadius: 6, padding: '2px 8px', fontSize: 12 }}>使用步驟</span>
+              </h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {STEPS.map(s => (
+                  <div key={s.n} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                    <div style={{
+                      flexShrink: 0, width: 28, height: 28, borderRadius: 8,
+                      background: '#f1f5f9', display: 'flex', alignItems: 'center',
+                      justifyContent: 'center', fontSize: 14,
+                    }}>{s.icon}</div>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>
+                        <span style={{ color: '#6366f1', marginRight: 4 }}>Step {s.n}.</span>{s.title}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{s.desc}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 注入腳本 */}
+            <div className="section-card" style={{ padding: '20px 24px' }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ background: '#f0fdf4', color: '#16a34a', borderRadius: 6, padding: '2px 8px', fontSize: 12 }}>注入腳本</span>
+                {script && <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>{script.split('\n').length} 行</span>}
+              </h3>
+
+              {/* Action buttons */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                <button type="button" onClick={handleCopy} disabled={!script}
+                  style={{
+                    flex: 1, padding: '10px 0', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                    cursor: script ? 'pointer' : 'default', border: 'none',
+                    background: copied ? '#16a34a' : '#4f46e5',
+                    color: '#fff',
+                    opacity: script ? 1 : 0.5,
+                    transition: 'background .15s',
+                  }}>
+                  {copied ? '✅ 已複製！' : '📋 複製腳本'}
+                </button>
+                <button type="button" onClick={handleDownload} disabled={!script}
+                  style={{
+                    flex: 1, padding: '10px 0', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                    cursor: script ? 'pointer' : 'default', border: '1.5px solid #e2e8f0',
+                    background: '#f8fafc', color: '#374151',
+                    opacity: script ? 1 : 0.5,
+                  }}>
+                  ⬇️ 下載 .js
+                </button>
+              </div>
+
+              {/* Tips */}
+              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 12px', marginBottom: 14 }}>
+                <div style={{ fontSize: 12, color: '#92400e', lineHeight: 1.6 }}>
+                  <strong>⚠️ 注意事項：</strong><br />
+                  • 僅在測試環境使用，勿長期掛載於正式站<br />
+                  • 每次測試前重新執行腳本，確保攔截器是最新版<br />
+                  • 如出現 CSP 限制，可嘗試在 DevTools Sources 注入
+                </div>
+              </div>
+
+              {/* Toggle script preview */}
+              <button type="button" onClick={() => setShowScript(v => !v)}
+                style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, padding: '5px 12px', fontSize: 12, color: '#64748b', cursor: 'pointer', width: '100%' }}>
+                {showScript ? '▲ 收起腳本預覽' : '▼ 展開腳本預覽'}
+              </button>
+
+              {showScript && (
+                <div style={{ marginTop: 10 }}>
+                  {loading ? (
+                    <div style={{ padding: 16, textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>載入中...</div>
+                  ) : script ? (
+                    <pre style={{
+                      background: '#0f172a', color: '#e2e8f0', padding: 14, borderRadius: 8,
+                      fontSize: 10.5, fontFamily: 'monospace', overflow: 'auto', maxHeight: 320,
+                      lineHeight: 1.55, margin: 0,
+                    }}>{script}</pre>
+                  ) : (
+                    <div style={{ padding: 16, textAlign: 'center', color: '#f87171', fontSize: 13 }}>腳本載入失敗，請檢查伺服器連線</div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Log 結構比對 ── */}
+      {tab === 'compare' && (
+        <div className="section-card" style={{ padding: 0, overflow: 'hidden' }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>📊 Log 結構比對</span>
+              <span style={{ fontSize: 12, color: '#64748b', marginLeft: 8 }}>支援雙檔結構比對與單檔欄位缺失驗證</span>
+            </div>
+            <a href="/api/gs/log-compare" target="_blank" rel="noopener noreferrer"
+              style={{ fontSize: 12, color: '#6366f1', textDecoration: 'none', fontWeight: 600 }}>
+              在新視窗開啟 ↗
+            </a>
+          </div>
+          <iframe
+            src="/api/gs/log-compare"
+            style={{ width: '100%', height: 'calc(100vh - 260px)', minHeight: 600, border: 'none', display: 'block' }}
+            title="Log 結構比對工具"
+          />
+        </div>
+      )}
     </div>
   )
 }

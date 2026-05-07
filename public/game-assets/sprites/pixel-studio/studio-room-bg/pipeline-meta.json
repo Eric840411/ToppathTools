@@ -1,0 +1,33 @@
+{
+  "name": "studio-room-bg",
+  "rows": 1,
+  "cols": 1,
+  "cell_width": 800,
+  "cell_height": 600,
+  "sheet_size": [
+    800,
+    600
+  ],
+  "duration": 1000,
+  "source_size": [
+    1448,
+    1086
+  ],
+  "key_color": [
+    248,
+    0,
+    224
+  ],
+  "frames": [
+    {
+      "file": "studio-room-bg-1.png",
+      "bbox": [
+        8,
+        19,
+        792,
+        580
+      ],
+      "touches_edge": false
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "name": "nameplate-gemini",
+  "rows": 1,
+  "cols": 1,
+  "cell_width": 80,
+  "cell_height": 16,
+  "sheet_size": [
+    80,
+    16
+  ],
+  "duration": 1000,
+  "source_size": [
+    1774,
+    887
+  ],
+  "key_color": [
+    240,
+    8,
+    232
+  ],
+  "frames": [
+    {
+      "file": "nameplate-gemini-1.png",
+      "bbox": [
+        11,
+        0,
+        68,
+        15
+      ],
+      "touches_edge": true
+    }
+  ]
+}

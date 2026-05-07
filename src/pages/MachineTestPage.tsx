@@ -75,6 +75,13 @@ const STEP_BADGE: Record<keyof StepConfig, string> = {
 
 type BonusAction = 'auto_wait' | 'spin' | 'takewin' | 'touchscreen'
 
+interface AudioConfig {
+  peakWarnDb?: number | null
+  centroidWarnHz?: number | null
+  rmsMinDb?: number | null
+  rmsMaxDb?: number | null
+}
+
 interface MachineProfile {
   machineType: string
   bonusAction: BonusAction
@@ -94,6 +101,10 @@ interface MachineProfile {
   entryTouchPoints2?: string[] | null
   /** iDeck test XPath list (replaces AutoSpin bet_random config) */
   ideckXpaths?: string[] | null
+  /** Per-machine audio thresholds */
+  audioConfig?: AudioConfig | null
+  /** Whether a reference WAV exists for this machine type (server-side flag) */
+  hasAudioRef?: boolean
 }
 
 const BONUS_ACTION_LABELS: Record<BonusAction, string> = {
@@ -110,6 +121,7 @@ const EMPTY_PROFILE: MachineProfile = {
   spinSelector: '', balanceSelector: '', exitSelector: '', notes: '',
   entryTouchPoints: [], entryTouchPoints2: [],
   ideckXpaths: [],
+  audioConfig: null,
 }
 
 const isValidCoord = (s: string) => /^\d+,\d+$/.test(s.trim())
@@ -122,6 +134,8 @@ function ProfilesPanel() {
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [cctvRefs, setCctvRefs] = useState<Set<string>>(new Set())
   const [cctvUploading, setCctvUploading] = useState<string | null>(null)
+  const [audioRefs, setAudioRefs] = useState<Set<string>>(new Set())
+  const [audioUploading, setAudioUploading] = useState<string | null>(null)
   const [cctvPreview, setCctvPreview] = useState<string | null>(null)
 
   const load = useCallback(() => {
@@ -130,6 +144,9 @@ function ProfilesPanel() {
       .catch(() => {})
     fetch('/api/machine-test/cctv-refs').then(r => r.json())
       .then((d: { machineTypes?: string[] }) => setCctvRefs(new Set(d.machineTypes ?? [])))
+      .catch(() => {})
+    fetch('/api/machine-test/audio-refs').then(r => r.json())
+      .then((d: { machineTypes?: string[] }) => setAudioRefs(new Set(d.machineTypes ?? [])))
       .catch(() => {})
   }, [])
 
@@ -147,6 +164,22 @@ function ProfilesPanel() {
   const handleCctvDelete = async (machineType: string) => {
     await fetch(`/api/machine-test/cctv-refs/${machineType}`, { method: 'DELETE' })
     setCctvRefs(prev => { const s = new Set(prev); s.delete(machineType); return s })
+  }
+
+  const handleAudioRefUpload = async (machineType: string, file: File) => {
+    setAudioUploading(machineType)
+    const fd = new FormData()
+    fd.append('audio', file)
+    await fetch(`/api/machine-test/audio-refs/${machineType}`, { method: 'POST', body: fd })
+    setAudioUploading(null)
+    fetch('/api/machine-test/audio-refs').then(r => r.json())
+      .then((d: { machineTypes?: string[] }) => setAudioRefs(new Set(d.machineTypes ?? [])))
+      .catch(() => {})
+  }
+
+  const handleAudioRefDelete = async (machineType: string) => {
+    await fetch(`/api/machine-test/audio-refs/${machineType}`, { method: 'DELETE' })
+    setAudioRefs(prev => { const s = new Set(prev); s.delete(machineType); return s })
   }
 
   useEffect(() => { load() }, [load])
@@ -221,6 +254,7 @@ function ProfilesPanel() {
                 <th>Bonus 啟動方式</th>
                 <th>備注</th>
                 <th>CCTV 基準圖</th>
+                <th>音頻參考檔</th>
                 <th>操作</th>
               </tr>
             </thead>
@@ -272,6 +306,32 @@ function ProfilesPanel() {
                           onChange={e => { const f = e.target.files?.[0]; if (f) handleCctvUpload(p.machineType, f) }} />
                         <span className="btn-ghost" style={{ fontSize: 11, padding: '2px 8px', color: '#64748b' }}>
                           {cctvUploading === p.machineType ? '上傳中...' : '+ 上傳基準圖'}
+                        </span>
+                      </label>
+                    )}
+                  </td>
+                  <td>
+                    {audioRefs.has(p.machineType) ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 11, color: '#059669' }}>🎵 已上傳</span>
+                        <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 2 }}>
+                          <label style={{ cursor: 'pointer' }}>
+                            <input type="file" accept="audio/wav,.wav" style={{ display: 'none' }}
+                              onChange={e => { const f = e.target.files?.[0]; if (f) handleAudioRefUpload(p.machineType, f) }} />
+                            <span style={{ fontSize: 11, color: '#64748b', textDecoration: 'underline', cursor: 'pointer' }}>
+                              {audioUploading === p.machineType ? '更換中...' : '更換'}
+                            </span>
+                          </label>
+                          <span style={{ fontSize: 11, color: '#ef4444', cursor: 'pointer', textDecoration: 'underline' }}
+                            onClick={() => handleAudioRefDelete(p.machineType)}>刪除</span>
+                        </span>
+                      </span>
+                    ) : (
+                      <label style={{ cursor: 'pointer' }}>
+                        <input type="file" accept="audio/wav,.wav" style={{ display: 'none' }}
+                          onChange={e => { const f = e.target.files?.[0]; if (f) handleAudioRefUpload(p.machineType, f) }} />
+                        <span className="btn-ghost" style={{ fontSize: 11, padding: '2px 8px', color: '#64748b' }}>
+                          {audioUploading === p.machineType ? '上傳中...' : '+ 上傳參考音頻'}
                         </span>
                       </label>
                     )}
@@ -480,6 +540,62 @@ function ProfilesPanel() {
             </label>
           </div>
 
+          {/* ── Audio Config ── */}
+          <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '12px 14px', marginTop: 8, marginBottom: 8, background: '#f8fafc' }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 10 }}>
+              🎵 音頻閾值設定
+              <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400, marginLeft: 8 }}>
+                留空使用全域預設值（峰值 -3 dB、重心 1500 Hz、RMS -60 ~ -20 dB）
+              </span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
+              <label className="field" style={{ margin: 0 }}>
+                <span>峰值警告 dBFS <span style={{ fontSize: 11, color: '#94a3b8' }}>（爆音）</span></span>
+                <input
+                  type="number" step="0.1"
+                  value={editing.audioConfig?.peakWarnDb ?? ''}
+                  placeholder="-3"
+                  onChange={e => setEditing(p => ({
+                    ...p!, audioConfig: { ...(p!.audioConfig ?? {}), peakWarnDb: e.target.value === '' ? null : parseFloat(e.target.value) }
+                  }))}
+                />
+              </label>
+              <label className="field" style={{ margin: 0 }}>
+                <span>頻譜重心 Hz <span style={{ fontSize: 11, color: '#94a3b8' }}>（音色偏亮）</span></span>
+                <input
+                  type="number" step="10"
+                  value={editing.audioConfig?.centroidWarnHz ?? ''}
+                  placeholder="1500"
+                  onChange={e => setEditing(p => ({
+                    ...p!, audioConfig: { ...(p!.audioConfig ?? {}), centroidWarnHz: e.target.value === '' ? null : parseFloat(e.target.value) }
+                  }))}
+                />
+              </label>
+              <label className="field" style={{ margin: 0 }}>
+                <span>RMS 最低 dB <span style={{ fontSize: 11, color: '#94a3b8' }}>（音量偏低）</span></span>
+                <input
+                  type="number" step="1"
+                  value={editing.audioConfig?.rmsMinDb ?? ''}
+                  placeholder="-60"
+                  onChange={e => setEditing(p => ({
+                    ...p!, audioConfig: { ...(p!.audioConfig ?? {}), rmsMinDb: e.target.value === '' ? null : parseFloat(e.target.value) }
+                  }))}
+                />
+              </label>
+              <label className="field" style={{ margin: 0 }}>
+                <span>RMS 最高 dB <span style={{ fontSize: 11, color: '#94a3b8' }}>（音量過大）</span></span>
+                <input
+                  type="number" step="1"
+                  value={editing.audioConfig?.rmsMaxDb ?? ''}
+                  placeholder="-20"
+                  onChange={e => setEditing(p => ({
+                    ...p!, audioConfig: { ...(p!.audioConfig ?? {}), rmsMaxDb: e.target.value === '' ? null : parseFloat(e.target.value) }
+                  }))}
+                />
+              </label>
+            </div>
+          </div>
+
           <button type="button" className="btn-ghost" style={{ fontSize: 12, marginBottom: 8 }}
             onClick={() => setShowAdvanced(v => !v)}>
             {showAdvanced ? '▲ 收起進階設定' : '▼ 進階：自訂 Selector'}
@@ -615,9 +731,9 @@ function toQAMessage(result: MachineResult): string {
 
 // ─── Audio Player (inline play/download for test recording) ───────────────────
 
-function AudioPlayer({ machineCode }: { machineCode: string }) {
+function AudioPlayer({ machineCode, sessionId }: { machineCode: string; sessionId?: string | null }) {
   const [open, setOpen] = useState(false)
-  const url = `/api/machine-test/audio-saves/${machineCode}`
+  const url = `/api/machine-test/audio-saves/${machineCode}${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`
   if (!open) {
     return (
       <button
@@ -740,15 +856,15 @@ function MyHistoryPanel({ account }: { account: AccountInfo }) {
                             })}
                             <td style={{ padding: '6px 8px', textAlign: 'center' }}>
                               <img
-                                src={`/api/machine-test/cctv-saves/${r.machineCode}`}
+                                src={`/api/machine-test/cctv-saves/${r.machineCode}?sessionId=${encodeURIComponent(s.id)}`}
                                 alt=""
                                 style={{ height: 24, width: 'auto', borderRadius: 2, cursor: 'pointer', border: '1px solid #e2e8f0' }}
-                                onClick={() => setCctvPreview(`/api/machine-test/cctv-saves/${r.machineCode}`)}
+                                onClick={() => setCctvPreview(`/api/machine-test/cctv-saves/${r.machineCode}?sessionId=${encodeURIComponent(s.id)}`)}
                                 onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
                               />
                             </td>
                             <td style={{ padding: '6px 8px', textAlign: 'center' }}>
-                              <AudioPlayer machineCode={r.machineCode} />
+                              <AudioPlayer machineCode={r.machineCode} sessionId={s.id} />
                             </td>
                           </tr>
                         ))}
@@ -1307,7 +1423,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
     const resp = await fetch('/api/machine-test/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-admin-pin': adminPin },
-      body: JSON.stringify({ lobbyUrls: lobbyUrls.filter(u => u.trim()), machineCodes, steps, osmEnv, ...(headedMode ? { headedMode: true } : {}), ...(aiAudio && steps.audio ? { aiAudio: true } : {}), ...(debugMode && debugGmid.trim() ? { debugGmid: debugGmid.trim() } : {}), ...(steps.cctv ? { cctvModelSpec: cctvModel } : {}) }),
+      body: JSON.stringify({ lobbyUrls: lobbyUrls.filter(u => u.trim()), machineCodes, steps, osmEnv, account: account?.email ?? '', ...(headedMode ? { headedMode: true } : {}), ...(aiAudio && steps.audio ? { aiAudio: true } : {}), ...(debugMode && debugGmid.trim() ? { debugGmid: debugGmid.trim() } : {}), ...(steps.cctv ? { cctvModelSpec: cctvModel } : {}) }),
     }).then(r => r.json()) as { ok: boolean; sessionId?: string; message?: string }
 
     if (!resp.ok || !resp.sessionId) {
@@ -1982,15 +2098,15 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
                                   <span title={step.message}>{statusIcon(step.status)}</span>
                                   {k === 'cctv' && (
                                     <img
-                                      src={`/api/machine-test/cctv-saves/${r.machineCode}`}
+                                      src={`/api/machine-test/cctv-saves/${r.machineCode}${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`}
                                       alt=""
                                       style={{ height: 28, width: 'auto', borderRadius: 3, cursor: 'pointer', border: '1px solid #e2e8f0' }}
-                                      onClick={() => setCctvPreview(`/api/machine-test/cctv-saves/${r.machineCode}`)}
+                                      onClick={() => setCctvPreview(`/api/machine-test/cctv-saves/${r.machineCode}${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`)}
                                       onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
                                     />
                                   )}
                                   {k === 'audio' && (
-                                    <AudioPlayer machineCode={r.machineCode} />
+                                    <AudioPlayer machineCode={r.machineCode} sessionId={sessionId} />
                                   )}
                                 </span>
                               ) : (

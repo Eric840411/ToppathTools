@@ -1,0 +1,43 @@
+{
+  "name": "neon-sign-anim",
+  "rows": 1,
+  "cols": 2,
+  "cell_width": 128,
+  "cell_height": 32,
+  "sheet_size": [
+    256,
+    32
+  ],
+  "duration": 600,
+  "source_size": [
+    1774,
+    887
+  ],
+  "key_color": [
+    248,
+    8,
+    224
+  ],
+  "frames": [
+    {
+      "file": "neon-sign-anim-1.png",
+      "bbox": [
+        1,
+        1,
+        126,
+        30
+      ],
+      "touches_edge": false
+    },
+    {
+      "file": "neon-sign-anim-2.png",
+      "bbox": [
+        8,
+        0,
+        120,
+        31
+      ],
+      "touches_edge": true
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "name": "worker-gemini-overloaded",
+  "rows": 1,
+  "cols": 4,
+  "cell_width": 64,
+  "cell_height": 96,
+  "sheet_size": [
+    256,
+    96
+  ],
+  "duration": 150,
+  "source_size": [
+    2048,
+    768
+  ],
+  "key_color": [
+    232,
+    0,
+    216
+  ],
+  "frames": [
+    {
+      "file": "worker-gemini-overloaded-1.png",
+      "bbox": [
+        1,
+        13,
+        62,
+        82
+      ],
+      "touches_edge": false
+    },
+    {
+      "file": "worker-gemini-overloaded-2.png",
+      "bbox": [
+        1,
+        16,
+        62,
+        80
+      ],
+      "touches_edge": false
+    },
+    {
+      "file": "worker-gemini-overloaded-3.png",
+      "bbox": [
+        1,
+        19,
+        62,
+        78
+      ],
+      "touches_edge": false
+    },
+    {
+      "file": "worker-gemini-overloaded-4.png",
+      "bbox": [
+        1,
+        9,
+        62,
+        86
+      ],
+      "touches_edge": false
+    }
+  ]
+}

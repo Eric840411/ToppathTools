@@ -1,0 +1,1058 @@
+[
+  {
+    "name": "worker-gemini-idle",
+    "source": "C:\\Users\\user\\.codex\\generated_images\\019de9ce-a01d-7020-8f1d-7563e075d4b2\\ig_04c006e3bd4980e60169f6397a4e048191bd7149b017ba03b3.png",
+    "raw_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-gemini-idle\\raw-sheet.png",
+    "final_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-gemini-idle\\sheet-transparent.png",
+    "final_gif": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-gemini-idle\\animation.gif",
+    "processor_square_output": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-gemini-idle\\_processor-square",
+    "cell_width": 64,
+    "cell_height": 96,
+    "cols": 2,
+    "rows": 1,
+    "duration": 800,
+    "frames": [
+      {
+        "frame": 1,
+        "source_bbox": [
+          125,
+          157,
+          699,
+          955
+        ],
+        "output_size": [
+          56,
+          78
+        ],
+        "paste": [
+          4,
+          9
+        ]
+      },
+      {
+        "frame": 2,
+        "source_bbox": [
+          88,
+          157,
+          661,
+          955
+        ],
+        "output_size": [
+          56,
+          78
+        ],
+        "paste": [
+          4,
+          9
+        ]
+      }
+    ]
+  },
+  {
+    "name": "worker-gemini-working",
+    "source": "C:\\Users\\user\\.codex\\generated_images\\019de9ce-a01d-7020-8f1d-7563e075d4b2\\ig_04c006e3bd4980e60169f639b588c081918ac034be46588b14.png",
+    "raw_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-gemini-working\\raw-sheet.png",
+    "final_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-gemini-working\\sheet-transparent.png",
+    "final_gif": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-gemini-working\\animation.gif",
+    "processor_square_output": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-gemini-working\\_processor-square",
+    "cell_width": 64,
+    "cell_height": 96,
+    "cols": 3,
+    "rows": 1,
+    "duration": 200,
+    "frames": [
+      {
+        "frame": 1,
+        "source_bbox": [
+          61,
+          148,
+          585,
+          722
+        ],
+        "output_size": [
+          56,
+          61
+        ],
+        "paste": [
+          4,
+          17
+        ]
+      },
+      {
+        "frame": 2,
+        "source_bbox": [
+          28,
+          166,
+          547,
+          722
+        ],
+        "output_size": [
+          56,
+          60
+        ],
+        "paste": [
+          4,
+          18
+        ]
+      },
+      {
+        "frame": 3,
+        "source_bbox": [
+          3,
+          171,
+          522,
+          722
+        ],
+        "output_size": [
+          56,
+          59
+        ],
+        "paste": [
+          4,
+          18
+        ]
+      }
+    ]
+  },
+  {
+    "name": "worker-gemini-busy",
+    "source": "C:\\Users\\user\\.codex\\generated_images\\019de9ce-a01d-7020-8f1d-7563e075d4b2\\ig_04c006e3bd4980e60169f639e7ce748191bfb5acd77a0c2f71.png",
+    "raw_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-gemini-busy\\raw-sheet.png",
+    "final_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-gemini-busy\\sheet-transparent.png",
+    "final_gif": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-gemini-busy\\animation.gif",
+    "processor_square_output": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-gemini-busy\\_processor-square",
+    "cell_width": 64,
+    "cell_height": 96,
+    "cols": 3,
+    "rows": 1,
+    "duration": 120,
+    "frames": [
+      {
+        "frame": 1,
+        "source_bbox": [
+          24,
+          143,
+          544,
+          786
+        ],
+        "output_size": [
+          56,
+          69
+        ],
+        "paste": [
+          4,
+          13
+        ]
+      },
+      {
+        "frame": 2,
+        "source_bbox": [
+          15,
+          143,
+          529,
+          786
+        ],
+        "output_size": [
+          56,
+          70
+        ],
+        "paste": [
+          4,
+          13
+        ]
+      },
+      {
+        "frame": 3,
+        "source_bbox": [
+          16,
+          138,
+          569,
+          790
+        ],
+        "output_size": [
+          56,
+          66
+        ],
+        "paste": [
+          4,
+          15
+        ]
+      }
+    ]
+  },
+  {
+    "name": "worker-gemini-overloaded",
+    "source": "C:\\Users\\user\\.codex\\generated_images\\019de9ce-a01d-7020-8f1d-7563e075d4b2\\ig_04c006e3bd4980e60169f63a65e46c81918f38bae977251370.png",
+    "raw_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-gemini-overloaded\\raw-sheet.png",
+    "final_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-gemini-overloaded\\sheet-transparent.png",
+    "final_gif": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-gemini-overloaded\\animation.gif",
+    "processor_square_output": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-gemini-overloaded\\_processor-square",
+    "cell_width": 64,
+    "cell_height": 96,
+    "cols": 4,
+    "rows": 1,
+    "duration": 100,
+    "frames": [
+      {
+        "frame": 1,
+        "source_bbox": [
+          89,
+          89,
+          498,
+          664
+        ],
+        "output_size": [
+          56,
+          79
+        ],
+        "paste": [
+          4,
+          8
+        ]
+      },
+      {
+        "frame": 2,
+        "source_bbox": [
+          72,
+          107,
+          481,
+          661
+        ],
+        "output_size": [
+          56,
+          76
+        ],
+        "paste": [
+          4,
+          10
+        ]
+      },
+      {
+        "frame": 3,
+        "source_bbox": [
+          22,
+          120,
+          458,
+          664
+        ],
+        "output_size": [
+          56,
+          70
+        ],
+        "paste": [
+          4,
+          13
+        ]
+      },
+      {
+        "frame": 4,
+        "source_bbox": [
+          23,
+          89,
+          438,
+          664
+        ],
+        "output_size": [
+          56,
+          78
+        ],
+        "paste": [
+          4,
+          9
+        ]
+      }
+    ]
+  },
+  {
+    "name": "worker-openai-idle",
+    "source": "C:\\Users\\user\\.codex\\generated_images\\019de9ce-a01d-7020-8f1d-7563e075d4b2\\ig_04c006e3bd4980e60169f63a983c0081918846ca3ee8846c0e.png",
+    "raw_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-openai-idle\\raw-sheet.png",
+    "final_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-openai-idle\\sheet-transparent.png",
+    "final_gif": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-openai-idle\\animation.gif",
+    "processor_square_output": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-openai-idle\\_processor-square",
+    "cell_width": 64,
+    "cell_height": 96,
+    "cols": 2,
+    "rows": 1,
+    "duration": 800,
+    "frames": [
+      {
+        "frame": 1,
+        "source_bbox": [
+          108,
+          182,
+          706,
+          917
+        ],
+        "output_size": [
+          56,
+          69
+        ],
+        "paste": [
+          4,
+          13
+        ]
+      },
+      {
+        "frame": 2,
+        "source_bbox": [
+          62,
+          181,
+          661,
+          917
+        ],
+        "output_size": [
+          56,
+          69
+        ],
+        "paste": [
+          4,
+          13
+        ]
+      }
+    ]
+  },
+  {
+    "name": "worker-openai-working",
+    "source": "C:\\Users\\user\\.codex\\generated_images\\019de9ce-a01d-7020-8f1d-7563e075d4b2\\ig_04c006e3bd4980e60169f63ad936e881919714984adff4f659.png",
+    "raw_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-openai-working\\raw-sheet.png",
+    "final_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-openai-working\\sheet-transparent.png",
+    "final_gif": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-openai-working\\animation.gif",
+    "processor_square_output": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-openai-working\\_processor-square",
+    "cell_width": 64,
+    "cell_height": 96,
+    "cols": 3,
+    "rows": 1,
+    "duration": 200,
+    "frames": [
+      {
+        "frame": 1,
+        "source_bbox": [
+          44,
+          157,
+          579,
+          729
+        ],
+        "output_size": [
+          56,
+          60
+        ],
+        "paste": [
+          4,
+          18
+        ]
+      },
+      {
+        "frame": 2,
+        "source_bbox": [
+          26,
+          166,
+          561,
+          729
+        ],
+        "output_size": [
+          56,
+          59
+        ],
+        "paste": [
+          4,
+          18
+        ]
+      },
+      {
+        "frame": 3,
+        "source_bbox": [
+          9,
+          161,
+          545,
+          729
+        ],
+        "output_size": [
+          56,
+          59
+        ],
+        "paste": [
+          4,
+          18
+        ]
+      }
+    ]
+  },
+  {
+    "name": "worker-openai-busy",
+    "source": "C:\\Users\\user\\.codex\\generated_images\\019de9ce-a01d-7020-8f1d-7563e075d4b2\\ig_04c006e3bd4980e60169f63b2a5f8c8191a1ec2f546e1cdfbc.png",
+    "raw_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-openai-busy\\raw-sheet.png",
+    "final_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-openai-busy\\sheet-transparent.png",
+    "final_gif": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-openai-busy\\animation.gif",
+    "processor_square_output": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-openai-busy\\_processor-square",
+    "cell_width": 64,
+    "cell_height": 96,
+    "cols": 3,
+    "rows": 1,
+    "duration": 120,
+    "frames": [
+      {
+        "frame": 1,
+        "source_bbox": [
+          35,
+          153,
+          580,
+          757
+        ],
+        "output_size": [
+          56,
+          62
+        ],
+        "paste": [
+          4,
+          17
+        ]
+      },
+      {
+        "frame": 2,
+        "source_bbox": [
+          35,
+          168,
+          580,
+          757
+        ],
+        "output_size": [
+          56,
+          60
+        ],
+        "paste": [
+          4,
+          18
+        ]
+      },
+      {
+        "frame": 3,
+        "source_bbox": [
+          38,
+          163,
+          581,
+          757
+        ],
+        "output_size": [
+          56,
+          61
+        ],
+        "paste": [
+          4,
+          17
+        ]
+      }
+    ]
+  },
+  {
+    "name": "worker-openai-overloaded",
+    "source": "C:\\Users\\user\\.codex\\generated_images\\019de9ce-a01d-7020-8f1d-7563e075d4b2\\ig_04c006e3bd4980e60169f63b61aa748191a7ef854937cad45c.png",
+    "raw_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-openai-overloaded\\raw-sheet.png",
+    "final_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-openai-overloaded\\sheet-transparent.png",
+    "final_gif": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-openai-overloaded\\animation.gif",
+    "processor_square_output": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-openai-overloaded\\_processor-square",
+    "cell_width": 64,
+    "cell_height": 96,
+    "cols": 4,
+    "rows": 1,
+    "duration": 100,
+    "frames": [
+      {
+        "frame": 1,
+        "source_bbox": [
+          51,
+          175,
+          481,
+          639
+        ],
+        "output_size": [
+          56,
+          60
+        ],
+        "paste": [
+          4,
+          18
+        ]
+      },
+      {
+        "frame": 2,
+        "source_bbox": [
+          14,
+          79,
+          480,
+          639
+        ],
+        "output_size": [
+          56,
+          67
+        ],
+        "paste": [
+          4,
+          14
+        ]
+      },
+      {
+        "frame": 3,
+        "source_bbox": [
+          26,
+          176,
+          475,
+          642
+        ],
+        "output_size": [
+          56,
+          58
+        ],
+        "paste": [
+          4,
+          19
+        ]
+      },
+      {
+        "frame": 4,
+        "source_bbox": [
+          20,
+          215,
+          468,
+          642
+        ],
+        "output_size": [
+          56,
+          53
+        ],
+        "paste": [
+          4,
+          21
+        ]
+      }
+    ]
+  },
+  {
+    "name": "worker-ollama-idle",
+    "source": "C:\\Users\\user\\.codex\\generated_images\\019de9ce-a01d-7020-8f1d-7563e075d4b2\\ig_04c006e3bd4980e60169f63bc3d8188191870180af046ca606.png",
+    "raw_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-ollama-idle\\raw-sheet.png",
+    "final_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-ollama-idle\\sheet-transparent.png",
+    "final_gif": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-ollama-idle\\animation.gif",
+    "processor_square_output": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-ollama-idle\\_processor-square",
+    "cell_width": 64,
+    "cell_height": 96,
+    "cols": 2,
+    "rows": 1,
+    "duration": 800,
+    "frames": [
+      {
+        "frame": 1,
+        "source_bbox": [
+          77,
+          186,
+          724,
+          898
+        ],
+        "output_size": [
+          56,
+          61
+        ],
+        "paste": [
+          4,
+          17
+        ]
+      },
+      {
+        "frame": 2,
+        "source_bbox": [
+          0,
+          192,
+          548,
+          898
+        ],
+        "output_size": [
+          56,
+          72
+        ],
+        "paste": [
+          4,
+          12
+        ]
+      }
+    ]
+  },
+  {
+    "name": "worker-ollama-working",
+    "source": "C:\\Users\\user\\.codex\\generated_images\\019de9ce-a01d-7020-8f1d-7563e075d4b2\\ig_04c006e3bd4980e60169f63c08f53481918a8df9cebed3f841.png",
+    "raw_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-ollama-working\\raw-sheet.png",
+    "final_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-ollama-working\\sheet-transparent.png",
+    "final_gif": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-ollama-working\\animation.gif",
+    "processor_square_output": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-ollama-working\\_processor-square",
+    "cell_width": 64,
+    "cell_height": 96,
+    "cols": 3,
+    "rows": 1,
+    "duration": 200,
+    "frames": [
+      {
+        "frame": 1,
+        "source_bbox": [
+          45,
+          195,
+          553,
+          707
+        ],
+        "output_size": [
+          56,
+          56
+        ],
+        "paste": [
+          4,
+          20
+        ]
+      },
+      {
+        "frame": 2,
+        "source_bbox": [
+          23,
+          199,
+          591,
+          716
+        ],
+        "output_size": [
+          56,
+          51
+        ],
+        "paste": [
+          4,
+          22
+        ]
+      },
+      {
+        "frame": 3,
+        "source_bbox": [
+          0,
+          205,
+          522,
+          725
+        ],
+        "output_size": [
+          56,
+          56
+        ],
+        "paste": [
+          4,
+          20
+        ]
+      }
+    ]
+  },
+  {
+    "name": "worker-ollama-busy",
+    "source": "C:\\Users\\user\\.codex\\generated_images\\019de9ce-a01d-7020-8f1d-7563e075d4b2\\ig_04c006e3bd4980e60169f63c4020548191b0c09eb2955aa245.png",
+    "raw_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-ollama-busy\\raw-sheet.png",
+    "final_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-ollama-busy\\sheet-transparent.png",
+    "final_gif": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-ollama-busy\\animation.gif",
+    "processor_square_output": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-ollama-busy\\_processor-square",
+    "cell_width": 64,
+    "cell_height": 96,
+    "cols": 3,
+    "rows": 1,
+    "duration": 120,
+    "frames": [
+      {
+        "frame": 1,
+        "source_bbox": [
+          53,
+          164,
+          572,
+          773
+        ],
+        "output_size": [
+          56,
+          66
+        ],
+        "paste": [
+          4,
+          15
+        ]
+      },
+      {
+        "frame": 2,
+        "source_bbox": [
+          0,
+          164,
+          540,
+          773
+        ],
+        "output_size": [
+          56,
+          63
+        ],
+        "paste": [
+          4,
+          16
+        ]
+      },
+      {
+        "frame": 3,
+        "source_bbox": [
+          1,
+          225,
+          507,
+          773
+        ],
+        "output_size": [
+          56,
+          60
+        ],
+        "paste": [
+          4,
+          18
+        ]
+      }
+    ]
+  },
+  {
+    "name": "worker-ollama-overloaded",
+    "source": "C:\\Users\\user\\.codex\\generated_images\\019de9ce-a01d-7020-8f1d-7563e075d4b2\\ig_04c006e3bd4980e60169f63c7a90bc819181ef61004f0f647c.png",
+    "raw_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-ollama-overloaded\\raw-sheet.png",
+    "final_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-ollama-overloaded\\sheet-transparent.png",
+    "final_gif": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-ollama-overloaded\\animation.gif",
+    "processor_square_output": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-ollama-overloaded\\_processor-square",
+    "cell_width": 64,
+    "cell_height": 96,
+    "cols": 4,
+    "rows": 1,
+    "duration": 100,
+    "frames": [
+      {
+        "frame": 1,
+        "source_bbox": [
+          34,
+          342,
+          361,
+          721
+        ],
+        "output_size": [
+          56,
+          65
+        ],
+        "paste": [
+          4,
+          15
+        ]
+      },
+      {
+        "frame": 2,
+        "source_bbox": [
+          21,
+          239,
+          364,
+          726
+        ],
+        "output_size": [
+          56,
+          79
+        ],
+        "paste": [
+          4,
+          8
+        ]
+      },
+      {
+        "frame": 3,
+        "source_bbox": [
+          24,
+          316,
+          379,
+          726
+        ],
+        "output_size": [
+          56,
+          65
+        ],
+        "paste": [
+          4,
+          15
+        ]
+      },
+      {
+        "frame": 4,
+        "source_bbox": [
+          24,
+          223,
+          371,
+          734
+        ],
+        "output_size": [
+          56,
+          82
+        ],
+        "paste": [
+          4,
+          7
+        ]
+      }
+    ]
+  },
+  {
+    "name": "torch-anim",
+    "source": "C:\\Users\\user\\.codex\\generated_images\\019de9ce-a01d-7020-8f1d-7563e075d4b2\\ig_04c006e3bd4980e60169f63cb98860819186ecb7b94386a193.png",
+    "raw_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\torch-anim\\raw-sheet.png",
+    "final_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\torch-anim\\sheet-transparent.png",
+    "final_gif": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\torch-anim\\animation.gif",
+    "processor_square_output": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\torch-anim\\_processor-square",
+    "cell_width": 16,
+    "cell_height": 24,
+    "cols": 4,
+    "rows": 1,
+    "duration": 160,
+    "frames": [
+      {
+        "frame": 1,
+        "source_bbox": [
+          95,
+          265,
+          346,
+          725
+        ],
+        "output_size": [
+          11,
+          21
+        ],
+        "paste": [
+          2,
+          1
+        ]
+      },
+      {
+        "frame": 2,
+        "source_bbox": [
+          77,
+          267,
+          317,
+          725
+        ],
+        "output_size": [
+          11,
+          21
+        ],
+        "paste": [
+          2,
+          1
+        ]
+      },
+      {
+        "frame": 3,
+        "source_bbox": [
+          70,
+          194,
+          332,
+          725
+        ],
+        "output_size": [
+          10,
+          21
+        ],
+        "paste": [
+          3,
+          1
+        ]
+      },
+      {
+        "frame": 4,
+        "source_bbox": [
+          56,
+          314,
+          282,
+          725
+        ],
+        "output_size": [
+          11,
+          21
+        ],
+        "paste": [
+          2,
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "name": "neon-sign-anim",
+    "source": "C:\\Users\\user\\.codex\\generated_images\\019de9ce-a01d-7020-8f1d-7563e075d4b2\\ig_04c006e3bd4980e60169f63cef36ec81919ac21dcaa22985e0.png",
+    "raw_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\neon-sign-anim\\raw-sheet.png",
+    "final_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\neon-sign-anim\\sheet-transparent.png",
+    "final_gif": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\neon-sign-anim\\animation.gif",
+    "processor_square_output": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\neon-sign-anim\\_processor-square",
+    "cell_width": 128,
+    "cell_height": 32,
+    "cols": 2,
+    "rows": 1,
+    "duration": 500,
+    "frames": [
+      {
+        "frame": 1,
+        "source_bbox": [
+          72,
+          319,
+          837,
+          557
+        ],
+        "output_size": [
+          90,
+          28
+        ],
+        "paste": [
+          19,
+          2
+        ]
+      },
+      {
+        "frame": 2,
+        "source_bbox": [
+          50,
+          320,
+          814,
+          557
+        ],
+        "output_size": [
+          90,
+          28
+        ],
+        "paste": [
+          19,
+          2
+        ]
+      }
+    ]
+  },
+  {
+    "name": "smoke-anim",
+    "source": "C:\\Users\\user\\.codex\\generated_images\\019de9ce-a01d-7020-8f1d-7563e075d4b2\\ig_04c006e3bd4980e60169f63d22aebc8191918ab381752562f2.png",
+    "raw_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\smoke-anim\\raw-sheet.png",
+    "final_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\smoke-anim\\sheet-transparent.png",
+    "final_gif": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\smoke-anim\\animation.gif",
+    "processor_square_output": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\smoke-anim\\_processor-square",
+    "cell_width": 32,
+    "cell_height": 32,
+    "cols": 4,
+    "rows": 1,
+    "duration": 140,
+    "frames": [
+      {
+        "frame": 1,
+        "source_bbox": [
+          186,
+          428,
+          339,
+          609
+        ],
+        "output_size": [
+          23,
+          28
+        ],
+        "paste": [
+          4,
+          2
+        ]
+      },
+      {
+        "frame": 2,
+        "source_bbox": [
+          122,
+          243,
+          371,
+          609
+        ],
+        "output_size": [
+          19,
+          28
+        ],
+        "paste": [
+          6,
+          2
+        ]
+      },
+      {
+        "frame": 3,
+        "source_bbox": [
+          68,
+          185,
+          414,
+          609
+        ],
+        "output_size": [
+          22,
+          28
+        ],
+        "paste": [
+          5,
+          2
+        ]
+      },
+      {
+        "frame": 4,
+        "source_bbox": [
+          115,
+          212,
+          312,
+          609
+        ],
+        "output_size": [
+          13,
+          28
+        ],
+        "paste": [
+          9,
+          2
+        ]
+      }
+    ]
+  },
+  {
+    "name": "alarm-light-anim",
+    "source": "C:\\Users\\user\\.codex\\generated_images\\019de9ce-a01d-7020-8f1d-7563e075d4b2\\ig_04c006e3bd4980e60169f63d50de588191ae38c7aa0f27843a.png",
+    "raw_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\alarm-light-anim\\raw-sheet.png",
+    "final_sheet": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\alarm-light-anim\\sheet-transparent.png",
+    "final_gif": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\alarm-light-anim\\animation.gif",
+    "processor_square_output": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\alarm-light-anim\\_processor-square",
+    "cell_width": 16,
+    "cell_height": 16,
+    "cols": 2,
+    "rows": 1,
+    "duration": 400,
+    "frames": [
+      {
+        "frame": 1,
+        "source_bbox": [
+          252,
+          217,
+          740,
+          674
+        ],
+        "output_size": [
+          14,
+          13
+        ],
+        "paste": [
+          1,
+          1
+        ]
+      },
+      {
+        "frame": 2,
+        "source_bbox": [
+          210,
+          230,
+          626,
+          638
+        ],
+        "output_size": [
+          14,
+          13
+        ],
+        "paste": [
+          1,
+          1
+        ]
+      }
+    ]
+  }
+]

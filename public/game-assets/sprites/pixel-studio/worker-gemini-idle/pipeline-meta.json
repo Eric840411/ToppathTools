@@ -1,0 +1,43 @@
+{
+  "name": "worker-gemini-idle",
+  "rows": 1,
+  "cols": 2,
+  "cell_width": 64,
+  "cell_height": 96,
+  "sheet_size": [
+    128,
+    96
+  ],
+  "duration": 800,
+  "source_size": [
+    1448,
+    1086
+  ],
+  "key_color": [
+    240,
+    8,
+    216
+  ],
+  "frames": [
+    {
+      "file": "worker-gemini-idle-1.png",
+      "bbox": [
+        1,
+        8,
+        63,
+        88
+      ],
+      "touches_edge": false
+    },
+    {
+      "file": "worker-gemini-idle-2.png",
+      "bbox": [
+        1,
+        1,
+        63,
+        94
+      ],
+      "touches_edge": false
+    }
+  ]
+}

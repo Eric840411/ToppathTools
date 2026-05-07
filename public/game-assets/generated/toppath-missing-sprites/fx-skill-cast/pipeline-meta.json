@@ -1,0 +1,60 @@
+{
+  "name": "fx-skill-cast",
+  "rows": 1,
+  "cols": 3,
+  "cell_width": 48,
+  "cell_height": 48,
+  "sheet_size": [
+    144,
+    48
+  ],
+  "duration_ms": 100,
+  "source": "C:\\Users\\user\\.codex\\generated_images\\019de871-6dec-7b62-addf-596aef6e83e3\\ig_07a4345c6dbdf94c0169f61fe75ae08191a046646fc9e3292e.png",
+  "qc": [
+    {
+      "frame": 1,
+      "source_box": [
+        0,
+        0,
+        718,
+        730
+      ],
+      "alpha_bbox": [
+        1,
+        11,
+        47,
+        37
+      ]
+    },
+    {
+      "frame": 2,
+      "source_box": [
+        718,
+        0,
+        1437,
+        730
+      ],
+      "alpha_bbox": [
+        1,
+        7,
+        47,
+        41
+      ]
+    },
+    {
+      "frame": 3,
+      "source_box": [
+        1437,
+        0,
+        2155,
+        730
+      ],
+      "alpha_bbox": [
+        1,
+        2,
+        47,
+        46
+      ]
+    }
+  ]
+}

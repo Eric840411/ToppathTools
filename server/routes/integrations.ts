@@ -28,6 +28,7 @@ import {
 import { callLLM, readGeminiPrompts, renderPrompt } from './gemini.js'
 import { extractAdfText } from './jira.js'
 import { readAccounts } from '../shared.js'
+import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 
 export const router = Router()
 
@@ -83,6 +84,7 @@ interface JobEntry {
   status: 'running' | 'done' | 'error'
   result?: GenerateApiResult
   createdAt: number
+  heavyTask?: HeavyTaskToken
   callbacks: Set<(result: GenerateApiResult) => void>
 }
 const jobStore = new Map<string, JobEntry>()
@@ -100,8 +102,13 @@ function finishJob(requestId: string, result: GenerateApiResult) {
   if (!job) return
   job.status = result.ok ? 'done' : 'error'
   job.result = result
+  finishHeavyTask(job.heavyTask)
   for (const cb of job.callbacks) cb(result)
   job.callbacks.clear()
+}
+
+function getWorkerUrl() {
+  return (process.env.WORKER_URL ?? 'http://127.0.0.1:3010').replace(/\/$/, '')
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1019,6 +1026,125 @@ function seedTestcasePrompts() {
 
 try { seedTestcasePrompts() } catch { /* non-fatal */ }
 
+type LarkGenerateBody = z.infer<typeof larkGenerateSchema>
+
+export async function runLarkGenerateTestcasesJob(params: {
+  body: LarkGenerateBody
+  clientIp: string
+  user: string
+}): Promise<GenerateApiResult> {
+  const { body, clientIp, user } = params
+  const sourcesToFetch: { type: 'lark' | 'gdocs'; url: string }[] = body.sources?.length
+    ? body.sources
+    : body.specSource === 'gdocs'
+      ? [{ type: 'gdocs', url: body.googleDocsUrl ?? '' }]
+      : [{ type: 'lark', url: body.specUrl ?? '' }]
+
+  const docParts: string[] = []
+  const sourceLabels: string[] = []
+
+  for (let i = 0; i < sourcesToFetch.length; i++) {
+    const src = sourcesToFetch[i]
+    if (src.type === 'gdocs') {
+      const docId = src.url.match(/\/document\/d\/([^/?\s]+)/)?.[1]
+      if (!docId) return { ok: false, message: `Invalid Google Docs URL: ${src.url}` }
+      const resp = await fetch(`https://docs.google.com/document/d/${docId}/export?format=txt`)
+      if (!resp.ok) return { ok: false, message: `Unable to read Google doc ${i + 1}: HTTP ${resp.status}` }
+      docParts.push(await resp.text())
+      sourceLabels.push(src.url)
+    } else {
+      const documentId = src.url.match(/\/wiki\/([A-Za-z0-9]+)/)?.[1]
+      if (!documentId) return { ok: false, message: `Invalid Lark Wiki URL: ${src.url}` }
+      docParts.push(await fetchLarkDocContent(documentId))
+      sourceLabels.push(src.url)
+    }
+  }
+
+  const docContent = docParts.length === 1
+    ? docParts[0]
+    : docParts.map((content, i) => {
+        const typeLabel = sourcesToFetch[i].type === 'gdocs' ? 'Google Docs' : 'Lark Wiki'
+        return `=== Source ${i + 1}: ${typeLabel} ===\n${content}`
+      }).join('\n\n')
+
+  const sourceLabel = sourceLabels.join(', ')
+  const srcLabel = sourcesToFetch.length > 1
+    ? `Multiple sources (${sourcesToFetch.length})`
+    : sourcesToFetch[0].type === 'gdocs' ? 'Google Docs' : 'Lark Wiki'
+
+  if (!docContent.trim() && body.jiraKeys.length === 0) {
+    return { ok: false, message: '文件內容為空，請確認讀取權限' }
+  }
+
+  let jiraIssues: object[] = []
+  if (body.jiraKeys.length > 0) {
+    jiraIssues = await fetchJiraIssues(body.jiraKeys, body.jiraEmail!)
+    log('info', clientIp, user, 'Jira Issues loaded', `${jiraIssues.length} issues`)
+  }
+
+  log('info', clientIp, user, 'TestCase worker started', body.promptId ?? 'testcase-default')
+
+  const finalContent = docParts.length > 1
+    ? `[Multiple source specs: ${docParts.length}. Merge and deduplicate all requirements.]\n\n${docContent}`
+    : docContent
+
+  const extraVars: Record<string, string> = {}
+  if (body.oldSources && body.oldSources.length > 0) {
+    const oldParts: string[] = []
+    for (const src of body.oldSources) {
+      if (src.type === 'gdocs') {
+        const docId = src.url?.match(/\/document\/d\/([^/?\s]+)/)?.[1]
+        if (docId) {
+          const resp = await fetch(`https://docs.google.com/document/d/${docId}/export?format=txt`)
+          if (resp.ok) oldParts.push(await resp.text())
+        }
+      } else if (src.type === 'pdf' && src.content) {
+        const parsed = await PDFParse(Buffer.from(src.content, 'base64'))
+        oldParts.push(parsed.text)
+      } else if (src.type === 'csv' && src.content) {
+        oldParts.push(src.content.split(/\r?\n/).filter(l => l.trim()).join('\n'))
+      } else if (src.type === 'lark') {
+        const documentId = src.url?.match(/\/wiki\/([A-Za-z0-9]+)/)?.[1]
+        if (documentId) oldParts.push(await fetchLarkDocContent(documentId))
+      }
+    }
+    extraVars.old_spec = oldParts.join('\n\n').slice(0, 8000)
+  }
+
+  if (body.existingCasesSource) {
+    const casesStr = await fetchExistingCasesFromSource(body.existingCasesSource)
+    extraVars.existing_cases = casesStr
+    extraVars.incompleteCasesJson = casesStr
+  }
+
+  const today = new Date()
+  extraVars.version_tag = `${today.toISOString().slice(0, 10).replace(/-/g, '')}_v1`
+
+  const result = await generateWithGemini(finalContent, body.promptId, jiraIssues, body.modelSpec, extraVars)
+
+  if (!Array.isArray(result) && result && typeof result === 'object' && 'test_cases' in result) {
+    const jiraResult = result as JiraTestCaseResult
+    const { written, bitableUrl, featureName } = await writeJiraTestCasesToBitable(jiraResult, sourceLabel)
+    const count = jiraResult.test_cases.length
+    log('ok', clientIp, user, 'TestCase worker completed (Jira format)', `generated ${count}, written ${written}`)
+    addHistory('testcase', `TestCase 生成 - ${srcLabel}`, `生成 ${count} 筆，寫入 ${written} 筆`, { sourceLabel, cases: jiraResult.test_cases, bitableUrl })
+    return { ok: true, generated: count, written, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira' }
+  }
+
+  let cases = normalizeTestCaseFields(result as unknown[])
+  if (body.secondPass) {
+    try {
+      cases = await runSecondPass(cases, finalContent, body.secondPassModel ?? body.modelSpec, body.secondPassPromptId)
+    } catch (e) {
+      log('warn', clientIp, user, 'Second Pass failed, skipped', e instanceof Error ? e.message : String(e))
+    }
+  }
+  const { written, bitableUrl } = await writeTestCasesToBitable(cases, sourceLabel)
+  log('ok', clientIp, user, 'TestCase worker completed', `generated ${cases.length}, written ${written}`)
+  addHistory('testcase', `TestCase 生成 - ${srcLabel}`, `生成 ${cases.length} 筆，寫入 ${written} 筆`, { sourceLabel, cases, bitableUrl })
+  return { ok: true, generated: cases.length, written, cases, bitableUrl }
+}
+
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 /**
@@ -1054,12 +1180,34 @@ router.post('/api/integrations/lark/generate-testcases', async (req, res) => {
   if (body.jiraKeys.length > 0 && !body.jiraEmail)
     return res.status(400).json({ ok: false, message: '請選擇用於讀取 Jira 的帳號' })
 
+  const heavyTask = tryStartHeavyTask(req, 'testcase', 'TestCase 生成')
+  if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
+
   const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   cleanJobStore()
-  jobStore.set(requestId, { status: 'running', createdAt: Date.now(), callbacks: new Set() })
+  jobStore.set(requestId, { status: 'running', createdAt: Date.now(), heavyTask: heavyTask.token, callbacks: new Set() })
 
   const clientIp = getClientIP(req)
   const user = getUser(req)
+
+  const callbackUrl = `http://127.0.0.1:${process.env.PORT ?? 3000}/internal/testcase-jobs/${encodeURIComponent(requestId)}/finish`
+  fetch(`${getWorkerUrl()}/internal/worker/testcase/lark-generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requestId, body, clientIp, user, callbackUrl }),
+    signal: AbortSignal.timeout(5000),
+  }).then(async response => {
+    if (response.ok) return
+    const detail = await response.text().catch(() => '')
+    finishJob(requestId, { ok: false, message: `Worker rejected job: HTTP ${response.status} ${detail.slice(0, 200)}` })
+  }).catch(error => {
+    const message = error instanceof Error ? error.message : String(error)
+    log('error', clientIp, user, 'TestCase worker dispatch failed', message)
+    finishJob(requestId, { ok: false, message: `Worker dispatch failed: ${message}` })
+  })
+
+  res.json({ ok: true, requestId, worker: true })
+  return
 
   // Fire-and-forget background job
   ;(async () => {
@@ -1184,10 +1332,22 @@ router.post('/api/integrations/lark/generate-testcases', async (req, res) => {
       const message = err instanceof Error ? err.message : String(err)
       log('error', clientIp, user, 'TestCase 生成失敗', message)
       finishJob(requestId, { ok: false, message })
+    } finally {
+      finishHeavyTask(heavyTask.token)
     }
   })()
 
   res.json({ ok: true, requestId })
+})
+
+router.post('/internal/testcase-jobs/:requestId/finish', (req, res) => {
+  const requestId = req.params.requestId
+  const result = req.body as GenerateApiResult
+  if (!requestId || !jobStore.has(requestId)) {
+    return res.status(404).json({ ok: false, message: 'job not found' })
+  }
+  finishJob(requestId, result?.ok === true ? result : { ok: false, message: result?.message ?? 'Worker job failed' })
+  res.json({ ok: true })
 })
 
 /**
@@ -1284,10 +1444,128 @@ const extractFileContent = async (file: Express.Multer.File): Promise<string> =>
   throw new Error(`不支援的格式：${originalname}`)
 }
 
+export type WorkerUploadFile = {
+  originalname: string
+  mimetype: string
+  bufferBase64: string
+}
+
+function workerUploadToMulterFile(file: WorkerUploadFile): Express.Multer.File {
+  return {
+    fieldname: 'file',
+    originalname: file.originalname,
+    encoding: '7bit',
+    mimetype: file.mimetype,
+    size: Buffer.byteLength(file.bufferBase64, 'base64'),
+    buffer: Buffer.from(file.bufferBase64, 'base64'),
+    stream: undefined as never,
+    destination: '',
+    filename: file.originalname,
+    path: '',
+  }
+}
+
+export async function runGenerateTestcasesFileJob(params: {
+  files: WorkerUploadFile[]
+  oldFiles?: WorkerUploadFile[]
+  form: Record<string, unknown>
+  clientIp: string
+  user: string
+}): Promise<GenerateApiResult> {
+  const uploadedFiles = params.files.map(workerUploadToMulterFile)
+  const oldUploadedFiles = (params.oldFiles ?? []).map(workerUploadToMulterFile)
+  if (uploadedFiles.length === 0) return { ok: false, message: '請上傳 PDF 或 Word（.docx）檔案' }
+
+  const promptId = typeof params.form.promptId === 'string' ? params.form.promptId : undefined
+  const modelSpec = typeof params.form.modelSpec === 'string' ? params.form.modelSpec : undefined
+
+  const docParts: string[] = []
+  const fileNames: string[] = []
+  for (const file of uploadedFiles) {
+    const content = await extractFileContent(file)
+    const fileName = Buffer.from(file.originalname, 'latin1').toString('utf8')
+    if (!content.trim()) return { ok: false, message: `無法從文件中讀取文字內容：${fileName}` }
+    docParts.push(content)
+    fileNames.push(fileName)
+  }
+
+  const docContent = docParts.length === 1
+    ? docParts[0]
+    : docParts.map((content, i) => `=== Source ${i + 1}: ${fileNames[i]} ===\n${content}`).join('\n\n')
+
+  const finalContent = docParts.length > 1
+    ? `[Multiple uploaded specs: ${docParts.length}. Merge and deduplicate all requirements.]\n\n${docContent}`
+    : docContent
+
+  const extraVars: Record<string, string> = {}
+  if (typeof params.form.oldSources === 'string') {
+    try {
+      const oldSrcs = JSON.parse(params.form.oldSources) as Array<{ type: string; url?: string; content?: string }>
+      if (Array.isArray(oldSrcs) && oldSrcs.length > 0) {
+        const oldParts: string[] = []
+        let oldFileIdx = 0
+        for (const src of oldSrcs) {
+          if (src.type === 'gdocs') {
+            const docId = src.url?.match(/\/document\/d\/([^/?\s]+)/)?.[1]
+            if (docId) {
+              const r = await fetch(`https://docs.google.com/document/d/${docId}/export?format=txt`)
+              if (r.ok) oldParts.push(await r.text())
+            }
+          } else if (src.type === 'pdf') {
+            const f = oldUploadedFiles[oldFileIdx++]
+            if (f) {
+              const parser = new PDFParse({ data: f.buffer })
+              const parsed = await parser.getText()
+              oldParts.push(parsed.text)
+            }
+          } else if (src.type === 'csv' && src.content) {
+            oldParts.push(src.content)
+          } else if (src.type === 'lark' && src.url) {
+            const documentId = src.url.match(/\/wiki\/([A-Za-z0-9]+)/)?.[1]
+            if (documentId) oldParts.push(await fetchLarkDocContent(documentId))
+          }
+        }
+        if (oldParts.length) extraVars.old_spec = oldParts.join('\n\n').slice(0, 8000)
+      }
+    } catch { /* ignore parse errors */ }
+  }
+
+  if (typeof params.form.existingCasesSource === 'string') {
+    try {
+      const src = JSON.parse(params.form.existingCasesSource) as ExistingCasesSource
+      extraVars.existing_cases = await fetchExistingCasesFromSource(src)
+    } catch { /* ignore parse errors */ }
+  }
+
+  const today = new Date()
+  extraVars.version_tag = `${today.toISOString().slice(0, 10).replace(/-/g, '')}_v1`
+
+  const sourceLabel = fileNames.join(', ')
+  log('info', params.clientIp, params.user, 'TestCase file worker started', sourceLabel)
+  const cases = await generateWithGemini(finalContent, promptId, undefined, modelSpec, Object.keys(extraVars).length ? extraVars : undefined)
+  let casesArr = normalizeTestCaseFields(Array.isArray(cases) ? cases as unknown[] : (cases as JiraTestCaseResult).test_cases as unknown[])
+  const secondPassEnabled = params.form.secondPass === 'true' || params.form.secondPass === true
+  if (secondPassEnabled) {
+    const spModel = typeof params.form.secondPassModel === 'string' ? params.form.secondPassModel : modelSpec
+    const spPrompt = typeof params.form.secondPassPromptId === 'string' ? params.form.secondPassPromptId : undefined
+    try {
+      casesArr = await runSecondPass(casesArr, finalContent, spModel, spPrompt)
+    } catch (e) {
+      log('warn', params.clientIp, params.user, 'Second Pass failed, skipped', e instanceof Error ? e.message : String(e))
+    }
+  }
+  const { written, bitableUrl } = await writeTestCasesToBitable(casesArr, sourceLabel)
+
+  log('ok', params.clientIp, params.user, 'TestCase file worker completed', `generated ${casesArr.length}, written ${written}`)
+  addHistory('testcase', `TestCase 生成 - ${sourceLabel}`, `生成 ${casesArr.length} 筆，寫入 ${written} 筆`, { sourceLabel, cases: casesArr, bitableUrl })
+  return { ok: true, generated: casesArr.length, written, cases: casesArr, bitableUrl }
+}
+
 router.post(
   '/api/integrations/generate-testcases-file',
   upload.fields([{ name: 'files', maxCount: 5 }, { name: 'oldFiles', maxCount: 5 }]),
   async (req, res, next) => {
+  let heavyTaskToken: HeavyTaskToken | null = null
   try {
     const fieldFiles = req.files as Record<string, Express.Multer.File[]> | Express.Multer.File[] | undefined
     const uploadedFiles: Express.Multer.File[] = Array.isArray(fieldFiles)
@@ -1298,6 +1576,33 @@ router.post(
 
     const promptId: string | undefined = typeof req.body.promptId === 'string' ? req.body.promptId : undefined
     const modelSpec: string | undefined = typeof req.body.modelSpec === 'string' ? req.body.modelSpec : undefined
+    const heavyTask = tryStartHeavyTask(req, 'testcase-file', 'TestCase 檔案生成')
+    if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
+    heavyTaskToken = heavyTask.token
+
+    const serializeFile = (file: Express.Multer.File): WorkerUploadFile => ({
+      originalname: file.originalname,
+      mimetype: file.mimetype,
+      bufferBase64: file.buffer.toString('base64'),
+    })
+    const workerResp = await fetch(`${getWorkerUrl()}/internal/worker/testcase/file-generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        files: uploadedFiles.map(serializeFile),
+        oldFiles: oldUploadedFiles.map(serializeFile),
+        form: req.body,
+        clientIp: getClientIP(req),
+        user: getUser(req),
+      }),
+    })
+    const workerResult = await workerResp.json().catch(async () => ({
+      ok: false,
+      message: await workerResp.text().catch(() => `Worker HTTP ${workerResp.status}`),
+    })) as GenerateApiResult
+    if (!workerResp.ok) return res.status(502).json(workerResult)
+    res.json(workerResult)
+    return
 
     // Extract content from each file
     const docParts: string[] = []
@@ -1371,6 +1676,8 @@ router.post(
     res.json({ ok: true, generated: casesArr.length, written, cases: casesArr, bitableUrl })
   } catch (error) {
     next(error)
+  } finally {
+    finishHeavyTask(heavyTaskToken)
   }
 })
 

@@ -1,0 +1,1 @@
+﻿FX skill cast, 3 frames, 48x48 target, based on game-design.md.

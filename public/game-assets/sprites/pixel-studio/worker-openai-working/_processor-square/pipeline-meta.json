@@ -1,0 +1,123 @@
+{
+  "target": "asset",
+  "mode": "custom",
+  "prompt": "OpenAI working: cyberpunk programmer fast typing, green terminal reflection, focused, 3 horizontal frames.",
+  "role": "",
+  "input": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-openai-working\\raw-sheet.png",
+  "threshold": 100,
+  "edge_threshold": 150,
+  "duration": 200,
+  "rows": 1,
+  "cols": 3,
+  "cell_size": 96,
+  "fit_scale": 0.88,
+  "trim_border": 4,
+  "edge_clean_depth": 3,
+  "align": "center",
+  "shared_scale": true,
+  "component_mode": "all",
+  "component_padding": 0,
+  "min_component_area": 1,
+  "edge_touch_margin": 0,
+  "frame_labels": [
+    "worker-openai-working-1",
+    "worker-openai-working-2",
+    "worker-openai-working-3"
+  ],
+  "frames": [
+    {
+      "grid": [
+        0,
+        0
+      ],
+      "source_box": [
+        0,
+        0,
+        591,
+        887
+      ],
+      "component_mode": "all",
+      "component_count": 1,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        41,
+        154,
+        575,
+        725
+      ],
+      "edge_touch": false,
+      "output_size": [
+        79,
+        84
+      ],
+      "paste_position": [
+        8,
+        6
+      ]
+    },
+    {
+      "grid": [
+        0,
+        1
+      ],
+      "source_box": [
+        591,
+        0,
+        1182,
+        887
+      ],
+      "component_mode": "all",
+      "component_count": 1,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        22,
+        162,
+        556,
+        725
+      ],
+      "edge_touch": false,
+      "output_size": [
+        79,
+        83
+      ],
+      "paste_position": [
+        8,
+        6
+      ]
+    },
+    {
+      "grid": [
+        0,
+        2
+      ],
+      "source_box": [
+        1182,
+        0,
+        1773,
+        887
+      ],
+      "component_mode": "all",
+      "component_count": 2,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        6,
+        157,
+        541,
+        725
+      ],
+      "edge_touch": false,
+      "output_size": [
+        79,
+        84
+      ],
+      "paste_position": [
+        8,
+        6
+      ]
+    }
+  ],
+  "edge_touch_frames": []
+}

@@ -1,0 +1,2 @@
+﻿Pixel art sprite sheet, exactly 256x96 pixels total, 4 frames of 64x96 arranged left to right. Solid flat #FF00FF magenta background only, no transparency in raw, no borders, no grid lines, no text, no labels. 16-bit tactical RPG sprite style, hard pixel edges, no anti-aliasing, 1-pixel dark outline.
+Commander idle, 4 frames. See game-design.md Commander prompt.

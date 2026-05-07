@@ -24,6 +24,7 @@ import {
 } from '../shared.js'
 import { callLLM, readGeminiPrompts, renderPrompt } from './gemini.js'
 import { withRequestOperation } from '../request-context.js'
+import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 
 export const router = Router()
 
@@ -45,6 +46,7 @@ interface CommentJobEntry {
   progress: CommentJobProgress
   createdAt: number
   ownerEmail: string
+  heavyTask?: HeavyTaskToken
   callbacks: Set<(result: CommentJobResult) => void>
   progressCallbacks: Set<(progress: CommentJobProgress) => void>
 }
@@ -62,6 +64,7 @@ function finishCommentJob(requestId: string, result: CommentJobResult) {
   if (!job) return
   job.status = 'done'
   job.result = result
+  finishHeavyTask(job.heavyTask)
   job.callbacks.forEach(cb => cb(result))
   job.callbacks.clear()
   job.progressCallbacks.clear()
@@ -650,11 +653,16 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
  * @rate-limit heavyLimiter — 每分鐘最多 15 次，防止對 Jira API 造成過量請求。
  */
 router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
+  let heavyTaskToken: HeavyTaskToken | null = null
   try {
     const userAuth = userJiraAuth(req)
     if (!userAuth) {
       return res.status(401).json({ ok: false, message: '請先選擇帳號，或新增 Jira 帳號' })
     }
+
+    const heavyTask = tryStartHeavyTask(req, 'jira-batch-create', 'Jira 批次開單')
+    if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
+    heavyTaskToken = heavyTask.token
 
     const body = batchCreateSchema.parse(req.body)
     const baseUrl = mustEnv('JIRA_BASE_URL')
@@ -746,6 +754,8 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
     res.json({ ok: true, results, succeeded, failed })
   } catch (error) {
     next(error)
+  } finally {
+    finishHeavyTask(heavyTaskToken)
   }
 })
 
@@ -806,6 +816,8 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
 
     const body = batchCommentSchema.parse(req.body)
     const baseUrl = mustEnv('JIRA_BASE_URL')
+    const heavyTask = tryStartHeavyTask(req, 'jira-batch-comment', 'Jira 批次評論')
+    if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
     const clientIP = getClientIP(req)
     const userEmail = userAuth.email
 
@@ -815,6 +827,7 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
       status: 'running',
       createdAt: Date.now(),
       ownerEmail: userAuth.email,
+      heavyTask: heavyTask.token,
       progress: { done: 0, total: body.comments.length, current: '' },
       callbacks: new Set(),
       progressCallbacks: new Set(),
@@ -1050,9 +1063,14 @@ router.get('/api/jira/batch-comment/status/:requestId', (req, res) => {
 
 // POST /api/jira/batch-transition
 router.post('/api/jira/batch-transition', async (req, res, next) => {
+  let heavyTaskToken: HeavyTaskToken | null = null
   try {
     const userAuth = userJiraAuth(req)
     if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
+
+    const heavyTask = tryStartHeavyTask(req, 'jira-batch-transition', 'Jira 批次狀態轉換')
+    if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
+    heavyTaskToken = heavyTask.token
 
     const body = batchTransitionSchema.parse(req.body)
     const baseUrl = mustEnv('JIRA_BASE_URL')
@@ -1084,6 +1102,8 @@ router.post('/api/jira/batch-transition', async (req, res, next) => {
     res.json({ ok: true, results })
   } catch (error) {
     next(error)
+  } finally {
+    finishHeavyTask(heavyTaskToken)
   }
 })
 
@@ -1106,9 +1126,14 @@ router.post('/api/jira/pm-read-bitable', async (req, res, next) => {
  * @concurrency 同一張 Bitable 表格同時只允許一個開單操作（per-table lock）。
  */
 router.post('/api/jira/pm-batch-create', heavyLimiter, async (req, res, next) => {
+  let heavyTaskToken: HeavyTaskToken | null = null
   try {
     const userAuth = userJiraAuth(req)
     if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
+
+    const heavyTask = tryStartHeavyTask(req, 'jira-pm-batch-create', 'Jira PM 批次開單')
+    if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
+    heavyTaskToken = heavyTask.token
 
     const { bitableUrl, parentIssueKey, recordIds } = z.object({
       bitableUrl: z.string(),
@@ -1265,4 +1290,5 @@ router.post('/api/jira/pm-batch-create', heavyLimiter, async (req, res, next) =>
       pmBatchLocks.delete(lockKey)
     }
   } catch (error) { next(error) }
+  finally { finishHeavyTask(heavyTaskToken) }
 })

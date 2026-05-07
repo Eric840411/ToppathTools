@@ -1,5 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import Portal from './Portal'
+import { DungeonIcon } from './DungeonIcon'
+import { useIsGameMode } from './GameModeContext'
 
 interface GeminiKey { label: string; keyMasked: string; isEnv?: boolean }
 interface GeminiPrompt { id: string; name: string; template: string; category: string }
@@ -9,6 +11,7 @@ interface ProbeResult { label: string; status: 'ok' | 'exhausted' | 'invalid' | 
 interface Props { onClose: () => void }
 
 export default function GeminiSettingsModal({ onClose }: Props) {
+  const isGame = useIsGameMode()
   const [tab, setTab] = useState<'keys' | 'prompts' | 'openai'>('keys')
 
   // ─── OpenAI Key ───────────────────────────────────────────────────────────
@@ -170,7 +173,9 @@ export default function GeminiSettingsModal({ onClose }: Props) {
       <div className="modal-box" style={{ width: 780, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header">
           <h2>⚙️ AI 模型設定</h2>
-          <button className="modal-close" onClick={onClose}>✕</button>
+          <button className={`modal-close${isGame ? ' dng-modal-close' : ''}`} onClick={onClose}>
+            {isGame ? <DungeonIcon name="close" tone="slate" /> : '✕'}
+          </button>
         </div>
 
         {/* Tab */}

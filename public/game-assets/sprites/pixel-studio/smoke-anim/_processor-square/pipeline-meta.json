@@ -1,0 +1,155 @@
+{
+  "target": "asset",
+  "mode": "custom",
+  "prompt": "Small gray-white rising smoke puff loop, 4 horizontal frames.",
+  "role": "",
+  "input": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\smoke-anim\\raw-sheet.png",
+  "threshold": 100,
+  "edge_threshold": 150,
+  "duration": 140,
+  "rows": 1,
+  "cols": 4,
+  "cell_size": 32,
+  "fit_scale": 0.88,
+  "trim_border": 4,
+  "edge_clean_depth": 3,
+  "align": "center",
+  "shared_scale": true,
+  "component_mode": "all",
+  "component_padding": 0,
+  "min_component_area": 1,
+  "edge_touch_margin": 0,
+  "frame_labels": [
+    "smoke-anim-1",
+    "smoke-anim-2",
+    "smoke-anim-3",
+    "smoke-anim-4"
+  ],
+  "frames": [
+    {
+      "grid": [
+        0,
+        0
+      ],
+      "source_box": [
+        0,
+        0,
+        495,
+        793
+      ],
+      "component_mode": "all",
+      "component_count": 3,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        183,
+        425,
+        334,
+        604
+      ],
+      "edge_touch": false,
+      "output_size": [
+        10,
+        11
+      ],
+      "paste_position": [
+        11,
+        10
+      ]
+    },
+    {
+      "grid": [
+        0,
+        1
+      ],
+      "source_box": [
+        495,
+        0,
+        990,
+        793
+      ],
+      "component_mode": "all",
+      "component_count": 1,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        119,
+        240,
+        366,
+        604
+      ],
+      "edge_touch": false,
+      "output_size": [
+        16,
+        24
+      ],
+      "paste_position": [
+        8,
+        4
+      ]
+    },
+    {
+      "grid": [
+        0,
+        2
+      ],
+      "source_box": [
+        990,
+        0,
+        1485,
+        793
+      ],
+      "component_mode": "all",
+      "component_count": 1,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        65,
+        182,
+        409,
+        604
+      ],
+      "edge_touch": false,
+      "output_size": [
+        22,
+        28
+      ],
+      "paste_position": [
+        5,
+        2
+      ]
+    },
+    {
+      "grid": [
+        0,
+        3
+      ],
+      "source_box": [
+        1485,
+        0,
+        1980,
+        793
+      ],
+      "component_mode": "all",
+      "component_count": 10,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        111,
+        209,
+        307,
+        604
+      ],
+      "edge_touch": false,
+      "output_size": [
+        13,
+        26
+      ],
+      "paste_position": [
+        9,
+        3
+      ]
+    }
+  ],
+  "edge_touch_frames": []
+}

@@ -1,0 +1,61 @@
+{
+  "name": "class-guardian-attack",
+  "rows": 1,
+  "cols": 3,
+  "cell_width": 64,
+  "cell_height": 96,
+  "sheet_size": [
+    192,
+    96
+  ],
+  "duration_ms": 100,
+  "source": "C:\\Users\\user\\.codex\\generated_images\\019de871-6dec-7b62-addf-596aef6e83e3\\ig_07a4345c6dbdf94c0169f5f676c130819199a92c422d23b5bd.png",
+  "qc": [
+    {
+      "frame": 1,
+      "source_box": [
+        0,
+        0,
+        591,
+        887
+      ],
+      "alpha_bbox": [
+        2,
+        25,
+        61,
+        93
+      ]
+    },
+    {
+      "frame": 2,
+      "source_box": [
+        591,
+        0,
+        1183,
+        887
+      ],
+      "alpha_bbox": [
+        2,
+        41,
+        61,
+        93
+      ]
+    },
+    {
+      "frame": 3,
+      "source_box": [
+        1183,
+        0,
+        1774,
+        887
+      ],
+      "alpha_bbox": [
+        2,
+        20,
+        61,
+        93
+      ]
+    }
+  ],
+  "prompt_file": "C:\\Users\\user\\Documents\\New project\\generated\\toppath-missing-sprites\\class-guardian-attack\\prompt-used.txt"
+}

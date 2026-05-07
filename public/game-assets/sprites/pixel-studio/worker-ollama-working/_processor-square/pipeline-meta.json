@@ -1,0 +1,128 @@
+{
+  "target": "asset",
+  "mode": "custom",
+  "prompt": "Ollama working: hermit wizard typing on old laptop with purple runes, slow focused loop, 3 horizontal frames.",
+  "role": "",
+  "input": "C:\\Users\\user\\Documents\\New project\\generated\\pixel-studio-sprites\\worker-ollama-working\\raw-sheet.png",
+  "threshold": 100,
+  "edge_threshold": 150,
+  "duration": 200,
+  "rows": 1,
+  "cols": 3,
+  "cell_size": 96,
+  "fit_scale": 0.88,
+  "trim_border": 4,
+  "edge_clean_depth": 3,
+  "align": "center",
+  "shared_scale": true,
+  "component_mode": "all",
+  "component_padding": 0,
+  "min_component_area": 1,
+  "edge_touch_margin": 0,
+  "frame_labels": [
+    "worker-ollama-working-1",
+    "worker-ollama-working-2",
+    "worker-ollama-working-3"
+  ],
+  "frames": [
+    {
+      "grid": [
+        0,
+        0
+      ],
+      "source_box": [
+        0,
+        0,
+        591,
+        887
+      ],
+      "component_mode": "all",
+      "component_count": 44,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        42,
+        191,
+        548,
+        703
+      ],
+      "edge_touch": false,
+      "output_size": [
+        75,
+        76
+      ],
+      "paste_position": [
+        10,
+        10
+      ]
+    },
+    {
+      "grid": [
+        0,
+        1
+      ],
+      "source_box": [
+        591,
+        0,
+        1182,
+        887
+      ],
+      "component_mode": "all",
+      "component_count": 58,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        19,
+        196,
+        583,
+        712
+      ],
+      "edge_touch": false,
+      "output_size": [
+        84,
+        77
+      ],
+      "paste_position": [
+        6,
+        9
+      ]
+    },
+    {
+      "grid": [
+        0,
+        2
+      ],
+      "source_box": [
+        1182,
+        0,
+        1773,
+        887
+      ],
+      "component_mode": "all",
+      "component_count": 81,
+      "selected_component_area": null,
+      "selected_component_bbox": null,
+      "crop_bbox": [
+        0,
+        202,
+        518,
+        721
+      ],
+      "edge_touch": true,
+      "output_size": [
+        77,
+        77
+      ],
+      "paste_position": [
+        9,
+        9
+      ]
+    }
+  ],
+  "edge_touch_frames": [
+    [
+      0,
+      2
+    ]
+  ]
+}

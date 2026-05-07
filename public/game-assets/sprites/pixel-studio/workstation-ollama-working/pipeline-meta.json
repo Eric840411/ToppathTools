@@ -1,0 +1,49 @@
+{
+  "name": "workstation-ollama-working",
+  "rows": 1,
+  "cols": 3,
+  "cell_width": 160,
+  "cell_height": 128,
+  "sheet_size": [
+    480,
+    128
+  ],
+  "duration": 650,
+  "locked_geometry": true,
+  "runtime_rule": "Use fixed 160x128 frame box. Never scale by bbox. Frames share identical base geometry; only tiny screen pixels change.",
+  "frames": [
+    {
+      "file": "workstation-ollama-working-1.png",
+      "bbox": [
+        14,
+        1,
+        146,
+        126
+      ],
+      "touches_edge": false,
+      "locked_geometry": true
+    },
+    {
+      "file": "workstation-ollama-working-2.png",
+      "bbox": [
+        14,
+        1,
+        146,
+        126
+      ],
+      "touches_edge": false,
+      "locked_geometry": true
+    },
+    {
+      "file": "workstation-ollama-working-3.png",
+      "bbox": [
+        14,
+        1,
+        146,
+        126
+      ],
+      "touches_edge": false,
+      "locked_geometry": true
+    }
+  ]
+}
