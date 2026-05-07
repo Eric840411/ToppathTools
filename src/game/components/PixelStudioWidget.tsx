@@ -43,8 +43,6 @@ interface MonitorResponse {
   latest?: AiTask[]
 }
 
-const SCENE_W = 800
-const SCENE_H = 600
 const WIDGET_EXPANDED_W = 480
 const SCENE_SCALE = 0.6
 const WIDGET_CONTENT_H = 360

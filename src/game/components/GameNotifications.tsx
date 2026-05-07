@@ -6,6 +6,7 @@ const TYPE_COLORS: Record<GameNotification['type'], string> = {
   levelup:     'var(--neon-gold)',
   achievement: 'var(--neon-purple)',
   quest:       'var(--neon-green)',
+  skill:       'var(--neon-cyan)',
 }
 
 export function GameNotifications() {

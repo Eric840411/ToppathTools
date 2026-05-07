@@ -3,6 +3,8 @@
 server/accounts.json
 server/gemini-keys.json
 server/data.db
+server/data.db-shm
+server/data.db-wal
 
 # Runtime / generated files
 server/machine-test/cctv-saves/
@@ -23,6 +25,7 @@ lerna-debug.log*
 
 node_modules
 dist
+dist-server
 dist-ssr
 *.local
 

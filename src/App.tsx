@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { OsmPage } from './pages/OsmPage'
 import { OsmConfigComparePage } from './pages/OsmConfigComparePage'
 import { AutoSpinPage } from './pages/AutoSpinPage'
@@ -17,7 +17,9 @@ import ChangelogModal from './components/ChangelogModal'
 import GeminiSettingsModal from './components/GeminiSettingsModal'
 import AiAgentMonitorWidget from './components/AiAgentMonitorWidget'
 import { JiraAccountModal, type AccountInfo } from './components/JiraAccountModal'
+import { AuthLoginModal } from './components/AuthLoginModal'
 import { APP_VERSION } from './version'
+import { fetchAuthAccount, loadGlobalAccount, logoutAuthAccount, saveGlobalAccount } from './authSession'
 import './App.css'
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
@@ -163,12 +165,6 @@ const historyGroup: Group = {
   description: '查看所有功能的操作紀錄，支援今日 / 3 天 / 7 天篩選',
 }
 
-const GLOBAL_ACCOUNT_KEY = 'global_jira_account'
-
-function loadGlobalAccount(): AccountInfo | null {
-  try { return JSON.parse(sessionStorage.getItem(GLOBAL_ACCOUNT_KEY) ?? 'null') } catch { return null }
-}
-
 function App() {
   const [activeGroup, setActiveGroup] = useState<GroupId>('jira')
   const [activeTab, setActiveTab] = useState<TabId>('jira')
@@ -176,15 +172,36 @@ function App() {
   const [showGemini, setShowGemini] = useState(false)
   const [showAccountModal, setShowAccountModal] = useState(false)
   const [globalAccount, setGlobalAccount] = useState<AccountInfo | null>(loadGlobalAccount)
+  const [authChecking, setAuthChecking] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchAuthAccount()
+      .then(account => {
+        if (cancelled) return
+        setGlobalAccount(account)
+        saveGlobalAccount(account)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setGlobalAccount(null)
+        saveGlobalAccount(null)
+      })
+      .finally(() => {
+        if (!cancelled) setAuthChecking(false)
+      })
+    return () => { cancelled = true }
+  }, [])
 
   function handleGlobalAccountSelect(acc: AccountInfo) {
     setGlobalAccount(acc)
-    sessionStorage.setItem(GLOBAL_ACCOUNT_KEY, JSON.stringify(acc))
+    saveGlobalAccount(acc)
     setShowAccountModal(false)
   }
-  function handleGlobalAccountClear() {
+  async function handleGlobalAccountClear() {
     setGlobalAccount(null)
-    sessionStorage.removeItem(GLOBAL_ACCOUNT_KEY)
+    saveGlobalAccount(null)
+    await logoutAuthAccount()
   }
 
   function handleGroupClick(group: Group) {
@@ -294,7 +311,7 @@ function App() {
         </>
       ) : (
         <main className="main-content">
-          {activeGroup === 'jira' && <JiraPage />}
+          {activeGroup === 'jira' && <JiraPage account={globalAccount} />}
           {activeGroup === 'lark' && <LarkPage />}
           {activeGroup === 'osm-tools' && activeTab === 'osm' && <OsmPage />}
           {activeGroup === 'osm-tools' && activeTab === 'machinetest' && <MachineTestPage account={globalAccount} />}
@@ -311,7 +328,10 @@ function App() {
 
       {showChangelog && <ChangelogModal onClose={() => setShowChangelog(false)} />}
       {showGemini && <GeminiSettingsModal onClose={() => setShowGemini(false)} />}
-      {showAccountModal && (
+      {!authChecking && !globalAccount && (
+        <AuthLoginModal onLogin={handleGlobalAccountSelect} />
+      )}
+      {showAccountModal && globalAccount && (
         <JiraAccountModal
           currentEmail={globalAccount?.email ?? ''}
           onClose={() => setShowAccountModal(false)}

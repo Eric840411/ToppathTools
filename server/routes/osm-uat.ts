@@ -12,6 +12,7 @@ import { dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { z } from 'zod'
 import { getLarkToken } from '../shared.js'
+import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -26,6 +27,7 @@ interface UatSession {
   finishedAt?: number
   logs: string[]
   process: ChildProcess | null
+  heavyTask?: HeavyTaskToken
 }
 
 let session: UatSession = {
@@ -172,12 +174,19 @@ router.post('/api/osm-uat/run', (req, res) => {
     return
   }
 
+  const heavyTask = tryStartHeavyTask(req, 'osm-uat', 'OSM UAT 自動化測試')
+  if (!heavyTask.ok) {
+    res.status(429).json(heavyTaskConflict(heavyTask.task))
+    return
+  }
+
   // 清除舊 log
   session = {
     status: 'running',
     startedAt: Date.now(),
     logs: [],
     process: null,
+    heavyTask: heavyTask.token,
   }
   broadcast('status', { status: 'running' })
 
@@ -217,6 +226,7 @@ router.post('/api/osm-uat/run', (req, res) => {
     session.status = code === 0 ? 'done' : 'error'
     session.finishedAt = Date.now()
     session.process = null
+    finishHeavyTask(session.heavyTask)
     appendLog(`--- 執行結束（exit code: ${code}）---`)
     broadcast('status', { status: session.status, exitCode: code })
     // 送完最終狀態後關閉所有 SSE 連線，讓 client 乾淨地結束
@@ -232,6 +242,7 @@ router.post('/api/osm-uat/run', (req, res) => {
     session.status = 'error'
     session.finishedAt = Date.now()
     session.process = null
+    finishHeavyTask(session.heavyTask)
     broadcast('status', { status: 'error', error: err.message })
     appendLog(`❌ 啟動失敗: ${err.message}`)
   })
@@ -247,6 +258,7 @@ router.post('/api/osm-uat/stop', (_req, res) => {
     return
   }
   session.process.kill('SIGTERM')
+  finishHeavyTask(session.heavyTask)
   appendLog('🛑 已手動停止測試')
   res.json({ ok: true })
 })

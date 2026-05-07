@@ -45,7 +45,7 @@ Start-Sleep -Seconds 3
 # ── Start Cloudflare Tunnel ───────────────────────────────────────────────────
 $CLOUDFLARED = "C:\Program Files (x86)\cloudflared\cloudflared.exe"
 $logFile = Join-Path $env:TEMP "cf_tunnel_$([System.Guid]::NewGuid().ToString('N')).log"
-Start-Process -FilePath $CLOUDFLARED -ArgumentList "tunnel --url http://localhost:3000" -RedirectStandardError $logFile -NoNewWindow
+Start-Process -FilePath $CLOUDFLARED -ArgumentList "tunnel --url http://localhost:3000" -RedirectStandardError $logFile -WindowStyle Hidden
 
 Write-Host "Waiting for tunnel URL..." -ForegroundColor Cyan
 $TUNNEL_URL = $null
@@ -71,6 +71,15 @@ if ($TUNNEL_URL) {
     Write-Host ""
     Set-Clipboard -Value $WEBHOOK
     Write-Host "  [OK] URL copied to clipboard" -ForegroundColor Green
+
+    # Sync to server DB
+    try {
+        $body = '{"url":"' + $WEBHOOK + '"}'
+        $response = Invoke-RestMethod -Uri "http://localhost:3000/api/settings/tunnel-url" -Method POST -Body $body -ContentType "application/json" -TimeoutSec 5
+        Write-Host "  [OK] URL synced to server DB" -ForegroundColor Green
+    } catch {
+        Write-Host "  [WARN] Could not sync to server (is server running?)" -ForegroundColor DarkYellow
+    }
 } else {
     Write-Host "  [ERROR] Could not get tunnel URL" -ForegroundColor Red
 }

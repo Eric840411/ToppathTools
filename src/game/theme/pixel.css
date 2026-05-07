@@ -517,6 +517,11 @@ main {
   z-index: 99000 !important;
 }
 
+.auth-login-overlay {
+  background: rgba(0, 0, 0, 0.82) !important;
+  backdrop-filter: blur(6px) !important;
+}
+
 .modal-box, .modal {
   background: rgba(4, 10, 24, 0.98) !important;
   /* Pixel art modal frame (modal-frame.png 1448×1086) — no CSS border needed */
@@ -533,6 +538,245 @@ main {
   position: relative !important;
   overflow: hidden !important;
   image-rendering: pixelated !important;
+}
+
+.auth-login-modal {
+  width: 460px !important;
+  max-width: calc(100vw - 32px) !important;
+}
+
+.auth-login-copy {
+  margin: 0 0 16px !important;
+  color: var(--text-dim) !important;
+  text-align: center !important;
+  font-family: var(--font-mono) !important;
+}
+
+.auth-login-lock {
+  text-align: center !important;
+  font-size: 32px !important;
+  margin: 4px 0 12px !important;
+  filter: drop-shadow(0 0 8px rgba(255, 215, 0, 0.55)) !important;
+}
+
+.auth-login-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+}
+
+.auth-login-tabs {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 8px !important;
+  margin-bottom: 14px !important;
+}
+
+.modal .auth-login-tab {
+  height: 34px !important;
+  border: 1px solid var(--border-mid) !important;
+  border-radius: 0 !important;
+  background: rgba(0, 212, 255, 0.04) !important;
+  color: var(--text-dim) !important;
+  cursor: pointer !important;
+  font-family: var(--font-pixel) !important;
+  font-size: 8px !important;
+}
+
+.modal .auth-login-tab.active {
+  border-color: var(--neon-cyan) !important;
+  background: rgba(0, 212, 255, 0.12) !important;
+  color: var(--neon-cyan) !important;
+  box-shadow: 0 0 8px rgba(0, 212, 255, 0.22) !important;
+}
+
+.modal .auth-login-account {
+  width: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
+  padding: 10px 12px !important;
+  border: 1px solid var(--border-mid) !important;
+  background: rgba(2, 8, 20, 0.86) !important;
+  color: var(--text-primary) !important;
+  cursor: pointer !important;
+  text-align: left !important;
+  border-radius: 0 !important;
+  box-shadow: inset 0 0 10px rgba(0, 212, 255, 0.04) !important;
+}
+
+.modal .auth-login-account:hover:not(:disabled) {
+  border-color: var(--neon-cyan) !important;
+  background: rgba(0, 212, 255, 0.08) !important;
+  box-shadow: var(--glow-cyan) !important;
+}
+
+.auth-login-account-main {
+  display: flex !important;
+  flex-direction: column !important;
+  min-width: 0 !important;
+}
+
+.auth-login-account-main strong {
+  color: var(--text-bright) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 13px !important;
+}
+
+.auth-login-account-main span {
+  color: var(--text-dim) !important;
+  font-size: 12px !important;
+}
+
+.auth-login-account-meta {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  color: var(--neon-gold) !important;
+  font-size: 11px !important;
+  white-space: nowrap !important;
+}
+
+.auth-login-pin {
+  width: 100% !important;
+  height: 42px !important;
+  padding: 0 12px !important;
+  background: rgba(2, 6, 16, 0.92) !important;
+  border: 1px solid var(--border-bright) !important;
+  color: var(--text-bright) !important;
+  border-radius: 0 !important;
+  text-align: center !important;
+  letter-spacing: 4px !important;
+  outline: none !important;
+}
+
+.auth-login-pin:focus {
+  border-color: var(--neon-gold) !important;
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.32) !important;
+}
+
+.auth-login-error {
+  margin: 8px 0 0 !important;
+  color: var(--neon-red) !important;
+  text-align: center !important;
+  font-size: 12px !important;
+}
+
+.auth-login-success {
+  margin: 8px 0 0 !important;
+  color: var(--neon-green) !important;
+  text-align: center !important;
+  font-size: 12px !important;
+}
+
+.auth-login-form {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+}
+
+.modal .auth-login-form input {
+  height: 42px !important;
+  padding: 0 12px !important;
+  background: rgba(2, 6, 16, 0.92) !important;
+  border: 1px solid var(--border-bright) !important;
+  border-radius: 0 !important;
+  color: var(--text-bright) !important;
+  outline: none !important;
+}
+
+.modal .auth-login-form input:focus {
+  border-color: var(--neon-cyan) !important;
+  box-shadow: var(--glow-cyan) !important;
+}
+
+.modal .auth-login-token-help {
+  margin-top: -2px !important;
+  color: var(--neon-cyan) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 11px !important;
+  text-decoration: none !important;
+}
+
+.modal .auth-login-token-help:hover {
+  color: #fff !important;
+  text-shadow: var(--glow-cyan) !important;
+}
+
+.auth-login-role-row {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 8px !important;
+}
+
+.modal .auth-login-role-row button {
+  height: 38px !important;
+  border: 1px solid var(--border-mid) !important;
+  border-radius: 0 !important;
+  background: rgba(2, 6, 16, 0.7) !important;
+  color: var(--text-dim) !important;
+  cursor: pointer !important;
+  font-family: var(--font-pixel) !important;
+  font-size: 8px !important;
+}
+
+.modal .auth-login-role-row button.active {
+  border-color: var(--neon-gold) !important;
+  background: rgba(255, 215, 0, 0.13) !important;
+  color: var(--neon-gold) !important;
+}
+
+.auth-login-actions {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  gap: 10px !important;
+  margin-top: 16px !important;
+}
+
+.modal .auth-login-primary,
+.modal .auth-login-secondary {
+  height: 42px !important;
+  border-radius: 0 !important;
+  cursor: pointer !important;
+  font-family: var(--font-pixel) !important;
+  font-size: 8px !important;
+  letter-spacing: 0 !important;
+}
+
+.modal .auth-login-primary {
+  flex: 1 !important;
+  border: 1px solid var(--neon-gold) !important;
+  background: rgba(255, 215, 0, 0.12) !important;
+  color: var(--neon-gold) !important;
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.22), inset 0 0 8px rgba(255, 215, 0, 0.05) !important;
+}
+
+.modal .auth-login-primary:hover:not(:disabled) {
+  background: rgba(255, 215, 0, 0.18) !important;
+  color: #fff !important;
+}
+
+.modal .auth-login-primary:disabled {
+  border-color: var(--border-dim) !important;
+  background: rgba(2, 6, 16, 0.7) !important;
+  color: var(--text-muted) !important;
+  box-shadow: none !important;
+  cursor: not-allowed !important;
+}
+
+.modal .auth-login-secondary {
+  min-width: 96px !important;
+  padding: 0 18px !important;
+  border: 1px solid var(--border-mid) !important;
+  background: rgba(0, 212, 255, 0.06) !important;
+  color: var(--neon-cyan) !important;
+}
+
+.modal .auth-login-secondary:hover {
+  border-color: var(--neon-cyan) !important;
+  box-shadow: var(--glow-cyan) !important;
 }
 /* Remove ::before gradient — PNG frame already has top decorations */
 .modal-box::before, .modal::before { display: none !important; }

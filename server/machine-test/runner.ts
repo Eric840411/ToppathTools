@@ -14,7 +14,6 @@ import { EventEmitter } from 'events'
 import { spawn } from 'child_process'
 import { readFileSync, existsSync, unlinkSync, writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
-import { fileURLToPath } from 'url'
 import { chromium, type Browser, type Page, type ElementHandle } from 'playwright'
 import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEvent, MachineProfile } from './types.js'
 import { callGeminiVision, callGeminiVisionMulti } from '../routes/gemini.js'
@@ -22,12 +21,13 @@ import { callGeminiVision, callGeminiVisionMulti } from '../routes/gemini.js'
 // ─── OS-level audio capture via VB-Cable ─────────────────────────────────────
 
 const NIRCMD  = 'C:\\Users\\user\\AppData\\Local\\nircmd\\nircmd.exe'
-const RECORD_SCRIPT = join(fileURLToPath(new URL('.', import.meta.url)), 'record-spin.ps1')
+const MACHINE_TEST_ROOT = join(process.cwd(), 'server', 'machine-test')
+const RECORD_SCRIPT = join(MACHINE_TEST_ROOT, 'record-spin.ps1')
 const CABLE_DEVICE  = 'CABLE Input (VB-Audio Virtual Cable)'
-const CCTV_SAVE_DIR  = join(fileURLToPath(new URL('.', import.meta.url)), 'cctv-saves')
-const AUDIO_SAVE_DIR = join(fileURLToPath(new URL('.', import.meta.url)), 'audio-saves')
-const CCTV_REFS_DIR  = join(fileURLToPath(new URL('.', import.meta.url)), 'cctv-refs')
-const AUDIO_REFS_DIR = join(fileURLToPath(new URL('.', import.meta.url)), 'audio-refs')
+const CCTV_SAVE_DIR  = join(MACHINE_TEST_ROOT, 'cctv-saves')
+const AUDIO_SAVE_DIR = join(MACHINE_TEST_ROOT, 'audio-saves')
+const CCTV_REFS_DIR  = join(MACHINE_TEST_ROOT, 'cctv-refs')
+const AUDIO_REFS_DIR = join(MACHINE_TEST_ROOT, 'audio-refs')
 
 function runPS(script: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {

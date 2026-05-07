@@ -4,6 +4,7 @@ import { SearchSelect } from '../components/SearchSelect'
 import { ModelSelector } from '../components/ModelSelector'
 import { DungeonIcon } from '../components/DungeonIcon'
 import { useIsGameMode } from '../components/GameModeContext'
+import { fetchAuthAccount, GLOBAL_ACCOUNT_KEY } from '../authSession'
 
 interface Member {
   accountId: string
@@ -82,10 +83,15 @@ const JIRA_KEY_COL = 'jira issue key'
 const STAGE_COL = '處理階段'
 
 function loadSessionAccount(): AccountInfo | null {
-  try { return JSON.parse(sessionStorage.getItem(SESSION_KEY) ?? 'null') } catch { return null }
+  try {
+    return JSON.parse(sessionStorage.getItem(SESSION_KEY) ?? sessionStorage.getItem(GLOBAL_ACCOUNT_KEY) ?? 'null')
+  } catch {
+    return null
+  }
 }
 function saveSessionAccount(a: AccountInfo) {
   sessionStorage.setItem(SESSION_KEY, JSON.stringify(a))
+  sessionStorage.setItem(GLOBAL_ACCOUNT_KEY, JSON.stringify(a))
 }
 
 const getField = (r: SheetRecord, fieldName: string): string => {
@@ -135,12 +141,16 @@ const SHEET_FIELD: Record<string, string> = {
   releaseDate: '上線日期',
 }
 
-export function JiraPage() {
+interface JiraPageProps {
+  account?: AccountInfo | null
+}
+
+export function JiraPage({ account = null }: JiraPageProps) {
   const isGame = useIsGameMode()
   const [mode, setMode] = useState<'qa' | 'pm'>('qa')
   const [step, setStep] = useState<Step>(1)
   const [showAccountModal, setShowAccountModal] = useState(false)
-  const [currentAccount, setCurrentAccount] = useState<AccountInfo | null>(null)
+  const [currentAccount, setCurrentAccount] = useState<AccountInfo | null>(account)
 
   // Step 1
   const [members, setMembers] = useState<Member[]>([])
@@ -201,6 +211,14 @@ export function JiraPage() {
 
   const emailHeader: Record<string, string> = currentAccount ? { 'x-jira-email': currentAccount.email } : {}
 
+  useEffect(() => {
+    if (!account) return
+    setCurrentAccount(account)
+    saveSessionAccount(account)
+    const knownBoot = sessionStorage.getItem(BACKEND_BOOT_KEY) ?? ''
+    if (knownBoot) sessionStorage.setItem(ACCOUNT_BOOT_KEY, knownBoot)
+  }, [account])
+
   // 從 trackedIssues 中取出需要評論/切換的列
   const toComment    = trackedIssues.filter(t => t.stage === '已開單' || t.stage === '')
   const toTransition = trackedIssues.filter(t => t.stage === '添加評論')
@@ -215,14 +233,22 @@ export function JiraPage() {
         if (bootId) sessionStorage.setItem(BACKEND_BOOT_KEY, bootId)
 
         const acc = loadSessionAccount()
-        if (!acc) return
         const accountBootId = sessionStorage.getItem(ACCOUNT_BOOT_KEY) ?? ''
-        if (!bootId || !accountBootId || accountBootId !== bootId) {
-          sessionStorage.removeItem(SESSION_KEY)
-          sessionStorage.removeItem(ACCOUNT_BOOT_KEY)
+        if (acc && bootId && accountBootId && accountBootId === bootId) {
+          if (!cancelled) setCurrentAccount(acc)
           return
         }
-        if (!cancelled) setCurrentAccount(acc)
+
+        if (acc) {
+          sessionStorage.removeItem(SESSION_KEY)
+          sessionStorage.removeItem(ACCOUNT_BOOT_KEY)
+        }
+
+        const authAccount = await fetchAuthAccount()
+        if (!authAccount) return
+        saveSessionAccount(authAccount)
+        if (bootId) sessionStorage.setItem(ACCOUNT_BOOT_KEY, bootId)
+        if (!cancelled) setCurrentAccount(authAccount)
       } catch {
         // 若 health 失敗，不做自動恢復，避免綁到未知後端實例
       }
@@ -889,7 +915,7 @@ export function JiraPage() {
             {mode === 'qa' ? STEP_LABELS[step] : { 1: '讀取表格', 2: '確認清單', 3: '開單結果' }[pmStep]}
           </span>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'none' }}>
           <button type="button"
             className={`settings-btn${currentAccount ? ' has-creds' : ''}`}
             onClick={() => setShowAccountModal(true)}>

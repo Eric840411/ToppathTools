@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.16.0'
+export const APP_VERSION = '3.17.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.17.0',
+    date: '2026-05-06',
+    changes: [
+      'feat(autospin): OSMWatcher 獎池面板 — Run tab 新增 Grand/Fortune 即時顯示，每 10 秒自動更新',
+      'feat(osm): webhook 解析 gtype + jackpot.grand/fortunate，儲存於記憶體，GET /api/machine-test/osm-jackpot 供查詢',
+      'feat(tunnel): generate-osm-api-key / build-and-tunnel 取得 Cloudflare URL 後自動 POST 到 /api/settings/tunnel-url 存入 DB',
+      'fix(tunnel): cloudflared 改用 -WindowStyle Hidden 啟動，關閉腳本視窗不再中斷 tunnel',
+    ],
+  },
   {
     version: '3.16.0',
     date: '2026-05-06',

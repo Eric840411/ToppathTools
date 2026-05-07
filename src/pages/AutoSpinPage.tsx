@@ -59,6 +59,11 @@ export function AutoSpinPage() {
   const userLabel = getGlobalUserLabel()
   const userHeaders = { 'Content-Type': 'application/json', 'x-user-label': userLabel }
 
+  // ── OSM Jackpot state ───────────────────────────────────────────────────────
+  interface JackpotEntry { gtype: number; gameName: string; grand?: number; fortunate?: number; updatedAt: number }
+  const [jackpots, setJackpots] = useState<JackpotEntry[]>([])
+  const [jackpotPanelOpen, setJackpotPanelOpen] = useState(false)
+
   const fetchConfigs = async () => {
     const r = await fetch('/api/autospin/configs', { headers: { 'x-user-label': getGlobalUserLabel() } })
     const d = await r.json() as { configs?: AutospinConfig[] }
@@ -456,6 +461,18 @@ export function AutoSpinPage() {
       if (evtSourceRef.current) evtSourceRef.current.close()
       if (captureTimerRef.current) clearInterval(captureTimerRef.current)
     }
+  }, [])
+
+  useEffect(() => {
+    const poll = () => {
+      fetch('/api/machine-test/osm-jackpot')
+        .then(r => r.json())
+        .then((d: { jackpots?: JackpotEntry[] }) => setJackpots(d.jackpots ?? []))
+        .catch(() => {})
+    }
+    poll()
+    const t = setInterval(poll, 10000)
+    return () => clearInterval(t)
   }, [])
 
   // ─── Render ───────────────────────────────────────────────────────────────
@@ -974,6 +991,55 @@ export function AutoSpinPage() {
       {/* ── Run tab ─────────────────────────────────────────────────────────── */}
       {tab === 'run' && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0, overflow: 'hidden' }}>
+
+          {/* OSMWatcher Jackpot Banner */}
+          <div
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px',
+              borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: jackpots.length > 0 ? 'pointer' : 'default',
+              background: jackpots.length > 0 ? '#f0fdf4' : '#f8fafc',
+              border: `1px solid ${jackpots.length > 0 ? '#86efac' : '#e2e8f0'}`,
+              color: jackpots.length > 0 ? '#15803d' : '#94a3b8',
+              userSelect: 'none',
+            }}
+            onClick={() => jackpots.length > 0 && setJackpotPanelOpen(v => !v)}
+          >
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: jackpots.length > 0 ? '#22c55e' : '#cbd5e1', flexShrink: 0 }} />
+            {jackpots.length > 0
+              ? `✅ OSMWatcher 已連線（${jackpots.length} 個遊戲獎池）`
+              : '⚪ OSMWatcher 未連線 — 獎池資料尚未接收'}
+            {jackpots.length > 0 && (
+              <span style={{ marginLeft: 'auto', fontSize: 12, opacity: 0.7 }}>{jackpotPanelOpen ? '▲ 收合' : '▼ 展開獎池'}</span>
+            )}
+          </div>
+
+          {jackpotPanelOpen && jackpots.length > 0 && (
+            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12 }}>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>即時獎池 — 每 10 秒自動更新（只顯示 Grand / Fortune）</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 6 }}>
+                {jackpots.filter(j => j.grand != null || j.fortunate != null).map(j => (
+                  <div key={j.gtype} style={{
+                    background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6,
+                    padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 4,
+                  }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>{j.gameName}</div>
+                    <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
+                      {j.grand != null && (
+                        <span style={{ color: '#b45309', fontWeight: 700 }}>
+                          Grand: {j.grand.toLocaleString()}
+                        </span>
+                      )}
+                      {j.fortunate != null && (
+                        <span style={{ color: '#7c3aed', fontWeight: 700 }}>
+                          Fortune: {j.fortunate.toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Mode toggle */}
           <div style={{ display: 'flex', gap: 0, border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', alignSelf: 'flex-start' }}>

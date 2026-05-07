@@ -10,15 +10,17 @@ import { join, extname } from 'path'
 import { fileURLToPath } from 'url'
 import { dirname } from 'path'
 import { db, addHistory, upload } from '../shared.js'
+import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
+const SERVER_ROOT = join(process.cwd(), 'server')
 
 export const router = Router()
 
 const PYTHON_EXE = process.env.AUTOSPIN_PYTHON ?? 'python'
 // Default to the bundled server/python directory; AUTOSPIN_PROJECT env overrides this
-const PROJECT_DIR = process.env.AUTOSPIN_PROJECT ?? join(__dirname, '../python')
+const PROJECT_DIR = process.env.AUTOSPIN_PROJECT ?? join(SERVER_ROOT, 'python')
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -44,6 +46,7 @@ interface SessionState {
   logs: string[]
   process: ChildProcess | null
   errorMsg?: string
+  heavyTask?: HeavyTaskToken
 }
 
 // ─── Session store ────────────────────────────────────────────────────────────
@@ -246,11 +249,15 @@ router.post('/api/autospin/start', (req, res) => {
     return res.status(500).json({ ok: false, message: `找不到 AutoSpin.py，請確認 AUTOSPIN_PROJECT 路徑：${PROJECT_DIR}` })
   }
 
+  const heavyTask = tryStartHeavyTask(req, 'autospin', 'AutoSpin')
+  if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
+
   // Kill any existing running session
   for (const [sid, s] of sessions) {
     if (s.status === 'running' && s.process) {
       try { s.process.kill('SIGTERM') } catch { /* ignore */ }
       s.status = 'stopped'
+      finishHeavyTask(s.heavyTask)
     }
   }
 
@@ -270,7 +277,7 @@ router.post('/api/autospin/start', (req, res) => {
   writeFileSync(join(PROJECT_DIR, 'game_config.json'), JSON.stringify(gameConfig, null, 2), 'utf8')
 
   const sessionId = `as-${Date.now()}`
-  const state: SessionState = { id: sessionId, status: 'running', startedAt: Date.now(), logs: [], process: null }
+  const state: SessionState = { id: sessionId, status: 'running', startedAt: Date.now(), logs: [], process: null, heavyTask: heavyTask.token }
   sessions.set(sessionId, state)
 
   const proc = spawn(PYTHON_EXE, ['AutoSpin.py'], {
@@ -291,6 +298,7 @@ router.post('/api/autospin/start', (req, res) => {
   proc.on('close', (code) => {
     state.status = code === 0 ? 'stopped' : 'error'
     state.stoppedAt = Date.now()
+    finishHeavyTask(state.heavyTask)
     if (code !== 0) state.errorMsg = `Process exited with code ${code}`
     broadcastLog(sessionId, `[系統] 程序結束 (exit code: ${code})`)
     // close SSE clients
@@ -308,6 +316,7 @@ router.post('/api/autospin/stop', (_req, res) => {
   for (const [, s] of sessions) {
     if (s.status === 'running' && s.process) {
       try { s.process.kill('SIGTERM') } catch { s.process.kill() }
+      finishHeavyTask(s.heavyTask)
       stopped = true
     }
   }
@@ -372,6 +381,7 @@ interface AgentSession {
   pauseRequested: boolean
   userLabel: string
   spinIntervalOverride: number | null
+  heavyTask?: HeavyTaskToken
 }
 
 const agentSessions = new Map<string, AgentSession>()
@@ -387,14 +397,21 @@ function broadcastAgentLog(sessionId: string, line: string) {
 // POST /api/autospin/agent/start — agent registers and gets configs
 router.post('/api/autospin/agent/start', (req, res) => {
   const userLabel = (req.body as { userLabel?: string }).userLabel ?? ''
+  const heavyTask = tryStartHeavyTask(req, 'autospin-agent', 'AutoSpin Agent')
+  if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
+
   // Stop any existing agent sessions for this user
   for (const s of agentSessions.values()) {
-    if (!userLabel || s.userLabel === userLabel) s.status = 'stopped'
+    if (!userLabel || s.userLabel === userLabel) {
+      s.status = 'stopped'
+      finishHeavyTask(s.heavyTask)
+    }
   }
   const sessionId = `agent-${Date.now()}`
   agentSessions.set(sessionId, {
     id: sessionId, status: 'running', startedAt: Date.now(), lastHeartbeat: Date.now(),
     logs: [], screenshots: [], stopRequested: false, pauseRequested: false, userLabel, spinIntervalOverride: null,
+    heavyTask: heavyTask.token,
   })
   // Return configs merged with machine_test_profiles selectors
   const configs = readConfigs(userLabel)
@@ -452,7 +469,11 @@ router.post('/api/autospin/agent/:id/screenshot', upload.single('file'), (req, r
 // POST /api/autospin/agent/:id/stop — agent reports it has stopped
 router.post('/api/autospin/agent/:id/stop', (req, res) => {
   const s = agentSessions.get(req.params.id)
-  if (s) { s.status = 'stopped'; broadcastAgentLog(req.params.id, '[Agent] 已停止') }
+  if (s) {
+    s.status = 'stopped'
+    finishHeavyTask(s.heavyTask)
+    broadcastAgentLog(req.params.id, '[Agent] 已停止')
+  }
   res.json({ ok: true })
 })
 
@@ -497,7 +518,10 @@ router.post('/api/autospin/agent/:id/spin-interval', (req, res) => {
 // POST /api/autospin/agent/stop-all — frontend stops the agent
 router.post('/api/autospin/agent/stop-all', (_req, res) => {
   for (const s of agentSessions.values()) {
-    if (s.status === 'running') s.stopRequested = true
+    if (s.status === 'running') {
+      s.stopRequested = true
+      finishHeavyTask(s.heavyTask)
+    }
   }
   res.json({ ok: true })
 })
@@ -511,6 +535,7 @@ router.get('/api/autospin/agent/status', (_req, res) => {
       // Auto-expire if agent stopped sending heartbeats
       if (Date.now() - s.lastHeartbeat > HEARTBEAT_TIMEOUT) {
         s.status = 'stopped'
+        finishHeavyTask(s.heavyTask)
         broadcastAgentLog(s.id, '[Agent] 連線逾時，已標記為離線')
       } else {
         active = s; break

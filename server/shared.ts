@@ -16,11 +16,15 @@ import { z } from 'zod'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
+const SERVER_ROOT = join(process.cwd(), 'server')
 
 dotenv.config()
 
 // ─── SQLite DB ────────────────────────────────────────────────────────────────
-export const db = new Database(join(__dirname, 'data.db'))
+export const db = new Database(join(SERVER_ROOT, 'data.db'))
+// WAL mode allows concurrent reads/writes from multiple processes (main + worker)
+// without SQLITE_BUSY errors.
+db.pragma('journal_mode = WAL')
 db.exec(`
   CREATE TABLE IF NOT EXISTS jira_accounts (
     email TEXT PRIMARY KEY,
@@ -71,6 +75,19 @@ db.exec(`
     detail     TEXT NOT NULL,
     created_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS heavy_tasks (
+    id          TEXT PRIMARY KEY,
+    user_key    TEXT NOT NULL,
+    user_label  TEXT NOT NULL,
+    type        TEXT NOT NULL,
+    label       TEXT NOT NULL,
+    status      TEXT NOT NULL,
+    created_at  INTEGER NOT NULL,
+    started_at  INTEGER,
+    finished_at INTEGER,
+    error       TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_heavy_tasks_user_status ON heavy_tasks (user_key, status, created_at);
   CREATE TABLE IF NOT EXISTS gemini_key_stats (
     label          TEXT PRIMARY KEY,
     calls_today    INTEGER NOT NULL DEFAULT 0,
@@ -129,6 +146,9 @@ db.exec(`
 
 // Auto-purge history older than 7 days
 db.prepare('DELETE FROM operation_history WHERE created_at < ?').run(Date.now() - 7 * 24 * 60 * 60 * 1000)
+db.prepare("UPDATE heavy_tasks SET status = 'abandoned', finished_at = ? WHERE status IN ('queued', 'running') AND created_at < ?")
+  .run(Date.now(), Date.now() - 24 * 60 * 60 * 1000)
+db.prepare('DELETE FROM heavy_tasks WHERE created_at < ?').run(Date.now() - 7 * 24 * 60 * 60 * 1000)
 // Auto-purge machine test sessions older than 30 days
 db.prepare('DELETE FROM machine_test_sessions WHERE started_at < ?').run(Date.now() - 30 * 24 * 60 * 60 * 1000)
 // Auto-purge per-machine results older than 90 days
@@ -345,7 +365,7 @@ db.exec(`
 
 // 一次性遷移：若舊 JSON 檔存在，匯入後保留原檔（不刪除）
 {
-  const accountsPath = join(__dirname, 'accounts.json')
+  const accountsPath = join(SERVER_ROOT, 'accounts.json')
   if (existsSync(accountsPath)) {
     try {
       const rows = JSON.parse(readFileSync(accountsPath, 'utf-8')) as { email: string; token: string; label: string }[]
@@ -354,7 +374,7 @@ db.exec(`
       console.log(`[DB] 已從 accounts.json 遷移 ${rows.length} 筆帳號`)
     } catch { /* 忽略解析錯誤 */ }
   }
-  const keysPath = join(__dirname, 'gemini-keys.json')
+  const keysPath = join(SERVER_ROOT, 'gemini-keys.json')
   if (existsSync(keysPath)) {
     try {
       const rows = JSON.parse(readFileSync(keysPath, 'utf-8')) as { label: string; key: string }[]
@@ -364,7 +384,7 @@ db.exec(`
       renameSync(keysPath, keysPath + '.migrated')  // prevent re-import on next restart
     } catch { /* 忽略 */ }
   }
-  const promptsPath = join(__dirname, 'prompts.json')
+  const promptsPath = join(SERVER_ROOT, 'prompts.json')
   if (existsSync(promptsPath)) {
     try {
       const rows = JSON.parse(readFileSync(promptsPath, 'utf-8')) as Array<{
