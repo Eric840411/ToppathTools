@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p \"C:\\\\Users\\\\user\\\\Desktop\\\\Toppath tools\\\\public\\\\game-assets\\\\icons\")",
+      "Bash(cp \"C:\\\\Users\\\\user\\\\.claude\\\\channels\\\\discord\\\\inbox\\\\1777220077936-1497994233678659806.png\" \"C:\\\\Users\\\\user\\\\Desktop\\\\Toppath tools\\\\public\\\\game-assets\\\\icons-sheet.png\")",
+      "Bash(cp /c/Users/user/.claude/channels/discord/inbox/1777264772073-1498180734433755277.png '/c/Users/user/Desktop/Toppath tools/public/game-assets/frames/btn-green.png')",
+      "Bash(cp /c/Users/user/.claude/channels/discord/inbox/1777264772549-1498180734869831761.png '/c/Users/user/Desktop/Toppath tools/public/game-assets/frames/btn-red.png')",
+      "Bash(cp /c/Users/user/.claude/channels/discord/inbox/1777264773235-1498180735369220256.png '/c/Users/user/Desktop/Toppath tools/public/game-assets/frames/btn-gold.png')",
+      "Bash(cp /c/Users/user/.claude/channels/discord/inbox/1777264770206-1498180732676214896.png '/c/Users/user/Desktop/Toppath tools/public/game-assets/frames/badge-warn.png')",
+      "Bash(cp /c/Users/user/.claude/channels/discord/inbox/1777264770628-1498180733049770054.png '/c/Users/user/Desktop/Toppath tools/public/game-assets/frames/badge-fail.png')"
+    ]
+  }
+}
