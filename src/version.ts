@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.17.0'
+export const APP_VERSION = '3.18.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.18.0',
+    date: '2026-05-08',
+    changes: [
+      'feat(autospin): SLS 錯誤日誌面板 — Run tab 右側新增 SLS Error Logs 區塊，可選機台查詢近 24h ERROR/WARN/Exception，每 60s 自動更新',
+      'feat(autospin): machineNo 欄位 — 機台設定新增 Machine No. 欄位，用於 SLS 日誌查詢',
+      'feat(backend): GET /api/autospin/sls-errors — 查詢阿里雲 SLS 4 個 project，自動列舉 logstore 並依機台編號篩選錯誤',
+    ],
+  },
   {
     version: '3.17.0',
     date: '2026-05-06',

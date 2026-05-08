@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url'
 import { dirname } from 'path'
 import { db, addHistory, upload } from '../shared.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
+import { fetchSlsErrors } from '../lib/sls.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -102,14 +103,15 @@ router.post('/api/autospin/configs', (req, res) => {
     betRandomEnabled: z.boolean().default(false),
     lowBalanceThreshold: z.number().min(0).default(0),
     larkWebhook: z.string().default(''),
+    machineNo: z.string().default(''),
   }).parse(req.body)
 
   db.prepare(`
     INSERT OR REPLACE INTO autospin_configs
     (userLabel, machineType, gameUrl, rtmpName, rtmpUrl, gameTitleCode, templateType, errorTemplateType,
      enabled, enableRecording, enableTemplateDetection, notes,
-     spinInterval, randomExitEnabled, randomExitChance, randomExitMinSpins, betRandomEnabled, lowBalanceThreshold, larkWebhook)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     spinInterval, randomExitEnabled, randomExitChance, randomExitMinSpins, betRandomEnabled, lowBalanceThreshold, larkWebhook, machineNo)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     userLabel, body.machineType, body.gameUrl, body.rtmpName, body.rtmpUrl, body.gameTitleCode,
     body.templateType, body.errorTemplateType,
@@ -117,6 +119,7 @@ router.post('/api/autospin/configs', (req, res) => {
     body.notes,
     body.spinInterval, body.randomExitEnabled ? 1 : 0, body.randomExitChance,
     body.randomExitMinSpins, body.betRandomEnabled ? 1 : 0, body.lowBalanceThreshold, body.larkWebhook,
+    body.machineNo,
   )
   res.json({ ok: true })
 })
@@ -126,6 +129,22 @@ router.delete('/api/autospin/configs/:machineType', (req, res) => {
   const userLabel = (req.headers['x-user-label'] as string) || ''
   db.prepare('DELETE FROM autospin_configs WHERE userLabel = ? AND machineType = ?').run(userLabel, req.params.machineType)
   res.json({ ok: true })
+})
+
+// ─── SLS Error Logs ────────────────────────────────────────────────────────────
+
+// GET /api/autospin/sls-errors?machineNo=6312745&limit=20
+router.get('/api/autospin/sls-errors', async (req, res) => {
+  const machineNo = String(req.query.machineNo ?? '').trim()
+  const limit = Math.min(50, Math.max(1, parseInt(String(req.query.limit ?? '20'))))
+  if (!machineNo) return res.status(400).json({ ok: false, message: 'machineNo is required' })
+  try {
+    const entries = await fetchSlsErrors(machineNo, limit)
+    res.json({ ok: true, entries })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    res.status(500).json({ ok: false, message: msg })
+  }
 })
 
 // ─── Actions.json management ──────────────────────────────────────────────────

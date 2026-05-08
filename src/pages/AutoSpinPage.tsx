@@ -21,6 +21,7 @@ interface AutospinConfig {
   betRandomEnabled: boolean
   lowBalanceThreshold: number
   larkWebhook: string
+  machineNo: string
 }
 
 interface CaptureFile {
@@ -34,7 +35,7 @@ const EMPTY_CONFIG: AutospinConfig = {
   gameTitleCode: '', templateType: '', errorTemplateType: '',
   enabled: true, enableRecording: true, enableTemplateDetection: true, notes: '',
   spinInterval: 1.0, randomExitEnabled: false, randomExitChance: 0.02,
-  randomExitMinSpins: 50, betRandomEnabled: false, lowBalanceThreshold: 0, larkWebhook: '',
+  randomExitMinSpins: 50, betRandomEnabled: false, lowBalanceThreshold: 0, larkWebhook: '', machineNo: '',
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────────
@@ -74,6 +75,7 @@ export function AutoSpinPage() {
       spinInterval: c.spinInterval ?? 1.0, randomExitChance: c.randomExitChance ?? 0.02, randomExitMinSpins: c.randomExitMinSpins ?? 50,
       lowBalanceThreshold: c.lowBalanceThreshold ?? 0,
       larkWebhook: c.larkWebhook ?? '',
+      machineNo: c.machineNo ?? '',
     })))
   }
 
@@ -296,6 +298,39 @@ export function AutoSpinPage() {
   const [liveSpinInterval, setLiveSpinInterval] = useState<number>(1.0)
   const [liveIntervalSaving, setLiveIntervalSaving] = useState(false)
   const logBoxRef = useRef<HTMLDivElement>(null)
+
+  // ── SLS error logs ───────────────────────────────────────────────────────────
+  interface SlsEntry { time: number; timeStr: string; project: string; logstore: string; content: string; level: string }
+  const [slsMachineNo, setSlsMachineNo] = useState('')
+  const [slsEntries, setSlsEntries] = useState<SlsEntry[]>([])
+  const [slsLoading, setSlsLoading] = useState(false)
+  const [slsError, setSlsError] = useState('')
+  const [slsPanelOpen, setSlsPanelOpen] = useState(false)
+  const slsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const fetchSlsErrors = useCallback(async (machineNo: string) => {
+    if (!machineNo.trim()) return
+    setSlsLoading(true); setSlsError('')
+    try {
+      const r = await fetch(`/api/autospin/sls-errors?machineNo=${encodeURIComponent(machineNo)}&limit=20`)
+      const d = await r.json() as { ok: boolean; entries?: SlsEntry[]; message?: string }
+      if (d.ok) setSlsEntries(d.entries ?? [])
+      else setSlsError(d.message ?? '查詢失敗')
+    } catch (e) {
+      setSlsError(String(e))
+    } finally {
+      setSlsLoading(false)
+    }
+  }, [])
+
+  // auto-refresh SLS every 60s while running
+  useEffect(() => {
+    if (slsTimerRef.current) { clearInterval(slsTimerRef.current); slsTimerRef.current = null }
+    if ((running || agentRunning) && slsMachineNo.trim()) {
+      slsTimerRef.current = setInterval(() => fetchSlsErrors(slsMachineNo), 60_000)
+    }
+    return () => { if (slsTimerRef.current) clearInterval(slsTimerRef.current) }
+  }, [running, agentRunning, slsMachineNo, fetchSlsErrors])
   const evtSourceRef = useRef<EventSource | null>(null)
   const captureTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   // Ref to always hold latest agentSessionId for interval callbacks (avoids stale closure)
@@ -567,6 +602,7 @@ export function AutoSpinPage() {
                   { key: 'gameTitleCode', label: 'Game Title Code', placeholder: 'e.g. 873-JJBXGRAND' },
                   { key: 'templateType', label: '模板類型', placeholder: 'e.g. JJBX' },
                   { key: 'errorTemplateType', label: '錯誤模板類型', placeholder: 'e.g. ERROR' },
+                  { key: 'machineNo', label: 'Machine No.（SLS 日誌查詢用，如 6312745）', placeholder: 'e.g. 6312745' },
                   { key: 'notes', label: '備註', placeholder: '' },
                   { key: 'larkWebhook', label: 'Lark Webhook URL（推播通知，可留空）', placeholder: 'https://open.larksuite.com/open-apis/bot/v2/hook/...' },
                 ].map(({ key, label, placeholder, disabled }) => (
@@ -1169,8 +1205,47 @@ export function AutoSpinPage() {
               </div>
             </div>
 
-            {/* Right: screenshots */}
+            {/* Right: screenshots + SLS errors */}
             <div style={{ flex: '0 0 260px', display: 'flex', flexDirection: 'column', gap: 8, overflow: 'auto' }}>
+              {/* SLS Error Logs panel */}
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', background: slsEntries.some(e => e.level === 'ERROR') ? '#fef2f2' : '#f8fafc', cursor: 'pointer' }}
+                  onClick={() => setSlsPanelOpen(v => !v)}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: slsEntries.length > 0 ? (slsEntries.some(e => e.level === 'ERROR') ? '#ef4444' : '#f59e0b') : '#cbd5e1', flexShrink: 0 }} />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#374151', flex: 1 }}>
+                    SLS 錯誤日誌 {slsEntries.length > 0 ? `(${slsEntries.length})` : ''}
+                  </span>
+                  <span style={{ fontSize: 10, color: '#9ca3af' }}>{slsPanelOpen ? '▲' : '▼'}</span>
+                </div>
+                {slsPanelOpen && (
+                  <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6, background: '#fff' }}>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <select value={slsMachineNo} onChange={e => { setSlsMachineNo(e.target.value); setSlsEntries([]) }}
+                        style={{ flex: 1, fontSize: 11, padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: 5 }}>
+                        <option value=''>— 選擇機台 —</option>
+                        {configs.filter(c => c.machineNo).map(c => (
+                          <option key={c.machineType} value={c.machineNo}>{c.machineType} ({c.machineNo})</option>
+                        ))}
+                      </select>
+                      <button onClick={() => fetchSlsErrors(slsMachineNo)} disabled={!slsMachineNo || slsLoading}
+                        style={{ fontSize: 11, padding: '4px 8px', background: slsMachineNo ? '#2563eb' : '#e5e7eb', color: slsMachineNo ? '#fff' : '#9ca3af', border: 'none', borderRadius: 5, cursor: slsMachineNo ? 'pointer' : 'default' }}>
+                        {slsLoading ? '...' : '🔍'}
+                      </button>
+                    </div>
+                    {slsError && <div style={{ fontSize: 11, color: '#ef4444' }}>{slsError}</div>}
+                    {slsEntries.length === 0 && !slsLoading && !slsError && slsMachineNo && (
+                      <div style={{ fontSize: 11, color: '#9ca3af' }}>近 24 小時無錯誤記錄</div>
+                    )}
+                    {slsEntries.map((e, i) => (
+                      <div key={i} style={{ fontSize: 10, borderLeft: `3px solid ${e.level === 'ERROR' ? '#ef4444' : e.level === 'WARN' || e.level === 'WARNING' ? '#f59e0b' : '#6b7280'}`, paddingLeft: 6, color: '#374151' }}>
+                        <div style={{ color: '#6b7280', marginBottom: 2 }}>{e.timeStr} · <span style={{ color: e.level === 'ERROR' ? '#ef4444' : '#f59e0b', fontWeight: 700 }}>{e.level}</span></div>
+                        <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', color: '#1e293b' }}>{e.content.slice(0, 160)}{e.content.length > 160 ? '…' : ''}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>截圖監控</span>
                 <button onClick={fetchCaptures} style={{ fontSize: 11, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer' }}>🔄 重新整理</button>

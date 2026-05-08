@@ -257,7 +257,7 @@ export function addHistory(feature: string, title: string, summary: string, deta
     const newCols = ['spinInterval REAL NOT NULL DEFAULT 1.0', 'randomExitEnabled INTEGER NOT NULL DEFAULT 0',
       'randomExitChance REAL NOT NULL DEFAULT 0.02', 'randomExitMinSpins INTEGER NOT NULL DEFAULT 50',
       'betRandomEnabled INTEGER NOT NULL DEFAULT 0', 'lowBalanceThreshold REAL NOT NULL DEFAULT 0',
-      "larkWebhook TEXT NOT NULL DEFAULT ''"]
+      "larkWebhook TEXT NOT NULL DEFAULT ''", "machineNo TEXT NOT NULL DEFAULT ''"]
     for (const col of newCols) {
       const colName = col.split(' ')[0]
       if (!cols.find(c => c.name === colName)) {
