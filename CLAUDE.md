@@ -1,3 +1,15 @@
+# 開發規則
+
+## 每次改代碼後必須自動 Build
+
+**任何代碼更動後，必須主動執行 `npm run build`，不需使用者提醒。**
+
+- 修改 `src/`、`server/`、或其他影響 build 的檔案後，結束任務前一律執行 `npm run build`
+- 確認 build 無錯誤後才算完成
+- 不用等使用者開口
+
+---
+
 # Git Repository
 
 **Repo：** https://github.com/Eric840411/ToppathTools.git
