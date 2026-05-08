@@ -989,10 +989,10 @@ for (const relPath of Object.keys(AGENT_SOURCE_WHITELIST)) {
 
 /** GET /api/machine-test/agent/install.bat ??installer with embedded server URL */
 router.get('/api/machine-test/agent/install.bat', (req, res) => {
-  // Derive the server base URL from the request
-  const proto = req.headers['x-forwarded-proto'] ?? 'http'
+  // Derive the server base URL — env var takes priority (for reverse-proxy setups)
+  const proto = req.headers['x-forwarded-proto'] ?? req.protocol ?? 'http'
   const host  = req.headers['x-forwarded-host'] ?? req.headers.host ?? 'localhost:3000'
-  const serverUrl = `${proto}://${host}`
+  const serverUrl = process.env.TOPPATH_BASE_URL ?? `${proto}://${host}`
 
   const sourceFiles = Object.keys(AGENT_SOURCE_WHITELIST)
   const downloadLines = sourceFiles.map(f => {

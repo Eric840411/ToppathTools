@@ -597,9 +597,17 @@ router.get('/api/autospin/agent/screenshots/:id', (req, res) => {
   res.json({ ok: true, files: s.screenshots.map(sc => ({ name: sc.name, time: sc.time })).reverse() })
 })
 
+/** Resolve the public server base URL — env var overrides for reverse-proxy setups */
+const resolveServerUrl = (req: import('express').Request): string => {
+  if (process.env.TOPPATH_BASE_URL) return process.env.TOPPATH_BASE_URL
+  const proto = (req.headers['x-forwarded-proto'] as string) ?? req.protocol ?? 'http'
+  const host  = (req.headers['x-forwarded-host'] as string) ?? req.headers.host ?? 'localhost:3000'
+  return `${proto}://${host}`
+}
+
 // GET /api/autospin/agent/download/launcher.bat?server=... — serve launcher with embedded server URL
 router.get('/api/autospin/agent/download/launcher.bat', (req, res) => {
-  const serverUrl = (req.query.server as string) || `${req.protocol}://${req.get('host')}`
+  const serverUrl = (req.query.server as string) || resolveServerUrl(req)
   const bat = `@echo off\r\npowershell -Command "iwr '${serverUrl}/api/autospin/agent/download/agent.py' -OutFile '%~dp0toppath-agent.py'" >nul 2>&1\r\npython "%~dp0toppath-agent.py" "%1"\r\nif errorlevel 1 pause\r\n`
   res.setHeader('Content-Type', 'application/octet-stream')
   res.setHeader('Content-Disposition', 'attachment; filename="launch-agent.bat"')
@@ -608,7 +616,7 @@ router.get('/api/autospin/agent/download/launcher.bat', (req, res) => {
 
 // GET /api/autospin/agent/download/launcher-mac.sh?server=... — serve macOS launcher script
 router.get('/api/autospin/agent/download/launcher-mac.sh', (req, res) => {
-  const serverUrl = (req.query.server as string) || `${req.protocol}://${req.get('host')}`
+  const serverUrl = (req.query.server as string) || resolveServerUrl(req)
   const sh = `#!/usr/bin/env bash
 set -euo pipefail
 
@@ -647,7 +655,7 @@ router.get('/api/autospin/agent/download/agent.py', (_req, res) => {
 
 // GET /api/autospin/agent/download/install.bat — serve installer with embedded server URL
 router.get('/api/autospin/agent/download/install.bat', (req, res) => {
-  const serverUrl = `${req.protocol}://${req.get('host')}`
+  const serverUrl = resolveServerUrl(req)
   const bat = `@echo off
 echo ============================================
 echo  Toppath Agent Installer
@@ -735,7 +743,7 @@ pause
 
 // GET /api/autospin/agent/download/install-mac.sh — serve macOS installer with embedded server URL
 router.get('/api/autospin/agent/download/install-mac.sh', (req, res) => {
-  const serverUrl = `${req.protocol}://${req.get('host')}`
+  const serverUrl = resolveServerUrl(req)
   const sh = `#!/usr/bin/env bash
 set -euo pipefail
 
