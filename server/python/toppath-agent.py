@@ -213,6 +213,16 @@ def enter_game(page, cfg: dict) -> bool:
         log(f"[{mt}] 未設定 gameTitleCode，跳過大廳尋找")
         return True
 
+    # 先等頁面穩定：等到遊戲指標或大廳元素出現其中一個再判斷
+    # 避免頁面尚未載入時 is_in_game() 觸發「保守策略 → return True」
+    try:
+        page.wait_for_selector(
+            '.my-button.btn_spin, .btn_spin .my-button, #grid_gm_item',
+            timeout=12000,
+        )
+    except PwTimeout:
+        log(f"[{mt}] 頁面載入等待超時（12s），繼續嘗試判斷狀態")
+
     if is_in_game(page):
         log(f"[{mt}] 已在遊戲中，跳過大廳")
         return True
