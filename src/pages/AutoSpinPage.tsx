@@ -1145,88 +1145,6 @@ export function AutoSpinPage() {
                     {agentSessionId && <span style={{ fontSize: 11, color: '#2563eb' }}>Session: {agentSessionId.slice(0, 8)}…</span>}
                   </div>
 
-                  {/* Windows + macOS install guide boxes */}
-                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                    {/* Windows box */}
-                    <div style={{ flex: '1 1 260px', border: '1px solid #dbeafe', borderRadius: 10, overflow: 'hidden' }}>
-                      <div style={{ background: '#eff6ff', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: 16 }}>🪟</span>
-                        <span style={{ fontWeight: 700, fontSize: 13, color: '#1d4ed8' }}>Windows Agent</span>
-                      </div>
-                      <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                          <span style={{ background: '#2563eb', color: '#fff', borderRadius: '50%', width: 20, height: 20, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>1</span>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>下載安裝包並執行（需安裝 Python 3）</div>
-                            <a href="/api/autospin/agent/download/install.bat" download
-                              style={{ display: 'inline-block', padding: '5px 12px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 5, fontWeight: 600, fontSize: 12, textDecoration: 'none' }}>
-                              📥 下載 install.bat
-                            </a>
-                          </div>
-                        </div>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                          <span style={{ background: '#2563eb', color: '#fff', borderRadius: '50%', width: 20, height: 20, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>2</span>
-                          <div style={{ fontSize: 12, color: '#374151' }}>安裝完成後，點上方「▶ 啟動（本機）」即可連線</div>
-                        </div>
-                        <div style={{ fontSize: 11, color: '#6b7280', borderTop: '1px solid #e5e7eb', paddingTop: 8, marginTop: 2 }}>
-                          安裝內容：Python venv、Playwright Chromium、自動 UAC 提權
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* macOS box */}
-                    <div style={{ flex: '1 1 260px', border: '1px solid #d1fae5', borderRadius: 10, overflow: 'hidden' }}>
-                      <div style={{ background: '#ecfdf5', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: 16 }}>🍎</span>
-                        <span style={{ fontWeight: 700, fontSize: 13, color: '#065f46' }}>macOS Agent</span>
-                      </div>
-                      <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                          <span style={{ background: '#059669', color: '#fff', borderRadius: '50%', width: 20, height: 20, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>1</span>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>下載安裝腳本，Terminal 執行（需 Python 3）</div>
-                            <a href="/api/autospin/agent/download/install-mac.sh" download
-                              style={{ display: 'inline-block', padding: '5px 12px', background: '#059669', color: '#fff', border: 'none', borderRadius: 5, fontWeight: 600, fontSize: 12, textDecoration: 'none' }}>
-                              📥 下載 install-mac.sh
-                            </a>
-                          </div>
-                        </div>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                          <span style={{ background: '#059669', color: '#fff', borderRadius: '50%', width: 20, height: 20, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>2</span>
-                          <div style={{ fontSize: 12, color: '#374151', lineHeight: 1.5 }}>
-                            Terminal 執行：<br />
-                            <code style={{ background: '#f0fdf4', padding: '2px 6px', borderRadius: 4, fontSize: 11 }}>bash install-toppath-agent-mac.sh</code>
-                          </div>
-                        </div>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                          <span style={{ background: '#059669', color: '#fff', borderRadius: '50%', width: 20, height: 20, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>3</span>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>安裝完成後，複製啟動指令貼到 Terminal</div>
-                            <button onClick={() => {
-                              const apiPort = window.location.port === '5173' ? '3000' : window.location.port
-                              const serverUrl = `${window.location.protocol}//${window.location.hostname}${apiPort ? ':' + apiPort : ''}`
-                              const label = getGlobalUserLabel()
-                              const uri = `toppath-agent://start?server=${encodeURIComponent(serverUrl)}&user=${encodeURIComponent(label)}`
-                              const cmd = `~/toppath-agent/launch-agent-mac.sh "${uri}"`
-                              if (navigator.clipboard) {
-                                navigator.clipboard.writeText(cmd)
-                                  .then(() => alert('已複製！貼到 Mac Terminal 執行即可。'))
-                                  .catch(() => prompt('複製以下指令到 Mac Terminal：', cmd))
-                              } else {
-                                prompt('複製以下指令到 Mac Terminal：', cmd)
-                              }
-                            }}
-                              style={{ padding: '5px 12px', background: '#059669', color: '#fff', border: 'none', borderRadius: 5, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
-                              📋 複製啟動指令
-                            </button>
-                          </div>
-                        </div>
-                        <div style={{ fontSize: 11, color: '#6b7280', borderTop: '1px solid #d1fae5', paddingTop: 8, marginTop: 2 }}>
-                          安裝內容：Python venv、Playwright Chromium、launchd 服務、toppath-agent:// URL scheme
-                        </div>
-                      </div>
-                    </div>
-                  </div>
                   {/* Live Spin Interval */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 12, color: '#6b7280' }}>⏱ Spin 間隔</span>
@@ -1265,6 +1183,91 @@ export function AutoSpinPage() {
                   })
                 }
               </div>
+
+              {/* Windows + macOS install guide — shown in local agent mode only */}
+              {runMode === 'local' && (
+                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  {/* Windows box */}
+                  <div style={{ flex: '1 1 260px', border: '1px solid #dbeafe', borderRadius: 10, overflow: 'hidden' }}>
+                    <div style={{ background: '#eff6ff', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 16 }}>🪟</span>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: '#1d4ed8' }}>Windows Agent</span>
+                    </div>
+                    <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                        <span style={{ background: '#2563eb', color: '#fff', borderRadius: '50%', width: 20, height: 20, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>1</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>下載安裝包並執行（需安裝 Python 3）</div>
+                          <a href="/api/autospin/agent/download/install.bat" download
+                            style={{ display: 'inline-block', padding: '5px 12px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 5, fontWeight: 600, fontSize: 12, textDecoration: 'none' }}>
+                            📥 下載 install.bat
+                          </a>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                        <span style={{ background: '#2563eb', color: '#fff', borderRadius: '50%', width: 20, height: 20, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>2</span>
+                        <div style={{ fontSize: 12, color: '#374151' }}>安裝完成後，點上方「▶ 啟動（本機）」即可連線</div>
+                      </div>
+                      <div style={{ fontSize: 11, color: '#6b7280', borderTop: '1px solid #e5e7eb', paddingTop: 8, marginTop: 2 }}>
+                        安裝內容：Python venv、Playwright Chromium、自動 UAC 提權
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* macOS box */}
+                  <div style={{ flex: '1 1 260px', border: '1px solid #d1fae5', borderRadius: 10, overflow: 'hidden' }}>
+                    <div style={{ background: '#ecfdf5', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 16 }}>🍎</span>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: '#065f46' }}>macOS Agent</span>
+                    </div>
+                    <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                        <span style={{ background: '#059669', color: '#fff', borderRadius: '50%', width: 20, height: 20, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>1</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>下載安裝腳本，Terminal 執行（需 Python 3）</div>
+                          <a href="/api/autospin/agent/download/install-mac.sh" download
+                            style={{ display: 'inline-block', padding: '5px 12px', background: '#059669', color: '#fff', border: 'none', borderRadius: 5, fontWeight: 600, fontSize: 12, textDecoration: 'none' }}>
+                            📥 下載 install-mac.sh
+                          </a>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                        <span style={{ background: '#059669', color: '#fff', borderRadius: '50%', width: 20, height: 20, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>2</span>
+                        <div style={{ fontSize: 12, color: '#374151', lineHeight: 1.5 }}>
+                          Terminal 執行：<br />
+                          <code style={{ background: '#f0fdf4', padding: '2px 6px', borderRadius: 4, fontSize: 11 }}>bash install-toppath-agent-mac.sh</code>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                        <span style={{ background: '#059669', color: '#fff', borderRadius: '50%', width: 20, height: 20, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>3</span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>安裝完成後，複製啟動指令貼到 Terminal</div>
+                          <button onClick={() => {
+                            const apiPort = window.location.port === '5173' ? '3000' : window.location.port
+                            const serverUrl = `${window.location.protocol}//${window.location.hostname}${apiPort ? ':' + apiPort : ''}`
+                            const label = getGlobalUserLabel()
+                            const uri = `toppath-agent://start?server=${encodeURIComponent(serverUrl)}&user=${encodeURIComponent(label)}`
+                            const cmd = `~/toppath-agent/launch-agent-mac.sh "${uri}"`
+                            if (navigator.clipboard) {
+                              navigator.clipboard.writeText(cmd)
+                                .then(() => alert('已複製！貼到 Mac Terminal 執行即可。'))
+                                .catch(() => prompt('複製以下指令到 Mac Terminal：', cmd))
+                            } else {
+                              prompt('複製以下指令到 Mac Terminal：', cmd)
+                            }
+                          }}
+                            style={{ padding: '5px 12px', background: '#059669', color: '#fff', border: 'none', borderRadius: 5, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
+                            📋 複製啟動指令
+                          </button>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 11, color: '#6b7280', borderTop: '1px solid #d1fae5', paddingTop: 8, marginTop: 2 }}>
+                        安裝內容：Python venv、Playwright Chromium、launchd 服務、toppath-agent:// URL scheme
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Right: screenshots + SLS errors */}
