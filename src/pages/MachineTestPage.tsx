@@ -1018,7 +1018,10 @@ function UrlPoolPickerModal({ workerIndex, onSelect, onClose }: {
 
 function AgentInstallGuide({ agentCount }: { agentCount: number }) {
   const [open, setOpen] = useState(false)
-  const serverUrl = `${location.protocol}//${location.hostname}:3000`
+  // Dev: vite on :5173, API on :3000 — prod: both served via nginx on standard port
+  const serverUrl = location.port === '5173'
+    ? `${location.protocol}//${location.hostname}:3000`
+    : location.origin
 
   return (
     <div className="section-card" style={{ marginBottom: 12 }}>
