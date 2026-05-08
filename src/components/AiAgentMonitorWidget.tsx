@@ -37,11 +37,16 @@ function LegacyAiAgentMonitorWidget() {
   const [runningCount, setRunningCount] = useState(0)
   const [runningByProvider, setRunningByProvider] = useState<Record<Provider, number>>({ gemini: 0, openai: 0, ollama: 0 })
   const [latest, setLatest] = useState<AiTask[]>([])
-  const [minimized, setMinimized] = useState(false)
+  const [minimized, setMinimized] = useState(true)
   const [pos, setPos] = useState(() => {
-    const defaultHeight = 300
+    const defaultWidth = 220   // minimized width
+    const defaultHeight = 48   // minimized height (header only)
     if (typeof window === 'undefined') return { x: 24, y: 24 }
-    return { x: 24, y: Math.max(24, window.innerHeight - defaultHeight - 24) }
+    // 預設右下角，避免蓋住主內容區按鈕
+    return {
+      x: Math.max(24, window.innerWidth - defaultWidth - 24),
+      y: Math.max(24, window.innerHeight - defaultHeight - 24),
+    }
   })
   const draggingRef = useRef(false)
   const dragOffsetRef = useRef({ x: 0, y: 0 })
