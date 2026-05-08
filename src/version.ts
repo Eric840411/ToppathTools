@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.18.0'
+export const APP_VERSION = '3.19.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.19.0',
+    date: '2026-05-08',
+    changes: [
+      'feat(autospin-agent): toppath-agent.py — AutoSpin.py 改用 Playwright + Chromium，移除 Selenium + Edge 依賴，新增 _PlaywrightDriver 相容層，所有機台操作流程程式碼不動',
+    ],
+  },
   {
     version: '3.18.0',
     date: '2026-05-08',
