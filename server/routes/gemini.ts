@@ -606,8 +606,13 @@ router.get('/api/models/available', async (_req, res) => {
   const { baseUrl: base } = readOllamaConfig()
   if (base) {
     try {
-      const r = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(3000) })
-      if (r.ok) {
+      // Use manual AbortController + .catch(null) to prevent undici UND_ERR_BODY_TIMEOUT
+      // from escaping as an uncaught exception when the host is unreachable
+      const ac = new AbortController()
+      const timer = setTimeout(() => ac.abort(), 2500)
+      const r = await fetch(`${base}/api/tags`, { signal: ac.signal }).catch(() => null)
+      clearTimeout(timer)
+      if (r?.ok) {
         const data = await r.json() as { models?: { name: string }[] }
         for (const m of data.models ?? []) {
           models.push({ id: `ollama:${m.name}`, label: `${m.name} (本地)`, provider: 'ollama' })
