@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.19.0'
+export const APP_VERSION = '3.20.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.20.0',
+    date: '2026-05-08',
+    changes: [
+      'feat(settings): Ollama 設定 UI — AI 模型設定新增「Ollama」分頁，可設定 Base URL / 預設模型，支援偵測可用模型，設定值存 DB（不再依賴 .env）',
+      'fix(jira): Step 2 按鈕版面 — submit-btn--step / btn-ghost--step 補充 App.css 定義，修正「上一步」折行、「讀取 Sheet」撐滿寬度的問題',
+      'fix(ui): AI Agent 監控 widget 還原左下角預設位置',
+      'chore: package.json name / version 對齊 app 版本',
+    ],
+  },
   {
     version: '3.19.0',
     date: '2026-05-08',

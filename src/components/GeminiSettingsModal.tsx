@@ -12,7 +12,7 @@ interface Props { onClose: () => void }
 
 export default function GeminiSettingsModal({ onClose }: Props) {
   const isGame = useIsGameMode()
-  const [tab, setTab] = useState<'keys' | 'prompts' | 'openai'>('keys')
+  const [tab, setTab] = useState<'keys' | 'prompts' | 'openai' | 'ollama'>('keys')
 
   // ─── OpenAI Key ───────────────────────────────────────────────────────────
   const [openaiKeySet, setOpenaiKeySet] = useState(false)
@@ -46,6 +46,73 @@ export default function GeminiSettingsModal({ onClose }: Props) {
     await fetch('/api/openai/key', { method: 'DELETE' })
     setOpenaiMsg('已移除')
     fetchOpenAIKey()
+  }
+
+  // ─── Ollama Config ────────────────────────────────────────────────────────
+  const [ollamaBaseUrl, setOllamaBaseUrl] = useState('')
+  const [ollamaModel, setOllamaModel] = useState('')
+  const [ollamaIsSet, setOllamaIsSet] = useState(false)
+  const [ollamaMsg, setOllamaMsg] = useState('')
+  const [ollamaModels, setOllamaModels] = useState<string[]>([])
+  const [ollamaProbing, setOllamaProbing] = useState(false)
+
+  const fetchOllamaConfig = async () => {
+    const r = await fetch('/api/ollama/config')
+    const d = await r.json() as { ok: boolean; baseUrl: string; model: string; isSet: boolean }
+    setOllamaBaseUrl(d.baseUrl)
+    setOllamaModel(d.model)
+    setOllamaIsSet(d.isSet)
+  }
+
+  useEffect(() => { fetchOllamaConfig() }, [])
+
+  const handleSaveOllama = async () => {
+    const r = await fetch('/api/ollama/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ baseUrl: ollamaBaseUrl.trim(), model: ollamaModel.trim() }),
+    })
+    const d = await r.json()
+    if (d.ok) { setOllamaMsg('✅ 已儲存'); fetchOllamaConfig() }
+    else setOllamaMsg('❌ 儲存失敗')
+  }
+
+  const handleDeleteOllama = async () => {
+    if (!confirm('確定清除 Ollama 設定？')) return
+    await fetch('/api/ollama/config', { method: 'DELETE' })
+    setOllamaMsg('已清除')
+    fetchOllamaConfig()
+  }
+
+  const handleProbeOllama = async () => {
+    const base = ollamaBaseUrl.trim()
+    if (!base) { setOllamaMsg('❌ 請先填入 Base URL'); return }
+    setOllamaProbing(true)
+    setOllamaModels([])
+    setOllamaMsg('')
+    try {
+      // Save current config first so the server uses the latest URL
+      await fetch('/api/ollama/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ baseUrl: base, model: ollamaModel.trim() }),
+      })
+      // Probe via the models/available endpoint
+      const r = await fetch('/api/models/available')
+      const d = await r.json() as { models?: { id: string; label: string; provider: string }[] }
+      const found = (d.models ?? []).filter(m => m.provider === 'ollama').map(m => m.id.replace('ollama:', ''))
+      if (found.length > 0) {
+        setOllamaModels(found)
+        setOllamaMsg(`✅ 偵測到 ${found.length} 個模型`)
+        fetchOllamaConfig()
+      } else {
+        setOllamaMsg(`⚠️ 連線失敗或 Ollama 未啟動。確認伺服器能連到 ${base}`)
+      }
+    } catch {
+      setOllamaMsg('❌ 無法連線到 Ollama')
+    } finally {
+      setOllamaProbing(false)
+    }
   }
 
   // ─── Keys ─────────────────────────────────────────────────────────────────
@@ -183,8 +250,9 @@ export default function GeminiSettingsModal({ onClose }: Props) {
           {([
             { id: 'keys', label: '🔑 Gemini Keys' },
             { id: 'openai', label: '🤖 OpenAI Key' },
+            { id: 'ollama', label: '🦙 Ollama' },
             { id: 'prompts', label: '📝 Prompt 模板' },
-          ] as { id: 'keys' | 'prompts' | 'openai'; label: string }[]).map(t => (
+          ] as { id: 'keys' | 'prompts' | 'openai' | 'ollama'; label: string }[]).map(t => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
@@ -379,6 +447,100 @@ export default function GeminiSettingsModal({ onClose }: Props) {
               <div style={{ marginTop: 20, padding: '12px 16px', background: '#f8fafc', borderRadius: 8, fontSize: 12, color: '#6b7280', lineHeight: 1.7 }}>
                 <strong>取得 API Key：</strong> <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" style={{ color: '#6366f1' }}>platform.openai.com/api-keys</a><br />
                 <strong>計費：</strong> Codex Mini — $1.50 / 1M input tokens，$6.00 / 1M output tokens（無免費額度，新帳號有試用 credit）
+              </div>
+            </div>
+          )}
+
+          {/* ── Ollama Tab ── */}
+          {tab === 'ollama' && (
+            <div>
+              <p style={{ color: '#6b7280', fontSize: 13, marginBottom: 16 }}>
+                設定本地（或遠端）Ollama 端點。設定後可在 Model Selector 中選用本地模型。<br />
+                <strong>注意：</strong>伺服器需能連到此 URL（例如公網版需填伺服器端的 Ollama 或對外 IP）。
+              </p>
+
+              {ollamaIsSet && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, padding: '12px 16px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8 }}>
+                  <span style={{ fontSize: 13, color: '#15803d', fontWeight: 600 }}>✅ Ollama 已設定</span>
+                  <span style={{ fontFamily: 'monospace', color: '#6b7280', fontSize: 12 }}>{ollamaBaseUrl} · {ollamaModel}</span>
+                  <button
+                    onClick={handleDeleteOllama}
+                    style={{ marginLeft: 'auto', padding: '4px 12px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+                  >
+                    清除
+                  </button>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+                <label style={{ fontSize: 13, color: '#374151' }}>
+                  Base URL <span style={{ color: '#9ca3af', fontWeight: 400 }}>（只填到 port，不要加路徑）</span>
+                  <input
+                    type="text"
+                    placeholder="http://localhost:11434"
+                    value={ollamaBaseUrl}
+                    onChange={e => setOllamaBaseUrl(e.target.value)}
+                    style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }}
+                  />
+                  <span style={{ fontSize: 11, color: '#9ca3af' }}>範例：http://192.168.2.106:11434 &nbsp;（不要加 /api/generate）</span>
+                </label>
+                <label style={{ fontSize: 13, color: '#374151' }}>
+                  預設模型（可手動輸入，或偵測後點選）
+                  <input
+                    type="text"
+                    placeholder="llama3.2"
+                    value={ollamaModel}
+                    onChange={e => setOllamaModel(e.target.value)}
+                    style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }}
+                  />
+                </label>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                <button
+                  onClick={handleProbeOllama}
+                  disabled={ollamaProbing}
+                  style={{ padding: '7px 16px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #86efac', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
+                >
+                  {ollamaProbing ? '偵測中...' : '🔍 偵測可用模型'}
+                </button>
+                <button
+                  onClick={handleSaveOllama}
+                  disabled={!ollamaBaseUrl.trim() || !ollamaModel.trim()}
+                  style={{ padding: '7px 20px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
+                >
+                  儲存
+                </button>
+              </div>
+
+              {ollamaMsg && <p style={{ fontSize: 13, marginBottom: 8 }}>{ollamaMsg}</p>}
+
+              {ollamaModels.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>點選模型名稱快速填入：</p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {ollamaModels.map(m => (
+                      <button
+                        key={m}
+                        onClick={() => setOllamaModel(m)}
+                        style={{
+                          padding: '4px 12px', borderRadius: 4, border: '1px solid #d1d5db',
+                          background: ollamaModel === m ? '#ede9fe' : '#fff',
+                          color: ollamaModel === m ? '#6366f1' : '#374151',
+                          fontSize: 12, cursor: 'pointer', fontFamily: 'monospace',
+                        }}
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ marginTop: 20, padding: '12px 16px', background: '#f8fafc', borderRadius: 8, fontSize: 12, color: '#6b7280', lineHeight: 1.7 }}>
+                <strong>公網版注意事項：</strong><br />
+                伺服器（eric.osmslot.org）需能連到此 URL。若 Ollama 在你的本機，請改用能從伺服器連線的位址（如 ngrok、內網 IP）。<br />
+                若 Ollama 安裝在伺服器上，填 <code>http://localhost:11434</code> 即可。
               </div>
             </div>
           )}

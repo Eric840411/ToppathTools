@@ -1354,6 +1354,16 @@
 }
 
 .btn-ghost:hover { background: #f8fafc; }
+.btn-ghost--step {
+  min-width: 80px;
+  white-space: nowrap;
+}
+.submit-btn--step {
+  width: auto;
+  min-width: 120px;
+  padding: 10px 24px;
+  white-space: nowrap;
+}
 .submit-btn.saved { background: #16a34a; }
 .field-hint a { color: #0ea5e9; }
 

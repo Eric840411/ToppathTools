@@ -288,12 +288,24 @@ export const renderPrompt = (template: string, vars: Record<string, string>): st
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? '')
 }
 
+// ─── Ollama Config ────────────────────────────────────────────────────────────
+
+/** Read Ollama base URL + model from DB first, fall back to .env */
+const readOllamaConfig = (): { baseUrl: string; model: string } => {
+  const urlRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('ollama_base_url') as { value: string } | undefined
+  const modelRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('ollama_model') as { value: string } | undefined
+  return {
+    baseUrl: urlRow?.value ?? process.env.OLLAMA_BASE_URL ?? '',
+    model: modelRow?.value ?? process.env.OLLAMA_MODEL ?? '',
+  }
+}
+
 // ─── Ollama Fallback ──────────────────────────────────────────────────────────
 
 /** Call local Ollama API for text generation. */
 export const callOllama = async (prompt: string, modelOverride?: string): Promise<string> => {
-  const base = process.env.OLLAMA_BASE_URL
-  const model = modelOverride ?? process.env.OLLAMA_MODEL
+  const { baseUrl: base, model: defaultModel } = readOllamaConfig()
+  const model = modelOverride ?? defaultModel
   if (!base || !model) throw new Error('Ollama 未設定（OLLAMA_BASE_URL / OLLAMA_MODEL）')
   const taskId = startAiTask('ollama', 'text', model)
   console.log(`[Ollama] fallback → ${model}`)
@@ -318,8 +330,8 @@ export const callOllama = async (prompt: string, modelOverride?: string): Promis
 
 /** Call local Ollama API for vision (multimodal) generation. */
 export const callOllamaVision = async (prompt: string, imageBase64: string, modelOverride?: string): Promise<string> => {
-  const base = process.env.OLLAMA_BASE_URL
-  const model = modelOverride ?? process.env.OLLAMA_MODEL
+  const { baseUrl: base, model: defaultModel } = readOllamaConfig()
+  const model = modelOverride ?? defaultModel
   if (!base || !model) throw new Error('Ollama 未設定（OLLAMA_BASE_URL / OLLAMA_MODEL）')
   const taskId = startAiTask('ollama', 'vision', model)
   console.log(`[Ollama] vision fallback → ${model}`)
@@ -591,7 +603,7 @@ router.get('/api/models/available', async (_req, res) => {
   const models: { id: string; label: string; provider: string }[] = [
     { id: 'gemini', label: 'Gemini (自動輪換)', provider: 'gemini' },
   ]
-  const base = process.env.OLLAMA_BASE_URL
+  const { baseUrl: base } = readOllamaConfig()
   if (base) {
     try {
       const r = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(3000) })
@@ -671,6 +683,29 @@ router.post('/api/openai/key', writeLimiter, (req, res) => {
 // DELETE /api/openai/key
 router.delete('/api/openai/key', (_req, res) => {
   db.prepare('DELETE FROM settings WHERE key = ?').run('openai_api_key')
+  res.json({ ok: true })
+})
+
+// ─── Ollama Config Endpoints ──────────────────────────────────────────────────
+
+// GET /api/ollama/config
+router.get('/api/ollama/config', (_req, res) => {
+  const { baseUrl, model } = readOllamaConfig()
+  res.json({ ok: true, baseUrl, model, isSet: !!(baseUrl && model) })
+})
+
+// POST /api/ollama/config
+router.post('/api/ollama/config', writeLimiter, (req, res) => {
+  const { baseUrl, model } = z.object({ baseUrl: z.string(), model: z.string() }).parse(req.body)
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('ollama_base_url', baseUrl)
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('ollama_model', model)
+  res.json({ ok: true })
+})
+
+// DELETE /api/ollama/config
+router.delete('/api/ollama/config', (_req, res) => {
+  db.prepare('DELETE FROM settings WHERE key = ?').run('ollama_base_url')
+  db.prepare('DELETE FROM settings WHERE key = ?').run('ollama_model')
   res.json({ ok: true })
 })
 
