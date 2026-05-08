@@ -1132,7 +1132,13 @@ export function AutoSpinPage() {
                       const label = getGlobalUserLabel()
                       const uri = `toppath-agent://start?server=${encodeURIComponent(serverUrl)}&user=${encodeURIComponent(label)}`
                       const cmd = `~/toppath-agent/launch-agent-mac.sh "${uri}"`
-                      navigator.clipboard.writeText(cmd).then(() => alert('已複製！貼到 Mac Terminal 執行即可。'))
+                      if (navigator.clipboard) {
+                        navigator.clipboard.writeText(cmd)
+                          .then(() => alert('已複製！貼到 Mac Terminal 執行即可。'))
+                          .catch(() => prompt('複製以下指令到 Mac Terminal：', cmd))
+                      } else {
+                        prompt('複製以下指令到 Mac Terminal：', cmd)
+                      }
                     }}
                       style={{ padding: '8px 16px', background: '#f1f5f9', color: '#374151', border: '1px solid #e5e7eb', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
                       複製 Mac 啟動指令
