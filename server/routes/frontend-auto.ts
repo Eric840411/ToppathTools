@@ -355,6 +355,17 @@ interface RecSession {
 }
 const recSessions = new Map<string, RecSession>()
 
+function killRecProc(proc: ChildProcess) {
+  try {
+    if (process.platform === 'win32' && proc.pid) {
+      // shell:true on Windows means proc.pid is cmd.exe — use taskkill to kill entire tree
+      spawn('taskkill', ['/F', '/T', '/PID', String(proc.pid)], { stdio: 'ignore', shell: false })
+    } else {
+      proc.kill('SIGTERM')
+    }
+  } catch {}
+}
+
 function parseCodegenToSteps(code: string, originalUrl?: string): object[] {
   const steps: object[] = []
   let firstGotoDone = false
@@ -419,7 +430,7 @@ router.get('/api/frontend-auto/record/status/:sessionId', (req, res) => {
 router.post('/api/frontend-auto/record/stop/:sessionId', (req, res) => {
   const sess = recSessions.get(req.params.sessionId)
   if (!sess) return res.status(404).json({ ok: false, message: '找不到錄製 session' })
-  try { sess.proc.kill() } catch {}
+  killRecProc(sess.proc)
   setTimeout(() => {
     if (!sess.done) {
       sess.done = true
