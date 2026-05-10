@@ -426,6 +426,9 @@ export function OsmUatPage() {
     const [filter, setFilter] = useState<AutoFilter>('all')
     const [search, setSearch] = useState('')
     const [guideOpen, setGuideOpen] = useState(false)
+    const [recSessionId, setRecSessionId] = useState<string | null>(null)
+    const [recPolling, setRecPolling] = useState(false)
+    const recPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
     const selected = autoScripts[platform].find(item => item.id === selectedScriptIds[platform])
     const steps = selected ? parseAutoSteps(selected.steps) : []
     const baselineRows = selected ? autoBaselines[selected.id] ?? [] : []
@@ -433,20 +436,69 @@ export function OsmUatPage() {
     const visible = autoScripts[platform].filter(script => (filter === 'mine' ? script.created_by === actor : filter === 'public' ? !!script.is_public : true) && script.name.toLowerCase().includes(search.toLowerCase()))
     const resolutions = platform === 'h5' ? ['375x667', '390x844', '414x896'] : ['1366x768', '1440x900', '1920x1080']
 
+    async function startRecord() {
+      const url = runConfig[platform].url || window.prompt('請輸入要錄製的目標 URL')?.trim()
+      if (!url) return
+      if (!runConfig[platform].url) setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], url } }))
+      if (!newScriptOpen[platform]) setNewScriptOpen(prev => ({ ...prev, [platform]: true }))
+      const res = await fetch('/api/frontend-auto/record/start', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, platform, resolution: runConfig[platform].resolution }),
+      })
+      const data = await res.json() as { ok: boolean; sessionId: string }
+      if (!data.ok) return alert('錄製啟動失敗')
+      setRecSessionId(data.sessionId)
+      setRecPolling(true)
+      recPollRef.current = setInterval(async () => {
+        const poll = await fetch(`/api/frontend-auto/record/status/${data.sessionId}`)
+        const status = await poll.json() as { found: boolean; done: boolean; steps: object[] }
+        if (status.done) {
+          clearInterval(recPollRef.current!)
+          recPollRef.current = null
+          setRecPolling(false)
+          setRecSessionId(null)
+          if (status.steps.length > 0) {
+            setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], steps: JSON.stringify(status.steps, null, 2) } }))
+            setNewScriptOpen(prev => ({ ...prev, [platform]: true }))
+          } else {
+            alert('錄製結束，但未擷取到任何步驟。請確認操作後再試。')
+          }
+        }
+      }, 2000)
+    }
+
+    async function stopRecord() {
+      if (!recSessionId) return
+      clearInterval(recPollRef.current!)
+      recPollRef.current = null
+      setRecPolling(false)
+      const res = await fetch(`/api/frontend-auto/record/stop/${recSessionId}`, { method: 'POST' })
+      const data = await res.json() as { ok: boolean; steps: object[] }
+      setRecSessionId(null)
+      if (data.steps.length > 0) {
+        setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], steps: JSON.stringify(data.steps, null, 2) } }))
+        setNewScriptOpen(prev => ({ ...prev, [platform]: true }))
+      } else {
+        alert('已停止錄製，但未擷取到任何步驟。')
+      }
+    }
+
     const guideSteps = platform === 'h5' ? [
       { icon: '1️⃣', title: '首次安裝', desc: '下載 install.bat（Windows）或 install.sh（Mac/Linux），執行後自動安裝 Node.js 與 Playwright 瀏覽器驅動，每台電腦只需安裝一次。' },
-      { icon: '2️⃣', title: '建立腳本', desc: '點擊「＋ 新增腳本」，填入名稱並以 JSON 陣列格式定義步驟（支援 goto / click / type / assert 等動作）。' },
-      { icon: '3️⃣', title: '執行測試', desc: '在腳本清單點選腳本 → 填入目標 URL → 選擇裝置解析度（模擬手機螢幕尺寸）→ 選擇失敗模式 → 點擊「▶ 執行所選腳本」。' },
-      { icon: '4️⃣', title: '查看進度', desc: '右側日誌區即時輸出每個步驟的詳細訊息；下方「步驟進度」顯示各步驟 ✅ 通過 / ❌ 失敗 / ○ 待執行。' },
-      { icon: '5️⃣', title: '基準截圖', desc: '上傳參考截圖作為視覺比對基準，Playwright 執行時自動截圖並比較差異，偏差超過門檻則標記失敗。' },
+      { icon: '2️⃣', title: '建立腳本（錄製模式）', desc: '點擊「＋ 新增腳本」展開表單，填入腳本名稱，再點「🔴 開始錄製」（或先在執行設定填好 URL 後再點）。系統會彈出 Playwright 瀏覽器視窗，你在瀏覽器中的所有點擊、輸入動作都會被自動記錄。操作完畢後關閉錄製視窗，步驟 JSON 會自動填入表單，確認後點「儲存」即可。' },
+      { icon: '3️⃣', title: '建立腳本（手動模式）', desc: '若需要精細調整，可直接在步驟文字框中編輯 JSON 陣列，支援 goto / click / type / assert_visible / screenshot / wait 等動作。' },
+      { icon: '4️⃣', title: '執行測試', desc: '在腳本清單點選腳本 → 執行設定填入目標 URL → 選擇解析度（模擬手機螢幕）→ 失敗模式 → 點擊「▶ 執行所選腳本」。' },
+      { icon: '5️⃣', title: '查看進度', desc: '右側日誌區即時輸出每步驟詳細訊息；下方「步驟進度」顯示 ✅ 通過 / ❌ 失敗 / ○ 待執行。' },
+      { icon: '6️⃣', title: '基準截圖', desc: '上傳參考截圖作為視覺比對基準，Playwright 執行時自動截圖並比較差異，偏差超過門檻則標記失敗。' },
     ] : [
       { icon: '1️⃣', title: '首次安裝', desc: '下載 install.bat（Windows）或 install.sh（Mac/Linux），執行後自動安裝 Node.js 與 Playwright 瀏覽器驅動，每台電腦只需安裝一次。' },
-      { icon: '2️⃣', title: '建立腳本', desc: '點擊「＋ 新增腳本」，填入名稱並以 JSON 陣列格式定義步驟（支援 goto / click / screenshot / ocr 等動作）。' },
-      { icon: '3️⃣', title: '執行測試', desc: '在腳本清單點選腳本 → 填入目標 URL → 選擇桌面解析度 → 點擊「▶ 執行所選腳本」，自動對 Canvas 畫面進行操作。' },
-      { icon: '4️⃣', title: '查看進度', desc: '右側日誌區即時輸出每個步驟的詳細訊息；下方「步驟進度」顯示各步驟 ✅ 通過 / ❌ 失敗 / ○ 待執行。' },
-      { icon: '5️⃣', title: '基準截圖', desc: '上傳 Canvas 截圖作為視覺比對基準，執行時自動截圖比較，偏差超過門檻則標記失敗。' },
-      { icon: '6️⃣', title: '模板圖庫', desc: '上傳 Canvas 元素截圖模板，系統使用 Template Matching（opencv-wasm）偵測畫面中是否出現該元素，信心值條顯示吻合程度。' },
-      { icon: '7️⃣', title: 'OCR 區域定義', desc: '定義畫面裁切座標（X / Y / 寬 / 高），系統使用 Tesseract.js 對該區域進行文字辨識，可驗證數字、文字內容是否符合預期。' },
+      { icon: '2️⃣', title: '建立腳本（錄製模式）', desc: '點擊「＋ 新增腳本」展開表單，填入名稱後點「🔴 開始錄製」。Playwright 會以 1366×768 開啟目標頁面，你的滑鼠點擊（包含 Canvas 上的座標點擊）和鍵盤輸入都會被記錄。操作完畢關閉錄製視窗，步驟 JSON 自動填入，Canvas 點擊會以座標形式記錄（click_xy）。' },
+      { icon: '3️⃣', title: '建立腳本（手動模式）', desc: '直接在步驟文字框編輯 JSON，支援 goto / click / click_xy / type / screenshot / wait 等動作，click_xy 需填 x、y 欄位。' },
+      { icon: '4️⃣', title: '執行測試', desc: '在腳本清單點選腳本 → 填入目標 URL → 選桌面解析度 → 點「▶ 執行所選腳本」，自動對 Canvas 畫面進行操作。' },
+      { icon: '5️⃣', title: '查看進度', desc: '右側日誌區即時輸出每步驟詳細訊息；下方「步驟進度」顯示 ✅ 通過 / ❌ 失敗 / ○ 待執行。' },
+      { icon: '6️⃣', title: '基準截圖', desc: '上傳 Canvas 截圖作為視覺比對基準，執行時自動截圖比較，偏差超過門檻則標記失敗。' },
+      { icon: '7️⃣', title: '模板圖庫', desc: '上傳 Canvas 元素截圖模板，系統使用 Template Matching（opencv-wasm）偵測畫面中是否出現該元素，信心值條顯示吻合程度。' },
+      { icon: '8️⃣', title: 'OCR 區域定義', desc: '定義畫面裁切座標（X / Y / 寬 / 高），系統使用 Tesseract.js 對該區域進行文字辨識，可驗證數字、文字內容是否符合預期。' },
     ]
 
     return (
@@ -473,7 +525,7 @@ export function OsmUatPage() {
         </section>
         <div style={{ ...panelStyle, display: 'flex', alignItems: 'center', gap: 16, padding: 12 }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#334155', fontWeight: 600 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: apiReady ? '#16a34a' : '#94a3b8' }} />Node.js / Playwright 安裝套件</span><a href="/api/frontend-auto/setup/install.bat" style={downloadStyle}>install.bat</a><a href="/api/frontend-auto/setup/install.sh" style={downloadStyle}>install.sh</a></div>
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(320px, 2fr)', gap: 16 }}>
-          <section style={panelStyle}><div style={panelHeadStyle}><h3 style={h3Style}>腳本清單</h3><input value={search} onChange={e => setSearch(e.target.value)} placeholder="搜尋腳本名稱" style={{ ...inputStyle, width: 180 }} /></div><div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>{(['all', 'mine', 'public'] as const).map(item => <button key={item} onClick={() => setFilter(item)} style={filter === item ? activePillStyle : pillStyle}>{item === 'all' ? '全部' : item === 'mine' ? '我的' : '公開'}</button>)}</div><table style={tableStyle}><thead><tr><th style={thStyle}>名稱</th><th style={thStyle}>步驟數</th><th style={thStyle}>上次結果</th><th style={thStyle}>操作</th></tr></thead><tbody>{visible.map(script => <tr key={script.id} onClick={() => setSelectedScriptIds(prev => ({ ...prev, [platform]: script.id }))} style={{ background: selectedScriptIds[platform] === script.id ? '#eff6ff' : '#fff', cursor: 'pointer' }}><td style={tdStyle}>{script.name}</td><td style={tdStyle}>{parseAutoSteps(script.steps).length}</td><td style={tdStyle}>{latest.get(script.id) ?? '未知'}</td><td style={tdStyle}><button style={smallBtnStyle} onClick={e => { e.stopPropagation(); setSelectedScriptIds(prev => ({ ...prev, [platform]: script.id })); void runAutoScript(platform) }}>執行</button><button style={dangerBtnStyle} onClick={e => { e.stopPropagation(); void deleteAutoScript(platform, script) }}>刪除</button></td></tr>)}</tbody></table><button style={{ ...btnStyle, background: '#1d4ed8', marginTop: 12 }} onClick={() => setNewScriptOpen(prev => ({ ...prev, [platform]: !prev[platform] }))}>＋ 新增腳本</button>{newScriptOpen[platform] && <div style={{ display: 'grid', gap: 8, marginTop: 12 }}><input value={newScriptDraft[platform].name} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], name: e.target.value } }))} placeholder="腳本名稱" style={inputStyle} /><textarea value={newScriptDraft[platform].steps} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], steps: e.target.value } }))} rows={6} style={{ ...inputStyle, fontFamily: 'Consolas, Monaco, monospace' }} /><button style={{ ...btnStyle, background: '#16a34a', width: 110 }} onClick={() => void createAutoScript(platform)}>儲存</button></div>}</section>
+          <section style={panelStyle}><div style={panelHeadStyle}><h3 style={h3Style}>腳本清單</h3><input value={search} onChange={e => setSearch(e.target.value)} placeholder="搜尋腳本名稱" style={{ ...inputStyle, width: 180 }} /></div><div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>{(['all', 'mine', 'public'] as const).map(item => <button key={item} onClick={() => setFilter(item)} style={filter === item ? activePillStyle : pillStyle}>{item === 'all' ? '全部' : item === 'mine' ? '我的' : '公開'}</button>)}</div><table style={tableStyle}><thead><tr><th style={thStyle}>名稱</th><th style={thStyle}>步驟數</th><th style={thStyle}>上次結果</th><th style={thStyle}>操作</th></tr></thead><tbody>{visible.map(script => <tr key={script.id} onClick={() => setSelectedScriptIds(prev => ({ ...prev, [platform]: script.id }))} style={{ background: selectedScriptIds[platform] === script.id ? '#eff6ff' : '#fff', cursor: 'pointer' }}><td style={tdStyle}>{script.name}</td><td style={tdStyle}>{parseAutoSteps(script.steps).length}</td><td style={tdStyle}>{latest.get(script.id) ?? '未知'}</td><td style={tdStyle}><button style={smallBtnStyle} onClick={e => { e.stopPropagation(); setSelectedScriptIds(prev => ({ ...prev, [platform]: script.id })); void runAutoScript(platform) }}>執行</button><button style={dangerBtnStyle} onClick={e => { e.stopPropagation(); void deleteAutoScript(platform, script) }}>刪除</button></td></tr>)}</tbody></table><div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}><button style={{ ...btnStyle, background: '#1d4ed8' }} onClick={() => setNewScriptOpen(prev => ({ ...prev, [platform]: !prev[platform] }))}>＋ 新增腳本</button>{recPolling ? <button style={{ ...btnStyle, background: '#dc2626' }} onClick={() => void stopRecord()}>■ 停止錄製</button> : <button style={{ ...btnStyle, background: '#7c3aed' }} onClick={() => void startRecord()}>🔴 開始錄製</button>}{recPolling && <span style={{ fontSize: 12, color: '#7c3aed', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#dc2626', display: 'inline-block', animation: 'none' }} />錄製中，請在彈出視窗操作...</span>}</div>{newScriptOpen[platform] && <div style={{ display: 'grid', gap: 8, marginTop: 12 }}><input value={newScriptDraft[platform].name} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], name: e.target.value } }))} placeholder="腳本名稱" style={inputStyle} /><textarea value={newScriptDraft[platform].steps} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], steps: e.target.value } }))} rows={6} style={{ ...inputStyle, fontFamily: 'Consolas, Monaco, monospace' }} /><button style={{ ...btnStyle, background: '#16a34a', width: 110 }} onClick={() => void createAutoScript(platform)}>儲存</button></div>}</section>
           <section style={panelStyle}><h3 style={h3Style}>執行設定</h3><div style={{ display: 'grid', gap: 10, marginTop: 12 }}><input value={runConfig[platform].url} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], url: e.target.value } }))} placeholder="目標 URL" style={inputStyle} /><select value={runConfig[platform].resolution} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], resolution: e.target.value } }))} style={inputStyle}>{resolutions.map(size => <option key={size}>{size}</option>)}</select><select value={runConfig[platform].failureMode} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], failureMode: e.target.value } }))} style={inputStyle}><option value="continue">失敗後繼續</option><option value="stop">失敗後停止</option></select><label style={{ fontSize: 12, color: '#334155' }}><input type="checkbox" checked={runConfig[platform].headed} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], headed: e.target.checked } }))} /> 顯示瀏覽器視窗</label><div style={{ display: 'flex', gap: 8 }}><button disabled={!selected} style={{ ...btnStyle, background: selected ? '#1d4ed8' : '#94a3b8' }} onClick={() => void runAutoScript(platform)}>▶ 執行所選腳本</button><button style={{ ...btnStyle, background: '#dc2626' }} onClick={() => stopAuto(platform)}>■ 停止</button></div><div style={{ display: 'flex', gap: 10, fontSize: 12, fontWeight: 700 }}><span style={{ color: '#16a34a' }}>通過 {autoStats[platform].pass}</span><span style={{ color: '#dc2626' }}>失敗 {autoStats[platform].fail}</span><span style={{ color: '#64748b' }}>跳過 {autoStats[platform].skip}</span></div><div style={autoLogStyle}>{autoLogs[platform].length ? autoLogs[platform].map((line, i) => <div key={i}>{line}</div>) : <span style={{ color: '#64748b' }}>等待執行...</span>}</div></div></section>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}><section style={panelStyle}><h3 style={h3Style}>步驟進度</h3><div style={{ display: 'grid', gap: 8, marginTop: 12 }}>{steps.length ? steps.map((step, i) => <div key={`${step}-${i}`} style={stepRowStyle}><span>{stepStatuses[platform][i] === 'pass' ? '✅' : stepStatuses[platform][i] === 'fail' ? '❌' : '○'}</span><span>{step}</span></div>) : <span style={emptyStyle}>尚未選擇腳本</span>}</div></section><section style={panelStyle}><div style={panelHeadStyle}><h3 style={h3Style}>基準截圖管理</h3><label style={uploadStyle}>上傳基準圖<input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { void uploadBaseline(platform, e.target.files?.[0]); e.target.value = '' }} /></label></div><div style={thumbGridStyle}>{baselineRows.map(row => <div key={row.id} style={thumbCardStyle}><img src={row.image_path} alt={row.name} style={thumbImageStyle} /><span style={cardTitleStyle}>{row.name}</span><button style={dangerBtnStyle} onClick={() => void deleteBaseline(row.script_id, row.id)}>刪除</button></div>)}</div></section></div>
