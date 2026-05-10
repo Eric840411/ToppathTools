@@ -366,17 +366,13 @@ function killRecProc(proc: ChildProcess) {
   } catch {}
 }
 
-function parseCodegenToSteps(code: string, originalUrl?: string): object[] {
+function parseCodegenToSteps(code: string): object[] {
   const steps: object[] = []
-  let firstGotoDone = false
   for (const rawLine of code.split('\n')) {
     const line = rawLine.trim()
     const goto = line.match(/page\.goto\(['"]([^'"]+)['"]\)/)
     if (goto) {
-      // 第一個 goto 用原始 URL（保留 redirect/token），後續 goto 用 codegen 記錄的 URL
-      const value = (!firstGotoDone && originalUrl) ? originalUrl : goto[1]
-      firstGotoDone = true
-      steps.push({ name: '前往頁面', action: 'goto', value })
+      steps.push({ name: '前往頁面', action: 'goto', value: goto[1] })
       continue
     }
     const canvasClick = line.match(/locator\('canvas'\)\.click\(\s*\{[^}]*position:\s*\{\s*x:\s*(\d+),\s*y:\s*(\d+)/)
@@ -413,7 +409,7 @@ router.post('/api/frontend-auto/record/start', (req, res) => {
     sess.done = true
     try {
       if (existsSync(outFile)) {
-        sess.steps = parseCodegenToSteps(readFileSync(outFile, 'utf8'), sess.originalUrl)
+        sess.steps = parseCodegenToSteps(readFileSync(outFile, 'utf8'))
         unlinkSync(outFile)
       }
     } catch {}
