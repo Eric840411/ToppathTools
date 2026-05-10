@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.21.0'
+export const APP_VERSION = '3.22.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.22.0',
+    date: '2026-05-10',
+    changes: [
+      'feat(uat): H5 / PC 前端自動化測試頁實作 — Script List、Run Config、Step Progress、Baseline 管理、PC Template Library、OCR Region Definitions',
+      'feat(backend): frontend-auto API 路由 — scripts / baselines / templates / ocr-regions / runs / log-stream / setup 下載',
+    ],
+  },
   {
     version: '3.21.0',
     date: '2026-05-08',
