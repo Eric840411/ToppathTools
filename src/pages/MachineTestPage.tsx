@@ -1244,7 +1244,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
         .catch(() => setOsmConnected(false))
     }
     check()
-    const t = setInterval(check, 10000)
+    const t = setInterval(check, 3000)
     return () => clearInterval(t)
   }, [])
 
@@ -1556,7 +1556,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <span style={{ color: '#64748b', fontSize: 12 }}>
-              即時機台狀態 — 每 10 秒自動更新
+              即時機台狀態 — 每 3 秒自動更新
               {osmLastUpdated && <span style={{ marginLeft: 8, opacity: 0.7 }}>最後更新：{osmLastUpdated.toLocaleTimeString()}</span>}
             </span>
             <span style={{ fontSize: 12, color: '#94a3b8' }}>{osmCount} 台</span>
