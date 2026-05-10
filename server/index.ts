@@ -1,4 +1,4 @@
-/**
+﻿/**
  * server/index.ts
  * Express app entry point — sets up middleware, mounts route files, and starts the server.
  * All business logic lives in server/routes/*.ts and server/shared.ts.
@@ -20,6 +20,7 @@ import { router as geminiRouter } from './routes/gemini.js'
 import { router as osmRouter, restartCron, activeCronTask } from './routes/osm.js'
 import { router as authRouter } from './routes/auth.js'
 import { router as workerStatusRouter } from './routes/worker-status.js'
+import { router as frontendAutoRouter } from './routes/frontend-auto.js'
 import { runWithRequestContext } from './request-context.js'
 
 // Shared logger
@@ -271,6 +272,7 @@ app.use(osmRouter)
 app.use(lazyIntegrationsRouter)
 app.use(authRouter)
 app.use(workerStatusRouter)
+app.use(frontendAutoRouter)
 
 // ─── Static Files (production build) ──────────────────────────────────────────
 
@@ -407,3 +409,5 @@ server.listen(port, '0.0.0.0', () => {
       .catch((error) => console.error('[Discord] lazy load failed:', error))
   }
 })
+
+
