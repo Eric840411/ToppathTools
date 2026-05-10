@@ -16,10 +16,10 @@ export function AuthLoginModal({ onLogin }: Props) {
   const [pin, setPin] = useState('')
   const [error, setError] = useState('')
   const [loginLoadingEmail, setLoginLoadingEmail] = useState<string | null>(null)
-  const [adminPin, setAdminPin] = useState('')
   const [newEmail, setNewEmail] = useState('')
   const [newToken, setNewToken] = useState('')
   const [newLabel, setNewLabel] = useState('')
+  const [newPin, setNewPin] = useState('')
   const [newRole, setNewRole] = useState<'qa' | 'pm'>('qa')
   const [addLoading, setAddLoading] = useState(false)
   const [addSuccess, setAddSuccess] = useState('')
@@ -83,22 +83,11 @@ export function AuthLoginModal({ onLogin }: Props) {
   }
 
   async function handleAddAccount() {
-    if (!adminPin.trim() || !newEmail.trim() || !newToken.trim() || !newLabel.trim()) return
+    if (!newEmail.trim() || !newToken.trim() || !newLabel.trim() || !newPin.trim()) return
     setAddLoading(true)
     setError('')
     setAddSuccess('')
     try {
-      const adminResp = await fetch('/api/admin/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pin: adminPin }),
-      })
-      const adminData = await adminResp.json()
-      if (!adminData.ok) {
-        setError(adminData.message ?? '管理員 PIN 錯誤')
-        return
-      }
-
       const resp = await fetch('/api/jira/accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -107,6 +96,7 @@ export function AuthLoginModal({ onLogin }: Props) {
           token: newToken.trim(),
           label: newLabel.trim(),
           role: newRole,
+          pin: newPin.trim(),
         }),
       })
       const data = await resp.json()
@@ -118,6 +108,7 @@ export function AuthLoginModal({ onLogin }: Props) {
       setNewEmail('')
       setNewToken('')
       setNewLabel('')
+      setNewPin('')
       setNewRole('qa')
       await fetchAccounts()
       setView('login')
@@ -175,13 +166,12 @@ export function AuthLoginModal({ onLogin }: Props) {
           {!target && view === 'add' && (
             <div className="modal-body">
               <div className="auth-login-lock">＋</div>
-              <p className="auth-login-copy">新增 Jira 帳號需要管理員 PIN。</p>
+              <p className="auth-login-copy">填入你的 Jira 帳號資訊並設定登入 PIN 密碼。</p>
               <div className="auth-login-tabs">
                 <button type="button" className="auth-login-tab" onClick={() => { setView('login'); setError('') }}>登入</button>
                 <button type="button" className="auth-login-tab active">新增帳號</button>
               </div>
               <div className="auth-login-form">
-                <input type="password" value={adminPin} onChange={event => setAdminPin(event.target.value)} placeholder="Admin PIN" />
                 <input value={newLabel} onChange={event => setNewLabel(event.target.value)} placeholder="顯示名稱，例如 Eric Wu" />
                 <input type="email" value={newEmail} onChange={event => setNewEmail(event.target.value)} placeholder="Jira Email" />
                 <input type="password" value={newToken} onChange={event => setNewToken(event.target.value)} placeholder="Jira API Token" />
@@ -193,6 +183,7 @@ export function AuthLoginModal({ onLogin }: Props) {
                 >
                   前往 Atlassian 帳號設定產生 API Token
                 </a>
+                <input type="password" value={newPin} onChange={event => setNewPin(event.target.value)} placeholder="設定 PIN 密碼（登入時使用）" />
                 <div className="auth-login-role-row">
                   <button type="button" className={newRole === 'qa' ? 'active' : ''} onClick={() => setNewRole('qa')}>QA</button>
                   <button type="button" className={newRole === 'pm' ? 'active' : ''} onClick={() => setNewRole('pm')}>PM</button>
@@ -203,7 +194,7 @@ export function AuthLoginModal({ onLogin }: Props) {
                 <button
                   type="button"
                   className="auth-login-primary"
-                  disabled={addLoading || !adminPin.trim() || !newEmail.trim() || !newToken.trim() || !newLabel.trim()}
+                  disabled={addLoading || !newEmail.trim() || !newToken.trim() || !newLabel.trim() || !newPin.trim()}
                   onClick={() => void handleAddAccount()}
                 >
                   {addLoading ? '新增中...' : '新增帳號'}

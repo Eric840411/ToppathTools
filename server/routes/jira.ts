@@ -79,6 +79,7 @@ const accountAddSchema = z.object({
   token: z.string().min(1),
   label: z.string().min(1),
   role: z.enum(['qa', 'pm']).default('qa'),
+  pin: z.string().optional(),
 })
 
 const batchCreateSchema = z.object({
@@ -447,6 +448,9 @@ router.post('/api/jira/accounts', writeLimiter, (req, res, next) => {
     const body = accountAddSchema.parse(req.body)
     const exists = readAccounts().some((a) => a.email === body.email)
     upsertAccount(body)
+    if (body.pin?.trim()) {
+      db.prepare('UPDATE jira_accounts SET pin_hash = ? WHERE email = ?').run(pinHash(body.pin.trim()), body.email)
+    }
     log('ok', getClientIP(req), getUser(req), exists ? '帳號更新' : '帳號新增', `${body.label} <${body.email}>`)
     res.json({ ok: true, email: body.email, label: body.label })
   } catch (error) {

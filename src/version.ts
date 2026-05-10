@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.20.0'
+export const APP_VERSION = '3.21.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.21.0',
+    date: '2026-05-08',
+    changes: [
+      'feat(auth): 帳號自行設定 PIN — 申請帳號時改為使用者自行填入 PIN 作為登入密碼，不再需要管理員 PIN',
+      'feat(seed): 機種設定檔 / Prompt 模板支援 Git 種子檔 — 新增 server/machine-profiles.json seed 載入，新增 scripts/export-db-seeds.mjs 匯出腳本',
+    ],
+  },
   {
     version: '3.20.0',
     date: '2026-05-08',

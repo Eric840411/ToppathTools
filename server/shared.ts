@@ -520,6 +520,54 @@ Spec 與 JIRA 同時存在 → 同時使用兩者
   )
 }
 
+// ─── Machine Profiles Seed ────────────────────────────────────────────────────
+// 若 server/machine-profiles.json 存在，補齊缺少的機種設定檔（不覆蓋 DB 已有資料）
+{
+  const profilesSeedPath = join(SERVER_ROOT, 'machine-profiles.json')
+  if (existsSync(profilesSeedPath)) {
+    try {
+      const rows = JSON.parse(readFileSync(profilesSeedPath, 'utf-8')) as Array<{
+        machineType: string
+        bonusAction?: string
+        touchPoints?: unknown[]
+        clickTake?: boolean
+        gmid?: string
+        spinSelector?: string
+        balanceSelector?: string
+        exitSelector?: string
+        notes?: string
+        entryTouchPoints?: unknown[]
+        entryTouchPoints2?: unknown[]
+        ideckXpaths?: unknown[]
+        audioConfig?: unknown
+      }>
+      const ins = db.prepare(`
+        INSERT OR IGNORE INTO machine_test_profiles
+          (machineType, bonusAction, touchPoints, clickTake, gmid, spinSelector, balanceSelector, exitSelector, notes, entryTouchPoints, entryTouchPoints2, ideck_xpaths, audioConfig)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      for (const r of rows) {
+        ins.run(
+          r.machineType,
+          r.bonusAction ?? 'auto_wait',
+          r.touchPoints?.length ? JSON.stringify(r.touchPoints) : null,
+          r.clickTake ? 1 : 0,
+          r.gmid ?? null,
+          r.spinSelector ?? null,
+          r.balanceSelector ?? null,
+          r.exitSelector ?? null,
+          r.notes ?? null,
+          r.entryTouchPoints?.length ? JSON.stringify(r.entryTouchPoints) : null,
+          r.entryTouchPoints2?.length ? JSON.stringify(r.entryTouchPoints2) : null,
+          JSON.stringify(r.ideckXpaths ?? []),
+          r.audioConfig ? JSON.stringify(r.audioConfig) : null,
+        )
+      }
+      console.log(`[DB] 已從 machine-profiles.json 補齊缺少的機種設定（來源 ${rows.length} 筆）`)
+    } catch { /* 忽略 */ }
+  }
+}
+
 // ─── Gemini Rate Limiter ───────────────────────────────────────────────────────
 // maxConcurrent: 1 → sequential, prevents multiple keys being hit simultaneously
 // minTime: 500ms → 120 req/min total; with 10 keys = ~12 RPM per key (under free-tier 15 RPM limit)
