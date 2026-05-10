@@ -4,6 +4,7 @@
  * Export current DB data to seed JSON files:
  *   server/machine-profiles.json  — machine_test_profiles table
  *   server/prompts.json           — gemini_prompts table
+ *   server/config-templates.json  — config_templates table (OSM Config 比對模板)
  *
  * Run: node scripts/export-db-seeds.mjs
  *
@@ -46,6 +47,12 @@ const promptRows = db.prepare('SELECT id, name, template, category FROM gemini_p
 const promptsPath = join(SERVER_ROOT, 'prompts.json')
 writeFileSync(promptsPath, JSON.stringify(promptRows, null, 2), 'utf-8')
 console.log(`✅ Exported ${promptRows.length} prompts → server/prompts.json`)
+
+// ─── Config Templates ──────────────────────────────────────────────────────────
+const configTemplateRows = db.prepare('SELECT id, name, version, template, created_at FROM config_templates ORDER BY name').all()
+const configTemplatesPath = join(SERVER_ROOT, 'config-templates.json')
+writeFileSync(configTemplatesPath, JSON.stringify(configTemplateRows, null, 2), 'utf-8')
+console.log(`✅ Exported ${configTemplateRows.length} config templates → server/config-templates.json`)
 
 console.log('\nDone. Review the files and commit them to Git.')
 db.close()

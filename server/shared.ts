@@ -568,6 +568,28 @@ Spec 與 JIRA 同時存在 → 同時使用兩者
   }
 }
 
+// ─── Config Templates Seed ────────────────────────────────────────────────────
+// 若 server/config-templates.json 存在，補齊缺少的 Config 比對模板（不覆蓋 DB 已有資料）
+{
+  const configTemplatesSeedPath = join(SERVER_ROOT, 'config-templates.json')
+  if (existsSync(configTemplatesSeedPath)) {
+    try {
+      const rows = JSON.parse(readFileSync(configTemplatesSeedPath, 'utf-8')) as Array<{
+        id: string
+        name: string
+        version?: string
+        template: string
+        created_at: number
+      }>
+      const ins = db.prepare('INSERT OR IGNORE INTO config_templates (id, name, version, template, created_at) VALUES (?, ?, ?, ?, ?)')
+      for (const r of rows) {
+        ins.run(r.id, r.name, r.version ?? '', r.template, r.created_at)
+      }
+      console.log(`[DB] 已從 config-templates.json 補齊缺少的 Config 模板（來源 ${rows.length} 筆）`)
+    } catch { /* 忽略 */ }
+  }
+}
+
 // ─── Gemini Rate Limiter ───────────────────────────────────────────────────────
 // maxConcurrent: 1 → sequential, prevents multiple keys being hit simultaneously
 // minTime: 500ms → 120 req/min total; with 10 keys = ~12 RPM per key (under free-tier 15 RPM limit)
