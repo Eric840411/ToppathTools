@@ -349,17 +349,25 @@ router.get('/api/frontend-auto/setup/install.sh', (_req, res) => {
 interface RecSession {
   proc: ChildProcess
   outFile: string
+  originalUrl: string
   done: boolean
   steps: object[]
 }
 const recSessions = new Map<string, RecSession>()
 
-function parseCodegenToSteps(code: string): object[] {
+function parseCodegenToSteps(code: string, originalUrl?: string): object[] {
   const steps: object[] = []
+  let firstGotoDone = false
   for (const rawLine of code.split('\n')) {
     const line = rawLine.trim()
     const goto = line.match(/page\.goto\(['"]([^'"]+)['"]\)/)
-    if (goto) { steps.push({ name: '前往頁面', action: 'goto', value: goto[1] }); continue }
+    if (goto) {
+      // 第一個 goto 用原始 URL（保留 redirect/token），後續 goto 用 codegen 記錄的 URL
+      const value = (!firstGotoDone && originalUrl) ? originalUrl : goto[1]
+      firstGotoDone = true
+      steps.push({ name: '前往頁面', action: 'goto', value })
+      continue
+    }
     const canvasClick = line.match(/locator\('canvas'\)\.click\(\s*\{[^}]*position:\s*\{\s*x:\s*(\d+),\s*y:\s*(\d+)/)
     if (canvasClick) { steps.push({ name: `點擊畫面座標 (${canvasClick[1]}, ${canvasClick[2]})`, action: 'click_xy', x: Number(canvasClick[1]), y: Number(canvasClick[2]) }); continue }
     const locClick = line.match(/locator\(['"]([^'"]+)['"]\)\.click\(\)/)
@@ -388,13 +396,13 @@ router.post('/api/frontend-auto/record/start', (req, res) => {
   const [w, h] = resolution.split('x')
   const args = ['playwright', 'codegen', '--output', outFile, '--viewport-size', `${w},${h}`, url]
   const proc = spawn('npx', args, { stdio: 'ignore', shell: true })
-  const sess: RecSession = { proc, outFile, done: false, steps: [] }
+  const sess: RecSession = { proc, outFile, originalUrl: url, done: false, steps: [] }
   recSessions.set(sessionId, sess)
   proc.on('close', () => {
     sess.done = true
     try {
       if (existsSync(outFile)) {
-        sess.steps = parseCodegenToSteps(readFileSync(outFile, 'utf8'))
+        sess.steps = parseCodegenToSteps(readFileSync(outFile, 'utf8'), sess.originalUrl)
         unlinkSync(outFile)
       }
     } catch {}
@@ -417,7 +425,7 @@ router.post('/api/frontend-auto/record/stop/:sessionId', (req, res) => {
       sess.done = true
       try {
         if (existsSync(sess.outFile)) {
-          sess.steps = parseCodegenToSteps(readFileSync(sess.outFile, 'utf8'))
+          sess.steps = parseCodegenToSteps(readFileSync(sess.outFile, 'utf8'), sess.originalUrl)
           unlinkSync(sess.outFile)
         }
       } catch {}
