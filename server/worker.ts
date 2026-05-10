@@ -309,6 +309,13 @@ wss.on('connection', (ws, req) => {
   if (path === '/ws/agent') {
     let agentId = ''
 
+    // Keepalive ping every 30s to prevent nginx proxy_read_timeout from dropping idle WebSockets
+    const pingTimer = setInterval(() => {
+      if (ws.readyState === ws.OPEN) ws.ping()
+      else clearInterval(pingTimer)
+    }, 30_000)
+    ws.on('close', () => clearInterval(pingTimer))
+
     ws.on('message', (raw) => {
       let msg: { type: string; agentId?: string; hostname?: string; sessionId?: string; event?: unknown; machineCode?: string; failed?: boolean }
       try { msg = JSON.parse(raw.toString()) } catch { return }
