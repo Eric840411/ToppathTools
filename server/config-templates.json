@@ -1,0 +1,23 @@
+[
+  {
+    "id": "tpl-1775557605263",
+    "name": "OSM Prod",
+    "version": "1.0",
+    "template": "{\n  \"server\": [\n    [\n      {\n        \"scheme\": \"wss://\",\n        \"host\": \"gate.osmplay-new.com\",\n        \"port\": \"\"\n      },\n      {\n        \"host\": \"conn.osmplay-new.com\",\n        \"port\": \"\"\n      }\n    ]\n  ],\n  \"resurl\": \"https://front-image-prod.osmplay.com\",\n  \"img_format\": \"webp\",\n  \"debug\": false,\n  \"indexUrl\": \"\",\n  \"chatserver\": \"wss://chatserver.bewen.me\",\n  \"trtcImg\": \"https://pc-snapshot.cliveslot.com/pc-snapshot/\",\n  \"jackpotUrl\": \"https://pc-snapshot.cliveslot.com/bowl/\",\n  \"gtagId\": \"G-BH6Y32LSBY\",\n  \"resenv\": \"prod\",\n  \"isVersion\": false,\n  \"trtcPlugin\": \"https://osmclient-c-new.bewen.me/assets\",\n  \"videourl\": \"https://front-image-prod.osmplay.com\",\n  \"playoutDelay\": {\n    \"min\": 500,\n    \"max\": 1000\n  },\n  \"posthogUrl\": \"https://app-posthog.bi-sage.site/e/?compression=gzip-js\",\n  \"mainStudio\": \"[cp, bpo]\",\n  \"bjlStudio\": \"[cp, igo]\",\n  \"httpServer\": \"https://http-status.osmplay.com\",\n  \"customerUrl\": \"https://direct.lc.chat/14347593/16/\"\n}",
+    "created_at": 1775557970757
+  },
+  {
+    "id": "tpl-1777367371719",
+    "name": "OSM Prod",
+    "version": "2.0",
+    "template": "{\n  \"server\": [\n    [\n      {\n        \"scheme\": \"wss://\",\n        \"host\": \"gate.osmplay-new.com\",\n        \"port\": \"\"\n      },\n      {\n        \"host\": \"conn.osmplay-new.com\",\n        \"port\": \"\"\n      }\n    ]\n  ],\n  \"resurl\": \"https://front-image-prod.osmplay.com\",\n  \"img_format\": \"webp\",\n  \"debug\": false,\n  \"indexUrl\": \"\",\n  \"chatserver\": \"wss://chatserver.bewen.me\",\n  \"trtcImg\": \"https://pc-snapshot.osmplay.com/pc-snapshot\",\n  \"jackpotUrl\": \"https://pc-snapshot.osmplay.com/bowl/\",\n  \"gtagId\": \"G-BH6Y32LSBY\",\n  \"resenv\": \"prod\",\n  \"isVersion\": false,\n  \"trtcPlugin\": \"https://osmclient-c-new.bewen.me/assets\",\n  \"videourl\": \"https://front-image-prod.osmplay.com\",\n  \"playoutDelay\": {\n    \"min\": 500,\n    \"max\": 1000\n  },\n  \"posthogUrl\": \"https://app-posthog.bi-sage.site/e/?compression=gzip-js\",\n  \"mainStudio\": \"[cp, bpo]\",\n  \"bjlStudio\": \"[cp, igo]\",\n  \"httpServer\": \"https://http-status.osmplay.com\",\n  \"customerUrl\": \"https://direct.lc.chat/14347593/16/\"\n}",
+    "created_at": 1777367468612
+  },
+  {
+    "id": "tpl-1775279410935",
+    "name": "OSM QAT",
+    "version": "1.0",
+    "template": "{\n  \"server\": [\n    [\n      {\n        \"scheme\": \"wss://\",\n        \"host\": \"qat-gate.osmslot.org\",\n        \"port\": \"\"\n      },\n      {\n        \"host\": \"qat-conn.osmslot.org\",\n        \"port\": \"\"\n      }\n    ]\n  ],\n  \"resurl\": \"https://front-image-osm-qat.oss-ap-southeast-1.aliyuncs.com\",\n  \"img_format\": \"webp\",\n  \"debug\": true,\n  \"indexUrl\": \"\",\n  \"chatserver\": \"wss://chatserver.bewen.me\",\n  \"trtcImg\": \"https://pc-snapshot.osmplay.com/pc-snapshot/\",\n  \"jackpotUrl\": \"https://pc-snapshot.osmplay.com/bowl/\",\n  \"gtagId\": \"G-BH6Y32LSBY\",\n  \"resenv\": \"qat\",\n  \"isVersion\": false,\n  \"trtcPlugin\": \"https://osmclient-c-new.bewen.me/assets\",\n  \"videourl\": \"https://liveslot-oss-dev.oss-ap-southeast-1.aliyuncs.com\",\n  \"playoutDelay\": {\n    \"min\": 500,\n    \"max\": 1000\n  },\n  \"posthogUrl\": \"https://app-posthog-qat.bi-sage.site/e/?compression=gzip-js\",\n  \"mainStudio\": \"[cp, bpo]\",\n  \"bjlStudio\": \"[cp, igo]\",\n  \"httpServer\": \"https://qat-center-status.osmslot.org\",\n  \"customerUrl\": \"https://direct.lc.chat/14347593/16/\"\n}",
+    "created_at": 1775557965852
+  }
+]

@@ -1,0 +1,148 @@
+[
+  {
+    "machineType": "BULLBLITZ",
+    "bonusAction": "spin",
+    "touchPoints": [],
+    "clickTake": false,
+    "gmid": "osmbullblitz",
+    "spinSelector": "",
+    "balanceSelector": "",
+    "exitSelector": "",
+    "notes": "",
+    "entryTouchPoints": [
+      "3,3"
+    ],
+    "entryTouchPoints2": [],
+    "ideckXpaths": [],
+    "audioConfig": null
+  },
+  {
+    "machineType": "BZZF",
+    "bonusAction": "spin",
+    "touchPoints": [
+      "1,1"
+    ],
+    "clickTake": false,
+    "gmid": "osmbzzf",
+    "spinSelector": "",
+    "balanceSelector": "",
+    "exitSelector": "",
+    "notes": "",
+    "entryTouchPoints": [
+      "13,4"
+    ],
+    "entryTouchPoints2": [],
+    "ideckXpaths": [
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][1]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][2]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][1]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][2]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][3]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][4]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][5]//div[contains(@class,'btn_bet')]"
+    ],
+    "audioConfig": null
+  },
+  {
+    "machineType": "DFDCGRAND",
+    "bonusAction": "spin",
+    "touchPoints": [
+      "1,3"
+    ],
+    "clickTake": false,
+    "gmid": "osmdfdcgrand",
+    "spinSelector": "",
+    "balanceSelector": "",
+    "exitSelector": "",
+    "notes": "",
+    "entryTouchPoints": [
+      "18,9"
+    ],
+    "entryTouchPoints2": [],
+    "ideckXpaths": [
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][1]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][2]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][3]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][4]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][5]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][1]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][2]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][3]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][4]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][5]//div[contains(@class,'btn_bet')]"
+    ],
+    "audioConfig": null
+  },
+  {
+    "machineType": "JJBX",
+    "bonusAction": "touchscreen",
+    "touchPoints": [
+      "3,2",
+      "3,5",
+      "3,7",
+      "6,2",
+      "6,5",
+      "6,7",
+      "11,2",
+      "11,5",
+      "11,7",
+      "14,2",
+      "14,5",
+      "14,7"
+    ],
+    "clickTake": true,
+    "gmid": "osmjjbx",
+    "spinSelector": "",
+    "balanceSelector": "",
+    "exitSelector": "",
+    "notes": "",
+    "entryTouchPoints": [
+      "18,9"
+    ],
+    "entryTouchPoints2": [],
+    "ideckXpaths": [
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][1]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][2]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][3]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][4]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][5]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][1]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][2]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][3]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][4]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][5]//div[contains(@class,'btn_bet')]"
+    ],
+    "audioConfig": {
+      "peakWarnDb": -1,
+      "centroidWarnHz": 2000,
+      "rmsMinDb": -60,
+      "rmsMaxDb": -20
+    }
+  },
+  {
+    "machineType": "MANFUBAO",
+    "bonusAction": "spin",
+    "touchPoints": [
+      "1,1"
+    ],
+    "clickTake": false,
+    "gmid": "osmmanfubao",
+    "spinSelector": "",
+    "balanceSelector": "",
+    "exitSelector": "",
+    "notes": "",
+    "entryTouchPoints": [],
+    "entryTouchPoints2": [],
+    "ideckXpaths": [
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][1]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][2]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-bet-col')][3]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][1]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][2]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][3]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][4]//div[contains(@class,'btn_bet')]",
+      "//div[@class='row2']//div[contains(@class,'row2-1')]//div[contains(@class,'van-play-col')][5]//div[contains(@class,'btn_bet')]"
+    ],
+    "audioConfig": null
+  }
+]
