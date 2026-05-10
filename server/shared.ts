@@ -1,4 +1,4 @@
-/**
+﻿/**
  * server/shared.ts
  * Shared utilities, DB instance, helpers, and types used across all route files.
  */
@@ -351,6 +351,83 @@ db.exec(`
     level   TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,
     PRIMARY KEY (gameid, level)
+  )
+`)
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS frontend_auto_scripts (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    platform    TEXT NOT NULL,
+    steps       TEXT NOT NULL DEFAULT '[]',
+    created_by  TEXT NOT NULL DEFAULT 'unknown',
+    is_public   INTEGER NOT NULL DEFAULT 1,
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  )
+`)
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS frontend_auto_baselines (
+    id          TEXT PRIMARY KEY,
+    script_id   TEXT NOT NULL,
+    crop_id     TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    platform    TEXT NOT NULL,
+    crop_x      REAL NOT NULL DEFAULT 0,
+    crop_y      REAL NOT NULL DEFAULT 0,
+    crop_w      REAL NOT NULL DEFAULT 0,
+    crop_h      REAL NOT NULL DEFAULT 0,
+    image_path  TEXT NOT NULL,
+    threshold   REAL NOT NULL DEFAULT 0.05,
+    created_by  TEXT NOT NULL DEFAULT 'unknown',
+    updated_at  INTEGER NOT NULL
+  )
+`)
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS frontend_auto_templates (
+    id               TEXT PRIMARY KEY,
+    name             TEXT NOT NULL,
+    filename         TEXT NOT NULL,
+    image_path       TEXT NOT NULL,
+    width            REAL NOT NULL DEFAULT 0,
+    height           REAL NOT NULL DEFAULT 0,
+    purpose          TEXT NOT NULL DEFAULT '',
+    last_confidence  REAL,
+    created_by       TEXT NOT NULL DEFAULT 'unknown',
+    created_at       INTEGER NOT NULL
+  )
+`)
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS frontend_auto_ocr_regions (
+    id        TEXT PRIMARY KEY,
+    name      TEXT NOT NULL,
+    label     TEXT NOT NULL DEFAULT '',
+    crop_x    REAL NOT NULL DEFAULT 0,
+    crop_y    REAL NOT NULL DEFAULT 0,
+    crop_w    REAL NOT NULL DEFAULT 100,
+    crop_h    REAL NOT NULL DEFAULT 40,
+    accuracy  REAL,
+    updated_at INTEGER NOT NULL
+  )
+`)
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS frontend_auto_runs (
+    id          TEXT PRIMARY KEY,
+    script_id   TEXT NOT NULL,
+    script_name TEXT NOT NULL DEFAULT '',
+    platform    TEXT NOT NULL,
+    ran_by      TEXT NOT NULL DEFAULT 'unknown',
+    total_steps INTEGER NOT NULL DEFAULT 0,
+    passed      INTEGER NOT NULL DEFAULT 0,
+    failed      INTEGER NOT NULL DEFAULT 0,
+    skipped     INTEGER NOT NULL DEFAULT 0,
+    result      TEXT NOT NULL DEFAULT 'unknown',
+    started_at  INTEGER NOT NULL,
+    finished_at INTEGER
   )
 `)
 
@@ -879,3 +956,4 @@ export const getGoogleServiceAccountToken = async (): Promise<string> => {
 
 export const hasGoogleServiceAccount = () =>
   !!(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL && process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY)
+
