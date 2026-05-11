@@ -873,7 +873,9 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       {/* Mode toggle */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 12, alignSelf: 'flex-start', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
         {(['qa', 'pm'] as const).map(m => {
-          const allowed = accountHasRole(currentAccount, m) && (!allowedModes || allowedModes.includes(m))
+          // If allowedModes is provided (permission system active), use it as authority
+          // Otherwise fall back to accountHasRole (legacy behaviour)
+          const allowed = allowedModes ? allowedModes.includes(m) : accountHasRole(currentAccount, m)
           return (
             <button
               key={m}
