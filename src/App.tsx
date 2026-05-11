@@ -286,21 +286,23 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <div className="header-inner">
-          <div className="header-brand">
-            <span className="brand-dot" />
-            <h1>Workflow Integrator</h1>
-            <button
-              type="button"
-              onClick={() => setShowChangelog(true)}
-              className="version-badge"
-              title="查看更新日誌"
-            >
-              v{APP_VERSION}
-            </button>
+        <div className="header-inner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div>
+            <div className="header-brand">
+              <span className="brand-dot" />
+              <h1>Workflow Integrator</h1>
+              <button
+                type="button"
+                onClick={() => setShowChangelog(true)}
+                className="version-badge"
+                title="查看更新日誌"
+              >
+                v{APP_VERSION}
+              </button>
+            </div>
+            <p className="header-sub" style={{ margin: 0 }}>自動化整合控制台 — Jira × Lark × OSM</p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <p className="header-sub" style={{ margin: 0 }}>自動化整合控制台 — Jira × Lark × OSM</p>
             <button
               type="button"
               onClick={() => setShowGemini(true)}
