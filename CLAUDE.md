@@ -480,6 +480,20 @@ Keep Claude for:
 - **Major (N.0.0)**：架構重寫、破壞性變更
 - 每次功能更動後必須同步更新 `src/version.ts` 的版本號和 CHANGELOG
 - 本 CLAUDE.md 的 Product Features 章節也需同步更新
+- **任何動到 `server/` 代碼的改動，也需要推進版號**（不限於前端修改）
 
 > **常見錯誤（禁止）**：新增功能卻只遞增 patch（例如從 3.9.x 一路流水號到 3.9.77 都沒進 minor）。
 > 判斷標準：只要有「新增功能 / 新頁面 / 新流程 / 新步驟」，一律 minor 進版（x.N.0）。
+
+---
+
+## 新功能同步義務
+
+**每次新增功能後，必須同時完成以下四項同步，不需使用者提醒：**
+
+1. **`CLAUDE.md`** → Product Features 章節新增功能說明 + 操作清單
+2. **`server/shared.ts`** → `ALL_PAGE_KEYS` 陣列加入新功能的 page key
+3. **`src/pages/SystemAdminPage.tsx`** → `PAGE_META` 加入新功能的顯示名稱（讓權限管理頁面可以控管）
+4. **歷史紀錄**（如需要）→ 功能觸發點加上 `insertHistory(db, { feature: 'xxx', ... })`，並在 CLAUDE.md 的 feature key 對照表新增條目
+
+> 判斷標準：只要新功能有「可開關的使用者權限」需求，或有「需要稽核的操作紀錄」，以上四項都要做。
