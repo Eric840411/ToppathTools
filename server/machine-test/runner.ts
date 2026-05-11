@@ -322,9 +322,12 @@ const GM_EVENT_MONITOR_SCRIPT = `
         var errcode = m1 ? parseInt(m1[1]) : 0;
         var m2 = text.match(/"errcodedes"\\s*:\\s*"([^"]*)"/);
         var errcodedes = m2 ? m2[1] : '';
-        window.__gmEvents.push({ event: evName, errcode: errcode, errcodedes: errcodedes, ts: Date.now() });
+        var m3 = text.match(/"machineType"\\s*:\\s*"([^"]*)"/);
+        var machineType = m3 ? m3[1] : '';
+        window.__gmEvents.push({ event: evName, errcode: errcode, errcodedes: errcodedes, machineType: machineType, ts: Date.now() });
         // Use a prefix that createGMEventWatcher's console listener recognises
-        (window.__gmOrigLog || console.log)('__gm_event:' + evName, errcode, errcodedes);
+        // Format: "__gm_event:<evName> <errcode> <errcodedes>||<machineType>"
+        (window.__gmOrigLog || console.log)('__gm_event:' + evName, errcode, errcodedes + '||' + machineType);
         return;
       }
     } catch(e) {}
@@ -820,21 +823,26 @@ function createGMEventWatcher(page: Page): { waitForEnterGM: GMWaitFn; waitForLe
     try {
       const text = msg.text()
 
-      // GM_EVENT_MONITOR_SCRIPT emits: "__gm_event:enterGMNtc <errcode> <errcodedes>"
+      // GM_EVENT_MONITOR_SCRIPT emits: "__gm_event:<evName> <errcode> <errcodedes>||<machineType>"
       if (text.startsWith('__gm_event:')) {
         const parts = text.split(' ')
         const evName = parts[0].replace('__gm_event:', '')
         const errcode = parseInt(parts[1] ?? '0') || 0
-        const errcodedes = parts.slice(2).join(' ')
+        // errcodedes and machineType are packed as "errcodedes||machineType"
+        const rawDes = parts.slice(2).join(' ')
+        const sepIdx = rawDes.lastIndexOf('||')
+        const errcodedes = sepIdx >= 0 ? rawDes.slice(0, sepIdx) : rawDes
+        const machineType = sepIdx >= 0 ? rawDes.slice(sepIdx + 2) : undefined
+        const evData: GMEventData = { errcode, errcodedes, ...(machineType ? { machineType } : {}) }
         if (evName === 'enterGMNtc') {
           if (enterResolve) {
-            enterResolve({ errcode, errcodedes })
+            enterResolve(evData)
             enterResolve = null
           } else {
-            enterBuffer = { data: { errcode, errcodedes }, ts: Date.now() }
+            enterBuffer = { data: evData, ts: Date.now() }
           }
         } else if (evName === 'leaveGMNtc' && leaveResolve) {
-          leaveResolve({ errcode, errcodedes })
+          leaveResolve(evData)
           leaveResolve = null
         }
         return
