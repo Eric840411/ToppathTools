@@ -296,7 +296,7 @@ function App() {
             <p className="header-sub" style={{ margin: 0 }}>自動化整合控制台 — Jira × Lark × OSM</p>
             <button
               type="button"
-              onClick={() => setShowAccountModal(true)}
+              onClick={() => globalAccount ? setShowAccountModal(true) : undefined}
               style={{
                 padding: '4px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap',
                 background: globalAccount ? '#eff6ff' : '#f3f4f6',
@@ -307,6 +307,16 @@ function App() {
             >
               👤 {globalAccount ? globalAccount.label : '選擇帳號'}
             </button>
+            {globalAccount && (
+              <button
+                type="button"
+                onClick={handleGlobalAccountClear}
+                style={{ padding: '4px 10px', background: 'transparent', border: '1px solid rgba(255,255,255,.15)', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#94a3b8', whiteSpace: 'nowrap' }}
+                title="登出"
+              >
+                登出
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setShowGemini(true)}

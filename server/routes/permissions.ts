@@ -2,7 +2,7 @@
  * server/routes/permissions.ts
  * Account management and role-permission matrix (admin only).
  */
-import { Router } from 'express'
+import { Router, type Request, type Response, type NextFunction } from 'express'
 import { z } from 'zod'
 import {
   db, pinHash, readAccounts, upsertAccount, deleteAccountByEmail,
@@ -14,7 +14,7 @@ export const router = Router()
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 
-function requireAdmin(req: Parameters<Router>[0], res: Parameters<Router>[1], next: Parameters<Router>[2]) {
+function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const account = getAuthAccount(req)
   if (!account || account.role !== 'admin') {
     res.status(403).json({ ok: false, message: '需要管理員權限' })
