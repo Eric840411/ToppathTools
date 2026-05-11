@@ -53,18 +53,17 @@ router.get('/api/admin/permissions', requireAdmin, (_req, res) => {
   res.json({ ok: true, matrix, pageKeys: ALL_PAGE_KEYS })
 })
 
-const matrixSchema = z.object({
-  // Accept both boolean and 0/1 integer (SQLite coercion edge case)
-  matrix: z.record(z.record(z.union([z.boolean(), z.number()]).transform(v => Boolean(v)))),
-})
-
 router.put('/api/admin/permissions', requireAdmin, writeLimiter, (req, res) => {
-  const { matrix } = matrixSchema.parse(req.body)
+  const body = req.body as { matrix?: Record<string, Record<string, unknown>> }
+  if (!body?.matrix || typeof body.matrix !== 'object') {
+    return res.status(400).json({ ok: false, message: '缺少 matrix 欄位' })
+  }
   const upsert = db.prepare('INSERT OR REPLACE INTO role_permissions (role, page_key, allowed) VALUES (?, ?, ?)')
   db.transaction(() => {
     for (const role of ['qa', 'pm', 'other']) {
+      const rolePerms = body.matrix![role]
       for (const key of ALL_PAGE_KEYS) {
-        const allowed = matrix[role]?.[key] ? 1 : 0
+        const allowed = rolePerms && rolePerms[key] ? 1 : 0
         upsert.run(role, key, allowed)
       }
     }
