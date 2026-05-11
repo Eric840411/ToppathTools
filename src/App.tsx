@@ -353,17 +353,19 @@ function App() {
             <span className="tab-label">{historyGroup.label}</span>
           </button>
         )}
-        {visibleSysadmin && (
-          <button
-            type="button"
-            className={`tab-btn${currentGroup?.id === sysadminGroup.id ? ' tab-btn--active' : ''}`}
-            style={visibleHistory ? {} : { marginLeft: 'auto' }}
-            onClick={() => handleGroupClick(sysadminGroup)}
-          >
-            <span className={`tab-icon ${sysadminGroup.iconClass}`}>{sysadminGroup.icon}</span>
-            <span className="tab-label">{sysadminGroup.label}</span>
-          </button>
-        )}
+        <button
+          type="button"
+          className={`tab-btn${currentGroup?.id === sysadminGroup.id ? ' tab-btn--active' : ''}`}
+          style={{
+            ...(visibleHistory ? {} : { marginLeft: 'auto' }),
+            ...(visibleSysadmin ? {} : { opacity: 0.4, cursor: 'not-allowed' }),
+          }}
+          onClick={() => visibleSysadmin && handleGroupClick(sysadminGroup)}
+          title={visibleSysadmin ? '系統管理' : '僅管理員可使用'}
+        >
+          <span className={`tab-icon ${sysadminGroup.iconClass}`}>{sysadminGroup.icon}</span>
+          <span className="tab-label">{sysadminGroup.label}</span>
+        </button>
       </div>
 
       {/* ── Sub-tab bar ── */}
