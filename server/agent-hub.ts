@@ -15,11 +15,17 @@ export const viewerSockets = new Set<WebSocket>()
 
 /** Buffered events for the current session — replayed to late-joining viewers */
 export const broadcastBuffer: TestEvent[] = []
+const BROADCAST_BUFFER_MAX = 2000
 
 export function broadcastToViewers(ev: TestEvent) {
   broadcastBuffer.push(ev)
+  // Cap buffer size to prevent unbounded memory growth
+  if (broadcastBuffer.length > BROADCAST_BUFFER_MAX) {
+    broadcastBuffer.splice(0, broadcastBuffer.length - BROADCAST_BUFFER_MAX)
+  }
   for (const ws of viewerSockets) {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(ev))
+    else viewerSockets.delete(ws) // evict dead sockets
   }
 }
 

@@ -28,9 +28,11 @@ module.exports = {
       watch: false,
       windowsHide: true,
       autorestart: true,
-      max_memory_restart: '1200M',
-      max_restarts: 10,
+      max_memory_restart: '700M',
+      cron_restart: '0 4 * * *',
+      max_restarts: 20,
       restart_delay: 3000,
+      node_args: '--max-old-space-size=640',
       env: {
         NODE_ENV: 'production',
         WORKER_PORT: '3010',
