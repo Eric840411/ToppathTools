@@ -13,6 +13,7 @@ import { OsmUatPage } from './pages/OsmUatPage'
 import { GsImgComparePage } from './pages/gs/GsImgComparePage'
 import { GsLogCheckerPage } from './pages/gs/GsLogCheckerPage'
 import { GsBonusV2Page } from './pages/gs/GsBonusV2Page'
+import { SystemAdminPage } from './pages/SystemAdminPage'
 import ChangelogModal from './components/ChangelogModal'
 import GeminiSettingsModal from './components/GeminiSettingsModal'
 import AiAgentMonitorWidget from './components/AiAgentMonitorWidget'
@@ -24,7 +25,8 @@ import './App.css'
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
   | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
-type GroupId = 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'history'
+  | 'sysadmin'
+type GroupId = 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'history' | 'sysadmin'
 
 type SubTab = {
   id: TabId
@@ -165,6 +167,16 @@ const historyGroup: Group = {
   description: '查看所有功能的操作紀錄，支援今日 / 3 天 / 7 天篩選',
 }
 
+const sysadminGroup: Group = {
+  id: 'sysadmin',
+  label: '系統管理',
+  icon: 'S',
+  iconClass: 'tab-icon--history',
+  tab: 'sysadmin',
+  description: '管理帳號與各角色的功能頁面權限',
+}
+
+
 function App() {
   const [activeGroup, setActiveGroup] = useState<GroupId>('jira')
   const [activeTab, setActiveTab] = useState<TabId>('jira')
@@ -173,6 +185,17 @@ function App() {
   const [showAccountModal, setShowAccountModal] = useState(false)
   const [globalAccount, setGlobalAccount] = useState<AccountInfo | null>(loadGlobalAccount)
   const [authChecking, setAuthChecking] = useState(true)
+  const [permissions, setPermissions] = useState<string[]>([])
+
+  async function fetchPermissions() {
+    try {
+      const r = await fetch('/api/admin/my-permissions')
+      const d = await r.json() as { ok: boolean; permissions?: string[] }
+      setPermissions(d.ok ? (d.permissions ?? []) : [])
+    } catch {
+      setPermissions([])
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -192,6 +215,17 @@ function App() {
       })
     return () => { cancelled = true }
   }, [])
+
+  // Fetch permissions whenever globalAccount changes; redirect to first accessible group
+  useEffect(() => {
+    if (globalAccount) {
+      fetchPermissions().then(() => {
+        // handled below via separate effect after permissions state updates
+      })
+    } else {
+      setPermissions([])
+    }
+  }, [globalAccount])
 
   function handleGlobalAccountSelect(acc: AccountInfo) {
     setGlobalAccount(acc)
@@ -213,9 +247,33 @@ function App() {
     }
   }
 
-  const allGroups = [...groups, historyGroup]
-  const currentGroup = allGroups.find(g => g.id === activeGroup)
-  const currentSubtab = currentGroup?.subtabs?.find(s => s.id === activeTab)
+  function canAccess(tabId: TabId): boolean {
+    if (!globalAccount) return false
+    if (globalAccount.role === 'admin') return true
+    return permissions.includes(tabId)
+  }
+
+  function filterGroup(g: Group): Group | null {
+    if (g.tab) return canAccess(g.tab) ? g : null
+    if (g.subtabs) {
+      const visible = g.subtabs.filter(s => canAccess(s.id))
+      return visible.length > 0 ? { ...g, subtabs: visible } : null
+    }
+    return null
+  }
+
+  const visibleGroups = groups.map(g => filterGroup(g)).filter((g): g is Group => g !== null)
+  const visibleHistory = filterGroup(historyGroup)
+  const visibleSysadmin = canAccess('sysadmin') ? sysadminGroup : null
+  const allVisible = [...visibleGroups, ...(visibleHistory ? [visibleHistory] : []), ...(visibleSysadmin ? [visibleSysadmin] : [])]
+
+  // Redirect activeGroup/activeTab if current selection is no longer accessible
+  const currentGroup = allVisible.find(g => g.id === activeGroup) ?? allVisible[0]
+  const currentTab = currentGroup?.subtabs?.find(s => s.id === activeTab)
+  // If current tab is not in visible subtabs, reset to first subtab of current group
+  const effectiveTab = currentTab ? activeTab : (currentGroup?.subtabs?.[0]?.id ?? currentGroup?.tab ?? activeTab)
+
+  const currentSubtab = currentGroup?.subtabs?.find(s => s.id === effectiveTab)
   const currentDescription = currentSubtab?.description ?? currentGroup?.description ?? ''
 
   return (
@@ -263,26 +321,39 @@ function App() {
 
       {/* ── Top-level group bar ── */}
       <div className="tab-bar">
-        {groups.map((group) => (
+        {visibleGroups.map((group) => (
           <button
             key={group.id}
             type="button"
-            className={`tab-btn${activeGroup === group.id ? ' tab-btn--active' : ''}`}
+            className={`tab-btn${currentGroup?.id === group.id ? ' tab-btn--active' : ''}`}
             onClick={() => handleGroupClick(group)}
           >
             <span className={`tab-icon ${group.iconClass}`}>{group.icon}</span>
             <span className="tab-label">{group.label}</span>
           </button>
         ))}
-        <button
-          type="button"
-          className={`tab-btn${activeGroup === historyGroup.id ? ' tab-btn--active' : ''}`}
-          style={{ marginLeft: 'auto' }}
-          onClick={() => handleGroupClick(historyGroup)}
-        >
-          <span className={`tab-icon ${historyGroup.iconClass}`}>{historyGroup.icon}</span>
-          <span className="tab-label">{historyGroup.label}</span>
-        </button>
+        {visibleHistory && (
+          <button
+            type="button"
+            className={`tab-btn${currentGroup?.id === historyGroup.id ? ' tab-btn--active' : ''}`}
+            style={{ marginLeft: 'auto' }}
+            onClick={() => handleGroupClick(historyGroup)}
+          >
+            <span className={`tab-icon ${historyGroup.iconClass}`}>{historyGroup.icon}</span>
+            <span className="tab-label">{historyGroup.label}</span>
+          </button>
+        )}
+        {visibleSysadmin && (
+          <button
+            type="button"
+            className={`tab-btn${currentGroup?.id === sysadminGroup.id ? ' tab-btn--active' : ''}`}
+            style={visibleHistory ? {} : { marginLeft: 'auto' }}
+            onClick={() => handleGroupClick(sysadminGroup)}
+          >
+            <span className={`tab-icon ${sysadminGroup.iconClass}`}>{sysadminGroup.icon}</span>
+            <span className="tab-label">{sysadminGroup.label}</span>
+          </button>
+        )}
       </div>
 
       {/* ── Sub-tab bar ── */}
@@ -292,7 +363,7 @@ function App() {
             <button
               key={sub.id}
               type="button"
-              className={`sub-tab-btn${activeTab === sub.id ? ' sub-tab-btn--active' : ''}`}
+              className={`sub-tab-btn${effectiveTab === sub.id ? ' sub-tab-btn--active' : ''}`}
               onClick={() => setActiveTab(sub.id)}
             >
               <span className={`tab-icon sub-tab-icon ${sub.iconClass}`}>{sub.icon}</span>
@@ -304,25 +375,26 @@ function App() {
 
       <div className="tab-desc">{currentDescription}</div>
 
-      {(activeGroup === 'color-game' && (activeTab === 'gs-bonusv2' || activeTab === 'gs-imgcompare')) ? (
+      {(currentGroup?.id === 'color-game' && (effectiveTab === 'gs-bonusv2' || effectiveTab === 'gs-imgcompare')) ? (
         <>
-          {activeTab === 'gs-bonusv2' && <GsBonusV2Page />}
-          {activeTab === 'gs-imgcompare' && <GsImgComparePage />}
+          {effectiveTab === 'gs-bonusv2' && <GsBonusV2Page />}
+          {effectiveTab === 'gs-imgcompare' && <GsImgComparePage />}
         </>
       ) : (
         <main className="main-content">
-          {activeGroup === 'jira' && <JiraPage account={globalAccount} />}
-          {activeGroup === 'lark' && <LarkPage />}
-          {activeGroup === 'osm-tools' && activeTab === 'osm' && <OsmPage />}
-          {activeGroup === 'osm-tools' && activeTab === 'machinetest' && <MachineTestPage account={globalAccount} />}
-          {activeGroup === 'osm-tools' && activeTab === 'imagecheck' && <ImageCheckPage />}
-          {activeGroup === 'osm-tools' && activeTab === 'osm-config' && <OsmConfigComparePage />}
-          {activeGroup === 'osm-tools' && activeTab === 'autospin' && <AutoSpinPage />}
-          {activeGroup === 'osm-tools' && activeTab === 'url-pool' && <UrlPoolPage currentAccount={globalAccount} />}
-          {activeGroup === 'osm-tools' && activeTab === 'jackpot' && <JackpotPage />}
-          {activeGroup === 'osm-tools' && activeTab === 'osm-uat' && <OsmUatPage />}
-          {activeGroup === 'history' && <HistoryPage />}
-          {activeGroup === 'color-game' && activeTab === 'gs-logchecker' && <GsLogCheckerPage />}
+          {currentGroup?.id === 'jira' && <JiraPage account={globalAccount} />}
+          {currentGroup?.id === 'lark' && <LarkPage />}
+          {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm' && <OsmPage />}
+          {currentGroup?.id === 'osm-tools' && effectiveTab === 'machinetest' && <MachineTestPage account={globalAccount} />}
+          {currentGroup?.id === 'osm-tools' && effectiveTab === 'imagecheck' && <ImageCheckPage />}
+          {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-config' && <OsmConfigComparePage />}
+          {currentGroup?.id === 'osm-tools' && effectiveTab === 'autospin' && <AutoSpinPage />}
+          {currentGroup?.id === 'osm-tools' && effectiveTab === 'url-pool' && <UrlPoolPage currentAccount={globalAccount} />}
+          {currentGroup?.id === 'osm-tools' && effectiveTab === 'jackpot' && <JackpotPage />}
+          {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-uat' && <OsmUatPage />}
+          {currentGroup?.id === 'history' && <HistoryPage />}
+          {currentGroup?.id === 'color-game' && effectiveTab === 'gs-logchecker' && <GsLogCheckerPage />}
+          {currentGroup?.id === 'sysadmin' && <SystemAdminPage />}
         </main>
       )}
 

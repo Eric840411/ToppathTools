@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.22.0'
+export const APP_VERSION = '3.23.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.23.0',
+    date: '2026-05-12',
+    changes: [
+      'feat(auth): 權限管理系統 — 新增角色（admin/qa/pm/other），管理員可透過「系統管理」頁設定各角色可見功能頁；Other 為完全客製化角色',
+      'feat(admin): 帳號管理 — 新增/編輯/刪除帳號，指派角色與 PIN，支援啟用/停用狀態',
+      'feat(frontend): 依登入帳號角色動態過濾 Tab，無權限頁面自動隱藏',
+    ],
+  },
   {
     version: '3.22.0',
     date: '2026-05-10',

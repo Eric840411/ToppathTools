@@ -152,6 +152,55 @@ db.exec(`
   );
 `)
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS role_permissions (
+    role     TEXT NOT NULL,
+    page_key TEXT NOT NULL,
+    allowed  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (role, page_key)
+  );
+`)
+
+// Seed default permissions if table is empty
+{
+  const count = (db.prepare('SELECT COUNT(*) as c FROM role_permissions').get() as { c: number }).c
+  if (count === 0) {
+    const qaPages = ['osm','machinetest','imagecheck','osm-config','autospin','url-pool','jackpot','osm-uat','gs-imgcompare','gs-logchecker','gs-bonusv2','history']
+    const pmPages = ['jira','lark','osm','osm-config','history']
+    const insert = db.prepare('INSERT INTO role_permissions (role, page_key, allowed) VALUES (?, ?, ?)')
+    const allPages = ['jira','lark','osm','machinetest','imagecheck','osm-config','autospin','url-pool','jackpot','osm-uat','gs-imgcompare','gs-logchecker','gs-bonusv2','history']
+    db.transaction(() => {
+      for (const p of allPages) {
+        insert.run('qa', p, qaPages.includes(p) ? 1 : 0)
+        insert.run('pm', p, pmPages.includes(p) ? 1 : 0)
+        insert.run('other', p, 0)
+      }
+    })()
+  }
+}
+
+// Bootstrap: ensure at least one admin account exists
+{
+  const adminCount = (db.prepare("SELECT COUNT(*) as c FROM jira_accounts WHERE role = 'admin'").get() as { c: number }).c
+  if (adminCount === 0) {
+    const firstAccount = db.prepare("SELECT email FROM jira_accounts ORDER BY rowid LIMIT 1").get() as { email: string } | undefined
+    if (firstAccount) {
+      db.prepare("UPDATE jira_accounts SET role = 'admin' WHERE email = ?").run(firstAccount.email)
+      console.log(`[DB] 已將第一個帳號 ${firstAccount.email} 升級為管理員`)
+    }
+  }
+}
+
+// Migration: rename 'testcase' page_key to 'lark' in role_permissions
+{
+  const testcaseRows = db.prepare("SELECT COUNT(*) as c FROM role_permissions WHERE page_key = 'testcase'").get() as { c: number }
+  if (testcaseRows.c > 0) {
+    db.exec("DELETE FROM role_permissions WHERE page_key = 'lark'")
+    db.exec("UPDATE role_permissions SET page_key = 'lark' WHERE page_key = 'testcase'")
+    console.log('[DB] role_permissions: testcase → lark 頁面 key 已遷移')
+  }
+}
+
 // Auto-purge history older than 7 days
 db.prepare('DELETE FROM operation_history WHERE created_at < ?').run(Date.now() - 7 * 24 * 60 * 60 * 1000)
 db.prepare("UPDATE heavy_tasks SET status = 'abandoned', finished_at = ? WHERE status IN ('queued', 'running') AND created_at < ?")
@@ -216,6 +265,10 @@ export function addHistory(feature: string, title: string, summary: string, deta
   if (!acCols.find(c => c.name === 'pin_hash')) {
     db.exec(`ALTER TABLE jira_accounts ADD COLUMN pin_hash TEXT`)
     console.log('[DB] jira_accounts 已新增 pin_hash 欄位')
+  }
+  if (!acCols.find(c => c.name === 'status')) {
+    db.exec(`ALTER TABLE jira_accounts ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`)
+    console.log('[DB] jira_accounts 已新增 status 欄位')
   }
 }
 {
@@ -794,24 +847,61 @@ export function log(level: LogLevel, ip: string, user: string, action: string, d
 
 // ─── Jira accounts store ──────────────────────────────────────────────────────
 
+export type AccountRole = 'qa' | 'pm' | 'admin' | 'other'
+
 export interface JiraAccount {
   email: string
   token: string
   label: string
-  role: 'qa' | 'pm'
+  role: AccountRole
   pin_hash?: string | null
+  status?: 'active' | 'disabled'
 }
 
 export const pinHash = (pin: string) => createHash('sha256').update(pin).digest('hex')
 
 export const readAccounts = (): JiraAccount[] =>
-  db.prepare('SELECT email, token, label, role, pin_hash FROM jira_accounts').all() as JiraAccount[]
+  db.prepare('SELECT email, token, label, role, pin_hash, status FROM jira_accounts').all() as JiraAccount[]
 
 export const upsertAccount = (a: JiraAccount) =>
-  db.prepare('INSERT OR REPLACE INTO jira_accounts (email, token, label, role) VALUES (?, ?, ?, ?)').run(a.email, a.token, a.label, a.role ?? 'qa')
+  db.prepare('INSERT OR REPLACE INTO jira_accounts (email, token, label, role, status) VALUES (?, ?, ?, ?, ?)')
+    .run(a.email, a.token, a.label, a.role ?? 'qa', a.status ?? 'active')
 
 export const deleteAccountByEmail = (email: string) =>
   db.prepare('DELETE FROM jira_accounts WHERE email = ?').run(email)
+
+// ─── Permission helpers ───────────────────────────────────────────────────────
+
+export const ALL_PAGE_KEYS = [
+  'jira','lark','osm','machinetest','imagecheck','osm-config',
+  'autospin','url-pool','jackpot','osm-uat',
+  'gs-imgcompare','gs-logchecker','gs-bonusv2','history',
+] as const
+
+export type PageKey = typeof ALL_PAGE_KEYS[number]
+
+/** Returns the set of page keys this role is allowed to access.
+ *  Handles legacy comma-separated multi-role values (e.g. 'pm,qa'). */
+export function getPermissionsForRole(role: AccountRole | string): string[] {
+  // Admin always gets everything
+  if (role === 'admin') return [...ALL_PAGE_KEYS, 'sysadmin']
+
+  // Handle legacy comma-separated roles: union of each sub-role's permissions
+  const parts = role.split(',').map(r => r.trim()).filter(Boolean)
+  if (parts.length > 1) {
+    const merged = new Set<string>()
+    for (const part of parts) {
+      for (const k of getPermissionsForRole(part as AccountRole)) merged.add(k)
+    }
+    return Array.from(merged)
+  }
+
+  // Unknown/unmapped roles get nothing
+  if (!['qa', 'pm', 'other'].includes(role)) return []
+
+  const rows = db.prepare('SELECT page_key FROM role_permissions WHERE role = ? AND allowed = 1').all(role) as { page_key: string }[]
+  return rows.map(r => r.page_key)
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

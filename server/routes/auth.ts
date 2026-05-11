@@ -21,6 +21,7 @@ router.post('/api/auth/login', writeLimiter, (req, res) => {
   const { email, pin } = loginSchema.parse(req.body)
   const account = readAccounts().find(a => a.email === email)
   if (!account) return res.status(404).json({ ok: false, message: '帳號不存在' })
+  if (account.status === 'disabled') return res.status(403).json({ ok: false, message: '帳號已停用' })
 
   if (account.pin_hash) {
     if (!pin?.trim()) return res.status(403).json({ ok: false, message: '請輸入 PIN' })

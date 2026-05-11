@@ -19,6 +19,7 @@ import { router as jiraRouter } from './routes/jira.js'
 import { router as geminiRouter } from './routes/gemini.js'
 import { router as osmRouter, restartCron, activeCronTask } from './routes/osm.js'
 import { router as authRouter } from './routes/auth.js'
+import { router as permissionsRouter } from './routes/permissions.js'
 import { router as workerStatusRouter } from './routes/worker-status.js'
 import { router as frontendAutoRouter } from './routes/frontend-auto.js'
 import { runWithRequestContext } from './request-context.js'
@@ -271,6 +272,7 @@ app.use(geminiRouter)
 app.use(osmRouter)
 app.use(lazyIntegrationsRouter)
 app.use(authRouter)
+app.use(permissionsRouter)
 app.use(workerStatusRouter)
 app.use(frontendAutoRouter)
 
