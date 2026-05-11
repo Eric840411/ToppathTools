@@ -65,6 +65,7 @@ const profileSchema = z.object({
   touchPoints:       z.array(z.string()).optional().nullable(),
   clickTake:         z.boolean().optional().nullable(),
   gmid:              z.string().optional().nullable(),
+  enterMachineType:  z.string().optional().nullable(),
   spinSelector:      z.string().optional().nullable(),
   balanceSelector:   z.string().optional().nullable(),
   exitSelector:      z.string().optional().nullable(),
@@ -555,11 +556,12 @@ router.put('/api/machine-test/profiles', (req, res, next) => {
       clickTake: p.clickTake ? 1 : 0,
     }
     db.prepare(`
-      INSERT INTO machine_test_profiles (machineType, bonusAction, touchPoints, clickTake, gmid, spinSelector, balanceSelector, exitSelector, notes, entryTouchPoints, entryTouchPoints2, ideck_xpaths, audioConfig)
-      VALUES (@machineType, @bonusAction, @touchPoints, @clickTake, @gmid, @spinSelector, @balanceSelector, @exitSelector, @notes, @entryTouchPoints, @entryTouchPoints2, @ideck_xpaths, @audioConfig)
+      INSERT INTO machine_test_profiles (machineType, bonusAction, touchPoints, clickTake, gmid, enterMachineType, spinSelector, balanceSelector, exitSelector, notes, entryTouchPoints, entryTouchPoints2, ideck_xpaths, audioConfig)
+      VALUES (@machineType, @bonusAction, @touchPoints, @clickTake, @gmid, @enterMachineType, @spinSelector, @balanceSelector, @exitSelector, @notes, @entryTouchPoints, @entryTouchPoints2, @ideck_xpaths, @audioConfig)
       ON CONFLICT(machineType) DO UPDATE SET
         bonusAction=excluded.bonusAction, touchPoints=excluded.touchPoints, clickTake=excluded.clickTake,
-        gmid=excluded.gmid, spinSelector=excluded.spinSelector, balanceSelector=excluded.balanceSelector,
+        gmid=excluded.gmid, enterMachineType=excluded.enterMachineType,
+        spinSelector=excluded.spinSelector, balanceSelector=excluded.balanceSelector,
         exitSelector=excluded.exitSelector, notes=excluded.notes,
         entryTouchPoints=excluded.entryTouchPoints, entryTouchPoints2=excluded.entryTouchPoints2,
         ideck_xpaths=excluded.ideck_xpaths, audioConfig=excluded.audioConfig

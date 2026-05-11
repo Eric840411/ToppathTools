@@ -200,6 +200,10 @@ export function addHistory(feature: string, title: string, summary: string, deta
     db.exec('ALTER TABLE machine_test_profiles ADD COLUMN audioConfig TEXT')
     console.log('[DB] machine_test_profiles 已新增欄位：audioConfig')
   }
+  if (!cols.find(c => c.name === 'enterMachineType')) {
+    db.exec('ALTER TABLE machine_test_profiles ADD COLUMN enterMachineType TEXT')
+    console.log('[DB] machine_test_profiles 已新增欄位：enterMachineType')
+  }
 }
 
 {

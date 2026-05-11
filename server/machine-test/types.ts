@@ -69,6 +69,8 @@ export interface MachineProfile {
   clickTake?: boolean | null
   /** gameid URL param for fallback profile matching, e.g. "osmbwjl" */
   gmid?: string | null
+  /** machineType value returned in enterGMNtc response for fallback matching, e.g. "wlzbhelix15" */
+  enterMachineType?: string | null
   spinSelector?: string | null
   balanceSelector?: string | null
   exitSelector?: string | null

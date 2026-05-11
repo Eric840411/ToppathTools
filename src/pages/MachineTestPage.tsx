@@ -91,6 +91,8 @@ interface MachineProfile {
   clickTake?: boolean | null
   /** gameid URL param for fallback matching, e.g. "osmbwjl" */
   gmid?: string | null
+  /** machineType from enterGMNtc response for fallback matching, e.g. "wlzbhelix15" */
+  enterMachineType?: string | null
   spinSelector?: string | null
   balanceSelector?: string | null
   exitSelector?: string | null
@@ -117,7 +119,7 @@ const BONUS_ACTION_LABELS: Record<BonusAction, string> = {
 const EMPTY_PROFILE: MachineProfile = {
   machineType: '', bonusAction: 'auto_wait',
   touchPoints: [], clickTake: false,
-  gmid: '',
+  gmid: '', enterMachineType: '',
   spinSelector: '', balanceSelector: '', exitSelector: '', notes: '',
   entryTouchPoints: [], entryTouchPoints2: [],
   ideckXpaths: [],
@@ -365,6 +367,11 @@ function ProfilesPanel() {
               <span>gmid <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>（選填）</span></span>
               <input value={editing.gmid ?? ''} onChange={e => setEditing(p => ({ ...p!, gmid: e.target.value.toLowerCase() }))}
                 placeholder="osmbwjl" />
+            </label>
+            <label className="field" style={{ flex: '0 0 150px' }}>
+              <span>enterMachineType <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>（選填）</span></span>
+              <input value={editing.enterMachineType ?? ''} onChange={e => setEditing(p => ({ ...p!, enterMachineType: e.target.value }))}
+                placeholder="wlzbhelix15" />
             </label>
             <label className="field" style={{ flex: 1 }}>
               <span>Bonus 啟動方式</span>

@@ -2445,12 +2445,14 @@ export class MachineTestRunner extends EventEmitter {
 
         // After entering, try fallbacks if no profile matched by machine code
         if (r.status !== 'fail' && !profile) {
-          // Fallback 1: machineType from enterGMNtc response (case-insensitive)
+          // Fallback 1: enterMachineType field in profile vs machineType from enterGMNtc response
           const gmMachineType = r.extraData?.machineType
           if (gmMachineType) {
             const lower = gmMachineType.toLowerCase()
             for (const [, p] of this.profiles) {
-              if (p.machineType.toLowerCase() === lower) {
+              // Check profile's enterMachineType field first, then machineType key itself
+              const profileEmt = (p.enterMachineType ?? '').toLowerCase()
+              if ((profileEmt && profileEmt === lower) || p.machineType.toLowerCase() === lower) {
                 profile = p
                 emit(`enterGMNtc machineType 比對到設定檔：${p.machineType}（machineType=${gmMachineType}）`)
                 break
