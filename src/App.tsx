@@ -300,32 +300,32 @@ function App() {
                 v{APP_VERSION}
               </button>
             </div>
-            <p className="header-sub" style={{ margin: 0 }}>自動化整合控制台 — Jira × Lark × OSM</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
+              <p className="header-sub" style={{ margin: 0 }}>自動化整合控制台 — Jira × Lark × OSM</p>
+              <button
+                type="button"
+                onClick={() => setShowGemini(true)}
+                style={{ padding: '4px 12px', background: 'transparent', border: '1px solid rgba(255,255,255,.15)', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#94a3b8', whiteSpace: 'nowrap' }}
+                title="AI 模型和 Prompt 模板設定"
+              >
+                ⚙️ AI 模型和 Prompt 設定
+              </button>
+            </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-            <button
-              type="button"
-              onClick={() => setShowGemini(true)}
-              style={{ padding: '4px 12px', background: 'transparent', border: '1px solid rgba(255,255,255,.15)', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#94a3b8', whiteSpace: 'nowrap' }}
-              title="AI 模型和 Prompt 模板設定"
-            >
-              ⚙️ AI 模型和 Prompt 設定
-            </button>
-            {globalAccount && (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9', letterSpacing: '.5px', textTransform: 'uppercase' }}>
-                  {globalAccount.label}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleGlobalAccountClear}
-                  style={{ padding: '1px 0', background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#64748b', textDecoration: 'underline', whiteSpace: 'nowrap' }}
-                >
-                  登出
-                </button>
-              </div>
-            )}
-          </div>
+          {globalAccount && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9', letterSpacing: '.5px', textTransform: 'uppercase' }}>
+                {globalAccount.label}
+              </span>
+              <button
+                type="button"
+                onClick={handleGlobalAccountClear}
+                style={{ padding: '3px 10px', background: 'rgba(239,68,68,.15)', border: '1px solid rgba(239,68,68,.4)', borderRadius: 5, cursor: 'pointer', fontSize: 11, color: '#f87171', whiteSpace: 'nowrap' }}
+              >
+                登出
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
