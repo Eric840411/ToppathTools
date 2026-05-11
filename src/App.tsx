@@ -305,7 +305,7 @@ function App() {
               <button
                 type="button"
                 onClick={() => setShowGemini(true)}
-                style={{ padding: '4px 12px', background: 'transparent', border: '1px solid rgba(255,255,255,.15)', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#94a3b8', whiteSpace: 'nowrap' }}
+                style={{ padding: '4px 12px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#475569', whiteSpace: 'nowrap' }}
                 title="AI 模型和 Prompt 模板設定"
               >
                 ⚙️ AI 模型和 Prompt 設定
