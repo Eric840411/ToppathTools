@@ -1042,7 +1042,7 @@ export function AutoSpinPage() {
           >
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: jackpots.length > 0 ? '#22c55e' : '#cbd5e1', flexShrink: 0 }} />
             {jackpots.length > 0
-              ? `✅ OSMWatcher 已連線（${jackpots.length} 個遊戲獎池）`
+              ? `✅ OSMWatcher 已連線（${jackpots.filter(j => j.grand != null || j.fortunate != null).length} 個遊戲獎池）`
               : '⚪ OSMWatcher 未連線 — 獎池資料尚未接收'}
             {jackpots.length > 0 && (
               <span style={{ marginLeft: 'auto', fontSize: 12, opacity: 0.7 }}>{jackpotPanelOpen ? '▲ 收合' : '▼ 展開獎池'}</span>
