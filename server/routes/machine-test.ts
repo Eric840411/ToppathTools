@@ -113,7 +113,7 @@ function broadcastOsmStatus() {
 // Per-channel throttle: process at most 1 update per channel per second.
 // Extra requests still receive success ACK ??OSMWatcher never retries.
 const osmChannelLastProcessed = new Map<string, number>()
-const OSM_THROTTLE_MS = 1000
+const OSM_THROTTLE_MS = 100
 let osmThrottleStats = { processed: 0, skipped: 0, windowStart: Date.now() }
 // Log throttle stats every 60s
 setInterval(() => {
