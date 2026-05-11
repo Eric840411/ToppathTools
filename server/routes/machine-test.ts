@@ -681,16 +681,8 @@ router.post('/api/machine-test/osm-status', (req, res) => {
       gmlist?: { id: string; status: number; credit?: number; bet?: number; win?: number; fg?: number }[]
     }
 
-    // Throttle: at most 1 update per channel per second.
+    // No throttle — process every OSMWatcher push immediately.
     // Always ACK success so OSMWatcher never retries.
-    const channel = body.channel ?? '__default__'
-    const now = Date.now()
-    const last = osmChannelLastProcessed.get(channel) ?? 0
-    if (now - last < OSM_THROTTLE_MS) {
-      osmThrottleStats.skipped++
-      return res.json({ error: 0, errordes: 'success' })
-    }
-    osmChannelLastProcessed.set(channel, now)
     osmThrottleStats.processed++
 
     if (Array.isArray(body.gmlist)) {
