@@ -2443,42 +2443,44 @@ export class MachineTestRunner extends EventEmitter {
         stepResults.push(r)
         this.log(`${workerTag} [${r.status.toUpperCase()}] 進入機台: ${r.message}`, machineCode)
 
-        // After entering, try fallbacks if no profile matched by machine code
+        // After entering, resolve final profile. Priority:
+        // 1. enterMachineType exact match (overrides machine-code match)
+        // 2. machine code match (already in `profile` from before entry)
+        // 3. gmid from URL
         if (r.status !== 'fail') {
-          if (profile) {
-            emit(`✅ 使用設定檔：${profile.machineType}（機台代碼比對）`)
-          } else {
-            // Fallback 1: enterMachineType field in profile vs machineType from enterGMNtc response
-            const gmMachineType = r.extraData?.machineType
-            if (gmMachineType) {
-              const lower = gmMachineType.toLowerCase()
+          const gmMachineType = r.extraData?.machineType ?? ''
+          let matchedBy = profile ? 'machine-code' : ''
+
+          // Priority 1: enterMachineType exact match — most specific, overrides all
+          if (gmMachineType) {
+            const lower = gmMachineType.toLowerCase()
+            for (const [, p] of this.profiles) {
+              if ((p.enterMachineType ?? '').toLowerCase() === lower && p.enterMachineType) {
+                profile = p
+                matchedBy = `enterMachineType=${gmMachineType}`
+                break
+              }
+            }
+          }
+
+          // Priority 3: gmid fallback if still nothing
+          if (!profile) {
+            const gameId = extractGameId(page.url())
+            if (gameId) {
               for (const [, p] of this.profiles) {
-                // Check profile's enterMachineType field first, then machineType key itself
-                const profileEmt = (p.enterMachineType ?? '').toLowerCase()
-                if ((profileEmt && profileEmt === lower) || p.machineType.toLowerCase() === lower) {
+                if (p.gmid && p.gmid.toLowerCase() === gameId) {
                   profile = p
-                  emit(`✅ 使用設定檔：${p.machineType}（enterGMNtc machineType=${gmMachineType} 比對）`)
+                  matchedBy = `gmid=${gameId}`
                   break
                 }
               }
             }
-            // Fallback 2: gmid from URL
-            if (!profile) {
-              const gameId = extractGameId(page.url())
-              if (gameId) {
-                for (const [, p] of this.profiles) {
-                  if (p.gmid && p.gmid.toLowerCase() === gameId) {
-                    profile = p
-                    emit(`✅ 使用設定檔：${p.machineType}（gmid=${gameId} 比對）`)
-                    break
-                  }
-                }
-              }
-            }
-            if (!profile) {
-              const gmMachineType = r.extraData?.machineType ?? ''
-              emit(`⚠️ 未找到設定檔（機台代碼=${machineType}，enterGMNtc machineType=${gmMachineType}）— 使用預設行為`)
-            }
+          }
+
+          if (profile) {
+            emit(`✅ 使用設定檔：${profile.machineType}（${matchedBy} 比對）`)
+          } else {
+            emit(`⚠️ 未找到設定檔（機台代碼=${machineType}，enterGMNtc machineType=${gmMachineType}）— 使用預設行為`)
           }
         }
 
