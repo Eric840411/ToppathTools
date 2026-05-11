@@ -87,7 +87,7 @@ router.get('/api/admin/accounts', requireAdmin, (_req, res) => {
 const createAccountSchema = z.object({
   email: z.string().email(),
   label: z.string().min(1),
-  role: z.enum(['qa', 'pm', 'admin', 'other']),
+  role: z.enum(['qa', 'pm', 'other']),
   token: z.string().default(''),
   pin: z.string().optional(),
   status: z.enum(['active', 'disabled']).default('active'),
@@ -112,7 +112,7 @@ router.post('/api/admin/accounts', requireAdmin, writeLimiter, (req, res) => {
 
 const updateAccountSchema = z.object({
   label: z.string().min(1).optional(),
-  role: z.enum(['qa', 'pm', 'admin', 'other']).optional(),
+  role: z.enum(['qa', 'pm', 'other']).optional(),
   token: z.string().optional(),
   pin: z.string().optional(),
   clearPin: z.boolean().optional(),
@@ -147,11 +147,10 @@ router.delete('/api/admin/accounts/:email', requireAdmin, writeLimiter, (req, re
   const email = decodeURIComponent(req.params.email)
   const accounts = readAccounts()
   if (!accounts.find(a => a.email === email)) return res.status(404).json({ ok: false, message: '帳號不存在' })
-  // Prevent deleting last admin
-  const admins = accounts.filter(a => a.role === 'admin')
+  // Admin account cannot be deleted
   const target = accounts.find(a => a.email === email)
-  if (target?.role === 'admin' && admins.length <= 1) {
-    return res.status(400).json({ ok: false, message: '無法刪除唯一的管理員帳號' })
+  if (target?.role === 'admin') {
+    return res.status(400).json({ ok: false, message: '管理員帳號不可刪除' })
   }
   deleteAccountByEmail(email)
   res.json({ ok: true })

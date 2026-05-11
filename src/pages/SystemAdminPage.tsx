@@ -357,7 +357,6 @@ export function SystemAdminPage() {
                       <option value="qa">QA</option>
                       <option value="pm">PM</option>
                       <option value="other">Other</option>
-                      <option value="admin">管理員</option>
                     </select>
                   </div>
                   <div>
@@ -405,11 +404,12 @@ export function SystemAdminPage() {
                     <div>
                       <label style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>角色</label>
                       <select style={{ ...inputStyle }} value={editForm.role}
-                        onChange={e => setEditForm(p => ({ ...p, role: e.target.value as Role }))}>
+                        onChange={e => setEditForm(p => ({ ...p, role: e.target.value as Role }))}
+                        disabled={editTarget?.role === 'admin'}>
                         <option value="qa">QA</option>
                         <option value="pm">PM</option>
                         <option value="other">Other</option>
-                        <option value="admin">管理員</option>
+                        {editTarget?.role === 'admin' && <option value="admin">管理員（唯一，不可更改）</option>}
                       </select>
                     </div>
                     <div>
