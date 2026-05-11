@@ -250,8 +250,17 @@ function App() {
   function canAccess(tabId: TabId): boolean {
     if (!globalAccount) return false
     if (globalAccount.role === 'admin') return true
+    // 'jira' tab is accessible if user has either jira-qa or jira-pm
+    if (tabId === 'jira') return permissions.includes('jira-qa') || permissions.includes('jira-pm')
     return permissions.includes(tabId)
   }
+
+  const allowedJiraModes = globalAccount?.role === 'admin'
+    ? ['qa', 'pm']
+    : [
+        ...(permissions.includes('jira-qa') ? ['qa'] : []),
+        ...(permissions.includes('jira-pm') ? ['pm'] : []),
+      ]
 
   function filterGroup(g: Group): Group | null {
     if (g.tab) return canAccess(g.tab) ? g : null
@@ -394,7 +403,7 @@ function App() {
         </>
       ) : (
         <main className="main-content">
-          {currentGroup?.id === 'jira' && <JiraPage account={globalAccount} />}
+          {currentGroup?.id === 'jira' && <JiraPage account={globalAccount} allowedModes={allowedJiraModes} />}
           {currentGroup?.id === 'lark' && <LarkPage />}
           {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm' && <OsmPage />}
           {currentGroup?.id === 'osm-tools' && effectiveTab === 'machinetest' && <MachineTestPage account={globalAccount} />}

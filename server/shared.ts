@@ -165,10 +165,10 @@ db.exec(`
 {
   const count = (db.prepare('SELECT COUNT(*) as c FROM role_permissions').get() as { c: number }).c
   if (count === 0) {
-    const qaPages = ['osm','machinetest','imagecheck','osm-config','autospin','url-pool','jackpot','osm-uat','gs-imgcompare','gs-logchecker','gs-bonusv2','history']
-    const pmPages = ['jira','lark','osm','osm-config','history']
+    const qaPages = ['jira-qa','osm','machinetest','imagecheck','osm-config','autospin','url-pool','jackpot','osm-uat','gs-imgcompare','gs-logchecker','gs-bonusv2','history']
+    const pmPages = ['jira-pm','lark','osm','osm-config','history']
     const insert = db.prepare('INSERT INTO role_permissions (role, page_key, allowed) VALUES (?, ?, ?)')
-    const allPages = ['jira','lark','osm','machinetest','imagecheck','osm-config','autospin','url-pool','jackpot','osm-uat','gs-imgcompare','gs-logchecker','gs-bonusv2','history']
+    const allPages = ['jira-qa','jira-pm','lark','osm','machinetest','imagecheck','osm-config','autospin','url-pool','jackpot','osm-uat','gs-imgcompare','gs-logchecker','gs-bonusv2','history']
     db.transaction(() => {
       for (const p of allPages) {
         insert.run('qa', p, qaPages.includes(p) ? 1 : 0)
@@ -188,6 +188,22 @@ db.exec(`
       db.prepare("UPDATE jira_accounts SET role = 'admin' WHERE email = ?").run(firstAccount.email)
       console.log(`[DB] 已將第一個帳號 ${firstAccount.email} 升級為管理員`)
     }
+  }
+}
+
+// Migration: split 'jira' into 'jira-qa' and 'jira-pm' in role_permissions
+{
+  const jiraRows = db.prepare("SELECT COUNT(*) as c FROM role_permissions WHERE page_key = 'jira'").get() as { c: number }
+  if (jiraRows.c > 0) {
+    db.transaction(() => {
+      // copy jira → jira-pm, then rename jira → jira-qa
+      const rows = db.prepare("SELECT role, allowed FROM role_permissions WHERE page_key = 'jira'").all() as { role: string; allowed: number }[]
+      for (const row of rows) {
+        db.prepare("INSERT OR IGNORE INTO role_permissions (role, page_key, allowed) VALUES (?, 'jira-pm', ?)").run(row.role, row.allowed)
+      }
+      db.exec("UPDATE role_permissions SET page_key = 'jira-qa' WHERE page_key = 'jira'")
+    })()
+    console.log('[DB] role_permissions: jira → jira-qa + jira-pm 已遷移')
   }
 }
 
@@ -873,7 +889,7 @@ export const deleteAccountByEmail = (email: string) =>
 // ─── Permission helpers ───────────────────────────────────────────────────────
 
 export const ALL_PAGE_KEYS = [
-  'jira','lark','osm','machinetest','imagecheck','osm-config',
+  'jira-qa','jira-pm','lark','osm','machinetest','imagecheck','osm-config',
   'autospin','url-pool','jackpot','osm-uat',
   'gs-imgcompare','gs-logchecker','gs-bonusv2','history',
 ] as const

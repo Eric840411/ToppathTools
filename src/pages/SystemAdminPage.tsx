@@ -20,8 +20,9 @@ interface PermMatrix {
 }
 
 const PAGE_META: { key: string; label: string; group: string }[] = [
-  { key: 'jira',         label: 'Jira 批量開單',      group: 'Jira / TestCase' },
-  { key: 'lark',         label: 'TestCase 生成',        group: 'Jira / TestCase' },
+  { key: 'jira-qa',      label: 'Jira 批量開單（QA 模式）', group: 'Jira / TestCase' },
+  { key: 'jira-pm',      label: 'Jira 批量開單（PM 模式）', group: 'Jira / TestCase' },
+  { key: 'lark',         label: 'TestCase 生成',            group: 'Jira / TestCase' },
   { key: 'osm',          label: 'OSM 版號同步',        group: 'OSM Tools' },
   { key: 'machinetest',  label: '機台自動化測試',       group: 'OSM Tools' },
   { key: 'imagecheck',   label: '圖片刪除驗證',         group: 'OSM Tools' },
@@ -341,8 +342,12 @@ export function SystemAdminPage() {
               <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 16, marginBottom: 16 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10, marginBottom: 12 }}>
                   <div>
-                    <label style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>Email *</label>
-                    <input style={inputStyle} placeholder="user@example.com" value={newAcct.email}
+                    <label style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>
+                      {newAcct.role === 'other' ? '帳號識別碼 *' : 'Email *'}
+                    </label>
+                    <input style={inputStyle}
+                      placeholder={newAcct.role === 'other' ? '任意唯一識別碼（如 guest01）' : 'user@example.com'}
+                      value={newAcct.email}
                       onChange={e => setNewAcct(p => ({ ...p, email: e.target.value }))} />
                   </div>
                   <div>

@@ -143,9 +143,10 @@ const SHEET_FIELD: Record<string, string> = {
 
 interface JiraPageProps {
   account?: AccountInfo | null
+  allowedModes?: string[]
 }
 
-export function JiraPage({ account = null }: JiraPageProps) {
+export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const isGame = useIsGameMode()
   const [mode, setMode] = useState<'qa' | 'pm'>('qa')
   const [step, setStep] = useState<Step>(1)
@@ -872,7 +873,7 @@ export function JiraPage({ account = null }: JiraPageProps) {
       {/* Mode toggle */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 12, alignSelf: 'flex-start', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
         {(['qa', 'pm'] as const).map(m => {
-          const allowed = accountHasRole(currentAccount, m)
+          const allowed = accountHasRole(currentAccount, m) && (!allowedModes || allowedModes.includes(m))
           return (
             <button
               key={m}

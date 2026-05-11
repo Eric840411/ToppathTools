@@ -54,7 +54,8 @@ router.get('/api/admin/permissions', requireAdmin, (_req, res) => {
 })
 
 const matrixSchema = z.object({
-  matrix: z.record(z.record(z.boolean())),
+  // Accept both boolean and 0/1 integer (SQLite coercion edge case)
+  matrix: z.record(z.record(z.union([z.boolean(), z.number()]).transform(v => Boolean(v)))),
 })
 
 router.put('/api/admin/permissions', requireAdmin, writeLimiter, (req, res) => {
@@ -85,12 +86,16 @@ router.get('/api/admin/accounts', requireAdmin, (_req, res) => {
 })
 
 const createAccountSchema = z.object({
-  email: z.string().email(),
+  // For 'other' role, accepts any unique identifier; qa/pm must be valid email
+  email: z.string().min(1),
   label: z.string().min(1),
   role: z.enum(['qa', 'pm', 'other']),
   token: z.string().default(''),
   pin: z.string().optional(),
   status: z.enum(['active', 'disabled']).default('active'),
+}).refine(d => d.role === 'other' || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email), {
+  message: 'QA / PM 帳號必須填寫有效的 Email',
+  path: ['email'],
 })
 
 router.post('/api/admin/accounts', requireAdmin, writeLimiter, (req, res) => {
