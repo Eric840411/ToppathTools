@@ -656,7 +656,7 @@ async function isInGame(page: Page): Promise<boolean> {
 
 // ─── GM Event Watcher (enterGMNtc / leaveGMNtc via pinus WS frames) ─────────
 
-interface GMEventData { errcode: number; errcodedes: string }
+interface GMEventData { errcode: number; errcodedes: string; machineType?: string }
 interface IdeckCmdData { cmd: string; error: number }
 
 /**
@@ -696,10 +696,12 @@ function tryExtractGMEvent(text: string): { event: string } & GMEventData | null
       const eventKey = (parsed['event'] ?? parsed['route']) as string | undefined
       if (eventKey === eventName) {
         const body = (parsed['body'] as Record<string, unknown> | undefined) ?? parsed
+        const mt = String(body['machineType'] ?? parsed['machineType'] ?? '')
         return {
           event: eventName,
           errcode: Number(body['errcode'] ?? parsed['errcode'] ?? 0),
           errcodedes: String(body['errcodedes'] ?? parsed['errcodedes'] ?? ''),
+          ...(mt ? { machineType: mt } : {}),
         }
       }
     } catch { /* malformed JSON, try next event name */ }
@@ -793,12 +795,13 @@ function createGMEventWatcher(page: Page): { waitForEnterGM: GMWaitFn; waitForLe
         const ev = tryExtractGMEvent(text)
         if (ev) {
           if (ev.event === 'enterGMNtc') {
+            const evData: GMEventData = { errcode: ev.errcode, errcodedes: ev.errcodedes, ...(ev.machineType ? { machineType: ev.machineType } : {}) }
             if (enterResolve) {
-              enterResolve({ errcode: ev.errcode, errcodedes: ev.errcodedes })
+              enterResolve(evData)
               enterResolve = null
             } else {
               // Buffer it — may arrive before waitForEnterGM is called (e.g. during entry touchscreen)
-              enterBuffer = { data: { errcode: ev.errcode, errcodedes: ev.errcodedes }, ts: Date.now() }
+              enterBuffer = { data: evData, ts: Date.now() }
             }
           } else if (ev.event === 'leaveGMNtc' && leaveResolve) {
             leaveResolve({ errcode: ev.errcode, errcodedes: ev.errcodedes })
@@ -994,11 +997,12 @@ async function stepEntry(page: Page, machineCode: string, emit: (msg: string) =>
     const enterEv = await enterEventPromise
 
     if (enterEv) {
-      emit(`enterGMNtc errcode=${enterEv.errcode}: ${enterEv.errcodedes}`)
+      emit(`enterGMNtc errcode=${enterEv.errcode}: ${enterEv.errcodedes}${enterEv.machineType ? ` machineType=${enterEv.machineType}` : ''}`)
+      const extraData = enterEv.machineType ? { machineType: enterEv.machineType } : undefined
       if (enterEv.errcode === 0) {
-        return { step: '進入機台', status: 'pass', message: '成功進入遊戲（enterGMNtc errcode=0）', durationMs: Date.now() - t0 }
+        return { step: '進入機台', status: 'pass', message: '成功進入遊戲（enterGMNtc errcode=0）', durationMs: Date.now() - t0, extraData }
       }
-      return { step: '進入機台', status: 'fail', message: `進入失敗：enterGMNtc errcode=${enterEv.errcode} — ${enterEv.errcodedes}`, durationMs: Date.now() - t0 }
+      return { step: '進入機台', status: 'fail', message: `進入失敗：enterGMNtc errcode=${enterEv.errcode} — ${enterEv.errcodedes}`, durationMs: Date.now() - t0, extraData }
     }
 
     // No GMN event received — fall back to DOM detection
@@ -2431,15 +2435,30 @@ export class MachineTestRunner extends EventEmitter {
         stepResults.push(r)
         this.log(`${workerTag} [${r.status.toUpperCase()}] 進入機台: ${r.message}`, machineCode)
 
-        // After entering, try gmid fallback if no profile matched by machine code
+        // After entering, try fallbacks if no profile matched by machine code
         if (r.status !== 'fail' && !profile) {
-          const gameId = extractGameId(page.url())
-          if (gameId) {
+          // Fallback 1: machineType from enterGMNtc response (case-insensitive)
+          const gmMachineType = r.extraData?.machineType
+          if (gmMachineType) {
+            const lower = gmMachineType.toLowerCase()
             for (const [, p] of this.profiles) {
-              if (p.gmid && p.gmid.toLowerCase() === gameId) {
+              if (p.machineType.toLowerCase() === lower) {
                 profile = p
-                emit(`gmid 比對到設定檔：${p.machineType}（gameid=${gameId}）`)
+                emit(`enterGMNtc machineType 比對到設定檔：${p.machineType}（machineType=${gmMachineType}）`)
                 break
+              }
+            }
+          }
+          // Fallback 2: gmid from URL
+          if (!profile) {
+            const gameId = extractGameId(page.url())
+            if (gameId) {
+              for (const [, p] of this.profiles) {
+                if (p.gmid && p.gmid.toLowerCase() === gameId) {
+                  profile = p
+                  emit(`gmid 比對到設定檔：${p.machineType}（gameid=${gameId}）`)
+                  break
+                }
               }
             }
           }

@@ -34,6 +34,8 @@ export interface StepResult {
   status: StepStatus
   message: string
   durationMs: number
+  /** Extra context returned by the step (e.g. machineType from enterGMNtc response) */
+  extraData?: Record<string, string>
 }
 
 export interface MachineResult {
