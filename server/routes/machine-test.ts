@@ -82,11 +82,19 @@ type MachineTestProfile = z.infer<typeof profileSchema>
 // Status codes: 0=normal, 1=fg1, 2=fg2, 3=jackpot, 4=jackpot_active,
 //               5=fg_active, 8=denom_switch, 9=handpay
 export const osmMachineStatus = new Map<string, number>()
+// Tracks last-seen time per machine for stale detection
+const osmMachineUpdatedAt = new Map<string, number>()
+// Machines not updated within this window are hidden from UI and eventually purged
+const OSM_STALE_MS = 10 * 60 * 1000 // 10 minutes
 
-// Load persisted machine statuses from DB on startup so SSE snapshot is immediately useful
+// Load persisted machine statuses from DB on startup (only recent ones)
 {
-  const rows = db.prepare('SELECT machine_id, status FROM osm_machine_status').all() as { machine_id: string; status: number }[]
-  for (const row of rows) osmMachineStatus.set(row.machine_id, row.status)
+  const cutoff = Date.now() - OSM_STALE_MS
+  const rows = db.prepare('SELECT machine_id, status, updated_at FROM osm_machine_status WHERE updated_at > ?').all(cutoff) as { machine_id: string; status: number; updated_at: number }[]
+  for (const row of rows) {
+    osmMachineStatus.set(row.machine_id, row.status)
+    osmMachineUpdatedAt.set(row.machine_id, row.updated_at)
+  }
 }
 
 const _persistOsmStatus = db.prepare('INSERT OR REPLACE INTO osm_machine_status (machine_id, status, updated_at) VALUES (?, ?, ?)')
@@ -94,17 +102,37 @@ function persistOsmMachineStatus(id: string, status: number) {
   try { _persistOsmStatus.run(id, status, Date.now()) } catch { /* non-critical */ }
 }
 
+// Periodically evict machines not seen in OSM_STALE_MS from memory and DB
+setInterval(() => {
+  const cutoff = Date.now() - OSM_STALE_MS
+  let changed = false
+  for (const [id, updatedAt] of osmMachineUpdatedAt.entries()) {
+    if (updatedAt < cutoff) {
+      osmMachineStatus.delete(id)
+      osmMachineUpdatedAt.delete(id)
+      try { db.prepare('DELETE FROM osm_machine_status WHERE machine_id = ?').run(id) } catch { /* non-critical */ }
+      changed = true
+    }
+  }
+  if (changed) broadcastOsmStatus()
+}, 60_000)
+
 // SSE clients waiting for OSMWatcher status push
 type SseClient = import('express').Response
 const osmSseClients = new Set<SseClient>()
 
 function broadcastOsmStatus() {
   if (osmSseClients.size === 0) return
+  const now = Date.now()
   const entries: Record<string, { status: number; label: string }> = {}
   for (const [id, status] of osmMachineStatus.entries()) {
-    entries[id] = { status, label: OSM_STATUS_LABELS[status] ?? `未知(${status})` }
+    const updatedAt = osmMachineUpdatedAt.get(id) ?? 0
+    if (now - updatedAt < OSM_STALE_MS) {
+      entries[id] = { status, label: OSM_STATUS_LABELS[status] ?? `未知(${status})` }
+    }
   }
-  const payload = JSON.stringify({ machines: entries, count: osmMachineStatus.size, ts: Date.now() })
+  const count = Object.keys(entries).length
+  const payload = JSON.stringify({ machines: entries, count, ts: now })
   for (const client of osmSseClients) {
     try { client.write(`data: ${payload}\n\n`) } catch { osmSseClients.delete(client) }
   }
@@ -689,6 +717,7 @@ router.post('/api/machine-test/osm-status', (req, res) => {
       for (const gm of body.gmlist) {
         if (typeof gm.id === 'string' && typeof gm.status === 'number') {
           osmMachineStatus.set(gm.id, gm.status)
+          osmMachineUpdatedAt.set(gm.id, Date.now())
           persistOsmMachineStatus(gm.id, gm.status)
         }
       }
@@ -718,11 +747,15 @@ router.get('/api/machine-test/osm-jackpot', (_req, res) => {
 
 // GET /api/machine-test/osm-status ??query current statuses (for UI display)
 router.get('/api/machine-test/osm-status', (_req, res) => {
+  const now = Date.now()
   const entries: Record<string, { status: number; label: string }> = {}
   for (const [id, status] of osmMachineStatus.entries()) {
-    entries[id] = { status, label: OSM_STATUS_LABELS[status] ?? `\u672a\u77e5(${status})` }
+    const updatedAt = osmMachineUpdatedAt.get(id) ?? 0
+    if (now - updatedAt < OSM_STALE_MS) {
+      entries[id] = { status, label: OSM_STATUS_LABELS[status] ?? `未知(${status})` }
+    }
   }
-  res.json({ ok: true, machines: entries, count: osmMachineStatus.size })
+  res.json({ ok: true, machines: entries, count: Object.keys(entries).length })
 })
 
 // GET /api/machine-test/osm-status-stream — SSE push (real-time, no polling needed)
