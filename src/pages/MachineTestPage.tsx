@@ -630,7 +630,7 @@ function ProfilesPanel() {
               disabled={saving || !editing.machineType.trim()} onClick={handleSave}>
               {saving ? '儲存中...' : '儲存'}
             </button>
-            <button type="button" className="btn-ghost" onClick={() => setEditing(null)}>取消</button>
+            <button type="button" className="btn-ghost" style={{ whiteSpace: 'nowrap' }} onClick={() => setEditing(null)}>取消</button>
           </div>
         </div>
       )}
