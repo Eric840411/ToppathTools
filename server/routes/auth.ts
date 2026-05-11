@@ -7,7 +7,7 @@ import { getActiveHeavyTasks, getHeavyTaskForRequest, getRecentHeavyTasksForRequ
 export const router = Router()
 
 const loginSchema = z.object({
-  email: z.string().email(),
+  email: z.string().min(1),  // allow non-email identifiers for Other role accounts
   pin: z.string().optional(),
 })
 
