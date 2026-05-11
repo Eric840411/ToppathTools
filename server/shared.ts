@@ -144,6 +144,14 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_mtr_account  ON machine_test_results (account, tested_at);
 `)
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS osm_machine_status (
+    machine_id  TEXT PRIMARY KEY,
+    status      INTEGER NOT NULL DEFAULT 0,
+    updated_at  INTEGER NOT NULL
+  );
+`)
+
 // Auto-purge history older than 7 days
 db.prepare('DELETE FROM operation_history WHERE created_at < ?').run(Date.now() - 7 * 24 * 60 * 60 * 1000)
 db.prepare("UPDATE heavy_tasks SET status = 'abandoned', finished_at = ? WHERE status IN ('queued', 'running') AND created_at < ?")

@@ -83,6 +83,33 @@ type MachineTestProfile = z.infer<typeof profileSchema>
 //               5=fg_active, 8=denom_switch, 9=handpay
 export const osmMachineStatus = new Map<string, number>()
 
+// Load persisted machine statuses from DB on startup so SSE snapshot is immediately useful
+{
+  const rows = db.prepare('SELECT machine_id, status FROM osm_machine_status').all() as { machine_id: string; status: number }[]
+  for (const row of rows) osmMachineStatus.set(row.machine_id, row.status)
+}
+
+const _persistOsmStatus = db.prepare('INSERT OR REPLACE INTO osm_machine_status (machine_id, status, updated_at) VALUES (?, ?, ?)')
+function persistOsmMachineStatus(id: string, status: number) {
+  try { _persistOsmStatus.run(id, status, Date.now()) } catch { /* non-critical */ }
+}
+
+// SSE clients waiting for OSMWatcher status push
+type SseClient = import('express').Response
+const osmSseClients = new Set<SseClient>()
+
+function broadcastOsmStatus() {
+  if (osmSseClients.size === 0) return
+  const entries: Record<string, { status: number; label: string }> = {}
+  for (const [id, status] of osmMachineStatus.entries()) {
+    entries[id] = { status, label: OSM_STATUS_LABELS[status] ?? `未知(${status})` }
+  }
+  const payload = JSON.stringify({ machines: entries, count: osmMachineStatus.size, ts: Date.now() })
+  for (const client of osmSseClients) {
+    try { client.write(`data: ${payload}\n\n`) } catch { osmSseClients.delete(client) }
+  }
+}
+
 // Per-channel throttle: process at most 1 update per channel per second.
 // Extra requests still receive success ACK ??OSMWatcher never retries.
 const osmChannelLastProcessed = new Map<string, number>()
@@ -670,8 +697,10 @@ router.post('/api/machine-test/osm-status', (req, res) => {
       for (const gm of body.gmlist) {
         if (typeof gm.id === 'string' && typeof gm.status === 'number') {
           osmMachineStatus.set(gm.id, gm.status)
+          persistOsmMachineStatus(gm.id, gm.status)
         }
       }
+      broadcastOsmStatus()
     }
     if (typeof body.gtype === 'number' && body.jackpot) {
       const jp = body.jackpot
@@ -702,6 +731,19 @@ router.get('/api/machine-test/osm-status', (_req, res) => {
     entries[id] = { status, label: OSM_STATUS_LABELS[status] ?? `\u672a\u77e5(${status})` }
   }
   res.json({ ok: true, machines: entries, count: osmMachineStatus.size })
+})
+
+// GET /api/machine-test/osm-status-stream — SSE push (real-time, no polling needed)
+router.get('/api/machine-test/osm-status-stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+  res.flushHeaders?.()
+  osmSseClients.add(res)
+  // Send current snapshot immediately on connect
+  broadcastOsmStatus()
+  const keepAlive = setInterval(() => { try { res.write(': ping\n\n') } catch { clearInterval(keepAlive) } }, 15_000)
+  req.on('close', () => { clearInterval(keepAlive); osmSseClients.delete(res) })
 })
 
 // GET /api/machine-test/queue-status ??current work-stealing queue state

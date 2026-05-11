@@ -282,6 +282,7 @@ export function OsmUatPage() {
     pc: { url: '', resolution: '1366x768', failureMode: 'continue', headed: false },
   })
   const autoStreams = useRef<Record<AutoPlatform, EventSource | null>>({ h5: null, pc: null })
+  const autoRunIds = useRef<Record<AutoPlatform, string | null>>({ h5: null, pc: null })
 
   const loadAutoScripts = useCallback(async (platform: AutoPlatform) => {
     const res = await fetch(`/api/frontend-auto/scripts?platform=${platform}`)
@@ -384,13 +385,27 @@ export function OsmUatPage() {
       setAutoLogs(prev => ({ ...prev, [platform]: [...prev[platform], payload.line] }))
     })
     stream.onerror = () => stream.close()
-    await fetch(`/api/frontend-auto/runs/${data.run.id}/log`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ line: `Queued ${steps.length} steps for ${platform.toUpperCase()}` }),
+    autoRunIds.current[platform] = data.run.id
+    // Trigger actual Playwright execution on the server
+    await fetch(`/api/frontend-auto/runs/${data.run.id}/execute`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        steps: parseAutoSteps(script.steps).length ? script.steps : '[]',
+        url: runConfig[platform].url,
+        resolution: runConfig[platform].resolution,
+        failureMode: runConfig[platform].failureMode,
+        headed: runConfig[platform].headed,
+      }),
     })
     await loadAutoRuns(platform)
   }
 
   function stopAuto(platform: AutoPlatform) {
+    const runId = autoRunIds.current[platform]
+    if (runId) {
+      void fetch(`/api/frontend-auto/runs/${runId}/stop`, { method: 'POST' }).then(() => loadAutoRuns(platform))
+      autoRunIds.current[platform] = null
+    }
     autoStreams.current[platform]?.close()
     autoStreams.current[platform] = null
     setAutoLogs(prev => ({ ...prev, [platform]: [...prev[platform], 'Stopped by user'] }))
@@ -435,6 +450,7 @@ export function OsmUatPage() {
     const [guideOpen, setGuideOpen] = useState(false)
     const [recSessionId, setRecSessionId] = useState<string | null>(null)
     const [recPolling, setRecPolling] = useState(false)
+    const [recDisplayUrl, setRecDisplayUrl] = useState<string | null>(null)
     const recPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
     const selected = autoScripts[platform].find(item => item.id === selectedScriptIds[platform])
     const steps = selected ? parseAutoSteps(selected.steps) : []
@@ -452,9 +468,10 @@ export function OsmUatPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url, platform, resolution: runConfig[platform].resolution }),
       })
-      const data = await res.json() as { ok: boolean; sessionId: string }
+      const data = await res.json() as { ok: boolean; sessionId: string; displayUrl?: string }
       if (!data.ok) return alert('錄製啟動失敗')
       setRecSessionId(data.sessionId)
+      setRecDisplayUrl(data.displayUrl ?? url)
       setRecPolling(true)
       recPollRef.current = setInterval(async () => {
         const poll = await fetch(`/api/frontend-auto/record/status/${data.sessionId}`)
@@ -464,6 +481,7 @@ export function OsmUatPage() {
           recPollRef.current = null
           setRecPolling(false)
           setRecSessionId(null)
+          setRecDisplayUrl(null)
           if (status.steps.length > 0) {
             setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], steps: JSON.stringify(status.steps, null, 2) } }))
             setNewScriptOpen(prev => ({ ...prev, [platform]: true }))
@@ -482,6 +500,7 @@ export function OsmUatPage() {
       const res = await fetch(`/api/frontend-auto/record/stop/${recSessionId}`, { method: 'POST' })
       const data = await res.json() as { ok: boolean; steps: object[] }
       setRecSessionId(null)
+      setRecDisplayUrl(null)
       if (data.steps.length > 0) {
         setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], steps: JSON.stringify(data.steps, null, 2) } }))
         setNewScriptOpen(prev => ({ ...prev, [platform]: true }))
@@ -517,12 +536,12 @@ export function OsmUatPage() {
             <span style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b' }}>{guideOpen ? '▲ 收合' : '▼ 展開'}</span>
           </button>
           {guideOpen && (
-            <div style={{ borderTop: '1px solid #e2e8f0', padding: '12px 16px', display: 'grid', gap: 10 }}>
+            <div style={{ borderTop: '1px solid #e8e8e8', padding: '12px 16px', display: 'grid', gap: 10 }}>
               {guideSteps.map(step => (
                 <div key={step.title} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                   <span style={{ fontSize: 16, flexShrink: 0 }}>{step.icon}</span>
                   <div>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#1d4ed8' }}>{step.title}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#4f8ef7' }}>{step.title}</span>
                     <p style={{ margin: '2px 0 0', fontSize: 12, color: '#475569', lineHeight: 1.6 }}>{step.desc}</p>
                   </div>
                 </div>
@@ -530,13 +549,126 @@ export function OsmUatPage() {
             </div>
           )}
         </section>
-        <div style={{ ...panelStyle, display: 'flex', alignItems: 'center', gap: 16, padding: 12 }}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#334155', fontWeight: 600 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: apiReady ? '#16a34a' : '#94a3b8' }} />Node.js / Playwright 安裝套件</span><a href="/api/frontend-auto/setup/install.bat" style={downloadStyle}>install.bat</a><a href="/api/frontend-auto/setup/install.sh" style={downloadStyle}>install.sh</a></div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(320px, 2fr)', gap: 16 }}>
-          <section style={panelStyle}><div style={panelHeadStyle}><h3 style={h3Style}>腳本清單</h3><input value={search} onChange={e => setSearch(e.target.value)} placeholder="搜尋腳本名稱" style={{ ...inputStyle, width: 180 }} /></div><div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>{(['all', 'mine', 'public'] as const).map(item => <button key={item} onClick={() => setFilter(item)} style={filter === item ? activePillStyle : pillStyle}>{item === 'all' ? '全部' : item === 'mine' ? '我的' : '公開'}</button>)}</div><table style={tableStyle}><thead><tr><th style={thStyle}>名稱</th><th style={thStyle}>步驟數</th><th style={thStyle}>上次結果</th><th style={thStyle}>操作</th></tr></thead><tbody>{visible.map(script => <tr key={script.id} onClick={() => setSelectedScriptIds(prev => ({ ...prev, [platform]: script.id }))} style={{ background: selectedScriptIds[platform] === script.id ? '#eff6ff' : '#fff', cursor: 'pointer' }}><td style={tdStyle}>{script.name}</td><td style={tdStyle}>{parseAutoSteps(script.steps).length}</td><td style={tdStyle}>{latest.get(script.id) ?? '未知'}</td><td style={tdStyle}><button style={smallBtnStyle} onClick={e => { e.stopPropagation(); setSelectedScriptIds(prev => ({ ...prev, [platform]: script.id })); void runAutoScript(platform) }}>執行</button><button style={dangerBtnStyle} onClick={e => { e.stopPropagation(); void deleteAutoScript(platform, script) }}>刪除</button></td></tr>)}</tbody></table><div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}><button style={{ ...btnStyle, background: '#1d4ed8' }} onClick={() => setNewScriptOpen(prev => ({ ...prev, [platform]: !prev[platform] }))}>＋ 新增腳本</button>{recPolling ? <button style={{ ...btnStyle, background: '#dc2626' }} onClick={() => void stopRecord()}>■ 停止錄製</button> : <button style={{ ...btnStyle, background: '#7c3aed' }} onClick={() => void startRecord()}>🔴 開始錄製</button>}{recPolling && <span style={{ fontSize: 12, color: '#7c3aed', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#dc2626', display: 'inline-block', animation: 'none' }} />錄製中，請在彈出視窗操作...</span>}</div>{newScriptOpen[platform] && <div style={{ display: 'grid', gap: 8, marginTop: 12 }}><input value={newScriptDraft[platform].name} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], name: e.target.value } }))} placeholder="腳本名稱" style={inputStyle} /><textarea value={newScriptDraft[platform].steps} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], steps: e.target.value } }))} rows={6} style={{ ...inputStyle, fontFamily: 'Consolas, Monaco, monospace' }} /><button style={{ ...btnStyle, background: newScriptDraft[platform].name.trim() ? '#16a34a' : '#94a3b8', width: 110, cursor: newScriptDraft[platform].name.trim() ? 'pointer' : 'not-allowed' }} onClick={() => void createAutoScript(platform)}>儲存</button></div>}</section>
-          <section style={panelStyle}><h3 style={h3Style}>執行設定</h3><div style={{ display: 'grid', gap: 10, marginTop: 12 }}><input value={runConfig[platform].url} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], url: e.target.value } }))} placeholder="目標 URL" style={inputStyle} /><select value={runConfig[platform].resolution} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], resolution: e.target.value } }))} style={inputStyle}>{resolutions.map(size => <option key={size}>{size}</option>)}</select><select value={runConfig[platform].failureMode} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], failureMode: e.target.value } }))} style={inputStyle}><option value="continue">失敗後繼續</option><option value="stop">失敗後停止</option></select><label style={{ fontSize: 12, color: '#334155' }}><input type="checkbox" checked={runConfig[platform].headed} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], headed: e.target.checked } }))} /> 顯示瀏覽器視窗</label><div style={{ display: 'flex', gap: 8 }}><button disabled={!selected} style={{ ...btnStyle, background: selected ? '#1d4ed8' : '#94a3b8' }} onClick={() => void runAutoScript(platform)}>▶ 執行所選腳本</button><button style={{ ...btnStyle, background: '#dc2626' }} onClick={() => stopAuto(platform)}>■ 停止</button></div><div style={{ display: 'flex', gap: 10, fontSize: 12, fontWeight: 700 }}><span style={{ color: '#16a34a' }}>通過 {autoStats[platform].pass}</span><span style={{ color: '#dc2626' }}>失敗 {autoStats[platform].fail}</span><span style={{ color: '#64748b' }}>跳過 {autoStats[platform].skip}</span></div><div style={autoLogStyle}>{autoLogs[platform].length ? autoLogs[platform].map((line, i) => <div key={i}>{line}</div>) : <span style={{ color: '#64748b' }}>等待執行...</span>}</div></div></section>
+        <div style={{ background: '#f0f6ff', border: '1px solid #c7dcff', borderRadius: 8, padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: apiReady ? '#22c55e' : '#f59e0b', flexShrink: 0, display: 'inline-block' }} />
+            <div>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#1d4ed8' }}>Node.js / Playwright 安裝套件</span>
+              <span style={{ display: 'block', fontSize: 11, color: '#888', marginTop: 2 }}>尚未安裝？下載安裝包一鍵完成 — 每台電腦只需安裝一次</span>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <a href="/api/frontend-auto/setup/install.bat" style={downloadStyle}>⬇ install.bat</a>
+            <a href="/api/frontend-auto/setup/install.sh" style={downloadStyle}>⬇ install.sh</a>
+          </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}><section style={panelStyle}><h3 style={h3Style}>步驟進度</h3><div style={{ display: 'grid', gap: 8, marginTop: 12 }}>{steps.length ? steps.map((step, i) => <div key={`${step}-${i}`} style={stepRowStyle}><span>{stepStatuses[platform][i] === 'pass' ? '✅' : stepStatuses[platform][i] === 'fail' ? '❌' : '○'}</span><span>{step}</span></div>) : <span style={emptyStyle}>尚未選擇腳本</span>}</div></section><section style={panelStyle}><div style={panelHeadStyle}><h3 style={h3Style}>基準截圖管理</h3><label style={uploadStyle}>上傳基準圖<input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { void uploadBaseline(platform, e.target.files?.[0]); e.target.value = '' }} /></label></div><div style={thumbGridStyle}>{baselineRows.map(row => <div key={row.id} style={thumbCardStyle}><img src={row.image_path} alt={row.name} style={thumbImageStyle} /><span style={cardTitleStyle}>{row.name}</span><button style={dangerBtnStyle} onClick={() => void deleteBaseline(row.script_id, row.id)}>刪除</button></div>)}</div></section></div>
-        {platform === 'pc' && <><section style={panelStyle}><div style={panelHeadStyle}><h3 style={h3Style}>模板圖庫</h3><label style={uploadStyle}>上傳模板<input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { void uploadTemplate(e.target.files?.[0]); e.target.value = '' }} /></label></div><div style={thumbGridStyle}>{autoTemplates.map(t => <div key={t.id} style={thumbCardStyle}><img src={t.image_path} alt={t.name} style={thumbImageStyle} /><span style={cardTitleStyle}>{t.name}</span><div style={barTrackStyle}><span style={{ ...barFillStyle, width: `${Math.round((t.last_confidence ?? 0) * 100)}%` }} /></div><button style={dangerBtnStyle} onClick={() => { void fetch(`/api/frontend-auto/templates/${t.id}`, { method: 'DELETE' }).then(loadTemplates) }}>刪除</button></div>)}</div></section><section style={panelStyle}><div style={panelHeadStyle}><h3 style={h3Style}>OCR 區域定義</h3><button style={smallBtnStyle} onClick={() => void addOcrRegion()}>新增區域</button></div><table style={tableStyle}><thead><tr><th style={thStyle}>名稱</th><th style={thStyle}>標籤</th><th style={thStyle}>裁切範圍</th><th style={thStyle}>準確率</th><th style={thStyle}>操作</th></tr></thead><tbody>{ocrRegions.map(r => <tr key={r.id}><td style={tdStyle}>{r.name}</td><td style={tdStyle}>{r.label}</td><td style={tdStyle}>{r.crop_x},{r.crop_y},{r.crop_w},{r.crop_h}</td><td style={tdStyle}>{r.accuracy ?? '-'}</td><td style={tdStyle}><button style={dangerBtnStyle} onClick={() => { void fetch(`/api/frontend-auto/ocr-regions/${r.id}`, { method: 'DELETE' }).then(loadOcr) }}>刪除</button></td></tr>)}</tbody></table></section></>}
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(320px, 2fr)', gap: 16 }}>
+          <section style={panelStyle}>
+            <div style={panelHeadStyle}>
+              <h3 style={h3Style}><span style={{ width: 20, height: 20, borderRadius: 4, background: '#4f8ef7', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0 }}>S</span>腳本清單</h3>
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="搜尋腳本名稱" style={{ ...inputStyle, width: 160 }} />
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+              {(['all', 'mine', 'public'] as const).map(item => <button key={item} onClick={() => setFilter(item)} style={filter === item ? activePillStyle : pillStyle}>{item === 'all' ? '全部' : item === 'mine' ? '我的' : '公開'}</button>)}
+            </div>
+            <table style={tableStyle}>
+              <thead><tr><th style={thStyle}>名稱</th><th style={thStyle}>步驟</th><th style={thStyle}>上次結果</th><th style={thStyle}>操作</th></tr></thead>
+              <tbody>{visible.map(script => {
+                const res = latest.get(script.id)
+                const tagColor = res === 'pass' ? { bg: '#dcfce7', color: '#15803d' } : res === 'fail' ? { bg: '#fee2e2', color: '#b91c1c' } : res === 'running' ? { bg: '#dbeafe', color: '#1d4ed8' } : { bg: '#f3e8ff', color: '#7e22ce' }
+                return <tr key={script.id} onClick={() => setSelectedScriptIds(prev => ({ ...prev, [platform]: script.id }))} style={{ background: selectedScriptIds[platform] === script.id ? '#eff6ff' : '#fff', cursor: 'pointer' }}>
+                  <td style={tdStyle}><strong style={{ fontSize: 12, color: '#333' }}>{script.name}</strong><div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>{script.created_by}</div></td>
+                  <td style={tdStyle}>{parseAutoSteps(script.steps).length}</td>
+                  <td style={tdStyle}>{res ? <span style={{ display: 'inline-block', padding: '2px 7px', borderRadius: 3, fontSize: 10, fontWeight: 700, background: tagColor.bg, color: tagColor.color }}>{res.toUpperCase()}</span> : <span style={{ fontSize: 10, color: '#aaa' }}>未執行</span>}</td>
+                  <td style={{ ...tdStyle, display: 'flex', gap: 4 }}>
+                    <button style={{ ...smallBtnStyle, color: '#fff', background: '#22c55e', border: 'none' }} onClick={e => { e.stopPropagation(); setSelectedScriptIds(prev => ({ ...prev, [platform]: script.id })); void runAutoScript(platform) }}>▶ 執行</button>
+                    <button style={dangerBtnStyle} onClick={e => { e.stopPropagation(); void deleteAutoScript(platform, script) }}>刪除</button>
+                  </td>
+                </tr>
+              })}</tbody>
+            </table>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
+              <button style={{ ...btnStyle, background: '#4f8ef7' }} onClick={() => setNewScriptOpen(prev => ({ ...prev, [platform]: !prev[platform] }))}>＋ 新增腳本</button>
+              {recPolling ? <button style={{ ...btnStyle, background: '#ef4444' }} onClick={() => void stopRecord()}>■ 停止錄製</button> : <button style={{ ...btnStyle, background: '#7c3aed' }} onClick={() => void startRecord()}>🔴 開始錄製</button>}
+              {recPolling && <span style={{ fontSize: 12, color: '#7c3aed', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />錄製中...</span>}
+            </div>
+            {recPolling && recDisplayUrl && <div style={{ marginTop: 8, padding: '10px 12px', background: '#fffbeb', border: '1px solid #f59e0b', borderLeft: '3px solid #f59e0b', borderRadius: 6 }}><div style={{ fontSize: 12, color: '#92400e', fontWeight: 600, marginBottom: 6 }}>Playwright 已開啟空白頁。請將以下 URL 貼到錄製瀏覽器網址列按 Enter：</div><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input readOnly value={recDisplayUrl} style={{ ...inputStyle, flex: 1, fontSize: 11, fontFamily: 'Consolas, Monaco, monospace' }} onClick={e => (e.target as HTMLInputElement).select()} /><button style={{ ...smallBtnStyle, whiteSpace: 'nowrap' }} onClick={() => { void navigator.clipboard.writeText(recDisplayUrl) }}>複製 URL</button></div></div>}
+            {newScriptOpen[platform] && <div style={{ display: 'grid', gap: 8, marginTop: 12, padding: '12px', background: '#f9f9f9', border: '1px solid #e8e8e8', borderRadius: 6 }}>
+              <input value={newScriptDraft[platform].name} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], name: e.target.value } }))} placeholder="腳本名稱" style={inputStyle} />
+              <textarea value={newScriptDraft[platform].steps} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], steps: e.target.value } }))} rows={5} style={{ ...inputStyle, fontFamily: 'Consolas, Monaco, monospace', resize: 'vertical' }} />
+              <button style={{ ...btnStyle, background: newScriptDraft[platform].name.trim() ? '#22c55e' : '#d1d5db', width: 80, cursor: newScriptDraft[platform].name.trim() ? 'pointer' : 'not-allowed' }} onClick={() => void createAutoScript(platform)}>儲存</button>
+            </div>}
+          </section>
+          <section style={panelStyle}>
+            <h3 style={{ ...h3Style, marginBottom: 16 }}><span style={{ width: 20, height: 20, borderRadius: 4, background: '#22c55e', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0 }}>▶</span>執行設定</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}><label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>目標 URL</label><input value={runConfig[platform].url} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], url: e.target.value } }))} placeholder="https://..." style={inputStyle} /></div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}><label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>解析度</label><select value={runConfig[platform].resolution} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], resolution: e.target.value } }))} style={inputStyle}>{resolutions.map(size => <option key={size}>{size}</option>)}</select></div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}><label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>失敗後</label><select value={runConfig[platform].failureMode} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], failureMode: e.target.value } }))} style={inputStyle}><option value="continue">繼續執行</option><option value="stop">立即停止</option></select></div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+              <button disabled={!selected} style={{ ...btnStyle, background: selected ? '#22c55e' : '#d1d5db', cursor: selected ? 'pointer' : 'not-allowed' }} onClick={() => void runAutoScript(platform)}>▶ 執行所選腳本</button>
+              <button style={{ ...btnStyle, background: '#ef4444' }} onClick={() => stopAuto(platform)}>■ 停止</button>
+              <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#888' }}><input type="checkbox" checked={runConfig[platform].headed} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], headed: e.target.checked } }))} />Headed</label>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 20, background: '#f9f9f9', border: '1px solid #eee', borderRadius: 6, padding: '8px 16px', marginBottom: 12, fontSize: 12 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ color: '#22c55e', fontWeight: 700 }}>✓ 通過</span>{autoStats[platform].pass}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ color: '#ef4444', fontWeight: 700 }}>✗ 失敗</span>{autoStats[platform].fail}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ color: '#aaa', fontWeight: 700 }}>○ 跳過</span>{autoStats[platform].skip}</span>
+            </div>
+            <div style={autoLogStyle}>{autoLogs[platform].length ? autoLogs[platform].map((line, i) => {
+              const c = line.startsWith('✅') ? '#4ade80' : line.startsWith('❌') ? '#f87171' : line.startsWith('⏳') ? '#94a3b8' : line.startsWith('🛑') ? '#fbbf24' : line.includes('完成') ? '#4ade80' : '#94a3b8'
+              return <div key={i} style={{ color: c }}>{line}</div>
+            }) : <span style={{ color: '#475569' }}>等待執行...</span>}</div>
+          </section>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <section style={panelStyle}>
+            <h3 style={{ ...h3Style, marginBottom: 12 }}><span style={{ width: 20, height: 20, borderRadius: 4, background: '#a855f7', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0 }}>S</span>步驟執行進度{selected ? `（${selected.name}）` : ''}</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {steps.length ? steps.map((step, i) => {
+                const st = stepStatuses[platform][i]
+                const numBg = st === 'pass' ? '#22c55e' : st === 'fail' ? '#ef4444' : '#4f8ef7'
+                const badgeBg = st === 'pass' ? '#dcfce7' : st === 'fail' ? '#fee2e2' : '#f5f5f5'
+                const badgeColor = st === 'pass' ? '#15803d' : st === 'fail' ? '#b91c1c' : '#aaa'
+                const badgeText = st === 'pass' ? 'PASS' : st === 'fail' ? 'FAIL' : '待執行'
+                const opacity = st === 'pending' ? 0.5 : 1
+                return (
+                  <div key={`${step}-${i}`} style={{ ...stepRowStyle, opacity }}>
+                    <span style={{ width: 20, height: 20, borderRadius: '50%', background: numBg, color: '#fff', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
+                    <span style={{ flex: 1, fontSize: 12, color: '#333' }}>{step}</span>
+                    <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, fontWeight: 600, background: badgeBg, color: badgeColor }}>{badgeText}</span>
+                  </div>
+                )
+              }) : <span style={emptyStyle}>尚未選擇腳本</span>}
+            </div>
+          </section>
+          <section style={panelStyle}>
+            <div style={panelHeadStyle}>
+              <h3 style={h3Style}><span style={{ width: 20, height: 20, borderRadius: 4, background: '#f59e0b', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0 }}>B</span>基準截圖管理</h3>
+              <label style={uploadStyle}>上傳基準圖<input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { void uploadBaseline(platform, e.target.files?.[0]); e.target.value = '' }} /></label>
+            </div>
+            <div style={thumbGridStyle}>{baselineRows.map(row => <div key={row.id} style={thumbCardStyle}><img src={row.image_path} alt={row.name} style={thumbImageStyle} /><span style={cardTitleStyle}>{row.name}</span><button style={dangerBtnStyle} onClick={() => void deleteBaseline(row.script_id, row.id)}>刪除</button></div>)}</div>
+          </section>
+        </div>
+        {platform === 'pc' && <>
+          <section style={panelStyle}>
+            <div style={panelHeadStyle}>
+              <h3 style={h3Style}><span style={{ width: 20, height: 20, borderRadius: 4, background: '#f59e0b', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0 }}>T</span>模板圖庫（PC Canvas 比對）</h3>
+              <label style={{ ...uploadStyle, background: '#f59e0b', border: 'none', color: '#fff' }}>上傳模板<input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { void uploadTemplate(e.target.files?.[0]); e.target.value = '' }} /></label>
+            </div>
+            <p style={{ fontSize: 11, color: '#888', marginBottom: 12 }}>Cocos Canvas 無法抓 DOM，UI 按鈕驗證靠小圖比對（confidence ≥ 0.85）</p>
+            <div style={thumbGridStyle}>{autoTemplates.map(t => <div key={t.id} style={thumbCardStyle}><img src={t.image_path} alt={t.name} style={thumbImageStyle} /><span style={cardTitleStyle}>{t.name}</span><div style={barTrackStyle}><span style={{ ...barFillStyle, width: `${Math.round((t.last_confidence ?? 0) * 100)}%`, background: (t.last_confidence ?? 0) >= 0.85 ? '#22c55e' : '#f59e0b' }} /></div><button style={dangerBtnStyle} onClick={() => { void fetch(`/api/frontend-auto/templates/${t.id}`, { method: 'DELETE' }).then(loadTemplates) }}>刪除</button></div>)}</div>
+          </section>
+          <section style={panelStyle}>
+            <div style={panelHeadStyle}>
+              <h3 style={h3Style}><span style={{ width: 20, height: 20, borderRadius: 4, background: '#ef4444', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0 }}>O</span>OCR 裁切區域定義</h3>
+              <button style={{ ...smallBtnStyle, color: '#fff', background: '#4f8ef7', border: 'none' }} onClick={() => void addOcrRegion()}>新增區域</button>
+            </div>
+            <p style={{ fontSize: 11, color: '#888', marginBottom: 12 }}>在遊戲截圖上框選餘額 / Bet / Win 區域，Tesseract 辨識後比對數字</p>
+            <table style={tableStyle}><thead><tr><th style={thStyle}>名稱</th><th style={thStyle}>標籤</th><th style={thStyle}>裁切範圍</th><th style={thStyle}>準確率</th><th style={thStyle}>操作</th></tr></thead><tbody>{ocrRegions.map(r => <tr key={r.id}><td style={tdStyle}>{r.name}</td><td style={tdStyle}>{r.label}</td><td style={{ ...tdStyle, fontFamily: 'Consolas, monospace', fontSize: 11 }}>{r.crop_x},{r.crop_y},{r.crop_w},{r.crop_h}</td><td style={tdStyle}>{r.accuracy ? <span style={{ color: '#22c55e', fontWeight: 700 }}>{r.accuracy}%</span> : '—'}</td><td style={tdStyle}><button style={dangerBtnStyle} onClick={() => { void fetch(`/api/frontend-auto/ocr-regions/${r.id}`, { method: 'DELETE' }).then(loadOcr) }}>刪除</button></td></tr>)}</tbody></table>
+          </section>
+        </>}
       </div>
     )
   }
@@ -800,49 +932,57 @@ export function OsmUatPage() {
 
 const inputStyle: React.CSSProperties = {
   padding: '6px 10px',
-  border: '1px solid #e2e8f0',
-  borderRadius: 6,
+  border: '1px solid #d0d0d0',
+  borderRadius: 4,
   fontSize: 12,
-  color: '#1e293b',
+  color: '#333',
   background: '#fff',
   outline: 'none',
 }
 
 const btnStyle: React.CSSProperties = {
-  padding: '8px 20px',
+  padding: '7px 16px',
   border: 'none',
-  borderRadius: 6,
-  fontSize: 13,
+  borderRadius: 5,
+  fontSize: 12,
   fontWeight: 600,
   color: '#fff',
+  cursor: 'pointer',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 5,
+  whiteSpace: 'nowrap',
 }
 
 const panelStyle: React.CSSProperties = {
-  background: '#f8fafc',
-  border: '1px solid #e2e8f0',
+  background: '#fff',
+  border: '1px solid #e0e0e0',
   borderRadius: 8,
-  padding: 16,
+  padding: '20px 24px',
 }
 
 const panelHeadStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  marginBottom: 12,
+  marginBottom: 16,
 }
 
 const h3Style: React.CSSProperties = {
   margin: 0,
-  fontSize: 14,
-  fontWeight: 600,
-  color: '#1e293b',
+  fontSize: 13,
+  fontWeight: 700,
+  color: '#444',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
 }
 
 const cardTitleStyle: React.CSSProperties = {
   fontSize: 11,
-  color: '#64748b',
+  color: '#555',
   display: 'block',
-  marginTop: 4,
+  marginTop: 2,
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
@@ -850,9 +990,9 @@ const cardTitleStyle: React.CSSProperties = {
 }
 
 const barTrackStyle: React.CSSProperties = {
-  background: '#e2e8f0',
-  borderRadius: 4,
-  height: 4,
+  background: '#e5e7eb',
+  borderRadius: 3,
+  height: 6,
   overflow: 'hidden',
   marginTop: 4,
 }
@@ -860,29 +1000,29 @@ const barTrackStyle: React.CSSProperties = {
 const barFillStyle: React.CSSProperties = {
   display: 'block',
   height: '100%',
-  background: '#1d4ed8',
-  borderRadius: 4,
+  background: '#22c55e',
+  borderRadius: 3,
 }
 
 const dangerBtnStyle: React.CSSProperties = {
-  padding: '3px 8px',
+  padding: '4px 10px',
   border: 'none',
   borderRadius: 4,
   fontSize: 11,
   fontWeight: 600,
   color: '#fff',
-  background: '#dc2626',
+  background: '#ef4444',
   cursor: 'pointer',
 }
 
 const smallBtnStyle: React.CSSProperties = {
-  padding: '3px 8px',
-  border: 'none',
+  padding: '4px 10px',
+  border: '1px solid #d0d0d0',
   borderRadius: 4,
   fontSize: 11,
   fontWeight: 600,
-  color: '#fff',
-  background: '#1d4ed8',
+  color: '#555',
+  background: '#fff',
   cursor: 'pointer',
 }
 
@@ -893,50 +1033,53 @@ const tableStyle: React.CSSProperties = {
 }
 
 const thStyle: React.CSSProperties = {
-  padding: '6px 8px',
+  padding: '8px 12px',
   textAlign: 'left',
-  borderBottom: '1px solid #e2e8f0',
-  fontSize: 11,
+  borderBottom: '1px solid #eee',
+  fontSize: 12,
   fontWeight: 600,
-  color: '#64748b',
-  background: '#f8fafc',
+  color: '#888',
+  background: '#f9f9f9',
 }
 
 const tdStyle: React.CSSProperties = {
-  padding: '6px 8px',
-  borderBottom: '1px solid #f1f5f9',
-  color: '#1e293b',
+  padding: '10px 12px',
+  borderBottom: '1px solid #f5f5f5',
+  color: '#444',
   fontSize: 12,
+  verticalAlign: 'middle',
 }
 
 const downloadStyle: React.CSSProperties = {
   padding: '4px 10px',
-  background: '#e0f2fe',
-  color: '#0369a1',
+  background: '#fff',
+  border: '1px solid #d0d0d0',
+  color: '#555',
   borderRadius: 4,
   textDecoration: 'none',
-  fontSize: 12,
+  fontSize: 11,
   fontWeight: 500,
+  cursor: 'pointer',
 }
 
 const activePillStyle: React.CSSProperties = {
-  padding: '3px 10px',
-  border: 'none',
-  borderRadius: 12,
+  padding: '4px 10px',
+  border: '1px solid #4f8ef7',
+  borderRadius: 4,
   fontSize: 11,
   fontWeight: 600,
   color: '#fff',
-  background: '#1d4ed8',
+  background: '#4f8ef7',
   cursor: 'pointer',
 }
 
 const pillStyle: React.CSSProperties = {
-  padding: '3px 10px',
-  border: '1px solid #e2e8f0',
-  borderRadius: 12,
+  padding: '4px 10px',
+  border: '1px solid #d0d0d0',
+  borderRadius: 4,
   fontSize: 11,
   fontWeight: 600,
-  color: '#64748b',
+  color: '#666',
   background: '#fff',
   cursor: 'pointer',
 }
@@ -944,21 +1087,23 @@ const pillStyle: React.CSSProperties = {
 const autoLogStyle: React.CSSProperties = {
   background: '#0f172a',
   borderRadius: 6,
-  padding: 10,
+  padding: '14px 16px',
   fontFamily: 'Consolas, Monaco, monospace',
   fontSize: 11,
-  height: 160,
+  height: 200,
   overflowY: 'auto',
   color: '#94a3b8',
-  lineHeight: 1.6,
+  lineHeight: 1.7,
 }
 
 const stepRowStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  gap: 8,
-  fontSize: 12,
-  color: '#334155',
+  gap: 10,
+  padding: '8px 12px',
+  border: '1px solid #e8e8e8',
+  borderRadius: 5,
+  background: '#fafafa',
 }
 
 const emptyStyle: React.CSSProperties = {
@@ -968,10 +1113,11 @@ const emptyStyle: React.CSSProperties = {
 
 const uploadStyle: React.CSSProperties = {
   padding: '4px 10px',
-  background: '#e0f2fe',
-  color: '#0369a1',
+  background: '#fff',
+  border: '1px solid #d0d0d0',
+  color: '#555',
   borderRadius: 4,
-  fontSize: 12,
+  fontSize: 11,
   fontWeight: 500,
   cursor: 'pointer',
 }

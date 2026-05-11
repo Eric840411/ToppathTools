@@ -1230,22 +1230,20 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
     return () => clearInterval(t)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Poll OSMWatcher status every 10s
+  // SSE real-time OSMWatcher status push
   useEffect(() => {
-    const check = () => {
-      fetch('/api/machine-test/osm-status')
-        .then(r => r.json())
-        .then((d: { count?: number; machines?: Record<string, { status: number; label: string }> }) => {
-          setOsmConnected((d.count ?? 0) > 0)
-          setOsmCount(d.count ?? 0)
-          setOsmMachines(d.machines ?? {})
-          setOsmLastUpdated(new Date())
-        })
-        .catch(() => setOsmConnected(false))
+    const es = new EventSource('/api/machine-test/osm-status-stream')
+    es.onmessage = (e) => {
+      try {
+        const d = JSON.parse(e.data) as { count?: number; machines?: Record<string, { status: number; label: string }> }
+        setOsmConnected((d.count ?? 0) > 0)
+        setOsmCount(d.count ?? 0)
+        setOsmMachines(d.machines ?? {})
+        setOsmLastUpdated(new Date())
+      } catch { /* ignore parse errors */ }
     }
-    check()
-    const t = setInterval(check, 3000)
-    return () => clearInterval(t)
+    es.onerror = () => setOsmConnected(false)
+    return () => es.close()
   }, [])
 
   useEffect(() => {
@@ -1556,7 +1554,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
         <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <span style={{ color: '#64748b', fontSize: 12 }}>
-              即時機台狀態 — 每 3 秒自動更新
+              即時機台狀態 — SSE 即時推送
               {osmLastUpdated && <span style={{ marginLeft: 8, opacity: 0.7 }}>最後更新：{osmLastUpdated.toLocaleTimeString()}</span>}
             </span>
             <span style={{ fontSize: 12, color: '#94a3b8' }}>{osmCount} 台</span>

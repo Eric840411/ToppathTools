@@ -18,6 +18,7 @@ import { router as jiraRouter } from './routes/jira.js'
 import { router as gameshowRouter } from './routes/gameshow.js'
 import { router as autospinRouter } from './routes/autospin.js'
 import { router as osmUatRouter } from './routes/osm-uat.js'
+import { router as frontendAutoRouter } from './routes/frontend-auto.js'
 import { activeRunners, router as machineTestRouter } from './routes/machine-test.js'
 import {
   viewerSockets,
@@ -250,6 +251,7 @@ function shouldQueueRequest(path: string, method: string): boolean {
   if (path.startsWith('/api/machine-test/')) return true
   if (path.startsWith('/api/osm-uat/')) return true
   if (path.startsWith('/api/autospin/')) return true
+  if (path.startsWith('/api/frontend-auto/')) return true
   if (path === '/api/jira/batch-create') return true
   if (path === '/api/jira/batch-comment') return true
   if (path === '/api/jira/batch-transition') return true
@@ -408,5 +410,6 @@ process.on('unhandledRejection', reason => {
 server.listen(port, '0.0.0.0', () => {
   console.log(`[Worker] toppath-worker listening on http://localhost:${port}`)
 })
+
 
 

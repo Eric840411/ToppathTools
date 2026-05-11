@@ -5,10 +5,17 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from '
 import { extname, join } from 'path'
 import { tmpdir } from 'os'
 import { spawn, type ChildProcess } from 'child_process'
+import https from 'https'
+import http from 'http'
 import { db } from '../shared.js'
 
 export const router = express.Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 30 * 1024 * 1024 } })
+
+// On startup, mark any runs stuck in 'running' state as 'interrupted' (server was restarted mid-run)
+try {
+  db.prepare("UPDATE frontend_auto_runs SET result='interrupted', finished_at=? WHERE result='running'").run(Date.now())
+} catch {}
 const imageDir = join(process.cwd(), 'server', 'frontend-auto', 'images')
 mkdirSync(imageDir, { recursive: true })
 
@@ -344,6 +351,34 @@ router.get('/api/frontend-auto/setup/install.sh', (_req, res) => {
   res.send(`#!/usr/bin/env bash\n# Frontend automation setup for Linux/macOS\nset -e\necho "Checking Node.js..."\nnode -v\necho "Installing Playwright..."\nnpm install -g playwright\nnpx playwright install chromium\n`)
 })
 
+// ── Redirect resolver ────────────────────────────────────────────────────────
+/** Follow a single HTTP redirect and return the Location URL, or the original URL if no redirect. */
+function followRedirectOnce(url: string): Promise<string> {
+  return new Promise((resolve) => {
+    try {
+      const parsed = new URL(url)
+      const lib = parsed.protocol === 'https:' ? https : http
+      const req = lib.request(
+        { hostname: parsed.hostname, path: parsed.pathname + parsed.search, method: 'GET', headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36' } },
+        (res) => {
+          res.destroy()
+          if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            // Resolve relative Location headers
+            try { resolve(new URL(res.headers.location, url).toString()) } catch { resolve(res.headers.location) }
+          } else {
+            resolve(url)
+          }
+        }
+      )
+      req.on('error', () => resolve(url))
+      req.setTimeout(5000, () => { req.destroy(); resolve(url) })
+      req.end()
+    } catch {
+      resolve(url)
+    }
+  })
+}
+
 // ── Playwright Codegen Recorder ───────────────────────────────────────────────
 
 interface RecSession {
@@ -366,13 +401,17 @@ function killRecProc(proc: ChildProcess) {
   } catch {}
 }
 
-function parseCodegenToSteps(code: string): object[] {
+function parseCodegenToSteps(code: string, originalUrl?: string): object[] {
   const steps: object[] = []
+  let firstGotoDone = false
   for (const rawLine of code.split('\n')) {
     const line = rawLine.trim()
     const goto = line.match(/page\.goto\(['"]([^'"]+)['"]\)/)
     if (goto) {
-      steps.push({ name: '前往頁面', action: 'goto', value: goto[1] })
+      // Replace the first goto URL with the original redirect URL so tokens/params are preserved
+      const url = (!firstGotoDone && originalUrl) ? originalUrl : goto[1]
+      firstGotoDone = true
+      steps.push({ name: '前往頁面', action: 'goto', value: url })
       continue
     }
     const canvasClick = line.match(/locator\('canvas'\)\.click\(\s*\{[^}]*position:\s*\{\s*x:\s*(\d+),\s*y:\s*(\d+)/)
@@ -392,16 +431,27 @@ function parseCodegenToSteps(code: string): object[] {
   return steps
 }
 
-router.post('/api/frontend-auto/record/start', (req, res) => {
+router.post('/api/frontend-auto/record/start', async (req, res) => {
   const body = req.body as Record<string, unknown>
   const url = text(body.url)
   const platform = asPlatform(body.platform)
   const resolution = text(body.resolution, platform === 'h5' ? '390x844' : '1366x768')
   if (!url) return res.status(400).json({ ok: false, message: 'url 為必填' })
+
+  // Redirect servers (e.g. osm-redirect) use a two-step cookie mechanism:
+  // 1st visit sets the session cookie but redirects to /?token=... (no studioid/gameid)
+  // 2nd visit (with cookie) redirects to /lobby?...&studioid=...&gameid=... (full params)
+  // So we open codegen to a blank page and let the user paste the URL manually —
+  // this guarantees the URL the user types IS the one codegen records (with full params).
+  // We still follow redirect once server-side to get the best displayUrl hint for the user.
+  const resolvedUrl = await followRedirectOnce(url)
+  const displayUrl = resolvedUrl !== url ? resolvedUrl : url
+
   const sessionId = `rec-${Date.now()}-${randomUUID().slice(0, 8)}`
   const outFile = join(tmpdir(), `pw-rec-${sessionId}.js`)
   const [w, h] = resolution.split('x')
-  const args = ['playwright', 'codegen', '--output', outFile, '--viewport-size', `${w},${h}`, url]
+  // Open codegen with no URL (blank page) so user manually navigates — avoids the 2-step cookie issue
+  const args = ['playwright', 'codegen', '--output', outFile, '--viewport-size', `${w},${h}`]
   const proc = spawn('npx', args, { stdio: 'ignore', shell: true })
   const sess: RecSession = { proc, outFile, originalUrl: url, done: false, steps: [] }
   recSessions.set(sessionId, sess)
@@ -414,7 +464,7 @@ router.post('/api/frontend-auto/record/start', (req, res) => {
       }
     } catch {}
   })
-  res.json({ ok: true, sessionId })
+  res.json({ ok: true, sessionId, displayUrl })
 })
 
 router.get('/api/frontend-auto/record/status/:sessionId', (req, res) => {
@@ -441,6 +491,138 @@ router.post('/api/frontend-auto/record/stop/:sessionId', (req, res) => {
     recSessions.delete(req.params.sessionId)
     res.json({ ok: true, steps })
   }, 1200)
+})
+
+// ── Script Execution Engine ───────────────────────────────────────────────────
+
+const activeRuns = new Set<string>() // runIds currently executing
+
+type StepObj = { name?: string; action: string; value?: string; selector?: string; x?: number; y?: number }
+
+async function pushLog(runId: string, line: string) {
+  const lines = logBuffers.get(runId) ?? []
+  lines.push(line)
+  if (lines.length > 500) lines.splice(0, lines.length - 500)
+  logBuffers.set(runId, lines)
+  for (const client of logClients.get(runId) ?? []) {
+    client.write(`event: log\ndata: ${JSON.stringify({ line })}\n\n`)
+  }
+}
+
+router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
+  const runId = req.params.id
+  const body = req.body as Record<string, unknown>
+  const stepsRaw = text(body.steps, '[]')
+  const startUrl = text(body.url)
+  const resolution = text(body.resolution, '390x844')
+  const failureMode = text(body.failureMode, 'continue')
+  const headed = body.headed === true
+
+  if (activeRuns.has(runId)) return res.status(409).json({ ok: false, message: 'already running' })
+  activeRuns.add(runId)
+  res.json({ ok: true })
+
+  void (async () => {
+    const log = (line: string) => pushLog(runId, line)
+    let steps: StepObj[]
+    try { steps = JSON.parse(stepsRaw) } catch { await log('❌ 步驟 JSON 解析失敗'); activeRuns.delete(runId); return }
+
+    const [w, h] = resolution.split('x').map(Number)
+    let chromium: import('playwright').BrowserType | null = null
+    let browser: import('playwright').Browser | null = null
+    try {
+      const pw = await import('playwright')
+      chromium = pw.chromium
+      browser = await chromium.launch({ headless: !headed })
+    } catch (err) {
+      await log(`❌ 無法啟動瀏覽器：${err instanceof Error ? err.message : String(err)}`)
+      activeRuns.delete(runId)
+      return
+    }
+
+    const ctx = await browser.newContext({ viewport: { width: w || 390, height: h || 844 } })
+    const page = await ctx.newPage()
+    let passed = 0, failed = 0, skipped = 0
+
+    for (const [i, step] of steps.entries()) {
+      if (!activeRuns.has(runId)) { await log('🛑 執行已中止'); break }
+      const label = step.name ?? `步驟 ${i + 1}`
+      const idx = `[${i + 1}/${steps.length}]`
+      try {
+        if (step.action === 'goto') {
+          const target = step.value || startUrl
+          await log(`⏳ ${idx} ${label} → ${target}`)
+          await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 })
+          await log(`✅ ${idx} ${label}`)
+          passed++
+        } else if (step.action === 'click') {
+          await log(`⏳ ${idx} ${label}`)
+          await page.locator(step.selector ?? '').click({ timeout: 10000 })
+          await log(`✅ ${idx} ${label}`)
+          passed++
+        } else if (step.action === 'click_xy') {
+          await log(`⏳ ${idx} ${label}`)
+          await page.locator('canvas').first().click({ position: { x: step.x ?? 0, y: step.y ?? 0 }, timeout: 10000 })
+          await log(`✅ ${idx} ${label}`)
+          passed++
+        } else if (step.action === 'type') {
+          await log(`⏳ ${idx} ${label}`)
+          await page.locator(step.selector ?? '').fill(step.value ?? '', { timeout: 10000 })
+          await log(`✅ ${idx} ${label}`)
+          passed++
+        } else if (step.action === 'wait') {
+          await log(`⏳ ${idx} ${label}`)
+          await page.waitForTimeout(Number(step.value) || 1000)
+          await log(`✅ ${idx} ${label}`)
+          passed++
+        } else if (step.action === 'screenshot') {
+          await log(`⏳ ${idx} ${label}`)
+          await page.screenshot()
+          await log(`✅ ${idx} ${label}`)
+          passed++
+        } else if (step.action === 'assert_visible') {
+          await log(`⏳ ${idx} ${label}`)
+          await page.locator(step.selector ?? '').waitFor({ state: 'visible', timeout: 10000 })
+          await log(`✅ ${idx} ${label}`)
+          passed++
+        } else {
+          await log(`⏭ ${idx} ${label}（不支援的動作：${step.action}）`)
+          skipped++
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message.split('\n')[0] : String(err)
+        await log(`❌ ${idx} ${label}：${msg}`)
+        failed++
+        // If browser was closed externally, abort immediately
+        const browserClosed = msg.includes('closed') || msg.includes('Stopped by user') || msg.includes('Target crashed')
+        if (failureMode === 'stop' || browserClosed) {
+          if (browserClosed) await log('🛑 瀏覽器已關閉，中止執行')
+          else await log('🛑 失敗後停止')
+          break
+        }
+      }
+    }
+
+    await browser.close().catch(() => {})
+    activeRuns.delete(runId)
+    const result = failed > 0 ? 'fail' : 'pass'
+    await log(`─── 完成 ─── 通過 ${passed} ／ 失敗 ${failed} ／ 跳過 ${skipped}`)
+    try {
+      db.prepare('UPDATE frontend_auto_runs SET passed=?,failed=?,skipped=?,result=?,finished_at=? WHERE id=?')
+        .run(passed, failed, skipped, result, Date.now(), runId)
+    } catch {}
+  })()
+})
+
+router.post('/api/frontend-auto/runs/:id/stop', (req, res) => {
+  const runId = req.params.id
+  activeRuns.delete(runId)
+  // Mark run as stopped in DB immediately so UI refreshes
+  try {
+    db.prepare("UPDATE frontend_auto_runs SET result='stopped', finished_at=? WHERE id=? AND result='running'")
+      .run(Date.now(), runId)
+  } catch {}
+  res.json({ ok: true })
 })
 
 export default router
