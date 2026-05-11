@@ -17,7 +17,7 @@ import { SystemAdminPage } from './pages/SystemAdminPage'
 import ChangelogModal from './components/ChangelogModal'
 import GeminiSettingsModal from './components/GeminiSettingsModal'
 import AiAgentMonitorWidget from './components/AiAgentMonitorWidget'
-import { JiraAccountModal, type AccountInfo } from './components/JiraAccountModal'
+import { type AccountInfo } from './components/JiraAccountModal'
 import { AuthLoginModal } from './components/AuthLoginModal'
 import { APP_VERSION } from './version'
 import { fetchAuthAccount, loadGlobalAccount, logoutAuthAccount, saveGlobalAccount } from './authSession'
@@ -182,7 +182,6 @@ function App() {
   const [activeTab, setActiveTab] = useState<TabId>('jira')
   const [showChangelog, setShowChangelog] = useState(false)
   const [showGemini, setShowGemini] = useState(false)
-  const [showAccountModal, setShowAccountModal] = useState(false)
   const [globalAccount, setGlobalAccount] = useState<AccountInfo | null>(loadGlobalAccount)
   const [authChecking, setAuthChecking] = useState(true)
   const [permissions, setPermissions] = useState<string[]>([])
@@ -230,7 +229,6 @@ function App() {
   function handleGlobalAccountSelect(acc: AccountInfo) {
     setGlobalAccount(acc)
     saveGlobalAccount(acc)
-    setShowAccountModal(false)
   }
   async function handleGlobalAccountClear() {
     setGlobalAccount(null)
@@ -301,39 +299,30 @@ function App() {
               v{APP_VERSION}
             </button>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
             <p className="header-sub" style={{ margin: 0 }}>自動化整合控制台 — Jira × Lark × OSM</p>
             <button
               type="button"
-              onClick={() => globalAccount ? setShowAccountModal(true) : undefined}
-              style={{
-                padding: '4px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap',
-                background: globalAccount ? '#eff6ff' : '#f3f4f6',
-                border: globalAccount ? '1px solid #93c5fd' : '1px solid #e2e8f0',
-                color: globalAccount ? '#1d4ed8' : '#6b7280',
-              }}
-              title="選擇帳號（全域）"
-            >
-              👤 {globalAccount ? globalAccount.label : '選擇帳號'}
-            </button>
-            {globalAccount && (
-              <button
-                type="button"
-                onClick={handleGlobalAccountClear}
-                style={{ padding: '4px 10px', background: 'transparent', border: '1px solid rgba(255,255,255,.15)', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#94a3b8', whiteSpace: 'nowrap' }}
-                title="登出"
-              >
-                登出
-              </button>
-            )}
-            <button
-              type="button"
               onClick={() => setShowGemini(true)}
-              style={{ padding: '4px 12px', background: '#f3f4f6', border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#6b7280', whiteSpace: 'nowrap' }}
+              style={{ padding: '4px 12px', background: 'transparent', border: '1px solid rgba(255,255,255,.15)', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#94a3b8', whiteSpace: 'nowrap' }}
               title="AI 模型和 Prompt 模板設定"
             >
               ⚙️ AI 模型和 Prompt 設定
             </button>
+            {globalAccount && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9', letterSpacing: '.5px', textTransform: 'uppercase' }}>
+                  {globalAccount.label}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleGlobalAccountClear}
+                  style={{ padding: '1px 0', background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#64748b', textDecoration: 'underline', whiteSpace: 'nowrap' }}
+                >
+                  登出
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -424,14 +413,7 @@ function App() {
       {!authChecking && !globalAccount && (
         <AuthLoginModal onLogin={handleGlobalAccountSelect} />
       )}
-      {showAccountModal && globalAccount && (
-        <JiraAccountModal
-          currentEmail={globalAccount?.email ?? ''}
-          onClose={() => setShowAccountModal(false)}
-          onSelect={handleGlobalAccountSelect}
-          onClearCurrent={() => { handleGlobalAccountClear(); setShowAccountModal(false) }}
-        />
-      )}
+
       <AiAgentMonitorWidget />
     </div>
   )
