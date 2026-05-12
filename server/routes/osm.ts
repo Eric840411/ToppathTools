@@ -260,7 +260,7 @@ export const sendLarkAlert = async () => {
 
   // ── Toppath 元件版本 ──
   try {
-    const tpBase = (process.env.TOPPATH_VERSION_BASE_URL ?? 'https://staticpublic.osmslot.org/qat/version-info').replace(/\/$/, '')
+    const tpBase = (process.env.TOPPATH_VERSION_BASE_URL ?? 'https://staticpublic.osmplay.com/prod/version-info').replace(/\/$/, '')
     const tpResults = await Promise.all(
       TOPPATH_VERSION_COMPONENTS.map(async ({ name, path }) => {
         try {
@@ -541,7 +541,7 @@ router.get('/api/luckylink/version-history', async (_req, res, next) => {
 // GET /api/toppath/version-history
 router.get('/api/toppath/version-history', async (_req, res, next) => {
   try {
-    const base = (process.env.TOPPATH_VERSION_BASE_URL ?? 'https://staticpublic.osmslot.org/qat/version-info').replace(/\/$/, '')
+    const base = (process.env.TOPPATH_VERSION_BASE_URL ?? 'https://staticpublic.osmplay.com/prod/version-info').replace(/\/$/, '')
     const results = await Promise.all(
       TOPPATH_VERSION_COMPONENTS.map(async ({ name, path }) => {
         try {
