@@ -2391,8 +2391,13 @@ export class MachineTestRunner extends EventEmitter {
     return super.emit(event, ...args)
   }
 
+  private static readonly EVENT_BUFFER_MAX = 5000
+
   private send(data: TestEvent) {
     this.eventBuffer.push(data)
+    if (this.eventBuffer.length > MachineTestRunner.EVENT_BUFFER_MAX) {
+      this.eventBuffer.splice(0, this.eventBuffer.length - MachineTestRunner.EVENT_BUFFER_MAX)
+    }
     this.emit('event', data)
   }
 

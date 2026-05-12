@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.25.14'
+export const APP_VERSION = '3.25.15'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.25.15',
+    date: '2026-05-12',
+    changes: [
+      'fix(memory): autospin logs 陣列加 2000 行上限 + 舊 session 每 15 分鐘 GC；machine-test eventBuffer 加 5000 筆上限，修正 worker 記憶體持續增長至 800MB+',
+    ],
+  },
   {
     version: '3.25.14',
     date: '2026-05-12',

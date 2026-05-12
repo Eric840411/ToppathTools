@@ -57,9 +57,14 @@ const sessions = new Map<string, SessionState>()
 // SSE subscribers: sessionId → list of res objects
 const sseClients = new Map<string, Set<import('express').Response>>()
 
+const MAX_LOGS = 2000  // cap per session to prevent unbounded memory growth
+
 function broadcastLog(sessionId: string, line: string) {
   const state = sessions.get(sessionId)
-  if (state) state.logs.push(line)
+  if (state) {
+    state.logs.push(line)
+    if (state.logs.length > MAX_LOGS) state.logs.splice(0, state.logs.length - MAX_LOGS)
+  }
   const clients = sseClients.get(sessionId)
   if (clients) {
     for (const res of clients) {
@@ -406,9 +411,35 @@ interface AgentSession {
 const agentSessions = new Map<string, AgentSession>()
 const agentSseClients = new Map<string, Set<import('express').Response>>()
 
+// ── Periodic session GC ───────────────────────────────────────────────────────
+// Purge stopped/old sessions older than 2 hours to prevent unbounded memory growth.
+const SESSION_GC_MAX_AGE_MS = 2 * 60 * 60 * 1000  // 2 hours
+setInterval(() => {
+  const cutoff = Date.now() - SESSION_GC_MAX_AGE_MS
+  // Python-subprocess sessions
+  for (const [id, s] of sessions.entries()) {
+    if (s.status !== 'running' && s.startedAt < cutoff) {
+      sessions.delete(id)
+      sseClients.get(id)?.forEach(r => { try { r.end() } catch { /* ignore */ } })
+      sseClients.delete(id)
+    }
+  }
+  // Agent sessions
+  for (const [id, s] of agentSessions.entries()) {
+    if (s.status !== 'running' && s.startedAt < cutoff) {
+      agentSessions.delete(id)
+      agentSseClients.get(id)?.forEach(r => { try { r.end() } catch { /* ignore */ } })
+      agentSseClients.delete(id)
+    }
+  }
+}, 15 * 60 * 1000)  // run every 15 min
+
 function broadcastAgentLog(sessionId: string, line: string) {
   const s = agentSessions.get(sessionId)
-  if (s) s.logs.push(line)
+  if (s) {
+    s.logs.push(line)
+    if (s.logs.length > MAX_LOGS) s.logs.splice(0, s.logs.length - MAX_LOGS)
+  }
   const clients = agentSseClients.get(sessionId)
   if (clients) for (const r of clients) r.write(`data: ${JSON.stringify({ line })}\n\n`)
 }
