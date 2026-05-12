@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.25.17'
+export const APP_VERSION = '3.25.18'
 
 export interface ChangelogEntry {
   version: string
@@ -8,10 +8,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: '3.25.18',
+    date: '2026-05-12',
+    changes: [
+      'fix(models/available): 個人 OpenAI Key 設定後 AI 模型下拉未顯示 OpenAI 選項 — 改用 resolveOpenAIKey(req) 識別個人 Key',
+    ],
+  },
+  {
     version: '3.25.17',
     date: '2026-05-12',
     changes: [
-      'fix(lark-writeback): 修正 QA 狀態欄位偵測錯誤 — msgColIdx/qaColIdx 使用不同關鍵字區分；qaStatus 改為英文 PASS/FAIL；匯入篩選條件更新為 PASS',
+      'fix(lark-writeback): 修正 QA 狀態欄位偵測錯誤 — msgColIdx/qaColIdx 使用不同關鍵字區分；qaStatus 改回中文符合 Lark 下拉選項；匯入篩選條件更新為驗證通過',
     ],
   },
   {

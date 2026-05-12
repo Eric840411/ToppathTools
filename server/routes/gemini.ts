@@ -663,7 +663,7 @@ export const callLLMVision = async (prompt: string, imageBase64: string, modelSp
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
 // GET /api/models/available — list all available LLM models (Gemini + Ollama)
-router.get('/api/models/available', async (_req, res) => {
+router.get('/api/models/available', async (_req: import('express').Request, res) => {
   const models: { id: string; label: string; provider: string }[] = [
     { id: 'gemini', label: 'Gemini (自動輪換)', provider: 'gemini' },
   ]
@@ -684,7 +684,7 @@ router.get('/api/models/available', async (_req, res) => {
       }
     } catch { /* Ollama unavailable */ }
   }
-  if (readOpenAIKey()) {
+  if (resolveOpenAIKey(_req)) {
     models.push({ id: 'openai:codex-mini-latest', label: 'Codex Mini (OpenAI)', provider: 'openai' })
     models.push({ id: 'openai:gpt-5.3-codex', label: 'GPT-5.3 Codex (OpenAI)', provider: 'openai' })
     models.push({ id: 'openai:gpt-4o', label: 'GPT-4o (OpenAI)', provider: 'openai' })
