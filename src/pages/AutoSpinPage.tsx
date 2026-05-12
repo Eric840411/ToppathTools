@@ -673,7 +673,7 @@ export function AutoSpinPage() {
                 {configMsg && <p style={{ color: '#dc2626', fontSize: 12, margin: 0 }}>❌ {configMsg}</p>}
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
                   <button onClick={() => { setShowForm(false); setConfigMsg('') }}
-                    style={{ padding: '6px 16px', border: '1px solid #2d3f55', borderRadius: 6, background: '#1e293b', fontSize: 13, cursor: 'pointer' }}>取消</button>
+                    style={{ padding: '6px 16px', border: '1px solid #2d3f55', borderRadius: 6, background: '#1e293b', color: '#94a3b8', fontSize: 13, cursor: 'pointer' }}>取消</button>
                   <button onClick={handleSaveConfig}
                     style={{ padding: '6px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>儲存</button>
                 </div>
@@ -808,7 +808,7 @@ export function AutoSpinPage() {
                 {betRandomMsg && <p style={{ color: '#dc2626', fontSize: 12, margin: 0 }}>❌ {betRandomMsg}</p>}
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
                   <button onClick={() => { setBrShowForm(false); setBetRandomMsg('') }}
-                    style={{ padding: '6px 16px', border: '1px solid #2d3f55', borderRadius: 6, background: '#1e293b', fontSize: 13, cursor: 'pointer' }}>取消</button>
+                    style={{ padding: '6px 16px', border: '1px solid #2d3f55', borderRadius: 6, background: '#1e293b', color: '#94a3b8', fontSize: 13, cursor: 'pointer' }}>取消</button>
                   <button onClick={handleSaveBrEntry}
                     style={{ padding: '6px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>儲存</button>
                 </div>

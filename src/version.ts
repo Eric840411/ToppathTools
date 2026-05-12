@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.25.7'
+export const APP_VERSION = '3.25.8'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.25.8',
+    date: '2026-05-12',
+    changes: [
+      'fix(ui): OsmUatPage H5/PC — 全面暗色化：tab、操作說明、Node.js 安裝列、腳本表格、步驟進度、warning box',
+      'fix(ui): AutoSpinPage — 取消按鈕補上文字顏色 (#94a3b8)，修正暗底看不到字的問題',
+    ],
+  },
   {
     version: '3.25.7',
     date: '2026-05-12',

@@ -532,29 +532,29 @@ export function OsmUatPage() {
         {/* 操作說明 */}
         <section style={{ ...panelStyle, padding: 0, overflow: 'hidden' }}>
           <button onClick={() => setGuideOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', background: 'none', border: 'none', padding: '12px 16px', cursor: 'pointer', textAlign: 'left' }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>📖 操作說明</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>📖 操作說明</span>
             <span style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b' }}>{guideOpen ? '▲ 收合' : '▼ 展開'}</span>
           </button>
           {guideOpen && (
-            <div style={{ borderTop: '1px solid #e8e8e8', padding: '12px 16px', display: 'grid', gap: 10 }}>
+            <div style={{ borderTop: '1px solid #2d3f55', padding: '12px 16px', display: 'grid', gap: 10 }}>
               {guideSteps.map(step => (
                 <div key={step.title} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                   <span style={{ fontSize: 16, flexShrink: 0 }}>{step.icon}</span>
                   <div>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: '#4f8ef7' }}>{step.title}</span>
-                    <p style={{ margin: '2px 0 0', fontSize: 12, color: '#475569', lineHeight: 1.6 }}>{step.desc}</p>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa' }}>{step.title}</span>
+                    <p style={{ margin: '2px 0 0', fontSize: 12, color: '#94a3b8', lineHeight: 1.6 }}>{step.desc}</p>
                   </div>
                 </div>
               ))}
             </div>
           )}
         </section>
-        <div style={{ background: '#f0f6ff', border: '1px solid #c7dcff', borderRadius: 8, padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+        <div style={{ background: 'rgba(56,189,248,0.06)', border: '1px solid rgba(56,189,248,0.25)', borderRadius: 8, padding: '14px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: apiReady ? '#22c55e' : '#f59e0b', flexShrink: 0, display: 'inline-block' }} />
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: apiReady ? '#4ade80' : '#fbbf24', flexShrink: 0, display: 'inline-block' }} />
             <div>
-              <span style={{ fontSize: 13, fontWeight: 600, color: '#1d4ed8' }}>Node.js / Playwright 安裝套件</span>
-              <span style={{ display: 'block', fontSize: 11, color: '#888', marginTop: 2 }}>尚未安裝？下載安裝包一鍵完成 — 每台電腦只需安裝一次</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#38bdf8' }}>Node.js / Playwright 安裝套件</span>
+              <span style={{ display: 'block', fontSize: 11, color: '#64748b', marginTop: 2 }}>尚未安裝？下載安裝包一鍵完成 — 每台電腦只需安裝一次</span>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
@@ -575,11 +575,11 @@ export function OsmUatPage() {
               <thead><tr><th style={thStyle}>名稱</th><th style={thStyle}>步驟</th><th style={thStyle}>上次結果</th><th style={thStyle}>操作</th></tr></thead>
               <tbody>{visible.map(script => {
                 const res = latest.get(script.id)
-                const tagColor = res === 'pass' ? { bg: '#dcfce7', color: '#15803d' } : res === 'fail' ? { bg: '#fee2e2', color: '#b91c1c' } : res === 'running' ? { bg: '#dbeafe', color: '#1d4ed8' } : { bg: '#f3e8ff', color: '#7e22ce' }
-                return <tr key={script.id} onClick={() => setSelectedScriptIds(prev => ({ ...prev, [platform]: script.id }))} style={{ background: selectedScriptIds[platform] === script.id ? '#eff6ff' : '#fff', cursor: 'pointer' }}>
-                  <td style={tdStyle}><strong style={{ fontSize: 12, color: '#333' }}>{script.name}</strong><div style={{ fontSize: 10, color: '#aaa', marginTop: 2 }}>{script.created_by}</div></td>
+                const tagColor = res === 'pass' ? { bg: 'rgba(52,211,153,0.12)', color: '#34d399' } : res === 'fail' ? { bg: 'rgba(239,68,68,0.12)', color: '#f87171' } : res === 'running' ? { bg: 'rgba(59,130,246,0.12)', color: '#60a5fa' } : { bg: 'rgba(167,139,250,0.12)', color: '#c084fc' }
+                return <tr key={script.id} onClick={() => setSelectedScriptIds(prev => ({ ...prev, [platform]: script.id }))} style={{ background: selectedScriptIds[platform] === script.id ? 'rgba(59,130,246,0.12)' : 'transparent', cursor: 'pointer' }}>
+                  <td style={tdStyle}><strong style={{ fontSize: 12, color: '#cbd5e1' }}>{script.name}</strong><div style={{ fontSize: 10, color: '#64748b', marginTop: 2 }}>{script.created_by}</div></td>
                   <td style={tdStyle}>{parseAutoSteps(script.steps).length}</td>
-                  <td style={tdStyle}>{res ? <span style={{ display: 'inline-block', padding: '2px 7px', borderRadius: 3, fontSize: 10, fontWeight: 700, background: tagColor.bg, color: tagColor.color }}>{res.toUpperCase()}</span> : <span style={{ fontSize: 10, color: '#aaa' }}>未執行</span>}</td>
+                  <td style={tdStyle}>{res ? <span style={{ display: 'inline-block', padding: '2px 7px', borderRadius: 3, fontSize: 10, fontWeight: 700, background: tagColor.bg, color: tagColor.color, border: `1px solid ${tagColor.color}40` }}>{res.toUpperCase()}</span> : <span style={{ fontSize: 10, color: '#64748b' }}>未執行</span>}</td>
                   <td style={{ ...tdStyle, display: 'flex', gap: 4 }}>
                     <button style={{ ...smallBtnStyle, color: '#fff', background: '#22c55e', border: 'none' }} onClick={e => { e.stopPropagation(); setSelectedScriptIds(prev => ({ ...prev, [platform]: script.id })); void runAutoScript(platform) }}>▶ 執行</button>
                     <button style={dangerBtnStyle} onClick={e => { e.stopPropagation(); void deleteAutoScript(platform, script) }}>刪除</button>
@@ -592,8 +592,8 @@ export function OsmUatPage() {
               {recPolling ? <button style={{ ...btnStyle, background: '#ef4444' }} onClick={() => void stopRecord()}>■ 停止錄製</button> : <button style={{ ...btnStyle, background: '#7c3aed' }} onClick={() => void startRecord()}>🔴 開始錄製</button>}
               {recPolling && <span style={{ fontSize: 12, color: '#7c3aed', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />錄製中...</span>}
             </div>
-            {recPolling && recDisplayUrl && <div style={{ marginTop: 8, padding: '10px 12px', background: '#fffbeb', border: '1px solid #f59e0b', borderLeft: '3px solid #f59e0b', borderRadius: 6 }}><div style={{ fontSize: 12, color: '#92400e', fontWeight: 600, marginBottom: 6 }}>Playwright 已開啟空白頁。請將以下 URL 貼到錄製瀏覽器網址列按 Enter：</div><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input readOnly value={recDisplayUrl} style={{ ...inputStyle, flex: 1, fontSize: 11, fontFamily: 'Consolas, Monaco, monospace' }} onClick={e => (e.target as HTMLInputElement).select()} /><button style={{ ...smallBtnStyle, whiteSpace: 'nowrap' }} onClick={() => { void navigator.clipboard.writeText(recDisplayUrl) }}>複製 URL</button></div></div>}
-            {newScriptOpen[platform] && <div style={{ display: 'grid', gap: 8, marginTop: 12, padding: '12px', background: '#f9f9f9', border: '1px solid #e8e8e8', borderRadius: 6 }}>
+            {recPolling && recDisplayUrl && <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderLeft: '3px solid rgba(251,191,36,0.5)', borderRadius: 6 }}><div style={{ fontSize: 12, color: '#fbbf24', fontWeight: 600, marginBottom: 6 }}>Playwright 已開啟空白頁。請將以下 URL 貼到錄製瀏覽器網址列按 Enter：</div><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input readOnly value={recDisplayUrl} style={{ ...inputStyle, flex: 1, fontSize: 11, fontFamily: 'Consolas, Monaco, monospace' }} onClick={e => (e.target as HTMLInputElement).select()} /><button style={{ ...smallBtnStyle, whiteSpace: 'nowrap' }} onClick={() => { void navigator.clipboard.writeText(recDisplayUrl) }}>複製 URL</button></div></div>}
+            {newScriptOpen[platform] && <div style={{ display: 'grid', gap: 8, marginTop: 12, padding: '12px', background: '#162032', border: '1px solid #2d3f55', borderRadius: 6 }}>
               <input value={newScriptDraft[platform].name} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], name: e.target.value } }))} placeholder="腳本名稱" style={inputStyle} />
               <textarea value={newScriptDraft[platform].steps} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], steps: e.target.value } }))} rows={5} style={{ ...inputStyle, fontFamily: 'Consolas, Monaco, monospace', resize: 'vertical' }} />
               <button style={{ ...btnStyle, background: newScriptDraft[platform].name.trim() ? '#22c55e' : '#d1d5db', width: 80, cursor: newScriptDraft[platform].name.trim() ? 'pointer' : 'not-allowed' }} onClick={() => void createAutoScript(platform)}>儲存</button>
@@ -602,16 +602,16 @@ export function OsmUatPage() {
           <section style={panelStyle}>
             <h3 style={{ ...h3Style, marginBottom: 16 }}><span style={{ width: 20, height: 20, borderRadius: 4, background: '#22c55e', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0 }}>▶</span>執行設定</h3>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}><label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>目標 URL</label><input value={runConfig[platform].url} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], url: e.target.value } }))} placeholder="https://..." style={inputStyle} /></div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}><label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>解析度</label><select value={runConfig[platform].resolution} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], resolution: e.target.value } }))} style={inputStyle}>{resolutions.map(size => <option key={size}>{size}</option>)}</select></div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}><label style={{ fontSize: 11, color: '#888', fontWeight: 600 }}>失敗後</label><select value={runConfig[platform].failureMode} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], failureMode: e.target.value } }))} style={inputStyle}><option value="continue">繼續執行</option><option value="stop">立即停止</option></select></div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, gridColumn: '1 / -1' }}><label style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>目標 URL</label><input value={runConfig[platform].url} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], url: e.target.value } }))} placeholder="https://..." style={inputStyle} /></div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}><label style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>解析度</label><select value={runConfig[platform].resolution} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], resolution: e.target.value } }))} style={inputStyle}>{resolutions.map(size => <option key={size}>{size}</option>)}</select></div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}><label style={{ fontSize: 11, color: '#94a3b8', fontWeight: 600 }}>失敗後</label><select value={runConfig[platform].failureMode} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], failureMode: e.target.value } }))} style={inputStyle}><option value="continue">繼續執行</option><option value="stop">立即停止</option></select></div>
             </div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
               <button disabled={!selected} style={{ ...btnStyle, background: selected ? '#22c55e' : '#d1d5db', cursor: selected ? 'pointer' : 'not-allowed' }} onClick={() => void runAutoScript(platform)}>▶ 執行所選腳本</button>
               <button style={{ ...btnStyle, background: '#ef4444' }} onClick={() => stopAuto(platform)}>■ 停止</button>
-              <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#888' }}><input type="checkbox" checked={runConfig[platform].headed} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], headed: e.target.checked } }))} />Headed</label>
+              <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#94a3b8' }}><input type="checkbox" checked={runConfig[platform].headed} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], headed: e.target.checked } }))} />Headed</label>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 20, background: '#f9f9f9', border: '1px solid #eee', borderRadius: 6, padding: '8px 16px', marginBottom: 12, fontSize: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 20, background: '#162032', border: '1px solid #2d3f55', borderRadius: 6, padding: '8px 16px', marginBottom: 12, fontSize: 12 }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ color: '#22c55e', fontWeight: 700 }}>✓ 通過</span>{autoStats[platform].pass}</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ color: '#ef4444', fontWeight: 700 }}>✗ 失敗</span>{autoStats[platform].fail}</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ color: '#aaa', fontWeight: 700 }}>○ 跳過</span>{autoStats[platform].skip}</span>
@@ -629,14 +629,14 @@ export function OsmUatPage() {
               {steps.length ? steps.map((step, i) => {
                 const st = stepStatuses[platform][i]
                 const numBg = st === 'pass' ? '#22c55e' : st === 'fail' ? '#ef4444' : '#4f8ef7'
-                const badgeBg = st === 'pass' ? '#dcfce7' : st === 'fail' ? '#fee2e2' : '#f5f5f5'
-                const badgeColor = st === 'pass' ? '#15803d' : st === 'fail' ? '#b91c1c' : '#aaa'
+                const badgeBg = st === 'pass' ? 'rgba(52,211,153,0.12)' : st === 'fail' ? 'rgba(239,68,68,0.12)' : 'rgba(100,116,139,0.15)'
+                const badgeColor = st === 'pass' ? '#34d399' : st === 'fail' ? '#f87171' : '#64748b'
                 const badgeText = st === 'pass' ? 'PASS' : st === 'fail' ? 'FAIL' : '待執行'
                 const opacity = st === 'pending' ? 0.5 : 1
                 return (
                   <div key={`${step}-${i}`} style={{ ...stepRowStyle, opacity }}>
                     <span style={{ width: 20, height: 20, borderRadius: '50%', background: numBg, color: '#fff', fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
-                    <span style={{ flex: 1, fontSize: 12, color: '#333' }}>{step}</span>
+                    <span style={{ flex: 1, fontSize: 12, color: '#cbd5e1' }}>{step}</span>
                     <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, fontWeight: 600, background: badgeBg, color: badgeColor }}>{badgeText}</span>
                   </div>
                 )
@@ -657,7 +657,7 @@ export function OsmUatPage() {
               <h3 style={h3Style}><span style={{ width: 20, height: 20, borderRadius: 4, background: '#f59e0b', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0 }}>T</span>模板圖庫（PC Canvas 比對）</h3>
               <label style={{ ...uploadStyle, background: '#f59e0b', border: 'none', color: '#fff' }}>上傳模板<input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { void uploadTemplate(e.target.files?.[0]); e.target.value = '' }} /></label>
             </div>
-            <p style={{ fontSize: 11, color: '#888', marginBottom: 12 }}>Cocos Canvas 無法抓 DOM，UI 按鈕驗證靠小圖比對（confidence ≥ 0.85）</p>
+            <p style={{ fontSize: 11, color: '#64748b', marginBottom: 12 }}>Cocos Canvas 無法抓 DOM，UI 按鈕驗證靠小圖比對（confidence ≥ 0.85）</p>
             <div style={thumbGridStyle}>{autoTemplates.map(t => <div key={t.id} style={thumbCardStyle}><img src={t.image_path} alt={t.name} style={thumbImageStyle} /><span style={cardTitleStyle}>{t.name}</span><div style={barTrackStyle}><span style={{ ...barFillStyle, width: `${Math.round((t.last_confidence ?? 0) * 100)}%`, background: (t.last_confidence ?? 0) >= 0.85 ? '#22c55e' : '#f59e0b' }} /></div><button style={dangerBtnStyle} onClick={() => { void fetch(`/api/frontend-auto/templates/${t.id}`, { method: 'DELETE' }).then(loadTemplates) }}>刪除</button></div>)}</div>
           </section>
           <section style={panelStyle}>
@@ -665,7 +665,7 @@ export function OsmUatPage() {
               <h3 style={h3Style}><span style={{ width: 20, height: 20, borderRadius: 4, background: '#ef4444', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0 }}>O</span>OCR 裁切區域定義</h3>
               <button style={{ ...smallBtnStyle, color: '#fff', background: '#4f8ef7', border: 'none' }} onClick={() => void addOcrRegion()}>新增區域</button>
             </div>
-            <p style={{ fontSize: 11, color: '#888', marginBottom: 12 }}>在遊戲截圖上框選餘額 / Bet / Win 區域，Tesseract 辨識後比對數字</p>
+            <p style={{ fontSize: 11, color: '#64748b', marginBottom: 12 }}>在遊戲截圖上框選餘額 / Bet / Win 區域，Tesseract 辨識後比對數字</p>
             <table style={tableStyle}><thead><tr><th style={thStyle}>名稱</th><th style={thStyle}>標籤</th><th style={thStyle}>裁切範圍</th><th style={thStyle}>準確率</th><th style={thStyle}>操作</th></tr></thead><tbody>{ocrRegions.map(r => <tr key={r.id}><td style={tdStyle}>{r.name}</td><td style={tdStyle}>{r.label}</td><td style={{ ...tdStyle, fontFamily: 'Consolas, monospace', fontSize: 11 }}>{r.crop_x},{r.crop_y},{r.crop_w},{r.crop_h}</td><td style={tdStyle}>{r.accuracy ? <span style={{ color: '#22c55e', fontWeight: 700 }}>{r.accuracy}%</span> : '—'}</td><td style={tdStyle}><button style={dangerBtnStyle} onClick={() => { void fetch(`/api/frontend-auto/ocr-regions/${r.id}`, { method: 'DELETE' }).then(loadOcr) }}>刪除</button></td></tr>)}</tbody></table>
           </section>
         </>}
@@ -691,7 +691,7 @@ export function OsmUatPage() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16, padding: '0 4px' }}>
 
       {/* ── 測試類型分頁 ── */}
-      <div style={{ display: 'flex', gap: 4, borderBottom: '2px solid #e2e8f0', paddingBottom: 0 }}>
+      <div style={{ display: 'flex', gap: 4, borderBottom: '2px solid #2d3f55', paddingBottom: 0 }}>
         {(['後端', 'H5', 'PC'] as const).map(tab => {
           const active = tab === activeTab
           return (
@@ -701,12 +701,12 @@ export function OsmUatPage() {
               style={{
                 padding: '8px 20px',
                 border: 'none',
-                borderBottom: active ? '2px solid #1d4ed8' : '2px solid transparent',
+                borderBottom: active ? '2px solid #818cf8' : '2px solid transparent',
                 marginBottom: -2,
                 background: 'none',
                 fontSize: 13,
                 fontWeight: active ? 700 : 500,
-                color: active ? '#1d4ed8' : '#64748b',
+                color: active ? '#818cf8' : '#64748b',
                 cursor: 'pointer',
                 borderRadius: '6px 6px 0 0',
               }}
@@ -721,7 +721,7 @@ export function OsmUatPage() {
         <>
       {/* ── 設定區 ── */}
       <section style={{ background: '#162032', border: '1px solid #2d3f55', borderRadius: 8, padding: 16 }}>
-        <h3 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 600, color: '#1e293b' }}>
+        <h3 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 600, color: '#e2e8f0' }}>
           ⚙️ 測試設定
         </h3>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -793,9 +793,9 @@ export function OsmUatPage() {
 
       {/* ── TC 掃描結果 ── */}
       {tcGroups && (
-        <section style={{ background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: 12 }}>
+        <section style={{ background: 'rgba(56,189,248,0.06)', border: '1px solid rgba(56,189,248,0.25)', borderRadius: 8, padding: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#0369a1' }}>📋 TC 摘要</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#38bdf8' }}>📋 TC 摘要</span>
             <span style={{ fontSize: 12, color: '#64748b' }}>共 {tcTotal} 筆</span>
             <button
               type="button"
@@ -811,11 +811,11 @@ export function OsmUatPage() {
                 key={g.name}
                 style={{
                   padding: '3px 10px',
-                  background: '#e0f2fe',
-                  border: '1px solid #7dd3fc',
+                  background: 'rgba(56,189,248,0.1)',
+                  border: '1px solid rgba(56,189,248,0.3)',
                   borderRadius: 12,
                   fontSize: 12,
-                  color: '#0369a1',
+                  color: '#38bdf8',
                   whiteSpace: 'nowrap',
                 }}
               >
@@ -882,10 +882,10 @@ export function OsmUatPage() {
       {/* ── 統計摘要（長駐）── */}
       <div style={{
         display: 'flex', gap: 12, padding: '10px 16px',
-        background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8,
+        background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.25)', borderRadius: 8,
         fontSize: 13, fontWeight: 600,
       }}>
-        <span style={{ color: '#16a34a' }}>✅ 通過: {summary.pass}</span>
+        <span style={{ color: '#4ade80' }}>✅ 通過: {summary.pass}</span>
         <span style={{ color: '#7c3aed' }}>🔧 需人工: {summary.manual}</span>
         <span style={{ color: '#94a3b8' }}>⏭ 跳過: {summary.skip}</span>
         <span style={{ color: '#dc2626' }}>❌ 失敗: {summary.fail}</span>
@@ -932,11 +932,11 @@ export function OsmUatPage() {
 
 const inputStyle: React.CSSProperties = {
   padding: '6px 10px',
-  border: '1px solid #d0d0d0',
+  border: '1px solid #2d3f55',
   borderRadius: 4,
   fontSize: 12,
-  color: '#333',
-  background: '#1e293b',
+  color: '#e2e8f0',
+  background: '#0f172a',
   outline: 'none',
 }
 
@@ -956,7 +956,7 @@ const btnStyle: React.CSSProperties = {
 
 const panelStyle: React.CSSProperties = {
   background: '#1e293b',
-  border: '1px solid #e0e0e0',
+  border: '1px solid #2d3f55',
   borderRadius: 8,
   padding: '20px 24px',
 }
@@ -972,7 +972,7 @@ const h3Style: React.CSSProperties = {
   margin: 0,
   fontSize: 13,
   fontWeight: 700,
-  color: '#444',
+  color: '#e2e8f0',
   display: 'flex',
   alignItems: 'center',
   gap: 8,
@@ -980,7 +980,7 @@ const h3Style: React.CSSProperties = {
 
 const cardTitleStyle: React.CSSProperties = {
   fontSize: 11,
-  color: '#555',
+  color: '#94a3b8',
   display: 'block',
   marginTop: 2,
   overflow: 'hidden',
@@ -990,7 +990,7 @@ const cardTitleStyle: React.CSSProperties = {
 }
 
 const barTrackStyle: React.CSSProperties = {
-  background: '#e5e7eb',
+  background: '#1e293b',
   borderRadius: 3,
   height: 6,
   overflow: 'hidden',
@@ -1017,11 +1017,11 @@ const dangerBtnStyle: React.CSSProperties = {
 
 const smallBtnStyle: React.CSSProperties = {
   padding: '4px 10px',
-  border: '1px solid #d0d0d0',
+  border: '1px solid #2d3f55',
   borderRadius: 4,
   fontSize: 11,
   fontWeight: 600,
-  color: '#555',
+  color: '#94a3b8',
   background: '#1e293b',
   cursor: 'pointer',
 }
@@ -1035,17 +1035,17 @@ const tableStyle: React.CSSProperties = {
 const thStyle: React.CSSProperties = {
   padding: '8px 12px',
   textAlign: 'left',
-  borderBottom: '1px solid #eee',
+  borderBottom: '1px solid #2d3f55',
   fontSize: 12,
   fontWeight: 600,
-  color: '#888',
-  background: '#f9f9f9',
+  color: '#94a3b8',
+  background: '#162032',
 }
 
 const tdStyle: React.CSSProperties = {
   padding: '10px 12px',
-  borderBottom: '1px solid #f5f5f5',
-  color: '#444',
+  borderBottom: '1px solid #1e293b',
+  color: '#cbd5e1',
   fontSize: 12,
   verticalAlign: 'middle',
 }
@@ -1053,8 +1053,8 @@ const tdStyle: React.CSSProperties = {
 const downloadStyle: React.CSSProperties = {
   padding: '4px 10px',
   background: '#1e293b',
-  border: '1px solid #d0d0d0',
-  color: '#555',
+  border: '1px solid #2d3f55',
+  color: '#94a3b8',
   borderRadius: 4,
   textDecoration: 'none',
   fontSize: 11,
@@ -1075,11 +1075,11 @@ const activePillStyle: React.CSSProperties = {
 
 const pillStyle: React.CSSProperties = {
   padding: '4px 10px',
-  border: '1px solid #d0d0d0',
+  border: '1px solid #2d3f55',
   borderRadius: 4,
   fontSize: 11,
   fontWeight: 600,
-  color: '#666',
+  color: '#94a3b8',
   background: '#1e293b',
   cursor: 'pointer',
 }
@@ -1101,7 +1101,7 @@ const stepRowStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 10,
   padding: '8px 12px',
-  border: '1px solid #e8e8e8',
+  border: '1px solid #2d3f55',
   borderRadius: 5,
   background: '#162032',
 }
@@ -1114,8 +1114,8 @@ const emptyStyle: React.CSSProperties = {
 const uploadStyle: React.CSSProperties = {
   padding: '4px 10px',
   background: '#1e293b',
-  border: '1px solid #d0d0d0',
-  color: '#555',
+  border: '1px solid #2d3f55',
+  color: '#94a3b8',
   borderRadius: 4,
   fontSize: 11,
   fontWeight: 500,
