@@ -177,7 +177,7 @@ export function SystemAdminPage() {
   // ─── Styles ───────────────────────────────────────────────────────────────
 
   const card: React.CSSProperties = {
-    background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12,
+    background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 12,
     padding: 24, marginBottom: 20,
   }
 
@@ -187,14 +187,14 @@ export function SystemAdminPage() {
 
   const th: React.CSSProperties = {
     padding: '10px 16px', textAlign: 'center', fontWeight: 600,
-    background: '#f8fafc', borderBottom: '2px solid #e2e8f0', color: '#475569',
+    background: '#162032', borderBottom: '2px solid #2d3f55', color: '#94a3b8',
     fontSize: 13,
   }
 
   const thLeft: React.CSSProperties = { ...th, textAlign: 'left' }
 
   const td: React.CSSProperties = {
-    padding: '9px 16px', borderBottom: '1px solid #f1f5f9', textAlign: 'center',
+    padding: '9px 16px', borderBottom: '1px solid #1e293b', textAlign: 'center',
   }
 
   const tdLeft: React.CSSProperties = { ...td, textAlign: 'left' }
@@ -211,7 +211,7 @@ export function SystemAdminPage() {
   }
 
   const btnOutline: React.CSSProperties = {
-    padding: '7px 14px', background: '#fff', color: '#475569',
+    padding: '7px 14px', background: '#1e293b', color: '#475569',
     border: '1px solid #cbd5e1', borderRadius: 6, cursor: 'pointer', fontSize: 13,
     whiteSpace: 'nowrap',
   }
@@ -225,7 +225,7 @@ export function SystemAdminPage() {
   return (
     <div style={{ padding: '20px 28px', maxWidth: 1100 }}>
       {/* Sub-tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 20, background: '#f1f5f9', padding: 4, borderRadius: 8, width: 'fit-content', border: '1px solid #e2e8f0' }}>
+      <div style={{ display: 'flex', gap: 4, marginBottom: 20, background: '#162032', padding: 4, borderRadius: 8, width: 'fit-content', border: '1px solid #2d3f55' }}>
         {([['permissions', '功能權限'], ['accounts', '帳號管理']] as const).map(([id, label]) => (
           <button
             key={id}
@@ -234,9 +234,9 @@ export function SystemAdminPage() {
             style={{
               padding: '7px 20px', borderRadius: 6, border: 'none', cursor: 'pointer',
               fontSize: 13, fontWeight: 500,
-              background: subTab === id ? '#fff' : 'transparent',
-              color: subTab === id ? '#0f172a' : '#64748b',
-              boxShadow: subTab === id ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
+              background: subTab === id ? '#1e293b' : 'transparent',
+              color: subTab === id ? '#e2e8f0' : '#64748b',
+              boxShadow: subTab === id ? '0 1px 3px rgba(0,0,0,.3)' : 'none',
             }}
           >
             {label}
@@ -282,7 +282,7 @@ export function SystemAdminPage() {
                   <>
                     <tr key={`grp-${group}`}>
                       <td colSpan={5} style={{
-                        padding: '8px 16px', background: '#f8fafc',
+                        padding: '8px 16px', background: '#162032',
                         fontSize: 11, fontWeight: 600, color: '#64748b',
                         textTransform: 'uppercase', letterSpacing: '.6px',
                         borderBottom: '1px solid #e2e8f0',
@@ -339,7 +339,7 @@ export function SystemAdminPage() {
 
             {/* Add form */}
             {showAddForm && (
-              <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 16, marginBottom: 16 }}>
+              <div style={{ background: '#162032', border: '1px solid #2d3f55', borderRadius: 8, padding: 16, marginBottom: 16 }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 10, marginBottom: 12 }}>
                   <div>
                     <label style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>
@@ -396,7 +396,7 @@ export function SystemAdminPage() {
                 position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
               }}>
-                <div style={{ background: '#fff', borderRadius: 12, padding: 28, width: 480, boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
+                <div style={{ background: '#1e293b', borderRadius: 12, padding: 28, width: 480, boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
                   <h3 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 16px', color: '#0f172a' }}>
                     編輯帳號：{editTarget.label}
                   </h3>

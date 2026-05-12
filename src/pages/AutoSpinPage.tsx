@@ -523,7 +523,7 @@ export function AutoSpinPage() {
 
       {/* Account warning */}
       {!userLabel && (
-        <div style={{ padding: '8px 12px', background: '#fef3c7', border: '1px solid #fbbf24', borderRadius: 8, marginBottom: 10, fontSize: 13 }}>
+        <div style={{ padding: '8px 12px', background: 'rgba(251,191,36,0.12)', border: '1px solid #fbbf24', borderRadius: 8, marginBottom: 10, fontSize: 13 }}>
           ⚠️ 請先在右上角選擇帳號，機台設定將會個人化儲存
         </div>
       )}
@@ -553,11 +553,11 @@ export function AutoSpinPage() {
             </button>
           </div>
 
-          {configs.length === 0 && <p style={{ color: '#9ca3af', fontSize: 13 }}>尚未設定任何機台。請點「+ 新增機台」。</p>}
+          {configs.length === 0 && <p style={{ color: '#64748b', fontSize: 13 }}>尚未設定任何機台。請點「+ 新增機台」。</p>}
 
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
-              <tr style={{ background: '#f9fafb', textAlign: 'left' }}>
+              <tr style={{ background: '#162032', textAlign: 'left' }}>
                 {['機台類型', 'Game Title Code', '模板類型', 'RTMP', '錄影', '模板偵測', '啟用', '操作'].map(h => (
                   <th key={h} style={{ padding: '8px 10px', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
@@ -565,11 +565,11 @@ export function AutoSpinPage() {
             </thead>
             <tbody>
               {configs.map(c => (
-                <tr key={c.machineType} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                <tr key={c.machineType} style={{ borderBottom: '1px solid #1e293b' }}>
                   <td style={{ padding: '7px 10px', fontWeight: 600 }}>{c.machineType}</td>
-                  <td style={{ padding: '7px 10px', color: '#6b7280', fontSize: 11 }}>{c.gameTitleCode || '—'}</td>
-                  <td style={{ padding: '7px 10px', color: '#6b7280', fontSize: 11 }}>{c.templateType || '—'}</td>
-                  <td style={{ padding: '7px 10px', color: '#6b7280', fontSize: 11 }}>{c.rtmpName || '—'}</td>
+                  <td style={{ padding: '7px 10px', color: '#94a3b8', fontSize: 11 }}>{c.gameTitleCode || '—'}</td>
+                  <td style={{ padding: '7px 10px', color: '#94a3b8', fontSize: 11 }}>{c.templateType || '—'}</td>
+                  <td style={{ padding: '7px 10px', color: '#94a3b8', fontSize: 11 }}>{c.rtmpName || '—'}</td>
                   {[c.enableRecording, c.enableTemplateDetection, c.enabled].map((v, i) => (
                     <td key={i} style={{ padding: '7px 10px', textAlign: 'center' }}>
                       <span style={{ color: v ? '#16a34a' : '#9ca3af' }}>{v ? '✅' : '—'}</span>
@@ -580,7 +580,7 @@ export function AutoSpinPage() {
                       <button onClick={() => handleEditConfig(c)}
                         style={{ padding: '2px 8px', background: '#eff6ff', color: '#1d4ed8', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>編輯</button>
                       <button onClick={() => handleDeleteConfig(c.machineType)}
-                        style={{ padding: '2px 8px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>刪除</button>
+                        style={{ padding: '2px 8px', background: 'rgba(239,68,68,0.12)', color: '#dc2626', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>刪除</button>
                     </div>
                   </td>
                 </tr>
@@ -591,7 +591,7 @@ export function AutoSpinPage() {
           {/* Add/Edit modal */}
           {showForm && (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <div style={{ background: '#fff', borderRadius: 10, padding: 24, width: 560, maxHeight: '85vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ background: '#1e293b', borderRadius: 10, padding: 24, width: 560, maxHeight: '85vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{editingType ? `編輯：${editingType}` : '新增機台設定'}</div>
 
                 {[
@@ -607,12 +607,12 @@ export function AutoSpinPage() {
                   { key: 'larkWebhook', label: 'Lark Webhook URL（推播通知，可留空）', placeholder: 'https://open.larksuite.com/open-apis/bot/v2/hook/...' },
                 ].map(({ key, label, placeholder, disabled }) => (
                   <div key={key}>
-                    <label style={{ fontSize: 12, color: '#374151', display: 'block', marginBottom: 3 }}>{label}</label>
+                    <label style={{ fontSize: 12, color: '#cbd5e1', display: 'block', marginBottom: 3 }}>{label}</label>
                     <input
                       value={(form as unknown as Record<string, string>)[key]}
                       onChange={e => setForm(f => ({ ...f, [key]: key === 'machineType' ? e.target.value.toUpperCase() : e.target.value }))}
                       placeholder={placeholder} disabled={disabled}
-                      style={{ width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, boxSizing: 'border-box', background: disabled ? '#f9fafb' : '#fff' }}
+                      style={{ width: '100%', padding: '6px 10px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 13, boxSizing: 'border-box', background: '#0f172a' }}
                     />
                   </div>
                 ))}
@@ -636,44 +636,44 @@ export function AutoSpinPage() {
                 {/* ── 頻率 / 隨機離開參數 ─────────────────────────────────── */}
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                   <div>
-                    <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 2 }}>Spin 間隔（秒）</div>
+                    <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>Spin 間隔（秒）</div>
                     <input type="number" min={0.1} max={60} step={0.1}
                       value={form.spinInterval}
                       onChange={e => setForm(f => ({ ...f, spinInterval: parseFloat(e.target.value) || 1.0 }))}
-                      style={{ width: 90, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+                      style={{ width: 90, padding: '5px 8px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 13 }} />
                   </div>
                   {form.randomExitEnabled && (<>
                     <div>
-                      <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 2 }}>離開機率（0~1）</div>
+                      <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>離開機率（0~1）</div>
                       <input type="number" min={0.001} max={1} step={0.01}
                         value={form.randomExitChance}
                         onChange={e => setForm(f => ({ ...f, randomExitChance: parseFloat(e.target.value) || 0.02 }))}
-                        style={{ width: 90, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+                        style={{ width: 90, padding: '5px 8px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 13 }} />
                     </div>
                     <div>
-                      <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 2 }}>最少 Spin 次數</div>
+                      <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>最少 Spin 次數</div>
                       <input type="number" min={1} step={1}
                         value={form.randomExitMinSpins}
                         onChange={e => setForm(f => ({ ...f, randomExitMinSpins: parseInt(e.target.value) || 50 }))}
-                        style={{ width: 90, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+                        style={{ width: 90, padding: '5px 8px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 13 }} />
                     </div>
                   </>)}
                 </div>
 
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <div>
-                  <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 2 }}>低餘額閾值（0 = 不偵測）</div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>低餘額閾值（0 = 不偵測）</div>
                   <input type="number" min={0} step={1}
                     value={form.lowBalanceThreshold}
                     onChange={e => setForm(f => ({ ...f, lowBalanceThreshold: parseFloat(e.target.value) || 0 }))}
-                    style={{ width: 120, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+                    style={{ width: 120, padding: '5px 8px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 13 }} />
                 </div>
                 </div>
 
                 {configMsg && <p style={{ color: '#dc2626', fontSize: 12, margin: 0 }}>❌ {configMsg}</p>}
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
                   <button onClick={() => { setShowForm(false); setConfigMsg('') }}
-                    style={{ padding: '6px 16px', border: '1px solid #e5e7eb', borderRadius: 6, background: '#fff', fontSize: 13, cursor: 'pointer' }}>取消</button>
+                    style={{ padding: '6px 16px', border: '1px solid #2d3f55', borderRadius: 6, background: '#1e293b', fontSize: 13, cursor: 'pointer' }}>取消</button>
                   <button onClick={handleSaveConfig}
                     style={{ padding: '6px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>儲存</button>
                 </div>
@@ -693,18 +693,18 @@ export function AutoSpinPage() {
               style={{ padding: '6px 16px', background: '#2563eb', color: '#fff', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
               {uploading ? '上傳中...' : '+ 上傳模板圖片'}
             </label>
-            <span style={{ fontSize: 11, color: '#9ca3af' }}>支援 .png / .jpg / .bmp，檔名即為模板名稱</span>
+            <span style={{ fontSize: 11, color: '#64748b' }}>支援 .png / .jpg / .bmp，檔名即為模板名稱</span>
           </div>
 
           {templates.length === 0
-            ? <p style={{ color: '#9ca3af', fontSize: 13 }}>templates/ 資料夾中尚無圖片</p>
+            ? <p style={{ color: '#64748b', fontSize: 13 }}>templates/ 資料夾中尚無圖片</p>
             : (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
                 {templates.map(t => (
-                  <div key={t.name} style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', width: 140, background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+                  <div key={t.name} style={{ border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden', width: 140, background: '#1e293b', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
                     <div
                       onClick={() => setLightbox(`/api/autospin/template-img/${encodeURIComponent(t.name)}`)}
-                      style={{ cursor: 'zoom-in', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', height: 100, overflow: 'hidden' }}
+                      style={{ cursor: 'zoom-in', background: '#162032', display: 'flex', alignItems: 'center', justifyContent: 'center', height: 100, overflow: 'hidden' }}
                     >
                       <img
                         src={`/api/autospin/template-img/${encodeURIComponent(t.name)}`}
@@ -714,9 +714,9 @@ export function AutoSpinPage() {
                       />
                     </div>
                     <div style={{ padding: '6px 8px', borderTop: '1px solid #f1f5f9' }}>
-                      <div style={{ fontSize: 10, color: '#374151', wordBreak: 'break-all', marginBottom: 4 }}>{t.name}</div>
+                      <div style={{ fontSize: 10, color: '#cbd5e1', wordBreak: 'break-all', marginBottom: 4 }}>{t.name}</div>
                       <button onClick={() => handleDeleteTemplate(t.name)}
-                        style={{ width: '100%', padding: '2px 0', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>刪除</button>
+                        style={{ width: '100%', padding: '2px 0', background: 'rgba(239,68,68,0.12)', color: '#dc2626', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>刪除</button>
                     </div>
                   </div>
                 ))}
@@ -730,7 +730,7 @@ export function AutoSpinPage() {
       {tab === 'betrandom' && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, overflow: 'auto' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 12, color: '#6b7280' }}>
+            <span style={{ fontSize: 12, color: '#94a3b8' }}>
               設定各機台的隨機下注 XPath，Agent 執行時會隨機點擊其中一個按鈕
             </span>
             <button onClick={() => { setBrEditKey(null); setBrFormKey(''); setBrFormSelectors(['']); setBetRandomMsg(''); setBrShowForm(true) }}
@@ -740,11 +740,11 @@ export function AutoSpinPage() {
           </div>
 
           {Object.keys(betRandomData).length === 0
-            ? <p style={{ color: '#9ca3af', fontSize: 13 }}>尚無設定。點「+ 新增機台」加入 Game Title Code 與對應的 XPath。</p>
+            ? <p style={{ color: '#64748b', fontSize: 13 }}>尚無設定。點「+ 新增機台」加入 Game Title Code 與對應的 XPath。</p>
             : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
-                  <tr style={{ background: '#f9fafb', textAlign: 'left' }}>
+                  <tr style={{ background: '#162032', textAlign: 'left' }}>
                     <th style={{ padding: '8px 10px', borderBottom: '1px solid #e5e7eb' }}>Game Title Code</th>
                     <th style={{ padding: '8px 10px', borderBottom: '1px solid #e5e7eb' }}>XPath 數量</th>
                     <th style={{ padding: '8px 10px', borderBottom: '1px solid #e5e7eb' }}>操作</th>
@@ -752,15 +752,15 @@ export function AutoSpinPage() {
                 </thead>
                 <tbody>
                   {Object.entries(betRandomData).map(([key, selectors]) => (
-                    <tr key={key} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                    <tr key={key} style={{ borderBottom: '1px solid #1e293b' }}>
                       <td style={{ padding: '7px 10px', fontWeight: 600, fontFamily: 'monospace', fontSize: 11 }}>{key}</td>
-                      <td style={{ padding: '7px 10px', color: '#6b7280' }}>{selectors.length} 個</td>
+                      <td style={{ padding: '7px 10px', color: '#94a3b8' }}>{selectors.length} 個</td>
                       <td style={{ padding: '7px 10px' }}>
                         <div style={{ display: 'flex', gap: 4 }}>
                           <button onClick={() => openBrEdit(key)}
                             style={{ padding: '2px 8px', background: '#eff6ff', color: '#1d4ed8', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>編輯</button>
                           <button onClick={() => handleDeleteBrEntry(key)}
-                            style={{ padding: '2px 8px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>刪除</button>
+                            style={{ padding: '2px 8px', background: 'rgba(239,68,68,0.12)', color: '#dc2626', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>刪除</button>
                         </div>
                       </td>
                     </tr>
@@ -773,20 +773,20 @@ export function AutoSpinPage() {
           {/* Add/Edit modal */}
           {brShowForm && (
             <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <div style={{ background: '#fff', borderRadius: 10, padding: 24, width: 600, maxHeight: '85vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ background: '#1e293b', borderRadius: 10, padding: 24, width: 600, maxHeight: '85vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div style={{ fontWeight: 700, fontSize: 15 }}>{brEditKey ? `編輯：${brEditKey}` : '新增隨機下注設定'}</div>
 
                 <div>
-                  <label style={{ fontSize: 12, color: '#374151', display: 'block', marginBottom: 3 }}>Game Title Code *</label>
+                  <label style={{ fontSize: 12, color: '#cbd5e1', display: 'block', marginBottom: 3 }}>Game Title Code *</label>
                   <input value={brFormKey} disabled={!!brEditKey}
                     onChange={e => setBrFormKey(e.target.value)}
                     placeholder="e.g. 873-TIANCIJINLONG-0017"
-                    style={{ width: '100%', padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, boxSizing: 'border-box', background: brEditKey ? '#f9fafb' : '#fff' }} />
+                    style={{ width: '100%', padding: '6px 10px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 13, boxSizing: 'border-box', background: '#0f172a' }} />
                 </div>
 
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <label style={{ fontSize: 12, color: '#374151' }}>XPath 列表（每行一個）</label>
+                    <label style={{ fontSize: 12, color: '#cbd5e1' }}>XPath 列表（每行一個）</label>
                     <button type="button" onClick={() => setBrFormSelectors(s => [...s, ''])}
                       style={{ padding: '2px 10px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>
                       + 新增行
@@ -797,10 +797,10 @@ export function AutoSpinPage() {
                       <input value={sel}
                         onChange={e => setBrFormSelectors(s => s.map((x, i) => i === idx ? e.target.value : x))}
                         placeholder="//div[@class='row2']//div[contains(@class,'btn_bet')]"
-                        style={{ flex: 1, padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 11, fontFamily: 'monospace' }} />
+                        style={{ flex: 1, padding: '5px 8px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 11, fontFamily: 'monospace' }} />
                       <button type="button" onClick={() => setBrFormSelectors(s => s.filter((_, i) => i !== idx))}
                         disabled={brFormSelectors.length <= 1}
-                        style={{ padding: '4px 8px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>✕</button>
+                        style={{ padding: '4px 8px', background: 'rgba(239,68,68,0.12)', color: '#dc2626', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>✕</button>
                     </div>
                   ))}
                 </div>
@@ -808,7 +808,7 @@ export function AutoSpinPage() {
                 {betRandomMsg && <p style={{ color: '#dc2626', fontSize: 12, margin: 0 }}>❌ {betRandomMsg}</p>}
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
                   <button onClick={() => { setBrShowForm(false); setBetRandomMsg('') }}
-                    style={{ padding: '6px 16px', border: '1px solid #e5e7eb', borderRadius: 6, background: '#fff', fontSize: 13, cursor: 'pointer' }}>取消</button>
+                    style={{ padding: '6px 16px', border: '1px solid #2d3f55', borderRadius: 6, background: '#1e293b', fontSize: 13, cursor: 'pointer' }}>取消</button>
                   <button onClick={handleSaveBrEntry}
                     style={{ padding: '6px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>儲存</button>
                 </div>
@@ -836,10 +836,10 @@ export function AutoSpinPage() {
                 { key: 'login_password', label: '登入密碼', placeholder: '' },
               ].map(({ key, label, placeholder }) => (
                 <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <label style={{ fontSize: 11, color: '#6b7280', minWidth: 200, textAlign: 'right' }}>{label}</label>
+                  <label style={{ fontSize: 11, color: '#94a3b8', minWidth: 200, textAlign: 'right' }}>{label}</label>
                   <input value={rcConfig[key] ?? ''} onChange={e => setRcConfig(c => ({ ...c, [key]: e.target.value }))}
                     placeholder={placeholder} type={key === 'login_password' ? 'password' : 'text'}
-                    style={{ flex: 1, padding: '4px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12 }} />
+                    style={{ flex: 1, padding: '4px 8px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 12 }} />
                 </div>
               ))}
               <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
@@ -851,7 +851,7 @@ export function AutoSpinPage() {
           </details>
 
           {/* Run Reconciliation */}
-          <div style={{ background: '#f8fafc', border: '1px solid #e5e7eb', borderRadius: 8, padding: 14 }}>
+          <div style={{ background: '#162032', border: '1px solid #2d3f55', borderRadius: 8, padding: 14 }}>
             <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>▶ 執行對帳</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
               {[
@@ -861,9 +861,9 @@ export function AutoSpinPage() {
                 { label: 'Player ID（留空=全部）', val: rcPlayerId, set: setRcPlayerId, ph: '' },
               ].map(({ label, val, set, ph }) => (
                 <div key={label}>
-                  <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 2 }}>{label}</div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>{label}</div>
                   <input value={val} onChange={e => set(e.target.value)} placeholder={ph}
-                    style={{ padding: '5px 8px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, width: 180 }} />
+                    style={{ padding: '5px 8px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 12, width: 180 }} />
                 </div>
               ))}
               <button onClick={runReconcile} disabled={rcRunning}
@@ -875,15 +875,15 @@ export function AutoSpinPage() {
 
           {/* Latest result */}
           {rcResult && (
-            <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 14 }}>
+            <div style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 8, padding: 14 }}>
               <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>📋 對帳結果</div>
-              <div style={{ fontSize: 12, color: '#374151', marginBottom: 10, padding: '6px 10px', background: '#f1f5f9', borderRadius: 6 }}>{rcResult.summary}</div>
+              <div style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 10, padding: '6px 10px', background: '#f1f5f9', borderRadius: 6 }}>{rcResult.summary}</div>
 
               {rcResult.backendAnomalies.length > 0 && (
                 <div style={{ marginBottom: 10 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#d97706', marginBottom: 4 }}>⚠️ 後台異常 ({rcResult.backendAnomalies.length} 筆)</div>
                   {rcResult.backendAnomalies.map((a, i) => (
-                    <div key={i} style={{ fontSize: 11, color: '#92400e', padding: '2px 8px', background: '#fef3c7', borderRadius: 4, marginBottom: 2 }}>
+                    <div key={i} style={{ fontSize: 11, color: '#92400e', padding: '2px 8px', background: 'rgba(251,191,36,0.12)', borderRadius: 4, marginBottom: 2 }}>
                       {a.note} | uid={a.uid} time={a.time} bet={a.bet} win={a.win}
                     </div>
                   ))}
@@ -893,20 +893,20 @@ export function AutoSpinPage() {
               <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>前端紀錄比對 ({rcResult.details.length} 筆)</div>
               <div style={{ maxHeight: 300, overflowY: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                  <thead><tr style={{ background: '#f9fafb' }}>
+                  <thead><tr style={{ background: '#162032' }}>
                     {['狀態', 'UID', '時間', 'Bet', 'Win', '備註'].map(h => <th key={h} style={{ padding: '5px 8px', borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>{h}</th>)}
                   </tr></thead>
                   <tbody>
                     {rcResult.details.map((d, i) => (
-                      <tr key={i} style={{ background: d.status === 'MISSING' ? '#fef2f2' : 'transparent', borderBottom: '1px solid #f3f4f6' }}>
+                      <tr key={i} style={{ background: d.status === 'MISSING' ? 'rgba(239,68,68,0.08)' : 'transparent', borderBottom: '1px solid #1e293b' }}>
                         <td style={{ padding: '4px 8px' }}>
-                          <span style={{ padding: '1px 6px', borderRadius: 4, background: d.status === 'MATCH' ? '#dcfce7' : '#fee2e2', color: d.status === 'MATCH' ? '#16a34a' : '#dc2626', fontWeight: 600 }}>{d.status}</span>
+                          <span style={{ padding: '1px 6px', borderRadius: 4, background: d.status === 'MATCH' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.12)', color: d.status === 'MATCH' ? '#16a34a' : '#dc2626', fontWeight: 600 }}>{d.status}</span>
                         </td>
                         <td style={{ padding: '4px 8px', fontFamily: 'monospace', fontSize: 10 }}>{d.uid}</td>
-                        <td style={{ padding: '4px 8px', color: '#6b7280' }}>{d.time}</td>
+                        <td style={{ padding: '4px 8px', color: '#94a3b8' }}>{d.time}</td>
                         <td style={{ padding: '4px 8px' }}>{d.bet}</td>
                         <td style={{ padding: '4px 8px' }}>{d.win}</td>
-                        <td style={{ padding: '4px 8px', color: '#6b7280' }}>{d.note || '—'}</td>
+                        <td style={{ padding: '4px 8px', color: '#94a3b8' }}>{d.note || '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -920,13 +920,13 @@ export function AutoSpinPage() {
             <div>
               <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>📜 歷史對帳紀錄</div>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                <thead><tr style={{ background: '#f9fafb' }}>
+                <thead><tr style={{ background: '#162032' }}>
                   {['時間', '範圍', '機台', '前端', '後台', '匹配', '未匹配', '異常'].map(h => <th key={h} style={{ padding: '6px 8px', borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>{h}</th>)}
                 </tr></thead>
                 <tbody>
                   {rcReports.map(r => (
-                    <tr key={r.id} style={{ borderBottom: '1px solid #f3f4f6', background: r.unmatchedCount > 0 ? '#fef2f2' : 'transparent' }}>
-                      <td style={{ padding: '5px 8px', color: '#6b7280' }}>{new Date(r.runAt).toLocaleString('zh-TW')}</td>
+                    <tr key={r.id} style={{ borderBottom: '1px solid #1e293b', background: r.unmatchedCount > 0 ? 'rgba(239,68,68,0.08)' : 'transparent' }}>
+                      <td style={{ padding: '5px 8px', color: '#94a3b8' }}>{new Date(r.runAt).toLocaleString('zh-TW')}</td>
                       <td style={{ padding: '5px 8px', fontSize: 10 }}>{r.rangeStart.slice(0, 16)} ~ {r.rangeEnd.slice(0, 16)}</td>
                       <td style={{ padding: '5px 8px' }}>{r.machineType || '全部'}</td>
                       <td style={{ padding: '5px 8px' }}>{r.frontCount}</td>
@@ -949,31 +949,31 @@ export function AutoSpinPage() {
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <input value={historyFilter} onChange={e => setHistoryFilter(e.target.value)}
               placeholder="篩選機台類型（留空顯示全部）"
-              style={{ padding: '5px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, width: 220 }} />
+              style={{ padding: '5px 10px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 12, width: 220 }} />
             <button onClick={fetchHistory}
               style={{ padding: '5px 14px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>
               查詢
             </button>
             <button onClick={handleClearHistory}
-              style={{ padding: '5px 14px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>
+              style={{ padding: '5px 14px', background: 'rgba(239,68,68,0.12)', color: '#dc2626', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>
               清除記錄
             </button>
-            <span style={{ fontSize: 11, color: '#9ca3af' }}>共 {historyRows.length} 筆</span>
+            <span style={{ fontSize: 11, color: '#64748b' }}>共 {historyRows.length} 筆</span>
           </div>
 
           {/* Anomaly summary */}
           {historyRows.some(r => r.isAnomaly) && (
-            <div style={{ padding: '8px 12px', background: '#fef3c7', border: '1px solid #fbbf24', borderRadius: 6, fontSize: 12 }}>
+            <div style={{ padding: '8px 12px', background: 'rgba(251,191,36,0.12)', border: '1px solid #fbbf24', borderRadius: 6, fontSize: 12 }}>
               ⚠️ 偵測到 {historyRows.filter(r => r.isAnomaly).length} 筆異常（餘額相比開局下降超過 30%）
             </div>
           )}
 
           {historyRows.length === 0
-            ? <p style={{ color: '#9ca3af', fontSize: 13 }}>尚無戰績記錄。Agent 執行中會每 20 次 Spin 記錄一次餘額快照。</p>
+            ? <p style={{ color: '#64748b', fontSize: 13 }}>尚無戰績記錄。Agent 執行中會每 20 次 Spin 記錄一次餘額快照。</p>
             : (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                 <thead>
-                  <tr style={{ background: '#f9fafb', textAlign: 'left' }}>
+                  <tr style={{ background: '#162032', textAlign: 'left' }}>
                     {['時間', '機台', 'Spin#', '餘額', '事件', '備註'].map(h => (
                       <th key={h} style={{ padding: '7px 10px', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
@@ -981,25 +981,25 @@ export function AutoSpinPage() {
                 </thead>
                 <tbody>
                   {historyRows.map(r => (
-                    <tr key={r.id} style={{ borderBottom: '1px solid #f3f4f6', background: r.isAnomaly ? '#fef3c7' : 'transparent' }}>
-                      <td style={{ padding: '6px 10px', color: '#6b7280', whiteSpace: 'nowrap' }}>
+                    <tr key={r.id} style={{ borderBottom: '1px solid #1e293b', background: r.isAnomaly ? 'rgba(251,191,36,0.12)' : 'transparent' }}>
+                      <td style={{ padding: '6px 10px', color: '#94a3b8', whiteSpace: 'nowrap' }}>
                         {new Date(r.createdAt).toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                       </td>
                       <td style={{ padding: '6px 10px', fontWeight: 600 }}>{r.machineType}</td>
-                      <td style={{ padding: '6px 10px', color: '#6b7280' }}>{r.spinCount}</td>
+                      <td style={{ padding: '6px 10px', color: '#94a3b8' }}>{r.spinCount}</td>
                       <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: r.balance !== null && r.balance < 100 ? '#dc2626' : '#374151' }}>
                         {r.balance !== null ? r.balance.toFixed(2) : '—'}
                       </td>
                       <td style={{ padding: '6px 10px' }}>
                         <span style={{ padding: '2px 6px', borderRadius: 4, fontSize: 11,
-                          background: r.event === 'bonus' ? '#dcfce7' : r.event === 'low_balance' ? '#fef3c7' : r.event === 'error' ? '#fee2e2' : '#f3f4f6',
+                          background: r.event === 'bonus' ? 'rgba(16,185,129,0.15)' : r.event === 'low_balance' ? 'rgba(251,191,36,0.12)' : r.event === 'error' ? 'rgba(239,68,68,0.12)' : '#1e293b',
                           color: r.event === 'bonus' ? '#16a34a' : r.event === 'low_balance' ? '#d97706' : r.event === 'error' ? '#dc2626' : '#6b7280',
                         }}>
                           {EVENT_LABEL[r.event] ?? r.event}
                         </span>
                         {r.isAnomaly ? ' ⚠️' : ''}
                       </td>
-                      <td style={{ padding: '6px 10px', color: '#6b7280' }}>{r.note || '—'}</td>
+                      <td style={{ padding: '6px 10px', color: '#94a3b8' }}>{r.note || '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1033,7 +1033,7 @@ export function AutoSpinPage() {
             style={{
               display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px',
               borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: jackpots.length > 0 ? 'pointer' : 'default',
-              background: jackpots.length > 0 ? '#f0fdf4' : '#f8fafc',
+              background: jackpots.length > 0 ? 'rgba(16,185,129,0.08)' : '#162032',
               border: `1px solid ${jackpots.length > 0 ? '#86efac' : '#e2e8f0'}`,
               color: jackpots.length > 0 ? '#15803d' : '#94a3b8',
               userSelect: 'none',
@@ -1050,12 +1050,12 @@ export function AutoSpinPage() {
           </div>
 
           {jackpotPanelOpen && jackpots.length > 0 && (
-            <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12 }}>
+            <div style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 8, padding: 12 }}>
               <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>即時獎池 — 每 10 秒自動更新（只顯示 Grand / Fortune）</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 6 }}>
                 {jackpots.filter(j => j.grand != null || j.fortunate != null).map(j => (
                   <div key={j.gtype} style={{
-                    background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6,
+                    background: '#162032', border: '1px solid #2d3f55', borderRadius: 6,
                     padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 4,
                   }}>
                     <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>{j.gameName}</div>
@@ -1078,11 +1078,11 @@ export function AutoSpinPage() {
           )}
 
           {/* Mode toggle */}
-          <div style={{ display: 'flex', gap: 0, border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', alignSelf: 'flex-start' }}>
+          <div style={{ display: 'flex', gap: 0, border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden', alignSelf: 'flex-start' }}>
             {(['server', 'local'] as const).map(m => (
               <button key={m} onClick={() => setRunMode(m)}
                 style={{ padding: '7px 20px', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer',
-                  background: runMode === m ? '#2563eb' : '#f9fafb', color: runMode === m ? '#fff' : '#374151' }}>
+                  background: runMode === m ? '#2563eb' : '#1e293b', color: runMode === m ? '#fff' : '#94a3b8' }}>
                 {m === 'server' ? '🖥 伺服器端' : '💻 本機端（Agent）'}
               </button>
             ))}
@@ -1105,12 +1105,12 @@ export function AutoSpinPage() {
                       style={{ padding: '8px 20px', background: !running ? '#9ca3af' : '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: !running ? 'default' : 'pointer' }}>
                       ⏹ 停止
                     </button>
-                    <span style={{ fontSize: 12, padding: '4px 10px', borderRadius: 12, background: running ? '#dcfce7' : '#f1f5f9', color: running ? '#16a34a' : '#6b7280', fontWeight: 600 }}>
+                    <span style={{ fontSize: 12, padding: '4px 10px', borderRadius: 12, background: running ? 'rgba(16,185,129,0.15)' : '#f1f5f9', color: running ? '#16a34a' : '#6b7280', fontWeight: 600 }}>
                       {running ? '🟢 執行中' : '⚪ 未執行'}
                     </span>
                     {startError && <span style={{ color: '#dc2626', fontSize: 12 }}>❌ {startError}</span>}
                   </div>
-                  <div style={{ fontSize: 11, color: '#6b7280' }}>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>
                     執行中的機台：{configs.filter(c => c.enabled).length} 台（已啟用）
                   </div>
                 </>
@@ -1139,7 +1139,7 @@ export function AutoSpinPage() {
                         ▶ 繼續
                       </button>
                     )}
-                    <span style={{ fontSize: 12, padding: '4px 10px', borderRadius: 12, background: agentPaused ? '#fef3c7' : agentRunning ? '#dcfce7' : '#f1f5f9', color: agentPaused ? '#d97706' : agentRunning ? '#16a34a' : '#6b7280', fontWeight: 600 }}>
+                    <span style={{ fontSize: 12, padding: '4px 10px', borderRadius: 12, background: agentPaused ? 'rgba(251,191,36,0.12)' : agentRunning ? 'rgba(16,185,129,0.15)' : '#f1f5f9', color: agentPaused ? '#d97706' : agentRunning ? '#16a34a' : '#6b7280', fontWeight: 600 }}>
                       {agentPaused ? '⏸ 已暫停' : agentRunning ? '🟢 Agent 執行中' : '⚪ 未連線'}
                     </span>
                     {agentSessionId && <span style={{ fontSize: 11, color: '#2563eb' }}>Session: {agentSessionId.slice(0, 8)}…</span>}
@@ -1147,7 +1147,7 @@ export function AutoSpinPage() {
 
                   {/* Live Spin Interval */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 12, color: '#6b7280' }}>⏱ Spin 間隔</span>
+                    <span style={{ fontSize: 12, color: '#94a3b8' }}>⏱ Spin 間隔</span>
                     <input
                       type="range" min={0.1} max={10} step={0.1}
                       value={liveSpinInterval}
@@ -1164,7 +1164,7 @@ export function AutoSpinPage() {
                     >
                       {liveIntervalSaving ? '...' : '套用'}
                     </button>
-                    <span style={{ fontSize: 11, color: '#9ca3af' }}>覆蓋所有機台間隔，Agent 3秒內生效</span>
+                    <span style={{ fontSize: 11, color: '#64748b' }}>覆蓋所有機台間隔，Agent 3秒內生效</span>
                   </div>
                 </>
               )}
@@ -1197,7 +1197,7 @@ export function AutoSpinPage() {
                       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                         <span style={{ background: '#2563eb', color: '#fff', borderRadius: '50%', width: 20, height: 20, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>1</span>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>下載安裝包並執行（需安裝 Python 3）</div>
+                          <div style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 4 }}>下載安裝包並執行（需安裝 Python 3）</div>
                           <a href="/api/autospin/agent/download/install.bat" download
                             style={{ display: 'inline-block', padding: '5px 12px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 5, fontWeight: 600, fontSize: 12, textDecoration: 'none' }}>
                             📥 下載 install.bat
@@ -1206,9 +1206,9 @@ export function AutoSpinPage() {
                       </div>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                         <span style={{ background: '#2563eb', color: '#fff', borderRadius: '50%', width: 20, height: 20, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>2</span>
-                        <div style={{ fontSize: 12, color: '#374151' }}>安裝完成後，點上方「▶ 啟動（本機）」即可連線</div>
+                        <div style={{ fontSize: 12, color: '#cbd5e1' }}>安裝完成後，點上方「▶ 啟動（本機）」即可連線</div>
                       </div>
-                      <div style={{ fontSize: 11, color: '#6b7280', borderTop: '1px solid #e5e7eb', paddingTop: 8, marginTop: 2 }}>
+                      <div style={{ fontSize: 11, color: '#94a3b8', borderTop: '1px solid #e5e7eb', paddingTop: 8, marginTop: 2 }}>
                         安裝內容：Python venv、Playwright Chromium、自動 UAC 提權
                       </div>
                     </div>
@@ -1224,7 +1224,7 @@ export function AutoSpinPage() {
                       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                         <span style={{ background: '#059669', color: '#fff', borderRadius: '50%', width: 20, height: 20, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>1</span>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>下載安裝腳本，Terminal 執行（需 Python 3）</div>
+                          <div style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 4 }}>下載安裝腳本，Terminal 執行（需 Python 3）</div>
                           <a href="/api/autospin/agent/download/install-mac.sh" download
                             style={{ display: 'inline-block', padding: '5px 12px', background: '#059669', color: '#fff', border: 'none', borderRadius: 5, fontWeight: 600, fontSize: 12, textDecoration: 'none' }}>
                             📥 下載 install-mac.sh
@@ -1233,15 +1233,15 @@ export function AutoSpinPage() {
                       </div>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                         <span style={{ background: '#059669', color: '#fff', borderRadius: '50%', width: 20, height: 20, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>2</span>
-                        <div style={{ fontSize: 12, color: '#374151', lineHeight: 1.5 }}>
+                        <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.5 }}>
                           Terminal 執行：<br />
-                          <code style={{ background: '#f0fdf4', padding: '2px 6px', borderRadius: 4, fontSize: 11 }}>bash install-toppath-agent-mac.sh</code>
+                          <code style={{ background: '#162032', padding: '2px 6px', borderRadius: 4, fontSize: 11 }}>bash install-toppath-agent-mac.sh</code>
                         </div>
                       </div>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
                         <span style={{ background: '#059669', color: '#fff', borderRadius: '50%', width: 20, height: 20, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>3</span>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>安裝完成後，複製啟動指令貼到 Terminal</div>
+                          <div style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 4 }}>安裝完成後，複製啟動指令貼到 Terminal</div>
                           <button onClick={() => {
                             const apiPort = window.location.port === '5173' ? '3000' : window.location.port
                             const serverUrl = `${window.location.protocol}//${window.location.hostname}${apiPort ? ':' + apiPort : ''}`
@@ -1261,7 +1261,7 @@ export function AutoSpinPage() {
                           </button>
                         </div>
                       </div>
-                      <div style={{ fontSize: 11, color: '#6b7280', borderTop: '1px solid #d1fae5', paddingTop: 8, marginTop: 2 }}>
+                      <div style={{ fontSize: 11, color: '#94a3b8', borderTop: '1px solid #d1fae5', paddingTop: 8, marginTop: 2 }}>
                         安裝內容：Python venv、Playwright Chromium、launchd 服務、toppath-agent:// URL scheme
                       </div>
                     </div>
@@ -1273,20 +1273,20 @@ export function AutoSpinPage() {
             {/* Right: screenshots + SLS errors */}
             <div style={{ flex: '0 0 260px', display: 'flex', flexDirection: 'column', gap: 8, overflow: 'auto' }}>
               {/* SLS Error Logs panel */}
-              <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', background: slsEntries.some(e => e.level === 'ERROR') ? '#fef2f2' : '#f8fafc', cursor: 'pointer' }}
+              <div style={{ border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', background: slsEntries.some(e => e.level === 'ERROR') ? 'rgba(239,68,68,0.08)' : '#162032', cursor: 'pointer' }}
                   onClick={() => setSlsPanelOpen(v => !v)}>
                   <span style={{ width: 7, height: 7, borderRadius: '50%', background: slsEntries.length > 0 ? (slsEntries.some(e => e.level === 'ERROR') ? '#ef4444' : '#f59e0b') : '#cbd5e1', flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, fontWeight: 600, color: '#374151', flex: 1 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#cbd5e1', flex: 1 }}>
                     SLS 錯誤日誌 {slsEntries.length > 0 ? `(${slsEntries.length})` : ''}
                   </span>
-                  <span style={{ fontSize: 10, color: '#9ca3af' }}>{slsPanelOpen ? '▲' : '▼'}</span>
+                  <span style={{ fontSize: 10, color: '#64748b' }}>{slsPanelOpen ? '▲' : '▼'}</span>
                 </div>
                 {slsPanelOpen && (
-                  <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6, background: '#fff' }}>
+                  <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6, background: '#1e293b' }}>
                     <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                       <select value={slsMachineNo} onChange={e => { setSlsMachineNo(e.target.value); setSlsEntries([]) }}
-                        style={{ flex: 1, fontSize: 11, padding: '4px 6px', border: '1px solid #d1d5db', borderRadius: 5 }}>
+                        style={{ flex: 1, fontSize: 11, padding: '4px 6px', border: '1px solid #2d3f55', borderRadius: 5 }}>
                         <option value=''>— 選擇機台 —</option>
                         {configs.filter(c => c.machineNo).map(c => (
                           <option key={c.machineType} value={c.machineNo}>{c.machineType} ({c.machineNo})</option>
@@ -1299,11 +1299,11 @@ export function AutoSpinPage() {
                     </div>
                     {slsError && <div style={{ fontSize: 11, color: '#ef4444' }}>{slsError}</div>}
                     {slsEntries.length === 0 && !slsLoading && !slsError && slsMachineNo && (
-                      <div style={{ fontSize: 11, color: '#9ca3af' }}>近 24 小時無錯誤記錄</div>
+                      <div style={{ fontSize: 11, color: '#64748b' }}>近 24 小時無錯誤記錄</div>
                     )}
                     {slsEntries.map((e, i) => (
-                      <div key={i} style={{ fontSize: 10, borderLeft: `3px solid ${e.level === 'ERROR' ? '#ef4444' : e.level === 'WARN' || e.level === 'WARNING' ? '#f59e0b' : '#6b7280'}`, paddingLeft: 6, color: '#374151' }}>
-                        <div style={{ color: '#6b7280', marginBottom: 2 }}>{e.timeStr} · <span style={{ color: e.level === 'ERROR' ? '#ef4444' : '#f59e0b', fontWeight: 700 }}>{e.level}</span></div>
+                      <div key={i} style={{ fontSize: 10, borderLeft: `3px solid ${e.level === 'ERROR' ? '#ef4444' : e.level === 'WARN' || e.level === 'WARNING' ? '#f59e0b' : '#6b7280'}`, paddingLeft: 6, color: '#cbd5e1' }}>
+                        <div style={{ color: '#94a3b8', marginBottom: 2 }}>{e.timeStr} · <span style={{ color: e.level === 'ERROR' ? '#ef4444' : '#f59e0b', fontWeight: 700 }}>{e.level}</span></div>
                         <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', color: '#1e293b' }}>{e.content.slice(0, 160)}{e.content.length > 160 ? '…' : ''}</div>
                       </div>
                     ))}
@@ -1312,13 +1312,13 @@ export function AutoSpinPage() {
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>截圖監控</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#cbd5e1' }}>截圖監控</span>
                 <button onClick={fetchCaptures} style={{ fontSize: 11, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer' }}>🔄 重新整理</button>
               </div>
               {(runMode === 'server' ? captures : agentCaptures).length === 0
-                ? <p style={{ color: '#9ca3af', fontSize: 12 }}>尚無截圖</p>
+                ? <p style={{ color: '#64748b', fontSize: 12 }}>尚無截圖</p>
                 : (runMode === 'server' ? captures : agentCaptures).map(f => (
-                  <div key={f.name} style={{ border: '1px solid #e5e7eb', borderRadius: 6, overflow: 'hidden' }}>
+                  <div key={f.name} style={{ border: '1px solid #2d3f55', borderRadius: 6, overflow: 'hidden' }}>
                     <img
                       src={runMode === 'server'
                         ? `/api/autospin/captures/${encodeURIComponent(f.name)}`
@@ -1326,7 +1326,7 @@ export function AutoSpinPage() {
                       alt={f.name}
                       style={{ width: '100%', display: 'block', objectFit: 'cover', maxHeight: 140 }}
                       onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                    <div style={{ padding: '4px 8px', fontSize: 10, color: '#9ca3af', background: '#f9fafb' }}>
+                    <div style={{ padding: '4px 8px', fontSize: 10, color: '#64748b', background: '#162032' }}>
                       {f.name}
                       {'dir' in f && <span style={{ float: 'right' }}>{(f as unknown as { dir: string }).dir}</span>}
                     </div>

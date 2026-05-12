@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.23.0'
+export const APP_VERSION = '3.25.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,75 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.25.6',
+    date: '2026-05-12',
+    changes: [
+      'fix(ui): 更新日誌 modal — scrollbar 換暗色主題（track #0f172a、thumb #2d3f55），同步修正 modal 內文字與 badge 為暗色系',
+    ],
+  },
+  {
+    version: '3.25.5',
+    date: '2026-05-12',
+    changes: [
+      'fix(ui): 移除 sidebar「更版日誌」nav 入口，統一由版本徽章（v3.x.x）點擊開啟 modal 查看',
+    ],
+  },
+  {
+    version: '3.25.4',
+    date: '2026-05-12',
+    changes: [
+      'fix(ui): GsLogCheckerPage Log 結構比對面板（iframe log-compare.html）全面改暗色主題',
+      'fix(ui): UrlPoolPage — 篩選按鈕 border 換暗色，警告/提示框改透明底色',
+      'fix(ui): AI Agent 監控 widget — 整體改為暗色（#1e293b 底、#2d3f55 邊框），badge/狀態顏色統一',
+    ],
+  },
+  {
+    version: '3.25.3',
+    date: '2026-05-12',
+    changes: [
+      'fix(ui): SystemAdminPage — 子分頁容器改為暗色（#162032），active tab 改為 #1e293b，表格分隔線換暗色',
+      'fix(ui): HistoryPage — 天數/功能篩選按鈕 inactive 背景改為 #1e293b，文字調亮',
+      'fix(ui): OsmConfigComparePage — 模板清單卡片改為暗色，diff 徽章改用透明色系',
+      'fix(ui): ImageCheckPage — 截圖貼上區、error 提示、session 狀態改為暗色透明',
+      'fix(ui): GsImgComparePage (iframe) — img-compare.html CSS 變數全部改為暗色主題',
+      'fix(ui): GsBonusV2Page (iframe) — bonus-v2.html 全面改為暗色主題（body/card/table/btn/tabs）',
+    ],
+  },
+  {
+    version: '3.25.2',
+    date: '2026-05-12',
+    changes: [
+      'fix(ui): 全站掃描並修正所有頁面殘留的淺色背景 — AutoSpin、MachineTest、History、JackpotPage、UrlPool、OsmPage、GsLogChecker、GsStats 等頁面',
+      'fix(ui): 文字亮度提升 — .main-content base color: #cbd5e1，section-title、field labels、table cells 全部調亮',
+      'fix(css): 全域 CSS 強制覆蓋 — .main-content 內所有 input/select/textarea 及 thead 一律套用暗色主題',
+    ],
+  },
+  {
+    version: '3.25.1',
+    date: '2026-05-12',
+    changes: [
+      'fix(ui): 統一按鈕與表單設計 — LarkPage 所有 source cards、seg-control、diff/baseline panels、option cards 改用暗色 CSS 類別',
+      'fix(ui): JiraPage QA/PM 模式切換、PM 確認表格、結果卡片、選擇器全部換為暗色主題',
+      'style(css): 新增 seg-control、src-card、src-type-btn、diff-panel、baseline-panel、option-card、mode-toggle 等通用 CSS 類別',
+    ],
+  },
+  {
+    version: '3.25.0',
+    date: '2026-05-12',
+    changes: [
+      'feat(ui): 全面暗黑主題 — main content 區域、卡片、表單、表格、按鈕、OSM/機台測試等所有頁面元件全部轉換為暗黑配色',
+      'refactor(css): 統一設計語言：surface=#1e293b、bg=#0f172a、border=#2d3f55、accent=#3b82f6，移除所有白色/淺色背景殘留',
+    ],
+  },
+  {
+    version: '3.24.0',
+    date: '2026-05-12',
+    changes: [
+      'feat(ui): 全面改版為側邊欄導覽佈局 — 固定左側 sidebar 取代原頂部 Tab Bar，含分組導覽、子頁展開、使用者區塊於底部',
+      'refactor(layout): 移除 app-header / tab-bar / sub-tab-bar / tab-desc，新增 app-sidebar / app-main / app-topbar 架構',
+    ],
+  },
   {
     version: '3.23.0',
     date: '2026-05-12',

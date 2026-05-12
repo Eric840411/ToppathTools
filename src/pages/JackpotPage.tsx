@@ -286,7 +286,7 @@ export function JackpotPage() {
                   const rowHasAnomaly = LEVELS.some(lv => anomalyKeys.has(`${gid}:${lv}`))
                   return (
                     <tr key={gid} style={{
-                      background: rowHasAnomaly ? '#fff7ed' : i % 2 === 0 ? '#fff' : '#f8fafc',
+                      background: rowHasAnomaly ? 'rgba(251,146,60,0.1)' : i % 2 === 0 ? '#1e293b' : '#162032',
                       borderLeft: rowHasAnomaly ? '3px solid #f97316' : '3px solid transparent',
                     }}>
                       <td style={{ padding: '7px 12px', borderBottom: '1px solid #f1f5f9', fontFamily: 'monospace', fontWeight: rowHasAnomaly ? 600 : undefined }}>
@@ -328,7 +328,7 @@ export function JackpotPage() {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {anomalyLog.map((a, i) => (
-              <div key={i} style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>
+              <div key={i} style={{ background: 'rgba(251,146,60,0.1)', border: '1px solid rgba(251,146,60,0.25)', borderRadius: 8, padding: '8px 12px', fontSize: 13 }}>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 2 }}>
                   <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{a.gameId}</span>
                   <span style={{ background: LEVEL_COLORS[a.level], color: '#fff', borderRadius: 4, padding: '1px 6px', fontSize: 11, textTransform: 'capitalize' }}>{a.level}</span>
@@ -367,7 +367,7 @@ export function JackpotPage() {
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           <div style={{
-            background: '#fff', borderRadius: 12, padding: 24, width: 680, maxWidth: '95vw',
+            background: '#1e293b', borderRadius: 12, padding: 24, width: 680, maxWidth: '95vw',
             maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 8px 40px rgba(0,0,0,0.18)',
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
@@ -408,7 +408,7 @@ export function JackpotPage() {
                       </div>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                         <thead>
-                          <tr style={{ background: '#f8fafc' }}>
+                          <tr style={{ background: '#162032' }}>
                             <th style={{ padding: '6px 10px', textAlign: 'left', color: '#64748b', fontWeight: 500, width: 100 }}>等級</th>
                             <th style={{ padding: '6px 10px', textAlign: 'left', color: '#64748b', fontWeight: 500 }}>最小值</th>
                             <th style={{ padding: '6px 10px', textAlign: 'left', color: '#64748b', fontWeight: 500 }}>最大值</th>

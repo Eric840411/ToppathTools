@@ -720,7 +720,7 @@ export function OsmUatPage() {
       {activeTab === '後端' ? (
         <>
       {/* ── 設定區 ── */}
-      <section style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 16 }}>
+      <section style={{ background: '#162032', border: '1px solid #2d3f55', borderRadius: 8, padding: 16 }}>
         <h3 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 600, color: '#1e293b' }}>
           ⚙️ 測試設定
         </h3>
@@ -936,7 +936,7 @@ const inputStyle: React.CSSProperties = {
   borderRadius: 4,
   fontSize: 12,
   color: '#333',
-  background: '#fff',
+  background: '#1e293b',
   outline: 'none',
 }
 
@@ -955,7 +955,7 @@ const btnStyle: React.CSSProperties = {
 }
 
 const panelStyle: React.CSSProperties = {
-  background: '#fff',
+  background: '#1e293b',
   border: '1px solid #e0e0e0',
   borderRadius: 8,
   padding: '20px 24px',
@@ -1022,7 +1022,7 @@ const smallBtnStyle: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 600,
   color: '#555',
-  background: '#fff',
+  background: '#1e293b',
   cursor: 'pointer',
 }
 
@@ -1052,7 +1052,7 @@ const tdStyle: React.CSSProperties = {
 
 const downloadStyle: React.CSSProperties = {
   padding: '4px 10px',
-  background: '#fff',
+  background: '#1e293b',
   border: '1px solid #d0d0d0',
   color: '#555',
   borderRadius: 4,
@@ -1080,7 +1080,7 @@ const pillStyle: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 600,
   color: '#666',
-  background: '#fff',
+  background: '#1e293b',
   cursor: 'pointer',
 }
 
@@ -1103,7 +1103,7 @@ const stepRowStyle: React.CSSProperties = {
   padding: '8px 12px',
   border: '1px solid #e8e8e8',
   borderRadius: 5,
-  background: '#fafafa',
+  background: '#162032',
 }
 
 const emptyStyle: React.CSSProperties = {
@@ -1113,7 +1113,7 @@ const emptyStyle: React.CSSProperties = {
 
 const uploadStyle: React.CSSProperties = {
   padding: '4px 10px',
-  background: '#fff',
+  background: '#1e293b',
   border: '1px solid #d0d0d0',
   color: '#555',
   borderRadius: 4,
@@ -1130,7 +1130,7 @@ const thumbGridStyle: React.CSSProperties = {
 }
 
 const thumbCardStyle: React.CSSProperties = {
-  border: '1px solid #e2e8f0',
+  border: '1px solid #2d3f55',
   borderRadius: 6,
   padding: 6,
   display: 'flex',

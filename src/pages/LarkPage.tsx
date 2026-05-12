@@ -508,9 +508,9 @@ export function LarkPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {/* Spec source — AI needs this to know which fields should exist */}
                 {sources.map((src, idx) => (
-                  <div key={src.id} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', background: '#fafafa', position: 'relative' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>規格書 {idx + 1}</span>
+                  <div key={src.id} className="src-card">
+                    <div className="src-card-header">
+                      <span className="src-card-label">規格書 {idx + 1}</span>
                       <div style={{ display: 'flex', gap: 4 }}>
                         {([
                           { key: 'lark',  label: 'Lark Wiki',   emoji: '📄', icon: 'wiki'  as const },
@@ -519,47 +519,47 @@ export function LarkPage() {
                         ] as { key: SpecSource; label: string; emoji: string; icon: 'wiki' | 'file' | 'gdocs' }[]).map(({ key, label, emoji, icon }) => (
                           <button key={key} type="button"
                             onClick={() => updateSource(src.id, { type: key, url: '', file: undefined })}
-                            style={{ padding: '3px 10px', borderRadius: 5, fontSize: 12, cursor: 'pointer', border: src.type === key ? '2px solid #4f46e5' : '1px solid #e2e8f0', background: src.type === key ? '#eef2ff' : '#fff', color: src.type === key ? '#4f46e5' : '#374151', fontWeight: src.type === key ? 600 : 400 }}
+                            className={`src-type-btn${src.type === key ? ' active' : ''}`}
                           >
                             {isGame ? <DungeonIcon name={icon} tone={src.type === key ? 'violet' : 'slate'} plain /> : emoji} {label}
                           </button>
                         ))}
                       </div>
                       {sources.length > 1 && (
-                        <button type="button" onClick={() => removeSource(src.id)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16 }}>
+                        <button type="button" onClick={() => removeSource(src.id)} className="src-remove-btn">
                           {isGame ? <DungeonIcon name="close" tone="slate" size="xs" plain /> : '✕'}
                         </button>
                       )}
                     </div>
-                    {src.type === 'lark' && <input value={src.url} onChange={e => updateSource(src.id, { url: e.target.value })} placeholder="https://casinoplus.sg.larksuite.com/wiki/ABCD1234" style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 13 }} />}
-                    {src.type === 'gdocs' && <input value={src.url} onChange={e => updateSource(src.id, { url: e.target.value })} placeholder="https://docs.google.com/document/d/XXXX/edit" style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 13 }} />}
+                    {src.type === 'lark' && <input value={src.url} onChange={e => updateSource(src.id, { url: e.target.value })} placeholder="https://casinoplus.sg.larksuite.com/wiki/ABCD1234" />}
+                    {src.type === 'gdocs' && <input value={src.url} onChange={e => updateSource(src.id, { url: e.target.value })} placeholder="https://docs.google.com/document/d/XXXX/edit" />}
                     {src.type === 'file' && (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                         <input id={`sp-file-${src.id}`} ref={el => { if (el) fileInputRefs.current.set(src.id, el); else fileInputRefs.current.delete(src.id) }} type="file" accept=".pdf,.docx" style={{ display: 'none' }} onChange={e => updateSource(src.id, { file: e.target.files?.[0] ?? undefined })} />
-                        <button type="button" onClick={() => fileInputRefs.current.get(src.id)?.click()} style={{ padding: '6px 14px', borderRadius: 6, fontSize: 12, cursor: 'pointer', border: '1px solid #e2e8f0', background: '#f8fafc', color: '#374151', whiteSpace: 'nowrap' }}>
+                        <button type="button" onClick={() => fileInputRefs.current.get(src.id)?.click()} className="src-file-btn">
                           {isGame ? <DungeonIcon name="file" tone="violet" size="xs" plain /> : '📎'} 選擇檔案
                         </button>
-                        <span style={{ fontSize: 12, color: src.file ? '#374151' : '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span className={`src-filename${src.file ? ' filled' : ''}`}>
                           {src.file ? src.file.name : '尚未選擇檔案（PDF / .docx，最大 30 MB）'}
                         </span>
                       </div>
                     )}
                   </div>
                 ))}
-                <button type="button" onClick={addSource} style={{ padding: '7px 16px', borderRadius: 8, fontSize: 13, cursor: 'pointer', border: '1px dashed #cbd5e1', background: '#fff', color: '#64748b', textAlign: 'left' }}>+ 新增規格書</button>
+                <button type="button" onClick={addSource} className="add-src-btn">+ 新增規格書</button>
 
                 {/* Incomplete cases input */}
-                <div style={{ border: '1px solid #a5b4fc', borderRadius: 10, padding: '12px 14px', background: '#eef2ff', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <span style={{ color: '#3730a3', fontWeight: 600, fontSize: 13 }}>待補填的 TestCase <em style={{ color: '#dc2626' }}>*</em></span>
+                <div className="baseline-panel">
+                  <span className="baseline-panel-title">待補填的 TestCase <em className="req">*</em></span>
                   <div style={{ display: 'flex', gap: 6 }}>
                     {(['json', 'lark', 'csv', 'xlsx'] as const).map(t => (
-                      <button key={t} type="button" onClick={() => setBaselineType(t)} style={{ padding: '4px 12px', borderRadius: 6, fontSize: 12, cursor: 'pointer', border: '1px solid', borderColor: baselineType === t ? '#4f46e5' : '#c7d2fe', background: baselineType === t ? '#4f46e5' : '#fff', color: baselineType === t ? '#fff' : '#3730a3', fontWeight: baselineType === t ? 700 : 400 }}>
+                      <button key={t} type="button" onClick={() => setBaselineType(t)} className={`baseline-type-btn${baselineType === t ? ' active' : ''}`}>
                         {t.toUpperCase()}
                       </button>
                     ))}
                   </div>
-                  {baselineType === 'json' && <textarea value={baselineContent} onChange={e => setBaselineContent(e.target.value)} placeholder='[{"測試標題":"...","預期結果":""}]' rows={5} style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #a5b4fc', fontSize: 13, resize: 'vertical', fontFamily: 'monospace', background: '#fff' }} />}
-                  {baselineType === 'lark' && <input type="text" value={baselineLarkUrl} onChange={e => setBaselineLarkUrl(e.target.value)} placeholder="https://xxx.feishu.cn/base/AppToken?table=tblXxx" style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #a5b4fc', fontSize: 13, background: '#fff' }} />}
+                  {baselineType === 'json' && <textarea value={baselineContent} onChange={e => setBaselineContent(e.target.value)} placeholder='[{"測試標題":"...","預期結果":""}]' rows={5} style={{ fontFamily: 'monospace' }} />}
+                  {baselineType === 'lark' && <input type="text" value={baselineLarkUrl} onChange={e => setBaselineLarkUrl(e.target.value)} placeholder="https://xxx.feishu.cn/base/AppToken?table=tblXxx" />}
                   {(baselineType === 'csv' || baselineType === 'xlsx') && (() => {
                     const isCsv = baselineType === 'csv'
                     const accept = isCsv ? '.csv,text/csv' : '.xlsx,.xls'
@@ -574,8 +574,8 @@ export function LarkPage() {
                             else { setBaselineXlsxFile(file); if (file) { const r = new FileReader(); r.onload = ev => setBaselineXlsxB64(arrayBufferToBase64(ev.target!.result as ArrayBuffer)); r.readAsArrayBuffer(file) } else setBaselineXlsxB64('') }
                           }}
                         />
-                        <button type="button" onClick={() => document.getElementById(inputId)?.click()} style={{ padding: '6px 14px', borderRadius: 6, fontSize: 12, cursor: 'pointer', border: '1px solid #a5b4fc', background: '#fff', color: '#3730a3', whiteSpace: 'nowrap' }}>📎 選擇檔案</button>
-                        <span style={{ fontSize: 12, color: currentFile ? '#3730a3' : '#818cf8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <button type="button" onClick={() => document.getElementById(inputId)?.click()} className="src-file-btn">📎 選擇檔案</button>
+                        <span className={`src-filename${currentFile ? ' filled' : ''}`}>
                           {currentFile ? `${currentFile.name} (${(currentFile.size / 1024).toFixed(1)} KB)` : `尚未選擇檔案（.${baselineType}）`}
                         </span>
                       </div>
@@ -587,7 +587,7 @@ export function LarkPage() {
 
             {action === 'generate' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{ display: 'flex', gap: 6, padding: 4, borderRadius: 8, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                <div className="seg-control">
                   {([
                     { key: 'full', label: 'Full' },
                     { key: 'diff', label: 'Diff' },
@@ -597,17 +597,7 @@ export function LarkPage() {
                       key={mode.key}
                       type="button"
                       onClick={() => setTestcaseMode(mode.key)}
-                      style={{
-                        flex: 1,
-                        padding: '7px 10px',
-                        borderRadius: 6,
-                        fontSize: 13,
-                        cursor: 'pointer',
-                        border: testcaseMode === mode.key ? '2px solid #4f46e5' : '1px solid transparent',
-                        background: testcaseMode === mode.key ? '#eef2ff' : '#fff',
-                        color: testcaseMode === mode.key ? '#4f46e5' : '#475569',
-                        fontWeight: testcaseMode === mode.key ? 700 : 500,
-                      }}
+                      className={`seg-btn${testcaseMode === mode.key ? ' active' : ''}`}
                     >
                       {mode.label}
                     </button>
@@ -615,10 +605,9 @@ export function LarkPage() {
                 </div>
 
                 {sources.map((src, idx) => (
-                  <div key={src.id} style={{ border: '1px solid #e2e8f0', borderRadius: 10, padding: '12px 14px', background: '#fafafa', position: 'relative' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>規格書 {idx + 1}</span>
-                      {/* Type selector */}
+                  <div key={src.id} className="src-card">
+                    <div className="src-card-header">
+                      <span className="src-card-label">規格書 {idx + 1}</span>
                       <div style={{ display: 'flex', gap: 4 }}>
                         {([
                           { key: 'lark',  label: 'Lark Wiki',  emoji: '📄', icon: 'wiki'  as const },
@@ -629,13 +618,7 @@ export function LarkPage() {
                             key={key}
                             type="button"
                             onClick={() => updateSource(src.id, { type: key, url: '', file: undefined })}
-                            style={{
-                              padding: '3px 10px', borderRadius: 5, fontSize: 12, cursor: 'pointer',
-                              border: src.type === key ? '2px solid #4f46e5' : '1px solid #e2e8f0',
-                              background: src.type === key ? '#eef2ff' : '#fff',
-                              color: src.type === key ? '#4f46e5' : '#374151',
-                              fontWeight: src.type === key ? 600 : 400,
-                            }}
+                            className={`src-type-btn${src.type === key ? ' active' : ''}`}
                           >
                             {isGame ? <DungeonIcon name={icon} tone={src.type === key ? 'violet' : 'slate'} plain /> : emoji} {label}
                           </button>
@@ -645,7 +628,7 @@ export function LarkPage() {
                         <button
                           type="button"
                           onClick={() => removeSource(src.id)}
-                          style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 16, lineHeight: 1 }}
+                          className="src-remove-btn"
                           title="移除此規格書"
                         >
                           {isGame ? <DungeonIcon name="close" tone="slate" size="xs" plain /> : '✕'}
@@ -658,7 +641,6 @@ export function LarkPage() {
                         value={src.url}
                         onChange={e => updateSource(src.id, { url: e.target.value })}
                         placeholder="https://casinoplus.sg.larksuite.com/wiki/ABCD1234"
-                        style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 13 }}
                       />
                     )}
                     {src.type === 'gdocs' && (
@@ -666,7 +648,6 @@ export function LarkPage() {
                         value={src.url}
                         onChange={e => updateSource(src.id, { url: e.target.value })}
                         placeholder="https://docs.google.com/document/d/XXXX/edit"
-                        style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 13 }}
                       />
                     )}
                     {src.type === 'file' && (
@@ -678,14 +659,10 @@ export function LarkPage() {
                           onChange={e => updateSource(src.id, { file: e.target.files?.[0] ?? undefined })}
                           style={{ display: 'none' }}
                         />
-                        <button
-                          type="button"
-                          onClick={() => fileInputRefs.current.get(src.id)?.click()}
-                          style={{ padding: '6px 14px', borderRadius: 6, fontSize: 12, cursor: 'pointer', border: '1px solid #e2e8f0', background: '#f8fafc', color: '#374151', whiteSpace: 'nowrap' }}
-                        >
+                        <button type="button" onClick={() => fileInputRefs.current.get(src.id)?.click()} className="src-file-btn">
                           {isGame ? <DungeonIcon name="file" tone="violet" size="xs" plain /> : '📎'} 選擇檔案
                         </button>
-                        <span style={{ fontSize: 12, color: src.file ? '#374151' : '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span className={`src-filename${src.file ? ' filled' : ''}`}>
                           {src.file ? src.file.name : '尚未選擇檔案（PDF / .docx，最大 30 MB）'}
                         </span>
                       </div>
@@ -693,28 +670,19 @@ export function LarkPage() {
                   </div>
                 ))}
 
-                <button
-                  type="button"
-                  onClick={addSource}
-                  style={{
-                    padding: '7px 16px', borderRadius: 8, fontSize: 13, cursor: 'pointer',
-                    border: '1px dashed #cbd5e1', background: '#fff', color: '#64748b',
-                    textAlign: 'left',
-                  }}
-                >
+                <button type="button" onClick={addSource} className="add-src-btn">
                   + 新增規格書
                 </button>
                 {testcaseMode === 'diff' && (
-                  <div style={{ border: '1px solid #facc15', borderRadius: 10, padding: '12px 14px', background: '#fffbeb', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>舊版規格書</div>
+                  <div className="diff-panel">
+                    <div className="diff-panel-title">舊版規格書</div>
                     {oldSources.map((src, idx) => (
                       <div key={src.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ width: 44, fontSize: 12, fontWeight: 600, color: '#92400e', flexShrink: 0 }}>Old {idx + 1}</span>
+                        <div className="diff-panel-row">
+                          <span style={{ width: 44, fontSize: 12, fontWeight: 600, color: '#fbbf24', flexShrink: 0 }}>Old {idx + 1}</span>
                           <select
                             value={src.type}
                             onChange={e => updateOldSource(src.id, { type: e.target.value as OldSpecSource, url: '', file: undefined, content: undefined })}
-                            style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #fde68a', fontSize: 13, background: '#fff' }}
                           >
                             <option value="lark">Lark Wiki</option>
                             <option value="gdocs">Google Docs</option>
@@ -726,7 +694,6 @@ export function LarkPage() {
                               value={src.url}
                               onChange={e => updateOldSource(src.id, { url: e.target.value })}
                               placeholder={src.type === 'gdocs' ? 'https://docs.google.com/document/d/XXXX/edit' : 'https://casinoplus.sg.larksuite.com/wiki/ABCD1234'}
-                              style={{ flex: 1, minWidth: 0, padding: '6px 10px', borderRadius: 6, border: '1px solid #fde68a', fontSize: 13 }}
                             />
                           )}
                           {(src.type === 'pdf' || src.type === 'csv') && (
@@ -742,88 +709,62 @@ export function LarkPage() {
                                   if (!file) return
                                   updateOldSource(src.id, { file, content: undefined })
                                   if (src.type === 'csv') {
-                                    // CSV: read as text for JSON payload
                                     const reader = new FileReader()
                                     reader.onload = ev => updateOldSource(src.id, { content: ev.target!.result as string })
                                     reader.readAsText(file, 'utf-8')
                                   }
-                                  // PDF: sent as real file in FormData, no base64 needed
                                 }}
                               />
-                              <button
-                                type="button"
-                                onClick={() => oldFileInputRefs.current.get(src.id)?.click()}
-                                style={{ padding: '6px 14px', borderRadius: 6, fontSize: 12, cursor: 'pointer', border: '1px solid #fde68a', background: '#fff', color: '#92400e', whiteSpace: 'nowrap' }}
-                              >
+                              <button type="button" onClick={() => oldFileInputRefs.current.get(src.id)?.click()} className="src-file-btn">
                                 📎 選擇檔案
                               </button>
-                              <span style={{ fontSize: 12, color: src.file ? '#92400e' : '#d97706', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+                              <span className={`src-filename${src.file ? ' filled' : ''}`} style={{ flex: 1, minWidth: 0 }}>
                                 {src.file ? src.file.name : `尚未選擇檔案（.${src.type}）`}
                               </span>
                             </>
                           )}
                           {oldSources.length > 1 && (
-                            <button
-                              type="button"
-                              onClick={() => removeOldSource(src.id)}
-                              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#92400e', fontSize: 16, lineHeight: 1, flexShrink: 0 }}
-                              title="移除"
-                            >✕</button>
+                            <button type="button" onClick={() => removeOldSource(src.id)} className="src-remove-btn" title="移除">✕</button>
                           )}
                         </div>
                       </div>
                     ))}
-                    <button
-                      type="button"
-                      onClick={addOldSource}
-                      style={{ padding: '7px 16px', borderRadius: 8, fontSize: 13, cursor: 'pointer', border: '1px dashed #facc15', background: '#fff', color: '#92400e', textAlign: 'left' }}
-                    >
+                    <button type="button" onClick={addOldSource} className="add-src-btn">
                       + 新增舊版規格書
                     </button>
                   </div>
                 )}
 
                 {testcaseMode === 'baseline' && (
-                  <div style={{ border: '1px solid #86efac', borderRadius: 10, padding: '12px 14px', background: '#f0fdf4', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <span style={{ color: '#166534', fontWeight: 600, fontSize: 13 }}>既有 TestCase 來源 <em style={{ color: '#dc2626' }}>*</em></span>
-                    {/* Source type selector */}
+                  <div className="baseline-panel">
+                    <span className="baseline-panel-title">既有 TestCase 來源 <em className="req">*</em></span>
                     <div style={{ display: 'flex', gap: 6 }}>
                       {(['json', 'lark', 'csv', 'xlsx'] as const).map(t => (
                         <button
                           key={t}
                           type="button"
                           onClick={() => setBaselineType(t)}
-                          style={{
-                            padding: '4px 12px', borderRadius: 6, fontSize: 12, cursor: 'pointer', border: '1px solid',
-                            borderColor: baselineType === t ? '#16a34a' : '#d1fae5',
-                            background: baselineType === t ? '#16a34a' : '#fff',
-                            color: baselineType === t ? '#fff' : '#166534',
-                            fontWeight: baselineType === t ? 700 : 400,
-                          }}
+                          className={`baseline-type-btn${baselineType === t ? ' active' : ''}`}
                         >{t.toUpperCase()}</button>
                       ))}
                     </div>
-                    {/* JSON */}
                     {(baselineType === 'json') && (
                       <textarea
                         value={baselineContent}
                         onChange={e => setBaselineContent(e.target.value)}
                         placeholder='[{"測試標題":"...","預期結果":"..."}]'
                         rows={7}
-                        style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #86efac', fontSize: 13, resize: 'vertical', fontFamily: 'monospace', background: '#fff' }}
+                        style={{ fontFamily: 'monospace' }}
                       />
                     )}
-                    {/* Lark Bitable URL */}
                     {baselineType === 'lark' && (
                       <input
                         type="text"
                         value={baselineLarkUrl}
                         onChange={e => setBaselineLarkUrl(e.target.value)}
                         placeholder="https://xxx.feishu.cn/base/AppToken?table=tblXxx"
-                        style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #86efac', fontSize: 13, background: '#fff' }}
                       />
                     )}
-                    {/* CSV / XLSX upload — same style as PDF/Word picker */}
                     {(baselineType === 'csv' || baselineType === 'xlsx') && (() => {
                       const isCsv = baselineType === 'csv'
                       const accept = isCsv ? '.csv,text/csv' : '.xlsx,.xls'
@@ -859,14 +800,10 @@ export function LarkPage() {
                               }
                             }}
                           />
-                          <button
-                            type="button"
-                            onClick={() => document.getElementById(inputId)?.click()}
-                            style={{ padding: '6px 14px', borderRadius: 6, fontSize: 12, cursor: 'pointer', border: '1px solid #e2e8f0', background: '#f8fafc', color: '#374151', whiteSpace: 'nowrap' }}
-                          >
+                          <button type="button" onClick={() => document.getElementById(inputId)?.click()} className="src-file-btn">
                             📎 選擇檔案
                           </button>
-                          <span style={{ fontSize: 12, color: currentFile ? '#374151' : '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <span className={`src-filename${currentFile ? ' filled' : ''}`}>
                             {currentFile ? `${currentFile.name} (${(currentFile.size / 1024).toFixed(1)} KB)` : hint}
                           </span>
                         </div>
@@ -882,11 +819,7 @@ export function LarkPage() {
             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', marginBottom: 4 }}>
               <label className="field" style={{ flex: 1, margin: 0 }}>
                 <span>AI Prompt 模板</span>
-                <select
-                  value={selectedPromptId}
-                  onChange={e => setSelectedPromptId(e.target.value)}
-                  style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 14 }}
-                >
+                <select value={selectedPromptId} onChange={e => setSelectedPromptId(e.target.value)}>
                   {availablePrompts.length === 0
                     ? <option value="testcase-default">TestCase 生成（標準）</option>
                     : availablePrompts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)
@@ -895,7 +828,7 @@ export function LarkPage() {
               </label>
               <label className="field" style={{ margin: 0, minWidth: 180 }}>
                 <span>AI 模型</span>
-                <ModelSelector value={selectedModel} onChange={setSelectedModel} style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 14 }} />
+                <ModelSelector value={selectedModel} onChange={setSelectedModel} />
               </label>
             </div>
           )}
@@ -903,21 +836,17 @@ export function LarkPage() {
           {action === 'generate' && (
             <>
               {/* Jira card */}
-              <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 16px', marginBottom: 4 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
-                  <input type="checkbox" checked={useJira} onChange={e => setUseJira(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
-                  <span style={{ fontWeight: 600, fontSize: 14 }}>整合 Jira 單號（可選）</span>
-                  <span style={{ fontSize: 12, color: '#9ca3af' }}>AI 將同時參考 Jira Issues 與規格書生成 TestCase</span>
+              <div className="option-card">
+                <label>
+                  <input type="checkbox" checked={useJira} onChange={e => setUseJira(e.target.checked)} />
+                  <span className="option-card-title">整合 Jira 單號（可選）</span>
+                  <span className="option-card-hint">AI 將同時參考 Jira Issues 與規格書生成 TestCase</span>
                 </label>
                 {useJira && (
-                  <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div className="option-card-body">
                     <label className="field" style={{ margin: 0 }}>
                       <span>Jira 帳號</span>
-                      <select
-                        value={jiraEmail}
-                        onChange={e => setJiraEmail(e.target.value)}
-                        style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13 }}
-                      >
+                      <select value={jiraEmail} onChange={e => setJiraEmail(e.target.value)}>
                         <option value="">請選擇帳號</option>
                         {jiraAccounts.map(a => (
                           <option key={a.email} value={a.email}>{a.label} ({a.email})</option>
@@ -931,7 +860,7 @@ export function LarkPage() {
                         onChange={e => setJiraKeysInput(e.target.value)}
                         placeholder="CGSG-220&#10;CGSG-221"
                         rows={3}
-                        style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, resize: 'vertical', fontFamily: 'monospace' }}
+                        style={{ fontFamily: 'monospace' }}
                       />
                     </label>
                   </div>
@@ -939,21 +868,17 @@ export function LarkPage() {
               </div>
 
               {/* Second Pass card */}
-              <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, padding: '12px 16px', marginBottom: 4 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
-                  <input type="checkbox" checked={enableSecondPass} onChange={e => setEnableSecondPass(e.target.checked)} style={{ width: 16, height: 16, cursor: 'pointer' }} />
-                  <span style={{ fontWeight: 600, fontSize: 14 }}>AI 補填（Second Pass）</span>
-                  <span style={{ fontSize: 12, color: '#9ca3af' }}>生成後自動補全空白欄位，發第二次 AI 請求</span>
+              <div className="option-card">
+                <label>
+                  <input type="checkbox" checked={enableSecondPass} onChange={e => setEnableSecondPass(e.target.checked)} />
+                  <span className="option-card-title">AI 補填（Second Pass）</span>
+                  <span className="option-card-hint">生成後自動補全空白欄位，發第二次 AI 請求</span>
                 </label>
                 {enableSecondPass && (
-                  <div style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                  <div className="option-card-body" style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end' }}>
                     <label className="field" style={{ flex: 1, margin: 0 }}>
                       <span>AI Prompt 模板</span>
-                      <select
-                        value={secondPassPromptId}
-                        onChange={e => setSecondPassPromptId(e.target.value)}
-                        style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 14 }}
-                      >
+                      <select value={secondPassPromptId} onChange={e => setSecondPassPromptId(e.target.value)}>
                         {availablePrompts.length === 0
                           ? <option value="testcase-second-pass">TestCase 補填（Second Pass）</option>
                           : availablePrompts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)
@@ -962,7 +887,7 @@ export function LarkPage() {
                     </label>
                     <label className="field" style={{ margin: 0, minWidth: 180 }}>
                       <span>AI 模型</span>
-                      <ModelSelector value={secondPassModel} onChange={setSecondPassModel} style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 14 }} />
+                      <ModelSelector value={secondPassModel} onChange={setSecondPassModel} />
                     </label>
                   </div>
                 )}
@@ -1050,7 +975,7 @@ export function LarkPage() {
           )}
 
           {status === 'warn' && (
-            <div className="alert-error" style={{ whiteSpace: 'pre-wrap', background: '#fffbeb', borderColor: '#fcd34d', color: '#92400e' }}>
+            <div className="alert-warn" style={{ whiteSpace: 'pre-wrap' }}>
               {result?.message ?? '前端連線異常，但後端可能仍在執行。'}
             </div>
           )}

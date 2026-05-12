@@ -30,9 +30,9 @@ const TYPE_LABEL: Record<DiffItem['type'], string> = {
 }
 
 const TYPE_COLOR: Record<DiffItem['type'], { bg: string; text: string; border: string }> = {
-  mismatch:        { bg: '#fef3c7', text: '#92400e', border: '#fcd34d' },
-  missing_in_live: { bg: '#fee2e2', text: '#991b1b', border: '#fca5a5' },
-  extra_in_live:   { bg: '#eff6ff', text: '#1e40af', border: '#93c5fd' },
+  mismatch:        { bg: 'rgba(251,191,36,0.12)', text: '#fbbf24', border: 'rgba(251,191,36,0.3)' },
+  missing_in_live: { bg: 'rgba(239,68,68,0.12)',  text: '#f87171', border: 'rgba(239,68,68,0.3)' },
+  extra_in_live:   { bg: 'rgba(59,130,246,0.12)', text: '#60a5fa', border: 'rgba(59,130,246,0.3)' },
 }
 
 function fmtVal(v: unknown): string {
@@ -147,37 +147,37 @@ export function OsmConfigComparePage() {
     <div style={{ display: 'flex', gap: 16, height: '100%', minHeight: 0 }}>
 
       {/* ── Left panel: templates ── */}
-      <div style={{ flex: '0 0 220px', display: 'flex', flexDirection: 'column', gap: 8, borderRight: '1px solid #e5e7eb', paddingRight: 16 }}>
+      <div style={{ flex: '0 0 220px', display: 'flex', flexDirection: 'column', gap: 8, borderRight: '1px solid #2d3f55', paddingRight: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontWeight: 600, fontSize: 13, color: '#374151' }}>模板管理</span>
+          <span style={{ fontWeight: 600, fontSize: 13, color: '#cbd5e1' }}>模板管理</span>
           <button
             onClick={() => setShowAddModal(true)}
             style={{ padding: '3px 10px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 5, fontSize: 12, cursor: 'pointer' }}
           >+ 新增</button>
         </div>
         <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {templates.length === 0 && <p style={{ color: '#9ca3af', fontSize: 12 }}>尚無模板</p>}
+          {templates.length === 0 && <p style={{ color: '#64748b', fontSize: 12 }}>尚無模板</p>}
           {templates.map(t => (
             <div
               key={t.id}
               onClick={() => setSelectedId(t.id)}
               style={{
                 padding: '8px 10px', borderRadius: 6, cursor: 'pointer', fontSize: 12,
-                border: `1px solid ${selectedId === t.id ? '#2563eb' : '#e5e7eb'}`,
-                background: selectedId === t.id ? '#eff6ff' : '#fff',
-                color: selectedId === t.id ? '#1d4ed8' : '#374151',
+                border: `1px solid ${selectedId === t.id ? '#2563eb' : '#2d3f55'}`,
+                background: selectedId === t.id ? 'rgba(37,99,235,0.15)' : '#1e293b',
+                color: selectedId === t.id ? '#60a5fa' : '#cbd5e1',
               }}
             >
               <div style={{ fontWeight: 600 }}>{t.name}</div>
-              {t.version && <div style={{ color: '#6b7280', fontSize: 11 }}>v{t.version}</div>}
+              {t.version && <div style={{ color: '#94a3b8', fontSize: 11 }}>v{t.version}</div>}
               <div style={{ marginTop: 4, display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                 <button
                   onClick={e => { e.stopPropagation(); handleEdit(t) }}
-                  style={{ padding: '1px 8px', background: '#eff6ff', color: '#1d4ed8', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
+                  style={{ padding: '1px 8px', background: 'rgba(37,99,235,0.15)', color: '#60a5fa', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
                 >編輯</button>
                 <button
                   onClick={e => { e.stopPropagation(); handleDelete(t.id, t.name) }}
-                  style={{ padding: '1px 8px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
+                  style={{ padding: '1px 8px', background: 'rgba(239,68,68,0.15)', color: '#f87171', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
                 >刪除</button>
               </div>
             </div>
@@ -193,9 +193,9 @@ export function OsmConfigComparePage() {
           <input
             value={url} onChange={e => setUrl(e.target.value)}
             placeholder="貼上 OSM URL（含 token），例如：https://osm-redirect.osmslot.org/?token=..."
-            style={{ flex: 1, minWidth: 300, padding: '7px 12px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }}
+            style={{ flex: 1, minWidth: 300, padding: '7px 12px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 13 }}
           />
-          <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#6b7280', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#94a3b8', cursor: 'pointer', whiteSpace: 'nowrap' }}>
             <input type="checkbox" checked={useGemini} onChange={e => setUseGemini(e.target.checked)} />
             Gemini 分析
           </label>
@@ -216,11 +216,11 @@ export function OsmConfigComparePage() {
 
             {/* Summary bar */}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-              <span style={{ fontWeight: 600, fontSize: 13, color: '#374151' }}>
+              <span style={{ fontWeight: 600, fontSize: 13, color: '#cbd5e1' }}>
                 {result.templateName}{result.templateVersion ? ` v${result.templateVersion}` : ''} 比對結果
               </span>
               {result.diffs.length === 0
-                ? <span style={{ padding: '3px 10px', background: '#dcfce7', color: '#16a34a', borderRadius: 12, fontSize: 12, fontWeight: 600 }}>✅ 完全一致</span>
+                ? <span style={{ padding: '3px 10px', background: 'rgba(22,163,74,0.15)', color: '#4ade80', borderRadius: 12, fontSize: 12, fontWeight: 600 }}>✅ 完全一致</span>
                 : <>
                   {(['mismatch', 'missing_in_live', 'extra_in_live'] as DiffItem['type'][]).map(t => counts![t] > 0 && (
                     <span key={t} style={{ padding: '3px 10px', background: TYPE_COLOR[t].bg, color: TYPE_COLOR[t].text, border: `1px solid ${TYPE_COLOR[t].border}`, borderRadius: 12, fontSize: 12, fontWeight: 600 }}>
@@ -239,7 +239,7 @@ export function OsmConfigComparePage() {
                   const count = f === 'all' ? result.diffs.length : counts![f]
                   return (
                     <button key={f} onClick={() => setFilterType(f)}
-                      style={{ padding: '4px 12px', border: `1px solid ${active ? '#2563eb' : '#e5e7eb'}`, borderRadius: 20, fontSize: 12, fontWeight: active ? 600 : 400, background: active ? '#eff6ff' : '#fff', color: active ? '#1d4ed8' : '#6b7280', cursor: 'pointer' }}>
+                      style={{ padding: '4px 12px', border: `1px solid ${active ? '#2563eb' : '#2d3f55'}`, borderRadius: 20, fontSize: 12, fontWeight: active ? 600 : 400, background: active ? 'rgba(37,99,235,0.15)' : '#1e293b', color: active ? '#60a5fa' : '#94a3b8', cursor: 'pointer' }}>
                       {f === 'all' ? `全部 (${count})` : `${TYPE_LABEL[f]} (${count})`}
                     </button>
                   )
@@ -251,26 +251,26 @@ export function OsmConfigComparePage() {
             {filtered.length > 0 && (
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
-                  <tr style={{ background: '#f9fafb', textAlign: 'left' }}>
-                    <th style={{ padding: '7px 10px', borderBottom: '1px solid #e5e7eb', width: 100 }}>類型</th>
-                    <th style={{ padding: '7px 10px', borderBottom: '1px solid #e5e7eb' }}>路徑</th>
-                    <th style={{ padding: '7px 10px', borderBottom: '1px solid #e5e7eb' }}>模板值</th>
-                    <th style={{ padding: '7px 10px', borderBottom: '1px solid #e5e7eb' }}>線上值</th>
+                  <tr style={{ background: '#162032', textAlign: 'left' }}>
+                    <th style={{ padding: '7px 10px', borderBottom: '1px solid #2d3f55', width: 100, color: '#94a3b8' }}>類型</th>
+                    <th style={{ padding: '7px 10px', borderBottom: '1px solid #2d3f55', color: '#94a3b8' }}>路徑</th>
+                    <th style={{ padding: '7px 10px', borderBottom: '1px solid #2d3f55', color: '#94a3b8' }}>模板值</th>
+                    <th style={{ padding: '7px 10px', borderBottom: '1px solid #2d3f55', color: '#94a3b8' }}>線上值</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.map((d, i) => {
                     const c = TYPE_COLOR[d.type]
                     return (
-                      <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
+                      <tr key={i} style={{ borderBottom: '1px solid #1e293b' }}>
                         <td style={{ padding: '6px 10px' }}>
                           <span style={{ padding: '2px 8px', background: c.bg, color: c.text, border: `1px solid ${c.border}`, borderRadius: 4, fontSize: 11, fontWeight: 600 }}>
                             {TYPE_LABEL[d.type]}
                           </span>
                         </td>
-                        <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: '#374151', wordBreak: 'break-all' }}>{d.path}</td>
-                        <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: '#6b7280', wordBreak: 'break-all', maxWidth: 200 }}>{fmtVal(d.templateValue)}</td>
-                        <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: '#6b7280', wordBreak: 'break-all', maxWidth: 200 }}>{fmtVal(d.liveValue)}</td>
+                        <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: '#cbd5e1', wordBreak: 'break-all' }}>{d.path}</td>
+                        <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: '#94a3b8', wordBreak: 'break-all', maxWidth: 200 }}>{fmtVal(d.templateValue)}</td>
+                        <td style={{ padding: '6px 10px', fontFamily: 'monospace', color: '#94a3b8', wordBreak: 'break-all', maxWidth: 200 }}>{fmtVal(d.liveValue)}</td>
                       </tr>
                     )
                   })}
@@ -282,7 +282,7 @@ export function OsmConfigComparePage() {
             {result.geminiAnalysis && (
               <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '12px 16px' }}>
                 <div style={{ fontWeight: 600, color: '#16a34a', fontSize: 13, marginBottom: 8 }}>🤖 Gemini 分析</div>
-                <pre style={{ fontSize: 12, color: '#374151', whiteSpace: 'pre-wrap', margin: 0, lineHeight: 1.6 }}>{result.geminiAnalysis}</pre>
+                <pre style={{ fontSize: 12, color: '#cbd5e1', whiteSpace: 'pre-wrap', margin: 0, lineHeight: 1.6 }}>{result.geminiAnalysis}</pre>
               </div>
             )}
           </div>
@@ -292,23 +292,23 @@ export function OsmConfigComparePage() {
       {/* ── Add template modal ── */}
       {showAddModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', borderRadius: 10, padding: 24, width: 540, maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ background: '#1e293b', borderRadius: 10, padding: 24, width: 540, maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ fontWeight: 700, fontSize: 15 }}>{editingId ? '編輯 Config 模板' : '新增 Config 模板'}</div>
             <div style={{ display: 'flex', gap: 8 }}>
               <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="模板名稱（如：QAT 正式版）"
-                style={{ flex: 1, padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+                style={{ flex: 1, padding: '6px 10px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 13 }} />
               <input value={newVersion} onChange={e => setNewVersion(e.target.value)} placeholder="版本（選填）"
-                style={{ width: 100, padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }} />
+                style={{ width: 100, padding: '6px 10px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 13 }} />
             </div>
             <textarea
               value={newTemplate} onChange={e => setNewTemplate(e.target.value)}
               placeholder={'直接貼上 DevTools 中 serverCfg.js 的完整內容即可\n（支援 JS 格式：window._ServerCfg = {...}; 或純 JSON）'}
-              style={{ flex: 1, minHeight: 280, padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }}
+              style={{ flex: 1, minHeight: 280, padding: '8px 10px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }}
             />
             {addError && <p style={{ color: '#dc2626', fontSize: 12, margin: 0 }}>❌ {addError}</p>}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onClick={() => { setShowAddModal(false); setEditingId(null); setAddError('') }}
-                style={{ padding: '6px 16px', border: '1px solid #e5e7eb', borderRadius: 6, background: '#fff', fontSize: 13, cursor: 'pointer' }}>取消</button>
+                style={{ padding: '6px 16px', border: '1px solid #2d3f55', borderRadius: 6, background: '#1e293b', fontSize: 13, cursor: 'pointer' }}>取消</button>
               <button onClick={handleAddTemplate} disabled={addLoading}
                 style={{ padding: '6px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
                 {addLoading ? '儲存中...' : '儲存'}

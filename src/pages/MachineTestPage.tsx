@@ -287,7 +287,7 @@ function ProfilesPanel() {
                         <img
                           src={`/api/machine-test/cctv-refs/${p.machineType}/image`}
                           alt={p.machineType}
-                          style={{ width: 48, height: 36, objectFit: 'cover', borderRadius: 4, border: '1px solid #e2e8f0', cursor: 'zoom-in' }}
+                          style={{ width: 48, height: 36, objectFit: 'cover', borderRadius: 4, border: '1px solid #2d3f55', cursor: 'zoom-in' }}
                           onClick={() => setCctvPreview(`/api/machine-test/cctv-refs/${p.machineType}/image`)}
                         />
                         <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 2 }}>
@@ -376,7 +376,7 @@ function ProfilesPanel() {
             <label className="field" style={{ flex: 1 }}>
               <span>Bonus 啟動方式</span>
               <select value={editing.bonusAction} onChange={e => setEditing(p => ({ ...p!, bonusAction: e.target.value as BonusAction }))}
-                style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 14 }}>
+                style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #2d3f55', fontSize: 14 }}>
                 {(Object.entries(BONUS_ACTION_LABELS) as [BonusAction, string][]).map(([v, l]) => (
                   <option key={v} value={v}>{l}</option>
                 ))}
@@ -385,13 +385,13 @@ function ProfilesPanel() {
           </div>
 
           {/* ── Unified Touchscreen Settings ── */}
-          <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '12px 14px', marginTop: 8, marginBottom: 8, background: '#f8fafc' }}>
+          <div style={{ border: '1px solid #2d3f55', borderRadius: 8, padding: '12px 14px', marginTop: 8, marginBottom: 8, background: '#162032' }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 12 }}>觸屏設定</div>
 
             {/* touchPoints: Bonus touchscreen activation + stepTouchscreen test */}
             <div style={{ marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid #e2e8f0' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>觸屏點位序列</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#cbd5e1' }}>觸屏點位序列</span>
                 <span style={{ fontSize: 11, color: '#94a3b8' }}>Bonus 觸屏啟動 / 觸屏測試 共用</span>
                 <button type="button" className="btn-ghost" style={{ fontSize: 11, padding: '2px 8px', marginLeft: 'auto' }}
                   onClick={() => setEditing(p => ({ ...p!, touchPoints: [...(p!.touchPoints ?? []), ''] }))}>
@@ -548,7 +548,7 @@ function ProfilesPanel() {
           </div>
 
           {/* ── Audio Config ── */}
-          <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '12px 14px', marginTop: 8, marginBottom: 8, background: '#f8fafc' }}>
+          <div style={{ border: '1px solid #2d3f55', borderRadius: 8, padding: '12px 14px', marginTop: 8, marginBottom: 8, background: '#162032' }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 10 }}>
               🎵 音頻閾值設定
               <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400, marginLeft: 8 }}>
@@ -808,7 +808,7 @@ function MyHistoryPanel({ account }: { account: AccountInfo }) {
           </div>
 
           {sessions.length === 0 && !loading && (
-            <div style={{ color: '#9ca3af', fontSize: 13, padding: '16px 0', textAlign: 'center' }}>尚無測試紀錄</div>
+            <div style={{ color: '#64748b', fontSize: 13, padding: '16px 0', textAlign: 'center' }}>尚無測試紀錄</div>
           )}
 
           {sessions.map(s => {
@@ -819,13 +819,13 @@ function MyHistoryPanel({ account }: { account: AccountInfo }) {
             const date = new Date(s.started_at)
             const dateStr = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
             return (
-              <div key={s.id} style={{ border: '1px solid #e5e7eb', borderRadius: 8, marginBottom: 8, overflow: 'hidden' }}>
+              <div key={s.id} style={{ border: '1px solid #2d3f55', borderRadius: 8, marginBottom: 8, overflow: 'hidden' }}>
                 <div
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer', background: isExp ? '#f8fafc' : '#fff' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', cursor: 'pointer', background: isExp ? '#1e293b' : '#162032' }}
                   onClick={() => setExpandedSession(isExp ? null : s.id)}
                 >
-                  <span style={{ fontSize: 13, color: '#374151', fontWeight: 500 }}>{dateStr}</span>
-                  <span style={{ fontSize: 12, color: '#6b7280' }}>{s.results.length} 台</span>
+                  <span style={{ fontSize: 13, color: '#cbd5e1', fontWeight: 500 }}>{dateStr}</span>
+                  <span style={{ fontSize: 12, color: '#94a3b8' }}>{s.results.length} 台</span>
                   <span style={{ fontSize: 12, color: '#22c55e' }}>✅ {pass}</span>
                   {warn > 0 && <span style={{ fontSize: 12, color: '#f59e0b' }}>⚠️ {warn}</span>}
                   {fail > 0 && <span style={{ fontSize: 12, color: '#ef4444' }}>❌ {fail}</span>}
@@ -836,14 +836,14 @@ function MyHistoryPanel({ account }: { account: AccountInfo }) {
                   <div style={{ overflowX: 'auto', borderTop: '1px solid #f3f4f6' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead>
-                        <tr style={{ background: '#f9fafb' }}>
-                          <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#374151' }}>機台</th>
-                          <th style={{ padding: '6px 10px', fontWeight: 600, color: '#374151' }}>整體</th>
+                        <tr style={{ background: '#162032' }}>
+                          <th style={{ padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: '#cbd5e1' }}>機台</th>
+                          <th style={{ padding: '6px 10px', fontWeight: 600, color: '#cbd5e1' }}>整體</th>
                           {Object.values(STEP_LABELS).map(l => (
-                            <th key={l} style={{ padding: '6px 8px', fontWeight: 600, color: '#374151', fontSize: 11 }}>{l.replace('測試', '').replace('檢測', '').replace('號碼比對', '')}</th>
+                            <th key={l} style={{ padding: '6px 8px', fontWeight: 600, color: '#cbd5e1', fontSize: 11 }}>{l.replace('測試', '').replace('檢測', '').replace('號碼比對', '')}</th>
                           ))}
-                          <th style={{ padding: '6px 8px', fontWeight: 600, color: '#374151' }}>CCTV</th>
-                          <th style={{ padding: '6px 8px', fontWeight: 600, color: '#374151' }}>音頻</th>
+                          <th style={{ padding: '6px 8px', fontWeight: 600, color: '#cbd5e1' }}>CCTV</th>
+                          <th style={{ padding: '6px 8px', fontWeight: 600, color: '#cbd5e1' }}>音頻</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -865,7 +865,7 @@ function MyHistoryPanel({ account }: { account: AccountInfo }) {
                               <img
                                 src={`/api/machine-test/cctv-saves/${r.machineCode}?sessionId=${encodeURIComponent(s.id)}`}
                                 alt=""
-                                style={{ height: 24, width: 'auto', borderRadius: 2, cursor: 'pointer', border: '1px solid #e2e8f0' }}
+                                style={{ height: 24, width: 'auto', borderRadius: 2, cursor: 'pointer', border: '1px solid #2d3f55' }}
                                 onClick={() => setCctvPreview(`/api/machine-test/cctv-saves/${r.machineCode}?sessionId=${encodeURIComponent(s.id)}`)}
                                 onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
                               />
@@ -944,7 +944,7 @@ function UrlPoolPickerModal({ workerIndex, onSelect, onClose }: {
     >
       <div
         onClick={e => e.stopPropagation()}
-        style={{ background: '#fff', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', width: 520, maxWidth: '95vw', maxHeight: '82vh', display: 'flex', flexDirection: 'column' }}
+        style={{ background: '#1e293b', borderRadius: 10, boxShadow: '0 8px 32px rgba(0,0,0,0.18)', width: 520, maxWidth: '95vw', maxHeight: '82vh', display: 'flex', flexDirection: 'column' }}
       >
         {/* Header */}
         <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -960,7 +960,7 @@ function UrlPoolPickerModal({ workerIndex, onSelect, onClose }: {
             placeholder="搜尋使用者名稱或帳號..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            style={{ flex: 1, padding: '6px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }}
+            style={{ flex: 1, padding: '6px 10px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 13 }}
           />
           <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
             <input type="checkbox" checked={hideUsed} onChange={e => setHideUsed(e.target.checked)} />
@@ -971,15 +971,15 @@ function UrlPoolPickerModal({ workerIndex, onSelect, onClose }: {
         {/* Table */}
         <div style={{ overflowY: 'auto', flex: 1 }}>
           {loading ? (
-            <div style={{ padding: 32, textAlign: 'center', color: '#9ca3af' }}>載入中...</div>
+            <div style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>載入中...</div>
           ) : filtered.length === 0 ? (
-            <div style={{ padding: 32, textAlign: 'center', color: '#9ca3af' }}>無符合帳號</div>
+            <div style={{ padding: 32, textAlign: 'center', color: '#64748b' }}>無符合帳號</div>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr style={{ background: '#f9fafb', position: 'sticky', top: 0 }}>
-                  <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: '#374151', borderBottom: '1px solid #e5e7eb' }}>使用者名稱</th>
-                  <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: '#374151', borderBottom: '1px solid #e5e7eb' }}>狀態</th>
+                <tr style={{ background: '#162032', position: 'sticky', top: 0 }}>
+                  <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: '#cbd5e1', borderBottom: '1px solid #e5e7eb' }}>使用者名稱</th>
+                  <th style={{ padding: '8px 12px', textAlign: 'left', fontWeight: 600, color: '#cbd5e1', borderBottom: '1px solid #e5e7eb' }}>狀態</th>
                   <th style={{ padding: '8px 12px', borderBottom: '1px solid #e5e7eb' }} />
                 </tr>
               </thead>
@@ -988,7 +988,7 @@ function UrlPoolPickerModal({ workerIndex, onSelect, onClose }: {
                   const claimedBy = claims[e.account]?.claimedBy
                   return (
                     <tr key={e.account} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                      <td style={{ padding: '7px 12px', color: '#374151' }}>{e.username}</td>
+                      <td style={{ padding: '7px 12px', color: '#cbd5e1' }}>{e.username}</td>
                       <td style={{ padding: '7px 12px' }}>
                         {claimedBy
                           ? <span style={{ color: '#ef4444', fontSize: 12 }}>佔用（{claimedBy}）</span>
@@ -1012,7 +1012,7 @@ function UrlPoolPickerModal({ workerIndex, onSelect, onClose }: {
         </div>
 
         {/* Footer */}
-        <div style={{ padding: '10px 20px', borderTop: '1px solid #f3f4f6', fontSize: 12, color: '#9ca3af' }}>
+        <div style={{ padding: '10px 20px', borderTop: '1px solid #f3f4f6', fontSize: 12, color: '#64748b' }}>
           共 {filtered.length} 個帳號
         </div>
       </div>
@@ -1059,7 +1059,7 @@ function AgentInstallGuide({ agentCount }: { agentCount: number }) {
             {/* Left column: install steps */}
             <div>
               <h3 style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', marginBottom: 10, marginTop: 0 }}>安裝步驟</h3>
-              <ol style={{ fontSize: 13, color: '#374151', paddingLeft: 20, margin: 0, lineHeight: 2 }}>
+              <ol style={{ fontSize: 13, color: '#cbd5e1', paddingLeft: 20, margin: 0, lineHeight: 2 }}>
                 <li>
                   安裝 <strong>Node.js 20 LTS</strong>（若尚未安裝）：
                   <br /><code style={{ fontSize: 11 }}>https://nodejs.org/en/download/</code>
@@ -1099,7 +1099,7 @@ function AgentInstallGuide({ agentCount }: { agentCount: number }) {
             {/* Right column: notes */}
             <div>
               <h3 style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', marginBottom: 10, marginTop: 0 }}>注意事項</h3>
-              <div style={{ fontSize: 12, color: '#374151', lineHeight: 1.9 }}>
+              <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.9 }}>
                 <div style={{ marginBottom: 6, padding: '8px 10px', background: '#fef9c3', borderRadius: 6, border: '1px solid #fde68a' }}>
                   <strong>install.bat 伺服器位址</strong>：自動指向本頁所在主機（<code style={{ fontSize: 11 }}>{serverUrl}</code>）。
                   若 Worker 機器與伺服器不在同一區網，請手動修改 start.bat 中的 CENTRAL_URL。
@@ -1111,9 +1111,9 @@ function AgentInstallGuide({ agentCount }: { agentCount: number }) {
                 <div style={{ marginBottom: 6 }}>🔴 與 AutoSpin Agent 不同：本 Agent 使用 Node.js，AutoSpin Agent 使用 Python</div>
               </div>
 
-              <div style={{ marginTop: 12, padding: '8px 10px', background: '#f8fafc', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+              <div style={{ marginTop: 12, padding: '8px 10px', background: '#162032', borderRadius: 6, border: '1px solid #2d3f55' }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: '#1e293b', marginBottom: 6 }}>手動啟動（進階）</div>
-                <code style={{ fontSize: 11, color: '#374151', display: 'block' }}>
+                <code style={{ fontSize: 11, color: '#cbd5e1', display: 'block' }}>
                   cd C:\machine-test-agent<br />
                   set CENTRAL_URL={serverUrl}<br />
                   set AGENT_LABEL=MyPC<br />
@@ -1490,7 +1490,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
                 value={pinValue}
                 onChange={e => setPinValue(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleVerifyPin()}
-                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 14, boxSizing: 'border-box' }}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #2d3f55', fontSize: 14, boxSizing: 'border-box' }}
               />
               {pinError && <p style={{ color: '#dc2626', fontSize: 13, margin: '8px 0 0' }}>{pinError}</p>}
               <button
@@ -1532,7 +1532,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
           <button
             type="button"
             onClick={() => setActiveSessionBanner(false)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 18, lineHeight: 1, padding: '0 4px' }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: 18, lineHeight: 1, padding: '0 4px' }}
           >
             ✕
           </button>
@@ -1558,7 +1558,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
 
       {/* ── OSMWatcher 即時監控面板 ── */}
       {osmPanelOpen && osmConnected && (
-        <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+        <div style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 8, padding: 12, marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <span style={{ color: '#64748b', fontSize: 12 }}>
               即時機台狀態 — SSE 即時推送
@@ -1569,7 +1569,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 6 }}>
             {Object.entries(osmMachines).map(([id, { status, label }]) => {
               const isSpecial = status !== 0
-              const cardBg = status === 0 ? '#f8fafc'
+              const cardBg = status === 0 ? '#162032'
                 : status === 3 || status === 4 ? '#fffbeb'
                 : status === 9 ? '#fef2f2'
                 : '#f5f3ff'
@@ -1675,7 +1675,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
                   ) : (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                       {relevantProfiles.map(p => (
-                        <div key={p.machineType} style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 14px', background: '#f8fafc', minWidth: 200 }}>
+                        <div key={p.machineType} style={{ border: '1px solid #2d3f55', borderRadius: 8, padding: '10px 14px', background: '#162032', minWidth: 200 }}>
                           <div style={{ fontWeight: 700, fontSize: 13, color: '#1e293b', marginBottom: 6 }}>
                             <code style={{ fontSize: 12 }}>{p.machineType}</code>
                           </div>
@@ -1789,13 +1789,13 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
               </div>
               {larkStatus && <span className="field-hint">{larkStatus}</span>}
               {Object.keys(gameCountMap).length > 0 && (
-                <div style={{ marginTop: 6, padding: '8px 10px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12, fontFamily: 'monospace' }}>
+                <div style={{ marginTop: 6, padding: '8px 10px', background: '#162032', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 12, fontFamily: 'monospace' }}>
                   {Object.entries(gameCountMap)
                     .sort((a, b) => b[1] - a[1])
                     .map(([game, count]) => (
                       <div key={game} style={{ display: 'flex', justifyContent: 'space-between', gap: 24, padding: '1px 0' }}>
-                        <span style={{ color: '#374151' }}>{game}</span>
-                        <span style={{ color: '#6b7280' }}>{count} 台</span>
+                        <span style={{ color: '#cbd5e1' }}>{game}</span>
+                        <span style={{ color: '#94a3b8' }}>{count} 台</span>
                       </div>
                     ))}
                 </div>
@@ -1846,14 +1846,14 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
 
             {steps.cctv && (
               <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 13, color: '#374151', whiteSpace: 'nowrap' }}>CCTV AI 模型</span>
+                <span style={{ fontSize: 13, color: '#cbd5e1', whiteSpace: 'nowrap' }}>CCTV AI 模型</span>
                 <ModelSelector value={cctvModel} onChange={setCctvModel} style={{ flex: 1 }} />
               </div>
             )}
           </div>
 
-          <div style={{ marginTop: 12, padding: '10px 12px', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 8, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>📡 日誌 API 環境</span>
+          <div style={{ marginTop: 12, padding: '10px 12px', background: '#162032', border: '1.5px solid #e2e8f0', borderRadius: 8, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#cbd5e1', whiteSpace: 'nowrap' }}>📡 日誌 API 環境</span>
             {(['qat', 'prod'] as const).map(env => (
               <label key={env} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 13 }}>
                 <input type="radio" name="osmEnv" value={env} checked={osmEnv === env} onChange={() => setOsmEnv(env)} disabled={running} />
@@ -1870,15 +1870,15 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
             </span>
           </div>
 
-          <div style={{ marginTop: 0, padding: '10px 12px', background: headedMode ? '#eff6ff' : '#f9fafb', border: `1.5px solid ${headedMode ? '#93c5fd' : '#e5e7eb'}`, borderRadius: 8, marginBottom: 8 }}>
+          <div style={{ marginTop: 0, padding: '10px 12px', background: headedMode ? 'rgba(59,130,246,0.08)' : '#162032', border: `1.5px solid ${headedMode ? 'rgba(59,130,246,0.4)' : '#2d3f55'}`, borderRadius: 8, marginBottom: 8 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
               <input type="checkbox" checked={headedMode} onChange={e => setHeadedMode(e.target.checked)} disabled={running} />
-              <span style={{ fontSize: 13, fontWeight: 600, color: headedMode ? '#1d4ed8' : '#374151' }}>👀 Headed 模式</span>
-              <span style={{ fontSize: 11, color: headedMode ? '#3b82f6' : '#9ca3af' }}>瀏覽器視窗顯示在螢幕上，可觀看操作流程</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: headedMode ? '#60a5fa' : '#cbd5e1' }}>👀 Headed 模式</span>
+              <span style={{ fontSize: 11, color: headedMode ? '#93c5fd' : '#64748b' }}>瀏覽器視窗顯示在螢幕上，可觀看操作流程</span>
             </label>
           </div>
 
-          <div style={{ marginTop: 0, padding: '10px 12px', background: debugMode ? '#fef9c3' : '#f9fafb', border: `1.5px solid ${debugMode ? '#fbbf24' : '#e5e7eb'}`, borderRadius: 8 }}>
+          <div style={{ marginTop: 0, padding: '10px 12px', background: debugMode ? 'rgba(251,191,36,0.08)' : '#162032', border: `1.5px solid ${debugMode ? 'rgba(251,191,36,0.4)' : '#2d3f55'}`, borderRadius: 8 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
               <input type="checkbox" checked={debugMode} onChange={e => { setDebugMode(e.target.checked); if (!e.target.checked) setDebugGmid('') }} disabled={running} />
               <span style={{ fontSize: 13, fontWeight: 600, color: debugMode ? '#92400e' : '#374151' }}>Test 調適模式</span>
@@ -1898,8 +1898,8 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, marginBottom: 4 }}>
             {isAdmin
-              ? <span style={{ fontSize: 12, color: '#16a34a' }}>🔓 管理員已解鎖 <button type="button" onClick={() => { setIsAdmin(false); sessionStorage.removeItem(ADMIN_KEY) }} style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: 12, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>登出</button></span>
-              : <span style={{ fontSize: 12, color: '#9ca3af' }}>🔒 需要管理員 PIN 才能執行測試</span>
+              ? <span style={{ fontSize: 12, color: '#16a34a' }}>🔓 管理員已解鎖 <button type="button" onClick={() => { setIsAdmin(false); sessionStorage.removeItem(ADMIN_KEY) }} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 12, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>登出</button></span>
+              : <span style={{ fontSize: 12, color: '#64748b' }}>🔒 需要管理員 PIN 才能執行測試</span>
             }
           </div>
 
@@ -2108,7 +2108,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
                                     <img
                                       src={`/api/machine-test/cctv-saves/${r.machineCode}${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`}
                                       alt=""
-                                      style={{ height: 28, width: 'auto', borderRadius: 3, cursor: 'pointer', border: '1px solid #e2e8f0' }}
+                                      style={{ height: 28, width: 'auto', borderRadius: 3, cursor: 'pointer', border: '1px solid #2d3f55' }}
                                       onClick={() => setCctvPreview(`/api/machine-test/cctv-saves/${r.machineCode}${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ''}`)}
                                       onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
                                     />

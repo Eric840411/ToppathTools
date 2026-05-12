@@ -452,16 +452,16 @@ function VersionDashboard({
                     <span className="osm-channel-badge" style={{ background: CHANNEL_COLORS[g.channelName] ?? '#888', fontSize: 10, flexShrink: 0 }}>{g.channelName}</span>
                     <span style={{ fontSize: 12, fontWeight: 500, flex: 1 }}>{g.machineType}</span>
                     <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginRight: 4 }}>{g.current || '—'}</span>
-                    <span style={{ fontSize: 11, color: '#6b7280' }}>→</span>
+                    <span style={{ fontSize: 11, color: '#94a3b8' }}>→</span>
                     <span style={{ fontSize: 11, color: '#16a34a', marginLeft: 4, marginRight: 8 }}>{g.target}</span>
                     <span style={{ fontSize: 11, background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 10, padding: '1px 7px', fontWeight: 600 }}>{g.count} 台</span>
-                    <span style={{ fontSize: 10, color: '#9ca3af', marginLeft: 4 }}>{expanded ? '▲' : '▼'}</span>
+                    <span style={{ fontSize: 10, color: '#64748b', marginLeft: 4 }}>{expanded ? '▲' : '▼'}</span>
                   </div>
                   {/* Expanded machine list */}
                   {expanded && (
-                    <div style={{ padding: '6px 10px 8px', background: '#fff', borderTop: '1px solid #fde68a', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    <div style={{ padding: '6px 10px 8px', background: '#1e293b', borderTop: '1px solid #fde68a', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                       {g.machines.map(m => (
-                        <span key={m.id} style={{ fontSize: 11, padding: '1px 6px', background: '#f1f5f9', borderRadius: 4, color: '#374151' }}>{m.machineName}</span>
+                        <span key={m.id} style={{ fontSize: 11, padding: '1px 6px', background: '#f1f5f9', borderRadius: 4, color: '#cbd5e1' }}>{m.machineName}</span>
                       ))}
                     </div>
                   )}
@@ -479,10 +479,10 @@ function VersionDashboard({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {offTargetComps.map(c => (
               <div key={`${c.system}-${c.name}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 10px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, fontSize: 12 }}>
-                <span style={{ padding: '1px 6px', borderRadius: 4, background: sysColor[c.system] ?? '#f3f4f6', fontSize: 11, flexShrink: 0 }}>{c.system}</span>
+                <span style={{ padding: '1px 6px', borderRadius: 4, background: sysColor[c.system] ?? '#1e293b', fontSize: 11, flexShrink: 0 }}>{c.system}</span>
                 <span style={{ flex: 1, fontWeight: 500 }}>{c.name}</span>
                 <span style={{ color: '#dc2626', fontWeight: 600 }}>{c.current || '—'}</span>
-                <span style={{ color: '#9ca3af' }}>→</span>
+                <span style={{ color: '#64748b' }}>→</span>
                 <span style={{ color: '#16a34a' }}>{c.target}</span>
               </div>
             ))}
@@ -1071,7 +1071,7 @@ export function OsmPage() {
                 <input
                   value={frontendUrl} onChange={e => setFrontendUrl(e.target.value)}
                   placeholder="貼上前端大廳 URL（含 token，不需要 gameid）"
-                  style={{ flex: 1, padding: '5px 10px', border: '1px solid #e2e8f0', borderRadius: 6, fontSize: 12 }}
+                  style={{ flex: 1, padding: '5px 10px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 12 }}
                   onKeyDown={e => e.key === 'Enter' && handleFetchFrontend()}
                 />
                 <button
@@ -1102,7 +1102,7 @@ export function OsmPage() {
                     return next
                   })
                   return (
-                    <div key={type} style={{ background: '#f8fafc', border: `1px solid ${hasMissing ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 8, padding: '7px 10px' }}>
+                    <div key={type} style={{ background: '#162032', border: `1px solid ${hasMissing ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 8, padding: '7px 10px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
                         <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 600, color: '#1e40af' }}>{type}</span>
                         {diff !== null && diff !== 0 && (
@@ -1115,8 +1115,8 @@ export function OsmPage() {
                       <div style={{ height: 4, background: '#e2e8f0', borderRadius: 2, overflow: 'hidden', marginBottom: 4 }}>
                         <div style={{ height: '100%', width: `${pct}%`, background: '#3b82f6', borderRadius: 2 }} />
                       </div>
-                      <div style={{ fontSize: 11, display: 'flex', justifyContent: 'space-between', color: '#6b7280' }}>
-                        <span>OSM <b style={{ color: '#111827' }}>{count}</b></span>
+                      <div style={{ fontSize: 11, display: 'flex', justifyContent: 'space-between', color: '#94a3b8' }}>
+                        <span>OSM <b style={{ color: '#e2e8f0' }}>{count}</b></span>
                         <span style={{ color: diffColor }}>
                           前端 <b>{hasFrontend ? (fCount ?? <span style={{ color: '#d1d5db' }}>—</span>) : <span style={{ color: '#d1d5db' }}>—</span>}</b>
                         </span>

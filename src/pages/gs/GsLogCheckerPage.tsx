@@ -76,7 +76,7 @@ export function GsLogCheckerPage() {
               padding: '9px 22px', borderRadius: 8, border: '1.5px solid', fontSize: 13,
               fontWeight: 600, cursor: 'pointer',
               borderColor: tab === t.key ? '#6366f1' : '#e2e8f0',
-              background: tab === t.key ? '#ede9fe' : '#f8fafc',
+              background: tab === t.key ? 'rgba(99,102,241,0.15)' : '#1e293b',
               color: tab === t.key ? '#4f46e5' : '#475569',
             }}>
             {t.label}
@@ -160,7 +160,7 @@ export function GsLogCheckerPage() {
                   style={{
                     flex: 1, padding: '10px 0', borderRadius: 8, fontSize: 13, fontWeight: 700,
                     cursor: script ? 'pointer' : 'default', border: '1.5px solid #e2e8f0',
-                    background: '#f8fafc', color: '#374151',
+                    background: '#162032', color: '#cbd5e1',
                     opacity: script ? 1 : 0.5,
                   }}>
                   ⬇️ 下載 .js
@@ -179,7 +179,7 @@ export function GsLogCheckerPage() {
 
               {/* Toggle script preview */}
               <button type="button" onClick={() => setShowScript(v => !v)}
-                style={{ background: 'none', border: '1px solid #e2e8f0', borderRadius: 6, padding: '5px 12px', fontSize: 12, color: '#64748b', cursor: 'pointer', width: '100%' }}>
+                style={{ background: 'none', border: '1px solid #2d3f55', borderRadius: 6, padding: '5px 12px', fontSize: 12, color: '#64748b', cursor: 'pointer', width: '100%' }}>
                 {showScript ? '▲ 收起腳本預覽' : '▼ 展開腳本預覽'}
               </button>
 

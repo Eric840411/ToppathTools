@@ -871,7 +871,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   return (
     <div className="page-layout">
       {/* Mode toggle */}
-      <div style={{ display: 'flex', gap: 0, marginBottom: 12, alignSelf: 'flex-start', border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+      <div className="mode-toggle">
         {(['qa', 'pm'] as const).map(m => {
           // If allowedModes is provided (permission system active), use it as authority
           // Otherwise fall back to accountHasRole (legacy behaviour)
@@ -887,15 +887,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                 setMode(m)
                 clearWorkflowState()
               }}
-              style={{
-                padding: '6px 20px',
-                background: mode === m ? '#6366f1' : allowed ? '#f9fafb' : '#f3f4f6',
-                color: mode === m ? '#fff' : allowed ? '#6b7280' : '#d1d5db',
-                fontWeight: mode === m ? 700 : 400,
-                border: 'none',
-                cursor: allowed ? 'pointer' : 'not-allowed',
-                fontSize: 13,
-              }}
+              className={`mode-toggle-btn${mode === m ? ' active' : ''}`}
             >
               {m.toUpperCase()} 模式
             </button>
@@ -967,45 +959,45 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
               <h2 className="section-title">Step 2 — 確認開單清單</h2>
 
               {/* Summary bar */}
-              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 16, padding: '10px 14px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e5e7eb' }}>
-                <span style={{ fontSize: 13, color: '#374151' }}>
-                  共 <strong>{pmRecords.length}</strong> 筆，已選 <strong style={{ color: '#6366f1' }}>{pmSelectedIds.size}</strong> 筆
+              <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 16, padding: '10px 14px', background: '#162032', borderRadius: 8, border: '1px solid #2d3f55' }}>
+                <span style={{ fontSize: 13, color: '#94a3b8' }}>
+                  共 <strong style={{ color: '#e2e8f0' }}>{pmRecords.length}</strong> 筆，已選 <strong style={{ color: '#a5b4fc' }}>{pmSelectedIds.size}</strong> 筆
                 </span>
                 {pmRecords.some(r => r.isParent) && (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#ede9fe', color: '#5b21b6', fontWeight: 600, borderRadius: 20, padding: '3px 10px', fontSize: 12 }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(124,58,237,0.15)', color: '#c4b5fd', fontWeight: 600, borderRadius: 20, padding: '3px 10px', fontSize: 12 }}>
                     🔗 偵測到主單，填有「主單標題」的子單將自動關聯
                   </span>
                 )}
                 {!pmRecords.some(r => r.isParent) && pmParentKey && (
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#ede9fe', color: '#5b21b6', fontWeight: 600, borderRadius: 20, padding: '3px 10px', fontSize: 12 }}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(124,58,237,0.15)', color: '#c4b5fd', fontWeight: 600, borderRadius: 20, padding: '3px 10px', fontSize: 12 }}>
                     🔗 手動主單：{pmParentKey}
                   </span>
                 )}
               </div>
 
-              <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid #e5e7eb' }}>
+              <div style={{ overflowX: 'auto', borderRadius: 8, border: '1px solid #2d3f55' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
-                    <tr style={{ background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                    <tr style={{ background: '#162032', borderBottom: '1px solid #2d3f55' }}>
                       <th style={{ width: 40, padding: '10px 12px', textAlign: 'center' }}>
                         <input type="checkbox"
                           checked={pmSelectedIds.size === pmRecords.length && pmRecords.length > 0}
                           onChange={e => setPmSelectedIds(e.target.checked ? new Set(pmRecords.map(r => r.recordId)) : new Set())} />
                       </th>
-                      <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#374151' }}>標題</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>專案</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>類型</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#374151' }}>受託人</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>難易度</th>
-                      <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#374151', whiteSpace: 'nowrap' }}>所屬主單</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#94a3b8' }}>標題</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#94a3b8', whiteSpace: 'nowrap' }}>專案</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#94a3b8', whiteSpace: 'nowrap' }}>類型</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#94a3b8' }}>受託人</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#94a3b8', whiteSpace: 'nowrap' }}>難易度</th>
+                      <th style={{ padding: '10px 12px', textAlign: 'left', fontWeight: 600, color: '#94a3b8', whiteSpace: 'nowrap' }}>所屬主單</th>
                     </tr>
                   </thead>
                   <tbody>
                     {pmRecords.map((r, i) => (
                       <tr key={r.recordId} style={{
                         opacity: pmSelectedIds.has(r.recordId) ? 1 : 0.45,
-                        borderBottom: i < pmRecords.length - 1 ? '1px solid #f3f4f6' : 'none',
-                        background: r.isParent ? '#faf5ff' : 'transparent',
+                        borderBottom: i < pmRecords.length - 1 ? '1px solid #1e293b' : 'none',
+                        background: r.isParent ? 'rgba(124,58,237,0.08)' : 'transparent',
                         borderLeft: r.isParent ? '3px solid #7c3aed' : '3px solid transparent',
                       }}>
                         <td style={{ padding: '10px 12px', textAlign: 'center' }}>
@@ -1021,17 +1013,17 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                             {r.isParent && (
                               <span style={{ background: '#7c3aed', color: '#fff', fontSize: 10, fontWeight: 700, borderRadius: 4, padding: '2px 6px', whiteSpace: 'nowrap' }}>主單</span>
                             )}
-                            <span style={{ color: '#111827', lineHeight: 1.4 }}>{r.summary}</span>
+                            <span style={{ color: '#e2e8f0', lineHeight: 1.4 }}>{r.summary}</span>
                           </div>
                         </td>
-                        <td style={{ padding: '10px 12px', color: '#6b7280', whiteSpace: 'nowrap' }}>{r.jiraProjectName}</td>
+                        <td style={{ padding: '10px 12px', color: '#64748b', whiteSpace: 'nowrap' }}>{r.jiraProjectName}</td>
                         <td style={{ padding: '10px 12px' }}>
-                          <span style={{ background: '#f3f4f6', color: '#374151', borderRadius: 4, padding: '2px 8px', fontSize: 12, whiteSpace: 'nowrap' }}>{r.issueTypeName}</span>
+                          <span style={{ background: 'rgba(99,102,241,0.1)', color: '#a5b4fc', borderRadius: 4, padding: '2px 8px', fontSize: 12, whiteSpace: 'nowrap' }}>{r.issueTypeName}</span>
                         </td>
-                        <td style={{ padding: '10px 12px', color: '#6b7280', fontSize: 12 }}>{r.assigneeEmail || '—'}</td>
+                        <td style={{ padding: '10px 12px', color: '#64748b', fontSize: 12 }}>{r.assigneeEmail || '—'}</td>
                         <td style={{ padding: '10px 12px', fontSize: 12, whiteSpace: 'nowrap' }}>
                           {r.difficulty ? (
-                            <span style={{ background: '#f0fdf4', color: '#15803d', borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 500 }}>{r.difficulty}</span>
+                            <span style={{ background: 'rgba(16,185,129,0.1)', color: '#34d399', borderRadius: 4, padding: '2px 8px', fontSize: 11, fontWeight: 500 }}>{r.difficulty}</span>
                           ) : '—'}
                         </td>
                         <td style={{ padding: '10px 12px', fontSize: 12, color: r.parentTitle ? '#7c3aed' : '#d1d5db', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1062,13 +1054,13 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
 
               {/* Summary cards */}
               <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
-                <div style={{ flex: 1, padding: '16px 20px', background: 'linear-gradient(135deg, #f0fdf4, #dcfce7)', borderRadius: 10, border: '1px solid #86efac', textAlign: 'center' }}>
-                  <div style={{ fontSize: 32, fontWeight: 800, color: '#15803d', lineHeight: 1 }}>{pmResults.filter(r => r.issueKey).length}</div>
-                  <div style={{ fontSize: 13, color: '#166534', marginTop: 4, fontWeight: 600 }}>✓ 成功建立</div>
+                <div style={{ flex: 1, padding: '16px 20px', background: 'rgba(16,185,129,0.08)', borderRadius: 10, border: '1px solid rgba(16,185,129,0.25)', textAlign: 'center' }}>
+                  <div style={{ fontSize: 32, fontWeight: 800, color: '#34d399', lineHeight: 1 }}>{pmResults.filter(r => r.issueKey).length}</div>
+                  <div style={{ fontSize: 13, color: '#6ee7b7', marginTop: 4, fontWeight: 600 }}>✓ 成功建立</div>
                 </div>
-                <div style={{ flex: 1, padding: '16px 20px', background: pmResults.some(r => r.error) ? 'linear-gradient(135deg, #fef2f2, #fee2e2)' : '#f9fafb', borderRadius: 10, border: `1px solid ${pmResults.some(r => r.error) ? '#fca5a5' : '#e5e7eb'}`, textAlign: 'center' }}>
-                  <div style={{ fontSize: 32, fontWeight: 800, color: pmResults.some(r => r.error) ? '#dc2626' : '#9ca3af', lineHeight: 1 }}>{pmResults.filter(r => r.error).length}</div>
-                  <div style={{ fontSize: 13, color: pmResults.some(r => r.error) ? '#b91c1c' : '#9ca3af', marginTop: 4, fontWeight: 600 }}>✗ 失敗</div>
+                <div style={{ flex: 1, padding: '16px 20px', background: pmResults.some(r => r.error) ? 'rgba(239,68,68,0.08)' : '#162032', borderRadius: 10, border: `1px solid ${pmResults.some(r => r.error) ? 'rgba(239,68,68,0.3)' : '#2d3f55'}`, textAlign: 'center' }}>
+                  <div style={{ fontSize: 32, fontWeight: 800, color: pmResults.some(r => r.error) ? '#f87171' : '#475569', lineHeight: 1 }}>{pmResults.filter(r => r.error).length}</div>
+                  <div style={{ fontSize: 13, color: pmResults.some(r => r.error) ? '#fca5a5' : '#475569', marginTop: 4, fontWeight: 600 }}>✗ 失敗</div>
                 </div>
               </div>
 
@@ -1077,18 +1069,18 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                 {pmResults.map(r => (
                   <div key={r.recordId} style={{
                     display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px',
-                    borderRadius: 8, border: `1px solid ${r.issueKey ? '#d1fae5' : '#fee2e2'}`,
-                    background: r.issueKey ? '#f0fdf4' : '#fff5f5',
+                    borderRadius: 8, border: `1px solid ${r.issueKey ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}`,
+                    background: r.issueKey ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)',
                   }}>
                     <span style={{ fontSize: 18, flexShrink: 0 }}>{r.issueKey ? (isGame ? <DungeonIcon name="status-ok" tone="green" plain /> : '✅') : (isGame ? <DungeonIcon name="status-error" tone="red" plain /> : '❌')}</span>
                     {r.issueKey && (
-                      <span style={{ fontWeight: 700, color: '#6366f1', fontSize: 13, whiteSpace: 'nowrap' }}>{r.issueKey}</span>
+                      <span style={{ fontWeight: 700, color: '#a5b4fc', fontSize: 13, whiteSpace: 'nowrap' }}>{r.issueKey}</span>
                     )}
-                    <span style={{ fontSize: 13, color: '#374151', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: 13, color: '#cbd5e1', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {r.summary ?? '—'}
                     </span>
                     {r.error && (
-                      <span style={{ fontSize: 11, color: '#dc2626', flexShrink: 0, maxWidth: 260, textAlign: 'right' }}>{r.error}</span>
+                      <span style={{ fontSize: 11, color: '#fca5a5', flexShrink: 0, maxWidth: 260, textAlign: 'right' }}>{r.error}</span>
                     )}
                   </div>
                 ))}
@@ -1138,7 +1130,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
 
           {/* Assignee */}
           <div style={{ marginBottom: 4 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#cbd5e1' }}>
               受託人<em className="req"> *</em>
             </span>
             {selectedProjectId && !membersLoading && members.length === 0 && (
@@ -1155,7 +1147,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                   value={memberSearch}
                   onChange={e => setMemberSearch(e.target.value)}
                   placeholder="搜尋成員名稱..."
-                  style={{ width: '100%', padding: '8px 12px 8px 32px', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 13, boxSizing: 'border-box' }}
+                  style={{ width: '100%', padding: '8px 12px 8px 32px', border: '1px solid #2d3f55', borderRadius: 8, fontSize: 13, boxSizing: 'border-box', background: '#0f172a', color: '#e2e8f0' }}
                 />
               </div>
               <div className="member-list">
@@ -1191,11 +1183,11 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
           <div className="source-toggle">
             <button type="button" className={`source-btn source-btn--step${sheetSource === 'lark' ? ' active' : ''}`}
               onClick={() => { setSheetSource('lark'); setSheetUrl(''); setSheetError('') }}>
-              <span className="source-icon lark-icon"></span>Lark Spreadsheet
+              <span className="source-icon lark-icon">L</span>Lark Spreadsheet
             </button>
             <button type="button" className={`source-btn source-btn--step${sheetSource === 'google' ? ' active' : ''}`}
               onClick={() => { setSheetSource('google'); setSheetUrl(''); setSheetError('') }}>
-              <span className="source-icon google-icon"></span>Google Sheets
+              <span className="source-icon google-icon">G</span>Google Sheets
             </button>
           </div>
           <div className="form-stack" style={{ marginTop: 16 }}>
@@ -1466,8 +1458,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
               <div className="form-stack">
                 <label className="field">
                   <span>評論內容來源欄位 <em className="req">*</em></span>
-                  <select value={commentColumn} onChange={e => setCommentColumn(e.target.value)}
-                    style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 14 }}>
+                  <select value={commentColumn} onChange={e => setCommentColumn(e.target.value)}>
                     <option value="">— 選擇欄位 —</option>
                     {sheetHeaders.map(h => <option key={h} value={h}>{h}</option>)}
                   </select>
@@ -1475,8 +1466,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                 </label>
                 <label className="field">
                   <span>附件欄位（選填）</span>
-                  <select value={attachmentColumn} onChange={e => setAttachmentColumn(e.target.value)}
-                    style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 14 }}>
+                  <select value={attachmentColumn} onChange={e => setAttachmentColumn(e.target.value)}>
                     <option value="">— 不上傳附件 —</option>
                     {sheetHeaders.map(h => <option key={h} value={h}>{h}</option>)}
                   </select>
@@ -1491,11 +1481,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                   <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
                     <label className="field" style={{ flex: 1, margin: 0 }}>
                       <span>使用 Prompt 模板</span>
-                      <select
-                        value={selectedPromptId}
-                        onChange={e => setSelectedPromptId(e.target.value)}
-                        style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 14 }}
-                      >
+                      <select value={selectedPromptId} onChange={e => setSelectedPromptId(e.target.value)}>
                         {availablePrompts.length === 0
                           ? <option value="default">標準 QA 報告（預設）</option>
                           : availablePrompts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)
@@ -1504,7 +1490,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                     </label>
                     <label className="field" style={{ margin: 0, minWidth: 180 }}>
                       <span>AI 模型</span>
-                      <ModelSelector value={commentModel} onChange={setCommentModel} style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 14 }} />
+                      <ModelSelector value={commentModel} onChange={setCommentModel} />
                     </label>
                   </div>
                 )}

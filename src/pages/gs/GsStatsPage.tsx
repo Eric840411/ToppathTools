@@ -122,7 +122,7 @@ export function GsStatsPage() {
             <button key={m} type="button" onClick={() => setMode(m)} disabled={loading}
               style={{ padding: '6px 16px', borderRadius: 6, border: '1.5px solid', fontSize: 13, fontWeight: 600, cursor: loading ? 'default' : 'pointer',
                 borderColor: mode === m ? '#6366f1' : '#e2e8f0',
-                background: mode === m ? '#ede9fe' : '#f8fafc',
+                background: mode === m ? 'rgba(99,102,241,0.15)' : '#1e293b',
                 color: mode === m ? '#4f46e5' : '#475569' }}>
               {m === 'generic' ? '通用 WS' : '🎰 ColorGame V2 電子骰'}
             </button>
@@ -138,7 +138,7 @@ export function GsStatsPage() {
           <input
             value={url} onChange={e => setUrl(e.target.value)}
             placeholder={mode === 'bonus-v2' ? '輸入 ColorGame V2 遊戲 URL...' : '輸入遊戲 URL...'}
-            style={{ flex: 1, minWidth: 280, padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 14 }}
+            style={{ flex: 1, minWidth: 280, padding: '8px 12px', borderRadius: 8, border: '1px solid #2d3f55', fontSize: 14 }}
             disabled={loading}
           />
           {!loading ? (
@@ -198,8 +198,8 @@ export function GsStatsPage() {
               const dist = statsStatus.bonusDistribution![key]
               const allColors = ['黃', '白', '粉', '藍', '紅', '綠']
               return (
-                <div key={key} style={{ background: '#f8fafc', borderRadius: 8, padding: 12 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, color: '#374151' }}>{label}</div>
+                <div key={key} style={{ background: '#162032', borderRadius: 8, padding: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, color: '#cbd5e1' }}>{label}</div>
                   {allColors.map(color => {
                     const count = dist[color] ?? 0
                     const pct = statsStatus.rounds > 0 ? count / statsStatus.rounds * 100 : 0
@@ -223,8 +223,8 @@ export function GsStatsPage() {
               const total = Object.values(dist).reduce((a, b) => a + b, 0)
               const pct = statsStatus.rounds > 0 ? total / statsStatus.rounds * 100 : 0
               return (
-                <div key={key} style={{ background: '#f8fafc', borderRadius: 8, padding: 12 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, color: '#374151' }}>{label}</div>
+                <div key={key} style={{ background: '#162032', borderRadius: 8, padding: 12 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, color: '#cbd5e1' }}>{label}</div>
                   <div style={{ fontSize: 22, fontWeight: 700, color: '#6366f1' }}>{total.toLocaleString()}</div>
                   <div style={{ fontSize: 12, color: '#64748b' }}>佔所有局數 {pct.toFixed(2)}%</div>
                   <div style={{ marginTop: 8 }}>

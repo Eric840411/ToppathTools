@@ -76,12 +76,12 @@ export function GsPdfTestCasePage() {
 
         <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 260 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>規格書檔案</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#cbd5e1', marginBottom: 6 }}>規格書檔案</div>
             <input ref={fileInputRef} type="file" accept=".pdf,.docx" style={{ display: 'none' }}
               onChange={e => setFile(e.target.files?.[0] ?? null)} />
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <button type="button" onClick={() => fileInputRef.current?.click()}
-                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#f8fafc', fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #2d3f55', background: '#162032', fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                 📎 選擇檔案
               </button>
               <span style={{ fontSize: 13, color: file ? '#374151' : '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -131,7 +131,7 @@ export function GsPdfTestCasePage() {
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               {allTypes.length > 1 && (
                 <select value={filterType} onChange={e => setFilterType(e.target.value)}
-                  style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 13 }}>
+                  style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #2d3f55', fontSize: 13 }}>
                   <option value="">全部類型</option>
                   {allTypes.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>

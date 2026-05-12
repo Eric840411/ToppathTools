@@ -169,9 +169,9 @@ export function UrlPoolPage({ currentAccount }: Props) {
               onClick={() => setFilter(f)}
               style={{
                 padding: '4px 10px', borderRadius: 6, fontSize: 12, cursor: 'pointer', border: '1px solid',
-                background: filter === f ? '#2563eb' : '#f3f4f6',
-                color: filter === f ? '#fff' : '#374151',
-                borderColor: filter === f ? '#2563eb' : '#e2e8f0',
+                background: filter === f ? '#2563eb' : '#1e293b',
+                color: filter === f ? '#fff' : '#94a3b8',
+                borderColor: filter === f ? '#2563eb' : '#2d3f55',
               }}
             >
               {f === 'all' ? '全部' : f === 'available' ? '可用' : f === 'in-use' ? '使用中' : '我的'}
@@ -182,18 +182,18 @@ export function UrlPoolPage({ currentAccount }: Props) {
             placeholder="搜尋帳號/用戶名稱..."
             value={searchText}
             onChange={e => setSearchText(e.target.value)}
-            style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12, width: 160 }}
+            style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #2d3f55', fontSize: 12, width: 160 }}
           />
         </div>
       </div>
 
       {!currentAccount && (
-        <div style={{ padding: '10px 14px', background: '#fef3c7', border: '1px solid #fbbf24', borderRadius: 8, marginBottom: 12, fontSize: 13 }}>
+        <div style={{ padding: '10px 14px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 8, marginBottom: 12, fontSize: 13, color: '#fbbf24' }}>
           請先在右上角選擇帳號才能複製使用 URL
         </div>
       )}
 
-      <div style={{ padding: '8px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, marginBottom: 12, fontSize: 12, color: '#1d4ed8' }}>
+      <div style={{ padding: '8px 12px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.25)', borderRadius: 8, marginBottom: 12, fontSize: 12, color: '#60a5fa' }}>
         💡 「複製使用 URL」會產生一個中轉連結，貼到 AutoSpin Game URL 或機台測試 Game URL 使用。開啟時自動認領，8 小時後自動釋放。
       </div>
 
@@ -201,7 +201,7 @@ export function UrlPoolPage({ currentAccount }: Props) {
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead>
-            <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0' }}>
+            <tr style={{ background: '#162032', borderBottom: '2px solid #2d3f55' }}>
               <th style={th}>帳號</th>
               <th style={th}>用戶名稱</th>
               <th style={th}>Token URL</th>
@@ -234,7 +234,7 @@ export function UrlPoolPage({ currentAccount }: Props) {
                       </div>
                     ) : (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <span style={{ fontSize: 11, color: '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }} title={row.url}>
+                        <span style={{ fontSize: 11, color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }} title={row.url}>
                           {row.url}
                         </span>
                         <button type="button" onClick={() => setViewingUrl(row.url)} style={btnSm('#6b7280', true)}>查看</button>
@@ -282,7 +282,7 @@ export function UrlPoolPage({ currentAccount }: Props) {
           </tbody>
         </table>
         {filtered.length === 0 && (
-          <div style={{ textAlign: 'center', padding: 32, color: '#9ca3af', fontSize: 13 }}>沒有符合條件的項目</div>
+          <div style={{ textAlign: 'center', padding: 32, color: '#64748b', fontSize: 13 }}>沒有符合條件的項目</div>
         )}
       </div>
 
@@ -293,14 +293,14 @@ export function UrlPoolPage({ currentAccount }: Props) {
           onClick={() => setViewingUrl(null)}
         >
           <div
-            style={{ background: '#fff', borderRadius: 10, padding: 20, maxWidth: 640, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}
+            style={{ background: '#1e293b', borderRadius: 10, padding: 20, maxWidth: 640, width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.2)' }}
             onClick={e => e.stopPropagation()}
           >
             <div style={{ fontWeight: 600, marginBottom: 10, fontSize: 14 }}>Token URL</div>
             <textarea
               readOnly
               value={viewingUrl}
-              style={{ width: '100%', minHeight: 100, fontSize: 11, fontFamily: 'monospace', border: '1px solid #e2e8f0', borderRadius: 6, padding: 8, resize: 'vertical', boxSizing: 'border-box' }}
+              style={{ width: '100%', minHeight: 100, fontSize: 11, fontFamily: 'monospace', border: '1px solid #2d3f55', borderRadius: 6, padding: 8, resize: 'vertical', boxSizing: 'border-box' }}
               onFocus={e => e.target.select()}
             />
             <div style={{ display: 'flex', gap: 8, marginTop: 10, justifyContent: 'flex-end' }}>
@@ -340,15 +340,15 @@ export function UrlPoolPage({ currentAccount }: Props) {
 
 function StatBadge({ label, value, color }: { label: string; value: number; color: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', background: '#f8fafc', border: `1px solid ${color}22`, borderRadius: 8, fontSize: 12 }}>
-      <span style={{ color: '#6b7280' }}>{label}</span>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 10px', background: '#162032', border: `1px solid ${color}22`, borderRadius: 8, fontSize: 12 }}>
+      <span style={{ color: '#94a3b8' }}>{label}</span>
       <strong style={{ color }}>{value}</strong>
     </div>
   )
 }
 
 const th: React.CSSProperties = {
-  padding: '8px 10px', textAlign: 'left', fontWeight: 600, color: '#374151', fontSize: 12,
+  padding: '8px 10px', textAlign: 'left', fontWeight: 600, color: '#cbd5e1', fontSize: 12,
 }
 const td: React.CSSProperties = {
   padding: '6px 10px', verticalAlign: 'middle',

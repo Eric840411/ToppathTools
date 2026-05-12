@@ -111,9 +111,9 @@ export function HistoryPage() {
               style={{
                 padding: '6px 14px',
                 borderRadius: 6,
-                border: days === d ? '1.5px solid #6366f1' : '1.5px solid #d1d5db',
-                background: days === d ? '#6366f1' : '#fff',
-                color: days === d ? '#fff' : '#374151',
+                border: days === d ? '1.5px solid #6366f1' : '1.5px solid #2d3f55',
+                background: days === d ? '#6366f1' : '#1e293b',
+                color: days === d ? '#fff' : '#94a3b8',
                 fontWeight: days === d ? 700 : 400,
                 cursor: 'pointer',
                 fontSize: 13,
@@ -124,7 +124,7 @@ export function HistoryPage() {
           ))}
         </div>
 
-        <div style={{ width: 1, height: 24, background: '#e5e7eb' }} />
+        <div style={{ width: 1, height: 24, background: '#2d3f55' }} />
 
         {/* Feature */}
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -135,9 +135,9 @@ export function HistoryPage() {
               style={{
                 padding: '6px 12px',
                 borderRadius: 6,
-                border: feature === f ? `1.5px solid ${f === 'all' ? '#6366f1' : FEATURE_COLORS[f]}` : '1.5px solid #e5e7eb',
-                background: feature === f ? (f === 'all' ? '#ede9fe' : `${FEATURE_COLORS[f]}18`) : '#fff',
-                color: feature === f ? (f === 'all' ? '#6366f1' : FEATURE_COLORS[f]) : '#6b7280',
+                border: feature === f ? `1.5px solid ${f === 'all' ? '#6366f1' : FEATURE_COLORS[f]}` : '1.5px solid #2d3f55',
+                background: feature === f ? (f === 'all' ? 'rgba(99,102,241,0.15)' : `${FEATURE_COLORS[f]}28`) : '#1e293b',
+                color: feature === f ? (f === 'all' ? '#a5b4fc' : FEATURE_COLORS[f]) : '#94a3b8',
                 fontWeight: feature === f ? 700 : 400,
                 cursor: 'pointer',
                 fontSize: 12,
@@ -151,29 +151,29 @@ export function HistoryPage() {
         <button
           onClick={fetchRecords}
           disabled={loading}
-          style={{ marginLeft: 'auto', padding: '6px 14px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#374151' }}
+          style={{ marginLeft: 'auto', padding: '6px 14px', background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#cbd5e1' }}
         >
           {loading ? '載入中...' : '🔄 重新整理'}
         </button>
       </div>
 
-      {loading && <p style={{ color: '#9ca3af', fontSize: 14 }}>載入中...</p>}
+      {loading && <p style={{ color: '#64748b', fontSize: 14 }}>載入中...</p>}
 
       {!loading && records.length === 0 && (
-        <div style={{ textAlign: 'center', padding: '60px 0', color: '#9ca3af', fontSize: 14 }}>
+        <div style={{ textAlign: 'center', padding: '60px 0', color: '#64748b', fontSize: 14 }}>
           此時間範圍內沒有操作紀錄
         </div>
       )}
 
       {!loading && records.length > 0 && (
-        <div style={{ fontSize: 12, color: '#9ca3af', marginBottom: 12 }}>
+        <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
           共 {records.length} 筆，第 {page} / {totalPages} 頁
         </div>
       )}
 
       {Object.entries(grouped).map(([date, recs]) => (
         <div key={date} style={{ marginBottom: 28 }}>
-          <div style={{ fontSize: 12, color: '#9ca3af', fontWeight: 600, marginBottom: 8, paddingBottom: 6, borderBottom: '1px solid #f3f4f6' }}>
+          <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600, marginBottom: 8, paddingBottom: 6, borderBottom: '1px solid #1e293b' }}>
             {date} · {recs.length} 筆
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -200,7 +200,7 @@ export function HistoryPage() {
               return (
                 <div
                   key={rec.id}
-                  style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden', background: '#fff' }}
+                  style={{ border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden', background: '#1e293b' }}
                 >
                   <div
                     onClick={() => setExpandedId(isExpanded ? null : rec.id)}
@@ -219,10 +219,10 @@ export function HistoryPage() {
                       {FEATURE_LABELS[rec.feature] ?? rec.feature}
                     </span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {rec.title}
                       </div>
-                      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{rec.summary}</div>
+                      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{rec.summary}</div>
                     </div>
                     {cases && (
                       <button
@@ -234,13 +234,13 @@ export function HistoryPage() {
                       </button>
                     )}
                     <div style={{ flex: '0 0 auto', textAlign: 'right' }}>
-                      <div style={{ fontSize: 11, color: '#9ca3af' }}>{timeAgo(rec.created_at)}</div>
+                      <div style={{ fontSize: 11, color: '#64748b' }}>{timeAgo(rec.created_at)}</div>
                       <div style={{ fontSize: 11, color: '#d1d5db' }}>{formatDate(rec.created_at)}</div>
                     </div>
-                    <span style={{ color: '#9ca3af', fontSize: 12 }}>{isExpanded ? '▲' : '▼'}</span>
+                    <span style={{ color: '#64748b', fontSize: 12 }}>{isExpanded ? '▲' : '▼'}</span>
                   </div>
                   {isExpanded && (
-                    <div style={{ borderTop: '1px solid #f3f4f6', padding: '12px 16px', background: '#f9fafb' }}>
+                    <div style={{ borderTop: '1px solid #f3f4f6', padding: '12px 16px', background: '#162032' }}>
                       {bitableUrl && (
                         <div style={{ marginBottom: 10 }}>
                           <a href={bitableUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#6366f1', fontWeight: 600 }}>
@@ -248,7 +248,7 @@ export function HistoryPage() {
                           </a>
                         </div>
                       )}
-                      <pre style={{ margin: 0, fontSize: 11, color: '#374151', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 400, overflowY: 'auto' }}>
+                      <pre style={{ margin: 0, fontSize: 11, color: '#cbd5e1', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 400, overflowY: 'auto' }}>
                         {JSON.stringify(detail, null, 2)}
                       </pre>
                     </div>
@@ -266,7 +266,7 @@ export function HistoryPage() {
           <button
             onClick={() => setPage(p => Math.max(1, p - 1))}
             disabled={page === 1}
-            style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #e5e7eb', background: page === 1 ? '#f9fafb' : '#fff', color: page === 1 ? '#d1d5db' : '#374151', cursor: page === 1 ? 'default' : 'pointer', fontSize: 13 }}
+            style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #2d3f55', background: page === 1 ? '#f9fafb' : '#fff', color: page === 1 ? '#d1d5db' : '#374151', cursor: page === 1 ? 'default' : 'pointer', fontSize: 13 }}
           >
             ← 上一頁
           </button>
@@ -292,7 +292,7 @@ export function HistoryPage() {
           <button
             onClick={() => setPage(p => Math.min(totalPages, p + 1))}
             disabled={page === totalPages}
-            style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #e5e7eb', background: page === totalPages ? '#f9fafb' : '#fff', color: page === totalPages ? '#d1d5db' : '#374151', cursor: page === totalPages ? 'default' : 'pointer', fontSize: 13 }}
+            style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #2d3f55', background: page === totalPages ? '#f9fafb' : '#fff', color: page === totalPages ? '#d1d5db' : '#374151', cursor: page === totalPages ? 'default' : 'pointer', fontSize: 13 }}
           >
             下一頁 →
           </button>

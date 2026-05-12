@@ -39,12 +39,8 @@ function LegacyAiAgentMonitorWidget() {
   const [latest, setLatest] = useState<AiTask[]>([])
   const [minimized, setMinimized] = useState(false)
   const [pos, setPos] = useState(() => {
-    const defaultHeight = 300
-    if (typeof window === 'undefined') return { x: 24, y: 24 }
-    return {
-      x: 24,
-      y: Math.max(24, window.innerHeight - defaultHeight - 24),
-    }
+    if (typeof window === 'undefined') return { x: 900, y: 24 }
+    return { x: Math.max(0, window.innerWidth - 444), y: 24 }
   })
   const draggingRef = useRef(false)
   const dragOffsetRef = useRef({ x: 0, y: 0 })
@@ -107,10 +103,10 @@ function LegacyAiAgentMonitorWidget() {
         top: pos.y,
         width: minimized ? 220 : 420,
         zIndex: 9999,
-        border: '1px solid #cbd5e1',
+        border: '1px solid #2d3f55',
         borderRadius: 10,
-        background: '#fff',
-        boxShadow: '0 10px 24px rgba(2, 6, 23, 0.16)',
+        background: '#1e293b',
+        boxShadow: '0 10px 24px rgba(0, 0, 0, 0.4)',
         overflow: 'hidden',
       }}
     >
@@ -119,12 +115,12 @@ function LegacyAiAgentMonitorWidget() {
         style={{
           cursor: 'move',
           padding: '8px 10px',
-          background: backendOnline ? '#eff6ff' : '#fef2f2',
-          borderBottom: minimized ? 'none' : '1px solid #e5e7eb',
+          background: backendOnline ? 'rgba(59,130,246,0.1)' : 'rgba(239,68,68,0.1)',
+          borderBottom: minimized ? 'none' : '1px solid #2d3f55',
           display: 'flex',
           alignItems: 'center',
           gap: 8,
-          color: backendOnline ? '#1d4ed8' : '#b91c1c',
+          color: backendOnline ? '#60a5fa' : '#f87171',
           fontSize: 12,
           fontWeight: 600,
         }}
@@ -142,31 +138,31 @@ function LegacyAiAgentMonitorWidget() {
 
       {!minimized && (
         <div style={{ padding: 10 }}>
-          <div style={{ fontSize: 12, marginBottom: 8, color: backendOnline ? '#1f2937' : '#b91c1c' }}>
+          <div style={{ fontSize: 12, marginBottom: 8, color: backendOnline ? '#cbd5e1' : '#f87171' }}>
             {backendOnline ? `後端連線正常，AI 執行中：${runningCount} 筆` : '前端目前無法連線後端（可能網路中斷）'}
           </div>
 
           <div style={{ display: 'flex', gap: 8, marginBottom: 8, fontSize: 12 }}>
-            <span style={{ background: '#eef2ff', borderRadius: 999, padding: '2px 8px', color: '#3730a3' }}>Gemini {runningByProvider.gemini}</span>
-            <span style={{ background: '#fdf2f8', borderRadius: 999, padding: '2px 8px', color: '#be185d' }}>OpenAI {runningByProvider.openai}</span>
-            <span style={{ background: '#ecfeff', borderRadius: 999, padding: '2px 8px', color: '#0e7490' }}>Ollama {runningByProvider.ollama}</span>
+            <span style={{ background: 'rgba(99,102,241,0.15)', borderRadius: 999, padding: '2px 8px', color: '#a5b4fc' }}>Gemini {runningByProvider.gemini}</span>
+            <span style={{ background: 'rgba(236,72,153,0.12)', borderRadius: 999, padding: '2px 8px', color: '#f0abfc' }}>OpenAI {runningByProvider.openai}</span>
+            <span style={{ background: 'rgba(6,182,212,0.12)', borderRadius: 999, padding: '2px 8px', color: '#67e8f9' }}>Ollama {runningByProvider.ollama}</span>
           </div>
 
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 6 }}>最近 AI 任務（最多 5 筆）</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', marginBottom: 6 }}>最近 AI 任務（最多 5 筆）</div>
           {latest.length === 0 ? (
-            <div style={{ fontSize: 12, color: '#9ca3af' }}>目前沒有可顯示的任務紀錄</div>
+            <div style={{ fontSize: 12, color: '#64748b' }}>目前沒有可顯示的任務紀錄</div>
           ) : (
             <div style={{ display: 'grid', gap: 4, maxHeight: 200, overflow: 'auto' }}>
               {latest.map(job => (
                 <div key={job.id} style={{ display: 'grid', gridTemplateColumns: '62px 56px 1fr auto', gap: 8, alignItems: 'center', fontSize: 12 }}>
-                  <span style={{ textAlign: 'center', borderRadius: 999, padding: '1px 8px', background: job.status === 'running' ? '#dbeafe' : job.status === 'done' ? '#dcfce7' : '#fee2e2', color: job.status === 'running' ? '#1d4ed8' : job.status === 'done' ? '#166534' : '#b91c1c' }}>
+                  <span style={{ textAlign: 'center', borderRadius: 999, padding: '1px 8px', background: job.status === 'running' ? 'rgba(59,130,246,0.15)' : job.status === 'done' ? 'rgba(22,163,74,0.15)' : 'rgba(239,68,68,0.15)', color: job.status === 'running' ? '#60a5fa' : job.status === 'done' ? '#4ade80' : '#f87171' }}>
                     {job.status}
                   </span>
-                  <span style={{ color: '#6b7280' }}>{job.provider}</span>
-                  <span style={{ color: '#374151', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={`${job.kind} • ${job.model} • ${job.operation} • 使用者:${job.user}`}>
+                  <span style={{ color: '#94a3b8' }}>{job.provider}</span>
+                  <span style={{ color: '#cbd5e1', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={`${job.kind} • ${job.model} • ${job.operation} • 使用者:${job.user}`}>
                     {job.kind} • {job.model}
                   </span>
-                  <span style={{ color: '#6b7280' }}>
+                  <span style={{ color: '#64748b' }}>
                     {new Date(job.startedAt).toLocaleTimeString('zh-TW', { hour12: false })}
                   </span>
                   <span style={{ gridColumn: '2 / span 3', color: '#64748b', fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

@@ -14,7 +14,6 @@ import { GsImgComparePage } from './pages/gs/GsImgComparePage'
 import { GsLogCheckerPage } from './pages/gs/GsLogCheckerPage'
 import { GsBonusV2Page } from './pages/gs/GsBonusV2Page'
 import { SystemAdminPage } from './pages/SystemAdminPage'
-import { ChangelogPage } from './pages/ChangelogPage'
 import ChangelogModal from './components/ChangelogModal'
 import GeminiSettingsModal from './components/GeminiSettingsModal'
 import AiAgentMonitorWidget from './components/AiAgentMonitorWidget'
@@ -177,14 +176,6 @@ const sysadminGroup: Group = {
   description: '管理帳號與各角色的功能頁面權限',
 }
 
-const changelogGroup: Group = {
-  id: 'changelog',
-  label: '更版日誌',
-  icon: '📋',
-  iconClass: 'tab-icon--history',
-  tab: 'changelog',
-  description: '查看所有版本的更新紀錄與功能說明',
-}
 
 
 function App() {
@@ -292,15 +283,18 @@ function App() {
 
   const currentSubtab = currentGroup?.subtabs?.find(s => s.id === effectiveTab)
   const currentDescription = currentSubtab?.description ?? currentGroup?.description ?? ''
+  const currentPageLabel = currentSubtab?.label ?? currentGroup?.label ?? ''
 
   return (
     <div className="app">
-      <header className="app-header">
-        <div className="header-inner" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <div className="header-brand">
-              <span className="brand-dot" />
-              <h1>Workflow Integrator</h1>
+      {/* ── Sidebar ── */}
+      <nav className="app-sidebar">
+        {/* Logo */}
+        <div className="sidebar-logo">
+          <div className="sidebar-logo-inner">
+            <span className="brand-dot" />
+            <div className="sidebar-logo-text">
+              <span className="sidebar-brand-name">Toppath Tools</span>
               <button
                 type="button"
                 onClick={() => setShowChangelog(true)}
@@ -310,125 +304,144 @@ function App() {
                 v{APP_VERSION}
               </button>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
-              <p className="header-sub" style={{ margin: 0 }}>自動化整合控制台 — Jira × Lark × OSM</p>
-              <button
-                type="button"
-                onClick={() => setShowGemini(true)}
-                style={{ padding: '4px 12px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#475569', whiteSpace: 'nowrap' }}
-                title="AI 模型和 Prompt 模板設定"
-              >
-                ⚙️ AI 模型和 Prompt 設定
-              </button>
-            </div>
           </div>
-          {globalAccount && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#f1f5f9', letterSpacing: '.5px', textTransform: 'uppercase' }}>
-                {globalAccount.label}
-              </span>
+          <p className="sidebar-sub">Workflow Integrator</p>
+        </div>
+
+        {/* Nav items */}
+        <div className="sidebar-nav">
+          <div className="sidebar-section-label">工具</div>
+          {visibleGroups.map((group) => (
+            <div key={group.id}>
               <button
                 type="button"
-                onClick={handleGlobalAccountClear}
-                style={{ padding: '3px 10px', background: 'rgba(239,68,68,.15)', border: '1px solid rgba(239,68,68,.4)', borderRadius: 5, cursor: 'pointer', fontSize: 11, color: '#f87171', whiteSpace: 'nowrap' }}
+                className={`sidebar-nav-item${currentGroup?.id === group.id ? ' sidebar-nav-item--active' : ''}`}
+                onClick={() => handleGroupClick(group)}
               >
-                登出
+                <span className={`tab-icon ${group.iconClass}`}>{group.icon}</span>
+                <span className="sidebar-nav-label">{group.label}</span>
+                {group.subtabs && (
+                  <span className="sidebar-expand-arrow">
+                    {currentGroup?.id === group.id ? '▾' : '▸'}
+                  </span>
+                )}
               </button>
+              {/* Subtabs — shown when group is active */}
+              {group.subtabs && currentGroup?.id === group.id && (
+                <div className="sidebar-subtabs">
+                  {group.subtabs.map((sub) => (
+                    <button
+                      key={sub.id}
+                      type="button"
+                      className={`sidebar-subtab-item${effectiveTab === sub.id ? ' sidebar-subtab-item--active' : ''}`}
+                      onClick={() => setActiveTab(sub.id)}
+                    >
+                      <span className={`tab-icon sub-tab-icon ${sub.iconClass}`}>{sub.icon}</span>
+                      {sub.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+
+          <div className="sidebar-divider" />
+          <div className="sidebar-section-label">系統</div>
+
+          {visibleHistory && (
+            <button
+              type="button"
+              className={`sidebar-nav-item${currentGroup?.id === historyGroup.id ? ' sidebar-nav-item--active' : ''}`}
+              onClick={() => handleGroupClick(historyGroup)}
+            >
+              <span className={`tab-icon ${historyGroup.iconClass}`}>{historyGroup.icon}</span>
+              <span className="sidebar-nav-label">{historyGroup.label}</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            className={`sidebar-nav-item${currentGroup?.id === sysadminGroup.id ? ' sidebar-nav-item--active' : ''}${!visibleSysadmin ? ' sidebar-nav-item--disabled' : ''}`}
+            onClick={() => visibleSysadmin && handleGroupClick(sysadminGroup)}
+            title={visibleSysadmin ? '系統管理' : '僅管理員可使用'}
+          >
+            <span className={`tab-icon ${sysadminGroup.iconClass}`}>{sysadminGroup.icon}</span>
+            <span className="sidebar-nav-label">{sysadminGroup.label}</span>
+          </button>
+
+        </div>
+
+        {/* Bottom: user + AI settings */}
+        <div className="sidebar-bottom">
+          <button
+            type="button"
+            className="sidebar-ai-btn"
+            onClick={() => setShowGemini(true)}
+            title="AI 模型和 Prompt 模板設定"
+          >
+            <span>⚙️</span>
+            <span>AI 模型和 Prompt 設定</span>
+          </button>
+          {globalAccount && (
+            <div className="sidebar-user">
+              <div className="sidebar-user-avatar">
+                {globalAccount.label.charAt(0).toUpperCase()}
+              </div>
+              <div className="sidebar-user-info">
+                <span className="sidebar-user-name">{globalAccount.label}</span>
+                <button
+                  type="button"
+                  className="sidebar-logout-btn"
+                  onClick={handleGlobalAccountClear}
+                >
+                  登出
+                </button>
+              </div>
             </div>
           )}
         </div>
-      </header>
+      </nav>
 
-      {/* ── Top-level group bar ── */}
-      <div className="tab-bar">
-        {visibleGroups.map((group) => (
-          <button
-            key={group.id}
-            type="button"
-            className={`tab-btn${currentGroup?.id === group.id ? ' tab-btn--active' : ''}`}
-            onClick={() => handleGroupClick(group)}
-          >
-            <span className={`tab-icon ${group.iconClass}`}>{group.icon}</span>
-            <span className="tab-label">{group.label}</span>
-          </button>
-        ))}
-        {visibleHistory && (
-          <button
-            type="button"
-            className={`tab-btn${currentGroup?.id === historyGroup.id ? ' tab-btn--active' : ''}`}
-            style={{ marginLeft: 'auto' }}
-            onClick={() => handleGroupClick(historyGroup)}
-          >
-            <span className={`tab-icon ${historyGroup.iconClass}`}>{historyGroup.icon}</span>
-            <span className="tab-label">{historyGroup.label}</span>
-          </button>
-        )}
-        <button
-          type="button"
-          className={`tab-btn${currentGroup?.id === sysadminGroup.id ? ' tab-btn--active' : ''}`}
-          style={{
-            ...(visibleHistory ? {} : { marginLeft: 'auto' }),
-            ...(visibleSysadmin ? {} : { opacity: 0.4, cursor: 'not-allowed' }),
-          }}
-          onClick={() => visibleSysadmin && handleGroupClick(sysadminGroup)}
-          title={visibleSysadmin ? '系統管理' : '僅管理員可使用'}
-        >
-          <span className={`tab-icon ${sysadminGroup.iconClass}`}>{sysadminGroup.icon}</span>
-          <span className="tab-label">{sysadminGroup.label}</span>
-        </button>
-        <button
-          type="button"
-          className={`tab-btn${currentGroup?.id === changelogGroup.id ? ' tab-btn--active' : ''}`}
-          onClick={() => handleGroupClick(changelogGroup)}
-          title="更版日誌"
-        >
-          <span className="tab-icon tab-icon--history">📋</span>
-          <span className="tab-label">{changelogGroup.label}</span>
-        </button>
-      </div>
-
-      {/* ── Sub-tab bar ── */}
-      {currentGroup?.subtabs && (
-        <div className="sub-tab-bar">
-          {currentGroup.subtabs.map((sub) => (
-            <button
-              key={sub.id}
-              type="button"
-              className={`sub-tab-btn${effectiveTab === sub.id ? ' sub-tab-btn--active' : ''}`}
-              onClick={() => setActiveTab(sub.id)}
-            >
-              <span className={`tab-icon sub-tab-icon ${sub.iconClass}`}>{sub.icon}</span>
-              {sub.label}
-            </button>
-          ))}
+      {/* ── Main area ── */}
+      <div className="app-main">
+        {/* Topbar */}
+        <div className="app-topbar">
+          <div className="app-topbar-left">
+            <span className="app-topbar-title">{currentPageLabel}</span>
+            {currentSubtab && (
+              <span className="app-topbar-group">
+                <span className="app-topbar-sep">›</span>
+                {currentGroup?.label}
+              </span>
+            )}
+          </div>
+          <p className="app-topbar-desc">{currentDescription}</p>
         </div>
-      )}
 
-      <div className="tab-desc">{currentDescription}</div>
-
-      {(currentGroup?.id === 'color-game' && (effectiveTab === 'gs-bonusv2' || effectiveTab === 'gs-imgcompare')) ? (
-        <>
-          {effectiveTab === 'gs-bonusv2' && <GsBonusV2Page />}
-          {effectiveTab === 'gs-imgcompare' && <GsImgComparePage />}
-        </>
-      ) : (
-        <main className="main-content">
-          {currentGroup?.id === 'jira' && <JiraPage account={globalAccount} allowedModes={allowedJiraModes} />}
-          {currentGroup?.id === 'lark' && <LarkPage />}
-          {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm' && <OsmPage />}
-          {currentGroup?.id === 'osm-tools' && effectiveTab === 'machinetest' && <MachineTestPage account={globalAccount} />}
-          {currentGroup?.id === 'osm-tools' && effectiveTab === 'imagecheck' && <ImageCheckPage />}
-          {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-config' && <OsmConfigComparePage />}
-          {currentGroup?.id === 'osm-tools' && effectiveTab === 'autospin' && <AutoSpinPage />}
-          {currentGroup?.id === 'osm-tools' && effectiveTab === 'url-pool' && <UrlPoolPage currentAccount={globalAccount} />}
-          {currentGroup?.id === 'osm-tools' && effectiveTab === 'jackpot' && <JackpotPage />}
-          {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-uat' && <OsmUatPage />}
-          {currentGroup?.id === 'history' && <HistoryPage />}
-          {currentGroup?.id === 'color-game' && effectiveTab === 'gs-logchecker' && <GsLogCheckerPage />}
-          {currentGroup?.id === 'sysadmin' && <SystemAdminPage />}
-          {currentGroup?.id === 'changelog' && <ChangelogPage />}
-        </main>
-      )}
+        {/* Page content */}
+        {(currentGroup?.id === 'color-game' && (effectiveTab === 'gs-bonusv2' || effectiveTab === 'gs-imgcompare')) ? (
+          <>
+            {effectiveTab === 'gs-bonusv2' && <GsBonusV2Page />}
+            {effectiveTab === 'gs-imgcompare' && <GsImgComparePage />}
+          </>
+        ) : (
+          <main className="main-content">
+            {currentGroup?.id === 'jira' && <JiraPage account={globalAccount} allowedModes={allowedJiraModes} />}
+            {currentGroup?.id === 'lark' && <LarkPage />}
+            {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm' && <OsmPage />}
+            {currentGroup?.id === 'osm-tools' && effectiveTab === 'machinetest' && <MachineTestPage account={globalAccount} />}
+            {currentGroup?.id === 'osm-tools' && effectiveTab === 'imagecheck' && <ImageCheckPage />}
+            {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-config' && <OsmConfigComparePage />}
+            {currentGroup?.id === 'osm-tools' && effectiveTab === 'autospin' && <AutoSpinPage />}
+            {currentGroup?.id === 'osm-tools' && effectiveTab === 'url-pool' && <UrlPoolPage currentAccount={globalAccount} />}
+            {currentGroup?.id === 'osm-tools' && effectiveTab === 'jackpot' && <JackpotPage />}
+            {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-uat' && <OsmUatPage />}
+            {currentGroup?.id === 'history' && <HistoryPage />}
+            {currentGroup?.id === 'color-game' && effectiveTab === 'gs-logchecker' && <GsLogCheckerPage />}
+            {currentGroup?.id === 'sysadmin' && <SystemAdminPage />}
+          </main>
+        )}
+      </div>
 
       {showChangelog && <ChangelogModal onClose={() => setShowChangelog(false)} />}
       {showGemini && <GeminiSettingsModal onClose={() => setShowGemini(false)} />}

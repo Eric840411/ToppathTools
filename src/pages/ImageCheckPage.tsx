@@ -190,61 +190,61 @@ export function ImageCheckPage() {
       {!sessionId && !result && (
         <>
           <div style={{ marginBottom: 16 }}>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#cbd5e1', marginBottom: 6 }}>
               前端 URL（含 token）
             </label>
             <input
               value={url}
               onChange={e => setUrl(e.target.value)}
               placeholder="https://osm-redirect.osmslot.org/?token=xxx&gameid=xxx..."
-              style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, boxSizing: 'border-box' }}
+              style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #2d3f55', fontSize: 13, boxSizing: 'border-box' }}
             />
           </div>
 
           <div style={{ marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-              <label style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>已刪除圖片清單</label>
+              <label style={{ fontSize: 13, fontWeight: 600, color: '#cbd5e1' }}>已刪除圖片清單</label>
               <button onClick={() => setShowGitPaste(v => !v)}
-                style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #6366f1', background: showGitPaste ? '#6366f1' : '#fff', color: showGitPaste ? '#fff' : '#6366f1', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+                style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #6366f1', background: showGitPaste ? '#6366f1' : '#1e293b', color: showGitPaste ? '#fff' : '#818cf8', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
                 📋 貼上 git diff 文字解析
               </button>
               <button onClick={() => fileInputRef.current?.click()}
-                style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #7c3aed', background: '#fff', color: '#7c3aed', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+                style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #7c3aed', background: '#1e293b', color: '#7c3aed', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
                 🖼️ 上傳截圖 AI 識別
               </button>
-              <span style={{ fontSize: 11, color: '#9ca3af' }}>或直接 Ctrl+V 貼上截圖</span>
+              <span style={{ fontSize: 11, color: '#64748b' }}>或直接 Ctrl+V 貼上截圖</span>
               <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }}
                 onChange={e => { const f = e.target.files?.[0]; if (f) parseScreenshot(f); e.target.value = '' }} />
             </div>
 
             <div onPaste={handlePaste}
-              style={{ marginBottom: 8, padding: '10px 14px', background: '#faf5ff', border: '1px dashed #c4b5fd', borderRadius: 8, fontSize: 12, color: '#7c3aed', minHeight: 36, display: 'flex', alignItems: 'center', gap: 10 }}>
+              style={{ marginBottom: 8, padding: '10px 14px', background: 'rgba(124,58,237,0.08)', border: '1px dashed rgba(167,139,250,0.4)', borderRadius: 8, fontSize: 12, color: '#a78bfa', minHeight: 36, display: 'flex', alignItems: 'center', gap: 10 }}>
               {screenshotParsing ? <span>🤖 Gemini 識別中...</span>
                 : screenshotPreview ? <><img src={screenshotPreview} alt="" style={{ height: 40, borderRadius: 4 }} /><span>已解析，路徑已填入</span></>
                 : <span>📸 Ctrl+V 貼上 git diff 截圖 → Gemini 自動識別</span>}
             </div>
 
             {showGitPaste && (
-              <div style={{ marginBottom: 10, padding: '12px 14px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-                <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>支援 git diff --name-status / git status / GUI 格式</div>
+              <div style={{ marginBottom: 10, padding: '12px 14px', background: '#162032', border: '1px solid #2d3f55', borderRadius: 8 }}>
+                <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>支援 git diff --name-status / git status / GUI 格式</div>
                 <textarea value={gitDiffText} onChange={e => setGitDiffText(e.target.value)}
                   placeholder={'D\tassets/resources/jackpot/aruze1.png\n...'} rows={5}
-                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 11, fontFamily: 'monospace', boxSizing: 'border-box', resize: 'vertical' }} />
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid #2d3f55', fontSize: 11, fontFamily: 'monospace', boxSizing: 'border-box', resize: 'vertical' }} />
                 <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                   <button onClick={handleParseDiff} disabled={!gitDiffText.trim()}
                     style={{ padding: '6px 16px', borderRadius: 6, background: '#6366f1', color: '#fff', border: 'none', fontSize: 12, fontWeight: 700, cursor: gitDiffText.trim() ? 'pointer' : 'default', opacity: gitDiffText.trim() ? 1 : 0.5 }}>
                     解析並填入 ({parseGitDiff(gitDiffText).length} 個)
                   </button>
                   <button onClick={() => { setShowGitPaste(false); setGitDiffText('') }}
-                    style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', fontSize: 12, cursor: 'pointer', color: '#6b7280' }}>取消</button>
+                    style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #2d3f55', background: '#1e293b', fontSize: 12, cursor: 'pointer', color: '#94a3b8' }}>取消</button>
                 </div>
               </div>
             )}
 
             <textarea value={deletedList} onChange={e => setDeletedList(e.target.value)}
               placeholder={'assets/resources/jackpot/aruze1.png\n...'} rows={6}
-              style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12, fontFamily: 'monospace', boxSizing: 'border-box', resize: 'vertical' }} />
-            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+              style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1px solid #2d3f55', fontSize: 12, fontFamily: 'monospace', boxSizing: 'border-box', resize: 'vertical' }} />
+            <div style={{ fontSize: 11, color: '#64748b', marginTop: 4 }}>
               {deletedList.split('\n').filter(l => l.trim()).length} 個路徑
             </div>
           </div>
@@ -257,7 +257,7 @@ export function ImageCheckPage() {
       )}
 
       {error && (
-        <div style={{ padding: '12px 16px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#dc2626', fontSize: 13, marginBottom: 16 }}>
+        <div style={{ padding: '12px 16px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8, color: '#f87171', fontSize: 13, marginBottom: 16 }}>
           {error}
         </div>
       )}
@@ -267,14 +267,14 @@ export function ImageCheckPage() {
         <div>
           {/* Toolbar */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10, flexWrap: 'wrap' }}>
-            <div style={{ padding: '8px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: 13, color: '#166534', fontWeight: 600 }}>
+            <div style={{ padding: '8px 14px', background: 'rgba(22,163,74,0.1)', border: '1px solid rgba(22,163,74,0.3)', borderRadius: 8, fontSize: 13, color: '#4ade80', fontWeight: 600 }}>
               🟢 已攔截 <strong>{liveCount}</strong> 個圖片請求
             </div>
             <button onClick={handleStop}
               style={{ padding: '8px 20px', borderRadius: 8, background: '#6366f1', color: '#fff', border: 'none', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>
               ✅ 完成，取得結果
             </button>
-            <span style={{ fontSize: 11, color: '#9ca3af' }}>可點擊畫面操作遊戲 · 滾輪捲動</span>
+            <span style={{ fontSize: 11, color: '#64748b' }}>可點擊畫面操作遊戲 · 滾輪捲動</span>
           </div>
 
           {/* Browser screenshot */}
@@ -290,12 +290,12 @@ export function ImageCheckPage() {
                 draggable={false}
               />
             ) : (
-              <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280', fontSize: 13 }}>
+              <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8', fontSize: 13 }}>
                 載入中...
               </div>
             )}
           </div>
-          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>畫面每 1.5 秒自動更新</div>
+          <div style={{ fontSize: 11, color: '#64748b', marginTop: 6 }}>畫面每 1.5 秒自動更新</div>
         </div>
       )}
 
@@ -304,7 +304,7 @@ export function ImageCheckPage() {
         <div>
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             <button onClick={() => { setResult(null); setError('') }}
-              style={{ padding: '7px 16px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', fontSize: 12, cursor: 'pointer', color: '#374151' }}>
+              style={{ padding: '7px 16px', borderRadius: 6, border: '1px solid #2d3f55', background: '#1e293b', fontSize: 12, cursor: 'pointer', color: '#cbd5e1' }}>
               ← 重新偵測
             </button>
           </div>
@@ -312,15 +312,15 @@ export function ImageCheckPage() {
           <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
             <div style={{ flex: 1, minWidth: 140, padding: '14px 18px', background: stillLoaded.length > 0 ? '#fef2f2' : '#f0fdf4', borderRadius: 10, border: `1px solid ${stillLoaded.length > 0 ? '#fecaca' : '#bbf7d0'}` }}>
               <div style={{ fontSize: 24, fontWeight: 800, color: stillLoaded.length > 0 ? '#dc2626' : '#16a34a' }}>{stillLoaded.length}</div>
-              <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>❌ 仍在載入（需確認）</div>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>❌ 仍在載入（需確認）</div>
             </div>
             <div style={{ flex: 1, minWidth: 140, padding: '14px 18px', background: '#f0fdf4', borderRadius: 10, border: '1px solid #bbf7d0' }}>
               <div style={{ fontSize: 24, fontWeight: 800, color: '#16a34a' }}>{confirmed.length}</div>
-              <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>✅ 已確認刪除</div>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>✅ 已確認刪除</div>
             </div>
-            <div style={{ flex: 1, minWidth: 140, padding: '14px 18px', background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+            <div style={{ flex: 1, minWidth: 140, padding: '14px 18px', background: '#162032', borderRadius: 10, border: '1px solid #2d3f55' }}>
               <div style={{ fontSize: 24, fontWeight: 800, color: '#475569' }}>{result.loadedImageCount}</div>
-              <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>頁面共載入圖片數</div>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>頁面共載入圖片數</div>
             </div>
           </div>
 
@@ -331,7 +331,7 @@ export function ImageCheckPage() {
                 {stillLoaded.map(r => (
                   <div key={r.path} style={{ padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 11, fontFamily: 'monospace' }}>
                     <div style={{ color: '#dc2626', fontWeight: 600 }}>{r.path}</div>
-                    {r.matchedUrl && <div style={{ color: '#9ca3af', marginTop: 2 }}>→ {r.matchedUrl}</div>}
+                    {r.matchedUrl && <div style={{ color: '#64748b', marginTop: 2 }}>→ {r.matchedUrl}</div>}
                   </div>
                 ))}
               </div>
