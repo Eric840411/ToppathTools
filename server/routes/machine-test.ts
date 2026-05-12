@@ -266,7 +266,7 @@ router.post('/api/machine-test/lark-machines', async (req, res, next) => {
       const r = row as unknown[]
       const gmid = String(r[gmidCol] ?? '').trim()
       const qaStatus = qaCol !== -1 ? String(r[qaCol] ?? '').trim() : ''
-      if (!gmid || gmid === 'null' || qaStatus === 'PASS') return []
+      if (!gmid || gmid === 'null' || qaStatus === '驗證通過') return []
       return [{ gmid, rowIndex: i + 3 }]  // rowIndex is 1-based, +2 for two header rows, +1 for slice offset
     })
 
