@@ -14,6 +14,7 @@ import { GsImgComparePage } from './pages/gs/GsImgComparePage'
 import { GsLogCheckerPage } from './pages/gs/GsLogCheckerPage'
 import { GsBonusV2Page } from './pages/gs/GsBonusV2Page'
 import { SystemAdminPage } from './pages/SystemAdminPage'
+import { ChangelogPage } from './pages/ChangelogPage'
 import ChangelogModal from './components/ChangelogModal'
 import GeminiSettingsModal from './components/GeminiSettingsModal'
 import AiAgentMonitorWidget from './components/AiAgentMonitorWidget'
@@ -25,8 +26,8 @@ import './App.css'
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
   | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
-  | 'sysadmin'
-type GroupId = 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'history' | 'sysadmin'
+  | 'sysadmin' | 'changelog'
+type GroupId = 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'history' | 'sysadmin' | 'changelog'
 
 type SubTab = {
   id: TabId
@@ -174,6 +175,15 @@ const sysadminGroup: Group = {
   iconClass: 'tab-icon--history',
   tab: 'sysadmin',
   description: '管理帳號與各角色的功能頁面權限',
+}
+
+const changelogGroup: Group = {
+  id: 'changelog',
+  label: '更版日誌',
+  icon: '📋',
+  iconClass: 'tab-icon--history',
+  tab: 'changelog',
+  description: '查看所有版本的更新紀錄與功能說明',
 }
 
 
@@ -366,6 +376,15 @@ function App() {
           <span className={`tab-icon ${sysadminGroup.iconClass}`}>{sysadminGroup.icon}</span>
           <span className="tab-label">{sysadminGroup.label}</span>
         </button>
+        <button
+          type="button"
+          className={`tab-btn${currentGroup?.id === changelogGroup.id ? ' tab-btn--active' : ''}`}
+          onClick={() => handleGroupClick(changelogGroup)}
+          title="更版日誌"
+        >
+          <span className="tab-icon tab-icon--history">📋</span>
+          <span className="tab-label">{changelogGroup.label}</span>
+        </button>
       </div>
 
       {/* ── Sub-tab bar ── */}
@@ -407,6 +426,7 @@ function App() {
           {currentGroup?.id === 'history' && <HistoryPage />}
           {currentGroup?.id === 'color-game' && effectiveTab === 'gs-logchecker' && <GsLogCheckerPage />}
           {currentGroup?.id === 'sysadmin' && <SystemAdminPage />}
+          {currentGroup?.id === 'changelog' && <ChangelogPage />}
         </main>
       )}
 
