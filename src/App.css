@@ -3015,3 +3015,51 @@
 }
 
 .mode-toggle-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ═══════════════════════════════════════════════════
+   GLOBAL DARK SCROLLBAR
+   Applied to all scrollable areas, including modals.
+   ═══════════════════════════════════════════════════ */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2d3f55 transparent;
+}
+
+*::-webkit-scrollbar { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: #2d3f55; border-radius: 3px; }
+*::-webkit-scrollbar-thumb:hover { background: #3d5470; }
+*::-webkit-scrollbar-corner { background: transparent; }
+
+/* ═══════════════════════════════════════════════════
+   MODAL DARK INPUT OVERRIDES
+   Portal renders outside .main-content, so form
+   elements inside modals need explicit dark styles.
+   ═══════════════════════════════════════════════════ */
+
+.modal-box input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]),
+.modal-box select,
+.modal-box textarea {
+  background-color: #0f172a !important;
+  color: #e2e8f0 !important;
+  border-color: #2d3f55 !important;
+}
+
+.modal-box input::placeholder,
+.modal-box textarea::placeholder {
+  color: #3d526a !important;
+}
+
+.modal-box input:focus,
+.modal-box select:focus,
+.modal-box textarea:focus {
+  border-color: #3b82f6 !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1) !important;
+}
+
+.modal-box option {
+  background-color: #0f172a;
+  color: #e2e8f0;
+}

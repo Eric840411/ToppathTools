@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.25.6'
+export const APP_VERSION = '3.25.7'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.25.7',
+    date: '2026-05-12',
+    changes: [
+      'fix(ui): 全域暗色 scrollbar — 所有頁面 scrollbar 統一 #2d3f55 深色風格',
+      'fix(ui): modal 表單元素暗色 — Portal modal 內 input/select/textarea 套用暗色底色',
+      'fix(ui): GeminiSettingsModal — 全面暗色化：input、tab、table、badge、warning box',
+      'fix(ui): GsLogCheckerPage — 標題、步驟、warning box 暗色化，tab 顏色統一',
+      'fix(ui): SystemAdminPage — 帳號 email 文字、hover、標題、狀態 badge 暗色化',
+      'fix(ui): MachineTestPage — Agent badge、warning box、OSM 機台狀態卡片暗色化',
+    ],
+  },
   {
     version: '3.25.6',
     date: '2026-05-12',

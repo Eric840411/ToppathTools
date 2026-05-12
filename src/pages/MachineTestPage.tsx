@@ -1040,7 +1040,7 @@ function AgentInstallGuide({ agentCount }: { agentCount: number }) {
         <h2 className="section-title" style={{ margin: 0, flex: 1 }}>
           分散式 Agent 安裝指南
           {agentCount > 0 && (
-            <span style={{ marginLeft: 8, fontSize: 12, background: '#dcfce7', color: '#16a34a', borderRadius: 10, padding: '2px 8px', fontWeight: 500 }}>
+            <span style={{ marginLeft: 8, fontSize: 12, background: 'rgba(52,211,153,0.12)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 10, padding: '2px 8px', fontWeight: 500 }}>
               {agentCount} 台 Agent 已連線
             </span>
           )}
@@ -1058,7 +1058,7 @@ function AgentInstallGuide({ agentCount }: { agentCount: number }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             {/* Left column: install steps */}
             <div>
-              <h3 style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', marginBottom: 10, marginTop: 0 }}>安裝步驟</h3>
+              <h3 style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8', marginBottom: 10, marginTop: 0 }}>安裝步驟</h3>
               <ol style={{ fontSize: 13, color: '#cbd5e1', paddingLeft: 20, margin: 0, lineHeight: 2 }}>
                 <li>
                   安裝 <strong>Node.js 20 LTS</strong>（若尚未安裝）：
@@ -1098,9 +1098,9 @@ function AgentInstallGuide({ agentCount }: { agentCount: number }) {
 
             {/* Right column: notes */}
             <div>
-              <h3 style={{ fontSize: 13, fontWeight: 600, color: '#1e293b', marginBottom: 10, marginTop: 0 }}>注意事項</h3>
+              <h3 style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8', marginBottom: 10, marginTop: 0 }}>注意事項</h3>
               <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.9 }}>
-                <div style={{ marginBottom: 6, padding: '8px 10px', background: '#fef9c3', borderRadius: 6, border: '1px solid #fde68a' }}>
+                <div style={{ marginBottom: 6, padding: '8px 10px', background: 'rgba(251,191,36,0.08)', borderRadius: 6, border: '1px solid rgba(251,191,36,0.3)' }}>
                   <strong>install.bat 伺服器位址</strong>：自動指向本頁所在主機（<code style={{ fontSize: 11 }}>{serverUrl}</code>）。
                   若 Worker 機器與伺服器不在同一區網，請手動修改 start.bat 中的 CENTRAL_URL。
                 </div>
@@ -1112,7 +1112,7 @@ function AgentInstallGuide({ agentCount }: { agentCount: number }) {
               </div>
 
               <div style={{ marginTop: 12, padding: '8px 10px', background: '#162032', borderRadius: 6, border: '1px solid #2d3f55' }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#1e293b', marginBottom: 6 }}>手動啟動（進階）</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', marginBottom: 6 }}>手動啟動（進階）</div>
                 <code style={{ fontSize: 11, color: '#cbd5e1', display: 'block' }}>
                   cd C:\machine-test-agent<br />
                   set CENTRAL_URL={serverUrl}<br />
@@ -1510,11 +1510,11 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
       {activeSessionBanner && !running && (
         <div style={{
           display: 'flex', alignItems: 'center', gap: 12,
-          background: '#fffbeb', border: '1.5px solid #fbbf24', borderRadius: 8,
+          background: 'rgba(251,191,36,0.08)', border: '1.5px solid rgba(251,191,36,0.35)', borderRadius: 8,
           padding: '10px 16px', marginBottom: 12, fontSize: 13,
         }}>
           <span style={{ fontSize: 16 }}>⚡</span>
-          <span style={{ flex: 1, color: '#92400e' }}>
+          <span style={{ flex: 1, color: '#fbbf24' }}>
             <strong>目前有測試正在進行中。</strong>若要查看即時進度，請點擊「觀看」加入廣播頻道。
           </span>
           <button
@@ -1570,16 +1570,16 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
             {Object.entries(osmMachines).map(([id, { status, label }]) => {
               const isSpecial = status !== 0
               const cardBg = status === 0 ? '#162032'
-                : status === 3 || status === 4 ? '#fffbeb'
-                : status === 9 ? '#fef2f2'
-                : '#f5f3ff'
-              const cardBorder = status === 0 ? '#e2e8f0'
-                : status === 3 || status === 4 ? '#fcd34d'
-                : status === 9 ? '#fca5a5'
-                : '#a5b4fc'
-              const statusColor = status === 0 ? '#16a34a'
-                : status === 3 || status === 4 ? '#d97706'
-                : status === 9 ? '#dc2626'
+                : status === 3 || status === 4 ? 'rgba(251,191,36,0.08)'
+                : status === 9 ? 'rgba(239,68,68,0.08)'
+                : 'rgba(167,139,250,0.08)'
+              const cardBorder = status === 0 ? '#2d3f55'
+                : status === 3 || status === 4 ? 'rgba(251,191,36,0.4)'
+                : status === 9 ? 'rgba(239,68,68,0.4)'
+                : 'rgba(167,139,250,0.4)'
+              const statusColor = status === 0 ? '#4ade80'
+                : status === 3 || status === 4 ? '#fbbf24'
+                : status === 9 ? '#f87171'
                 : '#4f46e5'
               return (
                 <div key={id} style={{
@@ -1891,7 +1891,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
                 onChange={e => setDebugGmid(e.target.value)}
                 placeholder="渠道號，例如：873"
                 disabled={running}
-                style={{ marginTop: 8, width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid #fbbf24', fontSize: 13, background: '#fffbeb', boxSizing: 'border-box' }}
+                style={{ marginTop: 8, width: '100%', padding: '6px 10px', borderRadius: 6, border: '1px solid rgba(251,191,36,0.4)', fontSize: 13, background: '#0f172a', color: '#e2e8f0', boxSizing: 'border-box' }}
               />
             )}
           </div>

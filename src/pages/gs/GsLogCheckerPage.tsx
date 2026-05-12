@@ -77,7 +77,7 @@ export function GsLogCheckerPage() {
               fontWeight: 600, cursor: 'pointer',
               borderColor: tab === t.key ? '#6366f1' : '#e2e8f0',
               background: tab === t.key ? 'rgba(99,102,241,0.15)' : '#1e293b',
-              color: tab === t.key ? '#4f46e5' : '#475569',
+              color: tab === t.key ? '#818cf8' : '#64748b',
             }}>
             {t.label}
           </button>
@@ -93,9 +93,9 @@ export function GsLogCheckerPage() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
               <span style={{ fontSize: 28 }}>📋</span>
               <div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: '#0f172a' }}>Log Checker</div>
-                <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                  在 DevTools Console 注入腳本，即時攔截並驗證前端 <code style={{ background: '#f1f5f9', padding: '1px 5px', borderRadius: 4, color: '#16a34a', fontFamily: 'monospace' }}>/api/log</code> 的 XHR 回應
+                <div style={{ fontSize: 18, fontWeight: 700, color: '#e2e8f0' }}>Log Checker</div>
+                <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
+                  在 DevTools Console 注入腳本，即時攔截並驗證前端 <code style={{ background: 'rgba(52,211,153,0.1)', padding: '1px 5px', borderRadius: 4, color: '#34d399', fontFamily: 'monospace' }}>/api/log</code> 的 XHR 回應
                 </div>
               </div>
             </div>
@@ -114,22 +114,22 @@ export function GsLogCheckerPage() {
 
             {/* 使用步驟 */}
             <div className="section-card" style={{ padding: '20px 24px' }}>
-              <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ background: '#ede9fe', color: '#6366f1', borderRadius: 6, padding: '2px 8px', fontSize: 12 }}>使用步驟</span>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ background: 'rgba(99,102,241,0.15)', color: '#a5b4fc', borderRadius: 6, padding: '2px 8px', fontSize: 12 }}>使用步驟</span>
               </h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {STEPS.map(s => (
                   <div key={s.n} style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
                     <div style={{
                       flexShrink: 0, width: 28, height: 28, borderRadius: 8,
-                      background: '#f1f5f9', display: 'flex', alignItems: 'center',
+                      background: 'rgba(99,102,241,0.12)', display: 'flex', alignItems: 'center',
                       justifyContent: 'center', fontSize: 14,
                     }}>{s.icon}</div>
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#0f172a' }}>
-                        <span style={{ color: '#6366f1', marginRight: 4 }}>Step {s.n}.</span>{s.title}
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>
+                        <span style={{ color: '#a5b4fc', marginRight: 4 }}>Step {s.n}.</span>{s.title}
                       </div>
-                      <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{s.desc}</div>
+                      <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{s.desc}</div>
                     </div>
                   </div>
                 ))}
@@ -138,8 +138,8 @@ export function GsLogCheckerPage() {
 
             {/* 注入腳本 */}
             <div className="section-card" style={{ padding: '20px 24px' }}>
-              <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ background: '#f0fdf4', color: '#16a34a', borderRadius: 6, padding: '2px 8px', fontSize: 12 }}>注入腳本</span>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ background: 'rgba(52,211,153,0.12)', color: '#34d399', borderRadius: 6, padding: '2px 8px', fontSize: 12 }}>注入腳本</span>
                 {script && <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400 }}>{script.split('\n').length} 行</span>}
               </h3>
 
@@ -168,8 +168,8 @@ export function GsLogCheckerPage() {
               </div>
 
               {/* Tips */}
-              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: '10px 12px', marginBottom: 14 }}>
-                <div style={{ fontSize: 12, color: '#92400e', lineHeight: 1.6 }}>
+              <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 8, padding: '10px 12px', marginBottom: 14 }}>
+                <div style={{ fontSize: 12, color: '#fbbf24', lineHeight: 1.6 }}>
                   <strong>⚠️ 注意事項：</strong><br />
                   • 僅在測試環境使用，勿長期掛載於正式站<br />
                   • 每次測試前重新執行腳本，確保攔截器是最新版<br />
@@ -206,10 +206,10 @@ export function GsLogCheckerPage() {
       {/* ── Log 結構比對 ── */}
       {tab === 'compare' && (
         <div className="section-card" style={{ padding: 0, overflow: 'hidden' }}>
-          <div style={{ padding: '12px 16px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ padding: '12px 16px', borderBottom: '1px solid #2d3f55', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>📊 Log 結構比對</span>
-              <span style={{ fontSize: 12, color: '#64748b', marginLeft: 8 }}>支援雙檔結構比對與單檔欄位缺失驗證</span>
+              <span style={{ fontSize: 14, fontWeight: 700, color: '#e2e8f0' }}>📊 Log 結構比對</span>
+              <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 8 }}>支援雙檔結構比對與單檔欄位缺失驗證</span>
             </div>
             <a href="/api/gs/log-compare" target="_blank" rel="noopener noreferrer"
               style={{ fontSize: 12, color: '#6366f1', textDecoration: 'none', fontWeight: 600 }}>

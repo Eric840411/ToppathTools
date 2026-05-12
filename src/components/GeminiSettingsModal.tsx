@@ -246,7 +246,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
         </div>
 
         {/* Tab */}
-        <div style={{ display: 'flex', gap: 8, padding: '0 20px', borderBottom: '1px solid #e5e7eb' }}>
+        <div style={{ display: 'flex', gap: 8, padding: '0 20px', borderBottom: '1px solid #2d3f55' }}>
           {([
             { id: 'keys', label: '🔑 Gemini Keys' },
             { id: 'openai', label: '🤖 OpenAI Key' },
@@ -260,8 +260,8 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                 padding: '10px 18px',
                 background: 'none',
                 border: 'none',
-                borderBottom: tab === t.id ? '2px solid #6366f1' : '2px solid transparent',
-                color: tab === t.id ? '#6366f1' : '#6b7280',
+                borderBottom: tab === t.id ? '2px solid #818cf8' : '2px solid transparent',
+                color: tab === t.id ? '#818cf8' : '#64748b',
                 fontWeight: tab === t.id ? 700 : 400,
                 cursor: 'pointer',
                 fontSize: 14,
@@ -276,7 +276,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
           {/* ── API Keys Tab ── */}
           {tab === 'keys' && (
             <div>
-              <p style={{ color: '#6b7280', fontSize: 13, marginBottom: 12 }}>
+              <p style={{ color: '#94a3b8', fontSize: 13, marginBottom: 12 }}>
                 可新增多組 Gemini API Key，配額用完時系統自動切換下一組。
                 優先使用此清單中的 Key；若清單為空，則使用 <code>.env</code> 中的 <code>GEMINI_API_KEY</code>。
               </p>
@@ -286,14 +286,14 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                   placeholder="名稱（如 Key-1）"
                   value={newKeyLabel}
                   onChange={e => setNewKeyLabel(e.target.value)}
-                  style={{ flex: '0 0 140px', padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }}
+                  style={{ flex: '0 0 140px', padding: '7px 10px', borderRadius: 6, fontSize: 13 }}
                 />
                 <input
                   placeholder="API Key（AIzaSy...）"
                   value={newKeyValue}
                   onChange={e => setNewKeyValue(e.target.value)}
                   type="password"
-                  style={{ flex: 1, padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }}
+                  style={{ flex: 1, padding: '7px 10px', borderRadius: 6, fontSize: 13 }}
                 />
                 <button
                   onClick={handleAddKey}
@@ -310,7 +310,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                   <button
                     onClick={handleProbe}
                     disabled={probing}
-                    style={{ padding: '5px 14px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #86efac', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                    style={{ padding: '5px 14px', background: 'rgba(52,211,153,0.12)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
                   >
                     {probing ? '測試中...' : '🔍 測試所有 Key 可用性'}
                   </button>
@@ -321,23 +321,23 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                 <p style={{ color: '#9ca3af', fontSize: 13 }}>尚無任何 Key（請新增或在 .env 設定 GEMINI_API_KEY）</p>
               ) : (
                 <>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12, color: '#6b7280' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12, color: '#94a3b8' }}>
                   <span>每日上限（RPD）：</span>
                   <input
                     type="number" min={1} value={dailyLimit}
                     onChange={e => setDailyLimit(Math.max(1, parseInt(e.target.value) || 1500))}
-                    style={{ width: 80, padding: '3px 8px', border: '1px solid #e5e7eb', borderRadius: 4, fontSize: 12 }}
+                    style={{ width: 80, padding: '3px 8px', borderRadius: 4, fontSize: 12 }}
                   />
-                  <span style={{ color: '#9ca3af' }}>Free tier = 1500，Paid = 依方案而定</span>
+                  <span style={{ color: '#64748b' }}>Free tier = 1500，Paid = 依方案而定</span>
                 </div>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
-                    <tr style={{ background: '#f9fafb', textAlign: 'left' }}>
-                      <th style={{ padding: '8px 10px', borderBottom: '1px solid #e5e7eb' }}>名稱</th>
-                      <th style={{ padding: '8px 10px', borderBottom: '1px solid #e5e7eb' }}>Key（遮罩）</th>
-                      <th style={{ padding: '8px 10px', borderBottom: '1px solid #e5e7eb' }}>狀態</th>
-                      <th style={{ padding: '8px 10px', borderBottom: '1px solid #e5e7eb' }}>上次使用</th>
-                      <th style={{ padding: '8px 10px', borderBottom: '1px solid #e5e7eb' }}>操作</th>
+                    <tr style={{ background: '#162032', textAlign: 'left' }}>
+                      <th style={{ padding: '8px 10px', borderBottom: '1px solid #2d3f55', color: '#94a3b8' }}>名稱</th>
+                      <th style={{ padding: '8px 10px', borderBottom: '1px solid #2d3f55', color: '#94a3b8' }}>Key（遮罩）</th>
+                      <th style={{ padding: '8px 10px', borderBottom: '1px solid #2d3f55', color: '#94a3b8' }}>狀態</th>
+                      <th style={{ padding: '8px 10px', borderBottom: '1px solid #2d3f55', color: '#94a3b8' }}>上次使用</th>
+                      <th style={{ padding: '8px 10px', borderBottom: '1px solid #2d3f55', color: '#94a3b8' }}>操作</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -360,16 +360,16 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                         ? <span style={{ color: '#d97706', fontSize: 11 }} title={stat.last_error}>⚠️ 上次失敗</span>
                         : <span style={{ color: '#9ca3af', fontSize: 11 }}>— 未測試</span>
                       return (
-                        <tr key={i} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                          <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
+                        <tr key={i} style={{ borderBottom: '1px solid #1e293b' }}>
+                          <td style={{ padding: '8px 10px', whiteSpace: 'nowrap', color: '#cbd5e1' }}>
                             {k.label}
-                            {k.isEnv && <span style={{ marginLeft: 6, padding: '1px 6px', background: '#e0f2fe', color: '#0369a1', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>.env</span>}
-                            {nextRrLabel === k.label && <span style={{ marginLeft: 6, padding: '1px 6px', background: '#d1fae5', color: '#065f46', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>▶ 下一個</span>}
+                            {k.isEnv && <span style={{ marginLeft: 6, padding: '1px 6px', background: 'rgba(56,189,248,0.12)', color: '#38bdf8', borderRadius: 4, fontSize: 11, fontWeight: 600, border: '1px solid rgba(56,189,248,0.3)' }}>.env</span>}
+                            {nextRrLabel === k.label && <span style={{ marginLeft: 6, padding: '1px 6px', background: 'rgba(52,211,153,0.12)', color: '#34d399', borderRadius: 4, fontSize: 11, fontWeight: 600, border: '1px solid rgba(52,211,153,0.3)' }}>▶ 下一個</span>}
                           </td>
-                          <td style={{ padding: '8px 10px', fontFamily: 'monospace', color: '#6b7280' }}>{k.keyMasked}</td>
+                          <td style={{ padding: '8px 10px', fontFamily: 'monospace', color: '#64748b' }}>{k.keyMasked}</td>
                           <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{statusBadge}</td>
                           <td style={{ padding: '8px 10px', fontSize: 11, whiteSpace: 'nowrap' }}>
-                            <div style={{ color: stat?.last_used_at ? '#374151' : '#d1d5db' }}>
+                            <div style={{ color: stat?.last_used_at ? '#cbd5e1' : '#475569' }}>
                               {stat?.last_used_at
                                 ? new Date(stat.last_used_at).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })
                                 : '—'}
@@ -384,7 +384,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                             {!k.isEnv && (
                               <button
                                 onClick={() => handleDeleteKey(k.label)}
-                                style={{ padding: '4px 12px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
+                                style={{ padding: '4px 12px', background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 4, cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}
                               >
                                 刪除
                               </button>
@@ -403,24 +403,24 @@ export default function GeminiSettingsModal({ onClose }: Props) {
           {/* ── OpenAI Tab ── */}
           {tab === 'openai' && (
             <div>
-              <p style={{ color: '#6b7280', fontSize: 13, marginBottom: 16 }}>
+              <p style={{ color: '#94a3b8', fontSize: 13, marginBottom: 16 }}>
                 填入 OpenAI API Key 後，Model Selector 會自動出現 Codex Mini、GPT-5.3 Codex、GPT-4o 等選項。
                 Key 儲存於後端 DB，不寫入 <code>.env</code>。
               </p>
 
               {openaiKeySet ? (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, padding: '12px 16px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8 }}>
-                  <span style={{ fontSize: 13, color: '#15803d', fontWeight: 600 }}>✅ API Key 已設定</span>
-                  <span style={{ fontFamily: 'monospace', color: '#6b7280', fontSize: 13 }}>{openaiKeyMasked}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, padding: '12px 16px', background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 8 }}>
+                  <span style={{ fontSize: 13, color: '#4ade80', fontWeight: 600 }}>✅ API Key 已設定</span>
+                  <span style={{ fontFamily: 'monospace', color: '#94a3b8', fontSize: 13 }}>{openaiKeyMasked}</span>
                   <button
                     onClick={handleDeleteOpenAIKey}
-                    style={{ marginLeft: 'auto', padding: '4px 12px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+                    style={{ marginLeft: 'auto', padding: '4px 12px', background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
                   >
                     移除
                   </button>
                 </div>
               ) : (
-                <div style={{ padding: '12px 16px', background: '#fef9c3', border: '1px solid #fde047', borderRadius: 8, marginBottom: 16, fontSize: 13, color: '#854d0e' }}>
+                <div style={{ padding: '12px 16px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 8, marginBottom: 16, fontSize: 13, color: '#fbbf24' }}>
                   ⚠️ 尚未設定，填入 Key 後才會出現 OpenAI 模型選項
                 </div>
               )}
@@ -432,7 +432,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                   value={openaiKeyInput}
                   onChange={e => setOpenaiKeyInput(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleSaveOpenAIKey()}
-                  style={{ flex: 1, padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }}
+                  style={{ flex: 1, padding: '8px 12px', borderRadius: 6, fontSize: 13 }}
                 />
                 <button
                   onClick={handleSaveOpenAIKey}
@@ -444,9 +444,9 @@ export default function GeminiSettingsModal({ onClose }: Props) {
               </div>
               {openaiMsg && <p style={{ fontSize: 13, margin: 0 }}>{openaiMsg}</p>}
 
-              <div style={{ marginTop: 20, padding: '12px 16px', background: '#f8fafc', borderRadius: 8, fontSize: 12, color: '#6b7280', lineHeight: 1.7 }}>
-                <strong>取得 API Key：</strong> <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" style={{ color: '#6366f1' }}>platform.openai.com/api-keys</a><br />
-                <strong>計費：</strong> Codex Mini — $1.50 / 1M input tokens，$6.00 / 1M output tokens（無免費額度，新帳號有試用 credit）
+              <div style={{ marginTop: 20, padding: '12px 16px', background: '#162032', border: '1px solid #2d3f55', borderRadius: 8, fontSize: 12, color: '#94a3b8', lineHeight: 1.7 }}>
+                <strong style={{ color: '#cbd5e1' }}>取得 API Key：</strong> <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" style={{ color: '#818cf8' }}>platform.openai.com/api-keys</a><br />
+                <strong style={{ color: '#cbd5e1' }}>計費：</strong> Codex Mini — $1.50 / 1M input tokens，$6.00 / 1M output tokens（無免費額度，新帳號有試用 credit）
               </div>
             </div>
           )}
@@ -454,18 +454,18 @@ export default function GeminiSettingsModal({ onClose }: Props) {
           {/* ── Ollama Tab ── */}
           {tab === 'ollama' && (
             <div>
-              <p style={{ color: '#6b7280', fontSize: 13, marginBottom: 16 }}>
+              <p style={{ color: '#94a3b8', fontSize: 13, marginBottom: 16 }}>
                 設定本地（或遠端）Ollama 端點。設定後可在 Model Selector 中選用本地模型。<br />
-                <strong>注意：</strong>伺服器需能連到此 URL（例如公網版需填伺服器端的 Ollama 或對外 IP）。
+                <strong style={{ color: '#cbd5e1' }}>注意：</strong>伺服器需能連到此 URL（例如公網版需填伺服器端的 Ollama 或對外 IP）。
               </p>
 
               {ollamaIsSet && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, padding: '12px 16px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8 }}>
-                  <span style={{ fontSize: 13, color: '#15803d', fontWeight: 600 }}>✅ Ollama 已設定</span>
-                  <span style={{ fontFamily: 'monospace', color: '#6b7280', fontSize: 12 }}>{ollamaBaseUrl} · {ollamaModel}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, padding: '12px 16px', background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 8 }}>
+                  <span style={{ fontSize: 13, color: '#4ade80', fontWeight: 600 }}>✅ Ollama 已設定</span>
+                  <span style={{ fontFamily: 'monospace', color: '#94a3b8', fontSize: 12 }}>{ollamaBaseUrl} · {ollamaModel}</span>
                   <button
                     onClick={handleDeleteOllama}
-                    style={{ marginLeft: 'auto', padding: '4px 12px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
+                    style={{ marginLeft: 'auto', padding: '4px 12px', background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}
                   >
                     清除
                   </button>
@@ -473,25 +473,25 @@ export default function GeminiSettingsModal({ onClose }: Props) {
               )}
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-                <label style={{ fontSize: 13, color: '#374151' }}>
-                  Base URL <span style={{ color: '#9ca3af', fontWeight: 400 }}>（只填到 port，不要加路徑）</span>
+                <label style={{ fontSize: 13, color: '#94a3b8' }}>
+                  Base URL <span style={{ color: '#64748b', fontWeight: 400 }}>（只填到 port，不要加路徑）</span>
                   <input
                     type="text"
                     placeholder="http://localhost:11434"
                     value={ollamaBaseUrl}
                     onChange={e => setOllamaBaseUrl(e.target.value)}
-                    style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }}
+                    style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }}
                   />
-                  <span style={{ fontSize: 11, color: '#9ca3af' }}>範例：http://192.168.2.106:11434 &nbsp;（不要加 /api/generate）</span>
+                  <span style={{ fontSize: 11, color: '#64748b' }}>範例：http://192.168.2.106:11434 &nbsp;（不要加 /api/generate）</span>
                 </label>
-                <label style={{ fontSize: 13, color: '#374151' }}>
+                <label style={{ fontSize: 13, color: '#94a3b8' }}>
                   預設模型（可手動輸入，或偵測後點選）
                   <input
                     type="text"
                     placeholder="llama3.2"
                     value={ollamaModel}
                     onChange={e => setOllamaModel(e.target.value)}
-                    style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }}
+                    style={{ display: 'block', width: '100%', marginTop: 4, padding: '8px 10px', borderRadius: 6, fontSize: 13, boxSizing: 'border-box' }}
                   />
                 </label>
               </div>
@@ -500,7 +500,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                 <button
                   onClick={handleProbeOllama}
                   disabled={ollamaProbing}
-                  style={{ padding: '7px 16px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #86efac', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
+                  style={{ padding: '7px 16px', background: 'rgba(52,211,153,0.12)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
                 >
                   {ollamaProbing ? '偵測中...' : '🔍 偵測可用模型'}
                 </button>
@@ -517,16 +517,16 @@ export default function GeminiSettingsModal({ onClose }: Props) {
 
               {ollamaModels.length > 0 && (
                 <div style={{ marginTop: 8 }}>
-                  <p style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>點選模型名稱快速填入：</p>
+                  <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6 }}>點選模型名稱快速填入：</p>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                     {ollamaModels.map(m => (
                       <button
                         key={m}
                         onClick={() => setOllamaModel(m)}
                         style={{
-                          padding: '4px 12px', borderRadius: 4, border: '1px solid #d1d5db',
-                          background: ollamaModel === m ? '#ede9fe' : '#fff',
-                          color: ollamaModel === m ? '#6366f1' : '#374151',
+                          padding: '4px 12px', borderRadius: 4, border: '1px solid #2d3f55',
+                          background: ollamaModel === m ? 'rgba(99,102,241,0.15)' : '#1e293b',
+                          color: ollamaModel === m ? '#a5b4fc' : '#cbd5e1',
                           fontSize: 12, cursor: 'pointer', fontFamily: 'monospace',
                         }}
                       >
@@ -537,8 +537,8 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                 </div>
               )}
 
-              <div style={{ marginTop: 20, padding: '12px 16px', background: '#f8fafc', borderRadius: 8, fontSize: 12, color: '#6b7280', lineHeight: 1.7 }}>
-                <strong>公網版注意事項：</strong><br />
+              <div style={{ marginTop: 20, padding: '12px 16px', background: '#162032', border: '1px solid #2d3f55', borderRadius: 8, fontSize: 12, color: '#94a3b8', lineHeight: 1.7 }}>
+                <strong style={{ color: '#cbd5e1' }}>公網版注意事項：</strong><br />
                 伺服器（eric.osmslot.org）需能連到此 URL。若 Ollama 在你的本機，請改用能從伺服器連線的位址（如 ngrok、內網 IP）。<br />
                 若 Ollama 安裝在伺服器上，填 <code>http://localhost:11434</code> 即可。
               </div>
@@ -549,7 +549,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
           {tab === 'prompts' && (
             <div style={{ display: 'flex', gap: 16, height: '100%' }}>
               {/* 左側清單（依分類分組） */}
-              <div style={{ flex: '0 0 200px', borderRight: '1px solid #e5e7eb', paddingRight: 12, overflowY: 'auto' }}>
+              <div style={{ flex: '0 0 200px', borderRight: '1px solid #2d3f55', paddingRight: 12, overflowY: 'auto' }}>
                 <button
                   onClick={handleNewPrompt}
                   style={{ width: '100%', padding: '7px 0', marginBottom: 10, background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}
@@ -576,8 +576,8 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                             borderRadius: 6,
                             cursor: 'pointer',
                             marginBottom: 2,
-                            background: editPrompt?.id === p.id ? '#ede9fe' : 'transparent',
-                            color: editPrompt?.id === p.id ? '#6366f1' : '#374151',
+                            background: editPrompt?.id === p.id ? 'rgba(99,102,241,0.15)' : 'transparent',
+                            color: editPrompt?.id === p.id ? '#a5b4fc' : '#cbd5e1',
                             fontWeight: editPrompt?.id === p.id ? 600 : 400,
                             fontSize: 13,
                           }}
@@ -598,21 +598,21 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                       placeholder="模板名稱"
                       value={editPrompt.name}
                       onChange={e => setEditPrompt({ ...editPrompt, name: e.target.value })}
-                      style={{ flex: 1, padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }}
+                      style={{ flex: 1, padding: '7px 10px', borderRadius: 6, fontSize: 13 }}
                     />
-                    <span style={{ fontSize: 12, color: '#9ca3af', whiteSpace: 'nowrap' }}>ID: {editPrompt.id}</span>
+                    <span style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>ID: {editPrompt.id}</span>
                   </div>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <input
                       placeholder="分類（如：TestCase 生成、QA 報告）"
                       value={editPrompt.category ?? ''}
                       onChange={e => setEditPrompt({ ...editPrompt, category: e.target.value })}
-                      style={{ flex: 1, padding: '7px 10px', border: '1px solid #d1d5db', borderRadius: 6, fontSize: 13 }}
+                      style={{ flex: 1, padding: '7px 10px', borderRadius: 6, fontSize: 13 }}
                     />
-                    <span style={{ fontSize: 12, color: '#9ca3af', whiteSpace: 'nowrap' }}>分類（可自定）</span>
+                    <span style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>分類（可自定）</span>
                   </div>
 
-                  <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>
+                  <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>
                     可用變數：<code>{'{{rawText}}'}</code> 原始驗證內容、<code>{'{{envBlock}}'}</code> 環境區塊、
                     <code>{'{{environment}}'}</code> <code>{'{{version}}'}</code> <code>{'{{platform}}'}</code>{' '}
                     <code>{'{{machineId}}'}</code> <code>{'{{gameMode}}'}</code>
@@ -627,7 +627,6 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                       flex: 1,
                       minHeight: 300,
                       padding: '10px 12px',
-                      border: '1px solid #d1d5db',
                       borderRadius: 6,
                       fontSize: 13,
                       lineHeight: 1.6,
@@ -648,7 +647,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                     {editPrompt.id !== 'default' && (
                       <button
                         onClick={() => handleDeletePrompt(editPrompt.id)}
-                        style={{ padding: '9px 16px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+                        style={{ padding: '9px 16px', background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 6, cursor: 'pointer' }}
                       >
                         刪除
                       </button>
@@ -656,7 +655,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                   </div>
                 </div>
               ) : (
-                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 14 }}>
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: 14 }}>
                   點選左側模板以編輯，或新增一個模板
                 </div>
               )}

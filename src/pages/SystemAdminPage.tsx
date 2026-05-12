@@ -200,24 +200,26 @@ export function SystemAdminPage() {
   const tdLeft: React.CSSProperties = { ...td, textAlign: 'left' }
 
   const inputStyle: React.CSSProperties = {
-    padding: '6px 10px', borderRadius: 6, border: '1px solid #cbd5e1',
+    padding: '6px 10px', borderRadius: 6, border: '1px solid #2d3f55',
     fontSize: 13, width: '100%', outline: 'none',
+    background: '#0f172a', color: '#e2e8f0',
   }
 
   const btnPrimary: React.CSSProperties = {
-    padding: '7px 16px', background: '#0f172a', color: '#fff',
+    padding: '7px 16px', background: '#6366f1', color: '#fff',
     border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 500,
     whiteSpace: 'nowrap',
   }
 
   const btnOutline: React.CSSProperties = {
-    padding: '7px 14px', background: '#1e293b', color: '#475569',
-    border: '1px solid #cbd5e1', borderRadius: 6, cursor: 'pointer', fontSize: 13,
+    padding: '7px 14px', background: '#1e293b', color: '#94a3b8',
+    border: '1px solid #2d3f55', borderRadius: 6, cursor: 'pointer', fontSize: 13,
     whiteSpace: 'nowrap',
   }
 
   const btnDanger: React.CSSProperties = {
-    ...btnOutline, color: '#dc2626', borderColor: '#fca5a5',
+    ...btnOutline, color: '#f87171', borderColor: 'rgba(239,68,68,0.4)',
+    background: 'rgba(239,68,68,0.1)',
   }
 
   // ─── Render ───────────────────────────────────────────────────────────────
@@ -249,7 +251,7 @@ export function SystemAdminPage() {
         <div style={card}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
             <div>
-              <h2 style={{ fontSize: 16, fontWeight: 600, color: '#0f172a', margin: 0 }}>功能頁面權限</h2>
+              <h2 style={{ fontSize: 16, fontWeight: 600, color: '#e2e8f0', margin: 0 }}>功能頁面權限</h2>
               <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>管理員永遠全開（不可修改）。Other 為客製化角色，由管理員自訂。</p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -285,7 +287,7 @@ export function SystemAdminPage() {
                         padding: '8px 16px', background: '#162032',
                         fontSize: 11, fontWeight: 600, color: '#64748b',
                         textTransform: 'uppercase', letterSpacing: '.6px',
-                        borderBottom: '1px solid #e2e8f0',
+                        borderBottom: '1px solid #2d3f55',
                       }}>
                         {group}
                       </td>
@@ -326,7 +328,7 @@ export function SystemAdminPage() {
           <div style={card}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
               <div>
-                <h2 style={{ fontSize: 16, fontWeight: 600, color: '#0f172a', margin: 0 }}>帳號管理</h2>
+                <h2 style={{ fontSize: 16, fontWeight: 600, color: '#e2e8f0', margin: 0 }}>帳號管理</h2>
                 <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>管理所有使用者帳號，指派角色與 PIN。</p>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -397,7 +399,7 @@ export function SystemAdminPage() {
                 display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
               }}>
                 <div style={{ background: '#1e293b', borderRadius: 12, padding: 28, width: 480, boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
-                  <h3 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 16px', color: '#0f172a' }}>
+                  <h3 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 16px', color: '#e2e8f0' }}>
                     編輯帳號：{editTarget.label}
                   </h3>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
@@ -467,17 +469,17 @@ export function SystemAdminPage() {
                 <tbody>
                   {accounts.map(a => (
                     <tr key={a.email}
-                      onMouseEnter={e => (e.currentTarget.style.background = '#f8fafc')}
+                      onMouseEnter={e => (e.currentTarget.style.background = '#1e293b')}
                       onMouseLeave={e => (e.currentTarget.style.background = '')}
                     >
-                      <td style={{ ...tdLeft, fontFamily: 'monospace', fontSize: 12, color: '#475569' }}>{a.email}</td>
+                      <td style={{ ...tdLeft, fontFamily: 'monospace', fontSize: 12, color: '#94a3b8' }}>{a.email}</td>
                       <td style={tdLeft}>{a.label}</td>
                       <td style={td}>{badge(a.role)}</td>
                       <td style={td}>
                         <span style={{
                           padding: '2px 8px', borderRadius: 99, fontSize: 11, fontWeight: 600,
-                          background: a.status === 'active' ? '#dcfce7' : '#fee2e2',
-                          color: a.status === 'active' ? '#16a34a' : '#dc2626',
+                          background: a.status === 'active' ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)',
+                          color: a.status === 'active' ? '#4ade80' : '#f87171',
                         }}>
                           {a.status === 'active' ? '啟用' : '停用'}
                         </span>
