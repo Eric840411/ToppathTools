@@ -86,6 +86,9 @@ export interface MachineProfile {
   notes?: string | null
   /** Per-machine audio analysis thresholds. Overrides global defaults when set. */
   audioConfig?: AudioConfig | null
+  /** Expected number of playing <video> streams (screens). If set, fewer streams = FAIL.
+   *  e.g. 2 for dual-screen machines, 1 for single-screen (default when unset). */
+  expectedScreens?: number | null
 }
 
 export type TestEventType =

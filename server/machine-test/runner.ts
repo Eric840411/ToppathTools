@@ -1028,7 +1028,7 @@ async function stepEntry(page: Page, machineCode: string, emit: (msg: string) =>
   }
 }
 
-async function stepStream(page: Page, emit: (msg: string) => void): Promise<StepResult> {
+async function stepStream(page: Page, emit: (msg: string) => void, profile?: MachineProfile): Promise<StepResult> {
   const t0 = Date.now()
   try {
     emit(`檢測推流（video / canvas）`)
@@ -1054,6 +1054,26 @@ async function stepStream(page: Page, emit: (msg: string) => void): Promise<Step
 
     const hasStream = result.playingVideos > 0 || result.activeCanvases > 0
     const msg = `video: ${result.totalVideos}個（播放中: ${result.playingVideos}）/ canvas: ${result.totalCanvases}個（活躍: ${result.activeCanvases}）`
+
+    // ── Expected screen count check ───────────────────────────────────────────
+    const expectedScreens = profile?.expectedScreens ?? null
+    if (expectedScreens !== null && expectedScreens > 0) {
+      const detail = result.videoDetails.map(v => `${v.w}×${v.h}`).join(', ')
+      const actualPlaying = result.playingVideos + result.activeCanvases
+      if (actualPlaying < expectedScreens) {
+        return {
+          step: '推流檢測',
+          status: 'fail',
+          message: `螢幕數量不符：預期 ${expectedScreens} 個，實際播放 ${actualPlaying} 個。${msg}${detail ? ` — ${detail}` : ''}`,
+          durationMs: Date.now() - t0,
+        }
+      }
+      // Count matches expected
+      if (result.playingVideos > 0) {
+        return { step: '推流檢測', status: 'pass', message: `${msg} — ${detail}（螢幕數 ✓ ${expectedScreens}）`, durationMs: Date.now() - t0 }
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
 
     if (result.playingVideos > 0) {
       const detail = result.videoDetails.map(v => `${v.w}×${v.h}`).join(', ')
@@ -2510,7 +2530,7 @@ export class MachineTestRunner extends EventEmitter {
 
           if (steps.stream) {
             await checkOsm()
-            const r2 = await stepStream(page, emit)
+            const r2 = await stepStream(page, emit, profile)
             stepResults.push(r2)
             this.log(`${workerTag} [${r2.status.toUpperCase()}] 推流: ${r2.message}`, machineCode)
           }

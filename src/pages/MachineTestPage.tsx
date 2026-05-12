@@ -107,6 +107,9 @@ interface MachineProfile {
   audioConfig?: AudioConfig | null
   /** Whether a reference WAV exists for this machine type (server-side flag) */
   hasAudioRef?: boolean
+  /** Expected number of playing <video> screens. If set, fewer than this = FAIL.
+   *  1 = single screen (default), 2 = dual screen machine. */
+  expectedScreens?: number | null
 }
 
 const BONUS_ACTION_LABELS: Record<BonusAction, string> = {
@@ -124,6 +127,7 @@ const EMPTY_PROFILE: MachineProfile = {
   entryTouchPoints: [], entryTouchPoints2: [],
   ideckXpaths: [],
   audioConfig: null,
+  expectedScreens: null,
 }
 
 const isValidCoord = (s: string) => /^\d+,\d+$/.test(s.trim())
@@ -541,6 +545,18 @@ function ProfilesPanel() {
           </div>
 
           <div className="mt-profile-form-row">
+            <label className="field" style={{ flex: '0 0 180px' }}>
+              <span>螢幕數量 <span style={{ fontSize: 11, color: '#94a3b8' }}>（推流檢測）</span></span>
+              <select
+                value={editing.expectedScreens ?? ''}
+                onChange={e => setEditing(p => ({ ...p!, expectedScreens: e.target.value === '' ? null : parseInt(e.target.value) }))}
+              >
+                <option value="">不限制（有推流即 PASS）</option>
+                <option value="1">1 個螢幕（單屏機台）</option>
+                <option value="2">2 個螢幕（雙屏機台）</option>
+                <option value="3">3 個螢幕</option>
+              </select>
+            </label>
             <label className="field" style={{ flex: 1 }}>
               <span>備注</span>
               <input value={editing.notes ?? ''} onChange={e => setEditing(p => ({ ...p!, notes: e.target.value }))} placeholder="選填" />

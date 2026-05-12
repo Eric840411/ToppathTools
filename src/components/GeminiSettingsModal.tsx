@@ -12,7 +12,7 @@ interface Props { onClose: () => void }
 
 export default function GeminiSettingsModal({ onClose }: Props) {
   const isGame = useIsGameMode()
-  const [tab, setTab] = useState<'keys' | 'prompts' | 'openai' | 'ollama'>('keys')
+  const [tab, setTab] = useState<'keys' | 'prompts' | 'openai' | 'ollama' | 'personal'>('keys')
 
   // ─── OpenAI Key ───────────────────────────────────────────────────────────
   const [openaiKeySet, setOpenaiKeySet] = useState(false)
@@ -79,9 +79,17 @@ export default function GeminiSettingsModal({ onClose }: Props) {
 
   const handleDeleteOllama = async () => {
     if (!confirm('確定清除 Ollama 設定？')) return
-    await fetch('/api/ollama/config', { method: 'DELETE' })
-    setOllamaMsg('已清除')
-    fetchOllamaConfig()
+    const r = await fetch('/api/ollama/config', { method: 'DELETE' })
+    const d = await r.json()
+    if (d.ok) {
+      setOllamaBaseUrl('')
+      setOllamaModel('')
+      setOllamaIsSet(false)
+      setOllamaModels([])
+      setOllamaMsg('🗑️ 已清除')
+    } else {
+      setOllamaMsg('❌ 清除失敗')
+    }
   }
 
   const handleProbeOllama = async () => {
@@ -113,6 +121,40 @@ export default function GeminiSettingsModal({ onClose }: Props) {
     } finally {
       setOllamaProbing(false)
     }
+  }
+
+  // ─── Personal AI Keys ─────────────────────────────────────────────────────
+  interface PersonalKey { provider: string; label: string; keyMasked: string }
+  const [personalKeys, setPersonalKeys] = useState<PersonalKey[]>([])
+  const [personalInput, setPersonalInput] = useState<Record<string, string>>({})
+  const [personalMsg, setPersonalMsg] = useState('')
+
+  const fetchPersonalKeys = async () => {
+    const r = await fetch('/api/user-ai-keys')
+    const d = await r.json()
+    setPersonalKeys(d.keys ?? [])
+  }
+
+  useEffect(() => { fetchPersonalKeys() }, [])
+
+  const handleSavePersonalKey = async (provider: string) => {
+    const key = (personalInput[provider] ?? '').trim()
+    if (!key) return
+    const r = await fetch(`/api/user-ai-keys/${provider}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, label: provider }),
+    })
+    const d = await r.json()
+    if (d.ok) { setPersonalInput(p => ({ ...p, [provider]: '' })); setPersonalMsg('✅ 已儲存'); fetchPersonalKeys() }
+    else setPersonalMsg('❌ 儲存失敗')
+  }
+
+  const handleDeletePersonalKey = async (provider: string) => {
+    if (!confirm(`確定移除個人 ${provider.toUpperCase()} Key？`)) return
+    await fetch(`/api/user-ai-keys/${provider}`, { method: 'DELETE' })
+    setPersonalMsg('🗑️ 已移除')
+    fetchPersonalKeys()
   }
 
   // ─── Keys ─────────────────────────────────────────────────────────────────
@@ -248,11 +290,12 @@ export default function GeminiSettingsModal({ onClose }: Props) {
         {/* Tab */}
         <div style={{ display: 'flex', gap: 8, padding: '0 20px', borderBottom: '1px solid #2d3f55' }}>
           {([
-            { id: 'keys', label: '🔑 Gemini Keys' },
-            { id: 'openai', label: '🤖 OpenAI Key' },
+            { id: 'personal', label: '👤 個人 Key' },
+            { id: 'keys', label: '🔑 全域 Gemini Keys' },
+            { id: 'openai', label: '🤖 全域 OpenAI' },
             { id: 'ollama', label: '🦙 Ollama' },
             { id: 'prompts', label: '📝 Prompt 模板' },
-          ] as { id: 'keys' | 'prompts' | 'openai' | 'ollama'; label: string }[]).map(t => (
+          ] as { id: 'keys' | 'prompts' | 'openai' | 'ollama' | 'personal'; label: string }[]).map(t => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
@@ -273,6 +316,59 @@ export default function GeminiSettingsModal({ onClose }: Props) {
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
+          {/* ── Personal Keys Tab ── */}
+          {tab === 'personal' && (
+            <div>
+              <p style={{ color: '#94a3b8', fontSize: 13, marginBottom: 16 }}>
+                設定你自己的 AI Key（僅限自己使用，不與其他帳號共享）。<br />
+                執行任何功能時，系統優先使用你的個人 Key；未設定則 fallback 到全域 Key Pool。
+              </p>
+              {personalMsg && <p style={{ color: personalMsg.startsWith('✅') ? '#34d399' : personalMsg.startsWith('🗑️') ? '#94a3b8' : '#f87171', fontSize: 13, marginBottom: 12 }}>{personalMsg}</p>}
+
+              {(['gemini', 'openai'] as const).map(provider => {
+                const existing = personalKeys.find(k => k.provider === provider)
+                return (
+                  <div key={provider} style={{ border: '1px solid #2d3f55', borderRadius: 8, padding: '14px 16px', marginBottom: 14, background: '#162032' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', textTransform: 'uppercase', letterSpacing: 1 }}>
+                        {provider === 'gemini' ? '🔑 Gemini' : '🤖 OpenAI'}
+                      </span>
+                      {existing
+                        ? <span style={{ fontSize: 12, color: '#34d399', background: 'rgba(52,211,153,0.12)', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 4, padding: '2px 8px' }}>已設定 {existing.keyMasked}</span>
+                        : <span style={{ fontSize: 12, color: '#64748b', background: 'rgba(100,116,139,0.1)', border: '1px solid #2d3f55', borderRadius: 4, padding: '2px 8px' }}>未設定（使用全域）</span>
+                      }
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <input
+                        placeholder={provider === 'gemini' ? 'AIzaSy...' : 'sk-...'}
+                        value={personalInput[provider] ?? ''}
+                        onChange={e => setPersonalInput(p => ({ ...p, [provider]: e.target.value }))}
+                        style={{ flex: 1, padding: '7px 10px', borderRadius: 6, fontSize: 13 }}
+                        type="password"
+                      />
+                      <button
+                        onClick={() => handleSavePersonalKey(provider)}
+                        disabled={!(personalInput[provider] ?? '').trim()}
+                        style={{ padding: '7px 16px', borderRadius: 6, fontSize: 13, background: '#6366f1', color: '#fff', border: 'none', cursor: 'pointer', opacity: !(personalInput[provider] ?? '').trim() ? 0.5 : 1 }}
+                      >儲存</button>
+                      {existing && (
+                        <button
+                          onClick={() => handleDeletePersonalKey(provider)}
+                          style={{ padding: '7px 14px', borderRadius: 6, fontSize: 13, background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)', cursor: 'pointer' }}
+                        >移除</button>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+
+              <div style={{ marginTop: 8, padding: '10px 14px', borderRadius: 6, background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', fontSize: 12, color: '#fbbf24' }}>
+                ⚠️ 個人 Key 完全隔離：其他帳號無法使用你的 Key，你也不會用到別人的個人 Key。
+                若個人 Key 配額耗盡，系統不會 fallback 到其他帳號的個人 Key，僅 fallback 到全域 Key Pool。
+              </div>
+            </div>
+          )}
+
           {/* ── API Keys Tab ── */}
           {tab === 'keys' && (
             <div>

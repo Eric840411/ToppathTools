@@ -22,6 +22,7 @@ import { router as authRouter } from './routes/auth.js'
 import { router as permissionsRouter } from './routes/permissions.js'
 import { router as workerStatusRouter } from './routes/worker-status.js'
 import { router as frontendAutoRouter } from './routes/frontend-auto.js'
+import { router as audioRouter } from './routes/audio.js'
 import { runWithRequestContext } from './request-context.js'
 
 // Shared logger
@@ -275,6 +276,7 @@ app.use(authRouter)
 app.use(permissionsRouter)
 app.use(workerStatusRouter)
 app.use(frontendAutoRouter)
+app.use(audioRouter)
 
 // ─── Static Files (production build) ──────────────────────────────────────────
 

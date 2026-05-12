@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.25.9'
+export const APP_VERSION = '3.25.14'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,41 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.25.14',
+    date: '2026-05-12',
+    changes: [
+      'fix(personal-keys): 個人 Key 儲存無效 — 改用 cookie session (getAuthAccount) 識別使用者，修正 getUser 回傳 "—" 導致儲存失敗的問題',
+    ],
+  },
+  {
+    version: '3.25.13',
+    date: '2026-05-12',
+    changes: [
+      'fix(ui): GeminiSettingsModal Ollama 清除後輸入框未清空 — 改為 DELETE 成功後直接清空本地 state，不再依賴 fetchOllamaConfig',
+    ],
+  },
+  {
+    version: '3.25.12',
+    date: '2026-05-12',
+    changes: [
+      'feat(ai-keys): 個人 AI Key 管理 — 每帳號可設自己的 Gemini/OpenAI key，完全隔離互不干擾，未設定時 fallback 到全域 Key Pool',
+    ],
+  },
+  {
+    version: '3.25.11',
+    date: '2026-05-12',
+    changes: [
+      'feat(machine-test): 機種設定檔新增「螢幕數量」欄位 — 雙屏機台設為 2 後，推流檢測僅偵測到 1 個 video 即判定 FAIL',
+    ],
+  },
+  {
+    version: '3.25.10',
+    date: '2026-05-12',
+    changes: [
+      'feat(audio): 新增 POST /api/audio/analyze — WAV 檔案 RMS/Peak dBFS 分析工具，支援 8/16/24/32bit PCM 及 32bit Float',
+    ],
+  },
   {
     version: '3.25.9',
     date: '2026-05-12',

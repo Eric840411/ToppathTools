@@ -9,10 +9,12 @@ import Bottleneck from 'bottleneck'
 import {
   db,
   addHistory,
+  getUser,
   heavyLimiter,
   writeLimiter,
 } from '../shared.js'
 import { getRequestContext } from '../request-context.js'
+import { getAuthAccount } from '../auth-session.js'
 
 // ─── Per-key Bottleneck limiters ──────────────────────────────────────────────
 // Each Gemini API key gets its own rate limiter so concurrent requests that
@@ -120,6 +122,81 @@ export const getActiveGeminiKeys = (): string[] => {
   return [...storedKeys, ...(envKey ? [envKey] : [])]
 }
 
+// ─── Per-user AI key helpers ──────────────────────────────────────────────────
+
+interface UserAiKey { user_email: string; provider: string; api_key: string; label: string }
+
+export function getUserAiKey(userEmail: string, provider: string): string | null {
+  const row = db.prepare('SELECT api_key FROM user_ai_keys WHERE user_email = ? AND provider = ?')
+    .get(userEmail, provider) as { api_key: string } | undefined
+  return row?.api_key ?? null
+}
+
+export function setUserAiKey(userEmail: string, provider: string, apiKey: string, label: string) {
+  db.prepare(`
+    INSERT INTO user_ai_keys (user_email, provider, api_key, label, created_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(user_email, provider) DO UPDATE SET api_key = excluded.api_key, label = excluded.label, created_at = excluded.created_at
+  `).run(userEmail, provider, apiKey, label, Date.now())
+}
+
+export function deleteUserAiKey(userEmail: string, provider: string) {
+  db.prepare('DELETE FROM user_ai_keys WHERE user_email = ? AND provider = ?').run(userEmail, provider)
+}
+
+export function listUserAiKeys(userEmail: string): { provider: string; label: string; hasKey: boolean }[] {
+  const rows = db.prepare('SELECT provider, label FROM user_ai_keys WHERE user_email = ?')
+    .all(userEmail) as { provider: string; label: string }[]
+  return rows.map(r => ({ provider: r.provider, label: r.label, hasKey: true }))
+}
+
+/**
+ * Resolve Gemini key entries for the current request.
+ * If the current user (from request context) has a personal Gemini key,
+ * ONLY that key is used — never mixed with other users' keys.
+ * Falls back to the global pool if no personal key is set.
+ * User identity is resolved via auth cookie (getAuthAccount) first,
+ * then falls back to AsyncLocalStorage request context.
+ */
+export function resolveGeminiKeyEntries(req?: import('express').Request): { label: string; key: string }[] {
+  // Try cookie-based auth first
+  const cookieEmail = req ? getAuthAccount(req)?.email : null
+  // Fallback to request context (set by middleware for all requests)
+  const ctxEmail = getRequestContext()?.user
+  const userEmail = cookieEmail ?? (ctxEmail && ctxEmail !== '—' ? ctxEmail : null)
+
+  if (userEmail) {
+    const personalKey = getUserAiKey(userEmail, 'gemini')
+    if (personalKey) {
+      return [{ label: `personal:${userEmail}`, key: personalKey }]
+    }
+  }
+  // Global pool fallback
+  const storedKeys = readGeminiKeys()
+  const envKey = process.env.GEMINI_API_KEY ?? ''
+  return [
+    ...storedKeys,
+    ...(envKey ? [{ label: 'env', key: envKey }] : []),
+  ]
+}
+
+/**
+ * Resolve OpenAI key for the current request.
+ * Personal key takes priority; falls back to global setting / env.
+ */
+export function resolveOpenAIKey(req?: import('express').Request): string {
+  const cookieEmail = req ? getAuthAccount(req)?.email : null
+  const ctxEmail = getRequestContext()?.user
+  const userEmail = cookieEmail ?? (ctxEmail && ctxEmail !== '—' ? ctxEmail : null)
+
+  if (userEmail) {
+    const personalKey = getUserAiKey(userEmail, 'openai')
+    if (personalKey) return personalKey
+  }
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('openai_api_key') as { value: string } | undefined
+  return row?.value ?? process.env.OPENAI_API_KEY ?? ''
+}
+
 // ─── Key usage tracking ───────────────────────────────────────────────────────
 
 export const today = () => new Date().toISOString().slice(0, 10)
@@ -179,12 +256,7 @@ export const callGeminiWithRotation = (prompt: string): Promise<string> => {
   // Atomically claim an rrIndex slot to determine which key queue to enter.
   // _callGeminiWithRotation will start from this same index so the limiter
   // and the actual HTTP call are aligned to the same key.
-  const storedKeys = readGeminiKeys()
-  const envKey = process.env.GEMINI_API_KEY ?? ''
-  const keyEntries: { label: string; key: string }[] = [
-    ...storedKeys,
-    ...(envKey ? [{ label: 'env', key: envKey }] : []),
-  ]
+  const keyEntries = resolveGeminiKeyEntries()
   if (keyEntries.length === 0) {
     finishAiTask(taskId, 'no keys')
     return Promise.reject(new Error('沒有可用的 Gemini API Key，請在設定中新增'))
@@ -206,12 +278,7 @@ export const callGeminiWithRotation = (prompt: string): Promise<string> => {
 }
 
 export const _callGeminiWithRotation = async (prompt: string, startIndex?: number): Promise<string> => {
-  const storedKeys = readGeminiKeys()
-  const envKey = process.env.GEMINI_API_KEY ?? ''
-  const keyEntries: { label: string; key: string }[] = [
-    ...storedKeys,
-    ...(envKey ? [{ label: 'env', key: envKey }] : []),
-  ]
+  const keyEntries = resolveGeminiKeyEntries()
 
   if (keyEntries.length === 0) throw new Error('沒有可用的 Gemini API Key，請在設定中新增')
   const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
@@ -489,11 +556,8 @@ export const callGeminiVisionMulti = async (
 
 // ─── OpenAI Integration ──────────────────────────────────────────────────────
 
-// Read OpenAI key from DB first, fall back to .env
-const readOpenAIKey = (): string => {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('openai_api_key') as { value: string } | undefined
-  return row?.value ?? process.env.OPENAI_API_KEY ?? ''
-}
+// Alias for legacy internal use — now resolves personal key first
+const readOpenAIKey = (): string => resolveOpenAIKey()
 
 // Models that use legacy /v1/completions instead of /v1/chat/completions
 const LEGACY_COMPLETIONS_MODELS = new Set(['gpt-5.3-codex', 'code-davinci-002'])
@@ -788,6 +852,42 @@ router.post('/api/gemini/prompts', writeLimiter, (req, res) => {
 // DELETE /api/gemini/prompts/:id
 router.delete('/api/gemini/prompts/:id', (req, res) => {
   db.prepare('DELETE FROM gemini_prompts WHERE id = ?').run(req.params.id)
+  res.json({ ok: true })
+})
+
+// ─── Per-user AI key endpoints ────────────────────────────────────────────────
+// Keys are scoped to the requesting user's email. No user can read or affect
+// another user's personal keys.
+
+// GET /api/user-ai-keys — list current user's personal key stubs (key masked)
+router.get('/api/user-ai-keys', (req, res) => {
+  const account = getAuthAccount(req)
+  if (!account) { res.status(401).json({ error: 'unauthenticated' }); return }
+  const rows = db.prepare('SELECT provider, label, api_key FROM user_ai_keys WHERE user_email = ?')
+    .all(account.email) as { provider: string; label: string; api_key: string }[]
+  const keys = rows.map(r => ({
+    provider: r.provider,
+    label: r.label,
+    keyMasked: r.api_key.slice(0, 7) + '****' + r.api_key.slice(-4),
+  }))
+  res.json({ ok: true, keys })
+})
+
+// PUT /api/user-ai-keys/:provider — set or update personal key for a provider
+router.put('/api/user-ai-keys/:provider', writeLimiter, (req, res) => {
+  const account = getAuthAccount(req)
+  if (!account) { res.status(401).json({ error: 'unauthenticated' }); return }
+  const provider = req.params.provider  // 'gemini' | 'openai' | 'ollama'
+  const { key, label } = z.object({ key: z.string().min(8), label: z.string().default('') }).parse(req.body)
+  setUserAiKey(account.email, provider, key, label)
+  res.json({ ok: true })
+})
+
+// DELETE /api/user-ai-keys/:provider — remove personal key for a provider
+router.delete('/api/user-ai-keys/:provider', (req, res) => {
+  const account = getAuthAccount(req)
+  if (!account) { res.status(401).json({ error: 'unauthenticated' }); return }
+  deleteUserAiKey(account.email, req.params.provider)
   res.json({ ok: true })
 })
 

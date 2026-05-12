@@ -161,6 +161,18 @@ db.exec(`
   );
 `)
 
+// Per-user AI keys — isolated per account, keyed by (user_email, provider)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS user_ai_keys (
+    user_email  TEXT NOT NULL,
+    provider    TEXT NOT NULL,
+    api_key     TEXT NOT NULL,
+    label       TEXT NOT NULL DEFAULT '',
+    created_at  INTEGER NOT NULL,
+    PRIMARY KEY (user_email, provider)
+  );
+`)
+
 // Seed default permissions if table is empty
 {
   const count = (db.prepare('SELECT COUNT(*) as c FROM role_permissions').get() as { c: number }).c
