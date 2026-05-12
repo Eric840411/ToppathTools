@@ -1335,7 +1335,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sheetUrl,
-        writes: [{ rowIndex, message: isPassing ? 'OK' : toQAMessage(r), qaStatus: isPassing ? '驗證通過' : '驗證未過' }],
+        writes: [{ rowIndex, message: isPassing ? 'OK' : toQAMessage(r), qaStatus: isPassing ? 'PASS' : 'FAIL' }],
       }),
     })
       .then(res => res.json())

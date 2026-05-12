@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.25.16'
+export const APP_VERSION = '3.25.17'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.25.17',
+    date: '2026-05-12',
+    changes: [
+      'fix(lark-writeback): 修正 QA 狀態欄位偵測錯誤 — msgColIdx/qaColIdx 使用不同關鍵字區分；qaStatus 改為英文 PASS/FAIL；匯入篩選條件更新為 PASS',
+    ],
+  },
   {
     version: '3.25.16',
     date: '2026-05-12',

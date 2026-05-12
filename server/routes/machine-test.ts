@@ -266,7 +266,7 @@ router.post('/api/machine-test/lark-machines', async (req, res, next) => {
       const r = row as unknown[]
       const gmid = String(r[gmidCol] ?? '').trim()
       const qaStatus = qaCol !== -1 ? String(r[qaCol] ?? '').trim() : ''
-      if (!gmid || gmid === 'null' || qaStatus === '???????') return []
+      if (!gmid || gmid === 'null' || qaStatus === 'PASS') return []
       return [{ gmid, rowIndex: i + 3 }]  // rowIndex is 1-based, +2 for two header rows, +1 for slice offset
     })
 
@@ -303,11 +303,13 @@ router.post('/api/machine-test/lark-writeback', async (req, res, next) => {
     const maxLen = Math.max(row1h.length, row2h.length)
     const mergedHeaders = Array.from({ length: maxLen }, (_, i) => row1h[i] || row2h[i] || '')
 
-    const msgColIdx = mergedHeaders.findIndex(h => h.includes('QA'))
-    const qaColIdx  = mergedHeaders.findIndex(h => h.includes('QA'))
+    // "QA問題回報" = message column (F), "QA確認狀態" = status column (G)
+    // Use distinct keywords to avoid both resolving to the same column
+    const msgColIdx = mergedHeaders.findIndex(h => h.includes('問題') || (h.includes('QA') && !h.includes('確認')))
+    const qaColIdx  = mergedHeaders.findIndex(h => h.includes('確認'))
 
     if (msgColIdx === -1) {
-      return res.status(400).json({ ok: false, message: 'missing QA message column' })
+      return res.status(400).json({ ok: false, message: 'missing QA message column (QA問題回報)' })
     }
 
     const putCell = async (col: number, row: number, value: string) => {
