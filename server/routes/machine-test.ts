@@ -74,6 +74,7 @@ const profileSchema = z.object({
   entryTouchPoints2: z.array(z.string()).optional().nullable(),
   ideckXpaths:       z.array(z.string()).optional().nullable(),
   audioConfig:       audioConfigSchema,
+  expectedScreens:   z.number().int().min(1).optional().nullable(),
 })
 
 type MachineTestProfile = z.infer<typeof profileSchema>
@@ -554,17 +555,19 @@ router.put('/api/machine-test/profiles', (req, res, next) => {
       ideck_xpaths:      JSON.stringify(p.ideckXpaths ?? []),
       audioConfig:       p.audioConfig ? JSON.stringify(p.audioConfig) : null,
       clickTake: p.clickTake ? 1 : 0,
+      expectedScreens:   p.expectedScreens ?? null,
     }
     db.prepare(`
-      INSERT INTO machine_test_profiles (machineType, bonusAction, touchPoints, clickTake, gmid, enterMachineType, spinSelector, balanceSelector, exitSelector, notes, entryTouchPoints, entryTouchPoints2, ideck_xpaths, audioConfig)
-      VALUES (@machineType, @bonusAction, @touchPoints, @clickTake, @gmid, @enterMachineType, @spinSelector, @balanceSelector, @exitSelector, @notes, @entryTouchPoints, @entryTouchPoints2, @ideck_xpaths, @audioConfig)
+      INSERT INTO machine_test_profiles (machineType, bonusAction, touchPoints, clickTake, gmid, enterMachineType, spinSelector, balanceSelector, exitSelector, notes, entryTouchPoints, entryTouchPoints2, ideck_xpaths, audioConfig, expectedScreens)
+      VALUES (@machineType, @bonusAction, @touchPoints, @clickTake, @gmid, @enterMachineType, @spinSelector, @balanceSelector, @exitSelector, @notes, @entryTouchPoints, @entryTouchPoints2, @ideck_xpaths, @audioConfig, @expectedScreens)
       ON CONFLICT(machineType) DO UPDATE SET
         bonusAction=excluded.bonusAction, touchPoints=excluded.touchPoints, clickTake=excluded.clickTake,
         gmid=excluded.gmid, enterMachineType=excluded.enterMachineType,
         spinSelector=excluded.spinSelector, balanceSelector=excluded.balanceSelector,
         exitSelector=excluded.exitSelector, notes=excluded.notes,
         entryTouchPoints=excluded.entryTouchPoints, entryTouchPoints2=excluded.entryTouchPoints2,
-        ideck_xpaths=excluded.ideck_xpaths, audioConfig=excluded.audioConfig
+        ideck_xpaths=excluded.ideck_xpaths, audioConfig=excluded.audioConfig,
+        expectedScreens=excluded.expectedScreens
     `).run(row)
     const s1 = p.entryTouchPoints?.length ? `S1:[${p.entryTouchPoints.join(',')}]` : ''
     const s2 = p.entryTouchPoints2?.length ? ` S2:[${p.entryTouchPoints2.join(',')}]` : ''

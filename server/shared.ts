@@ -281,6 +281,10 @@ export function addHistory(feature: string, title: string, summary: string, deta
     db.exec('ALTER TABLE machine_test_profiles ADD COLUMN enterMachineType TEXT')
     console.log('[DB] machine_test_profiles 已新增欄位：enterMachineType')
   }
+  if (!cols.find(c => c.name === 'expectedScreens')) {
+    db.exec('ALTER TABLE machine_test_profiles ADD COLUMN expectedScreens INTEGER')
+    console.log('[DB] machine_test_profiles 已新增欄位：expectedScreens')
+  }
 }
 
 {

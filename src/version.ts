@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.25.15'
+export const APP_VERSION = '3.25.16'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.25.16',
+    date: '2026-05-12',
+    changes: [
+      'fix(machine-test): expectedScreens 未存入 DB — 補 ALTER TABLE migration、profileSchema、INSERT/UPDATE 語句',
+    ],
+  },
   {
     version: '3.25.15',
     date: '2026-05-12',
