@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.25.18'
+export const APP_VERSION = '3.25.19'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.25.19',
+    date: '2026-05-12',
+    changes: [
+      'fix(ui): AI Prompt 模板 / AI 模型下拉高度不一致 — ModelSelector 樣式對齊 .field select',
+      'feat(log-compare): 移除 iframe，Log 結構比對內嵌於頁面，CSS 用 .lcw 隔離避免全域污染',
+    ],
+  },
   {
     version: '3.25.18',
     date: '2026-05-12',

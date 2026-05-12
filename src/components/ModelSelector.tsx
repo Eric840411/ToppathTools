@@ -26,7 +26,7 @@ export function ModelSelector({ value, onChange, style }: Props) {
     <select
       value={value}
       onChange={e => onChange(e.target.value)}
-      style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #ccc', fontSize: 13, ...style }}
+      style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid #2d3f55', fontSize: 13, color: '#e2e8f0', background: '#0f172a', ...style }}
     >
       {models.map(m => (
         <option key={m.id} value={m.id}>{m.label}</option>
