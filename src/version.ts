@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.25.8'
+export const APP_VERSION = '3.25.9'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.25.9',
+    date: '2026-05-12',
+    changes: [
+      'fix(ui): MachineTestPage OSMWatcher 監控面板 — 機台 ID 文字 #1e293b→#94a3b8，修正暗底看不見的問題',
+    ],
+  },
   {
     version: '3.25.8',
     date: '2026-05-12',

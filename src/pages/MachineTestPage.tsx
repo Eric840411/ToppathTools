@@ -1594,7 +1594,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
                   gap: 8,
                   minWidth: 0,
                 }}>
-                  <span style={{ color: '#1e293b', fontSize: 13, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', minWidth: 0 }}>{id}</span>
+                  <span style={{ color: '#94a3b8', fontSize: 13, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', minWidth: 0 }}>{id}</span>
                   <span style={{ color: statusColor, fontSize: 12, fontWeight: 600, background: isSpecial ? `${cardBorder}66` : 'transparent', padding: '2px 6px', borderRadius: 4, flexShrink: 0, whiteSpace: 'nowrap' }}>
                     {isSpecial ? '⚡ ' : ''}{label}
                   </span>
