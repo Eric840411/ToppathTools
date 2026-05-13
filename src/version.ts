@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.25.19'
+export const APP_VERSION = '3.25.20'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.25.20',
+    date: '2026-05-13',
+    changes: [
+      'fix(lark-import): qaCol 偵測改用 includes("確認") 正確找 QA確認狀態（G欄），修正驗證通過機台未被排除的問題',
+    ],
+  },
   {
     version: '3.25.19',
     date: '2026-05-12',

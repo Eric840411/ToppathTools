@@ -256,7 +256,8 @@ router.post('/api/machine-test/lark-machines', async (req, res, next) => {
     const headers = headerRow1.map((h, i) => h || headerRow2[i] || '')
 
     const gmidCol = headers.findIndex(h => h === 'gmid')
-    const qaCol   = headers.findIndex(h => h.includes('QA'))
+    // Use '確認' to target "QA確認狀態" (G col), not "QA問題回報" (F col)
+    const qaCol   = headers.findIndex(h => h.includes('確認'))
 
     if (gmidCol === -1) {
       return res.status(400).json({ ok: false, message: 'missing gmid column' })
