@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.25.22'
+export const APP_VERSION = '3.25.23'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.25.23',
+    date: '2026-05-13',
+    changes: [
+      'feat(media-gc): cctv-saves / audio-saves 定時清除，預設保留 5 天，可用 MEDIA_RETENTION_DAYS env var 調整',
+    ],
+  },
   {
     version: '3.25.22',
     date: '2026-05-13',

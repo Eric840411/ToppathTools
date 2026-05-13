@@ -5,7 +5,7 @@
 import express, { Router } from 'express'
 import { chromium } from 'playwright'
 import { z } from 'zod'
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, statSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import {
@@ -669,6 +669,28 @@ router.delete('/api/machine-test/audio-refs/:machineType', (req, res) => {
 
 const CCTV_SAVES_DIR  = join(SERVER_ROOT, 'machine-test', 'cctv-saves')
 const AUDIO_SAVES_DIR = join(SERVER_ROOT, 'machine-test', 'audio-saves')
+
+// ── Media GC: delete cctv-saves / audio-saves older than MEDIA_RETENTION_DAYS ──
+const MEDIA_RETENTION_DAYS = Number(process.env.MEDIA_RETENTION_DAYS ?? 5)
+
+function purgeOldMediaFiles() {
+  const cutoff = Date.now() - MEDIA_RETENTION_DAYS * 24 * 60 * 60 * 1000
+  let deleted = 0
+  for (const dir of [CCTV_SAVES_DIR, AUDIO_SAVES_DIR]) {
+    if (!existsSync(dir)) continue
+    for (const file of readdirSync(dir)) {
+      const full = join(dir, file)
+      try {
+        if (statSync(full).mtimeMs < cutoff) { unlinkSync(full); deleted++ }
+      } catch { /* ignore */ }
+    }
+  }
+  if (deleted > 0) console.log(`[MediaGC] 清除 ${deleted} 個過期媒體檔案（保留 ${MEDIA_RETENTION_DAYS} 天）`)
+}
+
+// Run once on startup, then every 24 hours
+purgeOldMediaFiles()
+setInterval(purgeOldMediaFiles, 24 * 60 * 60 * 1000)
 
 // GET /api/machine-test/cctv-saves/:code?sessionId=xxx ??serve CCTV screenshot
 // Falls back to legacy {code}.png if sessionId-prefixed file not found
