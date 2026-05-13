@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.25.21'
+export const APP_VERSION = '3.25.22'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.25.22',
+    date: '2026-05-13',
+    changes: [
+      'feat(cctv): 分散式 Agent CCTV 截圖後自動 PUT 上傳至公網 server；新增 PUT /api/machine-test/cctv-upload 端點',
+    ],
+  },
   {
     version: '3.25.21',
     date: '2026-05-13',

@@ -685,6 +685,22 @@ router.get('/api/machine-test/cctv-saves/:code', (req, res) => {
   res.send(readFileSync(filePath))
 })
 
+// PUT /api/machine-test/cctv-upload?filename=xxx.png — remote agent uploads CCTV screenshot
+router.put('/api/machine-test/cctv-upload', express.raw({ type: 'image/png', limit: '20mb' }), (req, res) => {
+  const { filename } = req.query as Record<string, string>
+  if (!filename || !filename.endsWith('.png')) {
+    res.status(400).json({ ok: false, error: 'missing or invalid filename' }); return
+  }
+  const safe = filename.replace(/[^a-zA-Z0-9._-]/g, '_')
+  try {
+    mkdirSync(CCTV_SAVES_DIR, { recursive: true })
+    writeFileSync(join(CCTV_SAVES_DIR, safe), req.body as Buffer)
+    res.json({ ok: true, filename: safe })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err) })
+  }
+})
+
 // GET /api/machine-test/audio-saves/:code?sessionId=xxx ??serve audio recording
 // Falls back to legacy {code}.wav if sessionId-prefixed file not found
 router.get('/api/machine-test/audio-saves/:code', (req, res) => {

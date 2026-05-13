@@ -125,24 +125,30 @@ function analyzeWav(filePath: string): { rmsDb: number; peakDb: number; samples:
 }
 
 /**
- * Upload a WAV buffer to the central server's audio-saves endpoint.
+ * Upload a file buffer to the central server.
  * Only runs when CENTRAL_URL env var is set (i.e. running as a remote agent).
- * Fails silently — local playback still works even if upload fails.
+ * Fails silently — local access still works even if upload fails.
  */
-async function uploadAudioToServer(buf: Buffer, filename: string): Promise<void> {
+async function uploadToServer(buf: Buffer, endpoint: string, filename: string, contentType: string): Promise<void> {
   const centralUrl = process.env.CENTRAL_URL
   if (!centralUrl) return // running as local server, file is already in place
   const httpBase = centralUrl.replace(/^ws(s?):\/\//, 'http$1://').replace(/\/ws\/.*$/, '')
   try {
-    await fetch(`${httpBase}/api/machine-test/audio-upload?filename=${encodeURIComponent(filename)}`, {
+    await fetch(`${httpBase}${endpoint}?filename=${encodeURIComponent(filename)}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'audio/wav' },
+      headers: { 'Content-Type': contentType },
       body: buf,
     })
   } catch (e) {
-    console.error('[VBCable] audio upload failed:', e)
+    console.error(`[Agent] upload failed (${endpoint}):`, e)
   }
 }
+
+const uploadAudioToServer = (buf: Buffer, filename: string) =>
+  uploadToServer(buf, '/api/machine-test/audio-upload', filename, 'audio/wav')
+
+const uploadCctvToServer = (buf: Buffer, filename: string) =>
+  uploadToServer(buf, '/api/machine-test/cctv-upload', filename, 'image/png')
 
 /** Serial queue: ensures only one VB-Cable recording runs at a time.
  *  Multiple workers share the same CABLE device, so concurrent recordings mix signals. */
@@ -2172,9 +2178,11 @@ async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '
           if (machineCode) {
             try {
               mkdirSync(CCTV_SAVE_DIR, { recursive: true })
-              const savePath = join(CCTV_SAVE_DIR, `${sessionPrefix}${machineCode}.png`)
+              const cctvFilename = `${sessionPrefix}${machineCode}.png`
+              const savePath = join(CCTV_SAVE_DIR, cctvFilename)
               writeFileSync(savePath, buf)
               emit(`CCTV 截圖已複製：${savePath}`)
+              void uploadCctvToServer(buf, cctvFilename)
             } catch { /* ignore save error */ }
           }
         }
