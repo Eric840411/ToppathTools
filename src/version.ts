@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.25.20'
+export const APP_VERSION = '3.25.21'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.25.21',
+    date: '2026-05-13',
+    changes: [
+      'feat(audio): 分散式 Agent 錄音後自動 PUT 上傳 WAV 至公網 server；新增 PUT /api/machine-test/audio-upload 接收端點',
+    ],
+  },
   {
     version: '3.25.20',
     date: '2026-05-13',

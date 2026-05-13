@@ -2,7 +2,7 @@
  * server/routes/machine-test.ts
  * All /api/machine-test/* and /api/image-check/* routes.
  */
-import { Router } from 'express'
+import express, { Router } from 'express'
 import { chromium } from 'playwright'
 import { z } from 'zod'
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from 'fs'
@@ -699,6 +699,24 @@ router.get('/api/machine-test/audio-saves/:code', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Content-Disposition', `inline; filename="${code}.wav"`)
   res.send(readFileSync(filePath))
+})
+
+// PUT /api/machine-test/audio-upload?filename=xxx.wav — remote agent uploads WAV to server
+// Body: raw WAV binary (application/octet-stream)
+router.put('/api/machine-test/audio-upload', express.raw({ type: 'audio/wav', limit: '50mb' }), (req, res) => {
+  const { filename } = req.query as Record<string, string>
+  if (!filename || !filename.endsWith('.wav')) {
+    res.status(400).json({ ok: false, error: 'missing or invalid filename' }); return
+  }
+  // Sanitize: only allow alphanumeric, dash, underscore, dot
+  const safe = filename.replace(/[^a-zA-Z0-9._-]/g, '_')
+  try {
+    mkdirSync(AUDIO_SAVES_DIR, { recursive: true })
+    writeFileSync(join(AUDIO_SAVES_DIR, safe), req.body as Buffer)
+    res.json({ ok: true, filename: safe })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err) })
+  }
 })
 
 // ?????? Routes: OSM Status ????????????????????????????????????????????????????????????????????????????????????????????????????????????????

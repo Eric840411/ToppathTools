@@ -13,7 +13,7 @@
 import { EventEmitter } from 'events'
 import { spawn } from 'child_process'
 import { readFileSync, existsSync, unlinkSync, writeFileSync, mkdirSync } from 'fs'
-import { join } from 'path'
+import { join, basename } from 'path'
 import { chromium, type Browser, type Page, type ElementHandle } from 'playwright'
 import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEvent, MachineProfile } from './types.js'
 import { callGeminiVision, callGeminiVisionMulti } from '../routes/gemini.js'
@@ -124,6 +124,26 @@ function analyzeWav(filePath: string): { rmsDb: number; peakDb: number; samples:
   }
 }
 
+/**
+ * Upload a WAV buffer to the central server's audio-saves endpoint.
+ * Only runs when CENTRAL_URL env var is set (i.e. running as a remote agent).
+ * Fails silently — local playback still works even if upload fails.
+ */
+async function uploadAudioToServer(buf: Buffer, filename: string): Promise<void> {
+  const centralUrl = process.env.CENTRAL_URL
+  if (!centralUrl) return // running as local server, file is already in place
+  const httpBase = centralUrl.replace(/^ws(s?):\/\//, 'http$1://').replace(/\/ws\/.*$/, '')
+  try {
+    await fetch(`${httpBase}/api/machine-test/audio-upload?filename=${encodeURIComponent(filename)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'audio/wav' },
+      body: buf,
+    })
+  } catch (e) {
+    console.error('[VBCable] audio upload failed:', e)
+  }
+}
+
 /** Serial queue: ensures only one VB-Cable recording runs at a time.
  *  Multiple workers share the same CABLE device, so concurrent recordings mix signals. */
 let audioRecordingQueue: Promise<unknown> = Promise.resolve()
@@ -161,6 +181,9 @@ async function recordVBCable(durationMs: number, keepWav = false, savePath?: str
       try {
         mkdirSync(AUDIO_SAVE_DIR, { recursive: true })
         writeFileSync(savePath, readFileSync(outFile))
+        // If running as a remote agent, also upload the WAV to the central server
+        // so the public-facing API can serve it to the browser
+        void uploadAudioToServer(readFileSync(outFile), basename(savePath))
       } catch { /* non-fatal */ }
     }
     try { unlinkSync(outFile) } catch {}
