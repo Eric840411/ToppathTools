@@ -157,6 +157,60 @@ const uploadAudioToServer = (buf: Buffer, filename: string) =>
 const uploadCctvToServer = (buf: Buffer, filename: string) =>
   uploadToServer(buf, '/api/machine-test/cctv-upload', filename, 'image/png')
 
+/**
+ * Delegate Gemini Vision OCR to the central server's key pool.
+ * When CENTRAL_URL is set (agent mode), use this instead of calling Gemini directly.
+ * Falls back to direct call if proxy fails or CENTRAL_URL is not set.
+ */
+async function callGeminiVisionViaProxy(prompt: string, imageBase64: string, mimeType = 'image/png'): Promise<string> {
+  const centralUrl = process.env.CENTRAL_URL
+  if (centralUrl) {
+    const httpBase = centralUrl.replace(/^ws(s?):\/\//, 'http$1://').replace(/\/ws\/.*$/, '')
+    try {
+      const resp = await fetch(`${httpBase}/api/machine-test/ocr-proxy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, images: [{ base64: imageBase64, mimeType }] }),
+      })
+      if (resp.ok) {
+        const data = await resp.json() as { ok: boolean; result?: string; error?: string }
+        if (data.ok && data.result) return data.result
+        console.error('[Agent] ocr-proxy error:', data.error)
+      } else {
+        console.error(`[Agent] ocr-proxy HTTP ${resp.status}`)
+      }
+    } catch (e) {
+      console.error('[Agent] ocr-proxy request failed:', e)
+    }
+  }
+  // fallback: direct local call (requires GEMINI_API_KEY in env)
+  return callGeminiVision(prompt, imageBase64, mimeType)
+}
+
+async function callGeminiVisionMultiViaProxy(prompt: string, images: Array<{ base64: string; mimeType?: string }>): Promise<string> {
+  const centralUrl = process.env.CENTRAL_URL
+  if (centralUrl) {
+    const httpBase = centralUrl.replace(/^ws(s?):\/\//, 'http$1://').replace(/\/ws\/.*$/, '')
+    try {
+      const resp = await fetch(`${httpBase}/api/machine-test/ocr-proxy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, images }),
+      })
+      if (resp.ok) {
+        const data = await resp.json() as { ok: boolean; result?: string; error?: string }
+        if (data.ok && data.result) return data.result
+        console.error('[Agent] ocr-proxy multi error:', data.error)
+      } else {
+        console.error(`[Agent] ocr-proxy multi HTTP ${resp.status}`)
+      }
+    } catch (e) {
+      console.error('[Agent] ocr-proxy multi request failed:', e)
+    }
+  }
+  return callGeminiVisionMulti(prompt, images)
+}
+
 /** Serial queue: ensures only one VB-Cable recording runs at a time.
  *  Multiple workers share the same CABLE device, so concurrent recordings mix signals. */
 let audioRecordingQueue: Promise<unknown> = Promise.resolve()
@@ -1621,7 +1675,7 @@ async function stepAudio(page: Page, emit: (msg: string) => void, spinAudio?: Sp
 4. 整體評估：正常 / 有問題
 
 請用中文回答，格式：{"status":"正常"|"有問題","detail":"一句話說明"}`
-            const aiRaw = await callGeminiVision(AUDIO_PROMPT, sa.wavBase64, 'audio/wav')
+            const aiRaw = await callGeminiVisionViaProxy(AUDIO_PROMPT, sa.wavBase64, 'audio/wav')
             const aiCleaned = aiRaw.trim().replace(/^```[a-z]*\n?/i, '').replace(/```$/, '').trim()
             let aiStatus = ''
             let aiDetail = ''
@@ -2209,11 +2263,11 @@ async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '
         }
 
         const raw = refBuf
-          ? await callGeminiVisionMulti(COMBINED_PROMPT, [
+          ? await callGeminiVisionMultiViaProxy(COMBINED_PROMPT, [
               { base64: refBuf.toString('base64') },
               { base64: buf.toString('base64') },
             ])
-          : await callGeminiVision(OCR_PROMPT, buf.toString('base64'), 'image/png')
+          : await callGeminiVisionViaProxy(OCR_PROMPT, buf.toString('base64'), 'image/png')
 
         const cleaned = raw.trim().replace(/^```[a-z]*\n?/i, '').replace(/```$/, '').trim()
         try {

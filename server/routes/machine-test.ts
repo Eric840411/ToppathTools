@@ -19,7 +19,7 @@ import {
   revokeLocalAgentToken,
   upload,
 } from '../shared.js'
-import { readGeminiKeys } from './gemini.js'
+import { callGeminiVision, callGeminiVisionMulti, readGeminiKeys } from './gemini.js'
 import { MachineTestRunner } from '../machine-test/runner.js'
 import type { MachineTestSession, MachineProfile } from '../machine-test/types.js'
 import {
@@ -780,6 +780,32 @@ router.put('/api/machine-test/audio-upload', express.raw({ type: '*/*', limit: '
     mkdirSync(AUDIO_SAVES_DIR, { recursive: true })
     writeFileSync(join(AUDIO_SAVES_DIR, safe), req.body as Buffer)
     res.json({ ok: true, filename: safe })
+  } catch (err) {
+    res.status(500).json({ ok: false, error: String(err) })
+  }
+})
+
+// POST /api/machine-test/ocr-proxy — remote agent delegates Gemini Vision OCR to central server key pool
+// Body: { prompt: string, images: Array<{ base64: string, mimeType?: string }> }
+router.post('/api/machine-test/ocr-proxy', async (req, res) => {
+  try {
+    const { prompt, images } = req.body as {
+      prompt?: string
+      images?: Array<{ base64: string; mimeType?: string }>
+    }
+    if (!prompt || !Array.isArray(images) || images.length === 0) {
+      res.status(400).json({ ok: false, error: 'missing prompt or images' }); return
+    }
+    let result: string
+    if (images.length === 1) {
+      result = await callGeminiVision(prompt, images[0].base64, images[0].mimeType ?? 'image/png')
+    } else {
+      result = await callGeminiVisionMulti(prompt, images.map(img => ({
+        base64: img.base64,
+        mimeType: img.mimeType ?? 'image/png',
+      })))
+    }
+    res.json({ ok: true, result })
   } catch (err) {
     res.status(500).json({ ok: false, error: String(err) })
   }
