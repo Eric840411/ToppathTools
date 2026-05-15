@@ -18,6 +18,7 @@ import {
   parseLarkSheetUrl,
   revokeLocalAgentToken,
   upload,
+  verifyLocalAgentToken,
 } from '../shared.js'
 import { callGeminiVision, callGeminiVisionMulti, readGeminiKeys } from './gemini.js'
 import { MachineTestRunner } from '../machine-test/runner.js'
@@ -789,6 +790,13 @@ router.put('/api/machine-test/audio-upload', express.raw({ type: '*/*', limit: '
 // Body: { prompt: string, images: Array<{ base64: string, mimeType?: string }> }
 router.post('/api/machine-test/ocr-proxy', async (req, res) => {
   try {
+    const token = req.header('x-agent-token') ?? ''
+    const ownerKey = req.header('x-agent-owner') ?? ''
+    const verifiedToken = verifyLocalAgentToken(token, ownerKey)
+    if (!verifiedToken) {
+      res.status(401).json({ ok: false, error: 'invalid agent token' }); return
+    }
+    const agentOwner = verifiedToken.ownerKey
     const { prompt, images } = req.body as {
       prompt?: string
       images?: Array<{ base64: string; mimeType?: string }>
@@ -798,12 +806,12 @@ router.post('/api/machine-test/ocr-proxy', async (req, res) => {
     }
     let result: string
     if (images.length === 1) {
-      result = await callGeminiVision(prompt, images[0].base64, images[0].mimeType ?? 'image/png')
+      result = await callGeminiVision(prompt, images[0].base64, images[0].mimeType ?? 'image/png', agentOwner)
     } else {
       result = await callGeminiVisionMulti(prompt, images.map(img => ({
         base64: img.base64,
         mimeType: img.mimeType ?? 'image/png',
-      })))
+      })), agentOwner)
     }
     res.json({ ok: true, result })
   } catch (err) {

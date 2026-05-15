@@ -169,7 +169,11 @@ async function callGeminiVisionViaProxy(prompt: string, imageBase64: string, mim
     try {
       const resp = await fetch(`${httpBase}/api/machine-test/ocr-proxy`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-agent-token': process.env.AGENT_TOKEN ?? '',
+          'x-agent-owner': process.env.AGENT_OWNER_KEY ?? '',
+        },
         body: JSON.stringify({ prompt, images: [{ base64: imageBase64, mimeType }] }),
       })
       if (resp.ok) {
@@ -194,7 +198,11 @@ async function callGeminiVisionMultiViaProxy(prompt: string, images: Array<{ bas
     try {
       const resp = await fetch(`${httpBase}/api/machine-test/ocr-proxy`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-agent-token': process.env.AGENT_TOKEN ?? '',
+          'x-agent-owner': process.env.AGENT_OWNER_KEY ?? '',
+        },
         body: JSON.stringify({ prompt, images }),
       })
       if (resp.ok) {

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.26.7'
+export const APP_VERSION = '3.26.8'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.26.8',
+    date: '2026-05-15',
+    changes: [
+      'feat(gemini): callGeminiVision/Multi 支援 ownerEmail 參數，個人 key 優先，fallback 全域池',
+      'fix(ocr-proxy): OCR proxy 驗證 agent token，使用 token owner 的個人 key 池，防止盜用他人配額',
+      'ui(larkpage/machintest): 無個人 Gemini Key 時顯示警告 banner，提醒前往設定',
+    ],
+  },
   {
     version: '3.26.7',
     date: '2026-05-15',

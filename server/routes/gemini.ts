@@ -460,14 +460,19 @@ export const callOllamaVision = async (prompt: string, imageBase64: string, mode
  * Call Gemini Vision API with an inline image + text prompt.
  * Uses same key rotation as callGeminiWithRotation.
  */
-export const callGeminiVision = async (prompt: string, imageBase64: string, mimeType = 'image/png'): Promise<string> => {
-  const storedKeys = readGeminiKeys()
+export const callGeminiVision = async (prompt: string, imageBase64: string, mimeType = 'image/png', ownerEmail?: string): Promise<string> => {
   const envKey = process.env.GEMINI_API_KEY ?? ''
-  const keyEntries: { label: string; key: string }[] = [
-    ...storedKeys,
-    ...(envKey ? [{ label: 'env', key: envKey }] : []),
-  ]
-  if (keyEntries.length === 0) throw new Error('沒有可用的 Gemini API Key')
+  let keyEntries: { label: string; key: string }[]
+  if (ownerEmail) {
+    const personalKey = getUserAiKey(ownerEmail, 'gemini')
+    keyEntries = personalKey
+      ? [{ label: `personal:${ownerEmail}`, key: personalKey }]
+      : [...readGeminiKeys(), ...(envKey ? [{ label: 'env', key: envKey }] : [])]
+  } else {
+    keyEntries = resolveGeminiKeyEntries()
+    if (keyEntries.length === 0 && envKey) keyEntries = [{ label: 'env', key: envKey }]
+  }
+  if (keyEntries.length === 0) throw new Error('沒有可用的 Gemini API Key，請至 AI 模型設定 > 個人 Key 新增 Gemini Key')
   const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
   const taskId = startAiTask('gemini', 'vision', model)
   try {
@@ -536,14 +541,20 @@ export const callGeminiVision = async (prompt: string, imageBase64: string, mime
 export const callGeminiVisionMulti = async (
   prompt: string,
   images: Array<{ base64: string; mimeType?: string }>,
+  ownerEmail?: string,
 ): Promise<string> => {
-  const storedKeys = readGeminiKeys()
   const envKey = process.env.GEMINI_API_KEY ?? ''
-  const keyEntries: { label: string; key: string }[] = [
-    ...storedKeys,
-    ...(envKey ? [{ label: 'env', key: envKey }] : []),
-  ]
-  if (keyEntries.length === 0) throw new Error('沒有可用的 Gemini API Key')
+  let keyEntries: { label: string; key: string }[]
+  if (ownerEmail) {
+    const personalKey = getUserAiKey(ownerEmail, 'gemini')
+    keyEntries = personalKey
+      ? [{ label: `personal:${ownerEmail}`, key: personalKey }]
+      : [...readGeminiKeys(), ...(envKey ? [{ label: 'env', key: envKey }] : [])]
+  } else {
+    keyEntries = resolveGeminiKeyEntries()
+    if (keyEntries.length === 0 && envKey) keyEntries = [{ label: 'env', key: envKey }]
+  }
+  if (keyEntries.length === 0) throw new Error('沒有可用的 Gemini API Key，請至 AI 模型設定 > 個人 Key 新增 Gemini Key')
   const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
   const taskId = startAiTask('gemini', 'vision-multi', model)
   try {

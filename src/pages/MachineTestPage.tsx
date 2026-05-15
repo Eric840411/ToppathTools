@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { ModelSelector } from '../components/ModelSelector'
+import GeminiSettingsModal from '../components/GeminiSettingsModal'
 import { URL_POOL_DATA } from '../data/urlPoolData'
 import type { UrlPoolEntry } from '../data/urlPoolData'
 import type { AccountInfo } from '../components/JiraAccountModal'
@@ -1038,6 +1039,8 @@ function UrlPoolPickerModal({ workerIndex, onSelect, onClose }: {
 }
 
 export function MachineTestPage({ account }: { account: AccountInfo | null }) {
+  const [hasPersonalGeminiKey, setHasPersonalGeminiKey] = useState<boolean | null>(null)
+  const [showGeminiSettings, setShowGeminiSettings] = useState(false)
   const [lobbyUrls, setLobbyUrls] = useState<string[]>([''])
   const [urlPickerOpen, setUrlPickerOpen] = useState<number | null>(null)
   const [codesText, setCodesText] = useState('')
@@ -1173,6 +1176,16 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
       .then(r => r.json())
       .then((d: { profiles?: MachineProfile[] }) => setProfileList(d.profiles ?? []))
       .catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    fetch('/api/user-ai-keys')
+      .then(r => r.json())
+      .then((d: { ok?: boolean; keys?: { provider: string; label: string; hasKey?: boolean; keyMasked?: string }[] } | { provider: string; label: string; hasKey: boolean }[]) => {
+        const keys = Array.isArray(d) ? d : d.keys ?? []
+        setHasPersonalGeminiKey(keys.some(k => k.provider === 'gemini' && (k.hasKey === true || ('keyMasked' in k && !!k.keyMasked))))
+      })
+      .catch(() => setHasPersonalGeminiKey(false))
   }, [])
 
   useEffect(() => {
@@ -1388,6 +1401,15 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
 
   return (
     <div className="page-layout">
+      {showGeminiSettings && <GeminiSettingsModal onClose={() => setShowGeminiSettings(false)} />}
+      {hasPersonalGeminiKey === false && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: '#92400e', fontSize: 13 }}>
+          <span style={{ flex: 1 }}>⚠️ 尚未設定個人 Gemini Key。AI 功能將使用共用 Key 池（可能影響其他人的配額）。</span>
+          <button type="button" className="btn-ghost" onClick={() => setShowGeminiSettings(true)} style={{ whiteSpace: 'nowrap' }}>
+            前往設定
+          </button>
+        </div>
+      )}
       {/* ── PIN Modal ── */}
       {showPinModal && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowPinModal(false)}>

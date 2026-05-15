@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ModelSelector } from '../components/ModelSelector'
 import { DungeonIcon } from '../components/DungeonIcon'
 import { useIsGameMode } from '../components/GameModeContext'
+import GeminiSettingsModal from '../components/GeminiSettingsModal'
 
 /** Safe ArrayBuffer → base64, works for files of any size */
 function arrayBufferToBase64(buf: ArrayBuffer): string {
@@ -75,6 +76,8 @@ interface GenerateStatusResponse {
 
 export function LarkPage() {
   const isGame = useIsGameMode()
+  const [hasPersonalGeminiKey, setHasPersonalGeminiKey] = useState<boolean | null>(null)
+  const [showGeminiSettings, setShowGeminiSettings] = useState(false)
   const [action, setAction] = useState<ActionType>('generate')
   // Multi-source state
   const [sources, setSources] = useState<SourceEntry[]>([{ id: '1', type: 'lark', url: '' }])
@@ -145,6 +148,13 @@ export function LarkPage() {
         if (d.ok && d.accounts) setJiraAccounts(d.accounts)
       })
       .catch(() => {})
+    fetch('/api/user-ai-keys')
+      .then(r => r.json())
+      .then((d: { ok?: boolean; keys?: { provider: string; label: string; hasKey?: boolean; keyMasked?: string }[] } | { provider: string; label: string; hasKey: boolean }[]) => {
+        const keys = Array.isArray(d) ? d : d.keys ?? []
+        setHasPersonalGeminiKey(keys.some(k => k.provider === 'gemini' && (k.hasKey === true || ('keyMasked' in k && !!k.keyMasked))))
+      })
+      .catch(() => setHasPersonalGeminiKey(false))
   }, [])
 
   useEffect(() => {
@@ -455,6 +465,15 @@ export function LarkPage() {
 
   return (
     <div className="page-layout">
+      {showGeminiSettings && <GeminiSettingsModal onClose={() => setShowGeminiSettings(false)} />}
+      {hasPersonalGeminiKey === false && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: '#92400e', fontSize: 13 }}>
+          <span style={{ flex: 1 }}>⚠️ 尚未設定個人 Gemini Key。AI 功能將使用共用 Key 池（可能影響其他人的配額）。</span>
+          <button type="button" className="btn-ghost" onClick={() => setShowGeminiSettings(true)} style={{ whiteSpace: 'nowrap' }}>
+            前往設定
+          </button>
+        </div>
+      )}
       <div className="section-card">
         <h2 className="section-title">操作類型</h2>
         <div className="action-tabs">
