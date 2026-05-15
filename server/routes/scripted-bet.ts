@@ -300,6 +300,7 @@ router.get('/api/scripted-bet/current', (_req, res) => {
       runState: session.runState,
       statuses: session.runner.snapshot(),
       events: session.events.slice(-300),
+      config: session.config,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
     },

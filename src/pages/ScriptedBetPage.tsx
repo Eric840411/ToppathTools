@@ -44,6 +44,7 @@ interface CurrentSession {
   runState: RunState
   statuses: AccountStatus[]
   events: ScriptedBetEvent[]
+  config?: Partial<ScriptedBetSettings>
 }
 
 interface LocalAgentInfo {
@@ -59,6 +60,49 @@ interface LocalAgentInfo {
 
 interface Props {
   currentAccount: AccountInfo | null
+}
+
+interface ScriptedBetSettings {
+  targetMachineCode: string
+  spinMin: number
+  spinMax: number
+  spinDelayMinMs: number
+  spinDelayMaxMs: number
+  maxExitRetries: number
+  exitFailTouchPointsInput: string
+  headedMode: boolean
+}
+
+const SCRIPTED_BET_SETTINGS_KEY = 'toppath.scriptedBet.settings'
+
+const DEFAULT_SCRIPTED_BET_SETTINGS: ScriptedBetSettings = {
+  targetMachineCode: '873-JJBX-001',
+  spinMin: 3,
+  spinMax: 8,
+  spinDelayMinMs: 800,
+  spinDelayMaxMs: 1500,
+  maxExitRetries: 5,
+  exitFailTouchPointsInput: '',
+  headedMode: true,
+}
+
+function loadScriptedBetSettings(): ScriptedBetSettings {
+  try {
+    const raw = window.localStorage.getItem(SCRIPTED_BET_SETTINGS_KEY)
+    if (!raw) return DEFAULT_SCRIPTED_BET_SETTINGS
+    const parsed = JSON.parse(raw) as Partial<ScriptedBetSettings>
+    return { ...DEFAULT_SCRIPTED_BET_SETTINGS, ...parsed }
+  } catch {
+    return DEFAULT_SCRIPTED_BET_SETTINGS
+  }
+}
+
+function saveScriptedBetSettings(settings: ScriptedBetSettings) {
+  try {
+    window.localStorage.setItem(SCRIPTED_BET_SETTINGS_KEY, JSON.stringify(settings))
+  } catch {
+    // Ignore storage failures so the runner form remains usable in restricted browsers.
+  }
 }
 
 const stateLabel: Record<AccountState, string> = {
@@ -102,16 +146,17 @@ function FlowStep({ n, name, note, active }: { n: number; name: string; note: st
 }
 
 export function ScriptedBetPage({ currentAccount }: Props) {
+  const initialSettings = loadScriptedBetSettings()
   const [rows, setRows] = useState<UrlPoolEntry[]>(() => URL_POOL_DATA.map(r => ({ ...r })))
   const [selected, setSelected] = useState<Set<string>>(() => new Set(URL_POOL_DATA.slice(0, 20).map(r => r.account)))
-  const [targetMachineCode, setTargetMachineCode] = useState('873-JJBX-001')
-  const [spinMin, setSpinMin] = useState(3)
-  const [spinMax, setSpinMax] = useState(8)
-  const [spinDelayMinMs, setSpinDelayMinMs] = useState(800)
-  const [spinDelayMaxMs, setSpinDelayMaxMs] = useState(1500)
-  const [maxExitRetries, setMaxExitRetries] = useState(5)
-  const [exitFailTouchPointsInput, setExitFailTouchPointsInput] = useState('')
-  const [headedMode, setHeadedMode] = useState(true)
+  const [targetMachineCode, setTargetMachineCode] = useState(initialSettings.targetMachineCode)
+  const [spinMin, setSpinMin] = useState(initialSettings.spinMin)
+  const [spinMax, setSpinMax] = useState(initialSettings.spinMax)
+  const [spinDelayMinMs, setSpinDelayMinMs] = useState(initialSettings.spinDelayMinMs)
+  const [spinDelayMaxMs, setSpinDelayMaxMs] = useState(initialSettings.spinDelayMaxMs)
+  const [maxExitRetries, setMaxExitRetries] = useState(initialSettings.maxExitRetries)
+  const [exitFailTouchPointsInput, setExitFailTouchPointsInput] = useState(initialSettings.exitFailTouchPointsInput)
+  const [headedMode, setHeadedMode] = useState(initialSettings.headedMode)
   const [search, setSearch] = useState('')
   const [agents, setAgents] = useState<LocalAgentInfo[]>([])
   const [selectedAgentId, setSelectedAgentId] = useState('')
@@ -126,6 +171,19 @@ export function ScriptedBetPage({ currentAccount }: Props) {
   useEffect(() => {
     runStateRef.current = runState
   }, [runState])
+
+  useEffect(() => {
+    saveScriptedBetSettings({
+      targetMachineCode,
+      spinMin,
+      spinMax,
+      spinDelayMinMs,
+      spinDelayMaxMs,
+      maxExitRetries,
+      exitFailTouchPointsInput,
+      headedMode,
+    })
+  }, [targetMachineCode, spinMin, spinMax, spinDelayMinMs, spinDelayMaxMs, maxExitRetries, exitFailTouchPointsInput, headedMode])
 
   const appendLog = useCallback((event: ScriptedBetEvent) => {
     setLogs(prev => {
@@ -213,6 +271,8 @@ export function ScriptedBetPage({ currentAccount }: Props) {
         setStatuses(session.statuses ?? [])
         setLogs(session.events ?? [])
         setRunState(session.runState)
+        const restoredTarget = session.config?.targetMachineCode || session.statuses?.find(row => row.targetMachineCode)?.targetMachineCode
+        if (restoredTarget) setTargetMachineCode(restoredTarget)
         if (session.runState === 'running') connectSession(session.sessionId)
       })
       .catch(() => {})
@@ -237,6 +297,8 @@ export function ScriptedBetPage({ currentAccount }: Props) {
   const doneCount = statuses.filter(s => s.state === 'done').length
   const failedCount = statuses.filter(s => s.state === 'failed' || s.state === 'skipped').length
   const runningStatus = statuses.find(s => ['opening', 'entering', 'spinning', 'exiting'].includes(s.state))
+  const restoredTargetMachineCode = statuses.find(s => s.targetMachineCode)?.targetMachineCode
+  const flowTargetMachineCode = runningStatus?.targetMachineCode || restoredTargetMachineCode || targetMachineCode
 
   function toggle(account: string) {
     if (runState === 'running') return
@@ -491,7 +553,7 @@ export function ScriptedBetPage({ currentAccount }: Props) {
           <div className="scripted-flow">
             <FlowStep n={1} name="領取帳號" note={runningStatus?.username ?? '等待開始'} active={currentStep === 'opening'} />
             <FlowStep n={2} name="進入大廳" note="等待可操作" active={currentStep === 'opening'} />
-            <FlowStep n={3} name="進入機台" note={targetMachineCode || '-'} active={currentStep === 'entering'} />
+            <FlowStep n={3} name="進入機台" note={flowTargetMachineCode || '-'} active={currentStep === 'entering'} />
             <FlowStep n={4} name="隨機 Spin" note={runningStatus?.spinTarget ? `目標 ${runningStatus.spinTarget} 次` : '每帳號抽一次'} active={currentStep === 'spinning'} />
             <FlowStep n={5} name="退出機台" note="失敗則補 Spin" active={currentStep === 'exiting'} />
             <FlowStep n={6} name="關閉視窗" note="換下一帳號" active={runningStatus?.state === 'done'} />
@@ -560,7 +622,7 @@ export function ScriptedBetPage({ currentAccount }: Props) {
                     </td>
                     <td><code>{row.label}</code></td>
                     <td><span className={statusBadgeClass(state)}>{stateLabel[state]}</span></td>
-                    <td><code>{targetMachineCode || '-'}</code></td>
+                    <td><code>{status?.targetMachineCode || targetMachineCode || '-'}</code></td>
                     <td>
                       <div className="scripted-progress">
                         <span>{spinDone} / {spinTarget}</span>

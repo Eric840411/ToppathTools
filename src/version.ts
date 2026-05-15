@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.26.0'
+export const APP_VERSION = '3.26.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.26.1',
+    date: '2026-05-15',
+    changes: [
+      'fix(exit-test): leaveGMNtc errcode=0 後等 1.5s 再做 DOM 檢查，避免頁面過渡未完成誤判為 WARN',
+      'fix(agent): Headed 模式現在正確讀取 session.headedMode，不再強制 headless',
+    ],
+  },
   {
     version: '3.26.0',
     date: '2026-05-12',

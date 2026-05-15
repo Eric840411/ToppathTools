@@ -2308,7 +2308,8 @@ async function stepExit(page: Page, emit: (msg: string) => void, customExitSel?:
       if (leaveEv.errcode !== 0) {
         return { step: '退出測試', status: 'fail', message: `退出失敗：leaveGMNtc errcode=${leaveEv.errcode} — ${leaveEv.errcodedes}`, durationMs: Date.now() - t0 }
       }
-      // errcode=0 — exit confirmed by server, verify DOM also cleared
+      // errcode=0 — exit confirmed by server, wait for page transition then verify DOM
+      await sleep(1500)
       if (!await isInGame(page)) {
         return { step: '退出測試', status: 'pass', message: '已成功退出至大廳（leaveGMNtc errcode=0）', durationMs: Date.now() - t0 }
       }
@@ -2350,6 +2351,7 @@ async function stepExit(page: Page, emit: (msg: string) => void, customExitSel?:
         if (evAfterClick.errcode !== 0) {
           return { step: '退出測試', status: 'fail', message: `退出失敗：leaveGMNtc errcode=${evAfterClick.errcode} — ${evAfterClick.errcodedes}`, durationMs: Date.now() - t0 }
         }
+        await sleep(1500)
         if (!await isInGame(page)) {
           return { step: '退出測試', status: 'pass', message: '已成功退出至大廳（Exit/Confirm 後收到 leaveGMNtc errcode=0）', durationMs: Date.now() - t0 }
         }
