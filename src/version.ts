@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.26.8'
+export const APP_VERSION = '3.26.9'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.26.9',
+    date: '2026-05-15',
+    changes: [
+      'fix(agent): filter session_start events from agent runner，防止多台機器輪跑時清空前端結果',
+    ],
+  },
   {
     version: '3.26.8',
     date: '2026-05-15',

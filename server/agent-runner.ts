@@ -191,8 +191,9 @@ function connect() {
             currentRunner = runner
 
             runner.on('event', (ev: TestEvent) => {
-              // Filter out session_done — central server emits the unified one
-              if (ev.type === 'session_done') return
+              // Filter out session lifecycle events — central server manages these directly
+              if (ev.type === 'session_done') return   // server emits unified session_done
+              if (ev.type === 'session_start') return  // each machine run() sends one; would clear viewer results
               if (ws.readyState === ws.OPEN) {
                 ws.send(JSON.stringify({ type: 'event', sessionId, event: ev }))
               }
