@@ -199,7 +199,7 @@ function connect() {
             })
 
             // Agent always runs headless — ignore headedMode from main UI
-            await runner.run({ ...session, machineCodes: [code], headedMode: session.headedMode === true })
+            await runner.run({ ...session, sessionId, machineCodes: [code], headedMode: session.headedMode === true })
           } catch (err) {
             console.error(`[Agent:${AGENT_LABEL}] Machine ${code} error:`, err)
             failed = true
