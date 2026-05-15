@@ -727,7 +727,7 @@ router.get('/api/machine-test/cctv-saves/:code', (req, res) => {
 })
 
 // PUT /api/machine-test/cctv-upload?filename=xxx.png — remote agent uploads CCTV screenshot
-router.put('/api/machine-test/cctv-upload', express.raw({ type: 'image/png', limit: '20mb' }), (req, res) => {
+router.put('/api/machine-test/cctv-upload', express.raw({ type: '*/*', limit: '20mb' }), (req, res) => {
   const { filename } = req.query as Record<string, string>
   if (!filename || !filename.endsWith('.png')) {
     res.status(400).json({ ok: false, error: 'missing or invalid filename' }); return
@@ -769,7 +769,7 @@ router.get('/api/machine-test/audio-saves/:code', (req, res) => {
 
 // PUT /api/machine-test/audio-upload?filename=xxx.wav — remote agent uploads WAV to server
 // Body: raw WAV binary (application/octet-stream)
-router.put('/api/machine-test/audio-upload', express.raw({ type: 'audio/wav', limit: '50mb' }), (req, res) => {
+router.put('/api/machine-test/audio-upload', express.raw({ type: '*/*', limit: '50mb' }), (req, res) => {
   const { filename } = req.query as Record<string, string>
   if (!filename || !filename.endsWith('.wav')) {
     res.status(400).json({ ok: false, error: 'missing or invalid filename' }); return

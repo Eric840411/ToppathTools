@@ -133,12 +133,19 @@ async function uploadToServer(buf: Buffer, endpoint: string, filename: string, c
   const centralUrl = process.env.CENTRAL_URL
   if (!centralUrl) return // running as local server, file is already in place
   const httpBase = centralUrl.replace(/^ws(s?):\/\//, 'http$1://').replace(/\/ws\/.*$/, '')
+  const url = `${httpBase}${endpoint}?filename=${encodeURIComponent(filename)}`
   try {
-    await fetch(`${httpBase}${endpoint}?filename=${encodeURIComponent(filename)}`, {
+    const resp = await fetch(url, {
       method: 'PUT',
       headers: { 'Content-Type': contentType },
       body: buf,
     })
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '')
+      console.error(`[Agent] upload HTTP ${resp.status} (${endpoint}): ${text}`)
+    } else {
+      console.log(`[Agent] uploaded ${filename} → ${httpBase}`)
+    }
   } catch (e) {
     console.error(`[Agent] upload failed (${endpoint}):`, e)
   }

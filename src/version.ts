@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.26.2'
+export const APP_VERSION = '3.26.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.26.3',
+    date: '2026-05-15',
+    changes: [
+      'fix(upload): audio/CCTV 上傳端點改用 type:*/* 避免 Content-Type 不匹配被拒；uploadToServer 增加 HTTP 狀態碼 log',
+    ],
+  },
   {
     version: '3.26.2',
     date: '2026-05-15',
