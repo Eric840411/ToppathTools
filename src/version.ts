@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.26.11'
+export const APP_VERSION = '3.26.13'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,20 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.26.13',
+    date: '2026-05-15',
+    changes: [
+      'fix(server): 新增 trust proxy 設定，修正公網 nginx 反向代理下 express-rate-limit X-Forwarded-For 錯誤',
+    ],
+  },
+  {
+    version: '3.26.12',
+    date: '2026-05-15',
+    changes: [
+      'fix(ollama): 縮短 Ollama connect timeout 從 15s → 3s，防止內網 Ollama 不可達時 worker 長時間阻塞',
+    ],
+  },
   {
     version: '3.26.11',
     date: '2026-05-15',

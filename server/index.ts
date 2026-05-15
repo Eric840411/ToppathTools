@@ -45,6 +45,8 @@ process.on('unhandledRejection', (reason) => {
 // ─── Express App ──────────────────────────────────────────────────────────────
 
 const app = express()
+// Trust reverse proxy (nginx) so express-rate-limit reads X-Forwarded-For correctly
+app.set('trust proxy', 1)
 const server = createServer(app)
 const port = Number(process.env.PORT ?? 3000)
 

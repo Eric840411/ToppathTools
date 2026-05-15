@@ -31,7 +31,8 @@ function getKeyLimiter(key: string): Bottleneck {
 }
 
 // Long-timeout agent for Ollama — large models (e.g. gemma4:31b) can take >30s
-const ollamaAgent = new Agent({ headersTimeout: 600_000, bodyTimeout: 600_000, connectTimeout: 15_000 })
+// connectTimeout is short (3s) so unreachable Ollama hosts fail fast and don't block the worker
+const ollamaAgent = new Agent({ headersTimeout: 600_000, bodyTimeout: 600_000, connectTimeout: 3_000 })
 
 export const router = Router()
 
