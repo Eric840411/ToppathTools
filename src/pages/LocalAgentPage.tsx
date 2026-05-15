@@ -79,6 +79,7 @@ export function LocalAgentPage({ currentAccount }: Props) {
   const [status, setStatus] = useState<LocalAgentStatus | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [showRevoked, setShowRevoked] = useState(false)
 
   const refresh = useCallback(() => {
     setLoading(true)
@@ -112,7 +113,15 @@ export function LocalAgentPage({ currentAccount }: Props) {
   const agents = status?.agents ?? []
   const tokens = status?.tokens ?? []
   const activeTokens = tokens.filter(token => !token.revoked)
+  const revokedTokens = tokens.filter(token => token.revoked)
+  const visibleTokens = showRevoked ? tokens : activeTokens
   const readyAgents = agents.filter(agent => !agent.busy)
+  // Build tokenId → hostname map for display
+  const tokenHostnameMap = useMemo(() => {
+    const map: Record<string, string> = {}
+    agents.forEach(agent => { if (agent.tokenId) map[agent.tokenId] = agent.hostname })
+    return map
+  }, [agents])
   const capabilities = useMemo(() => {
     const set = new Set<string>()
     agents.forEach(agent => agent.capabilities.forEach(cap => set.add(cap)))
@@ -206,21 +215,39 @@ export function LocalAgentPage({ currentAccount }: Props) {
             {tokens.length === 0 && (
               <div className="local-agent-empty">尚未建立 token。下載 Local Agent installer 後會出現在這裡。</div>
             )}
-            {tokens.map(token => (
-              <div className="local-agent-token-row" key={token.id}>
-                <div>
-                  <div className="local-agent-token-title">
-                    <span>{token.label || 'Toppath Local Agent'}</span>
-                    <span className={token.revoked ? 'badge badge--error' : token.connected ? 'badge badge--ok' : 'badge'}>{token.revoked ? 'Revoked' : token.connected ? 'Connected' : 'Issued'}</span>
+            {visibleTokens.map(token => {
+              const hostname = tokenHostnameMap[token.id]
+              const shortId = token.id.length > 20 ? token.id.slice(0, 20) + '…' : token.id
+              return (
+                <div className={`local-agent-token-row${token.revoked ? ' local-agent-token-row--revoked' : ''}`} key={token.id}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="local-agent-token-title">
+                      <span>{hostname || token.label || 'Toppath Local Agent'}</span>
+                      <span className={token.revoked ? 'badge badge--error' : token.connected ? 'badge badge--ok' : 'badge'}>
+                        {token.revoked ? 'Revoked' : token.connected ? 'Connected' : 'Issued'}
+                      </span>
+                    </div>
+                    <div className="local-agent-token-meta">
+                      建立：{formatTime(token.createdAt)}
+                      {token.lastSeenAt && <span> · 最後連線：{relativeTime(token.lastSeenAt)}</span>}
+                    </div>
+                    <code title={token.id}>{shortId}</code>
                   </div>
-                  <div className="local-agent-token-meta">建立：{formatTime(token.createdAt)} · 最後連線：{relativeTime(token.lastSeenAt)}</div>
-                  <code>{token.id}</code>
+                  {!token.revoked && (
+                    <button className="btn-ghost local-agent-danger" type="button" onClick={() => revokeToken(token.id)}>撤銷</button>
+                  )}
                 </div>
-                {!token.revoked && (
-                  <button className="btn-ghost local-agent-danger" type="button" onClick={() => revokeToken(token.id)}>撤銷</button>
-                )}
-              </div>
-            ))}
+              )
+            })}
+            {revokedTokens.length > 0 && (
+              <button
+                className="btn-ghost local-agent-revoked-toggle"
+                type="button"
+                onClick={() => setShowRevoked(v => !v)}
+              >
+                {showRevoked ? `▲ 隱藏已撤銷 (${revokedTokens.length})` : `▼ 顯示已撤銷 (${revokedTokens.length})`}
+              </button>
+            )}
           </div>
         </section>
       </div>

@@ -2944,6 +2944,20 @@
   display: inline-block;
   margin-top: 6px;
 }
+.local-agent-token-row--revoked {
+  opacity: 0.45;
+  border-color: #1e2d3d;
+  background: #0c1420;
+}
+.local-agent-revoked-toggle {
+  width: 100%;
+  text-align: center;
+  font-size: 12px;
+  color: #475569;
+  margin-top: 2px;
+  padding: 6px;
+}
+.local-agent-revoked-toggle:hover { color: #94a3b8; }
 .local-agent-danger {
   color: #fca5a5;
   border-color: rgba(239, 68, 68, 0.35);

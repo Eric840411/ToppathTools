@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.26.3'
+export const APP_VERSION = '3.26.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.26.4',
+    date: '2026-05-15',
+    changes: [
+      'ui(local-agent): Token 列表優化 — 顯示機台 hostname、截短 token ID、已撤銷預設隱藏可展開',
+    ],
+  },
   {
     version: '3.26.3',
     date: '2026-05-15',
