@@ -1483,23 +1483,14 @@ async function stepAudio(page: Page, emit: (msg: string) => void, spinAudio?: Sp
       ? (() => { try { mkdirSync(AUDIO_SAVE_DIR, { recursive: true }) } catch {}; return `${AUDIO_SAVE_DIR}\\${sessionPrefix}${machineCode}.wav` })()
       : undefined
 
-    // Check for per-machine reference WAV — if found, use it instead of recording
-    // Note: when a ref exists, stepSpin already skipped live recording so sa is null here
+    // Check for per-machine reference WAV. It is only a comparison baseline;
+    // the actual test result must always come from the live recording.
     const machineType = machineCode ? (machineCode.split('-').find(p => /^[A-Z]+$/.test(p)) ?? '') : ''
     const audioRefPath = machineType ? join(AUDIO_REFS_DIR, `${machineType}.wav`) : ''
-    if (audioRefPath && existsSync(audioRefPath) && !sa) {
-      emit(`使用音頻參考檔（${machineType}.wav）跳過現場錄製`)
-      const refAnalysis = analyzeWav(audioRefPath)
-      sa = {
-        peakDb: refAnalysis.peakDb,
-        rmsDb: refAnalysis.rmsDb,
-        clipRatio: refAnalysis.clipRatio,
-        crestFactor: refAnalysis.crestFactor,
-        spectralCentroid: refAnalysis.spectralCentroid,
-        method: 'vbcable',
-        detail: `${refAnalysis.samples} PCM 樣本（參考檔比對）`,
-        wavBase64: undefined,
-      }
+    let audioRefAnalysis: ReturnType<typeof analyzeWav> | null = null
+    if (audioRefPath && existsSync(audioRefPath)) {
+      audioRefAnalysis = analyzeWav(audioRefPath)
+      emit(`Using audio reference file for comparison: ${machineType}.wav`)
     }
 
     // Save spin recording (already in base64) to local folder
@@ -1579,6 +1570,25 @@ async function stepAudio(page: Page, emit: (msg: string) => void, spinAudio?: Sp
 
         const blStr = bl !== undefined && isFinite(bl) ? `，基準 ${bl.toFixed(1)} dB` : ''
         const centroid = sa.spectralCentroid ?? 0
+        if (audioRefAnalysis) {
+          const refRms = audioRefAnalysis.rmsDb
+          const refPeak = audioRefAnalysis.peakDb
+          const refCentroid = audioRefAnalysis.spectralCentroid
+          const rmsDelta = isFinite(rmsDb) && isFinite(refRms) ? Math.abs(rmsDb - refRms) : 0
+          const peakDelta = isFinite(sa.peakDb) && isFinite(refPeak) ? Math.abs(sa.peakDb - refPeak) : 0
+          const centroidDelta = centroid > 0 && refCentroid > 0 ? Math.abs(centroid - refCentroid) : 0
+
+          if (rmsDelta > 10) {
+            issues.push(`音頻與參考檔 RMS 差異過大（actual ${rmsDb.toFixed(1)} dB / ref ${refRms.toFixed(1)} dB / delta ${rmsDelta.toFixed(1)} dB）`)
+          }
+          if (peakDelta > 10) {
+            issues.push(`音頻與參考檔 peak 差異過大（actual ${sa.peakDb.toFixed(1)} dB / ref ${refPeak.toFixed(1)} dB / delta ${peakDelta.toFixed(1)} dB）`)
+          }
+          if (centroidDelta > 1200) {
+            issues.push(`音色與參考檔差異過大（actual ${centroid.toFixed(0)} Hz / ref ${refCentroid.toFixed(0)} Hz）`)
+          }
+          emit(`Audio reference comparison (${machineType}.wav): actual RMS ${isFinite(rmsDb) ? rmsDb.toFixed(1) : '-'} dB / ref ${isFinite(refRms) ? refRms.toFixed(1) : '-'} dB, actual peak ${isFinite(sa.peakDb) ? sa.peakDb.toFixed(1) : '-'} dB / ref ${isFinite(refPeak) ? refPeak.toFixed(1) : '-'} dB`)
+        }
         if (isFinite(rmsDb) && rmsDb > RMS_MIN_DB && centroid >= CENTROID_WARN) {
           issues.push(`音色偏亮/清脆（頻譜重心 ${centroid.toFixed(0)} Hz，閾值 < ${CENTROID_WARN} Hz）`)
         }
@@ -2326,6 +2336,27 @@ async function stepExit(page: Page, emit: (msg: string) => void, customExitSel?:
       emit(`點擊確認對話框`)
     }
 
+    if (exitClicked || confirmClicked) {
+      emit(`Exit/Confirm clicked, waiting up to 10s for leaveGMNtc...`)
+      const evAfterClick = await Promise.race([
+        leaveEv2Promise,
+        new Promise<null>(r => setTimeout(() => r(null), 10000)),
+      ])
+      if (evAfterClick) {
+        emit(`leaveGMNtc errcode=${evAfterClick.errcode}: ${evAfterClick.errcodedes}`)
+        if (evAfterClick.errcode === 10002) {
+          return { step: '退出測試', status: 'fail', message: '退出被拒絕：遊戲正在運行中 (leaveGMNtc errcode 10002)', durationMs: Date.now() - t0 }
+        }
+        if (evAfterClick.errcode !== 0) {
+          return { step: '退出測試', status: 'fail', message: `退出失敗：leaveGMNtc errcode=${evAfterClick.errcode} — ${evAfterClick.errcodedes}`, durationMs: Date.now() - t0 }
+        }
+        if (!await isInGame(page)) {
+          return { step: '退出測試', status: 'pass', message: '已成功退出至大廳（Exit/Confirm 後收到 leaveGMNtc errcode=0）', durationMs: Date.now() - t0 }
+        }
+        return { step: '退出測試', status: 'warn', message: 'Exit/Confirm 後收到 leaveGMNtc errcode=0，但 DOM 仍顯示在遊戲內', durationMs: Date.now() - t0 }
+      }
+    }
+
     // Poll for up to 12s — page transition to lobby can take longer than a fixed 3s sleep
     // Also race against the re-armed leaveGMNtc listener so errcode is captured
     const exitDeadline = Date.now() + 12000
@@ -2572,13 +2603,9 @@ export class MachineTestRunner extends EventEmitter {
           }
 
           const spinAudioRef: SpinAudioRef = { data: null }
-          // If an audio reference file exists for this machine type, skip live spin recording
-          // stepAudio will use the ref file directly (spinAudioRef.data stays null → !sa check passes)
-          const _machineTypeForAudioRef = machineCode.split('-').find((p: string) => /^[A-Z]+$/.test(p)) ?? ''
-          const _hasAudioRef = !!_machineTypeForAudioRef && existsSync(join(AUDIO_REFS_DIR, `${_machineTypeForAudioRef}.wav`))
           if (steps.spin) {
             await checkOsm()
-            const r3 = await stepSpin(page, emit, profile?.spinSelector ?? null, profile?.balanceSelector ?? null, (steps.audio && !_hasAudioRef) ? spinAudioRef : undefined, aiAudio)
+            const r3 = await stepSpin(page, emit, profile?.spinSelector ?? null, profile?.balanceSelector ?? null, steps.audio ? spinAudioRef : undefined, aiAudio)
             stepResults.push(r3)
             this.log(`${workerTag} [${r3.status.toUpperCase()}] Spin: ${r3.message}`, machineCode)
           }

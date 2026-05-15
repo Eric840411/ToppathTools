@@ -1227,7 +1227,8 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
   const capturedSheetUrlRef = useRef('')
   const capturedRowMapRef = useRef<Record<string, number>>({})
   const writebackCountRef = useRef(0)
-  const [agentStatus, setAgentStatus] = useState<{ agentId: string; hostname: string; busy: boolean }[]>([])
+  const [agentStatus, setAgentStatus] = useState<{ agentId: string; hostname: string; busy: boolean; capabilities?: string[] }[]>([])
+  const [selectedAgentId, setSelectedAgentId] = useState('')
 
   // Poll agent + session status every 5s;
   // on first load show a banner if a session is already active (don't auto-connect)
@@ -1236,8 +1237,13 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
     const check = (isFirstLoad = false) => {
       fetch('/api/machine-test/status')
         .then(r => r.json())
-        .then((d: { ok?: boolean; active?: boolean; sessionId?: string; agents?: { agentId: string; hostname: string; busy: boolean }[] }) => {
-          setAgentStatus(d.agents ?? [])
+        .then((d: { ok?: boolean; active?: boolean; sessionId?: string; agents?: { agentId: string; hostname: string; busy: boolean; capabilities?: string[] }[] }) => {
+          const nextAgents = d.agents ?? []
+          setAgentStatus(nextAgents)
+          setSelectedAgentId(current => {
+            if (current && nextAgents.some(agent => agent.agentId === current && !agent.busy)) return current
+            return nextAgents.find(agent => !agent.busy)?.agentId ?? nextAgents[0]?.agentId ?? ''
+          })
           if (isFirstLoad && !didInitCheck.current) {
             didInitCheck.current = true
             if (d.active && d.sessionId) {
@@ -1447,7 +1453,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
     const resp = await fetch('/api/machine-test/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-admin-pin': adminPin },
-      body: JSON.stringify({ lobbyUrls: lobbyUrls.filter(u => u.trim()), machineCodes, steps, osmEnv, account: account?.email ?? '', ...(headedMode ? { headedMode: true } : {}), ...(aiAudio && steps.audio ? { aiAudio: true } : {}), ...(debugMode && debugGmid.trim() ? { debugGmid: debugGmid.trim() } : {}), ...(steps.cctv ? { cctvModelSpec: cctvModel } : {}) }),
+      body: JSON.stringify({ lobbyUrls: lobbyUrls.filter(u => u.trim()), machineCodes, steps, osmEnv, account: account?.email ?? '', ...(selectedAgentId ? { agentId: selectedAgentId } : {}), ...(headedMode ? { headedMode: true } : {}), ...(aiAudio && steps.audio ? { aiAudio: true } : {}), ...(debugMode && debugGmid.trim() ? { debugGmid: debugGmid.trim() } : {}), ...(steps.cctv ? { cctvModelSpec: cctvModel } : {}) }),
     }).then(r => r.json()) as { ok: boolean; sessionId?: string; message?: string }
 
     if (!resp.ok || !resp.sessionId) {
@@ -1928,6 +1934,19 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
                 </span>
               ))}
             </div>
+          )}
+          {agentStatus.length > 0 && (
+            <label className="field" style={{ marginBottom: 8 }}>
+              <span>執行 Agent</span>
+              <select value={selectedAgentId} disabled={running} onChange={e => setSelectedAgentId(e.target.value)}>
+                {agentStatus.map(agent => (
+                  <option key={agent.agentId} value={agent.agentId}>
+                    {agent.hostname}{agent.busy ? ' - busy' : ' - ready'}
+                  </option>
+                ))}
+              </select>
+              <span className="field-hint">選擇這次 Machine Test 要使用的本機 Agent。</span>
+            </label>
           )}
 
           {!account && (

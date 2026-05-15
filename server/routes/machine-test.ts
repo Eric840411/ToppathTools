@@ -12,8 +12,11 @@ import {
   db,
   addHistory,
   browserLimiter,
+  createLocalAgentToken,
   getLarkToken,
+  listLocalAgentTokens,
   parseLarkSheetUrl,
+  revokeLocalAgentToken,
   upload,
 } from '../shared.js'
 import { readGeminiKeys } from './gemini.js'
@@ -29,6 +32,7 @@ import {
   agentConnections,
 } from '../agent-hub.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
+import { getOperatorFromContext, type OperatorInfo } from '../request-context.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -46,6 +50,8 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'machine-test/record-spin.ps1':  join(SERVER_ROOT, 'machine-test', 'record-spin.ps1'),
   'machine-test/record-audio.ps1': join(SERVER_ROOT, 'machine-test', 'record-audio.ps1'),
   'machine-test/set-audio-device.ps1': join(SERVER_ROOT, 'machine-test', 'set-audio-device.ps1'),
+  'scripted-bet/runner.ts':        join(SERVER_ROOT, 'scripted-bet', 'runner.ts'),
+  'scripted-bet/types.ts':         join(SERVER_ROOT, 'scripted-bet', 'types.ts'),
 }
 
 export const router = Router()
@@ -187,7 +193,8 @@ export const osmJackpotState = new Map<number, OsmJackpotEntry>()
 
 // ?????? Active Runners ??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????
 
-export const activeRunners = new Map<string, { stop: () => void; account: string; heavyTask?: HeavyTaskToken }>()
+export const activeRunners = new Map<string, { stop: () => void; account: string; heavyTask?: HeavyTaskToken; operator?: OperatorInfo }>()
+const sessionOperators = new Map<string, OperatorInfo>()
 
 const machineTestSessionSchema = z.object({
   lobbyUrls: z.array(z.string().url()).min(1),
@@ -203,6 +210,7 @@ const machineTestSessionSchema = z.object({
     exit: z.boolean(),
   }),
   account: z.string().optional(),
+  agentId: z.string().optional(),
   debugGmid: z.string().optional(),
   cctvModelSpec: z.string().optional(),
   headedMode: z.boolean().optional(),
@@ -218,6 +226,7 @@ interface ImageCheckSession {
   browser: import('playwright').Browser
   page: import('playwright').Page
   startedAt: number
+  operator?: OperatorInfo
 }
 
 const imageCheckSessions = new Map<string, ImageCheckSession>()
@@ -446,7 +455,7 @@ router.post('/api/image-check/start', async (req, res, next) => {
     } catch { /* timeout ok */ }
 
     const sessionId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
-    imageCheckSessions.set(sessionId, { deletedImages, loadedImageUrls, browser, page, startedAt: Date.now() })
+    imageCheckSessions.set(sessionId, { deletedImages, loadedImageUrls, browser, page, startedAt: Date.now(), operator: getOperatorFromContext() })
 
     // Auto-cleanup after 30 minutes
     setTimeout(async () => {
@@ -523,7 +532,8 @@ router.post('/api/image-check/stop/:id', async (req, res) => {
     'image-check',
     'Image Check',
     `checked ${results.length}, found ${foundCount}, missing ${results.length - foundCount}`,
-    { results, loadedImageCount: s.loadedImageUrls.length },
+    { results, loadedImageCount: s.loadedImageUrls.length, operator: s.operator },
+    { operator: s.operator },
   )
   res.json({ ok: true, results, loadedImageCount: s.loadedImageUrls.length, foundCount, checkedCount: results.length })
 })
@@ -692,15 +702,24 @@ function purgeOldMediaFiles() {
 purgeOldMediaFiles()
 setInterval(purgeOldMediaFiles, 24 * 60 * 60 * 1000)
 
-// GET /api/machine-test/cctv-saves/:code?sessionId=xxx ??serve CCTV screenshot
-// Falls back to legacy {code}.png if sessionId-prefixed file not found
+// GET /api/machine-test/cctv-saves/:code?sessionId=xxx — serve CCTV screenshot
+// Fallback order: sessionId-prefixed → exact match → newest *-{code}.png in dir
 router.get('/api/machine-test/cctv-saves/:code', (req, res) => {
   const { code } = req.params
   const { sessionId } = req.query as Record<string, string>
   const candidates = sessionId
     ? [join(CCTV_SAVES_DIR, `${sessionId}-${code}.png`), join(CCTV_SAVES_DIR, `${code}.png`)]
     : [join(CCTV_SAVES_DIR, `${code}.png`)]
-  const filePath = candidates.find(existsSync)
+  let filePath = candidates.find(existsSync)
+  // Last resort: scan dir for any *-{code}.png, pick the newest one
+  if (!filePath && existsSync(CCTV_SAVES_DIR)) {
+    const suffix = `-${code}.png`
+    const matches = readdirSync(CCTV_SAVES_DIR)
+      .filter(f => f.endsWith(suffix))
+      .map(f => ({ f, mtime: statSync(join(CCTV_SAVES_DIR, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime)
+    if (matches.length > 0) filePath = join(CCTV_SAVES_DIR, matches[0].f)
+  }
   if (!filePath) { res.status(404).end(); return }
   res.setHeader('Content-Type', 'image/png')
   res.setHeader('Cache-Control', 'no-cache')
@@ -723,15 +742,24 @@ router.put('/api/machine-test/cctv-upload', express.raw({ type: 'image/png', lim
   }
 })
 
-// GET /api/machine-test/audio-saves/:code?sessionId=xxx ??serve audio recording
-// Falls back to legacy {code}.wav if sessionId-prefixed file not found
+// GET /api/machine-test/audio-saves/:code?sessionId=xxx — serve audio recording
+// Fallback order: sessionId-prefixed → exact match → newest *-{code}.wav in dir
 router.get('/api/machine-test/audio-saves/:code', (req, res) => {
   const { code } = req.params
   const { sessionId } = req.query as Record<string, string>
   const candidates = sessionId
     ? [join(AUDIO_SAVES_DIR, `${sessionId}-${code}.wav`), join(AUDIO_SAVES_DIR, `${code}.wav`)]
     : [join(AUDIO_SAVES_DIR, `${code}.wav`)]
-  const filePath = candidates.find(existsSync)
+  let filePath = candidates.find(existsSync)
+  // Last resort: scan dir for any *-{code}.wav, pick the newest one
+  if (!filePath && existsSync(AUDIO_SAVES_DIR)) {
+    const suffix = `-${code}.wav`
+    const matches = readdirSync(AUDIO_SAVES_DIR)
+      .filter(f => f.endsWith(suffix))
+      .map(f => ({ f, mtime: statSync(join(AUDIO_SAVES_DIR, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime)
+    if (matches.length > 0) filePath = join(AUDIO_SAVES_DIR, matches[0].f)
+  }
   if (!filePath) { res.status(404).end(); return }
   res.setHeader('Content-Type', 'audio/wav')
   res.setHeader('Cache-Control', 'no-cache')
@@ -837,7 +865,11 @@ router.get('/api/machine-test/osm-status-stream', (req, res) => {
 
 // GET /api/machine-test/queue-status ??current work-stealing queue state
 router.get('/api/machine-test/queue-status', (_req, res) => {
-  const sessionId = [...activeRunners.keys()][0] ?? null
+  const operator = getOperatorFromContext()
+  const sessionId = [...activeRunners.entries()].find(([, runner]) => {
+    if (!operator?.key) return false
+    return runner.operator?.key === operator.key
+  })?.[0] ?? null
   if (!sessionId) return res.json({ ok: true, sessionId: null, statuses: [] })
   const statuses = getJobStatuses(sessionId)
   res.json({ ok: true, sessionId, statuses: statuses ?? [] })
@@ -855,6 +887,8 @@ router.post('/api/machine-test/start', async (req, res, next) => {
       return res.status(403).json({ ok: false, message: '??????PIN ????' })
     }
     const session = machineTestSessionSchema.parse(req.body) as MachineTestSession
+    const operator = getOperatorFromContext()
+    session.operator = operator
     const sessionAccount = session.account ?? 'guest'
 
     // Per-account lock: each account can only run one session at a time
@@ -867,6 +901,7 @@ router.post('/api/machine-test/start', async (req, res, next) => {
     if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
 
     const sessionId = `mt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+    if (operator) sessionOperators.set(sessionId, operator)
     const rawProfiles = db.prepare('SELECT * FROM machine_test_profiles').all() as (MachineTestProfile & { touchPoints: string | null; clickTake: number; ideck_xpaths?: string })[]
     const profiles = rawProfiles.map(r => ({
       ...r,
@@ -891,7 +926,28 @@ router.post('/api/machine-test/start', async (req, res, next) => {
     // Clear broadcast buffer so fresh viewers get only this session's events
     clearBroadcastBuffer()
 
-    const availableAgents = getAvailableAgents()
+    const selectedAgentId = session.agentId?.trim()
+    const availableAgents = operator?.key
+      ? getAvailableAgents({
+        operatorKey: operator.key,
+        capability: 'machine-test',
+        ...(selectedAgentId ? { agentId: selectedAgentId } : {}),
+      })
+      : []
+    const requiresOwnedAgent =
+      process.env.MACHINE_TEST_LOCAL_AGENT_ONLY === 'true' ||
+      (!!operator?.key && agentConnections.size > 0)
+
+    if (requiresOwnedAgent && availableAgents.length === 0) {
+      finishHeavyTask(heavyTask.token)
+      sessionOperators.delete(sessionId)
+      return res.status(409).json({
+        ok: false,
+        message: selectedAgentId
+          ? 'Selected Machine Test Agent is not available'
+          : 'No available Machine Test Agent for current operator',
+      })
+    }
 
     if (availableAgents.length > 0) {
       // ???? Distributed: work-stealing queue ??agents claim one machine at a time ??
@@ -937,6 +993,7 @@ router.post('/api/machine-test/start', async (req, res, next) => {
 
       activeRunners.set(sessionId, {
         account: sessionAccount,
+        operator,
         stop: () => {
           agentStopFns.forEach(fn => fn())
           cancelDistSession(sessionId)
@@ -953,6 +1010,7 @@ router.post('/api/machine-test/start', async (req, res, next) => {
       runner.on('event', broadcastToViewers)
       activeRunners.set(sessionId, {
         account: sessionAccount,
+        operator,
         stop: () => runner.stop(),
         heavyTask: heavyTask.token,
       })
@@ -970,16 +1028,27 @@ router.post('/api/machine-test/start', async (req, res, next) => {
 // POST /api/machine-test/save-history ??frontend calls this when session ends
 router.post('/api/machine-test/save-history', (req, res) => {
   try {
-    const { results, account, accountLabel, sessionId } = z.object({
+    const { results, account, accountLabel, sessionId, operator: bodyOperator } = z.object({
       results: z.array(z.record(z.string(), z.unknown())),
       account: z.string().optional(),
       accountLabel: z.string().optional(),
       sessionId: z.string().optional(),
+      operator: z.object({
+        key: z.string().optional().default(''),
+        name: z.string().optional().default(''),
+      }).optional(),
     }).parse(req.body)
+    const frozenOperator = bodyOperator ?? (sessionId ? sessionOperators.get(sessionId) : undefined) ?? getOperatorFromContext()
     const pass = results.filter((r) => r.overall === 'pass').length
     const fail = results.filter((r) => r.overall === 'fail').length
     const warn = results.filter((r) => r.overall === 'warn').length
-    addHistory('machine-test', 'Machine Test', `saved ${results.length} results, PASS ${pass} / WARN ${warn} / FAIL ${fail}`, { results, account, accountLabel })
+    addHistory(
+      'machine-test',
+      'Machine Test',
+      `saved ${results.length} results, PASS ${pass} / WARN ${warn} / FAIL ${fail}`,
+      { results, account, accountLabel, sessionId, operator: frozenOperator },
+      { operator: frozenOperator },
+    )
 
     const sid = sessionId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     const now = Date.now()
@@ -1013,6 +1082,7 @@ router.post('/api/machine-test/save-history', (req, res) => {
       }
     })
     insertMany(results)
+    sessionOperators.delete(sid)
 
     res.json({ ok: true })
   } catch (err) {
@@ -1124,6 +1194,11 @@ router.get('/api/machine-test/agent/install.bat', (req, res) => {
   const proto = req.headers['x-forwarded-proto'] ?? req.protocol ?? 'http'
   const host  = req.headers['x-forwarded-host'] ?? req.headers.host ?? 'localhost:3000'
   const serverUrl = process.env.TOPPATH_BASE_URL ?? `${proto}://${host}`
+  const operator = getOperatorFromContext()
+  const agentOwnerKey = operator?.key ?? ''
+  const agentOwnerName = operator?.name ?? agentOwnerKey
+  const agentToken = createLocalAgentToken(operator, 'Toppath Local Agent')
+  if (!agentToken) return res.status(401).json({ ok: false, message: 'login required to create local agent installer' })
 
   const sourceFiles = Object.keys(AGENT_SOURCE_WHITELIST)
   const downloadLines = sourceFiles.map(f => {
@@ -1140,7 +1215,7 @@ router.get('/api/machine-test/agent/install.bat', (req, res) => {
     'setlocal enabledelayedexpansion',
     'echo.',
     'echo ===================================================',
-    'echo  Machine Test Agent - Installer',
+    'echo  Toppath Local Agent - Installer',
     'echo ===================================================',
     'echo.',
     '',
@@ -1193,7 +1268,12 @@ router.get('/api/machine-test/agent/install.bat', (req, res) => {
     '  echo @echo off',
     '  echo cd /d %%~dp0',
     `  echo set CENTRAL_URL=${serverUrl}`,
-    '  echo echo Starting Machine Test Agent...',
+    `  echo set AGENT_OWNER_KEY=${agentOwnerKey}`,
+    `  echo set AGENT_OWNER_NAME=${agentOwnerName}`,
+    `  echo set AGENT_TOKEN=${agentToken?.token ?? ''}`,
+    '  echo set AGENT_LABEL=%COMPUTERNAME%',
+    '  echo set AGENT_CAPABILITIES=machine-test,scripted-bet',
+    '  echo echo Starting Toppath Local Agent...',
     '  echo npx tsx server/agent-runner.ts',
     '  echo if %%errorlevel%% neq 0 pause',
     ') > "%AGENT_DIR%\\start.bat"',
@@ -1205,7 +1285,7 @@ router.get('/api/machine-test/agent/install.bat', (req, res) => {
     'echo.',
     `echo  Server: ${serverUrl}`,
     'echo.',
-    'echo  To start the agent, run:',
+    'echo  To start the local agent, run:',
     'echo    C:\\machine-test-agent\\start.bat',
     'echo.',
     'echo  [Audio test] Install VB-Cable virtual audio device:',
@@ -1224,13 +1304,82 @@ router.get('/api/machine-test/agent/install.bat', (req, res) => {
 
 // GET /api/machine-test/status ??current session and agent status
 router.get('/api/machine-test/status', (_req, res) => {
-  const agents = [...agentConnections.values()].map(a => ({
+  const operator = getOperatorFromContext()
+  const visibleAgents = [...agentConnections.values()].filter(a => {
+    if (!operator?.key) return false
+    return a.ownerKey === operator.key
+  })
+  const agents = visibleAgents.map(a => ({
     agentId: a.agentId,
     hostname: a.hostname,
+    ownerKey: a.ownerKey,
+    ownerName: a.ownerName,
+    capabilities: a.capabilities,
+    connectedAt: a.connectedAt,
+    lastSeenAt: a.lastSeenAt,
     busy: a.busy,
   }))
-  const activeSessionId = activeRunners.size > 0 ? [...activeRunners.keys()][0] : null
-  res.json({ ok: true, active: activeRunners.size > 0, sessionId: activeSessionId, agents })
+  const activeEntry = [...activeRunners.entries()].find(([, runner]) => {
+    if (!operator?.key) return false
+    return runner.operator?.key === operator.key
+  })
+  const activeSessionId = activeEntry?.[0] ?? null
+  res.json({ ok: true, active: !!activeSessionId, sessionId: activeSessionId, agents })
+})
+
+router.get('/api/local-agent/status', (_req, res) => {
+  const operator = getOperatorFromContext()
+  if (!operator?.key) {
+    return res.json({ ok: true, operator: null, agents: [], tokens: [], counts: { connected: 0, ready: 0, busy: 0, tokens: 0 } })
+  }
+  const agents = [...agentConnections.values()]
+    .filter(agent => agent.ownerKey === operator.key)
+    .map(agent => ({
+      agentId: agent.agentId,
+      hostname: agent.hostname,
+      ownerName: agent.ownerName,
+      tokenId: agent.tokenId,
+      capabilities: agent.capabilities,
+      version: agent.version,
+      busy: agent.busy,
+      sessionId: agent.sessionId,
+      connectedAt: agent.connectedAt,
+      lastSeenAt: agent.lastSeenAt,
+    }))
+  const tokens = listLocalAgentTokens(operator).map(token => ({
+    id: token.id,
+    label: token.label,
+    ownerName: token.owner_name,
+    revoked: !!token.revoked,
+    createdAt: token.created_at,
+    lastSeenAt: token.last_seen_at,
+    connected: agents.some(agent => agent.tokenId === token.id),
+  }))
+  res.json({
+    ok: true,
+    operator,
+    agents,
+    tokens,
+    counts: {
+      connected: agents.length,
+      ready: agents.filter(agent => !agent.busy).length,
+      busy: agents.filter(agent => agent.busy).length,
+      tokens: tokens.filter(token => !token.revoked).length,
+    },
+  })
+})
+
+router.post('/api/local-agent/tokens/:id/revoke', (req, res) => {
+  const operator = getOperatorFromContext()
+  const ok = revokeLocalAgentToken(operator, req.params.id)
+  if (!ok) return res.status(404).json({ ok: false, message: 'token not found' })
+  for (const [agentId, agent] of agentConnections.entries()) {
+    if (agent.tokenId === req.params.id && agent.ws.readyState === agent.ws.OPEN) {
+      agent.ws.close(1008, 'Agent token revoked')
+      agentConnections.delete(agentId)
+    }
+  }
+  res.json({ ok: true })
 })
 
 // GET /api/settings/tunnel-url ??get current tunnel webhook URL

@@ -10,18 +10,32 @@
  * Optional env vars:
  *   CENTRAL_URL    WebSocket URL of the central server (default: ws://localhost:3000)
  *   AGENT_LABEL    Display name for this agent (default: machine hostname)
+ *   AGENT_OWNER_KEY   Operator key this agent belongs to
+ *   AGENT_OWNER_NAME  Operator display name
+ *   AGENT_TOKEN       Local Agent registration token
+ *   AGENT_CAPABILITIES Comma-separated capability list (default: machine-test,scripted-bet)
  *   GEMINI_API_KEY Gemini API key for CCTV vision test (optional)
  */
 import WebSocket from 'ws'
 import { hostname } from 'os'
 import { MachineTestRunner } from './machine-test/runner.js'
 import type { MachineTestSession, MachineProfile, TestEvent } from './machine-test/types.js'
+import { ScriptedBetRunner } from './scripted-bet/runner.js'
+import type { ScriptedBetAccount, ScriptedBetConfig, ScriptedBetEvent } from './scripted-bet/types.js'
 
 const CENTRAL_URL = (process.env.CENTRAL_URL ?? 'ws://localhost:3000').trim().replace(/\/$/, '')
 const AGENT_LABEL = process.env.AGENT_LABEL ?? hostname()
 const AGENT_ID = `${AGENT_LABEL}_${process.pid}`
+const AGENT_OWNER_KEY = (process.env.AGENT_OWNER_KEY ?? '').trim()
+const AGENT_OWNER_NAME = (process.env.AGENT_OWNER_NAME ?? AGENT_OWNER_KEY).trim()
+const AGENT_TOKEN = (process.env.AGENT_TOKEN ?? '').trim()
+const AGENT_CAPABILITIES = (process.env.AGENT_CAPABILITIES ?? 'machine-test,scripted-bet')
+  .split(',')
+  .map(value => value.trim())
+  .filter(Boolean)
+const AGENT_VERSION = '2026-05-agent-owner-v1'
 
-let currentRunner: MachineTestRunner | null = null
+let currentRunner: { stop: () => void } | null = null
 
 interface SessionJoinMessage {
   type: 'session_join'
@@ -36,8 +50,16 @@ interface SessionJoinMessage {
   ollamaModel?: string
 }
 
+interface ScriptedBetStartMessage {
+  type: 'scripted_bet_start'
+  sessionId: string
+  accounts: ScriptedBetAccount[]
+  config: ScriptedBetConfig
+}
+
 type IncomingMessage =
   | SessionJoinMessage
+  | ScriptedBetStartMessage
   | { type: 'job_assigned'; machineCode: string }
   | { type: 'no_more_jobs' }
   | { type: 'stop' }
@@ -53,7 +75,16 @@ function connect() {
 
   ws.on('open', () => {
     console.log(`[Agent:${AGENT_LABEL}] Connected — ready`)
-    ws.send(JSON.stringify({ type: 'agent_ready', agentId: AGENT_ID, hostname: AGENT_LABEL }))
+    ws.send(JSON.stringify({
+      type: 'agent_ready',
+      agentId: AGENT_ID,
+      hostname: AGENT_LABEL,
+      operatorKey: AGENT_OWNER_KEY,
+      operatorName: AGENT_OWNER_NAME,
+      agentToken: AGENT_TOKEN,
+      capabilities: AGENT_CAPABILITIES,
+      version: AGENT_VERSION,
+    }))
   })
 
   ws.on('message', async (raw) => {
@@ -84,6 +115,44 @@ function connect() {
     }
 
     // ── Session join: start claim-loop for the given session ──────────────────
+    if (msg.type === 'scripted_bet_start') {
+      const { sessionId, accounts, config } = msg as ScriptedBetStartMessage
+      console.log(`[Agent:${AGENT_LABEL}] Scripted Bet session ${sessionId} started (${accounts.length} accounts)`)
+      const runner = new ScriptedBetRunner(sessionId, accounts, config)
+      currentRunner = runner
+
+      runner.on('event', (ev: ScriptedBetEvent) => {
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: 'scripted_bet_event', sessionId, event: ev }))
+        }
+      })
+
+      runner.run()
+        .catch(err => {
+          console.error(`[Agent:${AGENT_LABEL}] Scripted Bet ${sessionId} error:`, err)
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'scripted_bet_event',
+              sessionId,
+              event: {
+                type: 'error',
+                sessionId,
+                status: 'stopped',
+                message: String(err),
+                ts: new Date().toISOString(),
+              } satisfies ScriptedBetEvent,
+            }))
+          }
+        })
+        .finally(() => {
+          if (currentRunner === runner) currentRunner = null
+          if (ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ type: 'scripted_bet_done', sessionId }))
+          }
+        })
+      return
+    }
+
     if (msg.type === 'session_join') {
       const { sessionId, session, profiles, betRandomConfig, osmMachineStatus, geminiKey, ollamaBaseUrl, ollamaModel } = msg as SessionJoinMessage
 

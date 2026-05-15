@@ -41,10 +41,10 @@ export interface GeminiKey { label: string; key: string }
 export interface GeminiPrompt { id: string; name: string; template: string; category: string }
 
 type AiProvider = 'gemini' | 'openai' | 'ollama'
-type AiKind = 'text' | 'vision'
+type AiKind = 'text' | 'vision' | 'vision-multi'
 type AiTaskStatus = 'running' | 'done' | 'error'
 
-interface AiTask {
+export interface AiTask {
   id: string
   provider: AiProvider
   kind: AiKind
@@ -77,6 +77,41 @@ function cleanupAiTasks() {
     if (task.status !== 'running' && now - (task.endedAt ?? task.startedAt) > AI_TASK_TTL_MS) {
       aiTaskStore.delete(id)
     }
+  }
+}
+
+export function getAiAgentMonitorSnapshot() {
+  cleanupAiTasks()
+  const tasks = [...aiTaskStore.values()].sort((a, b) => b.startedAt - a.startedAt)
+  const running = tasks.filter(t => t.status === 'running')
+  return {
+    ok: true,
+    runningCount: running.length,
+    runningByProvider: {
+      gemini: running.filter(t => t.provider === 'gemini').length,
+      openai: running.filter(t => t.provider === 'openai').length,
+      ollama: running.filter(t => t.provider === 'ollama').length,
+    },
+    latest: tasks.slice(0, 20),
+  }
+}
+
+type AiAgentMonitorSnapshot = ReturnType<typeof getAiAgentMonitorSnapshot>
+
+function workerUrl() {
+  return (process.env.WORKER_URL ?? 'http://127.0.0.1:3010').replace(/\/$/, '')
+}
+
+async function getWorkerAiAgentMonitorSnapshot(): Promise<AiAgentMonitorSnapshot | null> {
+  try {
+    const response = await fetch(`${workerUrl()}/internal/ai-agent/monitor`, {
+      signal: AbortSignal.timeout(1200),
+    })
+    if (!response.ok) return null
+    const snapshot = await response.json() as AiAgentMonitorSnapshot
+    return snapshot?.ok ? snapshot : null
+  } catch {
+    return null
   }
 }
 
@@ -694,18 +729,20 @@ router.get('/api/models/available', async (_req: import('express').Request, res)
 
 // GET /api/ai-agent/monitor
 // Global monitor for all AI agent calls (Gemini/OpenAI/Ollama).
-router.get('/api/ai-agent/monitor', (_req, res) => {
-  cleanupAiTasks()
-  const tasks = [...aiTaskStore.values()].sort((a, b) => b.startedAt - a.startedAt)
-  const running = tasks.filter(t => t.status === 'running')
-  const latest = tasks.slice(0, 20)
+router.get('/api/ai-agent/monitor', async (_req, res) => {
+  const local = getAiAgentMonitorSnapshot()
+  const worker = await getWorkerAiAgentMonitorSnapshot()
+  const latest = [...local.latest, ...(worker?.latest ?? [])]
+    .sort((a, b) => b.startedAt - a.startedAt)
+    .slice(0, 20)
+
   res.json({
     ok: true,
-    runningCount: running.length,
+    runningCount: local.runningCount + (worker?.runningCount ?? 0),
     runningByProvider: {
-      gemini: running.filter(t => t.provider === 'gemini').length,
-      openai: running.filter(t => t.provider === 'openai').length,
-      ollama: running.filter(t => t.provider === 'ollama').length,
+      gemini: local.runningByProvider.gemini + (worker?.runningByProvider.gemini ?? 0),
+      openai: local.runningByProvider.openai + (worker?.runningByProvider.openai ?? 0),
+      ollama: local.runningByProvider.ollama + (worker?.runningByProvider.ollama ?? 0),
     },
     latest,
   })

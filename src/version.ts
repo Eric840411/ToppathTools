@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.25.23'
+export const APP_VERSION = '3.26.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.26.0',
+    date: '2026-05-12',
+    changes: [
+      'feat(scripted-bet): 新增腳本化投注頁面，多帳號依序進入指定機台 Spin 後退出',
+      'feat(local-agent): 新增 Local Agent 管理頁面，查看已連線 Agent、管理 Token',
+      'feat(agent-hub): AgentInfo 新增 ownerKey/ownerName/tokenId/capabilities，getAvailableAgents 支援過濾',
+      'fix(audio/cctv): 本地執行時無 sessionId 也能找到音頻/截圖，改用目錄掃描找最新 *-{code} 檔案',
+    ],
+  },
   {
     version: '3.25.23',
     date: '2026-05-13',

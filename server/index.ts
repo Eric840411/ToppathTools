@@ -23,7 +23,9 @@ import { router as permissionsRouter } from './routes/permissions.js'
 import { router as workerStatusRouter } from './routes/worker-status.js'
 import { router as frontendAutoRouter } from './routes/frontend-auto.js'
 import { router as audioRouter } from './routes/audio.js'
-import { runWithRequestContext } from './request-context.js'
+import { router as scriptedBetRouter } from './routes/scripted-bet.js'
+import { getRequestContext, runWithRequestContext } from './request-context.js'
+import { getAuthAccount } from './auth-session.js'
 
 // Shared logger
 import { db, getClientIP, getUser, log } from './shared.js'
@@ -95,6 +97,8 @@ function shouldProxyPathToWorker(p: string): boolean {
   if (p.startsWith('/api/gs/')) return true
   if (p.startsWith('/api/image-check/')) return true
   if (p.startsWith('/api/machine-test/')) return true
+  if (p.startsWith('/api/local-agent/')) return true
+  if (p.startsWith('/api/scripted-bet/')) return true
   if (p === '/api/settings/tunnel-url') return true
   if (p.startsWith('/api/osm-uat/')) return true
   if (p.startsWith('/api/autospin/')) return true
@@ -170,8 +174,10 @@ function buildOperationLabel(req: express.Request): string {
 
 app.use((req, _res, next) => {
   const ip = getClientIP(req)
-  const user = getUser(req)
-  const userDisplay = toDisplayName(user, req)
+  const authAccount = getAuthAccount(req)
+  const headerUser = getUser(req)
+  const user = headerUser !== '—' ? headerUser : authAccount?.email ?? '—'
+  const userDisplay = authAccount?.label ?? toDisplayName(user, req)
   const operation = buildOperationLabel(req)
   runWithRequestContext(
     { ip, user, userDisplay, path: req.path, method: req.method, operation },
@@ -241,6 +247,9 @@ async function proxyToWorker(req: express.Request, res: express.Response, next: 
     }
     if (req.headers.host) headers.set('x-forwarded-host', req.headers.host)
     headers.set('x-forwarded-proto', req.protocol)
+    const ctx = getRequestContext()
+    if (ctx?.user && ctx.user !== '—') headers.set('x-auth-user', ctx.user)
+    if (ctx?.userDisplay && ctx.userDisplay !== '未登入使用者') headers.set('x-user-label', ctx.userDisplay)
 
     const init: RequestInit & { duplex?: 'half' } = { method: req.method, headers }
     if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -277,6 +286,7 @@ app.use(permissionsRouter)
 app.use(workerStatusRouter)
 app.use(frontendAutoRouter)
 app.use(audioRouter)
+app.use(scriptedBetRouter)
 
 // ─── Static Files (production build) ──────────────────────────────────────────
 

@@ -39,14 +39,35 @@ export interface AgentInfo {
   ws: WebSocket
   agentId: string
   hostname: string
+  ownerKey: string
+  ownerName: string
+  tokenId: string
+  capabilities: string[]
+  version?: string
+  connectedAt: number
+  lastSeenAt: number
   busy: boolean
   sessionId: string | null
 }
 
 export const agentConnections = new Map<string, AgentInfo>()
 
-export function getAvailableAgents(): AgentInfo[] {
-  return [...agentConnections.values()].filter(a => !a.busy)
+export type AgentFilter = {
+  operatorKey?: string
+  capability?: string
+  agentId?: string
+  includeUnowned?: boolean
+}
+
+export function getAvailableAgents(filter: AgentFilter = {}): AgentInfo[] {
+  return [...agentConnections.values()].filter(a => {
+    if (a.busy) return false
+    if (filter.agentId && a.agentId !== filter.agentId) return false
+    if (filter.capability && !a.capabilities.includes(filter.capability)) return false
+    if (filter.operatorKey) return a.ownerKey === filter.operatorKey
+    if (filter.includeUnowned === false && !a.ownerKey) return false
+    return true
+  })
 }
 
 // ─── Work-Stealing Job Queue ──────────────────────────────────────────────────

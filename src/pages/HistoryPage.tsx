@@ -6,15 +6,18 @@ interface HistoryRecord {
   title: string
   summary: string
   detail: string
+  operator_key?: string
+  operator_name?: string
   created_at: number
 }
 
 type DaysFilter = 1 | 3 | 7
-type FeatureFilter = 'all' | 'testcase' | 'machine-test' | 'jira' | 'jira-comment' | 'osm-sync' | 'osm-components' | 'luckylink-components' | 'toppath-components' | 'osm-alert' | 'imagerecon' | 'image-check' | 'gs-pdf-testcase' | 'gs-img-compare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config-compare'
+type FeatureFilter = 'all' | 'testcase' | 'machine-test' | 'scripted-bet' | 'jira' | 'jira-comment' | 'osm-sync' | 'osm-components' | 'luckylink-components' | 'toppath-components' | 'osm-alert' | 'imagerecon' | 'image-check' | 'gs-pdf-testcase' | 'gs-img-compare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config-compare'
 
 const FEATURE_LABELS: Record<string, string> = {
   'testcase': 'TestCase 生成',
   'machine-test': '機台測試',
+  'scripted-bet': '腳本化投注',
   'jira': 'Jira 批量開單',
   'jira-comment': 'Jira 批次評論',
   'osm-sync': 'OSM 機台同步',
@@ -34,6 +37,7 @@ const FEATURE_LABELS: Record<string, string> = {
 const FEATURE_COLORS: Record<string, string> = {
   'testcase': '#6366f1',
   'machine-test': '#0891b2',
+  'scripted-bet': '#2563eb',
   'jira': '#0052cc',
   'jira-comment': '#1d4ed8',
   'osm-sync': '#16a34a',
@@ -128,7 +132,7 @@ export function HistoryPage() {
 
         {/* Feature */}
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          {(['all', 'jira', 'jira-comment', 'testcase', 'machine-test', 'image-check', 'osm-sync', 'osm-components', 'luckylink-components', 'toppath-components', 'osm-alert', 'imagerecon', 'gs-pdf-testcase', 'gs-img-compare', 'gs-logchecker', 'gs-bonusv2', 'osm-config-compare'] as FeatureFilter[]).map(f => (
+          {(['all', 'jira', 'jira-comment', 'testcase', 'machine-test', 'scripted-bet', 'image-check', 'osm-sync', 'osm-components', 'luckylink-components', 'toppath-components', 'osm-alert', 'imagerecon', 'gs-pdf-testcase', 'gs-img-compare', 'gs-logchecker', 'gs-bonusv2', 'osm-config-compare'] as FeatureFilter[]).map(f => (
             <button
               key={f}
               onClick={() => setFeature(f)}
@@ -223,6 +227,9 @@ export function HistoryPage() {
                         {rec.title}
                       </div>
                       <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>{rec.summary}</div>
+                      <div style={{ fontSize: 11, color: '#64748b', marginTop: 3 }}>
+                        操作者：{rec.operator_name || rec.operator_key || '未記錄'}
+                      </div>
                     </div>
                     {cases && (
                       <button

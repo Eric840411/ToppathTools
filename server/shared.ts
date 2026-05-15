@@ -3,7 +3,7 @@
  * Shared utilities, DB instance, helpers, and types used across all route files.
  */
 import Bottleneck from 'bottleneck'
-import { createHash, createSign } from 'crypto'
+import { createHash, createSign, randomBytes, timingSafeEqual } from 'crypto'
 import Database from 'better-sqlite3'
 import dotenv from 'dotenv'
 import express from 'express'
@@ -13,6 +13,7 @@ import multer from 'multer'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { z } from 'zod'
+import { getOperatorFromContext, type OperatorInfo } from './request-context.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -73,6 +74,8 @@ db.exec(`
     title      TEXT NOT NULL,
     summary    TEXT NOT NULL,
     detail     TEXT NOT NULL,
+    operator_key  TEXT NOT NULL DEFAULT '',
+    operator_name TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL
   );
   CREATE TABLE IF NOT EXISTS heavy_tasks (
@@ -88,6 +91,17 @@ db.exec(`
     error       TEXT
   );
   CREATE INDEX IF NOT EXISTS idx_heavy_tasks_user_status ON heavy_tasks (user_key, status, created_at);
+  CREATE TABLE IF NOT EXISTS local_agent_tokens (
+    id          TEXT PRIMARY KEY,
+    token_hash  TEXT NOT NULL UNIQUE,
+    owner_key   TEXT NOT NULL,
+    owner_name  TEXT NOT NULL DEFAULT '',
+    label       TEXT NOT NULL DEFAULT '',
+    revoked     INTEGER NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL,
+    last_seen_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_local_agent_tokens_owner ON local_agent_tokens (owner_key, revoked, created_at);
   CREATE TABLE IF NOT EXISTS gemini_key_stats (
     label          TEXT PRIMARY KEY,
     calls_today    INTEGER NOT NULL DEFAULT 0,
@@ -173,6 +187,16 @@ db.exec(`
   );
 `)
 
+{
+  const cols = db.prepare('PRAGMA table_info(operation_history)').all() as { name: string }[]
+  if (!cols.find(c => c.name === 'operator_key')) {
+    db.exec(`ALTER TABLE operation_history ADD COLUMN operator_key TEXT NOT NULL DEFAULT ''`)
+  }
+  if (!cols.find(c => c.name === 'operator_name')) {
+    db.exec(`ALTER TABLE operation_history ADD COLUMN operator_name TEXT NOT NULL DEFAULT ''`)
+  }
+}
+
 // Seed default permissions if table is empty
 {
   const count = (db.prepare('SELECT COUNT(*) as c FROM role_permissions').get() as { c: number }).c
@@ -234,15 +258,25 @@ db.prepare('DELETE FROM operation_history WHERE created_at < ?').run(Date.now() 
 db.prepare("UPDATE heavy_tasks SET status = 'abandoned', finished_at = ? WHERE status IN ('queued', 'running') AND created_at < ?")
   .run(Date.now(), Date.now() - 24 * 60 * 60 * 1000)
 db.prepare('DELETE FROM heavy_tasks WHERE created_at < ?').run(Date.now() - 7 * 24 * 60 * 60 * 1000)
+db.prepare('DELETE FROM local_agent_tokens WHERE created_at < ? AND revoked = 1').run(Date.now() - 30 * 24 * 60 * 60 * 1000)
 // Auto-purge machine test sessions older than 30 days
 db.prepare('DELETE FROM machine_test_sessions WHERE started_at < ?').run(Date.now() - 30 * 24 * 60 * 60 * 1000)
 // Auto-purge per-machine results older than 90 days
 db.prepare('DELETE FROM machine_test_results WHERE tested_at < ?').run(Date.now() - 90 * 24 * 60 * 60 * 1000)
 
-export function addHistory(feature: string, title: string, summary: string, detail: unknown) {
+export function addHistory(
+  feature: string,
+  title: string,
+  summary: string,
+  detail: unknown,
+  options?: { operator?: OperatorInfo },
+) {
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
-  db.prepare('INSERT INTO operation_history (id, feature, title, summary, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(id, feature, title, summary, JSON.stringify(detail), Date.now())
+  const operator = options?.operator ?? getOperatorFromContext()
+  const operatorKey = operator?.key ?? ''
+  const operatorName = operator?.name ?? ''
+  db.prepare('INSERT INTO operation_history (id, feature, title, summary, detail, operator_key, operator_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, feature, title, summary, JSON.stringify(detail), operatorKey, operatorName, Date.now())
 }
 
 // 若 machine_type_targets 是舊 schema（無 category 欄），重建為新 schema
@@ -691,7 +725,74 @@ Spec 與 JIRA 同時存在 → 同時使用兩者
     'testcase-jira',
     'TestCase 生成（Jira 整合版）',
     jiraPromptTemplate,
-  )
+)
+}
+
+function hashLocalAgentToken(token: string) {
+  return createHash('sha256').update(token).digest('hex')
+}
+
+export function createLocalAgentToken(operator: OperatorInfo | undefined, label = 'Toppath Local Agent') {
+  if (!operator?.key) return null
+  const token = `tla_${randomBytes(32).toString('base64url')}`
+  const id = `${Date.now().toString(36)}_${randomBytes(6).toString('hex')}`
+  db.prepare(`
+    INSERT INTO local_agent_tokens (id, token_hash, owner_key, owner_name, label, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, hashLocalAgentToken(token), operator.key, operator.name ?? operator.key, label, Date.now())
+  return { id, token }
+}
+
+export function verifyLocalAgentToken(token: string, ownerKey: string) {
+  const cleanToken = token.trim()
+  const cleanOwner = ownerKey.trim()
+  if (!cleanToken || !cleanOwner) return null
+  const tokenHash = hashLocalAgentToken(cleanToken)
+  const row = db.prepare(`
+    SELECT id, token_hash, owner_key, owner_name, label
+    FROM local_agent_tokens
+    WHERE token_hash = ? AND owner_key = ? AND revoked = 0
+  `).get(tokenHash, cleanOwner) as { id: string; token_hash: string; owner_key: string; owner_name: string; label: string } | undefined
+  if (!row) return null
+  const expected = Buffer.from(row.token_hash, 'hex')
+  const actual = Buffer.from(tokenHash, 'hex')
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return null
+  db.prepare('UPDATE local_agent_tokens SET last_seen_at = ? WHERE id = ?').run(Date.now(), row.id)
+  return {
+    id: row.id,
+    ownerKey: row.owner_key,
+    ownerName: row.owner_name,
+    label: row.label,
+  }
+}
+
+export function listLocalAgentTokens(operator: OperatorInfo | undefined) {
+  if (!operator?.key) return []
+  return db.prepare(`
+    SELECT id, owner_key, owner_name, label, revoked, created_at, last_seen_at
+    FROM local_agent_tokens
+    WHERE owner_key = ?
+    ORDER BY created_at DESC
+    LIMIT 50
+  `).all(operator.key) as {
+    id: string
+    owner_key: string
+    owner_name: string
+    label: string
+    revoked: number
+    created_at: number
+    last_seen_at: number | null
+  }[]
+}
+
+export function revokeLocalAgentToken(operator: OperatorInfo | undefined, id: string) {
+  if (!operator?.key || !id.trim()) return false
+  const result = db.prepare(`
+    UPDATE local_agent_tokens
+    SET revoked = 1
+    WHERE id = ? AND owner_key = ?
+  `).run(id.trim(), operator.key)
+  return result.changes > 0
 }
 
 // ─── Machine Profiles Seed ────────────────────────────────────────────────────

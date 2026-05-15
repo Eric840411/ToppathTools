@@ -13,6 +13,13 @@ export interface MachineTestSession {
   lobbyUrls: string[]
   machineCodes: string[]
   steps: TestStepConfig
+  /** Operator frozen when the long-running test session starts. */
+  account?: string
+  agentId?: string
+  operator?: {
+    key: string
+    name: string
+  }
   /** 調適模式：若設定則 daily-analysis API 強制使用此固定 gmid */
   debugGmid?: string
   /** LLM model for CCTV vision step, e.g. 'gemini' or 'ollama:gemma4:26b' */

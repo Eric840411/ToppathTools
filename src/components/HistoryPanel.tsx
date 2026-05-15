@@ -6,6 +6,8 @@ interface HistoryRecord {
   title: string
   summary: string
   detail: string
+  operator_key?: string
+  operator_name?: string
   created_at: number
 }
 
@@ -73,6 +75,9 @@ export default function HistoryPanel({ feature, refreshKey }: Props) {
                   <span style={{ fontSize: 11, color: '#9ca3af', flexShrink: 0, marginLeft: 8 }}>{timeAgo(r.created_at)}</span>
                 </div>
                 <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{r.summary}</div>
+                <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 3 }}>
+                  操作者：{r.operator_name || r.operator_key || '未記錄'}
+                </div>
                 {expandedId === r.id && (
                   <pre style={{
                     marginTop: 8, fontSize: 11, color: '#374151',

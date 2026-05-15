@@ -12,7 +12,7 @@ import express from 'express'
 import { createServer } from 'http'
 import { cpus, hostname, totalmem, freemem } from 'os'
 import { WebSocketServer } from 'ws'
-import { larkGenerateSchema, log } from './shared.js'
+import { larkGenerateSchema, log, verifyLocalAgentToken } from './shared.js'
 import { runGenerateTestcasesFileJob, runLarkGenerateTestcasesJob, type WorkerUploadFile } from './routes/integrations.js'
 import { router as jiraRouter } from './routes/jira.js'
 import { router as gameshowRouter } from './routes/gameshow.js'
@@ -20,6 +20,14 @@ import { router as autospinRouter } from './routes/autospin.js'
 import { router as osmUatRouter } from './routes/osm-uat.js'
 import { router as frontendAutoRouter } from './routes/frontend-auto.js'
 import { activeRunners, router as machineTestRouter } from './routes/machine-test.js'
+import {
+  handleScriptedBetAgentDisconnect,
+  handleScriptedBetAgentDone,
+  handleScriptedBetAgentEvent,
+  router as scriptedBetRouter,
+} from './routes/scripted-bet.js'
+import { getAiAgentMonitorSnapshot } from './routes/gemini.js'
+import { runWithRequestContext } from './request-context.js'
 import {
   viewerSockets,
   broadcastBuffer,
@@ -32,6 +40,7 @@ import {
   type AgentInfo,
 } from './agent-hub.js'
 import type { TestEvent } from './machine-test/types.js'
+import type { ScriptedBetEvent } from './scripted-bet/types.js'
 dotenv.config()
 
 const app = express()
@@ -61,6 +70,15 @@ app.use('/api/machine-test/osm-status', express.text({ type: '*/*', limit: '5mb'
 app.use((req, res, next) => {
   if (req.path === '/api/machine-test/osm-status') return next()
   return express.json({ limit: '200mb' })(req, res, next)
+})
+app.use((req, _res, next) => {
+  const user = String(req.headers['x-auth-user'] ?? req.headers['x-jira-email'] ?? '—')
+  const userDisplay = String(req.headers['x-user-label'] ?? req.headers['x-auth-user'] ?? req.headers['x-jira-email'] ?? '未登入使用者')
+  const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '')
+  runWithRequestContext(
+    { ip, user, userDisplay, path: req.path, method: req.method, operation: `${req.method} ${req.path}` },
+    () => next(),
+  )
 })
 
 function memorySnapshot() {
@@ -125,6 +143,10 @@ app.get('/internal/worker/tasks', (_req, res) => {
       limiterQueued: workerQueue.queued(),
     },
   })
+})
+
+app.get('/internal/ai-agent/monitor', (_req, res) => {
+  res.json(getAiAgentMonitorSnapshot())
 })
 
 app.post('/internal/worker/tasks/start', (req, res) => {
@@ -292,6 +314,7 @@ app.use(gameshowRouter)
 app.use(autospinRouter)
 app.use(osmUatRouter)
 app.use(machineTestRouter)
+app.use(scriptedBetRouter)
 
 const wss = new WebSocketServer({ server })
 wss.on('error', () => {})
@@ -319,14 +342,57 @@ wss.on('connection', (ws, req) => {
     ws.on('close', () => clearInterval(pingTimer))
 
     ws.on('message', (raw) => {
-      let msg: { type: string; agentId?: string; hostname?: string; sessionId?: string; event?: unknown; machineCode?: string; failed?: boolean }
+      let msg: {
+        type: string
+        agentId?: string
+        hostname?: string
+        operatorKey?: string
+        operatorName?: string
+        agentToken?: string
+        capabilities?: string[]
+        version?: string
+        sessionId?: string
+        event?: unknown
+        machineCode?: string
+        failed?: boolean
+      }
       try { msg = JSON.parse(raw.toString()) } catch { return }
+      if (agentId) {
+        const existing = agentConnections.get(agentId)
+        if (existing) existing.lastSeenAt = Date.now()
+      }
 
       if (msg.type === 'agent_ready' && msg.agentId) {
         agentId = msg.agentId
-        const info: AgentInfo = { ws, agentId, hostname: msg.hostname ?? agentId, busy: false, sessionId: null }
+        const capabilities = Array.isArray(msg.capabilities) && msg.capabilities.length > 0
+          ? msg.capabilities.filter((value): value is string => typeof value === 'string' && value.trim().length > 0).map(value => value.trim())
+          : ['machine-test']
+        const ownerKey = typeof msg.operatorKey === 'string' ? msg.operatorKey.trim() : ''
+        const token = typeof msg.agentToken === 'string' ? msg.agentToken.trim() : ''
+        const verifiedToken = verifyLocalAgentToken(token, ownerKey)
+        if (!verifiedToken) {
+          log('warn', '-', '-', `Agent rejected: ${agentId} (${msg.hostname ?? agentId}) invalid token for owner=${ownerKey || 'empty'}`)
+          ws.close(1008, 'Invalid agent token')
+          return
+        }
+        const ownerName = verifiedToken.ownerName || (typeof msg.operatorName === 'string' ? msg.operatorName.trim() : ownerKey)
+        const now = Date.now()
+        const info: AgentInfo = {
+          ws,
+          agentId,
+          hostname: msg.hostname ?? agentId,
+          ownerKey,
+          ownerName,
+          tokenId: verifiedToken.id,
+          capabilities,
+          version: typeof msg.version === 'string' ? msg.version : undefined,
+          connectedAt: now,
+          lastSeenAt: now,
+          busy: false,
+          sessionId: null,
+        }
         agentConnections.set(agentId, info)
-        log('info', '-', '-', `Agent connected: ${agentId} (${info.hostname})`)
+        log('info', '-', '-', `Agent connected: ${agentId} (${info.hostname}) owner=${info.ownerName || 'unowned'} capabilities=${info.capabilities.join(',')}`)
         return
       }
 
@@ -337,6 +403,16 @@ wss.on('connection', (ws, req) => {
           ev.agentHostname = info?.hostname ?? agentId
         }
         broadcastToViewers(ev)
+        return
+      }
+
+      if (msg.type === 'scripted_bet_event' && msg.sessionId && msg.event) {
+        handleScriptedBetAgentEvent(msg.sessionId, msg.event as ScriptedBetEvent)
+        return
+      }
+
+      if (msg.type === 'scripted_bet_done' && msg.sessionId) {
+        handleScriptedBetAgentDone(msg.sessionId)
         return
       }
 
@@ -373,9 +449,13 @@ wss.on('connection', (ws, req) => {
       if (agentId) {
         const info = agentConnections.get(agentId)
         if (info?.sessionId) {
-          cancelDistSession(info.sessionId)
-          broadcastToViewers({ type: 'error', message: `Agent ${info.hostname} 已斷線`, ts: new Date().toISOString() })
-          activeRunners.delete(info.sessionId)
+          if (info.sessionId.startsWith('sb_')) {
+            handleScriptedBetAgentDisconnect(info.sessionId, `Agent ${info.hostname} 已斷線`)
+          } else {
+            cancelDistSession(info.sessionId)
+            broadcastToViewers({ type: 'error', message: `Agent ${info.hostname} 已斷線`, ts: new Date().toISOString() })
+            activeRunners.delete(info.sessionId)
+          }
         }
         agentConnections.delete(agentId)
         log('info', '-', '-', `Agent disconnected: ${agentId}`)

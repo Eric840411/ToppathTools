@@ -5,6 +5,8 @@ import { AutoSpinPage } from './pages/AutoSpinPage'
 import { JiraPage } from './pages/JiraPage'
 import { LarkPage } from './pages/LarkPage'
 import { MachineTestPage } from './pages/MachineTestPage'
+import { ScriptedBetPage } from './pages/ScriptedBetPage'
+import { LocalAgentPage } from './pages/LocalAgentPage'
 import { HistoryPage } from './pages/HistoryPage'
 import { ImageCheckPage } from './pages/ImageCheckPage'
 import { UrlPoolPage } from './pages/UrlPoolPage'
@@ -25,8 +27,8 @@ import './App.css'
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
   | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
-  | 'sysadmin' | 'changelog'
-type GroupId = 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'history' | 'sysadmin' | 'changelog'
+  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog'
+type GroupId = 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog'
 
 type SubTab = {
   id: TabId
@@ -112,6 +114,13 @@ const groups: Group[] = [
         description: '管理共用 Token URL 帳號池，即時查看使用狀態，一鍵使用 / 釋放',
       },
       {
+        id: 'scripted-bet',
+        label: '腳本化投注紀錄',
+        icon: 'S',
+        iconClass: 'tab-icon--colorgame',
+        description: '依序領取 URL 帳號，進入指定機台隨機 Spin，退出成功後關閉視窗並換下一個帳號。',
+      },
+      {
         id: 'jackpot',
         label: 'Jackpot 監控',
         icon: 'J',
@@ -165,6 +174,15 @@ const historyGroup: Group = {
   iconClass: 'tab-icon--history',
   tab: 'history',
   description: '查看所有功能的操作紀錄，支援今日 / 3 天 / 7 天篩選',
+}
+
+const settingsGroup: Group = {
+  id: 'settings',
+  label: 'Local Agent',
+  icon: 'A',
+  iconClass: 'tab-icon--machinetest',
+  tab: 'local-agent',
+  description: '下載與管理 Toppath Local Agent，讓 MachineTest 與 Scripted Bet 在使用者本機執行。',
 }
 
 const sysadminGroup: Group = {
@@ -249,8 +267,10 @@ function App() {
   function canAccess(tabId: TabId): boolean {
     if (!globalAccount) return false
     if (globalAccount.role === 'admin') return true
+    if (tabId === 'local-agent') return true
     // 'jira' tab is accessible if user has either jira-qa or jira-pm
     if (tabId === 'jira') return permissions.includes('jira-qa') || permissions.includes('jira-pm')
+    if (tabId === 'scripted-bet') return permissions.includes('machinetest') || permissions.includes('url-pool')
     return permissions.includes(tabId)
   }
 
@@ -271,9 +291,10 @@ function App() {
   }
 
   const visibleGroups = groups.map(g => filterGroup(g)).filter((g): g is Group => g !== null)
+  const visibleSettings = filterGroup(settingsGroup)
   const visibleHistory = filterGroup(historyGroup)
   const visibleSysadmin = canAccess('sysadmin') ? sysadminGroup : null
-  const allVisible = [...visibleGroups, ...(visibleHistory ? [visibleHistory] : []), ...(visibleSysadmin ? [visibleSysadmin] : [])]
+  const allVisible = [...visibleGroups, ...(visibleSettings ? [visibleSettings] : []), ...(visibleHistory ? [visibleHistory] : []), ...(visibleSysadmin ? [visibleSysadmin] : [])]
 
   // Redirect activeGroup/activeTab if current selection is no longer accessible
   const currentGroup = allVisible.find(g => g.id === activeGroup) ?? allVisible[0]
@@ -347,6 +368,17 @@ function App() {
 
           <div className="sidebar-divider" />
           <div className="sidebar-section-label">系統</div>
+
+          {visibleSettings && (
+            <button
+              type="button"
+              className={`sidebar-nav-item${currentGroup?.id === settingsGroup.id ? ' sidebar-nav-item--active' : ''}`}
+              onClick={() => handleGroupClick(settingsGroup)}
+            >
+              <span className={`tab-icon ${settingsGroup.iconClass}`}>{settingsGroup.icon}</span>
+              <span className="sidebar-nav-label">{settingsGroup.label}</span>
+            </button>
+          )}
 
           {visibleHistory && (
             <button
@@ -434,8 +466,10 @@ function App() {
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-config' && <OsmConfigComparePage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'autospin' && <AutoSpinPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'url-pool' && <UrlPoolPage currentAccount={globalAccount} />}
+            {currentGroup?.id === 'osm-tools' && effectiveTab === 'scripted-bet' && <ScriptedBetPage currentAccount={globalAccount} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'jackpot' && <JackpotPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-uat' && <OsmUatPage />}
+            {currentGroup?.id === 'settings' && effectiveTab === 'local-agent' && <LocalAgentPage currentAccount={globalAccount} />}
             {currentGroup?.id === 'history' && <HistoryPage />}
             {currentGroup?.id === 'color-game' && effectiveTab === 'gs-logchecker' && <GsLogCheckerPage />}
             {currentGroup?.id === 'sysadmin' && <SystemAdminPage />}
