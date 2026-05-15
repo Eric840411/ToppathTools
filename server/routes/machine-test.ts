@@ -840,14 +840,23 @@ router.post('/api/machine-test/osm-status', (req, res) => {
     osmThrottleStats.processed++
 
     if (Array.isArray(body.gmlist)) {
+      const updates: { machineId: string; status: number }[] = []
       for (const gm of body.gmlist) {
         if (typeof gm.id === 'string' && typeof gm.status === 'number') {
           osmMachineStatus.set(gm.id, gm.status)
           osmMachineUpdatedAt.set(gm.id, Date.now())
           persistOsmMachineStatus(gm.id, gm.status)
+          updates.push({ machineId: gm.id, status: gm.status })
         }
       }
       broadcastOsmStatus()
+      // Push live OSM status to all connected agents so their local osmMap stays current
+      if (updates.length > 0) {
+        const payload = JSON.stringify({ type: 'osm_status_update', updates })
+        for (const agent of agentConnections.values()) {
+          if (agent.ws.readyState === agent.ws.OPEN) agent.ws.send(payload)
+        }
+      }
     }
     if (typeof body.gtype === 'number' && body.jackpot) {
       const jp = body.jackpot

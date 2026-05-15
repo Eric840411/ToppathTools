@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.26.9'
+export const APP_VERSION = '3.26.10'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.26.10',
+    date: '2026-05-15',
+    changes: [
+      'fix(agent): OSMWatcher 狀態即時推送給 agent — 解決 FG/Jackpot 特殊狀態偵測失效問題',
+    ],
+  },
   {
     version: '3.26.9',
     date: '2026-05-15',

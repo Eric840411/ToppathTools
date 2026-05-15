@@ -68,6 +68,9 @@ type IncomingMessage =
 /** Promise resolve for the pending claim_job → job_assigned/no_more_jobs round-trip */
 let pendingClaimResolve: ((code: string | null) => void) | null = null
 
+/** Live OSM machine status — updated in real-time by server pushes */
+const currentOsmMap = new Map<string, number>()
+
 function connect() {
   const url = `${CENTRAL_URL}/ws/agent`
   console.log(`[Agent:${AGENT_LABEL}] Connecting to ${url} ...`)
@@ -92,6 +95,17 @@ function connect() {
     try { msg = JSON.parse(raw.toString()) } catch { return }
 
     // ── Server response: next machine to test ──────────────────────────────────
+    // ── Live OSM status push from server ──────────────────────────────────────
+    if (msg.type === 'osm_status_update') {
+      const updates = (msg as { type: 'osm_status_update'; updates: { machineId: string; status: number }[] }).updates
+      if (Array.isArray(updates)) {
+        for (const { machineId, status } of updates) {
+          currentOsmMap.set(machineId, status)
+        }
+      }
+      return
+    }
+
     if (msg.type === 'job_assigned') {
       pendingClaimResolve?.((msg as { type: 'job_assigned'; machineCode: string }).machineCode)
       pendingClaimResolve = null
@@ -163,7 +177,9 @@ function connect() {
       if (session.cctvModelSpec) process.env.CCTV_MODEL_SPEC = session.cctvModelSpec
       else delete process.env.CCTV_MODEL_SPEC
 
-      const osmMap = new Map<string, number>(osmMachineStatus)
+      // Seed the module-level osmMap with the session snapshot; live updates will keep it current
+      currentOsmMap.clear()
+      for (const [k, v] of osmMachineStatus) currentOsmMap.set(k, v)
       const profileMap = new Map<string, MachineProfile>(profiles.map(p => [p.machineType, p]))
 
       console.log(`[Agent:${AGENT_LABEL}] Joined session ${sessionId} — starting claim-loop`)
@@ -187,7 +203,7 @@ function connect() {
 
           try {
             // Create a fresh runner for each machine (avoids stale state)
-            const runner = new MachineTestRunner(osmMap, profileMap, betRandomConfig)
+            const runner = new MachineTestRunner(currentOsmMap, profileMap, betRandomConfig)
             currentRunner = runner
 
             runner.on('event', (ev: TestEvent) => {
