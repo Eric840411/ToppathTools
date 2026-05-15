@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.26.4'
+export const APP_VERSION = '3.26.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.26.5',
+    date: '2026-05-15',
+    changes: [
+      'fix(audio-upload): Spin 路徑錄音存檔後未呼叫 uploadAudioToServer，補上上傳邏輯',
+    ],
+  },
   {
     version: '3.26.4',
     date: '2026-05-15',

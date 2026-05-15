@@ -1500,9 +1500,13 @@ async function stepAudio(page: Page, emit: (msg: string) => void, spinAudio?: Sp
       emit(`Using audio reference file for comparison: ${machineType}.wav`)
     }
 
-    // Save spin recording (already in base64) to local folder
+    // Save spin recording (already in base64) to local folder + upload to central server
     if (sa?.wavBase64 && audioSavePath) {
-      try { writeFileSync(audioSavePath, Buffer.from(sa.wavBase64, 'base64')) } catch { /* non-fatal */ }
+      try {
+        const audioBuf = Buffer.from(sa.wavBase64, 'base64')
+        writeFileSync(audioSavePath, audioBuf)
+        void uploadAudioToServer(audioBuf, basename(audioSavePath))
+      } catch { /* non-fatal */ }
     }
 
     if (!sa && existsSync(NIRCMD)) {
