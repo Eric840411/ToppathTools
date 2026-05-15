@@ -1037,113 +1037,6 @@ function UrlPoolPickerModal({ workerIndex, onSelect, onClose }: {
   )
 }
 
-// ─── Agent Install Guide ───────────────────────────────────────────────────────
-
-function AgentInstallGuide({ agentCount }: { agentCount: number }) {
-  const [open, setOpen] = useState(false)
-  // Dev: vite on :5173, API on :3000 — prod: both served via nginx on standard port
-  const serverUrl = location.port === '5173'
-    ? `${location.protocol}//${location.hostname}:3000`
-    : location.origin
-
-  return (
-    <div className="section-card" style={{ marginBottom: 12 }}>
-      <div
-        style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}
-        onClick={() => setOpen(v => !v)}
-      >
-        <span style={{ fontSize: 16 }}>🤖</span>
-        <h2 className="section-title" style={{ margin: 0, flex: 1 }}>
-          分散式 Agent 安裝指南
-          {agentCount > 0 && (
-            <span style={{ marginLeft: 8, fontSize: 12, background: 'rgba(52,211,153,0.12)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 10, padding: '2px 8px', fontWeight: 500 }}>
-              {agentCount} 台 Agent 已連線
-            </span>
-          )}
-        </h2>
-        <span style={{ fontSize: 12, color: '#94a3b8' }}>{open ? '▲ 收合' : '▼ 展開'}</span>
-      </div>
-
-      {open && (
-        <div style={{ marginTop: 16 }}>
-          <p style={{ fontSize: 13, color: '#64748b', marginTop: 0 }}>
-            將測試任務分派給多台 Worker 電腦執行，每台負責一部分機台，節省測試時間。
-            Worker 電腦需要安裝 Node.js 與 Playwright，並可選擇性安裝 VB-Cable 以啟用音頻測試。
-          </p>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            {/* Left column: install steps */}
-            <div>
-              <h3 style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8', marginBottom: 10, marginTop: 0 }}>安裝步驟</h3>
-              <ol style={{ fontSize: 13, color: '#cbd5e1', paddingLeft: 20, margin: 0, lineHeight: 2 }}>
-                <li>
-                  安裝 <strong>Node.js 20 LTS</strong>（若尚未安裝）：
-                  <br /><code style={{ fontSize: 11 }}>https://nodejs.org/en/download/</code>
-                </li>
-                <li>
-                  下載並執行安裝包（雙擊即可）：
-                  <br />
-                  <a
-                    href={`${serverUrl}/api/machine-test/agent/install.bat`}
-                    style={{ fontSize: 12, color: '#6366f1', textDecoration: 'none', fontWeight: 600 }}
-                  >
-                    ⬇ 下載 install.bat
-                  </a>
-                  <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 8 }}>
-                    （自動下載原始碼、npm install、playwright install）
-                  </span>
-                </li>
-                <li>
-                  <strong>【音頻測試】</strong>安裝 VB-Cable 虛擬音效卡：
-                  <br /><code style={{ fontSize: 11 }}>https://vb-audio.com/Cable/</code>
-                  <br />
-                  <span style={{ fontSize: 11, color: '#dc2626' }}>
-                    安裝後需重開機，並確認「CABLE Input (VB-Audio Virtual Cable)」已出現在音效裝置
-                  </span>
-                </li>
-                <li>
-                  安裝完成後，執行 Agent：
-                  <br /><code style={{ fontSize: 11, background: '#f1f5f9', padding: '2px 6px', borderRadius: 4 }}>C:\machine-test-agent\start.bat</code>
-                </li>
-                <li>
-                  Agent 連線成功後，本頁面的「<strong>Agent 已連線</strong>」徽章會亮起，
-                  下次執行測試會自動分配任務給所有 Agent
-                </li>
-              </ol>
-            </div>
-
-            {/* Right column: notes */}
-            <div>
-              <h3 style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8', marginBottom: 10, marginTop: 0 }}>注意事項</h3>
-              <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.9 }}>
-                <div style={{ marginBottom: 6, padding: '8px 10px', background: 'rgba(251,191,36,0.08)', borderRadius: 6, border: '1px solid rgba(251,191,36,0.3)' }}>
-                  <strong>install.bat 伺服器位址</strong>：自動指向本頁所在主機（<code style={{ fontSize: 11 }}>{serverUrl}</code>）。
-                  若 Worker 機器與伺服器不在同一區網，請手動修改 start.bat 中的 CENTRAL_URL。
-                </div>
-                <div style={{ marginBottom: 6 }}>🟢 Agent 啟動後會持續連線，斷線後每 5 秒自動重連</div>
-                <div style={{ marginBottom: 6 }}>🟢 同一台電腦可多次下載安裝，install.bat 會覆蓋舊版本</div>
-                <div style={{ marginBottom: 6 }}>🟡 音頻測試（VB-Cable）為選配，不安裝則該步驟標記 SKIP</div>
-                <div style={{ marginBottom: 6 }}>🟡 CCTV 測試需要設定 GEMINI_API_KEY（在 start.bat 中加入）</div>
-                <div style={{ marginBottom: 6 }}>🔴 與 AutoSpin Agent 不同：本 Agent 使用 Node.js，AutoSpin Agent 使用 Python</div>
-              </div>
-
-              <div style={{ marginTop: 12, padding: '8px 10px', background: '#162032', borderRadius: 6, border: '1px solid #2d3f55' }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', marginBottom: 6 }}>手動啟動（進階）</div>
-                <code style={{ fontSize: 11, color: '#cbd5e1', display: 'block' }}>
-                  cd C:\machine-test-agent<br />
-                  set CENTRAL_URL={serverUrl}<br />
-                  set AGENT_LABEL=MyPC<br />
-                  npx tsx server/agent-runner.ts
-                </code>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
 export function MachineTestPage({ account }: { account: AccountInfo | null }) {
   const [lobbyUrls, setLobbyUrls] = useState<string[]>([''])
   const [urlPickerOpen, setUrlPickerOpen] = useState<number | null>(null)
@@ -2227,9 +2120,6 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
 
       {/* ── Machine Profiles ── */}
       <ProfilesPanel />
-
-      {/* ── Agent Install Guide ── */}
-      <AgentInstallGuide agentCount={agentStatus.length} />
 
       {/* ── Phase 2 & 3 Placeholders ── */}
       <div className="two-col">

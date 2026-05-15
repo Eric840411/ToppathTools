@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.26.1'
+export const APP_VERSION = '3.26.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.26.2',
+    date: '2026-05-15',
+    changes: [
+      'refactor(local-agent): 移除 MachineTestPage 的安裝指南面板，改整合至 Local Agent 頁面',
+      'feat(local-agent): 新增 Machine Test 額外安裝說明（VB-Cable / GEMINI_API_KEY / 版本更新）',
+    ],
+  },
   {
     version: '3.26.1',
     date: '2026-05-15',

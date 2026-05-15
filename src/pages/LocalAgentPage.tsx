@@ -227,6 +227,54 @@ export function LocalAgentPage({ currentAccount }: Props) {
 
       <section className="section-card local-agent-card local-agent-full">
         <div className="local-agent-section-head">
+          <h2 className="section-title">Machine Test 額外安裝</h2>
+          <span className="field-hint">音頻測試與 CCTV 需要額外設定</span>
+        </div>
+        <div className="local-agent-extra-grid">
+          <div className="local-agent-extra-item">
+            <div className="local-agent-extra-head">
+              <span className="badge badge--warn">音頻測試</span>
+              <strong>VB-Cable 虛擬音效卡</strong>
+            </div>
+            <p>錄製遊戲音頻需要 VB-Audio Virtual Cable，安裝後系統會出現「CABLE Input」虛擬音效裝置。</p>
+            <ol>
+              <li>前往 <a href="https://vb-audio.com/Cable/" target="_blank" rel="noreferrer">https://vb-audio.com/Cable/</a> 下載安裝</li>
+              <li>安裝後<strong>重新開機</strong></li>
+              <li>確認「CABLE Input (VB-Audio Virtual Cable)」已出現在音效裝置清單</li>
+            </ol>
+            <div className="local-agent-note">不安裝則音頻測試步驟自動標記 SKIP，不影響其他測試項目。</div>
+          </div>
+          <div className="local-agent-extra-item">
+            <div className="local-agent-extra-head">
+              <span className="badge badge--warn">CCTV 測試</span>
+              <strong>GEMINI_API_KEY 設定</strong>
+            </div>
+            <p>CCTV 號碼比對使用 Gemini Vision OCR，Agent 機台需要有可用的 Gemini API Key。</p>
+            <ol>
+              <li>在 <code>C:\machine-test-agent\start.bat</code> 中加入：</li>
+              <li><code>set GEMINI_API_KEY=你的金鑰</code></li>
+              <li>重新啟動 Agent（關掉 start.bat 視窗再重開）</li>
+            </ol>
+            <div className="local-agent-note">也可以在工具的「AI 模型和 Prompt 設定」頁面新增 Gemini Key，Agent 會優先使用 start.bat 中的設定。</div>
+          </div>
+          <div className="local-agent-extra-item">
+            <div className="local-agent-extra-head">
+              <span className="badge">注意事項</span>
+              <strong>更新 Agent 版本</strong>
+            </div>
+            <p>伺服器更新後，Agent 機台的 runner.ts 也需要同步更新，否則新功能不會生效。</p>
+            <ol>
+              <li>重新點「下載 install.bat」取得最新安裝包</li>
+              <li>在 Agent 機台執行新的 install.bat（會覆蓋舊版原始碼）</li>
+              <li>重新啟動 start.bat</li>
+            </ol>
+            <div className="local-agent-note">同一台電腦可多次安裝，不影響現有設定。Token 會重新產生，舊連線會自動斷開。</div>
+          </div>
+        </div>
+      </section>
+
+      <section className="section-card local-agent-card local-agent-full">
+        <div className="local-agent-section-head">
           <h2 className="section-title">已連線 Agent</h2>
           <span className="field-hint">功能頁會從這裡選擇可用 Agent</span>
         </div>
