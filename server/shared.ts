@@ -876,11 +876,14 @@ export const geminiLimiter = new Bottleneck({ maxConcurrent: 1, minTime: 500 })
 export const browserLimiter = new Bottleneck({ maxConcurrent: 4 })
 
 // ─── API Rate Limiters ────────────────────────────────────────────────────────
+// validate.xForwardedForHeader:false suppresses the express-rate-limit v8 validation error
+// when running behind nginx/reverse proxy without trust proxy being detected early enough
 export const heavyLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 15,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
   message: { ok: false, message: '請求過於頻繁，請稍後再試（每分鐘上限 15 次）' },
 })
 export const writeLimiter = rateLimit({
@@ -888,6 +891,7 @@ export const writeLimiter = rateLimit({
   max: 60,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
   message: { ok: false, message: '請求過於頻繁，請稍後再試' },
 })
 

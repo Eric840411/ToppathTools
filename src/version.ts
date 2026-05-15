@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.26.13'
+export const APP_VERSION = '3.26.14'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.26.14',
+    date: '2026-05-15',
+    changes: [
+      'fix(rate-limit): 在所有 rate limiter 加 validate.xForwardedForHeader:false，徹底防止 nginx 反向代理下的 X-Forwarded-For 驗證錯誤',
+    ],
+  },
   {
     version: '3.26.13',
     date: '2026-05-15',
