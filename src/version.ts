@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.26.10'
+export const APP_VERSION = '3.26.11'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.26.11',
+    date: '2026-05-15',
+    changes: [
+      'fix(ocr-proxy): agent 呼叫 OCR proxy 時帶 x-jira-email header，AI 任務監控正確顯示使用者',
+    ],
+  },
   {
     version: '3.26.10',
     date: '2026-05-15',

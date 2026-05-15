@@ -173,6 +173,7 @@ async function callGeminiVisionViaProxy(prompt: string, imageBase64: string, mim
           'Content-Type': 'application/json',
           'x-agent-token': process.env.AGENT_TOKEN ?? '',
           'x-agent-owner': process.env.AGENT_OWNER_KEY ?? '',
+          'x-jira-email': process.env.AGENT_OWNER_KEY ?? '',
         },
         body: JSON.stringify({ prompt, images: [{ base64: imageBase64, mimeType }] }),
       })
@@ -202,6 +203,7 @@ async function callGeminiVisionMultiViaProxy(prompt: string, images: Array<{ bas
           'Content-Type': 'application/json',
           'x-agent-token': process.env.AGENT_TOKEN ?? '',
           'x-agent-owner': process.env.AGENT_OWNER_KEY ?? '',
+          'x-jira-email': process.env.AGENT_OWNER_KEY ?? '',
         },
         body: JSON.stringify({ prompt, images }),
       })
