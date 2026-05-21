@@ -606,7 +606,7 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
     if (!spreadsheetToken) {
       return res
         .status(400)
-        .json({ ok: false, message: '無法解析 Lark Sheet URL，格式應為 /sheets/{token}?sheet={id}' })
+        .json({ ok: false, message: '無法解析 Lark Sheet URL，格式應為 /sheets/{token}?sheet={id} 或 /wiki/{token}?sheet={id}' })
     }
 
     const token = await getLarkToken()

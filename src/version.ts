@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.26.15'
+export const APP_VERSION = '3.26.16'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.26.16',
+    date: '2026-05-21',
+    changes: [
+      'fix(lark): parseLarkSheetUrl 支援 /wiki/{token} 格式，Lark Wiki 頁面嵌入試算表的 URL 可直接使用',
+    ],
+  },
   {
     version: '3.26.15',
     date: '2026-05-21',
