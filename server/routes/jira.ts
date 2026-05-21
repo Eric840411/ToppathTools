@@ -629,7 +629,22 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
     const rows = data.data?.valueRange?.values ?? []
     if (rows.length < 2) return res.json({ ok: true, headers: [], records: [] })
 
-    const headers = (rows[0] as string[]).map(String)
+    /** Lark Sheets API can return cell values as strings, numbers, booleans,
+     *  or rich-text objects. Extract the plain text string in all cases. */
+    const extractCell = (cell: unknown): string => {
+      if (cell === null || cell === undefined) return ''
+      if (typeof cell === 'string') return cell
+      if (typeof cell === 'number' || typeof cell === 'boolean') return String(cell)
+      if (typeof cell === 'object') {
+        const c = cell as Record<string, unknown>
+        if (typeof c.text === 'string') return c.text
+        if (typeof c.value === 'string') return c.value
+        if (Array.isArray(c.text)) return (c.text as Array<{ text?: string }>).map(t => t.text ?? '').join('')
+      }
+      return ''
+    }
+
+    const headers = (rows[0] as unknown[]).map(extractCell)
     const jiraKeyHeader = headers.find(h => h.toLowerCase() === 'jira issue key') ?? 'Jira Issue Key'
     const stageHeader = headers.find(h => h === '處理階段') ?? ''
 
@@ -638,11 +653,14 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
       .map((row, i) => {
         const obj: Record<string, string> = {}
         headers.forEach((h, ci) => {
-          obj[h] = String((row as unknown[])[ci] ?? '')
+          obj[h] = extractCell((row as unknown[])[ci])
         })
         return { ...obj, _rowIndex: i + 2 }
       })
       .filter((r) => {
+        // Skip completely empty rows (all meaningful columns are blank)
+        const hasAnyContent = headers.some(h => h && r[h] && r[h].trim() !== '')
+        if (!hasAnyContent) return false
         if (stageHeader) return r[stageHeader] !== '已完成'
         return !r[jiraKeyHeader] || r[jiraKeyHeader].trim() === ''
       })
