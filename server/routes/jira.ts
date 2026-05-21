@@ -658,8 +658,13 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
         return { ...obj, _rowIndex: i + 2 }
       })
       .filter((r) => {
-        // Skip completely empty rows (all meaningful columns are blank)
-        const hasAnyContent = headers.some(h => h && r[h] && r[h].trim() !== '')
+        // Skip completely empty rows — ignore checkbox false values (0/false) and blank cells
+        const hasAnyContent = headers.some(h => {
+          if (!h) return false
+          const v = r[h]?.trim()
+          if (!v || v === '0' || v === 'false') return false
+          return true
+        })
         if (!hasAnyContent) return false
         if (stageHeader) return r[stageHeader] !== '已完成'
         return !r[jiraKeyHeader] || r[jiraKeyHeader].trim() === ''
