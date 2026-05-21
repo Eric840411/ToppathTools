@@ -198,6 +198,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const [selectedPromptId, setSelectedPromptId] = useState('default')
   const [availablePrompts, setAvailablePrompts] = useState<{ id: string; name: string }[]>([])
   const [commentModel, setCommentModel] = useState('gemini')
+  const [specContext, setSpecContext] = useState('')
   const [commentSubmitting, setCommentSubmitting] = useState(false)
   const [pendingCommentRequestId, setPendingCommentRequestId] = useState('')
   const [commentProgress, setCommentProgress] = useState<{ done: number; total: number; current: string } | null>(null)
@@ -619,7 +620,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       const resp = await fetch('/api/jira/batch-comment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...emailHeader },
-        body: JSON.stringify({ comments, modelSpec: useAiComment ? commentModel : undefined }),
+        body: JSON.stringify({ comments, modelSpec: useAiComment ? commentModel : undefined, specContext: useAiComment && specContext.trim() ? specContext.trim() : undefined }),
       })
       const submitData = await resp.json() as { ok: boolean; requestId?: string; message?: string }
       if (!submitData.ok || !submitData.requestId) {
@@ -1478,21 +1479,33 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                 </label>
 
                 {useAiComment && (
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-                    <label className="field" style={{ flex: 1, margin: 0 }}>
-                      <span>使用 Prompt 模板</span>
-                      <select value={selectedPromptId} onChange={e => setSelectedPromptId(e.target.value)}>
-                        {availablePrompts.length === 0
-                          ? <option value="default">標準 QA 報告（預設）</option>
-                          : availablePrompts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)
-                        }
-                      </select>
+                  <>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                      <label className="field" style={{ flex: 1, margin: 0 }}>
+                        <span>使用 Prompt 模板</span>
+                        <select value={selectedPromptId} onChange={e => setSelectedPromptId(e.target.value)}>
+                          {availablePrompts.length === 0
+                            ? <option value="default">標準 QA 報告（預設）</option>
+                            : availablePrompts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)
+                          }
+                        </select>
+                      </label>
+                      <label className="field" style={{ margin: 0, minWidth: 180 }}>
+                        <span>AI 模型</span>
+                        <ModelSelector value={commentModel} onChange={setCommentModel} />
+                      </label>
+                    </div>
+                    <label className="field">
+                      <span>規格書參考段落 <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>（選填 — 對應模板中 {'{{'+'specContext'+'}}'} 佔位符，所有 Issue 共用）</span></span>
+                      <textarea
+                        value={specContext}
+                        onChange={e => setSpecContext(e.target.value)}
+                        placeholder={'貼上相關規格書段落，AI 會以此作為判斷依據（留空則忽略）'}
+                        rows={4}
+                        style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
+                      />
                     </label>
-                    <label className="field" style={{ margin: 0, minWidth: 180 }}>
-                      <span>AI 模型</span>
-                      <ModelSelector value={commentModel} onChange={setCommentModel} />
-                    </label>
-                  </div>
+                  </>
                 )}
               </div>
             )}

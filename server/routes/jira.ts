@@ -111,6 +111,7 @@ const writebackSchema = z.object({
 
 const batchCommentSchema = z.object({
   modelSpec: z.string().optional(),
+  specContext: z.string().optional(),  // 全域規格書參考段落，用於 {{specContext}} 佔位符
   comments: z.array(z.object({
     issueKey: z.string(),
     rowIndex: z.number(),
@@ -144,6 +145,7 @@ interface CommentContext {
   platform?: string
   machineId?: string
   gameMode?: string
+  specContext?: string
   modelSpec?: string
 }
 
@@ -255,7 +257,7 @@ async function downloadGoogleDriveFile(fileId: string): Promise<{ buffer: Buffer
 }
 
 const formatCommentWithGemini = async (ctx: CommentContext): Promise<string> => {
-  const { rawText, promptId, environment = '', version = '', platform = '', machineId = '', gameMode = '', modelSpec } = ctx
+  const { rawText, promptId, environment = '', version = '', platform = '', machineId = '', gameMode = '', specContext = '', modelSpec } = ctx
 
   const envBlock = [
     `測試環境：${environment || '未指定'}`,
@@ -277,6 +279,7 @@ const formatCommentWithGemini = async (ctx: CommentContext): Promise<string> => 
     platform: platform || '未指定',
     machineId: machineId || '',
     gameMode: gameMode || '',
+    specContext: specContext || '',
   })
 
   return callLLM(prompt, modelSpec)
@@ -879,6 +882,7 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
                   platform: item.platform,
                   machineId: item.machineId,
                   gameMode: item.gameMode,
+                  specContext: body.specContext,
                   modelSpec: body.modelSpec,
                 }),
               )

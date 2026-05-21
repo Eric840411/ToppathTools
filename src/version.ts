@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.26.14'
+export const APP_VERSION = '3.26.15'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.26.15',
+    date: '2026-05-21',
+    changes: [
+      'feat(jira): 批次評論新增規格書參考段落（specContext）輸入欄，支援 {{specContext}} 模板佔位符',
+    ],
+  },
   {
     version: '3.26.14',
     date: '2026-05-15',
