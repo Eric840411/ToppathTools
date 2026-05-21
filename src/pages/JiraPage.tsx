@@ -607,7 +607,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
         // AI 格式化使用的額外欄位（欄位不存在時為 undefined，後端自動忽略）
         environment: record ? getField(record, '測試環境') || undefined : undefined,
         version:     record ? getField(record, '版本號')   || undefined : undefined,
-        platform:    record ? getField(record, '測試平台') || undefined : undefined,
+        platform:    record ? getField(record, '測試平台') || getField(record, '類別') || undefined : undefined,
         machineId:   record ? getField(record, '機台編號') || undefined : undefined,
         gameMode:    record ? getField(record, '遊戲模式') || undefined : undefined,
         attachmentUrls,

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.26.17'
+export const APP_VERSION = '3.26.18'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.26.18',
+    date: '2026-05-21',
+    changes: [
+      'feat(jira): 批次評論 platform 欄自動 fallback — 沒有「測試平台」欄時使用「類別」欄（H5/PC/後台）',
+    ],
+  },
   {
     version: '3.26.17',
     date: '2026-05-21',
