@@ -1064,9 +1064,10 @@ export const userJiraAuth = (req: express.Request): { auth: string; email: strin
   }
 }
 
-/** 解析 Lark Sheet URL */
+/** 解析 Lark Sheet URL（支援 /sheets/{token} 和 /wiki/{token} 兩種格式） */
 export const parseLarkSheetUrl = (url: string) => {
   const tokenMatch = url.match(/\/sheets\/([A-Za-z0-9]+)/)
+    ?? url.match(/\/wiki\/([A-Za-z0-9]+)/)
   const sheetMatch = url.match(/[?&]sheet=([A-Za-z0-9]+)/)
   return {
     spreadsheetToken: tokenMatch?.[1] ?? '',
@@ -1089,12 +1090,49 @@ export const getLarkToken = async (): Promise<string> => {
   return data.tenant_access_token
 }
 
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
 export const toJiraDateTime = (val: string | undefined): string | null => {
   if (!val) return null
   const s = val.trim()
   if (s.length === 0) return null
-  const dt = s.length === 10 ? `${s}T00:00:00.000+0800` : s.replace(' ', 'T') + ':00.000+0800'
-  return dt
+
+  // Lark Sheets API returns date/datetime cells as Excel OA date serial numbers
+  // (e.g. 46092 = 2026-03-11, or 46092.5 = 2026-03-11 noon).
+  // OA epoch: Day 1 = Jan 1, 1900; Day 60 = phantom Feb 29, 1900 (Excel bug).
+  // For days >= 60, subtract 1 to skip the phantom day.
+  if (/^\d+(\.\d+)?$/.test(s) && !s.startsWith('20') && !s.startsWith('19')) {
+    const serial = Number(s)
+    const days = Math.floor(serial)
+    const frac  = serial - days
+    // Skip Excel's phantom Feb 29, 1900 (serial 60)
+    const adjustedDays = days >= 60 ? days - 1 : days
+    // Dec 31, 1899T00:00Z + adjustedDays → the calendar date (interpreted as local midnight)
+    const epochMs = Date.UTC(1899, 11, 31) + adjustedDays * 86400000
+    const d = new Date(epochMs)
+    const year  = d.getUTCFullYear()
+    const month = pad2(d.getUTCMonth() + 1)
+    const day   = pad2(d.getUTCDate())
+    const totalMins = Math.round(frac * 24 * 60)
+    const hour  = pad2(Math.floor(totalMins / 60))
+    const min   = pad2(totalMins % 60)
+    return `${year}-${month}-${day}T${hour}:${min}:00.000+0800`
+  }
+
+  // Normalise: Lark display format uses slash separators with no zero-padding (e.g. 2026/3/11 00:00)
+  // Support: YYYY/M/D HH:mm, YYYY-MM-DD HH:mm, YYYY-MM-DD, YYYY/M/D
+  const m = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/)
+  if (m) {
+    const year  = m[1]
+    const month = m[2].padStart(2, '0')
+    const day   = m[3].padStart(2, '0')
+    const hour  = (m[4] ?? '00').padStart(2, '0')
+    const min   = (m[5] ?? '00').padStart(2, '0')
+    return `${year}-${month}-${day}T${hour}:${min}:00.000+0800`
+  }
+
+  // Fallback: already ISO-like
+  return s.includes('T') ? s : s.replace(' ', 'T') + ':00.000+0800'
 }
 
 // ─── Multer Upload ────────────────────────────────────────────────────────────

@@ -676,14 +676,18 @@ const multiWritebackLark = async (sheetUrl: string, writes: MultiWrite[]) => {
   console.log('[WB-Lark] 4. got token, fetching headers')
   const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
 
-  const headerRange = sheetId ? `${sheetId}!A1:Z2` : 'A1:Z2'
+  const headerRange = sheetId ? `${sheetId}!A1:AZ2` : 'A1:AZ2'
   const headerResp = await fetch(
     `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${headerRange}`,
     { headers: { Authorization: `Bearer ${token}` } },
   )
   console.log('[WB-Lark] 5. headerResp.ok:', headerResp.ok, 'status:', headerResp.status)
-  const headerData = (await headerResp.json()) as { data?: { valueRange?: { values?: unknown[][] } } }
-  console.log('[WB-Lark] 6. headerData keys:', Object.keys(headerData ?? {}))
+  const headerRaw = await headerResp.text()
+  console.log('[WB-Lark] 6. headerRaw (first 500):', headerRaw.slice(0, 500))
+  if (!headerResp.ok) throw new Error(`Lark Sheets header API error: HTTP ${headerResp.status} — ${headerRaw.slice(0, 200)}`)
+  const headerData = JSON.parse(headerRaw) as { code?: number; msg?: string; data?: { valueRange?: { values?: unknown[][] } } }
+  if (headerData.code !== 0) throw new Error(`Lark Sheets header API error: code ${headerData.code} — ${headerData.msg ?? ''}`)
+  console.log('[WB-Lark] 6b. headerData code:', headerData.code)
   const rows = headerData.data?.valueRange?.values ?? []
   const row1 = (rows[0] ?? []).map(c => (c !== null && c !== undefined ? String(c) : ''))
   const row2 = (rows[1] ?? []).map(c => (c !== null && c !== undefined ? String(c) : ''))
@@ -699,9 +703,18 @@ const multiWritebackLark = async (sheetUrl: string, writes: MultiWrite[]) => {
 
     for (const [colName, value] of Object.entries(write.columns)) {
       const colIdx = headers.findIndex(h => h.toLowerCase() === colName.toLowerCase())
-      if (colIdx === -1) continue
-      const colLetter = String.fromCharCode(65 + colIdx)
-      const range = sheetId ? `${sheetId}!${colLetter}${write.rowIndex}` : `${colLetter}${write.rowIndex}`
+      if (colIdx === -1) {
+        console.warn(`[WB-Lark] column not found: "${colName}" in headers:`, headers)
+        rowOk = false
+        rowError = `找不到欄位「${colName}」（試算表標題：${headers.filter(Boolean).join(', ')}）`
+        break
+      }
+      const colLetter = colIdx >= 26
+        ? String.fromCharCode(64 + Math.floor(colIdx / 26)) + String.fromCharCode(65 + (colIdx % 26))
+        : String.fromCharCode(65 + colIdx)
+      const cell = `${colLetter}${write.rowIndex}`
+      const range = sheetId ? `${sheetId}!${cell}:${cell}` : `${cell}:${cell}`
+      console.log(`[WB-Lark] writing ${colName} → range: ${range}, value: ${value}`)
 
       const resp = await fetch(
         `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values`,
@@ -712,10 +725,19 @@ const multiWritebackLark = async (sheetUrl: string, writes: MultiWrite[]) => {
         },
       )
 
+      const respText = await resp.text().catch(() => '')
+      console.log(`[WB-Lark] write resp HTTP ${resp.status}: ${respText.slice(0, 300)}`)
+
       if (!resp.ok) {
-        const errText = await resp.text().catch(() => `HTTP ${resp.status}`)
         rowOk = false
-        rowError = `${colName}：HTTP ${resp.status} — ${errText.slice(0, 200)}`
+        rowError = `${colName}：HTTP ${resp.status} — ${respText.slice(0, 200)}`
+        break
+      }
+      let respJson: { code?: number; msg?: string } = {}
+      try { respJson = JSON.parse(respText) } catch { /* ignore */ }
+      if (respJson.code !== 0) {
+        rowOk = false
+        rowError = `${colName}：Lark API code ${respJson.code} — ${respJson.msg ?? respText.slice(0, 200)}`
         break
       }
     }

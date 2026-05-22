@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.26.18'
+export const APP_VERSION = '3.27.12'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,59 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.27.12',
+    date: '2026-05-22',
+    changes: [
+      'fix(jira): 自動移除摘要中的換行字元（Lark 內容欄有 \\n 時 Jira 會拒絕），前後端同步處理',
+      'fix(jira): 擴展 Lark Sheet 讀取範圍從 A:Z 至 A:AZ，支援欄位超過 26 欄（Actual end / 驗證人員 / 本機完成測試時間 / 上C服時間 / 上線日期 等位於 AA-AE 欄的欄位現在可正確讀取並回寫 Jira）',
+      'fix(jira): 修正 multiWritebackLark 回寫 range 格式錯誤：Lark API 需要 `U2:U2` 格式而非 `U2`，Lark error code 90202 (wrong range)',
+      'fix(jira): 正確處理 Lark Sheets v2 API 回傳的日期欄位格式：Excel OA 日期序號（如 `46092` = 2026-03-11），轉換為 Jira 格式 `2026-03-11T00:00:00.000+0800`，解決 Actual start/end 不合規格錯誤',
+    ],
+  },
+  {
+    version: '3.27.4',
+    date: '2026-05-22',
+    changes: [
+      'fix(jira): 回退至 Lark Sheets v2 API，server 端自動解析 `"prefix"&G2` 型公式拼接，公式欄位顯示計算值',
+    ],
+  },
+  {
+    version: '3.27.3',
+    date: '2026-05-22',
+    changes: [
+      'fix(jira): Lark Sheets v3 API range 改用 URL encoding，修復 JSON parse 錯誤',
+    ],
+  },
+  {
+    version: '3.27.2',
+    date: '2026-05-22',
+    changes: [
+      'fix(jira): 改用 Lark Sheets v3 API + valueRenderOption=ToString，公式欄位正確顯示計算值而非公式字串',
+    ],
+  },
+  {
+    version: '3.27.1',
+    date: '2026-05-22',
+    changes: [
+      'fix(jira): Lark Sheet 讀取加上 renderType=FORMATTED_VALUE，公式欄位（如摘要）顯示計算結果而非公式字串',
+    ],
+  },
+  {
+    version: '3.27.0',
+    date: '2026-05-22',
+    changes: [
+      'feat(jira): Step 3 新增欄位篩選器 — 自動偵測下拉式選單欄位（2–15 個唯一值），可按嚴重度/類別/進度等篩選後再勾選',
+    ],
+  },
+  {
+    version: '3.26.19',
+    date: '2026-05-21',
+    changes: [
+      'fix(jira): worker 加入 JSON 錯誤處理器，修復批次開單 500 回應導致「Row 0 網路錯誤」',
+      'fix(jira): 批次開單允許空摘要欄位（略過並回報），不再整批失敗',
+    ],
+  },
   {
     version: '3.26.18',
     date: '2026-05-21',

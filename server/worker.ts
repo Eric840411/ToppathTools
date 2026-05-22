@@ -12,7 +12,8 @@ import express from 'express'
 import { createServer } from 'http'
 import { cpus, hostname, totalmem, freemem } from 'os'
 import { WebSocketServer } from 'ws'
-import { larkGenerateSchema, log, verifyLocalAgentToken } from './shared.js'
+import { z } from 'zod'
+import { larkGenerateSchema, log, verifyLocalAgentToken, getClientIP, getUser } from './shared.js'
 import { runGenerateTestcasesFileJob, runLarkGenerateTestcasesJob, type WorkerUploadFile } from './routes/integrations.js'
 import { router as jiraRouter } from './routes/jira.js'
 import { router as gameshowRouter } from './routes/gameshow.js'
@@ -315,6 +316,20 @@ app.use(autospinRouter)
 app.use(osmUatRouter)
 app.use(machineTestRouter)
 app.use(scriptedBetRouter)
+
+// ─── Error Handler ────────────────────────────────────────────────────────────
+app.use(
+  (error: unknown, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    if (error instanceof z.ZodError) {
+      log('warn', getClientIP(req), getUser(req), `Worker validation error @ ${req.method} ${req.path}`, error.issues.map(i => i.message).join('; '))
+      return res.status(400).json({ ok: false, message: 'Validation error', details: error.issues })
+    }
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    log('error', getClientIP(req), getUser(req), `Worker unhandled error @ ${req.method} ${req.path}`, message)
+    console.error(`[Worker][Error] ${req.method} ${req.path}`, error)
+    return res.status(500).json({ ok: false, message })
+  },
+)
 
 const wss = new WebSocketServer({ server })
 wss.on('error', () => {})

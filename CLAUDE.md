@@ -147,7 +147,8 @@ Keep Claude for:
 | 操作 | 說明 |
 |------|------|
 | 選擇帳號 | 從全域帳號選單選擇 Jira 操作者身份 |
-| 批次開單（Step 1–5） | 讀取 Lark Bitable → 選專案/Issue Type → 預覽清單 → 確認執行 → 進度追蹤（SSE）|
+| 批次開單（Step 1–5） | 讀取 Lark Bitable → 選專案/Issue Type → 預覽清單（含欄位篩選）→ 確認執行 → 進度追蹤（SSE）|
+| Step 3 欄位篩選 | 自動偵測下拉式選單欄位（2–15 個唯一值），可按嚴重度/類別/進度等篩選後再勾選列 |
 | PM 批次開單 | 從 Lark 讀取 PM 規格，自動建立 Epic + Story |
 | 批次評論 | 對多筆 Issue 批量加入 AI 生成的評論內容 |
 | 批次轉換狀態 | 選擇 Issue 清單 + 目標狀態，批量執行 Jira transition |

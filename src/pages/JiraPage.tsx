@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { JiraAccountModal, accountHasRole, type AccountInfo } from '../components/JiraAccountModal'
 import { SearchSelect } from '../components/SearchSelect'
 import { ModelSelector } from '../components/ModelSelector'
@@ -186,6 +186,32 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
 
   // Step 3
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set())
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({})
+
+  // Auto-detect filterable columns: 2–15 unique non-empty values
+  const filterableColumns = useMemo(() => {
+    if (!sheetRecords.length) return []
+    return sheetHeaders.filter(h => {
+      const vals = [...new Set(sheetRecords.map(r => (r[h] ?? '').trim()).filter(Boolean))]
+      return vals.length >= 2 && vals.length <= 15
+    })
+  }, [sheetHeaders, sheetRecords])
+
+  // Unique values per filterable column (for dropdown options)
+  const columnUniqueValues = useMemo<Record<string, string[]>>(() => {
+    const result: Record<string, string[]> = {}
+    for (const h of filterableColumns) {
+      result[h] = [...new Set(sheetRecords.map(r => (r[h] ?? '').trim()).filter(Boolean))].sort()
+    }
+    return result
+  }, [filterableColumns, sheetRecords])
+
+  // Apply column filters to records
+  const filteredRecords = useMemo(() => {
+    return sheetRecords.filter(r =>
+      Object.entries(columnFilters).every(([col, val]) => !val || (r[col] ?? '').trim() === val)
+    )
+  }, [sheetRecords, columnFilters])
 
   // Step 4 (create)
   const [submitting, setSubmitting] = useState(false)
@@ -466,6 +492,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
         setSheetHeaders(data.headers)
         setSheetRecords(data.records)
         setSelectedRows(new Set(data.records.map((r: SheetRecord) => Number(r._rowIndex))))
+        setColumnFilters({})
         setStep(3)
       }
     } catch { setSheetError('網路錯誤') }
@@ -511,7 +538,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
     const rows = planCreate.map(r => {
       const verifiers = getField(r, SHEET_FIELD.verifierAccountIds)
       return {
-        summary: getField(r, SHEET_FIELD.summary),
+        summary: getField(r, SHEET_FIELD.summary).replace(/[\r\n]+/g, ' ').trim(),
         description: getField(r, SHEET_FIELD.description),
         assigneeAccountId: selectedAssignee || getField(r, SHEET_FIELD.assigneeAccountId) || undefined,
         rdOwnerAccountId: getField(r, SHEET_FIELD.rdOwnerAccountId) || undefined,
@@ -1287,8 +1314,40 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       {step === 3 && (
         <div className="section-card">
           <h2 className="section-title">
-            Step 3 — 確認清單（{sheetRecords.length} 筆，已勾選 {selectedRows.size} 筆）
+            Step 3 — 確認清單（
+            {Object.values(columnFilters).some(Boolean)
+              ? `篩選後 ${filteredRecords.length} / 共 ${sheetRecords.length} 筆`
+              : `${sheetRecords.length} 筆`}
+            ，已勾選 {selectedRows.size} 筆）
           </h2>
+
+          {/* 欄位篩選器 */}
+          {filterableColumns.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>篩選：</span>
+              {filterableColumns.map(col => (
+                <label key={col} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                  <span style={{ color: 'var(--text-muted)' }}>{col}</span>
+                  <select
+                    value={columnFilters[col] ?? ''}
+                    onChange={e => setColumnFilters(prev => ({ ...prev, [col]: e.target.value }))}
+                    style={{ fontSize: 12, padding: '2px 4px', borderRadius: 4 }}>
+                    <option value="">全部</option>
+                    {(columnUniqueValues[col] ?? []).map(v => (
+                      <option key={v} value={v}>{v}</option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+              {Object.values(columnFilters).some(Boolean) && (
+                <button type="button"
+                  onClick={() => setColumnFilters({})}
+                  style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, border: '1px solid var(--border)', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
+                  清除篩選
+                </button>
+              )}
+            </div>
+          )}
 
           {/* 操作計畫預覽 */}
           {selectedRows.size > 0 && (
@@ -1305,6 +1364,8 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
 
           {sheetRecords.length === 0
             ? <div className="alert-warn">沒有待處理的列（所有列皆已完成）</div>
+            : filteredRecords.length === 0
+            ? <div className="alert-warn">目前篩選條件無符合的列，請調整篩選</div>
             : (
               <div className="table-wrap">
                 <table className="version-table">
@@ -1312,12 +1373,15 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                     <tr>
                       <th style={{ width: 36 }}>
                         <input type="checkbox"
-                          checked={selectedRows.size === sheetRecords.length}
-                          onChange={() => setSelectedRows(
-                            selectedRows.size === sheetRecords.length
-                              ? new Set()
-                              : new Set(sheetRecords.map(r => Number(r._rowIndex)))
-                          )} />
+                          checked={filteredRecords.length > 0 && filteredRecords.every(r => selectedRows.has(Number(r._rowIndex)))}
+                          onChange={() => {
+                            const allSelected = filteredRecords.every(r => selectedRows.has(Number(r._rowIndex)))
+                            setSelectedRows(prev => {
+                              const n = new Set(prev)
+                              filteredRecords.forEach(r => allSelected ? n.delete(Number(r._rowIndex)) : n.add(Number(r._rowIndex)))
+                              return n
+                            })
+                          }} />
                       </th>
                       <th style={{ width: 52 }}>列</th>
                       <th style={{ width: 90 }}>階段</th>
@@ -1325,7 +1389,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                     </tr>
                   </thead>
                   <tbody>
-                    {sheetRecords.map(r => (
+                    {filteredRecords.map(r => (
                       <tr key={r._rowIndex}>
                         <td>
                           <input type="checkbox"

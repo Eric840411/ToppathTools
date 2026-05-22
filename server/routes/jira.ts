@@ -85,7 +85,7 @@ const accountAddSchema = z.object({
 const batchCreateSchema = z.object({
   rows: z.array(
     z.object({
-      summary: z.string().min(1),
+      summary: z.string().default(''),
       description: z.string().optional().default(''),
       assigneeAccountId: z.string().optional(),
       rdOwnerAccountId: z.string().optional(),
@@ -611,7 +611,7 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
 
     const token = await getLarkToken()
     const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
-    const range = sheetId ? `${sheetId}!A1:Z1000` : 'A1:Z1000'
+    const range = sheetId ? `${sheetId}!A1:AZ1000` : 'A1:AZ1000'
 
     const resp = await fetch(
       `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${range}`,
@@ -630,13 +630,18 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
     if (rows.length < 2) return res.json({ ok: true, headers: [], records: [] })
 
     /** Lark Sheets API can return cell values as strings, numbers, booleans,
-     *  or rich-text objects. Extract the plain text string in all cases. */
+     *  or rich-text/formula objects. Extract the plain text string in all cases. */
     const extractCell = (cell: unknown): string => {
       if (cell === null || cell === undefined) return ''
       if (typeof cell === 'string') return cell
       if (typeof cell === 'number' || typeof cell === 'boolean') return String(cell)
       if (typeof cell === 'object') {
         const c = cell as Record<string, unknown>
+        // Formula cells: Lark may return computed value in formulaValue or displayValue
+        if (typeof c.formulaValue === 'string') return c.formulaValue
+        if (typeof c.displayValue === 'string') return c.displayValue
+        if (typeof c.computedValue === 'string') return c.computedValue
+        // Rich-text cells
         if (typeof c.text === 'string') return c.text
         if (typeof c.value === 'string') return c.value
         if (Array.isArray(c.text)) return (c.text as Array<{ text?: string }>).map(t => t.text ?? '').join('')
@@ -648,19 +653,55 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
     const jiraKeyHeader = headers.find(h => h.toLowerCase() === 'jira issue key') ?? 'Jira Issue Key'
     const stageHeader = headers.find(h => h === '處理階段') ?? ''
 
+    /**
+     * Lark v2 returns formula cells as the formula body string (without `=`).
+     * Evaluate simple concatenation formulas like `"prefix"&G2` or `"a"&"b"`
+     * using the raw cell values from the same row.
+     */
+    const evalFormula = (formula: string, rawRow: unknown[]): string => {
+      // Split on & and evaluate each token
+      const tokens = formula.split('&').map(t => t.trim())
+      const parts: string[] = []
+      for (const token of tokens) {
+        if (token.startsWith('"') && token.endsWith('"')) {
+          // Quoted string literal
+          parts.push(token.slice(1, -1))
+        } else {
+          // Cell reference like G2, A1 — column letter(s) + row number
+          const m = token.match(/^([A-Z]+)(\d+)$/)
+          if (m) {
+            const colIndex = m[1].split('').reduce((acc, ch) => acc * 26 + ch.charCodeAt(0) - 64, 0) - 1
+            const cell = rawRow[colIndex]
+            parts.push(extractCell(cell))
+          } else {
+            // Unknown token — include as-is
+            parts.push(token)
+          }
+        }
+      }
+      return parts.join('')
+    }
+
     const records = rows
       .slice(1)
       .map((row, i) => {
+        const rawRow = row as unknown[]
         const obj: Record<string, string> = {}
         headers.forEach((h, ci) => {
-          obj[h] = extractCell((row as unknown[])[ci])
+          let val = extractCell(rawRow[ci])
+          // Detect Lark formula body: contains & and looks like a concatenation expression
+          if (val && /^(".*"|[A-Z]+\d+)(&(".*"|[A-Z]+\d+))+$/.test(val)) {
+            val = evalFormula(val, rawRow)
+          }
+          obj[h] = val
         })
         return { ...obj, _rowIndex: i + 2 }
       })
       .filter((r) => {
-        // Skip completely empty rows — ignore checkbox false values (0/false) and blank cells
+        // Skip completely empty rows — ignore columns with blank/whitespace headers (e.g. row-number column),
+        // checkbox false values (0/false), and blank cells
         const hasAnyContent = headers.some(h => {
-          if (!h) return false
+          if (!h || !h.trim()) return false   // skip unnamed columns (row-number column, etc.)
           const v = r[h]?.trim()
           if (!v || v === '0' || v === 'false') return false
           return true
@@ -705,11 +746,15 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
     const results: { rowIndex: number; issueKey?: string; error?: string }[] = []
 
     for (const row of body.rows) {
+      if (!row.summary.replace(/[\r\n]+/g, '').trim()) {
+        results.push({ rowIndex: row.rowIndex, error: '缺少摘要欄位，已略過' })
+        continue
+      }
       try {
         const fields: Record<string, unknown> = {
           project: { id: projectId },
           issuetype: { id: issueTypeId },
-          summary: row.summary,
+          summary: row.summary.replace(/[\r\n]+/g, ' ').trim(),
           description: {
             type: 'doc',
             version: 1,
@@ -728,11 +773,16 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
         const end = toJiraDateTime(row.actualEnd)
         const local = toJiraDateTime(row.localTestDone)
         const staging = toJiraDateTime(row.stagingDeploy)
+        console.log(`[batch-create] date fields raw: actualStart=${row.actualStart} → ${start}, actualEnd=${row.actualEnd} → ${end}`)
         if (start) fields.customfield_10430 = start
         if (end) fields.customfield_10431 = end
         if (local) fields.customfield_10465 = local
         if (staging) fields.customfield_10466 = staging
-        if (row.releaseDate) fields.customfield_10438 = row.releaseDate
+        if (row.releaseDate) {
+          // Jira date-only field expects YYYY-MM-DD; normalise slash format from Lark
+          const relDt = toJiraDateTime(row.releaseDate)
+          if (relDt) fields.customfield_10438 = relDt.slice(0, 10)  // take only YYYY-MM-DD
+        }
 
         const resp = await fetch(`${baseUrl}/rest/api/3/issue`, {
           method: 'POST',
