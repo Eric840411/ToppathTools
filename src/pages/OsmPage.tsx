@@ -73,7 +73,7 @@ function countOnlineStates(machines: OsmMachine[]) {
 function imageReconStatusLabel(status: string | undefined, match: boolean): string {
   const normalized = (status ?? '').trim().toLowerCase()
   if (!normalized || normalized === 'unknown' || normalized === 'unknow') {
-    return match ? '✓ 已同步' : '⚠ 版本不一致'
+    return match ? '✓ 達標' : '⚠ 未達標'
   }
   return status!.trim()
 }
