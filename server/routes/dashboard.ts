@@ -8,6 +8,13 @@ export const router = Router()
 const PRESENCE_TTL_MS = 60 * 1000
 const REQUEST_WINDOW_MS = 60 * 1000
 const RECENT_EVENT_LIMIT = 30
+const EXCLUDED_METRIC_PATHS = new Set([
+  '/api/health',
+  '/api/dashboard/heartbeat',
+  '/api/dashboard/summary',
+  '/api/worker/status',
+  '/api/heavy-tasks/me',
+])
 
 type PresenceRecord = {
   userKey: string
@@ -141,7 +148,11 @@ async function fetchWorkerStatus() {
 }
 
 export function dashboardMetricsMiddleware(req: Request, res: Response, next: NextFunction) {
-  if (!req.path.startsWith('/api/') || req.path === '/api/dashboard/heartbeat') {
+  if (!req.path.startsWith('/api/') || EXCLUDED_METRIC_PATHS.has(req.path)) {
+    next()
+    return
+  }
+  if (req.path.startsWith('/api/machine-test/osm-status')) {
     next()
     return
   }
@@ -208,7 +219,7 @@ router.get('/api/dashboard/summary', async (req, res) => {
   pruneRequestSamples(ts)
 
   const durations = requestSamples.map(s => s.durationMs)
-  const errors15m = requestSamples.filter(s => s.statusCode >= 500).length
+  const errorsPerMinute = requestSamples.filter(s => s.statusCode >= 500).length
   const workerStatus = await fetchWorkerStatus()
   if (!workerStatus.connected) {
     addEvent({
@@ -245,7 +256,7 @@ router.get('/api/dashboard/summary', async (req, res) => {
       activeSessions: getActiveAuthSessions().length,
       activeRequests,
       requestsPerMinute: requestSamples.length,
-      errors15m,
+      errorsPerMinute,
       runningTasks: activeHeavyTasks.filter(t => t.status === 'running').length + (workerTasks?.counts?.running ?? 0),
       queuedTasks: activeHeavyTasks.filter(t => t.status === 'queued').length + (workerTasks?.counts?.queued ?? 0) + (workerTasks?.counts?.limiterQueued ?? 0),
     },

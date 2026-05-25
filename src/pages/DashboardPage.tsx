@@ -13,7 +13,7 @@ type DashboardSummary = {
     activeSessions: number
     activeRequests: number
     requestsPerMinute: number
-    errors15m: number
+    errorsPerMinute: number
     runningTasks: number
     queuedTasks: number
   }
@@ -165,7 +165,7 @@ export function DashboardPage() {
 
   const pressure = useMemo(() => {
     if (!summary) return { label: 'LOW', className: 'dashboard-chip--good' }
-    if (summary.totals.errors15m > 0 || !summary.worker.connected) return { label: 'WATCH', className: 'dashboard-chip--warn' }
+    if (summary.totals.errorsPerMinute > 0 || !summary.worker.connected) return { label: 'WATCH', className: 'dashboard-chip--warn' }
     if (summary.totals.activeRequests >= 8 || summary.requests.p95Ms >= 2000) return { label: 'HIGH', className: 'dashboard-chip--warn' }
     return { label: 'LOW', className: 'dashboard-chip--good' }
   }, [summary])
@@ -336,7 +336,7 @@ export function DashboardPage() {
                 <div className="dashboard-mini-stat"><span>Server Uptime</span><b>{formatUptime(summary.server.uptimeMs)}</b></div>
                 <div className="dashboard-mini-stat"><span>Worker Latency</span><b>{summary.worker.connected ? `${summary.worker.latencyMs} ms` : '離線'}</b></div>
                 <div className="dashboard-mini-stat"><span>p95 Response</span><b>{summary.requests.p95Ms} ms</b></div>
-                <div className="dashboard-mini-stat"><span>Errors / 15m</span><b>{summary.totals.errors15m}</b></div>
+                <div className="dashboard-mini-stat"><span>Errors / 1m</span><b>{summary.totals.errorsPerMinute}</b></div>
               </div>
             </div>
           </article>
