@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.28.0'
+export const APP_VERSION = '3.29.8'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,106 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.29.8',
+    date: '2026-05-25',
+    changes: [
+      'fix(knowledge): 降級 pdf-parse 至 v1，修正 PDF 上傳「PDFParse cannot be invoked without new」錯誤',
+    ],
+  },
+  {
+    version: '3.29.6',
+    date: '2026-05-25',
+    changes: [
+      'fix(auth): sessions 改為 SQLite 持久化，修正伺服器重啟後需重新登入的問題',
+      'fix(knowledge): 操作欄標題明確 textAlign left',
+    ],
+  },
+  {
+    version: '3.29.5',
+    date: '2026-05-25',
+    changes: [
+      'fix(knowledge): 操作欄標題與按鈕改為靠左對齊',
+    ],
+  },
+  {
+    version: '3.29.4',
+    date: '2026-05-25',
+    changes: [
+      'fix(knowledge): 未分類計數改用 == null 判斷，修正伺服器未重啟時顯示 0 的問題',
+      'fix(knowledge): 刪除按鈕加 whiteSpace nowrap 防止斷行',
+    ],
+  },
+  {
+    version: '3.29.3',
+    date: '2026-05-25',
+    changes: [
+      'fix(knowledge): 調亮資料夾 tab、文件數、URL、標籤、快取狀態等文字顏色',
+    ],
+  },
+  {
+    version: '3.29.2',
+    date: '2026-05-25',
+    changes: [
+      'fix(knowledge): 移除頁面重複標題，修正「新增文件」按鈕尺寸過大問題',
+      'fix(knowledge): 資料夾 tab 計數改從 docs 陣列 fallback，避免伺服器未重啟時顯示 0',
+      'fix(knowledge): 新增資料夾失敗時彈出錯誤提示',
+      'fix(knowledge): 整體版面放大（maxWidth 1280、間距調整）',
+    ],
+  },
+  {
+    version: '3.29.1',
+    date: '2026-05-25',
+    changes: [
+      'fix(knowledge): 知識庫頁面重新設計，改用 section-card + 橫向資料夾 tabs，符合 ToppathTools 排版風格',
+    ],
+  },
+  {
+    version: '3.29.0',
+    date: '2026-05-25',
+    changes: [
+      'feat(knowledge): 知識庫改版為資料夾架構，左欄資料夾列表 + 右欄文件表格',
+      'feat(knowledge): 新增/刪除資料夾，可選顏色標識，文件可分配至指定資料夾',
+      'feat(knowledge): 文件列表改為表格格式，支援名稱搜尋 + 類型篩選',
+      'feat(knowledge): 新增文件時可選目標資料夾，刪除資料夾後文件自動移至未分類',
+    ],
+  },
+  {
+    version: '3.28.5',
+    date: '2026-05-25',
+    changes: [
+      'feat(knowledge): 知識庫新增「上傳文件」類型，支援 PDF / Word (.docx) / HTML 直接上傳並自動抽取純文字',
+    ],
+  },
+  {
+    version: '3.28.4',
+    date: '2026-05-25',
+    changes: [
+      'fix(jira): 知識庫選擇器移回 Step 5 AI 優化區塊，Step 3 只保留人員設定',
+    ],
+  },
+  {
+    version: '3.28.3',
+    date: '2026-05-25',
+    changes: [
+      'fix(jira): 人員設定優先順序改為 Step 3 picker > Lark 欄位 > Step 1 受託人',
+    ],
+  },
+  {
+    version: '3.28.2',
+    date: '2026-05-25',
+    changes: [
+      'fix(jira): Lark 受託人/RD負責人/驗證人員欄位值先驗證是否為有效 accountId，避免 email/名稱直接送 Jira 報錯',
+    ],
+  },
+  {
+    version: '3.28.1',
+    date: '2026-05-25',
+    changes: [
+      'feat(jira): Step 3 新增人員設定面板（受託人/RD負責人/驗證人員批次預設，Lark 欄位值優先）',
+      'feat(jira): Step 3 新增知識庫選擇器，移出 Step 5 評論設定區',
+    ],
+  },
   {
     version: '3.28.0',
     date: '2026-05-25',

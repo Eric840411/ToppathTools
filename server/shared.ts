@@ -563,6 +563,15 @@ db.exec(`
 `)
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS knowledge_folders (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    name       TEXT NOT NULL,
+    color      TEXT NOT NULL DEFAULT 'blue',
+    created_at INTEGER NOT NULL
+  )
+`)
+
+db.exec(`
   CREATE TABLE IF NOT EXISTS knowledge_docs (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
     name           TEXT NOT NULL,
@@ -574,6 +583,24 @@ db.exec(`
     created_at     INTEGER NOT NULL
   )
 `)
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS auth_sessions (
+    sid        TEXT PRIMARY KEY,
+    email      TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+  )
+`)
+
+// migration: add folder_id to knowledge_docs
+{
+  const kbCols = db.prepare('PRAGMA table_info(knowledge_docs)').all() as { name: string }[]
+  if (!kbCols.find(c => c.name === 'folder_id')) {
+    db.exec(`ALTER TABLE knowledge_docs ADD COLUMN folder_id INTEGER REFERENCES knowledge_folders(id) ON DELETE SET NULL`)
+    console.log('[DB] knowledge_docs 已新增 folder_id 欄位')
+  }
+}
 
 // migration: add category column to gemini_prompts
 {
