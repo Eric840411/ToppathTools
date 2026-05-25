@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.29.12'
+export const APP_VERSION = '3.29.13'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.29.13',
+    date: '2026-05-25',
+    changes: [
+      'feat(dashboard): 新增登入後首頁監控儀表板，顯示在線使用者、有效登入、伺服器壓力、記憶體與背景任務佇列',
+      'feat(dashboard): 新增 heartbeat 與 /api/dashboard/summary，整合 server/worker 狀態、request 壓力與最近系統事件',
+      'ui(dashboard): Dashboard 成為登入後第一頁，使用者最多顯示 8 位、任務 5 筆、事件 6 筆，超過數量於區塊底部提示',
+    ],
+  },
   {
     version: '3.29.12',
     date: '2026-05-25',

@@ -74,6 +74,19 @@ export function getAuthAccount(req: Request) {
   return session ? publicAccount(session.email) : null
 }
 
+export function getActiveAuthSessions() {
+  const ts = Date.now()
+  for (const [sid, session] of sessions.entries()) {
+    if (session.expiresAt <= ts) sessions.delete(sid)
+  }
+  return [...sessions.entries()].map(([sid, session]) => ({
+    sid,
+    email: session.email,
+    createdAt: session.createdAt,
+    expiresAt: session.expiresAt,
+  }))
+}
+
 export function createAuthSession(email: string, res: Response) {
   const sid = randomBytes(24).toString('hex')
   const now = Date.now()

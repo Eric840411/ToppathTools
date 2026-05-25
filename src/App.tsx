@@ -12,6 +12,7 @@ import { ImageCheckPage } from './pages/ImageCheckPage'
 import { UrlPoolPage } from './pages/UrlPoolPage'
 import { JackpotPage } from './pages/JackpotPage'
 import { OsmUatPage } from './pages/OsmUatPage'
+import { DashboardPage } from './pages/DashboardPage'
 import { GsImgComparePage } from './pages/gs/GsImgComparePage'
 import { GsLogCheckerPage } from './pages/gs/GsLogCheckerPage'
 import { GsBonusV2Page } from './pages/gs/GsBonusV2Page'
@@ -28,8 +29,8 @@ import './App.css'
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
   | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
-  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge'
-type GroupId = 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge'
+  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard'
+type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge'
 
 type SubTab = {
   id: TabId
@@ -168,6 +169,15 @@ const groups: Group[] = [
   },
 ]
 
+const dashboardGroup: Group = {
+  id: 'dashboard',
+  label: 'Dashboard',
+  icon: 'D',
+  iconClass: 'tab-icon--machinetest',
+  tab: 'dashboard',
+  description: '登入後首頁，快速掌握使用人數、任務與服務壓力',
+}
+
 const historyGroup: Group = {
   id: 'history',
   label: '操作歷史紀錄',
@@ -207,8 +217,8 @@ const sysadminGroup: Group = {
 
 
 function App() {
-  const [activeGroup, setActiveGroup] = useState<GroupId>('jira')
-  const [activeTab, setActiveTab] = useState<TabId>('jira')
+  const [activeGroup, setActiveGroup] = useState<GroupId>('dashboard')
+  const [activeTab, setActiveTab] = useState<TabId>('dashboard')
   const [showChangelog, setShowChangelog] = useState(false)
   const [showGemini, setShowGemini] = useState(false)
   const [globalAccount, setGlobalAccount] = useState<AccountInfo | null>(loadGlobalAccount)
@@ -276,6 +286,7 @@ function App() {
 
   function canAccess(tabId: TabId): boolean {
     if (!globalAccount) return false
+    if (tabId === 'dashboard') return true
     if (globalAccount.role === 'admin') return true
     if (tabId === 'local-agent') return true
     // 'jira' tab is accessible if user has either jira-qa or jira-pm
@@ -305,7 +316,7 @@ function App() {
   const visibleHistory = filterGroup(historyGroup)
   const visibleKnowledge = filterGroup(knowledgeGroup)
   const visibleSysadmin = canAccess('sysadmin') ? sysadminGroup : null
-  const allVisible = [...visibleGroups, ...(visibleSettings ? [visibleSettings] : []), ...(visibleHistory ? [visibleHistory] : []), ...(visibleKnowledge ? [visibleKnowledge] : []), ...(visibleSysadmin ? [visibleSysadmin] : [])]
+  const allVisible = [dashboardGroup, ...visibleGroups, ...(visibleSettings ? [visibleSettings] : []), ...(visibleHistory ? [visibleHistory] : []), ...(visibleKnowledge ? [visibleKnowledge] : []), ...(visibleSysadmin ? [visibleSysadmin] : [])]
 
   // Redirect activeGroup/activeTab if current selection is no longer accessible
   const currentGroup = allVisible.find(g => g.id === activeGroup) ?? allVisible[0]
@@ -316,6 +327,30 @@ function App() {
   const currentSubtab = currentGroup?.subtabs?.find(s => s.id === effectiveTab)
   const currentDescription = currentSubtab?.description ?? currentGroup?.description ?? ''
   const currentPageLabel = currentSubtab?.label ?? currentGroup?.label ?? ''
+
+  useEffect(() => {
+    if (!globalAccount || !currentPageLabel) return
+    let stopped = false
+    const sendHeartbeat = async () => {
+      try {
+        await fetch('/api/dashboard/heartbeat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ page: currentPageLabel }),
+        })
+      } catch {
+        // Dashboard heartbeat is best-effort and should never interrupt user work.
+      }
+    }
+    void sendHeartbeat()
+    const timer = window.setInterval(() => {
+      if (!stopped) void sendHeartbeat()
+    }, 25000)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+    }
+  }, [globalAccount, currentPageLabel])
 
   return (
     <div className="app">
@@ -343,6 +378,14 @@ function App() {
         {/* Nav items */}
         <div className="sidebar-nav">
           <div className="sidebar-section-label">工具</div>
+          <button
+            type="button"
+            className={`sidebar-nav-item${currentGroup?.id === dashboardGroup.id ? ' sidebar-nav-item--active' : ''}`}
+            onClick={() => handleGroupClick(dashboardGroup)}
+          >
+            <span className={`tab-icon ${dashboardGroup.iconClass}`}>{dashboardGroup.icon}</span>
+            <span className="sidebar-nav-label">{dashboardGroup.label}</span>
+          </button>
           {visibleGroups.map((group) => (
             <div key={group.id}>
               <button
@@ -480,6 +523,7 @@ function App() {
           </>
         ) : (
           <main className="main-content">
+            {currentGroup?.id === 'dashboard' && <DashboardPage />}
             {currentGroup?.id === 'jira' && <JiraPage account={globalAccount} allowedModes={allowedJiraModes} />}
             {currentGroup?.id === 'lark' && <LarkPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm' && <OsmPage />}

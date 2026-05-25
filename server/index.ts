@@ -25,6 +25,7 @@ import { router as frontendAutoRouter } from './routes/frontend-auto.js'
 import { router as audioRouter } from './routes/audio.js'
 import { router as scriptedBetRouter } from './routes/scripted-bet.js'
 import { router as knowledgeRouter } from './routes/knowledge.js'
+import { router as dashboardRouter, dashboardMetricsMiddleware } from './routes/dashboard.js'
 import { getRequestContext, runWithRequestContext } from './request-context.js'
 import { getAuthAccount } from './auth-session.js'
 
@@ -193,6 +194,8 @@ app.use((req, _res, next) => {
   )
 })
 
+app.use(dashboardMetricsMiddleware)
+
 // ─── Health ───────────────────────────────────────────────────────────────────
 
 app.get('/api/health', (_req, res) => {
@@ -287,6 +290,7 @@ app.use(lazyIntegrationsRouter)
 app.use(authRouter)
 app.use(permissionsRouter)
 app.use(workerStatusRouter)
+app.use(dashboardRouter)
 app.use(frontendAutoRouter)
 app.use(audioRouter)
 app.use(scriptedBetRouter)
