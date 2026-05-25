@@ -4,7 +4,7 @@
  */
 import { Router } from 'express'
 import mammoth from 'mammoth'
-import { PDFParse } from 'pdf-parse'
+import pdfParse from 'pdf-parse'
 import * as XLSX from 'xlsx'
 import { z } from 'zod'
 import {
@@ -1121,7 +1121,7 @@ export async function runLarkGenerateTestcasesJob(params: {
           if (resp.ok) oldParts.push(await resp.text())
         }
       } else if (src.type === 'pdf' && src.content) {
-        const parsed = await PDFParse(Buffer.from(src.content, 'base64'))
+        const parsed = await pdfParse(Buffer.from(src.content, 'base64'))
         oldParts.push(parsed.text)
       } else if (src.type === 'csv' && src.content) {
         oldParts.push(src.content.split(/\r?\n/).filter(l => l.trim()).join('\n'))
@@ -1301,7 +1301,7 @@ router.post('/api/integrations/lark/generate-testcases', async (req, res) => {
           } else if (src.type === 'pdf') {
             if (!src.content) continue
             const buf = Buffer.from(src.content, 'base64')
-            const parsed = await PDFParse(buf)
+            const parsed = await pdfParse(buf)
             oldParts.push(parsed.text)
           } else if (src.type === 'csv') {
             if (!src.content) continue
@@ -1453,8 +1453,7 @@ router.get('/api/integrations/lark/generate-testcases/monitor', (req, res) => {
 const extractFileContent = async (file: Express.Multer.File): Promise<string> => {
   const originalname = Buffer.from(file.originalname, 'latin1').toString('utf8')
   if (file.mimetype === 'application/pdf' || originalname.toLowerCase().endsWith('.pdf')) {
-    const parser = new PDFParse({ data: file.buffer })
-    const parsed = await parser.getText()
+    const parsed = await pdfParse(file.buffer)
     return parsed.text
   } else if (
     file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
@@ -1536,8 +1535,7 @@ export async function runGenerateTestcasesFileJob(params: {
           } else if (src.type === 'pdf') {
             const f = oldUploadedFiles[oldFileIdx++]
             if (f) {
-              const parser = new PDFParse({ data: f.buffer })
-              const parsed = await parser.getText()
+              const parsed = await pdfParse(f.buffer)
               oldParts.push(parsed.text)
             }
           } else if (src.type === 'csv' && src.content) {
@@ -1659,7 +1657,7 @@ router.post(
             } else if (src.type === 'pdf') {
               // PDF sent as real file in oldFiles[] field
               const f = oldUploadedFiles[oldFileIdx++]
-              if (f) { const parsed = await PDFParse(f.buffer); oldParts.push(parsed.text) }
+              if (f) { const parsed = await pdfParse(f.buffer); oldParts.push(parsed.text) }
             } else if (src.type === 'csv' && src.content) {
               oldParts.push(src.content)
             } else if (src.type === 'lark' && src.url) {
