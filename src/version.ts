@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.29.10'
+export const APP_VERSION = '3.29.11'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.29.11',
+    date: '2026-05-25',
+    changes: [
+      'feat(testcase): TestCase 生成新增 CSV 備份輸出，Bitable 欄位不匹配或輸出空白時仍可從 AI JSON 保留資料',
+      'feat(history): 歷史紀錄 TestCase 支援由 JSON 轉出 CSV，並支援 Jira 整合格式欄位 alias 對應',
+      'fix(testcase): Jira 整合 TestCase 格式改以 test_cases JSON 結構判斷，降低 prompt 欄位命名調整造成的對應失敗',
+    ],
+  },
   {
     version: '3.29.10',
     date: '2026-05-25',

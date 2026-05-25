@@ -1,7 +1,7 @@
 {
   "name": "toppath-tools",
   "private": true,
-  "version": "3.27.12",
+  "version": "3.29.11",
   "type": "module",
   "scripts": {
     "dev": "vite",
