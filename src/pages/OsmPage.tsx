@@ -70,6 +70,14 @@ function countOnlineStates(machines: OsmMachine[]) {
   return { online, offline, unknown }
 }
 
+function imageReconStatusLabel(status: string | undefined, match: boolean): string {
+  const normalized = (status ?? '').trim().toLowerCase()
+  if (!normalized || normalized === 'unknown' || normalized === 'unknow') {
+    return match ? '✓ 已同步' : '⚠ 版本不一致'
+  }
+  return status!.trim()
+}
+
 const CHANNEL_COLORS: Record<string, string> = {
   CP: '#4f86f7',
   WF: '#f76b4f',
@@ -1455,7 +1463,7 @@ export function OsmPage() {
                       </td>
                       <td>
                         <span className={`osm-badge${match ? ' osm-badge--ok' : ' osm-badge--warn'}`}>
-                          {r.status || (match ? '✓ 已更新' : '⚠ 落後')}
+                          {imageReconStatusLabel(r.status, match)}
                         </span>
                       </td>
                     </tr>
