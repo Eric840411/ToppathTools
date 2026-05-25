@@ -54,6 +54,8 @@ export function KnowledgePage() {
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [previewDoc, setPreviewDoc] = useState<{ id: number; name: string; content: string } | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
 
   // form state
   const [formName, setFormName] = useState('')
@@ -122,6 +124,18 @@ export function KnowledgePage() {
       loadDocs()
     } finally {
       setDeletingId(null)
+    }
+  }
+
+  async function handlePreview(id: number, name: string) {
+    setPreviewLoading(true)
+    setPreviewDoc({ id, name, content: '載入中...' })
+    try {
+      const r = await fetch(`/api/knowledge/docs/${id}/content`)
+      const d = await r.json() as { ok: boolean; content?: string; error?: string }
+      setPreviewDoc({ id, name, content: d.ok ? (d.content ?? '') : `載入失敗：${d.error}` })
+    } finally {
+      setPreviewLoading(false)
     }
   }
 
@@ -255,6 +269,11 @@ export function KnowledgePage() {
                       : '無快取'}
                   </span>
                   <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                    {doc.content_length > 0 && (
+                      <button style={s.btnSm} onClick={() => handlePreview(doc.id, doc.name)} title="預覽內容">
+                        👁
+                      </button>
+                    )}
                     {doc.type !== 'text' && (
                       <button style={s.btnSm} disabled={isRefreshing} onClick={() => handleRefresh(doc.id)}>
                         {isRefreshing ? '⏳' : '↻'}
@@ -288,6 +307,45 @@ export function KnowledgePage() {
         <code style={{ background: '#1e293b', color: '#94a3b8', padding: '1px 5px', borderRadius: 3, fontFamily: 'monospace', fontSize: 11 }}>Google Doc</code>、
         <code style={{ background: '#1e293b', color: '#94a3b8', padding: '1px 5px', borderRadius: 3, fontFamily: 'monospace', fontSize: 11 }}>純文字</code>
       </div>
+
+      {/* ── Preview Modal ── */}
+      {previewDoc && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+          onClick={() => setPreviewDoc(null)}
+        >
+          <div
+            style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 10, width: '100%', maxWidth: 760, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid #2d3f55', flexShrink: 0 }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: '#e2e8f0' }}>👁 預覽：{previewDoc.name}</div>
+                <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>快取純文字內容（實際送給 AI 的資料）</div>
+              </div>
+              <button
+                style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}
+                onClick={() => setPreviewDoc(null)}
+              >×</button>
+            </div>
+            {/* Content */}
+            <div style={{ flex: 1, overflow: 'auto', padding: 20 }}>
+              {previewLoading ? (
+                <div style={{ color: '#475569', fontSize: 13, textAlign: 'center', padding: 40 }}>載入中...</div>
+              ) : (
+                <pre style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.7, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0, fontFamily: 'monospace' }}>
+                  {previewDoc.content || '（無內容）'}
+                </pre>
+              )}
+            </div>
+            {/* Footer */}
+            <div style={{ padding: '10px 20px', borderTop: '1px solid #2d3f55', fontSize: 11, color: '#334155', flexShrink: 0 }}>
+              共 {previewDoc.content.length.toLocaleString()} 字 · 點擊外部或 × 關閉
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

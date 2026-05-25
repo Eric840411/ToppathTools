@@ -180,7 +180,7 @@ const historyGroup: Group = {
 const knowledgeGroup: Group = {
   id: 'knowledge',
   label: '知識庫',
-  icon: '📚',
+  icon: 'K',
   iconClass: 'tab-icon--lark',
   tab: 'knowledge',
   description: '預存規格書、已知問題清單等文件，供批次評論 / TestCase 生成 AI 調用',
@@ -408,7 +408,8 @@ function App() {
               className={`sidebar-nav-item${currentGroup?.id === knowledgeGroup.id ? ' sidebar-nav-item--active' : ''}`}
               onClick={() => handleGroupClick(knowledgeGroup)}
             >
-              <span className="sidebar-nav-label">📚 {knowledgeGroup.label}</span>
+              <span className={`tab-icon ${knowledgeGroup.iconClass}`}>{knowledgeGroup.icon}</span>
+              <span className="sidebar-nav-label">{knowledgeGroup.label}</span>
             </button>
           )}
 
