@@ -227,6 +227,10 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const [specContext, setSpecContext] = useState('')
   const [kbDocs, setKbDocs] = useState<{ id: number; name: string; tags: string; content_length: number }[]>([])
   const [selectedKbDocIds, setSelectedKbDocIds] = useState<number[]>([])
+  // Step 3 人員設定（批次預設）
+  const [batchAssigneeIds, setBatchAssigneeIds] = useState<string[]>([])
+  const [batchRdOwnerIds, setBatchRdOwnerIds] = useState<string[]>([])
+  const [batchVerifierIds, setBatchVerifierIds] = useState<string[]>([])
   const [commentSubmitting, setCommentSubmitting] = useState(false)
   const [pendingCommentRequestId, setPendingCommentRequestId] = useState('')
   const [commentProgress, setCommentProgress] = useState<{ done: number; total: number; current: string } | null>(null)
@@ -302,7 +306,8 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       setSheetRecords([]); setSheetHeaders([]); setSheetUrl(''); setSheetSource('lark')
       setSheetError('')
       setSelectedRows(new Set())
-      setSelectedAssignee(''); setCommentColumn(''); setAttachmentColumn(''); setUseAiComment(false); setSelectedPromptId('default')
+      setSelectedAssignee(''); setBatchAssigneeIds([]); setBatchRdOwnerIds([]); setBatchVerifierIds([])
+      setCommentColumn(''); setAttachmentColumn(''); setUseAiComment(false); setSelectedPromptId('default')
       setSelectedProjectId(''); setSelectedIssueTypeId(''); setIssueTypes([])
       setMembers([]); setMembersError(''); setMembersLoading(false)
       setPendingCommentRequestId(''); setCommentProgress(null)
@@ -547,14 +552,21 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       return
     }
 
+    // 驗證 Lark 欄位值是否為已知成員的 accountId（避免 email / displayName 直接送給 Jira）
+    const knownIds = new Set(members.map(m => m.accountId))
+    const validId = (val: string) => val && knownIds.has(val) ? val : ''
+
     const rows = planCreate.map(r => {
       const verifiers = getField(r, SHEET_FIELD.verifierAccountIds)
+      const larkVerifierIds = verifiers
+        ? verifiers.split(',').map(s => s.trim()).filter(s => knownIds.has(s))
+        : []
       return {
         summary: getField(r, SHEET_FIELD.summary).replace(/[\r\n]+/g, ' ').trim(),
         description: getField(r, SHEET_FIELD.description),
-        assigneeAccountId: selectedAssignee || getField(r, SHEET_FIELD.assigneeAccountId) || undefined,
-        rdOwnerAccountId: getField(r, SHEET_FIELD.rdOwnerAccountId) || undefined,
-        verifierAccountIds: verifiers ? verifiers.split(',').map(s => s.trim()).filter(Boolean) : [],
+        assigneeAccountId: batchAssigneeIds[0] || validId(getField(r, SHEET_FIELD.assigneeAccountId)) || selectedAssignee || undefined,
+        rdOwnerAccountId: batchRdOwnerIds[0] || validId(getField(r, SHEET_FIELD.rdOwnerAccountId)) || undefined,
+        verifierAccountIds: batchVerifierIds.length > 0 ? batchVerifierIds : larkVerifierIds,
         actualStart: getField(r, SHEET_FIELD.actualStart) || undefined,
         actualEnd: getField(r, SHEET_FIELD.actualEnd) || undefined,
         localTestDone: getField(r, SHEET_FIELD.localTestDone) || undefined,
@@ -845,7 +857,8 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
     setSheetRecords([]); setSheetHeaders([]); setSheetUrl(''); setSheetSource('lark')
     setSheetError('')
     setSelectedRows(new Set())
-    setSelectedAssignee(''); setCommentColumn(''); setAttachmentColumn(''); setUseAiComment(false); setSelectedPromptId('default')
+    setSelectedAssignee(''); setBatchAssigneeIds([]); setBatchRdOwnerIds([]); setBatchVerifierIds([])
+    setCommentColumn(''); setAttachmentColumn(''); setUseAiComment(false); setSelectedPromptId('default')
     setSelectedProjectId(''); setSelectedIssueTypeId(''); setIssueTypes([])
     setMembers([]); setMembersError(''); setMembersLoading(false)
     setPendingCommentRequestId(''); setCommentProgress(null)
@@ -1333,6 +1346,89 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
             ，已勾選 {selectedRows.size} 筆）
           </h2>
 
+          {/* ── 人員設定（批次預設）+ 知識庫 ── */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+            {/* 人員設定 */}
+            <div style={{ background: '#0f1a2e', border: '1px solid #1e3a5f', borderRadius: 10, padding: '14px 16px' }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#60a5fa', marginBottom: 4 }}>人員設定（批次預設）</div>
+              <div style={{ fontSize: 11, color: '#475569', marginBottom: 12 }}>此處設定優先於 Lark 表格欄位；未設定時才讀取表格內容。</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', rowGap: 10, alignItems: 'center' }}>
+
+                {/* 受託人 */}
+                <span style={{ fontSize: 13, color: '#94a3b8' }}>受託人</span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                  {batchAssigneeIds.map(id => {
+                    const m = members.find(x => x.accountId === id)
+                    if (!m) return null
+                    return (
+                      <span key={id} className="member-chip">
+                        {m.avatarUrl && <img src={m.avatarUrl} alt={m.displayName} className="chip-avatar" />}
+                        {m.displayName}
+                        <button type="button" onClick={() => setBatchAssigneeIds([])}
+                          style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', marginLeft: 4, fontSize: 13, padding: 0, lineHeight: 1 }}>×</button>
+                      </span>
+                    )
+                  })}
+                  {batchAssigneeIds.length === 0 && (
+                    <select value="" onChange={e => e.target.value && setBatchAssigneeIds([e.target.value])}
+                      style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, background: '#1e293b', border: '1px solid #2d3f55', color: '#94a3b8', cursor: 'pointer' }}>
+                      <option value="">— 不設預設（沿用 Step 1 受託人）—</option>
+                      {members.map(m => <option key={m.accountId} value={m.accountId}>{m.displayName}</option>)}
+                    </select>
+                  )}
+                </div>
+
+                {/* RD 負責人 */}
+                <span style={{ fontSize: 13, color: '#94a3b8' }}>RD 負責人</span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                  {batchRdOwnerIds.map(id => {
+                    const m = members.find(x => x.accountId === id)
+                    if (!m) return null
+                    return (
+                      <span key={id} className="member-chip">
+                        {m.avatarUrl && <img src={m.avatarUrl} alt={m.displayName} className="chip-avatar" />}
+                        {m.displayName}
+                        <button type="button" onClick={() => setBatchRdOwnerIds([])}
+                          style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', marginLeft: 4, fontSize: 13, padding: 0, lineHeight: 1 }}>×</button>
+                      </span>
+                    )
+                  })}
+                  {batchRdOwnerIds.length === 0 && (
+                    <select value="" onChange={e => e.target.value && setBatchRdOwnerIds([e.target.value])}
+                      style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, background: '#1e293b', border: '1px solid #2d3f55', color: '#94a3b8', cursor: 'pointer' }}>
+                      <option value="">— 不設預設 —</option>
+                      {members.map(m => <option key={m.accountId} value={m.accountId}>{m.displayName}</option>)}
+                    </select>
+                  )}
+                </div>
+
+                {/* 驗證人員 */}
+                <span style={{ fontSize: 13, color: '#94a3b8', alignSelf: 'flex-start', paddingTop: 6 }}>驗證人員</span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                  {batchVerifierIds.map(id => {
+                    const m = members.find(x => x.accountId === id)
+                    if (!m) return null
+                    return (
+                      <span key={id} className="member-chip">
+                        {m.avatarUrl && <img src={m.avatarUrl} alt={m.displayName} className="chip-avatar" />}
+                        {m.displayName}
+                        <button type="button" onClick={() => setBatchVerifierIds(prev => prev.filter(x => x !== id))}
+                          style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', marginLeft: 4, fontSize: 13, padding: 0, lineHeight: 1 }}>×</button>
+                      </span>
+                    )
+                  })}
+                  <select value="" onChange={e => { if (e.target.value && !batchVerifierIds.includes(e.target.value)) setBatchVerifierIds(prev => [...prev, e.target.value]) }}
+                    style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, background: '#1e293b', border: '1px solid #2d3f55', color: '#94a3b8', cursor: 'pointer' }}>
+                    <option value="">{batchVerifierIds.length === 0 ? '— 不設預設 —' : '+ 新增...'}</option>
+                    {members.filter(m => !batchVerifierIds.includes(m.accountId)).map(m => <option key={m.accountId} value={m.accountId}>{m.displayName}</option>)}
+                  </select>
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+
           {/* 欄位篩選器 */}
           {filterableColumns.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, alignItems: 'center' }}>
@@ -1583,8 +1679,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                             const on = selectedKbDocIds.includes(doc.id)
                             const tags: string[] = (() => { try { return JSON.parse(doc.tags) } catch { return [] } })()
                             return (
-                              <div
-                                key={doc.id}
+                              <div key={doc.id}
                                 onClick={() => setSelectedKbDocIds(prev => on ? prev.filter(id => id !== doc.id) : [...prev, doc.id])}
                                 style={{
                                   display: 'flex', alignItems: 'center', gap: 5, borderRadius: 6,
@@ -1592,8 +1687,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                                   background: on ? 'rgba(37,99,235,.15)' : '#1e293b',
                                   border: `1px solid ${on ? 'rgba(59,130,246,.4)' : '#2d3f55'}`,
                                   color: on ? '#93c5fd' : '#475569',
-                                }}
-                              >
+                                }}>
                                 {on && <span style={{ color: '#3b82f6', fontSize: 11 }}>✓</span>}
                                 {doc.name}
                                 {tags.length > 0 && <span style={{ fontSize: 10, opacity: 0.5, marginLeft: 2 }}>· {tags.slice(0, 2).join(' · ')}</span>}
@@ -1761,7 +1855,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
             setCurrentAccount(null)
             sessionStorage.removeItem(SESSION_KEY)
             sessionStorage.removeItem(ACCOUNT_BOOT_KEY)
-            setMembers([]); setSelectedAssignee(''); setSheetUrl('')
+            setMembers([]); setSelectedAssignee(''); setBatchAssigneeIds([]); setBatchRdOwnerIds([]); setBatchVerifierIds([]); setSheetUrl('')
             setSheetRecords([]); setSheetHeaders([]); setSelectedRows(new Set())
             setCreateResults([]); setCommentResults([]); setTransitionResults([])
             setTrackedIssues([])
