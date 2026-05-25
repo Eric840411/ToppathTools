@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.29.13'
+export const APP_VERSION = '3.29.14'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.29.14',
+    date: '2026-05-25',
+    changes: [
+      'fix(imagerecon): ImageRecon 版本狀態不再顯示 Unknown，改依目標版本比對顯示「達標」或「未達標」',
+    ],
+  },
   {
     version: '3.29.13',
     date: '2026-05-25',
