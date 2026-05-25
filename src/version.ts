@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.29.11'
+export const APP_VERSION = '3.29.12'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.29.12',
+    date: '2026-05-25',
+    changes: [
+      'style(testcase): 調整 TestCase 生成結果操作按鈕間距，Lark Bitable 與 CSV 備份按鈕不再貼齊',
+    ],
+  },
   {
     version: '3.29.11',
     date: '2026-05-25',

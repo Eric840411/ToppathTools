@@ -1024,25 +1024,27 @@ export function LarkPage() {
                 <div className="summary-item ok">{isGame ? <DungeonIcon name="result" tone="cyan" size="xs" plain /> : '📝'} 生成 {result.generated} 筆</div>
                 <div className="summary-item ok">{isGame ? <DungeonIcon name="status-ok" tone="green" size="xs" plain /> : '✅'} 已寫入 Bitable {result.written} 筆</div>
               </div>
-              {result.bitableUrl && (
-                <a
-                  href={result.bitableUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="bitable-link-btn"
-                >
-                  {isGame ? <DungeonIcon name="guide" tone="cyan" size="xs" plain /> : '📋'} 前往 Lark Bitable 查看結果 →
-                </a>
-              )}
-              {result.csvContent && (
-                <button
-                  type="button"
-                  className="bitable-link-btn"
-                  onClick={() => downloadTextFile(result.csvContent!, result.csvFilename ?? 'testcase.csv')}
-                >
-                  {isGame ? <DungeonIcon name="file" tone="green" size="xs" plain /> : '⬇'} 下載 CSV 備份
-                </button>
-              )}
+              <div className="generate-actions">
+                {result.bitableUrl && (
+                  <a
+                    href={result.bitableUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bitable-link-btn"
+                  >
+                    {isGame ? <DungeonIcon name="guide" tone="cyan" size="xs" plain /> : '📋'} 前往 Lark Bitable 查看結果 →
+                  </a>
+                )}
+                {result.csvContent && (
+                  <button
+                    type="button"
+                    className="bitable-link-btn"
+                    onClick={() => downloadTextFile(result.csvContent!, result.csvFilename ?? 'testcase.csv')}
+                  >
+                    {isGame ? <DungeonIcon name="file" tone="green" size="xs" plain /> : '⬇'} 下載 CSV 備份
+                  </button>
+                )}
+              </div>
               <p style={{ fontSize: 13, color: '#64748b', margin: '8px 0 12px' }}>
                 點選任一列查看詳細內容
               </p>

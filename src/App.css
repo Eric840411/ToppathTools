@@ -2040,11 +2040,18 @@
 /* ─── Generate summary ────────────────────────────────── */
 .generate-summary { margin-bottom: 8px; }
 
+.generate-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
 .bitable-link-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: 10px;
   padding: 8px 16px;
   background: rgba(59,130,246,0.1);
   color: #60a5fa;

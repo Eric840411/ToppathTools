@@ -1448,6 +1448,10 @@ main button[style*="border: 1px dashed"] {
 }
 
 /* Bitable link button */
+.generate-actions {
+  gap: 10px !important;
+}
+
 .bitable-link-btn {
   font-family: var(--font-pixel) !important;
   font-size: 8px !important;
