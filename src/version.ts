@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.27.13'
+export const APP_VERSION = '3.28.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.28.0',
+    date: '2026-05-25',
+    changes: [
+      'feat(knowledge): 新增知識庫頁面，可預存 Lark Wiki / PDF / Google Doc / 純文字文件供 AI 調用',
+      'feat(knowledge): 文件儲存時自動抓取並快取純文字，支援手動重新抓取，7天以上顯示建議重抓提示',
+      'feat(knowledge): 後端新增 /api/knowledge/* 路由（列出/新增/重抓/取內容/刪除）',
+      'feat(knowledge): 側欄加入「📚 知識庫」入口，系統管理頁加入知識庫權限管理',
+    ],
+  },
   {
     version: '3.27.13',
     date: '2026-05-22',

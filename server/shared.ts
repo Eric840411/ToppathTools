@@ -562,6 +562,19 @@ db.exec(`
   )
 `)
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS knowledge_docs (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    name           TEXT NOT NULL,
+    type           TEXT NOT NULL,
+    source_url     TEXT,
+    content_cache  TEXT,
+    tags           TEXT NOT NULL DEFAULT '[]',
+    cached_at      INTEGER,
+    created_at     INTEGER NOT NULL
+  )
+`)
+
 // migration: add category column to gemini_prompts
 {
   const cols = db.prepare('PRAGMA table_info(gemini_prompts)').all() as { name: string }[]
@@ -1012,7 +1025,7 @@ export const deleteAccountByEmail = (email: string) =>
 export const ALL_PAGE_KEYS = [
   'jira-qa','jira-pm','lark','osm','machinetest','imagecheck','osm-config',
   'autospin','url-pool','jackpot','osm-uat',
-  'gs-imgcompare','gs-logchecker','gs-bonusv2','history',
+  'gs-imgcompare','gs-logchecker','gs-bonusv2','history','knowledge',
 ] as const
 
 export type PageKey = typeof ALL_PAGE_KEYS[number]

@@ -24,6 +24,7 @@ import { router as workerStatusRouter } from './routes/worker-status.js'
 import { router as frontendAutoRouter } from './routes/frontend-auto.js'
 import { router as audioRouter } from './routes/audio.js'
 import { router as scriptedBetRouter } from './routes/scripted-bet.js'
+import { router as knowledgeRouter } from './routes/knowledge.js'
 import { getRequestContext, runWithRequestContext } from './request-context.js'
 import { getAuthAccount } from './auth-session.js'
 
@@ -289,6 +290,7 @@ app.use(workerStatusRouter)
 app.use(frontendAutoRouter)
 app.use(audioRouter)
 app.use(scriptedBetRouter)
+app.use(knowledgeRouter)
 
 // ─── Static Files (production build) ──────────────────────────────────────────
 

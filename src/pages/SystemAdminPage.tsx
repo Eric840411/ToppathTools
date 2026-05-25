@@ -35,6 +35,7 @@ const PAGE_META: { key: string; label: string; group: string }[] = [
   { key: 'gs-logchecker', label: 'Game Show Log 攔截', group: 'Game Show' },
   { key: 'gs-bonusv2',   label: 'Game Show Bonus V2',  group: 'Game Show' },
   { key: 'history',      label: '操作歷史紀錄',         group: '系統' },
+  { key: 'knowledge',   label: '知識庫',               group: '系統' },
 ]
 
 const ROLE_LABELS: Record<Role, string> = { admin: '管理員', qa: 'QA', pm: 'PM', other: 'Other' }

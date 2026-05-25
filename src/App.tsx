@@ -16,6 +16,7 @@ import { GsImgComparePage } from './pages/gs/GsImgComparePage'
 import { GsLogCheckerPage } from './pages/gs/GsLogCheckerPage'
 import { GsBonusV2Page } from './pages/gs/GsBonusV2Page'
 import { SystemAdminPage } from './pages/SystemAdminPage'
+import { KnowledgePage } from './pages/KnowledgePage'
 import ChangelogModal from './components/ChangelogModal'
 import GeminiSettingsModal from './components/GeminiSettingsModal'
 import AiAgentMonitorWidget from './components/AiAgentMonitorWidget'
@@ -27,8 +28,8 @@ import './App.css'
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
   | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
-  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog'
-type GroupId = 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog'
+  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge'
+type GroupId = 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge'
 
 type SubTab = {
   id: TabId
@@ -176,6 +177,15 @@ const historyGroup: Group = {
   description: '查看所有功能的操作紀錄，支援今日 / 3 天 / 7 天篩選',
 }
 
+const knowledgeGroup: Group = {
+  id: 'knowledge',
+  label: '知識庫',
+  icon: '📚',
+  iconClass: 'tab-icon--lark',
+  tab: 'knowledge',
+  description: '預存規格書、已知問題清單等文件，供批次評論 / TestCase 生成 AI 調用',
+}
+
 const settingsGroup: Group = {
   id: 'settings',
   label: 'Local Agent',
@@ -293,8 +303,9 @@ function App() {
   const visibleGroups = groups.map(g => filterGroup(g)).filter((g): g is Group => g !== null)
   const visibleSettings = filterGroup(settingsGroup)
   const visibleHistory = filterGroup(historyGroup)
+  const visibleKnowledge = filterGroup(knowledgeGroup)
   const visibleSysadmin = canAccess('sysadmin') ? sysadminGroup : null
-  const allVisible = [...visibleGroups, ...(visibleSettings ? [visibleSettings] : []), ...(visibleHistory ? [visibleHistory] : []), ...(visibleSysadmin ? [visibleSysadmin] : [])]
+  const allVisible = [...visibleGroups, ...(visibleSettings ? [visibleSettings] : []), ...(visibleHistory ? [visibleHistory] : []), ...(visibleKnowledge ? [visibleKnowledge] : []), ...(visibleSysadmin ? [visibleSysadmin] : [])]
 
   // Redirect activeGroup/activeTab if current selection is no longer accessible
   const currentGroup = allVisible.find(g => g.id === activeGroup) ?? allVisible[0]
@@ -391,6 +402,16 @@ function App() {
             </button>
           )}
 
+          {visibleKnowledge && (
+            <button
+              type="button"
+              className={`sidebar-nav-item${currentGroup?.id === knowledgeGroup.id ? ' sidebar-nav-item--active' : ''}`}
+              onClick={() => handleGroupClick(knowledgeGroup)}
+            >
+              <span className="sidebar-nav-label">📚 {knowledgeGroup.label}</span>
+            </button>
+          )}
+
           <button
             type="button"
             className={`sidebar-nav-item${currentGroup?.id === sysadminGroup.id ? ' sidebar-nav-item--active' : ''}${!visibleSysadmin ? ' sidebar-nav-item--disabled' : ''}`}
@@ -473,6 +494,7 @@ function App() {
             {currentGroup?.id === 'history' && <HistoryPage />}
             {currentGroup?.id === 'color-game' && effectiveTab === 'gs-logchecker' && <GsLogCheckerPage />}
             {currentGroup?.id === 'sysadmin' && <SystemAdminPage />}
+            {currentGroup?.id === 'knowledge' && <KnowledgePage />}
           </main>
         )}
       </div>
