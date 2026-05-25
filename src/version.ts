@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.29.9'
+export const APP_VERSION = '3.29.10'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.29.10',
+    date: '2026-05-25',
+    changes: [
+      'fix: 修正 gameshow.ts PDFParse import，消除最後一個 worker crash 來源',
+    ],
+  },
   {
     version: '3.29.9',
     date: '2026-05-25',

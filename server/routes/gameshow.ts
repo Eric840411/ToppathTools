@@ -16,7 +16,7 @@ import { readFile, readFileSync } from 'fs'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { chromium } from 'playwright'
-import { PDFParse } from 'pdf-parse'
+import pdfParse from 'pdf-parse'
 import mammoth from 'mammoth'
 import crypto from 'crypto'
 import { upload, addHistory, browserLimiter } from '../shared.js'
@@ -180,8 +180,7 @@ router.post('/api/gs/pdf-testcase', upload.single('file'), async (req, res) => {
     let text = ''
 
     if (file.originalname.toLowerCase().endsWith('.pdf') || file.mimetype === 'application/pdf') {
-      const parser = new PDFParse({ data: file.buffer })
-      const parsed = await parser.getText()
+      const parsed = await pdfParse(file.buffer)
       text = parsed.text
     } else if (file.originalname.toLowerCase().endsWith('.docx')) {
       const result = await mammoth.extractRawText({ buffer: file.buffer })
