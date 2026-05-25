@@ -1,5 +1,79 @@
 import { useEffect, useState } from 'react'
 
+
+type CsvColumn = { header: string; key: string; aliases?: string[] }
+
+const HISTORY_TESTCASE_COLUMNS: CsvColumn[] = [
+  { header: '測試模組', key: '測試模組' },
+  { header: '測試維度', key: '測試維度' },
+  { header: '測試標題', key: '測試標題' },
+  { header: '前置條件', key: '前置條件' },
+  { header: '操作步驟', key: '操作步驟' },
+  { header: '預期結果', key: '預期結果' },
+  { header: '優先級', key: '優先級' },
+  { header: '來源', key: '來源' },
+  { header: '測項編號', key: '測項編號' },
+  { header: '來源依據', key: '來源依據' },
+  { header: '版本標記', key: '版本標記' },
+  { header: '狀態', key: 'status' },
+  { header: '取代測項', key: 'replacedBy' },
+]
+
+const HISTORY_JIRA_TESTCASE_COLUMNS: CsvColumn[] = [
+  { header: '功能名稱', key: 'feature_name', aliases: ['featureName', '功能名稱'] },
+  { header: '測試類型', key: 'test_type', aliases: ['測試類型'] },
+  { header: '類型', key: 'category_type', aliases: ['類型', '分類'] },
+  { header: '類型判定依據', key: 'category_reason', aliases: ['類型判定依據', '分類依據'] },
+  { header: '功能模組', key: 'function_module', aliases: ['功能模組'] },
+  { header: '測試標題', key: 'test_title', aliases: ['測試標題'] },
+  { header: '預期結果', key: 'expected_result', aliases: ['預期結果'] },
+  { header: '來源依據', key: 'source_reference', aliases: ['來源依據'] },
+  { header: 'JIRA對應單號', key: 'jira_reference', aliases: ['JIRA對應單號', 'jira'] },
+]
+
+function csvCell(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  const text = typeof value === 'object' ? JSON.stringify(value) : String(value)
+  return `"${text.replace(/"/g, '""')}"`
+}
+
+function csvColumnValue(row: Record<string, unknown>, column: CsvColumn): unknown {
+  if (row[column.key] !== undefined && row[column.key] !== '') return row[column.key]
+  for (const alias of column.aliases ?? []) {
+    if (row[alias] !== undefined && row[alias] !== '') return row[alias]
+  }
+  return ''
+}
+
+function buildCsv(columns: CsvColumn[], rows: Array<Record<string, unknown>>): string {
+  return `\uFEFF${[
+    columns.map(col => csvCell(col.header)).join(','),
+    ...rows.map(row => columns.map(col => csvCell(csvColumnValue(row, col))).join(',')),
+  ].join('\r\n')}\r\n`
+}
+
+function looksLikeJiraTestCase(row: unknown): row is Record<string, unknown> {
+  return !!row && typeof row === 'object' && 'test_type' in row && 'category_type' in row && 'test_title' in row
+}
+
+function testcaseHistoryToCsv(cases: unknown[], detail: Record<string, unknown>): string {
+  const featureName = String(detail.featureName ?? detail.feature_name ?? '')
+  if (cases.some(looksLikeJiraTestCase)) {
+    const rows = cases.map(row => ({ feature_name: featureName, ...(row as Record<string, unknown>) }))
+    return buildCsv(HISTORY_JIRA_TESTCASE_COLUMNS, rows)
+  }
+  return buildCsv(HISTORY_TESTCASE_COLUMNS, cases as Array<Record<string, unknown>>)
+}
+
+function downloadTextFile(content: string, filename: string, type = 'text/csv;charset=utf-8') {
+  const blob = new Blob([content], { type })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
 interface HistoryRecord {
   id: string
   feature: string
@@ -200,6 +274,12 @@ export function HistoryPage() {
                 a.click()
                 URL.revokeObjectURL(url)
               }
+              const handleCsvDownload = (e: React.MouseEvent) => {
+                e.stopPropagation()
+                if (!cases) return
+                const stamp = new Date(rec.created_at).toISOString().slice(0, 16).replace('T', '_')
+                downloadTextFile(testcaseHistoryToCsv(cases, detail), `testcase_${stamp}.csv`)
+              }
 
               return (
                 <div
@@ -232,13 +312,22 @@ export function HistoryPage() {
                       </div>
                     </div>
                     {cases && (
-                      <button
-                        onClick={handleDownload}
-                        title="下載 TestCase JSON"
-                        style={{ flex: '0 0 auto', padding: '4px 10px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #86efac', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}
-                      >
-                        📥 下載
-                      </button>
+                      <>
+                        <button
+                          onClick={handleDownload}
+                          title="下載 TestCase JSON"
+                          style={{ flex: '0 0 auto', padding: '4px 10px', background: '#f0fdf4', color: '#16a34a', border: '1px solid #86efac', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}
+                        >
+                          JSON
+                        </button>
+                        <button
+                          onClick={handleCsvDownload}
+                          title="由歷史 JSON 轉出 CSV"
+                          style={{ flex: '0 0 auto', padding: '4px 10px', background: '#eff6ff', color: '#2563eb', border: '1px solid #93c5fd', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap' }}
+                        >
+                          CSV
+                        </button>
+                      </>
                     )}
                     <div style={{ flex: '0 0 auto', textAlign: 'right' }}>
                       <div style={{ fontSize: 11, color: '#64748b' }}>{timeAgo(rec.created_at)}</div>

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * server/shared.ts
  * Shared utilities, DB instance, helpers, and types used across all route files.
  */
@@ -1216,6 +1216,8 @@ export const larkGenerateSchema = z.object({
   }).optional(),
   // Second Pass: auto-fill empty fields after first generation
   secondPass: z.boolean().optional(),
+  secondPassModel: z.string().optional(),
+  secondPassPromptId: z.string().optional(),
 })
 
 export const gmailLatestSchema = z.object({ query: z.string().optional() })

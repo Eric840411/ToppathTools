@@ -76,6 +76,9 @@ interface GenerateApiResult {
   bitableUrl?: string
   featureName?: string
   format?: 'jira'
+  csvContent?: string
+  csvFilename?: string
+  csvFormat?: 'testcase' | 'jira'
 }
 
 // ─── SSE Job Store ────────────────────────────────────────────────────────────
@@ -926,6 +929,85 @@ function normalizeTestCaseFields(raw: unknown[]): TestCase[] {
   })
 }
 
+// ─── TestCase CSV Artifact Helper ───────────────────────────────────────────
+
+type CsvFormat = 'testcase' | 'jira'
+type CsvArtifact = { content: string; filename: string; format: CsvFormat }
+type CsvColumn = { header: string; key: string; aliases?: string[] }
+
+const NORMAL_TESTCASE_CSV_COLUMNS: CsvColumn[] = [
+  { header: '測試模組', key: '測試模組' },
+  { header: '測試維度', key: '測試維度' },
+  { header: '測試標題', key: '測試標題' },
+  { header: '前置條件', key: '前置條件' },
+  { header: '操作步驟', key: '操作步驟' },
+  { header: '預期結果', key: '預期結果' },
+  { header: '優先級', key: '優先級' },
+  { header: '來源', key: '來源' },
+  { header: '測項編號', key: '測項編號' },
+  { header: '來源依據', key: '來源依據' },
+  { header: '版本標記', key: '版本標記' },
+  { header: '狀態', key: 'status' },
+  { header: '取代測項', key: 'replacedBy' },
+]
+
+const JIRA_TESTCASE_CSV_COLUMNS: CsvColumn[] = [
+  { header: '功能名稱', key: 'feature_name', aliases: ['featureName', '功能名稱'] },
+  { header: '測試類型', key: 'test_type', aliases: ['測試類型'] },
+  { header: '類型', key: 'category_type', aliases: ['類型', '分類'] },
+  { header: '類型判定依據', key: 'category_reason', aliases: ['類型判定依據', '分類依據'] },
+  { header: '功能模組', key: 'function_module', aliases: ['功能模組'] },
+  { header: '測試標題', key: 'test_title', aliases: ['測試標題'] },
+  { header: '預期結果', key: 'expected_result', aliases: ['預期結果'] },
+  { header: '來源依據', key: 'source_reference', aliases: ['來源依據'] },
+  { header: 'JIRA對應單號', key: 'jira_reference', aliases: ['JIRA對應單號', 'jira'] },
+]
+
+function csvCell(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  const text = typeof value === 'object' ? JSON.stringify(value) : String(value)
+  return `"${text.replace(/"/g, '""')}"`
+}
+
+function csvColumnValue(row: Record<string, unknown>, column: CsvColumn): unknown {
+  if (row[column.key] !== undefined && row[column.key] !== '') return row[column.key]
+  for (const alias of column.aliases ?? []) {
+    if (row[alias] !== undefined && row[alias] !== '') return row[alias]
+  }
+  return ''
+}
+
+function buildCsv(columns: CsvColumn[], rows: Array<Record<string, unknown>>): string {
+  const header = columns.map(col => csvCell(col.header)).join(',')
+  const body = rows.map(row => columns.map(col => csvCell(csvColumnValue(row, col))).join(','))
+  return `\uFEFF${[header, ...body].join('\r\n')}\r\n`
+}
+
+function csvSafeName(input: string): string {
+  return input.replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_').slice(0, 48) || 'testcase'
+}
+
+function csvTimestamp(): string {
+  return new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')
+}
+
+function createTestCaseCsvArtifact(cases: TestCase[], sourceLabel: string): CsvArtifact {
+  return {
+    content: buildCsv(NORMAL_TESTCASE_CSV_COLUMNS, cases as unknown as Array<Record<string, unknown>>),
+    filename: `testcase_${csvTimestamp()}_${csvSafeName(sourceLabel)}.csv`,
+    format: 'testcase',
+  }
+}
+
+function createJiraTestCaseCsvArtifact(result: JiraTestCaseResult, sourceLabel: string): CsvArtifact {
+  const featureName = (result as unknown as Record<string, unknown>).feature_name ?? (result as unknown as Record<string, unknown>).featureName ?? (result as unknown as Record<string, unknown>)['功能名稱'] ?? ''
+  const rows = result.test_cases.map(tc => ({ feature_name: featureName, ...tc }))
+  return {
+    content: buildCsv(JIRA_TESTCASE_CSV_COLUMNS, rows),
+    filename: `testcase_jira_${csvTimestamp()}_${csvSafeName(sourceLabel)}.csv`,
+    format: 'jira',
+  }
+}
 // ─── Second Pass Helper ───────────────────────────────────────────────────────
 
 const SECOND_PASS_REQUIRED_FIELDS: (keyof TestCase)[] = [
@@ -1148,9 +1230,10 @@ export async function runLarkGenerateTestcasesJob(params: {
     const jiraResult = result as JiraTestCaseResult
     const { written, bitableUrl, featureName } = await writeJiraTestCasesToBitable(jiraResult, sourceLabel)
     const count = jiraResult.test_cases.length
+    const csv = createJiraTestCaseCsvArtifact(jiraResult, sourceLabel)
     log('ok', clientIp, user, 'TestCase worker completed (Jira format)', `generated ${count}, written ${written}`)
-    addHistory('testcase', `TestCase 生成 - ${srcLabel}`, `生成 ${count} 筆，寫入 ${written} 筆`, { sourceLabel, cases: jiraResult.test_cases, bitableUrl })
-    return { ok: true, generated: count, written, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira' }
+    addHistory('testcase', `TestCase 生成 - ${srcLabel}`, `生成 ${count} 筆，寫入 ${written} 筆`, { sourceLabel, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvFormat: csv.format })
+    return { ok: true, generated: count, written, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format }
   }
 
   let cases = normalizeTestCaseFields(result as unknown[])
@@ -1162,9 +1245,10 @@ export async function runLarkGenerateTestcasesJob(params: {
     }
   }
   const { written, bitableUrl } = await writeTestCasesToBitable(cases, sourceLabel)
+  const csv = createTestCaseCsvArtifact(cases, sourceLabel)
   log('ok', clientIp, user, 'TestCase worker completed', `generated ${cases.length}, written ${written}`)
-  addHistory('testcase', `TestCase 生成 - ${srcLabel}`, `生成 ${cases.length} 筆，寫入 ${written} 筆`, { sourceLabel, cases, bitableUrl })
-  return { ok: true, generated: cases.length, written, cases, bitableUrl }
+  addHistory('testcase', `TestCase 生成 - ${srcLabel}`, `生成 ${cases.length} 筆，寫入 ${written} 筆`, { sourceLabel, cases, bitableUrl, csvFormat: csv.format })
+  return { ok: true, generated: cases.length, written, cases, bitableUrl, csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format }
 }
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
@@ -1203,11 +1287,14 @@ router.post('/api/integrations/lark/generate-testcases', async (req, res) => {
     return res.status(400).json({ ok: false, message: '請選擇用於讀取 Jira 的帳號' })
 
   const heavyTask = tryStartHeavyTask(req, 'testcase', 'TestCase 生成')
-  if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
+  if (!heavyTask.ok) {
+    return res.status(429).json(heavyTaskConflict((heavyTask as { ok: false; task: Parameters<typeof heavyTaskConflict>[0] }).task))
+  }
+  const heavyTaskToken = heavyTask.token
 
   const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   cleanJobStore()
-  jobStore.set(requestId, { status: 'running', createdAt: Date.now(), heavyTask: heavyTask.token, callbacks: new Set() })
+  jobStore.set(requestId, { status: 'running', createdAt: Date.now(), heavyTask: heavyTaskToken, callbacks: new Set() })
 
   const clientIp = getClientIP(req)
   const user = getUser(req)
@@ -1336,9 +1423,10 @@ router.post('/api/integrations/lark/generate-testcases', async (req, res) => {
         const jiraResult = result as JiraTestCaseResult
         const { written, bitableUrl, featureName } = await writeJiraTestCasesToBitable(jiraResult, sourceLabel)
         const count = jiraResult.test_cases.length
+        const csv = createJiraTestCaseCsvArtifact(jiraResult, sourceLabel)
         log('ok', clientIp, user, 'TestCase 生成完成（Jira 格式）', `生成 ${count} 筆，寫入 ${written} 筆`)
-        addHistory('testcase', `TestCase 生成 — ${srcLabel}`, `生成 ${count} 筆，寫入 ${written} 筆`, { sourceLabel, cases: jiraResult.test_cases, bitableUrl })
-        finishJob(requestId, { ok: true, generated: count, written, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira' })
+        addHistory('testcase', `TestCase 生成 — ${srcLabel}`, `生成 ${count} 筆，寫入 ${written} 筆`, { sourceLabel, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvFormat: csv.format })
+        finishJob(requestId, { ok: true, generated: count, written, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format })
       } else {
         let cases = normalizeTestCaseFields(result as unknown[])
         if (body.secondPass) {
@@ -1346,16 +1434,17 @@ router.post('/api/integrations/lark/generate-testcases', async (req, res) => {
           catch (e) { log('warn', clientIp, user, 'Second Pass 失敗（略過）', e instanceof Error ? e.message : String(e)) }
         }
         const { written, bitableUrl } = await writeTestCasesToBitable(cases, sourceLabel)
+        const csv = createTestCaseCsvArtifact(cases, sourceLabel)
         log('ok', clientIp, user, 'TestCase 生成完成', `生成 ${cases.length} 筆，寫入 ${written} 筆`)
-        addHistory('testcase', `TestCase 生成 — ${srcLabel}`, `生成 ${cases.length} 筆，寫入 ${written} 筆`, { sourceLabel, cases, bitableUrl })
-        finishJob(requestId, { ok: true, generated: cases.length, written, cases, bitableUrl })
+        addHistory('testcase', `TestCase 生成 — ${srcLabel}`, `生成 ${cases.length} 筆，寫入 ${written} 筆`, { sourceLabel, cases, bitableUrl, csvFormat: csv.format })
+        finishJob(requestId, { ok: true, generated: cases.length, written, cases, bitableUrl, csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format })
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       log('error', clientIp, user, 'TestCase 生成失敗', message)
       finishJob(requestId, { ok: false, message })
     } finally {
-      finishHeavyTask(heavyTask.token)
+      finishHeavyTask(heavyTaskToken)
     }
   })()
 
@@ -1563,7 +1652,16 @@ export async function runGenerateTestcasesFileJob(params: {
   const sourceLabel = fileNames.join(', ')
   log('info', params.clientIp, params.user, 'TestCase file worker started', sourceLabel)
   const cases = await generateWithGemini(finalContent, promptId, undefined, modelSpec, Object.keys(extraVars).length ? extraVars : undefined)
-  let casesArr = normalizeTestCaseFields(Array.isArray(cases) ? cases as unknown[] : (cases as JiraTestCaseResult).test_cases as unknown[])
+  if (!Array.isArray(cases) && cases && typeof cases === 'object' && 'test_cases' in cases) {
+    const jiraResult = cases as JiraTestCaseResult
+    const { written, bitableUrl, featureName } = await writeJiraTestCasesToBitable(jiraResult, sourceLabel)
+    const csv = createJiraTestCaseCsvArtifact(jiraResult, sourceLabel)
+    const count = jiraResult.test_cases.length
+    log('ok', params.clientIp, params.user, 'TestCase file worker completed (Jira format)', `generated ${count}, written ${written}`)
+    addHistory('testcase', `TestCase 生成 - ${sourceLabel}`, `生成 ${count} 筆，寫入 ${written} 筆`, { sourceLabel, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvFormat: csv.format })
+    return { ok: true, generated: count, written, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format }
+  }
+  let casesArr = normalizeTestCaseFields(cases as unknown[])
   const secondPassEnabled = params.form.secondPass === 'true' || params.form.secondPass === true
   if (secondPassEnabled) {
     const spModel = typeof params.form.secondPassModel === 'string' ? params.form.secondPassModel : modelSpec
@@ -1575,10 +1673,11 @@ export async function runGenerateTestcasesFileJob(params: {
     }
   }
   const { written, bitableUrl } = await writeTestCasesToBitable(casesArr, sourceLabel)
+  const csv = createTestCaseCsvArtifact(casesArr, sourceLabel)
 
   log('ok', params.clientIp, params.user, 'TestCase file worker completed', `generated ${casesArr.length}, written ${written}`)
-  addHistory('testcase', `TestCase 生成 - ${sourceLabel}`, `生成 ${casesArr.length} 筆，寫入 ${written} 筆`, { sourceLabel, cases: casesArr, bitableUrl })
-  return { ok: true, generated: casesArr.length, written, cases: casesArr, bitableUrl }
+  addHistory('testcase', `TestCase 生成 - ${sourceLabel}`, `生成 ${casesArr.length} 筆，寫入 ${written} 筆`, { sourceLabel, cases: casesArr, bitableUrl, csvFormat: csv.format })
+  return { ok: true, generated: casesArr.length, written, cases: casesArr, bitableUrl, csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format }
 }
 
 router.post(
@@ -1597,7 +1696,9 @@ router.post(
     const promptId: string | undefined = typeof req.body.promptId === 'string' ? req.body.promptId : undefined
     const modelSpec: string | undefined = typeof req.body.modelSpec === 'string' ? req.body.modelSpec : undefined
     const heavyTask = tryStartHeavyTask(req, 'testcase-file', 'TestCase 檔案生成')
-    if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
+    if (!heavyTask.ok) {
+      return res.status(429).json(heavyTaskConflict((heavyTask as { ok: false; task: Parameters<typeof heavyTaskConflict>[0] }).task))
+    }
     heavyTaskToken = heavyTask.token
 
     const serializeFile = (file: Express.Multer.File): WorkerUploadFile => ({
@@ -1690,10 +1791,11 @@ router.post(
       catch (e) { log('warn', getClientIP(req), getUser(req), 'Second Pass 失敗（略過）', e instanceof Error ? e.message : String(e)) }
     }
     const { written, bitableUrl } = await writeTestCasesToBitable(casesArr, sourceLabel)
+    const csv = createTestCaseCsvArtifact(casesArr, sourceLabel)
 
     log('ok', getClientIP(req), getUser(req), 'TestCase 生成完成', `生成 ${casesArr.length} 筆，寫入 ${written} 筆`)
-    addHistory('testcase', `TestCase 生成 — ${sourceLabel}`, `生成 ${casesArr.length} 筆，寫入 ${written} 筆`, { sourceLabel, cases: casesArr, bitableUrl })
-    res.json({ ok: true, generated: casesArr.length, written, cases: casesArr, bitableUrl })
+    addHistory('testcase', `TestCase 生成 — ${sourceLabel}`, `生成 ${casesArr.length} 筆，寫入 ${written} 筆`, { sourceLabel, cases: casesArr, bitableUrl, csvFormat: csv.format })
+    res.json({ ok: true, generated: casesArr.length, written, cases: casesArr, bitableUrl, csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format })
   } catch (error) {
     next(error)
   } finally {

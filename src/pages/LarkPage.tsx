@@ -15,6 +15,16 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
   return btoa(binary)
 }
 
+
+function downloadTextFile(content: string, filename: string, type = 'text/csv;charset=utf-8') {
+  const blob = new Blob([content], { type })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
 type ActionType = 'generate' | 'compare' | 'secondpass'
 type SpecSource = 'lark' | 'file' | 'gdocs'
 type OldSpecSource = 'lark' | 'gdocs' | 'pdf' | 'csv'
@@ -65,6 +75,9 @@ interface GenerateResult {
   bitableUrl?: string
   featureName?: string
   format?: 'jira'
+  csvContent?: string
+  csvFilename?: string
+  csvFormat?: 'testcase' | 'jira'
 }
 
 interface GenerateStatusResponse {
@@ -1020,6 +1033,15 @@ export function LarkPage() {
                 >
                   {isGame ? <DungeonIcon name="guide" tone="cyan" size="xs" plain /> : '📋'} 前往 Lark Bitable 查看結果 →
                 </a>
+              )}
+              {result.csvContent && (
+                <button
+                  type="button"
+                  className="bitable-link-btn"
+                  onClick={() => downloadTextFile(result.csvContent!, result.csvFilename ?? 'testcase.csv')}
+                >
+                  {isGame ? <DungeonIcon name="file" tone="green" size="xs" plain /> : '⬇'} 下載 CSV 備份
+                </button>
               )}
               <p style={{ fontSize: 13, color: '#64748b', margin: '8px 0 12px' }}>
                 點選任一列查看詳細內容
