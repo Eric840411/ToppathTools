@@ -225,6 +225,8 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const [availablePrompts, setAvailablePrompts] = useState<{ id: string; name: string }[]>([])
   const [commentModel, setCommentModel] = useState('gemini')
   const [specContext, setSpecContext] = useState('')
+  const [kbDocs, setKbDocs] = useState<{ id: number; name: string; tags: string; content_length: number }[]>([])
+  const [selectedKbDocIds, setSelectedKbDocIds] = useState<number[]>([])
   const [commentSubmitting, setCommentSubmitting] = useState(false)
   const [pendingCommentRequestId, setPendingCommentRequestId] = useState('')
   const [commentProgress, setCommentProgress] = useState<{ done: number; total: number; current: string } | null>(null)
@@ -446,6 +448,16 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       .catch(() => {})
   }, [])
 
+  // 載入知識庫文件清單
+  useEffect(() => {
+    fetch('/api/knowledge/docs')
+      .then(r => r.json())
+      .then((d: { ok: boolean; docs?: { id: number; name: string; tags: string; content_length: number }[] }) => {
+        if (d.ok && d.docs) setKbDocs(d.docs.filter(doc => doc.content_length > 0))
+      })
+      .catch(() => {})
+  }, [])
+
   const handleAccountSelected = (acc: AccountInfo) => {
     setCurrentAccount(acc)
     saveSessionAccount(acc)
@@ -647,7 +659,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       const resp = await fetch('/api/jira/batch-comment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...emailHeader },
-        body: JSON.stringify({ comments, modelSpec: useAiComment ? commentModel : undefined, specContext: useAiComment && specContext.trim() ? specContext.trim() : undefined }),
+        body: JSON.stringify({ comments, modelSpec: useAiComment ? commentModel : undefined, specContext: useAiComment && specContext.trim() ? specContext.trim() : undefined, knowledgeDocIds: useAiComment && selectedKbDocIds.length > 0 ? selectedKbDocIds : undefined }),
       })
       const submitData = await resp.json() as { ok: boolean; requestId?: string; message?: string }
       if (!submitData.ok || !submitData.requestId) {
@@ -1559,6 +1571,44 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                         <ModelSelector value={commentModel} onChange={setCommentModel} />
                       </label>
                     </div>
+                    {/* 知識庫選擇器 */}
+                    {kbDocs.length > 0 && (
+                      <div style={{ background: '#162032', border: '1px solid #2d3f55', borderRadius: 8, padding: '10px 14px' }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          📚 知識庫來源
+                          <span style={{ fontWeight: 400, color: '#334155' }}>（勾選的文件內容會附加到 AI context）</span>
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {kbDocs.map(doc => {
+                            const on = selectedKbDocIds.includes(doc.id)
+                            const tags: string[] = (() => { try { return JSON.parse(doc.tags) } catch { return [] } })()
+                            return (
+                              <div
+                                key={doc.id}
+                                onClick={() => setSelectedKbDocIds(prev => on ? prev.filter(id => id !== doc.id) : [...prev, doc.id])}
+                                style={{
+                                  display: 'flex', alignItems: 'center', gap: 5, borderRadius: 6,
+                                  padding: '5px 10px', fontSize: 12, cursor: 'pointer', userSelect: 'none',
+                                  background: on ? 'rgba(37,99,235,.15)' : '#1e293b',
+                                  border: `1px solid ${on ? 'rgba(59,130,246,.4)' : '#2d3f55'}`,
+                                  color: on ? '#93c5fd' : '#475569',
+                                }}
+                              >
+                                {on && <span style={{ color: '#3b82f6', fontSize: 11 }}>✓</span>}
+                                {doc.name}
+                                {tags.length > 0 && <span style={{ fontSize: 10, opacity: 0.5, marginLeft: 2 }}>· {tags.slice(0, 2).join(' · ')}</span>}
+                              </div>
+                            )
+                          })}
+                        </div>
+                        {selectedKbDocIds.length > 0 && (
+                          <div style={{ fontSize: 11, color: '#475569', marginTop: 8 }}>
+                            已選 {selectedKbDocIds.length} 份文件，內容將附入 AI context（超過模型上限時自動截斷）
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <label className="field">
                       <span>規格書參考段落 <span style={{ fontWeight: 400, color: 'var(--text-muted)' }}>（選填 — 對應模板中 {'{{'+'specContext'+'}}'} 佔位符，所有 Issue 共用）</span></span>
                       <textarea

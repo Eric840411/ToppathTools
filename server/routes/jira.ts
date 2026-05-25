@@ -112,6 +112,7 @@ const writebackSchema = z.object({
 const batchCommentSchema = z.object({
   modelSpec: z.string().optional(),
   specContext: z.string().optional(),  // 全域規格書參考段落，用於 {{specContext}} 佔位符
+  knowledgeDocIds: z.array(z.number()).optional().default([]),  // 知識庫文件 ID 清單
   comments: z.array(z.object({
     issueKey: z.string(),
     rowIndex: z.number(),
@@ -927,6 +928,25 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
 
       let stoppedByAi: string | null = null
 
+      // 組合知識庫內容 + 手動 specContext
+      let effectiveSpecContext = body.specContext ?? ''
+      if (body.knowledgeDocIds && body.knowledgeDocIds.length > 0) {
+        const parts: string[] = []
+        for (const docId of body.knowledgeDocIds) {
+          const doc = db.prepare('SELECT name, content_cache FROM knowledge_docs WHERE id = ?').get(docId) as { name: string; content_cache: string | null } | undefined
+          if (doc?.content_cache) {
+            parts.push(`=== 知識庫：${doc.name} ===\n${doc.content_cache.slice(0, 12000)}`)
+          }
+        }
+        if (parts.length > 0) {
+          const kbBlock = parts.join('\n\n')
+          effectiveSpecContext = effectiveSpecContext.trim()
+            ? `${kbBlock}\n\n=== 補充說明 ===\n${effectiveSpecContext}`
+            : kbBlock
+          console.log(`[batch-comment] 已注入知識庫 ${parts.length} 份文件，共 ${kbBlock.length} 字`)
+        }
+      }
+
       const total = body.comments.length
 
       for (const item of body.comments) {
@@ -955,7 +975,7 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
                   platform: item.platform,
                   machineId: item.machineId,
                   gameMode: item.gameMode,
-                  specContext: body.specContext,
+                  specContext: effectiveSpecContext || undefined,
                   modelSpec: body.modelSpec,
                 }),
               )
