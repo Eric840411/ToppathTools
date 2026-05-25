@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.27.12'
+export const APP_VERSION = '3.27.13'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.27.13',
+    date: '2026-05-22',
+    changes: [
+      'fix(autospin): 執行監控頁即時獎池 banner 改用 mt-osm-banner CSS class，與機台自動化測試頁風格一致；修正遊戲名稱文字顏色（原 #1e293b 深色不可見），Grand/Fortune 色調統一為黃/紫',
+    ],
+  },
   {
     version: '3.27.12',
     date: '2026-05-22',

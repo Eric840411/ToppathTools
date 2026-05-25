@@ -1030,17 +1030,11 @@ export function AutoSpinPage() {
 
           {/* OSMWatcher Jackpot Banner */}
           <div
-            style={{
-              display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px',
-              borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: jackpots.length > 0 ? 'pointer' : 'default',
-              background: jackpots.length > 0 ? 'rgba(16,185,129,0.08)' : '#162032',
-              border: `1px solid ${jackpots.length > 0 ? '#86efac' : '#e2e8f0'}`,
-              color: jackpots.length > 0 ? '#15803d' : '#94a3b8',
-              userSelect: 'none',
-            }}
+            className={`mt-osm-banner ${jackpots.length > 0 ? 'mt-osm-banner--on' : 'mt-osm-banner--off'}`}
+            style={{ cursor: jackpots.length > 0 ? 'pointer' : 'default' }}
             onClick={() => jackpots.length > 0 && setJackpotPanelOpen(v => !v)}
           >
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: jackpots.length > 0 ? '#22c55e' : '#cbd5e1', flexShrink: 0 }} />
+            <span className={`mt-osm-dot ${jackpots.length > 0 ? 'mt-osm-dot--on' : ''}`} />
             {jackpots.length > 0
               ? `✅ OSMWatcher 已連線（${jackpots.filter(j => j.grand != null || j.fortunate != null).length} 個遊戲獎池）`
               : '⚪ OSMWatcher 未連線 — 獎池資料尚未接收'}
@@ -1050,23 +1044,23 @@ export function AutoSpinPage() {
           </div>
 
           {jackpotPanelOpen && jackpots.length > 0 && (
-            <div style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 8, padding: 12 }}>
+            <div style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 8, padding: 12, marginBottom: 0 }}>
               <div style={{ fontSize: 12, color: '#64748b', marginBottom: 10 }}>即時獎池 — 每 10 秒自動更新（只顯示 Grand / Fortune）</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 6 }}>
                 {jackpots.filter(j => j.grand != null || j.fortunate != null).map(j => (
                   <div key={j.gtype} style={{
                     background: '#162032', border: '1px solid #2d3f55', borderRadius: 6,
-                    padding: '8px 12px', display: 'flex', flexDirection: 'column', gap: 4,
+                    padding: '7px 10px', display: 'flex', flexDirection: 'column', gap: 4,
                   }}>
-                    <div style={{ fontWeight: 600, fontSize: 13, color: '#1e293b' }}>{j.gameName}</div>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: '#94a3b8' }}>{j.gameName}</div>
                     <div style={{ display: 'flex', gap: 12, fontSize: 12 }}>
                       {j.grand != null && (
-                        <span style={{ color: '#b45309', fontWeight: 700 }}>
+                        <span style={{ color: '#fbbf24', fontWeight: 700 }}>
                           Grand: {j.grand.toLocaleString()}
                         </span>
                       )}
                       {j.fortunate != null && (
-                        <span style={{ color: '#7c3aed', fontWeight: 700 }}>
+                        <span style={{ color: '#a78bfa', fontWeight: 700 }}>
                           Fortune: {j.fortunate.toLocaleString()}
                         </span>
                       )}
