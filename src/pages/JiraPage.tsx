@@ -100,6 +100,50 @@ const getField = (r: SheetRecord, fieldName: string): string => {
   return key ? r[key] : ''
 }
 
+const getFieldByHeaderMatch = (r: SheetRecord, names: string[]): string => {
+  for (const name of names) {
+    const exact = getField(r, name).trim()
+    if (exact) return exact
+  }
+  const keys = Object.keys(r).filter(k => k !== '_rowIndex')
+  const key = keys.find(k => names.some(name => k.toLowerCase().includes(name.toLowerCase())))
+  return key ? (r[key] ?? '').trim() : ''
+}
+
+const appendRawSection = (parts: string[], label: string, value: string) => {
+  const clean = value.trim()
+  if (!clean) return
+  if (parts.some(p => p.endsWith(`：${clean}`))) return
+  parts.push(`${label}：${clean}`)
+}
+
+const buildAiCommentRawText = (record: SheetRecord, commentColumn: string): string => {
+  const parts: string[] = []
+  appendRawSection(parts, '摘要', getField(record, SHEET_FIELD.summary) || getFieldByHeaderMatch(record, ['摘要', 'summary']))
+  appendRawSection(parts, '內容', getField(record, SHEET_FIELD.description) || getFieldByHeaderMatch(record, ['內容', 'description']))
+  appendRawSection(parts, commentColumn || '回覆欄位', commentColumn ? getField(record, commentColumn) : '')
+  appendRawSection(parts, '類別', getFieldByHeaderMatch(record, ['類別', '測試平台', '平台']))
+  appendRawSection(parts, '進度', getFieldByHeaderMatch(record, ['進度']))
+  appendRawSection(parts, 'QA確認OK', getFieldByHeaderMatch(record, ['QA確認OK', 'QA 確認 OK', 'QA']))
+  appendRawSection(parts, '開發確認OK', getFieldByHeaderMatch(record, ['開發確認OK', '開發 確認 OK', '開發']))
+  appendRawSection(parts, '備註', getFieldByHeaderMatch(record, ['備註', 'remark', 'note']))
+  return parts.join('\n')
+}
+
+const deriveEnvironment = (record: SheetRecord, rawText: string): string | undefined => {
+  const explicit = getFieldByHeaderMatch(record, ['環境', '測試環境'])
+  if (explicit) return explicit
+  const match = rawText.match(/(?:通過-|於|在)?([A-ZＣ]服)/i)
+  return match?.[1]
+}
+
+const deriveVersion = (record: SheetRecord, rawText: string): string | undefined => {
+  const explicit = getFieldByHeaderMatch(record, ['版本', '版號'])
+  if (explicit) return explicit
+  const match = rawText.match(/(?:\(|（)?[A-Z]?(?:\)|）)?\.?\s*([0-9]+(?:\.[0-9]+)?版)/i)
+  return match?.[1]
+}
+
 const nowString = () => new Date().toLocaleString('zh-TW', { hour12: false })
 
 // 依 處理階段 決定下一步需要做什麼
@@ -649,18 +693,19 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       const attachmentUrls = rawAttachText
         ? rawAttachText.split(/[\n,]/).map(s => s.trim()).filter(Boolean)
         : []
+      const rawComment = record ? buildAiCommentRawText(record, commentColumn) : ''
       return {
         issueKey: issue.issueKey,
         rowIndex: issue.rowIndex,
-        rawComment: record ? getField(record, commentColumn) : '',
+        rawComment,
         useAi: useAiComment,
         promptId: useAiComment ? selectedPromptId : undefined,
         // AI 格式化使用的額外欄位（欄位不存在時為 undefined，後端自動忽略）
-        environment: record ? getField(record, '測試環境') || undefined : undefined,
-        version:     record ? getField(record, '版本號')   || undefined : undefined,
-        platform:    record ? getField(record, '測試平台') || getField(record, '類別') || undefined : undefined,
         machineId:   record ? getField(record, '機台編號') || undefined : undefined,
         gameMode:    record ? getField(record, '遊戲模式') || undefined : undefined,
+        environment: record ? deriveEnvironment(record, rawComment) || undefined : undefined,
+        version:     record ? deriveVersion(record, rawComment) || undefined : undefined,
+        platform:    record ? getFieldByHeaderMatch(record, ['測試平台', '平台', '類別']) || undefined : undefined,
         attachmentUrls,
       }
     })

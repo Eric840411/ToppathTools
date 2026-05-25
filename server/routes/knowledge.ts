@@ -14,6 +14,25 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 
 export const router = Router()
 
+function textQualityScore(value: string): number {
+  const cjkMatches = value.match(/[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/g)?.length ?? 0
+  const mojibakeMatches = value.match(/[ÃÂâãåæçèéäöü\u0080-\u009f]/g)?.length ?? 0
+  const replacementMatches = value.match(/\uFFFD/g)?.length ?? 0
+  return cjkMatches * 4 - mojibakeMatches * 3 - replacementMatches * 8
+}
+
+function fixLatin1Utf8Mojibake(value: string | null): string | null {
+  if (!value || !/[ÃÂâãåæçèéäöü\u0080-\u009f]/.test(value)) return value
+  const decoded = Buffer.from(value, 'latin1').toString('utf8')
+  if (decoded.includes('\uFFFD')) return value
+  return textQualityScore(decoded) > textQualityScore(value) ? decoded : value
+}
+
+function normalizeKnowledgeDocForResponse<T extends { type?: string; source_url?: string | null }>(doc: T): T {
+  if (doc.type !== 'file_upload' || !doc.source_url) return doc
+  return { ...doc, source_url: fixLatin1Utf8Mojibake(doc.source_url) }
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface KnowledgeDoc {
@@ -170,7 +189,7 @@ router.get('/api/knowledge/docs', (req, res) => {
       FROM knowledge_docs ORDER BY created_at DESC
     `).all()
   }
-  res.json({ ok: true, docs })
+  res.json({ ok: true, docs: docs.map(normalizeKnowledgeDocForResponse) })
 })
 
 // ─── POST /api/knowledge/docs ─────────────────────────────────────────────────
@@ -212,18 +231,19 @@ router.post('/api/knowledge/docs/upload', upload.single('file'), async (req, res
   if (!account) { res.status(401).json({ ok: false, error: 'unauthenticated' }); return }
   if (!req.file) { res.status(400).json({ ok: false, error: '請選擇檔案' }); return }
 
-  const name = (req.body.name as string | undefined)?.trim() || req.file.originalname
+  const originalname = fixLatin1Utf8Mojibake(req.file.originalname) ?? req.file.originalname
+  const name = (req.body.name as string | undefined)?.trim() || originalname
   const tagsRaw = req.body.tags as string | undefined
   const tags = tagsRaw ? JSON.parse(tagsRaw) : []
   const folderId = req.body.folder_id ? Number(req.body.folder_id) : null
   const now = Date.now()
 
   try {
-    const content = await extractFileText(req.file.buffer, req.file.mimetype, req.file.originalname)
+    const content = await extractFileText(req.file.buffer, req.file.mimetype, originalname)
     const result = db.prepare(`
       INSERT INTO knowledge_docs (name, type, source_url, content_cache, tags, cached_at, created_at, folder_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(name, 'file_upload', req.file.originalname, content, JSON.stringify(tags), now, now, folderId)
+    `).run(name, 'file_upload', originalname, content, JSON.stringify(tags), now, now, folderId)
     res.json({ ok: true, id: result.lastInsertRowid })
   } catch (err) {
     res.status(500).json({ ok: false, error: (err as Error).message })
