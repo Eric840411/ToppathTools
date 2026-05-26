@@ -185,3 +185,14 @@ export interface UatAgentSession {
 
 /** Active UAT recording sessions initiated via remote agent */
 export const uatAgentSessions = new Map<string, UatAgentSession>()
+
+// ─── UAT Agent Script Run Sessions ────────────────────────────────────────────
+
+export interface UatRunAgentSession {
+  agentId: string
+  runId: string
+  done: boolean
+}
+
+/** Active UAT script execution sessions routed to an agent */
+export const uatRunSessions = new Map<string, UatRunAgentSession>()

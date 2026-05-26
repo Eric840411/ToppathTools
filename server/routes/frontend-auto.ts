@@ -10,7 +10,7 @@ import http from 'http'
 import WebSocket from 'ws'
 import { PNG } from 'pngjs'
 import { db } from '../shared.js'
-import { agentConnections, uatAgentSessions } from '../agent-hub.js'
+import { agentConnections, uatAgentSessions, uatRunSessions, getAvailableAgents } from '../agent-hub.js'
 
 export const router = express.Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 30 * 1024 * 1024 } })
@@ -52,8 +52,8 @@ type CropResult = {
 }
 
 type LogClient = express.Response
-const logBuffers = new Map<string, string[]>()
-const logClients = new Map<string, Set<LogClient>>()
+export const logBuffers = new Map<string, string[]>()
+export const logClients = new Map<string, Set<LogClient>>()
 
 function now() {
   return Date.now()
@@ -1000,7 +1000,7 @@ router.post('/api/frontend-auto/record/stop/:sessionId', (req, res) => {
 
 // ── Script Execution Engine ───────────────────────────────────────────────────
 
-const activeRuns = new Set<string>() // runIds currently executing
+export const activeRuns = new Set<string>() // runIds currently executing
 
 type StepObj = {
   name?: string
@@ -1047,7 +1047,7 @@ function findTemplateInPng(screen: PNG, template: PNG, threshold: number) {
   return best.diff <= threshold ? best : null
 }
 
-async function pushLog(runId: string, line: string) {
+export async function pushLog(runId: string, line: string) {
   const lines = logBuffers.get(runId) ?? []
   lines.push(line)
   if (lines.length > 500) lines.splice(0, lines.length - 500)
@@ -1066,8 +1066,31 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
   const resolution = text(body.resolution, platform === 'h5' ? '500x877' : '1366x768')
   const failureMode = text(body.failureMode, 'continue')
   const headed = body.headed === true
+  const requestedAgentId = text(body.agentId)
 
   if (activeRuns.has(runId)) return res.status(409).json({ ok: false, message: 'already running' })
+
+  // ── Route to agent if agentId provided or agent available ──────────────────
+  const agentToUse = requestedAgentId
+    ? agentConnections.get(requestedAgentId)
+    : getAvailableAgents({ capability: 'uat-run' })[0]
+
+  if (agentToUse && agentToUse.ws.readyState === agentToUse.ws.OPEN) {
+    uatRunSessions.set(runId, { agentId: agentToUse.agentId, runId, done: false })
+    activeRuns.add(runId)
+    agentToUse.ws.send(JSON.stringify({
+      type: 'uat_script_run',
+      runId,
+      steps: stepsRaw,
+      url: startUrl,
+      platform,
+      resolution,
+      failureMode,
+      headed,
+    }))
+    return res.json({ ok: true, via: 'agent', agentId: agentToUse.agentId })
+  }
+
   activeRuns.add(runId)
   res.json({ ok: true })
 
@@ -1247,6 +1270,15 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
 router.post('/api/frontend-auto/runs/:id/stop', (req, res) => {
   const runId = req.params.id
   activeRuns.delete(runId)
+  // If run is agent-based, notify agent to stop
+  const agentSess = uatRunSessions.get(runId)
+  if (agentSess) {
+    const agentInfo = agentConnections.get(agentSess.agentId)
+    if (agentInfo?.ws.readyState === agentInfo?.ws.OPEN) {
+      agentInfo.ws.send(JSON.stringify({ type: 'uat_script_stop', runId }))
+    }
+    uatRunSessions.delete(runId)
+  }
   // Mark run as stopped in DB immediately so UI refreshes
   try {
     db.prepare("UPDATE frontend_auto_runs SET result='stopped', finished_at=? WHERE id=? AND result='running'")

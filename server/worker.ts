@@ -13,13 +13,13 @@ import { createServer } from 'http'
 import { cpus, hostname, totalmem, freemem } from 'os'
 import { WebSocketServer } from 'ws'
 import { z } from 'zod'
-import { larkGenerateSchema, log, verifyLocalAgentToken, getClientIP, getUser } from './shared.js'
+import { larkGenerateSchema, log, verifyLocalAgentToken, getClientIP, getUser, db } from './shared.js'
 import { runGenerateTestcasesFileJob, runLarkGenerateTestcasesJob, type WorkerUploadFile } from './routes/integrations.js'
 import { router as jiraRouter } from './routes/jira.js'
 import { router as gameshowRouter } from './routes/gameshow.js'
 import { router as autospinRouter } from './routes/autospin.js'
 import { router as osmUatRouter } from './routes/osm-uat.js'
-import { router as frontendAutoRouter } from './routes/frontend-auto.js'
+import { router as frontendAutoRouter, logBuffers, logClients, pushLog, activeRuns } from './routes/frontend-auto.js'
 import { activeRunners, router as machineTestRouter } from './routes/machine-test.js'
 import {
   handleScriptedBetAgentDisconnect,
@@ -39,6 +39,7 @@ import {
   cancelDistSession,
   broadcastToViewers,
   uatAgentSessions,
+  uatRunSessions,
   type AgentInfo,
 } from './agent-hub.js'
 import type { TestEvent } from './machine-test/types.js'
@@ -527,6 +528,46 @@ wss.on('connection', (ws, req) => {
           // CDP connection failed but Chrome is running — keep session alive
           // Frontend will see recPolling=true but steps won't be captured
           ;(sess as Record<string, unknown>).cdpWarning = ev.message
+        }
+        return
+      }
+
+      if (msg.type === 'uat_run_event') {
+        const runMsg = msg as unknown as { type: string; runId: string; event: Record<string, unknown> }
+        const ev = runMsg.event
+        const runId = runMsg.runId
+        if (!ev || !runId) return
+
+        if (ev.kind === 'log') {
+          void pushLog(runId, String(ev.line ?? ''))
+        } else if (ev.kind === 'done') {
+          const passed = Number(ev.passed ?? 0)
+          const failed = Number(ev.failed ?? 0)
+          const skipped = Number(ev.skipped ?? 0)
+          const result = String(ev.result ?? 'fail')
+          try {
+            db.prepare('UPDATE frontend_auto_runs SET passed=?,failed=?,skipped=?,result=?,finished_at=? WHERE id=?')
+              .run(passed, failed, skipped, result, Date.now(), runId)
+          } catch {}
+          activeRuns.delete(runId)
+          const runSess = uatRunSessions.get(runId)
+          if (runSess) {
+            runSess.done = true
+            uatRunSessions.delete(runId)
+            const info = agentConnections.get(runSess.agentId)
+            if (info) { info.busy = false; info.sessionId = null }
+          }
+        } else if (ev.kind === 'error') {
+          void pushLog(runId, `❌ Agent 執行失敗：${String(ev.message ?? '')}`)
+          activeRuns.delete(runId)
+          const runSess = uatRunSessions.get(runId)
+          if (runSess) {
+            runSess.done = true
+            uatRunSessions.delete(runId)
+            const info = agentConnections.get(runSess.agentId)
+            if (info) { info.busy = false; info.sessionId = null }
+          }
+          try { db.prepare("UPDATE frontend_auto_runs SET result='fail',finished_at=? WHERE id=?").run(Date.now(), runId) } catch {}
         }
         return
       }

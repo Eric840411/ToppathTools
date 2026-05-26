@@ -519,7 +519,8 @@ export function OsmUatPage() {
     })
     stream.onerror = () => stream.close()
     autoRunIds.current[platform] = data.run.id
-    // Trigger actual Playwright execution on the server
+    // Trigger actual Playwright execution — route via agent if one is available
+    const execAgentId = selectedAgentId || uatAgents.find(a => !a.busy)?.agentId || ''
     await fetch(`/api/frontend-auto/runs/${data.run.id}/execute`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -529,6 +530,7 @@ export function OsmUatPage() {
         resolution: runConfig[platform].resolution,
         failureMode: runConfig[platform].failureMode,
         headed: runConfig[platform].headed,
+        ...(execAgentId ? { agentId: execAgentId } : {}),
       }),
     })
     await loadAutoRuns(platform)

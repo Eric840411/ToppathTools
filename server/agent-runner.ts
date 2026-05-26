@@ -33,7 +33,7 @@ const AGENT_ID = `${AGENT_LABEL}_${process.pid}`
 const AGENT_OWNER_KEY = (process.env.AGENT_OWNER_KEY ?? '').trim()
 const AGENT_OWNER_NAME = (process.env.AGENT_OWNER_NAME ?? AGENT_OWNER_KEY).trim()
 const AGENT_TOKEN = (process.env.AGENT_TOKEN ?? '').trim()
-const AGENT_CAPABILITIES = (process.env.AGENT_CAPABILITIES ?? 'machine-test,scripted-bet,uat-record')
+const AGENT_CAPABILITIES = (process.env.AGENT_CAPABILITIES ?? 'machine-test,scripted-bet,uat-record,uat-run')
   .split(',')
   .map(value => value.trim())
   .filter(Boolean)
@@ -84,12 +84,24 @@ interface UatRecordStopMessage {
   sessionId: string
 }
 
+interface UatScriptRunMessage {
+  type: 'uat_script_run'
+  runId: string
+  steps: string
+  url: string
+  platform: 'h5' | 'pc'
+  resolution: string
+  failureMode: string
+  headed: boolean
+}
+
 type IncomingMessage =
   | SessionJoinMessage
   | ScriptedBetStartMessage
   | UatRecordStartMessage
   | UatRecordCropMessage
   | UatRecordStopMessage
+  | UatScriptRunMessage
   | { type: 'job_assigned'; machineCode: string }
   | { type: 'no_more_jobs' }
   | { type: 'stop' }
@@ -115,6 +127,167 @@ interface UatRecSession {
 }
 
 const uatRecSessions = new Map<string, UatRecSession>()
+
+// ── UAT Script Run Sessions ──────────────────────────────────────────────────
+const uatScriptRuns = new Map<string, { active: boolean }>()
+
+async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
+  const { runId, steps: stepsRaw, url: startUrl, platform, resolution, failureMode, headed } = msg
+  const sendEvent = (event: Record<string, unknown>) => {
+    if (serverWs.readyState === serverWs.OPEN) {
+      serverWs.send(JSON.stringify({ type: 'uat_run_event', runId, event }))
+    }
+  }
+  const log = (line: string) => sendEvent({ kind: 'log', line })
+
+  type StepObj = { name?: string; action: string; value?: string; selector?: string; x?: number; y?: number; baselineId?: string; threshold?: number; scrollStep?: number; maxScrolls?: number }
+  let steps: StepObj[]
+  try { steps = JSON.parse(stepsRaw) as StepObj[] } catch {
+    await log('❌ 步驟 JSON 解析失敗')
+    sendEvent({ kind: 'error', message: '步驟 JSON 解析失敗' })
+    uatScriptRuns.delete(runId)
+    return
+  }
+
+  const [rawW, rawH] = resolution.split('x').map(Number)
+  const w = rawW || 390
+  const h = rawH || 844
+  await log(`🔧 準備啟動瀏覽器：${headed ? 'Headed' : 'Headless'}，viewport ${w}x${h}`)
+
+  const pw = await import('playwright')
+  let browser: import('playwright').Browser | null = null
+  let chromeProc: ReturnType<typeof spawn> | null = null
+  let chromeProfileDir: string | null = null
+  let passed = 0; let failed = 0; let skipped = 0
+
+  try {
+    if (headed) {
+      const port = 9400 + Math.floor(Math.random() * 400)
+      const profileDir = join(tmpdir(), `toppath-run-${runId}`)
+      chromeProfileDir = profileDir
+      const args = [
+        `--remote-debugging-port=${port}`,
+        `--user-data-dir=${profileDir}`,
+        '--no-first-run', '--no-default-browser-check', '--new-window',
+        `--window-size=${w + 20},${h + 140}`,
+        'about:blank',
+      ]
+      chromeProc = spawn(chromeExecutable(), args, { stdio: 'ignore', shell: false, windowsHide: false })
+      await waitForJson(`http://127.0.0.1:${port}/json/version`)
+      browser = await pw.chromium.connectOverCDP(`http://127.0.0.1:${port}`)
+    } else {
+      browser = await pw.chromium.launch({ headless: true, args: ['--force-device-scale-factor=1'] })
+    }
+    await log('✅ 瀏覽器已啟動')
+
+    const ctx = headed
+      ? (browser.contexts()[0] ?? await browser.newContext())
+      : await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 1, isMobile: platform === 'h5', hasTouch: platform === 'h5' })
+    const page = headed
+      ? (ctx.pages()[0] ?? await ctx.newPage())
+      : await ctx.newPage()
+    if (headed) {
+      await page.setViewportSize({ width: w, height: h }).catch(() => {})
+    }
+    await log('✅ 執行頁面已準備完成')
+
+    for (const [i, step] of steps.entries()) {
+      if (!uatScriptRuns.get(runId)?.active) { await log('🛑 執行已中止'); break }
+      const label = step.name ?? `步驟 ${i + 1}`
+      const idx = `[${i + 1}/${steps.length}]`
+      try {
+        if (step.action === 'goto') {
+          const target = step.value || startUrl
+          await log(`⏳ ${idx} ${label} → ${target}`)
+          await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 })
+          await page.waitForTimeout(3000)
+          await log(`✅ ${idx} ${label}`)
+          sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
+          passed++
+        } else if (step.action === 'click') {
+          await log(`⏳ ${idx} ${label}`)
+          await page.locator(step.selector ?? '').click({ timeout: 10000 })
+          await log(`✅ ${idx} ${label}`)
+          sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
+          passed++
+        } else if (step.action === 'click_xy') {
+          await log(`⏳ ${idx} ${label}`)
+          await page.locator('canvas').first().click({ position: { x: step.x ?? 0, y: step.y ?? 0 }, timeout: 10000 })
+          await log(`✅ ${idx} ${label}`)
+          sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
+          passed++
+        } else if (step.action === 'click_viewport') {
+          await log(`⏳ ${idx} ${label}`)
+          await page.mouse.click(step.x ?? 0, step.y ?? 0)
+          await page.waitForTimeout(500)
+          await log(`✅ ${idx} ${label}`)
+          sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
+          passed++
+        } else if (step.action === 'type' || step.action === 'fill') {
+          await log(`⏳ ${idx} ${label}`)
+          await page.locator(step.selector ?? '').fill(step.value ?? '', { timeout: 10000 })
+          await log(`✅ ${idx} ${label}`)
+          sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
+          passed++
+        } else if (step.action === 'wait') {
+          await log(`⏳ ${idx} ${label}`)
+          await page.waitForTimeout(Number(step.value) || 1000)
+          await log(`✅ ${idx} ${label}`)
+          sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
+          passed++
+        } else if (step.action === 'screenshot') {
+          await log(`⏳ ${idx} ${label}`)
+          await page.screenshot()
+          await log(`✅ ${idx} ${label}`)
+          sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
+          passed++
+        } else if (step.action === 'assert_visible') {
+          await log(`⏳ ${idx} ${label}`)
+          await page.locator(step.selector ?? '').waitFor({ state: 'visible', timeout: 10000 })
+          await log(`✅ ${idx} ${label}`)
+          sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
+          passed++
+        } else {
+          await log(`⏭ ${idx} ${label}（不支援的動作：${step.action}）`)
+          sendEvent({ kind: 'step_result', index: i, status: 'skip', message: `不支援: ${step.action}` })
+          skipped++
+        }
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message.split('\n')[0] : String(err)
+        await log(`❌ ${idx} ${label}：${errMsg}`)
+        sendEvent({ kind: 'step_result', index: i, status: 'fail', message: errMsg })
+        failed++
+        const browserClosed = errMsg.includes('closed') || errMsg.includes('Target crashed')
+        if (failureMode === 'stop' || browserClosed) {
+          await log(browserClosed ? '🛑 瀏覽器已關閉，中止執行' : '🛑 失敗後停止')
+          break
+        }
+      }
+    }
+
+    const result = failed > 0 ? 'fail' : 'pass'
+    await log(`─── 完成 ─── 通過 ${passed} ／ 失敗 ${failed} ／ 跳過 ${skipped}`)
+    sendEvent({ kind: 'done', passed, failed, skipped, result })
+  } catch (err) {
+    const errMsg = err instanceof Error ? err.message.split('\n')[0] : String(err)
+    await log(`❌ 執行器初始化失敗：${errMsg}`)
+    sendEvent({ kind: 'done', passed, failed, skipped, result: 'fail' })
+  } finally {
+    await browser?.close().catch(() => {})
+    if (chromeProc) {
+      try {
+        if (process.platform === 'win32' && chromeProc.pid) {
+          spawn('taskkill', ['/F', '/T', '/PID', String(chromeProc.pid)], { stdio: 'ignore', shell: false })
+        } else {
+          chromeProc.kill('SIGTERM')
+        }
+      } catch {}
+    }
+    if (chromeProfileDir) { try { rmSync(chromeProfileDir, { recursive: true, force: true }) } catch {} }
+    uatScriptRuns.delete(runId)
+    console.log(`[Agent:${AGENT_LABEL}] UAT script run finished: ${runId}`)
+  }
+}
 
 function chromeExecutable() {
   const candidates = [
@@ -565,6 +738,20 @@ function connect() {
         ws.send(JSON.stringify({ type: 'uat_record_event', sessionId, event: { kind: 'done', steps } }))
       }
       console.log(`[Agent:${AGENT_LABEL}] UAT record stopped: ${sessionId}`)
+      return
+    }
+
+    if (msg.type === 'uat_script_run') {
+      const scriptMsg = msg as UatScriptRunMessage
+      uatScriptRuns.set(scriptMsg.runId, { active: true })
+      void runUatScript(scriptMsg, ws)
+      return
+    }
+
+    if (msg.type === 'uat_script_stop') {
+      const { runId } = msg as { type: string; runId: string }
+      const run = uatScriptRuns.get(runId)
+      if (run) run.active = false
       return
     }
 

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.30.6'
+export const APP_VERSION = '3.31.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.31.0',
+    date: '2026-05-26',
+    changes: [
+      'feat(uat): UAT 腳本執行整合 Local Agent — 公網模式自動路由至已連線的 uat-run Agent 執行 Playwright，日誌即時串流回 SSE，無需在伺服器安裝 Playwright。',
+    ],
+  },
   {
     version: '3.30.6',
     date: '2026-05-26',
