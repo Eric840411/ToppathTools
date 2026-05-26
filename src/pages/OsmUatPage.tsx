@@ -107,6 +107,7 @@ function autoUser() {
 }
 
 function canUseServerRecorder() {
+  // Legacy: allow localhost without needing a round-trip
   const host = window.location.hostname.toLowerCase()
   return host === 'localhost' || host === '127.0.0.1' || host === '::1'
 }
@@ -568,7 +569,13 @@ export function OsmUatPage() {
     const [lastCrop, setLastCrop] = useState<AutoCropResult | null>(null)
     const [cropPending, setCropPending] = useState(false)
     const recPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-    const recorderAvailable = canUseServerRecorder()
+    const [recorderAvailable, setRecorderAvailable] = useState(canUseServerRecorder())
+    useEffect(() => {
+      fetch('/api/frontend-auto/record/available')
+        .then(r => r.json() as Promise<{ available: boolean }>)
+        .then(d => setRecorderAvailable(d.available))
+        .catch(() => {/* keep default */})
+    }, [])
     const selected = autoScripts[platform].find(item => item.id === selectedScriptIds[platform])
     const steps = selected ? parseAutoSteps(selected.steps) : []
     const baselineRows = selected ? autoBaselines[selected.id] ?? [] : []

@@ -710,6 +710,10 @@ function connectRecorder(sess: RecSession, port: number) {
   })().catch(() => { sess.done = true })
 }
 
+router.get('/api/frontend-auto/record/available', (req, res) => {
+  res.json({ available: isLocalRecordRequest(req) })
+})
+
 router.post('/api/frontend-auto/record/start', async (req, res) => {
   if (!isLocalRecordRequest(req)) {
     return res.status(403).json({

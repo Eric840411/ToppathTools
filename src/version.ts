@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.29.25'
+export const APP_VERSION = '3.29.26'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.29.26',
+    date: '2026-05-25',
+    changes: [
+      'fix(uat): 透過 LAN IP 存取時框選擷取按鈕可正常使用，改由 server 端 isLocalRecordRequest() 判斷錄製可用性。',
+    ],
+  },
   {
     version: '3.29.25',
     date: '2026-05-26',
