@@ -425,6 +425,9 @@ interface RecSession {
   proc: ChildProcess
   profileDir: string
   originalUrl: string
+  platform: Platform
+  viewportWidth: number
+  viewportHeight: number
   done: boolean
   steps: object[]
   ws?: WebSocket
@@ -614,6 +617,39 @@ function recorderScript() {
 `
 }
 
+async function syncRecorderViewport(sess: RecSession) {
+  if (!sess.cdpSend) return
+  await sess.cdpSend('Emulation.setDeviceMetricsOverride', {
+    width: sess.viewportWidth,
+    height: sess.viewportHeight,
+    deviceScaleFactor: 1,
+    mobile: sess.platform === 'h5',
+  })
+  const size = await sess.cdpSend('Runtime.evaluate', {
+    expression: '({ dw: Math.max(0, window.outerWidth - window.innerWidth), dh: Math.max(0, window.outerHeight - window.innerHeight) })',
+    returnByValue: true,
+  })
+  const delta = size.result?.result?.value as { dw?: number; dh?: number } | undefined
+  const win = await sess.cdpSend('Browser.getWindowForTarget')
+  const windowId = win.result?.windowId
+  if (typeof windowId === 'number') {
+    await sess.cdpSend('Browser.setWindowBounds', {
+      windowId,
+      bounds: {
+        width: sess.viewportWidth + Math.round(delta?.dw ?? 0),
+        height: sess.viewportHeight + Math.round(delta?.dh ?? 0),
+      },
+    })
+  }
+}
+
+function recordableWindowSize(width: number, height: number) {
+  return {
+    width: width + (process.platform === 'win32' ? 16 : 0),
+    height: height + (process.platform === 'win32' ? 96 : 90),
+  }
+}
+
 async function saveCropFromRecorder(sess: RecSession, crop: { x: number; y: number; w: number; h: number }) {
   const request = sess.cropRequest
   if (!request || !sess.cdpSend) return
@@ -704,6 +740,7 @@ function connectRecorder(sess: RecSession, port: number) {
     ws.on('open', async () => {
       await send('Runtime.enable')
       await send('Page.enable')
+      await syncRecorderViewport(sess)
       await send('Page.addScriptToEvaluateOnNewDocument', { source: recorderScript() })
       await send('Runtime.evaluate', { expression: recorderScript() })
     })
@@ -733,6 +770,7 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
   const agentId = text(body.agentId)
 
   if (!url) return res.status(400).json({ ok: false, message: 'url 為必填' })
+  if (!platform) return res.status(400).json({ ok: false, message: 'platform must be h5 or pc' })
 
   // ── Agent-based recording ────────────────────────────────────────────────────
   if (agentId) {
@@ -747,7 +785,7 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
       cropPending: false,
       done: false,
     })
-    agent.ws.send(JSON.stringify({ type: 'uat_record_start', sessionId, url, resolution }))
+    agent.ws.send(JSON.stringify({ type: 'uat_record_start', sessionId, url, resolution, platform }))
     return res.json({ ok: true, sessionId, displayUrl: url, via: 'agent', agentHostname: agent.hostname })
   }
 
@@ -768,6 +806,9 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
   const sessionId = `rec-${Date.now()}-${randomUUID().slice(0, 8)}`
   const profileDir = join(tmpdir(), `toppath-rec-${sessionId}`)
   const [w, h] = resolution.split('x')
+  const viewportWidth = Number(w) || 390
+  const viewportHeight = Number(h) || 844
+  const initialWindow = recordableWindowSize(viewportWidth, viewportHeight)
   const port = 9300 + Math.floor(Math.random() * 400)
   const args = [
     `--remote-debugging-port=${port}`,
@@ -775,7 +816,7 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
     '--no-first-run',
     '--no-default-browser-check',
     '--new-window',
-    `--window-size=${w || 390},${h || 844}`,
+    `--window-size=${initialWindow.width},${initialWindow.height}`,
     displayUrl,
   ]
   const proc = spawn(chromeExecutable(), args, { stdio: 'ignore', shell: false, windowsHide: false })
@@ -783,6 +824,9 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
     proc,
     profileDir,
     originalUrl: url,
+    platform,
+    viewportWidth,
+    viewportHeight,
     done: false,
     steps: [{ name: '前往頁面', action: 'goto', value: url }],
   }
@@ -795,7 +839,7 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
 router.get('/api/frontend-auto/record/status/:sessionId', (req, res) => {
   const agentSess = uatAgentSessions.get(req.params.sessionId)
   if (agentSess) {
-    return res.json({ found: true, done: agentSess.done, steps: agentSess.steps, lastCrop: agentSess.lastCrop, cropPending: agentSess.cropPending, cdpWarning: (agentSess as Record<string, unknown>).cdpWarning ?? null })
+    return res.json({ found: true, done: agentSess.done, steps: agentSess.steps, lastCrop: agentSess.lastCrop, cropPending: agentSess.cropPending, cdpWarning: (agentSess as unknown as Record<string, unknown>).cdpWarning ?? null })
   }
   const sess = recSessions.get(req.params.sessionId)
   if (!sess) return res.json({ found: false, done: true, steps: [] })

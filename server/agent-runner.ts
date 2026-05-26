@@ -66,6 +66,7 @@ interface UatRecordStartMessage {
   sessionId: string
   url: string
   resolution: string
+  platform?: 'h5' | 'pc'
 }
 
 interface UatRecordCropMessage {
@@ -107,6 +108,7 @@ interface UatRecSession {
   steps: object[]
   width: number
   height: number
+  platform: 'h5' | 'pc'
   ws?: WebSocket
   cdpSend?: CdpSend
   cropRequest?: { scriptId: string; platform: string; name: string; threshold: number; createdBy: string }
@@ -223,6 +225,39 @@ function cropScript() {
 `
 }
 
+function recordableWindowSize(width: number, height: number) {
+  return {
+    width: width + (process.platform === 'win32' ? 16 : 0),
+    height: height + (process.platform === 'win32' ? 96 : 90),
+  }
+}
+
+async function syncUatViewport(sess: UatRecSession) {
+  if (!sess.cdpSend) return
+  await sess.cdpSend('Emulation.setDeviceMetricsOverride', {
+    width: sess.width,
+    height: sess.height,
+    deviceScaleFactor: 1,
+    mobile: sess.platform === 'h5',
+  })
+  const size = await sess.cdpSend('Runtime.evaluate', {
+    expression: '({ dw: Math.max(0, window.outerWidth - window.innerWidth), dh: Math.max(0, window.outerHeight - window.innerHeight) })',
+    returnByValue: true,
+  })
+  const delta = size.result?.result as { value?: { dw?: number; dh?: number } } | undefined
+  const bounds = await sess.cdpSend('Browser.getWindowForTarget')
+  const windowId = (bounds.result as { windowId?: number } | undefined)?.windowId
+  if (typeof windowId === 'number') {
+    await sess.cdpSend('Browser.setWindowBounds', {
+      windowId,
+      bounds: {
+        width: sess.width + Math.round(delta?.value?.dw ?? 0),
+        height: sess.height + Math.round(delta?.value?.dh ?? 0),
+      },
+    })
+  }
+}
+
 function killUatSession(sess: UatRecSession) {
   try { sess.ws?.close() } catch {}
   try {
@@ -266,13 +301,7 @@ function connectUatRecorder(sess: UatRecSession, port: number, serverWs: WebSock
             try {
               await send('Runtime.enable')
               await send('Page.enable')
-              // Force viewport to match Playwright execution viewport exactly
-              await send('Emulation.setDeviceMetricsOverride', {
-                width: sess.width,
-                height: sess.height,
-                deviceScaleFactor: 1,
-                mobile: false,
-              })
+              await syncUatViewport(sess)
               await send('Page.addScriptToEvaluateOnNewDocument', { source: recorderScript() + '\n' + cropScript() })
               await send('Runtime.evaluate', { expression: recorderScript() + '\n' + cropScript() })
               resolveConn()
@@ -306,7 +335,7 @@ function connectUatRecorder(sess: UatRecSession, port: number, serverWs: WebSock
                 }
               }
               if (msg.method === 'Page.loadEventFired') {
-                void send('Emulation.setDeviceMetricsOverride', { width: sess.width, height: sess.height, deviceScaleFactor: 1, mobile: false })
+                void syncUatViewport(sess)
                 void send('Runtime.evaluate', { expression: recorderScript() })
                 void send('Runtime.evaluate', { expression: cropScript() })
               }
@@ -482,21 +511,24 @@ function connect() {
 
     // ── UAT Recording ────────────────────────────────────────────────────────────
     if (msg.type === 'uat_record_start') {
-      const { sessionId, url, resolution } = msg as UatRecordStartMessage
+      const { sessionId, url, resolution, platform = 'h5' } = msg as UatRecordStartMessage
       const [w, h] = resolution.split('x')
+      const width = Number(w) || 390
+      const height = Number(h) || 844
+      const initialWindow = recordableWindowSize(width, height)
       const port = 9300 + Math.floor(Math.random() * 400)
       const profileDir = join(tmpdir(), `toppath-uat-${sessionId}`)
       const args = [
         `--remote-debugging-port=${port}`,
         `--user-data-dir=${profileDir}`,
         '--no-first-run', '--no-default-browser-check', '--new-window',
-        `--window-size=${w || 390},${h || 844}`,
+        `--window-size=${initialWindow.width},${initialWindow.height}`,
         url,
       ]
       const proc = spawn(chromeExecutable(), args, { stdio: 'ignore', shell: false, windowsHide: false })
       const sess: UatRecSession = {
         sessionId, proc, profileDir, done: false,
-        width: Number(w) || 390, height: Number(h) || 844,
+        width, height, platform,
         steps: [{ name: '前往頁面', action: 'goto', value: url }],
       }
       uatRecSessions.set(sessionId, sess)
