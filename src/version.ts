@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.29.21'
+export const APP_VERSION = '3.29.22'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.29.22',
+    date: '2026-05-26',
+    changes: [
+      'fix(uat): H5/PC 錄製只保留 viewport 座標點擊，runner 會略過舊腳本中緊跟座標點擊後的重複 selector 點擊，避免遊戲頁 strict mode selector 卡住流程。',
+    ],
+  },
   {
     version: '3.29.21',
     date: '2026-05-26',

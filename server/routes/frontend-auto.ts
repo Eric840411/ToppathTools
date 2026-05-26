@@ -480,14 +480,9 @@ function recorderScript() {
     console.info('__TOPPATH_RECORDER__', key);
   };
   document.addEventListener('click', event => {
-    const target = event.target;
-    const canvas = target && target.closest ? target.closest('canvas') : null;
     const vx = Math.round(event.clientX);
     const vy = Math.round(event.clientY);
     send({ name: '點擊畫面 (' + vx + ', ' + vy + ')', action: 'click_viewport', x: vx, y: vy });
-    if (canvas) return;
-    const selector = cssPath(target);
-    if (selector) send({ name: '點擊 ' + selector, action: 'click', selector });
   }, true);
   document.addEventListener('change', event => {
     const target = event.target;
@@ -640,6 +635,15 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
     const log = (line: string) => pushLog(runId, line)
     let steps: StepObj[]
     try { steps = JSON.parse(stepsRaw) } catch { await log('❌ 步驟 JSON 解析失敗'); activeRuns.delete(runId); return }
+    const rawStepCount = steps.length
+    steps = steps.filter((step, index, list) => {
+      const prev = list[index - 1]
+      return !(prev?.action === 'click_viewport' && step.action === 'click')
+    })
+    const skippedDuplicateClicks = rawStepCount - steps.length
+    if (skippedDuplicateClicks > 0) {
+      await log(`ℹ 已略過 ${skippedDuplicateClicks} 個座標點擊後的重複 selector 點擊`)
+    }
 
     const [w, h] = resolution.split('x').map(Number)
     let chromium: import('playwright').BrowserType | null = null
