@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.30.4'
+export const APP_VERSION = '3.30.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.30.5',
+    date: '2026-05-26',
+    changes: [
+      'fix(uat): 統一 H5/PC 錄製與 Headed 執行的瀏覽器啟動路徑，執行時改用與錄製相同的 Chrome/CDP viewport 同步，降低畫面框架差異。',
+    ],
+  },
   {
     version: '3.30.4',
     date: '2026-05-26',

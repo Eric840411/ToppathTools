@@ -441,15 +441,19 @@ function killRecSession(sess: RecSession) {
   try {
     sess.ws?.close()
   } catch {}
+  killChromeProcess(sess.proc, sess.profileDir)
+}
+
+function killChromeProcess(proc: ChildProcess, profileDir: string) {
   try {
-    if (process.platform === 'win32' && sess.proc.pid) {
-      spawn('taskkill', ['/F', '/T', '/PID', String(sess.proc.pid)], { stdio: 'ignore', shell: false })
+    if (process.platform === 'win32' && proc.pid) {
+      spawn('taskkill', ['/F', '/T', '/PID', String(proc.pid)], { stdio: 'ignore', shell: false })
     } else {
-      sess.proc.kill('SIGTERM')
+      proc.kill('SIGTERM')
     }
   } catch {}
   try {
-    rmSync(sess.profileDir, { recursive: true, force: true })
+    rmSync(profileDir, { recursive: true, force: true })
   } catch {}
 }
 
@@ -650,6 +654,54 @@ function recordableWindowSize(width: number, height: number) {
   }
 }
 
+function chromeDebugPort() {
+  return 9300 + Math.floor(Math.random() * 400)
+}
+
+function launchRecorderChrome(sessionId: string, url: string, width: number, height: number) {
+  const profileDir = join(tmpdir(), `toppath-rec-${sessionId}`)
+  const initialWindow = recordableWindowSize(width, height)
+  const port = chromeDebugPort()
+  const args = [
+    `--remote-debugging-port=${port}`,
+    `--user-data-dir=${profileDir}`,
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--new-window',
+    `--window-size=${initialWindow.width},${initialWindow.height}`,
+    url,
+  ]
+  const proc = spawn(chromeExecutable(), args, { stdio: 'ignore', shell: false, windowsHide: false })
+  return { proc, profileDir, port }
+}
+
+async function syncPlaywrightViewport(page: import('playwright').Page, width: number, height: number, platform: Platform) {
+  const session = await page.context().newCDPSession(page)
+  await session.send('Emulation.setDeviceMetricsOverride', {
+    width,
+    height,
+    deviceScaleFactor: 1,
+    mobile: platform === 'h5',
+  })
+  const size = await session.send('Runtime.evaluate', {
+    expression: '({ dw: Math.max(0, window.outerWidth - window.innerWidth), dh: Math.max(0, window.outerHeight - window.innerHeight) })',
+    returnByValue: true,
+  })
+  const delta = size.result?.value as { dw?: number; dh?: number } | undefined
+  const win = await session.send('Browser.getWindowForTarget').catch(() => null)
+  const windowId = win?.windowId
+  if (typeof windowId === 'number') {
+    await session.send('Browser.setWindowBounds', {
+      windowId,
+      bounds: {
+        width: width + Math.round(delta?.dw ?? 0),
+        height: height + Math.round(delta?.dh ?? 0),
+      },
+    }).catch(() => {})
+  }
+  await page.setViewportSize({ width, height }).catch(() => {})
+}
+
 async function saveCropFromRecorder(sess: RecSession, crop: { x: number; y: number; w: number; h: number }) {
   const request = sess.cropRequest
   if (!request || !sess.cdpSend) return
@@ -804,22 +856,10 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
   const displayUrl = resolvedUrl !== url ? resolvedUrl : url
 
   const sessionId = `rec-${Date.now()}-${randomUUID().slice(0, 8)}`
-  const profileDir = join(tmpdir(), `toppath-rec-${sessionId}`)
   const [w, h] = resolution.split('x')
   const viewportWidth = Number(w) || 390
   const viewportHeight = Number(h) || 844
-  const initialWindow = recordableWindowSize(viewportWidth, viewportHeight)
-  const port = 9300 + Math.floor(Math.random() * 400)
-  const args = [
-    `--remote-debugging-port=${port}`,
-    `--user-data-dir=${profileDir}`,
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--new-window',
-    `--window-size=${initialWindow.width},${initialWindow.height}`,
-    displayUrl,
-  ]
-  const proc = spawn(chromeExecutable(), args, { stdio: 'ignore', shell: false, windowsHide: false })
+  const { proc, profileDir, port } = launchRecorderChrome(sessionId, displayUrl, viewportWidth, viewportHeight)
   const sess: RecSession = {
     proc,
     profileDir,
@@ -1034,6 +1074,8 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
   void (async () => {
     const log = (line: string) => pushLog(runId, line)
     let browser: import('playwright').Browser | null = null
+    let chromeProc: ChildProcess | null = null
+    let chromeProfileDir: string | null = null
     let passed = 0
     let failed = 0
     let skipped = 0
@@ -1055,29 +1097,35 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
       const h = rawH || 844
       await log(`🔧 準備啟動瀏覽器：${headed ? 'Headed' : 'Headless'}，viewport ${w}x${h}`)
       const pw = await import('playwright')
-      browser = await pw.chromium.launch({
-        headless: !headed,
-        args: headed ? [
-          `--window-size=${recordableWindowSize(w, h).width},${recordableWindowSize(w, h).height}`,
-          '--force-device-scale-factor=1',
-        ] : ['--force-device-scale-factor=1'],
-      })
+      if (headed) {
+        const launched = launchRecorderChrome(`run-${runId}`, 'about:blank', w, h)
+        chromeProc = launched.proc
+        chromeProfileDir = launched.profileDir
+        await waitForJson(`http://127.0.0.1:${launched.port}/json/version`)
+        browser = await pw.chromium.connectOverCDP(`http://127.0.0.1:${launched.port}`)
+      } else {
+        browser = await pw.chromium.launch({
+          headless: true,
+          args: ['--force-device-scale-factor=1'],
+        })
+      }
       await log('✅ 瀏覽器已啟動')
 
       await log('🔧 建立瀏覽器 context...')
-      const ctx = await browser.newContext(headed ? {
-        viewport: { width: w, height: h },
-        screen: { width: w, height: h },
-        deviceScaleFactor: 1,
-      } : {
-        viewport: { width: w, height: h },
-        screen: { width: w, height: h },
-        deviceScaleFactor: 1,
-        isMobile: platform === 'h5',
-        hasTouch: platform === 'h5',
-      })
-      const page = await ctx.newPage()
-      await page.setViewportSize({ width: w, height: h }).catch(() => {})
+      const ctx = headed
+        ? browser.contexts()[0] ?? await browser.newContext()
+        : await browser.newContext({
+            viewport: { width: w, height: h },
+            screen: { width: w, height: h },
+            deviceScaleFactor: 1,
+            isMobile: platform === 'h5',
+            hasTouch: platform === 'h5',
+          })
+      const page = headed
+        ? ctx.pages()[0] ?? await ctx.newPage()
+        : await ctx.newPage()
+      if (headed) await syncPlaywrightViewport(page, w, h, platform)
+      else await page.setViewportSize({ width: w, height: h }).catch(() => {})
       await log('✅ 執行頁面已準備完成')
 
       for (const [i, step] of steps.entries()) {
@@ -1190,6 +1238,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
       } catch {}
     } finally {
       await browser?.close().catch(() => {})
+      if (chromeProc && chromeProfileDir) killChromeProcess(chromeProc, chromeProfileDir)
       activeRuns.delete(runId)
     }
   })()
