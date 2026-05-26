@@ -33,7 +33,7 @@ const AGENT_ID = `${AGENT_LABEL}_${process.pid}`
 const AGENT_OWNER_KEY = (process.env.AGENT_OWNER_KEY ?? '').trim()
 const AGENT_OWNER_NAME = (process.env.AGENT_OWNER_NAME ?? AGENT_OWNER_KEY).trim()
 const AGENT_TOKEN = (process.env.AGENT_TOKEN ?? '').trim()
-const AGENT_CAPABILITIES = (process.env.AGENT_CAPABILITIES ?? 'machine-test,scripted-bet')
+const AGENT_CAPABILITIES = (process.env.AGENT_CAPABILITIES ?? 'machine-test,scripted-bet,uat-record')
   .split(',')
   .map(value => value.trim())
   .filter(Boolean)
