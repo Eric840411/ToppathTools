@@ -317,6 +317,7 @@ app.use(autospinRouter)
 app.use(osmUatRouter)
 app.use(machineTestRouter)
 app.use(scriptedBetRouter)
+app.use(frontendAutoRouter)
 
 // ─── Error Handler ────────────────────────────────────────────────────────────
 app.use(
