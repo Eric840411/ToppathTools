@@ -58,6 +58,25 @@ interface AutoRun {
   result: string
 }
 
+interface AutoStepDraft {
+  name?: string
+  action: string
+  value?: string
+  selector?: string
+  x?: number
+  y?: number
+}
+
+const AUTO_STEP_ACTIONS = [
+  { value: 'goto', label: '前往頁面' },
+  { value: 'click_xy', label: '點擊座標' },
+  { value: 'click', label: '點擊元素' },
+  { value: 'type', label: '輸入文字' },
+  { value: 'wait', label: '等待' },
+  { value: 'screenshot', label: '截圖' },
+  { value: 'assert_visible', label: '驗證可見' },
+]
+
 function autoUser() {
   const saved = localStorage.getItem('frontend_auto_user')
   if (saved) return saved
@@ -86,6 +105,62 @@ function parseAutoSteps(raw: string): string[] {
   } catch {
     return []
   }
+}
+
+function stepActionLabel(action: string) {
+  return AUTO_STEP_ACTIONS.find(item => item.value === action)?.label ?? action
+}
+
+function defaultAutoStep(): AutoStepDraft {
+  return { name: '前往頁面', action: 'goto' }
+}
+
+function normalizeAutoStep(item: unknown, index: number): AutoStepDraft {
+  if (typeof item === 'string') return { name: item, action: 'wait', value: '1000' }
+  if (!item || typeof item !== 'object') return { name: `步驟 ${index + 1}`, action: 'wait', value: '1000' }
+  const row = item as Record<string, unknown>
+  const action = typeof row.action === 'string' && row.action ? row.action : 'wait'
+  const step: AutoStepDraft = {
+    name: typeof row.name === 'string' ? row.name : (typeof row.title === 'string' ? row.title : stepActionLabel(action)),
+    action,
+  }
+  if (typeof row.value === 'string') step.value = row.value
+  if (typeof row.selector === 'string') step.selector = row.selector
+  if (typeof row.x === 'number') step.x = row.x
+  if (typeof row.y === 'number') step.y = row.y
+  return step
+}
+
+function parseAutoStepDrafts(raw: string): AutoStepDraft[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return [defaultAutoStep()]
+    const steps = parsed.map(normalizeAutoStep)
+    return steps.length ? steps : [defaultAutoStep()]
+  } catch {
+    return [defaultAutoStep()]
+  }
+}
+
+function stringifyAutoSteps(steps: AutoStepDraft[]) {
+  const cleaned = steps.map(step => {
+    const row: AutoStepDraft = {
+      name: step.name?.trim() || stepActionLabel(step.action),
+      action: step.action,
+    }
+    if (step.action === 'goto' && step.value?.trim()) row.value = step.value.trim()
+    if (step.action === 'wait') row.value = step.value?.trim() || '1000'
+    if (step.action === 'click' || step.action === 'type' || step.action === 'assert_visible') {
+      if (step.selector?.trim()) row.selector = step.selector.trim()
+    }
+    if (step.action === 'type' && step.value !== undefined) row.value = step.value
+    if (step.action === 'click_xy') {
+      row.x = Number.isFinite(Number(step.x)) ? Number(step.x) : 0
+      row.y = Number.isFinite(Number(step.y)) ? Number(step.y) : 0
+    }
+    return row
+  })
+  return JSON.stringify(cleaned, null, 2)
 }
 
 // ─── Storage helpers ───────────────────────────────────────────────────────────
@@ -464,6 +539,33 @@ export function OsmUatPage() {
     const latest = new Map(autoRuns[platform].map(run => [run.script_id, run.result]))
     const visible = autoScripts[platform].filter(script => (filter === 'mine' ? script.created_by === actor : filter === 'public' ? !!script.is_public : true) && script.name.toLowerCase().includes(search.toLowerCase()))
     const resolutions = platform === 'h5' ? ['375x667', '390x844', '414x896'] : ['1366x768', '1440x900', '1920x1080']
+    const draftSteps = parseAutoStepDrafts(newScriptDraft[platform].steps)
+
+    function setDraftSteps(nextSteps: AutoStepDraft[]) {
+      setNewScriptDraft(prev => ({
+        ...prev,
+        [platform]: { ...prev[platform], steps: stringifyAutoSteps(nextSteps) },
+      }))
+    }
+
+    function updateDraftStep(index: number, patch: Partial<AutoStepDraft>) {
+      const next = draftSteps.map((step, i) => {
+        if (i !== index) return step
+        const updated = { ...step, ...patch }
+        if (patch.action) updated.name = step.name || stepActionLabel(patch.action)
+        return updated
+      })
+      setDraftSteps(next)
+    }
+
+    function moveDraftStep(index: number, direction: -1 | 1) {
+      const target = index + direction
+      if (target < 0 || target >= draftSteps.length) return
+      const next = [...draftSteps]
+      const [item] = next.splice(index, 1)
+      next.splice(target, 0, item)
+      setDraftSteps(next)
+    }
 
     async function startRecord() {
       if (!recorderAvailable) {
@@ -611,7 +713,41 @@ export function OsmUatPage() {
             {recPolling && recDisplayUrl && <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderLeft: '3px solid rgba(251,191,36,0.5)', borderRadius: 6 }}><div style={{ fontSize: 12, color: '#fbbf24', fontWeight: 600, marginBottom: 6 }}>Playwright 已開啟目標頁，可直接在錄製瀏覽器操作。若畫面仍停在 about:blank，請將以下 URL 貼到網址列按 Enter：</div><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input readOnly value={recDisplayUrl} style={{ ...inputStyle, flex: 1, fontSize: 11, fontFamily: 'Consolas, Monaco, monospace' }} onClick={e => (e.target as HTMLInputElement).select()} /><button style={{ ...smallBtnStyle, whiteSpace: 'nowrap' }} onClick={() => { void navigator.clipboard.writeText(recDisplayUrl) }}>複製 URL</button></div></div>}
             {newScriptOpen[platform] && <div style={{ display: 'grid', gap: 8, marginTop: 12, padding: '12px', background: '#162032', border: '1px solid #2d3f55', borderRadius: 6 }}>
               <input value={newScriptDraft[platform].name} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], name: e.target.value } }))} placeholder="腳本名稱" style={inputStyle} />
-              <textarea value={newScriptDraft[platform].steps} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], steps: e.target.value } }))} rows={5} style={{ ...inputStyle, fontFamily: 'Consolas, Monaco, monospace', resize: 'vertical' }} />
+              <div style={{ display: 'grid', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#93c5fd' }}>步驟 Builder</span>
+                  <button style={{ ...smallBtnStyle, color: '#fff', background: '#4f8ef7', border: 'none' }} onClick={() => setDraftSteps([...draftSteps, defaultAutoStep()])}>＋ 新增步驟</button>
+                </div>
+                {draftSteps.map((step, index) => (
+                  <div key={index} style={{ display: 'grid', gridTemplateColumns: '26px minmax(110px, 0.8fr) minmax(140px, 1fr)', gap: 6, alignItems: 'start', padding: 8, background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 6 }}>
+                    <span style={{ width: 22, height: 22, borderRadius: 4, background: '#334155', color: '#cbd5e1', fontSize: 11, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{index + 1}</span>
+                    <select value={step.action} onChange={e => updateDraftStep(index, { action: e.target.value, name: stepActionLabel(e.target.value) })} style={inputStyle}>
+                      {AUTO_STEP_ACTIONS.map(action => <option key={action.value} value={action.value}>{action.label}</option>)}
+                    </select>
+                    <input value={step.name ?? ''} onChange={e => updateDraftStep(index, { name: e.target.value })} placeholder="步驟名稱" style={inputStyle} />
+                    <div style={{ gridColumn: '2 / -1', display: 'grid', gridTemplateColumns: step.action === 'click_xy' ? '1fr 1fr' : '1fr', gap: 6 }}>
+                      {step.action === 'goto' && <input value={step.value ?? ''} onChange={e => updateDraftStep(index, { value: e.target.value })} placeholder="URL，留空則使用右側目標 URL" style={inputStyle} />}
+                      {(step.action === 'click' || step.action === 'type' || step.action === 'assert_visible') && <input value={step.selector ?? ''} onChange={e => updateDraftStep(index, { selector: e.target.value })} placeholder="Selector，例如 text=Start 或 #login" style={inputStyle} />}
+                      {step.action === 'type' && <input value={step.value ?? ''} onChange={e => updateDraftStep(index, { value: e.target.value })} placeholder="輸入內容" style={inputStyle} />}
+                      {step.action === 'wait' && <input value={step.value ?? '1000'} onChange={e => updateDraftStep(index, { value: e.target.value })} placeholder="等待毫秒，例如 3000" style={inputStyle} />}
+                      {step.action === 'click_xy' && <>
+                        <input type="number" value={step.x ?? 0} onChange={e => updateDraftStep(index, { x: Number(e.target.value) })} placeholder="X" style={inputStyle} />
+                        <input type="number" value={step.y ?? 0} onChange={e => updateDraftStep(index, { y: Number(e.target.value) })} placeholder="Y" style={inputStyle} />
+                      </>}
+                      {step.action === 'screenshot' && <span style={{ color: '#64748b', fontSize: 12, alignSelf: 'center' }}>執行時會截圖並記錄在 run log。</span>}
+                    </div>
+                    <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                      <button style={smallBtnStyle} onClick={() => moveDraftStep(index, -1)} disabled={index === 0}>↑</button>
+                      <button style={smallBtnStyle} onClick={() => moveDraftStep(index, 1)} disabled={index === draftSteps.length - 1}>↓</button>
+                      <button style={dangerBtnStyle} onClick={() => setDraftSteps(draftSteps.filter((_, i) => i !== index))} disabled={draftSteps.length <= 1}>刪除</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <details>
+                <summary style={{ cursor: 'pointer', color: '#94a3b8', fontSize: 12 }}>進階 JSON</summary>
+                <textarea value={newScriptDraft[platform].steps} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], steps: e.target.value } }))} rows={5} style={{ ...inputStyle, marginTop: 8, width: '100%', fontFamily: 'Consolas, Monaco, monospace', resize: 'vertical' }} />
+              </details>
               <button style={{ ...btnStyle, background: newScriptDraft[platform].name.trim() ? '#22c55e' : '#d1d5db', width: 80, cursor: newScriptDraft[platform].name.trim() ? 'pointer' : 'not-allowed' }} onClick={() => void createAutoScript(platform)}>儲存</button>
             </div>}
           </section>
@@ -1161,6 +1297,3 @@ const thumbImageStyle: React.CSSProperties = {
   objectFit: 'cover',
   borderRadius: 4,
 }
-
-
-

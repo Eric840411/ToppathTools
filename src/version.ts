@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.29.17'
+export const APP_VERSION = '3.29.18'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.29.18',
+    date: '2026-05-26',
+    changes: [
+      'feat(uat): H5/PC 新增 Step Builder，可用表單建立 goto、click_xy、click、type、wait、screenshot、assert_visible 步驟，保留進階 JSON 編輯以相容既有腳本格式。',
+    ],
+  },
   {
     version: '3.29.17',
     date: '2026-05-26',
