@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.29.22'
+export const APP_VERSION = '3.29.23'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.29.23',
+    date: '2026-05-26',
+    changes: [
+      'feat(uat): H5/PC 錄製中即時同步步驟到 Step Builder，新增錄製視窗局部截圖存基準圖，並支援 find_baseline_scroll 找圖不到就下滑直到頁底才失敗。',
+    ],
+  },
   {
     version: '3.29.22',
     date: '2026-05-26',

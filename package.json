@@ -1,7 +1,7 @@
 {
   "name": "toppath-tools",
   "private": true,
-  "version": "3.29.22",
+  "version": "3.29.23",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -32,6 +32,7 @@
     "@types/multer": "^2.1.0",
     "@types/node-cron": "^3.0.11",
     "@types/pdf-parse": "^1.1.5",
+    "@types/pngjs": "^6.0.5",
     "audify": "^1.10.1",
     "better-sqlite3": "^12.8.0",
     "bottleneck": "^2.19.5",
@@ -46,6 +47,7 @@
     "node-record-lpcm16": "^1.0.1",
     "pdf-parse": "^1.1.4",
     "playwright": "^1.58.2",
+    "pngjs": "^7.0.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "ws": "^8.18.1",

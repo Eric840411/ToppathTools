@@ -1,13 +1,14 @@
 ﻿import express from 'express'
 import multer from 'multer'
 import { randomUUID } from 'crypto'
-import { existsSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 import { extname, join } from 'path'
 import { tmpdir } from 'os'
 import { spawn, type ChildProcess } from 'child_process'
 import https from 'https'
 import http from 'http'
 import WebSocket from 'ws'
+import { PNG } from 'pngjs'
 import { db } from '../shared.js'
 
 export const router = express.Router()
@@ -23,6 +24,14 @@ mkdirSync(imageDir, { recursive: true })
 type Platform = 'h5' | 'pc'
 type ScriptRow = { id: string; created_by: string }
 type ImageRow = { image_path: string }
+type BaselineRow = {
+  id: string
+  name: string
+  image_path: string
+  threshold: number
+}
+type CdpMessage = { id?: number; result?: any; error?: { message?: string } }
+type CdpSend = (method: string, params?: object) => Promise<CdpMessage>
 
 type LogClient = express.Response
 const logBuffers = new Map<string, string[]>()
@@ -71,6 +80,11 @@ function deleteStoredImage(imagePath: string) {
   if (!filename) return
   const fullPath = join(imageDir, filename)
   if (existsSync(fullPath)) unlinkSync(fullPath)
+}
+
+function imagePathToFile(imagePath: string) {
+  const filename = imagePath.split('/').pop()
+  return filename ? join(imageDir, filename) : ''
 }
 
 function canMutateScript(req: express.Request, script: ScriptRow | undefined, actor: string) {
@@ -396,6 +410,7 @@ interface RecSession {
   done: boolean
   steps: object[]
   ws?: WebSocket
+  cdpSend?: CdpSend
 }
 const recSessions = new Map<string, RecSession>()
 
@@ -502,12 +517,13 @@ function connectRecorder(sess: RecSession, port: number) {
     const ws = new WebSocket(target.webSocketDebuggerUrl)
     sess.ws = ws
     let id = 0
-    const pending = new Map<number, (value: unknown) => void>()
+    const pending = new Map<number, (value: CdpMessage) => void>()
     const send = (method: string, params?: object) => new Promise(resolve => {
       const requestId = ++id
-      pending.set(requestId, resolve)
+      pending.set(requestId, resolve as (value: CdpMessage) => void)
       ws.send(JSON.stringify({ id: requestId, method, params }))
-    })
+    }) as Promise<CdpMessage>
+    sess.cdpSend = send
     ws.on('message', raw => {
       try {
         const msg = JSON.parse(String(raw)) as { id?: number; method?: string; params?: any }
@@ -587,7 +603,52 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
 router.get('/api/frontend-auto/record/status/:sessionId', (req, res) => {
   const sess = recSessions.get(req.params.sessionId)
   if (!sess) return res.json({ found: false, done: true, steps: [] })
-  res.json({ found: true, done: sess.done, steps: sess.done ? sess.steps : [] })
+  res.json({ found: true, done: sess.done, steps: sess.steps })
+})
+
+router.post('/api/frontend-auto/record/screenshot/:sessionId', async (req, res) => {
+  const sess = recSessions.get(req.params.sessionId)
+  if (!sess) return res.status(404).json({ ok: false, message: '找不到錄製 session' })
+  if (!sess.cdpSend) return res.status(409).json({ ok: false, message: '錄製器尚未連線完成，請稍後再截圖' })
+  const body = req.body as Record<string, unknown>
+  const platform = asPlatform(body.platform)
+  if (!platform) return res.status(400).json({ ok: false, message: 'platform must be h5 or pc' })
+  const cropX = Math.max(0, numberValue(body.cropX))
+  const cropY = Math.max(0, numberValue(body.cropY))
+  const cropW = Math.max(1, numberValue(body.cropW, 120))
+  const cropH = Math.max(1, numberValue(body.cropH, 80))
+  const shot = await sess.cdpSend('Page.captureScreenshot', {
+    format: 'png',
+    fromSurface: true,
+    clip: { x: cropX, y: cropY, width: cropW, height: cropH, scale: 1 },
+  })
+  const data = shot.result?.data
+  if (typeof data !== 'string') return res.status(500).json({ ok: false, message: shot.error?.message ?? '截圖失敗' })
+  const filename = `${Date.now()}-${randomUUID()}.png`
+  writeFileSync(join(imageDir, filename), Buffer.from(data, 'base64'))
+  const imagePath = publicImagePath(filename)
+  const id = randomUUID()
+  db.prepare(`
+    INSERT INTO frontend_auto_baselines
+      (id, script_id, crop_id, name, platform, crop_x, crop_y, crop_w, crop_h, image_path, threshold, created_by, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    text(body.scriptId),
+    text(body.cropId, id),
+    text(body.name, `crop-${cropX}-${cropY}`),
+    platform,
+    cropX,
+    cropY,
+    cropW,
+    cropH,
+    imagePath,
+    numberValue(body.threshold, 0.08),
+    text(body.createdBy, 'unknown'),
+    now(),
+  )
+  const baseline = db.prepare('SELECT * FROM frontend_auto_baselines WHERE id = ?').get(id)
+  res.json({ ok: true, baseline })
 })
 
 router.post('/api/frontend-auto/record/stop/:sessionId', (req, res) => {
@@ -606,7 +667,50 @@ router.post('/api/frontend-auto/record/stop/:sessionId', (req, res) => {
 
 const activeRuns = new Set<string>() // runIds currently executing
 
-type StepObj = { name?: string; action: string; value?: string; selector?: string; x?: number; y?: number }
+type StepObj = {
+  name?: string
+  action: string
+  value?: string
+  selector?: string
+  x?: number
+  y?: number
+  baselineId?: string
+  threshold?: number
+  scrollStep?: number
+  maxScrolls?: number
+}
+
+function loadPng(buffer: Buffer) {
+  return PNG.sync.read(buffer)
+}
+
+function findTemplateInPng(screen: PNG, template: PNG, threshold: number) {
+  if (template.width > screen.width || template.height > screen.height) return null
+  const stride = Math.max(1, Math.floor(Math.min(template.width, template.height) / 24))
+  const step = Math.max(1, Math.floor(Math.min(template.width, template.height) / 12))
+  let best = { x: 0, y: 0, diff: Number.POSITIVE_INFINITY }
+
+  for (let y = 0; y <= screen.height - template.height; y += step) {
+    for (let x = 0; x <= screen.width - template.width; x += step) {
+      let diff = 0
+      let samples = 0
+      for (let ty = 0; ty < template.height; ty += stride) {
+        for (let tx = 0; tx < template.width; tx += stride) {
+          const si = ((y + ty) * screen.width + (x + tx)) * 4
+          const ti = (ty * template.width + tx) * 4
+          diff += Math.abs(screen.data[si] - template.data[ti])
+          diff += Math.abs(screen.data[si + 1] - template.data[ti + 1])
+          diff += Math.abs(screen.data[si + 2] - template.data[ti + 2])
+          samples += 3
+        }
+      }
+      const normalized = diff / (samples * 255)
+      if (normalized < best.diff) best = { x, y, diff: normalized }
+      if (normalized <= threshold) return { x, y, diff: normalized }
+    }
+  }
+  return best.diff <= threshold ? best : null
+}
 
 async function pushLog(runId: string, line: string) {
   const lines = logBuffers.get(runId) ?? []
@@ -704,6 +808,34 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
           await log(`⏳ ${idx} ${label}`)
           await page.screenshot()
           await log(`✅ ${idx} ${label}`)
+          passed++
+        } else if (step.action === 'find_baseline_scroll') {
+          await log(`⏳ ${idx} ${label}`)
+          const baseline = step.baselineId
+            ? db.prepare('SELECT id, name, image_path, threshold FROM frontend_auto_baselines WHERE id = ?').get(step.baselineId) as BaselineRow | undefined
+            : undefined
+          if (!baseline) throw new Error('baseline not found')
+          const templateFile = imagePathToFile(baseline.image_path)
+          if (!templateFile || !existsSync(templateFile)) throw new Error('baseline image file not found')
+          const template = loadPng(readFileSync(templateFile))
+          const threshold = typeof step.threshold === 'number' ? step.threshold : baseline.threshold || 0.08
+          const scrollStep = Math.max(50, Number(step.scrollStep) || Math.floor((h || 844) * 0.7))
+          const maxScrolls = Math.max(1, Number(step.maxScrolls) || 20)
+          let found: { x: number; y: number; diff: number } | null = null
+          for (let attempt = 0; attempt <= maxScrolls; attempt++) {
+            const shot = await page.screenshot({ fullPage: false })
+            found = findTemplateInPng(loadPng(shot), template, threshold)
+            if (found) break
+            const before = await page.evaluate(() => window.scrollY)
+            const atBottom = await page.evaluate(() => window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2)
+            if (atBottom) break
+            await page.mouse.wheel(0, scrollStep)
+            await page.waitForTimeout(700)
+            const after = await page.evaluate(() => window.scrollY)
+            if (after === before) break
+          }
+          if (!found) throw new Error(`baseline "${baseline.name}" not found before page bottom`)
+          await log(`✅ ${idx} ${label} → (${found.x}, ${found.y}), diff ${found.diff.toFixed(3)}`)
           passed++
         } else if (step.action === 'assert_visible') {
           await log(`⏳ ${idx} ${label}`)
