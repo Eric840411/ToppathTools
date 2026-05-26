@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.30.2'
+export const APP_VERSION = '3.30.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.30.3',
+    date: '2026-05-26',
+    changes: [
+      'fix(uat): Headed 執行改用一般 Chrome 實際內容區，不再強制 390px mobile viewport，避免 Windows Chrome 最小寬度造成右側白邊。',
+    ],
+  },
   {
     version: '3.30.2',
     date: '2026-05-26',

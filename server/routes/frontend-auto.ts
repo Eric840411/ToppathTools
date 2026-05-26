@@ -975,31 +975,6 @@ type StepObj = {
   maxScrolls?: number
 }
 
-async function syncExecutionViewport(page: import('playwright').Page, width: number, height: number, platform: Platform, headed: boolean) {
-  const client = await page.context().newCDPSession(page)
-  await client.send('Emulation.setDeviceMetricsOverride', {
-    width,
-    height,
-    deviceScaleFactor: 1,
-    mobile: platform === 'h5',
-  })
-  if (!headed) return
-  const size = await client.send('Runtime.evaluate', {
-    expression: '({ dw: Math.max(0, window.outerWidth - window.innerWidth), dh: Math.max(0, window.outerHeight - window.innerHeight) })',
-    returnByValue: true,
-  }) as { result?: { value?: { dw?: number; dh?: number } } }
-  const win = await client.send('Browser.getWindowForTarget') as { windowId?: number }
-  if (typeof win.windowId === 'number') {
-    await client.send('Browser.setWindowBounds', {
-      windowId: win.windowId,
-      bounds: {
-        width: width + Math.round(size.result?.value?.dw ?? 0),
-        height: height + Math.round(size.result?.value?.dh ?? 0),
-      },
-    })
-  }
-}
-
 function loadPng(buffer: Buffer) {
   return PNG.sync.read(buffer)
 }
@@ -1091,7 +1066,10 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
       return
     }
 
-    const ctx = await browser.newContext({
+    const ctx = await browser.newContext(headed ? {
+      viewport: null,
+      deviceScaleFactor: 1,
+    } : {
       viewport: { width: w, height: h },
       screen: { width: w, height: h },
       deviceScaleFactor: 1,
@@ -1099,7 +1077,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
       hasTouch: platform === 'h5',
     })
     const page = await ctx.newPage()
-    await syncExecutionViewport(page, w, h, platform, headed).catch(() => {})
+    if (!headed) await page.setViewportSize({ width: w, height: h }).catch(() => {})
     let passed = 0, failed = 0, skipped = 0
 
     for (const [i, step] of steps.entries()) {
