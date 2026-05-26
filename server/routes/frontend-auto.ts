@@ -32,6 +32,23 @@ type BaselineRow = {
 }
 type CdpMessage = { id?: number; result?: any; error?: { message?: string } }
 type CdpSend = (method: string, params?: object) => Promise<CdpMessage>
+type CropRequest = {
+  scriptId: string
+  platform: Platform
+  name: string
+  threshold: number
+  createdBy: string
+}
+type CropResult = {
+  id: string
+  name: string
+  imagePath: string
+  x: number
+  y: number
+  w: number
+  h: number
+  threshold: number
+}
 
 type LogClient = express.Response
 const logBuffers = new Map<string, string[]>()
@@ -411,6 +428,8 @@ interface RecSession {
   steps: object[]
   ws?: WebSocket
   cdpSend?: CdpSend
+  cropRequest?: CropRequest
+  lastCrop?: CropResult
 }
 const recSessions = new Map<string, RecSession>()
 
@@ -495,6 +514,7 @@ function recorderScript() {
     console.info('__TOPPATH_RECORDER__', key);
   };
   document.addEventListener('click', event => {
+    if (window.__toppathCropping) return;
     const vx = Math.round(event.clientX);
     const vy = Math.round(event.clientY);
     send({ name: '點擊畫面 (' + vx + ', ' + vy + ')', action: 'click_viewport', x: vx, y: vy });
@@ -505,8 +525,142 @@ function recorderScript() {
     const selector = cssPath(target);
     if (selector) send({ name: '輸入 ' + selector, action: 'type', selector, value: String(target.value || '') });
   }, true);
+  window.__toppathStartCropMode = () => {
+    if (document.getElementById('__toppath_crop_layer')) return;
+    window.__toppathCropping = true;
+    const layer = document.createElement('div');
+    layer.id = '__toppath_crop_layer';
+    Object.assign(layer.style, {
+      position: 'fixed',
+      inset: '0',
+      zIndex: '2147483647',
+      cursor: 'crosshair',
+      background: 'rgba(15,23,42,0.18)',
+      userSelect: 'none',
+    });
+    const hint = document.createElement('div');
+    hint.textContent = '拖曳框選要擷取的區域，按 Esc 取消';
+    Object.assign(hint.style, {
+      position: 'fixed',
+      left: '12px',
+      top: '12px',
+      padding: '6px 10px',
+      borderRadius: '6px',
+      background: 'rgba(15,23,42,0.92)',
+      color: '#e2e8f0',
+      fontSize: '12px',
+      fontFamily: 'Arial, sans-serif',
+      boxShadow: '0 8px 24px rgba(0,0,0,0.24)',
+    });
+    const rect = document.createElement('div');
+    Object.assign(rect.style, {
+      position: 'fixed',
+      display: 'none',
+      border: '2px solid #f59e0b',
+      background: 'rgba(245,158,11,0.16)',
+      boxShadow: '0 0 0 9999px rgba(15,23,42,0.22)',
+      pointerEvents: 'none',
+    });
+    layer.appendChild(hint);
+    layer.appendChild(rect);
+    document.body.appendChild(layer);
+
+    let startX = 0;
+    let startY = 0;
+    let drawing = false;
+    const close = () => {
+      window.__toppathCropping = false;
+      layer.remove();
+      document.removeEventListener('keydown', onKey, true);
+    };
+    const onKey = (event) => {
+      if (event.key === 'Escape') close();
+    };
+    const draw = (event) => {
+      const x = Math.min(startX, event.clientX);
+      const y = Math.min(startY, event.clientY);
+      const w = Math.abs(event.clientX - startX);
+      const h = Math.abs(event.clientY - startY);
+      Object.assign(rect.style, { display: 'block', left: x + 'px', top: y + 'px', width: w + 'px', height: h + 'px' });
+      return { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) };
+    };
+    document.addEventListener('keydown', onKey, true);
+    layer.addEventListener('mousedown', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      drawing = true;
+      startX = event.clientX;
+      startY = event.clientY;
+      draw(event);
+    }, true);
+    layer.addEventListener('mousemove', event => {
+      if (!drawing) return;
+      event.preventDefault();
+      event.stopPropagation();
+      draw(event);
+    }, true);
+    layer.addEventListener('mouseup', event => {
+      if (!drawing) return;
+      event.preventDefault();
+      event.stopPropagation();
+      drawing = false;
+      const box = draw(event);
+      close();
+      if (box.w >= 5 && box.h >= 5) console.info('__TOPPATH_CROP__', JSON.stringify(box));
+    }, true);
+  };
 })();
 `
+}
+
+async function saveCropFromRecorder(sess: RecSession, crop: { x: number; y: number; w: number; h: number }) {
+  const request = sess.cropRequest
+  if (!request || !sess.cdpSend) return
+  const cropX = Math.max(0, Math.round(crop.x))
+  const cropY = Math.max(0, Math.round(crop.y))
+  const cropW = Math.max(1, Math.round(crop.w))
+  const cropH = Math.max(1, Math.round(crop.h))
+  const shot = await sess.cdpSend('Page.captureScreenshot', {
+    format: 'png',
+    fromSurface: true,
+    clip: { x: cropX, y: cropY, width: cropW, height: cropH, scale: 1 },
+  })
+  const data = shot.result?.data
+  if (typeof data !== 'string') return
+  const filename = `${Date.now()}-${randomUUID()}.png`
+  writeFileSync(join(imageDir, filename), Buffer.from(data, 'base64'))
+  const imagePath = publicImagePath(filename)
+  const id = randomUUID()
+  const name = request.name || `框選截圖 ${cropX},${cropY}`
+  db.prepare(`
+    INSERT INTO frontend_auto_baselines
+      (id, script_id, crop_id, name, platform, crop_x, crop_y, crop_w, crop_h, image_path, threshold, created_by, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    request.scriptId,
+    id,
+    name,
+    request.platform,
+    cropX,
+    cropY,
+    cropW,
+    cropH,
+    imagePath,
+    request.threshold,
+    request.createdBy,
+    now(),
+  )
+  sess.lastCrop = { id, name, imagePath, x: cropX, y: cropY, w: cropW, h: cropH, threshold: request.threshold }
+  sess.steps.push({
+    name: `尋找 ${name}`,
+    action: 'find_baseline_scroll',
+    baselineId: id,
+    threshold: request.threshold,
+    scrollStep: 600,
+    maxScrolls: 20,
+  })
+  sess.cropRequest = undefined
 }
 
 function connectRecorder(sess: RecSession, port: number) {
@@ -536,6 +690,9 @@ function connectRecorder(sess: RecSession, port: number) {
           const args = msg.params?.args ?? []
           if (args[0]?.value === '__TOPPATH_RECORDER__' && typeof args[1]?.value === 'string') {
             try { sess.steps.push(JSON.parse(args[1].value)) } catch {}
+          }
+          if (args[0]?.value === '__TOPPATH_CROP__' && typeof args[1]?.value === 'string') {
+            try { void saveCropFromRecorder(sess, JSON.parse(args[1].value)) } catch {}
           }
         }
         if (msg.method === 'Page.loadEventFired') {
@@ -603,7 +760,30 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
 router.get('/api/frontend-auto/record/status/:sessionId', (req, res) => {
   const sess = recSessions.get(req.params.sessionId)
   if (!sess) return res.json({ found: false, done: true, steps: [] })
-  res.json({ found: true, done: sess.done, steps: sess.steps })
+  res.json({ found: true, done: sess.done, steps: sess.steps, lastCrop: sess.lastCrop, cropPending: !!sess.cropRequest })
+})
+
+router.post('/api/frontend-auto/record/crop/:sessionId', async (req, res) => {
+  const sess = recSessions.get(req.params.sessionId)
+  if (!sess) return res.status(404).json({ ok: false, message: '找不到錄製 session' })
+  if (!sess.cdpSend) return res.status(409).json({ ok: false, message: '錄製器尚未連線完成，請稍後再框選' })
+  const body = req.body as Record<string, unknown>
+  const platform = asPlatform(body.platform)
+  if (!platform) return res.status(400).json({ ok: false, message: 'platform must be h5 or pc' })
+  const scriptId = text(body.scriptId)
+  if (!scriptId) return res.status(400).json({ ok: false, message: 'scriptId is required' })
+  sess.cropRequest = {
+    scriptId,
+    platform,
+    name: text(body.name, `框選截圖 ${Date.now()}`),
+    threshold: numberValue(body.threshold, 0.08),
+    createdBy: text(body.createdBy, 'unknown'),
+  }
+  const result = await sess.cdpSend('Runtime.evaluate', {
+    expression: 'window.__toppathStartCropMode && window.__toppathStartCropMode()',
+  })
+  if (result.error) return res.status(500).json({ ok: false, message: result.error.message ?? '啟動框選失敗' })
+  res.json({ ok: true })
 })
 
 router.post('/api/frontend-auto/record/screenshot/:sessionId', async (req, res) => {

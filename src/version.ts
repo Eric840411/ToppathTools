@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.29.24'
+export const APP_VERSION = '3.29.25'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.29.25',
+    date: '2026-05-26',
+    changes: [
+      'feat(uat): H5/PC 基準圖擷取改為錄製視窗直接拖曳框選，自動截圖、回填座標大小並加入 find_baseline_scroll 步驟。',
+    ],
+  },
   {
     version: '3.29.24',
     date: '2026-05-26',

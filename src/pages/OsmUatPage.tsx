@@ -76,6 +76,17 @@ interface AutoStepDraft {
   maxScrolls?: number
 }
 
+interface AutoCropResult {
+  id: string
+  name: string
+  imagePath: string
+  x: number
+  y: number
+  w: number
+  h: number
+  threshold: number
+}
+
 const AUTO_STEP_ACTIONS = [
   { value: 'goto', label: '前往頁面' },
   { value: 'click_viewport', label: '點擊畫面' },
@@ -553,7 +564,9 @@ export function OsmUatPage() {
     const [recPolling, setRecPolling] = useState(false)
     const [recDisplayUrl, setRecDisplayUrl] = useState<string | null>(null)
     const [recStepCount, setRecStepCount] = useState(0)
-    const [cropDraft, setCropDraft] = useState({ name: '', x: 0, y: 0, w: 160, h: 90, threshold: 0.08 })
+    const [cropDraft, setCropDraft] = useState({ name: '', threshold: 0.08 })
+    const [lastCrop, setLastCrop] = useState<AutoCropResult | null>(null)
+    const [cropPending, setCropPending] = useState(false)
     const recPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
     const recorderAvailable = canUseServerRecorder()
     const selected = autoScripts[platform].find(item => item.id === selectedScriptIds[platform])
@@ -612,7 +625,13 @@ export function OsmUatPage() {
       setRecPolling(true)
       recPollRef.current = setInterval(async () => {
         const poll = await fetch(`/api/frontend-auto/record/status/${data.sessionId}`)
-        const status = await poll.json() as { found: boolean; done: boolean; steps: object[] }
+        const status = await poll.json() as { found: boolean; done: boolean; steps: object[]; lastCrop?: AutoCropResult; cropPending?: boolean }
+        setCropPending(!!status.cropPending)
+        if (status.lastCrop) {
+          setLastCrop(status.lastCrop)
+          setCropDraft(prev => ({ ...prev, name: '' }))
+          if (selectedScriptIds[platform]) void loadBaselines(selectedScriptIds[platform])
+        }
         if (status.steps.length > 0) {
           setRecStepCount(status.steps.length)
           setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], steps: JSON.stringify(status.steps, null, 2) } }))
@@ -643,6 +662,7 @@ export function OsmUatPage() {
       const data = await res.json() as { ok: boolean; steps: object[] }
       setRecSessionId(null)
       setRecDisplayUrl(null)
+      setCropPending(false)
       if (data.steps.length > 0) {
         setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], steps: JSON.stringify(data.steps, null, 2) } }))
         setNewScriptOpen(prev => ({ ...prev, [platform]: true }))
@@ -651,37 +671,26 @@ export function OsmUatPage() {
       }
     }
 
-    async function captureRecordBaseline() {
+    async function startCropCapture() {
       if (!recSessionId) return
       const scriptId = selectedScriptIds[platform]
-      if (!scriptId) return alert('請先選擇或儲存一個腳本，局部截圖才有地方掛載。')
-      const res = await fetch(`/api/frontend-auto/record/screenshot/${recSessionId}`, {
+      if (!scriptId) return alert('請先選擇或儲存一個腳本，框選截圖才有地方掛載。')
+      setCropPending(true)
+      const res = await fetch(`/api/frontend-auto/record/crop/${recSessionId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           platform,
           scriptId,
-          name: cropDraft.name.trim() || `局部截圖 ${Date.now()}`,
-          cropX: cropDraft.x,
-          cropY: cropDraft.y,
-          cropW: cropDraft.w,
-          cropH: cropDraft.h,
+          name: cropDraft.name.trim() || `框選截圖 ${Date.now()}`,
           threshold: cropDraft.threshold,
           createdBy: actor,
         }),
       })
-      const data = await res.json().catch(() => ({ ok: false, message: '截圖失敗' })) as { ok?: boolean; message?: string; baseline?: AutoBaseline }
-      if (!res.ok || !data.ok) return alert(data.message ?? '截圖失敗')
-      if (scriptId) await loadBaselines(scriptId)
-      if (data.baseline?.id) {
-        setDraftSteps([...parseAutoStepDrafts(newScriptDraft[platform].steps), {
-          name: `尋找 ${data.baseline.name}`,
-          action: 'find_baseline_scroll',
-          baselineId: data.baseline.id,
-          threshold: cropDraft.threshold,
-          scrollStep: 600,
-          maxScrolls: 20,
-        }])
+      const data = await res.json().catch(() => ({ ok: false, message: '啟動框選失敗' })) as { ok?: boolean; message?: string }
+      if (!res.ok || !data.ok) {
+        setCropPending(false)
+        return alert(data.message ?? '啟動框選失敗')
       }
     }
 
@@ -875,28 +884,31 @@ export function OsmUatPage() {
             <div style={{ marginTop: 8, marginBottom: 12, padding: 10, background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 6, display: 'grid', gap: 8 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                 <div>
-                  <span style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#93c5fd' }}>錄製視窗局部截圖</span>
+                  <span style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#93c5fd' }}>框選擷取基準圖</span>
                   <span style={{ display: 'block', fontSize: 11, color: recPolling ? '#94a3b8' : '#64748b', marginTop: 2 }}>
-                    {recPolling ? '會從目前錄製用 Chrome 視窗裁切指定區域，存成基準圖並加入尋找步驟。' : '請先啟動本機錄製；公網模式無法直接截取伺服器端 Chrome 畫面。'}
+                    {recPolling ? (cropPending ? '請到錄製用 Chrome 視窗拖曳框選；放開滑鼠後會自動擷取。' : '按下後到錄製用 Chrome 視窗直接拖曳框選要擷取的區域。') : '請先啟動本機錄製；公網模式無法直接截取伺服器端 Chrome 畫面。'}
                   </span>
                 </div>
                 <button
-                  disabled={!recPolling}
-                  title={recPolling ? '擷取目前錄製視窗的指定區域' : '開始錄製後才能使用'}
-                  style={{ ...smallBtnStyle, color: '#fff', background: recPolling ? '#f59e0b' : '#475569', border: 'none', cursor: recPolling ? 'pointer' : 'not-allowed', whiteSpace: 'nowrap' }}
-                  onClick={() => void captureRecordBaseline()}
+                  disabled={!recPolling || cropPending}
+                  title={recPolling ? '在錄製視窗拖曳框選要擷取的區域' : '開始錄製後才能使用'}
+                  style={{ ...smallBtnStyle, color: '#fff', background: recPolling && !cropPending ? '#f59e0b' : '#475569', border: 'none', cursor: recPolling && !cropPending ? 'pointer' : 'not-allowed', whiteSpace: 'nowrap' }}
+                  onClick={() => void startCropCapture()}
                 >
-                  擷取並加入步驟
+                  {cropPending ? '等待框選...' : '框選擷取'}
                 </button>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px,1.4fr) repeat(5, minmax(52px,0.6fr))', gap: 6 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px,1fr) 90px', gap: 6 }}>
                 <input value={cropDraft.name} onChange={e => setCropDraft(prev => ({ ...prev, name: e.target.value }))} placeholder="基準名稱" style={inputStyle} />
-                <input type="number" value={cropDraft.x} onChange={e => setCropDraft(prev => ({ ...prev, x: Number(e.target.value) }))} placeholder="X" style={inputStyle} />
-                <input type="number" value={cropDraft.y} onChange={e => setCropDraft(prev => ({ ...prev, y: Number(e.target.value) }))} placeholder="Y" style={inputStyle} />
-                <input type="number" value={cropDraft.w} onChange={e => setCropDraft(prev => ({ ...prev, w: Number(e.target.value) }))} placeholder="W" style={inputStyle} />
-                <input type="number" value={cropDraft.h} onChange={e => setCropDraft(prev => ({ ...prev, h: Number(e.target.value) }))} placeholder="H" style={inputStyle} />
                 <input type="number" step="0.01" value={cropDraft.threshold} onChange={e => setCropDraft(prev => ({ ...prev, threshold: Number(e.target.value) }))} placeholder="門檻" style={inputStyle} />
               </div>
+              {lastCrop && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 4, background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.22)', color: '#86efac', fontSize: 11 }}>
+                  <span style={{ fontWeight: 700 }}>已擷取</span>
+                  <span>{lastCrop.name}</span>
+                  <span style={{ fontFamily: 'Consolas, Monaco, monospace', color: '#bbf7d0' }}>X {lastCrop.x} / Y {lastCrop.y} / W {lastCrop.w} / H {lastCrop.h}</span>
+                </div>
+              )}
             </div>
             <div style={thumbGridStyle}>{baselineRows.map(row => <div key={row.id} style={thumbCardStyle}><img src={row.image_path} alt={row.name} style={thumbImageStyle} /><span style={cardTitleStyle}>{row.name}</span><button style={dangerBtnStyle} onClick={() => void deleteBaseline(row.script_id, row.id)}>刪除</button></div>)}</div>
           </section>
