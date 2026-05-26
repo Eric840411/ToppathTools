@@ -975,6 +975,31 @@ type StepObj = {
   maxScrolls?: number
 }
 
+async function syncExecutionViewport(page: import('playwright').Page, width: number, height: number, platform: Platform, headed: boolean) {
+  const client = await page.context().newCDPSession(page)
+  await client.send('Emulation.setDeviceMetricsOverride', {
+    width,
+    height,
+    deviceScaleFactor: 1,
+    mobile: platform === 'h5',
+  })
+  if (!headed) return
+  const size = await client.send('Runtime.evaluate', {
+    expression: '({ dw: Math.max(0, window.outerWidth - window.innerWidth), dh: Math.max(0, window.outerHeight - window.innerHeight) })',
+    returnByValue: true,
+  }) as { result?: { value?: { dw?: number; dh?: number } } }
+  const win = await client.send('Browser.getWindowForTarget') as { windowId?: number }
+  if (typeof win.windowId === 'number') {
+    await client.send('Browser.setWindowBounds', {
+      windowId: win.windowId,
+      bounds: {
+        width: width + Math.round(size.result?.value?.dw ?? 0),
+        height: height + Math.round(size.result?.value?.dh ?? 0),
+      },
+    })
+  }
+}
+
 function loadPng(buffer: Buffer) {
   return PNG.sync.read(buffer)
 }
@@ -1022,6 +1047,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
   const body = req.body as Record<string, unknown>
   const stepsRaw = text(body.steps, '[]')
   const startUrl = text(body.url)
+  const platform = asPlatform(body.platform) ?? 'h5'
   const resolution = text(body.resolution, '390x844')
   const failureMode = text(body.failureMode, 'continue')
   const headed = body.headed === true
@@ -1044,21 +1070,36 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
       await log(`ℹ 已略過 ${skippedDuplicateClicks} 個座標點擊後的重複 selector 點擊`)
     }
 
-    const [w, h] = resolution.split('x').map(Number)
+    const [rawW, rawH] = resolution.split('x').map(Number)
+    const w = rawW || 390
+    const h = rawH || 844
     let chromium: import('playwright').BrowserType | null = null
     let browser: import('playwright').Browser | null = null
     try {
       const pw = await import('playwright')
       chromium = pw.chromium
-      browser = await chromium.launch({ headless: !headed })
+      browser = await chromium.launch({
+        headless: !headed,
+        args: headed ? [
+          `--window-size=${recordableWindowSize(w, h).width},${recordableWindowSize(w, h).height}`,
+          '--force-device-scale-factor=1',
+        ] : ['--force-device-scale-factor=1'],
+      })
     } catch (err) {
       await log(`❌ 無法啟動瀏覽器：${err instanceof Error ? err.message : String(err)}`)
       activeRuns.delete(runId)
       return
     }
 
-    const ctx = await browser.newContext({ viewport: { width: w || 390, height: h || 844 } })
+    const ctx = await browser.newContext({
+      viewport: { width: w, height: h },
+      screen: { width: w, height: h },
+      deviceScaleFactor: 1,
+      isMobile: platform === 'h5',
+      hasTouch: platform === 'h5',
+    })
     const page = await ctx.newPage()
+    await syncExecutionViewport(page, w, h, platform, headed).catch(() => {})
     let passed = 0, failed = 0, skipped = 0
 
     for (const [i, step] of steps.entries()) {

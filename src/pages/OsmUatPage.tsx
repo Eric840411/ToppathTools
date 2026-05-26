@@ -525,6 +525,7 @@ export function OsmUatPage() {
       body: JSON.stringify({
         steps: parseAutoSteps(script.steps).length ? script.steps : '[]',
         url: runConfig[platform].url,
+        platform,
         resolution: runConfig[platform].resolution,
         failureMode: runConfig[platform].failureMode,
         headed: runConfig[platform].headed,
