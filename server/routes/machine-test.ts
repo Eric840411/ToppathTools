@@ -1315,7 +1315,7 @@ router.get('/api/machine-test/agent/install.bat', (req, res) => {
     `  echo set AGENT_OWNER_NAME=${agentOwnerName}`,
     `  echo set AGENT_TOKEN=${agentToken?.token ?? ''}`,
     '  echo set AGENT_LABEL=%COMPUTERNAME%',
-    '  echo set AGENT_CAPABILITIES=machine-test,scripted-bet',
+    '  echo set AGENT_CAPABILITIES=machine-test,scripted-bet,uat-record',
     '  echo echo Starting Toppath Local Agent...',
     '  echo npx tsx server/agent-runner.ts',
     '  echo if %%errorlevel%% neq 0 pause',
