@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.29.23'
+export const APP_VERSION = '3.29.24'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.29.24',
+    date: '2026-05-26',
+    changes: [
+      'ui(uat): 將 H5/PC 錄製視窗局部截圖功能固定顯示在基準截圖管理區，未錄製時顯示停用狀態與原因，避免使用者找不到入口。',
+    ],
+  },
   {
     version: '3.29.23',
     date: '2026-05-26',

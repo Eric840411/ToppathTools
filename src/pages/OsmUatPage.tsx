@@ -774,20 +774,6 @@ export function OsmUatPage() {
               {recPolling && <span style={{ fontSize: 12, color: '#c084fc', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />錄製中，已擷取 {recStepCount} 步</span>}
             </div>
             {recPolling && recDisplayUrl && <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderLeft: '3px solid rgba(251,191,36,0.5)', borderRadius: 6 }}><div style={{ fontSize: 12, color: '#fbbf24', fontWeight: 600, marginBottom: 6 }}>Chrome 錄製器已開啟目標頁，可直接在錄製視窗操作。若畫面仍停在 about:blank，請將以下 URL 貼到網址列按 Enter：</div><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input readOnly value={recDisplayUrl} style={{ ...inputStyle, flex: 1, fontSize: 11, fontFamily: 'Consolas, Monaco, monospace' }} onClick={e => (e.target as HTMLInputElement).select()} /><button style={{ ...smallBtnStyle, whiteSpace: 'nowrap' }} onClick={() => { void navigator.clipboard.writeText(recDisplayUrl) }}>複製 URL</button></div></div>}
-            {recPolling && <div style={{ marginTop: 8, padding: 10, background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 6, display: 'grid', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#93c5fd' }}>局部截圖轉基準圖</span>
-                <button style={{ ...smallBtnStyle, color: '#fff', background: '#f59e0b', border: 'none' }} onClick={() => void captureRecordBaseline()}>擷取並加入步驟</button>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px,1.4fr) repeat(5, minmax(52px,0.6fr))', gap: 6 }}>
-                <input value={cropDraft.name} onChange={e => setCropDraft(prev => ({ ...prev, name: e.target.value }))} placeholder="基準名稱" style={inputStyle} />
-                <input type="number" value={cropDraft.x} onChange={e => setCropDraft(prev => ({ ...prev, x: Number(e.target.value) }))} placeholder="X" style={inputStyle} />
-                <input type="number" value={cropDraft.y} onChange={e => setCropDraft(prev => ({ ...prev, y: Number(e.target.value) }))} placeholder="Y" style={inputStyle} />
-                <input type="number" value={cropDraft.w} onChange={e => setCropDraft(prev => ({ ...prev, w: Number(e.target.value) }))} placeholder="W" style={inputStyle} />
-                <input type="number" value={cropDraft.h} onChange={e => setCropDraft(prev => ({ ...prev, h: Number(e.target.value) }))} placeholder="H" style={inputStyle} />
-                <input type="number" step="0.01" value={cropDraft.threshold} onChange={e => setCropDraft(prev => ({ ...prev, threshold: Number(e.target.value) }))} placeholder="門檻" style={inputStyle} />
-              </div>
-            </div>}
             {newScriptOpen[platform] && <div style={{ display: 'grid', gap: 8, marginTop: 12, padding: '12px', background: '#162032', border: '1px solid #2d3f55', borderRadius: 6 }}>
               <input value={newScriptDraft[platform].name} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], name: e.target.value } }))} placeholder="腳本名稱" style={inputStyle} />
               <div style={{ display: 'grid', gap: 8 }}>
@@ -885,6 +871,32 @@ export function OsmUatPage() {
             <div style={panelHeadStyle}>
               <h3 style={h3Style}><span style={{ width: 20, height: 20, borderRadius: 4, background: '#f59e0b', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0 }}>B</span>基準截圖管理</h3>
               <label style={uploadStyle}>上傳基準圖<input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => { void uploadBaseline(platform, e.target.files?.[0]); e.target.value = '' }} /></label>
+            </div>
+            <div style={{ marginTop: 8, marginBottom: 12, padding: 10, background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 6, display: 'grid', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                <div>
+                  <span style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#93c5fd' }}>錄製視窗局部截圖</span>
+                  <span style={{ display: 'block', fontSize: 11, color: recPolling ? '#94a3b8' : '#64748b', marginTop: 2 }}>
+                    {recPolling ? '會從目前錄製用 Chrome 視窗裁切指定區域，存成基準圖並加入尋找步驟。' : '請先啟動本機錄製；公網模式無法直接截取伺服器端 Chrome 畫面。'}
+                  </span>
+                </div>
+                <button
+                  disabled={!recPolling}
+                  title={recPolling ? '擷取目前錄製視窗的指定區域' : '開始錄製後才能使用'}
+                  style={{ ...smallBtnStyle, color: '#fff', background: recPolling ? '#f59e0b' : '#475569', border: 'none', cursor: recPolling ? 'pointer' : 'not-allowed', whiteSpace: 'nowrap' }}
+                  onClick={() => void captureRecordBaseline()}
+                >
+                  擷取並加入步驟
+                </button>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px,1.4fr) repeat(5, minmax(52px,0.6fr))', gap: 6 }}>
+                <input value={cropDraft.name} onChange={e => setCropDraft(prev => ({ ...prev, name: e.target.value }))} placeholder="基準名稱" style={inputStyle} />
+                <input type="number" value={cropDraft.x} onChange={e => setCropDraft(prev => ({ ...prev, x: Number(e.target.value) }))} placeholder="X" style={inputStyle} />
+                <input type="number" value={cropDraft.y} onChange={e => setCropDraft(prev => ({ ...prev, y: Number(e.target.value) }))} placeholder="Y" style={inputStyle} />
+                <input type="number" value={cropDraft.w} onChange={e => setCropDraft(prev => ({ ...prev, w: Number(e.target.value) }))} placeholder="W" style={inputStyle} />
+                <input type="number" value={cropDraft.h} onChange={e => setCropDraft(prev => ({ ...prev, h: Number(e.target.value) }))} placeholder="H" style={inputStyle} />
+                <input type="number" step="0.01" value={cropDraft.threshold} onChange={e => setCropDraft(prev => ({ ...prev, threshold: Number(e.target.value) }))} placeholder="門檻" style={inputStyle} />
+              </div>
             </div>
             <div style={thumbGridStyle}>{baselineRows.map(row => <div key={row.id} style={thumbCardStyle}><img src={row.image_path} alt={row.name} style={thumbImageStyle} /><span style={cardTitleStyle}>{row.name}</span><button style={dangerBtnStyle} onClick={() => void deleteBaseline(row.script_id, row.id)}>刪除</button></div>)}</div>
           </section>
