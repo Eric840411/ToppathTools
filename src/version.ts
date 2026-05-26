@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.29.26'
+export const APP_VERSION = '3.30.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.30.0',
+    date: '2026-05-26',
+    changes: [
+      'feat(uat): UAT 錄製整合 Local Agent — 公網模式可選擇已連線的 uat-record Agent 執行 Chrome 錄製，步驟與框選截圖即時同步回 Server。沒有 Agent 且非本機時錄製按鈕完全停用。',
+    ],
+  },
   {
     version: '3.29.26',
     date: '2026-05-25',

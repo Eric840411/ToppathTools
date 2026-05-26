@@ -570,10 +570,15 @@ export function OsmUatPage() {
     const [cropPending, setCropPending] = useState(false)
     const recPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
     const [recorderAvailable, setRecorderAvailable] = useState(canUseServerRecorder())
+    const [uatAgents, setUatAgents] = useState<Array<{ agentId: string; hostname: string; busy: boolean }>>([])
+    const [selectedAgentId, setSelectedAgentId] = useState<string>('')
     useEffect(() => {
       fetch('/api/frontend-auto/record/available')
-        .then(r => r.json() as Promise<{ available: boolean }>)
-        .then(d => setRecorderAvailable(d.available))
+        .then(r => r.json() as Promise<{ available: boolean; agents?: Array<{ agentId: string; hostname: string; busy: boolean }> }>)
+        .then(d => {
+          setRecorderAvailable(d.available)
+          setUatAgents(d.agents ?? [])
+        })
         .catch(() => {/* keep default */})
     }, [])
     const selected = autoScripts[platform].find(item => item.id === selectedScriptIds[platform])
@@ -611,23 +616,27 @@ export function OsmUatPage() {
     }
 
     async function startRecord() {
-      if (!recorderAvailable) {
+      const canRecord = recorderAvailable || uatAgents.some(a => !a.busy)
+      if (!canRecord) {
         setNewScriptOpen(prev => ({ ...prev, [platform]: true }))
-        alert('公網環境不支援直接錄製。請改用 Step Builder 手動新增腳本，或在伺服器本機 localhost 開啟 ToppathTools 錄製。')
+        alert('目前沒有可用的錄製方式。請確認有 Local Agent 已連線（需具備 uat-record 功能），或在伺服器本機 localhost 開啟 ToppathTools 錄製。')
         return
       }
       const url = runConfig[platform].url || window.prompt('請輸入要錄製的目標 URL')?.trim()
       if (!url) return
       if (!runConfig[platform].url) setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], url } }))
       if (!newScriptOpen[platform]) setNewScriptOpen(prev => ({ ...prev, [platform]: true }))
+      const useAgentId = !recorderAvailable && uatAgents.length > 0
+        ? (selectedAgentId || uatAgents.find(a => !a.busy)?.agentId || '')
+        : selectedAgentId
       const res = await fetch('/api/frontend-auto/record/start', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url, platform, resolution: runConfig[platform].resolution }),
+        body: JSON.stringify({ url, platform, resolution: runConfig[platform].resolution, ...(useAgentId ? { agentId: useAgentId } : {}) }),
       })
-      const data = await res.json() as { ok: boolean; sessionId: string; displayUrl?: string; message?: string }
+      const data = await res.json() as { ok: boolean; sessionId: string; displayUrl?: string; via?: string; agentHostname?: string; message?: string }
       if (!data.ok) return alert(data.message ?? '錄製啟動失敗')
       setRecSessionId(data.sessionId)
-      setRecDisplayUrl(data.displayUrl ?? url)
+      setRecDisplayUrl(data.via === 'agent' ? `[Agent: ${data.agentHostname ?? 'unknown'}] ${data.displayUrl ?? url}` : (data.displayUrl ?? url))
       setRecStepCount(1)
       setRecPolling(true)
       recPollRef.current = setInterval(async () => {
@@ -754,9 +763,19 @@ export function OsmUatPage() {
             <a href="/api/frontend-auto/setup/install.sh" style={downloadStyle}>⬇ install.sh</a>
           </div>
         </div>
-        {!recorderAvailable && (
+        {!recorderAvailable && uatAgents.length === 0 && (
           <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.28)', borderLeft: '3px solid rgba(251,191,36,0.75)', borderRadius: 8, padding: '10px 14px', color: '#fbbf24', fontSize: 12, lineHeight: 1.6 }}>
-            目前是公網模式，已停用直接錄製；請先用「＋ 新增腳本」的 Step Builder 建立步驟，或在伺服器本機 localhost 開啟本頁錄製。
+            目前是公網模式，已停用直接錄製；請先用「＋ 新增腳本」的 Step Builder 建立步驟、在伺服器本機 localhost 開啟本頁錄製，或連線一個具備 <strong>uat-record</strong> 功能的 Local Agent。
+          </div>
+        )}
+        {!recorderAvailable && uatAgents.length > 0 && (
+          <div style={{ background: 'rgba(124,58,237,0.08)', border: '1px solid rgba(124,58,237,0.3)', borderLeft: '3px solid rgba(124,58,237,0.75)', borderRadius: 8, padding: '10px 14px', fontSize: 12, lineHeight: 1.6, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ color: '#c084fc', fontWeight: 600 }}>Agent 錄製模式</span>
+            <span style={{ color: '#94a3b8' }}>選擇要使用的 Agent 執行錄製：</span>
+            <select value={selectedAgentId} onChange={e => setSelectedAgentId(e.target.value)} style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 4, padding: '2px 6px', fontSize: 12 }}>
+              <option value="">（自動選擇最快可用）</option>
+              {uatAgents.map(a => <option key={a.agentId} value={a.agentId} disabled={a.busy}>{a.hostname}{a.busy ? ' （忙碌中）' : ''}</option>)}
+            </select>
           </div>
         )}
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(320px, 2fr)', gap: 16 }}>
@@ -786,10 +805,10 @@ export function OsmUatPage() {
             </table>
             <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
               <button style={{ ...btnStyle, background: '#4f8ef7' }} onClick={() => setNewScriptOpen(prev => ({ ...prev, [platform]: !prev[platform] }))}>＋ 新增腳本</button>
-              {recPolling ? <button style={{ ...btnStyle, background: '#ef4444' }} onClick={() => void stopRecord()}>■ 停止錄製</button> : <button title={recorderAvailable ? '啟動 Chrome 錄製器' : '公網模式不支援直接錄製，請手動新增腳本'} style={{ ...btnStyle, background: recorderAvailable ? '#7c3aed' : '#475569', cursor: recorderAvailable ? 'pointer' : 'not-allowed' }} onClick={() => void startRecord()}>🔴 開始錄製</button>}
+              {recPolling ? <button style={{ ...btnStyle, background: '#ef4444' }} onClick={() => void stopRecord()}>■ 停止錄製</button> : (() => { const canRec = recorderAvailable || uatAgents.some(a => !a.busy); return <button title={canRec ? (recorderAvailable ? '啟動本機 Chrome 錄製器' : '透過 Local Agent 啟動 Chrome 錄製') : '需要本機存取或已連線的 uat-record Agent'} style={{ ...btnStyle, background: canRec ? '#7c3aed' : '#475569', cursor: canRec ? 'pointer' : 'not-allowed' }} onClick={() => void startRecord()}>🔴 開始錄製</button> })()}
               {recPolling && <span style={{ fontSize: 12, color: '#c084fc', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />錄製中，已擷取 {recStepCount} 步</span>}
             </div>
-            {recPolling && recDisplayUrl && <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderLeft: '3px solid rgba(251,191,36,0.5)', borderRadius: 6 }}><div style={{ fontSize: 12, color: '#fbbf24', fontWeight: 600, marginBottom: 6 }}>Chrome 錄製器已開啟目標頁，可直接在錄製視窗操作。若畫面仍停在 about:blank，請將以下 URL 貼到網址列按 Enter：</div><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input readOnly value={recDisplayUrl} style={{ ...inputStyle, flex: 1, fontSize: 11, fontFamily: 'Consolas, Monaco, monospace' }} onClick={e => (e.target as HTMLInputElement).select()} /><button style={{ ...smallBtnStyle, whiteSpace: 'nowrap' }} onClick={() => { void navigator.clipboard.writeText(recDisplayUrl) }}>複製 URL</button></div></div>}
+            {recPolling && recDisplayUrl && <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderLeft: '3px solid rgba(251,191,36,0.5)', borderRadius: 6 }}><div style={{ fontSize: 12, color: '#fbbf24', fontWeight: 600, marginBottom: 6 }}>{recDisplayUrl.startsWith('[Agent:') ? 'Agent 已在遠端電腦開啟 Chrome，可到 Agent 機器上直接操作錄製視窗。步驟會即時同步回這裡。' : 'Chrome 錄製器已開啟目標頁，可直接在錄製視窗操作。若畫面仍停在 about:blank，請將以下 URL 貼到網址列按 Enter：'}</div><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input readOnly value={recDisplayUrl.replace(/^\[Agent:.*?\] /, '')} style={{ ...inputStyle, flex: 1, fontSize: 11, fontFamily: 'Consolas, Monaco, monospace' }} onClick={e => (e.target as HTMLInputElement).select()} /><button style={{ ...smallBtnStyle, whiteSpace: 'nowrap' }} onClick={() => { void navigator.clipboard.writeText(recDisplayUrl.replace(/^\[Agent:.*?\] /, '')) }}>複製 URL</button></div></div>}
             {newScriptOpen[platform] && <div style={{ display: 'grid', gap: 8, marginTop: 12, padding: '12px', background: '#162032', border: '1px solid #2d3f55', borderRadius: 6 }}>
               <input value={newScriptDraft[platform].name} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], name: e.target.value } }))} placeholder="腳本名稱" style={inputStyle} />
               <div style={{ display: 'grid', gap: 8 }}>
@@ -893,7 +912,7 @@ export function OsmUatPage() {
                 <div>
                   <span style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#93c5fd' }}>框選擷取基準圖</span>
                   <span style={{ display: 'block', fontSize: 11, color: recPolling ? '#94a3b8' : '#64748b', marginTop: 2 }}>
-                    {recPolling ? (cropPending ? '請到錄製用 Chrome 視窗拖曳框選；放開滑鼠後會自動擷取。' : '按下後到錄製用 Chrome 視窗直接拖曳框選要擷取的區域。') : '請先啟動本機錄製；公網模式無法直接截取伺服器端 Chrome 畫面。'}
+                    {recPolling ? (cropPending ? '請到錄製用 Chrome 視窗（或 Agent 機器上的視窗）拖曳框選；放開滑鼠後會自動擷取。' : '按下後到錄製用 Chrome 視窗直接拖曳框選要擷取的區域。') : '請先啟動錄製（本機或 Agent）才能使用框選擷取。'}
                   </span>
                 </div>
                 <button

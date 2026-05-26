@@ -10,6 +10,7 @@ import http from 'http'
 import WebSocket from 'ws'
 import { PNG } from 'pngjs'
 import { db } from '../shared.js'
+import { agentConnections, uatAgentSessions } from '../agent-hub.js'
 
 export const router = express.Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 30 * 1024 * 1024 } })
@@ -710,24 +711,54 @@ function connectRecorder(sess: RecSession, port: number) {
   })().catch(() => { sess.done = true })
 }
 
+function getUatAgents() {
+  return [...agentConnections.values()]
+    .filter(a => a.capabilities.includes('uat-record'))
+    .map(a => ({ agentId: a.agentId, hostname: a.hostname, busy: a.busy }))
+}
+
 router.get('/api/frontend-auto/record/available', (req, res) => {
-  res.json({ available: isLocalRecordRequest(req) })
+  res.json({ available: isLocalRecordRequest(req), agents: getUatAgents() })
+})
+
+router.get('/api/frontend-auto/record/agents', (_req, res) => {
+  res.json({ ok: true, agents: getUatAgents() })
 })
 
 router.post('/api/frontend-auto/record/start', async (req, res) => {
-  if (!isLocalRecordRequest(req)) {
-    return res.status(403).json({
-      ok: false,
-      code: 'REMOTE_RECORD_UNSUPPORTED',
-      message: '公網環境不支援直接錄製。請改用 Step Builder 手動建立腳本，或在伺服器本機 localhost 開啟 ToppathTools 錄製。',
-    })
-  }
-
   const body = req.body as Record<string, unknown>
   const url = text(body.url)
   const platform = asPlatform(body.platform)
   const resolution = text(body.resolution, platform === 'h5' ? '390x844' : '1366x768')
+  const agentId = text(body.agentId)
+
   if (!url) return res.status(400).json({ ok: false, message: 'url 為必填' })
+
+  // ── Agent-based recording ────────────────────────────────────────────────────
+  if (agentId) {
+    const agent = agentConnections.get(agentId)
+    if (!agent || !agent.capabilities.includes('uat-record')) {
+      return res.status(400).json({ ok: false, message: `Agent ${agentId} 不支援 UAT 錄製或已離線` })
+    }
+    const sessionId = `rec-agent-${Date.now()}-${randomUUID().slice(0, 8)}`
+    uatAgentSessions.set(sessionId, {
+      agentId,
+      steps: [{ name: '前往頁面', action: 'goto', value: url }],
+      cropPending: false,
+      done: false,
+    })
+    agent.ws.send(JSON.stringify({ type: 'uat_record_start', sessionId, url, resolution }))
+    return res.json({ ok: true, sessionId, displayUrl: url, via: 'agent', agentHostname: agent.hostname })
+  }
+
+  // ── Local recording (requires localhost/LAN access) ──────────────────────────
+  if (!isLocalRecordRequest(req)) {
+    return res.status(403).json({
+      ok: false,
+      code: 'REMOTE_RECORD_UNSUPPORTED',
+      message: '公網環境不支援直接錄製。請選擇一個已連線的 Local Agent，或在伺服器本機 localhost 開啟 ToppathTools 錄製。',
+    })
+  }
 
   // Resolve redirect URLs before opening Chrome so local recording starts on
   // the actual lobby page instead of about:blank.
@@ -762,12 +793,38 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
 })
 
 router.get('/api/frontend-auto/record/status/:sessionId', (req, res) => {
+  const agentSess = uatAgentSessions.get(req.params.sessionId)
+  if (agentSess) {
+    return res.json({ found: true, done: agentSess.done, steps: agentSess.steps, lastCrop: agentSess.lastCrop, cropPending: agentSess.cropPending })
+  }
   const sess = recSessions.get(req.params.sessionId)
   if (!sess) return res.json({ found: false, done: true, steps: [] })
   res.json({ found: true, done: sess.done, steps: sess.steps, lastCrop: sess.lastCrop, cropPending: !!sess.cropRequest })
 })
 
 router.post('/api/frontend-auto/record/crop/:sessionId', async (req, res) => {
+  const agentSess = uatAgentSessions.get(req.params.sessionId)
+  if (agentSess) {
+    const body = req.body as Record<string, unknown>
+    const platform = asPlatform(body.platform)
+    if (!platform) return res.status(400).json({ ok: false, message: 'platform must be h5 or pc' })
+    const scriptId = text(body.scriptId)
+    if (!scriptId) return res.status(400).json({ ok: false, message: 'scriptId is required' })
+    const agent = agentConnections.get(agentSess.agentId)
+    if (!agent) return res.status(503).json({ ok: false, message: 'Agent 已離線' })
+    agentSess.cropPending = true
+    agent.ws.send(JSON.stringify({
+      type: 'uat_record_crop',
+      sessionId: req.params.sessionId,
+      scriptId,
+      platform,
+      name: text(body.name, `框選截圖 ${Date.now()}`),
+      threshold: numberValue(body.threshold, 0.08),
+      createdBy: text(body.createdBy, 'unknown'),
+    }))
+    return res.json({ ok: true })
+  }
+
   const sess = recSessions.get(req.params.sessionId)
   if (!sess) return res.status(404).json({ ok: false, message: '找不到錄製 session' })
   if (!sess.cdpSend) return res.status(409).json({ ok: false, message: '錄製器尚未連線完成，請稍後再框選' })
@@ -836,6 +893,16 @@ router.post('/api/frontend-auto/record/screenshot/:sessionId', async (req, res) 
 })
 
 router.post('/api/frontend-auto/record/stop/:sessionId', (req, res) => {
+  const agentSess = uatAgentSessions.get(req.params.sessionId)
+  if (agentSess) {
+    const agent = agentConnections.get(agentSess.agentId)
+    if (agent) agent.ws.send(JSON.stringify({ type: 'uat_record_stop', sessionId: req.params.sessionId }))
+    agentSess.done = true
+    const steps = agentSess.steps
+    uatAgentSessions.delete(req.params.sessionId)
+    return res.json({ ok: true, steps })
+  }
+
   const sess = recSessions.get(req.params.sessionId)
   if (!sess) return res.status(404).json({ ok: false, message: '找不到錄製 session' })
   killRecSession(sess)

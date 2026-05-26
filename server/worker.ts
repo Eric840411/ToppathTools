@@ -38,6 +38,7 @@ import {
   getJobStatuses,
   cancelDistSession,
   broadcastToViewers,
+  uatAgentSessions,
   type AgentInfo,
 } from './agent-hub.js'
 import type { TestEvent } from './machine-test/types.js'
@@ -455,6 +456,72 @@ wss.on('connection', (ws, req) => {
         if (agentId) {
           const info = agentConnections.get(agentId)
           if (info) { info.busy = false; info.sessionId = null }
+        }
+        return
+      }
+
+      if (msg.type === 'uat_record_event' && msg.sessionId) {
+        const ev = (msg as { type: string; sessionId: string; event: Record<string, unknown> }).event
+        const sess = uatAgentSessions.get(msg.sessionId)
+        if (!sess || !ev) return
+        if (ev.kind === 'step' && ev.step) {
+          sess.steps.push(ev.step as object)
+        } else if (ev.kind === 'crop_image') {
+          // Agent sends screenshot data + crop info; server saves to disk and inserts baseline
+          void (async () => {
+            try {
+              const { randomUUID } = await import('crypto')
+              const { writeFileSync, mkdirSync } = await import('fs')
+              const { join } = await import('path')
+              const { db } = await import('./shared.js')
+              const imageDir = join(process.cwd(), 'server', 'frontend-auto', 'images')
+              mkdirSync(imageDir, { recursive: true })
+              const imageBase64 = ev.imageBase64 as string
+              const filename = `${Date.now()}-${randomUUID()}.png`
+              writeFileSync(join(imageDir, filename), Buffer.from(imageBase64, 'base64'))
+              const imagePath = `/api/frontend-auto/images/${filename}`
+              const id = (ev.id as string) || randomUUID()
+              const name = (ev.name as string) || `框選截圖 ${Date.now()}`
+              const cropX = Math.round(Number(ev.x) || 0)
+              const cropY = Math.round(Number(ev.y) || 0)
+              const cropW = Math.round(Number(ev.w) || 1)
+              const cropH = Math.round(Number(ev.h) || 1)
+              const threshold = Number(ev.threshold) || 0.08
+              const platform = (ev.platform as string) || 'h5'
+              const scriptId = (ev.scriptId as string) || ''
+              const createdBy = (ev.createdBy as string) || 'unknown'
+              db.prepare(`
+                INSERT INTO frontend_auto_baselines
+                  (id, script_id, crop_id, name, platform, crop_x, crop_y, crop_w, crop_h, image_path, threshold, created_by, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              `).run(id, scriptId, id, name, platform, cropX, cropY, cropW, cropH, imagePath, threshold, createdBy, Date.now())
+              sess.lastCrop = { id, name, imagePath, x: cropX, y: cropY, w: cropW, h: cropH, threshold }
+              sess.cropPending = false
+              sess.steps.push({
+                name: `尋找 ${name}`,
+                action: 'find_baseline_scroll',
+                baselineId: id,
+                threshold,
+                scrollStep: 600,
+                maxScrolls: 20,
+              })
+            } catch (err) {
+              log('error', '-', '-', `UAT agent crop save error: ${String(err)}`)
+            }
+          })()
+        } else if (ev.kind === 'done') {
+          if (Array.isArray(ev.steps)) sess.steps = ev.steps
+          sess.done = true
+          if (agentId) {
+            const info = agentConnections.get(agentId)
+            if (info) { info.busy = false; info.sessionId = null }
+          }
+        } else if (ev.kind === 'error') {
+          sess.done = true
+          if (agentId) {
+            const info = agentConnections.get(agentId)
+            if (info) { info.busy = false; info.sessionId = null }
+          }
         }
         return
       }

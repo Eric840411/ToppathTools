@@ -161,3 +161,27 @@ export function getJobStatuses(sessionId: string): JobStatus[] | null {
 export function cancelDistSession(sessionId: string) {
   distSessions.delete(sessionId)
 }
+
+// ─── UAT Agent Recording Sessions ─────────────────────────────────────────────
+
+export interface UatCropResult {
+  id: string
+  name: string
+  imagePath: string
+  x: number
+  y: number
+  w: number
+  h: number
+  threshold: number
+}
+
+export interface UatAgentSession {
+  agentId: string
+  steps: object[]
+  lastCrop?: UatCropResult
+  cropPending: boolean
+  done: boolean
+}
+
+/** Active UAT recording sessions initiated via remote agent */
+export const uatAgentSessions = new Map<string, UatAgentSession>()

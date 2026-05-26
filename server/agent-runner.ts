@@ -17,7 +17,11 @@
  *   GEMINI_API_KEY Gemini API key for CCTV vision test (optional)
  */
 import WebSocket from 'ws'
-import { hostname } from 'os'
+import { hostname, tmpdir } from 'os'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { join } from 'path'
+import { spawn } from 'child_process'
+import { randomUUID } from 'crypto'
 import { MachineTestRunner } from './machine-test/runner.js'
 import type { MachineTestSession, MachineProfile, TestEvent } from './machine-test/types.js'
 import { ScriptedBetRunner } from './scripted-bet/runner.js'
@@ -57,13 +61,273 @@ interface ScriptedBetStartMessage {
   config: ScriptedBetConfig
 }
 
+interface UatRecordStartMessage {
+  type: 'uat_record_start'
+  sessionId: string
+  url: string
+  resolution: string
+}
+
+interface UatRecordCropMessage {
+  type: 'uat_record_crop'
+  sessionId: string
+  scriptId: string
+  platform: string
+  name: string
+  threshold: number
+  createdBy: string
+}
+
+interface UatRecordStopMessage {
+  type: 'uat_record_stop'
+  sessionId: string
+}
+
 type IncomingMessage =
   | SessionJoinMessage
   | ScriptedBetStartMessage
+  | UatRecordStartMessage
+  | UatRecordCropMessage
+  | UatRecordStopMessage
   | { type: 'job_assigned'; machineCode: string }
   | { type: 'no_more_jobs' }
   | { type: 'stop' }
   | { type: string }
+
+// ── UAT Recording (Chrome CDP) ───────────────────────────────────────────────
+
+type CdpMessage = { id?: number; result?: Record<string, unknown>; error?: { message?: string } }
+type CdpSend = (method: string, params?: object) => Promise<CdpMessage>
+
+interface UatRecSession {
+  sessionId: string
+  proc: ReturnType<typeof spawn>
+  profileDir: string
+  done: boolean
+  steps: object[]
+  ws?: WebSocket
+  cdpSend?: CdpSend
+  cropRequest?: { scriptId: string; platform: string; name: string; threshold: number; createdBy: string }
+}
+
+const uatRecSessions = new Map<string, UatRecSession>()
+
+function chromeExecutable() {
+  const candidates = [
+    process.env.CHROME_PATH,
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'Application', 'chrome.exe') : '',
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+  ].filter(Boolean) as string[]
+  return candidates.find(p => existsSync(p)) ?? (process.platform === 'win32' ? 'chrome.exe' : 'google-chrome')
+}
+
+async function waitForJson<T>(url: string, timeoutMs = 10_000): Promise<T> {
+  const started = Date.now()
+  let lastError: unknown
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const r = await fetch(url)
+      if (r.ok) return await r.json() as T
+    } catch (error) { lastError = error }
+    await new Promise(resolve => setTimeout(resolve, 250))
+  }
+  throw new Error(`Chrome DevTools not ready: ${lastError instanceof Error ? lastError.message : String(lastError ?? '')}`)
+}
+
+function recorderScript() {
+  return `
+(() => {
+  if (window.__toppathRecorderInstalled) return;
+  window.__toppathRecorderInstalled = true;
+  const sent = new Set();
+  const cssPath = (el) => {
+    if (!el || el === document || el === window) return '';
+    if (el.id) return '#' + CSS.escape(el.id);
+    const testId = el.getAttribute && (el.getAttribute('data-testid') || el.getAttribute('data-test'));
+    if (testId) return '[data-testid="' + testId.replace(/"/g, '\\\\"') + '"]';
+    const name = el.getAttribute && el.getAttribute('name');
+    if (name) return el.tagName.toLowerCase() + '[name="' + name.replace(/"/g, '\\\\"') + '"]';
+    const text = (el.innerText || el.textContent || '').trim();
+    if (text && text.length <= 40) return 'text=' + text;
+    const parts = [];
+    let node = el;
+    while (node && node.nodeType === 1 && parts.length < 4) {
+      let part = node.tagName.toLowerCase();
+      if (node.id) { parts.unshift('#' + CSS.escape(node.id)); break; }
+      const siblings = node.parentNode ? [...node.parentNode.children] : [];
+      const idx = siblings.indexOf(node);
+      if (siblings.length > 1) part += ':nth-child(' + (idx + 1) + ')';
+      parts.unshift(part);
+      node = node.parentNode;
+    }
+    return parts.join(' > ');
+  };
+  document.addEventListener('click', (e) => {
+    const el = e.target;
+    const key = Date.now() + ':' + (el && el.tagName);
+    if (sent.has(key)) return;
+    sent.add(key);
+    setTimeout(() => sent.delete(key), 200);
+    const step = { name: 'Click ' + cssPath(el), action: 'click', selector: cssPath(el) };
+    console.info('__TOPPATH_RECORDER__', JSON.stringify(step));
+  }, true);
+  document.addEventListener('change', (e) => {
+    const el = e.target;
+    if (!el || !el.value) return;
+    const step = { name: 'Input ' + cssPath(el), action: 'fill', selector: cssPath(el), value: el.value };
+    console.info('__TOPPATH_RECORDER__', JSON.stringify(step));
+  }, true);
+})();
+`
+}
+
+function cropScript() {
+  return `
+(() => {
+  if (window.__toppathCropInstalled) return;
+  window.__toppathCropInstalled = true;
+  window.__toppathStartCropMode = () => {
+    const layer = document.createElement('div');
+    layer.style.cssText = 'position:fixed;inset:0;z-index:2147483647;cursor:crosshair;background:rgba(0,0,0,0.25);';
+    document.body.appendChild(layer);
+    let drawing = false, sx = 0, sy = 0;
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483648;border:2px solid #f59e0b;background:rgba(245,158,11,0.15);';
+    document.body.appendChild(overlay);
+    const draw = (e) => {
+      const ex = e.clientX, ey = e.clientY;
+      const x = Math.min(sx, ex), y = Math.min(sy, ey), w = Math.abs(ex - sx), h = Math.abs(ey - sy);
+      overlay.style.cssText = 'position:fixed;pointer-events:none;z-index:2147483648;border:2px solid #f59e0b;background:rgba(245,158,11,0.15);left:' + x + 'px;top:' + y + 'px;width:' + w + 'px;height:' + h + 'px;';
+      return { x, y, w, h };
+    };
+    const close = () => { layer.remove(); overlay.remove(); window.__toppathCropInstalled = false; delete window.__toppathStartCropMode; };
+    layer.addEventListener('mousedown', event => { event.preventDefault(); event.stopPropagation(); drawing = true; sx = event.clientX; sy = event.clientY; }, true);
+    layer.addEventListener('mousemove', event => { if (!drawing) return; event.preventDefault(); event.stopPropagation(); draw(event); }, true);
+    layer.addEventListener('mouseup', event => {
+      if (!drawing) return; event.preventDefault(); event.stopPropagation(); drawing = false;
+      const box = draw(event); close();
+      if (box.w >= 5 && box.h >= 5) console.info('__TOPPATH_CROP__', JSON.stringify(box));
+    }, true);
+  };
+})();
+`
+}
+
+function killUatSession(sess: UatRecSession) {
+  try { sess.ws?.close() } catch {}
+  try {
+    if (process.platform === 'win32' && sess.proc.pid) {
+      spawn('taskkill', ['/F', '/T', '/PID', String(sess.proc.pid)], { stdio: 'ignore', shell: false })
+    } else {
+      sess.proc.kill('SIGTERM')
+    }
+  } catch {}
+  try { rmSync(sess.profileDir, { recursive: true, force: true }) } catch {}
+}
+
+function connectUatRecorder(sess: UatRecSession, port: number, serverWs: WebSocket) {
+  void (async () => {
+    try {
+      const targets = await waitForJson<Array<{ type: string; webSocketDebuggerUrl?: string }>>(`http://127.0.0.1:${port}/json/list`)
+      const target = targets.find(t => t.type === 'page' && t.webSocketDebuggerUrl)
+      if (!target?.webSocketDebuggerUrl) throw new Error('No Chrome page target found')
+      const ws = new WebSocket(target.webSocketDebuggerUrl)
+      sess.ws = ws
+      let msgId = 0
+      const pending = new Map<number, (v: CdpMessage) => void>()
+      const send = (method: string, params?: object) => new Promise<CdpMessage>(resolve => {
+        const reqId = ++msgId
+        pending.set(reqId, resolve)
+        ws.send(JSON.stringify({ id: reqId, method, params }))
+      })
+      sess.cdpSend = send
+
+      ws.on('message', raw => {
+        try {
+          const msg = JSON.parse(String(raw)) as { id?: number; method?: string; params?: { type?: string; args?: Array<{ value?: unknown }> } }
+          if (msg.id && pending.has(msg.id)) { pending.get(msg.id)?.({ id: msg.id, result: (msg as Record<string, unknown>).result as Record<string, unknown> }); pending.delete(msg.id); return }
+          if (msg.method === 'Runtime.consoleAPICalled') {
+            const args = msg.params?.args ?? []
+            if (args[0]?.value === '__TOPPATH_RECORDER__' && typeof args[1]?.value === 'string') {
+              try {
+                const step = JSON.parse(args[1].value as string)
+                sess.steps.push(step)
+                if (serverWs.readyState === serverWs.OPEN) {
+                  serverWs.send(JSON.stringify({ type: 'uat_record_event', sessionId: sess.sessionId, event: { kind: 'step', step } }))
+                }
+              } catch {}
+            }
+            if (args[0]?.value === '__TOPPATH_CROP__' && typeof args[1]?.value === 'string') {
+              try { void handleAgentCrop(sess, JSON.parse(args[1].value as string), serverWs) } catch {}
+            }
+          }
+          if (msg.method === 'Page.loadEventFired') {
+            void send('Runtime.evaluate', { expression: recorderScript() })
+            void send('Runtime.evaluate', { expression: cropScript() })
+          }
+        } catch {}
+      })
+      ws.on('open', async () => {
+        await send('Runtime.enable')
+        await send('Page.enable')
+        await send('Page.addScriptToEvaluateOnNewDocument', { source: recorderScript() + '\n' + cropScript() })
+        await send('Runtime.evaluate', { expression: recorderScript() + '\n' + cropScript() })
+      })
+      ws.on('close', () => { sess.done = true })
+    } catch (err) {
+      console.error(`[Agent:${AGENT_LABEL}] UAT recorder connect error:`, err)
+      sess.done = true
+      if (serverWs.readyState === serverWs.OPEN) {
+        serverWs.send(JSON.stringify({ type: 'uat_record_event', sessionId: sess.sessionId, event: { kind: 'error', message: String(err) } }))
+      }
+    }
+  })()
+}
+
+async function handleAgentCrop(sess: UatRecSession, crop: { x: number; y: number; w: number; h: number }, serverWs: WebSocket) {
+  const request = sess.cropRequest
+  if (!request || !sess.cdpSend) return
+  const cropX = Math.max(0, Math.round(crop.x))
+  const cropY = Math.max(0, Math.round(crop.y))
+  const cropW = Math.max(1, Math.round(crop.w))
+  const cropH = Math.max(1, Math.round(crop.h))
+  try {
+    const shot = await sess.cdpSend('Page.captureScreenshot', {
+      format: 'png',
+      fromSurface: true,
+      clip: { x: cropX, y: cropY, width: cropW, height: cropH, scale: 1 },
+    })
+    const imageBase64 = shot.result?.data
+    if (typeof imageBase64 !== 'string') return
+    const id = randomUUID()
+    if (serverWs.readyState === serverWs.OPEN) {
+      serverWs.send(JSON.stringify({
+        type: 'uat_record_event',
+        sessionId: sess.sessionId,
+        event: {
+          kind: 'crop_image',
+          id,
+          imageBase64,
+          name: request.name,
+          x: cropX, y: cropY, w: cropW, h: cropH,
+          threshold: request.threshold,
+          platform: request.platform,
+          scriptId: request.scriptId,
+          createdBy: request.createdBy,
+        },
+      }))
+    }
+    sess.cropRequest = undefined
+  } catch (err) {
+    console.error(`[Agent:${AGENT_LABEL}] UAT crop error:`, err)
+    sess.cropRequest = undefined
+  }
+}
 
 /** Promise resolve for the pending claim_job → job_assigned/no_more_jobs round-trip */
 let pendingClaimResolve: ((code: string | null) => void) | null = null
@@ -164,6 +428,60 @@ function connect() {
             ws.send(JSON.stringify({ type: 'scripted_bet_done', sessionId }))
           }
         })
+      return
+    }
+
+    // ── UAT Recording ────────────────────────────────────────────────────────────
+    if (msg.type === 'uat_record_start') {
+      const { sessionId, url, resolution } = msg as UatRecordStartMessage
+      const [w, h] = resolution.split('x')
+      const port = 9300 + Math.floor(Math.random() * 400)
+      const profileDir = join(tmpdir(), `toppath-uat-${sessionId}`)
+      const args = [
+        `--remote-debugging-port=${port}`,
+        `--user-data-dir=${profileDir}`,
+        '--no-first-run', '--no-default-browser-check', '--new-window',
+        `--window-size=${w || 390},${h || 844}`,
+        url,
+      ]
+      const proc = spawn(chromeExecutable(), args, { stdio: 'ignore', shell: false, windowsHide: false })
+      const sess: UatRecSession = {
+        sessionId, proc, profileDir, done: false,
+        steps: [{ name: '前往頁面', action: 'goto', value: url }],
+      }
+      uatRecSessions.set(sessionId, sess)
+      proc.on('close', () => {
+        sess.done = true
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: 'uat_record_event', sessionId, event: { kind: 'done', steps: sess.steps } }))
+        }
+        uatRecSessions.delete(sessionId)
+      })
+      connectUatRecorder(sess, port, ws)
+      console.log(`[Agent:${AGENT_LABEL}] UAT record started: ${sessionId}`)
+      return
+    }
+
+    if (msg.type === 'uat_record_crop') {
+      const { sessionId, scriptId, platform, name, threshold, createdBy } = msg as UatRecordCropMessage
+      const sess = uatRecSessions.get(sessionId)
+      if (!sess || !sess.cdpSend) return
+      sess.cropRequest = { scriptId, platform, name, threshold, createdBy }
+      void sess.cdpSend('Runtime.evaluate', { expression: 'window.__toppathStartCropMode && window.__toppathStartCropMode()' })
+      return
+    }
+
+    if (msg.type === 'uat_record_stop') {
+      const { sessionId } = msg as UatRecordStopMessage
+      const sess = uatRecSessions.get(sessionId)
+      if (!sess) return
+      const steps = sess.steps
+      killUatSession(sess)
+      uatRecSessions.delete(sessionId)
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'uat_record_event', sessionId, event: { kind: 'done', steps } }))
+      }
+      console.log(`[Agent:${AGENT_LABEL}] UAT record stopped: ${sessionId}`)
       return
     }
 
