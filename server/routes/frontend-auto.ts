@@ -462,7 +462,8 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
   const outFile = join(tmpdir(), `pw-rec-${sessionId}.js`)
   const [w, h] = resolution.split('x')
   const args = ['playwright', 'codegen', '--output', outFile, '--viewport-size', `${w},${h}`, displayUrl]
-  const proc = spawn('npx', args, { stdio: 'ignore', shell: true })
+  const npxBin = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+  const proc = spawn(npxBin, args, { stdio: 'ignore', shell: false, windowsHide: false })
   const sess: RecSession = { proc, outFile, originalUrl: url, done: false, steps: [] }
   recSessions.set(sessionId, sess)
   proc.on('close', () => {

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.29.18'
+export const APP_VERSION = '3.29.19'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.29.19',
+    date: '2026-05-26',
+    changes: [
+      'fix(uat): H5/PC 本機 Playwright codegen 改用 npx.cmd/shell:false 啟動，避免 Windows shell 將含 & 的目標 URL 拆成多段導致 about:blank。',
+    ],
+  },
   {
     version: '3.29.18',
     date: '2026-05-26',
