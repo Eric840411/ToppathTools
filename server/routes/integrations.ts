@@ -991,6 +991,59 @@ function csvTimestamp(): string {
   return new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '')
 }
 
+const JIRA_TEST_CASE_ARRAY_KEYS = [
+  'test_cases',
+  'testCases',
+  'cases',
+  'test_case_list',
+  'testCaseList',
+  'case_list',
+  'caseList',
+  '測試案例清單',
+  '測試案例',
+  '測項清單',
+  '測項',
+]
+
+const JIRA_FEATURE_NAME_KEYS = ['feature_name', 'featureName', 'feature', '功能名稱', '功能']
+
+function aliasedValue(row: Record<string, unknown>, keys: string[]): unknown {
+  for (const key of keys) {
+    if (row[key] !== undefined && row[key] !== '') return row[key]
+  }
+  return undefined
+}
+
+function hasCsvColumnValue(row: Record<string, unknown>, column: CsvColumn): boolean {
+  const value = csvColumnValue(row, column)
+  return value !== undefined && value !== null && String(value).trim() !== ''
+}
+
+function looksLikeJiraTestCaseRow(row: unknown): row is Record<string, unknown> {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) return false
+  const obj = row as Record<string, unknown>
+  const hasTitle = hasCsvColumnValue(obj, JIRA_TESTCASE_CSV_COLUMNS.find(col => col.key === 'test_title')!)
+  const hasExpected = hasCsvColumnValue(obj, JIRA_TESTCASE_CSV_COLUMNS.find(col => col.key === 'expected_result')!)
+  const hasJiraSignal = ['test_type', 'category_type', 'source_reference', 'jira_reference'].some(key => {
+    const column = JIRA_TESTCASE_CSV_COLUMNS.find(col => col.key === key)
+    return column ? hasCsvColumnValue(obj, column) : false
+  })
+  return hasTitle && hasExpected && hasJiraSignal
+}
+
+function normalizeJiraTestCaseResult(value: unknown): JiraTestCaseResult | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const obj = value as Record<string, unknown>
+  const caseRows = aliasedValue(obj, JIRA_TEST_CASE_ARRAY_KEYS)
+  if (!Array.isArray(caseRows)) return null
+  if (caseRows.length > 0 && !caseRows.some(looksLikeJiraTestCaseRow)) return null
+
+  return {
+    feature_name: String(aliasedValue(obj, JIRA_FEATURE_NAME_KEYS) ?? ''),
+    test_cases: caseRows as JiraTestCase[],
+  }
+}
+
 function createTestCaseCsvArtifact(cases: TestCase[], sourceLabel: string): CsvArtifact {
   return {
     content: buildCsv(NORMAL_TESTCASE_CSV_COLUMNS, cases as unknown as Array<Record<string, unknown>>),
@@ -1000,7 +1053,7 @@ function createTestCaseCsvArtifact(cases: TestCase[], sourceLabel: string): CsvA
 }
 
 function createJiraTestCaseCsvArtifact(result: JiraTestCaseResult, sourceLabel: string): CsvArtifact {
-  const featureName = (result as unknown as Record<string, unknown>).feature_name ?? (result as unknown as Record<string, unknown>).featureName ?? (result as unknown as Record<string, unknown>)['功能名稱'] ?? ''
+  const featureName = result.feature_name
   const rows = result.test_cases.map(tc => ({ feature_name: featureName, ...tc }))
   return {
     content: buildCsv(JIRA_TESTCASE_CSV_COLUMNS, rows),
@@ -1226,8 +1279,8 @@ export async function runLarkGenerateTestcasesJob(params: {
 
   const result = await generateWithGemini(finalContent, body.promptId, jiraIssues, body.modelSpec, extraVars)
 
-  if (!Array.isArray(result) && result && typeof result === 'object' && 'test_cases' in result) {
-    const jiraResult = result as JiraTestCaseResult
+  const jiraResult = normalizeJiraTestCaseResult(result)
+  if (jiraResult) {
     const { written, bitableUrl, featureName } = await writeJiraTestCasesToBitable(jiraResult, sourceLabel)
     const count = jiraResult.test_cases.length
     const csv = createJiraTestCaseCsvArtifact(jiraResult, sourceLabel)
@@ -1236,7 +1289,7 @@ export async function runLarkGenerateTestcasesJob(params: {
     return { ok: true, generated: count, written, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format }
   }
 
-  let cases = normalizeTestCaseFields(result as unknown[])
+  let cases = normalizeTestCaseFields(Array.isArray(result) ? result as unknown[] : [])
   if (body.secondPass) {
     try {
       cases = await runSecondPass(cases, finalContent, body.secondPassModel ?? body.modelSpec, body.secondPassPromptId)
@@ -1419,8 +1472,8 @@ router.post('/api/integrations/lark/generate-testcases', async (req, res) => {
 
       const result = await generateWithGemini(finalContent, body.promptId, jiraIssues, body.modelSpec, extraVars)
 
-      if (!Array.isArray(result) && result && typeof result === 'object' && 'test_cases' in result) {
-        const jiraResult = result as JiraTestCaseResult
+      const jiraResult = normalizeJiraTestCaseResult(result)
+      if (jiraResult) {
         const { written, bitableUrl, featureName } = await writeJiraTestCasesToBitable(jiraResult, sourceLabel)
         const count = jiraResult.test_cases.length
         const csv = createJiraTestCaseCsvArtifact(jiraResult, sourceLabel)
@@ -1428,7 +1481,7 @@ router.post('/api/integrations/lark/generate-testcases', async (req, res) => {
         addHistory('testcase', `TestCase 生成 — ${srcLabel}`, `生成 ${count} 筆，寫入 ${written} 筆`, { sourceLabel, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvFormat: csv.format })
         finishJob(requestId, { ok: true, generated: count, written, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format })
       } else {
-        let cases = normalizeTestCaseFields(result as unknown[])
+        let cases = normalizeTestCaseFields(Array.isArray(result) ? result as unknown[] : [])
         if (body.secondPass) {
           try { cases = await runSecondPass(cases, finalContent, body.secondPassModel ?? body.modelSpec, body.secondPassPromptId) }
           catch (e) { log('warn', clientIp, user, 'Second Pass 失敗（略過）', e instanceof Error ? e.message : String(e)) }
@@ -1652,8 +1705,8 @@ export async function runGenerateTestcasesFileJob(params: {
   const sourceLabel = fileNames.join(', ')
   log('info', params.clientIp, params.user, 'TestCase file worker started', sourceLabel)
   const cases = await generateWithGemini(finalContent, promptId, undefined, modelSpec, Object.keys(extraVars).length ? extraVars : undefined)
-  if (!Array.isArray(cases) && cases && typeof cases === 'object' && 'test_cases' in cases) {
-    const jiraResult = cases as JiraTestCaseResult
+  const jiraResult = normalizeJiraTestCaseResult(cases)
+  if (jiraResult) {
     const { written, bitableUrl, featureName } = await writeJiraTestCasesToBitable(jiraResult, sourceLabel)
     const csv = createJiraTestCaseCsvArtifact(jiraResult, sourceLabel)
     const count = jiraResult.test_cases.length
@@ -1661,7 +1714,7 @@ export async function runGenerateTestcasesFileJob(params: {
     addHistory('testcase', `TestCase 生成 - ${sourceLabel}`, `生成 ${count} 筆，寫入 ${written} 筆`, { sourceLabel, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvFormat: csv.format })
     return { ok: true, generated: count, written, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format }
   }
-  let casesArr = normalizeTestCaseFields(cases as unknown[])
+  let casesArr = normalizeTestCaseFields(Array.isArray(cases) ? cases as unknown[] : [])
   const secondPassEnabled = params.form.secondPass === 'true' || params.form.secondPass === true
   if (secondPassEnabled) {
     const spModel = typeof params.form.secondPassModel === 'string' ? params.form.secondPassModel : modelSpec
@@ -1782,7 +1835,17 @@ router.post(
     const sourceLabel = fileNames.join(', ')
     log('info', getClientIP(req), getUser(req), 'TestCase 生成開始（檔案）', sourceLabel)
     const cases = await generateWithGemini(finalContent, promptId, undefined, modelSpec, Object.keys(extraVars).length ? extraVars : undefined)
-    let casesArr = normalizeTestCaseFields(Array.isArray(cases) ? cases as unknown[] : (cases as JiraTestCaseResult).test_cases as unknown[])
+    const jiraResult = normalizeJiraTestCaseResult(cases)
+    if (jiraResult) {
+      const { written, bitableUrl, featureName } = await writeJiraTestCasesToBitable(jiraResult, sourceLabel)
+      const csv = createJiraTestCaseCsvArtifact(jiraResult, sourceLabel)
+      const count = jiraResult.test_cases.length
+      log('ok', getClientIP(req), getUser(req), 'TestCase 生成完成（Jira 格式）', `生成 ${count} 筆，寫入 ${written} 筆`)
+      addHistory('testcase', `TestCase 生成 — ${sourceLabel}`, `生成 ${count} 筆，寫入 ${written} 筆`, { sourceLabel, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvFormat: csv.format })
+      res.json({ ok: true, generated: count, written, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format })
+      return
+    }
+    let casesArr = normalizeTestCaseFields(Array.isArray(cases) ? cases as unknown[] : [])
     const secondPassEnabled = req.body.secondPass === 'true' || req.body.secondPass === true
     if (secondPassEnabled) {
       const spModel = req.body.secondPassModel ?? modelSpec

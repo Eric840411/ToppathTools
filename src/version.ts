@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.29.14'
+export const APP_VERSION = '3.29.15'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.29.15',
+    date: '2026-05-26',
+    changes: [
+      'fix(testcase): Jira 整合 TestCase 結果支援 test_cases、cases、testCases、測試案例清單等外層 alias 判斷，降低 prompt key 調整造成的 CSV/Bitable 輸出失敗',
+    ],
+  },
   {
     version: '3.29.14',
     date: '2026-05-25',
