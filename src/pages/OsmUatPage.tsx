@@ -568,6 +568,7 @@ export function OsmUatPage() {
     const [cropDraft, setCropDraft] = useState({ name: '', threshold: 0.08 })
     const [lastCrop, setLastCrop] = useState<AutoCropResult | null>(null)
     const [cropPending, setCropPending] = useState(false)
+    const [cdpWarning, setCdpWarning] = useState<string | null>(null)
     const recPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
     const [recorderAvailable, setRecorderAvailable] = useState(canUseServerRecorder())
     const [uatAgents, setUatAgents] = useState<Array<{ agentId: string; hostname: string; busy: boolean }>>([])
@@ -641,8 +642,9 @@ export function OsmUatPage() {
       setRecPolling(true)
       recPollRef.current = setInterval(async () => {
         const poll = await fetch(`/api/frontend-auto/record/status/${data.sessionId}`)
-        const status = await poll.json() as { found: boolean; done: boolean; steps: object[]; lastCrop?: AutoCropResult; cropPending?: boolean }
+        const status = await poll.json() as { found: boolean; done: boolean; steps: object[]; lastCrop?: AutoCropResult; cropPending?: boolean; cdpWarning?: string | null }
         setCropPending(!!status.cropPending)
+        if (status.cdpWarning) setCdpWarning(status.cdpWarning)
         if (status.lastCrop) {
           setLastCrop(status.lastCrop)
           setCropDraft(prev => ({ ...prev, name: '' }))
@@ -679,6 +681,7 @@ export function OsmUatPage() {
       setRecSessionId(null)
       setRecDisplayUrl(null)
       setCropPending(false)
+      setCdpWarning(null)
       if (data.steps.length > 0) {
         setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], steps: JSON.stringify(data.steps, null, 2) } }))
         setNewScriptOpen(prev => ({ ...prev, [platform]: true }))
@@ -808,6 +811,7 @@ export function OsmUatPage() {
               {recPolling ? <button style={{ ...btnStyle, background: '#ef4444' }} onClick={() => void stopRecord()}>■ 停止錄製</button> : (() => { const canRec = recorderAvailable || uatAgents.some(a => !a.busy); return <button title={canRec ? (recorderAvailable ? '啟動本機 Chrome 錄製器' : '透過 Local Agent 啟動 Chrome 錄製') : '需要本機存取或已連線的 uat-record Agent'} style={{ ...btnStyle, background: canRec ? '#7c3aed' : '#475569', cursor: canRec ? 'pointer' : 'not-allowed' }} onClick={() => void startRecord()}>🔴 開始錄製</button> })()}
               {recPolling && <span style={{ fontSize: 12, color: '#c084fc', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />錄製中，已擷取 {recStepCount} 步</span>}
             </div>
+            {recPolling && cdpWarning && <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderLeft: '3px solid #ef4444', borderRadius: 6, fontSize: 12, color: '#fca5a5' }}>⚠ CDP 警告：{cdpWarning}</div>}
             {recPolling && recDisplayUrl && <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderLeft: '3px solid rgba(251,191,36,0.5)', borderRadius: 6 }}><div style={{ fontSize: 12, color: '#fbbf24', fontWeight: 600, marginBottom: 6 }}>{recDisplayUrl.startsWith('[Agent:') ? 'Agent 已在遠端電腦開啟 Chrome，可到 Agent 機器上直接操作錄製視窗。步驟會即時同步回這裡。' : 'Chrome 錄製器已開啟目標頁，可直接在錄製視窗操作。若畫面仍停在 about:blank，請將以下 URL 貼到網址列按 Enter：'}</div><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input readOnly value={recDisplayUrl.replace(/^\[Agent:.*?\] /, '')} style={{ ...inputStyle, flex: 1, fontSize: 11, fontFamily: 'Consolas, Monaco, monospace' }} onClick={e => (e.target as HTMLInputElement).select()} /><button style={{ ...smallBtnStyle, whiteSpace: 'nowrap' }} onClick={() => { void navigator.clipboard.writeText(recDisplayUrl.replace(/^\[Agent:.*?\] /, '')) }}>複製 URL</button></div></div>}
             {newScriptOpen[platform] && <div style={{ display: 'grid', gap: 8, marginTop: 12, padding: '12px', background: '#162032', border: '1px solid #2d3f55', borderRadius: 6 }}>
               <input value={newScriptDraft[platform].name} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], name: e.target.value } }))} placeholder="腳本名稱" style={inputStyle} />

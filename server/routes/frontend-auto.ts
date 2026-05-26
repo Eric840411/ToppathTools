@@ -795,7 +795,7 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
 router.get('/api/frontend-auto/record/status/:sessionId', (req, res) => {
   const agentSess = uatAgentSessions.get(req.params.sessionId)
   if (agentSess) {
-    return res.json({ found: true, done: agentSess.done, steps: agentSess.steps, lastCrop: agentSess.lastCrop, cropPending: agentSess.cropPending })
+    return res.json({ found: true, done: agentSess.done, steps: agentSess.steps, lastCrop: agentSess.lastCrop, cropPending: agentSess.cropPending, cdpWarning: (agentSess as Record<string, unknown>).cdpWarning ?? null })
   }
   const sess = recSessions.get(req.params.sessionId)
   if (!sess) return res.json({ found: false, done: true, steps: [] })

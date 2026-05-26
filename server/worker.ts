@@ -523,6 +523,10 @@ wss.on('connection', (ws, req) => {
             const info = agentConnections.get(agentId)
             if (info) { info.busy = false; info.sessionId = null }
           }
+        } else if (ev.kind === 'cdp_warn') {
+          // CDP connection failed but Chrome is running — keep session alive
+          // Frontend will see recPolling=true but steps won't be captured
+          ;(sess as Record<string, unknown>).cdpWarning = ev.message
         }
         return
       }

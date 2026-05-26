@@ -126,17 +126,20 @@ function chromeExecutable() {
   return candidates.find(p => existsSync(p)) ?? (process.platform === 'win32' ? 'chrome.exe' : 'google-chrome')
 }
 
-async function waitForJson<T>(url: string, timeoutMs = 10_000): Promise<T> {
+async function waitForJson<T>(url: string, timeoutMs = 20_000): Promise<T> {
   const started = Date.now()
   let lastError: unknown
   while (Date.now() - started < timeoutMs) {
-    try {
-      const r = await fetch(url)
-      if (r.ok) return await r.json() as T
-    } catch (error) { lastError = error }
-    await new Promise(resolve => setTimeout(resolve, 250))
+    // Try both localhost and 127.0.0.1 — Windows Chrome may bind to either
+    for (const candidate of [url, url.replace('127.0.0.1', 'localhost')]) {
+      try {
+        const r = await fetch(candidate, { signal: AbortSignal.timeout(2000) })
+        if (r.ok) return await r.json() as T
+      } catch (error) { lastError = error }
+    }
+    await new Promise(resolve => setTimeout(resolve, 500))
   }
-  throw new Error(`Chrome DevTools not ready: ${lastError instanceof Error ? lastError.message : String(lastError ?? '')}`)
+  throw new Error(`Chrome DevTools not ready after ${timeoutMs}ms: ${lastError instanceof Error ? lastError.message : String(lastError ?? '')}`)
 }
 
 function recorderScript() {
@@ -231,60 +234,96 @@ function killUatSession(sess: UatRecSession) {
 }
 
 function connectUatRecorder(sess: UatRecSession, port: number, serverWs: WebSocket) {
-  void (async () => {
-    try {
-      const targets = await waitForJson<Array<{ type: string; webSocketDebuggerUrl?: string }>>(`http://127.0.0.1:${port}/json/list`)
-      const target = targets.find(t => t.type === 'page' && t.webSocketDebuggerUrl)
-      if (!target?.webSocketDebuggerUrl) throw new Error('No Chrome page target found')
-      const ws = new WebSocket(target.webSocketDebuggerUrl)
-      sess.ws = ws
-      let msgId = 0
-      const pending = new Map<number, (v: CdpMessage) => void>()
-      const send = (method: string, params?: object) => new Promise<CdpMessage>(resolve => {
-        const reqId = ++msgId
-        pending.set(reqId, resolve)
-        ws.send(JSON.stringify({ id: reqId, method, params }))
-      })
-      sess.cdpSend = send
+  // Try both 127.0.0.1 and localhost for Windows CDP binding differences
+  const cdpBase = `http://127.0.0.1:${port}`
 
-      ws.on('message', raw => {
-        try {
-          const msg = JSON.parse(String(raw)) as { id?: number; method?: string; params?: { type?: string; args?: Array<{ value?: unknown }> } }
-          if (msg.id && pending.has(msg.id)) { pending.get(msg.id)?.({ id: msg.id, result: (msg as Record<string, unknown>).result as Record<string, unknown> }); pending.delete(msg.id); return }
-          if (msg.method === 'Runtime.consoleAPICalled') {
-            const args = msg.params?.args ?? []
-            if (args[0]?.value === '__TOPPATH_RECORDER__' && typeof args[1]?.value === 'string') {
-              try {
-                const step = JSON.parse(args[1].value as string)
-                sess.steps.push(step)
-                if (serverWs.readyState === serverWs.OPEN) {
-                  serverWs.send(JSON.stringify({ type: 'uat_record_event', sessionId: sess.sessionId, event: { kind: 'step', step } }))
+  void (async () => {
+    let attempt = 0
+    while (!sess.done && attempt < 3) {
+      attempt++
+      try {
+        const targets = await waitForJson<Array<{ type: string; webSocketDebuggerUrl?: string }>>(`${cdpBase}/json/list`)
+        const target = targets.find(t => t.type === 'page' && t.webSocketDebuggerUrl)
+        if (!target?.webSocketDebuggerUrl) throw new Error('No Chrome page target found')
+
+        const cdpUrl = target.webSocketDebuggerUrl.replace('127.0.0.1', 'localhost')
+        const ws = new WebSocket(cdpUrl)
+        sess.ws = ws
+        let msgId = 0
+        const pending = new Map<number, (v: CdpMessage) => void>()
+        const send = (method: string, params?: object) => new Promise<CdpMessage>(resolve => {
+          const reqId = ++msgId
+          pending.set(reqId, resolve)
+          ws.send(JSON.stringify({ id: reqId, method, params }))
+        })
+        sess.cdpSend = send
+
+        await new Promise<void>((resolveConn, rejectConn) => {
+          ws.on('open', async () => {
+            console.log(`[Agent:${AGENT_LABEL}] CDP connected (attempt ${attempt})`)
+            try {
+              await send('Runtime.enable')
+              await send('Page.enable')
+              await send('Page.addScriptToEvaluateOnNewDocument', { source: recorderScript() + '\n' + cropScript() })
+              await send('Runtime.evaluate', { expression: recorderScript() + '\n' + cropScript() })
+              resolveConn()
+            } catch (e) { rejectConn(e) }
+          })
+          ws.on('error', rejectConn)
+          ws.on('close', () => {
+            // CDP WS closed (page reload or Chrome closed)
+            if (!sess.done) {
+              // Try to reconnect
+              void connectUatRecorder(sess, port, serverWs)
+            }
+          })
+          ws.on('message', raw => {
+            try {
+              const msg = JSON.parse(String(raw)) as { id?: number; method?: string; params?: { type?: string; args?: Array<{ value?: unknown }> } }
+              if (msg.id && pending.has(msg.id)) { pending.get(msg.id)?.({ id: msg.id, result: (msg as Record<string, unknown>).result as Record<string, unknown> }); pending.delete(msg.id); return }
+              if (msg.method === 'Runtime.consoleAPICalled') {
+                const args = msg.params?.args ?? []
+                if (args[0]?.value === '__TOPPATH_RECORDER__' && typeof args[1]?.value === 'string') {
+                  try {
+                    const step = JSON.parse(args[1].value as string)
+                    sess.steps.push(step)
+                    if (serverWs.readyState === serverWs.OPEN) {
+                      serverWs.send(JSON.stringify({ type: 'uat_record_event', sessionId: sess.sessionId, event: { kind: 'step', step } }))
+                    }
+                  } catch {}
                 }
-              } catch {}
-            }
-            if (args[0]?.value === '__TOPPATH_CROP__' && typeof args[1]?.value === 'string') {
-              try { void handleAgentCrop(sess, JSON.parse(args[1].value as string), serverWs) } catch {}
-            }
-          }
-          if (msg.method === 'Page.loadEventFired') {
-            void send('Runtime.evaluate', { expression: recorderScript() })
-            void send('Runtime.evaluate', { expression: cropScript() })
-          }
-        } catch {}
-      })
-      ws.on('open', async () => {
-        await send('Runtime.enable')
-        await send('Page.enable')
-        await send('Page.addScriptToEvaluateOnNewDocument', { source: recorderScript() + '\n' + cropScript() })
-        await send('Runtime.evaluate', { expression: recorderScript() + '\n' + cropScript() })
-      })
-      ws.on('close', () => { sess.done = true })
-    } catch (err) {
-      console.error(`[Agent:${AGENT_LABEL}] UAT recorder connect error:`, err)
-      sess.done = true
-      if (serverWs.readyState === serverWs.OPEN) {
-        serverWs.send(JSON.stringify({ type: 'uat_record_event', sessionId: sess.sessionId, event: { kind: 'error', message: String(err) } }))
+                if (args[0]?.value === '__TOPPATH_CROP__' && typeof args[1]?.value === 'string') {
+                  try { void handleAgentCrop(sess, JSON.parse(args[1].value as string), serverWs) } catch {}
+                }
+              }
+              if (msg.method === 'Page.loadEventFired') {
+                void send('Runtime.evaluate', { expression: recorderScript() })
+                void send('Runtime.evaluate', { expression: cropScript() })
+              }
+            } catch {}
+          })
+        })
+
+        // Connected successfully — stay connected (loop ends naturally when sess.done)
+        return
+
+      } catch (err) {
+        console.error(`[Agent:${AGENT_LABEL}] UAT CDP connect attempt ${attempt} failed:`, err)
+        if (attempt < 3 && !sess.done) {
+          await new Promise(resolve => setTimeout(resolve, 3000))
+        }
       }
+    }
+
+    // All attempts failed — notify server but DO NOT mark session done
+    // Chrome is still running; user may need to manually stop/restart recording
+    console.error(`[Agent:${AGENT_LABEL}] CDP connection failed after ${attempt} attempts — Chrome is open but recorder script unavailable`)
+    if (serverWs.readyState === serverWs.OPEN) {
+      serverWs.send(JSON.stringify({
+        type: 'uat_record_event',
+        sessionId: sess.sessionId,
+        event: { kind: 'cdp_warn', message: `Chrome 已開啟但 CDP 連線失敗（嘗試 ${attempt} 次），步驟錄製無法使用，但可以手動截圖。` },
+      }))
     }
   })()
 }
