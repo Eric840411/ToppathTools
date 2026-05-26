@@ -1,12 +1,13 @@
 ﻿import express from 'express'
 import multer from 'multer'
 import { randomUUID } from 'crypto'
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 import { extname, join } from 'path'
 import { tmpdir } from 'os'
 import { spawn, type ChildProcess } from 'child_process'
 import https from 'https'
 import http from 'http'
+import WebSocket from 'ws'
 import { db } from '../shared.js'
 
 export const router = express.Router()
@@ -386,56 +387,162 @@ function isLocalRecordRequest(req: express.Request) {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]'
 }
 
-// ── Playwright Codegen Recorder ───────────────────────────────────────────────
+// ── Chrome DevTools Recorder ──────────────────────────────────────────────────
 
 interface RecSession {
   proc: ChildProcess
-  outFile: string
+  profileDir: string
   originalUrl: string
   done: boolean
   steps: object[]
+  ws?: WebSocket
 }
 const recSessions = new Map<string, RecSession>()
 
-function killRecProc(proc: ChildProcess) {
+function killRecSession(sess: RecSession) {
   try {
-    if (process.platform === 'win32' && proc.pid) {
-      // shell:true on Windows means proc.pid is cmd.exe — use taskkill to kill entire tree
-      spawn('taskkill', ['/F', '/T', '/PID', String(proc.pid)], { stdio: 'ignore', shell: false })
+    sess.ws?.close()
+  } catch {}
+  try {
+    if (process.platform === 'win32' && sess.proc.pid) {
+      spawn('taskkill', ['/F', '/T', '/PID', String(sess.proc.pid)], { stdio: 'ignore', shell: false })
     } else {
-      proc.kill('SIGTERM')
+      sess.proc.kill('SIGTERM')
     }
+  } catch {}
+  try {
+    rmSync(sess.profileDir, { recursive: true, force: true })
   } catch {}
 }
 
-function parseCodegenToSteps(code: string, originalUrl?: string): object[] {
-  const steps: object[] = []
-  let firstGotoDone = false
-  for (const rawLine of code.split('\n')) {
-    const line = rawLine.trim()
-    const goto = line.match(/page\.goto\(['"]([^'"]+)['"]\)/)
-    if (goto) {
-      // Replace the first goto URL with the original redirect URL so tokens/params are preserved
-      const url = (!firstGotoDone && originalUrl) ? originalUrl : goto[1]
-      firstGotoDone = true
-      steps.push({ name: '前往頁面', action: 'goto', value: url })
-      continue
+function chromeExecutable() {
+  const candidates = [
+    process.env.CHROME_PATH,
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'Application', 'chrome.exe') : '',
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+  ].filter(Boolean) as string[]
+  return candidates.find(p => existsSync(p)) ?? (process.platform === 'win32' ? 'chrome.exe' : 'google-chrome')
+}
+
+async function waitForJson<T>(url: string, timeoutMs = 10_000): Promise<T> {
+  const started = Date.now()
+  let lastError: unknown
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const r = await fetch(url)
+      if (r.ok) return await r.json() as T
+    } catch (error) {
+      lastError = error
     }
-    const canvasClick = line.match(/locator\('canvas'\)\.click\(\s*\{[^}]*position:\s*\{\s*x:\s*(\d+),\s*y:\s*(\d+)/)
-    if (canvasClick) { steps.push({ name: `點擊畫面座標 (${canvasClick[1]}, ${canvasClick[2]})`, action: 'click_xy', x: Number(canvasClick[1]), y: Number(canvasClick[2]) }); continue }
-    const locClick = line.match(/locator\(['"]([^'"]+)['"]\)\.click\(\)/)
-    if (locClick) { steps.push({ name: `點擊 ${locClick[1]}`, action: 'click', selector: locClick[1] }); continue }
-    const roleClick = line.match(/getByRole\(['"]([^'"]+)['"]\)[^.]*\.click\(\)/)
-    if (roleClick) { steps.push({ name: `點擊 [role=${roleClick[1]}]`, action: 'click', selector: `[role="${roleClick[1]}"]` }); continue }
-    const textClick = line.match(/getByText\(['"]([^'"]+)['"]\)\.click\(\)/)
-    if (textClick) { steps.push({ name: `點擊文字「${textClick[1]}」`, action: 'click', selector: `text=${textClick[1]}` }); continue }
-    const fill = line.match(/locator\(['"]([^'"]+)['"]\)\.fill\(['"]([^'"]*)['"]\)/)
-    if (fill) { steps.push({ name: `輸入「${fill[2]}」到 ${fill[1]}`, action: 'type', selector: fill[1], value: fill[2] }); continue }
-    if (line.includes('.screenshot(')) { steps.push({ name: '截圖', action: 'screenshot' }); continue }
-    const wait = line.match(/waitForTimeout\((\d+)\)/)
-    if (wait) { steps.push({ name: `等待 ${wait[1]} ms`, action: 'wait', value: wait[1] }); continue }
+    await new Promise(resolve => setTimeout(resolve, 250))
   }
-  return steps
+  throw new Error(`Chrome DevTools endpoint not ready: ${lastError instanceof Error ? lastError.message : String(lastError ?? '')}`)
+}
+
+function recorderScript() {
+  return `
+(() => {
+  if (window.__toppathRecorderInstalled) return;
+  window.__toppathRecorderInstalled = true;
+  const sent = new Set();
+  const cssPath = (el) => {
+    if (!el || el === document || el === window) return '';
+    if (el.id) return '#' + CSS.escape(el.id);
+    const testId = el.getAttribute && (el.getAttribute('data-testid') || el.getAttribute('data-test'));
+    if (testId) return '[data-testid="' + testId.replace(/"/g, '\\\\"') + '"]';
+    const name = el.getAttribute && el.getAttribute('name');
+    if (name) return el.tagName.toLowerCase() + '[name="' + name.replace(/"/g, '\\\\"') + '"]';
+    const text = (el.innerText || el.textContent || '').trim();
+    if (text && text.length <= 40) return 'text=' + text;
+    const parts = [];
+    let node = el;
+    while (node && node.nodeType === 1 && parts.length < 4) {
+      let part = node.tagName.toLowerCase();
+      const parent = node.parentElement;
+      if (parent) {
+        const same = Array.from(parent.children).filter(child => child.tagName === node.tagName);
+        if (same.length > 1) part += ':nth-of-type(' + (same.indexOf(node) + 1) + ')';
+      }
+      parts.unshift(part);
+      node = parent;
+    }
+    return parts.join(' > ');
+  };
+  const send = (step) => {
+    const key = JSON.stringify(step);
+    if (sent.has(key)) return;
+    sent.add(key);
+    console.info('__TOPPATH_RECORDER__', key);
+  };
+  document.addEventListener('click', event => {
+    const target = event.target;
+    const canvas = target && target.closest ? target.closest('canvas') : null;
+    if (canvas) {
+      const rect = canvas.getBoundingClientRect();
+      const x = Math.round(event.clientX - rect.left);
+      const y = Math.round(event.clientY - rect.top);
+      send({ name: '點擊畫面座標 (' + x + ', ' + y + ')', action: 'click_xy', x, y });
+      return;
+    }
+    const selector = cssPath(target);
+    if (selector) send({ name: '點擊 ' + selector, action: 'click', selector });
+  }, true);
+  document.addEventListener('change', event => {
+    const target = event.target;
+    if (!target || !('value' in target)) return;
+    const selector = cssPath(target);
+    if (selector) send({ name: '輸入 ' + selector, action: 'type', selector, value: String(target.value || '') });
+  }, true);
+})();
+`
+}
+
+function connectRecorder(sess: RecSession, port: number) {
+  void (async () => {
+    const targets = await waitForJson<Array<{ type: string; url: string; webSocketDebuggerUrl?: string }>>(`http://127.0.0.1:${port}/json/list`)
+    const target = targets.find(t => t.type === 'page' && t.webSocketDebuggerUrl)
+    if (!target?.webSocketDebuggerUrl) throw new Error('No Chrome page target found')
+    const ws = new WebSocket(target.webSocketDebuggerUrl)
+    sess.ws = ws
+    let id = 0
+    const pending = new Map<number, (value: unknown) => void>()
+    const send = (method: string, params?: object) => new Promise(resolve => {
+      const requestId = ++id
+      pending.set(requestId, resolve)
+      ws.send(JSON.stringify({ id: requestId, method, params }))
+    })
+    ws.on('message', raw => {
+      try {
+        const msg = JSON.parse(String(raw)) as { id?: number; method?: string; params?: any }
+        if (msg.id && pending.has(msg.id)) {
+          pending.get(msg.id)?.(msg)
+          pending.delete(msg.id)
+          return
+        }
+        if (msg.method === 'Runtime.consoleAPICalled') {
+          const args = msg.params?.args ?? []
+          if (args[0]?.value === '__TOPPATH_RECORDER__' && typeof args[1]?.value === 'string') {
+            try { sess.steps.push(JSON.parse(args[1].value)) } catch {}
+          }
+        }
+        if (msg.method === 'Page.loadEventFired') {
+          void send('Runtime.evaluate', { expression: recorderScript() })
+        }
+      } catch {}
+    })
+    ws.on('open', async () => {
+      await send('Runtime.enable')
+      await send('Page.enable')
+      await send('Page.addScriptToEvaluateOnNewDocument', { source: recorderScript() })
+      await send('Runtime.evaluate', { expression: recorderScript() })
+    })
+    ws.on('close', () => { sess.done = true })
+  })().catch(() => { sess.done = true })
 }
 
 router.post('/api/frontend-auto/record/start', async (req, res) => {
@@ -443,7 +550,7 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
     return res.status(403).json({
       ok: false,
       code: 'REMOTE_RECORD_UNSUPPORTED',
-      message: '公網環境不支援直接錄製。Playwright codegen 會開在伺服器端，請改用手動腳本，或在伺服器本機 localhost 開啟 ToppathTools 錄製。',
+      message: '公網環境不支援直接錄製。請改用 Step Builder 手動建立腳本，或在伺服器本機 localhost 開啟 ToppathTools 錄製。',
     })
   }
 
@@ -453,28 +560,35 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
   const resolution = text(body.resolution, platform === 'h5' ? '390x844' : '1366x768')
   if (!url) return res.status(400).json({ ok: false, message: 'url 為必填' })
 
-  // Resolve redirect URLs before opening codegen so local recording starts on
+  // Resolve redirect URLs before opening Chrome so local recording starts on
   // the actual lobby page instead of about:blank.
   const resolvedUrl = await followRedirectOnce(url)
   const displayUrl = resolvedUrl !== url ? resolvedUrl : url
 
   const sessionId = `rec-${Date.now()}-${randomUUID().slice(0, 8)}`
-  const outFile = join(tmpdir(), `pw-rec-${sessionId}.js`)
+  const profileDir = join(tmpdir(), `toppath-rec-${sessionId}`)
   const [w, h] = resolution.split('x')
-  const args = ['playwright', 'codegen', '--output', outFile, '--viewport-size', `${w},${h}`, displayUrl]
-  const npxBin = process.platform === 'win32' ? 'npx.cmd' : 'npx'
-  const proc = spawn(npxBin, args, { stdio: 'ignore', shell: false, windowsHide: false })
-  const sess: RecSession = { proc, outFile, originalUrl: url, done: false, steps: [] }
+  const port = 9300 + Math.floor(Math.random() * 400)
+  const args = [
+    `--remote-debugging-port=${port}`,
+    `--user-data-dir=${profileDir}`,
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--new-window',
+    `--window-size=${w || 390},${h || 844}`,
+    displayUrl,
+  ]
+  const proc = spawn(chromeExecutable(), args, { stdio: 'ignore', shell: false, windowsHide: false })
+  const sess: RecSession = {
+    proc,
+    profileDir,
+    originalUrl: url,
+    done: false,
+    steps: [{ name: '前往頁面', action: 'goto', value: displayUrl }],
+  }
   recSessions.set(sessionId, sess)
-  proc.on('close', () => {
-    sess.done = true
-    try {
-      if (existsSync(outFile)) {
-        sess.steps = parseCodegenToSteps(readFileSync(outFile, 'utf8'))
-        unlinkSync(outFile)
-      }
-    } catch {}
-  })
+  proc.on('close', () => { sess.done = true })
+  connectRecorder(sess, port)
   res.json({ ok: true, sessionId, displayUrl })
 })
 
@@ -487,17 +601,9 @@ router.get('/api/frontend-auto/record/status/:sessionId', (req, res) => {
 router.post('/api/frontend-auto/record/stop/:sessionId', (req, res) => {
   const sess = recSessions.get(req.params.sessionId)
   if (!sess) return res.status(404).json({ ok: false, message: '找不到錄製 session' })
-  killRecProc(sess.proc)
+  killRecSession(sess)
   setTimeout(() => {
-    if (!sess.done) {
-      sess.done = true
-      try {
-        if (existsSync(sess.outFile)) {
-          sess.steps = parseCodegenToSteps(readFileSync(sess.outFile, 'utf8'), sess.originalUrl)
-          unlinkSync(sess.outFile)
-        }
-      } catch {}
-    }
+    sess.done = true
     const steps = sess.steps
     recSessions.delete(req.params.sessionId)
     res.json({ ok: true, steps })

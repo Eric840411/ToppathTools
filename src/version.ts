@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.29.19'
+export const APP_VERSION = '3.29.20'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.29.20',
+    date: '2026-05-26',
+    changes: [
+      'feat(uat): H5/PC 本機錄製改為自製 Chrome DevTools recorder，由 Node.js 啟動 Chrome、注入事件監聽並收集 click/type 步驟，不再依賴 Playwright codegen/Inspector。',
+    ],
+  },
   {
     version: '3.29.19',
     date: '2026-05-26',

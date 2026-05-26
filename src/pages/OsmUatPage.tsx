@@ -570,7 +570,7 @@ export function OsmUatPage() {
     async function startRecord() {
       if (!recorderAvailable) {
         setNewScriptOpen(prev => ({ ...prev, [platform]: true }))
-        alert('公網環境不支援直接錄製。Playwright codegen 會開在伺服器端，請改用手動新增腳本，或在伺服器本機 localhost 開啟 ToppathTools 錄製。')
+        alert('公網環境不支援直接錄製。請改用 Step Builder 手動新增腳本，或在伺服器本機 localhost 開啟 ToppathTools 錄製。')
         return
       }
       const url = runConfig[platform].url || window.prompt('請輸入要錄製的目標 URL')?.trim()
@@ -599,7 +599,7 @@ export function OsmUatPage() {
             setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], steps: JSON.stringify(status.steps, null, 2) } }))
             setNewScriptOpen(prev => ({ ...prev, [platform]: true }))
           } else {
-            alert('錄製結束，但未擷取到任何步驟。請確認是在 Playwright codegen 視窗中操作，或改用手動腳本。')
+            alert('錄製結束，但未擷取到任何步驟。請確認是在錄製用 Chrome 視窗中操作，或改用 Step Builder。')
           }
         }
       }, 2000)
@@ -618,20 +618,20 @@ export function OsmUatPage() {
         setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], steps: JSON.stringify(data.steps, null, 2) } }))
         setNewScriptOpen(prev => ({ ...prev, [platform]: true }))
       } else {
-        alert('已停止錄製，但未擷取到任何步驟。請確認是在 Playwright codegen 視窗中操作，或改用手動腳本。')
+        alert('已停止錄製，但未擷取到任何步驟。請確認是在錄製用 Chrome 視窗中操作，或改用 Step Builder。')
       }
     }
 
     const guideSteps = platform === 'h5' ? [
       { icon: '1️⃣', title: '首次安裝', desc: '下載 install.bat（Windows）或 install.sh（Mac/Linux），執行後自動安裝 Node.js 與 Playwright 瀏覽器驅動。公網頁面可執行既有腳本；錄製需在伺服器本機 localhost 操作。' },
-      { icon: '2️⃣', title: '建立腳本（錄製模式）', desc: '錄製模式只支援 localhost，因為 Playwright codegen 會開在執行伺服器的桌面。公網使用者請點「＋ 新增腳本」後手動編輯 JSON，或在伺服器本機開啟 ToppathTools 錄製。' },
+      { icon: '2️⃣', title: '建立腳本（錄製模式）', desc: '錄製模式只支援 localhost。系統會開啟一般 Chrome 並用 Node.js 注入 recorder 捕捉點擊和輸入；公網使用者請用 Step Builder 建立腳本。' },
       { icon: '3️⃣', title: '建立腳本（手動模式）', desc: '若需要精細調整，可直接在步驟文字框中編輯 JSON 陣列，支援 goto / click / type / assert_visible / screenshot / wait 等動作。' },
       { icon: '4️⃣', title: '執行測試', desc: '在腳本清單點選腳本 → 執行設定填入目標 URL → 選擇解析度（模擬手機螢幕）→ 失敗模式 → 點擊「▶ 執行所選腳本」。' },
       { icon: '5️⃣', title: '查看進度', desc: '右側日誌區即時輸出每步驟詳細訊息；下方「步驟進度」顯示 ✅ 通過 / ❌ 失敗 / ○ 待執行。' },
       { icon: '6️⃣', title: '基準截圖', desc: '上傳參考截圖作為視覺比對基準，Playwright 執行時自動截圖並比較差異，偏差超過門檻則標記失敗。' },
     ] : [
       { icon: '1️⃣', title: '首次安裝', desc: '下載 install.bat（Windows）或 install.sh（Mac/Linux），執行後自動安裝 Node.js 與 Playwright 瀏覽器驅動。公網頁面可執行既有腳本；錄製需在伺服器本機 localhost 操作。' },
-      { icon: '2️⃣', title: '建立腳本（錄製模式）', desc: '錄製模式只支援 localhost，因為 Playwright codegen 會開在執行伺服器的桌面。公網使用者請點「＋ 新增腳本」後手動編輯 JSON，或在伺服器本機開啟 ToppathTools 錄製。' },
+      { icon: '2️⃣', title: '建立腳本（錄製模式）', desc: '錄製模式只支援 localhost。系統會開啟一般 Chrome 並用 Node.js 注入 recorder 捕捉點擊和輸入；公網使用者請用 Step Builder 建立腳本。' },
       { icon: '3️⃣', title: '建立腳本（手動模式）', desc: '直接在步驟文字框編輯 JSON，支援 goto / click / click_xy / type / screenshot / wait 等動作，click_xy 需填 x、y 欄位。' },
       { icon: '4️⃣', title: '執行測試', desc: '在腳本清單點選腳本 → 填入目標 URL → 選桌面解析度 → 點「▶ 執行所選腳本」，自動對 Canvas 畫面進行操作。' },
       { icon: '5️⃣', title: '查看進度', desc: '右側日誌區即時輸出每步驟詳細訊息；下方「步驟進度」顯示 ✅ 通過 / ❌ 失敗 / ○ 待執行。' },
@@ -677,7 +677,7 @@ export function OsmUatPage() {
         </div>
         {!recorderAvailable && (
           <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.28)', borderLeft: '3px solid rgba(251,191,36,0.75)', borderRadius: 8, padding: '10px 14px', color: '#fbbf24', fontSize: 12, lineHeight: 1.6 }}>
-            目前是公網模式，已停用直接錄製。錄製瀏覽器會開在伺服器端，不會出現在你的 Chrome；請先用「＋ 新增腳本」手動建立步驟，或在伺服器本機 localhost 開啟本頁錄製。
+            目前是公網模式，已停用直接錄製；請先用「＋ 新增腳本」的 Step Builder 建立步驟，或在伺服器本機 localhost 開啟本頁錄製。
           </div>
         )}
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 3fr) minmax(320px, 2fr)', gap: 16 }}>
@@ -707,10 +707,10 @@ export function OsmUatPage() {
             </table>
             <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
               <button style={{ ...btnStyle, background: '#4f8ef7' }} onClick={() => setNewScriptOpen(prev => ({ ...prev, [platform]: !prev[platform] }))}>＋ 新增腳本</button>
-              {recPolling ? <button style={{ ...btnStyle, background: '#ef4444' }} onClick={() => void stopRecord()}>■ 停止錄製</button> : <button title={recorderAvailable ? '啟動 Playwright codegen 錄製' : '公網模式不支援直接錄製，請手動新增腳本'} style={{ ...btnStyle, background: recorderAvailable ? '#7c3aed' : '#475569', cursor: recorderAvailable ? 'pointer' : 'not-allowed' }} onClick={() => void startRecord()}>🔴 開始錄製</button>}
+              {recPolling ? <button style={{ ...btnStyle, background: '#ef4444' }} onClick={() => void stopRecord()}>■ 停止錄製</button> : <button title={recorderAvailable ? '啟動 Chrome 錄製器' : '公網模式不支援直接錄製，請手動新增腳本'} style={{ ...btnStyle, background: recorderAvailable ? '#7c3aed' : '#475569', cursor: recorderAvailable ? 'pointer' : 'not-allowed' }} onClick={() => void startRecord()}>🔴 開始錄製</button>}
               {recPolling && <span style={{ fontSize: 12, color: '#7c3aed', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />錄製中...</span>}
             </div>
-            {recPolling && recDisplayUrl && <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderLeft: '3px solid rgba(251,191,36,0.5)', borderRadius: 6 }}><div style={{ fontSize: 12, color: '#fbbf24', fontWeight: 600, marginBottom: 6 }}>Playwright 已開啟目標頁，可直接在錄製瀏覽器操作。若畫面仍停在 about:blank，請將以下 URL 貼到網址列按 Enter：</div><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input readOnly value={recDisplayUrl} style={{ ...inputStyle, flex: 1, fontSize: 11, fontFamily: 'Consolas, Monaco, monospace' }} onClick={e => (e.target as HTMLInputElement).select()} /><button style={{ ...smallBtnStyle, whiteSpace: 'nowrap' }} onClick={() => { void navigator.clipboard.writeText(recDisplayUrl) }}>複製 URL</button></div></div>}
+            {recPolling && recDisplayUrl && <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderLeft: '3px solid rgba(251,191,36,0.5)', borderRadius: 6 }}><div style={{ fontSize: 12, color: '#fbbf24', fontWeight: 600, marginBottom: 6 }}>Chrome 錄製器已開啟目標頁，可直接在錄製視窗操作。若畫面仍停在 about:blank，請將以下 URL 貼到網址列按 Enter：</div><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input readOnly value={recDisplayUrl} style={{ ...inputStyle, flex: 1, fontSize: 11, fontFamily: 'Consolas, Monaco, monospace' }} onClick={e => (e.target as HTMLInputElement).select()} /><button style={{ ...smallBtnStyle, whiteSpace: 'nowrap' }} onClick={() => { void navigator.clipboard.writeText(recDisplayUrl) }}>複製 URL</button></div></div>}
             {newScriptOpen[platform] && <div style={{ display: 'grid', gap: 8, marginTop: 12, padding: '12px', background: '#162032', border: '1px solid #2d3f55', borderRadius: 6 }}>
               <input value={newScriptDraft[platform].name} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], name: e.target.value } }))} placeholder="腳本名稱" style={inputStyle} />
               <div style={{ display: 'grid', gap: 8 }}>
