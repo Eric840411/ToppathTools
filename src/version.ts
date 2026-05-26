@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.29.16'
+export const APP_VERSION = '3.29.17'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.29.17',
+    date: '2026-05-26',
+    changes: [
+      'fix(uat): H5/PC 本機錄製改為直接以目標 URL 開啟 Playwright codegen，避免錄製視窗停在 about:blank；提示文案改為只有空白頁時才需手動貼 URL。',
+    ],
+  },
   {
     version: '3.29.16',
     date: '2026-05-26',

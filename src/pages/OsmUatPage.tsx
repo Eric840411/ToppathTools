@@ -608,7 +608,7 @@ export function OsmUatPage() {
               {recPolling ? <button style={{ ...btnStyle, background: '#ef4444' }} onClick={() => void stopRecord()}>■ 停止錄製</button> : <button title={recorderAvailable ? '啟動 Playwright codegen 錄製' : '公網模式不支援直接錄製，請手動新增腳本'} style={{ ...btnStyle, background: recorderAvailable ? '#7c3aed' : '#475569', cursor: recorderAvailable ? 'pointer' : 'not-allowed' }} onClick={() => void startRecord()}>🔴 開始錄製</button>}
               {recPolling && <span style={{ fontSize: 12, color: '#7c3aed', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />錄製中...</span>}
             </div>
-            {recPolling && recDisplayUrl && <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderLeft: '3px solid rgba(251,191,36,0.5)', borderRadius: 6 }}><div style={{ fontSize: 12, color: '#fbbf24', fontWeight: 600, marginBottom: 6 }}>Playwright 已開啟空白頁。請將以下 URL 貼到錄製瀏覽器網址列按 Enter：</div><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input readOnly value={recDisplayUrl} style={{ ...inputStyle, flex: 1, fontSize: 11, fontFamily: 'Consolas, Monaco, monospace' }} onClick={e => (e.target as HTMLInputElement).select()} /><button style={{ ...smallBtnStyle, whiteSpace: 'nowrap' }} onClick={() => { void navigator.clipboard.writeText(recDisplayUrl) }}>複製 URL</button></div></div>}
+            {recPolling && recDisplayUrl && <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderLeft: '3px solid rgba(251,191,36,0.5)', borderRadius: 6 }}><div style={{ fontSize: 12, color: '#fbbf24', fontWeight: 600, marginBottom: 6 }}>Playwright 已開啟目標頁，可直接在錄製瀏覽器操作。若畫面仍停在 about:blank，請將以下 URL 貼到網址列按 Enter：</div><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input readOnly value={recDisplayUrl} style={{ ...inputStyle, flex: 1, fontSize: 11, fontFamily: 'Consolas, Monaco, monospace' }} onClick={e => (e.target as HTMLInputElement).select()} /><button style={{ ...smallBtnStyle, whiteSpace: 'nowrap' }} onClick={() => { void navigator.clipboard.writeText(recDisplayUrl) }}>複製 URL</button></div></div>}
             {newScriptOpen[platform] && <div style={{ display: 'grid', gap: 8, marginTop: 12, padding: '12px', background: '#162032', border: '1px solid #2d3f55', borderRadius: 6 }}>
               <input value={newScriptDraft[platform].name} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], name: e.target.value } }))} placeholder="腳本名稱" style={inputStyle} />
               <textarea value={newScriptDraft[platform].steps} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], steps: e.target.value } }))} rows={5} style={{ ...inputStyle, fontFamily: 'Consolas, Monaco, monospace', resize: 'vertical' }} />
@@ -1161,7 +1161,6 @@ const thumbImageStyle: React.CSSProperties = {
   objectFit: 'cover',
   borderRadius: 4,
 }
-
 
 
 

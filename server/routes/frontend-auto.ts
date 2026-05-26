@@ -453,20 +453,15 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
   const resolution = text(body.resolution, platform === 'h5' ? '390x844' : '1366x768')
   if (!url) return res.status(400).json({ ok: false, message: 'url 為必填' })
 
-  // Redirect servers (e.g. osm-redirect) use a two-step cookie mechanism:
-  // 1st visit sets the session cookie but redirects to /?token=... (no studioid/gameid)
-  // 2nd visit (with cookie) redirects to /lobby?...&studioid=...&gameid=... (full params)
-  // So we open codegen to a blank page and let the user paste the URL manually —
-  // this guarantees the URL the user types IS the one codegen records (with full params).
-  // We still follow redirect once server-side to get the best displayUrl hint for the user.
+  // Resolve redirect URLs before opening codegen so local recording starts on
+  // the actual lobby page instead of about:blank.
   const resolvedUrl = await followRedirectOnce(url)
   const displayUrl = resolvedUrl !== url ? resolvedUrl : url
 
   const sessionId = `rec-${Date.now()}-${randomUUID().slice(0, 8)}`
   const outFile = join(tmpdir(), `pw-rec-${sessionId}.js`)
   const [w, h] = resolution.split('x')
-  // Open codegen with no URL (blank page) so user manually navigates — avoids the 2-step cookie issue
-  const args = ['playwright', 'codegen', '--output', outFile, '--viewport-size', `${w},${h}`]
+  const args = ['playwright', 'codegen', '--output', outFile, '--viewport-size', `${w},${h}`, displayUrl]
   const proc = spawn('npx', args, { stdio: 'ignore', shell: true })
   const sess: RecSession = { proc, outFile, originalUrl: url, done: false, steps: [] }
   recSessions.set(sessionId, sess)
