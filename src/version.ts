@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.30.3'
+export const APP_VERSION = '3.30.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.30.4',
+    date: '2026-05-26',
+    changes: [
+      'fix(uat): 修正 H5/PC Headed 執行在瀏覽器初始化階段無日誌卡住，runner 會顯示啟動進度、捕捉初始化錯誤並釋放 RUNNING 狀態。',
+    ],
+  },
   {
     version: '3.30.3',
     date: '2026-05-26',

@@ -1033,155 +1033,165 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
 
   void (async () => {
     const log = (line: string) => pushLog(runId, line)
-    let steps: StepObj[]
-    try { steps = JSON.parse(stepsRaw) } catch { await log('❌ 步驟 JSON 解析失敗'); activeRuns.delete(runId); return }
-    const rawStepCount = steps.length
-    steps = steps.filter((step, index, list) => {
-      const prev = list[index - 1]
-      return !(prev?.action === 'click_viewport' && step.action === 'click')
-    })
-    const skippedDuplicateClicks = rawStepCount - steps.length
-    if (skippedDuplicateClicks > 0) {
-      await log(`ℹ 已略過 ${skippedDuplicateClicks} 個座標點擊後的重複 selector 點擊`)
-    }
-
-    const [rawW, rawH] = resolution.split('x').map(Number)
-    const w = rawW || 390
-    const h = rawH || 844
-    let chromium: import('playwright').BrowserType | null = null
     let browser: import('playwright').Browser | null = null
+    let passed = 0
+    let failed = 0
+    let skipped = 0
+    let steps: StepObj[]
     try {
+      try { steps = JSON.parse(stepsRaw) } catch { await log('❌ 步驟 JSON 解析失敗'); return }
+      const rawStepCount = steps.length
+      steps = steps.filter((step, index, list) => {
+        const prev = list[index - 1]
+        return !(prev?.action === 'click_viewport' && step.action === 'click')
+      })
+      const skippedDuplicateClicks = rawStepCount - steps.length
+      if (skippedDuplicateClicks > 0) {
+        await log(`ℹ 已略過 ${skippedDuplicateClicks} 個座標點擊後的重複 selector 點擊`)
+      }
+
+      const [rawW, rawH] = resolution.split('x').map(Number)
+      const w = rawW || 390
+      const h = rawH || 844
+      await log(`🔧 準備啟動瀏覽器：${headed ? 'Headed' : 'Headless'}，viewport ${w}x${h}`)
       const pw = await import('playwright')
-      chromium = pw.chromium
-      browser = await chromium.launch({
+      browser = await pw.chromium.launch({
         headless: !headed,
         args: headed ? [
           `--window-size=${recordableWindowSize(w, h).width},${recordableWindowSize(w, h).height}`,
           '--force-device-scale-factor=1',
         ] : ['--force-device-scale-factor=1'],
       })
-    } catch (err) {
-      await log(`❌ 無法啟動瀏覽器：${err instanceof Error ? err.message : String(err)}`)
-      activeRuns.delete(runId)
-      return
-    }
+      await log('✅ 瀏覽器已啟動')
 
-    const ctx = await browser.newContext(headed ? {
-      viewport: null,
-      deviceScaleFactor: 1,
-    } : {
-      viewport: { width: w, height: h },
-      screen: { width: w, height: h },
-      deviceScaleFactor: 1,
-      isMobile: platform === 'h5',
-      hasTouch: platform === 'h5',
-    })
-    const page = await ctx.newPage()
-    if (!headed) await page.setViewportSize({ width: w, height: h }).catch(() => {})
-    let passed = 0, failed = 0, skipped = 0
+      await log('🔧 建立瀏覽器 context...')
+      const ctx = await browser.newContext(headed ? {
+        viewport: { width: w, height: h },
+        screen: { width: w, height: h },
+        deviceScaleFactor: 1,
+      } : {
+        viewport: { width: w, height: h },
+        screen: { width: w, height: h },
+        deviceScaleFactor: 1,
+        isMobile: platform === 'h5',
+        hasTouch: platform === 'h5',
+      })
+      const page = await ctx.newPage()
+      await page.setViewportSize({ width: w, height: h }).catch(() => {})
+      await log('✅ 執行頁面已準備完成')
 
-    for (const [i, step] of steps.entries()) {
-      if (!activeRuns.has(runId)) { await log('🛑 執行已中止'); break }
-      const label = step.name ?? `步驟 ${i + 1}`
-      const idx = `[${i + 1}/${steps.length}]`
-      try {
-        if (step.action === 'goto') {
-          const target = step.value || startUrl
-          await log(`⏳ ${idx} ${label} → ${target}`)
-          await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 })
-          await page.waitForTimeout(3000)
-          await log(`✅ ${idx} ${label}`)
-          passed++
-        } else if (step.action === 'click') {
-          await log(`⏳ ${idx} ${label}`)
-          await page.locator(step.selector ?? '').click({ timeout: 10000 })
-          await log(`✅ ${idx} ${label}`)
-          passed++
-        } else if (step.action === 'click_xy') {
-          await log(`⏳ ${idx} ${label}`)
-          await page.locator('canvas').first().click({ position: { x: step.x ?? 0, y: step.y ?? 0 }, timeout: 10000 })
-          await log(`✅ ${idx} ${label}`)
-          passed++
-        } else if (step.action === 'click_viewport') {
-          await log(`⏳ ${idx} ${label}`)
-          await page.mouse.click(step.x ?? 0, step.y ?? 0)
-          await page.waitForTimeout(500)
-          await log(`✅ ${idx} ${label}`)
-          passed++
-        } else if (step.action === 'type') {
-          await log(`⏳ ${idx} ${label}`)
-          await page.locator(step.selector ?? '').fill(step.value ?? '', { timeout: 10000 })
-          await log(`✅ ${idx} ${label}`)
-          passed++
-        } else if (step.action === 'wait') {
-          await log(`⏳ ${idx} ${label}`)
-          await page.waitForTimeout(Number(step.value) || 1000)
-          await log(`✅ ${idx} ${label}`)
-          passed++
-        } else if (step.action === 'screenshot') {
-          await log(`⏳ ${idx} ${label}`)
-          await page.screenshot()
-          await log(`✅ ${idx} ${label}`)
-          passed++
-        } else if (step.action === 'find_baseline_scroll') {
-          await log(`⏳ ${idx} ${label}`)
-          const baseline = step.baselineId
-            ? db.prepare('SELECT id, name, image_path, threshold FROM frontend_auto_baselines WHERE id = ?').get(step.baselineId) as BaselineRow | undefined
-            : undefined
-          if (!baseline) throw new Error('baseline not found')
-          const templateFile = imagePathToFile(baseline.image_path)
-          if (!templateFile || !existsSync(templateFile)) throw new Error('baseline image file not found')
-          const template = loadPng(readFileSync(templateFile))
-          const threshold = typeof step.threshold === 'number' ? step.threshold : baseline.threshold || 0.08
-          const scrollStep = Math.max(50, Number(step.scrollStep) || Math.floor((h || 844) * 0.7))
-          const maxScrolls = Math.max(1, Number(step.maxScrolls) || 20)
-          let found: { x: number; y: number; diff: number } | null = null
-          for (let attempt = 0; attempt <= maxScrolls; attempt++) {
-            const shot = await page.screenshot({ fullPage: false })
-            found = findTemplateInPng(loadPng(shot), template, threshold)
-            if (found) break
-            const before = await page.evaluate(() => window.scrollY)
-            const atBottom = await page.evaluate(() => window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2)
-            if (atBottom) break
-            await page.mouse.wheel(0, scrollStep)
-            await page.waitForTimeout(700)
-            const after = await page.evaluate(() => window.scrollY)
-            if (after === before) break
+      for (const [i, step] of steps.entries()) {
+        if (!activeRuns.has(runId)) { await log('🛑 執行已中止'); break }
+        const label = step.name ?? `步驟 ${i + 1}`
+        const idx = `[${i + 1}/${steps.length}]`
+        try {
+          if (step.action === 'goto') {
+            const target = step.value || startUrl
+            await log(`⏳ ${idx} ${label} → ${target}`)
+            await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 })
+            await page.waitForTimeout(3000)
+            await log(`✅ ${idx} ${label}`)
+            passed++
+          } else if (step.action === 'click') {
+            await log(`⏳ ${idx} ${label}`)
+            await page.locator(step.selector ?? '').click({ timeout: 10000 })
+            await log(`✅ ${idx} ${label}`)
+            passed++
+          } else if (step.action === 'click_xy') {
+            await log(`⏳ ${idx} ${label}`)
+            await page.locator('canvas').first().click({ position: { x: step.x ?? 0, y: step.y ?? 0 }, timeout: 10000 })
+            await log(`✅ ${idx} ${label}`)
+            passed++
+          } else if (step.action === 'click_viewport') {
+            await log(`⏳ ${idx} ${label}`)
+            await page.mouse.click(step.x ?? 0, step.y ?? 0)
+            await page.waitForTimeout(500)
+            await log(`✅ ${idx} ${label}`)
+            passed++
+          } else if (step.action === 'type') {
+            await log(`⏳ ${idx} ${label}`)
+            await page.locator(step.selector ?? '').fill(step.value ?? '', { timeout: 10000 })
+            await log(`✅ ${idx} ${label}`)
+            passed++
+          } else if (step.action === 'wait') {
+            await log(`⏳ ${idx} ${label}`)
+            await page.waitForTimeout(Number(step.value) || 1000)
+            await log(`✅ ${idx} ${label}`)
+            passed++
+          } else if (step.action === 'screenshot') {
+            await log(`⏳ ${idx} ${label}`)
+            await page.screenshot()
+            await log(`✅ ${idx} ${label}`)
+            passed++
+          } else if (step.action === 'find_baseline_scroll') {
+            await log(`⏳ ${idx} ${label}`)
+            const baseline = step.baselineId
+              ? db.prepare('SELECT id, name, image_path, threshold FROM frontend_auto_baselines WHERE id = ?').get(step.baselineId) as BaselineRow | undefined
+              : undefined
+            if (!baseline) throw new Error('baseline not found')
+            const templateFile = imagePathToFile(baseline.image_path)
+            if (!templateFile || !existsSync(templateFile)) throw new Error('baseline image file not found')
+            const template = loadPng(readFileSync(templateFile))
+            const threshold = typeof step.threshold === 'number' ? step.threshold : baseline.threshold || 0.08
+            const scrollStep = Math.max(50, Number(step.scrollStep) || Math.floor((h || 844) * 0.7))
+            const maxScrolls = Math.max(1, Number(step.maxScrolls) || 20)
+            let found: { x: number; y: number; diff: number } | null = null
+            for (let attempt = 0; attempt <= maxScrolls; attempt++) {
+              const shot = await page.screenshot({ fullPage: false })
+              found = findTemplateInPng(loadPng(shot), template, threshold)
+              if (found) break
+              const before = await page.evaluate(() => window.scrollY)
+              const atBottom = await page.evaluate(() => window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2)
+              if (atBottom) break
+              await page.mouse.wheel(0, scrollStep)
+              await page.waitForTimeout(700)
+              const after = await page.evaluate(() => window.scrollY)
+              if (after === before) break
+            }
+            if (!found) throw new Error(`baseline "${baseline.name}" not found before page bottom`)
+            await log(`✅ ${idx} ${label} → (${found.x}, ${found.y}), diff ${found.diff.toFixed(3)}`)
+            passed++
+          } else if (step.action === 'assert_visible') {
+            await log(`⏳ ${idx} ${label}`)
+            await page.locator(step.selector ?? '').waitFor({ state: 'visible', timeout: 10000 })
+            await log(`✅ ${idx} ${label}`)
+            passed++
+          } else {
+            await log(`⏭ ${idx} ${label}（不支援的動作：${step.action}）`)
+            skipped++
           }
-          if (!found) throw new Error(`baseline "${baseline.name}" not found before page bottom`)
-          await log(`✅ ${idx} ${label} → (${found.x}, ${found.y}), diff ${found.diff.toFixed(3)}`)
-          passed++
-        } else if (step.action === 'assert_visible') {
-          await log(`⏳ ${idx} ${label}`)
-          await page.locator(step.selector ?? '').waitFor({ state: 'visible', timeout: 10000 })
-          await log(`✅ ${idx} ${label}`)
-          passed++
-        } else {
-          await log(`⏭ ${idx} ${label}（不支援的動作：${step.action}）`)
-          skipped++
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message.split('\n')[0] : String(err)
-        await log(`❌ ${idx} ${label}：${msg}`)
-        failed++
-        // If browser was closed externally, abort immediately
-        const browserClosed = msg.includes('closed') || msg.includes('Stopped by user') || msg.includes('Target crashed')
-        if (failureMode === 'stop' || browserClosed) {
-          if (browserClosed) await log('🛑 瀏覽器已關閉，中止執行')
-          else await log('🛑 失敗後停止')
-          break
+        } catch (err) {
+          const msg = err instanceof Error ? err.message.split('\n')[0] : String(err)
+          await log(`❌ ${idx} ${label}：${msg}`)
+          failed++
+          // If browser was closed externally, abort immediately
+          const browserClosed = msg.includes('closed') || msg.includes('Stopped by user') || msg.includes('Target crashed')
+          if (failureMode === 'stop' || browserClosed) {
+            if (browserClosed) await log('🛑 瀏覽器已關閉，中止執行')
+            else await log('🛑 失敗後停止')
+            break
+          }
         }
       }
-    }
 
-    await browser.close().catch(() => {})
-    activeRuns.delete(runId)
-    const result = failed > 0 ? 'fail' : 'pass'
-    await log(`─── 完成 ─── 通過 ${passed} ／ 失敗 ${failed} ／ 跳過 ${skipped}`)
-    try {
-      db.prepare('UPDATE frontend_auto_runs SET passed=?,failed=?,skipped=?,result=?,finished_at=? WHERE id=?')
-        .run(passed, failed, skipped, result, Date.now(), runId)
-    } catch {}
+      const result = failed > 0 ? 'fail' : 'pass'
+      await log(`─── 完成 ─── 通過 ${passed} ／ 失敗 ${failed} ／ 跳過 ${skipped}`)
+      try {
+        db.prepare('UPDATE frontend_auto_runs SET passed=?,failed=?,skipped=?,result=?,finished_at=? WHERE id=?')
+          .run(passed, failed, skipped, result, Date.now(), runId)
+      } catch {}
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      failed++
+      await log(`❌ 執行器初始化失敗：${msg.split('\n')[0]}`)
+      try {
+        db.prepare('UPDATE frontend_auto_runs SET passed=?,failed=?,skipped=?,result=?,finished_at=? WHERE id=?')
+          .run(passed, failed, skipped, 'fail', Date.now(), runId)
+      } catch {}
+    } finally {
+      await browser?.close().catch(() => {})
+      activeRuns.delete(runId)
+    }
   })()
 })
 
