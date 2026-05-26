@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.29.15'
+export const APP_VERSION = '3.29.16'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.29.16',
+    date: '2026-05-26',
+    changes: [
+      'fix(uat): H5/PC 公網模式停用 server-side Playwright 錄製，避免 codegen 開在伺服器端導致未擷取步驟；/api/frontend-auto/record/start 新增非本機請求保護與清楚錯誤訊息。',
+    ],
+  },
   {
     version: '3.29.15',
     date: '2026-05-26',

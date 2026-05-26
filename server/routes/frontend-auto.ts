@@ -379,6 +379,13 @@ function followRedirectOnce(url: string): Promise<string> {
   })
 }
 
+function isLocalRecordRequest(req: express.Request) {
+  if (process.env.FRONTEND_AUTO_ALLOW_REMOTE_RECORD === '1') return true
+  const host = String(req.headers['x-forwarded-host'] ?? req.headers.host ?? '').split(',')[0].trim().toLowerCase()
+  const hostname = host.replace(/:\d+$/, '')
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1' || hostname === '[::1]'
+}
+
 // ── Playwright Codegen Recorder ───────────────────────────────────────────────
 
 interface RecSession {
@@ -432,6 +439,14 @@ function parseCodegenToSteps(code: string, originalUrl?: string): object[] {
 }
 
 router.post('/api/frontend-auto/record/start', async (req, res) => {
+  if (!isLocalRecordRequest(req)) {
+    return res.status(403).json({
+      ok: false,
+      code: 'REMOTE_RECORD_UNSUPPORTED',
+      message: '公網環境不支援直接錄製。Playwright codegen 會開在伺服器端，請改用手動腳本，或在伺服器本機 localhost 開啟 ToppathTools 錄製。',
+    })
+  }
+
   const body = req.body as Record<string, unknown>
   const url = text(body.url)
   const platform = asPlatform(body.platform)
