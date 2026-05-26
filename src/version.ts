@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.29.20'
+export const APP_VERSION = '3.29.21'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.29.21',
+    date: '2026-05-26',
+    changes: [
+      'fix(uat): H5/PC 錄製改以 viewport 座標產生 click_viewport 步驟，runner 以 page.mouse.click 執行並在 goto 後等待遊戲載入，降低遊戲 DOM selector 變動造成的無反應。',
+    ],
+  },
   {
     version: '3.29.20',
     date: '2026-05-26',

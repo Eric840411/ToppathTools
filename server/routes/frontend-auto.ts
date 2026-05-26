@@ -482,13 +482,10 @@ function recorderScript() {
   document.addEventListener('click', event => {
     const target = event.target;
     const canvas = target && target.closest ? target.closest('canvas') : null;
-    if (canvas) {
-      const rect = canvas.getBoundingClientRect();
-      const x = Math.round(event.clientX - rect.left);
-      const y = Math.round(event.clientY - rect.top);
-      send({ name: '點擊畫面座標 (' + x + ', ' + y + ')', action: 'click_xy', x, y });
-      return;
-    }
+    const vx = Math.round(event.clientX);
+    const vy = Math.round(event.clientY);
+    send({ name: '點擊畫面 (' + vx + ', ' + vy + ')', action: 'click_viewport', x: vx, y: vy });
+    if (canvas) return;
     const selector = cssPath(target);
     if (selector) send({ name: '點擊 ' + selector, action: 'click', selector });
   }, true);
@@ -584,7 +581,7 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
     profileDir,
     originalUrl: url,
     done: false,
-    steps: [{ name: '前往頁面', action: 'goto', value: displayUrl }],
+    steps: [{ name: '前往頁面', action: 'goto', value: url }],
   }
   recSessions.set(sessionId, sess)
   proc.on('close', () => { sess.done = true })
@@ -670,6 +667,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
           const target = step.value || startUrl
           await log(`⏳ ${idx} ${label} → ${target}`)
           await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 })
+          await page.waitForTimeout(3000)
           await log(`✅ ${idx} ${label}`)
           passed++
         } else if (step.action === 'click') {
@@ -680,6 +678,12 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
         } else if (step.action === 'click_xy') {
           await log(`⏳ ${idx} ${label}`)
           await page.locator('canvas').first().click({ position: { x: step.x ?? 0, y: step.y ?? 0 }, timeout: 10000 })
+          await log(`✅ ${idx} ${label}`)
+          passed++
+        } else if (step.action === 'click_viewport') {
+          await log(`⏳ ${idx} ${label}`)
+          await page.mouse.click(step.x ?? 0, step.y ?? 0)
+          await page.waitForTimeout(500)
           await log(`✅ ${idx} ${label}`)
           passed++
         } else if (step.action === 'type') {

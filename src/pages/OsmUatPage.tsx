@@ -69,6 +69,7 @@ interface AutoStepDraft {
 
 const AUTO_STEP_ACTIONS = [
   { value: 'goto', label: '前往頁面' },
+  { value: 'click_viewport', label: '點擊畫面' },
   { value: 'click_xy', label: '點擊座標' },
   { value: 'click', label: '點擊元素' },
   { value: 'type', label: '輸入文字' },
@@ -154,7 +155,7 @@ function stringifyAutoSteps(steps: AutoStepDraft[]) {
       if (step.selector?.trim()) row.selector = step.selector.trim()
     }
     if (step.action === 'type' && step.value !== undefined) row.value = step.value
-    if (step.action === 'click_xy') {
+    if (step.action === 'click_xy' || step.action === 'click_viewport') {
       row.x = Number.isFinite(Number(step.x)) ? Number(step.x) : 0
       row.y = Number.isFinite(Number(step.y)) ? Number(step.y) : 0
     }
@@ -725,12 +726,12 @@ export function OsmUatPage() {
                       {AUTO_STEP_ACTIONS.map(action => <option key={action.value} value={action.value}>{action.label}</option>)}
                     </select>
                     <input value={step.name ?? ''} onChange={e => updateDraftStep(index, { name: e.target.value })} placeholder="步驟名稱" style={inputStyle} />
-                    <div style={{ gridColumn: '2 / -1', display: 'grid', gridTemplateColumns: step.action === 'click_xy' ? '1fr 1fr' : '1fr', gap: 6 }}>
+                    <div style={{ gridColumn: '2 / -1', display: 'grid', gridTemplateColumns: step.action === 'click_xy' || step.action === 'click_viewport' ? '1fr 1fr' : '1fr', gap: 6 }}>
                       {step.action === 'goto' && <input value={step.value ?? ''} onChange={e => updateDraftStep(index, { value: e.target.value })} placeholder="URL，留空則使用右側目標 URL" style={inputStyle} />}
                       {(step.action === 'click' || step.action === 'type' || step.action === 'assert_visible') && <input value={step.selector ?? ''} onChange={e => updateDraftStep(index, { selector: e.target.value })} placeholder="Selector，例如 text=Start 或 #login" style={inputStyle} />}
                       {step.action === 'type' && <input value={step.value ?? ''} onChange={e => updateDraftStep(index, { value: e.target.value })} placeholder="輸入內容" style={inputStyle} />}
                       {step.action === 'wait' && <input value={step.value ?? '1000'} onChange={e => updateDraftStep(index, { value: e.target.value })} placeholder="等待毫秒，例如 3000" style={inputStyle} />}
-                      {step.action === 'click_xy' && <>
+                      {(step.action === 'click_xy' || step.action === 'click_viewport') && <>
                         <input type="number" value={step.x ?? 0} onChange={e => updateDraftStep(index, { x: Number(e.target.value) })} placeholder="X" style={inputStyle} />
                         <input type="number" value={step.y ?? 0} onChange={e => updateDraftStep(index, { y: Number(e.target.value) })} placeholder="Y" style={inputStyle} />
                       </>}
