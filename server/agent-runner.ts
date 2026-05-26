@@ -105,6 +105,8 @@ interface UatRecSession {
   profileDir: string
   done: boolean
   steps: object[]
+  width: number
+  height: number
   ws?: WebSocket
   cdpSend?: CdpSend
   cropRequest?: { scriptId: string; platform: string; name: string; threshold: number; createdBy: string }
@@ -264,6 +266,13 @@ function connectUatRecorder(sess: UatRecSession, port: number, serverWs: WebSock
             try {
               await send('Runtime.enable')
               await send('Page.enable')
+              // Force viewport to match Playwright execution viewport exactly
+              await send('Emulation.setDeviceMetricsOverride', {
+                width: sess.width,
+                height: sess.height,
+                deviceScaleFactor: 1,
+                mobile: false,
+              })
               await send('Page.addScriptToEvaluateOnNewDocument', { source: recorderScript() + '\n' + cropScript() })
               await send('Runtime.evaluate', { expression: recorderScript() + '\n' + cropScript() })
               resolveConn()
@@ -297,6 +306,7 @@ function connectUatRecorder(sess: UatRecSession, port: number, serverWs: WebSock
                 }
               }
               if (msg.method === 'Page.loadEventFired') {
+                void send('Emulation.setDeviceMetricsOverride', { width: sess.width, height: sess.height, deviceScaleFactor: 1, mobile: false })
                 void send('Runtime.evaluate', { expression: recorderScript() })
                 void send('Runtime.evaluate', { expression: cropScript() })
               }
@@ -486,6 +496,7 @@ function connect() {
       const proc = spawn(chromeExecutable(), args, { stdio: 'ignore', shell: false, windowsHide: false })
       const sess: UatRecSession = {
         sessionId, proc, profileDir, done: false,
+        width: Number(w) || 390, height: Number(h) || 844,
         steps: [{ name: '前往頁面', action: 'goto', value: url }],
       }
       uatRecSessions.set(sessionId, sess)
