@@ -12,6 +12,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: '2026-05-26',
     changes: [
       'feat(uat): UAT 錄製整合 Local Agent — 公網模式可選擇已連線的 uat-record Agent 執行 Chrome 錄製，步驟與框選截圖即時同步回 Server。沒有 Agent 且非本機時錄製按鈕完全停用。',
+      'fix(uat): 修正錄製狀態因 AutoPanel 重建而重置 — 將錄製相關 state 提升至父元件，以 Record<AutoPlatform, ...> 索引，解決 recPolling 反覆歸零導致框選按鈕常態停用的問題。',
     ],
   },
   {

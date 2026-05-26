@@ -397,6 +397,26 @@ export function OsmUatPage() {
   const autoStreams = useRef<Record<AutoPlatform, EventSource | null>>({ h5: null, pc: null })
   const autoRunIds = useRef<Record<AutoPlatform, string | null>>({ h5: null, pc: null })
 
+  // ── Recording state (hoisted here to survive AutoPanel remounts) ──────────────
+  const [recSessionId, setRecSessionId] = useState<Record<AutoPlatform, string | null>>({ h5: null, pc: null })
+  const [recPolling, setRecPolling] = useState<Record<AutoPlatform, boolean>>({ h5: false, pc: false })
+  const [recDisplayUrl, setRecDisplayUrl] = useState<Record<AutoPlatform, string | null>>({ h5: null, pc: null })
+  const [recStepCount, setRecStepCount] = useState<Record<AutoPlatform, number>>({ h5: 1, pc: 1 })
+  const [cropPending, setCropPending] = useState<Record<AutoPlatform, boolean>>({ h5: false, pc: false })
+  const [lastCrop, setLastCrop] = useState<Record<AutoPlatform, AutoCropResult | null>>({ h5: null, pc: null })
+  const [cropDraft, setCropDraft] = useState<Record<AutoPlatform, { name: string; threshold: number }>>({ h5: { name: '', threshold: 0.08 }, pc: { name: '', threshold: 0.08 } })
+  const [cdpWarning, setCdpWarning] = useState<Record<AutoPlatform, string | null>>({ h5: null, pc: null })
+  const recPollRef = useRef<Record<AutoPlatform, ReturnType<typeof setInterval> | null>>({ h5: null, pc: null })
+  const [recorderAvailable, setRecorderAvailable] = useState(canUseServerRecorder())
+  const [uatAgents, setUatAgents] = useState<Array<{ agentId: string; hostname: string; busy: boolean }>>([])
+  const [selectedAgentId, setSelectedAgentId] = useState<string>('')
+  useEffect(() => {
+    fetch('/api/frontend-auto/record/available')
+      .then(r => r.json() as Promise<{ available: boolean; agents?: Array<{ agentId: string; hostname: string; busy: boolean }> }>)
+      .then(d => { setRecorderAvailable(d.available); setUatAgents(d.agents ?? []) })
+      .catch(() => {})
+  }, [])
+
   const loadAutoScripts = useCallback(async (platform: AutoPlatform) => {
     const res = await fetch(`/api/frontend-auto/scripts?platform=${platform}`)
     setApiReady(res.ok)
@@ -561,27 +581,15 @@ export function OsmUatPage() {
     const [filter, setFilter] = useState<AutoFilter>('all')
     const [search, setSearch] = useState('')
     const [guideOpen, setGuideOpen] = useState(false)
-    const [recSessionId, setRecSessionId] = useState<string | null>(null)
-    const [recPolling, setRecPolling] = useState(false)
-    const [recDisplayUrl, setRecDisplayUrl] = useState<string | null>(null)
-    const [recStepCount, setRecStepCount] = useState(0)
-    const [cropDraft, setCropDraft] = useState({ name: '', threshold: 0.08 })
-    const [lastCrop, setLastCrop] = useState<AutoCropResult | null>(null)
-    const [cropPending, setCropPending] = useState(false)
-    const [cdpWarning, setCdpWarning] = useState<string | null>(null)
-    const recPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-    const [recorderAvailable, setRecorderAvailable] = useState(canUseServerRecorder())
-    const [uatAgents, setUatAgents] = useState<Array<{ agentId: string; hostname: string; busy: boolean }>>([])
-    const [selectedAgentId, setSelectedAgentId] = useState<string>('')
-    useEffect(() => {
-      fetch('/api/frontend-auto/record/available')
-        .then(r => r.json() as Promise<{ available: boolean; agents?: Array<{ agentId: string; hostname: string; busy: boolean }> }>)
-        .then(d => {
-          setRecorderAvailable(d.available)
-          setUatAgents(d.agents ?? [])
-        })
-        .catch(() => {/* keep default */})
-    }, [])
+    // Recording state lives in parent to survive AutoPanel remounts caused by newScriptDraft updates
+    const recSessId = recSessionId[platform]
+    const recActive = recPolling[platform]
+    const recUrl = recDisplayUrl[platform]
+    const recCount = recStepCount[platform]
+    const recCropPending = cropPending[platform]
+    const recLastCrop = lastCrop[platform]
+    const recCropDraft = cropDraft[platform]
+    const recCdpWarning = cdpWarning[platform]
     const selected = autoScripts[platform].find(item => item.id === selectedScriptIds[platform])
     const steps = selected ? parseAutoSteps(selected.steps) : []
     const baselineRows = selected ? autoBaselines[selected.id] ?? [] : []
@@ -636,31 +644,31 @@ export function OsmUatPage() {
       })
       const data = await res.json() as { ok: boolean; sessionId: string; displayUrl?: string; via?: string; agentHostname?: string; message?: string }
       if (!data.ok) return alert(data.message ?? '錄製啟動失敗')
-      setRecSessionId(data.sessionId)
-      setRecDisplayUrl(data.via === 'agent' ? `[Agent: ${data.agentHostname ?? 'unknown'}] ${data.displayUrl ?? url}` : (data.displayUrl ?? url))
-      setRecStepCount(1)
-      setRecPolling(true)
-      recPollRef.current = setInterval(async () => {
+      setRecSessionId(prev => ({ ...prev, [platform]: data.sessionId }))
+      setRecDisplayUrl(prev => ({ ...prev, [platform]: data.via === 'agent' ? `[Agent: ${data.agentHostname ?? 'unknown'}] ${data.displayUrl ?? url}` : (data.displayUrl ?? url) }))
+      setRecStepCount(prev => ({ ...prev, [platform]: 1 }))
+      setRecPolling(prev => ({ ...prev, [platform]: true }))
+      recPollRef.current[platform] = setInterval(async () => {
         const poll = await fetch(`/api/frontend-auto/record/status/${data.sessionId}`)
         const status = await poll.json() as { found: boolean; done: boolean; steps: object[]; lastCrop?: AutoCropResult; cropPending?: boolean; cdpWarning?: string | null }
-        setCropPending(!!status.cropPending)
-        if (status.cdpWarning) setCdpWarning(status.cdpWarning)
+        setCropPending(prev => ({ ...prev, [platform]: !!status.cropPending }))
+        if (status.cdpWarning) setCdpWarning(prev => ({ ...prev, [platform]: status.cdpWarning ?? null }))
         if (status.lastCrop) {
-          setLastCrop(status.lastCrop)
-          setCropDraft(prev => ({ ...prev, name: '' }))
+          setLastCrop(prev => ({ ...prev, [platform]: status.lastCrop! }))
+          setCropDraft(prev => ({ ...prev, [platform]: { ...prev[platform], name: '' } }))
           if (selectedScriptIds[platform]) void loadBaselines(selectedScriptIds[platform])
         }
         if (status.steps.length > 0) {
-          setRecStepCount(status.steps.length)
+          setRecStepCount(prev => ({ ...prev, [platform]: status.steps.length }))
           setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], steps: JSON.stringify(status.steps, null, 2) } }))
           setNewScriptOpen(prev => ({ ...prev, [platform]: true }))
         }
         if (status.done) {
-          clearInterval(recPollRef.current!)
-          recPollRef.current = null
-          setRecPolling(false)
-          setRecSessionId(null)
-          setRecDisplayUrl(null)
+          clearInterval(recPollRef.current[platform]!)
+          recPollRef.current[platform] = null
+          setRecPolling(prev => ({ ...prev, [platform]: false }))
+          setRecSessionId(prev => ({ ...prev, [platform]: null }))
+          setRecDisplayUrl(prev => ({ ...prev, [platform]: null }))
           if (status.steps.length > 0) {
             setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], steps: JSON.stringify(status.steps, null, 2) } }))
             setNewScriptOpen(prev => ({ ...prev, [platform]: true }))
@@ -672,16 +680,16 @@ export function OsmUatPage() {
     }
 
     async function stopRecord() {
-      if (!recSessionId) return
-      clearInterval(recPollRef.current!)
-      recPollRef.current = null
-      setRecPolling(false)
-      const res = await fetch(`/api/frontend-auto/record/stop/${recSessionId}`, { method: 'POST' })
+      if (!recSessId) return
+      clearInterval(recPollRef.current[platform]!)
+      recPollRef.current[platform] = null
+      setRecPolling(prev => ({ ...prev, [platform]: false }))
+      const res = await fetch(`/api/frontend-auto/record/stop/${recSessId}`, { method: 'POST' })
       const data = await res.json() as { ok: boolean; steps: object[] }
-      setRecSessionId(null)
-      setRecDisplayUrl(null)
-      setCropPending(false)
-      setCdpWarning(null)
+      setRecSessionId(prev => ({ ...prev, [platform]: null }))
+      setRecDisplayUrl(prev => ({ ...prev, [platform]: null }))
+      setCropPending(prev => ({ ...prev, [platform]: false }))
+      setCdpWarning(prev => ({ ...prev, [platform]: null }))
       if (data.steps.length > 0) {
         setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], steps: JSON.stringify(data.steps, null, 2) } }))
         setNewScriptOpen(prev => ({ ...prev, [platform]: true }))
@@ -691,24 +699,24 @@ export function OsmUatPage() {
     }
 
     async function startCropCapture() {
-      if (!recSessionId) return
+      if (!recSessId) return
       const scriptId = selectedScriptIds[platform]
       if (!scriptId) return alert('請先選擇或儲存一個腳本，框選截圖才有地方掛載。')
-      setCropPending(true)
-      const res = await fetch(`/api/frontend-auto/record/crop/${recSessionId}`, {
+      setCropPending(prev => ({ ...prev, [platform]: true }))
+      const res = await fetch(`/api/frontend-auto/record/crop/${recSessId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           platform,
           scriptId,
-          name: cropDraft.name.trim() || `框選截圖 ${Date.now()}`,
-          threshold: cropDraft.threshold,
+          name: recCropDraft.name.trim() || `框選截圖 ${Date.now()}`,
+          threshold: recCropDraft.threshold,
           createdBy: actor,
         }),
       })
       const data = await res.json().catch(() => ({ ok: false, message: '啟動框選失敗' })) as { ok?: boolean; message?: string }
       if (!res.ok || !data.ok) {
-        setCropPending(false)
+        setCropPending(prev => ({ ...prev, [platform]: false }))
         return alert(data.message ?? '啟動框選失敗')
       }
     }
@@ -808,11 +816,11 @@ export function OsmUatPage() {
             </table>
             <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
               <button style={{ ...btnStyle, background: '#4f8ef7' }} onClick={() => setNewScriptOpen(prev => ({ ...prev, [platform]: !prev[platform] }))}>＋ 新增腳本</button>
-              {recPolling ? <button style={{ ...btnStyle, background: '#ef4444' }} onClick={() => void stopRecord()}>■ 停止錄製</button> : (() => { const canRec = recorderAvailable || uatAgents.some(a => !a.busy); return <button title={canRec ? (recorderAvailable ? '啟動本機 Chrome 錄製器' : '透過 Local Agent 啟動 Chrome 錄製') : '需要本機存取或已連線的 uat-record Agent'} style={{ ...btnStyle, background: canRec ? '#7c3aed' : '#475569', cursor: canRec ? 'pointer' : 'not-allowed' }} onClick={() => void startRecord()}>🔴 開始錄製</button> })()}
-              {recPolling && <span style={{ fontSize: 12, color: '#c084fc', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />錄製中，已擷取 {recStepCount} 步</span>}
+              {recActive ? <button style={{ ...btnStyle, background: '#ef4444' }} onClick={() => void stopRecord()}>■ 停止錄製</button> : (() => { const canRec = recorderAvailable || uatAgents.some(a => !a.busy); return <button title={canRec ? (recorderAvailable ? '啟動本機 Chrome 錄製器' : '透過 Local Agent 啟動 Chrome 錄製') : '需要本機存取或已連線的 uat-record Agent'} style={{ ...btnStyle, background: canRec ? '#7c3aed' : '#475569', cursor: canRec ? 'pointer' : 'not-allowed' }} onClick={() => void startRecord()}>🔴 開始錄製</button> })()}
+              {recActive && <span style={{ fontSize: 12, color: '#c084fc', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />錄製中，已擷取 {recCount} 步</span>}
             </div>
-            {recPolling && cdpWarning && <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderLeft: '3px solid #ef4444', borderRadius: 6, fontSize: 12, color: '#fca5a5' }}>⚠ CDP 警告：{cdpWarning}</div>}
-            {recPolling && recDisplayUrl && <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderLeft: '3px solid rgba(251,191,36,0.5)', borderRadius: 6 }}><div style={{ fontSize: 12, color: '#fbbf24', fontWeight: 600, marginBottom: 6 }}>{recDisplayUrl.startsWith('[Agent:') ? 'Agent 已在遠端電腦開啟 Chrome，可到 Agent 機器上直接操作錄製視窗。步驟會即時同步回這裡。' : 'Chrome 錄製器已開啟目標頁，可直接在錄製視窗操作。若畫面仍停在 about:blank，請將以下 URL 貼到網址列按 Enter：'}</div><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input readOnly value={recDisplayUrl.replace(/^\[Agent:.*?\] /, '')} style={{ ...inputStyle, flex: 1, fontSize: 11, fontFamily: 'Consolas, Monaco, monospace' }} onClick={e => (e.target as HTMLInputElement).select()} /><button style={{ ...smallBtnStyle, whiteSpace: 'nowrap' }} onClick={() => { void navigator.clipboard.writeText(recDisplayUrl.replace(/^\[Agent:.*?\] /, '')) }}>複製 URL</button></div></div>}
+            {recActive && recCdpWarning && <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderLeft: '3px solid #ef4444', borderRadius: 6, fontSize: 12, color: '#fca5a5' }}>⚠ CDP 警告：{recCdpWarning}</div>}
+            {recActive && recUrl && <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderLeft: '3px solid rgba(251,191,36,0.5)', borderRadius: 6 }}><div style={{ fontSize: 12, color: '#fbbf24', fontWeight: 600, marginBottom: 6 }}>{recUrl.startsWith('[Agent:') ? 'Agent 已在遠端電腦開啟 Chrome，可到 Agent 機器上直接操作錄製視窗。步驟會即時同步回這裡。' : 'Chrome 錄製器已開啟目標頁，可直接在錄製視窗操作。若畫面仍停在 about:blank，請將以下 URL 貼到網址列按 Enter：'}</div><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input readOnly value={recUrl.replace(/^\[Agent:.*?\] /, '')} style={{ ...inputStyle, flex: 1, fontSize: 11, fontFamily: 'Consolas, Monaco, monospace' }} onClick={e => (e.target as HTMLInputElement).select()} /><button style={{ ...smallBtnStyle, whiteSpace: 'nowrap' }} onClick={() => { void navigator.clipboard.writeText(recUrl.replace(/^\[Agent:.*?\] /, '')) }}>複製 URL</button></div></div>}
             {newScriptOpen[platform] && <div style={{ display: 'grid', gap: 8, marginTop: 12, padding: '12px', background: '#162032', border: '1px solid #2d3f55', borderRadius: 6 }}>
               <input value={newScriptDraft[platform].name} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], name: e.target.value } }))} placeholder="腳本名稱" style={inputStyle} />
               <div style={{ display: 'grid', gap: 8 }}>
@@ -915,28 +923,28 @@ export function OsmUatPage() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
                 <div>
                   <span style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#93c5fd' }}>框選擷取基準圖</span>
-                  <span style={{ display: 'block', fontSize: 11, color: recPolling ? '#94a3b8' : '#64748b', marginTop: 2 }}>
-                    {recPolling ? (cropPending ? '請到錄製用 Chrome 視窗（或 Agent 機器上的視窗）拖曳框選；放開滑鼠後會自動擷取。' : '按下後到錄製用 Chrome 視窗直接拖曳框選要擷取的區域。') : '請先啟動錄製（本機或 Agent）才能使用框選擷取。'}
+                  <span style={{ display: 'block', fontSize: 11, color: recActive ? '#94a3b8' : '#64748b', marginTop: 2 }}>
+                    {recActive ? (recCropPending ? '請到錄製用 Chrome 視窗（或 Agent 機器上的視窗）拖曳框選；放開滑鼠後會自動擷取。' : '按下後到錄製用 Chrome 視窗直接拖曳框選要擷取的區域。') : '請先啟動錄製（本機或 Agent）才能使用框選擷取。'}
                   </span>
                 </div>
                 <button
-                  disabled={!recPolling || cropPending}
-                  title={recPolling ? '在錄製視窗拖曳框選要擷取的區域' : '開始錄製後才能使用'}
-                  style={{ ...smallBtnStyle, color: '#fff', background: recPolling && !cropPending ? '#f59e0b' : '#475569', border: 'none', cursor: recPolling && !cropPending ? 'pointer' : 'not-allowed', whiteSpace: 'nowrap' }}
+                  disabled={!recActive || recCropPending}
+                  title={recActive ? '在錄製視窗拖曳框選要擷取的區域' : '開始錄製後才能使用'}
+                  style={{ ...smallBtnStyle, color: '#fff', background: recActive && !recCropPending ? '#f59e0b' : '#475569', border: 'none', cursor: recActive && !recCropPending ? 'pointer' : 'not-allowed', whiteSpace: 'nowrap' }}
                   onClick={() => void startCropCapture()}
                 >
-                  {cropPending ? '等待框選...' : '框選擷取'}
+                  {recCropPending ? '等待框選...' : '框選擷取'}
                 </button>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px,1fr) 90px', gap: 6 }}>
-                <input value={cropDraft.name} onChange={e => setCropDraft(prev => ({ ...prev, name: e.target.value }))} placeholder="基準名稱" style={inputStyle} />
-                <input type="number" step="0.01" value={cropDraft.threshold} onChange={e => setCropDraft(prev => ({ ...prev, threshold: Number(e.target.value) }))} placeholder="門檻" style={inputStyle} />
+                <input value={recCropDraft.name} onChange={e => setCropDraft(prev => ({ ...prev, [platform]: { ...prev[platform], name: e.target.value } }))} placeholder="基準名稱" style={inputStyle} />
+                <input type="number" step="0.01" value={recCropDraft.threshold} onChange={e => setCropDraft(prev => ({ ...prev, [platform]: { ...prev[platform], threshold: Number(e.target.value) } }))} placeholder="門檻" style={inputStyle} />
               </div>
-              {lastCrop && (
+              {recLastCrop && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 4, background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.22)', color: '#86efac', fontSize: 11 }}>
                   <span style={{ fontWeight: 700 }}>已擷取</span>
-                  <span>{lastCrop.name}</span>
-                  <span style={{ fontFamily: 'Consolas, Monaco, monospace', color: '#bbf7d0' }}>X {lastCrop.x} / Y {lastCrop.y} / W {lastCrop.w} / H {lastCrop.h}</span>
+                  <span>{recLastCrop.name}</span>
+                  <span style={{ fontFamily: 'Consolas, Monaco, monospace', color: '#bbf7d0' }}>X {recLastCrop.x} / Y {recLastCrop.y} / W {recLastCrop.w} / H {recLastCrop.h}</span>
                 </div>
               )}
             </div>
