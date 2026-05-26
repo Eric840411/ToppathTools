@@ -391,7 +391,7 @@ export function OsmUatPage() {
     pc: { name: '', steps: '[\n  { "name": "Open page", "action": "goto" }\n]' },
   })
   const [runConfig, setRunConfig] = useState<Record<AutoPlatform, { url: string; resolution: string; failureMode: string; headed: boolean }>>({
-    h5: { url: '', resolution: '390x844', failureMode: 'continue', headed: false },
+    h5: { url: '', resolution: '500x877', failureMode: 'continue', headed: false },
     pc: { url: '', resolution: '1366x768', failureMode: 'continue', headed: false },
   })
   const autoStreams = useRef<Record<AutoPlatform, EventSource | null>>({ h5: null, pc: null })
@@ -596,7 +596,7 @@ export function OsmUatPage() {
     const baselineRows = selected ? autoBaselines[selected.id] ?? [] : []
     const latest = new Map(autoRuns[platform].map(run => [run.script_id, run.result]))
     const visible = autoScripts[platform].filter(script => (filter === 'mine' ? script.created_by === actor : filter === 'public' ? !!script.is_public : true) && script.name.toLowerCase().includes(search.toLowerCase()))
-    const resolutions = platform === 'h5' ? ['375x667', '390x844', '414x896'] : ['1366x768', '1440x900', '1920x1080']
+    const resolutions = platform === 'h5' ? ['500x877'] : ['1366x768', '1440x900', '1920x1080']
     const draftSteps = parseAutoStepDrafts(newScriptDraft[platform].steps)
 
     function setDraftSteps(nextSteps: AutoStepDraft[]) {

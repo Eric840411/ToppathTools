@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.30.5'
+export const APP_VERSION = '3.30.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.30.6',
+    date: '2026-05-26',
+    changes: [
+      'fix(uat): H5 錄製與執行解析度固定為 500x877，移除 H5 多尺寸選項並同步 server fallback。',
+    ],
+  },
   {
     version: '3.30.5',
     date: '2026-05-26',

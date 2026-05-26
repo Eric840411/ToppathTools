@@ -818,7 +818,7 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
   const body = req.body as Record<string, unknown>
   const url = text(body.url)
   const platform = asPlatform(body.platform)
-  const resolution = text(body.resolution, platform === 'h5' ? '390x844' : '1366x768')
+  const resolution = text(body.resolution, platform === 'h5' ? '500x877' : '1366x768')
   const agentId = text(body.agentId)
 
   if (!url) return res.status(400).json({ ok: false, message: 'url 為必填' })
@@ -1063,7 +1063,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
   const stepsRaw = text(body.steps, '[]')
   const startUrl = text(body.url)
   const platform = asPlatform(body.platform) ?? 'h5'
-  const resolution = text(body.resolution, '390x844')
+  const resolution = text(body.resolution, platform === 'h5' ? '500x877' : '1366x768')
   const failureMode = text(body.failureMode, 'continue')
   const headed = body.headed === true
 
