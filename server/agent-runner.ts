@@ -558,6 +558,7 @@ function connect() {
       const sess = uatRecSessions.get(sessionId)
       if (!sess) return
       const steps = sess.steps
+      sess.done = true  // Set before kill so CDP WS-close handler won't trigger reconnect
       killUatSession(sess)
       uatRecSessions.delete(sessionId)
       if (ws.readyState === ws.OPEN) {
