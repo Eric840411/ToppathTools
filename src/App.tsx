@@ -288,7 +288,6 @@ function App() {
     if (!globalAccount) return false
     if (tabId === 'dashboard') return true
     if (globalAccount.role === 'admin') return true
-    if (tabId === 'local-agent') return true
     // 'jira' tab is accessible if user has either jira-qa or jira-pm
     if (tabId === 'jira') return permissions.includes('jira-qa') || permissions.includes('jira-pm')
     if (tabId === 'scripted-bet') return permissions.includes('machinetest') || permissions.includes('url-pool')
