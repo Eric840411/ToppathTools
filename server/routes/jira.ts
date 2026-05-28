@@ -1529,12 +1529,19 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
           rawKey = extractCell(row[origUrlColIdx])
         }
         if (!rawKey) { skippedEmpty++; continue }
-        // N column format: "[CGLD3-1]Title text here" — extract key + title from same cell
+        // N column format may be "[CGLD3-1]Title" or "CGLD3-1 Title" or just "CGLD3-1"
+        // Try bracket format first, then extract key from anywhere and take the rest as title
         const bracketMatch = rawKey.match(/^\[([A-Z]{2,}[0-9]*-\d+)\](.*)$/)
         const issueKey = bracketMatch
           ? bracketMatch[1].trim()
           : (rawKey.match(/([A-Z]{2,}[0-9]*-\d+)/) ?? [])[1]?.trim() ?? rawKey.trim()
-        const title = bracketMatch ? bracketMatch[2].trim() : ''
+        const title = bracketMatch
+          ? bracketMatch[2].trim()
+          : (() => {
+              const idx = rawKey.indexOf(issueKey)
+              if (idx < 0) return ''
+              return rawKey.slice(idx + issueKey.length).replace(/^[\s\[\]()\-–—:,]*/, '').trim()
+            })()
         if (!issueKey || !JIRA_KEY_RE.test(issueKey)) { skippedInvalid++; continue }
         if (seenKeys.has(issueKey)) continue  // dedup
         seenKeys.add(issueKey)
