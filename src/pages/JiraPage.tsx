@@ -997,18 +997,31 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       setUpdatePersonFilter('')
       if (data.jiraBaseUrl) setUpdateJiraBaseUrl(data.jiraBaseUrl)
 
-      // Fetch transitions using currentAccount
-      if (records.length > 0 && currentAccount?.email) {
+      // Fetch transitions — try currentAccount first, then all stored accounts
+      if (records.length > 0) {
+        const emailsToTry: string[] = []
+        if (currentAccount?.email) emailsToTry.push(currentAccount.email)
         try {
-          const transResp = await fetch(`/api/jira/transitions?issueKey=${records[0].issueKey}`, {
-            headers: { 'x-jira-email': currentAccount.email },
-          })
-          const transData = await transResp.json() as { ok: boolean; transitions?: { id: string; name: string }[] }
-          if (transData.ok && (transData.transitions ?? []).length > 0) {
-            setUpdateTransitions(transData.transitions ?? [])
-            setUpdateTransitionId(transData.transitions![0].id)
+          const accResp = await fetch('/api/jira/accounts')
+          const accData = await accResp.json() as { accounts?: { email: string }[] }
+          for (const a of accData.accounts ?? []) {
+            if (!emailsToTry.includes(a.email)) emailsToTry.push(a.email)
           }
         } catch { /* ignore */ }
+        const firstKey = records[0].issueKey
+        for (const email of emailsToTry) {
+          try {
+            const transResp = await fetch(`/api/jira/transitions?issueKey=${firstKey}`, {
+              headers: { 'x-jira-email': email },
+            })
+            const transData = await transResp.json() as { ok: boolean; transitions?: { id: string; name: string }[] }
+            if (transData.ok && (transData.transitions ?? []).length > 0) {
+              setUpdateTransitions(transData.transitions ?? [])
+              setUpdateTransitionId(transData.transitions![0].id)
+              break
+            }
+          } catch { /* try next */ }
+        }
       }
 
       setUpdateStep(2)
