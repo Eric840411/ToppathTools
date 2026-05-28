@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.34.2'
+export const APP_VERSION = '3.34.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.34.3',
+    date: '2026-05-28',
+    changes: [
+      'feat(alert): Lark 版本告警加入 ImageRecon Server 版本回報 — 查詢最近一筆 imagerecon 歷史紀錄，比對目標版本，顯示未達標伺服器清單及資料時效',
+    ],
+  },
   {
     version: '3.34.2',
     date: '2026-05-28',

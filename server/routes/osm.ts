@@ -315,6 +315,27 @@ export const sendLarkAlert = async () => {
     }
   }
 
+  // ── ImageRecon Server 版本 ──
+  try {
+    const irRow = db.prepare(`SELECT detail, created_at FROM operation_history WHERE feature = 'imagerecon' ORDER BY created_at DESC LIMIT 1`).get() as { detail: string; created_at: number } | undefined
+    if (irRow) {
+      const detail = JSON.parse(irRow.detail) as { targetVersion?: string; records?: Array<{ serverName: string; currentVersion: string; status?: string }> }
+      const larkTarget = (db.prepare(`SELECT targetVersion FROM machine_type_targets WHERE category = 'ImageRecon' LIMIT 1`).get() as { targetVersion: string } | undefined)?.targetVersion
+      const effectiveTarget = larkTarget ?? detail.targetVersion ?? null
+      const records = detail.records ?? []
+      const offTarget = records.filter(r => effectiveTarget && r.currentVersion !== effectiveTarget)
+      const ageH = Math.round((Date.now() - irRow.created_at) / 3600000)
+      if (offTarget.length > 0) {
+        lines.push(`\n📧 ImageRecon Server 未達標（${offTarget.length}/${records.length} 台，資料 ${ageH}h 前）：`)
+        for (const r of offTarget) {
+          lines.push(`  • ${r.serverName}: ${r.currentVersion} → 目標 ${effectiveTarget}`)
+        }
+      } else if (records.length > 0) {
+        lines.push(`\n📧 ImageRecon Server：✅ 全部達標（${records.length} 台，資料 ${ageH}h 前）`)
+      }
+    }
+  } catch { /* 忽略取得失敗 */ }
+
   const hasIssues = lines.some(l => l.includes('未達標'))
   if (!hasIssues) {
     lines.push('\n✅ 所有版本均已達標，無需處理。')
