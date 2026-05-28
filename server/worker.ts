@@ -14,7 +14,7 @@ import { cpus, hostname, totalmem, freemem } from 'os'
 import { WebSocketServer } from 'ws'
 import { z } from 'zod'
 import { larkGenerateSchema, log, verifyLocalAgentToken, getClientIP, getUser, db } from './shared.js'
-import { runGenerateTestcasesFileJob, runLarkGenerateTestcasesJob, type WorkerUploadFile } from './routes/integrations.js'
+import { runGenerateTestcasesFileJob, runLarkGenerateTestcasesJob, resumeGenerationJob, type WorkerUploadFile } from './routes/integrations.js'
 import { router as jiraRouter } from './routes/jira.js'
 import { router as gameshowRouter } from './routes/gameshow.js'
 import { router as autospinRouter } from './routes/autospin.js'
@@ -222,6 +222,52 @@ app.post('/internal/worker/testcase/lark-generate', (req, res) => {
       console.log(`[Worker][execute:finish] ${task.label} user=${task.userLabel} id=${task.id} ok=${result.ok}`)
     } catch (error) {
       console.error(`[Worker][execute:callback-failed] ${task.label} id=${task.id}`, error)
+    }
+  })()
+
+  res.json({ ok: true, accepted: true, requestId })
+})
+
+app.post('/internal/worker/testcase/resume', (req, res) => {
+  const payload = req.body as {
+    requestId?: string
+    jobId?: string
+    clientIp?: string
+    user?: string
+    callbackUrl?: string
+  }
+  const requestId = String(payload.requestId ?? '')
+  const jobId = String(payload.jobId ?? '')
+  const callbackUrl = String(payload.callbackUrl ?? '')
+  if (!requestId || !jobId || !callbackUrl) {
+    return res.status(400).json({ ok: false, message: 'missing requestId, jobId or callbackUrl' })
+  }
+
+  const task: WorkerTask = {
+    id: requestId,
+    userKey: String(payload.user ?? 'unknown'),
+    userLabel: String(payload.user ?? 'unknown'),
+    type: 'testcase',
+    label: `TestCase resume (job=${jobId})`,
+    startedAt: Date.now(),
+  }
+  ;(async () => {
+    let result
+    try {
+      result = await runQueuedTask(task, () =>
+        resumeGenerationJob(jobId, String(payload.clientIp ?? 'worker'), task.userKey)
+      )
+    } catch (error) {
+      result = { ok: false, message: error instanceof Error ? error.message : String(error) }
+    }
+    try {
+      await fetch(callbackUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(result),
+      })
+    } catch (error) {
+      console.error(`[Worker][resume:callback-failed] id=${requestId}`, error)
     }
   })()
 

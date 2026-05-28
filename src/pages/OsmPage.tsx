@@ -373,12 +373,15 @@ function ChannelDetailPanel({
 
 function VersionDashboard({
   channelResults, targets, versionHistory, llVersions, tpVersions,
+  imageReconRecords, imageReconTargetVersion,
 }: {
   channelResults: OsmChannelResult[]
   targets: Record<string, Record<string, string>>
   versionHistory: OsmComponentVersion[]
   llVersions: OsmComponentVersion[]
   tpVersions: OsmComponentVersion[]
+  imageReconRecords: VersionRecord[]
+  imageReconTargetVersion: string | null
 }) {
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
 
@@ -402,6 +405,7 @@ function VersionDashboard({
 
   // Under-target components
   type CompIssue = { system: string; name: string; current: string; target: string }
+  const irTarget = targets['ImageRecon']?.['ImageRecon'] ?? imageReconTargetVersion ?? null
   const offTargetComps: CompIssue[] = [
     ...versionHistory.filter(c => { const t = targets[c.name]?.['OSM']; return t && c.version !== t })
       .map(c => ({ system: 'OSM', name: c.name, current: c.version, target: targets[c.name]['OSM'] })),
@@ -409,16 +413,18 @@ function VersionDashboard({
       .map(c => ({ system: 'LuckyLink', name: c.name, current: c.version, target: targets[c.name]['LuckyLink'] })),
     ...tpVersions.filter(c => { const t = targets[c.name]?.['Toppath']; return t && c.version !== t })
       .map(c => ({ system: 'Toppath', name: c.name, current: c.version, target: targets[c.name]['Toppath'] })),
+    ...(irTarget ? imageReconRecords.filter(r => r.currentVersion !== irTarget)
+      .map(r => ({ system: 'ImageRecon', name: r.serverName, current: r.currentVersion, target: irTarget })) : []),
   ]
 
-  const hasAnyData = channelResults.length > 0 || versionHistory.length > 0 || llVersions.length > 0 || tpVersions.length > 0
+  const hasAnyData = channelResults.length > 0 || versionHistory.length > 0 || llVersions.length > 0 || tpVersions.length > 0 || imageReconRecords.length > 0
   if (!hasAnyData) {
     return <p className="osm-empty">尚未取得資料。按「⚡ 一鍵全部取得」同步所有版本。</p>
   }
 
   const totalIssues = offTargetMachines.length + offTargetComps.length
 
-  const sysColor: Record<string, string> = { OSM: '#dbeafe', LuckyLink: '#d1fae5', Toppath: '#ede9fe' }
+  const sysColor: Record<string, string> = { OSM: '#dbeafe', LuckyLink: '#d1fae5', Toppath: '#ede9fe', ImageRecon: '#fce7f3' }
 
   return (
     <>
@@ -458,7 +464,7 @@ function VersionDashboard({
                     onClick={() => setExpandedGroup(expanded ? null : key)}
                   >
                     <span className="osm-channel-badge" style={{ background: CHANNEL_COLORS[g.channelName] ?? '#888', fontSize: 10, flexShrink: 0 }}>{g.channelName}</span>
-                    <span style={{ fontSize: 12, fontWeight: 500, flex: 1 }}>{g.machineType}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, flex: 1, color: '#1e293b' }}>{g.machineType}</span>
                     <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginRight: 4 }}>{g.current || '—'}</span>
                     <span style={{ fontSize: 11, color: '#94a3b8' }}>→</span>
                     <span style={{ fontSize: 11, color: '#16a34a', marginLeft: 4, marginRight: 8 }}>{g.target}</span>
@@ -469,7 +475,7 @@ function VersionDashboard({
                   {expanded && (
                     <div style={{ padding: '6px 10px 8px', background: '#1e293b', borderTop: '1px solid #fde68a', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                       {g.machines.map(m => (
-                        <span key={m.id} style={{ fontSize: 11, padding: '1px 6px', background: '#f1f5f9', borderRadius: 4, color: '#cbd5e1' }}>{m.machineName}</span>
+                        <span key={m.id} style={{ fontSize: 11, padding: '1px 6px', background: '#f1f5f9', borderRadius: 4, color: '#1e293b', fontWeight: 500 }}>{m.machineName}</span>
                       ))}
                     </div>
                   )}
@@ -487,8 +493,8 @@ function VersionDashboard({
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {offTargetComps.map(c => (
               <div key={`${c.system}-${c.name}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 10px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, fontSize: 12 }}>
-                <span style={{ padding: '1px 6px', borderRadius: 4, background: sysColor[c.system] ?? '#1e293b', fontSize: 11, flexShrink: 0 }}>{c.system}</span>
-                <span style={{ flex: 1, fontWeight: 500 }}>{c.name}</span>
+                <span style={{ padding: '1px 6px', borderRadius: 4, background: sysColor[c.system] ?? '#e2e8f0', color: '#1e293b', fontSize: 11, flexShrink: 0, fontWeight: 600 }}>{c.system}</span>
+                <span style={{ flex: 1, fontWeight: 600, color: '#1e293b' }}>{c.name}</span>
                 <span style={{ color: '#dc2626', fontWeight: 600 }}>{c.current || '—'}</span>
                 <span style={{ color: '#64748b' }}>→</span>
                 <span style={{ color: '#16a34a' }}>{c.target}</span>
@@ -1012,6 +1018,8 @@ export function OsmPage() {
           versionHistory={versionHistory}
           llVersions={llVersions}
           tpVersions={tpVersions}
+          imageReconRecords={records}
+          imageReconTargetVersion={targetVersion}
         />
       </section>
 

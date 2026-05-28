@@ -24,6 +24,18 @@ import {
   getGoogleServiceAccountToken,
   hasGoogleServiceAccount,
   parseGoogleSheetUrl,
+  hashSources,
+  createGenerationJob,
+  updateJobStatus,
+  getJob,
+  getResumableJobs,
+  saveGeneratedTestCases,
+  getUncommittedTestCases,
+  claimTestCaseForCommit,
+  markTestCaseCommitted,
+  markTestCaseCommitFailed,
+  countJobTestCases,
+  updateJobBitableCoords,
 } from '../shared.js'
 import { callLLM, readGeminiPrompts, renderPrompt } from './gemini.js'
 import { extractAdfText } from './jira.js'
@@ -433,6 +445,77 @@ const writeTestCasesToBitable = async (cases: TestCase[], specUrl: string): Prom
     written += batch.length
   }
   return { written, bitableUrl }
+}
+
+/**
+ * Write a single TestCase to Bitable with idempotency.
+ * Checks Bitable for existing record with matching idempotency_key before writing.
+ * Returns record_id on success, throws on error.
+ */
+async function writeOneTestCaseToBitable(
+  appToken: string,
+  tableId: string,
+  tc: TestCase,
+  idempotencyKey: string,
+): Promise<string> {
+  const token = await getLarkToken()
+  const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
+
+  // Check if already written (idempotency query)
+  const queryResp = await fetch(
+    `${base}/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records/search`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        filter: {
+          conjunction: 'and',
+          conditions: [{ field_name: '_idempotency_key', operator: 'is', value: [idempotencyKey] }],
+        },
+        page_size: 2,
+      }),
+    },
+  )
+  if (queryResp.ok) {
+    const queryData = await queryResp.json() as { code?: number; data?: { items?: Array<{ record_id: string }> } }
+    if (queryData.code === 0 && queryData.data?.items) {
+      const items = queryData.data.items
+      if (items.length === 1) return items[0].record_id // Already written
+      if (items.length > 1) throw new Error(`idempotency conflict: ${idempotencyKey} found ${items.length} records`)
+      // 0 results → proceed to write
+    }
+    // If query returns non-0 code, proceed to write (may be field not found)
+  }
+  // query failed (network/timeout) → throw, do not write
+  if (!queryResp.ok) throw new Error(`Bitable search failed: HTTP ${queryResp.status}`)
+
+  const fields: Record<string, unknown> = {
+    '測試模組': tc.測試模組,
+    '測試維度': tc.測試維度,
+    '測試標題': tc.測試標題,
+    '前置條件': tc.前置條件,
+    '操作步驟': tc.操作步驟,
+    '預期結果': tc.預期結果,
+    '優先級': tc.優先級,
+    '_idempotency_key': idempotencyKey,
+    ...(tc.來源 ? { '來源': tc.來源 } : {}),
+    ...(tc.編號 ? { '編號': tc.編號 } : {}),
+    ...(tc.規格來源 ? { '規格來源': tc.規格來源 } : {}),
+    ...(tc.版本標籤 ? { '版本標籤': tc.版本標籤 } : {}),
+    ...(tc.status ? { '狀態': tc.status } : {}),
+    ...(tc.replacedBy != null ? { '取代者': String(tc.replacedBy) } : {}),
+  }
+  const writeResp = await fetch(
+    `${base}/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields }),
+    },
+  )
+  const writeData = await writeResp.json() as { code?: number; msg?: string; data?: { record?: { record_id: string } } }
+  if (!writeResp.ok || writeData.code !== 0) throw new Error(`寫入 Bitable 失敗 (code=${writeData.code}): ${writeData.msg}`)
+  return writeData.data!.record!.record_id
 }
 
 /** 建立 Jira 整合格式的 Bitable（新欄位結構） */
@@ -1189,6 +1272,7 @@ export async function runLarkGenerateTestcasesJob(params: {
   body: LarkGenerateBody
   clientIp: string
   user: string
+  jobId?: string  // provided for resume; omit to create new
 }): Promise<GenerateApiResult> {
   const { body, clientIp, user } = params
   const sourcesToFetch: { type: 'lark' | 'gdocs'; url: string }[] = body.sources?.length
@@ -1196,6 +1280,16 @@ export async function runLarkGenerateTestcasesJob(params: {
     : body.specSource === 'gdocs'
       ? [{ type: 'gdocs', url: body.googleDocsUrl ?? '' }]
       : [{ type: 'lark', url: body.specUrl ?? '' }]
+
+  // ── Job persistence setup ──────────────────────────────────────────────────
+  const sourceHash = hashSources(sourcesToFetch)
+  const jobId = params.jobId ?? `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  const existingJob = params.jobId ? getJob(jobId) : undefined
+
+  if (!existingJob) {
+    createGenerationJob(jobId, sourceHash, body.promptId ?? 'default', JSON.stringify({ ...body, userKey: user }))
+  }
+  updateJobStatus(jobId, 'running')
 
   const docParts: string[] = []
   const sourceLabels: string[] = []
@@ -1281,11 +1375,13 @@ export async function runLarkGenerateTestcasesJob(params: {
 
   const jiraResult = normalizeJiraTestCaseResult(result)
   if (jiraResult) {
+    // Jira format: no per-case idempotency yet (creates new Bitable table each time)
     const { written, bitableUrl, featureName } = await writeJiraTestCasesToBitable(jiraResult, sourceLabel)
     const count = jiraResult.test_cases.length
     const csv = createJiraTestCaseCsvArtifact(jiraResult, sourceLabel)
     log('ok', clientIp, user, 'TestCase worker completed (Jira format)', `generated ${count}, written ${written}`)
     addHistory('testcase', `TestCase 生成 - ${srcLabel}`, `生成 ${count} 筆，寫入 ${written} 筆`, { sourceLabel, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvFormat: csv.format })
+    updateJobStatus(jobId, 'completed')
     return { ok: true, generated: count, written, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format }
   }
 
@@ -1297,11 +1393,136 @@ export async function runLarkGenerateTestcasesJob(params: {
       log('warn', clientIp, user, 'Second Pass failed, skipped', e instanceof Error ? e.message : String(e))
     }
   }
-  const { written, bitableUrl } = await writeTestCasesToBitable(cases, sourceLabel)
+
+  // ── Persist generated cases to DB (checkpoint before Bitable write) ────────
+  saveGeneratedTestCases(jobId, cases)
+  updateJobStatus(jobId, 'generated')
+
+  // ── Write to Bitable with per-case idempotency ─────────────────────────────
+  updateJobStatus(jobId, 'committing')
+  const { written, bitableUrl } = await writeTestCasesWithIdempotency(jobId, cases, sourceLabel)
+
   const csv = createTestCaseCsvArtifact(cases, sourceLabel)
-  log('ok', clientIp, user, 'TestCase worker completed', `generated ${cases.length}, written ${written}`)
-  addHistory('testcase', `TestCase 生成 - ${srcLabel}`, `生成 ${cases.length} 筆，寫入 ${written} 筆`, { sourceLabel, cases, bitableUrl, csvFormat: csv.format })
-  return { ok: true, generated: cases.length, written, cases, bitableUrl, csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format }
+  const { total: totalCases, committed: committedCases } = countJobTestCases(jobId)
+  const allCommitted = committedCases >= totalCases
+  log('ok', clientIp, user, 'TestCase worker completed', `generated ${cases.length}, written ${written}, committed ${committedCases}/${totalCases}`)
+  addHistory('testcase', `TestCase 生成 - ${srcLabel}`, `生成 ${cases.length} 筆，寫入 ${written} 筆`, { sourceLabel, cases, bitableUrl, csvFormat: csv.format, jobId })
+  if (allCommitted) updateJobStatus(jobId, 'completed')
+  else updateJobStatus(jobId, 'failed', `${totalCases - committedCases} 筆未寫入 Bitable，可續跑`)
+  return { ok: true, generated: cases.length, written, cases, bitableUrl, csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format, jobId }
+}
+
+/**
+ * Write test cases to Bitable using per-case idempotency.
+ * Creates the Bitable table first (same logic as before), then writes each case individually.
+ */
+async function writeTestCasesWithIdempotency(
+  jobId: string,
+  cases: TestCase[],
+  specUrl: string,
+): Promise<{ written: number; bitableUrl: string }> {
+  const token = await getLarkToken()
+  const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
+
+  let appToken: string
+  let tableId: string
+  let bitableUrl: string
+
+  // Reuse previously stored Bitable coordinates if available (prevents resume creating a new table)
+  const existingJob = getJob(jobId)
+  if (existingJob?.bitable_app_token && existingJob?.bitable_table_id) {
+    appToken = existingJob.bitable_app_token
+    tableId = existingJob.bitable_table_id
+    bitableUrl = existingJob.bitable_url ?? ''
+  } else {
+    const folderToken = process.env.LARK_TESTCASE_FOLDER_TOKEN
+    if (folderToken) {
+      const now = new Date()
+      const pad = (n: number) => String(n).padStart(2, '0')
+      const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+      const timeStr = `${pad(now.getHours())}${pad(now.getMinutes())}`
+      const wikiMatch = specUrl.match(/\/wiki\/([A-Za-z0-9]+)/)
+      const docId = wikiMatch?.[1]?.slice(0, 8) ?? 'doc'
+      const bitableName = `TestCase_${dateStr}_${timeStr}_${docId}`
+      const created = await createBitableForTestCases(bitableName, folderToken)
+      appToken = created.appToken
+      tableId = created.tableId
+      bitableUrl = created.url
+    } else {
+      appToken = mustEnv('LARK_TESTCASE_APP_TOKEN')
+      tableId = mustEnv('LARK_TESTCASE_TABLE_ID')
+      bitableUrl = process.env.LARK_TESTCASE_URL ?? ''
+    }
+
+    // Persist coords to job so resume can reuse the same Bitable table
+    updateJobBitableCoords(jobId, bitableUrl, appToken, tableId)
+
+    // Ensure _idempotency_key field exists on the table (create-or-ignore)
+    try {
+      await fetch(
+        `${base}/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/fields`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ field_name: '_idempotency_key', type: 1 }),
+        },
+      )
+    } catch { /* already exists or non-fatal */ }
+  }
+
+  // Write each case individually with idempotency
+  const uncommitted = getUncommittedTestCases(jobId)
+  let written = 0
+
+  for (const row of uncommitted) {
+    const leaseToken = claimTestCaseForCommit(row.id)
+    if (!leaseToken) continue // Another worker claimed it
+
+    try {
+      const tc = JSON.parse(row.content_json) as TestCase
+      const recordId = await writeOneTestCaseToBitable(appToken, tableId, tc, row.idempotency_key)
+      markTestCaseCommitted(row.id, recordId, leaseToken)
+      written++
+    } catch (e) {
+      markTestCaseCommitFailed(row.id, e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  return { written, bitableUrl }
+}
+
+/** Resume a generation job that is in 'generated' or 'failed' status */
+export async function resumeGenerationJob(jobId: string, clientIp: string, user: string): Promise<GenerateApiResult> {
+  const job = getJob(jobId)
+  if (!job) return { ok: false, message: `Job ${jobId} not found` }
+  if (!['generated', 'committing', 'failed'].includes(job.status)) {
+    return { ok: false, message: `Job ${jobId} is in status '${job.status}', cannot resume` }
+  }
+
+  const { total, committed } = countJobTestCases(jobId)
+  if (total === 0) return { ok: false, message: 'No generated test cases found for this job' }
+
+  updateJobStatus(jobId, 'committing')
+
+  // Get original params for metadata
+  let paramsBody: LarkGenerateBody | null = null
+  try { paramsBody = JSON.parse(job.params_json) as LarkGenerateBody } catch { /* ok */ }
+
+  const sourcesToFetch: { type: 'lark' | 'gdocs'; url: string }[] = paramsBody?.sources?.length
+    ? paramsBody.sources
+    : paramsBody?.specSource === 'gdocs'
+      ? [{ type: 'gdocs', url: paramsBody.googleDocsUrl ?? '' }]
+      : [{ type: 'lark', url: paramsBody?.specUrl ?? '' }]
+  const sourceLabel = sourcesToFetch.map(s => s.url).join(', ')
+
+  const { written, bitableUrl } = await writeTestCasesWithIdempotency(jobId, [], sourceLabel)
+  const { committed: newCommitted } = countJobTestCases(jobId)
+
+  if (newCommitted >= total) updateJobStatus(jobId, 'completed')
+  else updateJobStatus(jobId, 'failed', `${total - newCommitted} 筆未寫入`)
+
+  log('ok', clientIp, user, 'TestCase resume completed', `job=${jobId} committed=${newCommitted}/${total}`)
+  return { ok: true, generated: total, written: newCommitted, cases: [], bitableUrl, jobId }
 }
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
@@ -1585,6 +1806,58 @@ router.get('/api/integrations/lark/generate-testcases/monitor', (req, res) => {
     latest,
     current: current ? { status: current.status, createdAt: current.createdAt } : null,
   })
+})
+
+// GET /api/integrations/lark/generate-testcases/jobs — list resumable jobs for current user
+router.get('/api/integrations/lark/generate-testcases/jobs', (req, res) => {
+  const user = getUser(req)
+  const jobs = getResumableJobs(user)
+  const jobsWithCount = jobs.map(j => {
+    const { total, committed } = countJobTestCases(j.id)
+    return {
+      jobId: j.id,
+      status: j.status,
+      sourceHash: j.source_hash,
+      total,
+      committed,
+      createdAt: j.created_at,
+      updatedAt: j.updated_at,
+    }
+  })
+  res.json({ ok: true, jobs: jobsWithCount })
+})
+
+// POST /api/integrations/lark/generate-testcases/resume/:jobId — resume a paused job
+router.post('/api/integrations/lark/generate-testcases/resume/:jobId', async (req, res) => {
+  const jobId = req.params.jobId
+  const clientIp = getClientIP(req)
+  const user = getUser(req)
+
+  const job = getJob(jobId)
+  if (!job) return res.status(404).json({ ok: false, message: 'Job not found' })
+
+  const requestId = `resume-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  cleanJobStore()
+  jobStore.set(requestId, { status: 'running', createdAt: Date.now(), callbacks: new Set() })
+
+  const callbackUrl = `http://127.0.0.1:${process.env.PORT ?? 3000}/internal/testcase-jobs/${encodeURIComponent(requestId)}/finish`
+
+  fetch(`${getWorkerUrl()}/internal/worker/testcase/resume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requestId, jobId, clientIp, user, callbackUrl }),
+    signal: AbortSignal.timeout(5000),
+  }).then(async response => {
+    if (response.ok) return
+    const detail = await response.text().catch(() => '')
+    finishJob(requestId, { ok: false, message: `Worker rejected resume: HTTP ${response.status} ${detail.slice(0, 200)}` })
+  }).catch(error => {
+    const message = error instanceof Error ? error.message : String(error)
+    finishJob(requestId, { ok: false, message: `Worker dispatch failed: ${message}` })
+  })
+
+  res.json({ ok: true, requestId, worker: true })
+  return
 })
 
 /**

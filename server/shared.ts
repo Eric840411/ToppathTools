@@ -3,7 +3,7 @@
  * Shared utilities, DB instance, helpers, and types used across all route files.
  */
 import Bottleneck from 'bottleneck'
-import { createHash, createSign, randomBytes, timingSafeEqual } from 'crypto'
+import { createHash, createSign, randomBytes, timingSafeEqual, randomUUID } from 'crypto'
 import Database from 'better-sqlite3'
 import dotenv from 'dotenv'
 import express from 'express'
@@ -187,6 +187,35 @@ db.exec(`
   );
 `)
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS generation_jobs (
+    id             TEXT PRIMARY KEY,
+    source_hash    TEXT NOT NULL,
+    prompt_version TEXT NOT NULL DEFAULT '',
+    status         TEXT NOT NULL DEFAULT 'pending',
+    params_json    TEXT NOT NULL DEFAULT '{}',
+    error_message  TEXT,
+    created_at     INTEGER NOT NULL,
+    updated_at     INTEGER NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS generated_test_cases (
+    id                TEXT PRIMARY KEY,
+    job_id            TEXT NOT NULL,
+    seq_in_job        INTEGER NOT NULL,
+    idempotency_key   TEXT NOT NULL UNIQUE,
+    gen_status        TEXT NOT NULL DEFAULT 'pending',
+    commit_status     TEXT NOT NULL DEFAULT 'pending',
+    commit_lease_token TEXT,
+    content_json      TEXT,
+    bitable_record_id TEXT,
+    error_message     TEXT,
+    gen_started_at    INTEGER,
+    commit_started_at INTEGER,
+    FOREIGN KEY (job_id) REFERENCES generation_jobs(id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_gen_test_cases_job ON generated_test_cases(job_id, seq_in_job);
+`)
+
 {
   const cols = db.prepare('PRAGMA table_info(operation_history)').all() as { name: string }[]
   if (!cols.find(c => c.name === 'operator_key')) {
@@ -263,6 +292,151 @@ db.prepare('DELETE FROM local_agent_tokens WHERE created_at < ? AND revoked = 1'
 db.prepare('DELETE FROM machine_test_sessions WHERE started_at < ?').run(Date.now() - 30 * 24 * 60 * 60 * 1000)
 // Auto-purge per-machine results older than 90 days
 db.prepare('DELETE FROM machine_test_results WHERE tested_at < ?').run(Date.now() - 90 * 24 * 60 * 60 * 1000)
+// Migration: add commit_lease_token column if missing
+{
+  const cols = db.prepare('PRAGMA table_info(generated_test_cases)').all() as { name: string }[]
+  if (cols.length > 0 && !cols.find(c => c.name === 'commit_lease_token')) {
+    db.exec(`ALTER TABLE generated_test_cases ADD COLUMN commit_lease_token TEXT`)
+  }
+}
+
+// Migration: add bitable coord columns to generation_jobs if missing
+for (const col of ['bitable_url', 'bitable_app_token', 'bitable_table_id']) {
+  try { db.exec(`ALTER TABLE generation_jobs ADD COLUMN ${col} TEXT`) } catch { /* already exists */ }
+}
+
+// Auto-purge generation jobs older than 30 days
+db.prepare("DELETE FROM generated_test_cases WHERE job_id IN (SELECT id FROM generation_jobs WHERE created_at < ?)")
+  .run(Date.now() - 30 * 24 * 60 * 60 * 1000)
+db.prepare('DELETE FROM generation_jobs WHERE created_at < ?').run(Date.now() - 30 * 24 * 60 * 60 * 1000)
+
+// ─── Generation Job helpers ───────────────────────────────────────────────────
+
+export function hashSources(sources: { type: string; url?: string }[]): string {
+  return createHash('sha256').update(JSON.stringify(sources)).digest('hex').slice(0, 16)
+}
+
+export interface GenerationJobRow {
+  id: string
+  source_hash: string
+  prompt_version: string
+  status: string
+  params_json: string
+  error_message: string | null
+  created_at: number
+  updated_at: number
+  bitable_url: string | null
+  bitable_app_token: string | null
+  bitable_table_id: string | null
+}
+
+export function createGenerationJob(jobId: string, sourceHash: string, promptVersion: string, paramsJson: string): void {
+  const now = Date.now()
+  db.prepare(
+    `INSERT INTO generation_jobs (id, source_hash, prompt_version, status, params_json, created_at, updated_at)
+     VALUES (?, ?, ?, 'pending', ?, ?, ?)`
+  ).run(jobId, sourceHash, promptVersion, paramsJson, now, now)
+}
+
+export function updateJobStatus(jobId: string, status: string, errorMessage?: string): void {
+  db.prepare(`UPDATE generation_jobs SET status = ?, error_message = ?, updated_at = ? WHERE id = ?`)
+    .run(status, errorMessage ?? null, Date.now(), jobId)
+}
+
+export function updateJobBitableCoords(jobId: string, url: string, appToken: string, tableId: string): void {
+  db.prepare(`UPDATE generation_jobs SET bitable_url = ?, bitable_app_token = ?, bitable_table_id = ?, updated_at = ? WHERE id = ?`)
+    .run(url, appToken, tableId, Date.now(), jobId)
+}
+
+export function getJob(jobId: string): GenerationJobRow | undefined {
+  return db.prepare(`SELECT * FROM generation_jobs WHERE id = ?`).get(jobId) as GenerationJobRow | undefined
+}
+
+export function getResumableJobs(userKey: string): GenerationJobRow[] {
+  // Returns jobs in generated/failed/committing status within last 7 days that have some done test cases
+  return db.prepare(
+    `SELECT j.* FROM generation_jobs j
+     WHERE j.status IN ('generated', 'committing', 'failed')
+       AND j.created_at > ?
+       AND json_extract(j.params_json, '$.userKey') = ?
+       AND EXISTS (SELECT 1 FROM generated_test_cases tc WHERE tc.job_id = j.id AND tc.gen_status = 'done')
+     ORDER BY j.created_at DESC LIMIT 10`
+  ).all(Date.now() - 7 * 24 * 60 * 60 * 1000, userKey) as GenerationJobRow[]
+}
+
+export function saveGeneratedTestCases(jobId: string, cases: object[]): void {
+  const now = Date.now()
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO generated_test_cases
+      (id, job_id, seq_in_job, idempotency_key, gen_status, commit_status, content_json, gen_started_at)
+     VALUES (?, ?, ?, ?, 'done', 'pending', ?, ?)`
+  )
+  db.transaction(() => {
+    for (let i = 0; i < cases.length; i++) {
+      const id = `${jobId}-${i}`
+      const key = createHash('sha256').update(`${jobId}:${i}`).digest('hex').slice(0, 32)
+      insert.run(id, jobId, i, key, JSON.stringify(cases[i]), now)
+    }
+  })()
+}
+
+export function getUncommittedTestCases(jobId: string): Array<{
+  id: string; seq_in_job: number; idempotency_key: string; content_json: string
+}> {
+  const TTL_SECONDS = 30
+  return db.prepare(
+    `SELECT id, seq_in_job, idempotency_key, content_json FROM generated_test_cases
+     WHERE job_id = ?
+       AND gen_status = 'done'
+       AND (commit_status = 'pending'
+            OR commit_status = 'commit_failed'
+            OR (commit_status = 'in_progress' AND commit_started_at < ?))
+       AND commit_status != 'committed'
+     ORDER BY seq_in_job`
+  ).all(jobId, Date.now() / 1000 - TTL_SECONDS) as Array<{
+    id: string; seq_in_job: number; idempotency_key: string; content_json: string
+  }>
+}
+
+/** Atomically claim a test case for committing. Returns lease token if claimed, null if not. */
+export function claimTestCaseForCommit(id: string): string | null {
+  const TTL_SECONDS = 60  // increased to 60s to handle slow Bitable API
+  const now = Math.floor(Date.now() / 1000)
+  const leaseToken = randomUUID()
+  const result = db.prepare(
+    `UPDATE generated_test_cases
+     SET commit_status = 'in_progress', commit_started_at = ?, commit_lease_token = ?
+     WHERE id = ?
+       AND (commit_status = 'pending'
+            OR (commit_status = 'in_progress' AND commit_started_at < ?))`
+  ).run(now, leaseToken, id, now - TTL_SECONDS)
+  return result.changes > 0 ? leaseToken : null
+}
+
+/** Mark committed only if lease token matches (prevents stale worker overwrite). */
+export function markTestCaseCommitted(id: string, bitableRecordId: string, leaseToken: string): void {
+  const result = db.prepare(
+    `UPDATE generated_test_cases
+     SET commit_status = 'committed', bitable_record_id = ?, commit_lease_token = NULL
+     WHERE id = ? AND commit_lease_token = ?`
+  ).run(bitableRecordId, id, leaseToken)
+  if (result.changes === 0) {
+    // Another worker claimed the lease — this is expected, not an error
+    throw new Error(`lease expired or overridden for test case ${id}`)
+  }
+}
+
+export function markTestCaseCommitFailed(id: string, errorMessage: string): void {
+  db.prepare(
+    `UPDATE generated_test_cases SET commit_status = 'commit_failed', error_message = ?, commit_lease_token = NULL WHERE id = ?`
+  ).run(errorMessage, id)
+}
+
+export function countJobTestCases(jobId: string): { total: number; committed: number } {
+  const total = (db.prepare(`SELECT COUNT(*) as c FROM generated_test_cases WHERE job_id = ? AND gen_status = 'done'`).get(jobId) as { c: number }).c
+  const committed = (db.prepare(`SELECT COUNT(*) as c FROM generated_test_cases WHERE job_id = ? AND commit_status = 'committed'`).get(jobId) as { c: number }).c
+  return { total, committed }
+}
 
 export function addHistory(
   feature: string,
@@ -933,6 +1107,14 @@ export const writeLimiter = rateLimit({
   legacyHeaders: false,
   validate: { xForwardedForHeader: false },
   message: { ok: false, message: '請求過於頻繁，請稍後再試' },
+})
+export const loginLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
+  message: { ok: false, message: '登入嘗試過於頻繁，請 1 分鐘後再試' },
 })
 
 // ─── OSM Version History ──────────────────────────────────────────────────────

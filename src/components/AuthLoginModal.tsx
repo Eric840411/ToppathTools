@@ -3,8 +3,48 @@ import Portal from './Portal'
 import { useIsGameMode } from './GameModeContext'
 import type { AccountInfo } from './JiraAccountModal'
 
+const LAST_LOGIN_EMAIL_KEY = 'toppath_last_login_email'
+
 interface Props {
   onLogin: (account: AccountInfo) => void
+}
+
+interface AccountsResponse {
+  ok: boolean
+  accounts?: AccountInfo[]
+}
+
+interface LoginResponse {
+  ok: boolean
+  account?: AccountInfo
+  message?: string
+}
+
+interface AddAccountResponse {
+  ok: boolean
+  message?: string
+}
+
+function readLastLoginEmail(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    return window.localStorage.getItem(LAST_LOGIN_EMAIL_KEY)
+  } catch {
+    return null
+  }
+}
+
+function saveLastLoginEmail(email: string) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(LAST_LOGIN_EMAIL_KEY, email)
+  } catch {
+    // Ignore storage failures so a successful login is not blocked.
+  }
+}
+
+function isSameEmail(left: string | null, right: string): boolean {
+  return left?.toLowerCase() === right.toLowerCase()
 }
 
 export function AuthLoginModal({ onLogin }: Props) {
@@ -23,14 +63,19 @@ export function AuthLoginModal({ onLogin }: Props) {
   const [newRole, setNewRole] = useState<'qa' | 'pm'>('qa')
   const [addLoading, setAddLoading] = useState(false)
   const [addSuccess, setAddSuccess] = useState('')
+  const [lastLoginEmail, setLastLoginEmail] = useState<string | null>(() => readLastLoginEmail())
+  const [filter, setFilter] = useState('')
+  const [page, setPage] = useState(0)
   const pinRef = useRef<HTMLInputElement>(null)
+
+  const PAGE_SIZE = 5
 
   async function fetchAccounts(cancelled = false) {
     setLoading(true)
     fetch('/api/jira/accounts')
-      .then(resp => resp.json())
+      .then(resp => resp.json() as Promise<AccountsResponse>)
       .then(data => {
-        if (!cancelled && data.ok) setAccounts(data.accounts)
+        if (!cancelled && data.ok) setAccounts(data.accounts ?? [])
       })
       .catch(() => {
         if (!cancelled) setError('帳號清單讀取失敗')
@@ -59,11 +104,13 @@ export function AuthLoginModal({ onLogin }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: account.email, pin: accountPin }),
       })
-      const data = await resp.json()
+      const data = await (resp.json() as Promise<LoginResponse>)
       if (!data.ok || !data.account) {
         setError(data.message ?? '登入失敗')
         return
       }
+      saveLastLoginEmail(data.account.email)
+      setLastLoginEmail(data.account.email)
       onLogin(data.account)
     } catch {
       setError('登入失敗')
@@ -99,7 +146,7 @@ export function AuthLoginModal({ onLogin }: Props) {
           pin: newPin.trim(),
         }),
       })
-      const data = await resp.json()
+      const data = await (resp.json() as Promise<AddAccountResponse>)
       if (!data.ok) {
         setError(data.message ?? '新增帳號失敗')
         return
@@ -117,6 +164,19 @@ export function AuthLoginModal({ onLogin }: Props) {
     } finally {
       setAddLoading(false)
     }
+  }
+
+  const normalizedFilter = filter.trim().toLowerCase()
+  const filteredAccounts = normalizedFilter
+    ? accounts.filter(account =>
+        account.label.toLowerCase().includes(normalizedFilter) ||
+        account.email.toLowerCase().includes(normalizedFilter),
+      )
+    : accounts
+
+  function handleFilterChange(value: string) {
+    setFilter(value)
+    setPage(0)
   }
 
   return (
@@ -139,26 +199,73 @@ export function AuthLoginModal({ onLogin }: Props) {
               {addSuccess && <p className="auth-login-success">{addSuccess}</p>}
               {loading && <p className="idle-hint">Loading accounts...</p>}
               {!loading && accounts.length === 0 && <div className="alert-warn">尚未建立 Jira 帳號，請先由管理員新增帳號。</div>}
+              <input
+                type="search"
+                value={filter}
+                onChange={event => handleFilterChange(event.target.value)}
+                placeholder="搜尋帳號..."
+                aria-label="搜尋帳號"
+                className="auth-login-search"
+              />
               <div className="auth-login-list">
-                {accounts.map(account => (
-                  <button
-                    key={account.email}
-                    type="button"
-                    className="auth-login-account"
-                    disabled={loginLoadingEmail === account.email}
-                    onClick={() => handleAccountClick(account)}
-                  >
-                    <span className="auth-login-account-main">
-                      <strong>{account.label}</strong>
-                      <span>{account.email}</span>
-                    </span>
-                    <span className="auth-login-account-meta">
-                      <span>{account.role.toUpperCase()}</span>
-                      {account.hasPIN ? <span title="PIN protected">🔒</span> : <span title="No PIN">⚠</span>}
-                      {loginLoadingEmail === account.email && <span>...</span>}
-                    </span>
-                  </button>
-                ))}
+                {(() => {
+                  const lastLoginAccount = filteredAccounts.find(a => isSameEmail(lastLoginEmail, a.email))
+                  const otherAccounts = filteredAccounts.filter(a => !isSameEmail(lastLoginEmail, a.email))
+                  const totalPages = Math.ceil(otherAccounts.length / PAGE_SIZE)
+                  const safePage = Math.min(page, Math.max(0, totalPages - 1))
+                  const pagedOthers = otherAccounts.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
+
+                  const renderAccount = (account: AccountInfo) => (
+                    <button
+                      key={account.email}
+                      type="button"
+                      className="auth-login-account"
+                      disabled={loginLoadingEmail === account.email}
+                      onClick={() => handleAccountClick(account)}
+                    >
+                      <span className="auth-login-account-main">
+                        <strong>{account.label}</strong>
+                        <span>{account.email}</span>
+                      </span>
+                      <span className="auth-login-account-meta">
+                        {isSameEmail(lastLoginEmail, account.email) && <span className="auth-login-last-badge" title="Last used">上次</span>}
+                        <span>{account.role.toUpperCase()}</span>
+                        {account.hasPIN ? <span title="PIN protected">🔒</span> : <span title="No PIN">⚠</span>}
+                        {loginLoadingEmail === account.email && <span>...</span>}
+                      </span>
+                    </button>
+                  )
+
+                  return (
+                    <>
+                      {lastLoginAccount && renderAccount(lastLoginAccount)}
+                      {lastLoginAccount && pagedOthers.length > 0 && (
+                        <div className="auth-login-divider" />
+                      )}
+                      {pagedOthers.map(renderAccount)}
+                      {totalPages > 1 && (
+                        <div className="auth-login-pagination">
+                          <button
+                            type="button"
+                            className="auth-login-page-btn"
+                            disabled={safePage === 0}
+                            onClick={() => setPage(safePage - 1)}
+                          >‹</button>
+                          <span className="auth-login-page-info">{safePage + 1} / {totalPages}</span>
+                          <button
+                            type="button"
+                            className="auth-login-page-btn"
+                            disabled={safePage >= totalPages - 1}
+                            onClick={() => setPage(safePage + 1)}
+                          >›</button>
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
+                {!loading && filteredAccounts.length === 0 && accounts.length > 0 && (
+                  <p className="auth-login-empty">找不到符合的帳號</p>
+                )}
               </div>
             </div>
           )}

@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { pinHash, readAccounts, writeLimiter } from '../shared.js'
+import { loginLimiter, pinHash, readAccounts } from '../shared.js'
 import { clearAuthSession, createAuthSession, getAuthAccount, publicAccount } from '../auth-session.js'
 import { getActiveHeavyTasks, getHeavyTaskForRequest, getRecentHeavyTasksForRequest } from '../heavy-task-guard.js'
 
@@ -17,7 +17,7 @@ router.get('/api/auth/me', (req, res) => {
   res.json({ ok: true, authenticated: true, account })
 })
 
-router.post('/api/auth/login', writeLimiter, (req, res) => {
+router.post('/api/auth/login', loginLimiter, (req, res) => {
   const { email, pin } = loginSchema.parse(req.body)
   const account = readAccounts().find(a => a.email === email)
   if (!account) return res.status(404).json({ ok: false, message: '帳號不存在' })

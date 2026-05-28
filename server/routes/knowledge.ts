@@ -313,6 +313,34 @@ router.get('/api/knowledge/docs/:id/content', (req, res) => {
   res.json({ ok: true, id: doc.id, name: doc.name, content: doc.content_cache ?? '' })
 })
 
+// ─── PATCH /api/knowledge/docs/:id ───────────────────────────────────────────
+
+const PatchDocSchema = z.object({
+  name: z.string().min(1).optional(),
+  tags: z.array(z.string()).optional(),
+  folder_id: z.number().nullable().optional(),
+  source_url: z.string().nullable().optional(),
+})
+
+router.patch('/api/knowledge/docs/:id', (req, res) => {
+  const account = getAuthAccount(req)
+  if (!account) { res.status(401).json({ ok: false, error: 'unauthenticated' }); return }
+
+  const doc = db.prepare('SELECT id, type FROM knowledge_docs WHERE id = ?').get(req.params.id) as Pick<KnowledgeDoc, 'id' | 'type'> | undefined
+  if (!doc) { res.status(404).json({ ok: false, error: '文件不存在' }); return }
+
+  const parsed = PatchDocSchema.safeParse(req.body)
+  if (!parsed.success) { res.status(400).json({ ok: false, error: parsed.error.message }); return }
+
+  const { name, tags, folder_id, source_url } = parsed.data
+  if (name !== undefined) db.prepare('UPDATE knowledge_docs SET name = ? WHERE id = ?').run(name, doc.id)
+  if (tags !== undefined) db.prepare('UPDATE knowledge_docs SET tags = ? WHERE id = ?').run(JSON.stringify(tags), doc.id)
+  if ('folder_id' in parsed.data) db.prepare('UPDATE knowledge_docs SET folder_id = ? WHERE id = ?').run(folder_id ?? null, doc.id)
+  if (source_url !== undefined && doc.type !== 'file_upload') db.prepare('UPDATE knowledge_docs SET source_url = ? WHERE id = ?').run(source_url, doc.id)
+
+  res.json({ ok: true })
+})
+
 // ─── DELETE /api/knowledge/docs/:id ──────────────────────────────────────────
 
 router.delete('/api/knowledge/docs/:id', (req, res) => {

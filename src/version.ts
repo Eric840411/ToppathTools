@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.31.0'
+export const APP_VERSION = '3.34.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,50 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.34.1',
+    date: '2026-05-28',
+    changes: [
+      'fix(testcase): 修正 Codex P1 — 部分 Bitable 寫入失敗仍標 completed、resume 建新表而非沿用原表、固定表缺少 idempotency 欄位、commit_failed 行不被 resume 重試',
+      'fix(osm): VersionDashboard 加入 ImageRecon 資料後 hasAnyData 未更新，導致只有 ImageRecon 資料時仍顯示空畫面',
+    ],
+  },
+  {
+    version: '3.34.0',
+    date: '2026-05-28',
+    changes: [
+      'feat(auth): 登入清單 — 上次登入帳號固定釘頂並顯示分割線，其餘帳號超過 5 筆自動分頁（每頁 5 筆，搜尋時重置頁碼）',
+      'fix(auth): 登出後不再自動跳至 PIN 畫面（移除 auto-select effect），登出體驗恢復正常',
+    ],
+  },
+  {
+    version: '3.33.0',
+    date: '2026-05-28',
+    changes: [
+      'feat(testcase): TestCase 生成新增斷點續跑機制 — 生成結果持久化至 DB，Bitable 寫入支援 per-case idempotency，中斷後可從上次進度繼續，不重跑 LLM。新增 GET /api/integrations/lark/generate-testcases/jobs 和 POST .../resume/:jobId 端點。',
+    ],
+  },
+  {
+    version: '3.32.2',
+    date: '2026-05-27',
+    changes: [
+      'fix(auth): 調整帳號新增邏輯 — 允許自助新增新帳號，但覆蓋已存在帳號需要 admin 身份。',
+    ],
+  },
+  {
+    version: '3.32.1',
+    date: '2026-05-27',
+    changes: [
+      'fix(auth): POST /api/jira/accounts 加入 admin 權限驗證；登入 rate limit 收緊至每分鐘 10 次；登出時清除 localStorage 上次登入紀錄。',
+    ],
+  },
+  {
+    version: '3.32.0',
+    date: '2026-05-27',
+    changes: [
+      'feat(login): 登入頁面新增搜尋過濾 + 記住上次登入帳號（localStorage）。帳號多時可即時搜尋，有 PIN 的帳號下次自動跳至 PIN 輸入畫面。',
+    ],
+  },
   {
     version: '3.31.0',
     date: '2026-05-26',

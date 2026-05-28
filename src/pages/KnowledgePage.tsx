@@ -85,6 +85,15 @@ export function KnowledgePage() {
   const [refreshingId, setRefreshingId] = useState<number | null>(null)
   const [deletingId, setDeletingId] = useState<number | null>(null)
 
+  // Edit doc
+  const [editDoc, setEditDoc] = useState<KnowledgeDoc | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editTags, setEditTags] = useState('')
+  const [editFolderId, setEditFolderId] = useState<number | null>(null)
+  const [editUrl, setEditUrl] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState('')
+
   async function loadFolders() {
     try {
       const r = await fetch('/api/knowledge/folders')
@@ -207,6 +216,40 @@ export function KnowledgePage() {
       await fetch(`/api/knowledge/docs/${id}`, { method: 'DELETE' })
       loadFolders(); loadAllDocs(); loadDocs(selectedFolderId)
     } finally { setDeletingId(null) }
+  }
+
+  function openEditDoc(doc: KnowledgeDoc) {
+    setEditDoc(doc)
+    setEditName(doc.name)
+    setEditTags(parseTags(doc.tags).join(', '))
+    setEditFolderId(doc.folder_id)
+    setEditUrl(doc.source_url ?? '')
+    setEditError('')
+  }
+
+  async function handleSaveEdit() {
+    if (!editDoc) return
+    if (!editName.trim()) { setEditError('名稱不能為空'); return }
+    setEditSaving(true)
+    setEditError('')
+    try {
+      const tags = editTags.split(',').map(t => t.trim()).filter(Boolean)
+      const body: Record<string, unknown> = { name: editName.trim(), tags, folder_id: editFolderId }
+      if (editDoc.type !== 'file_upload') body.source_url = editUrl.trim() || null
+      const r = await fetch(`/api/knowledge/docs/${editDoc.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const d = await r.json() as { ok: boolean; error?: string }
+      if (!d.ok) { setEditError(d.error ?? '儲存失敗'); return }
+      setEditDoc(null)
+      await Promise.all([loadAllDocs(), loadDocs(selectedFolderId)])
+    } catch {
+      setEditError('儲存失敗')
+    } finally {
+      setEditSaving(false)
+    }
   }
 
   async function handlePreview(id: number, name: string) {
@@ -403,6 +446,8 @@ export function KnowledgePage() {
                               {isRefreshing ? '⏳' : '重抓'}
                             </button>
                           )}
+                          <button className="btn-ghost btn-ghost--step" style={{ padding: '4px 10px', fontSize: 12 }}
+                            onClick={() => openEditDoc(doc)}>編輯</button>
                           <button disabled={isDeleting} onClick={() => handleDelete(doc.id, doc.name)}
                             style={{ background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 5, color: '#f87171', padding: '4px 10px', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
                             {isDeleting ? '...' : '刪除'}
@@ -531,6 +576,50 @@ export function KnowledgePage() {
             </div>
             <div style={{ padding: '10px 22px', borderTop: '1px solid #2d3f55', fontSize: 11, color: '#334155', flexShrink: 0 }}>
               共 {previewDoc.content.length.toLocaleString()} 字 · 點擊外部或 × 關閉
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Edit Doc Modal ── */}
+      {editDoc && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.65)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+          onClick={e => { if (e.target === e.currentTarget) setEditDoc(null) }}>
+          <div style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 12, width: '100%', maxWidth: 520, boxShadow: '0 20px 60px rgba(0,0,0,.5)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 22px', borderBottom: '1px solid #2d3f55' }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: '#e2e8f0' }}>編輯文件</span>
+              <button onClick={() => setEditDoc(null)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ padding: '20px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <FormRow label="名稱 *">
+                <input value={editName} onChange={e => setEditName(e.target.value)} style={mInput} />
+              </FormRow>
+              <FormRow label="資料夾">
+                <select value={editFolderId ?? ''} onChange={e => setEditFolderId(e.target.value ? Number(e.target.value) : null)} style={mInput}>
+                  <option value="">未分類</option>
+                  {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                </select>
+              </FormRow>
+              {editDoc.type !== 'file_upload' && (
+                <FormRow label="來源 URL">
+                  <input value={editUrl} onChange={e => setEditUrl(e.target.value)} style={mInput} />
+                </FormRow>
+              )}
+              <FormRow label="標籤">
+                <input value={editTags} onChange={e => setEditTags(e.target.value)}
+                  placeholder="逗號分隔，例：百家樂, 規格書" style={mInput} />
+              </FormRow>
+              {editError && <div style={{ color: '#f87171', fontSize: 13, marginTop: -6 }}>❌ {editError}</div>}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 22px', borderTop: '1px solid #2d3f55' }}>
+              <button className={`submit-btn${editSaving ? ' loading' : ''}`} onClick={() => void handleSaveEdit()} disabled={editSaving}
+                style={{ padding: '8px 22px', fontSize: 13, width: 'auto' }}>
+                {editSaving ? '⏳ 儲存中...' : '儲存'}
+              </button>
+              <button onClick={() => setEditDoc(null)}
+                style={{ background: 'transparent', border: '1px solid #2d3f55', borderRadius: 6, color: '#64748b', padding: '7px 14px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
+                取消
+              </button>
             </div>
           </div>
         </div>
