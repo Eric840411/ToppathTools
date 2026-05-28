@@ -192,7 +192,8 @@ interface JiraPageProps {
 
 export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const isGame = useIsGameMode()
-  const [mode, setMode] = useState<'qa' | 'pm' | 'update'>('qa')
+  const [mode, setMode] = useState<'qa' | 'pm'>('qa')
+  const [qaSubMode, setQaSubMode] = useState<'create' | 'update'>('create')
   const [step, setStep] = useState<Step>(1)
   const [showAccountModal, setShowAccountModal] = useState(false)
   const [currentAccount, setCurrentAccount] = useState<AccountInfo | null>(account)
@@ -546,8 +547,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
     fetchProjects(acc.email)
     // 若目前 mode 不在帳號的允許範圍，自動切換
     setMode(prev => {
-      if (prev === 'update') return 'update'
-      if (accountHasRole(acc, prev as 'qa' | 'pm')) return prev
+      if (accountHasRole(acc, prev)) return prev
       return accountHasRole(acc, 'qa') ? 'qa' : 'pm'
     })
   }
@@ -1077,10 +1077,9 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
     <div className="page-layout">
       {/* Mode toggle */}
       <div className="mode-toggle">
-        {(['qa', 'pm', 'update'] as const).map(m => {
-          const modeKey = m === 'update' ? 'jira-update' : m
-          const allowed = allowedModes ? allowedModes.includes(modeKey) : accountHasRole(currentAccount, m === 'update' ? 'qa' : m)
-          const label = m === 'qa' ? 'QA 模式' : m === 'pm' ? 'PM 模式' : '批次更新票'
+        {(['qa', 'pm'] as const).map(m => {
+          const allowed = allowedModes ? allowedModes.includes(m) : accountHasRole(currentAccount, m)
+          const label = m === 'qa' ? 'QA 模式' : 'PM 模式'
           return (
             <button
               key={m}
@@ -1100,10 +1099,31 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
         })}
       </div>
 
+      {/* QA sub-tabs */}
+      {mode === 'qa' && (
+        <div style={{ display: 'flex', gap: 8, padding: '6px 0 2px' }}>
+          {(['create', 'update'] as const).map(sub => (
+            <button
+              key={sub}
+              type="button"
+              onClick={() => setQaSubMode(sub)}
+              style={{
+                padding: '5px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                border: `1px solid ${qaSubMode === sub ? '#3b82f6' : '#2d3f55'}`,
+                background: qaSubMode === sub ? '#1e3a5f' : 'transparent',
+                color: qaSubMode === sub ? '#93c5fd' : '#64748b',
+              }}
+            >
+              {sub === 'create' ? '批量開單' : '批量更新狀態'}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Top bar */}
       <div className="page-topbar">
         <div className="step-indicator">
-          {mode === 'qa'
+          {mode === 'qa' && qaSubMode === 'create'
             ? ([1, 2, 3, 4, 5, 6] as Step[]).map(s => <StepDot key={s} s={s} />)
             : ([1, 2, 3] as const).map(s => (
                 <span key={s} className={`step-dot${
@@ -1114,7 +1134,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
               ))
           }
           <span className="step-label">
-            {mode === 'qa' ? STEP_LABELS[step]
+            {mode === 'qa' && qaSubMode === 'create' ? STEP_LABELS[step]
               : mode === 'pm' ? ({ 1: '讀取表格', 2: '確認清單', 3: '開單結果' } as Record<number, string>)[pmStep]
               : ({ 1: '讀取 Bitable', 2: '設定帳號 & 動作', 3: '執行結果' } as Record<number, string>)[updateStep]}
           </span>
@@ -1303,8 +1323,8 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
         </>
       )}
 
-      {/* ── Update Mode ── */}
-      {mode === 'update' && (
+      {/* ── Update Mode (inside QA) ── */}
+      {mode === 'qa' && qaSubMode === 'update' && (
         <>
           {/* Step 1: 讀取 Bitable */}
           {updateStep === 1 && (
@@ -1492,8 +1512,8 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
         </>
       )}
 
-      {/* ── QA Mode ── */}
-      {mode === 'qa' && (
+      {/* ── QA Mode — 批量開單 ── */}
+      {mode === 'qa' && qaSubMode === 'create' && (
       <>
 
       {/* ── Step 1 ── */}
