@@ -1411,52 +1411,83 @@ router.post('/api/jira/pm-batch-create', heavyLimiter, async (req, res, next) =>
 
 /**
  * POST /api/jira/update-read-bitable
- * 讀取 Bitable，自動偵測 URL 欄（含 Issue Key）與填寫人欄
+ * 讀取 Lark Sheet（/wiki/ 或 /sheets/）或 Bitable（/base/），
+ * 自動偵測 URL 欄（含 Issue Key）與填寫人欄
  */
 router.post('/api/jira/update-read-bitable', async (req, res, next) => {
   try {
     const { bitableUrl } = z.object({ bitableUrl: z.string() }).parse(req.body)
-    let { appToken, tableId } = parseBitableUrl(bitableUrl)
-    if (!appToken || !tableId) return res.status(400).json({ ok: false, message: '無法解析 Bitable URL，請確認格式。支援 /base/APP_TOKEN?table=TABLE_ID 或 /wiki/WIKI_TOKEN?sheet=TABLE_ID' })
-
     const token = await getLarkToken()
     const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
 
-    // If URL is a Wiki URL, resolve wiki node → actual Bitable app_token
-    if (bitableUrl.includes('/wiki/')) {
-      // Try two known Lark wiki node API endpoint variants
-      let wikiData: { code?: number; msg?: string; data?: { node?: { obj_token?: string; obj_type?: string } } } | null = null
-      for (const endpoint of [
-        `${base}/open-apis/wiki/v2/nodes/get?token=${appToken}`,
-        `${base}/open-apis/wiki/v2/spaces/nodes/get?token=${appToken}`,
-      ]) {
-        try {
-          const wikiResp = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } })
-          const text = await wikiResp.text()
-          const parsed = JSON.parse(text) as typeof wikiData
-          if (parsed && typeof parsed === 'object' && 'code' in parsed) { wikiData = parsed; break }
-        } catch { /* try next endpoint */ }
+    const JIRA_KEY_RE = /^[A-Z]+-\d+$/
+    const extractCell = (cell: unknown): string => {
+      if (cell === null || cell === undefined) return ''
+      if (typeof cell === 'string') return cell
+      if (typeof cell === 'number' || typeof cell === 'boolean') return String(cell)
+      if (typeof cell === 'object') {
+        const c = cell as Record<string, unknown>
+        if (typeof c.text === 'string') return c.text
+        if (typeof c.value === 'string') return c.value
+        if (typeof c.formulaValue === 'string') return c.formulaValue
+        if (typeof c.displayValue === 'string') return c.displayValue
+        if (Array.isArray(c.text)) return (c.text as Array<{ text?: string }>).map(t => t.text ?? '').join('')
+        // URL field type { link, text }
+        if (typeof (c as { link?: string }).link === 'string' && typeof (c as { text?: string }).text === 'string')
+          return (c as { text: string }).text
+      }
+      return ''
+    }
+
+    // ── Lark Sheet path (/wiki/ or /sheets/) ──
+    if (bitableUrl.includes('/wiki/') || bitableUrl.includes('/sheets/')) {
+      const { spreadsheetToken, sheetId } = parseLarkSheetUrl(bitableUrl)
+      if (!spreadsheetToken) return res.status(400).json({ ok: false, message: '無法解析 URL，請確認格式' })
+
+      const range = sheetId ? `${sheetId}!A1:AZ2000` : 'A1:AZ2000'
+      const sheetResp = await fetch(
+        `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${range}`,
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } },
+      )
+      const sheetData = await sheetResp.json() as {
+        code?: number; msg?: string
+        data?: { valueRange?: { values?: unknown[][] } }
+      }
+      if (!sheetResp.ok || sheetData.code !== 0) {
+        return res.status(400).json({ ok: false, message: `讀取 Lark Sheet 失敗 (${sheetData.msg ?? sheetData.code})` })
       }
 
-      if (!wikiData) {
-        return res.status(400).json({ ok: false, message: 'Wiki API 呼叫失敗，請直接貼入 Bitable URL（格式：larksuite.com/base/APP_TOKEN?table=TABLE_ID）' })
+      const rows = sheetData.data?.valueRange?.values ?? []
+      if (rows.length < 2) return res.json({ ok: true, records: [], allHeaders: [], urlColumn: '', fillPersonColumn: '' })
+
+      const headers = (rows[0] as unknown[]).map(extractCell)
+      const urlColIdx = headers.findIndex(h => h.toLowerCase().includes('url'))
+      const fillPersonColIdx = headers.findIndex(h => h.includes('填寫人') || h.includes('填写人'))
+
+      const records: Array<{ issueKey: string; fillPerson: string; rowIndex: number }> = []
+      for (let i = 1; i < rows.length; i++) {
+        const row = rows[i] as unknown[]
+        const rawKey = urlColIdx >= 0 ? extractCell(row[urlColIdx]) : ''
+        // URL cells sometimes contain a full Jira URL; extract just the issue key
+        const issueKey = (rawKey.match(/([A-Z]+-\d+)/) ?? [])[1]?.trim() ?? rawKey.trim()
+        if (!issueKey || !JIRA_KEY_RE.test(issueKey)) continue
+        const fillPerson = fillPersonColIdx >= 0 ? extractCell(row[fillPersonColIdx]).trim() : ''
+        records.push({ issueKey, fillPerson, rowIndex: i + 1 })
       }
-      if (wikiData.code !== 0) {
-        return res.status(400).json({ ok: false, message: `Wiki 節點解析失敗（${wikiData.msg ?? wikiData.code}），請直接貼入 Bitable URL（/base/... 格式）` })
-      }
-      const node = wikiData.data?.node
-      if (node?.obj_type && node.obj_type !== 'bitable') {
-        return res.status(400).json({ ok: false, message: `此 Wiki 節點是「${node.obj_type}」，不是 Bitable，請直接貼入 Bitable URL` })
-      }
-      if (node?.obj_token) appToken = node.obj_token
-      else {
-        return res.status(400).json({ ok: false, message: 'Wiki 節點找不到 Bitable token，請直接貼入 Bitable URL（/base/... 格式）' })
-      }
+
+      return res.json({
+        ok: true, records, allHeaders: headers,
+        urlColumn: urlColIdx >= 0 ? headers[urlColIdx] : '',
+        fillPersonColumn: fillPersonColIdx >= 0 ? headers[fillPersonColIdx] : '',
+      })
     }
+
+    // ── Lark Bitable path (/base/) ──
+    const { appToken, tableId } = parseBitableUrl(bitableUrl)
+    if (!appToken || !tableId) return res.status(400).json({ ok: false, message: '無法解析 URL。支援：/wiki/TOKEN?sheet=ID、/sheets/TOKEN?sheet=ID、/base/TOKEN?table=ID' })
 
     const rawItems: Array<{ record_id: string; fields: Record<string, unknown> }> = []
     let pageToken: string | undefined
-
     do {
       const url = `${base}/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records?page_size=100${pageToken ? `&page_token=${pageToken}` : ''}`
       const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
@@ -1471,30 +1502,7 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
 
     if (rawItems.length === 0) return res.json({ ok: true, records: [], allHeaders: [], urlColumn: '', fillPersonColumn: '' })
 
-    // Detect columns from first record
-    const firstFields = rawItems[0].fields
-    const allHeaders = Object.keys(firstFields)
-
-    // Detect URL column: header name contains 'url' (case insensitive), value contains Jira-like keys
-    const JIRA_KEY_RE = /^[A-Z]+-\d+$/
-    function extractIssueKey(val: unknown): string {
-      if (!val) return ''
-      // URL field type: { link: string, text: string }
-      if (typeof val === 'object' && val !== null && 'text' in val) return (val as { text: string }).text ?? ''
-      // Array of text segments
-      if (Array.isArray(val)) {
-        for (const seg of val as unknown[]) {
-          if (typeof seg === 'object' && seg !== null && 'text' in seg) {
-            const t = (seg as { text: string }).text
-            if (JIRA_KEY_RE.test(t?.trim() ?? '')) return t.trim()
-          }
-        }
-        return (val as { text?: string }[]).map(v => v.text ?? '').join('')
-      }
-      if (typeof val === 'string') return val
-      return ''
-    }
-
+    const allHeaders = Object.keys(rawItems[0].fields)
     const urlColumn = allHeaders.find(h => h.toLowerCase().includes('url')) ?? ''
     const fillPersonColumn = allHeaders.find(h => h.includes('填寫人') || h.includes('填写人')) ?? ''
 
@@ -1503,7 +1511,8 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
     for (const item of rawItems) {
       rowIndex++
       const raw = item.fields[urlColumn]
-      const issueKey = extractIssueKey(raw).trim()
+      const rawStr = extractCell(raw)
+      const issueKey = (rawStr.match(/([A-Z]+-\d+)/) ?? [])[1]?.trim() ?? rawStr.trim()
       if (!issueKey || !JIRA_KEY_RE.test(issueKey)) continue
       const fillPerson = fillPersonColumn ? larkTextField(item.fields[fillPersonColumn]).trim() : ''
       records.push({ issueKey, fillPerson, rowIndex })
