@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.34.4'
+export const APP_VERSION = '3.34.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.34.5',
+    date: '2026-05-28',
+    changes: [
+      'fix(ui): 機台版本 Dashboard 卡片字體修正 — 機種名稱從深藍 #1e40af 改為亮藍 #93c5fd（深色背景可見），缺少機台名稱從深紅 #7f1d1d 改為淺紅 #fca5a5，進度條 track 改為 #334155',
+    ],
+  },
   {
     version: '3.34.4',
     date: '2026-05-28',

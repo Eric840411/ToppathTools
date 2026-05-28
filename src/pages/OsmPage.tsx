@@ -1118,38 +1118,38 @@ export function OsmPage() {
                     return next
                   })
                   return (
-                    <div key={type} style={{ background: '#162032', border: `1px solid ${hasMissing ? '#fca5a5' : '#e2e8f0'}`, borderRadius: 8, padding: '7px 10px' }}>
+                    <div key={type} style={{ background: '#162032', border: `1px solid ${hasMissing ? '#fca5a5' : '#334155'}`, borderRadius: 8, padding: '7px 10px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
-                        <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 600, color: '#1e40af' }}>{type}</span>
+                        <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: '#93c5fd' }}>{type}</span>
                         {diff !== null && diff !== 0 && (
-                          <span style={{ fontSize: 10, fontWeight: 600, color: diffColor }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: diffColor }}>
                             {diff > 0 ? `+${diff}` : diff}
                           </span>
                         )}
-                        {diff === 0 && <span style={{ fontSize: 10, color: '#16a34a' }}>✓</span>}
+                        {diff === 0 && <span style={{ fontSize: 10, color: '#4ade80' }}>✓</span>}
                       </div>
-                      <div style={{ height: 4, background: '#e2e8f0', borderRadius: 2, overflow: 'hidden', marginBottom: 4 }}>
+                      <div style={{ height: 4, background: '#334155', borderRadius: 2, overflow: 'hidden', marginBottom: 4 }}>
                         <div style={{ height: '100%', width: `${pct}%`, background: '#3b82f6', borderRadius: 2 }} />
                       </div>
                       <div style={{ fontSize: 11, display: 'flex', justifyContent: 'space-between', color: '#94a3b8' }}>
-                        <span>OSM <b style={{ color: '#e2e8f0' }}>{count}</b></span>
+                        <span>OSM <b style={{ color: '#f1f5f9' }}>{count}</b></span>
                         <span style={{ color: diffColor }}>
-                          前端 <b>{hasFrontend ? (fCount ?? <span style={{ color: '#d1d5db' }}>—</span>) : <span style={{ color: '#d1d5db' }}>—</span>}</b>
+                          前端 <b>{hasFrontend ? (fCount ?? <span style={{ color: '#64748b' }}>—</span>) : <span style={{ color: '#64748b' }}>—</span>}</b>
                         </span>
                       </div>
                       {hasMissing && missingMachines.length > 0 && (
-                        <div style={{ marginTop: 5, borderTop: '1px solid #fca5a5' }}>
+                        <div style={{ marginTop: 5, borderTop: '1px solid #f87171' }}>
                           <button
                             type="button"
                             onClick={toggleExpand}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: '#dc2626', padding: '3px 0', width: '100%', textAlign: 'left' }}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: '#f87171', padding: '3px 0', width: '100%', textAlign: 'left', fontWeight: 600 }}
                           >
                             {isExpanded ? '▲' : '▼'} 缺少 {missingMachines.length} 台
                           </button>
                           {isExpanded && (
                             <div style={{ maxHeight: 120, overflowY: 'auto', marginTop: 2 }}>
                               {missingMachines.map(m => (
-                                <div key={m.id} style={{ fontSize: 10, fontFamily: 'monospace', color: '#7f1d1d', lineHeight: 1.6 }}>{m.machineName}</div>
+                                <div key={m.id} style={{ fontSize: 10, fontFamily: 'monospace', color: '#fca5a5', lineHeight: 1.6 }}>{m.machineName}</div>
                               ))}
                             </div>
                           )}
