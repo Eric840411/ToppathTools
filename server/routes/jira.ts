@@ -1486,11 +1486,11 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
       }
 
       if (records.length === 0) {
-        console.log('[update-read-bitable] headers:', headers)
-        console.log('[update-read-bitable] urlColIdx:', urlColIdx, 'sample row[1]:', (rows[1] as unknown[])?.map(extractCell))
+        const sampleRaw = urlColIdx >= 0 ? (rows[1] as unknown[])?.[urlColIdx] : null
+        console.log('[update-read-bitable] urlColIdx:', urlColIdx, 'raw cell:', JSON.stringify(sampleRaw))
         return res.status(400).json({
           ok: false,
-          message: `找不到 Jira Issue Key。偵測到的欄位：[${headers.filter(Boolean).join(', ')}]。URL 欄偵測到第 ${urlColIdx + 1} 欄。請確認 URL 欄的儲存格有包含單號（如 CGLD3-1）。`,
+          message: `找不到 Jira Issue Key。欄位：[${headers.filter(Boolean).join(', ')}]，URL 欄第 ${urlColIdx + 1} 欄，原始值：${JSON.stringify(sampleRaw)}`,
         })
       }
 
