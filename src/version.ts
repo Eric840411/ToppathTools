@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.35.0'
+export const APP_VERSION = '3.36.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.36.0',
+    date: '2026-05-28',
+    changes: [
+      'feat(jira): 批量更新狀態移入 QA 模式 — 頂部 tab 改為 QA / PM，QA 模式內新增子 tab「批量開單 / 批量更新狀態」，位置固定在 step indicator 上方',
+    ],
+  },
   {
     version: '3.35.0',
     date: '2026-05-28',
