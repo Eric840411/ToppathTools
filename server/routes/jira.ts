@@ -1461,18 +1461,37 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
       if (rows.length < 2) return res.json({ ok: true, records: [], allHeaders: [], urlColumn: '', fillPersonColumn: '' })
 
       const headers = (rows[0] as unknown[]).map(extractCell)
-      const urlColIdx = headers.findIndex(h => h.toLowerCase().includes('url'))
+      let urlColIdx = headers.findIndex(h => h.toLowerCase().includes('url'))
       const fillPersonColIdx = headers.findIndex(h => h.includes('填寫人') || h.includes('填写人'))
+
+      // If no URL column found by name, scan all columns for Jira keys to auto-detect
+      if (urlColIdx < 0) {
+        for (let colIdx = 0; colIdx < headers.length; colIdx++) {
+          const firstVal = extractCell((rows[1] as unknown[])?.[colIdx])
+          if (JIRA_KEY_RE.test(firstVal.trim()) || /[A-Z]+-\d+/.test(firstVal)) {
+            urlColIdx = colIdx; break
+          }
+        }
+      }
 
       const records: Array<{ issueKey: string; fillPerson: string; rowIndex: number }> = []
       for (let i = 1; i < rows.length; i++) {
         const row = rows[i] as unknown[]
-        const rawKey = urlColIdx >= 0 ? extractCell(row[urlColIdx]) : ''
-        // URL cells sometimes contain a full Jira URL; extract just the issue key
+        if (urlColIdx < 0) break
+        const rawKey = extractCell(row[urlColIdx])
         const issueKey = (rawKey.match(/([A-Z]+-\d+)/) ?? [])[1]?.trim() ?? rawKey.trim()
         if (!issueKey || !JIRA_KEY_RE.test(issueKey)) continue
         const fillPerson = fillPersonColIdx >= 0 ? extractCell(row[fillPersonColIdx]).trim() : ''
         records.push({ issueKey, fillPerson, rowIndex: i + 1 })
+      }
+
+      if (records.length === 0) {
+        console.log('[update-read-bitable] headers:', headers)
+        console.log('[update-read-bitable] urlColIdx:', urlColIdx, 'sample row[1]:', (rows[1] as unknown[])?.map(extractCell))
+        return res.status(400).json({
+          ok: false,
+          message: `找不到 Jira Issue Key。偵測到的欄位：[${headers.filter(Boolean).join(', ')}]。URL 欄偵測到第 ${urlColIdx + 1} 欄。請確認 URL 欄的儲存格有包含單號（如 CGLD3-1）。`,
+        })
       }
 
       return res.json({
