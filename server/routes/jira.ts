@@ -1420,7 +1420,7 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
     const token = await getLarkToken()
     const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
 
-    const JIRA_KEY_RE = /^[A-Z]+-\d+$/
+    const JIRA_KEY_RE = /^[A-Z][A-Z0-9]*-\d+$/
     const extractCell = (cell: unknown): string => {
       if (cell === null || cell === undefined) return ''
       if (typeof cell === 'string') return cell
@@ -1486,11 +1486,11 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
       // If still not found or formula wasn't resolved, scan all columns for direct Jira keys
       if (urlColIdx < 0 || (() => {
         const v = extractCell((rows[1] as unknown[])?.[urlColIdx])
-        return !JIRA_KEY_RE.test(v.trim()) && !/[A-Z]+-\d+/.test(v)
+        return !JIRA_KEY_RE.test(v.trim()) && !/[A-Z][A-Z0-9]*-\d+/.test(v)
       })()) {
         for (let colIdx = 0; colIdx < headers.length; colIdx++) {
           const firstVal = extractCell((rows[1] as unknown[])?.[colIdx])
-          if (JIRA_KEY_RE.test(firstVal.trim()) || /[A-Z]+-\d+/.test(firstVal)) {
+          if (JIRA_KEY_RE.test(firstVal.trim()) || /[A-Z][A-Z0-9]*-\d+/.test(firstVal)) {
             urlColIdx = colIdx; break
           }
         }
@@ -1501,7 +1501,7 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
         const row = rows[i] as unknown[]
         if (urlColIdx < 0) break
         const rawKey = extractCell(row[urlColIdx])
-        const issueKey = (rawKey.match(/([A-Z]+-\d+)/) ?? [])[1]?.trim() ?? rawKey.trim()
+        const issueKey = (rawKey.match(/([A-Z][A-Z0-9]*-\d+)/) ?? [])[1]?.trim() ?? rawKey.trim()
         if (!issueKey || !JIRA_KEY_RE.test(issueKey)) continue
         const fillPerson = fillPersonColIdx >= 0 ? extractCell(row[fillPersonColIdx]).trim() : ''
         records.push({ issueKey, fillPerson, rowIndex: i + 1 })
@@ -1553,7 +1553,7 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
       rowIndex++
       const raw = item.fields[urlColumn]
       const rawStr = extractCell(raw)
-      const issueKey = (rawStr.match(/([A-Z]+-\d+)/) ?? [])[1]?.trim() ?? rawStr.trim()
+      const issueKey = (rawStr.match(/([A-Z][A-Z0-9]*-\d+)/) ?? [])[1]?.trim() ?? rawStr.trim()
       if (!issueKey || !JIRA_KEY_RE.test(issueKey)) continue
       const fillPerson = fillPersonColumn ? larkTextField(item.fields[fillPersonColumn]).trim() : ''
       records.push({ issueKey, fillPerson, rowIndex })
