@@ -1464,8 +1464,30 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
       let urlColIdx = headers.findIndex(h => h.toLowerCase().includes('url'))
       const fillPersonColIdx = headers.findIndex(h => h.includes('填寫人') || h.includes('填写人'))
 
-      // If no URL column found by name, scan all columns for Jira keys to auto-detect
-      if (urlColIdx < 0) {
+      // Helper: column letter → 0-based index (A=0, B=1, ..., Z=25, AA=26, ...)
+      const colLetterToIdx = (col: string): number => {
+        let idx = 0
+        for (const ch of col.toUpperCase()) idx = idx * 26 + ch.charCodeAt(0) - 64
+        return idx - 1
+      }
+
+      // If URL column has a formula (HYPERLINK/REGEXEXTRACT pattern), follow the referenced column
+      if (urlColIdx >= 0) {
+        const sampleCell = (rows[1] as unknown[])?.[urlColIdx]
+        const sampleStr = typeof sampleCell === 'string' ? sampleCell : extractCell(sampleCell)
+        // Formula like: IFERROR(HYPERLINK("..." & REGEXEXTRACT(N2, "..."), REGEXEXTRACT(N2, "..."))
+        const refColMatch = sampleStr.match(/REGEXEXTRACT\(([A-Z]+)\d+/i) ?? sampleStr.match(/&\s*([A-Z]+)\d+/)
+        if (refColMatch) {
+          const refIdx = colLetterToIdx(refColMatch[1])
+          if (refIdx >= 0 && refIdx < headers.length) urlColIdx = refIdx
+        }
+      }
+
+      // If still not found or formula wasn't resolved, scan all columns for direct Jira keys
+      if (urlColIdx < 0 || (() => {
+        const v = extractCell((rows[1] as unknown[])?.[urlColIdx])
+        return !JIRA_KEY_RE.test(v.trim()) && !/[A-Z]+-\d+/.test(v)
+      })()) {
         for (let colIdx = 0; colIdx < headers.length; colIdx++) {
           const firstVal = extractCell((rows[1] as unknown[])?.[colIdx])
           if (JIRA_KEY_RE.test(firstVal.trim()) || /[A-Z]+-\d+/.test(firstVal)) {
