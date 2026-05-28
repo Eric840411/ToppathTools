@@ -1514,9 +1514,6 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
         }
       }
 
-      // Title column: 標題 / title / 內容
-      const titleColIdx = headers.findIndex(h => h.includes('標題') || h.toLowerCase().includes('title'))
-
       const records: Array<{ issueKey: string; fillPerson: string; title: string; rowIndex: number }> = []
       const seenKeys = new Set<string>()
       let skippedEmpty = 0, skippedInvalid = 0
@@ -1532,12 +1529,16 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
           rawKey = extractCell(row[origUrlColIdx])
         }
         if (!rawKey) { skippedEmpty++; continue }
-        const issueKey = (rawKey.match(/([A-Z]{2,}[0-9]*-\d+)/) ?? [])[1]?.trim() ?? rawKey.trim()
+        // N column format: "[CGLD3-1]Title text here" — extract key + title from same cell
+        const bracketMatch = rawKey.match(/^\[([A-Z]{2,}[0-9]*-\d+)\](.*)$/)
+        const issueKey = bracketMatch
+          ? bracketMatch[1].trim()
+          : (rawKey.match(/([A-Z]{2,}[0-9]*-\d+)/) ?? [])[1]?.trim() ?? rawKey.trim()
+        const title = bracketMatch ? bracketMatch[2].trim() : ''
         if (!issueKey || !JIRA_KEY_RE.test(issueKey)) { skippedInvalid++; continue }
         if (seenKeys.has(issueKey)) continue  // dedup
         seenKeys.add(issueKey)
         const fillPerson = fillPersonColIdx >= 0 ? extractCell(row[fillPersonColIdx]).trim() : ''
-        const title = titleColIdx >= 0 ? extractCell(row[titleColIdx]).trim() : ''
         records.push({ issueKey, fillPerson, title, rowIndex: i + 1 })
       }
 
