@@ -1425,12 +1425,30 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
       if (cell === null || cell === undefined) return ''
       if (typeof cell === 'string') return cell
       if (typeof cell === 'number' || typeof cell === 'boolean') return String(cell)
+      // Lark Sheets may return rich-text cells as an array of segments
+      if (Array.isArray(cell)) {
+        return (cell as Array<unknown>).map(seg => {
+          if (typeof seg === 'string') return seg
+          if (typeof seg === 'object' && seg !== null) {
+            const s = seg as Record<string, unknown>
+            if (typeof s.text === 'string') return s.text
+            // @mention segment: { at: { name: "..." } }
+            if (typeof s.at === 'object' && s.at !== null)
+              return (s.at as Record<string, unknown>).name as string ?? ''
+          }
+          return ''
+        }).join('')
+      }
       if (typeof cell === 'object') {
         const c = cell as Record<string, unknown>
         if (typeof c.text === 'string') return c.text
         if (typeof c.value === 'string') return c.value
         if (typeof c.formulaValue === 'string') return c.formulaValue
         if (typeof c.displayValue === 'string') return c.displayValue
+        // @mention cell: { mention: { name: "..." } }
+        if (typeof c.mention === 'object' && c.mention !== null)
+          return (c.mention as Record<string, unknown>).name as string ?? ''
+        if (typeof c.name === 'string') return c.name
         if (Array.isArray(c.text)) return (c.text as Array<{ text?: string }>).map(t => t.text ?? '').join('')
         // URL field type { link, text }
         if (typeof (c as { link?: string }).link === 'string' && typeof (c as { text?: string }).text === 'string')
@@ -1497,19 +1515,36 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
       }
 
       const records: Array<{ issueKey: string; fillPerson: string; rowIndex: number }> = []
+      const seenKeys = new Set<string>()
+      let skippedEmpty = 0, skippedInvalid = 0
+      // Original URL col index before formula redirect (for fallback)
+      const origUrlColIdx = headers.findIndex(h => h.toLowerCase().includes('url'))
+
       for (let i = 1; i < rows.length; i++) {
         const row = rows[i] as unknown[]
         if (urlColIdx < 0) break
-        const rawKey = extractCell(row[urlColIdx])
+        let rawKey = extractCell(row[urlColIdx])
+        // Fallback: if formula-redirected column is empty, try original URL column for direct links
+        if (!rawKey && origUrlColIdx >= 0 && origUrlColIdx !== urlColIdx) {
+          rawKey = extractCell(row[origUrlColIdx])
+        }
+        if (!rawKey) { skippedEmpty++; continue }
         const issueKey = (rawKey.match(/([A-Z][A-Z0-9]*-\d+)/) ?? [])[1]?.trim() ?? rawKey.trim()
-        if (!issueKey || !JIRA_KEY_RE.test(issueKey)) continue
+        if (!issueKey || !JIRA_KEY_RE.test(issueKey)) { skippedInvalid++; continue }
+        if (seenKeys.has(issueKey)) continue  // dedup
+        seenKeys.add(issueKey)
         const fillPerson = fillPersonColIdx >= 0 ? extractCell(row[fillPersonColIdx]).trim() : ''
         records.push({ issueKey, fillPerson, rowIndex: i + 1 })
       }
 
+      // Debug: log fill person sample to understand cell format
+      const fillPersonSampleRaw = fillPersonColIdx >= 0 ? (rows[1] as unknown[])?.[fillPersonColIdx] : null
+      console.log('[update-read-bitable] totalRows:', rows.length - 1, 'found:', records.length,
+        'skippedEmpty:', skippedEmpty, 'skippedInvalid:', skippedInvalid,
+        'fillPersonSample:', JSON.stringify(fillPersonSampleRaw))
+
       if (records.length === 0) {
         const sampleRaw = urlColIdx >= 0 ? (rows[1] as unknown[])?.[urlColIdx] : null
-        console.log('[update-read-bitable] urlColIdx:', urlColIdx, 'raw cell:', JSON.stringify(sampleRaw))
         return res.status(400).json({
           ok: false,
           message: `找不到 Jira Issue Key。欄位：[${headers.filter(Boolean).join(', ')}]，URL 欄第 ${urlColIdx + 1} 欄，原始值：${JSON.stringify(sampleRaw)}`,
@@ -1520,6 +1555,7 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
         ok: true, records, allHeaders: headers,
         urlColumn: urlColIdx >= 0 ? headers[urlColIdx] : '',
         fillPersonColumn: fillPersonColIdx >= 0 ? headers[fillPersonColIdx] : '',
+        stats: { totalRows: rows.length - 1, found: records.length, skippedEmpty, skippedInvalid },
       })
     }
 

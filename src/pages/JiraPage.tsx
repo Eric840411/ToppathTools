@@ -301,6 +301,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const [updateTransitionId, setUpdateTransitionId] = useState('')
   const [updateSubmitting, setUpdateSubmitting] = useState(false)
   const [updateResults, setUpdateResults] = useState<{ issueKey: string; ok: boolean; error?: string }[]>([])
+  const [updateStats, setUpdateStats] = useState<{ totalRows: number; found: number; skippedEmpty: number; skippedInvalid: number } | null>(null)
 
   // 追蹤所有已進入流程的 issue（本次 session 合併最新 stage）
   const [trackedIssues, setTrackedIssues] = useState<TrackedIssue[]>([])
@@ -989,11 +990,12 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bitableUrl: updateBitableUrl.trim() }),
       })
-      const data = await resp.json() as { ok: boolean; records?: UpdateRecord[]; message?: string }
+      const data = await resp.json() as { ok: boolean; records?: UpdateRecord[]; message?: string; stats?: { totalRows: number; found: number; skippedEmpty: number; skippedInvalid: number } }
       if (!data.ok) { setUpdateError(data.message ?? '讀取失敗'); return }
       const records = data.records ?? []
       if (records.length === 0) { setUpdateError('找不到 Jira Issue Key，請確認 Bitable 有 URL 欄且含有單號'); return }
       setUpdateRecords(records)
+      setUpdateStats(data.stats ?? null)
 
       // Load accounts for mapping
       const accResp = await fetch('/api/jira/accounts')
@@ -1335,9 +1337,16 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
           {updateStep === 2 && (
             <div className="section-card">
               <h2 className="section-title">Step 2 — 設定帳號 & 動作</h2>
-              <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 14px' }}>
+              <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 6px' }}>
                 共 <b style={{ color: '#e2e8f0' }}>{updateRecords.length}</b> 張單，請確認填寫人 → 帳號對應，並選擇要執行的動作
               </p>
+              {updateStats && (
+                <p style={{ fontSize: 11, color: '#475569', margin: '0 0 12px' }}>
+                  讀取 {updateStats.totalRows} 列 → 找到 {updateStats.found} 張
+                  {updateStats.skippedEmpty > 0 ? `，跳過 ${updateStats.skippedEmpty} 空列` : ''}
+                  {updateStats.skippedInvalid > 0 ? `，${updateStats.skippedInvalid} 列格式不符` : ''}
+                </p>
+              )}
 
               {/* 帳號對應表 */}
               <div style={{ marginBottom: 16 }}>
