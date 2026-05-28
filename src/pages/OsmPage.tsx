@@ -451,31 +451,31 @@ function VersionDashboard({
       {/* Machine groups — compact cards */}
       {machineGroups.length > 0 && (
         <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#78350f', marginBottom: 6 }}>⚠ 未達標機台（按類型分組）</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#fbbf24', marginBottom: 6, letterSpacing: '0.02em' }}>⚠ 未達標機台（按類型分組）</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {machineGroups.map(g => {
               const key = `${g.channelName}|${g.machineType}|${g.current}`
               const expanded = expandedGroup === key
               return (
-                <div key={key} style={{ border: '1px solid #fde68a', borderRadius: 6, overflow: 'hidden' }}>
+                <div key={key} style={{ border: '1px solid #334155', borderRadius: 6, overflow: 'hidden' }}>
                   {/* Group row */}
                   <div
-                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', background: '#fffbeb', cursor: 'pointer', userSelect: 'none' }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: '#1e293b', cursor: 'pointer', userSelect: 'none' }}
                     onClick={() => setExpandedGroup(expanded ? null : key)}
                   >
                     <span className="osm-channel-badge" style={{ background: CHANNEL_COLORS[g.channelName] ?? '#888', fontSize: 10, flexShrink: 0 }}>{g.channelName}</span>
-                    <span style={{ fontSize: 12, fontWeight: 600, flex: 1, color: '#1e293b' }}>{g.machineType}</span>
-                    <span style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginRight: 4 }}>{g.current || '—'}</span>
-                    <span style={{ fontSize: 11, color: '#94a3b8' }}>→</span>
-                    <span style={{ fontSize: 11, color: '#16a34a', marginLeft: 4, marginRight: 8 }}>{g.target}</span>
-                    <span style={{ fontSize: 11, background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 10, padding: '1px 7px', fontWeight: 600 }}>{g.count} 台</span>
-                    <span style={{ fontSize: 10, color: '#64748b', marginLeft: 4 }}>{expanded ? '▲' : '▼'}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, flex: 1, color: '#f1f5f9' }}>{g.machineType}</span>
+                    <span style={{ fontSize: 12, color: '#f87171', fontWeight: 700, marginRight: 4 }}>{g.current || '—'}</span>
+                    <span style={{ fontSize: 12, color: '#64748b' }}>→</span>
+                    <span style={{ fontSize: 12, color: '#4ade80', fontWeight: 700, marginLeft: 4, marginRight: 8 }}>{g.target}</span>
+                    <span style={{ fontSize: 11, background: '#f59e0b22', border: '1px solid #f59e0b66', borderRadius: 10, padding: '1px 8px', fontWeight: 700, color: '#fbbf24' }}>{g.count} 台</span>
+                    <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 4 }}>{expanded ? '▲' : '▼'}</span>
                   </div>
                   {/* Expanded machine list */}
                   {expanded && (
-                    <div style={{ padding: '6px 10px 8px', background: '#1e293b', borderTop: '1px solid #fde68a', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    <div style={{ padding: '6px 10px 8px', background: '#0f172a', borderTop: '1px solid #334155', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                       {g.machines.map(m => (
-                        <span key={m.id} style={{ fontSize: 11, padding: '1px 6px', background: '#f1f5f9', borderRadius: 4, color: '#1e293b', fontWeight: 500 }}>{m.machineName}</span>
+                        <span key={m.id} style={{ fontSize: 11, padding: '2px 7px', background: '#1e293b', border: '1px solid #475569', borderRadius: 4, color: '#cbd5e1', fontWeight: 500 }}>{m.machineName}</span>
                       ))}
                     </div>
                   )}
@@ -489,15 +489,15 @@ function VersionDashboard({
       {/* Components — compact table */}
       {offTargetComps.length > 0 && (
         <div>
-          <div style={{ fontSize: 12, fontWeight: 600, color: '#78350f', marginBottom: 6 }}>⚠ 未達標元件</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#fbbf24', marginBottom: 6, letterSpacing: '0.02em' }}>⚠ 未達標元件</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {offTargetComps.map(c => (
-              <div key={`${c.system}-${c.name}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 10px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, fontSize: 12 }}>
-                <span style={{ padding: '1px 6px', borderRadius: 4, background: sysColor[c.system] ?? '#e2e8f0', color: '#1e293b', fontSize: 11, flexShrink: 0, fontWeight: 600 }}>{c.system}</span>
-                <span style={{ flex: 1, fontWeight: 600, color: '#1e293b' }}>{c.name}</span>
-                <span style={{ color: '#dc2626', fontWeight: 600 }}>{c.current || '—'}</span>
-                <span style={{ color: '#64748b' }}>→</span>
-                <span style={{ color: '#16a34a' }}>{c.target}</span>
+              <div key={`${c.system}-${c.name}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', background: '#1e293b', border: '1px solid #334155', borderRadius: 6, fontSize: 12 }}>
+                <span style={{ padding: '2px 7px', borderRadius: 4, background: sysColor[c.system] ?? '#334155', color: '#1e293b', fontSize: 11, flexShrink: 0, fontWeight: 700 }}>{c.system}</span>
+                <span style={{ flex: 1, fontWeight: 600, color: '#f1f5f9', fontSize: 13 }}>{c.name}</span>
+                <span style={{ color: '#f87171', fontWeight: 700, fontSize: 12 }}>{c.current || '—'}</span>
+                <span style={{ color: '#64748b', fontSize: 12 }}>→</span>
+                <span style={{ color: '#4ade80', fontWeight: 700, fontSize: 12 }}>{c.target}</span>
               </div>
             ))}
           </div>

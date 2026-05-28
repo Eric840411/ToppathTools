@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.34.3'
+export const APP_VERSION = '3.34.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.34.4',
+    date: '2026-05-28',
+    changes: [
+      'fix(ui): 版本達標總覽改為深色主題 — 機台列/元件列改用 #1e293b 底色，文字改為高對比白/淺色，版本號紅綠更鮮明，section 標題改為琥珀色，台數 badge 改為半透明琥珀框',
+    ],
+  },
   {
     version: '3.34.3',
     date: '2026-05-28',
