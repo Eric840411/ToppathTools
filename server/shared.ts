@@ -1232,7 +1232,7 @@ export const deleteAccountByEmail = (email: string) =>
 // ─── Permission helpers ───────────────────────────────────────────────────────
 
 export const ALL_PAGE_KEYS = [
-  'jira-qa','jira-pm','lark','osm','machinetest','imagecheck','osm-config',
+  'jira-qa','jira-pm','jira-update','lark','osm','machinetest','imagecheck','osm-config',
   'autospin','url-pool','jackpot','osm-uat',
   'gs-imgcompare','gs-logchecker','gs-bonusv2','history','knowledge','local-agent',
 ] as const

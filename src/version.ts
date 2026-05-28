@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.34.5'
+export const APP_VERSION = '3.35.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.35.0',
+    date: '2026-05-28',
+    changes: [
+      'feat(jira): 新增「批次更新票」模式 — 讀取 Lark Bitable URL 欄取得單號，依填寫人自動對應 Jira 帳號，選擇 Transition 後批次更新狀態（3 步驟流程）',
+    ],
+  },
   {
     version: '3.34.5',
     date: '2026-05-28',

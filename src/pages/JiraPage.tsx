@@ -192,7 +192,7 @@ interface JiraPageProps {
 
 export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const isGame = useIsGameMode()
-  const [mode, setMode] = useState<'qa' | 'pm'>('qa')
+  const [mode, setMode] = useState<'qa' | 'pm' | 'update'>('qa')
   const [step, setStep] = useState<Step>(1)
   const [showAccountModal, setShowAccountModal] = useState(false)
   const [currentAccount, setCurrentAccount] = useState<AccountInfo | null>(account)
@@ -283,6 +283,24 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   // Step 6 (transition)
   const [transitionSubmitting, setTransitionSubmitting] = useState(false)
   const [transitionResults, setTransitionResults] = useState<StageOpResult[]>([])
+
+  // ── Update mode ──
+  type UpdateStep = 1 | 2 | 3
+  type UpdateRecord = { issueKey: string; fillPerson: string; rowIndex: number }
+  const [updateStep, setUpdateStep] = useState<UpdateStep>(1)
+  const [updateBitableUrl, setUpdateBitableUrl] = useState('')
+  const [updateLoading, setUpdateLoading] = useState(false)
+  const [updateError, setUpdateError] = useState('')
+  const [updateRecords, setUpdateRecords] = useState<UpdateRecord[]>([])
+  const [updateAllAccounts, setUpdateAllAccounts] = useState<{ email: string; label: string }[]>([])
+  // fillPerson → email mapping ('' = use default)
+  const [personAccountMap, setPersonAccountMap] = useState<Record<string, string>>({})
+  const [updateDefaultEmail, setUpdateDefaultEmail] = useState('')
+  // Transitions
+  const [updateTransitions, setUpdateTransitions] = useState<{ id: string; name: string }[]>([])
+  const [updateTransitionId, setUpdateTransitionId] = useState('')
+  const [updateSubmitting, setUpdateSubmitting] = useState(false)
+  const [updateResults, setUpdateResults] = useState<{ issueKey: string; ok: boolean; error?: string }[]>([])
 
   // 追蹤所有已進入流程的 issue（本次 session 合併最新 stage）
   const [trackedIssues, setTrackedIssues] = useState<TrackedIssue[]>([])
@@ -529,7 +547,8 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
     fetchProjects(acc.email)
     // 若目前 mode 不在帳號的允許範圍，自動切換
     setMode(prev => {
-      if (accountHasRole(acc, prev)) return prev
+      if (prev === 'update') return 'update'
+      if (accountHasRole(acc, prev as 'qa' | 'pm')) return prev
       return accountHasRole(acc, 'qa') ? 'qa' : 'pm'
     })
   }
@@ -960,6 +979,90 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
     setPmSelectedIds(new Set()); setPmResults([]); setPmError('')
   }
 
+  // ── Update Mode handlers ──
+  const handleUpdateFetchBitable = async () => {
+    if (!updateBitableUrl.trim()) return
+    setUpdateLoading(true); setUpdateError(''); setUpdateRecords([])
+    try {
+      const resp = await fetch('/api/jira/update-read-bitable', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bitableUrl: updateBitableUrl.trim() }),
+      })
+      const data = await resp.json() as { ok: boolean; records?: UpdateRecord[]; message?: string }
+      if (!data.ok) { setUpdateError(data.message ?? '讀取失敗'); return }
+      const records = data.records ?? []
+      if (records.length === 0) { setUpdateError('找不到 Jira Issue Key，請確認 Bitable 有 URL 欄且含有單號'); return }
+      setUpdateRecords(records)
+
+      // Load accounts for mapping
+      const accResp = await fetch('/api/jira/accounts')
+      const accData = await accResp.json() as { accounts?: { email: string; label: string }[] }
+      const accounts = accData.accounts ?? []
+      setUpdateAllAccounts(accounts)
+      if (accounts.length > 0) setUpdateDefaultEmail(accounts[0].email)
+
+      // Auto-map fill persons to accounts by label (case-insensitive prefix match)
+      const uniquePersons = [...new Set(records.map(r => r.fillPerson).filter(Boolean))]
+      const autoMap: Record<string, string> = {}
+      for (const person of uniquePersons) {
+        const match = accounts.find(a =>
+          a.label.toLowerCase().includes(person.toLowerCase()) ||
+          person.toLowerCase().includes(a.label.toLowerCase())
+        )
+        autoMap[person] = match?.email ?? ''
+      }
+      setPersonAccountMap(autoMap)
+
+      // Fetch transitions using first account
+      if (accounts.length > 0 && records.length > 0) {
+        const firstKey = records[0].issueKey
+        const transResp = await fetch(`/api/jira/transitions?issueKey=${firstKey}`, {
+          headers: { 'x-jira-email': accounts[0].email },
+        })
+        const transData = await transResp.json() as { ok: boolean; transitions?: { id: string; name: string }[] }
+        if (transData.ok) {
+          setUpdateTransitions(transData.transitions ?? [])
+          if (transData.transitions && transData.transitions.length > 0) setUpdateTransitionId(transData.transitions[0].id)
+        }
+      }
+
+      setUpdateStep(2)
+    } catch (e) {
+      setUpdateError(String(e))
+    } finally {
+      setUpdateLoading(false)
+    }
+  }
+
+  const handleUpdateExecute = async () => {
+    if (updateSubmitting) return
+    setUpdateSubmitting(true); setUpdateResults([])
+    const items = updateRecords.map(r => {
+      const email = (r.fillPerson && personAccountMap[r.fillPerson]) ? personAccountMap[r.fillPerson] : updateDefaultEmail
+      return { issueKey: r.issueKey, email, transitionId: updateTransitionId || undefined }
+    })
+    try {
+      const resp = await fetch('/api/jira/bulk-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items }),
+      })
+      const data = await resp.json() as { ok: boolean; results?: { issueKey: string; ok: boolean; error?: string }[] }
+      setUpdateResults(data.results ?? [])
+      setUpdateStep(3)
+    } catch (e) {
+      setUpdateError(String(e))
+    } finally {
+      setUpdateSubmitting(false)
+    }
+  }
+
+  const handleUpdateReset = () => {
+    setUpdateStep(1); setUpdateBitableUrl(''); setUpdateRecords([]); setUpdateError('')
+    setPersonAccountMap({}); setUpdateTransitions([]); setUpdateTransitionId(''); setUpdateResults([])
+  }
+
   const StepDot = ({ s }: { s: Step }) => (
     <span className={`step-dot${step === s ? ' active' : step > s ? ' done' : ''}`}>
       {step > s ? '✓' : s}
@@ -970,16 +1073,16 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
     <div className="page-layout">
       {/* Mode toggle */}
       <div className="mode-toggle">
-        {(['qa', 'pm'] as const).map(m => {
-          // If allowedModes is provided (permission system active), use it as authority
-          // Otherwise fall back to accountHasRole (legacy behaviour)
-          const allowed = allowedModes ? allowedModes.includes(m) : accountHasRole(currentAccount, m)
+        {(['qa', 'pm', 'update'] as const).map(m => {
+          const modeKey = m === 'update' ? 'jira-update' : m
+          const allowed = allowedModes ? allowedModes.includes(modeKey) : accountHasRole(currentAccount, m === 'update' ? 'qa' : m)
+          const label = m === 'qa' ? 'QA 模式' : m === 'pm' ? 'PM 模式' : '批次更新票'
           return (
             <button
               key={m}
               type="button"
               disabled={!allowed}
-              title={!allowed ? `目前帳號沒有 ${m.toUpperCase()} 模式權限` : undefined}
+              title={!allowed ? `目前帳號沒有此模式權限` : undefined}
               onClick={() => {
                 if (m === mode || !allowed) return
                 setMode(m)
@@ -987,7 +1090,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
               }}
               className={`mode-toggle-btn${mode === m ? ' active' : ''}`}
             >
-              {m.toUpperCase()} 模式
+              {label}
             </button>
           )
         })}
@@ -999,13 +1102,17 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
           {mode === 'qa'
             ? ([1, 2, 3, 4, 5, 6] as Step[]).map(s => <StepDot key={s} s={s} />)
             : ([1, 2, 3] as const).map(s => (
-                <span key={s} className={`step-dot${pmStep === s ? ' active' : pmStep > s ? ' done' : ''}`}>
-                  {pmStep > s ? '✓' : s}
+                <span key={s} className={`step-dot${
+                  (mode === 'pm' ? pmStep : updateStep) === s ? ' active' :
+                  (mode === 'pm' ? pmStep : updateStep) > s ? ' done' : ''}`}>
+                  {(mode === 'pm' ? pmStep : updateStep) > s ? '✓' : s}
                 </span>
               ))
           }
           <span className="step-label">
-            {mode === 'qa' ? STEP_LABELS[step] : { 1: '讀取表格', 2: '確認清單', 3: '開單結果' }[pmStep]}
+            {mode === 'qa' ? STEP_LABELS[step]
+              : mode === 'pm' ? ({ 1: '讀取表格', 2: '確認清單', 3: '開單結果' } as Record<number, string>)[pmStep]
+              : ({ 1: '讀取 Bitable', 2: '設定帳號 & 動作', 3: '執行結果' } as Record<number, string>)[updateStep]}
           </span>
         </div>
         <div style={{ display: 'none' }}>
@@ -1185,6 +1292,170 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
               </div>
 
               <button type="button" className="submit-btn submit-btn--step" style={{ marginTop: 20, background: 'linear-gradient(135deg, #059669, #047857)' }} onClick={handlePmReset}>
+                重新開始
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Update Mode ── */}
+      {mode === 'update' && (
+        <>
+          {/* Step 1: 讀取 Bitable */}
+          {updateStep === 1 && (
+            <div className="section-card">
+              <h2 className="section-title">Step 1 — 讀取 Bitable</h2>
+              <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 12px' }}>
+                貼入 Lark Bitable URL，系統自動偵測 URL 欄（含 Jira 單號）與填寫人欄
+              </p>
+              {updateError && <div className="alert-error" style={{ marginBottom: 10 }}>{updateError}</div>}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  value={updateBitableUrl}
+                  onChange={e => setUpdateBitableUrl(e.target.value)}
+                  placeholder="https://casinoplus.sg.larksuite.com/wiki/... 或 Bitable URL"
+                  style={{ flex: 1, padding: '7px 12px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
+                  onKeyDown={e => e.key === 'Enter' && handleUpdateFetchBitable()}
+                />
+                <button
+                  type="button"
+                  className="submit-btn submit-btn--step"
+                  disabled={updateLoading || !updateBitableUrl.trim()}
+                  onClick={handleUpdateFetchBitable}
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  {updateLoading ? '讀取中…' : '📥 讀取'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: 設定帳號 & 動作 */}
+          {updateStep === 2 && (
+            <div className="section-card">
+              <h2 className="section-title">Step 2 — 設定帳號 & 動作</h2>
+              <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 14px' }}>
+                共 <b style={{ color: '#e2e8f0' }}>{updateRecords.length}</b> 張單，請確認填寫人 → 帳號對應，並選擇要執行的動作
+              </p>
+
+              {/* 帳號對應表 */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa', marginBottom: 8 }}>填寫人 → 帳號對應</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {/* Default account */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', background: '#162032', borderRadius: 6, border: '1px solid #334155' }}>
+                    <span style={{ fontSize: 12, color: '#94a3b8', width: 100, flexShrink: 0 }}>（無填寫人）</span>
+                    <span style={{ fontSize: 11, color: '#64748b', marginRight: 4 }}>預設帳號→</span>
+                    <select
+                      value={updateDefaultEmail}
+                      onChange={e => setUpdateDefaultEmail(e.target.value)}
+                      style={{ fontSize: 12, background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 4, padding: '2px 6px' }}
+                    >
+                      {updateAllAccounts.map(a => <option key={a.email} value={a.email}>{a.label} ({a.email})</option>)}
+                    </select>
+                  </div>
+                  {Object.keys(personAccountMap).sort().map(person => (
+                    <div key={person} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', background: '#162032', borderRadius: 6, border: '1px solid #334155' }}>
+                      <span style={{ fontSize: 12, color: '#f1f5f9', fontWeight: 600, width: 100, flexShrink: 0 }}>{person}</span>
+                      <span style={{ fontSize: 11, color: '#64748b', marginRight: 4 }}>→</span>
+                      <select
+                        value={personAccountMap[person] ?? ''}
+                        onChange={e => setPersonAccountMap(prev => ({ ...prev, [person]: e.target.value }))}
+                        style={{ fontSize: 12, background: '#0f172a', color: personAccountMap[person] ? '#e2e8f0' : '#f87171', border: '1px solid #334155', borderRadius: 4, padding: '2px 6px' }}
+                      >
+                        <option value="">（使用預設帳號）</option>
+                        {updateAllAccounts.map(a => <option key={a.email} value={a.email}>{a.label} ({a.email})</option>)}
+                      </select>
+                      <span style={{ fontSize: 11, color: '#64748b' }}>
+                        {updateRecords.filter(r => r.fillPerson === person).length} 張
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* 轉換狀態 */}
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa', marginBottom: 8 }}>要執行的動作</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 12, color: '#94a3b8' }}>切換狀態：</span>
+                  {updateTransitions.length > 0 ? (
+                    <select
+                      value={updateTransitionId}
+                      onChange={e => setUpdateTransitionId(e.target.value)}
+                      style={{ fontSize: 12, background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 4, padding: '4px 8px' }}
+                    >
+                      <option value="">（不切換）</option>
+                      {updateTransitions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
+                  ) : (
+                    <span style={{ fontSize: 12, color: '#64748b' }}>讀取轉換選項失敗，可跳過</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Preview */}
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa', marginBottom: 6 }}>
+                  預覽（{updateRecords.length} 張）
+                </div>
+                <div style={{ maxHeight: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  {updateRecords.slice(0, 50).map(r => {
+                    const email = (r.fillPerson && personAccountMap[r.fillPerson]) ? personAccountMap[r.fillPerson] : updateDefaultEmail
+                    const acct = updateAllAccounts.find(a => a.email === email)
+                    return (
+                      <div key={r.issueKey} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '3px 8px', background: '#0f172a', borderRadius: 4 }}>
+                        <code style={{ color: '#93c5fd', fontWeight: 700, minWidth: 90 }}>{r.issueKey}</code>
+                        <span style={{ color: '#64748b', fontSize: 11 }}>{r.fillPerson || '—'}</span>
+                        <span style={{ color: '#64748b', fontSize: 11 }}>→</span>
+                        <span style={{ color: acct ? '#4ade80' : '#f87171', fontSize: 11 }}>{acct?.label ?? '（預設）'}</span>
+                      </div>
+                    )
+                  })}
+                  {updateRecords.length > 50 && <div style={{ fontSize: 11, color: '#64748b', textAlign: 'center', padding: 4 }}>...還有 {updateRecords.length - 50} 張</div>}
+                </div>
+              </div>
+
+              <div className="stage-nav">
+                <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setUpdateStep(1)}>上一步</button>
+                <button
+                  type="button"
+                  className={`submit-btn submit-btn--step${updateSubmitting ? ' loading' : ''}`}
+                  disabled={updateSubmitting || !updateDefaultEmail}
+                  onClick={handleUpdateExecute}
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  {updateSubmitting ? '執行中…' : `▶ 執行（${updateRecords.length} 張）`}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: 結果 */}
+          {updateStep === 3 && (
+            <div className="section-card">
+              <h2 className="section-title">執行結果</h2>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+                <span style={{ fontSize: 13, color: '#4ade80', fontWeight: 700 }}>
+                  ✅ 成功 {updateResults.filter(r => r.ok).length} 張
+                </span>
+                {updateResults.some(r => !r.ok) && (
+                  <span style={{ fontSize: 13, color: '#f87171', fontWeight: 700 }}>
+                    ❌ 失敗 {updateResults.filter(r => !r.ok).length} 張
+                  </span>
+                )}
+              </div>
+              <div style={{ maxHeight: 400, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {updateResults.map(r => (
+                  <div key={r.issueKey} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 10px', background: r.ok ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${r.ok ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}`, borderRadius: 6, fontSize: 12 }}>
+                    <span>{r.ok ? '✅' : '❌'}</span>
+                    <code style={{ color: '#93c5fd', fontWeight: 700 }}>{r.issueKey}</code>
+                    {r.ok ? <span className="badge badge--ok">已更新</span> : <span style={{ color: '#fca5a5', fontSize: 11 }}>{r.error}</span>}
+                  </div>
+                ))}
+              </div>
+              <button type="button" className="submit-btn submit-btn--step" style={{ marginTop: 16, background: '#166534' }} onClick={handleUpdateReset}>
                 重新開始
               </button>
             </div>

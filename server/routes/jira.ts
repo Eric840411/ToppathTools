@@ -23,6 +23,7 @@ import {
   parseLarkSheetUrl,
 } from '../shared.js'
 import { callLLM, readGeminiPrompts, renderPrompt } from './gemini.js'
+import { getAuthAccount } from '../auth-session.js'
 import { withRequestOperation } from '../request-context.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 
@@ -447,10 +448,17 @@ router.post('/api/jira/accounts/:email/set-pin', writeLimiter, (req, res) => {
 })
 
 // POST /api/jira/accounts
+// 允許自助新增帳號；覆蓋已存在帳號的 token 需要 admin 身份
 router.post('/api/jira/accounts', writeLimiter, (req, res, next) => {
   try {
     const body = accountAddSchema.parse(req.body)
     const exists = readAccounts().some((a) => a.email === body.email)
+    if (exists) {
+      const caller = getAuthAccount(req)
+      if (!caller || caller.role !== 'admin') {
+        return res.status(403).json({ ok: false, message: '此帳號已存在，只有管理員可以覆蓋' })
+      }
+    }
     upsertAccount(body)
     if (body.pin?.trim()) {
       db.prepare('UPDATE jira_accounts SET pin_hash = ? WHERE email = ?').run(pinHash(body.pin.trim()), body.email)
@@ -1392,4 +1400,149 @@ router.post('/api/jira/pm-batch-create', heavyLimiter, async (req, res, next) =>
     }
   } catch (error) { next(error) }
   finally { finishHeavyTask(heavyTaskToken) }
+})
+
+// ─── Batch Update (填寫人 → Jira Account) ────────────────────────────────────
+
+/**
+ * POST /api/jira/update-read-bitable
+ * 讀取 Bitable，自動偵測 URL 欄（含 Issue Key）與填寫人欄
+ */
+router.post('/api/jira/update-read-bitable', async (req, res, next) => {
+  try {
+    const { bitableUrl } = z.object({ bitableUrl: z.string() }).parse(req.body)
+    const { appToken, tableId } = parseBitableUrl(bitableUrl)
+    if (!appToken || !tableId) return res.status(400).json({ ok: false, message: '無法解析 Bitable URL，請確認格式' })
+
+    const token = await getLarkToken()
+    const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
+    const rawItems: Array<{ record_id: string; fields: Record<string, unknown> }> = []
+    let pageToken: string | undefined
+
+    do {
+      const url = `${base}/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records?page_size=100${pageToken ? `&page_token=${pageToken}` : ''}`
+      const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      const data = await resp.json() as {
+        code?: number; msg?: string
+        data?: { items?: Array<{ record_id: string; fields: Record<string, unknown> }>; has_more?: boolean; page_token?: string }
+      }
+      if (data.code !== 0) throw new Error(`讀取 Bitable 失敗: ${data.msg}`)
+      for (const item of data.data?.items ?? []) rawItems.push(item)
+      pageToken = data.data?.has_more ? data.data.page_token : undefined
+    } while (pageToken)
+
+    if (rawItems.length === 0) return res.json({ ok: true, records: [], allHeaders: [], urlColumn: '', fillPersonColumn: '' })
+
+    // Detect columns from first record
+    const firstFields = rawItems[0].fields
+    const allHeaders = Object.keys(firstFields)
+
+    // Detect URL column: header name contains 'url' (case insensitive), value contains Jira-like keys
+    const JIRA_KEY_RE = /^[A-Z]+-\d+$/
+    function extractIssueKey(val: unknown): string {
+      if (!val) return ''
+      // URL field type: { link: string, text: string }
+      if (typeof val === 'object' && val !== null && 'text' in val) return (val as { text: string }).text ?? ''
+      // Array of text segments
+      if (Array.isArray(val)) {
+        for (const seg of val as unknown[]) {
+          if (typeof seg === 'object' && seg !== null && 'text' in seg) {
+            const t = (seg as { text: string }).text
+            if (JIRA_KEY_RE.test(t?.trim() ?? '')) return t.trim()
+          }
+        }
+        return (val as { text?: string }[]).map(v => v.text ?? '').join('')
+      }
+      if (typeof val === 'string') return val
+      return ''
+    }
+
+    const urlColumn = allHeaders.find(h => h.toLowerCase().includes('url')) ?? ''
+    const fillPersonColumn = allHeaders.find(h => h.includes('填寫人') || h.includes('填写人')) ?? ''
+
+    const records: Array<{ issueKey: string; fillPerson: string; rowIndex: number }> = []
+    let rowIndex = 0
+    for (const item of rawItems) {
+      rowIndex++
+      const raw = item.fields[urlColumn]
+      const issueKey = extractIssueKey(raw).trim()
+      if (!issueKey || !JIRA_KEY_RE.test(issueKey)) continue
+      const fillPerson = fillPersonColumn ? larkTextField(item.fields[fillPersonColumn]).trim() : ''
+      records.push({ issueKey, fillPerson, rowIndex })
+    }
+
+    res.json({ ok: true, records, allHeaders, urlColumn, fillPersonColumn })
+  } catch (error) { next(error) }
+})
+
+/**
+ * GET /api/jira/transitions?issueKey=XXXX-1
+ * 取得某 Issue 可用的 Jira Transition 列表
+ */
+router.get('/api/jira/transitions', async (req, res, next) => {
+  try {
+    const userAuth = userJiraAuth(req)
+    if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
+    const { issueKey } = z.object({ issueKey: z.string() }).parse(req.query)
+    const baseUrl = mustEnv('JIRA_BASE_URL')
+    const resp = await fetch(`${baseUrl}/rest/api/3/issue/${issueKey}/transitions`, {
+      headers: { Authorization: userAuth.auth, Accept: 'application/json' },
+    })
+    const data = await resp.json() as { transitions?: Array<{ id: string; name: string }> }
+    res.json({ ok: true, transitions: (data.transitions ?? []).map(t => ({ id: t.id, name: t.name })) })
+  } catch (error) { next(error) }
+})
+
+/**
+ * POST /api/jira/bulk-update
+ * 批次更新 Jira Issue（每筆可指定不同帳號）
+ */
+router.post('/api/jira/bulk-update', async (req, res, next) => {
+  try {
+    const body = z.object({
+      items: z.array(z.object({
+        issueKey: z.string(),
+        email: z.string(),
+        transitionId: z.string().optional(),
+      })),
+    }).parse(req.body)
+
+    const baseUrl = mustEnv('JIRA_BASE_URL')
+    const accounts = readAccounts()
+    const results: Array<{ issueKey: string; ok: boolean; error?: string }> = []
+
+    for (const item of body.items) {
+      const account = accounts.find(a => a.email === item.email)
+      if (!account) {
+        results.push({ issueKey: item.issueKey, ok: false, error: '找不到對應帳號' })
+        continue
+      }
+      const auth = `Basic ${Buffer.from(`${account.email}:${account.token}`).toString('base64')}`
+      try {
+        if (item.transitionId) {
+          const resp = await fetch(`${baseUrl}/rest/api/3/issue/${item.issueKey}/transitions`, {
+            method: 'POST',
+            headers: { Authorization: auth, Accept: 'application/json', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transition: { id: item.transitionId } }),
+          })
+          if (!resp.ok) {
+            const txt = await resp.text()
+            results.push({ issueKey: item.issueKey, ok: false, error: `HTTP ${resp.status}: ${txt.slice(0, 120)}` })
+          } else {
+            results.push({ issueKey: item.issueKey, ok: true })
+          }
+        } else {
+          results.push({ issueKey: item.issueKey, ok: true })
+        }
+      } catch (e) {
+        results.push({ issueKey: item.issueKey, ok: false, error: String(e) })
+      }
+    }
+
+    const ok = results.filter(r => r.ok).length
+    const fail = results.filter(r => !r.ok).length
+    log(fail > 0 ? 'warn' : 'ok', getClientIP(req), '', 'Jira 批次更新', `成功 ${ok} 筆${fail > 0 ? `，失敗 ${fail} 筆` : ''}`)
+    addHistory('jira-update', 'Jira 批次更新狀態', `成功 ${ok} 筆，失敗 ${fail} 筆`, { results })
+    res.json({ ok: true, results })
+  } catch (error) { next(error) }
 })

@@ -288,17 +288,18 @@ function App() {
     if (!globalAccount) return false
     if (tabId === 'dashboard') return true
     if (globalAccount.role === 'admin') return true
-    // 'jira' tab is accessible if user has either jira-qa or jira-pm
-    if (tabId === 'jira') return permissions.includes('jira-qa') || permissions.includes('jira-pm')
+    // 'jira' tab is accessible if user has either jira-qa, jira-pm, or jira-update
+    if (tabId === 'jira') return permissions.includes('jira-qa') || permissions.includes('jira-pm') || permissions.includes('jira-update')
     if (tabId === 'scripted-bet') return permissions.includes('machinetest') || permissions.includes('url-pool')
     return permissions.includes(tabId)
   }
 
   const allowedJiraModes = globalAccount?.role === 'admin'
-    ? ['qa', 'pm']
+    ? ['qa', 'pm', 'jira-update']
     : [
         ...(permissions.includes('jira-qa') ? ['qa'] : []),
         ...(permissions.includes('jira-pm') ? ['pm'] : []),
+        ...(permissions.includes('jira-update') ? ['jira-update'] : []),
       ]
 
   function filterGroup(g: Group): Group | null {

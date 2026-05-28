@@ -22,6 +22,7 @@ interface PermMatrix {
 const PAGE_META: { key: string; label: string; group: string }[] = [
   { key: 'jira-qa',      label: 'Jira 批量開單（QA 模式）', group: 'Jira / TestCase' },
   { key: 'jira-pm',      label: 'Jira 批量開單（PM 模式）', group: 'Jira / TestCase' },
+  { key: 'jira-update',  label: 'Jira 批次更新票', group: 'Jira / TestCase' },
   { key: 'lark',         label: 'TestCase 生成',            group: 'Jira / TestCase' },
   { key: 'osm',          label: 'OSM 版號同步',        group: 'OSM Tools' },
   { key: 'machinetest',  label: '機台自動化測試',       group: 'OSM Tools' },
