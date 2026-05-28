@@ -1424,21 +1424,34 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
 
     // If URL is a Wiki URL, resolve wiki node → actual Bitable app_token
     if (bitableUrl.includes('/wiki/')) {
-      const wikiResp = await fetch(`${base}/open-apis/wiki/v2/nodes/get?token=${appToken}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      const wikiData = await wikiResp.json() as {
-        code?: number; msg?: string
-        data?: { node?: { obj_token?: string; obj_type?: string } }
+      // Try two known Lark wiki node API endpoint variants
+      let wikiData: { code?: number; msg?: string; data?: { node?: { obj_token?: string; obj_type?: string } } } | null = null
+      for (const endpoint of [
+        `${base}/open-apis/wiki/v2/nodes/get?token=${appToken}`,
+        `${base}/open-apis/wiki/v2/spaces/nodes/get?token=${appToken}`,
+      ]) {
+        try {
+          const wikiResp = await fetch(endpoint, { headers: { Authorization: `Bearer ${token}` } })
+          const text = await wikiResp.text()
+          const parsed = JSON.parse(text) as typeof wikiData
+          if (parsed && typeof parsed === 'object' && 'code' in parsed) { wikiData = parsed; break }
+        } catch { /* try next endpoint */ }
+      }
+
+      if (!wikiData) {
+        return res.status(400).json({ ok: false, message: 'Wiki API 呼叫失敗，請直接貼入 Bitable URL（格式：larksuite.com/base/APP_TOKEN?table=TABLE_ID）' })
       }
       if (wikiData.code !== 0) {
-        return res.status(400).json({ ok: false, message: `Wiki 節點解析失敗（${wikiData.msg}），請直接貼入 Bitable URL（/base/... 格式）` })
+        return res.status(400).json({ ok: false, message: `Wiki 節點解析失敗（${wikiData.msg ?? wikiData.code}），請直接貼入 Bitable URL（/base/... 格式）` })
       }
       const node = wikiData.data?.node
-      if (node?.obj_type !== 'bitable') {
-        return res.status(400).json({ ok: false, message: `此 Wiki 節點不是 Bitable（類型：${node?.obj_type ?? '未知'}），請直接貼入 Bitable URL` })
+      if (node?.obj_type && node.obj_type !== 'bitable') {
+        return res.status(400).json({ ok: false, message: `此 Wiki 節點是「${node.obj_type}」，不是 Bitable，請直接貼入 Bitable URL` })
       }
       if (node?.obj_token) appToken = node.obj_token
+      else {
+        return res.status(400).json({ ok: false, message: 'Wiki 節點找不到 Bitable token，請直接貼入 Bitable URL（/base/... 格式）' })
+      }
     }
 
     const rawItems: Array<{ record_id: string; fields: Record<string, unknown> }> = []
