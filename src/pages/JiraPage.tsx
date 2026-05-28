@@ -1016,16 +1016,25 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       }
       setPersonAccountMap(autoMap)
 
-      // Fetch transitions using first account
-      if (accounts.length > 0 && records.length > 0) {
+      // Fetch transitions — prefer currentAccount (already logged in), fall back through all accounts
+      if (records.length > 0) {
         const firstKey = records[0].issueKey
-        const transResp = await fetch(`/api/jira/transitions?issueKey=${firstKey}`, {
-          headers: { 'x-jira-email': accounts[0].email },
-        })
-        const transData = await transResp.json() as { ok: boolean; transitions?: { id: string; name: string }[] }
-        if (transData.ok) {
-          setUpdateTransitions(transData.transitions ?? [])
-          if (transData.transitions && transData.transitions.length > 0) setUpdateTransitionId(transData.transitions[0].id)
+        const tryEmails = [
+          currentAccount?.email,
+          ...accounts.map(a => a.email),
+        ].filter(Boolean) as string[]
+        for (const email of tryEmails) {
+          try {
+            const transResp = await fetch(`/api/jira/transitions?issueKey=${firstKey}`, {
+              headers: { 'x-jira-email': email },
+            })
+            const transData = await transResp.json() as { ok: boolean; transitions?: { id: string; name: string }[] }
+            if (transData.ok && (transData.transitions ?? []).length > 0) {
+              setUpdateTransitions(transData.transitions ?? [])
+              setUpdateTransitionId(transData.transitions![0].id)
+              break
+            }
+          } catch { /* try next */ }
         }
       }
 
