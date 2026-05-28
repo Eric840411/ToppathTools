@@ -1019,10 +1019,11 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       // Fetch transitions — prefer currentAccount (already logged in), fall back through all accounts
       if (records.length > 0) {
         const firstKey = records[0].issueKey
-        const tryEmails = [
+        const tryEmails = [...new Set([
+          updateDefaultEmail,
           currentAccount?.email,
           ...accounts.map(a => a.email),
-        ].filter(Boolean) as string[]
+        ].filter(Boolean))] as string[]
         for (const email of tryEmails) {
           try {
             const transResp = await fetch(`/api/jira/transitions?issueKey=${firstKey}`, {
