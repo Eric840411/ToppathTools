@@ -1416,11 +1416,31 @@ router.post('/api/jira/pm-batch-create', heavyLimiter, async (req, res, next) =>
 router.post('/api/jira/update-read-bitable', async (req, res, next) => {
   try {
     const { bitableUrl } = z.object({ bitableUrl: z.string() }).parse(req.body)
-    const { appToken, tableId } = parseBitableUrl(bitableUrl)
-    if (!appToken || !tableId) return res.status(400).json({ ok: false, message: '無法解析 Bitable URL，請確認格式' })
+    let { appToken, tableId } = parseBitableUrl(bitableUrl)
+    if (!appToken || !tableId) return res.status(400).json({ ok: false, message: '無法解析 Bitable URL，請確認格式。支援 /base/APP_TOKEN?table=TABLE_ID 或 /wiki/WIKI_TOKEN?sheet=TABLE_ID' })
 
     const token = await getLarkToken()
     const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
+
+    // If URL is a Wiki URL, resolve wiki node → actual Bitable app_token
+    if (bitableUrl.includes('/wiki/')) {
+      const wikiResp = await fetch(`${base}/open-apis/wiki/v2/nodes/get?token=${appToken}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const wikiData = await wikiResp.json() as {
+        code?: number; msg?: string
+        data?: { node?: { obj_token?: string; obj_type?: string } }
+      }
+      if (wikiData.code !== 0) {
+        return res.status(400).json({ ok: false, message: `Wiki 節點解析失敗（${wikiData.msg}），請直接貼入 Bitable URL（/base/... 格式）` })
+      }
+      const node = wikiData.data?.node
+      if (node?.obj_type !== 'bitable') {
+        return res.status(400).json({ ok: false, message: `此 Wiki 節點不是 Bitable（類型：${node?.obj_type ?? '未知'}），請直接貼入 Bitable URL` })
+      }
+      if (node?.obj_token) appToken = node.obj_token
+    }
+
     const rawItems: Array<{ record_id: string; fields: Record<string, unknown> }> = []
     let pageToken: string | undefined
 
