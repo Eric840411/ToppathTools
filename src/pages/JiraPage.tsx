@@ -293,8 +293,6 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const [updateError, setUpdateError] = useState('')
   const [updateRecords, setUpdateRecords] = useState<UpdateRecord[]>([])
   const [updateAllAccounts, setUpdateAllAccounts] = useState<{ email: string; label: string }[]>([])
-  // fillPerson → email mapping ('' = use default)
-  const [personAccountMap, setPersonAccountMap] = useState<Record<string, string>>({})
   const [updateDefaultEmail, setUpdateDefaultEmail] = useState('')
   // Transitions
   const [updateTransitions, setUpdateTransitions] = useState<{ id: string; name: string }[]>([])
@@ -302,6 +300,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const [updateSubmitting, setUpdateSubmitting] = useState(false)
   const [updateResults, setUpdateResults] = useState<{ issueKey: string; ok: boolean; error?: string }[]>([])
   const [updateStats, setUpdateStats] = useState<{ totalRows: number; found: number; skippedEmpty: number; skippedInvalid: number } | null>(null)
+  const [updatePersonFilter, setUpdatePersonFilter] = useState<string>('') // '' = 全部, '__none__' = 無填寫人, else = 填寫人名
 
   // 追蹤所有已進入流程的 issue（本次 session 合併最新 stage）
   const [trackedIssues, setTrackedIssues] = useState<TrackedIssue[]>([])
@@ -996,25 +995,14 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       if (records.length === 0) { setUpdateError('找不到 Jira Issue Key，請確認 Bitable 有 URL 欄且含有單號'); return }
       setUpdateRecords(records)
       setUpdateStats(data.stats ?? null)
+      setUpdatePersonFilter('')
 
-      // Load accounts for mapping
+      // Load accounts for default account selector
       const accResp = await fetch('/api/jira/accounts')
       const accData = await accResp.json() as { accounts?: { email: string; label: string }[] }
       const accounts = accData.accounts ?? []
       setUpdateAllAccounts(accounts)
       if (accounts.length > 0) setUpdateDefaultEmail(accounts[0].email)
-
-      // Auto-map fill persons to accounts by label (case-insensitive prefix match)
-      const uniquePersons = [...new Set(records.map(r => r.fillPerson).filter(Boolean))]
-      const autoMap: Record<string, string> = {}
-      for (const person of uniquePersons) {
-        const match = accounts.find(a =>
-          a.label.toLowerCase().includes(person.toLowerCase()) ||
-          person.toLowerCase().includes(a.label.toLowerCase())
-        )
-        autoMap[person] = match?.email ?? ''
-      }
-      setPersonAccountMap(autoMap)
 
       // Fetch transitions — prefer currentAccount (already logged in), fall back through all accounts
       if (records.length > 0) {
@@ -1050,10 +1038,16 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const handleUpdateExecute = async () => {
     if (updateSubmitting) return
     setUpdateSubmitting(true); setUpdateResults([])
-    const items = updateRecords.map(r => {
-      const email = (r.fillPerson && personAccountMap[r.fillPerson]) ? personAccountMap[r.fillPerson] : updateDefaultEmail
-      return { issueKey: r.issueKey, email, transitionId: updateTransitionId || undefined }
-    })
+    const filtered = updatePersonFilter === ''
+      ? updateRecords
+      : updatePersonFilter === '__none__'
+        ? updateRecords.filter(r => !r.fillPerson)
+        : updateRecords.filter(r => r.fillPerson === updatePersonFilter)
+    const items = filtered.map(r => ({
+      issueKey: r.issueKey,
+      email: updateDefaultEmail,
+      transitionId: updateTransitionId || undefined,
+    }))
     try {
       const resp = await fetch('/api/jira/bulk-update', {
         method: 'POST',
@@ -1072,7 +1066,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
 
   const handleUpdateReset = () => {
     setUpdateStep(1); setUpdateBitableUrl(''); setUpdateRecords([]); setUpdateError('')
-    setPersonAccountMap({}); setUpdateTransitions([]); setUpdateTransitionId(''); setUpdateResults([])
+    setUpdateTransitions([]); setUpdateTransitionId(''); setUpdateResults([]); setUpdatePersonFilter('')
   }
 
   const StepDot = ({ s }: { s: Step }) => (
@@ -1344,11 +1338,20 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
           )}
 
           {/* Step 2: 設定帳號 & 動作 */}
-          {updateStep === 2 && (
+          {updateStep === 2 && (() => {
+            const uniquePersons = [...new Set(updateRecords.map(r => r.fillPerson).filter(Boolean))]
+            const noneCount = updateRecords.filter(r => !r.fillPerson).length
+            const filteredRecords = updatePersonFilter === ''
+              ? updateRecords
+              : updatePersonFilter === '__none__'
+                ? updateRecords.filter(r => !r.fillPerson)
+                : updateRecords.filter(r => r.fillPerson === updatePersonFilter)
+            return (
             <div className="section-card">
-              <h2 className="section-title">Step 2 — 設定帳號 & 動作</h2>
+              <h2 className="section-title">Step 2 — 選擇帳號 & 動作</h2>
               <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 6px' }}>
-                共 <b style={{ color: '#e2e8f0' }}>{updateRecords.length}</b> 張單，請確認填寫人 → 帳號對應，並選擇要執行的動作
+                共 <b style={{ color: '#e2e8f0' }}>{updateRecords.length}</b> 張單
+                {updatePersonFilter ? <>，篩選顯示 <b style={{ color: '#60a5fa' }}>{filteredRecords.length}</b> 張</> : ''}
               </p>
               {updateStats && (
                 <p style={{ fontSize: 11, color: '#475569', margin: '0 0 12px' }}>
@@ -1358,46 +1361,44 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                 </p>
               )}
 
-              {/* 帳號對應表 */}
+              {/* 填寫人篩選 */}
               <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa', marginBottom: 8 }}>填寫人 → 帳號對應</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {/* Default account */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', background: '#162032', borderRadius: 6, border: '1px solid #334155' }}>
-                    <span style={{ fontSize: 12, color: '#94a3b8', width: 100, flexShrink: 0 }}>（無填寫人）</span>
-                    <span style={{ fontSize: 11, color: '#64748b', marginRight: 4 }}>預設帳號→</span>
-                    <select
-                      value={updateDefaultEmail}
-                      onChange={e => setUpdateDefaultEmail(e.target.value)}
-                      style={{ fontSize: 12, background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 4, padding: '2px 6px' }}
-                    >
-                      {updateAllAccounts.map(a => <option key={a.email} value={a.email}>{a.label} ({a.email})</option>)}
-                    </select>
-                  </div>
-                  {Object.keys(personAccountMap).sort().map(person => (
-                    <div key={person} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', background: '#162032', borderRadius: 6, border: '1px solid #334155' }}>
-                      <span style={{ fontSize: 12, color: '#f1f5f9', fontWeight: 600, width: 100, flexShrink: 0 }}>{person}</span>
-                      <span style={{ fontSize: 11, color: '#64748b', marginRight: 4 }}>→</span>
-                      <select
-                        value={personAccountMap[person] ?? ''}
-                        onChange={e => setPersonAccountMap(prev => ({ ...prev, [person]: e.target.value }))}
-                        style={{ fontSize: 12, background: '#0f172a', color: personAccountMap[person] ? '#e2e8f0' : '#f87171', border: '1px solid #334155', borderRadius: 4, padding: '2px 6px' }}
-                      >
-                        <option value="">（使用預設帳號）</option>
-                        {updateAllAccounts.map(a => <option key={a.email} value={a.email}>{a.label} ({a.email})</option>)}
-                      </select>
-                      <span style={{ fontSize: 11, color: '#64748b' }}>
-                        {updateRecords.filter(r => r.fillPerson === person).length} 張
-                      </span>
-                    </div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa', marginBottom: 8 }}>填寫人篩選</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {[
+                    { key: '', label: `全部 (${updateRecords.length})` },
+                    ...uniquePersons.map(p => ({ key: p, label: `${p} (${updateRecords.filter(r => r.fillPerson === p).length})` })),
+                    ...(noneCount > 0 ? [{ key: '__none__', label: `無 (${noneCount})` }] : []),
+                  ].map(opt => (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => setUpdatePersonFilter(opt.key)}
+                      style={{
+                        fontSize: 12, padding: '4px 10px', borderRadius: 16, cursor: 'pointer',
+                        border: `1px solid ${updatePersonFilter === opt.key ? '#60a5fa' : '#334155'}`,
+                        background: updatePersonFilter === opt.key ? '#1e3a5f' : '#162032',
+                        color: updatePersonFilter === opt.key ? '#93c5fd' : '#94a3b8',
+                        fontWeight: updatePersonFilter === opt.key ? 700 : 400,
+                      }}
+                    >{opt.label}</button>
                   ))}
                 </div>
               </div>
 
-              {/* 轉換狀態 */}
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa', marginBottom: 8 }}>要執行的動作</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {/* 執行帳號 & 切換狀態 */}
+              <div style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 12, color: '#94a3b8' }}>執行帳號：</span>
+                  <select
+                    value={updateDefaultEmail}
+                    onChange={e => setUpdateDefaultEmail(e.target.value)}
+                    style={{ fontSize: 12, background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 4, padding: '4px 8px' }}
+                  >
+                    {updateAllAccounts.map(a => <option key={a.email} value={a.email}>{a.label} ({a.email})</option>)}
+                  </select>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <span style={{ fontSize: 12, color: '#94a3b8' }}>切換狀態：</span>
                   {updateTransitions.length > 0 ? (
                     <select
@@ -1417,22 +1418,16 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
               {/* Preview */}
               <div style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa', marginBottom: 6 }}>
-                  預覽（{updateRecords.length} 張）
+                  預覽（{filteredRecords.length} 張）
                 </div>
                 <div style={{ maxHeight: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  {updateRecords.slice(0, 50).map(r => {
-                    const email = (r.fillPerson && personAccountMap[r.fillPerson]) ? personAccountMap[r.fillPerson] : updateDefaultEmail
-                    const acct = updateAllAccounts.find(a => a.email === email)
-                    return (
-                      <div key={r.issueKey} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '3px 8px', background: '#0f172a', borderRadius: 4 }}>
-                        <code style={{ color: '#93c5fd', fontWeight: 700, minWidth: 90 }}>{r.issueKey}</code>
-                        <span style={{ color: '#64748b', fontSize: 11 }}>{r.fillPerson || '—'}</span>
-                        <span style={{ color: '#64748b', fontSize: 11 }}>→</span>
-                        <span style={{ color: acct ? '#4ade80' : '#f87171', fontSize: 11 }}>{acct?.label ?? '（預設）'}</span>
-                      </div>
-                    )
-                  })}
-                  {updateRecords.length > 50 && <div style={{ fontSize: 11, color: '#64748b', textAlign: 'center', padding: 4 }}>...還有 {updateRecords.length - 50} 張</div>}
+                  {filteredRecords.slice(0, 100).map(r => (
+                    <div key={r.issueKey} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '3px 8px', background: '#0f172a', borderRadius: 4 }}>
+                      <code style={{ color: '#93c5fd', fontWeight: 700, minWidth: 90 }}>{r.issueKey}</code>
+                      <span style={{ color: r.fillPerson ? '#cbd5e1' : '#475569', fontSize: 11 }}>{r.fillPerson || '無'}</span>
+                    </div>
+                  ))}
+                  {filteredRecords.length > 100 && <div style={{ fontSize: 11, color: '#64748b', textAlign: 'center', padding: 4 }}>...還有 {filteredRecords.length - 100} 張</div>}
                 </div>
               </div>
 
@@ -1445,11 +1440,12 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                   onClick={handleUpdateExecute}
                   style={{ whiteSpace: 'nowrap' }}
                 >
-                  {updateSubmitting ? '執行中…' : `▶ 執行（${updateRecords.length} 張）`}
+                  {updateSubmitting ? '執行中…' : `▶ 執行（${filteredRecords.length} 張）`}
                 </button>
               </div>
             </div>
-          )}
+            )
+          })()}
 
           {/* Step 3: 結果 */}
           {updateStep === 3 && (
