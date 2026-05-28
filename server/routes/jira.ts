@@ -309,9 +309,14 @@ function extractJsonBlock(raw: string): string {
 // ─── PM Mode: Lark Bitable → Jira helpers ─────────────────────────────────────
 
 function parseBitableUrl(url: string): { appToken: string; tableId: string } {
+  // Direct Bitable: /base/APP_TOKEN?table=TABLE_ID
   const appMatch = url.match(/\/base\/([A-Za-z0-9]+)/)
   const tableMatch = url.match(/[?&]table=([A-Za-z0-9]+)/)
-  return { appToken: appMatch?.[1] ?? '', tableId: tableMatch?.[1] ?? '' }
+  if (appMatch?.[1] && tableMatch?.[1]) return { appToken: appMatch[1], tableId: tableMatch[1] }
+  // Wiki embedded: /wiki/WIKI_TOKEN?...&sheet=TABLE_ID
+  const wikiMatch = url.match(/\/wiki\/([A-Za-z0-9]+)/)
+  const sheetMatch = url.match(/[?&]sheet=([A-Za-z0-9]+)/)
+  return { appToken: appMatch?.[1] ?? wikiMatch?.[1] ?? '', tableId: tableMatch?.[1] ?? sheetMatch?.[1] ?? '' }
 }
 
 function larkTextField(val: unknown): string {
