@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.34.1'
+export const APP_VERSION = '3.34.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.34.2',
+    date: '2026-05-28',
+    changes: [
+      'fix(alert): Lark 版本告警機台清單改為聚合摘要 — 按 (渠道, 機種, 目前版本, 目標版本) 分組，台數 desc 排序，附落後/超前標示，移除 20 筆截斷限制',
+    ],
+  },
   {
     version: '3.34.1',
     date: '2026-05-28',

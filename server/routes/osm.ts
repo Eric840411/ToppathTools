@@ -284,22 +284,32 @@ export const sendLarkAlert = async () => {
     }
   } catch { /* 忽略取得失敗 */ }
 
-  // ── OSM 機台（Online 未達標）──
+  // ── OSM 機台（Online 未達標）— 聚合摘要 ──
   if (osmChannelCache.length > 0) {
-    const machineOffTarget: string[] = []
+    type MachineGroup = { channel: string; machineType: string; current: string; target: string; count: number }
+    const groupMap = new Map<string, MachineGroup>()
+    let totalOffTarget = 0
+
     for (const ch of osmChannelCache) {
       for (const m of ch.machines) {
         const target = targets[m.machineType]?.['MachineType']
         const online = (m.onlineState ?? '').trim().toLowerCase() === 'online'
-        if (online && target && m.version !== target) {
-          machineOffTarget.push(`  • [${ch.name}] ${m.machineName || m.id} (${m.machineType}): ${m.version} → 目標 ${target}`)
-        }
+        if (!online || !target || !m.version || m.version === target) continue
+        totalOffTarget++
+        const key = `${ch.name}|${m.machineType}|${m.version || '—'}|${target}`
+        const g = groupMap.get(key)
+        if (g) g.count++
+        else groupMap.set(key, { channel: ch.name, machineType: m.machineType, current: m.version || '—', target, count: 1 })
       }
     }
-    if (machineOffTarget.length > 0) {
-      lines.push(`\n🖥 OSM 機台 Online 未達標（${machineOffTarget.length} 台）：`)
-      lines.push(...machineOffTarget.slice(0, 20))
-      if (machineOffTarget.length > 20) lines.push(`  ...以及另外 ${machineOffTarget.length - 20} 台`)
+
+    if (totalOffTarget > 0) {
+      const groups = [...groupMap.values()].sort((a, b) => b.count - a.count)
+      lines.push(`\n🖥 OSM 機台 Online 未達標（${totalOffTarget} 台 / ${groups.length} 組）：`)
+      for (const g of groups) {
+        const trend = g.current > g.target ? '⬆超前' : '⬇落後'
+        lines.push(`  • [${g.channel}] ${g.machineType}: ${g.count}台 ${trend} — ${g.current} → 目標 ${g.target}`)
+      }
     } else if (osmChannelCache.length > 0) {
       lines.push('\n🖥 OSM 機台：✅ 全部 Online 達標')
     }
