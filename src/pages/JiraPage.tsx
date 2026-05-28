@@ -1395,23 +1395,40 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                 <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa', marginBottom: 6 }}>
                   預覽（{filteredRecords.length} 張）
                 </div>
-                <div style={{ maxHeight: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  {filteredRecords.slice(0, 100).map(r => (
-                    <div key={r.issueKey} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '4px 8px', background: '#0f172a', borderRadius: 4 }}>
-                      {updateJiraBaseUrl ? (
-                        <a href={`${updateJiraBaseUrl}/browse/${r.issueKey}`} target="_blank" rel="noreferrer"
-                          style={{ color: '#93c5fd', fontWeight: 700, minWidth: 90, textDecoration: 'none', flexShrink: 0 }}
-                          onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
-                          onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}
-                        >{r.issueKey}</a>
-                      ) : (
-                        <code style={{ color: '#93c5fd', fontWeight: 700, minWidth: 90, flexShrink: 0 }}>{r.issueKey}</code>
-                      )}
-                      {r.title && <span style={{ color: '#e2e8f0', fontSize: 11, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>}
-                      <span style={{ color: r.fillPerson ? '#64748b' : '#334155', fontSize: 10, flexShrink: 0 }}>{r.fillPerson || '無'}</span>
-                    </div>
-                  ))}
-                  {filteredRecords.length > 100 && <div style={{ fontSize: 11, color: '#64748b', textAlign: 'center', padding: 4 }}>...還有 {filteredRecords.length - 100} 張</div>}
+                <div style={{ border: '1px solid #1e3a5f', borderRadius: 6, overflow: 'hidden' }}>
+                  {/* Table header */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '110px 90px 1fr', gap: 0, background: '#0f2744', borderBottom: '1px solid #1e3a5f' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', padding: '5px 10px', borderRight: '1px solid #1e3a5f' }}>單號</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', padding: '5px 10px', borderRight: '1px solid #1e3a5f' }}>填寫人</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', padding: '5px 10px' }}>內容</div>
+                  </div>
+                  {/* Rows */}
+                  <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                    {filteredRecords.slice(0, 200).map((r, idx) => (
+                      <div key={r.issueKey} style={{ display: 'grid', gridTemplateColumns: '110px 90px 1fr', background: idx % 2 === 0 ? '#0a1628' : '#0d1e38', borderBottom: '1px solid #1e293b' }}>
+                        <div style={{ padding: '5px 10px', borderRight: '1px solid #1e293b', display: 'flex', alignItems: 'center' }}>
+                          {updateJiraBaseUrl ? (
+                            <a href={`${updateJiraBaseUrl}/browse/${r.issueKey}`} target="_blank" rel="noreferrer"
+                              style={{ color: '#93c5fd', fontWeight: 700, fontSize: 12, textDecoration: 'none' }}
+                              onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
+                              onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}
+                            >{r.issueKey}</a>
+                          ) : (
+                            <code style={{ color: '#93c5fd', fontWeight: 700, fontSize: 12 }}>{r.issueKey}</code>
+                          )}
+                        </div>
+                        <div style={{ padding: '5px 10px', borderRight: '1px solid #1e293b', fontSize: 11, color: r.fillPerson ? '#94a3b8' : '#475569', display: 'flex', alignItems: 'center' }}>
+                          {r.fillPerson || '無'}
+                        </div>
+                        <div style={{ padding: '5px 10px', fontSize: 11, color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {r.title || '—'}
+                        </div>
+                      </div>
+                    ))}
+                    {filteredRecords.length > 200 && (
+                      <div style={{ fontSize: 11, color: '#64748b', textAlign: 'center', padding: '6px 0' }}>...還有 {filteredRecords.length - 200} 張</div>
+                    )}
+                  </div>
                 </div>
               </div>
 
