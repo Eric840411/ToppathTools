@@ -1420,7 +1420,7 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
     const token = await getLarkToken()
     const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
 
-    const JIRA_KEY_RE = /^[A-Z][A-Z0-9]*-\d+$/
+    const JIRA_KEY_RE = /^[A-Z]{2,}[0-9]*-\d+$/
     const extractCell = (cell: unknown): string => {
       if (cell === null || cell === undefined) return ''
       if (typeof cell === 'string') return cell
@@ -1504,17 +1504,20 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
       // If still not found or formula wasn't resolved, scan all columns for direct Jira keys
       if (urlColIdx < 0 || (() => {
         const v = extractCell((rows[1] as unknown[])?.[urlColIdx])
-        return !JIRA_KEY_RE.test(v.trim()) && !/[A-Z][A-Z0-9]*-\d+/.test(v)
+        return !JIRA_KEY_RE.test(v.trim()) && !/[A-Z]{2,}[0-9]*-\d+/.test(v)
       })()) {
         for (let colIdx = 0; colIdx < headers.length; colIdx++) {
           const firstVal = extractCell((rows[1] as unknown[])?.[colIdx])
-          if (JIRA_KEY_RE.test(firstVal.trim()) || /[A-Z][A-Z0-9]*-\d+/.test(firstVal)) {
+          if (JIRA_KEY_RE.test(firstVal.trim()) || /[A-Z]{2,}[0-9]*-\d+/.test(firstVal)) {
             urlColIdx = colIdx; break
           }
         }
       }
 
-      const records: Array<{ issueKey: string; fillPerson: string; rowIndex: number }> = []
+      // Title column: 標題 / title / 內容
+      const titleColIdx = headers.findIndex(h => h.includes('標題') || h.toLowerCase().includes('title'))
+
+      const records: Array<{ issueKey: string; fillPerson: string; title: string; rowIndex: number }> = []
       const seenKeys = new Set<string>()
       let skippedEmpty = 0, skippedInvalid = 0
       // Original URL col index before formula redirect (for fallback)
@@ -1529,12 +1532,13 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
           rawKey = extractCell(row[origUrlColIdx])
         }
         if (!rawKey) { skippedEmpty++; continue }
-        const issueKey = (rawKey.match(/([A-Z][A-Z0-9]*-\d+)/) ?? [])[1]?.trim() ?? rawKey.trim()
+        const issueKey = (rawKey.match(/([A-Z]{2,}[0-9]*-\d+)/) ?? [])[1]?.trim() ?? rawKey.trim()
         if (!issueKey || !JIRA_KEY_RE.test(issueKey)) { skippedInvalid++; continue }
         if (seenKeys.has(issueKey)) continue  // dedup
         seenKeys.add(issueKey)
         const fillPerson = fillPersonColIdx >= 0 ? extractCell(row[fillPersonColIdx]).trim() : ''
-        records.push({ issueKey, fillPerson, rowIndex: i + 1 })
+        const title = titleColIdx >= 0 ? extractCell(row[titleColIdx]).trim() : ''
+        records.push({ issueKey, fillPerson, title, rowIndex: i + 1 })
       }
 
       // Debug: log fill person sample to understand cell format
@@ -1556,6 +1560,7 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
         urlColumn: urlColIdx >= 0 ? headers[urlColIdx] : '',
         fillPersonColumn: fillPersonColIdx >= 0 ? headers[fillPersonColIdx] : '',
         stats: { totalRows: rows.length - 1, found: records.length, skippedEmpty, skippedInvalid },
+        jiraBaseUrl: process.env.JIRA_BASE_URL ?? '',
       })
     }
 
@@ -1589,7 +1594,7 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
       rowIndex++
       const raw = item.fields[urlColumn]
       const rawStr = extractCell(raw)
-      const issueKey = (rawStr.match(/([A-Z][A-Z0-9]*-\d+)/) ?? [])[1]?.trim() ?? rawStr.trim()
+      const issueKey = (rawStr.match(/([A-Z]{2,}[0-9]*-\d+)/) ?? [])[1]?.trim() ?? rawStr.trim()
       if (!issueKey || !JIRA_KEY_RE.test(issueKey)) continue
       const fillPerson = fillPersonColumn ? larkTextField(item.fields[fillPersonColumn]).trim() : ''
       records.push({ issueKey, fillPerson, rowIndex })

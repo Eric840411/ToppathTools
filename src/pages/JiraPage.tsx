@@ -286,14 +286,13 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
 
   // ── Update mode ──
   type UpdateStep = 1 | 2 | 3
-  type UpdateRecord = { issueKey: string; fillPerson: string; rowIndex: number }
+  type UpdateRecord = { issueKey: string; fillPerson: string; title: string; rowIndex: number }
   const [updateStep, setUpdateStep] = useState<UpdateStep>(1)
   const [updateBitableUrl, setUpdateBitableUrl] = useState('')
   const [updateLoading, setUpdateLoading] = useState(false)
   const [updateError, setUpdateError] = useState('')
   const [updateRecords, setUpdateRecords] = useState<UpdateRecord[]>([])
-  const [updateAllAccounts, setUpdateAllAccounts] = useState<{ email: string; label: string }[]>([])
-  const [updateDefaultEmail, setUpdateDefaultEmail] = useState('')
+  const [updateJiraBaseUrl, setUpdateJiraBaseUrl] = useState('')
   // Transitions
   const [updateTransitions, setUpdateTransitions] = useState<{ id: string; name: string }[]>([])
   const [updateTransitionId, setUpdateTransitionId] = useState('')
@@ -989,42 +988,27 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bitableUrl: updateBitableUrl.trim() }),
       })
-      const data = await resp.json() as { ok: boolean; records?: UpdateRecord[]; message?: string; stats?: { totalRows: number; found: number; skippedEmpty: number; skippedInvalid: number } }
+      const data = await resp.json() as { ok: boolean; records?: UpdateRecord[]; message?: string; stats?: { totalRows: number; found: number; skippedEmpty: number; skippedInvalid: number }; jiraBaseUrl?: string }
       if (!data.ok) { setUpdateError(data.message ?? '讀取失敗'); return }
       const records = data.records ?? []
       if (records.length === 0) { setUpdateError('找不到 Jira Issue Key，請確認 Bitable 有 URL 欄且含有單號'); return }
       setUpdateRecords(records)
       setUpdateStats(data.stats ?? null)
       setUpdatePersonFilter('')
+      if (data.jiraBaseUrl) setUpdateJiraBaseUrl(data.jiraBaseUrl)
 
-      // Load accounts for default account selector
-      const accResp = await fetch('/api/jira/accounts')
-      const accData = await accResp.json() as { accounts?: { email: string; label: string }[] }
-      const accounts = accData.accounts ?? []
-      setUpdateAllAccounts(accounts)
-      if (accounts.length > 0) setUpdateDefaultEmail(accounts[0].email)
-
-      // Fetch transitions — prefer currentAccount (already logged in), fall back through all accounts
-      if (records.length > 0) {
-        const firstKey = records[0].issueKey
-        const tryEmails = [...new Set([
-          updateDefaultEmail,
-          currentAccount?.email,
-          ...accounts.map(a => a.email),
-        ].filter(Boolean))] as string[]
-        for (const email of tryEmails) {
-          try {
-            const transResp = await fetch(`/api/jira/transitions?issueKey=${firstKey}`, {
-              headers: { 'x-jira-email': email },
-            })
-            const transData = await transResp.json() as { ok: boolean; transitions?: { id: string; name: string }[] }
-            if (transData.ok && (transData.transitions ?? []).length > 0) {
-              setUpdateTransitions(transData.transitions ?? [])
-              setUpdateTransitionId(transData.transitions![0].id)
-              break
-            }
-          } catch { /* try next */ }
-        }
+      // Fetch transitions using currentAccount
+      if (records.length > 0 && currentAccount?.email) {
+        try {
+          const transResp = await fetch(`/api/jira/transitions?issueKey=${records[0].issueKey}`, {
+            headers: { 'x-jira-email': currentAccount.email },
+          })
+          const transData = await transResp.json() as { ok: boolean; transitions?: { id: string; name: string }[] }
+          if (transData.ok && (transData.transitions ?? []).length > 0) {
+            setUpdateTransitions(transData.transitions ?? [])
+            setUpdateTransitionId(transData.transitions![0].id)
+          }
+        } catch { /* ignore */ }
       }
 
       setUpdateStep(2)
@@ -1043,9 +1027,10 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       : updatePersonFilter === '__none__'
         ? updateRecords.filter(r => !r.fillPerson)
         : updateRecords.filter(r => r.fillPerson === updatePersonFilter)
+    const execEmail = currentAccount?.email ?? ''
     const items = filtered.map(r => ({
       issueKey: r.issueKey,
-      email: updateDefaultEmail,
+      email: execEmail,
       transitionId: updateTransitionId || undefined,
     }))
     try {
@@ -1386,33 +1371,23 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                 </div>
               </div>
 
-              {/* 執行帳號 & 切換狀態 */}
-              <div style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 12, color: '#94a3b8' }}>執行帳號：</span>
+              {/* 切換狀態 */}
+              <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: '#94a3b8' }}>切換狀態：</span>
+                {updateTransitions.length > 0 ? (
                   <select
-                    value={updateDefaultEmail}
-                    onChange={e => setUpdateDefaultEmail(e.target.value)}
+                    value={updateTransitionId}
+                    onChange={e => setUpdateTransitionId(e.target.value)}
                     style={{ fontSize: 12, background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 4, padding: '4px 8px' }}
                   >
-                    {updateAllAccounts.map(a => <option key={a.email} value={a.email}>{a.label} ({a.email})</option>)}
+                    <option value="">（不切換）</option>
+                    {updateTransitions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
                   </select>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 12, color: '#94a3b8' }}>切換狀態：</span>
-                  {updateTransitions.length > 0 ? (
-                    <select
-                      value={updateTransitionId}
-                      onChange={e => setUpdateTransitionId(e.target.value)}
-                      style={{ fontSize: 12, background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 4, padding: '4px 8px' }}
-                    >
-                      <option value="">（不切換）</option>
-                      {updateTransitions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-                    </select>
-                  ) : (
-                    <span style={{ fontSize: 12, color: '#64748b' }}>讀取轉換選項失敗，可跳過</span>
-                  )}
-                </div>
+                ) : (
+                  <span style={{ fontSize: 12, color: '#64748b' }}>
+                    {currentAccount ? '讀取轉換選項失敗，可跳過' : '請先選擇帳號（右上角）'}
+                  </span>
+                )}
               </div>
 
               {/* Preview */}
@@ -1422,9 +1397,18 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                 </div>
                 <div style={{ maxHeight: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 3 }}>
                   {filteredRecords.slice(0, 100).map(r => (
-                    <div key={r.issueKey} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '3px 8px', background: '#0f172a', borderRadius: 4 }}>
-                      <code style={{ color: '#93c5fd', fontWeight: 700, minWidth: 90 }}>{r.issueKey}</code>
-                      <span style={{ color: r.fillPerson ? '#cbd5e1' : '#475569', fontSize: 11 }}>{r.fillPerson || '無'}</span>
+                    <div key={r.issueKey} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, padding: '4px 8px', background: '#0f172a', borderRadius: 4 }}>
+                      {updateJiraBaseUrl ? (
+                        <a href={`${updateJiraBaseUrl}/browse/${r.issueKey}`} target="_blank" rel="noreferrer"
+                          style={{ color: '#93c5fd', fontWeight: 700, minWidth: 90, textDecoration: 'none', flexShrink: 0 }}
+                          onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
+                          onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}
+                        >{r.issueKey}</a>
+                      ) : (
+                        <code style={{ color: '#93c5fd', fontWeight: 700, minWidth: 90, flexShrink: 0 }}>{r.issueKey}</code>
+                      )}
+                      {r.title && <span style={{ color: '#e2e8f0', fontSize: 11, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>}
+                      <span style={{ color: r.fillPerson ? '#64748b' : '#334155', fontSize: 10, flexShrink: 0 }}>{r.fillPerson || '無'}</span>
                     </div>
                   ))}
                   {filteredRecords.length > 100 && <div style={{ fontSize: 11, color: '#64748b', textAlign: 'center', padding: 4 }}>...還有 {filteredRecords.length - 100} 張</div>}
@@ -1436,7 +1420,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                 <button
                   type="button"
                   className={`submit-btn submit-btn--step${updateSubmitting ? ' loading' : ''}`}
-                  disabled={updateSubmitting || !updateDefaultEmail}
+                  disabled={updateSubmitting || !currentAccount}
                   onClick={handleUpdateExecute}
                   style={{ whiteSpace: 'nowrap' }}
                 >
