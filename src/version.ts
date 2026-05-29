@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.37.4'
+export const APP_VERSION = '3.37.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.37.5',
+    date: '2026-05-29',
+    changes: [
+      'fix(ui-screenshot): 修正截圖縮圖不顯示（SSE snapshot 補 run_id 欄位）',
+      'fix(ui-screenshot): 修正 heatmap 11 欄版面溢出',
+      'feat(ui-screenshot): 新增解析度 模擬A(414×730)、模擬B(376×636)、FOLD/Flip 折(344×882)、FOLD/Flip 展(884×1104)',
+      'feat(osm-alert): 版本告警 Lark Webhook 可獨立設定，排程設定介面新增 Webhook URL 欄位',
+    ],
+  },
   {
     version: '3.37.4',
     date: '2026-05-29',
