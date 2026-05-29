@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.37.2'
+export const APP_VERSION = '3.37.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.37.3',
+    date: '2026-05-29',
+    changes: [
+      'fix(ui-screenshot): UI 解析度截圖完成或停止時寫入主歷史紀錄，History 頁新增 UI 截圖篩選',
+    ],
+  },
   {
     version: '3.37.2',
     date: '2026-05-29',

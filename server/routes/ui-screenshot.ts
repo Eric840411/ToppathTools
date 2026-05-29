@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, createReadStream } from 'fs'
 import { writeFile, readFile } from 'fs/promises'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import { db, getLarkToken, parseLarkSheetUrl } from '../shared.js'
+import { addHistory, db, getLarkToken, parseLarkSheetUrl } from '../shared.js'
 import { agentConnections } from '../agent-hub.js'
 import { getOperatorFromContext } from '../request-context.js'
 
@@ -31,6 +31,7 @@ export const UI_SCREENSHOT_SCHEMA = `
     concurrency       INTEGER NOT NULL DEFAULT 3,
     options           TEXT NOT NULL DEFAULT '{}',
     agent_id          TEXT,
+    history_saved     INTEGER NOT NULL DEFAULT 0,
     created_at        INTEGER NOT NULL,
     started_at        INTEGER,
     finished_at       INTEGER
@@ -51,6 +52,12 @@ export const UI_SCREENSHOT_SCHEMA = `
 
 // Run schema migration on module load
 db.exec(UI_SCREENSHOT_SCHEMA)
+{
+  const cols = db.prepare('PRAGMA table_info(ui_screenshot_runs)').all() as { name: string }[]
+  if (!cols.find(c => c.name === 'history_saved')) {
+    db.exec('ALTER TABLE ui_screenshot_runs ADD COLUMN history_saved INTEGER NOT NULL DEFAULT 0')
+  }
+}
 
 // ─── SSE subscribers ──────────────────────────────────────────────────────────
 
@@ -78,6 +85,76 @@ function screenshotPath(runId: string, gmid: string, resolution: string) {
 
 function serverRelPath(runId: string, gmid: string, resolution: string) {
   return `ui-screenshot-saves/${runId}/${gmid}/${resolution}.png`
+}
+
+function uiScreenshotCounts(runId: string) {
+  return db.prepare(`
+    SELECT
+      COUNT(*) AS total_count,
+      SUM(CASE WHEN status='ok' THEN 1 ELSE 0 END) AS ok_count,
+      SUM(CASE WHEN status='popup' THEN 1 ELSE 0 END) AS popup_count,
+      SUM(CASE WHEN status IN ('err','timeout') THEN 1 ELSE 0 END) AS err_count,
+      SUM(CASE WHEN status='skipped' THEN 1 ELSE 0 END) AS skipped_count
+    FROM ui_screenshot_tasks WHERE run_id = ?
+  `).get(runId) as {
+    total_count: number
+    ok_count: number | null
+    popup_count: number | null
+    err_count: number | null
+    skipped_count: number | null
+  }
+}
+
+function saveUiScreenshotHistory(runId: string, finalStatus: 'done' | 'stopped') {
+  const run = db.prepare(`SELECT * FROM ui_screenshot_runs WHERE id = ?`).get(runId) as {
+    id: string
+    status: string
+    wiki_url: string
+    game_url_template: string
+    gmids: string
+    resolutions: string
+    options: string
+    agent_id?: string
+    history_saved: number
+    created_at: number
+    started_at?: number | null
+    finished_at?: number | null
+  } | undefined
+  if (!run || run.history_saved) return
+
+  const mark = db.prepare(`UPDATE ui_screenshot_runs SET history_saved = 1 WHERE id = ? AND history_saved = 0`).run(runId)
+  if (mark.changes === 0) return
+
+  const counts = uiScreenshotCounts(runId)
+  const gmids = JSON.parse(run.gmids || '[]') as string[]
+  const resolutions = JSON.parse(run.resolutions || '[]') as string[]
+  const ok = counts.ok_count ?? 0
+  const popup = counts.popup_count ?? 0
+  const err = counts.err_count ?? 0
+  const skipped = counts.skipped_count ?? 0
+  const durationMs = Math.max(0, (run.finished_at ?? Date.now()) - (run.started_at ?? run.created_at))
+  const stateLabel = finalStatus === 'stopped' ? 'STOPPED' : err > 0 ? 'DONE WITH ERRORS' : 'DONE'
+
+  addHistory(
+    'ui-screenshot',
+    `UI 解析度截圖 - ${gmids.length} 台`,
+    `${stateLabel}: tasks ${counts.total_count}, OK ${ok}, POPUP ${popup}, ERR ${err}, SKIP ${skipped}`,
+    {
+      runId,
+      status: finalStatus,
+      wikiUrl: run.wiki_url,
+      gameUrlTemplate: run.game_url_template,
+      gmids,
+      resolutions,
+      options: JSON.parse(run.options || '{}') as Record<string, unknown>,
+      agentId: run.agent_id ?? null,
+      counts: { total: counts.total_count, ok, popup, err, skipped },
+      createdAt: run.created_at,
+      startedAt: run.started_at ?? null,
+      finishedAt: run.finished_at ?? null,
+      durationMs,
+    },
+  )
 }
 
 // ─── Router ───────────────────────────────────────────────────────────────────
@@ -189,6 +266,7 @@ router.post('/stop/:runId', (req, res) => {
 
   db.prepare(`UPDATE ui_screenshot_runs SET status = 'stopped', finished_at = ? WHERE id = ?`).run(Date.now(), runId)
   db.prepare(`UPDATE ui_screenshot_tasks SET status = 'skipped' WHERE run_id = ? AND status IN ('pending','running')`).run(runId)
+  saveUiScreenshotHistory(runId, 'stopped')
 
   // Notify agent
   if (run.agent_id) {
@@ -287,15 +365,15 @@ router.post('/task/:taskId/upload', upload.single('screenshot'), async (req, res
   ).get(task.run_id) as { cnt: number }
 
   if (pending.cnt === 0) {
-    const counts = db.prepare(`
-      SELECT
-        SUM(CASE WHEN status='ok' THEN 1 ELSE 0 END) AS ok_count,
-        SUM(CASE WHEN status='popup' THEN 1 ELSE 0 END) AS popup_count,
-        SUM(CASE WHEN status IN ('err','timeout') THEN 1 ELSE 0 END) AS err_count
-      FROM ui_screenshot_tasks WHERE run_id = ?
-    `).get(task.run_id) as { ok_count: number; popup_count: number; err_count: number }
+    const historyCounts = uiScreenshotCounts(task.run_id)
+    const counts = {
+      ok_count: historyCounts.ok_count ?? 0,
+      popup_count: historyCounts.popup_count ?? 0,
+      err_count: historyCounts.err_count ?? 0,
+    }
 
     db.prepare(`UPDATE ui_screenshot_runs SET status = 'done', finished_at = ? WHERE id = ?`).run(now, task.run_id)
+    saveUiScreenshotHistory(task.run_id, 'done')
 
     // Release agent
     const run = db.prepare(`SELECT agent_id FROM ui_screenshot_runs WHERE id = ?`).get(task.run_id) as { agent_id?: string } | undefined
@@ -341,15 +419,15 @@ router.post('/task/:taskId/status', (req, res) => {
   ).get(task.run_id) as { cnt: number }
 
   if (pending.cnt === 0) {
-    const counts = db.prepare(`
-      SELECT
-        SUM(CASE WHEN status='ok' THEN 1 ELSE 0 END) AS ok_count,
-        SUM(CASE WHEN status='popup' THEN 1 ELSE 0 END) AS popup_count,
-        SUM(CASE WHEN status IN ('err','timeout') THEN 1 ELSE 0 END) AS err_count
-      FROM ui_screenshot_tasks WHERE run_id = ?
-    `).get(task.run_id) as { ok_count: number; popup_count: number; err_count: number }
+    const historyCounts = uiScreenshotCounts(task.run_id)
+    const counts = {
+      ok_count: historyCounts.ok_count ?? 0,
+      popup_count: historyCounts.popup_count ?? 0,
+      err_count: historyCounts.err_count ?? 0,
+    }
 
     db.prepare(`UPDATE ui_screenshot_runs SET status = 'done', finished_at = ? WHERE id = ?`).run(now, task.run_id)
+    saveUiScreenshotHistory(task.run_id, 'done')
     const run = db.prepare(`SELECT agent_id FROM ui_screenshot_runs WHERE id = ?`).get(task.run_id) as { agent_id?: string } | undefined
     if (run?.agent_id) {
       const agent = agentConnections.get(run.agent_id)

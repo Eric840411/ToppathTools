@@ -86,11 +86,12 @@ interface HistoryRecord {
 }
 
 type DaysFilter = 1 | 3 | 7
-type FeatureFilter = 'all' | 'testcase' | 'machine-test' | 'scripted-bet' | 'jira' | 'jira-comment' | 'osm-sync' | 'osm-components' | 'luckylink-components' | 'toppath-components' | 'osm-alert' | 'imagerecon' | 'image-check' | 'gs-pdf-testcase' | 'gs-img-compare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config-compare'
+type FeatureFilter = 'all' | 'testcase' | 'machine-test' | 'ui-screenshot' | 'scripted-bet' | 'jira' | 'jira-comment' | 'osm-sync' | 'osm-components' | 'luckylink-components' | 'toppath-components' | 'osm-alert' | 'imagerecon' | 'image-check' | 'gs-pdf-testcase' | 'gs-img-compare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config-compare'
 
 const FEATURE_LABELS: Record<string, string> = {
   'testcase': 'TestCase 生成',
   'machine-test': '機台測試',
+  'ui-screenshot': 'UI 截圖',
   'scripted-bet': '腳本化投注',
   'jira': 'Jira 批量開單',
   'jira-comment': 'Jira 批次評論',
@@ -111,6 +112,7 @@ const FEATURE_LABELS: Record<string, string> = {
 const FEATURE_COLORS: Record<string, string> = {
   'testcase': '#6366f1',
   'machine-test': '#0891b2',
+  'ui-screenshot': '#0d9488',
   'scripted-bet': '#2563eb',
   'jira': '#0052cc',
   'jira-comment': '#1d4ed8',
@@ -206,7 +208,7 @@ export function HistoryPage() {
 
         {/* Feature */}
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          {(['all', 'jira', 'jira-comment', 'testcase', 'machine-test', 'scripted-bet', 'image-check', 'osm-sync', 'osm-components', 'luckylink-components', 'toppath-components', 'osm-alert', 'imagerecon', 'gs-pdf-testcase', 'gs-img-compare', 'gs-logchecker', 'gs-bonusv2', 'osm-config-compare'] as FeatureFilter[]).map(f => (
+          {(['all', 'jira', 'jira-comment', 'testcase', 'machine-test', 'ui-screenshot', 'scripted-bet', 'image-check', 'osm-sync', 'osm-components', 'luckylink-components', 'toppath-components', 'osm-alert', 'imagerecon', 'gs-pdf-testcase', 'gs-img-compare', 'gs-logchecker', 'gs-bonusv2', 'osm-config-compare'] as FeatureFilter[]).map(f => (
             <button
               key={f}
               onClick={() => setFeature(f)}
