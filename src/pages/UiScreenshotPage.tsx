@@ -209,7 +209,6 @@ export function UiScreenshotPage() {
   const [writingBack, setWritingBack] = useState(false)
   const [writebackMsg, setWritebackMsg] = useState('')
   const [previewTask, setPreviewTask] = useState<ScreenshotTask | null>(null)
-  const [gmidPreview, setGmidPreview] = useState<string[] | null>(null)
   const [fetchingGmids, setFetchingGmids] = useState(false)
   const [fetchGmidMsg, setFetchGmidMsg] = useState('')
 
@@ -587,44 +586,6 @@ export function UiScreenshotPage() {
               />
               <span className="field-hint">每行一個 gmid，或以逗號 / 空格分隔皆可；可手動修改</span>
             </label>
-            <button
-              className="btn-ghost"
-              type="button"
-              disabled={running}
-              onClick={() => {
-                const parsed = gmidText.split(/[\n,\s]+/).map(s => s.trim()).filter(s => s.length > 0)
-                setGmidPreview(parsed)
-              }}
-            >
-              確認 gmid 清單
-            </button>
-            {gmidPreview !== null && (
-              <div style={{ marginTop: 8, padding: '8px 10px', background: '#0f172a', borderRadius: 6, border: '1px solid #1e3a5f' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <span style={{ fontSize: 12, color: '#94a3b8', fontWeight: 600 }}>
-                    讀到 {gmidPreview.length} 個 gmid
-                  </span>
-                  <button
-                    className="btn-ghost"
-                    style={{ fontSize: 10, padding: '2px 8px' }}
-                    onClick={() => setGmidPreview(null)}
-                  >
-                    關閉
-                  </button>
-                </div>
-                <div style={{ maxHeight: 120, overflowY: 'auto', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {gmidPreview.length === 0
-                    ? <span style={{ fontSize: 12, color: '#ef4444' }}>沒有偵測到任何 gmid</span>
-                    : gmidPreview.map((g, i) => (
-                        <span key={i} style={{
-                          fontFamily: 'monospace', fontSize: 11, padding: '2px 6px',
-                          background: '#1e3a5f', color: '#93c5fd', borderRadius: 4,
-                        }}>{g}</span>
-                      ))
-                  }
-                </div>
-              </div>
-            )}
 
             <label className="field" style={{ marginBottom: 0 }}>
               <span>遊戲 URL Template</span>

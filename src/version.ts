@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.37.3'
+export const APP_VERSION = '3.37.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.37.4',
+    date: '2026-05-29',
+    changes: [
+      'ui(ui-screenshot): 移除 gmid 清單手動確認按鈕與預覽區塊，保留文字框直接編輯與執行時解析',
+    ],
+  },
   {
     version: '3.37.3',
     date: '2026-05-29',
