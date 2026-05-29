@@ -216,6 +216,35 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_gen_test_cases_job ON generated_test_cases(job_id, seq_in_job);
 `)
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ui_screenshot_runs (
+    id                TEXT PRIMARY KEY,
+    status            TEXT NOT NULL DEFAULT 'pending',
+    wiki_url          TEXT NOT NULL DEFAULT '',
+    game_url_template TEXT NOT NULL DEFAULT '',
+    gmids             TEXT NOT NULL DEFAULT '[]',
+    resolutions       TEXT NOT NULL DEFAULT '[]',
+    concurrency       INTEGER NOT NULL DEFAULT 3,
+    options           TEXT NOT NULL DEFAULT '{}',
+    agent_id          TEXT,
+    created_at        INTEGER NOT NULL,
+    started_at        INTEGER,
+    finished_at       INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS ui_screenshot_tasks (
+    id          TEXT PRIMARY KEY,
+    run_id      TEXT NOT NULL,
+    gmid        TEXT NOT NULL,
+    resolution  TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending',
+    server_path TEXT,
+    error_msg   TEXT,
+    started_at  INTEGER,
+    finished_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_ui_ss_tasks_run ON ui_screenshot_tasks (run_id, status);
+`)
+
 {
   const cols = db.prepare('PRAGMA table_info(operation_history)').all() as { name: string }[]
   if (!cols.find(c => c.name === 'operator_key')) {
@@ -1235,6 +1264,7 @@ export const ALL_PAGE_KEYS = [
   'jira-qa','jira-pm','jira-update','lark','osm','machinetest','imagecheck','osm-config',
   'autospin','url-pool','jackpot','osm-uat',
   'gs-imgcompare','gs-logchecker','gs-bonusv2','history','knowledge','local-agent',
+  'ui-screenshot',
 ] as const
 
 export type PageKey = typeof ALL_PAGE_KEYS[number]

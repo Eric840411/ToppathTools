@@ -82,6 +82,10 @@ const RESOLUTIONS: { key: string; label: string; w: number; h: number; group: st
   { key: '390x844',  label: 'iPhone 14',    w: 390,  h: 844,  group: 'Mobile Portrait' },
   { key: '412x915',  label: 'Android XL',  w: 412,  h: 915,  group: 'Mobile Portrait' },
   { key: '360x800',  label: 'Android M',   w: 360,  h: 800,  group: 'Mobile Portrait' },
+  { key: '414x730',  label: '模擬A',          w: 414,  h: 730,  group: 'Mobile Portrait' },
+  { key: '376x636',  label: '模擬B',          w: 376,  h: 636,  group: 'Mobile Portrait' },
+  { key: '344x882',  label: 'FOLD/Flip 折',  w: 344,  h: 882,  group: 'Mobile Portrait' },
+  { key: '884x1104', label: 'FOLD/Flip 展',  w: 884,  h: 1104, group: 'Mobile Portrait' },
   // Mobile Landscape
   { key: '667x375',  label: 'iPhone SE LS', w: 667,  h: 375,  group: 'Mobile Landscape' },
   { key: '844x390',  label: 'iPhone 14 LS', w: 844,  h: 390,  group: 'Mobile Landscape' },

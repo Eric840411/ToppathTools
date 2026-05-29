@@ -38,6 +38,17 @@ export const TOPPATH_VERSION_COMPONENTS = [
 
 // ─── Alert Config Helpers ─────────────────────────────────────────────────────
 
+// Seed dedicated version-alert webhook on first run
+{
+  const existing = db.prepare('SELECT value FROM alert_config WHERE key = ?').get('webhook_url') as { value: string } | undefined
+  if (!existing) {
+    db.prepare('INSERT OR REPLACE INTO alert_config (key, value) VALUES (?, ?)').run(
+      'webhook_url',
+      'https://open.larksuite.com/open-apis/bot/v2/hook/51b91ea7-6378-499f-b9dc-2f48606b0826',
+    )
+  }
+}
+
 export const getAlertConfig = () => {
   const rows = db.prepare('SELECT key, value FROM alert_config').all() as { key: string; value: string }[]
   const cfg: Record<string, string> = {}
@@ -45,6 +56,7 @@ export const getAlertConfig = () => {
   return {
     enabled: cfg['enabled'] === 'true',
     schedule: cfg['schedule'] ?? '0 9 * * *',
+    webhookUrl: cfg['webhook_url'] ?? '',
   }
 }
 
@@ -167,8 +179,10 @@ export let osmChannelCache: OsmChannelResult[] = []
 // ─── Alert send logic ─────────────────────────────────────────────────────────
 
 export const sendLarkAlert = async () => {
-  const webhookUrl = process.env.LARK_WEBHOOK_URL
-    ?? `https://open.larksuite.com/open-apis/bot/v2/hook/${process.env.LARK_WEBHOOK_ID}`
+  const alertCfg = getAlertConfig()
+  const webhookUrl = alertCfg.webhookUrl
+    || process.env.LARK_WEBHOOK_URL
+    || `https://open.larksuite.com/open-apis/bot/v2/hook/${process.env.LARK_WEBHOOK_ID}`
 
   const targetRows = db.prepare('SELECT machineType, category, targetVersion FROM machine_type_targets').all() as { machineType: string; category: string; targetVersion: string }[]
   const targets: Record<string, Record<string, string>> = {}
@@ -655,9 +669,10 @@ router.get('/api/osm/alert/config', (_req, res) => {
 
 // POST /api/osm/alert/config
 router.post('/api/osm/alert/config', (req, res) => {
-  const body = z.object({ enabled: z.boolean().optional(), schedule: z.string().optional() }).parse(req.body)
+  const body = z.object({ enabled: z.boolean().optional(), schedule: z.string().optional(), webhookUrl: z.string().optional() }).parse(req.body)
   if (body.enabled !== undefined) setAlertConfigKey('enabled', String(body.enabled))
   if (body.schedule !== undefined) setAlertConfigKey('schedule', body.schedule)
+  if (body.webhookUrl !== undefined) setAlertConfigKey('webhook_url', body.webhookUrl)
   restartCron()
   res.json({ ok: true, config: getAlertConfig() })
 })

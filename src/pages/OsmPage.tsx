@@ -559,6 +559,7 @@ export function OsmPage() {
   const [alertConfigExpanded, setAlertConfigExpanded] = useState(false)
   const [alertEnabled, setAlertEnabled] = useState(false)
   const [alertSchedule, setAlertSchedule] = useState('0 9 * * *')
+  const [alertWebhookUrl, setAlertWebhookUrl] = useState('')
   const [alertConfigSaving, setAlertConfigSaving] = useState(false)
 
   // ImageRecon section
@@ -793,10 +794,11 @@ export function OsmPage() {
   useEffect(() => {
     fetch('/api/osm/alert/config')
       .then(r => r.json())
-      .then((d: { ok: boolean; config?: { enabled?: string; schedule?: string } }) => {
+      .then((d: { ok: boolean; config?: { enabled?: boolean; schedule?: string; webhookUrl?: string } }) => {
         if (d.ok && d.config) {
-          setAlertEnabled(d.config.enabled === 'true')
+          setAlertEnabled(!!d.config.enabled)
           if (d.config.schedule) setAlertSchedule(d.config.schedule)
+          if (d.config.webhookUrl) setAlertWebhookUrl(d.config.webhookUrl)
         }
       })
       .catch(() => {})
@@ -840,7 +842,7 @@ export function OsmPage() {
       const resp = await fetch('/api/osm/alert/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: alertEnabled, schedule: alertSchedule }),
+        body: JSON.stringify({ enabled: alertEnabled, schedule: alertSchedule, webhookUrl: alertWebhookUrl }),
       })
       const data = await resp.json() as { ok: boolean; message?: string }
       if (!data.ok) throw new Error(data.message ?? '儲存失敗')
@@ -850,7 +852,7 @@ export function OsmPage() {
     } finally {
       setAlertConfigSaving(false)
     }
-  }, [alertEnabled, alertSchedule])
+  }, [alertEnabled, alertSchedule, alertWebhookUrl])
 
   // ─── Stats ────────────────────────────────────────────────────────────────
 
@@ -935,6 +937,16 @@ export function OsmPage() {
                 />
                 <span>啟用定時告警</span>
               </label>
+            </div>
+            <div className="osm-alert-config-row">
+              <label className="osm-alert-config-label">Lark Webhook URL</label>
+              <input
+                className="osm-lark-url-input"
+                type="text"
+                placeholder="https://open.larksuite.com/open-apis/bot/v2/hook/..."
+                value={alertWebhookUrl}
+                onChange={e => setAlertWebhookUrl(e.target.value)}
+              />
             </div>
             <div className="osm-alert-config-row">
               <label className="osm-alert-config-label">Cron 排程</label>

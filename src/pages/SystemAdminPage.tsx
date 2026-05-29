@@ -32,6 +32,7 @@ const PAGE_META: { key: string; label: string; group: string }[] = [
   { key: 'url-pool',     label: 'URL 帳號池',           group: 'OSM Tools' },
   { key: 'jackpot',      label: 'Jackpot 監控',        group: 'OSM Tools' },
   { key: 'osm-uat',      label: 'UAT 整合測試',         group: 'OSM Tools' },
+  { key: 'ui-screenshot', label: 'UI 解析度截圖',       group: 'OSM Tools' },
   { key: 'gs-imgcompare', label: 'Game Show 圖片比對', group: 'Game Show' },
   { key: 'gs-logchecker', label: 'Game Show Log 攔截', group: 'Game Show' },
   { key: 'gs-bonusv2',   label: 'Game Show Bonus V2',  group: 'Game Show' },
