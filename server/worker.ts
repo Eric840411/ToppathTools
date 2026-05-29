@@ -20,6 +20,7 @@ import { router as gameshowRouter } from './routes/gameshow.js'
 import { router as autospinRouter } from './routes/autospin.js'
 import { router as osmUatRouter } from './routes/osm-uat.js'
 import { router as frontendAutoRouter, logBuffers, logClients, pushLog, activeRuns } from './routes/frontend-auto.js'
+import uiScreenshotRouter from './routes/ui-screenshot.js'
 import { activeRunners, router as machineTestRouter } from './routes/machine-test.js'
 import {
   handleScriptedBetAgentDisconnect,
@@ -364,6 +365,7 @@ app.use(autospinRouter)
 app.use(osmUatRouter)
 app.use(machineTestRouter)
 app.use(scriptedBetRouter)
+app.use('/api/ui-screenshot', uiScreenshotRouter)
 app.use(frontendAutoRouter)
 
 // ─── Error Handler ────────────────────────────────────────────────────────────

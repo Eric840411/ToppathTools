@@ -26,6 +26,7 @@ import { MachineTestRunner } from './machine-test/runner.js'
 import type { MachineTestSession, MachineProfile, TestEvent } from './machine-test/types.js'
 import { ScriptedBetRunner } from './scripted-bet/runner.js'
 import type { ScriptedBetAccount, ScriptedBetConfig, ScriptedBetEvent } from './scripted-bet/types.js'
+import type { Page } from 'playwright'
 
 const CENTRAL_URL = (process.env.CENTRAL_URL ?? 'ws://localhost:3000').trim().replace(/\/$/, '')
 const AGENT_LABEL = process.env.AGENT_LABEL ?? hostname()
@@ -95,6 +96,18 @@ interface UatScriptRunMessage {
   headed: boolean
 }
 
+interface UiScreenshotStartMessage {
+  type: 'ui_screenshot_start'
+  sessionId: string
+  run: {
+    id: string
+    gameUrlTemplate: string
+    tasks: Array<{ id: string; gmid: string; resolution: string }>
+    options: Record<string, boolean | number>
+    concurrency: number
+  }
+}
+
 type IncomingMessage =
   | SessionJoinMessage
   | ScriptedBetStartMessage
@@ -102,6 +115,7 @@ type IncomingMessage =
   | UatRecordCropMessage
   | UatRecordStopMessage
   | UatScriptRunMessage
+  | UiScreenshotStartMessage
   | { type: 'job_assigned'; machineCode: string }
   | { type: 'no_more_jobs' }
   | { type: 'stop' }
@@ -130,6 +144,336 @@ const uatRecSessions = new Map<string, UatRecSession>()
 
 // ── UAT Script Run Sessions ──────────────────────────────────────────────────
 const uatScriptRuns = new Map<string, { active: boolean }>()
+
+// ── UI Screenshot Run Sessions ────────────────────────────────────────────────
+const uiScreenshotRuns = new Map<string, { stopped: boolean }>()
+
+interface UiScreenshotRunConfig {
+  id: string
+  gameUrlTemplate: string
+  tasks: Array<{ id: string; gmid: string; resolution: string }>
+  options: Record<string, boolean | number>
+  concurrency: number
+}
+
+function normalizeMachineCode(value: string): string {
+  return value.trim().toUpperCase().replace(/[–—−]/g, '-')
+}
+
+function machineTextHasExactCode(text: string | null | undefined, machineCode: string): boolean {
+  if (!text) return false
+  const expected = normalizeMachineCode(machineCode)
+  const normalized = normalizeMachineCode(text)
+  const escaped = expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(^|[^A-Z0-9])${escaped}([^A-Z0-9]|$)`).test(normalized)
+}
+
+async function enterUiScreenshotMachine(page: Page, machineCode: string): Promise<'entered' | 'already-in-game'> {
+  const lobbyItem = await page.waitForSelector('#grid_gm_item', { timeout: 15000 }).catch(() => null)
+  if (!lobbyItem) return 'already-in-game'
+
+  let foundMachine = false
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const items = await page.$$('#grid_gm_item')
+    for (const item of items) {
+      const title = await item.getAttribute('title')
+      const cardText = await item.innerText().catch(() => '')
+      if (!machineTextHasExactCode(`${title ?? ''} ${cardText}`, machineCode)) continue
+      foundMachine = true
+
+      await item.scrollIntoViewIfNeeded().catch(() => {})
+      await item.evaluate(el => (el as HTMLElement).click())
+      console.log(`[UI-SS] ${machineCode} selected lobby item: ${title ?? cardText.slice(0, 80)} (attempt ${attempt})`)
+      await page.waitForTimeout(1500)
+
+      const joinClicked = await clickFirstVisible(page, [
+        "//div[contains(@class,'gm-info-box')]//span[normalize-space(text())='Join']",
+        "//div[contains(@class,'gm-info-box')]//*[normalize-space(text())='Join']",
+        "//*[normalize-space(text())='Join']",
+        "//*[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'join')]",
+        ".gm-info-box [class*='join']",
+        "[class*='join']",
+      ])
+      if (joinClicked) {
+        console.log(`[UI-SS] ${machineCode} clicked Join`)
+        await page.waitForTimeout(3000)
+        return 'entered'
+      }
+
+      const panelText = await page.locator('.gm-info-box').first().innerText({ timeout: 1000 }).catch(() => '')
+      console.log(`[UI-SS] ${machineCode} Join not found (attempt ${attempt}) panel="${panelText.replace(/\s+/g, ' ').slice(0, 160)}"`)
+      await page.keyboard.press('Escape').catch(() => {})
+      await page.waitForTimeout(1000)
+      break
+    }
+
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
+    await page.waitForSelector('#grid_gm_item', { timeout: 15000 }).catch(() => null)
+    await page.waitForTimeout(1500)
+  }
+
+  if (foundMachine) throw new Error(`Join button not found after selecting machine: ${machineCode}`)
+  throw new Error(`Lobby machine not found: ${machineCode}`)
+}
+
+async function isUiScreenshotLobbyVisible(page: Page): Promise<boolean> {
+  const items = await page.locator('#grid_gm_item').all().catch(() => [])
+  for (const item of items) {
+    if (await item.isVisible().catch(() => false)) return true
+  }
+  return false
+}
+
+async function waitForUiScreenshotReady(page: Page, timeoutMs = 20_000): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (await isUiScreenshotLobbyVisible(page)) {
+      await page.waitForTimeout(500)
+      continue
+    }
+
+    const ready = await page.evaluate(() => {
+      const gameSelectors = ['.my-button.btn_spin', '.balance-bg.hand_balance', '.h-balance.hand_balance']
+      const hasGameUi = gameSelectors.some(sel =>
+        Array.from(document.querySelectorAll(sel)).some(el => (el as HTMLElement).offsetParent !== null),
+      )
+      const videos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[]
+      const hasVideo = videos.some(v => !v.paused && v.readyState >= 2 && v.videoWidth > 0)
+      const canvases = Array.from(document.querySelectorAll('canvas')) as HTMLCanvasElement[]
+      const hasCanvas = canvases.some(c => c.width > 100 && c.height > 100)
+
+      return hasGameUi || hasVideo || hasCanvas
+    }).catch(() => false)
+
+    if (ready) return true
+    await page.waitForTimeout(500)
+  }
+  return false
+}
+
+async function isUiScreenshotPopupVisible(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const selectors = ['.select-bg', '.select-main', '.van-popup', '.van-overlay']
+    return selectors.some(sel =>
+      Array.from(document.querySelectorAll(sel)).some(el => {
+        const node = el as HTMLElement
+        const rect = node.getBoundingClientRect()
+        const style = window.getComputedStyle(node)
+        return rect.width > 20 && rect.height > 20 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0'
+      }),
+    )
+  }).catch(() => false)
+}
+
+async function clickFirstVisible(page: Page, selectors: string[]): Promise<boolean> {
+  for (const selector of selectors) {
+    const locator = selector.startsWith('//') ? page.locator(`xpath=${selector}`) : page.locator(selector)
+    const count = await locator.count().catch(() => 0)
+    for (let i = 0; i < count; i++) {
+      const target = locator.nth(i)
+      if (!await target.isVisible().catch(() => false)) continue
+      await target.evaluate(el => (el as HTMLElement).click()).catch(async () => {
+        await target.click({ force: true, timeout: 1000 })
+      })
+      return true
+    }
+  }
+  return false
+}
+
+async function waitForUiScreenshotLobby(page: Page, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (await isUiScreenshotLobbyVisible(page)) return true
+    await page.waitForTimeout(500)
+  }
+  return false
+}
+
+async function exitUiScreenshotMachine(page: Page, machineCode: string): Promise<void> {
+  const cashoutSelectors = [
+    '.handle-main .my-button.btn_cashout',
+    '.my-button.btn_cashout',
+    '.btn_cashout',
+    '[class*="btn_cashout"]',
+    '[class*="cashout"]',
+  ]
+  const exitSelectors = [
+    '.function-btn .reserve-btn-gray',
+    '.reserve-btn-gray',
+    '[class*="exit"]',
+    '[class*="back"]',
+    "//button[normalize-space(text())='Exit']",
+    "//button[normalize-space(text())='Exit To Lobby']",
+    "//*[contains(concat(' ', normalize-space(@class), ' '), ' reserve-btn-gray ') and normalize-space(.)='Exit']",
+    "//*[contains(concat(' ', normalize-space(@class), ' '), ' reserve-btn-gray ') and normalize-space(.)='Exit To Lobby']",
+  ]
+  const confirmSelectors = [
+    "//button[.//div[normalize-space(text())='Confirm']]",
+    "//button[normalize-space(text())='Confirm']",
+    "//button[normalize-space(text())='確認']",
+    "//*[normalize-space(text())='Confirm']",
+    "//*[normalize-space(text())='確認']",
+  ]
+
+  const cashoutClicked = await clickFirstVisible(page, cashoutSelectors)
+  if (cashoutClicked) {
+    console.log(`[UI-SS] ${machineCode} clicked cashout`)
+    await page.waitForTimeout(3000)
+    if (await waitForUiScreenshotLobby(page, 1500)) {
+      console.log(`[UI-SS] ${machineCode} returned to lobby after cashout`)
+      return
+    }
+  }
+
+  if (!cashoutClicked) {
+    await page.keyboard.press('Escape').catch(() => {})
+    await page.waitForTimeout(1000)
+    if (await isUiScreenshotLobbyVisible(page)) {
+      console.log(`[UI-SS] ${machineCode} returned to lobby after Escape`)
+      return
+    }
+  }
+
+  console.log(`[UI-SS] ${machineCode} checking second-step exit/confirm`)
+  await page.waitForTimeout(1000)
+  const exitClicked = await clickFirstVisible(page, exitSelectors).catch(() => false)
+  if (exitClicked) {
+    console.log(`[UI-SS] ${machineCode} clicked second-step Exit`)
+    await page.waitForTimeout(1000)
+  }
+
+  const confirmClicked = await clickFirstVisible(page, confirmSelectors).catch(() => false)
+  if (confirmClicked) {
+    console.log(`[UI-SS] ${machineCode} clicked Confirm`)
+    await page.waitForTimeout(1000)
+  }
+
+  if (await waitForUiScreenshotLobby(page, 12_000)) {
+    console.log(`[UI-SS] ${machineCode} returned to lobby`)
+    return
+  }
+
+  throw new Error(`Exit machine failed before closing page: ${machineCode} (cashout=${cashoutClicked}, exit=${exitClicked}, confirm=${confirmClicked})`)
+}
+
+async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: string) {
+  const { id: runId, gameUrlTemplate, tasks, options } = runConfig
+  uiScreenshotRuns.set(runId, { stopped: false })
+
+  const { chromium } = await import('playwright')
+
+  // Group tasks by gmid — one browser session per gmid
+  const tasksByGmid = new Map<string, typeof tasks>()
+  for (const task of tasks) {
+    if (!tasksByGmid.has(task.gmid)) tasksByGmid.set(task.gmid, [])
+    tasksByGmid.get(task.gmid)!.push(task)
+  }
+
+  const postStatus = (taskId: string, status: string, errorMsg?: string) =>
+    fetch(`${serverBaseUrl}/api/ui-screenshot/task/${taskId}/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, errorMsg }),
+    }).catch(() => {})
+
+  for (const [gmid, gmidTasks] of tasksByGmid) {
+    const ctrl = uiScreenshotRuns.get(runId)
+    if (ctrl?.stopped) break
+
+    const url = gameUrlTemplate.replace('{gmid}', gmid)
+    console.log(`[UI-SS] gmid=${gmid} url=${url} resolutions=${gmidTasks.map(t => t.resolution).join(',')}`)
+
+    let browser: import('playwright').Browser | null = null
+    try {
+      // ── 進入機器 ──────────────────────────────────────────────────────────
+      const firstTask = gmidTasks[0]
+      const [w0, h0] = firstTask.resolution.split('x').map(Number)
+      browser = await chromium.launch({ headless: !options.headedMode })
+      const ctx = await browser.newContext({ viewport: { width: w0 || 390, height: h0 || 844 } })
+      const page = await ctx.newPage()
+
+      await postStatus(firstTask.id, 'running')
+      await page.goto(url, { timeout: 30000 })
+      const entryState = await enterUiScreenshotMachine(page, gmid)
+      console.log(`[UI-SS] ${gmid} entry=${entryState}`)
+      console.log(`[UI-SS] ${gmid} — page loaded`)
+
+      // ── 檢測推流 ──────────────────────────────────────────────────────────
+      const ready = await waitForUiScreenshotReady(page)
+      if (!ready) throw new Error(`Game surface not ready after entering machine: ${gmid}`)
+      console.log(`[UI-SS] ${gmid} — stream ready`)
+
+      // ── 機器內操作：點選面額 ───────────────────────────────────────────────
+      if (options.dismissPopup !== false) {
+        const popupEl = await page.$('.select-bg')
+        if (popupEl) {
+          const firstBtn = await page.$('.select-row .van-col')
+          if (firstBtn) {
+            await firstBtn.click()
+            await page.waitForTimeout(800)
+            console.log(`[UI-SS] ${gmid} — denom popup dismissed`)
+          }
+        }
+      }
+      const screenshotDelaySeconds = typeof options.screenshotDelaySeconds === 'number'
+        ? Math.max(0, Math.min(60, options.screenshotDelaySeconds))
+        : 5
+      if (screenshotDelaySeconds > 0) {
+        console.log(`[UI-SS] ${gmid} waiting ${screenshotDelaySeconds}s before screenshots`)
+        await page.waitForTimeout(screenshotDelaySeconds * 1000)
+      }
+
+      // ── 截圖（調整 viewport，不重新導航）────────────────────────────────
+      for (const task of gmidTasks) {
+        const ctrl2 = uiScreenshotRuns.get(runId)
+        if (ctrl2?.stopped) break
+
+        if (task.id !== firstTask.id) await postStatus(task.id, 'running')
+
+        const [w, h] = task.resolution.split('x').map(Number)
+        await page.setViewportSize({ width: w || 390, height: h || 844 })
+        await page.waitForTimeout(400) // let layout settle after resize
+        if (await isUiScreenshotLobbyVisible(page)) {
+          throw new Error(`Still in lobby before screenshot: ${gmid}`)
+        }
+
+        const screenshotBuf = await page.screenshot({ type: 'png', fullPage: false })
+        const taskStatus = await isUiScreenshotPopupVisible(page) ? 'popup' : 'ok'
+        console.log(`[UI-SS] ${gmid} ${task.resolution} → ${taskStatus}`)
+
+        const form = new FormData()
+        form.append('screenshot', new Blob([new Uint8Array(screenshotBuf)], { type: 'image/png' }), `${task.resolution}.png`)
+        form.append('status', taskStatus)
+        const uploadRes = await fetch(`${serverBaseUrl}/api/ui-screenshot/task/${task.id}/upload`, {
+          method: 'POST', body: form,
+        })
+        if (!uploadRes.ok) {
+          const uploadError = `upload failed: HTTP ${uploadRes.status}`
+          console.warn(`[UI-SS] ${gmid} ${task.resolution} ${uploadError}`)
+          await postStatus(task.id, 'err', uploadError)
+        }
+      }
+
+      // ── 離開機器 ──────────────────────────────────────────────────────────
+      await exitUiScreenshotMachine(page, gmid)
+      console.log(`[UI-SS] ${gmid} — done, closing browser`)
+
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message.split('\n')[0] : String(err)
+      const isTimeout = errorMsg.includes('timeout') || errorMsg.includes('Timeout')
+      const status = isTimeout ? 'timeout' : 'err'
+      console.error(`[UI-SS] ${gmid} error: ${errorMsg}`)
+      for (const task of gmidTasks) {
+        await postStatus(task.id, status, errorMsg)
+      }
+    } finally {
+      await browser?.close().catch(() => {})
+    }
+  }
+
+  uiScreenshotRuns.delete(runId)
+}
 
 async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
   const { runId, steps: stepsRaw, url: startUrl, platform, resolution, failureMode, headed } = msg
@@ -752,6 +1096,20 @@ function connect() {
       const { runId } = msg as { type: string; runId: string }
       const run = uatScriptRuns.get(runId)
       if (run) run.active = false
+      return
+    }
+
+    if (msg.type === 'ui_screenshot_start') {
+      const { run: runConfig } = msg as UiScreenshotStartMessage
+      console.log(`[Agent:${AGENT_LABEL}] UI Screenshot run ${runConfig.id} started (${runConfig.tasks.length} tasks)`)
+      void runUiScreenshot(runConfig, CENTRAL_URL.replace(/^ws/, 'http'))
+      return
+    }
+
+    if (msg.type === 'ui_screenshot_stop') {
+      const { sessionId } = msg as { type: string; sessionId: string }
+      const ctrl = uiScreenshotRuns.get(sessionId)
+      if (ctrl) ctrl.stopped = true
       return
     }
 

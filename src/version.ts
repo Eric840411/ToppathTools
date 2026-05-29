@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.36.0'
+export const APP_VERSION = '3.37.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,30 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.37.2',
+    date: '2026-05-29',
+    changes: [
+      'fix(ui-screenshot): 修正進入機台與退出機台流程，精準比對 gmid、加入截圖前延遲，並確認回到大廳後才關閉頁面',
+      'fix(ui-screenshot): 修正 Lark 回寫欄位從 B 欄開始，使用 Sheets image API 回貼圖片，並讓有截圖檔的 popup 結果也顯示與回寫圖片',
+    ],
+  },
+  {
+    version: '3.37.1',
+    date: '2026-05-29',
+    changes: [
+      'fix(ui-screenshot): 修正截圖縮圖不顯示問題（SSE snapshot 缺少 run_id 欄位）',
+      'fix(ui-screenshot): 修正 heatmap 版面橫向溢出問題',
+      'feat(osm-alert): 版本告警 Webhook 獨立設定 — 可在排程設定中單獨配置 Lark Webhook URL',
+    ],
+  },
+  {
+    version: '3.37.0',
+    date: '2026-05-29',
+    changes: [
+      'feat(ui-screenshot): 新增 UI 解析度截圖工具 — 從 Lark Wiki 讀取 gmid 清單，批量對 H5 遊戲進行 11 種解析度截圖（Mobile Portrait/Landscape + Tablet），Local Agent 運行 Playwright，支援面額彈窗自動關閉、推流偵測、結果熱圖 Grid、Lark Wiki TABLE 回寫',
+    ],
+  },
   {
     version: '3.36.0',
     date: '2026-05-28',

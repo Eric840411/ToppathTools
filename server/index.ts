@@ -106,6 +106,7 @@ function shouldProxyPathToWorker(p: string): boolean {
   if (p === '/api/settings/tunnel-url') return true
   if (p.startsWith('/api/osm-uat/')) return true
   if (p.startsWith('/api/autospin/')) return true
+  if (p.startsWith('/api/ui-screenshot/')) return true
   if (p.startsWith('/api/frontend-auto/')) return true
   if (p === '/api/jira/batch-create') return true
   if (p === '/api/jira/batch-comment') return true
