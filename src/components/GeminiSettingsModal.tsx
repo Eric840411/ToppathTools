@@ -68,31 +68,43 @@ export default function GeminiSettingsModal({ onClose }: Props) {
 
   const handleSaveOllama = async () => {
     try {
+      const baseUrl = ollamaBaseUrl.trim()
+      const model = ollamaModel.trim()
+      // Saving empty values clears the Ollama config (disables it)
       const r = await fetch('/api/ollama/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ baseUrl: ollamaBaseUrl.trim(), model: ollamaModel.trim() }),
+        body: JSON.stringify({ baseUrl, model }),
       })
       const d = await r.json()
-      if (d.ok) { setOllamaMsg('✅ 已儲存'); fetchOllamaConfig() }
-      else setOllamaMsg('❌ 儲存失敗')
+      if (d.ok) {
+        setOllamaMsg(baseUrl || model ? '✅ 已儲存' : '🗑️ 已清除 Ollama 設定')
+        fetchOllamaConfig()
+      } else setOllamaMsg('❌ 儲存失敗')
     } catch {
       setOllamaMsg('❌ 網路錯誤，儲存失敗')
     }
   }
 
   const handleDeleteOllama = async () => {
-    if (!confirm('確定清除 Ollama 設定？')) return
-    const r = await fetch('/api/ollama/config', { method: 'DELETE' })
-    const d = await r.json()
-    if (d.ok) {
+    try {
       setOllamaBaseUrl('')
       setOllamaModel('')
-      setOllamaIsSet(false)
-      setOllamaModels([])
-      setOllamaMsg('🗑️ 已清除')
-    } else {
-      setOllamaMsg('❌ 清除失敗')
+      const r = await fetch('/api/ollama/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ baseUrl: '', model: '' }),
+      })
+      const d = await r.json()
+      if (d.ok) {
+        setOllamaIsSet(false)
+        setOllamaModels([])
+        setOllamaMsg('🗑️ 已清除')
+      } else {
+        setOllamaMsg('❌ 清除失敗')
+      }
+    } catch {
+      setOllamaMsg('❌ 網路錯誤，清除失敗')
     }
   }
 
@@ -618,22 +630,22 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                   {ollamaProbing ? '偵測中...' : '🔍 偵測可用模型'}
                 </button>
                 {(() => {
-                  const canSave = !!(ollamaBaseUrl.trim() && ollamaModel.trim())
+                  const isEmpty = !ollamaBaseUrl.trim() && !ollamaModel.trim()
                   return (
                     <button
                       onClick={handleSaveOllama}
-                      disabled={!canSave}
                       style={{
                         padding: '7px 20px',
-                        background: canSave ? '#6366f1' : '#334155',
-                        color: canSave ? '#fff' : '#64748b',
-                        border: 'none', borderRadius: 6,
-                        cursor: canSave ? 'pointer' : 'not-allowed',
+                        background: isEmpty ? 'rgba(239,68,68,0.15)' : '#6366f1',
+                        color: isEmpty ? '#f87171' : '#fff',
+                        border: isEmpty ? '1px solid rgba(239,68,68,0.4)' : 'none',
+                        borderRadius: 6,
+                        cursor: 'pointer',
                         fontSize: 13, fontWeight: 600,
                         transition: 'background 0.15s',
                       }}
                     >
-                      儲存
+                      {isEmpty ? '清除設定' : '儲存'}
                     </button>
                   )
                 })()}
