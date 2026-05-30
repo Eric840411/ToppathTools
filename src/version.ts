@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.37.8'
+export const APP_VERSION = '3.37.9'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.37.9',
+    date: '2026-05-30',
+    changes: [
+      'fix(scripted-bet): entryTouchPoints 改為在 card click 後、enterGMNtc 前執行（與 Machine Test 順序一致）',
+      'fix(scripted-bet): clickConfiguredTouchPoints 改用輪詢等待（最多 10s），不再即時查詢找不到就跳過',
+    ],
+  },
   {
     version: '3.37.8',
     date: '2026-05-30',

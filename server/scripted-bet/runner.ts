@@ -424,7 +424,13 @@ async function clickMachineCard(page: Page, machineCode: string, emit: (msg: str
   return false
 }
 
-async function enterMachine(page: Page, machineCode: string, emit: (msg: string) => void, waitForEnterGM?: GMWaitFn): Promise<boolean> {
+async function enterMachine(
+  page: Page,
+  machineCode: string,
+  emit: (msg: string) => void,
+  waitForEnterGM?: GMWaitFn,
+  onAfterClick?: () => Promise<void>,
+): Promise<boolean> {
   emit(`進入機台，尋找 ${machineCode}`)
   await page.waitForLoadState('domcontentloaded', { timeout: 30_000 }).catch(() => {})
   await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {})
@@ -439,7 +445,16 @@ async function enterMachine(page: Page, machineCode: string, emit: (msg: string)
   const clicked = await clickMachineCard(page, machineCode, emit)
   if (!clicked) return false
 
-  emit(`machine item clicked: ${machineCode}, waiting for enterGMNtc`)
+  emit(`machine item clicked: ${machineCode}`)
+
+  // Apply entry touch points (e.g. denom selection) BEFORE waiting for enterGMNtc
+  // — same order as machine-test runner; these clicks may be what triggers enterGMNtc
+  if (onAfterClick) {
+    await sleep(1500) // brief pause for game UI to appear
+    await onAfterClick()
+  }
+
+  emit(`waiting for enterGMNtc`)
   const enterEvent = waitForEnterGM ? await waitForEnterGM(12_000) : null
   if (enterEvent) {
     emit(`enterGMNtc errcode=${enterEvent.errcode}: ${enterEvent.errcodedes}${enterEvent.machineType ? ` machineType=${enterEvent.machineType}` : ''}`)
@@ -514,33 +529,44 @@ async function clickSpin(page: Page, preferredSelector?: string): Promise<string
   return button.selector
 }
 
+async function waitForSpanText(page: Page, text: string, timeoutMs = 10000): Promise<import('playwright').ElementHandle | null> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    for (const frame of page.frames()) {
+      try {
+        const els = await frame.$$(`//span[normalize-space(text())='${text}']`)
+        if (els.length > 0) return els[0]
+      } catch { /* frame detached */ }
+    }
+    await sleep(300)
+  }
+  return null
+}
+
 async function clickConfiguredTouchPoints(
   page: Page,
   points: string[],
   emit: (msg: string) => void,
   shouldStop: () => boolean,
+  waitMs = 10000,
 ): Promise<void> {
   if (!points.length) return
   for (let i = 0; i < points.length; i++) {
     if (shouldStop()) return
     const label = points[i].trim()
     if (!label) continue
-    let clicked = false
-    try {
-      for (const frame of page.frames()) {
-        const els = await frame.$$(`//span[normalize-space(text())='${label}']`)
-        if (els.length > 0) {
-          await els[0].evaluate((node: Element) => (node as HTMLElement).click())
-          emit(`click exit-fail touchPoint ${i + 1}/${points.length} "${label}"`)
-          clicked = true
-          break
-        }
+    const el = await waitForSpanText(page, label, waitMs)
+    if (el) {
+      try {
+        await el.evaluate((node: Element) => (node as HTMLElement).click())
+        emit(`touchPoint ${i + 1}/${points.length} "${label}" clicked`)
+      } catch (error) {
+        emit(`touchPoint "${label}" click failed: ${error instanceof Error ? error.message : String(error)}`)
       }
-    } catch (error) {
-      emit(`exit-fail touchPoint "${label}" click failed: ${error instanceof Error ? error.message : String(error)}`)
+    } else {
+      emit(`touchPoint "${label}" not found (timeout ${waitMs}ms)`)
     }
-    if (!clicked) emit(`exit-fail touchPoint "${label}" not found`)
-    await sleepOrStop(1000, shouldStop)
+    await sleepOrStop(400, shouldStop)
   }
 }
 
@@ -766,7 +792,30 @@ export class ScriptedBetRunner extends EventEmitter {
       if (this.stopped) throw new Error('stopped')
 
       this.update(account, { state: 'entering', message: `enter machine ${this.config.targetMachineCode}` })
-      const entered = await enterMachine(page, this.config.targetMachineCode, msg => this.log(account, msg), waitForEnterGM)
+      const profile = this.config.machineProfile
+
+      // Entry touch points (e.g. denom selection) must fire BEFORE enterGMNtc
+      // — pass them as onAfterClick so they run between card click and GM event wait
+      const onAfterClick = async () => {
+        if (profile?.entryTouchPoints?.length) {
+          this.log(account, `entryTouchPoints: ${profile.entryTouchPoints.join(', ')}`)
+          await clickConfiguredTouchPoints(page, profile.entryTouchPoints, msg => this.log(account, msg), () => this.stopped)
+          await sleepOrStop(800, () => this.stopped)
+        }
+        if (profile?.entryTouchPoints2?.length) {
+          this.log(account, `entryTouchPoints2: ${profile.entryTouchPoints2.join(', ')}`)
+          await clickConfiguredTouchPoints(page, profile.entryTouchPoints2, msg => this.log(account, msg), () => this.stopped)
+          await sleepOrStop(800, () => this.stopped)
+        }
+      }
+
+      const entered = await enterMachine(
+        page,
+        this.config.targetMachineCode,
+        msg => this.log(account, msg),
+        waitForEnterGM,
+        (profile?.entryTouchPoints?.length || profile?.entryTouchPoints2?.length) ? onAfterClick : undefined,
+      )
       if (!entered) {
         this.update(account, {
           state: 'failed',
@@ -774,19 +823,6 @@ export class ScriptedBetRunner extends EventEmitter {
           message: `failed to enter machine ${this.config.targetMachineCode}`,
         })
         return
-      }
-
-      // Apply entry touch points from machine profile (e.g. denom selection)
-      const profile = this.config.machineProfile
-      if (profile?.entryTouchPoints?.length) {
-        this.log(account, `entryTouchPoints: ${profile.entryTouchPoints.join(', ')}`)
-        await clickConfiguredTouchPoints(page, profile.entryTouchPoints, msg => this.log(account, msg), () => this.stopped)
-        await sleepOrStop(800, () => this.stopped)
-      }
-      if (profile?.entryTouchPoints2?.length) {
-        this.log(account, `entryTouchPoints2: ${profile.entryTouchPoints2.join(', ')}`)
-        await clickConfiguredTouchPoints(page, profile.entryTouchPoints2, msg => this.log(account, msg), () => this.stopped)
-        await sleepOrStop(800, () => this.stopped)
       }
 
       this.log(account, 'entered machine, wait 3s before Spin')
