@@ -43,7 +43,7 @@ export interface GeminiPrompt { id: string; name: string; template: string; cate
 
 type AiProvider = 'gemini' | 'openai' | 'ollama'
 type AiKind = 'text' | 'vision' | 'vision-multi'
-type AiTaskStatus = 'running' | 'done' | 'error'
+type AiTaskStatus = 'queued' | 'running' | 'done' | 'error'
 
 export interface AiTask {
   id: string
@@ -53,7 +53,10 @@ export interface AiTask {
   operation: string
   user: string
   status: AiTaskStatus
+  /** Timestamp when the task entered the queue */
   startedAt: number
+  /** Timestamp when execution actually began (after leaving the rate-limiter queue) */
+  executingAt?: number
   endedAt?: number
   durationMs?: number
   error?: string
@@ -66,16 +69,16 @@ const AI_TASK_RUNNING_TIMEOUT_MS = 5 * 60 * 1000
 function cleanupAiTasks() {
   const now = Date.now()
   for (const task of aiTaskStore.values()) {
-    // Prevent stale "running" tasks from hanging forever in monitor UI.
-    if (task.status === 'running' && now - task.startedAt > AI_TASK_RUNNING_TIMEOUT_MS) {
+    // Prevent stale "queued" or "running" tasks from hanging forever in monitor UI.
+    if ((task.status === 'queued' || task.status === 'running') && now - task.startedAt > AI_TASK_RUNNING_TIMEOUT_MS) {
       task.status = 'error'
-      task.error = task.error ?? '執行逾時（超過 5 分鐘未完成）'
+      task.error = task.error ?? (task.status === 'queued' ? '排隊逾時（超過 5 分鐘未執行）' : '執行逾時（超過 5 分鐘未完成）')
       task.endedAt = now
-      task.durationMs = now - task.startedAt
+      task.durationMs = now - (task.executingAt ?? task.startedAt)
     }
   }
   for (const [id, task] of aiTaskStore.entries()) {
-    if (task.status !== 'running' && now - (task.endedAt ?? task.startedAt) > AI_TASK_TTL_MS) {
+    if (task.status !== 'queued' && task.status !== 'running' && now - (task.endedAt ?? task.startedAt) > AI_TASK_TTL_MS) {
       aiTaskStore.delete(id)
     }
   }
@@ -85,13 +88,20 @@ export function getAiAgentMonitorSnapshot() {
   cleanupAiTasks()
   const tasks = [...aiTaskStore.values()].sort((a, b) => b.startedAt - a.startedAt)
   const running = tasks.filter(t => t.status === 'running')
+  const queued = tasks.filter(t => t.status === 'queued')
   return {
     ok: true,
     runningCount: running.length,
+    queuedCount: queued.length,
     runningByProvider: {
       gemini: running.filter(t => t.provider === 'gemini').length,
       openai: running.filter(t => t.provider === 'openai').length,
       ollama: running.filter(t => t.provider === 'ollama').length,
+    },
+    queuedByProvider: {
+      gemini: queued.filter(t => t.provider === 'gemini').length,
+      openai: queued.filter(t => t.provider === 'openai').length,
+      ollama: queued.filter(t => t.provider === 'ollama').length,
     },
     latest: tasks.slice(0, 20),
   }
@@ -127,10 +137,17 @@ function startAiTask(provider: AiProvider, kind: AiKind, model: string): string 
     model,
     operation: ctx?.operation ?? `${ctx?.method ?? '-'} ${ctx?.path ?? '-'}`,
     user: ctx?.userDisplay ?? ctx?.user ?? 'unknown',
-    status: 'running',
+    status: 'queued',
     startedAt: Date.now(),
   })
   return id
+}
+
+function activateAiTask(id: string) {
+  const task = aiTaskStore.get(id)
+  if (!task) return
+  task.status = 'running'
+  task.executingAt = Date.now()
 }
 
 function finishAiTask(id: string, error?: string) {
@@ -138,7 +155,7 @@ function finishAiTask(id: string, error?: string) {
   if (!task) return
   const endedAt = Date.now()
   task.endedAt = endedAt
-  task.durationMs = endedAt - task.startedAt
+  task.durationMs = endedAt - (task.executingAt ?? task.startedAt)
   task.status = error ? 'error' : 'done'
   task.error = error
   cleanupAiTasks()
@@ -294,6 +311,7 @@ export const callGeminiWithRotation = (prompt: string): Promise<string> => {
   const primaryKey = keyEntries[0].key
 
   return getKeyLimiter(primaryKey).schedule(async () => {
+    activateAiTask(taskId)
     try {
       const out = await _callGeminiWithRotation(prompt, 0)
       finishAiTask(taskId)
@@ -460,6 +478,7 @@ export const callGeminiVision = async (prompt: string, imageBase64: string, mime
   if (keyEntries.length === 0) throw new Error('沒有可用的 Gemini API Key，請至 AI 模型設定 > 個人 Key 新增 Gemini Key')
   const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
   const taskId = startAiTask('gemini', 'vision', model)
+  activateAiTask(taskId)
   try {
     for (let offset = 0; offset < keyEntries.length; offset++) {
       const i = offset % keyEntries.length
@@ -539,6 +558,7 @@ export const callGeminiVisionMulti = async (
   if (keyEntries.length === 0) throw new Error('沒有可用的 Gemini API Key，請至 AI 模型設定 > 個人 Key 新增 Gemini Key')
   const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
   const taskId = startAiTask('gemini', 'vision-multi', model)
+  activateAiTask(taskId)
   try {
     const parts: unknown[] = [
       ...images.map(img => ({ inlineData: { mimeType: img.mimeType ?? 'image/png', data: img.base64 } })),

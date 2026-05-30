@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.37.7'
+export const APP_VERSION = '3.37.8'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.37.8',
+    date: '2026-05-30',
+    changes: [
+      'feat(ai-monitor): AI 任務新增「排隊中」狀態，監控面板顯示排隊數量與各 provider 排隊分佈（黃色標籤）',
+    ],
+  },
   {
     version: '3.37.7',
     date: '2026-05-30',

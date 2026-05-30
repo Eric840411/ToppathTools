@@ -3,7 +3,7 @@ import { useIsGameMode } from './GameModeContext'
 import { PixelStudioWidget } from '../game/components/PixelStudioWidget'
 
 type Provider = 'gemini' | 'openai' | 'ollama'
-type TaskStatus = 'running' | 'done' | 'error'
+type TaskStatus = 'queued' | 'running' | 'done' | 'error'
 
 interface AiTask {
   id: string
@@ -14,13 +14,16 @@ interface AiTask {
   user: string
   status: TaskStatus
   startedAt: number
+  executingAt?: number
   durationMs?: number
 }
 
 interface MonitorResponse {
   ok: boolean
   runningCount?: number
+  queuedCount?: number
   runningByProvider?: Record<Provider, number>
+  queuedByProvider?: Record<Provider, number>
   latest?: AiTask[]
 }
 
@@ -35,7 +38,9 @@ export default function AiAgentMonitorWidget() {
 function LegacyAiAgentMonitorWidget() {
   const [backendOnline, setBackendOnline] = useState(true)
   const [runningCount, setRunningCount] = useState(0)
+  const [queuedCount, setQueuedCount] = useState(0)
   const [runningByProvider, setRunningByProvider] = useState<Record<Provider, number>>({ gemini: 0, openai: 0, ollama: 0 })
+  const [queuedByProvider, setQueuedByProvider] = useState<Record<Provider, number>>({ gemini: 0, openai: 0, ollama: 0 })
   const [latest, setLatest] = useState<AiTask[]>([])
   const [minimized, setMinimized] = useState(false)
   const [pos, setPos] = useState(() => {
@@ -61,7 +66,9 @@ function LegacyAiAgentMonitorWidget() {
         const d = await r.json() as MonitorResponse
         if (!alive || !d.ok) return
         setRunningCount(d.runningCount ?? 0)
+        setQueuedCount(d.queuedCount ?? 0)
         setRunningByProvider(d.runningByProvider ?? { gemini: 0, openai: 0, ollama: 0 })
+        setQueuedByProvider(d.queuedByProvider ?? { gemini: 0, openai: 0, ollama: 0 })
         setLatest((d.latest ?? []).slice(0, 5))
       } catch {
         if (!alive) return
@@ -139,14 +146,24 @@ function LegacyAiAgentMonitorWidget() {
       {!minimized && (
         <div style={{ padding: 10 }}>
           <div style={{ fontSize: 12, marginBottom: 8, color: backendOnline ? '#cbd5e1' : '#f87171' }}>
-            {backendOnline ? `後端連線正常，AI 執行中：${runningCount} 筆` : '前端目前無法連線後端（可能網路中斷）'}
+            {backendOnline
+              ? `後端連線正常，執行中：${runningCount} 筆${queuedCount > 0 ? `，排隊中：${queuedCount} 筆` : ''}`
+              : '前端目前無法連線後端（可能網路中斷）'}
           </div>
 
-          <div style={{ display: 'flex', gap: 8, marginBottom: 8, fontSize: 12 }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6, fontSize: 12 }}>
             <span style={{ background: 'rgba(99,102,241,0.15)', borderRadius: 999, padding: '2px 8px', color: '#a5b4fc' }}>Gemini {runningByProvider.gemini}</span>
             <span style={{ background: 'rgba(236,72,153,0.12)', borderRadius: 999, padding: '2px 8px', color: '#f0abfc' }}>OpenAI {runningByProvider.openai}</span>
             <span style={{ background: 'rgba(6,182,212,0.12)', borderRadius: 999, padding: '2px 8px', color: '#67e8f9' }}>Ollama {runningByProvider.ollama}</span>
           </div>
+          {queuedCount > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6, fontSize: 12 }}>
+              <span style={{ color: '#94a3b8', alignSelf: 'center' }}>排隊中</span>
+              {queuedByProvider.gemini > 0 && <span style={{ background: 'rgba(234,179,8,0.15)', borderRadius: 999, padding: '2px 8px', color: '#fde047' }}>Gemini {queuedByProvider.gemini}</span>}
+              {queuedByProvider.openai > 0 && <span style={{ background: 'rgba(234,179,8,0.15)', borderRadius: 999, padding: '2px 8px', color: '#fde047' }}>OpenAI {queuedByProvider.openai}</span>}
+              {queuedByProvider.ollama > 0 && <span style={{ background: 'rgba(234,179,8,0.15)', borderRadius: 999, padding: '2px 8px', color: '#fde047' }}>Ollama {queuedByProvider.ollama}</span>}
+            </div>
+          )}
 
           <div style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', marginBottom: 6 }}>最近 AI 任務（最多 5 筆）</div>
           {latest.length === 0 ? (
@@ -155,8 +172,12 @@ function LegacyAiAgentMonitorWidget() {
             <div style={{ display: 'grid', gap: 4, maxHeight: 200, overflow: 'auto' }}>
               {latest.map(job => (
                 <div key={job.id} style={{ display: 'grid', gridTemplateColumns: '62px 56px 1fr auto', gap: 8, alignItems: 'center', fontSize: 12 }}>
-                  <span style={{ textAlign: 'center', borderRadius: 999, padding: '1px 8px', background: job.status === 'running' ? 'rgba(59,130,246,0.15)' : job.status === 'done' ? 'rgba(22,163,74,0.15)' : 'rgba(239,68,68,0.15)', color: job.status === 'running' ? '#60a5fa' : job.status === 'done' ? '#4ade80' : '#f87171' }}>
-                    {job.status}
+                  <span style={{
+                    textAlign: 'center', borderRadius: 999, padding: '1px 8px',
+                    background: job.status === 'queued' ? 'rgba(234,179,8,0.15)' : job.status === 'running' ? 'rgba(59,130,246,0.15)' : job.status === 'done' ? 'rgba(22,163,74,0.15)' : 'rgba(239,68,68,0.15)',
+                    color: job.status === 'queued' ? '#fde047' : job.status === 'running' ? '#60a5fa' : job.status === 'done' ? '#4ade80' : '#f87171',
+                  }}>
+                    {job.status === 'queued' ? '排隊' : job.status === 'running' ? '執行中' : job.status === 'done' ? 'done' : 'error'}
                   </span>
                   <span style={{ color: '#94a3b8' }}>{job.provider}</span>
                   <span style={{ color: '#cbd5e1', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={`${job.kind} • ${job.model} • ${job.operation} • 使用者:${job.user}`}>
