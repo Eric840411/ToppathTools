@@ -2,6 +2,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AccountInfo } from '../components/JiraAccountModal'
 import { URL_POOL_DATA, type UrlPoolEntry } from '../data/urlPoolData'
 
+interface MachineProfile {
+  machineType: string
+  entryTouchPoints?: string[] | null
+  entryTouchPoints2?: string[] | null
+  touchPoints?: string[] | null
+  bonusAction?: string | null
+  spinSelector?: string | null
+  exitSelector?: string | null
+}
+
 type RunState = 'idle' | 'running' | 'done' | 'stopped' | 'error'
 
 type AccountState =
@@ -69,7 +79,6 @@ interface ScriptedBetSettings {
   spinDelayMinMs: number
   spinDelayMaxMs: number
   maxExitRetries: number
-  exitFailTouchPointsInput: string
   headedMode: boolean
 }
 
@@ -82,7 +91,6 @@ const DEFAULT_SCRIPTED_BET_SETTINGS: ScriptedBetSettings = {
   spinDelayMinMs: 800,
   spinDelayMaxMs: 1500,
   maxExitRetries: 5,
-  exitFailTouchPointsInput: '',
   headedMode: true,
 }
 
@@ -155,8 +163,9 @@ export function ScriptedBetPage({ currentAccount }: Props) {
   const [spinDelayMinMs, setSpinDelayMinMs] = useState(initialSettings.spinDelayMinMs)
   const [spinDelayMaxMs, setSpinDelayMaxMs] = useState(initialSettings.spinDelayMaxMs)
   const [maxExitRetries, setMaxExitRetries] = useState(initialSettings.maxExitRetries)
-  const [exitFailTouchPointsInput, setExitFailTouchPointsInput] = useState(initialSettings.exitFailTouchPointsInput)
   const [headedMode, setHeadedMode] = useState(initialSettings.headedMode)
+  const [matchedProfile, setMatchedProfile] = useState<MachineProfile | null>(null)
+  const [allProfiles, setAllProfiles] = useState<MachineProfile[]>([])
   const [search, setSearch] = useState('')
   const [agents, setAgents] = useState<LocalAgentInfo[]>([])
   const [selectedAgentId, setSelectedAgentId] = useState('')
@@ -180,10 +189,27 @@ export function ScriptedBetPage({ currentAccount }: Props) {
       spinDelayMinMs,
       spinDelayMaxMs,
       maxExitRetries,
-      exitFailTouchPointsInput,
       headedMode,
     })
-  }, [targetMachineCode, spinMin, spinMax, spinDelayMinMs, spinDelayMaxMs, maxExitRetries, exitFailTouchPointsInput, headedMode])
+  }, [targetMachineCode, spinMin, spinMax, spinDelayMinMs, spinDelayMaxMs, maxExitRetries, headedMode])
+
+  // Load all machine profiles on mount
+  useEffect(() => {
+    fetch('/api/machine-test/profiles')
+      .then(r => r.json())
+      .then((d: { ok: boolean; profiles?: MachineProfile[] }) => {
+        if (d.ok && d.profiles) setAllProfiles(d.profiles)
+      })
+      .catch(() => {})
+  }, [])
+
+  // Auto-match profile when machine code or profiles change
+  useEffect(() => {
+    const parts = targetMachineCode.trim().split('-')
+    const machineType = parts.find(p => /^[A-Z]+$/.test(p)) ?? ''
+    const found = machineType ? allProfiles.find(p => p.machineType === machineType) ?? null : null
+    setMatchedProfile(found)
+  }, [targetMachineCode, allProfiles])
 
   const appendLog = useCallback((event: ScriptedBetEvent) => {
     setLogs(prev => {
@@ -326,16 +352,6 @@ export function ScriptedBetPage({ currentAccount }: Props) {
     })
   }
 
-  function parseExitFailTouchPoints(raw: string): string[] {
-    const lines = raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean)
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]
-      const parts = line.split(',').map(p => p.trim())
-      if (parts.length !== 2 || !parts[0] || !parts[1]) throw new Error(`touchPoint 格式錯誤（第 ${i + 1} 行）：${line}`)
-    }
-    return lines
-  }
-
   async function start() {
     const selectedAgent = agents.find(agent => agent.agentId === selectedAgentId)
     if (!selectedAgent) {
@@ -362,7 +378,6 @@ export function ScriptedBetPage({ currentAccount }: Props) {
     setRunState('running')
 
     try {
-      const exitFailTouchPoints = parseExitFailTouchPoints(exitFailTouchPointsInput)
       const res = await fetch('/api/scripted-bet/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -380,7 +395,6 @@ export function ScriptedBetPage({ currentAccount }: Props) {
           spinDelayMinMs: Number(spinDelayMinMs),
           spinDelayMaxMs: Number(spinDelayMaxMs),
           maxExitRetries: Number(maxExitRetries),
-          exitFailTouchPoints,
           headedMode,
           operator: currentAccount?.label ?? '',
         }),
@@ -527,17 +541,24 @@ export function ScriptedBetPage({ currentAccount }: Props) {
             </label>
           </div>
           <div className="field-row">
-            <label className="field">
-              <span>退出失敗 touchPoints</span>
-              <textarea
-                value={exitFailTouchPointsInput}
-                onChange={e => setExitFailTouchPointsInput(e.target.value)}
-                disabled={runState === 'running'}
-                rows={3}
-                placeholder={'3,2\n6,5'}
-              />
-              <span className="field-hint">每行一組 MachineTest touchPoint，例如 3,2。退出失敗時會依序點擊對應 span，然後補 Spin 重試。</span>
-            </label>
+            <div className="field">
+              <span>機台配置（Machine Test Profile）</span>
+              {matchedProfile ? (
+                <div style={{ fontSize: 12, padding: '8px 10px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ color: '#a5b4fc', fontWeight: 600 }}>✓ {matchedProfile.machineType}</span>
+                  {matchedProfile.entryTouchPoints?.length ? <span style={{ color: '#94a3b8' }}>進入觸屏：{matchedProfile.entryTouchPoints.join(', ')}</span> : null}
+                  {matchedProfile.entryTouchPoints2?.length ? <span style={{ color: '#94a3b8' }}>進入確認：{matchedProfile.entryTouchPoints2.join(', ')}</span> : null}
+                  {matchedProfile.touchPoints?.length ? <span style={{ color: '#94a3b8' }}>退出補救 touchPoints：{matchedProfile.touchPoints.join(', ')}</span> : null}
+                  {matchedProfile.bonusAction ? <span style={{ color: '#94a3b8' }}>特殊遊戲處理：{matchedProfile.bonusAction}</span> : null}
+                  {matchedProfile.spinSelector ? <span style={{ color: '#94a3b8' }}>Spin selector：{matchedProfile.spinSelector}</span> : null}
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, padding: '6px 10px', background: 'rgba(100,116,139,0.08)', border: '1px solid rgba(100,116,139,0.3)', borderRadius: 6, color: '#64748b' }}>
+                  未找到配置（機台代碼中段需為全大寫字母，如 JJBX）
+                </div>
+              )}
+              <span className="field-hint">自動從 Machine Test 機台配置檔讀取進入觸屏、退出補救 touchPoints 等設定。</span>
+            </div>
           </div>
           <div className="op-plan scripted-plan">
             <span>本次策略</span>

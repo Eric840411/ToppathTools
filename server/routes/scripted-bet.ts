@@ -1,10 +1,38 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { addHistory } from '../shared.js'
+import { addHistory, db } from '../shared.js'
 import { ScriptedBetRunner } from '../scripted-bet/runner.js'
 import { agentConnections, getAvailableAgents, type AgentInfo } from '../agent-hub.js'
-import type { ScriptedBetAccount, ScriptedBetAccountStatus, ScriptedBetConfig, ScriptedBetEvent } from '../scripted-bet/types.js'
+import type { ScriptedBetAccount, ScriptedBetAccountStatus, ScriptedBetConfig, ScriptedBetEvent, ScriptedBetMachineProfile } from '../scripted-bet/types.js'
 import { getOperatorFromContext, type OperatorInfo } from '../request-context.js'
+
+function extractMachineType(machineCode: string): string {
+  const parts = machineCode.split('-')
+  for (const part of parts) {
+    if (/^[A-Z]+$/.test(part)) return part
+  }
+  return parts.reduce((a, b) => (b.replace(/\d/g, '').length > a.replace(/\d/g, '').length ? b : a), '')
+}
+
+function lookupMachineProfile(machineCode: string): ScriptedBetMachineProfile | null {
+  const machineType = extractMachineType(machineCode)
+  if (!machineType) return null
+  const row = db.prepare('SELECT * FROM machine_test_profiles WHERE machineType = ?').get(machineType) as Record<string, unknown> | undefined
+  if (!row) return null
+  const parse = (v: unknown): string[] | null => {
+    if (!v) return null
+    try { return JSON.parse(v as string) as string[] } catch { return null }
+  }
+  return {
+    machineType,
+    entryTouchPoints: parse(row['entryTouchPoints']),
+    entryTouchPoints2: parse(row['entryTouchPoints2']),
+    touchPoints: parse(row['touchPoints']),
+    bonusAction: (row['bonusAction'] as string | null) ?? null,
+    spinSelector: (row['spinSelector'] as string | null) ?? null,
+    exitSelector: (row['exitSelector'] as string | null) ?? null,
+  }
+}
 
 export const router = Router()
 
@@ -208,6 +236,7 @@ router.post('/api/scripted-bet/start', (req, res, next) => {
     if (existingSession) {
       return res.status(409).json({ ok: false, message: 'Scripted Bet is already running for current operator' })
     }
+    const machineProfile = lookupMachineProfile(body.targetMachineCode.trim())
     const config: ScriptedBetConfig = {
       targetMachineCode: body.targetMachineCode.trim(),
       spinMin: body.spinMin,
@@ -217,6 +246,7 @@ router.post('/api/scripted-bet/start', (req, res, next) => {
       maxExitRetries: body.maxExitRetries,
       exitFailTouchPoints: body.exitFailTouchPoints,
       headedMode: body.headedMode,
+      machineProfile,
     }
 
     const selectedAgentId = body.agentId.trim()

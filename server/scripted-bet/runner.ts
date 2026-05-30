@@ -478,8 +478,8 @@ async function findVisibleBySelectors(page: Page, selectors: string[]): Promise<
   return null
 }
 
-async function findSpinButton(page: Page): Promise<SpinButton | null> {
-  const selectors = [
+async function findSpinButton(page: Page, preferredSelector?: string): Promise<SpinButton | null> {
+  const defaultSelectors = [
     '.my-button.btn_spin',
     '.btn_spin .my-button',
     '.btn_spin',
@@ -488,6 +488,9 @@ async function findSpinButton(page: Page): Promise<SpinButton | null> {
     'button[class*="spin"]',
     '[class*="spin-btn"]',
   ]
+  const selectors = preferredSelector
+    ? [preferredSelector, ...defaultSelectors.filter(s => s !== preferredSelector)]
+    : defaultSelectors
   for (const selector of selectors) {
     try {
       const els = await page.$$(selector)
@@ -504,8 +507,8 @@ async function findSpinButton(page: Page): Promise<SpinButton | null> {
   return null
 }
 
-async function clickSpin(page: Page): Promise<string | null> {
-  const button = await findSpinButton(page)
+async function clickSpin(page: Page, preferredSelector?: string): Promise<string | null> {
+  const button = await findSpinButton(page, preferredSelector)
   if (!button) return null
   await button.el.evaluate((node: Element) => (node as HTMLElement).click())
   return button.selector
@@ -773,6 +776,19 @@ export class ScriptedBetRunner extends EventEmitter {
         return
       }
 
+      // Apply entry touch points from machine profile (e.g. denom selection)
+      const profile = this.config.machineProfile
+      if (profile?.entryTouchPoints?.length) {
+        this.log(account, `entryTouchPoints: ${profile.entryTouchPoints.join(', ')}`)
+        await clickConfiguredTouchPoints(page, profile.entryTouchPoints, msg => this.log(account, msg), () => this.stopped)
+        await sleepOrStop(800, () => this.stopped)
+      }
+      if (profile?.entryTouchPoints2?.length) {
+        this.log(account, `entryTouchPoints2: ${profile.entryTouchPoints2.join(', ')}`)
+        await clickConfiguredTouchPoints(page, profile.entryTouchPoints2, msg => this.log(account, msg), () => this.stopped)
+        await sleepOrStop(800, () => this.stopped)
+      }
+
       this.log(account, 'entered machine, wait 3s before Spin')
       await sleepOrStop(3000, () => this.stopped)
       if (this.stopped) throw new Error('stopped')
@@ -785,9 +801,12 @@ export class ScriptedBetRunner extends EventEmitter {
         message: `Spin target ${spinTarget}`,
       })
 
+      // Use profile spinSelector if available
+      const profileSpinSelector = profile?.spinSelector ?? undefined
+
       for (let i = 0; i < spinTarget; i++) {
         if (this.stopped) throw new Error('stopped')
-        const spinSelector = await clickSpin(page)
+        const spinSelector = await clickSpin(page, profileSpinSelector)
         if (!spinSelector) {
           this.update(account, {
             state: 'failed',
@@ -805,6 +824,11 @@ export class ScriptedBetRunner extends EventEmitter {
         })
         await sleepOrStop(randInt(this.config.spinDelayMinMs, this.config.spinDelayMaxMs), () => this.stopped)
       }
+
+      // Exit fail touch points: profile touchPoints takes priority over manual config
+      const exitFailPoints = profile?.touchPoints?.length
+        ? profile.touchPoints
+        : (this.config.exitFailTouchPoints ?? [])
 
       this.update(account, { state: 'exiting', message: 'exiting machine' })
       for (let attempt = 1; attempt <= this.config.maxExitRetries; attempt++) {
@@ -826,13 +850,13 @@ export class ScriptedBetRunner extends EventEmitter {
         })
         await clickConfiguredTouchPoints(
           page,
-          this.config.exitFailTouchPoints ?? [],
+          exitFailPoints,
           msg => this.log(account, msg),
           () => this.stopped,
         )
         if (this.stopped) throw new Error('stopped')
 
-        const retrySpinSelector = await clickSpin(page)
+        const retrySpinSelector = await clickSpin(page, profileSpinSelector)
         if (retrySpinSelector) {
           this.log(account, `exit retry spin clicked (${retrySpinSelector})`)
           await waitSpinSettle(page, () => this.stopped, retrySpinSelector)

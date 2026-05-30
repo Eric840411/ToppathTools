@@ -5,6 +5,17 @@ export interface ScriptedBetAccount {
   url: string
 }
 
+export interface ScriptedBetMachineProfile {
+  machineType: string
+  entryTouchPoints?: string[] | null
+  entryTouchPoints2?: string[] | null
+  /** touch points to use on exit failure (bonus/special game handling) */
+  touchPoints?: string[] | null
+  bonusAction?: string | null
+  spinSelector?: string | null
+  exitSelector?: string | null
+}
+
 export interface ScriptedBetConfig {
   targetMachineCode: string
   spinMin: number
@@ -14,6 +25,8 @@ export interface ScriptedBetConfig {
   maxExitRetries: number
   exitFailTouchPoints?: string[]
   headedMode?: boolean
+  /** Auto-resolved from Machine Test profiles by machineType */
+  machineProfile?: ScriptedBetMachineProfile | null
 }
 
 export type ScriptedBetAccountState =

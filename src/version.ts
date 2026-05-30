@@ -15,6 +15,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       'fix(prompt): Prompt 模板分類名稱不分大小寫/空格，同名分類自動合併',
       'fix(url-pool): ADMIN 使用者可直接編輯 URL，不再需要 Jira PIN',
       'fix(scripted-bet): 移除帳號執行清單中的 URL 標籤欄',
+      'feat(scripted-bet): 自動套用 Machine Test 機台配置（entryTouchPoints/退出補救/spinSelector）',
     ],
   },
   {
