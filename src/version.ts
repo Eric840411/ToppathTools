@@ -12,6 +12,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: '2026-05-30',
     changes: [
       'fix(osm): 版本同步 Lark Sheet URL 改為唯讀，不允許手動修改',
+      'fix(prompt): Prompt 模板分類名稱不分大小寫/空格，同名分類自動合併',
     ],
   },
   {

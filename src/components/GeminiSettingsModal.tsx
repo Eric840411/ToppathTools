@@ -654,14 +654,18 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                 </button>
                 {(() => {
                   const grouped: Record<string, GeminiPrompt[]> = {}
+                  const displayName: Record<string, string> = {}
                   for (const p of prompts) {
-                    const cat = p.category?.trim() || '未分類'
-                    ;(grouped[cat] ??= []).push(p)
+                    const raw = p.category?.trim() || '未分類'
+                    // normalize: uppercase + remove all spaces for grouping key
+                    const key = raw.toUpperCase().replace(/\s+/g, '')
+                    if (!displayName[key]) displayName[key] = raw
+                    ;(grouped[key] ??= []).push(p)
                   }
-                  return Object.entries(grouped).map(([cat, list]) => (
-                    <div key={cat} style={{ marginBottom: 10 }}>
+                  return Object.entries(grouped).map(([key, list]) => (
+                    <div key={key} style={{ marginBottom: 10 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '4px 6px 4px', marginBottom: 2 }}>
-                        {cat}
+                        {displayName[key]}
                       </div>
                       {list.map(p => (
                         <div
