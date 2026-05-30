@@ -534,13 +534,26 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                   onKeyDown={e => e.key === 'Enter' && handleSaveOpenAIKey()}
                   style={{ flex: 1, padding: '8px 12px', borderRadius: 6, fontSize: 13 }}
                 />
-                <button
-                  onClick={handleSaveOpenAIKey}
-                  disabled={!openaiKeyInput.trim()}
-                  style={{ padding: '8px 18px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
-                >
-                  {openaiKeySet ? '更新' : '儲存'}
-                </button>
+                {(() => {
+                  const canSave = !!openaiKeyInput.trim()
+                  return (
+                    <button
+                      onClick={handleSaveOpenAIKey}
+                      disabled={!canSave}
+                      style={{
+                        padding: '8px 18px',
+                        background: canSave ? '#6366f1' : '#334155',
+                        color: canSave ? '#fff' : '#64748b',
+                        border: 'none', borderRadius: 6,
+                        cursor: canSave ? 'pointer' : 'not-allowed',
+                        fontSize: 13, fontWeight: 600,
+                        transition: 'background 0.15s',
+                      }}
+                    >
+                      {openaiKeySet ? '更新' : '儲存'}
+                    </button>
+                  )
+                })()}
               </div>
               {openaiMsg && <p style={{ fontSize: 13, margin: 0 }}>{openaiMsg}</p>}
 
