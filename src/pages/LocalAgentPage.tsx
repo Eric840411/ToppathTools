@@ -153,7 +153,6 @@ export function LocalAgentPage({ currentAccount }: Props) {
         </div>
         <div className="local-agent-actions">
           <button className="btn-ghost" type="button" onClick={refresh} disabled={loading}>重新整理</button>
-          <a className="submit-btn submit-btn--sm local-agent-download" href="/api/machine-test/agent/install.bat">下載 Local Agent</a>
         </div>
       </div>
 
