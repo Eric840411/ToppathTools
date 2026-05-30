@@ -42,10 +42,19 @@ export default function GeminiSettingsModal({ onClose }: Props) {
   }
 
   const handleDeleteOpenAIKey = async () => {
-    if (!confirm('確定移除 OpenAI API Key？')) return
-    await fetch('/api/openai/key', { method: 'DELETE' })
-    setOpenaiMsg('已移除')
-    fetchOpenAIKey()
+    try {
+      const r = await fetch('/api/openai/key', { method: 'DELETE' })
+      const d = await r.json() as { ok: boolean }
+      if (d.ok) {
+        setOpenaiKeySet(false)
+        setOpenaiKeyMasked('')
+        setOpenaiMsg('🗑️ 已移除')
+      } else {
+        setOpenaiMsg('❌ 移除失敗')
+      }
+    } catch {
+      setOpenaiMsg('❌ 網路錯誤，移除失敗')
+    }
   }
 
   // ─── Ollama Config ────────────────────────────────────────────────────────
