@@ -157,11 +157,22 @@ function LegacyAiAgentMonitorWidget() {
             <span style={{ background: 'rgba(6,182,212,0.12)', borderRadius: 999, padding: '2px 8px', color: '#67e8f9' }}>Ollama {runningByProvider.ollama}</span>
           </div>
           {queuedCount > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6, fontSize: 12 }}>
-              <span style={{ color: '#94a3b8', alignSelf: 'center' }}>排隊中</span>
-              {queuedByProvider.gemini > 0 && <span style={{ background: 'rgba(234,179,8,0.15)', borderRadius: 999, padding: '2px 8px', color: '#fde047' }}>Gemini {queuedByProvider.gemini}</span>}
-              {queuedByProvider.openai > 0 && <span style={{ background: 'rgba(234,179,8,0.15)', borderRadius: 999, padding: '2px 8px', color: '#fde047' }}>OpenAI {queuedByProvider.openai}</span>}
-              {queuedByProvider.ollama > 0 && <span style={{ background: 'rgba(234,179,8,0.15)', borderRadius: 999, padding: '2px 8px', color: '#fde047' }}>Ollama {queuedByProvider.ollama}</span>}
+            <div style={{ marginBottom: 6 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 4, fontSize: 12 }}>
+                <span style={{ color: '#94a3b8', alignSelf: 'center' }}>排隊中</span>
+                {queuedByProvider.gemini > 0 && <span style={{ background: 'rgba(234,179,8,0.15)', borderRadius: 999, padding: '2px 8px', color: '#fde047' }}>Gemini {queuedByProvider.gemini}</span>}
+                {queuedByProvider.openai > 0 && <span style={{ background: 'rgba(234,179,8,0.15)', borderRadius: 999, padding: '2px 8px', color: '#fde047' }}>OpenAI {queuedByProvider.openai}</span>}
+                {queuedByProvider.ollama > 0 && <span style={{ background: 'rgba(234,179,8,0.15)', borderRadius: 999, padding: '2px 8px', color: '#fde047' }}>Ollama {queuedByProvider.ollama}</span>}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {latest.filter(j => j.status === 'queued').map(j => (
+                  <div key={j.id} style={{ fontSize: 11, color: '#fde047', background: 'rgba(234,179,8,0.08)', borderRadius: 4, padding: '2px 6px', display: 'flex', gap: 6 }}>
+                    <span style={{ color: '#94a3b8' }}>{j.provider}</span>
+                    <span style={{ fontWeight: 600 }}>{j.user}</span>
+                    <span style={{ color: '#78716c', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{j.operation}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
