@@ -80,6 +80,22 @@ export function LocalAgentPage({ currentAccount }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [showRevoked, setShowRevoked] = useState(false)
+  const [updatingAgent, setUpdatingAgent] = useState<string | null>(null)
+  const [updateResults, setUpdateResults] = useState<Record<string, { ok: boolean; message: string }>>({})
+
+  async function updateSources(agentId: string) {
+    setUpdatingAgent(agentId)
+    setUpdateResults(prev => ({ ...prev, [agentId]: { ok: false, message: '更新中...' } }))
+    try {
+      const res = await fetch(`/api/local-agent/agent/${encodeURIComponent(agentId)}/update-sources`, { method: 'POST' })
+      const d = await res.json() as { ok: boolean; message: string }
+      setUpdateResults(prev => ({ ...prev, [agentId]: d }))
+    } catch {
+      setUpdateResults(prev => ({ ...prev, [agentId]: { ok: false, message: '❌ 網路錯誤' } }))
+    } finally {
+      setUpdatingAgent(null)
+    }
+  }
 
   const refresh = useCallback(() => {
     setLoading(true)
@@ -312,7 +328,7 @@ export function LocalAgentPage({ currentAccount }: Props) {
           )}
           {agents.map(agent => (
             <div className="local-agent-row" key={agent.agentId}>
-              <div>
+              <div style={{ flex: 1 }}>
                 <div className="local-agent-row-title">
                   <span className={agent.busy ? 'badge badge--warn' : 'badge badge--ok'}>{agent.busy ? 'BUSY' : 'READY'}</span>
                   <strong>{agent.hostname}</strong>
@@ -327,7 +343,21 @@ export function LocalAgentPage({ currentAccount }: Props) {
                   {agent.capabilities.map(cap => <span className="local-agent-cap" key={cap}>{cap}</span>)}
                   {agent.version && <span className="local-agent-cap">{agent.version}</span>}
                 </div>
+                {updateResults[agent.agentId] && (
+                  <div style={{ marginTop: 4, fontSize: 12, color: updateResults[agent.agentId].ok ? '#4ade80' : '#f87171' }}>
+                    {updateResults[agent.agentId].message}
+                  </div>
+                )}
               </div>
+              <button
+                className="btn-ghost"
+                type="button"
+                disabled={updatingAgent === agent.agentId}
+                onClick={() => updateSources(agent.agentId)}
+                style={{ alignSelf: 'flex-start', fontSize: 12, whiteSpace: 'nowrap' }}
+              >
+                {updatingAgent === agent.agentId ? '更新中...' : '更新 source files'}
+              </button>
             </div>
           ))}
         </div>

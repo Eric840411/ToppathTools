@@ -987,6 +987,36 @@ function connect() {
       return
     }
 
+    // ── Update source files from server ──────────────────────────────────────
+    if (msg.type === 'update_sources') {
+      const files = (msg as { type: 'update_sources'; files?: string[] }).files ?? []
+      console.log(`[Agent:${AGENT_LABEL}] Updating ${files.length} source files from server`)
+      const baseUrl = CENTRAL_URL.replace(/^wss?/, (s) => s.includes('wss') ? 'https' : 'http')
+      const results: { file: string; ok: boolean; error?: string }[] = []
+      for (const file of files) {
+        try {
+          const resp = await fetch(`${baseUrl}/api/machine-test/agent/source/${file}`)
+          if (!resp.ok) { results.push({ file, ok: false, error: `HTTP ${resp.status}` }); continue }
+          const content = await resp.text()
+          const parts = file.split('/')
+          const targetDir = join(process.cwd(), 'server', ...parts.slice(0, -1))
+          const targetPath = join(process.cwd(), 'server', ...parts)
+          mkdirSync(targetDir, { recursive: true })
+          writeFileSync(targetPath, content, 'utf8')
+          results.push({ file, ok: true })
+          console.log(`[Agent:${AGENT_LABEL}]   ✓ ${file}`)
+        } catch (err) {
+          const error = err instanceof Error ? err.message : String(err)
+          results.push({ file, ok: false, error })
+          console.error(`[Agent:${AGENT_LABEL}]   ✗ ${file}: ${error}`)
+        }
+      }
+      const allOk = results.length > 0 && results.every(r => r.ok)
+      ws.send(JSON.stringify({ type: 'sources_updated', ok: allOk, results }))
+      console.log(`[Agent:${AGENT_LABEL}] Source update ${allOk ? 'succeeded' : 'failed (partial)'}. Restart agent to apply.`)
+      return
+    }
+
     // ── Session join: start claim-loop for the given session ──────────────────
     if (msg.type === 'scripted_bet_start') {
       const { sessionId, accounts, config } = msg as ScriptedBetStartMessage

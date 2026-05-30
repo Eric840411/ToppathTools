@@ -1425,6 +1425,36 @@ router.post('/api/local-agent/tokens/:id/revoke', (req, res) => {
   res.json({ ok: true })
 })
 
+// ── Agent source-file update ───────────────────────────────────────────────────
+
+/** Map agentId → pending resolve fn, used to match agent's sources_updated response */
+export const pendingSourceUpdates = new Map<string, {
+  resolve: (result: { ok: boolean; error?: string }) => void
+}>()
+
+router.post('/api/local-agent/agent/:agentId/update-sources', (req, res) => {
+  const { agentId } = req.params
+  const agent = agentConnections.get(agentId)
+  if (!agent) return res.status(404).json({ ok: false, message: 'Agent 不在線或找不到' })
+  if (agent.ws.readyState !== agent.ws.OPEN) return res.status(503).json({ ok: false, message: 'Agent WebSocket 已斷線' })
+
+  const files = Object.keys(AGENT_SOURCE_WHITELIST)
+  agent.ws.send(JSON.stringify({ type: 'update_sources', files }))
+
+  const timeoutId = setTimeout(() => {
+    pendingSourceUpdates.delete(agentId)
+    if (!res.headersSent) res.json({ ok: false, message: '等待 Agent 回應超時（30s），請確認 Agent 已重啟' })
+  }, 30_000)
+
+  pendingSourceUpdates.set(agentId, {
+    resolve: (result) => {
+      clearTimeout(timeoutId)
+      pendingSourceUpdates.delete(agentId)
+      if (!res.headersSent) res.json({ ok: result.ok, message: result.ok ? '✅ Source files 已更新，請重啟 Agent 套用' : `❌ 部分檔案更新失敗${result.error ? `: ${result.error}` : ''}` })
+    },
+  })
+})
+
 // GET /api/settings/tunnel-url ??get current tunnel webhook URL
 router.get('/api/settings/tunnel-url', (_req, res) => {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('tunnel_webhook_url') as { value: string } | undefined

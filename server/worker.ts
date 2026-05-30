@@ -21,7 +21,7 @@ import { router as autospinRouter } from './routes/autospin.js'
 import { router as osmUatRouter } from './routes/osm-uat.js'
 import { router as frontendAutoRouter, logBuffers, logClients, pushLog, activeRuns } from './routes/frontend-auto.js'
 import uiScreenshotRouter from './routes/ui-screenshot.js'
-import { activeRunners, router as machineTestRouter } from './routes/machine-test.js'
+import { activeRunners, pendingSourceUpdates, router as machineTestRouter } from './routes/machine-test.js'
 import {
   handleScriptedBetAgentDisconnect,
   handleScriptedBetAgentDone,
@@ -506,6 +506,16 @@ wss.on('connection', (ws, req) => {
         if (agentId) {
           const info = agentConnections.get(agentId)
           if (info) { info.busy = false; info.sessionId = null }
+        }
+        return
+      }
+
+      if (msg.type === 'sources_updated') {
+        const result = msg as { type: 'sources_updated'; ok: boolean; results?: { file: string; ok: boolean; error?: string }[] }
+        const pending = pendingSourceUpdates.get(agentId)
+        if (pending) {
+          const failedFiles = (result.results ?? []).filter(r => !r.ok).map(r => r.file)
+          pending.resolve({ ok: result.ok, error: failedFiles.length > 0 ? `${failedFiles.join(', ')} 更新失敗` : undefined })
         }
         return
       }

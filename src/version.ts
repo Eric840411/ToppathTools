@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.37.9'
+export const APP_VERSION = '3.38.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.38.0',
+    date: '2026-05-30',
+    changes: [
+      'feat(local-agent): 新增「更新 source files」按鈕，從 Local Agent 管理頁一鍵推送最新 runner.ts 至 Agent 機器，不需重新安裝',
+    ],
+  },
   {
     version: '3.37.9',
     date: '2026-05-30',
