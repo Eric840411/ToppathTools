@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.37.6'
+export const APP_VERSION = '3.37.7'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.37.7',
+    date: '2026-05-30',
+    changes: [
+      'fix(ollama): 允許空值儲存以清除設定，移除 confirm() 依賴，儲存/清除按鈕視覺改善',
+      'fix(openai): 移除後 banner 不消失問題修正，移除 confirm() 依賴',
+    ],
+  },
   {
     version: '3.37.6',
     date: '2026-05-30',
@@ -17,7 +25,8 @@ export const CHANGELOG: ChangelogEntry[] = [
       'fix(scripted-bet): 移除帳號執行清單中的 URL 標籤欄',
       'feat(scripted-bet): 自動套用 Machine Test 機台配置（entryTouchPoints/退出補救/spinSelector）',
       'fix(gemini): 移除 round-robin 自動輪換，改名為 Gemini；出錯時仍 fallback 至下一個 Key',
-      'fix(ollama): 儲存按鈕加入視覺 disabled 狀態，並補 try/catch',
+      'fix(ollama): 儲存按鈕加入視覺 disabled 狀態',
+      'fix(openai): 儲存按鈕加入視覺 disabled 狀態',
     ],
   },
   {
