@@ -41,6 +41,7 @@ import { callLLM, readGeminiPrompts, renderPrompt } from './gemini.js'
 import { extractAdfText } from './jira.js'
 import { readAccounts } from '../shared.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
+import { getAuthAccount } from '../auth-session.js'
 
 export const router = Router()
 
@@ -2481,9 +2482,11 @@ router.get('/api/url-pool/overrides', (_req, res) => {
 
 // PUT /api/url-pool/:account/url — admin only, saves URL override to DB
 router.put('/api/url-pool/:account/url', (req, res) => {
+  const authAccount = getAuthAccount(req)
   const pin = process.env.ADMIN_PIN ?? ''
   const provided = String(req.headers['x-admin-pin'] ?? '')
-  if (!pin || provided !== pin) return res.status(403).json({ ok: false, message: '需要管理員權限' })
+  const isAdmin = authAccount?.role === 'admin' || (pin && provided === pin)
+  if (!isAdmin) return res.status(403).json({ ok: false, message: '需要管理員權限' })
   const { account } = req.params
   const { url } = req.body as { url?: string }
   if (!url) return res.status(400).json({ ok: false, message: 'missing url' })

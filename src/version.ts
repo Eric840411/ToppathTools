@@ -13,6 +13,8 @@ export const CHANGELOG: ChangelogEntry[] = [
     changes: [
       'fix(osm): 版本同步 Lark Sheet URL 改為唯讀，不允許手動修改',
       'fix(prompt): Prompt 模板分類名稱不分大小寫/空格，同名分類自動合併',
+      'fix(url-pool): ADMIN 使用者可直接編輯 URL，不再需要 Jira PIN',
+      'fix(scripted-bet): 移除帳號執行清單中的 URL 標籤欄',
     ],
   },
   {

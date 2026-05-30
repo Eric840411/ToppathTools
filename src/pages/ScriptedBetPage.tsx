@@ -596,7 +596,6 @@ export function ScriptedBetPage({ currentAccount }: Props) {
             <thead>
               <tr>
                 <th>帳號</th>
-                <th>URL 標籤</th>
                 <th>狀態</th>
                 <th>目標機台</th>
                 <th>Spin</th>
@@ -620,7 +619,6 @@ export function ScriptedBetPage({ currentAccount }: Props) {
                         <span>{row.username}</span>
                       </span>
                     </td>
-                    <td><code>{row.label}</code></td>
                     <td><span className={statusBadgeClass(state)}>{stateLabel[state]}</span></td>
                     <td><code>{status?.targetMachineCode || targetMachineCode || '-'}</code></td>
                     <td>

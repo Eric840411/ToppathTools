@@ -40,7 +40,7 @@ export function UrlPoolPage({ currentAccount }: Props) {
   const [viewCopied, setViewCopied] = useState(false)
   const sseRef = useRef<EventSource | null>(null)
 
-  const isAdmin = !!sessionStorage.getItem('jira_admin_pin')
+  const isAdmin = currentAccount?.role === 'admin'
 
   // ── Load DB URL overrides on mount ──────────────────────────────────────────
   useEffect(() => {
@@ -107,10 +107,9 @@ export function UrlPoolPage({ currentAccount }: Props) {
   async function saveEdit(account: string) {
     setSavingEdit(true)
     try {
-      const pin = sessionStorage.getItem('jira_admin_pin') ?? ''
       const res = await fetch(`/api/url-pool/${account}/url`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', 'x-admin-pin': pin },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: editUrl }),
       })
       if (!res.ok) {
