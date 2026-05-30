@@ -16,6 +16,8 @@ export const CHANGELOG: ChangelogEntry[] = [
       'fix(url-pool): ADMIN 使用者可直接編輯 URL，不再需要 Jira PIN',
       'fix(scripted-bet): 移除帳號執行清單中的 URL 標籤欄',
       'feat(scripted-bet): 自動套用 Machine Test 機台配置（entryTouchPoints/退出補救/spinSelector）',
+      'fix(gemini): 移除 round-robin 自動輪換，改名為 Gemini；出錯時仍 fallback 至下一個 Key',
+      'fix(ollama): 儲存按鈕加入視覺 disabled 狀態，並補 try/catch',
     ],
   },
   {

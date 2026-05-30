@@ -67,14 +67,18 @@ export default function GeminiSettingsModal({ onClose }: Props) {
   useEffect(() => { fetchOllamaConfig() }, [])
 
   const handleSaveOllama = async () => {
-    const r = await fetch('/api/ollama/config', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ baseUrl: ollamaBaseUrl.trim(), model: ollamaModel.trim() }),
-    })
-    const d = await r.json()
-    if (d.ok) { setOllamaMsg('✅ 已儲存'); fetchOllamaConfig() }
-    else setOllamaMsg('❌ 儲存失敗')
+    try {
+      const r = await fetch('/api/ollama/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ baseUrl: ollamaBaseUrl.trim(), model: ollamaModel.trim() }),
+      })
+      const d = await r.json()
+      if (d.ok) { setOllamaMsg('✅ 已儲存'); fetchOllamaConfig() }
+      else setOllamaMsg('❌ 儲存失敗')
+    } catch {
+      setOllamaMsg('❌ 網路錯誤，儲存失敗')
+    }
   }
 
   const handleDeleteOllama = async () => {
@@ -600,13 +604,26 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                 >
                   {ollamaProbing ? '偵測中...' : '🔍 偵測可用模型'}
                 </button>
-                <button
-                  onClick={handleSaveOllama}
-                  disabled={!ollamaBaseUrl.trim() || !ollamaModel.trim()}
-                  style={{ padding: '7px 20px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
-                >
-                  儲存
-                </button>
+                {(() => {
+                  const canSave = !!(ollamaBaseUrl.trim() && ollamaModel.trim())
+                  return (
+                    <button
+                      onClick={handleSaveOllama}
+                      disabled={!canSave}
+                      style={{
+                        padding: '7px 20px',
+                        background: canSave ? '#6366f1' : '#334155',
+                        color: canSave ? '#fff' : '#64748b',
+                        border: 'none', borderRadius: 6,
+                        cursor: canSave ? 'pointer' : 'not-allowed',
+                        fontSize: 13, fontWeight: 600,
+                        transition: 'background 0.15s',
+                      }}
+                    >
+                      儲存
+                    </button>
+                  )
+                })()}
               </div>
 
               {ollamaMsg && <p style={{ fontSize: 13, marginBottom: 8 }}>{ollamaMsg}</p>}

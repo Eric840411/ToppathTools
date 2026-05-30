@@ -13,7 +13,7 @@ interface Props {
 }
 
 export function ModelSelector({ value, onChange, style }: Props) {
-  const [models, setModels] = useState<ModelOption[]>([{ id: 'gemini', label: 'Gemini (自動輪換)', provider: 'gemini' }])
+  const [models, setModels] = useState<ModelOption[]>([{ id: 'gemini', label: 'Gemini', provider: 'gemini' }])
 
   useEffect(() => {
     fetch('/api/models/available')

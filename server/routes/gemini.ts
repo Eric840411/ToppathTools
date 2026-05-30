@@ -280,30 +280,22 @@ function probeUpdateStatus(label: string, error: string | null) {
 
 // ─── Key rotation call ────────────────────────────────────────────────────────
 
-// Round-robin 全域計數器：每次請求從不同 key 起點開始，分散負載
-let rrIndex = 0
-
-/** Dispatches a Gemini call through a per-key rate limiter with automatic key rotation.
- *  Requests assigned to the same API key are serialized; different keys run in parallel. */
+/** Dispatches a Gemini call through a per-key rate limiter with error fallback.
+ *  Always starts from key[0]; falls back to next key only on RESOURCE_EXHAUSTED/429/503. */
 export const callGeminiWithRotation = (prompt: string): Promise<string> => {
   const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
   const taskId = startAiTask('gemini', 'text', model)
 
-  // Atomically claim an rrIndex slot to determine which key queue to enter.
-  // _callGeminiWithRotation will start from this same index so the limiter
-  // and the actual HTTP call are aligned to the same key.
   const keyEntries = resolveGeminiKeyEntries()
   if (keyEntries.length === 0) {
     finishAiTask(taskId, 'no keys')
     return Promise.reject(new Error('沒有可用的 Gemini API Key，請在設定中新增'))
   }
-  const myStartIndex = rrIndex % keyEntries.length
-  rrIndex = (rrIndex + 1) % Number.MAX_SAFE_INTEGER
-  const primaryKey = keyEntries[myStartIndex].key
+  const primaryKey = keyEntries[0].key
 
   return getKeyLimiter(primaryKey).schedule(async () => {
     try {
-      const out = await _callGeminiWithRotation(prompt, myStartIndex)
+      const out = await _callGeminiWithRotation(prompt, 0)
       finishAiTask(taskId)
       return out
     } catch (e) {
@@ -319,15 +311,7 @@ export const _callGeminiWithRotation = async (prompt: string, startIndex?: numbe
   if (keyEntries.length === 0) throw new Error('沒有可用的 Gemini API Key，請在設定中新增')
   const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
 
-  // 若呼叫方已預先指定起始 index（透過 per-key limiter 分配），直接使用；
-  // 否則以 round-robin 全域計數器自行決定起始 index。
-  let _startIndex: number
-  if (startIndex !== undefined) {
-    _startIndex = startIndex % keyEntries.length
-  } else {
-    _startIndex = rrIndex % keyEntries.length
-    rrIndex = (rrIndex + 1) % Number.MAX_SAFE_INTEGER
-  }
+  const _startIndex = (startIndex ?? 0) % keyEntries.length
 
   for (let offset = 0; offset < keyEntries.length; offset++) {
     const i = (_startIndex + offset) % keyEntries.length
@@ -477,11 +461,8 @@ export const callGeminiVision = async (prompt: string, imageBase64: string, mime
   const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
   const taskId = startAiTask('gemini', 'vision', model)
   try {
-    const startIndex = rrIndex % keyEntries.length
-    rrIndex = (rrIndex + 1) % Number.MAX_SAFE_INTEGER
-
     for (let offset = 0; offset < keyEntries.length; offset++) {
-      const i = (startIndex + offset) % keyEntries.length
+      const i = offset % keyEntries.length
       const { label, key } = keyEntries[i]
       const resp = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
@@ -559,14 +540,12 @@ export const callGeminiVisionMulti = async (
   const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
   const taskId = startAiTask('gemini', 'vision-multi', model)
   try {
-    const startIndex = rrIndex % keyEntries.length
-    rrIndex = (rrIndex + 1) % Number.MAX_SAFE_INTEGER
     const parts: unknown[] = [
       ...images.map(img => ({ inlineData: { mimeType: img.mimeType ?? 'image/png', data: img.base64 } })),
       { text: prompt },
     ]
     for (let offset = 0; offset < keyEntries.length; offset++) {
-      const i = (startIndex + offset) % keyEntries.length
+      const i = offset % keyEntries.length
       const { label, key } = keyEntries[i]
       const resp = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
@@ -712,7 +691,7 @@ export const callLLMVision = async (prompt: string, imageBase64: string, modelSp
 // GET /api/models/available — list all available LLM models (Gemini + Ollama)
 router.get('/api/models/available', async (_req: import('express').Request, res) => {
   const models: { id: string; label: string; provider: string }[] = [
-    { id: 'gemini', label: 'Gemini (自動輪換)', provider: 'gemini' },
+    { id: 'gemini', label: 'Gemini', provider: 'gemini' },
   ]
   const { baseUrl: base } = readOllamaConfig()
   if (base) {
@@ -765,8 +744,7 @@ router.get('/api/gemini/keys', (_req, res) => {
   const keys = readGeminiKeys().map(k => ({ label: k.label, keyMasked: k.key.slice(0, 8) + '****', isEnv: false }))
   const envKey = process.env.GEMINI_API_KEY ?? ''
   if (envKey) keys.push({ label: 'env', keyMasked: envKey.slice(0, 8) + '****', isEnv: true })
-  const nextIndex = keys.length > 0 ? rrIndex % keys.length : 0
-  res.json({ ok: true, keys, nextRrIndex: nextIndex, nextRrLabel: keys[nextIndex]?.label ?? null })
+  res.json({ ok: true, keys })
 })
 
 // POST /api/gemini/keys
