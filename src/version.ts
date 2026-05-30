@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.37.5'
+export const APP_VERSION = '3.37.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.37.6',
+    date: '2026-05-30',
+    changes: [
+      'fix(osm): 版本同步 Lark Sheet URL 改為唯讀，不允許手動修改',
+    ],
+  },
   {
     version: '3.37.5',
     date: '2026-05-29',

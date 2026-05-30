@@ -521,9 +521,7 @@ export function OsmPage() {
   // Machine type target versions (machineType → category → version)
   const [targets, setTargets] = useState<Record<string, Record<string, string>>>({})
   const [targetsExpanded, setTargetsExpanded] = useState(false)
-  const [larkSheetUrl, setLarkSheetUrl] = useState(
-    () => localStorage.getItem('osm_lark_sheet_url') ?? 'https://casinoplus.sg.larksuite.com/sheets/W2hDs1VnZh78mntQJJ9lkXvvgRf'
-  )
+  const larkSheetUrl = 'https://casinoplus.sg.larksuite.com/sheets/W2hDs1VnZh78mntQJJ9lkXvvgRf'
   const [larkSyncing, setLarkSyncing] = useState(false)
   const [larkSyncMsg, setLarkSyncMsg] = useState<{ ok: boolean; msg: string } | null>(null)
 
@@ -677,8 +675,7 @@ export function OsmPage() {
       })
       const data = await resp.json() as { ok: boolean; synced?: string[]; totalCount?: number; message?: string }
       if (!data.ok) throw new Error(data.message ?? '同步失敗')
-      localStorage.setItem('osm_lark_sheet_url', larkSheetUrl.trim())
-      setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁：${(data.synced ?? []).join('、')}` })
+setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁：${(data.synced ?? []).join('、')}` })
       await fetchTargets()
     } catch (err) {
       setLarkSyncMsg({ ok: false, msg: err instanceof Error ? err.message : String(err) })
@@ -890,10 +887,8 @@ export function OsmPage() {
           <input
             className="osm-lark-url-input"
             type="text"
-            placeholder="貼上 Lark Sheet URL..."
             value={larkSheetUrl}
-            onChange={e => setLarkSheetUrl(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') handleSyncFromLark() }}
+            readOnly
           />
           <button
             className="osm-btn osm-btn--primary"
