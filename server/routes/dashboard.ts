@@ -46,6 +46,10 @@ type DashboardEvent = {
 const presence = new Map<string, PresenceRecord>()
 const requestSamples: RequestSample[] = []
 const dashboardEvents: DashboardEvent[] = []
+let activeShortRequests = 0   // normal HTTP requests (finish when response sent)
+let activeLongConnections = 0 // SSE / streaming connections (finish when client disconnects)
+
+/** @deprecated use activeShortRequests + activeLongConnections */
 let activeRequests = 0
 
 function now() {
@@ -157,28 +161,63 @@ export function dashboardMetricsMiddleware(req: Request, res: Response, next: Ne
     return
   }
 
-  activeRequests += 1
+  activeShortRequests += 1
+  activeRequests = activeShortRequests + activeLongConnections
   const startedAt = now()
-  res.on('finish', () => {
-    activeRequests = Math.max(0, activeRequests - 1)
-    const finishedAt = now()
-    requestSamples.push({
-      path: req.path,
-      method: req.method,
-      statusCode: res.statusCode,
-      durationMs: finishedAt - startedAt,
-      finishedAt,
-    })
-    pruneRequestSamples(finishedAt)
-    if (res.statusCode >= 500) {
-      addEvent({
-        type: 'request-error',
-        level: 'error',
-        title: `${req.method} ${req.path} failed`,
-        detail: `HTTP ${res.statusCode}, ${finishedAt - startedAt} ms`,
-      })
+  let isLongConn = false
+  let cleaned = false
+
+  // Intercept writeHead to detect SSE connections by Content-Type header.
+  // When the route sets Content-Type: text/event-stream and flushes headers,
+  // reclassify this request from short to long-lived.
+  const origWriteHead = res.writeHead.bind(res)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ;(res as any).writeHead = function (...args: Parameters<typeof origWriteHead>) {
+    if (!isLongConn) {
+      const ct = res.getHeader('content-type')
+      if (typeof ct === 'string' && ct.includes('text/event-stream')) {
+        isLongConn = true
+        activeShortRequests = Math.max(0, activeShortRequests - 1)
+        activeLongConnections += 1
+        activeRequests = activeShortRequests + activeLongConnections
+      }
     }
-  })
+    return origWriteHead(...args)
+  }
+
+  const cleanup = () => {
+    if (cleaned) return
+    cleaned = true
+    if (isLongConn) {
+      activeLongConnections = Math.max(0, activeLongConnections - 1)
+    } else {
+      activeShortRequests = Math.max(0, activeShortRequests - 1)
+    }
+    activeRequests = activeShortRequests + activeLongConnections
+    if (!isLongConn) {
+      const finishedAt = now()
+      requestSamples.push({
+        path: req.path,
+        method: req.method,
+        statusCode: res.statusCode,
+        durationMs: finishedAt - startedAt,
+        finishedAt,
+      })
+      pruneRequestSamples(finishedAt)
+      if (res.statusCode >= 500) {
+        addEvent({
+          type: 'request-error',
+          level: 'error',
+          title: `${req.method} ${req.path} failed`,
+          detail: `HTTP ${res.statusCode}, ${finishedAt - startedAt} ms`,
+        })
+      }
+    }
+  }
+
+  res.on('finish', cleanup)
+  // 'close' fires when the socket closes without a clean finish (e.g. SSE client disconnects)
+  res.on('close', cleanup)
   next()
 }
 
@@ -254,7 +293,8 @@ router.get('/api/dashboard/summary', async (req, res) => {
     totals: {
       onlineUsers: presence.size,
       activeSessions: getActiveAuthSessions().length,
-      activeRequests,
+      activeRequests: activeShortRequests,
+      activeLongConnections,
       requestsPerMinute: requestSamples.length,
       errorsPerMinute,
       runningTasks: activeHeavyTasks.filter(t => t.status === 'running').length + (workerTasks?.counts?.running ?? 0),

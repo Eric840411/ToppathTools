@@ -1,4 +1,4 @@
-const { existsSync, mkdirSync, rmSync, writeFileSync } = require('fs')
+const { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } = require('fs')
 const { join } = require('path')
 const { spawnSync } = require('child_process')
 
@@ -25,6 +25,13 @@ const workerEntry = join(outDir, 'server', 'worker.js')
 
 if (!existsSync(serverEntry) || !existsSync(workerEntry)) {
   process.exit(result.status || 1)
+}
+
+// Copy non-TS runtime files that aren't compiled by tsc
+const uatRunnerSrc = join(root, 'server', 'uat-runner')
+const uatRunnerDst = join(outDir, 'server', 'uat-runner')
+if (existsSync(uatRunnerSrc)) {
+  cpSync(uatRunnerSrc, uatRunnerDst, { recursive: true })
 }
 
 if (result.status !== 0) {

@@ -188,7 +188,7 @@ function LegacyAiAgentMonitorWidget() {
                     background: job.status === 'queued' ? 'rgba(234,179,8,0.15)' : job.status === 'running' ? 'rgba(59,130,246,0.15)' : job.status === 'done' ? 'rgba(22,163,74,0.15)' : 'rgba(239,68,68,0.15)',
                     color: job.status === 'queued' ? '#fde047' : job.status === 'running' ? '#60a5fa' : job.status === 'done' ? '#4ade80' : '#f87171',
                   }}>
-                    {job.status === 'queued' ? '排隊' : job.status === 'running' ? '執行中' : job.status === 'done' ? 'done' : 'error'}
+                    {job.status === 'queued' ? '排隊' : job.status === 'running' ? 'running' : job.status === 'done' ? 'done' : 'error'}
                   </span>
                   <span style={{ color: '#94a3b8' }}>{job.provider}</span>
                   <span style={{ color: '#cbd5e1', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={`${job.kind} • ${job.model} • ${job.operation} • 使用者:${job.user}`}>

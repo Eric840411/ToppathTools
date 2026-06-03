@@ -178,6 +178,8 @@ app.post('/internal/worker/testcase/lark-generate', (req, res) => {
     clientIp?: string
     user?: string
     callbackUrl?: string
+    operatorKey?: string
+    operatorName?: string
   }
   const requestId = String(payload.requestId ?? '')
   const callbackUrl = String(payload.callbackUrl ?? '')
@@ -208,6 +210,8 @@ app.post('/internal/worker/testcase/lark-generate', (req, res) => {
           body,
           clientIp: String(payload.clientIp ?? 'worker'),
           user: task.userKey,
+          operatorKey: String(payload.operatorKey ?? ''),
+          operatorName: String(payload.operatorName ?? ''),
         })
       })
     } catch (error) {
@@ -282,6 +286,8 @@ app.post('/internal/worker/testcase/file-generate', async (req, res) => {
     form?: Record<string, unknown>
     clientIp?: string
     user?: string
+    operatorKey?: string
+    operatorName?: string
   }
   if (!Array.isArray(payload.files) || payload.files.length === 0) {
     return res.status(400).json({ ok: false, message: 'missing uploaded files' })
@@ -304,6 +310,8 @@ app.post('/internal/worker/testcase/file-generate', async (req, res) => {
         form: payload.form ?? {},
         clientIp: String(payload.clientIp ?? 'worker'),
         user: task.userKey,
+        operatorKey: String(payload.operatorKey ?? ''),
+        operatorName: String(payload.operatorName ?? ''),
       })
     })
     console.log(`[Worker][execute:finish] ${task.label} user=${task.userLabel} id=${task.id} ok=${result.ok}`)

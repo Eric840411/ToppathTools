@@ -42,6 +42,7 @@ import { extractAdfText } from './jira.js'
 import { readAccounts } from '../shared.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { getAuthAccount } from '../auth-session.js'
+import { getOperatorFromContext } from '../request-context.js'
 
 export const router = Router()
 
@@ -1274,8 +1275,11 @@ export async function runLarkGenerateTestcasesJob(params: {
   clientIp: string
   user: string
   jobId?: string  // provided for resume; omit to create new
+  operatorKey?: string
+  operatorName?: string
 }): Promise<GenerateApiResult> {
   const { body, clientIp, user } = params
+  const jobOperator = params.operatorKey ? { key: params.operatorKey, name: params.operatorName ?? '' } : undefined
   const sourcesToFetch: { type: 'lark' | 'gdocs'; url: string }[] = body.sources?.length
     ? body.sources
     : body.specSource === 'gdocs'
@@ -1381,7 +1385,7 @@ export async function runLarkGenerateTestcasesJob(params: {
     const count = jiraResult.test_cases.length
     const csv = createJiraTestCaseCsvArtifact(jiraResult, sourceLabel)
     log('ok', clientIp, user, 'TestCase worker completed (Jira format)', `generated ${count}, written ${written}`)
-    addHistory('testcase', `TestCase 生成 - ${srcLabel}`, `生成 ${count} 筆，寫入 ${written} 筆`, { sourceLabel, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvFormat: csv.format })
+    addHistory('testcase', `TestCase 生成 - ${srcLabel}`, `生成 ${count} 筆，寫入 ${written} 筆`, { sourceLabel, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvFormat: csv.format }, { operator: jobOperator })
     updateJobStatus(jobId, 'completed')
     return { ok: true, generated: count, written, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format }
   }
@@ -1407,7 +1411,7 @@ export async function runLarkGenerateTestcasesJob(params: {
   const { total: totalCases, committed: committedCases } = countJobTestCases(jobId)
   const allCommitted = committedCases >= totalCases
   log('ok', clientIp, user, 'TestCase worker completed', `generated ${cases.length}, written ${written}, committed ${committedCases}/${totalCases}`)
-  addHistory('testcase', `TestCase 生成 - ${srcLabel}`, `生成 ${cases.length} 筆，寫入 ${written} 筆`, { sourceLabel, cases, bitableUrl, csvFormat: csv.format, jobId })
+  addHistory('testcase', `TestCase 生成 - ${srcLabel}`, `生成 ${cases.length} 筆，寫入 ${written} 筆`, { sourceLabel, cases, bitableUrl, csvFormat: csv.format, jobId }, { operator: jobOperator })
   if (allCommitted) updateJobStatus(jobId, 'completed')
   else updateJobStatus(jobId, 'failed', `${totalCases - committedCases} 筆未寫入 Bitable，可續跑`)
   return { ok: true, generated: cases.length, written, cases, bitableUrl, csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format, jobId }
@@ -1573,12 +1577,13 @@ router.post('/api/integrations/lark/generate-testcases', async (req, res) => {
 
   const clientIp = getClientIP(req)
   const user = getUser(req)
+  const dispatchOperator = getOperatorFromContext()
 
   const callbackUrl = `http://127.0.0.1:${process.env.PORT ?? 3000}/internal/testcase-jobs/${encodeURIComponent(requestId)}/finish`
   fetch(`${getWorkerUrl()}/internal/worker/testcase/lark-generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ requestId, body, clientIp, user, callbackUrl }),
+    body: JSON.stringify({ requestId, body, clientIp, user, callbackUrl, operatorKey: dispatchOperator?.key ?? '', operatorName: dispatchOperator?.name ?? '' }),
     signal: AbortSignal.timeout(5000),
   }).then(async response => {
     if (response.ok) return
@@ -1908,7 +1913,10 @@ export async function runGenerateTestcasesFileJob(params: {
   form: Record<string, unknown>
   clientIp: string
   user: string
+  operatorKey?: string
+  operatorName?: string
 }): Promise<GenerateApiResult> {
+  const fileJobOperator = params.operatorKey ? { key: params.operatorKey, name: params.operatorName ?? '' } : undefined
   const uploadedFiles = params.files.map(workerUploadToMulterFile)
   const oldUploadedFiles = (params.oldFiles ?? []).map(workerUploadToMulterFile)
   if (uploadedFiles.length === 0) return { ok: false, message: '請上傳 PDF 或 Word（.docx）檔案' }
@@ -1985,7 +1993,7 @@ export async function runGenerateTestcasesFileJob(params: {
     const csv = createJiraTestCaseCsvArtifact(jiraResult, sourceLabel)
     const count = jiraResult.test_cases.length
     log('ok', params.clientIp, params.user, 'TestCase file worker completed (Jira format)', `generated ${count}, written ${written}`)
-    addHistory('testcase', `TestCase 生成 - ${sourceLabel}`, `生成 ${count} 筆，寫入 ${written} 筆`, { sourceLabel, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvFormat: csv.format })
+    addHistory('testcase', `TestCase 生成 - ${sourceLabel}`, `生成 ${count} 筆，寫入 ${written} 筆`, { sourceLabel, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvFormat: csv.format }, { operator: fileJobOperator })
     return { ok: true, generated: count, written, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format }
   }
   let casesArr = normalizeTestCaseFields(Array.isArray(cases) ? cases as unknown[] : [])
@@ -2003,7 +2011,7 @@ export async function runGenerateTestcasesFileJob(params: {
   const csv = createTestCaseCsvArtifact(casesArr, sourceLabel)
 
   log('ok', params.clientIp, params.user, 'TestCase file worker completed', `generated ${casesArr.length}, written ${written}`)
-  addHistory('testcase', `TestCase 生成 - ${sourceLabel}`, `生成 ${casesArr.length} 筆，寫入 ${written} 筆`, { sourceLabel, cases: casesArr, bitableUrl, csvFormat: csv.format })
+  addHistory('testcase', `TestCase 生成 - ${sourceLabel}`, `生成 ${casesArr.length} 筆，寫入 ${written} 筆`, { sourceLabel, cases: casesArr, bitableUrl, csvFormat: csv.format }, { operator: fileJobOperator })
   return { ok: true, generated: casesArr.length, written, cases: casesArr, bitableUrl, csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format }
 }
 
@@ -2033,6 +2041,7 @@ router.post(
       mimetype: file.mimetype,
       bufferBase64: file.buffer.toString('base64'),
     })
+    const fileDispatchOperator = getOperatorFromContext()
     const workerResp = await fetch(`${getWorkerUrl()}/internal/worker/testcase/file-generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2042,6 +2051,8 @@ router.post(
         form: req.body,
         clientIp: getClientIP(req),
         user: getUser(req),
+        operatorKey: fileDispatchOperator?.key ?? '',
+        operatorName: fileDispatchOperator?.name ?? '',
       }),
     })
     const workerResult = await workerResp.json().catch(async () => ({

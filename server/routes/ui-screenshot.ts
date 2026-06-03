@@ -32,6 +32,8 @@ export const UI_SCREENSHOT_SCHEMA = `
     options           TEXT NOT NULL DEFAULT '{}',
     agent_id          TEXT,
     history_saved     INTEGER NOT NULL DEFAULT 0,
+    operator_key      TEXT NOT NULL DEFAULT '',
+    operator_name     TEXT NOT NULL DEFAULT '',
     created_at        INTEGER NOT NULL,
     started_at        INTEGER,
     finished_at       INTEGER
@@ -56,6 +58,12 @@ db.exec(UI_SCREENSHOT_SCHEMA)
   const cols = db.prepare('PRAGMA table_info(ui_screenshot_runs)').all() as { name: string }[]
   if (!cols.find(c => c.name === 'history_saved')) {
     db.exec('ALTER TABLE ui_screenshot_runs ADD COLUMN history_saved INTEGER NOT NULL DEFAULT 0')
+  }
+  if (!cols.find(c => c.name === 'operator_key')) {
+    db.exec("ALTER TABLE ui_screenshot_runs ADD COLUMN operator_key TEXT NOT NULL DEFAULT ''")
+  }
+  if (!cols.find(c => c.name === 'operator_name')) {
+    db.exec("ALTER TABLE ui_screenshot_runs ADD COLUMN operator_name TEXT NOT NULL DEFAULT ''")
   }
 }
 
@@ -116,6 +124,8 @@ function saveUiScreenshotHistory(runId: string, finalStatus: 'done' | 'stopped')
     options: string
     agent_id?: string
     history_saved: number
+    operator_key?: string
+    operator_name?: string
     created_at: number
     started_at?: number | null
     finished_at?: number | null
@@ -154,6 +164,7 @@ function saveUiScreenshotHistory(runId: string, finalStatus: 'done' | 'stopped')
       finishedAt: run.finished_at ?? null,
       durationMs,
     },
+    { operator: run.operator_key ? { key: run.operator_key, name: run.operator_name ?? '' } : undefined },
   )
 }
 
@@ -218,10 +229,11 @@ router.post('/start', (req, res) => {
   const conc = concurrency ?? 3
 
   // Create run
+  const runOperator = getOperatorFromContext()
   db.prepare(`
-    INSERT INTO ui_screenshot_runs (id, status, wiki_url, game_url_template, gmids, resolutions, concurrency, options, agent_id, created_at)
-    VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(runId, wikiUrl ?? '', gameUrlTemplate, JSON.stringify(gmids), JSON.stringify(resolutions), conc, JSON.stringify(opts), agentId, now)
+    INSERT INTO ui_screenshot_runs (id, status, wiki_url, game_url_template, gmids, resolutions, concurrency, options, agent_id, operator_key, operator_name, created_at)
+    VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(runId, wikiUrl ?? '', gameUrlTemplate, JSON.stringify(gmids), JSON.stringify(resolutions), conc, JSON.stringify(opts), agentId, runOperator?.key ?? '', runOperator?.name ?? '', now)
 
   // Create tasks
   const insertTask = db.prepare(`
@@ -461,7 +473,20 @@ router.post('/fetch-gmids', async (req, res) => {
     const larkToken = await getLarkToken()
     const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
 
-    const range = sheetId ? `${sheetId}!A1:Z2000` : 'A1:Z2000'
+    // If no sheetId in URL, fetch metadata to get the first sheet's ID
+    let resolvedSheetId = sheetId
+    if (!resolvedSheetId) {
+      const metaResp = await fetch(
+        `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}`,
+        { headers: { Authorization: `Bearer ${larkToken}` } },
+      )
+      const metaData = await metaResp.json() as { code?: number; data?: { sheets?: Array<{ sheet_id: string }> }; msg?: string }
+      if (metaData.code === 0 && metaData.data?.sheets?.length) {
+        resolvedSheetId = metaData.data.sheets[0].sheet_id
+      }
+    }
+
+    const range = resolvedSheetId ? `${resolvedSheetId}!A1:Z2000` : 'A1:Z2000'
     const resp = await fetch(
       `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${range}`,
       { headers: { Authorization: `Bearer ${larkToken}` } },
@@ -531,8 +556,21 @@ router.post('/run/:runId/writeback', async (req, res) => {
     const larkToken = await getLarkToken()
     const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
 
-    const { spreadsheetToken, sheetId } = resolveSheetToken(run.wiki_url)
+    const { spreadsheetToken, sheetId: rawSheetId } = resolveSheetToken(run.wiki_url)
     if (!spreadsheetToken) return res.status(400).json({ ok: false, message: '無法解析 spreadsheet token' })
+
+    // If no sheetId in URL, fetch metadata to get the first sheet's ID
+    let sheetId = rawSheetId
+    if (!sheetId) {
+      const metaResp = await fetch(
+        `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}`,
+        { headers: { Authorization: `Bearer ${larkToken}` } },
+      )
+      const metaData = await metaResp.json() as { code?: number; data?: { sheets?: Array<{ sheet_id: string }> } }
+      if (metaData.code === 0 && metaData.data?.sheets?.length) {
+        sheetId = metaData.data.sheets[0].sheet_id
+      }
+    }
 
     // ── Step 1: Read sheet to get headers + gmid row indices ───────────────────
     const range = sheetId ? `${sheetId}!A1:AZ2000` : 'A1:AZ2000'

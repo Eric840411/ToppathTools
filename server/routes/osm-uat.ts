@@ -8,7 +8,7 @@
  */
 import { Router } from 'express'
 import { spawn, ChildProcess } from 'child_process'
-import { dirname } from 'path'
+import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { z } from 'zod'
 import { getLarkToken } from '../shared.js'
@@ -128,7 +128,8 @@ router.get('/api/osm-uat/scan', async (req, res, next) => {
 
 // ─── 啟動測試 ──────────────────────────────────────────────────────────────────
 
-const SCRIPT_PATH = 'C:\\Users\\user\\Desktop\\osm-qa-agent\\run-lark-tc-backend.js'
+const SCRIPT_PATH = process.env.OSM_QA_AGENT_SCRIPT
+  ?? join(__dirname, '..', 'uat-runner', 'run-lark-tc-backend.js')
 
 const runSchema = z.object({
   larkUrl: z.string().min(1),

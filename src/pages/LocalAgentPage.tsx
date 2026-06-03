@@ -87,7 +87,7 @@ export function LocalAgentPage({ currentAccount }: Props) {
     setUpdatingAgent(agentId)
     setUpdateResults(prev => ({ ...prev, [agentId]: { ok: false, message: '更新中...' } }))
     try {
-      const res = await fetch(`/api/local-agent/agent/${encodeURIComponent(agentId)}/update-sources`, { method: 'POST' })
+      const res = await fetch(`/api/local-agent/agent/${encodeURIComponent(agentId)}/update-sources`, { method: 'POST', signal: AbortSignal.timeout(125_000) })
       const d = await res.json() as { ok: boolean; message: string }
       setUpdateResults(prev => ({ ...prev, [agentId]: d }))
     } catch {

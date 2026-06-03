@@ -348,6 +348,10 @@ function ProfilesPanel() {
                       onClick={() => { setEditing({ ...p }); setOriginalMachineType(p.machineType); setShowAdvanced(!!(p.spinSelector || p.balanceSelector || p.exitSelector)) }}>
                       編輯
                     </button>
+                    <button type="button" className="btn-ghost" style={{ fontSize: 12, padding: '3px 10px', marginRight: 6, color: '#0891b2' }}
+                      onClick={() => { setEditing({ ...p, machineType: '' }); setOriginalMachineType(''); setShowAdvanced(!!(p.spinSelector || p.balanceSelector || p.exitSelector)) }}>
+                      複製
+                    </button>
                     <button type="button" className="btn-ghost" style={{ fontSize: 12, padding: '3px 10px', color: '#ef4444' }}
                       onClick={() => handleDelete(p.machineType)}>
                       刪除

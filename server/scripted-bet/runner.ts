@@ -794,27 +794,11 @@ export class ScriptedBetRunner extends EventEmitter {
       this.update(account, { state: 'entering', message: `enter machine ${this.config.targetMachineCode}` })
       const profile = this.config.machineProfile
 
-      // Entry touch points (e.g. denom selection) must fire BEFORE enterGMNtc
-      // — pass them as onAfterClick so they run between card click and GM event wait
-      const onAfterClick = async () => {
-        if (profile?.entryTouchPoints?.length) {
-          this.log(account, `entryTouchPoints: ${profile.entryTouchPoints.join(', ')}`)
-          await clickConfiguredTouchPoints(page, profile.entryTouchPoints, msg => this.log(account, msg), () => this.stopped)
-          await sleepOrStop(800, () => this.stopped)
-        }
-        if (profile?.entryTouchPoints2?.length) {
-          this.log(account, `entryTouchPoints2: ${profile.entryTouchPoints2.join(', ')}`)
-          await clickConfiguredTouchPoints(page, profile.entryTouchPoints2, msg => this.log(account, msg), () => this.stopped)
-          await sleepOrStop(800, () => this.stopped)
-        }
-      }
-
       const entered = await enterMachine(
         page,
         this.config.targetMachineCode,
         msg => this.log(account, msg),
         waitForEnterGM,
-        (profile?.entryTouchPoints?.length || profile?.entryTouchPoints2?.length) ? onAfterClick : undefined,
       )
       if (!entered) {
         this.update(account, {
@@ -825,8 +809,38 @@ export class ScriptedBetRunner extends EventEmitter {
         return
       }
 
-      this.log(account, 'entered machine, wait 3s before Spin')
-      await sleepOrStop(3000, () => this.stopped)
+      // After entering, apply entryTouchPoints: wait for SPIN visible → 3s delay → click
+      if (profile?.entryTouchPoints?.length || profile?.entryTouchPoints2?.length) {
+        this.log(account, 'entryTouchPoints: waiting for SPIN button...')
+        const spinDeadline = Date.now() + 15_000
+        let spinFound = false
+        while (Date.now() < spinDeadline && !this.stopped) {
+          const btn = await findSpinButton(page, profile?.spinSelector ?? undefined)
+          if (btn) {
+            spinFound = true
+            this.log(account, `SPIN detected (${btn.selector}), waiting 3s before entryTouchPoints`)
+            break
+          }
+          await sleep(300)
+        }
+        if (!spinFound) this.log(account, 'SPIN not found within 15s, executing entryTouchPoints anyway')
+        await sleepOrStop(3000, () => this.stopped)
+        if (!this.stopped) {
+          if (profile?.entryTouchPoints?.length) {
+            this.log(account, `entryTouchPoints: ${profile.entryTouchPoints.join(', ')}`)
+            await clickConfiguredTouchPoints(page, profile.entryTouchPoints, msg => this.log(account, msg), () => this.stopped)
+            await sleepOrStop(800, () => this.stopped)
+          }
+          if (profile?.entryTouchPoints2?.length) {
+            this.log(account, `entryTouchPoints2: ${profile.entryTouchPoints2.join(', ')}`)
+            await clickConfiguredTouchPoints(page, profile.entryTouchPoints2, msg => this.log(account, msg), () => this.stopped)
+            await sleepOrStop(800, () => this.stopped)
+          }
+        }
+      } else {
+        this.log(account, 'entered machine, wait 3s before Spin')
+        await sleepOrStop(3000, () => this.stopped)
+      }
       if (this.stopped) throw new Error('stopped')
 
       const spinTarget = randInt(this.config.spinMin, this.config.spinMax)

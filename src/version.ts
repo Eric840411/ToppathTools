@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.38.0'
+export const APP_VERSION = '3.38.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,42 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.38.5',
+    date: '2026-06-03',
+    changes: [
+      'feat(gemini): 503 改用 exponential backoff + jitter（1s/2s/4s 最多 3 次）取代立即換 Key，避免打同一個過載節點；429 仍換 Key',
+      'fix(ui): AI Agent 監控浮窗與 Dashboard 背景任務「執行中」改顯示為「running」',
+    ],
+  },
+  {
+    version: '3.38.4',
+    date: '2026-06-03',
+    changes: [
+      'fix(gemini): 修正 503+429 混合錯誤時錯誤顯示「配額上限」的問題，改為各自獨立判斷並顯示正確原因；補上 503 完整 error message log',
+    ],
+  },
+  {
+    version: '3.38.3',
+    date: '2026-06-03',
+    changes: [
+      'fix(dashboard): 伺服器負載改為只計算短請求（非 SSE），SSE 長連線獨立計數顯示於備註，避免 HIGH 常態亮著',
+    ],
+  },
+  {
+    version: '3.38.2',
+    date: '2026-06-02',
+    changes: [
+      'fix(history): 修復 AutoSpin、TestCase 生成（Lark / 檔案）歷史紀錄「操作者：未記錄」問題，所有非同步回調均正確傳遞操作者資訊',
+    ],
+  },
+  {
+    version: '3.38.1',
+    date: '2026-05-30',
+    changes: [
+      'fix(scripted-bet): entryTouchPoints 改為進房後偵測到 SPIN 按鈕後延遲 3 秒再執行，解決 SUPERBURSTLINK 等機種需在遊戲載入後才選面額的情況',
+    ],
+  },
   {
     version: '3.38.0',
     date: '2026-05-30',

@@ -1443,8 +1443,8 @@ router.post('/api/local-agent/agent/:agentId/update-sources', (req, res) => {
 
   const timeoutId = setTimeout(() => {
     pendingSourceUpdates.delete(agentId)
-    if (!res.headersSent) res.json({ ok: false, message: '等待 Agent 回應超時（30s），請確認 Agent 已重啟' })
-  }, 30_000)
+    if (!res.headersSent) res.json({ ok: false, message: '等待 Agent 回應超時（120s），請確認 Agent 已重啟' })
+  }, 120_000)
 
   pendingSourceUpdates.set(agentId, {
     resolve: (result) => {

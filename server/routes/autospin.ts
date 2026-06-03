@@ -10,6 +10,7 @@ import { join, extname } from 'path'
 import { fileURLToPath } from 'url'
 import { dirname } from 'path'
 import { db, addHistory, upload } from '../shared.js'
+import { getOperatorFromContext } from '../request-context.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { fetchSlsErrors } from '../lib/sls.js'
 
@@ -303,6 +304,7 @@ router.post('/api/autospin/start', (req, res) => {
   const sessionId = `as-${Date.now()}`
   const state: SessionState = { id: sessionId, status: 'running', startedAt: Date.now(), logs: [], process: null, heavyTask: heavyTask.token }
   sessions.set(sessionId, state)
+  const sessionOperator = getOperatorFromContext()
 
   const proc = spawn(PYTHON_EXE, ['AutoSpin.py'], {
     cwd: PROJECT_DIR,
@@ -328,7 +330,7 @@ router.post('/api/autospin/start', (req, res) => {
     // close SSE clients
     const clients = sseClients.get(sessionId)
     if (clients) { for (const r of clients) r.end(); sseClients.delete(sessionId) }
-    addHistory('autospin', `AutoSpin 執行`, `已執行 ${Math.round((Date.now() - state.startedAt) / 1000)} 秒`, { sessionId, exitCode: code })
+    addHistory('autospin', `AutoSpin 執行`, `已執行 ${Math.round((Date.now() - state.startedAt) / 1000)} 秒`, { sessionId, exitCode: code }, { operator: sessionOperator ?? undefined })
   })
 
   res.json({ ok: true, sessionId })

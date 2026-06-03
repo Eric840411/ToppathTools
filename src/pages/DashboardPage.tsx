@@ -12,6 +12,7 @@ type DashboardSummary = {
     onlineUsers: number
     activeSessions: number
     activeRequests: number
+    activeLongConnections?: number
     requestsPerMinute: number
     errorsPerMinute: number
     runningTasks: number
@@ -121,7 +122,7 @@ function initials(label: string) {
 }
 
 function taskBadge(status: string) {
-  if (status === 'running') return '執行中'
+  if (status === 'running') return 'running'
   if (status === 'queued') return '等待中'
   return status
 }
@@ -218,7 +219,7 @@ export function DashboardPage() {
         <article className="dashboard-metric">
           <div className="dashboard-metric-label">伺服器負載 <span className={`dashboard-chip ${pressure.className}`}>{pressure.label}</span></div>
           <div className="dashboard-metric-value">{summary.totals.activeRequests}<span>req</span></div>
-          <div className="dashboard-metric-note">{summary.totals.requestsPerMinute} req/min，平均回應 {summary.requests.averageMs} ms</div>
+          <div className="dashboard-metric-note">{summary.totals.requestsPerMinute} req/min，平均回應 {summary.requests.averageMs} ms{(summary.totals.activeLongConnections ?? 0) > 0 ? `，${summary.totals.activeLongConnections} SSE 連線` : ''}</div>
         </article>
         <article className="dashboard-metric">
           <div className="dashboard-metric-label">記憶體佔用 <span className="dashboard-chip dashboard-chip--warn">WATCH</span></div>

@@ -323,6 +323,13 @@ export const callGeminiWithRotation = (prompt: string): Promise<string> => {
   })
 }
 
+/** Exponential backoff delays for 503 (model overload): 1s, 2s, 4s */
+const BACKOFF_DELAYS_MS = [1000, 2000, 4000]
+
+/** Sleep with random jitter: base ± 20% */
+const sleepWithJitter = (ms: number) =>
+  new Promise<void>(resolve => setTimeout(resolve, ms * (0.8 + Math.random() * 0.4)))
+
 export const _callGeminiWithRotation = async (prompt: string, startIndex?: number): Promise<string> => {
   const keyEntries = resolveGeminiKeyEntries()
 
@@ -335,35 +342,57 @@ export const _callGeminiWithRotation = async (prompt: string, startIndex?: numbe
     const i = (_startIndex + offset) % keyEntries.length
     const { label, key } = keyEntries[i]
     console.log(`[Gemini] key ${i + 1}/${keyEntries.length} (${label}) [RR start=${_startIndex}], model: ${model}`)
-    const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(300000), // 5 min — large TestCase / second-pass prompts can take >2min
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.3 },
-        }),
-      },
-    )
-    const data = await resp.json() as {
-      candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[]
-      error?: { code?: number; message?: string; status?: string }
+
+    // 503 gets exponential backoff + jitter on the same key (model overload, not a key problem)
+    // 429/RESOURCE_EXHAUSTED rotates to the next key (quota issue, key-specific)
+    let attempt503 = 0
+    let resp: Response
+    let data: { candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[]; error?: { code?: number; message?: string; status?: string } }
+
+    while (true) {
+      resp = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(300000),
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.3 },
+          }),
+        },
+      )
+      data = await resp.json() as typeof data
+      console.log(`[Gemini] key ${i + 1} HTTP:${resp.status} error:${data.error?.status ?? 'none'}`)
+
+      if (resp.status === 503) {
+        const msg = data.error?.message ?? ''
+        if (attempt503 < BACKOFF_DELAYS_MS.length) {
+          const delay = BACKOFF_DELAYS_MS[attempt503]
+          console.warn(`[Gemini] key ${i + 1} (${label}) 503 overload (attempt ${attempt503 + 1}/${BACKOFF_DELAYS_MS.length})${msg ? `: ${msg}` : ''}, backoff ${delay}ms`)
+          attempt503++
+          await sleepWithJitter(delay)
+          continue
+        }
+        // All backoff attempts exhausted for this key — rotate to next key
+        console.warn(`[Gemini] key ${i + 1} (${label}) 503 still failing after ${BACKOFF_DELAYS_MS.length} retries, rotating key`)
+        recordGeminiError(label, '503')
+        break
+      }
+      break
     }
-    console.log(`[Gemini] key ${i + 1} HTTP:${resp.status} error:${data.error?.status ?? 'none'}`)
 
     if (
       data.error?.status === 'RESOURCE_EXHAUSTED' ||
       data.error?.status === 'INVALID_ARGUMENT' ||
-      resp.status === 429 ||
-      resp.status === 503  // model overloaded — try next key
+      resp.status === 429
     ) {
       const errMsg = data.error?.status ?? String(resp.status)
-      console.warn(`[Gemini] key ${i + 1} (${label}) 不可用 (${errMsg})，嘗試下一個`)
+      console.warn(`[Gemini] key ${i + 1} (${label}) quota error (${errMsg})${data.error?.message ? `: ${data.error.message}` : ''}，rotate to next key`)
       recordGeminiError(label, errMsg)
       continue
     }
+    if (resp.status === 503) continue  // already recorded above, rotate
     if (!resp.ok || data.error) {
       const errMsg = `HTTP ${resp.status}: ${data.error?.message ?? '未知錯誤'}`
       recordGeminiError(label, errMsg)
@@ -379,13 +408,24 @@ export const _callGeminiWithRotation = async (prompt: string, startIndex?: numbe
     const s = db.prepare('SELECT last_error FROM gemini_key_stats WHERE label = ?').get(keyEntries[idx].label) as { last_error?: string } | undefined
     return s?.last_error ?? ''
   })
+  console.warn('[Gemini] all keys failed, last errors:', lastErrors)
+  const hasQuotaError = lastErrors.some(e => e === 'RESOURCE_EXHAUSTED' || e.includes('429'))
+  const hasOverloadError = lastErrors.some(e => e.includes('503'))
   const allOverloaded = lastErrors.every(e => e.includes('503') || e === '503')
   if (allOverloaded) throw new Error('Gemini 服務暫時過載（503），請稍後再試')
-  // All keys exhausted — try Ollama fallback
+  if (hasQuotaError && hasOverloadError) throw new Error('部分 Gemini Key 達到配額上限，部分服務過載（503），請稍後再試或新增 Key')
+  if (hasQuotaError) {
+    // All keys exhausted — try Ollama fallback
+    try { return await callOllama(prompt) } catch (ollamaErr) {
+      console.warn('[Ollama] fallback failed:', ollamaErr)
+    }
+    throw new Error('所有 Gemini API Key 均已達到配額上限，請新增其他 Key')
+  }
+  // Unknown mix — try Ollama then give up
   try { return await callOllama(prompt) } catch (ollamaErr) {
     console.warn('[Ollama] fallback failed:', ollamaErr)
   }
-  throw new Error('所有 Gemini API Key 均已達到配額上限，請新增其他 Key')
+  throw new Error(`Gemini API 全部失敗（${lastErrors.join('、')}），請稍後再試`)
 }
 
 /** Prompt 模板渲染（將 {{variable}} 替換為實際值） */
