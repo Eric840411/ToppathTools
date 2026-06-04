@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.40.1'
+export const APP_VERSION = '3.40.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,13 +7,6 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
-  {
-    version: '3.40.1',
-    date: '2026-06-04',
-    changes: [
-      'fix(jira): AI 評論配額耗盡時不再中斷 batch，自動 fallback 用原始欄位內容繼續執行，結果頁顯示 ⚠️ AI Fallback 提示',
-    ],
-  },
   {
     version: '3.40.0',
     date: '2026-06-04',
