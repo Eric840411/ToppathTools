@@ -637,12 +637,15 @@ interface NormalizedJiraField {
 }
 
 const SKIP_FIELD_KEYS = new Set(['issuetype', 'project', 'reporter', 'parent', 'attachment', 'issuelinks', 'subtasks', 'worklog', 'comment', 'thumbnail', 'timetracking', 'timespent', 'timeestimate', 'aggregatetimespent', 'aggregatetimeestimate'])
+const SKIP_FIELD_NAMES = new Set(['reporter', '回報人'])
 // Field meta cache: `projectKey:issueTypeName` → { fields, expiresAt }
 const fieldMetaCache = new Map<string, { fields: NormalizedJiraField[]; expiresAt: number }>()
 
 function normalizeJiraField(key: string, meta: Record<string, unknown>): NormalizedJiraField | null {
   if (SKIP_FIELD_KEYS.has(key)) return null
   const name = (meta.name as string) || key
+  const normalizedName = name.trim().toLowerCase()
+  if (SKIP_FIELD_NAMES.has(normalizedName) || SKIP_FIELD_NAMES.has(name.trim())) return null
   const required = !!(meta.required)
   const schema = meta.schema as Record<string, unknown> | undefined
   const schemaType = schema?.type as string | undefined

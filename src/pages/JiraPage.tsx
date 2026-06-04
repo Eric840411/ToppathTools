@@ -839,7 +839,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
         return {
           summary: (summaryFromCell || getField(r, SHEET_FIELD.summary)).replace(/[\r\n]+/g, ' ').trim(),
           description: rowCells['description'] || getField(r, SHEET_FIELD.description),
-          assigneeAccountId: undefined,
+          assigneeAccountId: batchAssigneeIds[0] || validId(getField(r, SHEET_FIELD.assigneeAccountId)) || selectedAssignee || undefined,
           rdOwnerAccountId: undefined,
           verifierAccountIds: [] as string[],
           rowIndex: rowIdx,
