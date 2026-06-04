@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.39.1'
+export const APP_VERSION = '3.39.11'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,76 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.39.11',
+    date: '2026-06-04',
+    changes: [
+      'feat(jira): Step 5 新增「重新讀取 Sheet」按鈕，過濾已評論完的單號，AI 中斷後可直接續跑',
+    ],
+  },
+  {
+    version: '3.39.10',
+    date: '2026-06-04',
+    changes: [
+      'fix(jira): 回寫改為 Jira issue key 純文字 + 獨立 Jira URL 欄（完整網址），Lark 自動偵測 URL 為可點擊連結',
+    ],
+  },
+  {
+    version: '3.39.9',
+    date: '2026-06-04',
+    changes: [
+      'feat(jira): 回寫 Jira issue key 改為 HYPERLINK 公式，Lark 欄位可直接點擊跳轉到對應 Jira 單',
+    ],
+  },
+  {
+    version: '3.39.8',
+    date: '2026-06-04',
+    changes: [
+      'fix(jira): 修正 React duplicate key 警告 — sheetHeaders / columnUniqueValues 空字串 key 改用 index fallback',
+    ],
+  },
+  {
+    version: '3.39.7',
+    date: '2026-06-04',
+    changes: [
+      'fix(jira): Lark 回寫空欄掃描跳過 column A（index 0），避免將 Jira issue key 寫入 Lark 勾選框/序號欄',
+    ],
+  },
+  {
+    version: '3.39.6',
+    date: '2026-06-04',
+    changes: [
+      'feat(jira): Lark 回寫自動建立欄位優先填入空欄位 — 掃描 row 1 找第一個空欄位使用，避免塞在最末端；無空欄時才新增',
+    ],
+  },
+  {
+    version: '3.39.5',
+    date: '2026-06-04',
+    changes: [
+      'fix(jira): Lark Sheet 讀取與回寫範圍從 AZ 擴展到 ZZ（702欄），修正超過 52 欄時 Jira issue key 被錯誤覆蓋且無法讀回的問題',
+    ],
+  },
+  {
+    version: '3.39.4',
+    date: '2026-06-04',
+    changes: [
+      'fix(jira): datetime 欄位格式錯誤 — toJiraDateTime 修正 T 分隔符解析，動態欄位日期值自動轉換為 Jira 格式（+0800 timezone）',
+    ],
+  },
+  {
+    version: '3.39.3',
+    date: '2026-06-04',
+    changes: [
+      'feat(jira): Step 3 UI 重設計 — 欄位管理 chips 區塊 + 批量填入收合面板，移出表格 header，不再需要橫向捲動才能新增欄位',
+    ],
+  },
+  {
+    version: '3.39.2',
+    date: '2026-06-04',
+    changes: [
+      'feat(jira): Lark 回寫自動建立欄位 — 欄位不存在時自動往最後一欄延伸，寫入標題再寫入值',
+    ],
+  },
   {
     version: '3.39.1',
     date: '2026-06-04',

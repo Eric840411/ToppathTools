@@ -293,6 +293,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const [cellValues, setCellValues] = useState<Record<number, Record<string, string>>>({})
   const [cellErrors, setCellErrors] = useState<Record<number, Record<string, string>>>({})
   const [showFieldPicker, setShowFieldPicker] = useState(false)
+  const [showBulkPanel, setShowBulkPanel] = useState(false)
   const [larkPrefillApplied, setLarkPrefillApplied] = useState(false)
   const [bulkValues, setBulkValues] = useState<Record<string, string>>({})
 
@@ -631,6 +632,39 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
     finally { setSheetLoading(false) }
   }
 
+  const [refreshingSheet, setRefreshingSheet] = useState(false)
+  // ── Step 5: 重新讀取 Sheet，過濾已評論完的單號 ──
+  const handleRefreshSheetForComment = async () => {
+    if (!sheetUrl.trim()) return
+    setRefreshingSheet(true)
+    const endpoint = sheetSource === 'lark' ? '/api/lark/sheets/records' : '/api/google/sheets/records'
+    try {
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sheetUrl: sheetUrl.trim() }),
+      })
+      const data = await resp.json()
+      if (data.ok) {
+        const freshRecords: SheetRecord[] = data.records
+        setSheetHeaders(data.headers)
+        setSheetRecords(freshRecords)
+        // 重建 trackedIssues：只保留仍需評論的列（有 key 且尚未評論）
+        setTrackedIssues(prev => prev.map(t => {
+          const freshRow = freshRecords.find(r => Number(r._rowIndex) === t.rowIndex)
+          if (!freshRow) return t
+          const freshStage = getField(freshRow, STAGE_COL).trim()
+          // 若 Sheet 上 處理階段 已是「添加評論」或更後段，更新本地 stage 讓它從 toComment 移出
+          if (freshStage === '添加評論' || freshStage === '已轉換') {
+            return { ...t, stage: freshStage }
+          }
+          return t
+        }))
+      }
+    } catch { /* silent */ }
+    finally { setRefreshingSheet(false) }
+  }
+
   const toggleRow = (i: number) => {
     setSelectedRows(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n })
   }
@@ -846,7 +880,12 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
               sheetUrl, source: sheetSource,
               writes: succeeded.map(r => ({
                 rowIndex: r.rowIndex,
-                columns: { 'Jira issue key': r.issueKey!, '處理階段': '已開單', '處理時間': nowString() },
+                columns: {
+                  'Jira issue key': r.issueKey!,
+                  'Jira URL': `${import.meta.env.VITE_JIRA_BASE_URL ?? ''}/browse/${r.issueKey!}`,
+                  '處理階段': '已開單',
+                  '處理時間': nowString(),
+                },
               })),
             }),
           })
@@ -1934,8 +1973,8 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                     onChange={e => setColumnFilters(prev => ({ ...prev, [col]: e.target.value }))}
                     style={{ fontSize: 12, padding: '2px 4px', borderRadius: 4 }}>
                     <option value="">全部</option>
-                    {(columnUniqueValues[col] ?? []).map(v => (
-                      <option key={v} value={v}>{v}</option>
+                    {(columnUniqueValues[col] ?? []).map((v, i) => (
+                      <option key={v || `val-${i}`} value={v}>{v}</option>
                     ))}
                   </select>
                 </label>
@@ -1970,7 +2009,157 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
             ? <div className="alert-warn">沒有待處理的列（所有列皆已完成）</div>
             : jiraFields.length > 0 ? (
               /* ── Dynamic field grid ── */
-              <div className="table-wrap" style={{ overflowX: 'auto' }}>
+              <>
+                {/* ── 欄位管理區塊 ── */}
+                <div style={{ background: '#0d1e30', border: '1px solid #1e3a5f', borderRadius: 10, padding: '12px 16px', marginBottom: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <span style={{ fontSize: 11, color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>欄位管理</span>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', position: 'relative' }}>
+                    {requiredJiraFields.map(f => (
+                      <span key={f.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#162a40', border: '1px solid #3b82f640', borderRadius: 6, padding: '4px 10px', fontSize: 12, color: '#7dd3fc' }}>
+                        <span style={{ color: '#f87171', fontSize: 10 }}>*</span>
+                        {f.name}
+                        <span style={{ fontSize: 10, color: '#475569', marginLeft: 2 }}>{f.type}</span>
+                      </span>
+                    ))}
+                    {activeOptionalJiraFields.map(f => (
+                      <span key={f.key} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#1a2f45', border: '1px solid #2563eb40', borderRadius: 6, padding: '4px 10px', fontSize: 12, color: '#93c5fd' }}>
+                        {f.name}
+                        <span style={{ fontSize: 10, color: '#475569', marginLeft: 2 }}>{f.type}</span>
+                        <button type="button"
+                          title="移除此欄位"
+                          onClick={() => setActiveOptionalKeys(prev => prev.filter(k => k !== f.key))}
+                          style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: '0 0 0 2px' }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#f87171' }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#475569' }}>×</button>
+                      </span>
+                    ))}
+                    <div style={{ position: 'relative' }}>
+                      <button type="button"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '4px 12px', borderRadius: 6, border: '1px dashed #2563eb60', background: showFieldPicker ? '#2563eb20' : '#2563eb10', color: '#60a5fa', cursor: 'pointer' }}
+                        onClick={() => setShowFieldPicker(v => !v)}>
+                        + 新增欄位
+                      </button>
+                      {showFieldPicker && (
+                        <div style={{ position: 'absolute', top: '100%', left: 0, background: '#1e293b', border: '1px solid #334155', borderRadius: 8, width: 240, zIndex: 100, boxShadow: '0 8px 24px rgba(0,0,0,0.5)', marginTop: 6 }}>
+                          <div style={{ padding: '8px 12px', borderBottom: '1px solid #334155', fontSize: 12, fontWeight: 600, color: '#94a3b8', display: 'flex', justifyContent: 'space-between' }}>
+                            新增選填欄位
+                            <button type="button" style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer' }} onClick={() => setShowFieldPicker(false)}>✕</button>
+                          </div>
+                          <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                            {inactiveOptionalJiraFields.length === 0
+                              ? <div style={{ padding: '10px 12px', fontSize: 12, color: '#64748b' }}>所有可用欄位都已加入</div>
+                              : inactiveOptionalJiraFields.map(f => (
+                                <button key={f.key} type="button"
+                                  style={{ width: '100%', padding: '7px 12px', fontSize: 12, cursor: 'pointer', background: 'none', border: 'none', color: '#cbd5e1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }}
+                                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#2563eb15' }}
+                                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'none' }}
+                                  onClick={() => { setActiveOptionalKeys(prev => [...prev, f.key]); setShowFieldPicker(false) }}>
+                                  <span>{f.name}</span>
+                                  <span style={{ color: '#475569', fontSize: 10, fontFamily: 'monospace' }}>{f.type}</span>
+                                </button>
+                              ))
+                            }
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── 批量填入面板 ── */}
+                <div style={{ background: '#0d1e30', border: '1px solid #1e3a5f', borderRadius: 10, marginBottom: 10, overflow: 'hidden' }}>
+                  <div
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => setShowBulkPanel(v => !v)}>
+                    <span style={{ fontSize: 12, color: '#475569', transition: 'transform .2s', display: 'inline-block', transform: showBulkPanel ? 'rotate(90deg)' : 'none' }}>▶</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#60a5fa' }}>批量填入</span>
+                    <span style={{ fontSize: 11, color: '#475569', marginLeft: 'auto' }}>展開後可一鍵套用至所有篩選列</span>
+                  </div>
+                  {showBulkPanel && (
+                    <div style={{ padding: '12px 16px 14px', borderTop: '1px solid #1e3a5f', display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                      {visibleJiraFields.map(field => {
+                        const bVal = bulkValues[field.key] ?? ''
+                        const bulkInputStyle: React.CSSProperties = { background: '#0f172a', border: '1px solid #2563eb30', borderRadius: 5, color: '#e2e8f0', fontSize: 12, padding: '4px 8px', minWidth: 130, width: '100%' }
+                        const bulkSelectedIds = field.type === 'multiuser' ? bVal.split(',').map(s => s.trim()).filter(Boolean) : []
+                        return (
+                          <div key={field.key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <span style={{ fontSize: 11, color: '#64748b' }}>{field.name}{field.required ? <span style={{ color: '#f87171' }}> *</span> : ''}</span>
+                            {(field.type === 'select' && field.options) ? (
+                              <select value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
+                                style={{ ...bulkInputStyle, cursor: 'pointer' }}>
+                                <option value="">— 批量 —</option>
+                                {field.options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                              </select>
+                            ) : field.type === 'multiuser' ? (
+                              <div>
+                                {bulkSelectedIds.map(id => {
+                                  const m = members.find(x => x.accountId === id)
+                                  return (
+                                    <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#1e3a5f', borderRadius: 4, padding: '1px 5px', margin: '2px 2px', fontSize: 11, color: '#93c5fd' }}>
+                                      {m?.displayName ?? id}
+                                      <button type="button" onClick={() => {
+                                        const next = bulkSelectedIds.filter(x => x !== id)
+                                        setBulkValues(p => ({ ...p, [field.key]: next.join(',') }))
+                                      }} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: 0 }}>×</button>
+                                    </span>
+                                  )
+                                })}
+                                <select value="" onChange={e => {
+                                  if (!e.target.value) return
+                                  const next = [...bulkSelectedIds, e.target.value]
+                                  setBulkValues(p => ({ ...p, [field.key]: next.join(',') }))
+                                }} style={{ ...bulkInputStyle, marginTop: bulkSelectedIds.length ? 3 : 0, cursor: 'pointer' }}>
+                                  <option value="">+ 批量新增</option>
+                                  {members.filter(m => !bulkSelectedIds.includes(m.accountId)).map(m => (
+                                    <option key={m.accountId} value={m.accountId}>{m.displayName}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            ) : field.type === 'user' ? (
+                              <select value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
+                                style={{ ...bulkInputStyle, cursor: 'pointer' }}>
+                                <option value="">— 批量 —</option>
+                                {members.map(m => <option key={m.accountId} value={m.accountId}>{m.displayName}</option>)}
+                              </select>
+                            ) : field.type === 'date' ? (
+                              <input type="date" value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
+                                style={{ ...bulkInputStyle, colorScheme: 'dark' }} />
+                            ) : field.type === 'datetime' ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                <input type="date" value={bVal.split('T')[0] ?? ''} onChange={e => {
+                                  const t = bVal.split('T')[1] ?? '00:00'
+                                  setBulkValues(p => ({ ...p, [field.key]: `${e.target.value}T${t}` }))
+                                }} style={{ ...bulkInputStyle, colorScheme: 'dark' }} />
+                                <input type="time" value={bVal.split('T')[1] ?? ''} onChange={e => {
+                                  const d = bVal.split('T')[0] ?? ''
+                                  setBulkValues(p => ({ ...p, [field.key]: `${d}T${e.target.value}` }))
+                                }} style={{ ...bulkInputStyle, colorScheme: 'dark' }} />
+                              </div>
+                            ) : field.type === 'text' ? (
+                              <textarea value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
+                                style={{ ...bulkInputStyle, resize: 'vertical', minHeight: 36 }} />
+                            ) : (
+                              <input type={field.type === 'number' ? 'number' : 'text'} value={bVal}
+                                onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
+                                placeholder="批量填入" style={bulkInputStyle} />
+                            )}
+                            {bVal && (
+                              <button type="button"
+                                onClick={() => applyBulkColumn(field.key, bVal)}
+                                style={{ fontSize: 12, padding: '5px 14px', borderRadius: 6, border: '1px solid #2563eb50', background: '#2563eb20', color: '#60a5fa', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                ⬇ 套用至 {filteredRecords.length} 列
+                              </button>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="table-wrap" style={{ overflowX: 'auto' }}>
                 <table className="version-table" style={{ minWidth: 'max-content' }}>
                   <thead>
                     <tr>
@@ -1997,132 +2186,9 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                       {activeOptionalJiraFields.map(f => (
                         <th key={f.key} style={{ minWidth: 120, background: '#162138', borderLeft: '2px solid #334155' }}>
                           <span style={{ color: '#93c5fd' }}>{f.name}</span>
-                          <button type="button"
-                            style={{ marginLeft: 4, background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: 11, padding: '0 2px' }}
-                            title="移除此欄位"
-                            onClick={() => setActiveOptionalKeys(prev => prev.filter(k => k !== f.key))}>×</button>
                           <div style={{ fontSize: 10, color: '#334155', fontWeight: 400, fontFamily: 'monospace' }}>{f.type}</div>
                         </th>
                       ))}
-                      {/* Add field column */}
-                      <th style={{ background: '#0e1e2e', position: 'relative', width: 80 }}>
-                        <div style={{ position: 'relative' }}>
-                          <button type="button"
-                            style={{ fontSize: 11, padding: '4px 8px', borderRadius: 5, border: '1px dashed #3b82f660', background: 'none', color: '#60a5fa', cursor: 'pointer', whiteSpace: 'nowrap' }}
-                            onClick={() => setShowFieldPicker(v => !v)}>
-                            + 欄位
-                          </button>
-                          {showFieldPicker && inactiveOptionalJiraFields.length > 0 && (
-                            <div style={{ position: 'absolute', top: '100%', right: 0, background: '#1e293b', border: '1px solid #334155', borderRadius: 8, width: 240, zIndex: 100, boxShadow: '0 8px 24px rgba(0,0,0,0.5)', marginTop: 4 }}>
-                              <div style={{ padding: '8px 12px', borderBottom: '1px solid #334155', fontSize: 12, fontWeight: 600, color: '#94a3b8', display: 'flex', justifyContent: 'space-between' }}>
-                                新增選填欄位
-                                <button type="button" style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer' }} onClick={() => setShowFieldPicker(false)}>✕</button>
-                              </div>
-                              <div style={{ maxHeight: 220, overflowY: 'auto' }}>
-                                {inactiveOptionalJiraFields.map(f => (
-                                  <button key={f.key} type="button"
-                                    style={{ width: '100%', padding: '7px 12px', fontSize: 12, cursor: 'pointer', background: 'none', border: 'none', color: '#cbd5e1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }}
-                                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#2563eb15' }}
-                                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'none' }}
-                                    onClick={() => { setActiveOptionalKeys(prev => [...prev, f.key]); setShowFieldPicker(false) }}>
-                                    <span>{f.name}</span>
-                                    <span style={{ color: '#475569', fontSize: 10, fontFamily: 'monospace' }}>{f.type}</span>
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          {showFieldPicker && inactiveOptionalJiraFields.length === 0 && (
-                            <div style={{ position: 'absolute', top: '100%', right: 0, background: '#1e293b', border: '1px solid #334155', borderRadius: 8, width: 200, zIndex: 100, padding: '10px 12px', fontSize: 12, color: '#64748b', marginTop: 4 }}>
-                              所有可用欄位都已加入
-                            </div>
-                          )}
-                        </div>
-                      </th>
-                    </tr>
-                    {/* Bulk-fill row */}
-                    <tr style={{ background: '#0d1f30', borderBottom: '2px solid #1e3a5f' }}>
-                      <th colSpan={3} style={{ padding: '4px 8px', fontSize: 11, color: '#60a5fa', whiteSpace: 'nowrap', fontWeight: 500 }}>批量填入 →</th>
-                      {visibleJiraFields.map(field => {
-                        const bVal = bulkValues[field.key] ?? ''
-                        const bulkInputStyle: React.CSSProperties = { width: '100%', background: '#0f172a', border: '1px solid #1e3a5f', borderRadius: 5, color: '#e2e8f0', fontSize: 12, padding: '3px 6px', outline: 'none', minWidth: field.key === 'summary' ? 200 : 100 }
-                        const bulkSelectedIds = field.type === 'multiuser' ? bVal.split(',').map(s => s.trim()).filter(Boolean) : []
-                        return (
-                          <th key={field.key} style={{ padding: '4px 6px', fontWeight: 400, background: bVal ? '#162130' : undefined }}>
-                            <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
-                              <div style={{ flex: 1 }}>
-                                {(field.type === 'select' && field.options) ? (
-                                  <select value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
-                                    style={{ ...bulkInputStyle, cursor: 'pointer' }}>
-                                    <option value="">— 批量 —</option>
-                                    {field.options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-                                  </select>
-                                ) : field.type === 'multiuser' ? (
-                                  <div>
-                                    {bulkSelectedIds.map(id => {
-                                      const m = members.find(x => x.accountId === id)
-                                      return (
-                                        <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#1e3a5f', borderRadius: 4, padding: '1px 5px', margin: '2px 2px', fontSize: 11, color: '#93c5fd' }}>
-                                          {m?.displayName ?? id}
-                                          <button type="button" onClick={() => {
-                                            const next = bulkSelectedIds.filter(x => x !== id)
-                                            setBulkValues(p => ({ ...p, [field.key]: next.join(',') }))
-                                          }} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: 0 }}>×</button>
-                                        </span>
-                                      )
-                                    })}
-                                    <select value="" onChange={e => {
-                                      if (!e.target.value) return
-                                      const next = [...bulkSelectedIds, e.target.value]
-                                      setBulkValues(p => ({ ...p, [field.key]: next.join(',') }))
-                                    }} style={{ ...bulkInputStyle, marginTop: bulkSelectedIds.length ? 3 : 0, cursor: 'pointer' }}>
-                                      <option value="">+ 批量新增</option>
-                                      {members.filter(m => !bulkSelectedIds.includes(m.accountId)).map(m => (
-                                        <option key={m.accountId} value={m.accountId}>{m.displayName}</option>
-                                      ))}
-                                    </select>
-                                  </div>
-                                ) : field.type === 'user' ? (
-                                  <select value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
-                                    style={{ ...bulkInputStyle, cursor: 'pointer' }}>
-                                    <option value="">— 批量 —</option>
-                                    {members.map(m => <option key={m.accountId} value={m.accountId}>{m.displayName}</option>)}
-                                  </select>
-                                ) : field.type === 'date' ? (
-                                  <input type="date" value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
-                                    style={{ ...bulkInputStyle, colorScheme: 'dark' }} />
-                                ) : field.type === 'datetime' ? (
-                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                                    <input type="date" value={bVal.split('T')[0] ?? ''} onChange={e => {
-                                      const t = bVal.split('T')[1] ?? '00:00'
-                                      setBulkValues(p => ({ ...p, [field.key]: `${e.target.value}T${t}` }))
-                                    }} style={{ ...bulkInputStyle, colorScheme: 'dark' }} />
-                                    <input type="time" value={bVal.split('T')[1] ?? ''} onChange={e => {
-                                      const d = bVal.split('T')[0] ?? ''
-                                      setBulkValues(p => ({ ...p, [field.key]: `${d}T${e.target.value}` }))
-                                    }} style={{ ...bulkInputStyle, colorScheme: 'dark' }} />
-                                  </div>
-                                ) : field.type === 'text' ? (
-                                  <textarea value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
-                                    style={{ ...bulkInputStyle, resize: 'vertical', minHeight: 36 }} />
-                                ) : (
-                                  <input type={field.type === 'number' ? 'number' : 'text'} value={bVal}
-                                    onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
-                                    placeholder="批量填入" style={bulkInputStyle} />
-                                )}
-                              </div>
-                              {bVal && (
-                                <button type="button" title={`套用至所有 ${filteredRecords.length} 列`}
-                                  onClick={() => applyBulkColumn(field.key, bVal)}
-                                  style={{ fontSize: 11, padding: '3px 6px', borderRadius: 4, border: '1px solid #2563eb60', background: '#2563eb20', color: '#60a5fa', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, marginTop: 1 }}>
-                                  ⬇ 全套
-                                </button>
-                              )}
-                            </div>
-                          </th>
-                        )
-                      })}
-                      <th />
                     </tr>
                   </thead>
                   <tbody>
@@ -2210,13 +2276,13 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                               </td>
                             )
                           })}
-                          <td style={{ background: '#0e1e2e' }} />
                         </tr>
                       )
                     })}
                   </tbody>
                 </table>
-              </div>
+                </div>
+              </>
             ) : !fieldsLoading ? (
               /* Fallback: show Lark data if fields failed to load */
               <>
@@ -2241,7 +2307,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                       </th>
                       <th style={{ width: 52 }}>列</th>
                       <th style={{ width: 90 }}>階段</th>
-                      {sheetHeaders.map(h => <th key={h}>{h}</th>)}
+                      {sheetHeaders.map((h, i) => <th key={h || `sh-${i}`}>{h}</th>)}
                     </tr>
                   </thead>
                   <tbody>
@@ -2250,11 +2316,11 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                         <td><input type="checkbox" checked={selectedRows.has(Number(r._rowIndex))} onChange={() => toggleRow(Number(r._rowIndex))} /></td>
                         <td style={{ color: '#94a3b8', fontSize: 12 }}>{r._rowIndex}</td>
                         <td><span className={stageBadgeClass(r)}>{stageLabel(r)}</span></td>
-                        {sheetHeaders.map(h => {
+                        {sheetHeaders.map((h, i) => {
                           const val = r[h] ?? ''
                           const member = members.find(m => m.accountId === val)
                           return (
-                            <td key={h} title={val}>
+                            <td key={h || `sh-${i}`} title={val}>
                               {member
                                 ? <span className="member-chip">
                                     {member.avatarUrl && <img src={member.avatarUrl} alt={member.displayName} className="chip-avatar" />}
@@ -2372,7 +2438,14 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       {/* ── Step 5: 添加評論 ── */}
       {step === 5 && (
         <div className="section-card">
-          <h2 className="section-title">Step 5 — 添加評論（{toComment.length} 筆）</h2>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <h2 className="section-title" style={{ margin: 0 }}>Step 5 — 添加評論（{toComment.length} 筆）</h2>
+            <button type="button" className="btn-ghost" style={{ whiteSpace: 'nowrap', fontSize: 13 }}
+              disabled={refreshingSheet || commentSubmitting}
+              onClick={handleRefreshSheetForComment}>
+              {refreshingSheet ? '讀取中...' : '↻ 重新讀取 Sheet'}
+            </button>
+          </div>
 
           {toComment.length === 0
             ? <div className="alert-info">目前無需添加評論的 Issue。</div>
@@ -2382,7 +2455,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                   <span>評論內容來源欄位 <em className="req">*</em></span>
                   <select value={commentColumn} onChange={e => setCommentColumn(e.target.value)}>
                     <option value="">— 選擇欄位 —</option>
-                    {sheetHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                    {sheetHeaders.map((h, i) => <option key={h || `sh-${i}`} value={h}>{h}</option>)}
                   </select>
                   <span className="field-hint">選擇試算表中要作為 Jira 評論內容的欄位（如：驗證結果）</span>
                 </label>
@@ -2390,7 +2463,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                   <span>附件欄位（選填）</span>
                   <select value={attachmentColumn} onChange={e => setAttachmentColumn(e.target.value)}>
                     <option value="">— 不上傳附件 —</option>
-                    {sheetHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                    {sheetHeaders.map((h, i) => <option key={h || `sh-${i}`} value={h}>{h}</option>)}
                   </select>
                   <span className="field-hint">支援 Lark Drive 連結 和 Google Drive 分享連結（drive.google.com/file/d/...）；多個連結換行分隔。圖片自動上傳為 Jira 附件，影片自動寫入評論內文。</span>
                 </label>

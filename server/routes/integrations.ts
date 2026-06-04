@@ -753,6 +753,12 @@ function parseVersionReport(text: string) {
 
 type MultiWrite = { rowIndex: number; columns: Record<string, string> }
 
+/** 0-based column index → A1 notation letter (supports AA–AZ) */
+function colIndexToLetter(idx: number): string {
+  if (idx < 26) return String.fromCharCode(65 + idx)
+  return String.fromCharCode(64 + Math.floor(idx / 26)) + String.fromCharCode(65 + (idx % 26))
+}
+
 const multiWritebackLark = async (sheetUrl: string, writes: MultiWrite[]) => {
   console.log('[WB-Lark] 1. parseLarkSheetUrl')
   const { spreadsheetToken, sheetId } = parseLarkSheetUrl(sheetUrl)
@@ -764,7 +770,7 @@ const multiWritebackLark = async (sheetUrl: string, writes: MultiWrite[]) => {
   console.log('[WB-Lark] 4. got token, fetching headers')
   const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
 
-  const headerRange = sheetId ? `${sheetId}!A1:AZ2` : 'A1:AZ2'
+  const headerRange = sheetId ? `${sheetId}!A1:ZZ2` : 'A1:ZZ2'
   const headerResp = await fetch(
     `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${headerRange}`,
     { headers: { Authorization: `Bearer ${token}` } },
@@ -790,16 +796,44 @@ const multiWritebackLark = async (sheetUrl: string, writes: MultiWrite[]) => {
     let rowError: string | undefined
 
     for (const [colName, value] of Object.entries(write.columns)) {
-      const colIdx = headers.findIndex(h => h.toLowerCase() === colName.toLowerCase())
+      let colIdx = headers.findIndex(h => h.toLowerCase() === colName.toLowerCase())
       if (colIdx === -1) {
-        console.warn(`[WB-Lark] column not found: "${colName}" in headers:`, headers)
-        rowOk = false
-        rowError = `找不到欄位「${colName}」（試算表標題：${headers.filter(Boolean).join(', ')}）`
-        break
+        // Auto-create: use first empty slot in row 1 (skip col A at index 0), or append at end if none found
+        const firstEmptyIdx = headers.findIndex((h, i) => i > 0 && !h.trim())
+        const newColIdx = firstEmptyIdx !== -1 ? firstEmptyIdx : headers.length
+        const newColLetter = colIndexToLetter(newColIdx)
+        const headerCell = sheetId ? `${sheetId}!${newColLetter}1:${newColLetter}1` : `${newColLetter}1:${newColLetter}1`
+        console.log(`[WB-Lark] column "${colName}" not found — auto-creating at index ${newColIdx} (${newColLetter}) ${firstEmptyIdx !== -1 ? '(reusing empty slot)' : '(appending)'}`)
+        const createResp = await fetch(
+          `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values`,
+          {
+            method: 'PUT',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ valueRange: { range: headerCell, values: [[colName]] } }),
+          },
+        )
+        const createText = await createResp.text().catch(() => '')
+        if (!createResp.ok) {
+          rowOk = false
+          rowError = `無法建立欄位「${colName}」：HTTP ${createResp.status} — ${createText.slice(0, 200)}`
+          break
+        }
+        let createJson: { code?: number; msg?: string } = {}
+        try { createJson = JSON.parse(createText) } catch { /* ignore */ }
+        if (createJson.code !== 0) {
+          rowOk = false
+          rowError = `無法建立欄位「${colName}」：Lark API code ${createJson.code} — ${createJson.msg ?? ''}`
+          break
+        }
+        // Update local headers so subsequent columns don't reuse the same slot
+        if (firstEmptyIdx !== -1) {
+          headers[firstEmptyIdx] = colName
+        } else {
+          headers.push(colName)
+        }
+        colIdx = newColIdx
       }
-      const colLetter = colIdx >= 26
-        ? String.fromCharCode(64 + Math.floor(colIdx / 26)) + String.fromCharCode(65 + (colIdx % 26))
-        : String.fromCharCode(65 + colIdx)
+      const colLetter = colIndexToLetter(colIdx)
       const cell = `${colLetter}${write.rowIndex}`
       const range = sheetId ? `${sheetId}!${cell}:${cell}` : `${cell}:${cell}`
       console.log(`[WB-Lark] writing ${colName} → range: ${range}, value: ${value}`)
@@ -848,7 +882,7 @@ const multiWritebackGoogle = async (sheetUrl: string, writes: MultiWrite[], acce
   const sheet = meta.sheets?.find(s => String(s.properties.sheetId) === gid) ?? meta.sheets?.[0]
   const sheetName = sheet?.properties.title ?? 'Sheet1'
 
-  const headerRange = encodeURIComponent(`${sheetName}!A1:Z1`)
+  const headerRange = encodeURIComponent(`${sheetName}!A1:ZZ1`)
   const headerResp = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${headerRange}`,
     { headers: { Authorization: `Bearer ${accessToken}` } },
@@ -2296,7 +2330,7 @@ router.post('/api/google/sheets/writeback', async (req, res, next) => {
 
     const accessToken = await getGoogleServiceAccountToken()
 
-    const headerRange = encodeURIComponent(`${sheetName}!A1:Z1`)
+    const headerRange = encodeURIComponent(`${sheetName}!A1:ZZ1`)
     const headerResp = await fetch(
       `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${headerRange}`,
       { headers: { Authorization: `Bearer ${accessToken}` } },

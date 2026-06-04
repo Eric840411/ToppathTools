@@ -1372,8 +1372,8 @@ export const toJiraDateTime = (val: string | undefined): string | null => {
   }
 
   // Normalise: Lark display format uses slash separators with no zero-padding (e.g. 2026/3/11 00:00)
-  // Support: YYYY/M/D HH:mm, YYYY-MM-DD HH:mm, YYYY-MM-DD, YYYY/M/D
-  const m = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/)
+  // Support: YYYY/M/D HH:mm, YYYY-MM-DD HH:mm, YYYY-MM-DD, YYYY/M/D, YYYY-MM-DDTHH:mm
+  const m = s.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})(?:[T\s](\d{1,2}):(\d{2}))?/)
   if (m) {
     const year  = m[1]
     const month = m[2].padStart(2, '0')
@@ -1383,8 +1383,8 @@ export const toJiraDateTime = (val: string | undefined): string | null => {
     return `${year}-${month}-${day}T${hour}:${min}:00.000+0800`
   }
 
-  // Fallback: already ISO-like
-  return s.includes('T') ? s : s.replace(' ', 'T') + ':00.000+0800'
+  // Fallback: already full ISO (has seconds + timezone)
+  return s
 }
 
 // ─── Multer Upload ────────────────────────────────────────────────────────────

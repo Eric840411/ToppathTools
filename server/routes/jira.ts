@@ -732,7 +732,7 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
 
     const token = await getLarkToken()
     const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
-    const range = sheetId ? `${sheetId}!A1:AZ1000` : 'A1:AZ1000'
+    const range = sheetId ? `${sheetId}!A1:ZZ1000` : 'A1:ZZ1000'
 
     const resp = await fetch(
       `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${range}`,
@@ -906,10 +906,17 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
         }
 
         // Merge dynamic fields from the new field-grid UI (skip reserved keys)
+        // For string values that look like dates/datetimes, normalise to Jira format via toJiraDateTime
         const RESERVED_JIRA_KEYS = new Set(['project', 'issuetype', 'summary'])
+        const DATE_LIKE = /^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}([T\s]\d{1,2}:\d{2})?$/
         for (const [key, value] of Object.entries(row.dynamicFields ?? {})) {
           if (!RESERVED_JIRA_KEYS.has(key) && value !== '' && value !== null && value !== undefined) {
-            fields[key] = value
+            if (typeof value === 'string' && DATE_LIKE.test(value.trim())) {
+              const converted = toJiraDateTime(value)
+              fields[key] = converted ?? value
+            } else {
+              fields[key] = value
+            }
           }
         }
 
@@ -1577,7 +1584,7 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
       const { spreadsheetToken, sheetId } = parseLarkSheetUrl(bitableUrl)
       if (!spreadsheetToken) return res.status(400).json({ ok: false, message: '無法解析 URL，請確認格式' })
 
-      const range = sheetId ? `${sheetId}!A1:AZ2000` : 'A1:AZ2000'
+      const range = sheetId ? `${sheetId}!A1:ZZ2000` : 'A1:ZZ2000'
       const sheetResp = await fetch(
         `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${range}`,
         { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } },
