@@ -96,7 +96,7 @@ const batchCreateSchema = z.object({
       localTestDone: z.string().optional(),
       stagingDeploy: z.string().optional(),
       releaseDate: z.string().optional(),
-      dynamicFields: z.record(z.unknown()).optional().default({}),
+      dynamicFields: z.record(z.string(), z.unknown()).optional().default({}),
       rowIndex: z.number(),
     }),
   ),
