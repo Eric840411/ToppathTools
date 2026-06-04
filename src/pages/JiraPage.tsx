@@ -511,6 +511,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
     if (step !== 3 || !currentAccount || !selectedProjectId || !selectedIssueTypeId) return
     const project = projects.find(p => p.id === selectedProjectId)
     const issueType = issueTypes.find(t => t.id === selectedIssueTypeId)
+    // If projects/issueTypes not yet loaded, wait for next render (they're in deps below)
     if (!project || !issueType) return
     setFieldsLoading(true); setFieldsError(''); setJiraFields([]); setActiveOptionalKeys([]); setCellValues({}); setCellErrors({}); setLarkPrefillApplied(false)
     fetch(`/api/jira/fields?projectKey=${encodeURIComponent(project.key)}&issueTypeName=${encodeURIComponent(issueType.name)}`, {
@@ -523,8 +524,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       })
       .catch(() => setFieldsError('網路錯誤，無法載入欄位'))
       .finally(() => setFieldsLoading(false))
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, selectedProjectId, selectedIssueTypeId])
+  }, [step, selectedProjectId, selectedIssueTypeId, projects, issueTypes, currentAccount])
 
   // 載入 Prompt 清單
   useEffect(() => {
