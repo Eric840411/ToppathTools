@@ -71,6 +71,7 @@ interface NormalizedJiraField {
   required: boolean
   type: 'string' | 'text' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'user' | 'multiuser' | 'unknown'
   options?: { id: string; label: string }[]
+  autoCompleteUrl?: string
 }
 
 const STEP_LABELS: Record<Step, string> = {
@@ -697,6 +698,23 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
     })
   }
 
+  const userOptionsForField = (field: NormalizedJiraField) =>
+    field.options?.length
+      ? field.options
+      : members.map(m => ({ id: m.accountId, label: m.displayName }))
+
+  const userLabelForField = (field: NormalizedJiraField, accountId: string) =>
+    userOptionsForField(field).find(x => x.id === accountId)?.label ?? accountId
+
+  const resolveUserValueForField = (field: NormalizedJiraField, rawValue: string) => {
+    const value = rawValue.trim()
+    const lowered = value.toLowerCase()
+    const option = userOptionsForField(field).find(x =>
+      x.id.toLowerCase() === lowered || x.label.toLowerCase() === lowered
+    )
+    return option?.id ?? value
+  }
+
   const applyLarkPrefill = () => {
     const newVals: Record<number, Record<string, string>> = {}
     for (const record of filteredRecords) {
@@ -742,8 +760,8 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const formatDynamicFieldValue = (field: NormalizedJiraField, rawVal: string): unknown => {
     if (!rawVal.trim()) return undefined
     switch (field.type) {
-      case 'user': return { accountId: rawVal }
-      case 'multiuser': return rawVal.split(',').map(id => ({ accountId: id.trim() })).filter(x => x.accountId)
+      case 'user': return { accountId: resolveUserValueForField(field, rawVal) }
+      case 'multiuser': return rawVal.split(',').map(id => ({ accountId: resolveUserValueForField(field, id) })).filter(x => x.accountId)
       case 'select': return field.options ? { id: rawVal } : { name: rawVal }
       case 'multiselect': return rawVal.split(',').map(id => id.trim()).filter(Boolean).map(id => field.options ? { id } : { name: id })
       case 'number': return isNaN(Number(rawVal)) ? rawVal : Number(rawVal)
@@ -851,10 +869,11 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
 
     try {
       console.log('[batch-create] sending rows:', rows.length, 'rows[0]:', rows[0])
+      const project = projects.find(p => p.id === selectedProjectId)
       const resp = await fetch('/api/jira/batch-create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...emailHeader },
-        body: JSON.stringify({ rows, sheetUrl, projectId: selectedProjectId, issueTypeId: selectedIssueTypeId }),
+        body: JSON.stringify({ rows, sheetUrl, projectId: selectedProjectId, projectKey: project?.key, issueTypeId: selectedIssueTypeId }),
       })
       const data = await resp.json()
       console.log('[batch-create] response:', data)
@@ -2095,10 +2114,9 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                             ) : field.type === 'multiuser' ? (
                               <div>
                                 {bulkSelectedIds.map(id => {
-                                  const m = members.find(x => x.accountId === id)
                                   return (
                                     <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#1e3a5f', borderRadius: 4, padding: '1px 5px', margin: '2px 2px', fontSize: 11, color: '#93c5fd' }}>
-                                      {m?.displayName ?? id}
+                                      {userLabelForField(field, id)}
                                       <button type="button" onClick={() => {
                                         const next = bulkSelectedIds.filter(x => x !== id)
                                         setBulkValues(p => ({ ...p, [field.key]: next.join(',') }))
@@ -2112,8 +2130,8 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                                   setBulkValues(p => ({ ...p, [field.key]: next.join(',') }))
                                 }} style={{ ...bulkInputStyle, marginTop: bulkSelectedIds.length ? 3 : 0, cursor: 'pointer' }}>
                                   <option value="">+ 批量新增</option>
-                                  {members.filter(m => !bulkSelectedIds.includes(m.accountId)).map(m => (
-                                    <option key={m.accountId} value={m.accountId}>{m.displayName}</option>
+                                  {userOptionsForField(field).filter(m => !bulkSelectedIds.includes(m.id)).map(m => (
+                                    <option key={m.id} value={m.id}>{m.label}</option>
                                   ))}
                                 </select>
                               </div>
@@ -2121,7 +2139,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                               <select value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
                                 style={{ ...bulkInputStyle, cursor: 'pointer' }}>
                                 <option value="">— 批量 —</option>
-                                {members.map(m => <option key={m.accountId} value={m.accountId}>{m.displayName}</option>)}
+                                {userOptionsForField(field).map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
                               </select>
                             ) : field.type === 'date' ? (
                               <input type="date" value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
@@ -2226,10 +2244,9 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                                 ) : field.type === 'multiuser' ? (
                                   <div style={{ minWidth: 140 }}>
                                     {selectedIds.map(id => {
-                                      const m = members.find(x => x.accountId === id)
                                       return (
                                         <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#1e3a5f', border: '1px solid #2563eb40', borderRadius: 4, padding: '1px 5px', margin: '2px 2px', fontSize: 11, color: '#93c5fd' }}>
-                                          {m?.displayName ?? id}
+                                          {userLabelForField(field, id)}
                                           <button type="button" onClick={() => toggleMultiuser(rowIdx, field.key, id)}
                                             style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: 0 }}>×</button>
                                         </span>
@@ -2238,8 +2255,8 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                                     <select value="" onChange={e => { if (e.target.value) toggleMultiuser(rowIdx, field.key, e.target.value) }}
                                       style={{ ...inputStyle, marginTop: selectedIds.length ? 3 : 0, cursor: 'pointer' }}>
                                       <option value="">+ 新增成員</option>
-                                      {members.filter(m => !selectedIds.includes(m.accountId)).map(m => (
-                                        <option key={m.accountId} value={m.accountId}>{m.displayName}</option>
+                                      {userOptionsForField(field).filter(m => !selectedIds.includes(m.id)).map(m => (
+                                        <option key={m.id} value={m.id}>{m.label}</option>
                                       ))}
                                     </select>
                                   </div>
@@ -2247,7 +2264,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                                   <select value={val} onChange={e => setCellValue(rowIdx, field.key, e.target.value)}
                                     style={{ ...inputStyle, cursor: 'pointer' }}>
                                     <option value="">— 選擇 —</option>
-                                    {members.map(m => <option key={m.accountId} value={m.accountId}>{m.displayName}</option>)}
+                                    {userOptionsForField(field).map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
                                   </select>
                                 ) : field.type === 'text' ? (
                                   <textarea value={val} onChange={e => setCellValue(rowIdx, field.key, e.target.value)}

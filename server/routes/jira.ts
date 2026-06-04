@@ -102,6 +102,7 @@ const batchCreateSchema = z.object({
   ),
   sheetUrl: z.string(),
   projectId: z.string().optional(),
+  projectKey: z.string().optional(),
   issueTypeId: z.string().optional(),
 })
 
@@ -632,6 +633,7 @@ interface NormalizedJiraField {
   required: boolean
   type: 'string' | 'text' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'user' | 'multiuser' | 'unknown'
   options?: { id: string; label: string }[]
+  autoCompleteUrl?: string
 }
 
 const SKIP_FIELD_KEYS = new Set(['issuetype', 'project', 'reporter', 'parent', 'attachment', 'issuelinks', 'subtasks', 'worklog', 'comment', 'thumbnail', 'timetracking', 'timespent', 'timeestimate', 'aggregatetimespent', 'aggregatetimeestimate'])
@@ -646,15 +648,16 @@ function normalizeJiraField(key: string, meta: Record<string, unknown>): Normali
   const schemaType = schema?.type as string | undefined
   const schemaItems = schema?.items as string | undefined
   const schemaCustom = schema?.custom as string | undefined
-  const allowedValues = meta.allowedValues as Array<{ id?: string; name?: string; value?: string }> | undefined
+  const allowedValues = meta.allowedValues as Array<{ id?: string; accountId?: string; displayName?: string; name?: string; value?: string }> | undefined
+  const autoCompleteUrl = meta.autoCompleteUrl as string | undefined
 
   let type: NormalizedJiraField['type'] = 'string'
-  if (allowedValues && allowedValues.length > 0) {
-    type = schemaType === 'array' ? 'multiselect' : 'select'
-  } else if (schemaType === 'array' && schemaItems === 'user') {
+  if (schemaType === 'array' && schemaItems === 'user') {
     type = 'multiuser'
   } else if (schemaType === 'user') {
     type = 'user'
+  } else if (allowedValues && allowedValues.length > 0) {
+    type = schemaType === 'array' ? 'multiselect' : 'select'
   } else if (schemaType === 'date') {
     type = 'date'
   } else if (schemaType === 'datetime') {
@@ -668,10 +671,98 @@ function normalizeJiraField(key: string, meta: Record<string, unknown>): Normali
   const field: NormalizedJiraField = { key, name, required, type }
   if (allowedValues && allowedValues.length > 0) {
     field.options = allowedValues
-      .map(v => ({ id: v.id ?? v.name ?? v.value ?? '', label: v.name ?? v.value ?? v.id ?? '' }))
+      .map(v => ({
+        id: v.accountId ?? v.id ?? v.name ?? v.value ?? '',
+        label: v.displayName ?? v.name ?? v.value ?? v.id ?? v.accountId ?? '',
+      }))
       .filter(o => o.id)
   }
+  if (autoCompleteUrl && (type === 'user' || type === 'multiuser')) field.autoCompleteUrl = autoCompleteUrl
   return field
+}
+
+async function fetchUserFieldOptions(autoCompleteUrl: string, auth: string, baseUrl: string): Promise<{ id: string; label: string }[]> {
+  const url = new URL(autoCompleteUrl, baseUrl)
+  const jiraOrigin = new URL(baseUrl).origin
+  if (url.origin !== jiraOrigin) return []
+  if (!url.pathname.includes('/user')) return []
+  if (!url.searchParams.has('query')) url.searchParams.set('query', '')
+  if (!url.searchParams.has('username')) url.searchParams.set('username', '')
+  if (!url.searchParams.has('maxResults')) url.searchParams.set('maxResults', '1000')
+
+  const resp = await fetch(url.toString(), { headers: { Authorization: auth, Accept: 'application/json' } })
+  if (!resp.ok) return []
+  const data = await resp.json() as unknown
+  const rawUsers: Record<string, unknown>[] = Array.isArray(data)
+    ? data as Record<string, unknown>[]
+    : Array.isArray((data as Record<string, unknown>)?.users)
+      ? (data as Record<string, unknown>).users as Record<string, unknown>[]
+      : Array.isArray((data as Record<string, unknown>)?.results)
+        ? (data as Record<string, unknown>).results as Record<string, unknown>[]
+        : []
+
+  return rawUsers
+    .map((u) => {
+      const user = u
+      const accountId = typeof user.accountId === 'string' ? user.accountId : ''
+      const label = String(user.displayName ?? user.name ?? user.value ?? accountId)
+        .replace(/<[^>]*>/g, '')
+        .trim()
+      return { id: accountId, label: label || accountId }
+    })
+    .filter((u) => u.id)
+}
+
+async function fetchNormalizedJiraFields(projectKey: string, issueTypeId: string, issueTypeName: string, auth: string, baseUrl: string): Promise<NormalizedJiraField[]> {
+  const issueTypeFilter = issueTypeId
+    ? `&issuetypeIds=${encodeURIComponent(issueTypeId)}`
+    : `&issuetypeNames=${encodeURIComponent(issueTypeName)}`
+  const url = `${baseUrl}/rest/api/2/issue/createmeta?projectKeys=${encodeURIComponent(projectKey)}${issueTypeFilter}&expand=projects.issuetypes.fields`
+  console.log(`[jira-fields] fetching: ${url}`)
+  const resp = await fetch(url, { headers: { Authorization: auth, Accept: 'application/json' } })
+  if (!resp.ok) throw new Error(`Jira createmeta API error: ${resp.status}`)
+
+  const data = await resp.json() as { projects?: Array<{ issuetypes?: Array<{ fields?: Record<string, Record<string, unknown>> }> }> }
+  console.log(`[jira-fields] issueTypeId="${issueTypeId}" issueTypeName="${issueTypeName}" projects=${data.projects?.length ?? 0}, issueTypes=${data.projects?.[0]?.issuetypes?.length ?? 0}, rawFields=${Object.keys(data.projects?.[0]?.issuetypes?.[0]?.fields ?? {}).length}`)
+  const rawFields = data.projects?.[0]?.issuetypes?.[0]?.fields ?? {}
+
+  const fields: NormalizedJiraField[] = []
+  for (const [key, meta] of Object.entries(rawFields)) {
+    const normalized = normalizeJiraField(key, meta)
+    if (normalized) fields.push(normalized)
+  }
+  await Promise.all(fields.map(async (field) => {
+    if ((field.type === 'user' || field.type === 'multiuser') && field.autoCompleteUrl && !field.options?.length) {
+      const options = await fetchUserFieldOptions(field.autoCompleteUrl, auth, baseUrl)
+      if (options.length > 0) field.options = options
+    }
+  }))
+  console.log(`[jira-fields] normalized fields count: ${fields.length}`)
+  return fields
+}
+
+function resolveUserFieldValue(field: NormalizedJiraField | undefined, value: unknown): unknown {
+  if (!field || (field.type !== 'user' && field.type !== 'multiuser')) return value
+  const options = field.options ?? []
+  const resolveOne = (raw: unknown): string => {
+    const token = typeof raw === 'object' && raw !== null
+      ? String((raw as Record<string, unknown>).accountId ?? (raw as Record<string, unknown>).id ?? (raw as Record<string, unknown>).displayName ?? '')
+      : String(raw ?? '')
+    const trimmed = token.trim()
+    const lowered = trimmed.toLowerCase()
+    const option = options.find(o => o.id.toLowerCase() === lowered || o.label.toLowerCase() === lowered)
+    return option?.id ?? trimmed
+  }
+
+  if (field.type === 'multiuser') {
+    const values = Array.isArray(value)
+      ? value.map(resolveOne)
+      : String(value ?? '').split(',').map(resolveOne)
+    return values.filter(Boolean).map(accountId => ({ accountId }))
+  }
+
+  const accountId = resolveOne(value)
+  return accountId ? { accountId } : value
 }
 
 // GET /api/jira/fields?projectKey=X&issueTypeName=Y
@@ -691,29 +782,7 @@ router.get('/api/jira/fields', async (req, res, next) => {
     }
 
     const baseUrl = mustEnv('JIRA_BASE_URL')
-    // Prefer issueTypeId (numeric, more reliable than name with Chinese chars)
-    // Also try without issue type filter as fallback (get all, filter server-side)
-    const issueTypeFilter = issueTypeId
-      ? `&issuetypeIds=${encodeURIComponent(issueTypeId)}`
-      : `&issuetypeNames=${encodeURIComponent(issueTypeName)}`
-    const url = `${baseUrl}/rest/api/2/issue/createmeta?projectKeys=${encodeURIComponent(projectKey)}${issueTypeFilter}&expand=projects.issuetypes.fields`
-    log(`[jira-fields] fetching: ${url}`)
-    const resp = await fetch(url, { headers: { Authorization: userAuth.auth, Accept: 'application/json' } })
-    if (!resp.ok) {
-      log(`[jira-fields] Jira API error: ${resp.status}`)
-      return res.status(resp.status).json({ ok: false, message: `Jira createmeta API error: ${resp.status}` })
-    }
-
-    const data = await resp.json() as { projects?: Array<{ issuetypes?: Array<{ fields?: Record<string, Record<string, unknown>> }> }> }
-    log(`[jira-fields] issueTypeId="${issueTypeId}" issueTypeName="${issueTypeName}" projects=${data.projects?.length ?? 0}, issueTypes=${data.projects?.[0]?.issuetypes?.length ?? 0}, rawFields=${Object.keys(data.projects?.[0]?.issuetypes?.[0]?.fields ?? {}).length}`)
-    const rawFields = data.projects?.[0]?.issuetypes?.[0]?.fields ?? {}
-
-    const fields: NormalizedJiraField[] = []
-    for (const [key, meta] of Object.entries(rawFields)) {
-      const normalized = normalizeJiraField(key, meta)
-      if (normalized) fields.push(normalized)
-    }
-    log(`[jira-fields] normalized fields count: ${fields.length}`)
+    const fields = await fetchNormalizedJiraFields(projectKey, issueTypeId, issueTypeName, userAuth.auth, baseUrl)
     // Sort: required first, summary always first among required
     fields.sort((a, b) => {
       if (a.key === 'summary') return -1
@@ -875,6 +944,15 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
     if (!projectId) return res.status(400).json({ ok: false, message: '請選擇 Jira 專案' })
     if (!issueTypeId) return res.status(400).json({ ok: false, message: '請選擇 Issue 類型' })
     const verifierFieldId = process.env.JIRA_VERIFIER_FIELD_ID ?? 'customfield_10440'
+    const dynamicFieldMeta = new Map<string, NormalizedJiraField>()
+    if (body.projectKey) {
+      try {
+        const fields = await fetchNormalizedJiraFields(body.projectKey, issueTypeId, '', userAuth.auth, baseUrl)
+        for (const field of fields) dynamicFieldMeta.set(field.key, field)
+      } catch (error) {
+        console.warn('[batch-create] dynamic field metadata unavailable:', error)
+      }
+    }
 
     const results: { rowIndex: number; issueKey?: string; error?: string }[] = []
 
@@ -921,7 +999,10 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
         const DATE_LIKE = /^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}([T\s]\d{1,2}:\d{2})?$/
         for (const [key, value] of Object.entries(row.dynamicFields ?? {})) {
           if (!RESERVED_JIRA_KEYS.has(key) && value !== '' && value !== null && value !== undefined) {
-            if (ADF_FIELD_KEYS.has(key) && typeof value === 'string') {
+            const fieldMeta = dynamicFieldMeta.get(key)
+            if (fieldMeta?.type === 'user' || fieldMeta?.type === 'multiuser') {
+              fields[key] = resolveUserFieldValue(fieldMeta, value)
+            } else if (ADF_FIELD_KEYS.has(key) && typeof value === 'string') {
               fields[key] = textToADF(value)
             } else if (typeof value === 'string' && DATE_LIKE.test(value.trim())) {
               const converted = toJiraDateTime(value)
