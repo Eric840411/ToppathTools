@@ -669,16 +669,22 @@ router.get('/api/jira/fields', async (req, res, next) => {
     if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
     const projectKey = String(req.query.projectKey ?? '').trim()
     const issueTypeName = String(req.query.issueTypeName ?? '').trim()
+    const issueTypeId = String(req.query.issueTypeId ?? '').trim()
     if (!projectKey || !issueTypeName) return res.status(400).json({ ok: false, message: 'projectKey 和 issueTypeName 為必填' })
 
-    const cacheKey = `${projectKey}:${issueTypeName}`
+    const cacheKey = `${projectKey}:${issueTypeId || issueTypeName}`
     const cached = fieldMetaCache.get(cacheKey)
     if (cached && cached.expiresAt > Date.now()) {
       return res.json({ ok: true, fields: cached.fields, fromCache: true })
     }
 
     const baseUrl = mustEnv('JIRA_BASE_URL')
-    const url = `${baseUrl}/rest/api/2/issue/createmeta?projectKeys=${encodeURIComponent(projectKey)}&issuetypeNames=${encodeURIComponent(issueTypeName)}&expand=projects.issuetypes.fields`
+    // Prefer issueTypeId (numeric, more reliable than name with Chinese chars)
+    // Also try without issue type filter as fallback (get all, filter server-side)
+    const issueTypeFilter = issueTypeId
+      ? `&issuetypeIds=${encodeURIComponent(issueTypeId)}`
+      : `&issuetypeNames=${encodeURIComponent(issueTypeName)}`
+    const url = `${baseUrl}/rest/api/2/issue/createmeta?projectKeys=${encodeURIComponent(projectKey)}${issueTypeFilter}&expand=projects.issuetypes.fields`
     log(`[jira-fields] fetching: ${url}`)
     const resp = await fetch(url, { headers: { Authorization: userAuth.auth, Accept: 'application/json' } })
     if (!resp.ok) {
@@ -687,7 +693,7 @@ router.get('/api/jira/fields', async (req, res, next) => {
     }
 
     const data = await resp.json() as { projects?: Array<{ issuetypes?: Array<{ fields?: Record<string, Record<string, unknown>> }> }> }
-    log(`[jira-fields] projects count: ${data.projects?.length ?? 0}, issueTypes count: ${data.projects?.[0]?.issuetypes?.length ?? 0}, raw fields count: ${Object.keys(data.projects?.[0]?.issuetypes?.[0]?.fields ?? {}).length}`)
+    log(`[jira-fields] issueTypeId="${issueTypeId}" issueTypeName="${issueTypeName}" projects=${data.projects?.length ?? 0}, issueTypes=${data.projects?.[0]?.issuetypes?.length ?? 0}, rawFields=${Object.keys(data.projects?.[0]?.issuetypes?.[0]?.fields ?? {}).length}`)
     const rawFields = data.projects?.[0]?.issuetypes?.[0]?.fields ?? {}
 
     const fields: NormalizedJiraField[] = []

@@ -521,9 +521,9 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       console.log('[jira-fields] early return: project/issueType not found in arrays')
       return
     }
-    console.log('[jira-fields] calling API', `/api/jira/fields?projectKey=${project.key}&issueTypeName=${issueType.name}`)
+    console.log('[jira-fields] calling API', `/api/jira/fields?projectKey=${project.key}&issueTypeId=${issueType.id}&issueTypeName=${issueType.name}`)
     setFieldsLoading(true); setFieldsError(''); setJiraFields([]); setActiveOptionalKeys([]); setCellValues({}); setCellErrors({}); setLarkPrefillApplied(false)
-    fetch(`/api/jira/fields?projectKey=${encodeURIComponent(project.key)}&issueTypeName=${encodeURIComponent(issueType.name)}`, {
+    fetch(`/api/jira/fields?projectKey=${encodeURIComponent(project.key)}&issueTypeId=${encodeURIComponent(issueType.id)}&issueTypeName=${encodeURIComponent(issueType.name)}`, {
       headers: { 'x-jira-email': currentAccount.email },
     })
       .then(r => r.json())
