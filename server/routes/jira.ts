@@ -1119,7 +1119,7 @@ router.post('/api/lark/sheets/writeback', async (req, res, next) => {
 /**
  * POST /api/jira/batch-comment
  * 批次對多張 Jira Issue 新增評論，可選用 Gemini AI 格式化內容。
- * 若 AI 失敗（配額耗盡）會中斷整個 batch 並回傳已完成部分的結果。
+ * 若 AI 失敗（配額耗盡 / 503）會自動 fallback 用原始欄位內容繼續執行，不中斷 batch。
  */
 router.post('/api/jira/batch-comment', async (req, res, next) => {
   try {
@@ -1158,6 +1158,7 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
       }
 
       let stoppedByAi: string | null = null
+      let aiFallbackMode = false  // 配額耗盡後切換為 fallback 模式，後續全部不呼叫 AI
 
       // 組合知識庫內容 + 手動 specContext
       let effectiveSpecContext = body.specContext ?? ''
@@ -1181,15 +1182,13 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
       const total = body.comments.length
 
       for (const item of body.comments) {
-        if (stoppedByAi) break
-
         // Push "currently processing" progress before starting this item
         pushCommentProgress(requestId, { done: results.length, total, current: item.issueKey })
 
         let commentText = item.rawComment
         let usedAi = false
 
-        if (item.useAi) {
+        if (item.useAi && !aiFallbackMode) {
           const hasAnyContent = commentText.trim() || item.environment || item.version || item.platform
           if (!hasAnyContent) {
             console.warn(`[batch-comment] ${item.issueKey} 無任何內容，跳過 AI`)
@@ -1213,11 +1212,13 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
               usedAi = true
               console.log(`[batch-comment] ${item.issueKey} AI 完成，字數：${commentText.length}`)
             } catch (aiErr) {
-              stoppedByAi = String(aiErr)
-              console.error(`[batch-comment] ${item.issueKey} AI 失敗，中斷 batch：`, aiErr)
-              results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: false, usedAi: false, error: `AI 中斷：${stoppedByAi}` })
-              pushCommentProgress(requestId, { done: results.length, total, current: '' })
-              break
+              const errMsg = String(aiErr)
+              console.warn(`[batch-comment] ${item.issueKey} AI 失敗，改用原始內容繼續：`, errMsg)
+              if (isGeminiError(aiErr)) {
+                aiFallbackMode = true
+                stoppedByAi = errMsg  // 記錄原因，供前端顯示警告
+              }
+              // fallback：commentText 保持原始值（item.rawComment），usedAi 維持 false
             }
           }
         }
@@ -1299,18 +1300,19 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
       const okCount = results.filter(r => r.ok).length
       const failCount = results.filter(r => !r.ok).length
       const aiUsed = results.filter(r => r.usedAi).length
+      const aiFallbackCount = aiFallbackMode ? results.filter(r => !r.usedAi && r.ok).length : 0
       log(
-        stoppedByAi ? 'warn' : failCount > 0 ? 'warn' : 'ok',
+        failCount > 0 ? 'warn' : stoppedByAi ? 'warn' : 'ok',
         clientIP, userEmail,
         'Jira 批次評論',
-        `成功 ${okCount} 筆${aiUsed > 0 ? `（AI ${aiUsed} 筆）` : ''}${failCount > 0 ? `，失敗 ${failCount} 筆` : ''}${stoppedByAi ? '，AI 中斷' : ''}`,
+        `成功 ${okCount} 筆${aiUsed > 0 ? `（AI ${aiUsed} 筆）` : ''}${aiFallbackCount > 0 ? `（fallback ${aiFallbackCount} 筆）` : ''}${failCount > 0 ? `，失敗 ${failCount} 筆` : ''}${stoppedByAi ? `，AI 配額中斷後改 fallback` : ''}`,
       )
-      addHistory('jira-comment', `Jira 批次評論`, `成功 ${okCount} 筆${failCount > 0 ? `，失敗 ${failCount} 筆` : ''}${stoppedByAi ? '，AI 中斷' : ''}`, { results })
+      addHistory('jira-comment', `Jira 批次評論`, `成功 ${okCount} 筆${failCount > 0 ? `，失敗 ${failCount} 筆` : ''}${stoppedByAi ? `，AI fallback` : ''}`, { results })
 
       finishCommentJob(requestId, {
-        ok: !stoppedByAi,
+        ok: true,  // batch 整體算成功（即使部分 fallback），讓前端正常顯示結果
         results,
-        ...(stoppedByAi ? { stopped: true, stoppedReason: stoppedByAi } : {}),
+        ...(stoppedByAi ? { aiFallback: true, aiFallbackReason: stoppedByAi } : {}),
       })
     })().catch(err => {
       console.error('[batch-comment] background error:', err)

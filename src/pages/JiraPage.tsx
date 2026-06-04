@@ -470,7 +470,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
             ok: boolean
             status?: 'running' | 'done' | 'missing'
             progress?: { done: number; total: number; current: string }
-            result?: { ok: boolean; results?: StageOpResult[]; stopped?: boolean; stoppedReason?: string }
+            result?: { ok: boolean; results?: StageOpResult[]; stopped?: boolean; stoppedReason?: string; aiFallback?: boolean; aiFallbackReason?: string }
           }
           if (!alive) return
           if (!d.ok || d.status === 'missing') { localStorage.removeItem(COMMENT_PENDING_KEY); return }
@@ -483,6 +483,9 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
             const results = d.result.results ?? []
             if (d.result.stopped && d.result.stoppedReason) {
               results.push({ rowIndex: -1, issueKey: '⚠️ 已中斷', ok: false, error: `Gemini API 用量已達上限。原因：${d.result.stoppedReason}` })
+            }
+            if (d.result.aiFallback && d.result.aiFallbackReason) {
+              results.push({ rowIndex: -1, issueKey: '⚠️ AI Fallback', ok: true, error: `AI 配額耗盡，部分評論改用原始欄位內容提交。原因：${d.result.aiFallbackReason}` })
             }
             setCommentResults(results)
             setStep(5)
@@ -1095,7 +1098,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
 
       // Wait for background job via SSE, with per-item progress updates.
       // If SSE disconnects, fall back to polling status endpoint.
-      const data = await new Promise<{ ok: boolean; results?: StageOpResult[]; stopped?: boolean; stoppedReason?: string }>((resolve, reject) => {
+      const data = await new Promise<{ ok: boolean; results?: StageOpResult[]; stopped?: boolean; stoppedReason?: string; aiFallback?: boolean; aiFallbackReason?: string }>((resolve, reject) => {
         const es = new EventSource(`/api/jira/batch-comment/stream?requestId=${encodeURIComponent(submitData.requestId!)}&email=${encodeURIComponent(currentAccount.email)}`)
         let done = false
         es.addEventListener('progress', (e: MessageEvent) => {
@@ -1115,14 +1118,11 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
 
       const results = data.results ?? []
 
-      // AI 中斷時在結果中插入一筆提示
       if (data.stopped && data.stoppedReason) {
-        results.push({
-          rowIndex: -1,
-          issueKey: '⚠️ 已中斷',
-          ok: false,
-          error: `Gemini API 用量已達上限，剩餘筆數未處理。原因：${data.stoppedReason}`,
-        })
+        results.push({ rowIndex: -1, issueKey: '⚠️ 已中斷', ok: false, error: `Gemini API 用量已達上限，剩餘筆數未處理。原因：${data.stoppedReason}` })
+      }
+      if (data.aiFallback && data.aiFallbackReason) {
+        results.push({ rowIndex: -1, issueKey: '⚠️ AI Fallback', ok: true, error: `AI 配額耗盡，部分評論改用原始欄位內容提交。原因：${data.aiFallbackReason}` })
       }
       setCommentResults(results)
 
@@ -1158,7 +1158,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
               ok: boolean
               status?: 'running' | 'done' | 'missing'
               progress?: { done: number; total: number; current: string }
-              result?: { ok: boolean; results?: StageOpResult[]; stopped?: boolean; stoppedReason?: string }
+              result?: { ok: boolean; results?: StageOpResult[]; stopped?: boolean; stoppedReason?: string; aiFallback?: boolean; aiFallbackReason?: string }
             }
             if (!d.ok) break
             if (d.progress) setCommentProgress(d.progress)
@@ -1169,12 +1169,10 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
             if (d.result) {
               const recoveredResults = d.result.results ?? []
               if (d.result.stopped && d.result.stoppedReason) {
-                recoveredResults.push({
-                  rowIndex: -1,
-                  issueKey: '⚠️ 已中斷',
-                  ok: false,
-                  error: `Gemini API 用量已達上限，剩餘筆數未處理。原因：${d.result.stoppedReason}`,
-                })
+                recoveredResults.push({ rowIndex: -1, issueKey: '⚠️ 已中斷', ok: false, error: `Gemini API 用量已達上限，剩餘筆數未處理。原因：${d.result.stoppedReason}` })
+              }
+              if (d.result.aiFallback && d.result.aiFallbackReason) {
+                recoveredResults.push({ rowIndex: -1, issueKey: '⚠️ AI Fallback', ok: true, error: `AI 配額耗盡，部分評論改用原始欄位內容提交。原因：${d.result.aiFallbackReason}` })
               }
               setCommentResults(recoveredResults)
               const successRows = recoveredResults.filter(r => r.ok)
