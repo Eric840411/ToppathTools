@@ -1882,8 +1882,10 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
             Step 3 — 填寫 Issue 欄位
             {fieldsLoading && <span style={{ fontSize: 12, color: '#64748b', marginLeft: 8, fontWeight: 400 }}>載入欄位定義中...</span>}
             {!fieldsLoading && jiraFields.length > 0 && (
-              <span style={{ fontSize: 12, color: '#475569', marginLeft: 8, fontWeight: 400 }}>
-                {filteredRecords.length} 筆 · 已勾選 {selectedRows.size} 筆
+              <span style={{ marginLeft: 10, display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 400 }}>
+                <span style={{ fontSize: 13, color: '#94a3b8' }}>{filteredRecords.length} 筆</span>
+                <span style={{ color: '#334155' }}>·</span>
+                <span style={{ fontSize: 14, color: '#60a5fa', fontWeight: 600 }}>已勾選 {selectedRows.size} 筆</span>
               </span>
             )}
           </h2>
