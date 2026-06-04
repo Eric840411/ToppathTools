@@ -679,10 +679,15 @@ router.get('/api/jira/fields', async (req, res, next) => {
 
     const baseUrl = mustEnv('JIRA_BASE_URL')
     const url = `${baseUrl}/rest/api/2/issue/createmeta?projectKeys=${encodeURIComponent(projectKey)}&issuetypeNames=${encodeURIComponent(issueTypeName)}&expand=projects.issuetypes.fields`
+    log(`[jira-fields] fetching: ${url}`)
     const resp = await fetch(url, { headers: { Authorization: userAuth.auth, Accept: 'application/json' } })
-    if (!resp.ok) return res.status(resp.status).json({ ok: false, message: `Jira createmeta API error: ${resp.status}` })
+    if (!resp.ok) {
+      log(`[jira-fields] Jira API error: ${resp.status}`)
+      return res.status(resp.status).json({ ok: false, message: `Jira createmeta API error: ${resp.status}` })
+    }
 
     const data = await resp.json() as { projects?: Array<{ issuetypes?: Array<{ fields?: Record<string, Record<string, unknown>> }> }> }
+    log(`[jira-fields] projects count: ${data.projects?.length ?? 0}, issueTypes count: ${data.projects?.[0]?.issuetypes?.length ?? 0}, raw fields count: ${Object.keys(data.projects?.[0]?.issuetypes?.[0]?.fields ?? {}).length}`)
     const rawFields = data.projects?.[0]?.issuetypes?.[0]?.fields ?? {}
 
     const fields: NormalizedJiraField[] = []
@@ -690,6 +695,7 @@ router.get('/api/jira/fields', async (req, res, next) => {
       const normalized = normalizeJiraField(key, meta)
       if (normalized) fields.push(normalized)
     }
+    log(`[jira-fields] normalized fields count: ${fields.length}`)
     // Sort: required first, summary always first among required
     fields.sort((a, b) => {
       if (a.key === 'summary') return -1

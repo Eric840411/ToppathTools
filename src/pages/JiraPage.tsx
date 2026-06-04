@@ -508,21 +508,34 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
 
   // Fetch Jira dynamic fields when entering Step 3
   useEffect(() => {
-    if (step !== 3 || !currentAccount || !selectedProjectId || !selectedIssueTypeId) return
+    console.log('[jira-fields] effect fired', { step, selectedProjectId, selectedIssueTypeId, projectsLoaded: projects.length, issueTypesLoaded: issueTypes.length, account: currentAccount?.email })
+    if (step !== 3 || !currentAccount || !selectedProjectId || !selectedIssueTypeId) {
+      console.log('[jira-fields] early return: guard failed', { step, hasAccount: !!currentAccount, selectedProjectId, selectedIssueTypeId })
+      return
+    }
     const project = projects.find(p => p.id === selectedProjectId)
     const issueType = issueTypes.find(t => t.id === selectedIssueTypeId)
+    console.log('[jira-fields] found project:', project, 'issueType:', issueType)
     // If projects/issueTypes not yet loaded, wait for next render (they're in deps below)
-    if (!project || !issueType) return
+    if (!project || !issueType) {
+      console.log('[jira-fields] early return: project/issueType not found in arrays')
+      return
+    }
+    console.log('[jira-fields] calling API', `/api/jira/fields?projectKey=${project.key}&issueTypeName=${issueType.name}`)
     setFieldsLoading(true); setFieldsError(''); setJiraFields([]); setActiveOptionalKeys([]); setCellValues({}); setCellErrors({}); setLarkPrefillApplied(false)
     fetch(`/api/jira/fields?projectKey=${encodeURIComponent(project.key)}&issueTypeName=${encodeURIComponent(issueType.name)}`, {
       headers: { 'x-jira-email': currentAccount.email },
     })
       .then(r => r.json())
       .then((d: { ok: boolean; fields?: NormalizedJiraField[]; message?: string }) => {
+        console.log('[jira-fields] API response:', d)
         if (d.ok && d.fields) setJiraFields(d.fields)
         else setFieldsError(d.message ?? '載入欄位失敗')
       })
-      .catch(() => setFieldsError('網路錯誤，無法載入欄位'))
+      .catch((err) => {
+        console.error('[jira-fields] fetch error:', err)
+        setFieldsError('網路錯誤，無法載入欄位')
+      })
       .finally(() => setFieldsLoading(false))
   }, [step, selectedProjectId, selectedIssueTypeId, projects, issueTypes, currentAccount])
 
@@ -1869,6 +1882,12 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
             </div>
           )}
 
+          {fieldsLoading && (
+            <div style={{ padding: '20px 0', textAlign: 'center', color: '#64748b', fontSize: 14 }}>
+              正在向 Jira 載入欄位定義...
+            </div>
+          )}
+
           {sheetRecords.length === 0
             ? <div className="alert-warn">沒有待處理的列（所有列皆已完成）</div>
             : jiraFields.length > 0 ? (
@@ -2006,6 +2025,10 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
               </div>
             ) : !fieldsLoading ? (
               /* Fallback: show Lark data if fields failed to load */
+              <>
+              <div className="alert-warn" style={{ marginBottom: 8, fontSize: 12 }}>
+                ⚠️ 動態欄位未載入（Jira fields API 未回傳資料），顯示 Lark 原始資料。請開啟 F12 → Console 查看 [jira-fields] 日誌。
+              </div>
               <div className="table-wrap">
                 <table className="version-table">
                   <thead>
@@ -2052,6 +2075,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                   </tbody>
                 </table>
               </div>
+              </>
             ) : null}
 
           <div style={{ display: 'flex', gap: 10, marginTop: 16, alignItems: 'center' }}>
