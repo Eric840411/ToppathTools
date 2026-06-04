@@ -1912,3 +1912,43 @@ router.post('/api/jira/bulk-update', async (req, res, next) => {
     res.json({ ok: true, results })
   } catch (error) { next(error) }
 })
+
+// POST /api/jira/generate-summaries — AI 批量生成 Jira issue 摘要標題
+router.post('/api/jira/generate-summaries', async (req, res, next) => {
+  try {
+    const userAuth = userJiraAuth(req)
+    if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
+
+    const body = z.object({
+      rows: z.array(z.object({
+        rowIndex: z.number(),
+        prefix: z.string().default(''),
+        content: z.string(),
+      })),
+      modelSpec: z.string().optional(),
+    }).parse(req.body)
+
+    const results = await Promise.all(body.rows.map(async (row) => {
+      if (!row.content.trim()) {
+        return { rowIndex: row.rowIndex, summary: row.prefix || '（內容空白）', error: '內容欄位為空' }
+      }
+      try {
+        const prompt = `你是一個 QA 工程師，請根據以下 Bug 描述，生成一個簡短的 Jira issue 標題。
+要求：
+- 繁體中文
+- 不超過 30 個字
+- 不要加前綴、括號或任何多餘說明
+- 直接輸出標題文字，不要有換行或引號
+
+Bug 描述：${row.content.trim()}`
+        const aiTitle = (await callLLM(prompt, body.modelSpec)).trim().replace(/^["「『]|["」』]$/g, '')
+        const summary = row.prefix ? `${row.prefix} ${aiTitle}` : aiTitle
+        return { rowIndex: row.rowIndex, summary }
+      } catch (e) {
+        return { rowIndex: row.rowIndex, summary: row.prefix || row.content.slice(0, 50), error: String(e) }
+      }
+    }))
+
+    res.json({ ok: true, results })
+  } catch (error) { next(error) }
+})

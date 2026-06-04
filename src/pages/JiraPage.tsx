@@ -303,6 +303,15 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const [larkPrefillApplied, setLarkPrefillApplied] = useState(false)
   const [bulkValues, setBulkValues] = useState<Record<string, string>>({})
 
+  // AI 摘要生成
+  const [aiSummaryEnabled, setAiSummaryEnabled] = useState(false)
+  const [aiPrefixColumns, setAiPrefixColumns] = useState<string[]>([])
+  const [aiContentColumn, setAiContentColumn] = useState('')
+  const [aiSummaryModel, setAiSummaryModel] = useState('')
+  const [generatedSummaries, setGeneratedSummaries] = useState<Record<number, string>>({})
+  const [summaryGenerating, setSummaryGenerating] = useState(false)
+  const [summaryProgress, setSummaryProgress] = useState<{ done: number; total: number } | null>(null)
+
   const [commentSubmitting, setCommentSubmitting] = useState(false)
   const [pendingCommentRequestId, setPendingCommentRequestId] = useState('')
   const [commentProgress, setCommentProgress] = useState<{ done: number; total: number; current: string } | null>(null)
@@ -407,6 +416,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       setPendingCommentRequestId(''); setCommentProgress(null)
       setSubmitting(false); setCommentSubmitting(false); setTransitionSubmitting(false)
       setTransitionOptions([]); setSelectedTransitionId(''); setTransitionOptionsError(''); setTransitionOptionsLoading(false)
+      setGeneratedSummaries({}); setSummaryProgress(null); setSummaryGenerating(false)
     }
 
     const checkBackendBoot = async () => {
@@ -723,6 +733,42 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
     setSelectedRows(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n })
   }
 
+  // ── AI 摘要生成 ──
+  const handleGenerateSummaries = async () => {
+    if (!aiContentColumn || summaryGenerating) return
+    const targets = filteredRecords.filter(r => selectedRows.has(Number(r._rowIndex)) && needsCreate(r))
+    if (targets.length === 0) return
+    setSummaryGenerating(true)
+    setSummaryProgress({ done: 0, total: targets.length })
+    const batchSize = 5
+    const newSummaries: Record<number, string> = { ...generatedSummaries }
+    for (let i = 0; i < targets.length; i += batchSize) {
+      const batch = targets.slice(i, i + batchSize)
+      const rows = batch.map(r => {
+        const rowIdx = Number(r._rowIndex)
+        const prefix = aiPrefixColumns
+          .map(col => { const v = (r[col] ?? '').trim(); return v ? `[${v}]` : '' })
+          .join('')
+        const content = (r[aiContentColumn] ?? '').trim()
+        return { rowIndex: rowIdx, prefix, content }
+      })
+      try {
+        const resp = await fetch('/api/jira/generate-summaries', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...emailHeader },
+          body: JSON.stringify({ rows, modelSpec: aiSummaryModel || undefined }),
+        })
+        const data = await resp.json() as { ok: boolean; results?: { rowIndex: number; summary: string }[] }
+        if (data.ok && data.results) {
+          data.results.forEach(r => { newSummaries[r.rowIndex] = r.summary })
+          setGeneratedSummaries({ ...newSummaries })
+        }
+      } catch { /* continue on error */ }
+      setSummaryProgress({ done: Math.min(i + batchSize, targets.length), total: targets.length })
+    }
+    setSummaryGenerating(false)
+  }
+
   // ── Dynamic field helpers ──
   const requiredJiraFields = jiraFields.filter(f => f.required)
   const optionalJiraFields = jiraFields.filter(f => !f.required)
@@ -889,8 +935,9 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
           if (formatted !== undefined) dynamicFields[field.key] = formatted
         }
         const summaryFromCell = rowCells['summary']?.trim()
+        const finalSummary = (generatedSummaries[rowIdx] || summaryFromCell || getField(r, SHEET_FIELD.summary)).replace(/[\r\n]+/g, ' ').trim()
         return {
-          summary: (summaryFromCell || getField(r, SHEET_FIELD.summary)).replace(/[\r\n]+/g, ' ').trim(),
+          summary: finalSummary,
           description: rowCells['description'] || getField(r, SHEET_FIELD.description),
           assigneeAccountId: undefined,
           rdOwnerAccountId: undefined,
@@ -906,7 +953,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
         ? verifiers.split(',').map(s => s.trim()).filter(s => knownIds.has(s))
         : []
       return {
-        summary: getField(r, SHEET_FIELD.summary).replace(/[\r\n]+/g, ' ').trim(),
+        summary: (generatedSummaries[rowIdx] || getField(r, SHEET_FIELD.summary)).replace(/[\r\n]+/g, ' ').trim(),
         description: getField(r, SHEET_FIELD.description),
         assigneeAccountId: batchAssigneeIds[0] || validId(getField(r, SHEET_FIELD.assigneeAccountId)) || selectedAssignee || undefined,
         rdOwnerAccountId: batchRdOwnerIds[0] || validId(getField(r, SHEET_FIELD.rdOwnerAccountId)) || undefined,
@@ -2203,6 +2250,100 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                   )}
                 </div>
 
+                {/* ── AI 摘要生成面板 ── */}
+                <div style={{ background: '#0d1e30', border: `1px solid ${aiSummaryEnabled ? '#7c3aed40' : '#1e3a5f'}`, borderRadius: 10, marginBottom: 10, overflow: 'hidden' }}>
+                  <div
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => setAiSummaryEnabled(v => !v)}>
+                    <span style={{ fontSize: 12, color: '#475569', transition: 'transform .2s', display: 'inline-block', transform: aiSummaryEnabled ? 'rotate(90deg)' : 'none' }}>▶</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: aiSummaryEnabled ? '#a78bfa' : '#60a5fa' }}>✦ AI 摘要生成</span>
+                    {aiSummaryEnabled && <span style={{ fontSize: 11, background: '#2e1065', color: '#a78bfa', padding: '1px 7px', borderRadius: 10, fontWeight: 600 }}>已啟用</span>}
+                    <span style={{ fontSize: 11, color: '#475569', marginLeft: 'auto' }}>開啟後可用 AI 根據欄位內容自動生成 Issue 標題</span>
+                  </div>
+                  {aiSummaryEnabled && (
+                    <div style={{ padding: '14px 16px 16px', borderTop: '1px solid #1e3a5f' }}>
+                      {/* 前綴欄位 */}
+                      <div style={{ marginBottom: 14 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>前綴欄位（從 Sheet 取值，依序組合 [值1][值2]...）</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                          {aiPrefixColumns.map((col, idx) => (
+                            <span key={col} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#1e3a5f', border: '1px solid #2563eb40', borderRadius: 6, padding: '4px 9px', fontSize: 12, color: '#93c5fd' }}>
+                              {col}
+                              <button type="button" onClick={() => setAiPrefixColumns(p => p.filter((_, i) => i !== idx))}
+                                style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>
+                            </span>
+                          ))}
+                          <select value="" onChange={e => { if (e.target.value && !aiPrefixColumns.includes(e.target.value)) setAiPrefixColumns(p => [...p, e.target.value]) }}
+                            style={{ background: '#0f172a', border: '1px dashed #2d3f55', borderRadius: 6, padding: '4px 10px', fontSize: 12, color: '#64748b', cursor: 'pointer', outline: 'none' }}>
+                            <option value="">＋ 加入欄位</option>
+                            {sheetHeaders.filter(h => h && !aiPrefixColumns.includes(h)).map((h, i) => (
+                              <option key={h || `h-${i}`} value={h}>{h}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div style={{ fontSize: 11, color: '#334155', marginTop: 4 }}>空白值自動跳過，不輸出空括號。</div>
+                      </div>
+                      {/* 內容來源 + 模型 */}
+                      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 180px' }}>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>內容來源欄位 <span style={{ color: '#f87171' }}>*</span></span>
+                          <select value={aiContentColumn} onChange={e => setAiContentColumn(e.target.value)}
+                            style={{ background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 6, color: '#e2e8f0', padding: '6px 10px', fontSize: 12, outline: 'none' }}>
+                            <option value="">— 選擇欄位 —</option>
+                            {sheetHeaders.filter(h => h).map((h, i) => <option key={h || `h-${i}`} value={h}>{h}</option>)}
+                          </select>
+                          <span style={{ fontSize: 11, color: '#334155' }}>此欄位文字餵給 AI 生成標題</span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 160px' }}>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>AI 模型</span>
+                          <ModelSelector value={aiSummaryModel} onChange={setAiSummaryModel} />
+                        </div>
+                      </div>
+                      {/* 前綴預覽 */}
+                      {(aiPrefixColumns.length > 0 || aiContentColumn) && filteredRecords.find(r => selectedRows.has(Number(r._rowIndex)) && needsCreate(r)) && (() => {
+                        const exRow = filteredRecords.find(r => selectedRows.has(Number(r._rowIndex)) && needsCreate(r))!
+                        const exPrefix = aiPrefixColumns.map(col => { const v = (exRow[col] ?? '').trim(); return v ? `[${v}]` : '' }).join('')
+                        const exContent = aiContentColumn ? (exRow[aiContentColumn] ?? '').slice(0, 40) : ''
+                        return (
+                          <div style={{ background: '#0f172a', border: '1px solid #1e3a5f', borderRadius: 6, padding: '8px 12px', fontSize: 12, fontFamily: 'monospace', marginBottom: 12 }}>
+                            <span style={{ color: '#475569', fontSize: 11 }}>範例：</span>
+                            {exPrefix && <span style={{ color: '#60a5fa' }}>{exPrefix}</span>}
+                            {exPrefix && <span style={{ color: '#475569' }}> + </span>}
+                            <span style={{ color: '#34d399' }}>AI({exContent}{exContent.length >= 40 ? '...' : ''})</span>
+                          </div>
+                        )
+                      })()}
+                      {/* 生成按鈕 */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <button type="button"
+                          disabled={!aiContentColumn || summaryGenerating}
+                          onClick={handleGenerateSummaries}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: summaryGenerating ? '#1e1b4b' : 'linear-gradient(135deg, #7c3aed, #6d28d9)', color: 'white', border: 'none', borderRadius: 8, padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: !aiContentColumn || summaryGenerating ? 'not-allowed' : 'pointer', opacity: !aiContentColumn ? 0.5 : 1 }}>
+                          {summaryGenerating ? '✦ 生成中...' : `✦ 批量生成摘要（${filteredRecords.filter(r => selectedRows.has(Number(r._rowIndex)) && needsCreate(r)).length} 筆）`}
+                        </button>
+                        {summaryProgress && (
+                          <span style={{ fontSize: 12, color: summaryProgress.done >= summaryProgress.total ? '#4ade80' : '#a78bfa' }}>
+                            {summaryProgress.done >= summaryProgress.total ? `✓ 完成 ${summaryProgress.total} 筆` : `${summaryProgress.done} / ${summaryProgress.total}`}
+                          </span>
+                        )}
+                        {Object.keys(generatedSummaries).length > 0 && !summaryGenerating && (
+                          <button type="button" onClick={() => { setGeneratedSummaries({}); setSummaryProgress(null) }}
+                            style={{ background: 'none', border: '1px solid #334155', borderRadius: 6, color: '#64748b', padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}>
+                            清除生成結果
+                          </button>
+                        )}
+                      </div>
+                      {summaryGenerating && summaryProgress && (
+                        <div style={{ marginTop: 8 }}>
+                          <div style={{ background: '#1e293b', borderRadius: 4, height: 5, overflow: 'hidden' }}>
+                            <div style={{ background: 'linear-gradient(90deg, #7c3aed, #a78bfa)', height: '100%', width: `${Math.round(summaryProgress.done / summaryProgress.total * 100)}%`, transition: 'width .3s' }} />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 <div className="table-wrap" style={{ overflowX: 'auto' }}>
                 <table className="version-table" style={{ minWidth: 'max-content' }}>
                   <thead>
@@ -2259,6 +2400,32 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                               minWidth: field.key === 'summary' ? 200 : 100,
                             }
                             const selectedIds = field.type === 'multiuser' ? val.split(',').map(s => s.trim()).filter(Boolean) : []
+                            // For summary field with AI enabled: show generated value
+                            if (field.key === 'summary' && aiSummaryEnabled && needsCreate(r)) {
+                              const genVal = generatedSummaries[rowIdx]
+                              return (
+                                <td key={field.key}>
+                                  {genVal ? (
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                      <span style={{ background: '#2e1065', color: '#a78bfa', borderRadius: 4, padding: '1px 5px', fontSize: 10, fontWeight: 600, flexShrink: 0 }}>AI ✦</span>
+                                      <input value={genVal}
+                                        onChange={e => setGeneratedSummaries(p => ({ ...p, [rowIdx]: e.target.value }))}
+                                        style={{ ...inputStyle, border: '1px solid #7c3aed40', flex: 1 }} />
+                                    </div>
+                                  ) : summaryGenerating ? (
+                                    <span style={{ fontSize: 12, color: '#7c3aed', display: 'flex', alignItems: 'center', gap: 5 }}>
+                                      <span style={{ width: 10, height: 10, border: '2px solid #7c3aed30', borderTopColor: '#7c3aed', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.6s linear infinite', flexShrink: 0 }} />
+                                      生成中...
+                                    </span>
+                                  ) : (
+                                    <input type="text" value={val || getField(r, SHEET_FIELD.summary)}
+                                      onChange={e => setCellValue(rowIdx, field.key, e.target.value)}
+                                      placeholder="點批量生成或直接填寫" style={{ ...inputStyle, color: '#64748b' }} />
+                                  )}
+                                  {err && <div style={{ fontSize: 10, color: '#f87171', marginTop: 2 }}>{err}</div>}
+                                </td>
+                              )
+                            }
                             return (
                               <td key={field.key} style={field.required ? undefined : { background: '#0e1e2e' }}>
                                 {(field.type === 'select' && field.options) ? (

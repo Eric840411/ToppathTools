@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.39.13'
+export const APP_VERSION = '3.40.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.40.0',
+    date: '2026-06-04',
+    changes: [
+      'feat(jira): Step 3 新增 AI 摘要生成功能，可選前綴欄位（[值1][值2]）+ 內容來源欄位，批量呼叫 Gemini 生成 Issue 標題，結果可手動修改單筆',
+    ],
+  },
   {
     version: '3.39.13',
     date: '2026-06-04',
