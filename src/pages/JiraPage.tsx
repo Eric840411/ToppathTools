@@ -74,8 +74,14 @@ interface NormalizedJiraField {
   autoCompleteUrl?: string
 }
 
+interface JiraTransitionOption {
+  id: string
+  name: string
+  toName?: string
+}
+
 const STEP_LABELS: Record<Step, string> = {
-  1: '選擇受託人',
+  1: '選擇專案',
   2: '選擇來源',
   3: '確認清單',
   4: '建立 Issues',
@@ -209,10 +215,9 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
 
   // Step 1
   const [members, setMembers] = useState<Member[]>([])
-  const [membersLoading, setMembersLoading] = useState(false)
-  const [membersError, setMembersError] = useState('')
+  const [, setMembersLoading] = useState(false)
+  const [, setMembersError] = useState('')
   const [selectedAssignee, setSelectedAssignee] = useState('')
-  const [memberSearch, setMemberSearch] = useState('')
   const [projects, setProjects] = useState<{ id: string; key: string; name: string }[]>([])
   const [selectedProjectId, setSelectedProjectId] = useState('')
   const [issueTypes, setIssueTypes] = useState<{ id: string; name: string }[]>([])
@@ -306,6 +311,10 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   // Step 6 (transition)
   const [transitionSubmitting, setTransitionSubmitting] = useState(false)
   const [transitionResults, setTransitionResults] = useState<StageOpResult[]>([])
+  const [transitionOptions, setTransitionOptions] = useState<JiraTransitionOption[]>([])
+  const [selectedTransitionId, setSelectedTransitionId] = useState('')
+  const [transitionOptionsLoading, setTransitionOptionsLoading] = useState(false)
+  const [transitionOptionsError, setTransitionOptionsError] = useState('')
 
   // ── Update mode ──
   type UpdateStep = 1 | 2 | 3
@@ -317,7 +326,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const [updateRecords, setUpdateRecords] = useState<UpdateRecord[]>([])
   const [updateJiraBaseUrl, setUpdateJiraBaseUrl] = useState('')
   // Transitions
-  const [updateTransitions, setUpdateTransitions] = useState<{ id: string; name: string }[]>([])
+  const [updateTransitions, setUpdateTransitions] = useState<JiraTransitionOption[]>([])
   const [updateTransitionId, setUpdateTransitionId] = useState('')
   const [updateSubmitting, setUpdateSubmitting] = useState(false)
   const [updateResults, setUpdateResults] = useState<{ issueKey: string; ok: boolean; error?: string }[]>([])
@@ -340,6 +349,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   // 從 trackedIssues 中取出需要評論/切換的列
   const toComment    = trackedIssues.filter(t => t.stage === '已開單' || t.stage === '')
   const toTransition = trackedIssues.filter(t => t.stage === '添加評論')
+  const transitionIssueKeyList = toTransition.map(t => t.issueKey).join('|')
 
   useEffect(() => {
     let cancelled = false
@@ -396,6 +406,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       setMembers([]); setMembersError(''); setMembersLoading(false)
       setPendingCommentRequestId(''); setCommentProgress(null)
       setSubmitting(false); setCommentSubmitting(false); setTransitionSubmitting(false)
+      setTransitionOptions([]); setSelectedTransitionId(''); setTransitionOptionsError(''); setTransitionOptionsLoading(false)
     }
 
     const checkBackendBoot = async () => {
@@ -569,6 +580,48 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       })
       .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    if (step !== 6 || !currentAccount || toTransition.length === 0) {
+      setTransitionOptions([])
+      setSelectedTransitionId('')
+      setTransitionOptionsError('')
+      return
+    }
+
+    let alive = true
+    const firstIssueKey = toTransition[0].issueKey
+    setTransitionOptionsLoading(true)
+    setTransitionOptionsError('')
+
+    fetch(`/api/jira/transitions?issueKey=${encodeURIComponent(firstIssueKey)}`, {
+      headers: { 'x-jira-email': currentAccount.email },
+    })
+      .then(r => r.json())
+      .then((data: { ok: boolean; transitions?: JiraTransitionOption[]; message?: string }) => {
+        if (!alive) return
+        const transitions = data.transitions ?? []
+        if (data.ok && transitions.length > 0) {
+          setTransitionOptions(transitions)
+          setSelectedTransitionId(prev => transitions.some(t => t.id === prev) ? prev : transitions[0].id)
+        } else {
+          setTransitionOptions([])
+          setSelectedTransitionId('')
+          setTransitionOptionsError(data.message ?? '無法取得可切換狀態')
+        }
+      })
+      .catch((error) => {
+        if (!alive) return
+        setTransitionOptions([])
+        setSelectedTransitionId('')
+        setTransitionOptionsError(String(error))
+      })
+      .finally(() => {
+        if (alive) setTransitionOptionsLoading(false)
+      })
+
+    return () => { alive = false }
+  }, [step, currentAccount, transitionIssueKeyList])
 
   // 載入知識庫文件清單
   useEffect(() => {
@@ -839,7 +892,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
         return {
           summary: (summaryFromCell || getField(r, SHEET_FIELD.summary)).replace(/[\r\n]+/g, ' ').trim(),
           description: rowCells['description'] || getField(r, SHEET_FIELD.description),
-          assigneeAccountId: batchAssigneeIds[0] || validId(getField(r, SHEET_FIELD.assigneeAccountId)) || selectedAssignee || undefined,
+          assigneeAccountId: undefined,
           rdOwnerAccountId: undefined,
           verifierAccountIds: [] as string[],
           rowIndex: rowIdx,
@@ -1122,10 +1175,14 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
 
   // ── Step 6: 切換狀態 ──
   const handleTransition = async () => {
-    if (!currentAccount || toTransition.length === 0) return
+    if (!currentAccount || toTransition.length === 0 || !selectedTransitionId) return
     setTransitionSubmitting(true)
 
-    const issues = toTransition.map(t => ({ issueKey: t.issueKey, rowIndex: t.rowIndex }))
+    const issues = toTransition.map(t => ({
+      issueKey: t.issueKey,
+      rowIndex: t.rowIndex,
+      transitionId: selectedTransitionId,
+    }))
 
     try {
       const resp = await fetch('/api/jira/batch-transition', {
@@ -1173,6 +1230,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
     setMembers([]); setMembersError(''); setMembersLoading(false)
     setPendingCommentRequestId(''); setCommentProgress(null)
     setSubmitting(false); setCommentSubmitting(false); setTransitionSubmitting(false)
+    setTransitionOptions([]); setSelectedTransitionId(''); setTransitionOptionsError(''); setTransitionOptionsLoading(false)
     localStorage.removeItem(COMMENT_PENDING_KEY)
   }, [])
 
@@ -1261,7 +1319,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
             const transResp = await fetch(`/api/jira/transitions?issueKey=${firstKey}`, {
               headers: { 'x-jira-email': email },
             })
-            const transData = await transResp.json() as { ok: boolean; transitions?: { id: string; name: string }[] }
+            const transData = await transResp.json() as { ok: boolean; transitions?: JiraTransitionOption[] }
             if (transData.ok && (transData.transitions ?? []).length > 0) {
               setUpdateTransitions(transData.transitions ?? [])
               setUpdateTransitionId(transData.transitions![0].id)
@@ -1661,7 +1719,11 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                     style={{ fontSize: 12, background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 4, padding: '4px 8px' }}
                   >
                     <option value="">（不切換）</option>
-                    {updateTransitions.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    {updateTransitions.map(t => (
+                      <option key={t.id} value={t.id}>
+                        {t.toName ?? t.name}{t.toName && t.toName !== t.name ? `（${t.name}）` : ''}
+                      </option>
+                    ))}
                   </select>
                 ) : (
                   <span style={{ fontSize: 12, color: '#64748b' }}>
@@ -1793,49 +1855,9 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
             </label>
           </div>
 
-          {/* Assignee */}
-          <div style={{ marginBottom: 4 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#cbd5e1' }}>
-              受託人<em className="req"> *</em>
-            </span>
-            {selectedProjectId && !membersLoading && members.length === 0 && (
-              <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 8 }}>此專案無可指派成員</span>
-            )}
-          </div>
-          {membersLoading && <p className="idle-hint">載入成員中...</p>}
-          {membersError && <div className="alert-error">{membersError}</div>}
-          {!membersLoading && members.length > 0 && (
-            <>
-              <div style={{ position: 'relative', marginBottom: 10 }}>
-                <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8', fontSize: 14, pointerEvents: 'none' }}>{isGame ? <DungeonIcon name="search" tone="slate" size="xs" plain /> : '🔍'}</span>
-                <input
-                  value={memberSearch}
-                  onChange={e => setMemberSearch(e.target.value)}
-                  placeholder="搜尋成員名稱..."
-                  style={{ width: '100%', padding: '8px 12px 8px 32px', border: '1px solid #2d3f55', borderRadius: 8, fontSize: 13, boxSizing: 'border-box', background: '#0f172a', color: '#e2e8f0' }}
-                />
-              </div>
-              <div className="member-list">
-                {members.filter(m => m.displayName.toLowerCase().includes(memberSearch.toLowerCase())).map(m => (
-                  <button key={m.accountId} type="button"
-                    className={`member-card${selectedAssignee === m.accountId ? ' selected' : ''}`}
-                    onClick={() => setSelectedAssignee(m.accountId)}>
-                    {m.avatarUrl
-                      ? <img src={m.avatarUrl} alt={m.displayName} className="member-avatar" />
-                      : <span className="member-avatar-placeholder">{m.displayName.charAt(0).toUpperCase()}</span>
-                    }
-                    <span>{m.displayName}</span>
-                  </button>
-                ))}
-                {members.filter(m => m.displayName.toLowerCase().includes(memberSearch.toLowerCase())).length === 0 && (
-                  <span style={{ fontSize: 13, color: '#94a3b8', padding: '8px 4px' }}>找不到「{memberSearch}」</span>
-                )}
-              </div>
-            </>
-          )}
 
           <button type="button" className="submit-btn submit-btn--step" style={{ marginTop: 20 }}
-            disabled={!selectedAssignee || !selectedProjectId || !selectedIssueTypeId} onClick={() => setStep(2)}>
+            disabled={!selectedProjectId || !selectedIssueTypeId} onClick={() => setStep(2)}>
             下一步 →
           </button>
         </div>
@@ -2642,9 +2664,30 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
 
           {toTransition.length === 0
             ? <div className="alert-info">目前無需切換狀態的 Issue（可能尚未添加評論，或已全部完成）。</div>
-            : <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 12px' }}>
-                使用後端 <code>JIRA_TRANSITION_ID</code> 批次切換以下 Issue 狀態
-              </p>}
+            : (
+              <div className="form-stack" style={{ marginBottom: 12 }}>
+                <label className="field" style={{ maxWidth: 360 }}>
+                  <span>要切換成的狀態 <em className="req">*</em></span>
+                  <select
+                    value={selectedTransitionId}
+                    onChange={e => setSelectedTransitionId(e.target.value)}
+                    disabled={transitionOptionsLoading || transitionOptions.length === 0}
+                  >
+                    {transitionOptionsLoading
+                      ? <option value="">載入狀態中...</option>
+                      : transitionOptions.length === 0
+                        ? <option value="">無可用狀態</option>
+                        : transitionOptions.map(t => (
+                          <option key={t.id} value={t.id}>
+                            {t.toName ?? t.name}{t.toName && t.toName !== t.name ? `（${t.name}）` : ''}
+                          </option>
+                        ))}
+                  </select>
+                  <span className="field-hint">依第一張待切換 Issue 動態讀取 Jira 可用 transition。</span>
+                </label>
+                {transitionOptionsError && <div className="alert-error">{transitionOptionsError}</div>}
+              </div>
+            )}
 
           <div className="stage-issues">
             {toTransition.map(t => (
@@ -2673,7 +2716,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
             <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(5)}>上一步</button>
             {toTransition.length > 0 && (
               <button type="button" className={`submit-btn submit-btn--step${transitionSubmitting ? ' loading' : ''}`}
-                style={{ whiteSpace: 'nowrap', flexShrink: 0 }} disabled={transitionSubmitting} onClick={handleTransition}>
+                style={{ whiteSpace: 'nowrap', flexShrink: 0 }} disabled={transitionSubmitting || !selectedTransitionId} onClick={handleTransition}>
                 {transitionSubmitting ? '更新中...' : `批次切換狀態（${toTransition.length} 筆）`}
               </button>
             )}
@@ -2701,6 +2744,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
             setMembers([]); setSelectedAssignee(''); setBatchAssigneeIds([]); setBatchRdOwnerIds([]); setBatchVerifierIds([]); setSheetUrl('')
             setSheetRecords([]); setSheetHeaders([]); setSelectedRows(new Set())
             setCreateResults([]); setCommentResults([]); setTransitionResults([])
+            setTransitionOptions([]); setSelectedTransitionId(''); setTransitionOptionsError(''); setTransitionOptionsLoading(false)
             setTrackedIssues([])
             setStep(1)
           }}

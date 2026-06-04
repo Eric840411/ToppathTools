@@ -1843,12 +1843,19 @@ router.get('/api/jira/transitions', async (req, res, next) => {
     const resp = await fetch(`${baseUrl}/rest/api/3/issue/${issueKey}/transitions`, {
       headers: { Authorization: userAuth.auth, Accept: 'application/json' },
     })
-    const data = await resp.json() as { transitions?: Array<{ id: string; name: string }>; errorMessages?: string[]; errors?: unknown }
+    const data = await resp.json() as { transitions?: Array<{ id: string; name: string; to?: { name?: string } }>; errorMessages?: string[]; errors?: unknown }
     if (!resp.ok || !data.transitions) {
       const errMsg = (data.errorMessages ?? []).join('; ') || `Jira HTTP ${resp.status}`
       return res.status(400).json({ ok: false, message: errMsg })
     }
-    res.json({ ok: true, transitions: data.transitions.map(t => ({ id: t.id, name: t.name })) })
+    res.json({
+      ok: true,
+      transitions: data.transitions.map(t => ({
+        id: t.id,
+        name: t.name,
+        toName: t.to?.name ?? t.name,
+      })),
+    })
   } catch (error) { next(error) }
 })
 
