@@ -65,6 +65,14 @@ interface StageOpResult {
 type Step = 1 | 2 | 3 | 4 | 5 | 6
 type SheetSource = 'lark' | 'google'
 
+interface NormalizedJiraField {
+  key: string
+  name: string
+  required: boolean
+  type: 'string' | 'text' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'user' | 'multiuser' | 'unknown'
+  options?: { id: string; label: string }[]
+}
+
 const STEP_LABELS: Record<Step, string> = {
   1: '選擇受託人',
   2: '選擇來源',
@@ -233,24 +241,6 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set())
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({})
 
-  // Auto-detect filterable columns: 2–15 unique non-empty values
-  const filterableColumns = useMemo(() => {
-    if (!sheetRecords.length) return []
-    return sheetHeaders.filter(h => {
-      const vals = [...new Set(sheetRecords.map(r => (r[h] ?? '').trim()).filter(Boolean))]
-      return vals.length >= 2 && vals.length <= 15
-    })
-  }, [sheetHeaders, sheetRecords])
-
-  // Unique values per filterable column (for dropdown options)
-  const columnUniqueValues = useMemo<Record<string, string[]>>(() => {
-    const result: Record<string, string[]> = {}
-    for (const h of filterableColumns) {
-      result[h] = [...new Set(sheetRecords.map(r => (r[h] ?? '').trim()).filter(Boolean))].sort()
-    }
-    return result
-  }, [filterableColumns, sheetRecords])
-
   // Apply column filters to records
   const filteredRecords = useMemo(() => {
     return sheetRecords.filter(r =>
@@ -276,6 +266,17 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const [batchAssigneeIds, setBatchAssigneeIds] = useState<string[]>([])
   const [batchRdOwnerIds, setBatchRdOwnerIds] = useState<string[]>([])
   const [batchVerifierIds, setBatchVerifierIds] = useState<string[]>([])
+
+  // Dynamic Jira field grid (Step 3 new UI)
+  const [jiraFields, setJiraFields] = useState<NormalizedJiraField[]>([])
+  const [fieldsLoading, setFieldsLoading] = useState(false)
+  const [fieldsError, setFieldsError] = useState('')
+  const [activeOptionalKeys, setActiveOptionalKeys] = useState<string[]>([])
+  const [cellValues, setCellValues] = useState<Record<number, Record<string, string>>>({})
+  const [cellErrors, setCellErrors] = useState<Record<number, Record<string, string>>>({})
+  const [showFieldPicker, setShowFieldPicker] = useState(false)
+  const [larkPrefillApplied, setLarkPrefillApplied] = useState(false)
+
   const [commentSubmitting, setCommentSubmitting] = useState(false)
   const [pendingCommentRequestId, setPendingCommentRequestId] = useState('')
   const [commentProgress, setCommentProgress] = useState<{ done: number; total: number; current: string } | null>(null)
@@ -505,6 +506,26 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
     }
   }, [currentAccount, selectedProjectId, projects, fetchIssueTypes, fetchMembers])
 
+  // Fetch Jira dynamic fields when entering Step 3
+  useEffect(() => {
+    if (step !== 3 || !currentAccount || !selectedProjectId || !selectedIssueTypeId) return
+    const project = projects.find(p => p.id === selectedProjectId)
+    const issueType = issueTypes.find(t => t.id === selectedIssueTypeId)
+    if (!project || !issueType) return
+    setFieldsLoading(true); setFieldsError(''); setJiraFields([]); setActiveOptionalKeys([]); setCellValues({}); setCellErrors({}); setLarkPrefillApplied(false)
+    fetch(`/api/jira/fields?projectKey=${encodeURIComponent(project.key)}&issueTypeName=${encodeURIComponent(issueType.name)}`, {
+      headers: { 'x-jira-email': currentAccount.email },
+    })
+      .then(r => r.json())
+      .then((d: { ok: boolean; fields?: NormalizedJiraField[]; message?: string }) => {
+        if (d.ok && d.fields) setJiraFields(d.fields)
+        else setFieldsError(d.message ?? '載入欄位失敗')
+      })
+      .catch(() => setFieldsError('網路錯誤，無法載入欄位'))
+      .finally(() => setFieldsLoading(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, selectedProjectId, selectedIssueTypeId])
+
   // 載入 Prompt 清單
   useEffect(() => {
     fetch('/api/gemini/prompts')
@@ -582,6 +603,77 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
     setSelectedRows(prev => { const n = new Set(prev); n.has(i) ? n.delete(i) : n.add(i); return n })
   }
 
+  // ── Dynamic field helpers ──
+  const requiredJiraFields = jiraFields.filter(f => f.required)
+  const optionalJiraFields = jiraFields.filter(f => !f.required)
+  const activeOptionalJiraFields = optionalJiraFields.filter(f => activeOptionalKeys.includes(f.key))
+  const inactiveOptionalJiraFields = optionalJiraFields.filter(f => !activeOptionalKeys.includes(f.key))
+  const visibleJiraFields = [...requiredJiraFields, ...activeOptionalJiraFields]
+
+  const setCellValue = (rowIdx: number, fieldKey: string, value: string) => {
+    setCellValues(prev => ({ ...prev, [rowIdx]: { ...(prev[rowIdx] ?? {}), [fieldKey]: value } }))
+    setCellErrors(prev => {
+      if (!prev[rowIdx]?.[fieldKey]) return prev
+      const rowErrs = { ...prev[rowIdx] }
+      delete rowErrs[fieldKey]
+      return { ...prev, [rowIdx]: rowErrs }
+    })
+  }
+
+  const applyLarkPrefill = () => {
+    const newVals: Record<number, Record<string, string>> = {}
+    for (const record of filteredRecords) {
+      const rowIdx = Number(record._rowIndex)
+      const rowVals: Record<string, string> = {}
+      for (const field of jiraFields) {
+        // Try exact column name match (case-insensitive), also try Lark aliases
+        const aliases = field.key === 'summary' ? [field.name, '摘要', 'summary'] : [field.name, field.key]
+        for (const alias of aliases) {
+          const val = getField(record, alias).trim()
+          if (val) { rowVals[field.key] = val; break }
+        }
+      }
+      if (Object.keys(rowVals).length > 0) newVals[rowIdx] = rowVals
+    }
+    setCellValues(prev => {
+      const merged: Record<number, Record<string, string>> = { ...prev }
+      for (const [ri, vals] of Object.entries(newVals)) {
+        merged[Number(ri)] = { ...(merged[Number(ri)] ?? {}), ...vals }
+      }
+      return merged
+    })
+    setLarkPrefillApplied(true)
+  }
+
+  const validateDynamicFields = (): boolean => {
+    const errors: Record<number, Record<string, string>> = {}
+    for (const record of planCreate) {
+      const rowIdx = Number(record._rowIndex)
+      const rowVals = cellValues[rowIdx] ?? {}
+      for (const field of requiredJiraFields) {
+        const val = rowVals[field.key]?.trim()
+        if (!val) {
+          if (!errors[rowIdx]) errors[rowIdx] = {}
+          errors[rowIdx][field.key] = `${field.name} 為必填`
+        }
+      }
+    }
+    setCellErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
+  const formatDynamicFieldValue = (field: NormalizedJiraField, rawVal: string): unknown => {
+    if (!rawVal.trim()) return undefined
+    switch (field.type) {
+      case 'user': return { accountId: rawVal }
+      case 'multiuser': return rawVal.split(',').map(id => ({ accountId: id.trim() })).filter(x => x.accountId)
+      case 'select': return field.options ? { id: rawVal } : { name: rawVal }
+      case 'multiselect': return rawVal.split(',').map(id => id.trim()).filter(Boolean).map(id => field.options ? { id } : { name: id })
+      case 'number': return isNaN(Number(rawVal)) ? rawVal : Number(rawVal)
+      default: return rawVal
+    }
+  }
+
   // ── Step 3 → 4: 計算操作計畫 ──
   const selectedRecords = sheetRecords.filter(r => selectedRows.has(Number(r._rowIndex)))
   const planCreate     = selectedRecords.filter(needsCreate)
@@ -614,11 +706,43 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       return
     }
 
+    // If we have dynamic Jira fields loaded, validate required fields first
+    if (jiraFields.length > 0 && !validateDynamicFields()) {
+      setSubmitting(false)
+      return
+    }
+
     // 驗證 Lark 欄位值是否為已知成員的 accountId（避免 email / displayName 直接送給 Jira）
     const knownIds = new Set(members.map(m => m.accountId))
     const validId = (val: string) => val && knownIds.has(val) ? val : ''
 
     const rows = planCreate.map(r => {
+      const rowIdx = Number(r._rowIndex)
+
+      if (jiraFields.length > 0) {
+        // New dynamic field mode: build dynamicFields from cellValues
+        const rowCells = cellValues[rowIdx] ?? {}
+        const dynamicFields: Record<string, unknown> = {}
+        for (const field of visibleJiraFields) {
+          if (field.key === 'summary') continue // handled separately
+          const rawVal = rowCells[field.key]?.trim()
+          if (!rawVal) continue
+          const formatted = formatDynamicFieldValue(field, rawVal)
+          if (formatted !== undefined) dynamicFields[field.key] = formatted
+        }
+        const summaryFromCell = rowCells['summary']?.trim()
+        return {
+          summary: (summaryFromCell || getField(r, SHEET_FIELD.summary)).replace(/[\r\n]+/g, ' ').trim(),
+          description: rowCells['description'] || getField(r, SHEET_FIELD.description),
+          assigneeAccountId: undefined,
+          rdOwnerAccountId: undefined,
+          verifierAccountIds: [] as string[],
+          rowIndex: rowIdx,
+          dynamicFields,
+        }
+      }
+
+      // Legacy mode: use hardcoded Lark field mappings
       const verifiers = getField(r, SHEET_FIELD.verifierAccountIds)
       const larkVerifierIds = verifiers
         ? verifiers.split(',').map(s => s.trim()).filter(s => knownIds.has(s))
@@ -634,7 +758,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
         localTestDone: getField(r, SHEET_FIELD.localTestDone) || undefined,
         stagingDeploy: getField(r, SHEET_FIELD.stagingDeploy) || undefined,
         releaseDate: getField(r, SHEET_FIELD.releaseDate) || undefined,
-        rowIndex: Number(r._rowIndex),
+        rowIndex: rowIdx,
       }
     })
 
@@ -1704,142 +1828,184 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       {step === 3 && (
         <div className="section-card">
           <h2 className="section-title">
-            Step 3 — 確認清單（
-            {Object.values(columnFilters).some(Boolean)
-              ? `篩選後 ${filteredRecords.length} / 共 ${sheetRecords.length} 筆`
-              : `${sheetRecords.length} 筆`}
-            ，已勾選 {selectedRows.size} 筆）
+            Step 3 — 填寫 Issue 欄位
+            {fieldsLoading && <span style={{ fontSize: 12, color: '#64748b', marginLeft: 8, fontWeight: 400 }}>載入欄位定義中...</span>}
+            {!fieldsLoading && jiraFields.length > 0 && (
+              <span style={{ fontSize: 12, color: '#475569', marginLeft: 8, fontWeight: 400 }}>
+                {filteredRecords.length} 筆 · 已勾選 {selectedRows.size} 筆
+              </span>
+            )}
           </h2>
 
-          {/* ── 人員設定（批次預設）+ 知識庫 ── */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
-            {/* 人員設定 */}
-            <div style={{ background: '#0f1a2e', border: '1px solid #1e3a5f', borderRadius: 10, padding: '14px 16px' }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#60a5fa', marginBottom: 4 }}>人員設定（批次預設）</div>
-              <div style={{ fontSize: 11, color: '#475569', marginBottom: 12 }}>此處設定優先於 Lark 表格欄位；未設定時才讀取表格內容。</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '90px 1fr', rowGap: 10, alignItems: 'center' }}>
+          {fieldsError && <div className="alert-warn" style={{ marginBottom: 12 }}>{fieldsError}</div>}
 
-                {/* 受託人 */}
-                <span style={{ fontSize: 13, color: '#94a3b8' }}>受託人</span>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                  {batchAssigneeIds.map(id => {
-                    const m = members.find(x => x.accountId === id)
-                    if (!m) return null
-                    return (
-                      <span key={id} className="member-chip">
-                        {m.avatarUrl && <img src={m.avatarUrl} alt={m.displayName} className="chip-avatar" />}
-                        {m.displayName}
-                        <button type="button" onClick={() => setBatchAssigneeIds([])}
-                          style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', marginLeft: 4, fontSize: 13, padding: 0, lineHeight: 1 }}>×</button>
-                      </span>
-                    )
-                  })}
-                  {batchAssigneeIds.length === 0 && (
-                    <select value="" onChange={e => e.target.value && setBatchAssigneeIds([e.target.value])}
-                      style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, background: '#1e293b', border: '1px solid #2d3f55', color: '#94a3b8', cursor: 'pointer' }}>
-                      <option value="">— 不設預設（沿用 Step 1 受託人）—</option>
-                      {members.map(m => <option key={m.accountId} value={m.accountId}>{m.displayName}</option>)}
-                    </select>
-                  )}
-                </div>
-
-                {/* RD 負責人 */}
-                <span style={{ fontSize: 13, color: '#94a3b8' }}>RD 負責人</span>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                  {batchRdOwnerIds.map(id => {
-                    const m = members.find(x => x.accountId === id)
-                    if (!m) return null
-                    return (
-                      <span key={id} className="member-chip">
-                        {m.avatarUrl && <img src={m.avatarUrl} alt={m.displayName} className="chip-avatar" />}
-                        {m.displayName}
-                        <button type="button" onClick={() => setBatchRdOwnerIds([])}
-                          style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', marginLeft: 4, fontSize: 13, padding: 0, lineHeight: 1 }}>×</button>
-                      </span>
-                    )
-                  })}
-                  {batchRdOwnerIds.length === 0 && (
-                    <select value="" onChange={e => e.target.value && setBatchRdOwnerIds([e.target.value])}
-                      style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, background: '#1e293b', border: '1px solid #2d3f55', color: '#94a3b8', cursor: 'pointer' }}>
-                      <option value="">— 不設預設 —</option>
-                      {members.map(m => <option key={m.accountId} value={m.accountId}>{m.displayName}</option>)}
-                    </select>
-                  )}
-                </div>
-
-                {/* 驗證人員 */}
-                <span style={{ fontSize: 13, color: '#94a3b8', alignSelf: 'flex-start', paddingTop: 6 }}>驗證人員</span>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-                  {batchVerifierIds.map(id => {
-                    const m = members.find(x => x.accountId === id)
-                    if (!m) return null
-                    return (
-                      <span key={id} className="member-chip">
-                        {m.avatarUrl && <img src={m.avatarUrl} alt={m.displayName} className="chip-avatar" />}
-                        {m.displayName}
-                        <button type="button" onClick={() => setBatchVerifierIds(prev => prev.filter(x => x !== id))}
-                          style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', marginLeft: 4, fontSize: 13, padding: 0, lineHeight: 1 }}>×</button>
-                      </span>
-                    )
-                  })}
-                  <select value="" onChange={e => { if (e.target.value && !batchVerifierIds.includes(e.target.value)) setBatchVerifierIds(prev => [...prev, e.target.value]) }}
-                    style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, background: '#1e293b', border: '1px solid #2d3f55', color: '#94a3b8', cursor: 'pointer' }}>
-                    <option value="">{batchVerifierIds.length === 0 ? '— 不設預設 —' : '+ 新增...'}</option>
-                    {members.filter(m => !batchVerifierIds.includes(m.accountId)).map(m => <option key={m.accountId} value={m.accountId}>{m.displayName}</option>)}
-                  </select>
-                </div>
-
-              </div>
-            </div>
-
-          </div>
-
-          {/* 欄位篩選器 */}
-          {filterableColumns.length > 0 && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, alignItems: 'center' }}>
-              <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>篩選：</span>
-              {filterableColumns.map(col => (
-                <label key={col} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>{col}</span>
-                  <select
-                    value={columnFilters[col] ?? ''}
-                    onChange={e => setColumnFilters(prev => ({ ...prev, [col]: e.target.value }))}
-                    style={{ fontSize: 12, padding: '2px 4px', borderRadius: 4 }}>
-                    <option value="">全部</option>
-                    {(columnUniqueValues[col] ?? []).map(v => (
-                      <option key={v} value={v}>{v}</option>
-                    ))}
-                  </select>
-                </label>
-              ))}
-              {Object.values(columnFilters).some(Boolean) && (
-                <button type="button"
-                  onClick={() => setColumnFilters({})}
-                  style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, border: '1px solid var(--border)', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
-                  清除篩選
-                </button>
-              )}
+          {/* Lark pre-fill hint */}
+          {jiraFields.length > 0 && (
+            <div style={{ background: '#162130', border: '1px solid #ca8a0440', borderRadius: 8, padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, color: '#fde047', fontWeight: 600 }}>💡 可選：從 Lark 帶入預填值</span>
+              <span style={{ fontSize: 11, color: '#64748b', flex: 1 }}>系統會嘗試用 Lark 欄名對應 Jira field，對不上的欄位需手動填寫。</span>
+              <button type="button"
+                style={{ fontSize: 12, padding: '5px 12px', borderRadius: 6, border: '1px solid #ca8a0460', background: larkPrefillApplied ? '#16a34a20' : '#ca8a0420', color: larkPrefillApplied ? '#4ade80' : '#fde047', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                onClick={applyLarkPrefill}>
+                {larkPrefillApplied ? '✓ 已帶入（可重新帶入）' : '📋 從 Lark 帶入'}
+              </button>
             </div>
           )}
 
-          {/* 操作計畫預覽 */}
+          {/* Validation error summary */}
+          {Object.keys(cellErrors).length > 0 && (
+            <div className="alert-warn" style={{ marginBottom: 12 }}>
+              {Object.keys(cellErrors).length} 列有必填欄位未填，請填寫後再執行
+            </div>
+          )}
+
+          {/* Operation plan preview */}
           {selectedRows.size > 0 && (
-            <div className="op-plan">
+            <div className="op-plan" style={{ marginBottom: 12 }}>
               <span className="op-plan-title">選取後將執行：</span>
-              {planCreate.length > 0 &&
-                <span className="badge badge--blue">➕ 建立 Issues {planCreate.length} 筆</span>}
-              {planComment.length > 0 &&
-                <span className="badge badge--ok">💬 添加評論 {planComment.length} 筆（已開單）</span>}
-              {planTransition.length > 0 &&
-                <span className="badge badge--purple">🔄 切換狀態 {planTransition.length} 筆（已評論）</span>}
+              {planCreate.length > 0 && <span className="badge badge--blue">➕ 建立 Issues {planCreate.length} 筆</span>}
+              {planComment.length > 0 && <span className="badge badge--ok">💬 添加評論 {planComment.length} 筆（已開單）</span>}
+              {planTransition.length > 0 && <span className="badge badge--purple">🔄 切換狀態 {planTransition.length} 筆（已評論）</span>}
             </div>
           )}
 
           {sheetRecords.length === 0
             ? <div className="alert-warn">沒有待處理的列（所有列皆已完成）</div>
-            : filteredRecords.length === 0
-            ? <div className="alert-warn">目前篩選條件無符合的列，請調整篩選</div>
-            : (
+            : jiraFields.length > 0 ? (
+              /* ── Dynamic field grid ── */
+              <div className="table-wrap" style={{ overflowX: 'auto' }}>
+                <table className="version-table" style={{ minWidth: 'max-content' }}>
+                  <thead>
+                    <tr>
+                      <th style={{ width: 36 }}>
+                        <input type="checkbox"
+                          checked={filteredRecords.length > 0 && filteredRecords.every(r => selectedRows.has(Number(r._rowIndex)))}
+                          onChange={() => {
+                            const allSelected = filteredRecords.every(r => selectedRows.has(Number(r._rowIndex)))
+                            setSelectedRows(prev => {
+                              const n = new Set(prev)
+                              filteredRecords.forEach(r => allSelected ? n.delete(Number(r._rowIndex)) : n.add(Number(r._rowIndex)))
+                              return n
+                            })
+                          }} />
+                      </th>
+                      <th style={{ width: 44 }}>#</th>
+                      <th style={{ width: 80 }}>階段</th>
+                      {requiredJiraFields.map(f => (
+                        <th key={f.key} style={{ minWidth: f.key === 'summary' ? 220 : 130 }}>
+                          {f.name} <span style={{ color: '#f87171' }}>*</span>
+                          <div style={{ fontSize: 10, color: '#475569', fontWeight: 400, fontFamily: 'monospace' }}>{f.type}</div>
+                        </th>
+                      ))}
+                      {activeOptionalJiraFields.map(f => (
+                        <th key={f.key} style={{ minWidth: 120, background: '#162138', borderLeft: '2px solid #334155' }}>
+                          <span style={{ color: '#93c5fd' }}>{f.name}</span>
+                          <button type="button"
+                            style={{ marginLeft: 4, background: 'none', border: 'none', color: '#475569', cursor: 'pointer', fontSize: 11, padding: '0 2px' }}
+                            title="移除此欄位"
+                            onClick={() => setActiveOptionalKeys(prev => prev.filter(k => k !== f.key))}>×</button>
+                          <div style={{ fontSize: 10, color: '#334155', fontWeight: 400, fontFamily: 'monospace' }}>{f.type}</div>
+                        </th>
+                      ))}
+                      {/* Add field column */}
+                      <th style={{ background: '#0e1e2e', position: 'relative', width: 80 }}>
+                        <div style={{ position: 'relative' }}>
+                          <button type="button"
+                            style={{ fontSize: 11, padding: '4px 8px', borderRadius: 5, border: '1px dashed #3b82f660', background: 'none', color: '#60a5fa', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                            onClick={() => setShowFieldPicker(v => !v)}>
+                            + 欄位
+                          </button>
+                          {showFieldPicker && inactiveOptionalJiraFields.length > 0 && (
+                            <div style={{ position: 'absolute', top: '100%', right: 0, background: '#1e293b', border: '1px solid #334155', borderRadius: 8, width: 240, zIndex: 100, boxShadow: '0 8px 24px rgba(0,0,0,0.5)', marginTop: 4 }}>
+                              <div style={{ padding: '8px 12px', borderBottom: '1px solid #334155', fontSize: 12, fontWeight: 600, color: '#94a3b8', display: 'flex', justifyContent: 'space-between' }}>
+                                新增選填欄位
+                                <button type="button" style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer' }} onClick={() => setShowFieldPicker(false)}>✕</button>
+                              </div>
+                              <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                                {inactiveOptionalJiraFields.map(f => (
+                                  <button key={f.key} type="button"
+                                    style={{ width: '100%', padding: '7px 12px', fontSize: 12, cursor: 'pointer', background: 'none', border: 'none', color: '#cbd5e1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }}
+                                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#2563eb15' }}
+                                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'none' }}
+                                    onClick={() => { setActiveOptionalKeys(prev => [...prev, f.key]); setShowFieldPicker(false) }}>
+                                    <span>{f.name}</span>
+                                    <span style={{ color: '#475569', fontSize: 10, fontFamily: 'monospace' }}>{f.type}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {showFieldPicker && inactiveOptionalJiraFields.length === 0 && (
+                            <div style={{ position: 'absolute', top: '100%', right: 0, background: '#1e293b', border: '1px solid #334155', borderRadius: 8, width: 200, zIndex: 100, padding: '10px 12px', fontSize: 12, color: '#64748b', marginTop: 4 }}>
+                              所有可用欄位都已加入
+                            </div>
+                          )}
+                        </div>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredRecords.map(r => {
+                      const rowIdx = Number(r._rowIndex)
+                      const rowCells = cellValues[rowIdx] ?? {}
+                      const rowErrors = cellErrors[rowIdx] ?? {}
+                      const hasRowError = Object.keys(rowErrors).length > 0
+                      return (
+                        <tr key={rowIdx} style={hasRowError ? { background: 'rgba(239,68,68,0.05)' } : undefined}>
+                          <td>
+                            <input type="checkbox"
+                              checked={selectedRows.has(rowIdx)}
+                              onChange={() => toggleRow(rowIdx)} />
+                          </td>
+                          <td style={{ color: '#94a3b8', fontSize: 12 }}>{rowIdx}</td>
+                          <td><span className={stageBadgeClass(r)}>{stageLabel(r)}</span></td>
+                          {visibleJiraFields.map(field => {
+                            const val = rowCells[field.key] ?? ''
+                            const err = rowErrors[field.key]
+                            const inputStyle: React.CSSProperties = {
+                              width: '100%', background: '#0f172a', border: `1px solid ${err ? '#ef4444' : '#2d3f55'}`,
+                              borderRadius: 5, color: '#e2e8f0', fontSize: 12, padding: '4px 7px', outline: 'none',
+                              minWidth: field.key === 'summary' ? 200 : 100,
+                            }
+                            return (
+                              <td key={field.key} style={field.required ? undefined : { background: '#0e1e2e' }}>
+                                {(field.type === 'select' && field.options) ? (
+                                  <select value={val} onChange={e => setCellValue(rowIdx, field.key, e.target.value)}
+                                    style={{ ...inputStyle, cursor: 'pointer' }}>
+                                    <option value="">— 選擇 —</option>
+                                    {field.options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                                  </select>
+                                ) : (field.type === 'user' || field.type === 'multiuser') ? (
+                                  <select value={val} onChange={e => setCellValue(rowIdx, field.key, e.target.value)}
+                                    style={{ ...inputStyle, cursor: 'pointer' }}>
+                                    <option value="">— 選擇 —</option>
+                                    {members.map(m => <option key={m.accountId} value={m.accountId}>{m.displayName}</option>)}
+                                  </select>
+                                ) : field.type === 'text' ? (
+                                  <textarea value={val} onChange={e => setCellValue(rowIdx, field.key, e.target.value)}
+                                    style={{ ...inputStyle, minHeight: 40, resize: 'vertical' }} />
+                                ) : field.type === 'date' ? (
+                                  <input type="date" value={val} onChange={e => setCellValue(rowIdx, field.key, e.target.value)}
+                                    style={{ ...inputStyle, colorScheme: 'dark' }} />
+                                ) : (
+                                  <input type={field.type === 'number' ? 'number' : 'text'}
+                                    value={val} onChange={e => setCellValue(rowIdx, field.key, e.target.value)}
+                                    placeholder={field.required ? '' : '可選填'}
+                                    style={inputStyle} />
+                                )}
+                                {err && <div style={{ fontSize: 10, color: '#f87171', marginTop: 2 }}>{err}</div>}
+                              </td>
+                            )
+                          })}
+                          <td style={{ background: '#0e1e2e' }} />
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : !fieldsLoading ? (
+              /* Fallback: show Lark data if fields failed to load */
               <div className="table-wrap">
                 <table className="version-table">
                   <thead>
@@ -1864,11 +2030,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                   <tbody>
                     {filteredRecords.map(r => (
                       <tr key={r._rowIndex}>
-                        <td>
-                          <input type="checkbox"
-                            checked={selectedRows.has(Number(r._rowIndex))}
-                            onChange={() => toggleRow(Number(r._rowIndex))} />
-                        </td>
+                        <td><input type="checkbox" checked={selectedRows.has(Number(r._rowIndex))} onChange={() => toggleRow(Number(r._rowIndex))} /></td>
                         <td style={{ color: '#94a3b8', fontSize: 12 }}>{r._rowIndex}</td>
                         <td><span className={stageBadgeClass(r)}>{stageLabel(r)}</span></td>
                         {sheetHeaders.map(h => {
@@ -1890,16 +2052,20 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                   </tbody>
                 </table>
               </div>
-            )}
-          <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+            ) : null}
+
+          <div style={{ display: 'flex', gap: 10, marginTop: 16, alignItems: 'center' }}>
             <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(2)}>上一步</button>
             <button type="button"
               className={`submit-btn submit-btn--step${submitting ? ' loading' : ''}`}
               style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
-              disabled={selectedRows.size === 0 || submitting || !currentAccount}
+              disabled={selectedRows.size === 0 || submitting || !currentAccount || fieldsLoading}
               onClick={handleCreate}>
               {submitting ? '處理中...' : `開始執行（${selectedRows.size} 筆）`}
             </button>
+            {Object.keys(cellErrors).length > 0 && (
+              <span style={{ fontSize: 12, color: '#f87171' }}>{Object.keys(cellErrors).length} 列有必填未填</span>
+            )}
           </div>
         </div>
       )}

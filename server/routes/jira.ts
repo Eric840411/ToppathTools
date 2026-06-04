@@ -96,6 +96,7 @@ const batchCreateSchema = z.object({
       localTestDone: z.string().optional(),
       stagingDeploy: z.string().optional(),
       releaseDate: z.string().optional(),
+      dynamicFields: z.record(z.unknown()).optional().default({}),
       rowIndex: z.number(),
     }),
   ),
@@ -611,6 +612,100 @@ router.get('/api/jira/issuetypes', async (req, res, next) => {
   }
 })
 
+// ─── Jira dynamic field meta (createmeta proxy) ───────────────────────────────
+
+interface NormalizedJiraField {
+  key: string
+  name: string
+  required: boolean
+  type: 'string' | 'text' | 'number' | 'date' | 'datetime' | 'select' | 'multiselect' | 'user' | 'multiuser' | 'unknown'
+  options?: { id: string; label: string }[]
+}
+
+const SKIP_FIELD_KEYS = new Set(['issuetype', 'project', 'reporter', 'parent', 'attachment', 'issuelinks', 'subtasks', 'worklog', 'comment', 'thumbnail', 'timetracking', 'timespent', 'timeestimate', 'aggregatetimespent', 'aggregatetimeestimate'])
+// Field meta cache: `projectKey:issueTypeName` → { fields, expiresAt }
+const fieldMetaCache = new Map<string, { fields: NormalizedJiraField[]; expiresAt: number }>()
+
+function normalizeJiraField(key: string, meta: Record<string, unknown>): NormalizedJiraField | null {
+  if (SKIP_FIELD_KEYS.has(key)) return null
+  const name = (meta.name as string) || key
+  const required = !!(meta.required)
+  const schema = meta.schema as Record<string, unknown> | undefined
+  const schemaType = schema?.type as string | undefined
+  const schemaItems = schema?.items as string | undefined
+  const schemaCustom = schema?.custom as string | undefined
+  const allowedValues = meta.allowedValues as Array<{ id?: string; name?: string; value?: string }> | undefined
+
+  let type: NormalizedJiraField['type'] = 'string'
+  if (allowedValues && allowedValues.length > 0) {
+    type = schemaType === 'array' ? 'multiselect' : 'select'
+  } else if (schemaType === 'array' && schemaItems === 'user') {
+    type = 'multiuser'
+  } else if (schemaType === 'user') {
+    type = 'user'
+  } else if (schemaType === 'date') {
+    type = 'date'
+  } else if (schemaType === 'datetime') {
+    type = 'datetime'
+  } else if (schemaType === 'number') {
+    type = 'number'
+  } else if (schemaCustom?.includes('textarea') || key === 'description' || key === 'environment') {
+    type = 'text'
+  }
+
+  const field: NormalizedJiraField = { key, name, required, type }
+  if (allowedValues && allowedValues.length > 0) {
+    field.options = allowedValues
+      .map(v => ({ id: v.id ?? v.name ?? v.value ?? '', label: v.name ?? v.value ?? v.id ?? '' }))
+      .filter(o => o.id)
+  }
+  return field
+}
+
+// GET /api/jira/fields?projectKey=X&issueTypeName=Y
+router.get('/api/jira/fields', async (req, res, next) => {
+  try {
+    const userAuth = userJiraAuth(req)
+    if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
+    const projectKey = String(req.query.projectKey ?? '').trim()
+    const issueTypeName = String(req.query.issueTypeName ?? '').trim()
+    if (!projectKey || !issueTypeName) return res.status(400).json({ ok: false, message: 'projectKey 和 issueTypeName 為必填' })
+
+    const cacheKey = `${projectKey}:${issueTypeName}`
+    const cached = fieldMetaCache.get(cacheKey)
+    if (cached && cached.expiresAt > Date.now()) {
+      return res.json({ ok: true, fields: cached.fields, fromCache: true })
+    }
+
+    const baseUrl = mustEnv('JIRA_BASE_URL')
+    const url = `${baseUrl}/rest/api/2/issue/createmeta?projectKeys=${encodeURIComponent(projectKey)}&issuetypeNames=${encodeURIComponent(issueTypeName)}&expand=projects.issuetypes.fields`
+    const resp = await fetch(url, { headers: { Authorization: userAuth.auth, Accept: 'application/json' } })
+    if (!resp.ok) return res.status(resp.status).json({ ok: false, message: `Jira createmeta API error: ${resp.status}` })
+
+    const data = await resp.json() as { projects?: Array<{ issuetypes?: Array<{ fields?: Record<string, Record<string, unknown>> }> }> }
+    const rawFields = data.projects?.[0]?.issuetypes?.[0]?.fields ?? {}
+
+    const fields: NormalizedJiraField[] = []
+    for (const [key, meta] of Object.entries(rawFields)) {
+      const normalized = normalizeJiraField(key, meta)
+      if (normalized) fields.push(normalized)
+    }
+    // Sort: required first, summary always first among required
+    fields.sort((a, b) => {
+      if (a.key === 'summary') return -1
+      if (b.key === 'summary') return 1
+      if (a.required && !b.required) return -1
+      if (!a.required && b.required) return 1
+      return a.name.localeCompare(b.name)
+    })
+
+    fieldMetaCache.set(cacheKey, { fields, expiresAt: Date.now() + 10 * 60 * 1000 })
+    res.json({ ok: true, fields })
+  } catch (error) {
+    next(error)
+  }
+})
+
 // POST /api/lark/sheets/records
 router.post('/api/lark/sheets/records', async (req, res, next) => {
   try {
@@ -796,6 +891,14 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
           // Jira date-only field expects YYYY-MM-DD; normalise slash format from Lark
           const relDt = toJiraDateTime(row.releaseDate)
           if (relDt) fields.customfield_10438 = relDt.slice(0, 10)  // take only YYYY-MM-DD
+        }
+
+        // Merge dynamic fields from the new field-grid UI (skip reserved keys)
+        const RESERVED_JIRA_KEYS = new Set(['project', 'issuetype', 'summary'])
+        for (const [key, value] of Object.entries(row.dynamicFields ?? {})) {
+          if (!RESERVED_JIRA_KEYS.has(key) && value !== '' && value !== null && value !== undefined) {
+            fields[key] = value
+          }
         }
 
         const resp = await fetch(`${baseUrl}/rest/api/3/issue`, {

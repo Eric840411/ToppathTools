@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.38.5'
+export const APP_VERSION = '3.39.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,19 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.39.0',
+    date: '2026-06-04',
+    changes: [
+      'feat(jira): Step 3 動態欄位 Grid — 從 Jira createmeta 取得所有可用欄位，逐列填寫取代硬編欄位對應',
+      'feat(jira): 新增 GET /api/jira/fields 端點（10 分鐘 in-memory cache），後端 proxy Jira createmeta + normalize schema',
+      'feat(jira): 支援欄位類型渲染：select / multi-select / user / date / text / string / number',
+      'feat(jira): + 欄位 Picker — 選填欄位可按需加入 Grid 列',
+      'feat(jira): Lark 預填按鈕 — 用 Lark 欄名對應 Jira field name，對不上的自動忽略',
+      'feat(jira): Per-row 必填驗證 — 送出前逐列檢查必填欄位，inline 標紅提示',
+      'feat(jira): batch-create 支援 dynamicFields per row，後端透明 merge 至 Jira fields payload',
+    ],
+  },
   {
     version: '3.38.5',
     date: '2026-06-03',
