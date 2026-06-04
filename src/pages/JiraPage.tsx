@@ -2080,8 +2080,16 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                                   <input type="date" value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
                                     style={{ ...bulkInputStyle, colorScheme: 'dark' }} />
                                 ) : field.type === 'datetime' ? (
-                                  <input type="datetime-local" value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
-                                    style={{ ...bulkInputStyle, colorScheme: 'dark', minWidth: 160 }} />
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                    <input type="date" value={bVal.split('T')[0] ?? ''} onChange={e => {
+                                      const t = bVal.split('T')[1] ?? '00:00'
+                                      setBulkValues(p => ({ ...p, [field.key]: `${e.target.value}T${t}` }))
+                                    }} style={{ ...bulkInputStyle, colorScheme: 'dark' }} />
+                                    <input type="time" value={bVal.split('T')[1] ?? ''} onChange={e => {
+                                      const d = bVal.split('T')[0] ?? ''
+                                      setBulkValues(p => ({ ...p, [field.key]: `${d}T${e.target.value}` }))
+                                    }} style={{ ...bulkInputStyle, colorScheme: 'dark' }} />
+                                  </div>
                                 ) : field.type === 'text' ? (
                                   <textarea value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
                                     style={{ ...bulkInputStyle, resize: 'vertical', minHeight: 36 }} />
@@ -2170,8 +2178,16 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                                   <input type="date" value={val} onChange={e => setCellValue(rowIdx, field.key, e.target.value)}
                                     style={{ ...inputStyle, colorScheme: 'dark' }} />
                                 ) : field.type === 'datetime' ? (
-                                  <input type="datetime-local" value={val} onChange={e => setCellValue(rowIdx, field.key, e.target.value)}
-                                    style={{ ...inputStyle, colorScheme: 'dark', minWidth: 160 }} />
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3, minWidth: 130 }}>
+                                    <input type="date" value={val.split('T')[0] ?? ''} onChange={e => {
+                                      const t = val.split('T')[1] ?? '00:00'
+                                      setCellValue(rowIdx, field.key, `${e.target.value}T${t}`)
+                                    }} style={{ ...inputStyle, colorScheme: 'dark' }} />
+                                    <input type="time" value={val.split('T')[1] ?? ''} onChange={e => {
+                                      const d = val.split('T')[0] ?? ''
+                                      setCellValue(rowIdx, field.key, `${d}T${e.target.value}`)
+                                    }} style={{ ...inputStyle, colorScheme: 'dark' }} />
+                                  </div>
                                 ) : (
                                   <input type={field.type === 'number' ? 'number' : 'text'}
                                     value={val} onChange={e => setCellValue(rowIdx, field.key, e.target.value)}
