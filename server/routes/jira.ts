@@ -165,16 +165,19 @@ export function extractAdfText(node: unknown): string {
 }
 
 /** 將純文字（含換行）轉成 Jira ADF 段落，正確保留多行結構 */
-const textToADF = (text: string) => ({
-  type: 'doc',
-  version: 1,
-  content: text.split('\n').map(line => ({
-    type: 'paragraph',
-    content: line.trim()
-      ? [{ type: 'text', text: line }]
-      : [],
-  })),
-})
+const textToADF = (text: string) => {
+  if (!text || !text.trim()) {
+    return { type: 'doc', version: 1, content: [{ type: 'paragraph', content: [] }] }
+  }
+  return {
+    type: 'doc',
+    version: 1,
+    content: text.split('\n').map(line => ({
+      type: 'paragraph',
+      content: line.trim() ? [{ type: 'text', text: line }] : [],
+    })),
+  }
+}
 
 /** 從 Lark 分享連結或 Drive URL 中提取 file_token */
 function parseLarkFileToken(url: string): string | null {
@@ -885,11 +888,7 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
           project: { id: projectId },
           issuetype: { id: issueTypeId },
           summary: row.summary.replace(/[\r\n]+/g, ' ').trim(),
-          description: {
-            type: 'doc',
-            version: 1,
-            content: [{ type: 'paragraph', content: [{ type: 'text', text: row.description || '' }] }],
-          },
+          description: textToADF(row.description || ''),
         }
 
         if (row.assigneeAccountId) fields.assignee = { accountId: row.assigneeAccountId }
@@ -916,11 +915,15 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
 
         // Merge dynamic fields from the new field-grid UI (skip reserved keys)
         // For string values that look like dates/datetimes, normalise to Jira format via toJiraDateTime
+        // ADF fields (description, environment) must be wrapped in textToADF()
         const RESERVED_JIRA_KEYS = new Set(['project', 'issuetype', 'summary'])
+        const ADF_FIELD_KEYS = new Set(['description', 'environment'])
         const DATE_LIKE = /^\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}([T\s]\d{1,2}:\d{2})?$/
         for (const [key, value] of Object.entries(row.dynamicFields ?? {})) {
           if (!RESERVED_JIRA_KEYS.has(key) && value !== '' && value !== null && value !== undefined) {
-            if (typeof value === 'string' && DATE_LIKE.test(value.trim())) {
+            if (ADF_FIELD_KEYS.has(key) && typeof value === 'string') {
+              fields[key] = textToADF(value)
+            } else if (typeof value === 'string' && DATE_LIKE.test(value.trim())) {
               const converted = toJiraDateTime(value)
               fields[key] = converted ?? value
             } else {

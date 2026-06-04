@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.39.12'
+export const APP_VERSION = '3.39.13'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.39.13',
+    date: '2026-06-04',
+    changes: [
+      'fix(jira): description 欄位經由動態欄位對應時自動包裝成 ADF，解決「欄位值不是有效的 ADF 內容」錯誤',
+    ],
+  },
   {
     version: '3.39.12',
     date: '2026-06-04',
