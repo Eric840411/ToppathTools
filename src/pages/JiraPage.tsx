@@ -241,6 +241,24 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set())
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({})
 
+  // Auto-detect filterable columns: 2–15 unique non-empty values
+  const filterableColumns = useMemo(() => {
+    if (!sheetRecords.length) return []
+    return sheetHeaders.filter(h => {
+      const vals = [...new Set(sheetRecords.map(r => (r[h] ?? '').trim()).filter(Boolean))]
+      return vals.length >= 2 && vals.length <= 15
+    })
+  }, [sheetHeaders, sheetRecords])
+
+  // Unique values per filterable column (for dropdown options)
+  const columnUniqueValues = useMemo<Record<string, string[]>>(() => {
+    const result: Record<string, string[]> = {}
+    for (const h of filterableColumns) {
+      result[h] = [...new Set(sheetRecords.map(r => (r[h] ?? '').trim()).filter(Boolean))].sort()
+    }
+    return result
+  }, [filterableColumns, sheetRecords])
+
   // Apply column filters to records
   const filteredRecords = useMemo(() => {
     return sheetRecords.filter(r =>
@@ -1869,6 +1887,34 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
           {Object.keys(cellErrors).length > 0 && (
             <div className="alert-warn" style={{ marginBottom: 12 }}>
               {Object.keys(cellErrors).length} 列有必填欄位未填，請填寫後再執行
+            </div>
+          )}
+
+          {/* 欄位篩選器 */}
+          {filterableColumns.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>篩選：</span>
+              {filterableColumns.map(col => (
+                <label key={col} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                  <span style={{ color: 'var(--text-muted)' }}>{col}</span>
+                  <select
+                    value={columnFilters[col] ?? ''}
+                    onChange={e => setColumnFilters(prev => ({ ...prev, [col]: e.target.value }))}
+                    style={{ fontSize: 12, padding: '2px 4px', borderRadius: 4 }}>
+                    <option value="">全部</option>
+                    {(columnUniqueValues[col] ?? []).map(v => (
+                      <option key={v} value={v}>{v}</option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+              {Object.values(columnFilters).some(Boolean) && (
+                <button type="button"
+                  onClick={() => setColumnFilters({})}
+                  style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, border: '1px solid var(--border)', background: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}>
+                  清除篩選
+                </button>
+              )}
             </div>
           )}
 
