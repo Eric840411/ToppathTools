@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.39.0'
+export const APP_VERSION = '3.39.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.39.1',
+    date: '2026-06-04',
+    changes: [
+      'fix(jira): multiuser 欄位改為 chips + 下拉多選，可新增/移除多位成員',
+      'fix(jira): datetime 欄位改用 datetime-local input，格式 2026-05-21 11:00',
+      'feat(jira): Step 3 批量填入行 — 每欄有輸入框 + ⬇ 全套按鈕，一鍵套用至所有篩選列',
+    ],
+  },
   {
     version: '3.39.0',
     date: '2026-06-04',

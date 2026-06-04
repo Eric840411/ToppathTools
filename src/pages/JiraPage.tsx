@@ -294,6 +294,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const [cellErrors, setCellErrors] = useState<Record<number, Record<string, string>>>({})
   const [showFieldPicker, setShowFieldPicker] = useState(false)
   const [larkPrefillApplied, setLarkPrefillApplied] = useState(false)
+  const [bulkValues, setBulkValues] = useState<Record<string, string>>({})
 
   const [commentSubmitting, setCommentSubmitting] = useState(false)
   const [pendingCommentRequestId, setPendingCommentRequestId] = useState('')
@@ -651,6 +652,17 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
     })
   }
 
+  const applyBulkColumn = (fieldKey: string, val: string) => {
+    setCellValues(prev => {
+      const next = { ...prev }
+      for (const r of filteredRecords) {
+        const rowIdx = Number(r._rowIndex)
+        next[rowIdx] = { ...(next[rowIdx] ?? {}), [fieldKey]: val }
+      }
+      return next
+    })
+  }
+
   const applyLarkPrefill = () => {
     const newVals: Record<number, Record<string, string>> = {}
     for (const record of filteredRecords) {
@@ -701,8 +713,16 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       case 'select': return field.options ? { id: rawVal } : { name: rawVal }
       case 'multiselect': return rawVal.split(',').map(id => id.trim()).filter(Boolean).map(id => field.options ? { id } : { name: id })
       case 'number': return isNaN(Number(rawVal)) ? rawVal : Number(rawVal)
+      case 'datetime': return rawVal.includes('T') ? rawVal.replace('T', ' ') : rawVal
       default: return rawVal
     }
+  }
+
+  // Toggle a member accountId in a comma-separated multiuser cell value
+  const toggleMultiuser = (rowIdx: number, fieldKey: string, accountId: string) => {
+    const cur = (cellValues[rowIdx]?.[fieldKey] ?? '').split(',').map(s => s.trim()).filter(Boolean)
+    const next = cur.includes(accountId) ? cur.filter(id => id !== accountId) : [...cur, accountId]
+    setCellValue(rowIdx, fieldKey, next.join(','))
   }
 
   // ── Step 3 → 4: 計算操作計畫 ──
@@ -2008,6 +2028,82 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                         </div>
                       </th>
                     </tr>
+                    {/* Bulk-fill row */}
+                    <tr style={{ background: '#0d1f30', borderBottom: '2px solid #1e3a5f' }}>
+                      <th colSpan={3} style={{ padding: '4px 8px', fontSize: 11, color: '#60a5fa', whiteSpace: 'nowrap', fontWeight: 500 }}>批量填入 →</th>
+                      {visibleJiraFields.map(field => {
+                        const bVal = bulkValues[field.key] ?? ''
+                        const bulkInputStyle: React.CSSProperties = { width: '100%', background: '#0f172a', border: '1px solid #1e3a5f', borderRadius: 5, color: '#e2e8f0', fontSize: 12, padding: '3px 6px', outline: 'none', minWidth: field.key === 'summary' ? 200 : 100 }
+                        const bulkSelectedIds = field.type === 'multiuser' ? bVal.split(',').map(s => s.trim()).filter(Boolean) : []
+                        return (
+                          <th key={field.key} style={{ padding: '4px 6px', fontWeight: 400, background: bVal ? '#162130' : undefined }}>
+                            <div style={{ display: 'flex', gap: 4, alignItems: 'flex-start' }}>
+                              <div style={{ flex: 1 }}>
+                                {(field.type === 'select' && field.options) ? (
+                                  <select value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
+                                    style={{ ...bulkInputStyle, cursor: 'pointer' }}>
+                                    <option value="">— 批量 —</option>
+                                    {field.options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+                                  </select>
+                                ) : field.type === 'multiuser' ? (
+                                  <div>
+                                    {bulkSelectedIds.map(id => {
+                                      const m = members.find(x => x.accountId === id)
+                                      return (
+                                        <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#1e3a5f', borderRadius: 4, padding: '1px 5px', margin: '2px 2px', fontSize: 11, color: '#93c5fd' }}>
+                                          {m?.displayName ?? id}
+                                          <button type="button" onClick={() => {
+                                            const next = bulkSelectedIds.filter(x => x !== id)
+                                            setBulkValues(p => ({ ...p, [field.key]: next.join(',') }))
+                                          }} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: 0 }}>×</button>
+                                        </span>
+                                      )
+                                    })}
+                                    <select value="" onChange={e => {
+                                      if (!e.target.value) return
+                                      const next = [...bulkSelectedIds, e.target.value]
+                                      setBulkValues(p => ({ ...p, [field.key]: next.join(',') }))
+                                    }} style={{ ...bulkInputStyle, marginTop: bulkSelectedIds.length ? 3 : 0, cursor: 'pointer' }}>
+                                      <option value="">+ 批量新增</option>
+                                      {members.filter(m => !bulkSelectedIds.includes(m.accountId)).map(m => (
+                                        <option key={m.accountId} value={m.accountId}>{m.displayName}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                ) : field.type === 'user' ? (
+                                  <select value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
+                                    style={{ ...bulkInputStyle, cursor: 'pointer' }}>
+                                    <option value="">— 批量 —</option>
+                                    {members.map(m => <option key={m.accountId} value={m.accountId}>{m.displayName}</option>)}
+                                  </select>
+                                ) : field.type === 'date' ? (
+                                  <input type="date" value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
+                                    style={{ ...bulkInputStyle, colorScheme: 'dark' }} />
+                                ) : field.type === 'datetime' ? (
+                                  <input type="datetime-local" value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
+                                    style={{ ...bulkInputStyle, colorScheme: 'dark', minWidth: 160 }} />
+                                ) : field.type === 'text' ? (
+                                  <textarea value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
+                                    style={{ ...bulkInputStyle, resize: 'vertical', minHeight: 36 }} />
+                                ) : (
+                                  <input type={field.type === 'number' ? 'number' : 'text'} value={bVal}
+                                    onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
+                                    placeholder="批量填入" style={bulkInputStyle} />
+                                )}
+                              </div>
+                              {bVal && (
+                                <button type="button" title={`套用至所有 ${filteredRecords.length} 列`}
+                                  onClick={() => applyBulkColumn(field.key, bVal)}
+                                  style={{ fontSize: 11, padding: '3px 6px', borderRadius: 4, border: '1px solid #2563eb60', background: '#2563eb20', color: '#60a5fa', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0, marginTop: 1 }}>
+                                  ⬇ 全套
+                                </button>
+                              )}
+                            </div>
+                          </th>
+                        )
+                      })}
+                      <th />
+                    </tr>
                   </thead>
                   <tbody>
                     {filteredRecords.map(r => {
@@ -2032,6 +2128,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                               borderRadius: 5, color: '#e2e8f0', fontSize: 12, padding: '4px 7px', outline: 'none',
                               minWidth: field.key === 'summary' ? 200 : 100,
                             }
+                            const selectedIds = field.type === 'multiuser' ? val.split(',').map(s => s.trim()).filter(Boolean) : []
                             return (
                               <td key={field.key} style={field.required ? undefined : { background: '#0e1e2e' }}>
                                 {(field.type === 'select' && field.options) ? (
@@ -2040,7 +2137,27 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                                     <option value="">— 選擇 —</option>
                                     {field.options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
                                   </select>
-                                ) : (field.type === 'user' || field.type === 'multiuser') ? (
+                                ) : field.type === 'multiuser' ? (
+                                  <div style={{ minWidth: 140 }}>
+                                    {selectedIds.map(id => {
+                                      const m = members.find(x => x.accountId === id)
+                                      return (
+                                        <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, background: '#1e3a5f', border: '1px solid #2563eb40', borderRadius: 4, padding: '1px 5px', margin: '2px 2px', fontSize: 11, color: '#93c5fd' }}>
+                                          {m?.displayName ?? id}
+                                          <button type="button" onClick={() => toggleMultiuser(rowIdx, field.key, id)}
+                                            style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: 0 }}>×</button>
+                                        </span>
+                                      )
+                                    })}
+                                    <select value="" onChange={e => { if (e.target.value) toggleMultiuser(rowIdx, field.key, e.target.value) }}
+                                      style={{ ...inputStyle, marginTop: selectedIds.length ? 3 : 0, cursor: 'pointer' }}>
+                                      <option value="">+ 新增成員</option>
+                                      {members.filter(m => !selectedIds.includes(m.accountId)).map(m => (
+                                        <option key={m.accountId} value={m.accountId}>{m.displayName}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                ) : field.type === 'user' ? (
                                   <select value={val} onChange={e => setCellValue(rowIdx, field.key, e.target.value)}
                                     style={{ ...inputStyle, cursor: 'pointer' }}>
                                     <option value="">— 選擇 —</option>
@@ -2052,6 +2169,9 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                                 ) : field.type === 'date' ? (
                                   <input type="date" value={val} onChange={e => setCellValue(rowIdx, field.key, e.target.value)}
                                     style={{ ...inputStyle, colorScheme: 'dark' }} />
+                                ) : field.type === 'datetime' ? (
+                                  <input type="datetime-local" value={val} onChange={e => setCellValue(rowIdx, field.key, e.target.value)}
+                                    style={{ ...inputStyle, colorScheme: 'dark', minWidth: 160 }} />
                                 ) : (
                                   <input type={field.type === 'number' ? 'number' : 'text'}
                                     value={val} onChange={e => setCellValue(rowIdx, field.key, e.target.value)}
