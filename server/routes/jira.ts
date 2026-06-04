@@ -1240,7 +1240,7 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
         }
 
         // 影片連結附加到評論內文
-        if (videoLinks.length > 0) {
+        if (item.useAi && videoLinks.length > 0) {
           commentText = (commentText ? commentText + '\n\n' : '') +
             '📎 影片連結：\n' + videoLinks.map(u => `• ${u}`).join('\n')
         }
@@ -1278,7 +1278,7 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
                   console.warn(`[batch-comment] ${item.issueKey} 附件上傳失敗 (${att.url}):`, attErr)
                 }
               }
-              console.log(`[batch-comment] ${item.issueKey} 附件：${attachOk} 成功${attachFail > 0 ? `，${attachFail} 失敗` : ''}${videoLinks.length > 0 ? `，${videoLinks.length} 影片寫入評論` : ''}`)
+              console.log(`[batch-comment] ${item.issueKey} 附件：${attachOk} 成功${attachFail > 0 ? `，${attachFail} 失敗` : ''}${item.useAi && videoLinks.length > 0 ? `，${videoLinks.length} 影片寫入評論` : ''}`)
             }
             results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: true, usedAi })
           }

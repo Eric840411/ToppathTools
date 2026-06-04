@@ -954,7 +954,11 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       const attachmentUrls = rawAttachText
         ? rawAttachText.split(/[\n,]/).map(s => s.trim()).filter(Boolean)
         : []
-      const rawComment = record ? buildAiCommentRawText(record, commentColumn) : ''
+      const rawComment = record
+        ? useAiComment
+          ? buildAiCommentRawText(record, commentColumn)
+          : getField(record, commentColumn)
+        : ''
       return {
         issueKey: issue.issueKey,
         rowIndex: issue.rowIndex,
