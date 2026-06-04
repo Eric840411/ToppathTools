@@ -750,7 +750,9 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       })),
     ]
 
+    console.log('[batch-create] planCreate:', planCreate.length, 'planComment:', planComment.length, 'planTransition:', planTransition.length)
     if (planCreate.length === 0) {
+      console.log('[batch-create] nothing to create, going to step 4')
       setTrackedIssues(preExisting)
       setStep(4)
       setSubmitting(false)
@@ -814,12 +816,20 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
     })
 
     try {
+      console.log('[batch-create] sending rows:', rows.length, 'rows[0]:', rows[0])
       const resp = await fetch('/api/jira/batch-create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...emailHeader },
         body: JSON.stringify({ rows, sheetUrl, projectId: selectedProjectId, issueTypeId: selectedIssueTypeId }),
       })
       const data = await resp.json()
+      console.log('[batch-create] response:', data)
+      if (!resp.ok || (!data.results && data.message)) {
+        setCreateResults([{ rowIndex: 0, error: data.message ?? `HTTP ${resp.status}` }])
+        setStep(4)
+        setSubmitting(false)
+        return
+      }
       const results: IssueCreateResult[] = data.results ?? []
       const succeeded = results.filter(r => r.issueKey)
 
