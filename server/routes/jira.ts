@@ -534,13 +534,22 @@ router.get('/api/jira/members', async (req, res, next) => {
     const projectKey = req.query.projectKey as string | undefined
 
     if (projectKey) {
-      const resp = await fetch(
-        `${baseUrl}/rest/api/3/user/assignable/search?project=${encodeURIComponent(projectKey)}&maxResults=100`,
-        { headers: { Authorization: userAuth.auth, Accept: 'application/json' } }
-      )
-      if (!resp.ok) return res.status(resp.status).json({ ok: false, message: `Jira API error: ${resp.status}` })
-      const data = await resp.json() as Array<{ accountId: string; displayName?: string; avatarUrls?: Record<string, string> }>
-      const members = (Array.isArray(data) ? data : [])
+      const allUsers: Array<{ accountId: string; displayName?: string; avatarUrls?: Record<string, string> }> = []
+      let startAt = 0
+      const pageSize = 100
+      while (true) {
+        const resp = await fetch(
+          `${baseUrl}/rest/api/3/user/assignable/search?project=${encodeURIComponent(projectKey)}&maxResults=${pageSize}&startAt=${startAt}`,
+          { headers: { Authorization: userAuth.auth, Accept: 'application/json' } }
+        )
+        if (!resp.ok) return res.status(resp.status).json({ ok: false, message: `Jira API error: ${resp.status}` })
+        const data = await resp.json() as Array<{ accountId: string; displayName?: string; avatarUrls?: Record<string, string> }>
+        if (!Array.isArray(data) || data.length === 0) break
+        allUsers.push(...data)
+        if (data.length < pageSize) break
+        startAt += pageSize
+      }
+      const members = allUsers
         .filter(u => u.accountId && !u.accountId.startsWith('qm:'))
         .map(u => ({
           accountId: u.accountId,

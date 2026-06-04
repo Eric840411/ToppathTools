@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.39.11'
+export const APP_VERSION = '3.39.12'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.39.12',
+    date: '2026-06-04',
+    changes: [
+      'fix(jira): 專案人員名單改為分頁拉取（每頁 100），解決超過 100 人顯示不完整',
+    ],
+  },
   {
     version: '3.39.11',
     date: '2026-06-04',
