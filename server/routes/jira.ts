@@ -1494,11 +1494,18 @@ router.post('/api/jira/pm-batch-create', heavyLimiter, async (req, res, next) =>
       const larkToken = await getLarkToken()
       const larkBase = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
 
-      const projResp = await fetch(`${baseUrl}/rest/api/3/project/search?maxResults=200`, {
-        headers: { Authorization: userAuth.auth, Accept: 'application/json' },
-      })
-      const projData = await projResp.json() as { values?: { id: string; key: string; name: string }[] }
-      const jiraProjects = projData.values ?? []
+      const jiraProjects: { id: string; key: string; name: string }[] = []
+      let projStartAt = 0
+      while (true) {
+        const projResp = await fetch(`${baseUrl}/rest/api/3/project/search?maxResults=100&startAt=${projStartAt}`, {
+          headers: { Authorization: userAuth.auth, Accept: 'application/json' },
+        })
+        const projData = await projResp.json() as { values?: { id: string; key: string; name: string }[]; isLast?: boolean }
+        const page = projData.values ?? []
+        jiraProjects.push(...page)
+        if (projData.isLast || page.length < 100) break
+        projStartAt += 100
+      }
 
       const allRecords = await readPMBitableRecords(appToken, tableId)
       const selected = allRecords.filter(r => recordIds.includes(r.recordId))

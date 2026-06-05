@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.40.4'
+export const APP_VERSION = '3.40.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.40.5',
+    date: '2026-06-05',
+    changes: [
+      'fix(jira): PM 批次開單的 Jira 專案清單也改為分頁拉取，修復超過 100 個專案時專案 key 比對失敗',
+    ],
+  },
   {
     version: '3.40.4',
     date: '2026-06-05',
