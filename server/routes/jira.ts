@@ -829,16 +829,25 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
     const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
     const range = sheetId ? `${sheetId}!A1:ZZ1000` : 'A1:ZZ1000'
 
-    const resp = await fetch(
-      `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${range}?returnFormula=false`,
-      { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } },
-    )
-    const data = (await resp.json()) as {
-      code?: number
-      data?: { valueRange?: { values?: unknown[][] } }
+    // Use values_with_or_without_formula?returnFormula=false so cross-sheet formula cells
+    // (like ='填寫'!H1) return the computed display value instead of the formula text.
+    // Fall back to the standard values endpoint if not supported.
+    type LarkValuesResp = { code?: number; data?: { valueRange?: { values?: unknown[][] } } }
+    const larkHeaders = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+    let data: LarkValuesResp = await fetch(
+      `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values_with_or_without_formula/${range}?returnFormula=false`,
+      { headers: larkHeaders },
+    ).then(r => r.json() as Promise<LarkValuesResp>)
+
+    // Fall back to plain values endpoint if formula endpoint is not available
+    if (data.code !== 0) {
+      data = await fetch(
+        `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${range}`,
+        { headers: larkHeaders },
+      ).then(r => r.json() as Promise<LarkValuesResp>)
     }
 
-    if (!resp.ok || data.code !== 0) {
+    if (data.code !== 0) {
       return res.status(400).json({ ok: false, message: 'Lark Sheets API 錯誤', detail: data })
     }
 

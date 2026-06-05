@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.40.9'
+export const APP_VERSION = '3.40.10'
 
 export interface ChangelogEntry {
   version: string
@@ -8,10 +8,10 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    version: '3.40.9',
+    version: '3.40.10',
     date: '2026-06-05',
     changes: [
-      'fix(lark-sheets): 加上 returnFormula=false，確保公式欄位（如 =\'填寫\'!H1）回傳計算結果而非公式文字',
+      'fix(lark-sheets): 改用 values_with_or_without_formula?returnFormula=false 端點，確保跨 sheet 公式欄位回傳計算值',
     ],
   },
   {
