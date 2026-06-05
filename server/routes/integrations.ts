@@ -2265,7 +2265,7 @@ router.post('/api/google/sheets/records', async (req, res, next) => {
 
     const range = encodeURIComponent(`${sheetName}!A1:Z1000`)
     const valResp = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?key=${apiKey}`,
+      `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?key=${apiKey}&valueRenderOption=FORMATTED_VALUE`,
     )
     const valData = await valResp.json() as {
       values?: string[][]

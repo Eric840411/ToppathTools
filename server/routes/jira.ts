@@ -129,6 +129,8 @@ const batchCommentSchema = z.object({
     machineId: z.string().optional(),
     gameMode: z.string().optional(),
     attachmentUrls: z.array(z.string()).optional().default([]),
+    issueSummary: z.string().optional(),    // for AI analysis second comment
+    issueDescription: z.string().optional(), // for AI analysis second comment
   })),
 })
 
@@ -1196,41 +1198,7 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
         // Push "currently processing" progress before starting this item
         pushCommentProgress(requestId, { done: results.length, total, current: item.issueKey })
 
-        let commentText = item.rawComment
-        let usedAi = false
-
-        if (item.useAi) {
-          const hasAnyContent = commentText.trim() || item.environment || item.version || item.platform
-          if (!hasAnyContent) {
-            console.warn(`[batch-comment] ${item.issueKey} 無任何內容，跳過 AI`)
-          } else {
-            try {
-              console.log(`[batch-comment] ${item.issueKey} 呼叫 Gemini AI...`)
-              commentText = await withRequestOperation(
-                `Jira 批次評論（${item.issueKey}）`,
-                () => formatCommentWithGemini({
-                  rawText: commentText,
-                  promptId: item.promptId,
-                  environment: item.environment,
-                  version: item.version,
-                  platform: item.platform,
-                  machineId: item.machineId,
-                  gameMode: item.gameMode,
-                  specContext: effectiveSpecContext || undefined,
-                  modelSpec: body.modelSpec,
-                }),
-              )
-              usedAi = true
-              console.log(`[batch-comment] ${item.issueKey} AI 完成，字數：${commentText.length}`)
-            } catch (aiErr) {
-              stoppedByAi = String(aiErr)
-              console.error(`[batch-comment] ${item.issueKey} AI 失敗，中斷 batch：`, aiErr)
-              results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: false, usedAi: false, error: `AI 中斷：${stoppedByAi}` })
-              pushCommentProgress(requestId, { done: results.length, total, current: '' })
-              break
-            }
-          }
-        }
+        const commentText = item.rawComment
 
         // 分類附件 URL：影片 → 寫進評論內文；圖片 → 上傳附件
         const attachUrls = item.attachmentUrls ?? []
@@ -1250,13 +1218,14 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
         }
 
         // 影片連結附加到評論內文
-        if (item.useAi && videoLinks.length > 0) {
-          commentText = (commentText ? commentText + '\n\n' : '') +
+        let firstCommentText = commentText
+        if (videoLinks.length > 0) {
+          firstCommentText = (firstCommentText ? firstCommentText + '\n\n' : '') +
             '📎 影片連結：\n' + videoLinks.map(u => `• ${u}`).join('\n')
         }
 
         try {
-          const adfBody = textToADF(commentText || '（無內容）')
+          const adfBody = textToADF(firstCommentText || '（無內容）')
           const resp = await fetch(`${baseUrl}/rest/api/3/issue/${item.issueKey}/comment`, {
             method: 'POST',
             headers: { Authorization: userAuth.auth, Accept: 'application/json', 'Content-Type': 'application/json' },
@@ -1264,7 +1233,7 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
           })
           if (!resp.ok) {
             const errData = await resp.json().catch(() => ({})) as { errorMessages?: string[] }
-            results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: false, usedAi, error: errData.errorMessages?.join(', ') ?? `HTTP ${resp.status}` })
+            results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: false, usedAi: false, error: errData.errorMessages?.join(', ') ?? `HTTP ${resp.status}` })
           } else {
             // 上傳圖片附件（Lark Drive + Google Drive）
             if (imageAttachUrls.length > 0) {
@@ -1288,18 +1257,58 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
                   console.warn(`[batch-comment] ${item.issueKey} 附件上傳失敗 (${att.url}):`, attErr)
                 }
               }
-              console.log(`[batch-comment] ${item.issueKey} 附件：${attachOk} 成功${attachFail > 0 ? `，${attachFail} 失敗` : ''}${item.useAi && videoLinks.length > 0 ? `，${videoLinks.length} 影片寫入評論` : ''}`)
+              console.log(`[batch-comment] ${item.issueKey} 附件：${attachOk} 成功${attachFail > 0 ? `，${attachFail} 失敗` : ''}`)
             }
-            results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: true, usedAi })
+
+            // ── 第二則評論：AI 完整性分析 ──
+            if (item.useAi && commentText.trim()) {
+              try {
+                const summary = item.issueSummary?.trim() || '（無摘要）'
+                const description = item.issueDescription?.trim() || '（無描述）'
+                const analysisPrompt = `你是 QA 評審員，請分析以下測試評論的完整性。
+
+【Issue 摘要】
+${summary}
+
+【Issue 描述】
+${description}
+
+【測試者評論】
+${commentText}
+
+請用繁體中文，以三點條列方式回覆：
+1️⃣ **已涵蓋的重點**：評論中已說明清楚的部分
+2️⃣ **可能遺漏或不足之處**：對照規格和評論格式要求，尚未說明或需補充的地方
+3️⃣ **整體評估**：完整性評分 X/10，以及改善建議
+
+格式簡潔，每點 2-3 句即可。`
+                console.log(`[batch-comment] ${item.issueKey} 發送 AI 分析評論...`)
+                const analysisText = await withRequestOperation(
+                  `Jira AI 分析評論（${item.issueKey}）`,
+                  () => callLLM(analysisPrompt, body.modelSpec),
+                )
+                const analysisAdf = textToADF(`🤖 AI 完整性分析\n\n${analysisText.trim()}`)
+                await fetch(`${baseUrl}/rest/api/3/issue/${item.issueKey}/comment`, {
+                  method: 'POST',
+                  headers: { Authorization: userAuth.auth, Accept: 'application/json', 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ body: analysisAdf }),
+                })
+                console.log(`[batch-comment] ${item.issueKey} AI 分析評論完成`)
+              } catch (aiErr) {
+                if (isGeminiError(aiErr)) {
+                  stoppedByAi = String(aiErr)
+                  results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: true, usedAi: true, error: `第一則評論已發送，AI 分析中斷：${stoppedByAi}` })
+                  pushCommentProgress(requestId, { done: results.length, total, current: '' })
+                  break
+                }
+                console.warn(`[batch-comment] ${item.issueKey} AI 分析評論失敗（非中斷）:`, aiErr)
+              }
+            }
+
+            results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: true, usedAi: item.useAi })
           }
         } catch (jiraErr) {
-          if (isGeminiError(jiraErr)) {
-            stoppedByAi = String(jiraErr)
-            results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: false, usedAi, error: `AI 中斷：${stoppedByAi}` })
-            pushCommentProgress(requestId, { done: results.length, total, current: '' })
-            break
-          }
-          results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: false, usedAi, error: String(jiraErr) })
+          results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: false, usedAi: false, error: String(jiraErr) })
         }
 
         // Push progress after each item completes

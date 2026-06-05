@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.40.6'
+export const APP_VERSION = '3.40.7'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.40.7',
+    date: '2026-06-05',
+    changes: [
+      'feat(jira): 批次評論改為兩步驟：格式驗證（五大區塊必填）+ AI 二次分析評論（完整性三點總結）',
+      'fix(google-sheets): 加上 valueRenderOption=FORMATTED_VALUE，確保公式欄位顯示計算結果而非公式文字',
+    ],
+  },
   {
     version: '3.40.6',
     date: '2026-06-04',

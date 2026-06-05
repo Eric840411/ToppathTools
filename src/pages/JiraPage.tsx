@@ -125,25 +125,7 @@ const getFieldByHeaderMatch = (r: SheetRecord, names: string[]): string => {
   return key ? (r[key] ?? '').trim() : ''
 }
 
-const appendRawSection = (parts: string[], label: string, value: string) => {
-  const clean = value.trim()
-  if (!clean) return
-  if (parts.some(p => p.endsWith(`：${clean}`))) return
-  parts.push(`${label}：${clean}`)
-}
 
-const buildAiCommentRawText = (record: SheetRecord, commentColumn: string): string => {
-  const parts: string[] = []
-  appendRawSection(parts, '摘要', getField(record, SHEET_FIELD.summary) || getFieldByHeaderMatch(record, ['摘要', 'summary']))
-  appendRawSection(parts, '內容', getField(record, SHEET_FIELD.description) || getFieldByHeaderMatch(record, ['內容', 'description']))
-  appendRawSection(parts, commentColumn || '回覆欄位', commentColumn ? getField(record, commentColumn) : '')
-  appendRawSection(parts, '類別', getFieldByHeaderMatch(record, ['類別', '測試平台', '平台']))
-  appendRawSection(parts, '進度', getFieldByHeaderMatch(record, ['進度']))
-  appendRawSection(parts, 'QA確認OK', getFieldByHeaderMatch(record, ['QA確認OK', 'QA 確認 OK', 'QA']))
-  appendRawSection(parts, '開發確認OK', getFieldByHeaderMatch(record, ['開發確認OK', '開發 確認 OK', '開發']))
-  appendRawSection(parts, '備註', getFieldByHeaderMatch(record, ['備註', 'remark', 'note']))
-  return parts.join('\n')
-}
 
 const deriveEnvironment = (record: SheetRecord, rawText: string): string | undefined => {
   const explicit = getFieldByHeaderMatch(record, ['環境', '測試環境'])
@@ -1070,8 +1052,32 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   }
 
   // ── Step 5: 添加評論 ──
+  const REQUIRED_COMMENT_SECTIONS = ['【功能目的】', '【前置條件】', '【測試步驟】', '【說明與備註】', '【驗證結果】']
+
   const handleAddComments = async () => {
     if (!currentAccount || toComment.length === 0 || !commentColumn) return
+
+    // ── 格式驗證：評論必須包含所有必要區塊 ──
+    const formatErrors: { rowIndex: number; issueKey: string; ok: false; error: string }[] = []
+    for (const issue of toComment) {
+      const record = sheetRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
+      const rawComment = record ? getField(record, commentColumn) : ''
+      const missingSections = REQUIRED_COMMENT_SECTIONS.filter(s => !rawComment.includes(s))
+      if (missingSections.length > 0) {
+        formatErrors.push({
+          rowIndex: issue.rowIndex,
+          issueKey: issue.issueKey,
+          ok: false,
+          error: `格式不符，缺少區塊：${missingSections.join('、')}`,
+        })
+      }
+    }
+    if (formatErrors.length > 0) {
+      setCommentResults(formatErrors)
+      setStep(5)
+      return
+    }
+
     setCommentSubmitting(true)
     setPendingCommentRequestId('')
     setCommentProgress(null)
@@ -1083,24 +1089,21 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       const attachmentUrls = rawAttachText
         ? rawAttachText.split(/[\n,]/).map(s => s.trim()).filter(Boolean)
         : []
-      const rawComment = record
-        ? useAiComment
-          ? buildAiCommentRawText(record, commentColumn)
-          : getField(record, commentColumn)
-        : ''
+      const rawComment = record ? getField(record, commentColumn) : ''
       return {
         issueKey: issue.issueKey,
         rowIndex: issue.rowIndex,
         rawComment,
         useAi: useAiComment,
         promptId: useAiComment ? selectedPromptId : undefined,
-        // AI 格式化使用的額外欄位（欄位不存在時為 undefined，後端自動忽略）
         machineId:   record ? getField(record, '機台編號') || undefined : undefined,
         gameMode:    record ? getField(record, '遊戲模式') || undefined : undefined,
         environment: record ? deriveEnvironment(record, rawComment) || undefined : undefined,
         version:     record ? deriveVersion(record, rawComment) || undefined : undefined,
         platform:    record ? getFieldByHeaderMatch(record, ['測試平台', '平台', '類別']) || undefined : undefined,
         attachmentUrls,
+        issueSummary: record ? getField(record, SHEET_FIELD.summary) || undefined : undefined,
+        issueDescription: record ? getField(record, SHEET_FIELD.description) || undefined : undefined,
       }
     })
 
