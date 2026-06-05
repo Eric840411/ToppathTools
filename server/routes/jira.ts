@@ -830,7 +830,7 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
     const range = sheetId ? `${sheetId}!A1:ZZ1000` : 'A1:ZZ1000'
 
     const resp = await fetch(
-      `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${range}`,
+      `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${range}?returnFormula=false`,
       { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } },
     )
     const data = (await resp.json()) as {
@@ -849,18 +849,25 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
      *  or rich-text/formula objects. Extract the plain text string in all cases. */
     const extractCell = (cell: unknown): string => {
       if (cell === null || cell === undefined) return ''
-      if (typeof cell === 'string') return cell
       if (typeof cell === 'number' || typeof cell === 'boolean') return String(cell)
+      if (typeof cell === 'string') {
+        // If the API returned the formula text instead of the computed value, return as-is.
+        // (returnFormula=false should have prevented this, but guard just in case)
+        return cell
+      }
       if (typeof cell === 'object') {
         const c = cell as Record<string, unknown>
-        // Formula cells: Lark may return computed value in formulaValue or displayValue
+        // Formula cells: Lark may return computed value in various fields
         if (typeof c.formulaValue === 'string') return c.formulaValue
+        if (c.formulaValue !== undefined && c.formulaValue !== null) return String(c.formulaValue)
         if (typeof c.displayValue === 'string') return c.displayValue
         if (typeof c.computedValue === 'string') return c.computedValue
+        if (c.computedValue !== undefined && c.computedValue !== null) return String(c.computedValue)
         // Rich-text cells
         if (typeof c.text === 'string') return c.text
-        if (typeof c.value === 'string') return c.value
         if (Array.isArray(c.text)) return (c.text as Array<{ text?: string }>).map(t => t.text ?? '').join('')
+        if (typeof c.value === 'string') return c.value
+        if (c.value !== undefined && c.value !== null) return String(c.value)
       }
       return ''
     }
