@@ -591,13 +591,21 @@ router.get('/api/jira/projects', async (req, res, next) => {
     const userAuth = userJiraAuth(req)
     if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
     const baseUrl = mustEnv('JIRA_BASE_URL')
-    const resp = await fetch(`${baseUrl}/rest/api/3/project/search?maxResults=100&orderBy=NAME`, {
-      headers: { Authorization: userAuth.auth, Accept: 'application/json' },
-    })
-    if (!resp.ok) return res.status(resp.status).json({ ok: false, message: `Jira API error: ${resp.status}` })
-    const data = await resp.json() as { values?: { id: string; key: string; name: string }[] }
-    const projects = (data.values ?? []).map(p => ({ id: p.id, key: p.key, name: p.name }))
-    res.json({ ok: true, projects })
+    const pageSize = 100
+    let startAt = 0
+    const allProjects: { id: string; key: string; name: string }[] = []
+    while (true) {
+      const resp = await fetch(`${baseUrl}/rest/api/3/project/search?maxResults=${pageSize}&startAt=${startAt}&orderBy=NAME`, {
+        headers: { Authorization: userAuth.auth, Accept: 'application/json' },
+      })
+      if (!resp.ok) return res.status(resp.status).json({ ok: false, message: `Jira API error: ${resp.status}` })
+      const data = await resp.json() as { values?: { id: string; key: string; name: string }[]; isLast?: boolean; total?: number }
+      const page = (data.values ?? []).map(p => ({ id: p.id, key: p.key, name: p.name }))
+      allProjects.push(...page)
+      if (data.isLast || page.length < pageSize) break
+      startAt += pageSize
+    }
+    res.json({ ok: true, projects: allProjects })
   } catch (error) {
     next(error)
   }
@@ -1950,5 +1958,35 @@ Bug 描述：${row.content.trim()}`
     }))
 
     res.json({ ok: true, results })
+  } catch (error) { next(error) }
+})
+
+/**
+ * POST /api/jira/batch-fetch-summaries
+ * Batch-fetch issue summaries from Jira for display in the update preview table.
+ */
+router.post('/api/jira/batch-fetch-summaries', async (req, res, next) => {
+  try {
+    const userAuth = userJiraAuth(req)
+    if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
+    const baseUrl = mustEnv('JIRA_BASE_URL')
+
+    const { issueKeys } = z.object({ issueKeys: z.array(z.string()).min(1).max(500) }).parse(req.body)
+
+    const jql = `key in (${issueKeys.map(k => `"${k}"`).join(',')}) ORDER BY key ASC`
+    const resp = await fetch(`${baseUrl}/rest/api/3/search`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Basic ${userAuth.auth}`,
+      },
+      body: JSON.stringify({ jql, fields: ['summary'], maxResults: 500 }),
+    })
+    const data = await resp.json() as { issues?: { key: string; fields?: { summary?: string } }[]; errorMessages?: string[] }
+    if (!resp.ok) {
+      return res.json({ ok: false, message: (data.errorMessages ?? []).join('; ') || `Jira HTTP ${resp.status}` })
+    }
+    const summaries = (data.issues ?? []).map(i => ({ issueKey: i.key, summary: i.fields?.summary ?? '' }))
+    res.json({ ok: true, summaries })
   } catch (error) { next(error) }
 })

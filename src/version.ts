@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.40.0'
+export const APP_VERSION = '3.40.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,36 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.40.4',
+    date: '2026-06-05',
+    changes: [
+      'fix(jira): Jira 專案清單改為分頁拉取（每頁 100），解決超過 100 個專案顯示不完整',
+    ],
+  },
+  {
+    version: '3.40.3',
+    date: '2026-06-05',
+    changes: [
+      'feat(jira): 批量更新狀態預覽表新增勾選功能（全選/單選），使用者可自定義要執行哪些單號',
+      'feat(jira): 批量更新狀態預覽表「內容」欄改為從 Jira 抓取 Issue 摘要（背景載入）',
+    ],
+  },
+  {
+    version: '3.40.2',
+    date: '2026-06-04',
+    changes: [
+      'fix(jira): SSE 改用 auto-reconnect 取代斷線即放棄，EventSource 斷線後自動重連並恢復 progress；30 分鐘無結果才 timeout 進 polling fallback，解決 100+ 筆 batch 中途斷線問題',
+    ],
+  },
+  {
+    version: '3.40.1',
+    date: '2026-06-04',
+    changes: [
+      'fix(jira): 重新送出批次評論時清空舊結果，解決舊批次「⚠️ 已中斷」結果與新批次進度條同時顯示的問題',
+      'fix(jira): 批次評論完成後立即釋放按鈕狀態，不再等待 Lark 回寫完成',
+    ],
+  },
   {
     version: '3.40.0',
     date: '2026-06-04',

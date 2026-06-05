@@ -341,6 +341,8 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const [updateResults, setUpdateResults] = useState<{ issueKey: string; ok: boolean; error?: string }[]>([])
   const [updateStats, setUpdateStats] = useState<{ totalRows: number; found: number; skippedEmpty: number; skippedInvalid: number } | null>(null)
   const [updatePersonFilter, setUpdatePersonFilter] = useState<string>('') // '' = 全部, '__none__' = 無填寫人, else = 填寫人名
+  const [updateSummaries, setUpdateSummaries] = useState<Record<string, string>>({}) // issueKey → Jira summary
+  const [updateSelectedKeys, setUpdateSelectedKeys] = useState<Set<string>>(new Set()) // 勾選的 issue keys
 
   // 追蹤所有已進入流程的 issue（本次 session 合併最新 stage）
   const [trackedIssues, setTrackedIssues] = useState<TrackedIssue[]>([])
@@ -1047,6 +1049,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
     setCommentSubmitting(true)
     setPendingCommentRequestId('')
     setCommentProgress(null)
+    setCommentResults([])
 
     const comments = toComment.map(issue => {
       const record = sheetRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
@@ -1076,6 +1079,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
     })
 
     let submitRequestId = ''
+    let sseResolved = false
     try {
       // Submit job and get requestId immediately
       const resp = await fetch('/api/jira/batch-comment', {
@@ -1094,22 +1098,28 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       localStorage.setItem(COMMENT_PENDING_KEY, submitRequestId)
 
       // Wait for background job via SSE, with per-item progress updates.
-      // If SSE disconnects, fall back to polling status endpoint.
+      // SSE stream with auto-reconnect: EventSource reconnects automatically on transient drops.
+      // Server sends progress snapshot immediately on reconnect, so progress stays up-to-date.
+      // Only give up after 30 minutes with no result (fall back to polling).
       const data = await new Promise<{ ok: boolean; results?: StageOpResult[]; stopped?: boolean; stoppedReason?: string }>((resolve, reject) => {
         const es = new EventSource(`/api/jira/batch-comment/stream?requestId=${encodeURIComponent(submitData.requestId!)}&email=${encodeURIComponent(currentAccount.email)}`)
         let done = false
+        const sseTimeout = setTimeout(() => {
+          if (!done) { es.close(); reject(new Error('SSE 逾時')) }
+        }, 30 * 60 * 1000)
+
         es.addEventListener('progress', (e: MessageEvent) => {
           setCommentProgress(JSON.parse(e.data))
         })
         es.addEventListener('result', (e: MessageEvent) => {
           done = true
+          clearTimeout(sseTimeout)
           es.close()
           resolve(JSON.parse(e.data))
         })
         es.onerror = () => {
           if (done) return
-          es.close()
-          reject(new Error('SSE 連線中斷'))
+          // Don't close — let EventSource auto-reconnect (native browser behavior)
         }
       })
 
@@ -1124,7 +1134,14 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
           error: `Gemini API 用量已達上限，剩餘筆數未處理。原因：${data.stoppedReason}`,
         })
       }
+      sseResolved = true
       setCommentResults(results)
+      // 立即釋放按鈕狀態，不等待回寫
+      setCommentSubmitting(false)
+      setPendingCommentRequestId('')
+      setCommentProgress(null)
+      localStorage.removeItem(COMMENT_PENDING_KEY)
+      setStep(5)
 
       const successRows = results.filter(r => r.ok)
       if (successRows.length > 0) {
@@ -1144,14 +1161,17 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
           successRows.some(r => r.rowIndex === t.rowIndex) ? { ...t, stage: '添加評論' } : t
         ))
       }
-      setStep(5)
     } catch {
-      if (submitRequestId) {
+      if (sseResolved) {
+        // Writeback failed after SSE already resolved — results are already shown, just ignore
+      } else if (submitRequestId) {
         // Stream/network error happened after submit.
         // Backend job may still be running, so always try polling fallback.
         // Poll status endpoint to recover final result.
         let recovered = false
-        for (let i = 0; i < 30; i++) {
+        const maxPollMs = 5 * 60 * 1000 // polling fallback 最多等 5 分鐘（SSE 已有 30 分鐘 auto-reconnect）
+        const pollStart = Date.now()
+        while (Date.now() - pollStart < maxPollMs) {
           try {
             const r = await fetch(`/api/jira/batch-comment/status/${encodeURIComponent(submitRequestId)}`, { headers: { ...emailHeader } })
             const d = await r.json() as {
@@ -1177,6 +1197,13 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                 })
               }
               setCommentResults(recoveredResults)
+              // 立即釋放按鈕狀態
+              setCommentSubmitting(false)
+              setPendingCommentRequestId('')
+              setCommentProgress(null)
+              localStorage.removeItem(COMMENT_PENDING_KEY)
+              setStep(5)
+              recovered = true
               const successRows = recoveredResults.filter(r => r.ok)
               if (successRows.length > 0) {
                 await fetch('/api/sheets/writeback-multi', {
@@ -1194,8 +1221,6 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                   successRows.some(r => r.rowIndex === t.rowIndex) ? { ...t, stage: '添加評論' } : t
                 ))
               }
-              setStep(5)
-              recovered = true
               break
             }
             break
@@ -1347,7 +1372,32 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       setUpdateRecords(records)
       setUpdateStats(data.stats ?? null)
       setUpdatePersonFilter('')
+      setUpdateSelectedKeys(new Set(records.map(r => r.issueKey)))
+      setUpdateSummaries({})
       if (data.jiraBaseUrl) setUpdateJiraBaseUrl(data.jiraBaseUrl)
+
+      // Background-fetch Jira summaries
+      if (records.length > 0 && currentAccount) {
+        fetch('/api/jira/batch-fetch-summaries', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-jira-email': currentAccount.email },
+          body: JSON.stringify({ issueKeys: records.map(r => r.issueKey) }),
+        }).then(r => r.json()).then((d: { ok: boolean; summaries?: { issueKey: string; summary: string }[] }) => {
+          const map: Record<string, string> = {}
+          if (d.ok && d.summaries) {
+            d.summaries.forEach(s => { map[s.issueKey] = s.summary })
+          } else {
+            // Mark all as failed so UI shows '—' instead of '載入中...'
+            records.forEach(r => { map[r.issueKey] = r.title || '' })
+          }
+          setUpdateSummaries(map)
+        }).catch(() => {
+          // On error, fall back to title from Lark cell
+          const map: Record<string, string> = {}
+          records.forEach(r => { map[r.issueKey] = r.title || '' })
+          setUpdateSummaries(map)
+        })
+      }
 
       // Fetch transitions — try currentAccount first, then all stored accounts
       if (records.length > 0) {
@@ -1387,11 +1437,12 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const handleUpdateExecute = async () => {
     if (updateSubmitting) return
     setUpdateSubmitting(true); setUpdateResults([])
-    const filtered = updatePersonFilter === ''
+    const filtered = (updatePersonFilter === ''
       ? updateRecords
       : updatePersonFilter === '__none__'
         ? updateRecords.filter(r => !r.fillPerson)
         : updateRecords.filter(r => r.fillPerson === updatePersonFilter)
+    ).filter(r => updateSelectedKeys.has(r.issueKey))
     const execEmail = currentAccount?.email ?? ''
     const items = filtered.map(r => ({
       issueKey: r.issueKey,
@@ -1417,6 +1468,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
   const handleUpdateReset = () => {
     setUpdateStep(1); setUpdateBitableUrl(''); setUpdateRecords([]); setUpdateError('')
     setUpdateTransitions([]); setUpdateTransitionId(''); setUpdateResults([]); setUpdatePersonFilter('')
+    setUpdateSummaries({}); setUpdateSelectedKeys(new Set())
   }
 
   const StepDot = ({ s }: { s: Step }) => (
@@ -1782,38 +1834,76 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
               {/* Preview */}
               <div style={{ marginBottom: 12 }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa', marginBottom: 6 }}>
-                  預覽（{filteredRecords.length} 張）
+                  預覽（共 {filteredRecords.length} 張）
+                </div>
+                {/* Select-all row */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: '#94a3b8' }}>
+                    <input
+                      type="checkbox"
+                      checked={filteredRecords.length > 0 && filteredRecords.every(r => updateSelectedKeys.has(r.issueKey))}
+                      onChange={e => {
+                        setUpdateSelectedKeys(prev => {
+                          const next = new Set(prev)
+                          filteredRecords.forEach(r => e.target.checked ? next.add(r.issueKey) : next.delete(r.issueKey))
+                          return next
+                        })
+                      }}
+                    />
+                    全選 / 取消全選
+                  </label>
+                  <span style={{ fontSize: 11, color: '#60a5fa' }}>
+                    已選 {filteredRecords.filter(r => updateSelectedKeys.has(r.issueKey)).length} / {filteredRecords.length} 張
+                  </span>
                 </div>
                 <div style={{ border: '1px solid #1e3a5f', borderRadius: 6, overflow: 'hidden' }}>
                   {/* Table header */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '110px 90px 1fr', gap: 0, background: '#0f2744', borderBottom: '1px solid #1e3a5f' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '32px 110px 80px 1fr', gap: 0, background: '#0f2744', borderBottom: '1px solid #1e3a5f' }}>
+                    <div style={{ padding: '5px 8px', borderRight: '1px solid #1e3a5f' }} />
                     <div style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', padding: '5px 10px', borderRight: '1px solid #1e3a5f' }}>單號</div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', padding: '5px 10px', borderRight: '1px solid #1e3a5f' }}>填寫人</div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', padding: '5px 10px' }}>內容</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', padding: '5px 10px' }}>摘要</div>
                   </div>
                   {/* Rows */}
                   <div style={{ maxHeight: 300, overflowY: 'auto' }}>
-                    {filteredRecords.slice(0, 200).map((r, idx) => (
-                      <div key={r.issueKey} style={{ display: 'grid', gridTemplateColumns: '110px 90px 1fr', background: idx % 2 === 0 ? '#0a1628' : '#0d1e38', borderBottom: '1px solid #1e293b' }}>
-                        <div style={{ padding: '5px 10px', borderRight: '1px solid #1e293b', display: 'flex', alignItems: 'center' }}>
-                          {updateJiraBaseUrl ? (
-                            <a href={`${updateJiraBaseUrl}/browse/${r.issueKey}`} target="_blank" rel="noreferrer"
-                              style={{ color: '#93c5fd', fontWeight: 700, fontSize: 12, textDecoration: 'none' }}
-                              onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
-                              onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}
-                            >{r.issueKey}</a>
-                          ) : (
-                            <code style={{ color: '#93c5fd', fontWeight: 700, fontSize: 12 }}>{r.issueKey}</code>
-                          )}
+                    {filteredRecords.slice(0, 200).map((r, idx) => {
+                      const isSelected = updateSelectedKeys.has(r.issueKey)
+                      const summary = updateSummaries[r.issueKey] || r.title || ''
+                      return (
+                        <div key={r.issueKey} style={{ display: 'grid', gridTemplateColumns: '32px 110px 80px 1fr', background: isSelected ? (idx % 2 === 0 ? '#0a1628' : '#0d1e38') : '#070f1e', borderBottom: '1px solid #1e293b', opacity: isSelected ? 1 : 0.45 }}>
+                          <div style={{ padding: '5px 8px', borderRight: '1px solid #1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <input type="checkbox" checked={isSelected}
+                              onChange={e => {
+                                setUpdateSelectedKeys(prev => {
+                                  const next = new Set(prev)
+                                  e.target.checked ? next.add(r.issueKey) : next.delete(r.issueKey)
+                                  return next
+                                })
+                              }}
+                            />
+                          </div>
+                          <div style={{ padding: '5px 10px', borderRight: '1px solid #1e293b', display: 'flex', alignItems: 'center' }}>
+                            {updateJiraBaseUrl ? (
+                              <a href={`${updateJiraBaseUrl}/browse/${r.issueKey}`} target="_blank" rel="noreferrer"
+                                style={{ color: '#93c5fd', fontWeight: 700, fontSize: 12, textDecoration: 'none' }}
+                                onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
+                                onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}
+                              >{r.issueKey}</a>
+                            ) : (
+                              <code style={{ color: '#93c5fd', fontWeight: 700, fontSize: 12 }}>{r.issueKey}</code>
+                            )}
+                          </div>
+                          <div style={{ padding: '5px 10px', borderRight: '1px solid #1e293b', fontSize: 11, color: r.fillPerson ? '#94a3b8' : '#475569', display: 'flex', alignItems: 'center' }}>
+                            {r.fillPerson || '無'}
+                          </div>
+                          <div style={{ padding: '5px 10px', fontSize: 11, color: summary ? '#cbd5e1' : '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {r.issueKey in updateSummaries
+                              ? (summary || <span style={{ color: '#475569' }}>—</span>)
+                              : <span style={{ color: '#374151' }}>載入中...</span>}
+                          </div>
                         </div>
-                        <div style={{ padding: '5px 10px', borderRight: '1px solid #1e293b', fontSize: 11, color: r.fillPerson ? '#94a3b8' : '#475569', display: 'flex', alignItems: 'center' }}>
-                          {r.fillPerson || '無'}
-                        </div>
-                        <div style={{ padding: '5px 10px', fontSize: 11, color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {r.title || '—'}
-                        </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                     {filteredRecords.length > 200 && (
                       <div style={{ fontSize: 11, color: '#64748b', textAlign: 'center', padding: '6px 0' }}>...還有 {filteredRecords.length - 200} 張</div>
                     )}
@@ -1826,11 +1916,11 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                 <button
                   type="button"
                   className={`submit-btn submit-btn--step${updateSubmitting ? ' loading' : ''}`}
-                  disabled={updateSubmitting || !currentAccount}
+                  disabled={updateSubmitting || !currentAccount || filteredRecords.filter(r => updateSelectedKeys.has(r.issueKey)).length === 0}
                   onClick={handleUpdateExecute}
                   style={{ whiteSpace: 'nowrap' }}
                 >
-                  {updateSubmitting ? '執行中…' : `▶ 執行（${filteredRecords.length} 張）`}
+                  {updateSubmitting ? '執行中…' : `▶ 執行（${filteredRecords.filter(r => updateSelectedKeys.has(r.issueKey)).length} 張）`}
                 </button>
               </div>
             </div>
