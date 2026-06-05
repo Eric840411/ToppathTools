@@ -90,6 +90,7 @@ const batchCreateSchema = z.object({
       description: z.string().optional().default(''),
       assigneeAccountId: z.string().optional(),
       rdOwnerAccountId: z.string().optional(),
+      reporterAccountId: z.string().optional(),
       verifierAccountIds: z.array(z.string()).default([]),
       actualStart: z.string().optional(),
       actualEnd: z.string().optional(),
@@ -645,7 +646,7 @@ interface NormalizedJiraField {
 }
 
 const SKIP_FIELD_KEYS = new Set(['issuetype', 'project', 'reporter', 'parent', 'attachment', 'issuelinks', 'subtasks', 'worklog', 'comment', 'thumbnail', 'timetracking', 'timespent', 'timeestimate', 'aggregatetimespent', 'aggregatetimeestimate'])
-const SKIP_FIELD_NAMES = new Set(['reporter', '回報人'])
+const SKIP_FIELD_NAMES = new Set(['reporter', '回報人', '回報者'])
 // Field meta cache: `projectKey:issueTypeName` → { fields, expiresAt }
 const fieldMetaCache = new Map<string, { fields: NormalizedJiraField[]; expiresAt: number }>()
 
@@ -982,6 +983,7 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
 
         if (row.assigneeAccountId) fields.assignee = { accountId: row.assigneeAccountId }
         if (row.rdOwnerAccountId) fields.customfield_10428 = [{ accountId: row.rdOwnerAccountId }]
+        if (row.reporterAccountId) fields.reporter = { accountId: row.reporterAccountId }
         if (row.verifierAccountIds.length > 0) {
           fields[verifierFieldId] = row.verifierAccountIds.map((id) => ({ accountId: id }))
           console.log(`[batch-create] ${row.summary} 驗證人員 → ${verifierFieldId}:`, JSON.stringify(fields[verifierFieldId]))

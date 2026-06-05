@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.40.5'
+export const APP_VERSION = '3.40.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.40.6',
+    date: '2026-06-04',
+    changes: [
+      'feat(jira): 批次開單必填欄位驗證（摘要、描述、受託人、RD負責人），缺失時擋下並顯示錯誤',
+      'feat(jira): 支援從 Lark Sheet「回報人」欄位設定 Jira reporter，回報者欄位不再重複',
+      'fix(jira): 修正動態欄位「回報者」名稱導致 reporter 欄位重複出現的問題',
+    ],
+  },
   {
     version: '3.40.5',
     date: '2026-06-05',

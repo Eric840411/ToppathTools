@@ -192,6 +192,7 @@ const SHEET_FIELD: Record<string, string> = {
   description: '內容',
   assigneeAccountId: '受託人',
   rdOwnerAccountId: 'RD負責人',
+  reporter: '回報人',
   verifierAccountIds: '驗證人員',
   actualStart: 'Actual Start',
   actualEnd: 'Actual End',
@@ -922,6 +923,29 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
     const knownIds = new Set(members.map(m => m.accountId))
     const validId = (val: string) => val && knownIds.has(val) ? val : ''
 
+    // 傳統模式的必填欄位驗證（摘要、描述、受託人、RD負責人）
+    if (jiraFields.length === 0) {
+      const missingErrors: { rowIndex: number; error: string }[] = []
+      for (const r of planCreate) {
+        const rowIdx = Number(r._rowIndex)
+        const missing: string[] = []
+        const summaryVal = (generatedSummaries[rowIdx] || getField(r, SHEET_FIELD.summary)).replace(/[\r\n]+/g, ' ').trim()
+        if (!summaryVal) missing.push('摘要')
+        if (!getField(r, SHEET_FIELD.description)?.trim()) missing.push('描述')
+        const assigneeId = batchAssigneeIds[0] || validId(getField(r, SHEET_FIELD.assigneeAccountId)) || selectedAssignee
+        if (!assigneeId) missing.push('受託人')
+        const rdOwnerId = batchRdOwnerIds[0] || validId(getField(r, SHEET_FIELD.rdOwnerAccountId))
+        if (!rdOwnerId) missing.push('RD負責人')
+        if (missing.length > 0) missingErrors.push({ rowIndex: rowIdx, error: `必填欄位缺失：${missing.join('、')}` })
+      }
+      if (missingErrors.length > 0) {
+        setCreateResults(missingErrors)
+        setStep(4)
+        setSubmitting(false)
+        return
+      }
+    }
+
     const rows = planCreate.map(r => {
       const rowIdx = Number(r._rowIndex)
 
@@ -943,6 +967,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
           description: rowCells['description'] || getField(r, SHEET_FIELD.description),
           assigneeAccountId: undefined,
           rdOwnerAccountId: undefined,
+          reporterAccountId: undefined as string | undefined,
           verifierAccountIds: [] as string[],
           rowIndex: rowIdx,
           dynamicFields,
@@ -959,6 +984,7 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
         description: getField(r, SHEET_FIELD.description),
         assigneeAccountId: batchAssigneeIds[0] || validId(getField(r, SHEET_FIELD.assigneeAccountId)) || selectedAssignee || undefined,
         rdOwnerAccountId: batchRdOwnerIds[0] || validId(getField(r, SHEET_FIELD.rdOwnerAccountId)) || undefined,
+        reporterAccountId: validId(getField(r, SHEET_FIELD.reporter)) || undefined,
         verifierAccountIds: batchVerifierIds.length > 0 ? batchVerifierIds : larkVerifierIds,
         actualStart: getField(r, SHEET_FIELD.actualStart) || undefined,
         actualEnd: getField(r, SHEET_FIELD.actualEnd) || undefined,
