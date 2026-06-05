@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.40.7'
+export const APP_VERSION = '3.40.8'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.40.8',
+    date: '2026-06-05',
+    changes: [
+      'feat(jira): AI 優化評論功能鎖定為管理員限定，非管理員看不到 AI 優化選項',
+    ],
+  },
   {
     version: '3.40.7',
     date: '2026-06-05',

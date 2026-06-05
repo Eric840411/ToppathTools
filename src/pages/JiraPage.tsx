@@ -127,6 +127,26 @@ const getFieldByHeaderMatch = (r: SheetRecord, names: string[]): string => {
 
 
 
+const appendRawSection = (parts: string[], label: string, value: string) => {
+  const clean = value.trim()
+  if (!clean) return
+  if (parts.some(p => p.endsWith(`：${clean}`))) return
+  parts.push(`${label}：${clean}`)
+}
+
+const buildAiCommentRawText = (record: SheetRecord, commentColumn: string): string => {
+  const parts: string[] = []
+  appendRawSection(parts, '摘要', getField(record, SHEET_FIELD.summary) || getFieldByHeaderMatch(record, ['摘要', 'summary']))
+  appendRawSection(parts, '內容', getField(record, SHEET_FIELD.description) || getFieldByHeaderMatch(record, ['內容', 'description']))
+  appendRawSection(parts, commentColumn || '回覆欄位', commentColumn ? getField(record, commentColumn) : '')
+  appendRawSection(parts, '類別', getFieldByHeaderMatch(record, ['類別', '測試平台', '平台']))
+  appendRawSection(parts, '進度', getFieldByHeaderMatch(record, ['進度']))
+  appendRawSection(parts, 'QA確認OK', getFieldByHeaderMatch(record, ['QA確認OK', 'QA 確認 OK', 'QA']))
+  appendRawSection(parts, '開發確認OK', getFieldByHeaderMatch(record, ['開發確認OK', '開發 確認 OK', '開發']))
+  appendRawSection(parts, '備註', getFieldByHeaderMatch(record, ['備註', 'remark', 'note']))
+  return parts.join('\n')
+}
+
 const deriveEnvironment = (record: SheetRecord, rawText: string): string | undefined => {
   const explicit = getFieldByHeaderMatch(record, ['環境', '測試環境'])
   if (explicit) return explicit
@@ -186,9 +206,10 @@ const SHEET_FIELD: Record<string, string> = {
 interface JiraPageProps {
   account?: AccountInfo | null
   allowedModes?: string[]
+  isAdmin?: boolean
 }
 
-export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
+export function JiraPage({ account = null, allowedModes, isAdmin = false }: JiraPageProps) {
   const isGame = useIsGameMode()
   const [mode, setMode] = useState<'qa' | 'pm'>('qa')
   const [qaSubMode, setQaSubMode] = useState<'create' | 'update'>('create')
@@ -1089,13 +1110,17 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
       const attachmentUrls = rawAttachText
         ? rawAttachText.split(/[\n,]/).map(s => s.trim()).filter(Boolean)
         : []
-      const rawComment = record ? getField(record, commentColumn) : ''
+      const rawComment = record
+        ? (useAiComment && isAdmin)
+          ? buildAiCommentRawText(record, commentColumn)
+          : getField(record, commentColumn)
+        : ''
       return {
         issueKey: issue.issueKey,
         rowIndex: issue.rowIndex,
         rawComment,
-        useAi: useAiComment,
-        promptId: useAiComment ? selectedPromptId : undefined,
+        useAi: useAiComment && isAdmin,
+        promptId: (useAiComment && isAdmin) ? selectedPromptId : undefined,
         machineId:   record ? getField(record, '機台編號') || undefined : undefined,
         gameMode:    record ? getField(record, '遊戲模式') || undefined : undefined,
         environment: record ? deriveEnvironment(record, rawComment) || undefined : undefined,
@@ -2796,12 +2821,14 @@ export function JiraPage({ account = null, allowedModes }: JiraPageProps) {
                   </select>
                   <span className="field-hint">支援 Lark Drive 連結 和 Google Drive 分享連結（drive.google.com/file/d/...）；多個連結換行分隔。圖片自動上傳為 Jira 附件，影片自動寫入評論內文。</span>
                 </label>
-                <label className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <input type="checkbox" checked={useAiComment} onChange={e => setUseAiComment(e.target.checked)} />
-                  <span>AI 優化（Gemini 將原始內容整理成專業評論格式）</span>
-                </label>
+                {isAdmin && (
+                  <label className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                    <input type="checkbox" checked={useAiComment} onChange={e => setUseAiComment(e.target.checked)} />
+                    <span>AI 優化（管理員限定：Gemini 整理評論內容 + 二次分析）</span>
+                  </label>
+                )}
 
-                {useAiComment && (
+                {(useAiComment && isAdmin) && (
                   <>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
                       <label className="field" style={{ flex: 1, margin: 0 }}>

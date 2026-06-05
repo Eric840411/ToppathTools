@@ -1198,7 +1198,42 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
         // Push "currently processing" progress before starting this item
         pushCommentProgress(requestId, { done: results.length, total, current: item.issueKey })
 
-        const commentText = item.rawComment
+        let commentText = item.rawComment
+        let usedAi = false
+
+        // Admin-only: reformat comment content with AI before posting
+        if (item.useAi) {
+          const hasAnyContent = commentText.trim() || item.environment || item.version || item.platform
+          if (!hasAnyContent) {
+            console.warn(`[batch-comment] ${item.issueKey} 無任何內容，跳過 AI 格式化`)
+          } else {
+            try {
+              console.log(`[batch-comment] ${item.issueKey} AI 格式化評論內容...`)
+              commentText = await withRequestOperation(
+                `Jira 批次評論（${item.issueKey}）`,
+                () => formatCommentWithGemini({
+                  rawText: commentText,
+                  promptId: item.promptId,
+                  environment: item.environment,
+                  version: item.version,
+                  platform: item.platform,
+                  machineId: item.machineId,
+                  gameMode: item.gameMode,
+                  specContext: effectiveSpecContext || undefined,
+                  modelSpec: body.modelSpec,
+                }),
+              )
+              usedAi = true
+              console.log(`[batch-comment] ${item.issueKey} AI 格式化完成，字數：${commentText.length}`)
+            } catch (aiErr) {
+              stoppedByAi = String(aiErr)
+              console.error(`[batch-comment] ${item.issueKey} AI 格式化失敗，中斷 batch：`, aiErr)
+              results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: false, usedAi: false, error: `AI 中斷：${stoppedByAi}` })
+              pushCommentProgress(requestId, { done: results.length, total, current: '' })
+              break
+            }
+          }
+        }
 
         // 分類附件 URL：影片 → 寫進評論內文；圖片 → 上傳附件
         const attachUrls = item.attachmentUrls ?? []
@@ -1305,7 +1340,7 @@ ${commentText}
               }
             }
 
-            results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: true, usedAi: item.useAi })
+            results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: true, usedAi })
           }
         } catch (jiraErr) {
           results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: false, usedAi: false, error: String(jiraErr) })
