@@ -829,25 +829,17 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
     const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
     const range = sheetId ? `${sheetId}!A1:ZZ1000` : 'A1:ZZ1000'
 
-    // Use values_with_or_without_formula?returnFormula=false so cross-sheet formula cells
-    // (like ='填寫'!H1) return the computed display value instead of the formula text.
-    // Fall back to the standard values endpoint if not supported.
-    type LarkValuesResp = { code?: number; data?: { valueRange?: { values?: unknown[][] } } }
     const larkHeaders = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
-    let data: LarkValuesResp = await fetch(
-      `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values_with_or_without_formula/${range}?returnFormula=false`,
+    const resp = await fetch(
+      `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${range}`,
       { headers: larkHeaders },
-    ).then(r => r.json() as Promise<LarkValuesResp>)
-
-    // Fall back to plain values endpoint if formula endpoint is not available
-    if (data.code !== 0) {
-      data = await fetch(
-        `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${range}`,
-        { headers: larkHeaders },
-      ).then(r => r.json() as Promise<LarkValuesResp>)
+    )
+    const data = (await resp.json()) as {
+      code?: number
+      data?: { valueRange?: { values?: unknown[][] } }
     }
 
-    if (data.code !== 0) {
+    if (!resp.ok || data.code !== 0) {
       return res.status(400).json({ ok: false, message: 'Lark Sheets API 錯誤', detail: data })
     }
 
@@ -914,15 +906,59 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
       return parts.join('')
     }
 
-    const records = rows
-      .slice(1)
+    // Cross-sheet formula reference pattern: 'SheetName'!CellRef (e.g. '填寫'!H1)
+    const CROSS_SHEET_RE = /^'([^']+)'![A-Z]+\d+$/
+
+    // First pass: extract raw string values and collect cross-sheet formula refs
+    const dataRows = rows.slice(1)
+    const rawStrRows = dataRows.map(row => (row as unknown[]).map(cell => extractCell(cell)))
+
+    const formulaRefs = new Set<string>()
+    for (const row of rawStrRows) {
+      for (const val of row) {
+        if (val && CROSS_SHEET_RE.test(val)) formulaRefs.add(val)
+      }
+    }
+
+    // Batch-resolve cross-sheet formula references via Lark values_batch_get
+    const resolvedMap = new Map<string, string>()
+    if (formulaRefs.size > 0) {
+      try {
+        const params = [...formulaRefs].map(r => `ranges=${encodeURIComponent(r)}`).join('&')
+        const batchResp = await fetch(
+          `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values_batch_get?${params}`,
+          { headers: larkHeaders },
+        )
+        if (batchResp.ok) {
+          const batchData = await batchResp.json() as {
+            code?: number
+            data?: { valueRanges?: { values?: unknown[][]; range?: string }[] }
+          }
+          if (batchData.code === 0) {
+            for (const vr of batchData.data?.valueRanges ?? []) {
+              const ref = vr.range?.trim()
+              const cellVal = vr.values?.[0]?.[0]
+              if (ref && cellVal !== undefined) resolvedMap.set(ref, extractCell(cellVal))
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[lark-sheets] cross-sheet formula resolution failed:', e)
+      }
+    }
+
+    const records = dataRows
       .map((row, i) => {
         const rawRow = row as unknown[]
+        const strRow = rawStrRows[i]
         const obj: Record<string, string> = {}
         headers.forEach((h, ci) => {
-          let val = extractCell(rawRow[ci])
-          // Detect Lark formula body: contains & and looks like a concatenation expression
-          if (val && /^(".*"|[A-Z]+\d+)(&(".*"|[A-Z]+\d+))+$/.test(val)) {
+          let val = strRow[ci]
+          if (val && CROSS_SHEET_RE.test(val)) {
+            // Try exact match, then try without single-quoted sheet name
+            val = resolvedMap.get(val) ?? resolvedMap.get(val.replace(/^'([^']+)'/, '$1')) ?? val
+          } else if (val && /^(".*"|[A-Z]+\d+)(&(".*"|[A-Z]+\d+))+$/.test(val)) {
+            // Same-sheet concatenation formula
             val = evalFormula(val, rawRow)
           }
           obj[h] = val
