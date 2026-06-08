@@ -2,7 +2,11 @@
  * server/routes/jira.ts
  * All /api/jira/*, /api/admin/*, /api/lark/sheets/* routes.
  */
+import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, unlinkSync } from 'fs'
+import { join } from 'path'
+import { randomUUID } from 'crypto'
 import { Router } from 'express'
+import multer from 'multer'
 import { z } from 'zod'
 import {
   db,
@@ -28,6 +32,54 @@ import { withRequestOperation } from '../request-context.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 
 export const router = Router()
+
+// ─── Attachment cache ──────────────────────────────────────────────────────────
+const ATTACH_CACHE_DIR = join(process.cwd(), 'server', 'attachment-cache')
+if (!existsSync(ATTACH_CACHE_DIR)) mkdirSync(ATTACH_CACHE_DIR, { recursive: true })
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024 // 10 MB (Jira Cloud default limit)
+
+function cleanAttachmentCache() {
+  try {
+    const now = Date.now()
+    for (const f of readdirSync(ATTACH_CACHE_DIR)) {
+      const fp = join(ATTACH_CACHE_DIR, f)
+      try { if (now - statSync(fp).mtimeMs > 2 * 60 * 60 * 1000) unlinkSync(fp) } catch { /* ignore */ }
+    }
+  } catch { /* ignore */ }
+}
+
+// ─── Multer for manual attachment upload ──────────────────────────────────────
+const multerUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_ATTACHMENT_BYTES },
+})
+
+/** POST /api/jira/attachment-upload — manual file upload from browser, saved to cache */
+router.post('/api/jira/attachment-upload', (req, res) => {
+  multerUpload.single('file')(req, res, (err: unknown) => {
+    if (err) {
+      const isLimit = (err as { code?: string }).code === 'LIMIT_FILE_SIZE'
+      return res.status(400).json({
+        ok: false,
+        message: isLimit ? `檔案超過 10MB 限制（Jira Cloud 預設上限）` : `上傳失敗：${String(err)}`,
+      })
+    }
+    const file = req.file
+    if (!file) return res.status(400).json({ ok: false, message: '未收到檔案' })
+    const cacheId = randomUUID()
+    writeFileSync(join(ATTACH_CACHE_DIR, cacheId), file.buffer)
+    const mimeType = file.mimetype || 'application/octet-stream'
+    return res.json({
+      ok: true,
+      cacheId,
+      filename: file.originalname,
+      mimeType,
+      size: file.size,
+      isImage: mimeType.startsWith('image/'),
+      isVideo: mimeType.startsWith('video/'),
+    })
+  })
+})
 
 // ─── Batch-comment job store (SSE background processing) ──────────────────────
 interface CommentJobResult {
@@ -131,6 +183,13 @@ const batchCommentSchema = z.object({
     attachmentUrls: z.array(z.string()).optional().default([]),
     issueSummary: z.string().optional(),    // for AI analysis second comment
     issueDescription: z.string().optional(), // for AI analysis second comment
+    cachedAttachments: z.array(z.object({
+      cacheId: z.string(),
+      filename: z.string(),
+      mimeType: z.string(),
+      isImage: z.boolean(),
+      isVideo: z.boolean(),
+    })).optional().default([]),
   })),
 })
 
@@ -210,7 +269,7 @@ async function downloadLarkFile(fileToken: string, larkToken: string): Promise<{
 }
 
 /** 上傳附件到 Jira Issue */
-async function uploadAttachmentToJira(issueKey: string, filename: string, buffer: Buffer, mimeType: string, auth: string, baseUrl: string): Promise<void> {
+async function uploadAttachmentToJira(issueKey: string, filename: string, buffer: Buffer, mimeType: string, auth: string, baseUrl: string): Promise<string> {
   const form = new FormData()
   form.append('file', new Blob([buffer], { type: mimeType }), filename)
   const resp = await fetch(`${baseUrl}/rest/api/3/issue/${issueKey}/attachments`, {
@@ -222,6 +281,40 @@ async function uploadAttachmentToJira(issueKey: string, filename: string, buffer
     const text = await resp.text().catch(() => '')
     throw new Error(`Jira 附件上傳失敗 HTTP ${resp.status}: ${text.slice(0, 200)}`)
   }
+  const data = await resp.json().catch(() => []) as Array<{ filename?: string }>
+  const storedFilename = data[0]?.filename ?? filename
+  if (storedFilename !== filename) {
+    console.log(`[upload-attachment] filename changed: "${filename}" → "${storedFilename}"`)
+  }
+  return storedFilename
+}
+
+/** 判斷 URL 是否為 Lark embed-image 內嵌圖片 URL（非 Drive 下載路徑） */
+function isLarkEmbedImageUrl(url: string): boolean {
+  return url.includes('mount_point=sheet_image') || url.includes('/space/api/box/stream/download/')
+}
+
+/** 下載 Lark Sheet embed-image（使用 Lark media download API） */
+async function downloadLarkEmbedImage(link: string, larkToken: string): Promise<{ buffer: Buffer; filename: string; mimeType: string }> {
+  const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
+  // Extract fileToken from URL path: .../cover/{fileToken}/...
+  const fileTokenMatch = link.match(/\/cover\/([A-Za-z0-9_-]+)\//)
+  if (!fileTokenMatch) throw new Error('Cannot parse embed-image file token from link')
+  const fileToken = fileTokenMatch[1]
+  const urlObj = new URL(link)
+  const mountNodeToken = urlObj.searchParams.get('mount_node_token') ?? ''
+  const mountPoint = urlObj.searchParams.get('mount_point') ?? 'sheet_image'
+  const extra = encodeURIComponent(JSON.stringify({ fileType: 'image', mount_node_token: mountNodeToken, mount_point: mountPoint }))
+  const resp = await fetch(`${base}/open-apis/drive/v1/medias/${fileToken}/download?extra=${extra}`, {
+    headers: { Authorization: `Bearer ${larkToken}` },
+  })
+  if (!resp.ok) throw new Error(`Lark media download failed: HTTP ${resp.status}`)
+  const buffer = Buffer.from(await resp.arrayBuffer())
+  const cd = resp.headers.get('content-disposition') ?? ''
+  const fnMatch = cd.match(/filename\*=UTF-8''(.+)/i) ?? cd.match(/filename="?([^";\r\n]+)"?/i)
+  const filename = fnMatch ? decodeURIComponent(fnMatch[1].trim()) : `image_${fileToken}.jpg`
+  const mimeType = resp.headers.get('content-type')?.split(';')[0] ?? 'image/jpeg'
+  return { buffer, filename, mimeType }
 }
 
 /** 判斷 URL 是否為 Google Drive */
@@ -647,8 +740,9 @@ interface NormalizedJiraField {
   autoCompleteUrl?: string
 }
 
-const SKIP_FIELD_KEYS = new Set(['issuetype', 'project', 'reporter', 'parent', 'attachment', 'issuelinks', 'subtasks', 'worklog', 'comment', 'thumbnail', 'timetracking', 'timespent', 'timeestimate', 'aggregatetimespent', 'aggregatetimeestimate'])
-const SKIP_FIELD_NAMES = new Set(['reporter', '回報人', '回報者'])
+// NOTE: 'reporter'（回報人）刻意保留在欄位清單中，讓動態開單可以指定回報人
+const SKIP_FIELD_KEYS = new Set(['issuetype', 'project', 'parent', 'attachment', 'issuelinks', 'subtasks', 'worklog', 'comment', 'thumbnail', 'timetracking', 'timespent', 'timeestimate', 'aggregatetimespent', 'aggregatetimeestimate'])
+const SKIP_FIELD_NAMES = new Set<string>([])
 // Field meta cache: `projectKey:issueTypeName` → { fields, expiresAt }
 const fieldMetaCache = new Map<string, { fields: NormalizedJiraField[]; expiresAt: number }>()
 
@@ -695,14 +789,16 @@ function normalizeJiraField(key: string, meta: Record<string, unknown>): Normali
   return field
 }
 
-async function fetchUserFieldOptions(autoCompleteUrl: string, auth: string, baseUrl: string): Promise<{ id: string; label: string }[]> {
+async function fetchUserFieldOptions(autoCompleteUrl: string, auth: string, baseUrl: string, query = ''): Promise<{ id: string; label: string }[]> {
   const url = new URL(autoCompleteUrl, baseUrl)
   const jiraOrigin = new URL(baseUrl).origin
   if (url.origin !== jiraOrigin) return []
   if (!url.pathname.includes('/user')) return []
-  if (!url.searchParams.has('query')) url.searchParams.set('query', '')
-  if (!url.searchParams.has('username')) url.searchParams.set('username', '')
-  if (!url.searchParams.has('maxResults')) url.searchParams.set('maxResults', '1000')
+  // query 可由呼叫端帶入（搜尋使用者用）；覆寫 URL 既有的 query 參數
+  // 注意：不可帶 username 參數，Jira Cloud GDPR 嚴格模式會對 user/assignable/search 回 400
+  url.searchParams.set('query', query)
+  url.searchParams.delete('username')
+  url.searchParams.set('maxResults', '1000')
 
   const resp = await fetch(url.toString(), { headers: { Authorization: auth, Accept: 'application/json' } })
   if (!resp.ok) return []
@@ -813,6 +909,190 @@ router.get('/api/jira/fields', async (req, res, next) => {
   }
 })
 
+// GET /api/jira/field-users?projectKey&issueTypeId&issueTypeName&fieldKey&query
+// 依使用者輸入的關鍵字，向 Jira 該欄位的 autoComplete 端點即時查使用者
+// （reporter 等欄位空查詢只回傳前 ~50 名推薦人，必須帶 query 才能找到其他人）
+router.get('/api/jira/field-users', async (req, res, next) => {
+  try {
+    const userAuth = userJiraAuth(req)
+    if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
+    const projectKey = String(req.query.projectKey ?? '').trim()
+    const issueTypeName = String(req.query.issueTypeName ?? '').trim()
+    const issueTypeId = String(req.query.issueTypeId ?? '').trim()
+    const fieldKey = String(req.query.fieldKey ?? '').trim()
+    const query = String(req.query.query ?? '').trim()
+    if (!projectKey || (!issueTypeId && !issueTypeName) || !fieldKey) {
+      return res.status(400).json({ ok: false, message: 'projectKey、issueType、fieldKey 為必填' })
+    }
+    const baseUrl = mustEnv('JIRA_BASE_URL')
+    const cacheKey = `${projectKey}:${issueTypeId || issueTypeName}`
+    let fields = fieldMetaCache.get(cacheKey)?.fields
+    if (!fields) {
+      fields = await fetchNormalizedJiraFields(projectKey, issueTypeId, issueTypeName, userAuth.auth, baseUrl)
+      fieldMetaCache.set(cacheKey, { fields, expiresAt: Date.now() + 10 * 60 * 1000 })
+    }
+    const field = fields.find(f => f.key === fieldKey)
+    if (!field) return res.status(404).json({ ok: false, message: '找不到欄位' })
+    if (field.type !== 'user' && field.type !== 'multiuser') {
+      return res.status(400).json({ ok: false, message: '此欄位非使用者欄位' })
+    }
+    let users: { id: string; label: string }[] = []
+    if (field.autoCompleteUrl) {
+      users = await fetchUserFieldOptions(field.autoCompleteUrl, userAuth.auth, baseUrl, query)
+    }
+    // fallback：沒有 autoCompleteUrl 時，用既有 options 做本地過濾
+    if (users.length === 0 && !field.autoCompleteUrl && field.options?.length) {
+      const q = query.toLowerCase()
+      users = field.options.filter(o => !q || o.label.toLowerCase().includes(q) || o.id.toLowerCase().includes(q))
+    }
+    res.json({ ok: true, users })
+  } catch (error) {
+    next(error)
+  }
+})
+
+/**
+ * POST /api/jira/attachment-prefetch
+ * Download attachment files from Lark/Google Drive and cache locally.
+ * Frontend uses the returned cacheIds to display thumbnails in the preview table.
+ * Files are served via GET /api/jira/attachment-cache/:cacheId.
+ * Each file must be ≤ 10 MB (Jira Cloud default).
+ */
+router.post('/api/jira/attachment-prefetch', async (req, res, next) => {
+  try {
+    cleanAttachmentCache()
+    const { groups, larkSheetContext } = z.object({
+      groups: z.array(z.object({
+        rowIndex: z.number(),
+        urls: z.array(z.string()),
+      })),
+      larkSheetContext: z.object({
+        sheetUrl: z.string(),
+        columnLetter: z.string(),
+      }).optional().default({ sheetUrl: '', columnLetter: '' }),
+    }).parse(req.body)
+
+    let larkToken: string | null = null
+    const result: Array<{
+      rowIndex: number
+      attachments: Array<{
+        cacheId: string; filename: string; mimeType: string
+        isImage: boolean; isVideo: boolean; size: number; error?: string
+      }>
+    }> = []
+
+    // Helper: fetch file tokens from a Lark Sheet cell's inline images
+    const getLarkCellImageTokens = async (spreadsheetToken: string, sheetId: string, cellId: string, token: string): Promise<string[]> => {
+      try {
+        const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
+        const url = `${base}/open-apis/sheets/v3/spreadsheets/${spreadsheetToken}/sheets/${sheetId}/cells/${cellId}/cell_images`
+        console.log('[cell_images] GET', url)
+        const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+        const rawText = await resp.text()
+        console.log('[cell_images] raw response (status', resp.status, '):', rawText.slice(0, 500))
+        let data: { code?: number; msg?: string; data?: { cell_images?: Array<{ file_token: string }> } }
+        try { data = JSON.parse(rawText) } catch { return [] }
+        if (!resp.ok || data.code !== 0) return []
+        return data.data?.cell_images?.map(img => img.file_token).filter(Boolean) ?? []
+      } catch (err) {
+        console.warn('[cell_images] error:', err)
+        return []
+      }
+    }
+
+    for (const group of groups) {
+      const attachments: (typeof result)[0]['attachments'] = []
+
+      // Process explicit URL list
+      for (const url of group.urls) {
+        const trimmed = url.trim()
+        if (!trimmed) continue
+        try {
+          let buffer: Buffer, filename: string, mimeType: string
+          if (isGoogleDriveUrl(trimmed)) {
+            const fileId = parseGoogleDriveFileId(trimmed)
+            if (!fileId) {
+              attachments.push({ cacheId: '', filename: trimmed, mimeType: '', isImage: false, isVideo: false, size: 0, error: '無法解析 Google Drive 連結' })
+              continue
+            }
+            ;({ buffer, filename, mimeType } = await downloadGoogleDriveFile(fileId))
+          } else if (isLarkEmbedImageUrl(trimmed)) {
+            if (!larkToken) larkToken = await getLarkToken()
+            ;({ buffer, filename, mimeType } = await downloadLarkEmbedImage(trimmed, larkToken))
+          } else {
+            const fileToken = parseLarkFileToken(trimmed)
+            if (!fileToken) {
+              attachments.push({ cacheId: '', filename: trimmed, mimeType: 'video/link', isImage: false, isVideo: true, size: 0 })
+              continue
+            }
+            if (!larkToken) larkToken = await getLarkToken()
+            ;({ buffer, filename, mimeType } = await downloadLarkFile(fileToken, larkToken))
+          }
+          if (buffer.length > MAX_ATTACHMENT_BYTES) {
+            attachments.push({ cacheId: '', filename, mimeType, isImage: false, isVideo: false, size: buffer.length, error: `超過 10MB 限制（${(buffer.length / 1024 / 1024).toFixed(1)}MB）` })
+            continue
+          }
+          const cacheId = randomUUID()
+          writeFileSync(join(ATTACH_CACHE_DIR, cacheId), buffer)
+          attachments.push({ cacheId, filename, mimeType, isImage: mimeType.startsWith('image/'), isVideo: mimeType.startsWith('video/'), size: buffer.length })
+        } catch (err) {
+          console.warn('[attachment-prefetch] download failed:', trimmed, err)
+          attachments.push({ cacheId: '', filename: trimmed, mimeType: '', isImage: false, isVideo: false, size: 0, error: String(err) })
+        }
+      }
+
+      // For rows with no URLs, try Lark Sheet cell_images API (handles inline images inserted directly into cells)
+      if (group.urls.length === 0 && larkSheetContext) {
+        try {
+          if (!larkToken) larkToken = await getLarkToken()
+          const { spreadsheetToken, sheetId } = parseLarkSheetUrl(larkSheetContext.sheetUrl)
+          console.log('[cell_images] context:', { spreadsheetToken, sheetId, columnLetter: larkSheetContext.columnLetter, rowIndex: group.rowIndex })
+          if (spreadsheetToken && sheetId) {
+            const cellId = `${larkSheetContext.columnLetter}${group.rowIndex}`
+            const fileTokens = await getLarkCellImageTokens(spreadsheetToken, sheetId, cellId, larkToken)
+            for (const fileToken of fileTokens) {
+              try {
+                const { buffer, filename, mimeType } = await downloadLarkFile(fileToken, larkToken)
+                if (buffer.length > MAX_ATTACHMENT_BYTES) {
+                  attachments.push({ cacheId: '', filename, mimeType, isImage: false, isVideo: false, size: buffer.length, error: `超過 10MB 限制` })
+                  continue
+                }
+                const cacheId = randomUUID()
+                writeFileSync(join(ATTACH_CACHE_DIR, cacheId), buffer)
+                attachments.push({ cacheId, filename, mimeType, isImage: mimeType.startsWith('image/'), isVideo: mimeType.startsWith('video/'), size: buffer.length })
+              } catch (err) {
+                console.warn('[attachment-prefetch] cell_image download failed:', fileToken, err)
+              }
+            }
+          }
+        } catch (err) {
+          console.warn('[attachment-prefetch] cell_images lookup failed for row', group.rowIndex, err)
+        }
+      }
+
+      if (attachments.length > 0) result.push({ rowIndex: group.rowIndex, attachments })
+    }
+    res.json({ ok: true, result })
+  } catch (error) {
+    next(error)
+  }
+})
+
+
+/**
+ * GET /api/jira/attachment-cache/:cacheId
+ * Serve a cached attachment file (UUID-named) for preview thumbnails.
+ */
+router.get('/api/jira/attachment-cache/:cacheId', (req, res) => {
+  const { cacheId } = req.params
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(cacheId)) {
+    return res.status(400).send('invalid id')
+  }
+  const fp = join(ATTACH_CACHE_DIR, cacheId)
+  if (!existsSync(fp)) return res.status(404).send('not found')
+  res.sendFile(fp)
+})
+
 // POST /api/lark/sheets/records
 router.post('/api/lark/sheets/records', async (req, res, next) => {
   try {
@@ -858,6 +1138,9 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
       }
       if (typeof cell === 'object') {
         const c = cell as Record<string, unknown>
+        // Inline image cells: { type: "embed-image", fileToken: "...", link: "..." }
+        // Return the link URL so the attachment pipeline can download via Lark media API
+        if (c.type === 'embed-image' && typeof c.link === 'string' && c.link) return c.link
         // Formula cells: Lark may return computed value in various fields
         if (typeof c.formulaValue === 'string') return c.formulaValue
         if (c.formulaValue !== undefined && c.formulaValue !== null) return String(c.formulaValue)
@@ -1192,6 +1475,19 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
 
     const body = batchCommentSchema.parse(req.body)
     const baseUrl = mustEnv('JIRA_BASE_URL')
+
+    // ── Backend format validation (same 5-section rule as frontend) ──
+    const REQUIRED_SECTIONS = ['【功能目的】', '【前置條件】', '【測試步驟】', '【說明與備註】', '【驗證結果】']
+    const validationErrors = body.comments
+      .map(item => {
+        const missing = REQUIRED_SECTIONS.filter(s => !item.rawComment.includes(s))
+        return missing.length > 0 ? { rowIndex: item.rowIndex, issueKey: item.issueKey, missing } : null
+      })
+      .filter((e): e is NonNullable<typeof e> => e !== null)
+    if (validationErrors.length > 0) {
+      return res.status(400).json({ ok: false, message: '評論格式不符', validationErrors })
+    }
+
     const heavyTask = tryStartHeavyTask(req, 'jira-batch-comment', 'Jira 批次評論')
     if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
     const clientIP = getClientIP(req)
@@ -1287,65 +1583,127 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
           }
         }
 
-        // 分類附件 URL：影片 → 寫進評論內文；圖片 → 上傳附件
-        const attachUrls = item.attachmentUrls ?? []
+        // 分類附件：優先使用預快取檔案（cachedAttachments），否則退回 URL 下載
+        const cachedAtts = item.cachedAttachments ?? []
+        const attachUrls = cachedAtts.length > 0 ? [] : (item.attachmentUrls ?? [])
         const videoLinks: string[] = []
         const imageAttachUrls: { type: 'lark' | 'gdrive'; url: string; fileId?: string }[] = []
+        // Pre-downloaded cached files ready to upload (images AND videos with real cache files)
+        const cachedImageFiles: { buffer: Buffer; filename: string; mimeType: string; isVideo: boolean }[] = []
 
-        for (const url of attachUrls) {
-          if (isGoogleDriveUrl(url)) {
-            const fileId = parseGoogleDriveFileId(url)
-            if (!fileId) { videoLinks.push(url); continue }
-            const ftype = await detectGoogleDriveFileType(fileId)
-            if (ftype === 'video') videoLinks.push(url)
-            else imageAttachUrls.push({ type: 'gdrive', url, fileId })
-          } else {
-            imageAttachUrls.push({ type: 'lark', url })
+        if (cachedAtts.length > 0) {
+          // Use cached files (from prefetch endpoint)
+          for (const ca of cachedAtts) {
+            if (ca.mimeType === 'video/link' && !ca.cacheId) {
+              // External video URL (no real file) — append as text link
+              videoLinks.push(ca.filename)
+            } else if (ca.cacheId) {
+              const fp = join(ATTACH_CACHE_DIR, ca.cacheId)
+              if (existsSync(fp)) {
+                try {
+                  const buffer = readFileSync(fp)
+                  cachedImageFiles.push({ buffer, filename: ca.filename, mimeType: ca.mimeType, isVideo: ca.isVideo })
+                } catch { /* ignore missing cache */ }
+              }
+            }
+          }
+        } else {
+          // Fall back to on-demand URL download (legacy path)
+          for (const url of attachUrls) {
+            if (isGoogleDriveUrl(url)) {
+              const fileId = parseGoogleDriveFileId(url)
+              if (!fileId) { videoLinks.push(url); continue }
+              const ftype = await detectGoogleDriveFileType(fileId)
+              if (ftype === 'video') videoLinks.push(url)
+              else imageAttachUrls.push({ type: 'gdrive', url, fileId })
+            } else {
+              imageAttachUrls.push({ type: 'lark', url })
+            }
           }
         }
 
-        // 影片連結附加到評論內文
-        let firstCommentText = commentText
-        if (videoLinks.length > 0) {
-          firstCommentText = (firstCommentText ? firstCommentText + '\n\n' : '') +
-            '📎 影片連結：\n' + videoLinks.map(u => `• ${u}`).join('\n')
-        }
-
         try {
-          const adfBody = textToADF(firstCommentText || '（無內容）')
-          const resp = await fetch(`${baseUrl}/rest/api/3/issue/${item.issueKey}/comment`, {
+          // ── 先上傳附件，再把圖片以 wiki markup !filename! 嵌入評論 ──
+          let attachOk = 0; let attachFail = 0
+          const uploadedFiles: { filename: string; isVideo: boolean }[] = []
+
+          // Process cached files (already downloaded by prefetch)
+          for (const cf of cachedImageFiles) {
+            try {
+              const storedFilename = await uploadAttachmentToJira(item.issueKey, cf.filename, cf.buffer, cf.mimeType, userAuth.auth, baseUrl)
+              uploadedFiles.push({ filename: storedFilename, isVideo: cf.isVideo })
+              attachOk++
+            } catch (attErr) {
+              attachFail++
+              console.warn(`[batch-comment] ${item.issueKey} 快取附件上傳失敗 (${cf.filename}):`, attErr)
+            }
+          }
+
+          // Process legacy URL downloads (when cachedAttachments not used)
+          if (imageAttachUrls.length > 0) {
+            let larkToken: string | null = null
+            for (const att of imageAttachUrls) {
+              try {
+                let buffer: Buffer, filename: string, mimeType: string
+                if (att.type === 'gdrive' && att.fileId) {
+                  ;({ buffer, filename, mimeType } = await downloadGoogleDriveFile(att.fileId))
+                } else if (isLarkEmbedImageUrl(att.url)) {
+                  if (!larkToken) larkToken = await getLarkToken()
+                  ;({ buffer, filename, mimeType } = await downloadLarkEmbedImage(att.url, larkToken))
+                } else {
+                  const fileToken = parseLarkFileToken(att.url)
+                  if (!fileToken) { attachFail++; continue }
+                  if (!larkToken) larkToken = await getLarkToken()
+                  ;({ buffer, filename, mimeType } = await downloadLarkFile(fileToken, larkToken))
+                }
+                const storedFilename = await uploadAttachmentToJira(item.issueKey, filename, buffer, mimeType, userAuth.auth, baseUrl)
+                uploadedFiles.push({ filename: storedFilename, isVideo: mimeType.startsWith('video/') })
+                attachOk++
+              } catch (attErr) {
+                attachFail++
+                console.warn(`[batch-comment] ${item.issueKey} 附件上傳失敗 (${att.url}):`, attErr)
+              }
+            }
+          }
+
+          if (attachOk > 0 || attachFail > 0) {
+            console.log(`[batch-comment] ${item.issueKey} 附件：${attachOk} 成功${attachFail > 0 ? `，${attachFail} 失敗` : ''}`)
+          }
+
+          // Clean up cache files
+          for (const ca of item.cachedAttachments ?? []) {
+            if (ca.cacheId) {
+              try { unlinkSync(join(ATTACH_CACHE_DIR, ca.cacheId)) } catch { /* ignore */ }
+            }
+          }
+
+          // 建立 wiki markup 評論：文字 + 圖片嵌入（!filename!）+ 影片附件說明 + 影片連結
+          let wikiBody = commentText || '（無內容）'
+          const uploadedImages = uploadedFiles.filter(f => !f.isVideo)
+          const uploadedVideos = uploadedFiles.filter(f => f.isVideo)
+          if (uploadedImages.length > 0) {
+            wikiBody += '\n\n' + uploadedImages.map(f => `!${f.filename}!`).join('\n')
+          }
+          if (uploadedVideos.length > 0) {
+            wikiBody += '\n\n📹 影片附件：\n' + uploadedVideos.map(f => `• [^${f.filename}]`).join('\n')
+          }
+          if (videoLinks.length > 0) {
+            wikiBody += '\n\n📎 影片連結：\n' + videoLinks.map(u => `• ${u}`).join('\n')
+          }
+          console.log(`[batch-comment] ${item.issueKey} wikiBody:`, JSON.stringify(wikiBody.slice(-300)),
+            '| images:', JSON.stringify(uploadedImages.map(f => f.filename)),
+            '| videos:', JSON.stringify(uploadedVideos.map(f => f.filename)))
+
+          // 使用 v2 API 發送 wiki markup 評論（支援 !filename! 內嵌圖片）
+          const resp = await fetch(`${baseUrl}/rest/api/2/issue/${item.issueKey}/comment`, {
             method: 'POST',
             headers: { Authorization: userAuth.auth, Accept: 'application/json', 'Content-Type': 'application/json' },
-            body: JSON.stringify({ body: adfBody }),
+            body: JSON.stringify({ body: wikiBody }),
           })
           if (!resp.ok) {
             const errData = await resp.json().catch(() => ({})) as { errorMessages?: string[] }
             results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: false, usedAi: false, error: errData.errorMessages?.join(', ') ?? `HTTP ${resp.status}` })
           } else {
-            // 上傳圖片附件（Lark Drive + Google Drive）
-            if (imageAttachUrls.length > 0) {
-              let larkToken: string | null = null
-              let attachOk = 0; let attachFail = 0
-              for (const att of imageAttachUrls) {
-                try {
-                  let buffer: Buffer, filename: string, mimeType: string
-                  if (att.type === 'gdrive' && att.fileId) {
-                    ;({ buffer, filename, mimeType } = await downloadGoogleDriveFile(att.fileId))
-                  } else {
-                    const fileToken = parseLarkFileToken(att.url)
-                    if (!fileToken) { attachFail++; continue }
-                    if (!larkToken) larkToken = await getLarkToken()
-                    ;({ buffer, filename, mimeType } = await downloadLarkFile(fileToken, larkToken))
-                  }
-                  await uploadAttachmentToJira(item.issueKey, filename, buffer, mimeType, userAuth.auth, baseUrl)
-                  attachOk++
-                } catch (attErr) {
-                  attachFail++
-                  console.warn(`[batch-comment] ${item.issueKey} 附件上傳失敗 (${att.url}):`, attErr)
-                }
-              }
-              console.log(`[batch-comment] ${item.issueKey} 附件：${attachOk} 成功${attachFail > 0 ? `，${attachFail} 失敗` : ''}`)
-            }
 
             // ── 第二則評論：AI 完整性分析 ──
             if (item.useAi && commentText.trim()) {
@@ -1374,11 +1732,10 @@ ${commentText}
                   `Jira AI 分析評論（${item.issueKey}）`,
                   () => callLLM(analysisPrompt, body.modelSpec),
                 )
-                const analysisAdf = textToADF(`🤖 AI 完整性分析\n\n${analysisText.trim()}`)
-                await fetch(`${baseUrl}/rest/api/3/issue/${item.issueKey}/comment`, {
+                await fetch(`${baseUrl}/rest/api/2/issue/${item.issueKey}/comment`, {
                   method: 'POST',
                   headers: { Authorization: userAuth.auth, Accept: 'application/json', 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ body: analysisAdf }),
+                  body: JSON.stringify({ body: `🤖 AI 完整性分析\n\n${analysisText.trim()}` }),
                 })
                 console.log(`[batch-comment] ${item.issueKey} AI 分析評論完成`)
               } catch (aiErr) {

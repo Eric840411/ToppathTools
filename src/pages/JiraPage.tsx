@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { JiraAccountModal, accountHasRole, type AccountInfo } from '../components/JiraAccountModal'
 import { SearchSelect } from '../components/SearchSelect'
 import { ModelSelector } from '../components/ModelSelector'
@@ -203,10 +204,116 @@ const SHEET_FIELD: Record<string, string> = {
   releaseDate: '上線日期',
 }
 
+// 動態開單模式：強制必填欄位 → Lark 欄位名稱對照（供自動帶入使用）
+const FORCED_LARK_ALIAS: Record<string, string> = {
+  description: '內容',
+  assignee: '受託人',
+  reporter: '回報人',
+  customfield_10428: 'RD負責人',
+}
+
+interface CachedAttachment {
+  cacheId: string
+  filename: string
+  mimeType: string
+  isImage: boolean
+  isVideo: boolean
+  size: number
+  error?: string
+}
+
+interface PreviewItem {
+  rowIndex: number
+  issueKey: string
+  summary: string
+  commentText: string
+  cachedAttachments: CachedAttachment[]
+  missingSections: string[]
+  hasError: boolean
+}
+
 interface JiraPageProps {
   account?: AccountInfo | null
   allowedModes?: string[]
   isAdmin?: boolean
+}
+
+// 使用者欄位即時搜尋（reporter 等空查詢只回前 ~50 推薦人，必須打名字才找得到其他人）
+function UserFieldSearch({ field, projectKey, issueTypeId, issueTypeName, email, onPick }: {
+  field: NormalizedJiraField
+  projectKey: string
+  issueTypeId: string
+  issueTypeName: string
+  email: string
+  onPick: (user: { id: string; label: string }) => void
+}) {
+  const [q, setQ] = useState('')
+  const [results, setResults] = useState<{ id: string; label: string }[]>([])
+  const [loading, setLoading] = useState(false)
+  const [open, setOpen] = useState(false)
+  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const updateRect = () => {
+    const el = inputRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    setRect({ top: r.bottom + 2, left: r.left, width: r.width })
+  }
+
+  useEffect(() => {
+    if (timer.current) clearTimeout(timer.current)
+    const term = q.trim()
+    if (term.length < 1) { setResults([]); setLoading(false); setOpen(false); return }
+    setLoading(true); setOpen(true); updateRect()
+    timer.current = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ projectKey, issueTypeId, issueTypeName, fieldKey: field.key, query: term })
+        const r = await fetch(`/api/jira/field-users?${params.toString()}`, { headers: { 'x-jira-email': email } })
+        const d = await r.json()
+        setResults(d.ok && Array.isArray(d.users) ? d.users : [])
+      } catch { setResults([]) }
+      finally { setLoading(false) }
+    }, 300)
+    return () => { if (timer.current) clearTimeout(timer.current) }
+  }, [q, projectKey, issueTypeId, issueTypeName, field.key, email])
+
+  // 跟著捲動/縮放更新浮層位置（dropdown 用 portal+fixed 避免被表格裁切）
+  useEffect(() => {
+    if (!open) return
+    const handler = () => updateRect()
+    window.addEventListener('scroll', handler, true)
+    window.addEventListener('resize', handler)
+    return () => { window.removeEventListener('scroll', handler, true); window.removeEventListener('resize', handler) }
+  }, [open])
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        ref={inputRef}
+        value={q}
+        onChange={e => setQ(e.target.value)}
+        onFocus={() => { if (q.trim()) { setOpen(true); updateRect() } }}
+        onBlur={() => { setTimeout(() => setOpen(false), 150) }}
+        placeholder="🔍 搜尋使用者…"
+        style={{ width: '100%', boxSizing: 'border-box', background: '#0f172a', border: '1px solid #2563eb30', borderRadius: 5, color: '#e2e8f0', fontSize: 11, padding: '3px 7px', outline: 'none' }} />
+      {open && q.trim() && rect && createPortal(
+        <div style={{ position: 'fixed', top: rect.top, left: rect.left, width: Math.max(rect.width, 190), zIndex: 9999, background: '#1e293b', border: '1px solid #334155', borderRadius: 6, maxHeight: 220, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+          {loading ? <div style={{ padding: '6px 10px', fontSize: 11, color: '#64748b' }}>搜尋中…</div>
+            : results.length === 0 ? <div style={{ padding: '6px 10px', fontSize: 11, color: '#64748b' }}>查無使用者</div>
+            : results.map(u => (
+              <button key={u.id} type="button"
+                onMouseDown={e => { e.preventDefault(); onPick(u); setQ(''); setResults([]); setOpen(false) }}
+                style={{ display: 'block', width: '100%', textAlign: 'left', padding: '5px 10px', fontSize: 11, background: 'none', border: 'none', color: '#cbd5e1', cursor: 'pointer' }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#2563eb20' }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'none' }}>
+                {u.label}
+              </button>
+            ))}
+        </div>, document.body)}
+    </div>
+  )
 }
 
 export function JiraPage({ account = null, allowedModes, isAdmin = false }: JiraPageProps) {
@@ -303,6 +410,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const [cellValues, setCellValues] = useState<Record<number, Record<string, string>>>({})
   const [cellErrors, setCellErrors] = useState<Record<number, Record<string, string>>>({})
   const [showFieldPicker, setShowFieldPicker] = useState(false)
+  const [fieldPickerSearch, setFieldPickerSearch] = useState('')
   const [showBulkPanel, setShowBulkPanel] = useState(false)
   const [larkPrefillApplied, setLarkPrefillApplied] = useState(false)
   const [bulkValues, setBulkValues] = useState<Record<string, string>>({})
@@ -320,6 +428,15 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const [pendingCommentRequestId, setPendingCommentRequestId] = useState('')
   const [commentProgress, setCommentProgress] = useState<{ done: number; total: number; current: string } | null>(null)
   const [commentResults, setCommentResults] = useState<StageOpResult[]>([])
+
+  // Preview mode state
+  const [previewMode, setPreviewMode] = useState(false)
+  const [previewItems, setPreviewItems] = useState<PreviewItem[]>([])
+  const [prefetchLoading, setPrefetchLoading] = useState(false)
+  const [prefetchError, setPrefetchError] = useState('')
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+  const [uploadingRows, setUploadingRows] = useState<Set<number>>(new Set())
+  const [uploadErrors, setUploadErrors] = useState<Record<number, string>>({})
 
   // Step 6 (transition)
   const [transitionSubmitting, setTransitionSubmitting] = useState(false)
@@ -776,8 +893,17 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   }
 
   // ── Dynamic field helpers ──
-  const requiredJiraFields = jiraFields.filter(f => f.required)
-  const optionalJiraFields = jiraFields.filter(f => !f.required)
+  // 強制必填欄位：即使 Jira 標記為選填，這幾欄也一律自動顯示並要求填寫
+  // （摘要 = summary 已是 Jira 必填；這裡補上 描述/受託人/RD負責人/回報人）
+  const isForcedRequiredField = (f: NormalizedJiraField) =>
+    f.key === 'description' ||
+    f.key === 'assignee' ||
+    f.key === 'reporter' ||
+    f.key === 'customfield_10428' ||
+    f.name.includes('RD負責人')
+  const isFieldRequired = (f: NormalizedJiraField) => f.required || isForcedRequiredField(f)
+  const requiredJiraFields = jiraFields.filter(isFieldRequired)
+  const optionalJiraFields = jiraFields.filter(f => !isFieldRequired(f))
   const activeOptionalJiraFields = optionalJiraFields.filter(f => activeOptionalKeys.includes(f.key))
   const inactiveOptionalJiraFields = optionalJiraFields.filter(f => !activeOptionalKeys.includes(f.key))
   const visibleJiraFields = [...requiredJiraFields, ...activeOptionalJiraFields]
@@ -803,6 +929,19 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     })
   }
 
+  // 把即時搜尋到的使用者併入欄位 options（去重），讓批量與每列下拉都選得到
+  const mergeFieldUsers = (fieldKey: string, users: { id: string; label: string }[]) => {
+    setJiraFields(prev => prev.map(f => {
+      if (f.key !== fieldKey) return f
+      const existing = f.options ?? []
+      const ids = new Set(existing.map(o => o.id))
+      const merged = [...existing, ...users.filter(u => u.id && !ids.has(u.id))]
+      return { ...f, options: merged }
+    }))
+  }
+  const searchProjectKey = projects.find(p => p.id === selectedProjectId)?.key ?? ''
+  const searchIssueTypeName = issueTypes.find(t => t.id === selectedIssueTypeId)?.name ?? ''
+
   const userOptionsForField = (field: NormalizedJiraField) =>
     field.options?.length
       ? field.options
@@ -827,7 +966,11 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       const rowVals: Record<string, string> = {}
       for (const field of jiraFields) {
         // Try exact column name match (case-insensitive), also try Lark aliases
-        const aliases = field.key === 'summary' ? [field.name, '摘要', 'summary'] : [field.name, field.key]
+        const aliases = field.key === 'summary'
+          ? [field.name, '摘要', 'summary']
+          : FORCED_LARK_ALIAS[field.key]
+            ? [field.name, FORCED_LARK_ALIAS[field.key], field.key]
+            : [field.name, field.key]
         for (const alias of aliases) {
           const val = getField(record, alias).trim()
           if (val) { rowVals[field.key] = val; break }
@@ -1073,128 +1216,218 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   }
 
   // ── Step 5: 添加評論 ──
-  const REQUIRED_COMMENT_SECTIONS = ['【功能目的】', '【前置條件】', '【測試步驟】', '【說明與備註】', '【驗證結果】']
+  // 評論範本結構：每個區塊含必填細項（細項用「：」結尾，偵測冒號後是否有內容）
+  const COMMENT_TEMPLATE_SECTIONS: { header: string; items: string[] }[] = [
+    { header: '【功能目的】', items: ['目的', '影響範圍'] },
+    { header: '【前置條件】', items: ['環境', '版本', '測試平台', '測試資料', '情境', '參數 / 設定'] },
+    { header: '【測試步驟】', items: ['主要流程', '延伸測試'] },
+    { header: '【說明與備註】', items: ['特殊行為 / 已知限制', '風險或需留意事項'] },
+    { header: '【驗證結果】', items: [] },
+  ]
 
-  const handleAddComments = async () => {
-    if (!currentAccount || toComment.length === 0 || !commentColumn) return
-
-    // ── 格式驗證：評論必須包含所有必要區塊 ──
-    const formatErrors: { rowIndex: number; issueKey: string; ok: false; error: string }[] = []
-    for (const issue of toComment) {
-      const record = sheetRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
-      const rawComment = record ? getField(record, commentColumn) : ''
-      const missingSections = REQUIRED_COMMENT_SECTIONS.filter(s => !rawComment.includes(s))
-      if (missingSections.length > 0) {
-        formatErrors.push({
-          rowIndex: issue.rowIndex,
-          issueKey: issue.issueKey,
-          ok: false,
-          error: `格式不符，缺少區塊：${missingSections.join('、')}`,
-        })
+  // 回傳所有「缺漏」項目：缺少區塊標題、缺欄位、或細項冒號後沒填內容
+  const validateCommentSections = (text: string): string[] => {
+    const problems: string[] = []
+    const lines = text.split(/\r?\n/)
+    for (const sec of COMMENT_TEMPLATE_SECTIONS) {
+      const headerIdx = lines.findIndex(l => l.includes(sec.header))
+      if (headerIdx === -1) { problems.push(sec.header); continue }
+      if (sec.items.length === 0) {
+        // 【驗證結果】：標題之後（到下一個 【 區塊前）需有內容
+        let hasContent = false
+        for (let i = headerIdx + 1; i < lines.length; i++) {
+          if (/^\s*【/.test(lines[i])) break
+          if (lines[i].trim()) { hasContent = true; break }
+        }
+        if (!hasContent) problems.push(`${sec.header} 未填結果`)
+      } else {
+        for (const item of sec.items) {
+          const line = lines.find(l => {
+            const t = l.trim()
+            return t.startsWith(`${item}：`) || t.startsWith(`${item}:`)
+          })
+          if (!line) { problems.push(`${item}（缺欄位）`); continue }
+          const after = line.replace(/^[^：:]*[：:]/, '').trim()
+          if (!after) problems.push(item)
+        }
       }
     }
-    if (formatErrors.length > 0) {
-      setCommentResults(formatErrors)
-      setStep(5)
-      return
-    }
+    return problems
+  }
 
-    setCommentSubmitting(true)
-    setPendingCommentRequestId('')
-    setCommentProgress(null)
-    setCommentResults([])
+  // Enter preview mode: fetch attachment cache then show preview table
+  const handleEnterPreview = async () => {
+    if (!commentColumn || toComment.length === 0) return
+    setPrefetchLoading(true)
+    setPrefetchError('')
 
-    const comments = toComment.map(issue => {
+    const items: PreviewItem[] = toComment.map(issue => {
       const record = sheetRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
-      const rawAttachText = (attachmentColumn && record) ? getField(record, attachmentColumn) : ''
-      const attachmentUrls = rawAttachText
-        ? rawAttachText.split(/[\n,]/).map(s => s.trim()).filter(Boolean)
-        : []
-      const rawComment = record
-        ? (useAiComment && isAdmin)
-          ? buildAiCommentRawText(record, commentColumn)
-          : getField(record, commentColumn)
+      const text = record
+        ? (useAiComment && isAdmin) ? buildAiCommentRawText(record, commentColumn) : getField(record, commentColumn)
         : ''
+      const missing = validateCommentSections(text)
       return {
-        issueKey: issue.issueKey,
         rowIndex: issue.rowIndex,
-        rawComment,
-        useAi: useAiComment && isAdmin,
-        promptId: (useAiComment && isAdmin) ? selectedPromptId : undefined,
-        machineId:   record ? getField(record, '機台編號') || undefined : undefined,
-        gameMode:    record ? getField(record, '遊戲模式') || undefined : undefined,
-        environment: record ? deriveEnvironment(record, rawComment) || undefined : undefined,
-        version:     record ? deriveVersion(record, rawComment) || undefined : undefined,
-        platform:    record ? getFieldByHeaderMatch(record, ['測試平台', '平台', '類別']) || undefined : undefined,
-        attachmentUrls,
-        issueSummary: record ? getField(record, SHEET_FIELD.summary) || undefined : undefined,
-        issueDescription: record ? getField(record, SHEET_FIELD.description) || undefined : undefined,
+        issueKey: issue.issueKey,
+        summary: record ? getField(record, SHEET_FIELD.summary) : issue.issueKey,
+        commentText: text,
+        cachedAttachments: [],
+        missingSections: missing,
+        hasError: missing.length > 0,
       }
     })
 
+    // Prefetch attachments in the background
+    if (attachmentColumn) {
+      // Convert column name to letter (A=index 0, B=1, ...) for Lark cell_images API
+      const colIdx = sheetHeaders.indexOf(attachmentColumn)
+      const columnLetter = colIdx >= 0
+        ? (() => {
+            let i = colIdx + 1; let letter = ''
+            while (i > 0) { letter = String.fromCharCode(65 + (i - 1) % 26) + letter; i = Math.floor((i - 1) / 26) }
+            return letter
+          })()
+        : ''
+
+      const groups = toComment.map(issue => {
+        const record = sheetRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
+        const raw = record ? getField(record, attachmentColumn) : ''
+        const urls = raw ? raw.split(/[\n,]/).map(s => s.trim()).filter(Boolean) : []
+        return { rowIndex: issue.rowIndex, urls }
+      })
+      // Include ALL rows — empty-URL rows may have inline Lark Sheet images
+
+      const larkSheetContext = columnLetter ? { sheetUrl, columnLetter } : undefined
+
+      try {
+        const resp = await fetch('/api/jira/attachment-prefetch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...emailHeader },
+          body: JSON.stringify({ groups, larkSheetContext }),
+        })
+        const data = await resp.json() as { ok: boolean; result?: { rowIndex: number; attachments: CachedAttachment[] }[] }
+        if (data.ok && data.result) {
+          for (const g of data.result) {
+            const item = items.find(i => i.rowIndex === g.rowIndex)
+            if (item) item.cachedAttachments = g.attachments
+          }
+        }
+      } catch (err) {
+        console.warn('[prefetch] failed:', err)
+        setPrefetchError('附件載入失敗，可繼續編輯評論後送出')
+      }
+    }
+
+    setPreviewItems(items)
+    setPreviewMode(true)
+    setPrefetchLoading(false)
+  }
+
+  const updatePreviewComment = (rowIndex: number, text: string) => {
+    setPreviewItems(prev => prev.map(item => {
+      if (item.rowIndex !== rowIndex) return item
+      const missing = validateCommentSections(text)
+      return { ...item, commentText: text, missingSections: missing, hasError: missing.length > 0 }
+    }))
+  }
+
+  const COMMENT_TEMPLATE = COMMENT_TEMPLATE_SECTIONS
+    .map(s => [s.header, ...s.items.map(i => `${i}：`)].join('\n'))
+    .join('\n\n') + '\n'
+
+  const handleBatchAppendTemplate = () => {
+    setPreviewItems(prev => prev.map(item => {
+      const newText = item.commentText ? item.commentText + '\n\n' + COMMENT_TEMPLATE : COMMENT_TEMPLATE
+      const missing = validateCommentSections(newText)
+      return { ...item, commentText: newText, missingSections: missing, hasError: missing.length > 0 }
+    }))
+  }
+
+  const handleManualUpload = async (rowIndex: number, files: FileList | null) => {
+    if (!files || files.length === 0) return
+    setUploadingRows(prev => new Set([...prev, rowIndex]))
+    setUploadErrors(prev => { const n = { ...prev }; delete n[rowIndex]; return n })
+    for (const file of Array.from(files)) {
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
+        const resp = await fetch('/api/jira/attachment-upload', {
+          method: 'POST',
+          headers: { ...emailHeader },
+          body: formData,
+        })
+        const data = await resp.json() as CachedAttachment & { ok: boolean; message?: string }
+        if (data.ok) {
+          setPreviewItems(prev => prev.map(item => {
+            if (item.rowIndex !== rowIndex) return item
+            return { ...item, cachedAttachments: [...item.cachedAttachments, { cacheId: data.cacheId, filename: data.filename, mimeType: data.mimeType, isImage: data.isImage, isVideo: data.isVideo, size: data.size }] }
+          }))
+        } else {
+          setUploadErrors(prev => ({ ...prev, [rowIndex]: `${file.name}：${data.message ?? '上傳失敗'}` }))
+        }
+      } catch (err) {
+        console.warn('[manual-upload] failed:', err)
+        setUploadErrors(prev => ({ ...prev, [rowIndex]: `${file.name}：上傳失敗` }))
+      }
+    }
+    setUploadingRows(prev => { const s = new Set([...prev]); s.delete(rowIndex); return s })
+  }
+
+  type CommentPayload = {
+    issueKey: string; rowIndex: number; rawComment: string; useAi: boolean; promptId?: string
+    cachedAttachments?: CachedAttachment[]; attachmentUrls: string[]
+    issueSummary?: string; issueDescription?: string
+    machineId?: string; gameMode?: string; environment?: string; version?: string; platform?: string
+  }
+
+  // Shared core: submit batch-comment job and wait for SSE result
+  const runBatchCommentJob = async (comments: CommentPayload[]) => {
+    if (!currentAccount) return
     let submitRequestId = ''
     let sseResolved = false
     try {
-      // Submit job and get requestId immediately
       const resp = await fetch('/api/jira/batch-comment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...emailHeader },
-        body: JSON.stringify({ comments, modelSpec: useAiComment ? commentModel : undefined, specContext: useAiComment && specContext.trim() ? specContext.trim() : undefined, knowledgeDocIds: useAiComment && selectedKbDocIds.length > 0 ? selectedKbDocIds : undefined }),
+        body: JSON.stringify({
+          comments,
+          modelSpec: useAiComment ? commentModel : undefined,
+          specContext: useAiComment && specContext.trim() ? specContext.trim() : undefined,
+          knowledgeDocIds: useAiComment && selectedKbDocIds.length > 0 ? selectedKbDocIds : undefined,
+        }),
       })
-      const submitData = await resp.json() as { ok: boolean; requestId?: string; message?: string }
+      const submitData = await resp.json() as { ok: boolean; requestId?: string; message?: string; validationErrors?: unknown }
       if (!submitData.ok || !submitData.requestId) {
         setCommentResults([{ rowIndex: 0, issueKey: '', ok: false, error: submitData.message ?? '提交失敗' }])
         setStep(5)
+        setCommentSubmitting(false)
         return
       }
       submitRequestId = submitData.requestId
       setPendingCommentRequestId(submitRequestId)
       localStorage.setItem(COMMENT_PENDING_KEY, submitRequestId)
 
-      // Wait for background job via SSE, with per-item progress updates.
-      // SSE stream with auto-reconnect: EventSource reconnects automatically on transient drops.
-      // Server sends progress snapshot immediately on reconnect, so progress stays up-to-date.
-      // Only give up after 30 minutes with no result (fall back to polling).
       const data = await new Promise<{ ok: boolean; results?: StageOpResult[]; stopped?: boolean; stoppedReason?: string }>((resolve, reject) => {
         const es = new EventSource(`/api/jira/batch-comment/stream?requestId=${encodeURIComponent(submitData.requestId!)}&email=${encodeURIComponent(currentAccount.email)}`)
         let done = false
-        const sseTimeout = setTimeout(() => {
-          if (!done) { es.close(); reject(new Error('SSE 逾時')) }
-        }, 30 * 60 * 1000)
-
-        es.addEventListener('progress', (e: MessageEvent) => {
-          setCommentProgress(JSON.parse(e.data))
-        })
-        es.addEventListener('result', (e: MessageEvent) => {
-          done = true
-          clearTimeout(sseTimeout)
-          es.close()
-          resolve(JSON.parse(e.data))
-        })
-        es.onerror = () => {
-          if (done) return
-          // Don't close — let EventSource auto-reconnect (native browser behavior)
-        }
+        const sseTimeout = setTimeout(() => { if (!done) { es.close(); reject(new Error('SSE 逾時')) } }, 30 * 60 * 1000)
+        es.addEventListener('progress', (e: MessageEvent) => { setCommentProgress(JSON.parse(e.data)) })
+        es.addEventListener('result', (e: MessageEvent) => { done = true; clearTimeout(sseTimeout); es.close(); resolve(JSON.parse(e.data)) })
+        es.onerror = () => { if (done) return }
       })
 
       const results = data.results ?? []
-
-      // AI 中斷時在結果中插入一筆提示
       if (data.stopped && data.stoppedReason) {
-        results.push({
-          rowIndex: -1,
-          issueKey: '⚠️ 已中斷',
-          ok: false,
-          error: `Gemini API 用量已達上限，剩餘筆數未處理。原因：${data.stoppedReason}`,
-        })
+        results.push({ rowIndex: -1, issueKey: '⚠️ 已中斷', ok: false, error: `Gemini API 用量已達上限，剩餘筆數未處理。原因：${data.stoppedReason}` })
       }
       sseResolved = true
       setCommentResults(results)
-      // 立即釋放按鈕狀態，不等待回寫
       setCommentSubmitting(false)
       setPendingCommentRequestId('')
       setCommentProgress(null)
       localStorage.removeItem(COMMENT_PENDING_KEY)
+      setPreviewMode(false)
       setStep(5)
 
       const successRows = results.filter(r => r.ok)
@@ -1204,99 +1437,91 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             sheetUrl, source: sheetSource,
-            writes: successRows.map(r => ({
-              rowIndex: r.rowIndex,
-              columns: { '處理階段': '添加評論', '處理時間': nowString() },
-            })),
+            writes: successRows.map(r => ({ rowIndex: r.rowIndex, columns: { '處理階段': '添加評論', '處理時間': nowString() } })),
           }),
         })
-        // 更新本地 trackedIssues stage
-        setTrackedIssues(prev => prev.map(t =>
-          successRows.some(r => r.rowIndex === t.rowIndex) ? { ...t, stage: '添加評論' } : t
-        ))
+        setTrackedIssues(prev => prev.map(t => successRows.some(r => r.rowIndex === t.rowIndex) ? { ...t, stage: '添加評論' } : t))
       }
     } catch {
-      if (sseResolved) {
-        // Writeback failed after SSE already resolved — results are already shown, just ignore
-      } else if (submitRequestId) {
-        // Stream/network error happened after submit.
-        // Backend job may still be running, so always try polling fallback.
-        // Poll status endpoint to recover final result.
+      if (sseResolved) return
+      if (submitRequestId) {
+        // Polling fallback
         let recovered = false
-        const maxPollMs = 5 * 60 * 1000 // polling fallback 最多等 5 分鐘（SSE 已有 30 分鐘 auto-reconnect）
+        const maxPollMs = 5 * 60 * 1000
         const pollStart = Date.now()
         while (Date.now() - pollStart < maxPollMs) {
           try {
             const r = await fetch(`/api/jira/batch-comment/status/${encodeURIComponent(submitRequestId)}`, { headers: { ...emailHeader } })
-            const d = await r.json() as {
-              ok: boolean
-              status?: 'running' | 'done' | 'missing'
-              progress?: { done: number; total: number; current: string }
-              result?: { ok: boolean; results?: StageOpResult[]; stopped?: boolean; stoppedReason?: string }
-            }
+            const d = await r.json() as { ok: boolean; status?: string; progress?: { done: number; total: number; current: string }; result?: { ok: boolean; results?: StageOpResult[]; stopped?: boolean; stoppedReason?: string } }
             if (!d.ok) break
             if (d.progress) setCommentProgress(d.progress)
-            if (d.status === 'running') {
-              await new Promise(resolve => setTimeout(resolve, 2000))
-              continue
-            }
+            if (d.status === 'running') { await new Promise(res => setTimeout(res, 2000)); continue }
             if (d.result) {
-              const recoveredResults = d.result.results ?? []
-              if (d.result.stopped && d.result.stoppedReason) {
-                recoveredResults.push({
-                  rowIndex: -1,
-                  issueKey: '⚠️ 已中斷',
-                  ok: false,
-                  error: `Gemini API 用量已達上限，剩餘筆數未處理。原因：${d.result.stoppedReason}`,
-                })
-              }
-              setCommentResults(recoveredResults)
-              // 立即釋放按鈕狀態
+              const rr = d.result.results ?? []
+              setCommentResults(rr)
               setCommentSubmitting(false)
               setPendingCommentRequestId('')
               setCommentProgress(null)
               localStorage.removeItem(COMMENT_PENDING_KEY)
+              setPreviewMode(false)
               setStep(5)
               recovered = true
-              const successRows = recoveredResults.filter(r => r.ok)
-              if (successRows.length > 0) {
-                await fetch('/api/sheets/writeback-multi', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    sheetUrl, source: sheetSource,
-                    writes: successRows.map(r => ({
-                      rowIndex: r.rowIndex,
-                      columns: { '處理階段': '添加評論', '處理時間': nowString() },
-                    })),
-                  }),
-                })
-                setTrackedIssues(prev => prev.map(t =>
-                  successRows.some(r => r.rowIndex === t.rowIndex) ? { ...t, stage: '添加評論' } : t
-                ))
-              }
               break
             }
             break
-          } catch {
-            await new Promise(resolve => setTimeout(resolve, 2000))
-          }
+          } catch { break }
         }
         if (!recovered) {
-          setCommentResults([{ rowIndex: 0, issueKey: '', ok: false, error: '串流中斷，且未能從後端恢復結果' }])
+          setCommentResults([{ rowIndex: 0, issueKey: '', ok: false, error: '連線中斷，請重新整理後查看結果' }])
+          setCommentSubmitting(false)
+          setPendingCommentRequestId('')
+          setCommentProgress(null)
+          localStorage.removeItem(COMMENT_PENDING_KEY)
           setStep(5)
         }
       } else {
-        setCommentResults([{ rowIndex: 0, issueKey: '', ok: false, error: '網路錯誤' }])
+        setCommentResults([{ rowIndex: 0, issueKey: '', ok: false, error: '連線錯誤，請重試' }])
+        setCommentSubmitting(false)
         setStep(5)
       }
     }
-    finally {
-      setCommentSubmitting(false)
-      setPendingCommentRequestId('')
-      setCommentProgress(null)
-      localStorage.removeItem(COMMENT_PENDING_KEY)
-    }
+  }
+
+  // Submit from preview — uses edited comment text + cached attachments
+  const handleSubmitFromPreview = async () => {
+    const errorCount = previewItems.filter(i => i.hasError).length
+    if (errorCount > 0 || !currentAccount) return
+    setCommentSubmitting(true)
+    setPendingCommentRequestId('')
+    setCommentProgress(null)
+    setCommentResults([])
+
+    const comments: CommentPayload[] = previewItems.map(item => {
+      const record = sheetRecords.find(r => Number(r._rowIndex) === item.rowIndex)
+      const validCached = item.cachedAttachments.filter(a => !!a.cacheId && !a.error)
+      // Fallback: if prefetch failed, pass original URLs so server downloads them during submit
+      const rawAttachText = (attachmentColumn && record) ? getField(record, attachmentColumn) : ''
+      const fallbackUrls = validCached.length === 0 && rawAttachText
+        ? rawAttachText.split(/[\n,]/).map(s => s.trim()).filter(Boolean)
+        : []
+      return {
+        issueKey: item.issueKey,
+        rowIndex: item.rowIndex,
+        rawComment: item.commentText,
+        useAi: useAiComment && isAdmin,
+        promptId: (useAiComment && isAdmin) ? selectedPromptId : undefined,
+        cachedAttachments: validCached,
+        attachmentUrls: fallbackUrls,
+        issueSummary: item.summary,
+        issueDescription: record ? getField(record, SHEET_FIELD.description) || undefined : undefined,
+        machineId:   record ? getField(record, '機台編號') || undefined : undefined,
+        gameMode:    record ? getField(record, '遊戲模式') || undefined : undefined,
+        environment: record ? deriveEnvironment(record, item.commentText) || undefined : undefined,
+        version:     record ? deriveVersion(record, item.commentText) || undefined : undefined,
+        platform:    record ? getFieldByHeaderMatch(record, ['測試平台', '平台', '類別']) || undefined : undefined,
+      }
+    })
+    await runBatchCommentJob(comments)
   }
 
   // ── Step 6: 切換狀態 ──
@@ -2202,12 +2427,12 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12, alignItems: 'center' }}>
               <span style={{ fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>篩選：</span>
               {filterableColumns.map(col => (
-                <label key={col} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>{col}</span>
+                <label key={col} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, flexShrink: 0 }}>
+                  <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{col}</span>
                   <select
                     value={columnFilters[col] ?? ''}
                     onChange={e => setColumnFilters(prev => ({ ...prev, [col]: e.target.value }))}
-                    style={{ fontSize: 12, padding: '2px 4px', borderRadius: 4 }}>
+                    style={{ fontSize: 12, padding: '2px 4px', borderRadius: 4, maxWidth: 160 }}>
                     <option value="">全部</option>
                     {(columnUniqueValues[col] ?? []).map((v, i) => (
                       <option key={v || `val-${i}`} value={v}>{v}</option>
@@ -2274,24 +2499,40 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                     <div style={{ position: 'relative' }}>
                       <button type="button"
                         style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '4px 12px', borderRadius: 6, border: '1px dashed #2563eb60', background: showFieldPicker ? '#2563eb20' : '#2563eb10', color: '#60a5fa', cursor: 'pointer' }}
-                        onClick={() => setShowFieldPicker(v => !v)}>
+                        onClick={() => { setShowFieldPicker(v => !v); setFieldPickerSearch('') }}>
                         + 新增欄位
                       </button>
-                      {showFieldPicker && (
+                      {showFieldPicker && (() => {
+                        const q = fieldPickerSearch.trim().toLowerCase()
+                        const matched = q
+                          ? inactiveOptionalJiraFields.filter(f => f.name.toLowerCase().includes(q) || f.key.toLowerCase().includes(q))
+                          : inactiveOptionalJiraFields
+                        return (
                         <div style={{ position: 'absolute', top: '100%', left: 0, background: '#1e293b', border: '1px solid #334155', borderRadius: 8, width: 240, zIndex: 100, boxShadow: '0 8px 24px rgba(0,0,0,0.5)', marginTop: 6 }}>
                           <div style={{ padding: '8px 12px', borderBottom: '1px solid #334155', fontSize: 12, fontWeight: 600, color: '#94a3b8', display: 'flex', justifyContent: 'space-between' }}>
                             新增選填欄位
                             <button type="button" style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer' }} onClick={() => setShowFieldPicker(false)}>✕</button>
                           </div>
+                          <div style={{ padding: '8px 10px', borderBottom: '1px solid #334155' }}>
+                            <input
+                              autoFocus
+                              type="text"
+                              value={fieldPickerSearch}
+                              onChange={e => setFieldPickerSearch(e.target.value)}
+                              placeholder="搜尋欄位名稱..."
+                              style={{ width: '100%', boxSizing: 'border-box', background: '#0f172a', border: '1px solid #334155', borderRadius: 5, color: '#e2e8f0', fontSize: 12, padding: '5px 8px', outline: 'none' }} />
+                          </div>
                           <div style={{ maxHeight: 220, overflowY: 'auto' }}>
                             {inactiveOptionalJiraFields.length === 0
                               ? <div style={{ padding: '10px 12px', fontSize: 12, color: '#64748b' }}>所有可用欄位都已加入</div>
-                              : inactiveOptionalJiraFields.map(f => (
+                              : matched.length === 0
+                              ? <div style={{ padding: '10px 12px', fontSize: 12, color: '#64748b' }}>找不到符合「{fieldPickerSearch}」的欄位</div>
+                              : matched.map(f => (
                                 <button key={f.key} type="button"
                                   style={{ width: '100%', padding: '7px 12px', fontSize: 12, cursor: 'pointer', background: 'none', border: 'none', color: '#cbd5e1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }}
                                   onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#2563eb15' }}
                                   onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'none' }}
-                                  onClick={() => { setActiveOptionalKeys(prev => [...prev, f.key]); setShowFieldPicker(false) }}>
+                                  onClick={() => { setActiveOptionalKeys(prev => [...prev, f.key]); setShowFieldPicker(false); setFieldPickerSearch('') }}>
                                   <span>{f.name}</span>
                                   <span style={{ color: '#475569', fontSize: 10, fontFamily: 'monospace' }}>{f.type}</span>
                                 </button>
@@ -2299,7 +2540,8 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                             }
                           </div>
                         </div>
-                      )}
+                        )
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -2321,7 +2563,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                         const bulkSelectedIds = field.type === 'multiuser' ? bVal.split(',').map(s => s.trim()).filter(Boolean) : []
                         return (
                           <div key={field.key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                            <span style={{ fontSize: 11, color: '#64748b' }}>{field.name}{field.required ? <span style={{ color: '#f87171' }}> *</span> : ''}</span>
+                            <span style={{ fontSize: 11, color: '#64748b' }}>{field.name}{isFieldRequired(field) ? <span style={{ color: '#f87171' }}> *</span> : ''}</span>
                             {(field.type === 'select' && field.options) ? (
                               <select value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
                                 style={{ ...bulkInputStyle, cursor: 'pointer' }}>
@@ -2351,13 +2593,23 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                     <option key={m.id} value={m.id}>{m.label}</option>
                                   ))}
                                 </select>
+                                <div style={{ marginTop: 3 }}>
+                                  <UserFieldSearch field={field} projectKey={searchProjectKey} issueTypeId={selectedIssueTypeId} issueTypeName={searchIssueTypeName} email={currentAccount?.email ?? ''}
+                                    onPick={u => { mergeFieldUsers(field.key, [u]); if (!bulkSelectedIds.includes(u.id)) setBulkValues(p => ({ ...p, [field.key]: [...bulkSelectedIds, u.id].join(',') })) }} />
+                                </div>
                               </div>
                             ) : field.type === 'user' ? (
-                              <select value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
-                                style={{ ...bulkInputStyle, cursor: 'pointer' }}>
-                                <option value="">— 批量 —</option>
-                                {userOptionsForField(field).map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-                              </select>
+                              <div>
+                                <select value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
+                                  style={{ ...bulkInputStyle, cursor: 'pointer' }}>
+                                  <option value="">— 批量 —</option>
+                                  {userOptionsForField(field).map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                                </select>
+                                <div style={{ marginTop: 3 }}>
+                                  <UserFieldSearch field={field} projectKey={searchProjectKey} issueTypeId={selectedIssueTypeId} issueTypeName={searchIssueTypeName} email={currentAccount?.email ?? ''}
+                                    onPick={u => { mergeFieldUsers(field.key, [u]); setBulkValues(p => ({ ...p, [field.key]: u.id })) }} />
+                                </div>
+                              </div>
                             ) : field.type === 'date' ? (
                               <input type="date" value={bVal} onChange={e => setBulkValues(p => ({ ...p, [field.key]: e.target.value }))}
                                 style={{ ...bulkInputStyle, colorScheme: 'dark' }} />
@@ -2571,7 +2823,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                               )
                             }
                             return (
-                              <td key={field.key} style={field.required ? undefined : { background: '#0e1e2e' }}>
+                              <td key={field.key} style={isFieldRequired(field) ? undefined : { background: '#0e1e2e' }}>
                                 {(field.type === 'select' && field.options) ? (
                                   <select value={val} onChange={e => setCellValue(rowIdx, field.key, e.target.value)}
                                     style={{ ...inputStyle, cursor: 'pointer' }}>
@@ -2596,13 +2848,23 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                         <option key={m.id} value={m.id}>{m.label}</option>
                                       ))}
                                     </select>
+                                    <div style={{ marginTop: 3 }}>
+                                      <UserFieldSearch field={field} projectKey={searchProjectKey} issueTypeId={selectedIssueTypeId} issueTypeName={searchIssueTypeName} email={currentAccount?.email ?? ''}
+                                        onPick={u => { mergeFieldUsers(field.key, [u]); if (!selectedIds.includes(u.id)) toggleMultiuser(rowIdx, field.key, u.id) }} />
+                                    </div>
                                   </div>
                                 ) : field.type === 'user' ? (
-                                  <select value={val} onChange={e => setCellValue(rowIdx, field.key, e.target.value)}
-                                    style={{ ...inputStyle, cursor: 'pointer' }}>
-                                    <option value="">— 選擇 —</option>
-                                    {userOptionsForField(field).map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
-                                  </select>
+                                  <div style={{ minWidth: 120 }}>
+                                    <select value={val} onChange={e => setCellValue(rowIdx, field.key, e.target.value)}
+                                      style={{ ...inputStyle, cursor: 'pointer' }}>
+                                      <option value="">— 選擇 —</option>
+                                      {userOptionsForField(field).map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+                                    </select>
+                                    <div style={{ marginTop: 3 }}>
+                                      <UserFieldSearch field={field} projectKey={searchProjectKey} issueTypeId={selectedIssueTypeId} issueTypeName={searchIssueTypeName} email={currentAccount?.email ?? ''}
+                                        onPick={u => { mergeFieldUsers(field.key, [u]); setCellValue(rowIdx, field.key, u.id) }} />
+                                    </div>
+                                  </div>
                                 ) : field.type === 'text' ? (
                                   <textarea value={val} onChange={e => setCellValue(rowIdx, field.key, e.target.value)}
                                     style={{ ...inputStyle, minHeight: 40, resize: 'vertical' }} />
@@ -2948,25 +3210,274 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             </div>
           )}
 
-          <div className="stage-nav" style={{ marginTop: 16 }}>
-            <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(4)}>上一步</button>
-            {toComment.length > 0
-              ? <button type="button" className={`submit-btn submit-btn--step${(commentSubmitting || !!pendingCommentRequestId) ? ' loading' : ''}`}
-                  style={{ whiteSpace: 'nowrap', flexShrink: 0 }} disabled={!commentColumn || commentSubmitting || !!pendingCommentRequestId}
-                  onClick={handleAddComments}>
-                  {(commentSubmitting || !!pendingCommentRequestId)
-                    ? commentProgress
-                      ? `處理中 ${commentProgress.done}/${commentProgress.total}...`
-                      : pendingCommentRequestId
-                        ? '恢復中...'
-                        : '提交中...'
-                    : `批次添加評論（${toComment.length} 筆）`}
-                </button>
-              : null}
-            <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(6)}>
-              {toTransition.length > 0 ? `切換狀態 (${toTransition.length} 筆) →` : '跳過 →'}
-            </button>
-          </div>
+          {/* ── 預覽模式開關 ── */}
+          {!previewMode && toComment.length > 0 && (
+            <div className="stage-nav" style={{ marginTop: 16 }}>
+              <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(4)}>上一步</button>
+              <button type="button"
+                className={`submit-btn submit-btn--step${prefetchLoading ? ' loading' : ''}`}
+                style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+                disabled={!commentColumn || prefetchLoading}
+                onClick={handleEnterPreview}>
+                {prefetchLoading ? '載入附件中...' : `預覽評論（${toComment.length} 筆）→`}
+              </button>
+              <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(6)}>
+                {toTransition.length > 0 ? `切換狀態 (${toTransition.length} 筆) →` : '跳過 →'}
+              </button>
+            </div>
+          )}
+          {!previewMode && toComment.length === 0 && (
+            <div className="stage-nav" style={{ marginTop: 16 }}>
+              <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(4)}>上一步</button>
+              <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(6)}>
+                {toTransition.length > 0 ? `切換狀態 (${toTransition.length} 筆) →` : '跳過 →'}
+              </button>
+            </div>
+          )}
+
+          {/* ── 預覽表格 ── */}
+          {previewMode && (
+            <div style={{ marginTop: 16 }}>
+              {/* Template section */}
+              <div style={{ marginBottom: 12, padding: '10px 12px', background: '#0d1117', border: '1px solid #2d3f55', borderRadius: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8' }}>📋 評論模板</span>
+                  <button type="button"
+                    style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: 'rgba(31,111,235,0.15)', color: '#58a6ff', border: '1px solid rgba(31,111,235,0.3)', cursor: 'pointer' }}
+                    onClick={() => {
+                      if (navigator.clipboard) {
+                        navigator.clipboard.writeText(COMMENT_TEMPLATE).catch(() => {})
+                      } else {
+                        const ta = document.createElement('textarea')
+                        ta.value = COMMENT_TEMPLATE
+                        ta.style.position = 'fixed'; ta.style.opacity = '0'
+                        document.body.appendChild(ta); ta.select()
+                        document.execCommand('copy')
+                        document.body.removeChild(ta)
+                      }
+                    }}>
+                    複製
+                  </button>
+                  <button type="button"
+                    style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: 'rgba(63,185,80,0.15)', color: '#3fb950', border: '1px solid rgba(63,185,80,0.3)', cursor: 'pointer' }}
+                    onClick={handleBatchAppendTemplate}>
+                    批量往下貼入所有評論
+                  </button>
+                </div>
+                <pre style={{ margin: 0, fontSize: 11, color: '#64748b', fontFamily: 'monospace', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{COMMENT_TEMPLATE}</pre>
+              </div>
+
+              {/* Stats bar */}
+              {(() => {
+                const okCount = previewItems.filter(i => !i.hasError).length
+                const errCount = previewItems.filter(i => i.hasError).length
+                return (
+                  <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 10, fontSize: 12 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#3fb950', display: 'inline-block' }} />
+                      <span style={{ color: '#94a3b8' }}>格式通過</span>
+                      <strong style={{ color: '#e2e8f0' }}>{okCount}</strong>
+                    </span>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f85149', display: 'inline-block' }} />
+                      <span style={{ color: '#94a3b8' }}>格式錯誤</span>
+                      <strong style={{ color: '#e2e8f0' }}>{errCount}</strong>
+                    </span>
+                    <span style={{ marginLeft: 'auto', color: '#475569', fontSize: 11 }}>✏️ 點擊評論可直接編輯</span>
+                  </div>
+                )
+              })()}
+
+              {prefetchError && (
+                <div className="alert-warn" style={{ marginBottom: 8, fontSize: 12 }}>{prefetchError}</div>
+              )}
+
+              {/* Preview table */}
+              <div style={{ border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden', marginBottom: 12 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: '#162032', borderBottom: '1px solid #2d3f55' }}>
+                      <th style={{ padding: '9px 10px', textAlign: 'left', color: '#64748b', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.4px', width: 80, whiteSpace: 'nowrap' }}>Jira 單號</th>
+                      <th style={{ padding: '9px 10px', textAlign: 'left', color: '#64748b', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.4px', width: 180 }}>摘要</th>
+                      <th style={{ padding: '9px 10px', textAlign: 'left', color: '#64748b', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.4px' }}>評論內容（可編輯）+ 附件</th>
+                      <th style={{ padding: '9px 10px', textAlign: 'left', color: '#64748b', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.4px', width: 140, whiteSpace: 'nowrap' }}>驗證狀態</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {previewItems.map(item => (
+                      <tr key={item.rowIndex}
+                        style={{
+                          borderBottom: '1px solid #1e2d3d',
+                          background: item.hasError ? 'rgba(248,81,73,0.04)' : 'transparent',
+                        }}>
+                        <td style={{ padding: '8px 10px', verticalAlign: 'top' }}>
+                          <a href={`${import.meta.env.VITE_JIRA_BASE_URL ?? ''}/browse/${item.issueKey}`}
+                            target="_blank" rel="noreferrer"
+                            style={{ color: '#58a6ff', fontFamily: 'monospace', fontWeight: 600, fontSize: 12, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                            {item.issueKey}
+                          </a>
+                        </td>
+                        <td style={{ padding: '8px 10px', verticalAlign: 'top', color: '#94a3b8', fontSize: 12, lineHeight: 1.4 }}>
+                          {item.summary || '—'}
+                        </td>
+                        <td style={{ padding: '8px 10px', verticalAlign: 'top', minWidth: 320 }}>
+                          <textarea
+                            value={item.commentText}
+                            onChange={e => updatePreviewComment(item.rowIndex, e.target.value)}
+                            rows={5}
+                            style={{
+                              width: '100%', background: '#0d1117', color: '#c9d1d9',
+                              border: `1px solid ${item.hasError ? 'rgba(248,81,73,0.5)' : '#2d3f55'}`,
+                              borderRadius: 6, padding: '7px 9px', fontSize: 11, lineHeight: 1.6,
+                              fontFamily: 'monospace', resize: 'vertical', outline: 'none', boxSizing: 'border-box',
+                            }}
+                          />
+                          {/* Section indicator */}
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 4 }}>
+                            {COMMENT_TEMPLATE_SECTIONS.map(sec => {
+                              const headerMissing = item.missingSections.includes(sec.header)
+                              const itemProblem = sec.items.some(i => item.missingSections.includes(i) || item.missingSections.includes(`${i}（缺欄位）`))
+                              const resultProblem = sec.items.length === 0 && item.missingSections.includes(`${sec.header} 未填結果`)
+                              const ok = !headerMissing && !itemProblem && !resultProblem
+                              return (
+                                <span key={sec.header} style={{
+                                  fontSize: 10, padding: '1px 5px', borderRadius: 3, fontWeight: 500,
+                                  background: ok ? 'rgba(63,185,80,0.15)' : 'rgba(248,81,73,0.12)',
+                                  color: ok ? '#3fb950' : '#f85149',
+                                }}>
+                                  {sec.header.replace('【', '').replace('】', '')}{ok ? ' ✓' : ' ✗'}
+                                </span>
+                              )
+                            })}
+                          </div>
+                          {/* Attachments + manual upload */}
+                          <div style={{ marginTop: 8 }}>
+                            {item.cachedAttachments.length > 0 && (
+                              <div style={{ padding: '6px 8px', background: '#0d1117', border: '1px solid #2d3f55', borderRadius: 6, marginBottom: 6 }}>
+                                <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  📎 附件（{item.cachedAttachments.filter(a => !a.error).length} 個）
+                                  {item.cachedAttachments.some(a => a.isImage && !a.error) && (
+                                    <span style={{ background: 'rgba(31,111,235,0.15)', color: '#58a6ff', border: '1px solid rgba(31,111,235,0.3)', borderRadius: 3, padding: '1px 5px', fontSize: 10 }}>圖片</span>
+                                  )}
+                                  {item.cachedAttachments.some(a => a.isVideo) && (
+                                    <span style={{ background: 'rgba(210,153,34,0.15)', color: '#d29922', border: '1px solid rgba(210,153,34,0.3)', borderRadius: 3, padding: '1px 5px', fontSize: 10 }}>影片連結</span>
+                                  )}
+                                </div>
+                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                  {item.cachedAttachments.map((att, ai) => (
+                                    att.error ? (
+                                      <div key={ai} style={{ fontSize: 10, color: '#f87171', padding: '2px 6px', background: 'rgba(248,81,73,0.1)', borderRadius: 4, border: '1px solid rgba(248,81,73,0.2)' }}>
+                                        ⚠ {att.filename.length > 30 ? att.filename.slice(0, 30) + '…' : att.filename}: {att.error}
+                                      </div>
+                                    ) : att.isVideo ? (
+                                      <div key={ai} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                                        <div style={{ width: 60, height: 60, background: '#162032', border: '1px solid #2d3f55', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, cursor: 'default' }}>🎬</div>
+                                        <div style={{ fontSize: 9, color: '#64748b', maxWidth: 60, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>
+                                          {att.filename.length > 20 ? att.filename.slice(0, 20) + '…' : att.filename}
+                                        </div>
+                                      </div>
+                                    ) : att.cacheId ? (
+                                      <div key={ai} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, cursor: 'pointer', position: 'relative' }}
+                                        onClick={() => setLightboxSrc(`/api/jira/attachment-cache/${att.cacheId}`)}>
+                                        <img
+                                          src={`/api/jira/attachment-cache/${att.cacheId}`}
+                                          alt={att.filename}
+                                          style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 4, border: '1px solid #2d3f55' }}
+                                        />
+                                        <div style={{ fontSize: 9, color: '#64748b', maxWidth: 60, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>
+                                          {att.filename}
+                                        </div>
+                                      </div>
+                                    ) : null
+                                  ))}
+                                </div>
+                                <div style={{ fontSize: 10, color: '#3fb950', marginTop: 5 }}>
+                                  ✦ 圖片上傳至 Jira 附件區，評論末自動嵌入
+                                </div>
+                              </div>
+                            )}
+                            {/* Manual upload button */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, padding: '3px 9px', borderRadius: 4, background: 'rgba(31,111,235,0.1)', color: '#58a6ff', border: '1px solid rgba(31,111,235,0.25)', cursor: uploadingRows.has(item.rowIndex) ? 'wait' : 'pointer' }}>
+                                <input type="file" accept="image/*,video/*" multiple style={{ display: 'none' }}
+                                  onChange={e => handleManualUpload(item.rowIndex, e.target.files)}
+                                />
+                                {uploadingRows.has(item.rowIndex) ? '上傳中...' : '＋ 上傳圖片/影片'}
+                              </label>
+                              <span style={{ fontSize: 10, color: '#475569' }}>單檔上限 10MB</span>
+                            </div>
+                            {uploadErrors[item.rowIndex] && (
+                              <div style={{ marginTop: 5, fontSize: 11, color: '#f85149', display: 'flex', alignItems: 'center', gap: 4 }}>
+                                ⚠ {uploadErrors[item.rowIndex]}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td style={{ padding: '8px 10px', verticalAlign: 'top' }}>
+                          {item.hasError ? (
+                            <>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 12, fontSize: 11, fontWeight: 500, background: 'rgba(248,81,73,0.15)', color: '#f85149', border: '1px solid rgba(248,81,73,0.3)', whiteSpace: 'nowrap' }}>✗ 未完成</span>
+                              <div style={{ marginTop: 5, fontSize: 10, color: '#f85149' }}>
+                                缺漏：{item.missingSections.map(s => (
+                                  <span key={s} style={{ display: 'inline-block', background: 'rgba(248,81,73,0.1)', border: '1px solid rgba(248,81,73,0.3)', borderRadius: 3, padding: '1px 4px', margin: '1px 2px', fontSize: 10 }}>
+                                    {s.replace('【', '').replace('】', '')}
+                                  </span>
+                                ))}
+                              </div>
+                            </>
+                          ) : (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 12, fontSize: 11, fontWeight: 500, background: 'rgba(63,185,80,0.15)', color: '#3fb950', border: '1px solid rgba(63,185,80,0.3)', whiteSpace: 'nowrap' }}>✓ 格式通過</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Preview submit bar */}
+              {(() => {
+                const errCount = previewItems.filter(i => i.hasError).length
+                return (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <button type="button" className="btn-ghost btn-ghost--step"
+                      disabled={commentSubmitting}
+                      onClick={() => setPreviewMode(false)}>
+                      ← 返回設定
+                    </button>
+                    {errCount > 0 && (
+                      <span style={{ fontSize: 12, color: '#d29922', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        ⚠ {errCount} 筆格式錯誤，修正後才能送出
+                      </span>
+                    )}
+                    <button type="button"
+                      className={`submit-btn submit-btn--step${commentSubmitting ? ' loading' : ''}`}
+                      style={{ whiteSpace: 'nowrap', flexShrink: 0, marginLeft: 'auto' }}
+                      disabled={errCount > 0 || commentSubmitting || !!pendingCommentRequestId}
+                      onClick={handleSubmitFromPreview}>
+                      {commentSubmitting
+                        ? commentProgress
+                          ? `處理中 ${commentProgress.done}/${commentProgress.total}...`
+                          : '提交中...'
+                        : `確認送出（${previewItems.length} 筆）`}
+                    </button>
+                  </div>
+                )
+              })()}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Lightbox */}
+      {lightboxSrc && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setLightboxSrc(null)}>
+          <button type="button" onClick={() => setLightboxSrc(null)}
+            style={{ position: 'absolute', top: 16, right: 20, color: '#fff', fontSize: 28, background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}>✕</button>
+          <img src={lightboxSrc} alt="attachment preview"
+            style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8, border: '1px solid #2d3f55' }} />
         </div>
       )}
 

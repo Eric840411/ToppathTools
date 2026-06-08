@@ -831,6 +831,7 @@
 /* ─── Main Area ───────────────────────────────────── */
 .app-main {
   flex: 1;
+  min-width: 0; /* 允許在 flex 容器內縮小，讓內部寬表格的 overflow-x 捲動生效，避免爆版 */
   margin-left: 232px;
   display: flex;
   flex-direction: column;

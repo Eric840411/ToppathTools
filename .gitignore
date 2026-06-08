@@ -10,6 +10,7 @@ server/data.db-wal
 server/machine-test/cctv-saves/
 server/machine-test/audio-saves/
 server/machine-test/cctv-refs/
+server/attachment-cache/
 .tmp-cfg2.mjs
 server/python/__pycache__/
 server/python/game_config.json

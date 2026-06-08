@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.40.11'
+export const APP_VERSION = '3.46.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,109 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.46.0',
+    date: '2026-06-08',
+    changes: [
+      'feat(jira-comment): 評論範本改為完整版，各區塊新增必填細項（功能目的/前置條件/測試步驟/說明與備註含子欄位）',
+      'feat(jira-comment): 格式驗證升級，細項冒號後沒填內容會被偵測為「未完成」並擋下送出',
+    ],
+  },
+  {
+    version: '3.45.2',
+    date: '2026-06-08',
+    changes: [
+      'fix(jira): 使用者搜尋移除 username 參數（Jira Cloud GDPR 嚴格模式會對受託人 user/assignable/search 回 400），修正受託人搜尋查無使用者',
+    ],
+  },
+  {
+    version: '3.45.1',
+    date: '2026-06-08',
+    changes: [
+      'feat(jira): 使用者欄位即時搜尋也加到「每一列」單選/多選格子，下拉結果用 portal 浮層避免被表格裁切',
+    ],
+  },
+  {
+    version: '3.45.0',
+    date: '2026-06-08',
+    changes: [
+      'feat(jira): 使用者欄位（回報者/受託人等）新增即時搜尋，向 Jira autocomplete 查名字，解決空查詢只回前 ~50 推薦人、其他人拉不到的問題',
+      'feat(jira): 批量填入面板的使用者欄位下方加搜尋框，搜到並選取的人會併入所有下拉（含每列），可再「套用至全部列」',
+    ],
+  },
+  {
+    version: '3.44.0',
+    date: '2026-06-08',
+    changes: [
+      'feat(jira): Step 3「新增選填欄位」下拉加入搜尋框，可依欄位名稱/key 即時過濾',
+    ],
+  },
+  {
+    version: '3.43.2',
+    date: '2026-06-08',
+    changes: [
+      'fix(jira): Step 3 欄位篩選器的下拉選單加上最大寬度與標籤不換行，修正長文字欄位（摘要/描述）把篩選器撐爆、標籤直排的問題',
+    ],
+  },
+  {
+    version: '3.43.1',
+    date: '2026-06-08',
+    changes: [
+      'fix(layout): .app-main 加上 min-width:0，動態欄位開單寬表格改為內部橫向捲動，修正整頁爆版',
+    ],
+  },
+  {
+    version: '3.43.0',
+    date: '2026-06-08',
+    changes: [
+      'feat(jira): 動態欄位開單新增「回報人」欄位（解除後端 reporter 過濾，可指定回報人）',
+      'feat(jira): 描述、受託人、RD負責人、回報人 改為強制必填並自動顯示，未填會擋下送出',
+      'feat(jira): Lark 自動帶入支援上述強制必填欄位（內容/受託人/RD負責人/回報人 → 對應 Jira 欄位）',
+    ],
+  },
+  {
+    version: '3.42.2',
+    date: '2026-06-08',
+    changes: [
+      'fix(jira-comment): 手動上傳錯誤改為顯示在上傳按鈕旁（per-row），並標示單檔上限 10MB',
+    ],
+  },
+  {
+    version: '3.42.1',
+    date: '2026-06-08',
+    changes: [
+      'fix(jira-comment): 手動上傳超過 10MB 改回傳明確錯誤訊息（不再 500），前端顯示提示',
+      'fix(jira-comment): 影片附件改用 [^filename] wiki markup，Jira 渲染為可點擊下載連結',
+      'fix(jira-comment): 圖片嵌入改用 Jira 實際儲存的檔名（避免檔名被改而無法預覽）',
+    ],
+  },
+  {
+    version: '3.42.0',
+    date: '2026-06-08',
+    changes: [
+      'feat(jira-comment): 預覽表格每筆評論可手動上傳圖片，上傳後即時顯示縮圖，送出時附加至 Jira',
+      'feat(jira-comment): 新增評論模板區塊（含 5 區塊格式），支援複製與批量往下貼入所有評論',
+    ],
+  },
+  {
+    version: '3.41.2',
+    date: '2026-06-08',
+    changes: [
+      'fix(jira-comment): 支援 Lark Sheet embed-image 內嵌圖片，正確使用 Lark media API 下載並上傳至 Jira',
+      'fix(jira-comment): 圖片嵌入評論改為靠左對齊（!filename|align=left!）',
+    ],
+  },
+  {
+    version: '3.41.0',
+    date: '2026-06-05',
+    changes: [
+      'feat(jira-comment): 新增評論預覽表格，送出前可 inline 編輯每筆評論並即時驗證格式',
+      'feat(jira-comment): 附件預覽縮圖，Server 暫存 Lark/GDrive 圖片供預覽，送出後上傳至 Jira 附件區',
+      'feat(jira-comment): 改用 Jira v2 wiki markup API，圖片以 !filename! 語法直接嵌入評論內文',
+      'feat(jira-comment): 後端二次格式驗證（同五區塊規則），防止前端繞過格式檢查',
+      'feat(jira-comment): 附件大小限制 10MB/檔（與 Jira Cloud 預設相同）',
+    ],
+  },
   {
     version: '3.40.11',
     date: '2026-06-05',
