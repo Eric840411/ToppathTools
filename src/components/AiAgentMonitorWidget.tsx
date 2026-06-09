@@ -75,8 +75,11 @@ function LegacyAiAgentMonitorWidget() {
       }
     }
     void tick()
-    const timer = window.setInterval(() => { void tick() }, 5000)
-    return () => { alive = false; window.clearInterval(timer) }
+    // 分頁隱藏時暫停輪詢，省電 + 減少 DevTools network spam；切回前景立即刷新一次
+    const timer = window.setInterval(() => { if (!document.hidden) void tick() }, 5000)
+    const onVisible = () => { if (!document.hidden) void tick() }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { alive = false; window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible) }
   }, [])
 
   useEffect(() => {

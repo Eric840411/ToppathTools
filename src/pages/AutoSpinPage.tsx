@@ -523,7 +523,7 @@ export function AutoSpinPage() {
   useEffect(() => {
     fetchConfigs(); fetchTemplates(); fetchStatus(); fetchBetRandom(); fetchHubAgents()
     // Periodically sync agent status + hub agent list — single source of truth for UI（每 4 秒）
-    const statusTimer = setInterval(() => { fetchStatus(); fetchHubAgents() }, 4000)
+    const statusTimer = setInterval(() => { if (!document.hidden) { fetchStatus(); fetchHubAgents() } }, 4000)
     return () => {
       clearInterval(statusTimer)
       if (evtSourceRef.current) evtSourceRef.current.close()

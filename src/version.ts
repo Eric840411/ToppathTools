@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.49.2'
+export const APP_VERSION = '3.49.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.49.3',
+    date: '2026-06-09',
+    changes: [
+      'perf: 分頁隱藏時暫停全域輪詢（AI Agent 監控 health/monitor、AutoSpin 狀態），切回前景立即刷新，省電並減少 DevTools network 雜訊',
+    ],
+  },
   {
     version: '3.49.2',
     date: '2026-06-09',
