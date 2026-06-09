@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.49.3'
+export const APP_VERSION = '3.49.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.49.4',
+    date: '2026-06-09',
+    changes: [
+      'fix(osm-uat): 錄製 URL「複製」按鈕加 http fallback（非 https 下 navigator.clipboard 不可用時改用 execCommand）',
+    ],
+  },
   {
     version: '3.49.3',
     date: '2026-06-09',
