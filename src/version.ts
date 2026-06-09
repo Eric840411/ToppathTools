@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.48.0'
+export const APP_VERSION = '3.49.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.49.0',
+    date: '2026-06-09',
+    changes: [
+      'fix(autospin): agent 找不到 Python 引擎 — 將 toppath-agent.py 納入 agent installer 下載清單，安裝後即具備 AutoSpin 引擎',
+      'fix(local-agent): 修正 macOS installer 的 bash 語法錯誤（下載指令引號），並自動 best-effort 安裝 Python 依賴（opencv/numpy/requests/playwright）',
+      'feat(local-agent): 下載與安裝區塊重新設計 — OS 分頁（Windows/macOS）+ hero 下載卡 + 時間軸步驟 + 可複製指令框',
+    ],
+  },
   {
     version: '3.48.0',
     date: '2026-06-09',

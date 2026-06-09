@@ -53,6 +53,8 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'machine-test/set-audio-device.ps1': join(SERVER_ROOT, 'machine-test', 'set-audio-device.ps1'),
   'scripted-bet/runner.ts':        join(SERVER_ROOT, 'scripted-bet', 'runner.ts'),
   'scripted-bet/types.ts':         join(SERVER_ROOT, 'scripted-bet', 'types.ts'),
+  // AutoSpin Python 引擎（A2：agent 端 spawn 它跑 AutoSpin，自含單檔）
+  'python/toppath-agent.py':       join(SERVER_ROOT, 'python', 'toppath-agent.py'),
 }
 
 export const router = Router()
@@ -1306,6 +1308,17 @@ router.get('/api/machine-test/agent/install.bat', (req, res) => {
     ')',
     'echo [OK] Playwright installed',
     '',
+    'REM AutoSpin Python engine deps (best-effort)',
+    'where pip >nul 2>&1',
+    'if %errorlevel% equ 0 (',
+    '  echo Installing AutoSpin Python deps (opencv/numpy/requests/playwright)...',
+    '  pip install opencv-python numpy requests playwright',
+    '  python -m playwright install chromium',
+    '  echo [OK] Python deps done',
+    ') else (',
+    '  echo [WARN] pip not found - install Python 3 + deps if you want to run AutoSpin here',
+    ')',
+    '',
     'REM Create start.bat',
     '(',
     '  echo @echo off',
@@ -1359,11 +1372,8 @@ router.get('/api/machine-test/agent/install-mac.command', (req, res) => {
   const sourceFiles = Object.keys(AGENT_SOURCE_WHITELIST)
   const downloadLines = sourceFiles.map(f => {
     const filename = f.split('/').pop()!
-    const subdir = f.includes('/') ? `"$AGENT_DIR/server/${f.split('/').slice(0, -1).join('/')}"` : '"$AGENT_DIR/server"'
-    return [
-      `mkdir -p ${subdir}`,
-      `curl -fsSL "${serverUrl}/api/machine-test/agent/source/${f}" -o ${subdir.slice(0, -1)}/${filename}"`,
-    ].join('\n')
+    const rel = f.includes('/') ? `server/${f.split('/').slice(0, -1).join('/')}` : 'server'
+    return `mkdir -p "$AGENT_DIR/${rel}" && curl -fsSL "${serverUrl}/api/machine-test/agent/source/${f}" -o "$AGENT_DIR/${rel}/${filename}"`
   }).join('\n')
 
   const sh = [
@@ -1406,6 +1416,18 @@ router.get('/api/machine-test/agent/install-mac.command', (req, res) => {
     'echo "安裝 Playwright Chromium（可能需要幾分鐘）..."',
     'npx playwright install chromium || echo "[WARN] playwright 安裝失敗，CCTV 測試可能無法使用"',
     'echo "[OK] Playwright 完成"',
+    '',
+    '# AutoSpin Python 引擎依賴（best-effort，失敗不中斷安裝）',
+    'if command -v pip3 >/dev/null 2>&1; then',
+    '  echo "安裝 AutoSpin Python 依賴（opencv / numpy / requests / playwright）..."',
+    '  if pip3 install --user opencv-python numpy requests playwright && python3 -m playwright install chromium; then',
+    '    echo "[OK] AutoSpin Python 依賴完成"',
+    '  else',
+    '    echo "[WARN] Python 依賴安裝失敗，若要在此機器跑 AutoSpin 請手動安裝"',
+    '  fi',
+    'else',
+    '  echo "[WARN] 找不到 pip3；若要在此機器跑 AutoSpin，請先安裝 Python 3 與依賴"',
+    'fi',
     '',
     '# Create start.command (quoted heredoc → 內容原樣寫入，URL/token 已由伺服器端嵌入)',
     "cat > \"$AGENT_DIR/start.command\" <<'EOF'",

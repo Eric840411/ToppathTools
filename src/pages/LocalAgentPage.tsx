@@ -82,6 +82,13 @@ export function LocalAgentPage({ currentAccount }: Props) {
   const [showRevoked, setShowRevoked] = useState(false)
   const [updatingAgent, setUpdatingAgent] = useState<string | null>(null)
   const [updateResults, setUpdateResults] = useState<Record<string, { ok: boolean; message: string }>>({})
+  const [installOS, setInstallOS] = useState<'win' | 'mac'>('mac')
+  const [copiedCmd, setCopiedCmd] = useState('')
+  const copyCmd = (text: string) => {
+    const done = () => { setCopiedCmd(text); setTimeout(() => setCopiedCmd(c => (c === text ? '' : c)), 1500) }
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(text).then(done).catch(() => {})
+    else { try { const t = document.createElement('textarea'); t.value = text; document.body.appendChild(t); t.select(); document.execCommand('copy'); document.body.removeChild(t); done() } catch { /* ignore */ } }
+  }
 
   async function updateSources(agentId: string) {
     setUpdatingAgent(agentId)
@@ -172,87 +179,94 @@ export function LocalAgentPage({ currentAccount }: Props) {
             <span className="badge badge--ok">目前登入：{status?.operator?.name ?? currentAccount?.label ?? '未登入'}</span>
           </div>
 
-          <p className="local-agent-card-note">下載的安裝檔會自動包含你的 owner key 與一次性 Agent token，請勿轉傳給其他操作者。安裝完成的 Agent 可執行 MachineTest / Scripted Bet / AutoSpin。</p>
+          <p className="local-agent-card-note">安裝檔會自動嵌入你的 owner key 與一次性 Agent token，請勿轉傳。安裝後的 Agent 可執行 MachineTest / Scripted Bet / AutoSpin。</p>
 
-          {/* ── Windows ── */}
-          <div className="local-agent-download-box">
-            <div>
-              <div className="local-agent-download-title">
-                <span style={{ fontSize: 18 }}>🪟</span>
-                Windows Agent
-              </div>
-              <p>需先安裝 Node.js 20 LTS。安裝位置 <code>C:\machine-test-agent</code>。</p>
-            </div>
-            <a className="submit-btn submit-btn--sm" href="/api/machine-test/agent/install.bat">下載 install.bat</a>
-          </div>
-          <div className="local-agent-steps">
-            <div className="local-agent-step">
-              <span>1</span>
-              <div><strong>下載 install.bat</strong><p>從目前登入帳號下載，系統會產生只屬於你的 Agent token。</p></div>
-            </div>
-            <div className="local-agent-step">
-              <span>2</span>
-              <div><strong>雙擊執行 install.bat</strong><p>自動安裝 Node dependencies 與 Playwright Chromium，並產生 <code>start.bat</code>。</p></div>
-            </div>
-            <div className="local-agent-step">
-              <span>3</span>
-              <div><strong>啟動 start.bat</strong><p>Agent 連回公網 Worker，通過 token 驗證後出現在可派工清單。</p></div>
-            </div>
-          </div>
+          {(() => {
+            const isWin = installOS === 'win'
+            const accent = '#3b82f6'
+            const border = '#23344d'
+            const os = isWin
+              ? {
+                  icon: '🪟', title: 'Windows Agent', dir: 'C:\\machine-test-agent',
+                  href: '/api/machine-test/agent/install.bat', dl: '⬇ 下載 install.bat',
+                  steps: [
+                    { t: '下載安裝檔', d: '點上方按鈕下載，內含只屬於你的 Agent token。' },
+                    { t: '雙擊執行 install.bat', d: '自動安裝 Node 依賴、Playwright Chromium 與 AutoSpin Python 依賴，並產生 start.bat。' },
+                    { t: '啟動 Agent', d: '執行下列檔案，連線並通過 token 驗證後會出現在可派工清單。', cmd: 'C:\\machine-test-agent\\start.bat' },
+                  ],
+                }
+              : {
+                  icon: '🍎', title: 'macOS Agent', dir: '~/toppath-local-agent',
+                  href: '/api/machine-test/agent/install-mac.command', dl: '⬇ 下載 install-mac.command',
+                  steps: [
+                    { t: '下載安裝檔', d: '點上方按鈕下載，內含只屬於你的 Agent token。' },
+                    { t: 'Terminal 執行安裝', d: '開啟「終端機」貼上指令，會自動安裝 Node 依賴、Playwright 與 AutoSpin Python 依賴。', cmd: 'bash ~/Downloads/install-mac.command' },
+                    { t: '啟動 Agent', d: '安裝完成後執行（或雙擊 start.command）：', cmd: 'bash ~/toppath-local-agent/start.command', tip: '⚠️ 首次被 Gatekeeper 擋下時：系統設定 → 隱私權與安全性 → 按「仍要打開」。' },
+                  ],
+                }
+            const tabBtn = (key: 'win' | 'mac', label: string) => (
+              <button type="button" onClick={() => setInstallOS(key)}
+                style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: 11, borderRadius: 11, cursor: 'pointer',
+                  border: `1px solid ${installOS === key ? accent : border}`, background: installOS === key ? '#16263f' : '#0f172a',
+                  color: installOS === key ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: 14 }}>
+                <span style={{ fontSize: 18 }}>{key === 'win' ? '🪟' : '🍎'}</span> {label}
+              </button>
+            )
+            return (
+              <>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                  {tabBtn('win', 'Windows')}{tabBtn('mac', 'macOS')}
+                </div>
 
-          {/* ── macOS（獨立一套）── */}
-          <div className="local-agent-download-box" style={{ marginTop: 16 }}>
-            <div>
-              <div className="local-agent-download-title">
-                <span style={{ fontSize: 18 }}>🍎</span>
-                macOS Agent
-              </div>
-              <p>需先安裝 Node.js 20 LTS。安裝位置 <code>~/toppath-local-agent</code>。</p>
-            </div>
-            <a className="submit-btn submit-btn--sm" href="/api/machine-test/agent/install-mac.command">下載 install-mac.command</a>
-          </div>
-          <div className="local-agent-steps">
-            <div className="local-agent-step">
-              <span>1</span>
-              <div><strong>下載 install-mac.command</strong><p>同樣會嵌入你的 owner key 與一次性 Agent token。</p></div>
-            </div>
-            <div className="local-agent-step">
-              <span>2</span>
-              <div>
-                <strong>Terminal 執行安裝</strong>
-                <p>開啟「終端機」，執行：<br />
-                  <code>bash ~/Downloads/install-mac.command</code><br />
-                  會安裝 Node dependencies 與 Playwright Chromium，並產生 <code>~/toppath-local-agent/start.command</code>。</p>
-              </div>
-            </div>
-            <div className="local-agent-step">
-              <span>3</span>
-              <div>
-                <strong>啟動 Agent</strong>
-                <p>雙擊 <code>~/toppath-local-agent/start.command</code>（或 <code>bash ~/toppath-local-agent/start.command</code>）。
-                  首次若被 Gatekeeper 擋下，到「系統設定 → 隱私權與安全性」按「仍要打開」。</p>
-              </div>
-            </div>
-            <div className="local-agent-step">
-              <span>4</span>
-              <div>
-                <strong>（選用）AutoSpin Python 引擎</strong>
-                <p>若要在此 Mac 跑 AutoSpin，需另外安裝 Python 依賴：<br />
-                  <code>pip3 install opencv-python numpy requests playwright && python3 -m playwright install chromium</code></p>
-              </div>
-            </div>
-          </div>
+                {/* hero download */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, background: 'linear-gradient(135deg,#16263f,#101d31)', border: `1px solid ${border}`, borderRadius: 13, padding: '15px 17px', marginBottom: 18 }}>
+                  <div style={{ width: 46, height: 46, borderRadius: 12, background: '#0e1a2d', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>{os.icon}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <b style={{ fontSize: 15 }}>{os.title}</b>
+                    <p style={{ margin: '3px 0 0', fontSize: 12, color: '#94a3b8' }}>需先安裝 Node.js 20 LTS · 安裝位置 <code>{os.dir}</code></p>
+                  </div>
+                  <a href={os.href} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: '#2563eb', color: '#fff', borderRadius: 9, padding: '10px 18px', fontSize: 13, fontWeight: 700, textDecoration: 'none', whiteSpace: 'nowrap' }}>{os.dl}</a>
+                </div>
 
-          <div className="local-agent-field-grid" style={{ marginTop: 14 }}>
-            <label className="field">
-              <span>Server URL</span>
-              <input value={window.location.origin} readOnly />
-            </label>
-            <label className="field">
-              <span>目前能力</span>
-              <input value={capabilities.length ? capabilities.join(', ') : 'machine-test, scripted-bet, autospin'} readOnly />
-            </label>
-          </div>
+                {/* stepper */}
+                <div style={{ paddingLeft: 4 }}>
+                  {os.steps.map((s, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 13, paddingBottom: i === os.steps.length - 1 ? 0 : 18, position: 'relative' }}>
+                      {i < os.steps.length - 1 && <div style={{ position: 'absolute', left: 13, top: 28, bottom: -2, width: 2, background: border }} />}
+                      <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#16263f', border: `1px solid ${accent}`, color: '#7dd3fc', fontWeight: 800, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, zIndex: 1 }}>{i + 1}</div>
+                      <div style={{ flex: 1, minWidth: 0, paddingTop: 2 }}>
+                        <b style={{ fontSize: 13.5 }}>{s.t}</b>
+                        <p style={{ margin: '4px 0 0', fontSize: 12.5, color: '#94a3b8' }}>{s.d}</p>
+                        {s.cmd && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, background: '#070d18', border: `1px solid ${border}`, borderRadius: 8, padding: '8px 10px' }}>
+                            <code style={{ flex: 1, fontFamily: 'monospace', fontSize: 11.5, color: '#cbd5e1', overflowX: 'auto', whiteSpace: 'nowrap' }}>{s.cmd}</code>
+                            <button type="button" onClick={() => copyCmd(s.cmd!)}
+                              style={{ background: '#1a2740', color: '#94a3b8', border: `1px solid ${border}`, borderRadius: 6, padding: '3px 9px', fontSize: 11, cursor: 'pointer', flexShrink: 0 }}>
+                              {copiedCmd === s.cmd ? '已複製' : '複製'}
+                            </button>
+                          </div>
+                        )}
+                        {s.tip && (
+                          <div style={{ marginTop: 8, fontSize: 11.5, color: '#64748b', background: '#0e1a2d', borderLeft: `3px solid ${accent}`, borderRadius: '0 6px 6px 0', padding: '7px 10px' }}>{s.tip}</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="local-agent-field-grid" style={{ marginTop: 20 }}>
+                  <label className="field">
+                    <span>Server URL</span>
+                    <input value={window.location.origin} readOnly />
+                  </label>
+                  <label className="field">
+                    <span>目前能力</span>
+                    <input value={capabilities.length ? capabilities.join(', ') : 'machine-test, scripted-bet, autospin'} readOnly />
+                  </label>
+                </div>
+              </>
+            )
+          })()}
         </section>
 
         <section className="section-card local-agent-card">
