@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.49.1'
+export const APP_VERSION = '3.49.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.49.2',
+    date: '2026-06-09',
+    changes: [
+      'fix(autospin): 修正遠端 Agent 狀態不同步（顯示未連線但仍在跑 / agent 卡在忙碌）',
+      'fix(autospin): 狀態輪詢改為每 4 秒並同步刷新 agent 清單，偵測到新 session 會自動接上對應 SSE',
+      'fix(autospin): hub-stop 立即釋放 agent；hub-dispatch 允許對指定 agent 重新派工（即使 busy 旗標殘留），agent 端會先關舊 Python 不會雙開',
+    ],
+  },
   {
     version: '3.49.1',
     date: '2026-06-09',

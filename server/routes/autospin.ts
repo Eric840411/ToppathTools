@@ -624,14 +624,16 @@ router.post('/api/autospin/hub-dispatch', (req, res) => {
   if (!operator?.key) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
   const userLabel = (req.headers['x-user-label'] as string) || ''
   const agentId = String((req.body as { agentId?: string }).agentId ?? '').trim()
-  const available = getAvailableAgents({
-    operatorKey: operator.key,
-    capability: 'autospin',
-    ...(agentId ? { agentId } : {}),
-  })
-  const agent = available[0]
+  // 指定 agentId 時直接查連線（即使 busy 旗標殘留也允許重新派工；agent-runner 會先 kill 舊 Python 再啟新的，不會雙開）
+  let agent
+  if (agentId) {
+    const a = agentConnections.get(agentId)
+    if (a && a.ownerKey === operator.key && a.capabilities.includes('autospin') && a.ws.readyState === a.ws.OPEN) agent = a
+  } else {
+    agent = getAvailableAgents({ operatorKey: operator.key, capability: 'autospin' })[0]
+  }
   if (!agent) {
-    return res.status(409).json({ ok: false, message: agentId ? '選定的 Agent 不可用（離線或忙碌中）' : '沒有可用的 AutoSpin Agent' })
+    return res.status(409).json({ ok: false, message: agentId ? '選定的 Agent 不可用（離線）' : '沒有可用的 AutoSpin Agent' })
   }
   const dispatchId = `hub-${Date.now()}`
   agent.busy = true
@@ -654,6 +656,9 @@ router.post('/api/autospin/hub-stop', (req, res) => {
       a.ws.send(JSON.stringify({ type: 'stop', sessionId: a.sessionId ?? '' }))
       stopped++
     }
+    // 立即釋放此 agent，避免 busy 旗標殘留導致無法重新派工 / UI 一直顯示忙碌
+    a.busy = false
+    a.sessionId = null
   }
   // 同步請求 Python 端的 agent session 停止（雙保險：should-stop 輪詢）
   for (const s of agentSessions.values()) {

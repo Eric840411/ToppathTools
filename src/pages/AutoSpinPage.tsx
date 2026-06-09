@@ -440,7 +440,7 @@ export function AutoSpinPage() {
           setAgentRunning(true)
           setAgentSessionId(sd.sessionId)
           connectSSE(sd.sessionId, true)
-          captureTimerRef.current = setInterval(() => fetchAgentCaptures(sd.sessionId!), 5000)
+          if (!captureTimerRef.current) captureTimerRef.current = setInterval(() => fetchAgentCaptures(sd.sessionId!), 5000)
           setHubDispatching(false)
           clearInterval(timer)
         }
@@ -521,9 +521,9 @@ export function AutoSpinPage() {
   }, [logs])
 
   useEffect(() => {
-    fetchConfigs(); fetchTemplates(); fetchStatus(); fetchBetRandom()
-    // Periodically sync agent status — catches Mac agent connections that miss the initial polling window
-    const statusTimer = setInterval(fetchStatus, 10000)
+    fetchConfigs(); fetchTemplates(); fetchStatus(); fetchBetRandom(); fetchHubAgents()
+    // Periodically sync agent status + hub agent list — single source of truth for UI（每 4 秒）
+    const statusTimer = setInterval(() => { fetchStatus(); fetchHubAgents() }, 4000)
     return () => {
       clearInterval(statusTimer)
       if (evtSourceRef.current) evtSourceRef.current.close()
