@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.49.0'
+export const APP_VERSION = '3.49.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.49.1',
+    date: '2026-06-09',
+    changes: [
+      'fix(autospin): 遠端 Agent「停止」改為輪詢實際狀態即時更新 UI（不再固定等 8 秒），按鈕顯示「停止中…」並停用，狀態列同步顯示',
+    ],
+  },
   {
     version: '3.49.0',
     date: '2026-06-09',

@@ -291,6 +291,7 @@ export function AutoSpinPage() {
   const [hubAgents, setHubAgents] = useState<HubAgent[]>([])
   const [selectedAgentId, setSelectedAgentId] = useState('')
   const [hubDispatching, setHubDispatching] = useState(false)
+  const [hubStopping, setHubStopping] = useState(false)
   const [running, setRunning] = useState(false)
   const [agentRunning, setAgentRunning] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -452,6 +453,9 @@ export function AutoSpinPage() {
   }
 
   const handleStopHub = async () => {
+    if (hubStopping) return
+    setHubStopping(true)
+    setAgentPaused(false)
     setAgentLogs(prev => [...prev, '[系統] 正在停止 Agent...'])
     try {
       await fetch('/api/autospin/hub-stop', {
@@ -461,15 +465,27 @@ export function AutoSpinPage() {
       })
     } catch { /* ignore */ }
     await fetch('/api/autospin/agent/stop-all', { method: 'POST' }).catch(() => {})
-    setAgentPaused(false)
     if (captureTimerRef.current) { clearInterval(captureTimerRef.current); captureTimerRef.current = null }
-    setTimeout(() => {
-      setAgentRunning(false)
-      agentSessionIdRef.current = null
-      setAgentSessionId(null)
-      if (evtSourceRef.current) { evtSourceRef.current.close(); evtSourceRef.current = null }
-      void fetchHubAgents()
-    }, 8000)
+    // 輪詢實際狀態，停掉就立刻更新 UI（不再固定等 8 秒）
+    const t0 = Date.now()
+    const poll = setInterval(async () => {
+      let running = true
+      try {
+        const r = await fetch('/api/autospin/agent/status')
+        const d = await r.json() as { running: boolean }
+        running = !!d.running
+      } catch { /* ignore */ }
+      if (!running || Date.now() - t0 > 20000) {
+        clearInterval(poll)
+        setAgentRunning(false)
+        agentSessionIdRef.current = null
+        setAgentSessionId(null)
+        setHubStopping(false)
+        setAgentLogs(prev => [...prev, '[系統] Agent 已停止'])
+        setTimeout(() => { if (evtSourceRef.current) { evtSourceRef.current.close(); evtSourceRef.current = null } }, 3000)
+        void fetchHubAgents()
+      }
+    }, 1500)
   }
 
   const [agentPaused, setAgentPaused] = useState(false)
@@ -1168,11 +1184,11 @@ export function AutoSpinPage() {
                       style={{ padding: '8px 20px', background: (agentRunning || hubDispatching || !selectedAgentId) ? '#9ca3af' : '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: (agentRunning || hubDispatching || !selectedAgentId) ? 'default' : 'pointer' }}>
                       {hubDispatching ? '派工中…' : '▶ 派工啟動'}
                     </button>
-                    <button onClick={handleStopHub}
-                      style={{ padding: '8px 20px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
-                      ⏹ 停止
+                    <button onClick={handleStopHub} disabled={hubStopping || (!agentRunning && !hubDispatching)}
+                      style={{ padding: '8px 20px', background: (hubStopping || (!agentRunning && !hubDispatching)) ? '#9ca3af' : '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: (hubStopping || (!agentRunning && !hubDispatching)) ? 'default' : 'pointer' }}>
+                      {hubStopping ? '停止中…' : '⏹ 停止'}
                     </button>
-                    {agentRunning && !agentPaused && (
+                    {agentRunning && !agentPaused && !hubStopping && (
                       <button onClick={handlePause}
                         style={{ padding: '8px 16px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
                         ⏸ 暫停
@@ -1184,8 +1200,8 @@ export function AutoSpinPage() {
                         ▶ 繼續
                       </button>
                     )}
-                    <span style={{ fontSize: 12, padding: '4px 10px', borderRadius: 12, background: agentPaused ? 'rgba(251,191,36,0.12)' : agentRunning ? 'rgba(16,185,129,0.15)' : '#f1f5f9', color: agentPaused ? '#d97706' : agentRunning ? '#16a34a' : '#6b7280', fontWeight: 600 }}>
-                      {agentPaused ? '⏸ 已暫停' : agentRunning ? '🟢 Agent 執行中' : '⚪ 未連線'}
+                    <span style={{ fontSize: 12, padding: '4px 10px', borderRadius: 12, background: hubStopping ? 'rgba(239,68,68,0.12)' : agentPaused ? 'rgba(251,191,36,0.12)' : agentRunning ? 'rgba(16,185,129,0.15)' : '#f1f5f9', color: hubStopping ? '#dc2626' : agentPaused ? '#d97706' : agentRunning ? '#16a34a' : '#6b7280', fontWeight: 600 }}>
+                      {hubStopping ? '🟠 停止中…' : agentPaused ? '⏸ 已暫停' : agentRunning ? '🟢 Agent 執行中' : '⚪ 未連線'}
                     </span>
                     {agentSessionId && <span style={{ fontSize: 11, color: '#2563eb' }}>Session: {agentSessionId.slice(0, 8)}…</span>}
                   </div>
