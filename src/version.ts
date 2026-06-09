@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.47.0'
+export const APP_VERSION = '3.48.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.48.0',
+    date: '2026-06-09',
+    changes: [
+      'feat(local-agent): Local Agent 頁面新增獨立的 macOS 安裝教學與 install-mac.command 安裝包（嵌入 token），與 Windows 並列',
+      'feat(local-agent): Local Agent installer 加入 autospin capability，安裝後的 agent 可同時跑 MachineTest / Scripted Bet / AutoSpin',
+      'refactor(autospin): 移除 AutoSpin 頁面的 agent 安裝說明區塊，統一改到 Local Agent 頁面管理',
+    ],
+  },
   {
     version: '3.47.0',
     date: '2026-06-09',

@@ -313,7 +313,7 @@ Keep Claude for:
 | 查看歷史紀錄 | AutoSpin 各 session 的執行紀錄 |
 | 設定 Spin 間隔 | 調整每次 Spin 的等待時間（執行中可即時覆蓋）|
 | 管理 Bet Config / 模板圖片 | 設定下注隨機配置、上傳比對模板圖 |
-| Agent 機器環境準備 | 取得專案後執行 `start-agent.sh`（mac）/`start-agent.command` / `start-agent.bat`（win）連回 hub；Python 依賴可用 `install.bat` / `install-mac.sh` 準備 |
+| Agent 下載安裝 | 統一在「Local Agent」頁面下載安裝（Windows install.bat / macOS install-mac.command，含 token），安裝後的 agent 具備 autospin capability |
 | 對賬功能 | 比對遊戲紀錄與帳戶餘額，生成對賬報告 |
 
 ---

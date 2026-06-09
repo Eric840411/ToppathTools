@@ -172,49 +172,85 @@ export function LocalAgentPage({ currentAccount }: Props) {
             <span className="badge badge--ok">目前登入：{status?.operator?.name ?? currentAccount?.label ?? '未登入'}</span>
           </div>
 
+          <p className="local-agent-card-note">下載的安裝檔會自動包含你的 owner key 與一次性 Agent token，請勿轉傳給其他操作者。安裝完成的 Agent 可執行 MachineTest / Scripted Bet / AutoSpin。</p>
+
+          {/* ── Windows ── */}
           <div className="local-agent-download-box">
             <div>
               <div className="local-agent-download-title">
-                <span className="tab-icon tab-icon--machinetest">A</span>
-                Toppath Local Agent Installer
+                <span style={{ fontSize: 18 }}>🪟</span>
+                Windows Agent
               </div>
-              <p>下載的安裝檔會自動包含你的 owner key 與一次性 Agent token。請勿轉傳給其他操作者。</p>
+              <p>需先安裝 Node.js 20 LTS。安裝位置 <code>C:\machine-test-agent</code>。</p>
             </div>
             <a className="submit-btn submit-btn--sm" href="/api/machine-test/agent/install.bat">下載 install.bat</a>
           </div>
-
           <div className="local-agent-steps">
             <div className="local-agent-step">
               <span>1</span>
-              <div>
-                <strong>下載 installer</strong>
-                <p>從目前登入帳號下載，系統會產生只屬於你的 Agent token。</p>
+              <div><strong>下載 install.bat</strong><p>從目前登入帳號下載，系統會產生只屬於你的 Agent token。</p></div>
+            </div>
+            <div className="local-agent-step">
+              <span>2</span>
+              <div><strong>雙擊執行 install.bat</strong><p>自動安裝 Node dependencies 與 Playwright Chromium，並產生 <code>start.bat</code>。</p></div>
+            </div>
+            <div className="local-agent-step">
+              <span>3</span>
+              <div><strong>啟動 start.bat</strong><p>Agent 連回公網 Worker，通過 token 驗證後出現在可派工清單。</p></div>
+            </div>
+          </div>
+
+          {/* ── macOS（獨立一套）── */}
+          <div className="local-agent-download-box" style={{ marginTop: 16 }}>
+            <div>
+              <div className="local-agent-download-title">
+                <span style={{ fontSize: 18 }}>🍎</span>
+                macOS Agent
               </div>
+              <p>需先安裝 Node.js 20 LTS。安裝位置 <code>~/toppath-local-agent</code>。</p>
+            </div>
+            <a className="submit-btn submit-btn--sm" href="/api/machine-test/agent/install-mac.command">下載 install-mac.command</a>
+          </div>
+          <div className="local-agent-steps">
+            <div className="local-agent-step">
+              <span>1</span>
+              <div><strong>下載 install-mac.command</strong><p>同樣會嵌入你的 owner key 與一次性 Agent token。</p></div>
             </div>
             <div className="local-agent-step">
               <span>2</span>
               <div>
-                <strong>在要執行測試的電腦安裝</strong>
-                <p>安裝位置預設為 <code>C:\machine-test-agent</code>，會安裝 Node dependencies 與 Playwright Chromium。</p>
+                <strong>Terminal 執行安裝</strong>
+                <p>開啟「終端機」，執行：<br />
+                  <code>bash ~/Downloads/install-mac.command</code><br />
+                  會安裝 Node dependencies 與 Playwright Chromium，並產生 <code>~/toppath-local-agent/start.command</code>。</p>
               </div>
             </div>
             <div className="local-agent-step">
               <span>3</span>
               <div>
-                <strong>啟動 start.bat</strong>
-                <p>啟動後 Agent 會連回公網 Worker，通過 token 驗證後才會出現在可派工清單。</p>
+                <strong>啟動 Agent</strong>
+                <p>雙擊 <code>~/toppath-local-agent/start.command</code>（或 <code>bash ~/toppath-local-agent/start.command</code>）。
+                  首次若被 Gatekeeper 擋下，到「系統設定 → 隱私權與安全性」按「仍要打開」。</p>
+              </div>
+            </div>
+            <div className="local-agent-step">
+              <span>4</span>
+              <div>
+                <strong>（選用）AutoSpin Python 引擎</strong>
+                <p>若要在此 Mac 跑 AutoSpin，需另外安裝 Python 依賴：<br />
+                  <code>pip3 install opencv-python numpy requests playwright && python3 -m playwright install chromium</code></p>
               </div>
             </div>
           </div>
 
-          <div className="local-agent-field-grid">
+          <div className="local-agent-field-grid" style={{ marginTop: 14 }}>
             <label className="field">
               <span>Server URL</span>
               <input value={window.location.origin} readOnly />
             </label>
             <label className="field">
               <span>目前能力</span>
-              <input value={capabilities.length ? capabilities.join(', ') : 'machine-test, scripted-bet'} readOnly />
+              <input value={capabilities.length ? capabilities.join(', ') : 'machine-test, scripted-bet, autospin'} readOnly />
             </label>
           </div>
         </section>

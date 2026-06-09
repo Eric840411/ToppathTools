@@ -1230,35 +1230,10 @@ export function AutoSpinPage() {
               </div>
 
               {/* Agent 機器環境準備 — hub 模式 */}
-              {runMode === 'hub' && (
-                <details style={{ border: '1px solid #2d3f55', borderRadius: 10, background: '#0f172a' }}>
-                  <summary style={{ padding: '9px 14px', fontSize: 12, fontWeight: 600, color: '#94a3b8', cursor: 'pointer' }}>
-                    🛠 Agent 機器設定（沒看到 agent 時看這裡）
-                  </summary>
-                  <div style={{ padding: '0 14px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.7 }}>
-                      <b style={{ color: '#e2e8f0' }}>1. 啟動 Agent（連回 hub）</b><br />
-                      取得專案後，在要當 agent 的機器執行（需 Node.js）：<br />
-                      Windows：<code style={{ background: '#162032', padding: '1px 6px', borderRadius: 4 }}>start-agent.bat</code>
-                      macOS：<code style={{ background: '#162032', padding: '1px 6px', borderRadius: 4 }}>./start-agent.sh</code>（或雙擊 <code style={{ background: '#162032', padding: '1px 6px', borderRadius: 4 }}>start-agent.command</code>）<br />
-                      連線並完成配對後，會出現在上方「① 選擇執行 Agent」清單。
-                    </div>
-                    <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.7, borderTop: '1px solid #2d3f55', paddingTop: 10 }}>
-                      <b style={{ color: '#e2e8f0' }}>2. 該機器需具備 Python 引擎環境</b><br />
-                      AutoSpin 引擎是 Python（cv2 + Playwright），agent 會在本機 spawn 它。若尚未準備環境，可用下列安裝包：
-                      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                        <a href="/api/autospin/agent/download/install.bat" download
-                          style={{ display: 'inline-block', padding: '5px 12px', background: '#2563eb', color: '#fff', borderRadius: 5, fontWeight: 600, fontSize: 12, textDecoration: 'none' }}>
-                          📥 Windows install.bat
-                        </a>
-                        <a href="/api/autospin/agent/download/install-mac.sh" download
-                          style={{ display: 'inline-block', padding: '5px 12px', background: '#059669', color: '#fff', borderRadius: 5, fontWeight: 600, fontSize: 12, textDecoration: 'none' }}>
-                          📥 macOS install-mac.sh
-                        </a>
-                      </div>
-                    </div>
-                  </div>
-                </details>
+              {runMode === 'hub' && hubAgents.length === 0 && (
+                <div style={{ fontSize: 12, color: '#64748b', padding: '8px 2px' }}>
+                  沒看到 agent？請到左側「Local Agent」頁面下載安裝並啟動 Agent（含 macOS 安裝教學），完成配對後就會出現在上方清單。
+                </div>
               )}
             </div>
 

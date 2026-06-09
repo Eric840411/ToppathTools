@@ -1315,7 +1315,7 @@ router.get('/api/machine-test/agent/install.bat', (req, res) => {
     `  echo set AGENT_OWNER_NAME=${agentOwnerName}`,
     `  echo set AGENT_TOKEN=${agentToken?.token ?? ''}`,
     '  echo set AGENT_LABEL=%COMPUTERNAME%',
-    '  echo set AGENT_CAPABILITIES=machine-test,scripted-bet,uat-record,uat-run',
+    '  echo set AGENT_CAPABILITIES=machine-test,scripted-bet,uat-record,uat-run,autospin',
     '  echo echo Starting Toppath Local Agent...',
     '  echo npx tsx server/agent-runner.ts',
     '  echo if %%errorlevel%% neq 0 pause',
@@ -1343,6 +1343,104 @@ router.get('/api/machine-test/agent/install.bat', (req, res) => {
   res.setHeader('Content-Type', 'application/octet-stream')
   res.setHeader('Content-Disposition', 'attachment; filename="install.bat"')
   res.send(bat)
+})
+
+/** GET /api/machine-test/agent/install-mac.command — macOS installer with embedded server URL + token */
+router.get('/api/machine-test/agent/install-mac.command', (req, res) => {
+  const proto = req.headers['x-forwarded-proto'] ?? req.protocol ?? 'http'
+  const host  = req.headers['x-forwarded-host'] ?? req.headers.host ?? 'localhost:3000'
+  const serverUrl = process.env.TOPPATH_BASE_URL ?? `${proto}://${host}`
+  const operator = getOperatorFromContext()
+  const agentOwnerKey = operator?.key ?? ''
+  const agentOwnerName = operator?.name ?? agentOwnerKey
+  const agentToken = createLocalAgentToken(operator, 'Toppath Local Agent (macOS)')
+  if (!agentToken) return res.status(401).json({ ok: false, message: 'login required to create local agent installer' })
+
+  const sourceFiles = Object.keys(AGENT_SOURCE_WHITELIST)
+  const downloadLines = sourceFiles.map(f => {
+    const filename = f.split('/').pop()!
+    const subdir = f.includes('/') ? `"$AGENT_DIR/server/${f.split('/').slice(0, -1).join('/')}"` : '"$AGENT_DIR/server"'
+    return [
+      `mkdir -p ${subdir}`,
+      `curl -fsSL "${serverUrl}/api/machine-test/agent/source/${f}" -o ${subdir.slice(0, -1)}/${filename}"`,
+    ].join('\n')
+  }).join('\n')
+
+  const sh = [
+    '#!/usr/bin/env bash',
+    '# Toppath Local Agent — macOS Installer',
+    'set -euo pipefail',
+    'echo',
+    'echo ===================================================',
+    'echo "  Toppath Local Agent - macOS Installer"',
+    'echo ===================================================',
+    'echo',
+    '',
+    '# Check Node.js',
+    'if ! command -v node >/dev/null 2>&1; then',
+    '  echo "[ERROR] 找不到 Node.js，請先安裝 Node.js 20 LTS：https://nodejs.org"',
+    '  exit 1',
+    'fi',
+    'echo "[OK] Node.js $(node -v)"',
+    '',
+    '# Create agent directory under home',
+    'AGENT_DIR="$HOME/toppath-local-agent"',
+    'mkdir -p "$AGENT_DIR/server/machine-test"',
+    'echo "[OK] 安裝目錄：$AGENT_DIR"',
+    '',
+    '# Download package.json',
+    `curl -fsSL "${serverUrl}/api/machine-test/agent/agent-package.json" -o "$AGENT_DIR/package.json"`,
+    'echo "[OK] 下載 package.json"',
+    '',
+    '# Download source files',
+    downloadLines,
+    'echo "[OK] 下載原始碼"',
+    '',
+    '# npm install',
+    'cd "$AGENT_DIR"',
+    'echo "執行 npm install（可能需要幾分鐘）..."',
+    'npm install',
+    'echo "[OK] npm install 完成"',
+    '',
+    '# Install Playwright Chromium',
+    'echo "安裝 Playwright Chromium（可能需要幾分鐘）..."',
+    'npx playwright install chromium || echo "[WARN] playwright 安裝失敗，CCTV 測試可能無法使用"',
+    'echo "[OK] Playwright 完成"',
+    '',
+    '# Create start.command (quoted heredoc → 內容原樣寫入，URL/token 已由伺服器端嵌入)',
+    "cat > \"$AGENT_DIR/start.command\" <<'EOF'",
+    '#!/usr/bin/env bash',
+    'cd "$(dirname "$0")"',
+    `export CENTRAL_URL="${serverUrl}"`,
+    `export AGENT_OWNER_KEY="${agentOwnerKey}"`,
+    `export AGENT_OWNER_NAME="${agentOwnerName}"`,
+    `export AGENT_TOKEN="${agentToken?.token ?? ''}"`,
+    'export AGENT_LABEL="$(hostname)"',
+    'export AGENT_CAPABILITIES="machine-test,scripted-bet,uat-record,uat-run,autospin"',
+    'echo "Starting Toppath Local Agent..."',
+    'exec npx tsx server/agent-runner.ts',
+    'EOF',
+    'chmod +x "$AGENT_DIR/start.command"',
+    'echo "[OK] 已建立 start.command"',
+    '',
+    'echo',
+    'echo ===================================================',
+    'echo "  安裝完成！"',
+    'echo',
+    `echo "  伺服器：${serverUrl}"`,
+    'echo',
+    'echo "  啟動 Local Agent：雙擊 $AGENT_DIR/start.command"',
+    'echo "  （或在終端機執行： bash \\"$AGENT_DIR/start.command\\" ）"',
+    'echo',
+    'echo "  [AutoSpin] 若要在此機器跑 AutoSpin，需另外安裝 Python 引擎依賴："',
+    'echo "    pip3 install opencv-python numpy requests playwright && python3 -m playwright install chromium"',
+    'echo ==================================================="',
+    'echo',
+  ].join('\n')
+
+  res.setHeader('Content-Type', 'application/octet-stream')
+  res.setHeader('Content-Disposition', 'attachment; filename="install-mac.command"')
+  res.send(sh)
 })
 
 // GET /api/machine-test/status ??current session and agent status
