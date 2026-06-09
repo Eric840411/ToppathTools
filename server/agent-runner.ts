@@ -20,7 +20,7 @@ import WebSocket from 'ws'
 import { hostname, tmpdir } from 'os'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { spawn } from 'child_process'
+import { spawn, type ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
 import { MachineTestRunner } from './machine-test/runner.js'
 import type { MachineTestSession, MachineProfile, TestEvent } from './machine-test/types.js'
@@ -34,7 +34,7 @@ const AGENT_ID = `${AGENT_LABEL}_${process.pid}`
 const AGENT_OWNER_KEY = (process.env.AGENT_OWNER_KEY ?? '').trim()
 const AGENT_OWNER_NAME = (process.env.AGENT_OWNER_NAME ?? AGENT_OWNER_KEY).trim()
 const AGENT_TOKEN = (process.env.AGENT_TOKEN ?? '').trim()
-const AGENT_CAPABILITIES = (process.env.AGENT_CAPABILITIES ?? 'machine-test,scripted-bet,uat-record,uat-run')
+const AGENT_CAPABILITIES = (process.env.AGENT_CAPABILITIES ?? 'machine-test,scripted-bet,uat-record,uat-run,autospin')
   .split(',')
   .map(value => value.trim())
   .filter(Boolean)
@@ -108,6 +108,12 @@ interface UiScreenshotStartMessage {
   }
 }
 
+interface AutoSpinStartMessage {
+  type: 'autospin_start'
+  sessionId: string
+  userLabel: string
+}
+
 type IncomingMessage =
   | SessionJoinMessage
   | ScriptedBetStartMessage
@@ -116,10 +122,15 @@ type IncomingMessage =
   | UatRecordStopMessage
   | UatScriptRunMessage
   | UiScreenshotStartMessage
+  | AutoSpinStartMessage
   | { type: 'job_assigned'; machineCode: string }
   | { type: 'no_more_jobs' }
   | { type: 'stop' }
   | { type: string }
+
+// ── AutoSpin (Python engine spawned locally by this agent) ───────────────────
+const PYTHON_EXE = process.env.AUTOSPIN_PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3')
+let autospinChild: ChildProcess | null = null
 
 // ── UAT Recording (Chrome CDP) ───────────────────────────────────────────────
 
@@ -981,9 +992,52 @@ function connect() {
     if (msg.type === 'stop') {
       console.log(`[Agent:${AGENT_LABEL}] Stop requested`)
       currentRunner?.stop()
+      if (autospinChild) {
+        try { autospinChild.kill('SIGTERM') } catch { /* ignore */ }
+      }
       // Abort any pending claim
       pendingClaimResolve?.(null)
       pendingClaimResolve = null
+      return
+    }
+
+    // ── AutoSpin: spawn the local Python engine (toppath-agent.py) ─────────────
+    // 引擎不變，仍透過 REST(/api/autospin/agent/*) 與伺服器溝通；本 agent 只負責
+    // 在被派工時啟動它、停止時關閉它，並在結束時回報 agent_done 釋放此 agent。
+    if (msg.type === 'autospin_start') {
+      const { sessionId, userLabel } = msg as AutoSpinStartMessage
+      if (autospinChild) {
+        try { autospinChild.kill('SIGTERM') } catch { /* ignore */ }
+        autospinChild = null
+      }
+      const httpBase = CENTRAL_URL.replace(/^wss?/, (s) => (s.includes('wss') ? 'https' : 'http'))
+      const scriptPath = join(process.cwd(), 'server', 'python', 'toppath-agent.py')
+      if (!existsSync(scriptPath)) {
+        console.error(`[Agent:${AGENT_LABEL}] AutoSpin script not found: ${scriptPath}`)
+        if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'agent_done', sessionId }))
+        return
+      }
+      const uriArg = `toppath-agent://?server=${encodeURIComponent(httpBase)}&user=${encodeURIComponent(userLabel ?? '')}`
+      console.log(`[Agent:${AGENT_LABEL}] AutoSpin start → ${PYTHON_EXE} ${scriptPath} (server=${httpBase}, user=${userLabel || '(none)'})`)
+      const child = spawn(PYTHON_EXE, [scriptPath, uriArg], {
+        cwd: join(process.cwd(), 'server', 'python'),
+        env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8' },
+      })
+      autospinChild = child
+      child.stdout?.setEncoding('utf8')
+      child.stderr?.setEncoding('utf8')
+      child.stdout?.on('data', (c: string) => { for (const l of c.split('\n').filter(Boolean)) console.log(`[AutoSpin] ${l}`) })
+      child.stderr?.on('data', (c: string) => { for (const l of c.split('\n').filter(Boolean)) console.error(`[AutoSpin][stderr] ${l}`) })
+      child.on('close', (code) => {
+        console.log(`[Agent:${AGENT_LABEL}] AutoSpin process exited (code ${code})`)
+        if (autospinChild === child) autospinChild = null
+        if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'agent_done', sessionId }))
+      })
+      child.on('error', (err) => {
+        console.error(`[Agent:${AGENT_LABEL}] AutoSpin spawn error:`, err)
+        if (autospinChild === child) autospinChild = null
+        if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'agent_done', sessionId }))
+      })
       return
     }
 

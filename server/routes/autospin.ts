@@ -13,6 +13,7 @@ import { db, addHistory, upload } from '../shared.js'
 import { getOperatorFromContext } from '../request-context.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { fetchSlsErrors } from '../lib/sls.js'
+import { agentConnections, getAvailableAgents } from '../agent-hub.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -595,6 +596,70 @@ router.get('/api/autospin/agent/status', (_req, res) => {
     }
   }
   res.json({ ok: true, running: !!active, sessionId: active?.id ?? null, startedAt: active?.startedAt ?? null })
+})
+
+// ─── agent-hub 派工（A2）：把 AutoSpin 派給已連線的 Local Agent 執行 ───────────
+// 列出此操作者擁有、支援 autospin 的線上 agent
+router.get('/api/autospin/hub-agents', (_req, res) => {
+  const operator = getOperatorFromContext()
+  if (!operator?.key) return res.json({ ok: true, agents: [] })
+  const agents = [...agentConnections.values()]
+    .filter(a => a.ownerKey === operator.key && a.capabilities.includes('autospin'))
+    .map(a => ({
+      agentId: a.agentId,
+      hostname: a.hostname,
+      ownerName: a.ownerName,
+      capabilities: a.capabilities,
+      busy: a.busy,
+      connectedAt: a.connectedAt,
+      lastSeenAt: a.lastSeenAt,
+      sessionId: a.sessionId,
+    }))
+  res.json({ ok: true, agents })
+})
+
+// POST /api/autospin/hub-dispatch { agentId } — 命令選定的 agent 啟動 AutoSpin（spawn Python 引擎）
+router.post('/api/autospin/hub-dispatch', (req, res) => {
+  const operator = getOperatorFromContext()
+  if (!operator?.key) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
+  const userLabel = (req.headers['x-user-label'] as string) || ''
+  const agentId = String((req.body as { agentId?: string }).agentId ?? '').trim()
+  const available = getAvailableAgents({
+    operatorKey: operator.key,
+    capability: 'autospin',
+    ...(agentId ? { agentId } : {}),
+  })
+  const agent = available[0]
+  if (!agent) {
+    return res.status(409).json({ ok: false, message: agentId ? '選定的 Agent 不可用（離線或忙碌中）' : '沒有可用的 AutoSpin Agent' })
+  }
+  const dispatchId = `hub-${Date.now()}`
+  agent.busy = true
+  agent.sessionId = dispatchId
+  agent.ws.send(JSON.stringify({ type: 'autospin_start', sessionId: dispatchId, userLabel }))
+  res.json({ ok: true, agentId: agent.agentId, hostname: agent.hostname, dispatchId })
+})
+
+// POST /api/autospin/hub-stop { agentId? } — 命令 agent 停止 AutoSpin
+router.post('/api/autospin/hub-stop', (req, res) => {
+  const operator = getOperatorFromContext()
+  if (!operator?.key) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
+  const userLabel = (req.headers['x-user-label'] as string) || ''
+  const agentId = String((req.body as { agentId?: string }).agentId ?? '').trim()
+  let stopped = 0
+  for (const a of agentConnections.values()) {
+    if (a.ownerKey !== operator.key || !a.capabilities.includes('autospin')) continue
+    if (agentId && a.agentId !== agentId) continue
+    if (a.ws.readyState === a.ws.OPEN) {
+      a.ws.send(JSON.stringify({ type: 'stop', sessionId: a.sessionId ?? '' }))
+      stopped++
+    }
+  }
+  // 同步請求 Python 端的 agent session 停止（雙保險：should-stop 輪詢）
+  for (const s of agentSessions.values()) {
+    if (s.status === 'running' && (!userLabel || s.userLabel === userLabel)) s.stopRequested = true
+  }
+  res.json({ ok: true, stopped })
 })
 
 // GET /api/autospin/agent/stream/:id — SSE log stream for frontend

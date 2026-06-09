@@ -299,21 +299,21 @@ Keep Claude for:
 **路由**：`/api/autospin/*`｜**歷史紀錄 feature key**：`autospin`
 
 ### 功能說明
-管理多個 AutoSpin Python Agent，每個 Agent 對應一台機器執行自動旋轉操作。
+管理 AutoSpin 自動旋轉。執行採 **agent-hub 派工模式（A2）**：在「執行監控」選擇線上 agent（與機測/腳本化投注同一批 agent-runner，含 macOS），agent 端在本機 spawn 既有的 Python 引擎（`server/python/toppath-agent.py`，cv2 模板比對引擎不變），log/截圖/狀態透過既有 REST/SSE 回報。公網（Spug）上 server 不需跑瀏覽器/OpenCV，重活都在 agent 端。伺服器端 `spawn` 模式保留為 fallback。
 
 ### 使用者操作
 | 操作 | 說明 |
 |------|------|
-| 啟動 Agent | 指定機台代碼與設定，啟動 AutoSpin session |
-| 停止 / 停止所有 Agent | 手動停止單一或全部 Agent |
+| 選擇執行 Agent | 從線上、含 `autospin` capability 的 agent 清單挑一台 |
+| 派工啟動 | 命令選定 agent spawn Python 引擎執行 AutoSpin（`/api/autospin/hub-dispatch`）|
+| 停止 | 命令 agent 停止並結束 Python 程序（`/api/autospin/hub-stop`）|
+| 伺服器端 fallback | 切到「伺服器端」可直接在 server 本機 spawn（舊模式）|
 | 暫停 / 繼續 Agent | 暫停自動旋轉，保持連線 |
-| 查看即時日誌 | SSE 串流 Agent 執行日誌 |
-| 查看截圖 | 查看 Agent 捕捉的遊戲截圖 |
+| 查看即時日誌 / 截圖 | SSE 串流 Agent 執行日誌與遊戲截圖 |
 | 查看歷史紀錄 | AutoSpin 各 session 的執行紀錄 |
-| 設定 Spin 間隔 | 調整每次 Spin 的等待時間 |
-| 管理 Bet Config | 設定各機種的下注隨機配置 |
-| 管理模板圖片 | 上傳/刪除用於比對的遊戲狀態模板圖 |
-| 下載 Agent 安裝包 | 下載 `install.bat` / `launcher.bat` / `agent.py` |
+| 設定 Spin 間隔 | 調整每次 Spin 的等待時間（執行中可即時覆蓋）|
+| 管理 Bet Config / 模板圖片 | 設定下注隨機配置、上傳比對模板圖 |
+| Agent 機器環境準備 | 取得專案後執行 `start-agent.sh`（mac）/`start-agent.command` / `start-agent.bat`（win）連回 hub；Python 依賴可用 `install.bat` / `install-mac.sh` 準備 |
 | 對賬功能 | 比對遊戲紀錄與帳戶餘額，生成對賬報告 |
 
 ---

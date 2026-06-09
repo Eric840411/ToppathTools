@@ -285,7 +285,12 @@ export function AutoSpinPage() {
   }
 
   // ── Run tab ─────────────────────────────────────────────────────────────────
-  const [runMode, setRunMode] = useState<'server' | 'local'>('local')
+  const [runMode, setRunMode] = useState<'server' | 'hub'>('hub')
+  // agent-hub 派工（A2）
+  interface HubAgent { agentId: string; hostname: string; ownerName: string; capabilities: string[]; busy: boolean; sessionId: string | null }
+  const [hubAgents, setHubAgents] = useState<HubAgent[]>([])
+  const [selectedAgentId, setSelectedAgentId] = useState('')
+  const [hubDispatching, setHubDispatching] = useState(false)
   const [running, setRunning] = useState(false)
   const [agentRunning, setAgentRunning] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -403,56 +408,68 @@ export function AutoSpinPage() {
     if (evtSourceRef.current) { evtSourceRef.current.close(); evtSourceRef.current = null }
   }
 
-  const handleStartLocal = async () => {
+  // ─── agent-hub 派工（A2）─────────────────────────────────────────────────────
+  const fetchHubAgents = useCallback(async () => {
+    try {
+      const r = await fetch('/api/autospin/hub-agents', { headers: { 'x-user-label': getGlobalUserLabel() } })
+      const d = await r.json() as { ok: boolean; agents?: HubAgent[] }
+      const list = d.agents ?? []
+      setHubAgents(list)
+      setSelectedAgentId(prev => (prev && list.some(a => a.agentId === prev) ? prev : (list.find(a => !a.busy)?.agentId ?? '')))
+    } catch { setHubAgents([]) }
+  }, [])
+
+  const handleDispatchAgent = async () => {
     setStartError(''); setAgentLogs([]); setAgentCaptures([])
-    // Clear old session first
-    await fetch('/api/autospin/agent/stop-all', { method: 'POST' })
-    setAgentRunning(false); setAgentSessionId(null)
-    if (evtSourceRef.current) { evtSourceRef.current.close(); evtSourceRef.current = null }
-    // In dev mode Vite runs on :5173 but the API is on :3000
-    const apiPort = window.location.port === '5173' ? '3000' : window.location.port
-    const serverUrl = `${window.location.protocol}//${window.location.hostname}${apiPort ? ':' + apiPort : ''}`
-    const label = getGlobalUserLabel()
-    const uri = `toppath-agent://start?server=${encodeURIComponent(serverUrl)}&user=${encodeURIComponent(label)}`
-    window.location.href = uri
-    // Poll for agent connection (90s timeout to accommodate slow Terminal launch on Mac)
-    const timer = setInterval(async () => {
-      const r = await fetch('/api/autospin/agent/status')
-      const d = await r.json() as { running: boolean; sessionId: string | null }
-      if (d.running && d.sessionId) {
-        agentSessionIdRef.current = d.sessionId
-        setAgentRunning(true)
-        setAgentSessionId(d.sessionId)
-        connectSSE(d.sessionId, true)
-        captureTimerRef.current = setInterval(() => fetchAgentCaptures(d.sessionId!), 5000)
-        clearInterval(timer)
-      }
-    }, 2000)
-    setTimeout(() => clearInterval(timer), 90000) // stop polling after 90s
+    setHubDispatching(true)
+    try {
+      const r = await fetch('/api/autospin/hub-dispatch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-label': getGlobalUserLabel() },
+        body: JSON.stringify({ agentId: selectedAgentId }),
+      })
+      const d = await r.json() as { ok: boolean; message?: string }
+      if (!d.ok) { setStartError(d.message ?? '派工失敗'); setHubDispatching(false); return }
+      // Agent 收到後會 spawn Python 引擎並向伺服器註冊 session；輪詢 status 取得 session 後接 SSE
+      const timer = setInterval(async () => {
+        const sr = await fetch('/api/autospin/agent/status')
+        const sd = await sr.json() as { running: boolean; sessionId: string | null }
+        if (sd.running && sd.sessionId) {
+          agentSessionIdRef.current = sd.sessionId
+          setAgentRunning(true)
+          setAgentSessionId(sd.sessionId)
+          connectSSE(sd.sessionId, true)
+          captureTimerRef.current = setInterval(() => fetchAgentCaptures(sd.sessionId!), 5000)
+          setHubDispatching(false)
+          clearInterval(timer)
+        }
+      }, 2000)
+      setTimeout(() => { clearInterval(timer); setHubDispatching(false) }, 90000)
+    } catch (e) {
+      setStartError('派工失敗：' + String(e))
+      setHubDispatching(false)
+    }
   }
 
-  const handleStopLocal = async () => {
+  const handleStopHub = async () => {
     setAgentLogs(prev => [...prev, '[系統] 正在停止 Agent...'])
-    // First get/connect SSE so we can see the stop feedback (handles "未連線" case)
-    const ar = await fetch('/api/autospin/agent/status')
-    const ad = await ar.json() as { running: boolean; sessionId: string | null }
-    if (ad.sessionId && ad.sessionId !== agentSessionIdRef.current) {
-      agentSessionIdRef.current = ad.sessionId
-      setAgentSessionId(ad.sessionId)
-      // Skip log replay — only want new stop feedback messages, not old logs
-      connectSSE(ad.sessionId, true, Number.MAX_SAFE_INTEGER)
-    }
-    await fetch('/api/autospin/agent/stop-all', { method: 'POST' })
+    try {
+      await fetch('/api/autospin/hub-stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-label': getGlobalUserLabel() },
+        body: JSON.stringify({ agentId: selectedAgentId }),
+      })
+    } catch { /* ignore */ }
+    await fetch('/api/autospin/agent/stop-all', { method: 'POST' }).catch(() => {})
     setAgentPaused(false)
     if (captureTimerRef.current) { clearInterval(captureTimerRef.current); captureTimerRef.current = null }
-    // Keep SSE open so agent's "[Agent] 已停止" message comes through.
-    // Auto-cleanup after 10 seconds.
     setTimeout(() => {
       setAgentRunning(false)
       agentSessionIdRef.current = null
       setAgentSessionId(null)
       if (evtSourceRef.current) { evtSourceRef.current.close(); evtSourceRef.current = null }
-    }, 10000)
+      void fetchHubAgents()
+    }, 8000)
   }
 
   const [agentPaused, setAgentPaused] = useState(false)
@@ -540,7 +557,7 @@ export function AutoSpinPage() {
         <button style={tabStyle('betrandom')} onClick={() => { setTab('betrandom'); fetchBetRandom() }}>🎲 隨機下注</button>
         <button style={tabStyle('history')} onClick={() => { setTab('history'); fetchHistory() }}>📊 歷史戰績</button>
         <button style={tabStyle('reconcile')} onClick={() => { setTab('reconcile'); fetchRcConfig(); fetchRcReports() }}>🔍 後台對帳</button>
-        <button style={tabStyle('run')} onClick={() => { setTab('run'); fetchCaptures() }}>▶️ 執行監控</button>
+        <button style={tabStyle('run')} onClick={() => { setTab('run'); fetchCaptures(); fetchHubAgents() }}>▶️ 執行監控</button>
       </div>
 
       {/* ── Configs tab ─────────────────────────────────────────────────────── */}
@@ -1073,11 +1090,11 @@ export function AutoSpinPage() {
 
           {/* Mode toggle */}
           <div style={{ display: 'flex', gap: 0, border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden', alignSelf: 'flex-start' }}>
-            {(['server', 'local'] as const).map(m => (
+            {(['hub', 'server'] as const).map(m => (
               <button key={m} onClick={() => setRunMode(m)}
                 style={{ padding: '7px 20px', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer',
                   background: runMode === m ? '#2563eb' : '#1e293b', color: runMode === m ? '#fff' : '#94a3b8' }}>
-                {m === 'server' ? '🖥 伺服器端' : '💻 本機端（Agent）'}
+                {m === 'hub' ? '☁️ 遠端 Agent' : '🖥 伺服器端（fallback）'}
               </button>
             ))}
           </div>
@@ -1109,15 +1126,49 @@ export function AutoSpinPage() {
                   </div>
                 </>
               ) : (
-                /* ── Local agent mode controls ── */
+                /* ── Remote agent (agent-hub) mode controls ── */
                 <>
-                  {/* Status + controls row */}
+                  {/* ① Agent picker */}
+                  <div style={{ background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 10, padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8' }}>① 選擇執行 Agent</span>
+                      <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748b' }}>線上、支援 autospin 的 agent</span>
+                      <button onClick={fetchHubAgents} style={{ marginLeft: 10, fontSize: 11, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer' }}>🔄</button>
+                    </div>
+                    {hubAgents.length === 0 ? (
+                      <div style={{ padding: 12, textAlign: 'center', color: '#64748b', fontSize: 12, border: '1px dashed #2d3f55', borderRadius: 8 }}>
+                        沒有可用 agent。在機器執行 <code style={{ background: '#162032', padding: '1px 5px', borderRadius: 4 }}>start-agent.sh</code>（Mac）或 <code style={{ background: '#162032', padding: '1px 5px', borderRadius: 4 }}>start-agent.bat</code>（Windows）並完成配對後會出現在這裡。
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                        {hubAgents.map(a => {
+                          const sel = selectedAgentId === a.agentId
+                          return (
+                            <div key={a.agentId} onClick={() => !a.busy && setSelectedAgentId(a.agentId)}
+                              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 11px', borderRadius: 9, cursor: a.busy ? 'not-allowed' : 'pointer',
+                                background: sel ? '#16263f' : '#162338', border: `1px solid ${sel ? '#2563eb' : '#2d3f55'}`, opacity: a.busy ? 0.6 : 1 }}>
+                              <div style={{ width: 16, height: 16, borderRadius: '50%', border: `2px solid ${sel ? '#2563eb' : '#475569'}`, flexShrink: 0, position: 'relative' }}>
+                                {sel && <div style={{ position: 'absolute', inset: 3, borderRadius: '50%', background: '#2563eb' }} />}
+                              </div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontWeight: 700, fontSize: 13, color: '#e2e8f0' }}>{a.hostname}</div>
+                                <div style={{ fontSize: 10, color: '#64748b' }}>{a.capabilities.join(' · ')}</div>
+                              </div>
+                              <span style={{ fontSize: 11, color: a.busy ? '#f59e0b' : '#22c55e' }}>{a.busy ? '● 忙碌' : '● 可派工'}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ② Status + controls row */}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button onClick={handleStartLocal} disabled={agentRunning}
-                      style={{ padding: '8px 20px', background: agentRunning ? '#9ca3af' : '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: agentRunning ? 'default' : 'pointer' }}>
-                      ▶ 啟動（本機）
+                    <button onClick={handleDispatchAgent} disabled={agentRunning || hubDispatching || !selectedAgentId}
+                      style={{ padding: '8px 20px', background: (agentRunning || hubDispatching || !selectedAgentId) ? '#9ca3af' : '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: (agentRunning || hubDispatching || !selectedAgentId) ? 'default' : 'pointer' }}>
+                      {hubDispatching ? '派工中…' : '▶ 派工啟動'}
                     </button>
-                    <button onClick={handleStopLocal}
+                    <button onClick={handleStopHub}
                       style={{ padding: '8px 20px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
                       ⏹ 停止
                     </button>
@@ -1178,89 +1229,36 @@ export function AutoSpinPage() {
                 }
               </div>
 
-              {/* Windows + macOS install guide — shown in local agent mode only */}
-              {runMode === 'local' && (
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                  {/* Windows box */}
-                  <div style={{ flex: '1 1 260px', border: '1px solid #dbeafe', borderRadius: 10, overflow: 'hidden' }}>
-                    <div style={{ background: '#eff6ff', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 16 }}>🪟</span>
-                      <span style={{ fontWeight: 700, fontSize: 13, color: '#1d4ed8' }}>Windows Agent</span>
+              {/* Agent 機器環境準備 — hub 模式 */}
+              {runMode === 'hub' && (
+                <details style={{ border: '1px solid #2d3f55', borderRadius: 10, background: '#0f172a' }}>
+                  <summary style={{ padding: '9px 14px', fontSize: 12, fontWeight: 600, color: '#94a3b8', cursor: 'pointer' }}>
+                    🛠 Agent 機器設定（沒看到 agent 時看這裡）
+                  </summary>
+                  <div style={{ padding: '0 14px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.7 }}>
+                      <b style={{ color: '#e2e8f0' }}>1. 啟動 Agent（連回 hub）</b><br />
+                      取得專案後，在要當 agent 的機器執行（需 Node.js）：<br />
+                      Windows：<code style={{ background: '#162032', padding: '1px 6px', borderRadius: 4 }}>start-agent.bat</code>
+                      macOS：<code style={{ background: '#162032', padding: '1px 6px', borderRadius: 4 }}>./start-agent.sh</code>（或雙擊 <code style={{ background: '#162032', padding: '1px 6px', borderRadius: 4 }}>start-agent.command</code>）<br />
+                      連線並完成配對後，會出現在上方「① 選擇執行 Agent」清單。
                     </div>
-                    <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                        <span style={{ background: '#2563eb', color: '#fff', borderRadius: '50%', width: 20, height: 20, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>1</span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 4 }}>下載安裝包並執行（需安裝 Python 3）</div>
-                          <a href="/api/autospin/agent/download/install.bat" download
-                            style={{ display: 'inline-block', padding: '5px 12px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 5, fontWeight: 600, fontSize: 12, textDecoration: 'none' }}>
-                            📥 下載 install.bat
-                          </a>
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                        <span style={{ background: '#2563eb', color: '#fff', borderRadius: '50%', width: 20, height: 20, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>2</span>
-                        <div style={{ fontSize: 12, color: '#cbd5e1' }}>安裝完成後，點上方「▶ 啟動（本機）」即可連線</div>
-                      </div>
-                      <div style={{ fontSize: 11, color: '#94a3b8', borderTop: '1px solid #e5e7eb', paddingTop: 8, marginTop: 2 }}>
-                        安裝內容：Python venv、Playwright Chromium、自動 UAC 提權
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* macOS box */}
-                  <div style={{ flex: '1 1 260px', border: '1px solid #d1fae5', borderRadius: 10, overflow: 'hidden' }}>
-                    <div style={{ background: '#ecfdf5', padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontSize: 16 }}>🍎</span>
-                      <span style={{ fontWeight: 700, fontSize: 13, color: '#065f46' }}>macOS Agent</span>
-                    </div>
-                    <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                        <span style={{ background: '#059669', color: '#fff', borderRadius: '50%', width: 20, height: 20, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>1</span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 4 }}>下載安裝腳本，Terminal 執行（需 Python 3）</div>
-                          <a href="/api/autospin/agent/download/install-mac.sh" download
-                            style={{ display: 'inline-block', padding: '5px 12px', background: '#059669', color: '#fff', border: 'none', borderRadius: 5, fontWeight: 600, fontSize: 12, textDecoration: 'none' }}>
-                            📥 下載 install-mac.sh
-                          </a>
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                        <span style={{ background: '#059669', color: '#fff', borderRadius: '50%', width: 20, height: 20, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>2</span>
-                        <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.5 }}>
-                          Terminal 執行：<br />
-                          <code style={{ background: '#162032', padding: '2px 6px', borderRadius: 4, fontSize: 11 }}>bash install-toppath-agent-mac.sh</code>
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-                        <span style={{ background: '#059669', color: '#fff', borderRadius: '50%', width: 20, height: 20, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>3</span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 4 }}>安裝完成後，複製啟動指令貼到 Terminal</div>
-                          <button onClick={() => {
-                            const apiPort = window.location.port === '5173' ? '3000' : window.location.port
-                            const serverUrl = `${window.location.protocol}//${window.location.hostname}${apiPort ? ':' + apiPort : ''}`
-                            const label = getGlobalUserLabel()
-                            const uri = `toppath-agent://start?server=${encodeURIComponent(serverUrl)}&user=${encodeURIComponent(label)}`
-                            const cmd = `~/toppath-agent/launch-agent-mac.sh "${uri}"`
-                            if (navigator.clipboard) {
-                              navigator.clipboard.writeText(cmd)
-                                .then(() => alert('已複製！貼到 Mac Terminal 執行即可。'))
-                                .catch(() => prompt('複製以下指令到 Mac Terminal：', cmd))
-                            } else {
-                              prompt('複製以下指令到 Mac Terminal：', cmd)
-                            }
-                          }}
-                            style={{ padding: '5px 12px', background: '#059669', color: '#fff', border: 'none', borderRadius: 5, fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
-                            📋 複製啟動指令
-                          </button>
-                        </div>
-                      </div>
-                      <div style={{ fontSize: 11, color: '#94a3b8', borderTop: '1px solid #d1fae5', paddingTop: 8, marginTop: 2 }}>
-                        安裝內容：Python venv、Playwright Chromium、launchd 服務、toppath-agent:// URL scheme
+                    <div style={{ fontSize: 12, color: '#cbd5e1', lineHeight: 1.7, borderTop: '1px solid #2d3f55', paddingTop: 10 }}>
+                      <b style={{ color: '#e2e8f0' }}>2. 該機器需具備 Python 引擎環境</b><br />
+                      AutoSpin 引擎是 Python（cv2 + Playwright），agent 會在本機 spawn 它。若尚未準備環境，可用下列安裝包：
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                        <a href="/api/autospin/agent/download/install.bat" download
+                          style={{ display: 'inline-block', padding: '5px 12px', background: '#2563eb', color: '#fff', borderRadius: 5, fontWeight: 600, fontSize: 12, textDecoration: 'none' }}>
+                          📥 Windows install.bat
+                        </a>
+                        <a href="/api/autospin/agent/download/install-mac.sh" download
+                          style={{ display: 'inline-block', padding: '5px 12px', background: '#059669', color: '#fff', borderRadius: 5, fontWeight: 600, fontSize: 12, textDecoration: 'none' }}>
+                          📥 macOS install-mac.sh
+                        </a>
                       </div>
                     </div>
                   </div>
-                </div>
+                </details>
               )}
             </div>
 

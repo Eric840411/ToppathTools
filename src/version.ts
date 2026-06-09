@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.46.0'
+export const APP_VERSION = '3.47.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.47.0',
+    date: '2026-06-09',
+    changes: [
+      'feat(autospin): 改用 agent-hub 派工執行（A2）— 在 UI 選擇線上 agent，agent 端 spawn 既有 Python 引擎，公網 Spug 上 server 不再需要跑瀏覽器/OpenCV',
+      'feat(autospin): 執行監控頁面重新設計 — 遠端 Agent（hub）為主、伺服器端為 fallback，新增 agent 選擇器與步驟化版面',
+      'feat(agent): 新增 macOS 啟動腳本 start-agent.sh / start-agent.command，agent-runner 加入 autospin capability',
+    ],
+  },
   {
     version: '3.46.0',
     date: '2026-06-08',
