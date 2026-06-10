@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.50.1'
+export const APP_VERSION = '3.50.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.50.2',
+    date: '2026-06-09',
+    changes: [
+      'feat(prompt): Prompt 模板「分類」欄位改為下拉（datalist）可選現有分類，仍可輸入新分類，免去手打對應名稱',
+    ],
+  },
   {
     version: '3.50.1',
     date: '2026-06-09',

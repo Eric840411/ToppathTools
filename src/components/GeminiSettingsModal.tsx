@@ -755,12 +755,18 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                   </div>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                     <input
-                      placeholder="分類（如：TestCase 生成、QA 報告）"
+                      list="prompt-category-options"
+                      placeholder="分類（點選現有或輸入新分類）"
                       value={editPrompt.category ?? ''}
                       onChange={e => setEditPrompt({ ...editPrompt, category: e.target.value })}
                       style={{ flex: 1, padding: '7px 10px', borderRadius: 6, fontSize: 13 }}
                     />
-                    <span style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>分類（可自定）</span>
+                    <datalist id="prompt-category-options">
+                      {[...new Set(prompts.map(p => p.category?.trim()).filter((c): c is string => !!c))].map(c => (
+                        <option key={c} value={c} />
+                      ))}
+                    </datalist>
+                    <span style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>分類（可選現有或新增）</span>
                   </div>
 
                   <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>
