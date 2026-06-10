@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.50.0'
+export const APP_VERSION = '3.50.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.50.1',
+    date: '2026-06-09',
+    changes: [
+      'fix(osm): ImageRecon 版本狀態統一顯示「✓ 達標 / ⚠ 未達標」（不再顯示 Match/Mismatch）',
+    ],
+  },
   {
     version: '3.50.0',
     date: '2026-06-09',

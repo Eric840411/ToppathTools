@@ -70,12 +70,8 @@ function countOnlineStates(machines: OsmMachine[]) {
   return { online, offline, unknown }
 }
 
-function imageReconStatusLabel(status: string | undefined, match: boolean): string {
-  const normalized = (status ?? '').trim().toLowerCase()
-  if (!normalized || normalized === 'unknown' || normalized === 'unknow') {
-    return match ? '✓ 達標' : '⚠ 未達標'
-  }
-  return status!.trim()
+function imageReconStatusLabel(match: boolean): string {
+  return match ? '✓ 達標' : '⚠ 未達標'
 }
 
 const CHANNEL_COLORS: Record<string, string> = {
@@ -1478,7 +1474,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
                       </td>
                       <td>
                         <span className={`osm-badge${match ? ' osm-badge--ok' : ' osm-badge--warn'}`}>
-                          {imageReconStatusLabel(r.status, match)}
+                          {imageReconStatusLabel(match)}
                         </span>
                       </td>
                     </tr>
