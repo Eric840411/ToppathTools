@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.49.4'
+export const APP_VERSION = '3.50.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.50.0',
+    date: '2026-06-09',
+    changes: [
+      'feat(osm): ImageRecon Server 版本改用 ImageRecon API（IMAGERECON_API_URL）取得各伺服器/服務版本，不再解析 Gmail 週報；最新版號取 API 多數版本，仍以 Lark Sheet 目標版本比對',
+      'refactor(osm): 移除已停用的 Gmail 取信/解析程式（getGmailAccessToken/findPlainText/decodeQP/parseVersionReport）',
+    ],
+  },
   {
     version: '3.49.4',
     date: '2026-06-09',

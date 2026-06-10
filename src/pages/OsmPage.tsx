@@ -1404,8 +1404,8 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
       <section className="osm-section">
         <div className="osm-section-header">
           <div>
-            <h2 className="osm-section-title">📧 ImageRecon Server 版本</h2>
-            <p className="osm-section-sub">從最新 Gmail 週報解析各伺服器版本狀態，以 Lark Sheet ImageRecon 目標版本比對</p>
+            <h2 className="osm-section-title">🖼 ImageRecon Server 版本</h2>
+            <p className="osm-section-sub">從 ImageRecon API 取得各伺服器/服務版本，以 Lark Sheet ImageRecon 目標版本比對</p>
           </div>
           <button
             type="button"
@@ -1413,7 +1413,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
             onClick={handleFetchReport}
             disabled={reportLoading}
           >
-            {reportLoading ? '⟳ 取得中…' : '取得最新週報'}
+            {reportLoading ? '⟳ 取得中…' : '取得最新版本'}
           </button>
         </div>
 
@@ -1431,7 +1431,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
               {effectiveTarget && (
                 <div className="stat-chip stat-chip--blue">
                   <span className="stat-chip-val">{effectiveTarget}</span>
-                  <span className="stat-chip-lbl">目標版本{larkTarget ? '（Lark）' : '（週報）'}</span>
+                  <span className="stat-chip-lbl">目標版本{larkTarget ? '（Lark）' : '（API）'}</span>
                 </div>
               )}
               <div className="stat-chip">
@@ -1491,7 +1491,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
 
         {!reportLoading && records.length === 0 && !reportError && (
           <div className="osm-empty">
-            <p>尚未取得週報。按「取得最新週報」從 Gmail 拉取版本資訊。</p>
+            <p>尚未取得版本。按「取得最新版本」從 ImageRecon API 取得版本資訊。</p>
           </div>
         )}
       </section>

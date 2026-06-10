@@ -18,7 +18,6 @@ import {
   parseLarkSheetUrl,
   upload,
   larkGenerateSchema,
-  gmailLatestSchema,
   osmVersionSyncSchema,
   writebackSchema,
   getGoogleServiceAccountToken,
@@ -612,141 +611,6 @@ const writeJiraTestCasesToBitable = async (result: JiraTestCaseResult, specUrl: 
     written += batch.length
   }
   return { written, bitableUrl, featureName: result.feature_name }
-}
-
-// ─── Gmail helpers ────────────────────────────────────────────────────────────
-
-let gmailTokenCache: { token: string; expiresAt: number } | null = null
-
-async function getGmailAccessToken(): Promise<string> {
-  const clientId     = process.env.GMAIL_CLIENT_ID ?? ''
-  const clientSecret = process.env.GMAIL_CLIENT_SECRET ?? ''
-  const refreshToken = process.env.GMAIL_REFRESH_TOKEN ?? ''
-
-  if (clientId && clientSecret && refreshToken) {
-    const now = Date.now()
-    if (gmailTokenCache && gmailTokenCache.expiresAt > now + 2 * 60 * 1000) {
-      return gmailTokenCache.token
-    }
-    const resp = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        client_id:     clientId,
-        client_secret: clientSecret,
-        refresh_token: refreshToken,
-        grant_type:    'refresh_token',
-      }),
-    })
-    const data = await resp.json() as { access_token?: string; expires_in?: number; error?: string; error_description?: string }
-    if (!resp.ok || data.error) {
-      throw new Error(`Gmail Token 換新失敗：${data.error_description ?? data.error ?? resp.status}`)
-    }
-    const newToken = data.access_token!
-    const expiresIn = data.expires_in ?? 3600
-    gmailTokenCache = { token: newToken, expiresAt: now + expiresIn * 1000 }
-    console.log(`[Gmail] Access token 已自動更新，有效至 ${new Date(gmailTokenCache.expiresAt).toLocaleTimeString()}`)
-    return newToken
-  }
-
-  const staticToken = process.env.GMAIL_ACCESS_TOKEN ?? ''
-  if (!staticToken) throw new Error('Gmail 未設定：請在 .env 填入 GMAIL_CLIENT_ID + GMAIL_CLIENT_SECRET + GMAIL_REFRESH_TOKEN，或填入 GMAIL_ACCESS_TOKEN')
-  return staticToken
-}
-
-/** Quoted-Printable 解碼 */
-function decodeQP(input: string): string {
-  return input
-    .replace(/=\r?\n/g, '')
-    .replace(/=([0-9A-Fa-f]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
-}
-
-/** 從 Gmail message payload 遞迴找 text/plain 的 base64url 資料 */
-function findPlainText(payload: Record<string, unknown>): string | null {
-  if (payload.mimeType === 'text/plain' && payload.body) {
-    const b = payload.body as Record<string, unknown>
-    if (typeof b.data === 'string') return b.data
-  }
-  if (Array.isArray(payload.parts)) {
-    for (const part of payload.parts as Record<string, unknown>[]) {
-      const found = findPlainText(part)
-      if (found) return found
-    }
-  }
-  return null
-}
-
-/** 解析 OSM Version Check Report 純文字內容，回傳結構化記錄 */
-function parseVersionReport(text: string) {
-  const targetMatch = text.match(/Target Version:\s*(\S+)/)
-  const generatedMatch = text.match(/Generated:\s*(.+)/)
-  const targetVersion = targetMatch?.[1] ?? ''
-  const generated = generatedMatch?.[1]?.trim() ?? ''
-
-  const summaryMatch = text.match(/Target Version Found[\s\S]*?(\d+)[\s\S]*?Different Versions[\s\S]*?(\d+)[\s\S]*?Errors\/Not Found[\s\S]*?(\d+)[\s\S]*?Total Servers[\s\S]*?(\d+)/)
-  const successMatch = text.match(/Success Rate[:\*\s]+([\d.]+)%/)
-
-  const records: Array<{ serverName: string; ip: string; currentVersion: string; status: string; targetVersion: string }> = []
-
-  const lineRe = /^(\S+)\s+\(([^)]+)\)\s+-\s+Found:\s+(\S+)\s+\|\s+Status:\s+(.+)$/gm
-  let m: RegExpExecArray | null
-  while ((m = lineRe.exec(text)) !== null) {
-    records.push({
-      serverName: m[1],
-      ip: m[2],
-      currentVersion: m[3],
-      status: m[4].trim(),
-      targetVersion,
-    })
-  }
-
-  if (records.length === 0) {
-    const ipOnlyRe = /^([\d.]+)\s+-\s+Found:\s+(\S+)\s+\|\s+Status:\s+(.+)$/gm
-    let m2: RegExpExecArray | null
-    while ((m2 = ipOnlyRe.exec(text)) !== null) {
-      records.push({
-        serverName: '',
-        ip: m2[1],
-        currentVersion: m2[2],
-        status: m2[3].trim(),
-        targetVersion,
-      })
-    }
-  }
-
-  if (records.length === 0) {
-    const ipLineRe = /^\s*([\d.]+)\s+(\S+)\s+(OK|FAIL|Unknown|Different|Error[^\n]*)$/gm
-    let m3: RegExpExecArray | null
-    while ((m3 = ipLineRe.exec(text)) !== null) {
-      records.push({
-        serverName: '',
-        ip: m3[1],
-        currentVersion: m3[2],
-        status: m3[3].trim(),
-        targetVersion,
-      })
-    }
-  }
-
-  const upToDate = records.filter(r => r.currentVersion === targetVersion).length
-  const outdated  = records.filter(r => r.currentVersion !== targetVersion && r.currentVersion && r.currentVersion !== 'N/A').length
-
-  return {
-    targetVersion,
-    generated,
-    summary: {
-      totalServers: records.length,
-      upToDate,
-      outdated,
-      unknown: records.length - upToDate - outdated,
-      targetFound: summaryMatch ? parseInt(summaryMatch[1]) : null,
-      differentVersions: summaryMatch ? parseInt(summaryMatch[2]) : null,
-      errors: summaryMatch ? parseInt(summaryMatch[3]) : null,
-      total: summaryMatch ? parseInt(summaryMatch[4]) : null,
-      successRate: successMatch ? parseFloat(successMatch[1]) : null,
-    },
-    records,
-  }
 }
 
 // ─── Multi-column writeback helpers ──────────────────────────────────────────
@@ -2186,48 +2050,57 @@ router.post(
 })
 
 // POST /api/integrations/gmail/latest-report
-router.post('/api/integrations/gmail/latest-report', async (req, res, next) => {
+// 改用 ImageRecon 版本 API（IMAGERECON_API_URL）取得各伺服器/服務版本，不再解析 Gmail。
+// 路由名稱沿用以維持前端相容。
+router.post('/api/integrations/gmail/latest-report', async (_req, res, next) => {
   try {
-    const body = gmailLatestSchema.parse(req.body ?? {})
-    const token = await getGmailAccessToken()
-    const query = encodeURIComponent(body.query ?? process.env.GMAIL_QUERY ?? '')
+    const apiUrl = process.env.IMAGERECON_API_URL
+    if (!apiUrl) {
+      return res.status(500).json({ ok: false, message: 'IMAGERECON_API_URL 未設定（請在 .env 填入 ImageRecon 版本 API 完整 URL，含 token）' })
+    }
 
-    const listResp = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${query}&maxResults=1`,
-      { headers: { Authorization: `Bearer ${token}` } },
+    const apiResp = await fetch(apiUrl, { signal: AbortSignal.timeout(20000) })
+    if (!apiResp.ok) return res.status(502).json({ ok: false, message: `ImageRecon API 回應 ${apiResp.status}` })
+    const data = await apiResp.json() as {
+      generated_at?: string
+      total_servers?: number
+      version_summary?: { majority_version?: string }
+      servers?: Array<{ server_name: string; ip_address?: string; services?: Array<{ service_name: string; version: string; last_detected?: string }> }>
+    }
+
+    const latestVersion = data.version_summary?.majority_version ?? ''
+    const generated = data.generated_at ?? ''
+
+    // 一個 service 一筆記錄（保留各服務不同版本／outlier 的細節）
+    const baseRecords = (data.servers ?? []).flatMap(s =>
+      (s.services ?? []).map(svc => ({
+        serverName: `${s.server_name} / ${svc.service_name}`,
+        ip: s.ip_address ?? '',
+        currentVersion: svc.version ?? '',
+      })),
     )
-    const listData = await listResp.json() as { messages?: Array<{ id: string }>; error?: unknown }
-    if (!listResp.ok) return res.status(listResp.status).json({ ok: false, error: listData })
 
-    const msgId = listData.messages?.[0]?.id
-    if (!msgId) return res.json({ ok: true, records: [], summary: null, message: '收件匣中沒有符合條件的信件' })
-
-    const msgResp = await fetch(
-      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}?format=full`,
-      { headers: { Authorization: `Bearer ${token}` } },
-    )
-    const msgData = await msgResp.json() as { payload?: Record<string, unknown>; snippet?: string; error?: unknown }
-    if (!msgResp.ok) return res.status(msgResp.status).json({ ok: false, error: msgData })
-
-    const b64 = msgData.payload ? findPlainText(msgData.payload) : null
-    if (!b64) return res.json({ ok: true, records: [], summary: null, message: '找不到純文字內容（text/plain）' })
-
-    const decoded = Buffer.from(b64.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf-8')
-    const plainText = decodeQP(decoded)
-
-    const parsed = parseVersionReport(plainText)
-
-    log('ok', getClientIP(req), getUser(req), 'Gmail 版本週報解析完成', `目標版本 ${parsed.targetVersion}，${parsed.records.length} 筆記錄`)
+    // 以 Lark Sheet ImageRecon 目標版本為比對基準（若未設定則用 API 多數版本＝最新版號）
     const larkTargetRow = db.prepare(`SELECT targetVersion FROM machine_type_targets WHERE category = 'ImageRecon' LIMIT 1`).get() as { targetVersion: string } | undefined
-    const effectiveTarget = larkTargetRow?.targetVersion ?? parsed.targetVersion
-    const recordsWithLarkTarget = parsed.records.map((r: Record<string, unknown>) => ({
+    const effectiveTarget = larkTargetRow?.targetVersion ?? latestVersion
+    const records = baseRecords.map(r => ({
       ...r,
       targetVersion: effectiveTarget,
       status: r.currentVersion === effectiveTarget ? 'Match' : 'Mismatch',
     }))
-    const matchCount = recordsWithLarkTarget.filter((r: Record<string, unknown>) => r.status === 'Match').length
-    addHistory('imagerecon', `ImageRecon 週報解析 — 目標版本 ${effectiveTarget}`, `共 ${parsed.records.length} 台：符合 ${matchCount} 台，不符 ${parsed.records.length - matchCount} 台`, { targetVersion: effectiveTarget, generated: parsed.generated, records: recordsWithLarkTarget })
-    res.json({ ok: true, ...parsed })
+    const upToDate = records.filter(r => r.status === 'Match').length
+    const outdated = records.filter(r => r.currentVersion && r.currentVersion !== effectiveTarget).length
+    const summary = {
+      totalServers: records.length,
+      upToDate,
+      outdated,
+      unknown: records.length - upToDate - outdated,
+      total: data.total_servers ?? (data.servers?.length ?? 0),
+    }
+
+    log('ok', getClientIP(_req), getUser(_req), 'ImageRecon 版本取得完成（API）', `最新版本 ${latestVersion}，${records.length} 筆`)
+    addHistory('imagerecon', `ImageRecon 版本檢查 — 目標版本 ${effectiveTarget}`, `共 ${records.length} 項：符合 ${upToDate} 項，不符 ${records.length - upToDate} 項`, { targetVersion: effectiveTarget, latestVersion, generated, records })
+    res.json({ ok: true, targetVersion: latestVersion, generated, summary, records })
   } catch (error) {
     next(error)
   }
