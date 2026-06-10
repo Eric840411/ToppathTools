@@ -248,7 +248,9 @@ export default function GeminiSettingsModal({ onClose }: Props) {
   const [prompts, setPrompts] = useState<GeminiPrompt[]>([])
   const [editPrompt, setEditPrompt] = useState<GeminiPrompt | null>(null)
   const [promptMsg, setPromptMsg] = useState('')
+  const [newCatMode, setNewCatMode] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const existingCategories = [...new Set(prompts.map(p => (p.category ?? '').trim()).filter(Boolean))]
 
   const fetchPrompts = async () => {
     const r = await fetch('/api/gemini/prompts')
@@ -261,12 +263,14 @@ export default function GeminiSettingsModal({ onClose }: Props) {
   const handleSelectPrompt = (p: GeminiPrompt) => {
     setEditPrompt({ ...p })
     setPromptMsg('')
+    setNewCatMode(false)
   }
 
   const handleNewPrompt = () => {
     const id = `prompt_${Date.now()}`
     setEditPrompt({ id, name: '新 Prompt', template: '', category: '' })
     setPromptMsg('')
+    setNewCatMode(false)
   }
 
   const handleSavePrompt = async () => {
@@ -754,19 +758,35 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                     <span style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>ID: {editPrompt.id}</span>
                   </div>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <input
-                      list="prompt-category-options"
-                      placeholder="分類（點選現有或輸入新分類）"
-                      value={editPrompt.category ?? ''}
-                      onChange={e => setEditPrompt({ ...editPrompt, category: e.target.value })}
-                      style={{ flex: 1, padding: '7px 10px', borderRadius: 6, fontSize: 13 }}
-                    />
-                    <datalist id="prompt-category-options">
-                      {[...new Set(prompts.map(p => p.category?.trim()).filter((c): c is string => !!c))].map(c => (
-                        <option key={c} value={c} />
-                      ))}
-                    </datalist>
-                    <span style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>分類（可選現有或新增）</span>
+                    {newCatMode ? (
+                      <>
+                        <input
+                          autoFocus
+                          placeholder="輸入新分類名稱"
+                          value={editPrompt.category ?? ''}
+                          onChange={e => setEditPrompt({ ...editPrompt, category: e.target.value })}
+                          style={{ flex: 1, padding: '7px 10px', borderRadius: 6, fontSize: 13 }}
+                        />
+                        <button type="button" onClick={() => setNewCatMode(false)}
+                          style={{ fontSize: 12, padding: '7px 12px', borderRadius: 6, border: '1px solid #475569', background: 'transparent', color: '#94a3b8', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                          ← 選現有
+                        </button>
+                      </>
+                    ) : (
+                      <select
+                        value={existingCategories.includes((editPrompt.category ?? '').trim()) ? (editPrompt.category ?? '').trim() : ''}
+                        onChange={e => {
+                          if (e.target.value === '__new__') { setNewCatMode(true); setEditPrompt({ ...editPrompt, category: '' }) }
+                          else setEditPrompt({ ...editPrompt, category: e.target.value })
+                        }}
+                        style={{ flex: 1, padding: '7px 10px', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}
+                      >
+                        <option value="">— 未分類 —</option>
+                        {existingCategories.map(c => <option key={c} value={c}>{c}</option>)}
+                        <option value="__new__">＋ 新增分類…</option>
+                      </select>
+                    )}
+                    <span style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>分類</span>
                   </div>
 
                   <p style={{ fontSize: 12, color: '#94a3b8', margin: 0 }}>
