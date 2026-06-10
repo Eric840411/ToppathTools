@@ -286,7 +286,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
     })
     const d = await r.json()
     setPromptMsg(d.ok ? '✅ 已儲存' : '❌ 儲存失敗')
-    if (d.ok) fetchPrompts()
+    if (d.ok) { fetchPrompts(); setNewCatMode(false) }
   }
 
   const handleDeletePrompt = async (id: string) => {

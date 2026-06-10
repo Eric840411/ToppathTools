@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.50.3'
+export const APP_VERSION = '3.50.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.50.4',
+    date: '2026-06-09',
+    changes: [
+      'fix(prompt): 新增分類儲存後自動切回下拉選單（不再卡在新增輸入狀態），新分類也即時出現在下拉中',
+    ],
+  },
   {
     version: '3.50.3',
     date: '2026-06-09',
