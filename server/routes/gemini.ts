@@ -206,8 +206,8 @@ export function listUserAiKeys(userEmail: string): { provider: string; label: st
 /**
  * Resolve Gemini key entries for the current request.
  * If the current user (from request context) has a personal Gemini key,
- * ONLY that key is used — never mixed with other users' keys.
- * Falls back to the global pool if no personal key is set.
+ * it is tried first, followed by the global pool on quota/overload errors.
+ * Falls back directly to the global pool if no personal key is set.
  * User identity is resolved via auth cookie (getAuthAccount) first,
  * then falls back to AsyncLocalStorage request context.
  */
@@ -218,19 +218,23 @@ export function resolveGeminiKeyEntries(req?: import('express').Request): { labe
   const ctxEmail = getRequestContext()?.user
   const userEmail = cookieEmail ?? (ctxEmail && ctxEmail !== '—' ? ctxEmail : null)
 
-  if (userEmail) {
-    const personalKey = getUserAiKey(userEmail, 'gemini')
-    if (personalKey) {
-      return [{ label: `personal:${userEmail}`, key: personalKey }]
-    }
-  }
-  // Global pool fallback
   const storedKeys = readGeminiKeys()
   const envKey = process.env.GEMINI_API_KEY ?? ''
-  return [
+  const globalEntries = [
     ...storedKeys,
     ...(envKey ? [{ label: 'env', key: envKey }] : []),
   ]
+
+  if (userEmail) {
+    const personalKey = getUserAiKey(userEmail, 'gemini')
+    if (personalKey) {
+      return [
+        { label: `personal:${userEmail}`, key: personalKey },
+        ...globalEntries.filter(entry => entry.key !== personalKey),
+      ]
+    }
+  }
+  return globalEntries
 }
 
 /**

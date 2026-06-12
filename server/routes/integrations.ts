@@ -1474,8 +1474,8 @@ router.post('/api/integrations/lark/generate-testcases', async (req, res) => {
   jobStore.set(requestId, { status: 'running', createdAt: Date.now(), heavyTask: heavyTaskToken, callbacks: new Set() })
 
   const clientIp = getClientIP(req)
-  const user = getUser(req)
   const dispatchOperator = getOperatorFromContext()
+  const user = dispatchOperator?.key ?? getUser(req)
 
   const callbackUrl = `http://127.0.0.1:${process.env.PORT ?? 3000}/internal/testcase-jobs/${encodeURIComponent(requestId)}/finish`
   fetch(`${getWorkerUrl()}/internal/worker/testcase/lark-generate`, {
@@ -1735,7 +1735,8 @@ router.get('/api/integrations/lark/generate-testcases/jobs', (req, res) => {
 router.post('/api/integrations/lark/generate-testcases/resume/:jobId', async (req, res) => {
   const jobId = req.params.jobId
   const clientIp = getClientIP(req)
-  const user = getUser(req)
+  const dispatchOperator = getOperatorFromContext()
+  const user = dispatchOperator?.key ?? getUser(req)
 
   const job = getJob(jobId)
   if (!job) return res.status(404).json({ ok: false, message: 'Job not found' })
@@ -1749,7 +1750,15 @@ router.post('/api/integrations/lark/generate-testcases/resume/:jobId', async (re
   fetch(`${getWorkerUrl()}/internal/worker/testcase/resume`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ requestId, jobId, clientIp, user, callbackUrl }),
+    body: JSON.stringify({
+      requestId,
+      jobId,
+      clientIp,
+      user,
+      callbackUrl,
+      operatorKey: dispatchOperator?.key ?? '',
+      operatorName: dispatchOperator?.name ?? '',
+    }),
     signal: AbortSignal.timeout(5000),
   }).then(async response => {
     if (response.ok) return
@@ -1954,7 +1963,7 @@ router.post(
         oldFiles: oldUploadedFiles.map(serializeFile),
         form: req.body,
         clientIp: getClientIP(req),
-        user: getUser(req),
+        user: fileDispatchOperator?.key ?? getUser(req),
         callbackUrl,
         operatorKey: fileDispatchOperator?.key ?? '',
         operatorName: fileDispatchOperator?.name ?? '',

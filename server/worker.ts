@@ -123,6 +123,22 @@ async function runQueuedTask<T>(task: WorkerTask, fn: () => Promise<T>): Promise
   })
 }
 
+function runQueuedTaskWithUserContext<T>(
+  task: WorkerTask,
+  clientIp: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const context = {
+    ip: clientIp,
+    user: task.userKey,
+    userDisplay: task.userLabel,
+    path: '/internal/worker/task',
+    method: 'POST',
+    operation: task.label,
+  }
+  return runQueuedTask(task, () => runWithRequestContext(context, fn))
+}
+
 app.get('/internal/worker/health', (_req, res) => {
   res.json({
     ok: true,
@@ -196,8 +212,8 @@ app.post('/internal/worker/testcase/lark-generate', (req, res) => {
 
   const task: WorkerTask = {
     id: requestId,
-    userKey: String(payload.user ?? 'unknown'),
-    userLabel: String(payload.user ?? 'unknown'),
+    userKey: String(payload.operatorKey || payload.user || 'unknown'),
+    userLabel: String(payload.operatorName || payload.user || 'unknown'),
     type: 'testcase',
     label: 'TestCase generate',
     startedAt: Date.now(),
@@ -205,7 +221,7 @@ app.post('/internal/worker/testcase/lark-generate', (req, res) => {
   ;(async () => {
     let result
     try {
-      result = await runQueuedTask(task, () => {
+      result = await runQueuedTaskWithUserContext(task, String(payload.clientIp ?? 'worker'), () => {
         return runLarkGenerateTestcasesJob({
           body,
           clientIp: String(payload.clientIp ?? 'worker'),
@@ -240,6 +256,8 @@ app.post('/internal/worker/testcase/resume', (req, res) => {
     clientIp?: string
     user?: string
     callbackUrl?: string
+    operatorKey?: string
+    operatorName?: string
   }
   const requestId = String(payload.requestId ?? '')
   const jobId = String(payload.jobId ?? '')
@@ -250,8 +268,8 @@ app.post('/internal/worker/testcase/resume', (req, res) => {
 
   const task: WorkerTask = {
     id: requestId,
-    userKey: String(payload.user ?? 'unknown'),
-    userLabel: String(payload.user ?? 'unknown'),
+    userKey: String(payload.operatorKey || payload.user || 'unknown'),
+    userLabel: String(payload.operatorName || payload.user || 'unknown'),
     type: 'testcase',
     label: `TestCase resume (job=${jobId})`,
     startedAt: Date.now(),
@@ -259,7 +277,7 @@ app.post('/internal/worker/testcase/resume', (req, res) => {
   ;(async () => {
     let result
     try {
-      result = await runQueuedTask(task, () =>
+      result = await runQueuedTaskWithUserContext(task, String(payload.clientIp ?? 'worker'), () =>
         resumeGenerationJob(jobId, String(payload.clientIp ?? 'worker'), task.userKey)
       )
     } catch (error) {
@@ -295,15 +313,15 @@ app.post('/internal/worker/testcase/file-generate', async (req, res) => {
 
   const task: WorkerTask = {
     id: `file-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    userKey: String(payload.user ?? 'unknown'),
-    userLabel: String(payload.user ?? 'unknown'),
+    userKey: String(payload.operatorKey || payload.user || 'unknown'),
+    userLabel: String(payload.operatorName || payload.user || 'unknown'),
     type: 'testcase-file',
     label: 'TestCase file generate',
     startedAt: Date.now(),
   }
 
   try {
-    const result = await runQueuedTask(task, () => {
+    const result = await runQueuedTaskWithUserContext(task, String(payload.clientIp ?? 'worker'), () => {
       return runGenerateTestcasesFileJob({
         files: payload.files,
         oldFiles: payload.oldFiles ?? [],
@@ -342,8 +360,8 @@ app.post('/internal/worker/testcase/file-generate-async', (req, res) => {
   }
   const task: WorkerTask = {
     id: requestId,
-    userKey: String(payload.user ?? 'unknown'),
-    userLabel: String(payload.user ?? 'unknown'),
+    userKey: String(payload.operatorKey || payload.user || 'unknown'),
+    userLabel: String(payload.operatorName || payload.user || 'unknown'),
     type: 'testcase-file',
     label: 'TestCase file generate',
     startedAt: Date.now(),
@@ -351,7 +369,7 @@ app.post('/internal/worker/testcase/file-generate-async', (req, res) => {
   ;(async () => {
     let result
     try {
-      result = await runQueuedTask(task, () => runGenerateTestcasesFileJob({
+      result = await runQueuedTaskWithUserContext(task, String(payload.clientIp ?? 'worker'), () => runGenerateTestcasesFileJob({
         files: payload.files!,
         oldFiles: payload.oldFiles ?? [],
         form: payload.form ?? {},
