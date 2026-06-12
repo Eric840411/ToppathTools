@@ -353,9 +353,24 @@ export function LarkPage() {
             ...(baselineType !== 'lark' ? { content: baselineType === 'xlsx' ? baselineXlsxB64 : baselineContent } : {}),
           }))
           const resp = await fetch('/api/integrations/generate-testcases-file', { method: 'POST', body: form })
-          const data = await resp.json() as GenerateResult
-          setResult(data)
-          setStatus(data.ok ? 'ok' : 'error')
+          const submitData = await resp.json() as { ok: boolean; requestId?: string; message?: string }
+          if (!resp.ok || !submitData.requestId) throw new Error(submitData.message ?? '提交失敗')
+          const requestId = submitData.requestId
+          submittedRequestId = requestId
+          setPendingRequestId(requestId)
+          localStorage.setItem(LARK_PENDING_KEY, requestId)
+          await new Promise<void>((resolve, reject) => {
+            const es = new EventSource(`/api/integrations/lark/generate-testcases/stream?requestId=${encodeURIComponent(requestId)}`)
+            let done = false
+            es.addEventListener('result', (e: MessageEvent) => {
+              done = true; es.close()
+              const data = JSON.parse(e.data) as GenerateResult
+              setResult(data); setStatus(data.ok ? 'ok' : 'error')
+              setPendingRequestId(null); localStorage.removeItem(LARK_PENDING_KEY)
+              resolve()
+            })
+            es.onerror = () => { if (done) return; es.close(); reject(new Error('SSE 連線中斷')) }
+          })
           return
         }
         const urlSources = sources.map(s => ({ type: s.type as 'lark' | 'gdocs', url: s.url }))
@@ -430,9 +445,24 @@ export function LarkPage() {
           form.append('secondPassPromptId', secondPassPromptId)
         }
         const resp = await fetch('/api/integrations/generate-testcases-file', { method: 'POST', body: form })
-        const data = await resp.json() as GenerateResult
-        setResult(data)
-        setStatus(data.ok ? 'ok' : 'error')
+        const submitData = await resp.json() as { ok: boolean; requestId?: string; message?: string }
+        if (!resp.ok || !submitData.requestId) throw new Error(submitData.message ?? '提交失敗')
+        const requestId = submitData.requestId
+        submittedRequestId = requestId
+        setPendingRequestId(requestId)
+        localStorage.setItem(LARK_PENDING_KEY, requestId)
+        await new Promise<void>((resolve, reject) => {
+          const es = new EventSource(`/api/integrations/lark/generate-testcases/stream?requestId=${encodeURIComponent(requestId)}`)
+          let done = false
+          es.addEventListener('result', (e: MessageEvent) => {
+            done = true; es.close()
+            const data = JSON.parse(e.data) as GenerateResult
+            setResult(data); setStatus(data.ok ? 'ok' : 'error')
+            setPendingRequestId(null); localStorage.removeItem(LARK_PENDING_KEY)
+            resolve()
+          })
+          es.onerror = () => { if (done) return; es.close(); reject(new Error('SSE 連線中斷')) }
+        })
         return
       }
 

@@ -1940,34 +1940,37 @@ router.post(
       bufferBase64: file.buffer.toString('base64'),
     })
     const fileDispatchOperator = getOperatorFromContext()
-    let workerResp: Response
-    try {
-      workerResp = await fetch(`${getWorkerUrl()}/internal/worker/testcase/file-generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          files: uploadedFiles.map(serializeFile),
-          oldFiles: oldUploadedFiles.map(serializeFile),
-          form: req.body,
-          clientIp: getClientIP(req),
-          user: getUser(req),
-          operatorKey: fileDispatchOperator?.key ?? '',
-          operatorName: fileDispatchOperator?.name ?? '',
-        }),
-      })
-    } catch (fetchErr) {
-      const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr)
-      return res.status(502).json({ ok: false, message: `Worker 無法連線：${msg}` })
-    }
-    const workerBody = await workerResp.text().catch(() => '')
-    let workerResult: GenerateApiResult
-    try {
-      workerResult = JSON.parse(workerBody) as GenerateApiResult
-    } catch {
-      workerResult = { ok: false, message: workerBody.slice(0, 300) || `Worker HTTP ${workerResp.status}` }
-    }
-    if (!workerResp.ok) return res.status(502).json(workerResult)
-    res.json(workerResult)
+    const requestId = `file-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    cleanJobStore()
+    jobStore.set(requestId, { status: 'running', createdAt: Date.now(), heavyTask: heavyTaskToken, callbacks: new Set() })
+    const callbackUrl = `http://127.0.0.1:${process.env.PORT ?? 3000}/internal/testcase-jobs/${encodeURIComponent(requestId)}/finish`
+
+    fetch(`${getWorkerUrl()}/internal/worker/testcase/file-generate-async`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requestId,
+        files: uploadedFiles.map(serializeFile),
+        oldFiles: oldUploadedFiles.map(serializeFile),
+        form: req.body,
+        clientIp: getClientIP(req),
+        user: getUser(req),
+        callbackUrl,
+        operatorKey: fileDispatchOperator?.key ?? '',
+        operatorName: fileDispatchOperator?.name ?? '',
+      }),
+      signal: AbortSignal.timeout(5000),
+    }).then(async response => {
+      if (response.ok) return
+      const detail = await response.text().catch(() => '')
+      finishJob(requestId, { ok: false, message: `Worker rejected job: HTTP ${response.status} ${detail.slice(0, 200)}` })
+    }).catch(error => {
+      const message = error instanceof Error ? error.message : String(error)
+      log('error', getClientIP(req), getUser(req), 'TestCase file dispatch failed', message)
+      finishJob(requestId, { ok: false, message: `Worker dispatch failed: ${message}` })
+    })
+
+    res.json({ ok: true, requestId })
     return
 
     // Extract content from each file

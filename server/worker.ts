@@ -323,6 +323,61 @@ app.post('/internal/worker/testcase/file-generate', async (req, res) => {
   }
 })
 
+app.post('/internal/worker/testcase/file-generate-async', (req, res) => {
+  const payload = req.body as {
+    requestId?: string
+    files?: WorkerUploadFile[]
+    oldFiles?: WorkerUploadFile[]
+    form?: Record<string, unknown>
+    clientIp?: string
+    user?: string
+    callbackUrl?: string
+    operatorKey?: string
+    operatorName?: string
+  }
+  const requestId = String(payload.requestId ?? '')
+  const callbackUrl = String(payload.callbackUrl ?? '')
+  if (!requestId || !callbackUrl || !Array.isArray(payload.files) || payload.files.length === 0) {
+    return res.status(400).json({ ok: false, message: 'missing requestId, callbackUrl or files' })
+  }
+  const task: WorkerTask = {
+    id: requestId,
+    userKey: String(payload.user ?? 'unknown'),
+    userLabel: String(payload.user ?? 'unknown'),
+    type: 'testcase-file',
+    label: 'TestCase file generate',
+    startedAt: Date.now(),
+  }
+  ;(async () => {
+    let result
+    try {
+      result = await runQueuedTask(task, () => runGenerateTestcasesFileJob({
+        files: payload.files!,
+        oldFiles: payload.oldFiles ?? [],
+        form: payload.form ?? {},
+        clientIp: String(payload.clientIp ?? 'worker'),
+        user: task.userKey,
+        operatorKey: String(payload.operatorKey ?? ''),
+        operatorName: String(payload.operatorName ?? ''),
+      }))
+      console.log(`[Worker][execute:finish] ${task.label} user=${task.userLabel} id=${task.id} ok=${result.ok}`)
+    } catch (error) {
+      result = { ok: false, message: error instanceof Error ? error.message : String(error) }
+      console.error(`[Worker][execute:error] ${task.label} user=${task.userLabel} id=${task.id}`, error)
+    }
+    try {
+      await fetch(callbackUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(result),
+      })
+    } catch (error) {
+      console.error(`[Worker][execute:callback-failed] ${task.label} id=${task.id}`, error)
+    }
+  })()
+  res.json({ ok: true, accepted: true, requestId })
+})
+
 function shouldQueueRequest(path: string, method: string): boolean {
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return false
   if (path === '/api/machine-test/osm-status') return false
