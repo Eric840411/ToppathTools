@@ -799,6 +799,7 @@ router.post('/api/machine-test/ocr-proxy', async (req, res) => {
       res.status(401).json({ ok: false, error: 'invalid agent token' }); return
     }
     const agentOwner = verifiedToken.ownerKey
+    const forwardedPersonalKey = req.header('x-personal-gemini-key') ?? undefined
     const { prompt, images } = req.body as {
       prompt?: string
       images?: Array<{ base64: string; mimeType?: string }>
@@ -808,12 +809,18 @@ router.post('/api/machine-test/ocr-proxy', async (req, res) => {
     }
     let result: string
     if (images.length === 1) {
-      result = await callGeminiVision(prompt, images[0].base64, images[0].mimeType ?? 'image/png', agentOwner)
+      result = await callGeminiVision(
+        prompt,
+        images[0].base64,
+        images[0].mimeType ?? 'image/png',
+        agentOwner,
+        forwardedPersonalKey,
+      )
     } else {
       result = await callGeminiVisionMulti(prompt, images.map(img => ({
         base64: img.base64,
         mimeType: img.mimeType ?? 'image/png',
-      })), agentOwner)
+      })), agentOwner, forwardedPersonalKey)
     }
     res.json({ ok: true, result })
   } catch (err) {

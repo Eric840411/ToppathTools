@@ -16,7 +16,7 @@ import { WebSocket, WebSocketServer } from 'ws'
 
 // Route files
 import { router as jiraRouter } from './routes/jira.js'
-import { router as geminiRouter } from './routes/gemini.js'
+import { getUserAiKey, router as geminiRouter } from './routes/gemini.js'
 import { router as osmRouter, restartCron, activeCronTask } from './routes/osm.js'
 import { router as authRouter } from './routes/auth.js'
 import { router as permissionsRouter } from './routes/permissions.js'
@@ -258,6 +258,12 @@ async function proxyToWorker(req: express.Request, res: express.Response, next: 
     const ctx = getRequestContext()
     if (ctx?.user && ctx.user !== '—') headers.set('x-auth-user', ctx.user)
     if (ctx?.userDisplay && ctx.userDisplay !== '未登入使用者') headers.set('x-user-label', ctx.userDisplay)
+    headers.delete('x-personal-gemini-key')
+    if (req.path === '/api/machine-test/ocr-proxy') {
+      const ownerEmail = req.header('x-agent-owner')?.trim() ?? ''
+      const personalGeminiKey = ownerEmail ? getUserAiKey(ownerEmail, 'gemini') : null
+      if (personalGeminiKey) headers.set('x-personal-gemini-key', personalGeminiKey)
+    }
 
     const init: RequestInit & { duplex?: 'half' } = { method: req.method, headers }
     if (req.method !== 'GET' && req.method !== 'HEAD') {

@@ -513,21 +513,28 @@ export const callOllamaVision = async (prompt: string, imageBase64: string, mode
  * Call Gemini Vision API with an inline image + text prompt.
  * Uses same key rotation as callGeminiWithRotation.
  */
-export const callGeminiVision = async (prompt: string, imageBase64: string, mimeType = 'image/png', ownerEmail?: string): Promise<string> => {
+function resolveGeminiVisionKeyEntries(ownerEmail?: string, personalKeyOverride?: string) {
   const envKey = process.env.GEMINI_API_KEY ?? ''
-  let keyEntries: { label: string; key: string }[]
-  if (ownerEmail) {
-    const personalKey = getUserAiKey(ownerEmail, 'gemini')
-    keyEntries = personalKey
-      ? [{ label: `personal:${ownerEmail}`, key: personalKey }]
-      : [...readGeminiKeys(), ...(envKey ? [{ label: 'env', key: envKey }] : [])]
-  } else {
-    keyEntries = resolveGeminiKeyEntries()
-    if (keyEntries.length === 0 && envKey) keyEntries = [{ label: 'env', key: envKey }]
-  }
+  if (!ownerEmail) return resolveGeminiKeyEntries()
+  const globalEntries = [...readGeminiKeys(), ...(envKey ? [{ label: 'env', key: envKey }] : [])]
+  const personalKey = personalKeyOverride || getUserAiKey(ownerEmail, 'gemini')
+  return personalKey
+    ? [{ label: `personal:${ownerEmail}`, key: personalKey }, ...globalEntries.filter(entry => entry.key !== personalKey)]
+    : globalEntries
+}
+
+export const callGeminiVision = async (
+  prompt: string,
+  imageBase64: string,
+  mimeType = 'image/png',
+  ownerEmail?: string,
+  personalKeyOverride?: string,
+): Promise<string> => {
+  const keyEntries = resolveGeminiVisionKeyEntries(ownerEmail, personalKeyOverride)
   if (keyEntries.length === 0) throw new Error('沒有可用的 Gemini API Key，請至 AI 模型設定 > 個人 Key 新增 Gemini Key')
   const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
   const taskId = startAiTask('gemini', 'vision', model)
+  const failures: string[] = []
   activateAiTask(taskId)
   try {
     for (let offset = 0; offset < keyEntries.length; offset++) {
@@ -554,17 +561,21 @@ export const callGeminiVision = async (prompt: string, imageBase64: string, mime
         candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[]
         error?: { code?: number; message?: string; status?: string }
       }
+      const status = data.error?.status ?? String(resp.status)
+      const detail = data.error?.message ?? `HTTP ${resp.status}`
+      console.log(`[Gemini Vision] key ${i + 1}/${keyEntries.length} (${label}) HTTP:${resp.status} status:${status}`)
       if (
         data.error?.status === 'RESOURCE_EXHAUSTED' ||
-        data.error?.status === 'INVALID_ARGUMENT' ||
         resp.status === 429 ||
         resp.status === 503
       ) {
-        recordGeminiError(label, data.error?.status ?? String(resp.status))
+        recordGeminiError(label, status)
+        failures.push(`${label}: ${status} (${detail})`)
         continue
       }
       if (!resp.ok || data.error) {
-        throw new Error(`Gemini Vision API 錯誤 (${resp.status}): ${data.error?.message ?? '未知錯誤'}`)
+        recordGeminiError(label, status)
+        throw new Error(`Gemini Vision ${label} 失敗 (${resp.status}/${status}): ${detail}`)
       }
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text
       if (!text) throw new Error(`Gemini Vision 回傳空結果`)
@@ -572,16 +583,19 @@ export const callGeminiVision = async (prompt: string, imageBase64: string, mime
       finishAiTask(taskId)
       return text
     }
-    // All keys exhausted — try Ollama vision fallback
-    try {
-      const out = await callOllamaVision(prompt, imageBase64)
-      finishAiTask(taskId)
-      return out
-    } catch (ollamaErr) {
-      console.warn('[Ollama] vision fallback failed:', ollamaErr)
+    const { baseUrl, model: ollamaModel } = readOllamaConfig()
+    if (baseUrl && ollamaModel) {
+      try {
+        const out = await callOllamaVision(prompt, imageBase64)
+        finishAiTask(taskId)
+        return out
+      } catch (ollamaErr) {
+        failures.push(`Ollama: ${ollamaErr instanceof Error ? ollamaErr.message : String(ollamaErr)}`)
+      }
     }
-    finishAiTask(taskId, '所有 Gemini API Key 均已達到配額上限')
-    throw new Error('所有 Gemini API Key 均已達到配額上限')
+    const message = `Gemini Vision 所有 Key 皆失敗：${failures.join('；')}`
+    finishAiTask(taskId, message)
+    throw new Error(message)
   } catch (e) {
     finishAiTask(taskId, e instanceof Error ? e.message : String(e))
     throw e
@@ -593,21 +607,13 @@ export const callGeminiVisionMulti = async (
   prompt: string,
   images: Array<{ base64: string; mimeType?: string }>,
   ownerEmail?: string,
+  personalKeyOverride?: string,
 ): Promise<string> => {
-  const envKey = process.env.GEMINI_API_KEY ?? ''
-  let keyEntries: { label: string; key: string }[]
-  if (ownerEmail) {
-    const personalKey = getUserAiKey(ownerEmail, 'gemini')
-    keyEntries = personalKey
-      ? [{ label: `personal:${ownerEmail}`, key: personalKey }]
-      : [...readGeminiKeys(), ...(envKey ? [{ label: 'env', key: envKey }] : [])]
-  } else {
-    keyEntries = resolveGeminiKeyEntries()
-    if (keyEntries.length === 0 && envKey) keyEntries = [{ label: 'env', key: envKey }]
-  }
+  const keyEntries = resolveGeminiVisionKeyEntries(ownerEmail, personalKeyOverride)
   if (keyEntries.length === 0) throw new Error('沒有可用的 Gemini API Key，請至 AI 模型設定 > 個人 Key 新增 Gemini Key')
   const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
   const taskId = startAiTask('gemini', 'vision-multi', model)
+  const failures: string[] = []
   activateAiTask(taskId)
   try {
     const parts: unknown[] = [
@@ -630,20 +636,30 @@ export const callGeminiVisionMulti = async (
         candidates?: { content?: { parts?: { text?: string }[] } }[]
         error?: { code?: number; message?: string; status?: string }
       }
+      const status = data.error?.status ?? String(resp.status)
+      const detail = data.error?.message ?? `HTTP ${resp.status}`
+      console.log(`[Gemini Vision] key ${i + 1}/${keyEntries.length} (${label}) HTTP:${resp.status} status:${status}`)
       if (
         data.error?.status === 'RESOURCE_EXHAUSTED' ||
-        data.error?.status === 'INVALID_ARGUMENT' ||
         resp.status === 429 || resp.status === 503
-      ) { recordGeminiError(label, data.error?.status ?? String(resp.status)); continue }
-      if (!resp.ok || data.error) throw new Error(`Gemini Vision API 錯誤 (${resp.status}): ${data.error?.message ?? '未知'}`)
+      ) {
+        recordGeminiError(label, status)
+        failures.push(`${label}: ${status} (${detail})`)
+        continue
+      }
+      if (!resp.ok || data.error) {
+        recordGeminiError(label, status)
+        throw new Error(`Gemini Vision ${label} 失敗 (${resp.status}/${status}): ${detail}`)
+      }
       const text = data.candidates?.[0]?.content?.parts?.[0]?.text
       if (!text) throw new Error('Gemini Vision 回傳空結果')
       recordGeminiSuccess(label)
       finishAiTask(taskId)
       return text
     }
-    finishAiTask(taskId, '所有 Gemini API Key 均已達到配額上限')
-    throw new Error('所有 Gemini API Key 均已達到配額上限')
+    const message = `Gemini Vision 所有 Key 皆失敗：${failures.join('；')}`
+    finishAiTask(taskId, message)
+    throw new Error(message)
   } catch (e) {
     finishAiTask(taskId, e instanceof Error ? e.message : String(e))
     throw e
