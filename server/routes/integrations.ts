@@ -1940,23 +1940,32 @@ router.post(
       bufferBase64: file.buffer.toString('base64'),
     })
     const fileDispatchOperator = getOperatorFromContext()
-    const workerResp = await fetch(`${getWorkerUrl()}/internal/worker/testcase/file-generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        files: uploadedFiles.map(serializeFile),
-        oldFiles: oldUploadedFiles.map(serializeFile),
-        form: req.body,
-        clientIp: getClientIP(req),
-        user: getUser(req),
-        operatorKey: fileDispatchOperator?.key ?? '',
-        operatorName: fileDispatchOperator?.name ?? '',
-      }),
-    })
-    const workerResult = await workerResp.json().catch(async () => ({
-      ok: false,
-      message: await workerResp.text().catch(() => `Worker HTTP ${workerResp.status}`),
-    })) as GenerateApiResult
+    let workerResp: Response
+    try {
+      workerResp = await fetch(`${getWorkerUrl()}/internal/worker/testcase/file-generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          files: uploadedFiles.map(serializeFile),
+          oldFiles: oldUploadedFiles.map(serializeFile),
+          form: req.body,
+          clientIp: getClientIP(req),
+          user: getUser(req),
+          operatorKey: fileDispatchOperator?.key ?? '',
+          operatorName: fileDispatchOperator?.name ?? '',
+        }),
+      })
+    } catch (fetchErr) {
+      const msg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr)
+      return res.status(502).json({ ok: false, message: `Worker 無法連線：${msg}` })
+    }
+    const workerBody = await workerResp.text().catch(() => '')
+    let workerResult: GenerateApiResult
+    try {
+      workerResult = JSON.parse(workerBody) as GenerateApiResult
+    } catch {
+      workerResult = { ok: false, message: workerBody.slice(0, 300) || `Worker HTTP ${workerResp.status}` }
+    }
     if (!workerResp.ok) return res.status(502).json(workerResult)
     res.json(workerResult)
     return
@@ -2043,7 +2052,8 @@ router.post(
     addHistory('testcase', `TestCase 生成 — ${sourceLabel}`, `生成 ${casesArr.length} 筆，寫入 ${written} 筆`, { sourceLabel, cases: casesArr, bitableUrl, csvFormat: csv.format })
     res.json({ ok: true, generated: casesArr.length, written, cases: casesArr, bitableUrl, csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format })
   } catch (error) {
-    next(error)
+    const message = error instanceof Error ? error.message : String(error)
+    if (!res.headersSent) res.status(500).json({ ok: false, message })
   } finally {
     finishHeavyTask(heavyTaskToken)
   }
