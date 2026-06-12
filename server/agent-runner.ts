@@ -1287,8 +1287,9 @@ function connect() {
     }
   })
 
-  ws.on('close', (code) => {
-    console.log(`[Agent:${AGENT_LABEL}] Disconnected (code=${code}), reconnecting in 5s ...`)
+  ws.on('close', (code, reason) => {
+    const detail = reason.toString().trim()
+    console.log(`[Agent:${AGENT_LABEL}] Disconnected (code=${code}${detail ? `, reason=${detail}` : ''}), reconnecting in 5s ...`)
     currentRunner = null
     // Abort any in-flight claim
     pendingClaimResolve?.(null)
