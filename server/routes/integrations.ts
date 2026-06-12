@@ -87,18 +87,21 @@ interface JiraTestCaseResult {
   test_cases: JiraTestCase[]
 }
 
+type DynamicTestCase = Record<string, unknown>
+
 interface GenerateApiResult {
   ok: boolean
   generated?: number
   written?: number
-  cases?: TestCase[] | JiraTestCase[]
+  cases?: TestCase[] | JiraTestCase[] | DynamicTestCase[]
   message?: string
   bitableUrl?: string
   featureName?: string
-  format?: 'jira'
+  format?: 'jira' | 'dynamic'
   csvContent?: string
   csvFilename?: string
-  csvFormat?: 'testcase' | 'jira'
+  csvFormat?: 'testcase' | 'jira' | 'dynamic'
+  jobId?: string
 }
 
 // ─── SSE Job Store ────────────────────────────────────────────────────────────
@@ -291,7 +294,11 @@ const generateWithGemini = async (
 }
 
 /** 在指定資料夾動態建立新的 Bitable，並設定好所需欄位，回傳 appToken / tableId / url */
-const createBitableForTestCases = async (name: string, folderToken: string): Promise<{ appToken: string; tableId: string; url: string }> => {
+const createBitableForTestCases = async (
+  name: string,
+  folderToken: string,
+  dynamicFields?: string[],
+): Promise<{ appToken: string; tableId: string; url: string }> => {
   const token = await getLarkToken()
   const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
 
@@ -336,10 +343,11 @@ const createBitableForTestCases = async (name: string, folderToken: string): Pro
   }
   const allFields = fieldsData.data?.items ?? []
   const firstField = allFields[0]
+  const requestedFields = dynamicFields?.filter(Boolean) ?? []
 
   if (firstField) {
     await larkPut(`/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/fields/${firstField.field_id}`, {
-      field_name: '測試標題',
+      field_name: requestedFields[0] ?? '測試標題',
       type: 1,
     })
   }
@@ -351,7 +359,9 @@ const createBitableForTestCases = async (name: string, folderToken: string): Pro
     })
   }
 
-  const extraFields: Array<{ field_name: string; type: number; property?: unknown }> = [
+  const extraFields: Array<{ field_name: string; type: number; property?: unknown }> = requestedFields.length > 0
+    ? requestedFields.slice(1).map(field_name => ({ field_name, type: 1 }))
+    : [
     {
       field_name: '測試模組',
       type: 3,
@@ -381,7 +391,7 @@ const createBitableForTestCases = async (name: string, folderToken: string): Pro
     { field_name: '版本標籤', type: 1 },
     { field_name: '狀態',     type: 1 },
     { field_name: '取代者',   type: 1 },
-  ]
+    ]
 
   for (const field of extraFields) {
     await larkPost(`/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/fields`, field)
@@ -452,6 +462,84 @@ const writeTestCasesToBitable = async (cases: TestCase[], specUrl: string): Prom
     if (!resp.ok || data.code !== 0) throw new Error(`寫入 Bitable 失敗 (code=${data.code}): ${data.msg}`)
     written += batch.length
   }
+  return { written, bitableUrl }
+}
+
+const writeDynamicTestCasesToBitable = async (
+  cases: DynamicTestCase[],
+  sourceLabel: string,
+): Promise<{ written: number; bitableUrl: string }> => {
+  const token = await getLarkToken()
+  const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
+  const columns = dynamicColumns(cases)
+  if (columns.length === 0) throw new Error('AI 回傳的 TestCase 沒有可用欄位')
+
+  let appToken: string
+  let tableId: string
+  let bitableUrl: string
+  const folderToken = process.env.LARK_TESTCASE_FOLDER_TOKEN
+
+  if (folderToken) {
+    const now = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const dateStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+    const timeStr = `${pad(now.getHours())}${pad(now.getMinutes())}`
+    const created = await createBitableForTestCases(
+      `TestCase_${dateStr}_${timeStr}_dynamic`,
+      folderToken,
+      columns,
+    )
+    appToken = created.appToken
+    tableId = created.tableId
+    bitableUrl = created.url
+  } else {
+    appToken = mustEnv('LARK_TESTCASE_APP_TOKEN')
+    tableId = mustEnv('LARK_TESTCASE_TABLE_ID')
+    bitableUrl = process.env.LARK_TESTCASE_URL ?? ''
+
+    const fieldsResp = await fetch(
+      `${base}/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/fields`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    )
+    const fieldsData = await fieldsResp.json() as {
+      code?: number
+      data?: { items?: Array<{ field_name: string }> }
+    }
+    const existing = new Set(fieldsData.data?.items?.map(field => field.field_name) ?? [])
+    for (const fieldName of columns.filter(name => !existing.has(name))) {
+      const resp = await fetch(
+        `${base}/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/fields`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ field_name: fieldName, type: 1 }),
+        },
+      )
+      const data = await resp.json() as { code?: number; msg?: string }
+      if (!resp.ok || data.code !== 0) throw new Error(`建立動態欄位 ${fieldName} 失敗: ${data.msg}`)
+    }
+  }
+
+  const records = cases.map(row => ({
+    fields: Object.fromEntries(columns.map(column => [column, bitableCell(row[column])])),
+  }))
+  const BATCH = 500
+  let written = 0
+  for (let i = 0; i < records.length; i += BATCH) {
+    const batch = records.slice(i, i + BATCH)
+    const resp = await fetch(
+      `${base}/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records/batch_create`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ records: batch }),
+      },
+    )
+    const data = await resp.json() as { code?: number; msg?: string }
+    if (!resp.ok || data.code !== 0) throw new Error(`寫入動態 TestCase 失敗 (code=${data.code}): ${data.msg}`)
+    written += batch.length
+  }
+  console.log(`[TestCase] dynamic schema written: ${columns.join(', ')} (${sourceLabel})`)
   return { written, bitableUrl }
 }
 
@@ -921,7 +1009,7 @@ function normalizeTestCaseFields(raw: unknown[]): TestCase[] {
 
 // ─── TestCase CSV Artifact Helper ───────────────────────────────────────────
 
-type CsvFormat = 'testcase' | 'jira'
+type CsvFormat = 'testcase' | 'jira' | 'dynamic'
 type CsvArtifact = { content: string; filename: string; format: CsvFormat }
 type CsvColumn = { header: string; key: string; aliases?: string[] }
 
@@ -1050,6 +1138,58 @@ function createJiraTestCaseCsvArtifact(result: JiraTestCaseResult, sourceLabel: 
     filename: `testcase_jira_${csvTimestamp()}_${csvSafeName(sourceLabel)}.csv`,
     format: 'jira',
   }
+}
+
+function isObjectRow(value: unknown): value is DynamicTestCase {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function extractGeneratedRows(value: unknown): DynamicTestCase[] {
+  if (Array.isArray(value)) return value.filter(isObjectRow)
+  if (!isObjectRow(value)) return []
+
+  const preferredKeys = ['test_cases', 'testCases', 'cases', 'items', 'rows', 'data', 'results']
+  const arrayKey = preferredKeys.find(key => Array.isArray(value[key]))
+    ?? Object.keys(value).find(key => Array.isArray(value[key]))
+  if (!arrayKey) return []
+
+  const metadata = Object.fromEntries(
+    Object.entries(value).filter(([key, item]) =>
+      key !== arrayKey && (item === null || ['string', 'number', 'boolean'].includes(typeof item)),
+    ),
+  )
+  return (value[arrayKey] as unknown[])
+    .filter(isObjectRow)
+    .map(row => ({ ...metadata, ...row }))
+}
+
+function dynamicColumns(rows: DynamicTestCase[]): string[] {
+  const seen = new Set<string>()
+  for (const row of rows) {
+    for (const key of Object.keys(row)) {
+      if (key.trim()) seen.add(key)
+    }
+  }
+  return [...seen]
+}
+
+function bitableCell(value: unknown): string | number | boolean {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value
+  return JSON.stringify(value)
+}
+
+function createDynamicTestCaseCsvArtifact(cases: DynamicTestCase[], sourceLabel: string): CsvArtifact {
+  const columns = dynamicColumns(cases).map(key => ({ header: key, key }))
+  return {
+    content: buildCsv(columns, cases),
+    filename: `testcase_dynamic_${csvTimestamp()}_${csvSafeName(sourceLabel)}.csv`,
+    format: 'dynamic',
+  }
+}
+
+function usesLegacyTestCaseSchema(promptId?: string): boolean {
+  return !promptId || ['testcase-default', 'testcase-diff', 'testcase-baseline', 'testcase-second-pass'].includes(promptId)
 }
 // ─── Second Pass Helper ───────────────────────────────────────────────────────
 
@@ -1293,6 +1433,22 @@ export async function runLarkGenerateTestcasesJob(params: {
     addHistory('testcase', `TestCase 生成 - ${srcLabel}`, `生成 ${count} 筆，寫入 ${written} 筆`, { sourceLabel, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvFormat: csv.format }, { operator: jobOperator })
     updateJobStatus(jobId, 'completed')
     return { ok: true, generated: count, written, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format }
+  }
+
+  if (!usesLegacyTestCaseSchema(body.promptId)) {
+    const cases = extractGeneratedRows(result)
+    if (cases.length === 0) throw new Error('自訂 Prompt 必須回傳 JSON Array，或包含 cases/test_cases 陣列的 JSON Object')
+    const { written, bitableUrl } = await writeDynamicTestCasesToBitable(cases, sourceLabel)
+    const csv = createDynamicTestCaseCsvArtifact(cases, sourceLabel)
+    updateJobStatus(jobId, 'completed')
+    log('ok', clientIp, user, 'TestCase worker completed (dynamic schema)', `generated ${cases.length}, written ${written}`)
+    addHistory('testcase', `TestCase 生成 - ${srcLabel}`, `生成 ${cases.length} 筆，寫入 ${written} 筆`, {
+      sourceLabel, cases, bitableUrl, csvFormat: csv.format, promptId: body.promptId,
+    }, { operator: jobOperator })
+    return {
+      ok: true, generated: cases.length, written, cases, bitableUrl, format: 'dynamic',
+      csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format,
+    }
   }
 
   let cases = normalizeTestCaseFields(Array.isArray(result) ? result as unknown[] : [])
@@ -1925,6 +2081,20 @@ export async function runGenerateTestcasesFileJob(params: {
     log('ok', params.clientIp, params.user, 'TestCase file worker completed (Jira format)', `generated ${count}, written ${written}`)
     addHistory('testcase', `TestCase 生成 - ${sourceLabel}`, `生成 ${count} 筆，寫入 ${written} 筆`, { sourceLabel, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvFormat: csv.format }, { operator: fileJobOperator })
     return { ok: true, generated: count, written, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format }
+  }
+  if (!usesLegacyTestCaseSchema(promptId)) {
+    const dynamicCases = extractGeneratedRows(cases)
+    if (dynamicCases.length === 0) throw new Error('自訂 Prompt 必須回傳 JSON Array，或包含 cases/test_cases 陣列的 JSON Object')
+    const { written, bitableUrl } = await writeDynamicTestCasesToBitable(dynamicCases, sourceLabel)
+    const csv = createDynamicTestCaseCsvArtifact(dynamicCases, sourceLabel)
+    log('ok', params.clientIp, params.user, 'TestCase file worker completed (dynamic schema)', `generated ${dynamicCases.length}, written ${written}`)
+    addHistory('testcase', `TestCase 生成 - ${sourceLabel}`, `生成 ${dynamicCases.length} 筆，寫入 ${written} 筆`, {
+      sourceLabel, cases: dynamicCases, bitableUrl, csvFormat: csv.format, promptId,
+    }, { operator: fileJobOperator })
+    return {
+      ok: true, generated: dynamicCases.length, written, cases: dynamicCases, bitableUrl, format: 'dynamic',
+      csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format,
+    }
   }
   let casesArr = normalizeTestCaseFields(Array.isArray(cases) ? cases as unknown[] : [])
   const secondPassEnabled = params.form.secondPass === 'true' || params.form.secondPass === true

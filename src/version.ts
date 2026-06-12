@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.51.0'
+export const APP_VERSION = '3.52.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,23 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.52.1',
+    date: '2026-06-12',
+    changes: [
+      'fix(ai): Gemini Key 全部配額耗盡時，Ollama 自動 fallback 最多等待 20 秒，避免 TestCase 任務永久卡在執行中',
+      'fix(testcase): AI 配額或 fallback 失敗後會正常結束 worker 任務，前端顯示明確錯誤訊息',
+    ],
+  },
+  {
+    version: '3.52.0',
+    date: '2026-06-12',
+    changes: [
+      'feat(testcase): 自訂 Prompt 可依 AI JSON 回傳內容動態建立 TestCase 欄位，不再限制固定欄位',
+      'feat(testcase): 動態欄位同步支援 Lark Bitable、CSV 匯出與前端結果預覽',
+      'compat(testcase): 預設、差異比對、基線驗證與 Jira Prompt 維持原有固定格式流程',
+    ],
+  },
   {
     version: '3.51.0',
     date: '2026-06-12',

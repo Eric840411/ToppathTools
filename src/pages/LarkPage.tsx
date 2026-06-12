@@ -133,18 +133,20 @@ interface JiraTestCase {
   jira_reference: string
 }
 
+type DynamicTestCase = Record<string, unknown>
+
 interface GenerateResult {
   ok: boolean
   generated?: number
   written?: number
-  cases?: TestCase[] | JiraTestCase[]
+  cases?: TestCase[] | JiraTestCase[] | DynamicTestCase[]
   message?: string
   bitableUrl?: string
   featureName?: string
-  format?: 'jira'
+  format?: 'jira' | 'dynamic'
   csvContent?: string
   csvFilename?: string
-  csvFormat?: 'testcase' | 'jira'
+  csvFormat?: 'testcase' | 'jira' | 'dynamic'
 }
 
 interface GenerateStatusResponse {
@@ -1104,7 +1106,7 @@ export function LarkPage() {
       </div>
 
       {/* TestCase 預覽表格 — 舊格式 */}
-      {status === 'ok' && result?.cases && result.cases.length > 0 && result.format !== 'jira' && (
+      {status === 'ok' && result?.cases && result.cases.length > 0 && !result.format && (
         <div className="section-card">
           <h2 className="section-title">生成的 TestCase 預覽（{result.cases.length} 筆）</h2>
           <div className="table-wrap">
@@ -1154,6 +1156,43 @@ export function LarkPage() {
           </div>
         </div>
       )}
+
+      {/* TestCase 預覽表格 — 自訂 Prompt 動態欄位 */}
+      {status === 'ok' && result?.cases && result.cases.length > 0 && result.format === 'dynamic' && (() => {
+        const rows = result.cases as DynamicTestCase[]
+        const columns = [...new Set(rows.flatMap(row => Object.keys(row)))]
+        const displayValue = (value: unknown) => {
+          if (value === null || value === undefined) return ''
+          return typeof value === 'object' ? JSON.stringify(value) : String(value)
+        }
+        return (
+          <div className="section-card">
+            <h2 className="section-title">生成的 TestCase 預覽（{rows.length} 筆，{columns.length} 個動態欄位）</h2>
+            <div className="table-wrap">
+              <table className="version-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    {columns.map(column => <th key={column}>{column}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, rowIndex) => (
+                    <tr key={rowIndex}>
+                      <td>{rowIndex + 1}</td>
+                      {columns.map(column => (
+                        <td key={column} style={{ whiteSpace: 'pre-wrap', minWidth: 120 }}>
+                          {displayValue(row[column])}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* TestCase 預覽表格 — Jira 整合格式 */}
       {status === 'ok' && result?.cases && result.cases.length > 0 && result.format === 'jira' && (

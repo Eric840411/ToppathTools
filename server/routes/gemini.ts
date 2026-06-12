@@ -421,13 +421,13 @@ export const _callGeminiWithRotation = async (prompt: string, startIndex?: numbe
   if (hasQuotaError && hasOverloadError) throw new Error('部分 Gemini Key 達到配額上限，部分服務過載（503），請稍後再試或新增 Key')
   if (hasQuotaError) {
     // All keys exhausted — try Ollama fallback
-    try { return await callOllama(prompt) } catch (ollamaErr) {
+    try { return await callOllama(prompt, undefined, 20_000) } catch (ollamaErr) {
       console.warn('[Ollama] fallback failed:', ollamaErr)
     }
     throw new Error('所有 Gemini API Key 均已達到配額上限，請新增其他 Key')
   }
   // Unknown mix — try Ollama then give up
-  try { return await callOllama(prompt) } catch (ollamaErr) {
+  try { return await callOllama(prompt, undefined, 20_000) } catch (ollamaErr) {
     console.warn('[Ollama] fallback failed:', ollamaErr)
   }
   throw new Error(`Gemini API 全部失敗（${lastErrors.join('、')}），請稍後再試`)
@@ -453,7 +453,11 @@ const readOllamaConfig = (): { baseUrl: string; model: string } => {
 // ─── Ollama Fallback ──────────────────────────────────────────────────────────
 
 /** Call local Ollama API for text generation. */
-export const callOllama = async (prompt: string, modelOverride?: string): Promise<string> => {
+export const callOllama = async (
+  prompt: string,
+  modelOverride?: string,
+  timeoutMs = 600_000,
+): Promise<string> => {
   const { baseUrl: base, model: defaultModel } = readOllamaConfig()
   const model = modelOverride ?? defaultModel
   if (!base || !model) throw new Error('Ollama 未設定（OLLAMA_BASE_URL / OLLAMA_MODEL）')
@@ -465,6 +469,7 @@ export const callOllama = async (prompt: string, modelOverride?: string): Promis
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, prompt, stream: false }),
       dispatcher: ollamaAgent,
+      signal: AbortSignal.timeout(timeoutMs),
     } as Parameters<typeof undiciFetch>[1])
     if (!resp.ok) throw new Error(`Ollama HTTP ${resp.status}`)
     const data = await resp.json() as { response?: string; error?: string }
