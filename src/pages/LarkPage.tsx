@@ -25,6 +25,73 @@ function downloadTextFile(content: string, filename: string, type = 'text/csv;ch
   a.click()
   URL.revokeObjectURL(url)
 }
+function isFileAccepted(file: File, accept: string): boolean {
+  return accept.split(',').some(token => {
+    const t = token.trim()
+    if (t.startsWith('.')) return file.name.toLowerCase().endsWith(t.toLowerCase())
+    if (t.endsWith('/*')) return file.type.startsWith(t.slice(0, -1))
+    return file.type === t
+  })
+}
+
+function FileDropZone({
+  file, onChange, accept, hint,
+}: {
+  file?: File
+  onChange: (f: File | undefined) => void
+  accept: string
+  hint: string
+}) {
+  const [dragging, setDragging] = useState(false)
+  const [rejected, setRejected] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setDragging(false)
+    const f = e.dataTransfer.files[0]
+    if (!f) return
+    if (!isFileAccepted(f, accept)) {
+      setRejected(true)
+      setTimeout(() => setRejected(false), 1500)
+      return
+    }
+    onChange(f)
+  }
+
+  return (
+    <div
+      className={`file-drop-zone${dragging ? ' drag-over' : ''}${file ? ' has-file' : ''}${rejected ? ' rejected' : ''}`}
+      onDragOver={e => { e.preventDefault(); setDragging(true) }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={handleDrop}
+      onClick={() => inputRef.current?.click()}
+    >
+      <input ref={inputRef} type="file" accept={accept} style={{ display: 'none' }}
+        onChange={e => onChange(e.target.files?.[0] ?? undefined)} />
+      {file ? (
+        <>
+          <span className="fdz-icon">📄</span>
+          <span className="fdz-filename">{file.name}</span>
+          <button type="button" className="fdz-clear" onClick={e => { e.stopPropagation(); onChange(undefined); if (inputRef.current) inputRef.current.value = '' }}>✕</button>
+        </>
+      ) : rejected ? (
+        <>
+          <span className="fdz-icon">⛔</span>
+          <span className="fdz-label" style={{ color: '#ef4444' }}>不支援的檔案格式</span>
+          <span className="fdz-hint">{hint}</span>
+        </>
+      ) : (
+        <>
+          <span className="fdz-icon">📋</span>
+          <span className="fdz-label">拖曳或點擊上傳</span>
+          <span className="fdz-hint">{hint}</span>
+        </>
+      )}
+    </div>
+  )
+}
+
 type ActionType = 'generate' | 'compare' | 'secondpass'
 type SpecSource = 'lark' | 'file' | 'gdocs'
 type OldSpecSource = 'lark' | 'gdocs' | 'pdf' | 'csv'
@@ -94,7 +161,7 @@ export function LarkPage() {
   const [action, setAction] = useState<ActionType>('generate')
   // Multi-source state
   const [sources, setSources] = useState<SourceEntry[]>([{ id: '1', type: 'lark', url: '' }])
-  const fileInputRefs = useRef<Map<string, HTMLInputElement>>(new Map())
+  // fileInputRefs removed — handled internally by FileDropZone
   // Legacy compare mode
   const [specUrl, setSpecUrl] = useState('')
   const [testcaseUrl, setTestcaseUrl] = useState('')
@@ -127,7 +194,7 @@ export function LarkPage() {
   const [selectedModel, setSelectedModel] = useState('gemini')
   const [testcaseMode, setTestcaseMode] = useState<'full' | 'diff' | 'baseline'>('full')
   const [oldSources, setOldSources] = useState<OldSourceEntry[]>([{ id: 'old-1', type: 'lark', url: '' }])
-  const oldFileInputRefs = useRef<Map<string, HTMLInputElement>>(new Map())
+  // oldFileInputRefs removed — handled internally by FileDropZone
   // Baseline mode source
   type BaselineSourceType = 'json' | 'lark' | 'csv' | 'xlsx'
   const [baselineType, setBaselineType] = useState<BaselineSourceType>('json')
@@ -566,15 +633,12 @@ export function LarkPage() {
                     {src.type === 'lark' && <input value={src.url} onChange={e => updateSource(src.id, { url: e.target.value })} placeholder="https://casinoplus.sg.larksuite.com/wiki/ABCD1234" />}
                     {src.type === 'gdocs' && <input value={src.url} onChange={e => updateSource(src.id, { url: e.target.value })} placeholder="https://docs.google.com/document/d/XXXX/edit" />}
                     {src.type === 'file' && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <input id={`sp-file-${src.id}`} ref={el => { if (el) fileInputRefs.current.set(src.id, el); else fileInputRefs.current.delete(src.id) }} type="file" accept=".pdf,.docx" style={{ display: 'none' }} onChange={e => updateSource(src.id, { file: e.target.files?.[0] ?? undefined })} />
-                        <button type="button" onClick={() => fileInputRefs.current.get(src.id)?.click()} className="src-file-btn">
-                          {isGame ? <DungeonIcon name="file" tone="violet" size="xs" plain /> : '📎'} 選擇檔案
-                        </button>
-                        <span className={`src-filename${src.file ? ' filled' : ''}`}>
-                          {src.file ? src.file.name : '尚未選擇檔案（PDF / .docx，最大 30 MB）'}
-                        </span>
-                      </div>
+                      <FileDropZone
+                        file={src.file}
+                        accept=".pdf,.docx"
+                        hint="PDF / .docx，最大 30 MB"
+                        onChange={f => updateSource(src.id, { file: f })}
+                      />
                     )}
                   </div>
                 ))}
@@ -596,21 +660,21 @@ export function LarkPage() {
                     const isCsv = baselineType === 'csv'
                     const accept = isCsv ? '.csv,text/csv' : '.xlsx,.xls'
                     const currentFile = isCsv ? baselineCsvFile : baselineXlsxFile
-                    const inputId = isCsv ? 'sp-baseline-csv' : 'sp-baseline-xlsx'
                     return (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <input id={inputId} type="file" accept={accept} style={{ display: 'none' }}
-                          onChange={e => {
-                            const file = e.target.files?.[0] ?? null
-                            if (isCsv) { setBaselineCsvFile(file); if (file) { const r = new FileReader(); r.onload = ev => setBaselineContent(ev.target!.result as string); r.readAsText(file, 'utf-8') } else setBaselineContent('') }
-                            else { setBaselineXlsxFile(file); if (file) { const r = new FileReader(); r.onload = ev => setBaselineXlsxB64(arrayBufferToBase64(ev.target!.result as ArrayBuffer)); r.readAsArrayBuffer(file) } else setBaselineXlsxB64('') }
-                          }}
-                        />
-                        <button type="button" onClick={() => document.getElementById(inputId)?.click()} className="src-file-btn">📎 選擇檔案</button>
-                        <span className={`src-filename${currentFile ? ' filled' : ''}`}>
-                          {currentFile ? `${currentFile.name} (${(currentFile.size / 1024).toFixed(1)} KB)` : `尚未選擇檔案（.${baselineType}）`}
-                        </span>
-                      </div>
+                      <FileDropZone
+                        file={currentFile ?? undefined}
+                        accept={accept}
+                        hint={`待補填 TestCase（.${baselineType}）`}
+                        onChange={file => {
+                          if (isCsv) {
+                            setBaselineCsvFile(file ?? null)
+                            if (file) { const r = new FileReader(); r.onload = ev => setBaselineContent(ev.target!.result as string); r.readAsText(file, 'utf-8') } else setBaselineContent('')
+                          } else {
+                            setBaselineXlsxFile(file ?? null)
+                            if (file) { const r = new FileReader(); r.onload = ev => setBaselineXlsxB64(arrayBufferToBase64(ev.target!.result as ArrayBuffer)); r.readAsArrayBuffer(file) } else setBaselineXlsxB64('')
+                          }
+                        }}
+                      />
                     )
                   })()}
                 </div>
@@ -683,21 +747,12 @@ export function LarkPage() {
                       />
                     )}
                     {src.type === 'file' && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <input
-                          ref={el => { if (el) fileInputRefs.current.set(src.id, el) }}
-                          type="file"
-                          accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                          onChange={e => updateSource(src.id, { file: e.target.files?.[0] ?? undefined })}
-                          style={{ display: 'none' }}
-                        />
-                        <button type="button" onClick={() => fileInputRefs.current.get(src.id)?.click()} className="src-file-btn">
-                          {isGame ? <DungeonIcon name="file" tone="violet" size="xs" plain /> : '📎'} 選擇檔案
-                        </button>
-                        <span className={`src-filename${src.file ? ' filled' : ''}`}>
-                          {src.file ? src.file.name : '尚未選擇檔案（PDF / .docx，最大 30 MB）'}
-                        </span>
-                      </div>
+                      <FileDropZone
+                        file={src.file}
+                        accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        hint="PDF / .docx，最大 30 MB"
+                        onChange={f => updateSource(src.id, { file: f })}
+                      />
                     )}
                   </div>
                 ))}
@@ -728,37 +783,25 @@ export function LarkPage() {
                               placeholder={src.type === 'gdocs' ? 'https://docs.google.com/document/d/XXXX/edit' : 'https://casinoplus.sg.larksuite.com/wiki/ABCD1234'}
                             />
                           )}
-                          {(src.type === 'pdf' || src.type === 'csv') && (
-                            <>
-                              <input
-                                id={`old-file-${src.id}`}
-                                ref={el => { if (el) oldFileInputRefs.current.set(src.id, el); else oldFileInputRefs.current.delete(src.id) }}
-                                type="file"
-                                accept={src.type === 'pdf' ? '.pdf' : '.csv,text/csv'}
-                                style={{ display: 'none' }}
-                                onChange={e => {
-                                  const file = e.target.files?.[0] ?? null
-                                  if (!file) return
-                                  updateOldSource(src.id, { file, content: undefined })
-                                  if (src.type === 'csv') {
-                                    const reader = new FileReader()
-                                    reader.onload = ev => updateOldSource(src.id, { content: ev.target!.result as string })
-                                    reader.readAsText(file, 'utf-8')
-                                  }
-                                }}
-                              />
-                              <button type="button" onClick={() => oldFileInputRefs.current.get(src.id)?.click()} className="src-file-btn">
-                                📎 選擇檔案
-                              </button>
-                              <span className={`src-filename${src.file ? ' filled' : ''}`} style={{ flex: 1, minWidth: 0 }}>
-                                {src.file ? src.file.name : `尚未選擇檔案（.${src.type}）`}
-                              </span>
-                            </>
-                          )}
                           {oldSources.length > 1 && (
                             <button type="button" onClick={() => removeOldSource(src.id)} className="src-remove-btn" title="移除">✕</button>
                           )}
                         </div>
+                        {(src.type === 'pdf' || src.type === 'csv') && (
+                          <FileDropZone
+                            file={src.file}
+                            accept={src.type === 'pdf' ? '.pdf' : '.csv,text/csv'}
+                            hint={`舊版規格書（.${src.type}）`}
+                            onChange={file => {
+                              updateOldSource(src.id, { file: file ?? undefined, content: undefined })
+                              if (file && src.type === 'csv') {
+                                const reader = new FileReader()
+                                reader.onload = ev => updateOldSource(src.id, { content: ev.target!.result as string })
+                                reader.readAsText(file, 'utf-8')
+                              }
+                            }}
+                          />
+                        )}
                       </div>
                     ))}
                     <button type="button" onClick={addOldSource} className="add-src-btn">
@@ -801,44 +844,21 @@ export function LarkPage() {
                       const isCsv = baselineType === 'csv'
                       const accept = isCsv ? '.csv,text/csv' : '.xlsx,.xls'
                       const currentFile = isCsv ? baselineCsvFile : baselineXlsxFile
-                      const inputId = isCsv ? 'baseline-csv-input' : 'baseline-xlsx-input'
-                      const hint = isCsv ? '尚未選擇檔案（.csv）' : '尚未選擇檔案（.xlsx / .xls）'
                       return (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <input
-                            id={inputId}
-                            type="file"
-                            accept={accept}
-                            style={{ display: 'none' }}
-                            onChange={e => {
-                              const file = e.target.files?.[0] ?? null
-                              if (isCsv) {
-                                setBaselineCsvFile(file)
-                                if (file) {
-                                  const reader = new FileReader()
-                                  reader.onload = ev => setBaselineContent(ev.target!.result as string)
-                                  reader.readAsText(file, 'utf-8')
-                                } else { setBaselineContent('') }
-                              } else {
-                                setBaselineXlsxFile(file)
-                                if (file) {
-                                  const reader = new FileReader()
-                                  reader.onload = ev => {
-                                    const b64 = arrayBufferToBase64(ev.target!.result as ArrayBuffer)
-                                    setBaselineXlsxB64(b64)
-                                  }
-                                  reader.readAsArrayBuffer(file)
-                                } else { setBaselineXlsxB64('') }
-                              }
-                            }}
-                          />
-                          <button type="button" onClick={() => document.getElementById(inputId)?.click()} className="src-file-btn">
-                            📎 選擇檔案
-                          </button>
-                          <span className={`src-filename${currentFile ? ' filled' : ''}`}>
-                            {currentFile ? `${currentFile.name} (${(currentFile.size / 1024).toFixed(1)} KB)` : hint}
-                          </span>
-                        </div>
+                        <FileDropZone
+                          file={currentFile ?? undefined}
+                          accept={accept}
+                          hint={isCsv ? '既有 TestCase（.csv）' : '既有 TestCase（.xlsx / .xls）'}
+                          onChange={file => {
+                            if (isCsv) {
+                              setBaselineCsvFile(file ?? null)
+                              if (file) { const r = new FileReader(); r.onload = ev => setBaselineContent(ev.target!.result as string); r.readAsText(file, 'utf-8') } else setBaselineContent('')
+                            } else {
+                              setBaselineXlsxFile(file ?? null)
+                              if (file) { const r = new FileReader(); r.onload = ev => setBaselineXlsxB64(arrayBufferToBase64(ev.target!.result as ArrayBuffer)); r.readAsArrayBuffer(file) } else setBaselineXlsxB64('')
+                            }
+                          }}
+                        />
                       )
                     })()}
                   </div>
