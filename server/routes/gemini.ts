@@ -215,7 +215,8 @@ export function resolveGeminiKeyEntries(req?: import('express').Request): { labe
   // Try cookie-based auth first
   const cookieEmail = req ? getAuthAccount(req)?.email : null
   // Fallback to request context (set by middleware for all requests)
-  const ctxEmail = getRequestContext()?.user
+  const requestContext = getRequestContext()
+  const ctxEmail = requestContext?.user
   const userEmail = cookieEmail ?? (ctxEmail && ctxEmail !== '—' ? ctxEmail : null)
 
   const storedKeys = readGeminiKeys()
@@ -226,7 +227,7 @@ export function resolveGeminiKeyEntries(req?: import('express').Request): { labe
   ]
 
   if (userEmail) {
-    const personalKey = getUserAiKey(userEmail, 'gemini')
+    const personalKey = requestContext?.geminiApiKey ?? getUserAiKey(userEmail, 'gemini')
     if (personalKey) {
       return [
         { label: `personal:${userEmail}`, key: personalKey },

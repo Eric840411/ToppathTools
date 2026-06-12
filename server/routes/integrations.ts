@@ -36,7 +36,7 @@ import {
   countJobTestCases,
   updateJobBitableCoords,
 } from '../shared.js'
-import { callLLM, readGeminiPrompts, renderPrompt } from './gemini.js'
+import { callLLM, getUserAiKey, readGeminiPrompts, renderPrompt } from './gemini.js'
 import { extractAdfText } from './jira.js'
 import { readAccounts } from '../shared.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
@@ -44,6 +44,13 @@ import { getAuthAccount } from '../auth-session.js'
 import { getOperatorFromContext } from '../request-context.js'
 
 export const router = Router()
+
+function getRequestOperator(req: import('express').Request) {
+  const account = getAuthAccount(req)
+  return account
+    ? { key: account.email, name: account.label ?? account.email }
+    : getOperatorFromContext()
+}
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -1474,14 +1481,26 @@ router.post('/api/integrations/lark/generate-testcases', async (req, res) => {
   jobStore.set(requestId, { status: 'running', createdAt: Date.now(), heavyTask: heavyTaskToken, callbacks: new Set() })
 
   const clientIp = getClientIP(req)
-  const dispatchOperator = getOperatorFromContext()
+  const dispatchOperator = getRequestOperator(req)
   const user = dispatchOperator?.key ?? getUser(req)
+  const personalGeminiKey = dispatchOperator?.key
+    ? getUserAiKey(dispatchOperator.key, 'gemini') ?? ''
+    : ''
 
   const callbackUrl = `http://127.0.0.1:${process.env.PORT ?? 3000}/internal/testcase-jobs/${encodeURIComponent(requestId)}/finish`
   fetch(`${getWorkerUrl()}/internal/worker/testcase/lark-generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ requestId, body, clientIp, user, callbackUrl, operatorKey: dispatchOperator?.key ?? '', operatorName: dispatchOperator?.name ?? '' }),
+    body: JSON.stringify({
+      requestId,
+      body,
+      clientIp,
+      user,
+      callbackUrl,
+      operatorKey: dispatchOperator?.key ?? '',
+      operatorName: dispatchOperator?.name ?? '',
+      personalGeminiKey,
+    }),
     signal: AbortSignal.timeout(5000),
   }).then(async response => {
     if (response.ok) return
@@ -1735,8 +1754,11 @@ router.get('/api/integrations/lark/generate-testcases/jobs', (req, res) => {
 router.post('/api/integrations/lark/generate-testcases/resume/:jobId', async (req, res) => {
   const jobId = req.params.jobId
   const clientIp = getClientIP(req)
-  const dispatchOperator = getOperatorFromContext()
+  const dispatchOperator = getRequestOperator(req)
   const user = dispatchOperator?.key ?? getUser(req)
+  const personalGeminiKey = dispatchOperator?.key
+    ? getUserAiKey(dispatchOperator.key, 'gemini') ?? ''
+    : ''
 
   const job = getJob(jobId)
   if (!job) return res.status(404).json({ ok: false, message: 'Job not found' })
@@ -1758,6 +1780,7 @@ router.post('/api/integrations/lark/generate-testcases/resume/:jobId', async (re
       callbackUrl,
       operatorKey: dispatchOperator?.key ?? '',
       operatorName: dispatchOperator?.name ?? '',
+      personalGeminiKey,
     }),
     signal: AbortSignal.timeout(5000),
   }).then(async response => {
@@ -1948,7 +1971,10 @@ router.post(
       mimetype: file.mimetype,
       bufferBase64: file.buffer.toString('base64'),
     })
-    const fileDispatchOperator = getOperatorFromContext()
+    const fileDispatchOperator = getRequestOperator(req)
+    const personalGeminiKey = fileDispatchOperator?.key
+      ? getUserAiKey(fileDispatchOperator.key, 'gemini') ?? ''
+      : ''
     const requestId = `file-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     cleanJobStore()
     jobStore.set(requestId, { status: 'running', createdAt: Date.now(), heavyTask: heavyTaskToken, callbacks: new Set() })
@@ -1967,6 +1993,7 @@ router.post(
         callbackUrl,
         operatorKey: fileDispatchOperator?.key ?? '',
         operatorName: fileDispatchOperator?.name ?? '',
+        personalGeminiKey,
       }),
       signal: AbortSignal.timeout(5000),
     }).then(async response => {

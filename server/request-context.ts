@@ -7,6 +7,7 @@ export interface RequestContext {
   path: string
   method: string
   operation: string
+  geminiApiKey?: string
 }
 
 export interface OperatorInfo {

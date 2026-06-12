@@ -126,6 +126,7 @@ async function runQueuedTask<T>(task: WorkerTask, fn: () => Promise<T>): Promise
 function runQueuedTaskWithUserContext<T>(
   task: WorkerTask,
   clientIp: string,
+  geminiApiKey: string,
   fn: () => Promise<T>,
 ): Promise<T> {
   const context = {
@@ -135,7 +136,9 @@ function runQueuedTaskWithUserContext<T>(
     path: '/internal/worker/task',
     method: 'POST',
     operation: task.label,
+    geminiApiKey: geminiApiKey || undefined,
   }
+  console.log(`[Worker][user-context] task=${task.label} user=${task.userKey} personalGeminiKey=${geminiApiKey ? 'yes' : 'no'}`)
   return runQueuedTask(task, () => runWithRequestContext(context, fn))
 }
 
@@ -196,6 +199,7 @@ app.post('/internal/worker/testcase/lark-generate', (req, res) => {
     callbackUrl?: string
     operatorKey?: string
     operatorName?: string
+    personalGeminiKey?: string
   }
   const requestId = String(payload.requestId ?? '')
   const callbackUrl = String(payload.callbackUrl ?? '')
@@ -221,7 +225,11 @@ app.post('/internal/worker/testcase/lark-generate', (req, res) => {
   ;(async () => {
     let result
     try {
-      result = await runQueuedTaskWithUserContext(task, String(payload.clientIp ?? 'worker'), () => {
+      result = await runQueuedTaskWithUserContext(
+        task,
+        String(payload.clientIp ?? 'worker'),
+        String(payload.personalGeminiKey ?? ''),
+        () => {
         return runLarkGenerateTestcasesJob({
           body,
           clientIp: String(payload.clientIp ?? 'worker'),
@@ -229,7 +237,8 @@ app.post('/internal/worker/testcase/lark-generate', (req, res) => {
           operatorKey: String(payload.operatorKey ?? ''),
           operatorName: String(payload.operatorName ?? ''),
         })
-      })
+        },
+      )
     } catch (error) {
       result = { ok: false, message: error instanceof Error ? error.message : String(error) }
     }
@@ -258,6 +267,7 @@ app.post('/internal/worker/testcase/resume', (req, res) => {
     callbackUrl?: string
     operatorKey?: string
     operatorName?: string
+    personalGeminiKey?: string
   }
   const requestId = String(payload.requestId ?? '')
   const jobId = String(payload.jobId ?? '')
@@ -277,7 +287,11 @@ app.post('/internal/worker/testcase/resume', (req, res) => {
   ;(async () => {
     let result
     try {
-      result = await runQueuedTaskWithUserContext(task, String(payload.clientIp ?? 'worker'), () =>
+      result = await runQueuedTaskWithUserContext(
+        task,
+        String(payload.clientIp ?? 'worker'),
+        String(payload.personalGeminiKey ?? ''),
+        () =>
         resumeGenerationJob(jobId, String(payload.clientIp ?? 'worker'), task.userKey)
       )
     } catch (error) {
@@ -306,6 +320,7 @@ app.post('/internal/worker/testcase/file-generate', async (req, res) => {
     user?: string
     operatorKey?: string
     operatorName?: string
+    personalGeminiKey?: string
   }
   if (!Array.isArray(payload.files) || payload.files.length === 0) {
     return res.status(400).json({ ok: false, message: 'missing uploaded files' })
@@ -321,7 +336,11 @@ app.post('/internal/worker/testcase/file-generate', async (req, res) => {
   }
 
   try {
-    const result = await runQueuedTaskWithUserContext(task, String(payload.clientIp ?? 'worker'), () => {
+    const result = await runQueuedTaskWithUserContext(
+      task,
+      String(payload.clientIp ?? 'worker'),
+      String(payload.personalGeminiKey ?? ''),
+      () => {
       return runGenerateTestcasesFileJob({
         files: payload.files,
         oldFiles: payload.oldFiles ?? [],
@@ -331,7 +350,8 @@ app.post('/internal/worker/testcase/file-generate', async (req, res) => {
         operatorKey: String(payload.operatorKey ?? ''),
         operatorName: String(payload.operatorName ?? ''),
       })
-    })
+      },
+    )
     console.log(`[Worker][execute:finish] ${task.label} user=${task.userLabel} id=${task.id} ok=${result.ok}`)
     return res.json(result)
   } catch (error) {
@@ -352,6 +372,7 @@ app.post('/internal/worker/testcase/file-generate-async', (req, res) => {
     callbackUrl?: string
     operatorKey?: string
     operatorName?: string
+    personalGeminiKey?: string
   }
   const requestId = String(payload.requestId ?? '')
   const callbackUrl = String(payload.callbackUrl ?? '')
@@ -369,7 +390,11 @@ app.post('/internal/worker/testcase/file-generate-async', (req, res) => {
   ;(async () => {
     let result
     try {
-      result = await runQueuedTaskWithUserContext(task, String(payload.clientIp ?? 'worker'), () => runGenerateTestcasesFileJob({
+      result = await runQueuedTaskWithUserContext(
+        task,
+        String(payload.clientIp ?? 'worker'),
+        String(payload.personalGeminiKey ?? ''),
+        () => runGenerateTestcasesFileJob({
         files: payload.files!,
         oldFiles: payload.oldFiles ?? [],
         form: payload.form ?? {},
@@ -377,7 +402,8 @@ app.post('/internal/worker/testcase/file-generate-async', (req, res) => {
         user: task.userKey,
         operatorKey: String(payload.operatorKey ?? ''),
         operatorName: String(payload.operatorName ?? ''),
-      }))
+        }),
+      )
       console.log(`[Worker][execute:finish] ${task.label} user=${task.userLabel} id=${task.id} ok=${result.ok}`)
     } catch (error) {
       result = { ok: false, message: error instanceof Error ? error.message : String(error) }
