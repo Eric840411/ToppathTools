@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.50.4'
+export const APP_VERSION = '3.51.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.51.0',
+    date: '2026-06-12',
+    changes: [
+      'feat(lark): 文件上傳改為拖曳區塊（FileDropZone），支援拖曳 & 點擊上傳，拖入不合法格式顯示紅色提示 + 抖動動畫',
+    ],
+  },
   {
     version: '3.50.4',
     date: '2026-06-09',
