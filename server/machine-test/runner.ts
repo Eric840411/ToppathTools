@@ -160,14 +160,28 @@ const uploadCctvToServer = (buf: Buffer, filename: string) =>
 /**
  * Delegate Gemini Vision OCR to the central server's key pool.
  * When CENTRAL_URL is set (agent mode), use this instead of calling Gemini directly.
- * Falls back to direct call if proxy fails or CENTRAL_URL is not set.
+ * Falls back to a direct call only when the proxy cannot be reached.
  */
+async function readOcrProxyResult(resp: Response, context: string): Promise<string> {
+  const raw = await resp.text()
+  let data: { ok?: boolean; result?: string; error?: string } = {}
+  try {
+    data = raw ? JSON.parse(raw) as typeof data : {}
+  } catch {
+    // Keep the raw response below so proxy failures remain diagnosable.
+  }
+  if (resp.ok && data.ok && data.result) return data.result
+  const detail = data.error || raw || `HTTP ${resp.status}`
+  throw new Error(`${context}失敗（HTTP ${resp.status}）：${detail}`)
+}
+
 async function callGeminiVisionViaProxy(prompt: string, imageBase64: string, mimeType = 'image/png'): Promise<string> {
   const centralUrl = process.env.CENTRAL_URL
   if (centralUrl) {
     const httpBase = centralUrl.replace(/^ws(s?):\/\//, 'http$1://').replace(/\/ws\/.*$/, '')
+    let resp: Response
     try {
-      const resp = await fetch(`${httpBase}/api/machine-test/ocr-proxy`, {
+      resp = await fetch(`${httpBase}/api/machine-test/ocr-proxy`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -177,18 +191,12 @@ async function callGeminiVisionViaProxy(prompt: string, imageBase64: string, mim
         },
         body: JSON.stringify({ prompt, images: [{ base64: imageBase64, mimeType }] }),
       })
-      if (resp.ok) {
-        const data = await resp.json() as { ok: boolean; result?: string; error?: string }
-        if (data.ok && data.result) return data.result
-        console.error('[Agent] ocr-proxy error:', data.error)
-      } else {
-        console.error(`[Agent] ocr-proxy HTTP ${resp.status}`)
-      }
     } catch (e) {
       console.error('[Agent] ocr-proxy request failed:', e)
+      return callGeminiVision(prompt, imageBase64, mimeType)
     }
+    return readOcrProxyResult(resp, '中央 OCR proxy')
   }
-  // fallback: direct local call (requires GEMINI_API_KEY in env)
   return callGeminiVision(prompt, imageBase64, mimeType)
 }
 
@@ -196,8 +204,9 @@ async function callGeminiVisionMultiViaProxy(prompt: string, images: Array<{ bas
   const centralUrl = process.env.CENTRAL_URL
   if (centralUrl) {
     const httpBase = centralUrl.replace(/^ws(s?):\/\//, 'http$1://').replace(/\/ws\/.*$/, '')
+    let resp: Response
     try {
-      const resp = await fetch(`${httpBase}/api/machine-test/ocr-proxy`, {
+      resp = await fetch(`${httpBase}/api/machine-test/ocr-proxy`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -207,16 +216,11 @@ async function callGeminiVisionMultiViaProxy(prompt: string, images: Array<{ bas
         },
         body: JSON.stringify({ prompt, images }),
       })
-      if (resp.ok) {
-        const data = await resp.json() as { ok: boolean; result?: string; error?: string }
-        if (data.ok && data.result) return data.result
-        console.error('[Agent] ocr-proxy multi error:', data.error)
-      } else {
-        console.error(`[Agent] ocr-proxy multi HTTP ${resp.status}`)
-      }
     } catch (e) {
       console.error('[Agent] ocr-proxy multi request failed:', e)
+      return callGeminiVisionMulti(prompt, images)
     }
+    return readOcrProxyResult(resp, '中央 OCR proxy multi')
   }
   return callGeminiVisionMulti(prompt, images)
 }
