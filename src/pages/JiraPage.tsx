@@ -3447,13 +3447,13 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                     </button>
                     {errCount > 0 && (
                       <span style={{ fontSize: 12, color: '#d29922', display: 'flex', alignItems: 'center', gap: 5 }}>
-                        ⚠ {errCount} 筆格式錯誤，修正後才能送出
+                        ⚠ {errCount} 筆格式不完整，仍可強制送出
                       </span>
                     )}
                     <button type="button"
                       className={`submit-btn submit-btn--step${commentSubmitting ? ' loading' : ''}`}
                       style={{ whiteSpace: 'nowrap', flexShrink: 0, marginLeft: 'auto' }}
-                      disabled={errCount > 0 || commentSubmitting || !!pendingCommentRequestId}
+                      disabled={commentSubmitting || !!pendingCommentRequestId}
                       onClick={handleSubmitFromPreview}>
                       {commentSubmitting
                         ? commentProgress
