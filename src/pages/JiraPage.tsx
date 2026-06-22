@@ -1489,8 +1489,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
   // Submit from preview — uses edited comment text + cached attachments
   const handleSubmitFromPreview = async () => {
-    const errorCount = previewItems.filter(i => i.hasError).length
-    if (errorCount > 0 || !currentAccount) return
+    if (!currentAccount) return
     setCommentSubmitting(true)
     setPendingCommentRequestId('')
     setCommentProgress(null)
@@ -3438,29 +3437,39 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               {/* Preview submit bar */}
               {(() => {
                 const errCount = previewItems.filter(i => i.hasError).length
+                const pct = commentProgress ? Math.round(commentProgress.done / commentProgress.total * 100) : 0
                 return (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                    <button type="button" className="btn-ghost btn-ghost--step"
-                      disabled={commentSubmitting}
-                      onClick={() => setPreviewMode(false)}>
-                      ← 返回設定
-                    </button>
-                    {errCount > 0 && (
-                      <span style={{ fontSize: 12, color: '#d29922', display: 'flex', alignItems: 'center', gap: 5 }}>
-                        ⚠ {errCount} 筆格式不完整，仍可強制送出
-                      </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {commentSubmitting && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8' }}>
+                          <span>{commentProgress ? `處理中 ${commentProgress.done} / ${commentProgress.total}` : '提交中...'}</span>
+                          {commentProgress && <span>{pct}%</span>}
+                        </div>
+                        <div style={{ height: 6, borderRadius: 3, background: '#1e2d3d', overflow: 'hidden' }}>
+                          <div style={{ height: '100%', borderRadius: 3, background: '#3b82f6', width: `${pct}%`, transition: 'width 0.3s ease' }} />
+                        </div>
+                      </div>
                     )}
-                    <button type="button"
-                      className={`submit-btn submit-btn--step${commentSubmitting ? ' loading' : ''}`}
-                      style={{ whiteSpace: 'nowrap', flexShrink: 0, marginLeft: 'auto' }}
-                      disabled={commentSubmitting || !!pendingCommentRequestId}
-                      onClick={handleSubmitFromPreview}>
-                      {commentSubmitting
-                        ? commentProgress
-                          ? `處理中 ${commentProgress.done}/${commentProgress.total}...`
-                          : '提交中...'
-                        : `確認送出（${previewItems.length} 筆）`}
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <button type="button" className="btn-ghost btn-ghost--step"
+                        disabled={commentSubmitting}
+                        onClick={() => setPreviewMode(false)}>
+                        ← 返回設定
+                      </button>
+                      {errCount > 0 && (
+                        <span style={{ fontSize: 12, color: '#d29922', display: 'flex', alignItems: 'center', gap: 5 }}>
+                          ⚠ {errCount} 筆格式不完整，仍可強制送出
+                        </span>
+                      )}
+                      <button type="button"
+                        className={`submit-btn submit-btn--step${commentSubmitting ? ' loading' : ''}`}
+                        style={{ whiteSpace: 'nowrap', flexShrink: 0, marginLeft: 'auto' }}
+                        disabled={commentSubmitting || !!pendingCommentRequestId}
+                        onClick={handleSubmitFromPreview}>
+                        {commentSubmitting ? '處理中...' : `確認送出（${previewItems.length} 筆）`}
+                      </button>
+                    </div>
                   </div>
                 )
               })()}

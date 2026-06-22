@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.52.1'
+export const APP_VERSION = '3.52.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.52.2',
+    date: '2026-06-22',
+    changes: [
+      'fix(jira): 批次評論格式驗證改為警告，不再擋下送出（前後端均移除強制驗證）',
+      'fix(jira): 修正 handleSubmitFromPreview 內部仍有 errorCount 擋住送出的問題',
+      'feat(jira): 批次評論送出進度條移至按鈕列上方獨立顯示，含百分比與動畫',
+    ],
+  },
   {
     version: '3.52.1',
     date: '2026-06-12',

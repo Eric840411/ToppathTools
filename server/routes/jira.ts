@@ -1476,17 +1476,6 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
     const body = batchCommentSchema.parse(req.body)
     const baseUrl = mustEnv('JIRA_BASE_URL')
 
-    // ── Backend format validation (same 5-section rule as frontend) ──
-    const REQUIRED_SECTIONS = ['【功能目的】', '【前置條件】', '【測試步驟】', '【說明與備註】', '【驗證結果】']
-    const validationErrors = body.comments
-      .map(item => {
-        const missing = REQUIRED_SECTIONS.filter(s => !item.rawComment.includes(s))
-        return missing.length > 0 ? { rowIndex: item.rowIndex, issueKey: item.issueKey, missing } : null
-      })
-      .filter((e): e is NonNullable<typeof e> => e !== null)
-    if (validationErrors.length > 0) {
-      return res.status(400).json({ ok: false, message: '評論格式不符', validationErrors })
-    }
 
     const heavyTask = tryStartHeavyTask(req, 'jira-batch-comment', 'Jira 批次評論')
     if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
