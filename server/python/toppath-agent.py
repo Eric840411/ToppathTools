@@ -114,11 +114,25 @@ spin_interval_override = None  # set by server via should-stop poll
 spin_interval_lock = __import__('threading').Lock()
 
 def poll_stop():
-    global spin_interval_override
+    global spin_interval_override, session_id
     while not stop_flag.is_set():
         try:
             r = requests.get(f"{server_url}/api/autospin/agent/{session_id}/should-stop", timeout=5)
             d = r.json()
+            # Session not found (server restarted) — re-register to get a new session
+            if d.get('sessionNotFound'):
+                print(f"[Agent] Session 已失效，嘗試重新連線伺服器...")
+                try:
+                    resp = requests.post(f"{server_url}/api/autospin/agent/start",
+                                         json={'userLabel': user_label}, timeout=10)
+                    new_data = resp.json()
+                    session_id = new_data['sessionId']
+                    print(f"[Agent] 重新連線成功，新 Session: {session_id}")
+                    log(f"[Agent] 斷線重連成功（伺服器重啟），繼續執行中")
+                except Exception as e:
+                    print(f"[Agent] 重連失敗，將在下次輪詢重試: {e}")
+                time.sleep(3)
+                continue
             if d.get('stop'):
                 log("[Agent] 伺服器發出停止指令")
                 stop_flag.set()
@@ -176,32 +190,55 @@ def click_positions(page, positions: list):
             log(f"  找不到座標位: {pos}")
 
 
-def dismiss_popups(page):
-    """關閉大廳彈出的廣告 / 公告 popup（找 X 關閉按鈕或 ESC）"""
-    # 常見關閉按鈕 selector（廣告 popup、公告、品牌新遊戲推薦等）
+def dismiss_popups(page, retries: int = 3):
+    """關閉大廳彈出的廣告 / 公告 popup（找 X 關閉按鈕或 ESC），重試 retries 次"""
     close_selectors = [
         '.modal-close', '.popup-close', '.close-btn', '.btn-close',
         '[class*="close"]', '[class*="Close"]',
         'button:has-text("X")', 'button:has-text("×")',
+        # 不限 button 元素，任何含 × 文字的元素
+        ':text("×")', ':text("✕")', ':text("x")',
         '.icon-close', '.lc-close',
+        # Jackpot / 活動彈框
+        '[class*="jackpot"] [class*="close"]', '[class*="jackpot"] [class*="Close"]',
+        '[class*="popup"] [class*="close"]', '[class*="dialog"] [class*="close"]',
+        # 大廳廣告/公告常見的 bg overlay（點擊空白處關閉）
+        '.lc-modal .bg', '.modal-bg', '.overlay-bg', '[class*="mask"]',
     ]
     dismissed = False
-    for sel in close_selectors:
+    for _ in range(retries):
+        found_any = False
+        for sel in close_selectors:
+            try:
+                btns = page.locator(sel).all()
+                for btn in btns:
+                    if btn.is_visible():
+                        try:
+                            btn.click(timeout=1500, force=True)
+                        except Exception:
+                            btn.evaluate("el => el.click()")
+                        time.sleep(0.3)
+                        dismissed = True
+                        found_any = True
+            except Exception:
+                pass
         try:
-            btns = page.locator(sel).all()
-            for btn in btns:
-                if btn.is_visible():
-                    btn.click(timeout=1500)
-                    time.sleep(0.3)
-                    dismissed = True
+            page.keyboard.press('Escape')
+            time.sleep(0.2)
         except Exception:
             pass
-    # 也試 Escape
-    try:
-        page.keyboard.press('Escape')
-        time.sleep(0.3)
-    except Exception:
-        pass
+        # 最後手段：點視窗右上角固定座標（Jackpot/活動彈框 × 按鈕常在此）
+        if not found_any:
+            try:
+                vp = page.viewport_size or {'width': 432, 'height': 780}
+                # 試點右上角幾個常見位置
+                for fx, fy in [(0.88, 0.08), (0.92, 0.06), (0.85, 0.10)]:
+                    page.mouse.click(vp['width'] * fx, vp['height'] * fy)
+                    time.sleep(0.3)
+            except Exception:
+                pass
+            break
+        time.sleep(0.5)
     return dismissed
 
 
@@ -265,10 +302,11 @@ def enter_game(page, cfg: dict) -> bool:
     except Exception:
         pass
 
+    # 直接用 JS click（同 machine-test 做法，繞過 Playwright pointer-events 攔截）
     try:
-        target_item.click(timeout=3000)
+        target_item.evaluate("el => el.click()")
     except Exception as e:
-        log(f"[{mt}] 點擊遊戲卡片失敗: {e}")
+        log(f"[{mt}] JS click 失敗: {e}")
         return False
 
     log(f"[{mt}] 點擊遊戲卡片: {target_item.get_attribute('title') or game_title_code}")

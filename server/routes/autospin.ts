@@ -533,11 +533,15 @@ router.post('/api/autospin/agent/:id/stop', (req, res) => {
 // GET /api/autospin/agent/:id/should-stop — agent polls for stop command (also serves as heartbeat)
 router.get('/api/autospin/agent/:id/should-stop', (req, res) => {
   const s = agentSessions.get(req.params.id)
-  if (s && s.status === 'running') s.lastHeartbeat = Date.now()
+  if (!s) {
+    // Session not found (server restarted) — tell agent to reconnect, not stop
+    return res.json({ stop: false, sessionNotFound: true, pause: false, spinInterval: null })
+  }
+  if (s.status === 'running') s.lastHeartbeat = Date.now()
   res.json({
-    stop: !s || s.stopRequested || s.status === 'stopped',
-    pause: s?.pauseRequested ?? false,
-    spinInterval: s?.spinIntervalOverride ?? null,
+    stop: s.stopRequested || s.status === 'stopped',
+    pause: s.pauseRequested ?? false,
+    spinInterval: s.spinIntervalOverride ?? null,
   })
 })
 
@@ -730,9 +734,8 @@ SERVER_URL="${serverUrl}"
 URI="\${1:-}"
 
 mkdir -p "$INSTALL_DIR"
-if [ ! -f "$AGENT_SCRIPT" ]; then
-  curl -fsSL "$SERVER_URL/api/autospin/agent/download/agent.py" -o "$AGENT_SCRIPT"
-fi
+# Always download the latest agent script on each launch
+curl -fsSL "$SERVER_URL/api/autospin/agent/download/agent.py" -o "$AGENT_SCRIPT"
 
 if [ ! -x "$PYTHON_BIN" ]; then
   osascript -e 'display dialog "Toppath Agent is not installed yet. Please run the macOS installer first." buttons {"OK"} default button "OK"' >/dev/null 2>&1 || true
