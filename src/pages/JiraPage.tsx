@@ -2417,7 +2417,16 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           {/* Validation error summary */}
           {Object.keys(cellErrors).length > 0 && (
             <div className="alert-warn" style={{ marginBottom: 12 }}>
-              {Object.keys(cellErrors).length} 列有必填欄位未填，請填寫後再執行
+              {Object.keys(cellErrors).length} 列有必填欄位未填，請填寫後再執行（第&nbsp;
+              {Object.keys(cellErrors).map(Number).sort((a, b) => a - b).map((idx, i, arr) => (
+                <span key={idx}>
+                  <span
+                    style={{ cursor: 'pointer', textDecoration: 'underline', color: '#fbbf24' }}
+                    onClick={() => document.getElementById(`jira-dyn-row-${idx}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                  >{idx}</span>{i < arr.length - 1 ? '、' : ''}
+                </span>
+              ))}
+              &nbsp;列）
             </div>
           )}
 
@@ -2778,7 +2787,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                       const rowErrors = cellErrors[rowIdx] ?? {}
                       const hasRowError = Object.keys(rowErrors).length > 0
                       return (
-                        <tr key={rowIdx} style={hasRowError ? { background: 'rgba(239,68,68,0.05)' } : undefined}>
+                        <tr key={rowIdx} id={`jira-dyn-row-${rowIdx}`} style={hasRowError ? { background: 'rgba(239,68,68,0.18)', borderLeft: '3px solid #ef4444' } : undefined}>
                           <td>
                             <input type="checkbox"
                               checked={selectedRows.has(rowIdx)}
@@ -2963,7 +2972,18 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               {submitting ? '處理中...' : `開始執行（${selectedRows.size} 筆）`}
             </button>
             {Object.keys(cellErrors).length > 0 && (
-              <span style={{ fontSize: 12, color: '#f87171' }}>{Object.keys(cellErrors).length} 列有必填未填</span>
+              <span style={{ fontSize: 12, color: '#f87171' }}>
+                {Object.keys(cellErrors).length} 列有必填未填，第&nbsp;
+                {Object.keys(cellErrors).map(Number).sort((a, b) => a - b).map((idx, i, arr) => (
+                  <span key={idx}>
+                    <span
+                      style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                      onClick={() => document.getElementById(`jira-dyn-row-${idx}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
+                    >{idx}</span>{i < arr.length - 1 ? '、' : ''}
+                  </span>
+                ))}
+                &nbsp;列
+              </span>
             )}
           </div>
         </div>
@@ -3187,22 +3207,6 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             </div>
           )}
 
-          {(commentSubmitting || !!pendingCommentRequestId) && commentProgress && (
-            <div style={{ margin: '12px 0 4px', fontSize: 13, color: '#475569' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <span>處理中：<strong>{commentProgress.current || '...'}</strong></span>
-                <span>{commentProgress.done} / {commentProgress.total} 筆</span>
-              </div>
-              <div style={{ background: '#e2e8f0', borderRadius: 4, height: 6, overflow: 'hidden' }}>
-                <div style={{
-                  background: '#3b82f6',
-                  height: '100%',
-                  width: `${Math.round(commentProgress.done / commentProgress.total * 100)}%`,
-                  transition: 'width 0.3s ease',
-                }} />
-              </div>
-            </div>
-          )}
           {!!pendingCommentRequestId && !commentSubmitting && (
             <div style={{ margin: '10px 0 4px', fontSize: 12, color: '#b45309' }}>
               串流已中斷，正在嘗試從後端恢復結果，完成前將暫時鎖定提交按鈕。

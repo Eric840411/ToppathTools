@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.52.3'
+export const APP_VERSION = '3.52.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.52.4',
+    date: '2026-06-23',
+    changes: [
+      'feat(jira): 動態欄位必填驗證訊息列出具體列號，可點擊自動捲動到該列',
+      'feat(jira): 有錯誤的列加深紅色底色 + 左側紅色邊框，更易識別',
+    ],
+  },
   {
     version: '3.52.3',
     date: '2026-06-23',
