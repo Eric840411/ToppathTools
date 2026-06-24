@@ -1253,10 +1253,12 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
         return { ...obj, _rowIndex: i + 2 }
       })
       .filter((r) => {
-        // Skip completely empty rows — ignore columns with blank/whitespace headers (e.g. row-number column),
-        // checkbox false values (0/false), and blank cells
+        // Skip completely empty rows — ignore serial-number / checkbox / blank columns
+        // "編號" is a row-counter column, not real content
+        const SERIAL_HEADERS = new Set(['編號', 'No.', 'No', '#', 'no'])
         const hasAnyContent = headers.some(h => {
-          if (!h || !h.trim()) return false   // skip unnamed columns (row-number column, etc.)
+          if (!h || !h.trim()) return false   // unnamed column
+          if (SERIAL_HEADERS.has(h.trim())) return false  // serial-number column — not real content
           const v = r[h]?.trim()
           if (!v || v === '0' || v === 'false') return false
           return true
