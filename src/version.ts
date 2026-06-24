@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.53.9'
+export const APP_VERSION = '3.53.10'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.53.10',
+    date: '2026-06-24',
+    changes: [
+      'feat(jira): 批量修改欄位對應新增「手動設定」模式，受託人顯示 Jira 人員下拉、優先級顯示固定選單、其他欄位顯示文字輸入框，送出時自動組成正確 Jira API 格式（assignee 用 accountId，priority 用 name）',
+    ],
+  },
   {
     version: '3.53.9',
     date: '2026-06-24',

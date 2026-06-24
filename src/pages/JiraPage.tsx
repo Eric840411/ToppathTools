@@ -491,14 +491,22 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const [editTabHeaders, setEditTabHeaders] = useState<string[]>([])
   const [editTabIssues, setEditTabIssues] = useState<{ rowIndex: number; issueKey: string }[]>([])
   const [editTabSelectedKeys, setEditTabSelectedKeys] = useState<Set<string>>(new Set())
-  const [editFieldMappings, setEditFieldMappings] = useState<{ jiraField: string; sheetColumn: string }[]>([
-    { jiraField: 'summary', sheetColumn: '' },
-  ])
+  type EditFieldMapping = {
+    jiraField: string
+    mode: 'sheet' | 'manual'
+    sheetColumn: string
+    manualValue: string
+    manualAccountId: string
+  }
+  const blankMapping = (): EditFieldMapping => ({ jiraField: 'summary', mode: 'sheet', sheetColumn: '', manualValue: '', manualAccountId: '' })
+  const [editFieldMappings, setEditFieldMappings] = useState<EditFieldMapping[]>([blankMapping()])
   const [editTabSubmitting, setEditTabSubmitting] = useState(false)
   const [editTabResults, setEditTabResults] = useState<{ issueKey: string; ok: boolean; error?: string }[]>([])
   const [editTabJiraData, setEditTabJiraData] = useState<Record<string, Record<string, string>>>({})
   const [editTabJiraLoading, setEditTabJiraLoading] = useState(false)
   const [editTabJiraError, setEditTabJiraError] = useState('')
+  const [editTabMembers, setEditTabMembers] = useState<Member[]>([])
+  const [editTabMembersLoading, setEditTabMembersLoading] = useState(false)
 
   // 追蹤所有已進入流程的 issue（本次 session 合併最新 stage）
   const [trackedIssues, setTrackedIssues] = useState<TrackedIssue[]>([])
@@ -1857,31 +1865,65 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       setEditTabHeaders(headers)
       setEditTabIssues(issues)
       setEditTabSelectedKeys(new Set(issues.map(i => i.issueKey)))
-      setEditFieldMappings([{ jiraField: 'summary', sheetColumn: '' }])
+      setEditFieldMappings([blankMapping()])
       setEditTabStep(2)
       // Async fetch current Jira data for preview
       void fetchEditTabJiraData(issues.map(i => i.issueKey))
+      // Async fetch members for manual assignee picker
+      if (currentAccount) {
+        setEditTabMembersLoading(true)
+        fetch('/api/jira/members', { headers: { 'x-jira-email': currentAccount.email } })
+          .then(r => r.json()).then((d: { ok: boolean; members?: Member[] }) => {
+            if (d.ok) setEditTabMembers(d.members ?? [])
+          }).catch(() => {}).finally(() => setEditTabMembersLoading(false))
+      }
     } catch { setEditTabError('網路錯誤') }
     finally { setEditTabLoading(false) }
   }
 
   const handleEditTabSubmit = async () => {
-    const activeMappings = editFieldMappings.filter(m => m.sheetColumn)
+    const activeMappings = editFieldMappings.filter(m =>
+      m.mode === 'sheet' ? !!m.sheetColumn : !!(m.manualValue || m.manualAccountId)
+    )
     if (!activeMappings.length || !currentAccount) return
     setEditTabSubmitting(true); setEditTabError('')
     try {
       const items = editTabIssues.filter(issue => editTabSelectedKeys.has(issue.issueKey)).map(issue => {
         const rec = editTabRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
         const fields: Record<string, unknown> = {}
-        for (const { jiraField, sheetColumn } of activeMappings) {
-          const val = (rec?.[sheetColumn] ?? '').trim()
-          if (!val) continue
-          if (jiraField === 'summary') {
-            fields.summary = val
-          } else if (jiraField === 'description') {
-            fields.description = { version: 1, type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: val }] }] }
+        for (const m of activeMappings) {
+          if (m.mode === 'manual') {
+            if (m.jiraField === 'assignee') {
+              if (m.manualAccountId) fields.assignee = { id: m.manualAccountId }
+            } else if (m.jiraField === 'priority') {
+              if (m.manualValue) fields.priority = { name: m.manualValue }
+            } else if (m.jiraField === 'labels') {
+              const tags = m.manualValue.split(',').map(s => s.trim()).filter(Boolean)
+              if (tags.length) fields.labels = tags
+            } else if (m.jiraField === 'description') {
+              if (m.manualValue) fields.description = { version: 1, type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: m.manualValue }] }] }
+            } else {
+              if (m.manualValue) fields[m.jiraField] = m.manualValue
+            }
           } else {
-            fields[jiraField] = val
+            const val = (rec?.[m.sheetColumn] ?? '').toString().trim()
+            if (!val) continue
+            if (m.jiraField === 'summary') {
+              fields.summary = val
+            } else if (m.jiraField === 'description') {
+              fields.description = { version: 1, type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: val }] }] }
+            } else if (m.jiraField === 'assignee') {
+              // Try to resolve display name → accountId
+              const member = editTabMembers.find(mb => mb.displayName === val || mb.accountId === val)
+              fields.assignee = { id: member?.accountId ?? val }
+            } else if (m.jiraField === 'priority') {
+              fields.priority = { name: val }
+            } else if (m.jiraField === 'labels') {
+              const tags = val.split(',').map(s => s.trim()).filter(Boolean)
+              if (tags.length) fields.labels = tags
+            } else {
+              fields[m.jiraField] = val
+            }
           }
         }
         return { issueKey: issue.issueKey, fields }
@@ -4186,49 +4228,105 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             <div className="section-card">
               <h2 className="section-title">設定欄位對應（{editTabSelectedKeys.size} 筆 Issue）</h2>
               <p style={{ color: '#64748b', fontSize: 13, marginBottom: 12 }}>
-                選擇要修改的 Jira 欄位，並指定從 Lark Sheet 哪一欄取值。多個欄位可同時修改。
+                選擇要修改的 Jira 欄位，並選擇來源（Sheet 欄位 或 手動設定）。
               </p>
               {editTabError && <div className="alert-error" style={{ marginBottom: 10 }}>{editTabError}</div>}
 
               {/* Field mappings */}
               <div className="form-stack" style={{ marginBottom: 12 }}>
-                {editFieldMappings.map((mapping, idx) => (
-                  <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center', minWidth: 0, overflow: 'hidden' }}>
-                    <select
-                      value={mapping.jiraField}
-                      onChange={e => setEditFieldMappings(prev => prev.map((m, i) => i === idx ? { ...m, jiraField: e.target.value } : m))}
-                      style={{ width: 160, flexShrink: 0, padding: '6px 10px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
-                    >
-                      <option value="summary">摘要 (Summary)</option>
-                      <option value="description">描述 (Description)</option>
-                      <option value="priority">優先級 (Priority)</option>
-                      <option value="assignee">受託人 (Assignee)</option>
-                      <option value="labels">標籤 (Labels)</option>
-                    </select>
-                    <span style={{ color: '#64748b', fontSize: 13, flexShrink: 0 }}>←</span>
-                    <select
-                      value={mapping.sheetColumn}
-                      onChange={e => setEditFieldMappings(prev => prev.map((m, i) => i === idx ? { ...m, sheetColumn: e.target.value } : m))}
-                      style={{ flex: '1 1 0', minWidth: 0, padding: '6px 10px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
-                    >
-                      <option value="">— 選擇 Sheet 欄位 —</option>
-                      {editTabHeaders.map((h, i) => <option key={h || `h-${i}`} value={h}>{h}</option>)}
-                    </select>
-                    {editFieldMappings.length > 1 && (
-                      <button type="button" onClick={() => setEditFieldMappings(prev => prev.filter((_, i) => i !== idx))}
-                        style={{ background: 'none', border: 'none', color: '#f85149', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: '0 4px', flexShrink: 0 }}>×</button>
-                    )}
-                  </div>
-                ))}
+                {editFieldMappings.map((mapping, idx) => {
+                  const updateMapping = (patch: Partial<EditFieldMapping>) =>
+                    setEditFieldMappings(prev => prev.map((m, i) => i === idx ? { ...m, ...patch } : m))
+                  const isManual = mapping.mode === 'manual'
+                  return (
+                    <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center', minWidth: 0, flexWrap: 'wrap' }}>
+                      {/* Jira field selector */}
+                      <select
+                        value={mapping.jiraField}
+                        onChange={e => updateMapping({ jiraField: e.target.value, manualValue: '', manualAccountId: '' })}
+                        style={{ width: 170, flexShrink: 0, padding: '6px 10px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
+                      >
+                        <option value="summary">摘要 (Summary)</option>
+                        <option value="description">描述 (Description)</option>
+                        <option value="priority">優先級 (Priority)</option>
+                        <option value="assignee">受託人 (Assignee)</option>
+                        <option value="labels">標籤 (Labels)</option>
+                      </select>
+                      <span style={{ color: '#64748b', fontSize: 13, flexShrink: 0 }}>←</span>
+                      {/* Mode toggle */}
+                      <span style={{ display: 'flex', border: '1px solid #2d3f55', borderRadius: 6, overflow: 'hidden', flexShrink: 0 }}>
+                        {(['sheet', 'manual'] as const).map(m => (
+                          <button key={m} type="button"
+                            onClick={() => updateMapping({ mode: m, sheetColumn: '', manualValue: '', manualAccountId: '' })}
+                            style={{
+                              fontSize: 11, padding: '5px 10px', cursor: 'pointer', border: 'none',
+                              background: mapping.mode === m ? '#1e3a5f' : '#0f172a',
+                              color: mapping.mode === m ? '#93c5fd' : '#64748b',
+                              fontWeight: mapping.mode === m ? 700 : 400,
+                            }}
+                          >{m === 'sheet' ? 'Sheet 欄' : '手動'}</button>
+                        ))}
+                      </span>
+                      {/* Value input */}
+                      {isManual ? (
+                        mapping.jiraField === 'assignee' ? (
+                          <select
+                            value={mapping.manualAccountId}
+                            onChange={e => {
+                              const mb = editTabMembers.find(m => m.accountId === e.target.value)
+                              updateMapping({ manualAccountId: e.target.value, manualValue: mb?.displayName ?? '' })
+                            }}
+                            style={{ flex: '1 1 0', minWidth: 160, padding: '6px 10px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
+                          >
+                            <option value="">— 選擇人員 —</option>
+                            {editTabMembersLoading && <option disabled>載入中…</option>}
+                            {editTabMembers.map(m => <option key={m.accountId} value={m.accountId}>{m.displayName}</option>)}
+                          </select>
+                        ) : mapping.jiraField === 'priority' ? (
+                          <select
+                            value={mapping.manualValue}
+                            onChange={e => updateMapping({ manualValue: e.target.value })}
+                            style={{ flex: '1 1 0', minWidth: 160, padding: '6px 10px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
+                          >
+                            <option value="">— 選擇優先級 —</option>
+                            {['Highest', 'High', 'Medium', 'Low', 'Lowest'].map(p => <option key={p} value={p}>{p}</option>)}
+                          </select>
+                        ) : (
+                          <input
+                            value={mapping.manualValue}
+                            onChange={e => updateMapping({ manualValue: e.target.value })}
+                            placeholder={mapping.jiraField === 'labels' ? '標籤1, 標籤2（逗號分隔）' : '輸入值'}
+                            style={{ flex: '1 1 0', minWidth: 160, padding: '6px 10px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
+                          />
+                        )
+                      ) : (
+                        <select
+                          value={mapping.sheetColumn}
+                          onChange={e => updateMapping({ sheetColumn: e.target.value })}
+                          style={{ flex: '1 1 0', minWidth: 160, padding: '6px 10px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
+                        >
+                          <option value="">— 選擇 Sheet 欄位 —</option>
+                          {editTabHeaders.map((h, i) => <option key={h || `h-${i}`} value={h}>{h}</option>)}
+                        </select>
+                      )}
+                      {editFieldMappings.length > 1 && (
+                        <button type="button" onClick={() => setEditFieldMappings(prev => prev.filter((_, i) => i !== idx))}
+                          style={{ background: 'none', border: 'none', color: '#f85149', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: '0 4px', flexShrink: 0 }}>×</button>
+                      )}
+                    </div>
+                  )
+                })}
                 <button type="button" className="btn-ghost" style={{ alignSelf: 'flex-start', marginTop: 4 }}
-                  onClick={() => setEditFieldMappings(prev => [...prev, { jiraField: 'summary', sheetColumn: '' }])}>
+                  onClick={() => setEditFieldMappings(prev => [...prev, blankMapping()])}>
                   + 新增欄位
                 </button>
               </div>
 
               {/* Preview table */}
               {editTabSelectedKeys.size > 0 && (() => {
-                const activeMaps = editFieldMappings.filter(m => m.sheetColumn)
+                const activeMaps = editFieldMappings.filter(m =>
+                  m.mode === 'sheet' ? !!m.sheetColumn : !!(m.manualValue || m.manualAccountId)
+                )
                 const fieldLabel: Record<string, string> = { summary: '摘要', description: '描述', priority: '優先級', assignee: '受託人', labels: '標籤' }
                 const selectedIssues = editTabIssues.filter(i => editTabSelectedKeys.has(i.issueKey)).slice(0, 50)
                 const jiraCols = ['summary', 'assignee', 'status'] as const
@@ -4285,13 +4383,18 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                   ))}
                                   {activeMaps.map((m, i) => {
                                     const current = jira?.[m.jiraField] ?? ''
-                                    const next = (rec?.[m.sheetColumn] ?? '').toString().trim()
-                                    const changed = next && current !== next
+                                    const next = m.mode === 'manual'
+                                      ? (m.manualValue || m.manualAccountId || '')
+                                      : (rec?.[m.sheetColumn] ?? '').toString().trim()
+                                    const changed = !!next && current !== next
                                     return (
                                       <span key={i} style={{ display: 'contents' }}>
                                         <td style={{ ...tdBase, color: '#64748b', borderLeft: i === 0 ? '2px solid #2563eb40' : undefined }}>{current || '—'}</td>
                                         <td style={{ ...tdBase, color: '#475569', textAlign: 'center', padding: '4px 2px' }}>→</td>
-                                        <td style={{ ...tdBase, color: changed ? '#4ade80' : '#374151', fontWeight: changed ? 600 : 400 }}>{next || '（無資料）'}</td>
+                                        <td style={{ ...tdBase, color: changed ? '#4ade80' : '#374151', fontWeight: changed ? 600 : 400 }}>
+                                          {next || <span style={{ color: '#374151' }}>（未設定）</span>}
+                                          {m.mode === 'manual' && <span style={{ fontSize: 10, color: '#60a5fa', marginLeft: 4 }}>手動</span>}
+                                        </td>
                                       </span>
                                     )
                                   })}
@@ -4314,7 +4417,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 <button type="button"
                   className={`submit-btn submit-btn--step${editTabSubmitting ? ' loading' : ''}`}
                   style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
-                  disabled={editTabSubmitting || !editFieldMappings.some(m => m.sheetColumn) || !currentAccount}
+                  disabled={editTabSubmitting || !editFieldMappings.some(m => m.mode === 'sheet' ? !!m.sheetColumn : !!(m.manualValue || m.manualAccountId)) || !currentAccount}
                   onClick={handleEditTabSubmit}
                 >
                   {editTabSubmitting ? '修改中...' : `確認修改（${editTabSelectedKeys.size} 筆）`}
