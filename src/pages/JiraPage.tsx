@@ -1512,6 +1512,19 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   // Submit from preview — uses edited comment text + cached attachments
   const handleSubmitFromPreview = async () => {
     if (!currentAccount) return
+
+    // Warn if any items still have unuploaded video attachments
+    const unuploadedVideos = previewItems.filter(item =>
+      item.cachedAttachments.some(a => a.isVideo && !a.cacheId)
+    )
+    if (unuploadedVideos.length > 0) {
+      const keys = unuploadedVideos.map(i => i.issueKey).join(', ')
+      const confirmed = window.confirm(
+        `以下 ${unuploadedVideos.length} 筆 Issue 有影片尚未上傳，送出後不會附到 Jira 評論：\n${keys}\n\n確定繼續送出評論（不含影片）？`
+      )
+      if (!confirmed) return
+    }
+
     setCommentSubmitting(true)
     setPendingCommentRequestId('')
     setCommentProgress(null)
@@ -3401,8 +3414,16 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                       </div>
                                     ) : att.isVideo ? (
                                       <div key={ai} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-                                        <div style={{ width: 60, height: 60, background: '#162032', border: '1px solid #2d3f55', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, cursor: 'default' }}>🎬</div>
-                                        <div style={{ fontSize: 9, color: '#64748b', maxWidth: 60, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>
+                                        {att.cacheId ? (
+                                          <video src={`/api/jira/attachment-cache/${att.cacheId}`}
+                                            style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 4, border: '1px solid #2d3f55' }} />
+                                        ) : (
+                                          <div style={{ width: 60, height: 60, background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.4)', borderRadius: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontSize: 18, gap: 2, cursor: 'default' }}>
+                                            <span>🎬</span>
+                                            <span style={{ fontSize: 9, color: '#f59e0b' }}>未上傳</span>
+                                          </div>
+                                        )}
+                                        <div style={{ fontSize: 9, color: att.cacheId ? '#64748b' : '#f59e0b', maxWidth: 60, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>
                                           {att.filename.length > 20 ? att.filename.slice(0, 20) + '…' : att.filename}
                                         </div>
                                       </div>
@@ -3424,6 +3445,11 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                 <div style={{ fontSize: 10, color: '#3fb950', marginTop: 5 }}>
                                   ✦ 圖片上傳至 Jira 附件區，評論末自動嵌入
                                 </div>
+                                {item.cachedAttachments.some(a => a.isVideo && !a.cacheId) && (
+                                  <div style={{ fontSize: 10, color: '#f59e0b', marginTop: 4, padding: '3px 6px', background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.3)', borderRadius: 4 }}>
+                                    ⚠ 有影片未上傳（Lark 插入附件格式無法自動下載），請用下方「上傳圖片/影片」手動上傳
+                                  </div>
+                                )}
                               </div>
                             )}
                             {/* Manual upload button */}

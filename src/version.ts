@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.52.8'
+export const APP_VERSION = '3.52.9'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.52.9',
+    date: '2026-06-24',
+    changes: [
+      'feat(jira): 批次評論預覽 - Lark 插入附件影片無法自動下載時，顯示「未上傳」黃色警示圖示與說明文字',
+      'feat(jira): 批次評論送出前，若有未上傳影片則彈出確認提示，可選擇繼續送出（不含影片）或取消去手動上傳',
+    ],
+  },
   {
     version: '3.52.8',
     date: '2026-06-24',

@@ -1003,6 +1003,7 @@ router.post('/api/jira/attachment-prefetch', async (req, res, next) => {
       }
     }
 
+
     for (const group of groups) {
       const attachments: (typeof result)[0]['attachments'] = []
 
@@ -1025,6 +1026,8 @@ router.post('/api/jira/attachment-prefetch', async (req, res, next) => {
           } else {
             const fileToken = parseLarkFileToken(trimmed)
             if (!fileToken) {
+              // filename-only cell (no URL/token) — Lark 「插入→附件」功能不透過 API 暴露 file token
+              // 顯示為影片圖示，使用者可用工具的手動上傳按鈕替代
               attachments.push({ cacheId: '', filename: trimmed, mimeType: 'video/link', isImage: false, isVideo: true, size: 0 })
               continue
             }
