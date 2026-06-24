@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.53.8'
+export const APP_VERSION = '3.53.9'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.53.9',
+    date: '2026-06-24',
+    changes: [
+      'fix(jira): 批量更新狀態改用 Lark Sheet 讀取模式（與批量評論一致），以 <table> 重寫預覽表格，摘要/狀態/受託人改由 batch-fetch-fields 載入',
+    ],
+  },
   {
     version: '3.53.8',
     date: '2026-06-24',

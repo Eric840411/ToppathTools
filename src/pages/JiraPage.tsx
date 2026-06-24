@@ -459,22 +459,21 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
   // ── Update mode ──
   type UpdateStep = 1 | 2 | 3
-  type UpdateRecord = { issueKey: string; fillPerson: string; title: string; rowIndex: number }
+  type UpdateRecord = { issueKey: string; rowIndex: number }
   const [updateStep, setUpdateStep] = useState<UpdateStep>(1)
   const [updateBitableUrl, setUpdateBitableUrl] = useState('')
   const [updateLoading, setUpdateLoading] = useState(false)
   const [updateError, setUpdateError] = useState('')
   const [updateRecords, setUpdateRecords] = useState<UpdateRecord[]>([])
-  const [updateJiraBaseUrl, setUpdateJiraBaseUrl] = useState('')
   // Transitions
   const [updateTransitions, setUpdateTransitions] = useState<JiraTransitionOption[]>([])
   const [updateTransitionId, setUpdateTransitionId] = useState('')
   const [updateSubmitting, setUpdateSubmitting] = useState(false)
   const [updateResults, setUpdateResults] = useState<{ issueKey: string; ok: boolean; error?: string }[]>([])
-  const [updateStats, setUpdateStats] = useState<{ totalRows: number; found: number; skippedEmpty: number; skippedInvalid: number } | null>(null)
-  const [updatePersonFilter, setUpdatePersonFilter] = useState<string>('') // '' = 全部, '__none__' = 無填寫人, else = 填寫人名
-  const [updateSummaries, setUpdateSummaries] = useState<Record<string, string>>({}) // issueKey → Jira summary
-  const [updateSelectedKeys, setUpdateSelectedKeys] = useState<Set<string>>(new Set()) // 勾選的 issue keys
+  const [updateJiraData, setUpdateJiraData] = useState<Record<string, Record<string, string>>>({})
+  const [updateJiraLoading, setUpdateJiraLoading] = useState(false)
+  const [updateJiraError, setUpdateJiraError] = useState('')
+  const [updateSelectedKeys, setUpdateSelectedKeys] = useState<Set<string>>(new Set())
 
   // ── Comment Tab (standalone 批量評論) ──
   const [commentTabUrl, setCommentTabUrl] = useState('')
@@ -1903,74 +1902,67 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   }
 
   // ── Update Mode handlers ──
+  const fetchUpdateJiraData = async (issueKeys: string[]) => {
+    if (!currentAccount) { setUpdateJiraError('請先選擇 Jira 帳號才能載入 Jira 資料'); return }
+    setUpdateJiraLoading(true); setUpdateJiraError('')
+    try {
+      const r = await fetch('/api/jira/batch-fetch-fields', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...emailHeader },
+        body: JSON.stringify({ issueKeys }),
+      })
+      const d = await r.json() as { ok: boolean; issues?: Record<string, Record<string, string>>; message?: string }
+      if (d.ok) { setUpdateJiraData(d.issues ?? {}) }
+      else { setUpdateJiraError(d.message ?? 'Jira 資料載入失敗') }
+    } catch { setUpdateJiraError('載入 Jira 資料時網路錯誤') }
+    finally { setUpdateJiraLoading(false) }
+  }
+
   const handleUpdateFetchBitable = async () => {
     if (!updateBitableUrl.trim()) return
-    setUpdateLoading(true); setUpdateError(''); setUpdateRecords([])
+    setUpdateLoading(true); setUpdateError(''); setUpdateRecords([]); setUpdateJiraData({}); setUpdateJiraError('')
     try {
-      const resp = await fetch('/api/jira/update-read-bitable', {
+      const resp = await fetch('/api/lark/sheets/records', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bitableUrl: updateBitableUrl.trim() }),
+        body: JSON.stringify({ sheetUrl: updateBitableUrl.trim(), includeCreated: true }),
       })
-      const data = await resp.json() as { ok: boolean; records?: UpdateRecord[]; message?: string; stats?: { totalRows: number; found: number; skippedEmpty: number; skippedInvalid: number }; jiraBaseUrl?: string }
+      const data = await resp.json() as { ok: boolean; records?: SheetRecord[]; headers?: string[]; message?: string }
       if (!data.ok) { setUpdateError(data.message ?? '讀取失敗'); return }
-      const records = data.records ?? []
-      if (records.length === 0) { setUpdateError('找不到 Jira Issue Key，請確認 Bitable 有 URL 欄且含有單號'); return }
+      const sheetRecords = data.records ?? []
+      const headers = data.headers ?? []
+      const issues = extractJiraIssuesFromRecords(sheetRecords, headers)
+      if (issues.length === 0) { setUpdateError('找不到已開單的 Jira Issue Key，請確認「Jira issue key」欄位有資料'); return }
+      const records: UpdateRecord[] = issues.map(i => ({ issueKey: i.issueKey, rowIndex: i.rowIndex }))
       setUpdateRecords(records)
-      setUpdateStats(data.stats ?? null)
-      setUpdatePersonFilter('')
       setUpdateSelectedKeys(new Set(records.map(r => r.issueKey)))
-      setUpdateSummaries({})
-      if (data.jiraBaseUrl) setUpdateJiraBaseUrl(data.jiraBaseUrl)
 
-      // Background-fetch Jira summaries
-      if (records.length > 0 && currentAccount) {
-        fetch('/api/jira/batch-fetch-summaries', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-jira-email': currentAccount.email },
-          body: JSON.stringify({ issueKeys: records.map(r => r.issueKey) }),
-        }).then(r => r.json()).then((d: { ok: boolean; summaries?: { issueKey: string; summary: string }[] }) => {
-          const map: Record<string, string> = {}
-          if (d.ok && d.summaries) {
-            d.summaries.forEach(s => { map[s.issueKey] = s.summary })
-          } else {
-            // Mark all as failed so UI shows '—' instead of '載入中...'
-            records.forEach(r => { map[r.issueKey] = r.title || '' })
-          }
-          setUpdateSummaries(map)
-        }).catch(() => {
-          // On error, fall back to title from Lark cell
-          const map: Record<string, string> = {}
-          records.forEach(r => { map[r.issueKey] = r.title || '' })
-          setUpdateSummaries(map)
-        })
-      }
+      // Load Jira data (summary, status, assignee)
+      fetchUpdateJiraData(records.map(r => r.issueKey))
 
       // Fetch transitions — try currentAccount first, then all stored accounts
-      if (records.length > 0) {
-        const emailsToTry: string[] = []
-        if (currentAccount?.email) emailsToTry.push(currentAccount.email)
-        try {
-          const accResp = await fetch('/api/jira/accounts')
-          const accData = await accResp.json() as { accounts?: { email: string }[] }
-          for (const a of accData.accounts ?? []) {
-            if (!emailsToTry.includes(a.email)) emailsToTry.push(a.email)
-          }
-        } catch { /* ignore */ }
-        const firstKey = records[0].issueKey
-        for (const email of emailsToTry) {
-          try {
-            const transResp = await fetch(`/api/jira/transitions?issueKey=${firstKey}`, {
-              headers: { 'x-jira-email': email },
-            })
-            const transData = await transResp.json() as { ok: boolean; transitions?: JiraTransitionOption[] }
-            if (transData.ok && (transData.transitions ?? []).length > 0) {
-              setUpdateTransitions(transData.transitions ?? [])
-              setUpdateTransitionId(transData.transitions![0].id)
-              break
-            }
-          } catch { /* try next */ }
+      const emailsToTry: string[] = []
+      if (currentAccount?.email) emailsToTry.push(currentAccount.email)
+      try {
+        const accResp = await fetch('/api/jira/accounts')
+        const accData = await accResp.json() as { accounts?: { email: string }[] }
+        for (const a of accData.accounts ?? []) {
+          if (!emailsToTry.includes(a.email)) emailsToTry.push(a.email)
         }
+      } catch { /* ignore */ }
+      const firstKey = records[0].issueKey
+      for (const email of emailsToTry) {
+        try {
+          const transResp = await fetch(`/api/jira/transitions?issueKey=${firstKey}`, {
+            headers: { 'x-jira-email': email },
+          })
+          const transData = await transResp.json() as { ok: boolean; transitions?: JiraTransitionOption[] }
+          if (transData.ok && (transData.transitions ?? []).length > 0) {
+            setUpdateTransitions(transData.transitions ?? [])
+            setUpdateTransitionId(transData.transitions![0].id)
+            break
+          }
+        } catch { /* try next */ }
       }
 
       setUpdateStep(2)
@@ -1984,12 +1976,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const handleUpdateExecute = async () => {
     if (updateSubmitting) return
     setUpdateSubmitting(true); setUpdateResults([])
-    const filtered = (updatePersonFilter === ''
-      ? updateRecords
-      : updatePersonFilter === '__none__'
-        ? updateRecords.filter(r => !r.fillPerson)
-        : updateRecords.filter(r => r.fillPerson === updatePersonFilter)
-    ).filter(r => updateSelectedKeys.has(r.issueKey))
+    const filtered = updateRecords.filter(r => updateSelectedKeys.has(r.issueKey))
     const execEmail = currentAccount?.email ?? ''
     const items = filtered.map(r => ({
       issueKey: r.issueKey,
@@ -2032,8 +2019,8 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
   const handleUpdateReset = () => {
     setUpdateStep(1); setUpdateBitableUrl(''); setUpdateRecords([]); setUpdateError('')
-    setUpdateTransitions([]); setUpdateTransitionId(''); setUpdateResults([]); setUpdatePersonFilter('')
-    setUpdateSummaries({}); setUpdateSelectedKeys(new Set())
+    setUpdateTransitions([]); setUpdateTransitionId(''); setUpdateResults([])
+    setUpdateJiraData({}); setUpdateJiraError(''); setUpdateSelectedKeys(new Set())
   }
 
   const StepDot = ({ s }: { s: Step }) => (
@@ -2121,7 +2108,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               : mode === 'qa' && qaSubMode === 'edit'
                 ? ({ 1: '讀取表格', 2: '選擇單子', 3: '設定欄位', 4: '修改結果' } as Record<number, string>)[editTabStep]
               : mode === 'pm' ? ({ 1: '讀取表格', 2: '確認清單', 3: '開單結果' } as Record<number, string>)[pmStep]
-              : ({ 1: '讀取 Bitable', 2: '設定帳號 & 動作', 3: '執行結果' } as Record<number, string>)[updateStep]}
+              : ({ 1: '讀取表格', 2: '設定帳號 & 動作', 3: '執行結果' } as Record<number, string>)[updateStep]}
           </span>
         </div>
         <div style={{ display: 'none' }}>
@@ -2311,19 +2298,19 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       {/* ── Update Mode (inside QA) ── */}
       {mode === 'qa' && qaSubMode === 'update' && (
         <>
-          {/* Step 1: 讀取 Bitable */}
+          {/* Step 1: 讀取表格 */}
           {updateStep === 1 && (
             <div className="section-card">
-              <h2 className="section-title">Step 1 — 讀取 Bitable</h2>
+              <h2 className="section-title">Step 1 — 讀取表格</h2>
               <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 12px' }}>
-                貼入 Lark Bitable URL，系統自動偵測 URL 欄（含 Jira 單號）與填寫人欄
+                貼入 Lark Sheet URL，系統自動偵測含 Jira 單號的列
               </p>
               {updateError && <div className="alert-error" style={{ marginBottom: 10 }}>{updateError}</div>}
               <div style={{ display: 'flex', gap: 8 }}>
                 <input
                   value={updateBitableUrl}
                   onChange={e => setUpdateBitableUrl(e.target.value)}
-                  placeholder="Lark Sheet URL（/wiki/ 或 /sheets/）或 Bitable URL"
+                  placeholder="Lark Sheet URL（/wiki/ 或 /sheets/）"
                   style={{ flex: 1, padding: '7px 12px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
                   onKeyDown={e => e.key === 'Enter' && handleUpdateFetchBitable()}
                 />
@@ -2341,53 +2328,12 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           )}
 
           {/* Step 2: 設定帳號 & 動作 */}
-          {updateStep === 2 && (() => {
-            const uniquePersons = [...new Set(updateRecords.map(r => r.fillPerson).filter(Boolean))]
-            const noneCount = updateRecords.filter(r => !r.fillPerson).length
-            const filteredRecords = updatePersonFilter === ''
-              ? updateRecords
-              : updatePersonFilter === '__none__'
-                ? updateRecords.filter(r => !r.fillPerson)
-                : updateRecords.filter(r => r.fillPerson === updatePersonFilter)
-            return (
+          {updateStep === 2 && (
             <div className="section-card">
               <h2 className="section-title">Step 2 — 選擇帳號 & 動作</h2>
-              <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 6px' }}>
+              <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 12px' }}>
                 共 <b style={{ color: '#e2e8f0' }}>{updateRecords.length}</b> 張單
-                {updatePersonFilter ? <>，篩選顯示 <b style={{ color: '#60a5fa' }}>{filteredRecords.length}</b> 張</> : ''}
               </p>
-              {updateStats && (
-                <p style={{ fontSize: 11, color: '#475569', margin: '0 0 12px' }}>
-                  讀取 {updateStats.totalRows} 列 → 找到 {updateStats.found} 張
-                  {updateStats.skippedEmpty > 0 ? `，跳過 ${updateStats.skippedEmpty} 空列` : ''}
-                  {updateStats.skippedInvalid > 0 ? `，${updateStats.skippedInvalid} 列格式不符` : ''}
-                </p>
-              )}
-
-              {/* 填寫人篩選 */}
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa', marginBottom: 8 }}>填寫人篩選</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {[
-                    { key: '', label: `全部 (${updateRecords.length})` },
-                    ...uniquePersons.map(p => ({ key: p, label: `${p} (${updateRecords.filter(r => r.fillPerson === p).length})` })),
-                    ...(noneCount > 0 ? [{ key: '__none__', label: `無 (${noneCount})` }] : []),
-                  ].map(opt => (
-                    <button
-                      key={opt.key}
-                      type="button"
-                      onClick={() => setUpdatePersonFilter(opt.key)}
-                      style={{
-                        fontSize: 12, padding: '4px 10px', borderRadius: 16, cursor: 'pointer',
-                        border: `1px solid ${updatePersonFilter === opt.key ? '#60a5fa' : '#334155'}`,
-                        background: updatePersonFilter === opt.key ? '#1e3a5f' : '#162032',
-                        color: updatePersonFilter === opt.key ? '#93c5fd' : '#94a3b8',
-                        fontWeight: updatePersonFilter === opt.key ? 700 : 400,
-                      }}
-                    >{opt.label}</button>
-                  ))}
-                </div>
-              </div>
 
               {/* 切換狀態 */}
               <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -2412,82 +2358,105 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 )}
               </div>
 
-              {/* Preview */}
-              <div style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa', marginBottom: 6 }}>
-                  預覽（共 {filteredRecords.length} 張）
+              {/* Jira error */}
+              {updateJiraError && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#1e1010', border: '1px solid #7f1d1d60', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>
+                  <span style={{ fontSize: 12, color: '#f87171', flex: 1 }}>⚠ {updateJiraError}</span>
+                  <button type="button"
+                    style={{ fontSize: 12, padding: '4px 12px', borderRadius: 5, border: '1px solid #f8717160', background: '#7f1d1d30', color: '#fca5a5', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    onClick={() => fetchUpdateJiraData(updateRecords.map(r => r.issueKey))}>
+                    重新載入 Jira 資料
+                  </button>
                 </div>
-                {/* Select-all row */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: '#94a3b8' }}>
-                    <input
-                      type="checkbox"
-                      checked={filteredRecords.length > 0 && filteredRecords.every(r => updateSelectedKeys.has(r.issueKey))}
-                      onChange={e => {
-                        setUpdateSelectedKeys(prev => {
-                          const next = new Set(prev)
-                          filteredRecords.forEach(r => e.target.checked ? next.add(r.issueKey) : next.delete(r.issueKey))
-                          return next
-                        })
-                      }}
-                    />
-                    全選 / 取消全選
-                  </label>
+              )}
+
+              {/* Preview table */}
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa' }}>
+                    預覽（共 {updateRecords.length} 張）
+                  </div>
                   <span style={{ fontSize: 11, color: '#60a5fa' }}>
-                    已選 {filteredRecords.filter(r => updateSelectedKeys.has(r.issueKey)).length} / {filteredRecords.length} 張
+                    已選 {updateRecords.filter(r => updateSelectedKeys.has(r.issueKey)).length} / {updateRecords.length} 張
                   </span>
                 </div>
                 <div style={{ border: '1px solid #1e3a5f', borderRadius: 6, overflow: 'hidden' }}>
-                  {/* Table header */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '32px 110px 80px 1fr', gap: 0, background: '#0f2744', borderBottom: '1px solid #1e3a5f' }}>
-                    <div style={{ padding: '5px 8px', borderRight: '1px solid #1e3a5f' }} />
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', padding: '5px 10px', borderRight: '1px solid #1e3a5f' }}>單號</div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', padding: '5px 10px', borderRight: '1px solid #1e3a5f' }}>填寫人</div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', padding: '5px 10px' }}>摘要</div>
-                  </div>
-                  {/* Rows */}
-                  <div style={{ maxHeight: 300, overflowY: 'auto' }}>
-                    {filteredRecords.slice(0, 200).map((r, idx) => {
-                      const isSelected = updateSelectedKeys.has(r.issueKey)
-                      const summary = updateSummaries[r.issueKey] || r.title || ''
-                      return (
-                        <div key={r.issueKey} style={{ display: 'grid', gridTemplateColumns: '32px 110px 80px 1fr', background: isSelected ? (idx % 2 === 0 ? '#0a1628' : '#0d1e38') : '#070f1e', borderBottom: '1px solid #1e293b', opacity: isSelected ? 1 : 0.45 }}>
-                          <div style={{ padding: '5px 8px', borderRight: '1px solid #1e293b', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <input type="checkbox" checked={isSelected}
+                  <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+                      <colgroup>
+                        <col style={{ width: 36 }} />
+                        <col style={{ width: 120 }} />
+                        <col style={{ width: 90 }} />
+                        <col />
+                        <col style={{ width: 110 }} />
+                      </colgroup>
+                      <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                        <tr style={{ background: '#0f2744', borderBottom: '1px solid #1e3a5f' }}>
+                          <th style={{ padding: '5px 8px', borderRight: '1px solid #1e3a5f' }}>
+                            <input type="checkbox"
+                              checked={updateRecords.length > 0 && updateRecords.every(r => updateSelectedKeys.has(r.issueKey))}
                               onChange={e => {
                                 setUpdateSelectedKeys(prev => {
                                   const next = new Set(prev)
-                                  e.target.checked ? next.add(r.issueKey) : next.delete(r.issueKey)
+                                  updateRecords.forEach(r => e.target.checked ? next.add(r.issueKey) : next.delete(r.issueKey))
                                   return next
                                 })
                               }}
                             />
-                          </div>
-                          <div style={{ padding: '5px 10px', borderRight: '1px solid #1e293b', display: 'flex', alignItems: 'center' }}>
-                            {updateJiraBaseUrl ? (
-                              <a href={`${updateJiraBaseUrl}/browse/${r.issueKey}`} target="_blank" rel="noreferrer"
-                                style={{ color: '#93c5fd', fontWeight: 700, fontSize: 12, textDecoration: 'none' }}
-                                onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
-                                onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}
-                              >{r.issueKey}</a>
-                            ) : (
-                              <code style={{ color: '#93c5fd', fontWeight: 700, fontSize: 12 }}>{r.issueKey}</code>
-                            )}
-                          </div>
-                          <div style={{ padding: '5px 10px', borderRight: '1px solid #1e293b', fontSize: 11, color: r.fillPerson ? '#94a3b8' : '#475569', display: 'flex', alignItems: 'center' }}>
-                            {r.fillPerson || '無'}
-                          </div>
-                          <div style={{ padding: '5px 10px', fontSize: 11, color: summary ? '#cbd5e1' : '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {r.issueKey in updateSummaries
-                              ? (summary || <span style={{ color: '#475569' }}>—</span>)
-                              : <span style={{ color: '#374151' }}>載入中...</span>}
-                          </div>
-                        </div>
-                      )
-                    })}
-                    {filteredRecords.length > 200 && (
-                      <div style={{ fontSize: 11, color: '#64748b', textAlign: 'center', padding: '6px 0' }}>...還有 {filteredRecords.length - 200} 張</div>
-                    )}
+                          </th>
+                          <th style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', padding: '5px 10px', textAlign: 'left', borderRight: '1px solid #1e3a5f' }}>單號</th>
+                          <th style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', padding: '5px 10px', textAlign: 'left', borderRight: '1px solid #1e3a5f' }}>狀態</th>
+                          <th style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', padding: '5px 10px', textAlign: 'left', borderRight: '1px solid #1e3a5f' }}>摘要</th>
+                          <th style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', padding: '5px 10px', textAlign: 'left' }}>受託人</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {updateRecords.slice(0, 200).map((r, idx) => {
+                          const isSelected = updateSelectedKeys.has(r.issueKey)
+                          const jira = updateJiraData[r.issueKey]
+                          return (
+                            <tr key={r.issueKey}
+                              onClick={() => setUpdateSelectedKeys(prev => { const n = new Set(prev); isSelected ? n.delete(r.issueKey) : n.add(r.issueKey); return n })}
+                              style={{ background: isSelected ? (idx % 2 === 0 ? '#0a1628' : '#0d1e38') : '#070f1e', opacity: isSelected ? 1 : 0.45, cursor: 'pointer', borderBottom: '1px solid #1e293b' }}>
+                              <td style={{ padding: '5px 8px', borderRight: '1px solid #1e293b', textAlign: 'center' }}
+                                onClick={e => e.stopPropagation()}>
+                                <input type="checkbox" checked={isSelected}
+                                  onChange={e => {
+                                    setUpdateSelectedKeys(prev => {
+                                      const next = new Set(prev)
+                                      e.target.checked ? next.add(r.issueKey) : next.delete(r.issueKey)
+                                      return next
+                                    })
+                                  }}
+                                />
+                              </td>
+                              <td style={{ padding: '5px 10px', borderRight: '1px solid #1e293b' }}
+                                onClick={e => e.stopPropagation()}>
+                                <a href={`${import.meta.env.VITE_JIRA_BASE_URL ?? ''}/browse/${r.issueKey}`} target="_blank" rel="noreferrer"
+                                  style={{ color: '#93c5fd', fontWeight: 700, fontSize: 12, textDecoration: 'none' }}
+                                  onMouseEnter={e => (e.currentTarget.style.textDecoration = 'underline')}
+                                  onMouseLeave={e => (e.currentTarget.style.textDecoration = 'none')}
+                                >{r.issueKey}</a>
+                              </td>
+                              <td style={{ padding: '5px 10px', borderRight: '1px solid #1e293b', fontSize: 11, color: '#94a3b8' }}>
+                                {updateJiraLoading && !jira ? <span style={{ color: '#374151' }}>載入中…</span>
+                                  : jira ? (jira.status || '—') : '—'}
+                              </td>
+                              <td style={{ padding: '5px 10px', borderRight: '1px solid #1e293b', fontSize: 11, color: '#cbd5e1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {updateJiraLoading && !jira ? <span style={{ color: '#374151' }}>載入中…</span>
+                                  : jira ? (jira.summary || '—') : '—'}
+                              </td>
+                              <td style={{ padding: '5px 10px', fontSize: 11, color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {jira ? (jira.assignee || '—') : '—'}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                        {updateRecords.length > 200 && (
+                          <tr><td colSpan={5} style={{ fontSize: 11, color: '#64748b', textAlign: 'center', padding: '6px 0' }}>...還有 {updateRecords.length - 200} 張</td></tr>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>
@@ -2497,16 +2466,15 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 <button
                   type="button"
                   className={`submit-btn submit-btn--step${updateSubmitting ? ' loading' : ''}`}
-                  disabled={updateSubmitting || !currentAccount || filteredRecords.filter(r => updateSelectedKeys.has(r.issueKey)).length === 0}
+                  disabled={updateSubmitting || !currentAccount || updateRecords.filter(r => updateSelectedKeys.has(r.issueKey)).length === 0}
                   onClick={handleUpdateExecute}
                   style={{ whiteSpace: 'nowrap' }}
                 >
-                  {updateSubmitting ? '執行中…' : `▶ 執行（${filteredRecords.filter(r => updateSelectedKeys.has(r.issueKey)).length} 張）`}
+                  {updateSubmitting ? '執行中…' : `▶ 執行（${updateRecords.filter(r => updateSelectedKeys.has(r.issueKey)).length} 張）`}
                 </button>
               </div>
             </div>
-            )
-          })()}
+          )}
 
           {/* Step 3: 結果 */}
           {updateStep === 3 && (
