@@ -1136,6 +1136,10 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
         // (returnFormula=false should have prevented this, but guard just in case)
         return cell
       }
+      if (Array.isArray(cell)) {
+        // Lark rich-text array: [{text:"CGMN-1", link:"...", type:"url"}, {text:"\n"}, ...]
+        return (cell as Array<{ text?: string }>).map(run => run.text ?? '').join('')
+      }
       if (typeof cell === 'object') {
         const c = cell as Record<string, unknown>
         // Inline image cells: { type: "embed-image", fileToken: "...", link: "..." }
@@ -1216,6 +1220,7 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
 
     // First pass: extract raw string values and collect cross-sheet formula refs
     const dataRows = rows.slice(1)
+
     const rawStrRows = dataRows.map(row => (row as unknown[]).map(cell => extractCell(cell)))
 
     const formulaRefs = new Set<string>()

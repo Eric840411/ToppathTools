@@ -328,8 +328,8 @@ export const callGeminiWithRotation = (prompt: string): Promise<string> => {
   })
 }
 
-/** Exponential backoff delays for 503 (model overload): 1s, 2s, 4s */
-const BACKOFF_DELAYS_MS = [1000, 2000, 4000]
+/** Exponential backoff delays for 503 (model overload): 5 retries before rotating key */
+const BACKOFF_DELAYS_MS = [2000, 4000, 8000, 15000, 30000]
 
 /** Sleep with random jitter: base ± 20% */
 const sleepWithJitter = (ms: number) =>

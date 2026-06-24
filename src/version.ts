@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.52.5'
+export const APP_VERSION = '3.52.7'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,23 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.52.7',
+    date: '2026-06-24',
+    changes: [
+      'fix(jira): Lark 帶入對 user/multiuser 欄位加入驗證，無效值不再送 Jira（先比對 accountId，再比對 displayName，找不到就跳過）',
+    ],
+  },
+  {
+    version: '3.52.6',
+    date: '2026-06-24',
+    changes: [
+      'fix(jira): 修正 Lark rich-text array 格式欄位（URL 連結 cell）被解析為空字串，導致「單子標題貼這↓」過濾失效',
+      'fix(jira): 同步修正摘要欄公式（IF/SPLIT/INDEX）因 Q 欄 array 格式而評估為空的問題',
+      'fix(jira): Step 3 計畫執行改用 filteredRecords，已開單列不再進入 Jira 開單流程（防止重複建立）',
+      'fix(jira): 「已勾選 X 筆」與「開始執行 X 筆」按鈕計數改為只統計過濾後的可見列',
+    ],
+  },
   {
     version: '3.52.5',
     date: '2026-06-24',

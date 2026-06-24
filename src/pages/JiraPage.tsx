@@ -818,6 +818,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       } else {
         setSheetHeaders(data.headers)
         setSheetRecords(data.records)
+        // Auto-select all rows; already-created rows will be excluded by filteredRecords filter
         setSelectedRows(new Set(data.records.map((r: SheetRecord) => Number(r._rowIndex))))
         setColumnFilters({})
         setStep(3)
@@ -979,7 +980,17 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             ? [field.name, FORCED_LARK_ALIAS[field.key], field.key]
             : [field.name, field.key]
         for (const alias of aliases) {
-          const val = getField(record, alias).trim()
+          let val = getField(record, alias).trim()
+          if (!val) continue
+          // For user/multiuser fields: resolve to valid accountId, skip if not found
+          if (field.type === 'user' || field.type === 'multiuser') {
+            const ids = val.split(',').map(v => v.trim()).filter(Boolean)
+            const resolved = ids.map(id => {
+              if (members.some(m => m.accountId === id)) return id
+              return members.find(m => m.displayName?.toLowerCase() === id.toLowerCase())?.accountId ?? ''
+            }).filter(Boolean)
+            val = resolved.join(',')
+          }
           if (val) { rowVals[field.key] = val; break }
         }
       }
@@ -1033,7 +1044,8 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   }
 
   // ── Step 3 → 4: 計算操作計畫 ──
-  const selectedRecords = sheetRecords.filter(r => selectedRows.has(Number(r._rowIndex)))
+  // Use filteredRecords (not sheetRecords) so already-created rows are never included
+  const selectedRecords = filteredRecords.filter(r => selectedRows.has(Number(r._rowIndex)))
   const planCreate     = selectedRecords.filter(needsCreate)
   const planComment    = selectedRecords.filter(needsComment)
   const planTransition = selectedRecords.filter(needsTransition)
@@ -2404,7 +2416,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               <span style={{ marginLeft: 10, display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 400 }}>
                 <span style={{ fontSize: 13, color: '#94a3b8' }}>{filteredRecords.length} 筆</span>
                 <span style={{ color: '#334155' }}>·</span>
-                <span style={{ fontSize: 14, color: '#60a5fa', fontWeight: 600 }}>已勾選 {selectedRows.size} 筆</span>
+                <span style={{ fontSize: 14, color: '#60a5fa', fontWeight: 600 }}>已勾選 {filteredRecords.filter(r => selectedRows.has(Number(r._rowIndex))).length} 筆</span>
               </span>
             )}
           </h2>
@@ -2977,9 +2989,9 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             <button type="button"
               className={`submit-btn submit-btn--step${submitting ? ' loading' : ''}`}
               style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
-              disabled={selectedRows.size === 0 || submitting || !currentAccount || fieldsLoading}
+              disabled={filteredRecords.filter(r => selectedRows.has(Number(r._rowIndex))).length === 0 || submitting || !currentAccount || fieldsLoading}
               onClick={handleCreate}>
-              {submitting ? '處理中...' : `開始執行（${selectedRows.size} 筆）`}
+              {submitting ? '處理中...' : `開始執行（${filteredRecords.filter(r => selectedRows.has(Number(r._rowIndex))).length} 筆）`}
             </button>
             {Object.keys(cellErrors).length > 0 && (
               <span style={{ fontSize: 12, color: '#f87171' }}>
