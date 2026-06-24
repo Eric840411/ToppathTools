@@ -1243,6 +1243,10 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
           } else if (val && /^(".*"|[A-Z]+\d+)(&(".*"|[A-Z]+\d+))+$/.test(val)) {
             // Same-sheet concatenation formula
             val = evalFormula(val, rawRow)
+          } else if (val && /^[A-Z_]+\(/.test(val)) {
+            // Lark v2 returns complex formula body (e.g. IF(Q4<>"", IFERROR(...))) for cells
+            // it cannot evaluate — treat as empty so garbage doesn't appear in Jira fields
+            val = ''
           }
           obj[h] = val
         })
@@ -1746,6 +1750,11 @@ ${commentText}
 
         // Push progress after each item completes
         pushCommentProgress(requestId, { done: results.length, total, current: item.issueKey })
+
+        // Avoid Gemini RPM throttling — pause between issues
+        if (results.length < total && !stoppedByAi) {
+          await new Promise(resolve => setTimeout(resolve, 2000))
+        }
       }
 
       const okCount = results.filter(r => r.ok).length

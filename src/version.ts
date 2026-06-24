@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.52.4'
+export const APP_VERSION = '3.52.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.52.5',
+    date: '2026-06-24',
+    changes: [
+      'feat(jira): Step 2 新增「過濾已開單」選項，可指定欄位名稱，有值的列自動跳過',
+      'fix(jira): 後端偵測 Lark 無法計算的複雜公式體（IF/IFERROR/SPLIT 等），自動清空不帶入欄位',
+    ],
+  },
   {
     version: '3.52.4',
     date: '2026-06-23',
