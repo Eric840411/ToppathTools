@@ -353,8 +353,6 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const [sheetError, setSheetError] = useState('')
   const [sheetRecords, setSheetRecords] = useState<SheetRecord[]>([])
   const [sheetHeaders, setSheetHeaders] = useState<string[]>([])
-  const [skipCreatedEnabled, setSkipCreatedEnabled] = useState(false)
-  const [skipCreatedColumn, setSkipCreatedColumn] = useState('單子標題貼這')
 
   // Step 3
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set())
@@ -378,14 +376,14 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     return result
   }, [filterableColumns, sheetRecords])
 
-  // Apply column filters to records
+  // Apply column filters to records; always skip rows where "單子標題貼這↓" is filled (already created)
   const filteredRecords = useMemo(() => {
     return sheetRecords.filter(r => {
       if (!Object.entries(columnFilters).every(([col, val]) => !val || (r[col] ?? '').trim() === val)) return false
-      if (skipCreatedEnabled && skipCreatedColumn.trim() && (r[skipCreatedColumn.trim()] ?? '').trim()) return false
+      if ((r['單子標題貼這↓'] ?? '').trim()) return false
       return true
     })
-  }, [sheetRecords, columnFilters, skipCreatedEnabled, skipCreatedColumn])
+  }, [sheetRecords, columnFilters])
 
   // Step 4 (create)
   const [submitting, setSubmitting] = useState(false)
@@ -2308,17 +2306,9 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 否則只顯示「Jira Issue Key」為空的列
               </span>
             </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#94a3b8', flexWrap: 'wrap' }}>
-              <input type="checkbox" checked={skipCreatedEnabled} onChange={e => setSkipCreatedEnabled(e.target.checked)} />
-              過濾已開單（有值則跳過）：
-              <input
-                value={skipCreatedColumn}
-                onChange={e => setSkipCreatedColumn(e.target.value)}
-                placeholder="欄位名稱，如：單子標題貼這"
-                disabled={!skipCreatedEnabled}
-                style={{ width: 180, fontSize: 13, opacity: skipCreatedEnabled ? 1 : 0.4, padding: '2px 6px', borderRadius: 4, border: '1px solid #334155', background: '#0f1c2e', color: '#e2e8f0' }}
-              />
-            </label>
+            <span className="field-hint" style={{ color: '#64748b', fontSize: 11 }}>
+              「單子標題貼這↓」欄位有值的列會自動過濾（視為已開單）
+            </span>
             {sheetError && <div className="alert-error">{sheetError}</div>}
           </div>
 
