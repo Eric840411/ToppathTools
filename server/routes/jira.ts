@@ -912,6 +912,42 @@ router.get('/api/jira/fields', async (req, res, next) => {
   }
 })
 
+// GET /api/jira/editmeta?issueKey=X — 取得指定 Issue 的可編輯欄位清單
+router.get('/api/jira/editmeta', async (req, res, next) => {
+  try {
+    const userAuth = userJiraAuth(req)
+    if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
+    const issueKey = String(req.query.issueKey ?? '').trim()
+    if (!issueKey) return res.status(400).json({ ok: false, message: 'issueKey 為必填' })
+
+    const baseUrl = mustEnv('JIRA_BASE_URL')
+    const resp = await fetch(`${baseUrl}/rest/api/2/issue/${issueKey}/editmeta`, {
+      headers: { Authorization: userAuth.auth, Accept: 'application/json' },
+    })
+    if (!resp.ok) return res.status(resp.status).json({ ok: false, message: `Jira editmeta error: ${resp.status}` })
+
+    const data = await resp.json() as { fields?: Record<string, Record<string, unknown>> }
+    const rawFields = data.fields ?? {}
+    const fields: NormalizedJiraField[] = []
+    for (const [key, meta] of Object.entries(rawFields)) {
+      const normalized = normalizeJiraField(key, meta)
+      if (normalized) fields.push(normalized)
+    }
+    await Promise.all(fields.map(async (field) => {
+      if ((field.type === 'user' || field.type === 'multiuser') && field.autoCompleteUrl && !field.options?.length) {
+        const options = await fetchUserFieldOptions(field.autoCompleteUrl, userAuth.auth, baseUrl)
+        if (options.length > 0) field.options = options
+      }
+    }))
+    fields.sort((a, b) => {
+      if (a.key === 'summary') return -1
+      if (b.key === 'summary') return 1
+      return a.name.localeCompare(b.name)
+    })
+    res.json({ ok: true, fields })
+  } catch (error) { next(error) }
+})
+
 // GET /api/jira/field-users?projectKey&issueTypeId&issueTypeName&fieldKey&query
 // 依使用者輸入的關鍵字，向 Jira 該欄位的 autoComplete 端點即時查使用者
 // （reporter 等欄位空查詢只回傳前 ~50 名推薦人，必須帶 query 才能找到其他人）

@@ -493,12 +493,14 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const [editTabSelectedKeys, setEditTabSelectedKeys] = useState<Set<string>>(new Set())
   type EditFieldMapping = {
     jiraField: string
+    fieldType: NormalizedJiraField['type']
+    fieldOptions: { id: string; label: string }[]
     mode: 'sheet' | 'manual'
     sheetColumn: string
     manualValue: string
     manualAccountId: string
   }
-  const blankMapping = (): EditFieldMapping => ({ jiraField: 'summary', mode: 'sheet', sheetColumn: '', manualValue: '', manualAccountId: '' })
+  const blankMapping = (): EditFieldMapping => ({ jiraField: 'summary', fieldType: 'string', fieldOptions: [], mode: 'sheet', sheetColumn: '', manualValue: '', manualAccountId: '' })
   const [editFieldMappings, setEditFieldMappings] = useState<EditFieldMapping[]>([blankMapping()])
   const [editTabSubmitting, setEditTabSubmitting] = useState(false)
   const [editTabResults, setEditTabResults] = useState<{ issueKey: string; ok: boolean; error?: string }[]>([])
@@ -507,6 +509,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const [editTabJiraError, setEditTabJiraError] = useState('')
   const [editTabMembers, setEditTabMembers] = useState<Member[]>([])
   const [editTabMembersLoading, setEditTabMembersLoading] = useState(false)
+  const [editTabAvailableFields, setEditTabAvailableFields] = useState<NormalizedJiraField[]>([])
 
   // 追蹤所有已進入流程的 issue（本次 session 合併最新 stage）
   const [trackedIssues, setTrackedIssues] = useState<TrackedIssue[]>([])
@@ -1877,6 +1880,14 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             if (d.ok) setEditTabMembers(d.members ?? [])
           }).catch(() => {}).finally(() => setEditTabMembersLoading(false))
       }
+      // Async fetch editmeta for first issue to get all editable fields
+      if (currentAccount && issues.length > 0) {
+        fetch(`/api/jira/editmeta?issueKey=${encodeURIComponent(issues[0].issueKey)}`, {
+          headers: { 'x-jira-email': currentAccount.email },
+        }).then(r => r.json()).then((d: { ok: boolean; fields?: NormalizedJiraField[] }) => {
+          if (d.ok && d.fields) setEditTabAvailableFields(d.fields)
+        }).catch(() => {})
+      }
     } catch { setEditTabError('網路錯誤') }
     finally { setEditTabLoading(false) }
   }
@@ -1892,38 +1903,44 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
         const rec = editTabRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
         const fields: Record<string, unknown> = {}
         for (const m of activeMappings) {
+          const ftype = m.fieldType
+          const fopts = m.fieldOptions
+
+          const buildFieldValue = (rawVal: string): unknown => {
+            if (!rawVal) return undefined
+            const ft = ftype || (m.jiraField === 'assignee' ? 'user' : m.jiraField === 'priority' ? 'select' : m.jiraField === 'labels' ? 'multiselect' : 'string')
+            if (ft === 'user' || ft === 'multiuser') {
+              const allMembers = editTabMembers.map(mb => ({ id: mb.accountId, label: mb.displayName }))
+              const opts = fopts.length ? fopts : allMembers
+              const found = opts.find(o => o.id === rawVal || o.label === rawVal)
+              const accountId = found?.id ?? rawVal
+              if (ft === 'multiuser') return rawVal.split(',').map(s => s.trim()).filter(Boolean).map(id => ({ accountId: id }))
+              return { id: accountId }
+            }
+            if (ft === 'select') {
+              // priority uses { name }, generic select uses { id }
+              if (m.jiraField === 'priority') return { name: rawVal }
+              const opt = fopts.find(o => o.label === rawVal || o.id === rawVal)
+              return opt ? { id: opt.id } : { name: rawVal }
+            }
+            if (ft === 'multiselect') {
+              return rawVal.split(',').map(s => s.trim()).filter(Boolean).map(v => {
+                const opt = fopts.find(o => o.label === v || o.id === v)
+                return opt ? { id: opt.id } : { value: v }
+              })
+            }
+            if (ft === 'number') return Number(rawVal) || 0
+            return rawVal  // string / text / date / datetime
+          }
+
           if (m.mode === 'manual') {
-            if (m.jiraField === 'assignee') {
-              if (m.manualAccountId) fields.assignee = { id: m.manualAccountId }
-            } else if (m.jiraField === 'priority') {
-              if (m.manualValue) fields.priority = { name: m.manualValue }
-            } else if (m.jiraField === 'labels') {
-              const tags = m.manualValue.split(',').map(s => s.trim()).filter(Boolean)
-              if (tags.length) fields.labels = tags
-            } else if (m.jiraField === 'description') {
-              if (m.manualValue) fields.description = { version: 1, type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: m.manualValue }] }] }
-            } else {
-              if (m.manualValue) fields[m.jiraField] = m.manualValue
-            }
+            const rawVal = m.manualAccountId || m.manualValue
+            const val = buildFieldValue(rawVal)
+            if (val !== undefined && val !== '') fields[m.jiraField] = val
           } else {
-            const val = (rec?.[m.sheetColumn] ?? '').toString().trim()
-            if (!val) continue
-            if (m.jiraField === 'summary') {
-              fields.summary = val
-            } else if (m.jiraField === 'description') {
-              fields.description = { version: 1, type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: val }] }] }
-            } else if (m.jiraField === 'assignee') {
-              // Try to resolve display name → accountId
-              const member = editTabMembers.find(mb => mb.displayName === val || mb.accountId === val)
-              fields.assignee = { id: member?.accountId ?? val }
-            } else if (m.jiraField === 'priority') {
-              fields.priority = { name: val }
-            } else if (m.jiraField === 'labels') {
-              const tags = val.split(',').map(s => s.trim()).filter(Boolean)
-              if (tags.length) fields.labels = tags
-            } else {
-              fields[m.jiraField] = val
-            }
+            const rawVal = (rec?.[m.sheetColumn] ?? '').toString().trim()
+            const val = buildFieldValue(rawVal)
+            if (val !== undefined && val !== '') fields[m.jiraField] = val
           }
         }
         return { issueKey: issue.issueKey, fields }
@@ -4243,14 +4260,23 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                       {/* Jira field selector */}
                       <select
                         value={mapping.jiraField}
-                        onChange={e => updateMapping({ jiraField: e.target.value, manualValue: '', manualAccountId: '' })}
-                        style={{ width: 170, flexShrink: 0, padding: '6px 10px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
+                        onChange={e => {
+                          const field = editTabAvailableFields.find(f => f.key === e.target.value)
+                          updateMapping({ jiraField: e.target.value, fieldType: field?.type ?? 'string', fieldOptions: field?.options ?? [], manualValue: '', manualAccountId: '' })
+                        }}
+                        style={{ width: 190, flexShrink: 0, padding: '6px 10px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
                       >
-                        <option value="summary">摘要 (Summary)</option>
-                        <option value="description">描述 (Description)</option>
-                        <option value="priority">優先級 (Priority)</option>
-                        <option value="assignee">受託人 (Assignee)</option>
-                        <option value="labels">標籤 (Labels)</option>
+                        {editTabAvailableFields.length > 0 ? (
+                          editTabAvailableFields.map(f => <option key={f.key} value={f.key}>{f.name}</option>)
+                        ) : (
+                          <>
+                            <option value="summary">摘要 (Summary)</option>
+                            <option value="description">描述 (Description)</option>
+                            <option value="priority">優先級 (Priority)</option>
+                            <option value="assignee">受託人 (Assignee)</option>
+                            <option value="labels">標籤 (Labels)</option>
+                          </>
+                        )}
                       </select>
                       <span style={{ color: '#64748b', fontSize: 13, flexShrink: 0 }}>←</span>
                       {/* Mode toggle */}
@@ -4269,28 +4295,41 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                       </span>
                       {/* Value input */}
                       {isManual ? (
-                        mapping.jiraField === 'assignee' ? (
+                        (mapping.fieldType === 'user' || mapping.fieldType === 'multiuser' || mapping.jiraField === 'assignee') ? (
+                          // User field: pick from members or field options
                           <select
                             value={mapping.manualAccountId}
                             onChange={e => {
-                              const mb = editTabMembers.find(m => m.accountId === e.target.value)
-                              updateMapping({ manualAccountId: e.target.value, manualValue: mb?.displayName ?? '' })
+                              const opts = mapping.fieldOptions.length ? mapping.fieldOptions : editTabMembers.map(m => ({ id: m.accountId, label: m.displayName }))
+                              const opt = opts.find(o => o.id === e.target.value)
+                              updateMapping({ manualAccountId: e.target.value, manualValue: opt?.label ?? '' })
                             }}
                             style={{ flex: '1 1 0', minWidth: 160, padding: '6px 10px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
                           >
                             <option value="">— 選擇人員 —</option>
-                            {editTabMembersLoading && <option disabled>載入中…</option>}
-                            {editTabMembers.map(m => <option key={m.accountId} value={m.accountId}>{m.displayName}</option>)}
+                            {editTabMembersLoading && !mapping.fieldOptions.length && <option disabled>載入中…</option>}
+                            {(mapping.fieldOptions.length ? mapping.fieldOptions : editTabMembers.map(m => ({ id: m.accountId, label: m.displayName }))).map(o => (
+                              <option key={o.id} value={o.id}>{o.label}</option>
+                            ))}
                           </select>
-                        ) : mapping.jiraField === 'priority' ? (
+                        ) : (mapping.fieldType === 'select' || mapping.fieldType === 'multiselect' || mapping.jiraField === 'priority') ? (
+                          // Select field: dropdown from options or priority list
                           <select
                             value={mapping.manualValue}
                             onChange={e => updateMapping({ manualValue: e.target.value })}
                             style={{ flex: '1 1 0', minWidth: 160, padding: '6px 10px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
                           >
-                            <option value="">— 選擇優先級 —</option>
-                            {['Highest', 'High', 'Medium', 'Low', 'Lowest'].map(p => <option key={p} value={p}>{p}</option>)}
+                            <option value="">— 選擇值 —</option>
+                            {(mapping.fieldOptions.length ? mapping.fieldOptions.map(o => o.label) : ['Highest', 'High', 'Medium', 'Low', 'Lowest']).map(v => (
+                              <option key={v} value={v}>{v}</option>
+                            ))}
                           </select>
+                        ) : mapping.fieldType === 'date' ? (
+                          <input type="date" value={mapping.manualValue} onChange={e => updateMapping({ manualValue: e.target.value })}
+                            style={{ flex: '1 1 0', minWidth: 160, padding: '6px 10px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }} />
+                        ) : mapping.fieldType === 'number' ? (
+                          <input type="number" value={mapping.manualValue} onChange={e => updateMapping({ manualValue: e.target.value })}
+                            placeholder="數字" style={{ flex: '1 1 0', minWidth: 160, padding: '6px 10px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }} />
                         ) : (
                           <input
                             value={mapping.manualValue}

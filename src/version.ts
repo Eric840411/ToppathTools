@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.53.10'
+export const APP_VERSION = '3.53.11'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.53.11',
+    date: '2026-06-24',
+    changes: [
+      'feat(jira): 批量修改欄位下拉改用 Jira editmeta 動態載入所有可編輯欄位；修正 description 400 錯誤（v2 API 用純字串）；select/multiselect/user 類型手動模式顯示對應選單',
+    ],
+  },
   {
     version: '3.53.10',
     date: '2026-06-24',
