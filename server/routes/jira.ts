@@ -2441,14 +2441,13 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
     if (issueKeys.length === 0) return res.json({ ok: true, issues: {} })
     const baseUrl = mustEnv('JIRA_BASE_URL')
     const jql = `key in (${issueKeys.map(k => `"${k}"`).join(',')})`
-    const resp = await fetch(`${baseUrl}/rest/api/2/search`, {
+    const resp = await fetch(`${baseUrl}/rest/api/2/search/jql`, {
       method: 'POST',
       headers: { Authorization: userAuth.auth, 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
         jql,
         fields: ['summary', 'assignee', 'reporter', 'description', 'priority', 'status', 'issuetype', 'labels'],
         maxResults: Math.min(issueKeys.length, 200),
-        startAt: 0,
       }),
     })
     if (!resp.ok) {
