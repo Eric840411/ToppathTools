@@ -1514,9 +1514,11 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     if (!currentAccount) return
 
     // Warn if any items still have unuploaded video attachments
-    const unuploadedVideos = previewItems.filter(item =>
-      item.cachedAttachments.some(a => a.isVideo && !a.cacheId)
-    )
+    const unuploadedVideos = previewItems.filter(item => {
+      const pendingLinks = item.cachedAttachments.filter(a => a.mimeType === 'video/link' && !a.cacheId).length
+      const uploadedVideos = item.cachedAttachments.filter(a => a.isVideo && !!a.cacheId).length
+      return pendingLinks > uploadedVideos
+    })
     if (unuploadedVideos.length > 0) {
       const keys = unuploadedVideos.map(i => i.issueKey).join(', ')
       const confirmed = window.confirm(
@@ -3445,7 +3447,11 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                 <div style={{ fontSize: 10, color: '#3fb950', marginTop: 5 }}>
                                   ✦ 圖片上傳至 Jira 附件區，評論末自動嵌入
                                 </div>
-                                {item.cachedAttachments.some(a => a.isVideo && !a.cacheId) && (
+                                {(() => {
+                                  const pendingLinks = item.cachedAttachments.filter(a => a.mimeType === 'video/link' && !a.cacheId).length
+                                  const uploadedVideos = item.cachedAttachments.filter(a => a.isVideo && !!a.cacheId).length
+                                  return pendingLinks > uploadedVideos
+                                })() && (
                                   <div style={{ fontSize: 10, color: '#f59e0b', marginTop: 4, padding: '3px 6px', background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.3)', borderRadius: 4 }}>
                                     ⚠ 有影片未上傳（Lark 插入附件格式無法自動下載），請用下方「上傳圖片/影片」手動上傳
                                   </div>
