@@ -1311,8 +1311,11 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
       const groups = toComment.map(issue => {
         const record = sheetRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
+        // Prefer __url (actual hyperlink URLs) over display text to avoid Drive 404 on hyperlink cells
+        const linkRaw = record ? (record[`${attachmentColumn}__url`] ?? '') : ''
         const raw = record ? getField(record, attachmentColumn) : ''
-        const urls = raw ? raw.split(/[\n,]/).map(s => s.trim()).filter(Boolean) : []
+        const sourceText = linkRaw || raw
+        const urls = sourceText ? sourceText.split(/[\n,]/).map((s: string) => s.trim()).filter(Boolean) : []
         return { rowIndex: issue.rowIndex, urls }
       })
       // Include ALL rows — empty-URL rows may have inline Lark Sheet images
@@ -1518,9 +1521,11 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       const record = sheetRecords.find(r => Number(r._rowIndex) === item.rowIndex)
       const validCached = item.cachedAttachments.filter(a => !!a.cacheId && !a.error)
       // Fallback: if prefetch failed, pass original URLs so server downloads them during submit
+      const linkRawFallback = (attachmentColumn && record) ? (record[`${attachmentColumn}__url`] ?? '') : ''
       const rawAttachText = (attachmentColumn && record) ? getField(record, attachmentColumn) : ''
-      const fallbackUrls = validCached.length === 0 && rawAttachText
-        ? rawAttachText.split(/[\n,]/).map(s => s.trim()).filter(Boolean)
+      const fallbackSource = linkRawFallback || rawAttachText
+      const fallbackUrls = validCached.length === 0 && fallbackSource
+        ? fallbackSource.split(/[\n,]/).map((s: string) => s.trim()).filter(Boolean)
         : []
       return {
         issueKey: item.issueKey,

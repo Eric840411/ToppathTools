@@ -246,8 +246,11 @@ const textToADF = (text: string) => {
 function parseLarkFileToken(url: string): string | null {
   const trimmed = url.trim()
   if (!trimmed) return null
-  // 純 token（不含斜線）
-  if (!trimmed.includes('/') && !trimmed.includes('?')) return trimmed
+  // Plain filename (has extension but no scheme/slash) — not a valid token or URL
+  if (!trimmed.includes('/') && !trimmed.includes('?')) {
+    if (/\.[a-z0-9]{2,5}$/i.test(trimmed)) return null  // looks like a filename, e.g. "video.mp4"
+    return trimmed  // bare token string (no extension)
+  }
   // /files/{token} 或 /file/{token}
   const m = trimmed.match(/\/files?\/([A-Za-z0-9_-]+)/)
   return m ? m[1] : null
@@ -1128,6 +1131,16 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
 
     /** Lark Sheets API can return cell values as strings, numbers, booleans,
      *  or rich-text/formula objects. Extract the plain text string in all cases. */
+    /** Extract http link URLs from rich-text array runs (for attachment/hyperlink cells). */
+    const extractCellUrls = (cell: unknown): string[] => {
+      if (!Array.isArray(cell)) return []
+      const urls: string[] = []
+      for (const run of cell as Array<{ text?: string; link?: string; type?: string }>) {
+        if (typeof run.link === 'string' && run.link.startsWith('http')) urls.push(run.link)
+      }
+      return urls
+    }
+
     const extractCell = (cell: unknown): string => {
       if (cell === null || cell === undefined) return ''
       if (typeof cell === 'number' || typeof cell === 'boolean') return String(cell)
@@ -1276,6 +1289,9 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
             val = evaluated !== null ? evaluated : ''
           }
           obj[h] = val
+          // For hyperlink cells, also store the actual link URLs so attachment pipeline can download them
+          const linkUrls = extractCellUrls(rawRow[ci])
+          if (linkUrls.length > 0) obj[`${h}__url`] = linkUrls.join('\n')
         })
         return { ...obj, _rowIndex: i + 2 }
       })

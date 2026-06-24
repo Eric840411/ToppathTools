@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.52.7'
+export const APP_VERSION = '3.52.8'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.52.8',
+    date: '2026-06-24',
+    changes: [
+      'fix(jira): 修正 Lark 附件超連結 cell 解析錯誤，extractCell 只取顯示文字導致 Drive API 404，現改為讀取 __url 欄位取得實際下載連結',
+      'fix(jira): parseLarkFileToken 新增防護，filename 格式字串（含副檔名）不再被誤當 file_token 送 Drive API',
+    ],
+  },
   {
     version: '3.52.7',
     date: '2026-06-24',
