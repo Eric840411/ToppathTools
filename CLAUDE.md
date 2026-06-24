@@ -153,6 +153,8 @@ Keep Claude for:
 | PM 批次開單 | 從 Lark 讀取 PM 規格，自動建立 Epic + Story |
 | 批次評論 | 對多筆 Issue 批量加入 AI 生成的評論內容 |
 | 批次轉換狀態 | 選擇 Issue 清單 + 目標狀態，批量執行 Jira transition |
+| 批量評論（獨立 Tab） | 貼入 Lark Sheet URL，自動偵測 Issue Key 列，不需經過開單流程直接批量加評論 |
+| 批量修改（獨立 Tab） | 貼入 Lark Sheet URL，選擇 Jira 欄位與 Sheet 欄位對應，批量修改摘要/描述/優先級等欄位 |
 | 查看成員 / 專案 | 列出帳號可存取的 Jira 成員和專案清單 |
 
 ---
@@ -366,6 +368,7 @@ Keep Claude for:
 |-------------|---------|
 | `jira` | Jira PM 批次開單 |
 | `jira-comment` | Jira 批次評論 |
+| `jira-edit` | Jira 批量修改欄位 |
 | `testcase` | TestCase 生成（Lark / PDF / Google Docs）|
 | `imagerecon` | ImageRecon 週報解析 |
 | `osm-components` | OSM 元件版本同步 |

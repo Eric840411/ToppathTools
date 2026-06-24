@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.52.9'
+export const APP_VERSION = '3.53.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,55 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.53.5',
+    date: '2026-06-24',
+    changes: [
+      'fix(jira): 批量修改/批量評論讀取 Sheet 時帶 includeCreated=true，正確回傳已開單列（原本被過濾掉）',
+      'fix(jira): 批量修改/批量評論 Issue 選擇表格改用 <table> 元素，欄位 header 與資料列對齊',
+      'fix(jira): Jira 資料載入失敗時顯示明確錯誤訊息，並提供「重新載入 Jira 資料」按鈕支援補選帳號後重試',
+    ],
+  },
+  {
+    version: '3.53.4',
+    date: '2026-06-24',
+    changes: [
+      'feat(jira): 批量修改 Step 3 新增變更預覽表格 — 顯示各 Issue 現有 Jira 值 → Sheet 新值，有差異的欄位以綠色標示，最多顯示 50 筆',
+      'feat(jira): 批量修改/批量評論以 __url 欄位優先偵測 Jira Key（超連結欄位），fallback 至文字開頭比對，解決顯示文字含標題時無法偵測的問題',
+      'feat(jira): 批量修改 Step 2 讀取 Jira API 現有資料（摘要/受託人/狀態）並顯示於 Issue 選擇清單',
+    ],
+  },
+  {
+    version: '3.53.3',
+    date: '2026-06-24',
+    changes: [
+      'feat(jira): 批量評論/批量修改 Issue 選擇步驟新增欄位篩選器 — 自動偵測 2–15 個唯一值的欄位顯示 dropdown 篩選，同時展示 Sheet 各欄內容，方便快速定位並勾選目標 Issue',
+    ],
+  },
+  {
+    version: '3.53.2',
+    date: '2026-06-24',
+    changes: [
+      'feat(jira): 批量評論/批量修改/批量更新狀態三個 Tab 均新增 Issue 選擇步驟 — 讀取 Sheet 後先列出所有偵測到的 Issue Key 並提供全選/取消全選，使用者勾選後才進入評論/欄位設定步驟',
+      'fix(jira): 批量修改欄位對應列 overflow 修正（minWidth: 0, flexShrink: 0）',
+    ],
+  },
+  {
+    version: '3.53.1',
+    date: '2026-06-24',
+    changes: [
+      'fix(jira): 批量開單流程簡化為 4 步驟（移除 Step 5 評論和 Step 6 切換狀態），Step 4 完成後直接顯示「完成，重新開始」；評論和改狀態改由獨立 Tab 處理',
+    ],
+  },
+  {
+    version: '3.53.0',
+    date: '2026-06-24',
+    changes: [
+      'feat(jira): QA 模式新增「批量評論」獨立 Tab — 貼入 Lark Sheet URL，自動偵測 Jira Issue Key 列，直接進入評論/附件流程，不需經過開單步驟',
+      'feat(jira): QA 模式新增「批量修改」獨立 Tab — 貼入 Lark Sheet URL，設定 Jira 欄位與 Sheet 欄位對應，批量修改 Issue 摘要/描述/優先級等欄位',
+      'feat(jira): 後端新增 POST /api/jira/batch-edit 端點（PUT /rest/api/2/issue/{key}），逐筆更新並回報結果',
+    ],
+  },
   {
     version: '3.52.9',
     date: '2026-06-24',

@@ -1102,7 +1102,7 @@ router.get('/api/jira/attachment-cache/:cacheId', (req, res) => {
 // POST /api/lark/sheets/records
 router.post('/api/lark/sheets/records', async (req, res, next) => {
   try {
-    const { sheetUrl } = z.object({ sheetUrl: z.string() }).parse(req.body)
+    const { sheetUrl, includeCreated } = z.object({ sheetUrl: z.string(), includeCreated: z.boolean().optional() }).parse(req.body)
     const { spreadsheetToken, sheetId } = parseLarkSheetUrl(sheetUrl)
 
     if (!spreadsheetToken) {
@@ -1311,6 +1311,9 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
         })
         if (!hasAnyContent) return false
         if (stageHeader) return r[stageHeader] !== '已完成'
+        // includeCreated=true: return ALL non-empty rows (for batch-edit/comment);
+        // frontend extractJiraIssuesFromRecords() will filter to rows with Jira keys.
+        if (includeCreated) return true
         return !r[jiraKeyHeader] || r[jiraKeyHeader].trim() === ''
       })
 
@@ -2425,6 +2428,106 @@ router.post('/api/jira/bulk-update', async (req, res, next) => {
     const fail = results.filter(r => !r.ok).length
     log(fail > 0 ? 'warn' : 'ok', getClientIP(req), '', 'Jira 批次更新', `成功 ${ok} 筆${fail > 0 ? `，失敗 ${fail} 筆` : ''}`)
     addHistory('jira-update', 'Jira 批次更新狀態', `成功 ${ok} 筆，失敗 ${fail} 筆`, { results })
+    res.json({ ok: true, results })
+  } catch (error) { next(error) }
+})
+
+// POST /api/jira/batch-fetch-fields — 批量讀取 Jira Issue 現有欄位值
+router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
+  try {
+    const userAuth = userJiraAuth(req)
+    if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
+    const { issueKeys } = z.object({ issueKeys: z.array(z.string()) }).parse(req.body)
+    if (issueKeys.length === 0) return res.json({ ok: true, issues: {} })
+    const baseUrl = mustEnv('JIRA_BASE_URL')
+    const jql = `key in (${issueKeys.map(k => `"${k}"`).join(',')})`
+    const resp = await fetch(`${baseUrl}/rest/api/2/search`, {
+      method: 'POST',
+      headers: { Authorization: userAuth.auth, 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        jql,
+        fields: ['summary', 'assignee', 'reporter', 'description', 'priority', 'status', 'issuetype', 'labels'],
+        maxResults: Math.min(issueKeys.length, 200),
+        startAt: 0,
+      }),
+    })
+    if (!resp.ok) {
+      const txt = await resp.text()
+      return res.status(resp.status).json({ ok: false, message: `Jira API error: ${txt.slice(0, 200)}` })
+    }
+    type JiraIssue = {
+      key: string
+      fields: {
+        summary?: string
+        assignee?: { displayName?: string }
+        reporter?: { displayName?: string }
+        priority?: { name?: string }
+        status?: { name?: string }
+        issuetype?: { name?: string }
+        labels?: string[]
+        description?: unknown
+      }
+    }
+    const data = await resp.json() as { issues?: JiraIssue[] }
+    const issues: Record<string, Record<string, string>> = {}
+    for (const issue of data.issues ?? []) {
+      const f = issue.fields
+      issues[issue.key] = {
+        summary: f.summary ?? '',
+        assignee: f.assignee?.displayName ?? '',
+        reporter: f.reporter?.displayName ?? '',
+        status: f.status?.name ?? '',
+        priority: f.priority?.name ?? '',
+        issuetype: f.issuetype?.name ?? '',
+        labels: (f.labels ?? []).join(', '),
+      }
+    }
+    res.json({ ok: true, issues })
+  } catch (error) { next(error) }
+})
+
+// POST /api/jira/batch-edit — 批量修改 Jira Issue 欄位
+router.post('/api/jira/batch-edit', async (req, res, next) => {
+  try {
+    const userAuth = userJiraAuth(req)
+    if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
+
+    const { items } = z.object({
+      items: z.array(z.object({
+        issueKey: z.string(),
+        fields: z.record(z.string(), z.unknown()),
+      })),
+    }).parse(req.body)
+
+    const baseUrl = mustEnv('JIRA_BASE_URL')
+    const results: Array<{ issueKey: string; ok: boolean; error?: string }> = []
+
+    for (const item of items) {
+      if (!item.issueKey || Object.keys(item.fields).length === 0) {
+        results.push({ issueKey: item.issueKey, ok: false, error: '無更新欄位' })
+        continue
+      }
+      try {
+        const resp = await fetch(`${baseUrl}/rest/api/2/issue/${item.issueKey}`, {
+          method: 'PUT',
+          headers: { Authorization: userAuth.auth, Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fields: item.fields }),
+        })
+        if (resp.ok || resp.status === 204) {
+          results.push({ issueKey: item.issueKey, ok: true })
+        } else {
+          const txt = await resp.text()
+          results.push({ issueKey: item.issueKey, ok: false, error: `HTTP ${resp.status}: ${txt.slice(0, 200)}` })
+        }
+      } catch (e) {
+        results.push({ issueKey: item.issueKey, ok: false, error: String(e) })
+      }
+    }
+
+    const ok = results.filter(r => r.ok).length
+    const fail = results.filter(r => !r.ok).length
+    log(fail > 0 ? 'warn' : 'ok', getClientIP(req), '', 'Jira 批量修改', `成功 ${ok} 筆${fail > 0 ? `，失敗 ${fail} 筆` : ''}`)
+    addHistory('jira-edit', 'Jira 批量修改欄位', `成功 ${ok} 筆，失敗 ${fail} 筆`, { results })
     res.json({ ok: true, results })
   } catch (error) { next(error) }
 })

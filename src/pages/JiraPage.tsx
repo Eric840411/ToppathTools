@@ -319,7 +319,7 @@ function UserFieldSearch({ field, projectKey, issueTypeId, issueTypeName, email,
 export function JiraPage({ account = null, allowedModes, isAdmin = false }: JiraPageProps) {
   const isGame = useIsGameMode()
   const [mode, setMode] = useState<'qa' | 'pm'>('qa')
-  const [qaSubMode, setQaSubMode] = useState<'create' | 'update'>('create')
+  const [qaSubMode, setQaSubMode] = useState<'create' | 'comment' | 'update' | 'edit'>('create')
   const [step, setStep] = useState<Step>(1)
   const [showAccountModal, setShowAccountModal] = useState(false)
   const [currentAccount, setCurrentAccount] = useState<AccountInfo | null>(account)
@@ -389,6 +389,10 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       return true
     })
   }, [sheetRecords, columnFilters, skipCreatedColKey])
+
+  // ── Comment/Edit Tab selection filters (step 2) — state only; memos declared after trackedIssues ──
+  const [commentTabColFilters, setCommentTabColFilters] = useState<Record<string, string>>({})
+  const [editTabColFilters, setEditTabColFilters] = useState<Record<string, string>>({})
 
   // Step 4 (create)
   const [submitting, setSubmitting] = useState(false)
@@ -472,6 +476,31 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const [updateSummaries, setUpdateSummaries] = useState<Record<string, string>>({}) // issueKey → Jira summary
   const [updateSelectedKeys, setUpdateSelectedKeys] = useState<Set<string>>(new Set()) // 勾選的 issue keys
 
+  // ── Comment Tab (standalone 批量評論) ──
+  const [commentTabUrl, setCommentTabUrl] = useState('')
+  const [commentTabLoading, setCommentTabLoading] = useState(false)
+  const [commentTabError, setCommentTabError] = useState('')
+  const [commentTabStep, setCommentTabStep] = useState<1 | 2 | 3>(1) // 1=URL input, 2=select issues, 3=comment panel
+  const [commentTabSelectedKeys, setCommentTabSelectedKeys] = useState<Set<string>>(new Set())
+
+  // ── Edit Tab (批量修改) ──
+  const [editTabUrl, setEditTabUrl] = useState('')
+  const [editTabLoading, setEditTabLoading] = useState(false)
+  const [editTabError, setEditTabError] = useState('')
+  const [editTabStep, setEditTabStep] = useState<1 | 2 | 3 | 4>(1) // 1=URL, 2=select, 3=fields, 4=results
+  const [editTabRecords, setEditTabRecords] = useState<SheetRecord[]>([])
+  const [editTabHeaders, setEditTabHeaders] = useState<string[]>([])
+  const [editTabIssues, setEditTabIssues] = useState<{ rowIndex: number; issueKey: string }[]>([])
+  const [editTabSelectedKeys, setEditTabSelectedKeys] = useState<Set<string>>(new Set())
+  const [editFieldMappings, setEditFieldMappings] = useState<{ jiraField: string; sheetColumn: string }[]>([
+    { jiraField: 'summary', sheetColumn: '' },
+  ])
+  const [editTabSubmitting, setEditTabSubmitting] = useState(false)
+  const [editTabResults, setEditTabResults] = useState<{ issueKey: string; ok: boolean; error?: string }[]>([])
+  const [editTabJiraData, setEditTabJiraData] = useState<Record<string, Record<string, string>>>({})
+  const [editTabJiraLoading, setEditTabJiraLoading] = useState(false)
+  const [editTabJiraError, setEditTabJiraError] = useState('')
+
   // 追蹤所有已進入流程的 issue（本次 session 合併最新 stage）
   const [trackedIssues, setTrackedIssues] = useState<TrackedIssue[]>([])
 
@@ -489,6 +518,56 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const toComment    = trackedIssues.filter(t => t.stage === '已開單' || t.stage === '')
   const toTransition = trackedIssues.filter(t => t.stage === '添加評論')
   const transitionIssueKeyList = toTransition.map(t => t.issueKey).join('|')
+
+  // ── Comment Tab selection filters (memos — declared after trackedIssues) ──
+  const commentFilterableColumns = useMemo(() => {
+    if (!sheetRecords.length) return []
+    return sheetHeaders.filter(h => {
+      const vals = [...new Set(sheetRecords.map(r => (r[h] ?? '').trim()).filter(Boolean))]
+      return vals.length >= 2 && vals.length <= 15
+    })
+  }, [sheetHeaders, sheetRecords])
+
+  const commentColumnUniqueValues = useMemo<Record<string, string[]>>(() => {
+    const result: Record<string, string[]> = {}
+    for (const h of commentFilterableColumns) {
+      result[h] = [...new Set(sheetRecords.map(r => (r[h] ?? '').trim()).filter(Boolean))].sort()
+    }
+    return result
+  }, [commentFilterableColumns, sheetRecords])
+
+  const commentFilteredIssues = useMemo(() =>
+    trackedIssues.filter(issue => {
+      const rec = sheetRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
+      if (!rec) return true
+      return Object.entries(commentTabColFilters).every(([col, val]) => !val || (rec[col] ?? '').trim() === val)
+    })
+  , [trackedIssues, sheetRecords, commentTabColFilters])
+
+  // ── Edit Tab selection filters (memos — declared after editTabIssues) ──
+  const editFilterableColumns = useMemo(() => {
+    if (!editTabRecords.length) return []
+    return editTabHeaders.filter(h => {
+      const vals = [...new Set(editTabRecords.map(r => (r[h] ?? '').trim()).filter(Boolean))]
+      return vals.length >= 2 && vals.length <= 15
+    })
+  }, [editTabHeaders, editTabRecords])
+
+  const editColumnUniqueValues = useMemo<Record<string, string[]>>(() => {
+    const result: Record<string, string[]> = {}
+    for (const h of editFilterableColumns) {
+      result[h] = [...new Set(editTabRecords.map(r => (r[h] ?? '').trim()).filter(Boolean))].sort()
+    }
+    return result
+  }, [editFilterableColumns, editTabRecords])
+
+  const editFilteredIssues = useMemo(() =>
+    editTabIssues.filter(issue => {
+      const rec = editTabRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
+      if (!rec) return true
+      return Object.entries(editTabColFilters).every(([col, val]) => !val || (rec[col] ?? '').trim() === val)
+    })
+  , [editTabIssues, editTabRecords, editTabColFilters])
 
   useEffect(() => {
     let cancelled = false
@@ -1672,6 +1751,154 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     setPmSelectedIds(new Set()); setPmResults([]); setPmError('')
   }
 
+  // ── Comment Tab handler ──
+
+  // Smarter Jira key extraction: checks __url fields for browse URLs + text starting with key
+  const extractJiraIssuesFromRecords = (records: SheetRecord[], headers: string[]) => {
+    const BROWSE_RE = /\/browse\/([A-Z]{2,}[0-9]*-\d+)/
+    const START_RE = /^([A-Z]{2,}[0-9]*-\d+)/
+    const issues: { rowIndex: number; issueKey: string; stage: string }[] = []
+    const seenKeys = new Set<string>()
+    for (const rec of records) {
+      let foundKey: string | null = null
+      // Pass 1: __url fields (hyperlink cells) → most reliable
+      for (const h of headers) {
+        const urlVal = (rec[`${h}__url`] ?? '').toString().trim()
+        if (!urlVal) continue
+        const m = urlVal.match(BROWSE_RE)
+        if (m) { foundKey = m[1]; break }
+      }
+      // Pass 2: text values starting with a Jira key
+      if (!foundKey) {
+        for (const h of headers) {
+          if (h.endsWith('__url') || h === '_rowIndex') continue
+          const val = (rec[h] ?? '').toString().trim()
+          if (!val) continue
+          const m = val.match(START_RE)
+          if (m) { foundKey = m[1]; break }
+        }
+      }
+      if (foundKey && !seenKeys.has(foundKey)) {
+        seenKeys.add(foundKey)
+        issues.push({ rowIndex: Number(rec._rowIndex), issueKey: foundKey, stage: '' })
+      }
+    }
+    return issues
+  }
+
+  const handleCommentTabLoad = async () => {
+    if (!commentTabUrl.trim()) return
+    setCommentTabLoading(true); setCommentTabError(''); setCommentTabStep(1)
+    try {
+      const resp = await fetch('/api/lark/sheets/records', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sheetUrl: commentTabUrl.trim(), includeCreated: true }),
+      })
+      const data = await resp.json() as { ok: boolean; records?: SheetRecord[]; headers?: string[]; message?: string }
+      if (!data.ok) { setCommentTabError(data.message ?? '讀取失敗'); return }
+      const records = data.records ?? []
+      const headers = data.headers ?? []
+      const issues = extractJiraIssuesFromRecords(records, headers) as TrackedIssue[]
+      if (issues.length === 0) {
+        setCommentTabError('找不到已開單的 Jira Issue Key，請確認「Jira issue key」欄位有資料')
+        return
+      }
+      setSheetHeaders(headers)
+      setSheetRecords(records)
+      setTrackedIssues(issues)
+      setCommentResults([])
+      setPreviewMode(false)
+      setPreviewItems([])
+      setCommentTabSelectedKeys(new Set(issues.map(i => i.issueKey)))
+      setCommentTabStep(2)
+    } catch { setCommentTabError('網路錯誤') }
+    finally { setCommentTabLoading(false) }
+  }
+
+  // ── Edit Tab handlers ──
+  const fetchEditTabJiraData = async (issueKeys: string[]) => {
+    if (!currentAccount) { setEditTabJiraError('請先選擇 Jira 帳號才能載入 Jira 欄位資料'); return }
+    setEditTabJiraLoading(true); setEditTabJiraError('')
+    try {
+      const r = await fetch('/api/jira/batch-fetch-fields', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...emailHeader },
+        body: JSON.stringify({ issueKeys }),
+      })
+      const d = await r.json() as { ok: boolean; issues?: Record<string, Record<string, string>>; message?: string }
+      if (d.ok) { setEditTabJiraData(d.issues ?? {}) }
+      else { setEditTabJiraError(d.message ?? 'Jira 資料載入失敗') }
+    } catch { setEditTabJiraError('載入 Jira 資料時網路錯誤') }
+    finally { setEditTabJiraLoading(false) }
+  }
+
+  const handleEditTabLoad = async () => {
+    if (!editTabUrl.trim()) return
+    setEditTabLoading(true); setEditTabError(''); setEditTabJiraError(''); setEditTabIssues([]); setEditTabResults([]); setEditTabJiraData({})
+    try {
+      const resp = await fetch('/api/lark/sheets/records', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sheetUrl: editTabUrl.trim(), includeCreated: true }),
+      })
+      const data = await resp.json() as { ok: boolean; records?: SheetRecord[]; headers?: string[]; message?: string }
+      if (!data.ok) { setEditTabError(data.message ?? '讀取失敗'); return }
+      const records = data.records ?? []
+      const headers = data.headers ?? []
+      const issues = extractJiraIssuesFromRecords(records, headers)
+      if (issues.length === 0) {
+        setEditTabError('找不到已開單的 Jira Issue Key，請確認「Jira issue key」欄位有資料')
+        return
+      }
+      setEditTabRecords(records)
+      setEditTabHeaders(headers)
+      setEditTabIssues(issues)
+      setEditTabSelectedKeys(new Set(issues.map(i => i.issueKey)))
+      setEditFieldMappings([{ jiraField: 'summary', sheetColumn: '' }])
+      setEditTabStep(2)
+      // Async fetch current Jira data for preview
+      void fetchEditTabJiraData(issues.map(i => i.issueKey))
+    } catch { setEditTabError('網路錯誤') }
+    finally { setEditTabLoading(false) }
+  }
+
+  const handleEditTabSubmit = async () => {
+    const activeMappings = editFieldMappings.filter(m => m.sheetColumn)
+    if (!activeMappings.length || !currentAccount) return
+    setEditTabSubmitting(true); setEditTabError('')
+    try {
+      const items = editTabIssues.filter(issue => editTabSelectedKeys.has(issue.issueKey)).map(issue => {
+        const rec = editTabRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
+        const fields: Record<string, unknown> = {}
+        for (const { jiraField, sheetColumn } of activeMappings) {
+          const val = (rec?.[sheetColumn] ?? '').trim()
+          if (!val) continue
+          if (jiraField === 'summary') {
+            fields.summary = val
+          } else if (jiraField === 'description') {
+            fields.description = { version: 1, type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: val }] }] }
+          } else {
+            fields[jiraField] = val
+          }
+        }
+        return { issueKey: issue.issueKey, fields }
+      }).filter(item => Object.keys(item.fields).length > 0)
+
+      if (!items.length) { setEditTabError('所有 Issue 均無有效更新欄位，請檢查欄位對應設定'); return }
+
+      const resp = await fetch('/api/jira/batch-edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...emailHeader },
+        body: JSON.stringify({ items }),
+      })
+      const result = await resp.json() as { ok: boolean; results?: { issueKey: string; ok: boolean; error?: string }[]; message?: string }
+      if (!result.ok) { setEditTabError(result.message ?? '批量修改失敗') }
+      else { setEditTabResults(result.results ?? []); setEditTabStep(4) }
+    } catch { setEditTabError('網路錯誤') }
+    finally { setEditTabSubmitting(false) }
+  }
+
   // ── Update Mode handlers ──
   const handleUpdateFetchBitable = async () => {
     if (!updateBitableUrl.trim()) return
@@ -1822,8 +2049,8 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
       {/* QA sub-tabs */}
       {mode === 'qa' && (
-        <div style={{ display: 'flex', gap: 8, padding: '6px 0 2px' }}>
-          {(['create', 'update'] as const).map(sub => (
+        <div style={{ display: 'flex', gap: 8, padding: '6px 0 2px', flexWrap: 'wrap' }}>
+          {(['create', 'comment', 'update', 'edit'] as const).map(sub => (
             <button
               key={sub}
               type="button"
@@ -1835,7 +2062,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 color: qaSubMode === sub ? '#93c5fd' : '#64748b',
               }}
             >
-              {sub === 'create' ? '批量開單' : '批量更新狀態'}
+              {sub === 'create' ? '批量開單' : sub === 'comment' ? '批量評論' : sub === 'update' ? '批量更新狀態' : '批量修改'}
             </button>
           ))}
         </div>
@@ -1845,7 +2072,19 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       <div className="page-topbar">
         <div className="step-indicator">
           {mode === 'qa' && qaSubMode === 'create'
-            ? ([1, 2, 3, 4, 5, 6] as Step[]).map(s => <StepDot key={s} s={s} />)
+            ? ([1, 2, 3, 4] as Step[]).map(s => <StepDot key={s} s={s} />)
+            : mode === 'qa' && qaSubMode === 'comment'
+              ? ([1, 2, 3] as const).map(s => (
+                  <span key={s} className={`step-dot${commentTabStep === s ? ' active' : commentTabStep > s ? ' done' : ''}`}>
+                    {commentTabStep > s ? '✓' : s}
+                  </span>
+                ))
+            : mode === 'qa' && qaSubMode === 'edit'
+              ? ([1, 2, 3, 4] as const).map(s => (
+                  <span key={s} className={`step-dot${editTabStep === s ? ' active' : editTabStep > s ? ' done' : ''}`}>
+                    {editTabStep > s ? '✓' : s}
+                  </span>
+                ))
             : ([1, 2, 3] as const).map(s => (
                 <span key={s} className={`step-dot${
                   (mode === 'pm' ? pmStep : updateStep) === s ? ' active' :
@@ -1855,7 +2094,11 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               ))
           }
           <span className="step-label">
-            {mode === 'qa' && qaSubMode === 'create' ? STEP_LABELS[step]
+            {mode === 'qa' && qaSubMode === 'create' ? (STEP_LABELS[step] ?? '')
+              : mode === 'qa' && qaSubMode === 'comment'
+                ? ({ 1: '讀取表格', 2: '選擇單子', 3: '設定評論' } as Record<number, string>)[commentTabStep]
+              : mode === 'qa' && qaSubMode === 'edit'
+                ? ({ 1: '讀取表格', 2: '選擇單子', 3: '設定欄位', 4: '修改結果' } as Record<number, string>)[editTabStep]
               : mode === 'pm' ? ({ 1: '讀取表格', 2: '確認清單', 3: '開單結果' } as Record<number, string>)[pmStep]
               : ({ 1: '讀取 Bitable', 2: '設定帳號 & 動作', 3: '執行結果' } as Record<number, string>)[updateStep]}
           </span>
@@ -2059,7 +2302,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 <input
                   value={updateBitableUrl}
                   onChange={e => setUpdateBitableUrl(e.target.value)}
-                  placeholder="https://casinoplus.sg.larksuite.com/wiki/... 或 Bitable URL"
+                  placeholder="Lark Sheet URL（/wiki/ 或 /sheets/）或 Bitable URL"
                   style={{ flex: 1, padding: '7px 12px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
                   onKeyDown={e => e.key === 'Enter' && handleUpdateFetchBitable()}
                 />
@@ -3098,30 +3341,184 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           )}
 
           <div className="stage-nav" style={{ marginTop: 16 }}>
-            {toComment.length > 0
-              ? <button type="button" className="submit-btn submit-btn--step" style={{ whiteSpace: 'nowrap', flexShrink: 0 }} onClick={() => setStep(5)}>
-                  下一步：添加評論 ({toComment.length} 筆) →
+            <button type="button" className="submit-btn submit-btn--step" style={{ background: '#166534' }} onClick={handleReset}>
+              完成，重新開始
+            </button>
+          </div>
+        </div>
+      )}
+
+      </> // end create block
+      )}
+
+      {/* ── Comment Tab: 批量評論（standalone 入口） ── */}
+      {mode === 'qa' && qaSubMode === 'comment' && commentTabStep === 1 && (
+        <div className="section-card">
+          <h2 className="section-title">批量評論</h2>
+          <p style={{ color: '#64748b', fontSize: 13, marginBottom: 12 }}>
+            貼入 Lark Sheet URL，系統自動偵測含 Jira Issue Key 的列（格式如 ABC-123），批量添加評論與附件。
+          </p>
+          {commentTabError && <div className="alert-error" style={{ marginBottom: 10 }}>{commentTabError}</div>}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              value={commentTabUrl}
+              onChange={e => setCommentTabUrl(e.target.value)}
+              placeholder="https://casinoplus.sg.larksuite.com/wiki/... 或 Lark Sheet URL"
+              style={{ flex: 1, padding: '7px 12px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
+              onKeyDown={e => e.key === 'Enter' && handleCommentTabLoad()}
+            />
+            <button
+              type="button"
+              className="submit-btn submit-btn--step"
+              disabled={commentTabLoading || !commentTabUrl.trim()}
+              onClick={handleCommentTabLoad}
+              style={{ whiteSpace: 'nowrap' }}
+            >
+              {commentTabLoading ? '讀取中…' : '📥 讀取'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Comment Tab Step 2: 選擇要評論的 Issue ── */}
+      {mode === 'qa' && qaSubMode === 'comment' && commentTabStep === 2 && (
+        <div className="section-card">
+          <h2 className="section-title">選擇要評論的 Issue（共 {trackedIssues.length} 筆）</h2>
+
+          {/* Column filters */}
+          {commentFilterableColumns.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>篩選：</span>
+              {commentFilterableColumns.map(col => (
+                <label key={col} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, flexShrink: 0 }}>
+                  <span style={{ color: '#94a3b8', whiteSpace: 'nowrap' }}>{col}</span>
+                  <select value={commentTabColFilters[col] ?? ''} onChange={e => setCommentTabColFilters(prev => ({ ...prev, [col]: e.target.value }))}
+                    style={{ fontSize: 12, padding: '2px 4px', borderRadius: 4, maxWidth: 160, background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155' }}>
+                    <option value="">全部</option>
+                    {(commentColumnUniqueValues[col] ?? []).map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </label>
+              ))}
+              {Object.values(commentTabColFilters).some(Boolean) && (
+                <button type="button" onClick={() => setCommentTabColFilters({})}
+                  style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, border: '1px solid #334155', background: 'none', cursor: 'pointer', color: '#94a3b8' }}>
+                  清除篩選
                 </button>
-              : toTransition.length > 0
-                ? <button type="button" className="submit-btn submit-btn--step" style={{ whiteSpace: 'nowrap', flexShrink: 0 }} onClick={() => setStep(6)}>
-                    跳至：切換狀態 ({toTransition.length} 筆) →
-                  </button>
-                : null}
-            <button type="button" className="btn-ghost btn-ghost--step" onClick={handleReset}>重新開始</button>
+              )}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: '#94a3b8' }}>
+              <input
+                type="checkbox"
+                checked={commentFilteredIssues.length > 0 && commentFilteredIssues.every(i => commentTabSelectedKeys.has(i.issueKey))}
+                onChange={e => setCommentTabSelectedKeys(prev => {
+                  const n = new Set(prev)
+                  commentFilteredIssues.forEach(i => e.target.checked ? n.add(i.issueKey) : n.delete(i.issueKey))
+                  return n
+                })}
+              />
+              全選 / 取消全選
+            </label>
+            <span style={{ fontSize: 11, color: '#60a5fa' }}>
+              已選 {commentTabSelectedKeys.size} / {trackedIssues.length} 筆
+              {commentFilteredIssues.length < trackedIssues.length && <span style={{ color: '#94a3b8' }}>{`（篩選顯示 ${commentFilteredIssues.length} 筆）`}</span>}
+            </span>
+          </div>
+
+          {(() => {
+            const visibleCols = sheetHeaders.filter(h => !h.endsWith('__url') && h !== '_rowIndex' && !commentFilteredIssues.every(i => {
+              const rec = sheetRecords.find(r => Number(r._rowIndex) === i.rowIndex)
+              return !(rec?.[h] ?? '').trim()
+            })).slice(0, 7)
+            const thStyle: React.CSSProperties = { padding: '7px 10px', borderBottom: '2px solid #1e3a5f', borderRight: '1px solid #1e3a5f', fontSize: 11, fontWeight: 700, color: '#60a5fa', whiteSpace: 'nowrap', textAlign: 'left', background: '#0f2744' }
+            const tdBase: React.CSSProperties = { padding: '5px 10px', borderRight: '1px solid #1e293b', fontSize: 11, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'middle' }
+            return (
+              <div style={{ border: '1px solid #1e3a5f', borderRadius: 6, overflow: 'hidden', marginBottom: 12 }}>
+                <div style={{ overflowX: 'auto', maxHeight: 400, overflowY: 'auto' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: `${36 + 110 + visibleCols.length * 160}px` }}>
+                    <colgroup>
+                      <col style={{ width: 36 }} />
+                      <col style={{ width: 110 }} />
+                      {visibleCols.map(h => <col key={h} style={{ width: 160 }} />)}
+                    </colgroup>
+                    <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                      <tr>
+                        <th style={{ ...thStyle, width: 36, textAlign: 'center' }} />
+                        <th style={thStyle}>Issue Key</th>
+                        {visibleCols.map(h => <th key={h} style={thStyle}>{h}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {commentFilteredIssues.length === 0 ? (
+                        <tr><td colSpan={2 + visibleCols.length} style={{ padding: '12px 16px', fontSize: 12, color: '#64748b', textAlign: 'center' }}>篩選條件下無符合的 Issue</td></tr>
+                      ) : commentFilteredIssues.map((issue, idx) => {
+                        const isSelected = commentTabSelectedKeys.has(issue.issueKey)
+                        const rec = sheetRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
+                        return (
+                          <tr key={issue.issueKey}
+                            onClick={() => setCommentTabSelectedKeys(prev => { const n = new Set(prev); isSelected ? n.delete(issue.issueKey) : n.add(issue.issueKey); return n })}
+                            style={{ background: isSelected ? (idx % 2 === 0 ? '#0a1628' : '#0d1e38') : '#070f1e', opacity: isSelected ? 1 : 0.45, cursor: 'pointer', borderBottom: '1px solid #1e293b' }}>
+                            <td style={{ ...tdBase, width: 36, textAlign: 'center' }}>
+                              <input type="checkbox" checked={isSelected} readOnly
+                                onChange={e => { e.stopPropagation(); setCommentTabSelectedKeys(prev => { const n = new Set(prev); e.target.checked ? n.add(issue.issueKey) : n.delete(issue.issueKey); return n }) }}
+                                onClick={e => e.stopPropagation()}
+                              />
+                            </td>
+                            <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>
+                              <a href={`${import.meta.env.VITE_JIRA_BASE_URL ?? ''}/browse/${issue.issueKey}`} target="_blank" rel="noreferrer"
+                                onClick={e => e.stopPropagation()}
+                                style={{ color: '#93c5fd', fontWeight: 700, fontSize: 12, textDecoration: 'none' }}>
+                                {issue.issueKey}
+                              </a>
+                            </td>
+                            {visibleCols.map(h => (
+                              <td key={h} style={{ ...tdBase, color: '#94a3b8' }}>
+                                {(rec?.[h] ?? '').trim() || <span style={{ color: '#374151' }}>—</span>}
+                              </td>
+                            ))}
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )
+          })()}
+          <div className="stage-nav">
+            <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setCommentTabStep(1)}>← 重新讀取</button>
+            <button type="button" className="submit-btn submit-btn--step"
+              disabled={commentTabSelectedKeys.size === 0}
+              onClick={() => {
+                setTrackedIssues(prev => prev.filter(i => commentTabSelectedKeys.has(i.issueKey)))
+                setCommentTabStep(3)
+              }}>
+              下一步：設定評論（{commentTabSelectedKeys.size} 筆）→
+            </button>
           </div>
         </div>
       )}
 
       {/* ── Step 5: 添加評論 ── */}
-      {step === 5 && (
+      {((mode === 'qa' && qaSubMode === 'create' && step === 5) || (mode === 'qa' && qaSubMode === 'comment' && commentTabStep === 3)) && (
         <div className="section-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-            <h2 className="section-title" style={{ margin: 0 }}>Step 5 — 添加評論（{toComment.length} 筆）</h2>
-            <button type="button" className="btn-ghost" style={{ whiteSpace: 'nowrap', fontSize: 13 }}
-              disabled={refreshingSheet || commentSubmitting}
-              onClick={handleRefreshSheetForComment}>
-              {refreshingSheet ? '讀取中...' : '↻ 重新讀取 Sheet'}
-            </button>
+            <h2 className="section-title" style={{ margin: 0 }}>
+              {qaSubMode === 'comment' ? `批量評論（${toComment.length} 筆）` : `Step 5 — 添加評論（${toComment.length} 筆）`}
+            </h2>
+            {qaSubMode === 'comment'
+              ? <button type="button" className="btn-ghost" style={{ whiteSpace: 'nowrap', fontSize: 13 }}
+                  onClick={() => { setCommentTabStep(1); setTrackedIssues([]); setCommentResults([]); setPreviewMode(false); setPreviewItems([]) }}>
+                  ← 重新載入
+                </button>
+              : <button type="button" className="btn-ghost" style={{ whiteSpace: 'nowrap', fontSize: 13 }}
+                  disabled={refreshingSheet || commentSubmitting}
+                  onClick={handleRefreshSheetForComment}>
+                  {refreshingSheet ? '讀取中...' : '↻ 重新讀取 Sheet'}
+                </button>
+            }
           </div>
 
           {toComment.length === 0
@@ -3258,7 +3655,9 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           {/* ── 預覽模式開關 ── */}
           {!previewMode && toComment.length > 0 && (
             <div className="stage-nav" style={{ marginTop: 16 }}>
-              <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(4)}>上一步</button>
+              {qaSubMode === 'comment'
+                ? null
+                : <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(4)}>上一步</button>}
               <button type="button"
                 className={`submit-btn submit-btn--step${prefetchLoading ? ' loading' : ''}`}
                 style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
@@ -3266,12 +3665,14 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 onClick={handleEnterPreview}>
                 {prefetchLoading ? '載入附件中...' : `預覽評論（${toComment.length} 筆）→`}
               </button>
-              <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(6)}>
-                {toTransition.length > 0 ? `切換狀態 (${toTransition.length} 筆) →` : '跳過 →'}
-              </button>
+              {qaSubMode !== 'comment' && (
+                <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(6)}>
+                  {toTransition.length > 0 ? `切換狀態 (${toTransition.length} 筆) →` : '跳過 →'}
+                </button>
+              )}
             </div>
           )}
-          {!previewMode && toComment.length === 0 && (
+          {!previewMode && toComment.length === 0 && qaSubMode !== 'comment' && (
             <div className="stage-nav" style={{ marginTop: 16 }}>
               <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(4)}>上一步</button>
               <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(6)}>
@@ -3554,7 +3955,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       )}
 
       {/* ── Step 6: 切換狀態 ── */}
-      {step === 6 && (
+      {mode === 'qa' && qaSubMode === 'create' && step === 6 && (
         <div className="section-card">
           <h2 className="section-title">Step 6 — 切換狀態（{toTransition.length} 筆）</h2>
 
@@ -3625,7 +4026,320 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
         </div>
       )}
 
-      </> // end QA mode
+      {/* ── Edit Tab: 批量修改 ── */}
+      {mode === 'qa' && qaSubMode === 'edit' && (
+        <>
+          {/* Step 1: 讀表格 */}
+          {editTabStep === 1 && (
+            <div className="section-card">
+              <h2 className="section-title">批量修改</h2>
+              <p style={{ color: '#64748b', fontSize: 13, marginBottom: 12 }}>
+                貼入 Lark Sheet URL，系統自動偵測含 Jira Issue Key 的列，批量修改指定欄位。
+              </p>
+              {editTabError && <div className="alert-error" style={{ marginBottom: 10 }}>{editTabError}</div>}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  value={editTabUrl}
+                  onChange={e => setEditTabUrl(e.target.value)}
+                  placeholder="https://casinoplus.sg.larksuite.com/wiki/... 或 Lark Sheet URL"
+                  style={{ flex: 1, padding: '7px 12px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
+                  onKeyDown={e => e.key === 'Enter' && handleEditTabLoad()}
+                />
+                <button
+                  type="button"
+                  className="submit-btn submit-btn--step"
+                  disabled={editTabLoading || !editTabUrl.trim()}
+                  onClick={handleEditTabLoad}
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  {editTabLoading ? '讀取中…' : '📥 讀取'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 2: 選擇 Issue */}
+          {editTabStep === 2 && (
+            <div className="section-card">
+              <h2 className="section-title">
+                選擇要修改的 Issue（共 {editTabIssues.length} 筆）
+                {editTabJiraLoading && <span style={{ fontSize: 11, color: '#60a5fa', marginLeft: 8 }}>載入 Jira 資料中…</span>}
+              </h2>
+
+              {editTabJiraError && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#1e1010', border: '1px solid #7f1d1d60', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>
+                  <span style={{ fontSize: 12, color: '#f87171', flex: 1 }}>⚠ {editTabJiraError}</span>
+                  <button type="button"
+                    style={{ fontSize: 12, padding: '4px 12px', borderRadius: 5, border: '1px solid #f8717160', background: '#7f1d1d30', color: '#fca5a5', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    onClick={() => fetchEditTabJiraData(editTabIssues.map(i => i.issueKey))}>
+                    重新載入 Jira 資料
+                  </button>
+                </div>
+              )}
+
+              {/* Column filters */}
+              {editFilterableColumns.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+                  <span style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>篩選：</span>
+                  {editFilterableColumns.map(col => (
+                    <label key={col} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, flexShrink: 0 }}>
+                      <span style={{ color: '#94a3b8', whiteSpace: 'nowrap' }}>{col}</span>
+                      <select value={editTabColFilters[col] ?? ''} onChange={e => setEditTabColFilters(prev => ({ ...prev, [col]: e.target.value }))}
+                        style={{ fontSize: 12, padding: '2px 4px', borderRadius: 4, maxWidth: 160, background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155' }}>
+                        <option value="">全部</option>
+                        {(editColumnUniqueValues[col] ?? []).map(v => <option key={v} value={v}>{v}</option>)}
+                      </select>
+                    </label>
+                  ))}
+                  {Object.values(editTabColFilters).some(Boolean) && (
+                    <button type="button" onClick={() => setEditTabColFilters({})}
+                      style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, border: '1px solid #334155', background: 'none', cursor: 'pointer', color: '#94a3b8' }}>
+                      清除篩選
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: '#94a3b8' }}>
+                  <input
+                    type="checkbox"
+                    checked={editFilteredIssues.length > 0 && editFilteredIssues.every(i => editTabSelectedKeys.has(i.issueKey))}
+                    onChange={e => setEditTabSelectedKeys(prev => {
+                      const n = new Set(prev)
+                      editFilteredIssues.forEach(i => e.target.checked ? n.add(i.issueKey) : n.delete(i.issueKey))
+                      return n
+                    })}
+                  />
+                  全選 / 取消全選
+                </label>
+                <span style={{ fontSize: 11, color: '#60a5fa' }}>
+                  已選 {editTabSelectedKeys.size} / {editTabIssues.length} 筆
+                  {editFilteredIssues.length < editTabIssues.length && <span style={{ color: '#94a3b8' }}>{`（篩選顯示 ${editFilteredIssues.length} 筆）`}</span>}
+                </span>
+              </div>
+
+              {(() => {
+                const jiraCols = ['summary', 'assignee', 'status'] as const
+                const jiraLabels: Record<string, string> = { summary: '摘要 (Jira)', assignee: '受託人 (Jira)', status: '狀態 (Jira)' }
+                const thStyle: React.CSSProperties = { padding: '7px 10px', borderBottom: '2px solid #1e3a5f', borderRight: '1px solid #1e3a5f', fontSize: 11, fontWeight: 700, color: '#60a5fa', whiteSpace: 'nowrap', textAlign: 'left', background: '#0f2744' }
+                const tdBase: React.CSSProperties = { padding: '5px 10px', borderRight: '1px solid #1e293b', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', verticalAlign: 'middle' }
+                return (
+                  <div style={{ border: '1px solid #1e3a5f', borderRadius: 6, overflow: 'hidden', marginBottom: 12 }}>
+                    <div style={{ overflowX: 'auto', maxHeight: 400, overflowY: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 600 }}>
+                        <colgroup>
+                          <col style={{ width: 36 }} />
+                          <col style={{ width: 110 }} />
+                          <col style={{ width: '40%' }} />
+                          <col style={{ width: 120 }} />
+                          <col style={{ width: 100 }} />
+                        </colgroup>
+                        <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                          <tr>
+                            <th style={{ ...thStyle, textAlign: 'center' }} />
+                            <th style={thStyle}>Issue Key</th>
+                            {jiraCols.map(f => <th key={f} style={thStyle}>{jiraLabels[f]}</th>)}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {editFilteredIssues.length === 0 ? (
+                            <tr><td colSpan={5} style={{ padding: '12px 16px', fontSize: 12, color: '#64748b', textAlign: 'center' }}>篩選條件下無符合的 Issue</td></tr>
+                          ) : editFilteredIssues.map((issue, idx) => {
+                            const isSelected = editTabSelectedKeys.has(issue.issueKey)
+                            const jira = editTabJiraData[issue.issueKey]
+                            return (
+                              <tr key={issue.issueKey}
+                                onClick={() => setEditTabSelectedKeys(prev => { const n = new Set(prev); isSelected ? n.delete(issue.issueKey) : n.add(issue.issueKey); return n })}
+                                style={{ background: isSelected ? (idx % 2 === 0 ? '#0a1628' : '#0d1e38') : '#070f1e', opacity: isSelected ? 1 : 0.45, cursor: 'pointer', borderBottom: '1px solid #1e293b' }}>
+                                <td style={{ ...tdBase, width: 36, textAlign: 'center' }}>
+                                  <input type="checkbox" checked={isSelected} readOnly
+                                    onChange={e => { e.stopPropagation(); setEditTabSelectedKeys(prev => { const n = new Set(prev); e.target.checked ? n.add(issue.issueKey) : n.delete(issue.issueKey); return n }) }}
+                                    onClick={e => e.stopPropagation()}
+                                  />
+                                </td>
+                                <td style={{ ...tdBase, whiteSpace: 'nowrap' }}>
+                                  <a href={`${import.meta.env.VITE_JIRA_BASE_URL ?? ''}/browse/${issue.issueKey}`} target="_blank" rel="noreferrer"
+                                    onClick={e => e.stopPropagation()}
+                                    style={{ color: '#93c5fd', fontWeight: 700, fontSize: 12, textDecoration: 'none' }}>
+                                    {issue.issueKey}
+                                  </a>
+                                </td>
+                                {jiraCols.map(f => (
+                                  <td key={f} style={{ ...tdBase, color: '#94a3b8' }}>
+                                    {editTabJiraLoading && !jira
+                                      ? <span style={{ color: '#374151' }}>載入中…</span>
+                                      : (jira?.[f] || <span style={{ color: '#374151' }}>—</span>)}
+                                  </td>
+                                ))}
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )
+              })()}
+              <div className="stage-nav">
+                <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setEditTabStep(1)}>← 重新讀取</button>
+                <button type="button" className="submit-btn submit-btn--step"
+                  disabled={editTabSelectedKeys.size === 0}
+                  onClick={() => setEditTabStep(3)}>
+                  下一步：設定欄位（{editTabSelectedKeys.size} 筆）→
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 3: 設定欄位對應 */}
+          {editTabStep === 3 && (
+            <div className="section-card">
+              <h2 className="section-title">設定欄位對應（{editTabSelectedKeys.size} 筆 Issue）</h2>
+              <p style={{ color: '#64748b', fontSize: 13, marginBottom: 12 }}>
+                選擇要修改的 Jira 欄位，並指定從 Lark Sheet 哪一欄取值。多個欄位可同時修改。
+              </p>
+              {editTabError && <div className="alert-error" style={{ marginBottom: 10 }}>{editTabError}</div>}
+
+              {/* Field mappings */}
+              <div className="form-stack" style={{ marginBottom: 12 }}>
+                {editFieldMappings.map((mapping, idx) => (
+                  <div key={idx} style={{ display: 'flex', gap: 8, alignItems: 'center', minWidth: 0, overflow: 'hidden' }}>
+                    <select
+                      value={mapping.jiraField}
+                      onChange={e => setEditFieldMappings(prev => prev.map((m, i) => i === idx ? { ...m, jiraField: e.target.value } : m))}
+                      style={{ width: 160, flexShrink: 0, padding: '6px 10px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
+                    >
+                      <option value="summary">摘要 (Summary)</option>
+                      <option value="description">描述 (Description)</option>
+                      <option value="priority">優先級 (Priority)</option>
+                      <option value="assignee">受託人 (Assignee)</option>
+                      <option value="labels">標籤 (Labels)</option>
+                    </select>
+                    <span style={{ color: '#64748b', fontSize: 13, flexShrink: 0 }}>←</span>
+                    <select
+                      value={mapping.sheetColumn}
+                      onChange={e => setEditFieldMappings(prev => prev.map((m, i) => i === idx ? { ...m, sheetColumn: e.target.value } : m))}
+                      style={{ flex: '1 1 0', minWidth: 0, padding: '6px 10px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
+                    >
+                      <option value="">— 選擇 Sheet 欄位 —</option>
+                      {editTabHeaders.map((h, i) => <option key={h || `h-${i}`} value={h}>{h}</option>)}
+                    </select>
+                    {editFieldMappings.length > 1 && (
+                      <button type="button" onClick={() => setEditFieldMappings(prev => prev.filter((_, i) => i !== idx))}
+                        style={{ background: 'none', border: 'none', color: '#f85149', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: '0 4px', flexShrink: 0 }}>×</button>
+                    )}
+                  </div>
+                ))}
+                <button type="button" className="btn-ghost" style={{ alignSelf: 'flex-start', marginTop: 4 }}
+                  onClick={() => setEditFieldMappings(prev => [...prev, { jiraField: 'summary', sheetColumn: '' }])}>
+                  + 新增欄位
+                </button>
+              </div>
+
+              {/* Preview table */}
+              {editFieldMappings.some(m => m.sheetColumn) && editTabSelectedKeys.size > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa', marginBottom: 6 }}>
+                    預覽變更（{editTabSelectedKeys.size} 筆）
+                  </div>
+                  <div style={{ border: '1px solid #1e3a5f', borderRadius: 6, overflow: 'hidden', overflowX: 'auto' }}>
+                    {(() => {
+                      const activeMaps = editFieldMappings.filter(m => m.sheetColumn)
+                      const fieldLabel: Record<string, string> = { summary: '摘要', description: '描述', priority: '優先級', assignee: '受託人', labels: '標籤' }
+                      const previewCols = `110px ${activeMaps.map(() => '1fr 20px 1fr').join(' ')}`
+                      return (
+                        <>
+                          <div style={{ display: 'grid', gridTemplateColumns: previewCols, background: '#0f2744', borderBottom: '1px solid #1e3a5f', minWidth: 'max-content' }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#60a5fa', padding: '5px 10px', borderRight: '1px solid #1e3a5f' }}>Issue Key</div>
+                            {activeMaps.map((m, i) => (
+                              <span key={i} style={{ display: 'contents' }}>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', padding: '5px 8px', borderRight: '1px solid #1e3a5f', whiteSpace: 'nowrap' }}>{fieldLabel[m.jiraField] ?? m.jiraField} (現有)</div>
+                                <div style={{ fontSize: 11, padding: '5px 2px', borderRight: '1px solid #1e3a5f', color: '#475569', textAlign: 'center' }}>→</div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: '#4ade80', padding: '5px 8px', borderRight: '1px solid #1e3a5f', whiteSpace: 'nowrap' }}>{m.sheetColumn} (Sheet)</div>
+                              </span>
+                            ))}
+                          </div>
+                          <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+                            {editTabIssues.filter(i => editTabSelectedKeys.has(i.issueKey)).slice(0, 50).map((issue, idx) => {
+                              const rec = editTabRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
+                              const jira = editTabJiraData[issue.issueKey]
+                              return (
+                                <div key={issue.issueKey} style={{ display: 'grid', gridTemplateColumns: previewCols, background: idx % 2 === 0 ? '#0a1628' : '#0d1e38', borderBottom: '1px solid #1e293b', minWidth: 'max-content' }}>
+                                  <div style={{ padding: '4px 10px', borderRight: '1px solid #1e293b', fontSize: 11 }}>
+                                    <a href={`${import.meta.env.VITE_JIRA_BASE_URL ?? ''}/browse/${issue.issueKey}`} target="_blank" rel="noreferrer"
+                                      style={{ color: '#93c5fd', fontWeight: 700, textDecoration: 'none' }}>{issue.issueKey}</a>
+                                  </div>
+                                  {activeMaps.map((m, i) => {
+                                    const current = jira?.[m.jiraField] ?? ''
+                                    const next = (rec?.[m.sheetColumn] ?? '').toString().trim()
+                                    const changed = next && current !== next
+                                    return (
+                                      <span key={i} style={{ display: 'contents' }}>
+                                        <div style={{ padding: '4px 8px', borderRight: '1px solid #1e293b', fontSize: 11, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{current || '—'}</div>
+                                        <div style={{ padding: '4px 2px', borderRight: '1px solid #1e293b', fontSize: 11, color: '#475569', textAlign: 'center' }}>→</div>
+                                        <div style={{ padding: '4px 8px', borderRight: '1px solid #1e293b', fontSize: 11, color: changed ? '#4ade80' : '#374151', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: changed ? 600 : 400 }}>{next || '（無資料）'}</div>
+                                      </span>
+                                    )
+                                  })}
+                                </div>
+                              )
+                            })}
+                            {editTabSelectedKeys.size > 50 && (
+                              <div style={{ padding: '6px 12px', fontSize: 11, color: '#64748b', textAlign: 'center' }}>…還有 {editTabSelectedKeys.size - 50} 筆</div>
+                            )}
+                          </div>
+                        </>
+                      )
+                    })()}
+                  </div>
+                </div>
+              )}
+
+              <div className="stage-nav" style={{ marginTop: 16 }}>
+                <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setEditTabStep(2)}>上一步</button>
+                <button type="button"
+                  className={`submit-btn submit-btn--step${editTabSubmitting ? ' loading' : ''}`}
+                  style={{ whiteSpace: 'nowrap', flexShrink: 0 }}
+                  disabled={editTabSubmitting || !editFieldMappings.some(m => m.sheetColumn) || !currentAccount}
+                  onClick={handleEditTabSubmit}
+                >
+                  {editTabSubmitting ? '修改中...' : `確認修改（${editTabSelectedKeys.size} 筆）`}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step 4: 結果 */}
+          {editTabStep === 4 && (
+            <div className="section-card">
+              <h2 className="section-title">批量修改結果</h2>
+              {editTabError && <div className="alert-error" style={{ marginBottom: 10 }}>{editTabError}</div>}
+              <div className="result-group" style={{ marginTop: 8 }}>
+                {editTabResults.map(r => (
+                  <div key={r.issueKey} className={`result-row ${r.ok ? 'ok' : 'error'}`}>
+                    <code>
+                      <a href={`${import.meta.env.VITE_JIRA_BASE_URL ?? ''}/browse/${r.issueKey}`} target="_blank" rel="noreferrer"
+                        style={{ color: '#58a6ff', textDecoration: 'none' }}>
+                        {r.issueKey}
+                      </a>
+                    </code>
+                    {r.ok
+                      ? <span className="badge badge--ok">修改成功 ✓</span>
+                      : <span className="err-msg">{r.error ?? '失敗'}</span>}
+                  </div>
+                ))}
+              </div>
+              <div className="stage-nav" style={{ marginTop: 16 }}>
+                <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setEditTabStep(3)}>上一步</button>
+                <button type="button" className="submit-btn submit-btn--step" style={{ background: '#166534' }}
+                  onClick={() => { setEditTabStep(1); setEditTabUrl(''); setEditTabIssues([]); setEditTabSelectedKeys(new Set()); setEditTabRecords([]); setEditTabHeaders([]); setEditTabResults([]); setEditTabError('') }}>
+                  完成，重新開始
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {showAccountModal && (
