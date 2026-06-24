@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.53.5'
+export const APP_VERSION = '3.53.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.53.6',
+    date: '2026-06-24',
+    changes: [
+      'fix(jira): 批量修改 Step 3 預覽表格改用 <table> 元素，修正 header 與資料列欄位對不齊的問題',
+    ],
+  },
   {
     version: '3.53.5',
     date: '2026-06-24',
