@@ -4259,22 +4259,26 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               </div>
 
               {/* Preview table */}
-              {editFieldMappings.some(m => m.sheetColumn) && editTabSelectedKeys.size > 0 && (() => {
+              {editTabSelectedKeys.size > 0 && (() => {
                 const activeMaps = editFieldMappings.filter(m => m.sheetColumn)
                 const fieldLabel: Record<string, string> = { summary: '摘要', description: '描述', priority: '優先級', assignee: '受託人', labels: '標籤' }
                 const selectedIssues = editTabIssues.filter(i => editTabSelectedKeys.has(i.issueKey)).slice(0, 50)
+                const jiraCols = ['summary', 'assignee', 'status'] as const
+                const jiraColLabels: Record<string, string> = { summary: '摘要', assignee: '受託人', status: '狀態' }
                 const thBase: React.CSSProperties = { padding: '6px 8px', borderBottom: '2px solid #1e3a5f', borderRight: '1px solid #1e3a5f', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', textAlign: 'left', background: '#0f2744' }
                 const tdBase: React.CSSProperties = { padding: '4px 8px', borderRight: '1px solid #1e293b', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220, verticalAlign: 'middle' }
+                const totalCols = 1 + jiraCols.length + activeMaps.length * 3
                 return (
                   <div style={{ marginBottom: 12 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa', marginBottom: 6 }}>
-                      預覽變更（{editTabSelectedKeys.size} 筆）
+                      預覽變更（{editTabSelectedKeys.size} 筆）{activeMaps.length === 0 && <span style={{ fontSize: 11, color: '#475569', fontWeight: 400, marginLeft: 6 }}>← 選擇 Sheet 欄位後顯示對應欄</span>}
                     </div>
                     <div style={{ border: '1px solid #1e3a5f', borderRadius: 6, overflow: 'hidden' }}>
                       <div style={{ overflowX: 'auto', maxHeight: 280, overflowY: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: `${110 + activeMaps.length * 360}px` }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: `${110 + jiraCols.length * 120 + activeMaps.length * 360}px` }}>
                           <colgroup>
                             <col style={{ width: 110 }} />
+                            {jiraCols.map(f => <col key={f} style={{ width: 140 }} />)}
                             {activeMaps.map((_, i) => (
                               <span key={i} style={{ display: 'contents' }}>
                                 <col style={{ width: 'auto', minWidth: 140 }} />
@@ -4286,11 +4290,12 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                           <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                             <tr>
                               <th style={{ ...thBase, color: '#60a5fa' }}>Issue Key</th>
+                              {jiraCols.map(f => <th key={f} style={{ ...thBase, color: '#94a3b8' }}>{jiraColLabels[f]}</th>)}
                               {activeMaps.map((m, i) => (
                                 <span key={i} style={{ display: 'contents' }}>
-                                  <th style={{ ...thBase, color: '#94a3b8' }}>{fieldLabel[m.jiraField] ?? m.jiraField} (現有)</th>
+                                  <th style={{ ...thBase, color: '#6b7280', borderLeft: i === 0 ? '2px solid #2563eb40' : undefined }}>{fieldLabel[m.jiraField] ?? m.jiraField} →</th>
                                   <th style={{ ...thBase, color: '#475569', textAlign: 'center', width: 28 }} />
-                                  <th style={{ ...thBase, color: '#4ade80' }}>{m.sheetColumn} (Sheet)</th>
+                                  <th style={{ ...thBase, color: '#4ade80' }}>{m.sheetColumn}</th>
                                 </span>
                               ))}
                             </tr>
@@ -4305,13 +4310,18 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                     <a href={`${import.meta.env.VITE_JIRA_BASE_URL ?? ''}/browse/${issue.issueKey}`} target="_blank" rel="noreferrer"
                                       style={{ color: '#93c5fd', fontWeight: 700, textDecoration: 'none' }}>{issue.issueKey}</a>
                                   </td>
+                                  {jiraCols.map(f => (
+                                    <td key={f} style={{ ...tdBase, color: '#64748b' }}>
+                                      {editTabJiraLoading && !jira ? <span style={{ color: '#374151' }}>…</span> : (jira?.[f] || '—')}
+                                    </td>
+                                  ))}
                                   {activeMaps.map((m, i) => {
                                     const current = jira?.[m.jiraField] ?? ''
                                     const next = (rec?.[m.sheetColumn] ?? '').toString().trim()
                                     const changed = next && current !== next
                                     return (
                                       <span key={i} style={{ display: 'contents' }}>
-                                        <td style={{ ...tdBase, color: '#64748b' }}>{current || '—'}</td>
+                                        <td style={{ ...tdBase, color: '#64748b', borderLeft: i === 0 ? '2px solid #2563eb40' : undefined }}>{current || '—'}</td>
                                         <td style={{ ...tdBase, color: '#475569', textAlign: 'center', padding: '4px 2px' }}>→</td>
                                         <td style={{ ...tdBase, color: changed ? '#4ade80' : '#374151', fontWeight: changed ? 600 : 400 }}>{next || '（無資料）'}</td>
                                       </span>
@@ -4321,7 +4331,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                               )
                             })}
                             {editTabSelectedKeys.size > 50 && (
-                              <tr><td colSpan={1 + activeMaps.length * 3} style={{ padding: '6px 12px', fontSize: 11, color: '#64748b', textAlign: 'center' }}>…還有 {editTabSelectedKeys.size - 50} 筆</td></tr>
+                              <tr><td colSpan={totalCols} style={{ padding: '6px 12px', fontSize: 11, color: '#64748b', textAlign: 'center' }}>…還有 {editTabSelectedKeys.size - 50} 筆</td></tr>
                             )}
                           </tbody>
                         </table>
