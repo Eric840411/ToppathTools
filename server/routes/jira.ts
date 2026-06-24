@@ -1161,6 +1161,28 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
     const stageHeader = headers.find(h => h === '處理階段') ?? ''
 
     /**
+     * Try to evaluate complex Lark formula bodies using raw row data.
+     * Handles the pattern: IF(Xn<>"", IFERROR(INDEX(SPLIT(Xn, CHAR(c)), n), ""), "")
+     * which extracts the nth line of a cell split by a character (e.g. newline).
+     */
+    const tryEvalComplexFormula = (formula: string, rawRow: unknown[]): string | null => {
+      // Match IF(ColRef<>"", IFERROR(INDEX(SPLIT(ColRef, CHAR(charCode)), lineNum), ""), "")
+      const m = formula.match(
+        /^IF\(\s*([A-Z]+)\d*\s*<>""\s*,\s*IFERROR\(\s*INDEX\(\s*SPLIT\(\s*([A-Z]+)\d*\s*,\s*CHAR\(\s*(\d+)\s*\)\s*\)\s*,\s*(\d+)\s*\)\s*,\s*""\s*\)\s*,\s*""\s*\)$/i
+      )
+      if (!m) return null
+      const colLetters = m[2]
+      const charCode = parseInt(m[3], 10)
+      const lineNum = parseInt(m[4], 10) - 1  // 1-based → 0-based
+      const separator = String.fromCharCode(charCode)
+      const colIndex = colLetters.split('').reduce((acc, ch) => acc * 26 + ch.charCodeAt(0) - 64, 0) - 1
+      const cellVal = extractCell(rawRow[colIndex])
+      if (!cellVal) return ''
+      const parts = cellVal.split(separator)
+      return parts[lineNum] ?? ''
+    }
+
+    /**
      * Lark v2 returns formula cells as the formula body string (without `=`).
      * Evaluate simple concatenation formulas like `"prefix"&G2` or `"a"&"b"`
      * using the raw cell values from the same row.
@@ -1244,9 +1266,9 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
             // Same-sheet concatenation formula
             val = evalFormula(val, rawRow)
           } else if (val && /^[A-Z_]+\(/.test(val)) {
-            // Lark v2 returns complex formula body (e.g. IF(Q4<>"", IFERROR(...))) for cells
-            // it cannot evaluate — treat as empty so garbage doesn't appear in Jira fields
-            val = ''
+            // Lark v2 returns complex formula body — try to evaluate it, else empty
+            const evaluated = tryEvalComplexFormula(val, rawRow)
+            val = evaluated !== null ? evaluated : ''
           }
           obj[h] = val
         })

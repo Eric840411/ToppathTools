@@ -376,14 +376,19 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     return result
   }, [filterableColumns, sheetRecords])
 
-  // Apply column filters to records; always skip rows where "單子標題貼這↓" is filled (already created)
+  // Apply column filters to records; always skip rows where "單子標題貼這" column is filled (already created)
+  // Use flexible name matching to handle ↓ variants or extra whitespace in the column name
+  const skipCreatedColKey = useMemo(() =>
+    sheetHeaders.find(h => h.replace(/[\s↓]+/g, '').includes('單子標題貼這'))
+  , [sheetHeaders])
+
   const filteredRecords = useMemo(() => {
     return sheetRecords.filter(r => {
       if (!Object.entries(columnFilters).every(([col, val]) => !val || (r[col] ?? '').trim() === val)) return false
-      if ((r['單子標題貼這↓'] ?? '').trim()) return false
+      if (skipCreatedColKey && (r[skipCreatedColKey] ?? '').trim()) return false
       return true
     })
-  }, [sheetRecords, columnFilters])
+  }, [sheetRecords, columnFilters, skipCreatedColKey])
 
   // Step 4 (create)
   const [submitting, setSubmitting] = useState(false)
@@ -2307,7 +2312,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               </span>
             </label>
             <span className="field-hint" style={{ color: '#64748b', fontSize: 11 }}>
-              「單子標題貼這↓」欄位有值的列會自動過濾（視為已開單）
+              含「單子標題貼這」的欄位有值的列會自動過濾（視為已開單）
             </span>
             {sheetError && <div className="alert-error">{sheetError}</div>}
           </div>
