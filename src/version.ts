@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.53.6'
+export const APP_VERSION = '3.53.7'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.53.7',
+    date: '2026-06-24',
+    changes: [
+      'fix(jira): 切換至批量開單 Tab 時若 step >= 5 自動重置，避免殘留舊 Step 5/6 畫面',
+      'fix(jira): 批量評論 writeback 改用批量評論自身的 Sheet URL（原本誤用批量開單 URL）',
+      'feat(jira): 批量更新狀態執行成功後寫回 Lark Sheet 處理階段（已切換狀態）與處理時間',
+    ],
+  },
   {
     version: '3.53.6',
     date: '2026-06-24',

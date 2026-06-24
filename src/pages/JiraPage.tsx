@@ -1533,14 +1533,17 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
       const successRows = results.filter(r => r.ok)
       if (successRows.length > 0) {
-        await fetch('/api/sheets/writeback-multi', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sheetUrl, source: sheetSource,
-            writes: successRows.map(r => ({ rowIndex: r.rowIndex, columns: { '處理階段': '添加評論', '處理時間': nowString() } })),
-          }),
-        })
+        const wbUrl = qaSubMode === 'comment' ? commentTabUrl : sheetUrl
+        if (wbUrl) {
+          await fetch('/api/sheets/writeback-multi', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sheetUrl: wbUrl, source: qaSubMode === 'comment' ? 'lark' : sheetSource,
+              writes: successRows.map(r => ({ rowIndex: r.rowIndex, columns: { '處理階段': '添加評論', '處理時間': nowString() } })),
+            }),
+          })
+        }
         setTrackedIssues(prev => prev.map(t => successRows.some(r => r.rowIndex === t.rowIndex) ? { ...t, stage: '添加評論' } : t))
       }
     } catch {
@@ -2000,8 +2003,26 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
         body: JSON.stringify({ items }),
       })
       const data = await resp.json() as { ok: boolean; results?: { issueKey: string; ok: boolean; error?: string }[] }
-      setUpdateResults(data.results ?? [])
+      const results = data.results ?? []
+      setUpdateResults(results)
       setUpdateStep(3)
+
+      // Writeback 處理階段 to Lark Sheet for succeeded issues
+      const succeededKeys = new Set(results.filter(r => r.ok).map(r => r.issueKey))
+      const succeededRows = filtered.filter(r => succeededKeys.has(r.issueKey))
+      if (succeededRows.length > 0 && updateBitableUrl) {
+        fetch('/api/sheets/writeback-multi', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sheetUrl: updateBitableUrl, source: 'lark',
+            writes: succeededRows.map(r => ({
+              rowIndex: r.rowIndex,
+              columns: { '處理階段': '已切換狀態', '處理時間': nowString() },
+            })),
+          }),
+        }).catch(() => {})
+      }
     } catch (e) {
       setUpdateError(String(e))
     } finally {
@@ -2054,7 +2075,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             <button
               key={sub}
               type="button"
-              onClick={() => setQaSubMode(sub)}
+              onClick={() => { setQaSubMode(sub); if (sub === 'create' && step >= 5) setStep(1) }}
               style={{
                 padding: '5px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer',
                 border: `1px solid ${qaSubMode === sub ? '#3b82f6' : '#2d3f55'}`,
@@ -3502,7 +3523,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       )}
 
       {/* ── Step 5: 添加評論 ── */}
-      {((mode === 'qa' && qaSubMode === 'create' && step === 5) || (mode === 'qa' && qaSubMode === 'comment' && commentTabStep === 3)) && (
+      {(mode === 'qa' && qaSubMode === 'comment' && commentTabStep === 3) && (
         <div className="section-card">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
             <h2 className="section-title" style={{ margin: 0 }}>
@@ -3955,7 +3976,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       )}
 
       {/* ── Step 6: 切換狀態 ── */}
-      {mode === 'qa' && qaSubMode === 'create' && step === 6 && (
+      {false && mode === 'qa' && qaSubMode === 'create' && step === 6 && (
         <div className="section-card">
           <h2 className="section-title">Step 6 — 切換狀態（{toTransition.length} 筆）</h2>
 
