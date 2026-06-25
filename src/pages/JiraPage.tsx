@@ -511,10 +511,75 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const [editTabMembersLoading, setEditTabMembersLoading] = useState(false)
   const [editTabAvailableFields, setEditTabAvailableFields] = useState<NormalizedJiraField[]>([])
 
+  // ── 共用摘要前綴設定（批量開單 & 批量修改共用）──
+  const [summaryPrefixEnabled, setSummaryPrefixEnabled] = useState(false)
+  const [summaryPrefixTheme, setSummaryPrefixTheme] = useState('')
+  const [summaryPrefixCols, setSummaryPrefixCols] = useState<string[]>([])
+
   // 追蹤所有已進入流程的 issue（本次 session 合併最新 stage）
   const [trackedIssues, setTrackedIssues] = useState<TrackedIssue[]>([])
 
   const emailHeader: Record<string, string> = currentAccount ? { 'x-jira-email': currentAccount.email } : {}
+
+  // Compute summary prefix from a Sheet row (used in both create and edit flows)
+  const computeSummaryPrefix = (row: Record<string, unknown>): string => {
+    if (!summaryPrefixEnabled) return ''
+    const parts: string[] = []
+    if (summaryPrefixTheme.trim()) parts.push(`[${summaryPrefixTheme.trim()}]`)
+    for (const col of summaryPrefixCols.filter(Boolean)) {
+      const val = ((row[col] ?? '') as string).toString().trim()
+      if (val) parts.push(`[${val}]`)
+    }
+    return parts.join('')
+  }
+
+  // Render shared summary prefix panel (called from both tabs)
+  const renderSummaryPrefixPanel = (headers: string[]) => (
+    <div style={{ marginBottom: 12, padding: '10px 14px', background: '#0b1929', border: `1px solid ${summaryPrefixEnabled ? '#2563eb60' : '#1e293b'}`, borderRadius: 8 }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: summaryPrefixEnabled ? 12 : 0 }}>
+        <input type="checkbox" checked={summaryPrefixEnabled} onChange={e => setSummaryPrefixEnabled(e.target.checked)} />
+        <span style={{ fontSize: 13, color: '#94a3b8', fontWeight: 600 }}>自動組合摘要前綴</span>
+        <span style={{ fontSize: 11, color: '#475569' }}>格式：[主題][類別1][類別2]...摘要</span>
+      </label>
+      {summaryPrefixEnabled && (
+        <>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+            <span style={{ fontSize: 12, color: '#60a5fa', flexShrink: 0, width: 36 }}>主題：</span>
+            <input value={summaryPrefixTheme} onChange={e => setSummaryPrefixTheme(e.target.value)}
+              placeholder="輸入共用主題，例如：遊戲測試"
+              style={{ flex: 1, padding: '5px 10px', borderRadius: 5, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
+            />
+          </div>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+              <span style={{ fontSize: 12, color: '#60a5fa', width: 36, flexShrink: 0 }}>類別：</span>
+              <button type="button" className="btn-ghost" style={{ fontSize: 12, padding: '3px 10px' }}
+                onClick={() => setSummaryPrefixCols(prev => [...prev, ''])}>+ 新增類別欄位</button>
+            </div>
+            {summaryPrefixCols.map((col, i) => (
+              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 4, paddingLeft: 44 }}>
+                <select value={col} onChange={e => setSummaryPrefixCols(prev => prev.map((c, j) => j === i ? e.target.value : c))}
+                  style={{ flex: 1, padding: '5px 10px', borderRadius: 5, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}>
+                  <option value="">— 選擇 Sheet 欄位 —</option>
+                  {headers.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+                <button type="button" onClick={() => setSummaryPrefixCols(prev => prev.filter((_, j) => j !== i))}
+                  style={{ background: 'none', border: 'none', color: '#f85149', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: '0 4px', flexShrink: 0 }}>×</button>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 10, fontSize: 12, color: '#475569', paddingLeft: 44 }}>
+            預覽格式：
+            <span style={{ color: '#60a5fa' }}>
+              {summaryPrefixTheme.trim() ? `[${summaryPrefixTheme.trim()}]` : ''}
+              {summaryPrefixCols.filter(Boolean).map((c, i) => <span key={i}>[{c}的值]</span>)}
+            </span>
+            <span style={{ color: '#94a3b8' }}>摘要內容</span>
+          </div>
+        </>
+      )}
+    </div>
+  )
 
   useEffect(() => {
     if (!account) return
@@ -1215,7 +1280,9 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           if (formatted !== undefined) dynamicFields[field.key] = formatted
         }
         const summaryFromCell = rowCells['summary']?.trim()
-        const finalSummary = (generatedSummaries[rowIdx] || summaryFromCell || getField(r, SHEET_FIELD.summary)).replace(/[\r\n]+/g, ' ').trim()
+        const rawFinalSummary = (generatedSummaries[rowIdx] || summaryFromCell || getField(r, SHEET_FIELD.summary)).replace(/[\r\n]+/g, ' ').trim()
+        const summaryPrefix = computeSummaryPrefix(r as Record<string, unknown>)
+        const finalSummary = summaryPrefix ? summaryPrefix + rawFinalSummary : rawFinalSummary
         return {
           summary: finalSummary,
           description: rowCells['description'] || getField(r, SHEET_FIELD.description),
@@ -1233,8 +1300,10 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       const larkVerifierIds = verifiers
         ? verifiers.split(',').map(s => s.trim()).filter(s => knownIds.has(s))
         : []
+      const rawTradSummary = (generatedSummaries[rowIdx] || getField(r, SHEET_FIELD.summary)).replace(/[\r\n]+/g, ' ').trim()
+      const tradSummaryPrefix = computeSummaryPrefix(r as Record<string, unknown>)
       return {
-        summary: (generatedSummaries[rowIdx] || getField(r, SHEET_FIELD.summary)).replace(/[\r\n]+/g, ' ').trim(),
+        summary: tradSummaryPrefix ? tradSummaryPrefix + rawTradSummary : rawTradSummary,
         description: getField(r, SHEET_FIELD.description),
         assigneeAccountId: batchAssigneeIds[0] || validId(getField(r, SHEET_FIELD.assigneeAccountId)) || selectedAssignee || undefined,
         rdOwnerAccountId: batchRdOwnerIds[0] || validId(getField(r, SHEET_FIELD.rdOwnerAccountId)) || undefined,
@@ -1951,7 +2020,12 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             if (val !== undefined && val !== '') fields[m.jiraField] = val
           } else {
             const rawVal = (rec?.[m.sheetColumn] ?? '').toString().trim()
-            const val = buildFieldValue(rawVal)
+            let val = buildFieldValue(rawVal)
+            // Apply summary prefix when prefix is enabled and field is summary
+            if (m.jiraField === 'summary' && summaryPrefixEnabled && rec) {
+              const prefix = computeSummaryPrefix(rec as Record<string, unknown>)
+              if (prefix && typeof val === 'string' && val) val = prefix + val
+            }
             if (val !== undefined && val !== '') fields[m.jiraField] = val
           }
         }
@@ -2774,6 +2848,8 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               &nbsp;列）
             </div>
           )}
+
+          {renderSummaryPrefixPanel(sheetHeaders)}
 
           {/* 欄位篩選器 */}
           {filterableColumns.length > 0 && (
@@ -4260,6 +4336,8 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 選擇要修改的 Jira 欄位，並選擇來源（Sheet 欄位 或 手動設定）。
               </p>
               {editTabError && <div className="alert-error" style={{ marginBottom: 10 }}>{editTabError}</div>}
+
+              {renderSummaryPrefixPanel(editTabHeaders)}
 
               {/* Field mappings */}
               <div className="form-stack" style={{ marginBottom: 12 }}>

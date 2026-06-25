@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.53.13'
+export const APP_VERSION = '3.53.14'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.53.14',
+    date: '2026-06-25',
+    changes: [
+      'feat(jira): 批量開單和批量修改新增共用「自動組合摘要前綴」功能，設定主題（手動輸入）+ 多個類別欄位（從 Sheet 選擇），組合成 [主題][類別1][類別2]...摘要格式',
+    ],
+  },
   {
     version: '3.53.13',
     date: '2026-06-25',
