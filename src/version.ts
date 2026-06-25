@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.53.15'
+export const APP_VERSION = '3.54.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,40 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.54.2',
+    date: '2026-06-25',
+    changes: [
+      'fix(jira): 批量開單 Step 3 附件欄中，Sheet 匯入影片改顯示「⚠ 需重新上傳」警示，提示使用者手動補傳',
+      'fix(jira): 批量開單送出前若有未上傳影片列，彈出確認對話框，與批量評論行為一致',
+    ],
+  },
+  {
+    version: '3.54.1',
+    date: '2026-06-25',
+    changes: [
+      'fix(jira): 批量更新狀態描述欄位誤判為空 — batch-fetch-fields 改用 renderedFields 作 fallback，解決 ADF 解析無法取到描述文字的問題',
+      'fix(jira): 批量開單附件流程加入詳細 log（快取檔存在與否、上傳成功/失敗、描述更新結果），方便排查描述嵌入失敗原因',
+    ],
+  },
+  {
+    version: '3.54.0',
+    date: '2026-06-25',
+    changes: [
+      'feat(jira): 批量開單 Step 3 新增「描述圖片附件」面板 — 可從 Sheet 欄位預載（Lark/Google Drive）或逐列手動上傳；開單後自動上傳附件並以 !filename! markup 嵌入描述',
+      'feat(jira): 批量修改 multiuser 欄位改為多選 chip picker（QA驗證人員等欄位可一次選多人）',
+      'fix(jira): 批量修改預覽表格摘要欄顯示前綴組合後的最終結果',
+      'fix(jira): 前綴面板類別選單容器加 overflow:hidden + minWidth:0，防止長欄位名稱溢出版面',
+      'feat(jira): 批量更新狀態執行前驗證必填欄位（摘要/描述/受託人/RD負責人），缺漏時擋下並列出問題單',
+      'refactor(jira): 描述圖片附件移入表格「附件」欄，移除獨立面板；自動偵測「圖」欄位並在「從 Lark 帶入」時自動預載',
+      'fix(jira): 批量更新狀態執行前重新從 Jira fetch 最新資料再驗證，不使用快取',
+      'fix(jira): 批量修改多人欄位選人後保持下拉開啟（不再需要清空才能繼續選）',
+      'fix(jira): 批量修改多人欄位選完人後「確認修改」按鈕不再被誤 disabled',
+      'fix(jira): 批量修改預覽表格欄位名稱改為顯示正式欄位名稱而非 customfield_XXXXX',
+      'fix(jira): 批量開單附件下載失敗顯示帶檔名的 ⚠ 提示，影片類型顯示 🎬 圖示',
+      'fix(jira): 批量開單描述附件嵌入增加 v2 回應檢查及 v3 ADF fallback，方便排查失敗原因',
+    ],
+  },
   {
     version: '3.53.15',
     date: '2026-06-25',

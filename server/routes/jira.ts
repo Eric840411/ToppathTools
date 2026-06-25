@@ -151,6 +151,13 @@ const batchCreateSchema = z.object({
       releaseDate: z.string().optional(),
       dynamicFields: z.record(z.string(), z.unknown()).optional().default({}),
       rowIndex: z.number(),
+      cachedAttachments: z.array(z.object({
+        cacheId: z.string(),
+        filename: z.string(),
+        mimeType: z.string(),
+        isImage: z.boolean(),
+        isVideo: z.boolean(),
+      })).optional().default([]),
     }),
   ),
   sheetUrl: z.string(),
@@ -1486,7 +1493,75 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
           }
           results.push({ rowIndex: row.rowIndex, error: JSON.stringify(data.errors ?? data.errorMessages ?? data) })
         } else {
-          results.push({ rowIndex: row.rowIndex, issueKey: data.key })
+          const issueKey = data.key!
+          // ── 描述附件：上傳後以 wiki markup 嵌入描述 ──
+          const cachedAtts = row.cachedAttachments ?? []
+          console.log(`[batch-create] ${issueKey} cachedAtts.length=${cachedAtts.length}`, cachedAtts.map(a => ({ cacheId: a.cacheId?.slice(0, 8), filename: a.filename, isImage: a.isImage })))
+          if (cachedAtts.length > 0) {
+            const uploadedImages: string[] = []
+            const uploadedVideos: string[] = []
+            for (const ca of cachedAtts) {
+              if (!ca.cacheId) { console.log(`[batch-create] skip no cacheId: ${ca.filename}`); continue }
+              const fp = join(ATTACH_CACHE_DIR, ca.cacheId)
+              if (!existsSync(fp)) {
+                console.warn(`[batch-create] ${issueKey} 快取檔不存在: ${fp}`)
+                continue
+              }
+              try {
+                const buffer = readFileSync(fp)
+                console.log(`[batch-create] ${issueKey} 上傳附件 ${ca.filename} (${buffer.length}bytes)`)
+                const storedFilename = await uploadAttachmentToJira(issueKey, ca.filename, buffer, ca.mimeType, userAuth.auth, baseUrl)
+                console.log(`[batch-create] ${issueKey} 附件上傳成功: ${ca.filename} → ${storedFilename}`)
+                if (ca.isVideo) uploadedVideos.push(storedFilename)
+                else uploadedImages.push(storedFilename)
+                try { unlinkSync(fp) } catch { /* ignore */ }
+              } catch (attErr) {
+                console.warn(`[batch-create] ${issueKey} 附件上傳失敗 (${ca.filename}):`, attErr)
+              }
+            }
+            console.log(`[batch-create] ${issueKey} uploadedImages:`, uploadedImages, 'uploadedVideos:', uploadedVideos)
+            if (uploadedImages.length > 0 || uploadedVideos.length > 0) {
+              const descText = (row.description ?? '').trim()
+              let wikiDesc = descText
+              if (uploadedImages.length > 0) {
+                wikiDesc += (wikiDesc ? '\n\n' : '') + uploadedImages.map(f => `!${f}!`).join('\n')
+              }
+              if (uploadedVideos.length > 0) {
+                wikiDesc += (wikiDesc ? '\n\n' : '') + '📹 影片附件：\n' + uploadedVideos.map(f => `[^${f}]`).join('\n')
+              }
+              console.log(`[batch-create] ${issueKey} 更新描述 wikiDesc:`, JSON.stringify(wikiDesc.slice(0, 300)))
+              try {
+                // Try v2 wiki markup first
+                const putResp = await fetch(`${baseUrl}/rest/api/2/issue/${issueKey}`, {
+                  method: 'PUT',
+                  headers: { Authorization: userAuth.auth, Accept: 'application/json', 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ fields: { description: wikiDesc } }),
+                })
+                if (!putResp.ok) {
+                  const errBody = await putResp.text().catch(() => '')
+                  console.warn(`[batch-create] ${issueKey} v2 描述更新失敗 HTTP ${putResp.status}: ${errBody.slice(0, 300)}`)
+                  // Fallback: v3 ADF update (image filenames as text)
+                  const adfDesc = textToADF(descText + (uploadedImages.length > 0 ? '\n\n' + uploadedImages.map(f => `[圖片附件: ${f}]`).join('\n') : '') + (uploadedVideos.length > 0 ? '\n' + uploadedVideos.map(f => `[影片附件: ${f}]`).join('\n') : ''))
+                  const v3Resp = await fetch(`${baseUrl}/rest/api/3/issue/${issueKey}`, {
+                    method: 'PUT',
+                    headers: { Authorization: userAuth.auth, Accept: 'application/json', 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ fields: { description: adfDesc } }),
+                  })
+                  if (!v3Resp.ok) {
+                    const v3Err = await v3Resp.text().catch(() => '')
+                    console.warn(`[batch-create] ${issueKey} v3 描述更新也失敗 HTTP ${v3Resp.status}: ${v3Err.slice(0, 300)}`)
+                  } else {
+                    console.log(`[batch-create] ${issueKey} 已透過 v3 ADF 更新描述（附件資訊已加入）`)
+                  }
+                } else {
+                  console.log(`[batch-create] ${issueKey} v2 描述更新成功（包含 ${uploadedImages.length} 張圖片）`)
+                }
+              } catch (descErr) {
+                console.warn(`[batch-create] ${issueKey} 更新描述失敗:`, descErr)
+              }
+            }
+          }
+          results.push({ rowIndex: row.rowIndex, issueKey })
         }
       } catch (e) {
         results.push({ rowIndex: row.rowIndex, error: String(e) })
@@ -2482,7 +2557,8 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
       headers: { Authorization: userAuth.auth, 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
         jql,
-        fields: ['summary', 'assignee', 'reporter', 'description', 'priority', 'status', 'issuetype', 'labels'],
+        fields: ['summary', 'assignee', 'reporter', 'description', 'priority', 'status', 'issuetype', 'labels', 'customfield_10428'],
+        expand: 'renderedFields',
         maxResults: Math.min(issueKeys.length, 200),
       }),
     })
@@ -2501,12 +2577,24 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
         issuetype?: { name?: string }
         labels?: string[]
         description?: unknown
+        customfield_10428?: Array<{ displayName?: string }>
       }
+      renderedFields?: { description?: string }
     }
     const data = await resp.json() as { issues?: JiraIssue[] }
     const issues: Record<string, Record<string, string>> = {}
     for (const issue of data.issues ?? []) {
       const f = issue.fields
+      // Try ADF/string first, then fall back to renderedFields (HTML) → strip tags
+      let descText = typeof f.description === 'string' ? f.description.trim()
+        : (f.description && typeof f.description === 'object') ? extractAdfText(f.description).trim()
+        : ''
+      if (!descText && issue.renderedFields?.description) {
+        descText = issue.renderedFields.description.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+      }
+      const rdOwner = Array.isArray(f.customfield_10428) && f.customfield_10428.length > 0
+        ? (f.customfield_10428[0].displayName ?? '')
+        : ''
       issues[issue.key] = {
         summary: f.summary ?? '',
         assignee: f.assignee?.displayName ?? '',
@@ -2515,6 +2603,8 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
         priority: f.priority?.name ?? '',
         issuetype: f.issuetype?.name ?? '',
         labels: (f.labels ?? []).join(', '),
+        description: descText,
+        rdOwner,
       }
     }
     res.json({ ok: true, issues })
