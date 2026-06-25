@@ -1908,13 +1908,21 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
           const buildFieldValue = (rawVal: string): unknown => {
             if (!rawVal) return undefined
-            const ft = ftype || (m.jiraField === 'assignee' ? 'user' : m.jiraField === 'priority' ? 'select' : m.jiraField === 'labels' ? 'multiselect' : 'string')
+            const ft = ftype || (m.jiraField === 'assignee' ? 'user' : m.jiraField === 'priority' ? 'select' : 'string')
+            // labels: always plain string array regardless of type
+            if (m.jiraField === 'labels') {
+              return rawVal.split(',').map(s => s.trim()).filter(Boolean)
+            }
             if (ft === 'user' || ft === 'multiuser') {
               const allMembers = editTabMembers.map(mb => ({ id: mb.accountId, label: mb.displayName }))
               const opts = fopts.length ? fopts : allMembers
-              const found = opts.find(o => o.id === rawVal || o.label === rawVal)
-              const accountId = found?.id ?? rawVal
-              if (ft === 'multiuser') return rawVal.split(',').map(s => s.trim()).filter(Boolean).map(id => ({ accountId: id }))
+              // resolve single token (display name or accountId) → accountId
+              const resolveOne = (token: string) => opts.find(o => o.id === token || o.label === token)?.id ?? token
+              if (ft === 'multiuser') {
+                // split comma-separated names/ids, resolve each to accountId
+                return rawVal.split(',').map(s => s.trim()).filter(Boolean).map(s => ({ accountId: resolveOne(s) }))
+              }
+              const accountId = resolveOne(rawVal)
               // assignee uses { id }, custom user fields use { accountId }
               return m.jiraField === 'assignee' ? { id: accountId } : { accountId }
             }
@@ -1930,7 +1938,10 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 return opt ? { id: opt.id } : { value: v }
               })
             }
-            if (ft === 'number') return Number(rawVal) || 0
+            if (ft === 'number') {
+              const n = Number(rawVal)
+              return isNaN(n) ? undefined : n
+            }
             return rawVal  // string / text / date / datetime
           }
 

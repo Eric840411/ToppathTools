@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.53.12'
+export const APP_VERSION = '3.53.13'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.53.13',
+    date: '2026-06-25',
+    changes: [
+      'fix(jira): 批量修改全面修正各欄位類型格式 — labels 改為純字串陣列、multiuser 先解析 displayName→accountId 再送、number 無效值不填 0',
+    ],
+  },
   {
     version: '3.53.12',
     date: '2026-06-25',
