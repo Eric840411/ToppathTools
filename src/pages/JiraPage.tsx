@@ -534,52 +534,67 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   }
 
   // Render shared summary prefix panel (called from both tabs)
-  const renderSummaryPrefixPanel = (headers: string[]) => (
-    <div style={{ marginBottom: 12, padding: '10px 14px', background: '#0b1929', border: `1px solid ${summaryPrefixEnabled ? '#2563eb60' : '#1e293b'}`, borderRadius: 8 }}>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: summaryPrefixEnabled ? 12 : 0 }}>
-        <input type="checkbox" checked={summaryPrefixEnabled} onChange={e => setSummaryPrefixEnabled(e.target.checked)} />
-        <span style={{ fontSize: 13, color: '#94a3b8', fontWeight: 600 }}>自動組合摘要前綴</span>
-        <span style={{ fontSize: 11, color: '#475569' }}>格式：[主題][類別1][類別2]...摘要</span>
-      </label>
-      {summaryPrefixEnabled && (
-        <>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-            <span style={{ fontSize: 12, color: '#60a5fa', flexShrink: 0, width: 36 }}>主題：</span>
-            <input value={summaryPrefixTheme} onChange={e => setSummaryPrefixTheme(e.target.value)}
-              placeholder="輸入共用主題，例如：遊戲測試"
-              style={{ flex: 1, padding: '5px 10px', borderRadius: 5, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
-            />
-          </div>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-              <span style={{ fontSize: 12, color: '#60a5fa', width: 36, flexShrink: 0 }}>類別：</span>
-              <button type="button" className="btn-ghost" style={{ fontSize: 12, padding: '3px 10px' }}
-                onClick={() => setSummaryPrefixCols(prev => [...prev, ''])}>+ 新增類別欄位</button>
+  const renderSummaryPrefixPanel = (headers: string[], records?: Array<Record<string, unknown>>, summaryColKey?: string) => {
+    const exampleRecord = records?.[0]
+    const livePrefix = summaryPrefixEnabled && exampleRecord ? computeSummaryPrefix(exampleRecord) : null
+    const exampleSummary = exampleRecord && summaryColKey ? ((exampleRecord[summaryColKey] ?? '') as string).toString().trim() : null
+    return (
+      <div style={{ marginBottom: 12, padding: '10px 14px', background: '#0b1929', border: `1px solid ${summaryPrefixEnabled ? '#2563eb60' : '#1e293b'}`, borderRadius: 8 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: summaryPrefixEnabled ? 12 : 0 }}>
+          <input type="checkbox" checked={summaryPrefixEnabled} onChange={e => setSummaryPrefixEnabled(e.target.checked)} />
+          <span style={{ fontSize: 13, color: '#94a3b8', fontWeight: 600 }}>自動組合摘要前綴</span>
+          <span style={{ fontSize: 11, color: '#475569' }}>格式：[主題][類別1][類別2]...摘要</span>
+        </label>
+        {summaryPrefixEnabled && (
+          <>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+              <span style={{ fontSize: 12, color: '#60a5fa', flexShrink: 0, width: 36 }}>主題：</span>
+              <input value={summaryPrefixTheme} onChange={e => setSummaryPrefixTheme(e.target.value)}
+                placeholder="輸入共用主題，例如：遊戲測試"
+                style={{ flex: 1, padding: '5px 10px', borderRadius: 5, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
+              />
             </div>
-            {summaryPrefixCols.map((col, i) => (
-              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 4, paddingLeft: 44 }}>
-                <select value={col} onChange={e => setSummaryPrefixCols(prev => prev.map((c, j) => j === i ? e.target.value : c))}
-                  style={{ flex: 1, padding: '5px 10px', borderRadius: 5, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}>
-                  <option value="">— 選擇 Sheet 欄位 —</option>
-                  {headers.map(h => <option key={h} value={h}>{h}</option>)}
-                </select>
-                <button type="button" onClick={() => setSummaryPrefixCols(prev => prev.filter((_, j) => j !== i))}
-                  style={{ background: 'none', border: 'none', color: '#f85149', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: '0 4px', flexShrink: 0 }}>×</button>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 12, color: '#60a5fa', width: 36, flexShrink: 0 }}>類別：</span>
+                <button type="button" className="btn-ghost" style={{ fontSize: 12, padding: '3px 10px' }}
+                  onClick={() => setSummaryPrefixCols(prev => [...prev, ''])}>+ 新增類別欄位</button>
               </div>
-            ))}
-          </div>
-          <div style={{ marginTop: 10, fontSize: 12, color: '#475569', paddingLeft: 44 }}>
-            預覽格式：
-            <span style={{ color: '#60a5fa' }}>
-              {summaryPrefixTheme.trim() ? `[${summaryPrefixTheme.trim()}]` : ''}
-              {summaryPrefixCols.filter(Boolean).map((c, i) => <span key={i}>[{c}的值]</span>)}
-            </span>
-            <span style={{ color: '#94a3b8' }}>摘要內容</span>
-          </div>
-        </>
-      )}
-    </div>
-  )
+              {summaryPrefixCols.map((col, i) => (
+                <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 4, paddingLeft: 44 }}>
+                  <select value={col} onChange={e => setSummaryPrefixCols(prev => prev.map((c, j) => j === i ? e.target.value : c))}
+                    style={{ flex: 1, padding: '5px 10px', borderRadius: 5, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}>
+                    <option value="">— 選擇 Sheet 欄位 —</option>
+                    {headers.map(h => <option key={h} value={h}>{h}</option>)}
+                  </select>
+                  <button type="button" onClick={() => setSummaryPrefixCols(prev => prev.filter((_, j) => j !== i))}
+                    style={{ background: 'none', border: 'none', color: '#f85149', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: '0 4px', flexShrink: 0 }}>×</button>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 10, fontSize: 12, paddingLeft: 44, display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+              {livePrefix !== null ? (
+                <>
+                  <span style={{ color: '#64748b' }}>第 1 列實際結果：</span>
+                  <span style={{ color: '#34d399', fontWeight: 600 }}>{livePrefix || '（無前綴）'}</span>
+                  <span style={{ color: '#94a3b8' }}>{exampleSummary ? exampleSummary.slice(0, 40) + (exampleSummary.length > 40 ? '...' : '') : '摘要內容'}</span>
+                </>
+              ) : (
+                <>
+                  <span style={{ color: '#475569' }}>預覽格式：</span>
+                  <span style={{ color: '#60a5fa' }}>
+                    {summaryPrefixTheme.trim() ? `[${summaryPrefixTheme.trim()}]` : ''}
+                    {summaryPrefixCols.filter(Boolean).map((c, i) => <span key={i}>[{c}的值]</span>)}
+                  </span>
+                  <span style={{ color: '#94a3b8' }}>摘要內容</span>
+                </>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    )
+  }
 
   useEffect(() => {
     if (!account) return
@@ -2849,7 +2864,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             </div>
           )}
 
-          {renderSummaryPrefixPanel(sheetHeaders)}
+          {renderSummaryPrefixPanel(sheetHeaders, filteredRecords as Array<Record<string, unknown>>, SHEET_FIELD.summary)}
 
           {/* 欄位篩選器 */}
           {filterableColumns.length > 0 && (
@@ -4337,7 +4352,11 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               </p>
               {editTabError && <div className="alert-error" style={{ marginBottom: 10 }}>{editTabError}</div>}
 
-              {renderSummaryPrefixPanel(editTabHeaders)}
+              {renderSummaryPrefixPanel(
+                editTabHeaders,
+                editTabRecords as Array<Record<string, unknown>>,
+                editFieldMappings.find(m => m.jiraField === 'summary' && m.mode === 'sheet')?.sheetColumn
+              )}
 
               {/* Field mappings */}
               <div className="form-stack" style={{ marginBottom: 12 }}>
