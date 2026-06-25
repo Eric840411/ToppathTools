@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.53.14'
+export const APP_VERSION = '3.53.15'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.53.15',
+    date: '2026-06-25',
+    changes: [
+      'feat(jira): 批量修改人員欄位改為可搜尋下拉選單（SearchablePicker），依 Issue 所屬專案自動載入完整可分配人員清單',
+    ],
+  },
   {
     version: '3.53.14',
     date: '2026-06-25',

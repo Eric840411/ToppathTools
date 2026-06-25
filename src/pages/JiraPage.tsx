@@ -316,6 +316,66 @@ function UserFieldSearch({ field, projectKey, issueTypeId, issueTypeName, email,
   )
 }
 
+// Searchable user picker for 批量修改 manual mode
+function EditUserPicker({ members, loading, value, label, onChange }: {
+  members: { id: string; label: string }[]
+  loading?: boolean
+  value: string
+  label: string
+  onChange: (id: string, label: string) => void
+}) {
+  const [q, setQ] = useState(label)
+  const [open, setOpen] = useState(false)
+  const [rect, setRect] = useState<{ top: number; left: number; width: number } | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { setQ(label) }, [label])
+
+  const filtered = useMemo(() => {
+    const term = q.trim().toLowerCase()
+    return term ? members.filter(m => m.label.toLowerCase().includes(term)) : members
+  }, [q, members])
+
+  const updateRect = () => {
+    const el = inputRef.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    setRect({ top: r.bottom + 2, left: r.left, width: r.width })
+  }
+
+  return (
+    <div style={{ flex: '1 1 0', minWidth: 160, position: 'relative' }}>
+      <input
+        ref={inputRef}
+        value={q}
+        onChange={e => { setQ(e.target.value); setOpen(true); updateRect() }}
+        onFocus={() => { setOpen(true); updateRect() }}
+        onBlur={() => setTimeout(() => { setOpen(false); if (!value) setQ('') }, 150)}
+        placeholder={loading ? '載入人員中…' : '🔍 搜尋人員…'}
+        style={{ width: '100%', boxSizing: 'border-box', padding: '6px 10px', borderRadius: 6, border: `1px solid ${value ? '#2563eb60' : '#2d3f55'}`, background: '#0f172a', color: value ? '#e2e8f0' : '#64748b', fontSize: 13 }}
+      />
+      {open && rect && createPortal(
+        <div style={{ position: 'fixed', top: rect.top, left: rect.left, width: Math.max(rect.width, 220), zIndex: 9999, background: '#1e293b', border: '1px solid #334155', borderRadius: 6, maxHeight: 260, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+          {loading
+            ? <div style={{ padding: '8px 12px', fontSize: 12, color: '#64748b' }}>載入中…</div>
+            : filtered.length === 0
+              ? <div style={{ padding: '8px 12px', fontSize: 12, color: '#64748b' }}>查無使用者</div>
+              : filtered.map(u => (
+                <button key={u.id} type="button"
+                  onMouseDown={e => { e.preventDefault(); onChange(u.id, u.label); setQ(u.label); setOpen(false) }}
+                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '6px 12px', fontSize: 12, background: u.id === value ? '#1e3a5f' : 'none', border: 'none', color: '#cbd5e1', cursor: 'pointer' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#2563eb30' }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = u.id === value ? '#1e3a5f' : 'none' }}>
+                  {u.label}
+                </button>
+              ))
+          }
+        </div>, document.body
+      )}
+    </div>
+  )
+}
+
 export function JiraPage({ account = null, allowedModes, isAdmin = false }: JiraPageProps) {
   const isGame = useIsGameMode()
   const [mode, setMode] = useState<'qa' | 'pm'>('qa')
@@ -1956,10 +2016,14 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       setEditTabStep(2)
       // Async fetch current Jira data for preview
       void fetchEditTabJiraData(issues.map(i => i.issueKey))
-      // Async fetch members for manual assignee picker
+      // Async fetch members — extract project key from first issue key (e.g. "DSFT-7908" → "DSFT")
       if (currentAccount) {
         setEditTabMembersLoading(true)
-        fetch('/api/jira/members', { headers: { 'x-jira-email': currentAccount.email } })
+        const projKey = issues[0]?.issueKey.split('-')[0] ?? ''
+        const membersUrl = projKey
+          ? `/api/jira/members?projectKey=${encodeURIComponent(projKey)}`
+          : '/api/jira/members'
+        fetch(membersUrl, { headers: { 'x-jira-email': currentAccount.email } })
           .then(r => r.json()).then((d: { ok: boolean; members?: Member[] }) => {
             if (d.ok) setEditTabMembers(d.members ?? [])
           }).catch(() => {}).finally(() => setEditTabMembersLoading(false))
@@ -4405,22 +4469,14 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                       {/* Value input */}
                       {isManual ? (
                         (mapping.fieldType === 'user' || mapping.fieldType === 'multiuser' || mapping.jiraField === 'assignee') ? (
-                          // User field: pick from members or field options
-                          <select
+                          // User field: searchable picker from project members
+                          <EditUserPicker
+                            members={mapping.fieldOptions.length ? mapping.fieldOptions : editTabMembers.map(m => ({ id: m.accountId, label: m.displayName }))}
+                            loading={editTabMembersLoading && !mapping.fieldOptions.length}
                             value={mapping.manualAccountId}
-                            onChange={e => {
-                              const opts = mapping.fieldOptions.length ? mapping.fieldOptions : editTabMembers.map(m => ({ id: m.accountId, label: m.displayName }))
-                              const opt = opts.find(o => o.id === e.target.value)
-                              updateMapping({ manualAccountId: e.target.value, manualValue: opt?.label ?? '' })
-                            }}
-                            style={{ flex: '1 1 0', minWidth: 160, padding: '6px 10px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
-                          >
-                            <option value="">— 選擇人員 —</option>
-                            {editTabMembersLoading && !mapping.fieldOptions.length && <option disabled>載入中…</option>}
-                            {(mapping.fieldOptions.length ? mapping.fieldOptions : editTabMembers.map(m => ({ id: m.accountId, label: m.displayName }))).map(o => (
-                              <option key={o.id} value={o.id}>{o.label}</option>
-                            ))}
-                          </select>
+                            label={mapping.manualValue}
+                            onChange={(id, lbl) => updateMapping({ manualAccountId: id, manualValue: lbl })}
+                          />
                         ) : (mapping.fieldType === 'select' || mapping.fieldType === 'multiselect' || mapping.jiraField === 'priority') ? (
                           // Select field: dropdown from options or priority list
                           <select
