@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.53.11'
+export const APP_VERSION = '3.53.12'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.53.12',
+    date: '2026-06-25',
+    changes: [
+      'fix(jira): 批量修改自訂人員欄位（如 RD負責人）改用 {accountId} 格式，修正 400「使用者不存在或不適用」錯誤',
+    ],
+  },
   {
     version: '3.53.11',
     date: '2026-06-24',

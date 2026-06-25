@@ -1915,7 +1915,8 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               const found = opts.find(o => o.id === rawVal || o.label === rawVal)
               const accountId = found?.id ?? rawVal
               if (ft === 'multiuser') return rawVal.split(',').map(s => s.trim()).filter(Boolean).map(id => ({ accountId: id }))
-              return { id: accountId }
+              // assignee uses { id }, custom user fields use { accountId }
+              return m.jiraField === 'assignee' ? { id: accountId } : { accountId }
             }
             if (ft === 'select') {
               // priority uses { name }, generic select uses { id }
