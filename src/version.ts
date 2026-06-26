@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.54.2'
+export const APP_VERSION = '3.54.15'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,100 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.54.15',
+    date: '2026-06-25',
+    changes: [
+      'fix(jira): writeback-multi 加 fallback — URL/richtext 格式若被 P 欄型態拒絕（90204），自動改用純文字重試',
+    ],
+  },
+  {
+    version: '3.54.14',
+    date: '2026-06-25',
+    changes: [
+      'fix(jira): 確認 Lark Sheets v2 API 不支援 richText，改回 URL cell（整格超連結）寫入 P 欄',
+    ],
+  },
+  {
+    version: '3.54.13',
+    date: '2026-06-25',
+    changes: [
+      'feat(jira): 單子標題貼這改用 Lark Sheets v3 rich text API — Issue Key 超連結 + 摘要純文字，同一格分段顯示',
+    ],
+  },
+  {
+    version: '3.54.12',
+    date: '2026-06-25',
+    changes: [
+      'fix(jira): Lark header 解析修正 — 物件類型 cell（URL cell）正確提取 text，避免 [object Object] 導致欄位名稱對應失敗',
+      'fix(jira): 欄位名稱比對加 normalizeCol()，strip ↓/↑/→/←/換行，解決 P 欄「單子標題貼這」找不到問題',
+    ],
+  },
+  {
+    version: '3.54.11',
+    date: '2026-06-25',
+    changes: [
+      'fix(jira): 單子標題貼這回填改用 richtext 格式，只有 Issue Key 為超連結，摘要為純文字 (同行第二段)',
+      'fix(jira): Lark Sheet 欄位名稱比對加 trim() 修正帶空白的欄位無法對應問題',
+    ],
+  },
+  {
+    version: '3.54.10',
+    date: '2026-06-25',
+    changes: [
+      'fix(jira): 批量修改 Step 3 預覽表移除 50 筆截斷限制，顯示全部選取筆數',
+    ],
+  },
+  {
+    version: '3.54.9',
+    date: '2026-06-25',
+    changes: [
+      'fix(jira): 批量修改描述附件 — 重新上傳檔案後自動清除「⚠ 需重新上傳」防呆警告',
+    ],
+  },
+  {
+    version: '3.54.8',
+    date: '2026-06-25',
+    changes: [
+      'feat(jira): 批量更新狀態新增「回填單子標題」獨立按鈕 — 一鍵回填所選 Issue 的 Jira Key 超連結＋摘要到「單子標題貼這」欄位',
+    ],
+  },
+  {
+    version: '3.54.7',
+    date: '2026-06-25',
+    changes: [
+      'feat(jira): 批量修改描述附件支援從 Sheet 欄位讀取圖片 — 選擇欄位後點「讀取附件」自動預快取，影片仍需手動上傳（附防呆提示）',
+    ],
+  },
+  {
+    version: '3.54.6',
+    date: '2026-06-25',
+    changes: [
+      'fix(jira): 批量開單轉換狀態完成後，處理階段回填改為「已切換狀態」（原為「已完成」）',
+    ],
+  },
+  {
+    version: '3.54.5',
+    date: '2026-06-25',
+    changes: [
+      'feat(jira): 批量開單完成後回填「單子標題貼這」欄位 — 寫入 Jira Key 超連結＋Issue 摘要兩行內容',
+    ],
+  },
+  {
+    version: '3.54.4',
+    date: '2026-06-25',
+    changes: [
+      'feat(jira): 批量修改新增「描述附件」欄 — 每列可手動上傳圖片/影片，送出後自動上傳至 Jira 並以 wiki markup 嵌入描述',
+    ],
+  },
+  {
+    version: '3.54.3',
+    date: '2026-06-25',
+    changes: [
+      'fix(jira): 批量更新狀態 RD負責人誤判為空 — customfield_10428 同時支援陣列與單一物件兩種 Jira 回傳格式',
+      'fix(jira): 批量修改人員選擇器 autoCompleteUrl 移除 /user 路徑限制，groupuserpicker 等端點現可正確取得欄位允許人員清單',
+    ],
+  },
   {
     version: '3.54.2',
     date: '2026-06-25',

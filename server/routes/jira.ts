@@ -802,17 +802,20 @@ function normalizeJiraField(key: string, meta: Record<string, unknown>): Normali
 async function fetchUserFieldOptions(autoCompleteUrl: string, auth: string, baseUrl: string, query = ''): Promise<{ id: string; label: string }[]> {
   const url = new URL(autoCompleteUrl, baseUrl)
   const jiraOrigin = new URL(baseUrl).origin
-  if (url.origin !== jiraOrigin) return []
-  if (!url.pathname.includes('/user')) return []
-  // query 可由呼叫端帶入（搜尋使用者用）；覆寫 URL 既有的 query 參數
+  if (url.origin !== jiraOrigin) { console.warn(`[fetchUserFieldOptions] origin mismatch: ${url.origin} vs ${jiraOrigin}`); return [] }
   // 注意：不可帶 username 參數，Jira Cloud GDPR 嚴格模式會對 user/assignable/search 回 400
   url.searchParams.set('query', query)
   url.searchParams.delete('username')
-  url.searchParams.set('maxResults', '1000')
+  url.searchParams.set('maxResults', '200')
 
   const resp = await fetch(url.toString(), { headers: { Authorization: auth, Accept: 'application/json' } })
-  if (!resp.ok) return []
+  if (!resp.ok) {
+    const errBody = await resp.text().catch(() => '')
+    console.warn(`[fetchUserFieldOptions] HTTP ${resp.status} for ${url.pathname}: ${errBody.slice(0, 200)}`)
+    return []
+  }
   const data = await resp.json() as unknown
+  // Jira may return array directly, or { users: [...] } (groupuserpicker), or { results: [...] }
   const rawUsers: Record<string, unknown>[] = Array.isArray(data)
     ? data as Record<string, unknown>[]
     : Array.isArray((data as Record<string, unknown>)?.users)
@@ -823,9 +826,8 @@ async function fetchUserFieldOptions(autoCompleteUrl: string, auth: string, base
 
   return rawUsers
     .map((u) => {
-      const user = u
-      const accountId = typeof user.accountId === 'string' ? user.accountId : ''
-      const label = String(user.displayName ?? user.name ?? user.value ?? accountId)
+      const accountId = typeof u.accountId === 'string' ? u.accountId : ''
+      const label = String(u.displayName ?? u.name ?? u.value ?? accountId)
         .replace(/<[^>]*>/g, '')
         .trim()
       return { id: accountId, label: label || accountId }
@@ -942,7 +944,9 @@ router.get('/api/jira/editmeta', async (req, res, next) => {
     }
     await Promise.all(fields.map(async (field) => {
       if ((field.type === 'user' || field.type === 'multiuser') && field.autoCompleteUrl && !field.options?.length) {
+        console.log(`[editmeta] fetching user options for ${field.key} (${field.name}) via: ${field.autoCompleteUrl}`)
         const options = await fetchUserFieldOptions(field.autoCompleteUrl, userAuth.auth, baseUrl)
+        console.log(`[editmeta] ${field.key} returned ${options.length} users`)
         if (options.length > 0) field.options = options
       }
     }))
@@ -2577,7 +2581,7 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
         issuetype?: { name?: string }
         labels?: string[]
         description?: unknown
-        customfield_10428?: Array<{ displayName?: string }>
+        customfield_10428?: Array<{ displayName?: string }> | { displayName?: string }
       }
       renderedFields?: { description?: string }
     }
@@ -2592,9 +2596,13 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
       if (!descText && issue.renderedFields?.description) {
         descText = issue.renderedFields.description.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
       }
-      const rdOwner = Array.isArray(f.customfield_10428) && f.customfield_10428.length > 0
-        ? (f.customfield_10428[0].displayName ?? '')
-        : ''
+      // customfield_10428 can be an array (multiuser) or a single object (single user picker)
+      const cf = f.customfield_10428
+      const rdOwner = Array.isArray(cf) && cf.length > 0
+        ? (cf[0].displayName ?? '')
+        : (!Array.isArray(cf) && cf && typeof cf === 'object')
+          ? ((cf as { displayName?: string }).displayName ?? '')
+          : ''
       issues[issue.key] = {
         summary: f.summary ?? '',
         assignee: f.assignee?.displayName ?? '',
@@ -2617,10 +2625,19 @@ router.post('/api/jira/batch-edit', async (req, res, next) => {
     const userAuth = userJiraAuth(req)
     if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
 
+    const cachedAttSchema = z.object({
+      cacheId: z.string(),
+      filename: z.string(),
+      mimeType: z.string(),
+      isImage: z.boolean(),
+      isVideo: z.boolean(),
+      size: z.number(),
+    })
     const { items } = z.object({
       items: z.array(z.object({
         issueKey: z.string(),
         fields: z.record(z.string(), z.unknown()),
+        cachedAttachments: z.array(cachedAttSchema).optional(),
       })),
     }).parse(req.body)
 
@@ -2628,22 +2645,83 @@ router.post('/api/jira/batch-edit', async (req, res, next) => {
     const results: Array<{ issueKey: string; ok: boolean; error?: string }> = []
 
     for (const item of items) {
-      if (!item.issueKey || Object.keys(item.fields).length === 0) {
+      const cachedAtts = item.cachedAttachments ?? []
+      if (!item.issueKey || (Object.keys(item.fields).length === 0 && cachedAtts.length === 0)) {
         results.push({ issueKey: item.issueKey, ok: false, error: '無更新欄位' })
         continue
       }
       try {
-        const resp = await fetch(`${baseUrl}/rest/api/2/issue/${item.issueKey}`, {
-          method: 'PUT',
-          headers: { Authorization: userAuth.auth, Accept: 'application/json', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fields: item.fields }),
-        })
-        if (resp.ok || resp.status === 204) {
-          results.push({ issueKey: item.issueKey, ok: true })
-        } else {
-          const txt = await resp.text()
-          results.push({ issueKey: item.issueKey, ok: false, error: `HTTP ${resp.status}: ${txt.slice(0, 200)}` })
+        if (Object.keys(item.fields).length > 0) {
+          console.log(`[batch-edit] ${item.issueKey} fields:`, JSON.stringify(item.fields).slice(0, 500))
+          const resp = await fetch(`${baseUrl}/rest/api/2/issue/${item.issueKey}`, {
+            method: 'PUT',
+            headers: { Authorization: userAuth.auth, Accept: 'application/json', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fields: item.fields }),
+          })
+          if (!resp.ok && resp.status !== 204) {
+            const txt = await resp.text()
+            console.warn(`[batch-edit] ${item.issueKey} 失敗 HTTP ${resp.status}:`, txt.slice(0, 500))
+            results.push({ issueKey: item.issueKey, ok: false, error: `HTTP ${resp.status}: ${txt.slice(0, 200)}` })
+            continue
+          }
         }
+
+        // ── 描述附件：上傳後以 wiki markup 嵌入描述 ──
+        if (cachedAtts.length > 0) {
+          const uploadedImages: string[] = []
+          const uploadedVideos: string[] = []
+          for (const ca of cachedAtts) {
+            if (!ca.cacheId) continue
+            const fp = join(ATTACH_CACHE_DIR, ca.cacheId)
+            if (!existsSync(fp)) { console.warn(`[batch-edit] ${item.issueKey} 快取檔不存在: ${fp}`); continue }
+            try {
+              const buffer = readFileSync(fp)
+              const storedFilename = await uploadAttachmentToJira(item.issueKey, ca.filename, buffer, ca.mimeType, userAuth.auth, baseUrl)
+              if (ca.isVideo) uploadedVideos.push(storedFilename)
+              else uploadedImages.push(storedFilename)
+              try { unlinkSync(fp) } catch { /* ignore */ }
+            } catch (attErr) {
+              console.warn(`[batch-edit] ${item.issueKey} 附件上傳失敗 (${ca.filename}):`, attErr)
+            }
+          }
+          if (uploadedImages.length > 0 || uploadedVideos.length > 0) {
+            // Fetch current description to append markup to
+            let descBase = ''
+            if (typeof item.fields.description === 'string') {
+              descBase = item.fields.description
+            } else {
+              try {
+                const getResp = await fetch(`${baseUrl}/rest/api/2/issue/${item.issueKey}?fields=description`, {
+                  headers: { Authorization: userAuth.auth, Accept: 'application/json' },
+                })
+                if (getResp.ok) {
+                  const getData = await getResp.json() as { fields: { description?: unknown } }
+                  const desc = getData.fields?.description
+                  if (typeof desc === 'string') descBase = desc
+                }
+              } catch { /* ignore */ }
+            }
+            let wikiDesc = descBase
+            if (uploadedImages.length > 0) {
+              wikiDesc += (wikiDesc ? '\n\n' : '') + uploadedImages.map(f => `!${f}!`).join('\n')
+            }
+            if (uploadedVideos.length > 0) {
+              wikiDesc += (wikiDesc ? '\n\n' : '') + '📹 影片附件：\n' + uploadedVideos.map(f => `[^${f}]`).join('\n')
+            }
+            const putResp = await fetch(`${baseUrl}/rest/api/2/issue/${item.issueKey}`, {
+              method: 'PUT',
+              headers: { Authorization: userAuth.auth, Accept: 'application/json', 'Content-Type': 'application/json' },
+              body: JSON.stringify({ fields: { description: wikiDesc } }),
+            })
+            if (!putResp.ok) {
+              console.warn(`[batch-edit] ${item.issueKey} 描述更新失敗 HTTP ${putResp.status}`)
+            } else {
+              console.log(`[batch-edit] ${item.issueKey} 描述附件更新成功（${uploadedImages.length} 圖 + ${uploadedVideos.length} 影）`)
+            }
+          }
+        }
+
+        results.push({ issueKey: item.issueKey, ok: true })
       } catch (e) {
         results.push({ issueKey: item.issueKey, ok: false, error: String(e) })
       }

@@ -710,7 +710,25 @@ const writeJiraTestCasesToBitable = async (result: JiraTestCaseResult, specUrl: 
 
 // ─── Multi-column writeback helpers ──────────────────────────────────────────
 
-type MultiWrite = { rowIndex: number; columns: Record<string, string> }
+type LarkUrlCell = { type: 'url'; text: string; link: string }
+type LarkTextSegment = { text: string; link?: string }
+type LarkRichTextCell = { type: 'richtext'; segments: LarkTextSegment[] }
+type LarkCellValue = string | LarkUrlCell | LarkRichTextCell
+type MultiWrite = { rowIndex: number; columns: Record<string, LarkCellValue> }
+
+function serializeLarkValue(value: LarkCellValue): unknown {
+  if (typeof value === 'string') return value
+  if (value.type === 'url') return { text: value.text, link: value.link }
+  if (value.type === 'richtext') {
+    return value.segments.map(seg => ({
+      type: seg.link ? 'url' : 'text',
+      text: seg.text,
+      ...(seg.link ? { link: seg.link } : {}),
+      segmentStyle: {},
+    }))
+  }
+  return value
+}
 
 /** 0-based column index → A1 notation letter (supports AA–AZ) */
 function colIndexToLetter(idx: number): string {
@@ -742,11 +760,25 @@ const multiWritebackLark = async (sheetUrl: string, writes: MultiWrite[]) => {
   if (headerData.code !== 0) throw new Error(`Lark Sheets header API error: code ${headerData.code} — ${headerData.msg ?? ''}`)
   console.log('[WB-Lark] 6b. headerData code:', headerData.code)
   const rows = headerData.data?.valueRange?.values ?? []
-  const row1 = (rows[0] ?? []).map(c => (c !== null && c !== undefined ? String(c) : ''))
-  const row2 = (rows[1] ?? []).map(c => (c !== null && c !== undefined ? String(c) : ''))
+  const extractCellText = (c: unknown): string => {
+    if (c === null || c === undefined) return ''
+    if (typeof c === 'object') {
+      const obj = c as Record<string, unknown>
+      if ('text' in obj && obj.text != null) return String(obj.text)
+      return ''
+    }
+    return String(c)
+  }
+  const normalizeCol = (s: string) => s.replace(/[\s\n↓↑→←]+/g, '').toLowerCase()
+  const row1 = (rows[0] ?? []).map(extractCellText)
+  const row2 = (rows[1] ?? []).map(extractCellText)
   const maxColLen = Math.max(row1.length, row2.length)
-  const headers = Array.from({ length: maxColLen }, (_, i) => row1[i] || row2[i] || '')
-  console.log('[WB-Lark] 7. headers:', headers)
+  const headerCandidates = Array.from(
+    { length: maxColLen },
+    (_, i) => [row1[i], row2[i]].filter((h): h is string => !!h?.trim()),
+  )
+  const headers = headerCandidates.map(candidates => candidates[0] ?? '')
+  console.log('[WB-Lark] 7. headers:', headerCandidates.map(c => c.join(' / ')))
 
   const results: { rowIndex: number; ok: boolean; error?: string }[] = []
 
@@ -755,7 +787,9 @@ const multiWritebackLark = async (sheetUrl: string, writes: MultiWrite[]) => {
     let rowError: string | undefined
 
     for (const [colName, value] of Object.entries(write.columns)) {
-      let colIdx = headers.findIndex(h => h.toLowerCase() === colName.toLowerCase())
+      let colIdx = headerCandidates.findIndex(candidates =>
+        candidates.some(h => normalizeCol(h) === normalizeCol(colName)),
+      )
       if (colIdx === -1) {
         // Auto-create: use first empty slot in row 1 (skip col A at index 0), or append at end if none found
         const firstEmptyIdx = headers.findIndex((h, i) => i > 0 && !h.trim())
@@ -787,26 +821,44 @@ const multiWritebackLark = async (sheetUrl: string, writes: MultiWrite[]) => {
         // Update local headers so subsequent columns don't reuse the same slot
         if (firstEmptyIdx !== -1) {
           headers[firstEmptyIdx] = colName
+          headerCandidates[firstEmptyIdx] = [colName]
         } else {
           headers.push(colName)
+          headerCandidates.push([colName])
         }
         colIdx = newColIdx
       }
       const colLetter = colIndexToLetter(colIdx)
       const cell = `${colLetter}${write.rowIndex}`
       const range = sheetId ? `${sheetId}!${cell}:${cell}` : `${cell}:${cell}`
-      console.log(`[WB-Lark] writing ${colName} → range: ${range}, value: ${value}`)
+      console.log(`[WB-Lark] writing ${colName} → range: ${range}`)
 
-      const resp = await fetch(
+      const doWrite = async (cellValue: unknown) => fetch(
         `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values`,
         {
           method: 'PUT',
           headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ valueRange: { range, values: [[value]] } }),
+          body: JSON.stringify({ valueRange: { range, values: [[cellValue]] } }),
         },
       )
 
-      const respText = await resp.text().catch(() => '')
+      let resp = await doWrite(serializeLarkValue(value))
+      let respText = await resp.text().catch(() => '')
+      let respJson: { code?: number; msg?: string } = {}
+      try { respJson = JSON.parse(respText) } catch { /* ignore */ }
+
+      // If a URL object is rejected, fallback to plain text. Do not fallback
+      // richtext silently: that would make partial Jira links look successful
+      // while losing the hyperlink formatting.
+      if (resp.ok && respJson.code === 90204 && typeof value !== 'string' && value.type === 'url') {
+        const plainText = value.text
+        console.log(`[WB-Lark] ${colName}: invalid cell type for object, retrying as plain text`)
+        resp = await doWrite(plainText)
+        respText = await resp.text().catch(() => '')
+        respJson = {}
+        try { respJson = JSON.parse(respText) } catch { /* ignore */ }
+      }
+
       console.log(`[WB-Lark] write resp HTTP ${resp.status}: ${respText.slice(0, 300)}`)
 
       if (!resp.ok) {
@@ -814,8 +866,6 @@ const multiWritebackLark = async (sheetUrl: string, writes: MultiWrite[]) => {
         rowError = `${colName}：HTTP ${resp.status} — ${respText.slice(0, 200)}`
         break
       }
-      let respJson: { code?: number; msg?: string } = {}
-      try { respJson = JSON.parse(respText) } catch { /* ignore */ }
       if (respJson.code !== 0) {
         rowOk = false
         rowError = `${colName}：Lark API code ${respJson.code} — ${respJson.msg ?? respText.slice(0, 200)}`
@@ -852,10 +902,14 @@ const multiWritebackGoogle = async (sheetUrl: string, writes: MultiWrite[], acce
   const data: { range: string; values: string[][] }[] = []
   for (const write of writes) {
     for (const [colName, value] of Object.entries(write.columns)) {
-      const colIdx = headers.findIndex(h => h.toLowerCase() === colName.toLowerCase())
+      const normalizeColG = (s: string) => s.replace(/[\s\n↓↑→←]+/g, '').toLowerCase()
+      const colIdx = headers.findIndex(h => normalizeColG(h) === normalizeColG(colName))
       if (colIdx === -1) continue
       const colLetter = String.fromCharCode(65 + colIdx)
-      data.push({ range: `${sheetName}!${colLetter}${write.rowIndex}`, values: [[value]] })
+      const cellText = typeof value === 'string' ? value
+        : value.type === 'richtext' ? value.segments.map(s => s.text).join('')
+        : value.text
+      data.push({ range: `${sheetName}!${colLetter}${write.rowIndex}`, values: [[cellText]] })
     }
   }
   if (data.length === 0) return writes.map(w => ({ rowIndex: w.rowIndex, ok: true }))
@@ -2460,12 +2514,17 @@ router.post('/api/google/sheets/writeback', async (req, res, next) => {
 })
 
 // POST /api/sheets/writeback-multi
+const larkUrlCellSchema = z.object({ type: z.literal('url'), text: z.string(), link: z.string() })
+const larkRichTextCellSchema = z.object({
+  type: z.literal('richtext'),
+  segments: z.array(z.object({ text: z.string(), link: z.string().optional() })),
+})
 const writebackMultiSchema = z.object({
   sheetUrl: z.string(),
   source: z.enum(['lark', 'google']).default('lark'),
   writes: z.array(z.object({
     rowIndex: z.number(),
-    columns: z.record(z.string(), z.string()),
+    columns: z.record(z.string(), z.union([z.string(), larkUrlCellSchema, larkRichTextCellSchema])),
   })),
 })
 

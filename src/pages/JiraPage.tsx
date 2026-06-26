@@ -617,6 +617,8 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const [updateJiraError, setUpdateJiraError] = useState('')
   const [updateSelectedKeys, setUpdateSelectedKeys] = useState<Set<string>>(new Set())
   const [updateValidationErrors, setUpdateValidationErrors] = useState<{ issueKey: string; missing: string[] }[]>([])
+  const [updateTitleWritebackLoading, setUpdateTitleWritebackLoading] = useState(false)
+  const [updateTitleWritebackMsg, setUpdateTitleWritebackMsg] = useState('')
 
   // ── Comment Tab (standalone 批量評論) ──
   const [commentTabUrl, setCommentTabUrl] = useState('')
@@ -667,6 +669,13 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const [descPrefetchLoading, setDescPrefetchLoading] = useState(false)
   const [descUploadErrors, setDescUploadErrors] = useState<Record<number, string>>({})
   const [descLightboxSrc, setDescLightboxSrc] = useState<string | null>(null)
+
+  // ── 批量修改 Step 3 — 描述圖片附件 ──
+  const [editDescAttachMap, setEditDescAttachMap] = useState<Record<string, CachedAttachment[]>>({})
+  const [editDescUploadErrors, setEditDescUploadErrors] = useState<Record<string, string>>({})
+  const [editDescLightboxSrc, setEditDescLightboxSrc] = useState<string | null>(null)
+  const [editDescAttachCol, setEditDescAttachCol] = useState('')
+  const [editDescPrefetchLoading, setEditDescPrefetchLoading] = useState(false)
 
   // 追蹤所有已進入流程的 issue（本次 session 合併最新 stage）
   const [trackedIssues, setTrackedIssues] = useState<TrackedIssue[]>([])
@@ -1335,6 +1344,45 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     finally { setDescPrefetchLoading(false) }
   }
 
+  const handleEditDescPrefetch = async () => {
+    if (!editDescAttachCol) return
+    setEditDescPrefetchLoading(true)
+    const colIdx = editTabHeaders.indexOf(editDescAttachCol)
+    const columnLetter = colIdx >= 0 ? (() => {
+      let i = colIdx + 1; let letter = ''
+      while (i > 0) { letter = String.fromCharCode(64 + (i % 26 || 26)) + letter; i = Math.floor((i - 1) / 26) }
+      return letter
+    })() : undefined
+    const selectedIssues = editTabIssues.filter(i => editTabSelectedKeys.has(i.issueKey))
+    const groups = selectedIssues.map(issue => {
+      const rec = editTabRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
+      const linkRaw = rec ? ((rec[`${editDescAttachCol}__url`] ?? '') as string) : ''
+      const raw = rec ? getField(rec, editDescAttachCol) : ''
+      const sourceText = linkRaw || raw
+      const urls = sourceText ? sourceText.split(/[\n,]/).map((s: string) => s.trim()).filter(Boolean) : []
+      return { rowIndex: issue.rowIndex, urls }
+    })
+    const larkSheetContext = columnLetter ? { sheetUrl: editTabUrl, columnLetter } : undefined
+    try {
+      const resp = await fetch('/api/jira/attachment-prefetch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...emailHeader },
+        body: JSON.stringify({ groups, larkSheetContext }),
+      })
+      const data = await resp.json() as { ok: boolean; result?: { rowIndex: number; attachments: CachedAttachment[] }[] }
+      if (data.ok && data.result) {
+        const rowToIssue = new Map(selectedIssues.map(i => [i.rowIndex, i.issueKey]))
+        const newMap: Record<string, CachedAttachment[]> = {}
+        for (const g of data.result) {
+          const issueKey = rowToIssue.get(g.rowIndex)
+          if (issueKey && g.attachments.length > 0) newMap[issueKey] = g.attachments
+        }
+        setEditDescAttachMap(prev => ({ ...prev, ...newMap }))
+      }
+    } catch { /* ignore */ }
+    finally { setEditDescPrefetchLoading(false) }
+  }
+
   const applyLarkPrefill = () => {
     const newVals: Record<number, Record<string, string>> = {}
     for (const record of filteredRecords) {
@@ -1579,6 +1627,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       let writebackResultMap: Record<number, boolean> = {}
       let writebackSkipped = false
       let writebackError = ''
+      const jiraBase = import.meta.env.VITE_JIRA_BASE_URL ?? ''
       if (succeeded.length > 0) {
         try {
           const wbResp = await fetch('/api/sheets/writeback-multi', {
@@ -1586,15 +1635,31 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               sheetUrl, source: sheetSource,
-              writes: succeeded.map(r => ({
-                rowIndex: r.rowIndex,
-                columns: {
-                  'Jira issue key': r.issueKey!,
-                  'Jira URL': `${import.meta.env.VITE_JIRA_BASE_URL ?? ''}/browse/${r.issueKey!}`,
-                  '處理階段': '已開單',
-                  '處理時間': nowString(),
-                },
-              })),
+              writes: succeeded.map(r => {
+                const rec = filteredRecords.find(fr => Number(fr._rowIndex) === r.rowIndex)
+                const rowCells = cellValues[r.rowIndex] ?? {}
+                const summaryFromCell = (rowCells['summary'] ?? '').trim()
+                const rawSummary = (generatedSummaries[r.rowIndex] || summaryFromCell || (rec ? getField(rec, SHEET_FIELD.summary) : '')).replace(/[\r\n]+/g, ' ').trim()
+                const summaryPrefix = rec ? computeSummaryPrefix(rec as Record<string, unknown>) : ''
+                const finalSummary = summaryPrefix ? summaryPrefix + rawSummary : rawSummary
+                const jiraUrl = `${jiraBase}/browse/${r.issueKey!}`
+                return {
+                  rowIndex: r.rowIndex,
+                  columns: {
+                    'Jira issue key': r.issueKey!,
+                    'Jira URL': jiraUrl,
+                    '處理階段': '已開單',
+                    '處理時間': nowString(),
+                    '單子標題貼這': {
+                      type: 'richtext',
+                      segments: [
+                        { text: r.issueKey!, link: jiraUrl },
+                        { text: `\n${finalSummary}` },
+                      ],
+                    },
+                  },
+                }
+              }),
             }),
           })
           const wbData = await wbResp.json() as { ok: boolean; results?: { rowIndex: number; ok: boolean; error?: string }[]; needsSetup?: boolean; message?: string }
@@ -1991,12 +2056,12 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             sheetUrl, source: sheetSource,
             writes: successRows.map(r => ({
               rowIndex: r.rowIndex,
-              columns: { '處理階段': '已完成', '處理時間': nowString() },
+              columns: { '處理階段': '已切換狀態', '處理時間': nowString() },
             })),
           }),
         })
         setTrackedIssues(prev => prev.map(t =>
-          successRows.some(r => r.rowIndex === t.rowIndex) ? { ...t, stage: '已完成' } : t
+          successRows.some(r => r.rowIndex === t.rowIndex) ? { ...t, stage: '已切換狀態' } : t
         ))
       }
       setStep(6)
@@ -2208,6 +2273,13 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       m.mode === 'sheet' ? !!m.sheetColumn : !!(m.manualValue || m.manualAccountId || m.manualAccountIds.length > 0)
     )
     if (!activeMappings.length || !currentAccount) return
+
+    // Warn if any issue has pending video attachments
+    const hasPendingVideo = editTabIssues
+      .filter(issue => editTabSelectedKeys.has(issue.issueKey))
+      .some(issue => (editDescAttachMap[issue.issueKey] ?? []).some(a => a.isVideo && !a.cacheId))
+    if (hasPendingVideo && !window.confirm('部分影片尚未手動上傳，確認繼續送出（影片不會附加至描述）？')) return
+
     setEditTabSubmitting(true); setEditTabError('')
     try {
       const items = editTabIssues.filter(issue => editTabSelectedKeys.has(issue.issueKey)).map(issue => {
@@ -2275,8 +2347,9 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             if (val !== undefined && val !== '') fields[m.jiraField] = val
           }
         }
-        return { issueKey: issue.issueKey, fields }
-      }).filter(item => Object.keys(item.fields).length > 0)
+        const cachedAttachments = (editDescAttachMap[issue.issueKey] ?? []).filter(a => !!a.cacheId && !a.error)
+        return { issueKey: issue.issueKey, fields, cachedAttachments }
+      }).filter(item => Object.keys(item.fields).length > 0 || item.cachedAttachments.length > 0)
 
       if (!items.length) { setEditTabError('所有 Issue 均無有效更新欄位，請檢查欄位對應設定'); return }
 
@@ -2450,6 +2523,44 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     setUpdateTransitions([]); setUpdateTransitionId(''); setUpdateResults([])
     setUpdateJiraData({}); setUpdateJiraError(''); setUpdateSelectedKeys(new Set())
     setUpdateValidationErrors([])
+  }
+
+  const handleUpdateTitleWriteback = async () => {
+    const selectedRecs = updateRecords.filter(r => updateSelectedKeys.has(r.issueKey))
+    if (!selectedRecs.length) return
+    setUpdateTitleWritebackLoading(true)
+    setUpdateTitleWritebackMsg('')
+    const jiraBase = import.meta.env.VITE_JIRA_BASE_URL ?? ''
+    try {
+      const resp = await fetch('/api/sheets/writeback-multi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sheetUrl: updateBitableUrl, source: 'lark',
+          writes: selectedRecs.map(r => {
+            const summary = updateJiraData[r.issueKey]?.summary ?? ''
+            const jiraUrl = `${jiraBase}/browse/${r.issueKey}`
+            return {
+              rowIndex: r.rowIndex,
+              columns: {
+                '單子標題貼這': {
+                  type: 'richtext',
+                  segments: [
+                    { text: r.issueKey, link: jiraUrl },
+                    { text: `\n${summary}` },
+                  ],
+                },
+              },
+            }
+          }),
+        }),
+      })
+      const data = await resp.json() as { ok: boolean; results?: { rowIndex: number; ok: boolean }[] }
+      const ok = data.results?.filter(r => r.ok).length ?? 0
+      const fail = (data.results?.length ?? 0) - ok
+      setUpdateTitleWritebackMsg(fail > 0 ? `⚠ 回填完成：${ok} 成功，${fail} 失敗` : `✅ 已回填 ${ok} 筆`)
+    } catch { setUpdateTitleWritebackMsg('❌ 回填失敗：網路錯誤') }
+    finally { setUpdateTitleWritebackLoading(false) }
   }
 
   const StepDot = ({ s }: { s: Step }) => (
@@ -2911,17 +3022,32 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 </div>
               )}
 
-              <div className="stage-nav">
+              <div className="stage-nav" style={{ flexWrap: 'wrap', gap: 8 }}>
                 <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setUpdateStep(1)}>上一步</button>
-                <button
-                  type="button"
-                  className={`submit-btn submit-btn--step${updateSubmitting ? ' loading' : ''}`}
-                  disabled={updateSubmitting || !currentAccount || updateRecords.filter(r => updateSelectedKeys.has(r.issueKey)).length === 0}
-                  onClick={handleUpdateExecute}
-                  style={{ whiteSpace: 'nowrap' }}
-                >
-                  {updateSubmitting ? '執行中…' : `▶ 執行（${updateRecords.filter(r => updateSelectedKeys.has(r.issueKey)).length} 張）`}
-                </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1, justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    onClick={handleUpdateTitleWriteback}
+                    disabled={updateTitleWritebackLoading || updateSelectedKeys.size === 0}
+                    style={{ padding: '7px 14px', borderRadius: 6, border: '1px solid #1a3a2a', background: updateSelectedKeys.size > 0 ? '#1a3a2a' : '#0f172a', color: updateSelectedKeys.size > 0 ? '#4ade80' : '#374151', fontSize: 13, cursor: updateSelectedKeys.size > 0 ? 'pointer' : 'default', whiteSpace: 'nowrap' }}
+                  >
+                    {updateTitleWritebackLoading ? '回填中…' : `📝 回填單子標題（${updateSelectedKeys.size} 筆）`}
+                  </button>
+                  {updateTitleWritebackMsg && (
+                    <span style={{ fontSize: 12, color: updateTitleWritebackMsg.startsWith('✅') ? '#4ade80' : '#f87171' }}>
+                      {updateTitleWritebackMsg}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className={`submit-btn submit-btn--step${updateSubmitting ? ' loading' : ''}`}
+                    disabled={updateSubmitting || !currentAccount || updateRecords.filter(r => updateSelectedKeys.has(r.issueKey)).length === 0}
+                    onClick={handleUpdateExecute}
+                    style={{ whiteSpace: 'nowrap' }}
+                  >
+                    {updateSubmitting ? '執行中…' : `▶ 執行（${updateRecords.filter(r => updateSelectedKeys.has(r.issueKey)).length} 張）`}
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -3769,6 +3895,14 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           <button type="button" onClick={() => setDescLightboxSrc(null)}
             style={{ position: 'absolute', top: 16, right: 20, color: '#fff', fontSize: 28, background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}>✕</button>
           <img src={descLightboxSrc} alt="attachment preview" style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8, border: '1px solid #2d3f55' }} />
+        </div>
+      )}
+      {editDescLightboxSrc && (
+        <div onClick={() => setEditDescLightboxSrc(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out' }}>
+          <button type="button" onClick={() => setEditDescLightboxSrc(null)}
+            style={{ position: 'absolute', top: 16, right: 20, color: '#fff', fontSize: 28, background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}>✕</button>
+          <img src={editDescLightboxSrc} alt="attachment preview" style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8, border: '1px solid #2d3f55' }} />
         </div>
       )}
 
@@ -4818,26 +4952,46 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 </button>
               </div>
 
+              {/* Sheet 圖片欄 prefetch */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '8px 10px', background: '#0c1a13', border: '1px solid #1a3a2a', borderRadius: 6 }}>
+                <span style={{ fontSize: 12, color: '#4ade80', flexShrink: 0 }}>📎 Sheet 圖片欄</span>
+                <select
+                  value={editDescAttachCol}
+                  onChange={e => setEditDescAttachCol(e.target.value)}
+                  style={{ flex: 1, minWidth: 0, padding: '5px 8px', borderRadius: 5, border: '1px solid #1a3a2a', background: '#0f172a', color: '#e2e8f0', fontSize: 12 }}
+                >
+                  <option value="">— 不從 Sheet 讀取圖片 —</option>
+                  {editTabHeaders.map((h, i) => <option key={h || `h-${i}`} value={h}>{h}</option>)}
+                </select>
+                <button type="button"
+                  onClick={handleEditDescPrefetch}
+                  disabled={!editDescAttachCol || editDescPrefetchLoading}
+                  style={{ padding: '5px 12px', borderRadius: 5, border: '1px solid #1a3a2a', background: editDescAttachCol ? '#1a3a2a' : '#0f172a', color: editDescAttachCol ? '#4ade80' : '#374151', fontSize: 12, cursor: editDescAttachCol ? 'pointer' : 'default', flexShrink: 0, whiteSpace: 'nowrap' }}
+                >
+                  {editDescPrefetchLoading ? '讀取中…' : '讀取附件'}
+                </button>
+                <span style={{ fontSize: 11, color: '#475569', flexShrink: 0 }}>圖片自動快取，影片需手動上傳</span>
+              </div>
+
               {/* Preview table */}
               {editTabSelectedKeys.size > 0 && (() => {
                 const activeMaps = editFieldMappings.filter(m =>
                   m.mode === 'sheet' ? !!m.sheetColumn : !!(m.manualValue || m.manualAccountId || m.manualAccountIds.length > 0)
                 )
                 const fieldLabel: Record<string, string> = { summary: '摘要', description: '描述', priority: '優先級', assignee: '受託人', labels: '標籤' }
-                const selectedIssues = editTabIssues.filter(i => editTabSelectedKeys.has(i.issueKey)).slice(0, 50)
+                const selectedIssues = editTabIssues.filter(i => editTabSelectedKeys.has(i.issueKey))
                 const jiraCols = ['summary', 'assignee', 'status'] as const
                 const jiraColLabels: Record<string, string> = { summary: '摘要', assignee: '受託人', status: '狀態' }
                 const thBase: React.CSSProperties = { padding: '6px 8px', borderBottom: '2px solid #1e3a5f', borderRight: '1px solid #1e3a5f', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', textAlign: 'left', background: '#0f2744' }
                 const tdBase: React.CSSProperties = { padding: '4px 8px', borderRight: '1px solid #1e293b', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220, verticalAlign: 'middle' }
-                const totalCols = 1 + jiraCols.length + activeMaps.length * 3
                 return (
                   <div style={{ marginBottom: 12 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa', marginBottom: 6 }}>
                       預覽變更（{editTabSelectedKeys.size} 筆）{activeMaps.length === 0 && <span style={{ fontSize: 11, color: '#475569', fontWeight: 400, marginLeft: 6 }}>← 選擇 Sheet 欄位後顯示對應欄</span>}
                     </div>
                     <div style={{ border: '1px solid #1e3a5f', borderRadius: 6, overflow: 'hidden' }}>
-                      <div style={{ overflowX: 'auto', maxHeight: 280, overflowY: 'auto' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: `${110 + jiraCols.length * 120 + activeMaps.length * 360}px` }}>
+                      <div style={{ overflowX: 'auto', maxHeight: 320, overflowY: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: `${110 + jiraCols.length * 120 + activeMaps.length * 360 + 100}px` }}>
                           <colgroup>
                             <col style={{ width: 110 }} />
                             {jiraCols.map(f => <col key={f} style={{ width: 140 }} />)}
@@ -4848,6 +5002,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                 <col style={{ width: 'auto', minWidth: 140 }} />
                               </span>
                             ))}
+                            <col style={{ width: 100 }} />
                           </colgroup>
                           <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                             <tr>
@@ -4863,12 +5018,14 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                   </span>
                                 )
                               })}
+                              <th style={{ ...thBase, color: '#4ade80', background: '#12201a', borderLeft: '2px solid #1a3a2a' }}>📎 附件</th>
                             </tr>
                           </thead>
                           <tbody>
                             {selectedIssues.map((issue, idx) => {
                               const rec = editTabRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
                               const jira = editTabJiraData[issue.issueKey]
+                              const issueAtts = editDescAttachMap[issue.issueKey] ?? []
                               return (
                                 <tr key={issue.issueKey} style={{ background: idx % 2 === 0 ? '#0a1628' : '#0d1e38', borderBottom: '1px solid #1e293b' }}>
                                   <td style={{ ...tdBase }}>
@@ -4906,12 +5063,58 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                       </span>
                                     )
                                   })}
+                                  {/* Attachment cell */}
+                                  <td style={{ ...tdBase, background: '#0c1a13', borderLeft: '2px solid #1a3a2a', verticalAlign: 'top', overflow: 'visible', maxWidth: 'none', whiteSpace: 'normal' }}>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'flex-start', minWidth: 72 }}>
+                                      {issueAtts.filter(a => a.cacheId && !a.error).map((att, ai) => (
+                                        att.isImage ? (
+                                          <img key={ai} src={`/api/jira/attachment-cache/${att.cacheId}`} alt={att.filename}
+                                            style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 4, border: '1px solid #2d4a2d', cursor: 'pointer', flexShrink: 0 }}
+                                            onClick={() => setEditDescLightboxSrc(`/api/jira/attachment-cache/${att.cacheId}`)} />
+                                        ) : (
+                                          <span key={ai} title={att.filename} style={{ fontSize: 10, color: '#d29922', padding: '2px 4px', background: 'rgba(210,153,34,0.1)', border: '1px solid rgba(210,153,34,0.3)', borderRadius: 4 }}>🎬</span>
+                                        )
+                                      ))}
+                                      {issueAtts.filter(a => !a.cacheId).map((att, ai) => (
+                                        att.isVideo
+                                          ? <span key={`v-${ai}`} title={`${att.filename} — 影片無法自動下載，請用 + 手動上傳`} style={{ fontSize: 10, color: '#f59e0b', padding: '2px 4px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 4 }}>⚠ 需重新上傳</span>
+                                          : <span key={`err-${ai}`} title={att.error ?? att.filename} style={{ fontSize: 10, color: '#f87171', padding: '2px 4px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 4 }}>⚠ {att.filename.slice(0, 10)}{att.filename.length > 10 ? '…' : ''}</span>
+                                      ))}
+                                      <label style={{ cursor: 'pointer', fontSize: 11, color: '#60a5fa', padding: '2px 5px', background: '#1a2f45', border: '1px solid #2d3f55', borderRadius: 4, flexShrink: 0, lineHeight: '18px' }}>
+                                        +
+                                        <input type="file" accept="image/*,video/*" multiple style={{ display: 'none' }}
+                                          onChange={async e => {
+                                            const files = Array.from(e.target.files ?? [])
+                                            for (const file of files) {
+                                              const formData = new FormData()
+                                              formData.append('file', file)
+                                              try {
+                                                const resp = await fetch('/api/jira/attachment-upload', { method: 'POST', headers: { ...emailHeader }, body: formData })
+                                                const data = await resp.json() as CachedAttachment & { ok: boolean; message?: string }
+                                                if (data.ok) {
+                                                  setEditDescAttachMap(prev => ({
+                                                    ...prev,
+                                                    [issue.issueKey]: [
+                                                      ...(prev[issue.issueKey] ?? []).filter(a => !!a.cacheId),
+                                                      data,
+                                                    ],
+                                                  }))
+                                                } else {
+                                                  setEditDescUploadErrors(prev => ({ ...prev, [issue.issueKey]: data.message ?? '上傳失敗' }))
+                                                }
+                                              } catch { setEditDescUploadErrors(prev => ({ ...prev, [issue.issueKey]: '網路錯誤' })) }
+                                            }
+                                            e.target.value = ''
+                                          }} />
+                                      </label>
+                                      {editDescUploadErrors[issue.issueKey] && (
+                                        <span style={{ fontSize: 10, color: '#f87171', width: '100%' }}>{editDescUploadErrors[issue.issueKey]}</span>
+                                      )}
+                                    </div>
+                                  </td>
                                 </tr>
                               )
                             })}
-                            {editTabSelectedKeys.size > 50 && (
-                              <tr><td colSpan={totalCols} style={{ padding: '6px 12px', fontSize: 11, color: '#64748b', textAlign: 'center' }}>…還有 {editTabSelectedKeys.size - 50} 筆</td></tr>
-                            )}
                           </tbody>
                         </table>
                       </div>
