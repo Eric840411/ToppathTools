@@ -3955,7 +3955,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                   try {
                     const r = await fetch('/api/jira/pending-writebacks/retry', {
                       method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
+                      headers: { 'Content-Type': 'application/json', ...(currentAccount ? { 'x-jira-email': currentAccount.email } : {}) },
                       body: JSON.stringify({ sheetUrl }),
                     })
                     const d = await r.json() as { ok: boolean; succeeded: number; retried: number }
