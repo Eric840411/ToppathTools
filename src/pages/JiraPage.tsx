@@ -5289,7 +5289,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                         const ids = pendingRows.filter(r => r.status !== 'done').map(r => r.id)
                         if (ids.length === 0) return
                         const resp = await fetch('/api/jira/pending-writebacks/retry', {
-                          method: 'POST', headers: { 'Content-Type': 'application/json' },
+                          method: 'POST', headers: { 'Content-Type': 'application/json', ...(currentAccount ? { 'x-jira-email': currentAccount.email } : {}) },
                           body: JSON.stringify({ ids }),
                         }).then(r => r.json()) as { ok: boolean; succeeded: number; retried: number }
                         if (resp.ok) {
@@ -5371,7 +5371,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 setReconcileMatches([]); setReconcileUnmatchedJira([]); setReconcileUnmatchedRows([]); setReconcileMsg('')
                 try {
                   const resp = await fetch('/api/jira/reconcile/preview', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    method: 'POST', headers: { 'Content-Type': 'application/json', ...(currentAccount ? { 'x-jira-email': currentAccount.email } : {}) },
                     body: JSON.stringify({
                       projectKey: reconcileProjectKey,
                       sheetUrl: reconcileSheetUrl,
@@ -5391,7 +5391,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 {reconcileLoading ? '查詢中...' : '查詢比對'}
               </button>
 
-              {reconcileMsg && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 8 }}>{reconcileMsg}</p>}
+              {reconcileMsg && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 8 }}>{reconcileMsg === '請先選擇帳號' ? '⚠️ 請先在頁面上方選擇 Jira 帳號，再使用對帳功能' : reconcileMsg}</p>}
 
               {reconcileMatches.length > 0 && (
                 <div style={{ marginTop: 12 }}>
@@ -5402,7 +5402,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                       try {
                         const selected = reconcileMatches.filter(m => reconcileSelected.has(m.rowIndex))
                         const resp = await fetch('/api/jira/reconcile/apply', {
-                          method: 'POST', headers: { 'Content-Type': 'application/json' },
+                          method: 'POST', headers: { 'Content-Type': 'application/json', ...(currentAccount ? { 'x-jira-email': currentAccount.email } : {}) },
                           body: JSON.stringify({
                             sheetUrl: reconcileSheetUrl,
                             matches: selected.map(m => ({ rowIndex: m.rowIndex, jiraKey: m.jiraKey, jiraSummary: m.jiraSummary })),
