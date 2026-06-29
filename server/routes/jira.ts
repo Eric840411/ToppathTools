@@ -1763,7 +1763,16 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
       `${larkBase}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${headerRange}`,
       { headers: { Authorization: `Bearer ${larkToken}` } },
     )
-    const hData = (await hResp.json()) as { data?: { valueRange?: { values?: unknown[][] } } }
+    if (!hResp.ok) {
+      const txt = await hResp.text()
+      return res.status(502).json({ ok: false, message: `Lark Sheet 表頭讀取失敗（HTTP ${hResp.status}）：${txt.slice(0, 200)}` })
+    }
+    const hRawText = await hResp.text()
+    let hData: { code?: number; msg?: string; data?: { valueRange?: { values?: unknown[][] } } }
+    try { hData = JSON.parse(hRawText) } catch {
+      return res.status(502).json({ ok: false, message: 'Lark Sheet 回應非 JSON，可能是 token 過期或 URL 無效，請重新授權 Lark。' })
+    }
+    if (hData.code !== 0) return res.status(502).json({ ok: false, message: `Lark Sheet 表頭讀取失敗：${hData.msg ?? '未知錯誤'}` })
     const hRows = hData.data?.valueRange?.values ?? []
     const extractCellText = (c: unknown): string => {
       if (c === null || c === undefined) return ''
@@ -1785,7 +1794,15 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
       `${larkBase}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${dataRange}`,
       { headers: { Authorization: `Bearer ${larkToken}` } },
     )
-    const dData = (await dResp.json()) as { data?: { valueRange?: { values?: unknown[][] } } }
+    if (!dResp.ok) {
+      const txt = await dResp.text()
+      return res.status(502).json({ ok: false, message: `Lark Sheet 資料讀取失敗（HTTP ${dResp.status}）：${txt.slice(0, 200)}` })
+    }
+    const dRawText = await dResp.text()
+    let dData: { code?: number; msg?: string; data?: { valueRange?: { values?: unknown[][] } } }
+    try { dData = JSON.parse(dRawText) } catch {
+      return res.status(502).json({ ok: false, message: 'Lark Sheet 資料回應非 JSON，可能是 token 過期或 URL 無效，請重新授權 Lark。' })
+    }
     const dataRows = (dData.data?.valueRange?.values ?? []) as unknown[][]
 
     // Rows where Jira key cell is empty

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.54.28'
+export const APP_VERSION = '3.54.29'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.54.29',
+    date: '2026-06-29',
+    changes: [
+      'fix(jira): reconcile/preview 加入 Lark API 回應防護 — 非 2xx / 非 JSON（token 過期等）顯示明確錯誤，不再拋出 SyntaxError',
+    ],
+  },
   {
     version: '3.54.28',
     date: '2026-06-28',
