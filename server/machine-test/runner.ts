@@ -572,6 +572,51 @@ const AUDIO_MONITOR_SCRIPT = `
 })();
 `
 
+// ─── Pinus Coin Tracker JS (injected before page load) ───────────────────────
+
+const PINUS_TRACKER_SCRIPT = `
+(() => {
+  if (window.__pinusTrackerInjected) return;
+  window.__pinusTrackerInjected = true;
+  window.__lastCoin = null;
+  window.__coinUpdatedAt = 0;
+
+  function tryPatch() {
+    var p = window.pinus;
+    if (!p) return false;
+    if (p.__coinTracked) return true;
+    p.__coinTracked = true;
+
+    var origRequest = p.request.bind(p);
+    p.request = function(route, msg, cb) {
+      return origRequest(route, msg, function(resp) {
+        if (resp && typeof resp.coin === 'number') {
+          window.__lastCoin = resp.coin;
+          window.__coinUpdatedAt = Date.now();
+        }
+        cb && cb(resp);
+      });
+    };
+
+    var origOn = p.on.bind(p);
+    p.on = function(route, cb) {
+      return origOn(route, function(data) {
+        if (data && typeof data.coin === 'number') {
+          window.__lastCoin = data.coin;
+          window.__coinUpdatedAt = Date.now();
+        }
+        cb && cb(data);
+      });
+    };
+    return true;
+  }
+
+  var timer = setInterval(function() {
+    if (tryPatch()) clearInterval(timer);
+  }, 200);
+})();
+`
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function sleep(ms: number) {
@@ -1195,35 +1240,42 @@ async function stepStream(page: Page, emit: (msg: string) => void, profile?: Mac
   }
 }
 
-/** Read visible credit balance text from the page, returns number or null.
- *  Mirrors Python's parse_balance: targets .text2 child specifically,
- *  strips commas, returns integer value.
+/** Read credit balance from pinus WebSocket interception (window.__lastCoin).
+ *  Scans all frames — pinus may live in a child iframe, not the top frame.
  */
-async function readBalance(page: Page, customSel?: string | null): Promise<number | null> {
-  return page.evaluate((custom) => {
-    const selectors = [
-      ...(custom ? [custom] : []),
-      // Special games (BULLBLITZ, ALLABOARD etc.) use .h-balance
-      '.h-balance.hand_balance .text2',
-      '.balance-bg.hand_balance .text2',
-      // Fallback: container without .text2
-      '.h-balance.hand_balance',
-      '.balance-bg.hand_balance',
-      '[class*="hand_balance"] .text2',
-      '[class*="hand_balance"]',
-    ]
-    for (const sel of selectors) {
-      const els = document.querySelectorAll(sel)
-      for (const el of els) {
-        if ((el as HTMLElement).offsetParent === null) continue  // hidden
-        const text = (el.textContent ?? '').replace(/,/g, '').trim()
-        const nums = text.replace(/[^0-9]/g, '')
-        const val = parseInt(nums, 10)
-        if (!isNaN(val) && val >= 0) return val
-      }
-    }
-    return null
-  }, customSel ?? null)
+async function readBalance(page: Page, _customSel?: string | null): Promise<number | null> {
+  for (const frame of page.frames()) {
+    try {
+      const coin = await frame.evaluate(
+        () => (window as unknown as Record<string, unknown>).__lastCoin as number | null ?? null
+      )
+      if (coin !== null) return coin
+    } catch { /* frame may be detached or cross-origin */ }
+  }
+  return null
+}
+
+/** Diagnostic: log pinus/coin state across all frames. */
+async function diagPinusFrames(page: Page, emit: (msg: string) => void): Promise<void> {
+  const frames = page.frames()
+  emit(`[診斷] 共 ${frames.length} 個 frame`)
+  for (let i = 0; i < frames.length; i++) {
+    const frame = frames[i]
+    try {
+      const info = await frame.evaluate(() => {
+        const w = window as unknown as Record<string, unknown>
+        return {
+          url: location.href.slice(0, 80),
+          hasPinus: typeof w.pinus !== 'undefined',
+          pinusCoinTracked: (w.pinus as Record<string,unknown>)?.__coinTracked ?? false,
+          lastCoin: w.__lastCoin ?? null,
+          coinUpdatedAt: (w.__coinUpdatedAt as number) ?? 0,
+        }
+      })
+      const updatedAgo = info.coinUpdatedAt ? `${Date.now() - info.coinUpdatedAt}ms前` : '從未'
+      emit(`[診斷] frame[${i}] ${info.url} | pinus=${info.hasPinus} tracked=${info.pinusCoinTracked} lastCoin=${info.lastCoin} coinUpdated=${updatedAgo}`)
+    } catch { emit(`[診斷] frame[${i}] 無法評估（cross-origin 或已卸載）`) }
+  }
 }
 
 /**
@@ -1367,6 +1419,9 @@ type SpinAudioRef = { data: SpinAudioData | null }
 async function stepSpin(page: Page, emit: (msg: string) => void, customSpinSel?: string | null, customBalanceSel?: string | null, spinAudioRef?: SpinAudioRef, aiAudio = false): Promise<StepResult> {
   const t0 = Date.now()
   try {
+    // Diagnostic: run first, before anything else
+    await diagPinusFrames(page, emit)
+
     emit(`尋找 Spin 按鈕...`)
 
     const spinSelectors = [
@@ -1451,11 +1506,34 @@ async function stepSpin(page: Page, emit: (msg: string) => void, customSpinSel?:
         }
       }
 
-      await page.evaluate((el: Element) => (el as HTMLElement).click(), currentSpinEl)
+      // Capture coin state before this spin to detect pinus update
+      const coinBeforeSpin = await readBalance(page, null)
+      const updatedAtBeforeSpin = await (async () => {
+        for (const frame of page.frames()) {
+          try {
+            const ts = await frame.evaluate(() => (window as unknown as Record<string,unknown>).__coinUpdatedAt as number ?? 0)
+            if (ts) return ts
+          } catch { /* skip */ }
+        }
+        return 0
+      })()
+
+      // Use Playwright native click (dispatches proper pointer/mouse events).
+      // If an overlay intercepts (e.g., DFDC free-game overlay), fall back to force click.
+      try {
+        await currentSpinEl.click({ timeout: 5000 })
+      } catch (clickErr) {
+        if (String(clickErr).includes('intercepts pointer events') || String(clickErr).includes('TimeoutError')) {
+          emit(`Spin ${spinIdx + 1} overlay 攔截，改用 force click...`)
+          await currentSpinEl.click({ force: true })
+        } else {
+          throw clickErr
+        }
+      }
       emit(`Spin ${spinIdx + 1}/${SPIN_COUNT} 已點擊，等待動畫完成...`)
 
       let spinStarted = false
-      const deadline = Date.now() + 15000
+      const deadline = Date.now() + 8000
       while (Date.now() < deadline) {
         await sleep(300)
         try {
@@ -1470,8 +1548,25 @@ async function stepSpin(page: Page, emit: (msg: string) => void, customSpinSel?:
           if (spinStarted && !dis) break
         } catch { break }
       }
-      if (!spinStarted) {
-        emit(`⚠️ Spin ${spinIdx + 1} 未偵測到按鈕 disabled，可能速度太快或 selector 不匹配`)
+
+      // Check if pinus got a new coin message after this spin
+      await sleep(1000)
+      const coinAfterSpin = await readBalance(page, null)
+      const updatedAtAfterSpin = await (async () => {
+        for (const frame of page.frames()) {
+          try {
+            const ts = await frame.evaluate(() => (window as unknown as Record<string,unknown>).__coinUpdatedAt as number ?? 0)
+            if (ts) return ts
+          } catch { /* skip */ }
+        }
+        return 0
+      })()
+      const pinusUpdated = updatedAtAfterSpin > updatedAtBeforeSpin
+      const coinChanged = coinAfterSpin !== null && coinBeforeSpin !== null && coinAfterSpin !== coinBeforeSpin
+      if (pinusUpdated || coinChanged) {
+        emit(`Spin ${spinIdx + 1} 完成 | coin: ${coinBeforeSpin} → ${coinAfterSpin}`)
+      } else {
+        emit(`⚠️ Spin ${spinIdx + 1} 未偵測到餘額變化（按鈕 disabled=${spinStarted}，pinus未更新）`)
       }
       if (spinIdx < SPIN_COUNT - 1) await sleep(500)
     }
@@ -1481,6 +1576,9 @@ async function stepSpin(page: Page, emit: (msg: string) => void, customSpinSel?:
 
     // Wait a bit more for balance update
     await sleep(800)
+
+    // Post-spin diagnostic
+    await diagPinusFrames(page, emit)
 
     // Read balance after all spins
     const balanceAfter = await readBalance(page, customBalanceSel)
@@ -2161,6 +2259,68 @@ async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '
     emit(`等待 CCTV 畫面載入...`)
     await sleep(5000)
 
+    // Dismiss any animation overlays / floating popups that may cover the CCTV view.
+    // Uses narrow selectors to avoid accidentally clicking game UI (no generic popup/dialog).
+    // Strategy: 1) try close/OK buttons inside overlay first, 2) fall back to body click, 3) retry up to 3 rounds.
+    {
+      // Only known full-screen overlay types — avoid broad class*="popup"/"dialog" which can match CCTV panel
+      const OVERLAY_SELS = ['div.bg', '[class*="win-frame"]', '[class*="bonus-popup"]', '[class*="float-layer"]']
+      const CLOSE_BTN_SELS = ['[class*="btn_close"]', '[class*="close-btn"]', '.btn_ok', 'button[class*="close"]', 'button[class*="ok"]', '.btn_take']
+
+      type OverlayEntry = { frame: import('playwright').Frame; el: import('playwright').ElementHandle; sel: string }
+      const findOverlays = async (): Promise<OverlayEntry[]> => {
+        const found: OverlayEntry[] = []
+        for (const frame of page.frames()) {
+          try {
+            for (const sel of OVERLAY_SELS) {
+              const els = await frame.$$(sel)
+              for (const el of els) {
+                if (!await el.isVisible()) continue
+                const box = await el.boundingBox()
+                if (box && box.width > 80 && box.height > 80) found.push({ frame, el, sel })
+              }
+            }
+          } catch { /* frame detached */ }
+        }
+        return found
+      }
+
+      for (let round = 0; round < 3; round++) {
+        const overlays = await findOverlays()
+        if (overlays.length === 0) break
+        emit(`清除彈窗第 ${round + 1} 輪（${overlays.length} 個）...`)
+        for (const { frame, el, sel } of overlays) {
+          let closed = false
+          // Prefer clicking close/OK button to avoid misfire on overlay body
+          for (const closeSel of CLOSE_BTN_SELS) {
+            try {
+              const btn = await el.$(closeSel) ?? await frame.$(closeSel)
+              if (btn && await btn.isVisible()) {
+                await btn.click({ timeout: 500 })
+                emit(`已點擊關閉按鈕（${closeSel}）`)
+                closed = true
+                break
+              }
+            } catch { /* ignore */ }
+          }
+          if (!closed) {
+            await el.click({ force: true, timeout: 500 }).catch(() => {})
+            emit(`已 force-click 彈窗本體：${sel}`)
+          }
+        }
+        await sleep(1000)
+      }
+
+      await page.keyboard.press('Escape').catch(() => {})
+      const remaining = await findOverlays()
+      if (remaining.length > 0) {
+        emit(`⚠️ 仍有 ${remaining.length} 個 overlay 未清除，繼續截圖`)
+      } else {
+        emit(`彈窗清除完成，等待畫面穩定...`)
+        await sleep(500)
+      }
+    }
+
     let videoEl: import('playwright').ElementHandle | null = null
     let videoPlaying = false
     for (const frame of page.frames()) {
@@ -2571,6 +2731,7 @@ export class MachineTestRunner extends EventEmitter {
     await ctx.addInitScript(GM_EVENT_MONITOR_SCRIPT)
     await ctx.addInitScript(AUDIO_MONITOR_SCRIPT)
     await ctx.addInitScript(IDECK_MONITOR_SCRIPT)
+    await ctx.addInitScript(PINUS_TRACKER_SCRIPT)
     const page = await ctx.newPage()
 
     // Set up GM event watcher BEFORE goto so it catches the initial WS connection
@@ -2614,7 +2775,7 @@ export class MachineTestRunner extends EventEmitter {
         // After entering, resolve final profile. Priority:
         // 1. enterMachineType exact match (overrides machine-code match)
         // 2. machine code match (already in `profile` from before entry)
-        // 3. gmid from URL
+        // gmid fallback intentionally removed — machine-code must match explicitly
         if (r.status !== 'fail') {
           const gmMachineType = r.extraData?.machineType ?? ''
           let matchedBy = profile ? 'machine-code' : ''
@@ -2627,20 +2788,6 @@ export class MachineTestRunner extends EventEmitter {
                 profile = p
                 matchedBy = `enterMachineType=${gmMachineType}`
                 break
-              }
-            }
-          }
-
-          // Priority 3: gmid fallback if still nothing
-          if (!profile) {
-            const gameId = extractGameId(page.url())
-            if (gameId) {
-              for (const [, p] of this.profiles) {
-                if (p.gmid && p.gmid.toLowerCase() === gameId) {
-                  profile = p
-                  matchedBy = `gmid=${gameId}`
-                  break
-                }
               }
             }
           }

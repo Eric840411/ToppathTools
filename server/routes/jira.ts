@@ -27,6 +27,7 @@ import {
   parseLarkSheetUrl,
 } from '../shared.js'
 import { callLLM, readGeminiPrompts, renderPrompt } from './gemini.js'
+import { multiWritebackLark, type MultiWrite } from './integrations.js'
 import { getAuthAccount } from '../auth-session.js'
 import { withRequestOperation } from '../request-context.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
@@ -1580,11 +1581,283 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
       'Jira 批次開單',
       `成功 ${succeeded} 筆${failed > 0 ? `，失敗 ${failed} 筆` : ''}`,
     )
+
+    // ── Persistent writeback queue ──────────────────────────────────────────
+    // Save each succeeded issue to DB before returning, then attempt server-side
+    // writeback immediately. If writeback fails (or client disconnects before it
+    // calls /api/sheets/writeback-multi), the records stay as 'pending' and can
+    // be retried via POST /api/jira/pending-writebacks/retry.
+    const succeededResults = results.filter(r => r.issueKey)
+    if (succeededResults.length > 0 && body.sheetUrl) {
+      const insertStmt = db.prepare(
+        `INSERT OR IGNORE INTO jira_pending_writebacks (created_at, sheet_url, row_index, jira_key, jira_url, summary, status, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`
+      )
+      const nowMs = Date.now()
+      const jiraBase = mustEnv('JIRA_BASE_URL')
+      const wbWrites: MultiWrite[] = []
+      for (const r of succeededResults) {
+        const rowSummary = body.rows.find(rr => rr.rowIndex === r.rowIndex)?.summary ?? ''
+        const jiraUrl = `${jiraBase}/browse/${r.issueKey!}`
+        insertStmt.run(nowMs, body.sheetUrl, r.rowIndex, r.issueKey!, jiraUrl, rowSummary, nowMs)
+        wbWrites.push({
+          rowIndex: r.rowIndex,
+          columns: {
+            'Jira issue key': r.issueKey!,
+            'Jira URL': jiraUrl,
+            '處理階段': '已開單',
+            '處理時間': new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false }),
+            '單子標題貼這': {
+              type: 'richtext',
+              segments: [
+                { text: r.issueKey!, link: jiraUrl },
+                { text: `\n${rowSummary}` },
+              ],
+            },
+          },
+        })
+      }
+      // Attempt server-side writeback; mark done/failed in DB regardless
+      try {
+        const wbResults = await multiWritebackLark(body.sheetUrl, wbWrites)
+        const updateStmt = db.prepare(
+          `UPDATE jira_pending_writebacks SET status=?, error=?, attempt_count=attempt_count+1, updated_at=? WHERE sheet_url=? AND row_index=? AND jira_key=?`
+        )
+        for (const wr of wbResults) {
+          const issueKey = succeededResults.find(r => r.rowIndex === wr.rowIndex)?.issueKey
+          if (!issueKey) continue
+          updateStmt.run(wr.ok ? 'done' : 'failed', wr.ok ? null : (wr.error ?? ''), Date.now(), body.sheetUrl, wr.rowIndex, issueKey)
+        }
+      } catch (wbErr) {
+        console.warn('[batch-create] server-side writeback failed (pending queue preserved):', wbErr)
+      }
+    }
+
     res.json({ ok: true, results, succeeded, failed })
   } catch (error) {
     next(error)
   } finally {
     finishHeavyTask(heavyTaskToken)
+  }
+})
+
+// GET /api/jira/pending-writebacks?sheetUrl=...&status=pending
+router.get('/api/jira/pending-writebacks', (req, res) => {
+  const { sheetUrl, status } = req.query as Record<string, string | undefined>
+  const conditions: string[] = []
+  const params: unknown[] = []
+  if (sheetUrl) { conditions.push('sheet_url=?'); params.push(sheetUrl) }
+  if (status) {
+    // allow comma-separated statuses e.g. "pending,failed"
+    const statuses = status.split(',').map(s => s.trim()).filter(Boolean)
+    if (statuses.length === 1) { conditions.push('status=?'); params.push(statuses[0]) }
+    else { conditions.push(`status IN (${statuses.map(() => '?').join(',')})`); params.push(...statuses) }
+  }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
+  const rows = db.prepare(`SELECT * FROM jira_pending_writebacks ${where} ORDER BY created_at DESC LIMIT 500`).all(...params)
+  res.json({ ok: true, rows })
+})
+
+// POST /api/jira/pending-writebacks/retry
+router.post('/api/jira/pending-writebacks/retry', async (req, res, next) => {
+  try {
+    if (!userJiraAuth(req)) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
+    const { sheetUrl, ids } = req.body as { sheetUrl?: string; ids?: number[] }
+    type PendingRow = { id: number; sheet_url: string; row_index: number; jira_key: string; jira_url: string; summary: string }
+    let rows: PendingRow[]
+    if (ids?.length) {
+      rows = db.prepare(`SELECT * FROM jira_pending_writebacks WHERE id IN (${ids.map(() => '?').join(',')}) AND status != 'done'`).all(...ids) as PendingRow[]
+    } else if (sheetUrl) {
+      rows = db.prepare(`SELECT * FROM jira_pending_writebacks WHERE sheet_url=? AND status != 'done'`).all(sheetUrl) as PendingRow[]
+    } else {
+      return res.status(400).json({ ok: false, message: '需要 sheetUrl 或 ids' })
+    }
+    if (rows.length === 0) return res.json({ ok: true, retried: 0, succeeded: 0 })
+
+    const bySheet = new Map<string, PendingRow[]>()
+    for (const r of rows) {
+      const arr = bySheet.get(r.sheet_url) ?? []
+      arr.push(r)
+      bySheet.set(r.sheet_url, arr)
+    }
+
+    const nowStr = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })
+    const updateStmt = db.prepare(`UPDATE jira_pending_writebacks SET status=?, error=?, attempt_count=attempt_count+1, updated_at=? WHERE id=?`)
+    let totalSucceeded = 0
+
+    for (const [url, sheetRows] of bySheet) {
+      try {
+        const wbWrites: MultiWrite[] = sheetRows.map(r => ({
+          rowIndex: r.row_index,
+          columns: {
+            'Jira issue key': r.jira_key,
+            'Jira URL': r.jira_url,
+            '處理階段': '已開單',
+            '處理時間': nowStr,
+            '單子標題貼這': {
+              type: 'richtext' as const,
+              segments: [{ text: r.jira_key, link: r.jira_url }, { text: `\n${r.summary}` }],
+            },
+          },
+        }))
+        const wbResults = await multiWritebackLark(url, wbWrites)
+        for (const wr of wbResults) {
+          const row = sheetRows.find(r => r.row_index === wr.rowIndex)
+          if (!row) continue
+          updateStmt.run(wr.ok ? 'done' : 'failed', wr.ok ? null : (wr.error ?? ''), Date.now(), row.id)
+          if (wr.ok) totalSucceeded++
+        }
+      } catch (e) {
+        console.warn('[pending-writebacks/retry] failed for', url, e)
+        db.prepare(`UPDATE jira_pending_writebacks SET status='failed', error=?, attempt_count=attempt_count+1, updated_at=? WHERE id IN (${sheetRows.map(() => '?').join(',')})`).run(String(e), Date.now(), ...sheetRows.map(r => r.id))
+      }
+    }
+
+    res.json({ ok: true, retried: rows.length, succeeded: totalSucceeded })
+  } catch (error) {
+    next(error)
+  }
+})
+
+/**
+ * POST /api/jira/reconcile/preview
+ * 查詢 Jira 專案在指定時間範圍建立的 Issues，與 Sheet 中缺少 Jira key 的列做位置比對，
+ * 回傳預覽清單供使用者確認後再補回填。
+ */
+router.post('/api/jira/reconcile/preview', async (req, res, next) => {
+  try {
+    const userAuth = userJiraAuth(req)
+    if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
+    const { projectKey, sheetUrl, createdFrom, createdTo } = z.object({
+      projectKey: z.string(),
+      sheetUrl: z.string(),
+      createdFrom: z.string(), // ISO date string
+      createdTo: z.string(),
+    }).parse(req.body)
+
+    const baseUrl = mustEnv('JIRA_BASE_URL')
+
+    // ── Step 1: Query Jira for issues created in the date range ──────────────
+    const jql = `project="${projectKey}" AND created>="${createdFrom.slice(0,10)}" AND created<="${createdTo.slice(0,10)}" ORDER BY created ASC`
+    const jiraResp = await fetch(
+      `${baseUrl}/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=200&fields=summary,created,reporter,status`,
+      { headers: { Authorization: userAuth.auth, Accept: 'application/json' } },
+    )
+    if (!jiraResp.ok) return res.status(502).json({ ok: false, message: `Jira 查詢失敗 HTTP ${jiraResp.status}` })
+    const jiraData = (await jiraResp.json()) as { issues?: { key: string; fields: { summary: string; created: string } }[] }
+    const jiraIssues = (jiraData.issues ?? []).map(i => ({
+      key: i.key,
+      summary: i.fields.summary,
+      created: i.fields.created,
+    }))
+
+    // ── Step 2: Read Sheet headers + find rows with empty Jira key ───────────
+    const larkToken = await getLarkToken()
+    const larkBase = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
+    const { spreadsheetToken, sheetId } = parseLarkSheetUrl(sheetUrl)
+    if (!spreadsheetToken) return res.status(400).json({ ok: false, message: '無法解析 Sheet URL' })
+
+    // Read rows 1+2 (same as multiWritebackLark) to handle merged/two-row headers
+    const headerRange = sheetId ? `${sheetId}!A1:ZZ2` : 'A1:ZZ2'
+    const hResp = await fetch(
+      `${larkBase}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${headerRange}`,
+      { headers: { Authorization: `Bearer ${larkToken}` } },
+    )
+    const hData = (await hResp.json()) as { data?: { valueRange?: { values?: unknown[][] } } }
+    const hRows = hData.data?.valueRange?.values ?? []
+    const extractCellText = (c: unknown): string => {
+      if (c === null || c === undefined) return ''
+      if (typeof c === 'object') { const o = c as Record<string, unknown>; return 'text' in o ? String(o.text ?? '') : '' }
+      return String(c)
+    }
+    const hRow1 = (hRows[0] ?? []).map(extractCellText)
+    const hRow2 = (hRows[1] ?? []).map(extractCellText)
+    const headers: string[] = Array.from({ length: Math.max(hRow1.length, hRow2.length) }, (_, i) => hRow1[i]?.trim() || hRow2[i]?.trim() || '')
+
+    const jiraKeyColIdx = headers.findIndex(h => h.toLowerCase().includes('jira issue key') || h.toLowerCase() === 'jira key')
+    const summaryColIdx = headers.findIndex(h => h.toLowerCase() === 'summary' || h.toLowerCase() === '摘要' || h.toLowerCase() === '標題')
+
+    if (jiraKeyColIdx === -1) return res.status(400).json({ ok: false, message: '找不到「Jira issue key」欄位' })
+
+    // Fetch data rows (up to 500 rows)
+    const dataRange = sheetId ? `${sheetId}!A2:ZZ501` : 'A2:ZZ501'
+    const dResp = await fetch(
+      `${larkBase}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${dataRange}`,
+      { headers: { Authorization: `Bearer ${larkToken}` } },
+    )
+    const dData = (await dResp.json()) as { data?: { valueRange?: { values?: unknown[][] } } }
+    const dataRows = (dData.data?.valueRange?.values ?? []) as unknown[][]
+
+    // Rows where Jira key cell is empty
+    const emptyRows = dataRows
+      .map((row, i) => ({
+        rowIndex: i + 2, // 1-indexed, row 1 is header
+        sheetSummary: summaryColIdx >= 0 ? String(row[summaryColIdx] ?? '').trim() : '',
+        jiraKeyValue: String(row[jiraKeyColIdx] ?? '').trim(),
+      }))
+      .filter(r => !r.jiraKeyValue)
+
+    // ── Step 3: Positional matching ──────────────────────────────────────────
+    const matches = []
+    const unmatchedJira = [...jiraIssues]
+    const unmatchedRows = [...emptyRows]
+
+    const count = Math.min(jiraIssues.length, emptyRows.length)
+    for (let i = 0; i < count; i++) {
+      const jira = jiraIssues[i]
+      const row = emptyRows[i]
+      // Compute simple string similarity for confidence
+      const a = jira.summary.toLowerCase().replace(/\s+/g, ' ').trim()
+      const b = row.sheetSummary.toLowerCase().replace(/\s+/g, ' ').trim()
+      const confidence = (a && b && (a.startsWith(b.slice(0, 20)) || b.startsWith(a.slice(0, 20)))) ? 'high' : 'low'
+      matches.push({ rowIndex: row.rowIndex, sheetSummary: row.sheetSummary, jiraKey: jira.key, jiraSummary: jira.summary, jiraCreated: jira.created, confidence })
+      unmatchedJira.shift()
+      unmatchedRows.shift()
+    }
+
+    res.json({ ok: true, matches, unmatchedJiraIssues: unmatchedJira, unmatchedSheetRows: unmatchedRows })
+  } catch (error) {
+    next(error)
+  }
+})
+
+/**
+ * POST /api/jira/reconcile/apply
+ * 對確認的 matches 批次補回填 Lark Sheet。
+ */
+router.post('/api/jira/reconcile/apply', async (req, res, next) => {
+  try {
+    if (!userJiraAuth(req)) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
+    const { sheetUrl, matches } = z.object({
+      sheetUrl: z.string(),
+      matches: z.array(z.object({ rowIndex: z.number(), jiraKey: z.string(), jiraSummary: z.string().optional().default('') })),
+    }).parse(req.body)
+
+    const jiraBase = mustEnv('JIRA_BASE_URL')
+    const nowStr = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })
+
+    const wbWrites: MultiWrite[] = matches.map(m => {
+      const jiraUrl = `${jiraBase}/browse/${m.jiraKey}`
+      return {
+        rowIndex: m.rowIndex,
+        columns: {
+          'Jira issue key': m.jiraKey,
+          'Jira URL': jiraUrl,
+          '處理階段': '已開單',
+          '處理時間': nowStr,
+          '單子標題貼這': {
+            type: 'richtext',
+            segments: [{ text: m.jiraKey, link: jiraUrl }, { text: `\n${m.jiraSummary}` }],
+          },
+        },
+      }
+    })
+
+    const wbResults = await multiWritebackLark(sheetUrl, wbWrites)
+    const succeeded = wbResults.filter(r => r.ok).length
+    res.json({ ok: true, results: wbResults, succeeded, failed: wbResults.length - succeeded })
+  } catch (error) {
+    next(error)
   }
 })
 

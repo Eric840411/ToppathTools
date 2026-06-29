@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.54.15'
+export const APP_VERSION = '3.54.28'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,102 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.54.28',
+    date: '2026-06-28',
+    changes: [
+      'ux(jira): 補回填工具改為預設折疊，批量開單時不干擾主流程；有 pending/failed 記錄時顯示警示；工具展開後才顯示內容',
+    ],
+  },
+  {
+    version: '3.54.27',
+    date: '2026-06-28',
+    changes: [
+      'fix(jira): reconcile/apply 及 pending-writebacks/retry 補上 userJiraAuth 檢查，防止未登入觸發 Lark 回寫',
+      'fix(jira): 全選 checkbox 只選高信心配對，不把低信心也帶進去',
+    ],
+  },
+  {
+    version: '3.54.26',
+    date: '2026-06-28',
+    changes: [
+      'fix(jira): 對帳補回填低信心配對不預設勾選，避免寫錯 Jira Key',
+      'fix(jira): reconcile/preview 改讀 A1:ZZ2（與 multiWritebackLark 一致），修正雙列表頭找不到欄位問題',
+      'fix(jira): 舊版 DB 補建 UNIQUE INDEX + 刪除既有重複 pending_writebacks 記錄',
+    ],
+  },
+  {
+    version: '3.54.25',
+    date: '2026-06-28',
+    changes: [
+      'feat(jira): 新增「回寫狀態 / 補回填」面板 — 查看 pending/failed 記錄、全部重試；新增對帳補回填工具（查詢 Jira + Sheet 空列位置比對，可勾選後寫回）',
+    ],
+  },
+  {
+    version: '3.54.24',
+    date: '2026-06-28',
+    changes: [
+      'fix(jira): pending_writebacks 加入 UNIQUE(sheet_url,row_index,jira_key) 防止重複插入，新增 attempt_count 追蹤重試次數，ALTER TABLE 相容既有 DB',
+    ],
+  },
+  {
+    version: '3.54.23',
+    date: '2026-06-28',
+    changes: [
+      'feat(jira): 批次開單加入 pending writeback queue — 開單成功後立即存 DB，斷線也不遺失；server 端嘗試即時回寫，失敗則保留 pending；Step 4 顯示「重試回寫」按鈕',
+      'feat(jira): 新增 GET /api/jira/pending-writebacks 及 POST /api/jira/pending-writebacks/retry 端點，支援補回填失敗紀錄',
+    ],
+  },
+  {
+    version: '3.54.22',
+    date: '2026-06-28',
+    changes: [
+      'fix(jira): Lark 回寫欄位新增時改為永遠 append 到最後，不再 reuse 中間空欄，避免覆蓋原本有資料的欄位',
+    ],
+  },
+  {
+    version: '3.54.21',
+    date: '2026-06-26',
+    changes: [
+      'fix(machine-test): 移除設定檔 gmid fallback 比對，強制只用 machine-code（中段全大寫）或 enterMachineType 命中，避免誤選設定檔',
+    ],
+  },
+  {
+    version: '3.54.20',
+    date: '2026-06-26',
+    changes: [
+      'fix(machine-test): CCTV overlay 清除改為最多重試 3 輪，優先點擊 close/OK 按鈕而非 overlay 本體，縮窄 selector 避免誤點遊戲 UI',
+    ],
+  },
+  {
+    version: '3.54.19',
+    date: '2026-06-26',
+    changes: [
+      'fix(machine-test): CCTV 步驟截圖前自動清除浮動彈窗/動畫 overlay（div.bg / popup / dialog 等），再按 Escape fallback，確保比對畫面不被遮擋',
+    ],
+  },
+  {
+    version: '3.54.18',
+    date: '2026-06-26',
+    changes: [
+      'fix(machine-test): Spin click 加 overlay 攔截 fallback — 遇到 intercepts pointer events 時自動改用 force click，避免 DFDC 等遊戲的動畫 overlay 卡死',
+    ],
+  },
+  {
+    version: '3.54.17',
+    date: '2026-06-26',
+    changes: [
+      'fix(machine-test): Spin 按鈕點擊改用 Playwright 原生 elementHandle.click()（修正 DFDC 等用 pointer 事件的遊戲無法觸發 Spin）',
+      'feat(machine-test): pinus tracker 新增 __coinUpdatedAt 時間戳，per-spin 記錄 coin 前後變化，post-spin 診斷同步輸出',
+    ],
+  },
+  {
+    version: '3.54.16',
+    date: '2026-06-26',
+    changes: [
+      'feat(machine-test): Spin 測試改用 pinus WebSocket 攔截讀取餘額（window.__lastCoin），移除已失效的 DOM selector 邏輯',
+    ],
+  },
   {
     version: '3.54.15',
     date: '2026-06-25',

@@ -167,6 +167,32 @@ db.exec(`
 `)
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS jira_pending_writebacks (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at    INTEGER NOT NULL,
+    sheet_url     TEXT NOT NULL,
+    row_index     INTEGER NOT NULL,
+    jira_key      TEXT NOT NULL,
+    jira_url      TEXT NOT NULL,
+    summary       TEXT NOT NULL DEFAULT '',
+    status        TEXT NOT NULL DEFAULT 'pending',
+    error         TEXT,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    updated_at    INTEGER NOT NULL,
+    UNIQUE (sheet_url, row_index, jira_key)
+  );
+  CREATE INDEX IF NOT EXISTS idx_jpw_sheet_status ON jira_pending_writebacks (sheet_url, status, created_at);
+`)
+// Migrate existing tables that may lack attempt_count (safe no-op if column exists)
+try { db.exec(`ALTER TABLE jira_pending_writebacks ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0`) } catch { /* already exists */ }
+// Ensure UNIQUE index exists on old DBs that were created before v3.54.24 (CREATE TABLE IF NOT EXISTS won't add it)
+try {
+  // Remove duplicates first (keep lowest id per unique key)
+  db.exec(`DELETE FROM jira_pending_writebacks WHERE id NOT IN (SELECT MIN(id) FROM jira_pending_writebacks GROUP BY sheet_url, row_index, jira_key)`)
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_jpw_unique ON jira_pending_writebacks (sheet_url, row_index, jira_key)`)
+} catch { /* already exists or no duplicates */ }
+
+db.exec(`
   CREATE TABLE IF NOT EXISTS role_permissions (
     role     TEXT NOT NULL,
     page_key TEXT NOT NULL,

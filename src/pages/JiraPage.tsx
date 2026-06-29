@@ -539,6 +539,24 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   // Step 4 (create)
   const [submitting, setSubmitting] = useState(false)
   const [createResults, setCreateResults] = useState<IssueCreateResult[]>([])
+  const [pendingWritebackCount, setPendingWritebackCount] = useState(0)
+  const [retryingWriteback, setRetryingWriteback] = useState(false)
+  // Pending writebacks panel (persistent)
+  const [pendingRows, setPendingRows] = useState<{ id: number; row_index: number; jira_key: string; jira_url: string; summary: string; status: string; error: string | null; attempt_count: number; created_at: number }[]>([])
+  const [showPendingPanel, setShowPendingPanel] = useState(false)
+  // Reconcile panel
+  const [reconcileOpen, setReconcileOpen] = useState(false)
+  const [reconcileProjectKey, setReconcileProjectKey] = useState('')
+  const [reconcileSheetUrl, setReconcileSheetUrl] = useState('')
+  const [reconcileFrom, setReconcileFrom] = useState('')
+  const [reconcileTo, setReconcileTo] = useState('')
+  const [reconcileLoading, setReconcileLoading] = useState(false)
+  const [reconcileMatches, setReconcileMatches] = useState<{ rowIndex: number; sheetSummary: string; jiraKey: string; jiraSummary: string; jiraCreated: string; confidence: string }[]>([])
+  const [reconcileUnmatchedJira, setReconcileUnmatchedJira] = useState<{ key: string; summary: string; created: string }[]>([])
+  const [reconcileUnmatchedRows, setReconcileUnmatchedRows] = useState<{ rowIndex: number; sheetSummary: string }[]>([])
+  const [reconcileSelected, setReconcileSelected] = useState<Set<number>>(new Set())
+  const [reconcileApplying, setReconcileApplying] = useState(false)
+  const [reconcileMsg, setReconcileMsg] = useState('')
 
   // Step 5 (comment)
   const [commentColumn, setCommentColumn] = useState('')
@@ -1682,6 +1700,15 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
         writebackSkipped: writebackSkipped && !!r.issueKey,
         writebackError: (!writebackSkipped && r.issueKey && !writebackResultMap[r.rowIndex]) ? writebackError : undefined,
       })))
+
+      // 查詢 server 端 pending writeback 數量（斷線時 server 已持久化，可補救）
+      if (sheetUrl && succeeded.length > 0) {
+        try {
+          const pResp = await fetch(`/api/jira/pending-writebacks?sheetUrl=${encodeURIComponent(sheetUrl)}&status=pending,failed`)
+          const pData = await pResp.json() as { ok: boolean; rows?: unknown[] }
+          setPendingWritebackCount(pData.ok ? (pData.rows?.length ?? 0) : 0)
+        } catch { /* ignore */ }
+      }
 
       // 合併 trackedIssues
       const newIssues: TrackedIssue[] = succeeded.map(r => ({
@@ -3917,6 +3944,34 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             </div>
           )}
 
+          {pendingWritebackCount > 0 && (
+            <div className="alert-warn" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <span>⚠️ 有 {pendingWritebackCount} 筆回寫未完成（可能因斷線中斷）</span>
+              <button
+                className="btn btn-sm btn-secondary"
+                disabled={retryingWriteback}
+                onClick={async () => {
+                  setRetryingWriteback(true)
+                  try {
+                    const r = await fetch('/api/jira/pending-writebacks/retry', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ sheetUrl }),
+                    })
+                    const d = await r.json() as { ok: boolean; succeeded: number; retried: number }
+                    if (d.ok) {
+                      alert(`補回填完成：${d.succeeded}/${d.retried} 筆成功`)
+                      setPendingWritebackCount(d.retried - d.succeeded)
+                    }
+                  } catch (e) { alert(`重試失敗：${e}`) }
+                  finally { setRetryingWriteback(false) }
+                }}
+              >
+                {retryingWriteback ? '重試中...' : '🔁 重試回寫'}
+              </button>
+            </div>
+          )}
+
           {createResults.length > 0 && (
             <>
               <div className="result-summary">
@@ -5167,6 +5222,243 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             </div>
           )}
         </>
+      )}
+
+      {/* ── 待補回寫面板（persistent，有 pending/failed 才顯示觸發按鈕）── */}
+      {mode === 'qa' && qaSubMode === 'create' && (
+        <div style={{ marginTop: 16 }}>
+          {/* Collapsed trigger — low-profile unless there are pending records */}
+          {!showPendingPanel && !reconcileOpen && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              {pendingWritebackCount > 0 && (
+                <span style={{ fontSize: 12, color: '#f59e0b' }}>⚠️ 有 {pendingWritebackCount} 筆回寫失敗</span>
+              )}
+              <button
+                style={{ background: 'none', border: 'none', color: '#475569', fontSize: 12, cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
+                onClick={async () => {
+                  const r = await fetch('/api/jira/pending-writebacks?status=pending,failed').then(r => r.json()) as { ok: boolean; rows?: typeof pendingRows }
+                  if (r.ok) { setPendingRows(r.rows ?? []); setPendingWritebackCount(r.rows?.length ?? 0) }
+                  setShowPendingPanel(true)
+                }}
+              >🔧 補回填工具</button>
+            </div>
+          )}
+
+        <div className="section-card" style={{ marginTop: 8, display: (showPendingPanel || reconcileOpen) ? 'block' : 'none' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <h3 className="section-title" style={{ margin: 0 }}>補回填工具</h3>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="settings-btn" onClick={async () => {
+                const r = await fetch('/api/jira/pending-writebacks?status=pending,failed').then(r => r.json()) as { ok: boolean; rows?: typeof pendingRows }
+                if (r.ok) setPendingRows(r.rows ?? [])
+                setShowPendingPanel(s => !s)
+              }}>{showPendingPanel ? '▲ 收起' : '📋 待補記錄'}</button>
+              <button className="settings-btn" onClick={() => setReconcileOpen(o => !o)}>
+                {reconcileOpen ? '▲ 收起對帳' : '🔍 對帳補回填'}
+              </button>
+              <button
+                style={{ background: 'none', border: 'none', color: '#475569', fontSize: 12, cursor: 'pointer', padding: '0 4px' }}
+                onClick={() => { setShowPendingPanel(false); setReconcileOpen(false) }}
+              >✕</button>
+            </div>
+          </div>
+          <div style={{ marginTop: 10, padding: '10px 14px', background: '#0f1f35', borderRadius: 8, fontSize: 12, color: '#94a3b8', lineHeight: 1.7 }}>
+            <strong style={{ color: '#93c5fd' }}>使用說明</strong>
+            <div style={{ marginTop: 6, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 24px' }}>
+              <div>
+                <span style={{ color: '#e2e8f0' }}>📋 查看待補記錄</span><br />
+                當批次開單後因斷線或 Lark timeout 導致回寫 Sheet 失敗，系統會自動保留這些記錄。點此查看所有 pending / failed 的紀錄，確認後點「全部重試」補寫回 Sheet。
+              </div>
+              <div>
+                <span style={{ color: '#e2e8f0' }}>🔍 對帳補回填</span><br />
+                適用於已遺失單號的舊資料。輸入 Jira 專案 Key、Lark Sheet URL 和開單日期範圍，系統會從 Jira 查出該時段建立的 Issue，與 Sheet 空白列做位置比對，高信心配對自動勾選，確認後寫回 Sheet。
+              </div>
+            </div>
+          </div>
+
+          {/* Pending writebacks list */}
+          {showPendingPanel && (
+            <div style={{ marginTop: 12 }}>
+              {pendingRows.length === 0
+                ? <p style={{ color: '#94a3b8', fontSize: 13 }}>目前沒有待補的回寫記錄。</p>
+                : <>
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                    <button className="submit-btn submit-btn--sm" disabled={retryingWriteback} onClick={async () => {
+                      setRetryingWriteback(true)
+                      try {
+                        const ids = pendingRows.filter(r => r.status !== 'done').map(r => r.id)
+                        if (ids.length === 0) return
+                        const resp = await fetch('/api/jira/pending-writebacks/retry', {
+                          method: 'POST', headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ ids }),
+                        }).then(r => r.json()) as { ok: boolean; succeeded: number; retried: number }
+                        if (resp.ok) {
+                          alert(`補回填完成：${resp.succeeded}/${resp.retried} 筆成功`)
+                          const fresh = await fetch('/api/jira/pending-writebacks?status=pending,failed').then(r => r.json()) as { ok: boolean; rows?: typeof pendingRows }
+                          if (fresh.ok) setPendingRows(fresh.rows ?? [])
+                          setPendingWritebackCount(fresh.rows?.length ?? 0)
+                        }
+                      } finally { setRetryingWriteback(false) }
+                    }}>
+                      {retryingWriteback ? '重試中...' : `🔁 全部重試（${pendingRows.filter(r => r.status !== 'done').length} 筆）`}
+                    </button>
+                  </div>
+                  <div className="table-wrap" style={{ overflowX: 'auto' }}>
+                    <table className="sheet-preview-table">
+                      <thead>
+                        <tr>
+                          <th>Jira Key</th>
+                          <th>Row</th>
+                          <th>摘要</th>
+                          <th>狀態</th>
+                          <th>嘗試</th>
+                          <th>錯誤</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pendingRows.map(r => (
+                          <tr key={r.id}>
+                            <td><a href={r.jira_url} target="_blank" rel="noreferrer"><code>{r.jira_key}</code></a></td>
+                            <td style={{ color: '#94a3b8' }}>{r.row_index}</td>
+                            <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.summary}</td>
+                            <td>
+                              <span style={{ color: r.status === 'done' ? '#22c55e' : r.status === 'failed' ? '#ef4444' : '#f59e0b' }}>
+                                {r.status}
+                              </span>
+                            </td>
+                            <td style={{ color: '#94a3b8' }}>{r.attempt_count}</td>
+                            <td style={{ color: '#ef4444', fontSize: 11, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.error ?? '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              }
+            </div>
+          )}
+
+          {/* Reconcile tool */}
+          {reconcileOpen && (
+            <div style={{ marginTop: 16, borderTop: '1px solid #334155', paddingTop: 16 }}>
+              <h4 style={{ marginBottom: 12, color: '#e2e8f0' }}>🔍 對帳補回填 — 查詢 Jira 已建立的 Issue 並補寫 Sheet</h4>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                <div>
+                  <label style={{ fontSize: 12, color: '#94a3b8', display: 'block', marginBottom: 4 }}>Jira 專案 Key *</label>
+                  <input className="lark-url-input" style={{ width: '100%' }} placeholder="CGMN" value={reconcileProjectKey} onChange={e => setReconcileProjectKey(e.target.value)} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: '#94a3b8', display: 'block', marginBottom: 4 }}>Lark Sheet URL *</label>
+                  <input className="lark-url-input" style={{ width: '100%' }} placeholder="https://..." value={reconcileSheetUrl} onChange={e => setReconcileSheetUrl(e.target.value)} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: '#94a3b8', display: 'block', marginBottom: 4 }}>建立時間 從</label>
+                  <div style={{ position: 'relative', cursor: 'pointer' }} onClick={e => { const inp = (e.currentTarget as HTMLDivElement).querySelector('input'); inp?.showPicker?.() }}>
+                    <input type="date" className="lark-url-input" style={{ width: '100%', cursor: 'pointer', color: reconcileFrom ? undefined : 'transparent', boxSizing: 'border-box' }} value={reconcileFrom} onChange={e => setReconcileFrom(e.target.value)} />
+                    {!reconcileFrom && <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#475569', fontSize: 13, pointerEvents: 'none' }}>yyyy/mm/dd</span>}
+                    <svg style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#60a5fa' }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  </div>
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, color: '#94a3b8', display: 'block', marginBottom: 4 }}>建立時間 至</label>
+                  <div style={{ position: 'relative', cursor: 'pointer' }} onClick={e => { const inp = (e.currentTarget as HTMLDivElement).querySelector('input'); inp?.showPicker?.() }}>
+                    <input type="date" className="lark-url-input" style={{ width: '100%', cursor: 'pointer', color: reconcileTo ? undefined : 'transparent', boxSizing: 'border-box' }} value={reconcileTo} onChange={e => setReconcileTo(e.target.value)} />
+                    {!reconcileTo && <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#475569', fontSize: 13, pointerEvents: 'none' }}>yyyy/mm/dd</span>}
+                    <svg style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#60a5fa' }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  </div>
+                </div>
+              </div>
+              <button className="submit-btn submit-btn--sm" style={{ marginTop: 4 }} disabled={reconcileLoading || !reconcileProjectKey || !reconcileSheetUrl} onClick={async () => {
+                setReconcileLoading(true)
+                setReconcileMatches([]); setReconcileUnmatchedJira([]); setReconcileUnmatchedRows([]); setReconcileMsg('')
+                try {
+                  const resp = await fetch('/api/jira/reconcile/preview', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      projectKey: reconcileProjectKey,
+                      sheetUrl: reconcileSheetUrl,
+                      createdFrom: reconcileFrom || new Date(Date.now() - 86400000).toISOString().slice(0,10),
+                      createdTo: reconcileTo || new Date().toISOString().slice(0,10),
+                    }),
+                  }).then(r => r.json()) as { ok: boolean; matches?: typeof reconcileMatches; unmatchedJiraIssues?: typeof reconcileUnmatchedJira; unmatchedSheetRows?: typeof reconcileUnmatchedRows; message?: string }
+                  if (!resp.ok) { setReconcileMsg(resp.message ?? '查詢失敗'); return }
+                  setReconcileMatches(resp.matches ?? [])
+                  setReconcileUnmatchedJira(resp.unmatchedJiraIssues ?? [])
+                  setReconcileUnmatchedRows(resp.unmatchedSheetRows ?? [])
+                  setReconcileSelected(new Set((resp.matches ?? []).filter(m => m.confidence === 'high').map(m => m.rowIndex)))
+                  setReconcileMsg('')
+                } catch (e) { setReconcileMsg(String(e)) }
+                finally { setReconcileLoading(false) }
+              }}>
+                {reconcileLoading ? '查詢中...' : '查詢比對'}
+              </button>
+
+              {reconcileMsg && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 8 }}>{reconcileMsg}</p>}
+
+              {reconcileMatches.length > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontSize: 13, color: '#e2e8f0' }}>找到 {reconcileMatches.length} 筆配對（可勾選後補回填）</span>
+                    <button className="submit-btn submit-btn--sm" disabled={reconcileApplying || reconcileSelected.size === 0} onClick={async () => {
+                      setReconcileApplying(true)
+                      try {
+                        const selected = reconcileMatches.filter(m => reconcileSelected.has(m.rowIndex))
+                        const resp = await fetch('/api/jira/reconcile/apply', {
+                          method: 'POST', headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            sheetUrl: reconcileSheetUrl,
+                            matches: selected.map(m => ({ rowIndex: m.rowIndex, jiraKey: m.jiraKey, jiraSummary: m.jiraSummary })),
+                          }),
+                        }).then(r => r.json()) as { ok: boolean; succeeded: number; failed: number; message?: string }
+                        if (resp.ok) {
+                          setReconcileMsg(`✅ 補回填完成：${resp.succeeded} 成功，${resp.failed} 失敗`)
+                        } else {
+                          setReconcileMsg(resp.message ?? '補回填失敗')
+                        }
+                      } catch (e) { setReconcileMsg(String(e)) }
+                      finally { setReconcileApplying(false) }
+                    }}>
+                      {reconcileApplying ? '補回填中...' : `✍️ 補回填選取（${reconcileSelected.size} 筆）`}
+                    </button>
+                  </div>
+                  <table className="sheet-preview-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: 32 }}><input type="checkbox"
+                            checked={reconcileMatches.filter(m => m.confidence === 'high').every(m => reconcileSelected.has(m.rowIndex)) && reconcileMatches.filter(m => m.confidence === 'high').length > 0}
+                            title="全選只選高信心配對"
+                            onChange={e => setReconcileSelected(e.target.checked ? new Set(reconcileMatches.filter(m => m.confidence === 'high').map(m => m.rowIndex)) : new Set())} /></th>
+                        <th>Row</th>
+                        <th>Jira Key</th>
+                        <th>Jira 摘要</th>
+                        <th>Sheet 摘要</th>
+                        <th>信心度</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reconcileMatches.map(m => (
+                        <tr key={m.rowIndex}>
+                          <td><input type="checkbox" checked={reconcileSelected.has(m.rowIndex)} onChange={e => setReconcileSelected(s => { const n = new Set(s); e.target.checked ? n.add(m.rowIndex) : n.delete(m.rowIndex); return n })} /></td>
+                          <td style={{ color: '#94a3b8' }}>{m.rowIndex}</td>
+                          <td><code>{m.jiraKey}</code></td>
+                          <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.jiraSummary}</td>
+                          <td style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#94a3b8' }}>{m.sheetSummary}</td>
+                          <td><span style={{ color: m.confidence === 'high' ? '#22c55e' : '#f59e0b' }}>{m.confidence === 'high' ? '高' : '低'}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {(reconcileUnmatchedJira.length > 0 || reconcileUnmatchedRows.length > 0) && (
+                    <p style={{ fontSize: 12, color: '#f59e0b', marginTop: 8 }}>
+                      ⚠️ 未配對：Jira {reconcileUnmatchedJira.length} 筆，Sheet {reconcileUnmatchedRows.length} 列（數量不一致，請手動確認）
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        </div>
       )}
 
       {showAccountModal && (

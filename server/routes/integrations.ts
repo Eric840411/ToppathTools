@@ -711,10 +711,10 @@ const writeJiraTestCasesToBitable = async (result: JiraTestCaseResult, specUrl: 
 // ─── Multi-column writeback helpers ──────────────────────────────────────────
 
 type LarkUrlCell = { type: 'url'; text: string; link: string }
-type LarkTextSegment = { text: string; link?: string }
-type LarkRichTextCell = { type: 'richtext'; segments: LarkTextSegment[] }
-type LarkCellValue = string | LarkUrlCell | LarkRichTextCell
-type MultiWrite = { rowIndex: number; columns: Record<string, LarkCellValue> }
+export type LarkTextSegment = { text: string; link?: string }
+export type LarkRichTextCell = { type: 'richtext'; segments: LarkTextSegment[] }
+export type LarkCellValue = string | LarkUrlCell | LarkRichTextCell
+export type MultiWrite = { rowIndex: number; columns: Record<string, LarkCellValue> }
 
 function serializeLarkValue(value: LarkCellValue): unknown {
   if (typeof value === 'string') return value
@@ -736,7 +736,7 @@ function colIndexToLetter(idx: number): string {
   return String.fromCharCode(64 + Math.floor(idx / 26)) + String.fromCharCode(65 + (idx % 26))
 }
 
-const multiWritebackLark = async (sheetUrl: string, writes: MultiWrite[]) => {
+export const multiWritebackLark = async (sheetUrl: string, writes: MultiWrite[]) => {
   console.log('[WB-Lark] 1. parseLarkSheetUrl')
   const { spreadsheetToken, sheetId } = parseLarkSheetUrl(sheetUrl)
   console.log('[WB-Lark] 2. token:', spreadsheetToken, 'sheetId:', sheetId)
@@ -791,12 +791,11 @@ const multiWritebackLark = async (sheetUrl: string, writes: MultiWrite[]) => {
         candidates.some(h => normalizeCol(h) === normalizeCol(colName)),
       )
       if (colIdx === -1) {
-        // Auto-create: use first empty slot in row 1 (skip col A at index 0), or append at end if none found
-        const firstEmptyIdx = headers.findIndex((h, i) => i > 0 && !h.trim())
-        const newColIdx = firstEmptyIdx !== -1 ? firstEmptyIdx : headers.length
+        // Always append at end — never reuse interior empty slots (could overwrite data in non-header columns)
+        const newColIdx = headers.length
         const newColLetter = colIndexToLetter(newColIdx)
         const headerCell = sheetId ? `${sheetId}!${newColLetter}1:${newColLetter}1` : `${newColLetter}1:${newColLetter}1`
-        console.log(`[WB-Lark] column "${colName}" not found — auto-creating at index ${newColIdx} (${newColLetter}) ${firstEmptyIdx !== -1 ? '(reusing empty slot)' : '(appending)'}`)
+        console.log(`[WB-Lark] column "${colName}" not found — appending at index ${newColIdx} (${newColLetter})`)
         const createResp = await fetch(
           `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values`,
           {
@@ -818,14 +817,8 @@ const multiWritebackLark = async (sheetUrl: string, writes: MultiWrite[]) => {
           rowError = `無法建立欄位「${colName}」：Lark API code ${createJson.code} — ${createJson.msg ?? ''}`
           break
         }
-        // Update local headers so subsequent columns don't reuse the same slot
-        if (firstEmptyIdx !== -1) {
-          headers[firstEmptyIdx] = colName
-          headerCandidates[firstEmptyIdx] = [colName]
-        } else {
-          headers.push(colName)
-          headerCandidates.push([colName])
-        }
+        headers.push(colName)
+        headerCandidates.push([colName])
         colIdx = newColIdx
       }
       const colLetter = colIndexToLetter(colIdx)
