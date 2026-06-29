@@ -1066,6 +1066,14 @@
   font-size: 12px;
 }
 
+/* Custom date input — hides browser native icon so our SVG shows cleanly */
+.date-input-custom::-webkit-calendar-picker-indicator {
+  display: none;
+}
+.date-input-custom::-webkit-inner-spin-button {
+  display: none;
+}
+
 /* ─── Result Box ──────────────────────────────────── */
 .result-box {
   min-height: 120px;
