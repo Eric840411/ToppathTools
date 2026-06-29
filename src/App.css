@@ -1066,9 +1066,19 @@
   font-size: 12px;
 }
 
-/* Custom date input — hides browser native icon so our SVG shows cleanly */
+/* Custom date input — make native indicator invisible + full-width so whole bar opens picker */
+.date-input-custom {
+  position: relative;
+  padding-right: 32px;
+}
 .date-input-custom::-webkit-calendar-picker-indicator {
-  display: none;
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
 }
 .date-input-custom::-webkit-inner-spin-button {
   display: none;

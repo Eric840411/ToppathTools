@@ -5353,16 +5353,16 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 </div>
                 <div>
                   <label style={{ fontSize: 12, color: '#94a3b8', display: 'block', marginBottom: 4 }}>建立時間 從</label>
-                  <div style={{ position: 'relative', cursor: 'pointer' }} onClick={e => { const inp = (e.currentTarget as HTMLDivElement).querySelector('input'); inp?.showPicker?.() }}>
-                    <input type="date" className="lark-url-input date-input-custom" style={{ width: '100%', cursor: 'pointer', WebkitTextFillColor: reconcileFrom ? undefined : 'transparent', boxSizing: 'border-box' }} value={reconcileFrom} onChange={e => setReconcileFrom(e.target.value)} />
+                  <div style={{ position: 'relative' }}>
+                    <input type="date" className="lark-url-input date-input-custom" style={{ width: '100%', WebkitTextFillColor: reconcileFrom ? undefined : 'transparent', boxSizing: 'border-box' }} value={reconcileFrom} onChange={e => setReconcileFrom(e.target.value)} />
                     {!reconcileFrom && <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#475569', fontSize: 13, pointerEvents: 'none' }}>yyyy/mm/dd</span>}
                     <svg style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#60a5fa' }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                   </div>
                 </div>
                 <div>
                   <label style={{ fontSize: 12, color: '#94a3b8', display: 'block', marginBottom: 4 }}>建立時間 至</label>
-                  <div style={{ position: 'relative', cursor: 'pointer' }} onClick={e => { const inp = (e.currentTarget as HTMLDivElement).querySelector('input'); inp?.showPicker?.() }}>
-                    <input type="date" className="lark-url-input date-input-custom" style={{ width: '100%', cursor: 'pointer', WebkitTextFillColor: reconcileTo ? undefined : 'transparent', boxSizing: 'border-box' }} value={reconcileTo} onChange={e => setReconcileTo(e.target.value)} />
+                  <div style={{ position: 'relative' }}>
+                    <input type="date" className="lark-url-input date-input-custom" style={{ width: '100%', WebkitTextFillColor: reconcileTo ? undefined : 'transparent', boxSizing: 'border-box' }} value={reconcileTo} onChange={e => setReconcileTo(e.target.value)} />
                     {!reconcileTo && <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#475569', fontSize: 13, pointerEvents: 'none' }}>yyyy/mm/dd</span>}
                     <svg style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#60a5fa' }} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                   </div>
