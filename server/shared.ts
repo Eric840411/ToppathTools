@@ -822,6 +822,21 @@ db.exec(`
   )
 `)
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS jp_groups (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    code             TEXT NOT NULL UNIQUE,
+    display_name     TEXT NOT NULL,
+    environment      TEXT NOT NULL DEFAULT 'QAT',
+    luckylink_url    TEXT NOT NULL DEFAULT '',
+    luckylink_group_name TEXT NOT NULL DEFAULT '',
+    game_codes       TEXT NOT NULL DEFAULT '[]',
+    enabled          INTEGER NOT NULL DEFAULT 1,
+    created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+  )
+`)
+
 // migration: add folder_id to knowledge_docs
 {
   const kbCols = db.prepare('PRAGMA table_info(knowledge_docs)').all() as { name: string }[]

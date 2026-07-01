@@ -1373,3 +1373,71 @@ router.get('/api/autospin/reconcile/reports/:id', (req, res) => {
   if (!row) return res.status(404).json({ ok: false })
   return res.json({ ok: true, report: { ...row, details: JSON.parse(row.details || '{}') } })
 })
+
+// ─── JP Group CRUD ────────────────────────────────────────────────────────────
+
+interface JpGroupRow {
+  id: number; code: string; display_name: string; environment: string
+  luckylink_url: string; luckylink_group_name: string
+  game_codes: string; enabled: number; created_at: string; updated_at: string
+}
+
+const jpGroupSchema = z.object({
+  code: z.string().min(1).max(50),
+  display_name: z.string().min(1).max(100),
+  environment: z.enum(['QAT', 'UAT', 'PROD']),
+  luckylink_url: z.string().url(),
+  luckylink_group_name: z.string().min(1),
+  game_codes: z.array(z.string()).default([]),
+  enabled: z.boolean().default(true),
+})
+
+// GET /api/autospin/jp-groups
+router.get('/api/autospin/jp-groups', (_req, res) => {
+  const rows = db.prepare('SELECT * FROM jp_groups ORDER BY code ASC').all() as JpGroupRow[]
+  res.json({ ok: true, groups: rows.map(r => ({ ...r, game_codes: JSON.parse(r.game_codes || '[]'), enabled: r.enabled === 1 })) })
+})
+
+// POST /api/autospin/jp-groups
+router.post('/api/autospin/jp-groups', (req, res) => {
+  const parsed = jpGroupSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ ok: false, message: parsed.error.issues.map(i => i.message).join(', ') })
+  const d = parsed.data
+  try {
+    const row = db.prepare(
+      'INSERT INTO jp_groups (code,display_name,environment,luckylink_url,luckylink_group_name,game_codes,enabled) VALUES (?,?,?,?,?,?,?)'
+    ).run(d.code, d.display_name, d.environment, d.luckylink_url, d.luckylink_group_name, JSON.stringify(d.game_codes), d.enabled ? 1 : 0) as { lastInsertRowid: number }
+    return res.json({ ok: true, id: row.lastInsertRowid })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg.includes('UNIQUE')) return res.status(409).json({ ok: false, message: `代碼 "${d.code}" 已存在` })
+    throw e
+  }
+})
+
+// PUT /api/autospin/jp-groups/:id
+router.put('/api/autospin/jp-groups/:id', (req, res) => {
+  const id = Number(req.params.id)
+  const parsed = jpGroupSchema.partial().safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ ok: false, message: parsed.error.issues.map(i => i.message).join(', ') })
+  const d = parsed.data
+  const sets: string[] = []
+  const vals: unknown[] = []
+  if (d.code !== undefined) { sets.push('code=?'); vals.push(d.code) }
+  if (d.display_name !== undefined) { sets.push('display_name=?'); vals.push(d.display_name) }
+  if (d.environment !== undefined) { sets.push('environment=?'); vals.push(d.environment) }
+  if (d.luckylink_url !== undefined) { sets.push('luckylink_url=?'); vals.push(d.luckylink_url) }
+  if (d.luckylink_group_name !== undefined) { sets.push('luckylink_group_name=?'); vals.push(d.luckylink_group_name) }
+  if (d.game_codes !== undefined) { sets.push('game_codes=?'); vals.push(JSON.stringify(d.game_codes)) }
+  if (d.enabled !== undefined) { sets.push('enabled=?'); vals.push(d.enabled ? 1 : 0) }
+  if (!sets.length) return res.status(400).json({ ok: false, message: '無更新欄位' })
+  sets.push('updated_at=?'); vals.push(new Date().toISOString()); vals.push(id)
+  db.prepare(`UPDATE jp_groups SET ${sets.join(',')} WHERE id=?`).run(...vals)
+  return res.json({ ok: true })
+})
+
+// DELETE /api/autospin/jp-groups/:id
+router.delete('/api/autospin/jp-groups/:id', (req, res) => {
+  db.prepare('DELETE FROM jp_groups WHERE id=?').run(Number(req.params.id))
+  return res.json({ ok: true })
+})

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.54.29'
+export const APP_VERSION = '3.55.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.55.0',
+    date: '2026-07-01',
+    changes: [
+      'feat(autospin): 新增 JP Group 設定功能 — 管理 LuckyLink JP 群組（代碼/名稱/環境/URL/GroupName/GameCodes），供 AutoSpin LuckyLink 壓測使用；DB 新增 jp_groups 表；AutoSpin 頁面新增「JP Group」Tab',
+    ],
+  },
   {
     version: '3.54.29',
     date: '2026-06-29',

@@ -48,7 +48,7 @@ function getGlobalUserLabel(): string {
 }
 
 export function AutoSpinPage() {
-  const [tab, setTab] = useState<'configs' | 'templates' | 'betrandom' | 'history' | 'reconcile' | 'run'>('configs')
+  const [tab, setTab] = useState<'configs' | 'templates' | 'betrandom' | 'history' | 'reconcile' | 'run' | 'jpgroups'>('configs')
 
   // ── Config tab ──────────────────────────────────────────────────────────────
   const [configs, setConfigs] = useState<AutospinConfig[]>([])
@@ -282,6 +282,37 @@ export function AutoSpinPage() {
     setBrEditKey(key); setBrFormKey(key)
     setBrFormSelectors([...(betRandomData[key] ?? []), ''])
     setBetRandomMsg(''); setBrShowForm(true)
+  }
+
+  // ── JP Groups tab ──────────────────────────────────────────────────────────
+  interface JpGroup { id: number; code: string; display_name: string; environment: string; luckylink_url: string; luckylink_group_name: string; game_codes: string[]; enabled: boolean }
+  const [jpGroups, setJpGroups] = useState<JpGroup[]>([])
+  const [jpGroupMsg, setJpGroupMsg] = useState('')
+  const [jpGroupForm, setJpGroupForm] = useState({ code: '', display_name: '', environment: 'QAT', luckylink_url: '', luckylink_group_name: '', game_codes: '', enabled: true })
+  const [jpGroupEditing, setJpGroupEditing] = useState<number | null>(null)
+  const [jpGroupShowForm, setJpGroupShowForm] = useState(false)
+
+  const fetchJpGroups = async () => {
+    const r = await fetch('/api/autospin/jp-groups')
+    const d = await r.json() as { groups?: JpGroup[] }
+    setJpGroups(d.groups ?? [])
+  }
+
+  const handleSaveJpGroup = async () => {
+    setJpGroupMsg('')
+    const payload = { ...jpGroupForm, game_codes: jpGroupForm.game_codes.split(',').map(s => s.trim()).filter(Boolean) }
+    const url = jpGroupEditing !== null ? `/api/autospin/jp-groups/${jpGroupEditing}` : '/api/autospin/jp-groups'
+    const method = jpGroupEditing !== null ? 'PUT' : 'POST'
+    const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    const d = await r.json() as { ok: boolean; message?: string }
+    if (d.ok) { setJpGroupShowForm(false); setJpGroupEditing(null); setJpGroupForm({ code: '', display_name: '', environment: 'QAT', luckylink_url: '', luckylink_group_name: '', game_codes: '', enabled: true }); fetchJpGroups() }
+    else setJpGroupMsg(d.message ?? '儲存失敗')
+  }
+
+  const handleDeleteJpGroup = async (id: number, code: string) => {
+    if (!confirm(`確定刪除 JP Group「${code}」？`)) return
+    await fetch(`/api/autospin/jp-groups/${id}`, { method: 'DELETE' })
+    fetchJpGroups()
   }
 
   // ── Run tab ─────────────────────────────────────────────────────────────────
@@ -573,6 +604,7 @@ export function AutoSpinPage() {
         <button style={tabStyle('betrandom')} onClick={() => { setTab('betrandom'); fetchBetRandom() }}>🎲 隨機下注</button>
         <button style={tabStyle('history')} onClick={() => { setTab('history'); fetchHistory() }}>📊 歷史戰績</button>
         <button style={tabStyle('reconcile')} onClick={() => { setTab('reconcile'); fetchRcConfig(); fetchRcReports() }}>🔍 後台對帳</button>
+        <button style={tabStyle('jpgroups')} onClick={() => { setTab('jpgroups'); fetchJpGroups() }}>🎰 JP Group</button>
         <button style={tabStyle('run')} onClick={() => { setTab('run'); fetchCaptures(); fetchHubAgents() }}>▶️ 執行監控</button>
       </div>
 
@@ -1054,6 +1086,86 @@ export function AutoSpinPage() {
           <div style={{ position: 'absolute', bottom: 20, color: '#94a3b8', fontSize: 12 }}>
             {decodeURIComponent(lightbox.split('/').pop() ?? '')}
           </div>
+        </div>
+      )}
+
+      {/* ── JP Groups tab ───────────────────────────────────────────────────── */}
+      {tab === 'jpgroups' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>JP Group 設定</div>
+              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>管理 LuckyLink JP 群組設定，供 AutoSpin 壓測使用</div>
+            </div>
+            <button className="submit-btn submit-btn--sm" onClick={() => { setJpGroupShowForm(true); setJpGroupEditing(null); setJpGroupForm({ code: '', display_name: '', environment: 'QAT', luckylink_url: '', luckylink_group_name: '', game_codes: '', enabled: true }) }}>+ 新增</button>
+          </div>
+
+          {jpGroupMsg && <div style={{ color: '#ef4444', fontSize: 13 }}>{jpGroupMsg}</div>}
+
+          {jpGroups.length === 0 ? (
+            <p style={{ color: '#64748b', fontSize: 13 }}>尚未設定任何 JP Group。</p>
+          ) : (
+            <table className="sheet-preview-table" style={{ width: '100%' }}>
+              <thead><tr>
+                <th>代碼</th><th>名稱</th><th>環境</th><th>LuckyLink Group</th><th>Game Codes</th><th>狀態</th><th></th>
+              </tr></thead>
+              <tbody>
+                {jpGroups.map(g => (
+                  <tr key={g.id}>
+                    <td><code>{g.code}</code></td>
+                    <td>{g.display_name}</td>
+                    <td><span style={{ background: g.environment === 'PROD' ? '#dc2626' : g.environment === 'UAT' ? '#d97706' : '#0891b2', color: '#fff', padding: '1px 6px', borderRadius: 4, fontSize: 11 }}>{g.environment}</span></td>
+                    <td style={{ maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.luckylink_group_name}</td>
+                    <td style={{ fontSize: 12, color: '#94a3b8' }}>{g.game_codes.join(', ') || '—'}</td>
+                    <td>{g.enabled ? <span style={{ color: '#22c55e' }}>啟用</span> : <span style={{ color: '#94a3b8' }}>停用</span>}</td>
+                    <td>
+                      <button className="settings-btn" style={{ marginRight: 6 }} onClick={() => { setJpGroupEditing(g.id); setJpGroupForm({ code: g.code, display_name: g.display_name, environment: g.environment, luckylink_url: g.luckylink_url, luckylink_group_name: g.luckylink_group_name, game_codes: g.game_codes.join(', '), enabled: g.enabled }); setJpGroupShowForm(true) }}>編輯</button>
+                      <button className="settings-btn" style={{ color: '#ef4444' }} onClick={() => handleDeleteJpGroup(g.id, g.code)}>刪除</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          {jpGroupShowForm && (
+            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999 }}>
+              <div style={{ background: '#1e293b', borderRadius: 10, padding: 24, width: 520, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>{jpGroupEditing !== null ? '編輯 JP Group' : '新增 JP Group'}</div>
+                {[
+                  { label: '代碼 *', key: 'code', placeholder: '例：DFDC', disabled: jpGroupEditing !== null },
+                  { label: '顯示名稱 *', key: 'display_name', placeholder: '例：DFDC Jackpot Group' },
+                  { label: 'LuckyLink URL *', key: 'luckylink_url', placeholder: 'https://luckylink-backendtest.osmslot.org' },
+                  { label: 'LuckyLink Group 名稱 *', key: 'luckylink_group_name', placeholder: '後台 JP Group 名稱' },
+                  { label: 'Game Codes（逗號分隔）', key: 'game_codes', placeholder: '例：873-DFDC-0001, 873-DFDC-0003' },
+                ].map(({ label, key, placeholder, disabled }) => (
+                  <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label style={{ fontSize: 13, color: '#94a3b8' }}>{label}</label>
+                    <input className="lark-url-input" placeholder={placeholder} disabled={disabled}
+                      value={jpGroupForm[key as keyof typeof jpGroupForm] as string}
+                      onChange={e => setJpGroupForm(f => ({ ...f, [key]: e.target.value }))} />
+                  </div>
+                ))}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label style={{ fontSize: 13, color: '#94a3b8' }}>環境</label>
+                  <select className="lark-url-input" value={jpGroupForm.environment} onChange={e => setJpGroupForm(f => ({ ...f, environment: e.target.value }))}>
+                    <option value="QAT">QAT</option>
+                    <option value="UAT">UAT</option>
+                    <option value="PROD">PROD</option>
+                  </select>
+                </div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={jpGroupForm.enabled} onChange={e => setJpGroupForm(f => ({ ...f, enabled: e.target.checked }))} />
+                  啟用此 JP Group
+                </label>
+                {jpGroupMsg && <div style={{ color: '#ef4444', fontSize: 13 }}>{jpGroupMsg}</div>}
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+                  <button className="settings-btn" onClick={() => { setJpGroupShowForm(false); setJpGroupMsg('') }}>取消</button>
+                  <button className="submit-btn submit-btn--sm" onClick={handleSaveJpGroup}>儲存</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
