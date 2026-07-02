@@ -1780,8 +1780,19 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
     const hRows = hData.data?.valueRange?.values ?? []
     const extractCellText = (c: unknown): string => {
       if (c === null || c === undefined) return ''
-      if (typeof c === 'object') { const o = c as Record<string, unknown>; return 'text' in o ? String(o.text ?? '') : '' }
-      return String(c)
+      if (typeof c === 'number' || typeof c === 'boolean') return String(c)
+      if (typeof c === 'string') return c
+      if (Array.isArray(c)) return (c as Array<{ text?: string }>).map(r => r.text ?? '').join('')
+      if (typeof c === 'object') {
+        const o = c as Record<string, unknown>
+        if (typeof o.formulaValue === 'string') return o.formulaValue
+        if (o.formulaValue != null) return String(o.formulaValue)
+        if (typeof o.displayValue === 'string') return o.displayValue
+        if (typeof o.computedValue === 'string') return o.computedValue
+        if (o.computedValue != null) return String(o.computedValue)
+        if (typeof o.text === 'string') return o.text
+      }
+      return ''
     }
     const hRow1 = (hRows[0] ?? []).map(extractCellText)
     const hRow2 = (hRows[1] ?? []).map(extractCellText)
@@ -1795,7 +1806,7 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
     // Fetch data rows (up to 500 rows)
     const dataRange = sheetId ? `${sheetId}!A2:ZZ501` : 'A2:ZZ501'
     const dResp = await fetch(
-      `${larkBase}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${dataRange}`,
+      `${larkBase}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${dataRange}?valueRenderOption=ToString`,
       { headers: { Authorization: `Bearer ${larkToken}` } },
     )
     if (!dResp.ok) {
@@ -1813,8 +1824,8 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
     const emptyRows = dataRows
       .map((row, i) => ({
         rowIndex: i + 2, // 1-indexed, row 1 is header
-        sheetSummary: summaryColIdx >= 0 ? String(row[summaryColIdx] ?? '').trim() : '',
-        jiraKeyValue: String(row[jiraKeyColIdx] ?? '').trim(),
+        sheetSummary: summaryColIdx >= 0 ? extractCellText(row[summaryColIdx]) : '',
+        jiraKeyValue: extractCellText(row[jiraKeyColIdx]),
       }))
       .filter(r => !r.jiraKeyValue)
 
