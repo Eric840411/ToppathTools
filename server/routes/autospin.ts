@@ -409,6 +409,11 @@ interface AgentSession {
   userLabel: string
   spinIntervalOverride: number | null
   heavyTask?: HeavyTaskToken
+  // LuckyLink poller state — replayed on SSE reconnect so panel survives refresh
+  luckylinkJpGroupCode?: string
+  luckylinkConnected?: boolean
+  luckylinkPoolSnapshot?: Record<string, unknown> | null
+  luckylinkAlerts?: Record<string, unknown>[]
 }
 
 const agentSessions = new Map<string, AgentSession>()
@@ -446,6 +451,33 @@ function broadcastAgentLog(sessionId: string, line: string) {
   const clients = agentSseClients.get(sessionId)
   if (clients) for (const r of clients) r.write(`data: ${JSON.stringify({ line })}\n\n`)
 }
+
+/** Broadcast a structured LuckyLink event to SSE clients (parsed separately from log lines).
+ *  Also persists the latest state so reconnecting clients get a snapshot replay. */
+function broadcastLuckylinkEvent(sessionId: string, event: object) {
+  const s = agentSessions.get(sessionId)
+  if (s) {
+    const evt = event as { type?: string; data?: Record<string, unknown> }
+    if (evt.type === 'luckylink_start') {
+      const d = (evt.data ?? {}) as { jpGroupCode?: string }
+      s.luckylinkJpGroupCode = d.jpGroupCode ?? ''
+      s.luckylinkConnected = true
+      s.luckylinkPoolSnapshot = null
+      s.luckylinkAlerts = []
+    } else if (evt.type === 'luckylink_pool') {
+      s.luckylinkPoolSnapshot = event as Record<string, unknown>
+    } else if (evt.type === 'luckylink_alert') {
+      s.luckylinkAlerts = [...(s.luckylinkAlerts ?? []).slice(-19), event as Record<string, unknown>]
+    } else if (evt.type === 'luckylink_stop' || evt.type === 'luckylink_error') {
+      s.luckylinkConnected = false
+    }
+  }
+  const clients = agentSseClients.get(sessionId)
+  if (clients) for (const r of clients) r.write(`data: ${JSON.stringify({ luckylink_event: event })}\n\n`)
+}
+
+/** Exported so worker.ts can forward luckylink_event from agent WebSocket into AutoSpin SSE */
+export { broadcastAgentLog, broadcastLuckylinkEvent }
 
 // POST /api/autospin/agent/start — agent registers and gets configs
 router.post('/api/autospin/agent/start', (req, res) => {
@@ -622,12 +654,13 @@ router.get('/api/autospin/hub-agents', (_req, res) => {
   res.json({ ok: true, agents })
 })
 
-// POST /api/autospin/hub-dispatch { agentId } — 命令選定的 agent 啟動 AutoSpin（spawn Python 引擎）
+// POST /api/autospin/hub-dispatch { agentId, luckylinkConfig? } — 命令選定的 agent 啟動 AutoSpin（spawn Python 引擎）
 router.post('/api/autospin/hub-dispatch', (req, res) => {
   const operator = getOperatorFromContext()
   if (!operator?.key) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
   const userLabel = (req.headers['x-user-label'] as string) || ''
-  const agentId = String((req.body as { agentId?: string }).agentId ?? '').trim()
+  const body = req.body as { agentId?: string; luckylinkConfig?: { enabled: boolean; jpGroupCode: string; pollIntervalSec: number } }
+  const agentId = String(body.agentId ?? '').trim()
   // 指定 agentId 時直接查連線（即使 busy 旗標殘留也允許重新派工；agent-runner 會先 kill 舊 Python 再啟新的，不會雙開）
   let agent
   if (agentId) {
@@ -639,10 +672,42 @@ router.post('/api/autospin/hub-dispatch', (req, res) => {
   if (!agent) {
     return res.status(409).json({ ok: false, message: agentId ? '選定的 Agent 不可用（離線）' : '沒有可用的 AutoSpin Agent' })
   }
+
+  // Resolve JP Group config from DB if luckylinkConfig is enabled
+  let resolvedLuckylink: { enabled: boolean; jpGroupCode: string; pollIntervalSec: number; luckylinkUrl: string; luckylinkGroupName: string; loginUser: string; loginPass: string; gameCodes: string[]; environment: string } | undefined
+  if (body.luckylinkConfig?.enabled) {
+    // Fail loudly if caller sent enabled:true but omitted jpGroupCode
+    if (!body.luckylinkConfig.jpGroupCode) {
+      return res.status(400).json({ ok: false, message: 'luckylinkConfig.enabled=true 但未帶 jpGroupCode' })
+    }
+    // Clamp pollIntervalSec to 10–3600; reject non-numeric
+    const rawPoll = body.luckylinkConfig.pollIntervalSec
+    if (rawPoll !== undefined && (typeof rawPoll !== 'number' || !Number.isFinite(rawPoll))) {
+      return res.status(400).json({ ok: false, message: 'luckylinkConfig.pollIntervalSec 必須為數字' })
+    }
+    const pollIntervalSec = typeof rawPoll === 'number' ? Math.max(10, Math.min(3600, Math.round(rawPoll))) : 60
+
+    const jpGroup = db.prepare('SELECT * FROM jp_groups WHERE code=? AND enabled=1').get(body.luckylinkConfig.jpGroupCode) as JpGroupRow | undefined
+    if (!jpGroup) return res.status(400).json({ ok: false, message: `JP Group "${body.luckylinkConfig.jpGroupCode}" 不存在或已停用` })
+    let gameCodes: string[] = []
+    try { gameCodes = JSON.parse(jpGroup.game_codes || '[]') } catch { /* bad data */ }
+    resolvedLuckylink = {
+      enabled: true,
+      jpGroupCode: jpGroup.code,
+      pollIntervalSec,
+      luckylinkUrl: jpGroup.luckylink_url,
+      luckylinkGroupName: jpGroup.luckylink_group_name,
+      loginUser: jpGroup.login_user ?? 'admin',
+      loginPass: jpGroup.login_pass ?? '123456',
+      gameCodes,
+      environment: jpGroup.environment,
+    }
+  }
+
   const dispatchId = `hub-${Date.now()}`
   agent.busy = true
   agent.sessionId = dispatchId
-  agent.ws.send(JSON.stringify({ type: 'autospin_start', sessionId: dispatchId, userLabel }))
+  agent.ws.send(JSON.stringify({ type: 'autospin_start', sessionId: dispatchId, userLabel, luckylinkConfig: resolvedLuckylink ?? { enabled: false } }))
   res.json({ ok: true, agentId: agent.agentId, hostname: agent.hostname, dispatchId })
 })
 
@@ -681,7 +746,16 @@ router.get('/api/autospin/agent/stream/:id', (req, res) => {
   res.setHeader('Connection', 'keep-alive')
   res.flushHeaders()
   const s = agentSessions.get(id)
-  if (s) for (const line of s.logs.slice(fromIndex)) res.write(`data: ${JSON.stringify({ line })}\n\n`)
+  if (s) {
+    for (const line of s.logs.slice(fromIndex)) res.write(`data: ${JSON.stringify({ line })}\n\n`)
+    // Replay latest LuckyLink state so reconnecting clients can initialize the JP panel
+    if (s.luckylinkJpGroupCode !== undefined) {
+      const startEvt = { type: 'luckylink_start', data: { jpGroupCode: s.luckylinkJpGroupCode, replayed: true }, ts: new Date().toISOString() }
+      res.write(`data: ${JSON.stringify({ luckylink_event: startEvt })}\n\n`)
+      if (s.luckylinkPoolSnapshot) res.write(`data: ${JSON.stringify({ luckylink_event: s.luckylinkPoolSnapshot })}\n\n`)
+      for (const a of (s.luckylinkAlerts ?? [])) res.write(`data: ${JSON.stringify({ luckylink_event: a })}\n\n`)
+    }
+  }
   if (!agentSseClients.has(id)) agentSseClients.set(id, new Set())
   agentSseClients.get(id)!.add(res)
   req.on('close', () => agentSseClients.get(id)?.delete(res))
@@ -1379,6 +1453,7 @@ router.get('/api/autospin/reconcile/reports/:id', (req, res) => {
 interface JpGroupRow {
   id: number; code: string; display_name: string; environment: string
   luckylink_url: string; luckylink_group_name: string
+  login_user: string; login_pass: string
   game_codes: string; enabled: number; created_at: string; updated_at: string
 }
 
@@ -1388,6 +1463,8 @@ const jpGroupSchema = z.object({
   environment: z.enum(['QAT', 'UAT', 'PROD']),
   luckylink_url: z.string().url(),
   luckylink_group_name: z.string().min(1),
+  login_user: z.string().default('admin'),
+  login_pass: z.string().default('123456'),
   game_codes: z.array(z.string()).default([]),
   enabled: z.boolean().default(true),
 })
@@ -1395,7 +1472,14 @@ const jpGroupSchema = z.object({
 // GET /api/autospin/jp-groups
 router.get('/api/autospin/jp-groups', (_req, res) => {
   const rows = db.prepare('SELECT * FROM jp_groups ORDER BY code ASC').all() as JpGroupRow[]
-  res.json({ ok: true, groups: rows.map(r => ({ ...r, game_codes: JSON.parse(r.game_codes || '[]'), enabled: r.enabled === 1 })) })
+  res.json({
+    ok: true,
+    groups: rows.map(r => {
+      let game_codes: string[] = []
+      try { game_codes = JSON.parse(r.game_codes || '[]') } catch { /* bad data */ }
+      return { ...r, game_codes, enabled: r.enabled === 1 }
+    }),
+  })
 })
 
 // POST /api/autospin/jp-groups
@@ -1405,8 +1489,8 @@ router.post('/api/autospin/jp-groups', (req, res) => {
   const d = parsed.data
   try {
     const row = db.prepare(
-      'INSERT INTO jp_groups (code,display_name,environment,luckylink_url,luckylink_group_name,game_codes,enabled) VALUES (?,?,?,?,?,?,?)'
-    ).run(d.code, d.display_name, d.environment, d.luckylink_url, d.luckylink_group_name, JSON.stringify(d.game_codes), d.enabled ? 1 : 0) as { lastInsertRowid: number }
+      'INSERT INTO jp_groups (code,display_name,environment,luckylink_url,luckylink_group_name,login_user,login_pass,game_codes,enabled) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).run(d.code, d.display_name, d.environment, d.luckylink_url, d.luckylink_group_name, d.login_user, d.login_pass, JSON.stringify(d.game_codes), d.enabled ? 1 : 0) as { lastInsertRowid: number }
     return res.json({ ok: true, id: row.lastInsertRowid })
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -1428,12 +1512,20 @@ router.put('/api/autospin/jp-groups/:id', (req, res) => {
   if (d.environment !== undefined) { sets.push('environment=?'); vals.push(d.environment) }
   if (d.luckylink_url !== undefined) { sets.push('luckylink_url=?'); vals.push(d.luckylink_url) }
   if (d.luckylink_group_name !== undefined) { sets.push('luckylink_group_name=?'); vals.push(d.luckylink_group_name) }
+  if (d.login_user !== undefined) { sets.push('login_user=?'); vals.push(d.login_user) }
+  if (d.login_pass !== undefined) { sets.push('login_pass=?'); vals.push(d.login_pass) }
   if (d.game_codes !== undefined) { sets.push('game_codes=?'); vals.push(JSON.stringify(d.game_codes)) }
   if (d.enabled !== undefined) { sets.push('enabled=?'); vals.push(d.enabled ? 1 : 0) }
   if (!sets.length) return res.status(400).json({ ok: false, message: '無更新欄位' })
   sets.push('updated_at=?'); vals.push(new Date().toISOString()); vals.push(id)
-  db.prepare(`UPDATE jp_groups SET ${sets.join(',')} WHERE id=?`).run(...vals)
-  return res.json({ ok: true })
+  try {
+    db.prepare(`UPDATE jp_groups SET ${sets.join(',')} WHERE id=?`).run(...vals)
+    return res.json({ ok: true })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    if (msg.includes('UNIQUE')) return res.status(409).json({ ok: false, message: '代碼已被其他 JP Group 使用' })
+    throw e
+  }
 })
 
 // DELETE /api/autospin/jp-groups/:id

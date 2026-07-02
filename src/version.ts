@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.55.0'
+export const APP_VERSION = '3.57.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,77 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.57.5',
+    date: '2026-07-02',
+    changes: [
+      'feat(jira): 批量開單、批量更新狀態、批量修改 新增進度條 — 提交時顯示處理中 X/N 與動畫填充（與批量評論模式一致）',
+    ],
+  },
+  {
+    version: '3.57.4',
+    date: '2026-07-01',
+    changes: [
+      'feat(autospin): JP Group 環境選擇改為三按鈕（QAT/UAT/PROD），選擇後自動填入對應 URL 與帳密預設值；新增 QAT Group（luckylink-backendserver.osmslot.org, admin/123456）',
+    ],
+  },
+  {
+    version: '3.57.3',
+    date: '2026-07-01',
+    changes: [
+      'fix(autospin): luckylink-poller 修正 poolamount 單位 — rawValue（micro-PHP）÷ 1,000,000 + basevalue = 顯示金額（PHP）；新增 basevalue/maxValue/overageValue 欄位；前端 JP 面板改顯示 ₱ 格式金額',
+    ],
+  },
+  {
+    version: '3.57.2',
+    date: '2026-07-01',
+    changes: [
+      'fix(autospin): luckylink-poller 改用 API 直連（取代 Playwright 截圖）— POST /auth/login + /auth/permissionInfo + /progressives/levelsListData，支援 Bearer token / Cookie / query token 三種驗證方式，自動 401 重登，DEBUG log 顯示首次 raw response 方便調整欄位名稱',
+    ],
+  },
+  {
+    version: '3.57.1',
+    date: '2026-07-01',
+    changes: [
+      'fix(autospin): Phase 5 — LuckyLink SSE 重連補發；AgentSession 新增 luckylinkPoolSnapshot/luckylinkAlerts，broadcastLuckylinkEvent 同步更新；SSE stream 連線時自動 replay luckylink_start + 最新 pool + 告警，前端重整或斷線後面板不再空白',
+    ],
+  },
+  {
+    version: '3.57.0',
+    date: '2026-07-01',
+    changes: [
+      'feat(autospin): Phase 4 — LuckyLink 實機閉環驗證 + UI 告警化；worker 同步發 structured SSE luckylink_event；AutoSpin 右側新增 JP 監控面板（pool 值、增減顏色、告警列表）；poller diff 附帶 matchedGameCodes，gameCodes 無匹配時發 warn alert',
+    ],
+  },
+  {
+    version: '3.56.1',
+    date: '2026-07-01',
+    changes: [
+      'fix(autospin): Phase 3.1 — worker.ts 補上 luckylink_event 處理並轉發 broadcastAgentLog；agent-runner 將 gameCodes 以 LL_GAME_CODES 傳入 poller；luckylink-poller.mjs 在 start/pool 事件附帶 gameCodes',
+    ],
+  },
+  {
+    version: '3.56.0',
+    date: '2026-07-01',
+    changes: [
+      'feat(autospin): Phase 3 — JP Group 新增 login_user/login_pass 欄位（DB migration + CRUD + UI）；新增 server/luckylink-poller.mjs（Playwright 輪詢 JP 獎池，結構化 JSON 事件印 stdout）；agent-runner 收到 luckylinkConfig.enabled 時 spawn poller，stop 時一併終止',
+    ],
+  },
+  {
+    version: '3.55.2',
+    date: '2026-07-01',
+    changes: [
+      'fix(autospin): hub-dispatch luckylinkConfig 後端 validation — enabled=true 缺 jpGroupCode 回 400，pollIntervalSec 非數字回 400，合法值自動 clamp 至 10–3600s',
+    ],
+  },
+  {
+    version: '3.55.1',
+    date: '2026-07-01',
+    changes: [
+      'feat(autospin): Phase 2 — hub-dispatch 帶入 luckylinkConfig（從 DB 解析 JP Group 完整資料），AutoSpin 執行監控新增 LuckyLink JP 比對開關＋JP Group 下拉＋輪詢間隔設定',
+      'fix(autospin): fetchJpGroups / handleSaveJpGroup / handleDeleteJpGroup 加 try/catch 防網路錯誤',
+    ],
+  },
   {
     version: '3.55.0',
     date: '2026-07-01',

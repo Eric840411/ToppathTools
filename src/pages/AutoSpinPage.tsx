@@ -285,34 +285,46 @@ export function AutoSpinPage() {
   }
 
   // ── JP Groups tab ──────────────────────────────────────────────────────────
-  interface JpGroup { id: number; code: string; display_name: string; environment: string; luckylink_url: string; luckylink_group_name: string; game_codes: string[]; enabled: boolean }
+  const JP_ENV_PRESETS: Record<string, { luckylink_url: string; login_user: string; login_pass: string }> = {
+    QAT:  { luckylink_url: 'https://luckylink-backendserver.osmslot.org',      login_user: 'admin',    login_pass: '123456' },
+    UAT:  { luckylink_url: 'https://luckylink-uat-backendserver.osmslot.org',    login_user: 'admin',    login_pass: '123456' },
+    PROD: { luckylink_url: 'https://luckylink-prod-backendserver.cliveslot.com', login_user: 'qa-eric', login_pass: 'qa-eric' },
+  }
+
+  interface JpGroup { id: number; code: string; display_name: string; environment: string; luckylink_url: string; luckylink_group_name: string; login_user: string; login_pass: string; game_codes: string[]; enabled: boolean }
   const [jpGroups, setJpGroups] = useState<JpGroup[]>([])
   const [jpGroupMsg, setJpGroupMsg] = useState('')
-  const [jpGroupForm, setJpGroupForm] = useState({ code: '', display_name: '', environment: 'QAT', luckylink_url: '', luckylink_group_name: '', game_codes: '', enabled: true })
+  const [jpGroupForm, setJpGroupForm] = useState({ code: '', display_name: '', environment: 'QAT', luckylink_url: 'https://luckylink-backendserver.osmslot.org', luckylink_group_name: '', login_user: 'admin', login_pass: '123456', game_codes: '', enabled: true })
   const [jpGroupEditing, setJpGroupEditing] = useState<number | null>(null)
   const [jpGroupShowForm, setJpGroupShowForm] = useState(false)
 
   const fetchJpGroups = async () => {
-    const r = await fetch('/api/autospin/jp-groups')
-    const d = await r.json() as { groups?: JpGroup[] }
-    setJpGroups(d.groups ?? [])
+    try {
+      const r = await fetch('/api/autospin/jp-groups')
+      const d = await r.json() as { groups?: JpGroup[] }
+      setJpGroups(d.groups ?? [])
+    } catch { setJpGroups([]) }
   }
 
   const handleSaveJpGroup = async () => {
     setJpGroupMsg('')
-    const payload = { ...jpGroupForm, game_codes: jpGroupForm.game_codes.split(',').map(s => s.trim()).filter(Boolean) }
-    const url = jpGroupEditing !== null ? `/api/autospin/jp-groups/${jpGroupEditing}` : '/api/autospin/jp-groups'
-    const method = jpGroupEditing !== null ? 'PUT' : 'POST'
-    const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-    const d = await r.json() as { ok: boolean; message?: string }
-    if (d.ok) { setJpGroupShowForm(false); setJpGroupEditing(null); setJpGroupForm({ code: '', display_name: '', environment: 'QAT', luckylink_url: '', luckylink_group_name: '', game_codes: '', enabled: true }); fetchJpGroups() }
-    else setJpGroupMsg(d.message ?? '儲存失敗')
+    try {
+      const payload = { ...jpGroupForm, game_codes: jpGroupForm.game_codes.split(',').map(s => s.trim()).filter(Boolean) }
+      const url = jpGroupEditing !== null ? `/api/autospin/jp-groups/${jpGroupEditing}` : '/api/autospin/jp-groups'
+      const method = jpGroupEditing !== null ? 'PUT' : 'POST'
+      const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      const d = await r.json() as { ok: boolean; message?: string }
+      if (d.ok) { setJpGroupShowForm(false); setJpGroupEditing(null); setJpGroupForm({ code: '', display_name: '', environment: 'QAT', luckylink_url: '', luckylink_group_name: '', login_user: 'admin', login_pass: '123456', game_codes: '', enabled: true }); fetchJpGroups() }
+      else setJpGroupMsg(d.message ?? '儲存失敗')
+    } catch (e) { setJpGroupMsg('網路錯誤：' + String(e)) }
   }
 
   const handleDeleteJpGroup = async (id: number, code: string) => {
     if (!confirm(`確定刪除 JP Group「${code}」？`)) return
-    await fetch(`/api/autospin/jp-groups/${id}`, { method: 'DELETE' })
-    fetchJpGroups()
+    try {
+      await fetch(`/api/autospin/jp-groups/${id}`, { method: 'DELETE' })
+      fetchJpGroups()
+    } catch { setJpGroupMsg('刪除失敗，請重試') }
   }
 
   // ── Run tab ─────────────────────────────────────────────────────────────────
@@ -335,6 +347,19 @@ export function AutoSpinPage() {
   const [liveSpinInterval, setLiveSpinInterval] = useState<number>(1.0)
   const [liveIntervalSaving, setLiveIntervalSaving] = useState(false)
   const logBoxRef = useRef<HTMLDivElement>(null)
+
+  // ── LuckyLink JP compare (dispatch options) ──────────────────────────────────
+  const [luckylinkEnabled, setLuckylinkEnabled] = useState(false)
+  const [luckylinkJpGroupCode, setLuckylinkJpGroupCode] = useState('')
+  const [luckylinkPollIntervalSec, setLuckylinkPollIntervalSec] = useState(60)
+
+  // ── LuckyLink runtime status (populated from SSE luckylink_event) ─────────────
+  interface LuckylinkPoolEntry { name: string; rawValue: number; displayValue: number; basevalue: number; maxValue: number; overageValue: number }
+  interface LuckylinkDiff { name: string; prev: number | null; curr: number; delta: number | null; state: string; matchedGameCodes?: string[] }
+  interface LuckylinkAlertEntry { level: 'error' | 'warn' | 'info'; name: string; state: string; message?: string; ts: string; prev?: number; curr?: number; delta?: number }
+  interface LuckylinkStatus { connected: boolean; jpGroupCode: string; pollCount: number; lastPollTs: string | null; pool: LuckylinkPoolEntry[]; diffs: LuckylinkDiff[]; alerts: LuckylinkAlertEntry[]; error: string | null }
+  const [luckylinkStatus, setLuckylinkStatus] = useState<LuckylinkStatus | null>(null)
+  const [llPanelOpen, setLlPanelOpen] = useState(true)
 
   // ── SLS error logs ───────────────────────────────────────────────────────────
   interface SlsEntry { time: number; timeStr: string; project: string; logstore: string; content: string; level: string }
@@ -414,7 +439,28 @@ export function AutoSpinPage() {
     const url = isAgent ? `/api/autospin/agent/stream/${sid}${from}` : `/api/autospin/stream/${sid}`
     const es = new EventSource(url)
     es.onmessage = (e) => {
-      const { line } = JSON.parse(e.data) as { line: string }
+      const data = JSON.parse(e.data) as { line?: string; luckylink_event?: Record<string, unknown> }
+      if (data.luckylink_event) {
+        const evt = data.luckylink_event as { type?: string; data?: Record<string, unknown>; ts?: string }
+        if (evt.type === 'luckylink_start') {
+          const d = evt.data as { jpGroupCode?: string }
+          setLuckylinkStatus({ connected: true, jpGroupCode: d?.jpGroupCode ?? '', pollCount: 0, lastPollTs: null, pool: [], diffs: [], alerts: [], error: null })
+        } else if (evt.type === 'luckylink_pool') {
+          const d = evt.data as { poll?: number; pool?: LuckylinkPoolEntry[]; diffs?: LuckylinkDiff[] }
+          setLuckylinkStatus(prev => prev ? { ...prev, pollCount: d.poll ?? prev.pollCount, lastPollTs: evt.ts ?? null, pool: d.pool ?? [], diffs: d.diffs ?? [] } : prev)
+        } else if (evt.type === 'luckylink_alert') {
+          const d = evt.data as { level?: string; name?: string; state?: string; message?: string; prev?: number; curr?: number; delta?: number }
+          const alert: LuckylinkAlertEntry = { level: (d.level ?? 'info') as 'error' | 'warn' | 'info', name: d.name ?? '', state: d.state ?? '', message: d.message, ts: evt.ts ?? new Date().toISOString(), prev: d.prev, curr: d.curr, delta: d.delta }
+          setLuckylinkStatus(prev => prev ? { ...prev, alerts: [...prev.alerts.slice(-20), alert] } : prev)
+        } else if (evt.type === 'luckylink_error') {
+          const d = evt.data as { message?: string; fatal?: boolean }
+          setLuckylinkStatus(prev => prev ? { ...prev, error: d.message ?? '未知錯誤', connected: !d.fatal } : prev)
+        } else if (evt.type === 'luckylink_stop') {
+          setLuckylinkStatus(prev => prev ? { ...prev, connected: false } : prev)
+        }
+        return
+      }
+      const line = data.line ?? ''
       if (isAgent) setAgentLogs(prev => [...prev.slice(-500), line])
       else setLogs(prev => [...prev.slice(-500), line])
     }
@@ -452,13 +498,18 @@ export function AutoSpinPage() {
   }, [])
 
   const handleDispatchAgent = async () => {
-    setStartError(''); setAgentLogs([]); setAgentCaptures([])
+    setStartError(''); setAgentLogs([]); setAgentCaptures([]); setLuckylinkStatus(null)
     setHubDispatching(true)
     try {
       const r = await fetch('/api/autospin/hub-dispatch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-user-label': getGlobalUserLabel() },
-        body: JSON.stringify({ agentId: selectedAgentId }),
+        body: JSON.stringify({
+          agentId: selectedAgentId,
+          luckylinkConfig: luckylinkEnabled
+            ? { enabled: true, jpGroupCode: luckylinkJpGroupCode, pollIntervalSec: luckylinkPollIntervalSec }
+            : { enabled: false },
+        }),
       })
       const d = await r.json() as { ok: boolean; message?: string }
       if (!d.ok) { setStartError(d.message ?? '派工失敗'); setHubDispatching(false); return }
@@ -605,7 +656,7 @@ export function AutoSpinPage() {
         <button style={tabStyle('history')} onClick={() => { setTab('history'); fetchHistory() }}>📊 歷史戰績</button>
         <button style={tabStyle('reconcile')} onClick={() => { setTab('reconcile'); fetchRcConfig(); fetchRcReports() }}>🔍 後台對帳</button>
         <button style={tabStyle('jpgroups')} onClick={() => { setTab('jpgroups'); fetchJpGroups() }}>🎰 JP Group</button>
-        <button style={tabStyle('run')} onClick={() => { setTab('run'); fetchCaptures(); fetchHubAgents() }}>▶️ 執行監控</button>
+        <button style={tabStyle('run')} onClick={() => { setTab('run'); fetchCaptures(); fetchHubAgents(); fetchJpGroups() }}>▶️ 執行監控</button>
       </div>
 
       {/* ── Configs tab ─────────────────────────────────────────────────────── */}
@@ -1097,7 +1148,7 @@ export function AutoSpinPage() {
               <div style={{ fontWeight: 700, fontSize: 15 }}>JP Group 設定</div>
               <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>管理 LuckyLink JP 群組設定，供 AutoSpin 壓測使用</div>
             </div>
-            <button className="submit-btn submit-btn--sm" onClick={() => { setJpGroupShowForm(true); setJpGroupEditing(null); setJpGroupForm({ code: '', display_name: '', environment: 'QAT', luckylink_url: '', luckylink_group_name: '', game_codes: '', enabled: true }) }}>+ 新增</button>
+            <button className="submit-btn submit-btn--sm" onClick={() => { setJpGroupShowForm(true); setJpGroupEditing(null); setJpGroupForm({ code: '', display_name: '', environment: 'QAT', luckylink_url: '', luckylink_group_name: '', login_user: 'admin', login_pass: '123456', game_codes: '', enabled: true }) }}>+ 新增</button>
           </div>
 
           {jpGroupMsg && <div style={{ color: '#ef4444', fontSize: 13 }}>{jpGroupMsg}</div>}
@@ -1119,7 +1170,7 @@ export function AutoSpinPage() {
                     <td style={{ fontSize: 12, color: '#94a3b8' }}>{g.game_codes.join(', ') || '—'}</td>
                     <td>{g.enabled ? <span style={{ color: '#22c55e' }}>啟用</span> : <span style={{ color: '#94a3b8' }}>停用</span>}</td>
                     <td>
-                      <button className="settings-btn" style={{ marginRight: 6 }} onClick={() => { setJpGroupEditing(g.id); setJpGroupForm({ code: g.code, display_name: g.display_name, environment: g.environment, luckylink_url: g.luckylink_url, luckylink_group_name: g.luckylink_group_name, game_codes: g.game_codes.join(', '), enabled: g.enabled }); setJpGroupShowForm(true) }}>編輯</button>
+                      <button className="settings-btn" style={{ marginRight: 6 }} onClick={() => { setJpGroupEditing(g.id); setJpGroupForm({ code: g.code, display_name: g.display_name, environment: g.environment, luckylink_url: g.luckylink_url, luckylink_group_name: g.luckylink_group_name, login_user: g.login_user ?? 'admin', login_pass: g.login_pass ?? '123456', game_codes: g.game_codes.join(', '), enabled: g.enabled }); setJpGroupShowForm(true) }}>編輯</button>
                       <button className="settings-btn" style={{ color: '#ef4444' }} onClick={() => handleDeleteJpGroup(g.id, g.code)}>刪除</button>
                     </td>
                   </tr>
@@ -1137,22 +1188,32 @@ export function AutoSpinPage() {
                   { label: '顯示名稱 *', key: 'display_name', placeholder: '例：DFDC Jackpot Group' },
                   { label: 'LuckyLink URL *', key: 'luckylink_url', placeholder: 'https://luckylink-backendtest.osmslot.org' },
                   { label: 'LuckyLink Group 名稱 *', key: 'luckylink_group_name', placeholder: '後台 JP Group 名稱' },
+                  { label: '登入帳號', key: 'login_user', placeholder: 'admin' },
+                  { label: '登入密碼', key: 'login_pass', placeholder: '123456', isPassword: true },
                   { label: 'Game Codes（逗號分隔）', key: 'game_codes', placeholder: '例：873-DFDC-0001, 873-DFDC-0003' },
-                ].map(({ label, key, placeholder, disabled }) => (
+                ].map(({ label, key, placeholder, disabled, isPassword }) => (
                   <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <label style={{ fontSize: 13, color: '#94a3b8' }}>{label}</label>
-                    <input className="lark-url-input" placeholder={placeholder} disabled={disabled}
+                    <input className="lark-url-input" placeholder={placeholder} disabled={disabled} type={isPassword ? 'password' : 'text'}
                       value={jpGroupForm[key as keyof typeof jpGroupForm] as string}
                       onChange={e => setJpGroupForm(f => ({ ...f, [key]: e.target.value }))} />
                   </div>
                 ))}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <label style={{ fontSize: 13, color: '#94a3b8' }}>環境</label>
-                  <select className="lark-url-input" value={jpGroupForm.environment} onChange={e => setJpGroupForm(f => ({ ...f, environment: e.target.value }))}>
-                    <option value="QAT">QAT</option>
-                    <option value="UAT">UAT</option>
-                    <option value="PROD">PROD</option>
-                  </select>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    {(['QAT', 'UAT', 'PROD'] as const).map(env => (
+                      <button key={env} onClick={() => {
+                        const preset = JP_ENV_PRESETS[env]
+                        setJpGroupForm(f => ({ ...f, environment: env, ...(jpGroupEditing === null ? preset : {}) }))
+                      }} style={{ flex: 1, padding: '6px 0', borderRadius: 6, border: `2px solid ${jpGroupForm.environment === env ? (env === 'PROD' ? '#f59e0b' : env === 'UAT' ? '#22c55e' : '#38bdf8') : '#334155'}`, background: jpGroupForm.environment === env ? (env === 'PROD' ? 'rgba(245,158,11,0.15)' : env === 'UAT' ? 'rgba(34,197,94,0.15)' : 'rgba(56,189,248,0.15)') : 'transparent', color: jpGroupForm.environment === env ? '#f1f5f9' : '#64748b', fontWeight: jpGroupForm.environment === env ? 700 : 400, cursor: 'pointer', fontSize: 13 }}>
+                        {env}
+                      </button>
+                    ))}
+                  </div>
+                  {jpGroupEditing === null && JP_ENV_PRESETS[jpGroupForm.environment]?.luckylink_url && (
+                    <div style={{ fontSize: 10, color: '#475569' }}>自動填入：{JP_ENV_PRESETS[jpGroupForm.environment].luckylink_url}</div>
+                  )}
                 </div>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
                   <input type="checkbox" checked={jpGroupForm.enabled} onChange={e => setJpGroupForm(f => ({ ...f, enabled: e.target.checked }))} />
@@ -1290,10 +1351,40 @@ export function AutoSpinPage() {
                     )}
                   </div>
 
-                  {/* ② Status + controls row */}
+                  {/* ② LuckyLink JP Compare options */}
+                  <div style={{ background: '#111c2e', border: '1px solid #1e3a5f', borderRadius: 8, padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
+                      <input type="checkbox" checked={luckylinkEnabled} onChange={e => setLuckylinkEnabled(e.target.checked)} style={{ width: 15, height: 15 }} />
+                      <span style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd' }}>啟用 LuckyLink JP 比對</span>
+                    </label>
+                    {luckylinkEnabled && (
+                      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                          <span style={{ fontSize: 11, color: '#64748b' }}>JP Group</span>
+                          <select value={luckylinkJpGroupCode} onChange={e => setLuckylinkJpGroupCode(e.target.value)}
+                            style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 5, color: '#e2e8f0', padding: '4px 8px', fontSize: 13, minWidth: 160 }}>
+                            <option value=''>-- 選擇 JP Group --</option>
+                            {jpGroups.filter(g => g.enabled).map(g => (
+                              <option key={g.code} value={g.code}>{g.display_name} ({g.environment})</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                          <span style={{ fontSize: 11, color: '#64748b' }}>輪詢間隔（秒）</span>
+                          <input type="number" min={10} max={600} value={luckylinkPollIntervalSec} onChange={e => setLuckylinkPollIntervalSec(Number(e.target.value))}
+                            style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 5, color: '#e2e8f0', padding: '4px 8px', fontSize: 13, width: 90 }} />
+                        </div>
+                        {!luckylinkJpGroupCode && (
+                          <span style={{ fontSize: 11, color: '#f59e0b', alignSelf: 'flex-end', paddingBottom: 4 }}>⚠ 請選擇 JP Group</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* ③ Status + controls row */}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button onClick={handleDispatchAgent} disabled={agentRunning || hubDispatching || !selectedAgentId}
-                      style={{ padding: '8px 20px', background: (agentRunning || hubDispatching || !selectedAgentId) ? '#9ca3af' : '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: (agentRunning || hubDispatching || !selectedAgentId) ? 'default' : 'pointer' }}>
+                    <button onClick={handleDispatchAgent} disabled={agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)}
+                      style={{ padding: '8px 20px', background: (agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)) ? '#9ca3af' : '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: (agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)) ? 'default' : 'pointer' }}>
                       {hubDispatching ? '派工中…' : '▶ 派工啟動'}
                     </button>
                     <button onClick={handleStopHub} disabled={hubStopping || (!agentRunning && !hubDispatching)}
@@ -1367,6 +1458,72 @@ export function AutoSpinPage() {
 
             {/* Right: screenshots + SLS errors */}
             <div style={{ flex: '0 0 260px', display: 'flex', flexDirection: 'column', gap: 8, overflow: 'auto' }}>
+              {/* LuckyLink JP 監控 panel — visible when LL enabled */}
+              {luckylinkEnabled && (
+                <div style={{ border: `1px solid ${luckylinkStatus?.alerts.some(a => a.level === 'error') ? '#7f1d1d' : '#2d3f55'}`, borderRadius: 8, overflow: 'hidden' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', background: luckylinkStatus?.alerts.some(a => a.level === 'error') ? 'rgba(239,68,68,0.08)' : '#162032', cursor: 'pointer' }}
+                    onClick={() => setLlPanelOpen(v => !v)}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: !luckylinkStatus ? '#6b7280' : luckylinkStatus.error ? '#ef4444' : luckylinkStatus.connected ? '#22c55e' : '#f59e0b' }} />
+                    <span style={{ fontSize: 12, fontWeight: 600, color: '#cbd5e1', flex: 1 }}>
+                      LuckyLink JP {luckylinkStatus?.pollCount ? `Poll#${luckylinkStatus.pollCount}` : ''}
+                      {luckylinkStatus?.alerts.some(a => a.level === 'error') ? ' ❌' : luckylinkStatus?.alerts.some(a => a.level === 'warn') ? ' ⚠️' : ''}
+                    </span>
+                    <span style={{ fontSize: 10, color: '#64748b' }}>{llPanelOpen ? '▲' : '▼'}</span>
+                  </div>
+                  {llPanelOpen && (
+                    <div style={{ padding: 8, background: '#1e293b', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {!luckylinkStatus ? (
+                        <div style={{ fontSize: 11, color: '#64748b' }}>等待 Poller 啟動...</div>
+                      ) : (
+                        <>
+                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 10, color: '#94a3b8' }}>
+                            <span>Group: <b style={{ color: '#cbd5e1' }}>{luckylinkStatus.jpGroupCode}</b></span>
+                            {luckylinkStatus.lastPollTs && <span>更新: <b style={{ color: '#cbd5e1' }}>{new Date(luckylinkStatus.lastPollTs).toLocaleTimeString('zh-TW')}</b></span>}
+                            <span style={{ color: luckylinkStatus.connected ? '#22c55e' : '#f59e0b' }}>{luckylinkStatus.connected ? '連線中' : '已停止'}</span>
+                          </div>
+                          {luckylinkStatus.error && <div style={{ fontSize: 11, color: '#ef4444', background: 'rgba(239,68,68,0.08)', borderRadius: 4, padding: '4px 6px' }}>{luckylinkStatus.error}</div>}
+                          {(luckylinkStatus.diffs.length > 0 || luckylinkStatus.pool.length > 0) && (
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
+                              <thead><tr style={{ color: '#64748b' }}>
+                                <th style={{ textAlign: 'left', paddingBottom: 3 }}>Level</th>
+                                <th style={{ textAlign: 'right', paddingBottom: 3 }}>金額</th>
+                                <th style={{ textAlign: 'right', paddingBottom: 3 }}>變化</th>
+                              </tr></thead>
+                              <tbody>
+                                {(luckylinkStatus.diffs.length > 0 ? luckylinkStatus.diffs : luckylinkStatus.pool.map(p => ({ name: p.name, curr: p.displayValue, prev: null, delta: null, state: 'init' as const, matchedGameCodes: [] }))).map((d, i) => {
+                                  const stateColor = d.state === 'drop' ? '#ef4444' : d.state === 'reset' ? '#22c55e' : d.state === 'increase' ? '#38bdf8' : d.state === 'frozen' ? '#f59e0b' : '#94a3b8'
+                                  const hasMatch = d.matchedGameCodes && d.matchedGameCodes.length > 0
+                                  const fmtPHP = (v: number) => `₱${v >= 1000 ? v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : v.toFixed(2)}`
+                                  return (
+                                    <tr key={i} style={{ borderTop: '1px solid #0f172a' }}>
+                                      <td style={{ padding: '2px 0', color: hasMatch ? '#7dd3fc' : '#cbd5e1' }} title={hasMatch ? `匹配: ${d.matchedGameCodes!.join(', ')}` : undefined}>{d.name}</td>
+                                      <td style={{ textAlign: 'right', color: '#e2e8f0', fontVariantNumeric: 'tabular-nums' }}>{typeof d.curr === 'number' ? fmtPHP(d.curr) : d.curr}</td>
+                                      <td style={{ textAlign: 'right', color: stateColor }}>{d.delta !== null && d.delta !== undefined ? `${d.delta >= 0 ? '+' : '-'}₱${Math.abs(d.delta).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</td>
+                                    </tr>
+                                  )
+                                })}
+                              </tbody>
+                            </table>
+                          )}
+                          {luckylinkStatus.alerts.length > 0 && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, borderTop: '1px solid #0f172a', paddingTop: 4 }}>
+                              {luckylinkStatus.alerts.slice(-5).map((a, i) => (
+                                <div key={i} style={{ fontSize: 10, borderLeft: `3px solid ${a.level === 'error' ? '#ef4444' : a.level === 'warn' ? '#f59e0b' : '#22c55e'}`, paddingLeft: 6, color: '#cbd5e1' }}>
+                                  <span style={{ color: a.level === 'error' ? '#f87171' : a.level === 'warn' ? '#fbbf24' : '#86efac' }}>
+                                    {a.level === 'error' ? '❌' : a.level === 'warn' ? '⚠️' : '✅'} {a.name} [{a.state}]
+                                  </span>
+                                  {a.message && <span style={{ color: '#94a3b8' }}> {a.message}</span>}
+                                  {a.prev !== undefined && <span style={{ color: '#64748b' }}> ({a.prev}→{a.curr})</span>}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               {/* SLS Error Logs panel */}
               <div style={{ border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', background: slsEntries.some(e => e.level === 'ERROR') ? 'rgba(239,68,68,0.08)' : '#162032', cursor: 'pointer' }}

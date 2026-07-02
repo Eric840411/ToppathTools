@@ -131,6 +131,7 @@ type IncomingMessage =
 // ── AutoSpin (Python engine spawned locally by this agent) ───────────────────
 const PYTHON_EXE = process.env.AUTOSPIN_PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3')
 let autospinChild: ChildProcess | null = null
+let luckylinkPollerChild: ChildProcess | null = null
 
 // ── UAT Recording (Chrome CDP) ───────────────────────────────────────────────
 
@@ -995,6 +996,10 @@ function connect() {
       if (autospinChild) {
         try { autospinChild.kill('SIGTERM') } catch { /* ignore */ }
       }
+      if (luckylinkPollerChild) {
+        try { luckylinkPollerChild.kill('SIGTERM') } catch { /* ignore */ }
+        luckylinkPollerChild = null
+      }
       // Abort any pending claim
       pendingClaimResolve?.(null)
       pendingClaimResolve = null
@@ -1005,11 +1010,20 @@ function connect() {
     // 引擎不變，仍透過 REST(/api/autospin/agent/*) 與伺服器溝通；本 agent 只負責
     // 在被派工時啟動它、停止時關閉它，並在結束時回報 agent_done 釋放此 agent。
     if (msg.type === 'autospin_start') {
-      const { sessionId, userLabel } = msg as AutoSpinStartMessage
+      const startMsg = msg as AutoSpinStartMessage
+      const { sessionId, userLabel } = startMsg
+      const luckylinkConfig = (startMsg as unknown as { luckylinkConfig?: { enabled: boolean; jpGroupCode?: string; pollIntervalSec?: number; luckylinkUrl?: string; luckylinkGroupName?: string; loginUser?: string; loginPass?: string } }).luckylinkConfig
+
       if (autospinChild) {
         try { autospinChild.kill('SIGTERM') } catch { /* ignore */ }
         autospinChild = null
       }
+      // Kill any previous poller
+      if (luckylinkPollerChild) {
+        try { luckylinkPollerChild.kill('SIGTERM') } catch { /* ignore */ }
+        luckylinkPollerChild = null
+      }
+
       const httpBase = CENTRAL_URL.replace(/^wss?/, (s) => (s.includes('wss') ? 'https' : 'http'))
       const scriptPath = join(process.cwd(), 'server', 'python', 'toppath-agent.py')
       if (!existsSync(scriptPath)) {
@@ -1031,6 +1045,11 @@ function connect() {
       child.on('close', (code) => {
         console.log(`[Agent:${AGENT_LABEL}] AutoSpin process exited (code ${code})`)
         if (autospinChild === child) autospinChild = null
+        // Stop poller when AutoSpin ends
+        if (luckylinkPollerChild) {
+          try { luckylinkPollerChild.kill('SIGTERM') } catch { /* ignore */ }
+          luckylinkPollerChild = null
+        }
         if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'agent_done', sessionId }))
       })
       child.on('error', (err) => {
@@ -1038,6 +1057,54 @@ function connect() {
         if (autospinChild === child) autospinChild = null
         if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'agent_done', sessionId }))
       })
+
+      // ── Spawn LuckyLink poller if requested ──────────────────────────────────
+      if (luckylinkConfig?.enabled && luckylinkConfig.luckylinkUrl) {
+        const pollerPath = join(process.cwd(), 'server', 'luckylink-poller.mjs')
+        if (!existsSync(pollerPath)) {
+          console.warn(`[Agent:${AGENT_LABEL}] LuckyLink poller not found: ${pollerPath}`)
+        } else {
+          console.log(`[Agent:${AGENT_LABEL}] LuckyLink poller start → group=${luckylinkConfig.jpGroupCode} url=${luckylinkConfig.luckylinkUrl} interval=${luckylinkConfig.pollIntervalSec}s`)
+          const gameCodes = (luckylinkConfig as unknown as { gameCodes?: string[] }).gameCodes ?? []
+          const pollerEnv = {
+            ...process.env,
+            LL_URL: luckylinkConfig.luckylinkUrl,
+            LL_GROUP_NAME: luckylinkConfig.luckylinkGroupName ?? '',
+            LL_LOGIN_USER: luckylinkConfig.loginUser ?? 'admin',
+            LL_LOGIN_PASS: luckylinkConfig.loginPass ?? '123456',
+            LL_POLL_SEC: String(luckylinkConfig.pollIntervalSec ?? 60),
+            LL_JP_GROUP_CODE: luckylinkConfig.jpGroupCode ?? '',
+            LL_GAME_CODES: gameCodes.join(','),
+          }
+          const NODE_EXE = process.execPath
+          const poller = spawn(NODE_EXE, [pollerPath], { env: pollerEnv })
+          luckylinkPollerChild = poller
+          poller.stdout?.setEncoding('utf8')
+          poller.stderr?.setEncoding('utf8')
+          poller.stdout?.on('data', (c: string) => {
+            for (const line of c.split('\n').filter(Boolean)) {
+              console.log(`[LL-POLL] ${line}`)
+              // Forward structured events to hub via websocket
+              try {
+                const evt = JSON.parse(line) as { type?: string; data?: unknown; ts?: string }
+                if (evt.type && ws.readyState === ws.OPEN) {
+                  ws.send(JSON.stringify({ type: 'luckylink_event', event: evt, sessionId }))
+                }
+              } catch { /* not JSON, plain log line */ }
+            }
+          })
+          poller.stderr?.on('data', (c: string) => { for (const l of c.split('\n').filter(Boolean)) console.error(`[LL-POLL][err] ${l}`) })
+          poller.on('close', (code) => {
+            console.log(`[Agent:${AGENT_LABEL}] LuckyLink poller exited (code ${code})`)
+            if (luckylinkPollerChild === poller) luckylinkPollerChild = null
+          })
+          poller.on('error', (err) => {
+            console.error(`[Agent:${AGENT_LABEL}] LuckyLink poller spawn error:`, err)
+            if (luckylinkPollerChild === poller) luckylinkPollerChild = null
+          })
+        }
+      }
+
       return
     }
 

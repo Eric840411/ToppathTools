@@ -17,7 +17,7 @@ import { larkGenerateSchema, log, verifyLocalAgentToken, getClientIP, getUser, d
 import { runGenerateTestcasesFileJob, runLarkGenerateTestcasesJob, resumeGenerationJob, type WorkerUploadFile } from './routes/integrations.js'
 import { router as jiraRouter } from './routes/jira.js'
 import { router as gameshowRouter } from './routes/gameshow.js'
-import { router as autospinRouter } from './routes/autospin.js'
+import { router as autospinRouter, broadcastAgentLog, broadcastLuckylinkEvent } from './routes/autospin.js'
 import { router as osmUatRouter } from './routes/osm-uat.js'
 import { router as frontendAutoRouter, logBuffers, logClients, pushLog, activeRuns } from './routes/frontend-auto.js'
 import uiScreenshotRouter from './routes/ui-screenshot.js'
@@ -614,6 +614,36 @@ wss.on('connection', (ws, req) => {
           const info = agentConnections.get(agentId)
           if (info) { info.busy = false; info.sessionId = null }
         }
+        return
+      }
+
+      if (msg.type === 'luckylink_event' && msg.sessionId && msg.event) {
+        // Forward structured LuckyLink poller events into the AutoSpin SSE log stream
+        type LuckylinkEvt = { type?: string; data?: Record<string, unknown>; ts?: string }
+        const evt = msg.event as LuckylinkEvt
+        let logLine: string
+        if (evt.type === 'luckylink_pool' && evt.data) {
+          const d = evt.data as { poll?: number; pool?: { name: string; currentValue: number }[]; diffs?: { name: string; state: string; delta: number | null }[] }
+          const poolStr = (d.pool ?? []).map((l: { name: string; currentValue: number }) => `${l.name}=${l.currentValue.toFixed ? l.currentValue.toFixed(2) : l.currentValue}`).join(' | ')
+          logLine = `[LL] Poll#${d.poll ?? '?'} ${poolStr || '(no data)'}`
+        } else if (evt.type === 'luckylink_alert' && evt.data) {
+          const d = evt.data as { level?: string; name?: string; state?: string; delta?: number; prev?: number; curr?: number }
+          const icon = d.level === 'error' ? '❌' : d.level === 'warn' ? '⚠️' : '✅'
+          logLine = `[LL] ${icon} ${d.name} ${d.state} prev=${d.prev ?? '?'} curr=${d.curr ?? '?'} Δ${d.delta?.toFixed ? d.delta.toFixed(2) : d.delta}`
+        } else if (evt.type === 'luckylink_start' && evt.data) {
+          const d = evt.data as { jpGroupCode?: string; luckylinkUrl?: string; pollIntervalSec?: number }
+          logLine = `[LL] 啟動 jpGroup=${d.jpGroupCode} interval=${d.pollIntervalSec}s url=${d.luckylinkUrl}`
+        } else if (evt.type === 'luckylink_stop' && evt.data) {
+          const d = evt.data as { jpGroupCode?: string; polls?: number }
+          logLine = `[LL] 停止 jpGroup=${d.jpGroupCode} 共輪詢 ${d.polls ?? 0} 次`
+        } else if (evt.type === 'luckylink_error' && evt.data) {
+          const d = evt.data as { message?: string; fatal?: boolean }
+          logLine = `[LL] ${d.fatal ? '💥 FATAL' : '⚠️ ERR'} ${d.message ?? '未知錯誤'}`
+        } else {
+          logLine = `[LL] ${JSON.stringify(evt)}`
+        }
+        broadcastAgentLog(msg.sessionId, logLine)
+        broadcastLuckylinkEvent(msg.sessionId, msg.event as object)
         return
       }
 

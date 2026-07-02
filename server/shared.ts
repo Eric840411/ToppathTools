@@ -837,6 +837,19 @@ db.exec(`
   )
 `)
 
+// migration: add login_user and login_pass to jp_groups
+{
+  const jpCols = db.prepare('PRAGMA table_info(jp_groups)').all() as { name: string }[]
+  if (!jpCols.find(c => c.name === 'login_user')) {
+    db.exec(`ALTER TABLE jp_groups ADD COLUMN login_user TEXT NOT NULL DEFAULT 'admin'`)
+    console.log('[DB] jp_groups 已新增 login_user 欄位')
+  }
+  if (!jpCols.find(c => c.name === 'login_pass')) {
+    db.exec(`ALTER TABLE jp_groups ADD COLUMN login_pass TEXT NOT NULL DEFAULT '123456'`)
+    console.log('[DB] jp_groups 已新增 login_pass 欄位')
+  }
+}
+
 // migration: add folder_id to knowledge_docs
 {
   const kbCols = db.prepare('PRAGMA table_info(knowledge_docs)').all() as { name: string }[]

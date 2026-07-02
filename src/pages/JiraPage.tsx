@@ -538,6 +538,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
   // Step 4 (create)
   const [submitting, setSubmitting] = useState(false)
+  const [createProgress, setCreateProgress] = useState<{ done: number; total: number } | null>(null)
   const [createResults, setCreateResults] = useState<IssueCreateResult[]>([])
   const [pendingWritebackCount, setPendingWritebackCount] = useState(0)
   const [retryingWriteback, setRetryingWriteback] = useState(false)
@@ -611,6 +612,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
   // Step 6 (transition)
   const [transitionSubmitting, setTransitionSubmitting] = useState(false)
+  const [transitionProgress, setTransitionProgress] = useState<{ done: number; total: number } | null>(null)
   const [transitionResults, setTransitionResults] = useState<StageOpResult[]>([])
   const [transitionOptions, setTransitionOptions] = useState<JiraTransitionOption[]>([])
   const [selectedTransitionId, setSelectedTransitionId] = useState('')
@@ -668,6 +670,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const blankMapping = (): EditFieldMapping => ({ jiraField: 'summary', fieldType: 'string', fieldOptions: [], mode: 'sheet', sheetColumn: '', manualValue: '', manualAccountId: '', manualAccountIds: [], manualLabels: [] })
   const [editFieldMappings, setEditFieldMappings] = useState<EditFieldMapping[]>([blankMapping()])
   const [editTabSubmitting, setEditTabSubmitting] = useState(false)
+  const [editProgress, setEditProgress] = useState<{ done: number; total: number } | null>(null)
   const [editTabResults, setEditTabResults] = useState<{ issueKey: string; ok: boolean; error?: string }[]>([])
   const [editTabJiraData, setEditTabJiraData] = useState<Record<string, Record<string, string>>>({})
   const [editTabJiraLoading, setEditTabJiraLoading] = useState(false)
@@ -1493,7 +1496,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   // ── Step 4: 建立 Issues（僅對 needsCreate 的列；其餘直接帶入 trackedIssues）──
   const handleCreate = async () => {
     if (!currentAccount || selectedRows.size === 0) return
-    setSubmitting(true); setCreateResults([])
+    setSubmitting(true); setCreateResults([]); setCreateProgress(null)
 
     // 非開單列直接帶入 trackedIssues
     const preExisting: TrackedIssue[] = [
@@ -1622,6 +1625,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       }
     })
 
+    setCreateProgress({ done: 0, total: rows.length })
     try {
       console.log('[batch-create] sending rows:', rows.length, 'rows[0]:', rows[0])
       const project = projects.find(p => p.id === selectedProjectId)
@@ -1719,7 +1723,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     } catch {
       setCreateResults([{ rowIndex: 0, error: '網路錯誤' }])
       setStep(4)
-    } finally { setSubmitting(false) }
+    } finally { setSubmitting(false); setCreateProgress(null) }
   }
 
   // ── Step 5: 添加評論 ──
@@ -2056,7 +2060,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   // ── Step 6: 切換狀態 ──
   const handleTransition = async () => {
     if (!currentAccount || toTransition.length === 0 || !selectedTransitionId) return
-    setTransitionSubmitting(true)
+    setTransitionSubmitting(true); setTransitionProgress({ done: 0, total: toTransition.length })
 
     const issues = toTransition.map(t => ({
       issueKey: t.issueKey,
@@ -2093,7 +2097,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       }
       setStep(6)
     } catch { setTransitionResults([{ rowIndex: 0, issueKey: '', ok: false, error: '網路錯誤' }]); setStep(6) }
-    finally { setTransitionSubmitting(false) }
+    finally { setTransitionSubmitting(false); setTransitionProgress(null) }
   }
 
   /** QA / PM 使用不同 Sheet 模板，切換模式或「重新開始」時需清空所有流程狀態（保留已登入帳號）。 */
@@ -2308,6 +2312,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     if (hasPendingVideo && !window.confirm('部分影片尚未手動上傳，確認繼續送出（影片不會附加至描述）？')) return
 
     setEditTabSubmitting(true); setEditTabError('')
+    setEditProgress({ done: 0, total: editTabIssues.filter(i => editTabSelectedKeys.has(i.issueKey)).length })
     try {
       const items = editTabIssues.filter(issue => editTabSelectedKeys.has(issue.issueKey)).map(issue => {
         const rec = editTabRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
@@ -2389,7 +2394,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       if (!result.ok) { setEditTabError(result.message ?? '批量修改失敗') }
       else { setEditTabResults(result.results ?? []); setEditTabStep(4) }
     } catch { setEditTabError('網路錯誤') }
-    finally { setEditTabSubmitting(false) }
+    finally { setEditTabSubmitting(false); setEditProgress(null) }
   }
 
   // ── Update Mode handlers ──
@@ -3888,6 +3893,21 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               </>
             ) : null}
 
+          {submitting && (() => {
+            const cp = createProgress
+            const cpct = cp ? Math.round(cp.done / cp.total * 100) : 0
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8' }}>
+                  <span>{cp ? `處理中 ${cp.done} / ${cp.total}` : '提交中...'}</span>
+                  {cp && <span>{cpct}%</span>}
+                </div>
+                <div style={{ height: 6, borderRadius: 3, background: '#1e2d3d', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', borderRadius: 3, background: '#3b82f6', width: `${cpct}%`, transition: 'width 0.3s ease', animation: cpct === 0 ? 'progressPulse 1.5s ease-in-out infinite' : 'none' }} />
+                </div>
+              </div>
+            )
+          })()}
           <div style={{ display: 'flex', gap: 10, marginTop: 16, alignItems: 'center' }}>
             <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(2)}>上一步</button>
             <button type="button"
@@ -4696,6 +4716,23 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             </div>
           )}
 
+          {transitionSubmitting && (() => {
+            const transDone = transitionProgress?.done ?? 0
+            const transTotal = transitionProgress?.total ?? 1
+            const hasTransProg = transitionProgress != null
+            const transct = hasTransProg ? Math.round(transDone / transTotal * 100) : 0
+            return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8' }}>
+                  <span>{hasTransProg ? `處理中 ${transDone} / ${transTotal}` : '提交中...'}</span>
+                  {hasTransProg && <span>{transct}%</span>}
+                </div>
+                <div style={{ height: 6, borderRadius: 3, background: '#1e2d3d', overflow: 'hidden' }}>
+                  <div style={{ height: '100%', borderRadius: 3, background: '#3b82f6', width: `${transct}%`, transition: 'width 0.3s ease', animation: transct === 0 ? 'progressPulse 1.5s ease-in-out infinite' : 'none' }} />
+                </div>
+              </div>
+            )
+          })()}
           <div className="stage-nav" style={{ marginTop: 16 }}>
             <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(5)}>上一步</button>
             {toTransition.length > 0 && (
@@ -5178,6 +5215,21 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 )
               })()}
 
+              {editTabSubmitting && (() => {
+                const ep = editProgress
+                const epct = ep ? Math.round(ep.done / ep.total * 100) : 0
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8' }}>
+                      <span>{ep ? `處理中 ${ep.done} / ${ep.total}` : '提交中...'}</span>
+                      {ep && <span>{epct}%</span>}
+                    </div>
+                    <div style={{ height: 6, borderRadius: 3, background: '#1e2d3d', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', borderRadius: 3, background: '#3b82f6', width: `${epct}%`, transition: 'width 0.3s ease', animation: epct === 0 ? 'progressPulse 1.5s ease-in-out infinite' : 'none' }} />
+                    </div>
+                  </div>
+                )
+              })()}
               <div className="stage-nav" style={{ marginTop: 16 }}>
                 <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setEditTabStep(2)}>上一步</button>
                 <button type="button"
@@ -5370,7 +5422,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 setReconcileLoading(true)
                 setReconcileMatches([]); setReconcileUnmatchedJira([]); setReconcileUnmatchedRows([]); setReconcileMsg('')
                 try {
-                  const resp = await fetch('/api/jira/reconcile/preview', {
+                  const raw = await fetch('/api/jira/reconcile/preview', {
                     method: 'POST', headers: { 'Content-Type': 'application/json', ...(currentAccount ? { 'x-jira-email': currentAccount.email } : {}) },
                     body: JSON.stringify({
                       projectKey: reconcileProjectKey,
@@ -5378,7 +5430,10 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                       createdFrom: reconcileFrom || new Date(Date.now() - 86400000).toISOString().slice(0,10),
                       createdTo: reconcileTo || new Date().toISOString().slice(0,10),
                     }),
-                  }).then(r => r.json()) as { ok: boolean; matches?: typeof reconcileMatches; unmatchedJiraIssues?: typeof reconcileUnmatchedJira; unmatchedSheetRows?: typeof reconcileUnmatchedRows; message?: string }
+                  })
+                  const text = await raw.text()
+                  let resp: { ok: boolean; matches?: typeof reconcileMatches; unmatchedJiraIssues?: typeof reconcileUnmatchedJira; unmatchedSheetRows?: typeof reconcileUnmatchedRows; message?: string }
+                  try { resp = JSON.parse(text) } catch { setReconcileMsg(`Server 回傳非 JSON（HTTP ${raw.status}）：${text.slice(0, 200)}`); return }
                   if (!resp.ok) { setReconcileMsg(resp.message ?? '查詢失敗'); return }
                   setReconcileMatches(resp.matches ?? [])
                   setReconcileUnmatchedJira(resp.unmatchedJiraIssues ?? [])
