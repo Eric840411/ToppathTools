@@ -1852,23 +1852,55 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
       })
       .filter(r => !r.jiraKeyValue)
 
-    // ── Step 3: Positional matching ──────────────────────────────────────────
-    const matches = []
-    const unmatchedJira = [...jiraIssues]
-    const unmatchedRows = [...emptyRows]
-
-    const count = Math.min(jiraIssues.length, emptyRows.length)
-    for (let i = 0; i < count; i++) {
-      const jira = jiraIssues[i]
-      const row = emptyRows[i]
-      // Compute simple string similarity for confidence
-      const a = jira.summary.toLowerCase().replace(/\s+/g, ' ').trim()
-      const b = row.sheetSummary.toLowerCase().replace(/\s+/g, ' ').trim()
-      const confidence = (a && b && (a.startsWith(b.slice(0, 20)) || b.startsWith(a.slice(0, 20)))) ? 'high' : 'low'
-      matches.push({ rowIndex: row.rowIndex, sheetSummary: row.sheetSummary, jiraKey: jira.key, jiraSummary: jira.summary, jiraCreated: jira.created, confidence })
-      unmatchedJira.shift()
-      unmatchedRows.shift()
+    // ── Step 3: Similarity-first matching ────────────────────────────────────
+    // Compute common-prefix ratio as similarity score
+    const simScore = (a: string, b: string): number => {
+      const A = a.toLowerCase().replace(/\s+/g, '')
+      const B = b.toLowerCase().replace(/\s+/g, '')
+      if (!A || !B) return 0
+      let i = 0
+      while (i < A.length && i < B.length && A[i] === B[i]) i++
+      // Also check if one contains the other's opening portion (handles truncated summaries)
+      const minLen = Math.min(A.length, B.length)
+      const prefixScore = i / Math.max(A.length, B.length)
+      const containScore = (A.includes(B.slice(0, Math.min(minLen, 15))) || B.includes(A.slice(0, Math.min(minLen, 15)))) ? 0.4 : 0
+      return Math.max(prefixScore, containScore)
     }
+
+    const HIGH_THRESHOLD = 0.3 // prefix ratio considered "high confidence"
+
+    const remainingJira = [...jiraIssues]
+    const remainingRows = [...emptyRows]
+    const matches: Array<{ rowIndex: number; sheetSummary: string; jiraKey: string; jiraSummary: string; jiraCreated: string; confidence: string }> = []
+
+    // Pass 1: greedy best-similarity match
+    while (remainingJira.length > 0 && remainingRows.length > 0) {
+      let bestScore = -1; let bestJiraIdx = 0; let bestRowIdx = 0
+      for (let ji = 0; ji < remainingJira.length; ji++) {
+        for (let ri = 0; ri < remainingRows.length; ri++) {
+          const score = simScore(remainingJira[ji].summary, remainingRows[ri].sheetSummary)
+          if (score > bestScore) { bestScore = score; bestJiraIdx = ji; bestRowIdx = ri }
+        }
+      }
+      if (bestScore < HIGH_THRESHOLD) break // remaining pairs have no good similarity match
+      const jira = remainingJira.splice(bestJiraIdx, 1)[0]
+      const row = remainingRows.splice(bestRowIdx, 1)[0]
+      matches.push({ rowIndex: row.rowIndex, sheetSummary: row.sheetSummary, jiraKey: jira.key, jiraSummary: jira.summary, jiraCreated: jira.created, confidence: 'high' })
+    }
+
+    // Pass 2: positional fallback for unmatched
+    const posCount = Math.min(remainingJira.length, remainingRows.length)
+    for (let i = 0; i < posCount; i++) {
+      const jira = remainingJira[i]
+      const row = remainingRows[i]
+      matches.push({ rowIndex: row.rowIndex, sheetSummary: row.sheetSummary, jiraKey: jira.key, jiraSummary: jira.summary, jiraCreated: jira.created, confidence: 'low' })
+    }
+
+    // Sort final list by Sheet row index for display
+    matches.sort((a, b) => a.rowIndex - b.rowIndex)
+
+    const unmatchedJira = remainingJira.slice(posCount)
+    const unmatchedRows = remainingRows.slice(posCount)
 
     res.json({ ok: true, matches, unmatchedJiraIssues: unmatchedJira, unmatchedSheetRows: unmatchedRows })
   } catch (error) {
