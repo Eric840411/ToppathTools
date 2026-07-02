@@ -1778,6 +1778,7 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
     }
     if (hData.code !== 0) return res.json({ ok: false, message: `Lark Sheet 表頭讀取失敗：${hData.msg ?? '未知錯誤'}` })
     const hRows = hData.data?.valueRange?.values ?? []
+    // Same extractCell + evalFormula logic as batch-create sheet reading
     const extractCellText = (c: unknown): string => {
       if (c === null || c === undefined) return ''
       if (typeof c === 'number' || typeof c === 'boolean') return String(c)
@@ -1791,9 +1792,30 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
         if (typeof o.computedValue === 'string') return o.computedValue
         if (o.computedValue != null) return String(o.computedValue)
         if (typeof o.text === 'string') return o.text
+        if (Array.isArray(o.text)) return (o.text as Array<{ text?: string }>).map(t => t.text ?? '').join('')
+        if (typeof o.value === 'string') return o.value
+        if (o.value != null) return String(o.value)
       }
       return ''
     }
+    // Evaluate same-sheet concatenation formulas (Lark returns formula body without '=')
+    const evalConcatFormula = (formula: string, rawRow: unknown[]): string => {
+      const tokens = formula.split('&').map(t => t.trim())
+      return tokens.map(token => {
+        if (token.startsWith('"') && token.endsWith('"')) return token.slice(1, -1)
+        const m = token.match(/^([A-Za-z]+)(\d+)$/)
+        if (m) {
+          const colIndex = m[1].toUpperCase().split('').reduce((acc, ch) => acc * 26 + ch.charCodeAt(0) - 64, 0) - 1
+          return extractCellText(rawRow[colIndex])
+        }
+        return token
+      }).join('')
+    }
+    const resolveCell = (val: string, rawRow: unknown[]): string => {
+      if (/^(".*"|[A-Za-z]+\d+)(&(".*"|[A-Za-z]+\d+))+$/.test(val)) return evalConcatFormula(val, rawRow)
+      return val
+    }
+
     const hRow1 = (hRows[0] ?? []).map(extractCellText)
     const hRow2 = (hRows[1] ?? []).map(extractCellText)
     const headers: string[] = Array.from({ length: Math.max(hRow1.length, hRow2.length) }, (_, i) => hRow1[i]?.trim() || hRow2[i]?.trim() || '')
@@ -1806,7 +1828,7 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
     // Fetch data rows (up to 500 rows)
     const dataRange = sheetId ? `${sheetId}!A2:ZZ501` : 'A2:ZZ501'
     const dResp = await fetch(
-      `${larkBase}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${dataRange}?valueRenderOption=ToString`,
+      `${larkBase}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${dataRange}`,
       { headers: { Authorization: `Bearer ${larkToken}` } },
     )
     if (!dResp.ok) {
@@ -1820,18 +1842,14 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
     }
     const dataRows = (dData.data?.valueRange?.values ?? []) as unknown[][]
 
-    // Debug: expose raw structure of first 2 summary cells to diagnose formula rendering
-    const debugSummaryCells = summaryColIdx >= 0
-      ? dataRows.slice(0, 2).map(row => row[summaryColIdx])
-      : []
-
     // Rows where Jira key cell is empty
     const emptyRows = dataRows
-      .map((row, i) => ({
-        rowIndex: i + 2, // 1-indexed, row 1 is header
-        sheetSummary: summaryColIdx >= 0 ? extractCellText(row[summaryColIdx]) : '',
-        jiraKeyValue: extractCellText(row[jiraKeyColIdx]),
-      }))
+      .map((row, i) => {
+        const rawRow = row as unknown[]
+        const jiraKeyVal = resolveCell(extractCellText(rawRow[jiraKeyColIdx]), rawRow)
+        const sheetSummary = summaryColIdx >= 0 ? resolveCell(extractCellText(rawRow[summaryColIdx]), rawRow) : ''
+        return { rowIndex: i + 2, sheetSummary, jiraKeyValue: jiraKeyVal }
+      })
       .filter(r => !r.jiraKeyValue)
 
     // ── Step 3: Positional matching ──────────────────────────────────────────
@@ -1852,7 +1870,7 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
       unmatchedRows.shift()
     }
 
-    res.json({ ok: true, matches, unmatchedJiraIssues: unmatchedJira, unmatchedSheetRows: unmatchedRows, _debugSummaryCells: debugSummaryCells })
+    res.json({ ok: true, matches, unmatchedJiraIssues: unmatchedJira, unmatchedSheetRows: unmatchedRows })
   } catch (error) {
     next(error)
   }
