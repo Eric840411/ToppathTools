@@ -1743,7 +1743,7 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
       `${baseUrl}/rest/api/3/search?jql=${encodeURIComponent(jql)}&maxResults=200&fields=summary,created,reporter,status`,
       { headers: { Authorization: userAuth.auth, Accept: 'application/json' } },
     )
-    if (!jiraResp.ok) return res.status(502).json({ ok: false, message: `Jira 查詢失敗 HTTP ${jiraResp.status}` })
+    if (!jiraResp.ok) return res.json({ ok: false, message: `Jira 查詢失敗 HTTP ${jiraResp.status}` })
     const jiraData = (await jiraResp.json()) as { issues?: { key: string; fields: { summary: string; created: string } }[] }
     const jiraIssues = (jiraData.issues ?? []).map(i => ({
       key: i.key,
@@ -1755,7 +1755,7 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
     const larkToken = await getLarkToken()
     const larkBase = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
     const { spreadsheetToken, sheetId } = parseLarkSheetUrl(sheetUrl)
-    if (!spreadsheetToken) return res.status(400).json({ ok: false, message: '無法解析 Sheet URL' })
+    if (!spreadsheetToken) return res.json({ ok: false, message: '無法解析 Sheet URL' })
 
     // Read rows 1+2 (same as multiWritebackLark) to handle merged/two-row headers
     const headerRange = sheetId ? `${sheetId}!A1:ZZ2` : 'A1:ZZ2'
@@ -1765,14 +1765,14 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
     )
     if (!hResp.ok) {
       const txt = await hResp.text()
-      return res.status(502).json({ ok: false, message: `Lark Sheet 表頭讀取失敗（HTTP ${hResp.status}）：${txt.slice(0, 200)}` })
+      return res.json({ ok: false, message: `Lark Sheet 表頭讀取失敗（HTTP ${hResp.status}）：${txt.slice(0, 200)}` })
     }
     const hRawText = await hResp.text()
     let hData: { code?: number; msg?: string; data?: { valueRange?: { values?: unknown[][] } } }
     try { hData = JSON.parse(hRawText) } catch {
-      return res.status(502).json({ ok: false, message: 'Lark Sheet 回應非 JSON，可能是 token 過期或 URL 無效，請重新授權 Lark。' })
+      return res.json({ ok: false, message: 'Lark Sheet 回應非 JSON，可能是 token 過期或 URL 無效，請重新授權 Lark。' })
     }
-    if (hData.code !== 0) return res.status(502).json({ ok: false, message: `Lark Sheet 表頭讀取失敗：${hData.msg ?? '未知錯誤'}` })
+    if (hData.code !== 0) return res.json({ ok: false, message: `Lark Sheet 表頭讀取失敗：${hData.msg ?? '未知錯誤'}` })
     const hRows = hData.data?.valueRange?.values ?? []
     const extractCellText = (c: unknown): string => {
       if (c === null || c === undefined) return ''
@@ -1786,7 +1786,7 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
     const jiraKeyColIdx = headers.findIndex(h => h.toLowerCase().includes('jira issue key') || h.toLowerCase() === 'jira key')
     const summaryColIdx = headers.findIndex(h => h.toLowerCase() === 'summary' || h.toLowerCase() === '摘要' || h.toLowerCase() === '標題')
 
-    if (jiraKeyColIdx === -1) return res.status(400).json({ ok: false, message: '找不到「Jira issue key」欄位' })
+    if (jiraKeyColIdx === -1) return res.json({ ok: false, message: '找不到「Jira issue key」欄位' })
 
     // Fetch data rows (up to 500 rows)
     const dataRange = sheetId ? `${sheetId}!A2:ZZ501` : 'A2:ZZ501'
@@ -1796,12 +1796,12 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
     )
     if (!dResp.ok) {
       const txt = await dResp.text()
-      return res.status(502).json({ ok: false, message: `Lark Sheet 資料讀取失敗（HTTP ${dResp.status}）：${txt.slice(0, 200)}` })
+      return res.json({ ok: false, message: `Lark Sheet 資料讀取失敗（HTTP ${dResp.status}）：${txt.slice(0, 200)}` })
     }
     const dRawText = await dResp.text()
     let dData: { code?: number; msg?: string; data?: { valueRange?: { values?: unknown[][] } } }
     try { dData = JSON.parse(dRawText) } catch {
-      return res.status(502).json({ ok: false, message: 'Lark Sheet 資料回應非 JSON，可能是 token 過期或 URL 無效，請重新授權 Lark。' })
+      return res.json({ ok: false, message: 'Lark Sheet 資料回應非 JSON，可能是 token 過期或 URL 無效，請重新授權 Lark。' })
     }
     const dataRows = (dData.data?.valueRange?.values ?? []) as unknown[][]
 
