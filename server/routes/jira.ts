@@ -1820,6 +1820,11 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
     }
     const dataRows = (dData.data?.valueRange?.values ?? []) as unknown[][]
 
+    // Debug: expose raw structure of first 2 summary cells to diagnose formula rendering
+    const debugSummaryCells = summaryColIdx >= 0
+      ? dataRows.slice(0, 2).map(row => row[summaryColIdx])
+      : []
+
     // Rows where Jira key cell is empty
     const emptyRows = dataRows
       .map((row, i) => ({
@@ -1847,7 +1852,7 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
       unmatchedRows.shift()
     }
 
-    res.json({ ok: true, matches, unmatchedJiraIssues: unmatchedJira, unmatchedSheetRows: unmatchedRows })
+    res.json({ ok: true, matches, unmatchedJiraIssues: unmatchedJira, unmatchedSheetRows: unmatchedRows, _debugSummaryCells: debugSummaryCells })
   } catch (error) {
     next(error)
   }
