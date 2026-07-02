@@ -1739,9 +1739,9 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
 
     // ── Step 1: Query Jira for issues created in the date range ──────────────
     const jql = `project="${projectKey}" AND created>="${createdFrom.slice(0,10)}" AND created<="${createdTo.slice(0,10)}" ORDER BY created ASC`
-    const jiraResp = await fetch(`${baseUrl}/rest/api/3/search`, {
+    const jiraResp = await fetch(`${baseUrl}/rest/api/3/search/jql`, {
       method: 'POST',
-      headers: { Authorization: userAuth.auth, Accept: 'application/json', 'Content-Type': 'application/json', 'X-Atlassian-Token': 'no-check' },
+      headers: { Authorization: userAuth.auth, Accept: 'application/json', 'Content-Type': 'application/json' },
       body: JSON.stringify({ jql, maxResults: 200, fields: ['summary', 'created', 'reporter', 'status'] }),
     })
     if (!jiraResp.ok) {
