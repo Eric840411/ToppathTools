@@ -732,8 +732,14 @@ function serializeLarkValue(value: LarkCellValue): unknown {
 
 /** 0-based column index → A1 notation letter (supports AA–AZ) */
 function colIndexToLetter(idx: number): string {
-  if (idx < 26) return String.fromCharCode(65 + idx)
-  return String.fromCharCode(64 + Math.floor(idx / 26)) + String.fromCharCode(65 + (idx % 26))
+  let result = ''
+  let n = idx + 1
+  while (n > 0) {
+    const rem = (n - 1) % 26
+    result = String.fromCharCode(65 + rem) + result
+    n = Math.floor((n - 1) / 26)
+  }
+  return result
 }
 
 export const multiWritebackLark = async (sheetUrl: string, writes: MultiWrite[]) => {
@@ -778,7 +784,14 @@ export const multiWritebackLark = async (sheetUrl: string, writes: MultiWrite[])
     (_, i) => [row1[i], row2[i]].filter((h): h is string => !!h?.trim()),
   )
   const headers = headerCandidates.map(candidates => candidates[0] ?? '')
+  // Mutable pointer for appending new columns, starting just after the last non-empty header.
+  // Using headers.length would give 702 (full ZZ range from Lark API) even when the sheet
+  // only has real data up to column S, causing [A-style invalid column letters.
+  const lastNonEmptyHeaderIdx = headerCandidates.reduce((max, candidates, idx) =>
+    candidates.some(c => c.trim()) ? idx : max, -1)
+  let nextAppendColIdx = lastNonEmptyHeaderIdx + 1
   console.log('[WB-Lark] 7. headers:', headerCandidates.map(c => c.join(' / ')))
+  console.log('[WB-Lark] 7b. lastNonEmptyHeaderIdx:', lastNonEmptyHeaderIdx, '→ first new col:', colIndexToLetter(nextAppendColIdx))
 
   const results: { rowIndex: number; ok: boolean; error?: string }[] = []
 
@@ -791,8 +804,7 @@ export const multiWritebackLark = async (sheetUrl: string, writes: MultiWrite[])
         candidates.some(h => normalizeCol(h) === normalizeCol(colName)),
       )
       if (colIdx === -1) {
-        // Always append at end — never reuse interior empty slots (could overwrite data in non-header columns)
-        const newColIdx = headers.length
+        const newColIdx = nextAppendColIdx
         const newColLetter = colIndexToLetter(newColIdx)
         const headerCell = sheetId ? `${sheetId}!${newColLetter}1:${newColLetter}1` : `${newColLetter}1:${newColLetter}1`
         console.log(`[WB-Lark] column "${colName}" not found — appending at index ${newColIdx} (${newColLetter})`)
@@ -819,6 +831,7 @@ export const multiWritebackLark = async (sheetUrl: string, writes: MultiWrite[])
         }
         headers.push(colName)
         headerCandidates.push([colName])
+        nextAppendColIdx++
         colIdx = newColIdx
       }
       const colLetter = colIndexToLetter(colIdx)

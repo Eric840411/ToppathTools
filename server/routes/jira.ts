@@ -2916,12 +2916,12 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
     if (issueKeys.length === 0) return res.json({ ok: true, issues: {} })
     const baseUrl = mustEnv('JIRA_BASE_URL')
     const jql = `key in (${issueKeys.map(k => `"${k}"`).join(',')})`
-    const resp = await fetch(`${baseUrl}/rest/api/2/search/jql`, {
+    const resp = await fetch(`${baseUrl}/rest/api/3/search/jql`, {
       method: 'POST',
       headers: { Authorization: userAuth.auth, 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
         jql,
-        fields: ['summary', 'assignee', 'reporter', 'description', 'priority', 'status', 'issuetype', 'labels', 'customfield_10428'],
+        fields: ['summary', 'assignee', 'reporter', 'description', 'priority', 'status', 'issuetype', 'labels', 'customfield_14103', 'customfield_10428'],
         expand: 'renderedFields',
         maxResults: Math.min(issueKeys.length, 200),
       }),
@@ -2932,21 +2932,23 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
     }
     type JiraIssue = {
       key: string
-      fields: {
+      fields: Record<string, unknown> & {
         summary?: string
-        assignee?: { displayName?: string }
-        reporter?: { displayName?: string }
+        assignee?: { displayName?: string; name?: string }
+        reporter?: { displayName?: string; name?: string }
         priority?: { name?: string }
         status?: { name?: string }
         issuetype?: { name?: string }
         labels?: string[]
         description?: unknown
-        customfield_10428?: Array<{ displayName?: string }> | { displayName?: string }
+        customfield_14103?: Array<{ displayName?: string; name?: string }> | { displayName?: string; name?: string }
+        customfield_10428?: Array<{ displayName?: string; name?: string }> | { displayName?: string; name?: string }
       }
       renderedFields?: { description?: string }
     }
     const data = await resp.json() as { issues?: JiraIssue[] }
     const issues: Record<string, Record<string, string>> = {}
+    const _debugCf: Record<string, unknown> = {}
     for (const issue of data.issues ?? []) {
       const f = issue.fields
       // Try ADF/string first, then fall back to renderedFields (HTML) → strip tags
@@ -2956,9 +2958,6 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
       if (!descText && issue.renderedFields?.description) {
         descText = issue.renderedFields.description.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
       }
-      // customfield_10428 can be an array (multiuser) or a single object (single user picker)
-      // API v2 may return `name` instead of `displayName` for user fields
-      const cf = f.customfield_10428
       const resolveUserName = (u: unknown): string => {
         if (!u || typeof u !== 'object') return ''
         const obj = u as Record<string, unknown>
@@ -2966,11 +2965,14 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
           || (typeof obj.name === 'string' && obj.name)
           || ''
       }
-      const rdOwner = Array.isArray(cf) && cf.length > 0
-        ? resolveUserName(cf[0])
-        : (!Array.isArray(cf) && cf)
-          ? resolveUserName(cf)
-          : ''
+      const resolveCf = (cf: unknown): string => {
+        if (Array.isArray(cf) && cf.length > 0) return resolveUserName(cf[0])
+        if (!Array.isArray(cf) && cf) return resolveUserName(cf)
+        return ''
+      }
+      // Support both field IDs — different Jira projects may use different custom field IDs for RD負責人
+      const rdOwner = resolveCf(f['customfield_14103']) || resolveCf(f['customfield_10428'])
+      _debugCf[issue.key] = { cf14103: f['customfield_14103'], cf10428: f['customfield_10428'], rdOwner }
       issues[issue.key] = {
         summary: f.summary ?? '',
         assignee: f.assignee?.displayName ?? '',
@@ -2983,7 +2985,7 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
         rdOwner,
       }
     }
-    res.json({ ok: true, issues })
+    res.json({ ok: true, issues, _debugCf })
   } catch (error) { next(error) }
 })
 

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.57.6'
+export const APP_VERSION = '3.57.9'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,27 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.57.9',
+    date: '2026-07-09',
+    changes: [
+      'fix(jira): Lark 回填新欄位位置計算錯誤 — Lark API 回傳 A1:ZZ2 完整 702 欄，導致 headers.length=702 把新欄往第 703 欄塞；改為從最後一個有值的 header 往後一格開始新增，並以 nextAppendColIdx 遞增追蹤同批次多欄情況',
+    ],
+  },
+  {
+    version: '3.57.8',
+    date: '2026-07-09',
+    changes: [
+      'fix(jira): Lark 回填 colIndexToLetter 修正 — 舊版只支援到 ZZ（702欄），第 703 欄產生非法字元「[A」導致 Lark API 90202 錯誤；改用正確的 base-26 轉換，支援 AAA、AAB… 無限欄位',
+    ],
+  },
+  {
+    version: '3.57.7',
+    date: '2026-07-09',
+    changes: [
+      'fix(jira): 批量更新狀態 RD負責人始終空白 — batch-fetch-fields 修正兩個根本問題：(1) 搜尋 endpoint 從 /rest/api/2/search/jql（不存在）改為 /rest/api/3/search/jql；(2) RD負責人 custom field ID 從 customfield_10428 更正為 customfield_14103（CCRS 專案實際 ID）',
+    ],
+  },
   {
     version: '3.57.6',
     date: '2026-07-09',
