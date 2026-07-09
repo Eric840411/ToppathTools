@@ -2957,11 +2957,19 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
         descText = issue.renderedFields.description.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
       }
       // customfield_10428 can be an array (multiuser) or a single object (single user picker)
+      // API v2 may return `name` instead of `displayName` for user fields
       const cf = f.customfield_10428
+      const resolveUserName = (u: unknown): string => {
+        if (!u || typeof u !== 'object') return ''
+        const obj = u as Record<string, unknown>
+        return (typeof obj.displayName === 'string' && obj.displayName)
+          || (typeof obj.name === 'string' && obj.name)
+          || ''
+      }
       const rdOwner = Array.isArray(cf) && cf.length > 0
-        ? (cf[0].displayName ?? '')
-        : (!Array.isArray(cf) && cf && typeof cf === 'object')
-          ? ((cf as { displayName?: string }).displayName ?? '')
+        ? resolveUserName(cf[0])
+        : (!Array.isArray(cf) && cf)
+          ? resolveUserName(cf)
           : ''
       issues[issue.key] = {
         summary: f.summary ?? '',

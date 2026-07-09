@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.57.5'
+export const APP_VERSION = '3.57.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.57.6',
+    date: '2026-07-09',
+    changes: [
+      'fix(jira): 批量更新狀態 RD負責人再次誤判為空 — Jira API v2 回傳使用者物件為 name 而非 displayName，改為同時讀取 displayName → name fallback',
+    ],
+  },
   {
     version: '3.57.5',
     date: '2026-07-02',

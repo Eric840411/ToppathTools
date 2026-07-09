@@ -2493,6 +2493,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       } catch { /* use cached data */ }
     }
 
+    console.log('[batch-update] freshJiraData:', freshJiraData)
     const validationErrors: { issueKey: string; missing: string[] }[] = []
     for (const r of filtered) {
       const jira = freshJiraData[r.issueKey]
@@ -2502,7 +2503,10 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       if (!jira.description?.trim()) missing.push('描述')
       if (!jira.assignee?.trim()) missing.push('受託人')
       if (!jira.rdOwner?.trim()) missing.push('RD負責人')
-      if (missing.length > 0) validationErrors.push({ issueKey: r.issueKey, missing })
+      if (missing.length > 0) {
+        console.log(`[batch-update] ${r.issueKey} missing:`, missing, 'jira fields:', jira)
+        validationErrors.push({ issueKey: r.issueKey, missing })
+      }
     }
     if (validationErrors.length > 0) {
       setUpdateValidationErrors(validationErrors)
