@@ -3015,7 +3015,7 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
         rdOwner,
       }
     }
-    res.json({ ok: true, issues, _debugCf, _detectedRdFieldId: rdFieldId })
+    res.json({ ok: true, issues, _debugCf, _detectedRdFieldIds: rdFieldIds })
   } catch (error) { next(error) }
 })
 
