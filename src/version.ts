@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.57.9'
+export const APP_VERSION = '3.57.10'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.57.10',
+    date: '2026-07-15',
+    changes: [
+      'fix(osm): LuckyLink Bg Client 版本 API 已支援 — 新增 index 3 的對應，顯示實際版號取代「待 API 支援」',
+    ],
+  },
   {
     version: '3.57.9',
     date: '2026-07-09',

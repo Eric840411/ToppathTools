@@ -1217,13 +1217,14 @@ export const OSM_VERSION_ORDER = ['Game Client New', 'Game Client PC', 'Center S
 
 // ─── LuckyLink Version History ────────────────────────────────────────────────
 
-/** index → component name mapping (Bg Client index TBD — pending dev) */
+/** index → component name mapping */
 export const LUCKYLINK_VERSION_COMPONENTS: Record<string, string> = {
   '1': 'Luckylink Server',
+  '3': 'Bg Client',
   '4': 'BG Server',
 }
 
-/** Desired display order (Bg Client will show as — until API returns it) */
+/** Desired display order */
 export const LUCKYLINK_VERSION_ORDER = ['Luckylink Server', 'Bg Client', 'BG Server']
 
 // ─── Activity Logger ──────────────────────────────────────────────────────────
