@@ -2985,6 +2985,8 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
         const obj = u as Record<string, unknown>
         return (typeof obj.displayName === 'string' && obj.displayName)
           || (typeof obj.name === 'string' && obj.name)
+          || (typeof obj.emailAddress === 'string' && obj.emailAddress)
+          || (typeof obj.accountId === 'string' && obj.accountId)
           || ''
       }
       const resolveCf = (cf: unknown): string => {
@@ -3006,7 +3008,7 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
         rdOwner,
       }
     }
-    res.json({ ok: true, issues, _debugCf })
+    res.json({ ok: true, issues, _debugCf, _detectedRdFieldId: rdFieldId })
   } catch (error) { next(error) }
 })
 

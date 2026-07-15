@@ -2490,12 +2490,13 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           headers: { 'Content-Type': 'application/json', 'x-jira-email': currentAccount.email },
           body: JSON.stringify({ issueKeys: filtered.map(r => r.issueKey) }),
         })
-        const d = await r.json() as { ok: boolean; issues?: Record<string, Record<string, string>>; _debugCf?: Record<string, unknown> }
+        const d = await r.json() as { ok: boolean; issues?: Record<string, Record<string, string>>; _debugCf?: Record<string, unknown>; _detectedRdFieldId?: string }
         if (d.ok && d.issues) {
           freshJiraData = { ...updateJiraData, ...d.issues }
           setUpdateJiraData(freshJiraData)
         }
-        console.log('[batch-update] _debugCf (raw customfield_10428):', d._debugCf)
+        console.log('[batch-update] detectedRdFieldId:', d._detectedRdFieldId)
+        console.log('[batch-update] _debugCf:', d._debugCf)
       } catch { /* use cached data */ }
     }
 
