@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.57.13'
+export const APP_VERSION = '3.57.14'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.57.14',
+    date: '2026-07-15',
+    changes: [
+      'fix(jira): batch-fetch-fields 偵測所有同名 "RD負責人" custom field（Jira 可能有多個），依序 fallback 取有值的那個；確認 HTRL 專案實際用 customfield_13322',
+    ],
+  },
   {
     version: '3.57.13',
     date: '2026-07-15',
