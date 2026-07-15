@@ -2536,7 +2536,7 @@ const writebackMultiSchema = z.object({
 
 router.post('/api/sheets/writeback-multi', async (req, res, next) => {
   try {
-    console.log('[writeback-multi] body:', JSON.stringify(req.body).slice(0, 300))
+    console.log('[writeback-multi] body:', JSON.stringify(req.body).slice(0, 600))
     const body = writebackMultiSchema.parse(req.body)
     console.log('[writeback-multi] source:', body.source, 'writes:', body.writes.length)
     let results: { rowIndex: number; ok: boolean; error?: string }[]

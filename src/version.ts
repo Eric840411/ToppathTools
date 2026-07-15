@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.57.15'
+export const APP_VERSION = '3.57.16'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.57.16',
+    date: '2026-07-15',
+    changes: [
+      'fix(jira): 批量開單 Lark 回填改為非同步（fire-and-forget）— 原本 server 端在 HTTP 回應前同步跑完所有 row 的 Lark 寫入（N×5 API calls），大批次導致回應延遲數分鐘且 client 也重複呼叫；現在立即回傳結果讓 client 接手回填，server 端寫入改為背景執行',
+    ],
+  },
   {
     version: '3.57.15',
     date: '2026-07-15',

@@ -1617,23 +1617,30 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
           },
         })
       }
-      // Attempt server-side writeback; mark done/failed in DB regardless
-      try {
-        const wbResults = await multiWritebackLark(body.sheetUrl, wbWrites)
-        const updateStmt = db.prepare(
-          `UPDATE jira_pending_writebacks SET status=?, error=?, attempt_count=attempt_count+1, updated_at=? WHERE sheet_url=? AND row_index=? AND jira_key=?`
-        )
-        for (const wr of wbResults) {
-          const issueKey = succeededResults.find(r => r.rowIndex === wr.rowIndex)?.issueKey
-          if (!issueKey) continue
-          updateStmt.run(wr.ok ? 'done' : 'failed', wr.ok ? null : (wr.error ?? ''), Date.now(), body.sheetUrl, wr.rowIndex, issueKey)
-        }
-      } catch (wbErr) {
-        console.warn('[batch-create] server-side writeback failed (pending queue preserved):', wbErr)
-      }
     }
 
+    // Respond to client immediately — don't block on Lark writeback
+    // (client calls /api/sheets/writeback-multi independently; server writes in background as failsafe)
     res.json({ ok: true, results, succeeded, failed })
+
+    // Fire-and-forget server-side writeback (updates pending_writebacks status after responding)
+    if (wbWrites.length > 0 && body.sheetUrl) {
+      const sheetUrl = body.sheetUrl
+      ;(async () => {
+        try {
+          const wbResults = await multiWritebackLark(sheetUrl, wbWrites)
+          const updateStmt = db.prepare(
+            `UPDATE jira_pending_writebacks SET status=?, error=?, attempt_count=attempt_count+1, updated_at=? WHERE sheet_url=? AND row_index=? AND jira_key=?`
+          )
+          for (const wr of wbResults) {
+            const issueKey = succeededResults.find(r => r.rowIndex === wr.rowIndex)?.issueKey
+            if (!issueKey) continue
+            updateStmt.run(wr.ok ? 'done' : 'failed', wr.ok ? null : (wr.error ?? ''), Date.now(), sheetUrl, wr.rowIndex, issueKey)
+          }
+        } catch (wbErr) {
+          console.warn('[batch-create] background writeback failed (pending queue preserved):', wbErr)
+        }
+      })()
   } catch (error) {
     next(error)
   } finally {
