@@ -594,7 +594,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const [aiSummaryModel, setAiSummaryModel] = useState('')
   const [generatedSummaries, setGeneratedSummaries] = useState<Record<number, string>>({})
   const [summaryGenerating, setSummaryGenerating] = useState(false)
-  const [summaryProgress, setSummaryProgress] = useState<{ done: number; total: number } | null>(null)
+  const [summaryProgress, setSummaryProgress] = useState<{ done: number; total: number; failed?: number } | null>(null)
 
   const [commentSubmitting, setCommentSubmitting] = useState(false)
   const [pendingCommentRequestId, setPendingCommentRequestId] = useState('')
@@ -1230,7 +1230,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     const targets = filteredRecords.filter(r => selectedRows.has(Number(r._rowIndex)) && needsCreate(r))
     if (targets.length === 0) return
     setSummaryGenerating(true)
-    setSummaryProgress({ done: 0, total: targets.length })
+    setSummaryProgress({ done: 0, total: targets.length, failed: 0 })
     const batchSize = 5
     const newSummaries: Record<number, string> = { ...generatedSummaries }
     for (let i = 0; i < targets.length; i += batchSize) {
@@ -1249,13 +1249,18 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           headers: { 'Content-Type': 'application/json', ...emailHeader },
           body: JSON.stringify({ rows, modelSpec: aiSummaryModel || undefined }),
         })
-        const data = await resp.json() as { ok: boolean; results?: { rowIndex: number; summary: string }[] }
+        const data = await resp.json() as { ok: boolean; results?: { rowIndex: number; summary: string; error?: string }[] }
         if (data.ok && data.results) {
-          data.results.forEach(r => { newSummaries[r.rowIndex] = r.summary })
+          let batchFailed = 0
+          data.results.forEach(r => {
+            if (r.error) { batchFailed++; return }
+            newSummaries[r.rowIndex] = r.summary
+          })
           setGeneratedSummaries({ ...newSummaries })
+          if (batchFailed > 0) setSummaryProgress(p => p ? { ...p, failed: (p.failed ?? 0) + batchFailed } : p)
         }
       } catch { /* continue on error */ }
-      setSummaryProgress({ done: Math.min(i + batchSize, targets.length), total: targets.length })
+      setSummaryProgress(p => p ? { ...p, done: Math.min(i + batchSize, targets.length) } : p)
     }
     setSummaryGenerating(false)
   }
@@ -3615,8 +3620,12 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                           {summaryGenerating ? '✦ 生成中...' : `✦ 批量生成摘要（${filteredRecords.filter(r => selectedRows.has(Number(r._rowIndex)) && needsCreate(r)).length} 筆）`}
                         </button>
                         {summaryProgress && (
-                          <span style={{ fontSize: 12, color: summaryProgress.done >= summaryProgress.total ? '#4ade80' : '#a78bfa' }}>
-                            {summaryProgress.done >= summaryProgress.total ? `✓ 完成 ${summaryProgress.total} 筆` : `${summaryProgress.done} / ${summaryProgress.total}`}
+                          <span style={{ fontSize: 12, color: summaryProgress.done >= summaryProgress.total ? (summaryProgress.failed ? '#f87171' : '#4ade80') : '#a78bfa' }}>
+                            {summaryProgress.done >= summaryProgress.total
+                              ? summaryProgress.failed
+                                ? `✓ ${summaryProgress.total - (summaryProgress.failed ?? 0)} 筆完成，${summaryProgress.failed} 筆失敗`
+                                : `✓ 完成 ${summaryProgress.total} 筆`
+                              : `${summaryProgress.done} / ${summaryProgress.total}`}
                           </span>
                         )}
                         {Object.keys(generatedSummaries).length > 0 && !summaryGenerating && (

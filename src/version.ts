@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.57.11'
+export const APP_VERSION = '3.57.12'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.57.12',
+    date: '2026-07-15',
+    changes: [
+      'fix(jira): AI 生成摘要 BATCH_DELAY_MS 從 1200 拉到 2500，減少 Gemini 429 機率',
+      'fix(jira): AI 生成摘要完成後顯示失敗筆數（原本靜默跳過失敗行）',
+    ],
+  },
   {
     version: '3.57.11',
     date: '2026-07-15',

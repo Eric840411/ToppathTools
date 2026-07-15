@@ -3122,7 +3122,7 @@ router.post('/api/jira/generate-summaries', async (req, res, next) => {
 
     // Process in batches to avoid Gemini rate limiting (429 RESOURCE_EXHAUSTED)
     const BATCH_SIZE = 3
-    const BATCH_DELAY_MS = 1200
+    const BATCH_DELAY_MS = 2500
     const results: { rowIndex: number; summary: string; error?: string }[] = []
     for (let i = 0; i < body.rows.length; i += BATCH_SIZE) {
       const batch = body.rows.slice(i, i + BATCH_SIZE)
