@@ -1641,6 +1641,7 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
           console.warn('[batch-create] background writeback failed (pending queue preserved):', wbErr)
         }
       })()
+    }
   } catch (error) {
     next(error)
   } finally {
