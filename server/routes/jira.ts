@@ -3120,12 +3120,18 @@ router.post('/api/jira/generate-summaries', async (req, res, next) => {
       modelSpec: z.string().optional(),
     }).parse(req.body)
 
-    const results = await Promise.all(body.rows.map(async (row) => {
-      if (!row.content.trim()) {
-        return { rowIndex: row.rowIndex, summary: row.prefix || '（內容空白）', error: '內容欄位為空' }
-      }
-      try {
-        const prompt = `你是一個 QA 工程師，請根據以下 Bug 描述，生成一個簡短的 Jira issue 標題。
+    // Process in batches to avoid Gemini rate limiting (429 RESOURCE_EXHAUSTED)
+    const BATCH_SIZE = 3
+    const BATCH_DELAY_MS = 1200
+    const results: { rowIndex: number; summary: string; error?: string }[] = []
+    for (let i = 0; i < body.rows.length; i += BATCH_SIZE) {
+      const batch = body.rows.slice(i, i + BATCH_SIZE)
+      const batchResults = await Promise.all(batch.map(async (row) => {
+        if (!row.content.trim()) {
+          return { rowIndex: row.rowIndex, summary: row.prefix || '（內容空白）', error: '內容欄位為空' }
+        }
+        try {
+          const prompt = `你是一個 QA 工程師，請根據以下 Bug 描述，生成一個簡短的 Jira issue 標題。
 要求：
 - 繁體中文
 - 不超過 30 個字
@@ -3133,13 +3139,18 @@ router.post('/api/jira/generate-summaries', async (req, res, next) => {
 - 直接輸出標題文字，不要有換行或引號
 
 Bug 描述：${row.content.trim()}`
-        const aiTitle = (await callLLM(prompt, body.modelSpec)).trim().replace(/^["「『]|["」』]$/g, '')
-        const summary = row.prefix ? `${row.prefix} ${aiTitle}` : aiTitle
-        return { rowIndex: row.rowIndex, summary }
-      } catch (e) {
-        return { rowIndex: row.rowIndex, summary: row.prefix || row.content.slice(0, 50), error: String(e) }
+          const aiTitle = (await callLLM(prompt, body.modelSpec)).trim().replace(/^["「『]|["」』]$/g, '')
+          const summary = row.prefix ? `${row.prefix} ${aiTitle}` : aiTitle
+          return { rowIndex: row.rowIndex, summary }
+        } catch (e) {
+          return { rowIndex: row.rowIndex, summary: row.prefix || row.content.slice(0, 50), error: String(e) }
+        }
+      }))
+      results.push(...batchResults)
+      if (i + BATCH_SIZE < body.rows.length) {
+        await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS))
       }
-    }))
+    }
 
     res.json({ ok: true, results })
   } catch (error) { next(error) }

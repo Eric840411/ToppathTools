@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.57.10'
+export const APP_VERSION = '3.57.11'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.57.11',
+    date: '2026-07-15',
+    changes: [
+      'fix(jira): AI 生成摘要由 Promise.all 改為批次處理（每批 3 筆、間隔 1.2 秒），避免 Gemini 429 RESOURCE_EXHAUSTED',
+    ],
+  },
   {
     version: '3.57.10',
     date: '2026-07-15',
