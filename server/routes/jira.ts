@@ -2907,6 +2907,28 @@ router.post('/api/jira/bulk-update', async (req, res, next) => {
   } catch (error) { next(error) }
 })
 
+// Cache: baseUrl+auth → rdOwner field ID (per process lifetime)
+const _rdOwnerFieldIdCache = new Map<string, string>()
+
+async function detectRdOwnerFieldId(baseUrl: string, auth: string): Promise<string> {
+  const cacheKey = `${baseUrl}::${auth.slice(0, 16)}`
+  if (_rdOwnerFieldIdCache.has(cacheKey)) return _rdOwnerFieldIdCache.get(cacheKey)!
+  // Fallback list — tried if Jira field discovery fails
+  const FALLBACK_IDS = ['customfield_14103', 'customfield_10428']
+  try {
+    const r = await fetch(`${baseUrl}/rest/api/3/field`, { headers: { Authorization: auth, Accept: 'application/json' } })
+    if (!r.ok) return FALLBACK_IDS[0]
+    const fields = await r.json() as { id: string; name: string; custom?: boolean }[]
+    const match = fields.find(f => f.custom && f.name === 'RD負責人')
+    const id = match?.id ?? FALLBACK_IDS[0]
+    _rdOwnerFieldIdCache.set(cacheKey, id)
+    log('info', `[batch-fetch-fields] RD負責人 field ID detected: ${id}`)
+    return id
+  } catch {
+    return FALLBACK_IDS[0]
+  }
+}
+
 // POST /api/jira/batch-fetch-fields — 批量讀取 Jira Issue 現有欄位值
 router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
   try {
@@ -2915,13 +2937,15 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
     const { issueKeys } = z.object({ issueKeys: z.array(z.string()) }).parse(req.body)
     if (issueKeys.length === 0) return res.json({ ok: true, issues: {} })
     const baseUrl = mustEnv('JIRA_BASE_URL')
+    // Dynamically detect RD負責人 field ID — avoids hardcoding per-project custom field IDs
+    const rdFieldId = await detectRdOwnerFieldId(baseUrl, userAuth.auth)
     const jql = `key in (${issueKeys.map(k => `"${k}"`).join(',')})`
     const resp = await fetch(`${baseUrl}/rest/api/3/search/jql`, {
       method: 'POST',
       headers: { Authorization: userAuth.auth, 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify({
         jql,
-        fields: ['summary', 'assignee', 'reporter', 'description', 'priority', 'status', 'issuetype', 'labels', 'customfield_14103', 'customfield_10428'],
+        fields: ['summary', 'assignee', 'reporter', 'description', 'priority', 'status', 'issuetype', 'labels', rdFieldId],
         expand: 'renderedFields',
         maxResults: Math.min(issueKeys.length, 200),
       }),
@@ -2941,8 +2965,6 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
         issuetype?: { name?: string }
         labels?: string[]
         description?: unknown
-        customfield_14103?: Array<{ displayName?: string; name?: string }> | { displayName?: string; name?: string }
-        customfield_10428?: Array<{ displayName?: string; name?: string }> | { displayName?: string; name?: string }
       }
       renderedFields?: { description?: string }
     }
@@ -2970,9 +2992,8 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
         if (!Array.isArray(cf) && cf) return resolveUserName(cf)
         return ''
       }
-      // Support both field IDs — different Jira projects may use different custom field IDs for RD負責人
-      const rdOwner = resolveCf(f['customfield_14103']) || resolveCf(f['customfield_10428'])
-      _debugCf[issue.key] = { cf14103: f['customfield_14103'], cf10428: f['customfield_10428'], rdOwner }
+      const rdOwner = resolveCf(f[rdFieldId])
+      _debugCf[issue.key] = { fieldId: rdFieldId, rawValue: f[rdFieldId], rdOwner }
       issues[issue.key] = {
         summary: f.summary ?? '',
         assignee: f.assignee?.displayName ?? '',

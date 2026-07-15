@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.57.12'
+export const APP_VERSION = '3.57.13'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.57.13',
+    date: '2026-07-15',
+    changes: [
+      'fix(jira): batch-fetch-fields 改為動態偵測 RD負責人欄位 ID（呼叫 /rest/api/3/field 查名稱），不再硬編 customfield ID，兼容所有 Jira 專案',
+    ],
+  },
   {
     version: '3.57.12',
     date: '2026-07-15',
