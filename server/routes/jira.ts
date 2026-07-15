@@ -3019,6 +3019,43 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
   } catch (error) { next(error) }
 })
 
+// POST /api/jira/detect-rd-fields — 掃描指定 Issue 的所有 custom user fields，供 UI 確認 RD負責人欄位 ID
+router.post('/api/jira/detect-rd-fields', async (req, res, next) => {
+  try {
+    const userAuth = userJiraAuth(req)
+    if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
+    const { issueKey } = z.object({ issueKey: z.string() }).parse(req.body)
+    const baseUrl = mustEnv('JIRA_BASE_URL')
+
+    // Fetch field metadata (name lookup)
+    const fieldMetaResp = await fetch(`${baseUrl}/rest/api/3/field`, { headers: { Authorization: userAuth.auth, Accept: 'application/json' } })
+    const fieldMeta: { id: string; name: string }[] = fieldMetaResp.ok ? await fieldMetaResp.json() as { id: string; name: string }[] : []
+    const fieldNameMap = Object.fromEntries(fieldMeta.map(f => [f.id, f.name]))
+
+    // Fetch issue with all fields
+    const issueResp = await fetch(`${baseUrl}/rest/api/3/issue/${issueKey}?fields=*all`, { headers: { Authorization: userAuth.auth, Accept: 'application/json' } })
+    if (!issueResp.ok) return res.status(issueResp.status).json({ ok: false, message: `Jira error: ${issueResp.status}` })
+    const issueData = await issueResp.json() as { fields?: Record<string, unknown> }
+
+    const resolveUser = (u: unknown): string => {
+      if (!u || typeof u !== 'object') return ''
+      const o = u as Record<string, unknown>
+      return String(o.displayName ?? o.name ?? o.emailAddress ?? o.accountId ?? '')
+    }
+
+    const candidates: { fieldId: string; fieldName: string; value: string }[] = []
+    for (const [key, val] of Object.entries(issueData.fields ?? {})) {
+      if (!key.startsWith('customfield_')) continue
+      let userVal = ''
+      if (Array.isArray(val) && val.length > 0) userVal = resolveUser(val[0])
+      else userVal = resolveUser(val)
+      if (userVal) candidates.push({ fieldId: key, fieldName: fieldNameMap[key] ?? key, value: userVal })
+    }
+
+    res.json({ ok: true, issueKey, candidates })
+  } catch (error) { next(error) }
+})
+
 // POST /api/jira/batch-edit — 批量修改 Jira Issue 欄位
 router.post('/api/jira/batch-edit', async (req, res, next) => {
   try {

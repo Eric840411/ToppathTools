@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.57.14'
+export const APP_VERSION = '3.57.15'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.57.15',
+    date: '2026-07-15',
+    changes: [
+      'feat(jira): 批量更新狀態預覽表新增「🔍 偵測 RD 欄位」按鈕，掃描 Issue 所有 custom user fields 並顯示 fieldId / 欄位名稱 / 目前值',
+    ],
+  },
   {
     version: '3.57.14',
     date: '2026-07-15',

@@ -639,6 +639,8 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const [updateValidationErrors, setUpdateValidationErrors] = useState<{ issueKey: string; missing: string[] }[]>([])
   const [updateTitleWritebackLoading, setUpdateTitleWritebackLoading] = useState(false)
   const [updateTitleWritebackMsg, setUpdateTitleWritebackMsg] = useState('')
+  const [rdFieldDetecting, setRdFieldDetecting] = useState(false)
+  const [rdFieldCandidates, setRdFieldCandidates] = useState<{ fieldId: string; fieldName: string; value: string }[] | null>(null)
 
   // ── Comment Tab (standalone 批量評論) ──
   const [commentTabUrl, setCommentTabUrl] = useState('')
@@ -2962,7 +2964,47 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                   <span style={{ fontSize: 11, color: '#60a5fa' }}>
                     已選 {updateRecords.filter(r => updateSelectedKeys.has(r.issueKey)).length} / {updateRecords.length} 張
                   </span>
+                  <button type="button"
+                    disabled={rdFieldDetecting || updateRecords.length === 0 || !currentAccount}
+                    style={{ marginLeft: 'auto', fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid #334155', background: '#1e293b', color: '#94a3b8', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    onClick={async () => {
+                      const sampleKey = updateRecords[0]?.issueKey
+                      if (!sampleKey || !currentAccount) return
+                      setRdFieldDetecting(true); setRdFieldCandidates(null)
+                      try {
+                        const r = await fetch('/api/jira/detect-rd-fields', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', ...emailHeader },
+                          body: JSON.stringify({ issueKey: sampleKey }),
+                        })
+                        const d = await r.json() as { ok: boolean; candidates?: { fieldId: string; fieldName: string; value: string }[] }
+                        setRdFieldCandidates(d.candidates ?? [])
+                      } catch { setRdFieldCandidates([]) } finally { setRdFieldDetecting(false) }
+                    }}>
+                    {rdFieldDetecting ? '偵測中...' : '🔍 偵測 RD 欄位'}
+                  </button>
                 </div>
+                {rdFieldCandidates !== null && (
+                  <div style={{ background: '#0f172a', border: '1px solid #1e3a5f', borderRadius: 6, padding: '8px 12px', marginBottom: 8, fontSize: 12 }}>
+                    <div style={{ color: '#60a5fa', fontWeight: 700, marginBottom: 6 }}>
+                      以 {updateRecords[0]?.issueKey} 掃描到的 custom user fields：
+                    </div>
+                    {rdFieldCandidates.length === 0
+                      ? <span style={{ color: '#94a3b8' }}>未找到任何 custom user field 有值</span>
+                      : rdFieldCandidates.map(c => (
+                        <div key={c.fieldId} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 3 }}>
+                          <code style={{ color: '#f59e0b', background: '#1e293b', padding: '1px 6px', borderRadius: 3 }}>{c.fieldId}</code>
+                          <span style={{ color: '#e2e8f0' }}>{c.fieldName}</span>
+                          <span style={{ color: '#64748b' }}>= {c.value}</span>
+                        </div>
+                      ))
+                    }
+                    <div style={{ marginTop: 6, color: '#64748b', fontSize: 11 }}>
+                      系統目前使用的 RD 欄位：{updateJiraData[updateRecords[0]?.issueKey ?? '']?.rdOwner !== undefined ? '已抓到值' : '值為空（可能需更新偵測）'}
+                    </div>
+                    <button type="button" style={{ marginTop: 4, fontSize: 11, color: '#64748b', background: 'none', border: 'none', cursor: 'pointer' }} onClick={() => setRdFieldCandidates(null)}>關閉</button>
+                  </div>
+                )}
                 <div style={{ border: '1px solid #1e3a5f', borderRadius: 6, overflow: 'hidden' }}>
                   <div style={{ maxHeight: 360, overflowY: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
