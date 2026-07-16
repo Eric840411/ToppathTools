@@ -2446,14 +2446,24 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
       if (!items.length) { setEditTabError('所有 Issue 均無有效更新欄位，請檢查欄位對應設定'); return }
 
-      const resp = await fetch('/api/jira/batch-edit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...emailHeader },
-        body: JSON.stringify({ items }),
-      })
-      const result = await resp.json() as { ok: boolean; results?: { issueKey: string; ok: boolean; error?: string }[]; message?: string }
-      if (!result.ok) { setEditTabError(result.message ?? '批量修改失敗') }
-      else { setEditTabResults(result.results ?? []); setEditTabStep(4) }
+      // Send one item at a time for real-time progress updates
+      const allEditResults: { issueKey: string; ok: boolean; error?: string }[] = []
+      for (let i = 0; i < items.length; i++) {
+        try {
+          const resp = await fetch('/api/jira/batch-edit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...emailHeader },
+            body: JSON.stringify({ items: [items[i]] }),
+          })
+          const result = await resp.json() as { ok: boolean; results?: { issueKey: string; ok: boolean; error?: string }[]; message?: string }
+          if (result.results) allEditResults.push(...result.results)
+          else allEditResults.push({ issueKey: items[i].issueKey, ok: false, error: result.message ?? `HTTP ${resp.status}` })
+        } catch (e) {
+          allEditResults.push({ issueKey: items[i].issueKey, ok: false, error: String(e) })
+        }
+        setEditProgress({ done: i + 1, total: items.length })
+      }
+      setEditTabResults(allEditResults); setEditTabStep(4)
     } catch { setEditTabError('網路錯誤') }
     finally { setEditTabSubmitting(false); setEditProgress(null) }
   }
