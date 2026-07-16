@@ -3184,47 +3184,49 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 </div>
               )}
 
-              <div className="stage-nav" style={{ flexWrap: 'wrap', gap: 8 }}>
-                <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setUpdateStep(1)}>上一步</button>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1, justifyContent: 'flex-end' }}>
-                  <button
-                    type="button"
-                    onClick={handleUpdateTitleWriteback}
-                    disabled={updateTitleWritebackLoading || updateSelectedKeys.size === 0}
-                    style={{ padding: '7px 14px', borderRadius: 6, border: '1px solid #1a3a2a', background: updateSelectedKeys.size > 0 ? '#1a3a2a' : '#0f172a', color: updateSelectedKeys.size > 0 ? '#4ade80' : '#374151', fontSize: 13, cursor: updateSelectedKeys.size > 0 ? 'pointer' : 'default', whiteSpace: 'nowrap' }}
-                  >
-                    {updateTitleWritebackLoading ? '回填中…' : `📝 回填單子標題（${updateSelectedKeys.size} 筆）`}
-                  </button>
-                  {updateTitleWritebackMsg && (
-                    <span style={{ fontSize: 12, color: updateTitleWritebackMsg.startsWith('✅') ? '#4ade80' : '#f87171' }}>
-                      {updateTitleWritebackMsg}
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    className={`submit-btn submit-btn--step${updateSubmitting ? ' loading' : ''}`}
-                    disabled={updateSubmitting || !currentAccount || updateRecords.filter(r => updateSelectedKeys.has(r.issueKey)).length === 0}
-                    onClick={handleUpdateExecute}
-                    style={{ whiteSpace: 'nowrap' }}
-                  >
-                    {updateSubmitting ? '執行中…' : `▶ 執行（${updateRecords.filter(r => updateSelectedKeys.has(r.issueKey)).length} 張）`}
-                  </button>
-                </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {updateSubmitting && (() => {
                   const up = updateProgress
                   const upct = up ? Math.round(up.done / up.total * 100) : 0
                   return (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 12 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8' }}>
                         <span>{up ? `處理中 ${up.done} / ${up.total}` : '提交中...'}</span>
                         {up && <span>{upct}%</span>}
                       </div>
                       <div style={{ height: 6, borderRadius: 3, background: '#1e2d3d', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', borderRadius: 3, background: '#3b82f6', width: `${upct}%`, transition: 'width 0.3s ease', animation: upct === 0 ? 'progressPulse 1.5s ease-in-out infinite' : 'none' }} />
+                        <div style={{ height: '100%', borderRadius: 3, background: '#3b82f6', width: `${upct}%`, transition: 'width 0.3s ease' }} />
                       </div>
                     </div>
                   )
                 })()}
+                <div className="stage-nav" style={{ flexWrap: 'wrap', gap: 8 }}>
+                  <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setUpdateStep(1)}>上一步</button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: 1, justifyContent: 'flex-end' }}>
+                    <button
+                      type="button"
+                      onClick={handleUpdateTitleWriteback}
+                      disabled={updateTitleWritebackLoading || updateSelectedKeys.size === 0}
+                      style={{ padding: '7px 14px', borderRadius: 6, border: '1px solid #1a3a2a', background: updateSelectedKeys.size > 0 ? '#1a3a2a' : '#0f172a', color: updateSelectedKeys.size > 0 ? '#4ade80' : '#374151', fontSize: 13, cursor: updateSelectedKeys.size > 0 ? 'pointer' : 'default', whiteSpace: 'nowrap' }}
+                    >
+                      {updateTitleWritebackLoading ? '回填中…' : `📝 回填單子標題（${updateSelectedKeys.size} 筆）`}
+                    </button>
+                    {updateTitleWritebackMsg && (
+                      <span style={{ fontSize: 12, color: updateTitleWritebackMsg.startsWith('✅') ? '#4ade80' : '#f87171' }}>
+                        {updateTitleWritebackMsg}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      className={`submit-btn submit-btn--step${updateSubmitting ? ' loading' : ''}`}
+                      disabled={updateSubmitting || !currentAccount || updateRecords.filter(r => updateSelectedKeys.has(r.issueKey)).length === 0}
+                      onClick={handleUpdateExecute}
+                      style={{ whiteSpace: 'nowrap' }}
+                    >
+                      {updateSubmitting ? '執行中…' : `▶ 執行（${updateRecords.filter(r => updateSelectedKeys.has(r.issueKey)).length} 張）`}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
