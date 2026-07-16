@@ -1374,12 +1374,10 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
 
 /**
  * POST /api/jira/batch-create
- * 從 Lark Sheet 批次建立 Jira Issues。
- * @rate-limit heavyLimiter — 每分鐘最多 15 次，防止對 Jira API 造成過量請求。
+ * 從 Lark Sheet 批次建立 Jira Issues。前端逐筆呼叫（rows 陣列長度為 1），累加進度顯示。
  */
-router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
+router.post('/api/jira/batch-create', async (req, res, next) => {
   let heavyTaskToken: HeavyTaskToken | null = null
-  let sseStarted = false
   try {
     const userAuth = userJiraAuth(req)
     if (!userAuth) {
@@ -1400,28 +1398,23 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
     const dynamicFieldMeta = new Map<string, NormalizedJiraField>()
     if (body.projectKey) {
       try {
-        const fields = await fetchNormalizedJiraFields(body.projectKey, issueTypeId, '', userAuth.auth, baseUrl)
+        const cacheKey = `${body.projectKey}:${issueTypeId}`
+        let fields = fieldMetaCache.get(cacheKey)?.fields
+        if (!fields) {
+          fields = await fetchNormalizedJiraFields(body.projectKey, issueTypeId, '', userAuth.auth, baseUrl)
+          fieldMetaCache.set(cacheKey, { fields, expiresAt: Date.now() + 10 * 60 * 1000 })
+        }
         for (const field of fields) dynamicFieldMeta.set(field.key, field)
       } catch (error) {
         console.warn('[batch-create] dynamic field metadata unavailable:', error)
       }
     }
 
-    // Start SSE — all validation passed, stream progress per row
-    res.setHeader('Content-Type', 'text/event-stream')
-    res.setHeader('Cache-Control', 'no-cache')
-    res.setHeader('Connection', 'keep-alive')
-    res.setHeader('X-Accel-Buffering', 'no')
-    res.flushHeaders()
-    sseStarted = true
-    const sendSSE = (event: string, data: object) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-
     const results: { rowIndex: number; issueKey?: string; error?: string }[] = []
 
     for (const row of body.rows) {
       if (!row.summary.replace(/[\r\n]+/g, '').trim()) {
         results.push({ rowIndex: row.rowIndex, error: '缺少摘要欄位，已略過' })
-        sendSSE('progress', { done: results.length, total: body.rows.length })
         continue
       }
       try {
@@ -1578,11 +1571,9 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
             }
           }
           results.push({ rowIndex: row.rowIndex, issueKey })
-          sendSSE('progress', { done: results.length, total: body.rows.length })
         }
       } catch (e) {
         results.push({ rowIndex: row.rowIndex, error: String(e) })
-        sendSSE('progress', { done: results.length, total: body.rows.length })
       }
     }
 
@@ -1632,10 +1623,9 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
       }
     }
 
-    // Send final result via SSE and close stream
-    // (client calls /api/sheets/writeback-multi independently; server writes in background as failsafe)
-    sendSSE('result', { ok: true, results, succeeded, failed })
-    res.end()
+    // Return result immediately; client calls /api/sheets/writeback-multi independently.
+    // Server-side writeback below runs in background as a failsafe.
+    res.json({ ok: true, results, succeeded, failed })
 
     // Fire-and-forget server-side writeback (updates pending_writebacks status after responding)
     if (wbWrites.length > 0 && body.sheetUrl) {
@@ -1657,11 +1647,7 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
       })()
     }
   } catch (error) {
-    if (sseStarted) {
-      try { res.write(`event: error\ndata: ${JSON.stringify({ message: String(error) })}\n\n`); res.end() } catch {}
-    } else {
-      next(error)
-    }
+    next(error)
   } finally {
     finishHeavyTask(heavyTaskToken)
   }

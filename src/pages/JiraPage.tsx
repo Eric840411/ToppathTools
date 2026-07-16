@@ -1637,63 +1637,24 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     try {
       console.log('[batch-create] sending rows:', rows.length, 'rows[0]:', rows[0])
       const project = projects.find(p => p.id === selectedProjectId)
-      const resp = await fetch('/api/jira/batch-create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...emailHeader },
-        body: JSON.stringify({ rows, sheetUrl, projectId: selectedProjectId, projectKey: project?.key, issueTypeId: selectedIssueTypeId }),
-      })
-
-      // Read SSE stream for real-time progress (non-SSE fallback for early errors)
-      let data: { ok: boolean; results?: IssueCreateResult[]; message?: string } | null = null
-      const contentType = resp.headers.get('content-type') ?? ''
-      if (!contentType.includes('text/event-stream')) {
-        const errData = await resp.json() as { ok: boolean; message?: string }
-        setCreateResults([{ rowIndex: 0, error: errData.message ?? `HTTP ${resp.status}` }])
-        setStep(4)
-        setSubmitting(false)
-        return
-      }
-      if (resp.body) {
-        const reader = resp.body.getReader()
-        const decoder = new TextDecoder()
-        let buf = ''
-        let lastEvent = ''
+      const results: IssueCreateResult[] = []
+      for (let i = 0; i < rows.length; i++) {
         try {
-          while (true) {
-            const { done: streamDone, value } = await reader.read()
-            if (streamDone) break
-            buf += decoder.decode(value, { stream: true })
-            const lines = buf.split('\n')
-            buf = lines.pop() ?? ''
-            for (const line of lines) {
-              if (line.startsWith('event: ')) {
-                lastEvent = line.slice(7).trim()
-              } else if (line.startsWith('data: ')) {
-                try {
-                  const parsed = JSON.parse(line.slice(6)) as { done?: number; total?: number; ok?: boolean; results?: IssueCreateResult[]; message?: string }
-                  if (lastEvent === 'progress' && parsed.done !== undefined && parsed.total !== undefined) {
-                    setCreateProgress({ done: parsed.done, total: parsed.total })
-                  } else if (lastEvent === 'result' || lastEvent === 'error') {
-                    data = parsed as { ok: boolean; results?: IssueCreateResult[]; message?: string }
-                  }
-                } catch { /* ignore SSE parse errors */ }
-                lastEvent = ''
-              }
-            }
-          }
-        } finally {
-          reader.releaseLock()
+          const resp = await fetch('/api/jira/batch-create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...emailHeader },
+            body: JSON.stringify({ rows: [rows[i]], sheetUrl, projectId: selectedProjectId, projectKey: project?.key, issueTypeId: selectedIssueTypeId }),
+          })
+          const data = await resp.json() as { ok: boolean; results?: IssueCreateResult[]; message?: string }
+          if (data.ok && data.results) results.push(...data.results)
+          else results.push({ rowIndex: rows[i].rowIndex, error: data.message ?? `HTTP ${resp.status}` })
+        } catch (e) {
+          results.push({ rowIndex: rows[i].rowIndex, error: String(e) })
         }
+        setCreateProgress({ done: i + 1, total: rows.length })
       }
 
-      console.log('[batch-create] response:', data)
-      if (!data || !data.ok) {
-        setCreateResults([{ rowIndex: 0, error: data?.message ?? `HTTP ${resp.status}` }])
-        setStep(4)
-        setSubmitting(false)
-        return
-      }
-      const results: IssueCreateResult[] = data.results ?? []
+      console.log('[batch-create] results:', results)
       const succeeded = results.filter(r => r.issueKey)
 
       // 寫回多欄位
@@ -4054,7 +4015,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                   {cp && <span>{cpct}%</span>}
                 </div>
                 <div style={{ height: 6, borderRadius: 3, background: '#1e2d3d', overflow: 'hidden' }}>
-                  <div style={{ height: '100%', borderRadius: 3, background: '#3b82f6', width: `${cpct}%`, transition: 'width 0.3s ease', animation: cpct === 0 ? 'progressPulse 1.5s ease-in-out infinite' : 'none' }} />
+                  <div style={{ height: '100%', borderRadius: 3, background: '#3b82f6', width: `${cpct}%`, transition: 'width 0.3s ease' }} />
                 </div>
               </div>
             )
