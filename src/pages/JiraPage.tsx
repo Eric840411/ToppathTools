@@ -2124,8 +2124,44 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
         headers: { 'Content-Type': 'application/json', ...emailHeader },
         body: JSON.stringify({ issues }),
       })
-      const data = await resp.json() as { ok: boolean; results?: StageOpResult[] }
-      const results = data.results ?? []
+
+      // Read SSE stream for real-time progress
+      let transData: { ok: boolean; results?: StageOpResult[]; message?: string } | null = null
+      const transCT = resp.headers.get('content-type') ?? ''
+      if (!transCT.includes('text/event-stream')) {
+        const errData = await resp.json() as { ok: boolean; message?: string }
+        setTransitionResults([{ rowIndex: 0, issueKey: '', ok: false, error: errData.message ?? `HTTP ${resp.status}` }])
+        setStep(6); return
+      }
+      if (resp.body) {
+        const reader = resp.body.getReader()
+        const decoder = new TextDecoder()
+        let buf = '', lastEvent = ''
+        try {
+          while (true) {
+            const { done: sd, value } = await reader.read()
+            if (sd) break
+            buf += decoder.decode(value, { stream: true })
+            const lines = buf.split('\n'); buf = lines.pop() ?? ''
+            for (const line of lines) {
+              if (line.startsWith('event: ')) { lastEvent = line.slice(7).trim() }
+              else if (line.startsWith('data: ')) {
+                try {
+                  const parsed = JSON.parse(line.slice(6)) as { done?: number; total?: number; ok?: boolean; results?: StageOpResult[]; message?: string }
+                  if (lastEvent === 'progress' && parsed.done !== undefined && parsed.total !== undefined) {
+                    setTransitionProgress({ done: parsed.done, total: parsed.total })
+                  } else if (lastEvent === 'result' || lastEvent === 'error') {
+                    transData = parsed as { ok: boolean; results?: StageOpResult[]; message?: string }
+                  }
+                } catch { /* ignore */ }
+                lastEvent = ''
+              }
+            }
+          }
+        } finally { reader.releaseLock() }
+      }
+
+      const results = transData?.results ?? []
       setTransitionResults(results)
 
       const successRows = results.filter(r => r.ok)

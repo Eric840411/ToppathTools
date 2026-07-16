@@ -2407,6 +2407,7 @@ router.get('/api/jira/batch-comment/status/:requestId', (req, res) => {
 // POST /api/jira/batch-transition
 router.post('/api/jira/batch-transition', async (req, res, next) => {
   let heavyTaskToken: HeavyTaskToken | null = null
+  let sseStarted = false
   try {
     const userAuth = userJiraAuth(req)
     if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
@@ -2418,6 +2419,12 @@ router.post('/api/jira/batch-transition', async (req, res, next) => {
     const body = batchTransitionSchema.parse(req.body)
     const baseUrl = mustEnv('JIRA_BASE_URL')
     const defaultTransitionId = process.env.JIRA_TRANSITION_ID ?? '41'
+
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    sseStarted = true
+    const sendSSE = (event: string, data: object) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
 
     const results: { rowIndex: number; issueKey: string; ok: boolean; error?: string }[] = []
 
@@ -2432,6 +2439,7 @@ router.post('/api/jira/batch-transition', async (req, res, next) => {
       } catch (e) {
         results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: false, error: String(e) })
       }
+      sendSSE('progress', { done: results.length, total: body.issues.length })
     }
 
     const ok = results.filter(r => r.ok).length
@@ -2442,9 +2450,14 @@ router.post('/api/jira/batch-transition', async (req, res, next) => {
       'Jira 切換狀態',
       `成功 ${ok} 筆${fail > 0 ? `，失敗 ${fail} 筆` : ''}`,
     )
-    res.json({ ok: true, results })
+    sendSSE('result', { ok: true, results })
+    res.end()
   } catch (error) {
-    next(error)
+    if (sseStarted) {
+      try { res.write(`event: error\ndata: ${JSON.stringify({ message: String(error) })}\n\n`); res.end() } catch {}
+    } else {
+      next(error)
+    }
   } finally {
     finishHeavyTask(heavyTaskToken)
   }
