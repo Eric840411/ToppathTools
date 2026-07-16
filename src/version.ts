@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.57.16'
+export const APP_VERSION = '3.57.17'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.57.17',
+    date: '2026-07-16',
+    changes: [
+      'fix(jira): 批量開單進度條改為 SSE 即時更新 — server 每完成一筆 row 發 progress 事件，client 用 stream reader 解析；修正 wbWrites 作用域錯誤（宣告在 if block 內導致 fire-and-forget 無法存取）',
+    ],
+  },
   {
     version: '3.57.16',
     date: '2026-07-15',

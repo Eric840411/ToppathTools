@@ -1379,6 +1379,7 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
  */
 router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
   let heavyTaskToken: HeavyTaskToken | null = null
+  let sseStarted = false
   try {
     const userAuth = userJiraAuth(req)
     if (!userAuth) {
@@ -1406,11 +1407,19 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
       }
     }
 
+    // Start SSE — all validation passed, stream progress per row
+    res.setHeader('Content-Type', 'text/event-stream')
+    res.setHeader('Cache-Control', 'no-cache')
+    res.setHeader('Connection', 'keep-alive')
+    sseStarted = true
+    const sendSSE = (event: string, data: object) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+
     const results: { rowIndex: number; issueKey?: string; error?: string }[] = []
 
     for (const row of body.rows) {
       if (!row.summary.replace(/[\r\n]+/g, '').trim()) {
         results.push({ rowIndex: row.rowIndex, error: '缺少摘要欄位，已略過' })
+        sendSSE('progress', { done: results.length, total: body.rows.length })
         continue
       }
       try {
@@ -1567,9 +1576,11 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
             }
           }
           results.push({ rowIndex: row.rowIndex, issueKey })
+          sendSSE('progress', { done: results.length, total: body.rows.length })
         }
       } catch (e) {
         results.push({ rowIndex: row.rowIndex, error: String(e) })
+        sendSSE('progress', { done: results.length, total: body.rows.length })
       }
     }
 
@@ -1588,6 +1599,7 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
     // calls /api/sheets/writeback-multi), the records stay as 'pending' and can
     // be retried via POST /api/jira/pending-writebacks/retry.
     const succeededResults = results.filter(r => r.issueKey)
+    const wbWrites: MultiWrite[] = []
     if (succeededResults.length > 0 && body.sheetUrl) {
       const insertStmt = db.prepare(
         `INSERT OR IGNORE INTO jira_pending_writebacks (created_at, sheet_url, row_index, jira_key, jira_url, summary, status, updated_at)
@@ -1595,7 +1607,6 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
       )
       const nowMs = Date.now()
       const jiraBase = mustEnv('JIRA_BASE_URL')
-      const wbWrites: MultiWrite[] = []
       for (const r of succeededResults) {
         const rowSummary = body.rows.find(rr => rr.rowIndex === r.rowIndex)?.summary ?? ''
         const jiraUrl = `${jiraBase}/browse/${r.issueKey!}`
@@ -1619,9 +1630,10 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
       }
     }
 
-    // Respond to client immediately — don't block on Lark writeback
+    // Send final result via SSE and close stream
     // (client calls /api/sheets/writeback-multi independently; server writes in background as failsafe)
-    res.json({ ok: true, results, succeeded, failed })
+    sendSSE('result', { ok: true, results, succeeded, failed })
+    res.end()
 
     // Fire-and-forget server-side writeback (updates pending_writebacks status after responding)
     if (wbWrites.length > 0 && body.sheetUrl) {
@@ -1643,7 +1655,11 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
       })()
     }
   } catch (error) {
-    next(error)
+    if (sseStarted) {
+      try { res.write(`event: error\ndata: ${JSON.stringify({ message: String(error) })}\n\n`); res.end() } catch {}
+    } else {
+      next(error)
+    }
   } finally {
     finishHeavyTask(heavyTaskToken)
   }

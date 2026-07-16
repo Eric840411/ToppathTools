@@ -1641,10 +1641,53 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
         headers: { 'Content-Type': 'application/json', ...emailHeader },
         body: JSON.stringify({ rows, sheetUrl, projectId: selectedProjectId, projectKey: project?.key, issueTypeId: selectedIssueTypeId }),
       })
-      const data = await resp.json()
+
+      // Read SSE stream for real-time progress (non-SSE fallback for early errors)
+      let data: { ok: boolean; results?: IssueCreateResult[]; message?: string } | null = null
+      const contentType = resp.headers.get('content-type') ?? ''
+      if (!contentType.includes('text/event-stream')) {
+        const errData = await resp.json() as { ok: boolean; message?: string }
+        setCreateResults([{ rowIndex: 0, error: errData.message ?? `HTTP ${resp.status}` }])
+        setStep(4)
+        setSubmitting(false)
+        return
+      }
+      if (resp.body) {
+        const reader = resp.body.getReader()
+        const decoder = new TextDecoder()
+        let buf = ''
+        let lastEvent = ''
+        try {
+          while (true) {
+            const { done: streamDone, value } = await reader.read()
+            if (streamDone) break
+            buf += decoder.decode(value, { stream: true })
+            const lines = buf.split('\n')
+            buf = lines.pop() ?? ''
+            for (const line of lines) {
+              if (line.startsWith('event: ')) {
+                lastEvent = line.slice(7).trim()
+              } else if (line.startsWith('data: ')) {
+                try {
+                  const parsed = JSON.parse(line.slice(6)) as { done?: number; total?: number; ok?: boolean; results?: IssueCreateResult[]; message?: string }
+                  if (lastEvent === 'progress' && parsed.done !== undefined && parsed.total !== undefined) {
+                    setCreateProgress({ done: parsed.done, total: parsed.total })
+                  } else if (lastEvent === 'result' || lastEvent === 'error') {
+                    data = parsed as { ok: boolean; results?: IssueCreateResult[]; message?: string }
+                  }
+                } catch { /* ignore SSE parse errors */ }
+                lastEvent = ''
+              }
+            }
+          }
+        } finally {
+          reader.releaseLock()
+        }
+      }
+
       console.log('[batch-create] response:', data)
-      if (!resp.ok || (!data.results && data.message)) {
-        setCreateResults([{ rowIndex: 0, error: data.message ?? `HTTP ${resp.status}` }])
+      if (!data || !data.ok) {
+        setCreateResults([{ rowIndex: 0, error: data?.message ?? `HTTP ${resp.status}` }])
         setStep(4)
         setSubmitting(false)
         return
