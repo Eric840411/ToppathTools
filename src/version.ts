@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.57.17'
+export const APP_VERSION = '3.57.18'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.57.18',
+    date: '2026-07-16',
+    changes: [
+      'fix(jira): 批量更新狀態（QA子Tab）新增進度條 — 改為前端逐筆呼叫 /api/jira/bulk-update，每筆完成後更新 done/total 計數，與批量轉換狀態/批量修改一致',
+    ],
+  },
   {
     version: '3.57.17',
     date: '2026-07-16',

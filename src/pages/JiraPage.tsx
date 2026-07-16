@@ -631,6 +631,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const [updateTransitions, setUpdateTransitions] = useState<JiraTransitionOption[]>([])
   const [updateTransitionId, setUpdateTransitionId] = useState('')
   const [updateSubmitting, setUpdateSubmitting] = useState(false)
+  const [updateProgress, setUpdateProgress] = useState<{ done: number; total: number } | null>(null)
   const [updateResults, setUpdateResults] = useState<{ issueKey: string; ok: boolean; error?: string }[]>([])
   const [updateJiraData, setUpdateJiraData] = useState<Record<string, Record<string, string>>>({})
   const [updateJiraLoading, setUpdateJiraLoading] = useState(false)
@@ -2593,14 +2594,25 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       email: execEmail,
       transitionId: updateTransitionId || undefined,
     }))
+    setUpdateProgress({ done: 0, total: items.length })
     try {
-      const resp = await fetch('/api/jira/bulk-update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items }),
-      })
-      const data = await resp.json() as { ok: boolean; results?: { issueKey: string; ok: boolean; error?: string }[] }
-      const results = data.results ?? []
+      const allResults: { issueKey: string; ok: boolean; error?: string }[] = []
+      for (let i = 0; i < items.length; i++) {
+        try {
+          const resp = await fetch('/api/jira/bulk-update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ items: [items[i]] }),
+          })
+          const data = await resp.json() as { ok: boolean; results?: { issueKey: string; ok: boolean; error?: string }[]; message?: string }
+          if (data.results) allResults.push(...data.results)
+          else allResults.push({ issueKey: items[i].issueKey, ok: false, error: data.message ?? `HTTP ${resp.status}` })
+        } catch (e) {
+          allResults.push({ issueKey: items[i].issueKey, ok: false, error: String(e) })
+        }
+        setUpdateProgress({ done: i + 1, total: items.length })
+      }
+      const results = allResults
       setUpdateResults(results)
       setUpdateStep(3)
 
@@ -2624,6 +2636,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       setUpdateError(String(e))
     } finally {
       setUpdateSubmitting(false)
+      setUpdateProgress(null)
     }
   }
 
@@ -3197,6 +3210,21 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                     {updateSubmitting ? '執行中…' : `▶ 執行（${updateRecords.filter(r => updateSelectedKeys.has(r.issueKey)).length} 張）`}
                   </button>
                 </div>
+                {updateSubmitting && (() => {
+                  const up = updateProgress
+                  const upct = up ? Math.round(up.done / up.total * 100) : 0
+                  return (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8' }}>
+                        <span>{up ? `處理中 ${up.done} / ${up.total}` : '提交中...'}</span>
+                        {up && <span>{upct}%</span>}
+                      </div>
+                      <div style={{ height: 6, borderRadius: 3, background: '#1e2d3d', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', borderRadius: 3, background: '#3b82f6', width: `${upct}%`, transition: 'width 0.3s ease', animation: upct === 0 ? 'progressPulse 1.5s ease-in-out infinite' : 'none' }} />
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             </div>
           )}
