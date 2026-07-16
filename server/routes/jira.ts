@@ -1411,6 +1411,8 @@ router.post('/api/jira/batch-create', heavyLimiter, async (req, res, next) => {
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection', 'keep-alive')
+    res.setHeader('X-Accel-Buffering', 'no')
+    res.flushHeaders()
     sseStarted = true
     const sendSSE = (event: string, data: object) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
 
@@ -2423,6 +2425,8 @@ router.post('/api/jira/batch-transition', async (req, res, next) => {
     res.setHeader('Content-Type', 'text/event-stream')
     res.setHeader('Cache-Control', 'no-cache')
     res.setHeader('Connection', 'keep-alive')
+    res.setHeader('X-Accel-Buffering', 'no')
+    res.flushHeaders()
     sseStarted = true
     const sendSSE = (event: string, data: object) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
 
