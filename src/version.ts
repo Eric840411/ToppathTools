@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.58.2'
+export const APP_VERSION = '3.58.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.58.3',
+    date: '2026-07-17',
+    changes: [
+      'fix(jira): batch-fetch-fields 抓不到部分 Issue 欄位（如摘要/受託人/RD負責人 全部顯示空白）— JQL 搜尋（/rest/api/3/search/jql）預設不會回傳已封存（archived）Issue，但直接 GET 該單號可以；改為對 JQL 搜尋漏掉的單號，額外逐一用直接 GET 補查，兩邊結果合併',
+    ],
+  },
   {
     version: '3.58.2',
     date: '2026-07-17',

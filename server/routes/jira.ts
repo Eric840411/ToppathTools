@@ -2974,10 +2974,22 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
       }
       renderedFields?: { description?: string }
     }
-    const data = await resp.json() as { issues?: JiraIssue[] }
-    const issues: Record<string, Record<string, string>> = {}
+    const resolveUserName = (u: unknown): string => {
+      if (!u || typeof u !== 'object') return ''
+      const obj = u as Record<string, unknown>
+      return (typeof obj.displayName === 'string' && obj.displayName)
+        || (typeof obj.name === 'string' && obj.name)
+        || (typeof obj.emailAddress === 'string' && obj.emailAddress)
+        || (typeof obj.accountId === 'string' && obj.accountId)
+        || ''
+    }
+    const resolveCf = (cf: unknown): string => {
+      if (Array.isArray(cf) && cf.length > 0) return resolveUserName(cf[0])
+      if (!Array.isArray(cf) && cf) return resolveUserName(cf)
+      return ''
+    }
     const _debugCf: Record<string, unknown> = {}
-    for (const issue of data.issues ?? []) {
+    const buildIssueFieldRecord = (issue: JiraIssue): Record<string, string> => {
       const f = issue.fields
       // Try ADF/string first, then fall back to renderedFields (HTML) → strip tags
       let descText = typeof f.description === 'string' ? f.description.trim()
@@ -2985,20 +2997,6 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
         : ''
       if (!descText && issue.renderedFields?.description) {
         descText = issue.renderedFields.description.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
-      }
-      const resolveUserName = (u: unknown): string => {
-        if (!u || typeof u !== 'object') return ''
-        const obj = u as Record<string, unknown>
-        return (typeof obj.displayName === 'string' && obj.displayName)
-          || (typeof obj.name === 'string' && obj.name)
-          || (typeof obj.emailAddress === 'string' && obj.emailAddress)
-          || (typeof obj.accountId === 'string' && obj.accountId)
-          || ''
-      }
-      const resolveCf = (cf: unknown): string => {
-        if (Array.isArray(cf) && cf.length > 0) return resolveUserName(cf[0])
-        if (!Array.isArray(cf) && cf) return resolveUserName(cf)
-        return ''
       }
       // Try each detected field ID in order — different projects may use different IDs for the same field name
       let rdOwner = ''
@@ -3008,7 +3006,7 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
         if (candidate) { rdOwner = candidate; usedFieldId = fid; break }
       }
       _debugCf[issue.key] = { checkedFieldIds: rdFieldIds, usedFieldId, rdOwner }
-      issues[issue.key] = {
+      return {
         summary: f.summary ?? '',
         assignee: f.assignee?.displayName ?? '',
         reporter: f.reporter?.displayName ?? '',
@@ -3020,6 +3018,32 @@ router.post('/api/jira/batch-fetch-fields', async (req, res, next) => {
         rdOwner,
       }
     }
+    const data = await resp.json() as { issues?: JiraIssue[] }
+    const issues: Record<string, Record<string, string>> = {}
+    for (const issue of data.issues ?? []) {
+      issues[issue.key] = buildIssueFieldRecord(issue)
+    }
+
+    // Fallback: JQL search excludes archived issues by design — fetch any missing
+    // keys individually via direct GET (which does return archived issues).
+    const missingKeys = issueKeys.filter(k => !issues[k])
+    if (missingKeys.length > 0) {
+      const fieldsParam = ['summary', 'assignee', 'reporter', 'description', 'priority', 'status', 'issuetype', 'labels', ...new Set(rdFieldIds)].join(',')
+      const fallbackResults = await Promise.all(missingKeys.map(async (key) => {
+        try {
+          const r = await fetch(`${baseUrl}/rest/api/3/issue/${encodeURIComponent(key)}?fields=${encodeURIComponent(fieldsParam)}&expand=renderedFields`, {
+            headers: { Authorization: userAuth.auth, Accept: 'application/json' },
+          })
+          if (!r.ok) return null
+          const issue = await r.json() as JiraIssue
+          return issue
+        } catch { return null }
+      }))
+      for (const issue of fallbackResults) {
+        if (issue?.key) issues[issue.key] = buildIssueFieldRecord(issue)
+      }
+    }
+
     res.json({ ok: true, issues, _debugCf, _detectedRdFieldIds: rdFieldIds })
   } catch (error) { next(error) }
 })
