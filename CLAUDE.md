@@ -153,8 +153,9 @@ Keep Claude for:
 | PM 批次開單 | 從 Lark 讀取 PM 規格，自動建立 Epic + Story |
 | 批次評論 | 對多筆 Issue 批量加入 AI 生成的評論內容 |
 | 批次轉換狀態 | 選擇 Issue 清單 + 目標狀態，批量執行 Jira transition；完成後回填處理階段「已切換狀態」|
-| 批量評論（獨立 Tab） | 貼入 Lark Sheet URL，自動偵測 Issue Key 列，不需經過開單流程直接批量加評論 |
-| 批量修改（獨立 Tab） | 貼入 Lark Sheet URL，選擇 Jira 欄位與 Sheet 欄位對應，批量修改摘要/描述/優先級等欄位 |
+| 批量評論（獨立 Tab） | 貼入 Lark Sheet 或 Google Sheets URL（可切換），自動偵測 Issue Key 列，不需經過開單流程直接批量加評論 |
+| 批量修改（獨立 Tab） | 貼入 Lark Sheet 或 Google Sheets URL（可切換），選擇 Jira 欄位與 Sheet 欄位對應，批量修改摘要/描述/優先級等欄位 |
+| 批量更新狀態（獨立 Tab） | 貼入 Lark Sheet 或 Google Sheets URL（可切換），自動偵測含 Jira 單號的列，批量執行 transition |
 | 批量修改 — 描述附件 | Step 3 預覽表每列有附件欄：可選 Sheet 圖片欄自動讀取（點「讀取附件」），或 + 手動上傳；送出後圖片以 !filename! wiki markup 嵌入描述，影片以 [^filename] 方式嵌入；有未上傳影片時送出前彈出確認 |
 | 查看成員 / 專案 | 列出帳號可存取的 Jira 成員和專案清單 |
 

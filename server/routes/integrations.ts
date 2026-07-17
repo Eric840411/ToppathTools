@@ -2388,7 +2388,7 @@ router.post('/api/integrations/gmail/latest-report', async (_req, res, next) => 
 // POST /api/google/sheets/records
 router.post('/api/google/sheets/records', async (req, res, next) => {
   try {
-    const { sheetUrl } = z.object({ sheetUrl: z.string() }).parse(req.body)
+    const { sheetUrl, includeCreated } = z.object({ sheetUrl: z.string(), includeCreated: z.boolean().optional() }).parse(req.body)
     const { spreadsheetId, gid } = parseGoogleSheetUrl(sheetUrl)
 
     if (!spreadsheetId) {
@@ -2444,6 +2444,9 @@ router.post('/api/google/sheets/records', async (req, res, next) => {
       })
       .filter(r => {
         if (stageHeader) return r[stageHeader] !== '已完成'
+        // includeCreated=true: return ALL non-empty rows (for batch-edit/comment/update);
+        // frontend extractJiraIssuesFromRecords() will filter to rows with Jira keys.
+        if (includeCreated) return true
         return !r[jiraKeyHeader] || r[jiraKeyHeader].trim() === ''
       })
 

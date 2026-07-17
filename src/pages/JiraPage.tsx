@@ -624,6 +624,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   type UpdateRecord = { issueKey: string; rowIndex: number }
   const [updateStep, setUpdateStep] = useState<UpdateStep>(1)
   const [updateBitableUrl, setUpdateBitableUrl] = useState('')
+  const [updateTabSource, setUpdateTabSource] = useState<SheetSource>('lark')
   const [updateLoading, setUpdateLoading] = useState(false)
   const [updateError, setUpdateError] = useState('')
   const [updateRecords, setUpdateRecords] = useState<UpdateRecord[]>([])
@@ -645,6 +646,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
   // ── Comment Tab (standalone 批量評論) ──
   const [commentTabUrl, setCommentTabUrl] = useState('')
+  const [commentTabSource, setCommentTabSource] = useState<SheetSource>('lark')
   const [commentTabLoading, setCommentTabLoading] = useState(false)
   const [commentTabError, setCommentTabError] = useState('')
   const [commentTabStep, setCommentTabStep] = useState<1 | 2 | 3>(1) // 1=URL input, 2=select issues, 3=comment panel
@@ -652,6 +654,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
   // ── Edit Tab (批量修改) ──
   const [editTabUrl, setEditTabUrl] = useState('')
+  const [editTabSource, setEditTabSource] = useState<SheetSource>('lark')
   const [editTabLoading, setEditTabLoading] = useState(false)
   const [editTabError, setEditTabError] = useState('')
   const [editTabStep, setEditTabStep] = useState<1 | 2 | 3 | 4>(1) // 1=URL, 2=select, 3=fields, 4=results
@@ -1964,7 +1967,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              sheetUrl: wbUrl, source: qaSubMode === 'comment' ? 'lark' : sheetSource,
+              sheetUrl: wbUrl, source: qaSubMode === 'comment' ? commentTabSource : sheetSource,
               writes: successRows.map(r => ({ rowIndex: r.rowIndex, columns: { '處理階段': '添加評論', '處理時間': nowString() } })),
             }),
           })
@@ -2229,7 +2232,8 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     if (!commentTabUrl.trim()) return
     setCommentTabLoading(true); setCommentTabError(''); setCommentTabStep(1)
     try {
-      const resp = await fetch('/api/lark/sheets/records', {
+      const endpoint = commentTabSource === 'lark' ? '/api/lark/sheets/records' : '/api/google/sheets/records'
+      const resp = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sheetUrl: commentTabUrl.trim(), includeCreated: true }),
@@ -2276,7 +2280,8 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     if (!editTabUrl.trim()) return
     setEditTabLoading(true); setEditTabError(''); setEditTabJiraError(''); setEditTabIssues([]); setEditTabResults([]); setEditTabJiraData({})
     try {
-      const resp = await fetch('/api/lark/sheets/records', {
+      const endpoint = editTabSource === 'lark' ? '/api/lark/sheets/records' : '/api/google/sheets/records'
+      const resp = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sheetUrl: editTabUrl.trim(), includeCreated: true }),
@@ -2451,7 +2456,8 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     if (!updateBitableUrl.trim()) return
     setUpdateLoading(true); setUpdateError(''); setUpdateRecords([]); setUpdateJiraData({}); setUpdateJiraError('')
     try {
-      const resp = await fetch('/api/lark/sheets/records', {
+      const endpoint = updateTabSource === 'lark' ? '/api/lark/sheets/records' : '/api/google/sheets/records'
+      const resp = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sheetUrl: updateBitableUrl.trim(), includeCreated: true }),
@@ -2585,7 +2591,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            sheetUrl: updateBitableUrl, source: 'lark',
+            sheetUrl: updateBitableUrl, source: updateTabSource,
             writes: succeededRows.map(r => ({
               rowIndex: r.rowIndex,
               columns: { '處理階段': '已切換狀態', '處理時間': nowString() },
@@ -2619,7 +2625,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sheetUrl: updateBitableUrl, source: 'lark',
+          sheetUrl: updateBitableUrl, source: updateTabSource,
           writes: selectedRecs.map(r => {
             const summary = updateJiraData[r.issueKey]?.summary ?? ''
             const jiraUrl = `${jiraBase}/browse/${r.issueKey}`
@@ -2926,14 +2932,26 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             <div className="section-card">
               <h2 className="section-title">Step 1 — 讀取表格</h2>
               <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 12px' }}>
-                貼入 Lark Sheet URL，系統自動偵測含 Jira 單號的列
+                貼入 Sheet URL，系統自動偵測含 Jira 單號的列
               </p>
+              <div className="source-toggle">
+                <button type="button" className={`source-btn source-btn--step${updateTabSource === 'lark' ? ' active' : ''}`}
+                  onClick={() => { setUpdateTabSource('lark'); setUpdateBitableUrl(''); setUpdateError('') }}>
+                  <span className="source-icon lark-icon">L</span>Lark Spreadsheet
+                </button>
+                <button type="button" className={`source-btn source-btn--step${updateTabSource === 'google' ? ' active' : ''}`}
+                  onClick={() => { setUpdateTabSource('google'); setUpdateBitableUrl(''); setUpdateError('') }}>
+                  <span className="source-icon google-icon">G</span>Google Sheets
+                </button>
+              </div>
               {updateError && <div className="alert-error" style={{ marginBottom: 10 }}>{updateError}</div>}
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
                 <input
                   value={updateBitableUrl}
                   onChange={e => setUpdateBitableUrl(e.target.value)}
-                  placeholder="Lark Sheet URL（/wiki/ 或 /sheets/）"
+                  placeholder={updateTabSource === 'lark'
+                    ? 'Lark Sheet URL（/wiki/ 或 /sheets/）'
+                    : 'https://docs.google.com/spreadsheets/d/xxx/edit#gid=0'}
                   style={{ flex: 1, padding: '7px 12px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
                   onKeyDown={e => e.key === 'Enter' && handleUpdateFetchBitable()}
                 />
@@ -4175,14 +4193,26 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
         <div className="section-card">
           <h2 className="section-title">批量評論</h2>
           <p style={{ color: '#64748b', fontSize: 13, marginBottom: 12 }}>
-            貼入 Lark Sheet URL，系統自動偵測含 Jira Issue Key 的列（格式如 ABC-123），批量添加評論與附件。
+            貼入 Sheet URL，系統自動偵測含 Jira Issue Key 的列（格式如 ABC-123），批量添加評論與附件。
           </p>
+          <div className="source-toggle">
+            <button type="button" className={`source-btn source-btn--step${commentTabSource === 'lark' ? ' active' : ''}`}
+              onClick={() => { setCommentTabSource('lark'); setCommentTabUrl(''); setCommentTabError('') }}>
+              <span className="source-icon lark-icon">L</span>Lark Spreadsheet
+            </button>
+            <button type="button" className={`source-btn source-btn--step${commentTabSource === 'google' ? ' active' : ''}`}
+              onClick={() => { setCommentTabSource('google'); setCommentTabUrl(''); setCommentTabError('') }}>
+              <span className="source-icon google-icon">G</span>Google Sheets
+            </button>
+          </div>
           {commentTabError && <div className="alert-error" style={{ marginBottom: 10 }}>{commentTabError}</div>}
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
             <input
               value={commentTabUrl}
               onChange={e => setCommentTabUrl(e.target.value)}
-              placeholder="https://casinoplus.sg.larksuite.com/wiki/... 或 Lark Sheet URL"
+              placeholder={commentTabSource === 'lark'
+                ? 'https://casinoplus.sg.larksuite.com/wiki/... 或 Lark Sheet URL'
+                : 'https://docs.google.com/spreadsheets/d/xxx/edit#gid=0'}
               style={{ flex: 1, padding: '7px 12px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
               onKeyDown={e => e.key === 'Enter' && handleCommentTabLoad()}
             />
@@ -4870,14 +4900,26 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             <div className="section-card">
               <h2 className="section-title">批量修改</h2>
               <p style={{ color: '#64748b', fontSize: 13, marginBottom: 12 }}>
-                貼入 Lark Sheet URL，系統自動偵測含 Jira Issue Key 的列，批量修改指定欄位。
+                貼入 Sheet URL，系統自動偵測含 Jira Issue Key 的列，批量修改指定欄位。
               </p>
+              <div className="source-toggle">
+                <button type="button" className={`source-btn source-btn--step${editTabSource === 'lark' ? ' active' : ''}`}
+                  onClick={() => { setEditTabSource('lark'); setEditTabUrl(''); setEditTabError('') }}>
+                  <span className="source-icon lark-icon">L</span>Lark Spreadsheet
+                </button>
+                <button type="button" className={`source-btn source-btn--step${editTabSource === 'google' ? ' active' : ''}`}
+                  onClick={() => { setEditTabSource('google'); setEditTabUrl(''); setEditTabError('') }}>
+                  <span className="source-icon google-icon">G</span>Google Sheets
+                </button>
+              </div>
               {editTabError && <div className="alert-error" style={{ marginBottom: 10 }}>{editTabError}</div>}
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
                 <input
                   value={editTabUrl}
                   onChange={e => setEditTabUrl(e.target.value)}
-                  placeholder="https://casinoplus.sg.larksuite.com/wiki/... 或 Lark Sheet URL"
+                  placeholder={editTabSource === 'lark'
+                    ? 'https://casinoplus.sg.larksuite.com/wiki/... 或 Lark Sheet URL'
+                    : 'https://docs.google.com/spreadsheets/d/xxx/edit#gid=0'}
                   style={{ flex: 1, padding: '7px 12px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
                   onKeyDown={e => e.key === 'Enter' && handleEditTabLoad()}
                 />

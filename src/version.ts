@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.57.19'
+export const APP_VERSION = '3.58.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.58.0',
+    date: '2026-07-17',
+    changes: [
+      'feat(jira): 批量評論、批量修改、批量更新狀態 三個 Tab 新增 Lark / Google Sheets 資料來源切換（與批量開單 Step 2 相同的版面與按鈕風格），Google Sheets 端一併補上 includeCreated 篩選邏輯以支援已開單資料的讀取',
+    ],
+  },
   {
     version: '3.57.19',
     date: '2026-07-16',
