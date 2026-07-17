@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.58.1'
+export const APP_VERSION = '3.58.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.58.2',
+    date: '2026-07-17',
+    changes: [
+      'fix(jira): 操作說明卡片與下方功能按鈕貼太近 — StepGuide 補上 marginBottom + maxWidth/word-break，統一影響全部 14 個步驟，同時避免長文字內容爆版',
+    ],
+  },
   {
     version: '3.58.1',
     date: '2026-07-17',

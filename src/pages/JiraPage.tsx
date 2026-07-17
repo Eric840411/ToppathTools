@@ -2660,10 +2660,10 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
   // 各步驟操作說明卡片 — 沿用批量開單既有的可摺疊說明樣式
   const StepGuide = ({ title, children }: { title: string; children: ReactNode }) => (
-    <div className="jira-sheet-guide">
+    <div className="jira-sheet-guide" style={{ marginBottom: 20, maxWidth: '100%' }}>
       <details>
         <summary className="jira-sheet-guide-summary">{isGame ? <DungeonIcon name="guide" tone="cyan" size="xs" plain /> : '📋'} {title}</summary>
-        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: '#94a3b8', lineHeight: 1.7 }}>
+        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: '#94a3b8', lineHeight: 1.7, wordBreak: 'break-word' }}>
           {children}
         </ul>
       </details>
@@ -3352,7 +3352,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           </div>
 
           {/* ── Sheet 欄位說明 ── */}
-          <div className="jira-sheet-guide">
+          <div className="jira-sheet-guide" style={{ marginBottom: 20, maxWidth: '100%' }}>
             <details>
               <summary className="jira-sheet-guide-summary">{isGame ? <DungeonIcon name="guide" tone="cyan" size="xs" plain /> : '📋'} Sheet 欄位說明 — 查看必要 / 選填欄位與範例資料</summary>
               <div className="jira-sheet-guide-legend">
