@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { JiraAccountModal, accountHasRole, type AccountInfo } from '../components/JiraAccountModal'
 import { SearchSelect } from '../components/SearchSelect'
@@ -2658,6 +2658,18 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     </span>
   )
 
+  // 各步驟操作說明卡片 — 沿用批量開單既有的可摺疊說明樣式
+  const StepGuide = ({ title, children }: { title: string; children: ReactNode }) => (
+    <div className="jira-sheet-guide">
+      <details>
+        <summary className="jira-sheet-guide-summary">{isGame ? <DungeonIcon name="guide" tone="cyan" size="xs" plain /> : '📋'} {title}</summary>
+        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: '#94a3b8', lineHeight: 1.7 }}>
+          {children}
+        </ul>
+      </details>
+    </div>
+  )
+
   return (
     <div className="page-layout">
       {/* Mode toggle */}
@@ -2965,6 +2977,12 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                   {updateLoading ? '讀取中…' : '📥 讀取'}
                 </button>
               </div>
+
+              <StepGuide title="操作說明 — 這個功能需要什麼樣的 Sheet">
+                <li>只要有一欄是 <b>Jira Issue Key</b>（如 <code>ABC-123</code>）即可，不限欄位名稱或位置</li>
+                <li>讀取後會自動嘗試載入可用的狀態轉換（Transition）選項，供 Step 2 選擇</li>
+                <li>支援 Lark Sheet / Google Sheets 兩種來源</li>
+              </StepGuide>
             </div>
           )}
 
@@ -2975,6 +2993,13 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 12px' }}>
                 共 <b style={{ color: '#e2e8f0' }}>{updateRecords.length}</b> 張單
               </p>
+
+              <StepGuide title="操作說明 — 狀態切換與驗證">
+                <li>系統會依序用「目前帳號」與「所有已儲存帳號」嘗試讀取該 Issue 可用的 Transition 選項（不同帳號權限可能不同）</li>
+                <li>執行前會重新從 Jira 抓最新資料，驗證 <b>摘要 / 描述 / 受託人 / RD負責人</b> 是否都有值，缺漏會擋下並列出問題單號（可點擊捲動定位）</li>
+                <li>「🔍 偵測 RD 欄位」：掃描該 Issue 所有 custom user field，列出欄位 ID / 名稱 / 目前值，方便確認 RD負責人抓的是哪個欄位</li>
+                <li>「📝 回填單子標題」：把 Jira Key 超連結 + 摘要寫回 Sheet 的「單子標題貼這」欄，與正式執行分開，可單獨先跑</li>
+              </StepGuide>
 
               {/* 切換狀態 */}
               <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -3214,6 +3239,12 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           {updateStep === 3 && (
             <div className="section-card">
               <h2 className="section-title">執行結果</h2>
+
+              <StepGuide title="操作說明 — 結果與回填">
+                <li>逐筆呼叫狀態轉換（一次一筆），進度條依完成比例即時前進</li>
+                <li>成功的列會自動回寫「處理階段＝已切換狀態」與「處理時間」到來源 Sheet</li>
+              </StepGuide>
+
               <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
                 <span style={{ fontSize: 13, color: '#4ade80', fontWeight: 700 }}>
                   ✅ 成功 {updateResults.filter(r => r.ok).length} 張
@@ -3275,6 +3306,11 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             </label>
           </div>
 
+          <StepGuide title="操作說明 — 選擇專案與 Issue 類型">
+            <li>專案清單依「目前登入帳號」在 Jira 的存取權限動態載入；清單是空的代表此帳號沒有任何專案權限</li>
+            <li>選好專案後才會載入該專案可用的 Issue 類型（Bug / Task / Story...），請先選專案</li>
+            <li>Issue 類型會影響 Step 3 能填寫的欄位（不同類型的必填欄位可能不同）</li>
+          </StepGuide>
 
           <button type="button" className="submit-btn submit-btn--step" style={{ marginTop: 20 }}
             disabled={!selectedProjectId || !selectedIssueTypeId} onClick={() => setStep(2)}>
@@ -3329,55 +3365,62 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                   <thead>
                     <tr>
                       <th><span className="jira-col-tag jira-col-req">必填</span> 摘要</th>
-                      <th><span className="jira-col-tag jira-col-opt">選填</span> 內容</th>
+                      <th><span className="jira-col-tag jira-col-req">必填</span> 描述</th>
+                      <th><span className="jira-col-tag jira-col-req">必填</span> 受託人</th>
+                      <th><span className="jira-col-tag jira-col-req">必填</span> RD負責人</th>
+                      <th><span className="jira-col-tag jira-col-opt">選填</span> 回報人</th>
                       <th><span className="jira-col-tag jira-col-opt">選填</span> Actual Start</th>
                       <th><span className="jira-col-tag jira-col-opt">選填</span> Actual End</th>
-                      <th><span className="jira-col-tag jira-col-opt">選填</span> 本機完成測試時間</th>
-                      <th><span className="jira-col-tag jira-col-opt">選填</span> 上C服時間</th>
-                      <th><span className="jira-col-tag jira-col-opt">選填</span> 上線日期</th>
+                      <th><span className="jira-col-tag jira-col-opt">選填</span> 其他動態欄位...</th>
                       <th><span className="jira-col-tag jira-col-auto">自動</span> Jira Issue Key</th>
+                      <th><span className="jira-col-tag jira-col-auto">自動</span> Jira URL</th>
                       <th><span className="jira-col-tag jira-col-auto">自動</span> 處理階段</th>
+                      <th><span className="jira-col-tag jira-col-auto">自動</span> 處理時間</th>
+                      <th><span className="jira-col-tag jira-col-auto">自動</span> 單子標題貼這</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr>
                       <td>[BUG] 登入頁面白屏</td>
                       <td>使用者點擊登入後頁面無回應，錯誤碼 500</td>
+                      <td>王小明</td>
+                      <td>陳大文</td>
+                      <td>李四</td>
                       <td>2025-03-20</td>
                       <td>2025-03-22</td>
-                      <td></td>
-                      <td></td>
-                      <td></td>
+                      <td>—</td>
+                      <td style={{ color: '#94a3b8', fontStyle: 'italic' }}>（系統填入）</td>
+                      <td style={{ color: '#94a3b8', fontStyle: 'italic' }}>（系統填入）</td>
+                      <td style={{ color: '#94a3b8', fontStyle: 'italic' }}>（系統填入）</td>
                       <td style={{ color: '#94a3b8', fontStyle: 'italic' }}>（系統填入）</td>
                       <td style={{ color: '#94a3b8', fontStyle: 'italic' }}>（系統填入）</td>
                     </tr>
                     <tr>
                       <td>[FEAT] 新增匯出 PDF 功能</td>
                       <td>在報表頁提供 PDF 匯出按鈕，支援中文字體</td>
+                      <td>王小明</td>
+                      <td>陳大文</td>
+                      <td>—</td>
                       <td>2025-03-21</td>
                       <td>2025-03-25</td>
-                      <td>2025-03-23 18:00</td>
-                      <td>2025-03-24 10:00</td>
-                      <td>2025-03-26</td>
+                      <td>—</td>
                       <td style={{ color: '#2563eb', fontWeight: 600 }}>PRJ-1023</td>
+                      <td style={{ color: '#2563eb', fontSize: 11 }}>.../browse/PRJ-1023</td>
                       <td><span className="badge badge--ok" style={{ fontSize: 11 }}>已開單</span></td>
-                    </tr>
-                    <tr>
-                      <td>[TASK] 更新第三方 SDK 版本</td>
-                      <td></td>
-                      <td></td>
-                      <td></td>
-                      <td></td>
-                      <td></td>
-                      <td></td>
-                      <td style={{ color: '#2563eb', fontWeight: 600 }}>PRJ-1024</td>
-                      <td><span className="badge badge--purple" style={{ fontSize: 11 }}>添加評論</span></td>
+                      <td>2025-03-21 10:02</td>
+                      <td>PRJ-1023↵摘要</td>
                     </tr>
                   </tbody>
                 </table>
               </div>
+              <ul style={{ margin: '10px 0 0', paddingLeft: 18, fontSize: 12.5, color: '#94a3b8', lineHeight: 1.7 }}>
+                <li><b>摘要 / 描述 / 受託人 / RD負責人</b> 為強制必填，缺一筆都無法送出（Step 3 會擋下並列出問題列）</li>
+                <li>「動態欄位開單」模式下，實際欄位清單依 Jira 專案 + Issue 類型即時載入，不限於上表範例</li>
+                <li>若 Sheet 有「處理階段」欄，自動顯示「已完成」以外的所有列；否則只顯示「Jira Issue Key」為空的列</li>
+                <li>含「單子標題貼這」欄位有值的列會自動過濾（視為已開單，跳過不重複建立）</li>
+              </ul>
               <p className="field-hint" style={{ marginTop: 8 }}>
-                {isGame ? <DungeonIcon name="status-warn" tone="gold" size="xs" plain /> : '⚠️'} 欄位名稱需完全符合（不區分大小寫）。「Jira Issue Key」與「處理階段」由系統自動回寫，請保留這兩欄但不要手動填入。
+                {isGame ? <DungeonIcon name="status-warn" tone="gold" size="xs" plain /> : '⚠️'} 欄位名稱需完全符合（不區分大小寫）。「Jira Issue Key」「Jira URL」「處理階段」「處理時間」「單子標題貼這」由系統自動回寫，請保留欄位但不要手動填入。
               </p>
             </details>
           </div>
@@ -3421,6 +3464,14 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               </button>
             </div>
           )}
+
+          <StepGuide title="操作說明 — 填寫與帶入欄位">
+            <li>表格欄位由 Jira <code>createmeta</code> 即時載入，摘要/描述/受託人/RD負責人/回報人 自動顯示為必填</li>
+            <li>點「📋 從 Lark 帶入」可用 Sheet 欄名自動對應 Jira 欄位；對不上的欄位需手動填寫</li>
+            <li>可用「AI 生成摘要」：選前綴欄位（組成 [值1][值2]摘要格式）+ 內容來源欄位，批次呼叫 Gemini 產生標題</li>
+            <li>「附件」欄可從 Sheet 圖片欄自動讀取，或手動上傳；送出後以 <code>!filename!</code> wiki markup 嵌入描述，影片以 <code>[^filename]</code> 方式嵌入</li>
+            <li>有未上傳的影片列，送出前會跳出確認視窗</li>
+          </StepGuide>
 
           {/* Validation error summary */}
           {Object.keys(cellErrors).length > 0 && (
@@ -4088,6 +4139,12 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
         <div className="section-card">
           <h2 className="section-title">Step 4 — 建立 Issues 結果</h2>
 
+          <StepGuide title="操作說明 — 結果與回填">
+            <li>逐筆呼叫建立 Issue（一次一筆），進度條依完成比例即時前進</li>
+            <li>成功的列會自動回寫 <b>Jira Issue Key / Jira URL / 處理階段 / 處理時間 / 單子標題貼這</b> 五個欄位到 Sheet</li>
+            <li>若回寫失敗（斷線等），紀錄會保留在「待回填佇列」，可用下方「補回填工具」重試，不會遺失</li>
+          </StepGuide>
+
           {planCreate.length === 0 && (
             <div className="alert-info">
               本批次無需建立新 Issue，已將現有 Issue 帶入後續流程。
@@ -4226,6 +4283,13 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               {commentTabLoading ? '讀取中…' : '📥 讀取'}
             </button>
           </div>
+
+          <StepGuide title="操作說明 — 這個功能需要什麼樣的 Sheet">
+            <li>不需要先跑過「批量開單」流程 — 只要 Sheet 裡有一欄是 <b>Jira Issue Key</b>（格式如 <code>ABC-123</code>）就能用</li>
+            <li>系統會自動掃描全表，抓出所有格式符合的 Issue Key，不限定欄位名稱或位置</li>
+            <li>支援 Lark Sheet / Google Sheets 兩種來源，切換上方按鈕即可</li>
+            <li>若表格完全找不到符合格式的 Issue Key，會顯示「找不到已開單的 Jira Issue Key」錯誤</li>
+          </StepGuide>
         </div>
       )}
 
@@ -4233,6 +4297,12 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       {mode === 'qa' && qaSubMode === 'comment' && commentTabStep === 2 && (
         <div className="section-card">
           <h2 className="section-title">選擇要評論的 Issue（共 {trackedIssues.length} 筆）</h2>
+
+          <StepGuide title="操作說明 — 篩選與勾選">
+            <li>系統自動偵測表格中「2–15 個唯一值」的欄位（如嚴重度、類別、進度）顯示為篩選 dropdown</li>
+            <li>可先用篩選器縮小範圍，再用「全選 / 取消全選」快速勾選符合條件的列</li>
+            <li>下方會展示該列 Sheet 原始欄位內容，方便核對是不是要評論的單子</li>
+          </StepGuide>
 
           {/* Column filters */}
           {commentFilterableColumns.length > 0 && (
@@ -4369,6 +4439,14 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 </button>
             }
           </div>
+
+          <StepGuide title="操作說明 — 評論格式與附件">
+            <li>評論需包含 5 大區塊：<b>【功能目的】【前置條件】【測試步驟】【說明與備註】【驗證結果】</b>，每個區塊下有必填細項</li>
+            <li>格式不完整只會顯示 ⚠️ 警示，仍可強制送出（非硬性擋下）</li>
+            <li>可勾選「AI 優化」，對已寫的評論做二次分析，補上完整性總結（限管理員帳號）</li>
+            <li>每筆可手動上傳圖片附件，送出後以 <code>!filename!</code> wiki markup 直接嵌入評論內文；影片附件用 <code>[^filename]</code> 顯示為下載連結</li>
+            <li>送出成功的列，會自動回寫「處理階段＝添加評論」與「處理時間」到來源 Sheet</li>
+          </StepGuide>
 
           {toComment.length === 0
             ? <div className="alert-info">目前無需添加評論的 Issue。</div>
@@ -4933,6 +5011,12 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                   {editTabLoading ? '讀取中…' : '📥 讀取'}
                 </button>
               </div>
+
+              <StepGuide title="操作說明 — 這個功能需要什麼樣的 Sheet">
+                <li>同批量評論：只要有一欄是 <b>Jira Issue Key</b>（如 <code>ABC-123</code>）即可，不限欄位名稱或位置</li>
+                <li>讀取後會自動帶入該 Issue 目前的 Jira 欄位值（摘要/受託人/狀態），供 Step 3 對照修改前後差異</li>
+                <li>支援 Lark Sheet / Google Sheets 兩種來源</li>
+              </StepGuide>
             </div>
           )}
 
@@ -4943,6 +5027,11 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 選擇要修改的 Issue（共 {editTabIssues.length} 筆）
                 {editTabJiraLoading && <span style={{ fontSize: 11, color: '#60a5fa', marginLeft: 8 }}>載入 Jira 資料中…</span>}
               </h2>
+
+              <StepGuide title="操作說明 — 篩選與勾選">
+                <li>與批量評論相同的欄位篩選機制，自動偵測 2–15 個唯一值的欄位</li>
+                <li>選好後系統會在背景載入這些 Issue 的可編輯欄位定義（editmeta）與專案成員清單，供 Step 3 使用</li>
+              </StepGuide>
 
               {editTabJiraError && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#1e1010', border: '1px solid #7f1d1d60', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>
@@ -5078,6 +5167,15 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 選擇要修改的 Jira 欄位，並選擇來源（Sheet 欄位 或 手動設定）。
               </p>
               {editTabError && <div className="alert-error" style={{ marginBottom: 10 }}>{editTabError}</div>}
+
+              <StepGuide title="操作說明 — 欄位對應模式">
+                <li>可用欄位清單來自 Jira <code>editmeta</code>（該 Issue 實際可編輯的欄位），不是寫死的固定清單</li>
+                <li>每個欄位可選兩種模式：<b>從 Sheet 欄位對應</b>（依 Sheet 欄名抓值）或 <b>手動設定固定值</b>（所有勾選列套用同一個值）</li>
+                <li>user / multiuser 類型欄位（如受託人、RD負責人）提供可搜尋人員選單，依專案成員即時查詢</li>
+                <li>select / multiselect 類型欄位會顯示 Jira 該欄位允許的選項清單，不會讓你填出不合法的值</li>
+                <li>下方預覽表會即時顯示「現有值 → 新值」，有差異的欄位以綠色標示，方便送出前核對</li>
+                <li>「描述附件」欄可上傳圖片，送出時自動上傳並以 wiki markup 嵌入描述</li>
+              </StepGuide>
 
               {renderSummaryPrefixPanel(
                 editTabHeaders,
@@ -5402,6 +5500,12 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           {editTabStep === 4 && (
             <div className="section-card">
               <h2 className="section-title">批量修改結果</h2>
+
+              <StepGuide title="操作說明 — 結果">
+                <li>逐筆呼叫 Jira 修改 API（一次一筆），進度條依完成比例即時前進</li>
+                <li>失敗的列會顯示 Jira 回傳的錯誤原因，方便判斷是欄位格式問題還是權限問題</li>
+              </StepGuide>
+
               {editTabError && <div className="alert-error" style={{ marginBottom: 10 }}>{editTabError}</div>}
               <div className="result-group" style={{ marginTop: 8 }}>
                 {editTabResults.map(r => (

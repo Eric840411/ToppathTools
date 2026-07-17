@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.58.0'
+export const APP_VERSION = '3.58.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.58.1',
+    date: '2026-07-17',
+    changes: [
+      'ux(jira): 批量開單/批量評論/批量修改/批量更新狀態 四個功能共 14 個步驟，全部新增可摺疊的「操作說明」卡片（沿用既有 jira-sheet-guide 視覺風格）；批量開單 Step 2 的 Sheet 欄位說明表格內容更新為目前實際必填欄位（描述/受託人/RD負責人/回報人），並補上 Jira URL/處理時間/單子標題貼這 自動欄位',
+    ],
+  },
   {
     version: '3.58.0',
     date: '2026-07-17',
