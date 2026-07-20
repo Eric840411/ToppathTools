@@ -248,9 +248,27 @@ router.get('/api/autospin/captures/:filename', (req, res) => {
   res.status(404).send('Not found')
 })
 
+// 伺服器端 fallback 模式的截圖只會累積不會自動刪除，超過 48 小時的檔案定時清掉，避免佔滿硬碟
+const CAPTURE_MAX_AGE_MS = 48 * 60 * 60 * 1000
+function cleanOldCaptures() {
+  if (!PROJECT_DIR) return
+  const now = Date.now()
+  for (const d of ['stream_captures', 'screenshots']) {
+    const dir = join(PROJECT_DIR, d)
+    if (!existsSync(dir)) continue
+    try {
+      for (const f of readdirSync(dir)) {
+        const fp = join(dir, f)
+        try { if (now - statSync(fp).mtimeMs > CAPTURE_MAX_AGE_MS) unlinkSync(fp) } catch { /* ignore */ }
+      }
+    } catch { /* ignore */ }
+  }
+}
+
 // GET /api/autospin/captures-list — list recent captures
 router.get('/api/autospin/captures-list', async (_req, res) => {
   if (!PROJECT_DIR) return res.json({ ok: true, files: [] })
+  cleanOldCaptures()
   const result: { name: string; dir: string; mtime: number }[] = []
   for (const d of ['stream_captures', 'screenshots']) {
     const dir = join(PROJECT_DIR, d)

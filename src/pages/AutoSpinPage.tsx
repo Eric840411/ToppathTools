@@ -1618,21 +1618,25 @@ export function AutoSpinPage() {
               </div>
               {(runMode === 'server' ? captures : agentCaptures).length === 0
                 ? <p style={{ color: '#64748b', fontSize: 12 }}>尚無截圖</p>
-                : (runMode === 'server' ? captures : agentCaptures).map(f => (
-                  <div key={f.name} style={{ border: '1px solid #2d3f55', borderRadius: 6, overflow: 'hidden' }}>
-                    <img
-                      src={runMode === 'server'
-                        ? `/api/autospin/captures/${encodeURIComponent(f.name)}`
-                        : `/api/autospin/agent/captures/${encodeURIComponent(f.name)}`}
-                      alt={f.name}
-                      style={{ width: '100%', display: 'block', objectFit: 'cover', maxHeight: 140 }}
-                      onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                    <div style={{ padding: '4px 8px', fontSize: 10, color: '#64748b', background: '#162032' }}>
-                      {f.name}
-                      {'dir' in f && <span style={{ float: 'right' }}>{(f as unknown as { dir: string }).dir}</span>}
+                : (runMode === 'server' ? captures : agentCaptures).map(f => {
+                  const src = runMode === 'server'
+                    ? `/api/autospin/captures/${encodeURIComponent(f.name)}`
+                    : `/api/autospin/agent/screenshot/${agentSessionId}/${encodeURIComponent(f.name)}`
+                  return (
+                    <div key={f.name} style={{ border: '1px solid #2d3f55', borderRadius: 6, overflow: 'hidden' }}>
+                      <img
+                        src={src}
+                        alt={f.name}
+                        style={{ width: '100%', display: 'block', objectFit: 'cover', maxHeight: 140, cursor: 'zoom-in' }}
+                        onClick={() => setLightbox(src)}
+                        onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                      <div style={{ padding: '4px 8px', fontSize: 10, color: '#64748b', background: '#162032' }}>
+                        {f.name}
+                        {'dir' in f && <span style={{ float: 'right' }}>{(f as unknown as { dir: string }).dir}</span>}
+                      </div>
                     </div>
-                  </div>
-                ))
+                  )
+                })
               }
             </div>
           </div>

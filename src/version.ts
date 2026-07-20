@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.60.6'
+export const APP_VERSION = '3.60.7'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.60.7',
+    date: '2026-07-20',
+    changes: [
+      'feat(autospin): 執行監控的截圖監控新增點擊放大預覽（沿用既有 lightbox），並修正遠端 Agent 模式截圖縮圖網址錯誤（原本打錯路徑導致一直是壞圖，改用正確的 /api/autospin/agent/screenshot/:id/:name）',
+      'feat(autospin): 伺服器端 fallback 模式的截圖資料夾（stream_captures/screenshots）新增定時清理，超過 48 小時的檔案在讀取截圖清單時自動刪除，避免硬碟持續累積',
+    ],
+  },
   {
     version: '3.60.6',
     date: '2026-07-20',
