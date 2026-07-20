@@ -346,6 +346,74 @@ def wait_for_enter_gm(page, timeout_ms: int = 12000, baseline_ts: float = 0):
     return None
 
 
+# 已知的浮動彈窗 overlay / 關閉按鈕 selector —— 完整移植自 machine-test/runner.ts 的 CCTV 步驟
+# 清彈窗邏輯（原本只在 CCTV 步驟使用，範圍窄不會誤點遊戲 UI 本身，適合搬進入場流程重用）
+OVERLAY_SELS = ['div.bg', '[class*="win-frame"]', '[class*="bonus-popup"]', '[class*="float-layer"]']
+CLOSE_BTN_SELS = ['[class*="btn_close"]', '[class*="close-btn"]', '.btn_ok', 'button[class*="close"]', 'button[class*="ok"]', '.btn_take']
+
+
+def dismiss_known_overlays(page, mt: str, rounds: int = 3):
+    """清除已知類型的浮動彈窗（bonus/win-frame/float-layer 等，如 Game Preview / Jackpot 宣傳面板）。
+    完整移植自 machine-test/runner.ts CCTV 步驟的 findOverlays + 清除邏輯：優先點關閉/OK 按鈕，
+    找不到才 force-click 彈窗本體；最多重試 3 輪，最後補一次 Escape。"""
+    def find_overlays():
+        found = []
+        for frame in page.frames:
+            try:
+                for sel in OVERLAY_SELS:
+                    for el in frame.locator(sel).all():
+                        try:
+                            if not el.is_visible():
+                                continue
+                            box = el.bounding_box()
+                            if box and box['width'] > 80 and box['height'] > 80:
+                                found.append((frame, el, sel))
+                        except Exception:
+                            continue
+            except Exception:
+                continue
+        return found
+
+    dismissed_any = False
+    for round_idx in range(rounds):
+        overlays = find_overlays()
+        if not overlays:
+            break
+        log(f"[{mt}] 清除彈窗第 {round_idx + 1} 輪（{len(overlays)} 個）...")
+        for frame, el, sel in overlays:
+            closed = False
+            for close_sel in CLOSE_BTN_SELS:
+                try:
+                    btn = el.locator(close_sel).first
+                    if btn.count() == 0:
+                        btn = frame.locator(close_sel).first
+                    if btn.count() > 0 and btn.is_visible():
+                        btn.click(timeout=500)
+                        log(f"[{mt}]   已點擊關閉按鈕（{close_sel}）")
+                        closed = True
+                        dismissed_any = True
+                        break
+                except Exception:
+                    continue
+            if not closed:
+                try:
+                    el.click(force=True, timeout=500)
+                    log(f"[{mt}]   已 force-click 彈窗本體：{sel}")
+                    dismissed_any = True
+                except Exception:
+                    pass
+        time.sleep(1.0)
+
+    try:
+        page.keyboard.press('Escape')
+    except Exception:
+        pass
+
+    if dismissed_any:
+        time.sleep(0.5)
+    return dismissed_any
+
+
 def enter_game(page, cfg: dict) -> bool:
     """從大廳進入指定遊戲，對應 AutoSpin.py scroll_and_click_game()。
     每個步驟都印出開始/結束與耗時，方便追蹤整段進入流程實際花的時間。"""
@@ -434,6 +502,14 @@ def enter_game(page, cfg: dict) -> bool:
         time.sleep(3.0)
     except Exception:
         log(f"[{mt}] 找不到 Join 按鈕（此機種可能不需要），繼續下一步")
+
+    # ── 清除已知浮動彈窗（Game Preview / Jackpot 宣傳面板等）── 與 Machine Test 完全同步
+    # 選用 machine-test/runner.ts CCTV 步驟同一套 overlay/close-btn selector（範圍窄，不會誤點遊戲 UI）
+    log(f"[{mt}] 檢查是否有已知類型的浮動彈窗（Game Preview / Jackpot 宣傳面板等）...")
+    if dismiss_known_overlays(page, mt):
+        log(f"[{mt}] 已清除浮動彈窗")
+    else:
+        log(f"[{mt}] 沒有偵測到已知類型的浮動彈窗")
 
     # ── 進入觸屏（entryTouchPoints / entryTouchPoints2）── 與 Machine Test 完全同步
     # 機種設定檔（machine_test_profiles）有設定時優先使用；沒有設定的機種才 fallback 用舊的 keyword_actions

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.60.2'
+export const APP_VERSION = '3.60.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.60.3',
+    date: '2026-07-20',
+    changes: [
+      'fix(autospin): 進入機台時新增清除已知浮動彈窗步驟（Game Preview/Jackpot 宣傳面板等），完整移植自 machine-test/runner.ts CCTV 步驟的 overlay/close-btn selector（原本只在 CCTV 步驟用，範圍窄不會誤點遊戲 UI），解決部分機種（如 RISINGROCKETS）沒有 entryTouchPoints 設定時被宣傳面板卡住的問題',
+    ],
+  },
   {
     version: '3.60.2',
     date: '2026-07-20',
