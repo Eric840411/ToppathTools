@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.60.1'
+export const APP_VERSION = '3.60.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.60.2',
+    date: '2026-07-20',
+    changes: [
+      'fix(autospin): enter_game() 每個子步驟都加上開始/結束與耗時 log（等待頁面穩定、大廳列表載入、找卡片、點擊、Join、進入觸屏、enterGMNtc 確認），方便追蹤整段進入流程實際花的時間與卡在哪一步',
+    ],
+  },
   {
     version: '3.60.1',
     date: '2026-07-20',

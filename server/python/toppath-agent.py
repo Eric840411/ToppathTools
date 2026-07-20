@@ -347,20 +347,27 @@ def wait_for_enter_gm(page, timeout_ms: int = 12000, baseline_ts: float = 0):
 
 
 def enter_game(page, cfg: dict) -> bool:
-    """從大廳進入指定遊戲，對應 AutoSpin.py scroll_and_click_game()"""
+    """從大廳進入指定遊戲，對應 AutoSpin.py scroll_and_click_game()。
+    每個步驟都印出開始/結束與耗時，方便追蹤整段進入流程實際花的時間。"""
     mt = cfg['machineType']
     game_title_code = cfg.get('gameTitleCode') or ''
     if not game_title_code:
         log(f"[{mt}] 未設定 gameTitleCode，跳過大廳尋找")
         return True
 
+    t_start = time.time()
+    log(f"[{mt}] ── 開始進入流程 ──")
+
     # 先等頁面穩定：等到遊戲指標或大廳元素出現其中一個再判斷
     # 避免頁面尚未載入時 is_in_game() 觸發「保守策略 → return True」
+    t0 = time.time()
+    log(f"[{mt}] 等待頁面穩定（遊戲或大廳元素其中一個出現，最多 12s）...")
     try:
         page.wait_for_selector(
             '.my-button.btn_spin, .btn_spin .my-button, #grid_gm_item',
             timeout=12000,
         )
+        log(f"[{mt}] 頁面已穩定（耗時 {time.time() - t0:.1f}s）")
     except PwTimeout:
         log(f"[{mt}] 頁面載入等待超時（12s），繼續嘗試判斷狀態")
 
@@ -368,10 +375,14 @@ def enter_game(page, cfg: dict) -> bool:
         log(f"[{mt}] 已在遊戲中，跳過大廳")
         return True
 
+    log(f"[{mt}] 判定目前在大廳，準備尋找機台卡片；等待 1s 讓大廳穩定...")
     time.sleep(1.0)
 
+    t0 = time.time()
+    log(f"[{mt}] 等待大廳機台列表載入（#grid_gm_item，最多 12s）...")
     try:
         page.wait_for_selector('#grid_gm_item', timeout=12000)
+        log(f"[{mt}] 大廳機台列表已載入（耗時 {time.time() - t0:.1f}s）")
     except PwTimeout:
         if is_in_game(page):
             return True
@@ -379,6 +390,7 @@ def enter_game(page, cfg: dict) -> bool:
         return False
 
     items = page.locator('#grid_gm_item').all()
+    log(f"[{mt}] 大廳共 {len(items)} 個機台卡片，尋找 gameTitleCode 含「{game_title_code}」的卡片...")
     target_item = None
     for item in items:
         title = item.get_attribute('title') or ''
@@ -390,6 +402,7 @@ def enter_game(page, cfg: dict) -> bool:
     if not target_item:
         log(f"[{mt}] 大廳找不到遊戲: {game_title_code}")
         return False
+    log(f"[{mt}] 找到目標卡片: {target_item.get_attribute('title') or game_title_code}")
 
     # 捲動到目標卡片並點擊
     try:
@@ -409,45 +422,55 @@ def enter_game(page, cfg: dict) -> bool:
         return False
 
     log(f"[{mt}] 點擊遊戲卡片: {target_item.get_attribute('title') or game_title_code}")
+    log(f"[{mt}] 等待卡片點擊反應 1.2s...")
     time.sleep(1.2)
 
     # 嘗試點擊 Join 按鈕
+    log(f"[{mt}] 嘗試尋找 Join 按鈕（最多 3s，不一定存在）...")
     try:
         join = page.locator(".gm-info-box span:text('Join')").first
         join.click(timeout=3000)
-        log(f"[{mt}] 點擊 Join 進入遊戲")
+        log(f"[{mt}] 點擊 Join 進入遊戲，等待 3s 讓遊戲載入...")
         time.sleep(3.0)
     except Exception:
-        pass  # Join 不一定存在
+        log(f"[{mt}] 找不到 Join 按鈕（此機種可能不需要），繼續下一步")
 
     # ── 進入觸屏（entryTouchPoints / entryTouchPoints2）── 與 Machine Test 完全同步
     # 機種設定檔（machine_test_profiles）有設定時優先使用；沒有設定的機種才 fallback 用舊的 keyword_actions
     entry_touch_points = cfg.get('entryTouchPoints') or []
     entry_touch_points2 = cfg.get('entryTouchPoints2') or []
     if entry_touch_points or entry_touch_points2:
+        log(f"[{mt}] 機種設定檔有 entryTouchPoints，開始兩階段進入觸屏處理")
         run_entry_touch_points(page, mt, entry_touch_points, '進入觸屏第一階段（選擇 DENOM）')
         run_entry_touch_points(page, mt, entry_touch_points2, '進入觸屏第二階段（YES/NO 確認）')
     else:
         # 執行 keyword_actions（對應 AutoSpin.py 中的 keyword_actions 邏輯）
+        matched_kw = False
         for kw, positions in keyword_actions.items():
             if kw in game_title_code and positions:
                 log(f"[{mt}] 執行 keyword_actions: {kw} -> {positions}")
                 time.sleep(1.0)
                 click_positions(page, positions)
                 time.sleep(1.0)
+                matched_kw = True
                 break
+        if not matched_kw:
+            log(f"[{mt}] 無 entryTouchPoints 設定，也無符合的 keyword_actions，跳過進入觸屏處理")
 
     # ── 等待 enterGMNtc 確認進入成功（與 Machine Test 完全同步）──
+    log(f"[{mt}] 等待 enterGMNtc WebSocket 事件確認進入成功（最多 12s）...")
+    t0 = time.time()
     enter_ev = wait_for_enter_gm(page, 12000, enter_baseline_ts)
     if enter_ev:
         errcode = enter_ev.get('errcode', 0)
         if errcode == 0:
-            log(f"[{mt}] ✅ enterGMNtc 確認進入成功")
+            log(f"[{mt}] ✅ enterGMNtc 確認進入成功（耗時 {time.time() - t0:.1f}s）")
         else:
-            log(f"[{mt}] ⚠️ enterGMNtc errcode={errcode}: {enter_ev.get('errcodedes', '')}")
+            log(f"[{mt}] ⚠️ enterGMNtc errcode={errcode}: {enter_ev.get('errcodedes', '')}（耗時 {time.time() - t0:.1f}s）")
     else:
         log(f"[{mt}] ⚠️ 未收到 enterGMNtc（12s 逾時），改用 DOM 偵測判斷是否進入成功")
 
+    log(f"[{mt}] ── 進入流程結束，總耗時 {time.time() - t_start:.1f}s ──")
     return True
 
 
