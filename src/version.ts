@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.60.4'
+export const APP_VERSION = '3.60.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.60.5',
+    date: '2026-07-20',
+    changes: [
+      'ux(autospin): 機台設定列表「啟用」欄改為可直接點擊的開關按鈕（切換即送出，不用進編輯視窗），失敗會自動還原',
+    ],
+  },
   {
     version: '3.60.4',
     date: '2026-07-20',

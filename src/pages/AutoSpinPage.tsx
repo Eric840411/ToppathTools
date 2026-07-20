@@ -47,6 +47,31 @@ function getGlobalUserLabel(): string {
   } catch { return '' }
 }
 
+/** 簡易開關按鈕，點擊即切換，不用進編輯視窗 */
+function ToggleSwitch({ checked, disabled, onToggle }: { checked: boolean; disabled?: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={disabled}
+      title={checked ? '點擊停用' : '點擊啟用'}
+      style={{
+        width: 36, height: 20, borderRadius: 10, border: 'none', padding: 0, flexShrink: 0,
+        background: checked ? '#3b82f6' : '#374151',
+        cursor: disabled ? 'wait' : 'pointer',
+        opacity: disabled ? 0.6 : 1,
+        position: 'relative',
+        transition: 'background 0.2s ease',
+      }}
+    >
+      <span style={{
+        position: 'absolute', top: 2, left: checked ? 18 : 2, width: 16, height: 16, borderRadius: '50%',
+        background: '#fff', transition: 'left 0.2s ease',
+      }} />
+    </button>
+  )
+}
+
 export function AutoSpinPage() {
   const [tab, setTab] = useState<'configs' | 'templates' | 'betrandom' | 'history' | 'reconcile' | 'run' | 'jpgroups'>('configs')
 
@@ -100,6 +125,28 @@ export function AutoSpinPage() {
     setForm({ ...c })
     setConfigMsg('')
     setShowForm(true)
+  }
+
+  // 直接在列表切換「啟用」，不用點進編輯視窗
+  const [togglingType, setTogglingType] = useState<string | null>(null)
+  const handleToggleEnabled = async (c: AutospinConfig) => {
+    setTogglingType(c.machineType)
+    setConfigs(prev => prev.map(x => x.machineType === c.machineType ? { ...x, enabled: !x.enabled } : x))
+    try {
+      const r = await fetch('/api/autospin/configs', {
+        method: 'POST', headers: userHeaders, body: JSON.stringify({ ...c, enabled: !c.enabled }),
+      })
+      const d = await r.json() as { ok: boolean; message?: string }
+      if (!d.ok) {
+        setConfigs(prev => prev.map(x => x.machineType === c.machineType ? { ...x, enabled: c.enabled } : x))
+        setConfigMsg(d.message ?? '切換失敗')
+      }
+    } catch {
+      setConfigs(prev => prev.map(x => x.machineType === c.machineType ? { ...x, enabled: c.enabled } : x))
+      setConfigMsg('切換失敗：網路錯誤')
+    } finally {
+      setTogglingType(null)
+    }
   }
 
   // ── Templates tab ───────────────────────────────────────────────────────────
@@ -686,11 +733,14 @@ export function AutoSpinPage() {
                   <td style={{ padding: '7px 10px', color: '#94a3b8', fontSize: 11 }}>{c.gameTitleCode || '—'}</td>
                   <td style={{ padding: '7px 10px', color: '#94a3b8', fontSize: 11 }}>{c.templateType || '—'}</td>
                   <td style={{ padding: '7px 10px', color: '#94a3b8', fontSize: 11 }}>{c.rtmpName || '—'}</td>
-                  {[c.enableRecording, c.enableTemplateDetection, c.enabled].map((v, i) => (
+                  {[c.enableRecording, c.enableTemplateDetection].map((v, i) => (
                     <td key={i} style={{ padding: '7px 10px', textAlign: 'center' }}>
                       <span style={{ color: v ? '#16a34a' : '#9ca3af' }}>{v ? '✅' : '—'}</span>
                     </td>
                   ))}
+                  <td style={{ padding: '7px 10px', textAlign: 'center' }}>
+                    <ToggleSwitch checked={c.enabled} disabled={togglingType === c.machineType} onToggle={() => handleToggleEnabled(c)} />
+                  </td>
                   <td style={{ padding: '7px 10px' }}>
                     <div style={{ display: 'flex', gap: 4 }}>
                       <button onClick={() => handleEditConfig(c)}
