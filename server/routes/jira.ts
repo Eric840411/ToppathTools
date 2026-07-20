@@ -1147,6 +1147,20 @@ router.get('/api/jira/attachment-cache/:cacheId', (req, res) => {
   res.sendFile(fp)
 })
 
+/**
+ * DELETE /api/jira/attachment-cache/:cacheId
+ * 使用者在預覽表移除附件時呼叫，立即刪除暫存檔，不用等 2 小時 TTL 清理。
+ */
+router.delete('/api/jira/attachment-cache/:cacheId', (req, res) => {
+  const { cacheId } = req.params
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(cacheId)) {
+    return res.status(400).json({ ok: false, message: 'invalid id' })
+  }
+  const fp = join(ATTACH_CACHE_DIR, cacheId)
+  try { if (existsSync(fp)) unlinkSync(fp) } catch { /* ignore */ }
+  res.json({ ok: true })
+})
+
 // POST /api/lark/sheets/records
 router.post('/api/lark/sheets/records', async (req, res, next) => {
   try {

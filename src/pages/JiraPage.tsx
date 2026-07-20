@@ -1910,10 +1910,16 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   }
 
   const handleRemoveAttachment = (rowIndex: number, attachmentIndex: number) => {
+    let removedCacheId: string | undefined
     setPreviewItems(prev => prev.map(item => {
       if (item.rowIndex !== rowIndex) return item
+      removedCacheId = item.cachedAttachments[attachmentIndex]?.cacheId
       return { ...item, cachedAttachments: item.cachedAttachments.filter((_, i) => i !== attachmentIndex) }
     }))
+    // 立即刪除暫存檔，不用等 2 小時 TTL 清理，避免容量爆滿
+    if (removedCacheId) {
+      fetch(`/api/jira/attachment-cache/${removedCacheId}`, { method: 'DELETE' }).catch(() => {})
+    }
   }
 
   const handleManualUpload = async (rowIndex: number, files: FileList | null) => {

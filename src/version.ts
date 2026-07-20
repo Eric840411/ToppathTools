@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.59.2'
+export const APP_VERSION = '3.59.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.59.3',
+    date: '2026-07-20',
+    changes: [
+      'fix(jira-comment): 批量評論刪除附件縮圖時，一併呼叫新增的 DELETE /api/jira/attachment-cache/:cacheId 立即刪除暫存檔案，不用等 2 小時 TTL 清理，避免磁碟容量持續增加',
+    ],
+  },
   {
     version: '3.59.2',
     date: '2026-07-20',
