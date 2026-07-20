@@ -160,6 +160,109 @@ threading.Thread(target=poll_stop, daemon=True).start()
 
 SPECIAL_GAMES = {'BULLBLITZ', 'ALLABOARD'}
 
+# ─── Pinus / GM Event 監控 injected script ────────────────────────────────────
+# 完整移植自 server/machine-test/runner.ts 的 PINUS_TRACKER_SCRIPT + GM_EVENT_MONITOR_SCRIPT，
+# 並擴充 window.__pinusLog 記錄所有 pinus request/response/push 訊息（供監控功能使用）。
+TOPPATH_MONITOR_SCRIPT = r"""
+(() => {
+  if (window.__toppathMonitorInjected) return;
+  window.__toppathMonitorInjected = true;
+  window.__lastCoin = null;
+  window.__coinUpdatedAt = 0;
+  window.__gmEvents = [];
+  window.__pinusLog = [];
+  var MAX_LOG = 500;
+
+  function pushPinusLog(dir, route, data) {
+    try {
+      var text;
+      try { text = JSON.stringify(data); } catch (e) { text = String(data); }
+      if (text && text.length > 500) text = text.slice(0, 500) + '…';
+      window.__pinusLog.push({ dir: dir, route: route || '', data: text, ts: Date.now() });
+      if (window.__pinusLog.length > MAX_LOG) window.__pinusLog.shift();
+    } catch (e) {}
+  }
+
+  function scanForGMEvent(text) {
+    try {
+      for (var i = 0; i < 2; i++) {
+        var evName = i === 0 ? 'enterGMNtc' : 'leaveGMNtc';
+        if (text.indexOf(evName) === -1) continue;
+        var m1 = text.match(/"errcode"\s*:\s*(-?\d+)/);
+        var errcode = m1 ? parseInt(m1[1]) : 0;
+        var m2 = text.match(/"errcodedes"\s*:\s*"([^"]*)"/);
+        var errcodedes = m2 ? m2[1] : '';
+        var m3 = text.match(/"machineType"\s*:\s*"([^"]*)"/);
+        var machineType = m3 ? m3[1] : '';
+        window.__gmEvents.push({ event: evName, errcode: errcode, errcodedes: errcodedes, machineType: machineType, ts: Date.now() });
+        return;
+      }
+    } catch (e) {}
+  }
+
+  // Hook WebSocket so we can scan raw frames for enterGMNtc/leaveGMNtc before pinus decodes them
+  var _OrigWS = window.WebSocket;
+  function PatchedWS(url, protocols) {
+    var ws = protocols !== undefined ? new _OrigWS(url, protocols) : new _OrigWS(url);
+    ws.addEventListener('message', function (ev) {
+      try {
+        var text = '';
+        if (typeof ev.data === 'string') {
+          text = ev.data;
+        } else if (ev.data instanceof ArrayBuffer) {
+          text = new TextDecoder('iso-8859-1').decode(ev.data);
+        }
+        if (text) scanForGMEvent(text);
+      } catch (e) {}
+    });
+    return ws;
+  }
+  PatchedWS.prototype = _OrigWS.prototype;
+  PatchedWS.CONNECTING = _OrigWS.CONNECTING;
+  PatchedWS.OPEN = _OrigWS.OPEN;
+  PatchedWS.CLOSING = _OrigWS.CLOSING;
+  PatchedWS.CLOSED = _OrigWS.CLOSED;
+  window.WebSocket = PatchedWS;
+
+  // Hook window.pinus.request / .on — coin 追蹤 + 完整訊息記錄（監控用）
+  function tryPatchPinus() {
+    var p = window.pinus;
+    if (!p) return false;
+    if (p.__toppathTracked) return true;
+    p.__toppathTracked = true;
+
+    var origRequest = p.request.bind(p);
+    p.request = function (route, msg, cb) {
+      pushPinusLog('request', route, msg);
+      return origRequest(route, msg, function (resp) {
+        pushPinusLog('response', route, resp);
+        if (resp && typeof resp.coin === 'number') {
+          window.__lastCoin = resp.coin;
+          window.__coinUpdatedAt = Date.now();
+        }
+        cb && cb(resp);
+      });
+    };
+
+    var origOn = p.on.bind(p);
+    p.on = function (route, cb) {
+      return origOn(route, function (data) {
+        pushPinusLog('push', route, data);
+        if (data && typeof data.coin === 'number') {
+          window.__lastCoin = data.coin;
+          window.__coinUpdatedAt = Date.now();
+        }
+        cb && cb(data);
+      });
+    };
+    return true;
+  }
+  var timer = setInterval(function () {
+    if (tryPatchPinus()) clearInterval(timer);
+  }, 200);
+})();
+"""
+
 # ─── Playwright 輔助邏輯 ──────────────────────────────────────────────────────
 
 def is_in_game(page) -> bool:
@@ -188,6 +291,59 @@ def click_positions(page, positions: list):
             time.sleep(0.4)
         except Exception:
             log(f"  找不到座標位: {pos}")
+
+
+def wait_for_span_text(page, text: str, timeout_ms: int = 10000):
+    """等待文字內容為 text 的 span 出現並可見，回傳該 locator，逾時回傳 None。
+    完整移植自 machine-test/runner.ts 的 waitForSpanText()。"""
+    deadline = time.time() + timeout_ms / 1000
+    while time.time() < deadline:
+        try:
+            loc = page.locator(f"span:text('{text}')").first
+            if loc.count() > 0 and loc.is_visible():
+                return loc
+        except Exception:
+            pass
+        time.sleep(0.3)
+    return None
+
+
+def run_entry_touch_points(page, mt: str, positions: list, stage_label: str):
+    """兩階段進入觸屏（entryTouchPoints / entryTouchPoints2），逐一等元素出現再點擊。
+    完整移植自 machine-test/runner.ts 的進入機台步驟，行為與逾時秒數（10s）保持一致。"""
+    if not positions:
+        return
+    log(f"[{mt}] {stage_label}，等待元素出現...")
+    for pos in positions:
+        log(f"  等待元素「{pos}」...")
+        elem = wait_for_span_text(page, pos, 10000)
+        if elem:
+            try:
+                elem.evaluate("el => el.click()")
+                log(f"  ✅ 已點擊「{pos}」")
+            except Exception as e:
+                log(f"  ⚠️ 點擊「{pos}」失敗: {e}")
+            time.sleep(0.4)
+        else:
+            log(f"  ⚠️ 找不到元素「{pos}」（逾時 10s），跳過")
+    time.sleep(0.8)
+
+
+def wait_for_enter_gm(page, timeout_ms: int = 12000, baseline_ts: float = 0):
+    """輪詢 window.__gmEvents 確認收到 enterGMNtc，回傳事件 dict 或 None。
+    完整移植自 machine-test/runner.ts 的 waitForEnterGM()，掃描所有 frame（pinus 可能在子 iframe）。"""
+    deadline = time.time() + timeout_ms / 1000
+    while time.time() < deadline:
+        for frame in page.frames:
+            try:
+                events = frame.evaluate("window.__gmEvents || []")
+            except Exception:
+                continue
+            for ev in reversed(events or []):
+                if ev.get('event') == 'enterGMNtc' and ev.get('ts', 0) > baseline_ts:
+                    return ev
+        time.sleep(0.3)
+    return None
 
 
 def dismiss_popups(page, retries: int = 3):
@@ -302,6 +458,9 @@ def enter_game(page, cfg: dict) -> bool:
     except Exception:
         pass
 
+    # 記錄點擊前的時間戳，稍後用來過濾出「這次進入」才收到的 enterGMNtc（避免比對到上次進入的殘留事件）
+    enter_baseline_ts = time.time() * 1000
+
     # 直接用 JS click（同 machine-test 做法，繞過 Playwright pointer-events 攔截）
     try:
         target_item.evaluate("el => el.click()")
@@ -321,14 +480,33 @@ def enter_game(page, cfg: dict) -> bool:
     except Exception:
         pass  # Join 不一定存在
 
-    # 執行 keyword_actions（對應 AutoSpin.py 中的 keyword_actions 邏輯）
-    for kw, positions in keyword_actions.items():
-        if kw in game_title_code and positions:
-            log(f"[{mt}] 執行 keyword_actions: {kw} -> {positions}")
-            time.sleep(1.0)
-            click_positions(page, positions)
-            time.sleep(1.0)
-            break
+    # ── 進入觸屏（entryTouchPoints / entryTouchPoints2）── 與 Machine Test 完全同步
+    # 機種設定檔（machine_test_profiles）有設定時優先使用；沒有設定的機種才 fallback 用舊的 keyword_actions
+    entry_touch_points = cfg.get('entryTouchPoints') or []
+    entry_touch_points2 = cfg.get('entryTouchPoints2') or []
+    if entry_touch_points or entry_touch_points2:
+        run_entry_touch_points(page, mt, entry_touch_points, '進入觸屏第一階段（選擇 DENOM）')
+        run_entry_touch_points(page, mt, entry_touch_points2, '進入觸屏第二階段（YES/NO 確認）')
+    else:
+        # 執行 keyword_actions（對應 AutoSpin.py 中的 keyword_actions 邏輯）
+        for kw, positions in keyword_actions.items():
+            if kw in game_title_code and positions:
+                log(f"[{mt}] 執行 keyword_actions: {kw} -> {positions}")
+                time.sleep(1.0)
+                click_positions(page, positions)
+                time.sleep(1.0)
+                break
+
+    # ── 等待 enterGMNtc 確認進入成功（與 Machine Test 完全同步）──
+    enter_ev = wait_for_enter_gm(page, 12000, enter_baseline_ts)
+    if enter_ev:
+        errcode = enter_ev.get('errcode', 0)
+        if errcode == 0:
+            log(f"[{mt}] ✅ enterGMNtc 確認進入成功")
+        else:
+            log(f"[{mt}] ⚠️ enterGMNtc errcode={errcode}: {enter_ev.get('errcodedes', '')}")
+    else:
+        log(f"[{mt}] ⚠️ 未收到 enterGMNtc（12s 逾時），改用 DOM 偵測判斷是否進入成功")
 
     return True
 
@@ -382,7 +560,7 @@ def check_page_error(page) -> bool:
 
 
 def get_balance(page, selector: str):
-    """讀取餘額，回傳 float 或 None"""
+    """讀取餘額（DOM selector 版本，已停用的舊 selector 邏輯可能失效，保留供 fallback）"""
     try:
         text = page.locator(selector).first.inner_text(timeout=2000)
         # 保留數字和小數點
@@ -391,6 +569,49 @@ def get_balance(page, selector: str):
         return float(cleaned) if cleaned else None
     except Exception:
         return None
+
+
+def read_balance(page):
+    """從 pinus WebSocket 攔截讀取餘額（window.__lastCoin），掃描所有 frame。
+    完整移植自 machine-test/runner.ts 的 readBalance() — 不再依賴 DOM selector（selector 常隨版更失效）。"""
+    for frame in page.frames:
+        try:
+            coin = frame.evaluate("window.__lastCoin ?? null")
+            if coin is not None:
+                return coin
+        except Exception:
+            pass
+    return None
+
+
+def get_coin_updated_at(page) -> float:
+    """讀取 window.__coinUpdatedAt（最近一次 pinus coin 更新的時間戳），掃描所有 frame。"""
+    for frame in page.frames:
+        try:
+            ts = frame.evaluate("window.__coinUpdatedAt || 0")
+            if ts:
+                return ts
+        except Exception:
+            pass
+    return 0
+
+
+def poll_pinus_log(page, mt: str):
+    """取出（drain）window.__pinusLog 中新累積的 pinus request/response/push 訊息並轉發到日誌，
+    監控 pinus 所有打印的訊息。掃描所有 frame（pinus 可能在子 iframe）。"""
+    for frame in page.frames:
+        try:
+            entries = frame.evaluate("() => { var l = window.__pinusLog || []; window.__pinusLog = []; return l; }")
+        except Exception:
+            continue
+        if not entries:
+            continue
+        for e in entries:
+            direction = e.get('dir', '')
+            route = e.get('route', '')
+            data = e.get('data', '')
+            log(f"[{mt}][pinus:{direction}] {route} {data}")
+        return  # pinus 通常只存在單一 frame，找到有訊息的就停止掃描其他 frame
 
 
 def fetch_and_post_pinus_records(page, machine_type: str):
@@ -505,35 +726,83 @@ def match_templates(screenshot_bytes: bytes, template_type: str, threshold: floa
         return None
 
 
+# Spin 按鈕 selector fallback chain — 完整移植自 machine-test/runner.ts 的 spinSelectors
+SPIN_SELECTORS_DEFAULT = [
+    '.my-button.btn_spin',
+    '.btn_spin .my-button',   # special games（BULLBLITZ、ALLABOARD 等）：inner clickable element
+    '.btn_spin',
+    '[class*="btn_spin"] .my-button',
+    '[class*="btn_spin"]',
+    'button[class*="spin"]',
+    '[class*="spin-btn"]',
+]
+
+
+def find_spin_button(page, custom_sel: str = ''):
+    """依序嘗試 selector 清單找到可見的 Spin 按鈕，回傳 (selector, element) 或 (None, None)。"""
+    selectors = ([custom_sel] if custom_sel else []) + SPIN_SELECTORS_DEFAULT
+    for sel in selectors:
+        try:
+            elems = page.locator(sel).all()
+            for el in elems:
+                if el.is_visible():
+                    return sel, el
+        except Exception:
+            continue
+    return None, None
+
+
 def do_spin(page, cfg: dict) -> bool:
-    """執行一次 Spin，對應 AutoSpin.py 的 spin selector 邏輯"""
-    mt = cfg['machineType']
-    game_title_code = cfg.get('gameTitleCode') or ''
-    is_special = mt in SPECIAL_GAMES or game_title_code in SPECIAL_GAMES
+    """執行一次 Spin。點擊邏輯與 machine-test 的 stepSpin 完全同步：
+    找按鈕（selector fallback chain）→ 確認未 disabled → native click（overlay 攔截時改 force click）
+    → 輪詢按鈕 disabled→enabled 確認動畫完成（最多 8 秒）。"""
+    spin_sel_cfg = cfg.get('spinSelector') or ''
 
-    # 優先使用機台設定中指定的 selector
-    spin_sel = cfg.get('spinSelector') or ''
-    if not spin_sel:
-        # 對應 AutoSpin.py：SPECIAL_GAMES 用 .btn_spin .my-button，其他用 .my-button.btn_spin
-        spin_sel = '.btn_spin .my-button' if is_special else '.my-button.btn_spin'
+    sel, btn = find_spin_button(page, spin_sel_cfg)
+    if not btn:
+        # Fallback：找不到任何已知 selector 時，點擊 canvas 右下角（AutoSpin 既有保底方案）
+        try:
+            box = page.locator('canvas').bounding_box()
+            if box:
+                page.mouse.click(box['x'] + box['width'] * 0.85,
+                                 box['y'] + box['height'] * 0.85)
+                return True
+        except Exception:
+            pass
+        return False
 
     try:
-        btn = page.locator(spin_sel).first
-        btn.click(timeout=8000)
-        return True
-    except PwTimeout:
-        pass
-
-    # Fallback：點擊 canvas 右下角
-    try:
-        box = page.locator('canvas').bounding_box()
-        if box:
-            page.mouse.click(box['x'] + box['width'] * 0.85,
-                             box['y'] + box['height'] * 0.85)
-            return True
+        if btn.evaluate("el => el.disabled || el.classList.contains('disabled')"):
+            return False
     except Exception:
         pass
-    return False
+
+    try:
+        btn.click(timeout=5000)
+    except Exception as e:
+        if 'intercepts pointer events' in str(e) or 'Timeout' in str(e):
+            try:
+                btn.click(force=True, timeout=3000)
+            except Exception:
+                return False
+        else:
+            return False
+
+    # 等待動畫完成（按鈕 disabled → enabled），對應 machine-test 的動畫偵測，最多等 8 秒
+    deadline = time.time() + 8
+    spin_started = False
+    while time.time() < deadline:
+        time.sleep(0.3)
+        try:
+            dis = btn.evaluate("el => el.disabled || el.classList.contains('disabled')")
+        except Exception:
+            break
+        if dis and not spin_started:
+            spin_started = True
+        if spin_started and not dis:
+            break
+
+    return True
 
 
 # ─── 主流程 ───────────────────────────────────────────────────────────────────
@@ -575,6 +844,8 @@ with sync_playwright() as p:
         ctx_options['record_video_size'] = {"width": 432, "height": 780}
 
     context = browser.new_context(**ctx_options)
+    # 注入 pinus/GM 事件監控 script（於所有頁面載入前執行），提供 __lastCoin/__gmEvents/__pinusLog
+    context.add_init_script(TOPPATH_MONITOR_SCRIPT)
 
     machine_pages = []
     for cfg in active_configs:
@@ -588,7 +859,7 @@ with sync_playwright() as p:
                 log(f"[{cfg['machineType']}] 無法進入遊戲，跳過")
                 continue
             time.sleep(3.0)  # 等待遊戲穩定
-            machine_pages.append({'page': page, 'config': cfg, 'spin_count': 0, 'error_count': 0, 'last_balance': None})
+            machine_pages.append({'page': page, 'config': cfg, 'spin_count': 0, 'error_count': 0, 'last_balance': None, 'last_pinus_poll': 0.0})
             post_history(cfg['machineType'], None, 0, event='start', note='Agent 開始')
             log(f"[{cfg['machineType']}] 遊戲已就緒")
         except Exception as e:
@@ -625,6 +896,15 @@ with sync_playwright() as p:
                 was_paused = False
 
             try:
+                # ── pinus 日誌監控（每台機每 2 秒轉發一次累積的訊息，避免洗版）──
+                now_ts = time.time()
+                if now_ts - mp.get('last_pinus_poll', 0) >= 2.0:
+                    mp['last_pinus_poll'] = now_ts
+                    try:
+                        poll_pinus_log(page, mt)
+                    except Exception:
+                        pass
+
                 # ── 404 / 錯誤頁面偵測 ───────────────────────────────────────
                 if check_page_error(page):
                     log(f"[{mt}] 偵測到頁面錯誤（404/空白），重新載入...")
@@ -652,13 +932,12 @@ with sync_playwright() as p:
                     spin_interval = ov if ov is not None else float(cfg.get('spinInterval') or 1.0)
 
                     # ── 低餘額偵測 ────────────────────────────────────────────
-                    bal_sel   = cfg.get('balanceSelector') or ''
                     threshold = float(cfg.get('lowBalanceThreshold') or 0)
-                    if bal_sel:
-                        balance = get_balance(page, bal_sel)
-                        if balance is not None:
-                            mp['last_balance'] = balance
-                    if bal_sel and threshold > 0:
+                    # 餘額改用 pinus WebSocket 攔截讀取（與 Machine Test 完全同步），不再依賴 DOM selector
+                    balance = read_balance(page)
+                    if balance is not None:
+                        mp['last_balance'] = balance
+                    if threshold > 0:
                         balance = mp.get('last_balance')
                         if balance is not None and balance < threshold:
                             log(f"[{mt}] 餘額 {balance:.2f} 低於閾值 {threshold:.2f}，退出重進")

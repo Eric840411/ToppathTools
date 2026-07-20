@@ -325,6 +325,8 @@ Keep Claude for:
 ### 功能說明
 管理 AutoSpin 自動旋轉。執行採 **agent-hub 派工模式（A2）**：在「執行監控」選擇線上 agent（與機測/腳本化投注同一批 agent-runner，含 macOS），agent 端在本機 spawn 既有的 Python 引擎（`server/python/toppath-agent.py`，cv2 模板比對引擎不變），log/截圖/狀態透過既有 REST/SSE 回報。公網（Spug）上 server 不需跑瀏覽器/OpenCV，重活都在 agent 端。伺服器端 `spawn` 模式保留為 fallback。
 
+進入機台流程（entryTouchPoints/entryTouchPoints2 兩階段進入觸屏 + enterGMNtc 確認）與 Spin 點擊/餘額讀取（pinus WebSocket 攔截，非 DOM selector）皆與 `server/machine-test/runner.ts` 完全同步；`entryTouchPoints`/`entryTouchPoints2` 讀取自 `machine_test_profiles` 表（依 machineType 對應），由 `/api/autospin/agent/start` 合併進 configs 回傳給 Python 引擎。另有 pinus 訊息監控（攔截 `window.pinus.request`/`.on` 所有 request/response/push，非僅 coin 欄位），每台機每 2 秒批次轉發到執行日誌，前綴 `[pinus:xxx]`。
+
 ### 使用者操作
 | 操作 | 說明 |
 |------|------|

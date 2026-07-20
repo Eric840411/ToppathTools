@@ -499,15 +499,22 @@ router.post('/api/autospin/agent/start', (req, res) => {
     heavyTask: heavyTask.token,
   })
   // Return configs merged with machine_test_profiles selectors
+  // （entryTouchPoints/entryTouchPoints2 讓 AutoSpin 的進入機台流程與 Machine Test 完全一致）
   const configs = readConfigs(userLabel)
-  const profiles = db.prepare('SELECT machineType, spinSelector, balanceSelector FROM machine_test_profiles').all() as
-    { machineType: string; spinSelector: string | null; balanceSelector: string | null }[]
+  const profiles = db.prepare('SELECT machineType, spinSelector, balanceSelector, entryTouchPoints, entryTouchPoints2 FROM machine_test_profiles').all() as
+    { machineType: string; spinSelector: string | null; balanceSelector: string | null; entryTouchPoints: string | null; entryTouchPoints2: string | null }[]
   const profileMap = Object.fromEntries(profiles.map(p => [p.machineType, p]))
+  const parseTouchPoints = (v: string | null | undefined): string[] => {
+    if (!v) return []
+    try { const arr = JSON.parse(v); return Array.isArray(arr) ? arr : [] } catch { return [] }
+  }
   const merged = configs.map(c => ({
     ...c,
     enabled: !!c.enabled,
     spinSelector: profileMap[c.machineType]?.spinSelector ?? null,
     balanceSelector: profileMap[c.machineType]?.balanceSelector ?? null,
+    entryTouchPoints: parseTouchPoints(profileMap[c.machineType]?.entryTouchPoints),
+    entryTouchPoints2: parseTouchPoints(profileMap[c.machineType]?.entryTouchPoints2),
   }))
   // Load keyword_actions and machine_actions from actions.json
   let keywordActions: Record<string, string[]> = {}

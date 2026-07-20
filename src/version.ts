@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.59.3'
+export const APP_VERSION = '3.60.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.60.0',
+    date: '2026-07-20',
+    changes: [
+      'fix(autospin): 進入機台流程改為與 Machine Test 完全同步 — Python 引擎新增讀取機種設定檔的 entryTouchPoints/entryTouchPoints2 兩階段進入觸屏處理（原本沒有機種專屬彈框/選面額處理，需手動點掉），並加上 enterGMNtc WebSocket 事件確認進入成功',
+      'fix(autospin): Spin 點擊與餘額讀取改為與 Machine Test 完全同步 — 改用 pinus WebSocket 攔截讀取餘額（window.__lastCoin），取代已停用的 DOM selector 邏輯；Spin 按鈕改用相同 selector fallback chain，點擊加上 overlay 攔截 force click 補救與動畫完成輪詢',
+      'feat(autospin): 新增 pinus 訊息監控 — 攔截 window.pinus.request/on 的所有 request/response/push 訊息並定期轉發到執行日誌（每台機每 2 秒批次），不只讀 coin 欄位',
+    ],
+  },
   {
     version: '3.59.3',
     date: '2026-07-20',
