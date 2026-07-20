@@ -493,15 +493,25 @@ def enter_game(page, cfg: dict) -> bool:
     log(f"[{mt}] 等待卡片點擊反應 1.2s...")
     time.sleep(1.2)
 
-    # 嘗試點擊 Join 按鈕
-    log(f"[{mt}] 嘗試尋找 Join 按鈕（最多 3s，不一定存在）...")
+    # 嘗試點擊 Join 按鈕 —— 完整移植自 machine-test/runner.ts：
+    # 1) 文字需完全等於「Join」（不是子字串比對，避免誤中「Join Now」之類的其他按鈕）
+    # 2) 找到多個符合時，逐一檢查取第一個「可見」的（不是 DOM 順序第一個）
+    # 3) 用 JS evaluate click（繞過 Playwright pointer-events 攔截，跟卡片點擊同一招）
+    log(f"[{mt}] 嘗試尋找 Join 按鈕（不一定存在）...")
     try:
-        join = page.locator(".gm-info-box span:text('Join')").first
-        join.click(timeout=3000)
-        log(f"[{mt}] 點擊 Join 進入遊戲，等待 3s 讓遊戲載入...")
-        time.sleep(3.0)
-    except Exception:
-        log(f"[{mt}] 找不到 Join 按鈕（此機種可能不需要），繼續下一步")
+        join_candidates = page.locator(".gm-info-box span:text-is('Join')").all()
+        joined = False
+        for j in join_candidates:
+            if j.is_visible():
+                j.evaluate("el => el.click()")
+                log(f"[{mt}] 點擊 Join 進入遊戲，等待 3s 讓遊戲載入...")
+                time.sleep(3.0)
+                joined = True
+                break
+        if not joined:
+            log(f"[{mt}] 找不到 Join 按鈕（此機種可能不需要），繼續下一步")
+    except Exception as e:
+        log(f"[{mt}] 找不到 Join 按鈕（此機種可能不需要），繼續下一步: {e}")
 
     # ── 清除已知浮動彈窗（Game Preview / Jackpot 宣傳面板等）── 與 Machine Test 完全同步
     # 選用 machine-test/runner.ts CCTV 步驟同一套 overlay/close-btn selector（範圍窄，不會誤點遊戲 UI）

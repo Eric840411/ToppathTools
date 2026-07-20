@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.60.3'
+export const APP_VERSION = '3.60.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.60.4',
+    date: '2026-07-20',
+    changes: [
+      'fix(autospin): Join 按鈕點擊邏輯改為與 Machine Test 完全同步 — 原本用 Playwright :text() 子字串比對+DOM順序第一個+一般 click()，容易誤中其他含 Join 文字的按鈕、或點到不可見元素而卡住；改為文字須完全等於「Join」、逐一找第一個可見的、並用 JS evaluate click 繞過 pointer-events 攔截',
+    ],
+  },
   {
     version: '3.60.3',
     date: '2026-07-20',
