@@ -354,7 +354,8 @@ Keep Claude for:
 | 操作 | 說明 |
 |------|------|
 | 設定 Webhook URL | 貼上 Discord Webhook 網址並儲存（存在 `settings` 表 `discord_webhook_url`）|
-| 發送測試訊息 | 立即送一則測試 Embed 到目前設定的頻道，確認網址正確 |
+| 啟用/暫停通知開關 | 關閉後即使 URL 有設定也不會發送，不用清空網址（存在 `settings` 表 `discord_notify_enabled`）|
+| 發送測試訊息 | 立即送一則測試 Embed 到目前設定的頻道，確認網址正確（不受啟用開關影響）|
 | 查看狀態生命週期 | 頁面上顯示 5 種狀態（排隊中/執行中/已完成/失敗/已停止）與同一則訊息更新的說明 |
 | 查看訊息預覽 | 顯示實際發送到 Discord 的卡片樣式示意 |
 

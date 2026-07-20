@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.61.0'
+export const APP_VERSION = '3.61.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.61.1',
+    date: '2026-07-21',
+    changes: [
+      'feat(autospin): Discord 通知設定頁新增「啟用通知」開關，關閉後即使 Webhook URL 有設定也不會發送，不用清空網址就能暫停/恢復',
+    ],
+  },
   {
     version: '3.61.0',
     date: '2026-07-20',

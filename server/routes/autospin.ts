@@ -287,17 +287,20 @@ router.get('/api/autospin/captures-list', async (_req, res) => {
 // ─── Discord Webhook 通知設定 ──────────────────────────────────────────────────
 // URL 存在 settings 表（key-value），不寫死頻道；未來換頻道只要在設定頁改 URL 即可。
 
-// GET /api/autospin/discord-webhook — 取得目前設定的 Discord Webhook URL
+// GET /api/autospin/discord-webhook — 取得目前設定的 Discord Webhook URL + 啟用開關
 router.get('/api/autospin/discord-webhook', (_req, res) => {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_webhook_url') as { value: string } | undefined
-  res.json({ ok: true, url: row?.value ?? '' })
+  res.json({ ok: true, url: row?.value ?? '', enabled: isDiscordNotifyEnabled() })
 })
 
-// POST /api/autospin/discord-webhook — 儲存 Discord Webhook URL（空字串＝關閉通知）
+// POST /api/autospin/discord-webhook — 儲存 Discord Webhook URL（空字串＝關閉通知）與啟用開關
 router.post('/api/autospin/discord-webhook', (req, res) => {
-  const { url } = req.body as { url?: string }
+  const { url, enabled } = req.body as { url?: string; enabled?: boolean }
   if (typeof url !== 'string') return res.status(400).json({ ok: false, message: 'url required' })
   db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('discord_webhook_url', url)
+  if (typeof enabled === 'boolean') {
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('discord_notify_enabled', enabled ? '1' : '0')
+  }
   res.json({ ok: true })
 })
 
@@ -331,6 +334,12 @@ router.post('/api/autospin/discord-webhook/test', async (_req, res) => {
 function getDiscordWebhookUrl(): string {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_webhook_url') as { value: string } | undefined
   return row?.value ?? ''
+}
+
+/** 預設啟用（尚未設定過開關時，維持既有行為：只要有填 URL 就會發送）。 */
+function isDiscordNotifyEnabled(): boolean {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_notify_enabled') as { value: string } | undefined
+  return row?.value !== '0'
 }
 
 // ─── Session Routes ───────────────────────────────────────────────────────────
@@ -541,13 +550,13 @@ async function finalizeSessionNotifications(sessionId: string) {
   }
 }
 
-/** 建立或更新（同一則訊息）指定機台的 Discord 通知。webhook 未設定時直接跳過。 */
+/** 建立或更新（同一則訊息）指定機台的 Discord 通知。webhook 未設定或開關關閉時直接跳過。 */
 async function notifyDiscord(
   sessionId: string, machineType: string, status: NotifyStatus,
   opts: { gameUrl?: string; spinCount?: number; errorSummary?: string; screenshotUrl?: string } = {},
 ) {
   const webhookUrl = getDiscordWebhookUrl()
-  if (!webhookUrl) return
+  if (!webhookUrl || !isDiscordNotifyEnabled()) return
   const key = `${sessionId}:${machineType}`
   const existing = discordNotifyState.get(key)
   const embed = buildDiscordEmbed(status, machineType, opts)

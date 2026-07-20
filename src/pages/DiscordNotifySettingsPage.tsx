@@ -1,5 +1,29 @@
 import { useEffect, useState } from 'react'
 
+function ToggleSwitch({ checked, disabled, onToggle }: { checked: boolean; disabled?: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={disabled}
+      title={checked ? '點擊停用' : '點擊啟用'}
+      style={{
+        width: 36, height: 20, borderRadius: 10, border: 'none', padding: 0, flexShrink: 0,
+        background: checked ? '#3b82f6' : '#374151',
+        cursor: disabled ? 'wait' : 'pointer',
+        opacity: disabled ? 0.6 : 1,
+        position: 'relative',
+        transition: 'background 0.2s ease',
+      }}
+    >
+      <span style={{
+        position: 'absolute', top: 2, left: checked ? 18 : 2, width: 16, height: 16, borderRadius: '50%',
+        background: '#fff', transition: 'left 0.2s ease',
+      }} />
+    </button>
+  )
+}
+
 const STATE_META: { key: string; label: string; color: string; desc: string }[] = [
   { key: 'queued', label: '排隊中', color: '#6b7280', desc: '任務已建立，Agent 尚未開始執行' },
   { key: 'running', label: '執行中', color: '#3b82f6', desc: '每次餘額/事件回報時同步更新（同一則訊息）' },
@@ -11,6 +35,8 @@ const STATE_META: { key: string; label: string; color: string; desc: string }[] 
 export function DiscordNotifySettingsPage() {
   const [url, setUrl] = useState('')
   const [savedUrl, setSavedUrl] = useState('')
+  const [enabled, setEnabled] = useState(true)
+  const [savedEnabled, setSavedEnabled] = useState(true)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -23,6 +49,8 @@ export function DiscordNotifySettingsPage() {
       const data = await res.json()
       setUrl(data.url || '')
       setSavedUrl(data.url || '')
+      setEnabled(data.enabled !== false)
+      setSavedEnabled(data.enabled !== false)
     } catch {
       setMsg({ text: '讀取設定失敗，請稍後重試', ok: false })
     } finally {
@@ -39,11 +67,12 @@ export function DiscordNotifySettingsPage() {
       const res = await fetch('/api/autospin/discord-webhook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url.trim() }),
+        body: JSON.stringify({ url: url.trim(), enabled }),
       })
       const data = await res.json()
       if (data.ok) {
         setSavedUrl(url.trim())
+        setSavedEnabled(enabled)
         setMsg({ text: url.trim() ? '✅ 已儲存 Webhook 設定' : '✅ 已關閉通知（URL 清空）', ok: true })
       } else {
         setMsg({ text: `儲存失敗：${data.message || '未知錯誤'}`, ok: false })
@@ -72,7 +101,7 @@ export function DiscordNotifySettingsPage() {
   }
 
   const isConfigured = !!savedUrl
-  const isDirty = url.trim() !== savedUrl
+  const isDirty = url.trim() !== savedUrl || enabled !== savedEnabled
 
   return (
     <div className="discord-notify-page">
@@ -80,8 +109,8 @@ export function DiscordNotifySettingsPage() {
         <div>
           <h1 className="discord-notify-title">
             💬 Discord 通知設定
-            <span className={isConfigured ? 'badge badge--ok' : 'badge'}>
-              {isConfigured ? '● 已啟用' : '○ 未設定'}
+            <span className={isConfigured ? (savedEnabled ? 'badge badge--ok' : 'badge badge--warn') : 'badge'}>
+              {isConfigured ? (savedEnabled ? '● 已啟用' : '⏸ 已暫停') : '○ 未設定'}
             </span>
           </h1>
           <p className="discord-notify-sub">
@@ -109,6 +138,13 @@ export function DiscordNotifySettingsPage() {
                 disabled={loading}
                 spellCheck={false}
               />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14 }}>
+              <ToggleSwitch checked={enabled} disabled={loading} onToggle={() => setEnabled(v => !v)} />
+              <div>
+                <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 700 }}>啟用通知</div>
+                <div style={{ color: '#64748b', fontSize: 11 }}>關閉後即使 URL 有設定也不會發送，不用清空網址就能暫停</div>
+              </div>
             </div>
             <div className="discord-notify-actions">
               <button
