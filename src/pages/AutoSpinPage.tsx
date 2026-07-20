@@ -785,7 +785,6 @@ export function AutoSpinPage() {
 
                 <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                   {[
-                    { key: 'enabled', label: '啟用' },
                     { key: 'enableRecording', label: '啟用錄影' },
                     { key: 'enableTemplateDetection', label: '啟用模板偵測' },
                     { key: 'betRandomEnabled', label: '隨機下注' },

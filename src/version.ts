@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.60.5'
+export const APP_VERSION = '3.60.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.60.6',
+    date: '2026-07-20',
+    changes: [
+      'ux(autospin): 移除編輯機台表單裡的「啟用」勾選框（已改用列表上的開關按鈕切換，表單裡留著是重複的）',
+    ],
+  },
   {
     version: '3.60.5',
     date: '2026-07-20',
