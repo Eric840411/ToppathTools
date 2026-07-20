@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.59.0'
+export const APP_VERSION = '3.59.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.59.1',
+    date: '2026-07-20',
+    changes: [
+      'fix(jira): 重新讀取 Sheet 按鈕從共用頂部步驟列改為各 Tab 各自獨立（含各自的 loading/成功訊息狀態），修正切換 Tab 後殘留其他 Tab「已重新讀取」訊息的問題',
+      'ux(jira): 批量開單重新讀取 Sheet 按鈕移到 Step 3「從 Lark 帶入」同一列；重新讀取後（含 Step 2 首次進入 Step 3）自動套用 Lark 帶入，不需再手動點一次',
+    ],
+  },
   {
     version: '3.59.0',
     date: '2026-07-20',

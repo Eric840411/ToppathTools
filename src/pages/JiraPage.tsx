@@ -1194,10 +1194,14 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   }
 
   // ── 重新讀取 Sheet（不切換 step，避免使用者中途更新 Sheet 後要整頁重來）──
-  const [reloadMsg, setReloadMsg] = useState('')
+  // 每個 Tab 各自獨立的「已重新讀取」訊息，切換 Tab 不會互相殘留
+  const [createReloadMsg, setCreateReloadMsg] = useState('')
+  const [commentReloadMsg, setCommentReloadMsg] = useState('')
+  const [editReloadMsg, setEditReloadMsg] = useState('')
+  const [updateReloadMsg, setUpdateReloadMsg] = useState('')
   const handleReloadCreateSheet = async () => {
     if (!sheetUrl.trim()) return
-    setSheetLoading(true); setSheetError(''); setReloadMsg('')
+    setSheetLoading(true); setSheetError(''); setCreateReloadMsg('')
     try {
       const endpoint = sheetSource === 'lark' ? '/api/lark/sheets/records' : '/api/google/sheets/records'
       const resp = await fetch(endpoint, {
@@ -1211,7 +1215,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       setSheetRecords(data.records)
       const freshIdx: Set<number> = new Set(data.records.map((r: SheetRecord) => Number(r._rowIndex)))
       setSelectedRows(prev => new Set([...prev, ...freshIdx].filter(i => freshIdx.has(i))))
-      setReloadMsg(`✅ 已重新讀取（${data.records.length} 筆）`)
+      setCreateReloadMsg(`✅ 已重新讀取（${data.records.length} 筆）`)
     } catch { setSheetError('網路錯誤') }
     finally { setSheetLoading(false) }
   }
@@ -1484,6 +1488,13 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       void handleDescPrefetch(attachCol)
     }
   }
+
+  // 動態欄位模式下，欄位定義載入完成後、或重新讀取 Sheet 後，自動套用 Lark 帶入（不用再手動點一次）
+  useEffect(() => {
+    if (step !== 3 || jiraFields.length === 0 || filteredRecords.length === 0) return
+    applyLarkPrefill()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jiraFields, sheetRecords])
 
   const validateDynamicFields = (): boolean => {
     const errors: Record<number, Record<string, string>> = {}
@@ -2287,7 +2298,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   // 重新讀取 Sheet（不切換 step，保留已勾選 Issue / 已寫的評論內容）
   const handleReloadCommentSheet = async () => {
     if (!commentTabUrl.trim()) return
-    setCommentTabLoading(true); setCommentTabError(''); setReloadMsg('')
+    setCommentTabLoading(true); setCommentTabError(''); setCommentReloadMsg('')
     try {
       const endpoint = commentTabSource === 'lark' ? '/api/lark/sheets/records' : '/api/google/sheets/records'
       const resp = await fetch(endpoint, {
@@ -2305,7 +2316,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       setTrackedIssues(issues)
       const freshKeys = new Set(issues.map(i => i.issueKey))
       setCommentTabSelectedKeys(prev => new Set([...prev, ...freshKeys].filter(k => freshKeys.has(k))))
-      setReloadMsg(`✅ 已重新讀取（${issues.length} 筆）`)
+      setCommentReloadMsg(`✅ 已重新讀取（${issues.length} 筆）`)
     } catch { setCommentTabError('網路錯誤') }
     finally { setCommentTabLoading(false) }
   }
@@ -2381,7 +2392,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   // 重新讀取 Sheet（不切換 step，保留已勾選 Issue / 已設定的欄位對應）
   const handleReloadEditSheet = async () => {
     if (!editTabUrl.trim()) return
-    setEditTabLoading(true); setEditTabError(''); setReloadMsg('')
+    setEditTabLoading(true); setEditTabError(''); setEditReloadMsg('')
     try {
       const endpoint = editTabSource === 'lark' ? '/api/lark/sheets/records' : '/api/google/sheets/records'
       const resp = await fetch(endpoint, {
@@ -2399,7 +2410,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       setEditTabIssues(issues)
       const freshKeys = new Set(issues.map(i => i.issueKey))
       setEditTabSelectedKeys(prev => new Set([...prev, ...freshKeys].filter(k => freshKeys.has(k))))
-      setReloadMsg(`✅ 已重新讀取（${issues.length} 筆）`)
+      setEditReloadMsg(`✅ 已重新讀取（${issues.length} 筆）`)
     } catch { setEditTabError('網路錯誤') }
     finally { setEditTabLoading(false) }
   }
@@ -2588,7 +2599,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   // 重新讀取 Sheet（不切換 step，保留已勾選單號 / 已選的轉換狀態）
   const handleReloadUpdateSheet = async () => {
     if (!updateBitableUrl.trim()) return
-    setUpdateLoading(true); setUpdateError(''); setReloadMsg('')
+    setUpdateLoading(true); setUpdateError(''); setUpdateReloadMsg('')
     try {
       const endpoint = updateTabSource === 'lark' ? '/api/lark/sheets/records' : '/api/google/sheets/records'
       const resp = await fetch(endpoint, {
@@ -2606,7 +2617,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       const freshKeys = new Set(records.map(r => r.issueKey))
       setUpdateSelectedKeys(prev => new Set([...prev, ...freshKeys].filter(k => freshKeys.has(k))))
       void fetchUpdateJiraData(records.map(r => r.issueKey))
-      setReloadMsg(`✅ 已重新讀取（${records.length} 筆）`)
+      setUpdateReloadMsg(`✅ 已重新讀取（${records.length} 筆）`)
     } catch (e) {
       setUpdateError(String(e))
     } finally {
@@ -2758,23 +2769,24 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     finally { setUpdateTitleWritebackLoading(false) }
   }
 
-  // 各 QA 子頁「重新讀取 Sheet」按鈕 — 顯示條件 / loading 狀態 / 實際呼叫的 handler 統一在這裡分派
-  const reloadableStep = mode === 'qa' && (
-    (qaSubMode === 'create' && step > 1 && !!sheetUrl.trim()) ||
-    (qaSubMode === 'comment' && commentTabStep > 1 && !!commentTabUrl.trim()) ||
-    (qaSubMode === 'edit' && editTabStep > 1 && !!editTabUrl.trim()) ||
-    (qaSubMode === 'update' && updateStep > 1 && !!updateBitableUrl.trim())
+  // 每個 Tab 各自的「重新讀取 Sheet」按鈕 — 各自獨立的 loading / 訊息狀態，切換 Tab 不會互相殘留
+  const ReloadSheetButton = ({ loading, msg, onClick }: { loading: boolean; msg: string; onClick: () => void }) => (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+      <button type="button"
+        onClick={onClick}
+        disabled={loading}
+        title="重新從 Sheet 讀取最新資料，不會中斷目前的操作進度"
+        style={{
+          fontSize: 12, padding: '4px 10px', borderRadius: 6,
+          border: '1px solid #2d3f55', background: loading ? '#1e293b' : '#132033',
+          color: loading ? '#475569' : '#94a3b8', cursor: loading ? 'default' : 'pointer',
+          whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 5,
+        }}>
+        {loading ? '讀取中…' : '🔄 重新讀取 Sheet'}
+      </button>
+      {msg && <span style={{ fontSize: 11, color: '#4ade80' }}>{msg}</span>}
+    </span>
   )
-  const reloadingSheet = qaSubMode === 'create' ? sheetLoading
-    : qaSubMode === 'comment' ? commentTabLoading
-    : qaSubMode === 'edit' ? editTabLoading
-    : updateLoading
-  const handleReloadCurrentSheet = () => {
-    if (qaSubMode === 'create') return handleReloadCreateSheet()
-    if (qaSubMode === 'comment') return handleReloadCommentSheet()
-    if (qaSubMode === 'edit') return handleReloadEditSheet()
-    return handleReloadUpdateSheet()
-  }
 
   const StepDot = ({ s }: { s: Step }) => (
     <span className={`step-dot${step === s ? ' active' : step > s ? ' done' : ''}`}>
@@ -2875,21 +2887,6 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               : mode === 'pm' ? ({ 1: '讀取表格', 2: '確認清單', 3: '開單結果' } as Record<number, string>)[pmStep]
               : ({ 1: '讀取表格', 2: '設定帳號 & 動作', 3: '執行結果' } as Record<number, string>)[updateStep]}
           </span>
-          {reloadableStep && (
-            <button type="button"
-              onClick={handleReloadCurrentSheet}
-              disabled={reloadingSheet}
-              title="重新從 Sheet 讀取最新資料，不會中斷目前的操作進度"
-              style={{
-                marginLeft: 12, fontSize: 12, padding: '4px 10px', borderRadius: 6,
-                border: '1px solid #2d3f55', background: reloadingSheet ? '#1e293b' : '#132033',
-                color: reloadingSheet ? '#475569' : '#94a3b8', cursor: reloadingSheet ? 'default' : 'pointer',
-                whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 5,
-              }}>
-              {reloadingSheet ? '讀取中…' : '🔄 重新讀取 Sheet'}
-            </button>
-          )}
-          {reloadMsg && <span style={{ marginLeft: 8, fontSize: 11, color: '#4ade80' }}>{reloadMsg}</span>}
         </div>
         <div style={{ display: 'none' }}>
           <button type="button"
@@ -3128,7 +3125,10 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           {/* Step 2: 設定帳號 & 動作 */}
           {updateStep === 2 && (
             <div className="section-card">
-              <h2 className="section-title">Step 2 — 選擇帳號 & 動作</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <h2 className="section-title" style={{ margin: 0 }}>Step 2 — 選擇帳號 & 動作</h2>
+                <ReloadSheetButton loading={updateLoading} msg={updateReloadMsg} onClick={handleReloadUpdateSheet} />
+              </div>
               <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 12px' }}>
                 共 <b style={{ color: '#e2e8f0' }}>{updateRecords.length}</b> 張單
               </p>
@@ -3592,15 +3592,20 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           {fieldsError && <div className="alert-warn" style={{ marginBottom: 12 }}>{fieldsError}</div>}
 
           {/* Lark pre-fill hint */}
-          {jiraFields.length > 0 && (
+          {jiraFields.length > 0 ? (
             <div style={{ background: '#162130', border: '1px solid #ca8a0440', borderRadius: 8, padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13, color: '#fde047', fontWeight: 600 }}>💡 可選：從 Lark 帶入預填值</span>
-              <span style={{ fontSize: 11, color: '#64748b', flex: 1 }}>系統會嘗試用 Lark 欄名對應 Jira field，對不上的欄位需手動填寫。</span>
+              <span style={{ fontSize: 11, color: '#64748b', flex: 1 }}>系統會嘗試用 Lark 欄名對應 Jira field，對不上的欄位需手動填寫；重新讀取 Sheet 後會自動重新帶入。</span>
+              <ReloadSheetButton loading={sheetLoading} msg={createReloadMsg} onClick={handleReloadCreateSheet} />
               <button type="button"
                 style={{ fontSize: 12, padding: '5px 12px', borderRadius: 6, border: '1px solid #ca8a0460', background: larkPrefillApplied ? '#16a34a20' : '#ca8a0420', color: larkPrefillApplied ? '#4ade80' : '#fde047', cursor: 'pointer', whiteSpace: 'nowrap' }}
                 onClick={applyLarkPrefill}>
                 {larkPrefillApplied ? '✓ 已帶入（可重新帶入）' : '📋 從 Lark 帶入'}
               </button>
+            </div>
+          ) : (
+            <div style={{ marginBottom: 14 }}>
+              <ReloadSheetButton loading={sheetLoading} msg={createReloadMsg} onClick={handleReloadCreateSheet} />
             </div>
           )}
 
@@ -4435,7 +4440,10 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       {/* ── Comment Tab Step 2: 選擇要評論的 Issue ── */}
       {mode === 'qa' && qaSubMode === 'comment' && commentTabStep === 2 && (
         <div className="section-card">
-          <h2 className="section-title">選擇要評論的 Issue（共 {trackedIssues.length} 筆）</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 4 }}>
+            <h2 className="section-title" style={{ margin: 0 }}>選擇要評論的 Issue（共 {trackedIssues.length} 筆）</h2>
+            <ReloadSheetButton loading={commentTabLoading} msg={commentReloadMsg} onClick={handleReloadCommentSheet} />
+          </div>
 
           <StepGuide title="操作說明 — 篩選與勾選">
             <li>系統自動偵測表格中「2–15 個唯一值」的欄位（如嚴重度、類別、進度）顯示為篩選 dropdown</li>
@@ -4567,10 +4575,13 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               {qaSubMode === 'comment' ? `批量評論（${toComment.length} 筆）` : `Step 5 — 添加評論（${toComment.length} 筆）`}
             </h2>
             {qaSubMode === 'comment'
-              ? <button type="button" className="btn-ghost" style={{ whiteSpace: 'nowrap', fontSize: 13 }}
-                  onClick={() => { setCommentTabStep(1); setTrackedIssues([]); setCommentResults([]); setPreviewMode(false); setPreviewItems([]) }}>
-                  ← 重新載入
-                </button>
+              ? <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <ReloadSheetButton loading={commentTabLoading} msg={commentReloadMsg} onClick={handleReloadCommentSheet} />
+                  <button type="button" className="btn-ghost" style={{ whiteSpace: 'nowrap', fontSize: 13 }}
+                    onClick={() => { setCommentTabStep(1); setTrackedIssues([]); setCommentResults([]); setPreviewMode(false); setPreviewItems([]) }}>
+                    ← 重新載入
+                  </button>
+                </span>
               : <button type="button" className="btn-ghost" style={{ whiteSpace: 'nowrap', fontSize: 13 }}
                   disabled={refreshingSheet || commentSubmitting}
                   onClick={handleRefreshSheetForComment}>
@@ -5162,10 +5173,13 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           {/* Step 2: 選擇 Issue */}
           {editTabStep === 2 && (
             <div className="section-card">
-              <h2 className="section-title">
-                選擇要修改的 Issue（共 {editTabIssues.length} 筆）
-                {editTabJiraLoading && <span style={{ fontSize: 11, color: '#60a5fa', marginLeft: 8 }}>載入 Jira 資料中…</span>}
-              </h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <h2 className="section-title" style={{ margin: 0 }}>
+                  選擇要修改的 Issue（共 {editTabIssues.length} 筆）
+                  {editTabJiraLoading && <span style={{ fontSize: 11, color: '#60a5fa', marginLeft: 8 }}>載入 Jira 資料中…</span>}
+                </h2>
+                <ReloadSheetButton loading={editTabLoading} msg={editReloadMsg} onClick={handleReloadEditSheet} />
+              </div>
 
               <StepGuide title="操作說明 — 篩選與勾選">
                 <li>與批量評論相同的欄位篩選機制，自動偵測 2–15 個唯一值的欄位</li>
@@ -5301,7 +5315,10 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           {/* Step 3: 設定欄位對應 */}
           {editTabStep === 3 && (
             <div className="section-card">
-              <h2 className="section-title">設定欄位對應（{editTabSelectedKeys.size} 筆 Issue）</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <h2 className="section-title" style={{ margin: 0 }}>設定欄位對應（{editTabSelectedKeys.size} 筆 Issue）</h2>
+                <ReloadSheetButton loading={editTabLoading} msg={editReloadMsg} onClick={handleReloadEditSheet} />
+              </div>
               <p style={{ color: '#64748b', fontSize: 13, marginBottom: 12 }}>
                 選擇要修改的 Jira 欄位，並選擇來源（Sheet 欄位 或 手動設定）。
               </p>
