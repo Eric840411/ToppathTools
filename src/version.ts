@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.60.8'
+export const APP_VERSION = '3.61.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.61.0',
+    date: '2026-07-20',
+    changes: [
+      'feat(autospin): 新增 Discord 即時彙報通知 —— AutoSpin 每台機台開始測試時發一則 Discord 訊息，之後同一則訊息隨狀態更新（排隊中/執行中/已完成/失敗/已停止），不會洗版；訊息含機台、Game URL、Spin 數、錯誤摘要、截圖連結',
+      'feat(sysadmin): 新增「Discord 通知」設定頁（後台系統頁面），可設定/測試 Webhook URL，不寫死頻道，換頻道只需改 URL；已加入權限矩陣（discord-notify page key）',
+    ],
+  },
   {
     version: '3.60.8',
     date: '2026-07-20',

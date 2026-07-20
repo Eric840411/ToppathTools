@@ -341,6 +341,22 @@ Keep Claude for:
 | 管理 Bet Config / 模板圖片 | 設定下注隨機配置、上傳比對模板圖 |
 | Agent 下載安裝 | 統一在「Local Agent」頁面下載安裝（Windows install.bat / macOS install-mac.command，含 token），安裝後的 agent 具備 autospin capability |
 | 對賬功能 | 比對遊戲紀錄與帳戶餘額，生成對賬報告 |
+| Discord 即時彙報通知 | 每台機台開始測試時發一則 Discord 訊息，之後同一則訊息隨狀態更新：`queued`（排隊中）→ `running`（執行中，每次餘額/事件回報時同步更新）→ `success`（完成，session 期間無異常）/ `failed`（完成，曾偵測到餘額異常 >30%）；手動停止或連線逾時另標記 `stopped`。訊息含機台、Game URL、Spin 數、錯誤摘要、截圖連結，不會洗版。Webhook URL 在「Discord 通知」設定頁配置，不寫死頻道 |
+
+### Discord 通知設定（DiscordNotifySettingsPage）
+
+**路由**：`/api/autospin/discord-webhook`（GET/POST）、`/api/autospin/discord-webhook/test`（POST）
+
+#### 功能說明
+獨立的後台設定頁（系統分區），管理 AutoSpin Discord 通知用的 Webhook URL，未來換頻道只需在此頁改網址，不用改代碼。
+
+#### 使用者操作
+| 操作 | 說明 |
+|------|------|
+| 設定 Webhook URL | 貼上 Discord Webhook 網址並儲存（存在 `settings` 表 `discord_webhook_url`）|
+| 發送測試訊息 | 立即送一則測試 Embed 到目前設定的頻道，確認網址正確 |
+| 查看狀態生命週期 | 頁面上顯示 5 種狀態（排隊中/執行中/已完成/失敗/已停止）與同一則訊息更新的說明 |
+| 查看訊息預覽 | 顯示實際發送到 Discord 的卡片樣式示意 |
 
 ---
 

@@ -19,6 +19,7 @@ import { GsBonusV2Page } from './pages/gs/GsBonusV2Page'
 import { SystemAdminPage } from './pages/SystemAdminPage'
 import { KnowledgePage } from './pages/KnowledgePage'
 import { UiScreenshotPage } from './pages/UiScreenshotPage'
+import { DiscordNotifySettingsPage } from './pages/DiscordNotifySettingsPage'
 import ChangelogModal from './components/ChangelogModal'
 import GeminiSettingsModal from './components/GeminiSettingsModal'
 import AiAgentMonitorWidget from './components/AiAgentMonitorWidget'
@@ -30,8 +31,8 @@ import './App.css'
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
   | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
-  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot'
-type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge'
+  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify'
+type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge' | 'discord-notify'
 
 type SubTab = {
   id: TabId
@@ -213,6 +214,15 @@ const settingsGroup: Group = {
   description: '下載與管理 Toppath Local Agent，讓 MachineTest 與 Scripted Bet 在使用者本機執行。',
 }
 
+const discordNotifyGroup: Group = {
+  id: 'discord-notify',
+  label: 'Discord 通知',
+  icon: 'D',
+  iconClass: 'tab-icon--history',
+  tab: 'discord-notify',
+  description: '設定 AutoSpin 執行狀態即時彙報用的 Discord Webhook',
+}
+
 const sysadminGroup: Group = {
   id: 'sysadmin',
   label: '系統管理',
@@ -323,8 +333,9 @@ function App() {
   const visibleSettings = filterGroup(settingsGroup)
   const visibleHistory = filterGroup(historyGroup)
   const visibleKnowledge = filterGroup(knowledgeGroup)
+  const visibleDiscordNotify = filterGroup(discordNotifyGroup)
   const visibleSysadmin = canAccess('sysadmin') ? sysadminGroup : null
-  const allVisible = [dashboardGroup, ...visibleGroups, ...(visibleSettings ? [visibleSettings] : []), ...(visibleHistory ? [visibleHistory] : []), ...(visibleKnowledge ? [visibleKnowledge] : []), ...(visibleSysadmin ? [visibleSysadmin] : [])]
+  const allVisible = [dashboardGroup, ...visibleGroups, ...(visibleSettings ? [visibleSettings] : []), ...(visibleHistory ? [visibleHistory] : []), ...(visibleKnowledge ? [visibleKnowledge] : []), ...(visibleDiscordNotify ? [visibleDiscordNotify] : []), ...(visibleSysadmin ? [visibleSysadmin] : [])]
 
   // Redirect activeGroup/activeTab if current selection is no longer accessible
   const currentGroup = allVisible.find(g => g.id === activeGroup) ?? allVisible[0]
@@ -464,6 +475,17 @@ function App() {
             </button>
           )}
 
+          {visibleDiscordNotify && (
+            <button
+              type="button"
+              className={`sidebar-nav-item${currentGroup?.id === discordNotifyGroup.id ? ' sidebar-nav-item--active' : ''}`}
+              onClick={() => handleGroupClick(discordNotifyGroup)}
+            >
+              <span className={`tab-icon ${discordNotifyGroup.iconClass}`}>{discordNotifyGroup.icon}</span>
+              <span className="sidebar-nav-label">{discordNotifyGroup.label}</span>
+            </button>
+          )}
+
           <button
             type="button"
             className={`sidebar-nav-item${currentGroup?.id === sysadminGroup.id ? ' sidebar-nav-item--active' : ''}${!visibleSysadmin ? ' sidebar-nav-item--disabled' : ''}`}
@@ -545,6 +567,7 @@ function App() {
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-uat' && <OsmUatPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'ui-screenshot' && <UiScreenshotPage />}
             {currentGroup?.id === 'settings' && effectiveTab === 'local-agent' && <LocalAgentPage currentAccount={globalAccount} />}
+            {currentGroup?.id === 'discord-notify' && <DiscordNotifySettingsPage />}
             {currentGroup?.id === 'history' && <HistoryPage />}
             {currentGroup?.id === 'color-game' && effectiveTab === 'gs-logchecker' && <GsLogCheckerPage />}
             {currentGroup?.id === 'sysadmin' && <SystemAdminPage />}

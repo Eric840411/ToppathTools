@@ -284,6 +284,55 @@ router.get('/api/autospin/captures-list', async (_req, res) => {
   res.json({ ok: true, files: result.slice(0, 50) })
 })
 
+// ─── Discord Webhook 通知設定 ──────────────────────────────────────────────────
+// URL 存在 settings 表（key-value），不寫死頻道；未來換頻道只要在設定頁改 URL 即可。
+
+// GET /api/autospin/discord-webhook — 取得目前設定的 Discord Webhook URL
+router.get('/api/autospin/discord-webhook', (_req, res) => {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_webhook_url') as { value: string } | undefined
+  res.json({ ok: true, url: row?.value ?? '' })
+})
+
+// POST /api/autospin/discord-webhook — 儲存 Discord Webhook URL（空字串＝關閉通知）
+router.post('/api/autospin/discord-webhook', (req, res) => {
+  const { url } = req.body as { url?: string }
+  if (typeof url !== 'string') return res.status(400).json({ ok: false, message: 'url required' })
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('discord_webhook_url', url)
+  res.json({ ok: true })
+})
+
+// POST /api/autospin/discord-webhook/test — 送一則測試訊息確認 webhook 設定正確
+router.post('/api/autospin/discord-webhook/test', async (_req, res) => {
+  const url = getDiscordWebhookUrl()
+  if (!url) return res.status(400).json({ ok: false, message: '尚未設定 Discord Webhook URL' })
+  try {
+    const r = await fetch(`${url}?wait=true`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        embeds: [{
+          title: '✅ Toppath Tools 測試訊息',
+          description: '這是一則測試訊息，確認 Discord Webhook 設定正確。',
+          color: 0x22c55e,
+          timestamp: new Date().toISOString(),
+        }],
+      }),
+    })
+    if (!r.ok) {
+      const txt = await r.text().catch(() => '')
+      return res.status(400).json({ ok: false, message: `Discord API 錯誤 ${r.status}: ${txt.slice(0, 200)}` })
+    }
+    res.json({ ok: true })
+  } catch (e) {
+    res.status(500).json({ ok: false, message: `送出失敗: ${e}` })
+  }
+})
+
+function getDiscordWebhookUrl(): string {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_webhook_url') as { value: string } | undefined
+  return row?.value ?? ''
+}
+
 // ─── Session Routes ───────────────────────────────────────────────────────────
 
 // POST /api/autospin/start
@@ -437,6 +486,101 @@ interface AgentSession {
 const agentSessions = new Map<string, AgentSession>()
 const agentSseClients = new Map<string, Set<import('express').Response>>()
 
+// ─── Discord 即時彙報通知 ───────────────────────────────────────────────────────
+// 每台機台一則訊息：queued/running 建立訊息，之後狀態變化改用同一則訊息編輯（PATCH），
+// 不會每次更新都發新訊息洗版。Webhook URL 從 settings 讀，不寫死頻道。
+type NotifyStatus = 'queued' | 'running' | 'success' | 'failed' | 'stopped'
+const NOTIFY_STATUS_META: Record<NotifyStatus, { label: string; color: number; emoji: string }> = {
+  queued: { label: '排隊中', color: 0x6b7280, emoji: '⏳' },
+  running: { label: '執行中', color: 0x3b82f6, emoji: '▶️' },
+  success: { label: '已完成', color: 0x22c55e, emoji: '✅' },
+  failed: { label: '失敗', color: 0xef4444, emoji: '❌' },
+  stopped: { label: '已停止', color: 0x9ca3af, emoji: '⏹️' },
+}
+const discordNotifyState = new Map<string, { messageId: string; status: NotifyStatus }>()
+
+function buildDiscordEmbed(
+  status: NotifyStatus, machineType: string,
+  opts: { gameUrl?: string; spinCount?: number; errorSummary?: string; screenshotUrl?: string },
+) {
+  const meta = NOTIFY_STATUS_META[status]
+  const fields: { name: string; value: string; inline?: boolean }[] = [
+    { name: '狀態', value: `${meta.emoji} ${meta.label}`, inline: true },
+    { name: 'Spin 數', value: String(opts.spinCount ?? 0), inline: true },
+  ]
+  if (opts.gameUrl) fields.push({ name: 'Game URL', value: opts.gameUrl.length > 300 ? opts.gameUrl.slice(0, 300) + '…' : opts.gameUrl })
+  if (opts.errorSummary) fields.push({ name: '錯誤摘要', value: opts.errorSummary.slice(0, 500) })
+  if (opts.screenshotUrl) fields.push({ name: '截圖', value: opts.screenshotUrl })
+  return {
+    title: `${meta.emoji} AutoSpin — ${machineType}`,
+    color: meta.color,
+    fields,
+    timestamp: new Date().toISOString(),
+  }
+}
+
+/** Session 結束時，對這個 session 底下每台機台送出最終狀態（success/failed，依是否曾有異常記錄判斷）。 */
+async function finalizeSessionNotifications(sessionId: string) {
+  const keys = [...discordNotifyState.keys()].filter(k => k.startsWith(`${sessionId}:`))
+  const session = agentSessions.get(sessionId)
+  for (const key of keys) {
+    const state = discordNotifyState.get(key)
+    if (!state || state.status === 'success' || state.status === 'failed' || state.status === 'stopped') continue
+    const machineType = key.slice(sessionId.length + 1)
+    const anomalyRow = db.prepare(
+      "SELECT COUNT(*) as cnt FROM autospin_history WHERE sessionId = ? AND machineType = ? AND isAnomaly = 1"
+    ).get(sessionId, machineType) as { cnt: number } | undefined
+    const lastRow = db.prepare(
+      'SELECT spinCount FROM autospin_history WHERE sessionId = ? AND machineType = ? ORDER BY id DESC LIMIT 1'
+    ).get(sessionId, machineType) as { spinCount: number } | undefined
+    const status: NotifyStatus = (anomalyRow?.cnt ?? 0) > 0 ? 'failed' : 'success'
+    await notifyDiscord(sessionId, machineType, status, {
+      spinCount: lastRow?.spinCount ?? 0,
+      screenshotUrl: session ? latestScreenshotUrl(session, machineType) : undefined,
+    }).catch(() => {})
+  }
+}
+
+/** 建立或更新（同一則訊息）指定機台的 Discord 通知。webhook 未設定時直接跳過。 */
+async function notifyDiscord(
+  sessionId: string, machineType: string, status: NotifyStatus,
+  opts: { gameUrl?: string; spinCount?: number; errorSummary?: string; screenshotUrl?: string } = {},
+) {
+  const webhookUrl = getDiscordWebhookUrl()
+  if (!webhookUrl) return
+  const key = `${sessionId}:${machineType}`
+  const existing = discordNotifyState.get(key)
+  const embed = buildDiscordEmbed(status, machineType, opts)
+  try {
+    if (existing) {
+      const r = await fetch(`${webhookUrl}/messages/${existing.messageId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ embeds: [embed] }),
+      })
+      if (r.ok) {
+        existing.status = status
+      } else {
+        // 訊息可能已被刪除，改發一則新的
+        discordNotifyState.delete(key)
+        await notifyDiscord(sessionId, machineType, status, opts)
+      }
+    } else {
+      const r = await fetch(`${webhookUrl}?wait=true`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ embeds: [embed] }),
+      })
+      if (r.ok) {
+        const data = await r.json() as { id?: string }
+        if (data.id) discordNotifyState.set(key, { messageId: data.id, status })
+      }
+    }
+  } catch (e) {
+    console.warn('[autospin] Discord 通知失敗:', e)
+  }
+}
+
 // ── Periodic session GC ───────────────────────────────────────────────────────
 // Purge stopped/old sessions older than 2 hours to prevent unbounded memory growth.
 const SESSION_GC_MAX_AGE_MS = 2 * 60 * 60 * 1000  // 2 hours
@@ -456,6 +600,10 @@ setInterval(() => {
       agentSessions.delete(id)
       agentSseClients.get(id)?.forEach(r => { try { r.end() } catch { /* ignore */ } })
       agentSseClients.delete(id)
+      // 同步清掉這個 session 底下所有機台的 Discord 通知狀態
+      for (const key of discordNotifyState.keys()) {
+        if (key.startsWith(`${id}:`)) discordNotifyState.delete(key)
+      }
     }
   }
 }, 15 * 60 * 1000)  // run every 15 min
@@ -554,6 +702,10 @@ router.post('/api/autospin/agent/start', (req, res) => {
       betRandomConfig = JSON.parse(readFileSync(betRandomPath, 'utf-8'))
     }
   } catch { /* ignore */ }
+  // 逐台已啟用機台送出「排隊中」Discord 通知（fire-and-forget，不影響回應速度）
+  for (const c of merged) {
+    if (c.enabled) notifyDiscord(sessionId, c.machineType, 'queued', { gameUrl: c.gameUrl }).catch(() => {})
+  }
   res.json({ ok: true, sessionId, configs: merged, keywordActions, machineActions, betRandomConfig })
 })
 
@@ -583,6 +735,7 @@ router.post('/api/autospin/agent/:id/stop', (req, res) => {
     s.status = 'stopped'
     finishHeavyTask(s.heavyTask)
     broadcastAgentLog(req.params.id, '[Agent] 已停止')
+    finalizeSessionNotifications(req.params.id).catch(() => {})
   }
   res.json({ ok: true })
 })
@@ -651,6 +804,7 @@ router.get('/api/autospin/agent/status', (_req, res) => {
         s.status = 'stopped'
         finishHeavyTask(s.heavyTask)
         broadcastAgentLog(s.id, '[Agent] 連線逾時，已標記為離線')
+        finalizeSessionNotifications(s.id).catch(() => {})
       } else {
         active = s; break
       }
@@ -809,6 +963,19 @@ const resolveServerUrl = (req: import('express').Request): string => {
   const proto = (req.headers['x-forwarded-proto'] as string) ?? req.protocol ?? 'http'
   const host  = (req.headers['x-forwarded-host'] as string) ?? req.headers.host ?? 'localhost:3000'
   return `${proto}://${host}`
+}
+
+/** 背景/通知用途取伺服器對外網址，沒設 env 就退回 localhost（僅影響 Discord 通知裡的截圖連結）*/
+const backgroundServerUrl = (): string => process.env.TOPPATH_BASE_URL || 'http://localhost:3000'
+
+/** 找出指定機台最新一張截圖的可存取網址，供 Discord 通知附上截圖連結 */
+function latestScreenshotUrl(s: AgentSession, machineType: string): string | undefined {
+  for (let i = s.screenshots.length - 1; i >= 0; i--) {
+    if (s.screenshots[i].name.startsWith(`${machineType}_`)) {
+      return `${backgroundServerUrl()}/api/autospin/agent/screenshot/${s.id}/${encodeURIComponent(s.screenshots[i].name)}`
+    }
+  }
+  return undefined
 }
 
 // GET /api/autospin/agent/download/launcher.bat?server=... — serve launcher with embedded server URL
@@ -1141,6 +1308,17 @@ router.post('/api/autospin/agent/:id/history', (req, res) => {
     INSERT INTO autospin_history (sessionId, machineType, userLabel, balance, spinCount, event, note, isAnomaly)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(s.id, body.machineType, s.userLabel, body.balance, body.spinCount, body.event, body.note, isAnomaly)
+
+  // Discord 通知：queued → running（第一筆 history 就代表 Python 引擎已進入機台開始跑），
+  // 之後每筆 history 更新同一則訊息的 spin 數；低餘額等異常事件附上摘要
+  const cfg = readConfigs(s.userLabel).find(c => c.machineType === body.machineType)
+  const errorSummary = body.event === 'low_balance' || isAnomaly ? body.note || '偵測到餘額異常' : undefined
+  notifyDiscord(s.id, body.machineType, 'running', {
+    gameUrl: cfg?.gameUrl,
+    spinCount: body.spinCount,
+    errorSummary,
+    screenshotUrl: latestScreenshotUrl(s, body.machineType),
+  }).catch(() => {})
 
   return res.json({ ok: true, isAnomaly: !!isAnomaly })
 })
