@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.59.1'
+export const APP_VERSION = '3.59.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.59.2',
+    date: '2026-07-20',
+    changes: [
+      'feat(jira-comment): 批量評論預覽表附件縮圖新增「×」刪除按鈕（圖片/影片/失敗附件皆可），誤上傳或誤帶入錯誤圖片時可直接移除，不需重新整理整批附件',
+    ],
+  },
   {
     version: '3.59.1',
     date: '2026-07-20',

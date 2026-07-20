@@ -1909,6 +1909,13 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     }))
   }
 
+  const handleRemoveAttachment = (rowIndex: number, attachmentIndex: number) => {
+    setPreviewItems(prev => prev.map(item => {
+      if (item.rowIndex !== rowIndex) return item
+      return { ...item, cachedAttachments: item.cachedAttachments.filter((_, i) => i !== attachmentIndex) }
+    }))
+  }
+
   const handleManualUpload = async (rowIndex: number, files: FileList | null) => {
     if (!files || files.length === 0) return
     setUploadingRows(prev => new Set([...prev, rowIndex]))
@@ -4887,13 +4894,24 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                   )}
                                 </div>
                                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                  {item.cachedAttachments.map((att, ai) => (
-                                    att.error ? (
-                                      <div key={ai} style={{ fontSize: 10, color: '#f87171', padding: '2px 6px', background: 'rgba(248,81,73,0.1)', borderRadius: 4, border: '1px solid rgba(248,81,73,0.2)' }}>
+                                  {item.cachedAttachments.map((att, ai) => {
+                                    const RemoveBtn = () => (
+                                      <button type="button"
+                                        onClick={e => { e.stopPropagation(); handleRemoveAttachment(item.rowIndex, ai) }}
+                                        title="移除這個附件"
+                                        style={{
+                                          position: 'absolute', top: -6, right: -6, width: 16, height: 16, borderRadius: '50%',
+                                          background: '#7f1d1d', color: '#fca5a5', border: '1px solid #f8717160',
+                                          fontSize: 11, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0,
+                                        }}>×</button>
+                                    )
+                                    return att.error ? (
+                                      <div key={ai} style={{ position: 'relative', fontSize: 10, color: '#f87171', padding: '2px 14px 2px 6px', background: 'rgba(248,81,73,0.1)', borderRadius: 4, border: '1px solid rgba(248,81,73,0.2)' }}>
                                         ⚠ {att.filename.length > 30 ? att.filename.slice(0, 30) + '…' : att.filename}: {att.error}
+                                        <RemoveBtn />
                                       </div>
                                     ) : att.isVideo ? (
-                                      <div key={ai} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                                      <div key={ai} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, position: 'relative' }}>
                                         {att.cacheId ? (
                                           <video src={`/api/jira/attachment-cache/${att.cacheId}`}
                                             style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 4, border: '1px solid #2d3f55' }} />
@@ -4903,6 +4921,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                             <span style={{ fontSize: 9, color: '#f59e0b' }}>未上傳</span>
                                           </div>
                                         )}
+                                        <RemoveBtn />
                                         <div style={{ fontSize: 9, color: att.cacheId ? '#64748b' : '#f59e0b', maxWidth: 60, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>
                                           {att.filename.length > 20 ? att.filename.slice(0, 20) + '…' : att.filename}
                                         </div>
@@ -4915,12 +4934,13 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                           alt={att.filename}
                                           style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 4, border: '1px solid #2d3f55' }}
                                         />
+                                        <RemoveBtn />
                                         <div style={{ fontSize: 9, color: '#64748b', maxWidth: 60, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textAlign: 'center' }}>
                                           {att.filename}
                                         </div>
                                       </div>
                                     ) : null
-                                  ))}
+                                  })}
                                 </div>
                                 <div style={{ fontSize: 10, color: '#3fb950', marginTop: 5 }}>
                                   ✦ 圖片上傳至 Jira 附件區，評論末自動嵌入
