@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.60.7'
+export const APP_VERSION = '3.60.8'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.60.8',
+    date: '2026-07-20',
+    changes: [
+      'feat(autospin): 機台設定表單的 Game URL 欄位新增「📋 從帳號池選取」按鈕，跟 Machine Test 大廳 URL 同一套 UrlPoolPickerModal（已抽成共用元件 src/components/UrlPoolPickerModal.tsx），不用再手動複製貼上帶 token 的長網址',
+    ],
+  },
   {
     version: '3.60.7',
     date: '2026-07-20',

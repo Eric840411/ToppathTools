@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { UrlPoolPickerModal } from '../components/UrlPoolPickerModal'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -80,6 +81,7 @@ export function AutoSpinPage() {
   const [showForm, setShowForm] = useState(false)
   const [editingType, setEditingType] = useState<string | null>(null)
   const [form, setForm] = useState<AutospinConfig>(EMPTY_CONFIG)
+  const [showUrlPicker, setShowUrlPicker] = useState(false)
   const [configMsg, setConfigMsg] = useState('')
 
   const userLabel = getGlobalUserLabel()
@@ -762,7 +764,45 @@ export function AutoSpinPage() {
 
                 {[
                   { key: 'machineType', label: '機台類型 *', placeholder: 'e.g. JJBXGRAND', disabled: !!editingType },
-                  { key: 'gameUrl', label: 'Game URL', placeholder: 'https://...' },
+                ].map(({ key, label, placeholder, disabled }) => (
+                  <div key={key}>
+                    <label style={{ fontSize: 12, color: '#cbd5e1', display: 'block', marginBottom: 3 }}>{label}</label>
+                    <input
+                      value={(form as unknown as Record<string, string>)[key]}
+                      onChange={e => setForm(f => ({ ...f, [key]: key === 'machineType' ? e.target.value.toUpperCase() : e.target.value }))}
+                      placeholder={placeholder} disabled={disabled}
+                      style={{ width: '100%', padding: '6px 10px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 13, boxSizing: 'border-box', background: '#0f172a' }}
+                    />
+                  </div>
+                ))}
+
+                <div>
+                  <label style={{ fontSize: 12, color: '#cbd5e1', display: 'block', marginBottom: 3 }}>Game URL</label>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <input
+                      value={form.gameUrl}
+                      onChange={e => setForm(f => ({ ...f, gameUrl: e.target.value }))}
+                      placeholder="https://..."
+                      style={{ flex: 1, padding: '6px 10px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 13, boxSizing: 'border-box', background: '#0f172a' }}
+                    />
+                    <button type="button" className="btn-ghost"
+                      title="從帳號池選取"
+                      style={{ fontSize: 13, padding: '4px 8px', flexShrink: 0, color: '#2563eb' }}
+                      onClick={() => setShowUrlPicker(true)}>
+                      📋
+                    </button>
+                  </div>
+                  {showUrlPicker && (
+                    <UrlPoolPickerModal
+                      title={`選取 ${form.machineType || '機台'} Game URL`}
+                      claimedByLabel="autospin"
+                      onSelect={url => setForm(f => ({ ...f, gameUrl: url }))}
+                      onClose={() => setShowUrlPicker(false)}
+                    />
+                  )}
+                </div>
+
+                {[
                   { key: 'rtmpName', label: 'RTMP 名稱', placeholder: 'e.g. JJBXGRAND_MAIN' },
                   { key: 'rtmpUrl', label: 'RTMP URL', placeholder: 'rtmp://...' },
                   { key: 'gameTitleCode', label: 'Game Title Code', placeholder: 'e.g. 873-JJBXGRAND' },
@@ -771,13 +811,13 @@ export function AutoSpinPage() {
                   { key: 'machineNo', label: 'Machine No.（SLS 日誌查詢用，如 6312745）', placeholder: 'e.g. 6312745' },
                   { key: 'notes', label: '備註', placeholder: '' },
                   { key: 'larkWebhook', label: 'Lark Webhook URL（推播通知，可留空）', placeholder: 'https://open.larksuite.com/open-apis/bot/v2/hook/...' },
-                ].map(({ key, label, placeholder, disabled }) => (
+                ].map(({ key, label, placeholder }) => (
                   <div key={key}>
                     <label style={{ fontSize: 12, color: '#cbd5e1', display: 'block', marginBottom: 3 }}>{label}</label>
                     <input
                       value={(form as unknown as Record<string, string>)[key]}
-                      onChange={e => setForm(f => ({ ...f, [key]: key === 'machineType' ? e.target.value.toUpperCase() : e.target.value }))}
-                      placeholder={placeholder} disabled={disabled}
+                      onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                      placeholder={placeholder}
                       style={{ width: '100%', padding: '6px 10px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 13, boxSizing: 'border-box', background: '#0f172a' }}
                     />
                   </div>
