@@ -346,58 +346,6 @@ def wait_for_enter_gm(page, timeout_ms: int = 12000, baseline_ts: float = 0):
     return None
 
 
-def dismiss_popups(page, retries: int = 3):
-    """關閉大廳彈出的廣告 / 公告 popup（找 X 關閉按鈕或 ESC），重試 retries 次"""
-    close_selectors = [
-        '.modal-close', '.popup-close', '.close-btn', '.btn-close',
-        '[class*="close"]', '[class*="Close"]',
-        'button:has-text("X")', 'button:has-text("×")',
-        # 不限 button 元素，任何含 × 文字的元素
-        ':text("×")', ':text("✕")', ':text("x")',
-        '.icon-close', '.lc-close',
-        # Jackpot / 活動彈框
-        '[class*="jackpot"] [class*="close"]', '[class*="jackpot"] [class*="Close"]',
-        '[class*="popup"] [class*="close"]', '[class*="dialog"] [class*="close"]',
-        # 大廳廣告/公告常見的 bg overlay（點擊空白處關閉）
-        '.lc-modal .bg', '.modal-bg', '.overlay-bg', '[class*="mask"]',
-    ]
-    dismissed = False
-    for _ in range(retries):
-        found_any = False
-        for sel in close_selectors:
-            try:
-                btns = page.locator(sel).all()
-                for btn in btns:
-                    if btn.is_visible():
-                        try:
-                            btn.click(timeout=1500, force=True)
-                        except Exception:
-                            btn.evaluate("el => el.click()")
-                        time.sleep(0.3)
-                        dismissed = True
-                        found_any = True
-            except Exception:
-                pass
-        try:
-            page.keyboard.press('Escape')
-            time.sleep(0.2)
-        except Exception:
-            pass
-        # 最後手段：點視窗右上角固定座標（Jackpot/活動彈框 × 按鈕常在此）
-        if not found_any:
-            try:
-                vp = page.viewport_size or {'width': 432, 'height': 780}
-                # 試點右上角幾個常見位置
-                for fx, fy in [(0.88, 0.08), (0.92, 0.06), (0.85, 0.10)]:
-                    page.mouse.click(vp['width'] * fx, vp['height'] * fy)
-                    time.sleep(0.3)
-            except Exception:
-                pass
-            break
-        time.sleep(0.5)
-    return dismissed
-
-
 def enter_game(page, cfg: dict) -> bool:
     """從大廳進入指定遊戲，對應 AutoSpin.py scroll_and_click_game()"""
     mt = cfg['machineType']
@@ -422,11 +370,6 @@ def enter_game(page, cfg: dict) -> bool:
 
     time.sleep(1.0)
 
-    # 先關閉任何彈出的廣告 popup
-    if dismiss_popups(page):
-        log(f"[{mt}] 已關閉廣告/公告 popup")
-        time.sleep(0.5)
-
     try:
         page.wait_for_selector('#grid_gm_item', timeout=12000)
     except PwTimeout:
@@ -434,9 +377,6 @@ def enter_game(page, cfg: dict) -> bool:
             return True
         log(f"[{mt}] 大廳元素未找到（逾時）")
         return False
-
-    # 再次嘗試關閉 popup（有些在頁面完全載入後才出現）
-    dismiss_popups(page)
 
     items = page.locator('#grid_gm_item').all()
     target_item = None

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.60.0'
+export const APP_VERSION = '3.60.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.60.1',
+    date: '2026-07-20',
+    changes: [
+      'fix(autospin): 移除大廳廣告/公告彈框自動關閉邏輯（dismiss_popups），依需求不再需要',
+    ],
+  },
   {
     version: '3.60.0',
     date: '2026-07-20',
