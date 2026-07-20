@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.58.3'
+export const APP_VERSION = '3.58.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.58.4',
+    date: '2026-07-20',
+    changes: [
+      'fix(jira): 批量開單 Step 3 動態欄位表格，用搜尋選一位使用者後，同一欄位其他列（或其他人員欄位）全部顯示成 accountId 亂碼 — userOptionsForField 原本只要 field.options 有任何值就完全不 fallback 回 members 清單，改為 field.options 與 members 合併（去重），不再互斥',
+    ],
+  },
   {
     version: '3.58.3',
     date: '2026-07-17',

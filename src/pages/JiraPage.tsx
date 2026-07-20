@@ -1321,10 +1321,12 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const searchProjectKey = projects.find(p => p.id === selectedProjectId)?.key ?? ''
   const searchIssueTypeName = issueTypes.find(t => t.id === selectedIssueTypeId)?.name ?? ''
 
-  const userOptionsForField = (field: NormalizedJiraField) =>
-    field.options?.length
-      ? field.options
-      : members.map(m => ({ id: m.accountId, label: m.displayName }))
+  const userOptionsForField = (field: NormalizedJiraField) => {
+    const memberOptions = members.map(m => ({ id: m.accountId, label: m.displayName }))
+    if (!field.options?.length) return memberOptions
+    const ids = new Set(field.options.map(o => o.id))
+    return [...field.options, ...memberOptions.filter(m => !ids.has(m.id))]
+  }
 
   const userLabelForField = (field: NormalizedJiraField, accountId: string) =>
     userOptionsForField(field).find(x => x.id === accountId)?.label ?? accountId
