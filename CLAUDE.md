@@ -157,6 +157,7 @@ Keep Claude for:
 | 批量修改（獨立 Tab） | 貼入 Lark Sheet 或 Google Sheets URL（可切換），選擇 Jira 欄位與 Sheet 欄位對應，批量修改摘要/描述/優先級等欄位 |
 | 批量更新狀態（獨立 Tab） | 貼入 Lark Sheet 或 Google Sheets URL（可切換），自動偵測含 Jira 單號的列，批量執行 transition |
 | 批量修改 — 描述附件 | Step 3 預覽表每列有附件欄：可選 Sheet 圖片欄自動讀取（點「讀取附件」），或 + 手動上傳；送出後圖片以 !filename! wiki markup 嵌入描述，影片以 [^filename] 方式嵌入；有未上傳影片時送出前彈出確認 |
+| 重新讀取 Sheet | 批量開單/批量評論/批量修改/批量更新狀態 皆有此按鈕（Step 2 以後、頂部步驟列），操作到一半時可重新拉取最新 Sheet 資料，不切換 step、不清空已勾選/已填寫內容，只同步新增/移除的列 |
 | 查看成員 / 專案 | 列出帳號可存取的 Jira 成員和專案清單 |
 
 ### 開單完成回填欄位

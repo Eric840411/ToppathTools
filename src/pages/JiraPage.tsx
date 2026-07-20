@@ -1193,6 +1193,29 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     finally { setSheetLoading(false) }
   }
 
+  // ── 重新讀取 Sheet（不切換 step，避免使用者中途更新 Sheet 後要整頁重來）──
+  const [reloadMsg, setReloadMsg] = useState('')
+  const handleReloadCreateSheet = async () => {
+    if (!sheetUrl.trim()) return
+    setSheetLoading(true); setSheetError(''); setReloadMsg('')
+    try {
+      const endpoint = sheetSource === 'lark' ? '/api/lark/sheets/records' : '/api/google/sheets/records'
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sheetUrl: sheetUrl.trim() }),
+      })
+      const data = await resp.json()
+      if (!data.ok) { setSheetError(data.message ?? '讀取失敗'); return }
+      setSheetHeaders(data.headers)
+      setSheetRecords(data.records)
+      const freshIdx: Set<number> = new Set(data.records.map((r: SheetRecord) => Number(r._rowIndex)))
+      setSelectedRows(prev => new Set([...prev, ...freshIdx].filter(i => freshIdx.has(i))))
+      setReloadMsg(`✅ 已重新讀取（${data.records.length} 筆）`)
+    } catch { setSheetError('網路錯誤') }
+    finally { setSheetLoading(false) }
+  }
+
   const [refreshingSheet, setRefreshingSheet] = useState(false)
   // ── Step 5: 重新讀取 Sheet，過濾已評論完的單號 ──
   const handleRefreshSheetForComment = async () => {
@@ -2261,6 +2284,32 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     finally { setCommentTabLoading(false) }
   }
 
+  // 重新讀取 Sheet（不切換 step，保留已勾選 Issue / 已寫的評論內容）
+  const handleReloadCommentSheet = async () => {
+    if (!commentTabUrl.trim()) return
+    setCommentTabLoading(true); setCommentTabError(''); setReloadMsg('')
+    try {
+      const endpoint = commentTabSource === 'lark' ? '/api/lark/sheets/records' : '/api/google/sheets/records'
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sheetUrl: commentTabUrl.trim(), includeCreated: true }),
+      })
+      const data = await resp.json() as { ok: boolean; records?: SheetRecord[]; headers?: string[]; message?: string }
+      if (!data.ok) { setCommentTabError(data.message ?? '讀取失敗'); return }
+      const records = data.records ?? []
+      const headers = data.headers ?? []
+      const issues = extractJiraIssuesFromRecords(records, headers) as TrackedIssue[]
+      setSheetHeaders(headers)
+      setSheetRecords(records)
+      setTrackedIssues(issues)
+      const freshKeys = new Set(issues.map(i => i.issueKey))
+      setCommentTabSelectedKeys(prev => new Set([...prev, ...freshKeys].filter(k => freshKeys.has(k))))
+      setReloadMsg(`✅ 已重新讀取（${issues.length} 筆）`)
+    } catch { setCommentTabError('網路錯誤') }
+    finally { setCommentTabLoading(false) }
+  }
+
   // ── Edit Tab handlers ──
   const fetchEditTabJiraData = async (issueKeys: string[]) => {
     if (!currentAccount) { setEditTabJiraError('請先選擇 Jira 帳號才能載入 Jira 欄位資料'); return }
@@ -2325,6 +2374,32 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           if (d.ok && d.fields) setEditTabAvailableFields(d.fields)
         }).catch(() => {})
       }
+    } catch { setEditTabError('網路錯誤') }
+    finally { setEditTabLoading(false) }
+  }
+
+  // 重新讀取 Sheet（不切換 step，保留已勾選 Issue / 已設定的欄位對應）
+  const handleReloadEditSheet = async () => {
+    if (!editTabUrl.trim()) return
+    setEditTabLoading(true); setEditTabError(''); setReloadMsg('')
+    try {
+      const endpoint = editTabSource === 'lark' ? '/api/lark/sheets/records' : '/api/google/sheets/records'
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sheetUrl: editTabUrl.trim(), includeCreated: true }),
+      })
+      const data = await resp.json() as { ok: boolean; records?: SheetRecord[]; headers?: string[]; message?: string }
+      if (!data.ok) { setEditTabError(data.message ?? '讀取失敗'); return }
+      const records = data.records ?? []
+      const headers = data.headers ?? []
+      const issues = extractJiraIssuesFromRecords(records, headers)
+      setEditTabRecords(records)
+      setEditTabHeaders(headers)
+      setEditTabIssues(issues)
+      const freshKeys = new Set(issues.map(i => i.issueKey))
+      setEditTabSelectedKeys(prev => new Set([...prev, ...freshKeys].filter(k => freshKeys.has(k))))
+      setReloadMsg(`✅ 已重新讀取（${issues.length} 筆）`)
     } catch { setEditTabError('網路錯誤') }
     finally { setEditTabLoading(false) }
   }
@@ -2510,6 +2585,35 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     }
   }
 
+  // 重新讀取 Sheet（不切換 step，保留已勾選單號 / 已選的轉換狀態）
+  const handleReloadUpdateSheet = async () => {
+    if (!updateBitableUrl.trim()) return
+    setUpdateLoading(true); setUpdateError(''); setReloadMsg('')
+    try {
+      const endpoint = updateTabSource === 'lark' ? '/api/lark/sheets/records' : '/api/google/sheets/records'
+      const resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sheetUrl: updateBitableUrl.trim(), includeCreated: true }),
+      })
+      const data = await resp.json() as { ok: boolean; records?: SheetRecord[]; headers?: string[]; message?: string }
+      if (!data.ok) { setUpdateError(data.message ?? '讀取失敗'); return }
+      const sheetRecordsFresh = data.records ?? []
+      const headers = data.headers ?? []
+      const issues = extractJiraIssuesFromRecords(sheetRecordsFresh, headers)
+      const records: UpdateRecord[] = issues.map(i => ({ issueKey: i.issueKey, rowIndex: i.rowIndex }))
+      setUpdateRecords(records)
+      const freshKeys = new Set(records.map(r => r.issueKey))
+      setUpdateSelectedKeys(prev => new Set([...prev, ...freshKeys].filter(k => freshKeys.has(k))))
+      void fetchUpdateJiraData(records.map(r => r.issueKey))
+      setReloadMsg(`✅ 已重新讀取（${records.length} 筆）`)
+    } catch (e) {
+      setUpdateError(String(e))
+    } finally {
+      setUpdateLoading(false)
+    }
+  }
+
   const handleUpdateExecute = async () => {
     if (updateSubmitting) return
 
@@ -2654,6 +2758,24 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     finally { setUpdateTitleWritebackLoading(false) }
   }
 
+  // 各 QA 子頁「重新讀取 Sheet」按鈕 — 顯示條件 / loading 狀態 / 實際呼叫的 handler 統一在這裡分派
+  const reloadableStep = mode === 'qa' && (
+    (qaSubMode === 'create' && step > 1 && !!sheetUrl.trim()) ||
+    (qaSubMode === 'comment' && commentTabStep > 1 && !!commentTabUrl.trim()) ||
+    (qaSubMode === 'edit' && editTabStep > 1 && !!editTabUrl.trim()) ||
+    (qaSubMode === 'update' && updateStep > 1 && !!updateBitableUrl.trim())
+  )
+  const reloadingSheet = qaSubMode === 'create' ? sheetLoading
+    : qaSubMode === 'comment' ? commentTabLoading
+    : qaSubMode === 'edit' ? editTabLoading
+    : updateLoading
+  const handleReloadCurrentSheet = () => {
+    if (qaSubMode === 'create') return handleReloadCreateSheet()
+    if (qaSubMode === 'comment') return handleReloadCommentSheet()
+    if (qaSubMode === 'edit') return handleReloadEditSheet()
+    return handleReloadUpdateSheet()
+  }
+
   const StepDot = ({ s }: { s: Step }) => (
     <span className={`step-dot${step === s ? ' active' : step > s ? ' done' : ''}`}>
       {step > s ? '✓' : s}
@@ -2753,6 +2875,21 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               : mode === 'pm' ? ({ 1: '讀取表格', 2: '確認清單', 3: '開單結果' } as Record<number, string>)[pmStep]
               : ({ 1: '讀取表格', 2: '設定帳號 & 動作', 3: '執行結果' } as Record<number, string>)[updateStep]}
           </span>
+          {reloadableStep && (
+            <button type="button"
+              onClick={handleReloadCurrentSheet}
+              disabled={reloadingSheet}
+              title="重新從 Sheet 讀取最新資料，不會中斷目前的操作進度"
+              style={{
+                marginLeft: 12, fontSize: 12, padding: '4px 10px', borderRadius: 6,
+                border: '1px solid #2d3f55', background: reloadingSheet ? '#1e293b' : '#132033',
+                color: reloadingSheet ? '#475569' : '#94a3b8', cursor: reloadingSheet ? 'default' : 'pointer',
+                whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 5,
+              }}>
+              {reloadingSheet ? '讀取中…' : '🔄 重新讀取 Sheet'}
+            </button>
+          )}
+          {reloadMsg && <span style={{ marginLeft: 8, fontSize: 11, color: '#4ade80' }}>{reloadMsg}</span>}
         </div>
         <div style={{ display: 'none' }}>
           <button type="button"

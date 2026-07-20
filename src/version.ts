@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.58.4'
+export const APP_VERSION = '3.59.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.59.0',
+    date: '2026-07-20',
+    changes: [
+      'feat(jira): 批量開單/批量評論/批量修改/批量更新狀態 新增「🔄 重新讀取 Sheet」按鈕（顯示於 Step 2 以後，位於頂部步驟列），可在操作到一半時重新拉取最新 Sheet 資料，不會切換 step 或清空已選取/已填寫內容，僅同步新增/移除的列',
+    ],
+  },
   {
     version: '3.58.4',
     date: '2026-07-20',
