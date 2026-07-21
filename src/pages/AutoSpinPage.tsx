@@ -45,6 +45,30 @@ function classifyLogLine(l: string): LogCategory {
   return 'other'
 }
 
+// ─── Pinus sub-categories (for the pinus category chips) ───────────────────────
+
+type PinusCategory = 'connect' | 'enter' | 'spin' | 'money' | 'broadcast' | 'heartbeat' | 'other'
+
+const PINUS_CATEGORY_META: { key: PinusCategory; label: string }[] = [
+  { key: 'spin', label: 'Spin 動作' },
+  { key: 'money', label: '餘額異動' },
+  { key: 'broadcast', label: '狀態廣播' },
+  { key: 'enter', label: '進入遊戲' },
+  { key: 'connect', label: '連線/登入' },
+  { key: 'heartbeat', label: '心跳/列表' },
+  { key: 'other', label: '其他' },
+]
+
+function classifyPinusRoute(l: string): PinusCategory {
+  if (l.includes('dealGMActionReq')) return 'spin'
+  if (l.includes('moneyNtc')) return 'money'
+  if (l.includes('broadcastReq')) return 'broadcast'
+  if (l.includes('enterGMNtc') || l.includes('leaveGMNtc')) return 'enter'
+  if (l.includes('gateHandler.loginReq') || l.includes('entryHandler.enterReq') || l.includes('[push] close')) return 'connect'
+  if (l.includes('heartReq') || l.includes('getGMLockListReq') || l.includes('getAllGMListReq')) return 'heartbeat'
+  return 'other'
+}
+
 function relativeShotTime(ts: number): string {
   const s = Math.max(0, Math.round((Date.now() - ts) / 1000))
   if (s < 5) return '剛剛'
@@ -427,7 +451,7 @@ export function AutoSpinPage() {
   const logBoxRef = useRef<HTMLDivElement>(null)
   const [logFilter, setLogFilter] = useState<'all' | 'sys' | 'spin' | 'shot' | 'error'>('all')
   const [logSearch, setLogSearch] = useState('')
-  const [hidePinus, setHidePinus] = useState(true)
+  const [visiblePinusCats, setVisiblePinusCats] = useState<Set<PinusCategory>>(new Set())
   const [autoScrollLog, setAutoScrollLog] = useState(true)
 
   // ── LuckyLink JP compare (dispatch options) ──────────────────────────────────
@@ -1555,13 +1579,19 @@ export function AutoSpinPage() {
                 </>
               )}
 
-              {/* Log panel: filter/search + hide-pinus toggle + bounded scrollable body */}
+              {/* Log panel: filter/search + pinus category chips + bounded scrollable body */}
               {(() => {
                 const rawLogs = runMode === 'server' ? logs : agentLogs
-                const categorized = rawLogs.map(l => ({ text: l, cat: classifyLogLine(l) }))
-                const pinusHiddenCount = categorized.filter(c => c.cat === 'pinus').length
+                const categorized = rawLogs.map(l => {
+                  const cat = classifyLogLine(l)
+                  return { text: l, cat, pinusCat: cat === 'pinus' ? classifyPinusRoute(l) : null }
+                })
+                const pinusCatCounts = new Map<PinusCategory, number>()
+                for (const c of categorized) {
+                  if (c.pinusCat) pinusCatCounts.set(c.pinusCat, (pinusCatCounts.get(c.pinusCat) ?? 0) + 1)
+                }
                 const visible = categorized.filter(c => {
-                  if (hidePinus && c.cat === 'pinus') return false
+                  if (c.pinusCat && !visiblePinusCats.has(c.pinusCat)) return false
                   if (logFilter === 'sys' && c.cat !== 'sys') return false
                   if (logFilter === 'spin' && c.cat !== 'spin') return false
                   if (logFilter === 'shot' && c.cat !== 'shot') return false
@@ -1602,12 +1632,27 @@ export function AutoSpinPage() {
                           {label}
                         </button>
                       ))}
-                      <div style={{ flex: 1 }} />
-                      <button onClick={() => setHidePinus(v => !v)}
-                        style={{ fontSize: 11, padding: '3px 9px', borderRadius: 5, border: '1px solid #2d3f55', cursor: 'pointer',
-                          background: hidePinus ? 'rgba(34,197,94,0.12)' : '#0f172a', color: hidePinus ? '#4ade80' : '#94a3b8' }}>
-                        {hidePinus ? `🙈 已隱藏 pinus（${pinusHiddenCount}）` : '👁 顯示全部 pinus'}
-                      </button>
+                    </div>
+                    {/* Pinus category chips: 預設全部收合，個別勾選才顯示該類 pinus 訊息 */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: '#101827', borderBottom: '1px solid #2d3f55', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 10, color: '#64748b', fontWeight: 700 }}>pinus 分類：</span>
+                      {PINUS_CATEGORY_META.map(({ key, label }) => {
+                        const count = pinusCatCounts.get(key) ?? 0
+                        const on = visiblePinusCats.has(key)
+                        return (
+                          <button key={key}
+                            onClick={() => setVisiblePinusCats(prev => {
+                              const next = new Set(prev)
+                              if (next.has(key)) next.delete(key); else next.add(key)
+                              return next
+                            })}
+                            style={{ fontSize: 10.5, fontWeight: 600, padding: '2px 8px', borderRadius: 999, cursor: 'pointer',
+                              border: `1px solid ${on ? '#38bdf8' : '#2d3f55'}`,
+                              background: on ? 'rgba(56,189,248,0.14)' : '#0f172a', color: on ? '#7dd3fc' : '#64748b' }}>
+                            {label}{count > 0 ? `（${count}）` : ''}
+                          </button>
+                        )
+                      })}
                     </div>
                     {/* Body */}
                     <div ref={logBoxRef}

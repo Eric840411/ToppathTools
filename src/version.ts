@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.62.2'
+export const APP_VERSION = '3.62.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.62.3',
+    date: '2026-07-21',
+    changes: [
+      'feat(autospin): 執行日誌的「隱藏 pinus」單一開關改成 7 類分別勾選（Spin 動作/餘額異動/狀態廣播/進入遊戲/連線登入/心跳列表/其他），可以只看想看的 pinus 訊息類型，不用全部展開或全部收合',
+    ],
+  },
   {
     version: '3.62.2',
     date: '2026-07-21',
