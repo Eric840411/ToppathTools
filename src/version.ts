@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.63.1'
+export const APP_VERSION = '3.63.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.63.2',
+    date: '2026-07-21',
+    changes: [
+      'perf(autospin): console.warn/error 攔截改用便宜的 String() 轉換取代 JSON.stringify（避免遊戲若印出大型物件時佔用遊戲本身主執行緒時間），並把 pinus 與 console 的日誌輪詢合併成單一 evaluate，取消原本各自掃一輪 frame 的作法，減少每 2 秒對 Playwright 的往返次數，降低 v3.63.0 新增 console 攔截後可能造成的 Spin 節奏變慢',
+    ],
+  },
   {
     version: '3.63.1',
     date: '2026-07-21',

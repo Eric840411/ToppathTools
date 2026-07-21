@@ -209,15 +209,20 @@ TOPPATH_MONITOR_SCRIPT = r"""
   }
 
   // 攔截 console.warn/console.error（遊戲端 WebSocket 斷線、"Game exception" 等原生報錯）
-  // 只攔 warn/error，不攔 log，避免把大量除錯用的 console.log 也導進來洗版
+  // 只攔 warn/error，不攔 log，避免把大量除錯用的 console.log 也導進來洗版。
+  // 注意：這裡跑在遊戲自己的頁面 context，故意不用 JSON.stringify（大型物件深度序列化
+  // 可能佔用遊戲本身的主執行緒時間，拖慢動畫/渲染），只用便宜的 String() 轉換，
+  // 且最多只處理前 3 個參數，避免遊戲一次印很多東西時拖慢畫面。
   window.__consoleLog = [];
   function pushConsoleLog(level, args) {
     try {
-      var text = Array.prototype.map.call(args, function (a) {
-        if (typeof a === 'string') return a;
-        try { return JSON.stringify(a); } catch (e) { return String(a); }
-      }).join(' ');
-      if (text && text.length > 400) text = text.slice(0, 400) + '…';
+      var parts = [];
+      for (var i = 0; i < args.length && i < 3; i++) {
+        var a = args[i];
+        parts.push(typeof a === 'string' ? a : String(a));
+      }
+      var text = parts.join(' ');
+      if (text && text.length > 300) text = text.slice(0, 300) + '…';
       window.__consoleLog.push({ level: level, text: text, ts: Date.now() });
       if (window.__consoleLog.length > 200) window.__consoleLog.shift();
     } catch (e) {}
@@ -689,39 +694,35 @@ def get_coin_updated_at(page) -> float:
     return 0
 
 
-def poll_pinus_log(page, mt: str):
-    """取出（drain）window.__pinusLog 中新累積的 pinus request/response/push 訊息並轉發到日誌，
-    監控 pinus 所有打印的訊息。掃描所有 frame（pinus 可能在子 iframe）。"""
+def poll_monitor_logs(page, mt: str):
+    """取出（drain）window.__pinusLog + window.__consoleLog 中新累積的訊息並轉發到日誌。
+    兩者合併成單一 evaluate（而不是各自掃一輪 frame），減少每次輪詢對 Playwright 的
+    IPC 往返次數 —— 分開輪詢等於每 2 秒對同一個 frame 多打一次 evaluate，
+    在遊戲畫面/動畫忙碌時 evaluate 排隊等待的時間會被放大，容易被誤以為是 Spin 變慢。
+    找到有訊息的 frame 就停止掃描其他 frame（pinus/console 通常都在遊戲自己的同一個 frame）。"""
     for frame in page.frames:
         try:
-            entries = frame.evaluate("() => { var l = window.__pinusLog || []; window.__pinusLog = []; return l; }")
+            result = frame.evaluate("""() => {
+                var p = window.__pinusLog || []; window.__pinusLog = [];
+                var c = window.__consoleLog || []; window.__consoleLog = [];
+                return { pinus: p, console: c };
+            }""")
         except Exception:
             continue
-        if not entries:
+        pinus_entries = result.get('pinus') or []
+        console_entries = result.get('console') or []
+        if not pinus_entries and not console_entries:
             continue
-        for e in entries:
+        for e in pinus_entries:
             direction = e.get('dir', '')
             route = e.get('route', '')
             data = e.get('data', '')
             log(f"[{mt}][pinus:{direction}] {route} {data}")
-        return  # pinus 通常只存在單一 frame，找到有訊息的就停止掃描其他 frame
-
-
-def poll_console_log(page, mt: str):
-    """取出（drain）window.__consoleLog 中新累積的 console.warn/error 訊息並轉發到日誌
-    （遊戲端原生報錯，例如 WebSocket 斷線、502、"Game exception" 等，跟 pinus 封包追蹤是不同來源）。
-    掃描所有 frame。"""
-    for frame in page.frames:
-        try:
-            entries = frame.evaluate("() => { var l = window.__consoleLog || []; window.__consoleLog = []; return l; }")
-        except Exception:
-            continue
-        if not entries:
-            continue
-        for e in entries:
+        for e in console_entries:
             level = e.get('level', 'warn')
             text = e.get('text', '')
             log(f"[{mt}][console:{level}] {text}")
+        return  # 找到有訊息的 frame 就停止，不逐一掃完全部 frame
 
 
 def fetch_and_post_pinus_records(page, machine_type: str):
@@ -1029,16 +1030,12 @@ with sync_playwright() as p:
                 was_paused = False
 
             try:
-                # ── pinus 日誌監控（每台機每 2 秒轉發一次累積的訊息，避免洗版）──
+                # ── pinus + console 日誌監控（每台機每 2 秒轉發一次累積的訊息，避免洗版）──
                 now_ts = time.time()
                 if now_ts - mp.get('last_pinus_poll', 0) >= 2.0:
                     mp['last_pinus_poll'] = now_ts
                     try:
-                        poll_pinus_log(page, mt)
-                    except Exception:
-                        pass
-                    try:
-                        poll_console_log(page, mt)
+                        poll_monitor_logs(page, mt)
                     except Exception:
                         pass
 
