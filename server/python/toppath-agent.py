@@ -822,8 +822,10 @@ def find_spin_button(page, custom_sel: str = ''):
 
 
 def do_spin(page, cfg: dict) -> bool:
-    """執行一次 Spin。點擊邏輯與 machine-test 的 stepSpin 同步：
-    找按鈕（selector fallback chain）→ 確認未 disabled → native click（overlay 攔截時改 force click）
+    """執行一次 Spin。點擊邏輯：
+    找按鈕（selector fallback chain）→ 確認未 disabled → native click
+    → 若被上層（選面額面板等）攔截，改用 JS click 直接點下層 Spin 按鈕本身
+      （el.click()，跟 Join 按鈕同一招，不做真實滑鼠座標點擊，不會誤點到蓋在上面的那層）
     → 等待動畫完成，最多 8 秒。
     完成判定取兩個訊號中先到者：① 按鈕 disabled→enabled（部分機台適用）
     ② pinus 推播新的 coin 更新（moneyNtc reason=end，各機台都適用，且通常比按鈕狀態更快更準）。
@@ -856,8 +858,10 @@ def do_spin(page, cfg: dict) -> bool:
         btn.click(timeout=5000)
     except Exception as e:
         if 'intercepts pointer events' in str(e) or 'Timeout' in str(e):
+            # 上層有東西擋住（選面額面板、宣傳彈窗等）：不用真實滑鼠座標硬點（可能點到上層），
+            # 改用 JS 直接呼叫按鈕本身的 click()，略過上層直接觸發下層 Spin。
             try:
-                btn.click(force=True, timeout=3000)
+                btn.evaluate("el => el.click()")
             except Exception:
                 return False
         else:

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.62.0'
+export const APP_VERSION = '3.62.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.62.1',
+    date: '2026-07-21',
+    changes: [
+      'fix(autospin): Spin 按鈕被上層元素（選面額面板、宣傳彈窗等）攔截時，改用 JS click() 直接觸發下層按鈕本身，取代原本用真實滑鼠座標硬點（force click）容易誤點到上層的問題',
+    ],
+  },
   {
     version: '3.62.0',
     date: '2026-07-21',
