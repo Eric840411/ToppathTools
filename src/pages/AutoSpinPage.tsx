@@ -37,6 +37,8 @@ type LogCategory = 'sys' | 'spin' | 'shot' | 'warn' | 'err' | 'pinus' | 'other'
 
 function classifyLogLine(l: string): LogCategory {
   if (l.includes('[pinus:')) return 'pinus'
+  if (l.includes('[console:error]')) return 'err'
+  if (l.includes('[console:warn]')) return 'warn'
   if (l.includes('ERROR') || l.includes('[stderr]') || l.includes('錯誤') || l.includes('失敗') || l.includes('逾時')) return 'err'
   if (l.includes('WARNING') || l.includes('⚠️') || l.includes('警告')) return 'warn'
   if (l.includes('[截圖]') || l.includes('截圖已上傳')) return 'shot'
@@ -570,7 +572,16 @@ export function AutoSpinPage() {
       if (isAgent) setAgentLogs(prev => [...prev.slice(-500), line])
       else setLogs(prev => [...prev.slice(-500), line])
     }
-    es.onerror = () => es.close()
+    es.onerror = () => {
+      es.close()
+      // 只有這條連線還是「目前使用中」的那條才自動重連（避免手動停止或啟動新連線後，舊連線的重連計時器還跑）
+      if (evtSourceRef.current !== es) return
+      setTimeout(() => {
+        if (evtSourceRef.current !== es) return
+        if (isAgent) setAgentLogs([]); else setLogs([])
+        connectSSE(sid, isAgent)
+      }, 2000)
+    }
     evtSourceRef.current = es
   }, [])
 

@@ -325,7 +325,7 @@ Keep Claude for:
 ### 功能說明
 管理 AutoSpin 自動旋轉。執行採 **agent-hub 派工模式（A2）**：在「執行監控」選擇線上 agent（與機測/腳本化投注同一批 agent-runner，含 macOS），agent 端在本機 spawn 既有的 Python 引擎（`server/python/toppath-agent.py`，cv2 模板比對引擎不變），log/截圖/狀態透過既有 REST/SSE 回報。公網（Spug）上 server 不需跑瀏覽器/OpenCV，重活都在 agent 端。伺服器端 `spawn` 模式保留為 fallback。
 
-進入機台流程（entryTouchPoints/entryTouchPoints2 兩階段進入觸屏 + enterGMNtc 確認）與 Spin 點擊/餘額讀取（pinus WebSocket 攔截，非 DOM selector）皆與 `server/machine-test/runner.ts` 完全同步；`entryTouchPoints`/`entryTouchPoints2` 讀取自 `machine_test_profiles` 表（依 machineType 對應），由 `/api/autospin/agent/start` 合併進 configs 回傳給 Python 引擎。另有 pinus 訊息監控（攔截 `window.pinus.request`/`.on` 所有 request/response/push，非僅 coin 欄位），每台機每 2 秒批次轉發到執行日誌，前綴 `[pinus:xxx]`。
+進入機台流程（entryTouchPoints/entryTouchPoints2 兩階段進入觸屏 + enterGMNtc 確認）與 Spin 點擊/餘額讀取（pinus WebSocket 攔截，非 DOM selector）皆與 `server/machine-test/runner.ts` 同步；`entryTouchPoints`/`entryTouchPoints2` 讀取自 `machine_test_profiles` 表（依 machineType 對應），由 `/api/autospin/agent/start` 合併進 configs 回傳給 Python 引擎；元素比對的是疊在畫面上、看不到的 `<span>` 觸控層文字（不是視覺上看到的按鈕文字），格式為「數字,數字」。Spin 按鈕若被上層元素（選面額面板、宣傳彈窗等）攔截點擊，改用 JS `el.click()` 直接觸發下層按鈕，不用真實滑鼠座標硬點。另有 pinus 訊息監控（攔截 `window.pinus.request`/`.on` 所有 request/response/push，非僅 coin 欄位）與瀏覽器 console.warn/console.error 攔截（WebSocket 斷線、遊戲端原生報錯），每台機每 2 秒批次轉發到執行日誌，前綴分別為 `[pinus:xxx]`/`[console:warn]`/`[console:error]`；所有回報用的網路呼叫（進度回報/截圖上傳/Lark 推播/日誌上傳）皆為背景執行緒非同步，不會卡住主 Spin 迴圈。
 
 ### 使用者操作
 | 操作 | 說明 |
@@ -335,7 +335,7 @@ Keep Claude for:
 | 停止 | 命令 agent 停止並結束 Python 程序（`/api/autospin/hub-stop`）|
 | 伺服器端 fallback | 切到「伺服器端」可直接在 server 本機 spawn（舊模式）|
 | 暫停 / 繼續 Agent | 暫停自動旋轉，保持連線 |
-| 查看即時日誌 / 截圖 | SSE 串流 Agent 執行日誌與遊戲截圖 |
+| 查看即時日誌 / 截圖 | SSE 串流 Agent 執行日誌與遊戲截圖；日誌框固定高度＋內部捲動，支援分類篩選（全部/系統/Spin/截圖/錯誤警告）+ 關鍵字搜尋 + 自動捲到底開關 + 清空；pinus 訊息預設收合，可依 7 類（Spin動作/餘額異動/狀態廣播/進入遊戲/連線登入/心跳列表/其他）分別展開；SSE 斷線（如伺服器重啟）會在 2 秒後自動重連。截圖監控為 2 欄縮圖網格，標示最新一張 |
 | 查看歷史紀錄 | AutoSpin 各 session 的執行紀錄 |
 | 設定 Spin 間隔 | 調整每次 Spin 的等待時間（執行中可即時覆蓋）|
 | 管理 Bet Config / 模板圖片 | 設定下注隨機配置、上傳比對模板圖 |

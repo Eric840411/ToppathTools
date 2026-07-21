@@ -208,6 +208,25 @@ TOPPATH_MONITOR_SCRIPT = r"""
     } catch (e) {}
   }
 
+  // 攔截 console.warn/console.error（遊戲端 WebSocket 斷線、"Game exception" 等原生報錯）
+  // 只攔 warn/error，不攔 log，避免把大量除錯用的 console.log 也導進來洗版
+  window.__consoleLog = [];
+  function pushConsoleLog(level, args) {
+    try {
+      var text = Array.prototype.map.call(args, function (a) {
+        if (typeof a === 'string') return a;
+        try { return JSON.stringify(a); } catch (e) { return String(a); }
+      }).join(' ');
+      if (text && text.length > 400) text = text.slice(0, 400) + '…';
+      window.__consoleLog.push({ level: level, text: text, ts: Date.now() });
+      if (window.__consoleLog.length > 200) window.__consoleLog.shift();
+    } catch (e) {}
+  }
+  var _origConsoleWarn = console.warn.bind(console);
+  console.warn = function () { pushConsoleLog('warn', arguments); return _origConsoleWarn.apply(console, arguments); };
+  var _origConsoleError = console.error.bind(console);
+  console.error = function () { pushConsoleLog('error', arguments); return _origConsoleError.apply(console, arguments); };
+
   function scanForGMEvent(text) {
     try {
       for (var i = 0; i < 2; i++) {
@@ -688,6 +707,23 @@ def poll_pinus_log(page, mt: str):
         return  # pinus 通常只存在單一 frame，找到有訊息的就停止掃描其他 frame
 
 
+def poll_console_log(page, mt: str):
+    """取出（drain）window.__consoleLog 中新累積的 console.warn/error 訊息並轉發到日誌
+    （遊戲端原生報錯，例如 WebSocket 斷線、502、"Game exception" 等，跟 pinus 封包追蹤是不同來源）。
+    掃描所有 frame。"""
+    for frame in page.frames:
+        try:
+            entries = frame.evaluate("() => { var l = window.__consoleLog || []; window.__consoleLog = []; return l; }")
+        except Exception:
+            continue
+        if not entries:
+            continue
+        for e in entries:
+            level = e.get('level', 'warn')
+            text = e.get('text', '')
+            log(f"[{mt}][console:{level}] {text}")
+
+
 def fetch_and_post_pinus_records(page, machine_type: str):
     """透過 window.pinus.request 取得歷史戰績並上傳到伺服器"""
     try:
@@ -991,6 +1027,10 @@ with sync_playwright() as p:
                     mp['last_pinus_poll'] = now_ts
                     try:
                         poll_pinus_log(page, mt)
+                    except Exception:
+                        pass
+                    try:
+                        poll_console_log(page, mt)
                     except Exception:
                         pass
 

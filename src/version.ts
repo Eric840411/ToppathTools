@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.62.3'
+export const APP_VERSION = '3.63.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.63.0',
+    date: '2026-07-21',
+    changes: [
+      'fix(autospin): 執行日誌 SSE 連線斷線後（例如伺服器/worker 重啟）原本不會自動重連，畫面會停在最後一筆日誌不再更新；改成斷線 2 秒後自動重連並清空重新接收，不用整頁重新整理',
+      'feat(autospin): 新增瀏覽器 console.warn/console.error 攔截（WebSocket 斷線、502、"Game exception" 等遊戲端原生報錯），導進執行日誌歸類為錯誤/警告，之前這類資訊完全沒被記錄',
+    ],
+  },
   {
     version: '3.62.3',
     date: '2026-07-21',
