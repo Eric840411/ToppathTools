@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.61.3'
+export const APP_VERSION = '3.61.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.61.4',
+    date: '2026-07-21',
+    changes: [
+      'fix(autospin): 修正部分機台（如 RISINGROCKETS）Spin 按鈕動畫全程不切換 disabled 屬性，導致每次 Spin 固定卡滿 8 秒才返回的問題 —— 改為按鈕 disabled→enabled 或 pinus coin 更新兩個訊號取先到者，大幅縮短實際 Spin 間隔（此為真正拖慢節奏的原因，先前 v3.61.3 的日誌背景佇列修正並未解決此問題）',
+      'fix(autospin): Discord 通知的 Spin 數原本只跟著截圖週期（每 20 次）更新，短時間測試會一直卡在 0；改為獨立每 ~10 秒回報一次進度，不受截圖週期影響',
+    ],
+  },
   {
     version: '3.61.3',
     date: '2026-07-21',

@@ -822,9 +822,13 @@ def find_spin_button(page, custom_sel: str = ''):
 
 
 def do_spin(page, cfg: dict) -> bool:
-    """執行一次 Spin。點擊邏輯與 machine-test 的 stepSpin 完全同步：
+    """執行一次 Spin。點擊邏輯與 machine-test 的 stepSpin 同步：
     找按鈕（selector fallback chain）→ 確認未 disabled → native click（overlay 攔截時改 force click）
-    → 輪詢按鈕 disabled→enabled 確認動畫完成（最多 8 秒）。"""
+    → 等待動畫完成，最多 8 秒。
+    完成判定取兩個訊號中先到者：① 按鈕 disabled→enabled（部分機台適用）
+    ② pinus 推播新的 coin 更新（moneyNtc reason=end，各機台都適用，且通常比按鈕狀態更快更準）。
+    有些機台的 Spin 按鈕動畫全程不會切換 disabled/class（例如 RISINGROCKETS），
+    只靠①偵測時，每次 Spin 都會固定卡滿 8 秒才返回，AutoSpin 連續跑很多輪時等於被拖慢 8 倍以上。"""
     spin_sel_cfg = cfg.get('spinSelector') or ''
 
     sel, btn = find_spin_button(page, spin_sel_cfg)
@@ -846,6 +850,8 @@ def do_spin(page, cfg: dict) -> bool:
     except Exception:
         pass
 
+    updated_at_before = get_coin_updated_at(page)
+
     try:
         btn.click(timeout=5000)
     except Exception as e:
@@ -857,19 +863,24 @@ def do_spin(page, cfg: dict) -> bool:
         else:
             return False
 
-    # 等待動畫完成（按鈕 disabled → enabled），對應 machine-test 的動畫偵測，最多等 8 秒
+    # 等待動畫完成，最多等 8 秒；按鈕 disabled→enabled 或 pinus coin 更新，先到者為準
     deadline = time.time() + 8
     spin_started = False
     while time.time() < deadline:
         time.sleep(0.3)
         try:
             dis = btn.evaluate("el => el.disabled || el.classList.contains('disabled')")
+            if dis and not spin_started:
+                spin_started = True
+            if spin_started and not dis:
+                break
         except Exception:
-            break
-        if dis and not spin_started:
-            spin_started = True
-        if spin_started and not dis:
-            break
+            pass
+        try:
+            if get_coin_updated_at(page) > updated_at_before:
+                break
+        except Exception:
+            pass
 
     return True
 
@@ -999,6 +1010,13 @@ with sync_playwright() as p:
                     with spin_interval_lock:
                         ov = spin_interval_override
                     spin_interval = ov if ov is not None else float(cfg.get('spinInterval') or 1.0)
+
+                    # ── 進度回報（獨立於截圖週期，避免 Discord 通知的 Spin 數卡在很舊的數字）──
+                    # 截圖/歷史紀錄仍維持每 screenshot_interval 次才寫一次；這裡只是輕量地讓
+                    # Discord 卡片上的 Spin 數每 ~10 秒就跟上最新進度。
+                    if now_ts - mp.get('last_progress_post', 0) >= 10.0:
+                        mp['last_progress_post'] = now_ts
+                        post_history(mt, mp.get('last_balance'), mp['spin_count'])
 
                     # ── 低餘額偵測 ────────────────────────────────────────────
                     threshold = float(cfg.get('lowBalanceThreshold') or 0)
