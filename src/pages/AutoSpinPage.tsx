@@ -31,6 +31,35 @@ interface CaptureFile {
   mtime: number
 }
 
+// ─── Log classification (for filter chips / hide-pinus toggle) ─────────────────
+
+type LogCategory = 'sys' | 'spin' | 'shot' | 'warn' | 'err' | 'pinus' | 'other'
+
+function classifyLogLine(l: string): LogCategory {
+  if (l.includes('[pinus:')) return 'pinus'
+  if (l.includes('ERROR') || l.includes('[stderr]') || l.includes('錯誤') || l.includes('失敗') || l.includes('逾時')) return 'err'
+  if (l.includes('WARNING') || l.includes('⚠️') || l.includes('警告')) return 'warn'
+  if (l.includes('[截圖]') || l.includes('截圖已上傳')) return 'shot'
+  if (/Spin #\d+/.test(l)) return 'spin'
+  if (l.includes('[系統]') || l.includes('[Agent]')) return 'sys'
+  return 'other'
+}
+
+function relativeShotTime(ts: number): string {
+  const s = Math.max(0, Math.round((Date.now() - ts) / 1000))
+  if (s < 5) return '剛剛'
+  if (s < 60) return `${s}秒前`
+  const m = Math.round(s / 60)
+  if (m < 60) return `${m}分前`
+  const h = Math.round(m / 60)
+  return `${h}小時前`
+}
+
+function extractSpinNo(name: string): string | null {
+  const m = name.match(/_(\d+)\.png$/i)
+  return m ? String(parseInt(m[1], 10)) : null
+}
+
 const EMPTY_CONFIG: AutospinConfig = {
   machineType: '', gameUrl: '', rtmpName: '', rtmpUrl: '',
   gameTitleCode: '', templateType: '', errorTemplateType: '',
@@ -396,6 +425,10 @@ export function AutoSpinPage() {
   const [liveSpinInterval, setLiveSpinInterval] = useState<number>(1.0)
   const [liveIntervalSaving, setLiveIntervalSaving] = useState(false)
   const logBoxRef = useRef<HTMLDivElement>(null)
+  const [logFilter, setLogFilter] = useState<'all' | 'sys' | 'spin' | 'shot' | 'error'>('all')
+  const [logSearch, setLogSearch] = useState('')
+  const [hidePinus, setHidePinus] = useState(true)
+  const [autoScrollLog, setAutoScrollLog] = useState(true)
 
   // ── LuckyLink JP compare (dispatch options) ──────────────────────────────────
   const [luckylinkEnabled, setLuckylinkEnabled] = useState(false)
@@ -648,8 +681,8 @@ export function AutoSpinPage() {
 
   // Auto-scroll logs
   useEffect(() => {
-    if (logBoxRef.current) logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight
-  }, [logs])
+    if (autoScrollLog && logBoxRef.current) logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight
+  }, [logs, agentLogs, autoScrollLog])
 
   useEffect(() => {
     fetchConfigs(); fetchTemplates(); fetchStatus(); fetchBetRandom(); fetchHubAgents()
@@ -1380,7 +1413,7 @@ export function AutoSpinPage() {
           <div style={{ flex: 1, display: 'flex', gap: 16, minHeight: 0, overflow: 'hidden' }}>
 
             {/* Left: controls + log */}
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
 
               {runMode === 'server' ? (
                 /* ── Server mode controls ── */
@@ -1522,20 +1555,75 @@ export function AutoSpinPage() {
                 </>
               )}
 
-              {/* Log box */}
-              <div ref={logBoxRef}
-                style={{ flex: 1, background: '#0f172a', borderRadius: 8, padding: '10px 14px', overflowY: 'auto', minHeight: 200, fontFamily: 'monospace', fontSize: 11, color: '#94a3b8', lineHeight: 1.6 }}>
-                {(runMode === 'server' ? logs : agentLogs).length === 0
-                  ? <span style={{ color: '#475569' }}>等待啟動...</span>
-                  : (runMode === 'server' ? logs : agentLogs).map((l, i) => {
-                    const color = l.includes('[stderr]') || l.includes('ERROR') ? '#f87171'
-                      : l.includes('WARNING') ? '#fbbf24'
-                      : l.includes('[系統]') || l.includes('[Agent]') ? '#38bdf8'
-                      : '#94a3b8'
-                    return <div key={i} style={{ color }}>{l}</div>
-                  })
+              {/* Log panel: filter/search + hide-pinus toggle + bounded scrollable body */}
+              {(() => {
+                const rawLogs = runMode === 'server' ? logs : agentLogs
+                const categorized = rawLogs.map(l => ({ text: l, cat: classifyLogLine(l) }))
+                const pinusHiddenCount = categorized.filter(c => c.cat === 'pinus').length
+                const visible = categorized.filter(c => {
+                  if (hidePinus && c.cat === 'pinus') return false
+                  if (logFilter === 'sys' && c.cat !== 'sys') return false
+                  if (logFilter === 'spin' && c.cat !== 'spin') return false
+                  if (logFilter === 'shot' && c.cat !== 'shot') return false
+                  if (logFilter === 'error' && c.cat !== 'warn' && c.cat !== 'err') return false
+                  if (logSearch && !c.text.toLowerCase().includes(logSearch.toLowerCase())) return false
+                  return true
+                })
+                const catColor: Record<LogCategory, string> = {
+                  sys: '#38bdf8', spin: '#e2e8f0', shot: '#c4b5fd', warn: '#fbbf24', err: '#f87171', pinus: '#5b6b85', other: '#94a3b8',
                 }
-              </div>
+                const catBg: Partial<Record<LogCategory, string>> = { spin: 'rgba(59,130,246,0.08)' }
+                return (
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden' }}>
+                    {/* Header: title/count + search + auto-scroll + clear */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#162032', borderBottom: '1px solid #2d3f55', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>📜 執行日誌</span>
+                      <span style={{ fontSize: 11, color: '#64748b' }}>{visible.length} / {rawLogs.length} 行</span>
+                      <div style={{ flex: 1 }} />
+                      <input value={logSearch} onChange={e => setLogSearch(e.target.value)} placeholder="搜尋日誌內容…"
+                        style={{ padding: '3px 8px', fontSize: 11, border: '1px solid #2d3f55', borderRadius: 5, background: '#0f172a', color: '#e2e8f0', width: 130 }} />
+                      <button onClick={() => setAutoScrollLog(v => !v)}
+                        style={{ fontSize: 11, padding: '3px 9px', borderRadius: 5, border: '1px solid #2d3f55', cursor: 'pointer',
+                          background: autoScrollLog ? 'rgba(34,197,94,0.12)' : '#0f172a', color: autoScrollLog ? '#4ade80' : '#94a3b8' }}>
+                        ⬇ 自動捲到底
+                      </button>
+                      <button onClick={() => (runMode === 'server' ? setLogs([]) : setAgentLogs([]))}
+                        style={{ fontSize: 11, padding: '3px 9px', borderRadius: 5, border: '1px solid #2d3f55', background: '#0f172a', color: '#94a3b8', cursor: 'pointer' }}>
+                        🗑 清空
+                      </button>
+                    </div>
+                    {/* Filter chips */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: '#162032', borderBottom: '1px solid #2d3f55', flexWrap: 'wrap' }}>
+                      {([['all', '全部'], ['sys', '系統'], ['spin', 'Spin'], ['shot', '截圖'], ['error', '錯誤/警告']] as const).map(([key, label]) => (
+                        <button key={key} onClick={() => setLogFilter(key)}
+                          style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 999, cursor: 'pointer',
+                            border: `1px solid ${logFilter === key ? '#2563eb' : '#2d3f55'}`,
+                            background: logFilter === key ? '#2563eb' : '#0f172a', color: logFilter === key ? '#fff' : '#94a3b8' }}>
+                          {label}
+                        </button>
+                      ))}
+                      <div style={{ flex: 1 }} />
+                      <button onClick={() => setHidePinus(v => !v)}
+                        style={{ fontSize: 11, padding: '3px 9px', borderRadius: 5, border: '1px solid #2d3f55', cursor: 'pointer',
+                          background: hidePinus ? 'rgba(34,197,94,0.12)' : '#0f172a', color: hidePinus ? '#4ade80' : '#94a3b8' }}>
+                        {hidePinus ? `🙈 已隱藏 pinus（${pinusHiddenCount}）` : '👁 顯示全部 pinus'}
+                      </button>
+                    </div>
+                    {/* Body */}
+                    <div ref={logBoxRef}
+                      style={{ flex: 1, minHeight: 0, background: '#0f172a', padding: '8px 12px', overflowY: 'auto', fontFamily: 'monospace', fontSize: 11, lineHeight: 1.7 }}>
+                      {rawLogs.length === 0
+                        ? <span style={{ color: '#475569' }}>等待啟動...</span>
+                        : visible.length === 0
+                          ? <span style={{ color: '#475569' }}>沒有符合篩選條件的日誌</span>
+                          : visible.map((c, i) => (
+                            <div key={i} style={{ color: catColor[c.cat], background: catBg[c.cat] ?? 'transparent', borderRadius: 3, padding: '0 3px' }}>{c.text}</div>
+                          ))
+                      }
+                    </div>
+                  </div>
+                )
+              })()}
 
               {/* Agent 機器環境準備 — hub 模式 */}
               {runMode === 'hub' && hubAgents.length === 0 && (
@@ -1656,28 +1744,39 @@ export function AutoSpinPage() {
                 <span style={{ fontSize: 13, fontWeight: 600, color: '#cbd5e1' }}>截圖監控</span>
                 <button onClick={fetchCaptures} style={{ fontSize: 11, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer' }}>🔄 重新整理</button>
               </div>
-              {(runMode === 'server' ? captures : agentCaptures).length === 0
-                ? <p style={{ color: '#64748b', fontSize: 12 }}>尚無截圖</p>
-                : (runMode === 'server' ? captures : agentCaptures).map(f => {
-                  const src = runMode === 'server'
+              {(() => {
+                const raw = runMode === 'server' ? captures : agentCaptures
+                if (raw.length === 0) return <p style={{ color: '#64748b', fontSize: 12 }}>尚無截圖</p>
+                const items = [...raw].reverse().map(f => ({
+                  name: f.name,
+                  ts: 'mtime' in f ? f.mtime : f.time,
+                  src: runMode === 'server'
                     ? `/api/autospin/captures/${encodeURIComponent(f.name)}`
-                    : `/api/autospin/agent/screenshot/${agentSessionId}/${encodeURIComponent(f.name)}`
-                  return (
-                    <div key={f.name} style={{ border: '1px solid #2d3f55', borderRadius: 6, overflow: 'hidden' }}>
-                      <img
-                        src={src}
-                        alt={f.name}
-                        style={{ width: '100%', display: 'block', objectFit: 'cover', maxHeight: 140, cursor: 'zoom-in' }}
-                        onClick={() => setLightbox(src)}
-                        onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                      <div style={{ padding: '4px 8px', fontSize: 10, color: '#64748b', background: '#162032' }}>
-                        {f.name}
-                        {'dir' in f && <span style={{ float: 'right' }}>{(f as unknown as { dir: string }).dir}</span>}
+                    : `/api/autospin/agent/screenshot/${agentSessionId}/${encodeURIComponent(f.name)}`,
+                  spinNo: extractSpinNo(f.name),
+                }))
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    {items.map((it, i) => (
+                      <div key={it.name} onClick={() => setLightbox(it.src)}
+                        style={{ position: 'relative', border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden', aspectRatio: '1 / 1', background: '#0f172a', cursor: 'zoom-in' }}>
+                        <img
+                          src={it.src}
+                          alt={it.name}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                          onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                        {i === 0 && (
+                          <span style={{ position: 'absolute', top: 4, right: 4, background: '#2563eb', color: '#fff', fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4 }}>最新</span>
+                        )}
+                        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '4px 6px', background: 'linear-gradient(0deg, rgba(0,0,0,0.75), transparent)', fontSize: 9.5, color: '#e2e8f0', display: 'flex', justifyContent: 'space-between' }}>
+                          <span>{it.spinNo ? `Spin #${it.spinNo}` : it.name}</span>
+                          <b style={{ color: '#93c5fd' }}>{relativeShotTime(it.ts)}</b>
+                        </div>
                       </div>
-                    </div>
-                  )
-                })
-              }
+                    ))}
+                  </div>
+                )
+              })()}
             </div>
           </div>
         </div>

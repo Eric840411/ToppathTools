@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.61.4'
+export const APP_VERSION = '3.62.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.62.0',
+    date: '2026-07-21',
+    changes: [
+      'fix(autospin): 修正執行監控頁日誌框 CSS 少了 minHeight:0，flex 排版鏈斷掉導致框高失控、把整個頁面往下撐開；改好後日誌固定在面板高度內，只有框內捲動',
+      'feat(autospin): 執行日誌新增分類篩選 chips（全部/系統/Spin/截圖/錯誤警告）+ 關鍵字搜尋 + 自動捲到底開關 + 清空按鈕；預設隱藏 pinus 監控雜訊（每次 Spin 平均 5~6 行 pinus 封包，佔日誌 9 成以上），可一鍵展開',
+      'feat(autospin): 截圖監控改為 2 欄縮圖網格（原本每張獨占一列），最新一張標示「最新」，縮圖角落顯示 Spin 數與相對時間',
+    ],
+  },
   {
     version: '3.61.4',
     date: '2026-07-21',
