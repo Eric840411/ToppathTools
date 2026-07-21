@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.62.1'
+export const APP_VERSION = '3.62.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.62.2',
+    date: '2026-07-21',
+    changes: [
+      'fix(autospin): v3.61.4 新增的「每 10 秒回報進度」呼叫 post_history() 時是同步阻塞的網路請求，等於又把 Spin 迴圈跟網路 I/O 卡在一起，重現類似先前 pinus 日誌拖慢節奏的問題；連同 send_screenshot()/send_lark() 一起全部改成背景執行緒非同步呼叫，主 Spin 迴圈不再被任何回報用的網路請求卡住',
+    ],
+  },
   {
     version: '3.62.1',
     date: '2026-07-21',

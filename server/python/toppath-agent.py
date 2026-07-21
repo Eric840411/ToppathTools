@@ -100,6 +100,11 @@ def log_worker():
 
 threading.Thread(target=log_worker, daemon=True).start()
 
+def async_call(fn, *args, **kwargs):
+    """在背景執行緒跑一個網路呼叫（fire-and-forget），避免呼叫方（主 Spin 迴圈）被同步網路請求卡住。
+    post_history()/send_screenshot()/send_lark() 都是 best-effort、內部已吞掉例外，適合這樣用。"""
+    threading.Thread(target=fn, args=args, kwargs=kwargs, daemon=True).start()
+
 def send_screenshot(name: str, img_bytes: bytes):
     try:
         requests.post(f"{server_url}/api/autospin/agent/{session_id}/screenshot",
@@ -992,7 +997,7 @@ with sync_playwright() as p:
                 # ── 404 / 錯誤頁面偵測 ───────────────────────────────────────
                 if check_page_error(page):
                     log(f"[{mt}] 偵測到頁面錯誤（404/空白），重新載入...")
-                    send_lark(cfg.get('larkWebhook') or '', f"[{mt}] 頁面錯誤", "偵測到 404/空白頁，已自動重新載入")
+                    async_call(send_lark, cfg.get('larkWebhook') or '', f"[{mt}] 頁面錯誤", "偵測到 404/空白頁，已自動重新載入")
                     try:
                         page.reload(wait_until='domcontentloaded', timeout=30000)
                         enter_game(page, cfg)
@@ -1020,7 +1025,7 @@ with sync_playwright() as p:
                     # Discord 卡片上的 Spin 數每 ~10 秒就跟上最新進度。
                     if now_ts - mp.get('last_progress_post', 0) >= 10.0:
                         mp['last_progress_post'] = now_ts
-                        post_history(mt, mp.get('last_balance'), mp['spin_count'])
+                        async_call(post_history, mt, mp.get('last_balance'), mp['spin_count'])
 
                     # ── 低餘額偵測 ────────────────────────────────────────────
                     threshold = float(cfg.get('lowBalanceThreshold') or 0)
@@ -1033,10 +1038,10 @@ with sync_playwright() as p:
                         if balance is not None and balance < threshold:
                             log(f"[{mt}] 餘額 {balance:.2f} 低於閾值 {threshold:.2f}，退出重進")
                             lark_hook = cfg.get('larkWebhook') or ''
-                            send_lark(lark_hook, f"[{mt}] 低餘額警告",
-                                      f"餘額 {balance:.2f} 低於設定閾值 {threshold:.2f}")
-                            post_history(mt, balance, mp['spin_count'],
-                                         event='low_balance', note=f"閾值 {threshold:.2f}")
+                            async_call(send_lark, lark_hook, f"[{mt}] 低餘額警告",
+                                       f"餘額 {balance:.2f} 低於設定閾值 {threshold:.2f}")
+                            async_call(post_history, mt, balance, mp['spin_count'],
+                                       event='low_balance', note=f"閾值 {threshold:.2f}")
                             for exit_sel in ['.balance-bg.hand_balance', '.h-balance.hand_balance',
                                              '.btn-exit', '.exit-btn', '.btn_exit']:
                                 try:
@@ -1084,12 +1089,14 @@ with sync_playwright() as p:
                         try:
                             img = page.screenshot()
                             name = f"{mt}_{mp['spin_count']:06d}.png"
-                            send_screenshot(name, img)
+                            async_call(send_screenshot, name, img)
                             log(f"[{mt}] 截圖已上傳: {name}")
 
                             # ── 戰績紀錄 + 對帳資料 ───────────────────────────
                             bal_for_history = mp.get('last_balance')
-                            post_history(mt, bal_for_history, mp['spin_count'])
+                            async_call(post_history, mt, bal_for_history, mp['spin_count'])
+                            # 注意：fetch_and_post_pinus_records 內部會呼叫 page.evaluate()，
+                            # Playwright sync API 不能跨執行緒操作 page，這個不能丟進背景執行緒。
                             fetch_and_post_pinus_records(page, mt)
 
                             # ── 模板比對 ──────────────────────────────────────
@@ -1101,18 +1108,18 @@ with sync_playwright() as p:
                                     match = match_templates(img, tpl_type)
                                     if match:
                                         log(f"[{mt}] 🎯 模板匹配：{match[0]} (信心度 {match[1]:.2f})")
-                                        send_lark(lark_hook, f"[{mt}] 模板匹配",
-                                                  f"偵測到 {match[0]}（信心度 {match[1]:.1%}）")
-                                        post_history(mt, mp.get('last_balance'), mp['spin_count'],
-                                                     event='bonus', note=f"{match[0]} ({match[1]:.1%})")
+                                        async_call(send_lark, lark_hook, f"[{mt}] 模板匹配",
+                                                   f"偵測到 {match[0]}（信心度 {match[1]:.1%}）")
+                                        async_call(post_history, mt, mp.get('last_balance'), mp['spin_count'],
+                                                   event='bonus', note=f"{match[0]} ({match[1]:.1%})")
                                 # Error 偵測
                                 err_type = cfg.get('errorTemplateType') or ''
                                 if err_type:
                                     err_match = match_templates(img, err_type, threshold=0.65)
                                     if err_match:
                                         log(f"[{mt}] ⚠️ 錯誤模板匹配：{err_match[0]} (信心度 {err_match[1]:.2f})")
-                                        send_lark(lark_hook, f"[{mt}] 偵測到錯誤",
-                                                  f"錯誤模板 {err_match[0]}（信心度 {err_match[1]:.1%}），請檢查")
+                                        async_call(send_lark, lark_hook, f"[{mt}] 偵測到錯誤",
+                                                   f"錯誤模板 {err_match[0]}（信心度 {err_match[1]:.1%}），請檢查")
                         except Exception as se:
                             log(f"[{mt}] 截圖失敗: {se}")
 
