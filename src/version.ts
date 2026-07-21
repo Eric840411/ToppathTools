@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.61.2'
+export const APP_VERSION = '3.61.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.61.3',
+    date: '2026-07-21',
+    changes: [
+      'fix(autospin): Local Agent 端日誌上傳（含 pinus 監控訊息）改成背景執行緒佇列批次非同步上傳，不再逐行同步 POST 卡住主 Spin 迴圈 —— 修正 pinus 日誌量大時拖慢機台操作節奏的問題',
+    ],
+  },
   {
     version: '3.61.2',
     date: '2026-07-21',

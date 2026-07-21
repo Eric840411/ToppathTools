@@ -8,6 +8,7 @@ import sys
 import json
 import time
 import threading
+import queue
 import signal
 import os
 import tempfile
@@ -70,15 +71,34 @@ except Exception as e:
 stop_flag = threading.Event()
 pause_flag = threading.Event()
 
+log_queue: "queue.Queue[str]" = queue.Queue()
+
 def log(msg: str):
+    """印到本機 console（立即）+ 丟進背景佇列非同步上傳伺服器，主自動化迴圈不會被網路請求卡住。"""
     ts = datetime.now().strftime("%H:%M:%S")
     line = f"[{ts}] {msg}"
     print(line)
-    try:
-        requests.post(f"{server_url}/api/autospin/agent/{session_id}/log",
-                      json={'line': line}, timeout=5)
-    except Exception:
-        pass
+    log_queue.put(line)
+
+def log_worker():
+    """背景執行緒：批次把佇列裡的日誌行 POST 給伺服器。
+    pinus 監控一次 spin 可能連續產生好幾行（request/response/push...），
+    改成背景執行緒 + 批次上傳，避免逐行同步 POST 拖慢主 Spin 迴圈。"""
+    while True:
+        line = log_queue.get()
+        batch = [line]
+        while len(batch) < 50:
+            try:
+                batch.append(log_queue.get_nowait())
+            except queue.Empty:
+                break
+        try:
+            requests.post(f"{server_url}/api/autospin/agent/{session_id}/log",
+                          json={'lines': batch}, timeout=5)
+        except Exception:
+            pass
+
+threading.Thread(target=log_worker, daemon=True).start()
 
 def send_screenshot(name: str, img_bytes: bytes):
     try:

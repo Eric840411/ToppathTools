@@ -773,12 +773,16 @@ router.post('/api/autospin/agent/start', (req, res) => {
   res.json({ ok: true, sessionId, configs: merged, keywordActions, machineActions, betRandomConfig })
 })
 
-// POST /api/autospin/agent/:id/log — agent posts a log line
+// POST /api/autospin/agent/:id/log — agent posts a log line（或一次多行 lines[]，供背景佇列批次上傳用）
 router.post('/api/autospin/agent/:id/log', (req, res) => {
   const s = agentSessions.get(req.params.id)
   if (!s) return res.status(404).json({ ok: false })
-  const { line } = req.body as { line: string }
-  broadcastAgentLog(req.params.id, line ?? '')
+  const { line, lines } = req.body as { line?: string; lines?: string[] }
+  if (Array.isArray(lines)) {
+    for (const l of lines) broadcastAgentLog(req.params.id, l ?? '')
+  } else {
+    broadcastAgentLog(req.params.id, line ?? '')
+  }
   res.json({ ok: true })
 })
 
