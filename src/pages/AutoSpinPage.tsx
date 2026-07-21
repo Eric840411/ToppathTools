@@ -42,7 +42,7 @@ function classifyLogLine(l: string): LogCategory {
   if (l.includes('ERROR') || l.includes('[stderr]') || l.includes('錯誤') || l.includes('失敗') || l.includes('逾時')) return 'err'
   if (l.includes('WARNING') || l.includes('⚠️') || l.includes('警告')) return 'warn'
   if (l.includes('[截圖]') || l.includes('截圖已上傳')) return 'shot'
-  if (/Spin #\d+/.test(l)) return 'spin'
+  if (/Spin #\d+/.test(l) || l.includes('Spin 耗時')) return 'spin'
   if (l.includes('[系統]') || l.includes('[Agent]')) return 'sys'
   return 'other'
 }

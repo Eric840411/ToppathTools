@@ -894,6 +894,7 @@ def do_spin(page, cfg: dict) -> bool:
         pass
 
     updated_at_before = get_coin_updated_at(page)
+    click_start = time.time()
 
     try:
         btn.click(timeout=5000)
@@ -911,6 +912,7 @@ def do_spin(page, cfg: dict) -> bool:
     # 等待動畫完成，最多等 8 秒；按鈕 disabled→enabled 或 pinus coin 更新，先到者為準
     deadline = time.time() + 8
     spin_started = False
+    exit_reason = 'timeout_8s（兩個訊號都沒偵測到，等滿上限）'
     while time.time() < deadline:
         time.sleep(0.3)
         try:
@@ -918,14 +920,20 @@ def do_spin(page, cfg: dict) -> bool:
             if dis and not spin_started:
                 spin_started = True
             if spin_started and not dis:
+                exit_reason = 'button_disabled_toggle'
                 break
         except Exception:
             pass
         try:
             if get_coin_updated_at(page) > updated_at_before:
+                exit_reason = 'coin_update（moneyNtc end，遊戲已結算）'
                 break
         except Exception:
             pass
+
+    duration = time.time() - click_start
+    mt = cfg.get('machineType', '')
+    log(f"[{mt}] Spin 耗時 {duration:.1f}s（訊號：{exit_reason}）")
 
     return True
 

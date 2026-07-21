@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.63.0'
+export const APP_VERSION = '3.63.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.63.1',
+    date: '2026-07-21',
+    changes: [
+      'feat(autospin): 每次 Spin 完成後新增診斷日誌，記錄實際耗時與判定訊號（button_disabled_toggle / coin_update / timeout_8s），方便分辨「還是偵測卡住等滿 8 秒」還是「這台機台本身動畫/結算就是這麼久」',
+    ],
+  },
   {
     version: '3.63.0',
     date: '2026-07-21',
