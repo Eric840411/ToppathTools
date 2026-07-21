@@ -24,6 +24,18 @@ function ToggleSwitch({ checked, disabled, onToggle }: { checked: boolean; disab
   )
 }
 
+type FieldKey = 'gameUrl' | 'spinCount' | 'errorSummary' | 'screenshotUrl'
+const FIELD_META: { key: FieldKey; label: string }[] = [
+  { key: 'spinCount', label: 'Spin 數' },
+  { key: 'gameUrl', label: 'Game URL' },
+  { key: 'errorSummary', label: '錯誤摘要' },
+  { key: 'screenshotUrl', label: '截圖連結' },
+]
+const DEFAULT_FIELDS: Record<FieldKey, boolean> = {
+  gameUrl: true, spinCount: true, errorSummary: true, screenshotUrl: true,
+}
+const DEFAULT_TITLE_TEMPLATE = 'AutoSpin — {machineType}'
+
 const STATE_META: { key: string; label: string; color: string; desc: string }[] = [
   { key: 'queued', label: '排隊中', color: '#6b7280', desc: '任務已建立，Agent 尚未開始執行' },
   { key: 'running', label: '執行中', color: '#3b82f6', desc: '每次餘額/事件回報時同步更新（同一則訊息）' },
@@ -37,6 +49,12 @@ export function DiscordNotifySettingsPage() {
   const [savedUrl, setSavedUrl] = useState('')
   const [enabled, setEnabled] = useState(true)
   const [savedEnabled, setSavedEnabled] = useState(true)
+  const [fields, setFields] = useState<Record<FieldKey, boolean>>(DEFAULT_FIELDS)
+  const [savedFields, setSavedFields] = useState<Record<FieldKey, boolean>>(DEFAULT_FIELDS)
+  const [titleTemplate, setTitleTemplate] = useState(DEFAULT_TITLE_TEMPLATE)
+  const [savedTitleTemplate, setSavedTitleTemplate] = useState(DEFAULT_TITLE_TEMPLATE)
+  const [footer, setFooter] = useState('')
+  const [savedFooter, setSavedFooter] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -51,6 +69,14 @@ export function DiscordNotifySettingsPage() {
       setSavedUrl(data.url || '')
       setEnabled(data.enabled !== false)
       setSavedEnabled(data.enabled !== false)
+      const f = { ...DEFAULT_FIELDS, ...(data.fields || {}) }
+      setFields(f)
+      setSavedFields(f)
+      const t = data.titleTemplate || DEFAULT_TITLE_TEMPLATE
+      setTitleTemplate(t)
+      setSavedTitleTemplate(t)
+      setFooter(data.footer || '')
+      setSavedFooter(data.footer || '')
     } catch {
       setMsg({ text: '讀取設定失敗，請稍後重試', ok: false })
     } finally {
@@ -67,12 +93,15 @@ export function DiscordNotifySettingsPage() {
       const res = await fetch('/api/autospin/discord-webhook', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url.trim(), enabled }),
+        body: JSON.stringify({ url: url.trim(), enabled, fields, titleTemplate: titleTemplate.trim() || DEFAULT_TITLE_TEMPLATE, footer: footer.trim() }),
       })
       const data = await res.json()
       if (data.ok) {
         setSavedUrl(url.trim())
         setSavedEnabled(enabled)
+        setSavedFields(fields)
+        setSavedTitleTemplate(titleTemplate.trim() || DEFAULT_TITLE_TEMPLATE)
+        setSavedFooter(footer.trim())
         setMsg({ text: url.trim() ? '✅ 已儲存 Webhook 設定' : '✅ 已關閉通知（URL 清空）', ok: true })
       } else {
         setMsg({ text: `儲存失敗：${data.message || '未知錯誤'}`, ok: false })
@@ -101,7 +130,9 @@ export function DiscordNotifySettingsPage() {
   }
 
   const isConfigured = !!savedUrl
-  const isDirty = url.trim() !== savedUrl || enabled !== savedEnabled
+  const fieldsDirty = FIELD_META.some(f => fields[f.key] !== savedFields[f.key])
+  const isDirty = url.trim() !== savedUrl || enabled !== savedEnabled || fieldsDirty
+    || titleTemplate !== savedTitleTemplate || footer !== savedFooter
 
   return (
     <div className="discord-notify-page">
@@ -167,6 +198,59 @@ export function DiscordNotifySettingsPage() {
           </div>
 
           <div className="discord-notify-card">
+            <div className="discord-notify-card-title">✏️ 訊息格式</div>
+            <p className="discord-notify-card-note">自訂卡片要顯示哪些欄位、標題文字（右側預覽會即時同步）</p>
+
+            <div className="discord-notify-field" style={{ marginBottom: 14 }}>
+              <label>顯示欄位</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {FIELD_META.map(f => (
+                  <label
+                    key={f.key}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
+                      border: '1px solid #334155', borderRadius: 7, background: '#0f172a',
+                      fontSize: 12, color: '#cbd5e1', cursor: 'pointer', userSelect: 'none',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={fields[f.key]}
+                      disabled={loading}
+                      onChange={e => setFields(prev => ({ ...prev, [f.key]: e.target.checked }))}
+                      style={{ cursor: 'pointer', accentColor: '#5865f2' }}
+                    />
+                    {f.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="discord-notify-field" style={{ marginBottom: 14 }}>
+              <label>訊息標題模板</label>
+              <input
+                className="discord-notify-input"
+                value={titleTemplate}
+                onChange={e => setTitleTemplate(e.target.value)}
+                placeholder={DEFAULT_TITLE_TEMPLATE}
+                disabled={loading}
+              />
+              <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>用 <code>{'{machineType}'}</code> 代表機台代碼，例如加公司代號：<code>[TP] {'{machineType}'}</code></div>
+            </div>
+
+            <div className="discord-notify-field">
+              <label>自訂頁尾文字（選填）</label>
+              <input
+                className="discord-notify-input"
+                value={footer}
+                onChange={e => setFooter(e.target.value)}
+                placeholder="例如：Toppath QA Team"
+                disabled={loading}
+              />
+            </div>
+          </div>
+
+          <div className="discord-notify-card">
             <div className="discord-notify-card-title">🔄 狀態生命週期</div>
             <p className="discord-notify-card-note">
               同一台機台的通知只會有「一則」訊息，狀態變化時原地編輯更新。
@@ -192,26 +276,42 @@ export function DiscordNotifySettingsPage() {
           <p className="discord-notify-card-note">實際發送到 Discord 頻道的卡片樣式示意</p>
           <div className="discord-notify-preview">
             <div className="discord-notify-preview-embed">
-              <div className="discord-notify-preview-title">▶️ AutoSpin — JJBXGRAND_01</div>
+              <div className="discord-notify-preview-title">
+                ▶️ {(titleTemplate || DEFAULT_TITLE_TEMPLATE).replace('{machineType}', 'JJBXGRAND_01')}
+              </div>
               <div className="discord-notify-preview-fields">
                 <div>
                   <div className="discord-notify-preview-field-name">狀態</div>
                   <div className="discord-notify-preview-field-value">▶️ 執行中</div>
                 </div>
-                <div>
-                  <div className="discord-notify-preview-field-name">Spin 數</div>
-                  <div className="discord-notify-preview-field-value">128</div>
-                </div>
-                <div className="full">
-                  <div className="discord-notify-preview-field-name">Game URL</div>
-                  <div className="discord-notify-preview-field-value">https://qat-cp.osmslot.org/game/...</div>
-                </div>
-                <div className="full">
-                  <div className="discord-notify-preview-field-name">截圖</div>
-                  <div className="discord-notify-preview-field-value">https://.../screenshot/xxx/JJBXGRAND_01_128.png</div>
-                </div>
+                {fields.spinCount && (
+                  <div>
+                    <div className="discord-notify-preview-field-name">Spin 數</div>
+                    <div className="discord-notify-preview-field-value">128</div>
+                  </div>
+                )}
+                {fields.gameUrl && (
+                  <div className="full">
+                    <div className="discord-notify-preview-field-name">Game URL</div>
+                    <div className="discord-notify-preview-field-value">https://qat-cp.osmslot.org/game/...</div>
+                  </div>
+                )}
+                {fields.errorSummary && (
+                  <div className="full">
+                    <div className="discord-notify-preview-field-name">錯誤摘要</div>
+                    <div className="discord-notify-preview-field-value">（有異常時才會顯示內容）</div>
+                  </div>
+                )}
+                {fields.screenshotUrl && (
+                  <div className="full">
+                    <div className="discord-notify-preview-field-name">截圖</div>
+                    <div className="discord-notify-preview-field-value">https://.../screenshot/xxx/JJBXGRAND_01_128.png</div>
+                  </div>
+                )}
               </div>
-              <div className="discord-notify-preview-time">今天 14:32</div>
+              <div className="discord-notify-preview-time">
+                {footer ? `${footer} • ` : ''}今天 14:32
+              </div>
             </div>
           </div>
         </div>

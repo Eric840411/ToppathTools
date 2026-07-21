@@ -356,8 +356,11 @@ Keep Claude for:
 | 設定 Webhook URL | 貼上 Discord Webhook 網址並儲存（存在 `settings` 表 `discord_webhook_url`）|
 | 啟用/暫停通知開關 | 關閉後即使 URL 有設定也不會發送，不用清空網址（存在 `settings` 表 `discord_notify_enabled`）|
 | 發送測試訊息 | 立即送一則測試 Embed 到目前設定的頻道，確認網址正確（不受啟用開關影響）|
+| 自訂顯示欄位 | 勾選要顯示的欄位（Spin數/Game URL/錯誤摘要/截圖連結），狀態欄固定顯示（存在 `settings` 表 `discord_notify_fields`，JSON）|
+| 自訂標題模板 | 訊息標題可用 `{machineType}` 佔位符自訂文字，例如加公司代號（存在 `settings` 表 `discord_notify_title_template`）|
+| 自訂頁尾文字 | 選填，顯示在卡片底部時間戳前（存在 `settings` 表 `discord_notify_footer`）|
 | 查看狀態生命週期 | 頁面上顯示 5 種狀態（排隊中/執行中/已完成/失敗/已停止）與同一則訊息更新的說明 |
-| 查看訊息預覽 | 顯示實際發送到 Discord 的卡片樣式示意 |
+| 查看訊息預覽 | 即時同步目前欄位/標題/頁尾設定的卡片樣式預覽 |
 
 ---
 

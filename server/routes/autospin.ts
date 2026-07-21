@@ -287,19 +287,39 @@ router.get('/api/autospin/captures-list', async (_req, res) => {
 // ─── Discord Webhook 通知設定 ──────────────────────────────────────────────────
 // URL 存在 settings 表（key-value），不寫死頻道；未來換頻道只要在設定頁改 URL 即可。
 
-// GET /api/autospin/discord-webhook — 取得目前設定的 Discord Webhook URL + 啟用開關
+// GET /api/autospin/discord-webhook — 取得目前設定的 Discord Webhook URL + 啟用開關 + 訊息格式設定
 router.get('/api/autospin/discord-webhook', (_req, res) => {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_webhook_url') as { value: string } | undefined
-  res.json({ ok: true, url: row?.value ?? '', enabled: isDiscordNotifyEnabled() })
+  res.json({
+    ok: true,
+    url: row?.value ?? '',
+    enabled: isDiscordNotifyEnabled(),
+    fields: getDiscordNotifyFields(),
+    titleTemplate: getDiscordTitleTemplate(),
+    footer: getDiscordFooterText(),
+  })
 })
 
-// POST /api/autospin/discord-webhook — 儲存 Discord Webhook URL（空字串＝關閉通知）與啟用開關
+// POST /api/autospin/discord-webhook — 儲存 Discord Webhook URL（空字串＝關閉通知）、啟用開關、訊息格式設定
 router.post('/api/autospin/discord-webhook', (req, res) => {
-  const { url, enabled } = req.body as { url?: string; enabled?: boolean }
+  const { url, enabled, fields, titleTemplate, footer } = req.body as {
+    url?: string; enabled?: boolean; fields?: Partial<Record<NotifyFieldKey, boolean>>
+    titleTemplate?: string; footer?: string
+  }
   if (typeof url !== 'string') return res.status(400).json({ ok: false, message: 'url required' })
   db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('discord_webhook_url', url)
   if (typeof enabled === 'boolean') {
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('discord_notify_enabled', enabled ? '1' : '0')
+  }
+  if (fields && typeof fields === 'object') {
+    const merged = { ...getDiscordNotifyFields(), ...fields }
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('discord_notify_fields', JSON.stringify(merged))
+  }
+  if (typeof titleTemplate === 'string') {
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('discord_notify_title_template', titleTemplate)
+  }
+  if (typeof footer === 'string') {
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('discord_notify_footer', footer)
   }
   res.json({ ok: true })
 })
@@ -340,6 +360,37 @@ function getDiscordWebhookUrl(): string {
 function isDiscordNotifyEnabled(): boolean {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_notify_enabled') as { value: string } | undefined
   return row?.value !== '0'
+}
+
+type NotifyFieldKey = 'gameUrl' | 'spinCount' | 'errorSummary' | 'screenshotUrl'
+const DEFAULT_NOTIFY_FIELDS: Record<NotifyFieldKey, boolean> = {
+  gameUrl: true, spinCount: true, errorSummary: true, screenshotUrl: true,
+}
+
+/** 哪些欄位要顯示在通知卡片上（狀態欄固定顯示，不受此設定影響）。 */
+function getDiscordNotifyFields(): Record<NotifyFieldKey, boolean> {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_notify_fields') as { value: string } | undefined
+  if (!row?.value) return { ...DEFAULT_NOTIFY_FIELDS }
+  try {
+    return { ...DEFAULT_NOTIFY_FIELDS, ...JSON.parse(row.value) }
+  } catch {
+    return { ...DEFAULT_NOTIFY_FIELDS }
+  }
+}
+
+const DEFAULT_TITLE_TEMPLATE = 'AutoSpin — {machineType}'
+
+/** 訊息標題模板，{machineType} 會被實際機台代碼取代。 */
+function getDiscordTitleTemplate(): string {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_notify_title_template') as { value: string } | undefined
+  const tpl = row?.value?.trim()
+  return tpl || DEFAULT_TITLE_TEMPLATE
+}
+
+/** 自訂頁尾文字（選填，例如公司代號），空字串＝不顯示。 */
+function getDiscordFooterText(): string {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_notify_footer') as { value: string } | undefined
+  return row?.value ?? ''
 }
 
 // ─── Session Routes ───────────────────────────────────────────────────────────
@@ -513,18 +564,22 @@ function buildDiscordEmbed(
   opts: { gameUrl?: string; spinCount?: number; errorSummary?: string; screenshotUrl?: string },
 ) {
   const meta = NOTIFY_STATUS_META[status]
+  const enabledFields = getDiscordNotifyFields()
   const fields: { name: string; value: string; inline?: boolean }[] = [
     { name: '狀態', value: `${meta.emoji} ${meta.label}`, inline: true },
-    { name: 'Spin 數', value: String(opts.spinCount ?? 0), inline: true },
   ]
-  if (opts.gameUrl) fields.push({ name: 'Game URL', value: opts.gameUrl.length > 300 ? opts.gameUrl.slice(0, 300) + '…' : opts.gameUrl })
-  if (opts.errorSummary) fields.push({ name: '錯誤摘要', value: opts.errorSummary.slice(0, 500) })
-  if (opts.screenshotUrl) fields.push({ name: '截圖', value: opts.screenshotUrl })
+  if (enabledFields.spinCount) fields.push({ name: 'Spin 數', value: String(opts.spinCount ?? 0), inline: true })
+  if (enabledFields.gameUrl && opts.gameUrl) fields.push({ name: 'Game URL', value: opts.gameUrl.length > 300 ? opts.gameUrl.slice(0, 300) + '…' : opts.gameUrl })
+  if (enabledFields.errorSummary && opts.errorSummary) fields.push({ name: '錯誤摘要', value: opts.errorSummary.slice(0, 500) })
+  if (enabledFields.screenshotUrl && opts.screenshotUrl) fields.push({ name: '截圖', value: opts.screenshotUrl })
+  const title = `${meta.emoji} ${getDiscordTitleTemplate().replace(/\{machineType\}/g, machineType)}`
+  const footer = getDiscordFooterText()
   return {
-    title: `${meta.emoji} AutoSpin — ${machineType}`,
+    title,
     color: meta.color,
     fields,
     timestamp: new Date().toISOString(),
+    ...(footer ? { footer: { text: footer } } : {}),
   }
 }
 
