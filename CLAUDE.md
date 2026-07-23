@@ -421,6 +421,7 @@ Keep Claude for:
 | `osm-sync` | OSM 全渠道同步 |
 | `osm-alert` | 版本告警（手動 / 排程）|
 | `osm-config-compare` | Config 比對 |
+| `meter-reconcile` | Performance Meter 對帳查詢 |
 | `machine-test` | 機台自動化測試結果 / 設定檔儲存 |
 | `autospin` | AutoSpin session 結束 |
 | `gs-stats` | Game Show 500x 機率統計 |
@@ -542,6 +543,43 @@ Keep Claude for:
 | 查看截圖熱圖 | gmid × 解析度 Grid，截圖縮圖即時顯示，點擊放大預覽 |
 | 查看清單模式 | 以表格呈現每個任務的狀態與錯誤訊息 |
 | 回寫至 Lark Wiki | 將截圖結果回寫為 Wiki TABLE（每欄一種解析度）|
+
+---
+
+## 18. OSM Tools — Performance Meter 對帳（MeterReconcilePage）
+
+**路由**：`/api/osm/meter-reconcile/*`｜**歷史紀錄 feature key**：`meter-reconcile`
+
+### 功能說明
+比對 OSM／GCP EGM Metering（egmPerformanceMeter）的 Coin Out，與 Game Record（gameRecordList）+ Jackpot Abnormality（getHandPayRecord）加總算出的預期值是否完全一致。一次性手動查詢（機台名稱 + OSM/GCP 來源 + 日期/小時），不排程、不巡檢多台。
+
+**公式**：
+- OSM：預期 Coin Out = Game Record 總 Win − Jackpot Wins（meter 欄位 29）− Attendant Paid JP（getHandPayRecord 當日 handpay 加總）
+- GCP：預期 Coin Out = Game Record 總 Win（含 Jackpot Wins + Attendant Paid JP，不用另外扣）
+- 判定門檻：完全一致（誤差 < 0.005）才算 PASS
+- 已用真實資料驗證出一組完全吻合的案例（Rising Rockets Emperor-141，2026-07-22，pass=true, delta=0），證明核心機制正確；其他機台/日期可能因下述的小時/整日粒度落差而有殘餘誤差，此工具仍屬「雛形」階段。
+
+**EGM Performance Meter 欄位語意**（已用 EGM Hourly Meter 差值反算 + 使用者提供公式驗證）：`2`=RTP（小數，**僅 daily 回應有效，hourly 回應這個 index 被挪用成 Unix timestamp**）、`5`=Games Played、`6`=Coin In、`10`=Coin Out、`26`=WIN/LOSE（=6−10−29，**hourly 回應完全沒有這個欄位**）、`29`=Jackpot Wins。所以 WIN/LOSE、RTP 一律在後端用 6/10/29 現算，不直接讀 daily/hourly 的欄位 2/26。欄位 `3`/`4`（及鏡射的 `13`/`14`/`15`/`16`）疑似硬體 meter 累計值；欄位 `24`/`28` 語意仍未確認。
+
+**⚠️ Coin In/Coin Out/Jackpot Wins/Games Played 都是「累計值（自上次清帳 reset 起算，不是自當日 00:00 起算）」**，不是「當日」數字——同一機台若很久沒被 reset，數字會是好幾天/幾週的總和，直接拿來跟 Game Record 的當日加總比對會差好幾個數量級。已用真實資料驗證：**(目標小時 bucket − 當日第一個 bucket) 的差值** 才會等於當日 Game Record 加總；若差值為負（代表當天發生過 reset），退回用目標小時的原始累計值 best-effort（`meterDelta()` 函式）。
+
+**Jackpot Abnormality（getHandPayRecord）語意修正**：這支 API 回傳的 `handpay` 對應的是 **Attendant Paid JP**（需要人工核發的手付獎金），**不是** Jackpot Wins 本身——Jackpot Wins 已經在 EGM Performance Meter 的欄位 29 裡（用上面的差值法取得），公式裡是兩個獨立項目，不能互相取代。另外這支 API 有個實測到的怪癖：**帶了 `clientMachineName` 篩選後，`dateTime[]` 日期範圍篩選會完全失效**（回傳的是該機台最近 N 筆 handpay，可能橫跨好幾個月），所以固定抓回後在後端用 `payoutTime` 字串前綴二次過濾，取真正當日的資料。
+
+**`gameRecordList` / `getHandPayRecord` 的 `dateTime[]` 上界是「不含當天」**（exclusive），同一天當 start/end 傳兩次會查到 0 筆；要傳 `date+1` 才能真正包含當天資料（`nextDateStr()` 函式）。EGM Performance Meter / EGM Hourly Meter 則沒有這個問題，同一天當 start/end 傳兩次可以正常查到當天資料。
+
+EGM Performance Meter 讀數為「截至指定小時」（用 `egmMeterHourList` 找對應小時 bucket）；Game Record 與 Jackpot Abnormality 目前為**整日**加總，沒有依小時再切——若查詢小時早於當天最後一筆記錄的時間，比對可能會有落差，這是已知限制，之後有需要再補小時級篩選。
+
+OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP 用 NC 後台 `qat-nc.osmslot.org`，channelId 不同），憑證分開存在 `meter_reconcile_config` 表（key 前綴 `osm_`/`gcp_`），登入 token 過期時自動重新登入一次再重試。
+
+### 使用者操作
+| 操作 | 說明 |
+|------|------|
+| 查詢對帳 | 輸入機台名稱 + 選擇 OSM/GCP 來源 + 日期 + 時間（到小時），一鍵拉三邊資料比對 |
+| 查看判定結果 | 頂部橫幅直接顯示一致／不一致 + 差值 |
+| 查看公式攤開 | 顯示算式各項數字來源，方便肉眼核對 |
+| 查看三邊明細 | EGM Performance Meter（Coin In/Out/Jackpot/RTP/WIN-LOSE）、Game Record 加總、Jackpot Abnormality 明細列表並排顯示 |
+| 查看原始欄位除錯表 | 展開查看該筆查詢的所有原始欄位，已驗證欄位標綠色 |
+| 設定 OSM/GCP 後台連線 | Base URL / Origin / Channel ID / 登入帳密，分開設定兩組，可測試登入 |
 
 ---
 

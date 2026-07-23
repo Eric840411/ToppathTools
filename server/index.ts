@@ -18,6 +18,7 @@ import { WebSocket, WebSocketServer } from 'ws'
 import { router as jiraRouter } from './routes/jira.js'
 import { getUserAiKey, router as geminiRouter } from './routes/gemini.js'
 import { router as osmRouter, restartCron, activeCronTask } from './routes/osm.js'
+import { router as meterReconcileRouter } from './routes/meter-reconcile.js'
 import { router as authRouter } from './routes/auth.js'
 import { router as permissionsRouter } from './routes/permissions.js'
 import { router as workerStatusRouter } from './routes/worker-status.js'
@@ -294,6 +295,7 @@ app.use(proxyToWorker)
 app.use(jiraRouter)
 app.use(geminiRouter)
 app.use(osmRouter)
+app.use(meterReconcileRouter)
 app.use(lazyIntegrationsRouter)
 app.use(authRouter)
 app.use(permissionsRouter)

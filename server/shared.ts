@@ -636,6 +636,14 @@ db.exec(`
   )
 `)
 
+// meter_reconcile_config — key-value config for Performance Meter 對帳（OSM/GCP 兩組後台憑證，key 前綴 osm_/gcp_ 區分）
+db.exec(`
+  CREATE TABLE IF NOT EXISTS meter_reconcile_config (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+  )
+`)
+
 // reconcile_front_records — game records posted from agent (pinus JS)
 db.exec(`
   CREATE TABLE IF NOT EXISTS reconcile_front_records (
@@ -1319,7 +1327,7 @@ export const ALL_PAGE_KEYS = [
   'jira-qa','jira-pm','jira-update','lark','osm','machinetest','imagecheck','osm-config',
   'autospin','url-pool','jackpot','osm-uat',
   'gs-imgcompare','gs-logchecker','gs-bonusv2','history','knowledge','local-agent',
-  'ui-screenshot','discord-notify',
+  'ui-screenshot','discord-notify','meter-reconcile',
 ] as const
 
 export type PageKey = typeof ALL_PAGE_KEYS[number]

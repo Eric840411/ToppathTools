@@ -20,6 +20,7 @@ import { SystemAdminPage } from './pages/SystemAdminPage'
 import { KnowledgePage } from './pages/KnowledgePage'
 import { UiScreenshotPage } from './pages/UiScreenshotPage'
 import { DiscordNotifySettingsPage } from './pages/DiscordNotifySettingsPage'
+import { MeterReconcilePage } from './pages/MeterReconcilePage'
 import ChangelogModal from './components/ChangelogModal'
 import GeminiSettingsModal from './components/GeminiSettingsModal'
 import AiAgentMonitorWidget from './components/AiAgentMonitorWidget'
@@ -31,7 +32,7 @@ import './App.css'
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
   | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
-  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify'
+  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'meter-reconcile'
 type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge' | 'discord-notify'
 
 type SubTab = {
@@ -144,6 +145,13 @@ const groups: Group[] = [
         icon: 'U',
         iconClass: 'tab-icon--imagecheck',
         description: '批量對 H5 遊戲進行多解析度截圖，從 Lark Wiki 讀取 gmid，截圖結果回寫至 Wiki TABLE',
+      },
+      {
+        id: 'meter-reconcile',
+        label: 'Performance Meter 對帳',
+        icon: 'P',
+        iconClass: 'tab-icon--osm',
+        description: 'OSM / GCP EGM Metering 對 Game Record + Jackpot Abnormality，驗證 Coin Out 是否一致',
       },
     ],
   },
@@ -566,6 +574,7 @@ function App() {
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'jackpot' && <JackpotPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-uat' && <OsmUatPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'ui-screenshot' && <UiScreenshotPage />}
+            {currentGroup?.id === 'osm-tools' && effectiveTab === 'meter-reconcile' && <MeterReconcilePage />}
             {currentGroup?.id === 'settings' && effectiveTab === 'local-agent' && <LocalAgentPage currentAccount={globalAccount} />}
             {currentGroup?.id === 'discord-notify' && <DiscordNotifySettingsPage />}
             {currentGroup?.id === 'history' && <HistoryPage />}

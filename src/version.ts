@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.63.2'
+export const APP_VERSION = '3.64.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.64.0',
+    date: '2026-07-23',
+    changes: [
+      'feat(osm): 新增「Performance Meter 對帳」頁籤（OSM Tools）—— 比對 OSM/GCP EGM Metering 的 Coin Out 與 Game Record + Jackpot Abnormality 加總算出的預期值是否完全一致，一次性手動查詢（機台名稱 + 來源 + 日期/小時），三邊資料並排顯示、公式攤開、原始欄位除錯表；OSM/GCP 兩組後台憑證分開設定',
+    ],
+  },
   {
     version: '3.63.2',
     date: '2026-07-21',
