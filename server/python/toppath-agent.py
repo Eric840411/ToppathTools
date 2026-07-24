@@ -138,6 +138,10 @@ signal.signal(signal.SIGTERM, lambda s, f: stop_flag.set())
 spin_interval_override = None  # set by server via should-stop poll
 spin_interval_lock = __import__('threading').Lock()
 
+# OSMWatcher 狀態快取（key=gmid/gameTitleCode, value=status code），隨 should-stop 心跳一起更新
+osm_status_cache: dict = {}
+osm_status_lock = __import__('threading').Lock()
+
 def poll_stop():
     global spin_interval_override, session_id
     while not stop_flag.is_set():
@@ -175,6 +179,12 @@ def poll_stop():
                 pause_flag.set()
             else:
                 pause_flag.clear()
+            # Update OSMWatcher status cache（key=gmid）
+            osm_status = d.get('osmStatus')
+            if isinstance(osm_status, dict):
+                with osm_status_lock:
+                    osm_status_cache.clear()
+                    osm_status_cache.update(osm_status)
         except Exception:
             pass
         time.sleep(3)
@@ -184,6 +194,15 @@ threading.Thread(target=poll_stop, daemon=True).start()
 # ─── 常量 ─────────────────────────────────────────────────────────────────────
 
 SPECIAL_GAMES = {'BULLBLITZ', 'ALLABOARD'}
+
+# OSMWatcher 狀態碼（與 machine-test/runner.ts 的 BONUS_STATUSES/OSM_STATUS_LABELS 對應，
+# 只讀取同一份 osmMachineStatus 資料源，不修改 Machine Test 本身程式碼）
+BONUS_STATUSES = {1, 2, 3, 4, 5, 8}
+OSM_STATUS_LABELS = {
+    1: 'Free Game 觸發', 2: 'Free Game 觸發 (2)', 3: 'Jackpot 觸發',
+    4: 'Jackpot 進行中', 5: 'Free Game 進行中', 8: '面額切換',
+    9: 'Handpay（需人工處理）',
+}
 
 # ─── Pinus / GM Event 監控 injected script ────────────────────────────────────
 # 完整移植自 server/machine-test/runner.ts 的 PINUS_TRACKER_SCRIPT + GM_EVENT_MONITOR_SCRIPT，
@@ -863,7 +882,7 @@ def find_spin_button(page, custom_sel: str = ''):
     return None, None
 
 
-def do_spin(page, cfg: dict) -> bool:
+def do_spin(page, cfg: dict):
     """執行一次 Spin。點擊邏輯：
     找按鈕（selector fallback chain）→ 確認未 disabled → native click
     → 若被上層（選面額面板等）攔截，改用 JS click 直接點下層 Spin 按鈕本身
@@ -872,7 +891,10 @@ def do_spin(page, cfg: dict) -> bool:
     完成判定取兩個訊號中先到者：① 按鈕 disabled→enabled（部分機台適用）
     ② pinus 推播新的 coin 更新（moneyNtc reason=end，各機台都適用，且通常比按鈕狀態更快更準）。
     有些機台的 Spin 按鈕動畫全程不會切換 disabled/class（例如 RISINGROCKETS），
-    只靠①偵測時，每次 Spin 都會固定卡滿 8 秒才返回，AutoSpin 連續跑很多輪時等於被拖慢 8 倍以上。"""
+    只靠①偵測時，每次 Spin 都會固定卡滿 8 秒才返回，AutoSpin 連續跑很多輪時等於被拖慢 8 倍以上。
+
+    回傳：失敗回傳 None；成功回傳 (balance_before, balance_after) 這個 2-tuple
+    （其中一個或兩個都可能是 None，代表當下讀不到餘額）。"""
     spin_sel_cfg = cfg.get('spinSelector') or ''
 
     sel, btn = find_spin_button(page, spin_sel_cfg)
@@ -883,17 +905,18 @@ def do_spin(page, cfg: dict) -> bool:
             if box:
                 page.mouse.click(box['x'] + box['width'] * 0.85,
                                  box['y'] + box['height'] * 0.85)
-                return True
+                return (None, None)
         except Exception:
             pass
-        return False
+        return None
 
     try:
         if btn.evaluate("el => el.disabled || el.classList.contains('disabled')"):
-            return False
+            return None
     except Exception:
         pass
 
+    balance_before = read_balance(page)
     updated_at_before = get_coin_updated_at(page)
     click_start = time.time()
 
@@ -906,9 +929,9 @@ def do_spin(page, cfg: dict) -> bool:
             try:
                 btn.evaluate("el => el.click()")
             except Exception:
-                return False
+                return None
         else:
-            return False
+            return None
 
     # 等待動畫完成，最多等 8 秒；按鈕 disabled→enabled 或 pinus coin 更新，先到者為準
     deadline = time.time() + 8
@@ -932,10 +955,126 @@ def do_spin(page, cfg: dict) -> bool:
         except Exception:
             pass
 
+    balance_after = read_balance(page)
     duration = time.time() - click_start
     mt = cfg.get('machineType', '')
     log(f"[{mt}] Spin 耗時 {duration:.1f}s（訊號：{exit_reason}）")
 
+    return (balance_before, balance_after)
+
+
+def execute_bonus_action(page, cfg: dict, mt: str, spin_sel_cfg: str):
+    """執行機種設定檔裡指定的 bonusAction 一次（spin/takewin/touchscreen），auto_wait 則不做任何事。
+    完整移植自 machine-test/runner.ts 的 waitForNormalStatus() 第一步。"""
+    bonus_action = cfg.get('bonusAction') or 'auto_wait'
+    if bonus_action == 'auto_wait':
+        return
+    try:
+        if bonus_action == 'spin':
+            _, btn = find_spin_button(page, spin_sel_cfg)
+            if btn:
+                try:
+                    btn.click(timeout=3000)
+                except Exception:
+                    try:
+                        btn.evaluate("el => el.click()")
+                    except Exception:
+                        pass
+            log(f"[{mt}]（執行特殊流程：Spin）")
+        elif bonus_action == 'takewin':
+            try:
+                btn = page.locator('.btn_takewin, [class*="takewin"], [class*="take-win"], [class*="take_win"]').first
+                if btn.is_visible():
+                    btn.click(timeout=3000)
+            except Exception:
+                pass
+            log(f"[{mt}]（執行特殊流程：TakeWin）")
+        elif bonus_action == 'touchscreen':
+            pts = cfg.get('touchPoints') or []
+            for pt in pts:
+                elem = wait_for_span_text(page, pt, 3000)
+                if elem:
+                    try:
+                        elem.evaluate("el => el.click()")
+                        log(f'[{mt}]（觸屏點擊: "{pt}"）')
+                    except Exception:
+                        pass
+                else:
+                    log(f'[{mt}]（找不到觸屏元素: "{pt}"，略過）')
+                time.sleep(0.8)
+            if cfg.get('clickTake'):
+                try:
+                    btn = page.locator('.my-button.btn_take, .btn_take').first
+                    if btn.is_visible():
+                        btn.click(timeout=3000)
+                        log(f"[{mt}]（點擊 Take）")
+                except Exception:
+                    pass
+            if pts:
+                log(f"[{mt}]（特殊流程觸屏完成: {' → '.join(pts)}）")
+    except Exception:
+        pass
+    time.sleep(1.0)
+
+
+def wait_for_normal_osm_status(gmid: str, page, cfg: dict, mt: str) -> bool:
+    """偵測到 OSMWatcher 回報特殊狀態時：執行一次 bonusAction，然後持續 Spin 直到狀態恢復正常
+    （或 15 分鐘逾時），狀態恢復後再 10 秒 cooldown spin。
+    完整移植自 machine-test/runner.ts 的 waitForNormalStatus()（只讀取同一份 osmMachineStatus
+    資料源，未修改 Machine Test 本身程式碼）。
+    回傳 True 代表有處理過特殊狀態，False 代表沒有（正常/未連線/Handpay 沒有 gmid 對應資料）。"""
+    with osm_status_lock:
+        current = osm_status_cache.get(gmid)
+    if current is None or current == 0:
+        return False  # 未連線 OSMWatcher，或狀態正常 — 靜默跳過，呼叫方會用相容 fallback 判斷
+    if current == 9:
+        log(f"[{mt}] ⚠️ Handpay 狀態（需人工處理），跳過等待")
+        return True
+
+    label = OSM_STATUS_LABELS.get(current, f'狀態 {current}')
+    bonus_action = cfg.get('bonusAction') or 'auto_wait'
+    spin_sel_cfg = cfg.get('spinSelector') or ''
+    log(f"[{mt}] 偵測到特殊狀態：{label}，動作：{bonus_action}")
+
+    start = time.time()
+    max_wait = 15 * 60  # 15 分鐘逾時
+
+    execute_bonus_action(page, cfg, mt, spin_sel_cfg)
+
+    last_spin_at = 0.0
+    while time.time() - start < max_wait:
+        time.sleep(1.0)
+        with osm_status_lock:
+            s = osm_status_cache.get(gmid, 0)
+        if s not in BONUS_STATUSES:
+            waited = time.time() - start
+            log(f"[{mt}] 特殊狀態結束，耗時 {waited:.0f}s，繼續 Spin 10 秒 cooldown...")
+            cooldown_end = time.time() + 10
+            while time.time() < cooldown_end:
+                time.sleep(1.0)
+                if bonus_action != 'auto_wait':
+                    _, btn = find_spin_button(page, spin_sel_cfg)
+                    if btn:
+                        try:
+                            btn.click(timeout=2000)
+                        except Exception:
+                            pass
+                    log(f"[{mt}]（Cooldown Spin...）")
+                    time.sleep(2.0)
+            log(f"[{mt}] Cooldown 完成，繼續下一步驟")
+            return True
+
+        if bonus_action != 'auto_wait' and time.time() - last_spin_at > 3.0:
+            last_spin_at = time.time()
+            _, btn = find_spin_button(page, spin_sel_cfg)
+            if btn:
+                try:
+                    btn.click(timeout=2000)
+                except Exception:
+                    pass
+            log(f"[{mt}]（Spin 中，等待特殊遊戲結束...）")
+
+    log(f"[{mt}] ⚠️ 等待特殊狀態結束逾時（15 分鐘），繼續正常流程")
     return True
 
 
@@ -993,7 +1132,7 @@ with sync_playwright() as p:
                 log(f"[{cfg['machineType']}] 無法進入遊戲，跳過")
                 continue
             time.sleep(3.0)  # 等待遊戲穩定
-            machine_pages.append({'page': page, 'config': cfg, 'spin_count': 0, 'error_count': 0, 'last_balance': None, 'last_pinus_poll': 0.0})
+            machine_pages.append({'page': page, 'config': cfg, 'spin_count': 0, 'error_count': 0, 'last_balance': None, 'last_pinus_poll': 0.0, 'no_change_count': 0})
             post_history(cfg['machineType'], None, 0, event='start', note='Agent 開始')
             log(f"[{cfg['machineType']}] 遊戲已就緒")
         except Exception as e:
@@ -1058,12 +1197,41 @@ with sync_playwright() as p:
                         time.sleep(3.0)
                     continue
 
-                if do_spin(page, cfg):
+                # ── 特殊遊戲偵測（OSMWatcher）───────────────────────────────
+                # gameTitleCode 就是 gmid（例如 "873-RISINGROCKETS-0140"），跟 osmMachineStatus 用同一把 key。
+                gmid = cfg.get('gameTitleCode') or ''
+                osm_handled = wait_for_normal_osm_status(gmid, page, cfg, mt) if gmid else False
+                with osm_status_lock:
+                    osm_connected = gmid in osm_status_cache
+
+                spin_result = do_spin(page, cfg)
+                if spin_result:
+                    balance_before, balance_after = spin_result
                     mp['spin_count'] += 1
                     mp['error_count'] = 0
                     with spin_interval_lock:
                         ov = spin_interval_override
                     spin_interval = ov if ov is not None else float(cfg.get('spinInterval') or 1.0)
+
+                    # ── 餘額前後記錄 ──────────────────────────────────────────
+                    if balance_before is not None and balance_after is not None:
+                        delta = balance_after - balance_before
+                        if mp['spin_count'] % 10 == 0 or delta != 0:
+                            log(f"[{mt}] Spin #{mp['spin_count']} 餘額 {balance_before:.2f} → {balance_after:.2f}（{'+' if delta >= 0 else ''}{delta:.2f}）")
+
+                    # ── 相容 fallback：沒有 OSMWatcher 資料時，用連續無變化次數推測特殊遊戲 ──
+                    # osm_handled=True 代表這次已經是 OSMWatcher 確認過的特殊狀態處理，不需要再用 fallback；
+                    # osm_connected=True 代表這台機台有 OSMWatcher 在回報（即使這次狀態正常），也不需要 fallback。
+                    if not osm_handled and not osm_connected:
+                        no_change = balance_before is not None and balance_after is not None and balance_before == balance_after
+                        if no_change:
+                            mp['no_change_count'] = mp.get('no_change_count', 0) + 1
+                        else:
+                            mp['no_change_count'] = 0
+                        if mp['no_change_count'] >= 10:
+                            log(f"[{mt}] ⚠️ 連續 10 次 Spin 餘額都沒變化，且無 OSMWatcher 資料，判斷為特殊遊戲，執行 bonusAction（相容 fallback）")
+                            execute_bonus_action(page, cfg, mt, cfg.get('spinSelector') or '')
+                            mp['no_change_count'] = 0
 
                     # ── 進度回報（獨立於截圖週期，避免 Discord 通知的 Spin 數卡在很舊的數字）──
                     # 截圖/歷史紀錄仍維持每 screenshot_interval 次才寫一次；這裡只是輕量地讓

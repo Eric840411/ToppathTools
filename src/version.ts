@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.64.2'
+export const APP_VERSION = '3.65.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.65.0',
+    date: '2026-07-24',
+    changes: [
+      'feat(autospin): 新增 Spin 前後餘額記錄，算出每次輸贏差額並記錄在執行日誌',
+      'feat(autospin): 新增 OSMWatcher 特殊遊戲偵測 + bonusAction 執行（spin/takewin/touchscreen/auto_wait），行為對齊 Machine Test 的 checkOsm 機制，只讀取共用的 osmMachineStatus 資料源，未修改 Machine Test 程式碼',
+      'feat(autospin): 新增相容 fallback ——沒有 OSMWatcher 資料時，連續 10 次 Spin 餘額都沒變化就自動判斷為特殊遊戲並執行 bonusAction',
+    ],
+  },
   {
     version: '3.64.2',
     date: '2026-07-24',

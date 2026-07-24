@@ -14,6 +14,8 @@ import { getOperatorFromContext } from '../request-context.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { fetchSlsErrors } from '../lib/sls.js'
 import { agentConnections, getAvailableAgents } from '../agent-hub.js'
+// 只讀取 Machine Test 現成維護的 OSMWatcher 狀態 map，不改動 machine-test.ts 本身
+import { osmMachineStatus } from './machine-test.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -731,13 +733,15 @@ router.post('/api/autospin/agent/start', (req, res) => {
   // Return configs merged with machine_test_profiles selectors
   // （entryTouchPoints/entryTouchPoints2 讓 AutoSpin 的進入機台流程與 Machine Test 完全一致）
   const configs = readConfigs(userLabel)
-  const profiles = db.prepare('SELECT machineType, spinSelector, balanceSelector, entryTouchPoints, entryTouchPoints2 FROM machine_test_profiles').all() as
-    { machineType: string; spinSelector: string | null; balanceSelector: string | null; entryTouchPoints: string | null; entryTouchPoints2: string | null }[]
+  const profiles = db.prepare('SELECT machineType, spinSelector, balanceSelector, entryTouchPoints, entryTouchPoints2, bonusAction, touchPoints, clickTake FROM machine_test_profiles').all() as
+    { machineType: string; spinSelector: string | null; balanceSelector: string | null; entryTouchPoints: string | null; entryTouchPoints2: string | null; bonusAction: string | null; touchPoints: string | null; clickTake: number | null }[]
   const profileMap = Object.fromEntries(profiles.map(p => [p.machineType, p]))
   const parseTouchPoints = (v: string | null | undefined): string[] => {
     if (!v) return []
     try { const arr = JSON.parse(v); return Array.isArray(arr) ? arr : [] } catch { return [] }
   }
+  // bonusAction/touchPoints/clickTake：讓 AutoSpin 也能執行跟 Machine Test 一樣的特殊遊戲處理動作
+  // （只讀取 machine_test_profiles，不動 Machine Test 自己的程式碼）
   const merged = configs.map(c => ({
     ...c,
     enabled: !!c.enabled,
@@ -745,6 +749,9 @@ router.post('/api/autospin/agent/start', (req, res) => {
     balanceSelector: profileMap[c.machineType]?.balanceSelector ?? null,
     entryTouchPoints: parseTouchPoints(profileMap[c.machineType]?.entryTouchPoints),
     entryTouchPoints2: parseTouchPoints(profileMap[c.machineType]?.entryTouchPoints2),
+    bonusAction: profileMap[c.machineType]?.bonusAction ?? 'auto_wait',
+    touchPoints: parseTouchPoints(profileMap[c.machineType]?.touchPoints),
+    clickTake: !!profileMap[c.machineType]?.clickTake,
   }))
   // Load keyword_actions and machine_actions from actions.json
   let keywordActions: Record<string, string[]> = {}
@@ -820,6 +827,8 @@ router.get('/api/autospin/agent/:id/should-stop', (req, res) => {
     stop: s.stopRequested || s.status === 'stopped',
     pause: s.pauseRequested ?? false,
     spinInterval: s.spinIntervalOverride ?? null,
+    // OSMWatcher 狀態（key=gmid），AutoSpin 每 3 秒隨心跳一起拿到，判斷是否進入特殊遊戲
+    osmStatus: Object.fromEntries(osmMachineStatus),
   })
 })
 

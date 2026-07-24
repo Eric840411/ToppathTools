@@ -327,6 +327,12 @@ Keep Claude for:
 
 進入機台流程（entryTouchPoints/entryTouchPoints2 兩階段進入觸屏 + enterGMNtc 確認）與 Spin 點擊/餘額讀取（pinus WebSocket 攔截，非 DOM selector）皆與 `server/machine-test/runner.ts` 同步；`entryTouchPoints`/`entryTouchPoints2` 讀取自 `machine_test_profiles` 表（依 machineType 對應），由 `/api/autospin/agent/start` 合併進 configs 回傳給 Python 引擎；元素比對的是疊在畫面上、看不到的 `<span>` 觸控層文字（不是視覺上看到的按鈕文字），格式為「數字,數字」。Spin 按鈕若被上層元素（選面額面板、宣傳彈窗等）攔截點擊，改用 JS `el.click()` 直接觸發下層按鈕，不用真實滑鼠座標硬點。另有 pinus 訊息監控（攔截 `window.pinus.request`/`.on` 所有 request/response/push，非僅 coin 欄位）與瀏覽器 console.warn/console.error 攔截（WebSocket 斷線、遊戲端原生報錯），每台機每 2 秒批次轉發到執行日誌，前綴分別為 `[pinus:xxx]`/`[console:warn]`/`[console:error]`；所有回報用的網路呼叫（進度回報/截圖上傳/Lark 推播/日誌上傳）皆為背景執行緒非同步，不會卡住主 Spin 迴圈。
 
+**特殊遊戲偵測（OSMWatcher + bonusAction）**：只讀取 Machine Test 現成維護的 `osmMachineStatus` map（`server/routes/machine-test.ts` export，未修改該檔案本身），透過 `/api/autospin/agent/:id/should-stop` 心跳（每 3 秒）把整個狀態 map 一起帶給 Python 引擎快取。行為對齊 Machine Test 的 `checkOsm`/`waitForNormalStatus`：偵測到特殊狀態（FG/JP，status 1/2/3/4/5/8）時執行機種設定檔的 `bonusAction`（spin/takewin/touchscreen/auto_wait，讀自 `machine_test_profiles`，由 `/agent/start` 合併進 configs）一次，之後持續 Spin 直到狀態恢復（或 15 分鐘逾時），恢復後再 10 秒 cooldown spin；status=9（Handpay）只記錄不處理，需人工介入。**相容 fallback**：完全沒有 OSMWatcher 資料時（該機台從未出現在 `osmMachineStatus` 裡），改用連續 10 次 Spin 前後餘額都相同來推測進入特殊遊戲，觸發時執行一次 `bonusAction`（不做等待迴圈，執行完就重置計數繼續正常 Spin）。
+
+**Spin 前後餘額記錄**：`do_spin()` 現在回傳 `(balance_before, balance_after)`（失敗回傳 `None`），每次有變化或每 10 次 Spin 會記錄一行輸贏差額到執行日誌；目前只寫日誌，未存進 `autospin_history` 資料庫欄位（該表目前只有單一 `balance` 欄位，沒有 before/after 配對欄位）。
+
+> `SPECIAL_GAMES = {'BULLBLITZ', 'ALLABOARD'}` 與 `machine_actions`（`toppath-agent.py`）目前仍是未串接的殘留變數——按鈕尋找已經靠 `SPIN_SELECTORS_DEFAULT` 的 fallback chain（含 `.btn_spin .my-button` 這個專門給這類特殊按鈕結構用的 selector）涵蓋，`machine_actions`（machine-test 風格座標點擊）尚未實作，待後續確認範圍。
+
 ### 使用者操作
 | 操作 | 說明 |
 |------|------|
