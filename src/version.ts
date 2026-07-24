@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.64.1'
+export const APP_VERSION = '3.64.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.64.2',
+    date: '2026-07-24',
+    changes: [
+      'fix(local-agent): Windows install.bat 的 AutoSpin Python 依賴安裝結果改成明顯警告框 + 安裝完成摘要再提醒一次（原本只有一行灰字容易被洗掉），並改成實際驗證 python -c "import playwright" 是否成功，不是只檢查 pip 有沒有找到',
+    ],
+  },
   {
     version: '3.64.1',
     date: '2026-07-24',
