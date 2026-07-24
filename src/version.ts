@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.64.0'
+export const APP_VERSION = '3.64.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.64.1',
+    date: '2026-07-24',
+    changes: [
+      'fix(local-agent): Windows 安裝腳本改用 curl 下載 source files/agent.py，取代原本的 PowerShell Invoke-WebRequest —— 後者在部分環境會把含中文註解的 .py 檔用錯誤編碼寫入，導致 toppath-agent.py 出現 "Non-UTF-8 code" SyntaxError、AutoSpin 完全無法啟動。已受影響的機器可直接到「Local Agent」頁面點「更新 source files」修復（該路徑本來就是用 Node fetch，不受影響），不用重新安裝',
+    ],
+  },
   {
     version: '3.64.0',
     date: '2026-07-23',

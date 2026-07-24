@@ -1049,7 +1049,7 @@ function latestScreenshotUrl(s: AgentSession, machineType: string): string | und
 // GET /api/autospin/agent/download/launcher.bat?server=... — serve launcher with embedded server URL
 router.get('/api/autospin/agent/download/launcher.bat', (req, res) => {
   const serverUrl = (req.query.server as string) || resolveServerUrl(req)
-  const bat = `@echo off\r\npowershell -Command "iwr '${serverUrl}/api/autospin/agent/download/agent.py' -OutFile '%~dp0toppath-agent.py'" >nul 2>&1\r\npython "%~dp0toppath-agent.py" "%1"\r\nif errorlevel 1 pause\r\n`
+  const bat = `@echo off\r\ncurl -fsSL -o "%~dp0toppath-agent.py" "${serverUrl}/api/autospin/agent/download/agent.py" >nul 2>&1\r\npython "%~dp0toppath-agent.py" "%1"\r\nif errorlevel 1 pause\r\n`
   res.setHeader('Content-Type', 'application/octet-stream')
   res.setHeader('Content-Disposition', 'attachment; filename="launch-agent.bat"')
   res.send(bat)
@@ -1128,7 +1128,7 @@ echo [LOG] Install dir: %INSTALL_DIR% >> "%LOG_FILE%"
 echo [LOG] Server: %TOPPATH_SERVER% >> "%LOG_FILE%"
 
 echo [2/5] Downloading agent script...
-powershell -Command "Invoke-WebRequest -Uri '%TOPPATH_SERVER%/api/autospin/agent/download/agent.py' -OutFile '%INSTALL_DIR%\\toppath-agent.py'"
+curl -fsSL -o "%INSTALL_DIR%\\toppath-agent.py" "%TOPPATH_SERVER%/api/autospin/agent/download/agent.py"
 if errorlevel 1 (
   echo ERROR: Download failed. Please check server connection.
   echo [LOG] FAILED at step 2: download >> "%LOG_FILE%"
@@ -1158,7 +1158,7 @@ if errorlevel 1 (
 echo [LOG] Step 4 OK >> "%LOG_FILE%"
 
 echo [5/5] Downloading launcher and registering URI scheme (toppath-agent://)...
-powershell -Command "Invoke-WebRequest -Uri '%TOPPATH_SERVER%/api/autospin/agent/download/launcher.bat?server=%TOPPATH_SERVER%' -OutFile '%INSTALL_DIR%\\launch-agent.bat'"
+curl -fsSL -o "%INSTALL_DIR%\\launch-agent.bat" "%TOPPATH_SERVER%/api/autospin/agent/download/launcher.bat?server=%TOPPATH_SERVER%"
 if errorlevel 1 (echo ERROR: Launcher download failed. & pause & exit /b 1)
 reg add "HKCU\\Software\\Classes\\toppath-agent" /ve /d "URL:Toppath Agent Protocol" /f >nul
 reg add "HKCU\\Software\\Classes\\toppath-agent" /v "URL Protocol" /d "" /f >nul

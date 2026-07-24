@@ -1258,7 +1258,7 @@ router.get('/api/machine-test/agent/install.bat', (req, res) => {
     const filename = f.split('/').pop()!
     return [
       `mkdir "${dir}" 2>nul`,
-      `powershell -Command "Invoke-WebRequest -Uri '${serverUrl}/api/machine-test/agent/source/${f}' -OutFile '${dir}\\${filename}'"`,
+      `curl -fsSL -o "${dir}\\${filename}" "${serverUrl}/api/machine-test/agent/source/${f}"`,
     ].join('\r\n')
   }).join('\r\n')
 
@@ -1289,7 +1289,7 @@ router.get('/api/machine-test/agent/install.bat', (req, res) => {
     'echo [OK] Created %AGENT_DIR%',
     '',
     'REM Download package.json',
-    `powershell -Command "Invoke-WebRequest -Uri '${serverUrl}/api/machine-test/agent/agent-package.json' -OutFile '%AGENT_DIR%\\package.json'"`,
+    `curl -fsSL -o "%AGENT_DIR%\\package.json" "${serverUrl}/api/machine-test/agent/agent-package.json"`,
     'if %errorlevel% neq 0 (',
     '  echo [ERROR] Failed to download package.json',
     '  pause',
