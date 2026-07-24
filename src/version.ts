@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.65.2'
+export const APP_VERSION = '3.65.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.65.3',
+    date: '2026-07-24',
+    changes: [
+      'fix(autospin): 偵測 Spin 請求被遊戲伺服器直接拒絕的情況（例如 errcode:100「請求超時或未確認錯誤」）——這種情況下按鈕 disabled 切換、餘額更新兩個完成訊號都不會觸發，先前會傻等滿 8 秒才逾時，現在偵測到拒絕會立即中斷並記錄真正原因；同時避免這種情況被誤判為「連續無變化→特殊遊戲」而亂執行 bonusAction',
+    ],
+  },
   {
     version: '3.65.2',
     date: '2026-07-24',

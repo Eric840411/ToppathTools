@@ -215,6 +215,7 @@ TOPPATH_MONITOR_SCRIPT = r"""
   window.__coinUpdatedAt = 0;
   window.__gmEvents = [];
   window.__pinusLog = [];
+  window.__lastSpinErr = null;
   var MAX_LOG = 500;
 
   function pushPinusLog(dir, route, data) {
@@ -302,11 +303,18 @@ TOPPATH_MONITOR_SCRIPT = r"""
     var origRequest = p.request.bind(p);
     p.request = function (route, msg, cb) {
       pushPinusLog('request', route, msg);
+      var isSpinReq = route && route.indexOf('dealGMActionReq') !== -1 && msg && msg.isspin === 1;
       return origRequest(route, msg, function (resp) {
         pushPinusLog('response', route, resp);
         if (resp && typeof resp.coin === 'number') {
           window.__lastCoin = resp.coin;
           window.__coinUpdatedAt = Date.now();
+        }
+        // 遊戲伺服器直接拒絕 Spin 請求（例如 errcode:100「請求超時或未確認錯誤」）：
+        // 這種情況下 spin 動作根本沒有在伺服器端執行成功，按鈕 disabled 切換、coin 更新
+        // 這兩個完成訊號都不會觸發，記錄下來讓 do_spin() 可以立即中斷等待，而不是傻等滿 8 秒。
+        if (isSpinReq && resp && typeof resp.errcode === 'number' && resp.errcode !== 0) {
+          window.__lastSpinErr = { errcode: resp.errcode, errcodedes: resp.errcodedes || '', ts: Date.now() };
         }
         cb && cb(resp);
       });
@@ -713,6 +721,19 @@ def get_coin_updated_at(page) -> float:
     return 0
 
 
+def get_last_spin_err(page):
+    """讀取 window.__lastSpinErr（最近一次 dealGMActionReq spin 請求被伺服器拒絕的錯誤），
+    掃描所有 frame。回傳 {errcode, errcodedes, ts} 或 None。"""
+    for frame in page.frames:
+        try:
+            err = frame.evaluate("window.__lastSpinErr || null")
+            if err:
+                return err
+        except Exception:
+            pass
+    return None
+
+
 def poll_monitor_logs(page, mt: str):
     """取出（drain）window.__pinusLog + window.__consoleLog 中新累積的訊息並轉發到日誌。
     兩者合併成單一 evaluate（而不是各自掃一輪 frame），減少每次輪詢對 Playwright 的
@@ -893,8 +914,9 @@ def do_spin(page, cfg: dict):
     有些機台的 Spin 按鈕動畫全程不會切換 disabled/class（例如 RISINGROCKETS），
     只靠①偵測時，每次 Spin 都會固定卡滿 8 秒才返回，AutoSpin 連續跑很多輪時等於被拖慢 8 倍以上。
 
-    回傳：失敗回傳 None；成功回傳 (balance_before, balance_after) 這個 2-tuple
-    （其中一個或兩個都可能是 None，代表當下讀不到餘額）。"""
+    回傳：失敗回傳 None；成功回傳 (balance_before, balance_after, rejected) 這個 3-tuple
+    （balance_before/after 其中一個或兩個都可能是 None，代表當下讀不到餘額；rejected 代表
+    這次 Spin 被遊戲伺服器明確拒絕，例如 errcode:100「請求超時或未確認錯誤」）。"""
     spin_sel_cfg = cfg.get('spinSelector') or ''
 
     sel, btn = find_spin_button(page, spin_sel_cfg)
@@ -905,7 +927,7 @@ def do_spin(page, cfg: dict):
             if box:
                 page.mouse.click(box['x'] + box['width'] * 0.85,
                                  box['y'] + box['height'] * 0.85)
-                return (None, None)
+                return (None, None, False)
         except Exception:
             pass
         return None
@@ -920,6 +942,13 @@ def do_spin(page, cfg: dict):
     updated_at_before = get_coin_updated_at(page)
     click_start = time.time()
 
+    # 清掉上一次殘留的錯誤紀錄，避免誤判成這次 Spin 剛發生的拒絕
+    for frame in page.frames:
+        try:
+            frame.evaluate("window.__lastSpinErr = null")
+        except Exception:
+            pass
+
     try:
         btn.click(timeout=5000)
     except Exception as e:
@@ -933,9 +962,10 @@ def do_spin(page, cfg: dict):
         else:
             return None
 
-    # 等待動畫完成，最多等 8 秒；按鈕 disabled→enabled 或 pinus coin 更新，先到者為準
+    # 等待動畫完成，最多等 8 秒；按鈕 disabled→enabled、pinus coin 更新、或伺服器明確拒絕，先到者為準
     deadline = time.time() + 8
     spin_started = False
+    rejected = False
     exit_reason = 'timeout_8s（兩個訊號都沒偵測到，等滿上限）'
     while time.time() < deadline:
         time.sleep(0.3)
@@ -954,13 +984,24 @@ def do_spin(page, cfg: dict):
                 break
         except Exception:
             pass
+        try:
+            err = get_last_spin_err(page)
+            if err:
+                rejected = True
+                exit_reason = f"spin_rejected（伺服器拒絕，errcode:{err.get('errcode')} {err.get('errcodedes', '')}）"
+                break
+        except Exception:
+            pass
 
     balance_after = read_balance(page)
     duration = time.time() - click_start
     mt = cfg.get('machineType', '')
-    log(f"[{mt}] Spin 耗時 {duration:.1f}s（訊號：{exit_reason}）")
+    if rejected:
+        log(f"[{mt}] ⚠️ Spin 被伺服器拒絕，耗時 {duration:.1f}s（{exit_reason}）")
+    else:
+        log(f"[{mt}] Spin 耗時 {duration:.1f}s（訊號：{exit_reason}）")
 
-    return (balance_before, balance_after)
+    return (balance_before, balance_after, rejected)
 
 
 def execute_bonus_action(page, cfg: dict, mt: str, spin_sel_cfg: str):
@@ -1206,7 +1247,7 @@ with sync_playwright() as p:
 
                 spin_result = do_spin(page, cfg)
                 if spin_result:
-                    balance_before, balance_after = spin_result
+                    balance_before, balance_after, spin_rejected = spin_result
                     mp['spin_count'] += 1
                     mp['error_count'] = 0
                     with spin_interval_lock:
@@ -1221,8 +1262,12 @@ with sync_playwright() as p:
 
                     # ── 相容 fallback：沒有 OSMWatcher 資料時，用連續無變化次數推測特殊遊戲 ──
                     # osm_handled=True 代表這次已經是 OSMWatcher 確認過的特殊狀態處理，不需要再用 fallback；
-                    # osm_connected=True 代表這台機台有 OSMWatcher 在回報（即使這次狀態正常），也不需要 fallback。
-                    if not osm_handled and not osm_connected:
+                    # osm_connected=True 代表這台機台有 OSMWatcher 在回報（即使這次狀態正常），也不需要 fallback；
+                    # spin_rejected=True 代表這次餘額沒變是因為伺服器直接拒絕了 Spin 請求（例如逾時），
+                    # 不是特殊遊戲狀態，不計入連續無變化次數，避免誤判成特殊遊戲亂點 bonusAction。
+                    if spin_rejected:
+                        pass
+                    elif not osm_handled and not osm_connected:
                         no_change = balance_before is not None and balance_after is not None and balance_before == balance_after
                         if no_change:
                             mp['no_change_count'] = mp.get('no_change_count', 0) + 1
