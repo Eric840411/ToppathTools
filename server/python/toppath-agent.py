@@ -370,13 +370,16 @@ def click_positions(page, positions: list):
 
 
 def wait_for_span_text(page, text: str, timeout_ms: int = 10000):
-    """等待文字內容為 text 的 span 出現並可見，回傳該 locator，逾時回傳 None。
-    完整移植自 machine-test/runner.ts 的 waitForSpanText()。"""
+    """等待文字內容為 text 的 span 出現，回傳該 locator，逾時回傳 None。
+    完整移植自 machine-test/runner.ts 的 waitForSpanText()——包含同一個關鍵行為：
+    觸屏測試用的 .screen-touch 疊加層 span 是完全透明的，Playwright 的 is_visible()
+    對這種 span 一律回傳 False，所以只能檢查元素是否存在（count() > 0），不能檢查可見性，
+    否則所有 touchPoints/bonusAction 觸屏點擊都會被誤判成「找不到元素」而略過。"""
     deadline = time.time() + timeout_ms / 1000
     while time.time() < deadline:
         try:
             loc = page.locator(f"span:text('{text}')").first
-            if loc.count() > 0 and loc.is_visible():
+            if loc.count() > 0:
                 return loc
         except Exception:
             pass

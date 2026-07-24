@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.65.3'
+export const APP_VERSION = '3.65.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.65.4',
+    date: '2026-07-24',
+    changes: [
+      'fix(autospin): 修正 wait_for_span_text() 誤判觸屏元素找不到的問題——觸屏測試用的 .screen-touch 疊加層 span 完全透明，Playwright 的 is_visible() 對這種 span 一律回傳 False（machine-test/runner.ts 的 waitForSpanText() 早已針對這點特別處理、只檢查元素是否存在），但 AutoSpin 這邊的 Python 版本先前多檢查了 is_visible()，導致 entryTouchPoints/bonusAction touchscreen 的座標點永遠找不到元素、全部略過，現在移除該檢查對齊 Machine Test 行為',
+    ],
+  },
   {
     version: '3.65.3',
     date: '2026-07-24',
