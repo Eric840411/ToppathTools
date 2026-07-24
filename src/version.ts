@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.65.1'
+export const APP_VERSION = '3.65.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.65.2',
+    date: '2026-07-24',
+    changes: [
+      'fix(autospin): 機種設定檔（spinSelector/balanceSelector/entryTouchPoints/bonusAction/touchPoints/clickTake）的對應改用 Game Title Code 中段（例如 "873-DFDC-0003" 取 "DFDC"），不再用使用者手打、格式不受控的機台類型欄位，避免拼字/大小寫不同導致對不到 Machine Test 那邊的機種設定',
+    ],
+  },
   {
     version: '3.65.1',
     date: '2026-07-24',

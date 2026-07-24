@@ -740,18 +740,25 @@ router.post('/api/autospin/agent/start', (req, res) => {
     if (!v) return []
     try { const arr = JSON.parse(v); return Array.isArray(arr) ? arr : [] } catch { return [] }
   }
+  // 機種設定檔對應用 gameTitleCode 的中段（例如 "873-DFDC-0003" 取 "DFDC"）當 key，不用 AutoSpin
+  // 自己那個使用者手打、格式不受控的 machineType —— 中段本來就是 machine_test_profiles.machineType
+  // 的來源慣例（機種識別碼），比對更準；gameTitleCode 格式不對時 fallback 回 machineType。
+  const profileKeyFor = (c: { machineType: string; gameTitleCode?: string }): string => {
+    const parts = (c.gameTitleCode || '').split('-')
+    return parts.length >= 3 ? parts[1].toUpperCase() : c.machineType
+  }
   // bonusAction/touchPoints/clickTake：讓 AutoSpin 也能執行跟 Machine Test 一樣的特殊遊戲處理動作
   // （只讀取 machine_test_profiles，不動 Machine Test 自己的程式碼）
   const merged = configs.map(c => ({
     ...c,
     enabled: !!c.enabled,
-    spinSelector: profileMap[c.machineType]?.spinSelector ?? null,
-    balanceSelector: profileMap[c.machineType]?.balanceSelector ?? null,
-    entryTouchPoints: parseTouchPoints(profileMap[c.machineType]?.entryTouchPoints),
-    entryTouchPoints2: parseTouchPoints(profileMap[c.machineType]?.entryTouchPoints2),
-    bonusAction: profileMap[c.machineType]?.bonusAction ?? 'auto_wait',
-    touchPoints: parseTouchPoints(profileMap[c.machineType]?.touchPoints),
-    clickTake: !!profileMap[c.machineType]?.clickTake,
+    spinSelector: profileMap[profileKeyFor(c)]?.spinSelector ?? null,
+    balanceSelector: profileMap[profileKeyFor(c)]?.balanceSelector ?? null,
+    entryTouchPoints: parseTouchPoints(profileMap[profileKeyFor(c)]?.entryTouchPoints),
+    entryTouchPoints2: parseTouchPoints(profileMap[profileKeyFor(c)]?.entryTouchPoints2),
+    bonusAction: profileMap[profileKeyFor(c)]?.bonusAction ?? 'auto_wait',
+    touchPoints: parseTouchPoints(profileMap[profileKeyFor(c)]?.touchPoints),
+    clickTake: !!profileMap[profileKeyFor(c)]?.clickTake,
   }))
   // Load keyword_actions and machine_actions from actions.json
   let keywordActions: Record<string, string[]> = {}
