@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.65.0'
+export const APP_VERSION = '3.65.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.65.1',
+    date: '2026-07-24',
+    changes: [
+      'ux(autospin): 機台設定列表新增「隨機下注」「隨機離開」欄位，跟「錄影」「模板偵測」一起改成可直接點擊切換的開關按鈕（比照原本「啟用」的做法），不用點進編輯視窗；編輯表單移除這 4 個重複的勾選框',
+    ],
+  },
   {
     version: '3.65.0',
     date: '2026-07-24',

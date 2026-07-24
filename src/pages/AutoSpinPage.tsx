@@ -184,25 +184,27 @@ export function AutoSpinPage() {
     setShowForm(true)
   }
 
-  // 直接在列表切換「啟用」，不用點進編輯視窗
-  const [togglingType, setTogglingType] = useState<string | null>(null)
-  const handleToggleEnabled = async (c: AutospinConfig) => {
-    setTogglingType(c.machineType)
-    setConfigs(prev => prev.map(x => x.machineType === c.machineType ? { ...x, enabled: !x.enabled } : x))
+  // 直接在列表切換布林欄位（啟用/啟用錄影/啟用模板偵測/隨機下注/隨機離開），不用點進編輯視窗
+  const [togglingKey, setTogglingKey] = useState<string | null>(null)
+  const handleToggleField = async (c: AutospinConfig, field: 'enabled' | 'enableRecording' | 'enableTemplateDetection' | 'betRandomEnabled' | 'randomExitEnabled') => {
+    const toggleKey = `${c.machineType}:${field}`
+    setTogglingKey(toggleKey)
+    const nextValue = !c[field]
+    setConfigs(prev => prev.map(x => x.machineType === c.machineType ? { ...x, [field]: nextValue } : x))
     try {
       const r = await fetch('/api/autospin/configs', {
-        method: 'POST', headers: userHeaders, body: JSON.stringify({ ...c, enabled: !c.enabled }),
+        method: 'POST', headers: userHeaders, body: JSON.stringify({ ...c, [field]: nextValue }),
       })
       const d = await r.json() as { ok: boolean; message?: string }
       if (!d.ok) {
-        setConfigs(prev => prev.map(x => x.machineType === c.machineType ? { ...x, enabled: c.enabled } : x))
+        setConfigs(prev => prev.map(x => x.machineType === c.machineType ? { ...x, [field]: c[field] } : x))
         setConfigMsg(d.message ?? '切換失敗')
       }
     } catch {
-      setConfigs(prev => prev.map(x => x.machineType === c.machineType ? { ...x, enabled: c.enabled } : x))
+      setConfigs(prev => prev.map(x => x.machineType === c.machineType ? { ...x, [field]: c[field] } : x))
       setConfigMsg('切換失敗：網路錯誤')
     } finally {
-      setTogglingType(null)
+      setTogglingKey(null)
     }
   }
 
@@ -791,7 +793,7 @@ export function AutoSpinPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
             <thead>
               <tr style={{ background: '#162032', textAlign: 'left' }}>
-                {['機台類型', 'Game Title Code', '模板類型', 'RTMP', '錄影', '模板偵測', '啟用', '操作'].map(h => (
+                {['機台類型', 'Game Title Code', '模板類型', 'RTMP', '錄影', '模板偵測', '隨機下注', '隨機離開', '啟用', '操作'].map(h => (
                   <th key={h} style={{ padding: '8px 10px', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -803,13 +805,13 @@ export function AutoSpinPage() {
                   <td style={{ padding: '7px 10px', color: '#94a3b8', fontSize: 11 }}>{c.gameTitleCode || '—'}</td>
                   <td style={{ padding: '7px 10px', color: '#94a3b8', fontSize: 11 }}>{c.templateType || '—'}</td>
                   <td style={{ padding: '7px 10px', color: '#94a3b8', fontSize: 11 }}>{c.rtmpName || '—'}</td>
-                  {[c.enableRecording, c.enableTemplateDetection].map((v, i) => (
-                    <td key={i} style={{ padding: '7px 10px', textAlign: 'center' }}>
-                      <span style={{ color: v ? '#16a34a' : '#9ca3af' }}>{v ? '✅' : '—'}</span>
+                  {(['enableRecording', 'enableTemplateDetection', 'betRandomEnabled', 'randomExitEnabled'] as const).map(field => (
+                    <td key={field} style={{ padding: '7px 10px', textAlign: 'center' }}>
+                      <ToggleSwitch checked={c[field]} disabled={togglingKey === `${c.machineType}:${field}`} onToggle={() => handleToggleField(c, field)} />
                     </td>
                   ))}
                   <td style={{ padding: '7px 10px', textAlign: 'center' }}>
-                    <ToggleSwitch checked={c.enabled} disabled={togglingType === c.machineType} onToggle={() => handleToggleEnabled(c)} />
+                    <ToggleSwitch checked={c.enabled} disabled={togglingKey === `${c.machineType}:enabled`} onToggle={() => handleToggleField(c, 'enabled')} />
                   </td>
                   <td style={{ padding: '7px 10px' }}>
                     <div style={{ display: 'flex', gap: 4 }}>
@@ -890,21 +892,6 @@ export function AutoSpinPage() {
                     />
                   </div>
                 ))}
-
-                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                  {[
-                    { key: 'enableRecording', label: '啟用錄影' },
-                    { key: 'enableTemplateDetection', label: '啟用模板偵測' },
-                    { key: 'betRandomEnabled', label: '隨機下注' },
-                    { key: 'randomExitEnabled', label: '隨機離開' },
-                  ].map(({ key, label }) => (
-                    <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={(form as unknown as Record<string, boolean>)[key]}
-                        onChange={e => setForm(f => ({ ...f, [key]: e.target.checked }))} />
-                      {label}
-                    </label>
-                  ))}
-                </div>
 
                 {/* ── 頻率 / 隨機離開參數 ─────────────────────────────────── */}
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
