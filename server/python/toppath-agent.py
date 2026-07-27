@@ -501,6 +501,25 @@ def dismiss_known_overlays(page, mt: str, rounds: int = 3):
     return dismissed_any
 
 
+def dismiss_denom_overlay(page, mt: str = '') -> bool:
+    """偵測並點掉「選面額遮罩」（.select-main 疊層，例如 SELECT A DENOMINATION）。
+    完整移植自 machine-test/runner.ts 的 dismissDenomOverlay()：這個遮罩不是只在剛進場時出現，
+    Bet Change / Cashout 等操作之後也可能重新彈出蓋住 Spin 按鈕，導致 Spin 點擊完全沒反應
+    （native click 可能不報錯，但遊戲根本沒收到，因為真正要點的是遮罩裡的面額選項，不是被蓋住的 Spin 按鈕）。
+    找到就點第一個選項（JS 強制 click，繞過遮罩層），回傳是否有點過。"""
+    for frame in page.frames:
+        try:
+            btns = frame.locator('.select-main .select-btn, .select-main .my-button').all()
+            if btns:
+                log(f"[{mt}] 偵測到選面額遮罩（{len(btns)} 個選項），點擊第一個...")
+                btns[0].evaluate("el => el.click()")
+                time.sleep(0.8)
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def enter_game(page, cfg: dict) -> bool:
     """從大廳進入指定遊戲，對應 AutoSpin.py scroll_and_click_game()。
     每個步驟都印出開始/結束與耗時，方便追蹤整段進入流程實際花的時間。"""
@@ -929,6 +948,11 @@ def do_spin(page, cfg: dict):
     （balance_before/after 其中一個或兩個都可能是 None，代表當下讀不到餘額；rejected 代表
     這次 Spin 被遊戲伺服器明確拒絕，例如 errcode:100「請求超時或未確認錯誤」）。"""
     spin_sel_cfg = cfg.get('spinSelector') or ''
+    mt = cfg.get('machineType', '')
+
+    # Spin 按鈕若被「選面額遮罩」蓋住，先點掉遮罩再找 Spin 按鈕——這種遮罩點擊不會拋例外，
+    # 只是遊戲完全沒反應，所以要主動偵測，不能只靠 native click 失敗時的例外處理。
+    dismiss_denom_overlay(page, mt)
 
     sel, btn = find_spin_button(page, spin_sel_cfg)
     if not btn:
@@ -1006,7 +1030,6 @@ def do_spin(page, cfg: dict):
 
     balance_after = read_balance(page)
     duration = time.time() - click_start
-    mt = cfg.get('machineType', '')
     if rejected:
         log(f"[{mt}] ⚠️ Spin 被伺服器拒絕，耗時 {duration:.1f}s（{exit_reason}）")
     else:

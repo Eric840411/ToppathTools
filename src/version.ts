@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.66.3'
+export const APP_VERSION = '3.66.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.66.4',
+    date: '2026-07-27',
+    changes: [
+      'fix(autospin): Spin 按鈕被「選面額遮罩」（.select-main，例如 SELECT A DENOMINATION）蓋住時完全沒反應的問題——這種遮罩點擊不會拋例外，只是遊戲收不到，原本的「native click 失敗才 JS 強制點擊」邏輯不會被觸發，等滿 8 秒仍判定 timeout_8s；完整移植 machine-test/runner.ts 的 dismissDenomOverlay() 邏輯，do_spin() 開頭先偵測並點掉這個遮罩（點第一個選項）再找 Spin 按鈕',
+    ],
+  },
   {
     version: '3.66.3',
     date: '2026-07-27',

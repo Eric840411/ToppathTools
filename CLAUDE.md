@@ -331,6 +331,8 @@ Keep Claude for:
 
 **Spin 前後餘額記錄**：`do_spin()` 現在回傳 `(balance_before, balance_after, rejected)`（失敗回傳 `None`），每次有變化或每 10 次 Spin 會記錄一行輸贏差額到執行日誌；目前只寫日誌，未存進 `autospin_history` 資料庫欄位（該表目前只有單一 `balance` 欄位，沒有 before/after 配對欄位）。`rejected` 代表這次 Spin 的 pinus `dealGMActionReq` 請求被遊戲伺服器直接拒絕（例如 errcode:100「請求超時或未確認錯誤」）——這種情況下 spin 動作根本沒在伺服器端執行，按鈕 disabled 切換／coin 更新兩個完成訊號都不會觸發，`do_spin()` 靠監控腳本追蹤 `window.__lastSpinErr`（`dealGMActionReq` 回應 errcode≠0 時寫入）立即中斷等待並記錄真正原因，不會再傻等滿 8 秒被誤標成 `timeout_8s`；main loop 也不會把這種「餘額沒變」計入連續無變化次數，避免誤判成特殊遊戲亂觸發 `bonusAction`。
 
+**選面額遮罩（`.select-main`）攔截 Spin 點擊**：這種遮罩點擊時不會拋例外（跟「上層元素攔截點擊拋 intercepts pointer events」不同），遊戲只是完全收不到 Spin 動作，靠例外處理的 JS 強制點擊 fallback不會被觸發，會固定卡滿 8 秒判定 timeout_8s。`dismiss_denom_overlay(page, mt)` 完整移植自 `machine-test/runner.ts` 的 `dismissDenomOverlay()`：偵測 `.select-main .select-btn, .select-main .my-button`，找到就點第一個選項（JS 強制 click）。`do_spin()` 一開始就會呼叫，不只在剛進場時才處理——Bet Change/Cashout 等操作之後這個遮罩也可能重新彈出蓋住 Spin。
+
 **觸屏點擊 `wait_for_span_text()` 不檢查可見性**：觸屏測試用的 `.screen-touch` 疊加層 `<span>` 是完全透明的，Playwright 的 `is_visible()` 對這種 span 一律回傳 `False`——`machine-test/runner.ts` 的 `waitForSpanText()` 早就針對這點只檢查元素存在（`count() > 0`），AutoSpin 的 Python 版本需要保持同步做法，不能加可見性檢查，否則 entryTouchPoints/entryTouchPoints2/bonusAction=touchscreen 的座標點會全部誤判成「找不到元素」。
 
 **QAT/PROD 日誌 API（daily-analysis）同步**：機台設定新增 `logApiEnv`（`'qat'`/`'prod'`，預設 `qat`）欄位，AutoSpin 執行中每台機每 5 秒背景輪詢一次 `https://{qat|prod}-osmtrace.osmslot.org/api/machine/daily-analysis?gmid=<gameTitleCode>&date=YYYY-MM-DD`（跟 Machine Test 的 `pollMachineLog()` 同一支 API），把「上次輪詢之後」新出現的 timeline 紀錄印到執行日誌（`[machineType][daily-analysis] 時間 type 內容`）。第一次輪詢只記錄基準時間、不印歷史紀錄，避免整批倒灌洗版；跨日時基準時間自動重置。輪詢本身用 `async_call()` 丟到背景執行緒，不會卡住主 Spin 迴圈。
