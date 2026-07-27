@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.66.2'
+export const APP_VERSION = '3.66.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.66.3',
+    date: '2026-07-27',
+    changes: [
+      'ux(autospin): 執行監控（遠端 Agent 模式）控制區依 mockup 方向合併成一個緊湊區塊——原本 Agent 選擇/LuckyLink JP 比對/按鈕列/Spin 間隔各自獨立有外框的 4 個區塊，改成同一個容器內用細分隔線區分，Spin 間隔併進按鈕列同一行，整體堆疊高度變矮，日誌面板可以佔到更多空間',
+    ],
+  },
   {
     version: '3.66.2',
     date: '2026-07-27',

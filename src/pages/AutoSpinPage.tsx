@@ -1477,33 +1477,37 @@ export function AutoSpinPage() {
                   </div>
                 </>
               ) : (
-                /* ── Remote agent (agent-hub) mode controls ── */
-                <>
+                /* ── Remote agent (agent-hub) mode controls ──
+                   跟 mockup 討論的方向一致：原本 4 個各自獨立、有自己 border/background 的區塊
+                   （Agent 選擇/LuckyLink/按鈕列/Spin 間隔）合併成一個緊湊的控制區塊，內部用細分隔線
+                   取代各自的外框，減少堆疊起來的高度。*/
+                <div style={{ background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 10, padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 9 }}>
+
                   {/* ① Agent picker */}
-                  <div style={{ background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 10, padding: '12px 14px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8' }}>① 選擇執行 Agent</span>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
+                      <span style={{ fontSize: 11.5, fontWeight: 700, color: '#94a3b8' }}>① 選擇執行 Agent</span>
                       <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748b' }}>線上、支援 autospin 的 agent</span>
                       <button onClick={fetchHubAgents} style={{ marginLeft: 10, fontSize: 11, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer' }}>🔄</button>
                     </div>
                     {hubAgents.length === 0 ? (
-                      <div style={{ padding: 12, textAlign: 'center', color: '#64748b', fontSize: 12, border: '1px dashed #2d3f55', borderRadius: 8 }}>
+                      <div style={{ padding: 10, textAlign: 'center', color: '#64748b', fontSize: 12, border: '1px dashed #2d3f55', borderRadius: 8 }}>
                         沒有可用 agent。在機器執行 <code style={{ background: '#162032', padding: '1px 5px', borderRadius: 4 }}>start-agent.sh</code>（Mac）或 <code style={{ background: '#162032', padding: '1px 5px', borderRadius: 4 }}>start-agent.bat</code>（Windows）並完成配對後會出現在這裡。
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                         {hubAgents.map(a => {
                           const sel = selectedAgentId === a.agentId
                           return (
                             <div key={a.agentId} onClick={() => !a.busy && setSelectedAgentId(a.agentId)}
-                              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 11px', borderRadius: 9, cursor: a.busy ? 'not-allowed' : 'pointer',
+                              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 11px', borderRadius: 9, cursor: a.busy ? 'not-allowed' : 'pointer',
                                 background: sel ? '#16263f' : '#162338', border: `1px solid ${sel ? '#2563eb' : '#2d3f55'}`, opacity: a.busy ? 0.6 : 1 }}>
                               <div style={{ width: 16, height: 16, borderRadius: '50%', border: `2px solid ${sel ? '#2563eb' : '#475569'}`, flexShrink: 0, position: 'relative' }}>
                                 {sel && <div style={{ position: 'absolute', inset: 3, borderRadius: '50%', background: '#2563eb' }} />}
                               </div>
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontWeight: 700, fontSize: 13, color: '#e2e8f0' }}>{a.hostname}</div>
-                                <div style={{ fontSize: 10, color: '#64748b' }}>{a.capabilities.join(' · ')}</div>
+                                <span style={{ fontWeight: 700, fontSize: 13, color: '#e2e8f0' }}>{a.hostname}</span>
+                                <span style={{ fontSize: 10, color: '#64748b', marginLeft: 8 }}>{a.capabilities.join(' · ')}</span>
                               </div>
                               <span style={{ fontSize: 11, color: a.busy ? '#f59e0b' : '#22c55e' }}>{a.busy ? '● 忙碌' : '● 可派工'}</span>
                             </div>
@@ -1513,8 +1517,10 @@ export function AutoSpinPage() {
                     )}
                   </div>
 
+                  <div style={{ borderTop: '1px solid #1e293b' }} />
+
                   {/* ② LuckyLink JP Compare options */}
-                  <div style={{ background: '#111c2e', border: '1px solid #1e3a5f', borderRadius: 8, padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
                       <input type="checkbox" checked={luckylinkEnabled} onChange={e => setLuckylinkEnabled(e.target.checked)} style={{ width: 15, height: 15 }} />
                       <span style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd' }}>啟用 LuckyLink JP 比對</span>
@@ -1543,25 +1549,27 @@ export function AutoSpinPage() {
                     )}
                   </div>
 
+                  <div style={{ borderTop: '1px solid #1e293b' }} />
+
                   {/* ③ Status + controls row */}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                     <button onClick={handleDispatchAgent} disabled={agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)}
-                      style={{ padding: '8px 20px', background: (agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)) ? '#9ca3af' : '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: (agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)) ? 'default' : 'pointer' }}>
+                      style={{ padding: '7px 18px', background: (agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)) ? '#9ca3af' : '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: (agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)) ? 'default' : 'pointer' }}>
                       {hubDispatching ? '派工中…' : '▶ 派工啟動'}
                     </button>
                     <button onClick={handleStopHub} disabled={hubStopping || (!agentRunning && !hubDispatching)}
-                      style={{ padding: '8px 20px', background: (hubStopping || (!agentRunning && !hubDispatching)) ? '#9ca3af' : '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: (hubStopping || (!agentRunning && !hubDispatching)) ? 'default' : 'pointer' }}>
+                      style={{ padding: '7px 18px', background: (hubStopping || (!agentRunning && !hubDispatching)) ? '#9ca3af' : '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: (hubStopping || (!agentRunning && !hubDispatching)) ? 'default' : 'pointer' }}>
                       {hubStopping ? '停止中…' : '⏹ 停止'}
                     </button>
                     {agentRunning && !agentPaused && !hubStopping && (
                       <button onClick={handlePause}
-                        style={{ padding: '8px 16px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+                        style={{ padding: '7px 14px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
                         ⏸ 暫停
                       </button>
                     )}
                     {agentRunning && agentPaused && (
                       <button onClick={handleResume}
-                        style={{ padding: '8px 16px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+                        style={{ padding: '7px 14px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
                         ▶ 繼續
                       </button>
                     )}
@@ -1569,19 +1577,19 @@ export function AutoSpinPage() {
                       {hubStopping ? '🟠 停止中…' : agentPaused ? '⏸ 已暫停' : agentRunning ? '🟢 Agent 執行中' : '⚪ 未連線'}
                     </span>
                     {agentSessionId && <span style={{ fontSize: 11, color: '#2563eb' }}>Session: {agentSessionId.slice(0, 8)}…</span>}
-                  </div>
 
-                  {/* Live Spin Interval */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4, flexWrap: 'wrap' }}>
+                    <span style={{ width: 1, height: 20, background: '#2d3f55', margin: '0 2px' }} />
+
+                    {/* Live Spin Interval — 併進同一列，跟 mockup 一致 */}
                     <span style={{ fontSize: 12, color: '#94a3b8' }}>⏱ Spin 間隔</span>
                     <input
                       type="range" min={0.1} max={10} step={0.1}
                       value={liveSpinInterval}
                       onChange={e => setLiveSpinInterval(parseFloat(e.target.value))}
-                      style={{ width: 140 }}
+                      style={{ width: 120 }}
                       disabled={!agentRunning}
                     />
-                    <span style={{ fontSize: 13, fontWeight: 600, minWidth: 36 }}>{liveSpinInterval.toFixed(1)}s</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, minWidth: 32 }}>{liveSpinInterval.toFixed(1)}s</span>
                     <button
                       type="button"
                       disabled={!agentRunning || liveIntervalSaving}
@@ -1592,7 +1600,7 @@ export function AutoSpinPage() {
                     </button>
                     <span style={{ fontSize: 11, color: '#64748b' }}>覆蓋所有機台間隔，Agent 3秒內生效</span>
                   </div>
-                </>
+                </div>
               )}
 
               {/* Log panel: filter/search + pinus category chips + bounded scrollable body */}
