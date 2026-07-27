@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.66.1'
+export const APP_VERSION = '3.66.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.66.2',
+    date: '2026-07-27',
+    changes: [
+      'ux(autospin): 執行監控（run tab）改成固定視窗高度＋內部 flex 撐滿，不再讓整個頁面往下捲很長一段才看到執行日誌——根因是上層 .main-content/.app-main 只有 min-height（會隨內容長高），下面既有的 flex:1/overflow:hidden 一直沒有實際邊界可撐滿；只加高度邊界在 run tab 自己身上，不動全域版面，其他分頁不受影響',
+    ],
+  },
   {
     version: '3.66.1',
     date: '2026-07-27',

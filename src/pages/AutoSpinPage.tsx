@@ -1391,7 +1391,10 @@ export function AutoSpinPage() {
 
       {/* ── Run tab ─────────────────────────────────────────────────────────── */}
       {tab === 'run' && (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 0, overflow: 'hidden' }}>
+        // 固定視窗高度＋內部 flex 撐滿：不然上層 .main-content/.app-main 都只有 min-height（會隨內容長高、
+        // 讓整個頁面往下捲），下面的 flex:1/overflow:hidden 就永遠沒有實際邊界可以撐滿，執行日誌只能
+        // 跟著長高、把版面往下推。230px ≈ sticky topbar(52) + .main-content 上下 padding(24+48) + 帳號提示/分頁列(~106)。
+        <div style={{ height: 'calc(100vh - 230px)', minHeight: 420, display: 'flex', flexDirection: 'column', gap: 12, overflow: 'hidden' }}>
 
           {/* OSMWatcher Jackpot Banner */}
           <div
