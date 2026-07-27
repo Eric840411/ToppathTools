@@ -204,6 +204,14 @@ OSM_STATUS_LABELS = {
     9: 'Handpay（需人工處理）',
 }
 
+# Machine Log API（daily-analysis）—— 與 machine-test/runner.ts 的 DAILY_ANALYSIS_URLS 同步
+DAILY_ANALYSIS_URLS = {
+    'qat': 'https://qat-osmtrace.osmslot.org/api/machine/daily-analysis',
+    'prod': 'https://prod-osmtrace.osmslot.org/api/machine/daily-analysis',
+}
+daily_log_state: dict = {}  # machineType -> {'date': 'YYYY-MM-DD', 'last_time': 'HH:MM:SS'}
+daily_log_lock = threading.Lock()
+
 # ─── Pinus / GM Event 監控 injected script ────────────────────────────────────
 # 完整移植自 server/machine-test/runner.ts 的 PINUS_TRACKER_SCRIPT + GM_EVENT_MONITOR_SCRIPT，
 # 並擴充 window.__pinusLog 記錄所有 pinus request/response/push 訊息（供監控功能使用）。
@@ -1061,6 +1069,53 @@ def execute_bonus_action(page, cfg: dict, mt: str, spin_sel_cfg: str):
     time.sleep(1.0)
 
 
+def poll_daily_analysis_log(mt: str, gmid: str, env: str):
+    """輪詢 Machine Log API（daily-analysis），把遊玩期間新出現的日誌印到執行日誌。
+    完整移植自 machine-test/runner.ts 的 daily-analysis 查詢方式（同一個 API、同一套 gmid+date 參數），
+    只是這裡改成背景執行緒定期輪詢並印出「新增」的紀錄，而不是等某個動作再去確認。
+    第一次輪詢只記錄基準時間、不印東西，避免把今天已經發生過的歷史紀錄整批倒出來洗版。"""
+    if not gmid:
+        return
+    base = DAILY_ANALYSIS_URLS.get(env, DAILY_ANALYSIS_URLS['qat'])
+    now = datetime.now()
+    today = now.strftime('%Y-%m-%d')
+    now_time = now.strftime('%H:%M:%S')
+
+    with daily_log_lock:
+        state = daily_log_state.get(mt)
+        if state is None or state.get('date') != today:
+            daily_log_state[mt] = {'date': today, 'last_time': now_time}
+            return
+        last_time = state['last_time']
+
+    try:
+        resp = requests.get(base, params={'gmid': gmid, 'date': today}, timeout=8)
+        if resp.status_code != 200:
+            return
+        timeline = ((resp.json() or {}).get('data') or {}).get('timeline') or []
+    except Exception:
+        return
+
+    new_entries = sorted(
+        (e for e in timeline if isinstance(e, dict) and e.get('time', '') > last_time),
+        key=lambda e: e.get('time', ''),
+    )
+    if not new_entries:
+        return
+
+    with daily_log_lock:
+        daily_log_state[mt]['last_time'] = new_entries[-1].get('time', last_time)
+
+    for e in new_entries:
+        try:
+            data_str = json.dumps(e.get('data'), ensure_ascii=False)
+        except Exception:
+            data_str = str(e.get('data'))
+        if len(data_str) > 300:
+            data_str = data_str[:300] + '…'
+        log(f"[{mt}][daily-analysis] {e.get('time', '')} {e.get('type', '')} {data_str}")
+
+
 def wait_for_normal_osm_status(gmid: str, page, cfg: dict, mt: str) -> bool:
     """偵測到 OSMWatcher 回報特殊狀態時：執行一次 bonusAction，然後持續 Spin 直到狀態恢復正常
     （或 15 分鐘逾時），狀態恢復後再 10 秒 cooldown spin。
@@ -1221,6 +1276,12 @@ with sync_playwright() as p:
                         poll_monitor_logs(page, mt)
                     except Exception:
                         pass
+
+                # ── QAT/PROD 日誌 API（daily-analysis）輪詢（每台機每 5 秒，背景執行緒查詢
+                # 不會卡住主 Spin 迴圈）──────────────────────────────────────────
+                if now_ts - mp.get('last_daily_log_poll', 0) >= 5.0:
+                    mp['last_daily_log_poll'] = now_ts
+                    async_call(poll_daily_analysis_log, mt, cfg.get('gameTitleCode') or '', cfg.get('logApiEnv') or 'qat')
 
                 # ── 404 / 錯誤頁面偵測 ───────────────────────────────────────
                 if check_page_error(page):

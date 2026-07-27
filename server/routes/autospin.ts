@@ -41,6 +41,7 @@ interface AutospinConfig {
   enableRecording: number
   enableTemplateDetection: number
   notes: string
+  logApiEnv: string
 }
 
 interface SessionState {
@@ -113,14 +114,15 @@ router.post('/api/autospin/configs', (req, res) => {
     lowBalanceThreshold: z.number().min(0).default(0),
     larkWebhook: z.string().default(''),
     machineNo: z.string().default(''),
+    logApiEnv: z.enum(['qat', 'prod']).default('qat'),
   }).parse(req.body)
 
   db.prepare(`
     INSERT OR REPLACE INTO autospin_configs
     (userLabel, machineType, gameUrl, rtmpName, rtmpUrl, gameTitleCode, templateType, errorTemplateType,
      enabled, enableRecording, enableTemplateDetection, notes,
-     spinInterval, randomExitEnabled, randomExitChance, randomExitMinSpins, betRandomEnabled, lowBalanceThreshold, larkWebhook, machineNo)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     spinInterval, randomExitEnabled, randomExitChance, randomExitMinSpins, betRandomEnabled, lowBalanceThreshold, larkWebhook, machineNo, logApiEnv)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     userLabel, body.machineType, body.gameUrl, body.rtmpName, body.rtmpUrl, body.gameTitleCode,
     body.templateType, body.errorTemplateType,
@@ -128,7 +130,7 @@ router.post('/api/autospin/configs', (req, res) => {
     body.notes,
     body.spinInterval, body.randomExitEnabled ? 1 : 0, body.randomExitChance,
     body.randomExitMinSpins, body.betRandomEnabled ? 1 : 0, body.lowBalanceThreshold, body.larkWebhook,
-    body.machineNo,
+    body.machineNo, body.logApiEnv,
   )
   res.json({ ok: true })
 })

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.65.4'
+export const APP_VERSION = '3.66.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.66.0',
+    date: '2026-07-27',
+    changes: [
+      'feat(autospin): 新增 QAT/PROD 日誌 API（daily-analysis）同步——AutoSpin 遊玩期間會每 5 秒背景輪詢對應機台的 daily-analysis 時間軸，把新出現的日誌印到執行日誌（[machineType][daily-analysis] 時間 type 內容），跟 Machine Test 用同一支 API；機台設定表單新增「日誌 API 環境」QAT/PROD 選項（預設 QAT）',
+    ],
+  },
   {
     version: '3.65.4',
     date: '2026-07-24',

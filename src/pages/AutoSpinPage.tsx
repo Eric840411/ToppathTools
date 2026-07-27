@@ -23,6 +23,7 @@ interface AutospinConfig {
   lowBalanceThreshold: number
   larkWebhook: string
   machineNo: string
+  logApiEnv: string
 }
 
 interface CaptureFile {
@@ -92,6 +93,7 @@ const EMPTY_CONFIG: AutospinConfig = {
   enabled: true, enableRecording: true, enableTemplateDetection: true, notes: '',
   spinInterval: 1.0, randomExitEnabled: false, randomExitChance: 0.02,
   randomExitMinSpins: 50, betRandomEnabled: false, lowBalanceThreshold: 0, larkWebhook: '', machineNo: '',
+  logApiEnv: 'qat',
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────────
@@ -158,6 +160,7 @@ export function AutoSpinPage() {
       lowBalanceThreshold: c.lowBalanceThreshold ?? 0,
       larkWebhook: c.larkWebhook ?? '',
       machineNo: c.machineNo ?? '',
+      logApiEnv: c.logApiEnv ?? 'qat',
     })))
   }
 
@@ -927,6 +930,18 @@ export function AutoSpinPage() {
                     value={form.lowBalanceThreshold}
                     onChange={e => setForm(f => ({ ...f, lowBalanceThreshold: parseFloat(e.target.value) || 0 }))}
                     style={{ width: 120, padding: '5px 8px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 13 }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>日誌 API 環境（daily-analysis，遊玩時自動印出新日誌）</div>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', height: 30 }}>
+                    {(['qat', 'prod'] as const).map(envKey => (
+                      <label key={envKey} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, color: '#e2e8f0', cursor: 'pointer' }}>
+                        <input type="radio" name="logApiEnv" checked={form.logApiEnv === envKey}
+                          onChange={() => setForm(f => ({ ...f, logApiEnv: envKey }))} />
+                        {envKey.toUpperCase()}
+                      </label>
+                    ))}
+                  </div>
                 </div>
                 </div>
 
