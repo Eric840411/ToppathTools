@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.66.0'
+export const APP_VERSION = '3.66.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.66.1',
+    date: '2026-07-27',
+    changes: [
+      'fix(autospin): daily-analysis 輪詢查詢失敗（網路連不到 API、逾時、非 200）先前會整個吞掉不出聲，導致「完全沒有效果」時很難排查是不是這台 Agent 的網路連不到 qat/prod-osmtrace.osmslot.org；現在失敗時每 60 秒印一次警告到執行日誌',
+    ],
+  },
   {
     version: '3.66.0',
     date: '2026-07-27',

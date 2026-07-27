@@ -1084,16 +1084,28 @@ def poll_daily_analysis_log(mt: str, gmid: str, env: str):
     with daily_log_lock:
         state = daily_log_state.get(mt)
         if state is None or state.get('date') != today:
-            daily_log_state[mt] = {'date': today, 'last_time': now_time}
+            daily_log_state[mt] = {'date': today, 'last_time': now_time, 'last_err_log': 0.0}
             return
         last_time = state['last_time']
+        last_err_log = state.get('last_err_log', 0.0)
 
+    # 查詢失敗（網路不通/逾時/非 200）不會整個吞掉不出聲——這台 Agent 所在網路如果連不到
+    # {qat|prod}-osmtrace.osmslot.org，靠使用者自己發現「怎麼一直沒有印東西」會很難排查，
+    # 所以失敗時至少每 60 秒印一次警告（避免同一個錯誤每 5 秒洗一次版）。
     try:
         resp = requests.get(base, params={'gmid': gmid, 'date': today}, timeout=8)
         if resp.status_code != 200:
+            if time.time() - last_err_log >= 60:
+                with daily_log_lock:
+                    daily_log_state[mt]['last_err_log'] = time.time()
+                log(f"[{mt}][daily-analysis] ⚠️ API 回應非 200（狀態碼 {resp.status_code}），略過這次輪詢")
             return
         timeline = ((resp.json() or {}).get('data') or {}).get('timeline') or []
-    except Exception:
+    except Exception as e:
+        if time.time() - last_err_log >= 60:
+            with daily_log_lock:
+                daily_log_state[mt]['last_err_log'] = time.time()
+            log(f"[{mt}][daily-analysis] ⚠️ 查詢失敗：{e}（可能是這台 Agent 所在網路連不到 {base}，例如需要 VPN/白名單）")
         return
 
     new_entries = sorted(
