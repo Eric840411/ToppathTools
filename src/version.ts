@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.66.4'
+export const APP_VERSION = '3.67.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.67.0',
+    date: '2026-07-27',
+    changes: [
+      'feat(meter-reconcile): Game Record 加總卡片新增「Bet Reward Credits（泥碼下注額）」欄位，取自 gameRecordList sumData.bet_nima（已用真實 API 回應核對過欄位名稱）',
+    ],
+  },
   {
     version: '3.66.4',
     date: '2026-07-27',

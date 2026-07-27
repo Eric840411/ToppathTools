@@ -236,8 +236,10 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     grParams.append('dateTime[]', nextDateStr(date))
     const grData = await meterPost(profile, cfg, '/egm/reports/gameRecordList', grParams)
     const grSum = grData?.data?.sumData ?? {}
+    // betRewardCredits = 泥碼下注額（sumData.bet_nima，已用真實 API 回應核對過欄位名稱）
     const gameRecord = {
       totalBet: num(grSum.bet), totalWin: num(grSum.win),
+      betRewardCredits: num(grSum.bet_nima),
       recordCount: grData?.data?.total ?? 0,
     }
 

@@ -28,7 +28,7 @@ interface MeterResult {
   delta: number
   attendantPaidJp: number
   meter: MeterInfo | null
-  gameRecord: { totalBet: number; totalWin: number; recordCount: number }
+  gameRecord: { totalBet: number; totalWin: number; betRewardCredits: number; recordCount: number }
   jackpotAbnormality: { records: HandPayItem[]; sumHandpay: number; count: number }
   rawMeterRow: Record<string, unknown> | null
   message?: string
@@ -270,8 +270,9 @@ export function MeterReconcilePage() {
               </div>
               <div style={{ fontSize: 11, color: '#64748b', marginTop: -6 }}>gameRecordList · {result.date} 整日 · {result.gameRecord.recordCount} 筆</div>
               <div style={kvRow}><span style={{ fontSize: 12, color: '#94a3b8' }}>總 Bet</span><span style={{ fontSize: 13, fontWeight: 700 }}>{fmt(result.gameRecord.totalBet)}</span></div>
-              <div style={{ ...kvRow, borderBottom: 'none' }}><span style={{ fontSize: 12, color: '#94a3b8' }}>總 Win</span><span style={{ fontSize: 13, fontWeight: 700, color: '#7dd3fc' }}>{fmt(result.gameRecord.totalWin)}</span></div>
-              <div style={kvRow}><span style={{ fontSize: 12, color: '#94a3b8' }}>記錄筆數</span><span style={{ fontSize: 13, fontWeight: 700 }}>{result.gameRecord.recordCount}</span></div>
+              <div style={kvRow}><span style={{ fontSize: 12, color: '#94a3b8' }}>總 Win</span><span style={{ fontSize: 13, fontWeight: 700, color: '#7dd3fc' }}>{fmt(result.gameRecord.totalWin)}</span></div>
+              <div style={kvRow}><span style={{ fontSize: 12, color: '#94a3b8' }}>Bet Reward Credits（泥碼下注額）</span><span style={{ fontSize: 13, fontWeight: 700, color: '#fbbf24' }}>{fmt(result.gameRecord.betRewardCredits)}</span></div>
+              <div style={{ ...kvRow, borderBottom: 'none' }}><span style={{ fontSize: 12, color: '#94a3b8' }}>記錄筆數</span><span style={{ fontSize: 13, fontWeight: 700 }}>{result.gameRecord.recordCount}</span></div>
             </div>
 
             <div style={card}>

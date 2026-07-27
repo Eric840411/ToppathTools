@@ -581,6 +581,8 @@ Keep Claude for:
 
 EGM Performance Meter 讀數為「截至指定小時」（用 `egmMeterHourList` 找對應小時 bucket）；Game Record 與 Jackpot Abnormality 目前為**整日**加總，沒有依小時再切——若查詢小時早於當天最後一筆記錄的時間，比對可能會有落差，這是已知限制，之後有需要再補小時級篩選。
 
+**Hourly bucket 選取邏輯**：`egmMeterHourList` 通常要到每小時 12~15 分左右才會有新 bucket（例如 18:12 才會出現 18:00 這個 bucket），所以查詢邏輯選的是「所有 bucket 中，時間 ≤ 目標小時的最後一筆」（`rowHour <= targetHour` 取最後一個符合的），不是嚴格等於目標小時——如果查詢當下目標小時的 bucket 還沒產生，會靜默 fallback 用上一個已存在的 bucket（畫面上 `rawMeterRow.debug.hourStr` 會顯示實際抓到的是哪個 bucket 時間，跟使用者輸入的查詢小時可能不同，目前沒有另外跳警告提醒兩者不一致）。
+
 OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP 用 NC 後台 `qat-nc.osmslot.org`，channelId 不同），憑證分開存在 `meter_reconcile_config` 表（key 前綴 `osm_`/`gcp_`），登入 token 過期時自動重新登入一次再重試。
 
 ### 使用者操作
@@ -589,7 +591,7 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 | 查詢對帳 | 輸入機台名稱 + 選擇 OSM/GCP 來源 + 日期 + 時間（到小時），一鍵拉三邊資料比對 |
 | 查看判定結果 | 頂部橫幅直接顯示一致／不一致 + 差值 |
 | 查看公式攤開 | 顯示算式各項數字來源，方便肉眼核對 |
-| 查看三邊明細 | EGM Performance Meter（Coin In/Out/Jackpot/RTP/WIN-LOSE）、Game Record 加總、Jackpot Abnormality 明細列表並排顯示 |
+| 查看三邊明細 | EGM Performance Meter（Coin In/Out/Jackpot/RTP/WIN-LOSE）、Game Record 加總（含 Bet Reward Credits／泥碼下注額，取自 `gameRecordList` sumData 的 `bet_nima` 欄位）、Jackpot Abnormality 明細列表並排顯示 |
 | 查看原始欄位除錯表 | 展開查看該筆查詢的所有原始欄位，已驗證欄位標綠色 |
 | 設定 OSM/GCP 後台連線 | Base URL / Origin / Channel ID / 登入帳密，分開設定兩組，可測試登入 |
 
