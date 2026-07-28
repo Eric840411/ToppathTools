@@ -575,7 +575,7 @@ Keep Claude for:
 
 **⚠️ Coin In/Coin Out/Jackpot Wins/Games Played 都是「累計值（自上次清帳 reset 起算，不是自當日 00:00 起算）」**，不是「當日」數字——同一機台若很久沒被 reset，數字會是好幾天/幾週的總和，直接拿來跟 Game Record 的當日加總比對會差好幾個數量級。已用真實資料驗證：**(目標小時 bucket − 當日第一個 bucket) 的差值** 才會等於當日 Game Record 加總；若差值為負（代表當天發生過 reset），退回用目標小時的原始累計值 best-effort（`meterDelta()` 函式）。
 
-**Jackpot Abnormality（getHandPayRecord）語意仍待確認**：這支 API 回傳的 `handpay` 原本認定對應 **Attendant Paid JP**（需要人工核發的手付獎金），跟 EGM Performance Meter 欄位 29 的 Jackpot Wins 是不同項目——但 Triple Treasure Pot 這筆案例裡兩者數字完全相等（都是 75,685），而 OSM 後台報表自己的「Attendant Paid JP Meter」欄位卻顯示 0，代表 `getHandPayRecord` 的 `handpay` 可能只是把 Jackpot Wins 事件又報了一次，不是真正獨立的「人工核發」金額；這兩個是否為同一件事、`handpay` 真正代表什麼，仍待更多真實案例驗證。**目前公式已經不依賴這個判斷**（不再用 Attendant Paid JP 去扣減預期 Coin Out），Jackpot Abnormality 卡片單純作為明細資訊顯示，不影響比對結果。另外這支 API 有個實測到的怪癖：**帶了 `clientMachineName` 篩選後，`dateTime[]` 日期範圍篩選會完全失效**（回傳的是該機台最近 N 筆 handpay，可能橫跨好幾個月），所以固定抓回後在後端用 `payoutTime` 字串前綴二次過濾，取真正當日的資料。
+**Jackpot Abnormality（getHandPayRecord）語意（已由使用者確認）**：`Attendant Paid JP Meter`（OSM 後台報表欄位）= 機台實際硬體 meter 記錄的人工派彩值；`getHandPayRecord` 的 `handpay`（本工具的 Jackpot Abnormality）= QA 測試用的人工派彩紀錄，方便測試使用，不會真的寫進機台的 meter 欄位。**兩者是不同東西，只是 Triple Treasure Pot 這筆測試案例剛好數字相等（都是 75,685）是巧合**（QAT 測試環境人工派彩剛好對應同一批 Jackpot Wins 事件），不代表 `handpay` 等於 Jackpot Wins。**目前公式已經不依賴這個判斷**（不再用 Attendant Paid JP 去扣減預期 Coin Out），Jackpot Abnormality 卡片單純作為明細資訊顯示，不影響比對結果。另外這支 API 有個實測到的怪癖：**帶了 `clientMachineName` 篩選後，`dateTime[]` 日期範圍篩選會完全失效**（回傳的是該機台最近 N 筆 handpay，可能橫跨好幾個月），所以固定抓回後在後端用 `payoutTime` 字串前綴二次過濾，取真正當日的資料。
 
 **`gameRecordList` / `getHandPayRecord` 的 `dateTime[]` 上界是「不含當天」**（exclusive），同一天當 start/end 傳兩次會查到 0 筆；要傳 `date+1` 才能真正包含當天資料（`nextDateStr()` 函式）。EGM Performance Meter / EGM Hourly Meter 則沒有這個問題，同一天當 start/end 傳兩次可以正常查到當天資料。
 
