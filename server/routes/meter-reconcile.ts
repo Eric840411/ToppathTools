@@ -264,11 +264,14 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     const attendantPaidJp = jpItems.reduce((s, it) => s + num(it.handpay), 0)
 
     // ④ 公式比對
-    // OSM：預期 Coin Out = Game Record 總 Win − Jackpot Wins（meter 欄位 29）− Attendant Paid JP（getHandPayRecord 當日 handpay 加總）
-    // GCP：預期 Coin Out = Game Record 總 Win（含 Jackpot Wins + Attendant Paid JP，不用另外扣）
-    const expectedCoinOut = profile === 'osm'
-      ? gameRecord.totalWin - (meter?.jackpotWins ?? 0) - attendantPaidJp
-      : gameRecord.totalWin
+    // 預期 Coin Out = Game Record 總 Win（OSM/GCP 皆同，不用另外扣 Jackpot Wins／Attendant Paid JP）。
+    // 修正紀錄：原本 OSM 公式會再扣一次 Jackpot Wins + Attendant Paid JP，是誤用了 OSM 後台報表裡
+    // 「TotalCoinOut = Jackpot Wins + Coin Out」這個複合欄位的關係（TotalCoinOut 本身才包含 Jackpot Wins，
+    // 一般的 Coin Out／Game Record 總 Win 從頭就不含）。用真實資料驗證：Triple Treasure Pot 2026-07-27
+    // 18:00 這筆 Jackpot Wins=75,685（非 0）的案例，meter Coin Out=4,870 與 Game Record 總 Win=4,870
+    // 完全相等，證明不該扣；先前唯一「驗證通過」的案例（Rising Rockets Emperor-141）剛好 Jackpot Wins=0，
+    // 扣或不扣結果一樣，並沒有真的測到這個分支。
+    const expectedCoinOut = gameRecord.totalWin
     const actualCoinOut = meter?.coinOut ?? 0
     const delta = actualCoinOut - expectedCoinOut
     const pass = Math.abs(delta) < 0.005 // 浮點誤差容忍

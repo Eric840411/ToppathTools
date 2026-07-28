@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.67.0'
+export const APP_VERSION = '3.67.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.67.1',
+    date: '2026-07-28',
+    changes: [
+      'fix(meter-reconcile): 修正 OSM 公式誤扣 Jackpot Wins/Attendant Paid JP 的問題——預期 Coin Out 統一為 Game Record 總 Win，OSM/GCP 皆同，不再另外扣減；用 Triple Treasure Pot 2026-07-27 18:00（Jackpot Wins 非 0）真實案例驗證通過（delta=0）',
+    ],
+  },
   {
     version: '3.67.0',
     date: '2026-07-27',
