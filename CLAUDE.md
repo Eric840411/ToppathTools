@@ -593,6 +593,29 @@ Keep Claude for:
 
 OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP 用 NC 後台 `qat-nc.osmslot.org`，channelId 不同），憑證分開存在 `meter_reconcile_config` 表（key 前綴 `osm_`/`gcp_`），登入 token 過期時自動重新登入一次再重試。
 
+### Egm DayCount 對帳（同一頁面內的第二個分頁）
+
+**路由**：`POST /api/osm/meter-reconcile/egm-daycount`（目前只支援 OSM，沒有 GCP 對應版本）
+
+比對後台 `Egm DayCount`（`/egm/reports/gameCount`，一天一列彙總報表）與 `User Detail`（`/egm/reports/playerMachineCount`，player+machine 逐筆列）算出的值是否一致，兩支 API 皆已用真實 Network request 截圖確認（channelId=873，`backendservertest.osmslot.org`，跟 `meter_reconcile_config` 裡存的 OSM 帳密同一組）。
+
+**欄位對應**（已用真實查詢驗證兩邊完全吻合，`allPass: true`）：
+| 顯示欄位 | gameCount（Egm DayCount）| playerMachineCount（User Detail）|
+|---|---|---|
+| Total Bet User | `betUsers` | 逐筆列裡 `betTimes > 0` 的不重複 `playerId` 數（這支 API 沒有現成的不重複計數欄位，只能自己從 items 算）|
+| Total Bet Number | `betTimes` | `sumData.betTimes` |
+| Total Bet Amount | `bet` | `sumData.bet` |
+| Total Online Transfer In/Out Amount | `machineIn`/`machineOut` | `sumData.machineIn`/`machineOut` |
+| Total Win Or Lose Amount | `platformWin` | `sumData.platformWin` |
+| Total Win Lose Ratio | `platformWinPercent` | `sumData.platformWinPercent` |
+| Jackpot Amount | `jackpotamount` | 無對應欄位，不參與比對，只顯示 Egm DayCount 原始值 |
+
+**⚠️ `gameCount` 的 `sumData` 跟 `items[]` 範圍不一致**（已用真實查詢驗證：查單一天 `total=1`，但 `sumData` 的數字是 `items[0]` 的好幾倍，`sumData` 看起來沒有正確套用日期篩選）——**只查單一天時要用 `items[0]`，不要用 `sumData`**；`playerMachineCount` 的 `sumData` 沒有這個問題，可以直接信任。
+
+**`playerstudioid` 參數**：固定用 `cp,wf,tbr,tbp,ncl,bpo,mdr,dhs,cf,np,pf,igo,np2,ALL` 這組清單（已驗證精準對上後台「Player Channel: np +11」那個預設範圍）。**後台「All」勾選模式尚未實作**：試過整個拿掉 `playerstudioid` 參數想模擬「不篩選」，結果 `gameCount` 直接回傳空資料——代表這個參數是必填，拿掉不等於「全部」；要支援 All 模式，需要使用者實際勾選後台的 All 再截一次 Network request 才知道真正該傳什麼，暫緩實作。
+
+**已知限制**：兩張報表不是同一次登入 session 依序拉的，若查詢時有機台正在被 AutoSpin 持續 Spin，兩支 API 呼叫之間的時間差可能導致數字有微小落差，不代表算錯。
+
 ### 使用者操作
 | 操作 | 說明 |
 |------|------|

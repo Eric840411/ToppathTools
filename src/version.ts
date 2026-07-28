@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.69.0'
+export const APP_VERSION = '3.70.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.70.0',
+    date: '2026-07-28',
+    changes: [
+      'feat(meter-reconcile): 新增「Egm DayCount 對帳」分頁——比對後台 Egm DayCount 彙總報表（gameCount）與 User Detail 逐筆列（playerMachineCount）回推加總是否一致（Total Bet User/Bet Number/Bet Amount/Transfer In-Out/Win Or Lose/Win Lose Ratio），已用真實資料驗證 allPass=true；同時修正 gameCount 的 sumData 與 items[] 範圍不一致的問題（單日查詢改用 items[0]）',
+    ],
+  },
   {
     version: '3.69.0',
     date: '2026-07-28',

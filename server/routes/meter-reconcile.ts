@@ -150,6 +150,118 @@ router.post('/api/osm/meter-reconcile/test', async (req, res) => {
   else res.status(400).json({ ok: false, message: '登入失敗，請確認帳號密碼與網址設定' })
 })
 
+// ─── Egm DayCount 對帳（比對 gameCount 彙總報表 vs playerMachineCount 逐筆回推）─────
+// 兩支 API 皆已用真實 Network request 截圖確認（channelId=873，OSM backendservertest.osmslot.org）。
+// gameCount：一天一列的彙總報表（Egm DayCount）；playerMachineCount：player+machine 逐筆列（User Detail）。
+router.post('/api/osm/meter-reconcile/egm-daycount', async (req, res) => {
+  const { date, dayBoundary, allChannels } = req.body as {
+    date?: string; dayBoundary?: string; allChannels?: boolean
+  }
+  if (!date) return res.status(400).json({ ok: false, message: 'date 為必填' })
+  const boundary = dayBoundary === 'calendar' ? 'calendar' : 'gaming'
+  const apiDateType = boundary === 'calendar' ? '1' : '0'
+  const isall = allChannels ? 'true' : 'false' // 目前只是照後台原始請求原樣傳送，實測沒有實際效果（見下方說明）
+  const cfg = loadMeterConfig('osm')
+  if (!cfg.base_url) {
+    return res.status(400).json({ ok: false, message: '尚未設定 OSM 後台連線資訊，請先在下方「後台設定」填寫' })
+  }
+  const channelId = cfg.channel_id || '873'
+  // playerstudioid 是後台 Player Channel 篩選，這組固定清單已用真實查詢驗證可以精準對上「np +11」
+  // 那個預設範圍（跟後台截圖的 Egm DayCount／User Detail 完全吻合）。
+  // ⚠️ 後台「All」勾選那個模式（Player Channel 欄位會變灰色）目前沒有實作——試過把 playerstudioid
+  // 整個拿掉，結果 gameCount 直接回傳空資料（0），不是「不篩選」的意思，代表這個參數其實是必填，
+  // 拿掉不等於「全部」；要支援 All 模式，需要使用者實際勾選後台的 All 再截一次 Network request
+  // 才知道真正該傳什麼，這裡先不猜，allChannels 這個輸入目前沒有效果。
+  const playerstudioid = 'cp,wf,tbr,tbp,ncl,bpo,mdr,dhs,cf,np,pf,igo,np2,ALL'
+
+  try {
+    const num = (v: unknown) => { const n = parseFloat(String(v ?? '0')); return Number.isFinite(n) ? n : 0 }
+
+    // ① Egm DayCount（gameCount）—— 一天一列彙總，只有一天時 items[0] 就是那一天的值。
+    // 注意：這支 API 的 sumData 跟 items[] 範圍不一致（已用真實查詢驗證：查單一天 total=1，
+    // 但 sumData 的數字卻是 items[0] 的好幾倍，看起來 sumData 沒有正確套用日期篩選）——
+    // 所以只有一天時改用 items[0]，不要相信 sumData；playerMachineCount 的 sumData 沒有這個問題。
+    const dcParams = new URLSearchParams({
+      gameType: '', page: '1', pageSize: '10',
+      dateType: apiDateType, version: '', bgType: '0', isall, channelId,
+    })
+    if (playerstudioid) dcParams.set('playerstudioid', playerstudioid)
+    dcParams.append('dateTime[]', date); dcParams.append('dateTime[]', date)
+    dcParams.append('date[]', date); dcParams.append('date[]', date)
+    const dc = await meterGet('osm', cfg, '/egm/reports/gameCount', dcParams)
+    const dcRow = dc?.data?.items?.[0] ?? dc?.data?.sumData ?? {}
+    const egmDayCount = {
+      betUsers: num(dcRow.betUsers), betNumber: num(dcRow.betTimes), betAmount: num(dcRow.bet),
+      transferIn: num(dcRow.machineIn), transferOut: num(dcRow.machineOut),
+      winOrLose: num(dcRow.platformWin), winLoseRatio: num(dcRow.platformWinPercent),
+      jackpotAmount: num(dcRow.jackpotamount),
+    }
+
+    // ② User Detail（playerMachineCount）—— 逐筆列，pageSize 拉大一次抓完（測試環境資料量不大）；
+    // sumData 裡的加總欄位（betNumber/betAmount/transferIn/transferOut/winOrLose/winLoseRatio）可以直接信任，
+    // 但沒有 betUsers 這種「不重複計數」欄位，要自己從 items[] 算 Bet Number > 0 的不重複 playerId。
+    const udParams = new URLSearchParams({
+      gameType: '', clientMachineName: '', playerId: '', playerName: '',
+      page: '1', pageSize: '500', dateType: apiDateType, version: '', bgType: '0', isall, channelId,
+    })
+    udParams.append('dateTime[]', date); udParams.append('dateTime[]', date)
+    udParams.append('date[]', date); udParams.append('date[]', date)
+    const ud = await meterGet('osm', cfg, '/egm/reports/playerMachineCount', udParams)
+    type UdRow = {
+      playerId?: string; playerName?: string; clientMachineName?: string
+      win?: string; betTimes?: string; bet?: string
+      machineIn?: string; machineOut?: string; playerWin?: string
+    }
+    const udItemsAll: UdRow[] = ud?.data?.items ?? []
+    const udTotal: number = ud?.data?.total ?? udItemsAll.length
+    const udTruncated = udTotal > udItemsAll.length // pageSize=500 不夠裝下全部時的保底警告
+    const udSum = ud?.data?.sumData ?? {}
+
+    const betUserSet = new Set(udItemsAll.filter(r => num(r.betTimes) > 0).map(r => r.playerId))
+    const userDetail = {
+      betUsers: betUserSet.size, betNumber: num(udSum.betTimes), betAmount: num(udSum.bet),
+      transferIn: num(udSum.machineIn), transferOut: num(udSum.machineOut),
+      winOrLose: num(udSum.platformWin), winLoseRatio: num(udSum.platformWinPercent),
+      jackpotAmount: egmDayCount.jackpotAmount, // playerMachineCount 沒有這個欄位，沿用 gameCount 的值顯示，不參與比對
+      recordCount: udTotal,
+    }
+
+    const fields = [
+      { key: 'transferIn', label: 'Total Online Transfer In Amount' },
+      { key: 'transferOut', label: 'Total Online Transfer Out Amount' },
+      { key: 'betUsers', label: 'Total Bet User' },
+      { key: 'betNumber', label: 'Total Bet Number' },
+      { key: 'betAmount', label: 'Total Bet Amount' },
+      { key: 'winOrLose', label: 'Total Win Or Lose Amount' },
+      { key: 'winLoseRatio', label: 'Total Win Lose Ratio' },
+    ] as const
+    const comparison = fields.map(f => {
+      const a = (egmDayCount as any)[f.key] as number
+      const b = (userDetail as any)[f.key] as number
+      const delta = a - b
+      return { key: f.key, label: f.label, egmDayCount: a, userDetail: b, delta, pass: Math.abs(delta) < 0.005 }
+    })
+    const allPass = comparison.every(c => c.pass)
+
+    const result = {
+      ok: true, date, dayBoundary: boundary, allChannels: !!allChannels,
+      allPass, comparison, egmDayCount, userDetail,
+      udTruncated, udItems: udItemsAll,
+    }
+
+    addHistory(
+      'meter-reconcile',
+      `Egm DayCount 對帳（OSM）`,
+      `${date}（${boundary === 'gaming' ? 'Gaming Day' : '自然日'}${allChannels ? '／All' : ''}）— ${allPass ? '✅ 一致' : `❌ ${comparison.filter(c => !c.pass).length} 個欄位不一致`}`,
+      result,
+    )
+
+    res.json(result)
+  } catch (e) {
+    res.status(500).json({ ok: false, message: `查詢失敗: ${e}` })
+  }
+})
+
 // ─── 對帳查詢 ───────────────────────────────────────────────────────────────
 
 router.post('/api/osm/meter-reconcile/query', async (req, res) => {
