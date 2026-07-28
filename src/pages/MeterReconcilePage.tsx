@@ -21,7 +21,7 @@ interface MeterResult {
   machineName: string
   source: 'osm' | 'gcp'
   date: string
-  hour: string
+  dayBoundary: 'gaming' | 'calendar'
   pass: boolean
   expectedCoinOut: number
   actualCoinOut: number
@@ -64,7 +64,7 @@ export function MeterReconcilePage() {
   const [machineName, setMachineName] = useState('')
   const [source, setSource] = useState<'osm' | 'gcp'>('osm')
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [hour, setHour] = useState('12:00')
+  const [dayBoundary, setDayBoundary] = useState<'gaming' | 'calendar'>('gaming')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<MeterResult | null>(null)
   const [error, setError] = useState('')
@@ -127,7 +127,7 @@ export function MeterReconcilePage() {
     try {
       const res = await fetch('/api/osm/meter-reconcile/query', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ machineName: machineName.trim(), source, date, hour }),
+        body: JSON.stringify({ machineName: machineName.trim(), source, date, dayBoundary }),
       })
       const d = await res.json()
       if (!d.ok) { setError(d.message || '查詢失敗'); return }
@@ -182,8 +182,19 @@ export function MeterReconcilePage() {
           <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
         </div>
         <div>
-          <label style={labelStyle}>時間（到小時，用於 EGM Meter 讀數；Game Record / Jackpot 為整日加總）</label>
-          <input type="time" step={3600} value={hour} onChange={e => setHour(e.target.value)} style={inputStyle} />
+          <label style={labelStyle}>查詢範圍（比照 OSM/GCP 後台 EGM Hourly Meter 頁面的 Gaming Day 選項——這支報表只支援整天邊界，做不到像 Game Record 一樣精準到分秒）</label>
+          <div style={{ display: 'flex', border: '1px solid #2d3f55', borderRadius: 7, overflow: 'hidden' }}>
+            {([
+              { key: 'gaming' as const, label: 'Gaming Day（06:00~隔天06:00）' },
+              { key: 'calendar' as const, label: '自然日（00:00~24:00）' },
+            ]).map(o => (
+              <button key={o.key} onClick={() => setDayBoundary(o.key)}
+                style={{ padding: '8px 14px', fontSize: 12.5, fontWeight: 700, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
+                  background: dayBoundary === o.key ? '#2563eb' : '#0f172a', color: dayBoundary === o.key ? '#fff' : '#94a3b8' }}>
+                {o.label}
+              </button>
+            ))}
+          </div>
         </div>
         <button onClick={handleQuery} disabled={loading}
           style={{ marginLeft: 'auto', padding: '9px 22px', background: loading ? '#475569' : '#2563eb', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 700, fontSize: 13, cursor: loading ? 'default' : 'pointer' }}>
@@ -211,7 +222,7 @@ export function MeterReconcilePage() {
                 {result.pass ? '一致 — Coin Out 完全吻合' : '不一致 — Coin Out 有落差'}
               </div>
               <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
-                {result.machineName} · {result.source === 'osm' ? 'OSM（CP）' : 'GCP（NC）'} · {result.date} {result.hour} 前累計
+                {result.machineName} · {result.source === 'osm' ? 'OSM（CP）' : 'GCP（NC）'} · {result.date}（{result.dayBoundary === 'gaming' ? 'Gaming Day 06:00~隔天06:00' : '自然日 00:00~24:00'}）整天加總
               </div>
             </div>
             <div style={{ marginLeft: 'auto', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
@@ -236,7 +247,7 @@ export function MeterReconcilePage() {
                 <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800 }}>EGM Performance Meter</h3>
               </div>
               <div style={{ fontSize: 11, color: '#64748b', marginTop: -6 }}>
-                {result.source === 'osm' ? 'OSM（CP）' : 'GCP（NC）'} · 截至 {result.hour}
+                {result.source === 'osm' ? 'OSM（CP）' : 'GCP（NC）'} · 整天累計
               </div>
               {result.meter ? (
                 <>

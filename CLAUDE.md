@@ -563,7 +563,9 @@ Keep Claude for:
 **路由**：`/api/osm/meter-reconcile/*`｜**歷史紀錄 feature key**：`meter-reconcile`
 
 ### 功能說明
-比對 OSM／GCP EGM Metering（egmPerformanceMeter）的 Coin Out，與 Game Record（gameRecordList）+ Jackpot Abnormality（getHandPayRecord）加總算出的預期值是否完全一致。一次性手動查詢（機台名稱 + OSM/GCP 來源 + 日期/小時），不排程、不巡檢多台。
+比對 OSM／GCP EGM Metering（egmPerformanceMeter）的 Coin Out，與 Game Record（gameRecordList）+ Jackpot Abnormality（getHandPayRecord）加總算出的預期值是否完全一致。一次性手動查詢（機台名稱 + OSM/GCP 來源 + 日期 + 查詢範圍），不排程、不巡檢多台。
+
+**查詢範圍是「整天」二選一，不是選小時**（v3.68.0 起）：`dayBoundary` 為 `'gaming'`（Gaming Day，本地 06:00 ~ 隔天 06:00，預設）或 `'calendar'`（自然日，00:00 ~ 24:00），比照 OSM/GCP 後台自己的 EGM Hourly Meter 頁面（Gaming Day 打勾 + Date Type 單選 06:00-06:00／00:00-00:00）。**先前版本有「查詢小時」輸入**，讓使用者以為 Coin Out 比對能精準到某個小時——這是誤導：Game Record／Jackpot 這兩支 API 的 `dateTime[]` 篩選只看日期部分，時分秒會被忽略（已用 Dragons-NCH23 2026-07-27 18:00 真實案例驗證：改傳含時分秒的 ISO UTC 字串結果跟整天查詢完全一樣），所以這兩者永遠只能整天加總，讓 meter 側去配合選某個小時、卻要跟整天的 Game Record 比對，兩邊範圍必然對不齊，產生看起來像「算錯」的落差（實際案例：18:00 bucket 算出 12,748,350，但整天 Game Record 是 12,755,414，因為後者涵蓋到隔天 05:59:59）。v3.68.0 拿掉「查詢小時」，Coin Out 比對永遠用查詢範圍內的最後一個 bucket，才能保證跟 Game Record 的整天加總正確對齊。
 
 **公式**：
 - OSM／GCP 皆同：預期 Coin Out = Game Record 總 Win（不用扣 Jackpot Wins、不用扣 Attendant Paid JP）
@@ -573,24 +575,24 @@ Keep Claude for:
 
 **EGM Performance Meter 欄位語意**（已用 EGM Hourly Meter 差值反算 + 使用者提供公式驗證）：`2`=RTP（小數，**僅 daily 回應有效，hourly 回應這個 index 被挪用成 Unix timestamp**）、`5`=Games Played、`6`=Coin In、`10`=Coin Out、`26`=WIN/LOSE（=6−10−29，**hourly 回應完全沒有這個欄位**）、`29`=Jackpot Wins。所以 WIN/LOSE、RTP 一律在後端用 6/10/29 現算，不直接讀 daily/hourly 的欄位 2/26。欄位 `3`/`4`（及鏡射的 `13`/`14`/`15`/`16`）疑似硬體 meter 累計值；欄位 `24`/`28` 語意仍未確認。
 
-**⚠️ Coin In/Coin Out/Jackpot Wins/Games Played 都是「累計值（自上次清帳 reset 起算，不是自當日 00:00 起算）」**，不是「當日」數字——同一機台若很久沒被 reset，數字會是好幾天/幾週的總和，直接拿來跟 Game Record 的當日加總比對會差好幾個數量級。已用真實資料驗證：**(目標小時 bucket − 當日第一個 bucket) 的差值** 才會等於當日 Game Record 加總；若差值為負（代表當天發生過 reset），退回用目標小時的原始累計值 best-effort（`meterDelta()` 函式）。
+**⚠️ Coin In/Coin Out/Jackpot Wins/Games Played 都是「累計值（自上次清帳 reset 起算，不是自當日 00:00 起算）」**，不是「當日」數字——同一機台若很久沒被 reset，數字會是好幾天/幾週的總和，直接拿來跟 Game Record 的當日加總比對會差好幾個數量級。已用真實資料驗證：**(查詢範圍內最後一個 bucket − 第一個 bucket) 的差值** 才會等於整天 Game Record 加總；若差值為負（代表當天發生過 reset），退回用最後一個 bucket 的原始累計值 best-effort（`meterDelta()` 函式）。
 
 **Jackpot Abnormality（getHandPayRecord）語意（已由使用者確認）**：`Attendant Paid JP Meter`（OSM 後台報表欄位）= 機台實際硬體 meter 記錄的人工派彩值；`getHandPayRecord` 的 `handpay`（本工具的 Jackpot Abnormality）= QA 測試用的人工派彩紀錄，方便測試使用，不會真的寫進機台的 meter 欄位。**兩者是不同東西，只是 Triple Treasure Pot 這筆測試案例剛好數字相等（都是 75,685）是巧合**（QAT 測試環境人工派彩剛好對應同一批 Jackpot Wins 事件），不代表 `handpay` 等於 Jackpot Wins。**目前公式已經不依賴這個判斷**（不再用 Attendant Paid JP 去扣減預期 Coin Out），Jackpot Abnormality 卡片單純作為明細資訊顯示，不影響比對結果。另外這支 API 有個實測到的怪癖：**帶了 `clientMachineName` 篩選後，`dateTime[]` 日期範圍篩選會完全失效**（回傳的是該機台最近 N 筆 handpay，可能橫跨好幾個月），所以固定抓回後在後端用 `payoutTime` 字串前綴二次過濾，取真正當日的資料。
 
-**`gameRecordList` / `getHandPayRecord` 的 `dateTime[]` 上界是「不含當天」**（exclusive），同一天當 start/end 傳兩次會查到 0 筆；要傳 `date+1` 才能真正包含當天資料（`nextDateStr()` 函式）。EGM Performance Meter / EGM Hourly Meter 則沒有這個問題，同一天當 start/end 傳兩次可以正常查到當天資料。
+**`gameRecordList` / `getHandPayRecord` 的 `dateTime[]` 上界是「不含」**（exclusive）：要傳「查詢範圍結束時間點」本身當上界（例如 Gaming Day 邊界就傳隔天 06:00 的 ISO UTC），不能傳同一個時間點兩次，否則會查到 0 筆。EGM Performance Meter / EGM Hourly Meter 則沒有這個問題。
 
-EGM Performance Meter 讀數為「截至指定小時」（用 `egmMeterHourList` 找對應小時 bucket）；Game Record 與 Jackpot Abnormality 目前為**整日**加總，沒有依小時再切——若查詢小時早於當天最後一筆記錄的時間，比對可能會有落差，這是已知限制。**曾嘗試修復但確認 API 不支援**：`gameRecordList`/`getHandPayRecord` 的 `dateTime[]` 參數即使傳完整日期時間字串（例如 `"2026-07-27 06:00:00"`），篩選還是只看日期部分，時分秒會被忽略（已用 Dragons-NCH23 2026-07-27 18:00 真實案例驗證：改傳時間窗跟原本傳整日的結果完全一樣）。要做到真正的小時級篩選，只能改成抓全部分頁的原始紀錄、依每筆紀錄自己的時間戳在後端手動加總，不能靠這支 API 的參數做——目前尚未實作（`recordCount` 可能上千筆，要注意分頁效能）。
+**要真正做到小時級篩選只能靠原始紀錄手動加總**：`gameRecordList`/`getHandPayRecord` 的 `dateTime[]` 參數不管傳日期字串還是完整 ISO UTC 時間字串，篩選都只看日期部分，時分秒一律被忽略（已雙重驗證：先用空白分隔字串測過一次，後來用真正的 ISO UTC 格式（跟後台 Network request 反推出的格式一致）又測一次，兩次結果都跟整天查詢完全相同）。要做到真正的小時級篩選，只能改成抓全部分頁的原始紀錄、依每筆紀錄自己的時間戳在後端手動加總，不能靠這支 API 的參數做——目前未實作（`recordCount` 可能上千筆，要注意分頁效能），目前的解法是退而求其次，只支援「整天」兩種邊界（gaming day／自然日）。
 
-**OSM/GCP 的 gaming day 是 06:00 到隔天 05:59:59，不是自然日 00:00~24:00**（已用真實 hourly bucket 資料驗證：每個 gaming day 第一筆固定是 06:00:00）。這代表：① Game Record／Jackpot 的「整日」加總實際涵蓋的是 06:00 到隔天 05:59:59；② 若要讓查詢小時的 meter 累計值跟整日 Game Record 完全對齊，要查詢 gaming day 最後一個 bucket（隔天 05:59:59 附近），查中間任意小時（例如 18:00）本來就只會涵蓋部分時段，跟整日加總對不起來是預期行為，不是 bug。
+**OSM/GCP 的 gaming day 是本地時間 06:00 到隔天 05:59:59，不是自然日 00:00~24:00**（已用真實 hourly bucket 資料驗證：每個 gaming day 第一筆固定是 06:00:00；也已用後台 EGM Hourly Meter 頁面截圖確認有「Gaming Day」勾選框 + 「06:00:00-06:00:00／00:00:00-00:00:00」Date Type 單選）。`egmMeterHourList` 請求帶 `gameDay`/`dateType` 參數控制這個邊界（`gameDay='1'` + `dateType='0'` = Gaming Day 06:00 邊界，`gameDay='0'` + `dateType='1'` = 自然日 00:00 邊界）。**選 Gaming Day 邊界時，bucket 比對邏輯要接受跨日**：查詢日期 `date` 當天 06:00 之後的 bucket，加上隔天日期、但小時 < 6 的 bucket（例如隔天 05:59:59 仍屬於今天開始的 gaming day），只比對 `rowDate === date` 會漏掉這些跨日的尾端 bucket。
 
-**Hourly bucket 選取邏輯**：`egmMeterHourList` 通常要到每小時 12~15 分左右才會有新 bucket（例如 18:12 才會出現 18:00 這個 bucket），所以查詢邏輯選的是「所有 bucket 中，時間 ≤ 目標小時的最後一筆」（`rowHour <= targetHour` 取最後一個符合的），不是嚴格等於目標小時——如果查詢當下目標小時的 bucket 還沒產生，會靜默 fallback 用上一個已存在的 bucket（畫面上 `rawMeterRow.debug.hourStr` 會顯示實際抓到的是哪個 bucket 時間，跟使用者輸入的查詢小時可能不同，目前沒有另外跳警告提醒兩者不一致）。
+**dateTime[] 真正格式是 ISO UTC**（已用後台 Game Record 頁面的 DevTools Network 截圖反推驗證）：例如 `2026-07-26T22:00:00.000Z`，不是單純日期字串或空白分隔的 `"YYYY-MM-DD HH:mm:ss"`。使用者操作介面的時區固定是 UTC+8（本地 06:00 = UTC 前一天 22:00）。`toUtcIso(dateStr, hh, mm, ss)` 函式負責這個轉換。
 
 OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP 用 NC 後台 `qat-nc.osmslot.org`，channelId 不同），憑證分開存在 `meter_reconcile_config` 表（key 前綴 `osm_`/`gcp_`），登入 token 過期時自動重新登入一次再重試。
 
 ### 使用者操作
 | 操作 | 說明 |
 |------|------|
-| 查詢對帳 | 輸入機台名稱 + 選擇 OSM/GCP 來源 + 日期 + 時間（到小時），一鍵拉三邊資料比對 |
+| 查詢對帳 | 輸入機台名稱 + 選擇 OSM/GCP 來源 + 日期 + 查詢範圍（Gaming Day／自然日），一鍵拉三邊資料比對 |
 | 查看判定結果 | 頂部橫幅直接顯示一致／不一致 + 差值 |
 | 查看公式攤開 | 顯示算式各項數字來源，方便肉眼核對 |
 | 查看三邊明細 | EGM Performance Meter（Coin In/Out/Jackpot/RTP/WIN-LOSE）、Game Record 加總（含 Bet Reward Credits／泥碼下注額，取自 `gameRecordList` sumData 的 `bet_nima` 欄位）、Jackpot Abnormality 明細列表並排顯示 |

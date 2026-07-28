@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.67.3'
+export const APP_VERSION = '3.68.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.68.0',
+    date: '2026-07-28',
+    changes: [
+      'feat(meter-reconcile): 拿掉「查詢小時」輸入（會讓人誤以為 Coin Out 比對能做到小時級精準，但 Game Record 側永遠是整天，兩邊範圍本來就對不齊），改成「查詢範圍」二選一：Gaming Day（本地 06:00~隔天 06:00）／自然日（00:00~24:00），比照 OSM/GCP 後台 EGM Hourly Meter 頁面本身的選項；Coin Out 比對永遠用整天範圍最後一個 bucket，跟 Game Record 的整天加總完全對齊——已用 Dragons-NCH23 2026-07-27（Gaming Day 模式）真實案例驗證，pass=true, delta=0',
+    ],
+  },
   {
     version: '3.67.3',
     date: '2026-07-28',

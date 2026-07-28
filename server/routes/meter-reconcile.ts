@@ -9,9 +9,7 @@ export const router = Router()
 
 type Profile = 'osm' | 'gcp'
 
-/** gameRecordList / getHandPayRecord 的 dateTime[] 上界似乎是「不含當天」，
- * 同一天當 start/end 會查到 0 筆；要傳 date+1 才能真正包含當天資料（已用真實資料驗證）。
- * @deprecated 只給還沒改用 toUtcIso() 的地方用；新代碼請用 toUtcIso()（見下方說明）。 */
+/** 查詢日期的隔天（用於 dateTime[] 上界／gaming day 邊界跨日計算）。 */
 function nextDateStr(date: string): string {
   const d = new Date(`${date}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() + 1)
@@ -19,27 +17,12 @@ function nextDateStr(date: string): string {
 }
 
 /** 後台自己的 Game Record 查詢介面（有 DevTools 截圖佐證）送出的 dateTime[] 其實是
- * ISO UTC 字串（例如 "2026-07-26T22:00:00.000Z"），不是單純日期字串——這才是真正能做到
- * 小時級篩選的格式，先前用 "YYYY-MM-DD HH:mm:ss" 這種空白分隔字串完全被後端忽略時分秒。
+ * ISO UTC 字串（例如 "2026-07-26T22:00:00.000Z"），不是單純日期字串——這才是真正能對齊
+ * 整天邊界的格式，先前用 "YYYY-MM-DD HH:mm:ss" 這種空白分隔字串完全被後端忽略時分秒。
  * 使用者操作介面的時區固定是 UTC+8（已用真實請求反推驗證：本地 06:00 對應 UTC 前一天 22:00）。 */
 function toUtcIso(dateStr: string, hh: number, mm = 0, ss = 0): string {
   const t = `${dateStr}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}.000+08:00`
   return new Date(t).toISOString()
-}
-
-function prevDateStr(date: string): string {
-  const d = new Date(`${date}T00:00:00Z`)
-  d.setUTCDate(d.getUTCDate() - 1)
-  return d.toISOString().slice(0, 10)
-}
-
-/** OSM/GCP 的 gaming day 是本地時間 06:00 到隔天 05:59:59，不是自然日 00:00~24:00
- * （已用真實 hourly bucket 資料驗證：每個 gaming day 第一筆固定是 06:00:00）。 */
-const GAMING_DAY_START_HOUR = 6
-
-/** 目標小時所屬 gaming day 的起點日期：小時 >= 6 用查詢日期本身，< 6 屬於前一天開始的 gaming day。 */
-function gamingDayStartDate(date: string, targetHour: number): string {
-  return targetHour >= GAMING_DAY_START_HOUR ? date : prevDateStr(date)
 }
 
 
@@ -170,12 +153,20 @@ router.post('/api/osm/meter-reconcile/test', async (req, res) => {
 // ─── 對帳查詢 ───────────────────────────────────────────────────────────────
 
 router.post('/api/osm/meter-reconcile/query', async (req, res) => {
-  const { machineName, source, date, hour } = req.body as {
-    machineName?: string; source?: string; date?: string; hour?: string
+  const { machineName, source, date, dayBoundary } = req.body as {
+    machineName?: string; source?: string; date?: string; dayBoundary?: string
   }
-  if (!machineName || !date || !hour) {
-    return res.status(400).json({ ok: false, message: 'machineName / date / hour 皆為必填' })
+  if (!machineName || !date) {
+    return res.status(400).json({ ok: false, message: 'machineName / date 皆為必填' })
   }
+  // 查詢範圍：'gaming'＝Gaming Day（本地 06:00 ~ 隔天 06:00），'calendar'＝自然日（00:00 ~ 24:00）。
+  // 完整移植自 OSM/GCP 後台自己的 EGM Hourly Meter 頁面（Gaming Day 打勾 + Date Type 單選）——
+  // 這支報表只支援這兩種整天邊界，做不到像 Game Record 那樣精準到分秒，所以拿掉原本的「查詢小時」
+  // 輸入（那個輸入只會讓使用者誤以為 Coin Out 比對可以做到小時級精準，但 Game Record 側永遠是整天，
+  // 兩邊範圍本來就對不齊）。
+  const boundary = dayBoundary === 'calendar' ? 'calendar' : 'gaming'
+  const dayStartHour = boundary === 'calendar' ? 0 : 6
+  const apiDateType = boundary === 'calendar' ? '1' : '0'
   const profile: Profile = source === 'gcp' ? 'gcp' : 'osm'
   const cfg = loadMeterConfig(profile)
   if (!cfg.base_url) {
@@ -189,29 +180,36 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
 
     // ① EGM Hourly Meter — Coin In/Out/Jackpot Wins/Games Played 是「累計值（自上次 reset 起算，
     // 不是自當日 00:00 起算）」，直接拿原始讀數會跟 Game Record 的當日加總差好幾個數量級。
-    // 已用真實資料驗證：(目標小時 bucket − 當日第一個 bucket) 的差值才會等於當日 Game Record 加總。
-    // 若差值為負（代表當天發生過 reset），退回用目標小時的原始累計值 best-effort。
+    // 已用真實資料驗證：(該整天最後一個 bucket − 第一個 bucket) 的差值才會等於整天 Game Record 加總
+    // （不再用「查詢小時」挑 bucket，永遠取整天最後一筆，才能跟 Game Record 的整天範圍對齊）。
+    // 若差值為負（代表當天發生過 reset），退回用最後一個 bucket 的原始累計值 best-effort。
     const hourParams = new URLSearchParams({
       page: '1', pageSize: '50',
-      gameDay: '1', machineName: '', clientMachineName: machineName,
-      dateType: '0', channelId,
+      gameDay: boundary === 'gaming' ? '1' : '0', machineName: '', clientMachineName: machineName,
+      dateType: apiDateType, channelId,
     })
     hourParams.append('date[]', date)
     hourParams.append('date[]', date)
     if (profile === 'gcp') hourParams.append('bgType', '2')
     const hourData = await meterGet(profile, cfg, `${perfPath.replace('egmPerformanceMeter', 'egmMeterHourList')}`, hourParams)
     const hourItems: Record<string, unknown>[] = hourData?.data?.items ?? []
-    const targetHour = parseInt(hour.split(':')[0] || '0', 10)
     let meterRow: Record<string, unknown> | null = null
     let baselineRow: Record<string, unknown> | null = null
+    const nextDate = nextDateStr(date)
     for (const row of hourItems) {
       const hourStr = (row.debug as { hourStr?: string } | undefined)?.hourStr ?? ''
       const [rowDate, rowTime] = hourStr.split(' ')
-      if (rowDate !== date) continue // API 可能回傳跨日的 bucket，日期不符的一律跳過
       const rowHour = parseInt(rowTime?.split(':')[0] ?? '-1', 10)
       if (rowHour < 0) continue
-      if (!baselineRow) baselineRow = row // 保留當日第一個 bucket 當基準線
-      if (rowHour <= targetHour) meterRow = row // 保留最後一個 <= 目標小時的 bucket
+      // Gaming Day（06:00 起）會跨到隔天凌晨，日期字串不等於查詢日期也可能屬於同一個 gaming day
+      // （隔天日期 + 小時 < 邊界起始小時，例如隔天 05:59 仍屬於今天開始的 gaming day）；
+      // 自然日模式（00:00 起）沒有跨日問題，只接受日期字串等於查詢日期的 bucket。
+      const inWindow = boundary === 'gaming'
+        ? (rowDate === date && rowHour >= dayStartHour) || (rowDate === nextDate && rowHour < dayStartHour)
+        : rowDate === date
+      if (!inWindow) continue
+      if (!baselineRow) baselineRow = row // 保留整天範圍內第一個 bucket 當基準線
+      meterRow = row // 保留最後一筆（整天範圍內最新的 bucket，才能跟 Game Record 的整天加總對齊）
     }
     // 找不到 hourly bucket 時 fallback 用當日 daily 總計（無基準線可減，直接用原始累計值）
     if (!meterRow) {
@@ -250,19 +248,14 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
       }
     })() : null
 
-    // 精確對齊使用者選定的查詢小時：用 gaming day 起點（本地 06:00）到目標小時（含）當作時間窗，
+    // Game Record／Jackpot 用同一個「整天」邊界（跟 EGM Hourly Meter 的 boundary 選擇一致），
     // 用 ISO UTC 格式送出（已用實際後台頁面截到的 Network request 反推出真正格式：
     // dateTime[]=2026-07-26T22:00:00.000Z 這種 ISO UTC，本地 UTC+8 06:00 = UTC 前一天 22:00，
     // 先前用 "YYYY-MM-DD HH:mm:ss" 空白分隔字串完全被後端忽略時分秒，就是格式不對）。
-    const targetHourNum = parseInt(hour.split(':')[0] || '0', 10)
-    const gdStartDate = gamingDayStartDate(date, targetHourNum)
-    const endHourRaw = targetHourNum + 1 // 上界不含，用下一小時的起點
-    const windowEndDate = endHourRaw >= 24 ? nextDateStr(date) : date
-    const windowEndHour = endHourRaw >= 24 ? 0 : endHourRaw
-    const windowStartIso = toUtcIso(gdStartDate, GAMING_DAY_START_HOUR)
-    const windowEndIso = toUtcIso(windowEndDate, windowEndHour)
-    const windowStartLocal = `${gdStartDate} ${String(GAMING_DAY_START_HOUR).padStart(2, '0')}:00:00`
-    const windowEndLocal = `${windowEndDate} ${String(windowEndHour).padStart(2, '0')}:00:00`
+    const windowStartIso = toUtcIso(date, dayStartHour)
+    const windowEndIso = toUtcIso(nextDate, dayStartHour)
+    const windowStartLocal = `${date} ${String(dayStartHour).padStart(2, '0')}:00:00`
+    const windowEndLocal = `${nextDate} ${String(dayStartHour).padStart(2, '0')}:00:00`
 
     // ② Game Record 加總（gameRecordList 本身有 sumData，不用逐頁手動加總）
     const grParams = new URLSearchParams({
@@ -320,7 +313,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
 
     const result = {
       ok: true,
-      machineName, source: profile, date, hour,
+      machineName, source: profile, date, dayBoundary: boundary,
       pass, expectedCoinOut, actualCoinOut, delta,
       attendantPaidJp,
       meter, gameRecord,
@@ -331,7 +324,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     addHistory(
       'meter-reconcile',
       `${machineName}（${profile.toUpperCase()}）`,
-      `${date} ${hour} — ${pass ? '✅ 一致' : `❌ 不一致（差值 ${delta.toFixed(2)}）`}`,
+      `${date}（${boundary === 'gaming' ? 'Gaming Day 06:00起' : '自然日 00:00起'}）— ${pass ? '✅ 一致' : `❌ 不一致（差值 ${delta.toFixed(2)}）`}`,
       result,
     )
 
