@@ -579,7 +579,9 @@ Keep Claude for:
 
 **`gameRecordList` / `getHandPayRecord` 的 `dateTime[]` 上界是「不含當天」**（exclusive），同一天當 start/end 傳兩次會查到 0 筆；要傳 `date+1` 才能真正包含當天資料（`nextDateStr()` 函式）。EGM Performance Meter / EGM Hourly Meter 則沒有這個問題，同一天當 start/end 傳兩次可以正常查到當天資料。
 
-EGM Performance Meter 讀數為「截至指定小時」（用 `egmMeterHourList` 找對應小時 bucket）；Game Record 與 Jackpot Abnormality 目前為**整日**加總，沒有依小時再切——若查詢小時早於當天最後一筆記錄的時間，比對可能會有落差，這是已知限制，之後有需要再補小時級篩選。
+EGM Performance Meter 讀數為「截至指定小時」（用 `egmMeterHourList` 找對應小時 bucket）；Game Record 與 Jackpot Abnormality 目前為**整日**加總，沒有依小時再切——若查詢小時早於當天最後一筆記錄的時間，比對可能會有落差，這是已知限制。**曾嘗試修復但確認 API 不支援**：`gameRecordList`/`getHandPayRecord` 的 `dateTime[]` 參數即使傳完整日期時間字串（例如 `"2026-07-27 06:00:00"`），篩選還是只看日期部分，時分秒會被忽略（已用 Dragons-NCH23 2026-07-27 18:00 真實案例驗證：改傳時間窗跟原本傳整日的結果完全一樣）。要做到真正的小時級篩選，只能改成抓全部分頁的原始紀錄、依每筆紀錄自己的時間戳在後端手動加總，不能靠這支 API 的參數做——目前尚未實作（`recordCount` 可能上千筆，要注意分頁效能）。
+
+**OSM/GCP 的 gaming day 是 06:00 到隔天 05:59:59，不是自然日 00:00~24:00**（已用真實 hourly bucket 資料驗證：每個 gaming day 第一筆固定是 06:00:00）。這代表：① Game Record／Jackpot 的「整日」加總實際涵蓋的是 06:00 到隔天 05:59:59；② 若要讓查詢小時的 meter 累計值跟整日 Game Record 完全對齊，要查詢 gaming day 最後一個 bucket（隔天 05:59:59 附近），查中間任意小時（例如 18:00）本來就只會涵蓋部分時段，跟整日加總對不起來是預期行為，不是 bug。
 
 **Hourly bucket 選取邏輯**：`egmMeterHourList` 通常要到每小時 12~15 分左右才會有新 bucket（例如 18:12 才會出現 18:00 這個 bucket），所以查詢邏輯選的是「所有 bucket 中，時間 ≤ 目標小時的最後一筆」（`rowHour <= targetHour` 取最後一個符合的），不是嚴格等於目標小時——如果查詢當下目標小時的 bucket 還沒產生，會靜默 fallback 用上一個已存在的 bucket（畫面上 `rawMeterRow.debug.hourStr` 會顯示實際抓到的是哪個 bucket 時間，跟使用者輸入的查詢小時可能不同，目前沒有另外跳警告提醒兩者不一致）。
 

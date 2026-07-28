@@ -17,6 +17,7 @@ function nextDateStr(date: string): string {
   return d.toISOString().slice(0, 10)
 }
 
+
 // 已用 hourly-meter 差值反算驗證過的欄位語意（見對話紀錄）。
 // 注意：欄位 2（daily=RTP）在 egmMeterHourList 裡被挪用成該小時 bucket 的 Unix timestamp，
 // 欄位 26（WIN/LOSE）在 hourly 資料裡完全不存在（hourly 只到 25 接著跳 29）——
@@ -225,6 +226,10 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     })() : null
 
     // ② Game Record 加總（gameRecordList 本身有 sumData，不用逐頁手動加總）
+    // 試過把 dateTime[] 換成含時分秒的字串（例如 "2026-07-27 06:00:00" ~ "2026-07-27 19:00:00"）
+    // 想精確對齊查詢小時，但已用 Dragons-NCH23 2026-07-27 18:00 真實案例驗證：這支 API 的
+    // dateTime[] 篩選只看日期部分，時分秒會被忽略，結果跟整日查詢完全一樣——所以目前還是只能
+    // 抓整個 gaming day，沒有辦法用這個參數做到小時級篩選（見下面 gameRecord 的說明）。
     const grParams = new URLSearchParams({
       clientMachineName: machineName, playerId: '', playerName: '', orderId: '',
       page: '1', pageSize: '1',
