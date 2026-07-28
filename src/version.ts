@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.70.1'
+export const APP_VERSION = '3.71.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.71.0',
+    date: '2026-07-28',
+    changes: [
+      'feat(egm-daycount): 「Egm DayCount 對帳」從 Performance Meter 對帳頁面內的分頁拆成獨立頁面（OSM Tools → Egm DayCount 對帳），新增「All」全渠道查詢勾選（已用真實 Network request 確認做法是 channelId=0 + isall=true，不是拿掉 playerstudioid 參數）',
+    ],
+  },
   {
     version: '3.70.1',
     date: '2026-07-28',

@@ -160,18 +160,16 @@ router.post('/api/osm/meter-reconcile/egm-daycount', async (req, res) => {
   if (!date) return res.status(400).json({ ok: false, message: 'date 為必填' })
   const boundary = dayBoundary === 'calendar' ? 'calendar' : 'gaming'
   const apiDateType = boundary === 'calendar' ? '1' : '0'
-  const isall = allChannels ? 'true' : 'false' // 目前只是照後台原始請求原樣傳送，實測沒有實際效果（見下方說明）
+  const isall = allChannels ? 'true' : 'false'
   const cfg = loadMeterConfig('osm')
   if (!cfg.base_url) {
     return res.status(400).json({ ok: false, message: '尚未設定 OSM 後台連線資訊，請先在下方「後台設定」填寫' })
   }
-  const channelId = cfg.channel_id || '873'
-  // playerstudioid 是後台 Player Channel 篩選，這組固定清單已用真實查詢驗證可以精準對上「np +11」
-  // 那個預設範圍（跟後台截圖的 Egm DayCount／User Detail 完全吻合）。
-  // ⚠️ 後台「All」勾選那個模式（Player Channel 欄位會變灰色）目前沒有實作——試過把 playerstudioid
-  // 整個拿掉，結果 gameCount 直接回傳空資料（0），不是「不篩選」的意思，代表這個參數其實是必填，
-  // 拿掉不等於「全部」；要支援 All 模式，需要使用者實際勾選後台的 All 再截一次 Network request
-  // 才知道真正該傳什麼，這裡先不猜，allChannels 這個輸入目前沒有效果。
+  // channelId=873 是「Player Channel: np +11」那個預設範圍；後台「All」勾選時實際送出的請求
+  // 是 channelId=0 + isall=true（已用真實 Network request 截圖確認，不是拿掉 playerstudioid）。
+  const channelId = allChannels ? '0' : (cfg.channel_id || '873')
+  // playerstudioid 這組固定清單已用真實查詢驗證可以精準對上「np +11」那個預設範圍，All 模式下
+  // 後台一樣有帶這個參數（沒有拿掉），只是 channelId／isall 變了。
   const playerstudioid = 'cp,wf,tbr,tbp,ncl,bpo,mdr,dhs,cf,np,pf,igo,np2,ALL'
 
   try {
@@ -250,7 +248,7 @@ router.post('/api/osm/meter-reconcile/egm-daycount', async (req, res) => {
     }
 
     addHistory(
-      'meter-reconcile',
+      'egm-daycount',
       `Egm DayCount 對帳（OSM）`,
       `${date}（${boundary === 'gaming' ? 'Gaming Day' : '自然日'}${allChannels ? '／All' : ''}）— ${allPass ? '✅ 一致' : `❌ ${comparison.filter(c => !c.pass).length} 個欄位不一致`}`,
       result,

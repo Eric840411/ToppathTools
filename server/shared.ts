@@ -1328,7 +1328,7 @@ export const ALL_PAGE_KEYS = [
   'jira-qa','jira-pm','jira-update','lark','osm','machinetest','imagecheck','osm-config',
   'autospin','url-pool','jackpot','osm-uat',
   'gs-imgcompare','gs-logchecker','gs-bonusv2','history','knowledge','local-agent',
-  'ui-screenshot','discord-notify','meter-reconcile',
+  'ui-screenshot','discord-notify','meter-reconcile','egm-daycount',
 ] as const
 
 export type PageKey = typeof ALL_PAGE_KEYS[number]

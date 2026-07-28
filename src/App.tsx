@@ -21,6 +21,7 @@ import { KnowledgePage } from './pages/KnowledgePage'
 import { UiScreenshotPage } from './pages/UiScreenshotPage'
 import { DiscordNotifySettingsPage } from './pages/DiscordNotifySettingsPage'
 import { MeterReconcilePage } from './pages/MeterReconcilePage'
+import { EgmDayCountPage } from './pages/EgmDayCountPage'
 import ChangelogModal from './components/ChangelogModal'
 import GeminiSettingsModal from './components/GeminiSettingsModal'
 import AiAgentMonitorWidget from './components/AiAgentMonitorWidget'
@@ -32,7 +33,7 @@ import './App.css'
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
   | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
-  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'meter-reconcile'
+  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'meter-reconcile' | 'egm-daycount'
 type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge' | 'discord-notify'
 
 type SubTab = {
@@ -152,6 +153,13 @@ const groups: Group[] = [
         icon: 'P',
         iconClass: 'tab-icon--osm',
         description: 'OSM / GCP EGM Metering 對 Game Record + Jackpot Abnormality，驗證 Coin Out 是否一致',
+      },
+      {
+        id: 'egm-daycount',
+        label: 'Egm DayCount 對帳',
+        icon: 'E',
+        iconClass: 'tab-icon--osm',
+        description: '比對 Egm DayCount 彙總報表與 User Detail 逐筆列回推加總是否一致',
       },
     ],
   },
@@ -575,6 +583,7 @@ function App() {
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-uat' && <OsmUatPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'ui-screenshot' && <UiScreenshotPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'meter-reconcile' && <MeterReconcilePage />}
+            {currentGroup?.id === 'osm-tools' && effectiveTab === 'egm-daycount' && <EgmDayCountPage />}
             {currentGroup?.id === 'settings' && effectiveTab === 'local-agent' && <LocalAgentPage currentAccount={globalAccount} />}
             {currentGroup?.id === 'discord-notify' && <DiscordNotifySettingsPage />}
             {currentGroup?.id === 'history' && <HistoryPage />}

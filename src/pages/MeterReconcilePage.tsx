@@ -60,34 +60,7 @@ function fmt(n: number | undefined | null, digits = 2): string {
   return n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
 }
 
-interface EgmDayCountField {
-  key: string
-  label: string
-  egmDayCount: number
-  userDetail: number
-  delta: number
-  pass: boolean
-}
-interface EgmDayCountRow {
-  playerId?: string; playerName?: string; clientMachineName?: string
-  win?: string; betTimes?: string; bet?: string
-  machineIn?: string; machineOut?: string; playerWin?: string
-}
-interface EgmDayCountResult {
-  ok: boolean
-  date: string
-  dayBoundary: 'gaming' | 'calendar'
-  allPass: boolean
-  comparison: EgmDayCountField[]
-  egmDayCount: { betUsers: number; betNumber: number; betAmount: number; transferIn: number; transferOut: number; winOrLose: number; winLoseRatio: number; jackpotAmount: number }
-  userDetail: { betUsers: number; betNumber: number; betAmount: number; transferIn: number; transferOut: number; winOrLose: number; winLoseRatio: number; jackpotAmount: number; recordCount: number }
-  udTruncated: boolean
-  udItems: EgmDayCountRow[]
-  message?: string
-}
-
 export function MeterReconcilePage() {
-  const [page, setPage] = useState<'coinout' | 'egmdaycount'>('coinout')
   const [machineName, setMachineName] = useState('')
   const [source, setSource] = useState<'osm' | 'gcp'>('osm')
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
@@ -166,30 +139,6 @@ export function MeterReconcilePage() {
     }
   }
 
-  // ── Egm DayCount 對帳 tab ────────────────────────────────────────────────────
-  const [dcDate, setDcDate] = useState(() => new Date().toISOString().slice(0, 10))
-  const [dcDayBoundary, setDcDayBoundary] = useState<'gaming' | 'calendar'>('gaming')
-  const [dcLoading, setDcLoading] = useState(false)
-  const [dcResult, setDcResult] = useState<EgmDayCountResult | null>(null)
-  const [dcError, setDcError] = useState('')
-
-  async function handleQueryEgmDayCount() {
-    setDcLoading(true); setDcError(''); setDcResult(null)
-    try {
-      const res = await fetch('/api/osm/meter-reconcile/egm-daycount', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: dcDate, dayBoundary: dcDayBoundary, allChannels: false }),
-      })
-      const d = await res.json()
-      if (!d.ok) { setDcError(d.message || '查詢失敗'); return }
-      setDcResult(d)
-    } catch (e) {
-      setDcError(`查詢失敗：${e}`)
-    } finally {
-      setDcLoading(false)
-    }
-  }
-
   const inputStyle: React.CSSProperties = {
     background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 7, color: '#e2e8f0',
     padding: '8px 10px', fontSize: 13,
@@ -209,21 +158,6 @@ export function MeterReconcilePage() {
         </p>
       </div>
 
-      {/* Sub-tab bar */}
-      <div style={{ display: 'flex', gap: 0, border: '1px solid #23344d', borderRadius: 9, overflow: 'hidden', marginBottom: 16, alignSelf: 'flex-start', width: 'fit-content' }}>
-        {([
-          { key: 'coinout' as const, label: '🧮 Coin Out 對帳' },
-          { key: 'egmdaycount' as const, label: '📊 Egm DayCount 對帳' },
-        ]).map(t => (
-          <button key={t.key} onClick={() => setPage(t.key)}
-            style={{ padding: '9px 18px', fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer',
-              background: page === t.key ? '#2563eb' : '#111c30', color: page === t.key ? '#fff' : '#94a3b8' }}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {page === 'coinout' && (<>
       {/* Query bar */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', background: '#111c30', border: '1px solid #23344d', borderRadius: 12, padding: 16, marginBottom: 16 }}>
         <div>
@@ -390,134 +324,6 @@ export function MeterReconcilePage() {
           </details>
         </>
       )}
-      </>)}
-
-      {page === 'egmdaycount' && (<>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', background: '#111c30', border: '1px solid #23344d', borderRadius: 12, padding: 16, marginBottom: 16 }}>
-          <div>
-            <label style={labelStyle}>日期</label>
-            <input type="date" value={dcDate} onChange={e => setDcDate(e.target.value)} style={inputStyle} />
-          </div>
-          <div>
-            <label style={labelStyle}>查詢範圍</label>
-            <div style={{ display: 'flex', border: '1px solid #2d3f55', borderRadius: 7, overflow: 'hidden' }}>
-              {([
-                { key: 'gaming' as const, label: 'Gaming Day（06:00~隔天06:00）' },
-                { key: 'calendar' as const, label: '自然日（00:00~24:00）' },
-              ]).map(o => (
-                <button key={o.key} onClick={() => setDcDayBoundary(o.key)}
-                  style={{ padding: '8px 14px', fontSize: 12.5, fontWeight: 700, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
-                    background: dcDayBoundary === o.key ? '#2563eb' : '#0f172a', color: dcDayBoundary === o.key ? '#fff' : '#94a3b8' }}>
-                  {o.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <button onClick={handleQueryEgmDayCount} disabled={dcLoading}
-            style={{ marginLeft: 'auto', padding: '9px 22px', background: dcLoading ? '#475569' : '#2563eb', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 700, fontSize: 13, cursor: dcLoading ? 'default' : 'pointer' }}>
-            {dcLoading ? '查詢中…' : '🔍 查詢對帳'}
-          </button>
-        </div>
-
-        {dcError && (
-          <div style={{ background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.35)', borderRadius: 10, padding: '12px 16px', marginBottom: 16, color: '#f87171', fontSize: 13 }}>
-            {dcError}
-          </div>
-        )}
-
-        {dcResult && (<>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderRadius: 10, marginBottom: 16,
-            border: `1px solid ${dcResult.allPass ? 'rgba(34,197,94,.35)' : 'rgba(239,68,68,.35)'}`,
-            background: dcResult.allPass ? 'rgba(34,197,94,.08)' : 'rgba(239,68,68,.08)',
-          }}>
-            <div style={{ fontSize: 28 }}>{dcResult.allPass ? '✅' : '❌'}</div>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 800, color: dcResult.allPass ? '#4ade80' : '#f87171' }}>
-                {dcResult.allPass ? '一致 — 全部欄位吻合' : `不一致 — ${dcResult.comparison.filter(c => !c.pass).length} 個欄位有落差`}
-              </div>
-              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
-                {dcResult.date} · {dcResult.dayBoundary === 'gaming' ? 'Gaming Day 06:00~隔天06:00' : '自然日 00:00~24:00'} · Player Channel: np +11
-              </div>
-            </div>
-            <div style={{ marginLeft: 'auto', textAlign: 'right', fontSize: 12, color: '#94a3b8' }}>
-              <b style={{ fontSize: 16, color: '#e2e8f0', display: 'block' }}>{dcResult.comparison.filter(c => c.pass).length} / {dcResult.comparison.length}</b>
-              致
-            </div>
-          </div>
-
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5, fontVariantNumeric: 'tabular-nums', marginBottom: 8 }}>
-            <thead>
-              <tr>
-                <th style={{ width: 40 }}></th>
-                <th style={{ textAlign: 'left', padding: '9px 12px', background: '#162032', color: '#94a3b8', fontSize: 11, borderBottom: '1px solid #23344d' }}>欄位</th>
-                <th style={{ textAlign: 'right', padding: '9px 12px', background: '#162032', color: '#94a3b8', fontSize: 11, borderBottom: '1px solid #23344d' }}>Egm DayCount</th>
-                <th style={{ textAlign: 'right', padding: '9px 12px', background: '#162032', color: '#94a3b8', fontSize: 11, borderBottom: '1px solid #23344d' }}>User Detail 回推</th>
-                <th style={{ textAlign: 'right', padding: '9px 12px', background: '#162032', color: '#94a3b8', fontSize: 11, borderBottom: '1px solid #23344d' }}>差值</th>
-              </tr>
-            </thead>
-            <tbody>
-              {dcResult.comparison.map(c => (
-                <tr key={c.key} style={{ background: c.pass ? 'transparent' : 'rgba(239,68,68,.06)' }}>
-                  <td style={{ textAlign: 'center', padding: '9px 12px', borderBottom: '1px solid #1e293b' }}>
-                    <span style={{ fontSize: 10.5, fontWeight: 700, padding: '1px 8px', borderRadius: 999,
-                      background: c.pass ? 'rgba(74,222,128,.15)' : 'rgba(239,68,68,.15)', color: c.pass ? '#4ade80' : '#f87171' }}>
-                      {c.pass ? '✓' : '✗'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '9px 12px', color: '#94a3b8', borderBottom: '1px solid #1e293b' }}>{c.label}</td>
-                  <td style={{ textAlign: 'right', padding: '9px 12px', borderBottom: '1px solid #1e293b' }}>{fmt(c.egmDayCount, c.key === 'winLoseRatio' ? 2 : 0)}{c.key === 'winLoseRatio' ? '%' : ''}</td>
-                  <td style={{ textAlign: 'right', padding: '9px 12px', borderBottom: '1px solid #1e293b' }}>{fmt(c.userDetail, c.key === 'winLoseRatio' ? 2 : 0)}{c.key === 'winLoseRatio' ? '%' : ''}</td>
-                  <td style={{ textAlign: 'right', padding: '9px 12px', borderBottom: '1px solid #1e293b', color: c.pass ? '#64748b' : '#f87171' }}>{fmt(c.delta, c.key === 'winLoseRatio' ? 2 : 0)}{c.key === 'winLoseRatio' ? '%' : ''}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p style={{ fontSize: 11, color: '#64748b', margin: '0 0 16px' }}>
-            Jackpot Amount（{fmt(dcResult.egmDayCount.jackpotAmount, 0)}）：playerMachineCount 沒有這個欄位，不參與比對，僅顯示 Egm DayCount 原始值。
-            Total Bet User 是從 User Detail 逐筆列裡「Bet Number &gt; 0」的不重複 UserId 數出來的（不是 API 直接提供的欄位）。
-            兩張報表若非同一時刻查詢，短時間內若有機台持續在跑（例如 AutoSpin），數字可能會有些微落差，不代表算錯。
-          </p>
-
-          <details style={{ background: '#162338', border: '1px solid #23344d', borderRadius: 10, padding: '2px 16px' }}>
-            <summary style={{ cursor: 'pointer', padding: '10px 0', fontSize: 12, color: '#94a3b8', fontWeight: 700 }}>
-              ▸ User Detail 逐筆明細（{dcResult.userDetail.recordCount} 筆{dcResult.udTruncated ? '，⚠️ 超過單次查詢上限，以下可能不完整' : ''}）
-            </summary>
-            <div style={{ overflowX: 'auto', paddingBottom: 12 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5, fontVariantNumeric: 'tabular-nums' }}>
-                <thead>
-                  <tr style={{ color: '#64748b' }}>
-                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>UserId</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>Machine Name</th>
-                    <th style={{ textAlign: 'right', padding: '6px 8px' }}>Bet Number</th>
-                    <th style={{ textAlign: 'right', padding: '6px 8px' }}>Bet</th>
-                    <th style={{ textAlign: 'right', padding: '6px 8px' }}>Transfer In</th>
-                    <th style={{ textAlign: 'right', padding: '6px 8px' }}>Transfer Out</th>
-                    <th style={{ textAlign: 'left', padding: '6px 8px' }}>計入 Bet User？</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dcResult.udItems.map((r, i) => {
-                    const betNum = parseFloat(r.betTimes || '0')
-                    const counted = betNum > 0
-                    return (
-                      <tr key={i} style={{ borderBottom: '1px solid #1e293b', opacity: counted ? 1 : 0.55 }}>
-                        <td style={{ padding: '6px 8px' }}>{r.playerId}</td>
-                        <td style={{ padding: '6px 8px' }}>{r.clientMachineName}</td>
-                        <td style={{ textAlign: 'right', padding: '6px 8px', textDecoration: counted ? 'none' : 'line-through' }}>{r.betTimes}</td>
-                        <td style={{ textAlign: 'right', padding: '6px 8px' }}>{fmt(parseFloat(r.bet || '0'), 0)}</td>
-                        <td style={{ textAlign: 'right', padding: '6px 8px' }}>{fmt(parseFloat(r.machineIn || '0'), 0)}</td>
-                        <td style={{ textAlign: 'right', padding: '6px 8px' }}>{fmt(parseFloat(r.machineOut || '0'), 0)}</td>
-                        <td style={{ padding: '6px 8px', color: counted ? '#4ade80' : '#64748b' }}>{counted ? '是' : '否'}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </details>
-        </>)}
-      </>)}
 
       {/* Backend config */}
       <details open={configOpen} onToggle={e => setConfigOpen((e.target as HTMLDetailsElement).open)}

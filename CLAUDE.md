@@ -436,6 +436,7 @@ Keep Claude for:
 | `osm-alert` | 版本告警（手動 / 排程）|
 | `osm-config-compare` | Config 比對 |
 | `meter-reconcile` | Performance Meter 對帳查詢 |
+| `egm-daycount` | Egm DayCount 對帳查詢 |
 | `machine-test` | 機台自動化測試結果 / 設定檔儲存 |
 | `autospin` | AutoSpin session 結束 |
 | `gs-stats` | Game Show 500x 機率統計 |
@@ -593,11 +594,24 @@ Keep Claude for:
 
 OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP 用 NC 後台 `qat-nc.osmslot.org`，channelId 不同），憑證分開存在 `meter_reconcile_config` 表（key 前綴 `osm_`/`gcp_`），登入 token 過期時自動重新登入一次再重試。
 
-### Egm DayCount 對帳（同一頁面內的第二個分頁）
+### 使用者操作
+| 操作 | 說明 |
+|------|------|
+| 查詢對帳 | 輸入機台名稱 + 選擇 OSM/GCP 來源 + 日期 + 查詢範圍（Gaming Day／自然日），一鍵拉三邊資料比對 |
+| 查看判定結果 | 頂部橫幅直接顯示一致／不一致 + 差值 |
+| 查看公式攤開 | 顯示算式各項數字來源，方便肉眼核對 |
+| 查看三邊明細 | EGM Hourly Meter 差異值（Coin In/Out/Jackpot/RTP/WIN-LOSE，卡片標題刻意不叫「EGM Performance Meter」——EGM Performance Meter 那支日報表通常要等到約 15:15 才有當日數據，這裡顯示的是用 EGM Hourly Meter 差值算出來、可拿來即時對照的版本）、Game Record 加總（含 Bet Reward Credits／泥碼下注額，取自 `gameRecordList` sumData 的 `bet_nima` 欄位）、Jackpot Abnormality 明細列表並排顯示 |
+| 查看原始欄位除錯表 | 展開查看該筆查詢的所有原始欄位，已驗證欄位標綠色 |
+| 設定 OSM/GCP 後台連線 | Base URL / Origin / Channel ID / 登入帳密，分開設定兩組，可測試登入 |
 
-**路由**：`POST /api/osm/meter-reconcile/egm-daycount`（目前只支援 OSM，沒有 GCP 對應版本）
+---
 
-比對後台 `Egm DayCount`（`/egm/reports/gameCount`，一天一列彙總報表）與 `User Detail`（`/egm/reports/playerMachineCount`，player+machine 逐筆列）算出的值是否一致，兩支 API 皆已用真實 Network request 截圖確認（channelId=873，`backendservertest.osmslot.org`，跟 `meter_reconcile_config` 裡存的 OSM 帳密同一組）。
+## 19. OSM Tools — Egm DayCount 對帳（EgmDayCountPage）
+
+**路由**：`POST /api/osm/meter-reconcile/egm-daycount`（目前只支援 OSM，沒有 GCP 對應版本）｜**歷史紀錄 feature key**：`egm-daycount`
+
+### 功能說明
+比對後台 `Egm DayCount`（`/egm/reports/gameCount`，一天一列彙總報表）與 `User Detail`（`/egm/reports/playerMachineCount`，player+machine 逐筆列）算出的值是否一致。原本是 Performance Meter 對帳頁面內的第二個分頁，後來拆成獨立頁面。兩支 API 皆已用真實 Network request 截圖確認（`backendservertest.osmslot.org`，跟 `meter_reconcile_config` 裡存的 OSM 帳密同一組，共用同一組後台設定，沒有自己的設定 UI）。
 
 **欄位對應**（已用真實查詢驗證兩邊完全吻合，`allPass: true`）：
 | 顯示欄位 | gameCount（Egm DayCount）| playerMachineCount（User Detail）|
@@ -612,19 +626,16 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 
 **⚠️ `gameCount` 的 `sumData` 跟 `items[]` 範圍不一致**（已用真實查詢驗證：查單一天 `total=1`，但 `sumData` 的數字是 `items[0]` 的好幾倍，`sumData` 看起來沒有正確套用日期篩選）——**只查單一天時要用 `items[0]`，不要用 `sumData`**；`playerMachineCount` 的 `sumData` 沒有這個問題，可以直接信任。
 
-**`playerstudioid` 參數**：固定用 `cp,wf,tbr,tbp,ncl,bpo,mdr,dhs,cf,np,pf,igo,np2,ALL` 這組清單（已驗證精準對上後台「Player Channel: np +11」那個預設範圍）。**後台「All」勾選模式尚未實作**：試過整個拿掉 `playerstudioid` 參數想模擬「不篩選」，結果 `gameCount` 直接回傳空資料——代表這個參數是必填，拿掉不等於「全部」；要支援 All 模式，需要使用者實際勾選後台的 All 再截一次 Network request 才知道真正該傳什麼，暫緩實作。
+**`playerstudioid` 參數**：固定用 `cp,wf,tbr,tbp,ncl,bpo,mdr,dhs,cf,np,pf,igo,np2,ALL` 這組清單（已驗證精準對上後台「Player Channel: np +11」那個預設範圍），`channelId` 平常固定 `873`。**「All」全渠道模式**：已用真實 Network request 截圖確認正確做法是 `channelId=0` + `isall=true`（`playerstudioid` 參數維持不變，不是拿掉）——之前誤以為拿掉 `playerstudioid` 可以模擬「不篩選」，結果 API 直接回空資料，是錯的；現在前端有「All」勾選框，會同時切換 `channelId`/`isall` 兩個參數。
 
 **已知限制**：兩張報表不是同一次登入 session 依序拉的，若查詢時有機台正在被 AutoSpin 持續 Spin，兩支 API 呼叫之間的時間差可能導致數字有微小落差，不代表算錯。
 
 ### 使用者操作
 | 操作 | 說明 |
 |------|------|
-| 查詢對帳 | 輸入機台名稱 + 選擇 OSM/GCP 來源 + 日期 + 查詢範圍（Gaming Day／自然日），一鍵拉三邊資料比對 |
-| 查看判定結果 | 頂部橫幅直接顯示一致／不一致 + 差值 |
-| 查看公式攤開 | 顯示算式各項數字來源，方便肉眼核對 |
-| 查看三邊明細 | EGM Hourly Meter 差異值（Coin In/Out/Jackpot/RTP/WIN-LOSE，卡片標題刻意不叫「EGM Performance Meter」——EGM Performance Meter 那支日報表通常要等到約 15:15 才有當日數據，這裡顯示的是用 EGM Hourly Meter 差值算出來、可拿來即時對照的版本）、Game Record 加總（含 Bet Reward Credits／泥碼下注額，取自 `gameRecordList` sumData 的 `bet_nima` 欄位）、Jackpot Abnormality 明細列表並排顯示 |
-| 查看原始欄位除錯表 | 展開查看該筆查詢的所有原始欄位，已驗證欄位標綠色 |
-| 設定 OSM/GCP 後台連線 | Base URL / Origin / Channel ID / 登入帳密，分開設定兩組，可測試登入 |
+| 查詢對帳 | 輸入日期 + 查詢範圍（Gaming Day／自然日）+ All（全渠道）勾選，一鍵拉兩支報表比對 |
+| 查看判定結果 | 頂部橫幅顯示幾個欄位一致，逐欄位表格標示 ✓/✗ 與差值 |
+| 查看 User Detail 逐筆明細 | 可展開查看每一筆 player+machine 紀錄，標示哪些被排除在 Total Bet User 計數外 |
 
 ---
 
