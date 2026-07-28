@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.67.1'
+export const APP_VERSION = '3.67.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.67.2',
+    date: '2026-07-28',
+    changes: [
+      'fix(meter-reconcile): 前端「公式攤開」文字沒有跟上 v3.67.1 的後端公式修正，還在顯示舊的「− Jackpot Wins − Attendant Paid JP」，跟實際算出來的數字對不上，肉眼核對會覺得公式錯誤；改成跟後端一致的「預期 Coin Out = Game Record 總 Win」',
+    ],
+  },
   {
     version: '3.67.1',
     date: '2026-07-28',

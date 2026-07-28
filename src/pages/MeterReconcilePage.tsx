@@ -223,20 +223,7 @@ export function MeterReconcilePage() {
           {/* Formula */}
           <div style={{ background: '#0f172a', border: '1px solid #23344d', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontVariantNumeric: 'tabular-nums' }}>
             <b style={{ color: '#e2e8f0' }}>公式（{result.source === 'osm' ? 'OSM' : 'GCP'}）</b>：預期 Coin Out =
-            {result.source === 'osm' ? (
-              <>
-                <b style={{ color: '#e2e8f0' }}>Game Record 總 Win</b> −
-                <b style={{ color: '#e2e8f0' }}>Jackpot Wins</b> −
-                <b style={{ color: '#e2e8f0' }}>Attendant Paid JP</b> ＝
-                <b style={{ color: '#e2e8f0' }}>{fmt(result.gameRecord.totalWin)}</b> −
-                <b style={{ color: '#e2e8f0' }}>{fmt(result.meter?.jackpotWins)}</b> −
-                <b style={{ color: '#e2e8f0' }}>{fmt(result.attendantPaidJp)}</b> ＝
-              </>
-            ) : (
-              <>
-                <b style={{ color: '#e2e8f0' }}>Game Record 總 Win</b>（含 Jackpot Wins + Attendant Paid JP）＝
-              </>
-            )}
+            <b style={{ color: '#e2e8f0' }}>Game Record 總 Win</b>（不扣 Jackpot Wins／Attendant Paid JP，兩者本來就不含在裡面）＝
             <b style={{ color: '#7dd3fc' }}>{fmt(result.expectedCoinOut)}</b>
             　實際（EGM Meter Coin Out）＝<b style={{ color: result.pass ? '#4ade80' : '#f87171' }}>{fmt(result.actualCoinOut)}</b>
           </div>
