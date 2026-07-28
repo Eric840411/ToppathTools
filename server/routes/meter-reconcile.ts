@@ -150,14 +150,30 @@ router.post('/api/osm/meter-reconcile/test', async (req, res) => {
   else res.status(400).json({ ok: false, message: '登入失敗，請確認帳號密碼與網址設定' })
 })
 
+// GET /api/osm/meter-reconcile/game-types — 給 Egm DayCount 對帳的 Game Type 篩選下拉選單用。
+// /public/gameNameAlias 是公開端點，不需要登入 token（已用真實請求確認），直接 fetch，不走 meterGet。
+router.get('/api/osm/meter-reconcile/game-types', async (req, res) => {
+  try {
+    const cfg = loadMeterConfig('osm')
+    const baseUrl = (cfg.base_url || 'https://backendservertest.osmslot.org').replace(/\/$/, '')
+    const channelId = cfg.channel_id || '873'
+    const r = await fetch(`${baseUrl}/public/gameNameAlias?channelId=${encodeURIComponent(channelId)}`)
+    const d = await r.json() as { data?: { name: string; gameTag: string; id: number }[] }
+    res.json({ ok: true, gameTypes: d.data ?? [] })
+  } catch (e) {
+    res.status(500).json({ ok: false, message: `查詢失敗: ${e}` })
+  }
+})
+
 // ─── Egm DayCount 對帳（比對 gameCount 彙總報表 vs playerMachineCount 逐筆回推）─────
 // 兩支 API 皆已用真實 Network request 截圖確認（channelId=873，OSM backendservertest.osmslot.org）。
 // gameCount：一天一列的彙總報表（Egm DayCount）；playerMachineCount：player+machine 逐筆列（User Detail）。
 router.post('/api/osm/meter-reconcile/egm-daycount', async (req, res) => {
-  const { date, dayBoundary, allChannels } = req.body as {
-    date?: string; dayBoundary?: string; allChannels?: boolean
+  const { date, dayBoundary, allChannels, gameType: gameTypeFilter } = req.body as {
+    date?: string; dayBoundary?: string; allChannels?: boolean; gameType?: string
   }
   if (!date) return res.status(400).json({ ok: false, message: 'date 為必填' })
+  const gameType = gameTypeFilter || ''
   const boundary = dayBoundary === 'calendar' ? 'calendar' : 'gaming'
   const apiDateType = boundary === 'calendar' ? '1' : '0'
   const isall = allChannels ? 'true' : 'false'
@@ -180,7 +196,7 @@ router.post('/api/osm/meter-reconcile/egm-daycount', async (req, res) => {
     // 但 sumData 的數字卻是 items[0] 的好幾倍，看起來 sumData 沒有正確套用日期篩選）——
     // 所以只有一天時改用 items[0]，不要相信 sumData；playerMachineCount 的 sumData 沒有這個問題。
     const dcParams = new URLSearchParams({
-      gameType: '', page: '1', pageSize: '10',
+      gameType, page: '1', pageSize: '10',
       dateType: apiDateType, version: '', bgType: '0', isall, channelId,
     })
     if (playerstudioid) dcParams.set('playerstudioid', playerstudioid)
@@ -199,7 +215,7 @@ router.post('/api/osm/meter-reconcile/egm-daycount', async (req, res) => {
     // sumData 裡的加總欄位（betNumber/betAmount/transferIn/transferOut/winOrLose/winLoseRatio）可以直接信任，
     // 但沒有 betUsers 這種「不重複計數」欄位，要自己從 items[] 算 Bet Number > 0 的不重複 playerId。
     const udParams = new URLSearchParams({
-      gameType: '', clientMachineName: '', playerId: '', playerName: '',
+      gameType, clientMachineName: '', playerId: '', playerName: '',
       page: '1', pageSize: '500', dateType: apiDateType, version: '', bgType: '0', isall, channelId,
     })
     udParams.append('dateTime[]', date); udParams.append('dateTime[]', date)
@@ -223,7 +239,7 @@ router.post('/api/osm/meter-reconcile/egm-daycount', async (req, res) => {
     const jrParams = new URLSearchParams({
       clientMachineName: '', playerId: '', playerName: '', orderId: '',
       page: '1', pageSize: '500', dateTimeType: '1', playerstudioid,
-      gameType: '', bgType: '0', isall, channelId,
+      gameType, bgType: '0', isall, channelId,
     })
     jrParams.append('dateTime[]', jrWindowStart); jrParams.append('dateTime[]', jrWindowEnd)
     const jr = await meterGet('osm', cfg, '/egm/reports/jackpotRecordList', jrParams)
@@ -287,7 +303,7 @@ router.post('/api/osm/meter-reconcile/egm-daycount', async (req, res) => {
     const allPass = comparison.every(c => c.pass)
 
     const result = {
-      ok: true, date, dayBoundary: boundary, allChannels: !!allChannels,
+      ok: true, date, dayBoundary: boundary, allChannels: !!allChannels, gameType,
       allPass, comparison, egmDayCount, userDetail,
       udTruncated, udItems: udItemsAll, bettingUsers,
       jackpotRecords: jrItemsAll, jrTotal,
@@ -296,7 +312,7 @@ router.post('/api/osm/meter-reconcile/egm-daycount', async (req, res) => {
     addHistory(
       'egm-daycount',
       `Egm DayCount 對帳（OSM）`,
-      `${date}（${boundary === 'gaming' ? 'Gaming Day' : '自然日'}${allChannels ? '／All' : ''}）— ${allPass ? '✅ 一致' : `❌ ${comparison.filter(c => !c.pass).length} 個欄位不一致`}`,
+      `${date}（${boundary === 'gaming' ? 'Gaming Day' : '自然日'}${allChannels ? '／All' : ''}${gameType ? `／${gameType}` : ''}）— ${allPass ? '✅ 一致' : `❌ ${comparison.filter(c => !c.pass).length} 個欄位不一致`}`,
       result,
     )
 

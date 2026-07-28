@@ -632,12 +632,14 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 
 **`playerstudioid` 參數**：固定用 `cp,wf,tbr,tbp,ncl,bpo,mdr,dhs,cf,np,pf,igo,np2,ALL` 這組清單（已驗證精準對上後台「Player Channel: np +11」那個預設範圍），`channelId` 平常固定 `873`。**「All」全渠道模式**：已用真實 Network request 截圖確認正確做法是 `channelId=0` + `isall=true`（`playerstudioid` 參數維持不變，不是拿掉）——之前誤以為拿掉 `playerstudioid` 可以模擬「不篩選」，結果 API 直接回空資料，是錯的；現在前端有「All」勾選框，會同時切換 `channelId`/`isall` 兩個參數。
 
-**已知限制**：兩張報表不是同一次登入 session 依序拉的，若查詢時有機台正在被 AutoSpin 持續 Spin，兩支 API 呼叫之間的時間差可能導致數字有微小落差，不代表算錯。
+**Game Type 篩選**：下拉選單資料來自 `GET /public/gameNameAlias?channelId=873`（公開端點，不需要登入 token，`server/routes/meter-reconcile.ts` 的 `/api/osm/meter-reconcile/game-types` 直接代理），回應 `{ name, gameTag, id }[]`；查詢時傳的是 `name`（小寫，例如 `risingrockets`），下拉選項顯示的是 `gameTag`（例如 `RISINGROCKETS`）。三支報表 API 都吃同一個 `gameType` 參數。
+
+**已知限制**：三張報表不是同一次登入 session 依序拉的，若查詢時有機台正在被 AutoSpin 持續 Spin，API 呼叫之間的時間差可能導致數字有微小落差，不代表算錯。
 
 ### 使用者操作
 | 操作 | 說明 |
 |------|------|
-| 查詢對帳 | 輸入日期 + 查詢範圍（Gaming Day／自然日）+ All（全渠道）勾選，一鍵拉三支報表比對 |
+| 查詢對帳 | 輸入日期 + 查詢範圍（Gaming Day／自然日）+ Game Type 篩選 + All（全渠道）勾選，一鍵拉三支報表比對 |
 | 查看判定結果 | 頂部橫幅顯示幾個欄位一致，逐欄位表格標示 ✓/✗ 與差值（含 Jackpot Amount）|
 | 查看有下注的帳號 | 按 UserId 彙整（跨機台加總），不用自己從逐筆明細裡挑 |
 | 查看 User Detail 逐筆明細 | 可展開查看每一筆 player+machine 紀錄，標示哪些被排除在 Total Bet User 計數外 |

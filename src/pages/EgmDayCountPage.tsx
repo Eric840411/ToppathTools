@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 interface EgmDayCountField {
   key: string
@@ -21,6 +21,7 @@ interface EgmDayCountResult {
   date: string
   dayBoundary: 'gaming' | 'calendar'
   allChannels: boolean
+  gameType: string
   allPass: boolean
   comparison: EgmDayCountField[]
   egmDayCount: { betUsers: number; betNumber: number; betAmount: number; transferIn: number; transferOut: number; winOrLose: number; winLoseRatio: number; jackpotAmount: number }
@@ -36,20 +37,31 @@ function fmt(n: number | undefined | null, digits = 2): string {
   return n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits })
 }
 
+interface GameTypeOption { name: string; gameTag: string; id: number }
+
 export function EgmDayCountPage() {
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [dayBoundary, setDayBoundary] = useState<'gaming' | 'calendar'>('gaming')
   const [allChannels, setAllChannels] = useState(false)
+  const [gameType, setGameType] = useState('')
+  const [gameTypes, setGameTypes] = useState<GameTypeOption[]>([])
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<EgmDayCountResult | null>(null)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    fetch('/api/osm/meter-reconcile/game-types')
+      .then(r => r.json())
+      .then(d => { if (d.ok) setGameTypes(d.gameTypes ?? []) })
+      .catch(() => {})
+  }, [])
 
   async function handleQuery() {
     setLoading(true); setError(''); setResult(null)
     try {
       const res = await fetch('/api/osm/meter-reconcile/egm-daycount', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, dayBoundary, allChannels }),
+        body: JSON.stringify({ date, dayBoundary, allChannels, gameType }),
       })
       const d = await res.json()
       if (!d.ok) { setError(d.message || '查詢失敗'); return }
@@ -98,6 +110,15 @@ export function EgmDayCountPage() {
             ))}
           </div>
         </div>
+        <div>
+          <label style={labelStyle}>Game Type</label>
+          <select value={gameType} onChange={e => setGameType(e.target.value)} style={{ ...inputStyle, minWidth: 160 }}>
+            <option value="">All Game</option>
+            {gameTypes.map(g => (
+              <option key={g.id} value={g.name}>{g.gameTag}</option>
+            ))}
+          </select>
+        </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: '#94a3b8', cursor: 'pointer', paddingBottom: 8 }}>
           <input type="checkbox" checked={allChannels} onChange={e => setAllChannels(e.target.checked)} />
           All（含全部渠道，不受 Player Channel「np +11」篩選限制）
@@ -126,7 +147,7 @@ export function EgmDayCountPage() {
               {result.allPass ? '一致 — 全部欄位吻合' : `不一致 — ${result.comparison.filter(c => !c.pass).length} 個欄位有落差`}
             </div>
             <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
-              {result.date} · {result.dayBoundary === 'gaming' ? 'Gaming Day 06:00~隔天06:00' : '自然日 00:00~24:00'} · {result.allChannels ? 'All 渠道' : 'Player Channel: np +11'}
+              {result.date} · {result.dayBoundary === 'gaming' ? 'Gaming Day 06:00~隔天06:00' : '自然日 00:00~24:00'} · {result.allChannels ? 'All 渠道' : 'Player Channel: np +11'}{result.gameType ? ` · Game Type: ${result.gameType}` : ''}
             </div>
           </div>
           <div style={{ marginLeft: 'auto', textAlign: 'right', fontSize: 12, color: '#94a3b8' }}>

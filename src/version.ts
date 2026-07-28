@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.72.0'
+export const APP_VERSION = '3.73.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.73.0',
+    date: '2026-07-28',
+    changes: [
+      'feat(egm-daycount): 新增 Game Type 篩選下拉選單（資料來自 /public/gameNameAlias 公開端點），可依機種篩選 Egm DayCount 對帳，三支報表 API 都會套用同一個篩選',
+    ],
+  },
   {
     version: '3.72.0',
     date: '2026-07-28',
