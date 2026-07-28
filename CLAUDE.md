@@ -335,7 +335,9 @@ Keep Claude for:
 
 **觸屏點擊 `wait_for_span_text()` 不檢查可見性**：觸屏測試用的 `.screen-touch` 疊加層 `<span>` 是完全透明的，Playwright 的 `is_visible()` 對這種 span 一律回傳 `False`——`machine-test/runner.ts` 的 `waitForSpanText()` 早就針對這點只檢查元素存在（`count() > 0`），AutoSpin 的 Python 版本需要保持同步做法，不能加可見性檢查，否則 entryTouchPoints/entryTouchPoints2/bonusAction=touchscreen 的座標點會全部誤判成「找不到元素」。
 
-**QAT/PROD 日誌 API（daily-analysis）同步**：機台設定新增 `logApiEnv`（`'qat'`/`'prod'`，預設 `qat`）欄位，AutoSpin 執行中每台機每 5 秒背景輪詢一次 `https://{qat|prod}-osmtrace.osmslot.org/api/machine/daily-analysis?gmid=<gameTitleCode>&date=YYYY-MM-DD`（跟 Machine Test 的 `pollMachineLog()` 同一支 API），把「上次輪詢之後」新出現的 timeline 紀錄印到執行日誌（`[machineType][daily-analysis] 時間 type 內容`）。第一次輪詢只記錄基準時間、不印歷史紀錄，避免整批倒灌洗版；跨日時基準時間自動重置。輪詢本身用 `async_call()` 丟到背景執行緒，不會卡住主 Spin 迴圈。
+**QAT/PROD 日誌 API（daily-analysis）同步**：機台設定新增 `logApiEnv`（`'qat'`/`'prod'`，預設 `qat`）欄位，AutoSpin 執行中每台機每 5 秒背景輪詢一次 `https://{qat|prod}-osmtrace.osmslot.org/api/machine/daily-analysis?gmid=<gameTitleCode>&date=YYYY-MM-DD`（跟 Machine Test 的 `pollMachineLog()` 同一支 API），把「上次輪詢之後」新出現的 timeline 紀錄印到執行日誌（`[machineType][daily-analysis] 時間 type 內容`）。第一次輪詢只記錄基準時間、不印歷史紀錄，避免整批倒灌洗版；跨日時基準時間自動重置。輪詢本身用 `async_call()` 丟到背景執行緒，不會卡住主 Spin 迴圈。查詢失敗（網路不通/逾時/非 200）不會整個吞掉不出聲，每 60 秒印一次警告。
+
+**按鈕健康度追蹤（`track_button_health()`）**：daily-analysis 的 `success_json` 事件是「按鈕指令有沒有被硬體/遊戲端正確處理」的確認事件（跟 Machine Test iDeck 測試步驟用的 `getIdeckTimes()` 判斷邏輯同一套語意），關鍵欄位：`error`（0=正常，非 0=真的異常）、`cmd`（十六進位字串=iDeck 按鈕，座標字串如 `"19,38"`=觸屏）、`is_ideck`/`is_touch`（分類）。不逐行印每個 success_json（會洗版），改成維護滾動計數：`error != 0` 立即印一行醒目警告（附 `cmd` 方便定位是哪顆按鈕），每累積 `BUTTON_SUMMARY_EVERY`（20）次按鈕確認事件印一次摘要（`iDeck X/Y 正常，觸屏 X/Y 正常`）。純資料來自既有的 daily-analysis 輪詢，沒有額外打 API。
 
 > `SPECIAL_GAMES = {'BULLBLITZ', 'ALLABOARD'}` 與 `machine_actions`（`toppath-agent.py`）目前仍是未串接的殘留變數——按鈕尋找已經靠 `SPIN_SELECTORS_DEFAULT` 的 fallback chain（含 `.btn_spin .my-button` 這個專門給這類特殊按鈕結構用的 selector）涵蓋，`machine_actions`（machine-test 風格座標點擊）尚未實作，待後續確認範圍。
 

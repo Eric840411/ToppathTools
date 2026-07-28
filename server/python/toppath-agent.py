@@ -212,6 +212,12 @@ DAILY_ANALYSIS_URLS = {
 daily_log_state: dict = {}  # machineType -> {'date': 'YYYY-MM-DD', 'last_time': 'HH:MM:SS'}
 daily_log_lock = threading.Lock()
 
+# 按鈕健康度追蹤（從 daily-analysis 的 success_json 事件解析，只算 iDeck/觸屏按鈕，不算其他事件類型）
+# machineType -> {'ideck_ok':int, 'ideck_err':int, 'touch_ok':int, 'touch_err':int, 'since_summary':int}
+button_health: dict = {}
+button_health_lock = threading.Lock()
+BUTTON_SUMMARY_EVERY = 20  # 每累積這麼多次按鈕確認事件，印一次健康度摘要
+
 # ─── Pinus / GM Event 監控 injected script ────────────────────────────────────
 # 完整移植自 server/machine-test/runner.ts 的 PINUS_TRACKER_SCRIPT + GM_EVENT_MONITOR_SCRIPT，
 # 並擴充 window.__pinusLog 記錄所有 pinus request/response/push 訊息（供監控功能使用）。
@@ -1149,6 +1155,40 @@ def poll_daily_analysis_log(mt: str, gmid: str, env: str):
         if len(data_str) > 300:
             data_str = data_str[:300] + '…'
         log(f"[{mt}][daily-analysis] {e.get('time', '')} {e.get('type', '')} {data_str}")
+
+        if e.get('type') == 'success_json':
+            track_button_health(mt, e.get('data') if isinstance(e.get('data'), dict) else {})
+
+
+def track_button_health(mt: str, data: dict):
+    """解析 daily-analysis 的 success_json 事件，追蹤 iDeck/觸屏按鈕的健康度。
+    error==0 代表這次按鈕指令有被硬體/遊戲端正確處理；非 0 代表真的有異常，立即印警告
+    （附上 cmd，方便定位是哪一顆按鈕/座標）。累積到一定次數印一次整體摘要，不逐行洗版。"""
+    is_ideck = bool(data.get('is_ideck'))
+    is_touch = bool(data.get('is_touch'))
+    if not is_ideck and not is_touch:
+        return  # 不是按鈕確認事件（例如純粹的畫面/連線類 success_json），不計入
+    error = data.get('error', 0)
+    cmd = data.get('cmd', '')
+    kind = 'ideck' if is_ideck else 'touch'
+
+    with button_health_lock:
+        h = button_health.setdefault(mt, {'ideck_ok': 0, 'ideck_err': 0, 'touch_ok': 0, 'touch_err': 0, 'since_summary': 0})
+        if error == 0:
+            h[f'{kind}_ok'] += 1
+        else:
+            h[f'{kind}_err'] += 1
+        h['since_summary'] += 1
+        due_summary = h['since_summary'] >= BUTTON_SUMMARY_EVERY
+        if due_summary:
+            h['since_summary'] = 0
+        snapshot = dict(h)
+
+    if error != 0:
+        log(f"[{mt}] ⚠️ 按鈕異常（{'iDeck' if is_ideck else '觸屏'}）cmd={cmd} error={error}")
+    if due_summary:
+        log(f"[{mt}] 按鈕健康度：iDeck {snapshot['ideck_ok']}/{snapshot['ideck_ok']+snapshot['ideck_err']} 正常，"
+            f"觸屏 {snapshot['touch_ok']}/{snapshot['touch_ok']+snapshot['touch_err']} 正常")
 
 
 def wait_for_normal_osm_status(gmid: str, page, cfg: dict, mt: str) -> bool:

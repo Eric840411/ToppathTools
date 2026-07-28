@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.68.1'
+export const APP_VERSION = '3.69.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.69.0',
+    date: '2026-07-28',
+    changes: [
+      'feat(autospin): daily-analysis 輪詢新增按鈕健康度追蹤——解析 success_json 事件（is_ideck/is_touch + error + cmd），error≠0 立即印警告（附 cmd 方便定位是哪顆按鈕），累積每 20 次按鈕確認事件印一次「iDeck X/Y 正常，觸屏 X/Y 正常」摘要，不用逐行看原始日誌判斷按鈕是否正常',
+    ],
+  },
   {
     version: '3.68.1',
     date: '2026-07-28',
