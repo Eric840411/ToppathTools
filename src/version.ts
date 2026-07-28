@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.70.0'
+export const APP_VERSION = '3.70.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.70.1',
+    date: '2026-07-28',
+    changes: [
+      'fix(meter-reconcile): Coin Out 對帳卡片標題改成「EGM Hourly Meter（差異值）」，不再誤標成「EGM Performance Meter」——資料其實是從 EGM Hourly Meter 算差值來的，EGM Performance Meter 那支日報表通常要等到約 15:15 才有當日數據，標題寫錯會誤導使用者',
+    ],
+  },
   {
     version: '3.70.0',
     date: '2026-07-28',

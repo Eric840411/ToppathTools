@@ -318,10 +318,10 @@ export function MeterReconcilePage() {
             <div style={card}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#3b82f6' }} />
-                <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800 }}>EGM Performance Meter</h3>
+                <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800 }}>EGM Hourly Meter（差異值）</h3>
               </div>
               <div style={{ fontSize: 11, color: '#64748b', marginTop: -6 }}>
-                {result.source === 'osm' ? 'OSM（CP）' : 'GCP（NC）'} · 整天累計
+                {result.source === 'osm' ? 'OSM（CP）' : 'GCP（NC）'} · 查詢範圍內最後一個 bucket − 第一個 bucket · 可拿來對照 EGM Performance Meter（該報表通常要等到約 15:15 才有當日數據）
               </div>
               {result.meter ? (
                 <>
