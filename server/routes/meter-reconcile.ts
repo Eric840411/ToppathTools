@@ -299,14 +299,24 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     const attendantPaidJp = jpItems.reduce((s, it) => s + num(it.handpay), 0)
 
     // ④ 公式比對
-    // 預期 Coin Out = Game Record 總 Win（OSM/GCP 皆同，不用另外扣 Jackpot Wins／Attendant Paid JP）。
-    // 修正紀錄：原本 OSM 公式會再扣一次 Jackpot Wins + Attendant Paid JP，是誤用了 OSM 後台報表裡
-    // 「TotalCoinOut = Jackpot Wins + Coin Out」這個複合欄位的關係（TotalCoinOut 本身才包含 Jackpot Wins，
-    // 一般的 Coin Out／Game Record 總 Win 從頭就不含）。用真實資料驗證：Triple Treasure Pot 2026-07-27
-    // 18:00 這筆 Jackpot Wins=75,685（非 0）的案例，meter Coin Out=4,870 與 Game Record 總 Win=4,870
-    // 完全相等，證明不該扣；先前唯一「驗證通過」的案例（Rising Rockets Emperor-141）剛好 Jackpot Wins=0，
-    // 扣或不扣結果一樣，並沒有真的測到這個分支。
-    const expectedCoinOut = gameRecord.totalWin
+    // OSM：預期 Coin Out = Game Record 總 Win + Attendant Paid JP − Jackpot Wins
+    // GCP：預期 Coin Out = Game Record 總 Win（GCP 的 Game Record 本身就含 Jackpot Wins + Attendant Paid JP）
+    //
+    // 公式修正歷程（同一天內來回修正了三次，記錄下來避免之後又走回頭路）：
+    // 1. 最原始版本會扣 Jackpot Wins + Attendant Paid JP，Triple Treasure Pot（Jackpot Wins=75,685 非 0）
+    //    這筆案例算出離譜負數，一度以為「不該扣任何東西」，改成 expectedCoinOut = Game Record 總 Win。
+    // 2. 但 DFDC3（88 Fortunes）這筆案例（Jackpot Wins=5,000、Attendant Paid JP=0）用「不扣」的版本又不對：
+    //    Game Record Payout（5,000）本身就已經含 Jackpot Wins，跟 meter 的 Coin Out（0）對不上。
+    // 3. 關鍵差異：Jackpot Wins 有沒有被「同一筆」Game Record 記錄吃掉，取決於該次中獎走的是哪個派彩管道——
+    //    DFDC3 直接把 Jackpot Wins 併入同一筆 Payout；Triple Treasure Pot 的 Jackpot Wins 沒有併入 Payout，
+    //    而是另外走 Attendant Paid JP（getHandPayRecord 那 7 筆 handpay）。所以真正該比對的恆等式是：
+    //      Game Record 總 Win + Attendant Paid JP = Jackpot Wins + Coin Out（= 後台的 TotalCoinOut）
+    //    移項即得上面的公式，兩個真實案例都驗證通過：
+    //      Triple Treasure Pot：4,870 + 75,685 − 75,685 = 4,870 = 實際 Coin Out ✓
+    //      DFDC3：5,000 + 0 − 5,000 = 0 = 實際 Coin Out ✓
+    const expectedCoinOut = profile === 'osm'
+      ? gameRecord.totalWin + attendantPaidJp - (meter?.jackpotWins ?? 0)
+      : gameRecord.totalWin
     const actualCoinOut = meter?.coinOut ?? 0
     const delta = actualCoinOut - expectedCoinOut
     const pass = Math.abs(delta) < 0.005 // 浮點誤差容忍

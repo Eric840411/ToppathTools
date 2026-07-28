@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.68.0'
+export const APP_VERSION = '3.68.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.68.1',
+    date: '2026-07-28',
+    changes: [
+      'fix(meter-reconcile): 修正 OSM 公式沒有正確處理「Jackpot Wins 有沒有被併入同一筆 Game Record」的情況——改成 預期 Coin Out = Game Record 總 Win + Attendant Paid JP − Jackpot Wins（兩者互補：沒被 Game Record 吃掉的 Jackpot Wins 會走 Attendant Paid JP），同時驗證 Triple Treasure Pot（Jackpot Wins 走 Attendant Paid JP）與 DFDC3 88 Fortunes（Jackpot Wins 併入 Game Record）兩個相反案例皆 pass',
+    ],
+  },
   {
     version: '3.68.0',
     date: '2026-07-28',
