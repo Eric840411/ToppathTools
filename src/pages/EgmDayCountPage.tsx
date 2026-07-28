@@ -13,6 +13,9 @@ interface EgmDayCountRow {
   win?: string; betTimes?: string; bet?: string
   machineIn?: string; machineOut?: string; playerWin?: string
 }
+interface BettingUser {
+  playerId: string; playerName: string; betNumber: number; betAmount: number; machineCount: number
+}
 interface EgmDayCountResult {
   ok: boolean
   date: string
@@ -24,6 +27,7 @@ interface EgmDayCountResult {
   userDetail: { betUsers: number; betNumber: number; betAmount: number; transferIn: number; transferOut: number; winOrLose: number; winLoseRatio: number; jackpotAmount: number; recordCount: number }
   udTruncated: boolean
   udItems: EgmDayCountRow[]
+  bettingUsers: BettingUser[]
   message?: string
 }
 
@@ -159,10 +163,38 @@ export function EgmDayCountPage() {
           </tbody>
         </table>
         <p style={{ fontSize: 11, color: '#64748b', margin: '0 0 16px' }}>
-          Jackpot Amount（{fmt(result.egmDayCount.jackpotAmount, 0)}）：playerMachineCount 沒有這個欄位，不參與比對，僅顯示 Egm DayCount 原始值。
+          Jackpot Amount 對照的是 Jackpot Record 報表（jackpotRecordList）逐筆中獎紀錄加總，不是 User Detail。
           Total Bet User 是從 User Detail 逐筆列裡「Bet Number &gt; 0」的不重複 UserId 數出來的（不是 API 直接提供的欄位）。
           兩張報表若非同一時刻查詢，短時間內若有機台持續在跑（例如 AutoSpin），數字可能會有些微落差，不代表算錯。
         </p>
+
+        <div style={{ background: '#162338', border: '1px solid #23344d', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 8 }}>
+            💰 有下注的帳號（{result.bettingUsers.length} 個，跨機台已彙整，不重複）
+          </div>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5, fontVariantNumeric: 'tabular-nums' }}>
+            <thead>
+              <tr style={{ color: '#64748b' }}>
+                <th style={{ textAlign: 'left', padding: '5px 8px' }}>UserId</th>
+                <th style={{ textAlign: 'left', padding: '5px 8px' }}>Account</th>
+                <th style={{ textAlign: 'right', padding: '5px 8px' }}>玩過幾台機台</th>
+                <th style={{ textAlign: 'right', padding: '5px 8px' }}>Bet Number 合計</th>
+                <th style={{ textAlign: 'right', padding: '5px 8px' }}>Bet 合計</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.bettingUsers.map(u => (
+                <tr key={u.playerId} style={{ borderBottom: '1px solid #1e293b' }}>
+                  <td style={{ padding: '5px 8px' }}>{u.playerId}</td>
+                  <td style={{ padding: '5px 8px' }}>{u.playerName}</td>
+                  <td style={{ textAlign: 'right', padding: '5px 8px' }}>{u.machineCount}</td>
+                  <td style={{ textAlign: 'right', padding: '5px 8px' }}>{u.betNumber}</td>
+                  <td style={{ textAlign: 'right', padding: '5px 8px' }}>{fmt(u.betAmount, 0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
 
         <details style={{ background: '#162338', border: '1px solid #23344d', borderRadius: 10, padding: '2px 16px' }}>
           <summary style={{ cursor: 'pointer', padding: '10px 0', fontSize: 12, color: '#94a3b8', fontWeight: 700 }}>

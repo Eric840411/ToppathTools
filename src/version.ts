@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.71.0'
+export const APP_VERSION = '3.72.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.72.0',
+    date: '2026-07-28',
+    changes: [
+      'feat(egm-daycount): Jackpot Amount 改成真的比對 jackpotRecordList（Jackpot Record 報表）逐筆中獎紀錄加總，不再只是單純顯示；新增「有下注的帳號」彙整表格（按 UserId 跨機台加總 Bet Number/Bet），不用自己從逐筆明細裡挑不重複帳號',
+    ],
+  },
   {
     version: '3.71.0',
     date: '2026-07-28',

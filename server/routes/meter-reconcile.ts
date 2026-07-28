@@ -212,15 +212,53 @@ router.post('/api/osm/meter-reconcile/egm-daycount', async (req, res) => {
     }
     const udItemsAll: UdRow[] = ud?.data?.items ?? []
     const udTotal: number = ud?.data?.total ?? udItemsAll.length
+
+    // ②b Jackpot Record（jackpotRecordList）—— 逐筆中獎紀錄，拿來驗證 Egm DayCount 的 Jackpot Amount。
+    // 這支 API 跟前兩支不同：dateTimeType=1、dateTime[] 是空白分隔的本地時間字串（已用真實
+    // Network request 截圖確認格式，不是 ISO UTC）。
+    const dayStartHour = boundary === 'calendar' ? 0 : 6
+    const nextDate = nextDateStr(date)
+    const jrWindowStart = `${date} ${String(dayStartHour).padStart(2, '0')}:00:00`
+    const jrWindowEnd = `${nextDate} ${String(dayStartHour).padStart(2, '0')}:00:00`
+    const jrParams = new URLSearchParams({
+      clientMachineName: '', playerId: '', playerName: '', orderId: '',
+      page: '1', pageSize: '500', dateTimeType: '1', playerstudioid,
+      gameType: '', bgType: '0', isall, channelId,
+    })
+    jrParams.append('dateTime[]', jrWindowStart); jrParams.append('dateTime[]', jrWindowEnd)
+    const jr = await meterGet('osm', cfg, '/egm/reports/jackpotRecordList', jrParams)
+    type JrRow = { userid?: string; username?: string; clientMachineName?: string; bet?: number; jackpotamount?: number; payoutTime?: string }
+    const jrItemsAll: JrRow[] = jr?.data?.items ?? []
+    const jrTotal: number = jr?.data?.total ?? jrItemsAll.length
+    const jrSum = jr?.data?.sumData ?? {}
+    const jackpotRecordTotal = num(jrSum.jackpotamount)
     const udTruncated = udTotal > udItemsAll.length // pageSize=500 不夠裝下全部時的保底警告
     const udSum = ud?.data?.sumData ?? {}
 
     const betUserSet = new Set(udItemsAll.filter(r => num(r.betTimes) > 0).map(r => r.playerId))
+
+    // 同一個 UserId 會在多台機台各出現一列（Bet Number > 0 才算進 Total Bet User），使用者反應肉眼要
+    // 從逐筆明細裡自己找出「有下注的帳號」很麻煩，這裡先按 playerId 彙整一次，跨機台的 Bet Number/Bet 加總。
+    const userAgg = new Map<string, { playerId: string; playerName: string; betNumber: number; betAmount: number; machines: Set<string> }>()
+    for (const r of udItemsAll) {
+      const bt = num(r.betTimes)
+      if (bt <= 0) continue
+      const pid = r.playerId || ''
+      const cur = userAgg.get(pid) ?? { playerId: pid, playerName: r.playerName || '', betNumber: 0, betAmount: 0, machines: new Set<string>() }
+      cur.betNumber += bt
+      cur.betAmount += num(r.bet)
+      if (r.clientMachineName) cur.machines.add(r.clientMachineName)
+      userAgg.set(pid, cur)
+    }
+    const bettingUsers = Array.from(userAgg.values())
+      .map(u => ({ playerId: u.playerId, playerName: u.playerName, betNumber: u.betNumber, betAmount: u.betAmount, machineCount: u.machines.size }))
+      .sort((a, b) => b.betAmount - a.betAmount)
+
     const userDetail = {
       betUsers: betUserSet.size, betNumber: num(udSum.betTimes), betAmount: num(udSum.bet),
       transferIn: num(udSum.machineIn), transferOut: num(udSum.machineOut),
       winOrLose: num(udSum.platformWin), winLoseRatio: num(udSum.platformWinPercent),
-      jackpotAmount: egmDayCount.jackpotAmount, // playerMachineCount 沒有這個欄位，沿用 gameCount 的值顯示，不參與比對
+      jackpotAmount: jackpotRecordTotal, // 來自 jackpotRecordList（Jackpot Record 報表），不是 playerMachineCount
       recordCount: udTotal,
     }
 
@@ -233,18 +271,26 @@ router.post('/api/osm/meter-reconcile/egm-daycount', async (req, res) => {
       { key: 'winOrLose', label: 'Total Win Or Lose Amount' },
       { key: 'winLoseRatio', label: 'Total Win Lose Ratio' },
     ] as const
-    const comparison = fields.map(f => {
+    type ComparisonRow = { key: string; label: string; egmDayCount: number; userDetail: number; delta: number; pass: boolean }
+    const comparison: ComparisonRow[] = fields.map(f => {
       const a = (egmDayCount as any)[f.key] as number
       const b = (userDetail as any)[f.key] as number
       const delta = a - b
       return { key: f.key, label: f.label, egmDayCount: a, userDetail: b, delta, pass: Math.abs(delta) < 0.005 }
     })
+    // Jackpot Amount：對照 jackpotRecordList（Jackpot Record 報表）逐筆中獎紀錄加總，是真的比對，
+    // 不是單純顯示（已用真實資料驗證：DFDC3 88 Fortunes 那筆 jackpotamount=2,222，跟 Egm DayCount 一致）。
+    {
+      const a = egmDayCount.jackpotAmount, b = jackpotRecordTotal, delta = a - b
+      comparison.push({ key: 'jackpotAmount', label: 'Jackpot Amount', egmDayCount: a, userDetail: b, delta, pass: Math.abs(delta) < 0.005 })
+    }
     const allPass = comparison.every(c => c.pass)
 
     const result = {
       ok: true, date, dayBoundary: boundary, allChannels: !!allChannels,
       allPass, comparison, egmDayCount, userDetail,
-      udTruncated, udItems: udItemsAll,
+      udTruncated, udItems: udItemsAll, bettingUsers,
+      jackpotRecords: jrItemsAll, jrTotal,
     }
 
     addHistory(
