@@ -10,11 +10,36 @@ export const router = Router()
 type Profile = 'osm' | 'gcp'
 
 /** gameRecordList / getHandPayRecord 的 dateTime[] 上界似乎是「不含當天」，
- * 同一天當 start/end 會查到 0 筆；要傳 date+1 才能真正包含當天資料（已用真實資料驗證）。 */
+ * 同一天當 start/end 會查到 0 筆；要傳 date+1 才能真正包含當天資料（已用真實資料驗證）。
+ * @deprecated 只給還沒改用 toUtcIso() 的地方用；新代碼請用 toUtcIso()（見下方說明）。 */
 function nextDateStr(date: string): string {
   const d = new Date(`${date}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() + 1)
   return d.toISOString().slice(0, 10)
+}
+
+/** 後台自己的 Game Record 查詢介面（有 DevTools 截圖佐證）送出的 dateTime[] 其實是
+ * ISO UTC 字串（例如 "2026-07-26T22:00:00.000Z"），不是單純日期字串——這才是真正能做到
+ * 小時級篩選的格式，先前用 "YYYY-MM-DD HH:mm:ss" 這種空白分隔字串完全被後端忽略時分秒。
+ * 使用者操作介面的時區固定是 UTC+8（已用真實請求反推驗證：本地 06:00 對應 UTC 前一天 22:00）。 */
+function toUtcIso(dateStr: string, hh: number, mm = 0, ss = 0): string {
+  const t = `${dateStr}T${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}.000+08:00`
+  return new Date(t).toISOString()
+}
+
+function prevDateStr(date: string): string {
+  const d = new Date(`${date}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() - 1)
+  return d.toISOString().slice(0, 10)
+}
+
+/** OSM/GCP 的 gaming day 是本地時間 06:00 到隔天 05:59:59，不是自然日 00:00~24:00
+ * （已用真實 hourly bucket 資料驗證：每個 gaming day 第一筆固定是 06:00:00）。 */
+const GAMING_DAY_START_HOUR = 6
+
+/** 目標小時所屬 gaming day 的起點日期：小時 >= 6 用查詢日期本身，< 6 屬於前一天開始的 gaming day。 */
+function gamingDayStartDate(date: string, targetHour: number): string {
+  return targetHour >= GAMING_DAY_START_HOUR ? date : prevDateStr(date)
 }
 
 
@@ -225,11 +250,21 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
       }
     })() : null
 
+    // 精確對齊使用者選定的查詢小時：用 gaming day 起點（本地 06:00）到目標小時（含）當作時間窗，
+    // 用 ISO UTC 格式送出（已用實際後台頁面截到的 Network request 反推出真正格式：
+    // dateTime[]=2026-07-26T22:00:00.000Z 這種 ISO UTC，本地 UTC+8 06:00 = UTC 前一天 22:00，
+    // 先前用 "YYYY-MM-DD HH:mm:ss" 空白分隔字串完全被後端忽略時分秒，就是格式不對）。
+    const targetHourNum = parseInt(hour.split(':')[0] || '0', 10)
+    const gdStartDate = gamingDayStartDate(date, targetHourNum)
+    const endHourRaw = targetHourNum + 1 // 上界不含，用下一小時的起點
+    const windowEndDate = endHourRaw >= 24 ? nextDateStr(date) : date
+    const windowEndHour = endHourRaw >= 24 ? 0 : endHourRaw
+    const windowStartIso = toUtcIso(gdStartDate, GAMING_DAY_START_HOUR)
+    const windowEndIso = toUtcIso(windowEndDate, windowEndHour)
+    const windowStartLocal = `${gdStartDate} ${String(GAMING_DAY_START_HOUR).padStart(2, '0')}:00:00`
+    const windowEndLocal = `${windowEndDate} ${String(windowEndHour).padStart(2, '0')}:00:00`
+
     // ② Game Record 加總（gameRecordList 本身有 sumData，不用逐頁手動加總）
-    // 試過把 dateTime[] 換成含時分秒的字串（例如 "2026-07-27 06:00:00" ~ "2026-07-27 19:00:00"）
-    // 想精確對齊查詢小時，但已用 Dragons-NCH23 2026-07-27 18:00 真實案例驗證：這支 API 的
-    // dateTime[] 篩選只看日期部分，時分秒會被忽略，結果跟整日查詢完全一樣——所以目前還是只能
-    // 抓整個 gaming day，沒有辦法用這個參數做到小時級篩選（見下面 gameRecord 的說明）。
     const grParams = new URLSearchParams({
       clientMachineName: machineName, playerId: '', playerName: '', orderId: '',
       page: '1', pageSize: '1',
@@ -237,8 +272,8 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
       playerstudioid: 'cp,wf,tbr,tbp,ncl,bpo,mdr,dhs,cf,np,pf,igo,ALL',
       bgType: profile === 'gcp' ? '2' : '0', dataType: '0', isall: 'false', channelId,
     })
-    grParams.append('dateTime[]', date)
-    grParams.append('dateTime[]', nextDateStr(date))
+    grParams.append('dateTime[]', windowStartIso)
+    grParams.append('dateTime[]', windowEndIso)
     const grData = await meterPost(profile, cfg, '/egm/reports/gameRecordList', grParams)
     const grSum = grData?.data?.sumData ?? {}
     // betRewardCredits = 泥碼下注額（sumData.bet_nima，已用真實 API 回應核對過欄位名稱）
@@ -250,22 +285,24 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
 
     // ③ Jackpot Abnormality（getHandPayRecord）——這支 API 的 clientMachineName 篩選會讓日期篩選失效
     // （實測：帶了機台名稱後，回傳的是該機台「最近 N 筆」handpay，完全忽略 dateTime[] 範圍），
-    // 所以固定抓回後在這裡用 payoutTime 字串前綴做二次過濾，取當日真正的資料。
-    // 語意：這支 API 的 handpay 對應的是「Attendant Paid JP」（需要人工核發的手付獎金），
-    // 不是「Jackpot Wins」本身——Jackpot Wins 已經在 EGM Performance Meter 的欄位 29 裡（已用公式驗證），
-    // 這兩者是公式裡不同的兩項，不能互相取代。
+    // 所以固定抓回後在這裡用 payoutTime 字串跟查詢時間窗（本地時間）做二次過濾。
+    // 語意：Attendant Paid JP Meter（機台實際 meter 值）≠ 這支 API 的 handpay（QA 測試用人工派彩紀錄，
+    // 不會真的寫進機台 meter）——已由使用者確認兩者是不同東西，數字相等純屬個案巧合。
     const jpParams = new URLSearchParams({
       clientMachineName: machineName, playerId: '', playerName: '', orderId: '',
       page: '1', pageSize: '200', dateTimeType: '0',
       playerstudioid: 'cp,wf,tbr,tbp,ncl,bpo,mdr,dhs,cf,np,pf,igo,np2,ALL',
       isall: 'false', channelId,
     })
-    jpParams.append('dateTime[]', date)
-    jpParams.append('dateTime[]', nextDateStr(date))
+    jpParams.append('dateTime[]', windowStartIso)
+    jpParams.append('dateTime[]', windowEndIso)
     const jpData = await meterPost(profile, cfg, '/abnormality/getHandPayRecord', jpParams)
     type HandPayItem = { handpay?: number; payoutTime?: string; betTime?: string; username?: string }
     const jpItemsAll: HandPayItem[] = jpData?.data?.items ?? []
-    const jpItems = jpItemsAll.filter(it => (it.payoutTime ?? '').startsWith(date))
+    const jpItems = jpItemsAll.filter(it => {
+      const pt = it.payoutTime ?? ''
+      return pt >= windowStartLocal && pt < windowEndLocal
+    })
     const attendantPaidJp = jpItems.reduce((s, it) => s + num(it.handpay), 0)
 
     // ④ 公式比對

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.67.2'
+export const APP_VERSION = '3.67.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.67.3',
+    date: '2026-07-28',
+    changes: [
+      'fix(meter-reconcile): Game Record／Jackpot Abnormality 查詢改用真正的 ISO UTC 時間格式（例如 2026-07-26T22:00:00.000Z），對齊後台 Game Record 頁面實際送出的請求格式，並用正確的 gaming day 邊界（本地 06:00 到隔天 06:00）取代先前的日期字串邊界（先前用純日期字串在 gaming day 頭尾各有約 2 小時的邊界誤差空間）；已測試確認舊有驗證案例（Triple Treasure Pot）仍維持 pass',
+    ],
+  },
   {
     version: '3.67.2',
     date: '2026-07-28',
