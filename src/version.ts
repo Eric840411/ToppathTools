@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.73.0'
+export const APP_VERSION = '3.74.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.74.0',
+    date: '2026-07-29',
+    changes: [
+      'feat(autospin): 新增定時彙總報告——被動追蹤 errcode 次數（dealGMActionReq 回應）、pinus WebSocket 斷線重連（RECOVER）次數、低餘額離機重進（kickout）次數、CR checks（daily-analysis 按鈕確認事件含「無回應」偵測，60 秒無事件視為異常，不主動點按鈕）、Spin/中獎/總贏分統計，每隔可調間隔（預設 20 分鐘，Agent 心跳即時生效不用重啟）發一則新的 Discord 彙總訊息，跟啟動/結束通知獨立開關；顯示欄位可自訂勾選（server/routes/autospin.ts status-report-settings、server/python/toppath-agent.py maybe_send_status_report）',
+      'feat(sysadmin): Discord 通知設定頁新增「定時彙總報告」設定卡片——啟用開關、間隔（分鐘）輸入、欄位勾選、獨立儲存按鈕',
+    ],
+  },
   {
     version: '3.73.0',
     date: '2026-07-28',

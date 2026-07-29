@@ -355,6 +355,118 @@ router.post('/api/autospin/discord-webhook/test', async (_req, res) => {
   }
 })
 
+// ─── 定時彙總報告設定（RECOVER/errcode/CR checks/kickouts 等長時間穩定性統計）──────
+// 跟啟動/結束的 Discord 通知共用同一個 webhook URL，只是另外開關+設定間隔跟顯示欄位。
+
+function getStatusReportEnabled(): boolean {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('autospin_status_report_enabled') as { value: string } | undefined
+  return row?.value === '1'
+}
+
+function getStatusReportIntervalMin(): number {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('autospin_status_report_interval_min') as { value: string } | undefined
+  const n = parseFloat(row?.value ?? '')
+  return Number.isFinite(n) && n > 0 ? n : 20
+}
+
+type StatusReportFieldKey = 'spins' | 'winRate' | 'errcodes' | 'recover' | 'kickouts' | 'crChecks' | 'uptime'
+const DEFAULT_STATUS_REPORT_FIELDS: Record<StatusReportFieldKey, boolean> = {
+  spins: true, winRate: true, errcodes: true, recover: true, kickouts: true, crChecks: true, uptime: true,
+}
+function getStatusReportFields(): Record<StatusReportFieldKey, boolean> {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('autospin_status_report_fields') as { value: string } | undefined
+  if (!row?.value) return { ...DEFAULT_STATUS_REPORT_FIELDS }
+  try { return { ...DEFAULT_STATUS_REPORT_FIELDS, ...JSON.parse(row.value) } } catch { return { ...DEFAULT_STATUS_REPORT_FIELDS } }
+}
+
+// GET /api/autospin/status-report-settings
+router.get('/api/autospin/status-report-settings', (_req, res) => {
+  res.json({ ok: true, enabled: getStatusReportEnabled(), intervalMin: getStatusReportIntervalMin(), fields: getStatusReportFields() })
+})
+
+// POST /api/autospin/status-report-settings
+router.post('/api/autospin/status-report-settings', (req, res) => {
+  const { enabled, intervalMin, fields } = req.body as {
+    enabled?: boolean; intervalMin?: number; fields?: Partial<Record<StatusReportFieldKey, boolean>>
+  }
+  if (typeof enabled === 'boolean') {
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('autospin_status_report_enabled', enabled ? '1' : '0')
+  }
+  if (typeof intervalMin === 'number' && Number.isFinite(intervalMin) && intervalMin > 0) {
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('autospin_status_report_interval_min', String(intervalMin))
+  }
+  if (fields && typeof fields === 'object') {
+    const merged = { ...getStatusReportFields(), ...fields }
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('autospin_status_report_fields', JSON.stringify(merged))
+  }
+  res.json({ ok: true })
+})
+
+interface StatusReportStats {
+  spinCount: number; okSpinCount: number; winCount: number; totalWin: number; lastCoin: number | null
+  errcodeCounts: Record<string, number>; recoverCount: number; kickoutCount: number
+  crChecks: number; crNoResponse: number
+}
+
+// POST /api/autospin/agent/:id/status-report — Python 引擎定時（間隔可調整）回報累計/本期間統計，組成 Discord embed 發送
+router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
+  const s = agentSessions.get(req.params.id)
+  const { machineType, periodMinutes, cumulative, period, uptimeMinutes } = req.body as {
+    machineType?: string; periodMinutes?: number
+    cumulative?: StatusReportStats; period?: StatusReportStats; uptimeMinutes?: number
+  }
+  if (!machineType || !cumulative || !period) return res.status(400).json({ ok: false, message: 'machineType/cumulative/period 為必填' })
+  res.json({ ok: true })  // 先回應，Discord 發送不擋 Python 端
+
+  const webhookUrl = getDiscordWebhookUrl()
+  if (!webhookUrl || !isDiscordNotifyEnabled() || !getStatusReportEnabled()) return
+  const fields = getStatusReportFields()
+
+  const fmtPct = (ok: number, total: number) => total > 0 ? `${((ok / total) * 100).toFixed(1)}%` : '—'
+  const errcodeStr = (m: Record<string, number>) => {
+    const entries = Object.entries(m).filter(([, n]) => n > 0)
+    return entries.length > 0 ? entries.map(([code, n]) => `err${code}: ${n}`).join(', ') : '無'
+  }
+
+  const lines: string[] = []
+  lines.push(`**本期間**（約 ${(periodMinutes ?? 0).toFixed(1)} 分鐘）`)
+  if (fields.spins) lines.push(`spins: ${period.spinCount.toLocaleString()}（ok ${period.okSpinCount.toLocaleString()}，${fmtPct(period.okSpinCount, period.spinCount)}）`)
+  if (fields.winRate) lines.push(`wins: ${period.winCount.toLocaleString()}, totalWin: ${period.totalWin.toLocaleString()}`)
+  if (fields.errcodes) lines.push(`errcode: ${errcodeStr(period.errcodeCounts)}`)
+  if (fields.recover) lines.push(`RECOVER: ${period.recoverCount}`)
+  if (fields.kickouts) lines.push(`kickouts: ${period.kickoutCount}`)
+  if (fields.crChecks) lines.push(`CR checks: ${period.crChecks}，無回應 ${period.crNoResponse}`)
+  lines.push('')
+  lines.push('**累計**')
+  if (fields.spins) lines.push(`spins: ${cumulative.spinCount.toLocaleString()}（ok ${cumulative.okSpinCount.toLocaleString()}，${fmtPct(cumulative.okSpinCount, cumulative.spinCount)}）`)
+  if (fields.winRate) lines.push(`wins: ${cumulative.winCount.toLocaleString()}, totalWin: ${cumulative.totalWin.toLocaleString()}${cumulative.lastCoin != null ? `, lastCoin: ~${cumulative.lastCoin.toLocaleString()}` : ''}`)
+  if (fields.errcodes) lines.push(`errcode: ${errcodeStr(cumulative.errcodeCounts)}`)
+  if (fields.recover) lines.push(`RECOVER: ${cumulative.recoverCount}`)
+  if (fields.kickouts) lines.push(`kickouts: ${cumulative.kickoutCount}`)
+  if (fields.crChecks) lines.push(`CR checks: ${cumulative.crChecks}，無回應 ${cumulative.crNoResponse}`)
+  if (fields.uptime && uptimeMinutes != null) {
+    const h = Math.floor(uptimeMinutes / 60), m = Math.round(uptimeMinutes % 60)
+    lines.push(`已跑時間: ~${h}h${m}m`)
+  }
+
+  try {
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        embeds: [{
+          title: `📊 AutoSpin 定時彙總報告 — ${machineType}`,
+          description: lines.join('\n'),
+          color: 0x2563eb,
+          timestamp: new Date().toISOString(),
+        }],
+      }),
+    })
+  } catch (e) {
+    console.warn('[autospin] 定時彙總報告發送失敗:', e)
+  }
+})
+
 function getDiscordWebhookUrl(): string {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_webhook_url') as { value: string } | undefined
   return row?.value ?? ''
@@ -838,6 +950,9 @@ router.get('/api/autospin/agent/:id/should-stop', (req, res) => {
     spinInterval: s.spinIntervalOverride ?? null,
     // OSMWatcher 狀態（key=gmid），AutoSpin 每 3 秒隨心跳一起拿到，判斷是否進入特殊遊戲
     osmStatus: Object.fromEntries(osmMachineStatus),
+    // 定時彙總報告設定（間隔可即時調整，不用重啟 Agent）
+    statusReportEnabled: getStatusReportEnabled(),
+    statusReportIntervalMin: getStatusReportIntervalMin(),
   })
 })
 

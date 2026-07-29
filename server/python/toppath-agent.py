@@ -142,8 +142,15 @@ spin_interval_lock = __import__('threading').Lock()
 osm_status_cache: dict = {}
 osm_status_lock = __import__('threading').Lock()
 
+# 定時彙總報告設定（間隔/開關可從伺服器即時調整，不用重啟 Agent），隨 should-stop 心跳一起更新
+status_report_enabled = False
+status_report_interval_min = 20.0
+status_report_lock = __import__('threading').Lock()
+
+AGENT_START_TS = time.time()  # 用來算「已跑時間」（累計 uptime）
+
 def poll_stop():
-    global spin_interval_override, session_id
+    global spin_interval_override, session_id, status_report_enabled, status_report_interval_min
     while not stop_flag.is_set():
         try:
             r = requests.get(f"{server_url}/api/autospin/agent/{session_id}/should-stop", timeout=5)
@@ -185,6 +192,12 @@ def poll_stop():
                 with osm_status_lock:
                     osm_status_cache.clear()
                     osm_status_cache.update(osm_status)
+            # 定時彙總報告設定
+            with status_report_lock:
+                status_report_enabled = bool(d.get('statusReportEnabled', False))
+                iv = d.get('statusReportIntervalMin')
+                if isinstance(iv, (int, float)) and iv > 0:
+                    status_report_interval_min = float(iv)
         except Exception:
             pass
         time.sleep(3)
@@ -230,6 +243,8 @@ TOPPATH_MONITOR_SCRIPT = r"""
   window.__gmEvents = [];
   window.__pinusLog = [];
   window.__lastSpinErr = null;
+  window.__spinErrCounts = {};  // { "100": 3, "5": 10, ... } —— 每種 errcode 各自累計次數，供定時彙總報告用
+  window.__wsRecoverCount = 0;  // pinus WebSocket 斷線後重新連上的次數
   var MAX_LOG = 500;
 
   function pushPinusLog(dir, route, data) {
@@ -283,10 +298,23 @@ TOPPATH_MONITOR_SCRIPT = r"""
     } catch (e) {}
   }
 
-  // Hook WebSocket so we can scan raw frames for enterGMNtc/leaveGMNtc before pinus decodes them
+  // Hook WebSocket so we can scan raw frames for enterGMNtc/leaveGMNtc before pinus decodes them.
+  // 順便偵測斷線重連（RECOVER）：一個 WS 實例 close 之後，若之後又有新的 WS 實例成功 open，
+  // 代表 pinus 自己重連成功了，算一次 RECOVER。
   var _OrigWS = window.WebSocket;
+  window.__wsHadClose = false;
   function PatchedWS(url, protocols) {
     var ws = protocols !== undefined ? new _OrigWS(url, protocols) : new _OrigWS(url);
+    var wasReconnectAttempt = window.__wsHadClose;
+    ws.addEventListener('open', function () {
+      if (wasReconnectAttempt) {
+        window.__wsRecoverCount++;
+        window.__wsHadClose = false;
+      }
+    });
+    ws.addEventListener('close', function () {
+      window.__wsHadClose = true;
+    });
     ws.addEventListener('message', function (ev) {
       try {
         var text = '';
@@ -329,6 +357,8 @@ TOPPATH_MONITOR_SCRIPT = r"""
         // 這兩個完成訊號都不會觸發，記錄下來讓 do_spin() 可以立即中斷等待，而不是傻等滿 8 秒。
         if (isSpinReq && resp && typeof resp.errcode === 'number' && resp.errcode !== 0) {
           window.__lastSpinErr = { errcode: resp.errcode, errcodedes: resp.errcodedes || '', ts: Date.now() };
+          var ek = String(resp.errcode);
+          window.__spinErrCounts[ek] = (window.__spinErrCounts[ek] || 0) + 1;
         }
         cb && cb(resp);
       });
@@ -770,6 +800,31 @@ def get_last_spin_err(page):
     return None
 
 
+def read_errcode_counts(page) -> dict:
+    """讀取 window.__spinErrCounts（各 errcode 累計次數，例如 {"100": 3}），掃描所有 frame，
+    取有內容的那一份（跟 __lastSpinErr 同樣的多 frame 情境）。"""
+    for frame in page.frames:
+        try:
+            counts = frame.evaluate("window.__spinErrCounts || null")
+            if counts:
+                return counts
+        except Exception:
+            pass
+    return {}
+
+
+def read_recover_count(page) -> int:
+    """讀取 window.__wsRecoverCount（pinus WebSocket 斷線後重新連上的累計次數），掃描所有 frame。"""
+    for frame in page.frames:
+        try:
+            n = frame.evaluate("window.__wsRecoverCount || 0")
+            if n:
+                return int(n)
+        except Exception:
+            pass
+    return 0
+
+
 def poll_monitor_logs(page, mt: str):
     """取出（drain）window.__pinusLog + window.__consoleLog 中新累積的訊息並轉發到日誌。
     兩者合併成單一 evaluate（而不是各自掃一輪 frame），減少每次輪詢對 Playwright 的
@@ -1173,12 +1228,15 @@ def track_button_health(mt: str, data: dict):
     kind = 'ideck' if is_ideck else 'touch'
 
     with button_health_lock:
-        h = button_health.setdefault(mt, {'ideck_ok': 0, 'ideck_err': 0, 'touch_ok': 0, 'touch_err': 0, 'since_summary': 0})
+        h = button_health.setdefault(mt, {'ideck_ok': 0, 'ideck_err': 0, 'touch_ok': 0, 'touch_err': 0, 'since_summary': 0,
+                                           'no_response': 0, 'gap_flagged': False, 'last_event_ts': 0.0})
         if error == 0:
             h[f'{kind}_ok'] += 1
         else:
             h[f'{kind}_err'] += 1
         h['since_summary'] += 1
+        h['last_event_ts'] = time.time()
+        h['gap_flagged'] = False  # 有新事件進來，之前偵測到的「無回應」空窗結束
         due_summary = h['since_summary'] >= BUTTON_SUMMARY_EVERY
         if due_summary:
             h['since_summary'] = 0
@@ -1189,6 +1247,94 @@ def track_button_health(mt: str, data: dict):
     if due_summary:
         log(f"[{mt}] 按鈕健康度：iDeck {snapshot['ideck_ok']}/{snapshot['ideck_ok']+snapshot['ideck_err']} 正常，"
             f"觸屏 {snapshot['touch_ok']}/{snapshot['touch_ok']+snapshot['touch_err']} 正常")
+
+
+CR_NO_RESPONSE_TIMEOUT = 60.0  # 秒；被動觀察，超過這麼久沒有新的 daily-analysis 按鈕健康度事件就算一次「無回應」
+
+def check_cr_gap(mt: str):
+    """被動偵測 CR checks（daily-analysis 的 success_json 按鈕健康度事件）多久沒有新事件——完全不主動
+    點擊任何東西，純粹觀察正常 Spin 過程中本來就會觸發的事件多久沒出現一次，超過門檻算一次「無回應」。
+    每個空窗只算一次（靠 gap_flagged 避免同一段空窗被重複計數），有新事件進來才會重置。"""
+    with button_health_lock:
+        h = button_health.get(mt)
+        if not h or not h.get('last_event_ts'):
+            return
+        gap = time.time() - h['last_event_ts']
+        if gap >= CR_NO_RESPONSE_TIMEOUT and not h.get('gap_flagged', False):
+            h['gap_flagged'] = True
+            h['no_response'] = h.get('no_response', 0) + 1
+            log(f"[{mt}] ⚠️ CR 無回應：已 {gap:.0f} 秒沒有收到按鈕健康度確認事件")
+
+
+def maybe_send_status_report(mp: dict, page):
+    """定時彙總報告：累計 + 本期間（距上次報告）兩組統計。
+    間隔/開關由伺服器（should-stop 心跳）即時控制，不用重啟 Agent 就能調整。
+    這裡只做「判斷是否該送 + 讀 page 上的統計資料」（必須留在主執行緒，Playwright 頁面操作
+    不能跨執行緒呼叫），實際 POST 網路請求丟給 async_call() 背景執行，不卡主 Spin 迴圈。"""
+    mt = mp['config']['machineType']
+    now = time.time()
+    last_sent = mp.get('report_last_sent_ts', AGENT_START_TS)
+    with status_report_lock:
+        enabled, interval_min = status_report_enabled, status_report_interval_min
+    if not enabled or now - last_sent < interval_min * 60:
+        return
+
+    errcode_counts = read_errcode_counts(page)
+    recover_count = read_recover_count(page)
+    with button_health_lock:
+        h = button_health.get(mt, {})
+        cr_checks = h.get('ideck_ok', 0) + h.get('ideck_err', 0) + h.get('touch_ok', 0) + h.get('touch_err', 0)
+        cr_no_response = h.get('no_response', 0)
+
+    cumulative = {
+        'spinCount': mp.get('spin_count', 0), 'okSpinCount': mp.get('ok_spin_count', 0),
+        'winCount': mp.get('win_count', 0), 'totalWin': mp.get('total_win', 0.0),
+        'lastCoin': mp.get('last_balance'),
+        'errcodeCounts': errcode_counts, 'recoverCount': recover_count, 'kickoutCount': mp.get('kickout_count', 0),
+        'crChecks': cr_checks, 'crNoResponse': cr_no_response,
+    }
+    baseline = mp.get('report_period_start')
+    if baseline is None:
+        # 第一次報告：本期間 = 從 Agent 啟動到現在（累計本身就是本期間）
+        period = dict(cumulative)
+        period_minutes = (now - AGENT_START_TS) / 60
+    else:
+        base_errcodes = baseline.get('errcodeCounts', {})
+        period_errcodes = {k: cumulative['errcodeCounts'].get(k, 0) - base_errcodes.get(k, 0) for k in cumulative['errcodeCounts']}
+        period = {
+            'spinCount': cumulative['spinCount'] - baseline['spinCount'],
+            'okSpinCount': cumulative['okSpinCount'] - baseline['okSpinCount'],
+            'winCount': cumulative['winCount'] - baseline['winCount'],
+            'totalWin': cumulative['totalWin'] - baseline['totalWin'],
+            'lastCoin': cumulative['lastCoin'],
+            'errcodeCounts': period_errcodes,
+            'recoverCount': cumulative['recoverCount'] - baseline['recoverCount'],
+            'kickoutCount': cumulative['kickoutCount'] - baseline['kickoutCount'],
+            'crChecks': cumulative['crChecks'] - baseline['crChecks'],
+            'crNoResponse': cumulative['crNoResponse'] - baseline['crNoResponse'],
+        }
+        period_minutes = (now - last_sent) / 60
+
+    mp['report_last_sent_ts'] = now
+    mp['report_period_start'] = cumulative
+    async_call(post_status_report, mt, period_minutes, cumulative, period, (now - AGENT_START_TS) / 60)
+
+
+def post_status_report(mt: str, period_minutes: float, cumulative: dict, period: dict, uptime_minutes: float):
+    """背景執行緒：把 maybe_send_status_report() 準備好的統計資料 POST 給伺服器（純網路呼叫，
+    不碰 Playwright page，可以安全地跑在背景執行緒）。"""
+    try:
+        requests.post(
+            f"{server_url}/api/autospin/agent/{session_id}/status-report",
+            json={
+                'machineType': mt, 'periodMinutes': period_minutes,
+                'cumulative': cumulative, 'period': period, 'uptimeMinutes': uptime_minutes,
+            },
+            timeout=10,
+        )
+        log(f"[{mt}] 已送出定時彙總報告（本期間約 {period_minutes:.1f} 分鐘）")
+    except Exception as e:
+        log(f"[{mt}] ⚠️ 定時彙總報告送出失敗：{e}")
 
 
 def wait_for_normal_osm_status(gmid: str, page, cfg: dict, mt: str) -> bool:
@@ -1357,6 +1503,8 @@ with sync_playwright() as p:
                 if now_ts - mp.get('last_daily_log_poll', 0) >= 5.0:
                     mp['last_daily_log_poll'] = now_ts
                     async_call(poll_daily_analysis_log, mt, cfg.get('gameTitleCode') or '', cfg.get('logApiEnv') or 'qat')
+                    check_cr_gap(mt)  # 被動偵測 CR checks 多久沒新事件，不主動點擊任何東西
+                    maybe_send_status_report(mp, page)  # 內部自己判斷間隔到了沒才會真的送
 
                 # ── 404 / 錯誤頁面偵測 ───────────────────────────────────────
                 if check_page_error(page):
@@ -1389,6 +1537,8 @@ with sync_playwright() as p:
                     balance_before, balance_after, spin_rejected = spin_result
                     mp['spin_count'] += 1
                     mp['error_count'] = 0
+                    if not spin_rejected:
+                        mp['ok_spin_count'] = mp.get('ok_spin_count', 0) + 1
                     with spin_interval_lock:
                         ov = spin_interval_override
                     spin_interval = ov if ov is not None else float(cfg.get('spinInterval') or 1.0)
@@ -1396,6 +1546,9 @@ with sync_playwright() as p:
                     # ── 餘額前後記錄 ──────────────────────────────────────────
                     if balance_before is not None and balance_after is not None:
                         delta = balance_after - balance_before
+                        if delta > 0:
+                            mp['win_count'] = mp.get('win_count', 0) + 1
+                            mp['total_win'] = mp.get('total_win', 0) + delta
                         if mp['spin_count'] % 10 == 0 or delta != 0:
                             log(f"[{mt}] Spin #{mp['spin_count']} 餘額 {balance_before:.2f} → {balance_after:.2f}（{'+' if delta >= 0 else ''}{delta:.2f}）")
 
@@ -1434,6 +1587,7 @@ with sync_playwright() as p:
                         balance = mp.get('last_balance')
                         if balance is not None and balance < threshold:
                             log(f"[{mt}] 餘額 {balance:.2f} 低於閾值 {threshold:.2f}，退出重進")
+                            mp['kickout_count'] = mp.get('kickout_count', 0) + 1
                             lark_hook = cfg.get('larkWebhook') or ''
                             async_call(send_lark, lark_hook, f"[{mt}] 低餘額警告",
                                        f"餘額 {balance:.2f} 低於設定閾值 {threshold:.2f}")

@@ -341,6 +341,15 @@ Keep Claude for:
 
 > `SPECIAL_GAMES = {'BULLBLITZ', 'ALLABOARD'}` 與 `machine_actions`（`toppath-agent.py`）目前仍是未串接的殘留變數——按鈕尋找已經靠 `SPIN_SELECTORS_DEFAULT` 的 fallback chain（含 `.btn_spin .my-button` 這個專門給這類特殊按鈕結構用的 selector）涵蓋，`machine_actions`（machine-test 風格座標點擊）尚未實作，待後續確認範圍。
 
+**定時彙總報告（長時間穩定性統計，v3.74.0）**：跟按鈕健康度追蹤同一批被動資料源，不主動點按鈕、不影響主 Spin 迴圈節奏。追蹤五類指標：
+- **errcode 次數**：`dealGMActionReq` pinus 回應的 `errcode` 滾動計數（`window.__spinErrCounts`），可對照 err5/err29 等錯誤碼表判斷是否異常。
+- **RECOVER（斷線重連）次數**：`PatchedWS` 監聽 WebSocket open/close 事件累計（`window.__wsRecoverCount`）。
+- **kickout 次數**：既有的低餘額自動離機→重進機台流程，新增計數器（`mp['kickout_count']`）。
+- **CR checks / 無回應**：沿用 `track_button_health()` 的被動事件，新增 `no_response` 判定——`CR_NO_RESPONSE_TIMEOUT`（60 秒）內沒有任何 daily-analysis 按鈕確認事件即視為異常（`check_cr_gap()`），沒有 response 也算問題。
+- **Spin/中獎/總贏分**：`mp['ok_spin_count']`/`win_count`/`total_win`，跟既有 Spin 結果判斷邏輯同步累計。
+
+`maybe_send_status_report(mp, page)`（main-thread，會 `page.evaluate()` 讀計數器）依設定的間隔（分鐘）判斷是否該送出，算出「本次區間內」與「累計」兩種數字（`report_period_start` 存週期起始快照），組好 payload 後交給 `post_status_report()`（背景執行緒，純網路 POST，不觸碰 Playwright page）非同步送到 `POST /api/autospin/agent/:id/status-report`。間隔與啟用開關透過既有的 `should-stop` 3 秒心跳即時下發（`statusReportEnabled`/`statusReportIntervalMin`），不用重啟 Agent。
+
 ### 使用者操作
 | 操作 | 說明 |
 |------|------|
@@ -356,10 +365,11 @@ Keep Claude for:
 | Agent 下載安裝 | 統一在「Local Agent」頁面下載安裝（Windows install.bat / macOS install-mac.command，含 token），安裝後的 agent 具備 autospin capability |
 | 對賬功能 | 比對遊戲紀錄與帳戶餘額，生成對賬報告 |
 | Discord 即時彙報通知 | 每台機台開始測試時發一則 Discord 訊息，之後同一則訊息隨狀態更新：`queued`（排隊中）→ `running`（執行中，每次餘額/事件回報時同步更新）→ `success`（完成，session 期間無異常）/ `failed`（完成，曾偵測到餘額異常 >30%）；手動停止或連線逾時另標記 `stopped`。訊息含機台、Game URL、Spin 數、錯誤摘要、截圖連結，不會洗版。Webhook URL 在「Discord 通知」設定頁配置，不寫死頻道 |
+| Discord 定時彙總報告 | 長時間穩定性統計，跟上面即時彙報通知是獨立訊息（每次到間隔另發一則新訊息，不覆蓋前一則）——顯示 errcode 次數/RECOVER 斷線重連次數/kickout 次數/CR checks 與無回應次數/Spin 數/中獎數/總贏分，間隔（分鐘）與顯示欄位皆可在「Discord 通知」設定頁調整，預設關閉 |
 
 ### Discord 通知設定（DiscordNotifySettingsPage）
 
-**路由**：`/api/autospin/discord-webhook`（GET/POST）、`/api/autospin/discord-webhook/test`（POST）
+**路由**：`/api/autospin/discord-webhook`（GET/POST）、`/api/autospin/discord-webhook/test`（POST）、`/api/autospin/status-report-settings`（GET/POST，定時彙總報告設定）、`/api/autospin/agent/:id/status-report`（POST，Agent 送出彙總報告用）
 
 #### 功能說明
 獨立的後台設定頁（系統分區），管理 AutoSpin Discord 通知用的 Webhook URL，未來換頻道只需在此頁改網址，不用改代碼。
@@ -375,6 +385,7 @@ Keep Claude for:
 | 自訂頁尾文字 | 選填，顯示在卡片底部時間戳前（存在 `settings` 表 `discord_notify_footer`）|
 | 查看狀態生命週期 | 頁面上顯示 5 種狀態（排隊中/執行中/已完成/失敗/已停止）與同一則訊息更新的說明 |
 | 查看訊息預覽 | 即時同步目前欄位/標題/頁尾設定的卡片樣式預覽 |
+| 設定定時彙總報告 | 啟用開關 + 間隔（分鐘，預設 20）+ 顯示欄位勾選（errcode/RECOVER/kickout/CR checks/Spin 數/中獎數/總贏分），存在 `settings` 表 `autospin_status_report_enabled`/`autospin_status_report_interval_min`/`autospin_status_report_fields`，與上面的即時彙報通知獨立開關、共用同一組 Webhook URL |
 
 ---
 

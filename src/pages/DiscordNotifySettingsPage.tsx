@@ -36,6 +36,20 @@ const DEFAULT_FIELDS: Record<FieldKey, boolean> = {
 }
 const DEFAULT_TITLE_TEMPLATE = 'AutoSpin — {machineType}'
 
+type ReportFieldKey = 'spins' | 'winRate' | 'errcodes' | 'recover' | 'kickouts' | 'crChecks' | 'uptime'
+const REPORT_FIELD_META: { key: ReportFieldKey; label: string }[] = [
+  { key: 'spins', label: 'Spin 數 / OK 率' },
+  { key: 'winRate', label: '中獎次數 / 總贏分' },
+  { key: 'errcodes', label: 'errcode 明細' },
+  { key: 'recover', label: 'RECOVER（斷線重連）' },
+  { key: 'kickouts', label: 'kickouts（低餘額離機重進）' },
+  { key: 'crChecks', label: 'CR checks / 無回應' },
+  { key: 'uptime', label: '已跑時間' },
+]
+const DEFAULT_REPORT_FIELDS: Record<ReportFieldKey, boolean> = {
+  spins: true, winRate: true, errcodes: true, recover: true, kickouts: true, crChecks: true, uptime: true,
+}
+
 const STATE_META: { key: string; label: string; color: string; desc: string }[] = [
   { key: 'queued', label: '排隊中', color: '#6b7280', desc: '任務已建立，Agent 尚未開始執行' },
   { key: 'running', label: '執行中', color: '#3b82f6', desc: '每次餘額/事件回報時同步更新（同一則訊息）' },
@@ -59,6 +73,16 @@ export function DiscordNotifySettingsPage() {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null)
+
+  // ── 定時彙總報告（RECOVER/errcode/CR checks/kickouts 等長時間穩定性統計）──────────
+  const [reportEnabled, setReportEnabled] = useState(false)
+  const [savedReportEnabled, setSavedReportEnabled] = useState(false)
+  const [reportIntervalMin, setReportIntervalMin] = useState(20)
+  const [savedReportIntervalMin, setSavedReportIntervalMin] = useState(20)
+  const [reportFields, setReportFields] = useState<Record<ReportFieldKey, boolean>>(DEFAULT_REPORT_FIELDS)
+  const [savedReportFields, setSavedReportFields] = useState<Record<ReportFieldKey, boolean>>(DEFAULT_REPORT_FIELDS)
+  const [reportSaving, setReportSaving] = useState(false)
+  const [reportMsg, setReportMsg] = useState<{ text: string; ok: boolean } | null>(null)
 
   async function load() {
     setLoading(true)
@@ -84,7 +108,45 @@ export function DiscordNotifySettingsPage() {
     }
   }
 
-  useEffect(() => { load() }, [])
+  async function loadReportSettings() {
+    try {
+      const res = await fetch('/api/autospin/status-report-settings')
+      const data = await res.json()
+      setReportEnabled(!!data.enabled); setSavedReportEnabled(!!data.enabled)
+      const iv = data.intervalMin ?? 20
+      setReportIntervalMin(iv); setSavedReportIntervalMin(iv)
+      const f = { ...DEFAULT_REPORT_FIELDS, ...(data.fields || {}) }
+      setReportFields(f); setSavedReportFields(f)
+    } catch { /* best-effort */ }
+  }
+
+  useEffect(() => { load(); loadReportSettings() }, [])
+
+  const reportFieldsDirty = REPORT_FIELD_META.some(f => reportFields[f.key] !== savedReportFields[f.key])
+  const reportDirty = reportEnabled !== savedReportEnabled || reportIntervalMin !== savedReportIntervalMin || reportFieldsDirty
+
+  async function handleSaveReportSettings() {
+    setReportSaving(true)
+    setReportMsg(null)
+    try {
+      const res = await fetch('/api/autospin/status-report-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: reportEnabled, intervalMin: reportIntervalMin, fields: reportFields }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        setSavedReportEnabled(reportEnabled); setSavedReportIntervalMin(reportIntervalMin); setSavedReportFields(reportFields)
+        setReportMsg({ text: '✅ 已儲存定時彙總報告設定', ok: true })
+      } else {
+        setReportMsg({ text: `儲存失敗：${data.message || '未知錯誤'}`, ok: false })
+      }
+    } catch (e) {
+      setReportMsg({ text: `儲存失敗：${e}`, ok: false })
+    } finally {
+      setReportSaving(false)
+    }
+  }
 
   async function handleSave() {
     setSaving(true)
@@ -248,6 +310,66 @@ export function DiscordNotifySettingsPage() {
                 disabled={loading}
               />
             </div>
+          </div>
+
+          <div className="discord-notify-card">
+            <div className="discord-notify-card-title">📊 定時彙總報告（AutoSpin 長時間穩定性統計）</div>
+            <p className="discord-notify-card-note">
+              跟上面的啟動/結束通知共用同一個 Webhook URL，是另外獨立開關——每隔設定的間隔，把累計統計（Spin 數/errcode/斷線重連/CR checks 等）發一則新的彙總訊息，不會覆蓋前一則。
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <ToggleSwitch checked={reportEnabled} disabled={loading} onToggle={() => setReportEnabled(v => !v)} />
+              <div>
+                <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 700 }}>啟用定時彙總報告</div>
+                <div style={{ color: '#64748b', fontSize: 11 }}>關閉後即使有設定間隔也不會發送</div>
+              </div>
+            </div>
+            <div className="discord-notify-field" style={{ marginBottom: 14 }}>
+              <label>間隔（分鐘）</label>
+              <input
+                className="discord-notify-input"
+                type="number" min={1} step={1}
+                value={reportIntervalMin}
+                onChange={e => setReportIntervalMin(Math.max(1, parseInt(e.target.value) || 20))}
+                style={{ maxWidth: 120 }}
+                disabled={loading}
+              />
+              <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>Agent 每 3 秒隨心跳拿到最新設定，改了不用重啟 Agent</div>
+            </div>
+            <div className="discord-notify-field">
+              <label>顯示欄位</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                {REPORT_FIELD_META.map(f => (
+                  <label
+                    key={f.key}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
+                      border: '1px solid #334155', borderRadius: 7, background: '#0f172a',
+                      fontSize: 12, color: '#cbd5e1', cursor: 'pointer', userSelect: 'none',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={reportFields[f.key]}
+                      disabled={loading}
+                      onChange={e => setReportFields(prev => ({ ...prev, [f.key]: e.target.checked }))}
+                      style={{ cursor: 'pointer', accentColor: '#5865f2' }}
+                    />
+                    {f.label}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="discord-notify-actions">
+              <button
+                className="discord-notify-btn discord-notify-btn--primary"
+                onClick={handleSaveReportSettings}
+                disabled={reportSaving || loading || !reportDirty}
+              >
+                {reportSaving ? '儲存中…' : '💾 儲存彙總報告設定'}
+              </button>
+            </div>
+            {reportMsg && <div className={`discord-notify-msg ${reportMsg.ok ? 'discord-notify-msg--ok' : 'discord-notify-msg--error'}`}>{reportMsg.text}</div>}
           </div>
 
           <div className="discord-notify-card">
