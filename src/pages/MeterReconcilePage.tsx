@@ -22,6 +22,7 @@ interface MeterResult {
   source: 'osm' | 'gcp'
   date: string
   dayBoundary: 'gaming' | 'calendar'
+  customStartTime: string | null
   pass: boolean
   expectedCoinOut: number
   actualCoinOut: number
@@ -65,6 +66,7 @@ export function MeterReconcilePage() {
   const [source, setSource] = useState<'osm' | 'gcp'>('osm')
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [dayBoundary, setDayBoundary] = useState<'gaming' | 'calendar'>('gaming')
+  const [customStartTime, setCustomStartTime] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<MeterResult | null>(null)
   const [error, setError] = useState('')
@@ -127,7 +129,7 @@ export function MeterReconcilePage() {
     try {
       const res = await fetch('/api/osm/meter-reconcile/query', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ machineName: machineName.trim(), source, date, dayBoundary }),
+        body: JSON.stringify({ machineName: machineName.trim(), source, date, dayBoundary, customStartTime: customStartTime || undefined }),
       })
       const d = await res.json()
       if (!d.ok) { setError(d.message || '查詢失敗'); return }
@@ -196,6 +198,11 @@ export function MeterReconcilePage() {
             ))}
           </div>
         </div>
+        <div>
+          <label style={labelStyle}>自訂起始時間（選填，機台當天有 meter reset 時用）</label>
+          <input type="time" value={customStartTime} onChange={e => setCustomStartTime(e.target.value)}
+            style={{ ...inputStyle, width: 110 }} />
+        </div>
         <button onClick={handleQuery} disabled={loading}
           style={{ marginLeft: 'auto', padding: '9px 22px', background: loading ? '#475569' : '#2563eb', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 700, fontSize: 13, cursor: loading ? 'default' : 'pointer' }}>
           {loading ? '查詢中…' : '🔍 查詢對帳'}
@@ -222,7 +229,10 @@ export function MeterReconcilePage() {
                 {result.pass ? '一致 — Coin Out 完全吻合' : '不一致 — Coin Out 有落差'}
               </div>
               <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
-                {result.machineName} · {result.source === 'osm' ? 'OSM（CP）' : 'GCP（NC）'} · {result.date}（{result.dayBoundary === 'gaming' ? 'Gaming Day 06:00~隔天06:00' : '自然日 00:00~24:00'}）整天加總
+                {result.machineName} · {result.source === 'osm' ? 'OSM（CP）' : 'GCP（NC）'} · {result.date}（{result.dayBoundary === 'gaming' ? 'Gaming Day 06:00~隔天06:00' : '自然日 00:00~24:00'}）
+                {result.customStartTime
+                  ? <span style={{ color: '#fbbf24' }}> · Game Record 自 {result.customStartTime} 起算</span>
+                  : '整天加總'}
               </div>
             </div>
             <div style={{ marginLeft: 'auto', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
@@ -274,7 +284,9 @@ export function MeterReconcilePage() {
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#a78bfa' }} />
                 <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800 }}>Game Record 加總</h3>
               </div>
-              <div style={{ fontSize: 11, color: '#64748b', marginTop: -6 }}>gameRecordList · {result.date} 整日 · {result.gameRecord.recordCount} 筆</div>
+              <div style={{ fontSize: 11, color: '#64748b', marginTop: -6 }}>
+                gameRecordList · {result.date}{result.customStartTime ? ` ${result.customStartTime} 起` : ' 整日'} · {result.gameRecord.recordCount} 筆
+              </div>
               <div style={kvRow}><span style={{ fontSize: 12, color: '#94a3b8' }}>總 Bet</span><span style={{ fontSize: 13, fontWeight: 700 }}>{fmt(result.gameRecord.totalBet)}</span></div>
               <div style={kvRow}><span style={{ fontSize: 12, color: '#94a3b8' }}>總 Win</span><span style={{ fontSize: 13, fontWeight: 700, color: '#7dd3fc' }}>{fmt(result.gameRecord.totalWin)}</span></div>
               <div style={kvRow}><span style={{ fontSize: 12, color: '#94a3b8' }}>Bet Reward Credits（泥碼下注額）</span><span style={{ fontSize: 13, fontWeight: 700, color: '#fbbf24' }}>{fmt(result.gameRecord.betRewardCredits)}</span></div>
@@ -286,7 +298,9 @@ export function MeterReconcilePage() {
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#fbbf24' }} />
                 <h3 style={{ margin: 0, fontSize: 13, fontWeight: 800 }}>Jackpot Abnormality（Attendant Paid JP）</h3>
               </div>
-              <div style={{ fontSize: 11, color: '#64748b', marginTop: -6 }}>getHandPayRecord · {result.date} 整日 · {result.jackpotAbnormality.count} 筆</div>
+              <div style={{ fontSize: 11, color: '#64748b', marginTop: -6 }}>
+                getHandPayRecord · {result.date}{result.customStartTime ? ` ${result.customStartTime} 起` : ' 整日'} · {result.jackpotAbnormality.count} 筆
+              </div>
               {result.jackpotAbnormality.records.length === 0
                 ? <p style={{ fontSize: 12, color: '#64748b' }}>當日無 Handpay 記錄</p>
                 : result.jackpotAbnormality.records.slice(0, 5).map((it, i) => (

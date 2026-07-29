@@ -325,12 +325,18 @@ router.post('/api/osm/meter-reconcile/egm-daycount', async (req, res) => {
 // ─── 對帳查詢 ───────────────────────────────────────────────────────────────
 
 router.post('/api/osm/meter-reconcile/query', async (req, res) => {
-  const { machineName, source, date, dayBoundary } = req.body as {
-    machineName?: string; source?: string; date?: string; dayBoundary?: string
+  const { machineName, source, date, dayBoundary, customStartTime } = req.body as {
+    machineName?: string; source?: string; date?: string; dayBoundary?: string; customStartTime?: string
   }
   if (!machineName || !date) {
     return res.status(400).json({ ok: false, message: 'machineName / date 皆為必填' })
   }
+  // 自訂起始時間（選填，格式 HH:mm）：只覆蓋 Game Record／Jackpot Abnormality 的查詢起點，
+  // 不動 EGM Hourly Meter 那邊的整天邊界（meterDelta() 的 reset 偵測邏輯已經會自動退回原始累計值，
+  // 不需要跟著調整）。用途：機台當天實際發生過 meter reset，Game Record 卻仍把 reset 前的紀錄
+  // 算進整天加總，導致跟 meter 對不上——手動輸入實際 reset 時間，只narrow Game Record 這一側即可。
+  // 已用真實案例驗證這支 API 確實支援秒級時間窗過濾（之前「dateTime[] 忽略時分秒」的結論是測試方法有誤）。
+  const customStartMatch = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(customStartTime ?? '')
   // 查詢範圍：'gaming'＝Gaming Day（本地 06:00 ~ 隔天 06:00），'calendar'＝自然日（00:00 ~ 24:00）。
   // 完整移植自 OSM/GCP 後台自己的 EGM Hourly Meter 頁面（Gaming Day 打勾 + Date Type 單選）——
   // 這支報表只支援這兩種整天邊界，做不到像 Game Record 那樣精準到分秒，所以拿掉原本的「查詢小時」
@@ -424,9 +430,11 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     // 用 ISO UTC 格式送出（已用實際後台頁面截到的 Network request 反推出真正格式：
     // dateTime[]=2026-07-26T22:00:00.000Z 這種 ISO UTC，本地 UTC+8 06:00 = UTC 前一天 22:00，
     // 先前用 "YYYY-MM-DD HH:mm:ss" 空白分隔字串完全被後端忽略時分秒，就是格式不對）。
-    const windowStartIso = toUtcIso(date, dayStartHour)
+    const customStartHour = customStartMatch ? parseInt(customStartMatch[1], 10) : null
+    const customStartMin = customStartMatch ? parseInt(customStartMatch[2], 10) : null
+    const windowStartIso = customStartMatch ? toUtcIso(date, customStartHour!, customStartMin!) : toUtcIso(date, dayStartHour)
     const windowEndIso = toUtcIso(nextDate, dayStartHour)
-    const windowStartLocal = `${date} ${String(dayStartHour).padStart(2, '0')}:00:00`
+    const windowStartLocal = customStartMatch ? `${date} ${customStartMatch[0]}:00` : `${date} ${String(dayStartHour).padStart(2, '0')}:00:00`
     const windowEndLocal = `${nextDate} ${String(dayStartHour).padStart(2, '0')}:00:00`
 
     // ② Game Record 加總（gameRecordList 本身有 sumData，不用逐頁手動加總）
@@ -496,6 +504,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     const result = {
       ok: true,
       machineName, source: profile, date, dayBoundary: boundary,
+      customStartTime: customStartMatch ? customStartMatch[0] : null,
       pass, expectedCoinOut, actualCoinOut, delta,
       attendantPaidJp,
       meter, gameRecord,
@@ -506,7 +515,7 @@ router.post('/api/osm/meter-reconcile/query', async (req, res) => {
     addHistory(
       'meter-reconcile',
       `${machineName}（${profile.toUpperCase()}）`,
-      `${date}（${boundary === 'gaming' ? 'Gaming Day 06:00起' : '自然日 00:00起'}）— ${pass ? '✅ 一致' : `❌ 不一致（差值 ${delta.toFixed(2)}）`}`,
+      `${date}（${customStartMatch ? `${customStartMatch[0]} 起算` : boundary === 'gaming' ? 'Gaming Day 06:00起' : '自然日 00:00起'}）— ${pass ? '✅ 一致' : `❌ 不一致（差值 ${delta.toFixed(2)}）`}`,
       result,
     )
 

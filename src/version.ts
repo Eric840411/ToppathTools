@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.74.1'
+export const APP_VERSION = '3.75.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.75.0',
+    date: '2026-07-29',
+    changes: [
+      'feat(meter-reconcile): Coin Out 對帳新增「自訂起始時間」（選填 HH:mm）——機台當天有 meter reset 時，可手動輸入實際 reset 時間，只 narrow Game Record／Jackpot Abnormality 查詢起點，EGM Hourly Meter 邊界不受影響；已用 Cartin Gold-2002NCH 2026-07-29 真實案例驗證（15:00 起算後 pass=true, delta=0）',
+      'fix(meter-reconcile): 更正先前「gameRecordList 的 dateTime[] 忽略時分秒」的錯誤結論——原本雙重驗證測的是格式差異而非真正縮小時間窗，這支 API 其實真的支援秒級篩選',
+    ],
+  },
   {
     version: '3.74.1',
     date: '2026-07-29',
