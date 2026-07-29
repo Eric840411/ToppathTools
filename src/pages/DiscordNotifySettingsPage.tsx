@@ -81,8 +81,11 @@ export function DiscordNotifySettingsPage() {
   const [savedReportIntervalMin, setSavedReportIntervalMin] = useState(20)
   const [reportFields, setReportFields] = useState<Record<ReportFieldKey, boolean>>(DEFAULT_REPORT_FIELDS)
   const [savedReportFields, setSavedReportFields] = useState<Record<ReportFieldKey, boolean>>(DEFAULT_REPORT_FIELDS)
+  const [reportCustomNote, setReportCustomNote] = useState('')
+  const [savedReportCustomNote, setSavedReportCustomNote] = useState('')
   const [reportSaving, setReportSaving] = useState(false)
   const [reportMsg, setReportMsg] = useState<{ text: string; ok: boolean } | null>(null)
+  const [reportTesting, setReportTesting] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -117,13 +120,16 @@ export function DiscordNotifySettingsPage() {
       setReportIntervalMin(iv); setSavedReportIntervalMin(iv)
       const f = { ...DEFAULT_REPORT_FIELDS, ...(data.fields || {}) }
       setReportFields(f); setSavedReportFields(f)
+      const note = data.customNote || ''
+      setReportCustomNote(note); setSavedReportCustomNote(note)
     } catch { /* best-effort */ }
   }
 
   useEffect(() => { load(); loadReportSettings() }, [])
 
   const reportFieldsDirty = REPORT_FIELD_META.some(f => reportFields[f.key] !== savedReportFields[f.key])
-  const reportDirty = reportEnabled !== savedReportEnabled || reportIntervalMin !== savedReportIntervalMin || reportFieldsDirty
+  const reportDirty = reportEnabled !== savedReportEnabled || reportIntervalMin !== savedReportIntervalMin
+    || reportFieldsDirty || reportCustomNote !== savedReportCustomNote
 
   async function handleSaveReportSettings() {
     setReportSaving(true)
@@ -132,11 +138,12 @@ export function DiscordNotifySettingsPage() {
       const res = await fetch('/api/autospin/status-report-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: reportEnabled, intervalMin: reportIntervalMin, fields: reportFields }),
+        body: JSON.stringify({ enabled: reportEnabled, intervalMin: reportIntervalMin, fields: reportFields, customNote: reportCustomNote }),
       })
       const data = await res.json()
       if (data.ok) {
-        setSavedReportEnabled(reportEnabled); setSavedReportIntervalMin(reportIntervalMin); setSavedReportFields(reportFields)
+        setSavedReportEnabled(reportEnabled); setSavedReportIntervalMin(reportIntervalMin)
+        setSavedReportFields(reportFields); setSavedReportCustomNote(reportCustomNote)
         setReportMsg({ text: '✅ 已儲存定時彙總報告設定', ok: true })
       } else {
         setReportMsg({ text: `儲存失敗：${data.message || '未知錯誤'}`, ok: false })
@@ -145,6 +152,22 @@ export function DiscordNotifySettingsPage() {
       setReportMsg({ text: `儲存失敗：${e}`, ok: false })
     } finally {
       setReportSaving(false)
+    }
+  }
+
+  async function handleTestReport() {
+    setReportTesting(true)
+    setReportMsg(null)
+    try {
+      const res = await fetch('/api/autospin/status-report-test', { method: 'POST' })
+      const data = await res.json()
+      setReportMsg(data.ok
+        ? { text: '✅ 測試彙總報告已送出（假資料），請至 Discord 頻道查看效果', ok: true }
+        : { text: `試發送失敗：${data.message || '未知錯誤'}`, ok: false })
+    } catch (e) {
+      setReportMsg({ text: `試發送失敗：${e}`, ok: false })
+    } finally {
+      setReportTesting(false)
     }
   }
 
@@ -336,7 +359,7 @@ export function DiscordNotifySettingsPage() {
               />
               <div style={{ color: '#64748b', fontSize: 11, marginTop: 4 }}>Agent 每 3 秒隨心跳拿到最新設定，改了不用重啟 Agent</div>
             </div>
-            <div className="discord-notify-field">
+            <div className="discord-notify-field" style={{ marginBottom: 14 }}>
               <label>顯示欄位</label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {REPORT_FIELD_META.map(f => (
@@ -360,6 +383,18 @@ export function DiscordNotifySettingsPage() {
                 ))}
               </div>
             </div>
+            <div className="discord-notify-field">
+              <label>自訂欄位（選填）</label>
+              <textarea
+                className="discord-notify-input"
+                value={reportCustomNote}
+                onChange={e => setReportCustomNote(e.target.value)}
+                placeholder="會原樣附加在每則彙總報告的最下方，例如備註、負責人、環境標籤等"
+                disabled={loading}
+                rows={2}
+                style={{ resize: 'vertical', fontFamily: 'inherit' }}
+              />
+            </div>
             <div className="discord-notify-actions">
               <button
                 className="discord-notify-btn discord-notify-btn--primary"
@@ -367,6 +402,14 @@ export function DiscordNotifySettingsPage() {
                 disabled={reportSaving || loading || !reportDirty}
               >
                 {reportSaving ? '儲存中…' : '💾 儲存彙總報告設定'}
+              </button>
+              <button
+                className="discord-notify-btn discord-notify-btn--secondary"
+                onClick={handleTestReport}
+                disabled={reportTesting || loading || !savedUrl}
+                title={!savedUrl ? '請先儲存 Webhook URL' : '用假資料送一則測試彙總報告，確認格式與效果'}
+              >
+                {reportTesting ? '送出中…' : '🧪 試發送'}
               </button>
             </div>
             {reportMsg && <div className={`discord-notify-msg ${reportMsg.ok ? 'discord-notify-msg--ok' : 'discord-notify-msg--error'}`}>{reportMsg.text}</div>}

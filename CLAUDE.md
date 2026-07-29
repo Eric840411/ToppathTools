@@ -369,7 +369,7 @@ Keep Claude for:
 
 ### Discord 通知設定（DiscordNotifySettingsPage）
 
-**路由**：`/api/autospin/discord-webhook`（GET/POST）、`/api/autospin/discord-webhook/test`（POST）、`/api/autospin/status-report-settings`（GET/POST，定時彙總報告設定）、`/api/autospin/agent/:id/status-report`（POST，Agent 送出彙總報告用）
+**路由**：`/api/autospin/discord-webhook`（GET/POST）、`/api/autospin/discord-webhook/test`（POST）、`/api/autospin/status-report-settings`（GET/POST，定時彙總報告設定）、`/api/autospin/agent/:id/status-report`（POST，Agent 送出彙總報告用）、`/api/autospin/status-report-test`（POST，用假資料試發送彙總報告）
 
 #### 功能說明
 獨立的後台設定頁（系統分區），管理 AutoSpin Discord 通知用的 Webhook URL，未來換頻道只需在此頁改網址，不用改代碼。
@@ -385,7 +385,8 @@ Keep Claude for:
 | 自訂頁尾文字 | 選填，顯示在卡片底部時間戳前（存在 `settings` 表 `discord_notify_footer`）|
 | 查看狀態生命週期 | 頁面上顯示 5 種狀態（排隊中/執行中/已完成/失敗/已停止）與同一則訊息更新的說明 |
 | 查看訊息預覽 | 即時同步目前欄位/標題/頁尾設定的卡片樣式預覽 |
-| 設定定時彙總報告 | 啟用開關 + 間隔（分鐘，預設 20）+ 顯示欄位勾選（errcode/RECOVER/kickout/CR checks/Spin 數/中獎數/總贏分），存在 `settings` 表 `autospin_status_report_enabled`/`autospin_status_report_interval_min`/`autospin_status_report_fields`，與上面的即時彙報通知獨立開關、共用同一組 Webhook URL |
+| 設定定時彙總報告 | 啟用開關 + 間隔（分鐘，預設 20）+ 顯示欄位勾選（errcode/RECOVER/kickout/CR checks/Spin 數/中獎數/總贏分）+ 自訂欄位（選填備註文字，原樣附加在每則報告最下方），存在 `settings` 表 `autospin_status_report_enabled`/`autospin_status_report_interval_min`/`autospin_status_report_fields`/`autospin_status_report_custom_note`，與上面的即時彙報通知獨立開關、共用同一組 Webhook URL |
+| 試發送定時彙總報告 | 「🧪 試發送」按鈕（`POST /api/autospin/status-report-test`）用假資料立即組一則報告送到 Discord，方便確認格式/效果，不受啟用開關影響、不會動到真實累計統計 |
 
 ---
 

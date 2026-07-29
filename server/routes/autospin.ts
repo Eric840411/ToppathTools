@@ -379,15 +379,27 @@ function getStatusReportFields(): Record<StatusReportFieldKey, boolean> {
   try { return { ...DEFAULT_STATUS_REPORT_FIELDS, ...JSON.parse(row.value) } } catch { return { ...DEFAULT_STATUS_REPORT_FIELDS } }
 }
 
+/** 自訂備註欄位（選填），會附加在每則定時彙總報告的最下方。 */
+function getStatusReportCustomNote(): string {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('autospin_status_report_custom_note') as { value: string } | undefined
+  return row?.value ?? ''
+}
+
 // GET /api/autospin/status-report-settings
 router.get('/api/autospin/status-report-settings', (_req, res) => {
-  res.json({ ok: true, enabled: getStatusReportEnabled(), intervalMin: getStatusReportIntervalMin(), fields: getStatusReportFields() })
+  res.json({
+    ok: true,
+    enabled: getStatusReportEnabled(),
+    intervalMin: getStatusReportIntervalMin(),
+    fields: getStatusReportFields(),
+    customNote: getStatusReportCustomNote(),
+  })
 })
 
 // POST /api/autospin/status-report-settings
 router.post('/api/autospin/status-report-settings', (req, res) => {
-  const { enabled, intervalMin, fields } = req.body as {
-    enabled?: boolean; intervalMin?: number; fields?: Partial<Record<StatusReportFieldKey, boolean>>
+  const { enabled, intervalMin, fields, customNote } = req.body as {
+    enabled?: boolean; intervalMin?: number; fields?: Partial<Record<StatusReportFieldKey, boolean>>; customNote?: string
   }
   if (typeof enabled === 'boolean') {
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('autospin_status_report_enabled', enabled ? '1' : '0')
@@ -399,6 +411,9 @@ router.post('/api/autospin/status-report-settings', (req, res) => {
     const merged = { ...getStatusReportFields(), ...fields }
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('autospin_status_report_fields', JSON.stringify(merged))
   }
+  if (typeof customNote === 'string') {
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('autospin_status_report_custom_note', customNote)
+  }
   res.json({ ok: true })
 })
 
@@ -408,20 +423,18 @@ interface StatusReportStats {
   crChecks: number; crNoResponse: number
 }
 
-// POST /api/autospin/agent/:id/status-report — Python 引擎定時（間隔可調整）回報累計/本期間統計，組成 Discord embed 發送
-router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
-  const s = agentSessions.get(req.params.id)
-  const { machineType, periodMinutes, cumulative, period, uptimeMinutes } = req.body as {
-    machineType?: string; periodMinutes?: number
-    cumulative?: StatusReportStats; period?: StatusReportStats; uptimeMinutes?: number
-  }
-  if (!machineType || !cumulative || !period) return res.status(400).json({ ok: false, message: 'machineType/cumulative/period 為必填' })
-  res.json({ ok: true })  // 先回應，Discord 發送不擋 Python 端
-
-  const webhookUrl = getDiscordWebhookUrl()
-  if (!webhookUrl || !isDiscordNotifyEnabled() || !getStatusReportEnabled()) return
-  const fields = getStatusReportFields()
-
+/** 組出定時彙總報告的 Discord embed；真實回報與「試發送」測試共用同一份格式邏輯。 */
+function buildStatusReportEmbed(opts: {
+  machineType: string
+  periodMinutes: number
+  cumulative: StatusReportStats
+  period: StatusReportStats
+  uptimeMinutes?: number | null
+  fields: Record<StatusReportFieldKey, boolean>
+  customNote: string
+  isTest?: boolean
+}) {
+  const { machineType, periodMinutes, cumulative, period, uptimeMinutes, fields, customNote, isTest } = opts
   const fmtPct = (ok: number, total: number) => total > 0 ? `${((ok / total) * 100).toFixed(1)}%` : '—'
   const errcodeStr = (m: Record<string, number>) => {
     const entries = Object.entries(m).filter(([, n]) => n > 0)
@@ -429,7 +442,8 @@ router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
   }
 
   const lines: string[] = []
-  lines.push(`**本期間**（約 ${(periodMinutes ?? 0).toFixed(1)} 分鐘）`)
+  if (isTest) lines.push('⚠️ **這是試發送測試訊息，以下為假資料，非真實 AutoSpin 執行結果**', '')
+  lines.push(`**本期間**（約 ${periodMinutes.toFixed(1)} 分鐘）`)
   if (fields.spins) lines.push(`spins: ${period.spinCount.toLocaleString()}（ok ${period.okSpinCount.toLocaleString()}，${fmtPct(period.okSpinCount, period.spinCount)}）`)
   if (fields.winRate) lines.push(`wins: ${period.winCount.toLocaleString()}, totalWin: ${period.totalWin.toLocaleString()}`)
   if (fields.errcodes) lines.push(`errcode: ${errcodeStr(period.errcodeCounts)}`)
@@ -448,22 +462,93 @@ router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
     const h = Math.floor(uptimeMinutes / 60), m = Math.round(uptimeMinutes % 60)
     lines.push(`已跑時間: ~${h}h${m}m`)
   }
+  if (customNote.trim()) {
+    lines.push('')
+    lines.push(customNote.trim())
+  }
+
+  return {
+    title: `📊 AutoSpin 定時彙總報告${isTest ? '（測試）' : ''} — ${machineType}`,
+    description: lines.join('\n'),
+    color: isTest ? 0xf59e0b : 0x2563eb,
+    timestamp: new Date().toISOString(),
+  }
+}
+
+// POST /api/autospin/agent/:id/status-report — Python 引擎定時（間隔可調整）回報累計/本期間統計，組成 Discord embed 發送
+router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
+  const s = agentSessions.get(req.params.id)
+  const { machineType, periodMinutes, cumulative, period, uptimeMinutes } = req.body as {
+    machineType?: string; periodMinutes?: number
+    cumulative?: StatusReportStats; period?: StatusReportStats; uptimeMinutes?: number
+  }
+  if (!machineType || !cumulative || !period) return res.status(400).json({ ok: false, message: 'machineType/cumulative/period 為必填' })
+  res.json({ ok: true })  // 先回應，Discord 發送不擋 Python 端
+
+  const webhookUrl = getDiscordWebhookUrl()
+  if (!webhookUrl || !isDiscordNotifyEnabled() || !getStatusReportEnabled()) return
+
+  const embed = buildStatusReportEmbed({
+    machineType,
+    periodMinutes: periodMinutes ?? 0,
+    cumulative,
+    period,
+    uptimeMinutes,
+    fields: getStatusReportFields(),
+    customNote: getStatusReportCustomNote(),
+  })
 
   try {
     await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        embeds: [{
-          title: `📊 AutoSpin 定時彙總報告 — ${machineType}`,
-          description: lines.join('\n'),
-          color: 0x2563eb,
-          timestamp: new Date().toISOString(),
-        }],
-      }),
+      body: JSON.stringify({ embeds: [embed] }),
     })
   } catch (e) {
     console.warn('[autospin] 定時彙總報告發送失敗:', e)
+  }
+})
+
+// POST /api/autospin/status-report-test — 用假資料試發送一則彙總報告，確認格式與 webhook 是否正常（不受啟用開關影響）
+router.post('/api/autospin/status-report-test', async (_req, res) => {
+  const webhookUrl = getDiscordWebhookUrl()
+  if (!webhookUrl) return res.status(400).json({ ok: false, message: '尚未設定 Discord Webhook URL' })
+
+  const sample: { period: StatusReportStats; cumulative: StatusReportStats } = {
+    period: {
+      spinCount: 42, okSpinCount: 41, winCount: 5, totalWin: 1234, lastCoin: null,
+      errcodeCounts: { '5': 1 }, recoverCount: 0, kickoutCount: 1, crChecks: 8, crNoResponse: 0,
+    },
+    cumulative: {
+      spinCount: 1234, okSpinCount: 1200, winCount: 89, totalWin: 34210, lastCoin: 500000,
+      errcodeCounts: { '5': 3, '29': 1 }, recoverCount: 1, kickoutCount: 4, crChecks: 240, crNoResponse: 2,
+    },
+  }
+
+  const embed = buildStatusReportEmbed({
+    machineType: 'TEST',
+    periodMinutes: getStatusReportIntervalMin(),
+    cumulative: sample.cumulative,
+    period: sample.period,
+    uptimeMinutes: 125,
+    fields: getStatusReportFields(),
+    customNote: getStatusReportCustomNote(),
+    isTest: true,
+  })
+
+  try {
+    const r = await fetch(`${webhookUrl}?wait=true`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ embeds: [embed] }),
+    })
+    if (!r.ok) {
+      const txt = await r.text().catch(() => '')
+      return res.status(400).json({ ok: false, message: `Discord API 錯誤 ${r.status}: ${txt.slice(0, 200)}` })
+    }
+    res.json({ ok: true })
+  } catch (e) {
+    res.status(500).json({ ok: false, message: `送出失敗: ${e}` })
   }
 })
 

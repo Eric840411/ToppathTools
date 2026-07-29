@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.74.0'
+export const APP_VERSION = '3.74.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.74.1',
+    date: '2026-07-29',
+    changes: [
+      'feat(autospin): 定時彙總報告設定新增「自訂欄位」（選填備註文字，原樣附加在每則報告最下方）與「🧪 試發送」按鈕——用假資料立即送一則測試彙總報告到 Discord 確認格式與效果，不受啟用開關影響、不影響真實回報邏輯',
+    ],
+  },
   {
     version: '3.74.0',
     date: '2026-07-29',
