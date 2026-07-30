@@ -441,11 +441,11 @@ export function DiscordNotifySettingsPage() {
                 style={{ resize: 'vertical', fontFamily: 'inherit' }}
               />
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 16, marginBottom: 16 }}>
               <ToggleSwitch checked={reportAiEnabled} disabled={loading} onToggle={() => setReportAiEnabled(v => !v)} />
               <div>
-                <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 700 }}>啟用 AI 分析區塊</div>
-                <div style={{ color: '#64748b', fontSize: 11 }}>關閉時完全不呼叫 Gemini，零額外開銷；開啟才會在報告最下方加一段「🤖 AI 分析」判斷是否異常</div>
+                <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 700, marginBottom: 3 }}>啟用 AI 分析區塊</div>
+                <div style={{ color: '#64748b', fontSize: 11, lineHeight: 1.5 }}>關閉時完全不呼叫 Gemini，零額外開銷；開啟才會在報告最下方加一段「🤖 AI 分析」判斷是否異常</div>
               </div>
             </div>
             <div className="discord-notify-actions">

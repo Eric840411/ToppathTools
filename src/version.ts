@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.79.1'
+export const APP_VERSION = '3.79.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.79.2',
+    date: '2026-07-30',
+    changes: [
+      'fix(sysadmin): 「啟用 AI 分析區塊」開關跟文字間距太擠，調整間距',
+    ],
+  },
   {
     version: '3.79.1',
     date: '2026-07-30',
