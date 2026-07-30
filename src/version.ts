@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.78.0'
+export const APP_VERSION = '3.78.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.78.1',
+    date: '2026-07-30',
+    changes: [
+      'fix(autospin): 多進程啟動改成分批（每台間隔 2 秒），避免同時開多個 Chromium 造成資源尖峰、部分裝置卡住',
+    ],
+  },
   {
     version: '3.78.0',
     date: '2026-07-30',

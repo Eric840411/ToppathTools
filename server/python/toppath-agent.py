@@ -1744,7 +1744,10 @@ def main():
     signal.signal(signal.SIGINT,  _parent_signal_handler)
     signal.signal(signal.SIGTERM, _parent_signal_handler)
 
-    for cfg in active_configs:
+    # 分批啟動、每台間隔 2 秒——同時開好幾個 Chromium 是資源尖峰，全部一次 start() 容易讓
+    # 部分裝置（尤其效能較弱的機器）卡住，錯開啟動比較穩
+    STAGGER_START_SEC = 2.0
+    for i, cfg in enumerate(active_configs):
         proc = multiprocessing.Process(
             target=machine_worker,
             args=(session_id, server_url, user_label, cfg, keyword_actions_data, machine_actions_data),
@@ -1752,6 +1755,8 @@ def main():
         proc.start()
         _child_processes.append(proc)
         log(f"[{cfg['machineType']}] 已啟動獨立 process（PID {proc.pid}）")
+        if i < len(active_configs) - 1:
+            time.sleep(STAGGER_START_SEC)
 
     for proc in _child_processes:
         proc.join()
