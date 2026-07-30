@@ -1036,21 +1036,39 @@ export { broadcastAgentLog, broadcastLuckylinkEvent }
 router.post('/api/autospin/agent/start', (req, res) => {
   const userLabel = (req.body as { userLabel?: string }).userLabel ?? ''
   const heavyTask = tryStartHeavyTask(req, 'autospin-agent', 'AutoSpin Agent')
-  if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
-
-  // Stop any existing agent sessions for this user
-  for (const s of agentSessions.values()) {
-    if (!userLabel || s.userLabel === userLabel) {
-      s.status = 'stopped'
-      finishHeavyTask(s.heavyTask)
+  let sessionId: string
+  let isNewSession = false
+  if (!heavyTask.ok) {
+    // 多進程架構下（每台機台一個獨立 process），同一次派工底下的每個 machine_worker() 都各自
+    // 獨立輪詢 /should-stop；一旦 session 遺失（例如伺服器重啟，記憶體內的 agentSessions 被清空），
+    // 每個 process 會各自嘗試重新呼叫這支 API 登錄——第一個成功的會拿到新 session、佔走這個
+    // userLabel 的 heavy-task 名額，緊接著幾乎同時打進來的其他 process 只會看到「已被佔用」而
+    // 失敗（Python 端會出現 KeyError: 'sessionId'，因為衝突回應沒有這個欄位）。這種情況不是真的
+    // 衝突（不是使用者手動又點了一次派工），只要衝突對象本身也是 autospin-agent、而且已經有一個
+    // 屬於同一個 userLabel 的 running session（就是剛剛那個搶到名額的 process 建立的），直接讓
+    // 這個 process 加入既有 session 就好，不要擋下來讓它永遠卡在重連失敗。
+    const existing = [...agentSessions.values()].find(s => s.status === 'running' && s.userLabel === userLabel)
+    if (heavyTask.task.type === 'autospin-agent' && existing) {
+      sessionId = existing.id
+    } else {
+      return res.status(429).json(heavyTaskConflict(heavyTask.task))
     }
+  } else {
+    // Stop any existing agent sessions for this user
+    for (const s of agentSessions.values()) {
+      if (!userLabel || s.userLabel === userLabel) {
+        s.status = 'stopped'
+        finishHeavyTask(s.heavyTask)
+      }
+    }
+    sessionId = `agent-${Date.now()}`
+    isNewSession = true
+    agentSessions.set(sessionId, {
+      id: sessionId, status: 'running', startedAt: Date.now(), lastHeartbeat: Date.now(),
+      logs: [], screenshots: [], stopRequested: false, pauseRequested: false, userLabel, spinIntervalOverride: null,
+      heavyTask: heavyTask.token,
+    })
   }
-  const sessionId = `agent-${Date.now()}`
-  agentSessions.set(sessionId, {
-    id: sessionId, status: 'running', startedAt: Date.now(), lastHeartbeat: Date.now(),
-    logs: [], screenshots: [], stopRequested: false, pauseRequested: false, userLabel, spinIntervalOverride: null,
-    heavyTask: heavyTask.token,
-  })
   // Return configs merged with machine_test_profiles selectors
   // （entryTouchPoints/entryTouchPoints2 讓 AutoSpin 的進入機台流程與 Machine Test 完全一致）
   const configs = readConfigs(userLabel)
@@ -1102,9 +1120,12 @@ router.post('/api/autospin/agent/start', (req, res) => {
       )
     }
   } catch { /* ignore */ }
-  // 逐台已啟用機台送出「排隊中」Discord 通知（fire-and-forget，不影響回應速度）
-  for (const c of merged) {
-    if (c.enabled) notifyDiscord(sessionId, c.machineType, 'queued', { gameUrl: c.gameUrl }).catch(() => {})
+  // 逐台已啟用機台送出「排隊中」Discord 通知（fire-and-forget，不影響回應速度）——只有真的新建
+  // session 才發；重連加入既有 session 時機台可能早就在跑了，不能把通知蓋回「排隊中」。
+  if (isNewSession) {
+    for (const c of merged) {
+      if (c.enabled) notifyDiscord(sessionId, c.machineType, 'queued', { gameUrl: c.gameUrl }).catch(() => {})
+    }
   }
   res.json({ ok: true, sessionId, configs: merged, keywordActions, machineActions })
 })

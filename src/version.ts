@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.79.2'
+export const APP_VERSION = '3.79.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.79.3',
+    date: '2026-07-30',
+    changes: [
+      'fix(autospin): 修正多進程架構下 session 遺失後重連會卡死的問題——伺服器重啟時所有機台 process 各自搶著重新登錄，只有第一個成功、其他都被同一個操作者的 heavy-task 鎖擋下（Python 端出現 KeyError: sessionId，永遠重連失敗）；改成偵測到「衝突對象也是 autospin-agent 且已有同 userLabel 的 running session」時直接讓該 process 加入既有 session，不再卡死；同時避免重連加入時把已經在跑的機台 Discord 通知誤蓋回「排隊中」',
+    ],
+  },
   {
     version: '3.79.2',
     date: '2026-07-30',
