@@ -60,7 +60,6 @@ try:
     configs          = data['configs']
     keyword_actions  = data.get('keywordActions', {})
     machine_actions  = data.get('machineActions', {})
-    bet_random_config = data.get('betRandomConfig', {})
     print(f"[Agent] Session: {session_id}，共 {len(configs)} 台機台")
 except Exception as e:
     print(f"[ERROR] 無法連接伺服器: {e}")
@@ -702,25 +701,18 @@ def enter_game(page, cfg: dict) -> bool:
     return True
 
 
-def execute_bet_random(page, game_title_code: str, bet_cfg: dict):
-    """Spin 後 30% 機率隨機點擊下注按鈕（對應 AutoSpin.py _execute_bet_random）"""
+def execute_bet_random(page, ideck_xpaths: list):
+    """Spin 後 30% 機率隨機點擊下注按鈕（對應 AutoSpin.py _execute_bet_random）
+
+    XPath 來源改為 machine_test_profiles.ideck_xpaths（跟 Machine Test 共用同一份設定，
+    2026-07-30 起不再有獨立的 bet_random.json + 隨機下注頁面），已經是該機台自己的清單，
+    不用再做 game_title_code 比對。"""
     import random as _random
-    if not bet_cfg or not game_title_code:
+    if not ideck_xpaths:
         return
     if _random.random() > 0.3:
         return
-    selectors = None
-    if game_title_code in bet_cfg:
-        v = bet_cfg[game_title_code]
-        selectors = v if isinstance(v, list) else v.get('selectors')
-    else:
-        for key, val in bet_cfg.items():
-            if key in game_title_code:
-                selectors = val if isinstance(val, list) else val.get('selectors')
-                break
-    if not selectors:
-        return
-    sel = _random.choice(selectors)
+    sel = _random.choice(ideck_xpaths)
     try:
         elems = page.locator(sel).all()
         for e in elems:
@@ -1607,9 +1599,8 @@ with sync_playwright() as p:
                             time.sleep(2.0)
 
                     # ── 隨機下注（BetRandom）──────────────────────────────────
-                    if cfg.get('betRandomEnabled') and bet_random_config:
-                        game_code = cfg.get('gameTitleCode') or ''
-                        execute_bet_random(page, game_code, bet_random_config)
+                    if cfg.get('betRandomEnabled'):
+                        execute_bet_random(page, cfg.get('ideckXpaths') or [])
 
                     # ── 隨機離開（RandomExit）────────────────────────────────
                     import random as _rand

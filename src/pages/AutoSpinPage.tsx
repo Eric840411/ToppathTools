@@ -131,7 +131,7 @@ function ToggleSwitch({ checked, disabled, onToggle }: { checked: boolean; disab
 }
 
 export function AutoSpinPage() {
-  const [tab, setTab] = useState<'configs' | 'templates' | 'betrandom' | 'history' | 'reconcile' | 'run' | 'jpgroups'>('configs')
+  const [tab, setTab] = useState<'configs' | 'templates' | 'history' | 'reconcile' | 'run' | 'jpgroups'>('configs')
 
   // ── Config tab ──────────────────────────────────────────────────────────────
   const [configs, setConfigs] = useState<AutospinConfig[]>([])
@@ -347,60 +347,6 @@ export function AutoSpinPage() {
     bonus: '🎯 Bonus 偵測', low_balance: '💰 低餘額', error: '⚠️ 錯誤',
   }
 
-  // ── Bet Random tab ──────────────────────────────────────────────────────────
-  const [betRandomData, setBetRandomData] = useState<Record<string, string[]>>({})
-  const [betRandomMsg, setBetRandomMsg] = useState('')
-  const [brShowForm, setBrShowForm] = useState(false)
-  const [brEditKey, setBrEditKey] = useState<string | null>(null)
-  const [brFormKey, setBrFormKey] = useState('')
-  const [brFormSelectors, setBrFormSelectors] = useState<string[]>([''])
-
-  const fetchBetRandom = async () => {
-    const r = await fetch('/api/autospin/bet-random')
-    const d = await r.json() as { ok: boolean; data?: Record<string, string[]> }
-    setBetRandomData(d.data ?? {})
-  }
-
-  const saveBetRandom = async (data: Record<string, string[]>) => {
-    const r = await fetch('/api/autospin/bet-random', {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ data }),
-    })
-    const d = await r.json() as { ok: boolean; message?: string; details?: { message: string; path: (string|number)[] }[] }
-    if (!d.ok) {
-      const detail = d.details?.map(i => `[${i.path.join('.')}] ${i.message}`).join('；') ?? ''
-      setBetRandomMsg((d.message ?? '儲存失敗') + (detail ? `：${detail}` : ''))
-    }
-    return d.ok
-  }
-
-  const handleSaveBrEntry = async () => {
-    const key = brFormKey.trim()
-    if (!key) { setBetRandomMsg('Game Title Code 不得為空'); return }
-    const selectors = brFormSelectors.map(s => s.trim()).filter(Boolean)
-    if (selectors.length === 0) { setBetRandomMsg('至少需要一個 XPath'); return }
-    if (!brEditKey && betRandomData[key] !== undefined) { setBetRandomMsg('此 Game Title Code 已存在'); return }
-    const newData = { ...betRandomData }
-    if (brEditKey && brEditKey !== key) delete newData[brEditKey]
-    newData[key] = selectors
-    if (await saveBetRandom(newData)) {
-      setBetRandomData(newData)
-      setBrShowForm(false); setBrEditKey(null); setBrFormKey(''); setBrFormSelectors(['']); setBetRandomMsg('')
-    }
-  }
-
-  const handleDeleteBrEntry = async (key: string) => {
-    if (!confirm(`確定刪除「${key}」的所有隨機下注設定？`)) return
-    const newData = { ...betRandomData }
-    delete newData[key]
-    if (await saveBetRandom(newData)) setBetRandomData(newData)
-  }
-
-  const openBrEdit = (key: string) => {
-    setBrEditKey(key); setBrFormKey(key)
-    setBrFormSelectors([...(betRandomData[key] ?? []), ''])
-    setBetRandomMsg(''); setBrShowForm(true)
-  }
 
   // ── JP Groups tab ──────────────────────────────────────────────────────────
   const JP_ENV_PRESETS: Record<string, { luckylink_url: string; login_user: string; login_pass: string }> = {
@@ -734,7 +680,7 @@ export function AutoSpinPage() {
   }, [logs, agentLogs, autoScrollLog])
 
   useEffect(() => {
-    fetchConfigs(); fetchTemplates(); fetchStatus(); fetchBetRandom(); fetchHubAgents()
+    fetchConfigs(); fetchTemplates(); fetchStatus(); fetchHubAgents()
     // Periodically sync agent status + hub agent list — single source of truth for UI（每 4 秒）
     const statusTimer = setInterval(() => { if (!document.hidden) { fetchStatus(); fetchHubAgents() } }, 4000)
     return () => {
@@ -783,7 +729,6 @@ export function AutoSpinPage() {
       <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', marginBottom: 16 }}>
         <button style={tabStyle('configs')} onClick={() => setTab('configs')}>⚙️ 機台設定</button>
         <button style={tabStyle('templates')} onClick={() => { setTab('templates'); fetchTemplates() }}>🖼 模板管理</button>
-        <button style={tabStyle('betrandom')} onClick={() => { setTab('betrandom'); fetchBetRandom() }}>🎲 隨機下注</button>
         <button style={tabStyle('history')} onClick={() => { setTab('history'); fetchHistory() }}>📊 歷史戰績</button>
         <button style={tabStyle('reconcile')} onClick={() => { setTab('reconcile'); fetchRcConfig(); fetchRcReports() }}>🔍 後台對帳</button>
         <button style={tabStyle('jpgroups')} onClick={() => { setTab('jpgroups'); fetchJpGroups() }}>🎰 JP Group</button>
@@ -806,7 +751,10 @@ export function AutoSpinPage() {
             <thead>
               <tr style={{ background: '#162032', textAlign: 'left' }}>
                 {['機台類型', 'Game Title Code', '模板類型', 'RTMP', '錄影', '模板偵測', '隨機下注', '隨機離開', '啟用', '操作'].map(h => (
-                  <th key={h} style={{ padding: '8px 10px', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{h}</th>
+                  <th key={h} style={{ padding: '8px 10px', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}
+                    title={h === '隨機下注' ? '這裡只是開關，實際點擊用的 XPath 清單改到「機台自動化測試」的機種設定檔（ideck_xpaths）配置，跟 iDeck 測試共用同一份' : undefined}>
+                    {h}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -1009,98 +957,6 @@ export function AutoSpinPage() {
               </div>
             )
           }
-        </div>
-      )}
-
-      {/* ── Bet Random tab ──────────────────────────────────────────────────── */}
-      {tab === 'betrandom' && (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, overflow: 'auto' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: 12, color: '#94a3b8' }}>
-              設定各機台的隨機下注 XPath，Agent 執行時會隨機點擊其中一個按鈕
-            </span>
-            <button onClick={() => { setBrEditKey(null); setBrFormKey(''); setBrFormSelectors(['']); setBetRandomMsg(''); setBrShowForm(true) }}
-              style={{ padding: '6px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-              + 新增機台
-            </button>
-          </div>
-
-          {Object.keys(betRandomData).length === 0
-            ? <p style={{ color: '#64748b', fontSize: 13 }}>尚無設定。點「+ 新增機台」加入 Game Title Code 與對應的 XPath。</p>
-            : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ background: '#162032', textAlign: 'left' }}>
-                    <th style={{ padding: '8px 10px', borderBottom: '1px solid #e5e7eb' }}>Game Title Code</th>
-                    <th style={{ padding: '8px 10px', borderBottom: '1px solid #e5e7eb' }}>XPath 數量</th>
-                    <th style={{ padding: '8px 10px', borderBottom: '1px solid #e5e7eb' }}>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(betRandomData).map(([key, selectors]) => (
-                    <tr key={key} style={{ borderBottom: '1px solid #1e293b' }}>
-                      <td style={{ padding: '7px 10px', fontWeight: 600, fontFamily: 'monospace', fontSize: 11 }}>{key}</td>
-                      <td style={{ padding: '7px 10px', color: '#94a3b8' }}>{selectors.length} 個</td>
-                      <td style={{ padding: '7px 10px' }}>
-                        <div style={{ display: 'flex', gap: 4 }}>
-                          <button onClick={() => openBrEdit(key)}
-                            style={{ padding: '2px 8px', background: '#eff6ff', color: '#1d4ed8', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>編輯</button>
-                          <button onClick={() => handleDeleteBrEntry(key)}
-                            style={{ padding: '2px 8px', background: 'rgba(239,68,68,0.12)', color: '#dc2626', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>刪除</button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )
-          }
-
-          {/* Add/Edit modal */}
-          {brShowForm && (
-            <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <div style={{ background: '#1e293b', borderRadius: 10, padding: 24, width: 600, maxHeight: '85vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div style={{ fontWeight: 700, fontSize: 15 }}>{brEditKey ? `編輯：${brEditKey}` : '新增隨機下注設定'}</div>
-
-                <div>
-                  <label style={{ fontSize: 12, color: '#cbd5e1', display: 'block', marginBottom: 3 }}>Game Title Code *</label>
-                  <input value={brFormKey} disabled={!!brEditKey}
-                    onChange={e => setBrFormKey(e.target.value)}
-                    placeholder="e.g. 873-TIANCIJINLONG-0017"
-                    style={{ width: '100%', padding: '6px 10px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 13, boxSizing: 'border-box', background: '#0f172a' }} />
-                </div>
-
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <label style={{ fontSize: 12, color: '#cbd5e1' }}>XPath 列表（每行一個）</label>
-                    <button type="button" onClick={() => setBrFormSelectors(s => [...s, ''])}
-                      style={{ padding: '2px 10px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>
-                      + 新增行
-                    </button>
-                  </div>
-                  {brFormSelectors.map((sel, idx) => (
-                    <div key={idx} style={{ display: 'flex', gap: 6, marginBottom: 6 }}>
-                      <input value={sel}
-                        onChange={e => setBrFormSelectors(s => s.map((x, i) => i === idx ? e.target.value : x))}
-                        placeholder="//div[@class='row2']//div[contains(@class,'btn_bet')]"
-                        style={{ flex: 1, padding: '5px 8px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 11, fontFamily: 'monospace' }} />
-                      <button type="button" onClick={() => setBrFormSelectors(s => s.filter((_, i) => i !== idx))}
-                        disabled={brFormSelectors.length <= 1}
-                        style={{ padding: '4px 8px', background: 'rgba(239,68,68,0.12)', color: '#dc2626', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>✕</button>
-                    </div>
-                  ))}
-                </div>
-
-                {betRandomMsg && <p style={{ color: '#dc2626', fontSize: 12, margin: 0 }}>❌ {betRandomMsg}</p>}
-                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
-                  <button onClick={() => { setBrShowForm(false); setBetRandomMsg('') }}
-                    style={{ padding: '6px 16px', border: '1px solid #2d3f55', borderRadius: 6, background: '#1e293b', color: '#94a3b8', fontSize: 13, cursor: 'pointer' }}>取消</button>
-                  <button onClick={handleSaveBrEntry}
-                    style={{ padding: '6px 16px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>儲存</button>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       )}
 

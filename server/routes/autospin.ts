@@ -180,28 +180,6 @@ router.put('/api/autospin/actions', (req, res) => {
   res.json({ ok: true })
 })
 
-// ─── Bet Random management ────────────────────────────────────────────────────
-
-// GET /api/autospin/bet-random
-router.get('/api/autospin/bet-random', (_req, res) => {
-  if (!PROJECT_DIR) return res.status(500).json({ ok: false, message: 'AUTOSPIN_PROJECT 未設定' })
-  const p = join(PROJECT_DIR, 'bet_random.json')
-  if (!existsSync(p)) return res.json({ ok: true, data: {} })
-  try {
-    res.json({ ok: true, data: JSON.parse(readFileSync(p, 'utf8')) })
-  } catch {
-    res.status(500).json({ ok: false, message: '無法讀取 bet_random.json' })
-  }
-})
-
-// PUT /api/autospin/bet-random
-router.put('/api/autospin/bet-random', (req, res) => {
-  if (!PROJECT_DIR) return res.status(500).json({ ok: false, message: 'AUTOSPIN_PROJECT 未設定' })
-  const body = z.object({ data: z.record(z.string(), z.array(z.string())) }).parse(req.body)
-  writeFileSync(join(PROJECT_DIR, 'bet_random.json'), JSON.stringify(body.data, null, 2), 'utf8')
-  res.json({ ok: true })
-})
-
 // ─── Templates management ─────────────────────────────────────────────────────
 
 // GET /api/autospin/templates — list template files
@@ -932,8 +910,8 @@ router.post('/api/autospin/agent/start', (req, res) => {
   // Return configs merged with machine_test_profiles selectors
   // （entryTouchPoints/entryTouchPoints2 讓 AutoSpin 的進入機台流程與 Machine Test 完全一致）
   const configs = readConfigs(userLabel)
-  const profiles = db.prepare('SELECT machineType, spinSelector, balanceSelector, entryTouchPoints, entryTouchPoints2, bonusAction, touchPoints, clickTake FROM machine_test_profiles').all() as
-    { machineType: string; spinSelector: string | null; balanceSelector: string | null; entryTouchPoints: string | null; entryTouchPoints2: string | null; bonusAction: string | null; touchPoints: string | null; clickTake: number | null }[]
+  const profiles = db.prepare('SELECT machineType, spinSelector, balanceSelector, entryTouchPoints, entryTouchPoints2, bonusAction, touchPoints, clickTake, ideck_xpaths FROM machine_test_profiles').all() as
+    { machineType: string; spinSelector: string | null; balanceSelector: string | null; entryTouchPoints: string | null; entryTouchPoints2: string | null; bonusAction: string | null; touchPoints: string | null; clickTake: number | null; ideck_xpaths: string | null }[]
   const profileMap = Object.fromEntries(profiles.map(p => [p.machineType, p]))
   const parseTouchPoints = (v: string | null | undefined): string[] => {
     if (!v) return []
@@ -946,8 +924,13 @@ router.post('/api/autospin/agent/start', (req, res) => {
     const parts = (c.gameTitleCode || '').split('-')
     return parts.length >= 3 ? parts[1].toUpperCase() : c.machineType
   }
-  // bonusAction/touchPoints/clickTake：讓 AutoSpin 也能執行跟 Machine Test 一樣的特殊遊戲處理動作
-  // （只讀取 machine_test_profiles，不動 Machine Test 自己的程式碼）
+  // bonusAction/touchPoints/clickTake/ideckXpaths：讓 AutoSpin 也能執行跟 Machine Test 一樣的特殊遊戲
+  // 處理動作與隨機下注 XPath（只讀取 machine_test_profiles，不動 Machine Test 自己的程式碼）。
+  // ideckXpaths 原本是獨立的 bet_random.json + 「隨機下注」頁面在管，2026-07-30 起改成完全共用
+  // machine_test_profiles 的 ideck_xpaths（該欄位當初設計就是要取代 bet_random.json，見
+  // machine-test/types.ts 的欄位註解「replaces ideckRowClass + betRandomConfig」，只是先前從未
+  // 真的接上 AutoSpin 這邊）；舊資料已一次性遷移進 machine_test_profiles（沒有對應機種的新建、
+  // 已有資料的補齊，已有資料且不同的保留原樣不覆蓋），沒有任何 XPath 因此次改動而遺失。
   const merged = configs.map(c => ({
     ...c,
     enabled: !!c.enabled,
@@ -958,11 +941,11 @@ router.post('/api/autospin/agent/start', (req, res) => {
     bonusAction: profileMap[profileKeyFor(c)]?.bonusAction ?? 'auto_wait',
     touchPoints: parseTouchPoints(profileMap[profileKeyFor(c)]?.touchPoints),
     clickTake: !!profileMap[profileKeyFor(c)]?.clickTake,
+    ideckXpaths: parseTouchPoints(profileMap[profileKeyFor(c)]?.ideck_xpaths),
   }))
   // Load keyword_actions and machine_actions from actions.json
   let keywordActions: Record<string, string[]> = {}
   let machineActions: Record<string, { positions: string[]; clickTake: boolean }> = {}
-  let betRandomConfig: Record<string, string[]> = {}
   try {
     const actionsPath = join(PROJECT_DIR, 'actions.json')
     if (existsSync(actionsPath)) {
@@ -974,16 +957,12 @@ router.post('/api/autospin/agent/start', (req, res) => {
         ])
       )
     }
-    const betRandomPath = join(PROJECT_DIR, 'bet_random.json')
-    if (existsSync(betRandomPath)) {
-      betRandomConfig = JSON.parse(readFileSync(betRandomPath, 'utf-8'))
-    }
   } catch { /* ignore */ }
   // 逐台已啟用機台送出「排隊中」Discord 通知（fire-and-forget，不影響回應速度）
   for (const c of merged) {
     if (c.enabled) notifyDiscord(sessionId, c.machineType, 'queued', { gameUrl: c.gameUrl }).catch(() => {})
   }
-  res.json({ ok: true, sessionId, configs: merged, keywordActions, machineActions, betRandomConfig })
+  res.json({ ok: true, sessionId, configs: merged, keywordActions, machineActions })
 })
 
 // POST /api/autospin/agent/:id/log — agent posts a log line（或一次多行 lines[]，供背景佇列批次上傳用）

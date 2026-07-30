@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.76.0'
+export const APP_VERSION = '3.77.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.77.0',
+    date: '2026-07-30',
+    changes: [
+      'refactor(autospin): 隨機下注（BetRandom）XPath 改成完全共用 machine_test_profiles.ideck_xpaths，不再有獨立的 bet_random.json + 「隨機下注」頁面——該欄位當初設計就是要取代這個機制，只是先前一直沒真的接上；已將舊資料一次性遷移進 machine_test_profiles，確認沒有 XPath 遺失',
+      'fix(autospin): 移除獨立的 GET/PUT /api/autospin/bet-random 端點與 AutoSpin 頁面的「隨機下注」Tab，機台設定表格的「隨機下注」開關保留，改為說明文字指向機台自動化測試的機種設定檔',
+    ],
+  },
   {
     version: '3.76.0',
     date: '2026-07-30',
