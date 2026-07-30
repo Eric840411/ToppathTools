@@ -8,6 +8,7 @@ import sys
 import json
 import time
 import threading
+import multiprocessing
 import queue
 import signal
 import os
@@ -35,35 +36,15 @@ except ImportError:
     print("[ERROR] 缺少 playwright 套件，請執行: pip install playwright && playwright install chromium")
     sys.exit(1)
 
-# ─── 解析伺服器 URL ────────────────────────────────────────────────────────────
-
+# ─── 伺服器連線資訊（多進程架構：每台機台一個獨立 process，下面這幾個模組全域變數
+# 由「parent process」的 main() 解析/註冊一次，再透過 machine_worker() 的參數把值帶進
+# 每個 child process，並在 child 一開始用 global 賦值——本檔案其餘所有函式（log/do_spin/
+# enter_game/...）都直接讀這幾個模組全域變數，維持不變，不用每個函式都加參數 ───
 server_url = "http://localhost:3000"
 user_label = ""
-if len(sys.argv) > 1:
-    try:
-        parsed = urlparse(sys.argv[1])
-        params = parse_qs(parsed.query)
-        server_url = params.get('server', [server_url])[0].rstrip('/')
-        user_label = params.get('user', [''])[0]
-    except Exception:
-        pass
-
-print(f"[Agent] 連接伺服器：{server_url}，使用者：{user_label or '(未設定)'}")
-
-# ─── 向伺服器登錄，取得 session ID、機台設定與 actions ───────────────────────
-
-try:
-    resp = requests.post(f"{server_url}/api/autospin/agent/start",
-                         json={'userLabel': user_label}, timeout=10)
-    data = resp.json()
-    session_id       = data['sessionId']
-    configs          = data['configs']
-    keyword_actions  = data.get('keywordActions', {})
-    machine_actions  = data.get('machineActions', {})
-    print(f"[Agent] Session: {session_id}，共 {len(configs)} 台機台")
-except Exception as e:
-    print(f"[ERROR] 無法連接伺服器: {e}")
-    sys.exit(1)
+session_id = None
+keyword_actions: dict = {}  # enter_game() 讀這個當作 bare global（fallback 用），machine_worker() 進場時賦值
+machine_actions: dict = {}  # 目前未串接的殘留變數，保留只為了跟伺服器回傳的資料形狀一致
 
 # ─── 工具函數 ─────────────────────────────────────────────────────────────────
 
@@ -97,8 +78,6 @@ def log_worker():
         except Exception:
             pass
 
-threading.Thread(target=log_worker, daemon=True).start()
-
 def async_call(fn, *args, **kwargs):
     """在背景執行緒跑一個網路呼叫（fire-and-forget），避免呼叫方（主 Spin 迴圈）被同步網路請求卡住。
     post_history()/send_screenshot()/send_lark() 都是 best-effort、內部已吞掉例外，適合這樣用。"""
@@ -130,9 +109,6 @@ def post_history(machine_type: str, balance, spin_count: int, event: str = 'bala
             log(f"[{machine_type}] ⚠️ 異常偵測：餘額相比本次開局下降超過 30%")
     except Exception:
         pass
-
-signal.signal(signal.SIGINT,  lambda s, f: stop_flag.set())
-signal.signal(signal.SIGTERM, lambda s, f: stop_flag.set())
 
 spin_interval_override = None  # set by server via should-stop poll
 spin_interval_lock = __import__('threading').Lock()
@@ -200,8 +176,6 @@ def poll_stop():
         except Exception:
             pass
         time.sleep(3)
-
-threading.Thread(target=poll_stop, daemon=True).start()
 
 # ─── 常量 ─────────────────────────────────────────────────────────────────────
 
@@ -1391,94 +1365,116 @@ def wait_for_normal_osm_status(gmid: str, page, cfg: dict, mt: str) -> bool:
     return True
 
 
-# ─── 主流程 ───────────────────────────────────────────────────────────────────
+# ─── 主流程（多進程架構）───────────────────────────────────────────────────────
+# Playwright sync API 官方明文只支援單執行緒操作，原本所有機台共用同一個
+# browser/context、單一 for 迴圈輪流跑，改成每台機台各自獨立的 process（各自
+# sync_playwright + browser + context + page），一台卡住/掛掉不會影響其他台。
+# 各 process 沿用 parent 向伺服器登錄拿到的同一個 session_id，停止/暫停協調
+# 完全透過既有的 /should-stop 心跳輪詢（各 process 各自獨立輪詢同一個
+# session_id），不需要額外的跨 process 通訊。
 
-active_configs = [c for c in configs if c.get('enabled')]
-if not active_configs:
-    log("[Agent] 沒有啟用的機台，請在「機台設定」中啟用至少一台")
-    send_stopped()
-    sys.exit(0)
+_child_processes: list = []  # parent process 用，讓 signal handler 拿得到子行程清單
 
-log(f"[Agent] 啟動 {len(active_configs)} 台機台: {', '.join(c['machineType'] for c in active_configs)}")
 
-# 下載模板（若有 templateType/errorTemplateType 設定）
-load_templates()
+def _parent_signal_handler(signum, frame):
+    print("[Agent] 收到停止信號，通知所有機台 process 結束...")
+    for proc in _child_processes:
+        if proc.is_alive():
+            proc.terminate()
 
-with sync_playwright() as p:
-    browser = p.chromium.launch(
-        headless=False,
-        args=['--no-sandbox', '--disable-dev-shm-usage', '--window-size=432,860']
-    )
 
-    # 若任何機台啟用錄影，開啟 Playwright 錄影
-    enable_video = any(c.get('enableRecording') for c in active_configs)
-    video_dir = None
-    if enable_video:
-        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-        import pathlib
-        video_dir = str(pathlib.Path(__file__).parent / 'recordings' / ts)
-        os.makedirs(video_dir, exist_ok=True)
-        log(f"[Agent] 錄影已啟動，儲存至: {video_dir}")
+def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: dict,
+                    keyword_actions_: dict, machine_actions_: dict):
+    """單一機台的完整生命週期，跑在自己獨立的 process 裡。"""
+    global session_id, server_url, user_label, keyword_actions, machine_actions, AGENT_START_TS
+    session_id = session_id_
+    server_url = server_url_
+    user_label = user_label_
+    keyword_actions = keyword_actions_
+    machine_actions = machine_actions_
+    AGENT_START_TS = time.time()
 
-    ctx_options = dict(
-        viewport={"width": 432, "height": 780},
-        is_mobile=True,
-        user_agent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
-    )
-    if video_dir:
-        ctx_options['record_video_dir'] = video_dir
-        ctx_options['record_video_size'] = {"width": 432, "height": 780}
+    signal.signal(signal.SIGINT,  lambda s, f: stop_flag.set())
+    signal.signal(signal.SIGTERM, lambda s, f: stop_flag.set())
+    threading.Thread(target=log_worker, daemon=True).start()
+    threading.Thread(target=poll_stop, daemon=True).start()
 
-    context = browser.new_context(**ctx_options)
-    # 注入 pinus/GM 事件監控 script（於所有頁面載入前執行），提供 __lastCoin/__gmEvents/__pinusLog
-    context.add_init_script(TOPPATH_MONITOR_SCRIPT)
+    mt = cfg['machineType']
+    load_templates()
 
-    machine_pages = []
-    for cfg in active_configs:
-        if not cfg.get('gameUrl'):
-            log(f"[{cfg['machineType']}] 未設定 Game URL，跳過")
-            continue
+    if not cfg.get('gameUrl'):
+        log(f"[{mt}] 未設定 Game URL，結束")
+        return
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=False,
+            args=['--no-sandbox', '--disable-dev-shm-usage', '--window-size=432,860']
+        )
+
+        # 每台機台各自獨立 context，錄影開關改成只看這一台自己的設定（原本共用一個
+        # context 時，只要「任何一台」開錄影，其他台也會被一起錄進去，是不精準的）
+        enable_video = bool(cfg.get('enableRecording'))
+        video_dir = None
+        if enable_video:
+            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+            import pathlib
+            video_dir = str(pathlib.Path(__file__).parent / 'recordings' / f"{ts}_{mt}")
+            os.makedirs(video_dir, exist_ok=True)
+            log(f"[{mt}] 錄影已啟動，儲存至: {video_dir}")
+
+        ctx_options = dict(
+            viewport={"width": 432, "height": 780},
+            is_mobile=True,
+            user_agent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+        )
+        if video_dir:
+            ctx_options['record_video_dir'] = video_dir
+            ctx_options['record_video_size'] = {"width": 432, "height": 780}
+
+        context = browser.new_context(**ctx_options)
+        # 注入 pinus/GM 事件監控 script（於所有頁面載入前執行），提供 __lastCoin/__gmEvents/__pinusLog
+        context.add_init_script(TOPPATH_MONITOR_SCRIPT)
+
+        mp = None
         try:
             page = context.new_page()
             page.goto(cfg['gameUrl'], wait_until='domcontentloaded', timeout=30000)
             if not enter_game(page, cfg):
-                log(f"[{cfg['machineType']}] 無法進入遊戲，跳過")
-                continue
-            time.sleep(3.0)  # 等待遊戲穩定
-            machine_pages.append({'page': page, 'config': cfg, 'spin_count': 0, 'error_count': 0, 'last_balance': None, 'last_pinus_poll': 0.0, 'no_change_count': 0})
-            post_history(cfg['machineType'], None, 0, event='start', note='Agent 開始')
-            log(f"[{cfg['machineType']}] 遊戲已就緒")
+                log(f"[{mt}] 無法進入遊戲，結束")
+            else:
+                time.sleep(3.0)  # 等待遊戲穩定
+                mp = {'page': page, 'config': cfg, 'spin_count': 0, 'error_count': 0, 'last_balance': None, 'last_pinus_poll': 0.0, 'no_change_count': 0}
+                post_history(mt, None, 0, event='start', note='Agent 開始')
+                log(f"[{mt}] 遊戲已就緒")
         except Exception as e:
-            log(f"[{cfg['machineType']}] 開啟失敗: {e}")
+            log(f"[{mt}] 開啟失敗: {e}")
 
-    if not machine_pages:
-        log("[Agent] 所有機台開啟失敗，結束")
-        send_stopped()
-        browser.close()
-        sys.exit(1)
+        if mp is None:
+            try:
+                browser.close()
+            except Exception:
+                pass
+            return
 
-    log(f"[Agent] 開始執行 Spin 循環（共 {len(machine_pages)} 台）")
-    screenshot_interval = 20
+        log(f"[{mt}] 開始執行 Spin 循環")
+        screenshot_interval = 20
 
-    was_paused = False
+        was_paused = False
 
-    while not stop_flag.is_set():
-        for mp in machine_pages:
-            if stop_flag.is_set():
-                break
+        while not stop_flag.is_set():
             page   = mp['page']
             cfg    = mp['config']
-            mt     = cfg['machineType']
 
             # ── 暫停/恢復 ────────────────────────────────────────────────────
             if pause_flag.is_set():
                 if not was_paused:
-                    log("[Agent] 已暫停，等待繼續...")
+                    log(f"[{mt}] 已暫停，等待繼續...")
                     was_paused = True
                 time.sleep(1)
                 continue
             if was_paused:
-                log("[Agent] 已繼續執行")
+                log(f"[{mt}] 已繼續執行")
                 was_paused = False
 
             try:
@@ -1695,11 +1691,75 @@ with sync_playwright() as p:
                 mp['error_count'] += 1
                 log(f"[{mt}] 錯誤: {e}")
 
-    log("[Agent] 停止執行，關閉瀏覽器")
-    try:
-        browser.close()
-    except Exception:
-        pass
+        log(f"[{mt}] 停止執行，關閉瀏覽器")
+        try:
+            browser.close()
+        except Exception:
+            pass
 
-send_stopped()
-log("[Agent] 已結束")
+
+def main():
+    global server_url, user_label, session_id
+
+    if len(sys.argv) > 1:
+        try:
+            parsed = urlparse(sys.argv[1])
+            params = parse_qs(parsed.query)
+            server_url = params.get('server', [server_url])[0].rstrip('/')
+            user_label = params.get('user', [''])[0]
+        except Exception:
+            pass
+
+    print(f"[Agent] 連接伺服器：{server_url}，使用者：{user_label or '(未設定)'}")
+
+    try:
+        resp = requests.post(f"{server_url}/api/autospin/agent/start",
+                             json={'userLabel': user_label}, timeout=10)
+        data = resp.json()
+        session_id          = data['sessionId']
+        configs              = data['configs']
+        keyword_actions_data = data.get('keywordActions', {})
+        machine_actions_data = data.get('machineActions', {})
+        print(f"[Agent] Session: {session_id}，共 {len(configs)} 台機台")
+    except Exception as e:
+        print(f"[ERROR] 無法連接伺服器: {e}")
+        sys.exit(1)
+
+    # parent process 自己的 log_worker，讓登錄階段（啟動訊息、沒有啟用機台等）也能上傳給伺服器
+    threading.Thread(target=log_worker, daemon=True).start()
+
+    active_configs = [c for c in configs if c.get('enabled')]
+    if not active_configs:
+        log("[Agent] 沒有啟用的機台，請在「機台設定」中啟用至少一台")
+        send_stopped()
+        sys.exit(0)
+
+    log(f"[Agent] 啟動 {len(active_configs)} 台機台（多進程模式，各自獨立 process）: "
+        f"{', '.join(c['machineType'] for c in active_configs)}")
+
+    # 下載模板（若有 templateType/errorTemplateType 設定）——parent 先下載一次到共用暫存
+    # 目錄，各 child process 進來時也會各自呼叫 load_templates()（已存在的檔案會跳過下載）
+    load_templates()
+
+    signal.signal(signal.SIGINT,  _parent_signal_handler)
+    signal.signal(signal.SIGTERM, _parent_signal_handler)
+
+    for cfg in active_configs:
+        proc = multiprocessing.Process(
+            target=machine_worker,
+            args=(session_id, server_url, user_label, cfg, keyword_actions_data, machine_actions_data),
+        )
+        proc.start()
+        _child_processes.append(proc)
+        log(f"[{cfg['machineType']}] 已啟動獨立 process（PID {proc.pid}）")
+
+    for proc in _child_processes:
+        proc.join()
+
+    log("[Agent] 所有機台 process 已結束")
+    send_stopped()
+    log("[Agent] 已結束")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.77.1'
+export const APP_VERSION = '3.78.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.78.0',
+    date: '2026-07-30',
+    changes: [
+      'refactor(autospin): 多機台執行架構改成多進程（每台機台一個獨立 process），取代原本單一 process 內用 for 迴圈輪流服務所有機台的做法——Playwright sync API 官方只支援單執行緒操作，原本機台越多、每台實際被輪到 Spin 的頻率越低，任一台卡住/逾時還會拖慢其他台；改成 machine_worker() 每台各自獨立 sync_playwright + browser + context + page，一台掛掉不影響其他台，停止/暫停透過既有 /should-stop 心跳各自獨立收斂不需跨 process 通訊',
+    ],
+  },
   {
     version: '3.77.1',
     date: '2026-07-30',
