@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.77.0'
+export const APP_VERSION = '3.77.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.77.1',
+    date: '2026-07-30',
+    changes: [
+      'fix(autospin): execute_bet_random() 30% 機率命中但畫面上找不到可見元素、或點擊失敗時，新增執行日誌——原本這兩種情況完全不出聲，跟「機率沒中」看起來一樣，無法判斷隨機下注到底有沒有真的嘗試過',
+    ],
+  },
   {
     version: '3.77.0',
     date: '2026-07-30',

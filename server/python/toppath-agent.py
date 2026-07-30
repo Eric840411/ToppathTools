@@ -721,8 +721,9 @@ def execute_bet_random(page, ideck_xpaths: list):
                 log(f"  [BetRandom] 點擊下注按鈕: {sel}")
                 time.sleep(0.5)
                 return
-    except Exception:
-        pass
+        log(f"  [BetRandom] 機率命中但畫面上找不到可見元素: {sel}")
+    except Exception as e:
+        log(f"  [BetRandom] 機率命中但點擊失敗: {sel} ({e})")
 
 
 def check_page_error(page) -> bool:
