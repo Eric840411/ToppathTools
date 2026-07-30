@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.79.0'
+export const APP_VERSION = '3.79.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.79.1',
+    date: '2026-07-30',
+    changes: [
+      'feat(autospin): 定時彙總報告新增「啟用 AI 分析區塊」開關（預設關閉）——關閉時完全不呼叫 Gemini，零額外開銷，避免正式環境長時間跑多台機台時累積 AI 費用',
+    ],
+  },
   {
     version: '3.79.0',
     date: '2026-07-30',

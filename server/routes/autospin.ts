@@ -364,6 +364,12 @@ function getStatusReportCustomNote(): string {
   return row?.value ?? ''
 }
 
+/** AI 分析區塊開關（預設關閉）——關閉時完全不呼叫 Gemini，零額外開銷；開啟才會呼叫 generateStatusReportAiAnalysis()。 */
+function getStatusReportAiEnabled(): boolean {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('autospin_status_report_ai_enabled') as { value: string } | undefined
+  return row?.value === '1'
+}
+
 // GET /api/autospin/status-report-settings
 router.get('/api/autospin/status-report-settings', (_req, res) => {
   res.json({
@@ -372,13 +378,14 @@ router.get('/api/autospin/status-report-settings', (_req, res) => {
     intervalMin: getStatusReportIntervalMin(),
     fields: getStatusReportFields(),
     customNote: getStatusReportCustomNote(),
+    aiEnabled: getStatusReportAiEnabled(),
   })
 })
 
 // POST /api/autospin/status-report-settings
 router.post('/api/autospin/status-report-settings', (req, res) => {
-  const { enabled, intervalMin, fields, customNote } = req.body as {
-    enabled?: boolean; intervalMin?: number; fields?: Partial<Record<StatusReportFieldKey, boolean>>; customNote?: string
+  const { enabled, intervalMin, fields, customNote, aiEnabled } = req.body as {
+    enabled?: boolean; intervalMin?: number; fields?: Partial<Record<StatusReportFieldKey, boolean>>; customNote?: string; aiEnabled?: boolean
   }
   if (typeof enabled === 'boolean') {
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('autospin_status_report_enabled', enabled ? '1' : '0')
@@ -392,6 +399,9 @@ router.post('/api/autospin/status-report-settings', (req, res) => {
   }
   if (typeof customNote === 'string') {
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('autospin_status_report_custom_note', customNote)
+  }
+  if (typeof aiEnabled === 'boolean') {
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('autospin_status_report_ai_enabled', aiEnabled ? '1' : '0')
   }
   res.json({ ok: true })
 })
@@ -543,7 +553,9 @@ router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
   const webhookUrl = getDiscordWebhookUrl()
   if (!webhookUrl || !isDiscordNotifyEnabled() || !getStatusReportEnabled()) return
 
-  const aiAnalysis = await generateStatusReportAiAnalysis(req, machineType, periodMinutes ?? 0, cumulative, period, uptimeMinutes)
+  const aiAnalysis = getStatusReportAiEnabled()
+    ? await generateStatusReportAiAnalysis(req, machineType, periodMinutes ?? 0, cumulative, period, uptimeMinutes)
+    : null
 
   const embed = buildStatusReportEmbed({
     machineType,
@@ -587,9 +599,11 @@ router.post('/api/autospin/status-report-test', async (req, res) => {
     },
   }
 
-  // 試發送也一併示範 AI 分析區塊 + tag（用目前登入的操作者當「發起人」測試對照表有沒有生效），
-  // 兩者都是 best-effort，失敗不擋測試訊息送出。
-  const aiAnalysis = await generateStatusReportAiAnalysis(req, 'TEST', getStatusReportIntervalMin(), sample.cumulative, sample.period, 125)
+  // 試發送也一併示範 AI 分析區塊（跟隨開關，關閉時不燒 token）+ tag（用目前登入的操作者當
+  // 「發起人」測試對照表有沒有生效），兩者都是 best-effort，失敗不擋測試訊息送出。
+  const aiAnalysis = getStatusReportAiEnabled()
+    ? await generateStatusReportAiAnalysis(req, 'TEST', getStatusReportIntervalMin(), sample.cumulative, sample.period, 125)
+    : null
   const mention = mentionForUserLabel(getOperatorFromContext()?.name)
 
   const embed = buildStatusReportEmbed({

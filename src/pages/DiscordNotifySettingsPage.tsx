@@ -83,6 +83,8 @@ export function DiscordNotifySettingsPage() {
   const [savedReportFields, setSavedReportFields] = useState<Record<ReportFieldKey, boolean>>(DEFAULT_REPORT_FIELDS)
   const [reportCustomNote, setReportCustomNote] = useState('')
   const [savedReportCustomNote, setSavedReportCustomNote] = useState('')
+  const [reportAiEnabled, setReportAiEnabled] = useState(false)
+  const [savedReportAiEnabled, setSavedReportAiEnabled] = useState(false)
   const [reportSaving, setReportSaving] = useState(false)
   const [reportMsg, setReportMsg] = useState<{ text: string; ok: boolean } | null>(null)
   const [reportTesting, setReportTesting] = useState(false)
@@ -128,6 +130,7 @@ export function DiscordNotifySettingsPage() {
       setReportFields(f); setSavedReportFields(f)
       const note = data.customNote || ''
       setReportCustomNote(note); setSavedReportCustomNote(note)
+      setReportAiEnabled(!!data.aiEnabled); setSavedReportAiEnabled(!!data.aiEnabled)
     } catch { /* best-effort */ }
   }
 
@@ -144,7 +147,7 @@ export function DiscordNotifySettingsPage() {
 
   const reportFieldsDirty = REPORT_FIELD_META.some(f => reportFields[f.key] !== savedReportFields[f.key])
   const reportDirty = reportEnabled !== savedReportEnabled || reportIntervalMin !== savedReportIntervalMin
-    || reportFieldsDirty || reportCustomNote !== savedReportCustomNote
+    || reportFieldsDirty || reportCustomNote !== savedReportCustomNote || reportAiEnabled !== savedReportAiEnabled
 
   async function handleSaveReportSettings() {
     setReportSaving(true)
@@ -153,12 +156,13 @@ export function DiscordNotifySettingsPage() {
       const res = await fetch('/api/autospin/status-report-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: reportEnabled, intervalMin: reportIntervalMin, fields: reportFields, customNote: reportCustomNote }),
+        body: JSON.stringify({ enabled: reportEnabled, intervalMin: reportIntervalMin, fields: reportFields, customNote: reportCustomNote, aiEnabled: reportAiEnabled }),
       })
       const data = await res.json()
       if (data.ok) {
         setSavedReportEnabled(reportEnabled); setSavedReportIntervalMin(reportIntervalMin)
         setSavedReportFields(reportFields); setSavedReportCustomNote(reportCustomNote)
+        setSavedReportAiEnabled(reportAiEnabled)
         setReportMsg({ text: '✅ 已儲存定時彙總報告設定', ok: true })
       } else {
         setReportMsg({ text: `儲存失敗：${data.message || '未知錯誤'}`, ok: false })
@@ -436,6 +440,13 @@ export function DiscordNotifySettingsPage() {
                 rows={2}
                 style={{ resize: 'vertical', fontFamily: 'inherit' }}
               />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <ToggleSwitch checked={reportAiEnabled} disabled={loading} onToggle={() => setReportAiEnabled(v => !v)} />
+              <div>
+                <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 700 }}>啟用 AI 分析區塊</div>
+                <div style={{ color: '#64748b', fontSize: 11 }}>關閉時完全不呼叫 Gemini，零額外開銷；開啟才會在報告最下方加一段「🤖 AI 分析」判斷是否異常</div>
+              </div>
             </div>
             <div className="discord-notify-actions">
               <button
