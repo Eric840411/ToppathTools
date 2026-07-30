@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.79.3'
+export const APP_VERSION = '3.79.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.79.4',
+    date: '2026-07-30',
+    changes: [
+      'fix(autospin): 定時彙總報告 errcode 明細改成每個一行（Discord 引用格式），有發生時間點的話換行列在下面，不再擠成一長串分號分隔的文字',
+    ],
+  },
   {
     version: '3.79.3',
     date: '2026-07-30',

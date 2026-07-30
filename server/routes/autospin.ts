@@ -432,14 +432,15 @@ function buildStatusReportEmbed(opts: {
 }) {
   const { machineType, periodMinutes, cumulative, period, uptimeMinutes, fields, customNote, isTest, aiAnalysis } = opts
   const fmtPct = (ok: number, total: number) => total > 0 ? `${((ok / total) * 100).toFixed(1)}%` : '—'
+  /** 每個 errcode 一行（Discord 引用格式），有時間點的話換行縮排列在下面，避免一長串塞成一行看不清楚。 */
   const errcodeStr = (m: Record<string, number>, times?: Record<string, number[]>) => {
     const entries = Object.entries(m).filter(([, n]) => n > 0)
-    if (entries.length === 0) return '無'
+    if (entries.length === 0) return '> 無'
     return entries.map(([code, n]) => {
       const ts = times?.[code]
-      const recent = ts && ts.length > 0 ? `，最近: ${ts.map(fmtErrTime).join(', ')}` : ''
-      return `err${code}: ${n}${recent}`
-    }).join('; ')
+      const line = `> \`err${code}\` × ${n}`
+      return ts && ts.length > 0 ? `${line}　最近 ${ts.map(fmtErrTime).join('、')}` : line
+    }).join('\n')
   }
 
   const lines: string[] = []
@@ -447,7 +448,7 @@ function buildStatusReportEmbed(opts: {
   lines.push(`**本期間**（約 ${periodMinutes.toFixed(1)} 分鐘）`)
   if (fields.spins) lines.push(`spins: ${period.spinCount.toLocaleString()}（ok ${period.okSpinCount.toLocaleString()}，${fmtPct(period.okSpinCount, period.spinCount)}）`)
   if (fields.winRate) lines.push(`wins: ${period.winCount.toLocaleString()}, totalWin: ${period.totalWin.toLocaleString()}`)
-  if (fields.errcodes) lines.push(`errcode: ${errcodeStr(period.errcodeCounts)}`)
+  if (fields.errcodes) lines.push('errcode:', errcodeStr(period.errcodeCounts))
   if (fields.recover) lines.push(`RECOVER: ${period.recoverCount}`)
   if (fields.kickouts) lines.push(`kickouts: ${period.kickoutCount}`)
   if (fields.crChecks) lines.push(`CR checks: ${period.crChecks}，無回應 ${period.crNoResponse}`)
@@ -455,7 +456,7 @@ function buildStatusReportEmbed(opts: {
   lines.push('**累計**')
   if (fields.spins) lines.push(`spins: ${cumulative.spinCount.toLocaleString()}（ok ${cumulative.okSpinCount.toLocaleString()}，${fmtPct(cumulative.okSpinCount, cumulative.spinCount)}）`)
   if (fields.winRate) lines.push(`wins: ${cumulative.winCount.toLocaleString()}, totalWin: ${cumulative.totalWin.toLocaleString()}${cumulative.lastCoin != null ? `, lastCoin: ~${cumulative.lastCoin.toLocaleString()}` : ''}`)
-  if (fields.errcodes) lines.push(`errcode: ${errcodeStr(cumulative.errcodeCounts, cumulative.errcodeTimes)}`)
+  if (fields.errcodes) lines.push('errcode:', errcodeStr(cumulative.errcodeCounts, cumulative.errcodeTimes))
   if (fields.recover) lines.push(`RECOVER: ${cumulative.recoverCount}`)
   if (fields.kickouts) lines.push(`kickouts: ${cumulative.kickoutCount}`)
   if (fields.crChecks) lines.push(`CR checks: ${cumulative.crChecks}，無回應 ${cumulative.crNoResponse}`)
