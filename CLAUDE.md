@@ -362,6 +362,7 @@ Keep Claude for:
 | 查看歷史紀錄 | AutoSpin 各 session 的執行紀錄 |
 | 設定 Spin 間隔 | 調整每次 Spin 的等待時間（執行中可即時覆蓋）|
 | 管理 Bet Config / 模板圖片 | 設定下注隨機配置、上傳比對模板圖 |
+| 複製機台配置 | 機台設定列表「複製配置」按鈕，帶入既有機台的所有設定（模板/RTMP/隨機下注等）當新機台的起點，只需重新輸入機台類型（唯一主鍵，不可留空/重複），不用從頭重新填一次 |
 | Agent 下載安裝 | 統一在「Local Agent」頁面下載安裝（Windows install.bat / macOS install-mac.command，含 token），安裝後的 agent 具備 autospin capability |
 | 對賬功能 | 比對遊戲紀錄與帳戶餘額，生成對賬報告 |
 | Discord 即時彙報通知 | 每台機台開始測試時發一則 Discord 訊息，之後同一則訊息隨狀態更新：`queued`（排隊中）→ `running`（執行中，每次餘額/事件回報時同步更新）→ `success`（完成，session 期間無異常）/ `failed`（完成，曾偵測到餘額異常 >30%）；手動停止或連線逾時另標記 `stopped`。訊息含機台、Game URL、Spin 數、錯誤摘要、截圖連結，不會洗版。Webhook URL 在「Discord 通知」設定頁配置，不寫死頻道 |

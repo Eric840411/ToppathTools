@@ -187,6 +187,15 @@ export function AutoSpinPage() {
     setShowForm(true)
   }
 
+  // 複製既有機台設定當作新機台的起點——machineType 是主鍵必須清空重填，其餘欄位（模板/RTMP/
+  // 隨機下注等）原樣帶入，不用使用者從頭重新填一次
+  const handleCopyConfig = (c: AutospinConfig) => {
+    setEditingType(null)
+    setForm({ ...c, machineType: '' })
+    setConfigMsg('')
+    setShowForm(true)
+  }
+
   // 直接在列表切換布林欄位（啟用/啟用錄影/啟用模板偵測/隨機下注/隨機離開），不用點進編輯視窗
   const [togglingKey, setTogglingKey] = useState<string | null>(null)
   const handleToggleField = async (c: AutospinConfig, field: 'enabled' | 'enableRecording' | 'enableTemplateDetection' | 'betRandomEnabled' | 'randomExitEnabled') => {
@@ -820,6 +829,8 @@ export function AutoSpinPage() {
                     <div style={{ display: 'flex', gap: 4 }}>
                       <button onClick={() => handleEditConfig(c)}
                         style={{ padding: '2px 8px', background: '#eff6ff', color: '#1d4ed8', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>編輯</button>
+                      <button onClick={() => handleCopyConfig(c)} title="複製這台的設定當作新機台的起點"
+                        style={{ padding: '2px 8px', background: '#f0fdf4', color: '#16a34a', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>複製配置</button>
                       <button onClick={() => handleDeleteConfig(c.machineType)}
                         style={{ padding: '2px 8px', background: 'rgba(239,68,68,0.12)', color: '#dc2626', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>刪除</button>
                     </div>

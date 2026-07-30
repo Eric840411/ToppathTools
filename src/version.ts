@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.75.0'
+export const APP_VERSION = '3.76.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.76.0',
+    date: '2026-07-30',
+    changes: [
+      'feat(autospin): 機台設定列表新增「複製配置」按鈕——帶入既有機台的所有設定（模板/RTMP/隨機下注等）當新機台的起點，只需重新輸入機台類型，不用從頭重新填一次',
+    ],
+  },
   {
     version: '3.75.0',
     date: '2026-07-29',
