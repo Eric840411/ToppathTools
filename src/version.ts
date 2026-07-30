@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.78.1'
+export const APP_VERSION = '3.79.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.79.0',
+    date: '2026-07-30',
+    changes: [
+      'feat(autospin): 定時彙總報告/即時彙報通知新增「帳號 → Discord Tag 對照表」（Discord 通知設定頁）——依 session 是哪個帳號派工啟動的，訊息開頭 @ 對應的人（寫進 content，會真的觸發 Discord 通知，不是塞在 embed 裡不會 ping 的那種）',
+      'feat(autospin): errcode 明細新增最近 5 次發生時間點（window.__spinErrTimes），定時彙總報告一併顯示',
+      'feat(autospin): 定時彙總報告新增 AI 分析區塊——把統計數字丟給 Gemini，判斷是否異常、哪個時間段可能機器異常導致中斷，best-effort（沒有可用 key/呼叫失敗不影響報告照常送出）',
+    ],
+  },
   {
     version: '3.78.1',
     date: '2026-07-30',

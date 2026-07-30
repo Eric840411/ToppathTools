@@ -217,6 +217,7 @@ TOPPATH_MONITOR_SCRIPT = r"""
   window.__pinusLog = [];
   window.__lastSpinErr = null;
   window.__spinErrCounts = {};  // { "100": 3, "5": 10, ... } —— 每種 errcode 各自累計次數，供定時彙總報告用
+  window.__spinErrTimes = {};  // { "100": [ts1, ts2, ...] } —— 每種 errcode 最近 5 次發生時間（epoch ms），供定時彙總報告用
   window.__wsRecoverCount = 0;  // pinus WebSocket 斷線後重新連上的次數
   var MAX_LOG = 500;
 
@@ -332,6 +333,9 @@ TOPPATH_MONITOR_SCRIPT = r"""
           window.__lastSpinErr = { errcode: resp.errcode, errcodedes: resp.errcodedes || '', ts: Date.now() };
           var ek = String(resp.errcode);
           window.__spinErrCounts[ek] = (window.__spinErrCounts[ek] || 0) + 1;
+          if (!window.__spinErrTimes[ek]) window.__spinErrTimes[ek] = [];
+          window.__spinErrTimes[ek].push(Date.now());
+          if (window.__spinErrTimes[ek].length > 5) window.__spinErrTimes[ek].shift();
         }
         cb && cb(resp);
       });
@@ -775,6 +779,20 @@ def read_errcode_counts(page) -> dict:
             counts = frame.evaluate("window.__spinErrCounts || null")
             if counts:
                 return counts
+        except Exception:
+            pass
+    return {}
+
+
+def read_errcode_times(page) -> dict:
+    """讀取 window.__spinErrTimes（各 errcode 最近 5 次發生時間，epoch ms），掃描所有 frame，
+    取有內容的那一份。只給累計用，不做「本期間」切分——時間點列表沒辦法像次數一樣用相減
+    算出區間差，直接呈現最近幾次的絕對時間即可。"""
+    for frame in page.frames:
+        try:
+            times = frame.evaluate("window.__spinErrTimes || null")
+            if times:
+                return times
         except Exception:
             pass
     return {}
@@ -1247,6 +1265,7 @@ def maybe_send_status_report(mp: dict, page):
         return
 
     errcode_counts = read_errcode_counts(page)
+    errcode_times = read_errcode_times(page)
     recover_count = read_recover_count(page)
     with button_health_lock:
         h = button_health.get(mt, {})
@@ -1257,7 +1276,8 @@ def maybe_send_status_report(mp: dict, page):
         'spinCount': mp.get('spin_count', 0), 'okSpinCount': mp.get('ok_spin_count', 0),
         'winCount': mp.get('win_count', 0), 'totalWin': mp.get('total_win', 0.0),
         'lastCoin': mp.get('last_balance'),
-        'errcodeCounts': errcode_counts, 'recoverCount': recover_count, 'kickoutCount': mp.get('kickout_count', 0),
+        'errcodeCounts': errcode_counts, 'errcodeTimes': errcode_times,
+        'recoverCount': recover_count, 'kickoutCount': mp.get('kickout_count', 0),
         'crChecks': cr_checks, 'crNoResponse': cr_no_response,
     }
     baseline = mp.get('report_period_start')

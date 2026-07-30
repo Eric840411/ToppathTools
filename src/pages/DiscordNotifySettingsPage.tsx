@@ -87,6 +87,12 @@ export function DiscordNotifySettingsPage() {
   const [reportMsg, setReportMsg] = useState<{ text: string; ok: boolean } | null>(null)
   const [reportTesting, setReportTesting] = useState(false)
 
+  // ── 帳號 → Discord User ID 對照（通知 tag 發起人用）───────────────────────────
+  const [userMap, setUserMap] = useState<{ userLabel: string; discordUserId: string }[]>([])
+  const [savedUserMap, setSavedUserMap] = useState<{ userLabel: string; discordUserId: string }[]>([])
+  const [userMapSaving, setUserMapSaving] = useState(false)
+  const [userMapMsg, setUserMapMsg] = useState<{ text: string; ok: boolean } | null>(null)
+
   async function load() {
     setLoading(true)
     try {
@@ -125,7 +131,16 @@ export function DiscordNotifySettingsPage() {
     } catch { /* best-effort */ }
   }
 
-  useEffect(() => { load(); loadReportSettings() }, [])
+  async function loadUserMap() {
+    try {
+      const res = await fetch('/api/autospin/discord-user-map')
+      const data = await res.json()
+      const m = data.map || []
+      setUserMap(m); setSavedUserMap(m)
+    } catch { /* best-effort */ }
+  }
+
+  useEffect(() => { load(); loadReportSettings(); loadUserMap() }, [])
 
   const reportFieldsDirty = REPORT_FIELD_META.some(f => reportFields[f.key] !== savedReportFields[f.key])
   const reportDirty = reportEnabled !== savedReportEnabled || reportIntervalMin !== savedReportIntervalMin
@@ -195,6 +210,33 @@ export function DiscordNotifySettingsPage() {
       setMsg({ text: `儲存失敗：${e}`, ok: false })
     } finally {
       setSaving(false)
+    }
+  }
+
+  const userMapDirty = JSON.stringify(userMap) !== JSON.stringify(savedUserMap)
+
+  async function handleSaveUserMap() {
+    const cleaned = userMap.map(e => ({ userLabel: e.userLabel.trim(), discordUserId: e.discordUserId.trim() }))
+      .filter(e => e.userLabel && e.discordUserId)
+    setUserMapSaving(true)
+    setUserMapMsg(null)
+    try {
+      const res = await fetch('/api/autospin/discord-user-map', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ map: cleaned }),
+      })
+      const data = await res.json()
+      if (data.ok) {
+        setUserMap(cleaned); setSavedUserMap(cleaned)
+        setUserMapMsg({ text: '✅ 已儲存對照表', ok: true })
+      } else {
+        setUserMapMsg({ text: `儲存失敗：${data.message || '未知錯誤'}`, ok: false })
+      }
+    } catch (e) {
+      setUserMapMsg({ text: `儲存失敗：${e}`, ok: false })
+    } finally {
+      setUserMapSaving(false)
     }
   }
 
@@ -413,6 +455,62 @@ export function DiscordNotifySettingsPage() {
               </button>
             </div>
             {reportMsg && <div className={`discord-notify-msg ${reportMsg.ok ? 'discord-notify-msg--ok' : 'discord-notify-msg--error'}`}>{reportMsg.text}</div>}
+          </div>
+
+          <div className="discord-notify-card">
+            <div className="discord-notify-card-title">🏷️ 帳號 → Discord Tag 對照表</div>
+            <p className="discord-notify-card-note">
+              AutoSpin 通知（即時彙報 + 定時彙總報告）會依「這個 session 是哪個帳號派工啟動的」查這張表，
+              找得到對照就在訊息開頭 @ 那個人（會真的觸發 Discord 通知）。帳號名稱要跟畫面右上角「目前帳號」
+              顯示的一致；Discord User ID 可在 Discord 設定「開發者模式」後，對使用者頭像點右鍵「複製使用者 ID」取得。
+            </p>
+            {userMap.length === 0 && (
+              <p style={{ fontSize: 12, color: '#64748b', margin: '4px 0' }}>尚未設定任何對照，通知不會 tag 任何人。</p>
+            )}
+            {userMap.map((entry, idx) => (
+              <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                <input
+                  className="discord-notify-input"
+                  style={{ flex: 1 }}
+                  placeholder="帳號名稱（例：Eric Wu）"
+                  value={entry.userLabel}
+                  onChange={e => setUserMap(prev => prev.map((x, i) => i === idx ? { ...x, userLabel: e.target.value } : x))}
+                  disabled={loading}
+                />
+                <input
+                  className="discord-notify-input"
+                  style={{ flex: 1 }}
+                  placeholder="Discord User ID（純數字）"
+                  value={entry.discordUserId}
+                  onChange={e => setUserMap(prev => prev.map((x, i) => i === idx ? { ...x, discordUserId: e.target.value } : x))}
+                  disabled={loading}
+                />
+                <button
+                  className="discord-notify-btn discord-notify-btn--secondary"
+                  onClick={() => setUserMap(prev => prev.filter((_, i) => i !== idx))}
+                  disabled={loading}
+                >
+                  刪除
+                </button>
+              </div>
+            ))}
+            <div className="discord-notify-actions">
+              <button
+                className="discord-notify-btn discord-notify-btn--secondary"
+                onClick={() => setUserMap(prev => [...prev, { userLabel: '', discordUserId: '' }])}
+                disabled={loading}
+              >
+                + 新增對照
+              </button>
+              <button
+                className="discord-notify-btn discord-notify-btn--primary"
+                onClick={handleSaveUserMap}
+                disabled={userMapSaving || loading || !userMapDirty}
+              >
+                {userMapSaving ? '儲存中…' : '💾 儲存對照表'}
+              </button>
+            </div>
+            {userMapMsg && <div className={`discord-notify-msg ${userMapMsg.ok ? 'discord-notify-msg--ok' : 'discord-notify-msg--error'}`}>{userMapMsg.text}</div>}
           </div>
 
           <div className="discord-notify-card">

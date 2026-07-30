@@ -16,6 +16,7 @@ import { fetchSlsErrors } from '../lib/sls.js'
 import { agentConnections, getAvailableAgents } from '../agent-hub.js'
 // 只讀取 Machine Test 現成維護的 OSMWatcher 狀態 map，不改動 machine-test.ts 本身
 import { osmMachineStatus } from './machine-test.js'
+import { resolveGeminiKeyEntries } from './gemini.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -397,8 +398,14 @@ router.post('/api/autospin/status-report-settings', (req, res) => {
 
 interface StatusReportStats {
   spinCount: number; okSpinCount: number; winCount: number; totalWin: number; lastCoin: number | null
-  errcodeCounts: Record<string, number>; recoverCount: number; kickoutCount: number
+  errcodeCounts: Record<string, number>; errcodeTimes?: Record<string, number[]>
+  recoverCount: number; kickoutCount: number
   crChecks: number; crNoResponse: number
+}
+
+/** errcode 發生時間（epoch ms）格式化成台北時區 HH:mm:ss，供報告內文顯示最近幾次發生時間。 */
+function fmtErrTime(ts: number): string {
+  return new Date(ts).toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })
 }
 
 /** 組出定時彙總報告的 Discord embed；真實回報與「試發送」測試共用同一份格式邏輯。 */
@@ -411,12 +418,18 @@ function buildStatusReportEmbed(opts: {
   fields: Record<StatusReportFieldKey, boolean>
   customNote: string
   isTest?: boolean
+  aiAnalysis?: string | null
 }) {
-  const { machineType, periodMinutes, cumulative, period, uptimeMinutes, fields, customNote, isTest } = opts
+  const { machineType, periodMinutes, cumulative, period, uptimeMinutes, fields, customNote, isTest, aiAnalysis } = opts
   const fmtPct = (ok: number, total: number) => total > 0 ? `${((ok / total) * 100).toFixed(1)}%` : '—'
-  const errcodeStr = (m: Record<string, number>) => {
+  const errcodeStr = (m: Record<string, number>, times?: Record<string, number[]>) => {
     const entries = Object.entries(m).filter(([, n]) => n > 0)
-    return entries.length > 0 ? entries.map(([code, n]) => `err${code}: ${n}`).join(', ') : '無'
+    if (entries.length === 0) return '無'
+    return entries.map(([code, n]) => {
+      const ts = times?.[code]
+      const recent = ts && ts.length > 0 ? `，最近: ${ts.map(fmtErrTime).join(', ')}` : ''
+      return `err${code}: ${n}${recent}`
+    }).join('; ')
   }
 
   const lines: string[] = []
@@ -432,7 +445,7 @@ function buildStatusReportEmbed(opts: {
   lines.push('**累計**')
   if (fields.spins) lines.push(`spins: ${cumulative.spinCount.toLocaleString()}（ok ${cumulative.okSpinCount.toLocaleString()}，${fmtPct(cumulative.okSpinCount, cumulative.spinCount)}）`)
   if (fields.winRate) lines.push(`wins: ${cumulative.winCount.toLocaleString()}, totalWin: ${cumulative.totalWin.toLocaleString()}${cumulative.lastCoin != null ? `, lastCoin: ~${cumulative.lastCoin.toLocaleString()}` : ''}`)
-  if (fields.errcodes) lines.push(`errcode: ${errcodeStr(cumulative.errcodeCounts)}`)
+  if (fields.errcodes) lines.push(`errcode: ${errcodeStr(cumulative.errcodeCounts, cumulative.errcodeTimes)}`)
   if (fields.recover) lines.push(`RECOVER: ${cumulative.recoverCount}`)
   if (fields.kickouts) lines.push(`kickouts: ${cumulative.kickoutCount}`)
   if (fields.crChecks) lines.push(`CR checks: ${cumulative.crChecks}，無回應 ${cumulative.crNoResponse}`)
@@ -444,12 +457,76 @@ function buildStatusReportEmbed(opts: {
     lines.push('')
     lines.push(customNote.trim())
   }
+  if (aiAnalysis && aiAnalysis.trim()) {
+    lines.push('')
+    lines.push('**🤖 AI 分析**')
+    lines.push(aiAnalysis.trim())
+  }
 
   return {
     title: `📊 AutoSpin 定時彙總報告${isTest ? '（測試）' : ''} — ${machineType}`,
     description: lines.join('\n'),
     color: isTest ? 0xf59e0b : 0x2563eb,
     timestamp: new Date().toISOString(),
+  }
+}
+
+/** 把定時彙總報告的統計數字丟給 Gemini，請它判斷是否異常、哪個時間段可能機器異常導致中斷。
+ * Best-effort：沒有可用的 Gemini key、呼叫失敗、逾時，一律回傳 null，報告照常送出不含 AI 分析區塊，
+ * 不會因為 AI 這段掛掉就拖累整個定時彙總報告功能。只嘗試第一組可用的 key，不做多 key 輪替重試——
+ * 這是背景 best-effort 附加功能，不是使用者主動觸發、等待結果的前景操作。 */
+async function generateStatusReportAiAnalysis(
+  req: import('express').Request,
+  machineType: string, periodMinutes: number, cumulative: StatusReportStats, period: StatusReportStats, uptimeMinutes?: number | null,
+): Promise<string | null> {
+  const keyEntries = resolveGeminiKeyEntries(req)
+  if (keyEntries.length === 0) return null
+
+  const errcodeDetail = Object.entries(cumulative.errcodeCounts ?? {})
+    .filter(([, n]) => n > 0)
+    .map(([code, n]) => {
+      const times = cumulative.errcodeTimes?.[code]
+      const recent = times && times.length > 0 ? `，最近發生時間：${times.map(fmtErrTime).join(', ')}` : ''
+      return `err${code} 共 ${n} 次${recent}`
+    })
+    .join('\n') || '無 errcode 記錄'
+
+  const prompt = `你是老虎機自動化測試（AutoSpin）的穩定性監控助手。以下是機台「${machineType}」目前累計約 ${(uptimeMinutes ?? 0).toFixed(0)} 分鐘的執行統計，請用繁體中文寫 2-4 句話的簡短分析：
+1. 判斷目前狀況是否正常/異常
+2. 如果有 errcode 或 RECOVER 斷線重連紀錄，根據下面列出的發生時間點，指出「哪個時間段」可能是機器異常導致中斷（沒有明顯時間群聚就不用勉強指出）
+3. 不用逐項複述數字（數字已經在報告的其他欄位顯示過了），只講你的判斷結論
+
+累計統計：
+- Spin 數：${cumulative.spinCount}（成功 ${cumulative.okSpinCount}）
+- 中獎次數：${cumulative.winCount}，總贏分：${cumulative.totalWin}
+- errcode 明細：
+${errcodeDetail}
+- RECOVER（斷線重連）次數：${cumulative.recoverCount}
+- kickouts（低餘額離機重進）次數：${cumulative.kickoutCount}
+- CR checks：${cumulative.crChecks} 次，其中無回應 ${cumulative.crNoResponse} 次
+- 本期間（約 ${periodMinutes.toFixed(1)} 分鐘）：Spin ${period.spinCount} 次、errcode ${Object.values(period.errcodeCounts ?? {}).reduce((a, b) => a + b, 0)} 次、RECOVER ${period.recoverCount} 次`
+
+  const { key } = keyEntries[0]
+  const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
+  try {
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(20000),
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.3 },
+        }),
+      },
+    )
+    const data = await resp.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[]; error?: { message?: string } }
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text
+    return text?.trim() || null
+  } catch (e) {
+    console.warn('[autospin] 定時彙總報告 AI 分析失敗:', e)
+    return null
   }
 }
 
@@ -466,6 +543,8 @@ router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
   const webhookUrl = getDiscordWebhookUrl()
   if (!webhookUrl || !isDiscordNotifyEnabled() || !getStatusReportEnabled()) return
 
+  const aiAnalysis = await generateStatusReportAiAnalysis(req, machineType, periodMinutes ?? 0, cumulative, period, uptimeMinutes)
+
   const embed = buildStatusReportEmbed({
     machineType,
     periodMinutes: periodMinutes ?? 0,
@@ -474,13 +553,15 @@ router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
     uptimeMinutes,
     fields: getStatusReportFields(),
     customNote: getStatusReportCustomNote(),
+    aiAnalysis,
   })
 
+  const mention = mentionForUserLabel(s?.userLabel)
   try {
     await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ embeds: [embed] }),
+      body: JSON.stringify({ content: mention || undefined, embeds: [embed] }),
     })
   } catch (e) {
     console.warn('[autospin] 定時彙總報告發送失敗:', e)
@@ -488,10 +569,11 @@ router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
 })
 
 // POST /api/autospin/status-report-test — 用假資料試發送一則彙總報告，確認格式與 webhook 是否正常（不受啟用開關影響）
-router.post('/api/autospin/status-report-test', async (_req, res) => {
+router.post('/api/autospin/status-report-test', async (req, res) => {
   const webhookUrl = getDiscordWebhookUrl()
   if (!webhookUrl) return res.status(400).json({ ok: false, message: '尚未設定 Discord Webhook URL' })
 
+  const now = Date.now()
   const sample: { period: StatusReportStats; cumulative: StatusReportStats } = {
     period: {
       spinCount: 42, okSpinCount: 41, winCount: 5, totalWin: 1234, lastCoin: null,
@@ -499,9 +581,16 @@ router.post('/api/autospin/status-report-test', async (_req, res) => {
     },
     cumulative: {
       spinCount: 1234, okSpinCount: 1200, winCount: 89, totalWin: 34210, lastCoin: 500000,
-      errcodeCounts: { '5': 3, '29': 1 }, recoverCount: 1, kickoutCount: 4, crChecks: 240, crNoResponse: 2,
+      errcodeCounts: { '5': 3, '29': 1 },
+      errcodeTimes: { '5': [now - 12 * 60000, now - 8 * 60000, now - 3 * 60000], '29': [now - 15 * 60000] },
+      recoverCount: 1, kickoutCount: 4, crChecks: 240, crNoResponse: 2,
     },
   }
+
+  // 試發送也一併示範 AI 分析區塊 + tag（用目前登入的操作者當「發起人」測試對照表有沒有生效），
+  // 兩者都是 best-effort，失敗不擋測試訊息送出。
+  const aiAnalysis = await generateStatusReportAiAnalysis(req, 'TEST', getStatusReportIntervalMin(), sample.cumulative, sample.period, 125)
+  const mention = mentionForUserLabel(getOperatorFromContext()?.name)
 
   const embed = buildStatusReportEmbed({
     machineType: 'TEST',
@@ -512,13 +601,14 @@ router.post('/api/autospin/status-report-test', async (_req, res) => {
     fields: getStatusReportFields(),
     customNote: getStatusReportCustomNote(),
     isTest: true,
+    aiAnalysis,
   })
 
   try {
     const r = await fetch(`${webhookUrl}?wait=true`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ embeds: [embed] }),
+      body: JSON.stringify({ content: mention || undefined, embeds: [embed] }),
     })
     if (!r.ok) {
       const txt = await r.text().catch(() => '')
@@ -534,6 +624,45 @@ function getDiscordWebhookUrl(): string {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_webhook_url') as { value: string } | undefined
   return row?.value ?? ''
 }
+
+// ─── 帳號 → Discord User ID 對照（通知 tag 發起人用）───────────────────────────
+// 使用者自己維護「哪個帳號對應哪個 Discord User ID」，AutoSpin 通知（即時彙報 + 定時
+// 彙總報告）依 session 是哪個帳號派工啟動的，找得到對照就在訊息 content（不是塞在
+// embed 裡，那樣不會真的觸發 Discord 通知/ping）開頭 tag 那個人。
+
+interface DiscordUserMapEntry { userLabel: string; discordUserId: string }
+
+function getDiscordUserMap(): DiscordUserMapEntry[] {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('autospin_discord_user_map') as { value: string } | undefined
+  if (!row?.value) return []
+  try {
+    const parsed = JSON.parse(row.value)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+/** 依 userLabel（session 派工時的帳號）找出對應的 Discord mention 字串（含結尾空白），找不到回傳空字串。 */
+function mentionForUserLabel(userLabel: string | undefined): string {
+  if (!userLabel) return ''
+  const entry = getDiscordUserMap().find(e => e.userLabel === userLabel)
+  return entry?.discordUserId ? `<@${entry.discordUserId}> ` : ''
+}
+
+// GET /api/autospin/discord-user-map
+router.get('/api/autospin/discord-user-map', (_req, res) => {
+  res.json({ ok: true, map: getDiscordUserMap() })
+})
+
+// POST /api/autospin/discord-user-map — 整份覆蓋儲存
+router.post('/api/autospin/discord-user-map', (req, res) => {
+  const body = z.object({
+    map: z.array(z.object({ userLabel: z.string().min(1), discordUserId: z.string().min(1) })),
+  }).parse(req.body)
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('autospin_discord_user_map', JSON.stringify(body.map))
+  res.json({ ok: true })
+})
 
 /** 預設啟用（尚未設定過開關時，維持既有行為：只要有填 URL 就會發送）。 */
 function isDiscordNotifyEnabled(): boolean {
@@ -794,12 +923,13 @@ async function notifyDiscord(
   const key = `${sessionId}:${machineType}`
   const existing = discordNotifyState.get(key)
   const embed = buildDiscordEmbed(status, machineType, opts)
+  const mention = mentionForUserLabel(agentSessions.get(sessionId)?.userLabel)
   try {
     if (existing) {
       const r = await fetch(`${webhookUrl}/messages/${existing.messageId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ embeds: [embed] }),
+        body: JSON.stringify({ content: mention || undefined, embeds: [embed] }),
       })
       if (r.ok) {
         existing.status = status
@@ -812,7 +942,7 @@ async function notifyDiscord(
       const r = await fetch(`${webhookUrl}?wait=true`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ embeds: [embed] }),
+        body: JSON.stringify({ content: mention || undefined, embeds: [embed] }),
       })
       if (r.ok) {
         const data = await r.json() as { id?: string }
