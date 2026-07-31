@@ -496,15 +496,18 @@ export function AutoSpinPage() {
   }, [])
 
   const fetchAgentCaptures = useCallback(async (sid: string) => {
-    const r = await fetch(`/api/autospin/agent/screenshots/${sid}`)
+    const r = await fetch(`/api/autospin/agent/screenshots/${sid}`, { headers: { 'x-user-label': getGlobalUserLabel() } })
     const d = await r.json() as { files?: { name: string; time: number }[] }
     setAgentCaptures(d.files ?? [])
   }, [])
 
   const connectSSE = useCallback((sid: string, isAgent = false, fromIndex = 0) => {
     if (evtSourceRef.current) evtSourceRef.current.close()
-    const from = fromIndex > 0 ? `?from=${fromIndex}` : ''
-    const url = isAgent ? `/api/autospin/agent/stream/${sid}${from}` : `/api/autospin/stream/${sid}`
+    // EventSource 不能自訂 header，帳號改用 query string 傳（伺服器端 stream/:id 只認自己帳號的 session）
+    const from = fromIndex > 0 ? `&from=${fromIndex}` : ''
+    const url = isAgent
+      ? `/api/autospin/agent/stream/${sid}?userLabel=${encodeURIComponent(getGlobalUserLabel())}${from}`
+      : `/api/autospin/stream/${sid}${fromIndex > 0 ? `?from=${fromIndex}` : ''}`
     const es = new EventSource(url)
     es.onmessage = (e) => {
       const data = JSON.parse(e.data) as { line?: string; luckylink_event?: Record<string, unknown> }
@@ -651,13 +654,13 @@ export function AutoSpinPage() {
 
   const handlePause = async () => {
     if (!agentSessionId) return
-    await fetch(`/api/autospin/agent/${agentSessionId}/pause`, { method: 'POST' })
+    await fetch(`/api/autospin/agent/${agentSessionId}/pause`, { method: 'POST', headers: { 'x-user-label': getGlobalUserLabel() } })
     setAgentPaused(true)
   }
 
   const handleResume = async () => {
     if (!agentSessionId) return
-    await fetch(`/api/autospin/agent/${agentSessionId}/resume`, { method: 'POST' })
+    await fetch(`/api/autospin/agent/${agentSessionId}/resume`, { method: 'POST', headers: { 'x-user-label': getGlobalUserLabel() } })
     setAgentPaused(false)
   }
 
@@ -666,7 +669,7 @@ export function AutoSpinPage() {
     setLiveIntervalSaving(true)
     try {
       await fetch(`/api/autospin/agent/${agentSessionId}/spin-interval`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-user-label': getGlobalUserLabel() },
         body: JSON.stringify({ value: val }),
       })
     } finally {
@@ -1688,7 +1691,7 @@ export function AutoSpinPage() {
                   ts: 'mtime' in f ? f.mtime : f.time,
                   src: runMode === 'server'
                     ? `/api/autospin/captures/${encodeURIComponent(f.name)}`
-                    : `/api/autospin/agent/screenshot/${agentSessionId}/${encodeURIComponent(f.name)}`,
+                    : `/api/autospin/agent/screenshot/${agentSessionId}/${encodeURIComponent(f.name)}?userLabel=${encodeURIComponent(getGlobalUserLabel())}`,
                   spinNo: extractSpinNo(f.name),
                 }))
                 return (

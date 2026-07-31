@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.79.6'
+export const APP_VERSION = '3.79.7'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.79.7',
+    date: '2026-07-31',
+    changes: [
+      'fix(autospin): 補齊 pause/resume/spin-interval/stream/screenshot 等帶 sessionId 的 agent API 帳號權限檢查，知道別人 sessionId 也無法直接操作/讀取其他操作者的 session（v3.79.6 只修了自動偵測/停止，這批是 Codex review 後補的完整版）',
+    ],
+  },
   {
     version: '3.79.6',
     date: '2026-07-31',

@@ -1189,10 +1189,18 @@ router.get('/api/autospin/agent/:id/should-stop', (req, res) => {
   })
 })
 
+/** 前端呼叫帶自己的帳號（一般 fetch 用 x-user-label header；EventSource/<img> 這類無法自訂
+ * header 的請求用 ?userLabel= query），跟 session 建立時記錄的 userLabel 比對，避免知道
+ * 別人 sessionId 就能直接操作/讀取其他操作者的 session（agent 端自己上報用的端點不需要這個）。 */
+function requestUserLabel(req: import('express').Request): string {
+  return (req.headers['x-user-label'] as string) || (req.query.userLabel as string) || ''
+}
+
 // POST /api/autospin/agent/:id/pause — frontend pauses the agent
 router.post('/api/autospin/agent/:id/pause', (req, res) => {
   const s = agentSessions.get(req.params.id)
   if (!s) return res.status(404).json({ ok: false })
+  if (s.userLabel !== requestUserLabel(req)) return res.status(403).json({ ok: false, message: '無權限操作此 session' })
   s.pauseRequested = true
   broadcastAgentLog(req.params.id, '[Agent] 已暫停')
   return res.json({ ok: true })
@@ -1202,6 +1210,7 @@ router.post('/api/autospin/agent/:id/pause', (req, res) => {
 router.post('/api/autospin/agent/:id/resume', (req, res) => {
   const s = agentSessions.get(req.params.id)
   if (!s) return res.status(404).json({ ok: false })
+  if (s.userLabel !== requestUserLabel(req)) return res.status(403).json({ ok: false, message: '無權限操作此 session' })
   s.pauseRequested = false
   broadcastAgentLog(req.params.id, '[Agent] 已繼續')
   return res.json({ ok: true })
@@ -1211,6 +1220,7 @@ router.post('/api/autospin/agent/:id/resume', (req, res) => {
 router.post('/api/autospin/agent/:id/spin-interval', (req, res) => {
   const s = agentSessions.get(req.params.id)
   if (!s) return res.status(404).json({ ok: false })
+  if (s.userLabel !== requestUserLabel(req)) return res.status(403).json({ ok: false, message: '無權限操作此 session' })
   const v = parseFloat((req.body as { value?: string }).value ?? '')
   s.spinIntervalOverride = isNaN(v) ? null : Math.max(0.1, Math.min(60, v))
   return res.json({ ok: true, spinInterval: s.spinIntervalOverride })
@@ -1358,11 +1368,12 @@ router.post('/api/autospin/hub-stop', (req, res) => {
 router.get('/api/autospin/agent/stream/:id', (req, res) => {
   const { id } = req.params
   const fromIndex = parseInt(req.query.from as string ?? '0') || 0
+  const s = agentSessions.get(id)
+  if (s && s.userLabel !== requestUserLabel(req)) return res.status(403).end()
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
   res.setHeader('Connection', 'keep-alive')
   res.flushHeaders()
-  const s = agentSessions.get(id)
   if (s) {
     for (const line of s.logs.slice(fromIndex)) res.write(`data: ${JSON.stringify({ line })}\n\n`)
     // Replay latest LuckyLink state so reconnecting clients can initialize the JP panel
@@ -1382,6 +1393,7 @@ router.get('/api/autospin/agent/stream/:id', (req, res) => {
 router.get('/api/autospin/agent/screenshot/:id/:name', (req, res) => {
   const s = agentSessions.get(req.params.id)
   if (!s) return res.status(404).send('Not found')
+  if (s.userLabel !== requestUserLabel(req)) return res.status(403).send('Forbidden')
   const shot = s.screenshots.find(sc => sc.name === req.params.name)
   if (!shot) return res.status(404).send('Not found')
   res.setHeader('Content-Type', 'image/png')
@@ -1392,6 +1404,7 @@ router.get('/api/autospin/agent/screenshot/:id/:name', (req, res) => {
 router.get('/api/autospin/agent/screenshots/:id', (req, res) => {
   const s = agentSessions.get(req.params.id)
   if (!s) return res.json({ ok: true, files: [] })
+  if (s.userLabel !== requestUserLabel(req)) return res.status(403).json({ ok: false, files: [] })
   res.json({ ok: true, files: s.screenshots.map(sc => ({ name: sc.name, time: sc.time })).reverse() })
 })
 
