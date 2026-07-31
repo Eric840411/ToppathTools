@@ -53,9 +53,16 @@ function taskUser(req: Request): { key: string; label: string } {
   const jiraEmail = req.headers['x-jira-email']
   if (typeof jiraEmail === 'string' && jiraEmail) return { key: jiraEmail, label: jiraEmail }
 
-  const body = req.body as { account?: string; jiraEmail?: string } | undefined
-  const bodyAccount = body?.account || body?.jiraEmail
+  const body = req.body as { account?: string; jiraEmail?: string; userLabel?: string } | undefined
+  const bodyAccount = body?.account || body?.jiraEmail || body?.userLabel
   if (bodyAccount) return { key: bodyAccount, label: bodyAccount }
+
+  // 「帳號選單」系統送的 header（AutoSpin agent 註冊、其餘多數前端呼叫都會帶）。沒有這層
+  // fallback 時，未登入/無 cookie 的請求（例如 Python agent 直接打 API）一律退回用來源 IP
+  // 當 key——兩個不同帳號的 Local Agent 若剛好在同一個辦公室網路後面（同一個對外 IP），會被
+  // 誤判成同一個操作者，導致其中一個帳號的重任務鎖擋住另一個帳號，明明是不同人卻互相衝突。
+  const userLabelHeader = req.headers['x-user-label']
+  if (typeof userLabelHeader === 'string' && userLabelHeader) return { key: userLabelHeader, label: userLabelHeader }
 
   return { key: req.ip ?? req.socket.remoteAddress ?? 'guest', label: 'guest' }
 }

@@ -1737,6 +1737,11 @@ def main():
         resp = requests.post(f"{server_url}/api/autospin/agent/start",
                              json={'userLabel': user_label}, timeout=10)
         data = resp.json()
+        if not data.get('ok', True):
+            # 伺服器明確拒絕（例如 heavy-task 衝突：這個帳號已有其他重任務在跑），印出伺服器
+            # 給的實際原因，不要直接 data['sessionId'] 導致難懂的 KeyError。
+            print(f"[ERROR] 伺服器拒絕註冊：{data.get('message', '未知原因')}")
+            sys.exit(1)
         session_id          = data['sessionId']
         configs              = data['configs']
         keyword_actions_data = data.get('keywordActions', {})

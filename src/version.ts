@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.80.0'
+export const APP_VERSION = '3.80.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.80.1',
+    date: '2026-07-31',
+    changes: [
+      'fix(heavy-task-guard): 重任務鎖 fallback key 改成優先看帳號（body.userLabel / x-user-label header），不再退回用來源 IP——兩個不同帳號的 Local Agent 若剛好在同一個辦公室網路後面（同一個對外 IP），先前會被誤判成同一個操作者，其中一個帳號的重任務鎖擋住另一個帳號，導致連線失敗（Python 端 KeyError: sessionId）；同時 AutoSpin 引擎遇到伺服器拒絕註冊時，改印出實際原因，不再是難懂的 KeyError',
+    ],
+  },
   {
     version: '3.80.0',
     date: '2026-07-31',
