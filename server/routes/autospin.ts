@@ -1216,10 +1216,12 @@ router.post('/api/autospin/agent/:id/spin-interval', (req, res) => {
   return res.json({ ok: true, spinInterval: s.spinIntervalOverride })
 })
 
-// POST /api/autospin/agent/stop-all — frontend stops the agent
-router.post('/api/autospin/agent/stop-all', (_req, res) => {
+// POST /api/autospin/agent/stop-all — frontend stops the agent（只停自己帳號的 session，
+// 不能連其他操作者正在跑的機台也一起停掉）
+router.post('/api/autospin/agent/stop-all', (req, res) => {
+  const userLabel = (req.headers['x-user-label'] as string) || ''
   for (const s of agentSessions.values()) {
-    if (s.status === 'running') {
+    if (s.status === 'running' && s.userLabel === userLabel) {
       s.stopRequested = true
       finishHeavyTask(s.heavyTask)
     }
@@ -1228,21 +1230,23 @@ router.post('/api/autospin/agent/stop-all', (_req, res) => {
 })
 
 // GET /api/autospin/agent/status — frontend polls agent status
-router.get('/api/autospin/agent/status', (_req, res) => {
+// 依 x-user-label 只回傳目前登入帳號自己派工的 session，不同帳號各自看到各自的畫面
+// （不再是「不管誰的，抓第一個在跑的」，避免不同操作者互相看到彼此的執行日誌/截圖）。
+router.get('/api/autospin/agent/status', (req, res) => {
+  const userLabel = (req.headers['x-user-label'] as string) || ''
   const HEARTBEAT_TIMEOUT = 30_000 // 30s — agent polls every 3s
   let active: AgentSession | undefined
   for (const s of agentSessions.values()) {
-    if (s.status === 'running') {
-      // Auto-expire if agent stopped sending heartbeats
-      if (Date.now() - s.lastHeartbeat > HEARTBEAT_TIMEOUT) {
-        s.status = 'stopped'
-        finishHeavyTask(s.heavyTask)
-        broadcastAgentLog(s.id, '[Agent] 連線逾時，已標記為離線')
-        finalizeSessionNotifications(s.id).catch(() => {})
-      } else {
-        active = s; break
-      }
+    if (s.status !== 'running') continue
+    // Auto-expire if agent stopped sending heartbeats
+    if (Date.now() - s.lastHeartbeat > HEARTBEAT_TIMEOUT) {
+      s.status = 'stopped'
+      finishHeavyTask(s.heavyTask)
+      broadcastAgentLog(s.id, '[Agent] 連線逾時，已標記為離線')
+      finalizeSessionNotifications(s.id).catch(() => {})
+      continue
     }
+    if (s.userLabel === userLabel) active = s
   }
   res.json({ ok: true, running: !!active, sessionId: active?.id ?? null, startedAt: active?.startedAt ?? null })
 })

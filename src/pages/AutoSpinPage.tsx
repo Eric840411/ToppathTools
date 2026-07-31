@@ -471,8 +471,8 @@ export function AutoSpinPage() {
     const d = await r.json() as { running: boolean; sessionId: string | null }
     setRunning(d.running)
     if (d.sessionId && d.sessionId !== sessionId) setSessionId(d.sessionId)
-    // Agent status — also auto-connect SSE if a new session is detected
-    const ar = await fetch('/api/autospin/agent/status')
+    // Agent status — also auto-connect SSE if a new session is detected（帳號各自的 session，不共用）
+    const ar = await fetch('/api/autospin/agent/status', { headers: { 'x-user-label': getGlobalUserLabel() } })
     const ad = await ar.json() as { running: boolean; sessionId: string | null }
     setAgentRunning(ad.running)
     if (ad.running && ad.sessionId && ad.sessionId !== agentSessionIdRef.current) {
@@ -592,7 +592,7 @@ export function AutoSpinPage() {
       if (!d.ok) { setStartError(d.message ?? '派工失敗'); setHubDispatching(false); return }
       // Agent 收到後會 spawn Python 引擎並向伺服器註冊 session；輪詢 status 取得 session 後接 SSE
       const timer = setInterval(async () => {
-        const sr = await fetch('/api/autospin/agent/status')
+        const sr = await fetch('/api/autospin/agent/status', { headers: { 'x-user-label': getGlobalUserLabel() } })
         const sd = await sr.json() as { running: boolean; sessionId: string | null }
         if (sd.running && sd.sessionId) {
           agentSessionIdRef.current = sd.sessionId
@@ -623,14 +623,14 @@ export function AutoSpinPage() {
         body: JSON.stringify({ agentId: selectedAgentId }),
       })
     } catch { /* ignore */ }
-    await fetch('/api/autospin/agent/stop-all', { method: 'POST' }).catch(() => {})
+    await fetch('/api/autospin/agent/stop-all', { method: 'POST', headers: { 'x-user-label': getGlobalUserLabel() } }).catch(() => {})
     if (captureTimerRef.current) { clearInterval(captureTimerRef.current); captureTimerRef.current = null }
     // 輪詢實際狀態，停掉就立刻更新 UI（不再固定等 8 秒）
     const t0 = Date.now()
     const poll = setInterval(async () => {
       let running = true
       try {
-        const r = await fetch('/api/autospin/agent/status')
+        const r = await fetch('/api/autospin/agent/status', { headers: { 'x-user-label': getGlobalUserLabel() } })
         const d = await r.json() as { running: boolean }
         running = !!d.running
       } catch { /* ignore */ }

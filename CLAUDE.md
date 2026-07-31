@@ -368,6 +368,8 @@ Keep Claude for:
 
 **標題附帶 gmid（2026-07-31）**：`maybe_send_status_report()` 從 `mp['config'].get('gameTitleCode')` 取值，經 `post_status_report()` 一併 POST 給伺服器，`buildStatusReportEmbed()` 標題變成 `— {machineType}（{gameTitleCode}）`——單純顯示 `machineType` 在名稱相近時（如 RISINGROCKET / RISINGROCKETS）無法分辨是哪一台機器發的報告，加上 gmid 才能唯一對應。
 
+**執行監控畫面依帳號隔離（2026-07-31 修復）**：`GET /api/autospin/agent/status`（前端輪詢偵測「目前在跑的 session」並自動接上 SSE 日誌/截圖）與 `POST /api/autospin/agent/stop-all`（前端「停止」按鈕）先前都是「不管是誰派工的，抓第一個/全部在跑的 session」，導致不同帳號登入時會看到彼此的執行日誌與截圖，「停止」甚至會連別人正在跑的機台一起停掉——`AgentSession` 本身早就有 `userLabel`（`hub-dispatch` 派工時就會記錄是哪個帳號），只是這兩個端點沒有用上。修法：兩個端點都改成讀取 `x-user-label` header，只回傳/只操作 `s.userLabel` 對得上的 session；前端對應的 4 處 `fetch('/api/autospin/agent/status'/'stop-all')` 補上該 header（用既有的 `getGlobalUserLabel()`，跟 hub-dispatch/hub-agents 等其他呼叫同一套帳號來源）。**已知範圍限制**：「伺服器端 (fallback)」模式的 `SessionState`（`/api/autospin/status`）完全沒有 `userLabel` 概念，仍是全域共用，未修——目前使用的主要模式是「遠端 Agent」（agent-hub），fallback 模式較少人同時用，之後若有人真的在 fallback 模式遇到同樣問題再補。
+
 ### 使用者操作
 | 操作 | 說明 |
 |------|------|

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.79.5'
+export const APP_VERSION = '3.79.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.79.6',
+    date: '2026-07-31',
+    changes: [
+      'fix(autospin): 執行監控畫面依帳號隔離——「/api/autospin/agent/status」與「停止」改成只認自己帳號派工的 session，不會再自動接上/顯示其他操作者正在跑的機台日誌與截圖，「停止」也不會誤停別人的 session',
+    ],
+  },
   {
     version: '3.79.5',
     date: '2026-07-31',
