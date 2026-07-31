@@ -399,21 +399,23 @@ Keep Claude for:
 #### 功能說明
 獨立的後台設定頁（系統分區），管理 AutoSpin Discord 通知用的 Webhook URL，未來換頻道只需在此頁改網址，不用改代碼。
 
+**依帳號分開設定（2026-07-31）**：通知啟用開關、即時彙報顯示欄位、定時彙總報告（啟用開關/間隔/顯示欄位/自訂備註/AI 分析開關）改成**依帳號分開**，存在新表 `autospin_notify_prefs`（PRIMARY KEY `userLabel`）——`getNotifyPrefsRow(userLabel)`/`upsertNotifyPrefs(userLabel, patch)`（`server/routes/autospin.ts`）。判斷邏輯：一個 session 是哪個帳號派工的（`AgentSession.userLabel`），發通知/報告時就查那個帳號自己的設定，不是查全域設定；前端所有相關 fetch 都要帶 `x-user-label` header（`DiscordNotifySettingsPage.tsx` 用 `loadGlobalAccount()?.label`）。**Webhook URL、標題模板、頁尾文字仍是全域共用**（存在 `settings` 表，全員同一個頻道/同一套品牌文字）。**相容 fallback**：帳號還沒存過自己的偏好時（`autospin_notify_prefs` 沒有該 `userLabel` 的資料列），getter 會 fallback 讀舊版全域 `settings` 值（`discord_notify_enabled`/`discord_notify_fields`/`autospin_status_report_*`），避免改版當下所有帳號的通知/報告設定突然被重置成程式內建預設值——這些舊的全域 key 仍保留在 DB 裡當作「尚未個人化帳號」的預設值來源，不會主動清除。
+
 #### 使用者操作
 | 操作 | 說明 |
 |------|------|
-| 設定 Webhook URL | 貼上 Discord Webhook 網址並儲存（存在 `settings` 表 `discord_webhook_url`）|
-| 啟用/暫停通知開關 | 關閉後即使 URL 有設定也不會發送，不用清空網址（存在 `settings` 表 `discord_notify_enabled`）|
+| 設定 Webhook URL | 貼上 Discord Webhook 網址並儲存（存在 `settings` 表 `discord_webhook_url`，**全員共用**）|
+| 啟用/暫停通知開關 | 關閉後即使 URL 有設定也不會發送，不用清空網址（**依帳號分開**，存在 `autospin_notify_prefs.notifyEnabled`）|
 | 發送測試訊息 | 立即送一則測試 Embed 到目前設定的頻道，確認網址正確（不受啟用開關影響）|
-| 自訂顯示欄位 | 勾選要顯示的欄位（Spin數/Game URL/錯誤摘要/截圖連結），狀態欄固定顯示（存在 `settings` 表 `discord_notify_fields`，JSON）|
-| 自訂標題模板 | 訊息標題可用 `{machineType}` 佔位符自訂文字，例如加公司代號（存在 `settings` 表 `discord_notify_title_template`）|
-| 自訂頁尾文字 | 選填，顯示在卡片底部時間戳前（存在 `settings` 表 `discord_notify_footer`）|
+| 自訂顯示欄位 | 勾選要顯示的欄位（Spin數/Game URL/錯誤摘要/截圖連結），狀態欄固定顯示（**依帳號分開**，存在 `autospin_notify_prefs.notifyFields`，JSON）|
+| 自訂標題模板 | 訊息標題可用 `{machineType}` 佔位符自訂文字，例如加公司代號（存在 `settings` 表 `discord_notify_title_template`，**全員共用**）|
+| 自訂頁尾文字 | 選填，顯示在卡片底部時間戳前（存在 `settings` 表 `discord_notify_footer`，**全員共用**）|
 | 查看狀態生命週期 | 頁面上顯示 5 種狀態（排隊中/執行中/已完成/失敗/已停止）與同一則訊息更新的說明 |
 | 查看訊息預覽 | 即時同步目前欄位/標題/頁尾設定的卡片樣式預覽 |
-| 設定定時彙總報告 | 啟用開關 + 間隔（分鐘，預設 20）+ 顯示欄位勾選（errcode/RECOVER/kickout/CR checks/Spin 數/中獎數/總贏分）+ 自訂欄位（選填備註文字，原樣附加在每則報告最下方），存在 `settings` 表 `autospin_status_report_enabled`/`autospin_status_report_interval_min`/`autospin_status_report_fields`/`autospin_status_report_custom_note`，與上面的即時彙報通知獨立開關、共用同一組 Webhook URL |
-| 試發送定時彙總報告 | 「🧪 試發送」按鈕（`POST /api/autospin/status-report-test`）用假資料立即組一則報告送到 Discord，方便確認格式/效果，不受啟用開關影響、不會動到真實累計統計；一併示範 AI 分析區塊（跟隨 AI 開關，關閉不燒 token）+ tag（用目前登入操作者當發起人測試對照表） |
-| 啟用 AI 分析區塊 | 定時彙總報告卡片內的獨立開關，預設關閉；開啟才會呼叫 Gemini 判斷是否異常，關閉時零額外開銷 |
-| 設定帳號 Discord Tag 對照表 | Discord 通知設定頁「帳號 → Discord Tag 對照表」卡片，維護「帳號名稱 → Discord User ID」清單，AutoSpin 通知（即時彙報 + 定時彙總報告）依 session 是哪個帳號派工啟動的查表，找得到就在訊息開頭 @ 那個人；存在 `settings` 表 `autospin_discord_user_map`（JSON 陣列），對應 `GET/POST /api/autospin/discord-user-map` |
+| 設定定時彙總報告 | 啟用開關 + 間隔（分鐘，預設 20）+ 顯示欄位勾選（errcode/RECOVER/kickout/CR checks/Spin 數/中獎數/總贏分）+ 自訂欄位（選填備註文字，原樣附加在每則報告最下方），**依帳號分開**，存在 `autospin_notify_prefs`（`reportEnabled`/`reportIntervalMin`/`reportFields`/`reportCustomNote`），與上面的即時彙報通知獨立開關、共用同一組 Webhook URL |
+| 試發送定時彙總報告 | 「🧪 試發送」按鈕（`POST /api/autospin/status-report-test`）用假資料立即組一則報告送到 Discord，方便確認格式/效果，不受啟用開關影響、不會動到真實累計統計；一併示範 AI 分析區塊（跟隨目前帳號的 AI 開關，關閉不燒 token）+ tag（用目前登入操作者當發起人測試對照表） |
+| 啟用 AI 分析區塊 | 定時彙總報告卡片內的獨立開關，**依帳號分開**，預設關閉；開啟才會呼叫 Gemini 判斷是否異常，關閉時零額外開銷（存在 `autospin_notify_prefs.reportAiEnabled`）|
+| 設定帳號 Discord Tag 對照表 | Discord 通知設定頁「帳號 → Discord Tag 對照表」卡片，維護「帳號名稱 → Discord User ID」清單，AutoSpin 通知（即時彙報 + 定時彙總報告）依 session 是哪個帳號派工啟動的查表，找得到就在訊息開頭 @ 那個人；存在 `settings` 表 `autospin_discord_user_map`（JSON 陣列，這個本來就是每個帳號各自一條，維持不變），對應 `GET/POST /api/autospin/discord-user-map` |
 
 ---
 

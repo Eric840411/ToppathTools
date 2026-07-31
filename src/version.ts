@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.79.8'
+export const APP_VERSION = '3.80.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.80.0',
+    date: '2026-07-31',
+    changes: [
+      'feat(autospin): Discord 通知啟用開關/顯示欄位、定時彙總報告啟用開關/間隔/顯示欄位/自訂備註/AI 分析開關，改成依帳號分開設定（新表 autospin_notify_prefs），不同帳號各自決定自己派工的 session 要不要通知、顯示哪些欄位；Webhook URL/標題模板/頁尾文字仍是全員共用',
+    ],
+  },
   {
     version: '3.79.8',
     date: '2026-07-31',

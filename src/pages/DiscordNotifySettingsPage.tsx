@@ -1,4 +1,10 @@
 import { useEffect, useState } from 'react'
+import { loadGlobalAccount } from '../authSession'
+
+/** 通知啟用開關/顯示欄位/定時彙總報告設定依帳號分開，這裡取目前選擇的帳號當 x-user-label。 */
+function getUserLabel(): string {
+  return loadGlobalAccount()?.label ?? ''
+}
 
 function ToggleSwitch({ checked, disabled, onToggle }: { checked: boolean; disabled?: boolean; onToggle: () => void }) {
   return (
@@ -98,7 +104,7 @@ export function DiscordNotifySettingsPage() {
   async function load() {
     setLoading(true)
     try {
-      const res = await fetch('/api/autospin/discord-webhook')
+      const res = await fetch('/api/autospin/discord-webhook', { headers: { 'x-user-label': getUserLabel() } })
       const data = await res.json()
       setUrl(data.url || '')
       setSavedUrl(data.url || '')
@@ -121,7 +127,7 @@ export function DiscordNotifySettingsPage() {
 
   async function loadReportSettings() {
     try {
-      const res = await fetch('/api/autospin/status-report-settings')
+      const res = await fetch('/api/autospin/status-report-settings', { headers: { 'x-user-label': getUserLabel() } })
       const data = await res.json()
       setReportEnabled(!!data.enabled); setSavedReportEnabled(!!data.enabled)
       const iv = data.intervalMin ?? 20
@@ -155,7 +161,7 @@ export function DiscordNotifySettingsPage() {
     try {
       const res = await fetch('/api/autospin/status-report-settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-user-label': getUserLabel() },
         body: JSON.stringify({ enabled: reportEnabled, intervalMin: reportIntervalMin, fields: reportFields, customNote: reportCustomNote, aiEnabled: reportAiEnabled }),
       })
       const data = await res.json()
@@ -178,7 +184,7 @@ export function DiscordNotifySettingsPage() {
     setReportTesting(true)
     setReportMsg(null)
     try {
-      const res = await fetch('/api/autospin/status-report-test', { method: 'POST' })
+      const res = await fetch('/api/autospin/status-report-test', { method: 'POST', headers: { 'x-user-label': getUserLabel() } })
       const data = await res.json()
       setReportMsg(data.ok
         ? { text: '✅ 測試彙總報告已送出（假資料），請至 Discord 頻道查看效果', ok: true }
@@ -196,7 +202,7 @@ export function DiscordNotifySettingsPage() {
     try {
       const res = await fetch('/api/autospin/discord-webhook', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-user-label': getUserLabel() },
         body: JSON.stringify({ url: url.trim(), enabled, fields, titleTemplate: titleTemplate.trim() || DEFAULT_TITLE_TEMPLATE, footer: footer.trim() }),
       })
       const data = await res.json()
@@ -287,7 +293,7 @@ export function DiscordNotifySettingsPage() {
           <div className="discord-notify-card">
             <div className="discord-notify-card-title">🔗 Webhook URL</div>
             <p className="discord-notify-card-note">
-              頻道可隨時更換，不需要改代碼 —— 只要在這裡貼上新的 Webhook URL 並儲存即可。<br />
+              頻道可隨時更換，不需要改代碼 —— 只要在這裡貼上新的 Webhook URL 並儲存即可（<strong>全員共用同一個網址</strong>）。<br />
               在 Discord 頻道設定 → 整合 → Webhook 建立後複製網址貼在這裡。
             </p>
             <div className="discord-notify-field">
@@ -305,7 +311,7 @@ export function DiscordNotifySettingsPage() {
               <ToggleSwitch checked={enabled} disabled={loading} onToggle={() => setEnabled(v => !v)} />
               <div>
                 <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 700 }}>啟用通知</div>
-                <div style={{ color: '#64748b', fontSize: 11 }}>關閉後即使 URL 有設定也不會發送，不用清空網址就能暫停</div>
+                <div style={{ color: '#64748b', fontSize: 11 }}>關閉後即使 URL 有設定也不會發送，不用清空網址就能暫停（依目前帳號分開設定，不影響其他人）</div>
               </div>
             </div>
             <div className="discord-notify-actions">
@@ -330,7 +336,7 @@ export function DiscordNotifySettingsPage() {
 
           <div className="discord-notify-card">
             <div className="discord-notify-card-title">✏️ 訊息格式</div>
-            <p className="discord-notify-card-note">自訂卡片要顯示哪些欄位、標題文字（右側預覽會即時同步）</p>
+            <p className="discord-notify-card-note">自訂卡片要顯示哪些欄位、標題文字（右側預覽會即時同步）。<strong>顯示欄位依目前帳號分開設定</strong>，標題模板/頁尾文字全員共用。</p>
 
             <div className="discord-notify-field" style={{ marginBottom: 14 }}>
               <label>顯示欄位</label>
@@ -384,7 +390,7 @@ export function DiscordNotifySettingsPage() {
           <div className="discord-notify-card">
             <div className="discord-notify-card-title">📊 定時彙總報告（AutoSpin 長時間穩定性統計）</div>
             <p className="discord-notify-card-note">
-              跟上面的啟動/結束通知共用同一個 Webhook URL，是另外獨立開關——每隔設定的間隔，把累計統計（Spin 數/errcode/斷線重連/CR checks 等）發一則新的彙總訊息，不會覆蓋前一則。
+              跟上面的啟動/結束通知共用同一個 Webhook URL，是另外獨立開關——每隔設定的間隔，把累計統計（Spin 數/errcode/斷線重連/CR checks 等）發一則新的彙總訊息，不會覆蓋前一則。<strong>以下設定依目前帳號分開</strong>，只影響你自己派工的 session。
             </p>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
               <ToggleSwitch checked={reportEnabled} disabled={loading} onToggle={() => setReportEnabled(v => !v)} />

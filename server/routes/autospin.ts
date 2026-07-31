@@ -268,23 +268,28 @@ router.get('/api/autospin/captures-list', async (_req, res) => {
 })
 
 // ─── Discord Webhook 通知設定 ──────────────────────────────────────────────────
-// URL 存在 settings 表（key-value），不寫死頻道；未來換頻道只要在設定頁改 URL 即可。
+// URL / 標題模板 / 頁尾文字仍是全域共用（存在 settings 表，同一個頻道大家共用）；
+// 通知啟用開關、顯示欄位、定時彙總報告設定改成依帳號分開（存在 autospin_notify_prefs，
+// 見下方 getNotifyPrefsRow() 等 helper）——每個帳號自己決定自己派工的 session 要不要
+// 通知、要顯示哪些欄位，不會互相影響。
 
-// GET /api/autospin/discord-webhook — 取得目前設定的 Discord Webhook URL + 啟用開關 + 訊息格式設定
-router.get('/api/autospin/discord-webhook', (_req, res) => {
+// GET /api/autospin/discord-webhook — 取得目前設定的 Discord Webhook URL（全域）+ 啟用開關 + 訊息格式設定（依帳號）
+router.get('/api/autospin/discord-webhook', (req, res) => {
+  const userLabel = (req.headers['x-user-label'] as string) || ''
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_webhook_url') as { value: string } | undefined
   res.json({
     ok: true,
     url: row?.value ?? '',
-    enabled: isDiscordNotifyEnabled(),
-    fields: getDiscordNotifyFields(),
+    enabled: isDiscordNotifyEnabled(userLabel),
+    fields: getDiscordNotifyFields(userLabel),
     titleTemplate: getDiscordTitleTemplate(),
     footer: getDiscordFooterText(),
   })
 })
 
-// POST /api/autospin/discord-webhook — 儲存 Discord Webhook URL（空字串＝關閉通知）、啟用開關、訊息格式設定
+// POST /api/autospin/discord-webhook — url/titleTemplate/footer 寫全域設定；enabled/fields 寫該帳號自己的設定
 router.post('/api/autospin/discord-webhook', (req, res) => {
+  const userLabel = (req.headers['x-user-label'] as string) || ''
   const { url, enabled, fields, titleTemplate, footer } = req.body as {
     url?: string; enabled?: boolean; fields?: Partial<Record<NotifyFieldKey, boolean>>
     titleTemplate?: string; footer?: string
@@ -292,11 +297,11 @@ router.post('/api/autospin/discord-webhook', (req, res) => {
   if (typeof url !== 'string') return res.status(400).json({ ok: false, message: 'url required' })
   db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('discord_webhook_url', url)
   if (typeof enabled === 'boolean') {
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('discord_notify_enabled', enabled ? '1' : '0')
+    upsertNotifyPrefs(userLabel, { notifyEnabled: enabled ? 1 : 0 })
   }
   if (fields && typeof fields === 'object') {
-    const merged = { ...getDiscordNotifyFields(), ...fields }
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('discord_notify_fields', JSON.stringify(merged))
+    const merged = { ...getDiscordNotifyFields(userLabel), ...fields }
+    upsertNotifyPrefs(userLabel, { notifyFields: JSON.stringify(merged) })
   }
   if (typeof titleTemplate === 'string') {
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('discord_notify_title_template', titleTemplate)
@@ -334,17 +339,50 @@ router.post('/api/autospin/discord-webhook/test', async (_req, res) => {
   }
 })
 
+// ─── 帳號各自的通知偏好（autospin_notify_prefs）───────────────────────────────
+// 通知啟用開關/顯示欄位/定時彙總報告設定依帳號分開；Webhook URL/標題模板/頁尾文字
+// 仍是全域（見上方 discord-webhook 路由）。尚未存過偏好的帳號，getter 會 fallback
+// 讀取舊版全域 settings 值（2026-07-31 前的行為），避免改版當下所有帳號的通知/報告
+// 設定突然被重置成程式內建預設值。
+interface NotifyPrefsRow {
+  userLabel: string; notifyEnabled: number; notifyFields: string
+  reportEnabled: number; reportIntervalMin: number; reportFields: string
+  reportCustomNote: string; reportAiEnabled: number
+}
+function getNotifyPrefsRow(userLabel: string): NotifyPrefsRow | undefined {
+  return db.prepare('SELECT * FROM autospin_notify_prefs WHERE userLabel = ?').get(userLabel) as NotifyPrefsRow | undefined
+}
+function upsertNotifyPrefs(userLabel: string, patch: Partial<Omit<NotifyPrefsRow, 'userLabel'>>) {
+  const existing = getNotifyPrefsRow(userLabel) ?? {
+    userLabel, notifyEnabled: 1, notifyFields: '', reportEnabled: 0, reportIntervalMin: 20, reportFields: '', reportCustomNote: '', reportAiEnabled: 0,
+  }
+  const merged = { ...existing, ...patch }
+  db.prepare(`
+    INSERT INTO autospin_notify_prefs (userLabel, notifyEnabled, notifyFields, reportEnabled, reportIntervalMin, reportFields, reportCustomNote, reportAiEnabled)
+    VALUES (@userLabel, @notifyEnabled, @notifyFields, @reportEnabled, @reportIntervalMin, @reportFields, @reportCustomNote, @reportAiEnabled)
+    ON CONFLICT(userLabel) DO UPDATE SET
+      notifyEnabled = excluded.notifyEnabled, notifyFields = excluded.notifyFields,
+      reportEnabled = excluded.reportEnabled, reportIntervalMin = excluded.reportIntervalMin,
+      reportFields = excluded.reportFields, reportCustomNote = excluded.reportCustomNote, reportAiEnabled = excluded.reportAiEnabled
+  `).run(merged)
+}
+function legacySetting(key: string): string | undefined {
+  return (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value
+}
+
 // ─── 定時彙總報告設定（RECOVER/errcode/CR checks/kickouts 等長時間穩定性統計）──────
 // 跟啟動/結束的 Discord 通知共用同一個 webhook URL，只是另外開關+設定間隔跟顯示欄位。
 
-function getStatusReportEnabled(): boolean {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('autospin_status_report_enabled') as { value: string } | undefined
-  return row?.value === '1'
+function getStatusReportEnabled(userLabel: string): boolean {
+  const row = getNotifyPrefsRow(userLabel)
+  if (row) return row.reportEnabled === 1
+  return legacySetting('autospin_status_report_enabled') === '1'
 }
 
-function getStatusReportIntervalMin(): number {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('autospin_status_report_interval_min') as { value: string } | undefined
-  const n = parseFloat(row?.value ?? '')
+function getStatusReportIntervalMin(userLabel: string): number {
+  const row = getNotifyPrefsRow(userLabel)
+  if (row) return row.reportIntervalMin > 0 ? row.reportIntervalMin : 20
+  const n = parseFloat(legacySetting('autospin_status_report_interval_min') ?? '')
   return Number.isFinite(n) && n > 0 ? n : 20
 }
 
@@ -352,57 +390,56 @@ type StatusReportFieldKey = 'spins' | 'winRate' | 'errcodes' | 'recover' | 'kick
 const DEFAULT_STATUS_REPORT_FIELDS: Record<StatusReportFieldKey, boolean> = {
   spins: true, winRate: true, errcodes: true, recover: true, kickouts: true, crChecks: true, uptime: true,
 }
-function getStatusReportFields(): Record<StatusReportFieldKey, boolean> {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('autospin_status_report_fields') as { value: string } | undefined
-  if (!row?.value) return { ...DEFAULT_STATUS_REPORT_FIELDS }
-  try { return { ...DEFAULT_STATUS_REPORT_FIELDS, ...JSON.parse(row.value) } } catch { return { ...DEFAULT_STATUS_REPORT_FIELDS } }
+function getStatusReportFields(userLabel: string): Record<StatusReportFieldKey, boolean> {
+  const row = getNotifyPrefsRow(userLabel)
+  const raw = row ? row.reportFields : legacySetting('autospin_status_report_fields')
+  if (!raw) return { ...DEFAULT_STATUS_REPORT_FIELDS }
+  try { return { ...DEFAULT_STATUS_REPORT_FIELDS, ...JSON.parse(raw) } } catch { return { ...DEFAULT_STATUS_REPORT_FIELDS } }
 }
 
 /** 自訂備註欄位（選填），會附加在每則定時彙總報告的最下方。 */
-function getStatusReportCustomNote(): string {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('autospin_status_report_custom_note') as { value: string } | undefined
-  return row?.value ?? ''
+function getStatusReportCustomNote(userLabel: string): string {
+  const row = getNotifyPrefsRow(userLabel)
+  if (row) return row.reportCustomNote
+  return legacySetting('autospin_status_report_custom_note') ?? ''
 }
 
 /** AI 分析區塊開關（預設關閉）——關閉時完全不呼叫 Gemini，零額外開銷；開啟才會呼叫 generateStatusReportAiAnalysis()。 */
-function getStatusReportAiEnabled(): boolean {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('autospin_status_report_ai_enabled') as { value: string } | undefined
-  return row?.value === '1'
+function getStatusReportAiEnabled(userLabel: string): boolean {
+  const row = getNotifyPrefsRow(userLabel)
+  if (row) return row.reportAiEnabled === 1
+  return legacySetting('autospin_status_report_ai_enabled') === '1'
 }
 
 // GET /api/autospin/status-report-settings
-router.get('/api/autospin/status-report-settings', (_req, res) => {
+router.get('/api/autospin/status-report-settings', (req, res) => {
+  const userLabel = (req.headers['x-user-label'] as string) || ''
   res.json({
     ok: true,
-    enabled: getStatusReportEnabled(),
-    intervalMin: getStatusReportIntervalMin(),
-    fields: getStatusReportFields(),
-    customNote: getStatusReportCustomNote(),
-    aiEnabled: getStatusReportAiEnabled(),
+    enabled: getStatusReportEnabled(userLabel),
+    intervalMin: getStatusReportIntervalMin(userLabel),
+    fields: getStatusReportFields(userLabel),
+    customNote: getStatusReportCustomNote(userLabel),
+    aiEnabled: getStatusReportAiEnabled(userLabel),
   })
 })
 
 // POST /api/autospin/status-report-settings
 router.post('/api/autospin/status-report-settings', (req, res) => {
+  const userLabel = (req.headers['x-user-label'] as string) || ''
   const { enabled, intervalMin, fields, customNote, aiEnabled } = req.body as {
     enabled?: boolean; intervalMin?: number; fields?: Partial<Record<StatusReportFieldKey, boolean>>; customNote?: string; aiEnabled?: boolean
   }
-  if (typeof enabled === 'boolean') {
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('autospin_status_report_enabled', enabled ? '1' : '0')
-  }
+  if (typeof enabled === 'boolean') upsertNotifyPrefs(userLabel, { reportEnabled: enabled ? 1 : 0 })
   if (typeof intervalMin === 'number' && Number.isFinite(intervalMin) && intervalMin > 0) {
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('autospin_status_report_interval_min', String(intervalMin))
+    upsertNotifyPrefs(userLabel, { reportIntervalMin: intervalMin })
   }
   if (fields && typeof fields === 'object') {
-    const merged = { ...getStatusReportFields(), ...fields }
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('autospin_status_report_fields', JSON.stringify(merged))
+    const merged = { ...getStatusReportFields(userLabel), ...fields }
+    upsertNotifyPrefs(userLabel, { reportFields: JSON.stringify(merged) })
   }
-  if (typeof customNote === 'string') {
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('autospin_status_report_custom_note', customNote)
-  }
-  if (typeof aiEnabled === 'boolean') {
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('autospin_status_report_ai_enabled', aiEnabled ? '1' : '0')
-  }
+  if (typeof customNote === 'string') upsertNotifyPrefs(userLabel, { reportCustomNote: customNote })
+  if (typeof aiEnabled === 'boolean') upsertNotifyPrefs(userLabel, { reportAiEnabled: aiEnabled ? 1 : 0 })
   res.json({ ok: true })
 })
 
@@ -553,9 +590,10 @@ router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
   res.json({ ok: true })  // 先回應，Discord 發送不擋 Python 端
 
   const webhookUrl = getDiscordWebhookUrl()
-  if (!webhookUrl || !isDiscordNotifyEnabled() || !getStatusReportEnabled()) return
+  const userLabel = s?.userLabel ?? ''
+  if (!webhookUrl || !isDiscordNotifyEnabled(userLabel) || !getStatusReportEnabled(userLabel)) return
 
-  const aiAnalysis = getStatusReportAiEnabled()
+  const aiAnalysis = getStatusReportAiEnabled(userLabel)
     ? await generateStatusReportAiAnalysis(req, machineType, periodMinutes ?? 0, cumulative, period, uptimeMinutes)
     : null
 
@@ -566,12 +604,12 @@ router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
     cumulative,
     period,
     uptimeMinutes,
-    fields: getStatusReportFields(),
-    customNote: getStatusReportCustomNote(),
+    fields: getStatusReportFields(userLabel),
+    customNote: getStatusReportCustomNote(userLabel),
     aiAnalysis,
   })
 
-  const mention = mentionForUserLabel(s?.userLabel)
+  const mention = mentionForUserLabel(userLabel)
   try {
     await fetch(webhookUrl, {
       method: 'POST',
@@ -587,6 +625,7 @@ router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
 router.post('/api/autospin/status-report-test', async (req, res) => {
   const webhookUrl = getDiscordWebhookUrl()
   if (!webhookUrl) return res.status(400).json({ ok: false, message: '尚未設定 Discord Webhook URL' })
+  const userLabel = (req.headers['x-user-label'] as string) || ''
 
   const now = Date.now()
   const sample: { period: StatusReportStats; cumulative: StatusReportStats } = {
@@ -604,20 +643,20 @@ router.post('/api/autospin/status-report-test', async (req, res) => {
 
   // 試發送也一併示範 AI 分析區塊（跟隨開關，關閉時不燒 token）+ tag（用目前登入的操作者當
   // 「發起人」測試對照表有沒有生效），兩者都是 best-effort，失敗不擋測試訊息送出。
-  const aiAnalysis = getStatusReportAiEnabled()
-    ? await generateStatusReportAiAnalysis(req, 'TEST', getStatusReportIntervalMin(), sample.cumulative, sample.period, 125)
+  const aiAnalysis = getStatusReportAiEnabled(userLabel)
+    ? await generateStatusReportAiAnalysis(req, 'TEST', getStatusReportIntervalMin(userLabel), sample.cumulative, sample.period, 125)
     : null
-  const mention = mentionForUserLabel(getOperatorFromContext()?.name)
+  const mention = mentionForUserLabel(userLabel || getOperatorFromContext()?.name)
 
   const embed = buildStatusReportEmbed({
     machineType: 'TEST',
     gameTitleCode: '873-TEST-0001',
-    periodMinutes: getStatusReportIntervalMin(),
+    periodMinutes: getStatusReportIntervalMin(userLabel),
     cumulative: sample.cumulative,
     period: sample.period,
     uptimeMinutes: 125,
-    fields: getStatusReportFields(),
-    customNote: getStatusReportCustomNote(),
+    fields: getStatusReportFields(userLabel),
+    customNote: getStatusReportCustomNote(userLabel),
     isTest: true,
     aiAnalysis,
   })
@@ -682,10 +721,12 @@ router.post('/api/autospin/discord-user-map', (req, res) => {
   res.json({ ok: true })
 })
 
-/** 預設啟用（尚未設定過開關時，維持既有行為：只要有填 URL 就會發送）。 */
-function isDiscordNotifyEnabled(): boolean {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_notify_enabled') as { value: string } | undefined
-  return row?.value !== '0'
+/** 預設啟用（尚未設定過開關時，維持既有行為：只要有填 URL 就會發送）。依帳號分開，
+ * 尚未存過個人設定的帳號 fallback 讀舊版全域值。 */
+function isDiscordNotifyEnabled(userLabel: string): boolean {
+  const row = getNotifyPrefsRow(userLabel)
+  if (row) return row.notifyEnabled !== 0
+  return legacySetting('discord_notify_enabled') !== '0'
 }
 
 type NotifyFieldKey = 'gameUrl' | 'spinCount' | 'errorSummary' | 'screenshotUrl'
@@ -693,12 +734,13 @@ const DEFAULT_NOTIFY_FIELDS: Record<NotifyFieldKey, boolean> = {
   gameUrl: true, spinCount: true, errorSummary: true, screenshotUrl: true,
 }
 
-/** 哪些欄位要顯示在通知卡片上（狀態欄固定顯示，不受此設定影響）。 */
-function getDiscordNotifyFields(): Record<NotifyFieldKey, boolean> {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_notify_fields') as { value: string } | undefined
-  if (!row?.value) return { ...DEFAULT_NOTIFY_FIELDS }
+/** 哪些欄位要顯示在通知卡片上（狀態欄固定顯示，不受此設定影響）。依帳號分開。 */
+function getDiscordNotifyFields(userLabel: string): Record<NotifyFieldKey, boolean> {
+  const row = getNotifyPrefsRow(userLabel)
+  const raw = row ? row.notifyFields : legacySetting('discord_notify_fields')
+  if (!raw) return { ...DEFAULT_NOTIFY_FIELDS }
   try {
-    return { ...DEFAULT_NOTIFY_FIELDS, ...JSON.parse(row.value) }
+    return { ...DEFAULT_NOTIFY_FIELDS, ...JSON.parse(raw) }
   } catch {
     return { ...DEFAULT_NOTIFY_FIELDS }
   }
@@ -888,9 +930,10 @@ const discordNotifyState = new Map<string, { messageId: string; status: NotifySt
 function buildDiscordEmbed(
   status: NotifyStatus, machineType: string,
   opts: { gameUrl?: string; spinCount?: number; errorSummary?: string; screenshotUrl?: string },
+  userLabel: string,
 ) {
   const meta = NOTIFY_STATUS_META[status]
-  const enabledFields = getDiscordNotifyFields()
+  const enabledFields = getDiscordNotifyFields(userLabel)
   const fields: { name: string; value: string; inline?: boolean }[] = [
     { name: '狀態', value: `${meta.emoji} ${meta.label}`, inline: true },
   ]
@@ -937,11 +980,12 @@ async function notifyDiscord(
   opts: { gameUrl?: string; spinCount?: number; errorSummary?: string; screenshotUrl?: string } = {},
 ) {
   const webhookUrl = getDiscordWebhookUrl()
-  if (!webhookUrl || !isDiscordNotifyEnabled()) return
+  const userLabel = agentSessions.get(sessionId)?.userLabel ?? ''
+  if (!webhookUrl || !isDiscordNotifyEnabled(userLabel)) return
   const key = `${sessionId}:${machineType}`
   const existing = discordNotifyState.get(key)
-  const embed = buildDiscordEmbed(status, machineType, opts)
-  const mention = mentionForUserLabel(agentSessions.get(sessionId)?.userLabel)
+  const embed = buildDiscordEmbed(status, machineType, opts, userLabel)
+  const mention = mentionForUserLabel(userLabel)
   try {
     if (existing) {
       const r = await fetch(`${webhookUrl}/messages/${existing.messageId}`, {
@@ -1183,9 +1227,9 @@ router.get('/api/autospin/agent/:id/should-stop', (req, res) => {
     spinInterval: s.spinIntervalOverride ?? null,
     // OSMWatcher 狀態（key=gmid），AutoSpin 每 3 秒隨心跳一起拿到，判斷是否進入特殊遊戲
     osmStatus: Object.fromEntries(osmMachineStatus),
-    // 定時彙總報告設定（間隔可即時調整，不用重啟 Agent）
-    statusReportEnabled: getStatusReportEnabled(),
-    statusReportIntervalMin: getStatusReportIntervalMin(),
+    // 定時彙總報告設定（間隔可即時調整，不用重啟 Agent；依派工帳號各自的設定）
+    statusReportEnabled: getStatusReportEnabled(s.userLabel),
+    statusReportIntervalMin: getStatusReportIntervalMin(s.userLabel),
   })
 })
 

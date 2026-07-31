@@ -695,6 +695,21 @@ db.exec(`
   )
 `)
 
+// autospin_notify_prefs — 每個帳號各自的 Discord 通知開關/顯示欄位/定時彙總報告設定
+// （Webhook URL、標題模板、頁尾文字仍是全域共用，存在 settings 表）
+db.exec(`
+  CREATE TABLE IF NOT EXISTS autospin_notify_prefs (
+    userLabel         TEXT PRIMARY KEY,
+    notifyEnabled     INTEGER NOT NULL DEFAULT 1,
+    notifyFields      TEXT NOT NULL DEFAULT '',
+    reportEnabled     INTEGER NOT NULL DEFAULT 0,
+    reportIntervalMin INTEGER NOT NULL DEFAULT 20,
+    reportFields      TEXT NOT NULL DEFAULT '',
+    reportCustomNote  TEXT NOT NULL DEFAULT '',
+    reportAiEnabled   INTEGER NOT NULL DEFAULT 0
+  )
+`)
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS jackpot_settings (
     gameid  TEXT NOT NULL,
