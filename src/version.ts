@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.79.7'
+export const APP_VERSION = '3.79.8'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.79.8',
+    date: '2026-07-31',
+    changes: [
+      'fix(machine-test): Spin 測試遇到面額選擇遮罩（.select-main）會卡滿逾時點不到——這種遮罩點擊不會拋「intercepts pointer events」例外，原本只在例外處理時才 force click 的邏輯完全不會被觸發；改成每次點 Spin 前主動檢查並關閉遮罩（同步 AutoSpin.py 既有作法），iDeck 測試原本局部的關閉遮罩邏輯也抽成共用函式',
+    ],
+  },
   {
     version: '3.79.7',
     date: '2026-07-31',

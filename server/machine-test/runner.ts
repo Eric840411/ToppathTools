@@ -1255,6 +1255,29 @@ async function readBalance(page: Page, _customSel?: string | null): Promise<numb
   return null
 }
 
+/** After certain actions (btn_bet click, cashout, re-entering the game...) the game may show a
+ *  denomination-select overlay (.select-main). This overlay does NOT reject the click with
+ *  Playwright's "intercepts pointer events" error — the game simply never receives the Spin
+ *  action, so the try/catch-based force-click fallback never triggers and the spin silently
+ *  does nothing until the 8s timeout. Must actively check for and dismiss this overlay BEFORE
+ *  every spin attempt (mirrors AutoSpin.py's dismiss_denom_overlay(), called at the start of
+ *  every do_spin() — see CLAUDE.md AutoSpin 選面額遮罩 notes), not just as an exception handler.
+ *  Checks all frames, clicks the first available denomination option. Returns true if dismissed. */
+async function dismissDenomOverlay(page: Page, emit: (msg: string) => void, source: string): Promise<boolean> {
+  for (const frame of page.frames()) {
+    try {
+      const btns = await frame.$$('.select-main .select-btn, .select-main .my-button')
+      if (btns.length > 0) {
+        emit(`${source} → 面額選擇遮罩（${btns.length} 選項），點擊第一個...`)
+        await btns[0].evaluate((node: Element) => (node as HTMLElement).click())
+        await sleep(800)
+        return true
+      }
+    } catch { /* frame detached */ }
+  }
+  return false
+}
+
 /** Diagnostic: log pinus/coin state across all frames. */
 async function diagPinusFrames(page: Page, emit: (msg: string) => void): Promise<void> {
   const frames = page.frames()
@@ -1505,6 +1528,11 @@ async function stepSpin(page: Page, emit: (msg: string) => void, customSpinSel?:
           if (currentSpinEl !== spinEl) break
         }
       }
+
+      // 面額選擇遮罩（.select-main）點擊時不會拋 "intercepts pointer events" 例外——遊戲只是
+      // 完全收不到 Spin 動作，下面的 force click fallback 不會被觸發，會固定卡滿逾時。
+      // 每次點 Spin 前主動檢查並關閉，不能只靠例外處理（同步 AutoSpin.py 的作法）。
+      await dismissDenomOverlay(page, emit, `Spin ${spinIdx + 1}`)
 
       // Capture coin state before this spin to detect pinus update
       const coinBeforeSpin = await readBalance(page, null)
@@ -1977,25 +2005,6 @@ async function stepIdeck(
     const baselineKeys = await getIdeckTimes()
     emit(`基準線：點擊前已有 ${baselineKeys.size} 筆 iDeck 記錄`)
 
-    /** After each btn_bet click, the game may show a denomination overlay (select-main).
-     *  Clicking a denomination option IS part of the iDeck interaction — like AutoSpin.py's
-     *  approach of handling select-main after cashout click.
-     *  This helper checks all frames for the overlay and clicks the first option. */
-    const dismissDenomOverlay = async (source: string): Promise<boolean> => {
-      for (const frame of page.frames()) {
-        try {
-          const btns = await frame.$$('.select-main .select-btn, .select-main .my-button')
-          if (btns.length > 0) {
-            emit(`${source} → 面額選擇遮罩（${btns.length} 選項），點擊第一個...`)
-            await btns[0].evaluate((node: Element) => (node as HTMLElement).click())
-            await sleep(800)
-            return true
-          }
-        } catch { /* frame detached */ }
-      }
-      return false
-    }
-
     // Step 2: click all buttons — re-query fresh at click time to avoid stale ElementHandle
     emit(`共 ${buttons.length} 個按鈕，逐一點擊...`)
     const allFrames = page.frames()
@@ -2041,7 +2050,7 @@ async function stepIdeck(
 
       // After clicking btn_bet, game may show denomination overlay — dismiss it to complete the iDeck interaction
       await sleep(500)
-      await dismissDenomOverlay(label)
+      await dismissDenomOverlay(page, emit, label)
 
       await sleepOrStop(4500, shouldStop ?? (() => false))
     }
