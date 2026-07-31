@@ -421,6 +421,7 @@ function fmtErrTime(ts: number): string {
 /** 組出定時彙總報告的 Discord embed；真實回報與「試發送」測試共用同一份格式邏輯。 */
 function buildStatusReportEmbed(opts: {
   machineType: string
+  gameTitleCode?: string | null
   periodMinutes: number
   cumulative: StatusReportStats
   period: StatusReportStats
@@ -430,7 +431,7 @@ function buildStatusReportEmbed(opts: {
   isTest?: boolean
   aiAnalysis?: string | null
 }) {
-  const { machineType, periodMinutes, cumulative, period, uptimeMinutes, fields, customNote, isTest, aiAnalysis } = opts
+  const { machineType, gameTitleCode, periodMinutes, cumulative, period, uptimeMinutes, fields, customNote, isTest, aiAnalysis } = opts
   const fmtPct = (ok: number, total: number) => total > 0 ? `${((ok / total) * 100).toFixed(1)}%` : '—'
   /** 每個 errcode 一行（Discord 引用格式），有時間點的話換行縮排列在下面，避免一長串塞成一行看不清楚。 */
   const errcodeStr = (m: Record<string, number>, times?: Record<string, number[]>) => {
@@ -475,7 +476,7 @@ function buildStatusReportEmbed(opts: {
   }
 
   return {
-    title: `📊 AutoSpin 定時彙總報告${isTest ? '（測試）' : ''} — ${machineType}`,
+    title: `📊 AutoSpin 定時彙總報告${isTest ? '（測試）' : ''} — ${machineType}${gameTitleCode ? `（${gameTitleCode}）` : ''}`,
     description: lines.join('\n'),
     color: isTest ? 0xf59e0b : 0x2563eb,
     timestamp: new Date().toISOString(),
@@ -544,8 +545,8 @@ ${errcodeDetail}
 // POST /api/autospin/agent/:id/status-report — Python 引擎定時（間隔可調整）回報累計/本期間統計，組成 Discord embed 發送
 router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
   const s = agentSessions.get(req.params.id)
-  const { machineType, periodMinutes, cumulative, period, uptimeMinutes } = req.body as {
-    machineType?: string; periodMinutes?: number
+  const { machineType, gameTitleCode, periodMinutes, cumulative, period, uptimeMinutes } = req.body as {
+    machineType?: string; gameTitleCode?: string; periodMinutes?: number
     cumulative?: StatusReportStats; period?: StatusReportStats; uptimeMinutes?: number
   }
   if (!machineType || !cumulative || !period) return res.status(400).json({ ok: false, message: 'machineType/cumulative/period 為必填' })
@@ -560,6 +561,7 @@ router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
 
   const embed = buildStatusReportEmbed({
     machineType,
+    gameTitleCode,
     periodMinutes: periodMinutes ?? 0,
     cumulative,
     period,
@@ -609,6 +611,7 @@ router.post('/api/autospin/status-report-test', async (req, res) => {
 
   const embed = buildStatusReportEmbed({
     machineType: 'TEST',
+    gameTitleCode: '873-TEST-0001',
     periodMinutes: getStatusReportIntervalMin(),
     cumulative: sample.cumulative,
     period: sample.period,

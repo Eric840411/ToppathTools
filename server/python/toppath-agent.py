@@ -1304,17 +1304,18 @@ def maybe_send_status_report(mp: dict, page):
 
     mp['report_last_sent_ts'] = now
     mp['report_period_start'] = cumulative
-    async_call(post_status_report, mt, period_minutes, cumulative, period, (now - AGENT_START_TS) / 60)
+    gmid = mp['config'].get('gameTitleCode') or ''
+    async_call(post_status_report, mt, gmid, period_minutes, cumulative, period, (now - AGENT_START_TS) / 60)
 
 
-def post_status_report(mt: str, period_minutes: float, cumulative: dict, period: dict, uptime_minutes: float):
+def post_status_report(mt: str, gmid: str, period_minutes: float, cumulative: dict, period: dict, uptime_minutes: float):
     """背景執行緒：把 maybe_send_status_report() 準備好的統計資料 POST 給伺服器（純網路呼叫，
     不碰 Playwright page，可以安全地跑在背景執行緒）。"""
     try:
         requests.post(
             f"{server_url}/api/autospin/agent/{session_id}/status-report",
             json={
-                'machineType': mt, 'periodMinutes': period_minutes,
+                'machineType': mt, 'gameTitleCode': gmid, 'periodMinutes': period_minutes,
                 'cumulative': cumulative, 'period': period, 'uptimeMinutes': uptime_minutes,
             },
             timeout=10,

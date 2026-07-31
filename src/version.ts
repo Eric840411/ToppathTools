@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.79.4'
+export const APP_VERSION = '3.79.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.79.5',
+    date: '2026-07-31',
+    changes: [
+      'fix(autospin): 定時彙總報告標題加上 gmid（gameTitleCode），避免機台類型名稱相近（如 RISINGROCKET / RISINGROCKETS）時無法分辨是哪一台機器的卡片',
+    ],
+  },
   {
     version: '3.79.4',
     date: '2026-07-30',
