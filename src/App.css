@@ -39,12 +39,24 @@
   .badge--ok, .dashboard-chip--good, .sidebar-nav-item--active { animation: none !important; }
 }
 
-/* Ambient backdrop: very subtle drifting glow, sits behind .main-content.
-   Opacity kept low — this is an ops tool, the glow should be felt, not seen. */
+/* Ambient backdrop: 太玄道樞背景圖（雙境修仙）+ 暗色 vignette 墊在最底，
+   上面再疊玄月青/古金光暈。卡片本身維持不透明（不冒風險改全站
+   section-card/dashboard-panel 的透明度），質感差異主要體現在卡片
+   之間的縫隙與頁面邊緣——這是目前能低風險、全站生效的最大visual差異。 */
 .main-content {
   position: relative;
 }
 .main-content::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(5, 7, 13, .55), rgba(5, 7, 13, .9) 55%, rgba(5, 7, 13, .97)),
+    url('/themes/xianxia/xianxia-dashboard-bg.png') center 15% / cover no-repeat;
+}
+.main-content::after {
   content: '';
   position: fixed;
   inset: 0;
@@ -198,16 +210,16 @@
 }
 
 .dashboard-chip--good {
-  background: rgba(20, 83, 45, .24);
-  color: #86efac;
-  border-color: rgba(34, 197, 94, .25);
+  background: var(--cr-cyan-soft);
+  color: var(--cr-cyan);
+  border-color: var(--cr-cyan-border);
   animation: cr-pulse-dot 2.2s ease-out infinite;
 }
 
 .dashboard-chip--warn {
-  background: rgba(113, 63, 18, .28);
-  color: #facc15;
-  border-color: rgba(250, 204, 21, .2);
+  background: var(--cr-violet-soft);
+  color: var(--cr-gold-bright, #ead8a6);
+  border-color: rgba(199, 169, 107, .3);
 }
 
 .dashboard-chip--blue {
@@ -218,16 +230,16 @@
 
 .dashboard-alert,
 .dashboard-empty {
-  border: 1px solid #2d3f55;
+  border: 1px solid rgba(202, 219, 229, .14);
   border-radius: 8px;
-  background: #1e293b;
+  background: rgba(9, 14, 23, .82);
   color: #94a3b8;
   padding: 14px 16px;
   font-size: 13px;
 }
 
 .dashboard-empty--compact {
-  background: #162032;
+  background: rgba(13, 19, 32, .82);
   text-align: center;
 }
 
@@ -240,9 +252,9 @@
 
 .dashboard-metric {
   min-height: 128px;
-  border: 1px solid #2d3f55;
+  border: 1px solid rgba(202, 219, 229, .14);
   border-radius: 8px;
-  background: #1e293b;
+  background: rgba(9, 14, 23, .82);
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -297,9 +309,9 @@
 }
 
 .dashboard-panel {
-  border: 1px solid #2d3f55;
+  border: 1px solid rgba(202, 219, 229, .14);
   border-radius: 8px;
-  background: #1e293b;
+  background: rgba(9, 14, 23, .82);
   overflow: hidden;
   transition: border-color .25s var(--cr-ease), box-shadow .25s var(--cr-ease);
 }
@@ -315,8 +327,8 @@
 .dashboard-panel-head {
   min-height: 52px;
   padding: 14px 16px;
-  border-bottom: 1px solid #2d3f55;
-  background: #162032;
+  border-bottom: 1px solid rgba(202, 219, 229, .14);
+  background: rgba(13, 19, 32, .82);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -341,8 +353,8 @@
 }
 
 .dashboard-panel-foot {
-  border-top: 1px solid #2d3f55;
-  background: #162032;
+  border-top: 1px solid rgba(202, 219, 229, .14);
+  background: rgba(13, 19, 32, .82);
   color: #64748b;
   padding: 9px 16px;
   font-size: 11px;
@@ -445,13 +457,13 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
-  border: 1px solid #2d3f55;
+  border: 1px solid rgba(202, 219, 229, .14);
   border-radius: 8px;
-  background: #162032;
+  background: rgba(13, 19, 32, .82);
   padding: 11px 12px;
   transition: border-color .2s var(--cr-ease), background .2s var(--cr-ease);
 }
-.dashboard-task:hover { border-color: var(--cr-cyan-border); background: #182640; }
+.dashboard-task:hover { border-color: var(--cr-cyan-border); background: rgba(117, 215, 207, .07); }
 
 .dashboard-task-title {
   color: #e2e8f0;
@@ -566,9 +578,9 @@
   background: var(--cr-cyan);
 }
 
-.dashboard-event-dot--success { background: #22c55e; animation: cr-pulse-dot 2s ease-out infinite; }
-.dashboard-event-dot--warn { background: #facc15; animation: cr-pulse-dot 2s ease-out infinite; }
-.dashboard-event-dot--error { background: #f87171; }
+.dashboard-event-dot--success { background: var(--cr-cyan); animation: cr-pulse-dot 2s ease-out infinite; }
+.dashboard-event-dot--warn { background: #ead8a6; animation: cr-pulse-dot 2s ease-out infinite; }
+.dashboard-event-dot--error { background: var(--cr-rose); }
 
 .dashboard-event-title {
   color: #e2e8f0;

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.84.0-xianxia.4'
+export const APP_VERSION = '3.84.0-xianxia.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.84.0-xianxia.5',
+    date: '2026-08-03',
+    changes: [
+      'feat(design): [design/xianxia 分支] 全站背景改接 CodeX 生成的太玄道樞背景圖——之前只換了 token 顏色，版面骨架/卡片質感跟原本沒差，看不出修仙感；這次把 public/themes/xianxia/xianxia-dashboard-bg.png 實際接進 .main-content::before（暗色 vignette + 背景圖，取代原本純色空白），光暈疊在圖上面的 ::after。順手修正 dashboard-chip--good/warn 跟 dashboard-event-dot--success/warn 先前忘記接 token、還是硬編碼原生 Tailwind 綠/黃的問題。Dashboard 頁的卡片/面板背景從純色 slate-blue 改成半透明墨色（rgba ink），邊框從藍灰改成中性暖調，跟背景圖銜接更自然。全站生效（main-content 是共用 layout），卡片本身仍不透明（維持全站文字可讀性、不冒險改 section-card 等其他頁面共用的透明度）',
+    ],
+  },
   {
     version: '3.84.0-xianxia.4',
     date: '2026-08-03',
