@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.84.0-xianxia.8'
+export const APP_VERSION = '3.84.0-xianxia.9'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.84.0-xianxia.9',
+    date: '2026-08-03',
+    changes: [
+      'feat(design): [design/xianxia 分支] CodeX 完成太玄道樞全站整合——真實 React 元件全面套用（Dashboard/Jira/TestCase/OSM 全工具群/Game Show/Local Agent/歷史/知識庫/Discord 通知/系統管理/登入等），新增 12 枚統一圖示取代單字圖示與 Emoji，移除舊遊戲模式入口。額外修正 Dashboard hero 人物立繪邊緣淡出在窄螢幕斷點沒有跟圖片寬度同步的問題（改用共用 CSS 變數），已於多種螢幕寬度驗證',
+    ],
+  },
   {
     version: '3.84.0-xianxia.8',
     date: '2026-08-03',
