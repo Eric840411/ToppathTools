@@ -1856,25 +1856,32 @@ body::after,
 }
 
 /* ─────────────────────────────────────────────────────────────
-   Dashboard hero 圖片/漸層響應式修正
-   問題：::before（人物立繪寬度）跟 ::after（邊緣淡出漸層的位置）
-   分別在不同斷點各自寫死數字，兩者沒有綁在一起，窄螢幕時漸層
-   位置跟圖片實際邊緣對不上，變成一條硬接縫。改成兩者共用同一個
-   --hero-img-w 變數，並讓漸層直接跨在圖片邊緣上（往圖片內部
-   延伸），而不是幾乎整段落在圖片外側的空白背景上（原本漸層跟
-   圖片只重疊 1px，等於沒有真的淡出效果）。
+   Dashboard hero 圖片邊緣淡出——改用 mask-image 直接淡出圖片本身
+   原本做法：疊一塊「深色→透明」的漸層色塊蓋在圖片上，色塊本身
+   有自己的實色，跟圖片內容（月亮/雲霧的藍色調）疊加後變成一塊
+   看得出來的長方形色差色塊，而且色塊的左右兩側各自跟旁邊背景
+   銜接處都是硬邊界，感覺像貼了一層濾鏡而不是真的淡出。
+   改成直接用 mask-image 淡出圖片本身的透明度，讓底下 .dashboard-
+   intro 自己的背景色直接透出來，沒有額外色塊，才是真正的溶接。
+   ::after 那塊漸層色塊停用（不用刪，避免跟其他規則打架）。
+   圖片寬度仍用共用變數，斷點只需要改一個地方。
    ───────────────────────────────────────────────────────────── */
 .dashboard-intro {
   --hero-img-w: 260px;
 }
 .dashboard-intro::before {
   width: var(--hero-img-w) !important;
+  -webkit-mask-image: linear-gradient(90deg, transparent, black 110px);
+  mask-image: linear-gradient(90deg, transparent, black 110px);
 }
 .dashboard-intro::after {
-  right: calc(var(--hero-img-w) - 70px) !important;
-  width: 130px !important;
+  display: none !important;
 }
 @media (max-width: 1040px) {
   .dashboard-intro { --hero-img-w: 220px; }
+  .dashboard-intro::before {
+    -webkit-mask-image: linear-gradient(90deg, transparent, black 90px);
+    mask-image: linear-gradient(90deg, transparent, black 90px);
+  }
 }
 

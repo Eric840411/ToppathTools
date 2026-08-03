@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.84.0-xianxia.9'
+export const APP_VERSION = '3.84.0-xianxia.10'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.84.0-xianxia.10',
+    date: '2026-08-03',
+    changes: [
+      'fix(design): [design/xianxia 分支] Dashboard hero 人物立繪淡出改用 mask-image，不再是色塊疊加——原本用一塊「深色→透明」漸層色塊蓋在圖片上，色塊實色跟圖片本身的藍色調疊加後變成看得出來的長方形色差，色塊左右邊界也都是硬邊界；改成直接用 CSS mask-image 淡出圖片本身的透明度，讓 .dashboard-intro 自己的背景直接透出來，才是真正的溶接，沒有額外色塊。已於 1039/1440/2560px 驗證',
+    ],
+  },
   {
     version: '3.84.0-xianxia.9',
     date: '2026-08-03',
