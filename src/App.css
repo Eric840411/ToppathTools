@@ -2517,12 +2517,15 @@
 }
 
 .member-card.selected::after {
-  content: '✓';
+  content: '';
   position: absolute;
   top: 4px;
   right: 6px;
-  font-size: 11px;
-  font-weight: 700;
+  width: 5px;
+  height: 9px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(42deg);
   opacity: 0.9;
 }
 

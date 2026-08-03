@@ -4,6 +4,7 @@ import { ModelSelector } from '../components/ModelSelector'
 import GeminiSettingsModal from '../components/GeminiSettingsModal'
 import type { AccountInfo } from '../components/JiraAccountModal'
 import { UrlPoolPickerModal } from '../components/UrlPoolPickerModal'
+import { XianxiaIcon } from '../components/XianxiaIcon'
 
 interface StepResult {
   step: string
@@ -237,7 +238,7 @@ function ProfilesPanel() {
   return (
     <div className="section-card">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-        <h2 className="section-title" style={{ margin: 0 }}>⚙️ 機台設定檔</h2>
+        <h2 className="section-title" style={{ margin: 0 }}>機台設定檔</h2>
         <button
           type="button"
           className="btn-ghost"
@@ -319,7 +320,7 @@ function ProfilesPanel() {
                   <td>
                     {audioRefs.has(p.machineType) ? (
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: 11, color: '#059669' }}>🎵 已上傳</span>
+                        <span style={{ fontSize: 11, color: '#059669' }}>已上傳</span>
                         <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 2 }}>
                           <label style={{ cursor: 'pointer' }}>
                             <input type="file" accept="audio/wav,.wav" style={{ display: 'none' }}
@@ -408,7 +409,7 @@ function ProfilesPanel() {
               </div>
               {editing.bonusAction === 'touchscreen' && (editing.touchPoints ?? []).length === 0 && (
                 <p style={{ fontSize: 12, color: '#ef4444', fontWeight: 600, margin: '4px 0' }}>
-                  ⚠️ Bonus 觸屏啟動：至少設定一個點位（填入 span 元素文字，例如 <code style={{ fontSize: 11 }}>18,9</code>）
+                  警 Bonus 觸屏啟動：至少設定一個點位（填入 span 元素文字，例如 <code style={{ fontSize: 11 }}>18,9</code>）
                 </p>
               )}
               {(editing.touchPoints ?? []).length === 0 && editing.bonusAction !== 'touchscreen' && (
@@ -570,7 +571,7 @@ function ProfilesPanel() {
           {/* ── Audio Config ── */}
           <div style={{ border: '1px solid #2d3f55', borderRadius: 8, padding: '12px 14px', marginTop: 8, marginBottom: 8, background: '#162032' }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 10 }}>
-              🎵 音頻閾值設定
+              音 音頻閾值設定
               <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400, marginLeft: 8 }}>
                 留空使用全域預設值（峰值 -3 dB、重心 1500 Hz、RMS -60 ~ -20 dB）
               </span>
@@ -675,7 +676,7 @@ function ProfilesPanel() {
           <span
             onClick={() => setCctvPreview(null)}
             style={{ position: 'fixed', top: 20, right: 28, color: '#fff', fontSize: 28, cursor: 'pointer', lineHeight: 1 }}
-          >✕</span>
+          >關閉</span>
         </div>
       )}
     </div>
@@ -683,11 +684,11 @@ function ProfilesPanel() {
 }
 
 const statusIcon = (s?: string) => {
-  if (s === 'pass') return '✅'
-  if (s === 'fail') return '❌'
-  if (s === 'warn') return '⚠️'
-  if (s === 'skip') return '⏭️'
-  return '💬'
+  if (s === 'pass') return '通過'
+  if (s === 'fail') return '失敗'
+  if (s === 'warn') return '警'
+  if (s === 'skip') return '⏭'
+  return '訊'
 }
 
 const statusClass = (s?: string) => {
@@ -732,7 +733,7 @@ function toQAMessage(result: MachineResult): string {
         else issues.push('spin error')
         break
       case 'iDeck 測試': {
-        const noResp = (msg.match(/btn\[\d+\] ✗/g) ?? []).length
+        const noResp = (msg.match(/btn\[\d+\] 失敗/g) ?? []).length
         issues.push(noResp > 0 ? `iDeck ${noResp} btn no response` : 'iDeck error')
         break
       }
@@ -769,7 +770,7 @@ function AudioPlayer({ machineCode, sessionId }: { machineCode: string; sessionI
         onClick={e => { e.stopPropagation(); setOpen(true) }}
         style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, padding: 0, lineHeight: 1 }}
       >
-        🔊
+        聲
       </button>
     )
   }
@@ -814,7 +815,7 @@ function MyHistoryPanel({ account }: { account: AccountInfo }) {
   return (
     <div className="section-card" style={{ marginTop: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }} onClick={() => setOpen(o => { if (!o) load(); return !o })}>
-        <h2 className="section-title" style={{ margin: 0 }}>📋 我的測試紀錄</h2>
+        <h2 className="section-title" style={{ margin: 0 }}>我的測試紀錄</h2>
         <span style={{ fontSize: 12, color: '#64748b' }}>{account.label}</span>
         <span style={{ marginLeft: 'auto', fontSize: 18, color: '#94a3b8' }}>{open ? '▲' : '▼'}</span>
       </div>
@@ -823,7 +824,7 @@ function MyHistoryPanel({ account }: { account: AccountInfo }) {
         <div style={{ marginTop: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
             <button className="btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} onClick={load} disabled={loading}>
-              {loading ? '載入中...' : '🔄 重新整理'}
+              {loading ? '載入中...' : '更新 重新整理'}
             </button>
           </div>
 
@@ -846,9 +847,9 @@ function MyHistoryPanel({ account }: { account: AccountInfo }) {
                 >
                   <span style={{ fontSize: 13, color: '#cbd5e1', fontWeight: 500 }}>{dateStr}</span>
                   <span style={{ fontSize: 12, color: '#94a3b8' }}>{s.results.length} 台</span>
-                  <span style={{ fontSize: 12, color: '#22c55e' }}>✅ {pass}</span>
-                  {warn > 0 && <span style={{ fontSize: 12, color: '#f59e0b' }}>⚠️ {warn}</span>}
-                  {fail > 0 && <span style={{ fontSize: 12, color: '#ef4444' }}>❌ {fail}</span>}
+                  <span style={{ fontSize: 12, color: '#22c55e' }}>通過 {pass}</span>
+                  {warn > 0 && <span style={{ fontSize: 12, color: '#f59e0b' }}>{warn}</span>}
+                  {fail > 0 && <span style={{ fontSize: 12, color: '#ef4444' }}>失敗 {fail}</span>}
                   <span style={{ marginLeft: 'auto', fontSize: 13, color: '#94a3b8' }}>{isExp ? '▲' : '▼'}</span>
                 </div>
 
@@ -908,7 +909,7 @@ function MyHistoryPanel({ account }: { account: AccountInfo }) {
       {cctvPreview && createPortal(
         <div onClick={() => setCctvPreview(null)} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <img src={cctvPreview} alt="CCTV" style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8 }} onClick={e => e.stopPropagation()} />
-          <span onClick={() => setCctvPreview(null)} style={{ position: 'fixed', top: 20, right: 28, color: '#fff', fontSize: 28, cursor: 'pointer' }}>✕</span>
+          <span onClick={() => setCctvPreview(null)} style={{ position: 'fixed', top: 20, right: 28, color: '#fff', fontSize: 28, cursor: 'pointer' }}>關閉</span>
         </div>,
         document.body,
       )}
@@ -1089,7 +1090,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
       }).then(r => r.json()) as { ok: boolean; machines?: { gmid: string; rowIndex: number }[]; message?: string }
 
       if (!resp.ok || !resp.machines) {
-        setLarkStatus(`❌ ${resp.message ?? '讀取失敗'}`)
+        setLarkStatus(`失敗 ${resp.message ?? '讀取失敗'}`)
         return
       }
       const machines = resp.machines
@@ -1105,9 +1106,9 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
         counts[gameCode] = (counts[gameCode] ?? 0) + 1
       })
       setGameCountMap(counts)
-      setLarkStatus(`✅ 讀取 ${machines.length} 台（已排除驗證通過）`)
+      setLarkStatus(`通過 讀取 ${machines.length} 台（已排除驗證通過）`)
     } catch {
-      setLarkStatus('❌ 網路錯誤')
+      setLarkStatus('失敗 網路錯誤')
     } finally {
       setLarkLoading(false)
     }
@@ -1133,13 +1134,13 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
         const ok = d.results?.[0]?.ok ?? false
         writebackCountRef.current++
         if (ok) {
-          setLarkStatus(`✅ 已回寫 ${writebackCountRef.current} 筆`)
+          setLarkStatus(`通過 已回寫 ${writebackCountRef.current} 筆`)
         } else {
           const msg = d.results?.[0]?.larkMsg ?? '未知錯誤'
-          setLarkStatus(`⚠️ ${r.machineCode} 回寫失敗：${msg}`)
+          setLarkStatus(`${r.machineCode} 回寫失敗：${msg}`)
         }
       })
-      .catch(e => setLarkStatus(`❌ ${r.machineCode} 回寫錯誤：${String(e)}`))
+      .catch(e => setLarkStatus(`失敗 ${r.machineCode} 回寫錯誤：${String(e)}`))
   }
 
   const connectWS = () => {
@@ -1282,7 +1283,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
       {showGeminiSettings && <GeminiSettingsModal onClose={() => setShowGeminiSettings(false)} />}
       {hasPersonalGeminiKey === false && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: '#92400e', fontSize: 13 }}>
-          <span style={{ flex: 1 }}>⚠️ 尚未設定個人 Gemini Key。AI 功能將使用共用 Key 池（可能影響其他人的配額）。</span>
+          <span style={{ flex: 1 }}>尚未設定個人 Gemini Key。AI 功能將使用共用 Key 池（可能影響其他人的配額）。</span>
           <button type="button" className="btn-ghost" onClick={() => setShowGeminiSettings(true)} style={{ whiteSpace: 'nowrap' }}>
             前往設定
           </button>
@@ -1293,8 +1294,8 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowPinModal(false)}>
           <div className="modal-box" style={{ width: 360 }}>
             <div className="modal-header">
-              <h2 style={{ margin: 0 }}>🔒 管理員驗證</h2>
-              <button className="modal-close" onClick={() => setShowPinModal(false)}>✕</button>
+              <h2 style={{ margin: 0 }}>管理員驗證</h2>
+              <button className="modal-close" onClick={() => setShowPinModal(false)}>關閉</button>
             </div>
             <div style={{ padding: '20px' }}>
               <p style={{ fontSize: 14, color: '#4b5563', marginTop: 0 }}>機台測試需要管理員 PIN 才能執行</p>
@@ -1328,7 +1329,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
           background: 'rgba(251,191,36,0.08)', border: '1.5px solid rgba(251,191,36,0.35)', borderRadius: 8,
           padding: '10px 16px', marginBottom: 12, fontSize: 13,
         }}>
-          <span style={{ fontSize: 16 }}>⚡</span>
+          <span style={{ fontSize: 16 }}>迅</span>
           <span style={{ flex: 1, color: '#fbbf24' }}>
             <strong>目前有測試正在進行中。</strong>若要查看即時進度，請點擊「觀看」加入廣播頻道。
           </span>
@@ -1342,14 +1343,14 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
             }}
             style={{ padding: '6px 16px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}
           >
-            👁 觀看
+            視 觀看
           </button>
           <button
             type="button"
             onClick={() => setActiveSessionBanner(false)}
             style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', fontSize: 18, lineHeight: 1, padding: '0 4px' }}
           >
-            ✕
+            關閉
           </button>
         </div>
       )}
@@ -1361,8 +1362,8 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
       >
         <span className={`mt-osm-dot ${osmConnected ? 'mt-osm-dot--on' : ''}`} />
         {osmConnected
-          ? `✅ OSMWatcher 已連線（監控 ${osmCount} 台機台）— 特殊遊戲偵測已啟用`
-          : `⚪ OSMWatcher 未連線 — 特殊遊戲偵測停用（Spin 後不會等待 Free Game / Jackpot 結束）`}
+          ? `通過 OSMWatcher 已連線（監控 ${osmCount} 台機台）— 特殊遊戲偵測已啟用`
+          : `OSMWatcher 未連線 — 特殊遊戲偵測停用（Spin 後不會等待 Free Game / Jackpot 結束）`}
         {!osmConnected && (
           <span className="mt-osm-hint">Webhook URL：<code>POST /api/machine-test/osm-status</code></span>
         )}
@@ -1411,7 +1412,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
                 }}>
                   <span style={{ color: '#94a3b8', fontSize: 13, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', minWidth: 0 }}>{id}</span>
                   <span style={{ color: statusColor, fontSize: 12, fontWeight: 600, background: isSpecial ? `${cardBorder}66` : 'transparent', padding: '2px 6px', borderRadius: 4, flexShrink: 0, whiteSpace: 'nowrap' }}>
-                    {isSpecial ? '⚡ ' : ''}{label}
+                    {isSpecial ? '' : ''}{label}
                   </span>
                 </div>
               )
@@ -1426,7 +1427,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
           style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}
           onClick={() => setFlowPanelOpen(v => !v)}
         >
-          <span style={{ fontSize: 15 }}>📋</span>
+          <XianxiaIcon name="guide" size={20} />
           <h2 className="section-title" style={{ margin: 0, flex: 1 }}>操作流程</h2>
           <span style={{ fontSize: 12, color: '#94a3b8' }}>{flowPanelOpen ? '▲ 收合' : '▼ 展開'}</span>
         </div>
@@ -1557,14 +1558,14 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
                     style={{ fontSize: 13, padding: '4px 8px', flexShrink: 0, color: '#2563eb' }}
                     disabled={running}
                     onClick={() => setUrlPickerOpen(i)}>
-                    📋
+                    冊
                   </button>
                   {lobbyUrls.length > 1 && (
                     <button type="button" className="btn-ghost"
                       style={{ fontSize: 12, padding: '4px 8px', color: '#ef4444', flexShrink: 0 }}
                       disabled={running}
                       onClick={() => setLobbyUrls(prev => prev.filter((_, j) => j !== i))}>
-                      ✕
+                      關閉
                     </button>
                   )}
                 </div>
@@ -1655,7 +1656,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
             {steps.audio && (
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, fontSize: 13, cursor: 'pointer' }}>
                 <input type="checkbox" checked={aiAudio} onChange={e => setAiAudio(e.target.checked)} disabled={running} />
-                <span style={{ color: aiAudio ? '#7c3aed' : '#6b7280', fontWeight: aiAudio ? 600 : 400 }}>🤖 AI 音頻分析</span>
+                <span style={{ color: aiAudio ? '#7c3aed' : '#6b7280', fontWeight: aiAudio ? 600 : 400 }}>AI 音頻分析</span>
                 <span style={{ fontSize: 11, color: '#94a3b8' }}>錄音傳送 Gemini 判斷靜音/音量/爆音/雜訊（每台多 ~2s）</span>
               </label>
             )}
@@ -1669,7 +1670,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
           </div>
 
           <div style={{ marginTop: 12, padding: '10px 12px', background: '#162032', border: '1.5px solid #e2e8f0', borderRadius: 8, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#cbd5e1', whiteSpace: 'nowrap' }}>📡 日誌 API 環境</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#cbd5e1', whiteSpace: 'nowrap' }}>日誌 API 環境</span>
             {(['qat', 'prod'] as const).map(env => (
               <label key={env} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 13 }}>
                 <input type="radio" name="osmEnv" value={env} checked={osmEnv === env} onChange={() => setOsmEnv(env)} disabled={running} />
@@ -1689,7 +1690,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
           <div style={{ marginTop: 0, padding: '10px 12px', background: headedMode ? 'rgba(59,130,246,0.08)' : '#162032', border: `1.5px solid ${headedMode ? 'rgba(59,130,246,0.4)' : '#2d3f55'}`, borderRadius: 8, marginBottom: 8 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
               <input type="checkbox" checked={headedMode} onChange={e => setHeadedMode(e.target.checked)} disabled={running} />
-              <span style={{ fontSize: 13, fontWeight: 600, color: headedMode ? '#60a5fa' : '#cbd5e1' }}>👀 Headed 模式</span>
+              <span style={{ fontSize: 13, fontWeight: 600, color: headedMode ? '#60a5fa' : '#cbd5e1' }}>Headed 模式</span>
               <span style={{ fontSize: 11, color: headedMode ? '#93c5fd' : '#64748b' }}>瀏覽器視窗顯示在螢幕上，可觀看操作流程</span>
             </label>
           </div>
@@ -1714,15 +1715,15 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, marginBottom: 4 }}>
             {isAdmin
-              ? <span style={{ fontSize: 12, color: '#16a34a' }}>🔓 管理員已解鎖 <button type="button" onClick={() => { setIsAdmin(false); sessionStorage.removeItem(ADMIN_KEY) }} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 12, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>登出</button></span>
-              : <span style={{ fontSize: 12, color: '#64748b' }}>🔒 需要管理員 PIN 才能執行測試</span>
+              ? <span style={{ fontSize: 12, color: '#16a34a' }}>管理員已解鎖 <button type="button" onClick={() => { setIsAdmin(false); sessionStorage.removeItem(ADMIN_KEY) }} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 12, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>登出</button></span>
+              : <span style={{ fontSize: 12, color: '#64748b' }}>需要管理員 PIN 才能執行測試</span>
             }
           </div>
 
           {/* Agent status */}
           {agentStatus.length > 0 && (
             <div style={{ fontSize: 12, color: '#6366f1', background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 6, padding: '6px 10px', marginBottom: 8 }}>
-              🤖 {agentStatus.length} 個 Agent 已連線：{agentStatus.map(a => (
+              傀 {agentStatus.length} 個 Agent 已連線：{agentStatus.map(a => (
                 <span key={a.agentId} style={{ marginRight: 8, color: a.busy ? '#f59e0b' : '#16a34a' }}>
                   {a.hostname}{a.busy ? '（執行中）' : '（待機）'}
                 </span>
@@ -1745,7 +1746,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
 
           {!account && (
             <div style={{ padding: '10px 14px', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, fontSize: 13, color: '#92400e', marginBottom: 8 }}>
-              ⚠️ 請先在右上角選擇帳號，才能執行測試（結果將與帳號關聯）
+              警 請先在右上角選擇帳號，才能執行測試（結果將與帳號關聯）
             </div>
           )}
 
@@ -1761,7 +1762,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
               style={{ flex: 1 }}
             >
               {running
-                ? reconnecting ? '🔄 重新連線中...' : '⏳ 測試進行中...'
+                ? reconnecting ? '更新 重新連線中...' : '⏳ 測試進行中...'
                 : `▶ 開始測試（${machineCodes.length} 台 × ${lobbyUrls.filter(u => u.trim()).length} Worker${agentStatus.length > 0 ? ` + ${agentStatus.length} Agent` : ''}）`}
             </button>
             {!running && (
@@ -1771,7 +1772,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
                 title="連線廣播頻道，觀看進行中的測試進度"
                 style={{ padding: '10px 14px', background: '#f0fdf4', color: '#16a34a', border: '1.5px solid #86efac', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}
               >
-                👁 觀看
+                視 觀看
               </button>
             )}
             {running && (
@@ -1884,7 +1885,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
                           display: 'inline-block', padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 600,
                           background: `${stateColor[j.state]}22`, color: stateColor[j.state],
                         }}>
-                          {j.state === 'running' ? '⚡ ' : ''}{stateLabel[j.state] ?? j.state}
+                          {j.state === 'running' ? '' : ''}{stateLabel[j.state] ?? j.state}
                         </span>
                       </td>
                       <td style={{ fontSize: 12, color: '#64748b' }}>{j.agentId ?? '—'}</td>
@@ -1976,7 +1977,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
                               ))}
                               {r.consoleLogs.length > 0 && (
                                 <div className="tc-detail-item">
-                                  <strong>🖥️ 前端 Console Log（{r.consoleLogs.length} 筆）</strong>
+                                  <strong>前端 Console Log（{r.consoleLogs.length} 筆）</strong>
                                   <div className="mt-console-logs">
                                     {r.consoleLogs.map((l, i) => (
                                       <div key={i} className={`mt-console-line${l.includes('[JS Error]') || l.includes('console.error') ? ' mt-console--error' : ' mt-console--warn'}`}>{l}</div>
@@ -2012,7 +2013,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
           <span
             onClick={() => setCctvPreview(null)}
             style={{ position: 'fixed', top: 20, right: 28, color: '#fff', fontSize: 28, cursor: 'pointer', lineHeight: 1 }}
-          >✕</span>
+          >關閉</span>
         </div>
       )}
 
@@ -2027,23 +2028,23 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
         <div className="section-card mt-phase-card">
           <div className="mt-phase-header">
             <span className="mt-phase-badge">Phase 2</span>
-            <h2 className="section-title" style={{ margin: 0 }}>🎮 iDeck / 觸屏測試</h2>
+            <h2 className="section-title" style={{ margin: 0 }}>iDeck / 觸屏測試</h2>
             <span className="mt-soon-badge" style={{ marginLeft: 'auto', background: '#22c55e', color: '#fff' }}>已串接</span>
           </div>
           <p className="mt-phase-desc">
             透過 Playwright 點擊 iDeck 按鈕與觸屏點位，驗證機台 LOG（daily-analysis API）中出現對應的 success_json 回應（is_ideck / is_touch），確認硬體指令有正確送達並被機台執行。
           </p>
           <div className="mt-phase-todo">
-            <div className="mt-todo-item">✅ iDeck：點擊所有下注 XPath，API 確認 success_json is_ideck=true</div>
-            <div className="mt-todo-item">✅ 觸屏：點擊 touchPoints 點位，API 確認 success_json is_touch=true</div>
-            <div className="mt-todo-item">✅ 基準比對法：點擊前後對比，避免時鐘偏差問題</div>
+            <div className="mt-todo-item">通過 iDeck：點擊所有下注 XPath，API 確認 success_json is_ideck=true</div>
+            <div className="mt-todo-item">通過 觸屏：點擊 touchPoints 點位，API 確認 success_json is_touch=true</div>
+            <div className="mt-todo-item">通過 基準比對法：點擊前後對比，避免時鐘偏差問題</div>
           </div>
         </div>
 
         <div className="section-card mt-phase-card">
           <div className="mt-phase-header">
             <span className="mt-phase-badge mt-phase-badge--3">Phase 3</span>
-            <h2 className="section-title" style={{ margin: 0 }}>📹 CCTV 號碼比對</h2>
+            <h2 className="section-title" style={{ margin: 0 }}>CCTV 號碼比對</h2>
             <span className="mt-soon-badge" style={{ marginLeft: 'auto', background: '#22c55e', color: '#fff' }}>已串接</span>
           </div>
           <p className="mt-phase-desc">
@@ -2051,9 +2052,9 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
             截圖後以 Gemini Vision OCR 讀取畫面上的機台號碼。
           </p>
           <div className="mt-phase-todo">
-            <div className="mt-todo-item">✅ 點擊第一顆 header_btn_item 切換 CCTV</div>
-            <div className="mt-todo-item">✅ 偵測 video 播放狀態（黑畫面判定）</div>
-            <div className="mt-todo-item">✅ Gemini Vision OCR 讀取畫面號碼</div>
+            <div className="mt-todo-item">通過 點擊第一顆 header_btn_item 切換 CCTV</div>
+            <div className="mt-todo-item">通過 偵測 video 播放狀態（黑畫面判定）</div>
+            <div className="mt-todo-item">通過 Gemini Vision OCR 讀取畫面號碼</div>
             <div className="mt-todo-item">⏳ 號碼與機台代碼自動比對（待確認格式）</div>
           </div>
         </div>

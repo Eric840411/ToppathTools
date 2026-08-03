@@ -18,7 +18,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '3.84.0-xianxia.7',
     date: '2026-08-03',
     changes: [
-      'feat(design): [design/xianxia 分支] 側邊欄導覽改成雙標籤——主要顯示修仙主題名稱（卷宗管理/試煉手札/靈機巡檢/幻境試煉/傀儡召喚/行跡天錄/藏經閣/靈訊符籙/太玄樞機/天機總覽/陣法設定），下方保留原本功能名當副標（Jira 批量開單/TestCase 生成/OSM Tools/... 等），沉浸感與辨識度兩者兼顧，同事不用重新學一套對照表。新增 Group.themeLabel 欄位 + 共用 NavLabel 元件，7 處側邊欄按鈕統一改用。順手把「AI 模型和 Prompt 設定」按鈕的 ⚙️ Emoji 換成手繪 SVG 齒輪圖示。此次僅涵蓋頂層導覽項目，OSM Tools/Game Show 底下的子分頁名稱尚未套用（子項目較多，留待下一批）',
+      'feat(design): [design/xianxia 分支] 側邊欄導覽改成雙標籤——主要顯示修仙主題名稱（卷宗管理/試煉手札/靈機巡檢/幻境試煉/傀儡召喚/行跡天錄/藏經閣/靈訊符籙/太玄樞機/天機總覽/陣法設定），下方保留原本功能名當副標（Jira 批量開單/TestCase 生成/OSM Tools/... 等），沉浸感與辨識度兩者兼顧，同事不用重新學一套對照表。新增 Group.themeLabel 欄位 + 共用 NavLabel 元件，7 處側邊欄按鈕統一改用。順手把「AI 模型和 Prompt 設定」按鈕的 陣 Emoji 換成手繪 SVG 齒輪圖示。此次僅涵蓋頂層導覽項目，OSM Tools/Game Show 底下的子分頁名稱尚未套用（子項目較多，留待下一批）',
     ],
   },
   {
@@ -39,7 +39,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '3.84.0-xianxia.4',
     date: '2026-08-03',
     changes: [
-      'feat(design): [design/xianxia 分支] AutoSpin 執行監控頁套用太玄道樞視覺 + 移除 Emoji 圖示——Agent 選擇卡片改用 hover 浮起+選中青色光暈（.autospin-agent-card）、派工啟動/停止/暫停/繼續按鈕改用玄月青/赤霄紅/古金三色（.cr-btn 系列）、狀態指示全部改成會呼吸的狀態圓點（.cr-status-dot）取代 🟢⚪🟠、日誌篩選 pill 與截圖縮圖 hover 光暈（.cr-pill/.autospin-shot）、最新截圖角落加脈動指示。原本 ▶⏹⏸📜🔄🔍🗑⚠️❌✅ 等 Emoji 字元全部移除，改成純文字或手繪 SVG 幾何線條圖示（重新整理/搜尋），純樣式改動不動任何資料邏輯/handler',
+      'feat(design): [design/xianxia 分支] AutoSpin 執行監控頁套用太玄道樞視覺 + 移除 Emoji 圖示——Agent 選擇卡片改用 hover 浮起+選中青色光暈（.autospin-agent-card）、派工啟動/停止/暫停/繼續按鈕改用玄月青/赤霄紅/古金三色（.cr-btn 系列）、狀態指示全部改成會呼吸的狀態圓點（.cr-status-dot）取代 綠白橙、日誌篩選 pill 與截圖縮圖 hover 光暈（.cr-pill/.autospin-shot）、最新截圖角落加脈動指示。原本 ▶⏹⏸錄更新察刪警失敗通過 等 Emoji 字元全部移除，改成純文字或手繪 SVG 幾何線條圖示（重新整理/搜尋），純樣式改動不動任何資料邏輯/handler',
     ],
   },
   {
@@ -219,7 +219,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '3.74.1',
     date: '2026-07-29',
     changes: [
-      'feat(autospin): 定時彙總報告設定新增「自訂欄位」（選填備註文字，原樣附加在每則報告最下方）與「🧪 試發送」按鈕——用假資料立即送一則測試彙總報告到 Discord 確認格式與效果，不受啟用開關影響、不影響真實回報邏輯',
+      'feat(autospin): 定時彙總報告設定新增「自訂欄位」（選填備註文字，原樣附加在每則報告最下方）與「試 試發送」按鈕——用假資料立即送一則測試彙總報告到 Discord 確認格式與效果，不受啟用開關影響、不影響真實回報邏輯',
     ],
   },
   {
@@ -500,7 +500,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '3.60.8',
     date: '2026-07-20',
     changes: [
-      'feat(autospin): 機台設定表單的 Game URL 欄位新增「📋 從帳號池選取」按鈕，跟 Machine Test 大廳 URL 同一套 UrlPoolPickerModal（已抽成共用元件 src/components/UrlPoolPickerModal.tsx），不用再手動複製貼上帶 token 的長網址',
+      'feat(autospin): 機台設定表單的 Game URL 欄位新增「冊 從帳號池選取」按鈕，跟 Machine Test 大廳 URL 同一套 UrlPoolPickerModal（已抽成共用元件 src/components/UrlPoolPickerModal.tsx），不用再手動複製貼上帶 token 的長網址',
     ],
   },
   {
@@ -588,7 +588,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '3.59.0',
     date: '2026-07-20',
     changes: [
-      'feat(jira): 批量開單/批量評論/批量修改/批量更新狀態 新增「🔄 重新讀取 Sheet」按鈕（顯示於 Step 2 以後，位於頂部步驟列），可在操作到一半時重新拉取最新 Sheet 資料，不會切換 step 或清空已選取/已填寫內容，僅同步新增/移除的列',
+      'feat(jira): 批量開單/批量評論/批量修改/批量更新狀態 新增「更新 重新讀取 Sheet」按鈕（顯示於 Step 2 以後，位於頂部步驟列），可在操作到一半時重新拉取最新 Sheet 資料，不會切換 step 或清空已選取/已填寫內容，僅同步新增/移除的列',
     ],
   },
   {
@@ -653,7 +653,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '3.57.15',
     date: '2026-07-15',
     changes: [
-      'feat(jira): 批量更新狀態預覽表新增「🔍 偵測 RD 欄位」按鈕，掃描 Issue 所有 custom user fields 並顯示 fieldId / 欄位名稱 / 目前值',
+      'feat(jira): 批量更新狀態預覽表新增「察 偵測 RD 欄位」按鈕，掃描 Issue 所有 custom user fields 並顯示 fieldId / 欄位名稱 / 目前值',
     ],
   },
   {
@@ -949,7 +949,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '3.54.9',
     date: '2026-06-25',
     changes: [
-      'fix(jira): 批量修改描述附件 — 重新上傳檔案後自動清除「⚠ 需重新上傳」防呆警告',
+      'fix(jira): 批量修改描述附件 — 重新上傳檔案後自動清除「警 需重新上傳」防呆警告',
     ],
   },
   {
@@ -999,7 +999,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '3.54.2',
     date: '2026-06-25',
     changes: [
-      'fix(jira): 批量開單 Step 3 附件欄中，Sheet 匯入影片改顯示「⚠ 需重新上傳」警示，提示使用者手動補傳',
+      'fix(jira): 批量開單 Step 3 附件欄中，Sheet 匯入影片改顯示「警 需重新上傳」警示，提示使用者手動補傳',
       'fix(jira): 批量開單送出前若有未上傳影片列，彈出確認對話框，與批量評論行為一致',
     ],
   },
@@ -1025,7 +1025,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       'fix(jira): 批量修改多人欄位選人後保持下拉開啟（不再需要清空才能繼續選）',
       'fix(jira): 批量修改多人欄位選完人後「確認修改」按鈕不再被誤 disabled',
       'fix(jira): 批量修改預覽表格欄位名稱改為顯示正式欄位名稱而非 customfield_XXXXX',
-      'fix(jira): 批量開單附件下載失敗顯示帶檔名的 ⚠ 提示，影片類型顯示 🎬 圖示',
+      'fix(jira): 批量開單附件下載失敗顯示帶檔名的 警 提示，影片類型顯示 啟 圖示',
       'fix(jira): 批量開單描述附件嵌入增加 v2 回應檢查及 v3 ADF fallback，方便排查失敗原因',
     ],
   },
@@ -1264,7 +1264,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '3.50.1',
     date: '2026-06-09',
     changes: [
-      'fix(osm): ImageRecon 版本狀態統一顯示「✓ 達標 / ⚠ 未達標」（不再顯示 Match/Mismatch）',
+      'fix(osm): ImageRecon 版本狀態統一顯示「通過 達標 / 警 未達標」（不再顯示 Match/Mismatch）',
     ],
   },
   {
@@ -1499,7 +1499,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '3.40.1',
     date: '2026-06-04',
     changes: [
-      'fix(jira): 重新送出批次評論時清空舊結果，解決舊批次「⚠️ 已中斷」結果與新批次進度條同時顯示的問題',
+      'fix(jira): 重新送出批次評論時清空舊結果，解決舊批次「警 已中斷」結果與新批次進度條同時顯示的問題',
       'fix(jira): 批次評論完成後立即釋放按鈕狀態，不再等待 Lark 回寫完成',
     ],
   },
@@ -2124,7 +2124,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       'feat(knowledge): 新增知識庫頁面，可預存 Lark Wiki / PDF / Google Doc / 純文字文件供 AI 調用',
       'feat(knowledge): 文件儲存時自動抓取並快取純文字，支援手動重新抓取，7天以上顯示建議重抓提示',
       'feat(knowledge): 後端新增 /api/knowledge/* 路由（列出/新增/重抓/取內容/刪除）',
-      'feat(knowledge): 側欄加入「📚 知識庫」入口，系統管理頁加入知識庫權限管理',
+      'feat(knowledge): 側欄加入「典 知識庫」入口，系統管理頁加入知識庫權限管理',
     ],
   },
   {
@@ -2931,7 +2931,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     changes: [
       '[架構] 新增 GameModeContext：GameApp 包一層 Provider（value=true），共用元件用 useIsGameMode() 判斷是否在遊戲版',
       '[遊戲版] LarkPage：操作類型 tab 和來源類型 tab 在遊戲版顯示 DungeonIcon 像素圖示，一般版保留 emoji',
-      '[遊戲版] JiraAccountModal / GeminiSettingsModal / ChangelogModal：關閉按鈕在遊戲版顯示 DungeonIcon，一般版保留 ✕',
+      '[遊戲版] JiraAccountModal / GeminiSettingsModal / ChangelogModal：關閉按鈕在遊戲版顯示 DungeonIcon，一般版保留 關閉',
     ],
   },
   {
@@ -3138,7 +3138,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '3.9.28',
     date: '2026-04-27',
     changes: [
-      '[遊戲版] 修正彈框 ✕ 位置：modal-header 補上 flex 佈局，關閉按鈕正確推到右側',
+      '[遊戲版] 修正彈框 關閉 位置：modal-header 補上 flex 佈局，關閉按鈕正確推到右側',
       '[遊戲版] 全頁按鈕/UI 像素化：submit-btn（綠）/ btn-ghost（青框）/ source-btn / settings-btn / badge / alert-warn / alert-error / result-box / info-block 全部套用 pixel 風格',
       '[遊戲版] modal-tabs 修正間距與點擊區域，modal-tab 補上 cursor 與 pixel font',
     ],
@@ -3172,7 +3172,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: '2026-04-26',
     changes: [
       'CCTV 截圖與音頻錄音改存伺服器端：測試截圖存至 server/machine-test/cctv-saves/{機台代碼}.png，錄音存至 server/machine-test/audio-saves/{機台代碼}.wav，透過 API 提供給所有使用者',
-      '測試結果表格新增預覽：CCTV 欄直接顯示縮圖，點擊放大；音頻欄顯示 🔊 按鈕，點擊直接在瀏覽器播放錄音',
+      '測試結果表格新增預覽：CCTV 欄直接顯示縮圖，點擊放大；音頻欄顯示 聲 按鈕，點擊直接在瀏覽器播放錄音',
     ],
   },
   {
@@ -3200,7 +3200,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '3.9.20',
     date: '2026-04-24',
     changes: [
-      '機台測試：大廳 URL 每個 Worker 列新增 📋 按鈕，點擊開啟帳號池選取 Modal，直接從帳號池選取帳號填入 URL，不需切換頁面（避免測試設定資料被清空）',
+      '機台測試：大廳 URL 每個 Worker 列新增 冊 按鈕，點擊開啟帳號池選取 Modal，直接從帳號池選取帳號填入 URL，不需切換頁面（避免測試設定資料被清空）',
     ],
   },
   {
@@ -3216,7 +3216,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '3.9.18',
     date: '2026-04-24',
     changes: [
-      'CCTV 基準圖庫：新增按機種管理基準圖功能。機台設定頁新增「📷 CCTV 基準圖庫」區塊，可上傳/更換/刪除各機種基準圖（存於 server/machine-test/cctv-refs/{機種}.png）',
+      'CCTV 基準圖庫：新增按機種管理基準圖功能。機台設定頁新增「影 CCTV 基準圖庫」區塊，可上傳/更換/刪除各機種基準圖（存於 server/machine-test/cctv-refs/{機種}.png）',
       'CCTV 測試新增鏡頭位置比對：測試時自動查找對應機種的基準圖，找到後將基準圖 + 當前截圖一起送 Gemini 比對，判斷鏡頭是否跑位；不一致時步驟判為 WARN 並記錄偏差說明',
       '新增 callGeminiVisionMulti：Gemini Vision 多圖版本，支援一次送多張圖片',
     ],
@@ -3254,7 +3254,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: '2026-04-23',
     changes: [
       'UAT 測試工具：完成時自動停止並更新狀態為「完成」（從 log 偵測「完成！」字樣）',
-      'UAT 測試工具：Lark TC 路徑新增「🔍 掃描」按鈕，顯示各大項 TC 名稱與子項目數量',
+      'UAT 測試工具：Lark TC 路徑新增「察 掃描」按鈕，顯示各大項 TC 名稱與子項目數量',
       'UAT 測試工具：結果狀態列改為長駐（永遠顯示 通過/需人工/跳過/失敗，預設為 0）',
     ],
   },
@@ -3407,14 +3407,14 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '3.7.29',
     date: '2026-04-16',
     changes: [
-      'Jackpot 告警設定重設計：改用 gameid 欄位做 key，設定介面改為每遊戲×每等級的勾選開關，未勾選的等級異常仍在頁面標紅但不推 Lark；表格欄位顯示 🔕 提示告警已關閉',
+      'Jackpot 告警設定重設計：改用 gameid 欄位做 key，設定介面改為每遊戲×每等級的勾選開關，未勾選的等級異常仍在頁面標紅但不推 Lark；表格欄位顯示 靜 提示告警已關閉',
     ],
   },
   {
     version: '3.7.28',
     date: '2026-04-16',
     changes: [
-      'Jackpot 監控：新增管理員閾值設定（⚙️ 閾值設定按鈕），各遊戲可獨立設定每個獎池等級的 min/max 合理範圍，儲存至後端 DB，設定後立即生效',
+      'Jackpot 監控：新增管理員閾值設定（陣 閾值設定按鈕），各遊戲可獨立設定每個獎池等級的 min/max 合理範圍，儲存至後端 DB，設定後立即生效',
     ],
   },
   {
@@ -3515,7 +3515,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     changes: [
       '分散式測試架構：新增 Agent 機制，多台電腦各跑一批機台，任務自動分配、進度廣播給所有觀看者',
       '新增 agent-runner.ts：Worker 電腦執行 CENTRAL_URL=ws://... node dist/server/agent-runner.js 即可加入 Agent 池',
-      '測試頁新增 Agent 狀態列（已連線/執行中/待機）與「👁 觀看」按鈕（不發起測試，僅接收廣播進度）',
+      '測試頁新增 Agent 狀態列（已連線/執行中/待機）與「視 觀看」按鈕（不發起測試，僅接收廣播進度）',
       'WebSocket 廣播頻道 /ws/machine-test/events：所有觀看者共用，新加入自動補播歷史進度',
     ],
   },
@@ -3593,7 +3593,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '3.6.7',
     date: '2026-04-09',
     changes: [
-      'iDeck 步驟：每次按鈕點擊後同時等待 pinus WS 回應（cmd + error）並驗證，結果顯示 ✓/✗WS(cmd)',
+      'iDeck 步驟：每次按鈕點擊後同時等待 pinus WS 回應（cmd + error）並驗證，結果顯示 通過/失敗WS(cmd)',
     ],
   },
   {
@@ -3641,7 +3641,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       'Gemini：修正 503 過載時未自動切換下一個 key 的問題',
       'Gemini：修正 probe 呼叫污染 calls_today 計數器的問題',
       'Gemini：調整 rate limiter 為 maxConcurrent:1 避免多 key 同時觸發 RPM 上限',
-      'Gemini 設定：新增 last_used_at 顯示欄位，⛔ 配額耗盡標記移至上次使用欄位下方',
+      'Gemini 設定：新增 last_used_at 顯示欄位，禁 配額耗盡標記移至上次使用欄位下方',
       'OSM serverCfg.js：改為解析 HTML 頁面尋找正確路徑（修正 PC 版 /config/serverCfg.js 無法找到的問題）',
     ],
   },
@@ -3649,7 +3649,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '3.6.1',
     date: '2026-04-07',
     changes: [
-      '新增「🔍 後台對帳」分頁：設定後台 API token/channelId，選時間範圍執行對帳',
+      '新增「察 後台對帳」分頁：設定後台 API token/channelId，選時間範圍執行對帳',
       'Agent 每 20 次 Spin 自動從 window.pinus 取得前端戰績上傳至 server',
       '對帳比對：前端紀錄 vs 後台 gameRecordList，標記 MATCH/MISSING，偵測大獎/連發異常',
       '支援自動重登（token 失效時自動以帳密換新 token），歷史對帳報告可回顧',
@@ -3659,7 +3659,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '3.6.0',
     date: '2026-04-06',
     changes: [
-      'AutoSpin 新增「📊 歷史戰績」分頁：每 20 次 Spin 記錄餘額快照，追蹤 Bonus/低餘額/錯誤事件',
+      'AutoSpin 新增「圖 歷史戰績」分頁：每 20 次 Spin 記錄餘額快照，追蹤 Bonus/低餘額/錯誤事件',
       '異常偵測：餘額相比本次開局下降超過 30% 時自動標記黃色警告',
       '戰績紀錄可依機台類型篩選，支援清除',
     ],
@@ -3841,7 +3841,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     changes: [
       'Jira 帳號新增 PIN 鎖定：每個帳號可設定 PIN，使用時需輸入才能切換，防止他人誤用',
       '已有 PIN 的帳號可輸入舊 PIN 修改或留空新 PIN 移除鎖定',
-      '已存在帳號預設無 PIN（向下相容），帳號列表顯示 🔒 圖示區分',
+      '已存在帳號預設無 PIN（向下相容），帳號列表顯示 鎖 圖示區分',
     ],
   },
   {
@@ -3880,7 +3880,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '2.9.1',
     date: '2026-03-30',
     changes: [
-      'Gemini 設定移至 Header 全域按鈕（⚙️ Gemini），任何頁面皆可開啟，不再分散在 Jira / Lark 頁面內',
+      'Gemini 設定移至 Header 全域按鈕（陣 Gemini），任何頁面皆可開啟，不再分散在 Jira / Lark 頁面內',
     ],
   },
   {
@@ -3929,7 +3929,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '2.8.0',
     date: '2026-03-29',
     changes: [
-      '新增「圖片刪除驗證」功能（I 頁）：貼上已刪除圖片路徑清單 + 前端 URL，Playwright 自動開啟頁面攔截請求，回報哪些圖片仍在載入（❌）/ 已確認刪除（✅）',
+      '新增「圖片刪除驗證」功能（I 頁）：貼上已刪除圖片路徑清單 + 前端 URL，Playwright 自動開啟頁面攔截請求，回報哪些圖片仍在載入（失敗）/ 已確認刪除（通過）',
     ],
   },
   {
@@ -4010,7 +4010,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: '2026-03-28',
     changes: [
       '機台測試改為每台完成時立即回寫 Lark Sheet，不再等全部跑完再批次寫入，避免漏寫或錯亂',
-      '狀態列即時顯示目前回寫進度（回寫 N135...→ ✅ 已回寫 N 筆）',
+      '狀態列即時顯示目前回寫進度（回寫 N135...→ 通過 已回寫 N 筆）',
     ],
   },
   {
@@ -4074,8 +4074,8 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '2.6.1',
     date: '2026-03-28',
     changes: [
-      '歷史紀錄頁：TestCase 紀錄新增 📥 下載按鈕，可將生成的案例匯出為 JSON 檔案',
-      '歷史紀錄頁：展開 TestCase 紀錄時顯示 🔗 前往 Lark Bitable 連結',
+      '歷史紀錄頁：TestCase 紀錄新增 載 下載按鈕，可將生成的案例匯出為 JSON 檔案',
+      '歷史紀錄頁：展開 TestCase 紀錄時顯示 鏈 前往 Lark Bitable 連結',
     ],
   },
   {
@@ -4098,7 +4098,7 @@ export const CHANGELOG: ChangelogEntry[] = [
       'TestCase 生成新增三種規格書來源：Lark Wiki（原有）、PDF/Word 檔案上傳（最大 20MB）、Google 文檔 URL',
       '修正切換 PDF 模式時頁面偏移問題（body overflow-y: scroll 防止 scrollbar 跳位）',
       '機台測試加入管理員 PIN 鎖定與單一執行階段限制（防止多人同步執行）',
-      '新增 Gemini API Key 用量統計與可用性探測（⚙️ Gemini 設定 → 🔍 測試所有 Key 可用性）',
+      '新增 Gemini API Key 用量統計與可用性探測（陣 Gemini 設定 → 察 測試所有 Key 可用性）',
     ],
   },
   {
@@ -4117,7 +4117,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '2.3.6',
     date: '2026-03-26',
     changes: [
-      '新增「📢 版本告警」功能：任何版本不達標時發送 Lark 告警',
+      '新增「訊 版本告警」功能：任何版本不達標時發送 Lark 告警',
       '告警範圍涵蓋：OSM 元件版本、LuckyLink 元件版本、OSM 機台 Online 未達標',
       '手動「發送告警」按鈕，立即觸發一次檢查並推送到 Lark 群組機器人',
       '排程設定面板：可啟用定時告警並設定 Cron 表達式（時區 Asia/Taipei）',
@@ -4136,7 +4136,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     version: '2.3.4',
     date: '2026-03-26',
     changes: [
-      '新增「🍀 LuckyLink 元件版本」區塊：Luckylink Server / Bg Client / BG Server',
+      '新增「運 LuckyLink 元件版本」區塊：Luckylink Server / Bg Client / BG Server',
       'LuckyLink API 回應格式為 { data: { "1": ..., "4": ... } }，index 1=Luckylink Server、index 4=BG Server',
       'Bg Client 目前 API 尚未支援，顯示「待 API 支援」與「開發中」標籤',
       'API 憑證設定：LUCKYLINK_BASE_URL / USERNAME / PASSWORD / ORIGIN（無帳密則略過登入）',
@@ -4235,7 +4235,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: '2026-03-25',
     changes: [
       'Jira 批次評論：Gemini API 用量耗盡時立即中斷，剩餘筆數不貼任何內容',
-      '中斷後回傳已成功筆數與中斷原因，前端顯示「⚠️ 已中斷」提示列',
+      '中斷後回傳已成功筆數與中斷原因，前端顯示「警 已中斷」提示列',
       'Jira API 自身錯誤（非 AI 問題）仍只標記該筆失敗，不影響其他筆繼續執行',
     ],
   },
@@ -4284,7 +4284,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     changes: [
       'TestCase 生成支援多組 Gemini API Key 自動輪替',
       'TestCase 生成支援 Prompt 模板選擇，新增「TestCase 生成（標準）」預設模板',
-      'Lark 頁加入 ⚙️ Gemini 管理入口（與 Jira 共用同一套 Keys / Prompt 管理）',
+      'Lark 頁加入 陣 Gemini 管理入口（與 Jira 共用同一套 Keys / Prompt 管理）',
       '修正 Gemini 回傳 Markdown 包裹 JSON 導致解析失敗的問題（三層 fallback 抽取）',
       '後端加入 Activity Log：記錄 IP、使用者、操作類型與結果',
       '新增 restart.bat 與 npm run dev:stop 快速重啟指令',

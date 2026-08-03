@@ -169,7 +169,7 @@ export function DiscordNotifySettingsPage() {
         setSavedReportEnabled(reportEnabled); setSavedReportIntervalMin(reportIntervalMin)
         setSavedReportFields(reportFields); setSavedReportCustomNote(reportCustomNote)
         setSavedReportAiEnabled(reportAiEnabled)
-        setReportMsg({ text: '✅ 已儲存定時彙總報告設定', ok: true })
+        setReportMsg({ text: '通過 已儲存定時彙總報告設定', ok: true })
       } else {
         setReportMsg({ text: `儲存失敗：${data.message || '未知錯誤'}`, ok: false })
       }
@@ -187,7 +187,7 @@ export function DiscordNotifySettingsPage() {
       const res = await fetch('/api/autospin/status-report-test', { method: 'POST', headers: { 'x-user-label': getUserLabel() } })
       const data = await res.json()
       setReportMsg(data.ok
-        ? { text: '✅ 測試彙總報告已送出（假資料），請至 Discord 頻道查看效果', ok: true }
+        ? { text: '通過 測試彙總報告已送出（假資料），請至 Discord 頻道查看效果', ok: true }
         : { text: `試發送失敗：${data.message || '未知錯誤'}`, ok: false })
     } catch (e) {
       setReportMsg({ text: `試發送失敗：${e}`, ok: false })
@@ -212,7 +212,7 @@ export function DiscordNotifySettingsPage() {
         setSavedFields(fields)
         setSavedTitleTemplate(titleTemplate.trim() || DEFAULT_TITLE_TEMPLATE)
         setSavedFooter(footer.trim())
-        setMsg({ text: url.trim() ? '✅ 已儲存 Webhook 設定' : '✅ 已關閉通知（URL 清空）', ok: true })
+        setMsg({ text: url.trim() ? '通過 已儲存 Webhook 設定' : '通過 已關閉通知（URL 清空）', ok: true })
       } else {
         setMsg({ text: `儲存失敗：${data.message || '未知錯誤'}`, ok: false })
       }
@@ -239,7 +239,7 @@ export function DiscordNotifySettingsPage() {
       const data = await res.json()
       if (data.ok) {
         setUserMap(cleaned); setSavedUserMap(cleaned)
-        setUserMapMsg({ text: '✅ 已儲存對照表', ok: true })
+        setUserMapMsg({ text: '通過 已儲存對照表', ok: true })
       } else {
         setUserMapMsg({ text: `儲存失敗：${data.message || '未知錯誤'}`, ok: false })
       }
@@ -257,7 +257,7 @@ export function DiscordNotifySettingsPage() {
       const res = await fetch('/api/autospin/discord-webhook/test', { method: 'POST' })
       const data = await res.json()
       setMsg(data.ok
-        ? { text: '✅ 測試訊息已送出，請至 Discord 頻道查看', ok: true }
+        ? { text: '通過 測試訊息已送出，請至 Discord 頻道查看', ok: true }
         : { text: `測試失敗：${data.message || '未知錯誤'}`, ok: false })
     } catch (e) {
       setMsg({ text: `測試失敗：${e}`, ok: false })
@@ -276,7 +276,7 @@ export function DiscordNotifySettingsPage() {
       <div className="discord-notify-head">
         <div>
           <h1 className="discord-notify-title">
-            💬 Discord 通知設定
+            訊 Discord 通知設定
             <span className={isConfigured ? (savedEnabled ? 'badge badge--ok' : 'badge badge--warn') : 'badge'}>
               {isConfigured ? (savedEnabled ? '● 已啟用' : '⏸ 已暫停') : '○ 未設定'}
             </span>
@@ -291,7 +291,7 @@ export function DiscordNotifySettingsPage() {
         {/* Left: 設定 */}
         <div>
           <div className="discord-notify-card">
-            <div className="discord-notify-card-title">🔗 Webhook URL</div>
+            <div className="discord-notify-card-title">Webhook URL</div>
             <p className="discord-notify-card-note">
               頻道可隨時更換，不需要改代碼 —— 只要在這裡貼上新的 Webhook URL 並儲存即可（<strong>全員共用同一個網址</strong>）。<br />
               在 Discord 頻道設定 → 整合 → Webhook 建立後複製網址貼在這裡。
@@ -320,7 +320,7 @@ export function DiscordNotifySettingsPage() {
                 onClick={handleSave}
                 disabled={saving || loading || !isDirty}
               >
-                {saving ? '儲存中…' : '💾 儲存設定'}
+                {saving ? '儲存中…' : '儲存設定'}
               </button>
               <button
                 className="discord-notify-btn discord-notify-btn--secondary"
@@ -328,14 +328,14 @@ export function DiscordNotifySettingsPage() {
                 disabled={testing || loading || !savedUrl}
                 title={!savedUrl ? '請先儲存 Webhook URL' : ''}
               >
-                {testing ? '送出中…' : '📨 發送測試訊息'}
+                {testing ? '送出中…' : '發送測試訊息'}
               </button>
             </div>
             {msg && <div className={`discord-notify-msg ${msg.ok ? 'discord-notify-msg--ok' : 'discord-notify-msg--error'}`}>{msg.text}</div>}
           </div>
 
           <div className="discord-notify-card">
-            <div className="discord-notify-card-title">✏️ 訊息格式</div>
+            <div className="discord-notify-card-title">訊息格式</div>
             <p className="discord-notify-card-note">自訂卡片要顯示哪些欄位、標題文字（右側預覽會即時同步）。<strong>顯示欄位依目前帳號分開設定</strong>，標題模板/頁尾文字全員共用。</p>
 
             <div className="discord-notify-field" style={{ marginBottom: 14 }}>
@@ -388,7 +388,7 @@ export function DiscordNotifySettingsPage() {
           </div>
 
           <div className="discord-notify-card">
-            <div className="discord-notify-card-title">📊 定時彙總報告（AutoSpin 長時間穩定性統計）</div>
+            <div className="discord-notify-card-title">定時彙總報告（AutoSpin 長時間穩定性統計）</div>
             <p className="discord-notify-card-note">
               跟上面的啟動/結束通知共用同一個 Webhook URL，是另外獨立開關——每隔設定的間隔，把累計統計（Spin 數/errcode/斷線重連/CR checks 等）發一則新的彙總訊息，不會覆蓋前一則。<strong>以下設定依目前帳號分開</strong>，只影響你自己派工的 session。
             </p>
@@ -451,7 +451,7 @@ export function DiscordNotifySettingsPage() {
               <ToggleSwitch checked={reportAiEnabled} disabled={loading} onToggle={() => setReportAiEnabled(v => !v)} />
               <div>
                 <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 700, marginBottom: 3 }}>啟用 AI 分析區塊</div>
-                <div style={{ color: '#64748b', fontSize: 11, lineHeight: 1.5 }}>關閉時完全不呼叫 Gemini，零額外開銷；開啟才會在報告最下方加一段「🤖 AI 分析」判斷是否異常</div>
+                <div style={{ color: '#64748b', fontSize: 11, lineHeight: 1.5 }}>關閉時完全不呼叫 Gemini，零額外開銷；開啟才會在報告最下方加一段「傀 AI 分析」判斷是否異常</div>
               </div>
             </div>
             <div className="discord-notify-actions">
@@ -460,7 +460,7 @@ export function DiscordNotifySettingsPage() {
                 onClick={handleSaveReportSettings}
                 disabled={reportSaving || loading || !reportDirty}
               >
-                {reportSaving ? '儲存中…' : '💾 儲存彙總報告設定'}
+                {reportSaving ? '儲存中…' : '儲存彙總報告設定'}
               </button>
               <button
                 className="discord-notify-btn discord-notify-btn--secondary"
@@ -468,14 +468,14 @@ export function DiscordNotifySettingsPage() {
                 disabled={reportTesting || loading || !savedUrl}
                 title={!savedUrl ? '請先儲存 Webhook URL' : '用假資料送一則測試彙總報告，確認格式與效果'}
               >
-                {reportTesting ? '送出中…' : '🧪 試發送'}
+                {reportTesting ? '送出中…' : '試發送'}
               </button>
             </div>
             {reportMsg && <div className={`discord-notify-msg ${reportMsg.ok ? 'discord-notify-msg--ok' : 'discord-notify-msg--error'}`}>{reportMsg.text}</div>}
           </div>
 
           <div className="discord-notify-card">
-            <div className="discord-notify-card-title">🏷️ 帳號 → Discord Tag 對照表</div>
+            <div className="discord-notify-card-title">帳號 → Discord Tag 對照表</div>
             <p className="discord-notify-card-note">
               AutoSpin 通知（即時彙報 + 定時彙總報告）會依「這個 session 是哪個帳號派工啟動的」查這張表，
               找得到對照就在訊息開頭 @ 那個人（會真的觸發 Discord 通知）。帳號名稱要跟畫面右上角「目前帳號」
@@ -524,14 +524,14 @@ export function DiscordNotifySettingsPage() {
                 onClick={handleSaveUserMap}
                 disabled={userMapSaving || loading || !userMapDirty}
               >
-                {userMapSaving ? '儲存中…' : '💾 儲存對照表'}
+                {userMapSaving ? '儲存中…' : '儲存對照表'}
               </button>
             </div>
             {userMapMsg && <div className={`discord-notify-msg ${userMapMsg.ok ? 'discord-notify-msg--ok' : 'discord-notify-msg--error'}`}>{userMapMsg.text}</div>}
           </div>
 
           <div className="discord-notify-card">
-            <div className="discord-notify-card-title">🔄 狀態生命週期</div>
+            <div className="discord-notify-card-title">更新 狀態生命週期</div>
             <p className="discord-notify-card-note">
               同一台機台的通知只會有「一則」訊息，狀態變化時原地編輯更新。
             </p>
@@ -552,17 +552,17 @@ export function DiscordNotifySettingsPage() {
 
         {/* Right: 預覽 */}
         <div className="discord-notify-card">
-          <div className="discord-notify-card-title">👁 訊息預覽</div>
+          <div className="discord-notify-card-title">訊息預覽</div>
           <p className="discord-notify-card-note">實際發送到 Discord 頻道的卡片樣式示意</p>
           <div className="discord-notify-preview">
             <div className="discord-notify-preview-embed">
               <div className="discord-notify-preview-title">
-                ▶️ {(titleTemplate || DEFAULT_TITLE_TEMPLATE).replace('{machineType}', 'JJBXGRAND_01')}
+                ▶ {(titleTemplate || DEFAULT_TITLE_TEMPLATE).replace('{machineType}', 'JJBXGRAND_01')}
               </div>
               <div className="discord-notify-preview-fields">
                 <div>
                   <div className="discord-notify-preview-field-name">狀態</div>
-                  <div className="discord-notify-preview-field-value">▶️ 執行中</div>
+                  <div className="discord-notify-preview-field-value">▶ 執行中</div>
                 </div>
                 {fields.spinCount && (
                   <div>

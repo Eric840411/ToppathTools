@@ -20,36 +20,36 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
-  { id: 'jira',    label: 'JIRA QUEST',    icon: '📋', labelIcon: 'banner'  },
-  { id: 'lark',    label: 'TESTCASE LAB',  icon: '🔬', labelIcon: 'crystal' },
+  { id: 'jira',    label: 'JIRA QUEST',    icon: '冊', labelIcon: 'banner'  },
+  { id: 'lark',    label: 'TESTCASE LAB',  icon: '察', labelIcon: 'crystal' },
   {
     id: 'osm',
     label: 'OSM TERRITORY',
-    icon: '🗺',
+    icon: '圖',
     labelIcon: 'castle',
     children: [
-      { id: 'osm',         label: 'VERSION SYNC',  icon: '📡', labelIcon: 'portals' },
-      { id: 'machinetest', label: 'MACHINE RAID',  icon: '⚔',  labelIcon: 'mech'    },
-      { id: 'imagecheck',  label: 'IMAGE VERIFY',  icon: '🖼',  labelIcon: 'crystal' },
-      { id: 'osm-config',  label: 'CONFIG CHECK',  icon: '⚙',  labelIcon: 'gear'    },
-      { id: 'autospin',    label: 'AUTO SENTINEL', icon: '🤖', labelIcon: 'mech'    },
-      { id: 'url-pool',    label: 'URL VAULT',     icon: '🔑', labelIcon: 'chest'   },
-      { id: 'jackpot',     label: 'JACKPOT RADAR', icon: '📻', labelIcon: 'slot'    },
-      { id: 'osm-uat',     label: 'UAT ASSAULT',   icon: '🎯', labelIcon: 'swords'  },
+      { id: 'osm',         label: 'VERSION SYNC',  icon: '訊', labelIcon: 'portals' },
+      { id: 'machinetest', label: 'MACHINE RAID',  icon: '劍',  labelIcon: 'mech'    },
+      { id: 'imagecheck',  label: 'IMAGE VERIFY',  icon: '影',  labelIcon: 'crystal' },
+      { id: 'osm-config',  label: 'CONFIG CHECK',  icon: '陣',  labelIcon: 'gear'    },
+      { id: 'autospin',    label: 'AUTO SENTINEL', icon: '傀', labelIcon: 'mech'    },
+      { id: 'url-pool',    label: 'URL VAULT',     icon: '鑰', labelIcon: 'chest'   },
+      { id: 'jackpot',     label: 'JACKPOT RADAR', icon: '訊', labelIcon: 'slot'    },
+      { id: 'osm-uat',     label: 'UAT ASSAULT',   icon: '標', labelIcon: 'swords'  },
     ],
   },
   {
     id: 'gs-imgcompare',
     label: 'GAMESHOW OPS',
-    icon: '🎲',
+    icon: '骰',
     labelIcon: 'crown',
     children: [
-      { id: 'gs-imgcompare', label: 'IMG COMPARE',  icon: '🖼',  labelIcon: 'crystal' },
-      { id: 'gs-stats',      label: 'PROB STATS',   icon: '📊', labelIcon: 'potion'  },
-      { id: 'gs-logchecker', label: 'LOG INTERCEPT',icon: '🪤', labelIcon: 'swords'  },
+      { id: 'gs-imgcompare', label: 'IMG COMPARE',  icon: '影',  labelIcon: 'crystal' },
+      { id: 'gs-stats',      label: 'PROB STATS',   icon: '圖', labelIcon: 'potion'  },
+      { id: 'gs-logchecker', label: 'LOG INTERCEPT',icon: '陣', labelIcon: 'swords'  },
     ],
   },
-  { id: 'history', label: 'OP RECORDS', icon: '📜', labelIcon: 'scroll' },
+  { id: 'history', label: 'OP RECORDS', icon: '錄', labelIcon: 'scroll' },
 ]
 
 interface Props {
@@ -172,7 +172,7 @@ export function GameSidebar({ activeTab, onTabChange }: Props) {
             background: 'var(--bg-void)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 18, flexShrink: 0,
-          }}>🎖</div>
+          }}>章</div>
           <div>
             <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 10, color: 'var(--neon-gold)', letterSpacing: 0.5, textShadow: 'var(--glow-gold)' }}>QA MASTER</div>
             <div style={{ fontFamily: 'var(--font-pixel)', fontSize: 10, color: 'var(--text-bright)', marginTop: 3 }}>LV.{level}</div>

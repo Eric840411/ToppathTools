@@ -545,7 +545,7 @@ export function ScriptedBetPage({ currentAccount }: Props) {
               <span>機台配置（Machine Test Profile）</span>
               {matchedProfile ? (
                 <div style={{ fontSize: 12, padding: '8px 10px', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.3)', borderRadius: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span style={{ color: '#a5b4fc', fontWeight: 600 }}>✓ {matchedProfile.machineType}</span>
+                  <span style={{ color: '#a5b4fc', fontWeight: 600 }}>通過 {matchedProfile.machineType}</span>
                   {matchedProfile.entryTouchPoints?.length ? <span style={{ color: '#94a3b8' }}>進入觸屏：{matchedProfile.entryTouchPoints.join(', ')}</span> : null}
                   {matchedProfile.entryTouchPoints2?.length ? <span style={{ color: '#94a3b8' }}>進入確認：{matchedProfile.entryTouchPoints2.join(', ')}</span> : null}
                   {matchedProfile.touchPoints?.length ? <span style={{ color: '#94a3b8' }}>退出補救 touchPoints：{matchedProfile.touchPoints.join(', ')}</span> : null}

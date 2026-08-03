@@ -50,10 +50,10 @@ const IDLE_QUOTES: Record<CharacterClass, string[]> = {
 
 const CELEBRATE_QUOTES: Record<CharacterClass, string[]> = {
   commander: ['任務完成！', '勝利！', '再來一個！'],
-  hacker:    ['完美執行！', '程式碼破譯完成！', '✨ 成功！'],
-  guardian:  ['防線穩固！', '任務達成！', '🛡 完美守護！'],
-  ranger:    ['搞定！', '精準命中！', '🏹 完美射擊！'],
-  sage:      ['洞察完成！', '一切如預測！', '✨ 賢者之眼！'],
+  hacker:    ['完美執行！', '程式碼破譯完成！', '成功！'],
+  guardian:  ['防線穩固！', '任務達成！', '完美守護！'],
+  ranger:    ['搞定！', '精準命中！', '完美射擊！'],
+  sage:      ['洞察完成！', '一切如預測！', '賢者之眼！'],
 }
 
 const LEVELUP_QUOTES: Record<CharacterClass, string[]> = {

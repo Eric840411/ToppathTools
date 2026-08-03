@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
+import { XianxiaIcon, type XianxiaIconName } from '../../components/XianxiaIcon'
 
 // ── Log 結構比對 inline HTML (extracted from log-compare.html body) ─────────
 const LOG_COMPARE_HTML = `<div class="page-wrap">
   <div class="card">
-    <div class="card-title"><span>⚙️ 比對設定</span><span class="badge badge-slate">LOG 結構比對</span></div>
+    <div class="card-title"><span>比對設定</span><span class="badge badge-slate">LOG 結構比對</span></div>
     <div class="grid-2">
       <label>執行模式<select id="cmp-run-mode"><option value="compare" selected>雙檔比對（舊版 vs 新版）</option><option value="validate">單檔驗證（欄位缺失）</option></select></label>
     </div>
@@ -143,19 +144,19 @@ function LogComparePanel() {
 
 type Tab = 'checker' | 'compare'
 
-const STEPS = [
-  { n: 1, icon: '🎮', title: '開啟遊戲頁面', desc: '在瀏覽器中開啟目標 Game Show 遊戲頁面' },
-  { n: 2, icon: '🛠', title: '開啟開發者工具', desc: '按下 F12 開啟 DevTools，切換至 Console 分頁' },
-  { n: 3, icon: '📋', title: '貼入腳本', desc: '複製右側腳本後貼入 Console，按 Enter 執行' },
-  { n: 4, icon: '🎯', title: '觸發遊戲操作', desc: '在遊戲中進行 Spin、進場等動作，面板即時攔截 Log' },
-  { n: 5, icon: '📊', title: '選取驗證欄位', desc: '勾選要驗證的欄位（balance、seq_index 等）' },
-  { n: 6, icon: '💾', title: '匯出報告', desc: '點擊面板中的「匯出 CSV」或「匯出 JSON」儲存結果' },
+const STEPS: Array<{ n: number; icon: XianxiaIconName; title: string; desc: string }> = [
+  { n: 1, icon: 'overview', title: '開啟遊戲頁面', desc: '在瀏覽器中開啟目標 Game Show 遊戲頁面' },
+  { n: 2, icon: 'settings', title: '開啟開發者工具', desc: '按下 F12 開啟 DevTools，切換至 Console 分頁' },
+  { n: 3, icon: 'guide', title: '貼入腳本', desc: '複製右側腳本後貼入 Console，按 Enter 執行' },
+  { n: 4, icon: 'ai', title: '觸發遊戲操作', desc: '在遊戲中進行 Spin、進場等動作，面板即時攔截 Log' },
+  { n: 5, icon: 'monitor', title: '選取驗證欄位', desc: '勾選要驗證的欄位（balance、seq_index 等）' },
+  { n: 6, icon: 'document', title: '匯出報告', desc: '點擊面板中的「匯出 CSV」或「匯出 JSON」儲存結果' },
 ]
 
 const FEATURES = [
   { color: '#339af0', label: '自動攔截 /api/log XHR 請求' },
   { color: '#51cf66', label: '解析三層結構（root / data / jsondata）' },
-  { color: '#fcc419', label: '空值欄位自動標紅 ✅ / ❌' },
+  { color: '#fcc419', label: '空值欄位自動標紅 通過 / 失敗' },
   { color: '#f783ac', label: '驗證欄位與匯出欄位可分別設定' },
   { color: '#a9e34b', label: '匯出 CSV（含驗證狀態欄）與原始 JSON' },
   { color: '#b197fc', label: '可拖曳浮動面板，自動排除噪音事件' },
@@ -209,8 +210,8 @@ export function GsLogCheckerPage() {
       {/* Tab 切換 */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 20 }}>
         {([
-          { key: 'checker', label: '🔍 Log 攔截工具' },
-          { key: 'compare', label: '📊 Log 結構比對' },
+          { key: 'checker', label: 'Log 攔截工具' },
+          { key: 'compare', label: 'Log 結構比對' },
         ] as { key: Tab; label: string }[]).map(t => (
           <button key={t.key} type="button" onClick={() => setTab(t.key)}
             style={{
@@ -232,7 +233,7 @@ export function GsLogCheckerPage() {
           {/* Hero */}
           <div className="section-card" style={{ padding: '20px 24px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-              <span style={{ fontSize: 28 }}>📋</span>
+              <XianxiaIcon name="monitor" size={34} />
               <div>
                 <div style={{ fontSize: 18, fontWeight: 700, color: '#e2e8f0' }}>Log Checker</div>
                 <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 2 }}>
@@ -265,7 +266,7 @@ export function GsLogCheckerPage() {
                       flexShrink: 0, width: 28, height: 28, borderRadius: 8,
                       background: 'rgba(99,102,241,0.12)', display: 'flex', alignItems: 'center',
                       justifyContent: 'center', fontSize: 14,
-                    }}>{s.icon}</div>
+                    }}><XianxiaIcon name={s.icon} size={22} /></div>
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>
                         <span style={{ color: '#a5b4fc', marginRight: 4 }}>Step {s.n}.</span>{s.title}
@@ -295,7 +296,7 @@ export function GsLogCheckerPage() {
                     opacity: script ? 1 : 0.5,
                     transition: 'background .15s',
                   }}>
-                  {copied ? '✅ 已複製！' : '📋 複製腳本'}
+                  {copied ? '通過 已複製！' : '複製腳本'}
                 </button>
                 <button type="button" onClick={handleDownload} disabled={!script}
                   style={{
@@ -304,14 +305,14 @@ export function GsLogCheckerPage() {
                     background: '#162032', color: '#cbd5e1',
                     opacity: script ? 1 : 0.5,
                   }}>
-                  ⬇️ 下載 .js
+                  ⬇ 下載 .js
                 </button>
               </div>
 
               {/* Tips */}
               <div style={{ background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 8, padding: '10px 12px', marginBottom: 14 }}>
                 <div style={{ fontSize: 12, color: '#fbbf24', lineHeight: 1.6 }}>
-                  <strong>⚠️ 注意事項：</strong><br />
+                  <strong>注意事項：</strong><br />
                   • 僅在測試環境使用，勿長期掛載於正式站<br />
                   • 每次測試前重新執行腳本，確保攔截器是最新版<br />
                   • 如出現 CSP 限制，可嘗試在 DevTools Sources 注入

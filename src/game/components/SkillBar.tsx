@@ -71,7 +71,7 @@ export function SkillBar() {
               lineHeight: 1,
               filter: !locked && !onCooldown ? `drop-shadow(0 0 4px ${classDef.color})` : 'none',
             }}>
-              {locked ? '🔒' : skill.icon}
+              {locked ? '鎖' : skill.icon}
             </span>
 
             {/* Cooldown or level label */}

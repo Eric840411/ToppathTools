@@ -83,7 +83,7 @@ export function EgmDayCountPage() {
     <div style={{ maxWidth: 1180, margin: '0 auto' }}>
       <div style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 18, margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
-          📊 Egm DayCount 對帳
+          圖 Egm DayCount 對帳
         </h2>
         <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>
           比對後台 Egm DayCount 彙總報表（gameCount）與 User Detail 逐筆列（playerMachineCount）回推加總是否一致
@@ -125,7 +125,7 @@ export function EgmDayCountPage() {
         </label>
         <button onClick={handleQuery} disabled={loading}
           style={{ marginLeft: 'auto', padding: '9px 22px', background: loading ? '#475569' : '#2563eb', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 700, fontSize: 13, cursor: loading ? 'default' : 'pointer' }}>
-          {loading ? '查詢中…' : '🔍 查詢對帳'}
+          {loading ? '查詢中…' : '查詢對帳'}
         </button>
       </div>
 
@@ -141,7 +141,7 @@ export function EgmDayCountPage() {
           border: `1px solid ${result.allPass ? 'rgba(34,197,94,.35)' : 'rgba(239,68,68,.35)'}`,
           background: result.allPass ? 'rgba(34,197,94,.08)' : 'rgba(239,68,68,.08)',
         }}>
-          <div style={{ fontSize: 28 }}>{result.allPass ? '✅' : '❌'}</div>
+          <div style={{ fontSize: 28 }}>{result.allPass ? '通過' : '失敗'}</div>
           <div>
             <div style={{ fontSize: 15, fontWeight: 800, color: result.allPass ? '#4ade80' : '#f87171' }}>
               {result.allPass ? '一致 — 全部欄位吻合' : `不一致 — ${result.comparison.filter(c => !c.pass).length} 個欄位有落差`}
@@ -172,7 +172,7 @@ export function EgmDayCountPage() {
                 <td style={{ textAlign: 'center', padding: '9px 12px', borderBottom: '1px solid #1e293b' }}>
                   <span style={{ fontSize: 10.5, fontWeight: 700, padding: '1px 8px', borderRadius: 999,
                     background: c.pass ? 'rgba(74,222,128,.15)' : 'rgba(239,68,68,.15)', color: c.pass ? '#4ade80' : '#f87171' }}>
-                    {c.pass ? '✓' : '✗'}
+                    {c.pass ? '通過' : '失敗'}
                   </span>
                 </td>
                 <td style={{ padding: '9px 12px', color: '#94a3b8', borderBottom: '1px solid #1e293b' }}>{c.label}</td>
@@ -191,7 +191,7 @@ export function EgmDayCountPage() {
 
         <div style={{ background: '#162338', border: '1px solid #23344d', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 8 }}>
-            💰 有下注的帳號（{result.bettingUsers.length} 個，跨機台已彙整，不重複）
+            財 有下注的帳號（{result.bettingUsers.length} 個，跨機台已彙整，不重複）
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5, fontVariantNumeric: 'tabular-nums' }}>
             <thead>
@@ -219,7 +219,7 @@ export function EgmDayCountPage() {
 
         <details style={{ background: '#162338', border: '1px solid #23344d', borderRadius: 10, padding: '2px 16px' }}>
           <summary style={{ cursor: 'pointer', padding: '10px 0', fontSize: 12, color: '#94a3b8', fontWeight: 700 }}>
-            ▸ User Detail 逐筆明細（{result.userDetail.recordCount} 筆{result.udTruncated ? '，⚠️ 超過單次查詢上限，以下可能不完整' : ''}）
+            ▸ User Detail 逐筆明細（{result.userDetail.recordCount} 筆{result.udTruncated ? '，警 超過單次查詢上限，以下可能不完整' : ''}）
           </summary>
           <div style={{ overflowX: 'auto', paddingBottom: 12 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5, fontVariantNumeric: 'tabular-nums' }}>

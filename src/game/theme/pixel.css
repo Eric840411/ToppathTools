@@ -914,11 +914,14 @@ main {
   box-shadow: 0 0 8px rgba(0,212,255,0.2) !important;
 }
 .member-card.selected::after {
-  content: '✓' !important;
+  content: '' !important;
   position: absolute !important;
   top: 3px !important; right: 5px !important;
-  font-size: 9px !important;
-  color: var(--neon-cyan) !important;
+  width: 4px !important;
+  height: 8px !important;
+  border-right: 2px solid var(--neon-cyan) !important;
+  border-bottom: 2px solid var(--neon-cyan) !important;
+  transform: rotate(42deg) !important;
 }
 .member-avatar {
   width: 36px !important;

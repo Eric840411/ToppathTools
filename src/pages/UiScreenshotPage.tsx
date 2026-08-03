@@ -293,7 +293,7 @@ export function UiScreenshotPage() {
         } else if (data.type === 'run_complete') {
           setRunStatus('done')
           const c = data as SseRunComplete
-          const msg = `✅ Run 完成｜OK:${c.ok_count ?? '?'} POPUP:${c.popup_count ?? '?'} ERR:${c.err_count ?? '?'}`
+          const msg = `通過 Run 完成｜OK:${c.ok_count ?? '?'} POPUP:${c.popup_count ?? '?'} ERR:${c.err_count ?? '?'}`
           setLogs(prev => [...prev, msg])
           es.close()
         } else if (data.type === 'run_stopped') {
@@ -304,7 +304,7 @@ export function UiScreenshotPage() {
       } catch { /* ignore */ }
     }
     es.onerror = () => {
-      setLogs(prev => [...prev, '⚠️ SSE 連線中斷'])
+      setLogs(prev => [...prev, 'SSE 連線中斷'])
     }
   }, [])
 
@@ -387,7 +387,7 @@ export function UiScreenshotPage() {
       setRunId(rid)
       setRunStatus('running')
       if (d.gmids) setGmids(d.gmids)
-      setLogs([`🚀 Run ${rid.slice(0, 8)} 啟動，共 ${d.totalTasks ?? '?'} 個任務`])
+      setLogs([`Run ${rid.slice(0, 8)} 啟動，共 ${d.totalTasks ?? '?'} 個任務`])
       connectSse(rid)
     } catch (e) {
       setError(String(e))

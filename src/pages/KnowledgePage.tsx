@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { XianxiaIcon, type XianxiaIconName } from '../components/XianxiaIcon'
 
 interface KnowledgeFolder {
   id: number
@@ -23,8 +24,8 @@ interface KnowledgeDoc {
 const TYPE_LABELS: Record<string, string> = {
   lark_wiki: 'Lark Wiki', pdf: 'PDF URL', google_doc: 'Google Doc', text: '純文字', file_upload: '上傳文件',
 }
-const TYPE_ICONS: Record<string, string> = {
-  lark_wiki: '📄', pdf: '📑', google_doc: '📋', text: '📝', file_upload: '📁',
+const TYPE_ICONS: Record<string, XianxiaIconName> = {
+  lark_wiki: 'knowledge', pdf: 'document', google_doc: 'knowledge', text: 'document', file_upload: 'guide',
 }
 const FOLDER_COLORS: Record<string, string> = {
   blue: '#3b82f6', green: '#22c55e', yellow: '#fbbf24',
@@ -342,7 +343,7 @@ export function KnowledgePage() {
             </h2>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0 }}>
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 搜尋名稱..."
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="搜尋名稱..."
               style={{ background: '#162032', border: '1px solid #2d3f55', borderRadius: 6, color: '#94a3b8', padding: '6px 12px', fontSize: 13, outline: 'none', width: 180 }} />
             <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
               style={{ background: '#162032', border: '1px solid #2d3f55', borderRadius: 6, color: '#94a3b8', padding: '6px 10px', fontSize: 13, outline: 'none', cursor: 'pointer', fontFamily: 'inherit' }}>
@@ -365,7 +366,7 @@ export function KnowledgePage() {
           <div style={{ color: '#475569', fontSize: 13, textAlign: 'center', padding: '48px 0' }}>載入中...</div>
         ) : filteredDocs.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '64px 20px', color: '#334155' }}>
-            <div style={{ fontSize: 36, marginBottom: 12, opacity: .35 }}>📂</div>
+            <div style={{ fontSize: 36, marginBottom: 12, opacity: .35 }}>匣</div>
             <div style={{ fontSize: 14, color: '#475569', marginBottom: 6 }}>
               {search || typeFilter ? '沒有符合篩選條件的文件' : '這個資料夾還是空的'}
             </div>
@@ -395,7 +396,7 @@ export function KnowledgePage() {
                   const isDeleting = deletingId === doc.id
                   return (
                     <tr key={doc.id}>
-                      <td style={{ textAlign: 'center', fontSize: 16 }}>{TYPE_ICONS[doc.type]}</td>
+                      <td style={{ textAlign: 'center' }}><XianxiaIcon name={TYPE_ICONS[doc.type]} size={22} /></td>
                       <td>
                         <div onClick={() => handlePreview(doc.id, doc.name)}
                           style={{ color: '#cbd5e1', fontWeight: 500, fontSize: 13, cursor: 'pointer', marginBottom: 3 }}
@@ -430,7 +431,7 @@ export function KnowledgePage() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: stale && doc.cached_at ? '#fbbf24' : '#94a3b8', whiteSpace: 'nowrap' }}>
                           <span style={{ width: 7, height: 7, borderRadius: '50%', background: doc.cached_at ? (stale ? '#fbbf24' : '#22c55e') : '#64748b', flexShrink: 0 }} />
                           {doc.cached_at
-                            ? `${fmtSize(doc.content_length)} · ${fmtDate(doc.cached_at)}${stale ? ' ⚠' : ''}`
+                            ? `${fmtSize(doc.content_length)} · ${fmtDate(doc.cached_at)}${stale ? ' 警' : ''}`
                             : '無快取'}
                         </div>
                       </td>
@@ -503,13 +504,13 @@ export function KnowledgePage() {
                     style={{ border: `2px dashed ${formFile ? '#3b82f6' : '#2d3f55'}`, borderRadius: 8, padding: '20px 16px', textAlign: 'center', cursor: 'pointer', background: formFile ? 'rgba(59,130,246,.05)' : 'transparent' }}>
                     {formFile ? (
                       <>
-                        <div style={{ fontSize: 22, marginBottom: 4 }}>📄</div>
+                        <div style={{ fontSize: 22, marginBottom: 4 }}>頁</div>
                         <div style={{ fontSize: 14, color: '#93c5fd', fontWeight: 600 }}>{formFile.name}</div>
                         <div style={{ fontSize: 11, color: '#475569', marginTop: 3 }}>{(formFile.size / 1024).toFixed(0)} KB · 點擊更換</div>
                       </>
                     ) : (
                       <>
-                        <div style={{ fontSize: 28, marginBottom: 6, opacity: .5 }}>📂</div>
+                        <div style={{ fontSize: 28, marginBottom: 6, opacity: .5 }}>匣</div>
                         <div style={{ fontSize: 13, color: '#64748b' }}>點擊選擇文件</div>
                         <div style={{ fontSize: 11, color: '#334155', marginTop: 4 }}>PDF / Word (.docx) / HTML，最大 20MB</div>
                       </>
@@ -539,7 +540,7 @@ export function KnowledgePage() {
                 <input value={formTags} onChange={e => setFormTags(e.target.value)}
                   placeholder="逗號分隔，例：百家樂, 規格書, v2.3" style={mInput} />
               </FormRow>
-              {formError && <div style={{ color: '#f87171', fontSize: 13, marginTop: -6 }}>❌ {formError}</div>}
+              {formError && <div style={{ color: '#f87171', fontSize: 13, marginTop: -6 }}>失敗 {formError}</div>}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 22px', borderTop: '1px solid #2d3f55' }}>
               <button className={`submit-btn${saving ? ' loading' : ''}`} onClick={handleSaveDoc} disabled={saving}
@@ -563,7 +564,7 @@ export function KnowledgePage() {
           <div style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 12, width: '100%', maxWidth: 800, maxHeight: '82vh', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 64px rgba(0,0,0,.55)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 22px', borderBottom: '1px solid #2d3f55', flexShrink: 0 }}>
               <div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: '#e2e8f0' }}>👁 預覽：{previewDoc.name}</div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: '#e2e8f0' }}>預覽：{previewDoc.name}</div>
                 <div style={{ fontSize: 12, color: '#475569', marginTop: 2 }}>快取純文字內容（AI 批次評論時使用的資料）</div>
               </div>
               <button onClick={() => setPreviewDoc(null)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
@@ -609,7 +610,7 @@ export function KnowledgePage() {
                 <input value={editTags} onChange={e => setEditTags(e.target.value)}
                   placeholder="逗號分隔，例：百家樂, 規格書" style={mInput} />
               </FormRow>
-              {editError && <div style={{ color: '#f87171', fontSize: 13, marginTop: -6 }}>❌ {editError}</div>}
+              {editError && <div style={{ color: '#f87171', fontSize: 13, marginTop: -6 }}>失敗 {editError}</div>}
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 22px', borderTop: '1px solid #2d3f55' }}>
               <button className={`submit-btn${editSaving ? ' loading' : ''}`} onClick={() => void handleSaveEdit()} disabled={editSaving}

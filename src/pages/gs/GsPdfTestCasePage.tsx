@@ -72,7 +72,7 @@ export function GsPdfTestCasePage() {
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto' }}>
       <div className="section-card" style={{ marginBottom: 16 }}>
-        <h2 className="section-title">📄 PDF TestCase 生成</h2>
+        <h2 className="section-title">PDF TestCase 生成</h2>
 
         <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 260 }}>
@@ -82,7 +82,7 @@ export function GsPdfTestCasePage() {
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <button type="button" onClick={() => fileInputRef.current?.click()}
                 style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #2d3f55', background: '#162032', fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                📎 選擇檔案
+                附 選擇檔案
               </button>
               <span style={{ fontSize: 13, color: file ? '#374151' : '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {file ? file.name : '支援 PDF、.docx，最大 20MB'}
@@ -93,7 +93,7 @@ export function GsPdfTestCasePage() {
           {hasCached && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: '#6366f1', whiteSpace: 'nowrap' }}>
               <input type="checkbox" checked={diffMode} onChange={e => setDiffMode(e.target.checked)} />
-              🔄 差異比對模式（與上次結果比對）
+              更新 差異比對模式（與上次結果比對）
             </label>
           )}
 
@@ -106,7 +106,7 @@ export function GsPdfTestCasePage() {
 
         {loading && (
           <div style={{ marginTop: 16, padding: '12px 16px', background: '#f5f3ff', borderRadius: 8, fontSize: 13, color: '#6366f1' }}>
-            🤖 AI 分析規格書中，約需 30–60 秒...
+            傀 AI 分析規格書中，約需 30–60 秒...
           </div>
         )}
       </div>

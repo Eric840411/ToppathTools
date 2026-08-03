@@ -113,7 +113,7 @@ function ClassSelectContent({ onClose }: Props) {
                     position: 'absolute', top: 4, right: 6,
                     fontFamily: 'var(--font-pixel)', fontSize: 10,
                     color: def.color,
-                  }}>✓</div>
+                  }}>通過</div>
                 )}
 
                 {/* Sprite */}
@@ -282,7 +282,7 @@ function ClassSelectContent({ onClose }: Props) {
                   boxShadow: `0 0 16px ${CHARACTER_CLASSES[selected].color}`,
                 }}
               >
-                ✓ CONFIRM {CHARACTER_CLASSES[selected].name}
+                通過 CONFIRM {CHARACTER_CLASSES[selected].name}
               </button>
               <button
                 type="button"

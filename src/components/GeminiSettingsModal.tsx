@@ -37,8 +37,8 @@ export default function GeminiSettingsModal({ onClose }: Props) {
       body: JSON.stringify({ key: openaiKeyInput.trim() }),
     })
     const d = await r.json()
-    if (d.ok) { setOpenaiKeyInput(''); setOpenaiMsg('✅ 已儲存'); fetchOpenAIKey() }
-    else setOpenaiMsg('❌ 儲存失敗')
+    if (d.ok) { setOpenaiKeyInput(''); setOpenaiMsg('通過 已儲存'); fetchOpenAIKey() }
+    else setOpenaiMsg('失敗 儲存失敗')
   }
 
   const handleDeleteOpenAIKey = async () => {
@@ -48,12 +48,12 @@ export default function GeminiSettingsModal({ onClose }: Props) {
       if (d.ok) {
         setOpenaiKeySet(false)
         setOpenaiKeyMasked('')
-        setOpenaiMsg('🗑️ 已移除')
+        setOpenaiMsg('已移除')
       } else {
-        setOpenaiMsg('❌ 移除失敗')
+        setOpenaiMsg('失敗 移除失敗')
       }
     } catch {
-      setOpenaiMsg('❌ 網路錯誤，移除失敗')
+      setOpenaiMsg('失敗 網路錯誤，移除失敗')
     }
   }
 
@@ -87,11 +87,11 @@ export default function GeminiSettingsModal({ onClose }: Props) {
       })
       const d = await r.json()
       if (d.ok) {
-        setOllamaMsg(baseUrl || model ? '✅ 已儲存' : '🗑️ 已清除 Ollama 設定')
+        setOllamaMsg(baseUrl || model ? '通過 已儲存' : '已清除 Ollama 設定')
         fetchOllamaConfig()
-      } else setOllamaMsg('❌ 儲存失敗')
+      } else setOllamaMsg('失敗 儲存失敗')
     } catch {
-      setOllamaMsg('❌ 網路錯誤，儲存失敗')
+      setOllamaMsg('失敗 網路錯誤，儲存失敗')
     }
   }
 
@@ -108,18 +108,18 @@ export default function GeminiSettingsModal({ onClose }: Props) {
       if (d.ok) {
         setOllamaIsSet(false)
         setOllamaModels([])
-        setOllamaMsg('🗑️ 已清除')
+        setOllamaMsg('已清除')
       } else {
-        setOllamaMsg('❌ 清除失敗')
+        setOllamaMsg('失敗 清除失敗')
       }
     } catch {
-      setOllamaMsg('❌ 網路錯誤，清除失敗')
+      setOllamaMsg('失敗 網路錯誤，清除失敗')
     }
   }
 
   const handleProbeOllama = async () => {
     const base = ollamaBaseUrl.trim()
-    if (!base) { setOllamaMsg('❌ 請先填入 Base URL'); return }
+    if (!base) { setOllamaMsg('失敗 請先填入 Base URL'); return }
     setOllamaProbing(true)
     setOllamaModels([])
     setOllamaMsg('')
@@ -136,13 +136,13 @@ export default function GeminiSettingsModal({ onClose }: Props) {
       const found = (d.models ?? []).filter(m => m.provider === 'ollama').map(m => m.id.replace('ollama:', ''))
       if (found.length > 0) {
         setOllamaModels(found)
-        setOllamaMsg(`✅ 偵測到 ${found.length} 個模型`)
+        setOllamaMsg(`通過 偵測到 ${found.length} 個模型`)
         fetchOllamaConfig()
       } else {
-        setOllamaMsg(`⚠️ 連線失敗或 Ollama 未啟動。確認伺服器能連到 ${base}`)
+        setOllamaMsg(`連線失敗或 Ollama 未啟動。確認伺服器能連到 ${base}`)
       }
     } catch {
-      setOllamaMsg('❌ 無法連線到 Ollama')
+      setOllamaMsg('失敗 無法連線到 Ollama')
     } finally {
       setOllamaProbing(false)
     }
@@ -171,14 +171,14 @@ export default function GeminiSettingsModal({ onClose }: Props) {
       body: JSON.stringify({ key, label: provider }),
     })
     const d = await r.json()
-    if (d.ok) { setPersonalInput(p => ({ ...p, [provider]: '' })); setPersonalMsg('✅ 已儲存'); fetchPersonalKeys() }
-    else setPersonalMsg('❌ 儲存失敗')
+    if (d.ok) { setPersonalInput(p => ({ ...p, [provider]: '' })); setPersonalMsg('通過 已儲存'); fetchPersonalKeys() }
+    else setPersonalMsg('失敗 儲存失敗')
   }
 
   const handleDeletePersonalKey = async (provider: string) => {
     if (!confirm(`確定移除個人 ${provider.toUpperCase()} Key？`)) return
     await fetch(`/api/user-ai-keys/${provider}`, { method: 'DELETE' })
-    setPersonalMsg('🗑️ 已移除')
+    setPersonalMsg('已移除')
     fetchPersonalKeys()
   }
 
@@ -233,7 +233,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
       body: JSON.stringify({ label: newKeyLabel.trim(), key: newKeyValue.trim() }),
     })
     const d = await r.json()
-    setKeyMsg(d.ok ? '✅ 已新增' : `❌ ${d.message}`)
+    setKeyMsg(d.ok ? '通過 已新增' : `失敗 ${d.message}`)
     if (d.ok) { setNewKeyLabel(''); setNewKeyValue(''); fetchKeys() }
     setKeyLoading(false)
   }
@@ -268,7 +268,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
 
   const handleNewPrompt = () => {
     const id = `prompt_${Date.now()}`
-    setEditPrompt({ id, name: '新 Prompt', template: '', category: '' })
+    setEditPrompt({ id, name: 'Prompt', template: '', category: '' })
     setPromptMsg('')
     setNewCatMode(false)
   }
@@ -276,7 +276,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
   const handleSavePrompt = async () => {
     if (!editPrompt) return
     if (!editPrompt.name.trim() || !editPrompt.template.trim()) {
-      setPromptMsg('❌ 名稱與模板不可空白')
+      setPromptMsg('失敗 名稱與模板不可空白')
       return
     }
     const r = await fetch('/api/gemini/prompts', {
@@ -285,12 +285,12 @@ export default function GeminiSettingsModal({ onClose }: Props) {
       body: JSON.stringify({ ...editPrompt, category: editPrompt.category ?? '' }),
     })
     const d = await r.json()
-    setPromptMsg(d.ok ? '✅ 已儲存' : '❌ 儲存失敗')
+    setPromptMsg(d.ok ? '通過 已儲存' : '失敗 儲存失敗')
     if (d.ok) { fetchPrompts(); setNewCatMode(false) }
   }
 
   const handleDeletePrompt = async (id: string) => {
-    if (id === 'default') { setPromptMsg('❌ 預設模板不可刪除'); return }
+    if (id === 'default') { setPromptMsg('失敗 預設模板不可刪除'); return }
     if (!confirm('確定刪除此 Prompt？')) return
     await fetch(`/api/gemini/prompts/${encodeURIComponent(id)}`, { method: 'DELETE' })
     setEditPrompt(null)
@@ -310,20 +310,20 @@ export default function GeminiSettingsModal({ onClose }: Props) {
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal-box" style={{ width: 780, maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header">
-          <h2>⚙️ AI 模型設定</h2>
+          <h2>AI 模型設定</h2>
           <button className={`modal-close${isGame ? ' dng-modal-close' : ''}`} onClick={onClose}>
-            {isGame ? <DungeonIcon name="close" tone="slate" /> : '✕'}
+            {isGame ? <DungeonIcon name="close" tone="slate" /> : '關閉'}
           </button>
         </div>
 
         {/* Tab */}
         <div style={{ display: 'flex', gap: 8, padding: '0 20px', borderBottom: '1px solid #2d3f55' }}>
           {([
-            { id: 'personal', label: '👤 個人 Key' },
-            { id: 'keys', label: '🔑 全域 Gemini Keys' },
-            { id: 'openai', label: '🤖 全域 OpenAI' },
-            { id: 'ollama', label: '🦙 Ollama' },
-            { id: 'prompts', label: '📝 Prompt 模板' },
+            { id: 'personal', label: '個人 Key' },
+            { id: 'keys', label: '全域 Gemini Keys' },
+            { id: 'openai', label: '全域 OpenAI' },
+            { id: 'ollama', label: 'Ollama' },
+            { id: 'prompts', label: 'Prompt 模板' },
           ] as { id: 'keys' | 'prompts' | 'openai' | 'ollama' | 'personal'; label: string }[]).map(t => (
             <button
               key={t.id}
@@ -352,7 +352,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                 設定你自己的 AI Key（僅限自己使用，不與其他帳號共享）。<br />
                 執行任何功能時，系統優先使用你的個人 Key；未設定則 fallback 到全域 Key Pool。
               </p>
-              {personalMsg && <p style={{ color: personalMsg.startsWith('✅') ? '#34d399' : personalMsg.startsWith('🗑️') ? '#94a3b8' : '#f87171', fontSize: 13, marginBottom: 12 }}>{personalMsg}</p>}
+              {personalMsg && <p style={{ color: personalMsg.startsWith('通過') ? '#34d399' : personalMsg.startsWith('刪') ? '#94a3b8' : '#f87171', fontSize: 13, marginBottom: 12 }}>{personalMsg}</p>}
 
               {(['gemini', 'openai'] as const).map(provider => {
                 const existing = personalKeys.find(k => k.provider === provider)
@@ -360,7 +360,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                   <div key={provider} style={{ border: '1px solid #2d3f55', borderRadius: 8, padding: '14px 16px', marginBottom: 14, background: '#162032' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                       <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', textTransform: 'uppercase', letterSpacing: 1 }}>
-                        {provider === 'gemini' ? '🔑 Gemini' : '🤖 OpenAI'}
+                        {provider === 'gemini' ? 'Gemini' : 'OpenAI'}
                       </span>
                       {existing
                         ? <span style={{ fontSize: 12, color: '#34d399', background: 'rgba(52,211,153,0.12)', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 4, padding: '2px 8px' }}>已設定 {existing.keyMasked}</span>
@@ -392,7 +392,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
               })}
 
               <div style={{ marginTop: 8, padding: '10px 14px', borderRadius: 6, background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', fontSize: 12, color: '#fbbf24' }}>
-                ⚠️ 個人 Key 完全隔離：其他帳號無法使用你的 Key，你也不會用到別人的個人 Key。
+                警 個人 Key 完全隔離：其他帳號無法使用你的 Key，你也不會用到別人的個人 Key。
                 若個人 Key 配額耗盡，系統不會 fallback 到其他帳號的個人 Key，僅 fallback 到全域 Key Pool。
               </div>
             </div>
@@ -437,7 +437,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                     disabled={probing}
                     style={{ padding: '5px 14px', background: 'rgba(52,211,153,0.12)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
                   >
-                    {probing ? '測試中...' : '🔍 測試所有 Key 可用性'}
+                    {probing ? '測試中...' : '測試所有 Key 可用性'}
                   </button>
                 </div>
               )}
@@ -475,14 +475,14 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                         : null
                       const statusBadge = probe
                         ? probe.status === 'ok'
-                          ? <span style={{ color: '#16a34a', fontWeight: 600 }}>✅ 可用</span>
+                          ? <span style={{ color: '#16a34a', fontWeight: 600 }}>通過 可用</span>
                           : probe.status === 'exhausted'
-                          ? <span style={{ color: '#dc2626', fontWeight: 600 }}>❌ 配額耗盡</span>
-                          : <span style={{ color: '#d97706', fontWeight: 600 }}>⚠️ {probe.message}</span>
+                          ? <span style={{ color: '#dc2626', fontWeight: 600 }}>失敗 配額耗盡</span>
+                          : <span style={{ color: '#d97706', fontWeight: 600 }}>{probe.message}</span>
                         : probing
-                        ? <span style={{ color: '#6b7280', fontSize: 11 }}>🔄 測試中...</span>
+                        ? <span style={{ color: '#6b7280', fontSize: 11 }}>更新 測試中...</span>
                         : stat?.last_error
-                        ? <span style={{ color: '#d97706', fontSize: 11 }} title={stat.last_error}>⚠️ 上次失敗</span>
+                        ? <span style={{ color: '#d97706', fontSize: 11 }} title={stat.last_error}>上次失敗</span>
                         : <span style={{ color: '#9ca3af', fontSize: 11 }}>— 未測試</span>
                       return (
                         <tr key={i} style={{ borderBottom: '1px solid #1e293b' }}>
@@ -501,7 +501,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                             </div>
                             {quotaHitTime && (
                               <div style={{ marginTop: 2, color: '#dc2626', fontSize: 10 }} title="上次配額耗盡時間">
-                                ⛔ 配額耗盡 {quotaHitTime}
+                                禁 配額耗盡 {quotaHitTime}
                               </div>
                             )}
                           </td>
@@ -535,7 +535,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
 
               {openaiKeySet ? (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, padding: '12px 16px', background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 8 }}>
-                  <span style={{ fontSize: 13, color: '#4ade80', fontWeight: 600 }}>✅ API Key 已設定</span>
+                  <span style={{ fontSize: 13, color: '#4ade80', fontWeight: 600 }}>通過 API Key 已設定</span>
                   <span style={{ fontFamily: 'monospace', color: '#94a3b8', fontSize: 13 }}>{openaiKeyMasked}</span>
                   <button
                     onClick={handleDeleteOpenAIKey}
@@ -546,7 +546,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                 </div>
               ) : (
                 <div style={{ padding: '12px 16px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 8, marginBottom: 16, fontSize: 13, color: '#fbbf24' }}>
-                  ⚠️ 尚未設定，填入 Key 後才會出現 OpenAI 模型選項
+                  警 尚未設定，填入 Key 後才會出現 OpenAI 模型選項
                 </div>
               )}
 
@@ -599,7 +599,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
 
               {ollamaIsSet && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, padding: '12px 16px', background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 8 }}>
-                  <span style={{ fontSize: 13, color: '#4ade80', fontWeight: 600 }}>✅ Ollama 已設定</span>
+                  <span style={{ fontSize: 13, color: '#4ade80', fontWeight: 600 }}>通過 Ollama 已設定</span>
                   <span style={{ fontFamily: 'monospace', color: '#94a3b8', fontSize: 12 }}>{ollamaBaseUrl} · {ollamaModel}</span>
                   <button
                     onClick={handleDeleteOllama}
@@ -640,7 +640,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                   disabled={ollamaProbing}
                   style={{ padding: '7px 16px', background: 'rgba(52,211,153,0.12)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
                 >
-                  {ollamaProbing ? '偵測中...' : '🔍 偵測可用模型'}
+                  {ollamaProbing ? '偵測中...' : '偵測可用模型'}
                 </button>
                 {(() => {
                   const isEmpty = !ollamaBaseUrl.trim() && !ollamaModel.trim()
@@ -819,7 +819,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                       onClick={handleSavePrompt}
                       style={{ flex: 1, padding: '9px 0', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600 }}
                     >
-                      💾 儲存
+                      存 儲存
                     </button>
                     {editPrompt.id !== 'default' && (
                       <button

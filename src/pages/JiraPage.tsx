@@ -6,6 +6,7 @@ import { ModelSelector } from '../components/ModelSelector'
 import { DungeonIcon } from '../components/DungeonIcon'
 import { useIsGameMode } from '../components/GameModeContext'
 import { fetchAuthAccount, GLOBAL_ACCOUNT_KEY } from '../authSession'
+import { XianxiaIcon } from '../components/XianxiaIcon'
 
 interface Member {
   accountId: string
@@ -170,7 +171,7 @@ const nowString = () => new Date().toLocaleString('zh-TW', { hour12: false })
 /** 批量評論中斷時的提示文字，依中斷原因分開文案——worker 重啟跟 Gemini 用量上限是完全不同的
  *狀況，不能套用同一句「Gemini API 用量已達上限」。 */
 const buildCommentStoppedRow = (stoppedReason: string, stoppedKind?: 'ai_quota' | 'worker_restart') => ({
-  rowIndex: -1, issueKey: '⚠️ 已中斷', ok: false,
+  rowIndex: -1, issueKey: '已中斷', ok: false,
   error: stoppedKind === 'worker_restart'
     ? stoppedReason
     : `Gemini API 用量已達上限。原因：${stoppedReason}`,
@@ -308,7 +309,7 @@ function UserFieldSearch({ field, projectKey, issueTypeId, issueTypeName, email,
         onChange={e => setQ(e.target.value)}
         onFocus={() => { if (q.trim()) { setOpen(true); updateRect() } }}
         onBlur={() => { setTimeout(() => setOpen(false), 150) }}
-        placeholder="🔍 搜尋使用者…"
+        placeholder="搜尋使用者…"
         style={{ width: '100%', boxSizing: 'border-box', background: '#0f172a', border: '1px solid #2563eb30', borderRadius: 5, color: '#e2e8f0', fontSize: 11, padding: '3px 7px', outline: 'none' }} />
       {open && q.trim() && rect && createPortal(
         <div style={{ position: 'fixed', top: rect.top, left: rect.left, width: Math.max(rect.width, 190), zIndex: 9999, background: '#1e293b', border: '1px solid #334155', borderRadius: 6, maxHeight: 220, overflowY: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
@@ -384,7 +385,7 @@ function MultiEditUserPicker({ members, loading, values, labels, onChange }: {
           onChange={e => { setQ(e.target.value); setOpen(true); updateRect() }}
           onFocus={() => { setOpen(true); updateRect() }}
           onBlur={() => setTimeout(() => { setOpen(false); setQ('') }, 150)}
-          placeholder={loading ? '載入人員中…' : '🔍 搜尋並新增人員…'}
+          placeholder={loading ? '載入人員中…' : '搜尋並新增人員…'}
           style={{ width: '100%', boxSizing: 'border-box', padding: '6px 10px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
         />
         {open && rect && createPortal(
@@ -445,7 +446,7 @@ function EditUserPicker({ members, loading, value, label, onChange }: {
         onChange={e => { setQ(e.target.value); setOpen(true); updateRect() }}
         onFocus={() => { setOpen(true); updateRect() }}
         onBlur={() => setTimeout(() => { setOpen(false); if (!value) setQ('') }, 150)}
-        placeholder={loading ? '載入人員中…' : '🔍 搜尋人員…'}
+        placeholder={loading ? '載入人員中…' : '搜尋人員…'}
         style={{ width: '100%', boxSizing: 'border-box', padding: '6px 10px', borderRadius: 6, border: `1px solid ${value ? '#2563eb60' : '#2d3f55'}`, background: '#0f172a', color: value ? '#e2e8f0' : '#64748b', fontSize: 13 }}
       />
       {open && rect && createPortal(
@@ -1237,7 +1238,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       setSheetRecords(data.records)
       const freshIdx: Set<number> = new Set(data.records.map((r: SheetRecord) => Number(r._rowIndex)))
       setSelectedRows(prev => new Set([...prev, ...freshIdx].filter(i => freshIdx.has(i))))
-      setCreateReloadMsg(`✅ 已重新讀取（${data.records.length} 筆）`)
+      setCreateReloadMsg(`通過 已重新讀取（${data.records.length} 筆）`)
     } catch { setSheetError('網路錯誤') }
     finally { setSheetLoading(false) }
   }
@@ -2391,7 +2392,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       setTrackedIssues(issues)
       const freshKeys = new Set(issues.map(i => i.issueKey))
       setCommentTabSelectedKeys(prev => new Set([...prev, ...freshKeys].filter(k => freshKeys.has(k))))
-      setCommentReloadMsg(`✅ 已重新讀取（${issues.length} 筆）`)
+      setCommentReloadMsg(`通過 已重新讀取（${issues.length} 筆）`)
     } catch { setCommentTabError('網路錯誤') }
     finally { setCommentTabLoading(false) }
   }
@@ -2506,7 +2507,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
         }
         return next
       })
-      setEditReloadMsg(`✅ 已重新讀取（${issues.length} 筆）`)
+      setEditReloadMsg(`通過 已重新讀取（${issues.length} 筆）`)
     } catch { setEditTabError('網路錯誤') }
     finally { setEditTabLoading(false) }
   }
@@ -2757,7 +2758,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       const freshKeys = new Set(records.map(r => r.issueKey))
       setUpdateSelectedKeys(prev => new Set([...prev, ...freshKeys].filter(k => freshKeys.has(k))))
       void fetchUpdateJiraData(records.map(r => r.issueKey))
-      setUpdateReloadMsg(`✅ 已重新讀取（${records.length} 筆）`)
+      setUpdateReloadMsg(`通過 已重新讀取（${records.length} 筆）`)
     } catch (e) {
       setUpdateError(String(e))
     } finally {
@@ -2908,8 +2909,8 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       const data = await resp.json() as { ok: boolean; results?: { rowIndex: number; ok: boolean }[] }
       const ok = data.results?.filter(r => r.ok).length ?? 0
       const fail = (data.results?.length ?? 0) - ok
-      setUpdateTitleWritebackMsg(fail > 0 ? `⚠ 回填完成：${ok} 成功，${fail} 失敗` : `✅ 已回填 ${ok} 筆`)
-    } catch { setUpdateTitleWritebackMsg('❌ 回填失敗：網路錯誤') }
+      setUpdateTitleWritebackMsg(fail > 0 ? `回填完成：${ok} 成功，${fail} 失敗` : `通過 已回填 ${ok} 筆`)
+    } catch { setUpdateTitleWritebackMsg('失敗 回填失敗：網路錯誤') }
     finally { setUpdateTitleWritebackLoading(false) }
   }
 
@@ -2926,7 +2927,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           color: loading ? '#475569' : '#94a3b8', cursor: loading ? 'default' : 'pointer',
           whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 5,
         }}>
-        {loading ? '讀取中…' : '🔄 重新讀取 Sheet'}
+        {loading ? '讀取中…' : '更新 重新讀取 Sheet'}
       </button>
       {msg && <span style={{ fontSize: 11, color: '#4ade80' }}>{msg}</span>}
     </span>
@@ -2934,7 +2935,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
   const StepDot = ({ s }: { s: Step }) => (
     <span className={`step-dot${step === s ? ' active' : step > s ? ' done' : ''}`}>
-      {step > s ? '✓' : s}
+      {step > s ? '通過' : s}
     </span>
   )
 
@@ -2942,7 +2943,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const StepGuide = ({ title, children }: { title: string; children: ReactNode }) => (
     <div className="jira-sheet-guide" style={{ marginBottom: 20, maxWidth: '100%' }}>
       <details>
-        <summary className="jira-sheet-guide-summary">{isGame ? <DungeonIcon name="guide" tone="cyan" size="xs" plain /> : '📋'} {title}</summary>
+        <summary className="jira-sheet-guide-summary"><XianxiaIcon name="guide" size={17} /> {title}</summary>
         <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: '#94a3b8', lineHeight: 1.7, wordBreak: 'break-word' }}>
           {children}
         </ul>
@@ -3005,20 +3006,20 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             : mode === 'qa' && qaSubMode === 'comment'
               ? ([1, 2, 3] as const).map(s => (
                   <span key={s} className={`step-dot${commentTabStep === s ? ' active' : commentTabStep > s ? ' done' : ''}`}>
-                    {commentTabStep > s ? '✓' : s}
+                    {commentTabStep > s ? '通過' : s}
                   </span>
                 ))
             : mode === 'qa' && qaSubMode === 'edit'
               ? ([1, 2, 3, 4] as const).map(s => (
                   <span key={s} className={`step-dot${editTabStep === s ? ' active' : editTabStep > s ? ' done' : ''}`}>
-                    {editTabStep > s ? '✓' : s}
+                    {editTabStep > s ? '通過' : s}
                   </span>
                 ))
             : ([1, 2, 3] as const).map(s => (
                 <span key={s} className={`step-dot${
                   (mode === 'pm' ? pmStep : updateStep) === s ? ' active' :
                   (mode === 'pm' ? pmStep : updateStep) > s ? ' done' : ''}`}>
-                  {(mode === 'pm' ? pmStep : updateStep) > s ? '✓' : s}
+                  {(mode === 'pm' ? pmStep : updateStep) > s ? '通過' : s}
                 </span>
               ))
           }
@@ -3036,7 +3037,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           <button type="button"
             className={`settings-btn${currentAccount ? ' has-creds' : ''}`}
             onClick={() => setShowAccountModal(true)}>
-            {isGame ? <DungeonIcon name="account" tone="cyan" size="xs" plain /> : '👤'} {currentAccount ? currentAccount.label : '選擇帳號'}
+            <XianxiaIcon name="account" size={17} /> {currentAccount ? currentAccount.label : '選擇帳號'}
           </button>
         </div>
       </div>
@@ -3087,12 +3088,12 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 </span>
                 {pmRecords.some(r => r.isParent) && (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(124,58,237,0.15)', color: '#c4b5fd', fontWeight: 600, borderRadius: 20, padding: '3px 10px', fontSize: 12 }}>
-                    🔗 偵測到主單，填有「主單標題」的子單將自動關聯
+                    鏈 偵測到主單，填有「主單標題」的子單將自動關聯
                   </span>
                 )}
                 {!pmRecords.some(r => r.isParent) && pmParentKey && (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(124,58,237,0.15)', color: '#c4b5fd', fontWeight: 600, borderRadius: 20, padding: '3px 10px', fontSize: 12 }}>
-                    🔗 手動主單：{pmParentKey}
+                    鏈 手動主單：{pmParentKey}
                   </span>
                 )}
               </div>
@@ -3178,11 +3179,11 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
                 <div style={{ flex: 1, padding: '16px 20px', background: 'rgba(16,185,129,0.08)', borderRadius: 10, border: '1px solid rgba(16,185,129,0.25)', textAlign: 'center' }}>
                   <div style={{ fontSize: 32, fontWeight: 800, color: '#34d399', lineHeight: 1 }}>{pmResults.filter(r => r.issueKey).length}</div>
-                  <div style={{ fontSize: 13, color: '#6ee7b7', marginTop: 4, fontWeight: 600 }}>✓ 成功建立</div>
+                  <div style={{ fontSize: 13, color: '#6ee7b7', marginTop: 4, fontWeight: 600 }}>通過 成功建立</div>
                 </div>
                 <div style={{ flex: 1, padding: '16px 20px', background: pmResults.some(r => r.error) ? 'rgba(239,68,68,0.08)' : '#162032', borderRadius: 10, border: `1px solid ${pmResults.some(r => r.error) ? 'rgba(239,68,68,0.3)' : '#2d3f55'}`, textAlign: 'center' }}>
                   <div style={{ fontSize: 32, fontWeight: 800, color: pmResults.some(r => r.error) ? '#f87171' : '#475569', lineHeight: 1 }}>{pmResults.filter(r => r.error).length}</div>
-                  <div style={{ fontSize: 13, color: pmResults.some(r => r.error) ? '#fca5a5' : '#475569', marginTop: 4, fontWeight: 600 }}>✗ 失敗</div>
+                  <div style={{ fontSize: 13, color: pmResults.some(r => r.error) ? '#fca5a5' : '#475569', marginTop: 4, fontWeight: 600 }}>失敗 失敗</div>
                 </div>
               </div>
 
@@ -3194,7 +3195,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                     borderRadius: 8, border: `1px solid ${r.issueKey ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.25)'}`,
                     background: r.issueKey ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)',
                   }}>
-                    <span style={{ fontSize: 18, flexShrink: 0 }}>{r.issueKey ? (isGame ? <DungeonIcon name="status-ok" tone="green" plain /> : '✅') : (isGame ? <DungeonIcon name="status-error" tone="red" plain /> : '❌')}</span>
+                    <span style={{ fontSize: 18, flexShrink: 0 }}>{r.issueKey ? (isGame ? <DungeonIcon name="status-ok" tone="green" plain /> : '通過') : (isGame ? <DungeonIcon name="status-error" tone="red" plain /> : '失敗')}</span>
                     {r.issueKey && (
                       <span style={{ fontWeight: 700, color: '#a5b4fc', fontSize: 13, whiteSpace: 'nowrap' }}>{r.issueKey}</span>
                     )}
@@ -3254,7 +3255,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                   onClick={handleUpdateFetchBitable}
                   style={{ whiteSpace: 'nowrap' }}
                 >
-                  {updateLoading ? '讀取中…' : '📥 讀取'}
+                  {updateLoading ? '讀取中…' : '讀取'}
                 </button>
               </div>
 
@@ -3280,8 +3281,8 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               <StepGuide title="操作說明 — 狀態切換與驗證">
                 <li>系統會依序用「目前帳號」與「所有已儲存帳號」嘗試讀取該 Issue 可用的 Transition 選項（不同帳號權限可能不同）</li>
                 <li>執行前會重新從 Jira 抓最新資料，驗證 <b>摘要 / 描述 / 受託人 / RD負責人</b> 是否都有值，缺漏會擋下並列出問題單號（可點擊捲動定位）</li>
-                <li>「🔍 偵測 RD 欄位」：掃描該 Issue 所有 custom user field，列出欄位 ID / 名稱 / 目前值，方便確認 RD負責人抓的是哪個欄位</li>
-                <li>「📝 回填單子標題」：把 Jira Key 超連結 + 摘要寫回 Sheet 的「單子標題貼這」欄，與正式執行分開，可單獨先跑</li>
+                <li>「察 偵測 RD 欄位」：掃描該 Issue 所有 custom user field，列出欄位 ID / 名稱 / 目前值，方便確認 RD負責人抓的是哪個欄位</li>
+                <li>「文 回填單子標題」：把 Jira Key 超連結 + 摘要寫回 Sheet 的「單子標題貼這」欄，與正式執行分開，可單獨先跑</li>
               </StepGuide>
 
               {/* 切換狀態 */}
@@ -3310,7 +3311,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               {/* Jira error */}
               {updateJiraError && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#1e1010', border: '1px solid #7f1d1d60', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>
-                  <span style={{ fontSize: 12, color: '#f87171', flex: 1 }}>⚠ {updateJiraError}</span>
+                  <span style={{ fontSize: 12, color: '#f87171', flex: 1 }}>{updateJiraError}</span>
                   <button type="button"
                     style={{ fontSize: 12, padding: '4px 12px', borderRadius: 5, border: '1px solid #f8717160', background: '#7f1d1d30', color: '#fca5a5', cursor: 'pointer', whiteSpace: 'nowrap' }}
                     onClick={() => fetchUpdateJiraData(updateRecords.map(r => r.issueKey))}>
@@ -3345,7 +3346,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                         setRdFieldCandidates(d.candidates ?? [])
                       } catch { setRdFieldCandidates([]) } finally { setRdFieldDetecting(false) }
                     }}>
-                    {rdFieldDetecting ? '偵測中...' : '🔍 偵測 RD 欄位'}
+                    {rdFieldDetecting ? '偵測中...' : '偵測 RD 欄位'}
                   </button>
                 </div>
                 {rdFieldCandidates !== null && (
@@ -3454,7 +3455,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               {updateValidationErrors.length > 0 && (
                 <div style={{ marginBottom: 12, padding: '10px 14px', background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 8 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: '#f87171', marginBottom: 8 }}>
-                    ⚠ {updateValidationErrors.length} 張單欄位不完整，無法送出：
+                    警 {updateValidationErrors.length} 張單欄位不完整，無法送出：
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 160, overflowY: 'auto' }}>
                     {updateValidationErrors.map(e => (
@@ -3496,10 +3497,10 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                       disabled={updateTitleWritebackLoading || updateSelectedKeys.size === 0}
                       style={{ padding: '7px 14px', borderRadius: 6, border: '1px solid #1a3a2a', background: updateSelectedKeys.size > 0 ? '#1a3a2a' : '#0f172a', color: updateSelectedKeys.size > 0 ? '#4ade80' : '#374151', fontSize: 13, cursor: updateSelectedKeys.size > 0 ? 'pointer' : 'default', whiteSpace: 'nowrap' }}
                     >
-                      {updateTitleWritebackLoading ? '回填中…' : `📝 回填單子標題（${updateSelectedKeys.size} 筆）`}
+                      {updateTitleWritebackLoading ? '回填中…' : `回填單子標題（${updateSelectedKeys.size} 筆）`}
                     </button>
                     {updateTitleWritebackMsg && (
-                      <span style={{ fontSize: 12, color: updateTitleWritebackMsg.startsWith('✅') ? '#4ade80' : '#f87171' }}>
+                      <span style={{ fontSize: 12, color: updateTitleWritebackMsg.startsWith('通過') ? '#4ade80' : '#f87171' }}>
                         {updateTitleWritebackMsg}
                       </span>
                     )}
@@ -3530,23 +3531,23 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
               <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
                 <span style={{ fontSize: 13, color: '#4ade80', fontWeight: 700 }}>
-                  ✅ 成功 {updateResults.filter(r => r.ok && !r.skipped).length} 張
+                  通過 成功 {updateResults.filter(r => r.ok && !r.skipped).length} 張
                 </span>
                 {updateResults.some(r => r.skipped) && (
                   <span style={{ fontSize: 13, color: '#94a3b8', fontWeight: 700 }}>
-                    ⏭️ 跳過（未選擇目標狀態）{updateResults.filter(r => r.skipped).length} 張
+                    ⏭ 跳過（未選擇目標狀態）{updateResults.filter(r => r.skipped).length} 張
                   </span>
                 )}
                 {updateResults.some(r => !r.ok) && (
                   <span style={{ fontSize: 13, color: '#f87171', fontWeight: 700 }}>
-                    ❌ 失敗 {updateResults.filter(r => !r.ok).length} 張
+                    失敗 失敗 {updateResults.filter(r => !r.ok).length} 張
                   </span>
                 )}
               </div>
               <div style={{ maxHeight: 400, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {updateResults.map(r => (
                   <div key={r.issueKey} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 10px', background: r.skipped ? 'rgba(148,163,184,0.06)' : r.ok ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${r.skipped ? 'rgba(148,163,184,0.2)' : r.ok ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}`, borderRadius: 6, fontSize: 12 }}>
-                    <span>{r.skipped ? '⏭️' : r.ok ? '✅' : '❌'}</span>
+                    <span><XianxiaIcon name={r.skipped || !r.ok ? 'warning' : 'overview'} size={18} /></span>
                     <code style={{ color: '#93c5fd', fontWeight: 700 }}>{r.issueKey}</code>
                     {r.skipped
                       ? <span style={{ color: '#94a3b8', fontSize: 11 }}>未選擇目標狀態，未呼叫 Jira</span>
@@ -3644,7 +3645,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           {/* ── Sheet 欄位說明 ── */}
           <div className="jira-sheet-guide" style={{ marginBottom: 20, maxWidth: '100%' }}>
             <details>
-              <summary className="jira-sheet-guide-summary">{isGame ? <DungeonIcon name="guide" tone="cyan" size="xs" plain /> : '📋'} Sheet 欄位說明 — 查看必要 / 選填欄位與範例資料</summary>
+              <summary className="jira-sheet-guide-summary"><XianxiaIcon name="guide" size={17} /> Sheet 欄位說明 — 查看必要 / 選填欄位與範例資料</summary>
               <div className="jira-sheet-guide-legend">
                 <span className="jira-col-tag jira-col-req">必填</span>必須有值才能建立 Issue
                 <span className="jira-col-tag jira-col-opt" style={{ marginLeft: 14 }}>選填</span>可留空，系統會略過
@@ -3710,7 +3711,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 <li>含「單子標題貼這」欄位有值的列會自動過濾（視為已開單，跳過不重複建立）</li>
               </ul>
               <p className="field-hint" style={{ marginTop: 8 }}>
-                {isGame ? <DungeonIcon name="status-warn" tone="gold" size="xs" plain /> : '⚠️'} 欄位名稱需完全符合（不區分大小寫）。「Jira Issue Key」「Jira URL」「處理階段」「處理時間」「單子標題貼這」由系統自動回寫，請保留欄位但不要手動填入。
+                <XianxiaIcon name="warning" size={18} /> 欄位名稱需完全符合（不區分大小寫）。「Jira Issue Key」「Jira URL」「處理階段」「處理時間」「單子標題貼這」由系統自動回寫，請保留欄位但不要手動填入。
               </p>
             </details>
           </div>
@@ -3745,13 +3746,13 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           {/* Lark pre-fill hint */}
           {jiraFields.length > 0 ? (
             <div style={{ background: '#162130', border: '1px solid #ca8a0440', borderRadius: 8, padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 13, color: '#fde047', fontWeight: 600 }}>💡 可選：從 Lark 帶入預填值</span>
+              <span style={{ fontSize: 13, color: '#fde047', fontWeight: 600 }}>可選：從 Lark 帶入預填值</span>
               <span style={{ fontSize: 11, color: '#64748b', flex: 1 }}>系統會嘗試用 Lark 欄名對應 Jira field，對不上的欄位需手動填寫；重新讀取 Sheet 後會自動重新帶入。</span>
               <ReloadSheetButton loading={sheetLoading} msg={createReloadMsg} onClick={handleReloadCreateSheet} />
               <button type="button"
                 style={{ fontSize: 12, padding: '5px 12px', borderRadius: 6, border: '1px solid #ca8a0460', background: larkPrefillApplied ? '#16a34a20' : '#ca8a0420', color: larkPrefillApplied ? '#4ade80' : '#fde047', cursor: 'pointer', whiteSpace: 'nowrap' }}
                 onClick={applyLarkPrefill}>
-                {larkPrefillApplied ? '✓ 已帶入（可重新帶入）' : '📋 從 Lark 帶入'}
+                {larkPrefillApplied ? '通過 已帶入（可重新帶入）' : '從 Lark 帶入'}
               </button>
             </div>
           ) : (
@@ -3762,7 +3763,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
           <StepGuide title="操作說明 — 填寫與帶入欄位">
             <li>表格欄位由 Jira <code>createmeta</code> 即時載入，摘要/描述/受託人/RD負責人/回報人 自動顯示為必填</li>
-            <li>點「📋 從 Lark 帶入」可用 Sheet 欄名自動對應 Jira 欄位；對不上的欄位需手動填寫</li>
+            <li>點「冊 從 Lark 帶入」可用 Sheet 欄名自動對應 Jira 欄位；對不上的欄位需手動填寫</li>
             <li>可用「AI 生成摘要」：選前綴欄位（組成 [值1][值2]摘要格式）+ 內容來源欄位，批次呼叫 Gemini 產生標題</li>
             <li>「附件」欄可從 Sheet 圖片欄自動讀取，或手動上傳；送出後以 <code>!filename!</code> wiki markup 嵌入描述，影片以 <code>[^filename]</code> 方式嵌入</li>
             <li>有未上傳的影片列，送出前會跳出確認視窗</li>
@@ -3818,9 +3819,9 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           {selectedRows.size > 0 && (
             <div className="op-plan" style={{ marginBottom: 12 }}>
               <span className="op-plan-title">選取後將執行：</span>
-              {planCreate.length > 0 && <span className="badge badge--blue">➕ 建立 Issues {planCreate.length} 筆</span>}
-              {planComment.length > 0 && <span className="badge badge--ok">💬 添加評論 {planComment.length} 筆（已開單）</span>}
-              {planTransition.length > 0 && <span className="badge badge--purple">🔄 切換狀態 {planTransition.length} 筆（已評論）</span>}
+              {planCreate.length > 0 && <span className="badge badge--blue">建立 Issues {planCreate.length} 筆</span>}
+              {planComment.length > 0 && <span className="badge badge--ok">添加評論 {planComment.length} 筆（已開單）</span>}
+              {planTransition.length > 0 && <span className="badge badge--purple">更新 切換狀態 {planTransition.length} 筆（已評論）</span>}
             </div>
           )}
 
@@ -3875,7 +3876,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                         <div style={{ position: 'absolute', top: '100%', left: 0, background: '#1e293b', border: '1px solid #334155', borderRadius: 8, width: 240, zIndex: 100, boxShadow: '0 8px 24px rgba(0,0,0,0.5)', marginTop: 6 }}>
                           <div style={{ padding: '8px 12px', borderBottom: '1px solid #334155', fontSize: 12, fontWeight: 600, color: '#94a3b8', display: 'flex', justifyContent: 'space-between' }}>
                             新增選填欄位
-                            <button type="button" style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer' }} onClick={() => setShowFieldPicker(false)}>✕</button>
+                            <button type="button" style={{ background: 'none', border: 'none', color: '#475569', cursor: 'pointer' }} onClick={() => setShowFieldPicker(false)}>關閉</button>
                           </div>
                           <div style={{ padding: '8px 10px', borderBottom: '1px solid #334155' }}>
                             <input
@@ -4016,7 +4017,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                     style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 16px', cursor: 'pointer', userSelect: 'none' }}
                     onClick={() => setAiSummaryEnabled(v => !v)}>
                     <span style={{ fontSize: 12, color: '#475569', transition: 'transform .2s', display: 'inline-block', transform: aiSummaryEnabled ? 'rotate(90deg)' : 'none' }}>▶</span>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: aiSummaryEnabled ? '#a78bfa' : '#60a5fa' }}>✦ AI 摘要生成</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: aiSummaryEnabled ? '#a78bfa' : '#60a5fa' }}>AI 摘要生成</span>
                     {aiSummaryEnabled && <span style={{ fontSize: 11, background: '#2e1065', color: '#a78bfa', padding: '1px 7px', borderRadius: 10, fontWeight: 600 }}>已啟用</span>}
                     <span style={{ fontSize: 11, color: '#475569', marginLeft: 'auto' }}>開啟後可用 AI 根據欄位內容自動生成 Issue 標題</span>
                   </div>
@@ -4079,14 +4080,14 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                           disabled={!aiContentColumn || summaryGenerating}
                           onClick={handleGenerateSummaries}
                           style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: summaryGenerating ? '#1e1b4b' : 'linear-gradient(135deg, #7c3aed, #6d28d9)', color: 'white', border: 'none', borderRadius: 8, padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: !aiContentColumn || summaryGenerating ? 'not-allowed' : 'pointer', opacity: !aiContentColumn ? 0.5 : 1 }}>
-                          {summaryGenerating ? '✦ 生成中...' : `✦ 批量生成摘要（${filteredRecords.filter(r => selectedRows.has(Number(r._rowIndex)) && needsCreate(r)).length} 筆）`}
+                          {summaryGenerating ? '生成中...' : `批量生成摘要（${filteredRecords.filter(r => selectedRows.has(Number(r._rowIndex)) && needsCreate(r)).length} 筆）`}
                         </button>
                         {summaryProgress && (
                           <span style={{ fontSize: 12, color: summaryProgress.done >= summaryProgress.total ? (summaryProgress.failed ? '#f87171' : '#4ade80') : '#a78bfa' }}>
                             {summaryProgress.done >= summaryProgress.total
                               ? summaryProgress.failed
-                                ? `✓ ${summaryProgress.total - (summaryProgress.failed ?? 0)} 筆完成，${summaryProgress.failed} 筆失敗`
-                                : `✓ 完成 ${summaryProgress.total} 筆`
+                                ? `通過 ${summaryProgress.total - (summaryProgress.failed ?? 0)} 筆完成，${summaryProgress.failed} 筆失敗`
+                                : `通過 完成 ${summaryProgress.total} 筆`
                               : `${summaryProgress.done} / ${summaryProgress.total}`}
                           </span>
                         )}
@@ -4139,7 +4140,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                         </th>
                       ))}
                       <th style={{ minWidth: 90, width: 100, background: '#12201a', borderLeft: '2px solid #334155' }}>
-                        <span style={{ color: '#4ade80' }}>📎 附件</span>
+                        <span style={{ color: '#4ade80' }}>附件</span>
                         {descPrefetchLoading && <span style={{ display: 'block', fontSize: 10, color: '#64748b' }}>載入中…</span>}
                       </th>
                     </tr>
@@ -4175,7 +4176,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                 <td key={field.key}>
                                   {genVal ? (
                                     <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                      <span style={{ background: '#2e1065', color: '#a78bfa', borderRadius: 4, padding: '1px 5px', fontSize: 10, fontWeight: 600, flexShrink: 0 }}>AI ✦</span>
+                                      <span style={{ background: '#2e1065', color: '#a78bfa', borderRadius: 4, padding: '1px 5px', fontSize: 10, fontWeight: 600, flexShrink: 0 }}>AI 靈</span>
                                       <input value={genVal}
                                         onChange={e => setGeneratedSummaries(p => ({ ...p, [rowIdx]: e.target.value }))}
                                         style={{ ...inputStyle, border: '1px solid #7c3aed40', flex: 1 }} />
@@ -4273,13 +4274,13 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                     style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 4, border: '1px solid #2d4a2d', cursor: 'pointer', flexShrink: 0 }}
                                     onClick={() => setDescLightboxSrc(`/api/jira/attachment-cache/${att.cacheId}`)} />
                                 ) : (
-                                  <span key={ai} title={att.filename} style={{ fontSize: 10, color: '#d29922', padding: '2px 4px', background: 'rgba(210,153,34,0.1)', border: '1px solid rgba(210,153,34,0.3)', borderRadius: 4 }}>🎬</span>
+                                  <span key={ai} title={att.filename} style={{ fontSize: 10, color: '#d29922', padding: '2px 4px', background: 'rgba(210,153,34,0.1)', border: '1px solid rgba(210,153,34,0.3)', borderRadius: 4 }}>啟</span>
                                 )
                               ))}
                               {(descAttachMap[rowIdx] ?? []).filter(a => !a.cacheId).map((att, ai) => (
                                 att.isVideo
-                                  ? <span key={`v-${ai}`} title={`${att.filename} — Sheet 影片無法自動下載，請用 + 手動上傳`} style={{ fontSize: 10, color: '#f59e0b', padding: '2px 5px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 3 }}>⚠ 需重新上傳</span>
-                                  : <span key={`err-${ai}`} title={att.error ?? att.filename} style={{ fontSize: 10, color: '#f87171', padding: '2px 5px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 4 }}>⚠ {att.filename.slice(0, 12)}{att.filename.length > 12 ? '…' : ''}</span>
+                                  ? <span key={`v-${ai}`} title={`${att.filename} — Sheet 影片無法自動下載，請用 + 手動上傳`} style={{ fontSize: 10, color: '#f59e0b', padding: '2px 5px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 3 }}>需重新上傳</span>
+                                  : <span key={`err-${ai}`} title={att.error ?? att.filename} style={{ fontSize: 10, color: '#f87171', padding: '2px 5px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 4 }}>{att.filename.slice(0, 12)}{att.filename.length > 12 ? '…' : ''}</span>
                               ))}
                               <label style={{ cursor: 'pointer', fontSize: 11, color: '#60a5fa', padding: '2px 5px', background: '#1a2f45', border: '1px solid #2d3f55', borderRadius: 4, flexShrink: 0, lineHeight: '18px' }}>
                                 +
@@ -4318,7 +4319,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               /* Fallback: show Lark data if fields failed to load */
               <>
               <div className="alert-warn" style={{ marginBottom: 8, fontSize: 12 }}>
-                ⚠️ 動態欄位未載入（Jira fields API 未回傳資料），顯示 Lark 原始資料。請開啟 F12 → Console 查看 [jira-fields] 日誌。
+                警 動態欄位未載入（Jira fields API 未回傳資料），顯示 Lark 原始資料。請開啟 F12 → Console 查看 [jira-fields] 日誌。
               </div>
               <div className="table-wrap">
                 <table className="version-table">
@@ -4416,7 +4417,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
         <div onClick={() => setDescLightboxSrc(null)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out' }}>
           <button type="button" onClick={() => setDescLightboxSrc(null)}
-            style={{ position: 'absolute', top: 16, right: 20, color: '#fff', fontSize: 28, background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}>✕</button>
+            style={{ position: 'absolute', top: 16, right: 20, color: '#fff', fontSize: 28, background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}>關閉</button>
           <img src={descLightboxSrc} alt="attachment preview" style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8, border: '1px solid #2d3f55' }} />
         </div>
       )}
@@ -4424,7 +4425,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
         <div onClick={() => setEditDescLightboxSrc(null)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out' }}>
           <button type="button" onClick={() => setEditDescLightboxSrc(null)}
-            style={{ position: 'absolute', top: 16, right: 20, color: '#fff', fontSize: 28, background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}>✕</button>
+            style={{ position: 'absolute', top: 16, right: 20, color: '#fff', fontSize: 28, background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}>關閉</button>
           <img src={editDescLightboxSrc} alt="attachment preview" style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8, border: '1px solid #2d3f55' }} />
         </div>
       )}
@@ -4448,7 +4449,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
           {pendingWritebackCount > 0 && (
             <div className="alert-warn" style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-              <span>⚠️ 有 {pendingWritebackCount} 筆回寫未完成（可能因斷線中斷）</span>
+              <span>有 {pendingWritebackCount} 筆回寫未完成（可能因斷線中斷）</span>
               <button
                 className="btn btn-sm btn-secondary"
                 disabled={retryingWriteback}
@@ -4469,7 +4470,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                   finally { setRetryingWriteback(false) }
                 }}
               >
-                {retryingWriteback ? '重試中...' : '🔁 重試回寫'}
+                {retryingWriteback ? '重試中...' : '重行 重試回寫'}
               </button>
             </div>
           )}
@@ -4477,10 +4478,10 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           {createResults.length > 0 && (
             <>
               <div className="result-summary">
-                <div className="summary-item ok">{isGame ? <DungeonIcon name="status-ok" tone="green" size="xs" plain /> : '✅'} 成功 {createResults.filter(r => r.issueKey).length} 筆</div>
+                <div className="summary-item ok">{isGame ? <DungeonIcon name="status-ok" tone="green" size="xs" plain /> : '通過'} 成功 {createResults.filter(r => r.issueKey).length} 筆</div>
                 <div className={`summary-item${createResults.filter(r => r.error).length > 0 ? ' error' : ''}`}>
                   {createResults.filter(r => r.error).length > 0
-                    ? <>{isGame ? <DungeonIcon name="status-error" tone="red" size="xs" plain /> : '❌'} 失敗 {createResults.filter(r => r.error).length} 筆</> : '✓ 無失敗'}
+                    ? <>{isGame ? <DungeonIcon name="status-error" tone="red" size="xs" plain /> : '失敗'} 失敗 {createResults.filter(r => r.error).length} 筆</> : '通過 無失敗'}
                 </div>
               </div>
               <div className="result-group">
@@ -4493,7 +4494,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                     {r.writebackSkipped
                       ? <span className="badge badge--warn">待手動填回</span>
                       : r.writebackOk
-                        ? <span className="badge badge--ok">已回寫 ✓</span>
+                        ? <span className="badge badge--ok">已回寫 通過</span>
                         : <span className="badge badge--error">回寫失敗</span>}
                     {!r.writebackSkipped && !r.writebackOk && r.writebackError && (
                       <span className="err-msg">{r.writebackError}</span>
@@ -4575,7 +4576,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               onClick={handleCommentTabLoad}
               style={{ whiteSpace: 'nowrap' }}
             >
-              {commentTabLoading ? '讀取中…' : '📥 讀取'}
+              {commentTabLoading ? '讀取中…' : '讀取'}
             </button>
           </div>
 
@@ -4743,7 +4744,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
           <StepGuide title="操作說明 — 評論格式與附件">
             <li>評論需包含 5 大區塊：<b>【功能目的】【前置條件】【測試步驟】【說明與備註】【驗證結果】</b>，每個區塊下有必填細項</li>
-            <li>格式不完整只會顯示 ⚠️ 警示，仍可強制送出（非硬性擋下）</li>
+            <li>格式不完整只會顯示 警 警示，仍可強制送出（非硬性擋下）</li>
             <li>可勾選「AI 優化」，對已寫的評論做二次分析，補上完整性總結（限管理員帳號）</li>
             <li>每筆可手動上傳圖片附件，送出後以 <code>!filename!</code> wiki markup 直接嵌入評論內文；影片附件用 <code>[^filename]</code> 顯示為下載連結</li>
             <li>送出成功的列，會自動回寫「處理階段＝添加評論」與「處理時間」到來源 Sheet</li>
@@ -4797,7 +4798,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                     {kbDocs.length > 0 && (
                       <div style={{ background: '#162032', border: '1px solid #2d3f55', borderRadius: 8, padding: '10px 14px' }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                          📚 知識庫來源
+                          典 知識庫來源
                           <span style={{ fontWeight: 400, color: '#334155' }}>（勾選的文件內容會附加到 AI context）</span>
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -4814,7 +4815,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                   border: `1px solid ${on ? 'rgba(59,130,246,.4)' : '#2d3f55'}`,
                                   color: on ? '#93c5fd' : '#475569',
                                 }}>
-                                {on && <span style={{ color: '#3b82f6', fontSize: 11 }}>✓</span>}
+                                {on && <span style={{ color: '#3b82f6', fontSize: 11 }}>通過</span>}
                                 {doc.name}
                                 {tags.length > 0 && <span style={{ fontSize: 10, opacity: 0.5, marginLeft: 2 }}>· {tags.slice(0, 2).join(' · ')}</span>}
                               </div>
@@ -4861,11 +4862,11 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                   <code>{r.issueKey}</code>
                   {r.ok
                     ? <>
-                        <span className="badge badge--ok">評論已添加 ✓</span>
+                        <span className="badge badge--ok">評論已添加 通過</span>
                         {r.usedAi
-                          ? <span className="badge badge--purple">{isGame ? <DungeonIcon name="ai" tone="violet" size="xs" plain /> : '🤖'} AI 優化</span>
+                          ? <span className="badge badge--purple"><XianxiaIcon name="ai" size={16} /> AI 優化</span>
                           : useAiComment
-                            ? <span className="badge badge--warn">{isGame ? <DungeonIcon name="status-warn" tone="gold" size="xs" plain /> : '⚠'} AI 跳過（欄位空白）</span>
+                            ? <span className="badge badge--warn"><XianxiaIcon name="warning" size={16} /> AI 跳過（欄位空白）</span>
                             : null}
                       </>
                     : <span className="err-msg">{r.error ?? '失敗'}</span>}
@@ -4915,7 +4916,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               {/* Template section */}
               <div style={{ marginBottom: 12, padding: '10px 12px', background: '#0d1117', border: '1px solid #2d3f55', borderRadius: 8 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8' }}>📋 評論模板</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8' }}>評論模板</span>
                   <button type="button"
                     style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, background: 'rgba(31,111,235,0.15)', color: '#58a6ff', border: '1px solid rgba(31,111,235,0.3)', cursor: 'pointer' }}
                     onClick={() => {
@@ -4957,7 +4958,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                       <span style={{ color: '#94a3b8' }}>格式錯誤</span>
                       <strong style={{ color: '#e2e8f0' }}>{errCount}</strong>
                     </span>
-                    <span style={{ marginLeft: 'auto', color: '#475569', fontSize: 11 }}>✏️ 點擊評論可直接編輯</span>
+                    <span style={{ marginLeft: 'auto', color: '#475569', fontSize: 11 }}>點擊評論可直接編輯</span>
                   </div>
                 )
               })()}
@@ -5019,7 +5020,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                   background: ok ? 'rgba(63,185,80,0.15)' : 'rgba(248,81,73,0.12)',
                                   color: ok ? '#3fb950' : '#f85149',
                                 }}>
-                                  {sec.header.replace('【', '').replace('】', '')}{ok ? ' ✓' : ' ✗'}
+                                  {sec.header.replace('【', '').replace('】', '')}{ok ? ' 通過' : ' 失敗'}
                                 </span>
                               )
                             })}
@@ -5029,7 +5030,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                             {item.cachedAttachments.length > 0 && (
                               <div style={{ padding: '6px 8px', background: '#0d1117', border: '1px solid #2d3f55', borderRadius: 6, marginBottom: 6 }}>
                                 <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                  📎 附件（{item.cachedAttachments.filter(a => !a.error).length} 個）
+                                  附 附件（{item.cachedAttachments.filter(a => !a.error).length} 個）
                                   {item.cachedAttachments.some(a => a.isImage && !a.error) && (
                                     <span style={{ background: 'rgba(31,111,235,0.15)', color: '#58a6ff', border: '1px solid rgba(31,111,235,0.3)', borderRadius: 3, padding: '1px 5px', fontSize: 10 }}>圖片</span>
                                   )}
@@ -5051,7 +5052,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                     )
                                     return att.error ? (
                                       <div key={ai} style={{ position: 'relative', fontSize: 10, color: '#f87171', padding: '2px 14px 2px 6px', background: 'rgba(248,81,73,0.1)', borderRadius: 4, border: '1px solid rgba(248,81,73,0.2)' }}>
-                                        ⚠ {att.filename.length > 30 ? att.filename.slice(0, 30) + '…' : att.filename}: {att.error}
+                                        警 {att.filename.length > 30 ? att.filename.slice(0, 30) + '…' : att.filename}: {att.error}
                                         <RemoveBtn />
                                       </div>
                                     ) : att.isVideo ? (
@@ -5061,7 +5062,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                             style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 4, border: '1px solid #2d3f55' }} />
                                         ) : (
                                           <div style={{ width: 60, height: 60, background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.4)', borderRadius: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontSize: 18, gap: 2, cursor: 'default' }}>
-                                            <span>🎬</span>
+                                            <span>啟</span>
                                             <span style={{ fontSize: 9, color: '#f59e0b' }}>未上傳</span>
                                           </div>
                                         )}
@@ -5087,7 +5088,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                   })}
                                 </div>
                                 <div style={{ fontSize: 10, color: '#3fb950', marginTop: 5 }}>
-                                  ✦ 圖片上傳至 Jira 附件區，評論末自動嵌入
+                                  靈 圖片上傳至 Jira 附件區，評論末自動嵌入
                                 </div>
                                 {(() => {
                                   const pendingLinks = item.cachedAttachments.filter(a => a.mimeType === 'video/link' && !a.cacheId).length
@@ -5095,7 +5096,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                   return pendingLinks > uploadedVideos
                                 })() && (
                                   <div style={{ fontSize: 10, color: '#f59e0b', marginTop: 4, padding: '3px 6px', background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.3)', borderRadius: 4 }}>
-                                    ⚠ 有影片未上傳（Lark 插入附件格式無法自動下載），請用下方「上傳圖片/影片」手動上傳
+                                    警 有影片未上傳（Lark 插入附件格式無法自動下載），請用下方「上傳圖片/影片」手動上傳
                                   </div>
                                 )}
                               </div>
@@ -5112,7 +5113,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                             </div>
                             {uploadErrors[item.rowIndex] && (
                               <div style={{ marginTop: 5, fontSize: 11, color: '#f85149', display: 'flex', alignItems: 'center', gap: 4 }}>
-                                ⚠ {uploadErrors[item.rowIndex]}
+                                警 {uploadErrors[item.rowIndex]}
                               </div>
                             )}
                           </div>
@@ -5120,7 +5121,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                         <td style={{ padding: '8px 10px', verticalAlign: 'top' }}>
                           {item.hasError ? (
                             <>
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 12, fontSize: 11, fontWeight: 500, background: 'rgba(248,81,73,0.15)', color: '#f85149', border: '1px solid rgba(248,81,73,0.3)', whiteSpace: 'nowrap' }}>✗ 未完成</span>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 12, fontSize: 11, fontWeight: 500, background: 'rgba(248,81,73,0.15)', color: '#f85149', border: '1px solid rgba(248,81,73,0.3)', whiteSpace: 'nowrap' }}>失敗 未完成</span>
                               <div style={{ marginTop: 5, fontSize: 10, color: '#f85149' }}>
                                 缺漏：{item.missingSections.map(s => (
                                   <span key={s} style={{ display: 'inline-block', background: 'rgba(248,81,73,0.1)', border: '1px solid rgba(248,81,73,0.3)', borderRadius: 3, padding: '1px 4px', margin: '1px 2px', fontSize: 10 }}>
@@ -5130,7 +5131,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                               </div>
                             </>
                           ) : (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 12, fontSize: 11, fontWeight: 500, background: 'rgba(63,185,80,0.15)', color: '#3fb950', border: '1px solid rgba(63,185,80,0.3)', whiteSpace: 'nowrap' }}>✓ 格式通過</span>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 12, fontSize: 11, fontWeight: 500, background: 'rgba(63,185,80,0.15)', color: '#3fb950', border: '1px solid rgba(63,185,80,0.3)', whiteSpace: 'nowrap' }}>通過 格式通過</span>
                           )}
                         </td>
                       </tr>
@@ -5164,7 +5165,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                       </button>
                       {errCount > 0 && (
                         <span style={{ fontSize: 12, color: '#d29922', display: 'flex', alignItems: 'center', gap: 5 }}>
-                          ⚠ {errCount} 筆格式不完整，仍可強制送出
+                          警 {errCount} 筆格式不完整，仍可強制送出
                         </span>
                       )}
                       <button type="button"
@@ -5189,7 +5190,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={() => setLightboxSrc(null)}>
           <button type="button" onClick={() => setLightboxSrc(null)}
-            style={{ position: 'absolute', top: 16, right: 20, color: '#fff', fontSize: 28, background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}>✕</button>
+            style={{ position: 'absolute', top: 16, right: 20, color: '#fff', fontSize: 28, background: 'none', border: 'none', cursor: 'pointer', lineHeight: 1 }}>關閉</button>
           <img src={lightboxSrc} alt="attachment preview"
             style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8, border: '1px solid #2d3f55' }} />
         </div>
@@ -5243,7 +5244,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 <div key={r.rowIndex} className={`result-row ${r.ok ? 'ok' : 'error'}`}>
                   <code>{r.issueKey}</code>
                   {r.ok
-                    ? <span className="badge badge--ok">狀態已更新 ✓</span>
+                    ? <span className="badge badge--ok">狀態已更新 通過</span>
                     : <span className="err-msg">{r.error ?? '失敗'}</span>}
                 </div>
               ))}
@@ -5322,7 +5323,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                   onClick={handleEditTabLoad}
                   style={{ whiteSpace: 'nowrap' }}
                 >
-                  {editTabLoading ? '讀取中…' : '📥 讀取'}
+                  {editTabLoading ? '讀取中…' : '讀取'}
                 </button>
               </div>
 
@@ -5352,7 +5353,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
               {editTabJiraError && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#1e1010', border: '1px solid #7f1d1d60', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>
-                  <span style={{ fontSize: 12, color: '#f87171', flex: 1 }}>⚠ {editTabJiraError}</span>
+                  <span style={{ fontSize: 12, color: '#f87171', flex: 1 }}>{editTabJiraError}</span>
                   <button type="button"
                     style={{ fontSize: 12, padding: '4px 12px', borderRadius: 5, border: '1px solid #f8717160', background: '#7f1d1d30', color: '#fca5a5', cursor: 'pointer', whiteSpace: 'nowrap' }}
                     onClick={() => fetchEditTabJiraData(editTabIssues.map(i => i.issueKey))}>
@@ -5624,7 +5625,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
               {/* Sheet 圖片欄 prefetch */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '8px 10px', background: '#0c1a13', border: '1px solid #1a3a2a', borderRadius: 6 }}>
-                <span style={{ fontSize: 12, color: '#4ade80', flexShrink: 0 }}>📎 Sheet 圖片欄</span>
+                <span style={{ fontSize: 12, color: '#4ade80', flexShrink: 0 }}>Sheet 圖片欄</span>
                 <select
                   value={editDescAttachCol}
                   onChange={e => setEditDescAttachCol(e.target.value)}
@@ -5688,7 +5689,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                   </span>
                                 )
                               })}
-                              <th style={{ ...thBase, color: '#4ade80', background: '#12201a', borderLeft: '2px solid #1a3a2a' }}>📎 附件</th>
+                              <th style={{ ...thBase, color: '#4ade80', background: '#12201a', borderLeft: '2px solid #1a3a2a' }}>附件</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -5742,13 +5743,13 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                             style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 4, border: '1px solid #2d4a2d', cursor: 'pointer', flexShrink: 0 }}
                                             onClick={() => setEditDescLightboxSrc(`/api/jira/attachment-cache/${att.cacheId}`)} />
                                         ) : (
-                                          <span key={ai} title={att.filename} style={{ fontSize: 10, color: '#d29922', padding: '2px 4px', background: 'rgba(210,153,34,0.1)', border: '1px solid rgba(210,153,34,0.3)', borderRadius: 4 }}>🎬</span>
+                                          <span key={ai} title={att.filename} style={{ fontSize: 10, color: '#d29922', padding: '2px 4px', background: 'rgba(210,153,34,0.1)', border: '1px solid rgba(210,153,34,0.3)', borderRadius: 4 }}>啟</span>
                                         )
                                       ))}
                                       {issueAtts.filter(a => !a.cacheId).map((att, ai) => (
                                         att.isVideo
-                                          ? <span key={`v-${ai}`} title={`${att.filename} — 影片無法自動下載，請用 + 手動上傳`} style={{ fontSize: 10, color: '#f59e0b', padding: '2px 4px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 4 }}>⚠ 需重新上傳</span>
-                                          : <span key={`err-${ai}`} title={att.error ?? att.filename} style={{ fontSize: 10, color: '#f87171', padding: '2px 4px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 4 }}>⚠ {att.filename.slice(0, 10)}{att.filename.length > 10 ? '…' : ''}</span>
+                                          ? <span key={`v-${ai}`} title={`${att.filename} — 影片無法自動下載，請用 + 手動上傳`} style={{ fontSize: 10, color: '#f59e0b', padding: '2px 4px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.4)', borderRadius: 4 }}>需重新上傳</span>
+                                          : <span key={`err-${ai}`} title={att.error ?? att.filename} style={{ fontSize: 10, color: '#f87171', padding: '2px 4px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 4 }}>{att.filename.slice(0, 10)}{att.filename.length > 10 ? '…' : ''}</span>
                                       ))}
                                       <label style={{ cursor: 'pointer', fontSize: 11, color: '#60a5fa', padding: '2px 5px', background: '#1a2f45', border: '1px solid #2d3f55', borderRadius: 4, flexShrink: 0, lineHeight: '18px' }}>
                                         +
@@ -5843,7 +5844,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                       </a>
                     </code>
                     {r.ok
-                      ? <span className="badge badge--ok">修改成功 ✓</span>
+                      ? <span className="badge badge--ok">修改成功 通過</span>
                       : <span className="err-msg">{r.error ?? '失敗'}</span>}
                   </div>
                 ))}
@@ -5867,7 +5868,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           {!showPendingPanel && !reconcileOpen && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               {pendingWritebackCount > 0 && (
-                <span style={{ fontSize: 12, color: '#f59e0b' }}>⚠️ 有 {pendingWritebackCount} 筆回寫失敗</span>
+                <span style={{ fontSize: 12, color: '#f59e0b' }}>有 {pendingWritebackCount} 筆回寫失敗</span>
               )}
               <button
                 style={{ background: 'none', border: 'none', color: '#475569', fontSize: 12, cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
@@ -5876,7 +5877,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                   if (r.ok) { setPendingRows(r.rows ?? []); setPendingWritebackCount(r.rows?.length ?? 0) }
                   setShowPendingPanel(true)
                 }}
-              >🔧 補回填工具</button>
+              >補回填工具</button>
             </div>
           )}
 
@@ -5888,25 +5889,25 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 const r = await fetch('/api/jira/pending-writebacks?status=pending,failed').then(r => r.json()) as { ok: boolean; rows?: typeof pendingRows }
                 if (r.ok) setPendingRows(r.rows ?? [])
                 setShowPendingPanel(s => !s)
-              }}>{showPendingPanel ? '▲ 收起' : '📋 待補記錄'}</button>
+              }}>{showPendingPanel ? '▲ 收起' : '待補記錄'}</button>
               <button className="settings-btn" onClick={() => setReconcileOpen(o => !o)}>
-                {reconcileOpen ? '▲ 收起對帳' : '🔍 對帳補回填'}
+                {reconcileOpen ? '▲ 收起對帳' : '對帳補回填'}
               </button>
               <button
                 style={{ background: 'none', border: 'none', color: '#475569', fontSize: 12, cursor: 'pointer', padding: '0 4px' }}
                 onClick={() => { setShowPendingPanel(false); setReconcileOpen(false) }}
-              >✕</button>
+              >關閉</button>
             </div>
           </div>
           <div style={{ marginTop: 10, padding: '10px 14px', background: '#0f1f35', borderRadius: 8, fontSize: 12, color: '#94a3b8', lineHeight: 1.7 }}>
             <strong style={{ color: '#93c5fd' }}>使用說明</strong>
             <div style={{ marginTop: 6, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 24px' }}>
               <div>
-                <span style={{ color: '#e2e8f0' }}>📋 查看待補記錄</span><br />
+                <span style={{ color: '#e2e8f0' }}>查看待補記錄</span><br />
                 當批次開單後因斷線或 Lark timeout 導致回寫 Sheet 失敗，系統會自動保留這些記錄。點此查看所有 pending / failed 的紀錄，確認後點「全部重試」補寫回 Sheet。
               </div>
               <div>
-                <span style={{ color: '#e2e8f0' }}>🔍 對帳補回填</span><br />
+                <span style={{ color: '#e2e8f0' }}>對帳補回填</span><br />
                 適用於已遺失單號的舊資料。輸入 Jira 專案 Key、Lark Sheet URL 和開單日期範圍，系統會從 Jira 查出該時段建立的 Issue，與 Sheet 空白列做位置比對，高信心配對自動勾選，確認後寫回 Sheet。
               </div>
             </div>
@@ -5936,7 +5937,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                         }
                       } finally { setRetryingWriteback(false) }
                     }}>
-                      {retryingWriteback ? '重試中...' : `🔁 全部重試（${pendingRows.filter(r => r.status !== 'done').length} 筆）`}
+                      {retryingWriteback ? '重試中...' : `重行 全部重試（${pendingRows.filter(r => r.status !== 'done').length} 筆）`}
                     </button>
                   </div>
                   <div className="table-wrap" style={{ overflowX: 'auto' }}>
@@ -5977,7 +5978,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           {/* Reconcile tool */}
           {reconcileOpen && (
             <div style={{ marginTop: 16, borderTop: '1px solid #334155', paddingTop: 16 }}>
-              <h4 style={{ marginBottom: 12, color: '#e2e8f0' }}>🔍 對帳補回填 — 查詢 Jira 已建立的 Issue 並補寫 Sheet</h4>
+              <h4 style={{ marginBottom: 12, color: '#e2e8f0' }}>對帳補回填 — 查詢 Jira 已建立的 Issue 並補寫 Sheet</h4>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
                 <div>
                   <label style={{ fontSize: 12, color: '#94a3b8', display: 'block', marginBottom: 4 }}>Jira 專案 Key *</label>
@@ -6030,7 +6031,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 {reconcileLoading ? '查詢中...' : '查詢比對'}
               </button>
 
-              {reconcileMsg && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 8 }}>{reconcileMsg === '請先選擇帳號' ? '⚠️ 請先在頁面上方選擇 Jira 帳號，再使用對帳功能' : reconcileMsg}</p>}
+              {reconcileMsg && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 8 }}>{reconcileMsg === '請先選擇帳號' ? '請先在頁面上方選擇 Jira 帳號，再使用對帳功能' : reconcileMsg}</p>}
 
               {reconcileMatches.length > 0 && (
                 <div style={{ marginTop: 12 }}>
@@ -6048,14 +6049,14 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                           }),
                         }).then(r => r.json()) as { ok: boolean; succeeded: number; failed: number; message?: string }
                         if (resp.ok) {
-                          setReconcileMsg(`✅ 補回填完成：${resp.succeeded} 成功，${resp.failed} 失敗`)
+                          setReconcileMsg(`通過 補回填完成：${resp.succeeded} 成功，${resp.failed} 失敗`)
                         } else {
                           setReconcileMsg(resp.message ?? '補回填失敗')
                         }
                       } catch (e) { setReconcileMsg(String(e)) }
                       finally { setReconcileApplying(false) }
                     }}>
-                      {reconcileApplying ? '補回填中...' : `✍️ 補回填選取（${reconcileSelected.size} 筆）`}
+                      {reconcileApplying ? '補回填中...' : `補回填選取（${reconcileSelected.size} 筆）`}
                     </button>
                   </div>
                   <table className="sheet-preview-table">
@@ -6087,7 +6088,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                   </table>
                   {(reconcileUnmatchedJira.length > 0 || reconcileUnmatchedRows.length > 0) && (
                     <p style={{ fontSize: 12, color: '#f59e0b', marginTop: 8 }}>
-                      ⚠️ 未配對：Jira {reconcileUnmatchedJira.length} 筆，Sheet {reconcileUnmatchedRows.length} 列（數量不一致，請手動確認）
+                      警 未配對：Jira {reconcileUnmatchedJira.length} 筆，Sheet {reconcileUnmatchedRows.length} 列（數量不一致，請手動確認）
                     </p>
                   )}
                 </div>

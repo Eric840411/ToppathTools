@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { AccountInfo } from '../components/JiraAccountModal'
+import { XianxiaIcon } from '../components/XianxiaIcon'
 
 interface LocalAgent {
   agentId: string
@@ -98,7 +99,7 @@ export function LocalAgentPage({ currentAccount }: Props) {
       const d = await res.json() as { ok: boolean; message: string }
       setUpdateResults(prev => ({ ...prev, [agentId]: d }))
     } catch {
-      setUpdateResults(prev => ({ ...prev, [agentId]: { ok: false, message: '❌ 網路錯誤' } }))
+      setUpdateResults(prev => ({ ...prev, [agentId]: { ok: false, message: '失敗 網路錯誤' } }))
     } finally {
       setUpdatingAgent(null)
     }
@@ -187,8 +188,8 @@ export function LocalAgentPage({ currentAccount }: Props) {
             const border = '#23344d'
             const os = isWin
               ? {
-                  icon: '🪟', title: 'Windows Agent', dir: 'C:\\machine-test-agent',
-                  href: '/api/machine-test/agent/install.bat', dl: '⬇ 下載 install.bat',
+                  icon: 'monitor' as const, title: 'Windows Agent', dir: 'C:\\machine-test-agent',
+                  href: '/api/machine-test/agent/install.bat', dl: '下載 install.bat',
                   steps: [
                     { t: '下載安裝檔', d: '點上方按鈕下載，內含只屬於你的 Agent token。' },
                     { t: '雙擊執行 install.bat', d: '自動安裝 Node 依賴、Playwright Chromium 與 AutoSpin Python 依賴，並產生 start.bat。' },
@@ -196,12 +197,12 @@ export function LocalAgentPage({ currentAccount }: Props) {
                   ],
                 }
               : {
-                  icon: '🍎', title: 'macOS Agent', dir: '~/toppath-local-agent',
-                  href: '/api/machine-test/agent/install-mac.command', dl: '⬇ 下載 install-mac.command',
+                  icon: 'overview' as const, title: 'macOS Agent', dir: '~/toppath-local-agent',
+                  href: '/api/machine-test/agent/install-mac.command', dl: '下載 install-mac.command',
                   steps: [
                     { t: '下載安裝檔', d: '點上方按鈕下載，內含只屬於你的 Agent token。' },
                     { t: 'Terminal 執行安裝', d: '開啟「終端機」貼上指令，會自動安裝 Node 依賴、Playwright 與 AutoSpin Python 依賴。', cmd: 'bash ~/Downloads/install-mac.command' },
-                    { t: '啟動 Agent', d: '安裝完成後執行（或雙擊 start.command）：', cmd: 'bash ~/toppath-local-agent/start.command', tip: '⚠️ 首次被 Gatekeeper 擋下時：系統設定 → 隱私權與安全性 → 按「仍要打開」。' },
+                    { t: '啟動 Agent', d: '安裝完成後執行（或雙擊 start.command）：', cmd: 'bash ~/toppath-local-agent/start.command', tip: '首次被 Gatekeeper 擋下時：系統設定 → 隱私權與安全性 → 按「仍要打開」。' },
                   ],
                 }
             const tabBtn = (key: 'win' | 'mac', label: string) => (
@@ -209,7 +210,7 @@ export function LocalAgentPage({ currentAccount }: Props) {
                 style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: 11, borderRadius: 11, cursor: 'pointer',
                   border: `1px solid ${installOS === key ? accent : border}`, background: installOS === key ? '#16263f' : '#0f172a',
                   color: installOS === key ? '#fff' : '#94a3b8', fontWeight: 700, fontSize: 14 }}>
-                <span style={{ fontSize: 18 }}>{key === 'win' ? '🪟' : '🍎'}</span> {label}
+                <XianxiaIcon name={key === 'win' ? 'monitor' : 'overview'} size={19} /> {label}
               </button>
             )
             return (
@@ -220,7 +221,7 @@ export function LocalAgentPage({ currentAccount }: Props) {
 
                 {/* hero download */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, background: 'linear-gradient(135deg,#16263f,#101d31)', border: `1px solid ${border}`, borderRadius: 13, padding: '15px 17px', marginBottom: 18 }}>
-                  <div style={{ width: 46, height: 46, borderRadius: 12, background: '#0e1a2d', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>{os.icon}</div>
+                  <div style={{ width: 46, height: 46, borderRadius: 12, background: '#0e1a2d', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><XianxiaIcon name={os.icon} size={34} /></div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <b style={{ fontSize: 15 }}>{os.title}</b>
                     <p style={{ margin: '3px 0 0', fontSize: 12, color: '#94a3b8' }}>需先安裝 Node.js 20 LTS · 安裝位置 <code>{os.dir}</code></p>
@@ -246,7 +247,7 @@ export function LocalAgentPage({ currentAccount }: Props) {
                             </button>
                           </div>
                         )}
-                        {s.tip && (
+                        {'tip' in s && s.tip && (
                           <div style={{ marginTop: 8, fontSize: 11.5, color: '#64748b', background: '#0e1a2d', borderLeft: `3px solid ${accent}`, borderRadius: '0 6px 6px 0', padding: '7px 10px' }}>{s.tip}</div>
                         )}
                       </div>

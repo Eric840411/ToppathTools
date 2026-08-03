@@ -13,11 +13,11 @@ export default function ChangelogModal({ onClose }: Props) {
       <div className="modal-box" style={{ width: 620, maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
         <div className="modal-header">
           <div>
-            <h2 style={{ margin: 0 }}>📋 更新日誌</h2>
+            <h2 style={{ margin: 0 }}>更新日誌</h2>
             <span style={{ fontSize: 12, color: '#64748b' }}>Workflow Integrator</span>
           </div>
           <button className={`modal-close${isGame ? ' dng-modal-close' : ''}`} onClick={onClose}>
-            {isGame ? <DungeonIcon name="close" tone="slate" /> : '✕'}
+            {isGame ? <DungeonIcon name="close" tone="slate" /> : '關閉'}
           </button>
         </div>
 

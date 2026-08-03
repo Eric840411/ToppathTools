@@ -266,7 +266,7 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
         <div className="modal-header">
           <h2>Jira 帳號</h2>
           <button type="button" className={`modal-close${isGame ? ' dng-modal-close' : ''}`} onClick={onClose}>
-            {isGame ? <DungeonIcon name="close" tone="slate" /> : '✕'}
+            {isGame ? <DungeonIcon name="close" tone="slate" /> : '關閉'}
           </button>
         </div>
 
@@ -274,7 +274,7 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
         {verifyTarget && (
           <div className="modal-body">
             <div style={{ textAlign: 'center', marginBottom: 16 }}>
-              <div style={{ fontSize: 32, marginBottom: 8 }}>🔒</div>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>鎖</div>
               <p style={{ fontWeight: 600, fontSize: 15, margin: '0 0 4px' }}>{verifyTarget.label}</p>
               <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>此帳號已設定 PIN，請輸入 PIN 以繼續</p>
             </div>
@@ -283,7 +283,7 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
                 onChange={e => setVerifyPin(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleVerifyAccountPin()}
                 style={{ padding: '10px 12px', border: '1.5px solid #d1d5db', borderRadius: 8, fontSize: 14, textAlign: 'center', letterSpacing: 4 }} />
-              {verifyError && <p style={{ fontSize: 12, color: '#dc2626', margin: 0 }}>❌ {verifyError}</p>}
+              {verifyError && <p style={{ fontSize: 12, color: '#dc2626', margin: 0 }}>失敗 {verifyError}</p>}
               <button type="button" className="submit-btn" disabled={verifyLoading || !verifyPin.trim()} onClick={handleVerifyAccountPin}>
                 {verifyLoading ? '驗證中...' : '確認'}
               </button>
@@ -300,7 +300,7 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
           <div className="modal-body">
             <div style={{ marginBottom: 16 }}>
               <p style={{ fontWeight: 600, fontSize: 14, margin: '0 0 4px' }}>
-                {pinTargetAcc?.hasPIN ? '🔒 修改 / 移除 PIN' : '🔓 設定 PIN'} — {pinTargetAcc?.label}
+                {pinTargetAcc?.hasPIN ? '修改 / 移除 PIN' : '設定 PIN'} — {pinTargetAcc?.label}
               </p>
               <p style={{ fontSize: 12, color: '#6b7280', margin: 0 }}>
                 {pinTargetAcc?.hasPIN ? '輸入舊 PIN 後設定新 PIN；留空新 PIN 可移除鎖定' : '設定後，使用此帳號時需要輸入 PIN'}
@@ -315,7 +315,7 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
                 </label>
               )}
               <label className="field">
-                <span>新 PIN{pinTargetAcc?.hasPIN ? '（留空則移除 PIN）' : <em className="req"> *</em>}</span>
+                <span>PIN{pinTargetAcc?.hasPIN ? '（留空則移除 PIN）' : <em className="req"> *</em>}</span>
                 <input type="password" value={pinNew} onChange={e => setPinNew(e.target.value)}
                   placeholder={pinTargetAcc?.hasPIN ? '留空 = 移除鎖定' : '設定 PIN'} style={{ letterSpacing: 2 }} />
               </label>
@@ -326,7 +326,7 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
                     placeholder="再次輸入新 PIN" style={{ letterSpacing: 2 }} />
                 </label>
               )}
-              {pinSetError && <p style={{ fontSize: 12, color: '#dc2626', margin: 0 }}>❌ {pinSetError}</p>}
+              {pinSetError && <p style={{ fontSize: 12, color: '#dc2626', margin: 0 }}>失敗 {pinSetError}</p>}
               <div style={{ display: 'flex', gap: 8 }}>
                 <button type="button" className="submit-btn" style={{ flex: 1 }}
                   disabled={pinSetLoading || (pinTargetAcc?.hasPIN ? !pinOld : !pinNew)} onClick={handleSetPin}>
@@ -371,7 +371,7 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
                           <span style={{ fontWeight: 600, fontSize: 14, color: '#0f172a' }}>{acc.label}</span>
                           {roleBadge(acc.role)}
                           {acc.email === currentEmail && <span className="badge badge--ok">使用中</span>}
-                          {acc.hasPIN && <span title="已設定 PIN" style={{ fontSize: 11 }}>🔒</span>}
+                          {acc.hasPIN && <span title="已設定 PIN" style={{ fontSize: 11 }}>鎖</span>}
                         </div>
                         <span style={{ fontSize: 12, color: '#64748b' }}>{acc.email}</span>
                       </button>
@@ -381,20 +381,20 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
                         <button type="button" title={acc.hasPIN ? '修改 PIN' : '設定 PIN'}
                           onClick={() => openPinSetup(acc.email)}
                           style={{ padding: '0 10px', background: acc.hasPIN ? '#fef9c3' : 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: acc.hasPIN ? '#92400e' : '#94a3b8' }}>
-                          {acc.hasPIN ? '🔒' : '🔓'}
+                          {acc.hasPIN ? '鎖' : '啟'}
                         </button>
                         {isAdmin && (
                           <>
                             <button type="button" title="修改角色"
                               onClick={() => roleEditTarget === acc.email ? setRoleEditTarget(null) : openRoleEdit(acc)}
                               style={{ padding: '0 10px', background: roleEditTarget === acc.email ? '#ede9fe' : 'none', border: 'none', borderLeft: '1px solid #f1f5f9', cursor: 'pointer', fontSize: 13, color: '#6366f1' }}>
-                              🎭
+                              面
                             </button>
                             <button type="button"
                               disabled={deleteLoading === acc.email}
                               onClick={() => handleDelete(acc.email)}
                               style={{ padding: '0 10px', background: 'none', border: 'none', borderLeft: '1px solid #f1f5f9', cursor: 'pointer', fontSize: 13, color: '#ef4444' }}>
-                              {deleteLoading === acc.email ? '…' : '✕'}
+                              {deleteLoading === acc.email ? '…' : '關閉'}
                             </button>
                           </>
                         )}
@@ -419,7 +419,7 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
                             取消
                           </button>
                         </div>
-                        {roleEditError && <p style={{ fontSize: 12, color: '#dc2626', margin: '6px 0 0' }}>❌ {roleEditError}</p>}
+                        {roleEditError && <p style={{ fontSize: 12, color: '#dc2626', margin: '6px 0 0' }}>失敗 {roleEditError}</p>}
                       </div>
                     )}
                   </div>
@@ -428,7 +428,7 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
                 <div style={{ marginTop: 16, borderTop: '1px solid #f3f4f6', paddingTop: 14 }}>
                   {isAdmin ? (
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <span style={{ fontSize: 12, color: '#059669', fontWeight: 600 }}>🔓 管理員模式（可刪除帳號、修改角色）</span>
+                      <span style={{ fontSize: 12, color: '#059669', fontWeight: 600 }}>管理員模式（可刪除帳號、修改角色）</span>
                       <button type="button" onClick={handleExitAdmin}
                         style={{ fontSize: 12, color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
                         退出管理員
@@ -451,12 +451,12 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
                           取消
                         </button>
                       </div>
-                      {adminPinError && <p style={{ fontSize: 12, color: '#dc2626', margin: 0 }}>❌ {adminPinError}</p>}
+                      {adminPinError && <p style={{ fontSize: 12, color: '#dc2626', margin: 0 }}>失敗 {adminPinError}</p>}
                     </div>
                   ) : (
                     <button type="button" onClick={() => setShowAdminPinInput(true)}
                       style={{ fontSize: 12, color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer' }}>
-                      🔐 管理員登入（解鎖刪除、角色編輯）
+                      鎖 管理員登入（解鎖刪除、角色編輯）
                     </button>
                   )}
                 </div>
@@ -505,7 +505,7 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
                     style={{ width: 'auto', padding: '10px 28px' }}
                     disabled={!newEmail.trim() || !newToken.trim() || !newLabel.trim() || addLoading}
                     onClick={handleAdd}>
-                    {addSuccess ? '已儲存 ✓' : addLoading ? '儲存中...' : '儲存'}
+                    {addSuccess ? '已儲存 通過' : addLoading ? '儲存中...' : '儲存'}
                   </button>
                 </div>
               </div>

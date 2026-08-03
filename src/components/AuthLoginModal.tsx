@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import Portal from './Portal'
 import { useIsGameMode } from './GameModeContext'
 import type { AccountInfo } from './JiraAccountModal'
+import { XianxiaIcon } from './XianxiaIcon'
 
 const LAST_LOGIN_EMAIL_KEY = 'toppath_last_login_email'
 
@@ -184,13 +185,13 @@ export function AuthLoginModal({ onLogin }: Props) {
       <div className="modal-overlay auth-login-overlay">
         <div className="modal auth-login-modal" onClick={event => event.stopPropagation()}>
           <div className="modal-header auth-login-header">
-            <h2>ToppathTools Login</h2>
+            <h2>太玄道樞</h2>
           </div>
 
           {!target && view === 'login' && (
             <div className="modal-body">
-              <div className="auth-login-lock">🔐</div>
-              <p className="auth-login-copy">選擇你的 Jira 帳號登入後才能使用系統。</p>
+              <div className="auth-login-lock" aria-hidden="true"><XianxiaIcon name="account" size={38} /></div>
+              <p className="auth-login-copy">擇一道契入樞，啟封 Jira 與諸般術器。</p>
               <div className="auth-login-tabs">
                 <button type="button" className="auth-login-tab active">登入</button>
                 <button type="button" className="auth-login-tab" onClick={() => { setView('add'); setError(''); setAddSuccess('') }}>新增帳號</button>
@@ -230,7 +231,7 @@ export function AuthLoginModal({ onLogin }: Props) {
                       <span className="auth-login-account-meta">
                         {isSameEmail(lastLoginEmail, account.email) && <span className="auth-login-last-badge" title="Last used">上次</span>}
                         <span>{account.role.toUpperCase()}</span>
-                        {account.hasPIN ? <span title="PIN protected">🔒</span> : <span title="No PIN">⚠</span>}
+                        {account.hasPIN ? <span className="auth-login-seal" title="PIN protected">鎖</span> : <span className="auth-login-seal auth-login-seal--open" title="No PIN">開</span>}
                         {loginLoadingEmail === account.email && <span>...</span>}
                       </span>
                     </button>
@@ -272,7 +273,7 @@ export function AuthLoginModal({ onLogin }: Props) {
 
           {!target && view === 'add' && (
             <div className="modal-body">
-              <div className="auth-login-lock">＋</div>
+              <div className="auth-login-lock" aria-hidden="true"><XianxiaIcon name="document" size={38} /></div>
               <p className="auth-login-copy">填入你的 Jira 帳號資訊並設定登入 PIN 密碼。</p>
               <div className="auth-login-tabs">
                 <button type="button" className="auth-login-tab" onClick={() => { setView('login'); setError('') }}>登入</button>
@@ -315,7 +316,7 @@ export function AuthLoginModal({ onLogin }: Props) {
 
           {target && (
             <div className="modal-body">
-              <div className="auth-login-lock">🔐</div>
+              <div className="auth-login-lock" aria-hidden="true"><XianxiaIcon name="settings" size={38} /></div>
               <p className="auth-login-copy">
                 {target.label} 需要 PIN 驗證
               </p>

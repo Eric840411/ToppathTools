@@ -41,7 +41,7 @@ export type StatKey = 'atk' | 'def' | 'int' | 'spd'
 
 export const STAT_LABELS: Record<StatKey, string> = { atk: 'ATK', def: 'DEF', int: 'INT', spd: 'SPD' }
 export const STAT_COLORS: Record<StatKey, string> = { atk: '#ef4444', def: '#4A90D9', int: '#9F7AEA', spd: '#FFD700' }
-export const STAT_ICONS: Record<StatKey, string>  = { atk: '⚔', def: '🛡', int: '🧠', spd: '⚡' }
+export const STAT_ICONS: Record<StatKey, string>  = { atk: '劍', def: '盾', int: '識', spd: '迅' }
 
 export interface SkillEffect {
   type: 'xp-mult' | 'instant-xp' | 'cd-reduce'
@@ -97,9 +97,9 @@ export const CHARACTER_CLASSES: Record<CharacterClass, ClassDef> = {
       levelup: ['我變強了！', '升級！力量暴增！'],
     },
     skills: [
-      { id: 'cmd-rally',  classId: 'commander', name: 'Rally',     nameZh: '批量攻勢', desc: '5 分鐘內所有 XP ×2',        icon: '⚔',  cooldownMs: 4*60*60*1000,  unlockLevel: 2, effect: { type: 'xp-mult',    value: 2,   durationMs: 5*60*1000 } },
-      { id: 'cmd-order',  classId: 'commander', name: 'Order',     nameZh: '號令群雄', desc: '立即獲得 +150 XP',          icon: '📣',  cooldownMs: 24*60*60*1000, unlockLevel: 4, effect: { type: 'instant-xp', value: 150 } },
-      { id: 'cmd-will',   classId: 'commander', name: 'Iron Will', nameZh: '鐵血意志', desc: '所有技能 CD 縮短 30%',      icon: '🔥',  cooldownMs: 12*60*60*1000, unlockLevel: 6, effect: { type: 'cd-reduce',  value: 0.3 } },
+      { id: 'cmd-rally',  classId: 'commander', name: 'Rally',     nameZh: '批量攻勢', desc: '5 分鐘內所有 XP ×2',        icon: '劍',  cooldownMs: 4*60*60*1000,  unlockLevel: 2, effect: { type: 'xp-mult',    value: 2,   durationMs: 5*60*1000 } },
+      { id: 'cmd-order',  classId: 'commander', name: 'Order',     nameZh: '號令群雄', desc: '立即獲得 +150 XP',          icon: '訊',  cooldownMs: 24*60*60*1000, unlockLevel: 4, effect: { type: 'instant-xp', value: 150 } },
+      { id: 'cmd-will',   classId: 'commander', name: 'Iron Will', nameZh: '鐵血意志', desc: '所有技能 CD 縮短 30%',      icon: '焰',  cooldownMs: 12*60*60*1000, unlockLevel: 6, effect: { type: 'cd-reduce',  value: 0.3 } },
     ],
   },
   hacker: {
@@ -111,13 +111,13 @@ export const CHARACTER_CLASSES: Record<CharacterClass, ClassDef> = {
     baseStats: { atk: 0, def: 0, int: 4, spd: 0 },
     quotes: {
       idle: ['魔法分析，開始！', '資料已讀取完畢。', '讓我看看有什麼異常...', '所有日誌盡在掌握。'],
-      celebrate: ['完美執行！', '程式碼破譯完成！', '✨ 成功！'],
+      celebrate: ['完美執行！', '程式碼破譯完成！', '成功！'],
       levelup: ['智力提升！', '升級！系統已入侵！'],
     },
     skills: [
-      { id: 'hck-decode',  classId: 'hacker', name: 'Decode',    nameZh: '代碼破譯', desc: '2 分鐘內所有 XP ×2.5',            icon: '💻', cooldownMs: 6*60*60*1000,  unlockLevel: 2, effect: { type: 'xp-mult',    value: 2.5, durationMs: 2*60*1000 } },
-      { id: 'hck-inject',  classId: 'hacker', name: 'AI Inject', nameZh: 'AI 注入',  desc: '立即獲得 +200 XP',                icon: '🤖', cooldownMs: 24*60*60*1000, unlockLevel: 4, effect: { type: 'instant-xp', value: 200 } },
-      { id: 'hck-zero',    classId: 'hacker', name: 'Zero Day',  nameZh: '零日攻擊', desc: '1 分鐘 testcase XP ×4',           icon: '⚡', cooldownMs: 12*60*60*1000, unlockLevel: 6, effect: { type: 'xp-mult',    value: 4,   durationMs: 60*1000, action: 'testcase-gen' } },
+      { id: 'hck-decode',  classId: 'hacker', name: 'Decode',    nameZh: '代碼破譯', desc: '2 分鐘內所有 XP ×2.5',            icon: '機', cooldownMs: 6*60*60*1000,  unlockLevel: 2, effect: { type: 'xp-mult',    value: 2.5, durationMs: 2*60*1000 } },
+      { id: 'hck-inject',  classId: 'hacker', name: 'AI Inject', nameZh: 'AI 注入',  desc: '立即獲得 +200 XP',                icon: '傀', cooldownMs: 24*60*60*1000, unlockLevel: 4, effect: { type: 'instant-xp', value: 200 } },
+      { id: 'hck-zero',    classId: 'hacker', name: 'Zero Day',  nameZh: '零日攻擊', desc: '1 分鐘 testcase XP ×4',           icon: '迅', cooldownMs: 12*60*60*1000, unlockLevel: 6, effect: { type: 'xp-mult',    value: 4,   durationMs: 60*1000, action: 'testcase-gen' } },
     ],
   },
   guardian: {
@@ -129,13 +129,13 @@ export const CHARACTER_CLASSES: Record<CharacterClass, ClassDef> = {
     baseStats: { atk: 0, def: 4, int: 0, spd: 0 },
     quotes: {
       idle: ['監控中，萬無一失。', '任何異常逃不過我。', '鐵壁防禦，穩如磐石。'],
-      celebrate: ['防線穩固！', '任務達成！', '🛡 完美守護！'],
+      celebrate: ['防線穩固！', '任務達成！', '完美守護！'],
       levelup: ['防禦強化！', '升級！護甲更堅！'],
     },
     skills: [
-      { id: 'grd-shield', classId: 'guardian', name: 'Shield',    nameZh: '持久監控', desc: '1h autospin XP ×3',             icon: '🛡', cooldownMs: 24*60*60*1000, unlockLevel: 2, effect: { type: 'xp-mult',    value: 3,   durationMs: 60*60*1000, action: 'autospin' } },
-      { id: 'grd-sense',  classId: 'guardian', name: 'Sense',     nameZh: '金庫感應', desc: '立即獲得 +100 XP',               icon: '👁',  cooldownMs: 8*60*60*1000,  unlockLevel: 4, effect: { type: 'instant-xp', value: 100 } },
-      { id: 'grd-wall',   classId: 'guardian', name: 'Iron Wall', nameZh: '鐵壁',     desc: '30 分鐘所有 XP ×1.5',           icon: '🏰', cooldownMs: 12*60*60*1000, unlockLevel: 6, effect: { type: 'xp-mult',    value: 1.5, durationMs: 30*60*1000 } },
+      { id: 'grd-shield', classId: 'guardian', name: 'Shield',    nameZh: '持久監控', desc: '1h autospin XP ×3',             icon: '盾', cooldownMs: 24*60*60*1000, unlockLevel: 2, effect: { type: 'xp-mult',    value: 3,   durationMs: 60*60*1000, action: 'autospin' } },
+      { id: 'grd-sense',  classId: 'guardian', name: 'Sense',     nameZh: '金庫感應', desc: '立即獲得 +100 XP',               icon: '視',  cooldownMs: 8*60*60*1000,  unlockLevel: 4, effect: { type: 'instant-xp', value: 100 } },
+      { id: 'grd-wall',   classId: 'guardian', name: 'Iron Wall', nameZh: '鐵壁',     desc: '30 分鐘所有 XP ×1.5',           icon: '殿', cooldownMs: 12*60*60*1000, unlockLevel: 6, effect: { type: 'xp-mult',    value: 1.5, durationMs: 30*60*1000 } },
     ],
   },
   ranger: {
@@ -147,13 +147,13 @@ export const CHARACTER_CLASSES: Record<CharacterClass, ClassDef> = {
     baseStats: { atk: 2, def: 1, int: 0, spd: 1 },
     quotes: {
       idle: ['目標鎖定！', '快速突擊，敵人消失！', '圖片也逃不過我的眼。', '掃盪開始！'],
-      celebrate: ['搞定！', '精準命中！', '🏹 完美射擊！'],
+      celebrate: ['搞定！', '精準命中！', '完美射擊！'],
       levelup: ['速度提升！', '升級！移動更快！'],
     },
     skills: [
-      { id: 'rgr-chain', classId: 'ranger', name: 'Chain Test', nameZh: '連環測試', desc: '10 分鐘 machine-test XP ×3',     icon: '🏹', cooldownMs: 8*60*60*1000,  unlockLevel: 2, effect: { type: 'xp-mult',    value: 3,   durationMs: 10*60*1000, action: 'machine-test' } },
-      { id: 'rgr-hunt',  classId: 'ranger', name: 'Hunt',       nameZh: '圖片獵影', desc: '立即獲得 +100 XP',              icon: '🖼',  cooldownMs: 12*60*60*1000, unlockLevel: 4, effect: { type: 'instant-xp', value: 100 } },
-      { id: 'rgr-dash',  classId: 'ranger', name: 'Dash',       nameZh: '疾風步',   desc: '所有技能 CD 縮短 50%',           icon: '💨', cooldownMs: 24*60*60*1000, unlockLevel: 6, effect: { type: 'cd-reduce',  value: 0.5 } },
+      { id: 'rgr-chain', classId: 'ranger', name: 'Chain Test', nameZh: '連環測試', desc: '10 分鐘 machine-test XP ×3',     icon: '弓', cooldownMs: 8*60*60*1000,  unlockLevel: 2, effect: { type: 'xp-mult',    value: 3,   durationMs: 10*60*1000, action: 'machine-test' } },
+      { id: 'rgr-hunt',  classId: 'ranger', name: 'Hunt',       nameZh: '圖片獵影', desc: '立即獲得 +100 XP',              icon: '影',  cooldownMs: 12*60*60*1000, unlockLevel: 4, effect: { type: 'instant-xp', value: 100 } },
+      { id: 'rgr-dash',  classId: 'ranger', name: 'Dash',       nameZh: '疾風步',   desc: '所有技能 CD 縮短 50%',           icon: '風', cooldownMs: 24*60*60*1000, unlockLevel: 6, effect: { type: 'cd-reduce',  value: 0.5 } },
     ],
   },
   sage: {
@@ -165,13 +165,13 @@ export const CHARACTER_CLASSES: Record<CharacterClass, ClassDef> = {
     baseStats: { atk: 0, def: 1, int: 3, spd: 0 },
     quotes: {
       idle: ['數據不會說謊。', '機率已在掌控之中。', '宇宙的規律，盡在我心。'],
-      celebrate: ['洞察完成！', '一切如預測！', '✨ 賢者之眼！'],
+      celebrate: ['洞察完成！', '一切如預測！', '賢者之眼！'],
       levelup: ['智慧增長！', '升級！預言更準！'],
     },
     skills: [
-      { id: 'sge-insight', classId: 'sage', name: 'Insight',     nameZh: '機率洞察', desc: '15 分鐘 gs-stats XP ×3',         icon: '🔮', cooldownMs: 8*60*60*1000,  unlockLevel: 2, effect: { type: 'xp-mult',    value: 3,   durationMs: 15*60*1000, action: 'gs-stats' } },
-      { id: 'sge-wisdom',  classId: 'sage', name: 'Wisdom',      nameZh: '古老智慧', desc: '立即獲得 +150 XP',               icon: '📚', cooldownMs: 24*60*60*1000, unlockLevel: 4, effect: { type: 'instant-xp', value: 150 } },
-      { id: 'sge-eye',     classId: 'sage', name: 'All-Seeing',  nameZh: '全知之眼', desc: '15 分鐘所有 XP ×1.5',            icon: '✨', cooldownMs: 12*60*60*1000, unlockLevel: 6, effect: { type: 'xp-mult',    value: 1.5, durationMs: 15*60*1000 } },
+      { id: 'sge-insight', classId: 'sage', name: 'Insight',     nameZh: '機率洞察', desc: '15 分鐘 gs-stats XP ×3',         icon: '晶', cooldownMs: 8*60*60*1000,  unlockLevel: 2, effect: { type: 'xp-mult',    value: 3,   durationMs: 15*60*1000, action: 'gs-stats' } },
+      { id: 'sge-wisdom',  classId: 'sage', name: 'Wisdom',      nameZh: '古老智慧', desc: '立即獲得 +150 XP',               icon: '典', cooldownMs: 24*60*60*1000, unlockLevel: 4, effect: { type: 'instant-xp', value: 150 } },
+      { id: 'sge-eye',     classId: 'sage', name: 'All-Seeing',  nameZh: '全知之眼', desc: '15 分鐘所有 XP ×1.5',            icon: '靈', cooldownMs: 12*60*60*1000, unlockLevel: 6, effect: { type: 'xp-mult',    value: 1.5, durationMs: 15*60*1000 } },
     ],
   },
 }
@@ -193,15 +193,15 @@ export interface GameStats {
 }
 
 export const ACHIEVEMENTS: Achievement[] = [
-  { id: 'first-blood',    name: 'FIRST BLOOD',   desc: '第一張 Jira 開單',       icon: '⚔',  bonusXp: 100,  check: s => (s.counts['jira-create']  ?? 0) >= 1 },
-  { id: 'raider',         name: 'RAIDER',         desc: '機台測試 1 次',           icon: '🤖', bonusXp: 50,   check: s => (s.counts['machine-test']  ?? 0) >= 1 },
-  { id: 'raid-master',    name: 'RAID MASTER',    desc: '機台測試 10 次',          icon: '🏆', bonusXp: 200,  check: s => (s.counts['machine-test']  ?? 0) >= 10 },
-  { id: 'testmaster',     name: 'TEST MASTER',    desc: '生成 10 份 TestCase',     icon: '🔬', bonusXp: 200,  check: s => (s.counts['testcase-gen']  ?? 0) >= 10 },
-  { id: 'jackpot-witch',  name: 'JACKPOT WITCH',  desc: '觸發 Jackpot 告警',       icon: '🎰', bonusXp: 100,  check: s => (s.counts['jackpot-alert'] ?? 0) >= 1 },
-  { id: 'sentinel',       name: 'SENTINEL',       desc: 'AutoSpin 啟動 5 次',      icon: '👁',  bonusXp: 150,  check: s => (s.counts['autospin']      ?? 0) >= 5 },
-  { id: 'analyst',        name: 'ANALYST',        desc: 'GS 統計 5 次',            icon: '📊', bonusXp: 120,  check: s => (s.counts['gs-stats']       ?? 0) >= 5 },
-  { id: 'veteran',        name: 'VETERAN',        desc: '達到 Lv.5',               icon: '🎖', bonusXp: 500,  check: s => s.level >= 5 },
-  { id: 'legend',         name: 'LEGEND',         desc: '達到 Lv.10',              icon: '👑', bonusXp: 1000, check: s => s.level >= 10 },
+  { id: 'first-blood',    name: 'FIRST BLOOD',   desc: '第一張 Jira 開單',       icon: '劍',  bonusXp: 100,  check: s => (s.counts['jira-create']  ?? 0) >= 1 },
+  { id: 'raider',         name: 'RAIDER',         desc: '機台測試 1 次',           icon: '傀', bonusXp: 50,   check: s => (s.counts['machine-test']  ?? 0) >= 1 },
+  { id: 'raid-master',    name: 'RAID MASTER',    desc: '機台測試 10 次',          icon: '鼎', bonusXp: 200,  check: s => (s.counts['machine-test']  ?? 0) >= 10 },
+  { id: 'testmaster',     name: 'TEST MASTER',    desc: '生成 10 份 TestCase',     icon: '察', bonusXp: 200,  check: s => (s.counts['testcase-gen']  ?? 0) >= 10 },
+  { id: 'jackpot-witch',  name: 'JACKPOT WITCH',  desc: '觸發 Jackpot 告警',       icon: '機', bonusXp: 100,  check: s => (s.counts['jackpot-alert'] ?? 0) >= 1 },
+  { id: 'sentinel',       name: 'SENTINEL',       desc: 'AutoSpin 啟動 5 次',      icon: '視',  bonusXp: 150,  check: s => (s.counts['autospin']      ?? 0) >= 5 },
+  { id: 'analyst',        name: 'ANALYST',        desc: 'GS 統計 5 次',            icon: '圖', bonusXp: 120,  check: s => (s.counts['gs-stats']       ?? 0) >= 5 },
+  { id: 'veteran',        name: 'VETERAN',        desc: '達到 Lv.5',               icon: '章', bonusXp: 500,  check: s => s.level >= 5 },
+  { id: 'legend',         name: 'LEGEND',         desc: '達到 Lv.10',              icon: '冠', bonusXp: 1000, check: s => s.level >= 10 },
   { id: 'class-chosen',   name: 'AWAKENED',       desc: '選擇職業',                icon: '⭐', bonusXp: 100,  check: () => false },  // manually awarded in selectClass()
 ]
 
@@ -365,7 +365,7 @@ export function useGameProfile() {
         next.statPoints = (prev.statPoints ?? 0) + levelsGained * 3
         pushNotif({ type: 'levelup', message: 'LEVEL UP!', sub: `→ Lv.${newInfo.level}  +${levelsGained * 3} stat pts`, icon: '⬆', xp: xpAmt })
       } else {
-        pushNotif({ type: 'xp', message: `+${xpAmt} XP`, sub: action.replace(/-/g, ' ').toUpperCase(), icon: '✨', xp: xpAmt })
+        pushNotif({ type: 'xp', message: `+${xpAmt} XP`, sub: action.replace(/-/g, ' ').toUpperCase(), icon: '靈', xp: xpAmt })
       }
 
       // Daily quest progress
@@ -378,7 +378,7 @@ export function useGameProfile() {
           if (progress >= q.target) {
             next.questsClaimed = [...(next.questsClaimed ?? []), q.id]
             next.xp += q.xp
-            pushNotif({ type: 'quest', message: 'QUEST COMPLETE!', sub: `${q.name} +${q.xp}XP`, icon: '🎯', xp: q.xp })
+            pushNotif({ type: 'quest', message: 'QUEST COMPLETE!', sub: `${q.name} +${q.xp}XP`, icon: '標', xp: q.xp })
           }
         }
       }
@@ -418,7 +418,7 @@ export function useGameProfile() {
         next.xp = prev.xp + 100
         pushNotif({ type: 'achievement', message: 'AWAKENED', sub: `職業覺醒：${classDef.nameZh} +100XP`, icon: '⭐', xp: 100 })
       }
-      pushNotif({ type: 'skill', message: `${classDef.name}`, sub: `職業選擇完成！技能解鎖中...`, icon: classDef.skills[0]?.icon ?? '⚔' })
+      pushNotif({ type: 'skill', message: `${classDef.name}`, sub: `職業選擇完成！技能解鎖中...`, icon: classDef.skills[0]?.icon ?? '劍' })
       saveProfile(next)
       return next
     })

@@ -103,7 +103,7 @@ export function MeterReconcilePage() {
         }),
       })
       const d = await res.json()
-      setCfgMsg({ profile, text: d.ok ? '✅ 已儲存' : `失敗：${d.message}`, ok: !!d.ok })
+      setCfgMsg({ profile, text: d.ok ? '通過 已儲存' : `失敗：${d.message}`, ok: !!d.ok })
       await loadConfig(profile)
     } finally {
       setSavingCfg(null)
@@ -117,7 +117,7 @@ export function MeterReconcilePage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profile }),
       })
       const d = await res.json()
-      setCfgMsg({ profile, text: d.message ?? (d.ok ? '✅ 成功' : '失敗'), ok: !!d.ok })
+      setCfgMsg({ profile, text: d.message ?? (d.ok ? '通過 成功' : '失敗'), ok: !!d.ok })
     } finally {
       setTestingCfg(null)
     }
@@ -153,7 +153,7 @@ export function MeterReconcilePage() {
     <div style={{ maxWidth: 1180, margin: '0 auto' }}>
       <div style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 18, margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
-          🧮 Performance Meter 對帳
+          算 Performance Meter 對帳
         </h2>
         <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>
           OSM / GCP EGM Metering 對 Game Record + Jackpot Abnormality，驗證 Coin Out 是否一致
@@ -205,7 +205,7 @@ export function MeterReconcilePage() {
         </div>
         <button onClick={handleQuery} disabled={loading}
           style={{ marginLeft: 'auto', padding: '9px 22px', background: loading ? '#475569' : '#2563eb', color: '#fff', border: 'none', borderRadius: 7, fontWeight: 700, fontSize: 13, cursor: loading ? 'default' : 'pointer' }}>
-          {loading ? '查詢中…' : '🔍 查詢對帳'}
+          {loading ? '查詢中…' : '查詢對帳'}
         </button>
       </div>
 
@@ -223,7 +223,7 @@ export function MeterReconcilePage() {
             border: `1px solid ${result.pass ? 'rgba(34,197,94,.35)' : 'rgba(239,68,68,.35)'}`,
             background: result.pass ? 'rgba(34,197,94,.08)' : 'rgba(239,68,68,.08)',
           }}>
-            <div style={{ fontSize: 28 }}>{result.pass ? '✅' : '❌'}</div>
+            <div style={{ fontSize: 28 }}>{result.pass ? '通過' : '失敗'}</div>
             <div>
               <div style={{ fontSize: 15, fontWeight: 800, color: result.pass ? '#4ade80' : '#f87171' }}>
                 {result.pass ? '一致 — Coin Out 完全吻合' : '不一致 — Coin Out 有落差'}
@@ -342,7 +342,7 @@ export function MeterReconcilePage() {
       {/* Backend config */}
       <details open={configOpen} onToggle={e => setConfigOpen((e.target as HTMLDetailsElement).open)}
         style={{ background: '#111c30', border: '1px solid #23344d', borderRadius: 10, padding: '2px 16px' }}>
-        <summary style={{ cursor: 'pointer', padding: '10px 0', fontSize: 12, color: '#94a3b8', fontWeight: 700 }}>⚙️ 後台設定（OSM / GCP 兩組後台連線資訊）</summary>
+        <summary style={{ cursor: 'pointer', padding: '10px 0', fontSize: 12, color: '#94a3b8', fontWeight: 700 }}>後台設定（OSM / GCP 兩組後台連線資訊）</summary>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, paddingBottom: 16 }}>
           {(['osm', 'gcp'] as const).map(profile => {
             const cfg = profile === 'osm' ? osmConfig : gcpConfig

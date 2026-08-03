@@ -71,7 +71,7 @@ function countOnlineStates(machines: OsmMachine[]) {
 }
 
 function imageReconStatusLabel(match: boolean): string {
-  return match ? '✓ 達標' : '⚠ 未達標'
+  return match ? '通過 達標' : '未達標'
 }
 
 const CHANNEL_COLORS: Record<string, string> = {
@@ -279,7 +279,7 @@ function ChannelRow({
       )}
       <div className="osm-channel-row-meta">
         <span className="osm-channel-row-time">{result.syncTime ? result.syncTime.slice(5, 16) : '—'}</span>
-        {hasOffTarget && <span className="osm-badge osm-badge--warn">⚠ {onlineOffTarget.length}</span>}
+        {hasOffTarget && <span className="osm-badge osm-badge--warn">{onlineOffTarget.length}</span>}
         <span className="osm-channel-row-arrow">{selected ? '◀' : '▶'}</span>
       </div>
     </div>
@@ -326,7 +326,7 @@ function ChannelDetailPanel({
       </div>
 
       {result.error ? (
-        <p className="osm-card-error">⚠ {result.error}</p>
+        <p className="osm-card-error">{result.error}</p>
       ) : (
         <>
           {total > 0 && (
@@ -339,7 +339,7 @@ function ChannelDetailPanel({
           )}
           {hasOffTarget && (
             <div className="osm-offtarget-alert">
-              <span className="osm-offtarget-title">⚠ Online 未達標：{onlineOffTarget.length} 台</span>
+              <span className="osm-offtarget-title">Online 未達標：{onlineOffTarget.length} 台</span>
               <div className="osm-offtarget-list">
                 {[...offTargetByType.entries()].map(([mt, { target, count }]) => (
                   <span key={mt} className="osm-offtarget-item">
@@ -415,7 +415,7 @@ function VersionDashboard({
 
   const hasAnyData = channelResults.length > 0 || versionHistory.length > 0 || llVersions.length > 0 || tpVersions.length > 0 || imageReconRecords.length > 0
   if (!hasAnyData) {
-    return <p className="osm-empty">尚未取得資料。按「⚡ 一鍵全部取得」同步所有版本。</p>
+    return <p className="osm-empty">尚未取得資料。按「迅 一鍵全部取得」同步所有版本。</p>
   }
 
   const totalIssues = offTargetMachines.length + offTargetComps.length
@@ -441,13 +441,13 @@ function VersionDashboard({
       </div>
 
       {totalIssues === 0 && (
-        <div className="osm-alert osm-alert--ok">✅ 所有版本均已達標</div>
+        <div className="osm-alert osm-alert--ok">通過 所有版本均已達標</div>
       )}
 
       {/* Machine groups — compact cards */}
       {machineGroups.length > 0 && (
         <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#fbbf24', marginBottom: 6, letterSpacing: '0.02em' }}>⚠ 未達標機台（按類型分組）</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#fbbf24', marginBottom: 6, letterSpacing: '0.02em' }}>未達標機台（按類型分組）</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {machineGroups.map(g => {
               const key = `${g.channelName}|${g.machineType}|${g.current}`
@@ -485,7 +485,7 @@ function VersionDashboard({
       {/* Components — compact table */}
       {offTargetComps.length > 0 && (
         <div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#fbbf24', marginBottom: 6, letterSpacing: '0.02em' }}>⚠ 未達標元件</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#fbbf24', marginBottom: 6, letterSpacing: '0.02em' }}>未達標元件</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
             {offTargetComps.map(c => (
               <div key={`${c.system}-${c.name}`} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', background: '#1e293b', border: '1px solid #334155', borderRadius: 6, fontSize: 12 }}>
@@ -869,7 +869,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
       <section className="osm-section">
         <div className="osm-section-header">
           <div>
-            <h2 className="osm-section-title">🎯 目標版本 & 告警設定</h2>
+            <h2 className="osm-section-title">目標版本 & 告警設定</h2>
             <p className="osm-section-sub">從 Lark Sheet 同步目標版本，手動或定時發送告警到 Lark 群組機器人</p>
           </div>
           <button
@@ -896,12 +896,12 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
             className="osm-btn osm-btn--primary"
             onClick={handleSendAlert}
             disabled={alertSending}
-          >{alertSending ? '⟳ 發送中…' : '📢 發送告警'}</button>
+          >{alertSending ? '⟳ 發送中…' : '發送告警'}</button>
           <button
             type="button"
             className="osm-btn osm-btn--sm osm-btn--ghost"
             onClick={() => setAlertConfigExpanded(v => !v)}
-          >{alertConfigExpanded ? '⚙ 收起排程' : '⚙ 排程設定'}</button>
+          >{alertConfigExpanded ? '收起排程' : '排程設定'}</button>
         </div>
 
         {/* Feedback messages */}
@@ -1002,7 +1002,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
       <section className="osm-section">
         <div className="osm-section-header">
           <div>
-            <h2 className="osm-section-title">📊 版本達標總覽</h2>
+            <h2 className="osm-section-title">版本達標總覽</h2>
             <p className="osm-section-sub">一次取得所有版本資料，列出所有未達標的元件與機台</p>
           </div>
           <button
@@ -1011,7 +1011,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
             onClick={handleFetchAll}
             disabled={fetchAllLoading || syncingAll || versionHistoryLoading || llLoading || tpLoading || reportLoading}
           >
-            {fetchAllLoading ? '⟳ 取得中…' : '⚡ 一鍵全部取得'}
+            {fetchAllLoading ? '⟳ 取得中…' : '一鍵全部取得'}
           </button>
         </div>
 
@@ -1030,7 +1030,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
       <section className="osm-section">
         <div className="osm-section-header">
           <div>
-            <h2 className="osm-section-title">🖥 機台版本 Dashboard</h2>
+            <h2 className="osm-section-title">機台版本 Dashboard</h2>
             <p className="osm-section-sub">從各渠道 OSM 後台即時取得機台版本資訊</p>
           </div>
           <button
@@ -1096,11 +1096,11 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
                 <button
                   onClick={handleFetchFrontend} disabled={frontendLoading || !frontendUrl.trim()}
                   className="osm-btn osm-btn--primary" style={{ fontSize: 12, padding: '5px 14px', whiteSpace: 'nowrap' }}
-                >{frontendLoading ? '取得中...' : '🎰 取得前端機台數'}</button>
+                >{frontendLoading ? '取得中...' : '取得前端機台數'}</button>
               </div>
-              {frontendError && <div style={{ color: '#dc2626', fontSize: 12, marginBottom: 4 }}>❌ {frontendError}</div>}
+              {frontendError && <div style={{ color: '#dc2626', fontSize: 12, marginBottom: 4 }}>失敗 {frontendError}</div>}
               {!frontendError && frontendSource && (
-                <div style={{ color: '#475569', fontSize: 12, marginBottom: 4 }}>✅ 已取得前端機台數</div>
+                <div style={{ color: '#475569', fontSize: 12, marginBottom: 4 }}>通過 已取得前端機台數</div>
               )}
               {/* Game type grid */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 6 }}>
@@ -1129,7 +1129,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
                             {diff > 0 ? `+${diff}` : diff}
                           </span>
                         )}
-                        {diff === 0 && <span style={{ fontSize: 10, color: '#4ade80' }}>✓</span>}
+                        {diff === 0 && <span style={{ fontSize: 10, color: '#4ade80' }}>通過</span>}
                       </div>
                       <div style={{ height: 4, background: '#334155', borderRadius: 2, overflow: 'hidden', marginBottom: 4 }}>
                         <div style={{ height: '100%', width: `${pct}%`, background: '#3b82f6', borderRadius: 2 }} />
@@ -1207,7 +1207,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
       <section className="osm-section">
         <div className="osm-section-header">
           <div>
-            <h2 className="osm-section-title">🔧 OSM 元件版本</h2>
+            <h2 className="osm-section-title">OSM 元件版本</h2>
             <p className="osm-section-sub">從 OSM 後台取得各元件目前版本，與 Lark Sheet OSM 目標版本比對</p>
           </div>
           <button
@@ -1246,9 +1246,9 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
                       {onTarget === null ? (
                         <span className="osm-badge osm-badge--muted">未設定目標</span>
                       ) : onTarget ? (
-                        <span className="osm-badge osm-badge--ok">✓ 達標</span>
+                        <span className="osm-badge osm-badge--ok">通過 達標</span>
                       ) : (
-                        <span className="osm-badge osm-badge--warn">⚠ 未達標</span>
+                        <span className="osm-badge osm-badge--warn">未達標</span>
                       )}
                     </div>
                   </div>
@@ -1272,7 +1272,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
       <section className="osm-section">
         <div className="osm-section-header">
           <div>
-            <h2 className="osm-section-title">🍀 LuckyLink 元件版本</h2>
+            <h2 className="osm-section-title">LuckyLink 元件版本</h2>
             <p className="osm-section-sub">從 LuckyLink 後台取得各元件目前版本，與 Lark Sheet LuckyLink 目標版本比對</p>
           </div>
           <button
@@ -1311,9 +1311,9 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
                       ) : onTarget === null ? (
                         <span className="osm-badge osm-badge--muted">未設定目標</span>
                       ) : onTarget ? (
-                        <span className="osm-badge osm-badge--ok">✓ 達標</span>
+                        <span className="osm-badge osm-badge--ok">通過 達標</span>
                       ) : (
-                        <span className="osm-badge osm-badge--warn">⚠ 未達標</span>
+                        <span className="osm-badge osm-badge--warn">未達標</span>
                       )}
                     </div>
                   </div>
@@ -1337,7 +1337,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
       <section className="osm-section">
         <div className="osm-section-header">
           <div>
-            <h2 className="osm-section-title">🔷 Toppath 元件版本</h2>
+            <h2 className="osm-section-title">Toppath 元件版本</h2>
             <p className="osm-section-sub">從靜態 JSON 取得 GM / API / GW / TG-API 目前版本，與 Lark Sheet Toppath 目標版本比對</p>
           </div>
           <button
@@ -1374,9 +1374,9 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
                       {onTarget === null ? (
                         <span className="osm-badge osm-badge--muted">未設定目標</span>
                       ) : onTarget ? (
-                        <span className="osm-badge osm-badge--ok">✓ 達標</span>
+                        <span className="osm-badge osm-badge--ok">通過 達標</span>
                       ) : (
-                        <span className="osm-badge osm-badge--warn">⚠ 未達標</span>
+                        <span className="osm-badge osm-badge--warn">未達標</span>
                       )}
                     </div>
                   </div>
@@ -1400,7 +1400,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
       <section className="osm-section">
         <div className="osm-section-header">
           <div>
-            <h2 className="osm-section-title">🖼 ImageRecon Server 版本</h2>
+            <h2 className="osm-section-title">ImageRecon Server 版本</h2>
             <p className="osm-section-sub">從 ImageRecon API 取得各伺服器/服務版本，以 Lark Sheet ImageRecon 目標版本比對</p>
           </div>
           <button

@@ -1,5 +1,7 @@
 ﻿import { useState, useEffect, useRef, useCallback } from 'react'
 
+import { XianxiaIcon, type XianxiaIconName } from '../components/XianxiaIcon'
+
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 interface UatConfig {
@@ -219,16 +221,14 @@ function saveConfig(cfg: UatConfig) {
 
 // ─── Log line parser ───────────────────────────────────────────────────────────
 
-function parseLogLine(line: string): { icon: string; color: string } {
-  if (/^✅/.test(line)) return { icon: '✅', color: '#16a34a' }
-  if (/^❌/.test(line)) return { icon: '❌', color: '#dc2626' }
-  if (/^⚠️|^⚠/.test(line)) return { icon: '⚠️', color: '#d97706' }
-  if (/^🔧/.test(line)) return { icon: '🔧', color: '#7c3aed' }
-  if (/^⏳/.test(line)) return { icon: '⏳', color: '#2563eb' }
-  if (/^⏰/.test(line)) return { icon: '⏰', color: '#2563eb' }
-  if (/^📥|^📋/.test(line)) return { icon: '📋', color: '#475569' }
-  if (/^\[/.test(line)) return { icon: '▶', color: '#1d4ed8' }
-  return { icon: '·', color: '#64748b' }
+function parseLogLine(line: string): { color: string } {
+  if (/^通過/.test(line)) return { color: '#16a34a' }
+  if (/^失敗/.test(line)) return { color: '#dc2626' }
+  if (/^警/.test(line)) return { color: '#d97706' }
+  if (/^器/.test(line)) return { color: '#7c3aed' }
+  if (/^載|^冊/.test(line)) return { color: '#475569' }
+  if (/^\[/.test(line)) return { color: '#1d4ed8' }
+  return { color: '#64748b' }
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────────
@@ -725,21 +725,21 @@ export function OsmUatPage() {
     }
 
     const guideSteps = platform === 'h5' ? [
-      { icon: '1️⃣', title: '首次安裝', desc: '下載 install.bat（Windows）或 install.sh（Mac/Linux），執行後自動安裝 Node.js 與 Playwright 瀏覽器驅動。公網頁面可執行既有腳本；錄製需在伺服器本機 localhost 操作。' },
-      { icon: '2️⃣', title: '建立腳本（錄製模式）', desc: '錄製模式只支援 localhost。系統會開啟一般 Chrome 並用 Node.js 注入 recorder 捕捉點擊和輸入；公網使用者請用 Step Builder 建立腳本。' },
-      { icon: '3️⃣', title: '建立腳本（手動模式）', desc: '若需要精細調整，可直接在步驟文字框中編輯 JSON 陣列，支援 goto / click / type / assert_visible / screenshot / wait 等動作。' },
-      { icon: '4️⃣', title: '執行測試', desc: '在腳本清單點選腳本 → 執行設定填入目標 URL → 選擇解析度（模擬手機螢幕）→ 失敗模式 → 點擊「▶ 執行所選腳本」。' },
-      { icon: '5️⃣', title: '查看進度', desc: '右側日誌區即時輸出每步驟詳細訊息；下方「步驟進度」顯示 ✅ 通過 / ❌ 失敗 / ○ 待執行。' },
-      { icon: '6️⃣', title: '基準截圖', desc: '上傳參考截圖作為視覺比對基準，Playwright 執行時自動截圖並比較差異，偏差超過門檻則標記失敗。' },
+      { icon: '1⃣', title: '首次安裝', desc: '下載 install.bat（Windows）或 install.sh（Mac/Linux），執行後自動安裝 Node.js 與 Playwright 瀏覽器驅動。公網頁面可執行既有腳本；錄製需在伺服器本機 localhost 操作。' },
+      { icon: '2⃣', title: '建立腳本（錄製模式）', desc: '錄製模式只支援 localhost。系統會開啟一般 Chrome 並用 Node.js 注入 recorder 捕捉點擊和輸入；公網使用者請用 Step Builder 建立腳本。' },
+      { icon: '3⃣', title: '建立腳本（手動模式）', desc: '若需要精細調整，可直接在步驟文字框中編輯 JSON 陣列，支援 goto / click / type / assert_visible / screenshot / wait 等動作。' },
+      { icon: '4⃣', title: '執行測試', desc: '在腳本清單點選腳本 → 執行設定填入目標 URL → 選擇解析度（模擬手機螢幕）→ 失敗模式 → 點擊「▶ 執行所選腳本」。' },
+      { icon: '5⃣', title: '查看進度', desc: '右側日誌區即時輸出每步驟詳細訊息；下方「步驟進度」顯示 通過 通過 / 失敗 失敗 / ○ 待執行。' },
+      { icon: '6⃣', title: '基準截圖', desc: '上傳參考截圖作為視覺比對基準，Playwright 執行時自動截圖並比較差異，偏差超過門檻則標記失敗。' },
     ] : [
-      { icon: '1️⃣', title: '首次安裝', desc: '下載 install.bat（Windows）或 install.sh（Mac/Linux），執行後自動安裝 Node.js 與 Playwright 瀏覽器驅動。公網頁面可執行既有腳本；錄製需在伺服器本機 localhost 操作。' },
-      { icon: '2️⃣', title: '建立腳本（錄製模式）', desc: '錄製模式只支援 localhost。系統會開啟一般 Chrome 並用 Node.js 注入 recorder 捕捉點擊和輸入；公網使用者請用 Step Builder 建立腳本。' },
-      { icon: '3️⃣', title: '建立腳本（手動模式）', desc: '直接在步驟文字框編輯 JSON，支援 goto / click / click_xy / type / screenshot / wait 等動作，click_xy 需填 x、y 欄位。' },
-      { icon: '4️⃣', title: '執行測試', desc: '在腳本清單點選腳本 → 填入目標 URL → 選桌面解析度 → 點「▶ 執行所選腳本」，自動對 Canvas 畫面進行操作。' },
-      { icon: '5️⃣', title: '查看進度', desc: '右側日誌區即時輸出每步驟詳細訊息；下方「步驟進度」顯示 ✅ 通過 / ❌ 失敗 / ○ 待執行。' },
-      { icon: '6️⃣', title: '基準截圖', desc: '上傳 Canvas 截圖作為視覺比對基準，執行時自動截圖比較，偏差超過門檻則標記失敗。' },
-      { icon: '7️⃣', title: '模板圖庫', desc: '上傳 Canvas 元素截圖模板，系統使用 Template Matching（opencv-wasm）偵測畫面中是否出現該元素，信心值條顯示吻合程度。' },
-      { icon: '8️⃣', title: 'OCR 區域定義', desc: '定義畫面裁切座標（X / Y / 寬 / 高），系統使用 Tesseract.js 對該區域進行文字辨識，可驗證數字、文字內容是否符合預期。' },
+      { icon: '1⃣', title: '首次安裝', desc: '下載 install.bat（Windows）或 install.sh（Mac/Linux），執行後自動安裝 Node.js 與 Playwright 瀏覽器驅動。公網頁面可執行既有腳本；錄製需在伺服器本機 localhost 操作。' },
+      { icon: '2⃣', title: '建立腳本（錄製模式）', desc: '錄製模式只支援 localhost。系統會開啟一般 Chrome 並用 Node.js 注入 recorder 捕捉點擊和輸入；公網使用者請用 Step Builder 建立腳本。' },
+      { icon: '3⃣', title: '建立腳本（手動模式）', desc: '直接在步驟文字框編輯 JSON，支援 goto / click / click_xy / type / screenshot / wait 等動作，click_xy 需填 x、y 欄位。' },
+      { icon: '4⃣', title: '執行測試', desc: '在腳本清單點選腳本 → 填入目標 URL → 選桌面解析度 → 點「▶ 執行所選腳本」，自動對 Canvas 畫面進行操作。' },
+      { icon: '5⃣', title: '查看進度', desc: '右側日誌區即時輸出每步驟詳細訊息；下方「步驟進度」顯示 通過 通過 / 失敗 失敗 / ○ 待執行。' },
+      { icon: '6⃣', title: '基準截圖', desc: '上傳 Canvas 截圖作為視覺比對基準，執行時自動截圖比較，偏差超過門檻則標記失敗。' },
+      { icon: '7⃣', title: '模板圖庫', desc: '上傳 Canvas 元素截圖模板，系統使用 Template Matching（opencv-wasm）偵測畫面中是否出現該元素，信心值條顯示吻合程度。' },
+      { icon: '8⃣', title: 'OCR 區域定義', desc: '定義畫面裁切座標（X / Y / 寬 / 高），系統使用 Tesseract.js 對該區域進行文字辨識，可驗證數字、文字內容是否符合預期。' },
     ]
 
     return (
@@ -747,14 +747,14 @@ export function OsmUatPage() {
         {/* 操作說明 */}
         <section style={{ ...panelStyle, padding: 0, overflow: 'hidden' }}>
           <button onClick={() => setGuideOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', background: 'none', border: 'none', padding: '12px 16px', cursor: 'pointer', textAlign: 'left' }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>📖 操作說明</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>操作說明</span>
             <span style={{ marginLeft: 'auto', fontSize: 12, color: '#64748b' }}>{guideOpen ? '▲ 收合' : '▼ 展開'}</span>
           </button>
           {guideOpen && (
             <div style={{ borderTop: '1px solid #2d3f55', padding: '12px 16px', display: 'grid', gap: 10 }}>
-              {guideSteps.map(step => (
+              {guideSteps.map((step, stepIndex) => (
                 <div key={step.title} style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                  <span style={{ fontSize: 16, flexShrink: 0 }}>{step.icon}</span>
+                  <XianxiaIcon name={(['guide', 'document', 'settings', 'ai', 'monitor', 'overview', 'knowledge', 'warning'] as XianxiaIconName[])[stepIndex] ?? 'guide'} size={20} />
                   <div>
                     <span style={{ fontSize: 12, fontWeight: 700, color: '#60a5fa' }}>{step.title}</span>
                     <p style={{ margin: '2px 0 0', fontSize: 12, color: '#94a3b8', lineHeight: 1.6 }}>{step.desc}</p>
@@ -819,10 +819,10 @@ export function OsmUatPage() {
             </table>
             <div style={{ display: 'flex', gap: 8, marginTop: 12, alignItems: 'center' }}>
               <button style={{ ...btnStyle, background: '#4f8ef7' }} onClick={() => setNewScriptOpen(prev => ({ ...prev, [platform]: !prev[platform] }))}>＋ 新增腳本</button>
-              {recActive ? <button style={{ ...btnStyle, background: '#ef4444' }} onClick={() => void stopRecord()}>■ 停止錄製</button> : (() => { const canRec = recorderAvailable || uatAgents.some(a => !a.busy); return <button title={canRec ? (recorderAvailable ? '啟動本機 Chrome 錄製器' : '透過 Local Agent 啟動 Chrome 錄製') : '需要本機存取或已連線的 uat-record Agent'} style={{ ...btnStyle, background: canRec ? '#7c3aed' : '#475569', cursor: canRec ? 'pointer' : 'not-allowed' }} onClick={() => void startRecord()}>🔴 開始錄製</button> })()}
+              {recActive ? <button style={{ ...btnStyle, background: '#ef4444' }} onClick={() => void stopRecord()}>■ 停止錄製</button> : (() => { const canRec = recorderAvailable || uatAgents.some(a => !a.busy); return <button title={canRec ? (recorderAvailable ? '啟動本機 Chrome 錄製器' : '透過 Local Agent 啟動 Chrome 錄製') : '需要本機存取或已連線的 uat-record Agent'} style={{ ...btnStyle, background: canRec ? '#7c3aed' : '#475569', cursor: canRec ? 'pointer' : 'not-allowed' }} onClick={() => void startRecord()}>開始錄製</button> })()}
               {recActive && <span style={{ fontSize: 12, color: '#c084fc', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />錄製中，已擷取 {recCount} 步</span>}
             </div>
-            {recActive && recCdpWarning && <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderLeft: '3px solid #ef4444', borderRadius: 6, fontSize: 12, color: '#fca5a5' }}>⚠ CDP 警告：{recCdpWarning}</div>}
+            {recActive && recCdpWarning && <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)', borderLeft: '3px solid #ef4444', borderRadius: 6, fontSize: 12, color: '#fca5a5' }}>CDP 警告：{recCdpWarning}</div>}
             {recActive && recUrl && <div style={{ marginTop: 8, padding: '10px 12px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderLeft: '3px solid rgba(251,191,36,0.5)', borderRadius: 6 }}><div style={{ fontSize: 12, color: '#fbbf24', fontWeight: 600, marginBottom: 6 }}>{recUrl.startsWith('[Agent:') ? 'Agent 已在遠端電腦開啟 Chrome，可到 Agent 機器上直接操作錄製視窗。步驟會即時同步回這裡。' : 'Chrome 錄製器已開啟目標頁，可直接在錄製視窗操作。若畫面仍停在 about:blank，請將以下 URL 貼到網址列按 Enter：'}</div><div style={{ display: 'flex', gap: 8, alignItems: 'center' }}><input readOnly value={recUrl.replace(/^\[Agent:.*?\] /, '')} style={{ ...inputStyle, flex: 1, fontSize: 11, fontFamily: 'Consolas, Monaco, monospace' }} onClick={e => (e.target as HTMLInputElement).select()} /><button style={{ ...smallBtnStyle, whiteSpace: 'nowrap' }} onClick={() => { const t = recUrl.replace(/^\[Agent:.*?\] /, ''); if (navigator.clipboard?.writeText) { void navigator.clipboard.writeText(t).catch(() => {}) } else { try { const ta = document.createElement('textarea'); ta.value = t; ta.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta) } catch { /* ignore */ } } }}>複製 URL</button></div></div>}
             {newScriptOpen[platform] && <div style={{ display: 'grid', gap: 8, marginTop: 12, padding: '12px', background: '#162032', border: '1px solid #2d3f55', borderRadius: 6 }}>
               <input value={newScriptDraft[platform].name} onChange={e => setNewScriptDraft(prev => ({ ...prev, [platform]: { ...prev[platform], name: e.target.value } }))} placeholder="腳本名稱" style={inputStyle} />
@@ -886,12 +886,12 @@ export function OsmUatPage() {
               <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#94a3b8' }}><input type="checkbox" checked={runConfig[platform].headed} onChange={e => setRunConfig(prev => ({ ...prev, [platform]: { ...prev[platform], headed: e.target.checked } }))} />Headed</label>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 20, background: '#162032', border: '1px solid #2d3f55', borderRadius: 6, padding: '8px 16px', marginBottom: 12, fontSize: 12 }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ color: '#22c55e', fontWeight: 700 }}>✓ 通過</span>{autoStats[platform].pass}</span>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ color: '#ef4444', fontWeight: 700 }}>✗ 失敗</span>{autoStats[platform].fail}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ color: '#22c55e', fontWeight: 700 }}>通過 通過</span>{autoStats[platform].pass}</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ color: '#ef4444', fontWeight: 700 }}>失敗 失敗</span>{autoStats[platform].fail}</span>
               <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span style={{ color: '#aaa', fontWeight: 700 }}>○ 跳過</span>{autoStats[platform].skip}</span>
             </div>
             <div style={autoLogStyle}>{autoLogs[platform].length ? autoLogs[platform].map((line, i) => {
-              const c = line.startsWith('✅') ? '#4ade80' : line.startsWith('❌') ? '#f87171' : line.startsWith('⏳') ? '#94a3b8' : line.startsWith('🛑') ? '#fbbf24' : line.includes('完成') ? '#4ade80' : '#94a3b8'
+              const c = line.startsWith('通過') ? '#4ade80' : line.startsWith('失敗') ? '#f87171' : line.startsWith('⏳') ? '#94a3b8' : line.startsWith('止') ? '#fbbf24' : line.includes('完成') ? '#4ade80' : '#94a3b8'
               return <div key={i} style={{ color: c }}>{line}</div>
             }) : <span style={{ color: '#475569' }}>等待執行...</span>}</div>
           </section>
@@ -1025,7 +1025,7 @@ export function OsmUatPage() {
       {/* ── 設定區 ── */}
       <section style={{ background: '#162032', border: '1px solid #2d3f55', borderRadius: 8, padding: 16 }}>
         <h3 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 600, color: '#e2e8f0' }}>
-          ⚙️ 測試設定
+          陣 測試設定
         </h3>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -1051,7 +1051,7 @@ export function OsmUatPage() {
                   whiteSpace: 'nowrap',
                 }}
               >
-                {scanning ? '掃描中...' : '🔍 掃描'}
+                {scanning ? '掃描中...' : '掃描'}
               </button>
             </div>
           </label>
@@ -1098,14 +1098,14 @@ export function OsmUatPage() {
       {tcGroups && (
         <section style={{ background: 'rgba(56,189,248,0.06)', border: '1px solid rgba(56,189,248,0.25)', borderRadius: 8, padding: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#38bdf8' }}>📋 TC 摘要</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#38bdf8' }}>TC 摘要</span>
             <span style={{ fontSize: 12, color: '#64748b' }}>共 {tcTotal} 筆</span>
             <button
               type="button"
               onClick={() => setTcGroups(null)}
               style={{ marginLeft: 'auto', fontSize: 11, color: '#94a3b8', background: 'none', border: 'none', cursor: 'pointer' }}
             >
-              ✕
+              關閉
             </button>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -1188,10 +1188,10 @@ export function OsmUatPage() {
         background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.25)', borderRadius: 8,
         fontSize: 13, fontWeight: 600,
       }}>
-        <span style={{ color: '#4ade80' }}>✅ 通過: {summary.pass}</span>
-        <span style={{ color: '#7c3aed' }}>🔧 需人工: {summary.manual}</span>
+        <span style={{ color: '#4ade80' }}>通過 通過: {summary.pass}</span>
+        <span style={{ color: '#7c3aed' }}>需人工: {summary.manual}</span>
         <span style={{ color: '#94a3b8' }}>⏭ 跳過: {summary.skip}</span>
-        <span style={{ color: '#dc2626' }}>❌ 失敗: {summary.fail}</span>
+        <span style={{ color: '#dc2626' }}>失敗 失敗: {summary.fail}</span>
       </div>
 
       {/* ── Log 面板 ── */}

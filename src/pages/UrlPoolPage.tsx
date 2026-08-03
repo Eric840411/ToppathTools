@@ -193,7 +193,7 @@ export function UrlPoolPage({ currentAccount }: Props) {
       )}
 
       <div style={{ padding: '8px 12px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.25)', borderRadius: 8, marginBottom: 12, fontSize: 12, color: '#60a5fa' }}>
-        💡 「複製使用 URL」會產生一個中轉連結，貼到 AutoSpin Game URL 或機台測試 Game URL 使用。開啟時自動認領，8 小時後自動釋放。
+        悟 「複製使用 URL」會產生一個中轉連結，貼到 AutoSpin Game URL 或機台測試 Game URL 使用。開啟時自動認領，8 小時後自動釋放。
       </div>
 
       {/* ── Table ─────────────────────────────────────────────────────────────── */}

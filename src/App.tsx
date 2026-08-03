@@ -25,11 +25,13 @@ import { EgmDayCountPage } from './pages/EgmDayCountPage'
 import ChangelogModal from './components/ChangelogModal'
 import GeminiSettingsModal from './components/GeminiSettingsModal'
 import AiAgentMonitorWidget from './components/AiAgentMonitorWidget'
+import { XianxiaIcon, type XianxiaIconName } from './components/XianxiaIcon'
 import { type AccountInfo } from './components/JiraAccountModal'
 import { AuthLoginModal } from './components/AuthLoginModal'
 import { APP_VERSION } from './version'
 import { fetchAuthAccount, loadGlobalAccount, logoutAuthAccount, saveGlobalAccount } from './authSession'
 import './App.css'
+import './xianxia-complete.css'
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
   | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
@@ -289,14 +291,35 @@ function NavLabel({ group }: { group: Group }) {
   )
 }
 
+function navIconName(id: string, iconClass: string): XianxiaIconName {
+  if (id === 'dashboard') return 'overview'
+  if (id === 'history') return 'history'
+  if (id === 'knowledge') return 'knowledge'
+  if (id === 'discord-notify') return 'notification'
+  if (id === 'settings' || id === 'sysadmin' || id.includes('config')) return 'settings'
+  if (id === 'jira') return 'document'
+  if (id === 'lark') return 'ai'
+  if (id === 'color-game' || iconClass.includes('colorgame')) return 'compare'
+  if (iconClass.includes('imagecheck') || iconClass.includes('osm')) return 'monitor'
+  if (iconClass.includes('machinetest')) return 'ai'
+  return 'guide'
+}
+
 function App() {
   const [activeGroup, setActiveGroup] = useState<GroupId>('dashboard')
   const [activeTab, setActiveTab] = useState<TabId>('dashboard')
   const [showChangelog, setShowChangelog] = useState(false)
   const [showGemini, setShowGemini] = useState(false)
+  const [navQuery, setNavQuery] = useState('')
+  const [realm, setRealm] = useState<'moon' | 'ember'>(() => localStorage.getItem('xianxia-realm') === 'ember' ? 'ember' : 'moon')
   const [globalAccount, setGlobalAccount] = useState<AccountInfo | null>(loadGlobalAccount)
   const [authChecking, setAuthChecking] = useState(true)
   const [permissions, setPermissions] = useState<string[]>([])
+
+  useEffect(() => {
+    document.documentElement.dataset.realm = realm
+    localStorage.setItem('xianxia-realm', realm)
+  }, [realm])
 
   async function fetchPermissions() {
     try {
@@ -401,6 +424,16 @@ function App() {
   const currentSubtab = currentGroup?.subtabs?.find(s => s.id === effectiveTab)
   const currentDescription = currentSubtab?.description ?? currentGroup?.description ?? ''
   const currentPageLabel = currentSubtab?.label ?? currentGroup?.label ?? ''
+  const currentThemeLabel = currentSubtab?.themeLabel ?? currentGroup?.themeLabel ?? currentPageLabel
+  const searchResults = navQuery.trim()
+    ? allVisible.flatMap(group => {
+        const entries = group.subtabs?.length
+          ? group.subtabs.map(sub => ({ group, sub, themeLabel: sub.themeLabel ?? sub.label, label: sub.label }))
+          : [{ group, sub: null, themeLabel: group.themeLabel ?? group.label, label: group.label }]
+        const needle = navQuery.trim().toLowerCase()
+        return entries.filter(entry => `${entry.themeLabel} ${entry.label}`.toLowerCase().includes(needle))
+      }).slice(0, 7)
+    : []
 
   useEffect(() => {
     if (!globalAccount || !currentPageLabel) return
@@ -435,29 +468,21 @@ function App() {
           <div className="sidebar-logo-inner">
             <span className="brand-dot" />
             <div className="sidebar-logo-text">
-              <span className="sidebar-brand-name">Toppath Tools</span>
-              <button
-                type="button"
-                onClick={() => setShowChangelog(true)}
-                className="version-badge"
-                title="查看更新日誌"
-              >
-                v{APP_VERSION}
-              </button>
+              <span className="sidebar-brand-name">太玄道樞</span>
             </div>
           </div>
-          <p className="sidebar-sub">Workflow Integrator</p>
+          <p className="sidebar-sub">TOPPATH TOOLS</p>
         </div>
 
         {/* Nav items */}
         <div className="sidebar-nav">
-          <div className="sidebar-section-label">工具</div>
+          <div className="sidebar-section-label">洞天總覽</div>
           <button
             type="button"
             className={`sidebar-nav-item${currentGroup?.id === dashboardGroup.id ? ' sidebar-nav-item--active' : ''}`}
             onClick={() => handleGroupClick(dashboardGroup)}
           >
-            <span className={`tab-icon ${dashboardGroup.iconClass}`}>{dashboardGroup.icon}</span>
+            <span className={`tab-icon ${dashboardGroup.iconClass}`}><XianxiaIcon name="overview" size={18} /></span>
             <NavLabel group={dashboardGroup} />
           </button>
           {visibleGroups.map((group) => (
@@ -467,7 +492,7 @@ function App() {
                 className={`sidebar-nav-item${currentGroup?.id === group.id ? ' sidebar-nav-item--active' : ''}`}
                 onClick={() => handleGroupClick(group)}
               >
-                <span className={`tab-icon ${group.iconClass}`}>{group.icon}</span>
+                <span className={`tab-icon ${group.iconClass}`}><XianxiaIcon name={navIconName(group.id, group.iconClass)} size={18} /></span>
                 <NavLabel group={group} />
                 {group.subtabs && (
                   <span className="sidebar-expand-arrow">
@@ -485,7 +510,7 @@ function App() {
                       className={`sidebar-subtab-item${effectiveTab === sub.id ? ' sidebar-subtab-item--active' : ''}`}
                       onClick={() => setActiveTab(sub.id)}
                     >
-                      <span className={`tab-icon sub-tab-icon ${sub.iconClass}`}>{sub.icon}</span>
+                      <span className={`tab-icon sub-tab-icon ${sub.iconClass}`}><XianxiaIcon name={navIconName(sub.id, sub.iconClass)} size={16} /></span>
                       {sub.themeLabel ? (
                         <span className="sidebar-nav-label sidebar-nav-label--dual">
                           <span className="sidebar-nav-label-theme">{sub.themeLabel}</span>
@@ -500,7 +525,7 @@ function App() {
           ))}
 
           <div className="sidebar-divider" />
-          <div className="sidebar-section-label">系統</div>
+          <div className="sidebar-section-label">宗門維運</div>
 
           {visibleSettings && (
             <button
@@ -508,7 +533,7 @@ function App() {
               className={`sidebar-nav-item${currentGroup?.id === settingsGroup.id ? ' sidebar-nav-item--active' : ''}`}
               onClick={() => handleGroupClick(settingsGroup)}
             >
-              <span className={`tab-icon ${settingsGroup.iconClass}`}>{settingsGroup.icon}</span>
+              <span className={`tab-icon ${settingsGroup.iconClass}`}><XianxiaIcon name="settings" size={18} /></span>
               <NavLabel group={settingsGroup} />
             </button>
           )}
@@ -519,7 +544,7 @@ function App() {
               className={`sidebar-nav-item${currentGroup?.id === historyGroup.id ? ' sidebar-nav-item--active' : ''}`}
               onClick={() => handleGroupClick(historyGroup)}
             >
-              <span className={`tab-icon ${historyGroup.iconClass}`}>{historyGroup.icon}</span>
+              <span className={`tab-icon ${historyGroup.iconClass}`}><XianxiaIcon name="history" size={18} /></span>
               <NavLabel group={historyGroup} />
             </button>
           )}
@@ -530,7 +555,7 @@ function App() {
               className={`sidebar-nav-item${currentGroup?.id === knowledgeGroup.id ? ' sidebar-nav-item--active' : ''}`}
               onClick={() => handleGroupClick(knowledgeGroup)}
             >
-              <span className={`tab-icon ${knowledgeGroup.iconClass}`}>{knowledgeGroup.icon}</span>
+              <span className={`tab-icon ${knowledgeGroup.iconClass}`}><XianxiaIcon name="knowledge" size={18} /></span>
               <NavLabel group={knowledgeGroup} />
             </button>
           )}
@@ -541,7 +566,7 @@ function App() {
               className={`sidebar-nav-item${currentGroup?.id === discordNotifyGroup.id ? ' sidebar-nav-item--active' : ''}`}
               onClick={() => handleGroupClick(discordNotifyGroup)}
             >
-              <span className={`tab-icon ${discordNotifyGroup.iconClass}`}>{discordNotifyGroup.icon}</span>
+              <span className={`tab-icon ${discordNotifyGroup.iconClass}`}><XianxiaIcon name="notification" size={18} /></span>
               <NavLabel group={discordNotifyGroup} />
             </button>
           )}
@@ -552,7 +577,7 @@ function App() {
             onClick={() => visibleSysadmin && handleGroupClick(sysadminGroup)}
             title={visibleSysadmin ? '系統管理' : '僅管理員可使用'}
           >
-            <span className={`tab-icon ${sysadminGroup.iconClass}`}>{sysadminGroup.icon}</span>
+            <span className={`tab-icon ${sysadminGroup.iconClass}`}><XianxiaIcon name="settings" size={18} /></span>
             <NavLabel group={sysadminGroup} />
           </button>
 
@@ -560,6 +585,22 @@ function App() {
 
         {/* Bottom: user + AI settings */}
         <div className="sidebar-bottom">
+          <div className="sidebar-realm-switch" aria-label="背景境界">
+            <span>背景境界</span>
+            <div>
+              <button type="button" className={realm === 'moon' ? 'is-active' : ''} onClick={() => setRealm('moon')}>玄月</button>
+              <button type="button" className={realm === 'ember' ? 'is-active' : ''} onClick={() => setRealm('ember')}>赤霄</button>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowChangelog(true)}
+            className="sidebar-version-link"
+            title="查看更新日誌"
+          >
+            <span>更新日誌</span>
+            <strong>v{APP_VERSION}</strong>
+          </button>
           <button
             type="button"
             className="sidebar-ai-btn"
@@ -596,16 +637,41 @@ function App() {
       <div className="app-main">
         {/* Topbar */}
         <div className="app-topbar">
-          <div className="app-topbar-left">
-            <span className="app-topbar-title">{currentPageLabel}</span>
-            {currentSubtab && (
-              <span className="app-topbar-group">
-                <span className="app-topbar-sep">›</span>
-                {currentGroup?.label}
-              </span>
+          <div className="app-topbar-left" title={currentDescription}>
+            <span className="app-topbar-kicker">TAIXUAN CONTROL CENTER</span>
+            <span className="app-topbar-title">{currentThemeLabel}</span>
+            <span className="app-topbar-group">{currentPageLabel}</span>
+          </div>
+          <div className="app-global-search">
+            <span className="app-global-search-icon" aria-hidden="true" />
+            <input
+              type="search"
+              aria-label="搜尋工具"
+              placeholder="搜尋任務、卷宗或術式"
+              value={navQuery}
+              onChange={event => setNavQuery(event.target.value)}
+            />
+            {searchResults.length > 0 && (
+              <div className="app-global-search-results">
+                {searchResults.map(entry => (
+                  <button
+                    type="button"
+                    key={`${entry.group.id}-${entry.sub?.id ?? 'root'}`}
+                    onClick={() => {
+                      setActiveGroup(entry.group.id)
+                      setActiveTab(entry.sub?.id ?? entry.group.tab ?? activeTab)
+                      setNavQuery('')
+                    }}
+                  >
+                    <span>{entry.themeLabel}</span>
+                    <small>{entry.label}</small>
+                  </button>
+                ))}
+              </div>
             )}
           </div>
-          <p className="app-topbar-desc">{currentDescription}</p>
+          <div className="app-topbar-status"><span />靈脈穩定</div>
+          <div className="app-topbar-seal" aria-hidden="true"><XianxiaIcon name="overview" size={28} /></div>
         </div>
 
         {/* Page content */}

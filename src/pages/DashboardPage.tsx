@@ -193,9 +193,14 @@ export function DashboardPage() {
   return (
     <div className="dashboard-page">
       <div className="dashboard-intro">
-        <div>
-          <h1>即時監控</h1>
-          <p>登入後第一眼掌握目前使用人數、背景任務與服務壓力。</p>
+        <div className="dashboard-hero-copy">
+          <div className="dashboard-hero-kicker">TOPPATH WORKFLOW INTEGRATOR</div>
+          <h1>萬法歸樞，諸事可觀</h1>
+          <p>將在線弟子、任務流轉與靈脈負荷收束於同一座道樞，讓每一筆法事皆可觀、可追、可覆核。</p>
+          <div className="dashboard-hero-actions">
+            <button type="button" className="dashboard-hero-btn" onClick={() => document.querySelector('.dashboard-metrics')?.scrollIntoView({ behavior: 'smooth' })}>觀照全境</button>
+            <button type="button" className="dashboard-hero-btn dashboard-hero-btn--primary" onClick={() => document.querySelector('.dashboard-grid')?.scrollIntoView({ behavior: 'smooth' })}>巡覽道錄</button>
+          </div>
         </div>
         <div className="dashboard-intro-meta">
           <span>自動更新：30 秒</span>
@@ -207,22 +212,22 @@ export function DashboardPage() {
 
       <section className="dashboard-metrics">
         <article className="dashboard-metric">
-          <div className="dashboard-metric-label">正在使用 <span className="dashboard-chip dashboard-chip--good">LIVE</span></div>
+          <div className="dashboard-metric-label">在線弟子 <span className="dashboard-chip dashboard-chip--good">LIVE</span></div>
           <div className="dashboard-metric-value">{summary.totals.onlineUsers}<span>人</span></div>
           <div className="dashboard-metric-note">最近 60 秒內仍有 heartbeat 的使用者</div>
         </article>
         <article className="dashboard-metric">
-          <div className="dashboard-metric-label">有效登入 <span className="dashboard-chip dashboard-chip--blue">SESSION</span></div>
+          <div className="dashboard-metric-label">在冊道契 <span className="dashboard-chip dashboard-chip--blue">SESSION</span></div>
           <div className="dashboard-metric-value">{summary.totals.activeSessions}<span>組</span></div>
           <div className="dashboard-metric-note">尚未過期的登入 session</div>
         </article>
         <article className="dashboard-metric">
-          <div className="dashboard-metric-label">伺服器負載 <span className={`dashboard-chip ${pressure.className}`}>{pressure.label}</span></div>
+          <div className="dashboard-metric-label">靈脈負荷 <span className={`dashboard-chip ${pressure.className}`}>{pressure.label}</span></div>
           <div className="dashboard-metric-value">{summary.totals.activeRequests}<span>req</span></div>
           <div className="dashboard-metric-note">{summary.totals.requestsPerMinute} req/min，平均回應 {summary.requests.averageMs} ms{(summary.totals.activeLongConnections ?? 0) > 0 ? `，${summary.totals.activeLongConnections} SSE 連線` : ''}</div>
         </article>
         <article className="dashboard-metric">
-          <div className="dashboard-metric-label">記憶體佔用 <span className="dashboard-chip dashboard-chip--warn">WATCH</span></div>
+          <div className="dashboard-metric-label">靈力儲量 <span className="dashboard-chip dashboard-chip--warn">WATCH</span></div>
           <div className="dashboard-metric-value">{summary.server.memory.rssText.replace(' MB', '')}<span>MB</span></div>
           <div className="dashboard-metric-note">Server RSS，目前低於 PM2 重啟門檻</div>
         </article>
@@ -233,7 +238,7 @@ export function DashboardPage() {
           <article className="dashboard-panel">
             <div className="dashboard-panel-head">
               <div>
-                <h2>即時使用者</h2>
+                <h2>在場弟子錄</h2>
                 <p>最多顯示 {summary.limits.users} 位，依最後活動時間排序</p>
               </div>
               <span className="dashboard-chip">更新於 {formatClock(summary.generatedAt)}</span>

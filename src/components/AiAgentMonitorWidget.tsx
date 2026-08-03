@@ -1,6 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
-import { useIsGameMode } from './GameModeContext'
-import { PixelStudioWidget } from '../game/components/PixelStudioWidget'
+import { useEffect, useState } from 'react'
 
 type Provider = 'gemini' | 'openai' | 'ollama'
 type TaskStatus = 'queued' | 'running' | 'done' | 'error'
@@ -28,27 +26,13 @@ interface MonitorResponse {
 }
 
 export default function AiAgentMonitorWidget() {
-  const isGame = useIsGameMode()
-  if (isGame) return <PixelStudioWidget />
-
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  return <LegacyAiAgentMonitorWidget />
-}
-
-function LegacyAiAgentMonitorWidget() {
   const [backendOnline, setBackendOnline] = useState(true)
   const [runningCount, setRunningCount] = useState(0)
   const [queuedCount, setQueuedCount] = useState(0)
   const [runningByProvider, setRunningByProvider] = useState<Record<Provider, number>>({ gemini: 0, openai: 0, ollama: 0 })
   const [queuedByProvider, setQueuedByProvider] = useState<Record<Provider, number>>({ gemini: 0, openai: 0, ollama: 0 })
   const [latest, setLatest] = useState<AiTask[]>([])
-  const [minimized, setMinimized] = useState(false)
-  const [pos, setPos] = useState(() => {
-    if (typeof window === 'undefined') return { x: 900, y: 24 }
-    return { x: Math.max(0, window.innerWidth - 444), y: 24 }
-  })
-  const draggingRef = useRef(false)
-  const dragOffsetRef = useRef({ x: 0, y: 0 })
+  const [minimized, setMinimized] = useState(true)
 
   useEffect(() => {
     let alive = true
@@ -82,36 +66,15 @@ function LegacyAiAgentMonitorWidget() {
     return () => { alive = false; window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible) }
   }, [])
 
-  useEffect(() => {
-    const onMouseMove = (e: MouseEvent) => {
-      if (!draggingRef.current) return
-      const maxX = Math.max(0, window.innerWidth - (minimized ? 220 : 420))
-      const maxY = Math.max(0, window.innerHeight - 56)
-      const x = Math.min(Math.max(0, e.clientX - dragOffsetRef.current.x), maxX)
-      const y = Math.min(Math.max(0, e.clientY - dragOffsetRef.current.y), maxY)
-      setPos({ x, y })
-    }
-    const onMouseUp = () => { draggingRef.current = false }
-    window.addEventListener('mousemove', onMouseMove)
-    window.addEventListener('mouseup', onMouseUp)
-    return () => {
-      window.removeEventListener('mousemove', onMouseMove)
-      window.removeEventListener('mouseup', onMouseUp)
-    }
-  }, [minimized])
-
-  const onDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
-    draggingRef.current = true
-    dragOffsetRef.current = { x: e.clientX - pos.x, y: e.clientY - pos.y }
-  }
-
   return (
     <div
+      className={`ai-monitor-widget ${minimized ? 'is-minimized' : 'is-expanded'}`}
       style={{
         position: 'fixed',
-        left: pos.x,
-        top: pos.y,
-        width: minimized ? 220 : 420,
+        right: 18,
+        bottom: 18,
+        width: minimized ? 220 : 'min(420px, calc(100vw - 36px))',
+        maxHeight: minimized ? 48 : 'min(620px, calc(100dvh - 36px))',
         zIndex: 9999,
         border: '1px solid #2d3f55',
         borderRadius: 10,
@@ -121,9 +84,9 @@ function LegacyAiAgentMonitorWidget() {
       }}
     >
       <div
-        onMouseDown={onDragStart}
+        className={`ai-monitor-widget-head${backendOnline ? ' is-online' : ' is-offline'}`}
         style={{
-          cursor: 'move',
+          cursor: 'default',
           padding: '8px 10px',
           background: backendOnline ? 'rgba(59,130,246,0.1)' : 'rgba(239,68,68,0.1)',
           borderBottom: minimized ? 'none' : '1px solid #2d3f55',
@@ -147,7 +110,7 @@ function LegacyAiAgentMonitorWidget() {
       </div>
 
       {!minimized && (
-        <div style={{ padding: 10 }}>
+        <div className="ai-monitor-widget-body" style={{ padding: 10 }}>
           <div style={{ fontSize: 12, marginBottom: 8, color: backendOnline ? '#cbd5e1' : '#f87171' }}>
             {backendOnline
               ? `後端連線正常，執行中：${runningCount} 筆${queuedCount > 0 ? `，排隊中：${queuedCount} 筆` : ''}`

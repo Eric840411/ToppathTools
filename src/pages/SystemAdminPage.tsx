@@ -121,16 +121,16 @@ export function SystemAdminPage() {
         body: JSON.stringify({ matrix }),
       })
       const d = await r.json()
-      setMatrixMsg(d.ok ? '✅ 已儲存' : `❌ ${d.message}`)
+      setMatrixMsg(d.ok ? '通過 已儲存' : `失敗 ${d.message}`)
     } catch {
-      setMatrixMsg('❌ 儲存失敗')
+      setMatrixMsg('失敗 儲存失敗')
     } finally {
       setMatrixSaving(false)
     }
   }
 
   async function createAccount() {
-    if (!newAcct.email || !newAcct.label) { setAcctMsg('❌ 請填寫 Email 和名稱'); return }
+    if (!newAcct.email || !newAcct.label) { setAcctMsg('失敗 請填寫 Email 和名稱'); return }
     const r = await fetch('/api/admin/accounts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -138,12 +138,12 @@ export function SystemAdminPage() {
     })
     const d = await r.json()
     if (d.ok) {
-      setAcctMsg('✅ 已新增')
+      setAcctMsg('通過 已新增')
       setNewAcct({ email: '', label: '', role: 'qa', token: '', pin: '', status: 'active' })
       setShowAddForm(false)
       loadAccounts()
     } else {
-      setAcctMsg(`❌ ${d.message}`)
+      setAcctMsg(`失敗 ${d.message}`)
     }
   }
 
@@ -162,11 +162,11 @@ export function SystemAdminPage() {
     })
     const d = await r.json()
     if (d.ok) {
-      setAcctMsg('✅ 已更新')
+      setAcctMsg('通過 已更新')
       setEditTarget(null)
       loadAccounts()
     } else {
-      setAcctMsg(`❌ ${d.message}`)
+      setAcctMsg(`失敗 ${d.message}`)
     }
   }
 
@@ -174,8 +174,8 @@ export function SystemAdminPage() {
     if (!confirm(`確認刪除帳號 ${email}？`)) return
     const r = await fetch(`/api/admin/accounts/${encodeURIComponent(email)}`, { method: 'DELETE' })
     const d = await r.json()
-    if (d.ok) { setAcctMsg('✅ 已刪除'); loadAccounts() }
-    else setAcctMsg(`❌ ${d.message}`)
+    if (d.ok) { setAcctMsg('通過 已刪除'); loadAccounts() }
+    else setAcctMsg(`失敗 ${d.message}`)
   }
 
   // ── Group pages for matrix display ──
@@ -262,7 +262,7 @@ export function SystemAdminPage() {
               <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>管理員永遠全開（不可修改）。Other 為客製化角色，由管理員自訂。</p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              {matrixMsg && <span style={{ fontSize: 12, color: matrixMsg.startsWith('✅') ? '#16a34a' : '#dc2626' }}>{matrixMsg}</span>}
+              {matrixMsg && <span style={{ fontSize: 12, color: matrixMsg.startsWith('通過') ? '#16a34a' : '#dc2626' }}>{matrixMsg}</span>}
               <button type="button" style={btnPrimary} onClick={saveMatrix} disabled={matrixSaving}>
                 {matrixSaving ? '儲存中…' : '儲存權限設定'}
               </button>
@@ -339,7 +339,7 @@ export function SystemAdminPage() {
                 <p style={{ fontSize: 12, color: '#94a3b8', margin: '4px 0 0' }}>管理所有使用者帳號，指派角色與 PIN。</p>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                {acctMsg && <span style={{ fontSize: 12, color: acctMsg.startsWith('✅') ? '#16a34a' : '#dc2626' }}>{acctMsg}</span>}
+                {acctMsg && <span style={{ fontSize: 12, color: acctMsg.startsWith('通過') ? '#16a34a' : '#dc2626' }}>{acctMsg}</span>}
                 <button type="button" style={btnPrimary} onClick={() => { setShowAddForm(v => !v); setAcctMsg('') }}>
                   {showAddForm ? '取消' : '+ 新增帳號'}
                 </button>

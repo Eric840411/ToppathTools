@@ -58,7 +58,7 @@ export function UrlPoolPickerModal({ title, claimedByLabel, onSelect, onClose }:
         <div style={{ padding: '16px 20px 12px', borderBottom: '1px solid #e5e7eb', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontWeight: 600, fontSize: 15 }}>帳號池 — {title}</span>
           <span style={{ flex: 1 }} />
-          <button className="btn-ghost" onClick={onClose} style={{ padding: '2px 8px', fontSize: 16 }}>✕</button>
+          <button className="btn-ghost" onClick={onClose} style={{ padding: '2px 8px', fontSize: 16 }}>關閉</button>
         </div>
 
         {/* Filters */}

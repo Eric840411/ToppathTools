@@ -54,8 +54,9 @@ export function SearchSelect({ options, value, onChange, placeholder = '— 選�
   }
 
   return (
-    <div ref={containerRef} style={{ position: 'relative', width: '100%' }}>
+    <div ref={containerRef} className="search-select" style={{ position: 'relative', width: '100%' }}>
       <button
+        className="search-select-trigger"
         type="button"
         disabled={disabled || loading}
         onClick={() => !disabled && !loading && setOpen(v => !v)}
@@ -88,7 +89,7 @@ export function SearchSelect({ options, value, onChange, placeholder = '— 選�
       </button>
 
       {open && (
-        <div style={{
+        <div className="search-select-popover" style={{
           position: 'absolute',
           top: 'calc(100% + 4px)',
           left: 0,
@@ -101,8 +102,9 @@ export function SearchSelect({ options, value, onChange, placeholder = '— 選�
           overflow: 'hidden',
         }}>
           {options.length > 6 && (
-            <div style={{ padding: '8px 10px', borderBottom: '1px solid #f3f4f6' }}>
+            <div className="search-select-search-wrap" style={{ padding: '8px 10px', borderBottom: '1px solid #f3f4f6' }}>
               <input
+                className="search-select-search"
                 ref={inputRef}
                 value={query}
                 onChange={e => setQuery(e.target.value)}
@@ -122,10 +124,11 @@ export function SearchSelect({ options, value, onChange, placeholder = '— 選�
           )}
           <div style={{ maxHeight: 220, overflowY: 'auto' }}>
             {filtered.length === 0 && (
-              <div style={{ padding: '10px 14px', fontSize: 13, color: '#9ca3af' }}>無結果</div>
+              <div className="search-select-empty" style={{ padding: '10px 14px', fontSize: 13, color: '#9ca3af' }}>無結果</div>
             )}
             {filtered.map(o => (
               <button
+                className={`search-select-option${o.value === value ? ' is-selected' : ''}`}
                 key={o.value}
                 type="button"
                 onClick={() => handleSelect(o.value)}

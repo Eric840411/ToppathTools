@@ -233,7 +233,7 @@ export function HistoryPage() {
           disabled={loading}
           style={{ marginLeft: 'auto', padding: '6px 14px', background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#cbd5e1' }}
         >
-          {loading ? '載入中...' : '🔄 重新整理'}
+          {loading ? '載入中...' : '更新 重新整理'}
         </button>
       </div>
 
@@ -342,7 +342,7 @@ export function HistoryPage() {
                       {bitableUrl && (
                         <div style={{ marginBottom: 10 }}>
                           <a href={bitableUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#6366f1', fontWeight: 600 }}>
-                            🔗 前往 Lark Bitable
+                            鏈 前往 Lark Bitable
                           </a>
                         </div>
                       )}

@@ -3,6 +3,7 @@ import { ModelSelector } from '../components/ModelSelector'
 import { DungeonIcon } from '../components/DungeonIcon'
 import { useIsGameMode } from '../components/GameModeContext'
 import GeminiSettingsModal from '../components/GeminiSettingsModal'
+import { XianxiaIcon } from '../components/XianxiaIcon'
 
 /** Safe ArrayBuffer → base64, works for files of any size */
 function arrayBufferToBase64(buf: ArrayBuffer): string {
@@ -71,19 +72,19 @@ function FileDropZone({
         onChange={e => onChange(e.target.files?.[0] ?? undefined)} />
       {file ? (
         <>
-          <span className="fdz-icon">📄</span>
+          <span className="fdz-icon"><XianxiaIcon name="document" size={22} /></span>
           <span className="fdz-filename">{file.name}</span>
-          <button type="button" className="fdz-clear" onClick={e => { e.stopPropagation(); onChange(undefined); if (inputRef.current) inputRef.current.value = '' }}>✕</button>
+          <button type="button" className="fdz-clear" onClick={e => { e.stopPropagation(); onChange(undefined); if (inputRef.current) inputRef.current.value = '' }}>關閉</button>
         </>
       ) : rejected ? (
         <>
-          <span className="fdz-icon">⛔</span>
+          <span className="fdz-icon"><XianxiaIcon name="warning" size={22} /></span>
           <span className="fdz-label" style={{ color: '#ef4444' }}>不支援的檔案格式</span>
           <span className="fdz-hint">{hint}</span>
         </>
       ) : (
         <>
-          <span className="fdz-icon">📋</span>
+          <span className="fdz-icon"><XianxiaIcon name="guide" size={22} /></span>
           <span className="fdz-label">拖曳或點擊上傳</span>
           <span className="fdz-hint">{hint}</span>
         </>
@@ -580,7 +581,7 @@ export function LarkPage() {
       {showGeminiSettings && <GeminiSettingsModal onClose={() => setShowGeminiSettings(false)} />}
       {hasPersonalGeminiKey === false && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, padding: '10px 14px', marginBottom: 12, color: '#92400e', fontSize: 13 }}>
-          <span style={{ flex: 1 }}>⚠️ 尚未設定個人 Gemini Key。AI 功能將使用共用 Key 池（可能影響其他人的配額）。</span>
+          <span style={{ flex: 1 }}>尚未設定個人 Gemini Key。AI 功能將使用共用 Key 池（可能影響其他人的配額）。</span>
           <button type="button" className="btn-ghost" onClick={() => setShowGeminiSettings(true)} style={{ whiteSpace: 'nowrap' }}>
             前往設定
           </button>
@@ -594,14 +595,14 @@ export function LarkPage() {
             className={`action-tab${action === 'generate' ? ' active' : ''}`}
             onClick={() => { setAction('generate'); setStatus('idle'); setResult(null) }}
           >
-            {isGame ? <DungeonIcon name="ai" tone="violet" plain /> : '🤖'} AI 生成 TestCase
+            <XianxiaIcon name="ai" size={22} className="xianxia-action-icon" /> AI 生成 TestCase
           </button>
           <button
             type="button"
             className={`action-tab${action === 'compare' ? ' active' : ''}`}
             onClick={() => { setAction('compare'); setStatus('idle'); setResult(null) }}
           >
-            {isGame ? <DungeonIcon name="compare" tone="gold" plain /> : '🔍'} 人工 vs AI 比對
+            <XianxiaIcon name="compare" size={22} className="xianxia-action-icon" /> 人工 vs AI 比對
           </button>
         </div>
       </div>
@@ -644,21 +645,21 @@ export function LarkPage() {
                       <span className="src-card-label">規格書 {idx + 1}</span>
                       <div style={{ display: 'flex', gap: 4 }}>
                         {([
-                          { key: 'lark',  label: 'Lark Wiki',   emoji: '📄', icon: 'wiki'  as const },
-                          { key: 'file',  label: 'PDF / Word',  emoji: '📎', icon: 'file'  as const },
-                          { key: 'gdocs', label: 'Google 文檔', emoji: '🌐', icon: 'gdocs' as const },
-                        ] as { key: SpecSource; label: string; emoji: string; icon: 'wiki' | 'file' | 'gdocs' }[]).map(({ key, label, emoji, icon }) => (
+                          { key: 'lark',  label: 'Lark Wiki',   emoji: '頁', icon: 'wiki'  as const },
+                          { key: 'file',  label: 'PDF / Word',  emoji: '附', icon: 'file'  as const },
+                          { key: 'gdocs', label: 'Google 文檔', emoji: '網', icon: 'gdocs' as const },
+                        ] as { key: SpecSource; label: string; emoji: string; icon: 'wiki' | 'file' | 'gdocs' }[]).map(({ key, label, icon }) => (
                           <button key={key} type="button"
                             onClick={() => updateSource(src.id, { type: key, url: '', file: undefined })}
                             className={`src-type-btn${src.type === key ? ' active' : ''}`}
                           >
-                            {isGame ? <DungeonIcon name={icon} tone={src.type === key ? 'violet' : 'slate'} plain /> : emoji} {label}
+                            {isGame ? <DungeonIcon name={icon} tone={src.type === key ? 'violet' : 'slate'} plain /> : <XianxiaIcon name={key === 'lark' ? 'knowledge' : 'document'} size={17} />} {label}
                           </button>
                         ))}
                       </div>
                       {sources.length > 1 && (
                         <button type="button" onClick={() => removeSource(src.id)} className="src-remove-btn">
-                          {isGame ? <DungeonIcon name="close" tone="slate" size="xs" plain /> : '✕'}
+                          {isGame ? <DungeonIcon name="close" tone="slate" size="xs" plain /> : '關閉'}
                         </button>
                       )}
                     </div>
@@ -738,17 +739,17 @@ export function LarkPage() {
                       <span className="src-card-label">規格書 {idx + 1}</span>
                       <div style={{ display: 'flex', gap: 4 }}>
                         {([
-                          { key: 'lark',  label: 'Lark Wiki',  emoji: '📄', icon: 'wiki'  as const },
-                          { key: 'file',  label: 'PDF / Word', emoji: '📎', icon: 'file'  as const },
-                          { key: 'gdocs', label: 'Google 文檔', emoji: '🌐', icon: 'gdocs' as const },
-                        ] as { key: SpecSource; label: string; emoji: string; icon: 'wiki' | 'file' | 'gdocs' }[]).map(({ key, label, emoji, icon }) => (
+                          { key: 'lark',  label: 'Lark Wiki',  emoji: '頁', icon: 'wiki'  as const },
+                          { key: 'file',  label: 'PDF / Word', emoji: '附', icon: 'file'  as const },
+                          { key: 'gdocs', label: 'Google 文檔', emoji: '網', icon: 'gdocs' as const },
+                        ] as { key: SpecSource; label: string; emoji: string; icon: 'wiki' | 'file' | 'gdocs' }[]).map(({ key, label, icon }) => (
                           <button
                             key={key}
                             type="button"
                             onClick={() => updateSource(src.id, { type: key, url: '', file: undefined })}
                             className={`src-type-btn${src.type === key ? ' active' : ''}`}
                           >
-                            {isGame ? <DungeonIcon name={icon} tone={src.type === key ? 'violet' : 'slate'} plain /> : emoji} {label}
+                            {isGame ? <DungeonIcon name={icon} tone={src.type === key ? 'violet' : 'slate'} plain /> : <XianxiaIcon name={key === 'lark' ? 'knowledge' : 'document'} size={17} />} {label}
                           </button>
                         ))}
                       </div>
@@ -759,7 +760,7 @@ export function LarkPage() {
                           className="src-remove-btn"
                           title="移除此規格書"
                         >
-                          {isGame ? <DungeonIcon name="close" tone="slate" size="xs" plain /> : '✕'}
+                          {isGame ? <DungeonIcon name="close" tone="slate" size="xs" plain /> : '關閉'}
                         </button>
                       )}
                     </div>
@@ -816,7 +817,7 @@ export function LarkPage() {
                             />
                           )}
                           {oldSources.length > 1 && (
-                            <button type="button" onClick={() => removeOldSource(src.id)} className="src-remove-btn" title="移除">✕</button>
+                            <button type="button" onClick={() => removeOldSource(src.id)} className="src-remove-btn" title="移除">關閉</button>
                           )}
                         </div>
                         {(src.type === 'pdf' || src.type === 'csv') && (
@@ -1038,7 +1039,7 @@ export function LarkPage() {
                 <li>不覆蓋已有內容，只填補缺漏項目，回傳完整 TestCase</li>
               </ol>
             )}
-            <p className="info-note">{isGame ? <DungeonIcon name="settings" tone="slate" size="xs" plain /> : '⚙️'} Lark API Token 設定於後端 <code>.env</code>，前端不持有任何密鑰</p>
+            <p className="info-note"><XianxiaIcon name="settings" size={17} /> Lark API Token 設定於後端 <code>.env</code>，前端不持有任何密鑰</p>
           </div>
 
         </div>
@@ -1073,8 +1074,8 @@ export function LarkPage() {
           {status === 'ok' && result && (
             <div className="generate-summary">
               <div className="result-summary">
-                <div className="summary-item ok">{isGame ? <DungeonIcon name="result" tone="cyan" size="xs" plain /> : '📝'} 生成 {result.generated} 筆</div>
-                <div className="summary-item ok">{isGame ? <DungeonIcon name="status-ok" tone="green" size="xs" plain /> : '✅'} 已寫入 Bitable {result.written} 筆</div>
+                <div className="summary-item ok"><XianxiaIcon name="document" size={17} /> 生成 {result.generated} 筆</div>
+                <div className="summary-item ok">{isGame ? <DungeonIcon name="status-ok" tone="green" size="xs" plain /> : '通過'} 已寫入 Bitable {result.written} 筆</div>
               </div>
               <div className="generate-actions">
                 {result.bitableUrl && (
@@ -1084,7 +1085,7 @@ export function LarkPage() {
                     rel="noopener noreferrer"
                     className="bitable-link-btn"
                   >
-                    {isGame ? <DungeonIcon name="guide" tone="cyan" size="xs" plain /> : '📋'} 前往 Lark Bitable 查看結果 →
+                    <XianxiaIcon name="guide" size={17} /> 前往 Lark Bitable 查看結果 →
                   </a>
                 )}
                 {result.csvContent && (
@@ -1250,7 +1251,7 @@ export function LarkPage() {
       )}
 
       <div className="section-card">
-        <h2 className="section-title">{isGame ? <DungeonIcon name="guide" tone="cyan" size="xs" plain /> : '📋'} Lark Bitable 欄位結構 &amp; 範例</h2>
+        <h2 className="section-title"><XianxiaIcon name="guide" size={18} /> Lark Bitable 欄位結構 &amp; 範例</h2>
 
         {/* 標準格式 */}
         <p style={{ fontSize: 13, color: '#64748b', marginBottom: 8, fontWeight: 600 }}>標準格式（TestCase 生成（標準））</p>

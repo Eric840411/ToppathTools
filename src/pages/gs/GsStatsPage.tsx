@@ -19,7 +19,7 @@ interface StatsStatus {
   error?: string
 }
 
-const COLOR_EMOJI: Record<string, string> = { '黃': '🟡', '白': '⚪', '粉': '🩷', '藍': '🔵', '紅': '🔴', '綠': '🟢' }
+const COLOR_EMOJI: Record<string, string> = { '黃': '黃', '白': '白', '粉': '粉', '藍': '藍', '紅': '紅', '綠': '綠' }
 
 export function GsStatsPage() {
   const [url, setUrl] = useState('')
@@ -111,7 +111,7 @@ export function GsStatsPage() {
   return (
     <div style={{ maxWidth: 1000, margin: '0 auto' }}>
       <div className="section-card" style={{ marginBottom: 16 }}>
-        <h2 className="section-title">🎲 500x 機率統計</h2>
+        <h2 className="section-title">500x 機率統計</h2>
         <div style={{ fontSize: 13, color: '#475569', marginBottom: 12, lineHeight: 1.6 }}>
           以 Playwright 開啟遊戲頁面，即時攔截 WebSocket 訊息，統計各骰型機率分布。
         </div>
@@ -124,7 +124,7 @@ export function GsStatsPage() {
                 borderColor: mode === m ? '#6366f1' : '#e2e8f0',
                 background: mode === m ? 'rgba(99,102,241,0.15)' : '#1e293b',
                 color: mode === m ? '#4f46e5' : '#475569' }}>
-              {m === 'generic' ? '通用 WS' : '🎰 ColorGame V2 電子骰'}
+              {m === 'generic' ? '通用 WS' : 'ColorGame V2 電子骰'}
             </button>
           ))}
         </div>
@@ -144,7 +144,7 @@ export function GsStatsPage() {
           {!loading ? (
             <button type="button" onClick={handleStart} disabled={!url.trim()}
               style={{ padding: '9px 24px', borderRadius: 8, background: !url.trim() ? '#a5b4fc' : '#6366f1', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: !url.trim() ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
-              🚀 開始攔截
+              啟 開始攔截
             </button>
           ) : (
             <button type="button" onClick={handleStop}
@@ -161,7 +161,7 @@ export function GsStatsPage() {
           <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
             <div style={{ fontSize: 13 }}>
               狀態：<span style={{ fontWeight: 700, color: statsStatus.status === 'running' ? '#6366f1' : '#16a34a' }}>
-                {statsStatus.status === 'running' ? '⏳ 擷取中' : '✅ 已停止'}
+                {statsStatus.status === 'running' ? '⏳ 擷取中' : '通過 已停止'}
               </span>
             </div>
             <div style={{ fontSize: 13 }}>
@@ -190,7 +190,7 @@ export function GsStatsPage() {
       {/* ColorGame V2 電子骰專用統計表 */}
       {isBonus && statsStatus?.bonusDistribution && statsStatus.rounds > 0 && (
         <div className="section-card" style={{ marginBottom: 16 }}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 12 }}>🎰 電子骰配置統計</h3>
+          <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0f172a', marginBottom: 12 }}>電子骰配置統計</h3>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             {/* Single 2同 / 3同 */}
             {(['single_m2', 'single_m3'] as const).map(key => {

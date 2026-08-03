@@ -84,7 +84,7 @@ export function GmailPage() {
     <div className="page-layout">
       <div className="two-col">
         <div className="section-card">
-          <h2 className="section-title">📬 抓取最新 Gmail 週報</h2>
+          <h2 className="section-title">抓取最新 Gmail 週報</h2>
           <div className="form-stack">
             <label className="field">
               <span>Gmail 搜尋條件</span>
@@ -113,7 +113,7 @@ export function GmailPage() {
               <li>Regex 抽取 Target Version / Server / IP / Found Version / Status</li>
               <li>顯示於下方表格，供確認後同步</li>
             </ol>
-            <p className="info-note">⚙️ Gmail Token 設定於後端 <code>.env</code></p>
+            <p className="info-note">Gmail Token 設定於後端 <code>.env</code></p>
           </div>
         </div>
 
@@ -121,11 +121,11 @@ export function GmailPage() {
           <h2 className="section-title">API 回傳</h2>
           {fetchStatus === 'ok' && summary && (
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-              <div className="stat-chip stat-chip--ok">✅ 符合目標 {summary.targetFound ?? '—'}</div>
-              <div className="stat-chip stat-chip--warn">⚠️ 版本不同 {summary.differentVersions ?? '—'}</div>
-              <div className="stat-chip stat-chip--error">❌ 錯誤 {summary.errors ?? '—'}</div>
-              <div className="stat-chip">🖥️ 總計 {summary.total ?? '—'}</div>
-              <div className="stat-chip">📊 成功率 {summary.successRate ?? '—'}%</div>
+              <div className="stat-chip stat-chip--ok">通過 符合目標 {summary.targetFound ?? '—'}</div>
+              <div className="stat-chip stat-chip--warn">版本不同 {summary.differentVersions ?? '—'}</div>
+              <div className="stat-chip stat-chip--error">失敗 錯誤 {summary.errors ?? '—'}</div>
+              <div className="stat-chip">總計 {summary.total ?? '—'}</div>
+              <div className="stat-chip">成功率 {summary.successRate ?? '—'}%</div>
             </div>
           )}
           {fetchStatus === 'ok' && targetVersion && (

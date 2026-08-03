@@ -203,12 +203,12 @@ export function OsmConfigComparePage() {
             onClick={handleCompare} disabled={loading}
             style={{ padding: '7px 18px', background: loading ? '#93c5fd' : '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: loading ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
           >
-            {loading ? '比對中...' : '🔍 開始比對'}
+            {loading ? '比對中...' : '開始比對'}
           </button>
         </div>
 
-        {!selectedId && <p style={{ color: '#f59e0b', fontSize: 12 }}>⚠️ 請先在左側選擇一個模板</p>}
-        {error && <p style={{ color: '#dc2626', fontSize: 13 }}>❌ {error}</p>}
+        {!selectedId && <p style={{ color: '#f59e0b', fontSize: 12 }}>請先在左側選擇一個模板</p>}
+        {error && <p style={{ color: '#dc2626', fontSize: 13 }}>失敗 {error}</p>}
 
         {/* Result */}
         {result && (
@@ -220,7 +220,7 @@ export function OsmConfigComparePage() {
                 {result.templateName}{result.templateVersion ? ` v${result.templateVersion}` : ''} 比對結果
               </span>
               {result.diffs.length === 0
-                ? <span style={{ padding: '3px 10px', background: 'rgba(22,163,74,0.15)', color: '#4ade80', borderRadius: 12, fontSize: 12, fontWeight: 600 }}>✅ 完全一致</span>
+                ? <span style={{ padding: '3px 10px', background: 'rgba(22,163,74,0.15)', color: '#4ade80', borderRadius: 12, fontSize: 12, fontWeight: 600 }}>通過 完全一致</span>
                 : <>
                   {(['mismatch', 'missing_in_live', 'extra_in_live'] as DiffItem['type'][]).map(t => counts![t] > 0 && (
                     <span key={t} style={{ padding: '3px 10px', background: TYPE_COLOR[t].bg, color: TYPE_COLOR[t].text, border: `1px solid ${TYPE_COLOR[t].border}`, borderRadius: 12, fontSize: 12, fontWeight: 600 }}>
@@ -281,7 +281,7 @@ export function OsmConfigComparePage() {
             {/* Gemini analysis */}
             {result.geminiAnalysis && (
               <div style={{ background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, padding: '12px 16px' }}>
-                <div style={{ fontWeight: 600, color: '#16a34a', fontSize: 13, marginBottom: 8 }}>🤖 Gemini 分析</div>
+                <div style={{ fontWeight: 600, color: '#16a34a', fontSize: 13, marginBottom: 8 }}>Gemini 分析</div>
                 <pre style={{ fontSize: 12, color: '#cbd5e1', whiteSpace: 'pre-wrap', margin: 0, lineHeight: 1.6 }}>{result.geminiAnalysis}</pre>
               </div>
             )}
@@ -305,7 +305,7 @@ export function OsmConfigComparePage() {
               placeholder={'直接貼上 DevTools 中 serverCfg.js 的完整內容即可\n（支援 JS 格式：window._ServerCfg = {...}; 或純 JSON）'}
               style={{ flex: 1, minHeight: 280, padding: '8px 10px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }}
             />
-            {addError && <p style={{ color: '#dc2626', fontSize: 12, margin: 0 }}>❌ {addError}</p>}
+            {addError && <p style={{ color: '#dc2626', fontSize: 12, margin: 0 }}>失敗 {addError}</p>}
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onClick={() => { setShowAddModal(false); setEditingId(null); setAddError('') }}
                 style={{ padding: '6px 16px', border: '1px solid #2d3f55', borderRadius: 6, background: '#1e293b', fontSize: 13, cursor: 'pointer' }}>取消</button>

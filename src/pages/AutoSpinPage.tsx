@@ -41,7 +41,7 @@ function classifyLogLine(l: string): LogCategory {
   if (l.includes('[console:error]')) return 'err'
   if (l.includes('[console:warn]')) return 'warn'
   if (l.includes('ERROR') || l.includes('[stderr]') || l.includes('錯誤') || l.includes('失敗') || l.includes('逾時')) return 'err'
-  if (l.includes('WARNING') || l.includes('⚠️') || l.includes('警告')) return 'warn'
+  if (l.includes('WARNING') || l.includes('警') || l.includes('警告')) return 'warn'
   if (l.includes('[截圖]') || l.includes('截圖已上傳')) return 'shot'
   if (/Spin #\d+/.test(l) || l.includes('Spin 耗時')) return 'spin'
   if (l.includes('[系統]') || l.includes('[Agent]')) return 'sys'
@@ -285,14 +285,14 @@ export function AutoSpinPage() {
       }),
     })
     const d = await r.json() as { ok: boolean }
-    setRcConfigMsg(d.ok ? '✅ 已儲存' : '❌ 儲存失敗')
+    setRcConfigMsg(d.ok ? '通過 已儲存' : '失敗 儲存失敗')
   }
 
   const testRcConnection = async () => {
     setRcConfigMsg('測試中...')
     const r = await fetch('/api/autospin/reconcile/test', { method: 'POST' })
     const d = await r.json() as { ok: boolean; message?: string }
-    setRcConfigMsg(d.ok ? `✅ ${d.message}` : `❌ ${d.message}`)
+    setRcConfigMsg(d.ok ? `通過 ${d.message}` : `失敗 ${d.message}`)
   }
 
   const runReconcile = async () => {
@@ -307,7 +307,7 @@ export function AutoSpinPage() {
       type RcAnomaly = { uid: string; time: string; bet: number; win: number; note: string }
       const d = await r.json() as { ok: boolean; summary?: string; details?: RcDetail[]; backendAnomalies?: RcAnomaly[]; message?: string }
       if (d.ok) setRcResult({ summary: d.summary ?? '', details: d.details ?? [], backendAnomalies: d.backendAnomalies ?? [] })
-      else setRcConfigMsg(`❌ ${d.message}`)
+      else setRcConfigMsg(`失敗 ${d.message}`)
       fetchRcReports()
     } finally { setRcRunning(false) }
   }
@@ -344,7 +344,7 @@ export function AutoSpinPage() {
 
   const EVENT_LABEL: Record<string, string> = {
     balance: '餘額快照', start: '開始', stop: '結束',
-    bonus: '🎯 Bonus 偵測', low_balance: '💰 低餘額', error: '⚠️ 錯誤',
+    bonus: 'Bonus 偵測', low_balance: '低餘額', error: '錯誤',
   }
 
 
@@ -719,23 +719,23 @@ export function AutoSpinPage() {
       {/* Account warning */}
       {!userLabel && (
         <div style={{ padding: '8px 12px', background: 'rgba(251,191,36,0.12)', border: '1px solid #fbbf24', borderRadius: 8, marginBottom: 10, fontSize: 13 }}>
-          ⚠️ 請先在右上角選擇帳號，機台設定將會個人化儲存
+          警 請先在右上角選擇帳號，機台設定將會個人化儲存
         </div>
       )}
       {userLabel && (
         <div style={{ padding: '6px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, marginBottom: 10, fontSize: 12, color: '#1d4ed8' }}>
-          👤 目前帳號：{userLabel}
+          人 目前帳號：{userLabel}
         </div>
       )}
 
       {/* Tab bar */}
       <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', marginBottom: 16 }}>
-        <button style={tabStyle('configs')} onClick={() => setTab('configs')}>⚙️ 機台設定</button>
-        <button style={tabStyle('templates')} onClick={() => { setTab('templates'); fetchTemplates() }}>🖼 模板管理</button>
-        <button style={tabStyle('history')} onClick={() => { setTab('history'); fetchHistory() }}>📊 歷史戰績</button>
-        <button style={tabStyle('reconcile')} onClick={() => { setTab('reconcile'); fetchRcConfig(); fetchRcReports() }}>🔍 後台對帳</button>
-        <button style={tabStyle('jpgroups')} onClick={() => { setTab('jpgroups'); fetchJpGroups() }}>🎰 JP Group</button>
-        <button style={tabStyle('run')} onClick={() => { setTab('run'); fetchCaptures(); fetchHubAgents(); fetchJpGroups() }}>▶️ 執行監控</button>
+        <button style={tabStyle('configs')} onClick={() => setTab('configs')}>機台設定</button>
+        <button style={tabStyle('templates')} onClick={() => { setTab('templates'); fetchTemplates() }}>模板管理</button>
+        <button style={tabStyle('history')} onClick={() => { setTab('history'); fetchHistory() }}>歷史戰績</button>
+        <button style={tabStyle('reconcile')} onClick={() => { setTab('reconcile'); fetchRcConfig(); fetchRcReports() }}>後台對帳</button>
+        <button style={tabStyle('jpgroups')} onClick={() => { setTab('jpgroups'); fetchJpGroups() }}>JP Group</button>
+        <button style={tabStyle('run')} onClick={() => { setTab('run'); fetchCaptures(); fetchHubAgents(); fetchJpGroups() }}>▶ 執行監控</button>
       </div>
 
       {/* ── Configs tab ─────────────────────────────────────────────────────── */}
@@ -824,7 +824,7 @@ export function AutoSpinPage() {
                       title="從帳號池選取"
                       style={{ fontSize: 13, padding: '4px 8px', flexShrink: 0, color: '#2563eb' }}
                       onClick={() => setShowUrlPicker(true)}>
-                      📋
+                      冊
                     </button>
                   </div>
                   {showUrlPicker && (
@@ -907,7 +907,7 @@ export function AutoSpinPage() {
                 </div>
                 </div>
 
-                {configMsg && <p style={{ color: '#dc2626', fontSize: 12, margin: 0 }}>❌ {configMsg}</p>}
+                {configMsg && <p style={{ color: '#dc2626', fontSize: 12, margin: 0 }}>失敗 {configMsg}</p>}
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
                   <button onClick={() => { setShowForm(false); setConfigMsg('') }}
                     style={{ padding: '6px 16px', border: '1px solid #2d3f55', borderRadius: 6, background: '#1e293b', color: '#94a3b8', fontSize: 13, cursor: 'pointer' }}>取消</button>
@@ -969,7 +969,7 @@ export function AutoSpinPage() {
 
           {/* Auth Config */}
           <details open>
-            <summary style={{ fontWeight: 700, fontSize: 13, cursor: 'pointer', marginBottom: 8 }}>⚙️ 後台 API 設定</summary>
+            <summary style={{ fontWeight: 700, fontSize: 13, cursor: 'pointer', marginBottom: 8 }}>後台 API 設定</summary>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '0 4px' }}>
               {[
                 { key: 'base_url', label: 'Base URL', placeholder: 'https://backendservertest.osmslot.org' },
@@ -990,7 +990,7 @@ export function AutoSpinPage() {
               <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                 <button onClick={saveRcConfig} style={{ padding: '5px 14px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>儲存設定</button>
                 <button onClick={testRcConnection} style={{ padding: '5px 14px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>測試連線</button>
-                {rcConfigMsg && <span style={{ fontSize: 12, color: rcConfigMsg.startsWith('✅') ? '#16a34a' : '#dc2626', alignSelf: 'center' }}>{rcConfigMsg}</span>}
+                {rcConfigMsg && <span style={{ fontSize: 12, color: rcConfigMsg.startsWith('通過') ? '#16a34a' : '#dc2626', alignSelf: 'center' }}>{rcConfigMsg}</span>}
               </div>
             </div>
           </details>
@@ -1021,12 +1021,12 @@ export function AutoSpinPage() {
           {/* Latest result */}
           {rcResult && (
             <div style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 8, padding: 14 }}>
-              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>📋 對帳結果</div>
+              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>對帳結果</div>
               <div style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 10, padding: '6px 10px', background: '#f1f5f9', borderRadius: 6 }}>{rcResult.summary}</div>
 
               {rcResult.backendAnomalies.length > 0 && (
                 <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#d97706', marginBottom: 4 }}>⚠️ 後台異常 ({rcResult.backendAnomalies.length} 筆)</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#d97706', marginBottom: 4 }}>後台異常 ({rcResult.backendAnomalies.length} 筆)</div>
                   {rcResult.backendAnomalies.map((a, i) => (
                     <div key={i} style={{ fontSize: 11, color: '#92400e', padding: '2px 8px', background: 'rgba(251,191,36,0.12)', borderRadius: 4, marginBottom: 2 }}>
                       {a.note} | uid={a.uid} time={a.time} bet={a.bet} win={a.win}
@@ -1063,7 +1063,7 @@ export function AutoSpinPage() {
           {/* History of reports */}
           {rcReports.length > 0 && (
             <div>
-              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>📜 歷史對帳紀錄</div>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>歷史對帳紀錄</div>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                 <thead><tr style={{ background: '#162032' }}>
                   {['時間', '範圍', '機台', '前端', '後台', '匹配', '未匹配', '異常'].map(h => <th key={h} style={{ padding: '6px 8px', borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>{h}</th>)}
@@ -1109,7 +1109,7 @@ export function AutoSpinPage() {
           {/* Anomaly summary */}
           {historyRows.some(r => r.isAnomaly) && (
             <div style={{ padding: '8px 12px', background: 'rgba(251,191,36,0.12)', border: '1px solid #fbbf24', borderRadius: 6, fontSize: 12 }}>
-              ⚠️ 偵測到 {historyRows.filter(r => r.isAnomaly).length} 筆異常（餘額相比開局下降超過 30%）
+              警 偵測到 {historyRows.filter(r => r.isAnomaly).length} 筆異常（餘額相比開局下降超過 30%）
             </div>
           )}
 
@@ -1142,7 +1142,7 @@ export function AutoSpinPage() {
                         }}>
                           {EVENT_LABEL[r.event] ?? r.event}
                         </span>
-                        {r.isAnomaly ? ' ⚠️' : ''}
+                        {r.isAnomaly ? ' 警' : ''}
                       </td>
                       <td style={{ padding: '6px 10px', color: '#94a3b8' }}>{r.note || '—'}</td>
                     </tr>
@@ -1274,8 +1274,8 @@ export function AutoSpinPage() {
           >
             <span className={`mt-osm-dot ${jackpots.length > 0 ? 'mt-osm-dot--on' : ''}`} />
             {jackpots.length > 0
-              ? `✅ OSMWatcher 已連線（${jackpots.filter(j => j.grand != null || j.fortunate != null).length} 個遊戲獎池）`
-              : '⚪ OSMWatcher 未連線 — 獎池資料尚未接收'}
+              ? `通過 OSMWatcher 已連線（${jackpots.filter(j => j.grand != null || j.fortunate != null).length} 個遊戲獎池）`
+              : 'OSMWatcher 未連線 — 獎池資料尚未接收'}
             {jackpots.length > 0 && (
               <span style={{ marginLeft: 'auto', fontSize: 12, opacity: 0.7 }}>{jackpotPanelOpen ? '▲ 收合' : '▼ 展開獎池'}</span>
             )}
@@ -1315,7 +1315,7 @@ export function AutoSpinPage() {
               <button key={m} onClick={() => setRunMode(m)}
                 style={{ padding: '7px 20px', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer',
                   background: runMode === m ? '#2563eb' : '#1e293b', color: runMode === m ? '#fff' : '#94a3b8' }}>
-                {m === 'hub' ? '☁️ 遠端 Agent' : '🖥 伺服器端（fallback）'}
+                {m === 'hub' ? '遠端 Agent' : '伺服器端（fallback）'}
               </button>
             ))}
           </div>

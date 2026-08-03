@@ -220,7 +220,7 @@ export function JackpotPage() {
       <section className="osm-section">
         <div className="osm-section-header">
           <div>
-            <h2 className="osm-section-title">🎰 Jackpot 獎池監控</h2>
+            <h2 className="osm-section-title">Jackpot 獎池監控</h2>
             <p className="osm-section-sub">後端每 15 秒自動拉取一次獎池數據，異常自動推送 Lark 告警（頁面關閉也持續運行）</p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -238,7 +238,7 @@ export function JackpotPage() {
               onClick={openSettings}
               title="管理員：設定各遊戲閾值與 Lark 告警"
             >
-              ⚙️ 告警設定
+              陣 告警設定
             </button>
           </div>
         </div>
@@ -248,12 +248,12 @@ export function JackpotPage() {
             ? <span>
                 最後嘗試：{lastAttemptAt}
                 {lastUpdated && lastUpdated !== lastAttemptAt && <span style={{ color: '#f59e0b' }}>　上次成功：{lastUpdated}</span>}
-                {lastUpdated === lastAttemptAt && <span style={{ color: '#22c55e' }}>　✓ 成功</span>}
+                {lastUpdated === lastAttemptAt && <span style={{ color: '#22c55e' }}>　通過 成功</span>}
                 　<span style={{ color: '#22c55e' }}>● 後端 15s 輪詢</span>
               </span>
             : <span style={{ color: '#94a3b8' }}>正在連線中...</span>
           }
-          {larkSentAt && <span>✅ 已發送告警 Lark（{larkSentAt}）</span>}
+          {larkSentAt && <span>通過 已發送告警 Lark（{larkSentAt}）</span>}
         </div>
 
         {error && <div className="osm-alert osm-alert--error" style={{ marginTop: 8 }}>{error}</div>}
@@ -290,7 +290,7 @@ export function JackpotPage() {
                       borderLeft: rowHasAnomaly ? '3px solid #f97316' : '3px solid transparent',
                     }}>
                       <td style={{ padding: '7px 12px', borderBottom: '1px solid #f1f5f9', fontFamily: 'monospace', fontWeight: rowHasAnomaly ? 600 : undefined }}>
-                        {rowHasAnomaly && '⚠️ '}{gid}
+                        {rowHasAnomaly && ''}{gid}
                       </td>
                       {LEVELS.map(lv => {
                         const val = g[lv]
@@ -306,7 +306,7 @@ export function JackpotPage() {
                               ? val.toLocaleString()
                               : <span style={{ color: '#cbd5e1' }}>—</span>}
                             {!alertOn && (
-                              <span title="Lark 告警已關閉" style={{ marginLeft: 4, fontSize: 10, color: '#94a3b8' }}>🔕</span>
+                              <span title="Lark 告警已關閉" style={{ marginLeft: 4, fontSize: 10, color: '#94a3b8' }}>靜</span>
                             )}
                           </td>
                         )
@@ -324,7 +324,7 @@ export function JackpotPage() {
       {anomalyLog.length > 0 && (
         <section className="osm-section">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <h3 style={{ fontSize: 14, fontWeight: 600, color: '#334155' }}>⚠️ 異常記錄（{anomalyLog.length} 筆）</h3>
+            <h3 style={{ fontSize: 14, fontWeight: 600, color: '#334155' }}>異常記錄（{anomalyLog.length} 筆）</h3>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {anomalyLog.map((a, i) => (
@@ -333,7 +333,7 @@ export function JackpotPage() {
                   <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{a.gameId}</span>
                   <span style={{ background: LEVEL_COLORS[a.level], color: '#fff', borderRadius: 4, padding: '1px 6px', fontSize: 11, textTransform: 'capitalize' }}>{a.level}</span>
                   {!getSetting(a.gameId, a.level).enabled && (
-                    <span style={{ fontSize: 11, color: '#94a3b8' }}>🔕 未發 Lark</span>
+                    <span style={{ fontSize: 11, color: '#94a3b8' }}>未發 Lark</span>
                   )}
                   <span style={{ color: '#94a3b8', fontSize: 11, marginLeft: 'auto' }}>{a.time}</span>
                 </div>
@@ -371,8 +371,8 @@ export function JackpotPage() {
             maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 8px 40px rgba(0,0,0,0.18)',
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', margin: 0 }}>⚙️ Jackpot 告警設定</h2>
-              <button type="button" onClick={() => setShowSettings(false)} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#94a3b8' }}>✕</button>
+              <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1e293b', margin: 0 }}>Jackpot 告警設定</h2>
+              <button type="button" onClick={() => setShowSettings(false)} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#94a3b8' }}>關閉</button>
             </div>
 
             {!pinVerified ? (

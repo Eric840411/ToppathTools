@@ -85,7 +85,7 @@ export function GameQuestPanel() {
                   cursor: 'pointer', letterSpacing: 0.5,
                 }}
               >
-                {t === 'quests' ? <><DungeonIcon name="result" tone="cyan" size="xs" plain /> QUESTS</> : '🏅 BADGES'}
+                {t === 'quests' ? <><DungeonIcon name="result" tone="cyan" size="xs" plain /> QUESTS</> : 'BADGES'}
               </button>
             ))}
           </div>
