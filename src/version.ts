@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.84.0-xianxia.13'
+export const APP_VERSION = '3.84.0-xianxia.14'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.84.0-xianxia.14',
+    date: '2026-08-04',
+    changes: [
+      'fix(design): [design/xianxia 分支] 開關按鈕的圓形滑塊改回統一白色——上一版把 ON 狀態的滑塊改成深色（在亮色軌道上取對比），結果 OFF 狀態的滑塊反而是較亮的灰色，兩者一比看起來像顏色邏輯反了（較亮的滑塊卻是關閉狀態）。改成滑塊不分開關狀態一律白色，只靠軌道顏色（玄月青=開/深灰=關）判斷狀態，符合一般開關元件的慣例',
+    ],
+  },
   {
     version: '3.84.0-xianxia.13',
     date: '2026-08-04',

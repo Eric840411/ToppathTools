@@ -26,7 +26,7 @@ function ToggleSwitch({ checked, disabled, onToggle }: { checked: boolean; disab
     >
       <span style={{
         position: 'absolute', top: 1, left: checked ? 17 : 1, width: 16, height: 16, borderRadius: '50%',
-        background: checked ? '#03222b' : '#8a97a6', transition: 'left 0.2s ease, background 0.2s ease',
+        background: '#fff', transition: 'left 0.2s ease',
       }} />
     </button>
   )
