@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.84.0-xianxia.10'
+export const APP_VERSION = '3.84.0-xianxia.11'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.84.0-xianxia.11',
+    date: '2026-08-03',
+    changes: [
+      'fix(design): [design/xianxia 分支] 移除重複圖示——.section-title 全站已透過 CSS ::before 自動加上小菱形符印，機台自動化測試「操作流程」與 TestCase 生成「Lark Bitable 欄位結構」兩處另外手動插入 XianxiaIcon，變成同一個標題前面出現兩個圖示。拿掉多餘的手動圖示，保留自動符印即可；MachineTestPage.tsx 移除不再使用的 XianxiaIcon import',
+    ],
+  },
   {
     version: '3.84.0-xianxia.10',
     date: '2026-08-03',

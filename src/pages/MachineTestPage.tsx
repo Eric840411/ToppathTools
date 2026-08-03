@@ -4,7 +4,6 @@ import { ModelSelector } from '../components/ModelSelector'
 import GeminiSettingsModal from '../components/GeminiSettingsModal'
 import type { AccountInfo } from '../components/JiraAccountModal'
 import { UrlPoolPickerModal } from '../components/UrlPoolPickerModal'
-import { XianxiaIcon } from '../components/XianxiaIcon'
 
 interface StepResult {
   step: string
@@ -1427,7 +1426,6 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
           style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}
           onClick={() => setFlowPanelOpen(v => !v)}
         >
-          <XianxiaIcon name="guide" size={20} />
           <h2 className="section-title" style={{ margin: 0, flex: 1 }}>操作流程</h2>
           <span style={{ fontSize: 12, color: '#94a3b8' }}>{flowPanelOpen ? '▲ 收合' : '▼ 展開'}</span>
         </div>

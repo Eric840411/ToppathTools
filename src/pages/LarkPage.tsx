@@ -1251,7 +1251,7 @@ export function LarkPage() {
       )}
 
       <div className="section-card">
-        <h2 className="section-title"><XianxiaIcon name="guide" size={18} /> Lark Bitable 欄位結構 &amp; 範例</h2>
+        <h2 className="section-title">Lark Bitable 欄位結構 &amp; 範例</h2>
 
         {/* 標準格式 */}
         <p style={{ fontSize: 13, color: '#64748b', marginBottom: 8, fontWeight: 600 }}>標準格式（TestCase 生成（標準））</p>
