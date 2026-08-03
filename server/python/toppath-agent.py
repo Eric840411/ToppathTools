@@ -1325,12 +1325,15 @@ def post_status_report(mt: str, gmid: str, period_minutes: float, cumulative: di
         log(f"[{mt}] ⚠️ 定時彙總報告送出失敗：{e}")
 
 
-def wait_for_normal_osm_status(gmid: str, page, cfg: dict, mt: str) -> bool:
+def wait_for_normal_osm_status(gmid: str, page, cfg: dict, mt: str, heartbeats=None) -> bool:
     """偵測到 OSMWatcher 回報特殊狀態時：執行一次 bonusAction，然後持續 Spin 直到狀態恢復正常
     （或 15 分鐘逾時），狀態恢復後再 10 秒 cooldown spin。
     完整移植自 machine-test/runner.ts 的 waitForNormalStatus()（只讀取同一份 osmMachineStatus
     資料源，未修改 Machine Test 本身程式碼）。
-    回傳 True 代表有處理過特殊狀態，False 代表沒有（正常/未連線/Handpay 沒有 gmid 對應資料）。"""
+    回傳 True 代表有處理過特殊狀態，False 代表沒有（正常/未連線/Handpay 沒有 gmid 對應資料）。
+    這裡面的兩個 while 迴圈最長各自可以跑到 15 分鐘/10 秒，比 machine_worker() 外層迴圈一次
+    迭代正常耗時長非常多——heartbeats（若有提供）要在這裡也持續更新，不然自動重啟監控會把
+    「正在正常等特殊遊戲結束」誤判成「process 卡死」而白白重啟一台其實沒問題的機台。"""
     with osm_status_lock:
         current = osm_status_cache.get(gmid)
     if current is None or current == 0:
@@ -1352,6 +1355,8 @@ def wait_for_normal_osm_status(gmid: str, page, cfg: dict, mt: str) -> bool:
     last_spin_at = 0.0
     while time.time() - start < max_wait:
         time.sleep(1.0)
+        if heartbeats is not None:
+            heartbeats[mt] = time.time()
         with osm_status_lock:
             s = osm_status_cache.get(gmid, 0)
         if s not in BONUS_STATUSES:
@@ -1360,6 +1365,8 @@ def wait_for_normal_osm_status(gmid: str, page, cfg: dict, mt: str) -> bool:
             cooldown_end = time.time() + 10
             while time.time() < cooldown_end:
                 time.sleep(1.0)
+                if heartbeats is not None:
+                    heartbeats[mt] = time.time()
                 if bonus_action != 'auto_wait':
                     _, btn = find_spin_button(page, spin_sel_cfg)
                     if btn:
@@ -1405,8 +1412,10 @@ def _parent_signal_handler(signum, frame):
 
 
 def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: dict,
-                    keyword_actions_: dict, machine_actions_: dict):
-    """單一機台的完整生命週期，跑在自己獨立的 process 裡。"""
+                    keyword_actions_: dict, machine_actions_: dict, heartbeats=None):
+    """單一機台的完整生命週期，跑在自己獨立的 process 裡。heartbeats（multiprocessing.Manager
+    的共享 dict，parent 傳入）在每次主迴圈迭代開頭寫入目前時間，讓 parent 端的監控迴圈能判斷
+    這台機台是「活著且有在動」還是「process 還在但卡死」（例如瀏覽器已無回應），據此自動重啟。"""
     global session_id, server_url, user_label, keyword_actions, machine_actions, AGENT_START_TS
     session_id = session_id_
     server_url = server_url_
@@ -1487,6 +1496,10 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
             page   = mp['page']
             cfg    = mp['config']
 
+            # 每次迭代開頭就寫入心跳（暫停中也要寫，避免暫停中的機台被誤判成卡死）
+            if heartbeats is not None:
+                heartbeats[mt] = time.time()
+
             # ── 暫停/恢復 ────────────────────────────────────────────────────
             if pause_flag.is_set():
                 if not was_paused:
@@ -1538,7 +1551,7 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
                 # ── 特殊遊戲偵測（OSMWatcher）───────────────────────────────
                 # gameTitleCode 就是 gmid（例如 "873-RISINGROCKETS-0140"），跟 osmMachineStatus 用同一把 key。
                 gmid = cfg.get('gameTitleCode') or ''
-                osm_handled = wait_for_normal_osm_status(gmid, page, cfg, mt) if gmid else False
+                osm_handled = wait_for_normal_osm_status(gmid, page, cfg, mt, heartbeats) if gmid else False
                 with osm_status_lock:
                     osm_connected = gmid in osm_status_cache
 
@@ -1770,22 +1783,98 @@ def main():
     signal.signal(signal.SIGINT,  _parent_signal_handler)
     signal.signal(signal.SIGTERM, _parent_signal_handler)
 
+    # 心跳機制：每台機台的 machine_worker() 在主迴圈每次迭代（含暫停中、含 wait_for_normal_osm_status()
+    # 內部最長 15 分鐘的等待迴圈）都會寫入 heartbeats[machineType] = 現在時間。這是跨 process 共享的
+    # multiprocessing.Manager dict（各 child process 是獨立記憶體空間，一般 dict 或全域變數不會同步，
+    # 只有透過 Manager 的 proxy 物件才能讓 parent 讀到 child 寫入的值）。parent 端的監控迴圈用這個
+    # 判斷「process 還活著，但其實已經卡死沒在動」（例如瀏覽器已無回應）的情況——只看 proc.is_alive()
+    # 抓不到這種，因為 process 本身沒死，只是裡面的 Playwright 呼叫卡住不回應。
+    manager = multiprocessing.Manager()
+    heartbeats = manager.dict()
+    machine_cfgs: dict = {c['machineType']: c for c in active_configs}
+    machine_procs: dict = {}
+    restart_counts: dict = {mt: 0 for mt in machine_cfgs}
+    HEARTBEAT_STALE_SEC = 120   # 單次主迴圈迭代最長合理耗時的安全邊界（含 404 重載等復原流程）
+    MONITOR_INTERVAL_SEC = 20
+    MAX_RESTARTS_PER_MACHINE = 5
+
+    def spawn_machine(mt: str) -> None:
+        proc = multiprocessing.Process(
+            target=machine_worker,
+            args=(session_id, server_url, user_label, machine_cfgs[mt], keyword_actions_data, machine_actions_data, heartbeats),
+        )
+        proc.start()
+        machine_procs[mt] = proc
+        _child_processes.append(proc)
+
     # 分批啟動、每台間隔 2 秒——同時開好幾個 Chromium 是資源尖峰，全部一次 start() 容易讓
     # 部分裝置（尤其效能較弱的機器）卡住，錯開啟動比較穩
     STAGGER_START_SEC = 2.0
     for i, cfg in enumerate(active_configs):
-        proc = multiprocessing.Process(
-            target=machine_worker,
-            args=(session_id, server_url, user_label, cfg, keyword_actions_data, machine_actions_data),
-        )
-        proc.start()
-        _child_processes.append(proc)
-        log(f"[{cfg['machineType']}] 已啟動獨立 process（PID {proc.pid}）")
+        mt = cfg['machineType']
+        spawn_machine(mt)
+        log(f"[{mt}] 已啟動獨立 process（PID {machine_procs[mt].pid}）")
         if i < len(active_configs) - 1:
             time.sleep(STAGGER_START_SEC)
 
-    for proc in _child_processes:
-        proc.join()
+    # parent 自己也獨立輪詢 /should-stop（跟每個 child 各自的 poll_stop() 是分開的兩份輪詢），
+    # 讓 parent 能自己判斷「使用者/伺服器要整個 session 停止了」，藉此決定監控迴圈何時該收手，
+    # 不要在使用者已經按停止的情況下還去自動重啟正在正常關閉中的機台。
+    global_stop = threading.Event()
+
+    def poll_stop_parent():
+        while not global_stop.is_set():
+            try:
+                r = requests.get(f"{server_url}/api/autospin/agent/{session_id}/should-stop", timeout=5)
+                d = r.json()
+                if d.get('stop'):
+                    global_stop.set()
+                    break
+            except Exception:
+                pass
+            time.sleep(3)
+
+    threading.Thread(target=poll_stop_parent, daemon=True).start()
+
+    # ── 監控迴圈：自動偵測「process 已終止」或「心跳過期（卡死）」，自動重啟該台機台 ──────
+    while not global_stop.is_set():
+        time.sleep(MONITOR_INTERVAL_SEC)
+        if global_stop.is_set():
+            break
+        for mt, proc in list(machine_procs.items()):
+            now = time.time()
+            hb = heartbeats.get(mt, 0)
+            alive = proc.is_alive()
+            stale = hb > 0 and (now - hb) > HEARTBEAT_STALE_SEC
+            if alive and not stale:
+                continue
+            # heartbeat 從未寫入過（hb==0）代表機台在進入主 Spin 迴圈之前就已經結束
+            # （例如未設定 Game URL、或無法進入遊戲）——這是設定問題，不是斷線，不重啟。
+            if not alive and hb == 0:
+                continue
+            if restart_counts[mt] >= MAX_RESTARTS_PER_MACHINE:
+                continue  # 已達重啟上限，之前那次觸發時已經印過警告訊息了
+            reason = "process 已終止" if not alive else f"心跳超過 {HEARTBEAT_STALE_SEC}s 無更新（瀏覽器可能已無回應）"
+            log(f"[{mt}] ⚠️ 偵測到異常（{reason}），自動重啟該機台...")
+            if alive:
+                try:
+                    proc.terminate()
+                    proc.join(timeout=10)
+                except Exception:
+                    pass
+            restart_counts[mt] += 1
+            heartbeats[mt] = 0  # 重置，避免重啟後的新 process 還沒寫入第一次心跳前就被誤判成 stale
+            time.sleep(3)  # 短暫緩衝，避免瞬間重啟造成資源尖峰
+            if global_stop.is_set():
+                break
+            spawn_machine(mt)
+            log(f"[{mt}] 已重新啟動（第 {restart_counts[mt]} 次自動重啟，PID {machine_procs[mt].pid}）")
+            if restart_counts[mt] >= MAX_RESTARTS_PER_MACHINE:
+                log(f"[{mt}] ⚠️ 已達自動重啟上限（{MAX_RESTARTS_PER_MACHINE} 次），之後若再異常將不再自動重啟，需人工檢查")
+
+    log("[Agent] 收到停止指令，等待所有機台 process 結束...")
+    for proc in list(machine_procs.values()):
+        proc.join(timeout=60)
 
     log("[Agent] 所有機台 process 已結束")
     send_stopped()

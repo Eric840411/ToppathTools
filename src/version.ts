@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.80.1'
+export const APP_VERSION = '3.81.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.81.0',
+    date: '2026-08-03',
+    changes: [
+      'feat(autospin): 多進程架構新增每台機台心跳機制 + 斷線自動重連——長時間執行下某台機台 process 卡死或終止時，parent 每 20 秒偵測心跳過期/process 已終止，自動重啟該台（最多 5 次），不會再讓一台掛掉後就少了那台的紀錄；wait_for_normal_osm_status() 內最長 15 分鐘的特殊遊戲等待迴圈也會持續更新心跳，不會被誤判成卡死',
+    ],
+  },
   {
     version: '3.80.1',
     date: '2026-07-31',
