@@ -47,6 +47,8 @@ type SubTab = {
 type Group = {
   id: GroupId
   label: string
+  /** 太玄道樞主題名稱（design/xianxia 分支）——顯示為主要標籤，原本 label 降為副標，保留辨識度 */
+  themeLabel?: string
   icon: string
   iconClass: string
   tab?: TabId
@@ -58,6 +60,7 @@ const groups: Group[] = [
   {
     id: 'jira',
     label: 'Jira 批量開單',
+    themeLabel: '卷宗管理',
     icon: 'J',
     iconClass: 'tab-icon--jira',
     tab: 'jira',
@@ -66,6 +69,7 @@ const groups: Group[] = [
   {
     id: 'lark',
     label: 'TestCase 生成',
+    themeLabel: '試煉手札',
     icon: 'L',
     iconClass: 'tab-icon--lark',
     tab: 'lark',
@@ -74,6 +78,7 @@ const groups: Group[] = [
   {
     id: 'osm-tools',
     label: 'OSM Tools',
+    themeLabel: '靈機巡檢',
     icon: 'O',
     iconClass: 'tab-icon--osm',
     subtabs: [
@@ -166,6 +171,7 @@ const groups: Group[] = [
   {
     id: 'color-game',
     label: 'Game Show',
+    themeLabel: '幻境試煉',
     icon: 'G',
     iconClass: 'tab-icon--colorgame',
     subtabs: [
@@ -197,6 +203,7 @@ const groups: Group[] = [
 const dashboardGroup: Group = {
   id: 'dashboard',
   label: 'Dashboard',
+  themeLabel: '天機總覽',
   icon: 'D',
   iconClass: 'tab-icon--machinetest',
   tab: 'dashboard',
@@ -206,6 +213,7 @@ const dashboardGroup: Group = {
 const historyGroup: Group = {
   id: 'history',
   label: '操作歷史紀錄',
+  themeLabel: '行跡天錄',
   icon: 'H',
   iconClass: 'tab-icon--history',
   tab: 'history',
@@ -215,6 +223,7 @@ const historyGroup: Group = {
 const knowledgeGroup: Group = {
   id: 'knowledge',
   label: '知識庫',
+  themeLabel: '藏經閣',
   icon: 'K',
   iconClass: 'tab-icon--lark',
   tab: 'knowledge',
@@ -224,6 +233,7 @@ const knowledgeGroup: Group = {
 const settingsGroup: Group = {
   id: 'settings',
   label: 'Local Agent',
+  themeLabel: '傀儡召喚',
   icon: 'A',
   iconClass: 'tab-icon--machinetest',
   tab: 'local-agent',
@@ -233,6 +243,7 @@ const settingsGroup: Group = {
 const discordNotifyGroup: Group = {
   id: 'discord-notify',
   label: 'Discord 通知',
+  themeLabel: '靈訊符籙',
   icon: 'D',
   iconClass: 'tab-icon--history',
   tab: 'discord-notify',
@@ -242,6 +253,7 @@ const discordNotifyGroup: Group = {
 const sysadminGroup: Group = {
   id: 'sysadmin',
   label: '系統管理',
+  themeLabel: '太玄樞機',
   icon: 'S',
   iconClass: 'tab-icon--history',
   tab: 'sysadmin',
@@ -249,6 +261,16 @@ const sysadminGroup: Group = {
 }
 
 
+
+function NavLabel({ group }: { group: Group }) {
+  if (!group.themeLabel) return <span className="sidebar-nav-label">{group.label}</span>
+  return (
+    <span className="sidebar-nav-label sidebar-nav-label--dual">
+      <span className="sidebar-nav-label-theme">{group.themeLabel}</span>
+      <span className="sidebar-nav-label-sub">{group.label}</span>
+    </span>
+  )
+}
 
 function App() {
   const [activeGroup, setActiveGroup] = useState<GroupId>('dashboard')
@@ -419,7 +441,7 @@ function App() {
             onClick={() => handleGroupClick(dashboardGroup)}
           >
             <span className={`tab-icon ${dashboardGroup.iconClass}`}>{dashboardGroup.icon}</span>
-            <span className="sidebar-nav-label">{dashboardGroup.label}</span>
+            <NavLabel group={dashboardGroup} />
           </button>
           {visibleGroups.map((group) => (
             <div key={group.id}>
@@ -429,7 +451,7 @@ function App() {
                 onClick={() => handleGroupClick(group)}
               >
                 <span className={`tab-icon ${group.iconClass}`}>{group.icon}</span>
-                <span className="sidebar-nav-label">{group.label}</span>
+                <NavLabel group={group} />
                 {group.subtabs && (
                   <span className="sidebar-expand-arrow">
                     {currentGroup?.id === group.id ? '▾' : '▸'}
@@ -465,7 +487,7 @@ function App() {
               onClick={() => handleGroupClick(settingsGroup)}
             >
               <span className={`tab-icon ${settingsGroup.iconClass}`}>{settingsGroup.icon}</span>
-              <span className="sidebar-nav-label">{settingsGroup.label}</span>
+              <NavLabel group={settingsGroup} />
             </button>
           )}
 
@@ -476,7 +498,7 @@ function App() {
               onClick={() => handleGroupClick(historyGroup)}
             >
               <span className={`tab-icon ${historyGroup.iconClass}`}>{historyGroup.icon}</span>
-              <span className="sidebar-nav-label">{historyGroup.label}</span>
+              <NavLabel group={historyGroup} />
             </button>
           )}
 
@@ -487,7 +509,7 @@ function App() {
               onClick={() => handleGroupClick(knowledgeGroup)}
             >
               <span className={`tab-icon ${knowledgeGroup.iconClass}`}>{knowledgeGroup.icon}</span>
-              <span className="sidebar-nav-label">{knowledgeGroup.label}</span>
+              <NavLabel group={knowledgeGroup} />
             </button>
           )}
 
@@ -498,7 +520,7 @@ function App() {
               onClick={() => handleGroupClick(discordNotifyGroup)}
             >
               <span className={`tab-icon ${discordNotifyGroup.iconClass}`}>{discordNotifyGroup.icon}</span>
-              <span className="sidebar-nav-label">{discordNotifyGroup.label}</span>
+              <NavLabel group={discordNotifyGroup} />
             </button>
           )}
 
@@ -509,7 +531,7 @@ function App() {
             title={visibleSysadmin ? '系統管理' : '僅管理員可使用'}
           >
             <span className={`tab-icon ${sysadminGroup.iconClass}`}>{sysadminGroup.icon}</span>
-            <span className="sidebar-nav-label">{sysadminGroup.label}</span>
+            <NavLabel group={sysadminGroup} />
           </button>
 
         </div>
@@ -522,8 +544,11 @@ function App() {
             onClick={() => setShowGemini(true)}
             title="AI 模型和 Prompt 模板設定"
           >
-            <span>⚙️</span>
-            <span>AI 模型和 Prompt 設定</span>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
+            <span className="sidebar-ai-btn-label">
+              <span className="sidebar-nav-label-theme">陣法設定</span>
+              <span className="sidebar-nav-label-sub">AI 模型和 Prompt 設定</span>
+            </span>
           </button>
           {globalAccount && (
             <div className="sidebar-user">

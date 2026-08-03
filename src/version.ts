@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.84.0-xianxia.6'
+export const APP_VERSION = '3.84.0-xianxia.7'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.84.0-xianxia.7',
+    date: '2026-08-03',
+    changes: [
+      'feat(design): [design/xianxia 分支] 側邊欄導覽改成雙標籤——主要顯示修仙主題名稱（卷宗管理/試煉手札/靈機巡檢/幻境試煉/傀儡召喚/行跡天錄/藏經閣/靈訊符籙/太玄樞機/天機總覽/陣法設定），下方保留原本功能名當副標（Jira 批量開單/TestCase 生成/OSM Tools/... 等），沉浸感與辨識度兩者兼顧，同事不用重新學一套對照表。新增 Group.themeLabel 欄位 + 共用 NavLabel 元件，7 處側邊欄按鈕統一改用。順手把「AI 模型和 Prompt 設定」按鈕的 ⚙️ Emoji 換成手繪 SVG 齒輪圖示。此次僅涵蓋頂層導覽項目，OSM Tools/Game Show 底下的子分頁名稱尚未套用（子項目較多，留待下一批）',
+    ],
+  },
   {
     version: '3.84.0-xianxia.6',
     date: '2026-08-03',

@@ -803,6 +803,38 @@
   text-overflow: ellipsis;
 }
 
+/* 雙標籤：修仙名稱為主（保留沉浸感），原本功能名縮小當副標（保留辨識度） */
+.sidebar-nav-label--dual {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.25;
+}
+.sidebar-nav-label-theme {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sidebar-nav-label-sub {
+  font-size: 10px;
+  font-weight: 400;
+  color: #5b6b85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sidebar-nav-item--active .sidebar-nav-label-sub { color: rgba(226, 232, 240, .55); }
+
+.sidebar-ai-btn-label {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  line-height: 1.25;
+  text-align: left;
+}
+
 .sidebar-expand-arrow {
   font-size: 10px;
   color: #475569;
