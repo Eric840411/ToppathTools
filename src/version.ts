@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.84.0-xianxia.15'
+export const APP_VERSION = '3.84.0-xianxia.16'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.84.0-xianxia.16',
+    date: '2026-08-04',
+    changes: [
+      'fix(design): [design/xianxia 分支] 版面滿版適配 + 背景再調亮——.main-content 原本固定 max-width:1280px（.dashboard-page 想放寬到 1420px 也沒用，父層先卡住），寬螢幕下右側會留一大塊空白；放寬到 1800px，.dashboard-page 改成跟隨父層 100%，一般 1920 螢幕看起來接近滿版。背景圖再調亮一階（頂部不透明度 .16→.04，全黑位置 82%→88%），細節更明顯',
+    ],
+  },
   {
     version: '3.84.0-xianxia.15',
     date: '2026-08-04',

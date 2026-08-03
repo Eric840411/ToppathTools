@@ -48,8 +48,8 @@ body::before {
   inset: 0;
   z-index: -10;
   background:
-    linear-gradient(180deg, rgba(3, 7, 12, .16), rgba(3, 7, 12, .55) 55%, rgba(3, 7, 12, .88) 82%, #03070c),
-    url('/themes/xianxia/xianxia-dashboard-bg.png') center 28% / cover no-repeat;
+    linear-gradient(180deg, rgba(3, 7, 12, .04), rgba(3, 7, 12, .38) 60%, rgba(3, 7, 12, .8) 88%, #03070c),
+    url('/themes/xianxia/xianxia-dashboard-bg.png') center 30% / cover no-repeat;
 }
 
 body::after {
@@ -372,8 +372,13 @@ body::after {
 .app-topbar-sep { color: var(--xx-gold) !important; }
 .app-topbar-desc { color: #7d8b98 !important; }
 
+/* 原本 .main-content 固定 max-width:1280px，寬螢幕下右側會留一大塊
+   空白（.dashboard-page 想放寬到 1420px 也沒用，父層先卡住了）。
+   放寬到 1800px，一般 1920 螢幕看起來接近滿版，又不會在超寬螢幕
+   把文字內容拉到誇張的行寬 */
 .main-content {
   background: transparent !important;
+  max-width: 1800px !important;
 }
 
 .main-content::before {
@@ -1396,7 +1401,7 @@ a > .xianxia-icon {
 }
 
 .dashboard-page {
-  max-width: 1420px !important;
+  max-width: 100% !important;
   padding: 28px 28px 54px !important;
 }
 .dashboard-intro {
