@@ -4,7 +4,7 @@
 
 body {
   margin: 0;
-  font-family: 'Segoe UI', 'Noto Sans TC', system-ui, -apple-system, sans-serif;
+  font-family: 'Noto Sans TC', 'Microsoft JhengHei', 'PingFang TC', 'Segoe UI', system-ui, -apple-system, sans-serif;
   background: #f1f5f9;
   color: #0f172a;
   -webkit-font-smoothing: antialiased;

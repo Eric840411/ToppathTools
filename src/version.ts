@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.84.0-xianxia.5'
+export const APP_VERSION = '3.84.0-xianxia.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.84.0-xianxia.6',
+    date: '2026-08-03',
+    changes: [
+      'feat(design): [design/xianxia 分支] 全站字體改用 xianxia-theme.css 同一套字型堆疊——src/index.css 的 body font-family 從 \'Segoe UI\' 領頭改成 \'Noto Sans TC\'/\'Microsoft JhengHei\'/\'PingFang TC\' 領頭（Segoe UI 退到 fallback），跟 CodeX 產出的主題文件一致，中文顯示質感更貼近設計稿，不影響可讀性（都是系統既有字型，沒有新增字型載入）。維持先前決定：動態背景影片先不用，只用靜態背景圖，省資源',
+    ],
+  },
   {
     version: '3.84.0-xianxia.5',
     date: '2026-08-03',
