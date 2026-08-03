@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.83.0'
+export const APP_VERSION = '3.84.0-control-room.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.84.0-control-room.1',
+    date: '2026-08-03',
+    changes: [
+      'feat(design): [design/control-room 分支] 新增 Control Room 視覺主題基礎層——青(#22d3ee)+紫(#a78bfa)雙色調 token、全域 keyframes（狀態燈呼吸、連接線填色動畫）、背景環境光暈，套用到既有共用 class（badge/submit-btn/btn-ghost/step-dot/sidebar active 狀態/brand-dot/version-badge），全站自動套用新色調不需逐頁修改。後續逐頁的卡片/KPI/log 面板等客製化樣式交給 Codex 分批處理，不在這次一次性完成',
+    ],
+  },
   {
     version: '3.83.0',
     date: '2026-08-03',

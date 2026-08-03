@@ -1,4 +1,56 @@
 /* ═══════════════════════════════════════════════════
+   CONTROL ROOM THEME — design/control-room branch
+   New duotone accent (cyan + violet) layered on top of
+   the existing slate dark theme. Tokens here are consumed
+   by the shared classes below (badge/btn/step-dot/sidebar
+   active states) so every page picks up the new look
+   automatically without per-page edits — per-page work
+   (KPI count-up, log demo, card layouts) is a separate,
+   incremental follow-up, not part of this base layer.
+   ═══════════════════════════════════════════════════ */
+:root {
+  --cr-cyan: #22d3ee;
+  --cr-cyan-soft: rgba(34, 211, 238, 0.14);
+  --cr-cyan-border: rgba(34, 211, 238, 0.35);
+  --cr-violet: #a78bfa;
+  --cr-violet-soft: rgba(167, 139, 250, 0.14);
+  --cr-emerald: #34d399;
+  --cr-amber: #fbbf24;
+  --cr-rose: #f87171;
+  --cr-ease: cubic-bezier(.22, 1, .36, 1);
+}
+
+@keyframes cr-pulse-dot {
+  0% { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
+  70% { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; opacity: 1; }
+}
+@keyframes cr-fill-line {
+  from { transform: scaleX(0); transform-origin: left; }
+  to { transform: scaleX(1); transform-origin: left; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .badge--ok, .dashboard-chip--good, .sidebar-nav-item--active { animation: none !important; }
+}
+
+/* Ambient backdrop: very subtle drifting glow, sits behind .main-content.
+   Opacity kept low — this is an ops tool, the glow should be felt, not seen. */
+.main-content {
+  position: relative;
+}
+.main-content::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(600px 500px at 8% -5%, var(--cr-cyan-soft), transparent 65%),
+    radial-gradient(600px 500px at 96% 15%, var(--cr-violet-soft), transparent 65%);
+  opacity: .5;
+}
+
+/* ═══════════════════════════════════════════════════
    GLOBAL DARK THEME OVERRIDE
    Forces dark styles within .main-content so every
    page is consistent regardless of inline styles.
@@ -102,6 +154,7 @@
   background: rgba(20, 83, 45, .24);
   color: #86efac;
   border-color: rgba(34, 197, 94, .25);
+  animation: cr-pulse-dot 2.2s ease-out infinite;
 }
 
 .dashboard-chip--warn {
@@ -111,9 +164,9 @@
 }
 
 .dashboard-chip--blue {
-  background: rgba(30, 58, 138, .28);
-  color: #93c5fd;
-  border-color: rgba(59, 130, 246, .24);
+  background: var(--cr-cyan-soft);
+  color: var(--cr-cyan);
+  border-color: var(--cr-cyan-border);
 }
 
 .dashboard-alert,
@@ -559,8 +612,10 @@
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: #38bdf8;
+  background: var(--cr-cyan);
+  box-shadow: 0 0 10px var(--cr-cyan);
   flex-shrink: 0;
+  animation: cr-pulse-dot 2.4s ease-out infinite;
 }
 
 .sidebar-logo-text {
@@ -589,19 +644,20 @@
   align-items: center;
   padding: 2px 7px;
   border-radius: 99px;
-  background: rgba(99, 102, 241, 0.15);
-  color: #a5b4fc;
+  background: var(--cr-violet-soft);
+  color: var(--cr-violet);
   font-size: 10px;
   font-weight: 600;
-  border: 1px solid rgba(99, 102, 241, 0.3);
+  border: 1px solid rgba(167, 139, 250, 0.3);
   cursor: pointer;
   letter-spacing: 0.3px;
-  transition: background 0.15s, color 0.15s;
+  transition: background 0.15s var(--cr-ease), color 0.15s, transform 0.15s var(--cr-ease);
   font-family: monospace;
   white-space: nowrap;
 }
 .version-badge:hover {
-  background: rgba(99, 102, 241, 0.3);
+  transform: translateY(-1px);
+  background: rgba(167, 139, 250, 0.3);
   color: #fff;
 }
 
@@ -645,9 +701,10 @@
 }
 
 .sidebar-nav-item--active {
-  background: rgba(56, 189, 248, 0.1);
+  background: var(--cr-cyan-soft);
   color: #f1f5f9;
   font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--cr-cyan);
 }
 
 .sidebar-nav-item--disabled {
@@ -701,8 +758,8 @@
 }
 
 .sidebar-subtab-item--active {
-  background: rgba(56, 189, 248, 0.08);
-  color: #38bdf8;
+  background: var(--cr-cyan-soft);
+  color: var(--cr-cyan);
   font-weight: 600;
 }
 
@@ -1038,18 +1095,21 @@
   padding: 9px;
   border-radius: 6px;
   border: none;
-  background: #3b82f6;
-  color: #fff;
+  background: linear-gradient(135deg, var(--cr-cyan), #0ea5c9);
+  color: #03222b;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
-  transition: background 0.12s;
+  transition: transform 0.15s var(--cr-ease), box-shadow 0.15s var(--cr-ease), filter 0.15s;
   font-family: inherit;
 }
 
 .submit-btn:hover:not(:disabled) {
-  background: #2563eb;
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px -6px var(--cr-cyan-border);
 }
+.submit-btn:active:not(:disabled) { transform: translateY(0) scale(.98); }
 
 .submit-btn:disabled {
   opacity: 0.4;
@@ -1671,6 +1731,7 @@
   background: rgba(16,185,129,0.12);
   color: #34d399;
   border-color: rgba(16,185,129,0.2);
+  animation: cr-pulse-dot 2s ease-out infinite;
 }
 
 .badge--warn {
@@ -1686,9 +1747,9 @@
 }
 
 .badge--blue {
-  background: rgba(59,130,246,0.12);
-  color: #60a5fa;
-  border-color: rgba(59,130,246,0.2);
+  background: var(--cr-cyan-soft);
+  color: var(--cr-cyan);
+  border-color: var(--cr-cyan-border);
 }
 
 .badge--purple {
@@ -2221,10 +2282,11 @@
   font-size: 13px;
   color: #94a3b8;
   font-family: inherit;
-  transition: all 0.12s;
+  transition: background 0.15s var(--cr-ease), color 0.15s, border-color 0.15s, transform 0.15s var(--cr-ease);
 }
 
-.btn-ghost:hover { background: #263345; color: #cbd5e1; }
+.btn-ghost:hover { background: #263345; color: #cbd5e1; border-color: var(--cr-cyan-border); transform: translateY(-1px); }
+.btn-ghost:active { transform: translateY(0) scale(.98); }
 .btn-ghost--step {
   min-width: 80px;
   white-space: nowrap;
@@ -2265,10 +2327,10 @@
   font-weight: 600;
   color: #475569;
   flex-shrink: 0;
-  flex-shrink: 0;
+  transition: border-color .3s var(--cr-ease), background .3s var(--cr-ease), color .3s var(--cr-ease), box-shadow .3s var(--cr-ease);
 }
 
-.step-dot.active { border-color: #3b82f6; background: rgba(59,130,246,0.15); color: #60a5fa; }
+.step-dot.active { border-color: var(--cr-cyan); background: var(--cr-cyan-soft); color: var(--cr-cyan); box-shadow: 0 0 0 4px var(--cr-cyan-soft); }
 .step-dot.done { border-color: #10b981; background: #10b981; color: #fff; font-size: 11px; }
 
 .step-label {
