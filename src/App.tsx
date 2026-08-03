@@ -39,6 +39,8 @@ type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'set
 type SubTab = {
   id: TabId
   label: string
+  /** 太玄道樞主題名稱（design/xianxia 分支）——顯示為主要標籤，原本 label 降為副標，保留辨識度 */
+  themeLabel?: string
   icon: string
   iconClass: string
   description: string
@@ -85,6 +87,7 @@ const groups: Group[] = [
       {
         id: 'osm',
         label: 'OSM 版號同步',
+        themeLabel: '靈脈校準',
         icon: 'O',
         iconClass: 'tab-icon--osm',
         description: '即時同步各渠道機台版本，並解析 ImageRecon 週報',
@@ -92,6 +95,7 @@ const groups: Group[] = [
       {
         id: 'machinetest',
         label: '機台自動化測試',
+        themeLabel: '試煉玉簡',
         icon: 'M',
         iconClass: 'tab-icon--machinetest',
         description: '批量測試機台進入、推流、Spin、音頻、退出',
@@ -99,6 +103,7 @@ const groups: Group[] = [
       {
         id: 'imagecheck',
         label: '圖片刪除驗證',
+        themeLabel: '幻影勘察',
         icon: 'I',
         iconClass: 'tab-icon--imagecheck',
         description: '貼上已刪除圖片清單 + 前端 URL，在 Toppath 內嵌虛擬瀏覽器操作遊戲，自動驗證圖片是否仍被載入',
@@ -106,6 +111,7 @@ const groups: Group[] = [
       {
         id: 'osm-config',
         label: 'Config 比對',
+        themeLabel: '陣圖比對',
         icon: 'C',
         iconClass: 'tab-icon--osm',
         description: '貼上線上 URL（含 token），自動擷取 serverCfg.js 並與模板深層比對，快速確認更版後設定是否正確',
@@ -113,6 +119,7 @@ const groups: Group[] = [
       {
         id: 'autospin',
         label: 'AutoSpin',
+        themeLabel: '傀儡監院',
         icon: 'A',
         iconClass: 'tab-icon--machinetest',
         description: '多機台自動化持續 Spin：設定遊戲 URL、RTMP 串流、OpenCV 模板偵測，即時監控 Log 與截圖',
@@ -120,6 +127,7 @@ const groups: Group[] = [
       {
         id: 'url-pool',
         label: 'URL 帳號池',
+        themeLabel: '靈脈調度',
         icon: 'U',
         iconClass: 'tab-icon--jira',
         description: '管理共用 Token URL 帳號池，即時查看使用狀態，一鍵使用 / 釋放',
@@ -127,6 +135,7 @@ const groups: Group[] = [
       {
         id: 'scripted-bet',
         label: '腳本化投注紀錄',
+        themeLabel: '傀儡演武',
         icon: 'S',
         iconClass: 'tab-icon--colorgame',
         description: '依序領取 URL 帳號，進入指定機台隨機 Spin，退出成功後關閉視窗並換下一個帳號。',
@@ -134,6 +143,7 @@ const groups: Group[] = [
       {
         id: 'jackpot',
         label: 'Jackpot 監控',
+        themeLabel: '天財監守',
         icon: 'J',
         iconClass: 'tab-icon--colorgame',
         description: '每 15 秒自動拉取 Jackpot 獎池數據，位數異常或數值暴增自動推送 Lark 告警',
@@ -141,6 +151,7 @@ const groups: Group[] = [
       {
         id: 'osm-uat',
         label: 'UAT 整合測試',
+        themeLabel: '總綱試煉',
         icon: 'T',
         iconClass: 'tab-icon--machinetest',
         description: '從 Lark 拉取 TC，自動執行後台 UAT 測試（排序/Bonus/Export/Config），即時串流進度與截圖',
@@ -148,6 +159,7 @@ const groups: Group[] = [
       {
         id: 'ui-screenshot',
         label: 'UI 解析度截圖',
+        themeLabel: '萬象顯影',
         icon: 'U',
         iconClass: 'tab-icon--imagecheck',
         description: '批量對 H5 遊戲進行多解析度截圖，從 Lark Wiki 讀取 gmid，截圖結果回寫至 Wiki TABLE',
@@ -155,6 +167,7 @@ const groups: Group[] = [
       {
         id: 'meter-reconcile',
         label: 'Performance Meter 對帳',
+        themeLabel: '天秤校帳',
         icon: 'P',
         iconClass: 'tab-icon--osm',
         description: 'OSM / GCP EGM Metering 對 Game Record + Jackpot Abnormality，驗證 Coin Out 是否一致',
@@ -162,6 +175,7 @@ const groups: Group[] = [
       {
         id: 'egm-daycount',
         label: 'Egm DayCount 對帳',
+        themeLabel: '日冊校帳',
         icon: 'E',
         iconClass: 'tab-icon--osm',
         description: '比對 Egm DayCount 彙總報表與 User Detail 逐筆列回推加總是否一致',
@@ -178,6 +192,7 @@ const groups: Group[] = [
       {
         id: 'gs-imgcompare',
         label: '圖片比對',
+        themeLabel: '幻境勘影',
         icon: 'C',
         iconClass: 'tab-icon--imagecheck',
         description: '輸入兩個遊戲 URL，自動攔截所有載入圖片，進行視覺 Diff 與資源大小比對',
@@ -185,6 +200,7 @@ const groups: Group[] = [
       {
         id: 'gs-logchecker',
         label: 'Log 攔截工具',
+        themeLabel: '密探竊訊',
         icon: 'L',
         iconClass: 'tab-icon--history',
         description: '注入腳本攔截前端 /api/log 請求，驗證欄位完整性並匯出 CSV',
@@ -192,6 +208,7 @@ const groups: Group[] = [
       {
         id: 'gs-bonusv2',
         label: 'Bonus V2 統計',
+        themeLabel: '骰數天算',
         icon: 'B',
         iconClass: 'tab-icon--colorgame',
         description: '攔截 Bonus V2 遊戲 WebSocket，統計各骰型機率並與理論值比對',
@@ -469,7 +486,12 @@ function App() {
                       onClick={() => setActiveTab(sub.id)}
                     >
                       <span className={`tab-icon sub-tab-icon ${sub.iconClass}`}>{sub.icon}</span>
-                      {sub.label}
+                      {sub.themeLabel ? (
+                        <span className="sidebar-nav-label sidebar-nav-label--dual">
+                          <span className="sidebar-nav-label-theme">{sub.themeLabel}</span>
+                          <span className="sidebar-nav-label-sub">{sub.label}</span>
+                        </span>
+                      ) : sub.label}
                     </button>
                   ))}
                 </div>

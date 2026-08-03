@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.84.0-xianxia.7'
+export const APP_VERSION = '3.84.0-xianxia.8'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.84.0-xianxia.8',
+    date: '2026-08-03',
+    changes: [
+      'feat(design): [design/xianxia 分支] OSM Tools／Game Show 子分頁補齊雙標籤——OSM Tools 12 個子項（靈脈校準/試煉玉簡/幻影勘察/陣圖比對/傀儡監院/靈脈調度/傀儡演武/天財監守/總綱試煉/萬象顯影/天秤校帳/日冊校帳）與 Game Show 3 個子項（幻境勘影/密探竊訊/骰數天算）都加上修仙名稱＋原功能名副標，跟上一版頂層導覽同一套 SubTab.themeLabel 欄位、共用 sidebar-nav-label--dual 樣式（依巢狀層級微調字級）。至此側邊欄全部導覽項目（頂層＋子分頁）皆已套用雙標籤',
+    ],
+  },
   {
     version: '3.84.0-xianxia.7',
     date: '2026-08-03',

@@ -879,6 +879,9 @@
   font-weight: 600;
 }
 
+.sidebar-subtab-item .sidebar-nav-label-theme { font-size: 12px; }
+.sidebar-subtab-item .sidebar-nav-label-sub { font-size: 9.5px; }
+
 .sidebar-divider {
   height: 1px;
   background: #1e293b;
