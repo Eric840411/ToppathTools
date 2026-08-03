@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.84.0-xianxia.11'
+export const APP_VERSION = '3.84.0-xianxia.12'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.84.0-xianxia.12',
+    date: '2026-08-03',
+    changes: [
+      'fix(design): [design/xianxia 分支] 全站背景圖調亮、AutoSpin/Discord 通知設定的開關按鈕改為高對比——背景原本上到下黑色漸層太重（62% 就幾乎全黑），降低不透明度並把全黑的位置往下推到 82%，垂直取景位置從 18% 調到 28% 帶出更多雲霧樓閣細節；開關按鈕原本 ON/OFF 兩色（藍/深灰）在暗色底下不容易一眼分辨，改成 ON＝發光玄月青、OFF＝明顯深灰，兩者對比拉大，AutoSpinPage.tsx 與 DiscordNotifySettingsPage.tsx 各自獨立的 ToggleSwitch 元件都同步修正',
+    ],
+  },
   {
     version: '3.84.0-xianxia.11',
     date: '2026-08-03',

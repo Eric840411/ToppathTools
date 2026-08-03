@@ -14,17 +14,19 @@ function ToggleSwitch({ checked, disabled, onToggle }: { checked: boolean; disab
       disabled={disabled}
       title={checked ? '點擊停用' : '點擊啟用'}
       style={{
-        width: 36, height: 20, borderRadius: 10, border: 'none', padding: 0, flexShrink: 0,
-        background: checked ? '#3b82f6' : '#374151',
+        width: 36, height: 20, borderRadius: 10, padding: 0, flexShrink: 0,
+        background: checked ? 'var(--xx-jade, #75d7cf)' : '#1e2733',
+        border: `1px solid ${checked ? 'var(--xx-jade, #75d7cf)' : '#3a4552'}`,
+        boxShadow: checked ? '0 0 10px 1px rgba(117, 215, 207, .55)' : 'none',
         cursor: disabled ? 'wait' : 'pointer',
         opacity: disabled ? 0.6 : 1,
         position: 'relative',
-        transition: 'background 0.2s ease',
+        transition: 'background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease',
       }}
     >
       <span style={{
-        position: 'absolute', top: 2, left: checked ? 18 : 2, width: 16, height: 16, borderRadius: '50%',
-        background: '#fff', transition: 'left 0.2s ease',
+        position: 'absolute', top: 1, left: checked ? 17 : 1, width: 16, height: 16, borderRadius: '50%',
+        background: checked ? '#03222b' : '#8a97a6', transition: 'left 0.2s ease, background 0.2s ease',
       }} />
     </button>
   )

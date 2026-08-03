@@ -48,8 +48,8 @@ body::before {
   inset: 0;
   z-index: -10;
   background:
-    linear-gradient(180deg, rgba(3, 7, 12, .35), rgba(3, 7, 12, .9) 62%, #03070c),
-    url('/themes/xianxia/xianxia-dashboard-bg.png') center 18% / cover no-repeat;
+    linear-gradient(180deg, rgba(3, 7, 12, .16), rgba(3, 7, 12, .55) 55%, rgba(3, 7, 12, .88) 82%, #03070c),
+    url('/themes/xianxia/xianxia-dashboard-bg.png') center 28% / cover no-repeat;
 }
 
 body::after {
