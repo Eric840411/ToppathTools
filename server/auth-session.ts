@@ -1,6 +1,6 @@
 import { randomBytes } from 'crypto'
 import type { Request, Response } from 'express'
-import { db, readAccounts } from './shared.js'
+import { db, readAccounts, recordLoginDay } from './shared.js'
 
 const AUTH_COOKIE = 'toppath_auth'
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
@@ -94,6 +94,7 @@ export function createAuthSession(email: string, res: Response) {
   const session: AuthSession = { email, createdAt: now, expiresAt }
   sessions.set(sid, session)
   db.prepare('INSERT OR REPLACE INTO auth_sessions (sid, email, created_at, expires_at) VALUES (?, ?, ?, ?)').run(sid, email, now, expiresAt)
+  recordLoginDay(email)
   res.setHeader(
     'Set-Cookie',
     `${AUTH_COOKIE}=${encodeURIComponent(sid)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,

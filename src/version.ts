@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.85.0-xianxia.1'
+export const APP_VERSION = '3.85.0-xianxia.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.85.0-xianxia.2',
+    date: '2026-08-04',
+    changes: [
+      'feat(design): [design/xianxia 分支] 帳號境界稱號改成依「累計登入天數」推進，不再是操作次數——同一天內重複登入只算一天。改成掛在 auth-session.ts 的 createAuthSession()（每次登入成功時）呼叫新的 recordLoginDay()，account_cultivation 表欄位改為 active_days/last_login_date（舊的 total_actions 欄位保留但不再使用）。9 階門檻改成天數：7/30/90/180/365/730/1460/2555 天。已跑過 ALTER TABLE 遷移確認舊資料庫升級不會壞',
+    ],
+  },
   {
     version: '3.85.0-xianxia.1',
     date: '2026-08-04',

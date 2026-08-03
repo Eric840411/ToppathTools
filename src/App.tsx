@@ -315,7 +315,7 @@ function App() {
   const [globalAccount, setGlobalAccount] = useState<AccountInfo | null>(loadGlobalAccount)
   const [authChecking, setAuthChecking] = useState(true)
   const [permissions, setPermissions] = useState<string[]>([])
-  const [cultivation, setCultivation] = useState<{ level: string; totalActions: number; nextLevel: string | null; nextThreshold: number | null } | null>(null)
+  const [cultivation, setCultivation] = useState<{ level: string; activeDays: number; nextLevel: string | null; nextThreshold: number | null } | null>(null)
 
   useEffect(() => {
     document.documentElement.dataset.realm = realm
@@ -362,15 +362,15 @@ function App() {
     }
   }, [globalAccount])
 
-  // 帳號境界稱號（自動依累計操作次數推進），登入後抓一次即可，不需要輪詢
+  // 帳號境界稱號（自動依累計登入天數推進），登入後抓一次即可，不需要輪詢
   useEffect(() => {
     if (!globalAccount) { setCultivation(null); return }
     let cancelled = false
     fetch('/api/account/cultivation')
       .then(r => r.json())
-      .then((d: { ok: boolean; level?: string; totalActions?: number; nextLevel?: string | null; nextThreshold?: number | null }) => {
+      .then((d: { ok: boolean; level?: string; activeDays?: number; nextLevel?: string | null; nextThreshold?: number | null }) => {
         if (cancelled || !d.ok) return
-        setCultivation({ level: d.level!, totalActions: d.totalActions!, nextLevel: d.nextLevel ?? null, nextThreshold: d.nextThreshold ?? null })
+        setCultivation({ activeDays: d.activeDays!, level: d.level!, nextLevel: d.nextLevel ?? null, nextThreshold: d.nextThreshold ?? null })
       })
       .catch(() => {})
     return () => { cancelled = true }
@@ -638,7 +638,7 @@ function App() {
                 {cultivation && (
                   <span
                     className="sidebar-user-cultivation"
-                    title={cultivation.nextLevel ? `累計 ${cultivation.totalActions} 次操作，還差 ${cultivation.nextThreshold! - cultivation.totalActions} 次晉升「${cultivation.nextLevel}」` : `累計 ${cultivation.totalActions} 次操作，已達最高境界`}
+                    title={cultivation.nextLevel ? `已登入 ${cultivation.activeDays} 天，還差 ${cultivation.nextThreshold! - cultivation.activeDays} 天晉升「${cultivation.nextLevel}」` : `已登入 ${cultivation.activeDays} 天，已達最高境界`}
                   >
                     {cultivation.level}
                   </span>
