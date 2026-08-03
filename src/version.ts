@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.84.0-control-room.2'
+export const APP_VERSION = '3.84.0-xianxia.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.84.0-xianxia.3',
+    date: '2026-08-03',
+    changes: [
+      'feat(design): [design/xianxia 分支，原 design/control-room 改名] 視覺方向改為太玄道樞（修仙風）——沿用既有的 token 架構（--cr-cyan/--cr-violet/--cr-emerald/--cr-amber/--cr-rose），把顏色值換成玄月青 #75d7cf / 古金 #c7a96b / 赤霄紅 #df765e，全站共用 class（badge/submit-btn/btn-ghost/step-dot/sidebar active/dashboard-* 等）不用逐一改就自動套用新色。CodeX 已在 public/themes/xianxia/ 產出完整素材（xianxia-theme.css/js、MP4 動態背景、Dashboard 背景圖）與設計文件 docs/xianxia-theme-design.md，後續逐頁整合會參照該文件的 token/動態/Emoji 規則（不用 Emoji 字元，圖示用幾何線條/文字印章/狀態圓點，缺的按鈕圖示交給 CodeX 生成）',
+    ],
+  },
   {
     version: '3.84.0-control-room.2',
     date: '2026-08-03',

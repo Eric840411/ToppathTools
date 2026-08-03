@@ -1,23 +1,24 @@
 /* ═══════════════════════════════════════════════════
-   CONTROL ROOM THEME — design/control-room branch
-   New duotone accent (cyan + violet) layered on top of
-   the existing slate dark theme. Tokens here are consumed
-   by the shared classes below (badge/btn/step-dot/sidebar
-   active states) so every page picks up the new look
-   automatically without per-page edits — per-page work
-   (KPI count-up, log demo, card layouts) is a separate,
-   incremental follow-up, not part of this base layer.
+   太玄道樞 THEME — design/xianxia branch
+   （前身 Control Room；同一組 token 名稱直接改色，
+   避免重寫套用它們的共用 class）
+   墨黑底 + 玄月青／古金雙色調，赤霄紅作警示色。
+   Tokens 由下方共用 class（badge/btn/step-dot/sidebar
+   active 等）消費，全站自動套用新色，不需逐頁改動——
+   逐頁客製化（卡片/KPI/log 面板/emoji 移除）是分批進行
+   的後續工作，不屬於這層基礎層。
    ═══════════════════════════════════════════════════ */
 :root {
-  --cr-cyan: #22d3ee;
-  --cr-cyan-soft: rgba(34, 211, 238, 0.14);
-  --cr-cyan-border: rgba(34, 211, 238, 0.35);
-  --cr-violet: #a78bfa;
-  --cr-violet-soft: rgba(167, 139, 250, 0.14);
-  --cr-emerald: #34d399;
-  --cr-amber: #fbbf24;
-  --cr-rose: #f87171;
+  --cr-cyan: #75d7cf;                          /* 玄月青（原 cyan 位置）*/
+  --cr-cyan-soft: rgba(117, 215, 207, 0.14);
+  --cr-cyan-border: rgba(117, 215, 207, 0.35);
+  --cr-violet: #c7a96b;                        /* 古金（原 violet 位置）*/
+  --cr-violet-soft: rgba(199, 169, 107, 0.14);
+  --cr-emerald: #75d7cf;                       /* 成功狀態沿用玄月青 */
+  --cr-amber: #ead8a6;                         /* 警告：古金亮調 */
+  --cr-rose: #df765e;                          /* 危險：赤霄紅 */
   --cr-ease: cubic-bezier(.22, 1, .36, 1);
+  --xx-page-transition: 550ms;
 }
 
 @keyframes cr-pulse-dot {
