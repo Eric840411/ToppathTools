@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.82.0'
+export const APP_VERSION = '3.83.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,19 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.83.0',
+    date: '2026-08-03',
+    changes: [
+      'fix(jira): 批量更新狀態沒選目標狀態不再誤標成功——新增 skipped 狀態區分「跳過」與「真的切換成功」，Sheet 回填只算真的成功的列',
+      'feat(jira): 批量修改新增處理階段追蹤，防止同一份 Sheet 重複執行造成附件/描述重複疊加',
+      'feat(jira): 批量評論 background job 改成持久化到 DB，worker 重啟後能回報明確的中斷進度（已完成幾筆/剩餘幾筆），不再是含糊的 job not found',
+      'fix(jira): 批次開單/批次轉換狀態的重任務鎖範圍從「每筆」修正為「整批」（新增 begin/end batch session），避免兩個分頁同時執行時交錯、重複開單；批次轉換狀態原本完全沒上鎖也一併補上',
+      'feat(jira): 批量修改送出前重新確認 Issue 是否還存在/可存取，比照批量更新狀態既有的 pre-flight 驗證模式',
+      'feat(jira): 批次開單/批次轉換狀態/批量修改補上 Jira API 節流，避免大批量時撞到 rate limit',
+      'feat(jira): 批次開單/批量評論/批量修改/批次轉換狀態的歷史紀錄補上實際變更內容（摘要/留言預覽/欄位變更/新增轉換狀態紀錄），不再只有 ok/error',
+    ],
+  },
   {
     version: '3.82.0',
     date: '2026-08-03',

@@ -97,6 +97,9 @@ const COMMENT_PENDING_KEY = 'jira_pending_comment_request_id'
 
 const JIRA_KEY_COL = 'jira issue key'
 const STAGE_COL = '處理階段'
+// 批量修改（獨立 Tab）用的處理階段標記——跟開單/評論/切換狀態共用同一個欄位名稱，但值域不同，
+// 純粹用來記錄「這筆已經被批量修改過」，防止同一份 Sheet 不小心重複執行造成附件/描述重複疊加
+const EDIT_STAGE_DONE = '已修改欄位'
 
 function loadSessionAccount(): AccountInfo | null {
   try {
@@ -163,6 +166,15 @@ const deriveVersion = (record: SheetRecord, rawText: string): string | undefined
 }
 
 const nowString = () => new Date().toLocaleString('zh-TW', { hour12: false })
+
+/** 批量評論中斷時的提示文字，依中斷原因分開文案——worker 重啟跟 Gemini 用量上限是完全不同的
+ *狀況，不能套用同一句「Gemini API 用量已達上限」。 */
+const buildCommentStoppedRow = (stoppedReason: string, stoppedKind?: 'ai_quota' | 'worker_restart') => ({
+  rowIndex: -1, issueKey: '⚠️ 已中斷', ok: false,
+  error: stoppedKind === 'worker_restart'
+    ? stoppedReason
+    : `Gemini API 用量已達上限。原因：${stoppedReason}`,
+})
 
 // 依 處理階段 決定下一步需要做什麼
 const needsCreate  = (r: SheetRecord) => !getField(r, JIRA_KEY_COL).trim()
@@ -633,7 +645,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const [updateTransitionId, setUpdateTransitionId] = useState('')
   const [updateSubmitting, setUpdateSubmitting] = useState(false)
   const [updateProgress, setUpdateProgress] = useState<{ done: number; total: number } | null>(null)
-  const [updateResults, setUpdateResults] = useState<{ issueKey: string; ok: boolean; error?: string }[]>([])
+  const [updateResults, setUpdateResults] = useState<{ issueKey: string; ok: boolean; skipped?: boolean; error?: string }[]>([])
   const [updateJiraData, setUpdateJiraData] = useState<Record<string, Record<string, string>>>({})
   const [updateJiraLoading, setUpdateJiraLoading] = useState(false)
   const [updateJiraError, setUpdateJiraError] = useState('')
@@ -848,6 +860,16 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     })
   , [editTabIssues, editTabRecords, editTabColFilters])
 
+  // 已經批量修改過的 issue key（處理階段＝已修改欄位），畫面上標示提醒使用者留意重複執行
+  const editAlreadyEditedKeys = useMemo(() => {
+    const set = new Set<string>()
+    for (const issue of editTabIssues) {
+      const rec = editTabRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
+      if (rec && getField(rec, STAGE_COL).trim() === EDIT_STAGE_DONE) set.add(issue.issueKey)
+    }
+    return set
+  }, [editTabIssues, editTabRecords])
+
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -959,7 +981,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             ok: boolean
             status?: 'running' | 'done' | 'missing'
             progress?: { done: number; total: number; current: string }
-            result?: { ok: boolean; results?: StageOpResult[]; stopped?: boolean; stoppedReason?: string }
+            result?: { ok: boolean; results?: StageOpResult[]; stopped?: boolean; stoppedReason?: string; stoppedKind?: 'ai_quota' | 'worker_restart' }
           }
           if (!alive) return
           if (!d.ok || d.status === 'missing') { localStorage.removeItem(COMMENT_PENDING_KEY); return }
@@ -971,7 +993,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           if (d.result) {
             const results = d.result.results ?? []
             if (d.result.stopped && d.result.stoppedReason) {
-              results.push({ rowIndex: -1, issueKey: '⚠️ 已中斷', ok: false, error: `Gemini API 用量已達上限。原因：${d.result.stoppedReason}` })
+              results.push(buildCommentStoppedRow(d.result.stoppedReason, d.result.stoppedKind))
             }
             setCommentResults(results)
             setStep(5)
@@ -1673,7 +1695,21 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     })
 
     setCreateProgress({ done: 0, total: rows.length })
+    let batchToken: string | undefined
     try {
+      // 先拿整批鎖（batchToken），逐筆請求都帶著它——避免鎖只在「每一筆」的 HTTP round-trip
+      // 之間才有效，兩個分頁同時跑同一個帳號的批次開單有機會交錯執行、重複開單
+      const beginResp = await fetch('/api/jira/batch-create/begin', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...emailHeader },
+      })
+      const beginData = await beginResp.json() as { ok: boolean; batchToken?: string; message?: string }
+      if (!beginData.ok || !beginData.batchToken) {
+        setCreateResults([{ rowIndex: 0, error: beginData.message ?? '無法啟動批次開單（可能有其他重任務正在執行）' }])
+        setStep(4)
+        return
+      }
+      batchToken = beginData.batchToken
+
       console.log('[batch-create] sending rows:', rows.length, 'rows[0]:', rows[0])
       const project = projects.find(p => p.id === selectedProjectId)
       const results: IssueCreateResult[] = []
@@ -1682,7 +1718,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           const resp = await fetch('/api/jira/batch-create', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...emailHeader },
-            body: JSON.stringify({ rows: [rows[i]], sheetUrl, projectId: selectedProjectId, projectKey: project?.key, issueTypeId: selectedIssueTypeId }),
+            body: JSON.stringify({ rows: [rows[i]], sheetUrl, projectId: selectedProjectId, projectKey: project?.key, issueTypeId: selectedIssueTypeId, batchToken }),
           })
           const data = await resp.json() as { ok: boolean; results?: IssueCreateResult[]; message?: string }
           if (data.ok && data.results) results.push(...data.results)
@@ -1774,7 +1810,14 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     } catch {
       setCreateResults([{ rowIndex: 0, error: '網路錯誤' }])
       setStep(4)
-    } finally { setSubmitting(false); setCreateProgress(null) }
+    } finally {
+      setSubmitting(false); setCreateProgress(null)
+      if (batchToken) {
+        fetch('/api/jira/batch-create/end', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ batchToken }),
+        }).catch(() => {})
+      }
+    }
   }
 
   // ── Step 5: 添加評論 ──
@@ -1986,7 +2029,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       setPendingCommentRequestId(submitRequestId)
       localStorage.setItem(COMMENT_PENDING_KEY, submitRequestId)
 
-      const data = await new Promise<{ ok: boolean; results?: StageOpResult[]; stopped?: boolean; stoppedReason?: string }>((resolve, reject) => {
+      const data = await new Promise<{ ok: boolean; results?: StageOpResult[]; stopped?: boolean; stoppedReason?: string; stoppedKind?: 'ai_quota' | 'worker_restart' }>((resolve, reject) => {
         const es = new EventSource(`/api/jira/batch-comment/stream?requestId=${encodeURIComponent(submitData.requestId!)}&email=${encodeURIComponent(currentAccount.email)}`)
         let done = false
         const sseTimeout = setTimeout(() => { if (!done) { es.close(); reject(new Error('SSE 逾時')) } }, 30 * 60 * 1000)
@@ -1997,7 +2040,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
       const results = data.results ?? []
       if (data.stopped && data.stoppedReason) {
-        results.push({ rowIndex: -1, issueKey: '⚠️ 已中斷', ok: false, error: `Gemini API 用量已達上限，剩餘筆數未處理。原因：${data.stoppedReason}` })
+        results.push(buildCommentStoppedRow(data.stoppedReason, data.stoppedKind))
       }
       sseResolved = true
       setCommentResults(results)
@@ -2132,7 +2175,19 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       transitionId: selectedTransitionId,
     }))
 
+    let batchToken: string | undefined
     try {
+      const beginResp = await fetch('/api/jira/batch-transition/begin', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...emailHeader },
+      })
+      const beginData = await beginResp.json() as { ok: boolean; batchToken?: string; message?: string }
+      if (!beginData.ok || !beginData.batchToken) {
+        setTransitionResults([{ rowIndex: 0, issueKey: '', ok: false, error: beginData.message ?? '無法啟動批次轉換狀態（可能有其他重任務正在執行）' }])
+        setStep(6)
+        return
+      }
+      batchToken = beginData.batchToken
+
       // Send one issue at a time for real-time progress updates
       const allResults: StageOpResult[] = []
       for (let i = 0; i < issues.length; i++) {
@@ -2140,7 +2195,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
           const resp = await fetch('/api/jira/batch-transition', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...emailHeader },
-            body: JSON.stringify({ issues: [issues[i]] }),
+            body: JSON.stringify({ issues: [issues[i]], batchToken }),
           })
           const data = await resp.json() as { ok: boolean; results?: StageOpResult[] }
           allResults.push(...(data.results ?? [{ rowIndex: issues[i].rowIndex, issueKey: issues[i].issueKey, ok: false, error: `HTTP ${resp.status}` }]))
@@ -2172,7 +2227,14 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       }
       setStep(6)
     } catch { setTransitionResults([{ rowIndex: 0, issueKey: '', ok: false, error: '網路錯誤' }]); setStep(6) }
-    finally { setTransitionSubmitting(false); setTransitionProgress(null) }
+    finally {
+      setTransitionSubmitting(false); setTransitionProgress(null)
+      if (batchToken) {
+        fetch('/api/jira/batch-transition/end', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ batchToken }),
+        }).catch(() => {})
+      }
+    }
   }
 
   /** QA / PM 使用不同 Sheet 模板，切換模式或「重新開始」時需清空所有流程狀態（保留已登入帳號）。 */
@@ -2373,7 +2435,15 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       setEditTabRecords(records)
       setEditTabHeaders(headers)
       setEditTabIssues(issues)
-      setEditTabSelectedKeys(new Set(issues.map(i => i.issueKey)))
+      // 已經批量修改過的列（處理階段＝已修改欄位）預設不勾選，避免不小心重複執行造成附件/
+      // 描述重複疊加——使用者仍可手動勾回去，這只是預設值，不是強制擋掉
+      const alreadyEditedKeys = new Set(
+        issues.filter(iss => {
+          const rec = records.find(r => Number(r._rowIndex) === iss.rowIndex)
+          return rec ? getField(rec, STAGE_COL).trim() === EDIT_STAGE_DONE : false
+        }).map(iss => iss.issueKey),
+      )
+      setEditTabSelectedKeys(new Set(issues.map(i => i.issueKey).filter(k => !alreadyEditedKeys.has(k))))
       setEditFieldMappings([blankMapping()])
       setEditTabStep(2)
       // Async fetch current Jira data for preview
@@ -2422,7 +2492,20 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       setEditTabHeaders(headers)
       setEditTabIssues(issues)
       const freshKeys = new Set(issues.map(i => i.issueKey))
-      setEditTabSelectedKeys(prev => new Set([...prev, ...freshKeys].filter(k => freshKeys.has(k))))
+      const alreadyEditedKeys = new Set(
+        issues.filter(iss => {
+          const rec = records.find(r => Number(r._rowIndex) === iss.rowIndex)
+          return rec ? getField(rec, STAGE_COL).trim() === EDIT_STAGE_DONE : false
+        }).map(iss => iss.issueKey),
+      )
+      // 保留使用者原本的勾選；新出現的列預設勾選，除非已經被批量修改過
+      setEditTabSelectedKeys(prev => {
+        const next = new Set<string>()
+        for (const k of freshKeys) {
+          if (prev.has(k) || !alreadyEditedKeys.has(k)) next.add(k)
+        }
+        return next
+      })
       setEditReloadMsg(`✅ 已重新讀取（${issues.length} 筆）`)
     } catch { setEditTabError('網路錯誤') }
     finally { setEditTabLoading(false) }
@@ -2440,10 +2523,36 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       .some(issue => (editDescAttachMap[issue.issueKey] ?? []).some(a => a.isVideo && !a.cacheId))
     if (hasPendingVideo && !window.confirm('部分影片尚未手動上傳，確認繼續送出（影片不會附加至描述）？')) return
 
+    // 送出前重新確認選中的 Issue 是否還存在/可存取——避免 Step 2 讀取之後，Issue 被刪除、
+    // 搬移專案或權限變更，這種情況下再送出修改只會拿到 Jira 錯誤，不如先過濾掉並讓使用者知道
+    let effectiveSelectedKeys = editTabSelectedKeys
+    {
+      const selectedIssues = editTabIssues.filter(issue => editTabSelectedKeys.has(issue.issueKey))
+      try {
+        const checkResp = await fetch('/api/jira/batch-fetch-fields', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...emailHeader },
+          body: JSON.stringify({ issueKeys: selectedIssues.map(i => i.issueKey) }),
+        })
+        const checkData = await checkResp.json() as { ok: boolean; issues?: Record<string, Record<string, string>> }
+        if (checkData.ok && checkData.issues) {
+          const missing = selectedIssues.filter(i => !checkData.issues![i.issueKey]).map(i => i.issueKey)
+          if (missing.length > 0) {
+            const proceed = window.confirm(
+              `以下 ${missing.length} 筆 Issue 目前無法存取（可能已被刪除或權限變更），將略過這些筆：\n${missing.join('、')}\n\n是否繼續執行其餘 ${selectedIssues.length - missing.length} 筆？`
+            )
+            if (!proceed) return
+            effectiveSelectedKeys = new Set([...editTabSelectedKeys].filter(k => !missing.includes(k)))
+            setEditTabSelectedKeys(effectiveSelectedKeys)
+          }
+        }
+      } catch { /* best-effort，網路問題不擋執行 */ }
+    }
+
     setEditTabSubmitting(true); setEditTabError('')
-    setEditProgress({ done: 0, total: editTabIssues.filter(i => editTabSelectedKeys.has(i.issueKey)).length })
+    setEditProgress({ done: 0, total: editTabIssues.filter(i => effectiveSelectedKeys.has(i.issueKey)).length })
     try {
-      const items = editTabIssues.filter(issue => editTabSelectedKeys.has(issue.issueKey)).map(issue => {
+      const items = editTabIssues.filter(issue => effectiveSelectedKeys.has(issue.issueKey)).map(issue => {
         const rec = editTabRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
         const fields: Record<string, unknown> = {}
         for (const m of activeMappings) {
@@ -2532,6 +2641,24 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
         setEditProgress({ done: i + 1, total: items.length })
       }
       setEditTabResults(allEditResults); setEditTabStep(4)
+
+      // Writeback 處理階段＝已修改欄位（只有真的成功的才寫），防止同一份 Sheet 之後不小心
+      // 重複執行同一批修改——重新讀取時這個標記會讓已處理過的列預設不勾選
+      const succeededKeys = new Set(allEditResults.filter(r => r.ok).map(r => r.issueKey))
+      const succeededRows = editTabIssues.filter(iss => succeededKeys.has(iss.issueKey))
+      if (succeededRows.length > 0 && editTabUrl) {
+        fetch('/api/sheets/writeback-multi', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sheetUrl: editTabUrl, source: editTabSource,
+            writes: succeededRows.map(r => ({
+              rowIndex: r.rowIndex,
+              columns: { [STAGE_COL]: EDIT_STAGE_DONE, '處理時間': nowString() },
+            })),
+          }),
+        }).catch(() => {})
+      }
     } catch { setEditTabError('網路錯誤') }
     finally { setEditTabSubmitting(false); setEditProgress(null) }
   }
@@ -2686,14 +2813,17 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
     setUpdateSubmitting(true); setUpdateResults([])
     const execEmail = currentAccount?.email ?? ''
+    const selectedTransitionName = updateTransitions.find(t => t.id === updateTransitionId)
+    const transitionLabel = selectedTransitionName ? (selectedTransitionName.toName ?? selectedTransitionName.name) : undefined
     const items = filtered.map(r => ({
       issueKey: r.issueKey,
       email: execEmail,
       transitionId: updateTransitionId || undefined,
+      transitionName: updateTransitionId ? transitionLabel : undefined,
     }))
     setUpdateProgress({ done: 0, total: items.length })
     try {
-      const allResults: { issueKey: string; ok: boolean; error?: string }[] = []
+      const allResults: { issueKey: string; ok: boolean; skipped?: boolean; error?: string }[] = []
       for (let i = 0; i < items.length; i++) {
         try {
           const resp = await fetch('/api/jira/bulk-update', {
@@ -2701,7 +2831,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ items: [items[i]] }),
           })
-          const data = await resp.json() as { ok: boolean; results?: { issueKey: string; ok: boolean; error?: string }[]; message?: string }
+          const data = await resp.json() as { ok: boolean; results?: { issueKey: string; ok: boolean; skipped?: boolean; error?: string }[]; message?: string }
           if (data.results) allResults.push(...data.results)
           else allResults.push({ issueKey: items[i].issueKey, ok: false, error: data.message ?? `HTTP ${resp.status}` })
         } catch (e) {
@@ -2713,8 +2843,9 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       setUpdateResults(results)
       setUpdateStep(3)
 
-      // Writeback 處理階段 to Lark Sheet for succeeded issues
-      const succeededKeys = new Set(results.filter(r => r.ok).map(r => r.issueKey))
+      // Writeback 處理階段 to Lark Sheet——只有真的成功切換狀態的才寫「已切換狀態」，
+      // skipped（沒選目標狀態，Jira 端根本沒被呼叫）不能算「已切換」，寫回去會誤導之後的比對
+      const succeededKeys = new Set(results.filter(r => r.ok && !r.skipped).map(r => r.issueKey))
       const succeededRows = filtered.filter(r => succeededKeys.has(r.issueKey))
       if (succeededRows.length > 0 && updateBitableUrl) {
         fetch('/api/sheets/writeback-multi', {
@@ -3399,8 +3530,13 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
               <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
                 <span style={{ fontSize: 13, color: '#4ade80', fontWeight: 700 }}>
-                  ✅ 成功 {updateResults.filter(r => r.ok).length} 張
+                  ✅ 成功 {updateResults.filter(r => r.ok && !r.skipped).length} 張
                 </span>
+                {updateResults.some(r => r.skipped) && (
+                  <span style={{ fontSize: 13, color: '#94a3b8', fontWeight: 700 }}>
+                    ⏭️ 跳過（未選擇目標狀態）{updateResults.filter(r => r.skipped).length} 張
+                  </span>
+                )}
                 {updateResults.some(r => !r.ok) && (
                   <span style={{ fontSize: 13, color: '#f87171', fontWeight: 700 }}>
                     ❌ 失敗 {updateResults.filter(r => !r.ok).length} 張
@@ -3409,10 +3545,12 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               </div>
               <div style={{ maxHeight: 400, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {updateResults.map(r => (
-                  <div key={r.issueKey} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 10px', background: r.ok ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${r.ok ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}`, borderRadius: 6, fontSize: 12 }}>
-                    <span>{r.ok ? '✅' : '❌'}</span>
+                  <div key={r.issueKey} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 10px', background: r.skipped ? 'rgba(148,163,184,0.06)' : r.ok ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)', border: `1px solid ${r.skipped ? 'rgba(148,163,184,0.2)' : r.ok ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}`, borderRadius: 6, fontSize: 12 }}>
+                    <span>{r.skipped ? '⏭️' : r.ok ? '✅' : '❌'}</span>
                     <code style={{ color: '#93c5fd', fontWeight: 700 }}>{r.issueKey}</code>
-                    {r.ok ? <span className="badge badge--ok">已更新</span> : <span style={{ color: '#fca5a5', fontSize: 11 }}>{r.error}</span>}
+                    {r.skipped
+                      ? <span style={{ color: '#94a3b8', fontSize: 11 }}>未選擇目標狀態，未呼叫 Jira</span>
+                      : r.ok ? <span className="badge badge--ok">已更新</span> : <span style={{ color: '#fca5a5', fontSize: 11 }}>{r.error}</span>}
                   </div>
                 ))}
               </div>
@@ -5310,6 +5448,12 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                     style={{ color: '#93c5fd', fontWeight: 700, fontSize: 12, textDecoration: 'none' }}>
                                     {issue.issueKey}
                                   </a>
+                                  {editAlreadyEditedKeys.has(issue.issueKey) && (
+                                    <span title="這筆先前已經批量修改過，重複執行可能導致附件/描述重複疊加"
+                                      style={{ marginLeft: 6, fontSize: 10, padding: '1px 6px', borderRadius: 4, background: '#3f2d0f', color: '#fbbf24', border: '1px solid #78500f' }}>
+                                      已改過
+                                    </span>
+                                  )}
                                 </td>
                                 {jiraCols.map(f => (
                                   <td key={f} style={{ ...tdBase, color: '#94a3b8' }}>

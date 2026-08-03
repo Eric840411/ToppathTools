@@ -88,6 +88,8 @@ interface CommentJobResult {
   results: { rowIndex: number; issueKey: string; ok: boolean; usedAi?: boolean; error?: string }[]
   stopped?: boolean
   stoppedReason?: string
+  // 區分「為什麼中斷」，前端顯示文字依這個分支，不要籠統套用舊有的 Gemini 專用文案
+  stoppedKind?: 'ai_quota' | 'worker_restart'
 }
 interface CommentJobProgress {
   done: number
@@ -103,14 +105,35 @@ interface CommentJobEntry {
   heavyTask?: HeavyTaskToken
   callbacks: Set<(result: CommentJobResult) => void>
   progressCallbacks: Set<(progress: CommentJobProgress) => void>
+  // 累積中的逐筆結果——跟迴圈裡的 results 陣列是同一個參考（job 建立後馬上指派一次），
+  // 純粹只是為了讓 worker 重啟復原時能讀到「目前已經處理到哪幾筆」，不是額外複製一份資料
+  resultsSoFar?: CommentJobResult['results']
 }
 const commentJobStore = new Map<string, CommentJobEntry>()
+
+// jira_comment_jobs 持久化：batch-comment 是背景 IIFE，worker 重啟會直接把還在跑的那個
+// async function 整個砍掉（跟 AutoSpin 不同——AutoSpin 的重活是在獨立的 Python process 裡，
+// worker 重啟不會殺死它，只是伺服器端記錄暫時消失；這裡的重活就是 Node worker 自己在做，
+// process 死了工作就真的斷在那裡，沒辦法憑空恢復）。不嘗試自動恢復繼續發送剩下的留言
+// （自動重試有機率造成同一筆留言重複貼兩次，比起「使用者自己確認後手動重跑剩下幾筆」風險更高，
+// 對留言這種不能撤銷的操作不值得冒險）；只確保 worker 重啟後，使用者能透過既有的 polling/SSE
+// 拿到一個「明確、可行動」的中斷訊息（已完成幾筆、還剩幾筆沒處理過），不再是含糊的 job not found。
+function persistCommentJobSnapshot(requestId: string) {
+  const job = commentJobStore.get(requestId)
+  if (!job) return
+  const { callbacks: _cb, progressCallbacks: _pcb, ...serializable } = job
+  db.prepare(`
+    INSERT INTO jira_comment_jobs (requestId, data, updatedAt) VALUES (?, ?, ?)
+    ON CONFLICT(requestId) DO UPDATE SET data = excluded.data, updatedAt = excluded.updatedAt
+  `).run(requestId, JSON.stringify(serializable), Date.now())
+}
 
 function pushCommentProgress(requestId: string, progress: CommentJobProgress) {
   const job = commentJobStore.get(requestId)
   if (!job) return
   job.progress = progress
   job.progressCallbacks.forEach(cb => cb(progress))
+  persistCommentJobSnapshot(requestId)
 }
 
 function finishCommentJob(requestId: string, result: CommentJobResult) {
@@ -122,8 +145,55 @@ function finishCommentJob(requestId: string, result: CommentJobResult) {
   job.callbacks.forEach(cb => cb(result))
   job.callbacks.clear()
   job.progressCallbacks.clear()
-  // Clean up after 5 minutes
+  persistCommentJobSnapshot(requestId)
+  // Clean up after 5 minutes（記憶體）；DB 那份留久一點方便事後查證，交給下面的開機清理
   setTimeout(() => commentJobStore.delete(requestId), 5 * 60 * 1000)
+}
+
+// worker 啟動時：把 DB 裡還標示 'running' 的 job 撈出來——這些必然是上次還沒跑完就被砍掉的
+// （這個 process 剛啟動，不可能有任何 job 真的還在跑），標記成中斷並附上目前為止的實際進度，
+// 讓使用者透過既有的 status polling/SSE 拿到明確訊息，而不是「job not found」。超過 24 小時的
+// 舊 row 直接清掉，不留著佔位。
+{
+  const CLEANUP_MAX_AGE_MS = 24 * 60 * 60 * 1000
+  const now = Date.now()
+  const rows = db.prepare('SELECT requestId, data, updatedAt FROM jira_comment_jobs').all() as
+    { requestId: string; data: string; updatedAt: number }[]
+  let recovered = 0
+  for (const row of rows) {
+    if (now - row.updatedAt > CLEANUP_MAX_AGE_MS) {
+      db.prepare('DELETE FROM jira_comment_jobs WHERE requestId = ?').run(row.requestId)
+      continue
+    }
+    try {
+      const parsed = JSON.parse(row.data) as Omit<CommentJobEntry, 'callbacks' | 'progressCallbacks'>
+      if (parsed.status !== 'running') continue
+      const doneResults = parsed.resultsSoFar ?? []
+      const total = parsed.progress?.total ?? doneResults.length
+      const interruptedResult: CommentJobResult = {
+        ok: false,
+        results: doneResults,
+        stopped: true,
+        stoppedKind: 'worker_restart',
+        stoppedReason: `伺服器重啟，已完成 ${doneResults.length}/${total} 筆，剩餘 ${total - doneResults.length} 筆未處理，請確認 Jira 上的實際狀態後手動重新執行剩下的部分`,
+      }
+      commentJobStore.set(row.requestId, {
+        status: 'done',
+        result: interruptedResult,
+        progress: parsed.progress ?? { done: doneResults.length, total, current: '' },
+        createdAt: parsed.createdAt ?? now,
+        ownerEmail: parsed.ownerEmail ?? '',
+        callbacks: new Set(),
+        progressCallbacks: new Set(),
+      })
+      db.prepare('UPDATE jira_comment_jobs SET data = ?, updatedAt = ? WHERE requestId = ?')
+        .run(JSON.stringify({ ...parsed, status: 'done', result: interruptedResult }), now, row.requestId)
+      recovered++
+    } catch {
+      db.prepare('DELETE FROM jira_comment_jobs WHERE requestId = ?').run(row.requestId)
+    }
+  }
+  if (recovered > 0) console.log(`[jira] 已標記 ${recovered} 筆中斷的批量評論 job（worker 重啟前未完成）`)
 }
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
@@ -1386,21 +1456,87 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
   }
 })
 
+// ─── Batch session locks（批次開單 / 批次轉換狀態的整批鎖）─────────────────────
+// 前端逐筆呼叫 /api/jira/batch-create（一次一筆 HTTP request 累加進度），如果鎖是「每筆」
+// 拿放，鎖在兩次 HTTP round-trip 之間就是空的——兩個分頁同時跑同一個帳號的批次開單，理論上
+// 會交錯執行、有機會重複開單。改成前端先呼叫 /begin 拿一個 batchToken 代表整批鎖，逐筆請求都
+// 帶著這個 token（伺服器端只驗證是不是同一個帳號、不重新搶鎖），跑完呼叫 /end 釋放；沒帶
+// batchToken 時 fallback 回舊行為（每筆自己搶鎖），向下相容。分頁關掉/網路斷線沒機會呼叫
+// /end 的情況，靠下面的閒置逾時清理處理，不會永久卡住這個帳號的名額。
+interface BatchSession {
+  heavyTask: HeavyTaskToken
+  ownerEmail: string
+  lastActivity: number
+}
+const batchSessions = new Map<string, BatchSession>()
+const BATCH_SESSION_IDLE_TIMEOUT_MS = 3 * 60 * 1000
+
+setInterval(() => {
+  const cutoff = Date.now() - BATCH_SESSION_IDLE_TIMEOUT_MS
+  for (const [token, session] of batchSessions.entries()) {
+    if (session.lastActivity < cutoff) {
+      finishHeavyTask(session.heavyTask)
+      batchSessions.delete(token)
+    }
+  }
+}, 30 * 1000)
+
+function beginBatchSession(req: import('express').Request, res: import('express').Response, type: string, label: string) {
+  const userAuth = userJiraAuth(req)
+  if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
+  const heavyTask = tryStartHeavyTask(req, type, label)
+  if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
+  const batchToken = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  batchSessions.set(batchToken, { heavyTask: heavyTask.token, ownerEmail: userAuth.email, lastActivity: Date.now() })
+  res.json({ ok: true, batchToken })
+}
+
+function endBatchSession(req: import('express').Request, res: import('express').Response) {
+  const { batchToken } = req.body as { batchToken?: string }
+  if (batchToken) {
+    const session = batchSessions.get(batchToken)
+    if (session) {
+      finishHeavyTask(session.heavyTask)
+      batchSessions.delete(batchToken)
+    }
+  }
+  res.json({ ok: true })
+}
+
+/** 驗證 batchToken 屬於這個請求的帳號，true 代表這個請求已經有整批鎖保護，不用自己再搶一次。 */
+function useBatchSession(batchToken: string | undefined, ownerEmail: string): boolean {
+  if (!batchToken) return false
+  const session = batchSessions.get(batchToken)
+  if (!session || session.ownerEmail.toLowerCase() !== ownerEmail.toLowerCase()) return false
+  session.lastActivity = Date.now()
+  return true
+}
+
+router.post('/api/jira/batch-create/begin', (req, res) => beginBatchSession(req, res, 'jira-batch-create', 'Jira 批次開單'))
+router.post('/api/jira/batch-create/end', (req, res) => endBatchSession(req, res))
+router.post('/api/jira/batch-transition/begin', (req, res) => beginBatchSession(req, res, 'jira-batch-transition', 'Jira 批次轉換狀態'))
+router.post('/api/jira/batch-transition/end', (req, res) => endBatchSession(req, res))
+
 /**
  * POST /api/jira/batch-create
  * 從 Lark Sheet 批次建立 Jira Issues。前端逐筆呼叫（rows 陣列長度為 1），累加進度顯示。
  */
 router.post('/api/jira/batch-create', async (req, res, next) => {
   let heavyTaskToken: HeavyTaskToken | null = null
+  let usingBatchSession = false
   try {
     const userAuth = userJiraAuth(req)
     if (!userAuth) {
       return res.status(401).json({ ok: false, message: '請先選擇帳號，或新增 Jira 帳號' })
     }
 
-    const heavyTask = tryStartHeavyTask(req, 'jira-batch-create', 'Jira 批次開單')
-    if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
-    heavyTaskToken = heavyTask.token
+    const { batchToken } = req.body as { batchToken?: string }
+    usingBatchSession = useBatchSession(batchToken, userAuth.email)
+    if (!usingBatchSession) {
+      const heavyTask = tryStartHeavyTask(req, 'jira-batch-create', 'Jira 批次開單')
+      if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
+      heavyTaskToken = heavyTask.token
+    }
 
     const body = batchCreateSchema.parse(req.body)
     const baseUrl = mustEnv('JIRA_BASE_URL')
@@ -1599,6 +1735,12 @@ router.post('/api/jira/batch-create', async (req, res, next) => {
       'Jira 批次開單',
       `成功 ${succeeded} 筆${failed > 0 ? `，失敗 ${failed} 筆` : ''}`,
     )
+    // 補上摘要文字，事後光看歷史紀錄就能知道每筆開的是什麼單，不用再回頭查 Jira
+    const historyResults = results.map(r => ({
+      ...r,
+      summary: body.rows.find(rr => rr.rowIndex === r.rowIndex)?.summary ?? '',
+    }))
+    addHistory('jira', 'Jira 批次開單', `成功 ${succeeded} 筆${failed > 0 ? `，失敗 ${failed} 筆` : ''}`, { results: historyResults })
 
     // ── Persistent writeback queue ──────────────────────────────────────────
     // Save each succeeded issue to DB before returning, then attempt server-side
@@ -1663,7 +1805,7 @@ router.post('/api/jira/batch-create', async (req, res, next) => {
   } catch (error) {
     next(error)
   } finally {
-    finishHeavyTask(heavyTaskToken)
+    if (!usingBatchSession) finishHeavyTask(heavyTaskToken)
   }
 })
 
@@ -2056,6 +2198,10 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
     // Run the batch in background
     ;(async () => {
       const results: { rowIndex: number; issueKey: string; ok: boolean; usedAi?: boolean; error?: string }[] = []
+      // 讓 job store 上也能讀到這個累積中的陣列（同一個參考，push 進去兩邊都看得到），
+      // 這樣 persistCommentJobSnapshot() 才能把「目前已經處理到哪幾筆」寫進 DB
+      const jobEntry = commentJobStore.get(requestId)
+      if (jobEntry) jobEntry.resultsSoFar = results
 
       const isGeminiError = (err: unknown) => {
         const msg = String(err)
@@ -2318,12 +2464,19 @@ ${commentText}
         'Jira 批次評論',
         `成功 ${okCount} 筆${aiUsed > 0 ? `（AI ${aiUsed} 筆）` : ''}${failCount > 0 ? `，失敗 ${failCount} 筆` : ''}${stoppedByAi ? '，AI 中斷' : ''}`,
       )
-      addHistory('jira-comment', `Jira 批次評論`, `成功 ${okCount} 筆${failCount > 0 ? `，失敗 ${failCount} 筆` : ''}${stoppedByAi ? '，AI 中斷' : ''}`, { results })
+      // 補上留言內容預覽（截斷避免歷史紀錄過大），事後能直接從歷史紀錄查證貼了什麼，不用只靠
+      // ok/error 猜——注意這是使用者填入的原始內容，若該筆有用 AI 重新排版（usedAi=true），
+      // 實際貼到 Jira 上的文字可能經過調整，這裡存的是「使用者當時打算送出的內容」而非逐字比對
+      const historyResults = results.map(r => {
+        const src = body.comments.find(c => c.rowIndex === r.rowIndex)
+        return { ...r, commentPreview: (src?.rawComment ?? '').slice(0, 300) }
+      })
+      addHistory('jira-comment', `Jira 批次評論`, `成功 ${okCount} 筆${failCount > 0 ? `，失敗 ${failCount} 筆` : ''}${stoppedByAi ? '，AI 中斷' : ''}`, { results: historyResults })
 
       finishCommentJob(requestId, {
         ok: !stoppedByAi,
         results,
-        ...(stoppedByAi ? { stopped: true, stoppedReason: stoppedByAi } : {}),
+        ...(stoppedByAi ? { stopped: true, stoppedReason: stoppedByAi, stoppedKind: 'ai_quota' as const } : {}),
       })
     })().catch(err => {
       console.error('[batch-comment] background error:', err)
@@ -2408,9 +2561,19 @@ router.get('/api/jira/batch-comment/status/:requestId', (req, res) => {
 
 // POST /api/jira/batch-transition
 router.post('/api/jira/batch-transition', async (req, res, next) => {
+  let heavyTaskToken: HeavyTaskToken | null = null
+  let usingBatchSession = false
   try {
     const userAuth = userJiraAuth(req)
     if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
+
+    const { batchToken } = req.body as { batchToken?: string }
+    usingBatchSession = useBatchSession(batchToken, userAuth.email)
+    if (!usingBatchSession) {
+      const heavyTask = tryStartHeavyTask(req, 'jira-batch-transition', 'Jira 批次轉換狀態')
+      if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
+      heavyTaskToken = heavyTask.token
+    }
 
     const body = batchTransitionSchema.parse(req.body)
     const baseUrl = mustEnv('JIRA_BASE_URL')
@@ -2429,6 +2592,8 @@ router.post('/api/jira/batch-transition', async (req, res, next) => {
       } catch (e) {
         results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: false, error: String(e) })
       }
+      // Jira API 節流，避免大批量時密集打 API 撞到 rate limit
+      await new Promise(r => setTimeout(r, 300))
     }
 
     const ok = results.filter(r => r.ok).length
@@ -2439,9 +2604,12 @@ router.post('/api/jira/batch-transition', async (req, res, next) => {
       'Jira 切換狀態',
       `成功 ${ok} 筆${fail > 0 ? `，失敗 ${fail} 筆` : ''}`,
     )
+    addHistory('jira-update', 'Jira 批次開單流程—轉換狀態', `成功 ${ok} 筆${fail > 0 ? `，失敗 ${fail} 筆` : ''}`, { results })
     res.json({ ok: true, results })
   } catch (error) {
     next(error)
+  } finally {
+    if (!usingBatchSession) finishHeavyTask(heavyTaskToken)
   }
 })
 
@@ -2883,12 +3051,13 @@ router.post('/api/jira/bulk-update', async (req, res, next) => {
         issueKey: z.string(),
         email: z.string(),
         transitionId: z.string().optional(),
+        transitionName: z.string().optional(),
       })),
     }).parse(req.body)
 
     const baseUrl = mustEnv('JIRA_BASE_URL')
     const accounts = readAccounts()
-    const results: Array<{ issueKey: string; ok: boolean; error?: string }> = []
+    const results: Array<{ issueKey: string; ok: boolean; skipped?: boolean; error?: string }> = []
 
     for (const item of body.items) {
       const account = accounts.find(a => a.email === item.email)
@@ -2911,17 +3080,24 @@ router.post('/api/jira/bulk-update', async (req, res, next) => {
             results.push({ issueKey: item.issueKey, ok: true })
           }
         } else {
-          results.push({ issueKey: item.issueKey, ok: true })
+          // 使用者選的是「不切換」（或忘了選）——不呼叫 Jira，明確標記 skipped 讓前端/歷史紀錄
+          // 跟真的切換成功區分開，避免誤寫回「已切換狀態」到 Sheet 卻其實什麼都沒做
+          results.push({ issueKey: item.issueKey, ok: true, skipped: true })
         }
       } catch (e) {
         results.push({ issueKey: item.issueKey, ok: false, error: String(e) })
       }
+      // Jira API 節流，避免大批量時密集打 API 撞到 rate limit
+      await new Promise(r => setTimeout(r, 300))
     }
 
-    const ok = results.filter(r => r.ok).length
+    const ok = results.filter(r => r.ok && !r.skipped).length
+    const skipped = results.filter(r => r.skipped).length
     const fail = results.filter(r => !r.ok).length
-    log(fail > 0 ? 'warn' : 'ok', getClientIP(req), '', 'Jira 批次更新', `成功 ${ok} 筆${fail > 0 ? `，失敗 ${fail} 筆` : ''}`)
-    addHistory('jira-update', 'Jira 批次更新狀態', `成功 ${ok} 筆，失敗 ${fail} 筆`, { results })
+    const transitionLabel = body.items.find(i => i.transitionName)?.transitionName ?? '（未選擇目標狀態）'
+    log(fail > 0 ? 'warn' : 'ok', getClientIP(req), '', 'Jira 批次更新', `成功 ${ok} 筆${skipped > 0 ? `，跳過 ${skipped} 筆` : ''}${fail > 0 ? `，失敗 ${fail} 筆` : ''}`)
+    addHistory('jira-update', 'Jira 批次更新狀態', `切換至「${transitionLabel}」：成功 ${ok} 筆${skipped > 0 ? `，跳過 ${skipped} 筆` : ''}${fail > 0 ? `，失敗 ${fail} 筆` : ''}`,
+      { results, transitionId: body.items.find(i => i.transitionId)?.transitionId, transitionName: transitionLabel })
     res.json({ ok: true, results })
   } catch (error) { next(error) }
 })
@@ -3205,12 +3381,19 @@ router.post('/api/jira/batch-edit', async (req, res, next) => {
       } catch (e) {
         results.push({ issueKey: item.issueKey, ok: false, error: String(e) })
       }
+      // Jira API 節流，避免大批量時密集打 API 撞到 rate limit
+      await new Promise(r => setTimeout(r, 300))
     }
 
     const ok = results.filter(r => r.ok).length
     const fail = results.filter(r => !r.ok).length
     log(fail > 0 ? 'warn' : 'ok', getClientIP(req), '', 'Jira 批量修改', `成功 ${ok} 筆${fail > 0 ? `，失敗 ${fail} 筆` : ''}`)
-    addHistory('jira-edit', 'Jira 批量修改欄位', `成功 ${ok} 筆，失敗 ${fail} 筆`, { results })
+    // 補上實際改了哪些欄位/值 + 附件檔名，事後查歷史紀錄就知道改了什麼，不用只靠 ok/error 猜
+    const historyResults = results.map(r => {
+      const src = items.find(i => i.issueKey === r.issueKey)
+      return { ...r, changedFields: src?.fields ?? {}, attachments: (src?.cachedAttachments ?? []).map(a => a.filename) }
+    })
+    addHistory('jira-edit', 'Jira 批量修改欄位', `成功 ${ok} 筆，失敗 ${fail} 筆`, { results: historyResults })
     res.json({ ok: true, results })
   } catch (error) { next(error) }
 })

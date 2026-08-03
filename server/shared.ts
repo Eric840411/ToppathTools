@@ -722,6 +722,16 @@ db.exec(`
   )
 `)
 
+// jira_comment_jobs — Jira 批量評論背景 job 的快照，worker 重啟時用來判斷「上次還沒跑完就被
+// 砍掉的 job」，標記成中斷並附上目前為止的實際進度，取代含糊的 job not found。
+db.exec(`
+  CREATE TABLE IF NOT EXISTS jira_comment_jobs (
+    requestId TEXT PRIMARY KEY,
+    data      TEXT NOT NULL,
+    updatedAt INTEGER NOT NULL
+  )
+`)
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS jackpot_settings (
     gameid  TEXT NOT NULL,
