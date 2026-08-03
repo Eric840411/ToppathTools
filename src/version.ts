@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.84.0-xianxia.14'
+export const APP_VERSION = '3.84.0-xianxia.15'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.84.0-xianxia.15',
+    date: '2026-08-04',
+    changes: [
+      'fix(design): [design/xianxia 分支] 兩個全站性樣式漏洞——① 原生 checkbox/radio 全站從未套用主題（系統管理權限表、機台設定測試項目、URL 帳號池彈窗、Jackpot 監控「發 LARK」等多處都還是瀏覽器原生藍色方塊/圓點），改用 accent-color 重新上色，風險低、涵蓋全站。② `.main-content button:not([class])` 這條「給完全沒有樣式的陽春按鈕一個預設外觀」的規則，background/color 用了 !important，蓋掉所有「用 inline style 依選取狀態切換底色」的分段選擇按鈕（Performance Meter 對帳的 OSM/GCP 來源、Gaming Day/自然日 查詢範圍等），變成不管有沒有選中看起來都一樣、只有滑鼠移過去那瞬間會變色。拿掉 background/color 的 !important，讓真的有自己背景色的按鈕保留原色，只有完全沒設定背景色的按鈕才會落到預設樣式',
+    ],
+  },
   {
     version: '3.84.0-xianxia.14',
     date: '2026-08-04',

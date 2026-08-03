@@ -598,17 +598,22 @@ body::after {
 
 .search-select-empty { color: var(--xx-faint) !important; }
 
+/* 這條規則原本用 !important 蓋掉 background/color，導致「用 inline
+   style 依選取狀態切換底色」的分段選擇按鈕（OSM/GCP 資料來源、
+   Gaming Day/自然日 查詢範圍等多處）不管有沒有選中看起來都一樣，
+   只有 hover 那瞬間會變色。拿掉 background/color 的 !important，
+   讓真的有自己 inline 背景色的按鈕保留原色，只有完全沒設定背景色
+   的陽春按鈕才會落到這個預設樣式（border 相關維持 !important，
+   純粹外觀細節不影響語意色） */
 .main-content button:not([class]) {
   border-color: rgba(214, 183, 112, .24) !important;
   border-radius: 4px !important;
-  background: rgba(12, 24, 34, .88) !important;
-  color: #aeb9bf !important;
+  background: rgba(12, 24, 34, .88);
+  color: #aeb9bf;
 }
 
 .main-content button:not([class]):hover:not(:disabled) {
   border-color: rgba(117, 215, 207, .48) !important;
-  background: var(--xx-jade-soft) !important;
-  color: var(--xx-jade) !important;
 }
 
 .main-content [style*="rgb(99, 102, 241)"],
@@ -1883,5 +1888,23 @@ body::after,
     -webkit-mask-image: linear-gradient(90deg, transparent, black 90px);
     mask-image: linear-gradient(90deg, transparent, black 90px);
   }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   全站原生 checkbox / radio 重新上色
+   問題：xianxia-complete.css 先前的 input 樣式全部排除
+   checkbox/radio（:not([type="checkbox"]):not([type="radio"])），
+   等於這兩種元件全站從未被套用過修仙主題，還是瀏覽器原生的
+   藍色方塊/圓點（系統管理權限表、機台設定測試項目、URL 帳號池
+   彈窗、Jackpot 監控「發 LARK」等多處都受影響）。
+   用 accent-color 重新上色——原生控制項本身的畫法、無障礙行為
+   完全不變，只換色，風險最低、涵蓋全站。
+   ───────────────────────────────────────────────────────────── */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: var(--xx-jade);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
 }
 
