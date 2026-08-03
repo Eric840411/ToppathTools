@@ -674,8 +674,10 @@ function App() {
           <div className="app-topbar-seal" aria-hidden="true"><XianxiaIcon name="overview" size={28} /></div>
         </div>
 
-        {/* Page content */}
-        {(currentGroup?.id === 'color-game' && (effectiveTab === 'gs-bonusv2' || effectiveTab === 'gs-imgcompare')) ? (
+        {/* Page content — 整段等 globalAccount 確定登入後才掛載，避免 Dashboard 等頁面
+            在登入完成前就先發出一次一定會失敗的 unauthenticated API 請求，導致登入完成後
+            畫面短暫殘留這次失敗的錯誤訊息（要等下一次 30 秒輪詢才會自動清掉） */}
+        {globalAccount && ((currentGroup?.id === 'color-game' && (effectiveTab === 'gs-bonusv2' || effectiveTab === 'gs-imgcompare')) ? (
           <>
             {effectiveTab === 'gs-bonusv2' && <GsBonusV2Page />}
             {effectiveTab === 'gs-imgcompare' && <GsImgComparePage />}
@@ -704,7 +706,7 @@ function App() {
             {currentGroup?.id === 'sysadmin' && <SystemAdminPage />}
             {currentGroup?.id === 'knowledge' && <KnowledgePage />}
           </main>
-        )}
+        ))}
       </div>
 
       {showChangelog && <ChangelogModal onClose={() => setShowChangelog(false)} />}

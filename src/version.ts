@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.84.0-xianxia.12'
+export const APP_VERSION = '3.84.0-xianxia.13'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.84.0-xianxia.13',
+    date: '2026-08-04',
+    changes: [
+      'fix(design): [design/xianxia 分支] 修正登入後第一次進 Dashboard 顯示「監控資料載入失敗：unauthenticated」——App.tsx 原本頁面內容（含 Dashboard）不管有沒有登入都會掛載，AuthLoginModal 只是疊在最上層的浮層，所以 App 一啟動 DashboardPage 就會先發一次注定失敗的 /api/dashboard/summary（此時還沒登入），這次失敗的錯誤會留在畫面上，直到登入完成、下一次 30 秒輪詢才會自動清掉，中間這段時間使用者看到的就是這行過期的錯誤訊息。改成整個頁面內容區塊（main-content 與 Game Show 特例）都包在 globalAccount 判斷內，登入完成前不掛載，避免任何頁面提前打出一定會失敗的已登入限定 API',
+    ],
+  },
   {
     version: '3.84.0-xianxia.12',
     date: '2026-08-03',
