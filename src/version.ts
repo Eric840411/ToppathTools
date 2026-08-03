@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.84.0-control-room.1'
+export const APP_VERSION = '3.84.0-control-room.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.84.0-control-room.2',
+    date: '2026-08-03',
+    changes: [
+      'feat(design): [design/control-room 分支] Dashboard 頁面套用 Control Room 視覺——KPI 卡片改用 mono 字體 + hover 浮起發光、面板 hover 有青色光暈邊框、進度條改成青紫漸層、事件列表加上依序滑入動畫（尊重 prefers-reduced-motion）、成功/警告事件圓點會呼吸、主標題改漸層文字。純 CSS 改動，JSX/資料邏輯完全沒動（DashboardPage.tsx 本身已經用共用 class 沒有 inline style，只需要改 App.css 的 .dashboard-* 規則）',
+    ],
+  },
   {
     version: '3.84.0-control-room.1',
     date: '2026-08-03',
