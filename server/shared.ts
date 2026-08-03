@@ -78,6 +78,10 @@ db.exec(`
     operator_name TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS account_cultivation (
+    operator_key  TEXT PRIMARY KEY,
+    total_actions INTEGER NOT NULL DEFAULT 0
+  );
   CREATE TABLE IF NOT EXISTS heavy_tasks (
     id          TEXT PRIMARY KEY,
     user_key    TEXT NOT NULL,
@@ -506,6 +510,44 @@ export function addHistory(
   const operatorName = operator?.name ?? ''
   db.prepare('INSERT INTO operation_history (id, feature, title, summary, detail, operator_key, operator_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
     .run(id, feature, title, summary, JSON.stringify(detail), operatorKey, operatorName, Date.now())
+  // operation_history 每 7 天會被清空（見下方 auto-purge），無法拿來算累計操作數；
+  // 這裡另外維護一個永不清除的計數器，給「境界」稱號功能用
+  if (operatorKey) {
+    db.prepare(`
+      INSERT INTO account_cultivation (operator_key, total_actions) VALUES (?, 1)
+      ON CONFLICT(operator_key) DO UPDATE SET total_actions = total_actions + 1
+    `).run(operatorKey)
+  }
+}
+
+/** 境界稱號（自動依累計操作次數推進，靈感來自《凡人修仙傳》）——門檻可視情況調整 */
+export const CULTIVATION_LEVELS = [
+  { name: '練氣期', threshold: 0 },
+  { name: '築基期', threshold: 50 },
+  { name: '金丹期', threshold: 150 },
+  { name: '元嬰期', threshold: 400 },
+  { name: '化神期', threshold: 800 },
+  { name: '煉虛期', threshold: 1500 },
+  { name: '合體期', threshold: 3000 },
+  { name: '大乘期', threshold: 6000 },
+  { name: '渡劫期', threshold: 12000 },
+] as const
+
+export function getCultivationInfo(operatorKey: string) {
+  const row = db.prepare('SELECT total_actions FROM account_cultivation WHERE operator_key = ?').get(operatorKey) as { total_actions: number } | undefined
+  const totalActions = row?.total_actions ?? 0
+  let levelIndex = 0
+  for (let i = CULTIVATION_LEVELS.length - 1; i >= 0; i--) {
+    if (totalActions >= CULTIVATION_LEVELS[i].threshold) { levelIndex = i; break }
+  }
+  const next = CULTIVATION_LEVELS[levelIndex + 1]
+  return {
+    level: CULTIVATION_LEVELS[levelIndex].name,
+    levelIndex,
+    totalActions,
+    nextLevel: next?.name ?? null,
+    nextThreshold: next?.threshold ?? null,
+  }
 }
 
 // 若 machine_type_targets 是舊 schema（無 category 欄），重建為新 schema

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.84.0-xianxia.16'
+export const APP_VERSION = '3.85.0-xianxia.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.85.0-xianxia.1',
+    date: '2026-08-04',
+    changes: [
+      'feat(design): [design/xianxia 分支] 新增帳號境界稱號——側邊欄帳號區塊顯示一個小徽章，依累計操作次數自動晉升，靈感取自《凡人修仙傳》修煉境界（練氣期→築基期→金丹期→元嬰期→化神期→煉虛期→合體期→大乘期→渡劫期，共 9 階）。計數來自 addHistory() 每次呼叫時對新增的 account_cultivation 表做 upsert 遞增（operation_history 本身每 7 天會被清空，不能拿來算累計，這張新表永不清除）。新增 GET /api/account/cultivation 端點。純展示用途，不影響任何權限判斷',
+    ],
+  },
   {
     version: '3.84.0-xianxia.16',
     date: '2026-08-04',

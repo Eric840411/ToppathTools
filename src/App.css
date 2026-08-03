@@ -988,6 +988,20 @@
   letter-spacing: 0.3px;
 }
 
+.sidebar-user-cultivation {
+  display: inline-block;
+  align-self: flex-start;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--cr-violet, #c7a96b);
+  background: var(--cr-violet-soft, rgba(199, 169, 107, .14));
+  border: 1px solid rgba(199, 169, 107, .3);
+  border-radius: 4px;
+  padding: 1px 6px;
+  letter-spacing: .05em;
+  cursor: default;
+}
+
 .sidebar-logout-btn {
   background: none;
   border: none;

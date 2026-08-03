@@ -315,6 +315,7 @@ function App() {
   const [globalAccount, setGlobalAccount] = useState<AccountInfo | null>(loadGlobalAccount)
   const [authChecking, setAuthChecking] = useState(true)
   const [permissions, setPermissions] = useState<string[]>([])
+  const [cultivation, setCultivation] = useState<{ level: string; totalActions: number; nextLevel: string | null; nextThreshold: number | null } | null>(null)
 
   useEffect(() => {
     document.documentElement.dataset.realm = realm
@@ -359,6 +360,20 @@ function App() {
     } else {
       setPermissions([])
     }
+  }, [globalAccount])
+
+  // 帳號境界稱號（自動依累計操作次數推進），登入後抓一次即可，不需要輪詢
+  useEffect(() => {
+    if (!globalAccount) { setCultivation(null); return }
+    let cancelled = false
+    fetch('/api/account/cultivation')
+      .then(r => r.json())
+      .then((d: { ok: boolean; level?: string; totalActions?: number; nextLevel?: string | null; nextThreshold?: number | null }) => {
+        if (cancelled || !d.ok) return
+        setCultivation({ level: d.level!, totalActions: d.totalActions!, nextLevel: d.nextLevel ?? null, nextThreshold: d.nextThreshold ?? null })
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
   }, [globalAccount])
 
   function handleGlobalAccountSelect(acc: AccountInfo) {
@@ -620,6 +635,14 @@ function App() {
               </div>
               <div className="sidebar-user-info">
                 <span className="sidebar-user-name">{globalAccount.label}</span>
+                {cultivation && (
+                  <span
+                    className="sidebar-user-cultivation"
+                    title={cultivation.nextLevel ? `累計 ${cultivation.totalActions} 次操作，還差 ${cultivation.nextThreshold! - cultivation.totalActions} 次晉升「${cultivation.nextLevel}」` : `累計 ${cultivation.totalActions} 次操作，已達最高境界`}
+                  >
+                    {cultivation.level}
+                  </span>
+                )}
                 <button
                   type="button"
                   className="sidebar-logout-btn"
