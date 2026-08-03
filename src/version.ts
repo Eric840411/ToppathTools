@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.85.0-xianxia.2'
+export const APP_VERSION = '3.85.0-xianxia.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.85.0-xianxia.3',
+    date: '2026-08-04',
+    changes: [
+      'feat(design): [design/xianxia 分支] 新增境界排行榜「群英榜」頁面——側邊欄「宗門維運」分區新增獨立頁面，列出所有帳號依累計登入天數排名（不含 token），目前登入的帳號那一列會高亮。新增 GET /api/account/cultivation/leaderboard 端點與 server/shared.ts 的 getCultivationLeaderboard()。跟其他系統頁面一樣走 ALL_PAGE_KEYS/SystemAdminPage 權限表控管可見性（新增 cultivation-board page key）。已本機驗證排行榜資料正確（依真實帳號資料排序）',
+    ],
+  },
   {
     version: '3.85.0-xianxia.2',
     date: '2026-08-04',

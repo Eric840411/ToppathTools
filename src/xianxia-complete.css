@@ -1913,3 +1913,11 @@ input[type="radio"] {
   cursor: pointer;
 }
 
+/* 群英榜——目前登入的帳號那一列高亮 */
+.cultivation-row--me {
+  background: var(--xx-jade-soft, rgba(117, 215, 207, .1)) !important;
+  box-shadow: inset 3px 0 0 var(--xx-jade, #75d7cf);
+}
+.cultivation-row--me td { color: var(--xx-paper, #e8edf0) !important; }
+
+

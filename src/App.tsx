@@ -20,6 +20,7 @@ import { SystemAdminPage } from './pages/SystemAdminPage'
 import { KnowledgePage } from './pages/KnowledgePage'
 import { UiScreenshotPage } from './pages/UiScreenshotPage'
 import { DiscordNotifySettingsPage } from './pages/DiscordNotifySettingsPage'
+import { CultivationLeaderboardPage } from './pages/CultivationLeaderboardPage'
 import { MeterReconcilePage } from './pages/MeterReconcilePage'
 import { EgmDayCountPage } from './pages/EgmDayCountPage'
 import ChangelogModal from './components/ChangelogModal'
@@ -35,8 +36,8 @@ import './xianxia-complete.css'
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
   | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
-  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'meter-reconcile' | 'egm-daycount'
-type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge' | 'discord-notify'
+  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'meter-reconcile' | 'egm-daycount' | 'cultivation-board'
+type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge' | 'discord-notify' | 'cultivation-board'
 
 type SubTab = {
   id: TabId
@@ -269,6 +270,16 @@ const discordNotifyGroup: Group = {
   description: '設定 AutoSpin 執行狀態即時彙報用的 Discord Webhook',
 }
 
+const cultivationBoardGroup: Group = {
+  id: 'cultivation-board',
+  label: '境界排行榜',
+  themeLabel: '群英榜',
+  icon: 'C',
+  iconClass: 'tab-icon--history',
+  tab: 'cultivation-board',
+  description: '依累計登入天數排名，看看誰的境界最高',
+}
+
 const sysadminGroup: Group = {
   id: 'sysadmin',
   label: '系統管理',
@@ -427,8 +438,9 @@ function App() {
   const visibleHistory = filterGroup(historyGroup)
   const visibleKnowledge = filterGroup(knowledgeGroup)
   const visibleDiscordNotify = filterGroup(discordNotifyGroup)
+  const visibleCultivationBoard = filterGroup(cultivationBoardGroup)
   const visibleSysadmin = canAccess('sysadmin') ? sysadminGroup : null
-  const allVisible = [dashboardGroup, ...visibleGroups, ...(visibleSettings ? [visibleSettings] : []), ...(visibleHistory ? [visibleHistory] : []), ...(visibleKnowledge ? [visibleKnowledge] : []), ...(visibleDiscordNotify ? [visibleDiscordNotify] : []), ...(visibleSysadmin ? [visibleSysadmin] : [])]
+  const allVisible = [dashboardGroup, ...visibleGroups, ...(visibleSettings ? [visibleSettings] : []), ...(visibleHistory ? [visibleHistory] : []), ...(visibleKnowledge ? [visibleKnowledge] : []), ...(visibleDiscordNotify ? [visibleDiscordNotify] : []), ...(visibleCultivationBoard ? [visibleCultivationBoard] : []), ...(visibleSysadmin ? [visibleSysadmin] : [])]
 
   // Redirect activeGroup/activeTab if current selection is no longer accessible
   const currentGroup = allVisible.find(g => g.id === activeGroup) ?? allVisible[0]
@@ -586,6 +598,17 @@ function App() {
             </button>
           )}
 
+          {visibleCultivationBoard && (
+            <button
+              type="button"
+              className={`sidebar-nav-item${currentGroup?.id === cultivationBoardGroup.id ? ' sidebar-nav-item--active' : ''}`}
+              onClick={() => handleGroupClick(cultivationBoardGroup)}
+            >
+              <span className={`tab-icon ${cultivationBoardGroup.iconClass}`}><XianxiaIcon name="monitor" size={18} /></span>
+              <NavLabel group={cultivationBoardGroup} />
+            </button>
+          )}
+
           <button
             type="button"
             className={`sidebar-nav-item${currentGroup?.id === sysadminGroup.id ? ' sidebar-nav-item--active' : ''}${!visibleSysadmin ? ' sidebar-nav-item--disabled' : ''}`}
@@ -724,6 +747,7 @@ function App() {
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'egm-daycount' && <EgmDayCountPage />}
             {currentGroup?.id === 'settings' && effectiveTab === 'local-agent' && <LocalAgentPage currentAccount={globalAccount} />}
             {currentGroup?.id === 'discord-notify' && <DiscordNotifySettingsPage />}
+            {currentGroup?.id === 'cultivation-board' && <CultivationLeaderboardPage currentEmail={globalAccount?.email ?? null} />}
             {currentGroup?.id === 'history' && <HistoryPage />}
             {currentGroup?.id === 'color-game' && effectiveTab === 'gs-logchecker' && <GsLogCheckerPage />}
             {currentGroup?.id === 'sysadmin' && <SystemAdminPage />}

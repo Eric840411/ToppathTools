@@ -549,9 +549,7 @@ export function recordLoginDay(operatorKey: string) {
   `).run(operatorKey, today)
 }
 
-export function getCultivationInfo(operatorKey: string) {
-  const row = db.prepare('SELECT active_days FROM account_cultivation WHERE operator_key = ?').get(operatorKey) as { active_days: number } | undefined
-  const activeDays = row?.active_days ?? 0
+function levelForDays(activeDays: number) {
   let levelIndex = 0
   for (let i = CULTIVATION_LEVELS.length - 1; i >= 0; i--) {
     if (activeDays >= CULTIVATION_LEVELS[i].threshold) { levelIndex = i; break }
@@ -564,6 +562,21 @@ export function getCultivationInfo(operatorKey: string) {
     nextLevel: next?.name ?? null,
     nextThreshold: next?.threshold ?? null,
   }
+}
+
+export function getCultivationInfo(operatorKey: string) {
+  const row = db.prepare('SELECT active_days FROM account_cultivation WHERE operator_key = ?').get(operatorKey) as { active_days: number } | undefined
+  return levelForDays(row?.active_days ?? 0)
+}
+
+/** 排行榜：全部帳號依累計登入天數排序（不含 token，避免外洩） */
+export function getCultivationLeaderboard() {
+  const accounts = readAccounts().filter(a => a.status !== 'disabled')
+  const rows = db.prepare('SELECT operator_key, active_days FROM account_cultivation').all() as { operator_key: string; active_days: number }[]
+  const daysByKey = new Map(rows.map(r => [r.operator_key, r.active_days]))
+  return accounts
+    .map(a => ({ email: a.email, label: a.label, role: a.role, ...levelForDays(daysByKey.get(a.email) ?? 0) }))
+    .sort((a, b) => b.activeDays - a.activeDays)
 }
 
 // 若 machine_type_targets 是舊 schema（無 category 欄），重建為新 schema
@@ -1423,7 +1436,7 @@ export const ALL_PAGE_KEYS = [
   'jira-qa','jira-pm','jira-update','lark','osm','machinetest','imagecheck','osm-config',
   'autospin','url-pool','jackpot','osm-uat',
   'gs-imgcompare','gs-logchecker','gs-bonusv2','history','knowledge','local-agent',
-  'ui-screenshot','discord-notify','meter-reconcile','egm-daycount',
+  'ui-screenshot','discord-notify','meter-reconcile','egm-daycount','cultivation-board',
 ] as const
 
 export type PageKey = typeof ALL_PAGE_KEYS[number]

@@ -723,10 +723,13 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 
 **計數來源**：`server/auth-session.ts` 的 `createAuthSession()`（每次登入成功時呼叫）呼叫 `server/shared.ts` 的 `recordLoginDay()`，對 `account_cultivation` 表做 upsert——同一天內重複登入只算一天，累計的是「登入過幾個不同的日曆天」，不是登入次數或操作次數（`operation_history` 本身每 7 天會被自動清空，不適合拿來算長期累計）。`GET /api/account/cultivation` 回傳目前境界、累計登入天數、下一階名稱與門檻。
 
+**排行榜（群英榜）**：獨立頁面（`GroupId`/`page key` = `cultivation-board`，側邊欄「宗門維運」分區），`GET /api/account/cultivation/leaderboard` 回傳所有未停用帳號依累計登入天數排序的清單（不含 token），目前登入的帳號那一列會高亮（`.cultivation-row--me`）。跟其他「系統」分區頁面一樣走 `ALL_PAGE_KEYS`/`SystemAdminPage` 權限表控管可見性。
+
 ### 使用者操作
 | 操作 | 說明 |
 |------|------|
 | 查看目前境界 | 側邊欄帳號名稱下方的小徽章，滑鼠移上去顯示累計登入天數與距離下一階還差幾天 |
+| 查看群英榜排行 | 獨立頁面，列出所有帳號依境界/登入天數排名，自己的那一列會高亮 |
 
 ---
 

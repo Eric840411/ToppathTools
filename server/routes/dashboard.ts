@@ -1,7 +1,7 @@
 import { cpus, freemem, totalmem } from 'os'
 import { Router, type Request, type Response, type NextFunction } from 'express'
 import { getActiveAuthSessions, getAuthAccount } from '../auth-session.js'
-import { db, getClientIP, getCultivationInfo } from '../shared.js'
+import { db, getClientIP, getCultivationInfo, getCultivationLeaderboard } from '../shared.js'
 
 export const router = Router()
 
@@ -253,6 +253,12 @@ router.get('/api/account/cultivation', (req, res) => {
   const account = getAuthAccount(req)
   if (!account) return res.status(401).json({ ok: false, message: 'unauthenticated' })
   res.json({ ok: true, ...getCultivationInfo(account.email) })
+})
+
+router.get('/api/account/cultivation/leaderboard', (req, res) => {
+  const account = getAuthAccount(req)
+  if (!account) return res.status(401).json({ ok: false, message: 'unauthenticated' })
+  res.json({ ok: true, entries: getCultivationLeaderboard() })
 })
 
 router.get('/api/dashboard/summary', async (req, res) => {
