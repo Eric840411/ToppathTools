@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.84.0-xianxia.3'
+export const APP_VERSION = '3.84.0-xianxia.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.84.0-xianxia.4',
+    date: '2026-08-03',
+    changes: [
+      'feat(design): [design/xianxia 分支] AutoSpin 執行監控頁套用太玄道樞視覺 + 移除 Emoji 圖示——Agent 選擇卡片改用 hover 浮起+選中青色光暈（.autospin-agent-card）、派工啟動/停止/暫停/繼續按鈕改用玄月青/赤霄紅/古金三色（.cr-btn 系列）、狀態指示全部改成會呼吸的狀態圓點（.cr-status-dot）取代 🟢⚪🟠、日誌篩選 pill 與截圖縮圖 hover 光暈（.cr-pill/.autospin-shot）、最新截圖角落加脈動指示。原本 ▶⏹⏸📜🔄🔍🗑⚠️❌✅ 等 Emoji 字元全部移除，改成純文字或手繪 SVG 幾何線條圖示（重新整理/搜尋），純樣式改動不動任何資料邏輯/handler',
+    ],
+  },
   {
     version: '3.84.0-xianxia.3',
     date: '2026-08-03',

@@ -1329,18 +1329,19 @@ export function AutoSpinPage() {
                 /* ── Server mode controls ── */
                 <>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button onClick={handleStart} disabled={running}
-                      style={{ padding: '8px 20px', background: running ? '#9ca3af' : '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: running ? 'default' : 'pointer' }}>
-                      ▶ 啟動 AutoSpin
+                    <button className="cr-btn cr-btn--jade" onClick={handleStart} disabled={running}
+                      style={{ padding: '8px 20px', background: running ? '#4b5563' : 'var(--xx-jade-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: running ? 'default' : 'pointer' }}>
+                      啟動 AutoSpin
                     </button>
-                    <button onClick={handleStop} disabled={!running}
-                      style={{ padding: '8px 20px', background: !running ? '#9ca3af' : '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: !running ? 'default' : 'pointer' }}>
-                      ⏹ 停止
+                    <button className="cr-btn cr-btn--cinnabar" onClick={handleStop} disabled={!running}
+                      style={{ padding: '8px 20px', background: !running ? '#4b5563' : 'var(--xx-cinnabar-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: !running ? 'default' : 'pointer' }}>
+                      停止
                     </button>
-                    <span style={{ fontSize: 12, padding: '4px 10px', borderRadius: 12, background: running ? 'rgba(16,185,129,0.15)' : '#f1f5f9', color: running ? '#16a34a' : '#6b7280', fontWeight: 600 }}>
-                      {running ? '🟢 執行中' : '⚪ 未執行'}
+                    <span style={{ fontSize: 12, padding: '4px 10px', borderRadius: 12, background: running ? 'var(--cr-cyan-soft)' : '#1e293b', color: running ? 'var(--cr-cyan)' : '#6b7280', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <span className={running ? 'cr-status-dot' : undefined} style={{ width: 6, height: 6, borderRadius: '50%', background: running ? 'var(--cr-cyan)' : '#6b7280', flexShrink: 0 }} />
+                      {running ? '執行中' : '未執行'}
                     </span>
-                    {startError && <span style={{ color: '#dc2626', fontSize: 12 }}>❌ {startError}</span>}
+                    {startError && <span style={{ color: 'var(--cr-rose)', fontSize: 12, borderLeft: '2px solid var(--cr-rose)', paddingLeft: 6 }}>{startError}</span>}
                   </div>
                   <div style={{ fontSize: 11, color: '#94a3b8' }}>
                     執行中的機台：{configs.filter(c => c.enabled).length} 台（已啟用）
@@ -1358,7 +1359,9 @@ export function AutoSpinPage() {
                     <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
                       <span style={{ fontSize: 11.5, fontWeight: 700, color: '#94a3b8' }}>① 選擇執行 Agent</span>
                       <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748b' }}>線上、支援 autospin 的 agent</span>
-                      <button onClick={fetchHubAgents} style={{ marginLeft: 10, fontSize: 11, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer' }}>🔄</button>
+                      <button className="cr-icon-btn" onClick={fetchHubAgents} title="重新整理" style={{ marginLeft: 10, color: 'var(--cr-cyan)', background: 'none', border: 'none', cursor: 'pointer' }}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M3 12a9 9 0 0 1 15.3-6.4M21 12a9 9 0 0 1-15.3 6.4" /><path d="M18 3v4h-4M6 21v-4h4" /></svg>
+                      </button>
                     </div>
                     {hubAgents.length === 0 ? (
                       <div style={{ padding: 10, textAlign: 'center', color: '#64748b', fontSize: 12, border: '1px dashed #2d3f55', borderRadius: 8 }}>
@@ -1370,16 +1373,20 @@ export function AutoSpinPage() {
                           const sel = selectedAgentId === a.agentId
                           return (
                             <div key={a.agentId} onClick={() => !a.busy && setSelectedAgentId(a.agentId)}
+                              className={`autospin-agent-card${sel ? ' autospin-agent-card--selected' : ''}`}
                               style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 11px', borderRadius: 9, cursor: a.busy ? 'not-allowed' : 'pointer',
-                                background: sel ? '#16263f' : '#162338', border: `1px solid ${sel ? '#2563eb' : '#2d3f55'}`, opacity: a.busy ? 0.6 : 1 }}>
-                              <div style={{ width: 16, height: 16, borderRadius: '50%', border: `2px solid ${sel ? '#2563eb' : '#475569'}`, flexShrink: 0, position: 'relative' }}>
-                                {sel && <div style={{ position: 'absolute', inset: 3, borderRadius: '50%', background: '#2563eb' }} />}
+                                opacity: a.busy ? 0.6 : 1 }}>
+                              <div style={{ width: 16, height: 16, borderRadius: '50%', border: `2px solid ${sel ? 'var(--cr-cyan)' : '#475569'}`, flexShrink: 0, position: 'relative' }}>
+                                {sel && <div style={{ position: 'absolute', inset: 3, borderRadius: '50%', background: 'var(--cr-cyan)' }} />}
                               </div>
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <span style={{ fontWeight: 700, fontSize: 13, color: '#e2e8f0' }}>{a.hostname}</span>
                                 <span style={{ fontSize: 10, color: '#64748b', marginLeft: 8 }}>{a.capabilities.join(' · ')}</span>
                               </div>
-                              <span style={{ fontSize: 11, color: a.busy ? '#f59e0b' : '#22c55e' }}>{a.busy ? '● 忙碌' : '● 可派工'}</span>
+                              <span style={{ fontSize: 11, color: a.busy ? 'var(--xx-gold-soft, #ead8a6)' : 'var(--cr-cyan)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                                <span className={a.busy ? undefined : 'cr-status-dot'} style={{ width: 6, height: 6, borderRadius: '50%', background: a.busy ? '#ead8a6' : 'var(--cr-cyan)' }} />
+                                {a.busy ? '忙碌' : '可派工'}
+                              </span>
                             </div>
                           )
                         })}
@@ -1413,7 +1420,7 @@ export function AutoSpinPage() {
                             style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 5, color: '#e2e8f0', padding: '4px 8px', fontSize: 13, width: 90 }} />
                         </div>
                         {!luckylinkJpGroupCode && (
-                          <span style={{ fontSize: 11, color: '#f59e0b', alignSelf: 'flex-end', paddingBottom: 4 }}>⚠ 請選擇 JP Group</span>
+                          <span style={{ fontSize: 11, color: '#ead8a6', borderLeft: '2px solid #ead8a6', paddingLeft: 6, alignSelf: 'flex-end', paddingBottom: 4 }}>請選擇 JP Group</span>
                         )}
                       </div>
                     )}
@@ -1423,35 +1430,36 @@ export function AutoSpinPage() {
 
                   {/* ③ Status + controls row */}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button onClick={handleDispatchAgent} disabled={agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)}
-                      style={{ padding: '7px 18px', background: (agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)) ? '#9ca3af' : '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: (agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)) ? 'default' : 'pointer' }}>
-                      {hubDispatching ? '派工中…' : '▶ 派工啟動'}
+                    <button className="cr-btn cr-btn--jade" onClick={handleDispatchAgent} disabled={agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)}
+                      style={{ padding: '7px 18px', background: (agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)) ? '#4b5563' : 'var(--xx-jade-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: (agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)) ? 'default' : 'pointer' }}>
+                      {hubDispatching ? '派工中…' : '派工啟動'}
                     </button>
-                    <button onClick={handleStopHub} disabled={hubStopping || (!agentRunning && !hubDispatching)}
-                      style={{ padding: '7px 18px', background: (hubStopping || (!agentRunning && !hubDispatching)) ? '#9ca3af' : '#dc2626', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: (hubStopping || (!agentRunning && !hubDispatching)) ? 'default' : 'pointer' }}>
-                      {hubStopping ? '停止中…' : '⏹ 停止'}
+                    <button className="cr-btn cr-btn--cinnabar" onClick={handleStopHub} disabled={hubStopping || (!agentRunning && !hubDispatching)}
+                      style={{ padding: '7px 18px', background: (hubStopping || (!agentRunning && !hubDispatching)) ? '#4b5563' : 'var(--xx-cinnabar-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: (hubStopping || (!agentRunning && !hubDispatching)) ? 'default' : 'pointer' }}>
+                      {hubStopping ? '停止中…' : '停止'}
                     </button>
                     {agentRunning && !agentPaused && !hubStopping && (
-                      <button onClick={handlePause}
-                        style={{ padding: '7px 14px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
-                        ⏸ 暫停
+                      <button className="cr-btn cr-btn--gold" onClick={handlePause}
+                        style={{ padding: '7px 14px', background: 'var(--xx-gold-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
+                        暫停
                       </button>
                     )}
                     {agentRunning && agentPaused && (
-                      <button onClick={handleResume}
-                        style={{ padding: '7px 14px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
-                        ▶ 繼續
+                      <button className="cr-btn cr-btn--jade" onClick={handleResume}
+                        style={{ padding: '7px 14px', background: 'var(--xx-jade-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
+                        繼續
                       </button>
                     )}
-                    <span style={{ fontSize: 12, padding: '4px 10px', borderRadius: 12, background: hubStopping ? 'rgba(239,68,68,0.12)' : agentPaused ? 'rgba(251,191,36,0.12)' : agentRunning ? 'rgba(16,185,129,0.15)' : '#f1f5f9', color: hubStopping ? '#dc2626' : agentPaused ? '#d97706' : agentRunning ? '#16a34a' : '#6b7280', fontWeight: 600 }}>
-                      {hubStopping ? '🟠 停止中…' : agentPaused ? '⏸ 已暫停' : agentRunning ? '🟢 Agent 執行中' : '⚪ 未連線'}
+                    <span style={{ fontSize: 12, padding: '4px 10px', borderRadius: 12, background: hubStopping ? 'rgba(223,118,94,0.14)' : agentPaused ? 'rgba(199,169,107,0.14)' : agentRunning ? 'var(--cr-cyan-soft)' : '#1e293b', color: hubStopping ? 'var(--cr-rose)' : agentPaused ? 'var(--cr-violet)' : agentRunning ? 'var(--cr-cyan)' : '#6b7280', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <span className={agentRunning && !hubStopping ? 'cr-status-dot' : undefined} style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: hubStopping ? 'var(--cr-rose)' : agentPaused ? 'var(--cr-violet)' : agentRunning ? 'var(--cr-cyan)' : '#6b7280' }} />
+                      {hubStopping ? '停止中…' : agentPaused ? '已暫停' : agentRunning ? 'Agent 執行中' : '未連線'}
                     </span>
-                    {agentSessionId && <span style={{ fontSize: 11, color: '#2563eb' }}>Session: {agentSessionId.slice(0, 8)}…</span>}
+                    {agentSessionId && <span style={{ fontSize: 11, color: 'var(--cr-cyan)' }}>Session: {agentSessionId.slice(0, 8)}…</span>}
 
                     <span style={{ width: 1, height: 20, background: '#2d3f55', margin: '0 2px' }} />
 
                     {/* Live Spin Interval — 併進同一列，跟 mockup 一致 */}
-                    <span style={{ fontSize: 12, color: '#94a3b8' }}>⏱ Spin 間隔</span>
+                    <span style={{ fontSize: 12, color: '#94a3b8' }}>Spin 間隔</span>
                     <input
                       type="range" min={0.1} max={10} step={0.1}
                       value={liveSpinInterval}
@@ -1462,9 +1470,10 @@ export function AutoSpinPage() {
                     <span style={{ fontSize: 13, fontWeight: 600, minWidth: 32 }}>{liveSpinInterval.toFixed(1)}s</span>
                     <button
                       type="button"
+                      className="cr-btn"
                       disabled={!agentRunning || liveIntervalSaving}
                       onClick={() => handleSetLiveInterval(liveSpinInterval)}
-                      style={{ padding: '3px 12px', fontSize: 12, borderRadius: 6, border: '1px solid #2563eb', background: '#eff6ff', color: '#2563eb', cursor: agentRunning ? 'pointer' : 'default' }}
+                      style={{ padding: '3px 12px', fontSize: 12, borderRadius: 6, border: '1px solid var(--cr-cyan-border)', background: 'var(--cr-cyan-soft)', color: 'var(--cr-cyan)', cursor: agentRunning ? 'pointer' : 'default' }}
                     >
                       {liveIntervalSaving ? '...' : '套用'}
                     </button>
@@ -1494,35 +1503,35 @@ export function AutoSpinPage() {
                   return true
                 })
                 const catColor: Record<LogCategory, string> = {
-                  sys: '#38bdf8', spin: '#e2e8f0', shot: '#c4b5fd', warn: '#fbbf24', err: '#f87171', pinus: '#5b6b85', other: '#94a3b8',
+                  sys: 'var(--cr-cyan)', spin: '#e2e8f0', shot: 'var(--cr-violet)', warn: '#ead8a6', err: 'var(--cr-rose)', pinus: '#5b6b85', other: '#94a3b8',
                 }
-                const catBg: Partial<Record<LogCategory, string>> = { spin: 'rgba(59,130,246,0.08)' }
+                const catBg: Partial<Record<LogCategory, string>> = { spin: 'rgba(117,215,207,0.06)' }
                 return (
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden' }}>
+                  <div className="autospin-log-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden' }}>
                     {/* Header: title/count + search + auto-scroll + clear */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#162032', borderBottom: '1px solid #2d3f55', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>📜 執行日誌</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>執行日誌</span>
                       <span style={{ fontSize: 11, color: '#64748b' }}>{visible.length} / {rawLogs.length} 行</span>
                       <div style={{ flex: 1 }} />
                       <input value={logSearch} onChange={e => setLogSearch(e.target.value)} placeholder="搜尋日誌內容…"
                         style={{ padding: '3px 8px', fontSize: 11, border: '1px solid #2d3f55', borderRadius: 5, background: '#0f172a', color: '#e2e8f0', width: 130 }} />
-                      <button onClick={() => setAutoScrollLog(v => !v)}
+                      <button className="cr-pill" onClick={() => setAutoScrollLog(v => !v)}
                         style={{ fontSize: 11, padding: '3px 9px', borderRadius: 5, border: '1px solid #2d3f55', cursor: 'pointer',
-                          background: autoScrollLog ? 'rgba(34,197,94,0.12)' : '#0f172a', color: autoScrollLog ? '#4ade80' : '#94a3b8' }}>
-                        ⬇ 自動捲到底
+                          background: autoScrollLog ? 'var(--cr-cyan-soft)' : '#0f172a', color: autoScrollLog ? 'var(--cr-cyan)' : '#94a3b8' }}>
+                        自動捲到底
                       </button>
-                      <button onClick={() => (runMode === 'server' ? setLogs([]) : setAgentLogs([]))}
+                      <button className="cr-pill" onClick={() => (runMode === 'server' ? setLogs([]) : setAgentLogs([]))}
                         style={{ fontSize: 11, padding: '3px 9px', borderRadius: 5, border: '1px solid #2d3f55', background: '#0f172a', color: '#94a3b8', cursor: 'pointer' }}>
-                        🗑 清空
+                        清空
                       </button>
                     </div>
                     {/* Filter chips */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: '#162032', borderBottom: '1px solid #2d3f55', flexWrap: 'wrap' }}>
                       {([['all', '全部'], ['sys', '系統'], ['spin', 'Spin'], ['shot', '截圖'], ['error', '錯誤/警告']] as const).map(([key, label]) => (
-                        <button key={key} onClick={() => setLogFilter(key)}
+                        <button key={key} className={`cr-pill${logFilter === key ? ' cr-pill--active' : ''}`} onClick={() => setLogFilter(key)}
                           style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 999, cursor: 'pointer',
-                            border: `1px solid ${logFilter === key ? '#2563eb' : '#2d3f55'}`,
-                            background: logFilter === key ? '#2563eb' : '#0f172a', color: logFilter === key ? '#fff' : '#94a3b8' }}>
+                            border: `1px solid ${logFilter === key ? 'var(--cr-cyan)' : '#2d3f55'}`,
+                            background: logFilter === key ? 'var(--cr-cyan)' : '#0f172a', color: logFilter === key ? '#03222b' : '#94a3b8' }}>
                           {label}
                         </button>
                       ))}
@@ -1534,15 +1543,15 @@ export function AutoSpinPage() {
                         const count = pinusCatCounts.get(key) ?? 0
                         const on = visiblePinusCats.has(key)
                         return (
-                          <button key={key}
+                          <button key={key} className={`cr-pill${on ? ' cr-pill--active-soft' : ''}`}
                             onClick={() => setVisiblePinusCats(prev => {
                               const next = new Set(prev)
                               if (next.has(key)) next.delete(key); else next.add(key)
                               return next
                             })}
                             style={{ fontSize: 10.5, fontWeight: 600, padding: '2px 8px', borderRadius: 999, cursor: 'pointer',
-                              border: `1px solid ${on ? '#38bdf8' : '#2d3f55'}`,
-                              background: on ? 'rgba(56,189,248,0.14)' : '#0f172a', color: on ? '#7dd3fc' : '#64748b' }}>
+                              border: `1px solid ${on ? 'var(--cr-cyan)' : '#2d3f55'}`,
+                              background: on ? 'var(--cr-cyan-soft)' : '#0f172a', color: on ? 'var(--cr-cyan)' : '#64748b' }}>
                             {label}{count > 0 ? `（${count}）` : ''}
                           </button>
                         )
@@ -1582,7 +1591,7 @@ export function AutoSpinPage() {
                     <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: !luckylinkStatus ? '#6b7280' : luckylinkStatus.error ? '#ef4444' : luckylinkStatus.connected ? '#22c55e' : '#f59e0b' }} />
                     <span style={{ fontSize: 12, fontWeight: 600, color: '#cbd5e1', flex: 1 }}>
                       LuckyLink JP {luckylinkStatus?.pollCount ? `Poll#${luckylinkStatus.pollCount}` : ''}
-                      {luckylinkStatus?.alerts.some(a => a.level === 'error') ? ' ❌' : luckylinkStatus?.alerts.some(a => a.level === 'warn') ? ' ⚠️' : ''}
+                      {luckylinkStatus?.alerts.some(a => a.level === 'error') ? <span style={{ color: 'var(--cr-rose)' }}> · 異常</span> : luckylinkStatus?.alerts.some(a => a.level === 'warn') ? <span style={{ color: '#ead8a6' }}> · 警告</span> : ''}
                     </span>
                     <span style={{ fontSize: 10, color: '#64748b' }}>{llPanelOpen ? '▲' : '▼'}</span>
                   </div>
@@ -1624,9 +1633,9 @@ export function AutoSpinPage() {
                           {luckylinkStatus.alerts.length > 0 && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 3, borderTop: '1px solid #0f172a', paddingTop: 4 }}>
                               {luckylinkStatus.alerts.slice(-5).map((a, i) => (
-                                <div key={i} style={{ fontSize: 10, borderLeft: `3px solid ${a.level === 'error' ? '#ef4444' : a.level === 'warn' ? '#f59e0b' : '#22c55e'}`, paddingLeft: 6, color: '#cbd5e1' }}>
-                                  <span style={{ color: a.level === 'error' ? '#f87171' : a.level === 'warn' ? '#fbbf24' : '#86efac' }}>
-                                    {a.level === 'error' ? '❌' : a.level === 'warn' ? '⚠️' : '✅'} {a.name} [{a.state}]
+                                <div key={i} style={{ fontSize: 10, borderLeft: `3px solid ${a.level === 'error' ? 'var(--cr-rose)' : a.level === 'warn' ? '#ead8a6' : 'var(--cr-cyan)'}`, paddingLeft: 6, color: '#cbd5e1' }}>
+                                  <span style={{ color: a.level === 'error' ? 'var(--cr-rose)' : a.level === 'warn' ? '#ead8a6' : 'var(--cr-cyan)' }}>
+                                    {a.name} [{a.state}]
                                   </span>
                                   {a.message && <span style={{ color: '#94a3b8' }}> {a.message}</span>}
                                   {a.prev !== undefined && <span style={{ color: '#64748b' }}> ({a.prev}→{a.curr})</span>}
@@ -1660,18 +1669,20 @@ export function AutoSpinPage() {
                           <option key={c.machineType} value={c.machineNo}>{c.machineType} ({c.machineNo})</option>
                         ))}
                       </select>
-                      <button onClick={() => fetchSlsErrors(slsMachineNo)} disabled={!slsMachineNo || slsLoading}
-                        style={{ fontSize: 11, padding: '4px 8px', background: slsMachineNo ? '#2563eb' : '#e5e7eb', color: slsMachineNo ? '#fff' : '#9ca3af', border: 'none', borderRadius: 5, cursor: slsMachineNo ? 'pointer' : 'default' }}>
-                        {slsLoading ? '...' : '🔍'}
+                      <button className="cr-btn" onClick={() => fetchSlsErrors(slsMachineNo)} disabled={!slsMachineNo || slsLoading}
+                        style={{ fontSize: 11, padding: '4px 8px', background: slsMachineNo ? 'var(--xx-jade-solid)' : '#334155', color: slsMachineNo ? '#fff' : '#9ca3af', border: 'none', borderRadius: 5, cursor: slsMachineNo ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center' }}>
+                        {slsLoading ? '...' : (
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
+                        )}
                       </button>
                     </div>
-                    {slsError && <div style={{ fontSize: 11, color: '#ef4444' }}>{slsError}</div>}
+                    {slsError && <div style={{ fontSize: 11, color: 'var(--cr-rose)' }}>{slsError}</div>}
                     {slsEntries.length === 0 && !slsLoading && !slsError && slsMachineNo && (
                       <div style={{ fontSize: 11, color: '#64748b' }}>近 24 小時無錯誤記錄</div>
                     )}
                     {slsEntries.map((e, i) => (
-                      <div key={i} style={{ fontSize: 10, borderLeft: `3px solid ${e.level === 'ERROR' ? '#ef4444' : e.level === 'WARN' || e.level === 'WARNING' ? '#f59e0b' : '#6b7280'}`, paddingLeft: 6, color: '#cbd5e1' }}>
-                        <div style={{ color: '#94a3b8', marginBottom: 2 }}>{e.timeStr} · <span style={{ color: e.level === 'ERROR' ? '#ef4444' : '#f59e0b', fontWeight: 700 }}>{e.level}</span></div>
+                      <div key={i} style={{ fontSize: 10, borderLeft: `3px solid ${e.level === 'ERROR' ? 'var(--cr-rose)' : e.level === 'WARN' || e.level === 'WARNING' ? '#ead8a6' : '#6b7280'}`, paddingLeft: 6, color: '#cbd5e1' }}>
+                        <div style={{ color: '#94a3b8', marginBottom: 2 }}>{e.timeStr} · <span style={{ color: e.level === 'ERROR' ? 'var(--cr-rose)' : '#ead8a6', fontWeight: 700 }}>{e.level}</span></div>
                         <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', color: '#1e293b' }}>{e.content.slice(0, 160)}{e.content.length > 160 ? '…' : ''}</div>
                       </div>
                     ))}
@@ -1681,7 +1692,10 @@ export function AutoSpinPage() {
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: '#cbd5e1' }}>截圖監控</span>
-                <button onClick={fetchCaptures} style={{ fontSize: 11, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer' }}>🔄 重新整理</button>
+                <button className="cr-icon-btn" onClick={fetchCaptures} style={{ fontSize: 11, color: 'var(--cr-cyan)', background: 'none', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M3 12a9 9 0 0 1 15.3-6.4M21 12a9 9 0 0 1-15.3 6.4" /><path d="M18 3v4h-4M6 21v-4h4" /></svg>
+                  重新整理
+                </button>
               </div>
               {(() => {
                 const raw = runMode === 'server' ? captures : agentCaptures
@@ -1698,6 +1712,7 @@ export function AutoSpinPage() {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                     {items.map((it, i) => (
                       <div key={it.name} onClick={() => setLightbox(it.src)}
+                        className={`autospin-shot${i === 0 ? ' autospin-shot--latest' : ''}`}
                         style={{ position: 'relative', border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden', aspectRatio: '1 / 1', background: '#0f172a', cursor: 'zoom-in' }}>
                         <img
                           src={it.src}
@@ -1705,11 +1720,14 @@ export function AutoSpinPage() {
                           style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                           onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
                         {i === 0 && (
-                          <span style={{ position: 'absolute', top: 4, right: 4, background: '#2563eb', color: '#fff', fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4 }}>最新</span>
+                          <>
+                            <span className="cr-status-dot" style={{ position: 'absolute', top: 6, left: 6, width: 6, height: 6, borderRadius: '50%', background: 'var(--cr-cyan)' }} />
+                            <span style={{ position: 'absolute', top: 4, right: 4, background: 'var(--xx-jade-solid)', color: '#fff', fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4 }}>最新</span>
+                          </>
                         )}
                         <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '4px 6px', background: 'linear-gradient(0deg, rgba(0,0,0,0.75), transparent)', fontSize: 9.5, color: '#e2e8f0', display: 'flex', justifyContent: 'space-between' }}>
                           <span>{it.spinNo ? `Spin #${it.spinNo}` : it.name}</span>
-                          <b style={{ color: '#93c5fd' }}>{relativeShotTime(it.ts)}</b>
+                          <b style={{ color: 'var(--cr-cyan)' }}>{relativeShotTime(it.ts)}</b>
                         </div>
                       </div>
                     ))}

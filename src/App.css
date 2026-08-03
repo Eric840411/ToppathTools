@@ -19,6 +19,11 @@
   --cr-rose: #df765e;                          /* 危險：赤霄紅 */
   --cr-ease: cubic-bezier(.22, 1, .36, 1);
   --xx-page-transition: 550ms;
+  /* 深色版三色，給實心按鈕當背景配白字用（--cr-cyan/violet/rose 本身較淺，
+     直接當實心背景配白字對比不足）。逐頁重刻沿用同一套。 */
+  --xx-jade-solid: #2f8f82;
+  --xx-cinnabar-solid: #b3492f;
+  --xx-gold-solid: #a3823f;
 }
 
 @keyframes cr-pulse-dot {
@@ -49,6 +54,44 @@
     radial-gradient(600px 500px at 8% -5%, var(--cr-cyan-soft), transparent 65%),
     radial-gradient(600px 500px at 96% 15%, var(--cr-violet-soft), transparent 65%);
   opacity: .5;
+}
+
+/* ─────────────────────────────────────────────────
+   共用互動元件（cr-btn / cr-pill / cr-status-dot / cr-icon-btn）
+   逐頁重刻時共用，避免每頁各刻一份 hover/press 邏輯。
+   ───────────────────────────────────────────────── */
+.cr-btn {
+  transition: transform .15s var(--cr-ease), box-shadow .15s var(--cr-ease), filter .15s;
+}
+.cr-btn:hover:not(:disabled) { filter: brightness(1.1); transform: translateY(-1px); }
+.cr-btn:active:not(:disabled) { transform: translateY(0) scale(.96); }
+.cr-btn--jade:hover:not(:disabled) { box-shadow: 0 6px 16px -6px rgba(117, 215, 207, .5); }
+.cr-btn--cinnabar:hover:not(:disabled) { box-shadow: 0 6px 16px -6px rgba(223, 118, 94, .5); }
+.cr-btn--gold:hover:not(:disabled) { box-shadow: 0 6px 16px -6px rgba(199, 169, 107, .5); }
+
+.cr-icon-btn { transition: transform .15s var(--cr-ease), filter .15s; display: inline-flex; }
+.cr-icon-btn:hover { transform: rotate(50deg); filter: brightness(1.3); }
+
+.cr-status-dot { animation: cr-pulse-dot-glow 1.8s ease-in-out infinite; }
+@keyframes cr-pulse-dot-glow {
+  0%, 100% { box-shadow: 0 0 0 0 currentColor; }
+  50% { box-shadow: 0 0 6px 2px currentColor; }
+}
+
+.cr-pill { transition: transform .15s var(--cr-ease), filter .15s, box-shadow .15s var(--cr-ease); }
+.cr-pill:hover { filter: brightness(1.15); }
+.cr-pill--active, .cr-pill--active-soft { box-shadow: 0 0 0 1px var(--cr-cyan-border); }
+
+.autospin-agent-card { transition: transform .15s var(--cr-ease), border-color .2s var(--cr-ease), background .2s var(--cr-ease); background: #162338; border: 1px solid #2d3f55; }
+.autospin-agent-card:hover { transform: translateY(-1px); border-color: var(--cr-cyan-border); }
+.autospin-agent-card--selected { background: linear-gradient(135deg, var(--cr-cyan-soft), #16263f); border-color: var(--cr-cyan); }
+
+.autospin-shot { transition: transform .18s var(--cr-ease), border-color .18s var(--cr-ease), box-shadow .18s var(--cr-ease); }
+.autospin-shot:hover { transform: scale(1.03); border-color: var(--cr-cyan-border); box-shadow: 0 8px 22px -10px var(--cr-cyan-border); }
+.autospin-shot--latest { border-color: var(--cr-cyan-border) !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cr-status-dot { animation: none !important; }
 }
 
 /* ═══════════════════════════════════════════════════
