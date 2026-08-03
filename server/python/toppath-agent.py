@@ -60,6 +60,23 @@ def log(msg: str):
     print(line)
     log_queue.put(line)
 
+AGENT_LOCAL_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'agent-reconnect.log')
+
+def local_log(msg: str):
+    """印到 console + 額外寫進本機檔案，專門給「連線/斷線重連」這類訊息用，不透過 log()。
+    重連失敗當下 session_id 是無效的（連線本身就是問題所在），log() 送去伺服器一定被 404 吞掉，
+    網頁「執行日誌」面板永遠看不到失敗訊息；終端機視窗又常被多台機台持續洗版蓋過去、捲動緩衝區
+    有限，長時間跑下來很難用肉眼在終端機裡找到某次特定的重連事件。寫進固定的本機檔案，不受
+    終端機緩衝區限制，之後可以直接開檔案搜尋確認實際發生過什麼。"""
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{ts}] {msg}"
+    print(line)
+    try:
+        with open(AGENT_LOCAL_LOG_PATH, 'a', encoding='utf-8') as f:
+            f.write(line + '\n')
+    except Exception:
+        pass
+
 def log_worker():
     """背景執行緒：批次把佇列裡的日誌行 POST 給伺服器。
     pinus 監控一次 spin 可能連續產生好幾行（request/response/push...），
@@ -132,16 +149,16 @@ def poll_stop():
             d = r.json()
             # Session not found (server restarted) — re-register to get a new session
             if d.get('sessionNotFound'):
-                print(f"[Agent] Session 已失效，嘗試重新連線伺服器...")
+                local_log("[Agent] Session 已失效，嘗試重新連線伺服器...")
                 try:
                     resp = requests.post(f"{server_url}/api/autospin/agent/start",
                                          json={'userLabel': user_label}, timeout=10)
                     new_data = resp.json()
                     session_id = new_data['sessionId']
-                    print(f"[Agent] 重新連線成功，新 Session: {session_id}")
+                    local_log(f"[Agent] 重新連線成功，新 Session: {session_id}")
                     log(f"[Agent] 斷線重連成功（伺服器重啟），繼續執行中")
                 except Exception as e:
-                    print(f"[Agent] 重連失敗，將在下次輪詢重試: {e}")
+                    local_log(f"[Agent] 重連失敗，將在下次輪詢重試: {e}")
                 time.sleep(3)
                 continue
             if d.get('stop'):

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.81.0'
+export const APP_VERSION = '3.82.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.82.0',
+    date: '2026-08-03',
+    changes: [
+      'feat(autospin): AutoSpin agent session 改成每 5 秒快照持久化到 DB（新表 autospin_agent_sessions），worker 重啟時優先從 DB 復原，不再需要仰賴 Python 端斷線重連才能恢復——今天部署多次修復重啟 worker，正在跑的 session 每次都要走一次有風險的重連流程，改成直接復原後這個風險大幅降低',
+      'feat(heavy-task-guard): 重任務鎖（activeTasks）同步改成開機時從 heavy_tasks 表復原未結束的 row，跟 agentSessions 持久化搭配，session 復原後對應的重任務鎖也一起恢復，不會出現「session 還在跑但鎖已經消失，可能被誤觸發第二個重任務」的縫隙',
+      'fix(autospin): AutoSpin agent 斷線重連的成功/失敗訊息改寫進本機檔案 agent-reconnect.log（不只印終端機）——重連失敗當下沒有有效 session，訊息本來就送不到網頁「執行日誌」面板，終端機視窗又常被多台機台的日誌洗版蓋過去很難找，寫成固定檔案之後才能可靠地搜尋確認實際發生過什麼',
+    ],
+  },
   {
     version: '3.81.0',
     date: '2026-08-03',

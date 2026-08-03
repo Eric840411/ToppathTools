@@ -912,6 +912,53 @@ interface AgentSession {
 }
 
 const agentSessions = new Map<string, AgentSession>()
+
+// ─── agentSessions 持久化（worker 重啟不弄丟正在跑的 session）──────────────────
+// agentSessions 本來完全只存在記憶體，worker process 一重啟（部署新代碼的日常操作）就整批
+// 消失，正在跑的 AutoSpin session 只能依賴 Python 端「偵測 session 遺失 → 重連」這條有風險
+// 的路徑復原（也是本次要一起修的 poll_stop() 重連日誌不夠明顯的問題）。改成每 5 秒把目前所有
+// session 的快照（不含 logs/screenshots——那兩個純粹是即時檢視用的記憶體 buffer，重啟遺失也
+// 沒差，Discord/歷史紀錄等真正重要的資料本來就有各自獨立寫入 DB）寫進 autospin_agent_sessions
+// 表；worker 啟動時（模組載入當下）優先從這張表復原，不再需要仰賴 Python 端重連才能恢復。
+// 復原後沿用既有的 30 秒心跳逾時自動過期邏輯（/agent/status 裡）判斷是真的還在跑還是已經死了，
+// 不需要在這裡自己重複一套 staleness 判斷。
+{
+  const rows = db.prepare('SELECT id, data FROM autospin_agent_sessions').all() as { id: string; data: string }[]
+  let restored = 0
+  for (const row of rows) {
+    try {
+      const parsed = JSON.parse(row.data) as Omit<AgentSession, 'logs' | 'screenshots'>
+      agentSessions.set(row.id, { ...parsed, logs: [], screenshots: [] })
+      restored++
+    } catch {
+      db.prepare('DELETE FROM autospin_agent_sessions WHERE id = ?').run(row.id)
+    }
+  }
+  if (restored > 0) console.log(`[autospin] 已從 DB 復原 ${restored} 筆 AutoSpin agent session`)
+}
+
+function persistAgentSessionSnapshot() {
+  const upsert = db.prepare(`
+    INSERT INTO autospin_agent_sessions (id, data, updatedAt) VALUES (?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET data = excluded.data, updatedAt = excluded.updatedAt
+  `)
+  const del = db.prepare('DELETE FROM autospin_agent_sessions WHERE id = ?')
+  const existingIds = new Set(
+    (db.prepare('SELECT id FROM autospin_agent_sessions').all() as { id: string }[]).map(r => r.id),
+  )
+  const now = Date.now()
+  const tx = db.transaction(() => {
+    for (const [id, s] of agentSessions.entries()) {
+      const { logs: _logs, screenshots: _screenshots, ...rest } = s
+      upsert.run(id, JSON.stringify(rest), now)
+      existingIds.delete(id)
+    }
+    // 剩下的是記憶體裡已經不存在的 session（被 GC 掉了）——DB 也一併清掉，避免累積殭屍資料
+    for (const staleId of existingIds) del.run(staleId)
+  })
+  tx()
+}
+setInterval(persistAgentSessionSnapshot, 5000)
 const agentSseClients = new Map<string, Set<import('express').Response>>()
 
 // ─── Discord 即時彙報通知 ───────────────────────────────────────────────────────

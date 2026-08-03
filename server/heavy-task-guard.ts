@@ -31,6 +31,34 @@ type HeavyTaskRow = {
 
 const activeTasks = new Map<string, HeavyTask>()
 
+// activeTasks 只存在記憶體裡，worker process 一重啟就整批消失——不只是「鎖沒了、可能被誤重複
+// 啟動」這麼單純，還會連帶讓已經復原（見 autospin.ts 的 agentSessions 快照復原）的 AutoSpin
+// session 失去它原本綁定的重任務鎖保護，這個操作者理論上又能再啟動一次新的重任務。開機時從
+// heavy_tasks 表把還沒結束的 row 讀回來，把鎖復原成重啟前的狀態。超過 24 小時還是 'running'
+// 的 row 視為真的異常結束（process 死掉、從沒機會呼叫 finishHeavyTask），標記成 error 收尾，
+// 不永久佔住這個操作者的名額——長時間任務（AutoSpin/Machine Test/OSM UAT）本來就可能跑好幾
+// 小時，24 小時是留足夠寬裕的容錯空間。
+{
+  const STALE_MS = 24 * 60 * 60 * 1000
+  const now = Date.now()
+  const rows = db.prepare("SELECT * FROM heavy_tasks WHERE status = 'running'").all() as HeavyTaskRow[]
+  for (const row of rows) {
+    const startedAt = row.started_at ?? row.created_at
+    if (now - startedAt > STALE_MS) {
+      db.prepare("UPDATE heavy_tasks SET status = 'error', finished_at = ?, error = ? WHERE id = ?")
+        .run(now, '重任務追蹤逾期未結束（伺服器重啟後復原時判定為異常，非正常結束）', row.id)
+      continue
+    }
+    activeTasks.set(row.user_key, {
+      id: row.id, userKey: row.user_key, userLabel: row.user_label,
+      type: row.type, label: row.label, startedAt,
+    })
+  }
+  if (activeTasks.size > 0) {
+    console.log(`[heavy-task-guard] 已從 DB 復原 ${activeTasks.size} 筆重任務鎖`)
+  }
+}
+
 function workerUrl() {
   return (process.env.WORKER_URL ?? 'http://127.0.0.1:3010').replace(/\/$/, '')
 }

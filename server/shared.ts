@@ -710,6 +710,18 @@ db.exec(`
   )
 `)
 
+// autospin_agent_sessions — AgentSession 的週期性快照（不含 logs/screenshots，那兩個純粹是
+// 即時檢視用的記憶體 buffer，遺失也沒關係）。worker process 本來 agentSessions 完全只存在
+// 記憶體裡，一重啟就整批消失，導致還在正常執行的 AutoSpin session 必須依賴 Python 端的斷線
+// 重連機制才能恢復；worker 啟動時改成優先從這張表復原，重啟不再弄丟正在跑的 session。
+db.exec(`
+  CREATE TABLE IF NOT EXISTS autospin_agent_sessions (
+    id        TEXT PRIMARY KEY,
+    data      TEXT NOT NULL,
+    updatedAt INTEGER NOT NULL
+  )
+`)
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS jackpot_settings (
     gameid  TEXT NOT NULL,
