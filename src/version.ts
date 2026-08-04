@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.87.5'
+export const APP_VERSION = '3.87.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.87.6',
+    date: '2026-08-04',
+    changes: [
+      'refactor: JiraPage.tsx 拆分第三步——「批量更新狀態」整個分頁（Step 1~3，約 345 行）搬到 JiraBatchUpdateTab.tsx。這個分頁的狀態本來就是獨立一份，不像批量評論那樣跟批次開單流程共用，逐字比對確認搬移過程沒有任何內容變動',
+    ],
+  },
   {
     version: '3.87.5',
     date: '2026-08-04',
