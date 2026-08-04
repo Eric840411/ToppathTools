@@ -1,40 +1,92 @@
 .breakthrough {
   --breakthrough-color: #78e4dc;
   --breakthrough-secondary: #d8fffb;
+  --breakthrough-scene: none;
   position: fixed;
   inset: 0;
   z-index: 100000;
   overflow: hidden;
-  color: #f4f7f5;
-  background: #02080d;
-  animation: breakthrough-visibility 5.6s ease both;
   isolation: isolate;
+  color: #f6f1e3;
+  background: #050b0d;
+  font-family: 'Noto Serif TC', 'Songti TC', 'PMingLiU', serif;
+  animation: breakthrough-visibility 5.6s ease both;
 }
 
+.breakthrough__scene,
 .breakthrough__backdrop,
 .breakthrough__canvas,
-.breakthrough__beams,
-.breakthrough__stage { position: absolute; inset: 0; }
+.breakthrough__mist,
+.breakthrough__stage {
+  position: absolute;
+  inset: 0;
+}
+
+.breakthrough__scene {
+  z-index: -5;
+  background-image: var(--breakthrough-scene);
+  background-position: center;
+  background-size: cover;
+  filter: saturate(.82) brightness(.55) contrast(1.08);
+  opacity: 0;
+  animation: breakthrough-scene-reveal 5.6s ease both;
+}
 
 .breakthrough__backdrop {
-  z-index: -3;
+  z-index: -4;
   background:
-    radial-gradient(circle at 50% 47%, color-mix(in srgb, var(--breakthrough-color) 22%, transparent), transparent 30%),
-    radial-gradient(circle at 50% 50%, #07131b 0 42%, #02070b 72%);
-  animation: breakthrough-backdrop 5.6s ease both;
+    linear-gradient(90deg, rgba(2, 7, 9, .68), transparent 25%, transparent 75%, rgba(2, 7, 9, .68)),
+    linear-gradient(180deg, rgba(2, 6, 8, .66), transparent 22%, transparent 68%, rgba(2, 6, 8, .88)),
+    radial-gradient(ellipse at 50% 44%, transparent 0 20%, rgba(1, 5, 7, .08) 44%, rgba(1, 5, 7, .56) 100%);
 }
 
 .breakthrough__backdrop::before,
 .breakthrough__backdrop::after {
   content: '';
   position: absolute;
-  inset: -30%;
-  background: repeating-conic-gradient(from 0deg, transparent 0 12deg, color-mix(in srgb, var(--breakthrough-color) 5%, transparent) 12deg 13deg);
-  animation: breakthrough-sky-turn 18s linear infinite;
+  pointer-events: none;
 }
-.breakthrough__backdrop::after { animation-direction: reverse; opacity: .45; filter: blur(4px); }
+
+.breakthrough__backdrop::before {
+  inset: 14px;
+  border: 1px solid color-mix(in srgb, var(--breakthrough-color) 24%, transparent);
+  box-shadow: inset 0 0 80px rgba(0, 0, 0, .45);
+  clip-path: polygon(0 0, 34% 0, 34% 1px, 66% 1px, 66% 0, 100% 0, 100% 100%, 66% 100%, 66% calc(100% - 1px), 34% calc(100% - 1px), 34% 100%, 0 100%);
+  opacity: .62;
+}
+
+.breakthrough__backdrop::after {
+  inset: 0;
+  background-image: linear-gradient(108deg, transparent 47%, rgba(255, 255, 255, .028) 50%, transparent 53%);
+  mix-blend-mode: screen;
+  animation: breakthrough-ink-light 4.8s ease-in-out both;
+}
 
 .breakthrough__canvas { z-index: -1; pointer-events: none; }
+
+.breakthrough__mist {
+  z-index: -2;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.breakthrough__mist i {
+  position: absolute;
+  left: -12%;
+  right: -12%;
+  bottom: -9%;
+  height: 38%;
+  opacity: .2;
+  filter: blur(26px);
+  background:
+    radial-gradient(ellipse at 18% 76%, var(--breakthrough-secondary), transparent 31%),
+    radial-gradient(ellipse at 52% 82%, #d9e3dc, transparent 34%),
+    radial-gradient(ellipse at 82% 72%, var(--breakthrough-color), transparent 28%);
+  animation: breakthrough-cloud-drift 9s ease-in-out infinite alternate;
+}
+
+.breakthrough__mist i:nth-child(2) { bottom: 8%; opacity: .1; animation-delay: -3s; animation-direction: alternate-reverse; }
+.breakthrough__mist i:nth-child(3) { bottom: 31%; opacity: .055; animation-delay: -6s; }
 
 .breakthrough__stage {
   display: grid;
@@ -42,180 +94,180 @@
   min-width: 0;
 }
 
-.breakthrough__ring {
+.breakthrough__moon-disc {
   position: absolute;
   left: 50%;
-  top: 45%;
-  border-radius: 50%;
-  pointer-events: none;
+  top: 42%;
+  width: clamp(280px, 36vw, 470px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border: 1px solid color-mix(in srgb, var(--breakthrough-color) 32%, transparent);
+  border-radius: 49% 51% 48% 52% / 51% 47% 53% 49%;
+  box-shadow:
+    0 0 0 7px rgba(0, 0, 0, .08),
+    inset 0 0 70px rgba(1, 5, 7, .35),
+    0 0 80px color-mix(in srgb, var(--breakthrough-color) 10%, transparent);
   opacity: 0;
-  filter: drop-shadow(0 0 16px color-mix(in srgb, var(--breakthrough-color) 38%, transparent));
+  animation: breakthrough-disc-reveal 5.1s ease .16s both;
 }
-.breakthrough__ring--outer {
-  width: min(72vw, 690px);
-  aspect-ratio: 1;
-  border: 1px solid color-mix(in srgb, var(--breakthrough-color) 50%, transparent);
-  background: repeating-conic-gradient(from 0deg, color-mix(in srgb, var(--breakthrough-color) 48%, transparent) 0 1deg, transparent 1deg 15deg);
-  -webkit-mask: radial-gradient(circle, transparent 0 48%, #000 48.4% 49%, transparent 49.4% 100%);
-  mask: radial-gradient(circle, transparent 0 48%, #000 48.4% 49%, transparent 49.4% 100%);
-  animation: breakthrough-ring-clockwise 5.2s cubic-bezier(.16, .74, .22, 1) .12s both;
+
+.breakthrough__moon-disc::before,
+.breakthrough__moon-disc::after {
+  content: '';
+  position: absolute;
+  border: 1px solid color-mix(in srgb, var(--breakthrough-secondary) 20%, transparent);
+  border-radius: inherit;
 }
-.breakthrough__ring--inner {
-  width: min(51vw, 480px);
-  aspect-ratio: 1;
-  border: 1px dashed color-mix(in srgb, var(--breakthrough-secondary) 55%, transparent);
-  box-shadow: inset 0 0 36px color-mix(in srgb, var(--breakthrough-color) 11%, transparent);
-  animation: breakthrough-ring-counter 4.8s cubic-bezier(.16, .74, .22, 1) .3s both;
+.breakthrough__moon-disc::before { inset: 11px -5px -7px 8px; transform: rotate(2deg); }
+.breakthrough__moon-disc::after { inset: -5px 9px 8px -7px; transform: rotate(-3deg); opacity: .58; }
+
+.breakthrough__cloud-mark {
+  position: absolute;
+  top: 42%;
+  width: min(25vw, 320px);
+  height: 78px;
+  opacity: 0;
+  border-top: 1px solid color-mix(in srgb, var(--breakthrough-color) 30%, transparent);
+  animation: breakthrough-cloud-mark 4.7s ease .7s both;
 }
+.breakthrough__cloud-mark::before,
+.breakthrough__cloud-mark::after {
+  content: '';
+  position: absolute;
+  top: -18px;
+  width: 55px;
+  height: 34px;
+  border: 1px solid color-mix(in srgb, var(--breakthrough-color) 26%, transparent);
+  border-bottom: 0;
+  border-radius: 60px 60px 0 0;
+}
+.breakthrough__cloud-mark::before { right: 24%; }
+.breakthrough__cloud-mark::after { right: 5%; width: 34px; height: 20px; top: -5px; }
+.breakthrough__cloud-mark--left { right: calc(50% + min(19vw, 245px)); }
+.breakthrough__cloud-mark--right { left: calc(50% + min(19vw, 245px)); transform: scaleX(-1); }
 
 .breakthrough__emblem {
   position: absolute;
   left: 50%;
-  top: 45%;
-  width: clamp(190px, 25vw, 310px);
+  top: 42%;
+  width: clamp(190px, 24vw, 300px);
   aspect-ratio: 1;
   transform: translate(-50%, -50%);
   opacity: 0;
-  filter: brightness(.5) blur(7px) drop-shadow(0 0 24px color-mix(in srgb, var(--breakthrough-color) 48%, transparent));
-  animation: breakthrough-emblem-reveal 5.2s ease .2s both;
+  filter: brightness(.7) blur(5px) drop-shadow(0 0 20px color-mix(in srgb, var(--breakthrough-color) 40%, transparent));
+  animation: breakthrough-emblem-reveal 5.15s ease .24s both;
 }
 .breakthrough__emblem img { width: 100%; height: 100%; object-fit: contain; display: block; }
 
 .breakthrough__copy {
   position: absolute;
-  top: calc(45% + min(22vw, 225px));
+  top: calc(42% + min(20vw, 194px));
   left: 50%;
-  width: min(90vw, 680px);
+  width: min(90vw, 720px);
   transform: translateX(-50%);
   text-align: center;
   opacity: 0;
-  animation: breakthrough-copy-reveal 4.4s ease 1.05s both;
+  animation: breakthrough-copy-reveal 4.5s ease .82s both;
 }
-.breakthrough__copy > span {
+
+.breakthrough__seal {
+  position: absolute;
+  left: calc(50% + min(24vw, 220px));
+  top: 7px;
+  display: grid;
+  place-content: center;
+  width: 44px;
+  height: 58px;
+  border: 2px solid #b94336;
+  color: #d85d4d;
+  background: rgba(43, 6, 4, .22);
+  box-shadow: inset 0 0 0 2px rgba(216, 93, 77, .16);
+  transform: rotate(2deg);
+  font: 700 15px/1.25 'Noto Serif TC', 'PMingLiU', serif;
+  text-shadow: 0 0 12px rgba(216, 93, 77, .65);
+}
+.breakthrough__seal span { display: block; }
+
+.breakthrough__copy small {
   display: block;
-  color: color-mix(in srgb, var(--breakthrough-color) 72%, white);
-  font: 700 9px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: .46em;
+  color: color-mix(in srgb, var(--breakthrough-secondary) 66%, #9c9c91);
+  font-size: 11px;
+  letter-spacing: .48em;
+  text-indent: .48em;
 }
-.breakthrough__copy small { display: block; margin-top: 4px; color: #84929a; font-size: 11px; letter-spacing: .48em; }
+
 .breakthrough__copy h2 {
-  margin: 11px 0 5px;
-  color: #f4f5ee;
-  font: 650 clamp(38px, 6vw, 74px)/1.1 'Noto Serif TC', 'Songti TC', serif;
-  letter-spacing: .2em;
-  text-indent: .2em;
-  text-shadow: 0 0 28px color-mix(in srgb, var(--breakthrough-color) 50%, transparent);
+  margin: 9px 0 7px;
+  color: #fff8e6;
+  font: 650 clamp(40px, 6vw, 76px)/1.08 'Noto Serif TC', 'Songti TC', 'PMingLiU', serif;
+  letter-spacing: .24em;
+  text-indent: .24em;
+  text-shadow: 0 3px 2px rgba(0, 0, 0, .65), 0 0 24px color-mix(in srgb, var(--breakthrough-color) 36%, transparent);
 }
-.breakthrough__copy strong { color: var(--breakthrough-color); font: 600 14px/1.4 'Noto Serif TC', serif; letter-spacing: .3em; }
-.breakthrough__copy p { margin: 12px 0 0; color: #b4bec1; font: 400 14px/1.7 'Noto Serif TC', serif; letter-spacing: .16em; }
+
+.breakthrough__copy strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--breakthrough-color);
+  font: 600 14px/1.4 'Noto Serif TC', serif;
+  letter-spacing: .3em;
+}
+.breakthrough__copy strong::before,
+.breakthrough__copy strong::after { content: ''; width: 42px; height: 1px; background: currentColor; opacity: .4; }
+.breakthrough__copy p { margin: 10px 0 0; color: #d5d0c3; font: 400 14px/1.8 'Noto Serif TC', serif; letter-spacing: .2em; text-shadow: 0 2px 8px #000; }
 
 .breakthrough__skip {
   position: absolute;
-  right: 22px;
-  top: 20px;
+  right: 25px;
+  top: 23px;
   z-index: 4;
-  border: 1px solid rgba(255, 255, 255, .16);
-  background: rgba(2, 8, 13, .5);
-  color: #8e9ba2;
-  padding: 8px 12px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--breakthrough-color) 45%, transparent);
+  background: rgba(3, 9, 10, .34);
+  color: #c6c3b8;
+  padding: 7px 4px;
+  font-family: 'Noto Serif TC', serif;
   font-size: 11px;
-  letter-spacing: .12em;
+  letter-spacing: .2em;
   cursor: pointer;
   opacity: 0;
   animation: breakthrough-skip-in .5s ease 1.8s forwards;
 }
-.breakthrough__skip:hover { color: #edf5f3; border-color: var(--breakthrough-color); }
+.breakthrough__skip:hover { color: #fff5dc; border-color: var(--breakthrough-color); }
 
-.breakthrough__beams { z-index: -2; pointer-events: none; }
-.breakthrough__beams i {
-  --beam-angle: 0deg;
-  position: absolute;
-  left: calc(50% - 1px);
-  top: 45%;
-  width: 2px;
-  height: 54vh;
-  transform-origin: 50% 0;
-  transform: rotate(var(--beam-angle));
-  background: linear-gradient(180deg, color-mix(in srgb, var(--breakthrough-color) 70%, white), transparent 82%);
-  opacity: 0;
-}
-.breakthrough__beams i:nth-child(1) { --beam-angle: 0deg; }
-.breakthrough__beams i:nth-child(2) { --beam-angle: 40deg; }
-.breakthrough__beams i:nth-child(3) { --beam-angle: 80deg; }
-.breakthrough__beams i:nth-child(4) { --beam-angle: 120deg; }
-.breakthrough__beams i:nth-child(5) { --beam-angle: 160deg; }
-.breakthrough__beams i:nth-child(6) { --beam-angle: 200deg; }
-.breakthrough__beams i:nth-child(7) { --beam-angle: 240deg; }
-.breakthrough__beams i:nth-child(8) { --beam-angle: 280deg; }
-.breakthrough__beams i:nth-child(9) { --beam-angle: 320deg; }
-
-/* Nine individual breakthrough choreographies */
-.breakthrough--qi-refining .breakthrough__ring--outer { border-style: dotted; animation-duration: 7s; }
-.breakthrough--qi-refining .breakthrough__backdrop::before { background: repeating-radial-gradient(ellipse at 50% 45%, transparent 0 38px, rgba(120, 228, 220, .035) 39px 40px); }
-
-.breakthrough--foundation .breakthrough__ring { border-radius: 14%; }
-.breakthrough--foundation .breakthrough__ring--outer { transform: translate(-50%, -50%) rotate(45deg); background: none; -webkit-mask: none; mask: none; }
-.breakthrough--foundation .breakthrough__ring--inner { border-style: solid; }
-.breakthrough--foundation .breakthrough__beams i:nth-child(1),
-.breakthrough--foundation .breakthrough__beams i:nth-child(3),
-.breakthrough--foundation .breakthrough__beams i:nth-child(5),
-.breakthrough--foundation .breakthrough__beams i:nth-child(7) { animation: foundation-beam 2.4s ease-in-out infinite; }
-
-.breakthrough--golden-core .breakthrough__backdrop { background: radial-gradient(circle at 50% 45%, rgba(237, 194, 84, .3), transparent 22%), radial-gradient(circle, #151006 0 31%, #040709 70%); }
-.breakthrough--golden-core .breakthrough__ring--outer { background: repeating-conic-gradient(from 0deg, rgba(255, 231, 130, .8) 0 1deg, transparent 1deg 30deg); }
-.breakthrough--golden-core .breakthrough__ring--inner { border-style: solid; box-shadow: 0 0 54px rgba(237, 194, 84, .2), inset 0 0 54px rgba(237, 194, 84, .16); }
-
-.breakthrough--nascent-soul .breakthrough__ring { border-radius: 48% 48% 45% 45% / 57% 57% 43% 43%; }
-.breakthrough--nascent-soul .breakthrough__ring--outer { width: min(55vw, 520px); height: min(72vw, 670px); background: none; -webkit-mask: none; mask: none; }
-.breakthrough--nascent-soul .breakthrough__backdrop { background: radial-gradient(ellipse at 50% 45%, rgba(183, 152, 255, .22), transparent 29%), #04070d; }
-
-.breakthrough--spirit-transformation .breakthrough__ring { border-width: 0 1px; border-radius: 50% 50% 22% 22%; }
-.breakthrough--spirit-transformation .breakthrough__backdrop::before { background: linear-gradient(90deg, transparent 46%, rgba(242, 165, 116, .1) 50%, transparent 54%); animation: transformation-rise 2.8s linear infinite; }
-.breakthrough--spirit-transformation .breakthrough__emblem { filter: brightness(.6) drop-shadow(0 -18px 26px rgba(242, 165, 116, .45)); }
-
-.breakthrough--void-refining .breakthrough__backdrop { background: radial-gradient(circle at 50% 45%, #050019 0 14%, rgba(74, 48, 150, .24) 24%, #02050b 58%); }
-.breakthrough--void-refining .breakthrough__ring--outer { border-style: dashed; animation-direction: reverse; }
-.breakthrough--void-refining .breakthrough__ring--inner { border-width: 3px 0 1px 0; transform: translate(-50%, -50%) skewX(-12deg); }
-
-.breakthrough--body-integration .breakthrough__ring--outer { background: conic-gradient(from 0deg, #69d8b2, transparent 22%, #f0ce72 48%, transparent 72%, #69d8b2); -webkit-mask: radial-gradient(circle, transparent 0 48%, #000 48.3% 49.2%, transparent 49.5%); mask: radial-gradient(circle, transparent 0 48%, #000 48.3% 49.2%, transparent 49.5%); }
-.breakthrough--body-integration .breakthrough__ring--inner { border-color: #f0ce72; animation-duration: 7s; }
-
-.breakthrough--mahayana .breakthrough__ring--outer { background: repeating-conic-gradient(from 0deg, rgba(243, 215, 131, .9) 0 1deg, transparent 1deg 22.5deg); animation-timing-function: linear; }
-.breakthrough--mahayana .breakthrough__ring--inner { border-style: double; border-width: 3px; }
-.breakthrough--mahayana .breakthrough__backdrop::after { background: radial-gradient(circle, transparent 0 33%, rgba(243, 215, 131, .08) 33.5% 34%, transparent 34.5%); }
-
-.breakthrough--tribulation .breakthrough__backdrop { background: radial-gradient(circle at 50% 45%, rgba(255, 224, 138, .18), transparent 13%), radial-gradient(circle, #0b0521 0 28%, #01050a 66%); }
-.breakthrough--tribulation .breakthrough__ring--outer { border-color: rgba(165, 144, 255, .75); border-style: dashed; animation-duration: 3.2s; }
-.breakthrough--tribulation .breakthrough__beams i { animation: tribulation-strike 1.125s steps(1, end) infinite; }
-.breakthrough--tribulation .breakthrough__beams i:nth-child(2) { animation-delay: .125s; }
-.breakthrough--tribulation .breakthrough__beams i:nth-child(3) { animation-delay: .25s; }
-.breakthrough--tribulation .breakthrough__beams i:nth-child(4) { animation-delay: .375s; }
-.breakthrough--tribulation .breakthrough__beams i:nth-child(5) { animation-delay: .5s; }
-.breakthrough--tribulation .breakthrough__beams i:nth-child(6) { animation-delay: .625s; }
-.breakthrough--tribulation .breakthrough__beams i:nth-child(7) { animation-delay: .75s; }
-.breakthrough--tribulation .breakthrough__beams i:nth-child(8) { animation-delay: .875s; }
-.breakthrough--tribulation .breakthrough__beams i:nth-child(9) { animation-delay: 1s; }
+/* 每一境只保留自身的天地氣象，不使用共用科技圓環。 */
+.breakthrough--foundation .breakthrough__moon-disc { border-radius: 14%; transform: translate(-50%, -50%) rotate(45deg); }
+.breakthrough--foundation .breakthrough__emblem { filter: brightness(.9) drop-shadow(0 8px 28px rgba(103, 189, 233, .52)); }
+.breakthrough--golden-core .breakthrough__moon-disc { background: radial-gradient(circle, rgba(237, 194, 84, .16), transparent 62%); box-shadow: 0 0 95px rgba(237, 194, 84, .18); }
+.breakthrough--nascent-soul .breakthrough__moon-disc { border-radius: 50% 50% 45% 45% / 58% 58% 42% 42%; }
+.breakthrough--spirit-transformation .breakthrough__moon-disc { border-color: rgba(242, 165, 116, .36); box-shadow: 0 -32px 80px rgba(242, 165, 116, .15); }
+.breakthrough--void-refining .breakthrough__moon-disc { border-width: 0 1px 1px; transform: translate(-50%, -50%) skewX(-8deg); }
+.breakthrough--body-integration .breakthrough__moon-disc { border-color: rgba(105, 216, 178, .38); box-shadow: -30px 0 70px rgba(105, 216, 178, .1), 30px 0 70px rgba(240, 206, 114, .1); }
+.breakthrough--mahayana .breakthrough__moon-disc { border: 3px double rgba(243, 215, 131, .38); box-shadow: 0 0 105px rgba(243, 215, 131, .18); }
+.breakthrough--tribulation .breakthrough__moon-disc { border-color: rgba(165, 144, 255, .5); box-shadow: 0 0 95px rgba(165, 144, 255, .2), inset 0 0 70px rgba(0, 0, 0, .5); }
 
 @keyframes breakthrough-visibility { 0% { opacity: 0; } 5%, 91% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
-@keyframes breakthrough-backdrop { 0% { filter: brightness(.3); } 24%, 82% { filter: brightness(1); } 100% { filter: brightness(.55); } }
-@keyframes breakthrough-sky-turn { to { transform: rotate(360deg); } }
-@keyframes breakthrough-ring-clockwise { 0% { opacity: 0; transform: translate(-50%, -50%) rotate(-80deg); } 22%, 82% { opacity: .85; } 100% { opacity: 0; transform: translate(-50%, -50%) rotate(170deg); } }
-@keyframes breakthrough-ring-counter { 0% { opacity: 0; transform: translate(-50%, -50%) rotate(70deg); } 25%, 82% { opacity: .72; } 100% { opacity: 0; transform: translate(-50%, -50%) rotate(-130deg); } }
-@keyframes breakthrough-emblem-reveal { 0% { opacity: 0; filter: brightness(.4) blur(8px) drop-shadow(0 0 8px transparent); } 22%, 82% { opacity: 1; filter: brightness(1.1) blur(0) drop-shadow(0 0 32px color-mix(in srgb, var(--breakthrough-color) 48%, transparent)); } 100% { opacity: 0; filter: brightness(1.5) blur(3px) drop-shadow(0 0 50px var(--breakthrough-color)); } }
-@keyframes breakthrough-copy-reveal { 0% { opacity: 0; transform: translate(-50%, 18px); } 20%, 82% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; transform: translate(-50%, -8px); } }
+@keyframes breakthrough-scene-reveal { 0% { opacity: 0; filter: saturate(.5) brightness(.18) contrast(1.15); } 16%, 83% { opacity: 1; filter: saturate(.86) brightness(.62) contrast(1.06); } 100% { opacity: .18; filter: saturate(.7) brightness(.3) contrast(1.1); } }
+@keyframes breakthrough-ink-light { 0%, 100% { opacity: 0; transform: translateX(-15%); } 32%, 75% { opacity: 1; transform: translateX(8%); } }
+@keyframes breakthrough-cloud-drift { from { transform: translateX(-3%); } to { transform: translateX(3%); } }
+@keyframes breakthrough-disc-reveal { 0% { opacity: 0; filter: blur(8px); } 24%, 83% { opacity: .78; filter: blur(0); } 100% { opacity: 0; filter: blur(4px); } }
+@keyframes breakthrough-cloud-mark { 0% { opacity: 0; width: 0; } 24%, 82% { opacity: .72; } 100% { opacity: 0; } }
+@keyframes breakthrough-emblem-reveal { 0% { opacity: 0; filter: brightness(.4) blur(7px) drop-shadow(0 0 8px transparent); } 22%, 82% { opacity: 1; filter: brightness(1.08) blur(0) drop-shadow(0 0 28px color-mix(in srgb, var(--breakthrough-color) 46%, transparent)); } 100% { opacity: 0; filter: brightness(1.35) blur(3px) drop-shadow(0 0 44px var(--breakthrough-color)); } }
+@keyframes breakthrough-copy-reveal { 0% { opacity: 0; transform: translate(-50%, 14px); } 20%, 82% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; transform: translate(-50%, -7px); } }
 @keyframes breakthrough-skip-in { to { opacity: 1; } }
-@keyframes foundation-beam { 0%, 72%, 100% { opacity: 0; } 12%, 48% { opacity: .42; } }
-@keyframes transformation-rise { from { transform: translateY(30%); } to { transform: translateY(-30%); } }
-@keyframes tribulation-strike { 0%, 88%, 100% { opacity: 0; } 89%, 94% { opacity: .92; filter: blur(.4px); } }
 
 @media (max-width: 640px) {
-  .breakthrough__ring--outer { width: 92vw; }
-  .breakthrough__ring--inner { width: 72vw; }
-  .breakthrough__emblem { width: min(58vw, 250px); top: 42%; }
-  .breakthrough__ring { top: 42%; }
-  .breakthrough__copy { top: calc(42% + min(34vw, 165px)); }
-  .breakthrough__copy h2 { font-size: clamp(34px, 12vw, 54px); }
+  .breakthrough__backdrop::before { inset: 8px; }
+  .breakthrough__moon-disc { width: min(86vw, 360px); top: 40%; }
+  .breakthrough__emblem { width: min(56vw, 238px); top: 40%; }
+  .breakthrough__cloud-mark { display: none; }
+  .breakthrough__copy { top: calc(40% + min(31vw, 152px)); }
+  .breakthrough__copy h2 { font-size: clamp(36px, 12vw, 54px); }
   .breakthrough__copy p { font-size: 12px; }
+  .breakthrough__copy small { letter-spacing: .3em; text-indent: .3em; }
+  .breakthrough__seal { left: auto; right: 5%; top: 4px; width: 35px; height: 48px; font-size: 13px; }
+  .breakthrough__skip { right: 15px; top: 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -223,8 +275,7 @@
   .breakthrough *,
   .breakthrough *::before,
   .breakthrough *::after { animation: none !important; }
-  .breakthrough { opacity: 1; }
-  .breakthrough__ring { opacity: .38; transform: translate(-50%, -50%); }
-  .breakthrough__emblem { opacity: 1; filter: drop-shadow(0 0 24px color-mix(in srgb, var(--breakthrough-color) 38%, transparent)); }
-  .breakthrough__copy, .breakthrough__skip { opacity: 1; }
+  .breakthrough, .breakthrough__scene, .breakthrough__moon-disc, .breakthrough__emblem, .breakthrough__copy, .breakthrough__skip { opacity: 1; }
+  .breakthrough__scene { filter: saturate(.86) brightness(.62) contrast(1.06); }
+  .breakthrough__moon-disc { transform: translate(-50%, -50%); }
 }

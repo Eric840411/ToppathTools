@@ -233,31 +233,37 @@ export function CultivationBreakthroughOverlay({ level, onComplete }: { level: s
   return (
     <div
       className={`breakthrough breakthrough--${realm.slug}`}
-      style={{ '--breakthrough-color': realm.color, '--breakthrough-secondary': realm.secondary } as CSSProperties}
+      style={{
+        '--breakthrough-color': realm.color,
+        '--breakthrough-secondary': realm.secondary,
+        '--breakthrough-scene': `url("/themes/xianxia/breakthrough-bg-v1/${realm.slug}.webp")`,
+      } as CSSProperties}
       role="dialog"
       aria-modal="true"
       aria-label={`突破至${realm.name}`}
     >
-      <div className="breakthrough__backdrop" />
+      <div className="breakthrough__scene" aria-hidden="true" />
+      <div className="breakthrough__backdrop" aria-hidden="true" />
       <canvas ref={canvasRef} className="breakthrough__canvas" aria-hidden="true" />
-      <div className="breakthrough__beams" aria-hidden="true">
-        {Array.from({ length: 9 }, (_, index) => <i key={index} />)}
+      <div className="breakthrough__mist" aria-hidden="true">
+        <i /><i /><i />
       </div>
       <div className="breakthrough__stage">
-        <div className="breakthrough__ring breakthrough__ring--outer" aria-hidden="true" />
-        <div className="breakthrough__ring breakthrough__ring--inner" aria-hidden="true" />
+        <div className="breakthrough__moon-disc" aria-hidden="true" />
+        <div className="breakthrough__cloud-mark breakthrough__cloud-mark--left" aria-hidden="true" />
+        <div className="breakthrough__cloud-mark breakthrough__cloud-mark--right" aria-hidden="true" />
         <div className="breakthrough__emblem">
           <img src={`/themes/xianxia/realms-animated-v2/${realm.slug}.webp`} alt="" />
         </div>
         <div className="breakthrough__copy">
-          <span>REALM BREAKTHROUGH</span>
-          <small>境界突破</small>
+          <div className="breakthrough__seal" aria-hidden="true"><span>破</span><span>境</span></div>
+          <small>天地同證 · 道心通明</small>
           <h2>{realm.name}</h2>
           <strong>{realm.epithet}</strong>
           <p>{realm.verse}</p>
         </div>
       </div>
-      <button type="button" className="breakthrough__skip" onClick={onComplete}>略過動畫</button>
+      <button type="button" className="breakthrough__skip" onClick={onComplete}>收斂異象</button>
     </div>
   )
 }

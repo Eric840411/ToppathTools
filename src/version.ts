@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.85.0-xianxia.8'
+export const APP_VERSION = '3.85.0-xianxia.9'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.85.0-xianxia.9',
+    date: '2026-08-04',
+    changes: [
+      'feat(design): [design/xianxia 分支] 收錄 CodeX 產出的境界突破動畫最新調整（CultivationBreakthroughOverlay 元件精修）與九境突破背景素材 breakthrough-bg-v1，準備合併進 main',
+    ],
+  },
   {
     version: '3.85.0-xianxia.8',
     date: '2026-08-04',
