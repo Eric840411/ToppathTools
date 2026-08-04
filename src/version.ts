@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.85.2'
+export const APP_VERSION = '3.85.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.85.3',
+    date: '2026-08-04',
+    changes: [
+      'fix: 修仙版登入畫面菱形徽章圖片歪掉——.auth-login-lock 用 rotate(45deg) 把方形容器轉成菱形，原本靠 ::first-letter 把內容文字反向轉正，但實際內容是 <img>（XianxiaIcon），::first-letter 對元素節點不生效，圖片跟著容器一起歪了 45 度。改成直接對 .xianxia-icon 圖片元素套用反向旋轉',
+    ],
+  },
   {
     version: '3.85.2',
     date: '2026-08-04',

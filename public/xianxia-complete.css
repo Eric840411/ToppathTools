@@ -849,6 +849,11 @@ body::after {
 }
 
 .auth-login-lock::first-letter { transform: rotate(-45deg); }
+/* .auth-login-lock 用 rotate(45deg) 把方形容器轉成菱形徽章，這條規則
+   原本假設內容是純文字字元（::first-letter 反向轉回正），但實際上
+   放的是 <img>（XianxiaIcon），::first-letter 對元素節點不生效，圖片
+   跟著容器歪了 45 度。改成直接反向轉回圖片本身 */
+.auth-login-lock .xianxia-icon { transform: rotate(-45deg); }
 .auth-login-copy { color: #9ba8b0 !important; }
 
 .auth-login-tab.active {
