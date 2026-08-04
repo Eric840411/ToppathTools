@@ -43,6 +43,7 @@ const PAGE_META: { key: string; label: string; group: string }[] = [
   { key: 'local-agent', label: 'Local Agent',          group: '系統' },
   { key: 'discord-notify', label: 'Discord 通知設定',   group: '系統' },
   { key: 'cultivation-board', label: '境界排行榜',      group: '系統' },
+  { key: 'xianxia-quotes',    label: '每日仙語管理',    group: '系統' },
 ]
 
 const ROLE_LABELS: Record<Role, string> = { admin: '管理員', qa: 'QA', pm: 'PM', other: 'Other' }

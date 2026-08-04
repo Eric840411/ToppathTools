@@ -172,6 +172,35 @@ db.exec(`
 `)
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS xianxia_quotes (
+    id              TEXT PRIMARY KEY,
+    text            TEXT NOT NULL,
+    source          TEXT NOT NULL DEFAULT '',
+    created_at      INTEGER NOT NULL,
+    last_used_cycle INTEGER NOT NULL DEFAULT 0
+  );
+`)
+// 若 server/xianxia-quotes-seed.json 存在，補齊缺少的每日仙語（不覆蓋 DB 已有資料，含使用者自己編輯過的）
+{
+  const quotesSeedPath = join(SERVER_ROOT, 'xianxia-quotes-seed.json')
+  if (existsSync(quotesSeedPath)) {
+    try {
+      const rows = JSON.parse(readFileSync(quotesSeedPath, 'utf-8')) as Array<{
+        id: string
+        text: string
+        source?: string
+        created_at: number
+      }>
+      const ins = db.prepare('INSERT OR IGNORE INTO xianxia_quotes (id, text, source, created_at, last_used_cycle) VALUES (?, ?, ?, ?, 0)')
+      for (const r of rows) {
+        ins.run(r.id, r.text, r.source ?? '', r.created_at)
+      }
+      console.log(`[DB] 已從 xianxia-quotes-seed.json 補齊缺少的每日仙語（來源 ${rows.length} 筆）`)
+    } catch { /* 忽略 */ }
+  }
+}
+
+db.exec(`
   CREATE TABLE IF NOT EXISTS jira_pending_writebacks (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at    INTEGER NOT NULL,
@@ -1436,7 +1465,7 @@ export const ALL_PAGE_KEYS = [
   'jira-qa','jira-pm','jira-update','lark','osm','machinetest','imagecheck','osm-config',
   'autospin','url-pool','jackpot','osm-uat',
   'gs-imgcompare','gs-logchecker','gs-bonusv2','history','knowledge','local-agent',
-  'ui-screenshot','discord-notify','meter-reconcile','egm-daycount','cultivation-board',
+  'ui-screenshot','discord-notify','meter-reconcile','egm-daycount','cultivation-board','xianxia-quotes',
 ] as const
 
 export type PageKey = typeof ALL_PAGE_KEYS[number]

@@ -38,6 +38,45 @@ type Particle = {
   drift: number
 }
 
+function drawTribulation(
+  ctx: CanvasRenderingContext2D,
+  particles: Particle[],
+  time: number,
+  width: number,
+  height: number,
+) {
+  const cycle = time % 2.35
+  const precharge = Math.max(0, 1 - Math.abs(cycle - .58) / .26) * .2
+  const strike = Math.max(0, 1 - Math.abs(cycle - .78) / .055)
+  const aftershock = Math.max(0, 1 - Math.abs(cycle - .91) / .035) * .56
+  const intensity = Math.min(1, precharge + strike + aftershock)
+
+  if (intensity > .025) {
+    const flash = ctx.createRadialGradient(width * .69, height * .2, 0, width * .69, height * .2, width * .62)
+    flash.addColorStop(0, `rgba(205, 194, 255, ${intensity * .2})`)
+    flash.addColorStop(.42, `rgba(116, 94, 196, ${intensity * .08})`)
+    flash.addColorStop(1, 'rgba(20, 12, 42, 0)')
+    ctx.fillStyle = flash
+    ctx.globalAlpha = 1
+    ctx.fillRect(0, 0, width, height)
+
+  }
+
+  particles.forEach((particle, index) => {
+    const progress = ((particle.radius + time * particle.speed * 24) % height) / height
+    const x = width * .5 + Math.sin(particle.offset + progress * 7) * Math.min(width * .32, 380)
+    const y = height * (.78 - progress * .54)
+    const pulse = .18 + .35 * Math.sin(time * .9 + particle.offset) ** 2
+    ctx.beginPath()
+    ctx.arc(x, y, Math.max(.55, particle.size * .48), 0, Math.PI * 2)
+    ctx.fillStyle = index % 5 === 0 ? '#f3d486' : '#b6a7ff'
+    ctx.globalAlpha = pulse
+    ctx.fill()
+  })
+  ctx.globalAlpha = 1
+  ctx.shadowBlur = 0
+}
+
 function drawParticles(
   ctx: CanvasRenderingContext2D,
   realm: BreakthroughRealm,
@@ -50,6 +89,12 @@ function drawParticles(
   const centerY = height / 2
   const maxRadius = Math.hypot(width, height) * 0.48
   ctx.globalCompositeOperation = 'lighter'
+
+  if (realm.mode === 'lightning') {
+    drawTribulation(ctx, particles, time, width, height)
+    ctx.globalCompositeOperation = 'source-over'
+    return
+  }
 
   particles.forEach((particle, index) => {
     let x = centerX
@@ -124,21 +169,11 @@ function drawParticles(
         alpha = 0.35 + 0.35 * Math.sin(time * 1.5 + particle.offset) ** 2
         break
       }
-      case 'lightning': {
-        const strike = Math.floor(time * 8) % 9
-        const branch = index % 9
-        const angle = branch * Math.PI * 2 / 9 - Math.PI / 2
-        const radius = 80 + (particle.radius % Math.max(120, maxRadius * 0.7))
-        x += Math.cos(angle) * radius + Math.sin(particle.offset * 7) * 16
-        y += Math.sin(angle) * radius + Math.cos(particle.offset * 5) * 16
-        alpha = branch === strike ? 1 : 0.13
-        color = branch === strike ? '#ffffff' : realm.color
-        break
-      }
+      case 'lightning': break
     }
 
     ctx.beginPath()
-    if (realm.mode === 'ascend' || realm.mode === 'lightning') {
+    if (realm.mode === 'ascend') {
       ctx.moveTo(x, y + 18)
       ctx.lineTo(x + Math.sin(particle.offset * 8) * 5, y - 18)
       ctx.lineWidth = Math.max(1, particle.size * 0.7)
@@ -236,7 +271,7 @@ export function CultivationBreakthroughOverlay({ level, onComplete }: { level: s
       style={{
         '--breakthrough-color': realm.color,
         '--breakthrough-secondary': realm.secondary,
-        '--breakthrough-scene': `url("/themes/xianxia/breakthrough-bg-v1/${realm.slug}.webp")`,
+        '--breakthrough-scene': `url("/themes/xianxia/breakthrough-bg-v1/${realm.slug === 'tribulation' ? 'tribulation-v2' : realm.slug}.webp")`,
       } as CSSProperties}
       role="dialog"
       aria-modal="true"
@@ -253,7 +288,7 @@ export function CultivationBreakthroughOverlay({ level, onComplete }: { level: s
         <div className="breakthrough__cloud-mark breakthrough__cloud-mark--left" aria-hidden="true" />
         <div className="breakthrough__cloud-mark breakthrough__cloud-mark--right" aria-hidden="true" />
         <div className="breakthrough__emblem">
-          <img src={`/themes/xianxia/realms-animated-v2/${realm.slug}.webp`} alt="" />
+          <img src={`/themes/xianxia/realms-animated-v2/${realm.slug === 'tribulation' ? 'tribulation-v2' : realm.slug}.webp`} alt="" />
         </div>
         <div className="breakthrough__copy">
           <div className="breakthrough__seal" aria-hidden="true"><span>破</span><span>境</span></div>

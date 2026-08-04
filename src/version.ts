@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.85.5'
+export const APP_VERSION = '3.86.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.86.0',
+    date: '2026-08-04',
+    changes: [
+      'feat: 新增「每日仙語」功能——Dashboard（修仙版）Hero 橫幅下方顯示每日一則國漫/仙俠小說經典語錄（凡人修仙傳/仙逆/斗破蒼穹/誅仙），語錄庫存 DB 可隨時新增，抽選採不重複循環制（整輪抽完才重新洗牌），普通版整個隱藏',
+      'feat: 新增「每日仙語管理」頁（系統分區），可手動新增/編輯/刪除語錄，或用 AI 建議候選語錄草稿（僅供參考，需人工確認出處後才存入，避免 AI 編造不存在的句子）',
+    ],
+  },
   {
     version: '3.85.5',
     date: '2026-08-04',

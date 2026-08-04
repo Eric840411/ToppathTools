@@ -21,6 +21,7 @@ import { KnowledgePage } from './pages/KnowledgePage'
 import { UiScreenshotPage } from './pages/UiScreenshotPage'
 import { DiscordNotifySettingsPage } from './pages/DiscordNotifySettingsPage'
 import { CultivationLeaderboardPage } from './pages/CultivationLeaderboardPage'
+import { XianxiaQuotesPage } from './pages/XianxiaQuotesPage'
 import { BREAKTHROUGH_REALMS, CultivationBreakthroughOverlay } from './components/CultivationBreakthroughOverlay'
 import { MeterReconcilePage } from './pages/MeterReconcilePage'
 import { EgmDayCountPage } from './pages/EgmDayCountPage'
@@ -39,8 +40,8 @@ import './App.css'
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
   | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
-  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'meter-reconcile' | 'egm-daycount' | 'cultivation-board'
-type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge' | 'discord-notify' | 'cultivation-board'
+  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'meter-reconcile' | 'egm-daycount' | 'cultivation-board' | 'xianxia-quotes'
+type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge' | 'discord-notify' | 'cultivation-board' | 'xianxia-quotes'
 
 type SubTab = {
   id: TabId
@@ -283,6 +284,16 @@ const cultivationBoardGroup: Group = {
   description: '依累計登入天數排名，看看誰的境界最高',
 }
 
+const xianxiaQuotesGroup: Group = {
+  id: 'xianxia-quotes',
+  label: '每日仙語管理',
+  themeLabel: '每日仙語',
+  icon: 'Q',
+  iconClass: 'tab-icon--history',
+  tab: 'xianxia-quotes',
+  description: '管理 Dashboard 每日顯示的仙語語錄庫，可手動新增或用 AI 建議候選句子',
+}
+
 const sysadminGroup: Group = {
   id: 'sysadmin',
   label: '系統管理',
@@ -490,8 +501,9 @@ function App() {
   const visibleKnowledge = filterGroup(knowledgeGroup)
   const visibleDiscordNotify = filterGroup(discordNotifyGroup)
   const visibleCultivationBoard = themeMode === 'xianxia' ? filterGroup(cultivationBoardGroup) : null
+  const visibleXianxiaQuotes = themeMode === 'xianxia' ? filterGroup(xianxiaQuotesGroup) : null
   const visibleSysadmin = canAccess('sysadmin') ? sysadminGroup : null
-  const allVisible = [dashboardGroup, ...visibleGroups, ...(visibleSettings ? [visibleSettings] : []), ...(visibleHistory ? [visibleHistory] : []), ...(visibleKnowledge ? [visibleKnowledge] : []), ...(visibleDiscordNotify ? [visibleDiscordNotify] : []), ...(visibleCultivationBoard ? [visibleCultivationBoard] : []), ...(visibleSysadmin ? [visibleSysadmin] : [])]
+  const allVisible = [dashboardGroup, ...visibleGroups, ...(visibleSettings ? [visibleSettings] : []), ...(visibleHistory ? [visibleHistory] : []), ...(visibleKnowledge ? [visibleKnowledge] : []), ...(visibleDiscordNotify ? [visibleDiscordNotify] : []), ...(visibleCultivationBoard ? [visibleCultivationBoard] : []), ...(visibleXianxiaQuotes ? [visibleXianxiaQuotes] : []), ...(visibleSysadmin ? [visibleSysadmin] : [])]
 
   // Redirect activeGroup/activeTab if current selection is no longer accessible
   const currentGroup = allVisible.find(g => g.id === activeGroup) ?? allVisible[0]
@@ -660,6 +672,17 @@ function App() {
             </button>
           )}
 
+          {visibleXianxiaQuotes && (
+            <button
+              type="button"
+              className={`sidebar-nav-item${currentGroup?.id === xianxiaQuotesGroup.id ? ' sidebar-nav-item--active' : ''}`}
+              onClick={() => handleGroupClick(xianxiaQuotesGroup)}
+            >
+              <span className={`tab-icon ${xianxiaQuotesGroup.iconClass}`}><XianxiaIcon name="document" size={18} /></span>
+              <NavLabel group={xianxiaQuotesGroup} classic={themeMode === 'classic'} />
+            </button>
+          )}
+
           <button
             type="button"
             className={`sidebar-nav-item${currentGroup?.id === sysadminGroup.id ? ' sidebar-nav-item--active' : ''}${!visibleSysadmin ? ' sidebar-nav-item--disabled' : ''}`}
@@ -812,6 +835,7 @@ function App() {
             {currentGroup?.id === 'settings' && effectiveTab === 'local-agent' && <LocalAgentPage currentAccount={globalAccount} />}
             {currentGroup?.id === 'discord-notify' && <DiscordNotifySettingsPage />}
             {currentGroup?.id === 'cultivation-board' && <CultivationLeaderboardPage currentEmail={globalAccount?.email ?? null} onPreviewRealm={setBreakthroughLevel} />}
+            {currentGroup?.id === 'xianxia-quotes' && <XianxiaQuotesPage />}
             {currentGroup?.id === 'history' && <HistoryPage />}
             {currentGroup?.id === 'color-game' && effectiveTab === 'gs-logchecker' && <GsLogCheckerPage />}
             {currentGroup?.id === 'sysadmin' && <SystemAdminPage />}

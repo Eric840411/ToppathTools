@@ -740,7 +740,7 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 
 **實作方式**：`xianxia-complete.css`（全站修仙視覺層）不再用 `import` 靜態打包進主 CSS（那樣永遠會生效、無法整份關掉），改放在 `public/xianxia-complete.css`，由 `App.tsx` 在切到「修仙版」時動態插入 `<link rel="stylesheet">`，切回「普通版」時整個移除。
 
-**普通版下會整個隱藏的修仙限定內容**：側邊欄雙標籤（只顯示原功能名一行）、境界稱號徽章、群英榜排行榜（連帶側邊欄的入口按鈕）、背景境界（玄月／赤霄）切換、側邊欄品牌名稱（改回「Toppath Tools」）。這些判斷都以 `themeMode === 'xianxia'` 為準，不是靠 CSS 藏起來（CSS 沒載入時這些元素本來就不會被畫出正確樣子，所以直接不渲染）。
+**普通版下會整個隱藏的修仙限定內容**：側邊欄雙標籤（只顯示原功能名一行）、境界稱號徽章、群英榜排行榜（連帶側邊欄的入口按鈕）、每日仙語小卡片與其管理頁（連帶側邊欄的入口按鈕）、背景境界（玄月／赤霄）切換、側邊欄品牌名稱（改回「Toppath Tools」）。這些判斷都以 `themeMode === 'xianxia'` 為準，不是靠 CSS 藏起來（CSS 沒載入時這些元素本來就不會被畫出正確樣子，所以直接不渲染）。
 
 **已知限制**：目前只做了「全站共用外殼」（側邊欄、頂欄、境界稱號/排行榜）的切換；個別頁面內部如果有更深層的修仙化改動（例如 Dashboard 的 Hero 橫幅結構），普通版下 xianxia CSS 關閉後會變成無樣式的原始 HTML 排版，不是逐一還原成「main 分支當初那個版本」的樣子——真的要每個頁面都精準復原，工作量接近整個重做一次，目前先以「視覺上乾淨、可用」為標準，非逐頁像素級還原。
 
@@ -748,6 +748,28 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 | 操作 | 說明 |
 |------|------|
 | 切換版面模式 | 側邊欄底部「版面模式」按鈕組，選普通版或修仙版，選擇會記住 |
+
+---
+
+## 22. 每日仙語（design/xianxia 分支）
+
+**路由**：`GET /api/xianxia/quote-of-day`、`GET/POST /api/xianxia/quotes`、`PUT/DELETE /api/xianxia/quotes/:id`、`POST /api/xianxia/quotes/ai-suggest`
+
+### 功能說明
+Dashboard（修仙版）Hero 橫幅下方顯示一張每日語錄小卡片，語錄來源為《凡人修仙傳》《仙逆》《斗破蒼穹》《誅仙》等知名國漫/仙俠小說的經典台詞。只在修仙版顯示，普通版整個隱藏（含側邊欄管理頁入口）。
+
+**語錄庫存在 `xianxia_quotes` 表**（`id`/`text`/`source`/`created_at`/`last_used_cycle`），初始批次語錄透過 `server/xianxia-quotes-seed.json`（`INSERT OR IGNORE`，不覆蓋已編輯過的資料）在啟動時補齊，比對 `config-templates.json`/`machine-profiles.json` 既有的種子檔案載入慣例——**這批初始語錄是先用 WebSearch 查證多個獨立語錄整理網站交叉確認過的，不是純憑印象生成**，但仍建議使用者自己覆核一輪，用字/斷句可能因原著版本或轉載差異而有出入。
+
+**每日抽選演算法（不重複循環制）**：`getDailyQuote()`（`server/routes/xianxia-quotes.ts`）——同一天內（Asia/Taipei 時區）所有人看到的都是同一則（存在 `settings` 表 `xianxia_daily_quote`，含 `date`/`quoteId`/`cycle`），隔天才會重新抽。抽選規則是「這一輪（`cycle`）還沒抽過的語錄裡隨機挑一則」，該則的 `last_used_cycle` 更新為目前 `cycle`；當整輪語錄都抽完（沒有 `last_used_cycle < cycle` 的候選）才會把 `cycle` +1、重新開始新一輪。語錄庫可以隨時新增，新加入的語錄 `last_used_cycle` 預設 0，會立刻被目前這輪視為「還沒抽過」，不用等下一輪才會出現。
+
+**AI 建議只回傳草稿，不會自動寫入語錄庫**：`POST /api/xianxia/quotes/ai-suggest` 呼叫 `callGeminiWithRotation()` 請 Gemini 列出候選語錄，prompt 明確要求「不確定就不要列，寧可少列也不要列錯」，但 AI 仍可能編造不存在的句子或講錯出處，管理頁上每則候選都要人工按「加入語錄庫」才會真的存入（等同於再過一次 `POST /api/xianxia/quotes`），不會自動信任 AI 產出。
+
+### 使用者操作
+| 操作 | 說明 |
+|------|------|
+| 查看每日語錄 | Dashboard（修仙版）Hero 橫幅下方自動顯示，每天固定一則 |
+| 管理語錄庫 | 「每日仙語管理」頁（系統分區）手動新增/編輯/刪除語錄，可查看每則目前用到第幾輪 |
+| AI 建議候選語錄 | 管理頁「AI 建議」按鈕，Gemini 生成候選草稿，需人工確認出處後才按「加入語錄庫」存入 |
 
 ---
 

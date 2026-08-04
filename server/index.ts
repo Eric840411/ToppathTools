@@ -27,6 +27,7 @@ import { router as audioRouter } from './routes/audio.js'
 import { router as scriptedBetRouter } from './routes/scripted-bet.js'
 import { router as knowledgeRouter } from './routes/knowledge.js'
 import { router as dashboardRouter, dashboardMetricsMiddleware } from './routes/dashboard.js'
+import { router as xianxiaQuotesRouter } from './routes/xianxia-quotes.js'
 import { getRequestContext, runWithRequestContext } from './request-context.js'
 import { getAuthAccount } from './auth-session.js'
 
@@ -311,6 +312,7 @@ app.use(frontendAutoRouter)
 app.use(audioRouter)
 app.use(scriptedBetRouter)
 app.use(knowledgeRouter)
+app.use(xianxiaQuotesRouter)
 
 // ─── Static Files (production build) ──────────────────────────────────────────
 

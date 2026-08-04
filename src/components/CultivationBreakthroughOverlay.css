@@ -245,7 +245,25 @@
 .breakthrough--void-refining .breakthrough__moon-disc { border-width: 0 1px 1px; transform: translate(-50%, -50%) skewX(-8deg); }
 .breakthrough--body-integration .breakthrough__moon-disc { border-color: rgba(105, 216, 178, .38); box-shadow: -30px 0 70px rgba(105, 216, 178, .1), 30px 0 70px rgba(240, 206, 114, .1); }
 .breakthrough--mahayana .breakthrough__moon-disc { border: 3px double rgba(243, 215, 131, .38); box-shadow: 0 0 105px rgba(243, 215, 131, .18); }
-.breakthrough--tribulation .breakthrough__moon-disc { border-color: rgba(165, 144, 255, .5); box-shadow: 0 0 95px rgba(165, 144, 255, .2), inset 0 0 70px rgba(0, 0, 0, .5); }
+.breakthrough--tribulation .breakthrough__backdrop {
+  background:
+    linear-gradient(180deg, rgba(1, 3, 7, .16), transparent 48%, rgba(1, 3, 7, .84)),
+    linear-gradient(90deg, rgba(1, 3, 7, .28), transparent 35%, transparent 70%, rgba(1, 3, 7, .22));
+}
+.breakthrough--tribulation .breakthrough__moon-disc {
+  border: 0;
+  background: radial-gradient(circle, rgba(255, 221, 146, .07), rgba(131, 108, 224, .045) 36%, transparent 69%);
+  box-shadow: 0 0 120px rgba(139, 112, 230, .09);
+}
+.breakthrough--tribulation .breakthrough__moon-disc::before,
+.breakthrough--tribulation .breakthrough__moon-disc::after { display: none; }
+.breakthrough--tribulation .breakthrough__cloud-mark { display: none; }
+.breakthrough--tribulation .breakthrough__emblem {
+  filter: brightness(.86) saturate(.78) drop-shadow(0 0 28px rgba(168, 144, 255, .34));
+}
+.breakthrough--tribulation .breakthrough__copy h2 {
+  text-shadow: 0 3px 3px #000, 0 0 30px rgba(151, 126, 230, .32);
+}
 
 @keyframes breakthrough-visibility { 0% { opacity: 0; } 5%, 91% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
 @keyframes breakthrough-scene-reveal { 0% { opacity: 0; filter: saturate(.5) brightness(.18) contrast(1.15); } 16%, 83% { opacity: 1; filter: saturate(.86) brightness(.62) contrast(1.06); } 100% { opacity: .18; filter: saturate(.7) brightness(.3) contrast(1.1); } }

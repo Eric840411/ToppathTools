@@ -139,6 +139,15 @@ export function DashboardPage({ themeMode = 'xianxia' }: { themeMode?: 'classic'
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [tick, setTick] = useState(Date.now())
+  const [dailyQuote, setDailyQuote] = useState<{ text: string; source: string } | null>(null)
+
+  useEffect(() => {
+    if (themeMode !== 'xianxia') return
+    fetch('/api/xianxia/quote-of-day')
+      .then(r => r.json())
+      .then((d: { ok: boolean; quote?: { text: string; source: string } | null }) => setDailyQuote(d.quote ?? null))
+      .catch(() => setDailyQuote(null))
+  }, [themeMode])
 
   async function loadSummary() {
     try {
@@ -214,6 +223,19 @@ export function DashboardPage({ themeMode = 'xianxia' }: { themeMode?: 'classic'
           <span>更新於 {formatClock(summary.generatedAt)}</span>
         </div>
       </div>
+
+      {themeMode === 'xianxia' && dailyQuote && (
+        <div style={{
+          border: '1px solid var(--xx-line-gold, #7a6a3d)',
+          borderRadius: 8,
+          padding: '14px 18px',
+          marginBottom: 16,
+          background: 'rgba(122, 106, 61, 0.08)',
+        }}>
+          <div style={{ fontSize: 14, fontStyle: 'italic', color: '#d8cfa8', marginBottom: 6 }}>「{dailyQuote.text}」</div>
+          <div style={{ fontSize: 12, color: '#8a7f5a', textAlign: 'right' }}>—— {dailyQuote.source || '出處未詳'}</div>
+        </div>
+      )}
 
       {error && <div className="dashboard-alert">上次更新失敗：{error}</div>}
 
