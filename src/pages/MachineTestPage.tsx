@@ -1038,11 +1038,14 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
     const es = new EventSource('/api/machine-test/osm-status-stream')
     es.onmessage = (e) => {
       try {
-        const d = JSON.parse(e.data) as { count?: number; machines?: Record<string, { status: number; label: string }> }
+        const d = JSON.parse(e.data) as { count?: number; machines?: Record<string, { status: number; label: string }>; lastWebhookAt?: number }
         setOsmConnected((d.count ?? 0) > 0)
         setOsmCount(d.count ?? 0)
         setOsmMachines(d.machines ?? {})
-        setOsmLastUpdated(new Date())
+        // 用伺服器實際收到 OSMWatcher webhook 的時間，不是瀏覽器收到這次 SSE 推送的時間——
+        // 否則重新整理頁面／SSE 重新連線時會立即推送目前快照，讓這個時間誤顯示成「現在」，
+        // 即使 OSMWatcher 早就已經斷線一段時間、資料其實是舊的。
+        setOsmLastUpdated(d.lastWebhookAt ? new Date(d.lastWebhookAt) : null)
       } catch { /* ignore parse errors */ }
     }
     es.onerror = () => setOsmConnected(false)

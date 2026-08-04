@@ -97,6 +97,10 @@ export const osmMachineStatus = new Map<string, number>()
 const osmMachineUpdatedAt = new Map<string, number>()
 // Machines not updated within this window are hidden from UI and eventually purged
 const OSM_STALE_MS = 10 * 60 * 1000 // 10 minutes
+// Real timestamp of the last actual OSMWatcher webhook push (not the last SSE broadcast —
+// a client (re)connecting triggers an immediate snapshot broadcast regardless of whether the
+// underlying data is fresh, which would otherwise make "最後更新" misleadingly show "now").
+let lastOsmWebhookAt = 0
 
 // Load persisted machine statuses from DB on startup (only recent ones)
 {
@@ -105,6 +109,7 @@ const OSM_STALE_MS = 10 * 60 * 1000 // 10 minutes
   for (const row of rows) {
     osmMachineStatus.set(row.machine_id, row.status)
     osmMachineUpdatedAt.set(row.machine_id, row.updated_at)
+    if (row.updated_at > lastOsmWebhookAt) lastOsmWebhookAt = row.updated_at
   }
 }
 
@@ -143,7 +148,7 @@ function broadcastOsmStatus() {
     }
   }
   const count = Object.keys(entries).length
-  const payload = JSON.stringify({ machines: entries, count, ts: now })
+  const payload = JSON.stringify({ machines: entries, count, ts: now, lastWebhookAt: lastOsmWebhookAt })
   for (const client of osmSseClients) {
     try { client.write(`data: ${payload}\n\n`) } catch { osmSseClients.delete(client) }
   }
@@ -849,11 +854,12 @@ router.post('/api/machine-test/osm-status', (req, res) => {
     osmThrottleStats.processed++
 
     if (Array.isArray(body.gmlist)) {
+      lastOsmWebhookAt = Date.now()
       const updates: { machineId: string; status: number }[] = []
       for (const gm of body.gmlist) {
         if (typeof gm.id === 'string' && typeof gm.status === 'number') {
           osmMachineStatus.set(gm.id, gm.status)
-          osmMachineUpdatedAt.set(gm.id, Date.now())
+          osmMachineUpdatedAt.set(gm.id, lastOsmWebhookAt)
           persistOsmMachineStatus(gm.id, gm.status)
           updates.push({ machineId: gm.id, status: gm.status })
         }

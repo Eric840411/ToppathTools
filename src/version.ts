@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.85.4'
+export const APP_VERSION = '3.85.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.85.5',
+    date: '2026-08-04',
+    changes: [
+      'fix: 機台自動化測試「最後更新」時間不準——原本是用瀏覽器收到 SSE 推送的當下時間，只要重新整理頁面/SSE 重新連線就會被誤設成「現在」，即使 OSMWatcher 早就已經斷線資料是舊的也一樣。改成伺服器記錄「真正最後一次收到 OSMWatcher webhook」的時間，透過 SSE payload 帶給前端，這個時間只有 OSMWatcher 真的還在推送才會往前跳',
+    ],
+  },
   {
     version: '3.85.4',
     date: '2026-08-04',
