@@ -156,7 +156,7 @@ export function UrlPoolPage({ currentAccount }: Props) {
         <div style={{ display: 'flex', gap: 8 }}>
           <StatBadge label="總計" value={localData.length} color="#6b7280" />
           <StatBadge label="可用" value={totalAvail} color="#16a34a" />
-          <StatBadge label="使用中" value={totalInUse} color="#dc2626" />
+          <StatBadge label="使用中" value={totalInUse} color={totalInUse > 0 ? '#dc2626' : '#6b7280'} />
           {myLabel && <StatBadge label="我的" value={myCount} color="#2563eb" />}
         </div>
 

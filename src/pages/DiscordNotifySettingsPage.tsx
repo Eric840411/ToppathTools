@@ -278,7 +278,7 @@ export function DiscordNotifySettingsPage() {
       <div className="discord-notify-head">
         <div>
           <h1 className="discord-notify-title">
-            訊 Discord 通知設定
+            Discord 通知設定
             <span className={isConfigured ? (savedEnabled ? 'badge badge--ok' : 'badge badge--warn') : 'badge'}>
               {isConfigured ? (savedEnabled ? '● 已啟用' : '⏸ 已暫停') : '○ 未設定'}
             </span>

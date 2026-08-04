@@ -1670,11 +1670,14 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
             )}
           </div>
 
-          <div style={{ marginTop: 12, padding: '10px 12px', background: '#162032', border: '1.5px solid #e2e8f0', borderRadius: 8, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ marginTop: 12, padding: '10px 12px', background: '#162032', border: '1.5px solid #2d3f55', borderRadius: 8, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 13, fontWeight: 600, color: '#cbd5e1', whiteSpace: 'nowrap' }}>日誌 API 環境</span>
             {(['qat', 'prod'] as const).map(env => (
               <label key={env} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 13 }}>
-                <input type="radio" name="osmEnv" value={env} checked={osmEnv === env} onChange={() => setOsmEnv(env)} disabled={running} />
+                <input
+                  type="radio" name="osmEnv" value={env} checked={osmEnv === env} onChange={() => setOsmEnv(env)} disabled={running}
+                  style={{ accentColor: env === 'prod' ? '#dc2626' : '#2563eb' }}
+                />
                 <span style={{
                   fontWeight: osmEnv === env ? 700 : 400,
                   color: env === 'prod' ? (osmEnv === 'prod' ? '#dc2626' : '#9ca3af') : (osmEnv === 'qat' ? '#2563eb' : '#9ca3af'),

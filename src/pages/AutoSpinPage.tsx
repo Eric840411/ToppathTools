@@ -726,7 +726,7 @@ export function AutoSpinPage() {
       )}
       {userLabel && (
         <div style={{ padding: '6px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, marginBottom: 10, fontSize: 12, color: '#1d4ed8' }}>
-          人 目前帳號：{userLabel}
+          目前帳號：{userLabel}
         </div>
       )}
 

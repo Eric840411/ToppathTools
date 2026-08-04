@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.87.0'
+export const APP_VERSION = '3.87.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.87.1',
+    date: '2026-08-04',
+    changes: [
+      'fix: 移除 Discord 通知設定標題「訊 Discord 通知設定」與 AutoSpin「人 目前帳號」開頭的多餘字元',
+      'fix: 機台測試頁「日誌 API 環境」QAT/PROD 選項的 radio 按鈕加上主題色 accent-color，邊框改回跟其他區塊一致的深色，不再顯得突兀',
+      'fix: URL 帳號池「使用中」統計數字為 0 時不再顯示紅色（0 台使用中是正常狀態，不該用警示色）',
+    ],
+  },
   {
     version: '3.87.0',
     date: '2026-08-04',
