@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.87.10'
+export const APP_VERSION = '3.87.11'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.87.11',
+    date: '2026-08-05',
+    changes: [
+      'refactor: JiraPage.tsx 拆分批量開單 Step 4（建立結果 + 待回填重試，約 105 行）到 JiraCreateStep4.tsx，用 sed 逐字搬移確認零內容變動。至此批量開單四個步驟（Step 1-4）與 PM 模式皆已拆成獨立元件，加上先前拆完的批量評論/更新狀態/修改，JiraPage.tsx 從最初的 6123 行降到 3687 行，5 個批量工具全數模組化完成',
+    ],
+  },
   {
     version: '3.87.10',
     date: '2026-08-05',
