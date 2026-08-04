@@ -8,6 +8,7 @@ const LAST_LOGIN_EMAIL_KEY = 'toppath_last_login_email'
 
 interface Props {
   onLogin: (account: AccountInfo) => void
+  themeMode?: 'classic' | 'xianxia'
 }
 
 interface AccountsResponse {
@@ -48,7 +49,8 @@ function isSameEmail(left: string | null, right: string): boolean {
   return left?.toLowerCase() === right.toLowerCase()
 }
 
-export function AuthLoginModal({ onLogin }: Props) {
+export function AuthLoginModal({ onLogin, themeMode = 'classic' }: Props) {
+  const xianxia = themeMode === 'xianxia'
   const isGame = useIsGameMode()
   const [view, setView] = useState<'login' | 'add'>('login')
   const [accounts, setAccounts] = useState<AccountInfo[]>([])
@@ -185,13 +187,13 @@ export function AuthLoginModal({ onLogin }: Props) {
       <div className="modal-overlay auth-login-overlay">
         <div className="modal auth-login-modal" onClick={event => event.stopPropagation()}>
           <div className="modal-header auth-login-header">
-            <h2>太玄道樞</h2>
+            <h2>{xianxia ? '太玄道樞' : 'Toppath Tools'}</h2>
           </div>
 
           {!target && view === 'login' && (
             <div className="modal-body">
               <div className="auth-login-lock" aria-hidden="true"><XianxiaIcon name="account" size={38} /></div>
-              <p className="auth-login-copy">擇一道契入樞，啟封 Jira 與諸般術器。</p>
+              <p className="auth-login-copy">{xianxia ? '擇一道契入樞，啟封 Jira 與諸般術器。' : '選擇帳號登入'}</p>
               <div className="auth-login-tabs">
                 <button type="button" className="auth-login-tab active">登入</button>
                 <button type="button" className="auth-login-tab" onClick={() => { setView('add'); setError(''); setAddSuccess('') }}>新增帳號</button>

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.85.0-xianxia.9'
+export const APP_VERSION = '3.85.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.85.1',
+    date: '2026-08-04',
+    changes: [
+      'fix: 版面模式預設改回普通版——首次進站（或清過 localStorage）之前預設是修仙版，改成沒有存過偏好時預設普通版，使用者自己選擇要不要切換成修仙版。登入畫面（AuthLoginModal）之前完全沒有跟著版面模式切換，「太玄道樞」標題與「擇一道契入樞，啟封 Jira 與諸般術器」文案不論哪個模式都會顯示；補上 themeMode prop，普通版下改回「Toppath Tools」與「選擇帳號登入」。design/xianxia 分支已於本次合併進 main（fast-forward，main 先前沒有其他變動），版號從此拿掉 -xianxia 分支後綴',
+    ],
+  },
   {
     version: '3.85.0-xianxia.9',
     date: '2026-08-04',

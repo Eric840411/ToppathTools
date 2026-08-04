@@ -326,7 +326,7 @@ function App() {
   const [showGemini, setShowGemini] = useState(false)
   const [navQuery, setNavQuery] = useState('')
   const [realm, setRealm] = useState<'moon' | 'ember'>(() => localStorage.getItem('xianxia-realm') === 'ember' ? 'ember' : 'moon')
-  const [themeMode, setThemeMode] = useState<'classic' | 'xianxia'>(() => localStorage.getItem('toppath-theme-mode') === 'classic' ? 'classic' : 'xianxia')
+  const [themeMode, setThemeMode] = useState<'classic' | 'xianxia'>(() => localStorage.getItem('toppath-theme-mode') === 'xianxia' ? 'xianxia' : 'classic')
   const [globalAccount, setGlobalAccount] = useState<AccountInfo | null>(loadGlobalAccount)
   const [authChecking, setAuthChecking] = useState(true)
   const [permissions, setPermissions] = useState<string[]>([])
@@ -823,7 +823,7 @@ function App() {
       {showChangelog && <ChangelogModal onClose={() => setShowChangelog(false)} />}
       {showGemini && <GeminiSettingsModal onClose={() => setShowGemini(false)} />}
       {!authChecking && !globalAccount && (
-        <AuthLoginModal onLogin={handleGlobalAccountSelect} />
+        <AuthLoginModal onLogin={handleGlobalAccountSelect} themeMode={themeMode} />
       )}
 
       <AiAgentMonitorWidget />
