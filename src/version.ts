@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.87.8'
+export const APP_VERSION = '3.87.9'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.87.9',
+    date: '2026-08-04',
+    changes: [
+      'refactor: JiraPage.tsx 開始拆分「批量開單」（最大最複雜的主流程）——Step 1（選擇專案/Issue 類型）與 Step 2（選擇資料來源）先搬到 JiraCreateStep12.tsx，逐字比對確認零內容變動。Step 3（動態欄位開單，約 700 行）與 Step 4 留在下一輪處理',
+    ],
+  },
   {
     version: '3.87.8',
     date: '2026-08-04',
