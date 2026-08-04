@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.85.0-xianxia.3'
+export const APP_VERSION = '3.85.0-xianxia.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.85.0-xianxia.4',
+    date: '2026-08-04',
+    changes: [
+      'feat(design): [design/xianxia 分支] 新增「普通版／修仙版」切換——側邊欄底部新增版面模式開關，可即時切回原本 main 分支的樣子，選擇存在 localStorage。xianxia-complete.css 改放 public/ 由 App.tsx 動態插入/移除 <link>（不再靜態 import 打包進主 CSS，那樣永遠會生效無法整份關掉）。普通版下會隱藏：側邊欄雙標籤（只顯示原功能名）、境界稱號徽章、群英榜排行榜（含側邊欄入口）、背景境界切換、側邊欄品牌名稱改回 Toppath Tools。已知限制：目前只做全站共用外殼的切換，個別頁面更深層的修仙化改動（如 Dashboard Hero 橫幅結構）在普通版下會變成無樣式排版，不是逐頁精準復原成 main 分支原貌。同一批一併收錄 CodeX 產出的群英榜九境動態美術（realms-v1/animated-v1/v2、effects-v1/v2 等素材資料夾）',
+    ],
+  },
   {
     version: '3.85.0-xianxia.3',
     date: '2026-08-04',

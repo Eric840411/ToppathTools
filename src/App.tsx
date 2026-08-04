@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { OsmPage } from './pages/OsmPage'
 import { OsmConfigComparePage } from './pages/OsmConfigComparePage'
 import { AutoSpinPage } from './pages/AutoSpinPage'
@@ -21,6 +21,7 @@ import { KnowledgePage } from './pages/KnowledgePage'
 import { UiScreenshotPage } from './pages/UiScreenshotPage'
 import { DiscordNotifySettingsPage } from './pages/DiscordNotifySettingsPage'
 import { CultivationLeaderboardPage } from './pages/CultivationLeaderboardPage'
+import { BREAKTHROUGH_REALMS, CultivationBreakthroughOverlay } from './components/CultivationBreakthroughOverlay'
 import { MeterReconcilePage } from './pages/MeterReconcilePage'
 import { EgmDayCountPage } from './pages/EgmDayCountPage'
 import ChangelogModal from './components/ChangelogModal'
@@ -32,7 +33,9 @@ import { AuthLoginModal } from './components/AuthLoginModal'
 import { APP_VERSION } from './version'
 import { fetchAuthAccount, loadGlobalAccount, logoutAuthAccount, saveGlobalAccount } from './authSession'
 import './App.css'
-import './xianxia-complete.css'
+// xianxia-complete.css 不在這裡靜態 import——它現在放在 public/，由下面的
+// applyThemeMode() 在執行期動態插入/移除 <link>，才能真正做到「普通版/修仙版」
+// 切換（靜態 import 會被打包進主 CSS，永遠都在，沒辦法整份關掉）
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
   | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
@@ -292,8 +295,8 @@ const sysadminGroup: Group = {
 
 
 
-function NavLabel({ group }: { group: Group }) {
-  if (!group.themeLabel) return <span className="sidebar-nav-label">{group.label}</span>
+function NavLabel({ group, classic }: { group: Group; classic?: boolean }) {
+  if (!group.themeLabel || classic) return <span className="sidebar-nav-label">{group.label}</span>
   return (
     <span className="sidebar-nav-label sidebar-nav-label--dual">
       <span className="sidebar-nav-label-theme">{group.themeLabel}</span>
@@ -323,15 +326,38 @@ function App() {
   const [showGemini, setShowGemini] = useState(false)
   const [navQuery, setNavQuery] = useState('')
   const [realm, setRealm] = useState<'moon' | 'ember'>(() => localStorage.getItem('xianxia-realm') === 'ember' ? 'ember' : 'moon')
+  const [themeMode, setThemeMode] = useState<'classic' | 'xianxia'>(() => localStorage.getItem('toppath-theme-mode') === 'classic' ? 'classic' : 'xianxia')
   const [globalAccount, setGlobalAccount] = useState<AccountInfo | null>(loadGlobalAccount)
   const [authChecking, setAuthChecking] = useState(true)
   const [permissions, setPermissions] = useState<string[]>([])
-  const [cultivation, setCultivation] = useState<{ level: string; activeDays: number; nextLevel: string | null; nextThreshold: number | null } | null>(null)
+  const [cultivation, setCultivation] = useState<{ level: string; levelIndex: number; activeDays: number; nextLevel: string | null; nextThreshold: number | null } | null>(null)
+  const [breakthroughLevel, setBreakthroughLevel] = useState<string | null>(null)
+  const closeBreakthrough = useCallback(() => setBreakthroughLevel(null), [])
 
   useEffect(() => {
     document.documentElement.dataset.realm = realm
     localStorage.setItem('xianxia-realm', realm)
   }, [realm])
+
+  // 普通版／修仙版切換——xianxia-complete.css 放在 public/，這裡動態插入/移除
+  // <link> 才能真的整份關掉（原本用靜態 import 會被打包進主 CSS，永遠都在）
+  useEffect(() => {
+    document.documentElement.dataset.themeMode = themeMode
+    localStorage.setItem('toppath-theme-mode', themeMode)
+    const LINK_ID = 'xianxia-theme-link'
+    const existing = document.getElementById(LINK_ID) as HTMLLinkElement | null
+    if (themeMode === 'xianxia') {
+      if (!existing) {
+        const link = document.createElement('link')
+        link.id = LINK_ID
+        link.rel = 'stylesheet'
+        link.href = '/xianxia-complete.css'
+        document.head.appendChild(link)
+      }
+    } else {
+      existing?.remove()
+    }
+  }, [themeMode])
 
   async function fetchPermissions() {
     try {
@@ -379,9 +405,22 @@ function App() {
     let cancelled = false
     fetch('/api/account/cultivation')
       .then(r => r.json())
-      .then((d: { ok: boolean; level?: string; activeDays?: number; nextLevel?: string | null; nextThreshold?: number | null }) => {
+      .then((d: { ok: boolean; level?: string; levelIndex?: number; activeDays?: number; nextLevel?: string | null; nextThreshold?: number | null }) => {
         if (cancelled || !d.ok) return
-        setCultivation({ activeDays: d.activeDays!, level: d.level!, nextLevel: d.nextLevel ?? null, nextThreshold: d.nextThreshold ?? null })
+        const levelIndex = d.levelIndex ?? BREAKTHROUGH_REALMS.findIndex(realm => realm.name === d.level)
+        const info = { activeDays: d.activeDays!, level: d.level!, levelIndex: Math.max(0, levelIndex), nextLevel: d.nextLevel ?? null, nextThreshold: d.nextThreshold ?? null }
+        setCultivation(info)
+
+        const storageKey = `toppath-cultivation-seen:${globalAccount.email}`
+        const storedIndex = localStorage.getItem(storageKey)
+        if (storedIndex === null || !Number.isFinite(Number(storedIndex))) {
+          // Existing accounts establish a baseline silently; future promotions animate once.
+          localStorage.setItem(storageKey, String(info.levelIndex))
+        } else {
+          const previousIndex = Number(storedIndex)
+          if (info.levelIndex > previousIndex) setBreakthroughLevel(info.level)
+          if (info.levelIndex !== previousIndex) localStorage.setItem(storageKey, String(info.levelIndex))
+        }
       })
       .catch(() => {})
     return () => { cancelled = true }
@@ -392,6 +431,7 @@ function App() {
     saveGlobalAccount(acc)
   }
   async function handleGlobalAccountClear() {
+    setBreakthroughLevel(null)
     setGlobalAccount(null)
     saveGlobalAccount(null)
     await logoutAuthAccount()
@@ -438,7 +478,7 @@ function App() {
   const visibleHistory = filterGroup(historyGroup)
   const visibleKnowledge = filterGroup(knowledgeGroup)
   const visibleDiscordNotify = filterGroup(discordNotifyGroup)
-  const visibleCultivationBoard = filterGroup(cultivationBoardGroup)
+  const visibleCultivationBoard = themeMode === 'xianxia' ? filterGroup(cultivationBoardGroup) : null
   const visibleSysadmin = canAccess('sysadmin') ? sysadminGroup : null
   const allVisible = [dashboardGroup, ...visibleGroups, ...(visibleSettings ? [visibleSettings] : []), ...(visibleHistory ? [visibleHistory] : []), ...(visibleKnowledge ? [visibleKnowledge] : []), ...(visibleDiscordNotify ? [visibleDiscordNotify] : []), ...(visibleCultivationBoard ? [visibleCultivationBoard] : []), ...(visibleSysadmin ? [visibleSysadmin] : [])]
 
@@ -495,10 +535,10 @@ function App() {
           <div className="sidebar-logo-inner">
             <span className="brand-dot" />
             <div className="sidebar-logo-text">
-              <span className="sidebar-brand-name">太玄道樞</span>
+              <span className="sidebar-brand-name">{themeMode === 'classic' ? 'Toppath Tools' : '太玄道樞'}</span>
             </div>
           </div>
-          <p className="sidebar-sub">TOPPATH TOOLS</p>
+          <p className="sidebar-sub">{themeMode === 'classic' ? 'WORKFLOW INTEGRATOR' : 'TOPPATH TOOLS'}</p>
         </div>
 
         {/* Nav items */}
@@ -510,7 +550,7 @@ function App() {
             onClick={() => handleGroupClick(dashboardGroup)}
           >
             <span className={`tab-icon ${dashboardGroup.iconClass}`}><XianxiaIcon name="overview" size={18} /></span>
-            <NavLabel group={dashboardGroup} />
+            <NavLabel group={dashboardGroup} classic={themeMode === 'classic'} />
           </button>
           {visibleGroups.map((group) => (
             <div key={group.id}>
@@ -520,7 +560,7 @@ function App() {
                 onClick={() => handleGroupClick(group)}
               >
                 <span className={`tab-icon ${group.iconClass}`}><XianxiaIcon name={navIconName(group.id, group.iconClass)} size={18} /></span>
-                <NavLabel group={group} />
+                <NavLabel group={group} classic={themeMode === 'classic'} />
                 {group.subtabs && (
                   <span className="sidebar-expand-arrow">
                     {currentGroup?.id === group.id ? '▾' : '▸'}
@@ -561,7 +601,7 @@ function App() {
               onClick={() => handleGroupClick(settingsGroup)}
             >
               <span className={`tab-icon ${settingsGroup.iconClass}`}><XianxiaIcon name="settings" size={18} /></span>
-              <NavLabel group={settingsGroup} />
+              <NavLabel group={settingsGroup} classic={themeMode === 'classic'} />
             </button>
           )}
 
@@ -572,7 +612,7 @@ function App() {
               onClick={() => handleGroupClick(historyGroup)}
             >
               <span className={`tab-icon ${historyGroup.iconClass}`}><XianxiaIcon name="history" size={18} /></span>
-              <NavLabel group={historyGroup} />
+              <NavLabel group={historyGroup} classic={themeMode === 'classic'} />
             </button>
           )}
 
@@ -583,7 +623,7 @@ function App() {
               onClick={() => handleGroupClick(knowledgeGroup)}
             >
               <span className={`tab-icon ${knowledgeGroup.iconClass}`}><XianxiaIcon name="knowledge" size={18} /></span>
-              <NavLabel group={knowledgeGroup} />
+              <NavLabel group={knowledgeGroup} classic={themeMode === 'classic'} />
             </button>
           )}
 
@@ -594,7 +634,7 @@ function App() {
               onClick={() => handleGroupClick(discordNotifyGroup)}
             >
               <span className={`tab-icon ${discordNotifyGroup.iconClass}`}><XianxiaIcon name="notification" size={18} /></span>
-              <NavLabel group={discordNotifyGroup} />
+              <NavLabel group={discordNotifyGroup} classic={themeMode === 'classic'} />
             </button>
           )}
 
@@ -605,7 +645,7 @@ function App() {
               onClick={() => handleGroupClick(cultivationBoardGroup)}
             >
               <span className={`tab-icon ${cultivationBoardGroup.iconClass}`}><XianxiaIcon name="monitor" size={18} /></span>
-              <NavLabel group={cultivationBoardGroup} />
+              <NavLabel group={cultivationBoardGroup} classic={themeMode === 'classic'} />
             </button>
           )}
 
@@ -616,20 +656,29 @@ function App() {
             title={visibleSysadmin ? '系統管理' : '僅管理員可使用'}
           >
             <span className={`tab-icon ${sysadminGroup.iconClass}`}><XianxiaIcon name="settings" size={18} /></span>
-            <NavLabel group={sysadminGroup} />
+            <NavLabel group={sysadminGroup} classic={themeMode === 'classic'} />
           </button>
 
         </div>
 
         {/* Bottom: user + AI settings */}
         <div className="sidebar-bottom">
-          <div className="sidebar-realm-switch" aria-label="背景境界">
-            <span>背景境界</span>
+          <div className="sidebar-realm-switch" aria-label="版面模式">
+            <span>版面模式</span>
             <div>
-              <button type="button" className={realm === 'moon' ? 'is-active' : ''} onClick={() => setRealm('moon')}>玄月</button>
-              <button type="button" className={realm === 'ember' ? 'is-active' : ''} onClick={() => setRealm('ember')}>赤霄</button>
+              <button type="button" className={themeMode === 'classic' ? 'is-active' : ''} onClick={() => setThemeMode('classic')}>普通版</button>
+              <button type="button" className={themeMode === 'xianxia' ? 'is-active' : ''} onClick={() => setThemeMode('xianxia')}>修仙版</button>
             </div>
           </div>
+          {themeMode === 'xianxia' && (
+            <div className="sidebar-realm-switch" aria-label="背景境界">
+              <span>背景境界</span>
+              <div>
+                <button type="button" className={realm === 'moon' ? 'is-active' : ''} onClick={() => setRealm('moon')}>玄月</button>
+                <button type="button" className={realm === 'ember' ? 'is-active' : ''} onClick={() => setRealm('ember')}>赤霄</button>
+              </div>
+            </div>
+          )}
           <button
             type="button"
             onClick={() => setShowChangelog(true)}
@@ -646,10 +695,14 @@ function App() {
             title="AI 模型和 Prompt 模板設定"
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>
-            <span className="sidebar-ai-btn-label">
-              <span className="sidebar-nav-label-theme">陣法設定</span>
-              <span className="sidebar-nav-label-sub">AI 模型和 Prompt 設定</span>
-            </span>
+            {themeMode === 'classic' ? (
+              <span className="sidebar-ai-btn-label"><span className="sidebar-nav-label-sub">AI 模型和 Prompt 設定</span></span>
+            ) : (
+              <span className="sidebar-ai-btn-label">
+                <span className="sidebar-nav-label-theme">陣法設定</span>
+                <span className="sidebar-nav-label-sub">AI 模型和 Prompt 設定</span>
+              </span>
+            )}
           </button>
           {globalAccount && (
             <div className="sidebar-user">
@@ -658,7 +711,7 @@ function App() {
               </div>
               <div className="sidebar-user-info">
                 <span className="sidebar-user-name">{globalAccount.label}</span>
-                {cultivation && (
+                {cultivation && themeMode === 'xianxia' && (
                   <span
                     className="sidebar-user-cultivation"
                     title={cultivation.nextLevel ? `已登入 ${cultivation.activeDays} 天，還差 ${cultivation.nextThreshold! - cultivation.activeDays} 天晉升「${cultivation.nextLevel}」` : `已登入 ${cultivation.activeDays} 天，已達最高境界`}
@@ -747,7 +800,7 @@ function App() {
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'egm-daycount' && <EgmDayCountPage />}
             {currentGroup?.id === 'settings' && effectiveTab === 'local-agent' && <LocalAgentPage currentAccount={globalAccount} />}
             {currentGroup?.id === 'discord-notify' && <DiscordNotifySettingsPage />}
-            {currentGroup?.id === 'cultivation-board' && <CultivationLeaderboardPage currentEmail={globalAccount?.email ?? null} />}
+            {currentGroup?.id === 'cultivation-board' && <CultivationLeaderboardPage currentEmail={globalAccount?.email ?? null} onPreviewRealm={setBreakthroughLevel} />}
             {currentGroup?.id === 'history' && <HistoryPage />}
             {currentGroup?.id === 'color-game' && effectiveTab === 'gs-logchecker' && <GsLogCheckerPage />}
             {currentGroup?.id === 'sysadmin' && <SystemAdminPage />}
@@ -763,6 +816,7 @@ function App() {
       )}
 
       <AiAgentMonitorWidget />
+      {breakthroughLevel && <CultivationBreakthroughOverlay level={breakthroughLevel} onComplete={closeBreakthrough} />}
     </div>
   )
 }

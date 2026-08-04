@@ -1018,6 +1018,24 @@
   opacity: 1;
 }
 
+/* 基礎版樣式（xianxia-complete.css 沒載入時也要能正常用，因為這是
+   切回普通版唯一的入口，不能長得壞掉；修仙版載入後會被進一步美化） */
+.sidebar-realm-switch { display: grid; gap: 6px; width: 100%; margin-bottom: 8px; }
+.sidebar-realm-switch > span { color: #64748b; font-size: 10px; font-weight: 700; letter-spacing: .05em; }
+.sidebar-realm-switch > div {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 3px;
+  border: 1px solid #2d3f55; border-radius: 6px; background: #0f172a;
+}
+.sidebar-realm-switch button {
+  min-height: 28px; border: 0; border-radius: 4px; background: transparent;
+  color: #94a3b8; font-size: 11px; font-weight: 700; cursor: pointer;
+}
+.sidebar-realm-switch button:hover,
+.sidebar-realm-switch button.is-active {
+  background: var(--cr-cyan-soft, rgba(37, 99, 235, .15));
+  color: var(--cr-cyan, #2563eb);
+}
+
 /* ─── Main Area ───────────────────────────────────── */
 .app-main {
   flex: 1;
