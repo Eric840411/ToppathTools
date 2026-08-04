@@ -7,6 +7,7 @@ import { z } from 'zod'
 import {
   db, pinHash, readAccounts, upsertAccount, deleteAccountByEmail,
   writeLimiter, ALL_PAGE_KEYS, getPermissionsForRole, type AccountRole,
+  getCultivationInfo, setCultivationDays, CULTIVATION_LEVELS,
 } from '../shared.js'
 import { getAuthAccount } from '../auth-session.js'
 
@@ -145,6 +146,31 @@ router.put('/api/admin/accounts/:email', requireAdmin, writeLimiter, (req, res) 
     db.prepare('UPDATE jira_accounts SET pin_hash = ? WHERE email = ?').run(pinHash(data.pin.trim()), email)
   }
   res.json({ ok: true })
+})
+
+// ─── Cultivation (admin override) ────────────────────────────────────────────
+// 管理員手動調整某帳號的境界——直接改「累計登入天數」，用該帳號選擇的境界對應門檻天數，
+// 之後正常登入仍會從這個新天數繼續往上累計，不是額外的覆寫欄位。
+const adjustCultivationSchema = z.object({
+  activeDays: z.number().int().min(0),
+})
+
+router.get('/api/admin/accounts/:email/cultivation', requireAdmin, (req, res) => {
+  const email = decodeURIComponent(req.params.email)
+  if (!readAccounts().find(a => a.email === email)) return res.status(404).json({ ok: false, message: '帳號不存在' })
+  res.json({ ok: true, ...getCultivationInfo(email) })
+})
+
+router.put('/api/admin/accounts/:email/cultivation', requireAdmin, writeLimiter, (req, res) => {
+  const email = decodeURIComponent(req.params.email)
+  if (!readAccounts().find(a => a.email === email)) return res.status(404).json({ ok: false, message: '帳號不存在' })
+  const data = adjustCultivationSchema.parse(req.body)
+  setCultivationDays(email, data.activeDays)
+  res.json({ ok: true, ...getCultivationInfo(email) })
+})
+
+router.get('/api/admin/cultivation-levels', requireAdmin, (_req, res) => {
+  res.json({ ok: true, levels: CULTIVATION_LEVELS })
 })
 
 router.delete('/api/admin/accounts/:email', requireAdmin, writeLimiter, (req, res) => {

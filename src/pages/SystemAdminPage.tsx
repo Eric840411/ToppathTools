@@ -87,6 +87,21 @@ export function SystemAdminPage() {
   const [editTarget, setEditTarget] = useState<Account | null>(null)
   const [editForm, setEditForm] = useState({ label: '', role: 'qa' as Role, status: 'active' as Status, pin: '', clearPin: false })
 
+  // ── Cultivation (admin override) state ──
+  const [cultivationLevels, setCultivationLevels] = useState<{ name: string; threshold: number }[]>([])
+  const [cultivationTarget, setCultivationTarget] = useState<Account | null>(null)
+  const [cultivationInfo, setCultivationInfo] = useState<{ level: string; activeDays: number } | null>(null)
+  const [cultivationDaysInput, setCultivationDaysInput] = useState(0)
+  const [cultivationSaving, setCultivationSaving] = useState(false)
+  const [cultivationMsg, setCultivationMsg] = useState('')
+
+  useEffect(() => {
+    fetch('/api/admin/cultivation-levels')
+      .then(r => r.json())
+      .then(d => { if (d.ok) setCultivationLevels(d.levels) })
+      .catch(() => {})
+  }, [])
+
   // ── Load matrix ──
   useEffect(() => {
     setMatrixLoading(true)
@@ -178,6 +193,40 @@ export function SystemAdminPage() {
     const d = await r.json()
     if (d.ok) { setAcctMsg('通過 已刪除'); loadAccounts() }
     else setAcctMsg(`失敗 ${d.message}`)
+  }
+
+  async function openCultivation(a: Account) {
+    setCultivationTarget(a)
+    setCultivationMsg('')
+    const r = await fetch(`/api/admin/accounts/${encodeURIComponent(a.email)}/cultivation`)
+    const d = await r.json()
+    if (d.ok) {
+      setCultivationInfo({ level: d.level, activeDays: d.activeDays })
+      setCultivationDaysInput(d.activeDays)
+    }
+  }
+
+  async function saveCultivation() {
+    if (!cultivationTarget) return
+    setCultivationSaving(true)
+    try {
+      const r = await fetch(`/api/admin/accounts/${encodeURIComponent(cultivationTarget.email)}/cultivation`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ activeDays: cultivationDaysInput }),
+      })
+      const d = await r.json()
+      if (d.ok) {
+        setCultivationInfo({ level: d.level, activeDays: d.activeDays })
+        setCultivationMsg('通過 已更新')
+      } else {
+        setCultivationMsg(`失敗 ${d.message}`)
+      }
+    } catch {
+      setCultivationMsg('失敗 儲存失敗')
+    } finally {
+      setCultivationSaving(false)
+    }
   }
 
   // ── Group pages for matrix display ──
@@ -460,6 +509,54 @@ export function SystemAdminPage() {
               </div>
             )}
 
+            {/* Cultivation adjust modal */}
+            {cultivationTarget && (
+              <div style={{
+                position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+              }}>
+                <div style={{ background: '#1e293b', borderRadius: 12, padding: 28, width: 420, boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
+                  <h3 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 8px', color: '#e2e8f0' }}>
+                    調整境界：{cultivationTarget.label}
+                  </h3>
+                  <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 16px' }}>
+                    直接改「累計登入天數」，之後帳號正常登入仍會從這個新天數繼續往上累計。
+                  </p>
+                  {cultivationInfo && (
+                    <p style={{ fontSize: 12, color: '#64748b', margin: '0 0 12px' }}>
+                      目前境界：{cultivationInfo.level}（累計 {cultivationInfo.activeDays} 天）
+                    </p>
+                  )}
+                  <label style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>快速選擇境界</label>
+                  <select
+                    style={{ ...inputStyle, marginBottom: 12 }}
+                    value=""
+                    onChange={e => { if (e.target.value) setCultivationDaysInput(Number(e.target.value)) }}
+                  >
+                    <option value="">（選擇境界快速帶入天數）</option>
+                    {cultivationLevels.map(lv => (
+                      <option key={lv.name} value={lv.threshold}>{lv.name}（{lv.threshold} 天）</option>
+                    ))}
+                  </select>
+                  <label style={{ fontSize: 11, color: '#64748b', display: 'block', marginBottom: 4 }}>累計登入天數</label>
+                  <input
+                    style={{ ...inputStyle, marginBottom: 16 }}
+                    type="number"
+                    min={0}
+                    value={cultivationDaysInput}
+                    onChange={e => setCultivationDaysInput(Math.max(0, Number(e.target.value) || 0))}
+                  />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button type="button" style={btnPrimary} onClick={saveCultivation} disabled={cultivationSaving}>
+                      {cultivationSaving ? '儲存中…' : '儲存'}
+                    </button>
+                    <button type="button" style={btnOutline} onClick={() => setCultivationTarget(null)}>關閉</button>
+                  </div>
+                  {cultivationMsg && <p style={{ fontSize: 12, marginTop: 10, color: cultivationMsg.startsWith('通過') ? '#4ade80' : '#f87171' }}>{cultivationMsg}</p>}
+                </div>
+              </div>
+            )}
+
             {/* Accounts table */}
             {acctLoading ? (
               <p style={{ color: '#94a3b8', fontSize: 13 }}>載入中…</p>
@@ -499,6 +596,7 @@ export function SystemAdminPage() {
                       <td style={td}>
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
                           <button type="button" style={btnOutline} onClick={() => openEdit(a)}>編輯</button>
+                          <button type="button" style={btnOutline} onClick={() => openCultivation(a)}>調整境界</button>
                           <button type="button" style={btnDanger} onClick={() => deleteAccount(a.email)}>刪除</button>
                         </div>
                       </td>

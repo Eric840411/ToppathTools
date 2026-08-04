@@ -598,6 +598,15 @@ export function getCultivationInfo(operatorKey: string) {
   return levelForDays(row?.active_days ?? 0)
 }
 
+/** 管理員手動調整某帳號的累計登入天數（等同直接調整境界）——只改 active_days，
+ *  不動 last_login_date，之後該帳號正常登入仍會從這個新天數繼續往上累計。 */
+export function setCultivationDays(operatorKey: string, activeDays: number) {
+  db.prepare(`
+    INSERT INTO account_cultivation (operator_key, active_days, last_login_date) VALUES (?, ?, NULL)
+    ON CONFLICT(operator_key) DO UPDATE SET active_days = excluded.active_days
+  `).run(operatorKey, activeDays)
+}
+
 /** 排行榜：全部帳號依累計登入天數排序（不含 token，避免外洩） */
 export function getCultivationLeaderboard() {
   const accounts = readAccounts().filter(a => a.status !== 'disabled')

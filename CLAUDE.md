@@ -725,11 +725,14 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 
 **排行榜（群英榜）**：獨立頁面（`GroupId`/`page key` = `cultivation-board`，側邊欄「宗門維運」分區），`GET /api/account/cultivation/leaderboard` 回傳所有未停用帳號依累計登入天數排序的清單（不含 token），目前登入的帳號那一列會高亮（`.cultivation-row--me`）。跟其他「系統」分區頁面一樣走 `ALL_PAGE_KEYS`/`SystemAdminPage` 權限表控管可見性。
 
+**管理員手動調整境界**（`server/routes/permissions.ts`）：`SystemAdminPage.tsx` 帳號列表每列新增「調整境界」按鈕，開啟小視窗可直接輸入累計登入天數，或用下拉選單快速帶入某境界對應的門檻天數。實作上直接改 `account_cultivation.active_days`（`setCultivationDays()`），不是額外的覆寫欄位——調整後帳號正常登入仍會從這個新天數繼續往上累計，跟自動累計共用同一個計數器。`PUT /api/admin/accounts/:email/cultivation`（`requireAdmin` 保護）、`GET .../cultivation` 讀目前境界、`GET /api/admin/cultivation-levels` 給前端下拉選單用的境界門檻清單。
+
 ### 使用者操作
 | 操作 | 說明 |
 |------|------|
 | 查看目前境界 | 側邊欄帳號名稱下方的小徽章，滑鼠移上去顯示累計登入天數與距離下一階還差幾天 |
 | 查看群英榜排行 | 獨立頁面，列出所有帳號依境界/登入天數排名，自己的那一列會高亮 |
+| 管理員調整境界 | 系統管理頁帳號列表「調整境界」按鈕，可直接輸入天數或用下拉選單快速帶入境界門檻 |
 
 ---
 

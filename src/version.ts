@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.86.1'
+export const APP_VERSION = '3.87.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.87.0',
+    date: '2026-08-04',
+    changes: [
+      'feat: 系統管理頁新增「調整境界」——管理員可直接改某帳號的累計登入天數（或用下拉選單快速帶入境界門檻），之後該帳號正常登入仍會從新天數繼續累計，不是額外的覆寫欄位',
+    ],
+  },
   {
     version: '3.86.1',
     date: '2026-08-04',
