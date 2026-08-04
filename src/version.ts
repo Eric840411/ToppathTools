@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.87.11'
+export const APP_VERSION = '3.87.12'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.87.12',
+    date: '2026-08-05',
+    changes: [
+      'refactor: 抽出共用元件 SheetSourceToggle（Lark Spreadsheet / Google Sheets 來源切換按鈕）——批量開單/評論/更新狀態/修改 4 個工具的 Step 1 都有一模一樣的兩顆按鈕，只有 state 變數名字不同，現在共用同一份實作。只抽按鈕組本身，URL 輸入框版面差異較大維持各自實作，不硬塞進同一個元件',
+    ],
+  },
   {
     version: '3.87.11',
     date: '2026-08-05',

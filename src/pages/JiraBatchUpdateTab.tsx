@@ -1,5 +1,6 @@
 import { XianxiaIcon } from '../components/XianxiaIcon'
 import { StepGuide, ReloadSheetButton } from '../components/JiraStepWidgets'
+import { SheetSourceToggle } from '../components/SheetSourceToggle'
 import type { AccountInfo } from '../components/JiraAccountModal'
 import type { JiraTransitionOption, SheetSource } from './JiraPage'
 
@@ -69,16 +70,7 @@ export function JiraBatchUpdateTab(props: {
           <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 12px' }}>
             貼入 Sheet URL，系統自動偵測含 Jira 單號的列
           </p>
-          <div className="source-toggle">
-            <button type="button" className={`source-btn source-btn--step${updateTabSource === 'lark' ? ' active' : ''}`}
-              onClick={() => { setUpdateTabSource('lark'); setUpdateBitableUrl(''); setUpdateError('') }}>
-              <span className="source-icon lark-icon">L</span>Lark Spreadsheet
-            </button>
-            <button type="button" className={`source-btn source-btn--step${updateTabSource === 'google' ? ' active' : ''}`}
-              onClick={() => { setUpdateTabSource('google'); setUpdateBitableUrl(''); setUpdateError('') }}>
-              <span className="source-icon google-icon">G</span>Google Sheets
-            </button>
-          </div>
+          <SheetSourceToggle value={updateTabSource} onChange={s => { setUpdateTabSource(s); setUpdateBitableUrl(''); setUpdateError('') }} />
           {updateError && <div className="alert-error" style={{ marginBottom: 10 }}>{updateError}</div>}
           <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
             <input

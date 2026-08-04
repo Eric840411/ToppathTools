@@ -1,6 +1,7 @@
 import { SearchSelect } from '../components/SearchSelect'
 import { XianxiaIcon } from '../components/XianxiaIcon'
 import { StepGuide } from '../components/JiraStepWidgets'
+import { SheetSourceToggle } from '../components/SheetSourceToggle'
 import type { AccountInfo } from '../components/JiraAccountModal'
 import type { SheetSource, Step } from './JiraPage'
 
@@ -84,16 +85,7 @@ export function JiraCreateStep12(props: {
       {step === 2 && (
         <div className="section-card">
           <h2 className="section-title">Step 2 — 選擇資料來源</h2>
-          <div className="source-toggle">
-            <button type="button" className={`source-btn source-btn--step${sheetSource === 'lark' ? ' active' : ''}`}
-              onClick={() => { setSheetSource('lark'); setSheetUrl(''); setSheetError('') }}>
-              <span className="source-icon lark-icon">L</span>Lark Spreadsheet
-            </button>
-            <button type="button" className={`source-btn source-btn--step${sheetSource === 'google' ? ' active' : ''}`}
-              onClick={() => { setSheetSource('google'); setSheetUrl(''); setSheetError('') }}>
-              <span className="source-icon google-icon">G</span>Google Sheets
-            </button>
-          </div>
+          <SheetSourceToggle value={sheetSource} onChange={s => { setSheetSource(s); setSheetUrl(''); setSheetError('') }} />
           <div className="form-stack" style={{ marginTop: 16 }}>
             <label className="field">
               <span>{sheetSource === 'lark' ? 'Lark Sheet 網址' : 'Google Sheets 網址'}<em className="req"> *</em></span>

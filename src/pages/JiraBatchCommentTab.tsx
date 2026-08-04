@@ -1,4 +1,5 @@
 import { StepGuide, ReloadSheetButton } from '../components/JiraStepWidgets'
+import { SheetSourceToggle } from '../components/SheetSourceToggle'
 import type { SheetRecord, TrackedIssue, SheetSource } from './JiraPage'
 
 /**
@@ -48,16 +49,7 @@ export function JiraBatchCommentTab(props: {
         <p style={{ color: '#64748b', fontSize: 13, marginBottom: 12 }}>
           貼入 Sheet URL，系統自動偵測含 Jira Issue Key 的列（格式如 ABC-123），批量添加評論與附件。
         </p>
-        <div className="source-toggle">
-          <button type="button" className={`source-btn source-btn--step${commentTabSource === 'lark' ? ' active' : ''}`}
-            onClick={() => { setCommentTabSource('lark'); setCommentTabUrl(''); setCommentTabError('') }}>
-            <span className="source-icon lark-icon">L</span>Lark Spreadsheet
-          </button>
-          <button type="button" className={`source-btn source-btn--step${commentTabSource === 'google' ? ' active' : ''}`}
-            onClick={() => { setCommentTabSource('google'); setCommentTabUrl(''); setCommentTabError('') }}>
-            <span className="source-icon google-icon">G</span>Google Sheets
-          </button>
-        </div>
+        <SheetSourceToggle value={commentTabSource} onChange={s => { setCommentTabSource(s); setCommentTabUrl(''); setCommentTabError('') }} />
         {commentTabError && <div className="alert-error" style={{ marginBottom: 10 }}>{commentTabError}</div>}
         <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
           <input

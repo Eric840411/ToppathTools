@@ -1,4 +1,5 @@
 import { StepGuide, ReloadSheetButton } from '../components/JiraStepWidgets'
+import { SheetSourceToggle } from '../components/SheetSourceToggle'
 import type { AccountInfo } from '../components/JiraAccountModal'
 import type {
   SheetSource, SheetRecord, CachedAttachment, Member, NormalizedJiraField,
@@ -108,16 +109,7 @@ export function JiraBatchEditTab(props: {
           <p style={{ color: '#64748b', fontSize: 13, marginBottom: 12 }}>
             貼入 Sheet URL，系統自動偵測含 Jira Issue Key 的列，批量修改指定欄位。
           </p>
-          <div className="source-toggle">
-            <button type="button" className={`source-btn source-btn--step${editTabSource === 'lark' ? ' active' : ''}`}
-              onClick={() => { setEditTabSource('lark'); setEditTabUrl(''); setEditTabError('') }}>
-              <span className="source-icon lark-icon">L</span>Lark Spreadsheet
-            </button>
-            <button type="button" className={`source-btn source-btn--step${editTabSource === 'google' ? ' active' : ''}`}
-              onClick={() => { setEditTabSource('google'); setEditTabUrl(''); setEditTabError('') }}>
-              <span className="source-icon google-icon">G</span>Google Sheets
-            </button>
-          </div>
+          <SheetSourceToggle value={editTabSource} onChange={s => { setEditTabSource(s); setEditTabUrl(''); setEditTabError('') }} />
           {editTabError && <div className="alert-error" style={{ marginBottom: 10 }}>{editTabError}</div>}
           <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
             <input
