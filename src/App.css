@@ -1157,9 +1157,12 @@
 
 .two-col {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 16px;
 }
+/* Grid item 預設 min-width:auto，內容夠寬（長網址、不換行的按鈕列等）
+   會撐大該欄的 track，把另一欄擠小，看起來像沒有真的 50/50。加上
+   minmax(0, 1fr) 讓兩欄真正強制對半分，內容超寬時欄內自己捲動/換行。 */
 
 /* ─── Section Card ────────────────────────────────── */
 .section-card {

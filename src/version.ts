@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.85.0-xianxia.7'
+export const APP_VERSION = '3.85.0-xianxia.8'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.85.0-xianxia.8',
+    date: '2026-08-04',
+    changes: [
+      'fix(design): [design/xianxia 分支] OSM Tools 頁面「全部同步」等 9 個按鈕移除重複圖示——這些按鈕都是 .osm-btn class，已經會自動套用 CSS 畫的圖示，但文字裡還留著 ⟳ Emoji（掃描範圍先前沒涵蓋到這個 Unicode 區段），變成雙圖示。',
+      '修正 .two-col 兩欄沒有真的對半分的問題——grid-template-columns 原本是 1fr 1fr，但 grid 項目預設 min-width:auto，內容夠寬（長網址、不換行的按鈕列）時會撐大該欄，把另一欄擠小；改成 minmax(0, 1fr) minmax(0, 1fr) 強制真正的 50/50（TestCase 生成頁的「輸入規格書網址」/「執行結果」等所有用到 .two-col 的地方都受惠）',
+    ],
+  },
   {
     version: '3.85.0-xianxia.7',
     date: '2026-08-04',

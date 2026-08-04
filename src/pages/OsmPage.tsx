@@ -890,13 +890,13 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
             className="osm-btn osm-btn--primary"
             onClick={handleSyncFromLark}
             disabled={larkSyncing || !larkSheetUrl.trim()}
-          >{larkSyncing ? '⟳ 同步中…' : '從 Lark 同步'}</button>
+          >{larkSyncing ? '同步中…' : '從 Lark 同步'}</button>
           <button
             type="button"
             className="osm-btn osm-btn--primary"
             onClick={handleSendAlert}
             disabled={alertSending}
-          >{alertSending ? '⟳ 發送中…' : '發送告警'}</button>
+          >{alertSending ? '發送中…' : '發送告警'}</button>
           <button
             type="button"
             className="osm-btn osm-btn--sm osm-btn--ghost"
@@ -962,7 +962,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
                 onClick={handleSaveAlertConfig}
                 disabled={alertConfigSaving}
               >
-                {alertConfigSaving ? '⟳ 儲存中…' : '儲存設定'}
+                {alertConfigSaving ? '儲存中…' : '儲存設定'}
               </button>
             </div>
           </div>
@@ -1011,7 +1011,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
             onClick={handleFetchAll}
             disabled={fetchAllLoading || syncingAll || versionHistoryLoading || llLoading || tpLoading || reportLoading}
           >
-            {fetchAllLoading ? '⟳ 取得中…' : '一鍵全部取得'}
+            {fetchAllLoading ? '取得中…' : '一鍵全部取得'}
           </button>
         </div>
 
@@ -1039,7 +1039,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
             onClick={handleSyncAll}
             disabled={syncingAll}
           >
-            {syncingAll ? '⟳ 同步中…' : '⟳ 全部同步'}
+            {syncingAll ? '同步中…' : '全部同步'}
           </button>
         </div>
 
@@ -1216,7 +1216,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
             onClick={handleFetchVersionHistory}
             disabled={versionHistoryLoading}
           >
-            {versionHistoryLoading ? '⟳ 取得中…' : '取得元件版本'}
+            {versionHistoryLoading ? '取得中…' : '取得元件版本'}
           </button>
         </div>
 
@@ -1281,7 +1281,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
             onClick={handleFetchLlVersions}
             disabled={llLoading}
           >
-            {llLoading ? '⟳ 取得中…' : '取得元件版本'}
+            {llLoading ? '取得中…' : '取得元件版本'}
           </button>
         </div>
 
@@ -1346,7 +1346,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
             onClick={handleFetchTpVersions}
             disabled={tpLoading}
           >
-            {tpLoading ? '⟳ 取得中…' : '取得元件版本'}
+            {tpLoading ? '取得中…' : '取得元件版本'}
           </button>
         </div>
 
@@ -1409,7 +1409,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
             onClick={handleFetchReport}
             disabled={reportLoading}
           >
-            {reportLoading ? '⟳ 取得中…' : '取得最新版本'}
+            {reportLoading ? '取得中…' : '取得最新版本'}
           </button>
         </div>
 
