@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.85.0-xianxia.6'
+export const APP_VERSION = '3.85.0-xianxia.7'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.85.0-xianxia.7',
+    date: '2026-08-04',
+    changes: [
+      'fix(design): [design/xianxia 分支] 普通版隱藏 Dashboard Hero 橫幅——這塊是直接寫死在 DashboardPage.tsx 的 JSX 結構（人物立繪/「萬法歸樞，諸事可觀」標題/巡覽按鈕），不受 CSS 開關影響，先前是已知限制。改成 DashboardPage 接收 themeMode prop，普通版下改用原本（改版前）那種單純標題＋說明文字，不顯示 Hero 橫幅內容',
+    ],
+  },
   {
     version: '3.85.0-xianxia.6',
     date: '2026-08-04',

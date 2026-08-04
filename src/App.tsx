@@ -794,7 +794,7 @@ function App() {
           </>
         ) : (
           <main className="main-content">
-            {currentGroup?.id === 'dashboard' && <DashboardPage />}
+            {currentGroup?.id === 'dashboard' && <DashboardPage themeMode={themeMode} />}
             {currentGroup?.id === 'jira' && <JiraPage account={globalAccount} allowedModes={allowedJiraModes} isAdmin={globalAccount?.role === 'admin'} />}
             {currentGroup?.id === 'lark' && <LarkPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm' && <OsmPage />}
