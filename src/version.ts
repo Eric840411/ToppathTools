@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.85.3'
+export const APP_VERSION = '3.85.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.85.4',
+    date: '2026-08-04',
+    changes: [
+      'fix: 普通版 Dashboard 仍殘留仙語——先前只把 Hero 橫幅段落做了 themeMode 切換，底下的 4 張統計卡標籤（在線弟子/在冊道契/靈脈負荷/靈力儲量）與「在場弟子錄」面板標題是獨立的 JSX，沒有一起處理，普通版下還是顯示修仙用詞。改成依 themeMode 顯示對應的白話版本（在線人數/登入 Session/請求負載/記憶體用量/在線使用者列表）',
+    ],
+  },
   {
     version: '3.85.3',
     date: '2026-08-04',

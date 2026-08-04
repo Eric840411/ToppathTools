@@ -219,22 +219,22 @@ export function DashboardPage({ themeMode = 'xianxia' }: { themeMode?: 'classic'
 
       <section className="dashboard-metrics">
         <article className="dashboard-metric">
-          <div className="dashboard-metric-label">在線弟子 <span className="dashboard-chip dashboard-chip--good">LIVE</span></div>
+          <div className="dashboard-metric-label">{themeMode === 'xianxia' ? '在線弟子' : '在線人數'} <span className="dashboard-chip dashboard-chip--good">LIVE</span></div>
           <div className="dashboard-metric-value">{summary.totals.onlineUsers}<span>人</span></div>
           <div className="dashboard-metric-note">最近 60 秒內仍有 heartbeat 的使用者</div>
         </article>
         <article className="dashboard-metric">
-          <div className="dashboard-metric-label">在冊道契 <span className="dashboard-chip dashboard-chip--blue">SESSION</span></div>
+          <div className="dashboard-metric-label">{themeMode === 'xianxia' ? '在冊道契' : '登入 Session'} <span className="dashboard-chip dashboard-chip--blue">SESSION</span></div>
           <div className="dashboard-metric-value">{summary.totals.activeSessions}<span>組</span></div>
           <div className="dashboard-metric-note">尚未過期的登入 session</div>
         </article>
         <article className="dashboard-metric">
-          <div className="dashboard-metric-label">靈脈負荷 <span className={`dashboard-chip ${pressure.className}`}>{pressure.label}</span></div>
+          <div className="dashboard-metric-label">{themeMode === 'xianxia' ? '靈脈負荷' : '請求負載'} <span className={`dashboard-chip ${pressure.className}`}>{pressure.label}</span></div>
           <div className="dashboard-metric-value">{summary.totals.activeRequests}<span>req</span></div>
           <div className="dashboard-metric-note">{summary.totals.requestsPerMinute} req/min，平均回應 {summary.requests.averageMs} ms{(summary.totals.activeLongConnections ?? 0) > 0 ? `，${summary.totals.activeLongConnections} SSE 連線` : ''}</div>
         </article>
         <article className="dashboard-metric">
-          <div className="dashboard-metric-label">靈力儲量 <span className="dashboard-chip dashboard-chip--warn">WATCH</span></div>
+          <div className="dashboard-metric-label">{themeMode === 'xianxia' ? '靈力儲量' : '記憶體用量'} <span className="dashboard-chip dashboard-chip--warn">WATCH</span></div>
           <div className="dashboard-metric-value">{summary.server.memory.rssText.replace(' MB', '')}<span>MB</span></div>
           <div className="dashboard-metric-note">Server RSS，目前低於 PM2 重啟門檻</div>
         </article>
@@ -245,7 +245,7 @@ export function DashboardPage({ themeMode = 'xianxia' }: { themeMode?: 'classic'
           <article className="dashboard-panel">
             <div className="dashboard-panel-head">
               <div>
-                <h2>在場弟子錄</h2>
+                <h2>{themeMode === 'xianxia' ? '在場弟子錄' : '在線使用者列表'}</h2>
                 <p>最多顯示 {summary.limits.users} 位，依最後活動時間排序</p>
               </div>
               <span className="dashboard-chip">更新於 {formatClock(summary.generatedAt)}</span>
