@@ -287,8 +287,18 @@ export function CultivationBreakthroughOverlay({ level, onComplete }: { level: s
         <div className="breakthrough__moon-disc" aria-hidden="true" />
         <div className="breakthrough__cloud-mark breakthrough__cloud-mark--left" aria-hidden="true" />
         <div className="breakthrough__cloud-mark breakthrough__cloud-mark--right" aria-hidden="true" />
+        {realm.mode === 'lightning' && (
+          <>
+            <div className="breakthrough__art-effect breakthrough__art-effect--thunder-dragons" aria-hidden="true">
+              <img src="/themes/xianxia/breakthrough-effects-v3/nine-thunder-dragons-v1.webp" alt="" />
+            </div>
+            <div className="breakthrough__art-effect breakthrough__art-effect--offering" aria-hidden="true">
+              <img src="/themes/xianxia/breakthrough-effects-v3/tribulation-offering-v1.webp" alt="" />
+            </div>
+          </>
+        )}
         <div className="breakthrough__emblem">
-          <img src={`/themes/xianxia/realms-animated-v2/${realm.slug === 'tribulation' ? 'tribulation-v2' : realm.slug}.webp`} alt="" />
+          <img src={`/themes/xianxia/realms-animated-v2/${realm.slug}.webp`} alt="" />
         </div>
         <div className="breakthrough__copy">
           <div className="breakthrough__seal" aria-hidden="true"><span>破</span><span>境</span></div>

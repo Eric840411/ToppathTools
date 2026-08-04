@@ -1456,30 +1456,6 @@ a > .xianxia-icon {
 .dashboard-intro-meta {
   display: none !important;
 }
-.dashboard-hero-actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 20px;
-  padding-bottom: 18px;
-  border-bottom: 1px solid rgba(214, 183, 112, .55);
-}
-.dashboard-hero-btn {
-  min-height: 40px;
-  padding: 0 15px;
-  border: 1px solid rgba(139, 160, 172, .25);
-  border-radius: 4px;
-  background: rgba(11, 22, 31, .82);
-  color: #aab6bd;
-  font: 700 11px var(--xx-sans);
-  cursor: pointer;
-}
-.dashboard-hero-btn:hover { border-color: var(--xx-jade); color: var(--xx-jade); }
-.dashboard-hero-btn--primary {
-  border-color: rgba(214, 183, 112, .48);
-  background: linear-gradient(145deg, rgba(134, 105, 50, .72), rgba(74, 61, 37, .86));
-  color: #f0dfb5;
-}
-
 .dashboard-metrics { margin-bottom: 14px; }
 .dashboard-metric {
   min-height: 138px;
@@ -1574,8 +1550,6 @@ a > .xianxia-icon {
     padding: 0 20px 18px;
   }
   .dashboard-intro::after { display: none; }
-  .dashboard-hero-actions { width: 100%; }
-  .dashboard-hero-btn { flex: 1; }
   .dashboard-flow-chart { height: 180px; padding-inline: 8px; }
   .sidebar-logo {
     min-height: 70px !important;

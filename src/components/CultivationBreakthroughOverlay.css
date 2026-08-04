@@ -156,8 +156,26 @@
   opacity: 0;
   filter: brightness(.7) blur(5px) drop-shadow(0 0 20px color-mix(in srgb, var(--breakthrough-color) 40%, transparent));
   animation: breakthrough-emblem-reveal 5.15s ease .24s both;
+  z-index: 2;
 }
 .breakthrough__emblem img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+.breakthrough__art-effect {
+  --breakthrough-art-opacity: .72;
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  opacity: 0;
+  z-index: 1;
+  animation: breakthrough-art-reveal 5.15s ease .34s both;
+}
+.breakthrough__art-effect img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.breakthrough--tribulation .breakthrough__art-effect { display: block; }
+.breakthrough__art-effect--thunder-dragons { --breakthrough-art-opacity: .62; width: clamp(440px, 52vw, 650px); aspect-ratio: 1; }
+.breakthrough__art-effect--offering { --breakthrough-art-opacity: .4; top: 48%; width: clamp(540px, 66vw, 790px); aspect-ratio: 1; opacity: 0; z-index: 1; }
 
 .breakthrough__copy {
   position: absolute;
@@ -168,6 +186,7 @@
   text-align: center;
   opacity: 0;
   animation: breakthrough-copy-reveal 4.5s ease .82s both;
+  z-index: 4;
 }
 
 .breakthrough__seal {
@@ -272,6 +291,7 @@
 @keyframes breakthrough-disc-reveal { 0% { opacity: 0; filter: blur(8px); } 24%, 83% { opacity: .78; filter: blur(0); } 100% { opacity: 0; filter: blur(4px); } }
 @keyframes breakthrough-cloud-mark { 0% { opacity: 0; width: 0; } 24%, 82% { opacity: .72; } 100% { opacity: 0; } }
 @keyframes breakthrough-emblem-reveal { 0% { opacity: 0; filter: brightness(.4) blur(7px) drop-shadow(0 0 8px transparent); } 22%, 82% { opacity: 1; filter: brightness(1.08) blur(0) drop-shadow(0 0 28px color-mix(in srgb, var(--breakthrough-color) 46%, transparent)); } 100% { opacity: 0; filter: brightness(1.35) blur(3px) drop-shadow(0 0 44px var(--breakthrough-color)); } }
+@keyframes breakthrough-art-reveal { 0% { opacity: 0; filter: brightness(.45) blur(7px); } 22%, 82% { opacity: var(--breakthrough-art-opacity); filter: brightness(.9) blur(0); } 100% { opacity: 0; filter: brightness(1.18) blur(3px); } }
 @keyframes breakthrough-copy-reveal { 0% { opacity: 0; transform: translate(-50%, 14px); } 20%, 82% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; transform: translate(-50%, -7px); } }
 @keyframes breakthrough-skip-in { to { opacity: 1; } }
 
@@ -279,6 +299,9 @@
   .breakthrough__backdrop::before { inset: 8px; }
   .breakthrough__moon-disc { width: min(86vw, 360px); top: 40%; }
   .breakthrough__emblem { width: min(56vw, 238px); top: 40%; }
+  .breakthrough__art-effect { top: 40%; }
+  .breakthrough__art-effect--thunder-dragons { width: min(112vw, 455px); }
+  .breakthrough__art-effect--offering { top: 45%; width: min(138vw, 560px); }
   .breakthrough__cloud-mark { display: none; }
   .breakthrough__copy { top: calc(40% + min(31vw, 152px)); }
   .breakthrough__copy h2 { font-size: clamp(36px, 12vw, 54px); }

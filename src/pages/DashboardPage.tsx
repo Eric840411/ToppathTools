@@ -207,10 +207,6 @@ export function DashboardPage({ themeMode = 'xianxia' }: { themeMode?: 'classic'
             <div className="dashboard-hero-kicker">TOPPATH WORKFLOW INTEGRATOR</div>
             <h1>萬法歸樞，諸事可觀</h1>
             <p>將在線弟子、任務流轉與靈脈負荷收束於同一座道樞，讓每一筆法事皆可觀、可追、可覆核。</p>
-            <div className="dashboard-hero-actions">
-              <button type="button" className="dashboard-hero-btn" onClick={() => document.querySelector('.dashboard-metrics')?.scrollIntoView({ behavior: 'smooth' })}>觀照全境</button>
-              <button type="button" className="dashboard-hero-btn dashboard-hero-btn--primary" onClick={() => document.querySelector('.dashboard-grid')?.scrollIntoView({ behavior: 'smooth' })}>巡覽道錄</button>
-            </div>
           </div>
         ) : (
           <div>

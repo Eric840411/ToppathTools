@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.86.0'
+export const APP_VERSION = '3.86.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.86.1',
+    date: '2026-08-04',
+    changes: [
+      'fix: 移除 Dashboard（修仙版）Hero 橫幅的「觀照全境」／「巡覽道錄」捲動捷徑按鈕——目標區塊本來就緊接在 Hero 下方，按鈕的捷徑效果很小，移除後畫面更簡潔',
+    ],
+  },
   {
     version: '3.86.0',
     date: '2026-08-04',
