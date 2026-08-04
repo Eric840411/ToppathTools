@@ -192,7 +192,7 @@ export function AuthLoginModal({ onLogin, themeMode = 'classic' }: Props) {
 
           {!target && view === 'login' && (
             <div className="modal-body">
-              <div className="auth-login-lock" aria-hidden="true"><XianxiaIcon name="account" size={38} /></div>
+              {xianxia && <div className="auth-login-lock" aria-hidden="true"><XianxiaIcon name="account" size={38} /></div>}
               <p className="auth-login-copy">{xianxia ? '擇一道契入樞，啟封 Jira 與諸般術器。' : '選擇帳號登入'}</p>
               <div className="auth-login-tabs">
                 <button type="button" className="auth-login-tab active">登入</button>
@@ -275,7 +275,7 @@ export function AuthLoginModal({ onLogin, themeMode = 'classic' }: Props) {
 
           {!target && view === 'add' && (
             <div className="modal-body">
-              <div className="auth-login-lock" aria-hidden="true"><XianxiaIcon name="document" size={38} /></div>
+              {xianxia && <div className="auth-login-lock" aria-hidden="true"><XianxiaIcon name="document" size={38} /></div>}
               <p className="auth-login-copy">填入你的 Jira 帳號資訊並設定登入 PIN 密碼。</p>
               <div className="auth-login-tabs">
                 <button type="button" className="auth-login-tab" onClick={() => { setView('login'); setError('') }}>登入</button>
@@ -318,7 +318,7 @@ export function AuthLoginModal({ onLogin, themeMode = 'classic' }: Props) {
 
           {target && (
             <div className="modal-body">
-              <div className="auth-login-lock" aria-hidden="true"><XianxiaIcon name="settings" size={38} /></div>
+              {xianxia && <div className="auth-login-lock" aria-hidden="true"><XianxiaIcon name="settings" size={38} /></div>}
               <p className="auth-login-copy">
                 {target.label} 需要 PIN 驗證
               </p>

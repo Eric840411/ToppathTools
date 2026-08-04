@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.85.1'
+export const APP_VERSION = '3.85.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.85.2',
+    date: '2026-08-04',
+    changes: [
+      'fix: 登入畫面普通版隱藏修仙圖示——「太玄道樞」印記圖示（帳號/新增帳號/PIN 驗證三種畫面各一個）先前沒有跟著版面模式切換，普通版下也會顯示，補上 themeMode 判斷只在修仙版顯示',
+    ],
+  },
   {
     version: '3.85.1',
     date: '2026-08-04',
