@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.87.3'
+export const APP_VERSION = '3.87.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.87.4',
+    date: '2026-08-04',
+    changes: [
+      'refactor: JiraPage.tsx（6123 行）拆分第一步——把「批量評論」Step 1/2 的畫面搬到獨立元件 JiraBatchCommentTab.tsx，狀態仍留在 JiraPage.tsx 以 props 傳入，不動共用的 trackedIssues 狀態，行為不變。同時把 StepGuide/ReloadSheetButton 兩個共用元件（原本在 JiraPage.tsx 內重複定義，20 處使用）移到 components/JiraStepWidgets.tsx',
+    ],
+  },
   {
     version: '3.87.3',
     date: '2026-08-04',
