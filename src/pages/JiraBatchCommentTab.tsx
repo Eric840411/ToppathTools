@@ -1,5 +1,5 @@
 import { StepGuide, ReloadSheetButton } from '../components/JiraStepWidgets'
-import { SheetSourceToggle } from '../components/SheetSourceToggle'
+import { SheetUrlEntryStep } from '../components/SheetUrlEntryStep'
 import type { SheetRecord, TrackedIssue, SheetSource } from './JiraPage'
 
 /**
@@ -44,41 +44,23 @@ export function JiraBatchCommentTab(props: {
 
   if (commentTabStep === 1) {
     return (
-      <div className="section-card">
-        <h2 className="section-title">批量評論</h2>
-        <p style={{ color: '#64748b', fontSize: 13, marginBottom: 12 }}>
-          貼入 Sheet URL，系統自動偵測含 Jira Issue Key 的列（格式如 ABC-123），批量添加評論與附件。
-        </p>
-        <SheetSourceToggle value={commentTabSource} onChange={s => { setCommentTabSource(s); setCommentTabUrl(''); setCommentTabError('') }} />
-        {commentTabError && <div className="alert-error" style={{ marginBottom: 10 }}>{commentTabError}</div>}
-        <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-          <input
-            value={commentTabUrl}
-            onChange={e => setCommentTabUrl(e.target.value)}
-            placeholder={commentTabSource === 'lark'
-              ? 'https://casinoplus.sg.larksuite.com/wiki/... 或 Lark Sheet URL'
-              : 'https://docs.google.com/spreadsheets/d/xxx/edit#gid=0'}
-            style={{ flex: 1, padding: '7px 12px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
-            onKeyDown={e => e.key === 'Enter' && handleCommentTabLoad()}
-          />
-          <button
-            type="button"
-            className="submit-btn submit-btn--step"
-            disabled={commentTabLoading || !commentTabUrl.trim()}
-            onClick={handleCommentTabLoad}
-            style={{ whiteSpace: 'nowrap' }}
-          >
-            {commentTabLoading ? '讀取中…' : '讀取'}
-          </button>
-        </div>
-
-        <StepGuide title="操作說明 — 這個功能需要什麼樣的 Sheet">
-          <li>不需要先跑過「批量開單」流程 — 只要 Sheet 裡有一欄是 <b>Jira Issue Key</b>（格式如 <code>ABC-123</code>）就能用</li>
-          <li>系統會自動掃描全表，抓出所有格式符合的 Issue Key，不限定欄位名稱或位置</li>
-          <li>支援 Lark Sheet / Google Sheets 兩種來源，切換上方按鈕即可</li>
-          <li>若表格完全找不到符合格式的 Issue Key，會顯示「找不到已開單的 Jira Issue Key」錯誤</li>
-        </StepGuide>
-      </div>
+      <SheetUrlEntryStep
+        title="批量評論"
+        description="貼入 Sheet URL，系統自動偵測含 Jira Issue Key 的列（格式如 ABC-123），批量添加評論與附件。"
+        source={commentTabSource}
+        onSourceChange={s => { setCommentTabSource(s); setCommentTabUrl(''); setCommentTabError('') }}
+        url={commentTabUrl}
+        onUrlChange={setCommentTabUrl}
+        error={commentTabError}
+        loading={commentTabLoading}
+        onSubmit={handleCommentTabLoad}
+        guideTitle="操作說明 — 這個功能需要什麼樣的 Sheet"
+      >
+        <li>不需要先跑過「批量開單」流程 — 只要 Sheet 裡有一欄是 <b>Jira Issue Key</b>（格式如 <code>ABC-123</code>）就能用</li>
+        <li>系統會自動掃描全表，抓出所有格式符合的 Issue Key，不限定欄位名稱或位置</li>
+        <li>支援 Lark Sheet / Google Sheets 兩種來源，切換上方按鈕即可</li>
+        <li>若表格完全找不到符合格式的 Issue Key，會顯示「找不到已開單的 Jira Issue Key」錯誤</li>
+      </SheetUrlEntryStep>
     )
   }
 

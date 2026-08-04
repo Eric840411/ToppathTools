@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.87.12'
+export const APP_VERSION = '3.87.13'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.87.13',
+    date: '2026-08-05',
+    changes: [
+      'refactor: 抽出共用元件 SheetUrlEntryStep——批量評論/更新狀態/修改 3 個工具的 Step 1（貼 Sheet URL 整個畫面：標題/說明/來源切換/URL 輸入框/讀取按鈕/操作說明）版面結構完全一樣，只有文字內容不同，現在共用同一份實作，取代先前只抽出來源切換按鈕的做法。批量開單的 Step 2 版面明顯不同（獨立表格說明區塊），維持自己的實作',
+    ],
+  },
   {
     version: '3.87.12',
     date: '2026-08-05',

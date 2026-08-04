@@ -1,6 +1,6 @@
 import { XianxiaIcon } from '../components/XianxiaIcon'
 import { StepGuide, ReloadSheetButton } from '../components/JiraStepWidgets'
-import { SheetSourceToggle } from '../components/SheetSourceToggle'
+import { SheetUrlEntryStep } from '../components/SheetUrlEntryStep'
 import type { AccountInfo } from '../components/JiraAccountModal'
 import type { JiraTransitionOption, SheetSource } from './JiraPage'
 
@@ -65,40 +65,23 @@ export function JiraBatchUpdateTab(props: {
     <>
       {/* Step 1: 讀取表格 */}
       {updateStep === 1 && (
-        <div className="section-card">
-          <h2 className="section-title">Step 1 — 讀取表格</h2>
-          <p style={{ fontSize: 13, color: '#64748b', margin: '4px 0 12px' }}>
-            貼入 Sheet URL，系統自動偵測含 Jira 單號的列
-          </p>
-          <SheetSourceToggle value={updateTabSource} onChange={s => { setUpdateTabSource(s); setUpdateBitableUrl(''); setUpdateError('') }} />
-          {updateError && <div className="alert-error" style={{ marginBottom: 10 }}>{updateError}</div>}
-          <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-            <input
-              value={updateBitableUrl}
-              onChange={e => setUpdateBitableUrl(e.target.value)}
-              placeholder={updateTabSource === 'lark'
-                ? 'Lark Sheet URL（/wiki/ 或 /sheets/）'
-                : 'https://docs.google.com/spreadsheets/d/xxx/edit#gid=0'}
-              style={{ flex: 1, padding: '7px 12px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
-              onKeyDown={e => e.key === 'Enter' && handleUpdateFetchBitable()}
-            />
-            <button
-              type="button"
-              className="submit-btn submit-btn--step"
-              disabled={updateLoading || !updateBitableUrl.trim()}
-              onClick={handleUpdateFetchBitable}
-              style={{ whiteSpace: 'nowrap' }}
-            >
-              {updateLoading ? '讀取中…' : '讀取'}
-            </button>
-          </div>
-
-          <StepGuide title="操作說明 — 這個功能需要什麼樣的 Sheet">
-            <li>只要有一欄是 <b>Jira Issue Key</b>（如 <code>ABC-123</code>）即可，不限欄位名稱或位置</li>
-            <li>讀取後會自動嘗試載入可用的狀態轉換（Transition）選項，供 Step 2 選擇</li>
-            <li>支援 Lark Sheet / Google Sheets 兩種來源</li>
-          </StepGuide>
-        </div>
+        <SheetUrlEntryStep
+          title="Step 1 — 讀取表格"
+          description="貼入 Sheet URL，系統自動偵測含 Jira 單號的列"
+          source={updateTabSource}
+          onSourceChange={s => { setUpdateTabSource(s); setUpdateBitableUrl(''); setUpdateError('') }}
+          url={updateBitableUrl}
+          onUrlChange={setUpdateBitableUrl}
+          error={updateError}
+          loading={updateLoading}
+          onSubmit={handleUpdateFetchBitable}
+          larkPlaceholder="Lark Sheet URL（/wiki/ 或 /sheets/）"
+          guideTitle="操作說明 — 這個功能需要什麼樣的 Sheet"
+        >
+          <li>只要有一欄是 <b>Jira Issue Key</b>（如 <code>ABC-123</code>）即可，不限欄位名稱或位置</li>
+          <li>讀取後會自動嘗試載入可用的狀態轉換（Transition）選項，供 Step 2 選擇</li>
+          <li>支援 Lark Sheet / Google Sheets 兩種來源</li>
+        </SheetUrlEntryStep>
       )}
 
       {/* Step 2: 設定帳號 & 動作 */}

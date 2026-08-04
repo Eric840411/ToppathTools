@@ -1,5 +1,5 @@
 import { StepGuide, ReloadSheetButton } from '../components/JiraStepWidgets'
-import { SheetSourceToggle } from '../components/SheetSourceToggle'
+import { SheetUrlEntryStep } from '../components/SheetUrlEntryStep'
 import type { AccountInfo } from '../components/JiraAccountModal'
 import type {
   SheetSource, SheetRecord, CachedAttachment, Member, NormalizedJiraField,
@@ -104,40 +104,22 @@ export function JiraBatchEditTab(props: {
     <>
       {/* Step 1: 讀表格 */}
       {editTabStep === 1 && (
-        <div className="section-card">
-          <h2 className="section-title">批量修改</h2>
-          <p style={{ color: '#64748b', fontSize: 13, marginBottom: 12 }}>
-            貼入 Sheet URL，系統自動偵測含 Jira Issue Key 的列，批量修改指定欄位。
-          </p>
-          <SheetSourceToggle value={editTabSource} onChange={s => { setEditTabSource(s); setEditTabUrl(''); setEditTabError('') }} />
-          {editTabError && <div className="alert-error" style={{ marginBottom: 10 }}>{editTabError}</div>}
-          <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-            <input
-              value={editTabUrl}
-              onChange={e => setEditTabUrl(e.target.value)}
-              placeholder={editTabSource === 'lark'
-                ? 'https://casinoplus.sg.larksuite.com/wiki/... 或 Lark Sheet URL'
-                : 'https://docs.google.com/spreadsheets/d/xxx/edit#gid=0'}
-              style={{ flex: 1, padding: '7px 12px', borderRadius: 6, border: '1px solid #2d3f55', background: '#0f172a', color: '#e2e8f0', fontSize: 13 }}
-              onKeyDown={e => e.key === 'Enter' && handleEditTabLoad()}
-            />
-            <button
-              type="button"
-              className="submit-btn submit-btn--step"
-              disabled={editTabLoading || !editTabUrl.trim()}
-              onClick={handleEditTabLoad}
-              style={{ whiteSpace: 'nowrap' }}
-            >
-              {editTabLoading ? '讀取中…' : '讀取'}
-            </button>
-          </div>
-
-          <StepGuide title="操作說明 — 這個功能需要什麼樣的 Sheet">
-            <li>同批量評論：只要有一欄是 <b>Jira Issue Key</b>（如 <code>ABC-123</code>）即可，不限欄位名稱或位置</li>
-            <li>讀取後會自動帶入該 Issue 目前的 Jira 欄位值（摘要/受託人/狀態），供 Step 3 對照修改前後差異</li>
-            <li>支援 Lark Sheet / Google Sheets 兩種來源</li>
-          </StepGuide>
-        </div>
+        <SheetUrlEntryStep
+          title="批量修改"
+          description="貼入 Sheet URL，系統自動偵測含 Jira Issue Key 的列，批量修改指定欄位。"
+          source={editTabSource}
+          onSourceChange={s => { setEditTabSource(s); setEditTabUrl(''); setEditTabError('') }}
+          url={editTabUrl}
+          onUrlChange={setEditTabUrl}
+          error={editTabError}
+          loading={editTabLoading}
+          onSubmit={handleEditTabLoad}
+          guideTitle="操作說明 — 這個功能需要什麼樣的 Sheet"
+        >
+          <li>同批量評論：只要有一欄是 <b>Jira Issue Key</b>（如 <code>ABC-123</code>）即可，不限欄位名稱或位置</li>
+          <li>讀取後會自動帶入該 Issue 目前的 Jira 欄位值（摘要/受託人/狀態），供 Step 3 對照修改前後差異</li>
+          <li>支援 Lark Sheet / Google Sheets 兩種來源</li>
+        </SheetUrlEntryStep>
       )}
 
       {/* Step 2: 選擇 Issue */}
