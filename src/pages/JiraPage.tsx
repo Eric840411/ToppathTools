@@ -514,6 +514,13 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const [sheetRecords, setSheetRecords] = useState<SheetRecord[]>([])
   const [sheetHeaders, setSheetHeaders] = useState<string[]>([])
 
+  // 跨批量工具共用「最後使用的 Sheet」——切換分頁時自動帶入網址 + 自動重新讀取一次，
+  // 不用重複貼網址。只記錄「最後成功讀取的網址/來源」，不直接動各工具自己的原始資料
+  // 狀態（sheetRecords 等），避免跟各工具既有的處理邏輯（trackedIssues 共用機制等）打架。
+  const [lastSheetUrl, setLastSheetUrl] = useState('')
+  const [lastSheetSource, setLastSheetSource] = useState<SheetSource>('lark')
+  const autoLoadedSubModes = useRef(new Set<string>())
+
   // Step 3
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set())
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({})
@@ -1215,6 +1222,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
         setSelectedRows(new Set(data.records.map((r: SheetRecord) => Number(r._rowIndex))))
         setColumnFilters({})
         setStep(3)
+        setLastSheetUrl(sheetUrl.trim()); setLastSheetSource(sheetSource)
       }
     } catch { setSheetError('網路錯誤') }
     finally { setSheetLoading(false) }
@@ -2311,15 +2319,17 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     return issues
   }
 
-  const handleCommentTabLoad = async () => {
-    if (!commentTabUrl.trim()) return
+  const handleCommentTabLoad = async (urlOverride?: string, sourceOverride?: SheetSource) => {
+    const url = urlOverride ?? commentTabUrl
+    const source = sourceOverride ?? commentTabSource
+    if (!url.trim()) return
     setCommentTabLoading(true); setCommentTabError(''); setCommentTabStep(1)
     try {
-      const endpoint = commentTabSource === 'lark' ? '/api/lark/sheets/records' : '/api/google/sheets/records'
+      const endpoint = source === 'lark' ? '/api/lark/sheets/records' : '/api/google/sheets/records'
       const resp = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sheetUrl: commentTabUrl.trim(), includeCreated: true }),
+        body: JSON.stringify({ sheetUrl: url.trim(), includeCreated: true }),
       })
       const data = await resp.json() as { ok: boolean; records?: SheetRecord[]; headers?: string[]; message?: string }
       if (!data.ok) { setCommentTabError(data.message ?? '讀取失敗'); return }
@@ -2338,6 +2348,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       setPreviewItems([])
       setCommentTabSelectedKeys(new Set(issues.map(i => i.issueKey)))
       setCommentTabStep(2)
+      setLastSheetUrl(url.trim()); setLastSheetSource(source)
     } catch { setCommentTabError('網路錯誤') }
     finally { setCommentTabLoading(false) }
   }
@@ -2385,15 +2396,17 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     finally { setEditTabJiraLoading(false) }
   }
 
-  const handleEditTabLoad = async () => {
-    if (!editTabUrl.trim()) return
+  const handleEditTabLoad = async (urlOverride?: string, sourceOverride?: SheetSource) => {
+    const url = urlOverride ?? editTabUrl
+    const source = sourceOverride ?? editTabSource
+    if (!url.trim()) return
     setEditTabLoading(true); setEditTabError(''); setEditTabJiraError(''); setEditTabIssues([]); setEditTabResults([]); setEditTabJiraData({})
     try {
-      const endpoint = editTabSource === 'lark' ? '/api/lark/sheets/records' : '/api/google/sheets/records'
+      const endpoint = source === 'lark' ? '/api/lark/sheets/records' : '/api/google/sheets/records'
       const resp = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sheetUrl: editTabUrl.trim(), includeCreated: true }),
+        body: JSON.stringify({ sheetUrl: url.trim(), includeCreated: true }),
       })
       const data = await resp.json() as { ok: boolean; records?: SheetRecord[]; headers?: string[]; message?: string }
       if (!data.ok) { setEditTabError(data.message ?? '讀取失敗'); return }
@@ -2418,6 +2431,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       setEditTabSelectedKeys(new Set(issues.map(i => i.issueKey).filter(k => !alreadyEditedKeys.has(k))))
       setEditFieldMappings([blankMapping()])
       setEditTabStep(2)
+      setLastSheetUrl(url.trim()); setLastSheetSource(source)
       // Async fetch current Jira data for preview
       void fetchEditTabJiraData(issues.map(i => i.issueKey))
       // Async fetch members — extract project key from first issue key (e.g. "DSFT-7908" → "DSFT")
@@ -2652,15 +2666,17 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     finally { setUpdateJiraLoading(false) }
   }
 
-  const handleUpdateFetchBitable = async () => {
-    if (!updateBitableUrl.trim()) return
+  const handleUpdateFetchBitable = async (urlOverride?: string, sourceOverride?: SheetSource) => {
+    const url = urlOverride ?? updateBitableUrl
+    const source = sourceOverride ?? updateTabSource
+    if (!url.trim()) return
     setUpdateLoading(true); setUpdateError(''); setUpdateRecords([]); setUpdateJiraData({}); setUpdateJiraError('')
     try {
-      const endpoint = updateTabSource === 'lark' ? '/api/lark/sheets/records' : '/api/google/sheets/records'
+      const endpoint = source === 'lark' ? '/api/lark/sheets/records' : '/api/google/sheets/records'
       const resp = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sheetUrl: updateBitableUrl.trim(), includeCreated: true }),
+        body: JSON.stringify({ sheetUrl: url.trim(), includeCreated: true }),
       })
       const data = await resp.json() as { ok: boolean; records?: SheetRecord[]; headers?: string[]; message?: string }
       if (!data.ok) { setUpdateError(data.message ?? '讀取失敗'); return }
@@ -2701,6 +2717,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       }
 
       setUpdateStep(2)
+      setLastSheetUrl(url.trim()); setLastSheetSource(source)
     } catch (e) {
       setUpdateError(String(e))
     } finally {
@@ -2891,6 +2908,32 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       {step > s ? '通過' : s}
     </span>
   )
+
+  // 切換批量工具分頁時，自動帶入「最後使用的 Sheet」網址並自動重新讀取一次，
+  // 不用每次切換都重貼網址；每個工具原本的手動「讀取」/「重新讀取」按鈕仍保留，
+  // 可以隨時換一份不同的 Sheet。同一個分頁在這次頁面停留期間只自動觸發一次
+  // （用 autoLoadedSubModes 記錄），避免每次重新渲染都重複打 API。
+  useEffect(() => {
+    if (mode !== 'qa') return
+    if (!lastSheetUrl.trim()) return
+    if (autoLoadedSubModes.current.has(qaSubMode)) return
+    autoLoadedSubModes.current.add(qaSubMode)
+    if (qaSubMode === 'comment' && !commentTabUrl.trim()) {
+      setCommentTabSource(lastSheetSource); setCommentTabUrl(lastSheetUrl)
+      void handleCommentTabLoad(lastSheetUrl, lastSheetSource)
+    } else if (qaSubMode === 'update' && !updateBitableUrl.trim()) {
+      setUpdateTabSource(lastSheetSource); setUpdateBitableUrl(lastSheetUrl)
+      void handleUpdateFetchBitable(lastSheetUrl, lastSheetSource)
+    } else if (qaSubMode === 'edit' && !editTabUrl.trim()) {
+      setEditTabSource(lastSheetSource); setEditTabUrl(lastSheetUrl)
+      void handleEditTabLoad(lastSheetUrl, lastSheetSource)
+    } else if (qaSubMode === 'create' && !sheetUrl.trim()) {
+      // 批量開單 Step 2 之前還有 Step 1（選專案/Issue 類型）要先完成，
+      // 只帶入網址方便使用者，不自動送出讀取請求
+      setSheetSource(lastSheetSource); setSheetUrl(lastSheetUrl)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qaSubMode, mode])
 
   return (
     <div className="page-layout">

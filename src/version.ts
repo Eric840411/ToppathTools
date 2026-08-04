@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.87.13'
+export const APP_VERSION = '3.88.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.88.0',
+    date: '2026-08-05',
+    changes: [
+      'feat: Jira 批量開單/評論/更新狀態/修改 4 個工具切換時自動帶入「最後使用的 Sheet」網址，不用每次切換都重貼——切到批量評論/更新狀態/修改時會自動帶入網址並自動重新讀取一次（每個分頁這次頁面停留期間只自動觸發一次），切到批量開單只自動帶入網址（Step 1 選專案/Issue 類型要先完成，不自動送出讀取請求）。每個工具原本的手動「讀取」/「重新讀取」按鈕都還在，可以隨時換一份不同的 Sheet',
+    ],
+  },
   {
     version: '3.87.13',
     date: '2026-08-05',
