@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.85.0-xianxia.5'
+export const APP_VERSION = '3.85.0-xianxia.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.85.0-xianxia.6',
+    date: '2026-08-04',
+    changes: [
+      'fix(design): [design/xianxia 分支] 普通版仍殘留修仙用語與未上色元件——子分頁（OSM Tools 展開後那些）走的是獨立於 NavLabel 元件的內聯判斷式，先前調整雙標籤時漏掉這裡，還是顯示卷宗/靈脈校準等修仙名稱；補上 themeMode 判斷。頂欄「TAIXUAN CONTROL CENTER」字樣、術式風搜尋框提示文字、「靈脈穩定」狀態、裝飾用印章圖示，普通版下改為隱藏或替換成中性文字（搜尋功能頁面／系統正常）。全域搜尋下拉結果、頂欄標題副標，題名跟副標相同時不重複顯示。另外補上 .sidebar-version-link/.app-global-search/.app-topbar-status 的基礎版樣式（先前只有 xianxia-complete.css 有樣式，沒載入時長得像沒套用過任何樣式的原生按鈕/輸入框）',
+    ],
+  },
   {
     version: '3.85.0-xianxia.5',
     date: '2026-08-04',

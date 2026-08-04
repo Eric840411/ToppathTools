@@ -335,6 +335,17 @@ function App() {
   const closeBreakthrough = useCallback(() => setBreakthroughLevel(null), [])
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const preview = params.get('breakthrough-preview')
+    if (!preview) return
+    const previewRealm = BREAKTHROUGH_REALMS.find(realm => realm.slug === preview || realm.name === preview)
+    if (previewRealm) setBreakthroughLevel(previewRealm.name)
+    params.delete('breakthrough-preview')
+    const query = params.toString()
+    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`)
+  }, [])
+
+  useEffect(() => {
     document.documentElement.dataset.realm = realm
     localStorage.setItem('xianxia-realm', realm)
   }, [realm])
@@ -491,12 +502,12 @@ function App() {
   const currentSubtab = currentGroup?.subtabs?.find(s => s.id === effectiveTab)
   const currentDescription = currentSubtab?.description ?? currentGroup?.description ?? ''
   const currentPageLabel = currentSubtab?.label ?? currentGroup?.label ?? ''
-  const currentThemeLabel = currentSubtab?.themeLabel ?? currentGroup?.themeLabel ?? currentPageLabel
+  const currentThemeLabel = themeMode === 'xianxia' ? (currentSubtab?.themeLabel ?? currentGroup?.themeLabel ?? currentPageLabel) : currentPageLabel
   const searchResults = navQuery.trim()
     ? allVisible.flatMap(group => {
         const entries = group.subtabs?.length
-          ? group.subtabs.map(sub => ({ group, sub, themeLabel: sub.themeLabel ?? sub.label, label: sub.label }))
-          : [{ group, sub: null, themeLabel: group.themeLabel ?? group.label, label: group.label }]
+          ? group.subtabs.map(sub => ({ group, sub, themeLabel: themeMode === 'xianxia' ? (sub.themeLabel ?? sub.label) : sub.label, label: sub.label }))
+          : [{ group, sub: null, themeLabel: themeMode === 'xianxia' ? (group.themeLabel ?? group.label) : group.label, label: group.label }]
         const needle = navQuery.trim().toLowerCase()
         return entries.filter(entry => `${entry.themeLabel} ${entry.label}`.toLowerCase().includes(needle))
       }).slice(0, 7)
@@ -578,7 +589,7 @@ function App() {
                       onClick={() => setActiveTab(sub.id)}
                     >
                       <span className={`tab-icon sub-tab-icon ${sub.iconClass}`}><XianxiaIcon name={navIconName(sub.id, sub.iconClass)} size={16} /></span>
-                      {sub.themeLabel ? (
+                      {sub.themeLabel && themeMode === 'xianxia' ? (
                         <span className="sidebar-nav-label sidebar-nav-label--dual">
                           <span className="sidebar-nav-label-theme">{sub.themeLabel}</span>
                           <span className="sidebar-nav-label-sub">{sub.label}</span>
@@ -737,16 +748,16 @@ function App() {
         {/* Topbar */}
         <div className="app-topbar">
           <div className="app-topbar-left" title={currentDescription}>
-            <span className="app-topbar-kicker">TAIXUAN CONTROL CENTER</span>
+            {themeMode === 'xianxia' && <span className="app-topbar-kicker">TAIXUAN CONTROL CENTER</span>}
             <span className="app-topbar-title">{currentThemeLabel}</span>
-            <span className="app-topbar-group">{currentPageLabel}</span>
+            {themeMode === 'xianxia' && currentThemeLabel !== currentPageLabel && <span className="app-topbar-group">{currentPageLabel}</span>}
           </div>
           <div className="app-global-search">
             <span className="app-global-search-icon" aria-hidden="true" />
             <input
               type="search"
               aria-label="搜尋工具"
-              placeholder="搜尋任務、卷宗或術式"
+              placeholder={themeMode === 'xianxia' ? '搜尋任務、卷宗或術式' : '搜尋功能頁面'}
               value={navQuery}
               onChange={event => setNavQuery(event.target.value)}
             />
@@ -763,14 +774,14 @@ function App() {
                     }}
                   >
                     <span>{entry.themeLabel}</span>
-                    <small>{entry.label}</small>
+                    {themeMode === 'xianxia' && entry.themeLabel !== entry.label && <small>{entry.label}</small>}
                   </button>
                 ))}
               </div>
             )}
           </div>
-          <div className="app-topbar-status"><span />靈脈穩定</div>
-          <div className="app-topbar-seal" aria-hidden="true"><XianxiaIcon name="overview" size={28} /></div>
+          <div className="app-topbar-status"><span />{themeMode === 'xianxia' ? '靈脈穩定' : '系統正常'}</div>
+          {themeMode === 'xianxia' && <div className="app-topbar-seal" aria-hidden="true"><XianxiaIcon name="overview" size={28} /></div>}
         </div>
 
         {/* Page content — 整段等 globalAccount 確定登入後才掛載，避免 Dashboard 等頁面

@@ -1036,6 +1036,15 @@
   color: var(--cr-cyan, #2563eb);
 }
 
+.sidebar-version-link {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; min-height: 32px; padding: 0 10px; margin-top: 8px;
+  border: 1px solid #2d3f55; border-radius: 6px; background: #0f172a;
+  color: #94a3b8; font-size: 11px; font-weight: 700; cursor: pointer;
+}
+.sidebar-version-link strong { color: var(--cr-cyan, #2563eb); font-family: monospace; }
+.sidebar-version-link:hover { border-color: var(--cr-cyan-border, rgba(37, 99, 235, .4)); color: #cbd5e1; }
+
 /* ─── Main Area ───────────────────────────────────── */
 .app-main {
   flex: 1;
@@ -1093,6 +1102,41 @@
   color: #475569;
   flex: 1;
 }
+
+/* 基礎版全站搜尋/狀態指示（xianxia-complete.css 沒載入時也要能正常用） */
+.app-global-search { position: relative; width: min(280px, 30vw); margin-left: auto; }
+.app-global-search input {
+  width: 100%; height: 34px; padding: 0 12px 0 34px;
+  border: 1px solid #2d3f55; border-radius: 6px; outline: none;
+  background: #0f172a; color: #e2e8f0; font-size: 12px;
+}
+.app-global-search input:focus { border-color: var(--cr-cyan-border, rgba(37, 99, 235, .4)); }
+.app-global-search-icon {
+  position: absolute; z-index: 2; left: 12px; top: 50%; width: 10px; height: 10px;
+  border: 1px solid #64748b; border-radius: 50%; transform: translateY(-60%);
+}
+.app-global-search-icon::after {
+  content: ""; position: absolute; width: 5px; height: 1px; right: -4px; bottom: -2px;
+  background: #64748b; transform: rotate(45deg);
+}
+.app-global-search-results {
+  position: absolute; z-index: 300; top: calc(100% + 6px); right: 0; left: 0; padding: 5px;
+  border: 1px solid #2d3f55; border-radius: 6px; background: #162032;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, .4);
+}
+.app-global-search-results button {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  width: 100%; padding: 8px 10px; border: 0; border-radius: 4px; background: transparent;
+  color: #cbd5e1; text-align: left; cursor: pointer; font-size: 12px;
+}
+.app-global-search-results button:hover { background: var(--cr-cyan-soft, rgba(37, 99, 235, .12)); color: var(--cr-cyan, #2563eb); }
+.app-global-search-results small { color: #64748b; }
+.app-topbar-status {
+  display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px;
+  border: 1px solid #2d3f55; border-radius: 6px; background: #0f172a;
+  color: #94a3b8; font-size: 11px; white-space: nowrap;
+}
+.app-topbar-status span { width: 6px; height: 6px; border-radius: 50%; background: #22c55e; }
 
 /* ─── Main Content ────────────────────────────────── */
 .main-content {
