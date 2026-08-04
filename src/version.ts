@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.87.4'
+export const APP_VERSION = '3.87.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.87.5',
+    date: '2026-08-04',
+    changes: [
+      'refactor: JiraPage.tsx 拆分第二步——「批量評論」Step 3（設定評論內容 + 預覽送出，原本最大最複雜的一段，約 470 行）搬到 JiraBatchCommentStep3.tsx，狀態仍以 props 傳入不改行為。同時移除這段 JSX 裡跟批次開單流程共用但已經不可達的死分支（批次開單本身的 Step 5 畫面早就不存在，見 CLAUDE.md 記錄），順便清掉只被這些死分支使用的 refreshingSheet/handleRefreshSheetForComment 死代碼',
+      'refactor: JiraPage.tsx 從原本 6123 行降到 5488 行（批量評論相關邏輯已全數拆到獨立檔案）',
+    ],
+  },
   {
     version: '3.87.4',
     date: '2026-08-04',
