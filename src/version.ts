@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.87.7'
+export const APP_VERSION = '3.87.8'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.87.8',
+    date: '2026-08-04',
+    changes: [
+      'refactor: JiraPage.tsx 拆分 PM 模式（從 Lark PM 規格批次建立 Epic + Story，約 173 行）到 JiraPmModeTab.tsx，狀態以 props 傳入。這個模式的狀態本來就是獨立一份，跟 QA 模式的 trackedIssues 完全無關，逐字比對確認零內容變動',
+    ],
+  },
   {
     version: '3.87.7',
     date: '2026-08-04',
