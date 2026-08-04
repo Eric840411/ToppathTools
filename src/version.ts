@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.87.9'
+export const APP_VERSION = '3.87.10'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.87.10',
+    date: '2026-08-05',
+    changes: [
+      'refactor: JiraPage.tsx 拆分批量開單 Step 3（動態欄位開單，這個流程最大最複雜的一段，約 680 行）到 JiraCreateStep3.tsx。這次改用 sed 直接搬移 JSX 內容（不是手動重打），從根本避免大範圍手動搬移時手滑打錯字的風險，逐字比對確認零內容變動。getField/needsCreate/stageBadgeClass/stageLabel/SHEET_FIELD/UserFieldSearch 一併 export 供新檔案匯入',
+    ],
+  },
   {
     version: '3.87.9',
     date: '2026-08-04',
