@@ -338,6 +338,7 @@ function App() {
   const [navQuery, setNavQuery] = useState('')
   const [realm, setRealm] = useState<'moon' | 'ember'>(() => localStorage.getItem('xianxia-realm') === 'ember' ? 'ember' : 'moon')
   const [themeMode, setThemeMode] = useState<'classic' | 'xianxia'>(() => localStorage.getItem('toppath-theme-mode') === 'xianxia' ? 'xianxia' : 'classic')
+  const [systemHealthy, setSystemHealthy] = useState(true)
   const [globalAccount, setGlobalAccount] = useState<AccountInfo | null>(loadGlobalAccount)
   const [authChecking, setAuthChecking] = useState(true)
   const [permissions, setPermissions] = useState<string[]>([])
@@ -524,6 +525,21 @@ function App() {
         return entries.filter(entry => `${entry.themeLabel} ${entry.label}`.toLowerCase().includes(needle))
       }).slice(0, 7)
     : []
+
+  useEffect(() => {
+    let stopped = false
+    const checkHealth = async () => {
+      try {
+        const res = await fetch('/api/health')
+        if (!stopped) setSystemHealthy(res.ok)
+      } catch {
+        if (!stopped) setSystemHealthy(false)
+      }
+    }
+    void checkHealth()
+    const timer = window.setInterval(() => { if (!stopped) void checkHealth() }, 30000)
+    return () => { stopped = true; window.clearInterval(timer) }
+  }, [])
 
   useEffect(() => {
     if (!globalAccount || !currentPageLabel) return
@@ -803,7 +819,12 @@ function App() {
               </div>
             )}
           </div>
-          <div className="app-topbar-status"><span />{themeMode === 'xianxia' ? '靈脈穩定' : '系統正常'}</div>
+          <div className="app-topbar-status" title={systemHealthy ? 'API 健康檢查正常' : 'API 健康檢查失敗，可能連不上伺服器'}>
+            <span style={{ background: systemHealthy ? undefined : '#dc2626' }} />
+            {systemHealthy
+              ? (themeMode === 'xianxia' ? '靈脈穩定' : '系統正常')
+              : (themeMode === 'xianxia' ? '靈脈紊亂' : '連線異常')}
+          </div>
           {themeMode === 'xianxia' && <div className="app-topbar-seal" aria-hidden="true"><XianxiaIcon name="overview" size={28} /></div>}
         </div>
 

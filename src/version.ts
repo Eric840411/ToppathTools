@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.87.2'
+export const APP_VERSION = '3.87.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.87.3',
+    date: '2026-08-04',
+    changes: [
+      'fix: 頂欄「靈脈穩定」/「系統正常」原本是寫死的裝飾文字，沒接任何真實健康檢查。改成每 30 秒打一次 /api/health，失敗時顯示「靈脈紊亂」/「連線異常」+ 紅點，滑鼠移上去顯示原因',
+    ],
+  },
   {
     version: '3.87.2',
     date: '2026-08-04',
