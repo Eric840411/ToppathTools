@@ -721,7 +721,7 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 ### 功能說明
 側邊欄帳號區塊顯示一個小稱號徽章，依帳號**累計登入天數**自動晉升，靈感取自《凡人修仙傳》的修煉境界（練氣期→築基期→金丹期→元嬰期→化神期→煉虛期→合體期→大乘期→渡劫期，共 9 階，門檻單位為天，可調整）。純展示用途，不影響任何權限判斷。
 
-**計數來源**：`server/auth-session.ts` 的 `createAuthSession()`（每次登入成功時呼叫）呼叫 `server/shared.ts` 的 `recordLoginDay()`，對 `account_cultivation` 表做 upsert——同一天內重複登入只算一天，累計的是「登入過幾個不同的日曆天」，不是登入次數或操作次數（`operation_history` 本身每 7 天會被自動清空，不適合拿來算長期累計）。`GET /api/account/cultivation` 回傳目前境界、累計登入天數、下一階名稱與門檻。
+**計數來源**：`server/shared.ts` 的 `recordLoginDay()` 對 `account_cultivation` 表做 upsert，同一天內重複呼叫只算一天，累計的是「有活躍過的不同日曆天數」，不是登入次數或操作次數（`operation_history` 本身每 7 天會被自動清空，不適合拿來算長期累計）。**掛在 `server/index.ts` 的全站共用 middleware**（`getAuthAccount(req)` 判斷有登入就呼叫），不是只掛在 `/api/auth/login`——原本只掛登入端點時，登入 session cookie 有效期 7 天，這期間內重新整理/重開瀏覽器都不會再打登入 API（cookie 還有效不需要重新輸入帳密），導致「有在用但沒重新登入」的天數完全沒被算到；改成任何一支已登入的 API 請求（含 heartbeat）都算，才是「今天真的有在用」的正確訊號。`GET /api/account/cultivation` 回傳目前境界、累計登入天數、下一階名稱與門檻。
 
 **排行榜（群英榜）**：獨立頁面（`GroupId`/`page key` = `cultivation-board`，側邊欄「宗門維運」分區），`GET /api/account/cultivation/leaderboard` 回傳所有未停用帳號依累計登入天數排序的清單（不含 token），目前登入的帳號那一列會高亮（`.cultivation-row--me`）。跟其他「系統」分區頁面一樣走 `ALL_PAGE_KEYS`/`SystemAdminPage` 權限表控管可見性。
 

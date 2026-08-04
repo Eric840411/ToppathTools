@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.85.0-xianxia.4'
+export const APP_VERSION = '3.85.0-xianxia.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.85.0-xianxia.5',
+    date: '2026-08-04',
+    changes: [
+      'fix(design): [design/xianxia 分支] 修正境界稱號登入天數只在「重新登入」才會計算的問題——原本 recordLoginDay() 只掛在 /api/auth/login，但登入 session cookie 有效期 7 天，這期間內重新整理/重開瀏覽器不會再打登入 API（cookie 還有效），導致「有在用但沒重新登入」的天數沒被算到，變成不登出重登就不會累加。改成掛在 server/index.ts 的全站共用 middleware，只要當天打過任何一支已登入的 API（含 heartbeat）就算，才是「今天真的有在用」的正確訊號',
+    ],
+  },
   {
     version: '3.85.0-xianxia.4',
     date: '2026-08-04',

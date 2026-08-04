@@ -31,7 +31,7 @@ import { getRequestContext, runWithRequestContext } from './request-context.js'
 import { getAuthAccount } from './auth-session.js'
 
 // Shared logger
-import { db, getClientIP, getUser, log } from './shared.js'
+import { db, getClientIP, getUser, log, recordLoginDay } from './shared.js'
 
 dotenv.config()
 
@@ -182,6 +182,12 @@ function buildOperationLabel(req: express.Request): string {
 app.use((req, _res, next) => {
   const ip = getClientIP(req)
   const authAccount = getAuthAccount(req)
+  // 境界稱號的「登入天數」原本只掛在 /api/auth/login（實際送出登入表單那一刻）。
+  // 但登入 session cookie 有效期是 7 天，這期間內重新整理/重開瀏覽器都不會再打
+  // 那支 API（cookie 還有效，不需要重新輸入帳密），導致「有用但沒重新登入」的
+  // 天數完全沒被算到。改成掛在這個全站共用的 middleware，只要當天有打過任何一支
+  // 已登入的 API（包含 heartbeat）就算，才是「今天真的有在用」的正確訊號。
+  if (authAccount) recordLoginDay(authAccount.email)
   const headerUser = getUser(req)
   const user = headerUser !== '—' ? headerUser : authAccount?.email ?? '—'
   const userDisplay = authAccount?.label ?? toDisplayName(user, req)
