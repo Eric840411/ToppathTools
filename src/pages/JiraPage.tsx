@@ -3088,12 +3088,12 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 </span>
                 {pmRecords.some(r => r.isParent) && (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(124,58,237,0.15)', color: '#c4b5fd', fontWeight: 600, borderRadius: 20, padding: '3px 10px', fontSize: 12 }}>
-                    鏈 偵測到主單，填有「主單標題」的子單將自動關聯
+                    偵測到主單，填有「主單標題」的子單將自動關聯
                   </span>
                 )}
                 {!pmRecords.some(r => r.isParent) && pmParentKey && (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'rgba(124,58,237,0.15)', color: '#c4b5fd', fontWeight: 600, borderRadius: 20, padding: '3px 10px', fontSize: 12 }}>
-                    鏈 手動主單：{pmParentKey}
+                    手動主單：{pmParentKey}
                   </span>
                 )}
               </div>
@@ -4319,7 +4319,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
               /* Fallback: show Lark data if fields failed to load */
               <>
               <div className="alert-warn" style={{ marginBottom: 8, fontSize: 12 }}>
-                警 動態欄位未載入（Jira fields API 未回傳資料），顯示 Lark 原始資料。請開啟 F12 → Console 查看 [jira-fields] 日誌。
+                動態欄位未載入（Jira fields API 未回傳資料），顯示 Lark 原始資料。請開啟 F12 → Console 查看 [jira-fields] 日誌。
               </div>
               <div className="table-wrap">
                 <table className="version-table">
@@ -4798,7 +4798,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                     {kbDocs.length > 0 && (
                       <div style={{ background: '#162032', border: '1px solid #2d3f55', borderRadius: 8, padding: '10px 14px' }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: '#64748b', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-                          典 知識庫來源
+                          知識庫來源
                           <span style={{ fontWeight: 400, color: '#334155' }}>（勾選的文件內容會附加到 AI context）</span>
                         </div>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
@@ -5030,7 +5030,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                             {item.cachedAttachments.length > 0 && (
                               <div style={{ padding: '6px 8px', background: '#0d1117', border: '1px solid #2d3f55', borderRadius: 6, marginBottom: 6 }}>
                                 <div style={{ fontSize: 11, color: '#64748b', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                  附 附件（{item.cachedAttachments.filter(a => !a.error).length} 個）
+                                  附件（{item.cachedAttachments.filter(a => !a.error).length} 個）
                                   {item.cachedAttachments.some(a => a.isImage && !a.error) && (
                                     <span style={{ background: 'rgba(31,111,235,0.15)', color: '#58a6ff', border: '1px solid rgba(31,111,235,0.3)', borderRadius: 3, padding: '1px 5px', fontSize: 10 }}>圖片</span>
                                   )}
@@ -5088,7 +5088,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                   })}
                                 </div>
                                 <div style={{ fontSize: 10, color: '#3fb950', marginTop: 5 }}>
-                                  靈 圖片上傳至 Jira 附件區，評論末自動嵌入
+                                  圖片上傳至 Jira 附件區，評論末自動嵌入
                                 </div>
                                 {(() => {
                                   const pendingLinks = item.cachedAttachments.filter(a => a.mimeType === 'video/link' && !a.cacheId).length
@@ -5096,7 +5096,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                                   return pendingLinks > uploadedVideos
                                 })() && (
                                   <div style={{ fontSize: 10, color: '#f59e0b', marginTop: 4, padding: '3px 6px', background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.3)', borderRadius: 4 }}>
-                                    警 有影片未上傳（Lark 插入附件格式無法自動下載），請用下方「上傳圖片/影片」手動上傳
+                                    有影片未上傳（Lark 插入附件格式無法自動下載），請用下方「上傳圖片/影片」手動上傳
                                   </div>
                                 )}
                               </div>
@@ -6088,7 +6088,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                   </table>
                   {(reconcileUnmatchedJira.length > 0 || reconcileUnmatchedRows.length > 0) && (
                     <p style={{ fontSize: 12, color: '#f59e0b', marginTop: 8 }}>
-                      警 未配對：Jira {reconcileUnmatchedJira.length} 筆，Sheet {reconcileUnmatchedRows.length} 列（數量不一致，請手動確認）
+                      未配對：Jira {reconcileUnmatchedJira.length} 筆，Sheet {reconcileUnmatchedRows.length} 列（數量不一致，請手動確認）
                     </p>
                   )}
                 </div>

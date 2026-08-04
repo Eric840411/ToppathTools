@@ -238,7 +238,7 @@ export function JackpotPage() {
               onClick={openSettings}
               title="管理員：設定各遊戲閾值與 Lark 告警"
             >
-              陣 告警設定
+              告警設定
             </button>
           </div>
         </div>

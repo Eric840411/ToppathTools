@@ -206,11 +206,11 @@ export function ImageCheckPage() {
               <label style={{ fontSize: 13, fontWeight: 600, color: '#cbd5e1' }}>已刪除圖片清單</label>
               <button onClick={() => setShowGitPaste(v => !v)}
                 style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #6366f1', background: showGitPaste ? '#6366f1' : '#1e293b', color: showGitPaste ? '#fff' : '#818cf8', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
-                冊 貼上 git diff 文字解析
+                貼上 git diff 文字解析
               </button>
               <button onClick={() => fileInputRef.current?.click()}
                 style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid #7c3aed', background: '#1e293b', color: '#7c3aed', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
-                影 上傳截圖 AI 識別
+                上傳截圖 AI 識別
               </button>
               <span style={{ fontSize: 11, color: '#64748b' }}>或直接 Ctrl+V 貼上截圖</span>
               <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }}
@@ -268,7 +268,7 @@ export function ImageCheckPage() {
           {/* Toolbar */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10, flexWrap: 'wrap' }}>
             <div style={{ padding: '8px 14px', background: 'rgba(22,163,74,0.1)', border: '1px solid rgba(22,163,74,0.3)', borderRadius: 8, fontSize: 13, color: '#4ade80', fontWeight: 600 }}>
-              綠 已攔截 <strong>{liveCount}</strong> 個圖片請求
+              已攔截 <strong>{liveCount}</strong> 個圖片請求
             </div>
             <button onClick={handleStop}
               style={{ padding: '8px 20px', borderRadius: 8, background: '#6366f1', color: '#fff', border: 'none', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>

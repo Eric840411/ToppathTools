@@ -408,7 +408,7 @@ function ProfilesPanel() {
               </div>
               {editing.bonusAction === 'touchscreen' && (editing.touchPoints ?? []).length === 0 && (
                 <p style={{ fontSize: 12, color: '#ef4444', fontWeight: 600, margin: '4px 0' }}>
-                  警 Bonus 觸屏啟動：至少設定一個點位（填入 span 元素文字，例如 <code style={{ fontSize: 11 }}>18,9</code>）
+                  Bonus 觸屏啟動：至少設定一個點位（填入 span 元素文字，例如 <code style={{ fontSize: 11 }}>18,9</code>）
                 </p>
               )}
               {(editing.touchPoints ?? []).length === 0 && editing.bonusAction !== 'touchscreen' && (
@@ -570,7 +570,7 @@ function ProfilesPanel() {
           {/* ── Audio Config ── */}
           <div style={{ border: '1px solid #2d3f55', borderRadius: 8, padding: '12px 14px', marginTop: 8, marginBottom: 8, background: '#162032' }}>
             <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 10 }}>
-              音 音頻閾值設定
+              音頻閾值設定
               <span style={{ fontSize: 11, color: '#94a3b8', fontWeight: 400, marginLeft: 8 }}>
                 留空使用全域預設值（峰值 -3 dB、重心 1500 Hz、RMS -60 ~ -20 dB）
               </span>
@@ -1345,7 +1345,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
             }}
             style={{ padding: '6px 16px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}
           >
-            視 觀看
+            觀看
           </button>
           <button
             type="button"
@@ -1750,7 +1750,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
 
           {!account && (
             <div style={{ padding: '10px 14px', background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, fontSize: 13, color: '#92400e', marginBottom: 8 }}>
-              警 請先在右上角選擇帳號，才能執行測試（結果將與帳號關聯）
+              請先在右上角選擇帳號，才能執行測試（結果將與帳號關聯）
             </div>
           )}
 
@@ -1776,7 +1776,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
                 title="連線廣播頻道，觀看進行中的測試進度"
                 style={{ padding: '10px 14px', background: '#f0fdf4', color: '#16a34a', border: '1.5px solid #86efac', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 13, whiteSpace: 'nowrap' }}
               >
-                視 觀看
+                觀看
               </button>
             )}
             {running && (

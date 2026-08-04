@@ -82,7 +82,7 @@ export function GsPdfTestCasePage() {
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <button type="button" onClick={() => fileInputRef.current?.click()}
                 style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #2d3f55', background: '#162032', fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                附 選擇檔案
+                選擇檔案
               </button>
               <span style={{ fontSize: 13, color: file ? '#374151' : '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {file ? file.name : '支援 PDF、.docx，最大 20MB'}
@@ -106,7 +106,7 @@ export function GsPdfTestCasePage() {
 
         {loading && (
           <div style={{ marginTop: 16, padding: '12px 16px', background: '#f5f3ff', borderRadius: 8, fontSize: 13, color: '#6366f1' }}>
-            傀 AI 分析規格書中，約需 30–60 秒...
+            AI 分析規格書中，約需 30–60 秒...
           </div>
         )}
       </div>

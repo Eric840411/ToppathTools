@@ -1025,7 +1025,7 @@ export function OsmUatPage() {
       {/* ── 設定區 ── */}
       <section style={{ background: '#162032', border: '1px solid #2d3f55', borderRadius: 8, padding: 16 }}>
         <h3 style={{ margin: '0 0 12px', fontSize: 14, fontWeight: 600, color: '#e2e8f0' }}>
-          陣 測試設定
+          測試設定
         </h3>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>

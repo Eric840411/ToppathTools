@@ -721,7 +721,7 @@ export function AutoSpinPage() {
       {/* Account warning */}
       {!userLabel && (
         <div style={{ padding: '8px 12px', background: 'rgba(251,191,36,0.12)', border: '1px solid #fbbf24', borderRadius: 8, marginBottom: 10, fontSize: 13 }}>
-          警 請先在右上角選擇帳號，機台設定將會個人化儲存
+          請先在右上角選擇帳號，機台設定將會個人化儲存
         </div>
       )}
       {userLabel && (
@@ -1111,7 +1111,7 @@ export function AutoSpinPage() {
           {/* Anomaly summary */}
           {historyRows.some(r => r.isAnomaly) && (
             <div style={{ padding: '8px 12px', background: 'rgba(251,191,36,0.12)', border: '1px solid #fbbf24', borderRadius: 6, fontSize: 12 }}>
-              警 偵測到 {historyRows.filter(r => r.isAnomaly).length} 筆異常（餘額相比開局下降超過 30%）
+              偵測到 {historyRows.filter(r => r.isAnomaly).length} 筆異常（餘額相比開局下降超過 30%）
             </div>
           )}
 

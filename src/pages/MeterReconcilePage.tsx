@@ -153,7 +153,7 @@ export function MeterReconcilePage() {
     <div style={{ maxWidth: 1180, margin: '0 auto' }}>
       <div style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 18, margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
-          算 Performance Meter 對帳
+          Performance Meter 對帳
         </h2>
         <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>
           OSM / GCP EGM Metering 對 Game Record + Jackpot Abnormality，驗證 Coin Out 是否一致

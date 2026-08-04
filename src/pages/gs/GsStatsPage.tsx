@@ -144,7 +144,7 @@ export function GsStatsPage() {
           {!loading ? (
             <button type="button" onClick={handleStart} disabled={!url.trim()}
               style={{ padding: '9px 24px', borderRadius: 8, background: !url.trim() ? '#a5b4fc' : '#6366f1', color: '#fff', border: 'none', fontWeight: 700, fontSize: 14, cursor: !url.trim() ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
-              啟 開始攔截
+              開始攔截
             </button>
           ) : (
             <button type="button" onClick={handleStop}

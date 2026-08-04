@@ -83,7 +83,7 @@ export function EgmDayCountPage() {
     <div style={{ maxWidth: 1180, margin: '0 auto' }}>
       <div style={{ marginBottom: 16 }}>
         <h2 style={{ fontSize: 18, margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
-          圖 Egm DayCount 對帳
+          Egm DayCount 對帳
         </h2>
         <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>
           比對後台 Egm DayCount 彙總報表（gameCount）與 User Detail 逐筆列（playerMachineCount）回推加總是否一致
@@ -191,7 +191,7 @@ export function EgmDayCountPage() {
 
         <div style={{ background: '#162338', border: '1px solid #23344d', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 8 }}>
-            財 有下注的帳號（{result.bettingUsers.length} 個，跨機台已彙整，不重複）
+            有下注的帳號（{result.bettingUsers.length} 個，跨機台已彙整，不重複）
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5, fontVariantNumeric: 'tabular-nums' }}>
             <thead>

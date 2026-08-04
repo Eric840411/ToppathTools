@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.87.1'
+export const APP_VERSION = '3.87.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.87.2',
+    date: '2026-08-04',
+    changes: [
+      'fix: 全站盤點清除「開頭多餘一個字」的殘留字元（疑似先前 emoji 替換未完全清乾淨），共 12 個檔案、約 30 處——AutoSpinPage/JackpotPage/JiraAccountModal/ImageCheckPage/GeminiSettingsModal/HistoryPage/MeterReconcilePage/EgmDayCountPage/OsmUatPage/MachineTestPage/JiraPage/GsStatsPage/GsPdfTestCasePage。逐一人工確認排除「在/以/若/跟/請」等正常中文開頭的句子，只清掉真正的殘留字',
+    ],
+  },
   {
     version: '3.87.1',
     date: '2026-08-04',

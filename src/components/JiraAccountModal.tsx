@@ -456,7 +456,7 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
                   ) : (
                     <button type="button" onClick={() => setShowAdminPinInput(true)}
                       style={{ fontSize: 12, color: '#9ca3af', background: 'none', border: 'none', cursor: 'pointer' }}>
-                      鎖 管理員登入（解鎖刪除、角色編輯）
+                      管理員登入（解鎖刪除、角色編輯）
                     </button>
                   )}
                 </div>

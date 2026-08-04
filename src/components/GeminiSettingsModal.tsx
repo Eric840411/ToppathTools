@@ -392,7 +392,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
               })}
 
               <div style={{ marginTop: 8, padding: '10px 14px', borderRadius: 6, background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', fontSize: 12, color: '#fbbf24' }}>
-                警 個人 Key 完全隔離：其他帳號無法使用你的 Key，你也不會用到別人的個人 Key。
+                個人 Key 完全隔離：其他帳號無法使用你的 Key，你也不會用到別人的個人 Key。
                 若個人 Key 配額耗盡，系統不會 fallback 到其他帳號的個人 Key，僅 fallback 到全域 Key Pool。
               </div>
             </div>
@@ -501,7 +501,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                             </div>
                             {quotaHitTime && (
                               <div style={{ marginTop: 2, color: '#dc2626', fontSize: 10 }} title="上次配額耗盡時間">
-                                禁 配額耗盡 {quotaHitTime}
+                                配額耗盡 {quotaHitTime}
                               </div>
                             )}
                           </td>
@@ -546,7 +546,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                 </div>
               ) : (
                 <div style={{ padding: '12px 16px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.3)', borderRadius: 8, marginBottom: 16, fontSize: 13, color: '#fbbf24' }}>
-                  警 尚未設定，填入 Key 後才會出現 OpenAI 模型選項
+                  尚未設定，填入 Key 後才會出現 OpenAI 模型選項
                 </div>
               )}
 
@@ -819,7 +819,7 @@ export default function GeminiSettingsModal({ onClose }: Props) {
                       onClick={handleSavePrompt}
                       style={{ flex: 1, padding: '9px 0', background: '#6366f1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 600 }}
                     >
-                      存 儲存
+                      儲存
                     </button>
                     {editPrompt.id !== 'default' && (
                       <button

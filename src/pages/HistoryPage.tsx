@@ -342,7 +342,7 @@ export function HistoryPage() {
                       {bitableUrl && (
                         <div style={{ marginBottom: 10 }}>
                           <a href={bitableUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: '#6366f1', fontWeight: 600 }}>
-                            鏈 前往 Lark Bitable
+                            前往 Lark Bitable
                           </a>
                         </div>
                       )}
