@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.87.6'
+export const APP_VERSION = '3.87.7'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.87.7',
+    date: '2026-08-04',
+    changes: [
+      'refactor: JiraPage.tsx 拆分第四步——「批量修改」整個分頁（Step 1~4，約 576 行，含跟批次開單流程共用的摘要前綴功能）搬到 JiraBatchEditTab.tsx，狀態以 props 傳入。附件預覽 Lightbox 因為 render 本身就在共用區塊、不屬於這個分頁，維持留在 JiraPage.tsx，只傳觸發用的 setter。逐字比對確認搬移過程零內容變動',
+      'refactor: JiraPage.tsx 從最初的 6123 行降到 4672 行，批量開單以外的 3 個批量工具（評論/更新狀態/修改）皆已拆成獨立元件',
+    ],
+  },
   {
     version: '3.87.6',
     date: '2026-08-04',
