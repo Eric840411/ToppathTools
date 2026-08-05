@@ -3510,8 +3510,8 @@
 .scripted-check.on::after {
   content: "";
   position: absolute;
-  left: 4px;
-  top: 4px;
+  left: 4.5px;
+  top: 6px;
   width: 7px;
   height: 4px;
   border-left: 2px solid #fff;

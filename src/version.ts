@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.88.11'
+export const APP_VERSION = '3.88.12'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.88.12',
+    date: '2026-08-05',
+    changes: [
+      'fix(scripted-bet): 帳號執行清單的自訂勾選框（.scripted-check，border-left+border-bottom 旋轉 -45deg 畫出的打勾樣式）打勾符號沒有置中——算過座標後，畫勾的方框（7×4px）旋轉中心點是 (7.5, 6)，跟外層 16×16px 方框的真正中心 (8, 8) 差了 (-0.5, -2)，尤其垂直方向差了 2px 很明顯。改成 left: 4.5px; top: 6px，讓旋轉中心對齊外框中心',
+    ],
+  },
   {
     version: '3.88.11',
     date: '2026-08-05',
