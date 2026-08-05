@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.88.0'
+export const APP_VERSION = '3.88.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.88.1',
+    date: '2026-08-05',
+    changes: [
+      'fix(jira): 修正 v3.88.0 上線後的正式環境報錯「n.trim is not a function」——SheetUrlEntryStep 共用元件的讀取按鈕 onClick={onSubmit} 會把 React 點擊事件物件當成第一個參數轉發進去，剛好 v3.88.0 把 handleCommentTabLoad/handleUpdateFetchBitable/handleEditTabLoad 改成接受 urlOverride 參數，導致事件物件被當成網址字串呼叫 .trim() 而炸掉；改成 onClick={() => onSubmit()} 不轉發事件',
+      'fix(jira): 「最後使用的 Sheet」自動帶入邏輯改成依 (分頁, 網址, 來源) 組合記錄，不再是單純「這個分頁本輪讀過了嗎」——先前若中途換成另一份 Sheet，切回已經自動讀過的分頁不會抓到最新網址，需要手動重讀；現在只要換了新 Sheet，切到任何分頁都會自動抓最新的，同一份 Sheet 才不會重複觸發（Codex code review 建議修正）',
+    ],
+  },
   {
     version: '3.88.0',
     date: '2026-08-05',

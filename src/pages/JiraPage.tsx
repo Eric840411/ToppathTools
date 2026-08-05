@@ -519,7 +519,10 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   // 狀態（sheetRecords 等），避免跟各工具既有的處理邏輯（trackedIssues 共用機制等）打架。
   const [lastSheetUrl, setLastSheetUrl] = useState('')
   const [lastSheetSource, setLastSheetSource] = useState<SheetSource>('lark')
-  const autoLoadedSubModes = useRef(new Set<string>())
+  // 記錄「這個分頁上一次自動套用的是哪個 Sheet（url::source）」——不是單純
+  // 「這個分頁本輪自動讀過了嗎」，這樣換了新 Sheet 後切回已經自動讀過的分頁
+  // 還是會再自動讀一次最新的，只有同一份 Sheet 不會重複觸發（Codex review 建議）。
+  const autoLoadedSubModes = useRef(new Map<string, string>())
 
   // Step 3
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set())
@@ -2911,29 +2914,32 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
   // 切換批量工具分頁時，自動帶入「最後使用的 Sheet」網址並自動重新讀取一次，
   // 不用每次切換都重貼網址；每個工具原本的手動「讀取」/「重新讀取」按鈕仍保留，
-  // 可以隨時換一份不同的 Sheet。同一個分頁在這次頁面停留期間只自動觸發一次
-  // （用 autoLoadedSubModes 記錄），避免每次重新渲染都重複打 API。
+  // 可以隨時換一份不同的 Sheet。用 (分頁, url, source) 組合記錄「這個分頁上次
+  // 自動套用的是哪份 Sheet」——同一份 Sheet 不會對同一個分頁重複自動觸發，但只要
+  // 換了新 Sheet（在其他分頁重新讀取過），切回已經自動讀過的分頁還是會再自動讀
+  // 一次最新的（Codex code review 建議修正）。
   useEffect(() => {
     if (mode !== 'qa') return
     if (!lastSheetUrl.trim()) return
-    if (autoLoadedSubModes.current.has(qaSubMode)) return
-    autoLoadedSubModes.current.add(qaSubMode)
-    if (qaSubMode === 'comment' && !commentTabUrl.trim()) {
+    const comboKey = `${lastSheetUrl}::${lastSheetSource}`
+    if (autoLoadedSubModes.current.get(qaSubMode) === comboKey) return
+    autoLoadedSubModes.current.set(qaSubMode, comboKey)
+    if (qaSubMode === 'comment') {
       setCommentTabSource(lastSheetSource); setCommentTabUrl(lastSheetUrl)
       void handleCommentTabLoad(lastSheetUrl, lastSheetSource)
-    } else if (qaSubMode === 'update' && !updateBitableUrl.trim()) {
+    } else if (qaSubMode === 'update') {
       setUpdateTabSource(lastSheetSource); setUpdateBitableUrl(lastSheetUrl)
       void handleUpdateFetchBitable(lastSheetUrl, lastSheetSource)
-    } else if (qaSubMode === 'edit' && !editTabUrl.trim()) {
+    } else if (qaSubMode === 'edit') {
       setEditTabSource(lastSheetSource); setEditTabUrl(lastSheetUrl)
       void handleEditTabLoad(lastSheetUrl, lastSheetSource)
-    } else if (qaSubMode === 'create' && !sheetUrl.trim()) {
+    } else if (qaSubMode === 'create') {
       // 批量開單 Step 2 之前還有 Step 1（選專案/Issue 類型）要先完成，
       // 只帶入網址方便使用者，不自動送出讀取請求
       setSheetSource(lastSheetSource); setSheetUrl(lastSheetUrl)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [qaSubMode, mode])
+  }, [qaSubMode, mode, lastSheetUrl, lastSheetSource])
 
   return (
     <div className="page-layout">

@@ -52,7 +52,7 @@ export function SheetUrlEntryStep({
           type="button"
           className="submit-btn submit-btn--step"
           disabled={loading || !url.trim()}
-          onClick={onSubmit}
+          onClick={() => onSubmit()}
           style={{ whiteSpace: 'nowrap' }}
         >
           {loading ? '讀取中…' : '讀取'}
