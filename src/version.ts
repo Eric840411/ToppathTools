@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.88.4'
+export const APP_VERSION = '3.88.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.88.5',
+    date: '2026-08-05',
+    changes: [
+      'fix(osm): 修仙版下 OSM Tools 渠道同步列表的單台「↻」重新整理按鈕出現重複圖示——.osm-btn::before 全站統一加上裝飾用菱形，對有文字標籤的按鈕（例如「告警設定」）是合理的圖示替代，但這顆按鈕整個內容就只有 ↻ 一個字元，疊加後變成看起來像兩個圖示黏在一起。新增 .osm-btn--icon 修飾類別關閉裝飾菱形，只套用在這顆按鈕；巡查全站其餘 .osm-btn 用法皆有文字標籤，沒有其他遺漏',
+    ],
+  },
   {
     version: '3.88.4',
     date: '2026-08-05',

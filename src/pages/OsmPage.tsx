@@ -265,7 +265,7 @@ function ChannelRow({
         {result.error && <span className="osm-badge osm-badge--error">錯誤</span>}
         <button
           type="button"
-          className="osm-btn osm-btn--sm"
+          className="osm-btn osm-btn--sm osm-btn--icon"
           onClick={e => { e.stopPropagation(); onSync(result.name) }}
           disabled={loading}
         >
