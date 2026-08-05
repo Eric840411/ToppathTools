@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.88.7'
+export const APP_VERSION = '3.88.8'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.88.8',
+    date: '2026-08-05',
+    changes: [
+      'fix(osm): v3.88.6 移除渠道同步重新整理按鈕的 ↻ 文字後，按鈕左右內距與裝飾圖示的 margin-right 都還是照原本搭配文字標籤時的尺寸留著，變成一個裡面大部分是空白的長方形。新增 .osm-btn--icon-only 修飾類別，把內距收緊成貼合圖示本身的緊湊尺寸',
+    ],
+  },
   {
     version: '3.88.7',
     date: '2026-08-05',
