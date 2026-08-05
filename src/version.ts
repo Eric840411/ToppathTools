@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.88.6'
+export const APP_VERSION = '3.88.7'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.88.7',
+    date: '2026-08-05',
+    changes: [
+      'fix(machine-test): 機台自動化測試「機台設定檔」表格（新增機型/上傳基準圖/上傳參考音頻/編輯/複製/刪除按鈕）移除 .btn-ghost 的圓形裝飾圖示——這張表格按鈕多且欄位擠，每顆按鈕前面都疊一個圓圈反而顯得雜亂。新增 .machine-profile-panel 範圍類別只關閉這個面板內的裝飾圖示，.btn-ghost 是全站 22 個檔案共用的設計元素，不動全站其他按鈕',
+    ],
+  },
   {
     version: '3.88.6',
     date: '2026-08-05',

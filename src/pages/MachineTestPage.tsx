@@ -235,7 +235,7 @@ function ProfilesPanel() {
   }
 
   return (
-    <div className="section-card">
+    <div className="section-card machine-profile-panel">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
         <h2 className="section-title" style={{ margin: 0 }}>機台設定檔</h2>
         <button
