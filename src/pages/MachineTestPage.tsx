@@ -1676,7 +1676,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
               <label key={env} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', fontSize: 13 }}>
                 <input
                   type="radio" name="osmEnv" value={env} checked={osmEnv === env} onChange={() => setOsmEnv(env)} disabled={running}
-                  style={{ accentColor: env === 'prod' ? '#dc2626' : '#2563eb' }}
+                  style={{ accentColor: env === 'prod' ? '#dc2626' : '#2563eb', outline: 'none' }}
                 />
                 <span style={{
                   fontWeight: osmEnv === env ? 700 : 400,

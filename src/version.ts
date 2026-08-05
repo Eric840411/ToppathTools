@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.88.13'
+export const APP_VERSION = '3.88.14'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.88.14',
+    date: '2026-08-05',
+    changes: [
+      'fix(machine-test): 機台自動化測試「日誌 API 環境」QAT/PROD radio 選項，目前選中的那顆會顯示一圈瀏覽器原生 focus 外框，看起來像多了一塊底色——補上 outline: none 移除（不確定是不是唯一根因，若使用者回報還在請再確認）',
+    ],
+  },
   {
     version: '3.88.13',
     date: '2026-08-05',
