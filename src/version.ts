@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.88.10'
+export const APP_VERSION = '3.88.11'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.88.11',
+    date: '2026-08-05',
+    changes: [
+      'fix: 步驟圓圈（.step-dot，批量開單/評論/更新狀態/修改等多步驟流程共用）裡的數字看起來沒有置中——雖然已經用 flex align-items/justify-content 置中，但沒有明確設定 line-height，繼承瀏覽器預設值時，字型的行高上下留白不對稱，數字視覺上會偏移，且修仙版跟普通版套用不同 font-family、偏移量還不一樣。補上 line-height: 1，去除這個行高留白造成的偏移，兩個主題都會置中',
+    ],
+  },
   {
     version: '3.88.10',
     date: '2026-08-05',
