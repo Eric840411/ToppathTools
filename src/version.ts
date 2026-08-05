@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.88.12'
+export const APP_VERSION = '3.88.13'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.88.13',
+    date: '2026-08-05',
+    changes: [
+      'fix(scripted-bet): v3.88.12 修正勾選框置中時算錯參考框大小，改得更低了——全站 `* { box-sizing: border-box }`，.scripted-check 宣告的 16×16px 已經包含 1px 邊框，實際內距框（絕對定位子元素的參考框）只有 14×14px，中心點在 (7,7) 不是 (8,8)。重新算出正確座標 left: 3.5px; top: 5px',
+    ],
+  },
   {
     version: '3.88.12',
     date: '2026-08-05',
