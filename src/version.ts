@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.88.8'
+export const APP_VERSION = '3.88.9'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.88.9',
+    date: '2026-08-05',
+    changes: [
+      'fix(osm): v3.88.8 拿掉按鈕文字內容改成純 CSS 裝飾菱形，結果普通版沒有載入 xianxia-complete.css、::before 規則不生效，變成整顆按鈕空白看不到任何圖示——改回真正的文字內容（↻ 字元本身，兩個主題都吃得到），只在修仙版關閉會疊加在上面的裝飾菱形（.osm-btn--icon-only::before 移到 xianxia-complete.css），並把 ↻ 字元放大（App.css font-size 12px→16px，全域生效不分主題），解決原本字太小的問題',
+    ],
+  },
   {
     version: '3.88.8',
     date: '2026-08-05',

@@ -3245,6 +3245,7 @@
 .osm-btn--sm:disabled { opacity: 0.4; cursor: not-allowed; }
 .osm-btn--ghost { background: transparent; color: #64748b; border-color: #2d3f55; }
 .osm-btn--ghost:hover { background: #162032; color: #94a3b8; }
+.osm-btn--icon-only { padding: 3px 8px; font-size: 16px; line-height: 1; }
 
 /* ─── Scripted Bet Page ───────────────────────────────────────────── */
 .scripted-bet-page { padding: 0 0 24px; }

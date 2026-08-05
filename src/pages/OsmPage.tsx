@@ -270,7 +270,7 @@ function ChannelRow({
           disabled={loading}
           title="重新同步"
         >
-          {loading ? '…' : ''}
+          {loading ? '…' : '↻'}
         </button>
       </div>
       {!result.error && total > 0 && (

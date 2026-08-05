@@ -151,13 +151,11 @@ body::after {
   margin-right: 0;
 }
 
-/* 純圖示按鈕（內容只有裝飾菱形、沒有文字）——.osm-btn 預設的左右內距與
-   ::before 的 margin-right 都是為了搭配文字標籤保留的空間，拿掉文字後
-   這顆按鈕會變成一個裡面塞滿空白的長方形，改成貼合圖示本身的緊湊尺寸 */
-.osm-btn--icon-only {
-  padding: 4px 7px;
-}
+/* 純圖示按鈕（內容本身就是 ↻ 字元）——裝飾菱形疊在 ↻ 前面看起來像兩個
+   圖示黏在一起，這裡直接關掉裝飾菱形，只保留 ↻ 本身（尺寸調整見 App.css，
+   兩邊主題都要生效，不是只有修仙版） */
 .osm-btn--icon-only::before {
+  content: none;
   margin-right: 0;
 }
 
