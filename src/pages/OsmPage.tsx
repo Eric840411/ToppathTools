@@ -265,11 +265,12 @@ function ChannelRow({
         {result.error && <span className="osm-badge osm-badge--error">錯誤</span>}
         <button
           type="button"
-          className="osm-btn osm-btn--sm osm-btn--icon"
+          className="osm-btn osm-btn--sm"
           onClick={e => { e.stopPropagation(); onSync(result.name) }}
           disabled={loading}
+          title="重新同步"
         >
-          {loading ? '…' : '↻'}
+          {loading ? '…' : ''}
         </button>
       </div>
       {!result.error && total > 0 && (

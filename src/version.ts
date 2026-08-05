@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.88.5'
+export const APP_VERSION = '3.88.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.88.6',
+    date: '2026-08-05',
+    changes: [
+      'fix(osm): v3.88.5 修正重複圖示時選錯留哪個——改成保留 .osm-btn::before 統一的裝飾方塊圖案，移除按鈕文字內容裡的 ↻ 字元本身，拿掉上一版新增但現在用不到的 .osm-btn--icon 修飾類別',
+    ],
+  },
   {
     version: '3.88.5',
     date: '2026-08-05',
