@@ -315,7 +315,6 @@ export function OsmUatPage() {
     setLogs([])
     statusRef.current = 'running'
     setStatus('running')
-    connectSSE()   // re-establish SSE connection for the new run
     const res = await fetch('/api/osm-uat/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -331,7 +330,14 @@ export function OsmUatPage() {
       statusRef.current = 'idle'
       setStatus('idle')
       alert(`啟動失敗: ${err.error}`)
+      return
     }
+    // POST 成功後（伺服器端 session.status 這時已經是 'running'）才重新連線 SSE——
+    // 如果在 POST 之前就連線，GET /stream 開頭送出的「目前狀態」快照有機會讀到
+    // 舊 session 還沒被 POST handler 更新的狀態（例如上一輪的 done/error），把剛
+    // 設成 running 的畫面立刻蓋回去，造成「執行測試」按鈕看起來一直維持原樣、
+    // 「停止」按鈕沒有變成可按的錯覺
+    connectSSE()
   }
 
   // ── 停止測試 ────────────────────────────────────────────────────────────────

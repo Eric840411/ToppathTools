@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.88.3'
+export const APP_VERSION = '3.88.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.88.4',
+    date: '2026-08-05',
+    changes: [
+      'fix(osm-uat): 總綱試煉（UAT 整合測試）點擊「執行測試」後，按鈕沒有正確切成「執行中」外觀（執行測試維持高亮、停止一直沒亮起）——handleRun() 先呼叫 connectSSE() 重新連線，才送出 POST /api/osm-uat/run，GET /api/osm-uat/stream 開頭送出的「目前狀態」快照有機會讀到伺服器端還沒被 POST handler 更新的舊 session 狀態（例如上一輪的 done/error），把剛設成 running 的畫面立刻蓋回去；改成等 POST 成功（此時伺服器端 session.status 保證已經是 running）才連線 SSE，GET /stream 本來就會重播完整歷史 log，不會漏看任何一行',
+    ],
+  },
   {
     version: '3.88.3',
     date: '2026-08-05',
