@@ -270,7 +270,12 @@ function ChannelRow({
           disabled={loading}
           title="重新同步"
         >
-          {loading ? '…' : '↻'}
+          {loading ? '…' : (
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+              <path d="M3 12a9 9 0 0 1 15.3-6.4M21 12a9 9 0 0 1-15.3 6.4" />
+              <path d="M18 3v4h-4M6 21v-4h4" />
+            </svg>
+          )}
         </button>
       </div>
       {!result.error && total > 0 && (

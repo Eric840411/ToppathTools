@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.88.9'
+export const APP_VERSION = '3.88.10'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.88.10',
+    date: '2026-08-05',
+    changes: [
+      'fix(osm): 渠道同步重新整理按鈕在修仙版垂直位置偏下——根因是 ↻ 這個 Unicode 符號實際用哪個字型的哪個字符外框繪製，取決於瀏覽器當下的 font-family fallback 鏈；修仙版額外套用 body { font-family: Noto Sans TC/Microsoft JhengHei/PingFang TC } + font-variant-emoji: text，普通版沒有這兩條規則，兩邊選到的實際字符外框不同、內部留白高度不同，才會看起來位置不一樣。改用跟 AutoSpin 執行監控頁「重新整理」同一顆手繪 SVG 圖示（純向量線條，不吃字型渲染），兩個主題保證像素級一致，徹底解決這類字符渲染差異問題',
+    ],
+  },
   {
     version: '3.88.9',
     date: '2026-08-05',
