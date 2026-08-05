@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.88.2'
+export const APP_VERSION = '3.88.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.88.3',
+    date: '2026-08-05',
+    changes: [
+      'fix(osm-uat): 後台 UAT TC 測試腳本（run-lark-tc-backend.js）截圖上傳 Lark 一律失敗——uploadAttachment() 用的是 Node 原生全域 FormData（沒有 import form-data 套件），卻用 form-data 套件的寫法呼叫 form.append(\'file\', fileBuffer, {filename, contentType}) 直接塞 Buffer 進去（原生 FormData 只吃 Blob）+ 呼叫原生 FormData 不存在的 form.getHeaders()，從一開始就沒有真的成功上傳過（"Expected value (...) to be an instance of Blob" 報錯）。改成 new Blob([fileBuffer], {type}) 包裝後 append，並移除手動設定的 headers（原生 fetch+FormData 會自動算出正確的 multipart boundary，手動塞舊寫法的 headers 反而會蓋掉）。TC 通過/失敗判斷邏輯本身不受影響，只有附圖沒有真的寫入 Lark',
+    ],
+  },
   {
     version: '3.88.2',
     date: '2026-08-05',

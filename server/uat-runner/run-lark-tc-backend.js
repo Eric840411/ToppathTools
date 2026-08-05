@@ -117,11 +117,11 @@ async function uploadAttachment(token, filePath) {
   form.append('parent_type', 'bitable_file');
   form.append('parent_node', APP_TOKEN);
   form.append('size', String(fileBuffer.length));
-  form.append('file', fileBuffer, { filename: fileName, contentType: 'image/png' });
+  form.append('file', new Blob([fileBuffer], { type: 'image/png' }), fileName);
 
   const res = await fetch(`${LARK_BASE}/drive/v1/medias/upload_all`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, ...form.getHeaders() },
+    headers: { Authorization: `Bearer ${token}` },
     body: form,
   });
   const d = await res.json();
