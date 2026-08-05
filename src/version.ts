@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.88.1'
+export const APP_VERSION = '3.88.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.88.2',
+    date: '2026-08-05',
+    changes: [
+      'fix(jira): SheetUrlEntryStep（批量評論/更新狀態/修改 Step 1 共用元件）錯誤訊息框跟上方來源切換按鈕、下方網址輸入框+讀取按鈕之間沒有留間距，畫面貼太緊，補上 marginTop/marginBottom',
+    ],
+  },
   {
     version: '3.88.1',
     date: '2026-08-05',

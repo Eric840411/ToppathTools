@@ -39,7 +39,7 @@ export function SheetUrlEntryStep({
         {description}
       </p>
       <SheetSourceToggle value={source} onChange={onSourceChange} />
-      {error && <div className="alert-error" style={{ marginBottom: 10 }}>{error}</div>}
+      {error && <div className="alert-error" style={{ marginTop: 14, marginBottom: 14 }}>{error}</div>}
       <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
         <input
           value={url}
