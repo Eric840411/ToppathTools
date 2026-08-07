@@ -838,7 +838,15 @@ def poll_monitor_logs(page, mt: str):
     兩者合併成單一 evaluate（而不是各自掃一輪 frame），減少每次輪詢對 Playwright 的
     IPC 往返次數 —— 分開輪詢等於每 2 秒對同一個 frame 多打一次 evaluate，
     在遊戲畫面/動畫忙碌時 evaluate 排隊等待的時間會被放大，容易被誤以為是 Spin 變慢。
-    找到有訊息的 frame 就停止掃描其他 frame（pinus/console 通常都在遊戲自己的同一個 frame）。"""
+
+    ⚠️ 不能「找到有訊息的 frame 就 return 停止掃描其他 frame」——原本的假設是
+    pinus/console 訊息一定同時出現在同一個 frame，但實際上大廳 frame 也會有自己的
+    console.warn（跟遊戲 iframe 的 window.pinus 是不同 frame），只要大廳 frame 排在
+    game iframe 前面被掃到、且剛好有 console 訊息（pinus 訊息是空的），原本的邏輯就會
+    在抵達真正有 pinus 資料的 game iframe 之前提前 return，造成「console 有訊息、
+    pinus log 永久是空的」——這正是先前誤以為是「重連後遺失補丁」的真正根因（重連補丁
+    修正本身沒錯，但沒解決這個更早發生、範圍更廣的 frame 掃描 bug）。改成掃完所有
+    frame、每個 frame 各自的訊息都轉發，不再提前中斷。"""
     for frame in page.frames:
         try:
             result = frame.evaluate("""() => {
@@ -861,7 +869,6 @@ def poll_monitor_logs(page, mt: str):
             level = e.get('level', 'warn')
             text = e.get('text', '')
             log(f"[{mt}][console:{level}] {text}")
-        return  # 找到有訊息的 frame 就停止，不逐一掃完全部 frame
 
 
 def fetch_and_post_pinus_records(page, machine_type: str):

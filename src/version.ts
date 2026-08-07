@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.90.5'
+export const APP_VERSION = '3.90.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.90.6',
+    date: '2026-08-07',
+    changes: [
+      'fix(autospin): pinus 訊息監控在 poll_monitor_logs() 掃描多個 frame 時，找到第一個「有任何訊息」的 frame 就直接 return，不再繼續掃剩下的 frame——原本假設 pinus/console 訊息一定同時出現在同一個 frame，但大廳 frame 也有自己的 console.warn，遊戲的 window.pinus 卻在另一個子 iframe，只要大廳 frame 排在遊戲 iframe 前面且剛好有 console 訊息，就會在抵達真正有 pinus 資料的 frame 之前提前中斷，造成「console 有訊息、pinus log 永久是空的」。這才是真正根因，v3.90.1 修的「重連後補丁遺失」是另一個真實存在但不是唯一根因的問題。改成掃完所有 frame，不再提前 return',
+    ],
+  },
   {
     version: '3.90.5',
     date: '2026-08-07',
