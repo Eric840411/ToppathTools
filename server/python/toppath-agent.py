@@ -882,6 +882,12 @@ def poll_monitor_logs(page, mt: str):
             route = e.get('route', '')
             data = e.get('data', '')
             log(f"[{mt}][pinus:{direction}] {route} {data}")
+            # 熱更新（center update）連線切換偵測——serverUpdateNtc 是遊戲收到後台
+            # 通知「換一個 connector」時推播的 pinus push，本身就帶新的 host/port 等
+            # 結構化資料。除了併入上面一般的 [pinus:push] 那行，額外補一行明顯標記，
+            # 不用特地展開 pinus 分類篩選（預設全部收合）就能一眼看到熱更新切換時機。
+            if route == 'serverUpdateNtc':
+                log(f"[{mt}] ⚡ 偵測到熱更新（center update）連線切換：{data}")
         for e in console_entries:
             level = e.get('level', 'warn')
             text = e.get('text', '')

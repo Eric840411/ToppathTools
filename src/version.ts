@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.90.8'
+export const APP_VERSION = '3.90.9'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.90.9',
+    date: '2026-08-07',
+    changes: [
+      'feat(autospin): 新增熱更新（center update）連線切換偵測——serverUpdateNtc pinus push 事件（遊戲收到後台通知換 connector 時推播，含新 host/port）除了照常併入一般的 [pinus:push] 那行，額外補一行明顯標記「⚡ 偵測到熱更新連線切換」，不用特地展開 pinus 分類篩選（預設全部收合）就能一眼看到熱更新切換時機，方便熱更新 TC 測試對照時間點',
+    ],
+  },
   {
     version: '3.90.8',
     date: '2026-08-07',
