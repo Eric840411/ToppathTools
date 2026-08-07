@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { JiraAccountModal, accountHasRole, type AccountInfo } from '../components/JiraAccountModal'
+import { JiraAccountModal, type AccountInfo } from '../components/JiraAccountModal'
 import { useIsGameMode } from '../components/GameModeContext'
 import { fetchAuthAccount, GLOBAL_ACCOUNT_KEY } from '../authSession'
 import { XianxiaIcon } from '../components/XianxiaIcon'
@@ -8,7 +8,6 @@ import { JiraBatchCommentTab } from './JiraBatchCommentTab'
 import { JiraBatchCommentStep3 } from './JiraBatchCommentStep3'
 import { JiraBatchUpdateTab } from './JiraBatchUpdateTab'
 import { JiraBatchEditTab } from './JiraBatchEditTab'
-import { JiraPmModeTab } from './JiraPmModeTab'
 import { JiraCreateStep12 } from './JiraCreateStep12'
 import { JiraCreateStep3 } from './JiraCreateStep3'
 import { JiraCreateStep4 } from './JiraCreateStep4'
@@ -29,27 +28,6 @@ export interface TrackedIssue {
   rowIndex: number
   issueKey: string   // 已有 or 新建完成後填入
   stage: string      // 讀自 sheet 或本 session 更新後的值
-}
-
-export interface PMRecord {
-  recordId: string
-  summary: string
-  description: string
-  assigneeEmail: string
-  rdOwnerEmail: string
-  issueTypeName: string
-  jiraProjectName: string
-  parentTitle: string
-  difficulty: string
-  jiraKey: string
-  isParent: boolean
-}
-
-export interface PMResult {
-  recordId: string
-  issueKey?: string
-  summary?: string
-  error?: string
 }
 
 export interface IssueCreateResult {
@@ -252,7 +230,6 @@ export interface PreviewItem {
 
 interface JiraPageProps {
   account?: AccountInfo | null
-  allowedModes?: string[]
   isAdmin?: boolean
 }
 
@@ -476,9 +453,8 @@ export function EditUserPicker({ members, loading, value, label, onChange }: {
   )
 }
 
-export function JiraPage({ account = null, allowedModes, isAdmin = false }: JiraPageProps) {
+export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
   const isGame = useIsGameMode()
-  const [mode, setMode] = useState<'qa' | 'pm'>('qa')
   const [qaSubMode, setQaSubMode] = useState<'create' | 'comment' | 'update' | 'edit'>('create')
   const [step, setStep] = useState<Step>(1)
   const [showAccountModal, setShowAccountModal] = useState(false)
@@ -494,17 +470,6 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   const [issueTypes, setIssueTypes] = useState<{ id: string; name: string }[]>([])
   const [selectedIssueTypeId, setSelectedIssueTypeId] = useState('')
   const [projectsLoading, setProjectsLoading] = useState(false)
-
-  // PM mode state
-  const [pmStep, setPmStep] = useState<1 | 2 | 3>(1)
-  const [pmBitableUrl, setPmBitableUrl] = useState('')
-  const [pmParentKey, setPmParentKey] = useState('')
-  const [pmLoading, setPmLoading] = useState(false)
-  const [pmError, setPmError] = useState('')
-  const [pmRecords, setPmRecords] = useState<PMRecord[]>([])
-  const [pmSelectedIds, setPmSelectedIds] = useState<Set<string>>(new Set())
-  const [pmSubmitting, setPmSubmitting] = useState(false)
-  const [pmResults, setPmResults] = useState<PMResult[]>([])
 
   // Step 2
   const [sheetSource, setSheetSource] = useState<SheetSource>('lark')
@@ -1196,11 +1161,6 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     setMembers([]); setProjects([]); setIssueTypes([])
     setSelectedProjectId(''); setSelectedIssueTypeId('')
     fetchProjects(acc.email)
-    // 若目前 mode 不在帳號的允許範圍，自動切換
-    setMode(prev => {
-      if (accountHasRole(acc, prev)) return prev
-      return accountHasRole(acc, 'qa') ? 'qa' : 'pm'
-    })
   }
 
   // ── Step 2: 讀 Sheet ──
@@ -2220,7 +2180,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
     }
   }
 
-  /** QA / PM 使用不同 Sheet 模板，切換模式或「重新開始」時需清空所有流程狀態（保留已登入帳號）。 */
+  /** 「重新開始」時需清空所有流程狀態（保留已登入帳號）。 */
   const clearWorkflowState = useCallback(() => {
     setStep(1)
     setCreateResults([]); setCommentResults([]); setTransitionResults([])
@@ -2240,51 +2200,6 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
 
   const handleReset = () => {
     clearWorkflowState()
-  }
-
-  // ── PM Mode handlers ──
-  const handlePmFetchBitable = async () => {
-    if (!pmBitableUrl.trim()) return
-    setPmLoading(true); setPmError(''); setPmRecords([])
-    try {
-      const resp = await fetch('/api/jira/pm-read-bitable', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bitableUrl: pmBitableUrl.trim() }),
-      })
-      const data = await resp.json() as { ok: boolean; records?: PMRecord[]; message?: string }
-      if (!data.ok) { setPmError(data.message ?? '讀取失敗'); return }
-      setPmRecords(data.records ?? [])
-      setPmSelectedIds(new Set((data.records ?? []).map(r => r.recordId)))
-      setPmStep(2)
-    } catch { setPmError('網路錯誤') }
-    finally { setPmLoading(false) }
-  }
-
-  const handlePmCreate = async () => {
-    if (!currentAccount || pmSelectedIds.size === 0) return
-    setPmSubmitting(true); setPmResults([]); setPmError('')
-    try {
-      const resp = await fetch('/api/jira/pm-batch-create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-jira-email': currentAccount.email },
-        body: JSON.stringify({
-          bitableUrl: pmBitableUrl.trim(),
-          parentIssueKey: pmParentKey.trim() || undefined,
-          recordIds: Array.from(pmSelectedIds),
-        }),
-      })
-      const data = await resp.json() as { ok: boolean; results?: PMResult[]; message?: string }
-      if (!data.ok) { setPmError(data.message ?? '開單失敗'); return }
-      setPmResults(data.results ?? [])
-      setPmStep(3)
-    } catch { setPmError('網路錯誤') }
-    finally { setPmSubmitting(false) }
-  }
-
-  const handlePmReset = () => {
-    setPmStep(1); setPmBitableUrl(''); setPmParentKey(''); setPmRecords([])
-    setPmSelectedIds(new Set()); setPmResults([]); setPmError('')
   }
 
   // ── Comment Tab handler ──
@@ -2919,7 +2834,6 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
   // 換了新 Sheet（在其他分頁重新讀取過），切回已經自動讀過的分頁還是會再自動讀
   // 一次最新的（Codex code review 建議修正）。
   useEffect(() => {
-    if (mode !== 'qa') return
     if (!lastSheetUrl.trim()) return
     const comboKey = `${lastSheetUrl}::${lastSheetSource}`
     if (autoLoadedSubModes.current.get(qaSubMode) === comboKey) return
@@ -2939,67 +2853,41 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       setSheetSource(lastSheetSource); setSheetUrl(lastSheetUrl)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [qaSubMode, mode, lastSheetUrl, lastSheetSource])
+  }, [qaSubMode, lastSheetUrl, lastSheetSource])
 
   return (
     <div className="page-layout">
-      {/* Mode toggle */}
-      <div className="mode-toggle">
-        {(['qa', 'pm'] as const).map(m => {
-          const allowed = allowedModes ? allowedModes.includes(m) : accountHasRole(currentAccount, m)
-          const label = m === 'qa' ? 'QA 模式' : 'PM 模式'
-          return (
-            <button
-              key={m}
-              type="button"
-              disabled={!allowed}
-              title={!allowed ? `目前帳號沒有此模式權限` : undefined}
-              onClick={() => {
-                if (m === mode || !allowed) return
-                setMode(m)
-                clearWorkflowState()
-              }}
-              className={`mode-toggle-btn${mode === m ? ' active' : ''}`}
-            >
-              {label}
-            </button>
-          )
-        })}
-      </div>
-
       {/* QA sub-tabs */}
-      {mode === 'qa' && (
-        <div style={{ display: 'flex', gap: 8, padding: '6px 0 2px', flexWrap: 'wrap' }}>
-          {(['create', 'comment', 'update', 'edit'] as const).map(sub => (
-            <button
-              key={sub}
-              type="button"
-              onClick={() => { setQaSubMode(sub); if (sub === 'create' && step >= 5) setStep(1) }}
-              style={{
-                padding: '5px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                border: `1px solid ${qaSubMode === sub ? '#3b82f6' : '#2d3f55'}`,
-                background: qaSubMode === sub ? '#1e3a5f' : 'transparent',
-                color: qaSubMode === sub ? '#93c5fd' : '#64748b',
-              }}
-            >
-              {sub === 'create' ? '批量開單' : sub === 'comment' ? '批量評論' : sub === 'update' ? '批量更新狀態' : '批量修改'}
-            </button>
-          ))}
-        </div>
-      )}
+      <div style={{ display: 'flex', gap: 8, padding: '6px 0 2px', flexWrap: 'wrap' }}>
+        {(['create', 'comment', 'update', 'edit'] as const).map(sub => (
+          <button
+            key={sub}
+            type="button"
+            onClick={() => { setQaSubMode(sub); if (sub === 'create' && step >= 5) setStep(1) }}
+            style={{
+              padding: '5px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              border: `1px solid ${qaSubMode === sub ? '#3b82f6' : '#2d3f55'}`,
+              background: qaSubMode === sub ? '#1e3a5f' : 'transparent',
+              color: qaSubMode === sub ? '#93c5fd' : '#64748b',
+            }}
+          >
+            {sub === 'create' ? '批量開單' : sub === 'comment' ? '批量評論' : sub === 'update' ? '批量更新狀態' : '批量修改'}
+          </button>
+        ))}
+      </div>
 
       {/* Top bar */}
       <div className="page-topbar">
         <div className="step-indicator">
-          {mode === 'qa' && qaSubMode === 'create'
+          {qaSubMode === 'create'
             ? ([1, 2, 3, 4] as Step[]).map(s => <StepDot key={s} s={s} />)
-            : mode === 'qa' && qaSubMode === 'comment'
+            : qaSubMode === 'comment'
               ? ([1, 2, 3] as const).map(s => (
                   <span key={s} className={`step-dot${commentTabStep === s ? ' active' : commentTabStep > s ? ' done' : ''}`}>
                     {commentTabStep > s ? '通過' : s}
                   </span>
                 ))
-            : mode === 'qa' && qaSubMode === 'edit'
+            : qaSubMode === 'edit'
               ? ([1, 2, 3, 4] as const).map(s => (
                   <span key={s} className={`step-dot${editTabStep === s ? ' active' : editTabStep > s ? ' done' : ''}`}>
                     {editTabStep > s ? '通過' : s}
@@ -3007,19 +2895,18 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
                 ))
             : ([1, 2, 3] as const).map(s => (
                 <span key={s} className={`step-dot${
-                  (mode === 'pm' ? pmStep : updateStep) === s ? ' active' :
-                  (mode === 'pm' ? pmStep : updateStep) > s ? ' done' : ''}`}>
-                  {(mode === 'pm' ? pmStep : updateStep) > s ? '通過' : s}
+                  updateStep === s ? ' active' :
+                  updateStep > s ? ' done' : ''}`}>
+                  {updateStep > s ? '通過' : s}
                 </span>
               ))
           }
           <span className="step-label">
-            {mode === 'qa' && qaSubMode === 'create' ? (STEP_LABELS[step] ?? '')
-              : mode === 'qa' && qaSubMode === 'comment'
+            {qaSubMode === 'create' ? (STEP_LABELS[step] ?? '')
+              : qaSubMode === 'comment'
                 ? ({ 1: '讀取表格', 2: '選擇單子', 3: '設定評論' } as Record<number, string>)[commentTabStep]
-              : mode === 'qa' && qaSubMode === 'edit'
+              : qaSubMode === 'edit'
                 ? ({ 1: '讀取表格', 2: '選擇單子', 3: '設定欄位', 4: '修改結果' } as Record<number, string>)[editTabStep]
-              : mode === 'pm' ? ({ 1: '讀取表格', 2: '確認清單', 3: '開單結果' } as Record<number, string>)[pmStep]
               : ({ 1: '讀取表格', 2: '設定帳號 & 動作', 3: '執行結果' } as Record<number, string>)[updateStep]}
           </span>
         </div>
@@ -3032,32 +2919,8 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
         </div>
       </div>
 
-      {/* ── PM Mode ── */}
-      {mode === 'pm' && (
-        <JiraPmModeTab
-          pmStep={pmStep}
-          setPmStep={setPmStep}
-          pmBitableUrl={pmBitableUrl}
-          setPmBitableUrl={setPmBitableUrl}
-          pmParentKey={pmParentKey}
-          setPmParentKey={setPmParentKey}
-          pmError={pmError}
-          setPmError={setPmError}
-          pmLoading={pmLoading}
-          handlePmFetchBitable={handlePmFetchBitable}
-          currentAccount={currentAccount}
-          pmRecords={pmRecords}
-          pmSelectedIds={pmSelectedIds}
-          setPmSelectedIds={setPmSelectedIds}
-          pmSubmitting={pmSubmitting}
-          handlePmCreate={handlePmCreate}
-          pmResults={pmResults}
-          handlePmReset={handlePmReset}
-        />
-      )}
-
       {/* ── Update Mode (inside QA) ── */}
-      {mode === 'qa' && qaSubMode === 'update' && (
+      {qaSubMode === 'update' && (
         <JiraBatchUpdateTab
           updateStep={updateStep}
           setUpdateStep={setUpdateStep}
@@ -3100,7 +2963,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       )}
 
       {/* ── QA Mode — 批量開單 ── */}
-      {mode === 'qa' && qaSubMode === 'create' && (
+      {qaSubMode === 'create' && (
       <>
 
       <JiraCreateStep12
@@ -3244,7 +3107,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       )}
 
       {/* ── Comment Tab: 批量評論（standalone 入口） ── */}
-      {mode === 'qa' && qaSubMode === 'comment' && (commentTabStep === 1 || commentTabStep === 2) && (
+      {qaSubMode === 'comment' && (commentTabStep === 1 || commentTabStep === 2) && (
         <JiraBatchCommentTab
           commentTabStep={commentTabStep}
           commentTabSource={commentTabSource}
@@ -3273,7 +3136,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       )}
 
       {/* ── Step 5: 添加評論 ── */}
-      {(mode === 'qa' && qaSubMode === 'comment' && commentTabStep === 3) && (
+      {(qaSubMode === 'comment' && commentTabStep === 3) && (
         <JiraBatchCommentStep3
           toComment={toComment}
           commentTabLoading={commentTabLoading}
@@ -3325,7 +3188,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       )}
 
       {/* ── Step 6: 切換狀態 ── */}
-      {false && mode === 'qa' && qaSubMode === 'create' && step === 6 && (
+      {false && qaSubMode === 'create' && step === 6 && (
         <div className="section-card">
           <h2 className="section-title">Step 6 — 切換狀態（{toTransition.length} 筆）</h2>
 
@@ -3414,7 +3277,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       )}
 
       {/* ── Edit Tab: 批量修改 ── */}
-      {mode === 'qa' && qaSubMode === 'edit' && (
+      {qaSubMode === 'edit' && (
         <JiraBatchEditTab
           editTabStep={editTabStep}
           setEditTabStep={setEditTabStep}
@@ -3475,7 +3338,7 @@ export function JiraPage({ account = null, allowedModes, isAdmin = false }: Jira
       )}
 
       {/* ── 待補回寫面板（persistent，有 pending/failed 才顯示觸發按鈕）── */}
-      {mode === 'qa' && qaSubMode === 'create' && (
+      {qaSubMode === 'create' && (
         <div style={{ marginTop: 16 }}>
           {/* Collapsed trigger — low-profile unless there are pending records */}
           {!showPendingPanel && !reconcileOpen && (

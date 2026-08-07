@@ -434,7 +434,6 @@ function shouldQueueRequest(path: string, method: string): boolean {
   if (path === '/api/jira/batch-create') return true
   if (path === '/api/jira/batch-comment') return true
   if (path === '/api/jira/batch-transition') return true
-  if (path === '/api/jira/pm-batch-create') return true
   return false
 }
 

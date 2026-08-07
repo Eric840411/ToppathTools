@@ -143,6 +143,8 @@ Keep Claude for:
 ### 功能說明
 從 Lark Bitable 讀取規格，批量在 Jira 建立 Issue、批量添加評論、批量轉換狀態。
 
+**PM 模式已移除**：原本的 QA/PM 雙模式切換（`mode` state）與 PM 模式專屬的「從 Lark PM 規格自動建立 Epic + Story」流程（`JiraPmModeTab.tsx`、後端 `/api/jira/pm-read-bitable`、`/api/jira/pm-batch-create`）已整個拿掉，現在只保留 4 大批量工具（開單/評論/更新狀態/修改）。帳號管理（`JiraAccountModal.tsx` 的 `role` 欄位/`accountHasRole()`）與全域權限系統（`permissions` 的 `jira-pm` key、`SystemAdminPage.tsx` 的「Jira 批量開單（PM 模式）」權限項）刻意保留未動，供未來若要重新加回類似功能時使用，目前純粹是未使用的殘留權限位。
+
 ### 使用者操作
 | 操作 | 說明 |
 |------|------|
@@ -150,7 +152,6 @@ Keep Claude for:
 | 批次開單（Step 1–5） | 讀取 Lark Bitable → 選專案/Issue Type → 預覽清單（含欄位篩選）→ 確認執行 → 進度追蹤（前端逐筆呼叫 `/api/jira/batch-create`，每筆回應後累加進度條；不是 SSE，跟批量評論不同）|
 | Step 3 欄位篩選 | 自動偵測下拉式選單欄位（2–15 個唯一值），可按嚴重度/類別/進度等篩選後再勾選列 |
 | Step 3 動態欄位開單 | 載入 Jira 專案實際欄位；摘要/描述/受託人/RD負責人/回報人 為強制必填並自動顯示，未填擋下送出；可從 Lark 自動帶入這些欄位值，其餘選填欄位可手動新增 |
-| PM 批次開單 | 從 Lark 讀取 PM 規格，自動建立 Epic + Story |
 | 批次評論 | 對多筆 Issue 批量加入 AI 生成的評論內容 |
 | 批次轉換狀態 | 選擇 Issue 清單 + 目標狀態，批量執行 Jira transition；完成後回填處理階段「已切換狀態」|
 | 批量評論（獨立 Tab） | 貼入 Lark Sheet 或 Google Sheets URL（可切換），自動偵測 Issue Key 列，不需經過開單流程直接批量加評論 |
@@ -492,7 +493,7 @@ Keep Claude for:
 ### 記錄的操作（feature key → 觸發來源）
 | Feature Key | 觸發來源 |
 |-------------|---------|
-| `jira` | Jira PM 批次開單 |
+| `jira` | Jira 批次開單 |
 | `jira-comment` | Jira 批次評論 |
 | `jira-edit` | Jira 批量修改欄位 |
 | `testcase` | TestCase 生成（Lark / PDF / Google Docs）|

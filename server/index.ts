@@ -113,7 +113,6 @@ function shouldProxyPathToWorker(p: string): boolean {
   if (p === '/api/jira/batch-create') return true
   if (p === '/api/jira/batch-comment') return true
   if (p === '/api/jira/batch-transition') return true
-  if (p === '/api/jira/pm-batch-create') return true
   if (p === '/api/jira/batch-comment/stream') return true
   if (p.startsWith('/api/jira/batch-comment/status/')) return true
   return false

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.88.14'
+export const APP_VERSION = '3.90.0'
 
 export interface ChangelogEntry {
   version: string
@@ -8,10 +8,38 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    version: '3.88.14',
-    date: '2026-08-05',
+    version: '3.90.0',
+    date: '2026-08-07',
     changes: [
-      'fix(machine-test): 機台自動化測試「日誌 API 環境」QAT/PROD radio 選項，目前選中的那顆會顯示一圈瀏覽器原生 focus 外框，看起來像多了一塊底色——補上 outline: none 移除（不確定是不是唯一根因，若使用者回報還在請再確認）',
+      'refactor(jira): 移除 Jira 批量開單頁的 PM 模式——原本 QA/PM 雙模式切換與 PM 模式專屬「從 Lark PM 規格自動建立 Epic + Story」流程（前端 JiraPmModeTab.tsx、後端 /api/jira/pm-read-bitable + /api/jira/pm-batch-create）整個拿掉，現在只保留 4 大批量工具（開單/評論/更新狀態/修改）。帳號管理的 role 欄位（qa/pm）與全域權限系統的 jira-pm 權限位刻意保留未動，供未來若要重新加回類似功能時使用',
+    ],
+  },
+  {
+    version: '3.89.3',
+    date: '2026-08-07',
+    changes: [
+      'fix(uat-runner): MANUAL/SKIP的TC不再上傳截圖到Lark附圖欄位——這類TC本來就無法從後台單方面驗證(需前端/硬體才能確認)，留著後台截圖反而讓人誤以為有留下驗證證據；同時修正updateRecord()改成一律先清空附圖(不只在有新圖時才清)，確保這類TC上一版本殘留的舊截圖也會在下次執行時被清掉，不會清不掉；真正的FAIL(非MANUAL/SKIP、單次沒截到圖，例如navigation timeout)則不主動清空，保留前一次可能仍有效的驗證證據',
+    ],
+  },
+  {
+    version: '3.89.2',
+    date: '2026-08-06',
+    changes: [
+      'fix(uat-runner): 逐筆審視「TC Registry」機制標記出的5筆重大drift TC時，發現Daily Ranking「Bonus settings可以正常設置」的doBonusSettings()有真實bug——新版表格(細分ALL/CP/BP後)是Start Ranking/End Ranking/Bonus三欄一組，原本邏輯對每個偵測到的input一律click+fill，遇到disabled的唯讀欄位會卡住逾時30秒；修好disabled偵測後，又發現Start/End Ranking兩欄有跨欄位驗證「start必須<=end」，原本對每欄各自填獨立隨機值容易產生無效組合、被後台悄悄拒絕(Save後無toast，實際是表單驗證錯誤但先前完全沒偵測)。最終修法：只修改Bonus欄位本身、Ranking等其他欄位保留原值不動，並新增錯誤訊息/表單驗證錯誤偵測，讓「Save後無toast」不再是無法追查原因的黑盒子；Game Record「可導出Excel表(沒有千分位)」、Player Credit Log「如果跟Egm Detail不同是正常的...AFT問題」補上note誠實記錄TC文字補充說明的內容與驗證範圍界線；5筆drift TC的registry快照已刷新為新表(UAT PASS/FAIL雙欄位表)的最新文字版本',
+    ],
+  },
+  {
+    version: '3.89.1',
+    date: '2026-08-06',
+    changes: [
+      'fix(uat-runner): 修正tc-match-lib.cjs讀取APP_TOKEN/TABLE_ID時沒吃到LARK_APP_TOKEN/LARK_TABLE_ID環境變數覆蓋（regex只抓得到程式碼裡`process.env.X || \'預設值\'`的字串fallback部分），導致覆蓋率檢查工具不管有沒有指定非預設Lark表，永遠都在檢查正式表；補上EGM Status「kickout功能需正常」MANUAL偵測規則因TC文字內有實際換行、原本用.*漏配的bug（改用[\\s\\S]*跨行匹配）；Advert Set「每個渠道獨立設置」regex放寬吸收「每個主渠道獨立設置」新寫法，並在note文字誠實區分兩種寫法語意可能不同（未驗證是否真限定主渠道）；覆蓋率檢查工具新增「main()特判分支處理」分類，修正積分VIP（走main()獨立REWARD_POINTS_MAP分支、不經過SUBTYPE_MAP）被誤報成「無verifier對照」的問題',
+    ],
+  },
+  {
+    version: '3.89.0',
+    date: '2026-08-06',
+    changes: [
+      'feat(uat-runner): OSM 後台 UAT TC 自動化腳本新增「TC Registry」穩定比對層——過去verifier內部直接用regex比對Lark即時抓到的TC文字挑分支，文字只要被PM/QA潤飾幾個字regex就會默默失效（同一天內已發生3次真實案例）。新增以record_id（天然穩定、TC沒被整筆刪除重建就不會變）為key的凍結文字快照(tc-registry.json)，執行時優先用凍結版文字跑regex比對；文字僅小幅潤飾（trigram相似度>=0.75）會自動吸收改用凍結版，不影響判定邏輯；相似度過低（疑似意圖真的變了）則不自動吸收，照舊用即時文字（可能對不到規則，變成可見的缺口，而非靜默用舊意圖誤判新測試）。新增 build-tc-registry.cjs（建立/人工確認後刷新快照）、tc-match-lib.cjs（比對邏輯共用lib，避免check-tc-coverage.cjs跟runtime各自維護一份導致邏輯分歧）；check-tc-coverage.cjs 同步擴充 registry drift 偵測報告。現有~30個verifier函式邏輯完全未變動，只有main()內2處呼叫改用解析後的有效文字。',
     ],
   },
   {

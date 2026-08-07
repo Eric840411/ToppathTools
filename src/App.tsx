@@ -481,14 +481,6 @@ function App() {
     return permissions.includes(tabId)
   }
 
-  const allowedJiraModes = globalAccount?.role === 'admin'
-    ? ['qa', 'pm', 'jira-update']
-    : [
-        ...(permissions.includes('jira-qa') ? ['qa'] : []),
-        ...(permissions.includes('jira-pm') ? ['pm'] : []),
-        ...(permissions.includes('jira-update') ? ['jira-update'] : []),
-      ]
-
   function filterGroup(g: Group): Group | null {
     if (g.tab) return canAccess(g.tab) ? g : null
     if (g.subtabs) {
@@ -841,7 +833,7 @@ function App() {
         ) : (
           <main className="main-content">
             {currentGroup?.id === 'dashboard' && <DashboardPage themeMode={themeMode} />}
-            {currentGroup?.id === 'jira' && <JiraPage account={globalAccount} allowedModes={allowedJiraModes} isAdmin={globalAccount?.role === 'admin'} />}
+            {currentGroup?.id === 'jira' && <JiraPage account={globalAccount} isAdmin={globalAccount?.role === 'admin'} />}
             {currentGroup?.id === 'lark' && <LarkPage themeMode={themeMode} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm' && <OsmPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'machinetest' && <MachineTestPage account={globalAccount} />}
