@@ -683,7 +683,7 @@ body::after {
 .auth-login-secondary,
 .discord-notify-btn--secondary,
 .cr-btn:not(.cr-btn--jade):not(.cr-btn--cinnabar):not(.cr-btn--gold),
-.cr-pill:not(.cr-pill--active),
+.cr-pill:not(.cr-pill--active):not(.cr-pill--active-soft),
 .auth-login-tab {
   border: 1px solid rgba(214, 183, 112, .24) !important;
   border-radius: 4px !important;

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.90.2'
+export const APP_VERSION = '3.90.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,20 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.90.4',
+    date: '2026-08-07',
+    changes: [
+      'fix(autospin): v3.90.2 修正按鈕狀態對比度時漏掉一個變體——.cr-pill 選中狀態實際用了兩種修飾 class（.cr-pill--active 給日誌分類篩選、.cr-pill--active-soft 給 pinus 分類篩選），上一版 :not() 只排除了前者，pinus 分類篩選 pill 選中時還是被蓋掉沒有高亮。補上 .cr-pill--active-soft',
+    ],
+  },
+  {
+    version: '3.90.3',
+    date: '2026-08-07',
+    changes: [
+      'fix(uat-runner): Daily Ranking「每5分鐘更新」TC3(5分鐘後回查Bonus欄位是否真的更新)使用者明確決定：新表(獨立UAT PASS/FAIL兩checkbox)等滿5分鐘後若沒偵測到欄位變動，直接標記FAIL，不再留白等人工複核——production script(單一UAT測試checkbox，無獨立FAIL欄位可標)維持原樣不受影響',
+    ],
+  },
   {
     version: '3.90.2',
     date: '2026-08-07',
