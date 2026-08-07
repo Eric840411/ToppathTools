@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.90.1'
+export const APP_VERSION = '3.90.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.90.2',
+    date: '2026-08-07',
+    changes: [
+      'fix(autospin): 派工啟動後畫面短暫顯示啟動中、又立刻跳回派工啟動——handleDispatchAgent() 原本自己另開一個 2 秒輪詢計時器偵測 running，跟頁面本來就有的全域 4 秒輪詢（fetchStatus()）互相競態：兩個計時器都會設 agentRunning，先設 true 的那個之後，另一個用比較舊的資料把它蓋回 false，畫面就會閃一下又跳回去。拿掉重複的計時器，改成 agentRunning 一變 true 就用 useEffect 收掉「派工中…」狀態，只留單一輪詢來源',
+      'fix(autospin): 修仙版下「派工啟動」「停止」「暫停」按鈕與日誌分類篩選 pill 的啟用/選中狀態對比度太弱、看不出來有沒有選到——.cr-btn/.cr-pill 有一條全站共用的「預設樣式」規則用了 !important，優先權跟 .cr-btn--jade/--cinnabar/--gold/.cr-pill--active 這些「實際狀態顏色」規則相同，只看誰在 CSS 檔案裡寫在後面就贏，剛好把這些狀態色蓋掉、全部變成同一種暗灰色。改成用 :not() 排除這些狀態 class，讓狀態顏色規則不再被蓋掉',
+    ],
+  },
   {
     version: '3.90.1',
     date: '2026-08-07',

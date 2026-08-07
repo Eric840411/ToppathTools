@@ -579,6 +579,12 @@ export function AutoSpinPage() {
     } catch { setHubAgents([]) }
   }, [])
 
+  // agentRunning 一變 true（由 fetchStatus() 全域輪詢偵測到）就收掉「派工中…」，
+  // 不用 handleDispatchAgent 自己另開一個輪詢計時器去追（見下方註解，避免競態）
+  useEffect(() => {
+    if (agentRunning) setHubDispatching(false)
+  }, [agentRunning])
+
   const handleDispatchAgent = async () => {
     setStartError(''); setAgentLogs([]); setAgentCaptures([]); setLuckylinkStatus(null)
     setHubDispatching(true)
@@ -595,21 +601,13 @@ export function AutoSpinPage() {
       })
       const d = await r.json() as { ok: boolean; message?: string }
       if (!d.ok) { setStartError(d.message ?? '派工失敗'); setHubDispatching(false); return }
-      // Agent 收到後會 spawn Python 引擎並向伺服器註冊 session；輪詢 status 取得 session 後接 SSE
-      const timer = setInterval(async () => {
-        const sr = await fetch('/api/autospin/agent/status', { headers: { 'x-user-label': getGlobalUserLabel() } })
-        const sd = await sr.json() as { running: boolean; sessionId: string | null }
-        if (sd.running && sd.sessionId) {
-          agentSessionIdRef.current = sd.sessionId
-          setAgentRunning(true)
-          setAgentSessionId(sd.sessionId)
-          connectSSE(sd.sessionId, true)
-          if (!captureTimerRef.current) captureTimerRef.current = setInterval(() => fetchAgentCaptures(sd.sessionId!), 5000)
-          setHubDispatching(false)
-          clearInterval(timer)
-        }
-      }, 2000)
-      setTimeout(() => { clearInterval(timer); setHubDispatching(false) }, 90000)
+      // Agent 收到後會 spawn Python 引擎並向伺服器註冊 session；偵測 running 交給下方
+      // fetchStatus() 那顆全域輪詢（每 4 秒，本來就會做一樣的事：偵測 running/sessionId、
+      // 接 SSE、開 capture timer），這裡不再另外開一個 2 秒輪詢——兩個計時器同時搶著設
+      // agentRunning，先跑完的那個設 true 之後，比它晚一點點解析完的另一個可能用比較舊的
+      // 資料把它蓋回 false，畫面上會看到「剛顯示啟動中，立刻又跳回派工啟動」的閃爍。
+      // hubDispatching 改成交給下方 useEffect，agentRunning 一變 true 就自動收掉。
+      setTimeout(() => setHubDispatching(false), 90000)
     } catch (e) {
       setStartError('派工失敗：' + String(e))
       setHubDispatching(false)
