@@ -556,6 +556,23 @@ def dismiss_denom_overlay(page, mt: str = '') -> bool:
     return False
 
 
+def dismiss_jackpot_notification(page, mt: str = '') -> bool:
+    """偵測並點掉 Jackpot 中獎通知彈窗（.notification-close 關閉鈕，例如「WIN THE JACKPOT」
+    彈窗，顯示中獎機台/帳號資訊，蓋住畫面含 Spin 按鈕）。這個彈窗可能在任何時候彈出（不只
+    是進場時），跟選面額遮罩一樣需要每次 Spin 前主動偵測，不能只靠點擊失敗時的例外處理。"""
+    for frame in page.frames:
+        try:
+            btn = frame.locator('.notification-close').first
+            if btn.count() > 0:
+                log(f"[{mt}] 偵測到 Jackpot 中獎通知彈窗，點擊關閉...")
+                btn.evaluate("el => el.click()")
+                time.sleep(0.5)
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def enter_game(page, cfg: dict) -> bool:
     """從大廳進入指定遊戲，對應 AutoSpin.py scroll_and_click_game()。
     每個步驟都印出開始/結束與耗時，方便追蹤整段進入流程實際花的時間。"""
@@ -1026,9 +1043,11 @@ def do_spin(page, cfg: dict):
     spin_sel_cfg = cfg.get('spinSelector') or ''
     mt = cfg.get('machineType', '')
 
-    # Spin 按鈕若被「選面額遮罩」蓋住，先點掉遮罩再找 Spin 按鈕——這種遮罩點擊不會拋例外，
-    # 只是遊戲完全沒反應，所以要主動偵測，不能只靠 native click 失敗時的例外處理。
+    # Spin 按鈕若被「選面額遮罩」或「Jackpot 中獎通知彈窗」蓋住，先點掉再找 Spin 按鈕——
+    # 這兩種疊層點擊都不會拋例外，只是遊戲完全沒反應，所以要主動偵測，不能只靠 native click
+    # 失敗時的例外處理。
     dismiss_denom_overlay(page, mt)
+    dismiss_jackpot_notification(page, mt)
 
     sel, btn = find_spin_button(page, spin_sel_cfg)
     if not btn:

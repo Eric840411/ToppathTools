@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.90.7'
+export const APP_VERSION = '3.90.8'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.90.8',
+    date: '2026-08-07',
+    changes: [
+      'feat(autospin): 新增自動點掉 Jackpot 中獎通知彈窗（.notification-close 關閉鈕，例如「WIN THE JACKPOT」彈窗顯示中獎機台/帳號資訊）——這個彈窗會蓋住畫面含 Spin 按鈕，且可能在任何時候彈出，比照既有的選面額遮罩處理方式，每次 Spin 前都主動偵測並點擊關閉，不用等點擊失敗才處理。目前只加在 AutoSpin（長時間連續執行，較容易遇到），Machine Test 的 Spin 測試步驟較短暫未同步加入',
+    ],
+  },
   {
     version: '3.90.7',
     date: '2026-08-07',
