@@ -1,6 +1,20 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { UrlPoolPickerModal } from '../components/UrlPoolPickerModal'
 
+/** 下載完整執行日誌（不受目前的搜尋/分類篩選影響，永遠是全部原始內容）——
+ * 先前使用者只能手動選取複製，長日誌貼進 Discord 會被截斷成 message.txt
+ * 附件，格式跟排版都會跑掉，不方便拿來對照時間軸。 */
+function downloadExecutionLog(lines: string[]) {
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  const ts = new Date().toISOString().replace(/[:.]/g, '-')
+  a.download = `autospin-log_${ts}.txt`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 interface AutospinConfig {
@@ -1531,6 +1545,10 @@ export function AutoSpinPage() {
                         style={{ fontSize: 11, padding: '3px 9px', borderRadius: 5, border: '1px solid #2d3f55', cursor: 'pointer',
                           background: autoScrollLog ? 'var(--cr-cyan-soft)' : '#0f172a', color: autoScrollLog ? 'var(--cr-cyan)' : '#94a3b8' }}>
                         自動捲到底
+                      </button>
+                      <button className="cr-pill" onClick={() => downloadExecutionLog(rawLogs)}
+                        style={{ fontSize: 11, padding: '3px 9px', borderRadius: 5, border: '1px solid #2d3f55', background: '#0f172a', color: '#94a3b8', cursor: 'pointer' }}>
+                        下載
                       </button>
                       <button className="cr-pill" onClick={() => (runMode === 'server' ? setLogs([]) : setAgentLogs([]))}
                         style={{ fontSize: 11, padding: '3px 9px', borderRadius: 5, border: '1px solid #2d3f55', background: '#0f172a', color: '#94a3b8', cursor: 'pointer' }}>

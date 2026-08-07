@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.90.9'
+export const APP_VERSION = '3.90.10'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.90.10',
+    date: '2026-08-07',
+    changes: [
+      'feat(autospin): 執行日誌新增「下載」按鈕，一鍵下載完整原始日誌成 .txt 檔案——先前只能手動選取複製，長日誌貼到 Discord 會被自動截斷成 message.txt 附件，格式跟時間範圍都不方便對照。下載內容是完整未篩選的全部日誌（不受目前搜尋/分類篩選影響）',
+    ],
+  },
   {
     version: '3.90.9',
     date: '2026-08-07',
