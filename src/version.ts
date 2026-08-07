@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.90.13'
+export const APP_VERSION = '3.90.14'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.90.14',
+    date: '2026-08-07',
+    changes: [
+      'fix(autospin): v3.90.12 的「WS open 事件 + 30ms 輪詢搶時機」補丁實測仍會漏接 moneyNtc——用真實日誌驗證：熱更新（serverUpdateNtc）發生的同一秒，moneyNtc 就此完全消失、之後每次 Spin 全部 timeout_8s，證實事件驅動/輪詢這類非同步觸發，天生贏不了「遊戲建立新 pinus 物件後在同一個 tick 內同步呼叫 .on(\'moneyNtc\', ...)」這種情境，本質是在跟同步程式碼賽跑，永遠有機會賽輸。改用 patchMethod()：沿 prototype chain 找到「實際定義 .on()/.request() 的物件」直接補在那裡，而不是補在 instance 上——使用者 DevTools 截圖證實新 pinus 物件是 Object.create(EventEmitter.prototype) 建立的，同一個 prototype 物件會被之後每次 center update/斷線重連的新 instance 共用，.on() 幾乎必然定義在 prototype 上，只要補丁生效過一次就永久有效，之後所有重連建立的新 instance 自動繼承補丁版本，不再需要重新賽跑時機，徹底消除 race condition（.request() 若是 instance-level 則 fallback 回舊行為，靠輪詢/WS事件在每次重連後重新補一次，跟目前已知情況一致，且風險較低——request 是「發送後等回應」，沒有 on() 這種一次性註冊視窗問題）',
+    ],
+  },
   {
     version: '3.90.13',
     date: '2026-08-07',

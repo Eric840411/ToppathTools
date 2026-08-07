@@ -339,58 +339,89 @@ TOPPATH_MONITOR_SCRIPT = r"""
   window.WebSocket = PatchedWS;
 
   // Hook window.pinus.request / .on — coin 追蹤 + 完整訊息記錄（監控用）
+  //
+  // v3.90.12 靠「WS open 事件 + 30ms 輪詢」搶在遊戲註冊監聽器之前補丁，實測仍會漏：
+  // 如果遊戲是「建立新 pinus 物件 → 同一個 tick 內就呼叫 .on('moneyNtc', ...)」，
+  // 兩者是同步執行的，任何事件驅動/輪詢都是非同步觸發，天生就贏不了同一個 tick 內的
+  // 同步呼叫，moneyNtc 監聽器永遠註冊在補丁生效之前，重連後就此收不到（已用
+  // 2026-08-07 v3.90.12 實測日誌驗證：moneyNtc 在 serverUpdateNtc 熱更新那一刻後
+  // 完全消失，之後每次 Spin 全部 timeout_8s）。
+  //
+  // 真正解法：不要補在「instance」上，改補在「prototype」上。使用者 DevTools 截圖
+  // 證實新 pinus 物件是用 `Object.create(EventEmitter.prototype)` 建立的——同一個
+  // prototype 物件會被之後每一次 center update/斷線重連建立的新 instance 共用。
+  // .on() 這種方法幾乎必然定義在 prototype 上（EventEmitter 模式的通例，不會每個
+  // instance 各自覆寫一份），只要找到「實際定義這個方法的物件」（沿 prototype chain
+  // 往上找 hasOwnProperty），直接在那裡補一次，之後所有共用這個 prototype 的新
+  // instance 自動繼承補丁後的版本，不再需要每次重連後重新賽跑時機——徹底解決
+  // race condition，而不是繼續想辦法縮小時間窗。
+  //
+  // .request() 有可能是 instance 自己的方法（跟 reqId 計數器等 instance 狀態綁在一起，
+  // 每次 connect() 時重新賦值），這種情況下補在 prototype 上找不到 hasOwnProperty，
+  // patchMethod() 會 fallback 補在 instance 上——跟舊行為一致，仍需要靠輪詢/WS事件
+  // 在每次重連後重新補一次，只是這條路徑上優先順序較低（request 是「發送後等回應」，
+  // 沒有 on() 這種「先註冊、可能永遠不會再呼叫第二次」的一次性視窗問題）。
+  function patchMethod(obj, methodName, wrapFactory) {
+    var owner = obj;
+    while (owner && !Object.prototype.hasOwnProperty.call(owner, methodName)) {
+      owner = Object.getPrototypeOf(owner);
+    }
+    if (!owner || typeof owner[methodName] !== 'function') return false;
+    var flag = '__toppathPatched_' + methodName;
+    if (owner[flag]) return true;
+    owner[flag] = true;
+    owner[methodName] = wrapFactory(owner[methodName]);
+    return true;
+  }
+
   function tryPatchPinus() {
     var p = window.pinus;
     if (!p) return false;
-    if (p.__toppathTracked) return true;
-    p.__toppathTracked = true;
 
-    var origRequest = p.request.bind(p);
-    p.request = function (route, msg, cb) {
-      pushPinusLog('request', route, msg);
-      var isSpinReq = route && route.indexOf('dealGMActionReq') !== -1 && msg && msg.isspin === 1;
-      return origRequest(route, msg, function (resp) {
-        pushPinusLog('response', route, resp);
-        if (resp && typeof resp.coin === 'number') {
-          window.__lastCoin = resp.coin;
-          window.__coinUpdatedAt = Date.now();
-        }
-        // 遊戲伺服器直接拒絕 Spin 請求（例如 errcode:100「請求超時或未確認錯誤」）：
-        // 這種情況下 spin 動作根本沒有在伺服器端執行成功，按鈕 disabled 切換、coin 更新
-        // 這兩個完成訊號都不會觸發，記錄下來讓 do_spin() 可以立即中斷等待，而不是傻等滿 8 秒。
-        if (isSpinReq && resp && typeof resp.errcode === 'number' && resp.errcode !== 0) {
-          window.__lastSpinErr = { errcode: resp.errcode, errcodedes: resp.errcodedes || '', ts: Date.now() };
-          var ek = String(resp.errcode);
-          window.__spinErrCounts[ek] = (window.__spinErrCounts[ek] || 0) + 1;
-          if (!window.__spinErrTimes[ek]) window.__spinErrTimes[ek] = [];
-          window.__spinErrTimes[ek].push(Date.now());
-          if (window.__spinErrTimes[ek].length > 5) window.__spinErrTimes[ek].shift();
-        }
-        cb && cb(resp);
-      });
-    };
+    var okRequest = patchMethod(p, 'request', function (origRequest) {
+      return function (route, msg, cb) {
+        pushPinusLog('request', route, msg);
+        var isSpinReq = route && route.indexOf('dealGMActionReq') !== -1 && msg && msg.isspin === 1;
+        return origRequest.call(this, route, msg, function (resp) {
+          pushPinusLog('response', route, resp);
+          if (resp && typeof resp.coin === 'number') {
+            window.__lastCoin = resp.coin;
+            window.__coinUpdatedAt = Date.now();
+          }
+          // 遊戲伺服器直接拒絕 Spin 請求（例如 errcode:100「請求超時或未確認錯誤」）：
+          // 這種情況下 spin 動作根本沒有在伺服器端執行成功，按鈕 disabled 切換、coin 更新
+          // 這兩個完成訊號都不會觸發，記錄下來讓 do_spin() 可以立即中斷等待，而不是傻等滿 8 秒。
+          if (isSpinReq && resp && typeof resp.errcode === 'number' && resp.errcode !== 0) {
+            window.__lastSpinErr = { errcode: resp.errcode, errcodedes: resp.errcodedes || '', ts: Date.now() };
+            var ek = String(resp.errcode);
+            window.__spinErrCounts[ek] = (window.__spinErrCounts[ek] || 0) + 1;
+            if (!window.__spinErrTimes[ek]) window.__spinErrTimes[ek] = [];
+            window.__spinErrTimes[ek].push(Date.now());
+            if (window.__spinErrTimes[ek].length > 5) window.__spinErrTimes[ek].shift();
+          }
+          cb && cb(resp);
+        });
+      };
+    });
 
-    var origOn = p.on.bind(p);
-    p.on = function (route, cb) {
-      return origOn(route, function (data) {
-        pushPinusLog('push', route, data);
-        if (data && typeof data.coin === 'number') {
-          window.__lastCoin = data.coin;
-          window.__coinUpdatedAt = Date.now();
-        }
-        cb && cb(data);
-      });
-    };
-    return true;
+    var okOn = patchMethod(p, 'on', function (origOn) {
+      return function (route, cb) {
+        return origOn.call(this, route, function (data) {
+          pushPinusLog('push', route, data);
+          if (data && typeof data.coin === 'number') {
+            window.__lastCoin = data.coin;
+            window.__coinUpdatedAt = Date.now();
+          }
+          cb && cb(data);
+        });
+      };
+    });
+
+    return okRequest || okOn;
   }
-  // 不在第一次成功後 clearInterval——center update/斷線重連時遊戲會建立全新的
-  // window.pinus 物件（新 connector），舊物件上打的補丁對新物件完全無效，
-  // __toppathTracked 旗標掛在物件本身、不會延續，若只 patch 一次，重連後 pinus
-  // 監控會永久停止轉發（但 WebSocket/console 補丁掛在不會被取代的全域物件上，
-  // 不受影響，這也是為什麼「console 有訊息但 pinus log 完全沒有」的落差）。
-  // tryPatchPinus() 本身透過 __toppathTracked 檢查是否已補過，持續輪詢成本可忽略。
-  // 主要靠上面 PatchedWS 的 open 事件即時觸發補丁（贏過遊戲自己註冊監聽器的時機），
-  // 這裡的輪詢只是保底、間隔從 200ms 收緊到 30ms，降低萬一事件驅動沒搶到時的空窗期。
+  // prototype 補丁一旦成功就永久生效（見上方 patchMethod 註解），這裡的輪詢主要是
+  // 為了「補第一次」——遊戲第一次建立 pinus 物件的時機不確定，且 request 若是
+  // instance-level 仍需要每次重連後重新補一次。間隔維持 30ms（v3.90.12 從 200ms 收緊）。
   setInterval(function () {
     tryPatchPinus();
   }, 30);
