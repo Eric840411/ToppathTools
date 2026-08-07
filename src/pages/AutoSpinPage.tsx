@@ -1515,7 +1515,7 @@ export function AutoSpinPage() {
                       <div style={{ flex: 1 }} />
                       <input value={logSearch} onChange={e => setLogSearch(e.target.value)} placeholder="搜尋日誌內容…"
                         style={{ padding: '3px 8px', fontSize: 11, border: '1px solid #2d3f55', borderRadius: 5, background: '#0f172a', color: '#e2e8f0', width: 130 }} />
-                      <button className="cr-pill" onClick={() => setAutoScrollLog(v => !v)}
+                      <button className={`cr-pill${autoScrollLog ? ' cr-pill--active' : ''}`} onClick={() => setAutoScrollLog(v => !v)}
                         style={{ fontSize: 11, padding: '3px 9px', borderRadius: 5, border: '1px solid #2d3f55', cursor: 'pointer',
                           background: autoScrollLog ? 'var(--cr-cyan-soft)' : '#0f172a', color: autoScrollLog ? 'var(--cr-cyan)' : '#94a3b8' }}>
                         自動捲到底

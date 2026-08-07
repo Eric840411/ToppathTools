@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.90.4'
+export const APP_VERSION = '3.90.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.90.5',
+    date: '2026-08-07',
+    changes: [
+      'fix(autospin): 執行日誌「自動捲到底」按鈕修仙版下選中狀態也看不出來——這顆按鈕跟前兩個修過的不一樣，完全沒有掛 --active/--active-soft 修飾 class，純靠 inline style 切換顏色，v3.90.2 的 :not() 排除規則排除不到它。改成跟其他兩顆篩選 pill 一樣，選中時掛上 cr-pill--active class',
+    ],
+  },
   {
     version: '3.90.4',
     date: '2026-08-07',
