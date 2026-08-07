@@ -371,8 +371,14 @@ TOPPATH_MONITOR_SCRIPT = r"""
     };
     return true;
   }
-  var timer = setInterval(function () {
-    if (tryPatchPinus()) clearInterval(timer);
+  // 不在第一次成功後 clearInterval——center update/斷線重連時遊戲會建立全新的
+  // window.pinus 物件（新 connector），舊物件上打的補丁對新物件完全無效，
+  // __toppathTracked 旗標掛在物件本身、不會延續，若只 patch 一次，重連後 pinus
+  // 監控會永久停止轉發（但 WebSocket/console 補丁掛在不會被取代的全域物件上，
+  // 不受影響，這也是為什麼「console 有訊息但 pinus log 完全沒有」的落差）。
+  // tryPatchPinus() 本身透過 __toppathTracked 檢查是否已補過，持續輪詢成本可忽略。
+  setInterval(function () {
+    tryPatchPinus();
   }, 200);
 })();
 """

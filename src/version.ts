@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.90.0'
+export const APP_VERSION = '3.90.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.90.1',
+    date: '2026-08-07',
+    changes: [
+      'fix(autospin): 修正 pinus 訊息監控在 center update／斷線重連後永久停止轉發的問題——注入腳本 tryPatchPinus() 原本只在第一次成功補丁 window.pinus 後就 clearInterval 停止輪詢，但遊戲收到 serverUpdateNtc（切換 connector）或重新連線時會建立全新的 window.pinus 物件，__toppathTracked 旗標掛在舊物件上不會延續，新物件從未被補丁過，pinus log 從此永久停止（WebSocket/console 補丁掛在不會被取代的全域物件上不受影響，這就是「console 有訊息但 pinus log 完全沒有」的落差）。改成持續輪詢不停止（tryPatchPinus() 本身已有 __toppathTracked 判斷是否已補過，重複呼叫成本可忽略），server/machine-test/runner.ts 的 PINUS_TRACKER_SCRIPT 同步修正',
+    ],
+  },
   {
     version: '3.90.0',
     date: '2026-08-07',

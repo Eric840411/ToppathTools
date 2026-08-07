@@ -611,8 +611,11 @@ const PINUS_TRACKER_SCRIPT = `
     return true;
   }
 
-  var timer = setInterval(function() {
-    if (tryPatch()) clearInterval(timer);
+  // 不在第一次成功後 clearInterval——center update/斷線重連時遊戲會建立全新的
+  // window.pinus 物件（新 connector），__coinTracked 旗標掛在物件本身、不會延續，
+  // 若只 patch 一次，重連後 coin 追蹤會永久停止（同步 toppath-agent.py 的修正）。
+  setInterval(function() {
+    tryPatch();
   }, 200);
 })();
 `
