@@ -36,12 +36,13 @@ function isFileAccepted(file: File, accept: string): boolean {
 }
 
 function FileDropZone({
-  file, onChange, accept, hint,
+  file, onChange, accept, hint, themeMode,
 }: {
   file?: File
   onChange: (f: File | undefined) => void
   accept: string
   hint: string
+  themeMode: 'classic' | 'xianxia'
 }) {
   const [dragging, setDragging] = useState(false)
   const [rejected, setRejected] = useState(false)
@@ -72,19 +73,19 @@ function FileDropZone({
         onChange={e => onChange(e.target.files?.[0] ?? undefined)} />
       {file ? (
         <>
-          <span className="fdz-icon"><XianxiaIcon name="document" size={22} /></span>
+          {themeMode === 'xianxia' && <span className="fdz-icon"><XianxiaIcon name="document" size={22} /></span>}
           <span className="fdz-filename">{file.name}</span>
           <button type="button" className="fdz-clear" onClick={e => { e.stopPropagation(); onChange(undefined); if (inputRef.current) inputRef.current.value = '' }}>關閉</button>
         </>
       ) : rejected ? (
         <>
-          <span className="fdz-icon"><XianxiaIcon name="warning" size={22} /></span>
+          {themeMode === 'xianxia' && <span className="fdz-icon"><XianxiaIcon name="warning" size={22} /></span>}
           <span className="fdz-label" style={{ color: '#ef4444' }}>不支援的檔案格式</span>
           <span className="fdz-hint">{hint}</span>
         </>
       ) : (
         <>
-          <span className="fdz-icon"><XianxiaIcon name="guide" size={22} /></span>
+          {themeMode === 'xianxia' && <span className="fdz-icon"><XianxiaIcon name="guide" size={22} /></span>}
           <span className="fdz-label">拖曳或點擊上傳</span>
           <span className="fdz-hint">{hint}</span>
         </>
@@ -157,7 +158,7 @@ interface GenerateStatusResponse {
   result?: GenerateResult
 }
 
-export function LarkPage() {
+export function LarkPage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
   const isGame = useIsGameMode()
   const [hasPersonalGeminiKey, setHasPersonalGeminiKey] = useState<boolean | null>(null)
   const [showGeminiSettings, setShowGeminiSettings] = useState(false)
@@ -595,14 +596,14 @@ export function LarkPage() {
             className={`action-tab${action === 'generate' ? ' active' : ''}`}
             onClick={() => { setAction('generate'); setStatus('idle'); setResult(null) }}
           >
-            <XianxiaIcon name="ai" size={22} className="xianxia-action-icon" /> AI 生成 TestCase
+            {themeMode === 'xianxia' && <XianxiaIcon name="ai" size={22} className="xianxia-action-icon" />} AI 生成 TestCase
           </button>
           <button
             type="button"
             className={`action-tab${action === 'compare' ? ' active' : ''}`}
             onClick={() => { setAction('compare'); setStatus('idle'); setResult(null) }}
           >
-            <XianxiaIcon name="compare" size={22} className="xianxia-action-icon" /> 人工 vs AI 比對
+            {themeMode === 'xianxia' && <XianxiaIcon name="compare" size={22} className="xianxia-action-icon" />} 人工 vs AI 比對
           </button>
         </div>
       </div>
@@ -653,7 +654,7 @@ export function LarkPage() {
                             onClick={() => updateSource(src.id, { type: key, url: '', file: undefined })}
                             className={`src-type-btn${src.type === key ? ' active' : ''}`}
                           >
-                            {isGame ? <DungeonIcon name={icon} tone={src.type === key ? 'violet' : 'slate'} plain /> : <XianxiaIcon name={key === 'lark' ? 'knowledge' : 'document'} size={17} />} {label}
+                            {isGame ? <DungeonIcon name={icon} tone={src.type === key ? 'violet' : 'slate'} plain /> : themeMode === 'xianxia' ? <XianxiaIcon name={key === 'lark' ? 'knowledge' : 'document'} size={17} /> : null} {label}
                           </button>
                         ))}
                       </div>
@@ -667,6 +668,7 @@ export function LarkPage() {
                     {src.type === 'gdocs' && <input value={src.url} onChange={e => updateSource(src.id, { url: e.target.value })} placeholder="https://docs.google.com/document/d/XXXX/edit" />}
                     {src.type === 'file' && (
                       <FileDropZone
+                        themeMode={themeMode}
                         file={src.file}
                         accept=".pdf,.docx"
                         hint="PDF / .docx，最大 30 MB"
@@ -695,6 +697,7 @@ export function LarkPage() {
                     const currentFile = isCsv ? baselineCsvFile : baselineXlsxFile
                     return (
                       <FileDropZone
+                        themeMode={themeMode}
                         file={currentFile ?? undefined}
                         accept={accept}
                         hint={`待補填 TestCase（.${baselineType}）`}
@@ -749,7 +752,7 @@ export function LarkPage() {
                             onClick={() => updateSource(src.id, { type: key, url: '', file: undefined })}
                             className={`src-type-btn${src.type === key ? ' active' : ''}`}
                           >
-                            {isGame ? <DungeonIcon name={icon} tone={src.type === key ? 'violet' : 'slate'} plain /> : <XianxiaIcon name={key === 'lark' ? 'knowledge' : 'document'} size={17} />} {label}
+                            {isGame ? <DungeonIcon name={icon} tone={src.type === key ? 'violet' : 'slate'} plain /> : themeMode === 'xianxia' ? <XianxiaIcon name={key === 'lark' ? 'knowledge' : 'document'} size={17} /> : null} {label}
                           </button>
                         ))}
                       </div>
@@ -781,6 +784,7 @@ export function LarkPage() {
                     )}
                     {src.type === 'file' && (
                       <FileDropZone
+                        themeMode={themeMode}
                         file={src.file}
                         accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                         hint="PDF / .docx，最大 30 MB"
@@ -822,6 +826,7 @@ export function LarkPage() {
                         </div>
                         {(src.type === 'pdf' || src.type === 'csv') && (
                           <FileDropZone
+                            themeMode={themeMode}
                             file={src.file}
                             accept={src.type === 'pdf' ? '.pdf' : '.csv,text/csv'}
                             hint={`舊版規格書（.${src.type}）`}
@@ -879,6 +884,7 @@ export function LarkPage() {
                       const currentFile = isCsv ? baselineCsvFile : baselineXlsxFile
                       return (
                         <FileDropZone
+                          themeMode={themeMode}
                           file={currentFile ?? undefined}
                           accept={accept}
                           hint={isCsv ? '既有 TestCase（.csv）' : '既有 TestCase（.xlsx / .xls）'}
@@ -1039,7 +1045,7 @@ export function LarkPage() {
                 <li>不覆蓋已有內容，只填補缺漏項目，回傳完整 TestCase</li>
               </ol>
             )}
-            <p className="info-note"><XianxiaIcon name="settings" size={17} /> Lark API Token 設定於後端 <code>.env</code>，前端不持有任何密鑰</p>
+            <p className="info-note">{themeMode === 'xianxia' && <XianxiaIcon name="settings" size={17} />} Lark API Token 設定於後端 <code>.env</code>，前端不持有任何密鑰</p>
           </div>
 
         </div>
@@ -1074,7 +1080,7 @@ export function LarkPage() {
           {status === 'ok' && result && (
             <div className="generate-summary">
               <div className="result-summary">
-                <div className="summary-item ok"><XianxiaIcon name="document" size={17} /> 生成 {result.generated} 筆</div>
+                <div className="summary-item ok">{themeMode === 'xianxia' && <XianxiaIcon name="document" size={17} />} 生成 {result.generated} 筆</div>
                 <div className="summary-item ok">{isGame ? <DungeonIcon name="status-ok" tone="green" size="xs" plain /> : '通過'} 已寫入 Bitable {result.written} 筆</div>
               </div>
               <div className="generate-actions">
@@ -1085,7 +1091,7 @@ export function LarkPage() {
                     rel="noopener noreferrer"
                     className="bitable-link-btn"
                   >
-                    <XianxiaIcon name="guide" size={17} /> 前往 Lark Bitable 查看結果 →
+                    {themeMode === 'xianxia' && <XianxiaIcon name="guide" size={17} />} 前往 Lark Bitable 查看結果 →
                   </a>
                 )}
                 {result.csvContent && (

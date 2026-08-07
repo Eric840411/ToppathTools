@@ -105,7 +105,7 @@ export function GameApp() {
         }}>
           <div key={activeTab} className="px-tab-enter" style={{ minHeight: '100%' }}>
           {activeTab === 'jira'          && <JiraPage account={globalAccount} />}
-          {activeTab === 'lark'          && <LarkPage />}
+          {activeTab === 'lark'          && <LarkPage themeMode="classic" />}
           {activeTab === 'osm'           && <OsmPage />}
           {activeTab === 'machinetest'   && <MachineTestPage account={globalAccount} />}
           {activeTab === 'imagecheck'    && <ImageCheckPage />}

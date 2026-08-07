@@ -344,6 +344,7 @@ function App() {
   const [permissions, setPermissions] = useState<string[]>([])
   const [cultivation, setCultivation] = useState<{ level: string; levelIndex: number; activeDays: number; nextLevel: string | null; nextThreshold: number | null } | null>(null)
   const [breakthroughLevel, setBreakthroughLevel] = useState<string | null>(null)
+  const [breakthroughPreviewHold] = useState(() => new URLSearchParams(window.location.search).get('breakthrough-hold') === '1')
   const closeBreakthrough = useCallback(() => setBreakthroughLevel(null), [])
 
   useEffect(() => {
@@ -353,6 +354,7 @@ function App() {
     const previewRealm = BREAKTHROUGH_REALMS.find(realm => realm.slug === preview || realm.name === preview)
     if (previewRealm) setBreakthroughLevel(previewRealm.name)
     params.delete('breakthrough-preview')
+    params.delete('breakthrough-hold')
     const query = params.toString()
     window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`)
   }, [])
@@ -840,7 +842,7 @@ function App() {
           <main className="main-content">
             {currentGroup?.id === 'dashboard' && <DashboardPage themeMode={themeMode} />}
             {currentGroup?.id === 'jira' && <JiraPage account={globalAccount} allowedModes={allowedJiraModes} isAdmin={globalAccount?.role === 'admin'} />}
-            {currentGroup?.id === 'lark' && <LarkPage />}
+            {currentGroup?.id === 'lark' && <LarkPage themeMode={themeMode} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm' && <OsmPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'machinetest' && <MachineTestPage account={globalAccount} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'imagecheck' && <ImageCheckPage />}
@@ -872,7 +874,7 @@ function App() {
       )}
 
       <AiAgentMonitorWidget />
-      {breakthroughLevel && <CultivationBreakthroughOverlay level={breakthroughLevel} onComplete={closeBreakthrough} />}
+      {breakthroughLevel && <CultivationBreakthroughOverlay level={breakthroughLevel} onComplete={closeBreakthrough} hold={breakthroughPreviewHold} />}
     </div>
   )
 }
