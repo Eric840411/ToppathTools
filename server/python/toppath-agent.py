@@ -863,8 +863,24 @@ def poll_monitor_logs(page, mt: str):
     在抵達真正有 pinus 資料的 game iframe 之前提前 return，造成「console 有訊息、
     pinus log 永久是空的」——這正是先前誤以為是「重連後遺失補丁」的真正根因（重連補丁
     修正本身沒錯，但沒解決這個更早發生、範圍更廣的 frame 掃描 bug）。改成掃完所有
-    frame、每個 frame 各自的訊息都轉發，不再提前中斷。"""
+    frame、每個 frame 各自的訊息都轉發，不再提前中斷。
+
+    ⚠️ 掃完所有 frame 之後緊接著發現的新問題：`page.frames` 在某些時刻（推測是
+    navigation/reload 過渡期間，例如熱更新切換 connector 時遊戲 iframe 重新載入）
+    會把同一個實際頁面同時列出兩份 frame 物件，導致同一批 pinus/console 訊息被
+    drain 兩次、每一行都印出兩次一模一樣的內容。用 frame.url 去重——同一輪
+    poll_monitor_logs() 呼叫內，URL 相同的 frame 只處理第一個，避免這種情況下
+    的重複轉發（真正不同的 frame 本來就有不同 URL，不會被誤過濾掉）。"""
+    seen_urls: set = set()
     for frame in page.frames:
+        try:
+            frame_url = frame.url
+            if frame_url and frame_url in seen_urls:
+                continue
+            if frame_url:
+                seen_urls.add(frame_url)
+        except Exception:
+            pass
         try:
             result = frame.evaluate("""() => {
                 var p = window.__pinusLog || []; window.__pinusLog = [];

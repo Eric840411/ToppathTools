@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.90.10'
+export const APP_VERSION = '3.90.11'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.90.11',
+    date: '2026-08-07',
+    changes: [
+      'fix(autospin): v3.90.6 拿掉「找到有訊息的 frame 就提前 return」之後，實測發現熱更新切換 connector 時 page.frames 會把同一個實際頁面同時列出兩份 frame 物件，導致同一批 pinus/console 訊息被 drain 兩次、每一行都印出兩次一模一樣的內容（包含新增的「⚡ 偵測到熱更新」標記）。改成用 frame.url 在同一輪 poll_monitor_logs() 呼叫內去重，同一輪內 URL 相同的 frame 只處理第一個',
+    ],
+  },
   {
     version: '3.90.10',
     date: '2026-08-07',
