@@ -320,3 +320,21 @@
   .breakthrough__scene { filter: saturate(.86) brightness(.62) contrast(1.06); }
   .breakthrough__moon-disc { transform: translate(-50%, -50%); }
 }
+
+/* Design-review mode: hold the composed frame without changing production timing. */
+.breakthrough--hold { animation: none; opacity: 1; }
+.breakthrough--hold .breakthrough__scene { animation: none; opacity: 1; filter: saturate(.9) brightness(.64) contrast(1.05); }
+.breakthrough--hold .breakthrough__backdrop::after,
+.breakthrough--hold .breakthrough__mist i,
+.breakthrough--hold .breakthrough__moon-disc,
+.breakthrough--hold .breakthrough__cloud-mark,
+.breakthrough--hold .breakthrough__emblem,
+.breakthrough--hold .breakthrough__copy,
+.breakthrough--hold .breakthrough__art-effect,
+.breakthrough--hold .breakthrough__skip { animation: none; }
+.breakthrough--hold .breakthrough__moon-disc { opacity: .68; }
+.breakthrough--hold .breakthrough__cloud-mark { opacity: .55; }
+.breakthrough--hold .breakthrough__emblem { opacity: 1; filter: brightness(1.05) drop-shadow(0 0 28px color-mix(in srgb, var(--breakthrough-color) 44%, transparent)); }
+.breakthrough--hold .breakthrough__copy { opacity: 1; transform: translateX(-50%); }
+.breakthrough--hold .breakthrough__art-effect { opacity: var(--breakthrough-art-opacity); filter: brightness(.92); }
+.breakthrough--hold .breakthrough__skip { opacity: 1; }

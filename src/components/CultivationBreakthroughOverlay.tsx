@@ -191,7 +191,7 @@ function drawParticles(
   ctx.globalCompositeOperation = 'source-over'
 }
 
-export function CultivationBreakthroughOverlay({ level, onComplete }: { level: string; onComplete: () => void }) {
+export function CultivationBreakthroughOverlay({ level, onComplete, hold = false }: { level: string; onComplete: () => void; hold?: boolean }) {
   const realm = getBreakthroughRealm(level)
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
@@ -199,17 +199,17 @@ export function CultivationBreakthroughOverlay({ level, onComplete }: { level: s
     if (!realm) return
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    const finishTimer = window.setTimeout(onComplete, 5600)
+    const finishTimer = hold ? null : window.setTimeout(onComplete, 5600)
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onComplete()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => {
-      window.clearTimeout(finishTimer)
+      if (finishTimer !== null) window.clearTimeout(finishTimer)
       window.removeEventListener('keydown', handleKeyDown)
       document.body.style.overflow = previousOverflow
     }
-  }, [onComplete, realm])
+  }, [hold, onComplete, realm])
 
   useEffect(() => {
     if (!realm || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
@@ -267,7 +267,7 @@ export function CultivationBreakthroughOverlay({ level, onComplete }: { level: s
 
   return (
     <div
-      className={`breakthrough breakthrough--${realm.slug}`}
+      className={`breakthrough breakthrough--${realm.slug}${hold ? ' breakthrough--hold' : ''}`}
       style={{
         '--breakthrough-color': realm.color,
         '--breakthrough-secondary': realm.secondary,
