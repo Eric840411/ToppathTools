@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.90.11'
+export const APP_VERSION = '3.90.12'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.90.12',
+    date: '2026-08-07',
+    changes: [
+      'fix(autospin): 修正熱更新切換 connector 後 moneyNtc 訊號永久收不到的問題——tryPatchPinus() 只靠固定 200ms 輪詢去抓新的 window.pinus 物件，但遊戲會在建立新物件後很快就呼叫 .on(\'moneyNtc\', ...) 註冊自己的監聽器；.on() 補丁只包裝「補丁生效之後」才呼叫的註冊，補丁生效前就註冊好的監聽器永遠不會被追溯包裝，等於跟遊戲賽跑，賽輸就永久漏接 moneyNtc（do_spin() 的訊號②完成判定也連帶失效，等於只剩訊號①能用，某些機種如 RISINGROCKETS 訊號①天生用不上，會固定卡滿 8 秒逾時）。改成在 PatchedWS 建立時、以及 WS open 事件當下都立即嘗試補丁（實測 DevTools 追蹤過，遊戲準備新 window.pinus 物件的時機早於呼叫 new WebSocket()，這兩個時機點都比固定輪詢更可能搶在遊戲註冊監聽器之前完成），輪詢間隔也從 200ms 收緊到 30ms 當保底',
+    ],
+  },
   {
     version: '3.90.11',
     date: '2026-08-07',

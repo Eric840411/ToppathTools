@@ -295,6 +295,10 @@ TOPPATH_MONITOR_SCRIPT = r"""
   var _OrigWS = window.WebSocket;
   window.__wsHadClose = false;
   function PatchedWS(url, protocols) {
+    // 遊戲通常是先把新的 window.pinus 物件準備好，才呼叫 new WebSocket() 開始連線
+    // （實測 DevTools 追蹤過，「準備新 connector: window.pinus: ...」這行 log 早於
+    // 「connect to wss://...」），這裡先嘗試補丁一次，可能比等 WS open 更早搶到。
+    try { tryPatchPinus(); } catch (e) {}
     var ws = protocols !== undefined ? new _OrigWS(url, protocols) : new _OrigWS(url);
     var wasReconnectAttempt = window.__wsHadClose;
     ws.addEventListener('open', function () {
@@ -302,6 +306,14 @@ TOPPATH_MONITOR_SCRIPT = r"""
         window.__wsRecoverCount++;
         window.__wsHadClose = false;
       }
+      // 斷線重連/熱更新切換 connector 時，遊戲會建立全新的 window.pinus 物件，
+      // 並在這個新 WebSocket open 之後才開始註冊自己的 .on('moneyNtc', ...) 等監聽器。
+      // 光靠下面固定 200ms 輪詢跟遊戲的註冊時機賽跑，賽輸的話那個監聽器就永遠繞過
+      // 我們的補丁（.on() 只包裝「補丁生效之後」才呼叫的註冊，補丁生效前就註冊好的
+      // 監聽器不會被追溯包裝）——實測發現 moneyNtc 確實會在熱更新後就此收不到。
+      // 在 WS 一 open 就立刻嘗試補丁一次，搶在遊戲註冊監聽器之前完成，是比固定輪詢
+      // 更可靠的時機點（下面的 setInterval 仍保留當作補漏用的保底機制）。
+      try { tryPatchPinus(); } catch (e) {}
     });
     ws.addEventListener('close', function () {
       window.__wsHadClose = true;
@@ -377,9 +389,11 @@ TOPPATH_MONITOR_SCRIPT = r"""
   // 監控會永久停止轉發（但 WebSocket/console 補丁掛在不會被取代的全域物件上，
   // 不受影響，這也是為什麼「console 有訊息但 pinus log 完全沒有」的落差）。
   // tryPatchPinus() 本身透過 __toppathTracked 檢查是否已補過，持續輪詢成本可忽略。
+  // 主要靠上面 PatchedWS 的 open 事件即時觸發補丁（贏過遊戲自己註冊監聽器的時機），
+  // 這裡的輪詢只是保底、間隔從 200ms 收緊到 30ms，降低萬一事件驅動沒搶到時的空窗期。
   setInterval(function () {
     tryPatchPinus();
-  }, 200);
+  }, 30);
 })();
 """
 
