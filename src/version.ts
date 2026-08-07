@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.90.6'
+export const APP_VERSION = '3.90.7'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.90.7',
+    date: '2026-08-07',
+    changes: [
+      'fix(autospin): handleSetLiveInterval()（Spin 間隔「套用」按鈕）原本完全沒有錯誤處理——agentSessionId 還沒同步到時直接 silent return，API 失敗/網路錯誤也不檢查回應就結束，使用者會看到按鈕正常跑完 loading，但實際上這次設定可能完全沒送出去，且沒有任何提示。改成明確顯示錯誤訊息（未取得 Session / API 失敗原因），方便後續排查「套用後機台實際頻率沒變」這類回報是不是卡在這裡',
+    ],
+  },
   {
     version: '3.90.6',
     date: '2026-08-07',

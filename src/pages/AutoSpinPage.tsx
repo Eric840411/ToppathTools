@@ -665,13 +665,25 @@ export function AutoSpinPage() {
   }
 
   const handleSetLiveInterval = async (val: number) => {
-    if (!agentSessionId) return
+    if (!agentSessionId) {
+      // 先前這裡直接 silent return——如果畫面上 Session 其實還沒同步到（例如剛派工、
+      // 全域輪詢還沒抓到 sessionId），使用者會看到「套用」按鈕正常跑完 loading，
+      // 但實際上這次設定完全沒送出去，也不會有任何錯誤提示。改成明確告知。
+      setStartError('尚未取得執行中的 Session，請稍候幾秒再試一次')
+      return
+    }
     setLiveIntervalSaving(true)
     try {
-      await fetch(`/api/autospin/agent/${agentSessionId}/spin-interval`, {
+      const r = await fetch(`/api/autospin/agent/${agentSessionId}/spin-interval`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'x-user-label': getGlobalUserLabel() },
         body: JSON.stringify({ value: val }),
       })
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({} as { message?: string }))
+        setStartError(d.message ?? `套用 Spin 間隔失敗（HTTP ${r.status}）`)
+      }
+    } catch (e) {
+      setStartError('套用 Spin 間隔失敗：' + String(e))
     } finally {
       setLiveIntervalSaving(false)
     }
