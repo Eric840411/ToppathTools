@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.90.12'
+export const APP_VERSION = '3.90.13'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.90.13',
+    date: '2026-08-07',
+    changes: [
+      'fix(autospin): Agent 選擇清單「忙碌」文字修仙版下太淡看不清楚——誤用 var(--xx-gold-soft, #ead8a6) 當文字顏色，但 --xx-gold-soft 在修仙版實際定義成 12% 透明度的背景色調（給 badge/卡片背景用），不是給文字用，修仙版下這個變數有定義所以 fallback 的 #ead8a6 根本沒機會生效，變成幾乎看不見的淡色字；普通版沒載入這個變數才會意外顯示正常。改成直接用 #ead8a6，不再透過這個語意不對的 CSS 變數',
+    ],
+  },
   {
     version: '3.90.12',
     date: '2026-08-07',

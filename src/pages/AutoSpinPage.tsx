@@ -1409,7 +1409,7 @@ export function AutoSpinPage() {
                                 <span style={{ fontWeight: 700, fontSize: 13, color: '#e2e8f0' }}>{a.hostname}</span>
                                 <span style={{ fontSize: 10, color: '#64748b', marginLeft: 8 }}>{a.capabilities.join(' · ')}</span>
                               </div>
-                              <span style={{ fontSize: 11, color: a.busy ? 'var(--xx-gold-soft, #ead8a6)' : 'var(--cr-cyan)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                              <span style={{ fontSize: 11, color: a.busy ? '#ead8a6' : 'var(--cr-cyan)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                                 <span className={a.busy ? undefined : 'cr-status-dot'} style={{ width: 6, height: 6, borderRadius: '50%', background: a.busy ? '#ead8a6' : 'var(--cr-cyan)' }} />
                                 {a.busy ? '忙碌' : '可派工'}
                               </span>
