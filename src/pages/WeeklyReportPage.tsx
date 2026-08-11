@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { loadGlobalAccount } from '../authSession'
 
 interface FieldOption { id: string; name: string }
@@ -19,24 +19,67 @@ function useIsNarrow(breakpoint: number): boolean {
   return narrow
 }
 
-/** 成員/專案選項太多（45/59 個），原生 select 很難找——改成 input+datalist 讓使用者打字篩選
- * （2026-08-11 跟 CodeX 討論結論：只有這兩個欄位需要，先用 datalist 而不是自刻 combobox，
- * 之後真的需要更好的鍵盤/樣式體驗再升級）。datalist 允許打進去的值不在清單裡，valid 用來讓外部
- * 判斷目前輸入是否為合法選項（必填欄位要擋非合法值才能送出） */
-function SearchableSelect({ id, value, onChange, options, placeholder, invalid }: {
-  id: string
+/** 成員/專案選項太多（45/59 個），原生 select 很難找——打字篩選的搜尋下拉
+ * （2026-08-11：第一版用 input+datalist，實測 Chrome 要點兩次同一欄位下拉建議清單才會跳出來，
+ * 體驗不直覺，跟 CodeX 討論後升級成自刻 combobox——問題根源是原生 datalist 的開啟時機不可控，
+ * 不是 CSS/樣式能修的，改成自己控制 open/filter/keyboard 狀態）。
+ * value 是「目前已提交的值」，外部用它判斷是否合法選項（配合 memberValid/projectValid）；
+ * 打字中顯示的文字用 query 這個內部 state，跟 value 分開避免每個按鍵都觸發外部驗證閃爍。 */
+function SearchableSelect({ value, onChange, options, placeholder, invalid }: {
   value: string
   onChange: (v: string) => void
   options: FieldOption[]
   placeholder: string
   invalid?: boolean
 }) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState(value)
+  const [highlight, setHighlight] = useState(-1)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => { setQuery(value) }, [value])
+
+  useEffect(() => {
+    if (!open) return
+    const onDocMouseDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDocMouseDown)
+    return () => document.removeEventListener('mousedown', onDocMouseDown)
+  }, [open])
+
+  const filtered = query.trim() === ''
+    ? options
+    : options.filter(o => o.name.toLowerCase().includes(query.trim().toLowerCase()))
+
+  const select = (name: string) => {
+    onChange(name)
+    setQuery(name)
+    setOpen(false)
+    setHighlight(-1)
+  }
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (!open) {
+      if (e.key === 'ArrowDown' || e.key === 'Enter') { e.preventDefault(); setOpen(true) }
+      return
+    }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHighlight(i => Math.min(i + 1, filtered.length - 1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlight(i => Math.max(i - 1, 0)) }
+    else if (e.key === 'Enter') {
+      e.preventDefault()
+      if (highlight >= 0 && filtered[highlight]) select(filtered[highlight].name)
+    } else if (e.key === 'Escape') { setOpen(false); setHighlight(-1) }
+  }
+
   return (
-    <>
+    <div ref={rootRef} style={{ position: 'relative' }}>
       <input
-        list={id}
-        value={value}
-        onChange={e => onChange(e.target.value)}
+        value={query}
+        onChange={e => { setQuery(e.target.value); onChange(e.target.value); setOpen(true); setHighlight(-1) }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={handleKeyDown}
         placeholder={placeholder}
         style={{
           width: '100%', padding: '8px 10px', background: '#0b1322',
@@ -44,10 +87,31 @@ function SearchableSelect({ id, value, onChange, options, placeholder, invalid }
           color: '#e2e8f0', fontSize: 12.5,
         }}
       />
-      <datalist id={id}>
-        {options.map(o => <option key={o.id} value={o.name} />)}
-      </datalist>
-    </>
+      {open && filtered.length > 0 && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 60,
+          maxHeight: 220, overflowY: 'auto', background: '#0b1322', border: '1px solid #2d3f55',
+          borderRadius: 7, boxShadow: '0 12px 30px rgba(0,0,0,.4)',
+        }}>
+          {filtered.map((o, i) => (
+            <div
+              key={o.id}
+              // mousedown + preventDefault 讓選項點擊搶在 input 的 onBlur 關閉下拉之前完成，
+              // 不然點下去的瞬間 input 先失焦、下拉清單被 onBlur 關掉，click 事件永遠選不到東西
+              onMouseDown={e => { e.preventDefault(); select(o.name) }}
+              onMouseEnter={() => setHighlight(i)}
+              style={{
+                padding: '7px 10px', fontSize: 12.5, cursor: 'pointer',
+                background: i === highlight ? 'var(--cr-cyan-soft)' : 'transparent',
+                color: i === highlight ? 'var(--cr-cyan)' : '#e2e8f0',
+              }}
+            >
+              {o.name}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -239,7 +303,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
               <label style={{ display: 'block', fontSize: 11, color: '#94a3b8', marginBottom: 5 }}>
                 {t.memberField} <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'var(--cr-rose-soft, rgba(223,118,94,.12))', color: 'var(--cr-rose)', marginLeft: 6 }}>必填</span>
               </label>
-              <SearchableSelect id="weekly-report-member-options" value={member} onChange={setMember}
+              <SearchableSelect value={member} onChange={setMember}
                 options={parsed?.members ?? []} placeholder={t.selectPlaceholder}
                 invalid={member.length > 0 && !memberValid} />
               {member.length > 0 && !memberValid && (
@@ -250,7 +314,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
               <label style={{ display: 'block', fontSize: 11, color: '#94a3b8', marginBottom: 5 }}>
                 {t.projectField} <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'rgba(148,163,184,.12)', color: '#94a3b8', marginLeft: 6 }}>選填</span>
               </label>
-              <SearchableSelect id="weekly-report-project-options" value={project} onChange={setProject}
+              <SearchableSelect value={project} onChange={setProject}
                 options={parsed?.projects ?? []} placeholder={t.projectPlaceholder}
                 invalid={project.length > 0 && !projectValid} />
               {project.length > 0 && !projectValid && (

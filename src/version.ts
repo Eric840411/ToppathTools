@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.92.3'
+export const APP_VERSION = '3.92.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.92.4',
+    date: '2026-08-11',
+    changes: [
+      'fix(weekly-report): 成員/主要專案搜尋下拉改成自刻 combobox，取代原本的 input+datalist——實測發現 Chrome 下 datalist 建議清單要點兩次同一欄位才會跳出來，第一次點沒反應，體驗不直覺；根因是原生 datalist 開啟時機不可控，不是樣式能修的問題。改成自己控制 open/filter/highlight 狀態：單擊立即打開清單、打字即時篩選、可用滑鼠點選或鍵盤（ArrowUp/ArrowDown/Enter/Esc）操作、點外部自動關閉。範圍限定在 WeeklyReportPage.tsx 內部，不抽共用元件庫',
+    ],
+  },
   {
     version: '3.92.3',
     date: '2026-08-11',
