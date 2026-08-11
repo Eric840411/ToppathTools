@@ -175,7 +175,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
   const canSubmit = !!parsed && !!member && memberValid && projectValid && content.trim().length > 0 && !submitting
 
   const handleSubmit = async () => {
-    if (!parsed || !member || !content.trim()) return
+    if (!parsed || !member || !content.trim() || !memberValid || !projectValid) return
     setSubmitting(true); setSubmitMsg('')
     try {
       const r = await fetch('/api/weekly-report/submit', {
