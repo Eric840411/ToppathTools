@@ -19,6 +19,38 @@ function useIsNarrow(breakpoint: number): boolean {
   return narrow
 }
 
+/** 成員/專案選項太多（45/59 個），原生 select 很難找——改成 input+datalist 讓使用者打字篩選
+ * （2026-08-11 跟 CodeX 討論結論：只有這兩個欄位需要，先用 datalist 而不是自刻 combobox，
+ * 之後真的需要更好的鍵盤/樣式體驗再升級）。datalist 允許打進去的值不在清單裡，valid 用來讓外部
+ * 判斷目前輸入是否為合法選項（必填欄位要擋非合法值才能送出） */
+function SearchableSelect({ id, value, onChange, options, placeholder, invalid }: {
+  id: string
+  value: string
+  onChange: (v: string) => void
+  options: FieldOption[]
+  placeholder: string
+  invalid?: boolean
+}) {
+  return (
+    <>
+      <input
+        list={id}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        style={{
+          width: '100%', padding: '8px 10px', background: '#0b1322',
+          border: `1px solid ${invalid ? 'var(--cr-rose)' : '#2d3f55'}`, borderRadius: 7,
+          color: '#e2e8f0', fontSize: 12.5,
+        }}
+      />
+      <datalist id={id}>
+        {options.map(o => <option key={o.id} value={o.name} />)}
+      </datalist>
+    </>
+  )
+}
+
 export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
   const isXianxia = themeMode === 'xianxia'
   const t = isXianxia
@@ -34,6 +66,8 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
         jiraBtn: '帶入摘要', jiraHint: '按下後會自動抓摘要與狀態，插入到下方手記，插入後可自由編修',
         submit: '呈報宗門', submitNote: '呈報後會在該卷宗新增一列（道號 / 主司職務 / 行跡紀要）',
         selectPlaceholder: '請擇一...',
+        invalidMemberHint: '找不到這個道號，請從清單中選擇',
+        invalidProjectHint: '找不到這個職務，請從清單中選擇或留空',
       }
     : {
         title: '週報彙整',
@@ -47,6 +81,8 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
         jiraBtn: '帶入摘要', jiraHint: '按下後會自動抓摘要與狀態，插入到下方文字框，插入後可自由編輯',
         submit: '送出至 Lark', submitNote: '送出後會在該表新增一列（成員 / 主要專案 / 補充說明）',
         selectPlaceholder: '請選擇...',
+        invalidMemberHint: '找不到這個成員，請從清單中選擇',
+        invalidProjectHint: '找不到這個專案，請從清單中選擇或留空',
       }
 
   const [url, setUrl] = useState(() => localStorage.getItem(LAST_URL_KEY) ?? '')
@@ -67,6 +103,11 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
   const [submitMsg, setSubmitMsg] = useState('')
 
   const isNarrow = useIsNarrow(STACK_BREAKPOINT)
+
+  // datalist 允許打進去的值不在清單裡，必填的成員欄位要擋非合法值才能送出；
+  // 主要專案選填，留空可以送出，但填了就一樣要是合法選項
+  const memberValid = !parsed || parsed.members.some(m => m.name === member)
+  const projectValid = !parsed || project === '' || parsed.projects.some(p => p.name === project)
 
   const handleParse = async () => {
     if (!url.trim()) return
@@ -131,7 +172,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
     }
   }
 
-  const canSubmit = !!parsed && !!member && content.trim().length > 0 && !submitting
+  const canSubmit = !!parsed && !!member && memberValid && projectValid && content.trim().length > 0 && !submitting
 
   const handleSubmit = async () => {
     if (!parsed || !member || !content.trim()) return
@@ -198,21 +239,23 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
               <label style={{ display: 'block', fontSize: 11, color: '#94a3b8', marginBottom: 5 }}>
                 {t.memberField} <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'var(--cr-rose-soft, rgba(223,118,94,.12))', color: 'var(--cr-rose)', marginLeft: 6 }}>必填</span>
               </label>
-              <select value={member} onChange={e => setMember(e.target.value)}
-                style={{ width: '100%', padding: '8px 10px', background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 7, color: '#e2e8f0', fontSize: 12.5 }}>
-                <option value="">{t.selectPlaceholder}</option>
-                {parsed?.members.map(m => <option key={m.id} value={m.name}>{m.name}</option>)}
-              </select>
+              <SearchableSelect id="weekly-report-member-options" value={member} onChange={setMember}
+                options={parsed?.members ?? []} placeholder={t.selectPlaceholder}
+                invalid={member.length > 0 && !memberValid} />
+              {member.length > 0 && !memberValid && (
+                <div style={{ fontSize: 10.5, color: 'var(--cr-rose)', marginTop: 4 }}>{t.invalidMemberHint}</div>
+              )}
             </div>
             <div>
               <label style={{ display: 'block', fontSize: 11, color: '#94a3b8', marginBottom: 5 }}>
                 {t.projectField} <span style={{ fontSize: 9.5, fontWeight: 700, padding: '1px 6px', borderRadius: 999, background: 'rgba(148,163,184,.12)', color: '#94a3b8', marginLeft: 6 }}>選填</span>
               </label>
-              <select value={project} onChange={e => setProject(e.target.value)}
-                style={{ width: '100%', padding: '8px 10px', background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 7, color: '#e2e8f0', fontSize: 12.5 }}>
-                <option value="">{t.projectPlaceholder}</option>
-                {parsed?.projects.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
-              </select>
+              <SearchableSelect id="weekly-report-project-options" value={project} onChange={setProject}
+                options={parsed?.projects ?? []} placeholder={t.projectPlaceholder}
+                invalid={project.length > 0 && !projectValid} />
+              {project.length > 0 && !projectValid && (
+                <div style={{ fontSize: 10.5, color: 'var(--cr-rose)', marginTop: 4 }}>{t.invalidProjectHint}</div>
+              )}
             </div>
           </div>
         </div>

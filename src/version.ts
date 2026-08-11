@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.92.2'
+export const APP_VERSION = '3.92.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.92.3',
+    date: '2026-08-11',
+    changes: [
+      'fix(weekly-report): 成員（45 個）／主要專案（59 個）下拉選單改成可打字篩選——原生 select 選項太多很難找，改成 input+datalist（跟 CodeX 討論後選的方案：只有這兩個欄位需要，先用瀏覽器原生篩選機制而不是自刻 combobox）。新增驗證：datalist 允許打進去的值不在清單裡，成員為必填欄位打了不存在的名字會標紅框+提示文字並擋住送出，主要專案選填但填了一樣要驗證',
+    ],
+  },
   {
     version: '3.92.2',
     date: '2026-08-11',
