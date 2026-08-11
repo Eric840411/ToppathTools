@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.90.14'
+export const APP_VERSION = '3.92.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,50 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.92.2',
+    date: '2026-08-11',
+    changes: [
+      'fix(weekly-report): 寬螢幕下左右留白過多——原本整頁卡片寫死 maxWidth:720px 置中，改成 maxWidth:1200px，Step 2（選成員/主要專案）改左欄固定寬度、Step 3（本週工作內容文字框）改右欄自適應寬度＋加高，兩欄式排版比單純加大單欄寬度更好利用空間，也不會把下拉選單拉到不合理的寬度。同時移除頁面內重複的大標題（topbar 已經顯示標題），只保留說明文字',
+      'fix(weekly-report): 補上窄螢幕斷點——上面兩欄排版原本純靠 flexbox 自然縮小，小筆電寬度（約 1024px）下文字框會被壓到只剩 ~340px，堪用但偏窄；新增 `useIsNarrow()` hook 監聽視窗寬度，<1100px 時 Step2/3 改回上下堆疊（左欄變滿寬），比純 flex 縮小更可預期，也不會在縮放/側邊欄開啟等情境下出現尷尬寬度',
+    ],
+  },
+  {
+    version: '3.92.1',
+    date: '2026-08-11',
+    changes: [
+      'fix(design): [仙俠版] 頂欄（topbar）會隨頁面內容一起捲動，不會固定在頂部——根因是 `xianxia-complete.css` 的 `.app-main > * { position: relative; z-index: 1; }`（給裝飾覆蓋層設計的全域規則）跟 `.app-topbar` 本來在 App.css 就有的 `position: sticky` 特異度打平，仙俠版 CSS 是執行期動態插入、載入順序在後，後蓋前贏，意外把 topbar 的 position 蓋成 relative。修法是在 xianxia-complete.css 既有的 `.app-topbar` 專屬區塊補上 `position: sticky !important; top: 0 !important;`，不動 `.app-main > *` 那條（避免影響其他裝飾覆蓋層元素），全站所有頁面都受惠，已用真實捲動測試驗證',
+    ],
+  },
+  {
+    version: '3.92.0',
+    date: '2026-08-11',
+    changes: [
+      'feat: 新增「週報彙整」——獨立工具（不掛在 OSM Tools 底下），每週貼上當週 Lark Base 網址，動態讀取「成员」/「专案」欄位的下拉選項（不寫死，因為每週是新表），選擇自己（必填）+ 主要專案（選填，橫跨多專案時可留空、細項各自在文字裡標專案），本週工作內容可混寫 Jira 單摘要（貼單號按「帶入摘要」，呼叫既有 /api/jira/batch-fetch-fields，用目前登入帳號的 email 當 Jira 帳號，不需要另外選 Jira 帳號）與手寫文字，插入時不覆蓋既有內容（插在游標位置）。送出直接新增一列到該 Lark Bitable。普通版／仙俠版兩版視覺同一套結構，只換配色與術語',
+    ],
+  },
+  {
+    version: '3.91.2',
+    date: '2026-08-10',
+    changes: [
+      'feat(autospin): 三路對帳新增依帳號的啟用開關（`autospin_notify_prefs.compareEnabled`，預設開啟）——比對群組定義仍是全域共用（團隊量測標準），但要不要背景執行比對本身依帳號各自決定；關閉後該帳號執行中的機台完全不會再打 SLS/Pinus 查詢也不會寫入新的比對紀錄，畫面上有明確提示，重新開啟即繼續累積',
+    ],
+  },
+  {
+    version: '3.91.1',
+    date: '2026-08-10',
+    changes: [
+      'fix(autospin): 三路對帳 SLS 憑證改成後端寫死（server/lib/sls.ts 常數 + env var 覆蓋管道），移除前端「SLS recordBet 憑證設定」面板——使用者不需要、也看不到/改不了這組憑證，跟其餘工具建置時就先準備好連線設定的慣例一致',
+      'fix(autospin): 三路對帳比對群組的欄位新增從 window.prompt 手打路徑，改成依來源（SLS/Pinus/盒子）列出實際已知欄位的下拉選單（例如 SLS 的 requestJSON.amount／responseJSON.balance、Pinus 的 bet／win），使用者用選的不用自己猜路徑打錯字',
+    ],
+  },
+  {
+    version: '3.91.0',
+    date: '2026-08-10',
+    changes: [
+      'feat(autospin): 新增「三路對帳」——AutoSpin 底下新分頁，跟執行同步即時比對三個資料來源（SLS recordBet log／機台盒子硬體日誌／前端 Pinus history），支援多機台並行、每台獨立統計，展開查看逐筆 Spin 明細。比對欄位不寫死，使用者自訂「比對群組」（例如「下注金額」= SLS requestJSON.amount + Pinus bet），伺服器每 20 秒背景跑一次比對（用 SLS roundId ↔ Pinus orderId 對應同一筆下注，兩邊都有資料且在容許誤差內才算相符），也可手動「試算目前資料」立即跑一次。機台盒子硬體日誌來源目前尚未串接，任何包含「盒子」欄位的比對群組會固定顯示「缺資料」並在畫面上明確標示，不會假裝已經比對過。SLS 走官方 @alicloud/sls20201230 SDK（新增憑證設定 UI，可測試連線），比對群組/結果存 autospin_compare_groups / autospin_compare_results 兩張新表；不新增獨立頁面權限位，跟既有的「後台對帳」分頁一樣掛在 autospin page key 底下',
+    ],
+  },
   {
     version: '3.90.14',
     date: '2026-08-07',

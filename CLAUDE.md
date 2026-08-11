@@ -32,6 +32,12 @@
 Only respond to Discord messages from channel `1486299759630094419` (Toppath Tool channel).
 Ignore and do not reply to messages from any other Discord channel, including `1485447431272267889` (OSM QA Agent channel).
 
+**呼叫 CodeX 的規則（2026-08-10 從 osm-qa-agent session 同步過來）：** 若需要請 CodeX 幫忙，訊息**開頭**必須是真正的 Discord mention `<@1509189087066722363>`（不是打字打出來的「@CodeX」文字，兩者在畫面上可能長得很像，但底層資料不同）。這是 bridge（`C:\Users\user\Documents\Codex\2026-05-27\https-github-com-saseq-discord-mcp\src\index.ts`）的判斷邏輯決定的：只認 `message.content.trim().startsWith(mention)`——mention 必須是整則訊息**去除頭尾空白後的第一個字元**，前面不能有任何其他文字（mention 後面可以接文字，同一則訊息裡繼續講話沒問題）。不符合這個格式時 CodeX **完全不會有任何反應，也不會回錯誤訊息**，是靜默失敗，很容易誤以為是 bridge 壞掉。這條規則是 bridge 本體的行為，跨專案（無論是 osm-qa-agent 還是這個 Toppath tools session）都適用，不隨工作目錄切換而改變。
+
+**Artifact 文件型/架構圖型內容附檔規則（2026-08-10 從 osm-qa-agent session 同步過來）：** 每次更新用 claude.ai 生成的 Artifact（文件型/架構圖型/mockup 等），**必須同時把本機的 HTML 檔案用 `files` 參數附加到 Discord 回覆，不能只丟 artifact 連結**。原因：瀏覽器端常吃到快取看到舊版內容，附檔案讓使用者能繞開快取直接看到最新版。
+
+**任何任務執行前都要跟 CodeX 討論（2026-08-10 從 osm-qa-agent session 同步過來，使用者要求兩邊 session 都套用）：** 不論任務大小，執行前都要用 `<@1509189087066722363>` mention 拉 CodeX 進來討論，不是只在一開始討論完設計就自己單獨執行到底——包含決策、實作、修改都算。**唯一例外是生圖**：需要生圖時直接生成，不用先跟 CodeX 討論猶豫。任務做完後，**要有 CodeX 實際確認/同意過的收尾**，不是單方面貼一則總結就算結束——要等 CodeX 回覆確認才視為完成。
+
 # Server Architecture
 
 The Express backend is split into route modules. All live under `server/`:
@@ -406,6 +412,20 @@ Keep Claude for:
 
 **帶 sessionId 的其餘端點也補齊帳號檢查（2026-07-31，Codex review 後補）**：上面那版只擋住「自動偵測」這個發現別人 sessionId 的入口，但 `pause`/`resume`/`spin-interval`/`stream/:id`（SSE）/`screenshot(s)/:id` 這些端點本身仍然「只認 sessionId、不驗證是不是同一個帳號」——正常 UI 流程確實不會再拿到別人的 sessionId，但只要 sessionId 洩漏（舊頁面殘留分享的截圖連結、瀏覽器歷史記錄等），仍能直接操作/讀取別人的 session。新增 `requestUserLabel(req)` 共用 helper（讀 `x-user-label` header，或 `?userLabel=` query——`EventSource`/`<img src>` 無法自訂 header，只能靠 query），套用在這 5 個「前端呼叫」端點，`userLabel` 不對就回 403。**注意分辨呼叫方**：`/agent/:id/log`、`/agent/:id/screenshot`（上傳）、`/agent/:id/stop`、`/agent/:id/should-stop` 這幾個是 **Python agent 自己上報用的**，不是前端指令，不需要（也不能，agent 沒有 x-user-label 概念）加這個檢查。**已知範圍限制**：「伺服器端 (fallback)」模式的 `SessionState`（`/api/autospin/status`）完全沒有 `userLabel` 概念，仍是全域共用，未修——目前使用的主要模式是「遠端 Agent」（agent-hub），fallback 模式較少人同時用，之後若有人真的在 fallback 模式遇到同樣問題再補。
 
+**三路對帳（2026-08-10，v3.91.0）**：AutoSpin 底下新分頁「三路對帳」，跟執行同步、伺服器背景持續跑的即時比對工具，比對三個資料來源：SLS recordBet log（`lib/sls.ts` 的 `fetchRecordBet()`，官方 `@alicloud/sls20201230` SDK）、機台盒子硬體日誌（`fresh_current_credits`，**目前尚未串接來源**）、前端 Pinus history（沿用既有的 `reconcile_front_records` 表，Python agent 本來就會呼叫 `fetch_and_post_pinus_records()` 上傳）。跟 CLAUDE.md 上面的「後台對帳」（`reconcile/*`）是不同工具——後台對帳是使用者手動選時間範圍事後跑一次、比對後台 `gameRecordList`；三路對帳是不需要使用者觸發，AutoSpin 一開始跑，`setInterval` 每 20 秒自動掃描所有執行中 session 的每台機台各跑一次。
+
+**SLS 憑證寫死在後端，不提供前端設定（2026-08-10，v3.91.1 修正）**：v3.91.0 原本做了一個「SLS recordBet 憑證設定」面板讓使用者自己填 AccessKey/Region/Project/Logstore（存 `settings` 表 `sls_*` 前綴），使用者當天立刻回饋不需要這個——`getSlsCreds()`（`server/lib/sls.ts`）改成直接回傳寫死的常數（目前這組帳號的 AccessKey/Region=`ap-southeast-1`/Project=`qat-toppath-osm-logs`/Logstore=`tgapi-qat`），只留 `SLS_RECORDBET_KEY_ID`/`SLS_RECORDBET_KEY_SECRET`/`SLS_RECORDBET_REGION`/`SLS_RECORDBET_PROJECT`/`SLS_RECORDBET_LOGSTORE` 這幾個 env var 當覆蓋管道（正式環境要換帳號時改 env，不用改代碼）。`GET/PUT /api/autospin/compare/sls-config` 兩支端點與前端整個憑證設定面板都已移除；只留 `POST /api/autospin/compare/sls-test` 給後端自己診斷用（curl 確認連線），不接前端畫面。
+
+比對欄位刻意不寫死，使用者在畫面上自訂「比對群組」（例如群組「下注金額」= SLS `requestJSON.amount` + Pinus `bet`），存在新表 `autospin_compare_groups`（全域共用，PUT 整批覆蓋儲存，跟 `reconcile_config` 一樣的定位——比對定義是團隊共同量測標準，不是個人偏好）。比對結果存 `autospin_compare_results`（一列＝一台機器一次 spin，`roundKey` 唯一索引 `(sessionId, machineType, roundKey)`，用 `INSERT ... ON CONFLICT DO UPDATE` 而非單純 insert-or-ignore——因為 SLS 跟 Pinus 兩邊資料到達時間不同步，同一輪可能先被記成 `missing_data`，晚一點另一邊資料補齊時要能更新回同一列，不是變成兩筆重複紀錄）。
+
+**欄位新增改成下拉選單，不讓使用者手打路徑（2026-08-10，v3.91.1 修正）**：v3.91.0 原本用 `window.prompt()` 讓使用者自己打欄位路徑（例如要自己記得打 `requestJSON.amount`），使用者回饋這樣容易打錯、也不知道有哪些欄位可選。改成前端內建 `FIELD_CATALOG`（`AutoSpinPage.tsx`）——SLS 欄位取自 recordBet log 真實的 `requestJSON`/`responseJSON` 結構（跟 `SlsBetRecord.raw` 同一份資料）、Pinus 欄位取自 `reconcile_front_records` 正規化後的欄位（bet/win/orderId/recordTime/gmid/gameid）、盒子欄位目前只先預留使用者原本提過的 `fresh_current_credits` 一個選項（尚未串接，選了也固定顯示缺資料）。每個來源一顆 `<select>`，選了就直接加入群組，不用自己打字也不會選到不存在的欄位。
+
+**依帳號的啟用開關（2026-08-10，v3.91.2）**：跟 Codex 討論後的結論——比對「規則」（群組欄位定義）維持全域共用（團隊量測標準，不應該每人一套，不然結果難以互相解釋），但要不要「執行」比對這件事依帳號各自決定（有人只是想跑 AutoSpin 穩定性測試，不需要額外打 SLS API/寫 DB）。`autospin_notify_prefs` 新增 `compareEnabled` 欄位（沿用既有的每帳號設定表，預設 1／開啟，既有安裝用 `ALTER TABLE` 補齊），`GET/PUT /api/autospin/compare/prefs` 讀寫。`runCompareCycle()` 背景每 20 秒掃描時，逐一 session 先檢查該 session 擁有者（`session.userLabel`）的 `isCompareEnabled()`，關閉的帳號直接 `continue` 跳過（完全不打 SLS/Pinus 查詢也不寫入 `autospin_compare_results`）。畫面上開關放在分頁頂部，關閉時顯示明確提示文字，不是靜默失效。手動「試算目前資料」（`/compare/run-now`）目前沒有跟著這個開關特別處理——它呼叫的是同一個 `runCompareCycle()`，關閉開關的帳號手動點擊也不會產生結果，這是刻意不特別繞過的簡化（真的想再測就先把開關打開）。
+
+**配對邏輯**：SLS `recordBet` 的 `roundId` 欄位（例如 `"900-BZZF-0003|6A79AD7F003"`）與 AutoSpin 機台設定的 `gameTitleCode`（例如 `"900-BZZF-0003"`）前半段格式相同，用來把 SLS log 過濾到正確機台；`roundId` 再跟 Pinus `historyListReq` 回傳的 `order_id` 做精確字串比對配對同一筆下注（沒有做時間相近度 fallback——不像上面「後台對帳」2 路比對那樣有 bet/win/time 容錯配對，3 路對帳目前只信任明確的 ID 對應，避免配錯筆數字反而誤判成不符）。「機台有沒有在跑」的偵測是看 `autospin_history` 最近 5 分鐘內有沒有寫入紀錄（agent 本來就持續在寫），不是自己維護一份派工機台清單（`hub-dispatch` 當下沒有記錄實際派了哪些機台到 session 物件上，這樣判斷更準）。
+
+**盒子日誌尚未串接**：`resolveFieldValue()` 對 `source: 'box'` 的欄位固定回傳 `undefined`，任何包含盒子欄位的比對群組會固定停在 `missing_data` 狀態，前端畫面在有此類群組時會明確顯示黃色提示「盒子硬體日誌尚未串接資料來源」，不會假裝已經比對過。之後真的串接時只需要在 `resolveFieldValue()` 補上 `ctx.box` 的實際資料來源，比對群組設定本身不用重新設定。
+
 ### 使用者操作
 | 操作 | 說明 |
 |------|------|
@@ -415,6 +435,8 @@ Keep Claude for:
 | 伺服器端 fallback | 切到「伺服器端」可直接在 server 本機 spawn（舊模式）|
 | 暫停 / 繼續 Agent | 暫停自動旋轉，保持連線 |
 | 查看即時日誌 / 截圖 | SSE 串流 Agent 執行日誌與遊戲截圖；日誌框固定高度＋內部捲動，支援分類篩選（全部/系統/Spin/截圖/錯誤警告）+ 關鍵字搜尋 + 自動捲到底開關 + 清空；pinus 訊息預設收合，可依 7 類（Spin動作/餘額異動/狀態廣播/進入遊戲/連線登入/心跳列表/其他）分別展開；SSE 斷線（如伺服器重啟）會在 2 秒後自動重連。截圖監控為 2 欄縮圖網格，標示最新一張 |
+| 三路對帳（獨立 Tab） | 跟執行同步即時比對 SLS recordBet／盒子日誌（尚未串接）／Pinus history，多機台並行、每台獨立統計已比對/相符/不符/缺資料，展開查看逐筆 Spin 明細；自訂比對群組（用下拉選單挑已知欄位，不用手打路徑）、手動「試算目前資料」立即跑一次。SLS 憑證後端寫死，畫面上不會出現、不用設定 |
+| 啟用/停用三路對帳（依帳號） | 分頁頂部開關，預設開啟；關閉後自己執行中的機台不會再背景打 SLS/Pinus 查詢、不寫新比對紀錄，比對群組定義（全域共用）不受影響 |
 | 查看歷史紀錄 | AutoSpin 各 session 的執行紀錄 |
 | 設定 Spin 間隔 | 調整每次 Spin 的等待時間（執行中可即時覆蓋）|
 | 管理模板圖片 | 上傳比對模板圖（模板管理 Tab）|
@@ -515,6 +537,7 @@ Keep Claude for:
 | `gs-stats` | Game Show 500x 機率統計 |
 | `gs-imgcompare` | Game Show 圖片比對 |
 | `gs-logchecker` | Game Show Log 攔截 |
+| `weekly-report` | 週報彙整送出 |
 
 ### 使用者操作
 | 操作 | 說明 |
@@ -779,6 +802,41 @@ Dashboard（修仙版）Hero 橫幅下方顯示一張每日語錄小卡片，語
 | 查看每日語錄 | Dashboard（修仙版）Hero 橫幅下方自動顯示，每天固定一則 |
 | 管理語錄庫 | 「每日仙語管理」頁（系統分區）手動新增/編輯/刪除語錄，可查看每則目前用到第幾輪 |
 | AI 建議候選語錄 | 管理頁「AI 建議」按鈕，Gemini 生成候選草稿，需人工確認出處後才按「加入語錄庫」存入 |
+
+---
+
+## 23. 週報彙整（WeeklyReportPage）
+
+**路由**：`POST /api/weekly-report/parse`、`POST /api/weekly-report/submit`｜**歷史紀錄 feature key**：`weekly-report`
+
+### 功能說明
+獨立工具（2026-08-11 新增，**不掛在 OSM Tools 底下**，跟 Jira/TestCase 生成同一層級），讓成員快速把本週工作內容寫進團隊共用的 Lark Base 週報表。每週該表是全新一張（不是同一張表累積、沒有日期/週次欄位），所以工具不寫死表格 ID，改成使用者每次貼上「本週 Lark Base 網址」，動態讀取該表的欄位選項。
+
+**Lark Base 表格式**（已用真實表驗證，`FEyTb3Y7Ua6ntgsXt0nlKg5yg8e`/`tblBIv21zkPymWCO`）：只有 4 個欄位——`No`（自動編號）、`专案`（單選，~60-70 個專案代碼如 `P7-005-OSM`）、`成员`（單選，~45 個人名）、`补充说明`（純文字）。`parseLarkBaseUrl()`（`server/routes/weekly-report.ts`）解析 `/base/{appToken}?table={tableId}` 格式（跟 `parseLarkSheetUrl()` 解析 `/sheets/`、`/wiki/` 是不同格式，不能共用）。
+
+**一人一週只佔一列，多個項目全部合併進同一個補充說明欄位**（2026-08-11 使用者明確決定）：`专案` 是單選欄位，但實際週報常常一人橫跨多個專案，兩者天生衝突——解法是 `专案` 欄位做成「主要專案，選填」（可留空，不強求反映全部），逐項實際是哪個專案的內容自己在文字裡標籤（例如 `[P7-005-OSM] 修正登入錯誤...`），欄位語意上不保證能完整拿來做跨專案統計，統計要看補充說明文字本身。
+
+**Jira 單與手寫文本混寫在同一段文字**（不強制分模式）：Step 3 補充說明文字框上方有「貼 Jira 單號 → 帶入摘要」小工具，貼上單號（可逗號分隔多個）按下後呼叫既有的 `POST /api/jira/batch-fetch-fields`（跟 JiraPage 批量開單/評論用同一支端點），組成 `[CGMN-26] 修正登入錯誤（Done）` 格式的文字插入textarea——**插入是插在游標位置，不會覆蓋使用者已經打好的內容**（`textareaRef` 讀 `selectionStart`/`selectionEnd`，插入後游標移到插入內容之後），插入後可自由編輯，之後也能繼續手打其他內容混在一起。
+
+**Jira 授權不需要另外選帳號**：本來討論時以為要加一個 Jira 帳號選擇器（`batch-fetch-fields` 需要 `x-jira-email` header），後來確認這個專案的登入帳號本身就是 Jira 帳號（`server/accounts.json` 同一份資料同時是 Toppath Tools 登入清單也是 Jira API token 清單，前端 `sessionStorage` 存的 key 直接叫 `global_jira_account`）——直接用 `loadGlobalAccount()?.email` 當 `x-jira-email` 打 API，不用額外 UI。找不到已登入帳號時「帶入摘要」會直接回錯誤訊息，不會盲目打 API。
+
+**讀取失敗會擋在送出之前，不會等送出才報錯**：`POST /api/weekly-report/parse` 會先檢查回應是否包含 `成员`/`专案`/`补充说明` 三個必要欄位，缺少任一個直接回傳明確錯誤訊息列出缺什麼欄位；Step 2/3 的表單在還沒成功解析表格前是 disabled 狀態（`opacity: .5` + `pointerEvents: none`），不可能在沒讀到欄位選項的狀態下送出。
+
+送出（`POST /api/weekly-report/submit`）直接呼叫 Lark Bitable `records` API **永遠新增一列**，`专案` 欄位允許空值（沒填就不放進 payload，不是送空字串）。成功後寫入 `operation_history`（`addHistory('weekly-report', ...)`），內容含實際送出的成員/專案/文字（截斷 300 字）。
+
+**曾考慮「同成員已有列就 PATCH 附加」，最後刻意放棄改回永遠新增（2026-08-11 討論結論）**：一度做過「送出前查表格裡有沒有同一個成員的既有列，找到就把新內容加一段時間戳分隔線附加到既有補充說明後面，不覆蓋」的版本，但發現這個 read-then-write 模式有兩個真實併發風險：① 同一人短時間內兩次送出（手滑連點、兩個分頁）可能兩次查詢都查到「還沒有」，變成新增兩列而不是預期中的一列變兩次追加；② 查證過 Lark Bitable 的 record update API 沒有 revision/ETag 這類機制能偵測「PATCH 當下這筆資料是否已被別人在 Lark 網頁上手動改過」，沒有這個保護的話就是單純「後寫的贏」，有機會蓋掉別人剛好同時間的手動編輯。永遠新增一列完全不會共用/覆寫任何既有欄位，兩個風險直接消失；代價只是同一人這週送多次會在表上留下多列，判斷是「整理起來麻煩」的小不便，不是「資料被覆蓋」的風險，這筆交易划算。
+
+**普通版／仙俠版**：跟 AutoSpin 三路對帳同一套模式——沿用全站共用的 `--cr-*`/`--xx-*` CSS 變數（不用寫兩份程式碼，切版面模式顏色自動對應），只有文字（標題/步驟說明/按鈕文字）在元件內用 `themeMode === 'xianxia'` 三元判斷切換兩套用詞（例如「送出至 Lark」↔「呈報宗門」、「成員」↔「道號」），沒有额外的裝飾結構差異，符合操作型工具「只換皮不換骨」的既有原則。
+
+### 使用者操作
+| 操作 | 說明 |
+|------|------|
+| 貼上本週 Lark Base 網址 | 每週表格不同，貼上後自動讀取「成员」/「专案」欄位選項；上次用過的網址會記住（`localStorage`），下次開啟預先帶入 |
+| 選擇成員（自己） | 必填，下拉選單選項來自剛讀取的表格 |
+| 選擇主要專案 | 選填，可留空（內容自己在文字裡標專案） |
+| 貼 Jira 單號帶入摘要 | 可一次貼多個（逗號分隔），自動抓摘要/狀態插入文字框游標位置，不覆蓋已打的內容 |
+| 填寫本週工作內容 | 自由編輯文字框，可混寫 Jira 帶入的摘要與手寫文字 |
+| 送出 | 直接在該 Lark Bitable 新增一列（成員/主要專案/補充說明） |
 
 ---
 

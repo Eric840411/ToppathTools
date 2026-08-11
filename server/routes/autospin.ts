@@ -12,7 +12,8 @@ import { dirname } from 'path'
 import { db, addHistory, upload } from '../shared.js'
 import { getOperatorFromContext } from '../request-context.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
-import { fetchSlsErrors } from '../lib/sls.js'
+import { fetchSlsErrors, fetchRecordBet, testSlsRecordBetConnection, type SlsBetRecord } from '../lib/sls.js'
+import { randomUUID } from 'crypto'
 import { agentConnections, getAvailableAgents } from '../agent-hub.js'
 // 只讀取 Machine Test 現成維護的 OSMWatcher 狀態 map，不改動 machine-test.ts 本身
 import { osmMachineStatus } from './machine-test.js'
@@ -347,24 +348,31 @@ router.post('/api/autospin/discord-webhook/test', async (_req, res) => {
 interface NotifyPrefsRow {
   userLabel: string; notifyEnabled: number; notifyFields: string
   reportEnabled: number; reportIntervalMin: number; reportFields: string
-  reportCustomNote: string; reportAiEnabled: number
+  reportCustomNote: string; reportAiEnabled: number; compareEnabled: number
 }
 function getNotifyPrefsRow(userLabel: string): NotifyPrefsRow | undefined {
   return db.prepare('SELECT * FROM autospin_notify_prefs WHERE userLabel = ?').get(userLabel) as NotifyPrefsRow | undefined
 }
 function upsertNotifyPrefs(userLabel: string, patch: Partial<Omit<NotifyPrefsRow, 'userLabel'>>) {
   const existing = getNotifyPrefsRow(userLabel) ?? {
-    userLabel, notifyEnabled: 1, notifyFields: '', reportEnabled: 0, reportIntervalMin: 20, reportFields: '', reportCustomNote: '', reportAiEnabled: 0,
+    userLabel, notifyEnabled: 1, notifyFields: '', reportEnabled: 0, reportIntervalMin: 20, reportFields: '', reportCustomNote: '', reportAiEnabled: 0, compareEnabled: 1,
   }
   const merged = { ...existing, ...patch }
   db.prepare(`
-    INSERT INTO autospin_notify_prefs (userLabel, notifyEnabled, notifyFields, reportEnabled, reportIntervalMin, reportFields, reportCustomNote, reportAiEnabled)
-    VALUES (@userLabel, @notifyEnabled, @notifyFields, @reportEnabled, @reportIntervalMin, @reportFields, @reportCustomNote, @reportAiEnabled)
+    INSERT INTO autospin_notify_prefs (userLabel, notifyEnabled, notifyFields, reportEnabled, reportIntervalMin, reportFields, reportCustomNote, reportAiEnabled, compareEnabled)
+    VALUES (@userLabel, @notifyEnabled, @notifyFields, @reportEnabled, @reportIntervalMin, @reportFields, @reportCustomNote, @reportAiEnabled, @compareEnabled)
     ON CONFLICT(userLabel) DO UPDATE SET
       notifyEnabled = excluded.notifyEnabled, notifyFields = excluded.notifyFields,
       reportEnabled = excluded.reportEnabled, reportIntervalMin = excluded.reportIntervalMin,
-      reportFields = excluded.reportFields, reportCustomNote = excluded.reportCustomNote, reportAiEnabled = excluded.reportAiEnabled
+      reportFields = excluded.reportFields, reportCustomNote = excluded.reportCustomNote, reportAiEnabled = excluded.reportAiEnabled,
+      compareEnabled = excluded.compareEnabled
   `).run(merged)
+}
+
+// 三路對帳依帳號開關；沒存過偏好的帳號 fallback 預設開啟（避免現有流程突然少資料，符合 2026-08-10 討論結論）
+function isCompareEnabled(userLabel: string): boolean {
+  const row = getNotifyPrefsRow(userLabel)
+  return row ? row.compareEnabled !== 0 : true
 }
 function legacySetting(key: string): string | undefined {
   return (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value
@@ -2191,6 +2199,273 @@ router.get('/api/autospin/reconcile/reports/:id', (req, res) => {
     { details: string } & Record<string, unknown> | undefined
   if (!row) return res.status(404).json({ ok: false })
   return res.json({ ok: true, report: { ...row, details: JSON.parse(row.details || '{}') } })
+})
+
+// ─── 三路對帳（SLS recordBet / 盒子日誌 / Pinus history）────────────────────────
+// 跟上面的 reconcile/* 是不同工具：reconcile/* 是「事後手動選時間範圍跑一次」對後台
+// gameRecordList；這裡是跟 AutoSpin 執行同步、背景持續跑的即時比對，比對欄位由使用者
+// 自訂群組（不寫死要比哪些欄位），資料來源：
+//   sls   — SLS recordBet log（fetchRecordBet，見 lib/sls.ts）
+//   pinus — 前端 pinus historyListReq，agent 已經在跑的 reconcile_front_records 表
+//   box   — 機台盒子硬體日誌（fresh_current_credits），目前尚未串接來源，一律回傳
+//           undefined，任何包含 box 欄位的比對群組會固定停在 missing_data，UI 需明確
+//           標示「尚未串接」而不是假裝比對過
+
+interface CompareField { source: 'sls' | 'box' | 'pinus'; path: string; label?: string }
+interface CompareGroupRow { id: string; name: string; fields: CompareField[]; tolerance: number; sortOrder: number }
+
+function readCompareGroups(): CompareGroupRow[] {
+  const rows = db.prepare('SELECT * FROM autospin_compare_groups ORDER BY sortOrder, createdAt').all() as
+    { id: string; name: string; fields: string; tolerance: number; sortOrder: number }[]
+  return rows.map(r => ({ id: r.id, name: r.name, fields: JSON.parse(r.fields || '[]'), tolerance: r.tolerance, sortOrder: r.sortOrder }))
+}
+
+// GET/PUT /api/autospin/compare/prefs — 三路對帳依帳號開關（2026-08-10 討論結論：比對規則全域共用，
+// 要不要跑比對依帳號各自決定，預設開啟）；跟比對群組（下面 groups，全域共用）刻意分開兩支端點
+router.get('/api/autospin/compare/prefs', (req, res) => {
+  res.json({ ok: true, compareEnabled: isCompareEnabled(requestUserLabel(req)) })
+})
+router.put('/api/autospin/compare/prefs', (req, res) => {
+  const body = z.object({ compareEnabled: z.boolean() }).parse(req.body)
+  upsertNotifyPrefs(requestUserLabel(req), { compareEnabled: body.compareEnabled ? 1 : 0 })
+  res.json({ ok: true })
+})
+
+// GET /api/autospin/compare/groups
+router.get('/api/autospin/compare/groups', (_req, res) => {
+  res.json({ ok: true, groups: readCompareGroups() })
+})
+
+const compareFieldSchema = z.object({
+  source: z.enum(['sls', 'box', 'pinus']),
+  path: z.string().min(1),
+  label: z.string().optional(),
+})
+
+// PUT /api/autospin/compare/groups — 整批覆蓋儲存（前端一次送出所有群組，比逐筆 CRUD 簡單，
+// 群組數量少、使用者操作頻率低，不需要細粒度的單筆 API）
+router.put('/api/autospin/compare/groups', (req, res) => {
+  const body = z.object({
+    groups: z.array(z.object({
+      id: z.string().optional(),
+      name: z.string().min(1),
+      fields: z.array(compareFieldSchema).default([]),
+      tolerance: z.number().min(0).default(0.01),
+    })),
+  }).parse(req.body)
+
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM autospin_compare_groups').run()
+    const insert = db.prepare(`
+      INSERT INTO autospin_compare_groups (id, name, fields, tolerance, sortOrder, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `)
+    body.groups.forEach((g, i) => {
+      insert.run(g.id || randomUUID(), g.name, JSON.stringify(g.fields), g.tolerance, i, Date.now())
+    })
+  })
+  tx()
+  res.json({ ok: true, groups: readCompareGroups() })
+})
+
+// POST /api/autospin/compare/sls-test — 憑證固定寫死在後端（server/lib/sls.ts），不提供前端
+// 設定 UI；這支端點純粹留給後端診斷用（例如部署後用 curl 確認連線是否正常），不接前端畫面。
+router.post('/api/autospin/compare/sls-test', async (_req, res) => {
+  const result = await testSlsRecordBetConnection(60)
+  res.json(result)
+})
+
+// ── 比對引擎 ──────────────────────────────────────────────────────────────────
+
+interface CompareContext {
+  sls?: Record<string, unknown>
+  pinus?: Record<string, unknown>
+  box?: Record<string, unknown>
+}
+
+function getPath(obj: unknown, path: string): unknown {
+  if (obj === undefined || obj === null || !path) return undefined
+  return path.split('.').reduce<unknown>((acc, key) => {
+    if (acc === undefined || acc === null || typeof acc !== 'object') return undefined
+    return (acc as Record<string, unknown>)[key]
+  }, obj)
+}
+
+function resolveFieldValue(field: CompareField, ctx: CompareContext): unknown {
+  if (field.source === 'box') return undefined // 盒子日誌尚未串接
+  return getPath(ctx[field.source], field.path)
+}
+
+interface GroupEvalResult {
+  groupId: string; groupName: string
+  values: { source: string; path: string; value: unknown }[]
+  status: 'match' | 'mismatch' | 'missing_data'
+  note: string
+}
+
+function evaluateGroup(group: CompareGroupRow, ctx: CompareContext): GroupEvalResult {
+  const values = group.fields.map(f => ({ source: f.source, path: f.path, value: resolveFieldValue(f, ctx) }))
+  const nums: number[] = []
+  let missing = group.fields.length === 0
+  for (const v of values) {
+    if (v.value === undefined || v.value === null || v.value === '') { missing = true; continue }
+    const n = typeof v.value === 'number' ? v.value : parseFloat(String(v.value))
+    if (Number.isNaN(n)) { missing = true; continue }
+    nums.push(n)
+  }
+  if (missing) {
+    return { groupId: group.id, groupName: group.name, values, status: 'missing_data', note: '至少一個來源缺資料' }
+  }
+  const max = Math.max(...nums), min = Math.min(...nums)
+  if (max - min > group.tolerance) {
+    return { groupId: group.id, groupName: group.name, values, status: 'mismatch', note: `差 ${(max - min).toFixed(2)}` }
+  }
+  return { groupId: group.id, groupName: group.name, values, status: 'match', note: '' }
+}
+
+interface PinusFrontRow { orderId: string; bet: number; win: number; recordTime: string; gmid: string; gameid: string }
+
+async function compareMachineCycle(sessionId: string, machineType: string, gameTitleCode: string, groups: CompareGroupRow[]): Promise<void> {
+  if (groups.length === 0 || !gameTitleCode) return
+
+  const nowSec = Math.floor(Date.now() / 1000)
+  // 每輪往回看 10 分鐘（含一點重疊），已存在的 round 靠 UNIQUE(sessionId, machineType, roundKey) upsert
+  // 自然去重，不需要自己追蹤「上次掃到哪」
+  const fromSec = nowSec - 600
+
+  let slsRecords: SlsBetRecord[] = []
+  try {
+    slsRecords = await fetchRecordBet(fromSec, nowSec, gameTitleCode, 300)
+  } catch {
+    // SLS 憑證未設定 / API 逾時——這台機器這輪先跳過，不中斷其他機台，下一輪再試
+    return
+  }
+  if (slsRecords.length === 0) return
+
+  const pinusRows = db.prepare(`
+    SELECT orderId, bet, win, recordTime, gmid, gameid FROM reconcile_front_records
+    WHERE sessionId = ? AND machineType = ? AND createdAt >= ?
+  `).all(sessionId, machineType, fromSec * 1000) as PinusFrontRow[]
+  const pinusByOrderId = new Map(pinusRows.map(r => [r.orderId, r]))
+
+  let spinIndex = (db.prepare('SELECT COUNT(*) as c FROM autospin_compare_results WHERE sessionId = ? AND machineType = ?')
+    .get(sessionId, machineType) as { c: number }).c
+  const existingKeys = new Set(
+    (db.prepare('SELECT roundKey FROM autospin_compare_results WHERE sessionId = ? AND machineType = ?')
+      .all(sessionId, machineType) as { roundKey: string }[]).map(r => r.roundKey),
+  )
+
+  const upsert = db.prepare(`
+    INSERT INTO autospin_compare_results (sessionId, machineType, roundKey, spinIndex, spinTime, status, groups)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(sessionId, machineType, roundKey) DO UPDATE SET status = excluded.status, groups = excluded.groups
+  `)
+
+  const tx = db.transaction(() => {
+    for (const sls of slsRecords) {
+      const roundKey = sls.roundId || `sls-t:${sls.time}`
+      if (!existingKeys.has(roundKey)) { spinIndex++; existingKeys.add(roundKey) }
+      const pinus = pinusByOrderId.get(sls.roundId)
+      const ctx: CompareContext = {
+        sls: sls.raw,
+        pinus: pinus ? { orderId: pinus.orderId, bet: pinus.bet, win: pinus.win, recordTime: pinus.recordTime, gmid: pinus.gmid, gameid: pinus.gameid } : undefined,
+      }
+      const groupResults = groups.map(g => evaluateGroup(g, ctx))
+      const status = groupResults.some(g => g.status === 'mismatch')
+        ? 'mismatch'
+        : groupResults.some(g => g.status === 'missing_data') ? 'missing_data' : 'match'
+      upsert.run(sessionId, machineType, roundKey, spinIndex, new Date(sls.time * 1000).toISOString(), status, JSON.stringify(groupResults))
+    }
+  })
+  tx()
+}
+
+// 掃描所有目前執行中的 session，逐台機器跑一次比對——判斷「機台有沒有在跑」用
+// autospin_history 最近 5 分鐘內有沒有寫入紀錄（agent 本來就持續在寫），比自己維護一份
+// 派工機台清單更準（hub-dispatch 當下沒有記錄實際派了哪些機台到 session 物件上）
+async function runCompareCycle(): Promise<void> {
+  const groups = readCompareGroups()
+  if (groups.length === 0) return
+  const runningSessions = [...agentSessions.values()].filter(s => s.status === 'running')
+  if (runningSessions.length === 0) return
+
+  for (const session of runningSessions) {
+    if (!isCompareEnabled(session.userLabel)) continue // 該帳號關閉三路對帳，完全不打 SLS/Pinus 也不寫入結果
+    const activeMachines = db.prepare(`
+      SELECT DISTINCT machineType FROM autospin_history WHERE sessionId = ? AND createdAt >= ?
+    `).all(session.id, Date.now() - 5 * 60_000) as { machineType: string }[]
+    if (activeMachines.length === 0) continue
+    const configs = readConfigs(session.userLabel)
+    for (const { machineType } of activeMachines) {
+      const gameTitleCode = configs.find(c => c.machineType === machineType)?.gameTitleCode || ''
+      try {
+        await compareMachineCycle(session.id, machineType, gameTitleCode, groups)
+      } catch (e) {
+        console.error(`[autospin][compare] ${session.id}/${machineType} 比對失敗：`, e)
+      }
+    }
+  }
+}
+setInterval(() => { runCompareCycle().catch(() => {}) }, 20_000)
+
+// POST /api/autospin/compare/run-now — 手動觸發一次比對（不用等下一次 20 秒排程），
+// 對應前端「試算目前資料」按鈕
+router.post('/api/autospin/compare/run-now', async (_req, res) => {
+  try {
+    await runCompareCycle()
+    res.json({ ok: true })
+  } catch (e) {
+    res.status(500).json({ ok: false, message: String(e) })
+  }
+})
+
+// GET /api/autospin/compare/status — 目前操作者所有執行中 session 的每台機器比對統計
+router.get('/api/autospin/compare/status', (req, res) => {
+  const userLabel = requestUserLabel(req)
+  const sessions = [...agentSessions.values()].filter(s => s.status === 'running' && s.userLabel === userLabel)
+  const machines: { sessionId: string; machineType: string; agentLabel: string; compared: number; matched: number; mismatched: number; missing: number }[] = []
+
+  for (const session of sessions) {
+    const rows = db.prepare(`
+      SELECT machineType,
+        COUNT(*) as compared,
+        SUM(CASE WHEN status = 'match' THEN 1 ELSE 0 END) as matched,
+        SUM(CASE WHEN status = 'mismatch' THEN 1 ELSE 0 END) as mismatched,
+        SUM(CASE WHEN status = 'missing_data' THEN 1 ELSE 0 END) as missing
+      FROM autospin_compare_results WHERE sessionId = ? GROUP BY machineType
+    `).all(session.id) as { machineType: string; compared: number; matched: number; mismatched: number; missing: number }[]
+    for (const r of rows) {
+      machines.push({ sessionId: session.id, machineType: r.machineType, agentLabel: session.userLabel, ...r })
+    }
+  }
+
+  const groups = readCompareGroups()
+  res.json({
+    ok: true,
+    machines,
+    groupCount: groups.length,
+    sessionCount: sessions.length,
+    hasBoxLeg: groups.some(g => g.fields.some(f => f.source === 'box')),
+  })
+})
+
+// GET /api/autospin/compare/detail/:machineType — 該機台最近逐筆比對明細
+router.get('/api/autospin/compare/detail/:machineType', (req, res) => {
+  const userLabel = requestUserLabel(req)
+  const sessionId = req.query.sessionId as string
+  const session = sessionId ? agentSessions.get(sessionId) : undefined
+  if (!session || session.userLabel !== userLabel) return res.status(403).json({ ok: false, message: '無權限查看此 session' })
+
+  const limit = Math.min(parseInt(req.query.limit as string) || 100, 500)
+  const rows = db.prepare(`
+    SELECT spinIndex, spinTime, status, groups FROM autospin_compare_results
+    WHERE sessionId = ? AND machineType = ? ORDER BY spinIndex DESC LIMIT ?
+  `).all(sessionId, req.params.machineType, limit) as { spinIndex: number; spinTime: string; status: string; groups: string }[]
+
+  res.json({
+    ok: true,
+    rows: rows.reverse().map(r => ({ spinIndex: r.spinIndex, spinTime: r.spinTime, status: r.status, groups: JSON.parse(r.groups || '[]') })),
+  })
 })
 
 // ─── JP Group CRUD ────────────────────────────────────────────────────────────

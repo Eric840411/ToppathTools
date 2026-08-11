@@ -1288,6 +1288,8 @@ a > .xianxia-icon {
   padding: 0 28px !important;
   gap: 10px !important;
   z-index: 120 !important;
+  position: sticky !important;
+  top: 0 !important;
 }
 .app-topbar-left {
   display: grid !important;

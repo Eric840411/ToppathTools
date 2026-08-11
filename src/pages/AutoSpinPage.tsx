@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, Fragment } from 'react'
 import { UrlPoolPickerModal } from '../components/UrlPoolPickerModal'
 
 /** 下載完整執行日誌（不受目前的搜尋/分類篩選影響，永遠是全部原始內容）——
@@ -147,7 +147,7 @@ function ToggleSwitch({ checked, disabled, onToggle }: { checked: boolean; disab
 }
 
 export function AutoSpinPage() {
-  const [tab, setTab] = useState<'configs' | 'templates' | 'history' | 'reconcile' | 'run' | 'jpgroups'>('configs')
+  const [tab, setTab] = useState<'configs' | 'templates' | 'history' | 'reconcile' | 'compare3' | 'run' | 'jpgroups'>('configs')
 
   // ── Config tab ──────────────────────────────────────────────────────────────
   const [configs, setConfigs] = useState<AutospinConfig[]>([])
@@ -333,6 +333,157 @@ export function AutoSpinPage() {
     const d = await r.json() as { reports?: typeof rcReports }
     setRcReports(d.reports ?? [])
   }
+
+  // ── 三路對帳 tab（SLS recordBet / 盒子日誌 / Pinus history）───────────────────
+  interface CompareField { source: 'sls' | 'box' | 'pinus'; path: string; label?: string }
+  interface CompareGroupDef { id: string; name: string; fields: CompareField[]; tolerance: number }
+  interface CompareMachineRow { sessionId: string; machineType: string; agentLabel: string; compared: number; matched: number; mismatched: number; missing: number }
+  interface CompareDetailGroup { groupId: string; groupName: string; values: { source: string; path: string; value: unknown }[]; status: string; note: string }
+  interface CompareDetailRow { spinIndex: number; spinTime: string; status: string; groups: CompareDetailGroup[] }
+
+  const SRC_LABEL: Record<CompareField['source'], string> = { sls: 'SLS', box: '盒子', pinus: 'Pinus' }
+  const SRC_COLOR: Record<CompareField['source'], { bg: string; fg: string }> = {
+    sls: { bg: 'rgba(56,189,248,.15)', fg: '#38bdf8' },
+    box: { bg: 'rgba(251,146,60,.15)', fg: '#fb923c' },
+    pinus: { bg: 'var(--cr-violet-soft)', fg: 'var(--cr-violet)' },
+  }
+  // 每個來源實際存在的欄位（不讓使用者手打路徑，直接從真實資料結構挑）——
+  // SLS 取自 recordBet log 的 requestJSON/responseJSON（server/lib/sls.ts SlsBetRecord.raw 結構）；
+  // Pinus 取自 reconcile_front_records 正規化後的欄位；盒子日誌尚未串接，只先預留使用者原本提過的
+  // 欄位名稱（fresh_current_credits），選了也會固定顯示缺資料直到真的串接
+  const FIELD_CATALOG: Record<CompareField['source'], { path: string; label: string }[]> = {
+    sls: [
+      { path: 'requestJSON.amount', label: '下注金額（amount）' },
+      { path: 'requestJSON.validBet', label: '有效下注（validBet）' },
+      { path: 'requestJSON.payout', label: '派彩金額（payout）' },
+      { path: 'requestJSON.moneyAfter', label: '下注後餘額（moneyAfter）' },
+      { path: 'requestJSON.usedCash', label: '使用現金（usedCash）' },
+      { path: 'requestJSON.usedMoneyMud', label: '使用泥碼（usedMoneyMud）' },
+      { path: 'requestJSON.remainingMoneyMud', label: '剩餘泥碼（remainingMoneyMud）' },
+      { path: 'requestJSON.initialMoneyMud', label: '初始泥碼（initialMoneyMud）' },
+      { path: 'requestJSON.roundId', label: '回合 ID（roundId）' },
+      { path: 'requestJSON.machineId', label: '機台代碼（machineId）' },
+      { path: 'requestJSON.betTimestamp', label: '下注時間戳（betTimestamp）' },
+      { path: 'requestJSON.payoutTimestamp', label: '派彩時間戳（payoutTimestamp）' },
+      { path: 'responseJSON.balance', label: '即時餘額（balance）' },
+      { path: 'responseJSON.moneyMud', label: '泥碼餘額（moneyMud）' },
+      { path: 'responseJSON.error', label: '錯誤碼（error）' },
+    ],
+    pinus: [
+      { path: 'bet', label: '下注額（bet）' },
+      { path: 'win', label: '贏分（win）' },
+      { path: 'orderId', label: '訂單 ID（orderId）' },
+      { path: 'recordTime', label: '紀錄時間（recordTime）' },
+      { path: 'gmid', label: 'gmid' },
+      { path: 'gameid', label: 'gameid' },
+    ],
+    box: [
+      { path: 'fresh_current_credits', label: '目前分數（fresh_current_credits，尚未串接）' },
+    ],
+  }
+
+  const [cmpGroups, setCmpGroups] = useState<CompareGroupDef[]>([])
+  const [cmpGroupsMsg, setCmpGroupsMsg] = useState('')
+  const [cmpMachines, setCmpMachines] = useState<CompareMachineRow[]>([])
+  const [cmpSessionCount, setCmpSessionCount] = useState(0)
+  const [cmpHasBoxLeg, setCmpHasBoxLeg] = useState(false)
+  const [cmpExpanded, setCmpExpanded] = useState<string | null>(null)
+  const [cmpDetail, setCmpDetail] = useState<Record<string, CompareDetailRow[]>>({})
+  const [cmpConfigOpen, setCmpConfigOpen] = useState(false)
+  const [cmpLastUpdated, setCmpLastUpdated] = useState<number | null>(null)
+  const [cmpRunNowMsg, setCmpRunNowMsg] = useState('')
+  const [cmpEnabled, setCmpEnabled] = useState(true)
+  const [cmpEnabledLoading, setCmpEnabledLoading] = useState(false)
+
+  const fetchComparePrefs = async () => {
+    const r = await fetch('/api/autospin/compare/prefs', { headers: { 'x-user-label': getGlobalUserLabel() } })
+    const d = await r.json() as { ok: boolean; compareEnabled?: boolean }
+    if (d.ok) setCmpEnabled(d.compareEnabled ?? true)
+  }
+  const toggleCompareEnabled = async () => {
+    setCmpEnabledLoading(true)
+    const next = !cmpEnabled
+    try {
+      await fetch('/api/autospin/compare/prefs', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-user-label': getGlobalUserLabel() },
+        body: JSON.stringify({ compareEnabled: next }),
+      })
+      setCmpEnabled(next)
+    } finally { setCmpEnabledLoading(false) }
+  }
+
+  const fetchCompareDetail = useCallback(async (sessionId: string, machineType: string) => {
+    const r = await fetch(`/api/autospin/compare/detail/${encodeURIComponent(machineType)}?sessionId=${encodeURIComponent(sessionId)}`, { headers: { 'x-user-label': getGlobalUserLabel() } })
+    const d = await r.json() as { ok: boolean; rows?: CompareDetailRow[] }
+    if (d.ok) setCmpDetail(prev => ({ ...prev, [`${sessionId}:${machineType}`]: d.rows ?? [] }))
+  }, [])
+
+  const fetchCompareStatus = useCallback(async () => {
+    const r = await fetch('/api/autospin/compare/status', { headers: { 'x-user-label': getGlobalUserLabel() } })
+    const d = await r.json() as { ok: boolean; machines?: CompareMachineRow[]; sessionCount?: number; hasBoxLeg?: boolean }
+    if (!d.ok) return
+    setCmpMachines(d.machines ?? [])
+    setCmpSessionCount(d.sessionCount ?? 0)
+    setCmpHasBoxLeg(!!d.hasBoxLeg)
+    setCmpLastUpdated(Date.now())
+    if (cmpExpanded) {
+      const [sid, mt] = cmpExpanded.split(':')
+      if (sid && mt) fetchCompareDetail(sid, mt)
+    }
+  }, [cmpExpanded, fetchCompareDetail])
+
+  const toggleCompareDetail = (sessionId: string, machineType: string) => {
+    const key = `${sessionId}:${machineType}`
+    if (cmpExpanded === key) { setCmpExpanded(null); return }
+    setCmpExpanded(key)
+    fetchCompareDetail(sessionId, machineType)
+  }
+
+  const fetchCompareGroups = async () => {
+    const r = await fetch('/api/autospin/compare/groups')
+    const d = await r.json() as { ok: boolean; groups?: CompareGroupDef[] }
+    setCmpGroups(d.groups ?? [])
+  }
+
+  const saveCompareGroups = async () => {
+    setCmpGroupsMsg('')
+    const r = await fetch('/api/autospin/compare/groups', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ groups: cmpGroups }),
+    })
+    const d = await r.json() as { ok: boolean; groups?: CompareGroupDef[] }
+    if (d.ok) { setCmpGroups(d.groups ?? []); setCmpGroupsMsg('通過 已儲存') } else setCmpGroupsMsg('失敗 儲存失敗')
+  }
+
+  const runCompareNow = async () => {
+    setCmpRunNowMsg('試算中...')
+    const r = await fetch('/api/autospin/compare/run-now', { method: 'POST' })
+    const d = await r.json() as { ok: boolean }
+    setCmpRunNowMsg(d.ok ? '通過 已試算' : '失敗 試算失敗')
+    fetchCompareStatus()
+  }
+
+  const addCompareGroup = () => setCmpGroups(gs => [...gs, { id: '', name: '新群組', fields: [], tolerance: 0.01 }])
+  const removeCompareGroup = (idx: number) => setCmpGroups(gs => gs.filter((_, i) => i !== idx))
+  const updateCompareGroupName = (idx: number, name: string) => setCmpGroups(gs => gs.map((g, i) => i === idx ? { ...g, name } : g))
+  const addCompareField = (idx: number, source: CompareField['source'], path: string) => {
+    if (!path) return
+    setCmpGroups(gs => gs.map((g, i) => {
+      if (i !== idx) return g
+      if (g.fields.some(f => f.source === source && f.path === path)) return g // 已經選過同一個欄位，不重複加
+      return { ...g, fields: [...g.fields, { source, path }] }
+    }))
+  }
+  const removeCompareField = (gIdx: number, fIdx: number) =>
+    setCmpGroups(gs => gs.map((g, i) => i === gIdx ? { ...g, fields: g.fields.filter((_, j) => j !== fIdx) } : g))
+
+  useEffect(() => {
+    if (tab !== 'compare3') return
+    fetchCompareStatus()
+    const t = setInterval(() => { if (!document.hidden) fetchCompareStatus() }, 5000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab])
 
   // ── History tab ─────────────────────────────────────────────────────────────
   interface HistoryRow {
@@ -760,6 +911,7 @@ export function AutoSpinPage() {
         <button style={tabStyle('templates')} onClick={() => { setTab('templates'); fetchTemplates() }}>模板管理</button>
         <button style={tabStyle('history')} onClick={() => { setTab('history'); fetchHistory() }}>歷史戰績</button>
         <button style={tabStyle('reconcile')} onClick={() => { setTab('reconcile'); fetchRcConfig(); fetchRcReports() }}>後台對帳</button>
+        <button style={tabStyle('compare3')} onClick={() => { setTab('compare3'); fetchCompareGroups(); fetchComparePrefs() }}>三路對帳</button>
         <button style={tabStyle('jpgroups')} onClick={() => { setTab('jpgroups'); fetchJpGroups() }}>JP Group</button>
         <button style={tabStyle('run')} onClick={() => { setTab('run'); fetchCaptures(); fetchHubAgents(); fetchJpGroups() }}>▶ 執行監控</button>
       </div>
@@ -1111,6 +1263,201 @@ export function AutoSpinPage() {
               </table>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── 三路對帳 tab ─────────────────────────────────────────────────────── */}
+      {tab === 'compare3' && (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, overflow: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ fontSize: 11.5, color: '#64748b', flex: 1 }}>與 AutoSpin 執行同步即時比對，多機台並行 — 每台獨立統計，展開查看逐筆 Spin</div>
+            <span style={{ fontSize: 11.5, color: '#94a3b8' }}>啟用三路對帳（依帳號設定）</span>
+            <ToggleSwitch checked={cmpEnabled} disabled={cmpEnabledLoading} onToggle={toggleCompareEnabled} />
+          </div>
+          {!cmpEnabled && (
+            <div style={{ fontSize: 11.5, color: '#94a3b8', background: 'rgba(148,163,184,.08)', border: '1px solid #2d3f55', borderRadius: 6, padding: '6px 10px' }}>
+              已關閉——你目前執行中的機台不會再打 SLS/Pinus 查詢，也不會產生新的比對紀錄；比對群組定義仍是全域共用，重新開啟就會繼續累積
+            </div>
+          )}
+
+          {cmpHasBoxLeg && (
+            <div style={{ fontSize: 11.5, color: '#fb923c', background: 'rgba(251,146,60,.1)', border: '1px solid rgba(251,146,60,.3)', borderRadius: 6, padding: '6px 10px' }}>
+              ⚠ 目前有比對群組包含「盒子」欄位，機台盒子硬體日誌（fresh_current_credits）尚未串接資料來源，這些群組會固定顯示「缺資料」
+            </div>
+          )}
+
+          {/* Live per-machine table */}
+          <div style={{ border: '1px solid #2d3f55', borderRadius: 9, overflow: 'hidden', background: '#10182a' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', background: '#162032' }}>
+              <span className={cmpSessionCount > 0 ? 'cr-status-dot' : undefined} style={{ width: 7, height: 7, borderRadius: '50%', background: cmpSessionCount > 0 ? 'var(--cr-cyan)' : '#475569', flexShrink: 0 }} />
+              <span style={{ fontSize: 12.5, fontWeight: 700 }}>即時比對</span>
+              <span style={{ fontSize: 10.5, color: '#64748b' }}>{cmpSessionCount} 個 session 執行中</span>
+              <span style={{ flex: 1 }} />
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'var(--cr-cyan-soft)', color: 'var(--cr-cyan)' }}>
+                {cmpMachines.reduce((s, m) => s + m.matched, 0)} 相符
+              </span>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'var(--cr-rose-soft, rgba(223,118,94,.12))', color: 'var(--cr-rose)' }}>
+                {cmpMachines.reduce((s, m) => s + m.mismatched, 0)} 不符
+              </span>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(234,216,166,.14)', color: 'var(--cr-amber)' }}>
+                {cmpMachines.reduce((s, m) => s + m.missing, 0)} 缺資料
+              </span>
+            </div>
+            <div style={{ padding: 12, background: '#0f172a' }}>
+              {cmpGroups.length === 0 ? (
+                <div style={{ fontSize: 12, color: '#64748b', padding: '10px 4px' }}>尚未設定任何比對群組，請先在下方「比對群組設定」新增至少一組欄位</div>
+              ) : cmpMachines.length === 0 ? (
+                <div style={{ fontSize: 12, color: '#64748b', padding: '10px 4px' }}>目前沒有偵測到執行中的機台比對資料（AutoSpin 需在跑，且有機台已產生 Spin 紀錄）</div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+                  <thead>
+                    <tr>
+                      {['機台', 'Agent', '已比對', '相符', '不符', '缺資料', '狀態'].map((h, i) => (
+                        <th key={h} style={{ textAlign: i >= 2 && i <= 5 ? 'right' : 'left', padding: '6px 10px', color: '#64748b', fontWeight: 600, borderBottom: '1px solid #1e293b' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cmpMachines.map(m => {
+                      const key = `${m.sessionId}:${m.machineType}`
+                      const attn = m.mismatched > 0 || m.missing > 0
+                      return (
+                        <Fragment key={key}>
+                          <tr onClick={() => toggleCompareDetail(m.sessionId, m.machineType)} style={{ cursor: 'pointer' }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(117,215,207,.05)' }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+                            <td style={{ padding: '7px 10px', borderBottom: '1px solid #182236', fontWeight: 700 }}>{m.machineType}</td>
+                            <td style={{ padding: '7px 10px', borderBottom: '1px solid #182236', color: '#64748b', fontSize: 10.5 }}>{m.agentLabel}</td>
+                            <td style={{ padding: '7px 10px', borderBottom: '1px solid #182236', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{m.compared}</td>
+                            <td style={{ padding: '7px 10px', borderBottom: '1px solid #182236', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--cr-cyan)', fontWeight: 700 }}>{m.matched}</td>
+                            <td style={{ padding: '7px 10px', borderBottom: '1px solid #182236', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: m.mismatched > 0 ? 'var(--cr-rose)' : undefined, fontWeight: m.mismatched > 0 ? 700 : 400 }}>{m.mismatched}</td>
+                            <td style={{ padding: '7px 10px', borderBottom: '1px solid #182236', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{m.missing}</td>
+                            <td style={{ padding: '7px 10px', borderBottom: '1px solid #182236' }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: attn ? 'var(--cr-rose-soft, rgba(223,118,94,.12))' : 'var(--cr-cyan-soft)', color: attn ? 'var(--cr-rose)' : 'var(--cr-cyan)' }}>
+                                <span style={{ width: 5, height: 5, borderRadius: '50%', background: attn ? 'var(--cr-amber)' : 'var(--cr-cyan)' }} />
+                                {attn
+                                  ? [m.mismatched > 0 ? `${m.mismatched} 筆不符` : '', m.missing > 0 ? `${m.missing} 筆缺資料` : ''].filter(Boolean).join(' · ')
+                                  : '正常'}
+                              </span>
+                            </td>
+                          </tr>
+                          {cmpExpanded === key && (
+                            <tr>
+                              <td colSpan={7} style={{ padding: 0 }}>
+                                <div style={{ padding: '10px 14px 14px', background: '#0b1322', borderBottom: '1px solid #182236' }}>
+                                  {!cmpDetail[key] || cmpDetail[key].length === 0 ? (
+                                    <div style={{ fontSize: 11, color: '#64748b' }}>尚無逐筆資料</div>
+                                  ) : (
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10.5 }}>
+                                      <thead>
+                                        <tr>
+                                          <th style={{ padding: '5px 8px', textAlign: 'left', color: '#64748b', borderBottom: '1px solid #1e293b' }}>Spin</th>
+                                          <th style={{ padding: '5px 8px', textAlign: 'left', color: '#64748b', borderBottom: '1px solid #1e293b' }}>時間</th>
+                                          {cmpGroups.map(g => (
+                                            <th key={g.id} style={{ padding: '5px 8px', textAlign: 'left', color: '#64748b', borderBottom: '1px solid #1e293b' }}>{g.name}</th>
+                                          ))}
+                                          <th style={{ padding: '5px 8px', textAlign: 'left', color: '#64748b', borderBottom: '1px solid #1e293b' }}>狀態</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {cmpDetail[key].map(row => (
+                                          <tr key={row.spinIndex} style={{ background: row.status === 'mismatch' ? 'rgba(223,118,94,.06)' : 'transparent' }}>
+                                            <td style={{ padding: '4px 8px', borderBottom: '1px solid #131d30', fontFamily: 'ui-monospace, Consolas, monospace', color: '#cbd5e1' }}>#{row.spinIndex}</td>
+                                            <td style={{ padding: '4px 8px', borderBottom: '1px solid #131d30', fontFamily: 'ui-monospace, Consolas, monospace', color: '#cbd5e1' }}>{row.spinTime ? new Date(row.spinTime).toLocaleTimeString('zh-TW') : '—'}</td>
+                                            {row.groups.map(g => (
+                                              <td key={g.groupId} style={{ padding: '4px 8px', borderBottom: '1px solid #131d30', fontFamily: 'ui-monospace, Consolas, monospace' }}>
+                                                {g.values.map((v, i) => (
+                                                  <span key={i} style={{ marginRight: 6 }}>
+                                                    <span style={{ fontSize: 8.5, fontWeight: 800, padding: '1px 5px', borderRadius: 3, marginRight: 3, background: SRC_COLOR[v.source as CompareField['source']].bg, color: SRC_COLOR[v.source as CompareField['source']].fg }}>
+                                                      {SRC_LABEL[v.source as CompareField['source']]}
+                                                    </span>
+                                                    <span style={{ color: v.value === undefined || v.value === null ? '#475569' : g.status === 'mismatch' ? 'var(--cr-rose)' : '#cbd5e1', fontWeight: g.status === 'mismatch' ? 700 : 400 }}>
+                                                      {v.value === undefined || v.value === null ? '—' : String(v.value)}
+                                                    </span>
+                                                  </span>
+                                                ))}
+                                              </td>
+                                            ))}
+                                            <td style={{ padding: '4px 8px', borderBottom: '1px solid #131d30' }}>
+                                              {row.status === 'match' && <span style={{ color: 'var(--cr-cyan)' }}>✓ 相符</span>}
+                                              {row.status === 'mismatch' && <span style={{ color: 'var(--cr-rose)', fontWeight: 700 }}>✕ 不符</span>}
+                                              {row.status === 'missing_data' && <span style={{ color: '#475569' }}>缺資料</span>}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 8, padding: '8px 12px', background: '#0d1626', borderTop: '1px solid #1e293b', fontSize: 10.5, color: '#64748b' }}>
+              <span>最後更新 <b style={{ color: '#cbd5e1' }}>{cmpLastUpdated ? `${Math.max(0, Math.round((Date.now() - cmpLastUpdated) / 1000))} 秒前` : '尚未更新'}</b></span>
+              <span style={{ marginLeft: 'auto' }}>資料來源：<b style={{ color: '#cbd5e1' }}>SLS recordBet</b> · <b style={{ color: '#cbd5e1' }}>盒子日誌（尚未串接）</b> · <b style={{ color: '#cbd5e1' }}>Pinus history</b></span>
+            </div>
+          </div>
+
+          {/* Comparison groups config */}
+          <div style={{ border: '1px solid #2d3f55', borderRadius: 9, overflow: 'hidden', background: '#10182a' }}>
+            <div onClick={() => setCmpConfigOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', background: '#162032', cursor: 'pointer' }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#475569', flexShrink: 0 }} />
+              <span style={{ fontSize: 12.5, fontWeight: 700 }}>比對群組設定</span>
+              <span style={{ fontSize: 10.5, color: '#64748b' }}>{cmpGroups.length} 組</span>
+              <span style={{ flex: 1 }} />
+              <span style={{ fontSize: 10, color: '#64748b', transform: cmpConfigOpen ? 'rotate(90deg)' : undefined, transition: 'transform .2s' }}>▶</span>
+            </div>
+            {cmpConfigOpen && (
+              <div style={{ padding: 12, background: '#0f172a' }}>
+                {cmpGroups.map((g, idx) => (
+                  <div key={idx} style={{ border: '1px solid #22314a', borderRadius: 8, padding: '10px 12px', marginBottom: 8, background: '#0d1626' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <input value={g.name} onChange={e => updateCompareGroupName(idx, e.target.value)}
+                        style={{ background: 'transparent', border: 'none', borderBottom: '1px dashed #334155', color: 'var(--cr-violet)', fontWeight: 700, fontSize: 12, padding: '2px 0', width: 160 }} />
+                      <span style={{ fontSize: 10, color: '#64748b' }}>比對這組欄位的數字是否一致</span>
+                      <span style={{ flex: 1 }} />
+                      <button onClick={() => removeCompareGroup(idx)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 12 }}>✕ 刪除群組</button>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {g.fields.map((f, fIdx) => {
+                        const known = FIELD_CATALOG[f.source].find(c => c.path === f.path)
+                        return (
+                          <span key={fIdx} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, padding: '3px 9px 3px 7px', borderRadius: 999, background: '#16223a', border: '1px solid #2d3f55', color: '#cbd5e1' }}>
+                            <span style={{ fontSize: 8.5, fontWeight: 800, padding: '1px 5px', borderRadius: 3, background: SRC_COLOR[f.source].bg, color: SRC_COLOR[f.source].fg }}>{SRC_LABEL[f.source]}</span>
+                            {known ? known.label : f.path}
+                            <button onClick={() => removeCompareField(idx, fIdx)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: 0 }}>✕</button>
+                          </span>
+                        )
+                      })}
+                      {(['sls', 'pinus', 'box'] as const).map(src => (
+                        <select key={src} value="" onChange={e => addCompareField(idx, src, e.target.value)}
+                          style={{ fontSize: 10.5, padding: '3px 8px', borderRadius: 999, border: '1px dashed #334155', background: 'transparent', color: '#64748b', cursor: 'pointer' }}>
+                          <option value="">+ {SRC_LABEL[src]} 欄位</option>
+                          {FIELD_CATALOG[src].map(f => (
+                            <option key={f.path} value={f.path} style={{ color: '#0f172a' }}>{f.label}</option>
+                          ))}
+                        </select>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                <button onClick={addCompareGroup} style={{ fontSize: 10.5, padding: '3px 10px', borderRadius: 999, border: '1px dashed #334155', background: 'transparent', color: '#64748b', cursor: 'pointer', marginTop: 2 }}>+ 新增比對群組</button>
+                <div style={{ display: 'flex', gap: 8, marginTop: 14, alignItems: 'center' }}>
+                  <button onClick={saveCompareGroups} style={{ padding: '7px 16px', background: 'var(--xx-jade-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>儲存設定</button>
+                  <button onClick={runCompareNow} style={{ padding: '7px 16px', background: 'var(--cr-cyan-soft)', color: 'var(--cr-cyan)', border: '1px solid var(--cr-cyan-border, transparent)', borderRadius: 6, fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>試算目前資料</button>
+                  {cmpGroupsMsg && <span style={{ fontSize: 12, color: cmpGroupsMsg.startsWith('通過') ? '#16a34a' : '#dc2626' }}>{cmpGroupsMsg}</span>}
+                  {cmpRunNowMsg && <span style={{ fontSize: 12, color: '#64748b' }}>{cmpRunNowMsg}</span>}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

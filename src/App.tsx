@@ -25,6 +25,7 @@ import { XianxiaQuotesPage } from './pages/XianxiaQuotesPage'
 import { BREAKTHROUGH_REALMS, CultivationBreakthroughOverlay } from './components/CultivationBreakthroughOverlay'
 import { MeterReconcilePage } from './pages/MeterReconcilePage'
 import { EgmDayCountPage } from './pages/EgmDayCountPage'
+import { WeeklyReportPage } from './pages/WeeklyReportPage'
 import ChangelogModal from './components/ChangelogModal'
 import GeminiSettingsModal from './components/GeminiSettingsModal'
 import AiAgentMonitorWidget from './components/AiAgentMonitorWidget'
@@ -40,8 +41,8 @@ import './App.css'
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
   | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
-  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'meter-reconcile' | 'egm-daycount' | 'cultivation-board' | 'xianxia-quotes'
-type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge' | 'discord-notify' | 'cultivation-board' | 'xianxia-quotes'
+  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'meter-reconcile' | 'egm-daycount' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report'
+type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge' | 'discord-notify' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report'
 
 type SubTab = {
   id: TabId
@@ -83,6 +84,15 @@ const groups: Group[] = [
     iconClass: 'tab-icon--lark',
     tab: 'lark',
     description: '輸入規格書 URL，AI 自動生成測試案例並比對',
+  },
+  {
+    id: 'weekly-report',
+    label: '週報彙整',
+    themeLabel: '行跡呈報',
+    icon: 'W',
+    iconClass: 'tab-icon--lark',
+    tab: 'weekly-report',
+    description: '貼上本週 Lark Base 網址，選擇成員與主要專案，混寫 Jira 摘要與手記後送出一列紀錄',
   },
   {
     id: 'osm-tools',
@@ -835,6 +845,7 @@ function App() {
             {currentGroup?.id === 'dashboard' && <DashboardPage themeMode={themeMode} />}
             {currentGroup?.id === 'jira' && <JiraPage account={globalAccount} isAdmin={globalAccount?.role === 'admin'} />}
             {currentGroup?.id === 'lark' && <LarkPage themeMode={themeMode} />}
+            {currentGroup?.id === 'weekly-report' && <WeeklyReportPage themeMode={themeMode} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm' && <OsmPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'machinetest' && <MachineTestPage account={globalAccount} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'imagecheck' && <ImageCheckPage />}

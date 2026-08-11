@@ -788,6 +788,40 @@ db.exec(`
   )
 `)
 
+// autospin_compare_groups — 三路對帳（SLS recordBet / 盒子日誌 / Pinus history）使用者自訂比對群組
+// 一組 = 一個比較單位（例如「下注金額」），fields 是 JSON 陣列 [{source: 'sls'|'box'|'pinus', path, label?}]
+// 全域共用（不分帳號）——比對定義是團隊共同的量測標準，不是個人偏好，跟 reconcile_config 一樣的定位。
+db.exec(`
+  CREATE TABLE IF NOT EXISTS autospin_compare_groups (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    fields     TEXT NOT NULL DEFAULT '[]',
+    tolerance  REAL NOT NULL DEFAULT 0.01,
+    sortOrder  INTEGER NOT NULL DEFAULT 0,
+    createdAt  INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000),
+    updatedAt  INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+  )
+`)
+
+// autospin_compare_results — 每筆 spin 的三路比對結果（一列＝一台機器一次 spin，跨所有群組彙整）
+// groups 欄位是 JSON：[{groupId, groupName, values: [{source, path, value}], status, note}]
+// status：match（全部群組都相符）/ mismatch（至少一組數字對不上）/ missing_data（至少一組有來源缺資料，含「盒子」尚未串接的固定情況）
+db.exec(`
+  CREATE TABLE IF NOT EXISTS autospin_compare_results (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    sessionId   TEXT NOT NULL,
+    machineType TEXT NOT NULL,
+    roundKey    TEXT NOT NULL DEFAULT '',
+    spinIndex   INTEGER NOT NULL DEFAULT 0,
+    spinTime    TEXT NOT NULL DEFAULT '',
+    status      TEXT NOT NULL DEFAULT 'missing_data',
+    groups      TEXT NOT NULL DEFAULT '[]',
+    createdAt   INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+  )
+`)
+db.exec(`CREATE INDEX IF NOT EXISTS idx_compare_results_session_machine ON autospin_compare_results (sessionId, machineType, createdAt)`)
+db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_compare_results_dedup ON autospin_compare_results (sessionId, machineType, roundKey)`)
+
 // autospin_history table
 db.exec(`
   CREATE TABLE IF NOT EXISTS autospin_history (
@@ -815,9 +849,19 @@ db.exec(`
     reportIntervalMin INTEGER NOT NULL DEFAULT 20,
     reportFields      TEXT NOT NULL DEFAULT '',
     reportCustomNote  TEXT NOT NULL DEFAULT '',
-    reportAiEnabled   INTEGER NOT NULL DEFAULT 0
+    reportAiEnabled   INTEGER NOT NULL DEFAULT 0,
+    compareEnabled    INTEGER NOT NULL DEFAULT 1
   )
 `)
+{
+  // compareEnabled（三路對帳依帳號開關，2026-08-10）補齊到既有資料庫——CREATE TABLE IF NOT EXISTS
+  // 對已經存在的舊表不會生效，既有安裝需要額外 ALTER TABLE 才會有這個欄位
+  const cols = db.prepare(`PRAGMA table_info(autospin_notify_prefs)`).all() as { name: string }[]
+  if (!cols.find(c => c.name === 'compareEnabled')) {
+    db.exec(`ALTER TABLE autospin_notify_prefs ADD COLUMN compareEnabled INTEGER NOT NULL DEFAULT 1`)
+    console.log('[DB] autospin_notify_prefs 已新增欄位：compareEnabled')
+  }
+}
 
 // autospin_agent_sessions — AgentSession 的週期性快照（不含 logs/screenshots，那兩個純粹是
 // 即時檢視用的記憶體 buffer，遺失也沒關係）。worker process 本來 agentSessions 完全只存在
@@ -1474,7 +1518,7 @@ export const ALL_PAGE_KEYS = [
   'jira-qa','jira-pm','jira-update','lark','osm','machinetest','imagecheck','osm-config',
   'autospin','url-pool','jackpot','osm-uat',
   'gs-imgcompare','gs-logchecker','gs-bonusv2','history','knowledge','local-agent',
-  'ui-screenshot','discord-notify','meter-reconcile','egm-daycount','cultivation-board','xianxia-quotes',
+  'ui-screenshot','discord-notify','meter-reconcile','egm-daycount','cultivation-board','xianxia-quotes','weekly-report',
 ] as const
 
 export type PageKey = typeof ALL_PAGE_KEYS[number]
