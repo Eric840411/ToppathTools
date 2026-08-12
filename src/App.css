@@ -3101,6 +3101,19 @@
   border-bottom: 1px solid #2d3f55; white-space: nowrap;
 }
 .osm-machine-table td { padding: 5px 10px; border-bottom: 1px solid #263345; white-space: nowrap; color: #94a3b8; }
+/* LuckyLink SAS/MML/G2S 版本：協定 accordion 列，刻意不用 .osm-comp-ver-card（那個是給獨立並排網格卡片用的大邊框樣式，疊在遊戲外層卡片裡會變框中框），改用扁平列 + 底線分隔 */
+.osm-proto-row {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  width: 100%; padding: 9px 12px;
+  background: transparent; border: none; border-top: 1px solid #263345;
+  cursor: pointer; font: inherit; color: inherit; text-align: left;
+  transition: background .12s ease;
+}
+.osm-proto-row:hover { background: rgba(148, 163, 184, 0.06); }
+.osm-proto-table-region { border-top: 1px solid #263345; background: rgba(15, 23, 42, 0.4); }
+.osm-proto-table-region .osm-machine-table th:first-child,
+.osm-proto-table-region .osm-machine-table td:first-child { padding-left: 34px; }
+
 .osm-version-tag {
   font-family: monospace; font-size: 12px; background: #162032;
   color: #22d3ee; padding: 1px 6px; border-radius: 4px;

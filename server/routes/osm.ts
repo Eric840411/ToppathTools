@@ -583,6 +583,168 @@ router.get('/api/luckylink/version-history', async (_req, res, next) => {
   }
 })
 
+// GET /api/luckylink/protocol-versions
+// SAS/MML/G2S 版本統計：分頁撈完整台 egmList，依 sasversion 分類（mml→MML、g2s→G2S、非空其他→SAS、空字串→NO_DATA），
+// 版號比對用 clientversion（sasversion 只用來分類，不是版號），依 name 分組遊戲，比對 machine_type_targets 表 category='LuckyLink' 的 sas/mml_server/g2s_server 目標版本。
+router.get('/api/luckylink/protocol-versions', async (_req, res, next) => {
+  try {
+    const baseUrl = process.env.LUCKYLINK_BASE_URL ?? 'https://luckylink-prod-backendserver.cliveslot.com'
+    const username = process.env.LUCKYLINK_USERNAME ?? ''
+    const password = process.env.LUCKYLINK_PASSWORD ?? ''
+    const origin = process.env.LUCKYLINK_ORIGIN ?? baseUrl
+
+    let token: string | undefined
+    if (username && password) {
+      const loginResp = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Origin': origin,
+          'Referer': `${origin}/`,
+        },
+        body: new URLSearchParams({ username, password }).toString(),
+      })
+      const loginData = await loginResp.json() as { data?: { token?: string }; msg?: string }
+      token = loginData.data?.token
+      if (!token) throw new Error(`登入失敗：${loginData.msg ?? '無法取得 token'}`)
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'Origin': origin,
+      'Referer': `${origin}/`,
+    }
+    if (token) headers['token'] = token
+
+    type EgmItem = {
+      id?: string
+      name?: string
+      gmid?: string
+      gmname?: string
+      isactive?: boolean | number | string
+      sasversion?: string
+      clientversion?: string
+    }
+
+    const items: EgmItem[] = []
+    const pageSize = 50
+    let page = 1
+    let total = Infinity
+    while ((page - 1) * pageSize < total) {
+      const listResp = await fetch(`${baseUrl}/slot/egmList`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ channelId: '', groupName: '', machineNumber: '', page, pageSize, serialNumber: '' }),
+      })
+      const listData = await listResp.json() as { code?: number; data?: { items?: EgmItem[]; total?: number }; message?: string }
+      if (listData.code !== 20000) throw new Error(`API 錯誤：${listData.message ?? listData.code}`)
+      const pageItems = listData.data?.items ?? []
+      items.push(...pageItems)
+      total = listData.data?.total ?? pageItems.length
+      if (pageItems.length === 0) break
+      page++
+      if (page > 200) break // 安全上限，防止 total 欄位異常造成無限分頁
+    }
+
+    const classify = (sasversion: string | undefined): 'MML' | 'G2S' | 'SAS' | 'NO_DATA' => {
+      const v = (sasversion ?? '').toString().trim().toLowerCase()
+      if (!v) return 'NO_DATA'
+      if (v === 'mml') return 'MML'
+      if (v === 'g2s') return 'G2S'
+      return 'SAS'
+    }
+    const isOnlineFlag = (v: unknown) => {
+      const s = String(v ?? '').trim().toLowerCase()
+      return s === 'true' || s === '1' || s === 'online'
+    }
+
+    const targetRows = db.prepare(
+      `SELECT machineType, targetVersion FROM machine_type_targets WHERE category = 'LuckyLink' AND machineType IN ('sas', 'mml_server', 'g2s_server')`
+    ).all() as { machineType: string; targetVersion: string }[]
+    const targetMap: Record<string, string> = {}
+    for (const r of targetRows) targetMap[r.machineType] = r.targetVersion
+
+    type MachineEntry = { gmid: string; clientversion: string; isactive: boolean; onTarget: boolean | null }
+    type GameGroup = { name: string; machines: MachineEntry[]; online: number; offline: number; onTargetCount: number }
+    type ProtocolGroup = {
+      targetVersion: string | null
+      total: number
+      online: number
+      offline: number
+      onTargetCount: number
+      games: GameGroup[]
+    }
+
+    const protocols: Record<'SAS' | 'MML' | 'G2S', ProtocolGroup> = {
+      SAS: { targetVersion: targetMap['sas'] ?? null, total: 0, online: 0, offline: 0, onTargetCount: 0, games: [] },
+      MML: { targetVersion: targetMap['mml_server'] ?? null, total: 0, online: 0, offline: 0, onTargetCount: 0, games: [] },
+      G2S: { targetVersion: targetMap['g2s_server'] ?? null, total: 0, online: 0, offline: 0, onTargetCount: 0, games: [] },
+    }
+    const gameMapByProtocol: Record<'SAS' | 'MML' | 'G2S', Map<string, GameGroup>> = {
+      SAS: new Map(), MML: new Map(), G2S: new Map(),
+    }
+
+    let noDataCount = 0
+    let noDataOfflineCount = 0
+
+    for (const item of items) {
+      const cat = classify(item.sasversion)
+      const online = isOnlineFlag(item.isactive)
+      if (cat === 'NO_DATA') {
+        noDataCount++
+        if (!online) noDataOfflineCount++
+        continue
+      }
+      const group = protocols[cat]
+      const target = group.targetVersion
+      const clientversion = (item.clientversion ?? '').toString() || '—'
+      const onTarget = target ? clientversion === target : null
+
+      group.total++
+      if (online) group.online++
+      else group.offline++
+      if (onTarget) group.onTargetCount++
+
+      const gameName = item.name || '(未知遊戲)'
+      let gameGroup = gameMapByProtocol[cat].get(gameName)
+      if (!gameGroup) {
+        gameGroup = { name: gameName, machines: [], online: 0, offline: 0, onTargetCount: 0 }
+        gameMapByProtocol[cat].set(gameName, gameGroup)
+        group.games.push(gameGroup)
+      }
+      gameGroup.machines.push({ gmid: item.gmid || item.gmname || item.id || '—', clientversion, isactive: online, onTarget })
+      if (online) gameGroup.online++
+      else gameGroup.offline++
+      if (onTarget) gameGroup.onTargetCount++
+    }
+
+    for (const cat of ['SAS', 'MML', 'G2S'] as const) {
+      protocols[cat].games.sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
+      for (const g of protocols[cat].games) {
+        g.machines.sort((a, b) => a.gmid.localeCompare(b.gmid, 'zh-Hant'))
+      }
+    }
+
+    const syncTime = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })
+    addHistory(
+      'luckylink-protocol-versions',
+      'LuckyLink SAS/MML/G2S 版本統計',
+      (['SAS', 'MML', 'G2S'] as const).map(c => `${c}: ${protocols[c].onTargetCount}/${protocols[c].total} 達標`).join('、') + `、無資料 ${noDataCount} 筆`,
+      { protocols, noData: { count: noDataCount, offlineCount: noDataOfflineCount }, syncTime }
+    )
+
+    res.json({
+      ok: true,
+      syncTime,
+      totalMachines: items.length,
+      noData: { count: noDataCount, offlineCount: noDataOfflineCount },
+      protocols,
+    })
+  } catch (error) {
+    next(error)
+  }
+})
+
 // GET /api/toppath/version-history
 router.get('/api/toppath/version-history', async (_req, res, next) => {
   try {

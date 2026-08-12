@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.97.0'
+export const APP_VERSION = '3.98.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.98.0',
+    date: '2026-08-12',
+    changes: [
+      "feat(osm): LuckyLink 新增 SAS/MML/G2S 版本統計——新分頁區塊，後端 GET /api/luckylink/protocol-versions 登入 LuckyLink 後台，分頁撈完整台 /slot/egmList（依 total 動態算頁數，pageSize=50，已用真實資料驗證 1480/1480 台、30 頁），依 sasversion 分類通訊協定：'mml'→MML、'g2s'→G2S、非空其他值（如 '602' 這類 SAS 協定規格版號）→SAS、空字串→NO_DATA。版號比對用 clientversion 欄位（sasversion 只用來分類，不是版號本身——已用真實資料驗證 MML 機台 clientversion='1.1.10' 與使用者提供範例吻合）。SAS/MML/G2S 三組各自依遊戲 name 分組、組內列出 gmid/clientversion/連線狀態，比對 machine_type_targets 表 category='LuckyLink' 的 sas/mml_server/g2s_server 目標版本（沿用既有 Lark 同步機制，key-value 結構本來就支援新 key，零額外改動）；isactive 只影響上線/離線徽章顯示，不影響達標判斷。NO_DATA（1300 台，多數機台尚未回報協定資料）不列出逐筆明細，只顯示一行統計數字（總數＋其中離線數），避免畫面塞入上千筆無意義資料；遊戲分組預設收合，展開後才顯示逐機台表格",
+    ],
+  },
   {
     version: '3.97.0',
     date: '2026-08-12',

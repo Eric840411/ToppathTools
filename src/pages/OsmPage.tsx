@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +24,48 @@ interface OsmComponentVersion {
   name: string
   version: string
   pending?: boolean
+}
+
+interface LlProtocolMachine {
+  gmid: string
+  clientversion: string
+  isactive: boolean
+  onTarget: boolean | null
+}
+
+interface LlProtocolGame {
+  name: string
+  machines: LlProtocolMachine[]
+  online: number
+  offline: number
+  onTargetCount: number
+}
+
+interface LlProtocolGroup {
+  targetVersion: string | null
+  total: number
+  online: number
+  offline: number
+  onTargetCount: number
+  games: LlProtocolGame[]
+}
+
+interface LlProtocolVersions {
+  SAS: LlProtocolGroup
+  MML: LlProtocolGroup
+  G2S: LlProtocolGroup
+}
+
+interface LlGameProtocolEntry extends LlProtocolGame {
+  targetVersion: string | null
+}
+
+interface LlGameGroup {
+  name: string
+  total: number
+  online: number
+  offline: number
+  protocols: Partial<Record<'SAS' | 'MML' | 'G2S', LlGameProtocolEntry>>
 }
 
 interface VersionRecord {
@@ -539,6 +581,14 @@ export function OsmPage() {
   const [llError, setLlError] = useState<string | null>(null)
   const [llSyncTime, setLlSyncTime] = useState<string | null>(null)
 
+  // LuckyLink SAS/MML/G2S 版本統計
+  const [llProto, setLlProto] = useState<LlProtocolVersions | null>(null)
+  const [llProtoNoData, setLlProtoNoData] = useState<{ count: number; offlineCount: number } | null>(null)
+  const [llProtoLoading, setLlProtoLoading] = useState(false)
+  const [llProtoError, setLlProtoError] = useState<string | null>(null)
+  const [llProtoSyncTime, setLlProtoSyncTime] = useState<string | null>(null)
+  const [llProtoExpandedGames, setLlProtoExpandedGames] = useState<Set<string>>(new Set())
+
   // Toppath Version History
   const [tpVersions, setTpVersions] = useState<OsmComponentVersion[]>([])
   const [tpLoading, setTpLoading] = useState(false)
@@ -736,6 +786,61 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
       setLlLoading(false)
     }
   }, [])
+
+  // ─── LuckyLink SAS/MML/G2S 版本統計 fetch ──────────────────────────────────
+
+  const handleFetchLlProto = useCallback(async () => {
+    setLlProtoLoading(true)
+    setLlProtoError(null)
+    try {
+      const resp = await fetch('/api/luckylink/protocol-versions')
+      const data = await resp.json() as {
+        ok: boolean
+        protocols?: LlProtocolVersions
+        noData?: { count: number; offlineCount: number }
+        syncTime?: string
+        message?: string
+      }
+      if (!data.ok) throw new Error(data.message ?? '取得失敗')
+      setLlProto(data.protocols ?? null)
+      setLlProtoNoData(data.noData ?? null)
+      setLlProtoSyncTime(data.syncTime ?? null)
+    } catch (err) {
+      setLlProtoError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLlProtoLoading(false)
+    }
+  }, [])
+
+  const toggleLlProtoGame = useCallback((key: string) => {
+    setLlProtoExpandedGames(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
+
+  // 依遊戲名稱重新分組（原始資料是協定→遊戲，這裡轉成遊戲→協定，方便一張卡看到同款遊戲的 SAS/MML/G2S 分佈）
+  const llGameGroups = useMemo<LlGameGroup[]>(() => {
+    if (!llProto) return []
+    const map = new Map<string, LlGameGroup>()
+    for (const protoKey of ['SAS', 'MML', 'G2S'] as const) {
+      const group = llProto[protoKey]
+      for (const game of group.games) {
+        let entry = map.get(game.name)
+        if (!entry) {
+          entry = { name: game.name, total: 0, online: 0, offline: 0, protocols: {} }
+          map.set(game.name, entry)
+        }
+        entry.protocols[protoKey] = { ...game, targetVersion: group.targetVersion }
+        entry.total += game.machines.length
+        entry.online += game.online
+        entry.offline += game.offline
+      }
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'zh-Hant'))
+  }, [llProto])
 
   // ─── Toppath Version History fetch ────────────────────────────────────────
 
@@ -1332,6 +1437,152 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
         {!llLoading && llVersions.length === 0 && !llError && (
           <div className="osm-empty">
             <p>尚未取得資料。按「取得元件版本」從 LuckyLink 拉取各元件版本。</p>
+          </div>
+        )}
+      </section>
+
+      {/* ─── Divider ─── */}
+      <hr className="osm-divider" />
+
+      {/* ─── LuckyLink SAS/MML/G2S 版本 ─── */}
+      <section className="osm-section">
+        <div className="osm-section-header">
+          <div>
+            <h2 className="osm-section-title">LuckyLink SAS/MML/G2S 版本</h2>
+            <p className="osm-section-sub">依遊戲分組，展開查看各協定機台版本，與 Lark Sheet LuckyLink 目標版本比對</p>
+          </div>
+          <button
+            type="button"
+            className="osm-btn osm-btn--primary"
+            onClick={handleFetchLlProto}
+            disabled={llProtoLoading}
+          >
+            {llProtoLoading ? '取得中…' : '取得 SAS/MML/G2S 版本'}
+          </button>
+        </div>
+
+        {llProtoError && (
+          <div className="osm-alert osm-alert--error">{llProtoError}</div>
+        )}
+
+        {llProto && (
+          <>
+            {llProtoSyncTime && (
+              <p className="osm-report-time">取得時間：{llProtoSyncTime}</p>
+            )}
+            {llGameGroups.length === 0 ? (
+              <div className="osm-empty"><p>無機台資料</p></div>
+            ) : (
+              <div className="osm-machine-groups-scroll">
+                {llGameGroups.map(gg => (
+                  <div key={gg.name} className="osm-machine-group-col">
+                    <div className="osm-type-group-header">
+                      <span className="osm-type-badge">{gg.name}</span>
+                      <span className="osm-type-count">{gg.total} 台</span>
+                      <span className="osm-channel-row-conn">
+                        <span className="osm-badge osm-badge--online">{gg.online}</span>
+                        <span className="osm-badge osm-badge--offline">{gg.offline}</span>
+                      </span>
+                    </div>
+
+                    {(['SAS', 'MML', 'G2S'] as const).map(protoKey => {
+                      const game = gg.protocols[protoKey]
+                      if (!game) return null
+                      const hasTarget = !!game.targetVersion
+                      const allOnTarget = hasTarget && game.onTargetCount === game.machines.length
+                      const gameKey = `${gg.name}:${protoKey}`
+                      const expanded = llProtoExpandedGames.has(gameKey)
+                      return (
+                        <div key={protoKey}>
+                          <button
+                            type="button"
+                            className="osm-proto-row"
+                            onClick={() => toggleLlProtoGame(gameKey)}
+                          >
+                            <span>{expanded ? '▾' : '▸'}</span>
+                            <span className="osm-type-badge">{protoKey}</span>
+                            <span className="osm-card-count">{game.machines.length} 台</span>
+                            <span className="osm-channel-row-conn">
+                              <span className="osm-badge osm-badge--online">{game.online}</span>
+                              <span className="osm-badge osm-badge--offline">{game.offline}</span>
+                            </span>
+                            {hasTarget ? (
+                              <span className={`osm-badge ${allOnTarget ? 'osm-badge--ok' : 'osm-badge--warn'}`}>
+                                {game.onTargetCount}/{game.machines.length} 達標
+                              </span>
+                            ) : (
+                              <span className="osm-badge osm-badge--muted">未設定目標</span>
+                            )}
+                            <span style={{ flex: 1 }} />
+                            {game.targetVersion && (
+                              <span className="osm-type-cat-ver">
+                                <span className="osm-type-cat-label">目標</span>
+                                <span className="osm-type-cat-val">{game.targetVersion}</span>
+                              </span>
+                            )}
+                          </button>
+                          {expanded && (
+                            <div className="osm-proto-table-region">
+                              <table className="osm-machine-table">
+                                <thead>
+                                  <tr>
+                                    <th>GMID</th>
+                                    <th>版本</th>
+                                    <th>連線</th>
+                                    <th>達標</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {game.machines.map(m => (
+                                    <tr key={m.gmid} className={!m.isactive ? 'osm-machine-row--offline' : ''}>
+                                      <td>{m.gmid}</td>
+                                      <td>
+                                        <span className={`osm-version-tag${m.onTarget === false ? ' osm-version-tag--diff' : ''}`}>
+                                          {m.clientversion}
+                                        </span>
+                                      </td>
+                                      <td>
+                                        {m.isactive ? (
+                                          <span className="osm-badge osm-badge--online">Online</span>
+                                        ) : (
+                                          <span className="osm-badge osm-badge--offline">Offline</span>
+                                        )}
+                                      </td>
+                                      <td>
+                                        {m.onTarget === null ? (
+                                          <span className="osm-badge osm-badge--muted">—</span>
+                                        ) : m.onTarget ? (
+                                          <span className="osm-badge osm-badge--ok">達標</span>
+                                        ) : (
+                                          <span className="osm-badge osm-badge--warn">未達標</span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {llProtoNoData && llProtoNoData.count > 0 && (
+              <p className="osm-report-time" style={{ marginTop: 12 }}>
+                <span className="osm-badge osm-badge--muted">無資料</span>
+                {' '}（sasversion 為空）：{llProtoNoData.count} 台，其中離線 {llProtoNoData.offlineCount} 台
+              </p>
+            )}
+          </>
+        )}
+
+        {!llProtoLoading && !llProto && !llProtoError && (
+          <div className="osm-empty">
+            <p>尚未取得資料。按「取得 SAS/MML/G2S 版本」從 LuckyLink 拉取全部機台並依協定分類。</p>
           </div>
         )}
       </section>

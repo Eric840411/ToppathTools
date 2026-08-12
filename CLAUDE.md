@@ -243,10 +243,16 @@ Keep Claude for:
 
 ## 3. OSM Tools — OSM 版號同步（OsmPage）
 
-**路由**：`/api/osm/*`, `/api/luckylink/*`, `/api/toppath/*`｜**歷史紀錄 feature key**：`osm-components`、`luckylink-components`、`toppath-components`、`osm-sync`、`osm-alert`
+**路由**：`/api/osm/*`, `/api/luckylink/*`, `/api/toppath/*`｜**歷史紀錄 feature key**：`osm-components`、`luckylink-components`、`luckylink-protocol-versions`、`toppath-components`、`osm-sync`、`osm-alert`
 
 ### 功能說明
 追蹤 OSM / LuckyLink / Toppath 各元件版本，同步渠道機器設定，發送版本告警。
+
+**LuckyLink SAS/MML/G2S 版本統計（2026-08-12）**：`GET /api/luckylink/protocol-versions`——登入 LuckyLink 後台（跟既有 `/api/luckylink/version-history` 同一組帳密/token 流程），分頁撈完整台 `/slot/egmList`（依回應 `total` 動態算頁數，`pageSize=50`，不是一次帶大 pageSize——已實測帶 `pageSize:2000` 這類超過後端實際上限的值會直接回空結果，必須照後台實際支援的分頁大小逐頁撈；已用真實資料驗證撈滿 1480/1480 台、共 30 頁）。
+
+依 `sasversion` 欄位分類通訊協定：`'mml'` → MML、`'g2s'` → G2S、非空的其他值（例如 `'602'` 這類疑似 SAS 協定規格版號，**不是**字面上的 `'sas'` 字串——原本以為 SAS 機台會直接存 `'sas'`，已用全量 1480 筆真實資料驗證推翻這個假設）→ SAS、空字串 → NO_DATA（實測佔比最大，1300/1480，多數機台尚未回報協定資料）。**版號比對用 `clientversion` 欄位，不是 `sasversion`**——`sasversion` 只負責分類判斷是哪個協定，本身不是版本號（已用真實資料驗證：MML 機台的 `clientversion` 值為 `1.1.10`）。
+
+SAS/MML/G2S 三組各自依 `name`（遊戲代碼）分組，組內列出每台機的 `gmid`／`clientversion`／連線狀態（`isactive`）；目標版本比對 `machine_type_targets` 表 `category='LuckyLink'` 底下的 `sas`／`mml_server`／`g2s_server` 三個 key（沿用既有「從 Lark 同步目標」機制，key-value 結構本來就支援任意新 key，同步端點本身零改動即可支援）。目標版本是「整個協定分類共用一個」，不是每個遊戲各自設定。`isactive` 只影響上線/離線徽章顯示，跟達不達標判斷無關（沒有目標版本時判定固定顯示「未設定目標」，不論線上線下）。NO_DATA 那 1300 台不列出逐筆明細（畫面效能與可讀性皆無意義），只顯示一行統計文字（總數＋其中離線數）；每個遊戲分組的機台明細表格預設收合，展開才顯示逐台清單。
 
 ### 使用者操作
 | 操作 | 說明 |
@@ -259,6 +265,7 @@ Keep Claude for:
 | 從 Lark 同步同步目標 | 從 Lark Sheet 讀取目標版本清單 |
 | Config 比對 | 貼上渠道 URL，與 Template 比對設定差異 |
 | Frontend 機台管理 | 查看 / 自動更新前端機台清單 |
+| 取得 SAS/MML/G2S 版本 | LuckyLink 分頁下新區塊，抓取全部機台依協定分類、依遊戲分組顯示，與目標版本比對，NO_DATA 只顯示統計數字 |
 
 ---
 
@@ -547,6 +554,7 @@ Keep Claude for:
 | `imagerecon` | ImageRecon 週報解析 |
 | `osm-components` | OSM 元件版本同步 |
 | `luckylink-components` | LuckyLink 元件版本同步 |
+| `luckylink-protocol-versions` | LuckyLink SAS/MML/G2S 版本統計 |
 | `toppath-components` | Toppath 元件版本同步 |
 | `osm-sync` | OSM 全渠道同步 |
 | `osm-alert` | 版本告警（手動 / 排程）|

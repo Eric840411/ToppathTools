@@ -86,7 +86,7 @@ interface HistoryRecord {
 }
 
 type DaysFilter = 1 | 3 | 7
-type FeatureFilter = 'all' | 'testcase' | 'machine-test' | 'ui-screenshot' | 'scripted-bet' | 'jira' | 'jira-comment' | 'osm-sync' | 'osm-components' | 'luckylink-components' | 'toppath-components' | 'osm-alert' | 'imagerecon' | 'image-check' | 'gs-pdf-testcase' | 'gs-img-compare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config-compare'
+type FeatureFilter = 'all' | 'testcase' | 'machine-test' | 'ui-screenshot' | 'scripted-bet' | 'jira' | 'jira-comment' | 'osm-sync' | 'osm-components' | 'luckylink-components' | 'luckylink-protocol-versions' | 'toppath-components' | 'osm-alert' | 'imagerecon' | 'image-check' | 'gs-pdf-testcase' | 'gs-img-compare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config-compare'
 
 const FEATURE_LABELS: Record<string, string> = {
   'testcase': 'TestCase 生成',
@@ -98,6 +98,7 @@ const FEATURE_LABELS: Record<string, string> = {
   'osm-sync': 'OSM 機台同步',
   'osm-components': 'OSM 元件版本',
   'luckylink-components': 'LuckyLink 元件',
+  'luckylink-protocol-versions': 'LuckyLink SAS/MML/G2S',
   'toppath-components': 'Toppath 元件',
   'osm-alert': '版本告警',
   'imagerecon': 'ImageRecon 週報',
@@ -119,6 +120,7 @@ const FEATURE_COLORS: Record<string, string> = {
   'osm-sync': '#16a34a',
   'osm-components': '#059669',
   'luckylink-components': '#7c3aed',
+  'luckylink-protocol-versions': '#be185d',
   'toppath-components': '#0e7490',
   'osm-alert': '#dc2626',
   'imagerecon': '#b45309',
@@ -208,7 +210,7 @@ export function HistoryPage() {
 
         {/* Feature */}
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          {(['all', 'jira', 'jira-comment', 'testcase', 'machine-test', 'ui-screenshot', 'scripted-bet', 'image-check', 'osm-sync', 'osm-components', 'luckylink-components', 'toppath-components', 'osm-alert', 'imagerecon', 'gs-pdf-testcase', 'gs-img-compare', 'gs-logchecker', 'gs-bonusv2', 'osm-config-compare'] as FeatureFilter[]).map(f => (
+          {(['all', 'jira', 'jira-comment', 'testcase', 'machine-test', 'ui-screenshot', 'scripted-bet', 'image-check', 'osm-sync', 'osm-components', 'luckylink-components', 'luckylink-protocol-versions', 'toppath-components', 'osm-alert', 'imagerecon', 'gs-pdf-testcase', 'gs-img-compare', 'gs-logchecker', 'gs-bonusv2', 'osm-config-compare'] as FeatureFilter[]).map(f => (
             <button
               key={f}
               onClick={() => setFeature(f)}
