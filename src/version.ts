@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.98.0'
+export const APP_VERSION = '3.98.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.98.1',
+    date: '2026-08-12',
+    changes: [
+      "fix(osm): LuckyLink SAS/MML/G2S 版本統計補齊「一鍵全部取得」與「版本達標總覽」整合——上一版新增協定版本統計時，只做了獨立按鈕，沒接進 handleFetchAll（一鍵全部取得漏了這塊資料）也沒接進 VersionDashboard 的未達標彙整（沒把協定機台的未達標算進去）。補上 handleFetchLlProto 進 handleFetchAll 的 Promise.allSettled、按鈕 disabled 條件加 llProtoLoading；VersionDashboard 新增 llProto prop，計算在線且有目標版本又不吻合的協定機台，新增第 4 個統計卡「LuckyLink 機台」與「未達標機台（LuckyLink 協定）」分組列表（按協定+遊戲+版本分組，跟既有 OSM 機台分組同樣式）。同時調整協定版本區塊 UI：section header 說明文字過長導致 flex-wrap 換行、按鈕位置跑掉，已縮短文案；dashboard 改成依遊戲分組、SAS/MML/G2S 在內層展示（原本是協定→遊戲兩層反過來）；協定 accordion 列改用扁平樣式（.osm-proto-row），不再沿用 .osm-comp-ver-card 的大邊框卡片造成框中框",
+    ],
+  },
   {
     version: '3.98.0',
     date: '2026-08-12',

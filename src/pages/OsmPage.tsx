@@ -417,7 +417,7 @@ function ChannelDetailPanel({
 
 function VersionDashboard({
   channelResults, targets, versionHistory, llVersions, tpVersions,
-  imageReconRecords, imageReconTargetVersion,
+  imageReconRecords, imageReconTargetVersion, llProto,
 }: {
   channelResults: OsmChannelResult[]
   targets: Record<string, Record<string, string>>
@@ -426,6 +426,7 @@ function VersionDashboard({
   tpVersions: OsmComponentVersion[]
   imageReconRecords: VersionRecord[]
   imageReconTargetVersion: string | null
+  llProto: LlProtocolVersions | null
 }) {
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
 
@@ -461,12 +462,38 @@ function VersionDashboard({
       .map(r => ({ system: 'ImageRecon', name: r.serverName, current: r.currentVersion, target: irTarget })) : []),
   ]
 
-  const hasAnyData = channelResults.length > 0 || versionHistory.length > 0 || llVersions.length > 0 || tpVersions.length > 0 || imageReconRecords.length > 0
+  // Under-target LuckyLink SAS/MML/G2S machines（只算在線機台，跟 offTargetMachines 同一套邏輯）
+  type ProtoMachine = { protocol: 'SAS' | 'MML' | 'G2S'; game: string; gmid: string; current: string; target: string }
+  const protoOffTargetMachines: ProtoMachine[] = []
+  if (llProto) {
+    for (const protoKey of ['SAS', 'MML', 'G2S'] as const) {
+      const group = llProto[protoKey]
+      if (!group.targetVersion) continue
+      for (const game of group.games) {
+        for (const m of game.machines) {
+          if (m.isactive && m.onTarget === false) {
+            protoOffTargetMachines.push({ protocol: protoKey, game: game.name, gmid: m.gmid, current: m.clientversion, target: group.targetVersion })
+          }
+        }
+      }
+    }
+  }
+  type ProtoGroup = { protocol: string; game: string; current: string; target: string; count: number; machines: ProtoMachine[] }
+  const protoGroupMap = new Map<string, ProtoGroup>()
+  for (const m of protoOffTargetMachines) {
+    const key = `${m.protocol}|${m.game}|${m.current}`
+    const g = protoGroupMap.get(key)
+    if (g) { g.count++; g.machines.push(m) }
+    else protoGroupMap.set(key, { protocol: m.protocol, game: m.game, current: m.current, target: m.target, count: 1, machines: [m] })
+  }
+  const protoGroups = [...protoGroupMap.values()].sort((a, b) => b.count - a.count)
+
+  const hasAnyData = channelResults.length > 0 || versionHistory.length > 0 || llVersions.length > 0 || tpVersions.length > 0 || imageReconRecords.length > 0 || !!llProto
   if (!hasAnyData) {
     return <p className="osm-empty">尚未取得資料。按「迅 一鍵全部取得」同步所有版本。</p>
   }
 
-  const totalIssues = offTargetMachines.length + offTargetComps.length
+  const totalIssues = offTargetMachines.length + offTargetComps.length + protoOffTargetMachines.length
 
   const sysColor: Record<string, string> = { OSM: '#dbeafe', LuckyLink: '#d1fae5', Toppath: '#ede9fe', ImageRecon: '#fce7f3' }
 
@@ -485,6 +512,10 @@ function VersionDashboard({
         <div className={`stat-chip ${offTargetComps.length === 0 ? 'stat-chip--online' : 'stat-chip--warn'}`}>
           <span className="stat-chip-val">{offTargetComps.length}</span>
           <span className="stat-chip-lbl">未達標元件</span>
+        </div>
+        <div className={`stat-chip ${protoOffTargetMachines.length === 0 ? 'stat-chip--online' : 'stat-chip--warn'}`}>
+          <span className="stat-chip-val">{protoOffTargetMachines.length}</span>
+          <span className="stat-chip-lbl">LuckyLink 機台（{protoGroups.length} 組）</span>
         </div>
       </div>
 
@@ -520,6 +551,44 @@ function VersionDashboard({
                     <div style={{ padding: '6px 10px 8px', background: '#0f172a', borderTop: '1px solid #334155', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                       {g.machines.map(m => (
                         <span key={m.id} style={{ fontSize: 11, padding: '2px 7px', background: '#1e293b', border: '1px solid #475569', borderRadius: 4, color: '#cbd5e1', fontWeight: 500 }}>{m.machineName}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* LuckyLink protocol machine groups — compact cards */}
+      {protoGroups.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#fbbf24', marginBottom: 6, letterSpacing: '0.02em' }}>未達標機台（LuckyLink 協定）</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {protoGroups.map(g => {
+              const key = `proto|${g.protocol}|${g.game}|${g.current}`
+              const expanded = expandedGroup === key
+              return (
+                <div key={key} style={{ border: '1px solid #334155', borderRadius: 6, overflow: 'hidden' }}>
+                  {/* Group row */}
+                  <div
+                    style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: '#1e293b', cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => setExpandedGroup(expanded ? null : key)}
+                  >
+                    <span className="osm-type-badge" style={{ fontSize: 10, flexShrink: 0 }}>{g.protocol}</span>
+                    <span style={{ fontSize: 13, fontWeight: 700, flex: 1, color: '#f1f5f9' }}>{g.game}</span>
+                    <span style={{ fontSize: 12, color: '#f87171', fontWeight: 700, marginRight: 4 }}>{g.current || '—'}</span>
+                    <span style={{ fontSize: 12, color: '#64748b' }}>→</span>
+                    <span style={{ fontSize: 12, color: '#4ade80', fontWeight: 700, marginLeft: 4, marginRight: 8 }}>{g.target}</span>
+                    <span style={{ fontSize: 11, background: '#f59e0b22', border: '1px solid #f59e0b66', borderRadius: 10, padding: '1px 8px', fontWeight: 700, color: '#fbbf24' }}>{g.count} 台</span>
+                    <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 4 }}>{expanded ? '▲' : '▼'}</span>
+                  </div>
+                  {/* Expanded machine list */}
+                  {expanded && (
+                    <div style={{ padding: '6px 10px 8px', background: '#0f172a', borderTop: '1px solid #334155', display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      {g.machines.map(m => (
+                        <span key={m.gmid} style={{ fontSize: 11, padding: '2px 7px', background: '#1e293b', border: '1px solid #475569', borderRadius: 4, color: '#cbd5e1', fontWeight: 500 }}>{m.gmid}</span>
                       ))}
                     </div>
                   )}
@@ -934,11 +1003,12 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
       handleSyncAll(),
       handleFetchVersionHistory(),
       handleFetchLlVersions(),
+      handleFetchLlProto(),
       handleFetchTpVersions(),
       handleFetchReport(),
     ])
     setFetchAllLoading(false)
-  }, [handleSyncAll, handleFetchVersionHistory, handleFetchLlVersions, handleFetchTpVersions, handleFetchReport])
+  }, [handleSyncAll, handleFetchVersionHistory, handleFetchLlVersions, handleFetchLlProto, handleFetchTpVersions, handleFetchReport])
 
   const handleSaveAlertConfig = useCallback(async () => {
     setAlertConfigSaving(true)
@@ -1120,7 +1190,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
             type="button"
             className="osm-btn osm-btn--primary"
             onClick={handleFetchAll}
-            disabled={fetchAllLoading || syncingAll || versionHistoryLoading || llLoading || tpLoading || reportLoading}
+            disabled={fetchAllLoading || syncingAll || versionHistoryLoading || llLoading || llProtoLoading || tpLoading || reportLoading}
           >
             {fetchAllLoading ? '取得中…' : '一鍵全部取得'}
           </button>
@@ -1134,6 +1204,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
           tpVersions={tpVersions}
           imageReconRecords={records}
           imageReconTargetVersion={targetVersion}
+          llProto={llProto}
         />
       </section>
 
