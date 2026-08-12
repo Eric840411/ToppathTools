@@ -528,6 +528,9 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
   // ── Comment/Edit Tab selection filters (step 2) — state only; memos declared after trackedIssues ──
   const [commentTabColFilters, setCommentTabColFilters] = useState<Record<string, string>>({})
   const [editTabColFilters, setEditTabColFilters] = useState<Record<string, string>>({})
+  // 2026-08-12：Jira 即時狀態篩選——跟上面 Sheet 欄位篩選是不同資料來源（sheet 欄位 vs 即時抓回的 Jira
+  // 狀態），單一字串不是 per-column，因為只有一個「目前狀態」欄位可篩
+  const [editJiraStatusFilter, setEditJiraStatusFilter] = useState('')
 
   // Step 4 (create)
   const [submitting, setSubmitting] = useState(false)
@@ -620,6 +623,10 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
   const [updateLoading, setUpdateLoading] = useState(false)
   const [updateError, setUpdateError] = useState('')
   const [updateRecords, setUpdateRecords] = useState<UpdateRecord[]>([])
+  const [updateTabHeaders, setUpdateTabHeaders] = useState<string[]>([])
+  const [updateTabRecords, setUpdateTabRecords] = useState<SheetRecord[]>([])
+  const [updateTabColFilters, setUpdateTabColFilters] = useState<Record<string, string>>({})
+  const [updateJiraStatusFilter, setUpdateJiraStatusFilter] = useState('')
   // Transitions
   const [updateTransitions, setUpdateTransitions] = useState<JiraTransitionOption[]>([])
   const [updateTransitionId, setUpdateTransitionId] = useState('')
@@ -832,13 +839,55 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
     return result
   }, [editFilterableColumns, editTabRecords])
 
+  // Jira 即時狀態篩選選項——從目前已載入的 editTabJiraData 動態收集，不寫死 workflow 狀態清單，
+  // 因為資料是非同步陸續回來的，用 editTabJiraData 整包當 dep，載入更多筆時選項自動補齊
+  const editJiraStatusOptions = useMemo(() =>
+    [...new Set(Object.values(editTabJiraData).map(d => (d.status ?? '').trim()).filter(Boolean))].sort()
+  , [editTabJiraData])
+
   const editFilteredIssues = useMemo(() =>
     editTabIssues.filter(issue => {
       const rec = editTabRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
-      if (!rec) return true
-      return Object.entries(editTabColFilters).every(([col, val]) => !val || (rec[col] ?? '').trim() === val)
+      const colOk = !rec || Object.entries(editTabColFilters).every(([col, val]) => !val || (rec[col] ?? '').trim() === val)
+      if (!colOk) return false
+      if (!editJiraStatusFilter) return true
+      // 狀態篩選啟用時，還沒載入到 Jira 資料的列直接排除，不要模糊顯示（語意才準確）
+      const status = editTabJiraData[issue.issueKey]?.status
+      return status === editJiraStatusFilter
     })
-  , [editTabIssues, editTabRecords, editTabColFilters])
+  , [editTabIssues, editTabRecords, editTabColFilters, editJiraStatusFilter, editTabJiraData])
+
+  // ── Update Tab selection filters (memos — declared after updateRecords) ──
+  const updateFilterableColumns = useMemo(() => {
+    if (!updateTabRecords.length) return []
+    return updateTabHeaders.filter(h => {
+      const vals = [...new Set(updateTabRecords.map(r => (r[h] ?? '').trim()).filter(Boolean))]
+      return vals.length >= 2 && vals.length <= 15
+    })
+  }, [updateTabHeaders, updateTabRecords])
+
+  const updateColumnUniqueValues = useMemo<Record<string, string[]>>(() => {
+    const result: Record<string, string[]> = {}
+    for (const h of updateFilterableColumns) {
+      result[h] = [...new Set(updateTabRecords.map(r => (r[h] ?? '').trim()).filter(Boolean))].sort()
+    }
+    return result
+  }, [updateFilterableColumns, updateTabRecords])
+
+  const updateJiraStatusOptions = useMemo(() =>
+    [...new Set(Object.values(updateJiraData).map(d => (d.status ?? '').trim()).filter(Boolean))].sort()
+  , [updateJiraData])
+
+  const updateFilteredRecords = useMemo(() =>
+    updateRecords.filter(rec => {
+      const row = updateTabRecords.find(r => Number(r._rowIndex) === rec.rowIndex)
+      const colOk = !row || Object.entries(updateTabColFilters).every(([col, val]) => !val || (row[col] ?? '').trim() === val)
+      if (!colOk) return false
+      if (!updateJiraStatusFilter) return true
+      const status = updateJiraData[rec.issueKey]?.status
+      return status === updateJiraStatusFilter
+    })
+  , [updateRecords, updateTabRecords, updateTabColFilters, updateJiraStatusFilter, updateJiraData])
 
   // 已經批量修改過的 issue key（處理階段＝已修改欄位），畫面上標示提醒使用者留意重複執行
   const editAlreadyEditedKeys = useMemo(() => {
@@ -1411,6 +1460,12 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
 
   const applyLarkPrefill = () => {
     const newVals: Record<number, Record<string, string>> = {}
+    // select/multiselect：Sheet 原始文字（例如「簡單」）要先解析成 Jira 選項 id 才能存進 cellValues，
+    // 不然 <select> 元素比對不到任何 option value，畫面上只會顯示空白「— 選擇 —」，帶入等於白做。
+    // 解析不到的情況（Sheet 有值但不是有效選項）不寫進 cellValues（反正 <select> 也放不進去），改記
+    // 進 prefillErrors，馬上讓使用者看到紅框+原因，不用等按送出才發現這格資料其實沒有真的帶進去
+    // （2026-08-12，跟 CodeX 討論定案：不要靜默跳過，避免看起來帶了、實際上資料默默不見）
+    const prefillErrors: Record<number, Record<string, string>> = {}
     for (const record of filteredRecords) {
       const rowIdx = Number(record._rowIndex)
       const rowVals: Record<string, string> = {}
@@ -1433,10 +1488,45 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
             }).filter(Boolean)
             val = resolved.join(',')
           }
+          // For select/multiselect: resolve Sheet label text to the Jira option id
+          if ((field.type === 'select' || field.type === 'multiselect') && field.options) {
+            const parts = field.type === 'multiselect' ? splitMultiselectRaw(val) : [val]
+            const resolvedIds = parts.map(p => resolveSelectOptionId(field, p))
+            if (resolvedIds.some(id => !id)) {
+              const badParts = parts.filter((_, i) => !resolvedIds[i])
+              if (!prefillErrors[rowIdx]) prefillErrors[rowIdx] = {}
+              const preview = field.options.slice(0, 3).map(o => o.label).join('、')
+              const more = field.options.length > 3 ? '...' : ''
+              prefillErrors[rowIdx][field.key] = `${field.name}：Sheet 值「${badParts.join('、')}」對不到 Jira 選項。可選：${preview}${more}`
+              val = ''
+            } else {
+              val = resolvedIds.join(',')
+            }
+          }
+          // For date: Sheet 原始值可能是 Lark 序列數字或格式化字串，轉成 <input type="date"> 需要的 YYYY-MM-DD
+          if (field.type === 'date') {
+            const iso = normalizeDateValue(val)
+            if (!iso) {
+              if (!prefillErrors[rowIdx]) prefillErrors[rowIdx] = {}
+              prefillErrors[rowIdx][field.key] = `${field.name}：「${val}」不是可辨識的日期格式`
+              val = ''
+            } else {
+              val = iso
+            }
+          }
           if (val) { rowVals[field.key] = val; break }
         }
       }
       if (Object.keys(rowVals).length > 0) newVals[rowIdx] = rowVals
+    }
+    if (Object.keys(prefillErrors).length > 0) {
+      setCellErrors(prev => {
+        const merged: Record<number, Record<string, string>> = { ...prev }
+        for (const [ri, errs] of Object.entries(prefillErrors)) {
+          merged[Number(ri)] = { ...(merged[Number(ri)] ?? {}), ...errs }
+        }
+        return merged
+      })
     }
     setCellValues(prev => {
       const merged: Record<number, Record<string, string>> = { ...prev }
@@ -1461,16 +1551,85 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jiraFields, sheetRecords])
 
+  // 2026-08-12 修正：select/multiselect 從 Lark 帶入時，Sheet 打的是人看得懂的文字（例如「簡單」），
+  // 但 Jira 真正的選項 id 是內部代碼（例如「10023」），先前直接把 Sheet 文字當 id 送出去，格式一定不對、
+  // 開單會失敗。改成拿 rawVal 去比對 field.options[].label（trim、不分大小寫），比對不到才退而比對 .id
+  // 本身（方便進階使用者直接填 id）。跟 CodeX 討論後決定：任何比對不到的值都要在送出前擋下來、寫進
+  // cellErrors 讓使用者自己修正或清空，不能靜默跳過欄位——否則畫面上看得到值、送出後卻悄悄不見，
+  // 使用者完全不會發現資料遺失。
+  const resolveSelectOptionId = (field: NormalizedJiraField, rawVal: string): string | null => {
+    if (!field.options) return null
+    const v = rawVal.trim()
+    const byLabel = field.options.find(o => o.label.trim().toLowerCase() === v.toLowerCase())
+    if (byLabel) return byLabel.id
+    const byId = field.options.find(o => o.id === v)
+    return byId ? byId.id : null
+  }
+  // multiselect 的 Sheet 原始值可能用逗號或頓號或換行分隔多個選項
+  const splitMultiselectRaw = (rawVal: string): string[] =>
+    rawVal.split(/[,、\n]+/).map(v => v.trim()).filter(Boolean)
+
+  // 2026-08-12：date 欄位從 Lark 帶入——已用真實 Sheet 資料驗證，Lark Sheets API 的日期欄位原始值
+  // 不是字串，是「序列數字」（Excel/Lotus 慣例，第 0 天 = 1899-12-30），畫面上看到的「2026/8/1」是
+  // Lark 前端自己格式化顯示的，API 給的原始值其實是 46235 這種數字（已用真實資料反推驗證吻合）。
+  // 也順便接受已經是 YYYY-MM-DD / YYYY/MM/DD 字串格式的情況（保險，不同 Sheet 欄位設定可能不同）。
+  // 兩種都解析不出來就回傳 null，不用 new Date(rawVal) 硬吞字串（時區/瀏覽器解析容易產生偏移）。
+  const LARK_DATE_SERIAL_EPOCH_MS = Date.UTC(1899, 11, 30)
+  // 驗證真的是存在的日曆日期（拒絕 2026-02-31 這種會被 JS Date 自動 rollover 成 2026-03-03 的無效日期）
+  const isValidCalendarDate = (y: number, mo: number, d: number): boolean => {
+    if (mo < 1 || mo > 12 || d < 1) return false
+    const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate()
+    return d <= daysInMonth
+  }
+  const normalizeDateValue = (rawVal: string): string | null => {
+    const v = rawVal.trim()
+    if (!v) return null
+    // 只接受整數序列（沒有真實資料證實 Lark 會用小數表示時分，先不處理，避免猜錯語意）
+    if (/^\d+$/.test(v)) {
+      const serial = parseInt(v, 10)
+      if (serial <= 0) return null
+      const d = new Date(LARK_DATE_SERIAL_EPOCH_MS + serial * 86400000)
+      if (isNaN(d.getTime())) return null
+      const year = d.getUTCFullYear()
+      if (year < 1900 || year > 2447) return null // 換算後的年份要落在合理範圍，避免誤判其他數字欄位
+      return d.toISOString().slice(0, 10)
+    }
+    const m = v.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/)
+    if (m) {
+      const [, y, mo, d] = m
+      const year = Number(y), mon = Number(mo), day = Number(d)
+      if (isValidCalendarDate(year, mon, day)) return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`
+    }
+    return null
+  }
+
   const validateDynamicFields = (): boolean => {
     const errors: Record<number, Record<string, string>> = {}
+    const fieldsToCheck = [...requiredJiraFields, ...activeOptionalJiraFields]
     for (const record of planCreate) {
       const rowIdx = Number(record._rowIndex)
       const rowVals = cellValues[rowIdx] ?? {}
-      for (const field of requiredJiraFields) {
+      for (const field of fieldsToCheck) {
         const val = rowVals[field.key]?.trim()
-        if (!val) {
+        if (field.required && !val) {
           if (!errors[rowIdx]) errors[rowIdx] = {}
           errors[rowIdx][field.key] = `${field.name} 為必填`
+          continue
+        }
+        if (!val) continue
+        if ((field.type === 'select' || field.type === 'multiselect') && field.options) {
+          const parts = field.type === 'multiselect' ? splitMultiselectRaw(val) : [val]
+          const badParts = parts.filter(p => !resolveSelectOptionId(field, p))
+          if (badParts.length > 0) {
+            if (!errors[rowIdx]) errors[rowIdx] = {}
+            const preview = field.options.slice(0, 3).map(o => o.label).join('、')
+            const more = field.options.length > 3 ? '...' : ''
+            errors[rowIdx][field.key] = `${field.name}：Sheet 值「${badParts.join('、')}」對不到 Jira 選項。可選：${preview}${more}`
+          }
+        }
+        if (field.type === 'date' && !normalizeDateValue(val)) {
+          if (!errors[rowIdx]) errors[rowIdx] = {}
+          errors[rowIdx][field.key] = `${field.name}：「${val}」不是可辨識的日期格式`
         }
       }
     }
@@ -1483,8 +1642,19 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
     switch (field.type) {
       case 'user': return { accountId: resolveUserValueForField(field, rawVal) }
       case 'multiuser': return rawVal.split(',').map(id => ({ accountId: resolveUserValueForField(field, id) })).filter(x => x.accountId)
-      case 'select': return field.options ? { id: rawVal } : { name: rawVal }
-      case 'multiselect': return rawVal.split(',').map(id => id.trim()).filter(Boolean).map(id => field.options ? { id } : { name: id })
+      case 'select': {
+        if (!field.options) return { name: rawVal }
+        const id = resolveSelectOptionId(field, rawVal)
+        return id ? { id } : undefined
+      }
+      case 'multiselect': {
+        const parts = splitMultiselectRaw(rawVal)
+        if (!field.options) return parts.map(name => ({ name }))
+        const resolved = parts.map(p => resolveSelectOptionId(field, p))
+        if (resolved.some(id => !id)) return undefined // validateDynamicFields() 已經在送出前擋下這種情況
+        return resolved.map(id => ({ id }))
+      }
+      case 'date': return normalizeDateValue(rawVal) ?? undefined
       case 'number': return isNaN(Number(rawVal)) ? rawVal : Number(rawVal)
       case 'datetime': return rawVal.includes('T') ? rawVal.replace('T', ' ') : rawVal
       default: return rawVal
@@ -2588,7 +2758,7 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
     const url = urlOverride ?? updateBitableUrl
     const source = sourceOverride ?? updateTabSource
     if (!url.trim()) return
-    setUpdateLoading(true); setUpdateError(''); setUpdateRecords([]); setUpdateJiraData({}); setUpdateJiraError('')
+    setUpdateLoading(true); setUpdateError(''); setUpdateRecords([]); setUpdateJiraData({}); setUpdateJiraError(''); setUpdateTabColFilters({})
     try {
       const endpoint = source === 'lark' ? '/api/lark/sheets/records' : '/api/google/sheets/records'
       const resp = await fetch(endpoint, {
@@ -2604,6 +2774,8 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
       if (issues.length === 0) { setUpdateError('找不到已開單的 Jira Issue Key，請確認「Jira issue key」欄位有資料'); return }
       const records: UpdateRecord[] = issues.map(i => ({ issueKey: i.issueKey, rowIndex: i.rowIndex }))
       setUpdateRecords(records)
+      setUpdateTabHeaders(headers)
+      setUpdateTabRecords(sheetRecords)
       setUpdateSelectedKeys(new Set(records.map(r => r.issueKey)))
 
       // Load Jira data (summary, status, assignee)
@@ -2661,6 +2833,8 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
       const issues = extractJiraIssuesFromRecords(sheetRecordsFresh, headers)
       const records: UpdateRecord[] = issues.map(i => ({ issueKey: i.issueKey, rowIndex: i.rowIndex }))
       setUpdateRecords(records)
+      setUpdateTabHeaders(headers)
+      setUpdateTabRecords(sheetRecordsFresh)
       const freshKeys = new Set(records.map(r => r.issueKey))
       setUpdateSelectedKeys(prev => new Set([...prev, ...freshKeys].filter(k => freshKeys.has(k))))
       void fetchUpdateJiraData(records.map(r => r.issueKey))
@@ -2935,6 +3109,14 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
           updateReloadMsg={updateReloadMsg}
           handleReloadUpdateSheet={handleReloadUpdateSheet}
           updateRecords={updateRecords}
+          updateFilterableColumns={updateFilterableColumns}
+          updateTabColFilters={updateTabColFilters}
+          setUpdateTabColFilters={setUpdateTabColFilters}
+          updateColumnUniqueValues={updateColumnUniqueValues}
+          updateFilteredRecords={updateFilteredRecords}
+          updateJiraStatusFilter={updateJiraStatusFilter}
+          setUpdateJiraStatusFilter={setUpdateJiraStatusFilter}
+          updateJiraStatusOptions={updateJiraStatusOptions}
           currentAccount={currentAccount}
           updateTransitions={updateTransitions}
           updateTransitionId={updateTransitionId}
@@ -3300,6 +3482,9 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
           setEditTabColFilters={setEditTabColFilters}
           editColumnUniqueValues={editColumnUniqueValues}
           editFilteredIssues={editFilteredIssues}
+          editJiraStatusFilter={editJiraStatusFilter}
+          setEditJiraStatusFilter={setEditJiraStatusFilter}
+          editJiraStatusOptions={editJiraStatusOptions}
           editTabSelectedKeys={editTabSelectedKeys}
           setEditTabSelectedKeys={setEditTabSelectedKeys}
           editAlreadyEditedKeys={editAlreadyEditedKeys}

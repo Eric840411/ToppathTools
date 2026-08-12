@@ -26,6 +26,14 @@ export function JiraBatchUpdateTab(props: {
   updateReloadMsg: string
   handleReloadUpdateSheet: () => void
   updateRecords: UpdateRecord[]
+  updateFilterableColumns: string[]
+  updateTabColFilters: Record<string, string>
+  setUpdateTabColFilters: (fn: (prev: Record<string, string>) => Record<string, string>) => void
+  updateColumnUniqueValues: Record<string, string[]>
+  updateFilteredRecords: UpdateRecord[]
+  updateJiraStatusFilter: string
+  setUpdateJiraStatusFilter: (v: string) => void
+  updateJiraStatusOptions: string[]
   currentAccount: AccountInfo | null
   updateTransitions: JiraTransitionOption[]
   updateTransitionId: string
@@ -54,7 +62,9 @@ export function JiraBatchUpdateTab(props: {
   const {
     updateStep, setUpdateStep, updateTabSource, setUpdateTabSource, updateBitableUrl, setUpdateBitableUrl,
     updateError, setUpdateError, handleUpdateFetchBitable, updateLoading, updateReloadMsg, handleReloadUpdateSheet,
-    updateRecords, currentAccount, updateTransitions, updateTransitionId, setUpdateTransitionId, updateJiraError,
+    updateRecords, updateFilterableColumns, updateTabColFilters, setUpdateTabColFilters, updateColumnUniqueValues,
+    updateFilteredRecords, updateJiraStatusFilter, setUpdateJiraStatusFilter, updateJiraStatusOptions,
+    currentAccount, updateTransitions, updateTransitionId, setUpdateTransitionId, updateJiraError,
     fetchUpdateJiraData, rdFieldDetecting, setRdFieldDetecting, rdFieldCandidates, setRdFieldCandidates,
     emailHeader, updateJiraData, updateSelectedKeys, setUpdateSelectedKeys, updateJiraLoading,
     updateValidationErrors, updateSubmitting, updateProgress, updateTitleWritebackLoading,
@@ -137,6 +147,50 @@ export function JiraBatchUpdateTab(props: {
             </div>
           )}
 
+          {/* Column filters */}
+          {updateFilterableColumns.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>篩選：</span>
+              {updateFilterableColumns.map(col => (
+                <label key={col} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, flexShrink: 0 }}>
+                  <span style={{ color: '#94a3b8', whiteSpace: 'nowrap' }}>{col}</span>
+                  <select value={updateTabColFilters[col] ?? ''} onChange={e => setUpdateTabColFilters(prev => ({ ...prev, [col]: e.target.value }))}
+                    style={{ fontSize: 12, padding: '2px 4px', borderRadius: 4, maxWidth: 160, background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155' }}>
+                    <option value="">全部</option>
+                    {(updateColumnUniqueValues[col] ?? []).map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </label>
+              ))}
+              {Object.values(updateTabColFilters).some(Boolean) && (
+                <button type="button" onClick={() => setUpdateTabColFilters(() => ({}))}
+                  style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, border: '1px solid #334155', background: 'none', cursor: 'pointer', color: '#94a3b8' }}>
+                  清除篩選
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Jira 即時狀態篩選——跟上面的 Sheet 欄位篩選是不同資料來源（這欄是即時抓回的 Jira 狀態，
+              不是 Sheet 本身的欄位），獨立一排並標明來源避免使用者搞混 */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+            <span style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>Jira 目前狀態篩選：</span>
+            <select value={updateJiraStatusFilter} onChange={e => setUpdateJiraStatusFilter(e.target.value)}
+              disabled={updateJiraStatusOptions.length === 0}
+              style={{ fontSize: 12, padding: '2px 4px', borderRadius: 4, maxWidth: 160, background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155' }}>
+              <option value="">全部</option>
+              {updateJiraStatusOptions.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+            {updateJiraStatusOptions.length === 0 && (
+              <span style={{ fontSize: 11, color: '#64748b' }}>（Jira 狀態載入中，選項會陸續補齊）</span>
+            )}
+            {updateJiraStatusFilter && (
+              <button type="button" onClick={() => setUpdateJiraStatusFilter('')}
+                style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, border: '1px solid #334155', background: 'none', cursor: 'pointer', color: '#94a3b8' }}>
+                清除
+              </button>
+            )}
+          </div>
+
           {/* Preview table */}
           <div style={{ marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 6 }}>
@@ -145,6 +199,7 @@ export function JiraBatchUpdateTab(props: {
               </div>
               <span style={{ fontSize: 11, color: '#60a5fa' }}>
                 已選 {updateRecords.filter(r => updateSelectedKeys.has(r.issueKey)).length} / {updateRecords.length} 張
+                {updateFilteredRecords.length < updateRecords.length && <span style={{ color: '#94a3b8' }}>{`（篩選顯示 ${updateFilteredRecords.length} 筆）`}</span>}
               </span>
               <button type="button"
                 disabled={rdFieldDetecting || updateRecords.length === 0 || !currentAccount}
@@ -201,11 +256,11 @@ export function JiraBatchUpdateTab(props: {
                     <tr style={{ background: '#0f2744', borderBottom: '1px solid #1e3a5f' }}>
                       <th style={{ padding: '5px 8px', borderRight: '1px solid #1e3a5f' }}>
                         <input type="checkbox"
-                          checked={updateRecords.length > 0 && updateRecords.every(r => updateSelectedKeys.has(r.issueKey))}
+                          checked={updateFilteredRecords.length > 0 && updateFilteredRecords.every(r => updateSelectedKeys.has(r.issueKey))}
                           onChange={e => {
                             setUpdateSelectedKeys(prev => {
                               const next = new Set(prev)
-                              updateRecords.forEach(r => e.target.checked ? next.add(r.issueKey) : next.delete(r.issueKey))
+                              updateFilteredRecords.forEach(r => e.target.checked ? next.add(r.issueKey) : next.delete(r.issueKey))
                               return next
                             })
                           }}
@@ -218,7 +273,9 @@ export function JiraBatchUpdateTab(props: {
                     </tr>
                   </thead>
                   <tbody>
-                    {updateRecords.slice(0, 200).map((r, idx) => {
+                    {updateFilteredRecords.length === 0 ? (
+                      <tr><td colSpan={5} style={{ padding: '12px 16px', fontSize: 12, color: '#64748b', textAlign: 'center' }}>篩選條件下無符合的 Issue</td></tr>
+                    ) : updateFilteredRecords.slice(0, 200).map((r, idx) => {
                       const isSelected = updateSelectedKeys.has(r.issueKey)
                       const jira = updateJiraData[r.issueKey]
                       return (
@@ -259,8 +316,8 @@ export function JiraBatchUpdateTab(props: {
                         </tr>
                       )
                     })}
-                    {updateRecords.length > 200 && (
-                      <tr><td colSpan={5} style={{ fontSize: 11, color: '#64748b', textAlign: 'center', padding: '6px 0' }}>...還有 {updateRecords.length - 200} 張</td></tr>
+                    {updateFilteredRecords.length > 200 && (
+                      <tr><td colSpan={5} style={{ fontSize: 11, color: '#64748b', textAlign: 'center', padding: '6px 0' }}>...還有 {updateFilteredRecords.length - 200} 張</td></tr>
                     )}
                   </tbody>
                 </table>

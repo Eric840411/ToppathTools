@@ -156,7 +156,7 @@ export function JiraCreateStep3(props: {
           {/* Validation error summary */}
           {Object.keys(cellErrors).length > 0 && (
             <div className="alert-warn" style={{ marginBottom: 12 }}>
-              {Object.keys(cellErrors).length} 列有必填欄位未填，請填寫後再執行（第&nbsp;
+              {Object.keys(cellErrors).length} 列有欄位需修正（必填未填，或值無法對應到 Jira 格式），請修正後再執行（第&nbsp;
               {Object.keys(cellErrors).map(Number).sort((a, b) => a - b).map((idx, i, arr) => (
                 <span key={idx}>
                   <span
@@ -780,7 +780,7 @@ export function JiraCreateStep3(props: {
             </button>
             {Object.keys(cellErrors).length > 0 && (
               <span style={{ fontSize: 12, color: '#f87171' }}>
-                {Object.keys(cellErrors).length} 列有必填未填，第&nbsp;
+                {Object.keys(cellErrors).length} 列有欄位需修正，第&nbsp;
                 {Object.keys(cellErrors).map(Number).sort((a, b) => a - b).map((idx, i, arr) => (
                   <span key={idx}>
                     <span

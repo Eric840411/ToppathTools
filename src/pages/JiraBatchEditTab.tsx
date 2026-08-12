@@ -51,6 +51,9 @@ export function JiraBatchEditTab(props: {
   setEditTabColFilters: (fn: (prev: Record<string, string>) => Record<string, string>) => void
   editColumnUniqueValues: Record<string, string[]>
   editFilteredIssues: { rowIndex: number; issueKey: string }[]
+  editJiraStatusFilter: string
+  setEditJiraStatusFilter: (v: string) => void
+  editJiraStatusOptions: string[]
   editTabSelectedKeys: Set<string>
   setEditTabSelectedKeys: (fn: (prev: Set<string>) => Set<string>) => void
   editAlreadyEditedKeys: Set<string>
@@ -90,7 +93,8 @@ export function JiraBatchEditTab(props: {
     editTabStep, setEditTabStep, editTabSource, setEditTabSource, editTabUrl, setEditTabUrl,
     editTabError, setEditTabError, handleEditTabLoad, editTabLoading, editTabIssues, editTabJiraLoading,
     editReloadMsg, handleReloadEditSheet, editTabJiraError, fetchEditTabJiraData, editFilterableColumns,
-    editTabColFilters, setEditTabColFilters, editColumnUniqueValues, editFilteredIssues, editTabSelectedKeys,
+    editTabColFilters, setEditTabColFilters, editColumnUniqueValues, editFilteredIssues,
+    editJiraStatusFilter, setEditJiraStatusFilter, editJiraStatusOptions, editTabSelectedKeys,
     setEditTabSelectedKeys, editAlreadyEditedKeys, editTabJiraData, renderSummaryPrefixPanel, editTabHeaders,
     editTabRecords, editFieldMappings, setEditFieldMappings, editTabAvailableFields, editTabMembers,
     editTabMembersLoading, blankMapping, editDescAttachCol, setEditDescAttachCol, handleEditDescPrefetch,
@@ -171,6 +175,27 @@ export function JiraBatchEditTab(props: {
               )}
             </div>
           )}
+
+          {/* Jira 即時狀態篩選——跟上面的 Sheet 欄位篩選是不同資料來源，篩的是即時抓回的「狀態 (Jira)」
+              參考欄，不是 Sheet 本身的欄位，獨立一排並標明來源避免使用者搞混 */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+            <span style={{ fontSize: 12, color: '#64748b', whiteSpace: 'nowrap' }}>Jira 目前狀態篩選：</span>
+            <select value={editJiraStatusFilter} onChange={e => setEditJiraStatusFilter(e.target.value)}
+              disabled={editJiraStatusOptions.length === 0}
+              style={{ fontSize: 12, padding: '2px 4px', borderRadius: 4, maxWidth: 160, background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155' }}>
+              <option value="">全部</option>
+              {editJiraStatusOptions.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+            {editJiraStatusOptions.length === 0 && (
+              <span style={{ fontSize: 11, color: '#64748b' }}>（Jira 狀態載入中，選項會陸續補齊）</span>
+            )}
+            {editJiraStatusFilter && (
+              <button type="button" onClick={() => setEditJiraStatusFilter('')}
+                style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, border: '1px solid #334155', background: 'none', cursor: 'pointer', color: '#94a3b8' }}>
+                清除
+              </button>
+            )}
+          </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 12, color: '#94a3b8' }}>

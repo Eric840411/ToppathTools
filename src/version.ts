@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.92.4'
+export const APP_VERSION = '3.97.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,56 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '3.97.0',
+    date: '2026-08-12',
+    changes: [
+      "fix(jira): 批量開單 Step 3「從 Lark 帶入」修正 select/multiselect/date 三種型別的格式轉換——原本 select/multiselect 直接把 Sheet 打的文字（例如「簡單」）當成 Jira 內部選項 id 送出去，但 Jira 的 id 是內部代碼，兩者不會相等，一定送出失敗；date 完全沒轉換，直接把 Sheet 原始值送給 Jira。改成 select/multiselect 用 rawVal 比對 field.options[].label（找不到再 fallback 比對 .id 本身），date 新增 normalizeDateValue()——已用真實 Lark Sheet 資料驗證，Lark Sheets API 的日期欄位原始值是「序列數字」（Excel/Lotus 慣例，day 0 = 1899-12-30），不是格式化字串，畫面上看到的日期是 Lark 前端自己轉換顯示的。任一值解析/比對失敗，applyLarkPrefill() 不會寫進 cellValues（反正 <select>/<input type=date> 也放不進去格式不對的值），改寫進 cellErrors 讓使用者送出前就看到明確原因（欄位名/Sheet原值/可選清單），不會靜默漏資料；validateDynamicFields() 送出前也會再次擋下同樣的問題，兩層都不放行",
+    ],
+  },
+  {
+    version: '3.96.1',
+    date: '2026-08-12',
+    changes: [
+      "fix(weekly-report): 「從 Sheet 分析本週內容」AI 草稿改成條列格式——使用者用真實 OSM 週更新資料實測後回報原本輸出的一大段流暢摘要文字太冗長，改成固定格式「本週工作內容如下：」開頭、每個工作項目各佔一行用數字編號，prompt 明確禁止合併成段落、禁止加前言結語（例如不要寫「以下是整理結果」），降低模型加贅字的機率。已用真實內容重新測試確認格式正確",
+    ],
+  },
+  {
+    version: '3.96.0',
+    date: '2026-08-12',
+    changes: [
+      "feat(weekly-report): 「從 Sheet 分析本週內容」新增第四級「無使用者」——原本完全沒比對到任何別名的列會直接被丟棄、使用者看不到也沒機會手動救回（例如 sheet 裡名字打法跟設定的別名不一致，明明是自己的列卻被漏掉）。改成 analyzeSheetRows() 不再過濾零命中的列，一律回傳（confidence: 'none'，獨立值不塞進 'low'，避免跟「同列命中多個別名」的語意混淆），依信心排序（high/mid/low 在前、none 一律排最後）。前端「無使用者 N 筆」獨立收合區塊，跟高/中/低信心分開顯示、預設收合＋不勾選，避免真正命中的列被大量雜訊淹沒；展開後可逐列手動勾選撿漏",
+    ],
+  },
+  {
+    version: '3.95.1',
+    date: '2026-08-12',
+    changes: [
+      'fix(weekly-report): 「從 Sheet 分析本週內容」的「讀取並比對」按鈕沒反應——實際案例：打開面板時 Step 2 還沒選成員，別名清單是空的，按鈕被 disabled 正確擋住送出，但按鈕樣式（opacity/cursor）只吃 sheetLoading，沒反映 alias/URL 為空這兩個 disabled 條件，看起來還是亮著可點，點了以為沒反應。改成 disabled 判斷跟樣式共用同一個 sheetSubmitDisabled 變數；別名自動帶入 Step2 成員名的時機從「只在打開面板那瞬間」改成 useEffect 依賴 [sheetOpen, member]，面板開著時才選成員也能自動補上（只在清單仍是空的時候才自動帶入，不覆蓋使用者手動編輯過的清單）；別名或網址為空時額外顯示明確原因文字，不用使用者自己猜',
+    ],
+  },
+  {
+    version: '3.95.0',
+    date: '2026-08-12',
+    changes: [
+      'feat(weekly-report): Step 3 新增「從 Sheet 分析本週內容」——貼最多 3 個 Lark Sheet 網址（各自獨立資料來源），依「比對別名」（預設帶入 Step2 選的成員名，可自行新增，少於 3 字元視為無效別名不參與比對）在每份 sheet 的每一格找精確比對（trim + 不分大小寫），依信心分三級：高信心（唯一別名命中、且命中在姓名類欄位，如負責人/填寫人/QA驗證人員等）預設勾選；中信心（唯一別名命中，但命中欄位非姓名類，如備註/描述）預設不勾、標「建議確認」；低信心（同一列命中多個不同別名，疑似多人任務/會議紀錄）預設不勾、標「可能多人相關」。每筆命中列都顯示 matchedCells 細節（命中欄位＋別名），不是黑箱判定。使用者確認勾選後按「AI 生成草稿」，只把確認過的列（依來源分開，不混成一坨）丟給 Gemini，prompt 明確要求依來源分開理解、合併成草稿、不確定的事項不要寫成已完成事實；AI 只負責摘要文字，「這列屬於誰」完全由後端 alias 規則決定，不交給 AI 猜。草稿顯示在預覽框，按「插入到內容」才真的塞進文字框（游標位置插入，不覆蓋已打的文字）',
+    ],
+  },
+  {
+    version: '3.94.0',
+    date: '2026-08-12',
+    changes: [
+      'feat(jira): 批量更新狀態 Step 2 新增欄位篩選——比照批量修改/批量評論既有的 Sheet 欄位篩選模式（自動偵測 2~15 個唯一值的欄位），可依 Sheet 欄位縮小預覽清單範圍；全選改成只作用於篩選後可見的列，不會誤選被篩掉的隱藏列；「重新讀取」保留篩選條件，回到 Step 1 換網址重新讀取則清空',
+      'feat(jira): 批量更新狀態、批量修改 兩個工具新增「Jira 目前狀態篩選」——跟上面的 Sheet 欄位篩選是不同資料來源（這個篩的是即時從 Jira API 抓回的單子狀態，不是 Sheet 本身欄位），獨立一排並標明來源避免混淆；選項從已載入的 Jira 資料動態收集，資料陸續回來時選項自動補齊；篩選啟用時，還沒抓到 Jira 狀態的列直接排除，不會模糊顯示造成筆數跳動',
+    ],
+  },
+  {
+    version: '3.93.0',
+    date: '2026-08-11',
+    changes: [
+      'feat(weekly-report): 「本週工作內容」Step 3 新增「依時間範圍撈 Jira 單」，直接取代原本手動貼單號的「帶入摘要」——選開始/結束日期（預設本週一~今天），撈這個人 reporter 或 QA驗證人員符合其一的 Jira 單（沿用批次開單既有的 customfield_10440 驗證人員欄位，不用另外動態偵測），created 或 updated 落在範圍內都算、不限工作流程階段，不限制單一 project（撈這個人 token 能看到的所有專案）。查詢結果 checkbox 呈現（單號/摘要/狀態/更新時間/因 Reporter 或 QA驗證人員身份被撈出），可全選/取消勾選，「套用到內容」把選取的單號用「、」分隔組成一行插入文字框游標位置，自成一行不黏在既有文字後面。飛書多維表格純文字欄位無法嵌入可點擊超連結（已查證官方文件——要超鏈接必須是專門的「超鏈接」欄位類型），所以套用內容只放純單號，不放摘要/狀態/連結',
+    ],
+  },
   {
     version: '3.92.4',
     date: '2026-08-11',

@@ -157,7 +157,7 @@ Keep Claude for:
 | 選擇帳號 | 從全域帳號選單選擇 Jira 操作者身份 |
 | 批次開單（Step 1–5） | 讀取 Lark Bitable → 選專案/Issue Type → 預覽清單（含欄位篩選）→ 確認執行 → 進度追蹤（前端逐筆呼叫 `/api/jira/batch-create`，每筆回應後累加進度條；不是 SSE，跟批量評論不同）|
 | Step 3 欄位篩選 | 自動偵測下拉式選單欄位（2–15 個唯一值），可按嚴重度/類別/進度等篩選後再勾選列 |
-| Step 3 動態欄位開單 | 載入 Jira 專案實際欄位；摘要/描述/受託人/RD負責人/回報人 為強制必填並自動顯示，未填擋下送出；可從 Lark 自動帶入這些欄位值，其餘選填欄位可手動新增 |
+| Step 3 動態欄位開單 | 載入 Jira 專案實際欄位；摘要/描述/受託人/RD負責人/回報人 為強制必填並自動顯示，未填擋下送出；可從 Lark 自動帶入這些欄位值，其餘選填欄位可手動新增（「+新增欄位」加入後，若 Sheet 欄名跟 Jira 欄位名稱相符，帶入的值本來就會自動出現，不用重新點一次帶入）|
 | 批次評論 | 對多筆 Issue 批量加入 AI 生成的評論內容 |
 | 批次轉換狀態 | 選擇 Issue 清單 + 目標狀態，批量執行 Jira transition；完成後回填處理階段「已切換狀態」|
 | 批量評論（獨立 Tab） | 貼入 Lark Sheet 或 Google Sheets URL（可切換），自動偵測 Issue Key 列，不需經過開單流程直接批量加評論 |
@@ -165,8 +165,23 @@ Keep Claude for:
 | 批量更新狀態（獨立 Tab） | 貼入 Lark Sheet 或 Google Sheets URL（可切換），自動偵測含 Jira 單號的列，批量執行 transition |
 | 批量修改 — 描述附件 | Step 3 預覽表每列有附件欄：可選 Sheet 圖片欄自動讀取（點「讀取附件」），或 + 手動上傳；送出後圖片以 !filename! wiki markup 嵌入描述，影片以 [^filename] 方式嵌入；有未上傳影片時送出前彈出確認 |
 | 重新讀取 Sheet | 批量開單/批量評論/批量修改/批量更新狀態 皆有此按鈕（Step 2 以後、頂部步驟列），操作到一半時可重新拉取最新 Sheet 資料，不切換 step、不清空已勾選/已填寫內容，只同步新增/移除的列 |
+| 批量更新狀態 — Sheet 欄位篩選 | Step 2 預覽表格自動偵測 2~15 個唯一值的 Sheet 欄位，可篩選縮小範圍（跟批量修改/批量評論同一套模式）；全選只作用於篩選後可見的列；「重新讀取」保留篩選，換網址重新讀取則清空 |
+| 批量更新狀態／批量修改 — Jira 目前狀態篩選 | 跟上面的 Sheet 欄位篩選不同資料來源——這個篩的是即時從 Jira API 抓回的單子狀態，選項從已載入資料動態收集、陸續補齊；還沒抓到狀態的列在篩選啟用時直接排除 |
 | 切換工具自動帶入 Sheet 網址 | 批量開單/評論/更新狀態/修改 4 個工具切換時自動帶入「最後使用的 Sheet」網址，不用每次都重貼；切到評論/更新狀態/修改會自動帶入並自動重新讀取一次（每個分頁這次頁面停留期間只自動觸發一次，之後靠手動「讀取」/「重新讀取」按鈕），切到批量開單只帶入網址（Step 1 選專案/類型要先完成，不自動送出讀取請求）|
 | 查看成員 / 專案 | 列出帳號可存取的 Jira 成員和專案清單 |
+
+### 「從 Lark 帶入」自動帶入機制與格式轉換（2026-08-12）
+
+`applyLarkPrefill()`（`JiraPage.tsx`）掃的是 Jira 專案**全部**可用欄位（`jiraFields`，不只必填的 5 個），依序試幾組別名去 Sheet 欄名裡找對得上、有值的欄位：`summary` 試 `[Jira 欄位名稱, "摘要", "summary"]`；`description`/`assignee`/`reporter`/`customfield_10428`(RD負責人) 這 4 個有寫死對照（`FORCED_LARK_ALIAS`：分別對到 Sheet 欄「內容」/「受託人」/「回報人」/「RD負責人」）；其餘欄位只試 `[Jira 欄位顯示名稱, 欄位內部 key]`。**這代表「+新增欄位」加進來的選填欄位（環境/難易度/開始日期等）也會被自動掃到**，只要 Sheet 欄名跟 Jira 欄位名稱一致，不用額外設定；且欄位載入完成或「重新讀取 Sheet」後就會自動跑一次，不用手動點「從 Lark 帶入」。
+
+**各型別的格式轉換**（Jira API 對不同欄位型別要求的資料結構不同，Sheet 抓到的都是純文字，需要轉換才能送出，否則開單會失敗）：
+
+- **user/multiuser**：Sheet 值（可能是 accountId 或顯示名稱）比對「查看成員」清單解析成正確的 accountId，比對不到就不帶（這是原本就有的邏輯）
+- **select/multiselect**（2026-08-12 修正）：原本直接把 Sheet 文字（例如「簡單」）當成 Jira 內部選項 id 送出去，但 Jira 的 id 是一串代碼（例如「10023」），兩者不相等，一定送出失敗。改成 `resolveSelectOptionId()` 拿 Sheet 值去比對這個欄位在 Jira 裡的 `options[].label`（trim、不分大小寫），找不到再退一步直接比對 `.id` 本身（方便進階使用者直接填 id）；multiselect 支援逗號、頓號、換行分隔多個值。任一值對不到，**這個欄位不會被帶入**（`<select>` 元素本來就放不進去無效值），改寫進 `cellErrors` 讓使用者送出前就看到明確原因（例如「難易度：Sheet 值『簡單』對不到 Jira 選項。可選：容易、普通、困難」），不會靜默漏資料
+- **date**（2026-08-12 新增）：原本完全沒轉換，直接把 Sheet 原始值送給 Jira。`normalizeDateValue()` 已用真實 Lark Sheet 資料驗證（真實案例：「本機測試完成時間」欄位，raw value 是數字 `46235`/`46246`，反推對應 `2026-08-01`/`2026-08-12`，跟畫面顯示完全吻合）——**Lark Sheets API 的日期欄位原始值是「序列數字」，不是格式化字串**（Excel/Lotus 慣例，第 0 天 = 1899-12-30，用 `Date.UTC` 換算避免時區偏移），畫面上看到的日期格式是 Lark 前端自己轉換顯示的。也接受已經是 `YYYY-MM-DD`/`YYYY/MM/DD`（含月/日不補零）字串格式的情況；會驗證是真實存在的日曆日期（拒絕 `2026-02-31` 這種會被 `new Date()` 自動 rollover 成 `2026-03-03` 的無效日期，不用 `new Date(rawVal)` 硬吞字串）。純數字只接受整數（沒有真實資料證實 Lark 會用小數表示時分），换算後年份要落在 1900~2447 合理範圍（避免把其他數字欄位誤判成日期序列）。解析失敗同樣不帶入、寫進 `cellErrors`
+- **number/datetime**：原本就有正確處理，未變動
+
+`validateDynamicFields()` 送出前會再次檢查所有作用中欄位（必填 + 已加入的選填）的 select/multiselect/date 是否都能正確解析，兩層（帶入當下 + 送出前）都會擋，不會有「帶入時漏檢查、送出時才爆炸」或反過來的縫隙。
 
 ### 開單完成回填欄位
 批量開單成功後自動回填以下 Lark Sheet 欄位：
@@ -198,6 +213,12 @@ Keep Claude for:
 - **批量修改：送出前重新確認 Issue 是否還存在/可存取**——比照批量更新狀態既有的 pre-flight re-validation 模式，送出前重新呼叫 `/api/jira/batch-fetch-fields`，過濾掉 Step 2 讀取之後被刪除/搬移/權限變更的 Issue，讓使用者確認要不要略過再繼續。
 - **批次開單/批次轉換狀態/批量修改：加上 Jira API 節流**——原本只有批量評論有固定 2 秒間隔，其他三個對 Jira API 完全沒有節流，大批量時容易撞到 rate limit；統一補上 300ms 延遲（批次開單因為是「一筆一個 HTTP request」的架構，节流靠前端逐筆呼叫本身的網路延遲，沒有額外加延遲）。
 - **4 個工具的歷史紀錄補上實際變更內容**——先前 `addHistory` 只存 `{issueKey, ok, error}`，事後查歷史紀錄看不出到底改了什麼。批次開單補上摘要文字、批量評論補上留言內容預覽（截斷 300 字，AI 重排版的情況下是使用者原始輸入而非逐字比對）、批量修改補上實際改的欄位/值與附件檔名、批次轉換狀態新增 `addHistory`（先前完全沒有）。
+
+### 批量更新狀態／批量修改 篩選功能補齊（2026-08-12）
+
+批量更新狀態 Step 2 原本完全沒有篩選機制（批量修改/批量評論早就有），使用者反應對照截圖後補上，跟既有模式做法一致：`updateFilterableColumns`/`updateTabColFilters`/`updateColumnUniqueValues`/`updateFilteredRecords`（`JiraPage.tsx`），全選 checkbox 改成只作用於 `updateFilteredRecords`（不是全部 `updateRecords`），避免篩選後按全選誤選到被篩掉的隱藏列；`updateFilteredRecords` 用既有的 `_rowIndex` 比對回原始列，不重新解析 issue key，避免跟既有匯入邏輯產生兩套判斷。「重新讀取」（`handleReloadUpdateSheet`）不清空篩選；回到 Step 1 換網址重新「讀取」（`handleUpdateFetchBitable`）才清空篩選——這個區分刻意保留，使用者拖動作到一半重新整理資料不該把篩選條件洗掉，但換一份新表格篩選條件多半已經不適用。
+
+**Jira 目前狀態篩選是完全獨立的第二層篩選，不是同一組**：預覽表格顯示的「狀態」欄（批量更新狀態）/「狀態 (Jira)」欄（批量修改，`jiraCols = ['summary','assignee','status']` 本來就有）是即時從 Jira API 抓回的資料（`updateJiraData`/`editTabJiraData`），跟上面 Sheet 欄位篩選的資料來源完全不同，混在同一排篩選容易誤導使用者以為 Sheet 欄位篩選也能篩到這欄。新增 `updateJiraStatusFilter`/`editJiraStatusFilter`（單一字串，不是 per-column，因為只有一個狀態欄可篩）獨立一排並標明「Jira 目前狀態篩選」；可選清單（`updateJiraStatusOptions`/`editJiraStatusOptions`）從目前已載入的 Jira 資料動態收集 unique 值，不寫死 workflow 狀態，且用整包 Jira data state 當 `useMemo` dep，資料非同步陸續載入時選項會自動補齊，不用等全部載完才能篩。**篩選啟用時，還沒抓到 Jira 狀態的列直接排除**（不是模糊顯示成「符合」或「不確定」），避免筆數隨著資料陸續到位而跳動、語意不準確。批量修改的「預覽變更」（Step 3）沿用 Step 2 篩選後的 `editTabSelectedKeys`，不需要另外接篩選邏輯。
 
 ---
 
@@ -807,7 +828,7 @@ Dashboard（修仙版）Hero 橫幅下方顯示一張每日語錄小卡片，語
 
 ## 23. 週報彙整（WeeklyReportPage）
 
-**路由**：`POST /api/weekly-report/parse`、`POST /api/weekly-report/submit`｜**歷史紀錄 feature key**：`weekly-report`
+**路由**：`POST /api/weekly-report/parse`、`POST /api/weekly-report/jira-by-range`、`POST /api/weekly-report/sheet-analysis`、`POST /api/weekly-report/sheet-analysis-draft`、`POST /api/weekly-report/submit`｜**歷史紀錄 feature key**：`weekly-report`
 
 ### 功能說明
 獨立工具（2026-08-11 新增，**不掛在 OSM Tools 底下**，跟 Jira/TestCase 生成同一層級），讓成員快速把本週工作內容寫進團隊共用的 Lark Base 週報表。每週該表是全新一張（不是同一張表累積、沒有日期/週次欄位），所以工具不寫死表格 ID，改成使用者每次貼上「本週 Lark Base 網址」，動態讀取該表的欄位選項。
@@ -816,9 +837,26 @@ Dashboard（修仙版）Hero 橫幅下方顯示一張每日語錄小卡片，語
 
 **一人一週只佔一列，多個項目全部合併進同一個補充說明欄位**（2026-08-11 使用者明確決定）：`专案` 是單選欄位，但實際週報常常一人橫跨多個專案，兩者天生衝突——解法是 `专案` 欄位做成「主要專案，選填」（可留空，不強求反映全部），逐項實際是哪個專案的內容自己在文字裡標籤（例如 `[P7-005-OSM] 修正登入錯誤...`），欄位語意上不保證能完整拿來做跨專案統計，統計要看補充說明文字本身。
 
-**Jira 單與手寫文本混寫在同一段文字**（不強制分模式）：Step 3 補充說明文字框上方有「貼 Jira 單號 → 帶入摘要」小工具，貼上單號（可逗號分隔多個）按下後呼叫既有的 `POST /api/jira/batch-fetch-fields`（跟 JiraPage 批量開單/評論用同一支端點），組成 `[CGMN-26] 修正登入錯誤（Done）` 格式的文字插入textarea——**插入是插在游標位置，不會覆蓋使用者已經打好的內容**（`textareaRef` 讀 `selectionStart`/`selectionEnd`，插入後游標移到插入內容之後），插入後可自由編輯，之後也能繼續手打其他內容混在一起。
+**Jira 單與手寫文本混寫在同一段文字**（不強制分模式）：Step 3 補充說明文字框上方原本是「貼 Jira 單號 → 帶入摘要」手動輸入小工具，**2026-08-11 使用者看過實機截圖後決定直接取代掉**（不是並存兩個入口，避免使用者搞不清楚該用哪一個），改成「📅 依時間範圍撈 Jira 單」——選開始/結束日期（預設帶入本週一~今天）按「查詢」，呼叫 `POST /api/weekly-report/jira-by-range`，checkbox 清單呈現符合條件的單（單號/摘要/狀態/更新時間/因 Reporter 還是 QA驗證人員身份被撈出），全選/取消勾選後按「套用到內容」。插入格式**只放純單號、用「、」分隔**（例如 `CGMN-142、CGMN-138`），不放摘要/狀態/連結——原本設計是 `[CGMN-26] 修正登入錯誤（Done）` 格式，使用者明確表示不需要摘要，且原本想要單號本身能點擊變超連結，但查證飛書官方文件後確認**多維表格的純文字欄位（`补充说明` 就是這個類型）無法嵌入可點擊超連結，一定要用專門的「超鏈接」欄位類型才行**（JiraPage 寫回 Lark **Sheet** 用的 `type: 'richtext', segments: [{text, link}]` 是 Sheet 富文本格式，Bitable 的文字欄位是不同資料模型，沒有這個能力），所以最終只放純單號。插入是插在游標位置、自成一行（前面需要的話補換行，不會黏在既有文字後面），不會覆蓋使用者已經打好的內容，插入後可自由編輯繼續混寫。
 
-**Jira 授權不需要另外選帳號**：本來討論時以為要加一個 Jira 帳號選擇器（`batch-fetch-fields` 需要 `x-jira-email` header），後來確認這個專案的登入帳號本身就是 Jira 帳號（`server/accounts.json` 同一份資料同時是 Toppath Tools 登入清單也是 Jira API token 清單，前端 `sessionStorage` 存的 key 直接叫 `global_jira_account`）——直接用 `loadGlobalAccount()?.email` 當 `x-jira-email` 打 API，不用額外 UI。找不到已登入帳號時「帶入摘要」會直接回錯誤訊息，不會盲目打 API。
+**撈單條件（`jira-by-range`）**：`(reporter = currentUser() OR cf[10440] = currentUser()) AND ((created >= start AND created < end+1天) OR (updated >= start AND updated < end+1天)) ORDER BY updated DESC`——Reporter 是這個人「或」QA驗證人員是這個人，符合其一即列出（驗證人員欄位沿用 `jira.ts` 批次開單時寫入的同一個 `customfield_10440`，env `JIRA_VERIFIER_FIELD_ID` 可覆蓋，不用另外動態偵測）；「建立」或「更新」落在時間範圍內都算，不限工作流程階段（To Do/In Progress/Done 都會撈到）；結束日用「+1天、`<` 排除」而不是 `<= 結束日`，避免 Jira 日期比較只算到當天 00:00 的邊界問題。**不限制 project**，撈這個人 Jira token 能看到的所有專案（使用者明確要求「只要有關這個人的共享專案都能撈到」，不要另外做專案篩選）。`currentUser()` 能正確解析成操作者本人，是因為 `userJiraAuth(req)` 本來就是讀 `x-jira-email` header 對應到後端存的**個人**（不是共用 service account）token 組 Basic Auth，跟批量開單/評論用同一套（見下段）。
+
+**Jira 授權不需要另外選帳號**：這個專案的登入帳號本身就是 Jira 帳號（`server/accounts.json` 同一份資料同時是 Toppath Tools 登入清單也是 Jira API token 清單，前端 `sessionStorage` 存的 key 直接叫 `global_jira_account`）——直接用 `loadGlobalAccount()?.email` 當 `x-jira-email` 打 API，不用額外 UI。找不到已登入帳號時「查詢」會直接回錯誤訊息，不會盲目打 API。
+
+**「從 Sheet 分析本週內容」（2026-08-12，跟 CodeX 討論定案）**：Step 3 另一個獨立入口（跟「依時間範圍撈 Jira 單」並存，兩者服務不同情境——一個抓 Jira 單、一個抓任意工作表）。貼最多 3 個 Lark Sheet 網址（各自獨立資料來源，不是同一份的不同分頁角度），核心原則是**身份判定完全靠 deterministic 規則、不讓 AI 猜**：
+
+- **Alias 精確比對**：Step 2 選的成員名字預設當第一個別名，可自行新增別名（例如全名/暱稱，因為 sheet 裡的名字不一定跟週報選的名字字串一致）；別名少於 3 字元視為無效、不參與比對（太短容易誤判，例如單一個字的姓）。比對是 trim + 不分大小寫的**完整 cell 精確相等，不是子字串包含**——例如備註欄整格剛好只打「Eric」會命中，但「今天跟 Eric 一起確認問題」這種名字被包在句子裡的寫法**不會命中**（會落到下面的「無使用者」），這是刻意的設計取捨（CodeX 明確要求精確命中避免誤配），代價是「中信心」這一級實際觸發機率比字面上想像的低（需要整格內容剛好只有別名本身、又落在非姓名類欄位，這種 sheet 排版並不常見）；子字串提及的情況目前仍會被撈出來（歸類「無使用者」），只是不會特別標成「建議確認」，使用者一樣看得到、能自己判斷。
+- **四級信心分級**（`analyzeSheetRows()`，`server/routes/weekly-report.ts`）：
+  - **高信心**：這一列只命中唯一一個別名，且至少一個命中欄位是「姓名類」欄位（欄位名稱包含姓名/填寫人/負責人/報告人/驗證/QA/人員/Owner/Assignee/PIC 等關鍵字，`NAME_COLUMN_HINTS`）→ 預設勾選
+  - **中信心**：唯一別名命中，但命中欄位都不是姓名類（例如備註欄整格剛好就是這個名字）→ 預設不勾，標「建議確認」
+  - **低信心**：同一列命中多個不同別名（疑似多人任務、會議紀錄、群組負責項）→ 預設不勾，標「可能多人相關」
+  - **無使用者**（2026-08-12 新增）：完全沒命中任何別名的列——原本這種列會被直接丟棄，使用者完全看不到、也沒機會手動救回（alias 設定不完整、名字打法不一致時就會漏判且不可逆）；改成一律回傳（`confidence: 'none'`，獨立值不塞進 `low`，避免跟「同列命中多個別名」的語意混淆）。前端獨立收合區塊「無使用者 N 筆」，跟高/中/低分開顯示、預設收合＋不勾選，避免真正命中的列被大量雜訊淹沒；`analyzeSheetRows()` 回傳前依信心排序（high/mid/low 在前、none 一律排最後），排序邏輯不依賴前端分組，後端本身回傳順序就是正確的
+  - 每筆命中列都回傳 `matchedCells`（命中的欄位/儲存格值/別名），前端直接顯示命中原因，不是黑箱判定；`none` 列的 `matchedCells` 固定是空陣列
+- **Sheet 讀取**：`readLarkSheetTab()` 用 `open-apis/sheets/v3/.../sheets/query` 抓分頁清單（拿 `title`），URL 有指定分頁就讀該分頁、沒有就讀第一個分頁，再用既有的 `open-apis/sheets/v2/.../values/{range}` 讀取內容（跟 `/api/lark/sheets/records` 同一套 Lark API，但這裡額外需要分頁標題，多一次 metadata 呼叫）。
+- **AI 摘要邊界**：使用者確認勾選（可能橫跨多個來源）後按「AI 生成草稿」，才把選取的列（依來源分開組成 prompt 片段，不混成一坨）丟給 Gemini（`callLLM()`），prompt 明確要求「依來源分開理解、不確定的事項不要寫成已完成事實、不要編造原始資料沒有的內容」。AI 完全不參與「這列屬於誰」的判定，那一步已經在後端用 alias 規則做完，AI 只負責把使用者已經確認過的原始內容整理成草稿文字。
+- **草稿輸出格式（2026-08-12 修正）**：原本 prompt 要求「合併成一段自然流暢的摘要文字」，使用者用真實 OSM 週更新資料實測後回報太冗長不好用；改成固定條列格式——第一行「本週工作內容如下：」，接著每個工作項目各佔一行、數字編號，prompt 明確禁止合併成段落、禁止加前言結語（避免模型多寫「以下是整理結果」這類廢話）。
+- **兩層確認**：命中列先讓使用者勾選 → 送 AI 生成草稿 → 草稿顯示在預覽框，按「插入到內容」才真的塞進 Step 3 文字框（游標位置插入、自成一行，不覆蓋已打的文字）。沒有任何一步是自動送出，全程可以看到中間結果。
+- **已知簡化**：沒有讀取「Sheet 本身文件標題」（例如「QA週工作追蹤表」這種人類命名），畫面上來源標成「Sheet 1」/「Sheet 2」/「Sheet 3」（依貼入順序）+ 分頁標題，因為這個專案目前沒有已驗證過的 API 呼叫能可靠拿到 Lark Sheet 文件層級標題，不確定 API 形狀前不硬猜。
 
 **讀取失敗會擋在送出之前，不會等送出才報錯**：`POST /api/weekly-report/parse` 會先檢查回應是否包含 `成员`/`专案`/`补充说明` 三個必要欄位，缺少任一個直接回傳明確錯誤訊息列出缺什麼欄位；Step 2/3 的表單在還沒成功解析表格前是 disabled 狀態（`opacity: .5` + `pointerEvents: none`），不可能在沒讀到欄位選項的狀態下送出。
 
@@ -834,8 +872,9 @@ Dashboard（修仙版）Hero 橫幅下方顯示一張每日語錄小卡片，語
 | 貼上本週 Lark Base 網址 | 每週表格不同，貼上後自動讀取「成员」/「专案」欄位選項；上次用過的網址會記住（`localStorage`），下次開啟預先帶入 |
 | 選擇成員（自己） | 必填，下拉選單選項來自剛讀取的表格 |
 | 選擇主要專案 | 選填，可留空（內容自己在文字裡標專案） |
-| 貼 Jira 單號帶入摘要 | 可一次貼多個（逗號分隔），自動抓摘要/狀態插入文字框游標位置，不覆蓋已打的內容 |
-| 填寫本週工作內容 | 自由編輯文字框，可混寫 Jira 帶入的摘要與手寫文字 |
+| 依時間範圍撈 Jira 單 | 選開始/結束日期（預設本週一~今天），撈這個人 Reporter 或 QA驗證人員符合其一的單（不限 project、不限工作流程階段），checkbox 勾選後套用純單號（「、」分隔）到文字框游標位置，不覆蓋已打的內容 |
+| 從 Sheet 分析本週內容 | 貼最多 3 個 Lark Sheet 網址 + 設定比對別名，讀取並比對後依信心分級（高/中/低）勾選命中列，「AI 生成草稿」把確認過的內容交 Gemini 摘要成一段文字，「插入到內容」才塞進文字框；哪列被抓出來都顯示命中欄位/別名，不是黑箱 |
+| 填寫本週工作內容 | 自由編輯文字框，可混寫撈到的 Jira 單號、Sheet 分析草稿與手寫文字 |
 | 送出 | 直接在該 Lark Bitable 新增一列（成員/主要專案/補充說明） |
 
 ---
