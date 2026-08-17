@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.5.0'
+export const APP_VERSION = '4.6.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,20 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.6.0',
+    date: '2026-08-17',
+    changes: [
+      "minor(autospin): 截圖監控改成依帳號開關（GET/PUT /api/autospin/screenshot-prefs，跟三路對帳 compareEnabled 同一套模式），預設開啟；關閉後不再上傳截圖到截圖監控畫廊，模板偵測/戰績紀錄/對帳資料不受影響；只在下次啟動 AutoSpin session 生效，執行中切換不即時",
+    ],
+  },
+  {
+    version: '4.5.1',
+    date: '2026-08-17',
+    changes: [
+      "fix(autospin): 執行監控右側欄「截圖監控」改成獨立限高＋自己捲動——機台一多、截圖持續累積時會把上面的 LuckyLink JP／SLS 錯誤日誌兩個面板往上推出可視範圍，現在截圖區塊限制最高 420px 自己捲，其他面板永遠留在可視範圍內不用捲動找",
+    ],
+  },
   {
     version: '4.5.0',
     date: '2026-08-17',

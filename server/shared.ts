@@ -850,16 +850,22 @@ db.exec(`
     reportFields      TEXT NOT NULL DEFAULT '',
     reportCustomNote  TEXT NOT NULL DEFAULT '',
     reportAiEnabled   INTEGER NOT NULL DEFAULT 0,
-    compareEnabled    INTEGER NOT NULL DEFAULT 1
+    compareEnabled    INTEGER NOT NULL DEFAULT 1,
+    screenshotEnabled INTEGER NOT NULL DEFAULT 1
   )
 `)
 {
-  // compareEnabled（三路對帳依帳號開關，2026-08-10）補齊到既有資料庫——CREATE TABLE IF NOT EXISTS
-  // 對已經存在的舊表不會生效，既有安裝需要額外 ALTER TABLE 才會有這個欄位
+  // compareEnabled（三路對帳依帳號開關，2026-08-10）/ screenshotEnabled（截圖監控依帳號開關，
+  // 2026-08-17）補齊到既有資料庫——CREATE TABLE IF NOT EXISTS 對已經存在的舊表不會生效，
+  // 既有安裝需要額外 ALTER TABLE 才會有這個欄位
   const cols = db.prepare(`PRAGMA table_info(autospin_notify_prefs)`).all() as { name: string }[]
   if (!cols.find(c => c.name === 'compareEnabled')) {
     db.exec(`ALTER TABLE autospin_notify_prefs ADD COLUMN compareEnabled INTEGER NOT NULL DEFAULT 1`)
     console.log('[DB] autospin_notify_prefs 已新增欄位：compareEnabled')
+  }
+  if (!cols.find(c => c.name === 'screenshotEnabled')) {
+    db.exec(`ALTER TABLE autospin_notify_prefs ADD COLUMN screenshotEnabled INTEGER NOT NULL DEFAULT 1`)
+    console.log('[DB] autospin_notify_prefs 已新增欄位：screenshotEnabled')
   }
 }
 

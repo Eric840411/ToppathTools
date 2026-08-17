@@ -348,24 +348,24 @@ router.post('/api/autospin/discord-webhook/test', async (_req, res) => {
 interface NotifyPrefsRow {
   userLabel: string; notifyEnabled: number; notifyFields: string
   reportEnabled: number; reportIntervalMin: number; reportFields: string
-  reportCustomNote: string; reportAiEnabled: number; compareEnabled: number
+  reportCustomNote: string; reportAiEnabled: number; compareEnabled: number; screenshotEnabled: number
 }
 function getNotifyPrefsRow(userLabel: string): NotifyPrefsRow | undefined {
   return db.prepare('SELECT * FROM autospin_notify_prefs WHERE userLabel = ?').get(userLabel) as NotifyPrefsRow | undefined
 }
 function upsertNotifyPrefs(userLabel: string, patch: Partial<Omit<NotifyPrefsRow, 'userLabel'>>) {
   const existing = getNotifyPrefsRow(userLabel) ?? {
-    userLabel, notifyEnabled: 1, notifyFields: '', reportEnabled: 0, reportIntervalMin: 20, reportFields: '', reportCustomNote: '', reportAiEnabled: 0, compareEnabled: 1,
+    userLabel, notifyEnabled: 1, notifyFields: '', reportEnabled: 0, reportIntervalMin: 20, reportFields: '', reportCustomNote: '', reportAiEnabled: 0, compareEnabled: 1, screenshotEnabled: 1,
   }
   const merged = { ...existing, ...patch }
   db.prepare(`
-    INSERT INTO autospin_notify_prefs (userLabel, notifyEnabled, notifyFields, reportEnabled, reportIntervalMin, reportFields, reportCustomNote, reportAiEnabled, compareEnabled)
-    VALUES (@userLabel, @notifyEnabled, @notifyFields, @reportEnabled, @reportIntervalMin, @reportFields, @reportCustomNote, @reportAiEnabled, @compareEnabled)
+    INSERT INTO autospin_notify_prefs (userLabel, notifyEnabled, notifyFields, reportEnabled, reportIntervalMin, reportFields, reportCustomNote, reportAiEnabled, compareEnabled, screenshotEnabled)
+    VALUES (@userLabel, @notifyEnabled, @notifyFields, @reportEnabled, @reportIntervalMin, @reportFields, @reportCustomNote, @reportAiEnabled, @compareEnabled, @screenshotEnabled)
     ON CONFLICT(userLabel) DO UPDATE SET
       notifyEnabled = excluded.notifyEnabled, notifyFields = excluded.notifyFields,
       reportEnabled = excluded.reportEnabled, reportIntervalMin = excluded.reportIntervalMin,
       reportFields = excluded.reportFields, reportCustomNote = excluded.reportCustomNote, reportAiEnabled = excluded.reportAiEnabled,
-      compareEnabled = excluded.compareEnabled
+      compareEnabled = excluded.compareEnabled, screenshotEnabled = excluded.screenshotEnabled
   `).run(merged)
 }
 
@@ -373,6 +373,13 @@ function upsertNotifyPrefs(userLabel: string, patch: Partial<Omit<NotifyPrefsRow
 function isCompareEnabled(userLabel: string): boolean {
   const row = getNotifyPrefsRow(userLabel)
   return row ? row.compareEnabled !== 0 : true
+}
+// 截圖監控依帳號開關（2026-08-17，使用者要求「不要常駐，讓使用者決定」）——只在 AutoSpin 啟動時
+// 讀一次（見 /agent/start），啟動後切換此開關要等下次重啟 session 才生效，不是即時的（跟 CodeX
+// 討論定案：即時生效要多一條 agent polling/server push，這版先做成本低的「下次啟動生效」）
+function isScreenshotEnabled(userLabel: string): boolean {
+  const row = getNotifyPrefsRow(userLabel)
+  return row ? row.screenshotEnabled !== 0 : true
 }
 function legacySetting(key: string): string | undefined {
   return (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value
@@ -1230,7 +1237,8 @@ router.post('/api/autospin/agent/start', (req, res) => {
       if (c.enabled) notifyDiscord(sessionId, c.machineType, 'queued', { gameUrl: c.gameUrl }).catch(() => {})
     }
   }
-  res.json({ ok: true, sessionId, configs: merged, keywordActions, machineActions })
+  // screenshotEnabled 是帳號層級偏好（不是逐機台設定），放頂層給 Python 端在 main() 存成全域變數
+  res.json({ ok: true, sessionId, configs: merged, keywordActions, machineActions, screenshotEnabled: isScreenshotEnabled(userLabel) })
 })
 
 // POST /api/autospin/agent/:id/log — agent posts a log line（或一次多行 lines[]，供背景佇列批次上傳用）
@@ -2228,6 +2236,17 @@ router.get('/api/autospin/compare/prefs', (req, res) => {
 router.put('/api/autospin/compare/prefs', (req, res) => {
   const body = z.object({ compareEnabled: z.boolean() }).parse(req.body)
   upsertNotifyPrefs(requestUserLabel(req), { compareEnabled: body.compareEnabled ? 1 : 0 })
+  res.json({ ok: true })
+})
+
+// GET/PUT /api/autospin/screenshot-prefs — 截圖監控依帳號開關（2026-08-17，使用者要求「不要常駐，
+// 讓使用者決定要不要開」）；只在下次啟動 AutoSpin 時生效（見 /agent/start），不是即時的
+router.get('/api/autospin/screenshot-prefs', (req, res) => {
+  res.json({ ok: true, screenshotEnabled: isScreenshotEnabled(requestUserLabel(req)) })
+})
+router.put('/api/autospin/screenshot-prefs', (req, res) => {
+  const body = z.object({ screenshotEnabled: z.boolean() }).parse(req.body)
+  upsertNotifyPrefs(requestUserLabel(req), { screenshotEnabled: body.screenshotEnabled ? 1 : 0 })
   res.json({ ok: true })
 })
 
