@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.6.0'
+export const APP_VERSION = '4.6.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.6.1',
+    date: '2026-08-17',
+    changes: [
+      "fix(autospin): LuckyLink JP 監控永遠卡在「等待 Poller 啟動...」的根因——server/luckylink-poller.mjs 從未加進 AGENT_SOURCE_WHITELIST，install.bat/更新 source files 都不會把這個檔案下載到 Local Agent 機器，agent-runner.ts 偵測不到檔案時只印一行本機 console.warn，不會回報到前端，導致重啟 session 也無法解決；補上白名單項目，並在檔案缺失／spawn 失敗／poller 非正常結束時透過 WS 送出 luckylink_error 事件回報前端",
+      "fix(autospin): 前端 luckylink_error 處理先前只在 luckylinkStatus 已存在（代表已收到過 luckylink_start）時才會更新，poller 從未成功啟動過的情況下錯誤事件會被靜默丟棄；改成 luckylinkStatus 為 null 時也會初始化狀態並顯示錯誤訊息，不再永遠卡在「等待 Poller 啟動...」",
+    ],
+  },
   {
     version: '4.6.0',
     date: '2026-08-17',

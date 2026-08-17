@@ -1059,10 +1059,22 @@ function connect() {
       })
 
       // ── Spawn LuckyLink poller if requested ──────────────────────────────────
+      const sendLuckylinkError = (message: string, code: string) => {
+        if (ws.readyState !== ws.OPEN) return
+        ws.send(JSON.stringify({
+          type: 'luckylink_event',
+          sessionId,
+          event: { type: 'luckylink_error', ts: new Date().toISOString(), data: { message, fatal: true, code } },
+        }))
+      }
       if (luckylinkConfig?.enabled && luckylinkConfig.luckylinkUrl) {
         const pollerPath = join(process.cwd(), 'server', 'luckylink-poller.mjs')
         if (!existsSync(pollerPath)) {
           console.warn(`[Agent:${AGENT_LABEL}] LuckyLink poller not found: ${pollerPath}`)
+          sendLuckylinkError(
+            `LuckyLink poller 檔案不存在於 Agent 機器：${pollerPath}（請到「Local Agent」頁面點「更新 source files」補齊後再重新啟動）`,
+            'LUCKYLINK_POLLER_MISSING',
+          )
         } else {
           console.log(`[Agent:${AGENT_LABEL}] LuckyLink poller start → group=${luckylinkConfig.jpGroupCode} url=${luckylinkConfig.luckylinkUrl} interval=${luckylinkConfig.pollIntervalSec}s`)
           const gameCodes = (luckylinkConfig as unknown as { gameCodes?: string[] }).gameCodes ?? []
@@ -1097,10 +1109,15 @@ function connect() {
           poller.on('close', (code) => {
             console.log(`[Agent:${AGENT_LABEL}] LuckyLink poller exited (code ${code})`)
             if (luckylinkPollerChild === poller) luckylinkPollerChild = null
+            // code===null 代表被訊號（如 SIGTERM）中止，通常是正常停止流程，不當異常回報
+            if (code !== 0 && code !== null) {
+              sendLuckylinkError(`LuckyLink poller 異常結束（exit code ${code}），請查看 Agent 終端機日誌`, 'LUCKYLINK_POLLER_EXIT')
+            }
           })
           poller.on('error', (err) => {
             console.error(`[Agent:${AGENT_LABEL}] LuckyLink poller spawn error:`, err)
             if (luckylinkPollerChild === poller) luckylinkPollerChild = null
+            sendLuckylinkError(`LuckyLink poller 啟動失敗：${err.message}`, 'LUCKYLINK_POLLER_SPAWN_ERROR')
           })
         }
       }

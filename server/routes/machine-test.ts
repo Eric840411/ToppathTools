@@ -55,6 +55,8 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'scripted-bet/types.ts':         join(SERVER_ROOT, 'scripted-bet', 'types.ts'),
   // AutoSpin Python 引擎（A2：agent 端 spawn 它跑 AutoSpin，自含單檔）
   'python/toppath-agent.py':       join(SERVER_ROOT, 'python', 'toppath-agent.py'),
+  // LuckyLink JP 比對 poller（agent 端 spawn，自含單檔）
+  'luckylink-poller.mjs':          join(SERVER_ROOT, 'luckylink-poller.mjs'),
 }
 
 export const router = Router()

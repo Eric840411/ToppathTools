@@ -715,7 +715,9 @@ export function AutoSpinPage() {
           setLuckylinkStatus(prev => prev ? { ...prev, alerts: [...prev.alerts.slice(-20), alert] } : prev)
         } else if (evt.type === 'luckylink_error') {
           const d = evt.data as { message?: string; fatal?: boolean }
-          setLuckylinkStatus(prev => prev ? { ...prev, error: d.message ?? '未知錯誤', connected: !d.fatal } : prev)
+          setLuckylinkStatus(prev => prev
+            ? { ...prev, error: d.message ?? '未知錯誤', connected: !d.fatal }
+            : { connected: !d.fatal, jpGroupCode: '', pollCount: 0, lastPollTs: null, pool: [], diffs: [], alerts: [], error: d.message ?? '未知錯誤' })
         } else if (evt.type === 'luckylink_stop') {
           setLuckylinkStatus(prev => prev ? { ...prev, connected: false } : prev)
         }
