@@ -7,23 +7,11 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { addHistory, getLarkToken, mustEnv, userJiraAuth, parseLarkSheetUrl } from '../shared.js'
-import { callLLM } from './gemini.js'
 
 export const router = Router()
 
 /** 週報「依時間範圍撈 Jira 單」——沿用 jira.ts 批次開單時寫入的驗證人員欄位 id，不用另外動態偵測 */
 const WEEKLY_REPORT_VERIFIER_FIELD_ID = process.env.JIRA_VERIFIER_FIELD_ID ?? 'customfield_10440'
-
-// ── 「從 Sheet 分析本週內容」——2026-08-12，跟 CodeX 討論定案的設計 ──────────
-// alias 精確比對（不靠 AI 猜身份）+ 三級信心分級（deterministic 規則，不是 Gemini 判斷）+
-// 使用者確認勾選後才交 Gemini 摘要，AI 只負責摘要文字、不負責判定是誰做的。
-
-/** 判斷欄位名稱是不是「姓名類」欄位——決定唯一 alias 命中時算高信心還是中信心 */
-const NAME_COLUMN_HINTS = ['姓名', '名字', '填寫人', '負責人', '報告人', '驗證', 'qa', '人員', 'owner', 'assignee', 'pic', '道友', '道號', '成员', '成員']
-function isNameLikeColumn(header: string): boolean {
-  const h = header.toLowerCase()
-  return NAME_COLUMN_HINTS.some(hint => h.includes(hint.toLowerCase()))
-}
 
 /** Lark Sheets API 儲存格可能是字串/數字/布林/富文本陣列/物件，統一抽出純文字（跟 jira.ts 的 extractCell 同一套邏輯） */
 function extractSheetCell(cell: unknown): string {
@@ -39,6 +27,36 @@ function extractSheetCell(cell: unknown): string {
     if (c.value !== undefined && c.value !== null) return String(c.value)
   }
   return ''
+}
+
+/** Lark Sheets API 讀公式儲存格時給的是公式原始文字（例如 `"["&F2&"]["&E2&"]"&I2`），不是算好的結果
+ *  （已用真實資料證實，見 CLAUDE.md 第 23 節）。這裡只處理最常見的「字串字面值 + 同列儲存格參照，用 & 串接」
+ *  這個窄範圍樣式——不做通用公式引擎，任何不符合這個樣式的 token 都直接放棄評估、回傳 null 讓呼叫端保留原始文字，
+ *  不會硬猜錯的結果。*/
+function evaluateConcatFormula(formulaText: string, rowRaw: unknown[]): string | null {
+  const tokens = formulaText.split('&').map(t => t.trim())
+  if (tokens.length < 2) return null
+  const parts: string[] = []
+  for (const tok of tokens) {
+    const strMatch = tok.match(/^"([^"]*)"$/)
+    if (strMatch) { parts.push(strMatch[1]); continue }
+    const cellMatch = tok.match(/^([A-Z]+)(\d+)$/)
+    if (cellMatch) {
+      let colIdx = 0
+      for (const ch of cellMatch[1]) colIdx = colIdx * 26 + (ch.charCodeAt(0) - 64)
+      colIdx -= 1 // 轉成 0-based array index
+      parts.push(extractSheetCell(rowRaw[colIdx]))
+      continue
+    }
+    return null // 不認得的 token 樣式，整條放棄，不猜
+  }
+  return parts.join('')
+}
+
+/** 判斷抽出來的文字看起來像公式原始碼而不是真正的內容——以 `"` 開頭、含 `&` 是這類字串串接公式的典型樣式，
+ *  正常填寫的文字內容幾乎不會長這樣，用這個當偵測依據 */
+function looksLikeFormulaText(text: string): boolean {
+  return text.startsWith('"') && text.includes('&')
 }
 
 interface SheetTabResult { ok: true; tabName: string; headers: string[]; rows: Record<string, string>[] }
@@ -73,130 +91,61 @@ async function readLarkSheetTab(sheetUrl: string): Promise<SheetTabResult | Shee
 
   const headers = (raw[0] as unknown[]).map(extractSheetCell)
   const rows = raw.slice(1).map(r => {
+    const rowRaw = r as unknown[]
     const rec: Record<string, string> = {}
-    headers.forEach((h, i) => { if (h) rec[h] = extractSheetCell((r as unknown[])[i]) })
+    headers.forEach((h, i) => {
+      if (!h) return
+      let val = extractSheetCell(rowRaw[i])
+      // 公式儲存格（例如常見的「摘要」欄位）讀到的是公式原始文字，不是算好的結果——嘗試評估
+      // 窄範圍的字串串接公式，評估不出來就保留原始文字（不會比現況更糟，只是沒修到）
+      if (looksLikeFormulaText(val)) {
+        const evaluated = evaluateConcatFormula(val, rowRaw)
+        if (evaluated !== null) val = evaluated
+      }
+      rec[h] = val
+    })
     return rec
   }).filter(rec => Object.values(rec).some(v => v.trim()))
 
   return { ok: true, tabName: target.title, headers, rows }
 }
 
-interface MatchedCell { column: string; cellValue: string; alias: string }
-interface AnalyzedRow { rowIndex: number; cells: Record<string, string>; confidence: 'high' | 'mid' | 'low' | 'none'; matchedCells: MatchedCell[] }
+interface SheetTabsListResult { ok: true; tabs: Array<{ sheetId: string; title: string }> }
+interface SheetTabsListError { ok: false; message: string }
 
-/**
- * 依 alias 清單掃描每一列每一格，找精確比對（trim + 不分大小寫），四級信心：
- * - high：唯一 alias 命中，且至少一格命中在姓名類欄位
- * - mid：唯一 alias 命中，但命中欄位都不是姓名類（例如備註、描述）
- * - low：同一列命中多個不同 alias（疑似多人任務/會議紀錄）
- * - none：完全沒命中任何 alias（2026-08-12 使用者要求：這種列不再丟棄，仍然回傳讓使用者
- *   自己判斷要不要手動勾選——alias 設定不完整、名字打法不一致時，這是唯一能救回漏判資料的機會；
- *   刻意用獨立的 'none' 值，不要塞進 'low'，避免跟「同列命中多個 alias」的語意混在一起，
- *   統計/預設勾選規則才不會誤判）
- * alias 少於 3 字元視為無效，不參與比對（太短容易誤判）。
- */
-function analyzeSheetRows(headers: string[], rows: Record<string, string>[], aliases: string[]): AnalyzedRow[] {
-  const validAliases = [...new Set(aliases.map(a => a.trim()).filter(a => a.length >= 3))]
-  const results: AnalyzedRow[] = []
-
-  rows.forEach((row, idx) => {
-    const matchedCells: MatchedCell[] = []
-    for (const h of headers) {
-      const val = (row[h] ?? '').trim()
-      if (!val) continue
-      const hit = validAliases.find(a => a.toLowerCase() === val.toLowerCase())
-      if (hit) matchedCells.push({ column: h, cellValue: val, alias: hit })
-    }
-
-    let confidence: AnalyzedRow['confidence']
-    if (matchedCells.length === 0) {
-      confidence = 'none'
-    } else {
-      const distinctAliases = new Set(matchedCells.map(m => m.alias))
-      confidence = distinctAliases.size > 1
-        ? 'low'
-        : matchedCells.some(m => isNameLikeColumn(m.column)) ? 'high' : 'mid'
-    }
-
-    results.push({ rowIndex: idx + 2, cells: row, confidence, matchedCells }) // +2：第 1 列是表頭，資料從第 2 列開始
+/** 列出一份 Lark Sheet 文件底下所有頁籤（sheetId+title），不讀內容——給「頁籤日期式報表」掃描用。
+ *  刻意跟 readLarkSheetTab() 各自獨立、不共用內部邏輯（CodeX review 建議），避免影響既有的一欄式
+ *  Sheet 流程；兩者都是打同一支 sheets/v3/.../sheets/query metadata API，只是這裡要全部頁籤不挑一個。*/
+async function listLarkSheetTabs(spreadsheetToken: string): Promise<SheetTabsListResult | SheetTabsListError> {
+  const token = await getLarkToken()
+  const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
+  const metaResp = await fetch(`${base}/open-apis/sheets/v3/spreadsheets/${spreadsheetToken}/sheets/query`, {
+    headers: { Authorization: `Bearer ${token}` },
   })
-
-  // high/mid/low 排在前面（同信心內維持原始列順序，Array.sort 是 stable sort），
-  // none 一律排最後——使用者先處理可信資料，展開「無使用者」區塊才是撿漏的第二步
-  const rank: Record<AnalyzedRow['confidence'], number> = { high: 0, mid: 1, low: 2, none: 3 }
-  results.sort((a, b) => rank[a.confidence] - rank[b.confidence])
-
-  return results
+  const metaData = await metaResp.json() as { code?: number; msg?: string; data?: { sheets?: Array<{ sheet_id: string; title: string }> } }
+  if (!metaResp.ok || metaData.code !== 0) return { ok: false, message: `讀取分頁清單失敗：${metaData.msg ?? metaResp.statusText}` }
+  return { ok: true, tabs: (metaData.data?.sheets ?? []).map(s => ({ sheetId: s.sheet_id, title: s.title })) }
 }
 
-// POST /api/weekly-report/sheet-analysis — 讀取最多 3 個 Lark Sheet，依 alias 找出相關列
-router.post('/api/weekly-report/sheet-analysis', async (req, res) => {
-  try {
-    const { sheetUrls, aliases } = z.object({
-      sheetUrls: z.array(z.string().min(1)).min(1).max(3),
-      aliases: z.array(z.string()),
-    }).parse(req.body)
+/** 「頁籤日期式報表」固定來源（2026-08-17，使用者要求寫死——文件本身固定不變，只有頁籤持續新增，
+ *  不需要使用者每次貼網址）。spreadsheetToken 從使用者提供的網址解析出來，不吃前端輸入。
+ *  2026-08-17 使用者澄清：JjLosMhsShlrfatriEBlX3d7gLd（OSM需求單）其實不是這種頁籤日期式
+ *  結構，是一般的一欄式 Sheet（有 日期/填寫人 欄位），要走「來源 Sheet 第一筆自動導入」那條路，
+ *  不屬於這裡——一度誤加進來，已移除。report1 的 label 原本是「測種測試表」（Lark 文件本身的名稱），
+ *  同一天使用者要求改成「線上機台測試表單」這個對外顯示用的名字。 */
+const TAB_DATE_REPORT_SOURCES: Array<{ key: string; label: string; spreadsheetToken: string }> = [
+  { key: 'report1', label: '線上機台測試表單', spreadsheetToken: 'JFplspG3Mh8LAXtFxsRlSgTRgmg' },
+]
 
-    const sources = []
-    for (let i = 0; i < sheetUrls.length; i++) {
-      const result = await readLarkSheetTab(sheetUrls[i])
-      // 注意：這個專案 tsconfig.server.json 是 strict:false，`!result.ok` 這種寫法在該模式下
-      // 對 boolean literal（ok:true/ok:false）判別聯合型別不會正確窄化（已用最小重現案例確認，
-      // strict:true 就沒事），要用 `=== false` 明確比較才會正確窄化成 SheetTabError
-      if (result.ok === false) {
-        sources.push({ sourceLabel: `Sheet ${i + 1}`, tabName: '', error: result.message, rows: [] as AnalyzedRow[] })
-        continue
-      }
-      const analyzed = analyzeSheetRows(result.headers, result.rows, aliases)
-      sources.push({ sourceLabel: `Sheet ${i + 1}`, tabName: result.tabName, error: '', rows: analyzed })
-    }
-
-    res.json({ ok: true, sources })
-  } catch (e) {
-    res.status(500).json({ ok: false, message: `分析失敗：${e instanceof Error ? e.message : String(e)}` })
-  }
-})
-
-// POST /api/weekly-report/sheet-analysis-draft — 使用者確認勾選後，把選取的列交 Gemini 摘要成草稿
-// 依來源分開理解、合併成一段草稿，不確定的事項不寫成已完成事實——AI 只負責摘要文字，
-// 「這列屬於誰」的判定完全在後端 analyzeSheetRows() 用 alias 規則決定，不交給 AI 猜
-router.post('/api/weekly-report/sheet-analysis-draft', async (req, res) => {
-  try {
-    const { selections } = z.object({
-      selections: z.array(z.object({
-        sourceLabel: z.string(),
-        tabName: z.string(),
-        rows: z.array(z.object({
-          cells: z.record(z.string(), z.string()),
-        })),
-      })),
-    }).parse(req.body)
-
-    const activeSelections = selections.filter(s => s.rows.length > 0)
-    if (activeSelections.length === 0) return res.json({ ok: false, message: '沒有勾選任何列' })
-
-    const sourcesText = activeSelections.map(s => {
-      const rowsText = s.rows.map(r =>
-        Object.entries(r.cells).filter(([, v]) => v.trim()).map(([k, v]) => `${k}：${v}`).join('；')
-      ).join('\n')
-      return `【來源：${s.sourceLabel}／分頁：${s.tabName}】\n${rowsText}`
-    }).join('\n\n')
-
-    const prompt = `以下是使用者確認過、跟他本週工作相關的表格列，依來源分開列出。請你用繁體中文整理成「本週工作內容」草稿，規則：
-1. 依來源分開理解，不要把不同來源的內容混為一談
-2. 輸出格式固定為條列式：第一行是「本週工作內容如下：」，接著每個工作項目各佔一行、用數字編號（1. 2. 3. ...），每項簡短一句話講清楚做了什麼，不要寫成一大段流暢文字，不要合併成段落
-3. 不確定的事項不要寫成已完成的事實，用「可能」「待確認」等字眼標示
-4. 不要編造原始資料沒有的內容，只根據下面提供的內容整理
-5. 只輸出條列文字本身，不要加入前言、結語或任何額外說明（例如不要寫「以下是整理結果」這類開場白）
-
-${sourcesText}`
-
-    const draft = await callLLM(prompt)
-    res.json({ ok: true, draft: draft.trim() })
-  } catch (e) {
-    res.status(500).json({ ok: false, message: `AI 摘要失敗：${e instanceof Error ? e.message : String(e)}` })
-  }
-})
+/** 頁籤標題開頭抓 8 位數日期（例如「20260811 NP 5台」→ 2026-08-11），驗證是合法日曆日期；
+ *  解析不出來（例如可能存在的說明/範本頁籤）回傳 null，不當成命中也不當成錯誤，直接跳過 */
+function parseTabTitleDate(title: string): Date | null {
+  const m = title.match(/^(\d{4})(\d{2})(\d{2})/)
+  if (!m) return null
+  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3])
+  if (!isValidCalendarDate(y, mo, d)) return null
+  return new Date(Date.UTC(y, mo - 1, d))
+}
 
 /** 解析 Lark Base 網址（/base/{appToken}?table={tableId}），跟 parseLarkSheetUrl（/sheets、/wiki 用）是不同格式 */
 function parseLarkBaseUrl(url: string): { appToken: string; tableId: string } | null {
@@ -274,7 +223,7 @@ router.post('/api/weekly-report/jira-by-range', async (req, res) => {
       body: JSON.stringify({
         jql,
         maxResults: 200,
-        fields: ['summary', 'status', 'created', 'updated', 'reporter', WEEKLY_REPORT_VERIFIER_FIELD_ID],
+        fields: ['summary', 'status', 'created', 'updated', 'reporter', 'project', WEEKLY_REPORT_VERIFIER_FIELD_ID],
       }),
     })
     if (!resp.ok) {
@@ -289,6 +238,7 @@ router.post('/api/weekly-report/jira-by-range', async (req, res) => {
         created?: string
         updated?: string
         reporter?: { accountId?: string }
+        project?: { name?: string; key?: string }
         [key: string]: unknown
       }
     }
@@ -318,6 +268,7 @@ router.post('/api/weekly-report/jira-by-range', async (req, res) => {
           created: i.fields.created ?? '',
           updated: i.fields.updated ?? '',
           role: isReporter && isVerifier ? 'both' : isVerifier ? 'verifier' : 'reporter',
+          jiraProjectName: i.fields.project?.name ?? '',
         }
       })
 
@@ -339,42 +290,289 @@ async function resolveMyAccountId(baseUrl: string, auth: string): Promise<string
   }
 }
 
-// POST /api/weekly-report/submit — 永遠新增一列（2026-08-11 討論結論：曾考慮「查到同成員既有列就 PATCH
-// 附加」，但這個 read-then-write 模式有兩個真實併發風險——同一人短時間內兩次送出可能兩次都查到「還沒有」
-// 變成新增兩列，且 Lark Bitable 的 record update API 沒有 revision/ETag 可偵測「PATCH 當下是否已被別人
-// 手動編輯過」，PATCH 有機會蓋掉別人正在 Lark 網頁上的手動編輯。永遠新增一列完全不會共用/覆寫任何既有
-// 欄位，兩個風險都直接消失；代價只是同一人這週送多次會有多列，是可接受的小麻煩，不是資料風險）
-router.post('/api/weekly-report/submit', async (req, res) => {
-  const body = z.object({
-    appToken: z.string().min(1),
-    tableId: z.string().min(1),
-    member: z.string().min(1),
-    project: z.string().optional(),
-    content: z.string().min(1),
-  }).parse(req.body)
-
+// POST /api/weekly-report/sheet-headers — 欄位對應設定用，讀一份 Sheet 只回表頭（不同來源 Sheet 欄位可能長得不一樣，需要使用者自己選哪欄是日期/填寫人/內容）
+router.post('/api/weekly-report/sheet-headers', async (req, res) => {
   try {
-    const token = await getLarkToken()
-    const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
-    const fields: Record<string, string> = { '成员': body.member, '补充说明': body.content }
-    if (body.project) fields['专案'] = body.project
+    const { url } = z.object({ url: z.string().min(1) }).parse(req.body)
+    const result = await readLarkSheetTab(url)
+    if (result.ok === false) return res.json({ ok: false, message: result.message })
+    // 讀取範圍固定到 ZZ 欄，實際表格通常沒用到那麼多欄，空白表頭（含重複空字串）過濾掉，不然下拉選單會被灌爆
+    const headers = [...new Set(result.headers.filter(h => h.trim()))]
+    res.json({ ok: true, tabName: result.tabName, headers })
+  } catch (e) {
+    res.status(500).json({ ok: false, message: `讀取失敗：${e instanceof Error ? e.message : String(e)}` })
+  }
+})
 
-    const resp = await fetch(`${base}/open-apis/bitable/v1/apps/${body.appToken}/tables/${body.tableId}/records`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fields }),
-    })
-    const data = await resp.json() as { code?: number; msg?: string; data?: { record?: { record_id?: string } } }
-    if (!resp.ok || data.code !== 0) {
-      return res.status(400).json({ ok: false, message: `送出失敗：${data.msg ?? resp.statusText}` })
+// ── 批次掃描審核（2026-08-16，跟 CodeX 討論定案的設計）─────────────────────
+// 從「個人自助送出、成員手動選一次」改成「掃描來源 Sheet、抓出所有出現的人、一次幫全部人產草稿」。
+// sourceRow／draftItem 資料分離（CodeX 建議）：draftItem 永遠帶著 sourceRowId，可回溯是哪一列展開出來的。
+
+/** 週期固定「週五 00:00 ～ 下週四 23:59:59」，本地時區（Asia/Taipei）固定算，不用 UTC 當下時間
+ *  今天剛好是週五時起日就是今天；週四時屬於上一個週五開的週期。不用特判跨月跨年，單純日期加減。 */
+function getFridayAnchoredWeekRange(): { startUTC: Date; endUTC: Date; startLabel: string; endLabel: string; todayLabel: string } {
+  const WEEKDAY_LABEL = ['日', '一', '二', '三', '四', '五', '六']
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date())
+  const y = Number(parts.find(p => p.type === 'year')!.value)
+  const m = Number(parts.find(p => p.type === 'month')!.value)
+  const d = Number(parts.find(p => p.type === 'day')!.value)
+  const todayUTC = new Date(Date.UTC(y, m - 1, d))
+
+  const dow = todayUTC.getUTCDay() // 0=Sun ... 5=Fri ... 6=Sat
+  const daysSinceFriday = (dow - 5 + 7) % 7
+  const startUTC = new Date(todayUTC)
+  startUTC.setUTCDate(startUTC.getUTCDate() - daysSinceFriday)
+  const endUTC = new Date(startUTC)
+  endUTC.setUTCDate(endUTC.getUTCDate() + 6)
+
+  const fmt = (dt: Date) => `${dt.getUTCFullYear()}/${String(dt.getUTCMonth() + 1).padStart(2, '0')}/${String(dt.getUTCDate()).padStart(2, '0')}（${WEEKDAY_LABEL[dt.getUTCDay()]}）`
+  return { startUTC, endUTC, startLabel: fmt(startUTC), endLabel: fmt(endUTC), todayLabel: fmt(todayUTC) }
+}
+
+// GET /api/weekly-report/week-range — 目前週五起始週期的邊界，給前端頁首常駐 banner 顯示、也給
+// 「依時間範圍撈 Jira 單」當查詢參數用（2026-08-17，取代原本手動選日期，固定跟 Sheet 掃描同一套週期）。
+// startDate/endDate 直接從 startUTC/endUTC slice ISO 字串取得——這兩個 Date 是用 Date.UTC(y,m-1,d) 疊
+// 純日曆年月日組出來的，不是真正的 UTC 時間點，slice(0,10) 拿到的年月日不會因時區換算跑掉。
+router.get('/api/weekly-report/week-range', (req, res) => {
+  const { startUTC, endUTC, startLabel, endLabel, todayLabel } = getFridayAnchoredWeekRange()
+  res.json({
+    ok: true,
+    startDate: startUTC.toISOString().slice(0, 10),
+    endDate: endUTC.toISOString().slice(0, 10),
+    startLabel, endLabel, todayLabel,
+  })
+})
+
+// GET /api/weekly-report/tab-date-scan — 「頁籤日期式報表」（2026-08-17，跟 CodeX 討論定案）：文件
+// 固定寫死在 TAB_DATE_REPORT_SOURCES，沒有填寫人欄位、頁籤標題本身就是日期，不走一欄式 Sheet 那套
+// 掃描邏輯。每份文件各自讀取失敗互不影響（回 sourceErrors，不整支端點失敗），比照 batch-scan 的做法。
+router.get('/api/weekly-report/tab-date-scan', async (req, res) => {
+  try {
+    const { startUTC, endUTC, startLabel, endLabel, todayLabel } = getFridayAnchoredWeekRange()
+    const sources: Array<{ key: string; label: string; matchedTabs: Array<{ sheetId: string; title: string }> }> = []
+    const sourceErrors: Array<{ key: string; label: string; message: string }> = []
+
+    for (const src of TAB_DATE_REPORT_SOURCES) {
+      const result = await listLarkSheetTabs(src.spreadsheetToken)
+      if (result.ok === false) {
+        sourceErrors.push({ key: src.key, label: src.label, message: result.message })
+        continue
+      }
+      const matchedTabs = result.tabs.filter(t => {
+        const d = parseTabTitleDate(t.title)
+        return d !== null && d.getTime() >= startUTC.getTime() && d.getTime() <= endUTC.getTime()
+      })
+      sources.push({ key: src.key, label: src.label, matchedTabs })
     }
 
-    addHistory('weekly-report', `週報彙整 — ${body.member}`, body.content.slice(0, 300), {
-      appToken: body.appToken, tableId: body.tableId, member: body.member, project: body.project ?? '', content: body.content,
-    })
+    res.json({ ok: true, weekRange: { startLabel, endLabel, todayLabel }, sources, sourceErrors })
+  } catch (e) {
+    res.status(500).json({ ok: false, message: `掃描失敗：${e instanceof Error ? e.message : String(e)}` })
+  }
+})
 
-    res.json({ ok: true, recordId: data.data?.record?.record_id ?? '' })
+const LARK_DATE_SERIAL_EPOCH_MS = Date.UTC(1899, 11, 30)
+function isValidCalendarDate(y: number, mo: number, d: number): boolean {
+  if (mo < 1 || mo > 12 || d < 1) return false
+  const daysInMonth = new Date(Date.UTC(y, mo, 0)).getUTCDate()
+  return d <= daysInMonth
+}
+
+/** 來源 Sheet 的日期欄位可能是 Lark 序列數字（跟 Jira 開單帶入功能踩過同一種坑）或 YYYY-MM-DD／YYYY/MM/DD 字串，回傳 UTC 午夜 Date 或 null（無法解析） */
+function parseSheetDateCell(raw: string): Date | null {
+  const v = raw.trim()
+  if (!v) return null
+  if (/^\d+$/.test(v)) {
+    const serial = parseInt(v, 10)
+    const ms = LARK_DATE_SERIAL_EPOCH_MS + serial * 86400000
+    const dt = new Date(ms)
+    const y = dt.getUTCFullYear()
+    if (y < 1900 || y > 2447) return null
+    return new Date(Date.UTC(y, dt.getUTCMonth(), dt.getUTCDate()))
+  }
+  const m = v.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/)
+  if (m) {
+    const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3])
+    if (!isValidCalendarDate(y, mo, d)) return null
+    return new Date(Date.UTC(y, mo - 1, d))
+  }
+  return null
+}
+
+/** 拆分「填寫人」欄位——真實資料證實是純文字逗號分隔（"Eric Wu,Jack"），不是 Lark 結構化多選欄位；
+ *  也防禦半形/全形逗號、頓號混用，並排除字面上就是欄位表頭本身的殘留（真實資料出現過這種情況） */
+function splitPersonCell(raw: string, columnHeader: string): string[] {
+  return raw.split(/[,，、]/).map(s => s.trim()).filter(s => s && s.toLowerCase() !== columnHeader.trim().toLowerCase())
+}
+
+/** 內容欄位比對專案的 fallback：找「最長」命中的內容欄位值（不是第一個命中就用），且最短 3 字元才參與比對
+ *  （CodeX review：原本 >=2 字元太寬鬆，"v2"/"QA" 這類泛用短字容易誤配到不相關的專案；3 字元門檻仍保留
+ *  "OSM" 這類已用真實資料驗證過的合法短代碼可以命中，只排除更容易誤判的極短泛用字） */
+function findBestProjectByContentColumns(projects: LarkFieldOption[], contentColumns: string[], row: Record<string, string>): LarkFieldOption | undefined {
+  let best: LarkFieldOption | undefined
+  let bestLen = 0
+  for (const p of projects) {
+    if (!p.name) continue
+    for (const c of contentColumns) {
+      const v = (row[c] ?? '').trim()
+      if (v.length >= 3 && v.length > bestLen && p.name.toLowerCase().includes(v.toLowerCase())) {
+        best = p
+        bestLen = v.length
+      }
+    }
+  }
+  return best
+}
+
+interface SheetColumnMapping { url: string; dateColumn: string; personColumn: string; contentColumns: string[] }
+interface DraftItem { sourceRowId: string; content: string; projectId: string; projectName: string }
+
+// POST /api/weekly-report/batch-scan
+router.post('/api/weekly-report/batch-scan', async (req, res) => {
+  try {
+    const { sheets, members, projects } = z.object({
+      sheets: z.array(z.object({
+        url: z.string().min(1),
+        dateColumn: z.string().min(1),
+        personColumn: z.string().min(1),
+        contentColumns: z.array(z.string()).min(1),
+      })).min(1).max(3),
+      members: z.array(z.string()),
+      projects: z.array(z.object({ id: z.string(), name: z.string() })),
+    }).parse(req.body) as { sheets: SheetColumnMapping[]; members: string[]; projects: LarkFieldOption[] }
+
+    const { startUTC, endUTC, startLabel, endLabel, todayLabel } = getFridayAnchoredWeekRange()
+    const memberSet = new Map(members.map(m => [m.trim().toLowerCase(), m]))
+
+    const draftsByPerson: Record<string, DraftItem[]> = {}
+    const unidentified: Array<{ sourceRowId: string; rawName: string; content: string }> = []
+    const sourceErrors: Array<{ sheetIndex: number; message: string }> = []
+    let excludedOutOfRange = 0
+    let excludedUnparsableDate = 0
+
+    for (let sIdx = 0; sIdx < sheets.length; sIdx++) {
+      const sheet = sheets[sIdx]
+      const result = await readLarkSheetTab(sheet.url)
+      // 讀取失敗的來源不靜默略過（CodeX review：多來源時會變成「看起來掃描成功但其實少一份」），
+      // 記錄下來讓前端明確顯示是哪個來源失敗，但仍繼續處理其他成功的來源，不整個擋下來
+      if (result.ok === false) {
+        sourceErrors.push({ sheetIndex: sIdx, message: result.message })
+        continue
+      }
+
+      result.rows.forEach((row, rIdx) => {
+        const sourceRowId = `${sIdx}-${rIdx}`
+        const dateRaw = row[sheet.dateColumn] ?? ''
+        const dateVal = parseSheetDateCell(dateRaw)
+        if (dateVal === null) {
+          if (dateRaw.trim()) excludedUnparsableDate++
+          return
+        }
+        if (dateVal.getTime() < startUTC.getTime() || dateVal.getTime() > endUTC.getTime()) {
+          excludedOutOfRange++
+          return
+        }
+
+        const personRaw = row[sheet.personColumn] ?? ''
+        const names = splitPersonCell(personRaw, sheet.personColumn)
+        if (names.length === 0) return
+
+        const content = sheet.contentColumns.map(c => (row[c] ?? '').trim()).filter(Boolean).join(' ')
+        if (!content) return
+
+        const matchedProject = projects.find(p => p.name && content.toLowerCase().includes(p.name.toLowerCase()))
+          ?? findBestProjectByContentColumns(projects, sheet.contentColumns, row)
+
+        for (const name of names) {
+          const knownMember = memberSet.get(name.toLowerCase())
+          if (knownMember) {
+            if (!draftsByPerson[knownMember]) draftsByPerson[knownMember] = []
+            draftsByPerson[knownMember].push({
+              sourceRowId, content,
+              projectId: matchedProject?.id ?? '', projectName: matchedProject?.name ?? '',
+            })
+          } else {
+            unidentified.push({ sourceRowId, rawName: name, content })
+          }
+        }
+      })
+    }
+
+    const itemCount = Object.values(draftsByPerson).reduce((sum, items) => sum + items.length, 0)
+    const missingProjectCount = Object.values(draftsByPerson).reduce((sum, items) => sum + items.filter(i => !i.projectId).length, 0)
+
+    res.json({
+      ok: true,
+      weekRange: { startLabel, endLabel, todayLabel },
+      stats: {
+        peopleCount: Object.keys(draftsByPerson).length,
+        itemCount,
+        missingProjectCount,
+        unidentifiedCount: unidentified.length,
+        excludedOutOfRange,
+        excludedUnparsableDate,
+      },
+      draftsByPerson,
+      unidentified,
+      sourceErrors,
+    })
+  } catch (e) {
+    res.status(500).json({ ok: false, message: `掃描失敗：${e instanceof Error ? e.message : String(e)}` })
+  }
+})
+
+// POST /api/weekly-report/batch-submit — 一次建立多筆記錄，逐筆送出、個別記錄成功/失敗（不做同批 all-or-nothing），
+// append-only 不 PATCH（跟既有 /submit 同一個併發考量：見上方單筆 submit 端點註解）
+router.post('/api/weekly-report/batch-submit', async (req, res) => {
+  // 整個 handler 包在 try/catch 裡（CodeX review：原本 z.parse/getLarkToken 在 try 外面，跟其他端點
+  // 的錯誤格式不一致，未捕捉的例外會變成非 JSON 的預設錯誤頁而不是 { ok:false, message }）
+  try {
+    const body = z.object({
+      appToken: z.string().min(1),
+      tableId: z.string().min(1),
+      items: z.array(z.object({
+        member: z.string().min(1),
+        project: z.string().optional(),
+        content: z.string().min(1),
+      })).min(1).max(200),
+    }).parse(req.body)
+
+    const token = await getLarkToken()
+    const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
+    const results: Array<{ index: number; ok: boolean; recordId?: string; message?: string }> = []
+
+    for (let i = 0; i < body.items.length; i++) {
+      const item = body.items[i]
+      try {
+        const fields: Record<string, string> = { '成员': item.member, '补充说明': item.content }
+        if (item.project) fields['专案'] = item.project
+
+        const resp = await fetch(`${base}/open-apis/bitable/v1/apps/${body.appToken}/tables/${body.tableId}/records`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fields }),
+        })
+        const data = await resp.json() as { code?: number; msg?: string; data?: { record?: { record_id?: string } } }
+        if (!resp.ok || data.code !== 0) {
+          results.push({ index: i, ok: false, message: data.msg ?? resp.statusText })
+        } else {
+          results.push({ index: i, ok: true, recordId: data.data?.record?.record_id ?? '' })
+        }
+      } catch (e) {
+        results.push({ index: i, ok: false, message: e instanceof Error ? e.message : String(e) })
+      }
+    }
+
+    const successCount = results.filter(r => r.ok).length
+    const failCount = results.length - successCount
+
+    addHistory('weekly-report', `週報彙整（批次）— ${successCount} 筆成功`,
+      body.items.slice(0, 10).map(i => `${i.member}：${i.content}`).join('\n').slice(0, 300),
+      { appToken: body.appToken, tableId: body.tableId, itemCount: body.items.length, successCount, failCount })
+
+    res.json({ ok: true, results, successCount, failCount })
   } catch (e) {
     res.status(500).json({ ok: false, message: `送出失敗：${e instanceof Error ? e.message : String(e)}` })
   }
 })
+

@@ -1,4 +1,4 @@
-export const APP_VERSION = '3.98.1'
+export const APP_VERSION = '4.5.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,177 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.5.0',
+    date: '2026-08-17',
+    changes: [
+      "minor(weekly-report): 全自動載入延伸到「依時間範圍撈 Jira 單」與「頁籤日期式報表」——頁面載入時自動勾選帳號/成員（Eric/Lusa/Siara，用名字關鍵字模糊比對現有清單，因為本機跟正式服帳號名單不同）、自動查詢/查探、自動套用成草稿，最終送出仍需手動確認",
+    ],
+  },
+  {
+    version: '4.4.4',
+    date: '2026-08-17',
+    changes: [
+      "fix(weekly-report): 顯示名稱調整——「頁籤日期式報表」的「測種測試表」改叫「線上機台測試表單」，「來源 Sheet」第一筆（原本也叫線上機台測試表單，避免撞名）改叫「OSM需求單」",
+    ],
+  },
+  {
+    version: '4.4.3',
+    date: '2026-08-17',
+    changes: [
+      "fix(weekly-report): 「頁籤日期式報表」成員下拉選單被外層卡片的 overflow:hidden（原本用來裁切圓角）切掉看不到選項——改成只在標題列自己套圓角，外層不再裁切",
+    ],
+  },
+  {
+    version: '4.4.2',
+    date: '2026-08-17',
+    changes: [
+      "fix(weekly-report): 「頁籤日期式報表」與「來源 Sheet 第一筆」（線上機台測試表單）的項目自動預設專案——前者固定「P7-007-第三方測試」，後者固定「P7-005-OSM」，因為這兩個來源的內容欄位（頁籤標題/摘要）不是乾淨關鍵字，既有的專案自動比對抓不到",
+    ],
+  },
+  {
+    version: '4.4.1',
+    date: '2026-08-17',
+    changes: [
+      "fix(weekly-report): 「來源 Sheet」第一筆自動導入欄位對應後，連「開始掃描」也自動觸發一次（只在 Step1 已解析＋唯一一筆 Sheet 就是預設帶入那份＋欄位都已套用好時觸發一次，不會重複自動重跑）",
+    ],
+  },
+  {
+    version: '4.4.0',
+    date: '2026-08-17',
+    changes: [
+      "fix(weekly-report): 移除誤加進「頁籤日期式報表」固定來源清單的「線上機台測試表單」——這份其實是一般的一欄式 Sheet（有 日期/填寫人 欄位），不是頁籤日期式結構",
+      "minor(weekly-report): 「來源 Sheet」第一筆固定帶入「線上機台測試表單」網址，頁面載入時自動讀表頭並套用已知欄位對應（日期=日期、填寫人=填寫人、內容=摘要），不用使用者手動設定；仍可手動改成別的網址重新讀取",
+    ],
+  },
+  {
+    version: '4.3.2',
+    date: '2026-08-17',
+    changes: [
+      "fix(weekly-report): 「頁籤日期式報表」勾選成員改成搜尋式下拉多選（新增 SearchableMultiSelect 元件），取代原本不好用的原生 <select multiple> 清單框",
+    ],
+  },
+  {
+    version: '4.3.1',
+    date: '2026-08-17',
+    changes: [
+      "fix(weekly-report): 「頁籤日期式報表」第二份文件的顯示名稱從佔位文字「報表 2」改成使用者確認的真實名稱「線上機台測試表單」",
+    ],
+  },
+  {
+    version: '4.3.0',
+    date: '2026-08-17',
+    changes: [
+      "minor(weekly-report): 新增「頁籤日期式報表」來源類型——文件寫死在後端（GET /api/weekly-report/tab-date-scan），沒有填寫人欄位，頁籤標題開頭日期落在本週範圍內即命中，命中的頁籤標題整串當內容，手動勾選一或多個成員套用（跟現有一欄式 Sheet 來源並存）",
+    ],
+  },
+  {
+    version: '4.2.1',
+    date: '2026-08-17',
+    changes: [
+      "fix(weekly-report): CodeX review 補修 4.2.0 的 Jira 撈單面板狀態文字——原本 week-range 讀取失敗時面板內文字仍固定顯示「讀取中…」，看起來像卡住而不是失敗；改成區分讀取中/失敗兩種狀態，查詢按鈕被鎖住時也補上明確原因文字",
+    ],
+  },
+  {
+    version: '4.2.0',
+    date: '2026-08-17',
+    changes: [
+      "minor(weekly-report): 「依時間範圍撈 Jira 單」拿掉手動選日期，固定跟 Sheet 掃描同一套「週五~週四」週期（新增 GET /api/weekly-report/week-range 複用 getFridayAnchoredWeekRange()）；頁首新增常駐 banner 顯示即時時鐘＋本次撈取範圍，週期讀取失敗時查詢按鈕鎖住並提示，不 fallback 成今天/空值",
+    ],
+  },
+  {
+    version: '4.1.2',
+    date: '2026-08-17',
+    changes: [
+      "fix(weekly-report): 移除頁面上僅存的原生 emoji（📅/⚠，共 6 處），改用 currentColor inline SVG（CalendarIcon/WarningIcon），符合 docs/visual-style.md「一律禁用原生emoji」規範；✓/✕ 屬於允許的文字符號未變動",
+    ],
+  },
+  {
+    version: '4.1.1',
+    date: '2026-08-17',
+    changes: [
+      "fix(weekly-report): CodeX review 補修 4.1.0 的併發／清理邊界——handleRunScan 改成 functional setDraftEdits 更新，避免 Sheet 掃描 request 還在等回應時使用者又套用 Jira／手動新增，回來後用過期 state 合併把期間新增的項目吃掉；assignUnidentified 手動指派未識別人員時 sourceRowId 改成「手動指派 · ...」而不是沿用原本的 Sheet 格式，避免重跑 Sheet 掃描時被誤判成舊 Sheet 產物一併清掉",
+    ],
+  },
+  {
+    version: '4.1.0',
+    date: '2026-08-16',
+    changes: [
+      "minor(weekly-report): 移除「個人自助（舊流程）」整個模式與後端 sheet-analysis／sheet-analysis-draft／submit 端點，批次掃描成為唯一流程（使用者確認不需要保留舊流程）",
+      "fix(weekly-report): 修正批次掃描先套用 Jira 單、再執行 Sheet 掃描時，Jira 加入的項目會被 Sheet 掃描結果整包覆蓋消失的問題——改成 Sheet 重掃時只重建 Sheet 來源的項目，Jira／手動新增的項目保留併回（跟 CodeX 討論定案）",
+    ],
+  },
+  {
+    version: '4.0.1',
+    date: '2026-08-16',
+    changes: [
+      "fix(weekly-report):「預期結果」預覽表格 No 欄位拿掉「+」前綴，改回單純數字（1、2、3...），不再用 +N 表示新增列",
+    ],
+  },
+  {
+    version: '4.0.0',
+    date: '2026-08-16',
+    changes: [
+      "major(weekly-report): 週報彙整整個資料模型架構重寫——從「一人一週固定一列、全部工作項目塞進同一格文字」改成「掃描來源資料、依人員/專案拆分成多列」，並新增可多選帳號的 Jira 整合，屬於 CLAUDE.md 版本規則定義的「架構重寫」等級變更。詳細變更內容見下方 3.99.0～3.101.2 各版紀錄（批次掃描審核模式、滿版版面、CodeX review 修正、公式儲存格評估、Jira 多帳號整合＋依專案自動分組＋多人拆分＋大小寫不敏感比對）——這些先前逐一以獨立版號記錄的變更，累積起來構成這次的架構重寫，故在此標記為 Major 進版節點，不重複貼一次完整內容",
+    ],
+  },
+  {
+    version: '3.101.2',
+    date: '2026-08-16',
+    changes: [
+      "fix(weekly-report): Jira 帳號自動比對成員名單改成不分大小寫——已用真實資料證實 Jira 帳號 label 跟 Lark 成員名字大小寫可能不一致（帳號是「lusa」，Lark 選項是「Lusa」），原本用大小寫敏感的 Set 比對會誤判成「不在名單裡」而被錯誤擋下；比對到後一律用 Lark 那邊的真實大小寫寫回草稿，確保送出時對得上真實選項",
+    ],
+  },
+  {
+    version: '3.101.1',
+    date: '2026-08-16',
+    changes: [
+      "fix(weekly-report): 修正多選 Jira 帳號查詢時，一張單被多個帳號查到（都是 reporter/verifier）卻只有第一個帳號實際拿到項目、其他共同帳號被吃掉的問題——改成每個帳號各自拿到一份，跟 Sheet 掃描「填寫人」欄位多人時拆成多筆是同一個原則",
+    ],
+  },
+  {
+    version: '3.101.0',
+    date: '2026-08-16',
+    changes: [
+      "feat(weekly-report): Jira 撈單套用邏輯改成「同一人同一專案的多張單合併成一個項目」（單號用「、」分隔），不同專案各自獨立項目——專案認定不是用單號前綴猜，是抓 Jira 單真實所屬專案名稱（issue.fields.project.name，jira-by-range 端點新增回傳 jiraProjectName）比對 Lark 專案選項，正規化（去空白/連字號、轉小寫）後比對；已用真實資料驗證 DSFT 專案的 Jira 真實名稱是「P7-007 第三方測試」，正規化後跟 Lark 選項「P7-007-第三方測試」完全相等，8 張 DSFT 單會正確合併成一個項目、專案自動帶入 P7-007-第三方測試",
+    ],
+  },
+  {
+    version: '3.100.1',
+    date: '2026-08-16',
+    changes: [
+      "fix(weekly-report): 批次掃描的「依人員分組草稿」「預期結果預覽」「確認送出」三塊改成常態顯示，不再綁定「跑過 Sheet 掃描」這個條件——原本只用 Jira 撈單、沒跑過 Sheet 掃描的話畫面會完全看不到任何草稿內容，改成只要 draftEdits 有資料就會顯示，沒有資料時顯示空狀態文字而不是整塊消失",
+    ],
+  },
+  {
+    version: '3.100.0',
+    date: '2026-08-16',
+    changes: [
+      "feat(weekly-report): 批次掃描新增「依時間範圍撈 Jira 單（可多選帳號）」——沿用既有 /api/jira/accounts 帳號清單，可多選帳號各自用自己的 token 平行查詢（沒有動後端邏輯，前端對既有單帳號查詢 API 平行呼叫多次），結果合併顯示（同一張單被多個帳號查到會標示是哪些帳號）。「自動套用（依帳號建立項目）」直接用查詢帳號的 label 當成員，比對不到 Lark 成員名單的會擋下來（不靜默寫入），保留在清單裡改用「加入到哪個人」手動處理——刻意不永久用帳號 label 自動對應 Lark 成員名字，因為已用真實資料證實兩份名單不完全對得上（例如 Jira 帳號有「Eric Wu」但目標 Lark Base 成員名單沒有這個名字）",
+    ],
+  },
+  {
+    version: '3.99.2',
+    date: '2026-08-16',
+    changes: [
+      "fix(weekly-report): 修正 Lark Sheets API 讀公式儲存格（例如常見的「摘要」欄位）只給公式原始文字、不是算好的值的問題——新增 evaluateConcatFormula() 處理最常見的「字串字面值＋同列儲存格參照、用 & 串接」窄範圍公式樣式（不是通用公式引擎，遇到看不懂的樣式直接放棄評估、保留原始文字），已用真實資料驗證 `\"[\"&F2&\"][\"&E2&\"]\"&I2` 正確算出 `[OSM][H5]修改loading图`，跟 Lark 前端顯示一致",
+    ],
+  },
+  {
+    version: '3.99.1',
+    date: '2026-08-16',
+    changes: [
+      "fix(weekly-report): CodeX review 後修正批次掃描四個問題——① Sheet 讀取失敗不再靜默略過，新增 sourceErrors 明確顯示是哪個來源失敗；② 專案關鍵字 fallback 比對從「任一內容欄值 ≥2 字元命中」改成「最長命中優先＋最短 3 字元才參與比對」，避免 v2/QA 這類泛用短字誤配（已驗證 OSM 這類合法短代碼不受影響）；③ 批次送出部分失敗時不再整批保留重送——已成功的項目用送出當下 flatPreviewItems 的順序對應後端逐筆 index，直接從清單移除，避免重送造成重複建立（最關鍵的一個修正）；④ batch-submit 整個 handler 包進 try/catch，跟其他端點錯誤格式一致",
+    ],
+  },
+  {
+    version: '3.99.0',
+    date: '2026-08-16',
+    changes: [
+      "feat(weekly-report): 新增「批次掃描審核」模式，取代原本「一人一列、全部項目塞進同一格文字」的做法——使用者提供真實 Lark Base 截圖證實團隊實際用法是一人一週多列、各自獨立專案+補充說明，工具原本的單列合併設計判斷錯誤。新流程：貼來源 Sheet 網址 → 選欄位對應（日期/填寫人/內容欄位，不同 Sheet 格式可能不同，故可自訂不寫死）→ 掃描週五起始 7 天時間窗內的列（用本地時區固定算，今天所在週期的週五 00:00 到下週四 23:59:59，畫面明確顯示今天日期與撈取範圍，範圍外/日期無法解析的筆數也會列出不靜默過濾）→ 依「填寫人」欄位拆分（已用真實資料證實這欄位是純文字逗號分隔如 'Eric Wu,Jack'，不是 Lark 結構化多選欄位；也已證實日期欄位是 Excel/Lotus 序列數字、可沿用 Jira 開單帶入功能驗證過的同一套轉換公式；也已證實公式儲存格如「摘要」欄位 API 讀到的是公式原始文字不是算好的值，因此改用使用者自選的「內容欄位」自己組字串，不依賴公式評估結果）→ 人名比對只允許命中既有成員名單（不用 substring，避免 Jack 誤中 Jackson），比對不到的人列在獨立「未識別人員」區塊可手動指派或忽略，不會被吞掉→ 依人員分組顯示可編輯草稿清單（專案下拉選單沿用真實 Lark 選項、關鍵字比對自動帶入、比對不到會擋住標紅要求手動選）→ 送出前有唯讀「預期結果」預覽表格（欄位對齊真實 Lark Base：No/專案/成員/補充說明）→ 一次批次建立多筆記錄（append-only 不 PATCH，逐筆送出各自記錄成功/失敗）。與 CodeX 討論定案：sourceRow/draftItem 資料分離、人名比對防呆、送出前統計、疑似重複用法後續再補。舊的「個人自助」單列流程（含依時間範圍撈 Jira 單、舊版 Sheet AI 摘要）保留在獨立分頁，未刪除，可切換使用；批次模式的 Jira 整合與跨 session 持久化去重提示列為後續項目，本版未做",
+      "feat(weekly-report): 頁面改成滿版（只套用在這頁，透過 App.tsx 條件 class main-content--full 覆寫全站共用的 max-width，不影響其他頁面），並將本週 Lark Base 網址改為預設帶入固定連結、開啟頁面自動讀取一次，不用每次手動貼（欄位仍可編輯、仍可手動改連結重新讀取）",
+    ],
+  },
   {
     version: '3.98.1',
     date: '2026-08-12',

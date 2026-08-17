@@ -836,54 +836,97 @@ Dashboard（修仙版）Hero 橫幅下方顯示一張每日語錄小卡片，語
 
 ## 23. 週報彙整（WeeklyReportPage）
 
-**路由**：`POST /api/weekly-report/parse`、`POST /api/weekly-report/jira-by-range`、`POST /api/weekly-report/sheet-analysis`、`POST /api/weekly-report/sheet-analysis-draft`、`POST /api/weekly-report/submit`｜**歷史紀錄 feature key**：`weekly-report`
+**路由**：`POST /api/weekly-report/parse`、`GET /api/weekly-report/week-range`、`POST /api/weekly-report/jira-by-range`、`POST /api/weekly-report/sheet-headers`、`POST /api/weekly-report/batch-scan`、`GET /api/weekly-report/tab-date-scan`、`POST /api/weekly-report/batch-submit`｜**歷史紀錄 feature key**：`weekly-report`
 
 ### 功能說明
 獨立工具（2026-08-11 新增，**不掛在 OSM Tools 底下**，跟 Jira/TestCase 生成同一層級），讓成員快速把本週工作內容寫進團隊共用的 Lark Base 週報表。每週該表是全新一張（不是同一張表累積、沒有日期/週次欄位），所以工具不寫死表格 ID，改成使用者每次貼上「本週 Lark Base 網址」，動態讀取該表的欄位選項。
 
 **Lark Base 表格式**（已用真實表驗證，`FEyTb3Y7Ua6ntgsXt0nlKg5yg8e`/`tblBIv21zkPymWCO`）：只有 4 個欄位——`No`（自動編號）、`专案`（單選，~60-70 個專案代碼如 `P7-005-OSM`）、`成员`（單選，~45 個人名）、`补充说明`（純文字）。`parseLarkBaseUrl()`（`server/routes/weekly-report.ts`）解析 `/base/{appToken}?table={tableId}` 格式（跟 `parseLarkSheetUrl()` 解析 `/sheets/`、`/wiki/` 是不同格式，不能共用）。
 
-**一人一週只佔一列，多個項目全部合併進同一個補充說明欄位**（2026-08-11 使用者明確決定）：`专案` 是單選欄位，但實際週報常常一人橫跨多個專案，兩者天生衝突——解法是 `专案` 欄位做成「主要專案，選填」（可留空，不強求反映全部），逐項實際是哪個專案的內容自己在文字裡標籤（例如 `[P7-005-OSM] 修正登入錯誤...`），欄位語意上不保證能完整拿來做跨專案統計，統計要看補充說明文字本身。
+**初版設計（2026-08-11～2026-08-16，已整個移除）**：最早是「一人一週固定一列、自己手動選成員/專案、多個工作項目全部合併塞進同一格補充說明文字」，Step 3 提供「依時間範圍撈 Jira 單號插入純文字」與「從 Sheet 分析本週內容（alias 精確比對＋四級信心分級＋AI 摘要成一段文字）」兩個輔助入口。2026-08-16 使用者提供真實 Lark Base 截圖後發現團隊實際用法完全不是這樣（見下方「批次掃描審核模式」背景轉折），改寫成批次掃描；**2026-08-16 稍後使用者進一步確認「個人自助」這個舊流程可以完全移除**，不需要跟批次掃描整合或並存。前端整個 `mode === 'individual'` 區塊、`SearchableSelect` 之外的 Step 2/3 UI、`insertAtCursor`/`handleRangeSearch`/`handleSheetRun` 等 handler，以及後端 `POST /api/weekly-report/sheet-analysis`、`POST /api/weekly-report/sheet-analysis-draft`、`POST /api/weekly-report/submit`（單筆新增）三支端點與 `analyzeSheetRows()`/`NAME_COLUMN_HINTS` 皆已刪除。**`POST /api/weekly-report/jira-by-range` 保留**（批次掃描的「依時間範圍撈 Jira 單」功能複用同一支端點，見下方），`readLarkSheetTab()`／`parseSheetDateCell()`／`evaluateConcatFormula()` 等共用 helper 也保留（`sheet-headers`／`batch-scan` 仍在用）。
 
-**Jira 單與手寫文本混寫在同一段文字**（不強制分模式）：Step 3 補充說明文字框上方原本是「貼 Jira 單號 → 帶入摘要」手動輸入小工具，**2026-08-11 使用者看過實機截圖後決定直接取代掉**（不是並存兩個入口，避免使用者搞不清楚該用哪一個），改成「📅 依時間範圍撈 Jira 單」——選開始/結束日期（預設帶入本週一~今天）按「查詢」，呼叫 `POST /api/weekly-report/jira-by-range`，checkbox 清單呈現符合條件的單（單號/摘要/狀態/更新時間/因 Reporter 還是 QA驗證人員身份被撈出），全選/取消勾選後按「套用到內容」。插入格式**只放純單號、用「、」分隔**（例如 `CGMN-142、CGMN-138`），不放摘要/狀態/連結——原本設計是 `[CGMN-26] 修正登入錯誤（Done）` 格式，使用者明確表示不需要摘要，且原本想要單號本身能點擊變超連結，但查證飛書官方文件後確認**多維表格的純文字欄位（`补充说明` 就是這個類型）無法嵌入可點擊超連結，一定要用專門的「超鏈接」欄位類型才行**（JiraPage 寫回 Lark **Sheet** 用的 `type: 'richtext', segments: [{text, link}]` 是 Sheet 富文本格式，Bitable 的文字欄位是不同資料模型，沒有這個能力），所以最終只放純單號。插入是插在游標位置、自成一行（前面需要的話補換行，不會黏在既有文字後面），不會覆蓋使用者已經打好的內容，插入後可自由編輯繼續混寫。
+**撈單條件（`jira-by-range`，沿用至今未變）**：`(reporter = currentUser() OR cf[10440] = currentUser()) AND ((created >= start AND created < end+1天) OR (updated >= start AND updated < end+1天)) ORDER BY updated DESC`——Reporter 是這個人「或」QA驗證人員是這個人，符合其一即列出（驗證人員欄位沿用 `jira.ts` 批次開單時寫入的同一個 `customfield_10440`，env `JIRA_VERIFIER_FIELD_ID` 可覆蓋，不用另外動態偵測）；「建立」或「更新」落在時間範圍內都算，不限工作流程階段（To Do/In Progress/Done 都會撈到）；結束日用「+1天、`<` 排除」而不是 `<= 結束日`，避免 Jira 日期比較只算到當天 00:00 的邊界問題。**不限制 project**，撈這個人 Jira token 能看到的所有專案（使用者明確要求「只要有關這個人的共享專案都能撈到」，不要另外做專案篩選）。`currentUser()` 能正確解析成操作者本人，是因為 `userJiraAuth(req)` 本來就是讀 `x-jira-email` header 對應到後端存的**個人**（不是共用 service account）token 組 Basic Auth，跟批量開單/評論用同一套。批次掃描的多帳號查詢（見下方）就是對這支端點用不同帳號的 email 平行呼叫多次，後端邏輯完全沒改。
 
-**撈單條件（`jira-by-range`）**：`(reporter = currentUser() OR cf[10440] = currentUser()) AND ((created >= start AND created < end+1天) OR (updated >= start AND updated < end+1天)) ORDER BY updated DESC`——Reporter 是這個人「或」QA驗證人員是這個人，符合其一即列出（驗證人員欄位沿用 `jira.ts` 批次開單時寫入的同一個 `customfield_10440`，env `JIRA_VERIFIER_FIELD_ID` 可覆蓋，不用另外動態偵測）；「建立」或「更新」落在時間範圍內都算，不限工作流程階段（To Do/In Progress/Done 都會撈到）；結束日用「+1天、`<` 排除」而不是 `<= 結束日`，避免 Jira 日期比較只算到當天 00:00 的邊界問題。**不限制 project**，撈這個人 Jira token 能看到的所有專案（使用者明確要求「只要有關這個人的共享專案都能撈到」，不要另外做專案篩選）。`currentUser()` 能正確解析成操作者本人，是因為 `userJiraAuth(req)` 本來就是讀 `x-jira-email` header 對應到後端存的**個人**（不是共用 service account）token 組 Basic Auth，跟批量開單/評論用同一套（見下段）。
+**撈取範圍拿掉手動選日期，固定跟隨週期（v4.2.0，2026-08-17）**：原本「依時間範圍撈 Jira 單」面板讓使用者自己選開始/結束日期（預設帶今天/本週一），使用者反應不需要再選、直接跟 Sheet 掃描同一套「週五~週四」週期即可。新增 `GET /api/weekly-report/week-range`，直接複用既有的 `getFridayAnchoredWeekRange()`（跟 `batch-scan` 算的是同一套邏輯，不會有兩套週期定義），額外回傳 `startDate`/`endDate`（`YYYY-MM-DD`，從 `startUTC`/`endUTC` 直接 `toISOString().slice(0,10)`，因為這兩個 Date 是用 `Date.UTC(y,m-1,d)` 疊純日曆年月日組出來的，不是真正的 UTC 時間點，slice 拿到的年月日不會因時區換算跑掉）給前端當 `jira-by-range` 的查詢參數。前端頁面最上方（Step1 卡片之上）新增常駐 banner：即時時鐘（`setInterval` 每秒更新，用 `Intl.DateTimeFormat` 固定 `Asia/Taipei` 時區，不用瀏覽器當地時區——避免使用者裝置時區不是台灣時，顯示時間跟撈取週期對不上）+「本次資料撈取範圍」；`week-range` 掛載時只抓一次，不隨時鐘 tick 重新計算（兩者關注點分開，跟 CodeX 討論定案；頁面長開跨過週五午夜的情況目前沒有自動偵測，仰賴使用者下次操作前重新整理）。**`week-range` 抓取失敗會硬擋，不 fallback 成今天或空值**：`weekRangeInfo` 是 `null` 時查詢按鈕直接鎖住、頁首 banner 顯示「無法取得本週撈取範圍」，避免撈錯資料到不對的時間範圍卻沒有察覺。`scanResult` 裡原本重複顯示的「今天/撈取範圍」兩行拿掉（跟新的頁首 banner 重複），只保留「已排除範圍外/日期無法解析」這個警示，沒有排除筆數時整個提示不渲染。
 
-**Jira 授權不需要另外選帳號**：這個專案的登入帳號本身就是 Jira 帳號（`server/accounts.json` 同一份資料同時是 Toppath Tools 登入清單也是 Jira API token 清單，前端 `sessionStorage` 存的 key 直接叫 `global_jira_account`）——直接用 `loadGlobalAccount()?.email` 當 `x-jira-email` 打 API，不用額外 UI。找不到已登入帳號時「查詢」會直接回錯誤訊息，不會盲目打 API。
+**讀取失敗會擋在送出之前，不會等送出才報錯**：`POST /api/weekly-report/parse` 會先檢查回應是否包含 `成员`/`专案`/`补充说明` 三個必要欄位，缺少任一個直接回傳明確錯誤訊息列出缺什麼欄位；`BatchScanSection` 在 `parsed` 還是 `null` 時直接顯示提示文字、不渲染掃描表單，不可能在沒讀到欄位選項的狀態下操作。
 
-**「從 Sheet 分析本週內容」（2026-08-12，跟 CodeX 討論定案）**：Step 3 另一個獨立入口（跟「依時間範圍撈 Jira 單」並存，兩者服務不同情境——一個抓 Jira 單、一個抓任意工作表）。貼最多 3 個 Lark Sheet 網址（各自獨立資料來源，不是同一份的不同分頁角度），核心原則是**身份判定完全靠 deterministic 規則、不讓 AI 猜**：
+**曾考慮「同成員已有列就 PATCH 附加」，最後刻意放棄改回永遠新增（2026-08-11 討論結論，批次送出沿用同一個判斷）**：一度做過「送出前查表格裡有沒有同一個成員的既有列，找到就把新內容加一段時間戳分隔線附加到既有補充說明後面，不覆蓋」的版本，但發現這個 read-then-write 模式有兩個真實併發風險：① 同一人短時間內兩次送出（手滑連點、兩個分頁）可能兩次查詢都查到「還沒有」，變成新增兩列而不是預期中的一列變兩次追加；② 查證過 Lark Bitable 的 record update API 沒有 revision/ETag 這類機制能偵測「PATCH 當下這筆資料是否已被別人在 Lark 網頁上手動改過」，沒有這個保護的話就是單純「後寫的贏」，有機會蓋掉別人剛好同時間的手動編輯。永遠新增一列完全不會共用/覆寫任何既有欄位，兩個風險直接消失；代價只是同一人這週送多次會在表上留下多列，判斷是「整理起來麻煩」的小不便，不是「資料被覆蓋」的風險，這筆交易划算。
 
-- **Alias 精確比對**：Step 2 選的成員名字預設當第一個別名，可自行新增別名（例如全名/暱稱，因為 sheet 裡的名字不一定跟週報選的名字字串一致）；別名少於 3 字元視為無效、不參與比對（太短容易誤判，例如單一個字的姓）。比對是 trim + 不分大小寫的**完整 cell 精確相等，不是子字串包含**——例如備註欄整格剛好只打「Eric」會命中，但「今天跟 Eric 一起確認問題」這種名字被包在句子裡的寫法**不會命中**（會落到下面的「無使用者」），這是刻意的設計取捨（CodeX 明確要求精確命中避免誤配），代價是「中信心」這一級實際觸發機率比字面上想像的低（需要整格內容剛好只有別名本身、又落在非姓名類欄位，這種 sheet 排版並不常見）；子字串提及的情況目前仍會被撈出來（歸類「無使用者」），只是不會特別標成「建議確認」，使用者一樣看得到、能自己判斷。
-- **四級信心分級**（`analyzeSheetRows()`，`server/routes/weekly-report.ts`）：
-  - **高信心**：這一列只命中唯一一個別名，且至少一個命中欄位是「姓名類」欄位（欄位名稱包含姓名/填寫人/負責人/報告人/驗證/QA/人員/Owner/Assignee/PIC 等關鍵字，`NAME_COLUMN_HINTS`）→ 預設勾選
-  - **中信心**：唯一別名命中，但命中欄位都不是姓名類（例如備註欄整格剛好就是這個名字）→ 預設不勾，標「建議確認」
-  - **低信心**：同一列命中多個不同別名（疑似多人任務、會議紀錄、群組負責項）→ 預設不勾，標「可能多人相關」
-  - **無使用者**（2026-08-12 新增）：完全沒命中任何別名的列——原本這種列會被直接丟棄，使用者完全看不到、也沒機會手動救回（alias 設定不完整、名字打法不一致時就會漏判且不可逆）；改成一律回傳（`confidence: 'none'`，獨立值不塞進 `low`，避免跟「同列命中多個別名」的語意混淆）。前端獨立收合區塊「無使用者 N 筆」，跟高/中/低分開顯示、預設收合＋不勾選，避免真正命中的列被大量雜訊淹沒；`analyzeSheetRows()` 回傳前依信心排序（high/mid/low 在前、none 一律排最後），排序邏輯不依賴前端分組，後端本身回傳順序就是正確的
-  - 每筆命中列都回傳 `matchedCells`（命中的欄位/儲存格值/別名），前端直接顯示命中原因，不是黑箱判定；`none` 列的 `matchedCells` 固定是空陣列
-- **Sheet 讀取**：`readLarkSheetTab()` 用 `open-apis/sheets/v3/.../sheets/query` 抓分頁清單（拿 `title`），URL 有指定分頁就讀該分頁、沒有就讀第一個分頁，再用既有的 `open-apis/sheets/v2/.../values/{range}` 讀取內容（跟 `/api/lark/sheets/records` 同一套 Lark API，但這裡額外需要分頁標題，多一次 metadata 呼叫）。
-- **AI 摘要邊界**：使用者確認勾選（可能橫跨多個來源）後按「AI 生成草稿」，才把選取的列（依來源分開組成 prompt 片段，不混成一坨）丟給 Gemini（`callLLM()`），prompt 明確要求「依來源分開理解、不確定的事項不要寫成已完成事實、不要編造原始資料沒有的內容」。AI 完全不參與「這列屬於誰」的判定，那一步已經在後端用 alias 規則做完，AI 只負責把使用者已經確認過的原始內容整理成草稿文字。
-- **草稿輸出格式（2026-08-12 修正）**：原本 prompt 要求「合併成一段自然流暢的摘要文字」，使用者用真實 OSM 週更新資料實測後回報太冗長不好用；改成固定條列格式——第一行「本週工作內容如下：」，接著每個工作項目各佔一行、數字編號，prompt 明確禁止合併成段落、禁止加前言結語（避免模型多寫「以下是整理結果」這類廢話）。
-- **兩層確認**：命中列先讓使用者勾選 → 送 AI 生成草稿 → 草稿顯示在預覽框，按「插入到內容」才真的塞進 Step 3 文字框（游標位置插入、自成一行，不覆蓋已打的文字）。沒有任何一步是自動送出，全程可以看到中間結果。
-- **已知簡化**：沒有讀取「Sheet 本身文件標題」（例如「QA週工作追蹤表」這種人類命名），畫面上來源標成「Sheet 1」/「Sheet 2」/「Sheet 3」（依貼入順序）+ 分頁標題，因為這個專案目前沒有已驗證過的 API 呼叫能可靠拿到 Lark Sheet 文件層級標題，不確定 API 形狀前不硬猜。
+**普通版／仙俠版**：跟 AutoSpin 三路對帳同一套模式——沿用全站共用的 `--cr-*`/`--xx-*` CSS 變數（不用寫兩份程式碼，切版面模式顏色自動對應），只有文字（標題/步驟說明/按鈕文字）在元件內用 `themeMode === 'xianxia'` 三元判斷切換兩套用詞（例如「送出至 Lark」↔「呈報宗門」、「成員」↔「道號」），沒有额外的裝飾結構差異，符合操作型工具「只換皮不換骨」的既有原則；`BatchScanSection` 本身目前是純classic 文字（未接 themeMode），維持既有簡化。
 
-**讀取失敗會擋在送出之前，不會等送出才報錯**：`POST /api/weekly-report/parse` 會先檢查回應是否包含 `成员`/`专案`/`补充说明` 三個必要欄位，缺少任一個直接回傳明確錯誤訊息列出缺什麼欄位；Step 2/3 的表單在還沒成功解析表格前是 disabled 狀態（`opacity: .5` + `pointerEvents: none`），不可能在沒讀到欄位選項的狀態下送出。
+### 批次掃描審核模式（2026-08-16，取代原本單列合併設計）
 
-送出（`POST /api/weekly-report/submit`）直接呼叫 Lark Bitable `records` API **永遠新增一列**，`专案` 欄位允許空值（沒填就不放進 payload，不是送空字串）。成功後寫入 `operation_history`（`addHistory('weekly-report', ...)`），內容含實際送出的成員/專案/文字（截斷 300 字）。
+**背景轉折**：原本 2026-08-11 的決定是「一人一週固定一列，多個工作項目全部合併塞進同一個補充說明欄位的文字」。使用者提供真實 Lark Base 截圖後發現團隊實際用法完全不是這樣——同一人同一週會出現在多列，每列是獨立工作項目、各自有自己的專案欄位值。工具原本的設計判斷錯了實際用法，改成「掃描來源 Sheet、抓出所有出現的人、一次幫全部人產草稿」。剛推出時頁面曾有「批次掃描」／「個人自助（舊流程）」分頁切換，**2026-08-16 當天稍後使用者確認個人自助可以整個移除**（不需要整合、不需要保留），現在批次掃描是唯一模式，`WeeklyReportPage.tsx` 已不再有 `mode` state 或分頁切換 UI。
 
-**曾考慮「同成員已有列就 PATCH 附加」，最後刻意放棄改回永遠新增（2026-08-11 討論結論）**：一度做過「送出前查表格裡有沒有同一個成員的既有列，找到就把新內容加一段時間戳分隔線附加到既有補充說明後面，不覆蓋」的版本，但發現這個 read-then-write 模式有兩個真實併發風險：① 同一人短時間內兩次送出（手滑連點、兩個分頁）可能兩次查詢都查到「還沒有」，變成新增兩列而不是預期中的一列變兩次追加；② 查證過 Lark Bitable 的 record update API 沒有 revision/ETag 這類機制能偵測「PATCH 當下這筆資料是否已被別人在 Lark 網頁上手動改過」，沒有這個保護的話就是單純「後寫的贏」，有機會蓋掉別人剛好同時間的手動編輯。永遠新增一列完全不會共用/覆寫任何既有欄位，兩個風險直接消失；代價只是同一人這週送多次會在表上留下多列，判斷是「整理起來麻煩」的小不便，不是「資料被覆蓋」的風險，這筆交易划算。
+**流程**：貼來源 Sheet 網址（最多 3 個）→ 讀表頭後自選「日期欄位」「填寫人欄位」（各必選一個）「內容欄位」（可複選，依勾選順序組合成備註，中間用空格接起來，不做方括號樣板）→ 按「開始掃描」→ 依人員分組顯示可編輯草稿清單 → 唯讀「預期結果」預覽表格 → 「呈報宗門」一次批次建立多筆記錄。
 
-**普通版／仙俠版**：跟 AutoSpin 三路對帳同一套模式——沿用全站共用的 `--cr-*`/`--xx-*` CSS 變數（不用寫兩份程式碼，切版面模式顏色自動對應），只有文字（標題/步驟說明/按鈕文字）在元件內用 `themeMode === 'xianxia'` 三元判斷切換兩套用詞（例如「送出至 Lark」↔「呈報宗門」、「成員」↔「道號」），沒有额外的裝飾結構差異，符合操作型工具「只換皮不換骨」的既有原則。
+**已用真實資料驗證過的三個關鍵格式**（避免用猜的寫 parser，這幾個都曾經猜錯過一次才改用真實資料驗證）：
+1. **「填寫人」欄位是純文字逗號分隔，不是 Lark 結構化多選欄位**——真實原始值就是字串 `"Eric Wu,Jack"`（`splitPersonCell()`，`server/routes/weekly-report.ts`），拆分時支援半形/全形逗號、頓號混用，並排除字面上等於欄位表頭本身的殘留列（真實資料出現過一列「填寫人」欄位值就是「填寫人」三個字，疑似誤植的表頭殘留）。
+2. **日期欄位是 Lark 序列數字**（例如 `46250`），跟 Jira 開單帶入功能踩過同一種坑，沿用已驗證過的轉換公式（epoch `Date.UTC(1899,11,30)`，`parseSheetDateCell()`）；也接受 `YYYY-MM-DD`/`YYYY/MM/DD` 字串格式，驗證是真實存在的日曆日期。
+3. **公式儲存格（如常見的「摘要」欄位）用 Lark Sheets API 讀到的是公式原始文字（例如 `"["&F2&"]["&E2&"]"&I2`），不是算好的結果**——因此設計上不依賴任何公式欄位，改成使用者自選的「內容欄位」自己組字串（例如勾選「類別」+「主題」+「描述」）。**2026-08-16 補修**：使用者實測時仍選了「摘要」這個看起來最方便的欄位，畫面上直接看到公式原始文字沒被轉換，才發現只是「建議別選」不夠，還是要處理。加了 `evaluateConcatFormula()`（`server/routes/weekly-report.ts`）：只處理最常見的「字串字面值 + 同列儲存格參照，用 `&` 串接」這個窄範圍樣式（不是通用公式引擎），偵測依據是抽出來的文字以 `"` 開頭且含 `&`（`looksLikeFormulaText()`，正常填寫的文字內容幾乎不會長這樣）；欄位參照（例如 `F2`）用字母轉 0-based 欄位索引，从同一列的其他欄位取值代入，任何不符合這個窄樣式的 token 直接放棄評估、保留原始文字（不會猜錯）。已用真實資料驗證：`"["&F2&"]["&E2&"]"&I2` 正確算出 `[OSM][H5]修改loading图`，跟 Lark 前端顯示的結果一致。
+
+**時間窗**：週期固定「週五 00:00 ～ 下週四 23:59:59」（不是週一開頭），本地時區（Asia/Taipei）固定算，不用 UTC 當下時間（`getFridayAnchoredWeekRange()`）。今天剛好是週五時起日就是今天；週四時屬於上一個週五開的週期；不用特判跨月跨年，單純日期加減（已用 2027/1/1 跨年、2026/2/28 跨月等邊界案例驗證過）。畫面上方橫幅明確顯示「今天幾號／撈取範圍幾號到幾號」，範圍外與日期無法解析的筆數也明確列出（`excludedOutOfRange`/`excludedUnparsableDate`），不靜默過濾。
+
+**人名比對只允許命中既有成員名單，不用 substring**（避免「Jack」誤中「Jackson」這類問題）：trim 後不分大小寫精確比對 Step 1 讀到的真實成員名單（`memberSet`）。比對不到的人整批列在獨立「未識別人員」區塊，不會被丟棄——可以手動指派給某個既有成員（內容原封不動複製過去）或忽略。已用真實資料驗證：目標 Lark Base 的成員名單裡沒有「Eric Wu」這個確切字串（只有「Jack」），掃描時「Eric Wu,Jack」這一列正確地把 Jack 歸進正常草稿、Eric Wu 歸進未識別人員，證實比對邏輯與防呆都正確運作。
+
+**專案自動比對是關鍵字比對，不是 AI 判斷**：先檢查整段組合後的內容字串是否包含某個專案選項的完整名稱，比對不到再退一步檢查各個內容欄位的原始值是否被包含在某個專案名稱裡（例如內容欄位「主題」的值是「OSM」，能比對到專案「P7-005-OSM」，已用真實資料驗證）。比對不到的項目「專案」留空，「預期結果」預覽表格會用紅色「⚠ 未選專案」標示，送出前必須手動補齊，按鈕會被鎖住無法點擊——不會讓 AI 或規則靜默猜錯歸類。
+
+**送出防呆**：確認送出前顯示完整統計（幾位成員、幾筆記錄、幾筆未識別人員待處理、幾筆缺專案待補），缺專案時送出按鈕鎖住並顯示原因；`POST /api/weekly-report/batch-submit` 逐筆呼叫 Lark Bitable records API（不是真的批次 API，Lark 沒有提供），各自記錄成功/失敗，不是同批 all-or-nothing；跟既有單列送出端點一樣是 append-only、不做 PATCH（同一套併發風險考量，見上方「曾考慮 PATCH...」段落）。
+
+**依時間範圍撈 Jira 單（可多選帳號，2026-08-16 補上）**：原本評估「Jira 只能得知目前登入操作者自己的單，無法自動判斷該歸給掃描結果裡的哪個人」，後來發現這個顧慮想複雜了——帳號的 Jira token 本來就存在後端（`jira_accounts` 表），跟「目前誰登入這個網站」無關，`userJiraAuth()` 只看前端傳的 `x-jira-email` header 去查對應 token，所以可以直接對既有的 `/api/weekly-report/jira-by-range` 用不同帳號的 email 平行呼叫多次（沒有改後端邏輯）。真正的重點是**不要用 Jira 帳號的 label 自動對應 Lark 成員名字**——已用真實資料證實兩份名單不完全對得上（Jira 帳號有「Eric Wu」，但目標 Lark Base 成員名單裡沒有這個名字，只有「Dean」「Tim」等其他人存在於兩邊）。所以撈完之後永遠是手動選「加入到哪個人」，帳號只負責查詢、不負責分類。
+
+**已用真實資料驗證過兩個真實帳號（Eric Wu／Dean）平行查詢，各自正確撈回不同的真實 Jira 單，沒有互相污染。**
+
+**修正：先套用 Jira 再重跑 Sheet 掃描時，Jira 加的項目會被整包蓋掉（2026-08-16，跟 CodeX 討論定案）**：`handleRunScan()` 原本收到新掃描結果後直接 `setDraftEdits(d.draftsByPerson)` 整包覆蓋 `draftEdits`——`applyJiraToPerson()`/`applyJiraAuto()` 是用 `setDraftEdits(prev => ({ ...prev, ... }))` 函數式更新疊加上去的，所以「先跑 Sheet 掃描、再套 Jira」正常（Jira 疊在 Sheet 結果上），但「先套 Jira、再跑 Sheet 掃描」會讓 Jira 加的項目整批消失（覆蓋掉整個物件，不只是同一個人）。修法：`handleRunScan()` 改成「Sheet 來源重建、非 Sheet 來源保留併回」——後端 `batch-scan` 產生的 `sourceRowId` 固定是 `"{sheetIndex}-{rowIndex}"` 格式（純數字-數字），用這個格式判斷一個 `DraftItem` 是不是這次 Sheet 掃描的產物；不符合這個格式的（Jira 套用產生的 `Jira · ...`、手動新增的 `手動新增`、未識別人員手動指派的 `手動指派 · ...`）視為非 Sheet 來源，掃描完成後保留原樣併回新的 `draftsByPerson`，不會被新掃描結果覆蓋。同一個人若原本有 Jira 項目、Sheet 重掃又抓到新項目，結果是「新 Sheet 項目 + 原本保留的 Jira 項目」都在同一個人底下，不會互相取代。
+
+**CodeX review 後再補兩處（v4.1.1，2026-08-17）**：① `handleRunScan()` 原本用 closure 裡的 `draftEdits`（呼叫當下的值）合併，若 Sheet 掃描 request 還沒回來時使用者又套用 Jira／手動新增，回應回來時會用過期的 `draftEdits` 合併，把這段期間新增的非 Sheet 項目吃掉——改成 `setDraftEdits(prev => ...)` functional update，讀的一定是最新 state。② `assignUnidentified()`（未識別人員手動指派給某個成員）原本沿用 `row.sourceRowId`（後端 batch-scan 給的原始 Sheet 格式），代表這筆手動指派會被下一次 Sheet 重掃當成「舊 Sheet 產物」一併清掉重建，跟其他手動操作（Jira 套用/手動新增）待遇不一致；改成塞進去的 `sourceRowId` 固定加上 `手動指派 · ` 前綴，這樣就會被 `isSheetSourced()` 判定為非 Sheet 來源、重掃時保留。
+
+**已知範圍限制**：沒有做跨 session 持久化的疑似重複送出偵測（例如同一來源列/同一人/同一週是否已經送過），目前完全仰賴 append-only 設計本身的安全性與使用者自行注意，之後如果真的發生重複送出問題再補（CodeX review 時建議先觀察，不是本版必需）。
+
+**CodeX review 後修正的四個問題（2026-08-16）**：① Sheet 讀取失敗不再靜默略過，新增 `sourceErrors` 明確顯示是哪個來源失敗；② 專案關鍵字 fallback 比對從「任一內容欄值 ≥2 字元命中」改成「最長命中優先＋最短 3 字元才參與比對」，避免 `v2`/`QA` 這類泛用短字誤配（已驗證 `OSM` 這類合法短代碼不受影響）；③ **最關鍵**：批次送出部分失敗時不再整批保留重送——已成功的項目用送出當下 `flatPreviewItems` 的順序對應後端逐筆 index，直接從清單移除，避免重送造成重複建立；④ `batch-submit` 整個 handler 包進 try/catch，跟其他端點錯誤格式一致。
+
+**公式儲存格修正（2026-08-16）**：使用者實測時選了「摘要」這欄（畫面上看起來最方便，因為 Lark 前端會顯示算好的結果），結果送進來的內容是公式原始文字沒被轉換。修法不是叫使用者避開這欄，而是新增 `evaluateConcatFormula()` 直接把常見的「字串字面值＋同列儲存格參照、用 `&` 串接」這個窄範圍公式樣式算出來（不是通用公式引擎，遇到看不懂的樣式直接放棄評估、保留原始文字，不會猜錯）；已用真實資料驗證 `"["&F2&"]["&E2&"]"&I2` 正確算出 `[OSM][H5]修改loading图`，跟 Lark 前端顯示一致。
+
+**「頁籤日期式報表」來源類型（v4.3.0，2026-08-17，跟 CodeX 討論定案）**：跟現有「一欄式 Sheet」（一個頁籤裡用某一欄的值當日期篩列）完全不同的資料結構——這類報表是同一份文件底下有一堆頁籤，**頁籤名稱本身就是日期開頭**（例如「20260811 NP 5台」），沒有任何「填寫人」欄位。設計上跟一欄式 Sheet 並存，不是取代：
+
+- **文件寫死在後端，不吃前端輸入**：`TAB_DATE_REPORT_SOURCES`（`server/routes/weekly-report.ts`）固定文件的 `spreadsheetToken`（使用者提供的網址解析出來）+ 顯示用 `label`——因為文件本身固定不變，只有頁籤會持續新增，不需要使用者每次貼網址。**目前只有 1 份，顯示名稱「線上機台測試表單」**（`spreadsheetToken=JFplspG3Mh8LAXtFxsRlSgTRgmg`，Lark 文件本身叫「測種測試表」，v4.4.4 使用者要求對外顯示改叫這個名字）——v4.3.1 一度誤把使用者提供的第二個網址（`JjLosMhsShlrfatriEBlX3d7gLd`）也當成這個類型加進來，v4.4.0 使用者澄清那份其實是一般的一欄式 Sheet（見下方「來源 Sheet 第一筆自動導入」，該份文件現在的顯示名稱是「OSM需求單」，跟這裡改名後撞名才改的），已移除，不要重新加回這裡。
+- **`listLarkSheetTabs(spreadsheetToken)`**：只打 `sheets/v3/.../sheets/query` 拿完整頁籤清單（sheetId+title），刻意跟 `readLarkSheetTab()`（一欄式 Sheet 用，只挑一個頁籤讀內容）各自獨立、不共用內部邏輯（CodeX review 建議），避免互相影響既有流程。
+- **`parseTabTitleDate()`**：頁籤標題開頭抓 8 位數日期（`/^(\d{4})(\d{2})(\d{2})/`），驗證是合法日曆日期（沿用既有 `isValidCalendarDate()`），落在本週 `getFridayAnchoredWeekRange()` 範圍內才算命中；解析不出日期的頁籤（例如可能存在的說明/範本頁籤）直接跳過，不當命中也不當錯誤。
+- **`GET /api/weekly-report/tab-date-scan`**：每份文件各自讀取失敗互不影響（回 `sourceErrors`，不整支端點失敗，比照 `batch-scan` 做法）；已用真實資料驗證過（真實抓到兩份文件的完整頁籤清單、日期解析結果跟畫面上肉眼比對一致，2026-08-17 當週 08/14~08/20 範圍內兩份文件都沒有命中頁籤——正確，因為當時最新的頁籤是 08/11，本來就在範圍外）。
+- **沒有填寫人欄位，全部手動指派，且支援複選**（跟「未識別人員」assign 那種一次只能選一個不同）：命中的頁籤不讀內部資料，整個頁籤標題文字（例如「20260811 NP 5台」）當一個項目的補充說明，前端用新的 `SearchableMultiSelect` 元件（下拉+搜尋+ checkbox 複選，v4.3.2 取代原本使用者反應不好用的原生 `<select multiple>` 清單框）讓使用者一次勾選多個成員，套用後同一份內容各自複製一份加進每個人的草稿。
+- **`sourceRowId` 格式 `手動指派 · 頁籤 · {sourceKey}:{sheetId}`**（CodeX review 建議帶來源 key，避免兩份文件剛好 `sheetId` 撞名時難追）——不符合 Sheet 掃描的 `"{sheetIndex}-{rowIndex}"` 格式，歸類為非 Sheet 來源，`handleRunScan()` 重跑 Sheet 掃描時會保留不會被清掉，跟 Jira 套用/手動新增待遇一致。
+- **防重複套用**（CodeX review 建議）：`applyTabDateItem()` 套用前檢查該成員草稿裡是否已經有同一個 `sourceRowId`，有就跳過，避免同一個頁籤對同一人重複點套用造成重複項目。
+- **自動預設專案「P7-007-第三方測試」（v4.4.2）**：頁籤標題是機台代碼（例如「20260811 NP 5台」），不是乾淨關鍵字，既有的專案自動比對（見下方「來源 Sheet 第一筆自動導入」段落同樣的比對邏輯）抓不到，使用者要求直接固定預設。`applyTabDateItem()` 用既有的 `matchLarkProjectByJiraName()`（模糊比對，空格/連字號都吃）查 `DEFAULT_TAB_DATE_PROJECT_NAME`。
+- **v4.4.3 修正下拉選單被裁切**：每個來源卡片外層原本 `overflow: 'hidden'`（為了讓標題列背景色跟著外框圓角），結果連 `SearchableMultiSelect` 往下展開的下拉選單也一起被切掉，使用者截圖回報「看不到人員名單」。改成外層不裁切，標題列自己套 `borderRadius: '8px 8px 0 0'`——見 [[feedback_dropdown_overflow_clip]] 記憶，這是通用教訓不是只有這裡會踩。
+
+**「來源 Sheet」第一筆自動導入（v4.4.0，2026-08-17；v4.4.4 顯示名稱改叫「OSM需求單」）**：使用者要求「OSM需求單」（`JjLosMhsShlrfatriEBlX3d7gLd?sheet=1Xp7sf`，分頁「驗證表單_v2」）固定當「來源 Sheet」第一筆，頁面載入時自動讀表頭+套用已知欄位對應，不用手動設定。跟頁首 Lark Base 網址（`DEFAULT_WEEKLY_URL`）同一種「預設帶入＋自動讀取」模式，但這裡是額外多一個「自動套用欄位對應」的步驟：
+
+- `DEFAULT_SCAN_SHEET_URL`/`DEFAULT_SCAN_SHEET_DATE_COLUMN`/`DEFAULT_SCAN_SHEET_PERSON_COLUMN`/`DEFAULT_SCAN_SHEET_CONTENT_COLUMNS`（`WeeklyReportPage.tsx`）：`scanSheets` 初始狀態第一筆直接帶入這個網址；掛載時的 `useEffect` 呼叫既有 `/api/weekly-report/sheet-headers`，成功後除了填入 `headers`，額外直接套用日期欄位＝`日期`、填寫人欄位＝`填寫人`、內容欄位＝`['摘要']`（使用者確認只要摘要）——**不是**呼叫 `handleLoadSheetHeaders()`，那支函式讀成功後固定把 `dateColumn`/`personColumn`/`contentColumns` 重設空白（給使用者自己選新 Sheet 用），跟這裡「已知固定答案、要直接套用」的需求相反，所以獨立寫一份 mount effect。
+- **真實表頭已用 `POST /api/weekly-report/sheet-headers` 對本機在跑的 server 驗證過**：`日期`/`填寫人`/`嚴重度`/`類別`/`主題`/`版本`/`摘要`/`描述`/`圖`/`確認OK`/`進度`/`備註`/`RD`/`本機測試完成時間`/`Jira issue key`/`Jira URL`/`處理階段`/`處理時間`/`環境` 等，`日期`/`填寫人`/`摘要` 三個欄名都確實存在，不是憑空假設。
+- **競態防護**：套用預設欄位對應時檢查 `i === 0 && s.url === DEFAULT_SCAN_SHEET_URL`，如果這支 fetch 回應回來之前使用者已經手動把 slot 0 的網址改掉，不會被回應覆蓋回預設值。
+- 欄位仍可編輯、網址仍可手動改成別的重新讀取，不是鎖死不能改——跟 `DEFAULT_WEEKLY_URL` 同一個「預設值，非強制」原則。
+- **全自動載入延伸到 Jira 撈單／頁籤日期式報表（v4.5.0，2026-08-17）**：使用者要求把「Jira 撈單」跟「頁籤日期式報表」也整合進全自動載入，固定自動帶入 3 位使用者：Eric、Lusa、Siara。**本機跟正式服的 Jira 帳號清單不同**（本機 `jira_accounts` 混了測試帳號如 `lusa`/`OM`/`ad`，正式服「太玄道樞」是乾淨的真實帳號如 `Eric Wu`/`Lusa`/`Siara Lin`），所以用 `AUTO_IMPORT_TARGET_KEYWORDS = ['eric','lusa','siara']` + `matchesAutoImportTarget()` 對現有清單做「小寫子字串」模糊比對，不寫死特定 email，兩邊環境都能自動選到對得上的帳號/成員——已用真實資料驗證：本機只有 Eric Wu／lusa 兩個帳號能匹配（本機沒有 siara 測試帳號，屬預期），這個 Lark Base 的成員清單三個關鍵字都能匹配到（`Eric Wu`／`Lusa`／`Siara`）。
+  - **Jira 撈單自動流程**（`autoJiraImportTriggeredRef`，`parsed` 和 `weekRangeInfo` 都就緒時觸發一次）：自動 fetch 帳號清單（若未載入）→ 關鍵字篩出目標帳號 → 自動勾選＋開啟面板 → 自動查詢（複用跟 `handleJiraRangeSearch` 相同的多帳號查詢/合併邏輯，但用區域變數而非讀 state，避免 setState 非同步時序問題）→ **不是複用既有 `applyJiraAuto()`**（那支是精確比對帳號 label 跟 Lark 成員名字，「Siara Lin」精確比對不到「Siara」會失敗；這裡刻意寫獨立邏輯用關鍵字模糊比對，不去放寬 `applyJiraAuto()` 本身，避免影響其他人手動用「自動套用」時的比對準確度）→ 用「關鍵字」建立 帳號↔Lark成員 對應表，直接產生草稿項目。
+  - **頁籤日期式報表自動流程**（`autoTabDateScanTriggeredRef`＋`autoTabDateApplyTriggeredRef` 兩個 ref，各自對應「觸發查探」「查探完成後自動套用」兩個階段）：`applyTabDateItem()` 新增可選的 `membersOverride?: string[]` 參數——傳入時直接用這份清單，不讀 `tabDateSelectedMembers` state（避免同一個問題：`setTabDateSelectedMembers` 之後立刻呼叫沒被更新的 state）；手動流程（畫面上勾選+按套用）不傳這個參數，行為完全不變。
+  - **範圍**：只做到「自動準備好草稿」，最終「呈報宗門」送出仍然要使用者手動確認點擊，不會自動寫入 Lark——這條全自動載入鏈路全部只影響前端草稿狀態。
+  - **失敗容忍**：整個自動流程包在 try/catch 裡，失敗不跳錯誤訊息干擾使用者（All-or-nothing 不是必要的，failing silently 讓使用者仍可以照原本手動流程操作）。
+- **連「開始掃描」也自動觸發一次（v4.4.1）**：使用者反應光是欄位自動帶入還不夠，希望連掃描本身也自動跑。`autoScanTriggeredRef`（`useRef`）擋重複觸發，只在「Step1 Base 已解析＋`scanSheets` 目前唯一一筆且就是 `DEFAULT_SCAN_SHEET_URL`＋欄位都已套用好」這個瞬間自動呼叫一次 `handleRunScan()`；使用者手動編輯過欄位、或後續新增/改變 Sheet 清單，都不會再自動重跑。
+- **自動預設專案「P7-005-OSM」（v4.4.2）**：內容欄位（摘要）是完整句子（例如「[OSM][H5]修改loading图」），跟既有的專案關鍵字比對邏輯（`content.includes(p.name)` 或 `findBestProjectByContentColumns`）都對不上——前者要求專案全名整串出現在內容裡，後者要求內容欄位「整格」的值被包在專案名稱裡，兩種都假設內容欄位本身就是乾淨關鍵字，這份表的「摘要」不是。使用者要求固定預設。`handleRunScan()` 收到 `batch-scan` 回應後，若 `scanSheets[0].url === DEFAULT_SCAN_SHEET_URL`，對 `sourceRowId` 開頭是 `"0-"`（sheetIndex 0）且後端沒比對到專案（`projectName` 空）的項目，補上 `matchLarkProjectByJiraName(DEFAULT_SCAN_SHEET_PROJECT_NAME, parsed.projects)` 的結果；後端已經比對到的不覆蓋（後端關鍵字比對比較準時優先採用）。
 
 ### 使用者操作
 | 操作 | 說明 |
 |------|------|
-| 貼上本週 Lark Base 網址 | 每週表格不同，貼上後自動讀取「成员」/「专案」欄位選項；上次用過的網址會記住（`localStorage`），下次開啟預先帶入 |
-| 選擇成員（自己） | 必填，下拉選單選項來自剛讀取的表格 |
-| 選擇主要專案 | 選填，可留空（內容自己在文字裡標專案） |
-| 依時間範圍撈 Jira 單 | 選開始/結束日期（預設本週一~今天），撈這個人 Reporter 或 QA驗證人員符合其一的單（不限 project、不限工作流程階段），checkbox 勾選後套用純單號（「、」分隔）到文字框游標位置，不覆蓋已打的內容 |
-| 從 Sheet 分析本週內容 | 貼最多 3 個 Lark Sheet 網址 + 設定比對別名，讀取並比對後依信心分級（高/中/低）勾選命中列，「AI 生成草稿」把確認過的內容交 Gemini 摘要成一段文字，「插入到內容」才塞進文字框；哪列被抓出來都顯示命中欄位/別名，不是黑箱 |
-| 填寫本週工作內容 | 自由編輯文字框，可混寫撈到的 Jira 單號、Sheet 分析草稿與手寫文字 |
-| 送出 | 直接在該 Lark Bitable 新增一列（成員/主要專案/補充說明） |
+| 查看頁首即時時鐘／撈取範圍 | 頁面最上方常駐顯示，即時時鐘每秒更新（固定 Asia/Taipei 時區）+ 本次資料撈取範圍（跟 Sheet 掃描同一套週五~週四週期）；讀取失敗會明確顯示「無法取得本週撈取範圍」 |
+| 貼上本週 Lark Base 網址 | 每週表格不同，貼上後自動讀取「成员」/「专案」欄位選項；預設帶入固定連結並自動讀取一次，欄位仍可編輯、可手動改連結重新讀取 |
+| 新增來源 Sheet | 最多 3 個，第一筆固定帶入「OSM需求單」並自動讀表頭＋套用已知欄位對應（日期/填寫人/摘要），仍可手動改網址重新讀取；其餘筆各自貼網址後「讀取表頭」，自選日期欄位／填寫人欄位（各必選一個）／內容欄位（可複選，公式儲存格如「摘要」欄位會自動嘗試評估成真正的值，評估不了才保留原始文字） |
+| 開始掃描 | 依週五起始時間窗過濾、依填寫人拆分、比對成員名單與專案關鍵字，畫面顯示統計卡片；來源讀取失敗會明確顯示，不靜默漏資料 |
+| 依時間範圍撈 Jira 單（可多選帳號） | 頁面載入時自動勾選 Eric/Lusa/Siara（關鍵字模糊比對現有帳號清單）、自動查詢、自動套用成草稿；撈取範圍固定跟隨頁首顯示的週期，不用手動選日期；也可以手動勾選其他帳號各自用自己的 token 平行查詢，結果合併顯示（同張單被多個帳號查到會標示來源），撈完手動選「加入到哪個人」套用——不論先跑 Jira 還是先跑 Sheet 掃描，兩邊加的項目都會保留、不會互相蓋掉 |
+| 查探頁籤日期式報表 | 頁面載入時自動觸發查探，命中的頁籤自動勾選 Eric/Lusa/Siara（關鍵字模糊比對）並自動套用；來源文件寫死不用貼網址，一鍵掃描固定文件裡「標題開頭是本週日期」的頁籤，命中的頁籤標題整串當內容；也可以手動改勾選其他一或多個成員（可複選）後套用，沒有填寫人欄位所以沒有自動分類 |
+| 依人員分組編輯草稿 | 人員 tab 切換，每人清單可編輯專案／備註／刪除／新增項目 |
+| 處理未識別人員 | 比對不到既有成員名單的列另外列出，可指派給某個成員或忽略，不會被吞掉 |
+| 查看預期結果 | 唯讀表格，欄位對齊真實 Lark Base（No/專案/成員/補充說明），缺專案的列標紅 |
+| 呈報宗門 | 缺專案時鎖住送出；送出後顯示成功/失敗筆數 |
 
 ---
 
