@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.8.0'
+export const APP_VERSION = '4.9.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.9.0',
+    date: '2026-08-18',
+    changes: [
+      "minor(autospin): 多裝置並行監控前端完成——「執行監控」的遠端 Agent 模式改成頂部裝置釘選列＋下方 grid，同一帳號可以同時看多台裝置各自的執行狀態，彼此獨立不互相干擾。釘選 1~2 台完整並排（機台清單/日誌/LuckyLink+SLS+截圖 tabs），3 台以上改「1 台主視角＋其餘精簡卡片（異常時左側紅邊+脈動紅點提示）」，點精簡卡片可切換主視角。每個裝置各自的 SSE 連線/日誌/截圖輪詢/LuckyLink 狀態都在新抽出的 useAgentSession(sessionId, agentId, userLabel) hook 裡管理，identity 以 sessionId 為主（避免同裝置重開新 session 時舊資料殘留），DeviceSessionPanel 元件純消費 hook 回傳值畫 UI；AutoSpinPage 只保留全域派工/釘選/主視角狀態，不再塞單一 session 假設。停止裝置按鈕加了 confirm 對話框並明確帶 hostname，避免多裝置同時顯示時誤停錯台。伺服器端 (fallback) 模式完全不受影響，維持原本單一 session 邏輯",
+    ],
+  },
   {
     version: '4.8.0',
     date: '2026-08-18',

@@ -102,8 +102,34 @@
 .autospin-shot:hover { transform: scale(1.03); border-color: var(--cr-cyan-border); box-shadow: 0 8px 22px -10px var(--cr-cyan-border); }
 .autospin-shot--latest { border-color: var(--cr-cyan-border) !important; }
 
+/* ── AutoSpin 多裝置並行監控（2026-08-18）───────────────────────────────────── */
+.autospin-device-grid { display: grid; gap: 14px; }
+.autospin-device-grid--cols-2 { grid-template-columns: 1fr 1fr; }
+.autospin-device-grid--cols-1 { grid-template-columns: 1fr; }
+/* < ~1100px（含瀏覽器縮放125%常見的有效寬度）：2欄硬擠會讓右側 tabs/機台清單被壓爛，
+   改單欄堆疊——寧可多捲動，也不要讓內容擠壓變形（跟 mockup CodeX review 一致） */
+@media (max-width: 1100px) {
+  .autospin-device-grid--cols-2 { grid-template-columns: 1fr; }
+  .autospin-condensed-row { grid-template-columns: 1fr !important; }
+}
+/* 卡片本身太窄（手機或多台擠在小螢幕）時，左右兩欄改上下堆疊 */
+@media (max-width: 640px) {
+  .autospin-device-card-body { flex-direction: column; }
+  .autospin-device-card-body > div:first-child { border-right: none !important; border-bottom: 1px solid #223350; }
+}
+.autospin-log-scroll { transition: border-color .12s; border: 1px solid transparent; }
+.autospin-log-scroll:hover { border-color: var(--cr-cyan-border); }
+.autospin-condensed-card:hover { border-color: #475569; }
+.autospin-err-pulse { animation: autospin-err-pulse 1.6s infinite; }
+@keyframes autospin-err-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
+  70%  { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
+  100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cr-status-dot { animation: none !important; }
+  .autospin-err-pulse { animation: none !important; }
 }
 
 /* ═══════════════════════════════════════════════════
@@ -1146,6 +1172,10 @@
   width: 100%;
   box-sizing: border-box;
   color: #cbd5e1; /* base bright text */
+}
+/* 行跡呈報（週報彙整）滿版——只套用在這頁，其他頁面維持共用的 1280px 上限不受影響 */
+.main-content--full {
+  max-width: none;
 }
 
 /* ─── Page Layout ─────────────────────────────────── */

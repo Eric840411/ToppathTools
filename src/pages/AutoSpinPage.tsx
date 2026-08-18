@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useCallback, Fragment } from 'react'
 import { UrlPoolPickerModal } from '../components/UrlPoolPickerModal'
+import { DeviceSessionPanel } from './AutoSpinDeviceSessionPanel'
 
 /** 下載完整執行日誌（不受目前的搜尋/分類篩選影響，永遠是全部原始內容）——
  * 先前使用者只能手動選取複製，長日誌貼進 Discord 會被截斷成 message.txt
  * 附件，格式跟排版都會跑掉，不方便拿來對照時間軸。 */
-function downloadExecutionLog(lines: string[]) {
+export function downloadExecutionLog(lines: string[]) {
   const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -17,7 +18,7 @@ function downloadExecutionLog(lines: string[]) {
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
-interface AutospinConfig {
+export interface AutospinConfig {
   machineType: string
   gameUrl: string
   rtmpName: string
@@ -48,9 +49,9 @@ interface CaptureFile {
 
 // ─── Log classification (for filter chips / hide-pinus toggle) ─────────────────
 
-type LogCategory = 'sys' | 'spin' | 'shot' | 'warn' | 'err' | 'pinus' | 'other'
+export type LogCategory = 'sys' | 'spin' | 'shot' | 'warn' | 'err' | 'pinus' | 'other'
 
-function classifyLogLine(l: string): LogCategory {
+export function classifyLogLine(l: string): LogCategory {
   if (l.includes('[pinus:')) return 'pinus'
   if (l.includes('[console:error]')) return 'err'
   if (l.includes('[console:warn]')) return 'warn'
@@ -64,9 +65,9 @@ function classifyLogLine(l: string): LogCategory {
 
 // ─── Pinus sub-categories (for the pinus category chips) ───────────────────────
 
-type PinusCategory = 'connect' | 'enter' | 'spin' | 'money' | 'broadcast' | 'heartbeat' | 'other'
+export type PinusCategory = 'connect' | 'enter' | 'spin' | 'money' | 'broadcast' | 'heartbeat' | 'other'
 
-const PINUS_CATEGORY_META: { key: PinusCategory; label: string }[] = [
+export const PINUS_CATEGORY_META: { key: PinusCategory; label: string }[] = [
   { key: 'spin', label: 'Spin 動作' },
   { key: 'money', label: '餘額異動' },
   { key: 'broadcast', label: '狀態廣播' },
@@ -76,7 +77,7 @@ const PINUS_CATEGORY_META: { key: PinusCategory; label: string }[] = [
   { key: 'other', label: '其他' },
 ]
 
-function classifyPinusRoute(l: string): PinusCategory {
+export function classifyPinusRoute(l: string): PinusCategory {
   if (l.includes('dealGMActionReq')) return 'spin'
   if (l.includes('moneyNtc')) return 'money'
   if (l.includes('broadcastReq')) return 'broadcast'
@@ -86,7 +87,7 @@ function classifyPinusRoute(l: string): PinusCategory {
   return 'other'
 }
 
-function relativeShotTime(ts: number): string {
+export function relativeShotTime(ts: number): string {
   const s = Math.max(0, Math.round((Date.now() - ts) / 1000))
   if (s < 5) return '剛剛'
   if (s < 60) return `${s}秒前`
@@ -96,7 +97,7 @@ function relativeShotTime(ts: number): string {
   return `${h}小時前`
 }
 
-function extractSpinNo(name: string): string | null {
+export function extractSpinNo(name: string): string | null {
   const m = name.match(/_(\d+)\.png$/i)
   return m ? String(parseInt(m[1], 10)) : null
 }
@@ -112,7 +113,7 @@ const EMPTY_CONFIG: AutospinConfig = {
 
 // ─── Component ─────────────────────────────────────────────────────────────────
 
-function getGlobalUserLabel(): string {
+export function getGlobalUserLabel(): string {
   try {
     const acc = JSON.parse(sessionStorage.getItem('global_jira_account') ?? 'null')
     return acc?.label ?? ''
@@ -567,21 +568,25 @@ export function AutoSpinPage() {
   const [hubDispatching, setHubDispatching] = useState(false)
   const [hubStopping, setHubStopping] = useState(false)
   const [running, setRunning] = useState(false)
-  const [agentRunning, setAgentRunning] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
-  const [agentSessionId, setAgentSessionId] = useState<string | null>(null)
   const [logs, setLogs] = useState<string[]>([])
-  const [agentLogs, setAgentLogs] = useState<string[]>([])
   const [captures, setCaptures] = useState<CaptureFile[]>([])
-  const [agentCaptures, setAgentCaptures] = useState<{ name: string; time: number }[]>([])
   const [startError, setStartError] = useState('')
-  const [liveSpinInterval, setLiveSpinInterval] = useState<number>(1.0)
-  const [liveIntervalSaving, setLiveIntervalSaving] = useState(false)
   const logBoxRef = useRef<HTMLDivElement>(null)
   const [logFilter, setLogFilter] = useState<'all' | 'sys' | 'spin' | 'shot' | 'error'>('all')
   const [logSearch, setLogSearch] = useState('')
   const [visiblePinusCats, setVisiblePinusCats] = useState<Set<PinusCategory>>(new Set())
   const [autoScrollLog, setAutoScrollLog] = useState(true)
+
+  // ── 多裝置並行監控（2026-08-18）── 同帳號可以同時對多台裝置派工，這幾個 state 只管
+  // 「全域：目前有哪些裝置在跑、釘選了哪些、誰是主視角」，每個裝置自己的 log/截圖/LuckyLink
+  // 狀態都在 DeviceSessionPanel 內部用 useAgentSession 各自管理，不往上提——見 CLAUDE.md
+  // AutoSpin 章節「多裝置並行後端支援」的設計說明 ──────────────────────────────
+  interface AgentSessionInfo { sessionId: string; startedAt: number; agentId: string; hostname: string }
+  const [agentSessions, setAgentSessions] = useState<AgentSessionInfo[]>([])
+  const [pinnedAgentIds, setPinnedAgentIds] = useState<string[]>([])
+  const [primaryAgentId, setPrimaryAgentId] = useState<string | null>(null)
+  const agentRunning = agentSessions.length > 0
 
   // ── LuckyLink JP compare (dispatch options) ──────────────────────────────────
   const [luckylinkEnabled, setLuckylinkEnabled] = useState(false)
@@ -653,30 +658,28 @@ export function AutoSpinPage() {
   }, [running, agentRunning, slsMachineNo, fetchSlsErrors])
   const evtSourceRef = useRef<EventSource | null>(null)
   const captureTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  // Ref to always hold latest agentSessionId for interval callbacks (avoids stale closure)
-  const agentSessionIdRef = useRef<string | null>(null)
+  // 記錄「曾經看過的 agentId」——避免使用者手動取消釘選某台裝置後，下一次輪詢又把它自動
+  // 釘選回來（自動釘選只對「這次輪詢才第一次出現」的新 session 生效，不是每次輪詢都重新套用）
+  const seenAgentIdsRef = useRef<Set<string>>(new Set())
 
   const fetchStatus = useCallback(async () => {
     const r = await fetch('/api/autospin/status')
     const d = await r.json() as { running: boolean; sessionId: string | null }
     setRunning(d.running)
     if (d.sessionId && d.sessionId !== sessionId) setSessionId(d.sessionId)
-    // Agent status — also auto-connect SSE if a new session is detected（帳號各自的 session，不共用）
+    // Agent status（帳號各自的 session，不共用）——2026-08-18 起改回傳 sessions[] 陣列，
+    // 同帳號可能同時有多台裝置在跑；每個 session 自己的 SSE/日誌/截圖由 DeviceSessionPanel
+    // 內部的 useAgentSession 各自管理，這裡只負責「哪些裝置在跑」跟自動釘選新出現的裝置
     const ar = await fetch('/api/autospin/agent/status', { headers: { 'x-user-label': getGlobalUserLabel() } })
-    const ad = await ar.json() as { running: boolean; sessionId: string | null }
-    setAgentRunning(ad.running)
-    if (ad.running && ad.sessionId && ad.sessionId !== agentSessionIdRef.current) {
-      agentSessionIdRef.current = ad.sessionId
-      setAgentSessionId(ad.sessionId)
-      connectSSE(ad.sessionId, true)
-      if (!captureTimerRef.current) {
-        captureTimerRef.current = setInterval(() => fetchAgentCaptures(ad.sessionId!), 5000)
-      }
+    const ad = await ar.json() as { running: boolean; sessions?: AgentSessionInfo[] }
+    const list = ad.sessions ?? []
+    setAgentSessions(list)
+    const newAgentIds = list.map(s => s.agentId).filter(id => id && !seenAgentIdsRef.current.has(id))
+    for (const s of list) if (s.agentId) seenAgentIdsRef.current.add(s.agentId)
+    if (newAgentIds.length > 0) {
+      setPinnedAgentIds(prev => [...prev, ...newAgentIds.filter(id => !prev.includes(id))])
     }
-    if (!ad.running) {
-      agentSessionIdRef.current = null
-      setAgentSessionId(null)
-    }
+    setPrimaryAgentId(prev => (prev && list.some(s => s.agentId === prev)) ? prev : (list[0]?.agentId ?? null))
   }, [sessionId])
 
   const fetchCaptures = useCallback(async () => {
@@ -685,19 +688,11 @@ export function AutoSpinPage() {
     setCaptures(d.files ?? [])
   }, [])
 
-  const fetchAgentCaptures = useCallback(async (sid: string) => {
-    const r = await fetch(`/api/autospin/agent/screenshots/${sid}`, { headers: { 'x-user-label': getGlobalUserLabel() } })
-    const d = await r.json() as { files?: { name: string; time: number }[] }
-    setAgentCaptures(d.files ?? [])
-  }, [])
-
-  const connectSSE = useCallback((sid: string, isAgent = false, fromIndex = 0) => {
+  // 伺服器端 (fallback) 模式專用——遠端 Agent (hub) 模式的 SSE 現在各自在
+  // DeviceSessionPanel 內部用 useAgentSession 管理，不再共用這支函式
+  const connectSSE = useCallback((sid: string, fromIndex = 0) => {
     if (evtSourceRef.current) evtSourceRef.current.close()
-    // EventSource 不能自訂 header，帳號改用 query string 傳（伺服器端 stream/:id 只認自己帳號的 session）
-    const from = fromIndex > 0 ? `&from=${fromIndex}` : ''
-    const url = isAgent
-      ? `/api/autospin/agent/stream/${sid}?userLabel=${encodeURIComponent(getGlobalUserLabel())}${from}`
-      : `/api/autospin/stream/${sid}${fromIndex > 0 ? `?from=${fromIndex}` : ''}`
+    const url = `/api/autospin/stream/${sid}${fromIndex > 0 ? `?from=${fromIndex}` : ''}`
     const es = new EventSource(url)
     es.onmessage = (e) => {
       const data = JSON.parse(e.data) as { line?: string; luckylink_event?: Record<string, unknown> }
@@ -724,8 +719,7 @@ export function AutoSpinPage() {
         return
       }
       const line = data.line ?? ''
-      if (isAgent) setAgentLogs(prev => [...prev.slice(-500), line])
-      else setLogs(prev => [...prev.slice(-500), line])
+      setLogs(prev => [...prev.slice(-500), line])
     }
     es.onerror = () => {
       es.close()
@@ -733,8 +727,8 @@ export function AutoSpinPage() {
       if (evtSourceRef.current !== es) return
       setTimeout(() => {
         if (evtSourceRef.current !== es) return
-        if (isAgent) setAgentLogs([]); else setLogs([])
-        connectSSE(sid, isAgent)
+        setLogs([])
+        connectSSE(sid)
       }, 2000)
     }
     evtSourceRef.current = es
@@ -769,14 +763,16 @@ export function AutoSpinPage() {
     } catch { setHubAgents([]) }
   }, [])
 
-  // agentRunning 一變 true（由 fetchStatus() 全域輪詢偵測到）就收掉「派工中…」，
-  // 不用 handleDispatchAgent 自己另開一個輪詢計時器去追（見下方註解，避免競態）
+  // 剛剛派工的那個 agentId 一出現在 agentSessions 裡（由 fetchStatus() 全域輪詢偵測到）就收掉
+  // 「派工中…」，不用 handleDispatchAgent 自己另開一個輪詢計時器去追（避免競態）。多裝置下不能
+  // 只看「agentRunning 有沒有變 true」——如果派工當下已經有其他裝置在跑，agentRunning 從頭到尾
+  // 都是 true、不會有 false→true 的轉變，要改成明確比對「這次選的 agentId 是否出現在清單裡」。
   useEffect(() => {
-    if (agentRunning) setHubDispatching(false)
-  }, [agentRunning])
+    if (hubDispatching && agentSessions.some(s => s.agentId === selectedAgentId)) setHubDispatching(false)
+  }, [agentSessions, hubDispatching, selectedAgentId])
 
   const handleDispatchAgent = async () => {
-    setStartError(''); setAgentLogs([]); setAgentCaptures([]); setLuckylinkStatus(null)
+    setStartError('')
     setHubDispatching(true)
     try {
       const r = await fetch('/api/autospin/hub-dispatch', {
@@ -791,12 +787,9 @@ export function AutoSpinPage() {
       })
       const d = await r.json() as { ok: boolean; message?: string }
       if (!d.ok) { setStartError(d.message ?? '派工失敗'); setHubDispatching(false); return }
-      // Agent 收到後會 spawn Python 引擎並向伺服器註冊 session；偵測 running 交給下方
-      // fetchStatus() 那顆全域輪詢（每 4 秒，本來就會做一樣的事：偵測 running/sessionId、
-      // 接 SSE、開 capture timer），這裡不再另外開一個 2 秒輪詢——兩個計時器同時搶著設
-      // agentRunning，先跑完的那個設 true 之後，比它晚一點點解析完的另一個可能用比較舊的
-      // 資料把它蓋回 false，畫面上會看到「剛顯示啟動中，立刻又跳回派工啟動」的閃爍。
-      // hubDispatching 改成交給下方 useEffect，agentRunning 一變 true 就自動收掉。
+      // Agent 收到後會 spawn Python 引擎並向伺服器註冊 session；偵測是否已成功交給上方那顆
+      // useEffect（比對這次選的 agentId 是否出現在 agentSessions 裡），這裡不再另外開輪詢計時器。
+      // 90 秒是保底 fallback，避免派工失敗但沒收到明確錯誤時，「派工中…」文字卡死不會恢復。
       setTimeout(() => setHubDispatching(false), 90000)
     } catch (e) {
       setStartError('派工失敗：' + String(e))
@@ -804,11 +797,14 @@ export function AutoSpinPage() {
     }
   }
 
+  // 只停選定的這一台裝置——hub-stop 帶 agentId 時，伺服器端 WS 停止指令＋should-stop 雙保險
+  // 迴圈都只作用在這個 agentId，不會連帶停掉其他裝置的 session；不再呼叫 agent/stop-all
+  // （那支是「整個帳號全部停」，多裝置下會誤停其他還在跑的裝置，2026-08-18 拿掉）。
+  // 暫停/繼續/Spin間隔這些單一 session 操作都移到 DeviceSessionPanel 內的 useAgentSession 了，
+  // 這裡（派工面板）的「停止」純粹是「取消/停掉我剛剛選的這台裝置」，不含 pause/resume。
   const handleStopHub = async () => {
-    if (hubStopping) return
+    if (hubStopping || !selectedAgentId) return
     setHubStopping(true)
-    setAgentPaused(false)
-    setAgentLogs(prev => [...prev, '[系統] 正在停止 Agent...'])
     try {
       await fetch('/api/autospin/hub-stop', {
         method: 'POST',
@@ -816,73 +812,27 @@ export function AutoSpinPage() {
         body: JSON.stringify({ agentId: selectedAgentId }),
       })
     } catch { /* ignore */ }
-    await fetch('/api/autospin/agent/stop-all', { method: 'POST', headers: { 'x-user-label': getGlobalUserLabel() } }).catch(() => {})
-    if (captureTimerRef.current) { clearInterval(captureTimerRef.current); captureTimerRef.current = null }
-    // 輪詢實際狀態，停掉就立刻更新 UI（不再固定等 8 秒）
+    // 輪詢實際狀態，這台裝置的 session 消失就立刻更新 UI（不再固定等 8 秒）
     const t0 = Date.now()
     const poll = setInterval(async () => {
-      let running = true
+      let stillRunning = true
       try {
         const r = await fetch('/api/autospin/agent/status', { headers: { 'x-user-label': getGlobalUserLabel() } })
-        const d = await r.json() as { running: boolean }
-        running = !!d.running
+        const d = await r.json() as { sessions?: { agentId: string }[] }
+        stillRunning = (d.sessions ?? []).some(s => s.agentId === selectedAgentId)
       } catch { /* ignore */ }
-      if (!running || Date.now() - t0 > 20000) {
+      if (!stillRunning || Date.now() - t0 > 20000) {
         clearInterval(poll)
-        setAgentRunning(false)
-        agentSessionIdRef.current = null
-        setAgentSessionId(null)
         setHubStopping(false)
-        setAgentLogs(prev => [...prev, '[系統] Agent 已停止'])
-        setTimeout(() => { if (evtSourceRef.current) { evtSourceRef.current.close(); evtSourceRef.current = null } }, 3000)
         void fetchHubAgents()
       }
     }, 1500)
   }
 
-  const [agentPaused, setAgentPaused] = useState(false)
-
-  const handlePause = async () => {
-    if (!agentSessionId) return
-    await fetch(`/api/autospin/agent/${agentSessionId}/pause`, { method: 'POST', headers: { 'x-user-label': getGlobalUserLabel() } })
-    setAgentPaused(true)
-  }
-
-  const handleResume = async () => {
-    if (!agentSessionId) return
-    await fetch(`/api/autospin/agent/${agentSessionId}/resume`, { method: 'POST', headers: { 'x-user-label': getGlobalUserLabel() } })
-    setAgentPaused(false)
-  }
-
-  const handleSetLiveInterval = async (val: number) => {
-    if (!agentSessionId) {
-      // 先前這裡直接 silent return——如果畫面上 Session 其實還沒同步到（例如剛派工、
-      // 全域輪詢還沒抓到 sessionId），使用者會看到「套用」按鈕正常跑完 loading，
-      // 但實際上這次設定完全沒送出去，也不會有任何錯誤提示。改成明確告知。
-      setStartError('尚未取得執行中的 Session，請稍候幾秒再試一次')
-      return
-    }
-    setLiveIntervalSaving(true)
-    try {
-      const r = await fetch(`/api/autospin/agent/${agentSessionId}/spin-interval`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-user-label': getGlobalUserLabel() },
-        body: JSON.stringify({ value: val }),
-      })
-      if (!r.ok) {
-        const d = await r.json().catch(() => ({} as { message?: string }))
-        setStartError(d.message ?? `套用 Spin 間隔失敗（HTTP ${r.status}）`)
-      }
-    } catch (e) {
-      setStartError('套用 Spin 間隔失敗：' + String(e))
-    } finally {
-      setLiveIntervalSaving(false)
-    }
-  }
-
-  // Auto-scroll logs
+  // Auto-scroll logs（伺服器端 fallback 模式專用；hub 模式的每個 DeviceSessionPanel 自己捲動）
   useEffect(() => {
     if (autoScrollLog && logBoxRef.current) logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight
-  }, [logs, agentLogs, autoScrollLog])
+  }, [logs, autoScrollLog])
 
   useEffect(() => {
     fetchConfigs(); fetchTemplates(); fetchStatus(); fetchHubAgents()
@@ -1718,6 +1668,7 @@ export function AutoSpinPage() {
             ))}
           </div>
 
+          {runMode === 'server' ? (
           <div style={{ flex: 1, display: 'flex', gap: 16, minHeight: 0, overflow: 'hidden' }}>
 
             {/* Left: controls + log */}
@@ -1838,64 +1789,40 @@ export function AutoSpinPage() {
 
                   <div style={{ borderTop: '1px solid #1e293b' }} />
 
-                  {/* ④ Status + controls row */}
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button className="cr-btn cr-btn--jade" onClick={handleDispatchAgent} disabled={agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)}
-                      style={{ padding: '7px 18px', background: (agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)) ? '#4b5563' : 'var(--xx-jade-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: (agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)) ? 'default' : 'pointer' }}>
-                      {hubDispatching ? '派工中…' : '派工啟動'}
-                    </button>
-                    <button className="cr-btn cr-btn--cinnabar" onClick={handleStopHub} disabled={hubStopping || (!agentRunning && !hubDispatching)}
-                      style={{ padding: '7px 18px', background: (hubStopping || (!agentRunning && !hubDispatching)) ? '#4b5563' : 'var(--xx-cinnabar-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: (hubStopping || (!agentRunning && !hubDispatching)) ? 'default' : 'pointer' }}>
-                      {hubStopping ? '停止中…' : '停止'}
-                    </button>
-                    {agentRunning && !agentPaused && !hubStopping && (
-                      <button className="cr-btn cr-btn--gold" onClick={handlePause}
-                        style={{ padding: '7px 14px', background: 'var(--xx-gold-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
-                        暫停
-                      </button>
-                    )}
-                    {agentRunning && agentPaused && (
-                      <button className="cr-btn cr-btn--jade" onClick={handleResume}
-                        style={{ padding: '7px 14px', background: 'var(--xx-jade-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
-                        繼續
-                      </button>
-                    )}
-                    <span style={{ fontSize: 12, padding: '4px 10px', borderRadius: 12, background: hubStopping ? 'rgba(223,118,94,0.14)' : agentPaused ? 'rgba(199,169,107,0.14)' : agentRunning ? 'var(--cr-cyan-soft)' : '#1e293b', color: hubStopping ? 'var(--cr-rose)' : agentPaused ? 'var(--cr-violet)' : agentRunning ? 'var(--cr-cyan)' : '#6b7280', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      <span className={agentRunning && !hubStopping ? 'cr-status-dot' : undefined} style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: hubStopping ? 'var(--cr-rose)' : agentPaused ? 'var(--cr-violet)' : agentRunning ? 'var(--cr-cyan)' : '#6b7280' }} />
-                      {hubStopping ? '停止中…' : agentPaused ? '已暫停' : agentRunning ? 'Agent 執行中' : '未連線'}
-                    </span>
-                    {agentSessionId && <span style={{ fontSize: 11, color: 'var(--cr-cyan)' }}>Session: {agentSessionId.slice(0, 8)}…</span>}
-
-                    <span style={{ width: 1, height: 20, background: '#2d3f55', margin: '0 2px' }} />
-
-                    {/* Live Spin Interval — 併進同一列，跟 mockup 一致 */}
-                    <span style={{ fontSize: 12, color: '#94a3b8' }}>Spin 間隔</span>
-                    <input
-                      type="range" min={0.1} max={10} step={0.1}
-                      value={liveSpinInterval}
-                      onChange={e => setLiveSpinInterval(parseFloat(e.target.value))}
-                      style={{ width: 120 }}
-                      disabled={!agentRunning}
-                    />
-                    <span style={{ fontSize: 13, fontWeight: 600, minWidth: 32 }}>{liveSpinInterval.toFixed(1)}s</span>
-                    <button
-                      type="button"
-                      className="cr-btn"
-                      disabled={!agentRunning || liveIntervalSaving}
-                      onClick={() => handleSetLiveInterval(liveSpinInterval)}
-                      style={{ padding: '3px 12px', fontSize: 12, borderRadius: 6, border: '1px solid var(--cr-cyan-border)', background: 'var(--cr-cyan-soft)', color: 'var(--cr-cyan)', cursor: agentRunning ? 'pointer' : 'default' }}
-                    >
-                      {liveIntervalSaving ? '...' : '套用'}
-                    </button>
-                    <span style={{ fontSize: 11, color: '#64748b' }}>覆蓋所有機台間隔，Agent 3秒內生效</span>
-                  </div>
+                  {/* ④ 派工/停止（選定裝置）——暫停/繼續/Spin間隔已改成每台裝置各自在下方的
+                      DeviceSessionPanel 卡片裡操作（2026-08-18 多裝置並行），這裡只負責「派工到
+                      選定的這台」跟「停掉選定的這台」，不代表全域狀態 */}
+                  {(() => {
+                    const selectedRunning = agentSessions.some(s => s.agentId === selectedAgentId)
+                    const selectedAgent = hubAgents.find(a => a.agentId === selectedAgentId)
+                    return (
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <button className="cr-btn cr-btn--jade" onClick={handleDispatchAgent}
+                          disabled={hubDispatching || !selectedAgentId || selectedAgent?.busy || selectedRunning || (luckylinkEnabled && !luckylinkJpGroupCode)}
+                          style={{ padding: '7px 18px', background: (hubDispatching || !selectedAgentId || selectedAgent?.busy || selectedRunning || (luckylinkEnabled && !luckylinkJpGroupCode)) ? '#4b5563' : 'var(--xx-jade-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
+                          {hubDispatching ? '派工中…' : '派工啟動'}
+                        </button>
+                        <button className="cr-btn cr-btn--cinnabar" onClick={handleStopHub} disabled={hubStopping || !selectedRunning}
+                          style={{ padding: '7px 18px', background: (hubStopping || !selectedRunning) ? '#4b5563' : 'var(--xx-cinnabar-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: 'pointer' }}>
+                          {hubStopping ? '停止中…' : '停止選定裝置'}
+                        </button>
+                        <span style={{ fontSize: 12, padding: '4px 10px', borderRadius: 12, background: selectedRunning ? 'var(--cr-cyan-soft)' : '#1e293b', color: selectedRunning ? 'var(--cr-cyan)' : '#6b7280', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <span className={selectedRunning ? 'cr-status-dot' : undefined} style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: selectedRunning ? 'var(--cr-cyan)' : '#6b7280' }} />
+                          {selectedRunning ? '選定裝置執行中' : '選定裝置未連線'}
+                        </span>
+                        {agentSessions.length > 0 && (
+                          <span style={{ fontSize: 11, color: '#94a3b8' }}>目前共 {agentSessions.length} 台裝置在跑（見下方釘選列表）</span>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               )}
 
               {/* Log panel: filter/search + pinus category chips + bounded scrollable body */}
               {(() => {
-                const rawLogs = runMode === 'server' ? logs : agentLogs
-                const categorized = rawLogs.map(l => {
+                const rawLogs = logs
+                const categorized = rawLogs.map((l: string) => {
                   const cat = classifyLogLine(l)
                   return { text: l, cat, pinusCat: cat === 'pinus' ? classifyPinusRoute(l) : null }
                 })
@@ -1934,7 +1861,7 @@ export function AutoSpinPage() {
                         style={{ fontSize: 11, padding: '3px 9px', borderRadius: 5, border: '1px solid #2d3f55', background: '#0f172a', color: '#94a3b8', cursor: 'pointer' }}>
                         下載
                       </button>
-                      <button className="cr-pill" onClick={() => (runMode === 'server' ? setLogs([]) : setAgentLogs([]))}
+                      <button className="cr-pill" onClick={() => setLogs([])}
                         style={{ fontSize: 11, padding: '3px 9px', borderRadius: 5, border: '1px solid #2d3f55', background: '#0f172a', color: '#94a3b8', cursor: 'pointer' }}>
                         清空
                       </button>
@@ -1987,12 +1914,6 @@ export function AutoSpinPage() {
                 )
               })()}
 
-              {/* Agent 機器環境準備 — hub 模式 */}
-              {runMode === 'hub' && hubAgents.length === 0 && (
-                <div style={{ fontSize: 12, color: '#64748b', padding: '8px 2px' }}>
-                  沒看到 agent？請到左側「Local Agent」頁面下載安裝並啟動 Agent（含 macOS 安裝教學），完成配對後就會出現在上方清單。
-                </div>
-              )}
             </div>
 
             {/* Right: screenshots + SLS errors */}
@@ -2117,14 +2038,12 @@ export function AutoSpinPage() {
                   </button>
                 </div>
                 {(() => {
-                  const raw = runMode === 'server' ? captures : agentCaptures
+                  const raw = captures
                   if (raw.length === 0) return <p style={{ color: '#64748b', fontSize: 12 }}>尚無截圖</p>
                   const items = [...raw].reverse().map(f => ({
                     name: f.name,
-                    ts: 'mtime' in f ? f.mtime : f.time,
-                    src: runMode === 'server'
-                      ? `/api/autospin/captures/${encodeURIComponent(f.name)}`
-                      : `/api/autospin/agent/screenshot/${agentSessionId}/${encodeURIComponent(f.name)}?userLabel=${encodeURIComponent(getGlobalUserLabel())}`,
+                    ts: f.mtime,
+                    src: `/api/autospin/captures/${encodeURIComponent(f.name)}`,
                     spinNo: extractSpinNo(f.name),
                   }))
                   return (
@@ -2156,6 +2075,79 @@ export function AutoSpinPage() {
               </div>
             </div>
           </div>
+          ) : (
+          /* ── Remote agent (hub) 模式：多裝置並行監控（2026-08-18）───────────────
+             跟 mockup（CodeX review 過）一致：頂部裝置釘選列 + 下方 grid——1~2 台並排完整版面，
+             3 台以上改「1 台主視角＋其餘精簡卡片」，每個裝置各自的 SSE/日誌/截圖/LuckyLink
+             狀態都在 DeviceSessionPanel 內用 useAgentSession 管理，identity 以 sessionId 為主。 */
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 14, minHeight: 0, overflow: 'auto' }}>
+            {agentSessions.length === 0 ? (
+              <div style={{ fontSize: 12, color: '#64748b', padding: 20, textAlign: 'center', border: '1px dashed #2d3f55', borderRadius: 8 }}>
+                目前沒有裝置在執行 AutoSpin。選擇上方 Agent 後點「派工啟動」開始。
+              </div>
+            ) : (
+              <>
+                {/* 裝置釘選列 */}
+                <div style={{ background: '#131c2e', border: '1px solid #223350', borderRadius: 10, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 11, color: '#64748b', marginBottom: 8 }}>點擊裝置卡片「釘選」加入下方監控畫面，可複選；取消釘選不會停止該裝置</div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {agentSessions.map(s => {
+                      const pinned = pinnedAgentIds.includes(s.agentId)
+                      return (
+                        <div key={s.agentId} onClick={() => setPinnedAgentIds(prev => pinned ? prev.filter(id => id !== s.agentId) : [...prev, s.agentId])}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, background: pinned ? 'rgba(56,189,248,0.1)' : '#1a2740', border: `1.5px solid ${pinned ? 'var(--cr-cyan)' : '#223350'}`, borderRadius: 10, padding: '7px 11px', cursor: 'pointer', minWidth: 170 }}>
+                          <div style={{ width: 15, height: 15, borderRadius: 4, border: `1.5px solid ${pinned ? 'var(--cr-cyan)' : '#475569'}`, background: pinned ? 'var(--cr-cyan)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, color: '#06222c', flexShrink: 0 }}>{pinned ? '✓' : ''}</div>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 700, fontSize: 12.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.hostname || s.agentId}</div>
+                            <div style={{ fontSize: 10, color: '#64748b' }}>執行中</div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* 裝置卡片 grid：1~2 台完整並排，3 台以上 1 主視角 + 精簡卡片 */}
+                {(() => {
+                  const pinned = agentSessions.filter(s => pinnedAgentIds.includes(s.agentId))
+                  if (pinned.length === 0) {
+                    return <div style={{ fontSize: 12, color: '#64748b', padding: 20, textAlign: 'center' }}>尚未釘選任何裝置——點上方裝置卡片開始監控</div>
+                  }
+                  if (pinned.length <= 2) {
+                    return (
+                      <div className={`autospin-device-grid autospin-device-grid--cols-${pinned.length}`}>
+                        {pinned.map(s => (
+                          <DeviceSessionPanel key={s.sessionId} sessionId={s.sessionId} agentId={s.agentId}
+                            hostname={s.hostname || s.agentId} startedAt={s.startedAt} userLabel={userLabel}
+                            isPrimary configs={configs} onSetLightbox={setLightbox} />
+                        ))}
+                      </div>
+                    )
+                  }
+                  const primary = pinned.find(s => s.agentId === primaryAgentId) ?? pinned[0]
+                  const rest = pinned.filter(s => s.agentId !== primary.agentId)
+                  return (
+                    <>
+                      <div className="autospin-device-grid autospin-device-grid--cols-1">
+                        <DeviceSessionPanel key={primary.sessionId} sessionId={primary.sessionId} agentId={primary.agentId}
+                          hostname={primary.hostname || primary.agentId} startedAt={primary.startedAt} userLabel={userLabel}
+                          isPrimary configs={configs} onSetLightbox={setLightbox} />
+                      </div>
+                      <div className="autospin-condensed-row" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
+                        {rest.map(s => (
+                          <DeviceSessionPanel key={s.sessionId} sessionId={s.sessionId} agentId={s.agentId}
+                            hostname={s.hostname || s.agentId} startedAt={s.startedAt} userLabel={userLabel}
+                            isPrimary={false} configs={configs} onSetLightbox={setLightbox}
+                            onPromote={() => setPrimaryAgentId(s.agentId)} />
+                        ))}
+                      </div>
+                    </>
+                  )
+                })()}
+              </>
+            )}
+          </div>
+          )}
         </div>
       )}
     </div>
