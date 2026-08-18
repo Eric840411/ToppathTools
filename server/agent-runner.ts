@@ -112,8 +112,6 @@ interface AutoSpinStartMessage {
   type: 'autospin_start'
   sessionId: string
   userLabel: string
-  /** 派工目標裝置 id（本機自己）——2026-08-18 多裝置並行，一路傳給 Python 引擎的 /agent/start 註冊 */
-  agentId?: string
 }
 
 type IncomingMessage =
@@ -949,29 +947,8 @@ function connect() {
   console.log(`[Agent:${AGENT_LABEL}] Connecting to ${url} ...`)
   const ws = new WebSocket(url)
 
-  // 主動心跳存活檢查（2026-08-18）——原本純被動等 WebSocket 'close' 事件才觸發重連，
-  // 但實測發現伺服器 process 重啟時（部署很常見），中間隔著 Nginx 反代，client 端的連線
-  // 可能變成「殭屍連線」：連線物件還在，'close' 事件遲遲不觸發甚至永遠不觸發，Local Agent
-  // 會卡在顯示「Connected — ready」但伺服器早就不認得它的狀態，只能手動重啟才會恢復。
-  // 伺服器端（worker.ts）本來就有每 30 秒 ws.ping() 防止 Nginx proxy_read_timeout 閒置斷線，
-  // 這裡額外加 client 端主動探測：每 20 秒送一次 ping，若超過 40 秒沒收到任何 pong，視為
-  // 死連線，主動 ws.terminate()（不是 close()——terminate 強制立即摧毀 socket，可靠觸發
-  // 下面既有的 'close' handler，不用等一個可能永遠不會來的優雅關閉握手），沿用既有的
-  // 5 秒後重連邏輯，不需要另外呼叫 connect()（避免雙重重連）。
-  let lastPongAt = Date.now()
-  ws.on('pong', () => { lastPongAt = Date.now() })
-  const heartbeatTimer = setInterval(() => {
-    if (Date.now() - lastPongAt > 40_000) {
-      console.log(`[Agent:${AGENT_LABEL}] Heartbeat timeout, terminating stale connection`)
-      ws.terminate()
-      return
-    }
-    if (ws.readyState === WebSocket.OPEN) ws.ping()
-  }, 20_000)
-
   ws.on('open', () => {
     console.log(`[Agent:${AGENT_LABEL}] Connected — ready`)
-    lastPongAt = Date.now()
     ws.send(JSON.stringify({
       type: 'agent_ready',
       agentId: AGENT_ID,
@@ -1034,7 +1011,7 @@ function connect() {
     // 在被派工時啟動它、停止時關閉它，並在結束時回報 agent_done 釋放此 agent。
     if (msg.type === 'autospin_start') {
       const startMsg = msg as AutoSpinStartMessage
-      const { sessionId, userLabel, agentId } = startMsg
+      const { sessionId, userLabel } = startMsg
       const luckylinkConfig = (startMsg as unknown as { luckylinkConfig?: { enabled: boolean; jpGroupCode?: string; pollIntervalSec?: number; luckylinkUrl?: string; luckylinkGroupName?: string; loginUser?: string; loginPass?: string } }).luckylinkConfig
 
       if (autospinChild) {
@@ -1054,7 +1031,7 @@ function connect() {
         if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'agent_done', sessionId }))
         return
       }
-      const uriArg = `toppath-agent://?server=${encodeURIComponent(httpBase)}&user=${encodeURIComponent(userLabel ?? '')}&agent=${encodeURIComponent(agentId ?? '')}`
+      const uriArg = `toppath-agent://?server=${encodeURIComponent(httpBase)}&user=${encodeURIComponent(userLabel ?? '')}`
       console.log(`[Agent:${AGENT_LABEL}] AutoSpin start → ${PYTHON_EXE} ${scriptPath} (server=${httpBase}, user=${userLabel || '(none)'})`)
       const child = spawn(PYTHON_EXE, [scriptPath, uriArg], {
         cwd: join(process.cwd(), 'server', 'python'),
@@ -1082,22 +1059,10 @@ function connect() {
       })
 
       // ── Spawn LuckyLink poller if requested ──────────────────────────────────
-      const sendLuckylinkError = (message: string, code: string) => {
-        if (ws.readyState !== ws.OPEN) return
-        ws.send(JSON.stringify({
-          type: 'luckylink_event',
-          sessionId,
-          event: { type: 'luckylink_error', ts: new Date().toISOString(), data: { message, fatal: true, code } },
-        }))
-      }
       if (luckylinkConfig?.enabled && luckylinkConfig.luckylinkUrl) {
         const pollerPath = join(process.cwd(), 'server', 'luckylink-poller.mjs')
         if (!existsSync(pollerPath)) {
           console.warn(`[Agent:${AGENT_LABEL}] LuckyLink poller not found: ${pollerPath}`)
-          sendLuckylinkError(
-            `LuckyLink poller 檔案不存在於 Agent 機器：${pollerPath}（請到「Local Agent」頁面點「更新 source files」補齊後再重新啟動）`,
-            'LUCKYLINK_POLLER_MISSING',
-          )
         } else {
           console.log(`[Agent:${AGENT_LABEL}] LuckyLink poller start → group=${luckylinkConfig.jpGroupCode} url=${luckylinkConfig.luckylinkUrl} interval=${luckylinkConfig.pollIntervalSec}s`)
           const gameCodes = (luckylinkConfig as unknown as { gameCodes?: string[] }).gameCodes ?? []
@@ -1132,15 +1097,10 @@ function connect() {
           poller.on('close', (code) => {
             console.log(`[Agent:${AGENT_LABEL}] LuckyLink poller exited (code ${code})`)
             if (luckylinkPollerChild === poller) luckylinkPollerChild = null
-            // code===null 代表被訊號（如 SIGTERM）中止，通常是正常停止流程，不當異常回報
-            if (code !== 0 && code !== null) {
-              sendLuckylinkError(`LuckyLink poller 異常結束（exit code ${code}），請查看 Agent 終端機日誌`, 'LUCKYLINK_POLLER_EXIT')
-            }
           })
           poller.on('error', (err) => {
             console.error(`[Agent:${AGENT_LABEL}] LuckyLink poller spawn error:`, err)
             if (luckylinkPollerChild === poller) luckylinkPollerChild = null
-            sendLuckylinkError(`LuckyLink poller 啟動失敗：${err.message}`, 'LUCKYLINK_POLLER_SPAWN_ERROR')
           })
         }
       }
@@ -1317,6 +1277,7 @@ function connect() {
       // Seed the module-level osmMap with the session snapshot; live updates will keep it current
       currentOsmMap.clear()
       for (const [k, v] of osmMachineStatus) currentOsmMap.set(k, v)
+      const profileMap = new Map<string, MachineProfile>(profiles.map(p => [p.machineType, p]))
 
       console.log(`[Agent:${AGENT_LABEL}] Joined session ${sessionId} — starting claim-loop`)
 
@@ -1339,7 +1300,7 @@ function connect() {
 
           try {
             // Create a fresh runner for each machine (avoids stale state)
-            const runner = new MachineTestRunner(currentOsmMap, profiles, betRandomConfig)
+            const runner = new MachineTestRunner(currentOsmMap, profileMap, betRandomConfig)
             currentRunner = runner
 
             runner.on('event', (ev: TestEvent) => {
@@ -1396,7 +1357,6 @@ function connect() {
   ws.on('close', (code, reason) => {
     const detail = reason.toString().trim()
     console.log(`[Agent:${AGENT_LABEL}] Disconnected (code=${code}${detail ? `, reason=${detail}` : ''}), reconnecting in 5s ...`)
-    clearInterval(heartbeatTimer)
     currentRunner = null
     // Abort any in-flight claim
     pendingClaimResolve?.(null)
@@ -1406,7 +1366,6 @@ function connect() {
 
   ws.on('error', (err) => {
     console.error(`[Agent:${AGENT_LABEL}] WS error:`, err.message)
-    clearInterval(heartbeatTimer)
   })
 }
 

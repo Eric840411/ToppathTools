@@ -55,8 +55,6 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'scripted-bet/types.ts':         join(SERVER_ROOT, 'scripted-bet', 'types.ts'),
   // AutoSpin Python 引擎（A2：agent 端 spawn 它跑 AutoSpin，自含單檔）
   'python/toppath-agent.py':       join(SERVER_ROOT, 'python', 'toppath-agent.py'),
-  // LuckyLink JP 比對 poller（agent 端 spawn，自含單檔）
-  'luckylink-poller.mjs':          join(SERVER_ROOT, 'luckylink-poller.mjs'),
 }
 
 export const router = Router()
@@ -552,7 +550,7 @@ router.post('/api/image-check/stop/:id', async (req, res) => {
 
 // GET /api/machine-test/profiles
 router.get('/api/machine-test/profiles', (_req, res) => {
-  const rows = db.prepare('SELECT * FROM machine_test_profiles ORDER BY machineType, enterMachineType').all() as (MachineTestProfile & { touchPoints: string | null; clickTake: number })[]
+  const rows = db.prepare('SELECT * FROM machine_test_profiles ORDER BY machineType').all() as (MachineTestProfile & { touchPoints: string | null; clickTake: number })[]
   const profiles = rows.map(r => ({
     ...r,
     touchPoints:       r.touchPoints       ? JSON.parse(r.touchPoints as unknown as string)       : [],
@@ -572,7 +570,6 @@ router.put('/api/machine-test/profiles', (req, res, next) => {
     const p = profileSchema.parse(req.body) as MachineTestProfile
     const row = {
       ...p,
-      enterMachineType:  p.enterMachineType ?? '',
       touchPoints:       p.touchPoints       ? JSON.stringify(p.touchPoints)       : null,
       entryTouchPoints:  p.entryTouchPoints  ? JSON.stringify(p.entryTouchPoints)  : null,
       entryTouchPoints2: p.entryTouchPoints2 ? JSON.stringify(p.entryTouchPoints2) : null,
@@ -581,14 +578,12 @@ router.put('/api/machine-test/profiles', (req, res, next) => {
       clickTake: p.clickTake ? 1 : 0,
       expectedScreens:   p.expectedScreens ?? null,
     }
-    // PRIMARY KEY 是 (machineType, enterMachineType) 複合鍵——同機型代碼可以依 enterMachineType 建多筆設定檔，
-    // 只有兩欄都相同才會 upsert 蓋掉既有那筆
     db.prepare(`
       INSERT INTO machine_test_profiles (machineType, bonusAction, touchPoints, clickTake, gmid, enterMachineType, spinSelector, balanceSelector, exitSelector, notes, entryTouchPoints, entryTouchPoints2, ideck_xpaths, audioConfig, expectedScreens)
       VALUES (@machineType, @bonusAction, @touchPoints, @clickTake, @gmid, @enterMachineType, @spinSelector, @balanceSelector, @exitSelector, @notes, @entryTouchPoints, @entryTouchPoints2, @ideck_xpaths, @audioConfig, @expectedScreens)
-      ON CONFLICT(machineType, enterMachineType) DO UPDATE SET
+      ON CONFLICT(machineType) DO UPDATE SET
         bonusAction=excluded.bonusAction, touchPoints=excluded.touchPoints, clickTake=excluded.clickTake,
-        gmid=excluded.gmid,
+        gmid=excluded.gmid, enterMachineType=excluded.enterMachineType,
         spinSelector=excluded.spinSelector, balanceSelector=excluded.balanceSelector,
         exitSelector=excluded.exitSelector, notes=excluded.notes,
         entryTouchPoints=excluded.entryTouchPoints, entryTouchPoints2=excluded.entryTouchPoints2,
@@ -602,15 +597,9 @@ router.put('/api/machine-test/profiles', (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-// DELETE /api/machine-test/profiles/:type?enterMachineType=... — 複合鍵定位單一筆
-// 舊呼叫端（沒帶 enterMachineType query）行為刻意設計成安全：預設比對空字串那筆——
-// 對只有單筆且 enterMachineType 留空的機型代碼（既有資料 migration 後大多如此），行為
-// 跟改動前完全一樣；對已經有多筆分流設定檔的機型代碼，最壞情況是「沒刪到任何東西」
-// （沒有留空那筆可刪）或「只刪掉泛用預設那筆」，絕不會誤刪某個特定 enterMachineType 的
-// 專屬設定檔——沒有 enterMachineType 資訊的呼叫端本來就無從得知該刪哪一筆專屬設定。
+// DELETE /api/machine-test/profiles/:type
 router.delete('/api/machine-test/profiles/:type', (req, res) => {
-  const enterMachineType = typeof req.query.enterMachineType === 'string' ? req.query.enterMachineType : ''
-  db.prepare('DELETE FROM machine_test_profiles WHERE machineType = ? AND enterMachineType = ?').run(req.params.type.toUpperCase(), enterMachineType)
+  db.prepare('DELETE FROM machine_test_profiles WHERE machineType = ?').run(req.params.type.toUpperCase())
   res.json({ ok: true })
 })
 
@@ -981,6 +970,7 @@ router.post('/api/machine-test/start', async (req, res, next) => {
       clickTake: !!r.clickTake,
       audioConfig:       (r as any).audioConfig ? JSON.parse((r as any).audioConfig) : null,
     })) as MachineProfile[]
+    const profileMap = new Map(profiles.map(p => [p.machineType, p]))
     const betRandomPath = join(AUTOSPIN_PROJECT_DIR, 'bet_random.json')
     const betRandomConfig: Record<string, string[]> = existsSync(betRandomPath)
       ? JSON.parse(readFileSync(betRandomPath, 'utf-8'))
@@ -1074,7 +1064,7 @@ router.post('/api/machine-test/start', async (req, res, next) => {
       res.json({ ok: true, sessionId, mode: 'distributed', agents: availableAgents.length })
     } else {
       // ???? Local: run on this server ??????????????????????????????????????????????????????????????????????????????????
-      const runner = new MachineTestRunner(osmMachineStatus, profiles, betRandomConfig)
+      const runner = new MachineTestRunner(osmMachineStatus, profileMap, betRandomConfig)
       runner.on('event', broadcastToViewers)
       activeRunners.set(sessionId, {
         account: sessionAccount,

@@ -11,7 +11,7 @@ import { fileURLToPath } from 'url'
 import { dirname } from 'path'
 import { db, addHistory, upload } from '../shared.js'
 import { getOperatorFromContext } from '../request-context.js'
-import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, tryStartScopedHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
+import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { fetchSlsErrors, fetchRecordBet, testSlsRecordBetConnection, type SlsBetRecord } from '../lib/sls.js'
 import { randomUUID } from 'crypto'
 import { agentConnections, getAvailableAgents } from '../agent-hub.js'
@@ -348,24 +348,24 @@ router.post('/api/autospin/discord-webhook/test', async (_req, res) => {
 interface NotifyPrefsRow {
   userLabel: string; notifyEnabled: number; notifyFields: string
   reportEnabled: number; reportIntervalMin: number; reportFields: string
-  reportCustomNote: string; reportAiEnabled: number; compareEnabled: number; screenshotEnabled: number
+  reportCustomNote: string; reportAiEnabled: number; compareEnabled: number
 }
 function getNotifyPrefsRow(userLabel: string): NotifyPrefsRow | undefined {
   return db.prepare('SELECT * FROM autospin_notify_prefs WHERE userLabel = ?').get(userLabel) as NotifyPrefsRow | undefined
 }
 function upsertNotifyPrefs(userLabel: string, patch: Partial<Omit<NotifyPrefsRow, 'userLabel'>>) {
   const existing = getNotifyPrefsRow(userLabel) ?? {
-    userLabel, notifyEnabled: 1, notifyFields: '', reportEnabled: 0, reportIntervalMin: 20, reportFields: '', reportCustomNote: '', reportAiEnabled: 0, compareEnabled: 1, screenshotEnabled: 1,
+    userLabel, notifyEnabled: 1, notifyFields: '', reportEnabled: 0, reportIntervalMin: 20, reportFields: '', reportCustomNote: '', reportAiEnabled: 0, compareEnabled: 1,
   }
   const merged = { ...existing, ...patch }
   db.prepare(`
-    INSERT INTO autospin_notify_prefs (userLabel, notifyEnabled, notifyFields, reportEnabled, reportIntervalMin, reportFields, reportCustomNote, reportAiEnabled, compareEnabled, screenshotEnabled)
-    VALUES (@userLabel, @notifyEnabled, @notifyFields, @reportEnabled, @reportIntervalMin, @reportFields, @reportCustomNote, @reportAiEnabled, @compareEnabled, @screenshotEnabled)
+    INSERT INTO autospin_notify_prefs (userLabel, notifyEnabled, notifyFields, reportEnabled, reportIntervalMin, reportFields, reportCustomNote, reportAiEnabled, compareEnabled)
+    VALUES (@userLabel, @notifyEnabled, @notifyFields, @reportEnabled, @reportIntervalMin, @reportFields, @reportCustomNote, @reportAiEnabled, @compareEnabled)
     ON CONFLICT(userLabel) DO UPDATE SET
       notifyEnabled = excluded.notifyEnabled, notifyFields = excluded.notifyFields,
       reportEnabled = excluded.reportEnabled, reportIntervalMin = excluded.reportIntervalMin,
       reportFields = excluded.reportFields, reportCustomNote = excluded.reportCustomNote, reportAiEnabled = excluded.reportAiEnabled,
-      compareEnabled = excluded.compareEnabled, screenshotEnabled = excluded.screenshotEnabled
+      compareEnabled = excluded.compareEnabled
   `).run(merged)
 }
 
@@ -373,13 +373,6 @@ function upsertNotifyPrefs(userLabel: string, patch: Partial<Omit<NotifyPrefsRow
 function isCompareEnabled(userLabel: string): boolean {
   const row = getNotifyPrefsRow(userLabel)
   return row ? row.compareEnabled !== 0 : true
-}
-// 截圖監控依帳號開關（2026-08-17，使用者要求「不要常駐，讓使用者決定」）——只在 AutoSpin 啟動時
-// 讀一次（見 /agent/start），啟動後切換此開關要等下次重啟 session 才生效，不是即時的（跟 CodeX
-// 討論定案：即時生效要多一條 agent polling/server push，這版先做成本低的「下次啟動生效」）
-function isScreenshotEnabled(userLabel: string): boolean {
-  const row = getNotifyPrefsRow(userLabel)
-  return row ? row.screenshotEnabled !== 0 : true
 }
 function legacySetting(key: string): string | undefined {
   return (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value
@@ -917,9 +910,6 @@ interface AgentSession {
   stopRequested: boolean
   pauseRequested: boolean
   userLabel: string
-  /** 派工目標的 Local Agent 裝置 id——同一帳號可以同時對不同裝置各自持有一個 session
-   *  （2026-08-18，多裝置並行）；空字串代表舊資料/伺服器端 fallback 模式（沒有裝置概念）*/
-  agentId: string
   spinIntervalOverride: number | null
   heavyTask?: HeavyTaskToken
   // LuckyLink poller state — replayed on SSE reconnect so panel survives refresh
@@ -946,9 +936,7 @@ const agentSessions = new Map<string, AgentSession>()
   for (const row of rows) {
     try {
       const parsed = JSON.parse(row.data) as Omit<AgentSession, 'logs' | 'screenshots'>
-      // agentId 是 2026-08-18 新增欄位，部署當下正在跑、快照寫入早於這次改動的 session 沒有這個
-      // 欄位，fallback 空字串（沿用「舊資料/無裝置概念」語意，不影響既有單裝置流程）
-      agentSessions.set(row.id, { ...parsed, agentId: parsed.agentId ?? '', logs: [], screenshots: [] })
+      agentSessions.set(row.id, { ...parsed, logs: [], screenshots: [] })
       restored++
     } catch {
       db.prepare('DELETE FROM autospin_agent_sessions WHERE id = ?').run(row.id)
@@ -1150,35 +1138,28 @@ export { broadcastAgentLog, broadcastLuckylinkEvent }
 // POST /api/autospin/agent/start — agent registers and gets configs
 router.post('/api/autospin/agent/start', (req, res) => {
   const userLabel = (req.body as { userLabel?: string }).userLabel ?? ''
-  // agentId 是派工目標 Local Agent 裝置的 id（2026-08-18，多裝置並行）；伺服器端 fallback 模式
-  // 沒有裝置概念，維持空字串——這條路徑刻意不 scope，沿用原本「整帳號互斥」語意。
-  const agentId = (req.body as { agentId?: string }).agentId ?? ''
-  const heavyTask = agentId
-    ? tryStartScopedHeavyTask(req, 'autospin-agent', 'AutoSpin Agent', `agent:${agentId}`)
-    : tryStartHeavyTask(req, 'autospin-agent', 'AutoSpin Agent')
+  const heavyTask = tryStartHeavyTask(req, 'autospin-agent', 'AutoSpin Agent')
   let sessionId: string
   let isNewSession = false
   if (!heavyTask.ok) {
     // 多進程架構下（每台機台一個獨立 process），同一次派工底下的每個 machine_worker() 都各自
     // 獨立輪詢 /should-stop；一旦 session 遺失（例如伺服器重啟，記憶體內的 agentSessions 被清空），
     // 每個 process 會各自嘗試重新呼叫這支 API 登錄——第一個成功的會拿到新 session、佔走這個
-    // (userLabel, agentId) 的 heavy-task 名額，緊接著幾乎同時打進來的其他 process 只會看到「已被
-    // 佔用」而失敗（Python 端會出現 KeyError: 'sessionId'，因為衝突回應沒有這個欄位）。這種情況
-    // 不是真的衝突（不是使用者手動又點了一次派工），只要衝突對象本身也是 autospin-agent、而且
-    // 已經有一個屬於同一個 (userLabel, agentId) 的 running session（就是剛剛那個搶到名額的
-    // process 建立的），直接讓這個 process 加入既有 session 就好，不要擋下來讓它永遠卡在重連
-    // 失敗。比對加上 agentId，避免裝置 B 的重連誤加入裝置 A 的 session。
-    const existing = [...agentSessions.values()].find(s => s.status === 'running' && s.userLabel === userLabel && s.agentId === agentId)
+    // userLabel 的 heavy-task 名額，緊接著幾乎同時打進來的其他 process 只會看到「已被佔用」而
+    // 失敗（Python 端會出現 KeyError: 'sessionId'，因為衝突回應沒有這個欄位）。這種情況不是真的
+    // 衝突（不是使用者手動又點了一次派工），只要衝突對象本身也是 autospin-agent、而且已經有一個
+    // 屬於同一個 userLabel 的 running session（就是剛剛那個搶到名額的 process 建立的），直接讓
+    // 這個 process 加入既有 session 就好，不要擋下來讓它永遠卡在重連失敗。
+    const existing = [...agentSessions.values()].find(s => s.status === 'running' && s.userLabel === userLabel)
     if (heavyTask.task.type === 'autospin-agent' && existing) {
       sessionId = existing.id
     } else {
       return res.status(429).json(heavyTaskConflict(heavyTask.task))
     }
   } else {
-    // Stop any existing agent sessions for this user **on the same device**（多加 agentId 比對，
-    // 否則裝置 B 重新派工時會連帶把裝置 A 正在跑的 session 一起停掉，違背多裝置並行的目的）
+    // Stop any existing agent sessions for this user
     for (const s of agentSessions.values()) {
-      if (s.status === 'running' && (!userLabel || s.userLabel === userLabel) && s.agentId === agentId) {
+      if (!userLabel || s.userLabel === userLabel) {
         s.status = 'stopped'
         finishHeavyTask(s.heavyTask)
       }
@@ -1187,41 +1168,16 @@ router.post('/api/autospin/agent/start', (req, res) => {
     isNewSession = true
     agentSessions.set(sessionId, {
       id: sessionId, status: 'running', startedAt: Date.now(), lastHeartbeat: Date.now(),
-      logs: [], screenshots: [], stopRequested: false, pauseRequested: false, userLabel, agentId, spinIntervalOverride: null,
+      logs: [], screenshots: [], stopRequested: false, pauseRequested: false, userLabel, spinIntervalOverride: null,
       heavyTask: heavyTask.token,
     })
   }
   // Return configs merged with machine_test_profiles selectors
   // （entryTouchPoints/entryTouchPoints2 讓 AutoSpin 的進入機台流程與 Machine Test 完全一致）
   const configs = readConfigs(userLabel)
-  const profiles = db.prepare('SELECT machineType, enterMachineType, spinSelector, balanceSelector, entryTouchPoints, entryTouchPoints2, bonusAction, touchPoints, clickTake, ideck_xpaths FROM machine_test_profiles').all() as
-    { machineType: string; enterMachineType: string | null; spinSelector: string | null; balanceSelector: string | null; entryTouchPoints: string | null; entryTouchPoints2: string | null; bonusAction: string | null; touchPoints: string | null; clickTake: number | null; ideck_xpaths: string | null }[]
-  // machine_test_profiles 的 PRIMARY KEY 是 (machineType, enterMachineType) 複合鍵，同一個機型代碼可能
-  // 對到多筆設定檔（依 enterMachineType 分流，runner.ts 進場後有即時訊號可以精準比對，但 AutoSpin
-  // 派工當下還沒進場、拿不到這個訊號）。這裡刻意不「靜默挑任意一筆」（SQL 沒 ORDER BY，順序不保證，
-  // AutoSpin 是實際下注流程，選錯設定檔比對照原本没有設定檔更危險）：多筆時優先採用 enterMachineType
-  // 留空的那筆當泛用預設；如果每筆都指定了 enterMachineType、沒有留空的可以當預設，寧可不套用任何一筆
-  // 自訂設定（退回程式內建預設行為）也不要用錯，並印出明確 warning 方便事後追查。
-  const profilesByType = new Map<string, typeof profiles>()
-  for (const p of profiles) {
-    const arr = profilesByType.get(p.machineType)
-    if (arr) arr.push(p); else profilesByType.set(p.machineType, [p])
-  }
-  const profileMap: Record<string, typeof profiles[number]> = {}
-  for (const [mt, rows] of profilesByType) {
-    if (rows.length === 1) {
-      profileMap[mt] = rows[0]
-      continue
-    }
-    const blank = rows.find(r => !r.enterMachineType)
-    const candidates = rows.map(r => r.enterMachineType || '(留空)').join(', ')
-    if (blank) {
-      profileMap[mt] = blank
-      console.warn(`[AutoSpin] machine_test_profiles "${mt}" 有 ${rows.length} 筆設定檔（依 enterMachineType 分流：${candidates}），派工當下無法得知實際 enterMachineType，採用留空那筆當預設`)
-    } else {
-      console.warn(`[AutoSpin] machine_test_profiles "${mt}" 有 ${rows.length} 筆設定檔且都指定了 enterMachineType（${candidates}）、沒有留空可當預設的——此機型 AutoSpin 這次不套用任何一筆自訂設定，改用程式內建預設行為`)
-    }
-  }
+  const profiles = db.prepare('SELECT machineType, spinSelector, balanceSelector, entryTouchPoints, entryTouchPoints2, bonusAction, touchPoints, clickTake, ideck_xpaths FROM machine_test_profiles').all() as
+    { machineType: string; spinSelector: string | null; balanceSelector: string | null; entryTouchPoints: string | null; entryTouchPoints2: string | null; bonusAction: string | null; touchPoints: string | null; clickTake: number | null; ideck_xpaths: string | null }[]
+  const profileMap = Object.fromEntries(profiles.map(p => [p.machineType, p]))
   const parseTouchPoints = (v: string | null | undefined): string[] => {
     if (!v) return []
     try { const arr = JSON.parse(v); return Array.isArray(arr) ? arr : [] } catch { return [] }
@@ -1274,8 +1230,7 @@ router.post('/api/autospin/agent/start', (req, res) => {
       if (c.enabled) notifyDiscord(sessionId, c.machineType, 'queued', { gameUrl: c.gameUrl }).catch(() => {})
     }
   }
-  // screenshotEnabled 是帳號層級偏好（不是逐機台設定），放頂層給 Python 端在 main() 存成全域變數
-  res.json({ ok: true, sessionId, configs: merged, keywordActions, machineActions, screenshotEnabled: isScreenshotEnabled(userLabel) })
+  res.json({ ok: true, sessionId, configs: merged, keywordActions, machineActions })
 })
 
 // POST /api/autospin/agent/:id/log — agent posts a log line（或一次多行 lines[]，供背景佇列批次上傳用）
@@ -1386,13 +1341,10 @@ router.post('/api/autospin/agent/stop-all', (req, res) => {
 // GET /api/autospin/agent/status — frontend polls agent status
 // 依 x-user-label 只回傳目前登入帳號自己派工的 session，不同帳號各自看到各自的畫面
 // （不再是「不管誰的，抓第一個在跑的」，避免不同操作者互相看到彼此的執行日誌/截圖）。
-// 2026-08-18：改回傳陣列（多裝置並行後，同帳號可能同時有多個 running session）；
-// 沿用舊欄位 running/sessionId/startedAt 對應「陣列中第一筆」，給還沒升級的舊前端呼叫相容，
-// 新前端改讀 sessions[] 才能看到全部裝置。
 router.get('/api/autospin/agent/status', (req, res) => {
   const userLabel = (req.headers['x-user-label'] as string) || ''
   const HEARTBEAT_TIMEOUT = 30_000 // 30s — agent polls every 3s
-  const active: AgentSession[] = []
+  let active: AgentSession | undefined
   for (const s of agentSessions.values()) {
     if (s.status !== 'running') continue
     // Auto-expire if agent stopped sending heartbeats
@@ -1403,22 +1355,9 @@ router.get('/api/autospin/agent/status', (req, res) => {
       finalizeSessionNotifications(s.id).catch(() => {})
       continue
     }
-    if (s.userLabel === userLabel) active.push(s)
+    if (s.userLabel === userLabel) active = s
   }
-  active.sort((a, b) => a.startedAt - b.startedAt)
-  const sessions = active.map(s => ({
-    sessionId: s.id,
-    startedAt: s.startedAt,
-    agentId: s.agentId,
-    hostname: (s.agentId && agentConnections.get(s.agentId)?.hostname) || '',
-  }))
-  res.json({
-    ok: true,
-    running: active.length > 0,
-    sessionId: active[0]?.id ?? null,
-    startedAt: active[0]?.startedAt ?? null,
-    sessions,
-  })
+  res.json({ ok: true, running: !!active, sessionId: active?.id ?? null, startedAt: active?.startedAt ?? null })
 })
 
 // ─── agent-hub 派工（A2）：把 AutoSpin 派給已連線的 Local Agent 執行 ───────────
@@ -1494,7 +1433,7 @@ router.post('/api/autospin/hub-dispatch', (req, res) => {
   const dispatchId = `hub-${Date.now()}`
   agent.busy = true
   agent.sessionId = dispatchId
-  agent.ws.send(JSON.stringify({ type: 'autospin_start', sessionId: dispatchId, userLabel, agentId: agent.agentId, luckylinkConfig: resolvedLuckylink ?? { enabled: false } }))
+  agent.ws.send(JSON.stringify({ type: 'autospin_start', sessionId: dispatchId, userLabel, luckylinkConfig: resolvedLuckylink ?? { enabled: false } }))
   res.json({ ok: true, agentId: agent.agentId, hostname: agent.hostname, dispatchId })
 })
 
@@ -1517,13 +1456,8 @@ router.post('/api/autospin/hub-stop', (req, res) => {
     a.sessionId = null
   }
   // 同步請求 Python 端的 agent session 停止（雙保險：should-stop 輪詢）
-  // 補上 agentId 比對——沒帶 agentId 時（前端「停止」全部）維持原本整帳號範圍；有帶 agentId 時
-  // （只停某一台裝置）只能標記同一台裝置的 session，否則會連帶把其他裝置正在跑的也標停
   for (const s of agentSessions.values()) {
-    if (s.status !== 'running') continue
-    if (!(!userLabel || s.userLabel === userLabel)) continue
-    if (agentId && s.agentId !== agentId) continue
-    s.stopRequested = true
+    if (s.status === 'running' && (!userLabel || s.userLabel === userLabel)) s.stopRequested = true
   }
   res.json({ ok: true, stopped })
 })
@@ -2294,17 +2228,6 @@ router.get('/api/autospin/compare/prefs', (req, res) => {
 router.put('/api/autospin/compare/prefs', (req, res) => {
   const body = z.object({ compareEnabled: z.boolean() }).parse(req.body)
   upsertNotifyPrefs(requestUserLabel(req), { compareEnabled: body.compareEnabled ? 1 : 0 })
-  res.json({ ok: true })
-})
-
-// GET/PUT /api/autospin/screenshot-prefs — 截圖監控依帳號開關（2026-08-17，使用者要求「不要常駐，
-// 讓使用者決定要不要開」）；只在下次啟動 AutoSpin 時生效（見 /agent/start），不是即時的
-router.get('/api/autospin/screenshot-prefs', (req, res) => {
-  res.json({ ok: true, screenshotEnabled: isScreenshotEnabled(requestUserLabel(req)) })
-})
-router.put('/api/autospin/screenshot-prefs', (req, res) => {
-  const body = z.object({ screenshotEnabled: z.boolean() }).parse(req.body)
-  upsertNotifyPrefs(requestUserLabel(req), { screenshotEnabled: body.screenshotEnabled ? 1 : 0 })
   res.json({ ok: true })
 })
 

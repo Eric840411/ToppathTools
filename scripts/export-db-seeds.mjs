@@ -24,7 +24,6 @@ const db = new Database(join(SERVER_ROOT, 'data.db'), { readonly: true })
 const profileRows = db.prepare('SELECT * FROM machine_test_profiles ORDER BY machineType').all()
 const profiles = profileRows.map(r => ({
   machineType:       r.machineType,
-  enterMachineType:  r.enterMachineType  ?? '',
   bonusAction:       r.bonusAction ?? 'auto_wait',
   touchPoints:       r.touchPoints       ? JSON.parse(r.touchPoints)       : [],
   clickTake:         !!r.clickTake,

@@ -2680,10 +2680,7 @@ class MachineQueue {
 export class MachineTestRunner extends EventEmitter {
   private stopped = false
   private osmStatus: Map<string, number>
-  /** machine_test_profiles 的 PRIMARY KEY 是 (machineType, enterMachineType) 複合鍵，同一個機型代碼
-   *  可能對到多筆設定檔（依 enterMachineType 分流）——用陣列而不是 Map<machineType, ...>，
-   *  否則多筆會在建構前就被 key 碰撞收斂成一筆，下面 runMachine() 進場後的精準比對永遠看不到其他筆 */
-  private profiles: MachineProfile[]
+  private profiles: Map<string, MachineProfile>
   private betRandomConfig: Record<string, string[]>
   /** Buffer of all emitted events — replayed to late SSE subscribers */
   private eventBuffer: TestEvent[] = []
@@ -2692,10 +2689,10 @@ export class MachineTestRunner extends EventEmitter {
   /** Session ID prefix for cctv-saves / audio-saves filenames */
   private sessionPrefix: string = ''
 
-  constructor(osmStatus?: Map<string, number>, profiles?: MachineProfile[], betRandomConfig?: Record<string, string[]>) {
+  constructor(osmStatus?: Map<string, number>, profiles?: Map<string, MachineProfile>, betRandomConfig?: Record<string, string[]>) {
     super()
     this.osmStatus = osmStatus ?? new Map()
-    this.profiles = profiles ?? []
+    this.profiles = profiles ?? new Map()
     this.betRandomConfig = betRandomConfig ?? {}
   }
 
@@ -2738,11 +2735,8 @@ export class MachineTestRunner extends EventEmitter {
     const stepResults: StepResult[] = []
 
     const machineType = extractMachineType(machineCode)
-    // Primary lookup by extracted type; gmid fallback resolved after entry (see below).
-    // 同 machineType 若有多筆（依 enterMachineType 分流），這裡只是進場前的暫時預設值，優先採用
-    // enterMachineType 留空那筆；進場後下面的精準比對才是真正決定用哪一筆的地方。
-    let profile = this.profiles.find(p => p.machineType === machineType && !p.enterMachineType)
-      ?? this.profiles.find(p => p.machineType === machineType)
+    // Primary lookup by extracted type; gmid fallback resolved after entry (see below)
+    let profile = this.profiles.get(machineType)
 
     const ctx = await browser.newContext({ viewport: { width: 428, height: 739 } })
     // Inject at context level so it applies to ALL frames (including iframes)
@@ -2801,7 +2795,7 @@ export class MachineTestRunner extends EventEmitter {
           // Priority 1: enterMachineType exact match — most specific, overrides all
           if (gmMachineType) {
             const lower = gmMachineType.toLowerCase()
-            for (const p of this.profiles) {
+            for (const [, p] of this.profiles) {
               if ((p.enterMachineType ?? '').toLowerCase() === lower && p.enterMachineType) {
                 profile = p
                 matchedBy = `enterMachineType=${gmMachineType}`

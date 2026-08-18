@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.9.3'
+export const APP_VERSION = '4.5.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,71 +7,6 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
-  {
-    version: '4.9.3',
-    date: '2026-08-18',
-    changes: [
-      "fix(local-agent): Local Agent 的 WebSocket 連線加上主動心跳存活檢查——原本純被動等 'close' 事件才觸發重連，正式環境真實案例：伺服器重啟後 Local Agent 的連線變成殭屍連線（連線物件還在，'close' 事件永遠不觸發），終端機停在「Connected — ready」不再有任何後續，畫面上完全偵測不到這台裝置，只能手動重啟才會恢復。新增每 20 秒 ws.ping()、超過 40 秒沒收到 pong 就主動 ws.terminate() 強制觸發既有的 5 秒後重連邏輯，不需要人工介入。跟 CodeX 討論定案（20/40 秒門檻、terminate 前印出明確 log 方便之後追查）。⚠️ 這個修法在 agent-runner.ts（Local Agent 端程式碼），既有使用者要到「Local Agent」頁面點「更新 source files」才會拿到，光是伺服器部署新版不會自動更新到本機已經在跑的 Local Agent",
-    ],
-  },
-  {
-    version: '4.9.2',
-    date: '2026-08-18',
-    changes: [
-      "fix(infra): 移除 ecosystem.config.cjs 的 kill_timeout: 5000（回 PM2 預設 1600ms）——這個設定是稍早為了防堵 heavy_tasks migration 事故（殘留 process 佔 port）加的防禦性措施，但正式環境部署後使用者實測回報「每次部署後網站首次載入會卡住 30-60 秒，重新整理才恢復」，時間點精準對上這次調整。migration 本身已經改成分步驟驗證+fail fast，這個根因已經修掉，延長 shutdown window 本來就防不住那種問題，卻讓部署空窗期變長、造成真實 UX 成本，跟 CodeX 討論後移除",
-    ],
-  },
-  {
-    version: '4.9.1',
-    date: '2026-08-18',
-    changes: [
-      "fix(server): 修復 proxyToWorker() 的串流錯誤沒有處理，導致 worker 回應逾時/中斷時整個 request 永遠收不到回應（呼叫端只看到無限期 timeout）——正式環境真實案例：Local Agent 一直顯示逾時。fetch() 的 try/catch 只能接住取得回應之前的錯誤，body 開始 streaming 之後才發生的錯誤（undici BodyTimeoutError）是透過 Node stream 的非同步 error 事件冒出來，繞過 try/catch 變成 process 級的 uncaught exception。補上 upstream.on('error', ...) 明確回應 502/504 給呼叫端，並加上 AbortController 讓 client 斷線時同步中止對 worker 的 fetch，避免 server 端空等已經沒人在等的回應。影響全部 11 種被 proxy 的路由（/api/autospin/*、/api/local-agent/* 等）",
-    ],
-  },
-  {
-    version: '4.9.0',
-    date: '2026-08-18',
-    changes: [
-      "minor(autospin): 多裝置並行監控前端完成——「執行監控」的遠端 Agent 模式改成頂部裝置釘選列＋下方 grid，同一帳號可以同時看多台裝置各自的執行狀態，彼此獨立不互相干擾。釘選 1~2 台完整並排（機台清單/日誌/LuckyLink+SLS+截圖 tabs），3 台以上改「1 台主視角＋其餘精簡卡片（異常時左側紅邊+脈動紅點提示）」，點精簡卡片可切換主視角。每個裝置各自的 SSE 連線/日誌/截圖輪詢/LuckyLink 狀態都在新抽出的 useAgentSession(sessionId, agentId, userLabel) hook 裡管理，identity 以 sessionId 為主（避免同裝置重開新 session 時舊資料殘留），DeviceSessionPanel 元件純消費 hook 回傳值畫 UI；AutoSpinPage 只保留全域派工/釘選/主視角狀態，不再塞單一 session 假設。停止裝置按鈕加了 confirm 對話框並明確帶 hostname，避免多裝置同時顯示時誤停錯台。伺服器端 (fallback) 模式完全不受影響，維持原本單一 session 邏輯",
-    ],
-  },
-  {
-    version: '4.8.0',
-    date: '2026-08-18',
-    changes: [
-      "minor(autospin): 多裝置並行後端支援——同一帳號現在可以同時對多台 Local Agent 裝置派工 AutoSpin，彼此不會互相停掉（前端「執行監控」UI 仍是單裝置畫面，多裝置並排/分頁顯示待後續 mockup 確認後實作）。heavy-task-guard 新增 tryStartScopedHeavyTask()，AutoSpin 的 autospin-agent 鎖從純綁帳號改成綁 (帳號, agentId)，其餘 10 種既有重任務類型完全不受影響；agentId 從 hub-dispatch 經 WS→agent-runner.ts→toppath-agent.py 的 URI 參數→/agent/start 註冊（含斷線重連路徑）一路貫穿；/agent/start 的 session 清理迴圈與 hub-stop 的雙保險迴圈都補上 agentId 比對，避免停裝置 B 誤停裝置 A；GET /agent/status 改回傳 sessions[] 陣列（向下相容單一 sessionId 欄位）",
-      "fix(db): heavy_tasks 新增 lock_key 欄位的 migration 硬化——原本一度把 CREATE INDEX 放進 CREATE TABLE IF NOT EXISTS 同一個 db.exec() 區塊，對既有資料庫（表已存在、缺這個新欄位）會直接對不存在的欄位建索引、拋錯導致 server 開機即崩潰（本機驗證時真的炸過一次，殘留 process 佔用 port 3000 造成 pm2 restart loop）；改成明確分步驟＋每步驗證＋失敗 fail fast（process.exit，不吞錯讓 server 帶著半套 schema 跑），並在 ecosystem.config.cjs 補上 kill_timeout: 5000 降低同類事故的 blast radius",
-    ],
-  },
-  {
-    version: '4.7.0',
-    date: '2026-08-18',
-    changes: [
-      "minor(machine-test): 機種設定檔唯一鍵從單一「機型代碼」改成「機型代碼 + enterMachineType」複合鍵，兩者都相同才視為重複——machine_test_profiles PRIMARY KEY 改為複合鍵（SQLite 表重建遷移，既有資料原樣保留、enterMachineType 空值正規化成空字串）；PUT/DELETE 皆改用複合鍵定位；runner.ts 的 this.profiles 從 Map<machineType,...>（會在建構前就把同機型代碼多筆收斂成一筆）改成陣列，讓進場後依 enterMachineType 精準比對的既有邏輯真正能看到多筆候選；AutoSpin/ScriptedBet 目前沒有進場後的即時比對訊號，多筆時不再靜默挑任意一筆——優先採用 enterMachineType 留空那筆當預設，找不到就印明確 warning、改用內建預設行為，不套用可能選錯的自訂設定",
-    ],
-  },
-  {
-    version: '4.6.1',
-    date: '2026-08-17',
-    changes: [
-      "fix(autospin): LuckyLink JP 監控永遠卡在「等待 Poller 啟動...」的根因——server/luckylink-poller.mjs 從未加進 AGENT_SOURCE_WHITELIST，install.bat/更新 source files 都不會把這個檔案下載到 Local Agent 機器，agent-runner.ts 偵測不到檔案時只印一行本機 console.warn，不會回報到前端，導致重啟 session 也無法解決；補上白名單項目，並在檔案缺失／spawn 失敗／poller 非正常結束時透過 WS 送出 luckylink_error 事件回報前端",
-      "fix(autospin): 前端 luckylink_error 處理先前只在 luckylinkStatus 已存在（代表已收到過 luckylink_start）時才會更新，poller 從未成功啟動過的情況下錯誤事件會被靜默丟棄；改成 luckylinkStatus 為 null 時也會初始化狀態並顯示錯誤訊息，不再永遠卡在「等待 Poller 啟動...」",
-    ],
-  },
-  {
-    version: '4.6.0',
-    date: '2026-08-17',
-    changes: [
-      "minor(autospin): 截圖監控改成依帳號開關（GET/PUT /api/autospin/screenshot-prefs，跟三路對帳 compareEnabled 同一套模式），預設開啟；關閉後不再上傳截圖到截圖監控畫廊，模板偵測/戰績紀錄/對帳資料不受影響；只在下次啟動 AutoSpin session 生效，執行中切換不即時",
-    ],
-  },
-  {
-    version: '4.5.1',
-    date: '2026-08-17',
-    changes: [
-      "fix(autospin): 執行監控右側欄「截圖監控」改成獨立限高＋自己捲動——機台一多、截圖持續累積時會把上面的 LuckyLink JP／SLS 錯誤日誌兩個面板往上推出可視範圍，現在截圖區塊限制最高 420px 自己捲，其他面板永遠留在可視範圍內不用捲動找",
-    ],
-  },
   {
     version: '4.5.0',
     date: '2026-08-17',

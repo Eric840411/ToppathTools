@@ -136,7 +136,6 @@ function ProfilesPanel() {
   const [profiles, setProfiles] = useState<MachineProfile[]>([])
   const [editing, setEditing] = useState<MachineProfile | null>(null)
   const [originalMachineType, setOriginalMachineType] = useState<string>('')
-  const [originalEnterMachineType, setOriginalEnterMachineType] = useState<string>('')
   const [saving, setSaving] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [cctvRefs, setCctvRefs] = useState<Set<string>>(new Set())
@@ -194,12 +193,8 @@ function ProfilesPanel() {
   const handleSave = async () => {
     if (!editing || !editing.machineType.trim()) return
     const newType = editing.machineType.trim().toUpperCase()
-    const newEnterMachineType = (editing.enterMachineType ?? '').trim()
-    // 唯一鍵是「機型代碼 + enterMachineType」的組合，任一項不同就不算重複；
-    // 只有兩項都跟原本身分一致（沒真的改動）時才略過檢查，其餘情況都要跟現有設定檔比對
-    const pairChanged = newType !== originalMachineType || newEnterMachineType !== originalEnterMachineType
-    if (pairChanged && profiles.some(p => p.machineType === newType && (p.enterMachineType ?? '').trim() === newEnterMachineType)) {
-      alert(`機型代碼「${newType}」＋ enterMachineType「${newEnterMachineType || '（空白）'}」的組合已存在！\n請先刪除舊設定，或點擊「編輯」修改現有設定。`)
+    if (newType !== originalMachineType && profiles.some(p => p.machineType === newType)) {
+      alert(`機型代碼「${newType}」已存在！\n請先刪除舊設定，或點擊「編輯」修改現有設定。`)
       return
     }
     if (editing.bonusAction === 'touchscreen' && (editing.touchPoints ?? []).filter(s => s.trim()).length === 0) {
@@ -233,10 +228,9 @@ function ProfilesPanel() {
     load()
   }
 
-  const handleDelete = async (machineType: string, enterMachineType?: string | null) => {
-    const emt = (enterMachineType ?? '').trim()
-    if (!confirm(`確定刪除 ${machineType}${emt ? `（enterMachineType: ${emt}）` : ''} 的設定？`)) return
-    await fetch(`/api/machine-test/profiles/${machineType}?enterMachineType=${encodeURIComponent(emt)}`, { method: 'DELETE' })
+  const handleDelete = async (machineType: string) => {
+    if (!confirm(`確定刪除 ${machineType} 的設定？`)) return
+    await fetch(`/api/machine-test/profiles/${machineType}`, { method: 'DELETE' })
     load()
   }
 
@@ -248,7 +242,7 @@ function ProfilesPanel() {
           type="button"
           className="btn-ghost"
           style={{ fontSize: 13, padding: '6px 14px' }}
-          onClick={() => { setEditing({ ...EMPTY_PROFILE }); setOriginalMachineType(''); setOriginalEnterMachineType('') }}
+          onClick={() => { setEditing({ ...EMPTY_PROFILE }); setOriginalMachineType('') }}
         >+ 新增機型</button>
       </div>
 
@@ -272,7 +266,7 @@ function ProfilesPanel() {
             </thead>
             <tbody>
               {profiles.map(p => (
-                <tr key={`${p.machineType}::${p.enterMachineType ?? ''}`}>
+                <tr key={p.machineType}>
                   <td><code style={{ fontSize: 12 }}>{p.machineType}</code></td>
                   <td style={{ fontSize: 11, color: '#64748b' }}>
                     {(p.entryTouchPoints?.length ?? 0) > 0 ? (
@@ -350,15 +344,15 @@ function ProfilesPanel() {
                   </td>
                   <td>
                     <button type="button" className="btn-ghost" style={{ fontSize: 12, padding: '3px 10px', marginRight: 6 }}
-                      onClick={() => { setEditing({ ...p }); setOriginalMachineType(p.machineType); setOriginalEnterMachineType((p.enterMachineType ?? '').trim()); setShowAdvanced(!!(p.spinSelector || p.balanceSelector || p.exitSelector)) }}>
+                      onClick={() => { setEditing({ ...p }); setOriginalMachineType(p.machineType); setShowAdvanced(!!(p.spinSelector || p.balanceSelector || p.exitSelector)) }}>
                       編輯
                     </button>
                     <button type="button" className="btn-ghost" style={{ fontSize: 12, padding: '3px 10px', marginRight: 6, color: '#0891b2' }}
-                      onClick={() => { setEditing({ ...p, machineType: '' }); setOriginalMachineType(''); setOriginalEnterMachineType(''); setShowAdvanced(!!(p.spinSelector || p.balanceSelector || p.exitSelector)) }}>
+                      onClick={() => { setEditing({ ...p, machineType: '' }); setOriginalMachineType(''); setShowAdvanced(!!(p.spinSelector || p.balanceSelector || p.exitSelector)) }}>
                       複製
                     </button>
                     <button type="button" className="btn-ghost" style={{ fontSize: 12, padding: '3px 10px', color: '#ef4444' }}
-                      onClick={() => handleDelete(p.machineType, p.enterMachineType)}>
+                      onClick={() => handleDelete(p.machineType)}>
                       刪除
                     </button>
                   </td>
