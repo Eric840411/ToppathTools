@@ -588,6 +588,29 @@ export function AutoSpinPage() {
   const [luckylinkJpGroupCode, setLuckylinkJpGroupCode] = useState('')
   const [luckylinkPollIntervalSec, setLuckylinkPollIntervalSec] = useState(60)
 
+  // ── 截圖監控依帳號開關（2026-08-17，使用者要求「不要常駐，讓使用者決定」）──────────────
+  // 跟三路對帳的 cmpEnabled 同一套模式：伺服器持久化的每帳號偏好，不是純前端 state；
+  // 只在下次啟動 AutoSpin session 時生效，不是即時的（見 server 端註解）
+  const [screenshotEnabled, setScreenshotEnabled] = useState(true)
+  const [screenshotEnabledLoading, setScreenshotEnabledLoading] = useState(false)
+  const fetchScreenshotPrefs = async () => {
+    const r = await fetch('/api/autospin/screenshot-prefs', { headers: { 'x-user-label': getGlobalUserLabel() } })
+    const d = await r.json() as { ok: boolean; screenshotEnabled?: boolean }
+    if (d.ok) setScreenshotEnabled(d.screenshotEnabled ?? true)
+  }
+  const toggleScreenshotEnabled = async () => {
+    setScreenshotEnabledLoading(true)
+    const next = !screenshotEnabled
+    try {
+      await fetch('/api/autospin/screenshot-prefs', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-user-label': getGlobalUserLabel() },
+        body: JSON.stringify({ screenshotEnabled: next }),
+      })
+      setScreenshotEnabled(next)
+    } finally { setScreenshotEnabledLoading(false) }
+  }
+  useEffect(() => { fetchScreenshotPrefs() }, [])
+
   // ── LuckyLink runtime status (populated from SSE luckylink_event) ─────────────
   interface LuckylinkPoolEntry { name: string; rawValue: number; displayValue: number; basevalue: number; maxValue: number; overageValue: number }
   interface LuckylinkDiff { name: string; prev: number | null; curr: number; delta: number | null; state: string; matchedGameCodes?: string[] }
@@ -1801,7 +1824,19 @@ export function AutoSpinPage() {
 
                   <div style={{ borderTop: '1px solid #1e293b' }} />
 
-                  {/* ③ Status + controls row */}
+                  {/* ③ 截圖監控依帳號開關（2026-08-17）——只在下次啟動 session 生效，不是即時的，
+                      文案直接寫明避免使用者以為切換當下就會立即停止/恢復截圖 */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: screenshotEnabledLoading ? 'default' : 'pointer', userSelect: 'none', opacity: screenshotEnabledLoading ? 0.6 : 1 }}>
+                      <input type="checkbox" checked={screenshotEnabled} disabled={screenshotEnabledLoading} onChange={toggleScreenshotEnabled} style={{ width: 15, height: 15 }} />
+                      <span style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd' }}>啟用截圖監控</span>
+                    </label>
+                    <span style={{ fontSize: 11, color: '#64748b', paddingLeft: 23 }}>關閉後不會再定期截圖上傳；下次啟動 AutoSpin session 才會生效，執行中切換不會立即改變</span>
+                  </div>
+
+                  <div style={{ borderTop: '1px solid #1e293b' }} />
+
+                  {/* ④ Status + controls row */}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                     <button className="cr-btn cr-btn--jade" onClick={handleDispatchAgent} disabled={agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)}
                       style={{ padding: '7px 18px', background: (agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)) ? '#4b5563' : 'var(--xx-jade-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: (agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)) ? 'default' : 'pointer' }}>
@@ -2067,50 +2102,56 @@ export function AutoSpinPage() {
                 )}
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: '#cbd5e1' }}>截圖監控</span>
-                <button className="cr-icon-btn" onClick={fetchCaptures} style={{ fontSize: 11, color: 'var(--cr-cyan)', background: 'none', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M3 12a9 9 0 0 1 15.3-6.4M21 12a9 9 0 0 1-15.3 6.4" /><path d="M18 3v4h-4M6 21v-4h4" /></svg>
-                  重新整理
-                </button>
-              </div>
-              {(() => {
-                const raw = runMode === 'server' ? captures : agentCaptures
-                if (raw.length === 0) return <p style={{ color: '#64748b', fontSize: 12 }}>尚無截圖</p>
-                const items = [...raw].reverse().map(f => ({
-                  name: f.name,
-                  ts: 'mtime' in f ? f.mtime : f.time,
-                  src: runMode === 'server'
-                    ? `/api/autospin/captures/${encodeURIComponent(f.name)}`
-                    : `/api/autospin/agent/screenshot/${agentSessionId}/${encodeURIComponent(f.name)}?userLabel=${encodeURIComponent(getGlobalUserLabel())}`,
-                  spinNo: extractSpinNo(f.name),
-                }))
-                return (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                    {items.map((it, i) => (
-                      <div key={it.name} onClick={() => setLightbox(it.src)}
-                        className={`autospin-shot${i === 0 ? ' autospin-shot--latest' : ''}`}
-                        style={{ position: 'relative', border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden', aspectRatio: '1 / 1', background: '#0f172a', cursor: 'zoom-in' }}>
-                        <img
-                          src={it.src}
-                          alt={it.name}
-                          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                          onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                        {i === 0 && (
-                          <>
-                            <span className="cr-status-dot" style={{ position: 'absolute', top: 6, left: 6, width: 6, height: 6, borderRadius: '50%', background: 'var(--cr-cyan)' }} />
-                            <span style={{ position: 'absolute', top: 4, right: 4, background: 'var(--xx-jade-solid)', color: '#fff', fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4 }}>最新</span>
-                          </>
-                        )}
-                        <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '4px 6px', background: 'linear-gradient(0deg, rgba(0,0,0,0.75), transparent)', fontSize: 9.5, color: '#e2e8f0', display: 'flex', justifyContent: 'space-between' }}>
-                          <span>{it.spinNo ? `Spin #${it.spinNo}` : it.name}</span>
-                          <b style={{ color: 'var(--cr-cyan)' }}>{relativeShotTime(it.ts)}</b>
+              {/* 截圖監控獨立限高＋自己捲動（2026-08-17 使用者回報：機台一多，截圖越疊越多，會把
+                  上面 LuckyLink JP／SLS 錯誤日誌兩個面板一起往上推出可視範圍，要滑很久才看得到）。
+                  截圖區塊限制最高 420px、自己 overflow-y 捲動，LuckyLink/SLS 面板留在外層 column
+                  的一般排版流裡，不受截圖數量影響，永遠可見在上方，不用捲。 */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 420, overflowY: 'auto', paddingRight: 2 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: '#cbd5e1' }}>截圖監控</span>
+                  <button className="cr-icon-btn" onClick={fetchCaptures} style={{ fontSize: 11, color: 'var(--cr-cyan)', background: 'none', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M3 12a9 9 0 0 1 15.3-6.4M21 12a9 9 0 0 1-15.3 6.4" /><path d="M18 3v4h-4M6 21v-4h4" /></svg>
+                    重新整理
+                  </button>
+                </div>
+                {(() => {
+                  const raw = runMode === 'server' ? captures : agentCaptures
+                  if (raw.length === 0) return <p style={{ color: '#64748b', fontSize: 12 }}>尚無截圖</p>
+                  const items = [...raw].reverse().map(f => ({
+                    name: f.name,
+                    ts: 'mtime' in f ? f.mtime : f.time,
+                    src: runMode === 'server'
+                      ? `/api/autospin/captures/${encodeURIComponent(f.name)}`
+                      : `/api/autospin/agent/screenshot/${agentSessionId}/${encodeURIComponent(f.name)}?userLabel=${encodeURIComponent(getGlobalUserLabel())}`,
+                    spinNo: extractSpinNo(f.name),
+                  }))
+                  return (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      {items.map((it, i) => (
+                        <div key={it.name} onClick={() => setLightbox(it.src)}
+                          className={`autospin-shot${i === 0 ? ' autospin-shot--latest' : ''}`}
+                          style={{ position: 'relative', border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden', aspectRatio: '1 / 1', background: '#0f172a', cursor: 'zoom-in' }}>
+                          <img
+                            src={it.src}
+                            alt={it.name}
+                            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                            onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                          {i === 0 && (
+                            <>
+                              <span className="cr-status-dot" style={{ position: 'absolute', top: 6, left: 6, width: 6, height: 6, borderRadius: '50%', background: 'var(--cr-cyan)' }} />
+                              <span style={{ position: 'absolute', top: 4, right: 4, background: 'var(--xx-jade-solid)', color: '#fff', fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4 }}>最新</span>
+                            </>
+                          )}
+                          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '4px 6px', background: 'linear-gradient(0deg, rgba(0,0,0,0.75), transparent)', fontSize: 9.5, color: '#e2e8f0', display: 'flex', justifyContent: 'space-between' }}>
+                            <span>{it.spinNo ? `Spin #${it.spinNo}` : it.name}</span>
+                            <b style={{ color: 'var(--cr-cyan)' }}>{relativeShotTime(it.ts)}</b>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                )
-              })()}
+                      ))}
+                    </div>
+                  )
+                })()}
+              </div>
             </div>
           </div>
         </div>

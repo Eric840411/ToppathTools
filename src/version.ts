@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.5.1'
+export const APP_VERSION = '4.6.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,20 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.6.0',
+    date: '2026-08-18',
+    changes: [
+      "minor(autospin): 補回退版時一併撤掉的「截圖監控依帳號開關」——GET/PUT /api/autospin/screenshot-prefs，跟三路對帳 compareEnabled 同一套模式，預設開啟；關閉後不再上傳截圖到截圖監控畫廊，模板偵測/戰績紀錄/對帳資料不受影響；只在下次啟動 AutoSpin session 生效，執行中切換不即時",
+    ],
+  },
+  {
+    version: '4.5.2',
+    date: '2026-08-18',
+    changes: [
+      "fix(autospin): 補回退版時一併撤掉的「執行監控右側欄版面修正」——截圖監控獨立限高 420px 自己捲動，不再把 LuckyLink JP／SLS 錯誤日誌兩個面板擠出可視範圍",
+    ],
+  },
   {
     version: '4.5.1',
     date: '2026-08-18',

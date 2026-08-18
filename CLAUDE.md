@@ -440,6 +440,16 @@ SAS/MML/G2S 三組各自依 `name`（遊戲代碼）分組，組內列出每台�
 
 **帶 sessionId 的其餘端點也補齊帳號檢查（2026-07-31，Codex review 後補）**：上面那版只擋住「自動偵測」這個發現別人 sessionId 的入口，但 `pause`/`resume`/`spin-interval`/`stream/:id`（SSE）/`screenshot(s)/:id` 這些端點本身仍然「只認 sessionId、不驗證是不是同一個帳號」——正常 UI 流程確實不會再拿到別人的 sessionId，但只要 sessionId 洩漏（舊頁面殘留分享的截圖連結、瀏覽器歷史記錄等），仍能直接操作/讀取別人的 session。新增 `requestUserLabel(req)` 共用 helper（讀 `x-user-label` header，或 `?userLabel=` query——`EventSource`/`<img src>` 無法自訂 header，只能靠 query），套用在這 5 個「前端呼叫」端點，`userLabel` 不對就回 403。**注意分辨呼叫方**：`/agent/:id/log`、`/agent/:id/screenshot`（上傳）、`/agent/:id/stop`、`/agent/:id/should-stop` 這幾個是 **Python agent 自己上報用的**，不是前端指令，不需要（也不能，agent 沒有 x-user-label 概念）加這個檢查。**已知範圍限制**：「伺服器端 (fallback)」模式的 `SessionState`（`/api/autospin/status`）完全沒有 `userLabel` 概念，仍是全域共用，未修——目前使用的主要模式是「遠端 Agent」（agent-hub），fallback 模式較少人同時用，之後若有人真的在 fallback 模式遇到同樣問題再補。
 
+**截圖監控依帳號開關（2026-08-17，v4.6.0）**：AutoSpin 原本固定每 `screenshot_interval`（20 次 Spin）就 `page.screenshot()` 一次並上傳存進「截圖監控」畫廊；機台一多，畫廊持續累積會把旁邊的 LuckyLink JP／SLS 錯誤日誌兩個面板往上推出可視範圍（見下方版面修正），使用者要求乾脆讓這個功能可以整個關掉。跟三路對帳的 `compareEnabled` 完全同一套「依帳號分開設定」模式（`autospin_notify_prefs` 表新增 `screenshotEnabled INTEGER NOT NULL DEFAULT 1` 欄位＋ALTER TABLE 補齊既有安裝、`isScreenshotEnabled(userLabel)` helper、`GET/PUT /api/autospin/screenshot-prefs`）：
+- `/api/autospin/agent/start` 回應頂層多帶 `screenshotEnabled`（帳號層級偏好，不是逐機台設定，所以不塞進每台 machine config）
+- `toppath-agent.py`：`main()` 從註冊回應讀出 `screenshot_enabled_data`，透過 `spawn_machine()` 的 `multiprocessing.Process` args 傳給每個 `machine_worker()` child process（沿用既有 `session_id`/`server_url`/`user_label` 那套「parent 讀一次、經參數傳給 child、child 內用 `global` 賦值」模式，因為 Windows/macOS 的 `spawn` 模式下 child 是重新 import 整份模組，不會自動繼承 parent 的全域變數）
+- **關掉的範圍刻意只有「上傳存進截圖監控畫廊」這一步**（`async_call(send_screenshot, ...)` 那行），`page.screenshot()` 本身仍然要執行——因為同一個區塊下面的模板偵測（Bonus/Error）需要這張截圖才能運作，戰績紀錄/對帳資料（`post_history`/`fetch_and_post_pinus_records`）也共用同一個觸發點；只關閉上傳，不影響這些其他功能
+- **只在下次啟動 AutoSpin session 時生效，不是即時的**（跟 CodeX 討論定案：要做成執行中即時生效需要多一條 agent polling 或 server push 機制，範圍變大，這版先做成本低的版本）——前端 checkbox 下方直接寫提示文字，避免使用者以為切換當下就會立即改變行為
+- 前端 checkbox 位置：AutoSpin「執行監控」分頁的派工選項區，緊接在「啟用 LuckyLink JP 比對」下方；掛載時 `GET` 讀目前偏好、切換時 `PUT` 立即寫回（這裡「立即寫回」是指「偏好值」立即持久化，不是指「行為」立即生效，兩者不要混淆）
+- 已直接對本機在跑的 server 驗證過 `GET/PUT /api/autospin/screenshot-prefs` 端到端行為（預設 true → PUT false → GET 回 false → PUT true 還原），`npx tsc --noEmit`／`npm run build`／`python -m py_compile` 皆乾淨
+
+**執行監控右側欄版面修正（2026-08-17，v4.5.1，同一天稍早發現的相關問題）**：LuckyLink JP／SLS 錯誤日誌／截圖監控三個面板原本共用同一個 `overflow: 'auto'` 捲動欄位，截圖越疊越多會把上面兩個面板往上推出可視範圍，要滑很久才找得到。改成「截圖監控」單獨限制最高 420px、自己捲動，其他兩個面板留在外層一般排版流裡不受影響，永遠可見不用捲——這個修正跟上面的「截圖監控依帳號開關」是同一輪對話裡使用者連續回報的兩個相關但獨立的問題，一起記錄在這裡方便之後查閱前後脈絡。
+
 **三路對帳（2026-08-10，v3.91.0）**：AutoSpin 底下新分頁「三路對帳」，跟執行同步、伺服器背景持續跑的即時比對工具，比對三個資料來源：SLS recordBet log（`lib/sls.ts` 的 `fetchRecordBet()`，官方 `@alicloud/sls20201230` SDK）、機台盒子硬體日誌（`fresh_current_credits`，**目前尚未串接來源**）、前端 Pinus history（沿用既有的 `reconcile_front_records` 表，Python agent 本來就會呼叫 `fetch_and_post_pinus_records()` 上傳）。跟 CLAUDE.md 上面的「後台對帳」（`reconcile/*`）是不同工具——後台對帳是使用者手動選時間範圍事後跑一次、比對後台 `gameRecordList`；三路對帳是不需要使用者觸發，AutoSpin 一開始跑，`setInterval` 每 20 秒自動掃描所有執行中 session 的每台機台各跑一次。
 
 **SLS 憑證只從 env var 讀，不提供前端設定（2026-08-10 起，v3.91.1 / v3.92.2 兩次修正）**：v3.91.0 原本做了一個「SLS recordBet 憑證設定」面板讓使用者自己填 AccessKey/Region/Project/Logstore（存 `settings` 表 `sls_*` 前綴），使用者當天立刻回饋不需要這個——`getSlsCreds()`（`server/lib/sls.ts`）改成從 env var 讀。**v3.92.2 又修正一次**：中間版本一度把 AccessKey ID/Secret 直接寫死成程式碼常數（fallback 值），這組真實憑證被 GitHub push protection 擋下（偵測到 commit 裡有 Alibaba Cloud AccessKey），才發現這個做法本身有風險——即使程式碼倉庫是私有的，寫死的密鑰只要進了 git 歷史紀錄就永久留在那裡，之後改掉程式碼也救不回來。最終版本：AccessKey ID/Secret 兩個敏感值完全沒有預設值（讀不到就是空字串，`fetchRecordBet()` 會丟出「SLS 憑證尚未設定」錯誤），只有非敏感的 Region/Project/Logstore 三個保留合理預設值方便本機開發。**部署到新環境（例如正式環境 Spug）時，必須在該環境自己的 `.env` 補上這 5 個變數**（`SLS_RECORDBET_KEY_ID`/`SLS_RECORDBET_KEY_SECRET`/`SLS_RECORDBET_REGION`/`SLS_RECORDBET_PROJECT`/`SLS_RECORDBET_LOGSTORE`），改完要重啟該環境的 server process 才會生效（env var 只在啟動時讀一次）；`.env` 本身不會隨 git push 過去，每個環境要各自維護一份，這是設計上本來就如此。`GET/PUT /api/autospin/compare/sls-config` 兩支端點與前端整個憑證設定面板都已移除；只留 `POST /api/autospin/compare/sls-test` 給後端自己診斷用（curl 確認連線），不接前端畫面。
@@ -462,7 +472,8 @@ SAS/MML/G2S 三組各自依 `name`（遊戲代碼）分組，組內列出每台�
 | 停止 | 命令 agent 停止並結束 Python 程序（`/api/autospin/hub-stop`）|
 | 伺服器端 fallback | 切到「伺服器端」可直接在 server 本機 spawn（舊模式）|
 | 暫停 / 繼續 Agent | 暫停自動旋轉，保持連線 |
-| 查看即時日誌 / 截圖 | SSE 串流 Agent 執行日誌與遊戲截圖；日誌框固定高度＋內部捲動，支援分類篩選（全部/系統/Spin/截圖/錯誤警告）+ 關鍵字搜尋 + 自動捲到底開關 + 清空；pinus 訊息預設收合，可依 7 類（Spin動作/餘額異動/狀態廣播/進入遊戲/連線登入/心跳列表/其他）分別展開；SSE 斷線（如伺服器重啟）會在 2 秒後自動重連。截圖監控為 2 欄縮圖網格，標示最新一張 |
+| 查看即時日誌 / 截圖 | SSE 串流 Agent 執行日誌與遊戲截圖；日誌框固定高度＋內部捲動，支援分類篩選（全部/系統/Spin/截圖/錯誤警告）+ 關鍵字搜尋 + 自動捲到底開關 + 清空；pinus 訊息預設收合，可依 7 類（Spin動作/餘額異動/狀態廣播/進入遊戲/連線登入/心跳列表/其他）分別展開；SSE 斷線（如伺服器重啟）會在 2 秒後自動重連。截圖監控為 2 欄縮圖網格獨立限高 420px 自己捲動，標示最新一張，不會把 LuckyLink JP／SLS 錯誤日誌面板擠出可視範圍 |
+| 啟用/停用截圖監控（依帳號） | 派工選項區「啟用截圖監控」勾選框，預設開啟；關閉後不再上傳截圖到畫廊（模板偵測/戰績紀錄/對帳資料不受影響），只在下次啟動 AutoSpin session 生效，執行中切換不即時改變行為 |
 | 三路對帳（獨立 Tab） | 跟執行同步即時比對 SLS recordBet／盒子日誌（尚未串接）／Pinus history，多機台並行、每台獨立統計已比對/相符/不符/缺資料，展開查看逐筆 Spin 明細；自訂比對群組（用下拉選單挑已知欄位，不用手打路徑）、手動「試算目前資料」立即跑一次。SLS 憑證後端寫死，畫面上不會出現、不用設定 |
 | 啟用/停用三路對帳（依帳號） | 分頁頂部開關，預設開啟；關閉後自己執行中的機台不會再背景打 SLS/Pinus 查詢、不寫新比對紀錄，比對群組定義（全域共用）不受影響 |
 | 查看歷史紀錄 | AutoSpin 各 session 的執行紀錄 |
