@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.9.0'
+export const APP_VERSION = '4.9.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.9.1',
+    date: '2026-08-18',
+    changes: [
+      "fix(server): 修復 proxyToWorker() 的串流錯誤沒有處理，導致 worker 回應逾時/中斷時整個 request 永遠收不到回應（呼叫端只看到無限期 timeout）——正式環境真實案例：Local Agent 一直顯示逾時。fetch() 的 try/catch 只能接住取得回應之前的錯誤，body 開始 streaming 之後才發生的錯誤（undici BodyTimeoutError）是透過 Node stream 的非同步 error 事件冒出來，繞過 try/catch 變成 process 級的 uncaught exception。補上 upstream.on('error', ...) 明確回應 502/504 給呼叫端，並加上 AbortController 讓 client 斷線時同步中止對 worker 的 fetch，避免 server 端空等已經沒人在等的回應。影響全部 11 種被 proxy 的路由（/api/autospin/*、/api/local-agent/* 等）",
+    ],
+  },
   {
     version: '4.9.0',
     date: '2026-08-18',

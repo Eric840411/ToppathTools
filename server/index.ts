@@ -253,6 +253,16 @@ async function lazyIntegrationsRouter(req: express.Request, res: express.Respons
 async function proxyToWorker(req: express.Request, res: express.Response, next: express.NextFunction) {
   if (!shouldProxyToWorker(req)) return next()
 
+  // Client 斷線/請求中止時同步中止對 worker 的 fetch，避免 server 端繼續空等一個
+  // 已經沒有人在等待回應的 upstream body（2026-08-18，跟 CodeX 討論定案）。
+  // req.on('close') 在「正常完成」時也會觸發，用 res.writableEnded 排除掉那個情況，
+  // 只在真的是異常中止（client 斷線、request 被取消）時才 abort。
+  const controller = new AbortController()
+  req.on('aborted', () => controller.abort())
+  req.on('close', () => {
+    if (!res.writableEnded) controller.abort()
+  })
+
   try {
     const headers = new Headers()
     for (const [key, value] of Object.entries(req.headers)) {
@@ -273,7 +283,7 @@ async function proxyToWorker(req: express.Request, res: express.Response, next: 
       if (personalGeminiKey) headers.set('x-personal-gemini-key', personalGeminiKey)
     }
 
-    const init: RequestInit & { duplex?: 'half' } = { method: req.method, headers }
+    const init: RequestInit & { duplex?: 'half' } = { method: req.method, headers, signal: controller.signal }
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       const contentType = req.headers['content-type'] ?? ''
       if (typeof contentType === 'string' && contentType.includes('application/json') && req.body !== undefined) {
@@ -291,7 +301,34 @@ async function proxyToWorker(req: express.Request, res: express.Response, next: 
       if (key.toLowerCase() !== 'transfer-encoding') res.setHeader(key, value)
     })
     if (!response.body) return res.end()
-    Readable.fromWeb(response.body as any).pipe(res)
+    // fetch() 的 try/catch 只能接住「取得回應之前」的錯誤；response.body 開始 streaming 之後
+    // 才發生的錯誤（例如 worker 端 body 傳輸卡住逾時，undici 拋 BodyTimeoutError）是透過
+    // Node stream 的非同步 'error' 事件冒出來，不是這個 await 的 promise reject，pipe() 本身
+    // 不會自動把來源的 error 轉發成可以在這裡 catch 到的東西——沒接 listener 就會變成
+    // process 級的 uncaught exception，而且原本那個卡住的 request 永遠收不到回應（對呼叫端
+    // 就是無限期的 timeout）。2026-08-18 從正式環境真實案例（Local Agent 一直顯示逾時）
+    // 抓到這個根因，跟 CodeX 討論後補上這個 handler。
+    const upstream = Readable.fromWeb(response.body as any)
+    upstream.on('error', (err: unknown) => {
+      // 帶 req.originalUrl 方便之後正式環境再發生時，從 log 直接看出是哪條 proxy route
+      // 出問題（CodeX review 建議，這版先不加完整 request id，太小題大作）
+      console.error(`[proxyToWorker] upstream stream error on ${req.method} ${req.originalUrl}:`, err)
+      // writableEnded 額外防一手：理論上 stream 'error' 不會在 'end' 之後才觸發（兩者互斥），
+      // 但這裡是處理正式環境間歇性問題，多一層防呆比事後排查「ERR_HTTP_HEADERS_SENT 是哪來的」划算
+      if (res.headersSent || res.writableEnded) {
+        // headers/部分 body 已經送出去了，沒辦法再改送 JSON 錯誤訊息，只能直接斷線
+        res.destroy(err instanceof Error ? err : new Error(String(err)))
+        return
+      }
+      const code = (err as { code?: string; cause?: { code?: string } })?.code
+        ?? (err as { cause?: { code?: string } })?.cause?.code
+      const isBodyTimeout = code === 'UND_ERR_BODY_TIMEOUT'
+      res.status(isBodyTimeout ? 504 : 502).json({
+        ok: false,
+        message: isBodyTimeout ? 'Worker 回應逾時，請重試' : 'Worker 回應中斷，請重試',
+      })
+    })
+    upstream.pipe(res)
   } catch (error) {
     next(error)
   }
