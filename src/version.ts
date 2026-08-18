@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.5.0'
+export const APP_VERSION = '4.5.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.5.1',
+    date: '2026-08-18',
+    changes: [
+      "perf(app): 26 個功能頁面改成 React.lazy 依路由拆 chunk（只有 DashboardPage 首頁維持靜態 import）——原本全部靜態 import 打包進單一 entry chunk，解壓後 1.35MB，不管打開哪個分頁都要整包抓完+parse+執行完才能顯示任何東西；改完 entry chunk 降到 534KB（gzip 182KB），使用者只需要抓 App shell + Dashboard + 實際打開的那個分頁 chunk。跟 CodeX 討論後定案先只做 route-level 這一層，manualChunks 留到之後真的看到需要再做",
+    ],
+  },
   {
     version: '4.5.0',
     date: '2026-08-17',

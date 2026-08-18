@@ -1,31 +1,35 @@
-import { useCallback, useEffect, useState } from 'react'
-import { OsmPage } from './pages/OsmPage'
-import { OsmConfigComparePage } from './pages/OsmConfigComparePage'
-import { AutoSpinPage } from './pages/AutoSpinPage'
-import { JiraPage } from './pages/JiraPage'
-import { LarkPage } from './pages/LarkPage'
-import { MachineTestPage } from './pages/MachineTestPage'
-import { ScriptedBetPage } from './pages/ScriptedBetPage'
-import { LocalAgentPage } from './pages/LocalAgentPage'
-import { HistoryPage } from './pages/HistoryPage'
-import { ImageCheckPage } from './pages/ImageCheckPage'
-import { UrlPoolPage } from './pages/UrlPoolPage'
-import { JackpotPage } from './pages/JackpotPage'
-import { OsmUatPage } from './pages/OsmUatPage'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+// 26 個功能頁面原本全部靜態 import，打包成單一 1.35MB 的 entry chunk，不管使用者
+// 開哪個分頁都要整包抓完+parse+執行完才能顯示任何東西。改成 React.lazy 依路由拆
+// chunk，只有 DashboardPage（首頁常駐）維持靜態 import；跟 CodeX 討論後定案先只做
+// route-level 這一層，不動 manualChunks（2026-08-18）。
 import { DashboardPage } from './pages/DashboardPage'
-import { GsImgComparePage } from './pages/gs/GsImgComparePage'
-import { GsLogCheckerPage } from './pages/gs/GsLogCheckerPage'
-import { GsBonusV2Page } from './pages/gs/GsBonusV2Page'
-import { SystemAdminPage } from './pages/SystemAdminPage'
-import { KnowledgePage } from './pages/KnowledgePage'
-import { UiScreenshotPage } from './pages/UiScreenshotPage'
-import { DiscordNotifySettingsPage } from './pages/DiscordNotifySettingsPage'
-import { CultivationLeaderboardPage } from './pages/CultivationLeaderboardPage'
-import { XianxiaQuotesPage } from './pages/XianxiaQuotesPage'
+const OsmPage = lazy(() => import('./pages/OsmPage').then(m => ({ default: m.OsmPage })))
+const OsmConfigComparePage = lazy(() => import('./pages/OsmConfigComparePage').then(m => ({ default: m.OsmConfigComparePage })))
+const AutoSpinPage = lazy(() => import('./pages/AutoSpinPage').then(m => ({ default: m.AutoSpinPage })))
+const JiraPage = lazy(() => import('./pages/JiraPage').then(m => ({ default: m.JiraPage })))
+const LarkPage = lazy(() => import('./pages/LarkPage').then(m => ({ default: m.LarkPage })))
+const MachineTestPage = lazy(() => import('./pages/MachineTestPage').then(m => ({ default: m.MachineTestPage })))
+const ScriptedBetPage = lazy(() => import('./pages/ScriptedBetPage').then(m => ({ default: m.ScriptedBetPage })))
+const LocalAgentPage = lazy(() => import('./pages/LocalAgentPage').then(m => ({ default: m.LocalAgentPage })))
+const HistoryPage = lazy(() => import('./pages/HistoryPage').then(m => ({ default: m.HistoryPage })))
+const ImageCheckPage = lazy(() => import('./pages/ImageCheckPage').then(m => ({ default: m.ImageCheckPage })))
+const UrlPoolPage = lazy(() => import('./pages/UrlPoolPage').then(m => ({ default: m.UrlPoolPage })))
+const JackpotPage = lazy(() => import('./pages/JackpotPage').then(m => ({ default: m.JackpotPage })))
+const OsmUatPage = lazy(() => import('./pages/OsmUatPage').then(m => ({ default: m.OsmUatPage })))
+const GsImgComparePage = lazy(() => import('./pages/gs/GsImgComparePage').then(m => ({ default: m.GsImgComparePage })))
+const GsLogCheckerPage = lazy(() => import('./pages/gs/GsLogCheckerPage').then(m => ({ default: m.GsLogCheckerPage })))
+const GsBonusV2Page = lazy(() => import('./pages/gs/GsBonusV2Page').then(m => ({ default: m.GsBonusV2Page })))
+const SystemAdminPage = lazy(() => import('./pages/SystemAdminPage').then(m => ({ default: m.SystemAdminPage })))
+const KnowledgePage = lazy(() => import('./pages/KnowledgePage').then(m => ({ default: m.KnowledgePage })))
+const UiScreenshotPage = lazy(() => import('./pages/UiScreenshotPage').then(m => ({ default: m.UiScreenshotPage })))
+const DiscordNotifySettingsPage = lazy(() => import('./pages/DiscordNotifySettingsPage').then(m => ({ default: m.DiscordNotifySettingsPage })))
+const CultivationLeaderboardPage = lazy(() => import('./pages/CultivationLeaderboardPage').then(m => ({ default: m.CultivationLeaderboardPage })))
+const XianxiaQuotesPage = lazy(() => import('./pages/XianxiaQuotesPage').then(m => ({ default: m.XianxiaQuotesPage })))
 import { BREAKTHROUGH_REALMS, CultivationBreakthroughOverlay } from './components/CultivationBreakthroughOverlay'
-import { MeterReconcilePage } from './pages/MeterReconcilePage'
-import { EgmDayCountPage } from './pages/EgmDayCountPage'
-import { WeeklyReportPage } from './pages/WeeklyReportPage'
+const MeterReconcilePage = lazy(() => import('./pages/MeterReconcilePage').then(m => ({ default: m.MeterReconcilePage })))
+const EgmDayCountPage = lazy(() => import('./pages/EgmDayCountPage').then(m => ({ default: m.EgmDayCountPage })))
+const WeeklyReportPage = lazy(() => import('./pages/WeeklyReportPage').then(m => ({ default: m.WeeklyReportPage })))
 import ChangelogModal from './components/ChangelogModal'
 import GeminiSettingsModal from './components/GeminiSettingsModal'
 import AiAgentMonitorWidget from './components/AiAgentMonitorWidget'
@@ -835,13 +839,20 @@ function App() {
         {/* Page content — 整段等 globalAccount 確定登入後才掛載，避免 Dashboard 等頁面
             在登入完成前就先發出一次一定會失敗的 unauthenticated API 請求，導致登入完成後
             畫面短暫殘留這次失敗的錯誤訊息（要等下一次 30 秒輪詢才會自動清掉） */}
-        {globalAccount && ((currentGroup?.id === 'color-game' && (effectiveTab === 'gs-bonusv2' || effectiveTab === 'gs-imgcompare')) ? (
+        {globalAccount && (
+        <Suspense fallback={
+          <div className="loading-state" style={{ padding: '64px 0' }}>
+            <div className="loading-spinner" />
+            <p className="loading-sub">頁面載入中...</p>
+          </div>
+        }>
+        {(currentGroup?.id === 'color-game' && (effectiveTab === 'gs-bonusv2' || effectiveTab === 'gs-imgcompare')) ? (
           <>
             {effectiveTab === 'gs-bonusv2' && <GsBonusV2Page />}
             {effectiveTab === 'gs-imgcompare' && <GsImgComparePage />}
           </>
         ) : (
-          <main className="main-content">
+          <main className={`main-content${currentGroup?.id === 'weekly-report' ? ' main-content--full' : ''}`}>
             {currentGroup?.id === 'dashboard' && <DashboardPage themeMode={themeMode} />}
             {currentGroup?.id === 'jira' && <JiraPage account={globalAccount} isAdmin={globalAccount?.role === 'admin'} />}
             {currentGroup?.id === 'lark' && <LarkPage themeMode={themeMode} />}
@@ -867,7 +878,9 @@ function App() {
             {currentGroup?.id === 'sysadmin' && <SystemAdminPage />}
             {currentGroup?.id === 'knowledge' && <KnowledgePage />}
           </main>
-        ))}
+        )}
+        </Suspense>
+        )}
       </div>
 
       {showChangelog && <ChangelogModal onClose={() => setShowChangelog(false)} />}
