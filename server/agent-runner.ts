@@ -949,8 +949,29 @@ function connect() {
   console.log(`[Agent:${AGENT_LABEL}] Connecting to ${url} ...`)
   const ws = new WebSocket(url)
 
+  // 主動心跳存活檢查（2026-08-18）——原本純被動等 WebSocket 'close' 事件才觸發重連，
+  // 但實測發現伺服器 process 重啟時（部署很常見），中間隔著 Nginx 反代，client 端的連線
+  // 可能變成「殭屍連線」：連線物件還在，'close' 事件遲遲不觸發甚至永遠不觸發，Local Agent
+  // 會卡在顯示「Connected — ready」但伺服器早就不認得它的狀態，只能手動重啟才會恢復。
+  // 伺服器端（worker.ts）本來就有每 30 秒 ws.ping() 防止 Nginx proxy_read_timeout 閒置斷線，
+  // 這裡額外加 client 端主動探測：每 20 秒送一次 ping，若超過 40 秒沒收到任何 pong，視為
+  // 死連線，主動 ws.terminate()（不是 close()——terminate 強制立即摧毀 socket，可靠觸發
+  // 下面既有的 'close' handler，不用等一個可能永遠不會來的優雅關閉握手），沿用既有的
+  // 5 秒後重連邏輯，不需要另外呼叫 connect()（避免雙重重連）。
+  let lastPongAt = Date.now()
+  ws.on('pong', () => { lastPongAt = Date.now() })
+  const heartbeatTimer = setInterval(() => {
+    if (Date.now() - lastPongAt > 40_000) {
+      console.log(`[Agent:${AGENT_LABEL}] Heartbeat timeout, terminating stale connection`)
+      ws.terminate()
+      return
+    }
+    if (ws.readyState === WebSocket.OPEN) ws.ping()
+  }, 20_000)
+
   ws.on('open', () => {
     console.log(`[Agent:${AGENT_LABEL}] Connected — ready`)
+    lastPongAt = Date.now()
     ws.send(JSON.stringify({
       type: 'agent_ready',
       agentId: AGENT_ID,
@@ -1375,6 +1396,7 @@ function connect() {
   ws.on('close', (code, reason) => {
     const detail = reason.toString().trim()
     console.log(`[Agent:${AGENT_LABEL}] Disconnected (code=${code}${detail ? `, reason=${detail}` : ''}), reconnecting in 5s ...`)
+    clearInterval(heartbeatTimer)
     currentRunner = null
     // Abort any in-flight claim
     pendingClaimResolve?.(null)
@@ -1384,6 +1406,7 @@ function connect() {
 
   ws.on('error', (err) => {
     console.error(`[Agent:${AGENT_LABEL}] WS error:`, err.message)
+    clearInterval(heartbeatTimer)
   })
 }
 

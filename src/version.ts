@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.9.2'
+export const APP_VERSION = '4.9.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.9.3',
+    date: '2026-08-18',
+    changes: [
+      "fix(local-agent): Local Agent 的 WebSocket 連線加上主動心跳存活檢查——原本純被動等 'close' 事件才觸發重連，正式環境真實案例：伺服器重啟後 Local Agent 的連線變成殭屍連線（連線物件還在，'close' 事件永遠不觸發），終端機停在「Connected — ready」不再有任何後續，畫面上完全偵測不到這台裝置，只能手動重啟才會恢復。新增每 20 秒 ws.ping()、超過 40 秒沒收到 pong 就主動 ws.terminate() 強制觸發既有的 5 秒後重連邏輯，不需要人工介入。跟 CodeX 討論定案（20/40 秒門檻、terminate 前印出明確 log 方便之後追查）。⚠️ 這個修法在 agent-runner.ts（Local Agent 端程式碼），既有使用者要到「Local Agent」頁面點「更新 source files」才會拿到，光是伺服器部署新版不會自動更新到本機已經在跑的 Local Agent",
+    ],
+  },
   {
     version: '4.9.2',
     date: '2026-08-18',
