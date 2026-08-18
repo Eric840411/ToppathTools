@@ -17,7 +17,14 @@ function extractMachineType(machineCode: string): string {
 function lookupMachineProfile(machineCode: string): ScriptedBetMachineProfile | null {
   const machineType = extractMachineType(machineCode)
   if (!machineType) return null
-  const row = db.prepare('SELECT * FROM machine_test_profiles WHERE machineType = ?').get(machineType) as Record<string, unknown> | undefined
+  // PRIMARY KEY 是 (machineType, enterMachineType) 複合鍵，同機型代碼可能有多筆（依 enterMachineType
+  // 分流）。這裡沒有進場後的即時訊號可以精準比對，多筆時優先採用 enterMachineType 留空那筆當泛用預設；
+  // 沒有留空可當預設就寧可不套用（回傳 null，沿用預設行為），不要靜默挑錯一筆。
+  const rows = db.prepare('SELECT * FROM machine_test_profiles WHERE machineType = ?').all(machineType) as Record<string, unknown>[]
+  const row = rows.length <= 1 ? rows[0] : rows.find(r => !r['enterMachineType'])
+  if (rows.length > 1 && !row) {
+    console.warn(`[ScriptedBet] machine_test_profiles "${machineType}" 有 ${rows.length} 筆設定檔且都指定了 enterMachineType，無法判斷該用哪一筆，改用預設行為`)
+  }
   if (!row) return null
   const parse = (v: unknown): string[] | null => {
     if (!v) return null

@@ -333,6 +333,13 @@ SAS/MML/G2S 三組各自依 `name`（遊戲代碼）分組，組內列出每台�
 | `entryTouchPoints` | 進入機台第一階段觸屏（選擇面額等）|
 | `entryTouchPoints2` | 進入機台第二階段觸屏（YES/NO 確認）|
 | `gmid` | gameid URL 參數，用於設定檔 fallback 比對 |
+| `enterMachineType` | 選填，進場後 `enterGMNtc` 回應的 machineType，用於同一機型代碼下依此欄位精準比對出正確的那筆設定檔（見下方複合鍵說明）|
+
+**唯一鍵是「機型代碼 + enterMachineType」複合鍵，不是機型代碼單獨唯一（2026-08-18，v4.7.0）**：`machine_test_profiles` 的 `PRIMARY KEY` 原本只有 `machineType`，同一機型代碼只能存一筆設定檔；但 `runner.ts` 進場後的比對邏輯（`stepEntry()` 之後）本來就設計成「优先用 `enterMachineType` 精準比對，找不到才 fallback 回機型代碼比對」，代表本來就預期同一機型代碼底下可能對到多筆設定檔（例如同一款遊戲的不同面額版本各自要不同的進場觸屏點位），只是 DB 唯一鍵先前不允許真的存在超過一筆。改成複合 `PRIMARY KEY (machineType, enterMachineType)`（SQLite 表重建遷移，`enterMachineType` 為 `NULL` 的既有資料正規化成空字串 `''`，這樣才會跟其他空白 `enterMachineType` 正確視為同一組唯一鍵，不會因為 SQL `NULL` 互相不相等而繞過重複檢查）——新增/編輯儲存時「機型代碼＋enterMachineType」兩者都相同才視為重複擋下，任一項不同就允許並存；PUT 用 `ON CONFLICT(machineType, enterMachineType)`，DELETE 改用查詢參數 `?enterMachineType=` 定位單一筆（不再是刪光同機型代碼底下所有筆）。
+
+**`MachineTestRunner.profiles` 內部結構同步改成陣列**：原本是 `Map<machineType, MachineProfile>`，用陣列建構的 Map 對重複 key 是「後者覆蓋前者」，代表即使 DB 允許存多筆，餵進 Runner 建構子時就已經被收斂成一筆，進場後那段「依 enterMachineType 精準比對」的迴圈永遠只看得到收斂後剩下的那一筆——是先前設計跟實作沒對齊的落差。改成 `MachineProfile[]`（`server/machine-test/runner.ts`、`server/agent-runner.ts` 的 Local Agent 分散式派工路徑兩處建構點都同步修正），進場前的「機台代碼初步比對」改成優先找 `enterMachineType` 留空那筆當暫時預設，進場後的精準比對邏輯完全不變。
+
+**AutoSpin／Scripted Bet 沒有進場後的即時比對訊號，多筆時刻意不猜**：這兩個功能在派工/查詢當下都還沒有機台實際進場、拿不到 `enterGMNtc` 回應的真實 `enterMachineType`，沒有 runner.ts 那種精準比對的依據。跟 CodeX 討論後的結論（B+ 方案）：不能讓 SQL 查詢在多筆情況下「沒 ORDER BY、順序不保證」的狀態下靜默挑到任意一筆去套用——AutoSpin 是實際下注流程，用錯自訂設定比完全沒有自訂設定更危險。改成：只有一筆就直接用；多筆時優先採用 `enterMachineType` 留空那筆當泛用預設；如果每一筆都指定了具體 `enterMachineType`、沒有留空可當預設，這次**不套用任何一筆自訂設定**（退回程式內建預設行為），並印出明確 `console.warn` 方便事後追查是哪個機型代碼發生這個情況。
 
 ---
 

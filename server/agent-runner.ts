@@ -1294,7 +1294,6 @@ function connect() {
       // Seed the module-level osmMap with the session snapshot; live updates will keep it current
       currentOsmMap.clear()
       for (const [k, v] of osmMachineStatus) currentOsmMap.set(k, v)
-      const profileMap = new Map<string, MachineProfile>(profiles.map(p => [p.machineType, p]))
 
       console.log(`[Agent:${AGENT_LABEL}] Joined session ${sessionId} — starting claim-loop`)
 
@@ -1317,7 +1316,7 @@ function connect() {
 
           try {
             // Create a fresh runner for each machine (avoids stale state)
-            const runner = new MachineTestRunner(currentOsmMap, profileMap, betRandomConfig)
+            const runner = new MachineTestRunner(currentOsmMap, profiles, betRandomConfig)
             currentRunner = runner
 
             runner.on('event', (ev: TestEvent) => {

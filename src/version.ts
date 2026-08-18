@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.6.1'
+export const APP_VERSION = '4.7.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.7.0',
+    date: '2026-08-18',
+    changes: [
+      "minor(machine-test): 機種設定檔唯一鍵從單一「機型代碼」改成「機型代碼 + enterMachineType」複合鍵，兩者都相同才視為重複——machine_test_profiles PRIMARY KEY 改為複合鍵（SQLite 表重建遷移，既有資料原樣保留、enterMachineType 空值正規化成空字串）；PUT/DELETE 皆改用複合鍵定位；runner.ts 的 this.profiles 從 Map<machineType,...>（會在建構前就把同機型代碼多筆收斂成一筆）改成陣列，讓進場後依 enterMachineType 精準比對的既有邏輯真正能看到多筆候選；AutoSpin/ScriptedBet 目前沒有進場後的即時比對訊號，多筆時不再靜默挑任意一筆——優先採用 enterMachineType 留空那筆當預設，找不到就印明確 warning、改用內建預設行為，不套用可能選錯的自訂設定",
+    ],
+  },
   {
     version: '4.6.1',
     date: '2026-08-17',

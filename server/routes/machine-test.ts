@@ -552,7 +552,7 @@ router.post('/api/image-check/stop/:id', async (req, res) => {
 
 // GET /api/machine-test/profiles
 router.get('/api/machine-test/profiles', (_req, res) => {
-  const rows = db.prepare('SELECT * FROM machine_test_profiles ORDER BY machineType').all() as (MachineTestProfile & { touchPoints: string | null; clickTake: number })[]
+  const rows = db.prepare('SELECT * FROM machine_test_profiles ORDER BY machineType, enterMachineType').all() as (MachineTestProfile & { touchPoints: string | null; clickTake: number })[]
   const profiles = rows.map(r => ({
     ...r,
     touchPoints:       r.touchPoints       ? JSON.parse(r.touchPoints as unknown as string)       : [],
@@ -572,6 +572,7 @@ router.put('/api/machine-test/profiles', (req, res, next) => {
     const p = profileSchema.parse(req.body) as MachineTestProfile
     const row = {
       ...p,
+      enterMachineType:  p.enterMachineType ?? '',
       touchPoints:       p.touchPoints       ? JSON.stringify(p.touchPoints)       : null,
       entryTouchPoints:  p.entryTouchPoints  ? JSON.stringify(p.entryTouchPoints)  : null,
       entryTouchPoints2: p.entryTouchPoints2 ? JSON.stringify(p.entryTouchPoints2) : null,
@@ -580,12 +581,14 @@ router.put('/api/machine-test/profiles', (req, res, next) => {
       clickTake: p.clickTake ? 1 : 0,
       expectedScreens:   p.expectedScreens ?? null,
     }
+    // PRIMARY KEY 是 (machineType, enterMachineType) 複合鍵——同機型代碼可以依 enterMachineType 建多筆設定檔，
+    // 只有兩欄都相同才會 upsert 蓋掉既有那筆
     db.prepare(`
       INSERT INTO machine_test_profiles (machineType, bonusAction, touchPoints, clickTake, gmid, enterMachineType, spinSelector, balanceSelector, exitSelector, notes, entryTouchPoints, entryTouchPoints2, ideck_xpaths, audioConfig, expectedScreens)
       VALUES (@machineType, @bonusAction, @touchPoints, @clickTake, @gmid, @enterMachineType, @spinSelector, @balanceSelector, @exitSelector, @notes, @entryTouchPoints, @entryTouchPoints2, @ideck_xpaths, @audioConfig, @expectedScreens)
-      ON CONFLICT(machineType) DO UPDATE SET
+      ON CONFLICT(machineType, enterMachineType) DO UPDATE SET
         bonusAction=excluded.bonusAction, touchPoints=excluded.touchPoints, clickTake=excluded.clickTake,
-        gmid=excluded.gmid, enterMachineType=excluded.enterMachineType,
+        gmid=excluded.gmid,
         spinSelector=excluded.spinSelector, balanceSelector=excluded.balanceSelector,
         exitSelector=excluded.exitSelector, notes=excluded.notes,
         entryTouchPoints=excluded.entryTouchPoints, entryTouchPoints2=excluded.entryTouchPoints2,
@@ -599,9 +602,10 @@ router.put('/api/machine-test/profiles', (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-// DELETE /api/machine-test/profiles/:type
+// DELETE /api/machine-test/profiles/:type?enterMachineType=... — 複合鍵定位單一筆，enterMachineType 留空即比對空字串那筆
 router.delete('/api/machine-test/profiles/:type', (req, res) => {
-  db.prepare('DELETE FROM machine_test_profiles WHERE machineType = ?').run(req.params.type.toUpperCase())
+  const enterMachineType = typeof req.query.enterMachineType === 'string' ? req.query.enterMachineType : ''
+  db.prepare('DELETE FROM machine_test_profiles WHERE machineType = ? AND enterMachineType = ?').run(req.params.type.toUpperCase(), enterMachineType)
   res.json({ ok: true })
 })
 
@@ -972,7 +976,6 @@ router.post('/api/machine-test/start', async (req, res, next) => {
       clickTake: !!r.clickTake,
       audioConfig:       (r as any).audioConfig ? JSON.parse((r as any).audioConfig) : null,
     })) as MachineProfile[]
-    const profileMap = new Map(profiles.map(p => [p.machineType, p]))
     const betRandomPath = join(AUTOSPIN_PROJECT_DIR, 'bet_random.json')
     const betRandomConfig: Record<string, string[]> = existsSync(betRandomPath)
       ? JSON.parse(readFileSync(betRandomPath, 'utf-8'))
@@ -1066,7 +1069,7 @@ router.post('/api/machine-test/start', async (req, res, next) => {
       res.json({ ok: true, sessionId, mode: 'distributed', agents: availableAgents.length })
     } else {
       // ???? Local: run on this server ??????????????????????????????????????????????????????????????????????????????????
-      const runner = new MachineTestRunner(osmMachineStatus, profileMap, betRandomConfig)
+      const runner = new MachineTestRunner(osmMachineStatus, profiles, betRandomConfig)
       runner.on('event', broadcastToViewers)
       activeRunners.set(sessionId, {
         account: sessionAccount,

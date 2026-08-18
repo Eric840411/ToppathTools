@@ -1182,9 +1182,33 @@ router.post('/api/autospin/agent/start', (req, res) => {
   // Return configs merged with machine_test_profiles selectors
   // （entryTouchPoints/entryTouchPoints2 讓 AutoSpin 的進入機台流程與 Machine Test 完全一致）
   const configs = readConfigs(userLabel)
-  const profiles = db.prepare('SELECT machineType, spinSelector, balanceSelector, entryTouchPoints, entryTouchPoints2, bonusAction, touchPoints, clickTake, ideck_xpaths FROM machine_test_profiles').all() as
-    { machineType: string; spinSelector: string | null; balanceSelector: string | null; entryTouchPoints: string | null; entryTouchPoints2: string | null; bonusAction: string | null; touchPoints: string | null; clickTake: number | null; ideck_xpaths: string | null }[]
-  const profileMap = Object.fromEntries(profiles.map(p => [p.machineType, p]))
+  const profiles = db.prepare('SELECT machineType, enterMachineType, spinSelector, balanceSelector, entryTouchPoints, entryTouchPoints2, bonusAction, touchPoints, clickTake, ideck_xpaths FROM machine_test_profiles').all() as
+    { machineType: string; enterMachineType: string | null; spinSelector: string | null; balanceSelector: string | null; entryTouchPoints: string | null; entryTouchPoints2: string | null; bonusAction: string | null; touchPoints: string | null; clickTake: number | null; ideck_xpaths: string | null }[]
+  // machine_test_profiles 的 PRIMARY KEY 是 (machineType, enterMachineType) 複合鍵，同一個機型代碼可能
+  // 對到多筆設定檔（依 enterMachineType 分流，runner.ts 進場後有即時訊號可以精準比對，但 AutoSpin
+  // 派工當下還沒進場、拿不到這個訊號）。這裡刻意不「靜默挑任意一筆」（SQL 沒 ORDER BY，順序不保證，
+  // AutoSpin 是實際下注流程，選錯設定檔比對照原本没有設定檔更危險）：多筆時優先採用 enterMachineType
+  // 留空的那筆當泛用預設；如果每筆都指定了 enterMachineType、沒有留空的可以當預設，寧可不套用任何一筆
+  // 自訂設定（退回程式內建預設行為）也不要用錯，並印出明確 warning 方便事後追查。
+  const profilesByType = new Map<string, typeof profiles>()
+  for (const p of profiles) {
+    const arr = profilesByType.get(p.machineType)
+    if (arr) arr.push(p); else profilesByType.set(p.machineType, [p])
+  }
+  const profileMap: Record<string, typeof profiles[number]> = {}
+  for (const [mt, rows] of profilesByType) {
+    if (rows.length === 1) {
+      profileMap[mt] = rows[0]
+      continue
+    }
+    const blank = rows.find(r => !r.enterMachineType)
+    if (blank) {
+      profileMap[mt] = blank
+      console.warn(`[AutoSpin] machine_test_profiles "${mt}" 有 ${rows.length} 筆設定檔（依 enterMachineType 分流），派工當下無法得知實際 enterMachineType，採用留空那筆當預設`)
+    } else {
+      console.warn(`[AutoSpin] machine_test_profiles "${mt}" 有 ${rows.length} 筆設定檔且都指定了 enterMachineType、沒有留空可當預設的——此機型 AutoSpin 這次不套用任何一筆自訂設定，改用程式內建預設行為`)
+    }
+  }
   const parseTouchPoints = (v: string | null | undefined): string[] => {
     if (!v) return []
     try { const arr = JSON.parse(v); return Array.isArray(arr) ? arr : [] } catch { return [] }

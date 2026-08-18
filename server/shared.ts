@@ -659,6 +659,43 @@ export function getCultivationLeaderboard() {
   }
 }
 
+// Migrate machine_test_profiles: PRIMARY KEY 從單一 machineType 改為 (machineType, enterMachineType) 複合鍵，
+// 讓同一個機型代碼可以依 enterMachineType 建立多筆設定檔（runner.ts 進場後比對邏輯本來就預期支援這個情境）
+{
+  const pkCols = db.prepare('PRAGMA table_info(machine_test_profiles)').all() as { name: string; pk: number }[]
+  const enterMachineTypeCol = pkCols.find(c => c.name === 'enterMachineType')
+  const alreadyComposite = !!enterMachineTypeCol && enterMachineTypeCol.pk > 0
+  if (!alreadyComposite) {
+    db.exec(`
+      CREATE TABLE machine_test_profiles_new (
+        machineType       TEXT NOT NULL,
+        bonusAction       TEXT NOT NULL DEFAULT 'auto_wait',
+        touchPoints       TEXT,
+        clickTake         INTEGER NOT NULL DEFAULT 0,
+        gmid              TEXT,
+        enterMachineType  TEXT NOT NULL DEFAULT '',
+        spinSelector      TEXT,
+        balanceSelector   TEXT,
+        exitSelector      TEXT,
+        notes             TEXT,
+        entryTouchPoints  TEXT,
+        entryTouchPoints2 TEXT,
+        ideck_xpaths      TEXT NOT NULL DEFAULT '[]',
+        audioConfig       TEXT,
+        expectedScreens   INTEGER,
+        PRIMARY KEY (machineType, enterMachineType)
+      );
+      INSERT INTO machine_test_profiles_new
+        (machineType, bonusAction, touchPoints, clickTake, gmid, enterMachineType, spinSelector, balanceSelector, exitSelector, notes, entryTouchPoints, entryTouchPoints2, ideck_xpaths, audioConfig, expectedScreens)
+      SELECT machineType, bonusAction, touchPoints, clickTake, gmid, COALESCE(enterMachineType, ''), spinSelector, balanceSelector, exitSelector, notes, entryTouchPoints, entryTouchPoints2, ideck_xpaths, audioConfig, expectedScreens
+      FROM machine_test_profiles;
+      DROP TABLE machine_test_profiles;
+      ALTER TABLE machine_test_profiles_new RENAME TO machine_test_profiles;
+    `)
+    console.log('[DB] machine_test_profiles PRIMARY KEY 已改為 (machineType, enterMachineType) 複合鍵')
+  }
+}
+
 {
   // migration: add role column to jira_accounts
   const acCols = db.prepare('PRAGMA table_info(jira_accounts)').all() as { name: string }[]
@@ -1305,6 +1342,7 @@ export function revokeLocalAgentToken(operator: OperatorInfo | undefined, id: st
     try {
       const rows = JSON.parse(readFileSync(profilesSeedPath, 'utf-8')) as Array<{
         machineType: string
+        enterMachineType?: string
         bonusAction?: string
         touchPoints?: unknown[]
         clickTake?: boolean
@@ -1320,12 +1358,13 @@ export function revokeLocalAgentToken(operator: OperatorInfo | undefined, id: st
       }>
       const ins = db.prepare(`
         INSERT OR IGNORE INTO machine_test_profiles
-          (machineType, bonusAction, touchPoints, clickTake, gmid, spinSelector, balanceSelector, exitSelector, notes, entryTouchPoints, entryTouchPoints2, ideck_xpaths, audioConfig)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (machineType, enterMachineType, bonusAction, touchPoints, clickTake, gmid, spinSelector, balanceSelector, exitSelector, notes, entryTouchPoints, entryTouchPoints2, ideck_xpaths, audioConfig)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       for (const r of rows) {
         ins.run(
           r.machineType,
+          r.enterMachineType ?? '',
           r.bonusAction ?? 'auto_wait',
           r.touchPoints?.length ? JSON.stringify(r.touchPoints) : null,
           r.clickTake ? 1 : 0,
