@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.7.0'
+export const APP_VERSION = '4.8.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.8.0',
+    date: '2026-08-18',
+    changes: [
+      "minor(autospin): 多裝置並行後端支援——同一帳號現在可以同時對多台 Local Agent 裝置派工 AutoSpin，彼此不會互相停掉（前端「執行監控」UI 仍是單裝置畫面，多裝置並排/分頁顯示待後續 mockup 確認後實作）。heavy-task-guard 新增 tryStartScopedHeavyTask()，AutoSpin 的 autospin-agent 鎖從純綁帳號改成綁 (帳號, agentId)，其餘 10 種既有重任務類型完全不受影響；agentId 從 hub-dispatch 經 WS→agent-runner.ts→toppath-agent.py 的 URI 參數→/agent/start 註冊（含斷線重連路徑）一路貫穿；/agent/start 的 session 清理迴圈與 hub-stop 的雙保險迴圈都補上 agentId 比對，避免停裝置 B 誤停裝置 A；GET /agent/status 改回傳 sessions[] 陣列（向下相容單一 sessionId 欄位）",
+      "fix(db): heavy_tasks 新增 lock_key 欄位的 migration 硬化——原本一度把 CREATE INDEX 放進 CREATE TABLE IF NOT EXISTS 同一個 db.exec() 區塊，對既有資料庫（表已存在、缺這個新欄位）會直接對不存在的欄位建索引、拋錯導致 server 開機即崩潰（本機驗證時真的炸過一次，殘留 process 佔用 port 3000 造成 pm2 restart loop）；改成明確分步驟＋每步驗證＋失敗 fail fast（process.exit，不吞錯讓 server 帶著半套 schema 跑），並在 ecosystem.config.cjs 補上 kill_timeout: 5000 降低同類事故的 blast radius",
+    ],
+  },
   {
     version: '4.7.0',
     date: '2026-08-18',

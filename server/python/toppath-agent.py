@@ -42,6 +42,8 @@ except ImportError:
 # enter_game/...）都直接讀這幾個模組全域變數，維持不變，不用每個函式都加參數 ───
 server_url = "http://localhost:3000"
 user_label = ""
+agent_id = ""  # 派工目標裝置 id（2026-08-18 多裝置並行），poll_stop() 斷線重連註冊要帶上，
+               # 否則重連會退回沒有 scope 的舊語意，可能跟其他裝置的鎖互相衝突
 session_id = None
 keyword_actions: dict = {}  # enter_game() 讀這個當作 bare global（fallback 用），machine_worker() 進場時賦值
 machine_actions: dict = {}  # 目前未串接的殘留變數，保留只為了跟伺服器回傳的資料形狀一致
@@ -153,7 +155,7 @@ def poll_stop():
                 local_log("[Agent] Session 已失效，嘗試重新連線伺服器...")
                 try:
                     resp = requests.post(f"{server_url}/api/autospin/agent/start",
-                                         json={'userLabel': user_label}, timeout=10)
+                                         json={'userLabel': user_label, 'agentId': agent_id}, timeout=10)
                     new_data = resp.json()
                     session_id = new_data['sessionId']
                     local_log(f"[Agent] 重新連線成功，新 Session: {session_id}")
@@ -1530,17 +1532,18 @@ def _parent_signal_handler(signum, frame):
 
 def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: dict,
                     keyword_actions_: dict, machine_actions_: dict, heartbeats=None,
-                    screenshot_enabled_: bool = True):
+                    screenshot_enabled_: bool = True, agent_id_: str = ''):
     """單一機台的完整生命週期，跑在自己獨立的 process 裡。heartbeats（multiprocessing.Manager
     的共享 dict，parent 傳入）在每次主迴圈迭代開頭寫入目前時間，讓 parent 端的監控迴圈能判斷
     這台機台是「活著且有在動」還是「process 還在但卡死」（例如瀏覽器已無回應），據此自動重啟。"""
-    global session_id, server_url, user_label, keyword_actions, machine_actions, AGENT_START_TS, screenshot_enabled
+    global session_id, server_url, user_label, keyword_actions, machine_actions, AGENT_START_TS, screenshot_enabled, agent_id
     session_id = session_id_
     server_url = server_url_
     user_label = user_label_
     keyword_actions = keyword_actions_
     machine_actions = machine_actions_
     screenshot_enabled = screenshot_enabled_
+    agent_id = agent_id_
     AGENT_START_TS = time.time()
 
     signal.signal(signal.SIGINT,  lambda s, f: stop_flag.set())
@@ -1859,12 +1862,16 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
 def main():
     global server_url, user_label, session_id
 
+    agent_id = ""
     if len(sys.argv) > 1:
         try:
             parsed = urlparse(sys.argv[1])
             params = parse_qs(parsed.query)
             server_url = params.get('server', [server_url])[0].rstrip('/')
             user_label = params.get('user', [''])[0]
+            # 派工目標裝置 id（2026-08-18 多裝置並行）——只用於這裡的註冊呼叫，讓伺服器把
+            # heavy-task 鎖 scope 到這台裝置，不需要傳給 machine_worker() child process
+            agent_id = params.get('agent', [''])[0]
         except Exception:
             pass
 
@@ -1872,7 +1879,7 @@ def main():
 
     try:
         resp = requests.post(f"{server_url}/api/autospin/agent/start",
-                             json={'userLabel': user_label}, timeout=10)
+                             json={'userLabel': user_label, 'agentId': agent_id}, timeout=10)
         data = resp.json()
         if not data.get('ok', True):
             # 伺服器明確拒絕（例如 heavy-task 衝突：這個帳號已有其他重任務在跑），印出伺服器
@@ -1928,7 +1935,7 @@ def main():
     def spawn_machine(mt: str) -> None:
         proc = multiprocessing.Process(
             target=machine_worker,
-            args=(session_id, server_url, user_label, machine_cfgs[mt], keyword_actions_data, machine_actions_data, heartbeats, screenshot_enabled_data),
+            args=(session_id, server_url, user_label, machine_cfgs[mt], keyword_actions_data, machine_actions_data, heartbeats, screenshot_enabled_data, agent_id),
         )
         proc.start()
         machine_procs[mt] = proc

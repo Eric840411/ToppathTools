@@ -14,6 +14,9 @@ type HeavyTask = {
 export type HeavyTaskToken = {
   id: string
   userKey: string
+  /** activeTasks 這個 Map 實際用的 key——沒有 scope 的任務等於 userKey，
+   *  scoped 任務（見 tryStartScopedHeavyTask）是 `${userKey}::${scopeKey}` */
+  lockKey: string
 }
 
 type HeavyTaskRow = {
@@ -27,6 +30,7 @@ type HeavyTaskRow = {
   started_at: number | null
   finished_at: number | null
   error: string | null
+  lock_key: string | null
 }
 
 const activeTasks = new Map<string, HeavyTask>()
@@ -49,7 +53,11 @@ const activeTasks = new Map<string, HeavyTask>()
         .run(now, '重任務追蹤逾期未結束（伺服器重啟後復原時判定為異常，非正常結束）', row.id)
       continue
     }
-    activeTasks.set(row.user_key, {
+    // lock_key 是這次（2026-08-18）新增的欄位，既有舊資料為 NULL，fallback 回 user_key（維持
+    // 原本「純綁帳號」語意）；scoped 任務（如 AutoSpin 依 agentId 分流）復原時要用 lock_key，
+    // 否則多裝置的鎖會在重啟後被摺疊成一筆，等於復原成全帳號互斥
+    const lockKey = row.lock_key || row.user_key
+    activeTasks.set(lockKey, {
       id: row.id, userKey: row.user_key, userLabel: row.user_label,
       type: row.type, label: row.label, startedAt,
     })
@@ -110,13 +118,15 @@ function toPublicTask(row: HeavyTaskRow) {
   }
 }
 
-export function tryStartHeavyTask(
+function startHeavyTaskInternal(
   req: Request,
   type: string,
   label: string,
+  scopeKey: string | undefined,
 ): { ok: true; token: HeavyTaskToken } | { ok: false; task: HeavyTask } {
   const user = taskUser(req)
-  const existing = activeTasks.get(user.key)
+  const lockKey = scopeKey ? `${user.key}::${scopeKey}` : user.key
+  const existing = activeTasks.get(lockKey)
   if (existing) return { ok: false, task: existing }
 
   const now = Date.now()
@@ -128,21 +138,42 @@ export function tryStartHeavyTask(
     label,
     startedAt: now,
   }
-  activeTasks.set(user.key, task)
+  activeTasks.set(lockKey, task)
   db.prepare(`
     INSERT OR REPLACE INTO heavy_tasks
-      (id, user_key, user_label, type, label, status, created_at, started_at, finished_at, error)
-    VALUES (?, ?, ?, ?, ?, 'running', ?, ?, NULL, NULL)
-  `).run(task.id, task.userKey, task.userLabel, task.type, task.label, now, now)
+      (id, user_key, user_label, type, label, status, created_at, started_at, finished_at, error, lock_key)
+    VALUES (?, ?, ?, ?, ?, 'running', ?, ?, NULL, NULL, ?)
+  `).run(task.id, task.userKey, task.userLabel, task.type, task.label, now, now, lockKey)
   notifyWorker('/internal/worker/tasks/start', task)
-  return { ok: true, token: { id: task.id, userKey: user.key } }
+  return { ok: true, token: { id: task.id, userKey: user.key, lockKey } }
+}
+
+export function tryStartHeavyTask(
+  req: Request,
+  type: string,
+  label: string,
+): { ok: true; token: HeavyTaskToken } | { ok: false; task: HeavyTask } {
+  return startHeavyTaskInternal(req, type, label, undefined)
+}
+
+// Scoped 版本——同一個帳號可以對不同的 scopeKey（例如 AutoSpin 的 `agent:<agentId>`）各自持有
+// 一把鎖，彼此不衝突；同一個帳號 + 同一個 scopeKey 仍然互斥。目前只有 AutoSpin 的
+// autospin-agent 任務會用到，其餘既有呼叫點沿用 tryStartHeavyTask()，行為完全不受影響。
+export function tryStartScopedHeavyTask(
+  req: Request,
+  type: string,
+  label: string,
+  scopeKey: string,
+): { ok: true; token: HeavyTaskToken } | { ok: false; task: HeavyTask } {
+  return startHeavyTaskInternal(req, type, label, scopeKey)
 }
 
 export function finishHeavyTask(token: HeavyTaskToken | null | undefined) {
   if (!token) return
-  const current = activeTasks.get(token.userKey)
+  const lockKey = token.lockKey ?? token.userKey
+  const current = activeTasks.get(lockKey)
   if (current?.id !== token.id) return
-  activeTasks.delete(token.userKey)
+  activeTasks.delete(lockKey)
   db.prepare("UPDATE heavy_tasks SET status = 'done', finished_at = ? WHERE id = ?").run(Date.now(), current.id)
   notifyWorker('/internal/worker/tasks/finish', {
     id: current.id,

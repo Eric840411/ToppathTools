@@ -12,6 +12,10 @@ module.exports = {
       max_memory_restart: '800M',
       max_restarts: 10,
       restart_delay: 3000,
+      // migration 失敗 fail-fast（process.exit）後，給舊 process 足夠時間真正釋放 port 3000
+      // 再讓 pm2 起新的——2026-08-18 曾經因為這個沒設定夠寬裕，撞過殘留 process 佔用 port
+      // 導致 restart loop 假死的真實事故（見 server/shared.ts 的 heavy_tasks migration 註解）
+      kill_timeout: 5000,
       env: {
         NODE_ENV: 'production',
         PORT: '3000',
@@ -32,6 +36,7 @@ module.exports = {
       cron_restart: '0 4 * * *',
       max_restarts: 20,
       restart_delay: 3000,
+      kill_timeout: 5000,
       node_args: '--max-old-space-size=640',
       env: {
         NODE_ENV: 'production',

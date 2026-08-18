@@ -112,6 +112,8 @@ interface AutoSpinStartMessage {
   type: 'autospin_start'
   sessionId: string
   userLabel: string
+  /** 派工目標裝置 id（本機自己）——2026-08-18 多裝置並行，一路傳給 Python 引擎的 /agent/start 註冊 */
+  agentId?: string
 }
 
 type IncomingMessage =
@@ -1011,7 +1013,7 @@ function connect() {
     // 在被派工時啟動它、停止時關閉它，並在結束時回報 agent_done 釋放此 agent。
     if (msg.type === 'autospin_start') {
       const startMsg = msg as AutoSpinStartMessage
-      const { sessionId, userLabel } = startMsg
+      const { sessionId, userLabel, agentId } = startMsg
       const luckylinkConfig = (startMsg as unknown as { luckylinkConfig?: { enabled: boolean; jpGroupCode?: string; pollIntervalSec?: number; luckylinkUrl?: string; luckylinkGroupName?: string; loginUser?: string; loginPass?: string } }).luckylinkConfig
 
       if (autospinChild) {
@@ -1031,7 +1033,7 @@ function connect() {
         if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'agent_done', sessionId }))
         return
       }
-      const uriArg = `toppath-agent://?server=${encodeURIComponent(httpBase)}&user=${encodeURIComponent(userLabel ?? '')}`
+      const uriArg = `toppath-agent://?server=${encodeURIComponent(httpBase)}&user=${encodeURIComponent(userLabel ?? '')}&agent=${encodeURIComponent(agentId ?? '')}`
       console.log(`[Agent:${AGENT_LABEL}] AutoSpin start → ${PYTHON_EXE} ${scriptPath} (server=${httpBase}, user=${userLabel || '(none)'})`)
       const child = spawn(PYTHON_EXE, [scriptPath, uriArg], {
         cwd: join(process.cwd(), 'server', 'python'),

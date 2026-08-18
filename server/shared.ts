@@ -93,7 +93,8 @@ db.exec(`
     created_at  INTEGER NOT NULL,
     started_at  INTEGER,
     finished_at INTEGER,
-    error       TEXT
+    error       TEXT,
+    lock_key    TEXT
   );
   CREATE INDEX IF NOT EXISTS idx_heavy_tasks_user_status ON heavy_tasks (user_key, status, created_at);
   CREATE TABLE IF NOT EXISTS local_agent_tokens (
@@ -137,6 +138,44 @@ db.exec(`
     notes                  TEXT NOT NULL DEFAULT ''
   );
 `)
+
+// Migrate heavy_tasks: add lock_key column (scoped heavy-task locks, 2026-08-18)
+// unscoped 任務這欄等於 user_key（向下相容），既有舊資料這欄是 NULL，heavy-task-guard.ts
+// 開機復原時 fallback 用 row.lock_key || row.user_key
+//
+// ⚠️ 這裡曾經真的把 server 搞掛過一次：CREATE INDEX 一度被放進上面那個
+// CREATE TABLE IF NOT EXISTS 的 db.exec() 區塊裡——對既有資料庫（表已存在、只是還沒有
+// lock_key 欄），CREATE TABLE IF NOT EXISTS 會整句跳過，但同區塊的 CREATE INDEX 還是會
+// 執行，對不存在的欄位建索引直接拋 SqliteError，整個模組載入死掉、server 開機即崩潰。
+// 跟 CodeX 討論後定案：schema migration 失敗不能吞錯讓 server 帶著半套 schema 繼續跑
+// （之後每次操作都可能踩到不一致狀態卻沒人發現）——改成明確分步驟＋每步都自我驗證，
+// 任一步驗證不過就記錄詳細狀態後 fail fast（process.exit），拒絕啟動。
+{
+  try {
+    const colsBefore = db.prepare('PRAGMA table_info(heavy_tasks)').all() as { name: string }[]
+    if (!colsBefore.find(c => c.name === 'lock_key')) {
+      db.exec('ALTER TABLE heavy_tasks ADD COLUMN lock_key TEXT')
+      console.log('[DB] heavy_tasks 已新增欄位：lock_key')
+    }
+    // 欄位加好、且自我驗證確實存在之後才建索引——不假設上一步一定成功
+    const colsAfter = db.prepare('PRAGMA table_info(heavy_tasks)').all() as { name: string }[]
+    if (!colsAfter.find(c => c.name === 'lock_key')) {
+      throw new Error(`ALTER TABLE 執行後仍偵測不到 lock_key 欄位，目前欄位：${colsAfter.map(c => c.name).join(', ')}`)
+    }
+    db.exec('CREATE INDEX IF NOT EXISTS idx_heavy_tasks_lock_key ON heavy_tasks (lock_key)')
+    const idx = db.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_heavy_tasks_lock_key'`).get()
+    if (!idx) {
+      throw new Error('CREATE INDEX 執行後仍偵測不到 idx_heavy_tasks_lock_key 索引')
+    }
+  } catch (err) {
+    console.error('[DB][FATAL] heavy_tasks.lock_key migration 失敗，伺服器拒絕啟動:', err)
+    try {
+      console.error('[DB][FATAL] 目前 heavy_tasks 欄位狀態:', JSON.stringify(db.prepare('PRAGMA table_info(heavy_tasks)').all()))
+      console.error('[DB][FATAL] 目前 heavy_tasks 索引狀態:', JSON.stringify(db.prepare(`SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='heavy_tasks'`).all()))
+    } catch { /* 連診斷查詢都失敗就算了，上面的 err 訊息已經是最主要的線索 */ }
+    process.exit(1)
+  }
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS machine_test_sessions (

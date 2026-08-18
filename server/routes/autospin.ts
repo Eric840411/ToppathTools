@@ -11,7 +11,7 @@ import { fileURLToPath } from 'url'
 import { dirname } from 'path'
 import { db, addHistory, upload } from '../shared.js'
 import { getOperatorFromContext } from '../request-context.js'
-import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
+import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, tryStartScopedHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { fetchSlsErrors, fetchRecordBet, testSlsRecordBetConnection, type SlsBetRecord } from '../lib/sls.js'
 import { randomUUID } from 'crypto'
 import { agentConnections, getAvailableAgents } from '../agent-hub.js'
@@ -917,6 +917,9 @@ interface AgentSession {
   stopRequested: boolean
   pauseRequested: boolean
   userLabel: string
+  /** 派工目標的 Local Agent 裝置 id——同一帳號可以同時對不同裝置各自持有一個 session
+   *  （2026-08-18，多裝置並行）；空字串代表舊資料/伺服器端 fallback 模式（沒有裝置概念）*/
+  agentId: string
   spinIntervalOverride: number | null
   heavyTask?: HeavyTaskToken
   // LuckyLink poller state — replayed on SSE reconnect so panel survives refresh
@@ -943,7 +946,9 @@ const agentSessions = new Map<string, AgentSession>()
   for (const row of rows) {
     try {
       const parsed = JSON.parse(row.data) as Omit<AgentSession, 'logs' | 'screenshots'>
-      agentSessions.set(row.id, { ...parsed, logs: [], screenshots: [] })
+      // agentId 是 2026-08-18 新增欄位，部署當下正在跑、快照寫入早於這次改動的 session 沒有這個
+      // 欄位，fallback 空字串（沿用「舊資料/無裝置概念」語意，不影響既有單裝置流程）
+      agentSessions.set(row.id, { ...parsed, agentId: parsed.agentId ?? '', logs: [], screenshots: [] })
       restored++
     } catch {
       db.prepare('DELETE FROM autospin_agent_sessions WHERE id = ?').run(row.id)
@@ -1145,28 +1150,35 @@ export { broadcastAgentLog, broadcastLuckylinkEvent }
 // POST /api/autospin/agent/start — agent registers and gets configs
 router.post('/api/autospin/agent/start', (req, res) => {
   const userLabel = (req.body as { userLabel?: string }).userLabel ?? ''
-  const heavyTask = tryStartHeavyTask(req, 'autospin-agent', 'AutoSpin Agent')
+  // agentId 是派工目標 Local Agent 裝置的 id（2026-08-18，多裝置並行）；伺服器端 fallback 模式
+  // 沒有裝置概念，維持空字串——這條路徑刻意不 scope，沿用原本「整帳號互斥」語意。
+  const agentId = (req.body as { agentId?: string }).agentId ?? ''
+  const heavyTask = agentId
+    ? tryStartScopedHeavyTask(req, 'autospin-agent', 'AutoSpin Agent', `agent:${agentId}`)
+    : tryStartHeavyTask(req, 'autospin-agent', 'AutoSpin Agent')
   let sessionId: string
   let isNewSession = false
   if (!heavyTask.ok) {
     // 多進程架構下（每台機台一個獨立 process），同一次派工底下的每個 machine_worker() 都各自
     // 獨立輪詢 /should-stop；一旦 session 遺失（例如伺服器重啟，記憶體內的 agentSessions 被清空），
     // 每個 process 會各自嘗試重新呼叫這支 API 登錄——第一個成功的會拿到新 session、佔走這個
-    // userLabel 的 heavy-task 名額，緊接著幾乎同時打進來的其他 process 只會看到「已被佔用」而
-    // 失敗（Python 端會出現 KeyError: 'sessionId'，因為衝突回應沒有這個欄位）。這種情況不是真的
-    // 衝突（不是使用者手動又點了一次派工），只要衝突對象本身也是 autospin-agent、而且已經有一個
-    // 屬於同一個 userLabel 的 running session（就是剛剛那個搶到名額的 process 建立的），直接讓
-    // 這個 process 加入既有 session 就好，不要擋下來讓它永遠卡在重連失敗。
-    const existing = [...agentSessions.values()].find(s => s.status === 'running' && s.userLabel === userLabel)
+    // (userLabel, agentId) 的 heavy-task 名額，緊接著幾乎同時打進來的其他 process 只會看到「已被
+    // 佔用」而失敗（Python 端會出現 KeyError: 'sessionId'，因為衝突回應沒有這個欄位）。這種情況
+    // 不是真的衝突（不是使用者手動又點了一次派工），只要衝突對象本身也是 autospin-agent、而且
+    // 已經有一個屬於同一個 (userLabel, agentId) 的 running session（就是剛剛那個搶到名額的
+    // process 建立的），直接讓這個 process 加入既有 session 就好，不要擋下來讓它永遠卡在重連
+    // 失敗。比對加上 agentId，避免裝置 B 的重連誤加入裝置 A 的 session。
+    const existing = [...agentSessions.values()].find(s => s.status === 'running' && s.userLabel === userLabel && s.agentId === agentId)
     if (heavyTask.task.type === 'autospin-agent' && existing) {
       sessionId = existing.id
     } else {
       return res.status(429).json(heavyTaskConflict(heavyTask.task))
     }
   } else {
-    // Stop any existing agent sessions for this user
+    // Stop any existing agent sessions for this user **on the same device**（多加 agentId 比對，
+    // 否則裝置 B 重新派工時會連帶把裝置 A 正在跑的 session 一起停掉，違背多裝置並行的目的）
     for (const s of agentSessions.values()) {
-      if (!userLabel || s.userLabel === userLabel) {
+      if (s.status === 'running' && (!userLabel || s.userLabel === userLabel) && s.agentId === agentId) {
         s.status = 'stopped'
         finishHeavyTask(s.heavyTask)
       }
@@ -1175,7 +1187,7 @@ router.post('/api/autospin/agent/start', (req, res) => {
     isNewSession = true
     agentSessions.set(sessionId, {
       id: sessionId, status: 'running', startedAt: Date.now(), lastHeartbeat: Date.now(),
-      logs: [], screenshots: [], stopRequested: false, pauseRequested: false, userLabel, spinIntervalOverride: null,
+      logs: [], screenshots: [], stopRequested: false, pauseRequested: false, userLabel, agentId, spinIntervalOverride: null,
       heavyTask: heavyTask.token,
     })
   }
@@ -1374,10 +1386,13 @@ router.post('/api/autospin/agent/stop-all', (req, res) => {
 // GET /api/autospin/agent/status — frontend polls agent status
 // 依 x-user-label 只回傳目前登入帳號自己派工的 session，不同帳號各自看到各自的畫面
 // （不再是「不管誰的，抓第一個在跑的」，避免不同操作者互相看到彼此的執行日誌/截圖）。
+// 2026-08-18：改回傳陣列（多裝置並行後，同帳號可能同時有多個 running session）；
+// 沿用舊欄位 running/sessionId/startedAt 對應「陣列中第一筆」，給還沒升級的舊前端呼叫相容，
+// 新前端改讀 sessions[] 才能看到全部裝置。
 router.get('/api/autospin/agent/status', (req, res) => {
   const userLabel = (req.headers['x-user-label'] as string) || ''
   const HEARTBEAT_TIMEOUT = 30_000 // 30s — agent polls every 3s
-  let active: AgentSession | undefined
+  const active: AgentSession[] = []
   for (const s of agentSessions.values()) {
     if (s.status !== 'running') continue
     // Auto-expire if agent stopped sending heartbeats
@@ -1388,9 +1403,22 @@ router.get('/api/autospin/agent/status', (req, res) => {
       finalizeSessionNotifications(s.id).catch(() => {})
       continue
     }
-    if (s.userLabel === userLabel) active = s
+    if (s.userLabel === userLabel) active.push(s)
   }
-  res.json({ ok: true, running: !!active, sessionId: active?.id ?? null, startedAt: active?.startedAt ?? null })
+  active.sort((a, b) => a.startedAt - b.startedAt)
+  const sessions = active.map(s => ({
+    sessionId: s.id,
+    startedAt: s.startedAt,
+    agentId: s.agentId,
+    hostname: (s.agentId && agentConnections.get(s.agentId)?.hostname) || '',
+  }))
+  res.json({
+    ok: true,
+    running: active.length > 0,
+    sessionId: active[0]?.id ?? null,
+    startedAt: active[0]?.startedAt ?? null,
+    sessions,
+  })
 })
 
 // ─── agent-hub 派工（A2）：把 AutoSpin 派給已連線的 Local Agent 執行 ───────────
@@ -1466,7 +1494,7 @@ router.post('/api/autospin/hub-dispatch', (req, res) => {
   const dispatchId = `hub-${Date.now()}`
   agent.busy = true
   agent.sessionId = dispatchId
-  agent.ws.send(JSON.stringify({ type: 'autospin_start', sessionId: dispatchId, userLabel, luckylinkConfig: resolvedLuckylink ?? { enabled: false } }))
+  agent.ws.send(JSON.stringify({ type: 'autospin_start', sessionId: dispatchId, userLabel, agentId: agent.agentId, luckylinkConfig: resolvedLuckylink ?? { enabled: false } }))
   res.json({ ok: true, agentId: agent.agentId, hostname: agent.hostname, dispatchId })
 })
 
@@ -1489,8 +1517,13 @@ router.post('/api/autospin/hub-stop', (req, res) => {
     a.sessionId = null
   }
   // 同步請求 Python 端的 agent session 停止（雙保險：should-stop 輪詢）
+  // 補上 agentId 比對——沒帶 agentId 時（前端「停止」全部）維持原本整帳號範圍；有帶 agentId 時
+  // （只停某一台裝置）只能標記同一台裝置的 session，否則會連帶把其他裝置正在跑的也標停
   for (const s of agentSessions.values()) {
-    if (s.status === 'running' && (!userLabel || s.userLabel === userLabel)) s.stopRequested = true
+    if (s.status !== 'running') continue
+    if (!(!userLabel || s.userLabel === userLabel)) continue
+    if (agentId && s.agentId !== agentId) continue
+    s.stopRequested = true
   }
   res.json({ ok: true, stopped })
 })
