@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.9.1'
+export const APP_VERSION = '4.9.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.9.2',
+    date: '2026-08-18',
+    changes: [
+      "fix(infra): 移除 ecosystem.config.cjs 的 kill_timeout: 5000（回 PM2 預設 1600ms）——這個設定是稍早為了防堵 heavy_tasks migration 事故（殘留 process 佔 port）加的防禦性措施，但正式環境部署後使用者實測回報「每次部署後網站首次載入會卡住 30-60 秒，重新整理才恢復」，時間點精準對上這次調整。migration 本身已經改成分步驟驗證+fail fast，這個根因已經修掉，延長 shutdown window 本來就防不住那種問題，卻讓部署空窗期變長、造成真實 UX 成本，跟 CodeX 討論後移除",
+    ],
+  },
   {
     version: '4.9.1',
     date: '2026-08-18',
