@@ -22,8 +22,13 @@ function lookupMachineProfile(machineCode: string): ScriptedBetMachineProfile | 
   // 沒有留空可當預設就寧可不套用（回傳 null，沿用預設行為），不要靜默挑錯一筆。
   const rows = db.prepare('SELECT * FROM machine_test_profiles WHERE machineType = ?').all(machineType) as Record<string, unknown>[]
   const row = rows.length <= 1 ? rows[0] : rows.find(r => !r['enterMachineType'])
-  if (rows.length > 1 && !row) {
-    console.warn(`[ScriptedBet] machine_test_profiles "${machineType}" 有 ${rows.length} 筆設定檔且都指定了 enterMachineType，無法判斷該用哪一筆，改用預設行為`)
+  if (rows.length > 1) {
+    const candidates = rows.map(r => (r['enterMachineType'] as string) || '(留空)').join(', ')
+    if (row) {
+      console.warn(`[ScriptedBet] machine_test_profiles "${machineType}" 有 ${rows.length} 筆設定檔（${candidates}），採用留空那筆當預設`)
+    } else {
+      console.warn(`[ScriptedBet] machine_test_profiles "${machineType}" 有 ${rows.length} 筆設定檔且都指定了 enterMachineType（${candidates}）、沒有留空可當預設，無法判斷該用哪一筆，改用預設行為`)
+    }
   }
   if (!row) return null
   const parse = (v: unknown): string[] | null => {

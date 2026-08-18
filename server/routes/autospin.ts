@@ -1202,11 +1202,12 @@ router.post('/api/autospin/agent/start', (req, res) => {
       continue
     }
     const blank = rows.find(r => !r.enterMachineType)
+    const candidates = rows.map(r => r.enterMachineType || '(留空)').join(', ')
     if (blank) {
       profileMap[mt] = blank
-      console.warn(`[AutoSpin] machine_test_profiles "${mt}" 有 ${rows.length} 筆設定檔（依 enterMachineType 分流），派工當下無法得知實際 enterMachineType，採用留空那筆當預設`)
+      console.warn(`[AutoSpin] machine_test_profiles "${mt}" 有 ${rows.length} 筆設定檔（依 enterMachineType 分流：${candidates}），派工當下無法得知實際 enterMachineType，採用留空那筆當預設`)
     } else {
-      console.warn(`[AutoSpin] machine_test_profiles "${mt}" 有 ${rows.length} 筆設定檔且都指定了 enterMachineType、沒有留空可當預設的——此機型 AutoSpin 這次不套用任何一筆自訂設定，改用程式內建預設行為`)
+      console.warn(`[AutoSpin] machine_test_profiles "${mt}" 有 ${rows.length} 筆設定檔且都指定了 enterMachineType（${candidates}）、沒有留空可當預設的——此機型 AutoSpin 這次不套用任何一筆自訂設定，改用程式內建預設行為`)
     }
   }
   const parseTouchPoints = (v: string | null | undefined): string[] => {

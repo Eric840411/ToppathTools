@@ -602,7 +602,12 @@ router.put('/api/machine-test/profiles', (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-// DELETE /api/machine-test/profiles/:type?enterMachineType=... — 複合鍵定位單一筆，enterMachineType 留空即比對空字串那筆
+// DELETE /api/machine-test/profiles/:type?enterMachineType=... — 複合鍵定位單一筆
+// 舊呼叫端（沒帶 enterMachineType query）行為刻意設計成安全：預設比對空字串那筆——
+// 對只有單筆且 enterMachineType 留空的機型代碼（既有資料 migration 後大多如此），行為
+// 跟改動前完全一樣；對已經有多筆分流設定檔的機型代碼，最壞情況是「沒刪到任何東西」
+// （沒有留空那筆可刪）或「只刪掉泛用預設那筆」，絕不會誤刪某個特定 enterMachineType 的
+// 專屬設定檔——沒有 enterMachineType 資訊的呼叫端本來就無從得知該刪哪一筆專屬設定。
 router.delete('/api/machine-test/profiles/:type', (req, res) => {
   const enterMachineType = typeof req.query.enterMachineType === 'string' ? req.query.enterMachineType : ''
   db.prepare('DELETE FROM machine_test_profiles WHERE machineType = ? AND enterMachineType = ?').run(req.params.type.toUpperCase(), enterMachineType)
