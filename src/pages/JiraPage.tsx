@@ -1603,6 +1603,20 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
     return null
   }
 
+  // ── 開單摘要的單一取值來源 ──
+  // 摘要有三個可能來源（AI 生成 / Step 3 手動填寫 / Sheet 原始欄位），先前散在四個地方各自
+  // 寫一組 fallback，順序還不一致：validateDynamicFields() 只讀 cellValues，但 AI 生成的摘要
+  // 其實存在另一個 state（generatedSummaries），造成「畫面看得到摘要、驗證卻說是空的」——
+  // Sheet 沒有「摘要」欄時（改用 AI 生成的情境）必填驗證會整批擋下來。統一由這支 helper 供
+  // 驗證/送出/回填共用，避免再長出第四套順序（2026-08-19，跟 CodeX 討論定案）。
+  const resolveRowSummary = (rowIdx: number, record?: SheetRecord): string => {
+    const fromAi = generatedSummaries[rowIdx]?.trim()
+    if (fromAi) return fromAi
+    const fromCell = cellValues[rowIdx]?.['summary']?.trim()
+    if (fromCell) return fromCell
+    return record ? getField(record, SHEET_FIELD.summary).trim() : ''
+  }
+
   const validateDynamicFields = (): boolean => {
     const errors: Record<number, Record<string, string>> = {}
     const fieldsToCheck = [...requiredJiraFields, ...activeOptionalJiraFields]
@@ -1610,7 +1624,8 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
       const rowIdx = Number(record._rowIndex)
       const rowVals = cellValues[rowIdx] ?? {}
       for (const field of fieldsToCheck) {
-        const val = rowVals[field.key]?.trim()
+        // summary 走共用 resolver（AI 生成的值不在 cellValues 裡），其餘欄位仍只看 cellValues
+        const val = field.key === 'summary' ? resolveRowSummary(rowIdx, record) : rowVals[field.key]?.trim()
         if (field.required && !val) {
           if (!errors[rowIdx]) errors[rowIdx] = {}
           errors[rowIdx][field.key] = `${field.name} 為必填`
@@ -1735,7 +1750,7 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
       for (const r of planCreate) {
         const rowIdx = Number(r._rowIndex)
         const missing: string[] = []
-        const summaryVal = (generatedSummaries[rowIdx] || getField(r, SHEET_FIELD.summary)).replace(/[\r\n]+/g, ' ').trim()
+        const summaryVal = resolveRowSummary(rowIdx, r).replace(/[\r\n]+/g, ' ').trim()
         if (!summaryVal) missing.push('摘要')
         if (!getField(r, SHEET_FIELD.description)?.trim()) missing.push('描述')
         const assigneeId = batchAssigneeIds[0] || validId(getField(r, SHEET_FIELD.assigneeAccountId)) || selectedAssignee
@@ -1766,8 +1781,7 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
           const formatted = formatDynamicFieldValue(field, rawVal)
           if (formatted !== undefined) dynamicFields[field.key] = formatted
         }
-        const summaryFromCell = rowCells['summary']?.trim()
-        const rawFinalSummary = (generatedSummaries[rowIdx] || summaryFromCell || getField(r, SHEET_FIELD.summary)).replace(/[\r\n]+/g, ' ').trim()
+        const rawFinalSummary = resolveRowSummary(rowIdx, r).replace(/[\r\n]+/g, ' ').trim()
         const summaryPrefix = computeSummaryPrefix(r as Record<string, unknown>)
         const finalSummary = summaryPrefix ? summaryPrefix + rawFinalSummary : rawFinalSummary
         return {
@@ -1788,7 +1802,7 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
       const larkVerifierIds = verifiers
         ? verifiers.split(',').map(s => s.trim()).filter(s => knownIds.has(s))
         : []
-      const rawTradSummary = (generatedSummaries[rowIdx] || getField(r, SHEET_FIELD.summary)).replace(/[\r\n]+/g, ' ').trim()
+      const rawTradSummary = resolveRowSummary(rowIdx, r).replace(/[\r\n]+/g, ' ').trim()
       const tradSummaryPrefix = computeSummaryPrefix(r as Record<string, unknown>)
       return {
         summary: tradSummaryPrefix ? tradSummaryPrefix + rawTradSummary : rawTradSummary,
@@ -1859,9 +1873,7 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
               sheetUrl, source: sheetSource,
               writes: succeeded.map(r => {
                 const rec = filteredRecords.find(fr => Number(fr._rowIndex) === r.rowIndex)
-                const rowCells = cellValues[r.rowIndex] ?? {}
-                const summaryFromCell = (rowCells['summary'] ?? '').trim()
-                const rawSummary = (generatedSummaries[r.rowIndex] || summaryFromCell || (rec ? getField(rec, SHEET_FIELD.summary) : '')).replace(/[\r\n]+/g, ' ').trim()
+                const rawSummary = resolveRowSummary(r.rowIndex, rec).replace(/[\r\n]+/g, ' ').trim()
                 const summaryPrefix = rec ? computeSummaryPrefix(rec as Record<string, unknown>) : ''
                 const finalSummary = summaryPrefix ? summaryPrefix + rawSummary : rawSummary
                 const jiraUrl = `${jiraBase}/browse/${r.issueKey!}`

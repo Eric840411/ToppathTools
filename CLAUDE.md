@@ -170,6 +170,14 @@ Keep Claude for:
 | 切換工具自動帶入 Sheet 網址 | 批量開單/評論/更新狀態/修改 4 個工具切換時自動帶入「最後使用的 Sheet」網址，不用每次都重貼；切到評論/更新狀態/修改會自動帶入並自動重新讀取一次（每個分頁這次頁面停留期間只自動觸發一次，之後靠手動「讀取」/「重新讀取」按鈕），切到批量開單只帶入網址（Step 1 選專案/類型要先完成，不自動送出讀取請求）|
 | 查看成員 / 專案 | 列出帳號可存取的 Jira 成員和專案清單 |
 
+### 開單摘要的單一取值來源 `resolveRowSummary()`（2026-08-19，v4.6.1）
+
+摘要有三個可能來源：AI 生成（`generatedSummaries[rowIndex]`，Step 3「AI 摘要生成」面板產生，那格輸入框的 onChange 也只寫回這個 state）、Step 3 手動填寫（`cellValues[rowIdx].summary`）、Sheet 原始「摘要」欄（`applyLarkPrefill()` 會把它寫進 `cellValues.summary`）。先前這三個來源的 fallback 順序散在四個地方各寫一組，而且不一致——最嚴重的是 `validateDynamicFields()` **只讀 `cellValues`**，完全不知道 AI 生成的值存在另一個 state，造成「畫面上明明看得到 AI 摘要、送出時卻整批被『摘要 為必填』擋下」。
+
+**觸發條件是「Sheet 沒有『摘要』欄（或該列摘要是空的）」**：有摘要欄時 `applyLarkPrefill()` 會把它寫進 `cellValues.summary`，驗證剛好過關、送出時再被 AI 值蓋掉，這條縫就一直被遮著沒被發現。已查證**不是 v3.87.10 拆 `JiraCreateStep3.tsx` 造成的 regression**（拆分前後那段逐字相同），也不是任何一次驗證改版造成的——掃過 `JiraPage.tsx` 最近 60 個 commit 的每一版 `validateDynamicFields()` 本體，從來沒有任何一版提過 `summary`/`generatedSummaries`，所以這條縫從 v3.40.0（AI 摘要上線）就存在。
+
+修法（跟 CodeX 討論定案，選「讓驗證去讀送出時的那套 fallback」而不是「生成時回寫 `cellValues`」——後者有「使用者清掉 AI 結果、`cellValues` 卻殘留舊摘要」的風險）：新增 `resolveRowSummary(rowIdx, record?)`，順序固定 `generatedSummaries → cellValues.summary → Sheet 摘要`，四個呼叫點（`validateDynamicFields()` 的 summary 欄、動態欄位模式送出、傳統模式送出、開單成功後的 Sheet 回填）全部改走這支 helper，之後不會再長出第五套順序。
+
 ### 「從 Lark 帶入」自動帶入機制與格式轉換（2026-08-12）
 
 `applyLarkPrefill()`（`JiraPage.tsx`）掃的是 Jira 專案**全部**可用欄位（`jiraFields`，不只必填的 5 個），依序試幾組別名去 Sheet 欄名裡找對得上、有值的欄位：`summary` 試 `[Jira 欄位名稱, "摘要", "summary"]`；`description`/`assignee`/`reporter`/`customfield_10428`(RD負責人) 這 4 個有寫死對照（`FORCED_LARK_ALIAS`：分別對到 Sheet 欄「內容」/「受託人」/「回報人」/「RD負責人」）；其餘欄位只試 `[Jira 欄位顯示名稱, 欄位內部 key]`。**這代表「+新增欄位」加進來的選填欄位（環境/難易度/開始日期等）也會被自動掃到**，只要 Sheet 欄名跟 Jira 欄位名稱一致，不用額外設定；且欄位載入完成或「重新讀取 Sheet」後就會自動跑一次，不用手動點「從 Lark 帶入」。

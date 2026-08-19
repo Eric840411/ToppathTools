@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.6.0'
+export const APP_VERSION = '4.6.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.6.1',
+    date: '2026-08-19',
+    changes: [
+      "fix(jira): 批量開單 Step 3「AI 生成的摘要被判定為空值」——AI 摘要只存進 generatedSummaries，validateDynamicFields() 卻只讀 cellValues，畫面上明明看得到摘要、送出時整批被「摘要 為必填」擋下（Sheet 沒有「摘要」欄、改用 AI 生成時必然踩到；以前 Sheet 有摘要欄會被 applyLarkPrefill 寫進 cellValues 剛好遮住這條縫）。不是 v3.87 拆檔造成的 regression，從 v3.40.0 AI 摘要上線就存在。修法：新增共用 resolveRowSummary()（generatedSummaries → cellValues.summary → Sheet 摘要），驗證/動態模式送出/傳統模式送出/Sheet 回填四處統一走同一套 fallback，不再各寫一組順序",
+    ],
+  },
   {
     version: '4.6.0',
     date: '2026-08-18',
