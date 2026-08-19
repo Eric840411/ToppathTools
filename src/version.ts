@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.6.2'
+export const APP_VERSION = '4.6.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.6.3',
+    date: '2026-08-19',
+    changes: [
+      "fix(machine-test): machine_test_profiles 反向遷移補上原子性——整段表重建包進 transaction（失敗整個回滾，不留半成品），開頭先 DROP TABLE IF EXISTS 暫表，避免上一次在極端情況（process 被硬砍）留下同名殘骸時，之後每次啟動都卡在 table already exists 起不來（CodeX review 指出的風險）",
+    ],
+  },
   {
     version: '4.6.2',
     date: '2026-08-19',

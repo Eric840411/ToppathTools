@@ -689,7 +689,12 @@ export function getCultivationLeaderboard() {
         `保留 enterMachineType=${JSON.stringify(kept?.enterMachineType ?? '')}，` +
         `丟棄 ${JSON.stringify(dropped.map(x => x.enterMachineType ?? ''))}`)
     }
+    // 整段重建包在 transaction 裡，任一步失敗會整個回滾，不會留下半成品；另外開頭先 DROP 一次
+    // 暫表，萬一上一次真的在極端情況下留下同名殘骸（例如 process 被硬砍），下次啟動能自己收拾
+    // 乾淨，不會卡在「table machine_test_profiles_single already exists」永遠起不來（CodeX review）。
     db.exec(`
+      BEGIN;
+      DROP TABLE IF EXISTS machine_test_profiles_single;
       CREATE TABLE machine_test_profiles_single (
         machineType       TEXT PRIMARY KEY,
         bonusAction       TEXT NOT NULL DEFAULT 'auto_wait',
@@ -717,6 +722,7 @@ export function getCultivationLeaderboard() {
       );
       DROP TABLE machine_test_profiles;
       ALTER TABLE machine_test_profiles_single RENAME TO machine_test_profiles;
+      COMMIT;
     `)
     console.log('[DB] machine_test_profiles PRIMARY KEY 已降回單一 machineType（對齊退版後的程式碼）')
   }
