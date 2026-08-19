@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.6.1'
+export const APP_VERSION = '4.6.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.6.2',
+    date: '2026-08-19',
+    changes: [
+      "fix(machine-test): 儲存機台配置一律 500（ON CONFLICT clause does not match any PRIMARY KEY or UNIQUE constraint）——v4.7.0 曾把 machine_test_profiles 的 PRIMARY KEY 重建成 (machineType, enterMachineType) 複合鍵，退回 v4.5.0 只退得回程式碼、資料表結構是單向遷移退不回來，route 的 ON CONFLICT(machineType) 因此對不上任何 UNIQUE 約束。shared.ts 新增反向遷移把表降回單一主鍵（有重複 machineType 時優先保留 enterMachineType 空白那筆，其餘印出被丟棄的內容不靜默覆蓋）",
+    ],
+  },
   {
     version: '4.6.1',
     date: '2026-08-19',

@@ -659,6 +659,69 @@ export function getCultivationLeaderboard() {
   }
 }
 
+// 反向遷移：v4.7.0（e5ce7d8）曾把 machine_test_profiles 的 PRIMARY KEY 重建成複合鍵
+// (machineType, enterMachineType)，但 f39d37a 退回 v4.5.0 時只退得回程式碼——資料表結構
+// 是單向遷移，退版退不回來。結果 route 的 upsert 寫的是 ON CONFLICT(machineType)，實際的表
+// 卻只有複合鍵，SQLite 直接拒絕（ON CONFLICT clause does not match any PRIMARY KEY or
+// UNIQUE constraint），儲存機台配置一律 500（2026-08-19 正式環境真實案例）。這裡把表降回
+// 單一主鍵，讓 DB 跟退版後的程式碼一致（跟 CodeX 討論定案選 A：讓 DB 對齊程式碼，而不是讓
+// 程式碼去遷就殘留 schema——後者會讓全新安裝的環境反過來壞掉，因為新建的表是單一主鍵）。
+{
+  const pkCols = db.prepare('PRAGMA table_info(machine_test_profiles)').all() as { name: string; pk: number }[]
+  const enterCol = pkCols.find(c => c.name === 'enterMachineType')
+  if (enterCol && enterCol.pk > 0) {
+    // 複合鍵時代可能存在「同一個 machineType、不同 enterMachineType」的多筆設定檔，降回單一主鍵
+    // 一定要挑一筆留下。規則寫死避免不確定行為：優先留 enterMachineType 空白那筆（v4.7.0 自己
+    // 在 AutoSpin/ScriptedBet 挑設定檔時也是這個偏好），沒有空白的才取 rowid 最小那筆。被丟掉的
+    // 一律印出來，不靜默覆蓋（CodeX review 建議）。
+    const dups = db.prepare(`
+      SELECT machineType, COUNT(*) AS c FROM machine_test_profiles GROUP BY machineType HAVING c > 1
+    `).all() as { machineType: string; c: number }[]
+    for (const d of dups) {
+      const kept = db.prepare(`
+        SELECT rowid, enterMachineType FROM machine_test_profiles WHERE machineType = ?
+        ORDER BY (CASE WHEN COALESCE(enterMachineType, '') = '' THEN 0 ELSE 1 END), rowid LIMIT 1
+      `).get(d.machineType) as { rowid: number; enterMachineType: string | null } | undefined
+      const dropped = db.prepare(`
+        SELECT enterMachineType FROM machine_test_profiles WHERE machineType = ? AND rowid != ?
+      `).all(d.machineType, kept?.rowid ?? -1) as { enterMachineType: string | null }[]
+      console.warn(`[DB] machine_test_profiles 降回單一主鍵：${d.machineType} 有 ${d.c} 筆，` +
+        `保留 enterMachineType=${JSON.stringify(kept?.enterMachineType ?? '')}，` +
+        `丟棄 ${JSON.stringify(dropped.map(x => x.enterMachineType ?? ''))}`)
+    }
+    db.exec(`
+      CREATE TABLE machine_test_profiles_single (
+        machineType       TEXT PRIMARY KEY,
+        bonusAction       TEXT NOT NULL DEFAULT 'auto_wait',
+        touchPoints       TEXT,
+        clickTake         INTEGER NOT NULL DEFAULT 0,
+        gmid              TEXT,
+        enterMachineType  TEXT,
+        spinSelector      TEXT,
+        balanceSelector   TEXT,
+        exitSelector      TEXT,
+        notes             TEXT,
+        entryTouchPoints  TEXT,
+        entryTouchPoints2 TEXT,
+        ideck_xpaths      TEXT NOT NULL DEFAULT '[]',
+        audioConfig       TEXT,
+        expectedScreens   INTEGER
+      );
+      INSERT INTO machine_test_profiles_single
+        (machineType, bonusAction, touchPoints, clickTake, gmid, enterMachineType, spinSelector, balanceSelector, exitSelector, notes, entryTouchPoints, entryTouchPoints2, ideck_xpaths, audioConfig, expectedScreens)
+      SELECT machineType, bonusAction, touchPoints, clickTake, gmid, enterMachineType, spinSelector, balanceSelector, exitSelector, notes, entryTouchPoints, entryTouchPoints2, ideck_xpaths, audioConfig, expectedScreens
+      FROM machine_test_profiles p
+      WHERE p.rowid = (
+        SELECT q.rowid FROM machine_test_profiles q WHERE q.machineType = p.machineType
+        ORDER BY (CASE WHEN COALESCE(q.enterMachineType, '') = '' THEN 0 ELSE 1 END), q.rowid LIMIT 1
+      );
+      DROP TABLE machine_test_profiles;
+      ALTER TABLE machine_test_profiles_single RENAME TO machine_test_profiles;
+    `)
+    console.log('[DB] machine_test_profiles PRIMARY KEY 已降回單一 machineType（對齊退版後的程式碼）')
+  }
+}
+
 {
   // migration: add role column to jira_accounts
   const acCols = db.prepare('PRAGMA table_info(jira_accounts)').all() as { name: string }[]
