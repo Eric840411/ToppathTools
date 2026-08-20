@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.13.0'
+export const APP_VERSION = '4.13.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.13.1',
+    date: '2026-08-20',
+    changes: [
+      "fix(weekly-report): 撈 Jira 單長期漏抓「QA驗證人員是我」的單——JQL 寫死查 cf[10440]，但這個 Jira 實例裡「QA驗證人員」是每個專案各自一個自訂欄位（同名的 people 欄位有三十幾個），10440 只是 DSFT 專案在用的那一個，其他專案一律查不到（真實案例：P5MA-9303 的 QA驗證人員有 Eric Wu，該專案用的是 cf[10087]）。改用欄位名稱查詢 \"QA驗證人員\" = currentUser()，Jira 會跨所有同名欄位比對；已實測確認是超集合不是替換（DSFT 專案用舊 ID 與用名稱查回傳完全相同的單）",
+      "fix(weekly-report): 撈回來的單標示 reporter/verifier 角色時，其他專案的驗證人員欄位值不在回應裡（每個專案 customfield id 不同），改用 JQL 語意反推——條件是 reporter 或 QA驗證人員，所以「不是 reporter 卻被撈出來」必然是驗證人員。已知代價是「同時是 reporter 又是驗證人員、但驗證人員在其他欄位 id」的單會標成 reporter 而不是 both，只影響標籤精細度",
+    ],
+  },
   {
     version: '4.13.0',
     date: '2026-08-20',

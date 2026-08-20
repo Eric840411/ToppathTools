@@ -217,8 +217,14 @@ router.post('/api/weekly-report/jira-by-range', async (req, res) => {
     endExclusive.setUTCDate(endExclusive.getUTCDate() + 1)
     const endExclusiveStr = endExclusive.toISOString().slice(0, 10)
 
-    const verifierNumericId = WEEKLY_REPORT_VERIFIER_FIELD_ID.replace(/^customfield_/, '')
-    const jql = `(reporter = currentUser() OR cf[${verifierNumericId}] = currentUser()) AND ((created >= "${startDate}" AND created < "${endExclusiveStr}") OR (updated >= "${startDate}" AND updated < "${endExclusiveStr}")) ORDER BY updated DESC`
+    // 2026-08-20 修正：原本查寫死的 cf[10440]，但「QA驗證人員」在這個 Jira 實例是**每個專案
+    // 各自一個自訂欄位**（列 /rest/api/3/field 有三十幾個同名的 people 欄位），10440 只是 DSFT
+    // 專案在用的那一個。結果是「QA驗證人員是我」這個條件長期只對一個專案有效，其他專案全部漏抓
+    // （真實案例：P5MA-9303 的 QA驗證人員確實有 Eric Wu，但那個專案用的是 cf[10087]，撈不到）。
+    // 改用欄位名稱查詢，Jira 會跨所有同名欄位比對。已實測確認是超集合不是替換：
+    // project = DSFT AND cf[10440] = currentUser() 與 project = DSFT AND "QA驗證人員" = currentUser()
+    // 回傳完全相同的單，而後者另外還抓得到 P5MA／P5BU／LBCMS／HYSL 等專案的單。
+    const jql = `(reporter = currentUser() OR "QA驗證人員" = currentUser()) AND ((created >= "${startDate}" AND created < "${endExclusiveStr}") OR (updated >= "${startDate}" AND updated < "${endExclusiveStr}")) ORDER BY updated DESC`
 
     const baseUrl = mustEnv('JIRA_BASE_URL')
     const resp = await fetch(`${baseUrl}/rest/api/3/search/jql`, {
@@ -264,7 +270,13 @@ router.post('/api/weekly-report/jira-by-range', async (req, res) => {
             ? [((verifierField as { accountId?: string }).accountId ?? '')].filter(Boolean)
             : []
         const isReporter = meAccountId ? i.fields.reporter?.accountId === meAccountId : false
-        const isVerifier = meAccountId ? verifierIds.includes(meAccountId) : false
+        // 我們只拿得到 WEEKLY_REPORT_VERIFIER_FIELD_ID 這一個欄位的值，但每個專案的「QA驗證人員」
+        // 是不同的 customfield id，其他專案的值不在回應裡。用 JQL 語意反推：條件是
+        // (reporter = 我 OR QA驗證人員 = 我)，所以「不是 reporter 卻被撈出來」的唯一可能就是驗證人員。
+        // 已知代價：既是 reporter 又是驗證人員、但該專案驗證人員在其他欄位 id 的單，會被標成
+        // reporter 而不是 both——只是標籤精細度，不影響有沒有撈到。
+        const isVerifierByField = meAccountId ? verifierIds.includes(meAccountId) : false
+        const isVerifier = isVerifierByField || !isReporter
         return {
           key: i.key,
           summary: i.fields.summary ?? '',
