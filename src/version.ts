@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.13.1'
+export const APP_VERSION = '4.13.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.13.2',
+    date: '2026-08-20',
+    changes: [
+      "fix(weekly-report): 撈 Jira 單時若取不到自己的 accountId（/myself 失敗），原本會讓 isReporter 一律 false、配合角色反推把所有單都標成「驗證人員」——等於用一個假答案蓋掉「不知道」。改成這種情況直接標 unknown（CodeX review 指出的邊界情況）",
+    ],
+  },
   {
     version: '4.13.1',
     date: '2026-08-20',

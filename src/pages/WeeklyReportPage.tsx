@@ -27,7 +27,7 @@ function WarningIcon({ size = 14, style }: { size?: number; style?: CSSPropertie
 
 interface FieldOption { id: string; name: string }
 interface ParsedTable { appToken: string; tableId: string; members: FieldOption[]; projects: FieldOption[] }
-interface RangeIssue { key: string; summary: string; status: string; created: string; updated: string; role: 'reporter' | 'verifier' | 'both'; jiraProjectName: string }
+interface RangeIssue { key: string; summary: string; status: string; created: string; updated: string; role: 'reporter' | 'verifier' | 'both' | 'unknown'; jiraProjectName: string }
 
 /** 比對 Jira 專案真實名稱（例如 "P7-007 第三方測試"）跟 Lark 專案選項（例如 "P7-007-第三方測試"）——
  *  已用真實資料證實兩者幾乎一樣，只差空格/連字號，正規化（去空白連字號、轉小寫）後理論上會完全相等；

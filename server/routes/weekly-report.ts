@@ -283,7 +283,10 @@ router.post('/api/weekly-report/jira-by-range', async (req, res) => {
           status: i.fields.status?.name ?? '',
           created: i.fields.created ?? '',
           updated: i.fields.updated ?? '',
-          role: isReporter && isVerifier ? 'both' : isVerifier ? 'verifier' : 'reporter',
+          // 拿不到自己的 accountId 時（/myself 失敗）根本無從判斷身分——舊寫法會讓 isReporter
+          // 一律 false，配合上面的反推就會把所有單都標成 verifier，等於用一個假答案蓋掉「不知道」。
+          // 標成 unknown 誠實得多（CodeX review 指出）。
+          role: !meAccountId ? 'unknown' : isReporter && isVerifier ? 'both' : isVerifier ? 'verifier' : 'reporter',
           jiraProjectName: i.fields.project?.name ?? '',
         }
       })
