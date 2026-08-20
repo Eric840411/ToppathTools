@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.11.0'
+export const APP_VERSION = '4.12.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.12.0',
+    date: '2026-08-20',
+    changes: [
+      "minor(jira): 批量評論新增「以誰的身分送出」——被授權的人可以用別人的 Jira 帳號張貼評論（Jira 上顯示被代理的帳號）。候選名單由後端算（自己 ＋ 對我有 jira.comment.batch 有效授權的帳號），前端不拿全帳號清單自己篩；沒有被授權過的人完全看不到這個欄位",
+      "minor(admin): 系統管理頁新增「Jira 代理張貼授權」——指定誰可以用誰的身分，撤銷用 revoked_at 標記不刪資料，畫面上區分有效／已撤銷／已過期／停用。同一組 (代理人, 被代理人, 用途) 重複新增會復活既有那筆，不會長出第二筆",
+      "minor(security): 代理張貼的授權驗證在後端（x-jira-email 是執行身分、登入 cookie 是實際操作者，兩者不同就查授權表，沒授權回 403），job 歸屬與 SSE／status 擁有者檢查一律記發起人——以他人身分送出時，被代理者不會看到不是自己發起的 job。內部稽核同時記 actor 與 commentAs，Jira 上看不出代發但系統內查得到",
+      "chore(jira): 建立 job 當下就把解析後的執行身分固化進 job payload，背景執行不再從前端參數或當下授權狀態重新推導，避免長時間 job 執行中授權變動造成狀態漂移（CodeX review 建議）",
+    ],
+  },
   {
     version: '4.11.0',
     date: '2026-08-20',

@@ -564,6 +564,10 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
   // useAiComment 沿用原名代表「AI 排版」，避免把既有的其他引用點一起改名增加風險。
   const [useAiComment, setUseAiComment] = useState(false)
   const [useAiReview, setUseAiReview] = useState(false)
+  // 代理張貼：以誰的身分送出批量評論。候選名單一律由後端算（自己 ＋ 有授權的帳號），
+  // 前端不拿全帳號清單自己篩，避免把整份帳號名單洩出去。
+  const [commentAsEmail, setCommentAsEmail] = useState('')
+  const [commentAsCandidates, setCommentAsCandidates] = useState<{ email: string; label: string; self: boolean }[]>([])
   const canAiFormat = isAdmin || permissions.includes('jira-ai-format')
   const canAiReview = isAdmin || permissions.includes('jira-ai-review')
   const aiFormatOn = useAiComment && canAiFormat
@@ -1048,6 +1052,21 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
 
     return () => { alive = false }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 代理張貼候選名單（自己 ＋ 對我有 jira.comment.batch 授權的帳號）
+  useEffect(() => {
+    if (!currentAccount) { setCommentAsCandidates([]); return }
+    let alive = true
+    ;(async () => {
+      try {
+        const r = await fetch('/api/jira/comment-as-candidates')
+        const d = await r.json() as { ok: boolean; candidates?: { email: string; label: string; self: boolean }[] }
+        if (!alive) return
+        setCommentAsCandidates(d.ok ? (d.candidates ?? []) : [])
+      } catch { if (alive) setCommentAsCandidates([]) }
+    })()
+    return () => { alive = false }
+  }, [currentAccount])
 
   const fetchMembers = useCallback(async (email: string, projectKey?: string) => {
     setMembersLoading(true); setMembersError(''); setMembers([])
@@ -2142,9 +2161,12 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
     let submitRequestId = ''
     let sseResolved = false
     try {
+      // 以誰的身分張貼由 x-jira-email 決定，登入 cookie 才是「實際操作的人」；
+      // 兩者不同時後端會去查代理授權，沒授權就 403（不是前端說了算）。
+      const actAs = commentAsEmail && commentAsEmail !== currentAccount.email ? commentAsEmail : ''
       const resp = await fetch('/api/jira/batch-comment', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...emailHeader },
+        headers: { 'Content-Type': 'application/json', ...emailHeader, ...(actAs ? { 'x-jira-email': actAs } : {}) },
         body: JSON.stringify({
           comments,
           modelSpec: (aiFormatOn || aiReviewOn) ? commentModel : undefined,
@@ -3363,6 +3385,10 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
           setUseAiComment={setUseAiComment}
           canAiFormat={canAiFormat}
           canAiReview={canAiReview}
+          commentAsEmail={commentAsEmail}
+          setCommentAsEmail={setCommentAsEmail}
+          commentAsCandidates={commentAsCandidates}
+          selfEmail={currentAccount?.email ?? ''}
           useAiReview={useAiReview}
           setUseAiReview={setUseAiReview}
           selectedPromptId={selectedPromptId}

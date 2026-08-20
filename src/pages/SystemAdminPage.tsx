@@ -97,6 +97,11 @@ export function SystemAdminPage() {
   const [permData, setPermData] = useState<{ roleDefaults: string[]; overrides: Record<string, boolean> } | null>(null)
   const [permSaving, setPermSaving] = useState(false)
   const [permMsg, setPermMsg] = useState('')
+  // Jira 代理張貼授權（誰可以用誰的身分張貼批量評論）
+  const [delegates, setDelegates] = useState<{ id: number; actor_email: string; target_email: string; scope: string; enabled: number; created_at: number; expires_at: number | null; revoked_at: number | null }[]>([])
+  const [delActor, setDelActor] = useState('')
+  const [delTarget, setDelTarget] = useState('')
+  const [delMsg, setDelMsg] = useState('')
   const [cultivationInfo, setCultivationInfo] = useState<{ level: string; activeDays: number } | null>(null)
   const [cultivationDaysInput, setCultivationDaysInput] = useState(0)
   const [cultivationSaving, setCultivationSaving] = useState(false)
@@ -126,7 +131,7 @@ export function SystemAdminPage() {
       .then(d => { if (d.ok) setAccounts(d.accounts) })
       .finally(() => setAcctLoading(false))
   }
-  useEffect(() => { loadAccounts() }, [])
+  useEffect(() => { loadAccounts(); void loadDelegates() }, [])
 
   function togglePerm(role: keyof PermMatrix, key: string) {
     setMatrix(prev => ({
@@ -200,6 +205,31 @@ export function SystemAdminPage() {
     const d = await r.json()
     if (d.ok) { setAcctMsg('通過 已刪除'); loadAccounts() }
     else setAcctMsg(`失敗 ${d.message}`)
+  }
+
+  async function loadDelegates() {
+    const r = await fetch('/api/admin/jira-delegates')
+    const d = await r.json() as { ok: boolean; delegates?: typeof delegates }
+    if (d.ok) setDelegates(d.delegates ?? [])
+  }
+
+  async function addDelegate() {
+    if (!delActor || !delTarget) { setDelMsg('失敗 請選擇授權人與被代理帳號'); return }
+    const r = await fetch('/api/admin/jira-delegates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ actorEmail: delActor, targetEmail: delTarget, scope: 'jira.comment.batch' }),
+    })
+    const d = await r.json() as { ok: boolean; message?: string }
+    setDelMsg(d.ok ? '通過 已新增授權' : `失敗 ${d.message ?? '新增失敗'}`)
+    if (d.ok) { setDelTarget(''); void loadDelegates() }
+  }
+
+  async function revokeDelegate(id: number) {
+    const r = await fetch(`/api/admin/jira-delegates/${id}`, { method: 'DELETE' })
+    const d = await r.json() as { ok: boolean; message?: string }
+    setDelMsg(d.ok ? '通過 已撤銷' : `失敗 ${d.message ?? '撤銷失敗'}`)
+    void loadDelegates()
   }
 
   // ── 個人權限覆寫 ──
@@ -701,6 +731,61 @@ export function SystemAdminPage() {
                 </tbody>
               </table>
             )}
+          </div>
+
+          {/* Jira 代理張貼授權 */}
+          <div style={{ borderTop: '1px solid #2d3f55', marginTop: 24, paddingTop: 20 }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: '#e2e8f0', margin: '0 0 4px' }}>Jira 代理張貼授權</h3>
+            <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 14px' }}>
+              指定「誰可以用誰的身分張貼批量評論」。被授權的人在批量評論會多出「以誰的身分送出」下拉；
+              Jira 上只會顯示被代理的帳號，系統內部的操作紀錄仍會記下實際操作者。撤銷後保留紀錄可查。
+            </p>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
+              <select style={{ ...inputStyle, width: 200, margin: 0 }} value={delActor} onChange={e => setDelActor(e.target.value)}>
+                <option value="">授權給誰（代理人）</option>
+                {accounts.map(a => <option key={a.email} value={a.email}>{a.label}</option>)}
+              </select>
+              <span style={{ color: '#64748b', fontSize: 12 }}>可以用</span>
+              <select style={{ ...inputStyle, width: 200, margin: 0 }} value={delTarget} onChange={e => setDelTarget(e.target.value)}>
+                <option value="">誰的身分（被代理帳號）</option>
+                {accounts.map(a => <option key={a.email} value={a.email}>{a.label}</option>)}
+              </select>
+              <button type="button" style={btnPrimary} onClick={addDelegate}>新增授權</button>
+              {delMsg && <span style={{ fontSize: 12, color: delMsg.startsWith('通過') ? '#4ade80' : '#f87171' }}>{delMsg}</span>}
+            </div>
+            <table style={tableStyle}>
+              <thead>
+                <tr>
+                  <th style={thLeft}>代理人</th>
+                  <th style={thLeft}>可用身分</th>
+                  <th style={th}>用途</th>
+                  <th style={th}>狀態</th>
+                  <th style={th}>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {delegates.map(d => {
+                  const expired = !!d.expires_at && d.expires_at <= Date.now()
+                  const active = d.enabled === 1 && !d.revoked_at && !expired
+                  return (
+                    <tr key={d.id}>
+                      <td style={tdLeft}>{d.actor_email}</td>
+                      <td style={tdLeft}>{d.target_email}</td>
+                      <td style={{ ...td, fontSize: 11, color: '#94a3b8' }}>{d.scope === 'jira.comment.batch' ? '批量評論' : '跨帳號讀取'}</td>
+                      <td style={{ ...td, fontSize: 11, color: active ? '#4ade80' : '#94a3b8' }}>
+                        {active ? '有效' : d.revoked_at ? '已撤銷' : expired ? '已過期' : '停用'}
+                      </td>
+                      <td style={td}>
+                        {active && <button type="button" style={btnDanger} onClick={() => revokeDelegate(d.id)}>撤銷</button>}
+                      </td>
+                    </tr>
+                  )
+                })}
+                {delegates.length === 0 && (
+                  <tr><td colSpan={5} style={{ ...td, color: '#94a3b8', textAlign: 'center', padding: 24 }}>尚無代理授權</td></tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

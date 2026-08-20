@@ -224,6 +224,61 @@ router.put('/api/admin/accounts/:email/permissions', requireAdmin, writeLimiter,
   res.json({ ok: true, effective: getEffectivePermissions(account.email, account.role as AccountRole) })
 })
 
+// ─── Jira 代理張貼授權 ───────────────────────────────────────────────────────
+// 「誰可以用誰的身分張貼批量評論」。這是 account-to-account 的關係，不是 qa/pm/other 角色能力，
+// 所以獨立一張表而不是塞進權限矩陣。撤銷用 revoked_at 而不是刪資料，才留得下稽核軌跡。
+// 管理入口只開給 admin（requireAdmin）——這是安全邊界設定，不走個人權限覆寫那套功能開關。
+
+router.get('/api/admin/jira-delegates', requireAdmin, (_req, res) => {
+  const rows = db.prepare(`
+    SELECT id, actor_email, target_email, scope, enabled, created_by, created_at, expires_at, revoked_at
+    FROM jira_account_delegates ORDER BY revoked_at IS NOT NULL, created_at DESC
+  `).all()
+  res.json({ ok: true, delegates: rows })
+})
+
+router.post('/api/admin/jira-delegates', requireAdmin, writeLimiter, (req, res) => {
+  const parsed = z.object({
+    actorEmail: z.string().min(1),
+    targetEmail: z.string().min(1),
+    scope: z.enum(['jira.comment.batch', 'jira.read.asOther']).default('jira.comment.batch'),
+    /** 到期時間（毫秒 epoch）。不給＝長期有效，需要時再手動撤銷。 */
+    expiresAt: z.number().int().positive().nullable().optional(),
+  }).safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ ok: false, message: '參數格式錯誤' })
+
+  const actorEmail = parsed.data.actorEmail.toLowerCase()
+  const targetEmail = parsed.data.targetEmail.toLowerCase()
+  if (actorEmail === targetEmail) {
+    return res.status(400).json({ ok: false, message: '不用授權給自己——用自己的身分本來就可以' })
+  }
+  const accounts = readAccounts()
+  const missing = [actorEmail, targetEmail].filter(e => !accounts.some(a => a.email.toLowerCase() === e))
+  if (missing.length > 0) {
+    return res.status(400).json({ ok: false, message: `找不到帳號：${missing.join(', ')}` })
+  }
+
+  const me = getAuthAccount(req)
+  // 同一組 (actor, target, scope) 已存在時直接復活／更新，不要長出第二筆（表上有 UNIQUE）
+  db.prepare(`
+    INSERT INTO jira_account_delegates (actor_email, target_email, scope, enabled, created_by, created_at, expires_at, revoked_at)
+    VALUES (?, ?, ?, 1, ?, ?, ?, NULL)
+    ON CONFLICT(actor_email, target_email, scope) DO UPDATE SET
+      enabled = 1, revoked_at = NULL, expires_at = excluded.expires_at,
+      created_by = excluded.created_by, created_at = excluded.created_at
+  `).run(actorEmail, targetEmail, parsed.data.scope, me?.email ?? '', Date.now(), parsed.data.expiresAt ?? null)
+  res.json({ ok: true })
+})
+
+router.delete('/api/admin/jira-delegates/:id', requireAdmin, writeLimiter, (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isInteger(id)) return res.status(400).json({ ok: false, message: 'id 格式錯誤' })
+  // 撤銷＝標記狀態，不刪資料：之後要查「誰曾經被授權過、什麼時候撤的」才查得到
+  const info = db.prepare('UPDATE jira_account_delegates SET enabled = 0, revoked_at = ? WHERE id = ? AND revoked_at IS NULL').run(Date.now(), id)
+  if (info.changes === 0) return res.status(404).json({ ok: false, message: '找不到這筆授權，或已經撤銷過' })
+  res.json({ ok: true })
+})
+
 router.get('/api/admin/cultivation-levels', requireAdmin, (_req, res) => {
   res.json({ ok: true, levels: CULTIVATION_LEVELS })
 })

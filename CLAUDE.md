@@ -60,6 +60,31 @@ When adding a new route:
 3. If it needs Gemini, import from `./gemini.js`
 4. No need to touch `index.ts` unless adding a brand new router
 
+# 批量評論代理張貼（2026-08-20，v4.12.0）
+
+「登入 Eric Wu，但想用 Siara 的身分回覆」。**兩個身分要分清楚**：
+
+| 名稱 | 是什麼 | 從哪裡來 |
+|------|--------|----------|
+| actor（發起人）| 實際操作的人 | 登入 cookie → `auth_sessions`，**不是前端說了算** |
+| commentAs（執行身分）| 實際拿誰的 token 打 Jira | `x-jira-email` header，但要通過授權驗證 |
+
+兩者不同時，必須在 `jira_account_delegates` 查得到有效的 `jira.comment.batch` 授權（驗證在 `userJiraAuth()` 裡，見上一節），否則 403。沒有指定就是用自己，行為跟以前完全一樣。
+
+**候選名單一律由後端算**（`GET /api/jira/comment-as-candidates`：自己 ＋ 對我有有效授權的帳號）。前端拿全帳號清單再自己篩不只是實作偷懶，是把整份帳號名單洩出去——這是資訊揭露邊界，不是實作細節。沒被授權過的人候選只有自己，畫面上那個下拉根本不會出現。
+
+**job 歸屬記 actor，不是執行身分**：`ownerEmail` 與 SSE／status 的擁有者檢查都用 actor。否則以 Siara 身分送出時，Siara 會突然看到一個不是自己發起的 job，而 Eric 反而查不到自己的進度。已驗證：Eric 查得到、Dean（被代理者）查同一個 job 回 403。
+
+**驗證只在送出當下做一次**（跟 CodeX 討論定案）：批次 job 視為快照——提交時合法就讓它跑完，中途撤銷影響的是下一個 job。同時**建立 job 當下就把解析後的執行身分固化進 job payload**，背景執行不再重新推導，避免長時間 job（100 筆 × 2 秒起跳）執行途中授權變動造成狀態漂移。
+
+**稽核記雙欄位**：`addHistory` 的 detail 同時存 `actorEmail` 與 `commentAsEmail`，summary 也會標「A 代 B 張貼」。使用者明確要求**不要**在 Jira 評論裡加代發標註（「就是走代發的路線」），所以 Jira 上只看得到被代理的帳號——這代表內部稽核是唯一能查出代發事實的地方，不能只記 actor。
+
+管理介面在系統管理頁「帳號管理」分頁下方的「Jira 代理張貼授權」，只開給 admin（`requireAdmin`）——這是安全邊界設定，不走個人權限覆寫那套功能開關。撤銷用 `revoked_at` 標記不刪資料，畫面區分有效／已撤銷／已過期／停用；同一組 (代理人, 被代理人, 用途) 重複新增會復活既有那筆（表上有 UNIQUE），不會長出第二筆。
+
+**開放範圍刻意只有批量評論**（使用者決定）：開單／修改／轉狀態一律只能用自己的身分。
+
+> 已用本機真實 session + 真實帳號 curl 驗證 11 項：未授權時候選只有自己｜未授權代發 403｜admin 新增授權｜授權自己 400｜授權後候選出現對方｜授權後代發成功建立 job 並真的用對方 token 打到 Jira｜job 歸屬是 actor｜被代理者查同一 job 403｜歷史紀錄雙欄位正確｜撤銷後恢復 403｜重複撤銷 404。測試資料已清除。
+
 # 個人權限覆寫與批量評論 AI 兩項拆分（2026-08-20，v4.11.0）
 
 ## 權限：角色預設 + 個人覆寫

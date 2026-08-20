@@ -102,7 +102,10 @@ interface CommentJobEntry {
   result?: CommentJobResult
   progress: CommentJobProgress
   createdAt: number
+  /** 發起這個 job 的人（登入者）。SSE／status 的擁有者檢查都用這個，不是執行身分。 */
   ownerEmail: string
+  /** 實際用來打 Jira 的帳號。建立 job 當下就固化，背景執行不再重新推導，避免狀態漂移。 */
+  commentAsEmail?: string
   heavyTask?: HeavyTaskToken
   callbacks: Set<(result: CommentJobResult) => void>
   progressCallbacks: Set<(progress: CommentJobProgress) => void>
@@ -2084,8 +2087,16 @@ router.post('/api/lark/sheets/writeback', async (req, res, next) => {
  */
 router.post('/api/jira/batch-comment', async (req, res, next) => {
   try {
-    const userAuth = userJiraAuth(req)
-    if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
+    // 代理張貼：x-jira-email 是「要用誰的身分發評論」，登入 cookie 是「實際操作的人」。
+    // 兩者不同時，必須在 jira_account_delegates 查得到有效的 jira.comment.batch 授權
+    // （驗證在 userJiraAuth 裡，見 shared.ts）。沒有 actAs 時兩者相同，行為跟以前一樣。
+    const userAuth = userJiraAuth(req, { allowDelegationScope: 'jira.comment.batch' })
+    if (!userAuth) {
+      return res.status(403).json({
+        ok: false,
+        message: '沒有權限以這個帳號的身分張貼評論（未登入、或尚未取得代理授權）',
+      })
+    }
 
     const body = batchCommentSchema.parse(req.body)
     const baseUrl = mustEnv('JIRA_BASE_URL')
@@ -2114,13 +2125,18 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
     if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
     const clientIP = getClientIP(req)
     const userEmail = userAuth.email
+    // job 歸屬是「發起的人」而不是「執行身分」——否則以 Siara 身分送出時，Siara 會突然
+    // 看到一個不是自己發起的 job，而 Eric 反而查不到自己的進度。
+    const actorEmail = userAuth.actorEmail ?? userAuth.email
+    const actingAsOther = actorEmail.toLowerCase() !== userAuth.email.toLowerCase()
 
     // Generate a unique request ID and start background processing
     const requestId = `comment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
     commentJobStore.set(requestId, {
       status: 'running',
       createdAt: Date.now(),
-      ownerEmail: userAuth.email,
+      ownerEmail: actorEmail,
+      commentAsEmail: userAuth.email,
       heavyTask: heavyTask.token,
       progress: { done: 0, total: body.comments.length, current: '' },
       callbacks: new Set(),
@@ -2399,7 +2415,7 @@ ${commentText}
       const aiUsed = results.filter(r => r.usedAi).length
       log(
         stoppedByAi ? 'warn' : failCount > 0 ? 'warn' : 'ok',
-        clientIP, userEmail,
+        clientIP, actingAsOther ? `${actorEmail}（代 ${userEmail}）` : userEmail,
         'Jira 批次評論',
         `成功 ${okCount} 筆${aiUsed > 0 ? `（AI ${aiUsed} 筆）` : ''}${failCount > 0 ? `，失敗 ${failCount} 筆` : ''}${stoppedByAi ? '，AI 中斷' : ''}`,
       )
@@ -2410,7 +2426,12 @@ ${commentText}
         const src = body.comments.find(c => c.rowIndex === r.rowIndex)
         return { ...r, commentPreview: (src?.rawComment ?? '').slice(0, 300) }
       })
-      addHistory('jira-comment', `Jira 批次評論`, `成功 ${okCount} 筆${failCount > 0 ? `，失敗 ${failCount} 筆` : ''}${stoppedByAi ? '，AI 中斷' : ''}`, { results: historyResults })
+      // 內部稽核一定要記雙欄位：Jira 上只會看到執行身分（commentAs），看不出是誰代發的
+      addHistory('jira-comment', `Jira 批次評論`, `成功 ${okCount} 筆${failCount > 0 ? `，失敗 ${failCount} 筆` : ''}${stoppedByAi ? '，AI 中斷' : ''}${actingAsOther ? `（${actorEmail} 代 ${userEmail} 張貼）` : ''}`, {
+        results: historyResults,
+        actorEmail,
+        commentAsEmail: userEmail,
+      })
 
       finishCommentJob(requestId, {
         ok: !stoppedByAi,
@@ -2496,6 +2517,34 @@ router.get('/api/jira/batch-comment/status/:requestId', (req, res) => {
     return res.json({ ok: true, status: 'running', progress: job.progress })
   }
   return res.json({ ok: true, status: 'done', progress: job.progress, result: job.result })
+})
+
+/**
+ * GET /api/jira/comment-as-candidates
+ * 「以誰的身分送出」下拉的候選名單：自己 ＋ 對我有 jira.comment.batch 有效授權的帳號。
+ * 名單一律由後端算——前端拿全帳號清單再自己篩，等於把整份帳號名單洩出去，
+ * 這不只是實作細節，是資訊揭露邊界（跟 CodeX 討論定案）。
+ */
+router.get('/api/jira/comment-as-candidates', (req, res) => {
+  const account = getAuthAccount(req)
+  if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+  const accounts = readAccounts()
+  const me = accounts.find(a => a.email.toLowerCase() === account.email.toLowerCase())
+  const candidates: { email: string; label: string; self: boolean }[] = me
+    ? [{ email: me.email, label: me.label || me.email, self: true }]
+    : []
+  const rows = db.prepare(`
+    SELECT target_email FROM jira_account_delegates
+    WHERE actor_email = ? AND scope = 'jira.comment.batch'
+      AND enabled = 1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)
+  `).all(account.email.toLowerCase(), Date.now()) as { target_email: string }[]
+  for (const row of rows) {
+    const target = accounts.find(a => a.email.toLowerCase() === row.target_email)
+    if (!target) continue // 帳號可能已被刪除，授權列留著但不要列出不存在的人
+    if (candidates.some(c => c.email.toLowerCase() === target.email.toLowerCase())) continue
+    candidates.push({ email: target.email, label: target.label || target.email, self: false })
+  }
+  res.json({ ok: true, candidates })
 })
 
 // POST /api/jira/batch-transition

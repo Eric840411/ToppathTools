@@ -31,6 +31,10 @@ export function JiraBatchCommentStep3(props: {
   setAttachmentColumn: (v: string) => void
   isAdmin: boolean
   canAiFormat: boolean
+  commentAsEmail: string
+  setCommentAsEmail: (v: string) => void
+  commentAsCandidates: { email: string; label: string; self: boolean }[]
+  selfEmail: string
   canAiReview: boolean
   useAiReview: boolean
   setUseAiReview: (v: boolean) => void
@@ -71,6 +75,7 @@ export function JiraBatchCommentStep3(props: {
     setTrackedIssues, setCommentResults, setPreviewMode, setPreviewItems, commentColumn, setCommentColumn,
     sheetHeaders, attachmentColumn, setAttachmentColumn, useAiComment, setUseAiComment,
     canAiFormat, canAiReview, useAiReview, setUseAiReview,
+    commentAsEmail, setCommentAsEmail, commentAsCandidates, selfEmail,
     selectedPromptId, setSelectedPromptId, availablePrompts, commentModel, setCommentModel, kbDocs,
     selectedKbDocIds, setSelectedKbDocIds, specContext, setSpecContext, commentResults,
     pendingCommentRequestId, previewMode, prefetchLoading, handleEnterPreview, commentSubmitting,
@@ -109,6 +114,23 @@ export function JiraBatchCommentStep3(props: {
           ? <div className="alert-info">目前無需添加評論的 Issue。</div>
           : (
             <div className="form-stack">
+              {/* 代理張貼：只有真的被授權過（候選超過一筆）才會出現，一般人看不到這個欄位 */}
+              {commentAsCandidates.length > 1 && (
+                <label className="field">
+                  <span>以誰的身分送出</span>
+                  <select value={commentAsEmail || selfEmail} onChange={e => setCommentAsEmail(e.target.value)}>
+                    {commentAsCandidates.map(c => (
+                      <option key={c.email} value={c.email}>{c.label}{c.self ? '（我自己）' : ''}</option>
+                    ))}
+                  </select>
+                  <span className="field-hint">
+                    Jira 上會顯示成這個帳號留的言；系統內部的操作紀錄仍會記下實際操作者是誰。
+                    {commentAsEmail && commentAsEmail !== selfEmail && (
+                      <b style={{ color: '#fbbf24' }}>　目前是代發模式。</b>
+                    )}
+                  </span>
+                </label>
+              )}
               <label className="field">
                 <span>評論內容來源欄位 <em className="req">*</em></span>
                 <select value={commentColumn} onChange={e => setCommentColumn(e.target.value)}>
