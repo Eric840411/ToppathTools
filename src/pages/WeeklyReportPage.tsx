@@ -46,7 +46,14 @@ function matchLarkProjectByJiraName(jiraProjectName: string, larkProjects: Field
 }
 
 // ── 批次掃描審核（2026-08-16）：掃描來源 Sheet、抓出所有出現的人、一次幫全部人產草稿 ──
-interface DraftItem { sourceRowId: string; content: string; projectId: string; projectName: string }
+// jiraIssues：Jira 撈單套用進來的原始資料（單號 + 標題成對存，不是兩個平行陣列——只存 summaries[]
+// 的話跟 key 的對應是隱性的，之後要追「這個標題是哪張單」會很痛，CodeX review 建議）。
+// content 仍然是使用者看得到、可編輯的單號串；標籤歸集是「送出前的呈現規則」而不是草稿內容改寫，
+// 所以原始資料留著、轉換放在 preview pipeline，開關才能隨時切回去。
+interface DraftItem {
+  sourceRowId: string; content: string; projectId: string; projectName: string
+  jiraIssues?: { key: string; summary: string }[]
+}
 interface BatchScanStats {
   peopleCount: number; itemCount: number; missingProjectCount: number
   unidentifiedCount: number; excludedOutOfRange: number; excludedUnparsableDate: number
@@ -95,6 +102,40 @@ const DEFAULT_TAB_DATE_PROJECT_NAME = 'P7-007-第三方測試'
 const MERGE_PROJECT_NAME = DEFAULT_SCAN_SHEET_PROJECT_NAME
 const MERGE_CONTENT = 'OSM需求'
 const MERGE_PREF_KEY = 'toppath-weekly-merge-osm'
+const JIRA_TAG_PREF_KEY = 'toppath-weekly-merge-jira-tags'
+
+/** 取標題開頭連續的中括號標籤。刻意只吃開頭，本文中間出現的中括號不算——例如
+ *  「修正 [OSM] 顯示問題」的 [OSM] 不是分類標籤（CodeX review 建議）。 */
+function leadingTags(summary: string): string[] {
+  const m = summary.trim().match(/^(\[[^\]]+\])+/)
+  if (!m) return []
+  return (m[0].match(/\[[^\]]+\]/g) ?? []).map(t => t.slice(1, -1).trim()).filter(Boolean)
+}
+
+/** 依標題標籤把一組 Jira 單歸集成幾句話。使用者定義的規則（2026-08-20 當面確認）：
+ *  **先依第一個標籤分組**——沒有共同標籤的單不是串成一句，而是拆成不同項目各寫一條。
+ *  每組取該組所有單的共同標籤（同組第一個標籤必然相同，所以至少有一個），組成「◯◯相關需求測試」。
+ *  例：[OSM][GM] + [OSM][後端] → 一條「OSM相關需求測試」（共同的只有 OSM）
+ *      [OSM][GM] + [LuckyLink][後端] → 兩條「OSM GM相關需求測試」「LuckyLink 後端相關需求測試」
+ *  標題沒有中括號的單另外歸一組、保留原本的單號內容，不硬生出沒有依據的描述。 */
+function jiraTagGroups(issues: { key: string; summary: string }[]): { labels: string[]; untaggedKeys: string[] } {
+  const groups = new Map<string, { key: string; summary: string }[]>()
+  const untaggedKeys: string[] = []
+  for (const iss of issues) {
+    const tags = leadingTags(iss.summary)
+    if (tags.length === 0) { untaggedKeys.push(iss.key); continue }
+    const bucket = groups.get(tags[0])
+    if (bucket) bucket.push(iss)
+    else groups.set(tags[0], [iss])
+  }
+  const labels: string[] = []
+  for (const list of groups.values()) {
+    const tagLists = list.map(i => leadingTags(i.summary))
+    const common = tagLists[0].filter(tag => tagLists.every(l => l.includes(tag)))
+    labels.push(`${common.join(' ')}相關需求測試`)
+  }
+  return { labels, untaggedKeys }
+}
 
 /** 全自動載入的第三/四步：Jira 撈單＋頁籤日期式報表 也比照「來源 Sheet」自動化（2026-08-17 使用者要求）。
  *  本機跟正式服的 Jira 帳號清單不同（本機混了測試帳號），所以用「名字關鍵字」模糊比對現有清單，
@@ -323,6 +364,13 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
   const toggleMergeOsm = (v: boolean) => {
     setMergeOsm(v)
     try { localStorage.setItem(MERGE_PREF_KEY, v ? '1' : '0') } catch { /* 隱私模式等情況忽略 */ }
+  }
+  const [mergeJiraTags, setMergeJiraTags] = useState<boolean>(() => {
+    try { return localStorage.getItem(JIRA_TAG_PREF_KEY) === '1' } catch { return false }
+  })
+  const toggleMergeJiraTags = (v: boolean) => {
+    setMergeJiraTags(v)
+    try { localStorage.setItem(JIRA_TAG_PREF_KEY, v ? '1' : '0') } catch { /* 同上 */ }
   }
   const [unidentifiedResolved, setUnidentifiedResolved] = useState<Set<number>>(new Set())
   const [batchSubmitting, setBatchSubmitting] = useState(false)
@@ -575,8 +623,31 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
   // 內容不會因為切換開關而消失。放在 flatPreviewItems 這一層是因為它同時是「預期結果預覽」和
   // 「送出 payload」的唯一來源，在這裡合併，畫面跟實際寫進 Lark 的內容一定一致（跟 CodeX 討論定案）。
   const mergeableCount = rawFlatItems.filter(({ item }) => item.projectName.trim() === MERGE_PROJECT_NAME).length
-  const flatPreviewItems = !mergeOsm ? rawFlatItems : peopleList.flatMap(person => {
-    const items = draftEdits[person] ?? []
+  // 轉換順序：原始草稿 → Jira 標籤歸集（依 summary 語意，較細）→ P7-005-OSM 每人合併（依專案，較粗）。
+  // 兩個開關互相獨立；真的重疊時（Jira 單被歸到 P7-005-OSM）後者會把前者結果再併掉，符合
+  // 「P7-005-OSM 權重更高」的直覺（跟 CodeX 討論定案的順序）。
+  const tagApplied = !mergeJiraTags ? rawFlatItems : rawFlatItems.flatMap(({ person, item }) => {
+    // 只有帶著 Jira 原始資料的項目才跑這條規則，不從 content 反推單號或標題（CodeX review 建議）
+    if (!item.jiraIssues || item.jiraIssues.length === 0) return [{ person, item }]
+    const { labels, untaggedKeys } = jiraTagGroups(item.jiraIssues)
+    if (labels.length === 0) return [{ person, item }]
+    const out = labels.map((label, i) => ({
+      person,
+      item: { ...item, sourceRowId: `${item.sourceRowId} · 標籤${i + 1}`, content: label },
+    }))
+    // 沒有標籤的那幾張單不併進任何一句描述，維持原本的單號內容單獨一列
+    if (untaggedKeys.length > 0) {
+      out.push({ person, item: { ...item, content: untaggedKeys.join('、') } })
+    }
+    return out
+  })
+  const jiraTagAffected = !mergeJiraTags ? 0 : rawFlatItems.filter(({ item }) =>
+    item.jiraIssues && item.jiraIssues.length > 0 && jiraTagGroups(item.jiraIssues).labels.length > 0).length
+
+  const flatPreviewItems = !mergeOsm ? tagApplied : peopleList.flatMap(person => {
+    // 讀 tagApplied 而不是 draftEdits——不然開啟 P7-005-OSM 合併時會直接吃原始草稿，
+    // 把上一段的 Jira 標籤歸集結果整個蓋掉
+    const items = tagApplied.filter(x => x.person === person).map(x => x.item)
     const out: Array<{ person: string; item: DraftItem }> = []
     let mergedInserted = false
     for (const item of items) {
@@ -712,14 +783,15 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
     const person = jiraTargetPerson.trim()
     const checkedIssues = jiraIssues.filter(i => jiraChecked.has(i.key))
 
-    type GroupAcc = { projectId: string; projectName: string; keys: string[]; accountLabels: Set<string> }
+    type GroupAcc = { projectId: string; projectName: string; keys: string[]; accountLabels: Set<string>; issues: { key: string; summary: string }[] }
     const groups = new Map<string, GroupAcc>()
     for (const iss of checkedIssues) {
       const matchedProject = matchLarkProjectByJiraName(iss.jiraProjectName, parsed.projects)
       const groupKey = matchedProject?.name ?? ''
       let g = groups.get(groupKey)
-      if (!g) { g = { projectId: matchedProject?.id ?? '', projectName: matchedProject?.name ?? '', keys: [], accountLabels: new Set() }; groups.set(groupKey, g) }
+      if (!g) { g = { projectId: matchedProject?.id ?? '', projectName: matchedProject?.name ?? '', keys: [], accountLabels: new Set(), issues: [] }; groups.set(groupKey, g) }
       g.keys.push(iss.key)
+      g.issues.push({ key: iss.key, summary: iss.summary })
       for (const a of iss.accountLabels) g.accountLabels.add(a)
     }
 
@@ -727,6 +799,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
       sourceRowId: `Jira · ${[...g.accountLabels].join('、')}`,
       content: g.keys.join('、'),
       projectId: g.projectId, projectName: g.projectName,
+      jiraIssues: g.issues,
     }))
     setDraftEdits(prev => ({ ...prev, [person]: [...(prev[person] ?? []), ...newItems] }))
     setActivePerson(person)
@@ -750,7 +823,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
     const memberByLowerName = new Map(parsed.members.map(m => [m.name.trim().toLowerCase(), m.name]))
     const checkedIssues = jiraIssues.filter(i => jiraChecked.has(i.key))
 
-    type GroupAcc = { person: string; projectId: string; projectName: string; keys: string[] }
+    type GroupAcc = { person: string; projectId: string; projectName: string; keys: string[]; issues: { key: string; summary: string }[] }
     const groups = new Map<string, GroupAcc>()
     const stillNeedsManual = new Set<string>()
     const unmatchedAccountNames = new Set<string>()
@@ -767,10 +840,11 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
         const groupKey = `${person}::${matchedProject?.name ?? ''}`
         let g = groups.get(groupKey)
         if (!g) {
-          g = { person, projectId: matchedProject?.id ?? '', projectName: matchedProject?.name ?? '', keys: [] }
+          g = { person, projectId: matchedProject?.id ?? '', projectName: matchedProject?.name ?? '', keys: [], issues: [] }
           groups.set(groupKey, g)
         }
         g.keys.push(iss.key)
+        g.issues.push({ key: iss.key, summary: iss.summary })
       }
     }
 
@@ -778,7 +852,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
       setDraftEdits(prev => {
         const next = { ...prev }
         for (const g of groups.values()) {
-          const item: DraftItem = { sourceRowId: `Jira · ${g.person}`, content: g.keys.join('、'), projectId: g.projectId, projectName: g.projectName }
+          const item: DraftItem = { sourceRowId: `Jira · ${g.person}`, content: g.keys.join('、'), projectId: g.projectId, projectName: g.projectName, jiraIssues: g.issues }
           next[g.person] = [...(next[g.person] ?? []), item]
         }
         return next
@@ -908,7 +982,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
           const member = parsed.members.find(m => m.name.toLowerCase().includes(kw))
           if (member) keywordToMember.set(kw, member.name)
         }
-        type GroupAcc = { person: string; projectId: string; projectName: string; keys: string[] }
+        type GroupAcc = { person: string; projectId: string; projectName: string; keys: string[]; issues: { key: string; summary: string }[] }
         const groups = new Map<string, GroupAcc>()
         for (const iss of issues) {
           const matchedProject = matchLarkProjectByJiraName(iss.jiraProjectName, parsed.projects)
@@ -921,15 +995,16 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
           for (const person of targetPersons) {
             const groupKey = `${person}::${matchedProject?.name ?? ''}`
             let g = groups.get(groupKey)
-            if (!g) { g = { person, projectId: matchedProject?.id ?? '', projectName: matchedProject?.name ?? '', keys: [] }; groups.set(groupKey, g) }
+            if (!g) { g = { person, projectId: matchedProject?.id ?? '', projectName: matchedProject?.name ?? '', keys: [], issues: [] }; groups.set(groupKey, g) }
             g.keys.push(iss.key)
+            g.issues.push({ key: iss.key, summary: iss.summary })
           }
         }
         if (groups.size > 0) {
           setDraftEdits(prev => {
             const next = { ...prev }
             for (const g of groups.values()) {
-              const item: DraftItem = { sourceRowId: `Jira · ${g.person}`, content: g.keys.join('、'), projectId: g.projectId, projectName: g.projectName }
+              const item: DraftItem = { sourceRowId: `Jira · ${g.person}`, content: g.keys.join('、'), projectId: g.projectId, projectName: g.projectName, jiraIssues: g.issues }
               next[g.person] = [...(next[g.person] ?? []), item]
             }
             return next
@@ -1034,6 +1109,9 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
           mergeOsm={mergeOsm}
           toggleMergeOsm={toggleMergeOsm}
           mergeableCount={mergeableCount}
+          mergeJiraTags={mergeJiraTags}
+          toggleMergeJiraTags={toggleMergeJiraTags}
+          jiraTagAffected={jiraTagAffected}
           missingProjectTotal={missingProjectTotal}
           totalItemCount={totalItemCount}
           unresolvedUnidentifiedCount={unresolvedUnidentifiedCount}
@@ -1089,7 +1167,7 @@ function BatchScanSection({
   draftEdits, activePerson, setActivePerson, unidentifiedResolved,
   batchSubmitting, batchSubmitMsg, batchSubmitResult,
   scanReady, peopleList, flatPreviewItems, missingProjectTotal, totalItemCount, unresolvedUnidentifiedCount,
-  mergeOsm, toggleMergeOsm, mergeableCount,
+  mergeOsm, toggleMergeOsm, mergeableCount, mergeJiraTags, toggleMergeJiraTags, jiraTagAffected,
   updateScanSheet, handleLoadSheetHeaders, addScanSheet, removeScanSheet, toggleScanContentColumn,
   handleRunScan, updateDraftItem, removeDraftItem, addDraftItem, assignUnidentified, handleBatchSubmit,
   jiraPanelOpen, jiraAccountList, jiraSelectedEmails, weekRangeInfo, weekRangeError, jiraLoading, jiraMsg, jiraIssues, jiraChecked, jiraTargetPerson,
@@ -1116,6 +1194,9 @@ function BatchScanSection({
   mergeOsm: boolean
   toggleMergeOsm: (v: boolean) => void
   mergeableCount: number
+  mergeJiraTags: boolean
+  toggleMergeJiraTags: (v: boolean) => void
+  jiraTagAffected: number
   missingProjectTotal: number
   totalItemCount: number
   unresolvedUnidentifiedCount: number
@@ -1426,11 +1507,22 @@ function BatchScanSection({
             <div style={{ border: '1px solid #2d3f55', borderRadius: 10, background: '#10182a', padding: '18px 20px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
                 <div style={{ fontSize: 13.5, fontWeight: 700 }}>依人員分組草稿</div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#94a3b8', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={mergeOsm} onChange={e => toggleMergeOsm(e.target.checked)} />
-                  <span>{MERGE_PROJECT_NAME} 每人各自合併成一條（補充說明寫「{MERGE_CONTENT}」）</span>
-                </label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#94a3b8', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={mergeJiraTags} onChange={e => toggleMergeJiraTags(e.target.checked)} />
+                    <span>Jira 單依標題中括號標籤歸集（[OSM][GM] + [OSM][後端] → OSM相關需求測試）</span>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#94a3b8', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={mergeOsm} onChange={e => toggleMergeOsm(e.target.checked)} />
+                    <span>{MERGE_PROJECT_NAME} 每人各自合併成一條（補充說明寫「{MERGE_CONTENT}」）</span>
+                  </label>
+                </div>
               </div>
+              {mergeJiraTags && jiraTagAffected > 0 && (
+                <div style={{ fontSize: 11, color: 'var(--cr-cyan, #38bdf8)', marginBottom: 8, padding: '6px 10px', borderRadius: 6, background: 'rgba(56,189,248,.08)', border: '1px solid rgba(56,189,248,.25)' }}>
+                  已開啟 Jira 標籤歸集：{jiraTagAffected} 個 Jira 項目會依標題標籤改寫成描述（同標籤的併成一條、不同標籤的各自拆成一條）。下面清單仍顯示原本的單號，關掉開關就恢復。
+                </div>
+              )}
               {mergeOsm && mergeableCount > 0 && (
                 <div style={{ fontSize: 11, color: 'var(--cr-cyan, #38bdf8)', marginBottom: 12, padding: '6px 10px', borderRadius: 6, background: 'rgba(56,189,248,.08)', border: '1px solid rgba(56,189,248,.25)' }}>
                   已開啟合併：{MERGE_PROJECT_NAME} 共 {mergeableCount} 筆，會<b>依每個人各自</b>合併成一條送出（下面清單仍顯示原始逐筆，可繼續編輯；關掉開關就恢復）。實際會寫進 Lark 的內容以下方「預期結果」為準。

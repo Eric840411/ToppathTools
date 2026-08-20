@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.14.0'
+export const APP_VERSION = '4.15.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.15.0',
+    date: '2026-08-20',
+    changes: [
+      "minor(weekly-report): 新增「Jira 單依標題中括號標籤歸集」開關——撈回來的 Jira 單依標題開頭的 [xxx] 標籤歸集後再寫進多維表格。先依第一個標籤分組，每組取共同標籤組成「◯◯相關需求測試」；沒有共同標籤的不是串成一句，而是拆成不同項目各寫一條（使用者當面確認的規則）。標題沒有中括號的單保留原本的單號內容，不硬生出沒有依據的描述",
+      "chore(weekly-report): DraftItem 新增 jiraIssues（單號+標題成對存，不是兩個平行陣列，避免對應關係變隱性）——Jira 套用進草稿時原本只留單號、標題沒帶進來，沒有原始資料就無法做可逆的標籤歸集。content 仍然是使用者看得到、可編輯的單號串，歸集只是送出前的呈現規則",
+      "chore(weekly-report): 兩個合併開關的套用順序定為「原始草稿 → Jira 標籤歸集（依 summary 語意，較細）→ P7-005-OSM 每人合併（依專案，較粗）」，P7 那段改讀標籤歸集後的結果而不是原始草稿，否則同時開啟時前者會被整個蓋掉",
+    ],
+  },
   {
     version: '4.14.0',
     date: '2026-08-20',
