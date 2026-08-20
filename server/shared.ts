@@ -1096,6 +1096,26 @@ db.exec(`
   )
 `)
 
+// 代理授權（delegation）：「哪個登入者可以用哪個 Jira 帳號的身分打 Jira API」。
+// 背景：登入帳號跟 Jira 帳號是同一張 jira_accounts 表，而 userJiraAuth() 先前直接信任前端送的
+// x-jira-email、完全沒有跟登入 session 比對，等於任何人都能用任一個帳號的 token 操作 Jira。這張表
+// 是把那個「已經存在但沒人管的能力」變成受控、可稽核、可撤銷的授權（2026-08-20，跟 CodeX 討論定案）。
+// 撤銷用狀態欄位（enabled / revoked_at / expires_at）而不是刪資料，才留得下稽核軌跡。
+db.exec(`
+  CREATE TABLE IF NOT EXISTS jira_account_delegates (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_email  TEXT NOT NULL,
+    target_email TEXT NOT NULL,
+    scope        TEXT NOT NULL,
+    enabled      INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+    created_by   TEXT NOT NULL DEFAULT '',
+    created_at   INTEGER NOT NULL,
+    expires_at   INTEGER,
+    revoked_at   INTEGER,
+    UNIQUE (actor_email, target_email, scope)
+  )
+`)
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS jp_groups (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1629,19 +1649,93 @@ export const mustEnv = (name: string) => {
   return value
 }
 
+const AUTH_COOKIE_NAME = 'toppath_auth'
+
+/**
+ * 這個請求「真正登入的是誰」——直接讀 cookie 對 auth_sessions 表，不是看前端送什麼。
+ * 刻意不 import auth-session.ts 的 getAuthAccount()：那支檔案本身 import 了 shared.ts，反向 import
+ * 會形成循環相依，而 shared.ts 在模組載入當下就要開 DB／建表，循環相依下初始化順序不確定。
+ * 登入時 session 本來就會寫進 auth_sessions（不是只存在記憶體快取），直接查表結果一致。
+ */
+export function authEmailFromRequest(req: express.Request): string | null {
+  const raw = req.headers.cookie
+  if (!raw) return null
+  const prefix = `${AUTH_COOKIE_NAME}=`
+  const hit = raw.split(';').map(s => s.trim()).find(s => s.startsWith(prefix))
+  if (!hit) return null
+  const sid = decodeURIComponent(hit.slice(prefix.length))
+  if (!sid) return null
+  const row = db.prepare('SELECT email, expires_at FROM auth_sessions WHERE sid = ?').get(sid) as
+    { email: string; expires_at: number } | undefined
+  if (!row || row.expires_at <= Date.now()) return null
+  return row.email
+}
+
+/** 代理授權的用途分類。寫入與讀取刻意分成兩個 scope——有人可以幫忙代發評論，不代表可以拿別人的
+ *  token 讀他看得到的所有單子，反之亦然。 */
+export type JiraDelegationScope = 'jira.comment.batch' | 'jira.read.asOther'
+
+/** 代理關係是否「現在有效」。四個條件集中在這裡，不要散到各個 route 各判一次（CodeX review 建議）。 */
+export function hasJiraDelegation(actorEmail: string, targetEmail: string, scope: JiraDelegationScope): boolean {
+  if (!actorEmail || !targetEmail) return false
+  const row = db.prepare(`
+    SELECT 1 FROM jira_account_delegates
+    WHERE actor_email = ? AND target_email = ? AND scope = ?
+      AND enabled = 1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)
+    LIMIT 1
+  `).get(actorEmail.toLowerCase(), targetEmail.toLowerCase(), scope, Date.now())
+  return !!row
+}
+
+export type UserJiraAuthOptions = {
+  /** 這支端點允許「用別人的身分」時要求的 scope；不給就是一律只能用自己。 */
+  allowDelegationScope?: JiraDelegationScope
+  /** 過渡期用：查不到授權時仍放行，但印出可 grep 的警告。等既有關係都補進授權表後就拿掉。 */
+  fallbackAllowUnauthorized?: boolean
+}
+
 /**
  * 從 request header 的 x-jira-email 找到後端儲存的 token，組成 Basic Auth。
  * 前端只傳 email，token 完全留在後端。
+ *
+ * 2026-08-20：加上身分邊界檢查。先前這支完全信任 x-jira-email，只要知道別人的 email 就能用他的
+ * token 操作 Jira（`/api/jira/*` 沒有全域 auth gate，改一個 header 就成立）。現在預設「header 必須
+ * 等於登入 session 的帳號」，只有端點明確傳 allowDelegationScope 才可能放寬，而且還要在授權表裡
+ * 查得到有效關係。已確認前端沒有切換操作帳號的入口（JiraAccountModal 的 showAccountModal 從來沒被
+ * 設成 true），所以這個預設不會擋掉任何既有的正常流程。
  */
-export const userJiraAuth = (req: express.Request): { auth: string; email: string } | null => {
+export const userJiraAuth = (
+  req: express.Request,
+  opts: UserJiraAuthOptions = {},
+): { auth: string; email: string; actorEmail: string | null } | null => {
   const email = req.headers['x-jira-email'] as string | undefined
   if (!email) return null
   const accounts = readAccounts()
   const account = accounts.find((a) => a.email === email)
   if (!account) return null
+
+  const actorEmail = authEmailFromRequest(req)
+  const isSelf = !!actorEmail && actorEmail.toLowerCase() === email.toLowerCase()
+  if (!isSelf) {
+    const scope = opts.allowDelegationScope
+    const delegated = !!actorEmail && !!scope && hasJiraDelegation(actorEmail, email, scope)
+    const where = `route=${req.method} ${req.originalUrl}`
+    const who = `actor=${actorEmail ?? '(未登入)'} target=${email}`
+    if (!delegated) {
+      if (scope && opts.fallbackAllowUnauthorized) {
+        // 固定字串方便日後 grep，確認關掉 fallback 前還有誰在靠它跑（CodeX review 建議）
+        console.warn(`JIRA_DELEGATION_FALLBACK_ALLOW ${who} scope=${scope} ${where} at=${new Date().toISOString()}`)
+      } else {
+        console.warn(`JIRA_IDENTITY_MISMATCH_DENY ${who} ${where} at=${new Date().toISOString()}`)
+        return null
+      }
+    }
+  }
+
   return {
     auth: `Basic ${Buffer.from(`${email}:${account.token}`).toString('base64')}`,
     email,
+    actorEmail,
   }
 }
 

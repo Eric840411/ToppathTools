@@ -60,6 +60,23 @@ When adding a new route:
 3. If it needs Gemini, import from `./gemini.js`
 4. No need to touch `index.ts` unless adding a brand new router
 
+# Jira 身分邊界與代理授權（2026-08-20，v4.10.0）
+
+**登入帳號就是 Jira 帳號**——同一張 `jira_accounts` 表，token 存後端，前端只送 `x-jira-email`。先前 `userJiraAuth()`（`server/shared.ts`）**完全信任這個 header**，而 `/api/jira/*` 沒有全域 auth gate，等於任何人只要知道別人的 email、改一個 header，就能用別人的 token 操作 Jira。這不是「還沒開放的功能」，是認證邊界本身錯了。
+
+現在 `userJiraAuth(req, opts)` **預設只允許本人**：直接讀 cookie 對 `auth_sessions` 表判斷「這個請求真正登入的是誰」（不看前端說什麼），跟 header 不符就拒絕並印 `JIRA_IDENTITY_MISMATCH_DENY`。刻意不 import `auth-session.ts` 的 `getAuthAccount()`——那支檔案本身 import 了 `shared.ts`，反向 import 會形成循環相依，而 `shared.ts` 在模組載入當下就要開 DB／建表。
+
+**代理授權**用 `jira_account_delegates` 表（`actor_email`／`target_email`／`scope` + `enabled`／`expires_at`／`revoked_at`，撤銷用狀態欄位不刪資料，才留得下稽核軌跡），判斷集中在 `hasJiraDelegation()` 一支 helper（啟用／未撤銷／未過期／scope 精準匹配），不散到各 route 各判一次。scope 目前兩種，**寫入與讀取刻意分開**：
+
+| scope | 用途 | 目前誰在用 |
+|-------|------|-----------|
+| `jira.comment.batch` | 代理**寫入**：用別人的身分張貼批量評論 | 規劃中（Phase 2）|
+| `jira.read.asOther` | 代理**讀取**：用別人的 token 查資料 | `POST /api/weekly-report/jira-by-range` |
+
+**`weekly-report/jira-by-range` 是既有的跨帳號讀取功能，不是漏洞遺跡**：週報彙整的全自動載入本來就會用 Eric／Lusa／Siara 三個帳號的 email 平行呼叫，各自用各自的 token 撈自己的單（v4.5.0）。身分邊界加嚴時若不標註，這個每週在用的功能會當場壞掉。目前這支傳 `fallbackAllowUnauthorized: true`——查不到授權**仍然放行**，但印出可 grep 的 `JIRA_DELEGATION_FALLBACK_ALLOW`（含 actor／target／scope／route／時間）。**這是過渡狀態**：等從 log 確認實際用到哪些關係、補進授權表後，就要把這個 fallback 關掉。
+
+> 已驗證：無 cookie＋他人 email → 401；本人 → 200；有 cookie 但用他人 email 打 `/api/jira/*` → 401；週報撈單跨帳號 → 放行並印 fallback 警告；補上授權列後警告消失；把該列 `enabled` 設 0 後警告恢復。
+
 # Game Edition Art Assistant (Claude + GPT-4o)
 
 For `game-edition` branch UI work, GPT-4o acts as the **美術副手** (art/UI assistant).

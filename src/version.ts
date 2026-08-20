@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.6.3'
+export const APP_VERSION = '4.10.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.10.0',
+    date: '2026-08-20',
+    changes: [
+      "minor(security): Jira 身分邊界修正——userJiraAuth() 先前完全信任前端送的 x-jira-email，而 /api/jira/* 沒有全域 auth gate，等於任何人改一個 header 就能用別人的 token 操作 Jira。改成預設「header 必須等於登入 session 的帳號」（直接讀 cookie 對 auth_sessions 表，不看前端說什麼），只有端點明確傳 allowDelegationScope 才可能放寬。已確認前端沒有切換操作帳號的入口，這個預設不會擋掉任何既有正常流程",
+      "minor(security): 新增代理授權表 jira_account_delegates（actor/target/scope + enabled/expires_at/revoked_at，撤銷用狀態不刪資料），與集中式的 hasJiraDelegation() 判斷（啟用／未撤銷／未過期／scope 精準匹配）。scope 分成 jira.comment.batch（代理寫入）與 jira.read.asOther（代理讀取），寫入與讀取的授權刻意分開",
+      "fix(weekly-report): 週報「依時間範圍撈 Jira 單」標成 jira.read.asOther 代理讀取——這支是既有的跨帳號讀取功能（全自動載入會用 Eric／Lusa／Siara 三個帳號各自的 token 平行撈單），身分邊界加嚴後若不標註會當場壞掉。過渡期查不到授權仍放行，但印出可 grep 的 JIRA_DELEGATION_FALLBACK_ALLOW 警告（含 actor／target／scope／route／時間），等實際用到的關係補進授權表後再關掉 fallback",
+      "chore(version): 版號從 4.6.3 直接跳到 4.10.0，刻意避開 4.7.0~4.9.3——那個區間的版號在 git 歷史裡已經被 f39d37a 用在完全不同的內容上（多裝置／心跳／proxy 修復，後來整批退版），重用會讓之後查 git log 的人對不上",
+    ],
+  },
   {
     version: '4.6.3',
     date: '2026-08-19',

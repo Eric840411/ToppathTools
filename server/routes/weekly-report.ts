@@ -201,7 +201,11 @@ router.post('/api/weekly-report/parse', async (req, res) => {
 // customfield id，不用另外動態偵測。不限制 project，撈這個人 token 能看到的所有專案。
 router.post('/api/weekly-report/jira-by-range', async (req, res) => {
   try {
-    const userAuth = userJiraAuth(req)
+    // 這支端點是既有的「跨帳號讀取」正式功能：週報彙整的全自動載入會用 Eric／Lusa／Siara 三個
+    // 帳號的 email 平行呼叫，各自用各自的 token 撈自己的單（v4.5.0）。userJiraAuth() 2026-08-20
+    // 起預設只允許本人，所以這裡必須明確標成代理讀取，否則週報會當場壞掉。過渡期先 fallback 放行
+    // 並印 JIRA_DELEGATION_FALLBACK_ALLOW 警告，等實際用到的關係都補進授權表後再關掉 fallback。
+    const userAuth = userJiraAuth(req, { allowDelegationScope: 'jira.read.asOther', fallbackAllowUnauthorized: true })
     if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
     const { startDate, endDate } = z.object({
       startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
