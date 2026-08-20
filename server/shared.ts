@@ -1614,6 +1614,9 @@ export const ALL_PAGE_KEYS = [
   'autospin','url-pool','jackpot','osm-uat',
   'gs-imgcompare','gs-logchecker','gs-bonusv2','history','knowledge','local-agent',
   'ui-screenshot','discord-notify','meter-reconcile','egm-daycount','cultivation-board','xianxia-quotes','weekly-report',
+  // 功能開關（不是頁面）：沿用同一套權限 key 機制，讓後台權限頁不用另外長出第二套 UI。
+  // canAccess() 只查 tabId，多出來的 key 不會影響側邊欄。
+  'jira-ai-format','jira-ai-review',
 ] as const
 
 export type PageKey = typeof ALL_PAGE_KEYS[number]
@@ -1639,6 +1642,47 @@ export function getPermissionsForRole(role: AccountRole | string): string[] {
 
   const rows = db.prepare('SELECT page_key FROM role_permissions WHERE role = ? AND allowed = 1').all(role) as { page_key: string }[]
   return rows.map(r => r.page_key)
+}
+
+// 個人權限覆寫層。現有權限是角色制（role × page_key），但「AI 排版／AI 完整性分析」這種功能
+// 使用者要求開到「個人」——用角色開太粗（等於整個 QA 都有）。做法是不動 role_permissions，
+// 另外疊一層帳號覆寫：allowed=1 加、allowed=0 減，沒有覆寫就沿用角色預設。這張表對任何 key
+// 都適用，之後其他功能要做個人例外不用再開新機制（2026-08-20，跟 CodeX 討論定案）。
+db.exec(`
+  CREATE TABLE IF NOT EXISTS account_permissions (
+    email      TEXT NOT NULL,
+    perm_key   TEXT NOT NULL,
+    allowed    INTEGER NOT NULL CHECK (allowed IN (0, 1)),
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (email, perm_key)
+  )
+`)
+
+/** 某個帳號的個人覆寫（key → 允許與否）。email 一律小寫比對，避免同一個人存成多筆。 */
+export function getAccountPermissionOverrides(email: string): Record<string, boolean> {
+  const rows = db.prepare('SELECT perm_key, allowed FROM account_permissions WHERE email = ?')
+    .all(email.toLowerCase()) as { perm_key: string; allowed: number }[]
+  const out: Record<string, boolean> = {}
+  for (const r of rows) out[r.perm_key] = r.allowed === 1
+  return out
+}
+
+/** 這個帳號實際有的權限＝角色預設 ∪ 個人覆寫。
+ *  admin 一律全開，且**不套用個人 deny**——否則「admin 永遠全開」這條規則會變模糊，
+ *  也可能把管理員自己鎖在系統外（CodeX review 指出）。 */
+export function getEffectivePermissions(email: string, role: AccountRole | string): string[] {
+  if (role === 'admin') return [...ALL_PAGE_KEYS, 'sysadmin']
+  const base = new Set(getPermissionsForRole(role))
+  for (const [key, allowed] of Object.entries(getAccountPermissionOverrides(email))) {
+    if (allowed) base.add(key)
+    else base.delete(key)
+  }
+  return Array.from(base)
+}
+
+/** 後端單點檢查用。前端把選項藏起來不算防護，寫入端點一律要自己再驗一次。 */
+export function accountHasPermission(email: string, role: AccountRole | string, key: string): boolean {
+  return getEffectivePermissions(email, role).includes(key)
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

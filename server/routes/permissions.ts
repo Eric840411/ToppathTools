@@ -8,6 +8,7 @@ import {
   db, pinHash, readAccounts, upsertAccount, deleteAccountByEmail,
   writeLimiter, ALL_PAGE_KEYS, getPermissionsForRole, type AccountRole,
   getCultivationInfo, setCultivationDays, CULTIVATION_LEVELS,
+  getEffectivePermissions, getAccountPermissionOverrides,
 } from '../shared.js'
 import { getAuthAccount } from '../auth-session.js'
 
@@ -29,7 +30,8 @@ function requireAdmin(req: Request, res: Response, next: NextFunction) {
 router.get('/api/admin/my-permissions', (req, res) => {
   const account = getAuthAccount(req)
   if (!account) return res.json({ ok: true, permissions: [] })
-  const perms = getPermissionsForRole(account.role as AccountRole)
+  // 角色預設 ∪ 個人覆寫（admin 一律全開且不套 deny）
+  const perms = getEffectivePermissions(account.email, account.role as AccountRole)
   res.json({ ok: true, role: account.role, permissions: perms })
 })
 
@@ -167,6 +169,59 @@ router.put('/api/admin/accounts/:email/cultivation', requireAdmin, writeLimiter,
   const data = adjustCultivationSchema.parse(req.body)
   setCultivationDays(email, data.activeDays)
   res.json({ ok: true, ...getCultivationInfo(email) })
+})
+
+// ─── 個人權限覆寫 ─────────────────────────────────────────────────────────────
+// 疊在角色權限之上的個人例外。刻意只收 ALL_PAGE_KEYS 裡的 key——sysadmin 這種管理身分
+// 不能透過這支修改，避免把安全邊界跟功能開關混在一起；也禁止管理員改自己的覆寫，
+// 避免自己把必要入口關掉後救不回來（CodeX review 建議）。
+
+router.get('/api/admin/accounts/:email/permissions', requireAdmin, (req, res) => {
+  const email = String(req.params.email).toLowerCase()
+  const account = readAccounts().find(a => a.email.toLowerCase() === email)
+  if (!account) return res.status(404).json({ ok: false, message: '找不到帳號' })
+  res.json({
+    ok: true,
+    email: account.email,
+    role: account.role,
+    roleDefaults: getPermissionsForRole(account.role as AccountRole),
+    overrides: getAccountPermissionOverrides(email),
+    effective: getEffectivePermissions(account.email, account.role as AccountRole),
+    pageKeys: ALL_PAGE_KEYS,
+  })
+})
+
+router.put('/api/admin/accounts/:email/permissions', requireAdmin, writeLimiter, (req, res) => {
+  const email = String(req.params.email).toLowerCase()
+  const me = getAuthAccount(req)
+  if (me && me.email.toLowerCase() === email) {
+    return res.status(400).json({ ok: false, message: '不能修改自己的權限覆寫，請由另一位管理員操作' })
+  }
+  const account = readAccounts().find(a => a.email.toLowerCase() === email)
+  if (!account) return res.status(404).json({ ok: false, message: '找不到帳號' })
+
+  const parsed = z.object({ overrides: z.record(z.string(), z.boolean()) }).safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ ok: false, message: '缺少 overrides 欄位' })
+  const overrides = parsed.data.overrides
+
+  // 不認得的 key 直接擋下，不要靜默忽略（CodeX review 建議）——靜默忽略會讓呼叫端
+  // 以為設定成功，實際上什麼都沒發生。
+  const allowedKeys = new Set<string>(ALL_PAGE_KEYS)
+  const bad = Object.keys(overrides).filter(k => !allowedKeys.has(k))
+  if (bad.length > 0) {
+    return res.status(400).json({ ok: false, message: `不支援的權限 key：${bad.join(', ')}` })
+  }
+
+  const now = Date.now()
+  db.transaction(() => {
+    db.prepare('DELETE FROM account_permissions WHERE email = ?').run(email)
+    const ins = db.prepare('INSERT INTO account_permissions (email, perm_key, allowed, updated_at) VALUES (?, ?, ?, ?)')
+    for (const [key, allowed] of Object.entries(overrides)) {
+      ins.run(email, key, allowed ? 1 : 0, now)
+    }
+  })()
+
+  res.json({ ok: true, effective: getEffectivePermissions(account.email, account.role as AccountRole) })
 })
 
 router.get('/api/admin/cultivation-levels', requireAdmin, (_req, res) => {

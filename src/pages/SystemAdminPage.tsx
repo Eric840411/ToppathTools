@@ -45,6 +45,8 @@ const PAGE_META: { key: string; label: string; group: string }[] = [
   { key: 'discord-notify', label: 'Discord 通知設定',   group: '系統' },
   { key: 'cultivation-board', label: '境界排行榜',      group: '系統' },
   { key: 'xianxia-quotes',    label: '每日仙語管理',    group: '系統' },
+  { key: 'jira-ai-format', label: 'AI 排版評論（批量評論）', group: '功能開關' },
+  { key: 'jira-ai-review', label: 'AI 完整性分析（批量評論）', group: '功能開關' },
 ]
 
 const ROLE_LABELS: Record<Role, string> = { admin: '管理員', qa: 'QA', pm: 'PM', other: 'Other' }
@@ -91,6 +93,10 @@ export function SystemAdminPage() {
   // ── Cultivation (admin override) state ──
   const [cultivationLevels, setCultivationLevels] = useState<{ name: string; threshold: number }[]>([])
   const [cultivationTarget, setCultivationTarget] = useState<Account | null>(null)
+  const [permTarget, setPermTarget] = useState<Account | null>(null)
+  const [permData, setPermData] = useState<{ roleDefaults: string[]; overrides: Record<string, boolean> } | null>(null)
+  const [permSaving, setPermSaving] = useState(false)
+  const [permMsg, setPermMsg] = useState('')
   const [cultivationInfo, setCultivationInfo] = useState<{ level: string; activeDays: number } | null>(null)
   const [cultivationDaysInput, setCultivationDaysInput] = useState(0)
   const [cultivationSaving, setCultivationSaving] = useState(false)
@@ -194,6 +200,44 @@ export function SystemAdminPage() {
     const d = await r.json()
     if (d.ok) { setAcctMsg('通過 已刪除'); loadAccounts() }
     else setAcctMsg(`失敗 ${d.message}`)
+  }
+
+  // ── 個人權限覆寫 ──
+  // 角色權限是團隊層級的預設，這裡是疊在上面的個人例外：三態（繼承角色／強制開啟／強制關閉），
+  // 直接對應後端 account_permissions 的「沒有這筆／allowed=1／allowed=0」。
+  async function openPerm(a: Account) {
+    setPermTarget(a)
+    setPermMsg('')
+    setPermData(null)
+    const r = await fetch(`/api/admin/accounts/${encodeURIComponent(a.email)}/permissions`)
+    const d = await r.json() as { ok: boolean; roleDefaults?: string[]; overrides?: Record<string, boolean>; message?: string }
+    if (d.ok) setPermData({ roleDefaults: d.roleDefaults ?? [], overrides: d.overrides ?? {} })
+    else setPermMsg(`失敗 ${d.message ?? '讀取失敗'}`)
+  }
+
+  function setPermOverride(key: string, value: 'inherit' | 'on' | 'off') {
+    setPermData(prev => {
+      if (!prev) return prev
+      const next = { ...prev.overrides }
+      if (value === 'inherit') delete next[key]
+      else next[key] = value === 'on'
+      return { ...prev, overrides: next }
+    })
+  }
+
+  async function savePerm() {
+    if (!permTarget || !permData) return
+    setPermSaving(true)
+    try {
+      const r = await fetch(`/api/admin/accounts/${encodeURIComponent(permTarget.email)}/permissions`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ overrides: permData.overrides }),
+      })
+      const d = await r.json() as { ok: boolean; message?: string }
+      setPermMsg(d.ok ? '通過 已更新' : `失敗 ${d.message ?? '儲存失敗'}`)
+    } catch { setPermMsg('失敗 儲存失敗') }
+    finally { setPermSaving(false) }
   }
 
   async function openCultivation(a: Account) {
@@ -510,6 +554,53 @@ export function SystemAdminPage() {
               </div>
             )}
 
+            {/* 個人權限覆寫 modal */}
+            {permTarget && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+                <div style={{ background: '#1e293b', borderRadius: 12, padding: 28, width: 560, maxHeight: '80vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,.2)' }}>
+                  <h3 style={{ fontSize: 15, fontWeight: 600, margin: '0 0 8px', color: '#e2e8f0' }}>
+                    功能權限：{permTarget.label}
+                  </h3>
+                  <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 16px' }}>
+                    疊在角色權限之上的個人例外。「繼承角色」＝照上面的角色權限表；設成開啟／關閉才會覆寫。
+                    {permTarget.role === 'admin' && <span style={{ color: '#fbbf24' }}>（管理員一律全開，覆寫不會生效）</span>}
+                  </p>
+                  {!permData ? (
+                    <p style={{ fontSize: 12, color: '#64748b' }}>載入中…</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
+                      {PAGE_META.map(pm => {
+                        const inherited = permData.roleDefaults.includes(pm.key)
+                        const ov = permData.overrides[pm.key]
+                        const cur: 'inherit' | 'on' | 'off' = ov === undefined ? 'inherit' : (ov ? 'on' : 'off')
+                        return (
+                          <div key={pm.key} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: '#cbd5e1' }}>
+                            <span style={{ flex: 1 }}>{pm.label} <span style={{ color: '#475569' }}>· {pm.group}</span></span>
+                            <span style={{ fontSize: 11, color: inherited ? '#4ade80' : '#64748b', width: 76, textAlign: 'right' }}>
+                              角色{inherited ? '有' : '無'}
+                            </span>
+                            <select value={cur} onChange={e => setPermOverride(pm.key, e.target.value as 'inherit' | 'on' | 'off')}
+                              style={{ ...inputStyle, width: 110, padding: '4px 6px', margin: 0 }}>
+                              <option value="inherit">繼承角色</option>
+                              <option value="on">強制開啟</option>
+                              <option value="off">強制關閉</option>
+                            </select>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button type="button" style={btnPrimary} onClick={savePerm} disabled={permSaving || !permData}>
+                      {permSaving ? '儲存中…' : '儲存'}
+                    </button>
+                    <button type="button" style={btnOutline} onClick={() => setPermTarget(null)}>關閉</button>
+                  </div>
+                  {permMsg && <p style={{ fontSize: 12, marginTop: 10, color: permMsg.startsWith('通過') ? '#4ade80' : '#f87171' }}>{permMsg}</p>}
+                </div>
+              </div>
+            )}
+
             {/* Cultivation adjust modal */}
             {cultivationTarget && (
               <div style={{
@@ -597,6 +688,7 @@ export function SystemAdminPage() {
                       <td style={td}>
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
                           <button type="button" style={btnOutline} onClick={() => openEdit(a)}>編輯</button>
+                          <button type="button" style={btnOutline} onClick={() => openPerm(a)}>功能權限</button>
                           <button type="button" style={btnOutline} onClick={() => openCultivation(a)}>調整境界</button>
                           <button type="button" style={btnDanger} onClick={() => deleteAccount(a.email)}>刪除</button>
                         </div>

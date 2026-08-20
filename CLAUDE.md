@@ -60,6 +60,38 @@ When adding a new route:
 3. If it needs Gemini, import from `./gemini.js`
 4. No need to touch `index.ts` unless adding a brand new router
 
+# 個人權限覆寫與批量評論 AI 兩項拆分（2026-08-20，v4.11.0）
+
+## 權限：角色預設 + 個人覆寫
+
+原本權限完全是角色制（`role_permissions`：role × page_key，角色只有 qa／pm／other，admin 全開）。使用者要求 AI 功能開到「個人」——用角色開太粗（等於整個 QA 都有），所以**不動角色表**，另外疊一層 `account_permissions`（`email` × `perm_key` × `allowed`，email 一律小寫）：
+
+- 沒有覆寫 → 沿用角色預設
+- `allowed = 1` → 這個人額外有這個權限
+- `allowed = 0` → 這個人被拿掉這個權限（即使角色有）
+- **admin 一律全開且不套個人 deny**——否則「admin 永遠全開」這條規則會變模糊，也可能把管理員自己鎖在系統外
+
+解析集中在 `getEffectivePermissions(email, role)`（`server/shared.ts`），`/api/admin/my-permissions` 回的就是合併後的結果，所以**前端的權限判斷邏輯完全不用改**。這張表對任何 key 都適用，之後其他功能要做個人例外不用再開新機制。
+
+管理介面在系統管理頁的帳號列表，每列新增「功能權限」按鈕，每個 key 三態（繼承角色／強制開啟／強制關閉）直接對應「沒有這筆／`allowed=1`／`allowed=0`」。`PUT /api/admin/accounts/:email/permissions` 的防護（跟 CodeX 討論定案）：只接受 `ALL_PAGE_KEYS` 裡的 key（`sysadmin` 這種管理身分不可透過這支改，把安全邊界跟功能開關分開）、不認得的 key 回 400 **不靜默忽略**、禁止管理員改自己的覆寫（避免把必要入口關掉救不回來）、整批寫入包 transaction。
+
+## 批量評論：AI 拆成兩個獨立項目
+
+原本一個「AI 優化」勾選框同時做兩件事，而且兩者失敗語意本來就不同（排版失敗中斷整批、分析失敗只警告）。現在拆成兩個旗標，各自受權限控管（`jira-ai-format`／`jira-ai-review`，都在 `ALL_PAGE_KEYS` 裡，`PAGE_META` 歸在「功能開關」分組；`canAccess()` 只查 tabId，多出來的 key 不影響側邊欄）：
+
+| 組合 | 行為 |
+|------|------|
+| 只開排版 | 貼一則 AI 改寫後的正文 |
+| 只開分析 | 第一則貼**原文**，第二則分析**原文** |
+| 兩個都開 | 第一則貼 AI 改寫正文，第二則分析**實際貼出去**的那份正文 |
+| 舊 payload 只有 `useAi` | 等同兩個都開，但仍要通過後端權限 |
+
+`useAi` 保留成 legacy fallback（`aiFormat ?? useAi`、`aiReview ?? useAi`），舊呼叫端行為完全不變。
+
+**後端補上權限驗證**：先前後端對 `useAi` 完全沒有檢查，只有前端把選項藏起來——改 payload 就能繞過。現在 `/api/jira/batch-comment` 會驗，且權限一律以**登入 session 的帳號**為準（`getAuthAccount(req)`），不能吃 `x-jira-email`，否則權限本身也能被 header 偽造。沒權限直接回 403 並說明是哪一項，不靜默把旗標降成 false（靜默降級會讓使用者以為 AI 有跑）。
+
+> 已用本機真實 session + 真實帳號 curl 驗證：讀／寫個人覆寫、不認得的 key 回 400、改自己回 400、覆寫確實能加上角色沒有的權限與拿掉角色有的權限、後端 403 擋下沒權限的那一項、有權限的那一項正常建立 job。測試資料已清除。
+
 # Jira 身分邊界與代理授權（2026-08-20，v4.10.0）
 
 **登入帳號就是 Jira 帳號**——同一張 `jira_accounts` 表，token 存後端，前端只送 `x-jira-email`。先前 `userJiraAuth()`（`server/shared.ts`）**完全信任這個 header**，而 `/api/jira/*` 沒有全域 auth gate，等於任何人只要知道別人的 email、改一個 header，就能用別人的 token 操作 Jira。這不是「還沒開放的功能」，是認證邊界本身錯了。

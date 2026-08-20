@@ -231,6 +231,8 @@ export interface PreviewItem {
 interface JiraPageProps {
   account?: AccountInfo | null
   isAdmin?: boolean
+  /** 目前帳號的有效權限（角色預設 ∪ 個人覆寫），來自 /api/admin/my-permissions */
+  permissions?: string[]
 }
 
 // 使用者欄位即時搜尋（reporter 等空查詢只回前 ~50 推薦人，必須打名字才找得到其他人）
@@ -453,7 +455,7 @@ export function EditUserPicker({ members, loading, value, label, onChange }: {
   )
 }
 
-export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
+export function JiraPage({ account = null, isAdmin = false, permissions = [] }: JiraPageProps) {
   const isGame = useIsGameMode()
   const [qaSubMode, setQaSubMode] = useState<'create' | 'comment' | 'update' | 'edit'>('create')
   const [step, setStep] = useState<Step>(1)
@@ -558,7 +560,14 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
   // Step 5 (comment)
   const [commentColumn, setCommentColumn] = useState('')
   const [attachmentColumn, setAttachmentColumn] = useState('')
+  // 2026-08-20：原本一個 useAiComment 同時代表「AI 排版」與「AI 完整性分析」，拆成兩個獨立開關。
+  // useAiComment 沿用原名代表「AI 排版」，避免把既有的其他引用點一起改名增加風險。
   const [useAiComment, setUseAiComment] = useState(false)
+  const [useAiReview, setUseAiReview] = useState(false)
+  const canAiFormat = isAdmin || permissions.includes('jira-ai-format')
+  const canAiReview = isAdmin || permissions.includes('jira-ai-review')
+  const aiFormatOn = useAiComment && canAiFormat
+  const aiReviewOn = useAiReview && canAiReview
   const [selectedPromptId, setSelectedPromptId] = useState('default')
   const [availablePrompts, setAvailablePrompts] = useState<{ id: string; name: string }[]>([])
   const [commentModel, setCommentModel] = useState('gemini')
@@ -1994,7 +2003,7 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
     const items: PreviewItem[] = toComment.map(issue => {
       const record = sheetRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
       const text = record
-        ? (useAiComment && isAdmin) ? buildAiCommentRawText(record, commentColumn) : getField(record, commentColumn)
+        ? aiFormatOn ? buildAiCommentRawText(record, commentColumn) : getField(record, commentColumn)
         : ''
       const missing = validateCommentSections(text)
       return {
@@ -2121,7 +2130,7 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
   }
 
   type CommentPayload = {
-    issueKey: string; rowIndex: number; rawComment: string; useAi: boolean; promptId?: string
+    issueKey: string; rowIndex: number; rawComment: string; useAi: boolean; aiFormat?: boolean; aiReview?: boolean; promptId?: string
     cachedAttachments?: CachedAttachment[]; attachmentUrls: string[]
     issueSummary?: string; issueDescription?: string
     machineId?: string; gameMode?: string; environment?: string; version?: string; platform?: string
@@ -2138,9 +2147,9 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
         headers: { 'Content-Type': 'application/json', ...emailHeader },
         body: JSON.stringify({
           comments,
-          modelSpec: useAiComment ? commentModel : undefined,
-          specContext: useAiComment && specContext.trim() ? specContext.trim() : undefined,
-          knowledgeDocIds: useAiComment && selectedKbDocIds.length > 0 ? selectedKbDocIds : undefined,
+          modelSpec: (aiFormatOn || aiReviewOn) ? commentModel : undefined,
+          specContext: aiFormatOn && specContext.trim() ? specContext.trim() : undefined,
+          knowledgeDocIds: aiFormatOn && selectedKbDocIds.length > 0 ? selectedKbDocIds : undefined,
         }),
       })
       const submitData = await resp.json() as { ok: boolean; requestId?: string; message?: string; validationErrors?: unknown }
@@ -2273,8 +2282,11 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
         issueKey: item.issueKey,
         rowIndex: item.rowIndex,
         rawComment: item.commentText,
-        useAi: useAiComment && isAdmin,
-        promptId: (useAiComment && isAdmin) ? selectedPromptId : undefined,
+        // useAi 保留給尚未更新的後端版本當 fallback；新的兩個旗標才是實際判斷依據
+        useAi: aiFormatOn || aiReviewOn,
+        aiFormat: aiFormatOn,
+        aiReview: aiReviewOn,
+        promptId: aiFormatOn ? selectedPromptId : undefined,
         cachedAttachments: validCached,
         attachmentUrls: fallbackUrls,
         issueSummary: item.summary,
@@ -3349,6 +3361,10 @@ export function JiraPage({ account = null, isAdmin = false }: JiraPageProps) {
           isAdmin={isAdmin}
           useAiComment={useAiComment}
           setUseAiComment={setUseAiComment}
+          canAiFormat={canAiFormat}
+          canAiReview={canAiReview}
+          useAiReview={useAiReview}
+          setUseAiReview={setUseAiReview}
           selectedPromptId={selectedPromptId}
           setSelectedPromptId={setSelectedPromptId}
           availablePrompts={availablePrompts}

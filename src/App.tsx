@@ -854,7 +854,7 @@ function App() {
         ) : (
           <main className={`main-content${currentGroup?.id === 'weekly-report' ? ' main-content--full' : ''}`}>
             {currentGroup?.id === 'dashboard' && <DashboardPage themeMode={themeMode} />}
-            {currentGroup?.id === 'jira' && <JiraPage account={globalAccount} isAdmin={globalAccount?.role === 'admin'} />}
+            {currentGroup?.id === 'jira' && <JiraPage account={globalAccount} isAdmin={globalAccount?.role === 'admin'} permissions={permissions} />}
             {currentGroup?.id === 'lark' && <LarkPage themeMode={themeMode} />}
             {currentGroup?.id === 'weekly-report' && <WeeklyReportPage themeMode={themeMode} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm' && <OsmPage />}

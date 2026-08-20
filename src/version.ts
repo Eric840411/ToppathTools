@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.10.0'
+export const APP_VERSION = '4.11.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.11.0',
+    date: '2026-08-20',
+    changes: [
+      "minor(jira): 批量評論的「AI 優化」拆成兩個獨立項目——「AI 排版評論」（用 Prompt 模板重寫本文）與「AI 完整性分析」（另外貼一則獨立評論）。schema 新增 aiFormat／aiReview，保留 useAi 當 legacy fallback，舊呼叫端行為不變。行為定義：只開分析時第一則貼原文、第二則分析原文；兩個都開時分析的是 AI 改寫後實際貼出的正文",
+      "minor(admin): 新增個人權限覆寫層 account_permissions（email × perm_key × allowed），疊在既有角色權限之上——沒有覆寫就沿用角色預設，allowed=1 加、allowed=0 減。系統管理頁帳號列新增「功能權限」按鈕，每個 key 三態（繼承角色／強制開啟／強制關閉）。admin 一律全開且不套個人 deny，避免把管理員自己鎖在系統外",
+      "fix(security): 批量評論的 AI 功能補上後端權限驗證——先前後端對 useAi 完全沒有檢查，只有前端把選項藏起來，改 payload 就能繞過。權限一律以登入 session 的帳號為準（getAuthAccount），不吃 x-jira-email，否則權限本身也能被 header 偽造；沒權限直接回 403 說明是哪一項，不靜默把旗標降成 false",
+      "chore(admin): PUT /api/admin/accounts/:email/permissions 只接受 ALL_PAGE_KEYS 裡的 key（sysadmin 這類管理身分不可透過這支修改，不認得的 key 回 400 不靜默忽略）、禁止管理員修改自己的覆寫、email 一律小寫、整批寫入包 transaction",
+    ],
+  },
   {
     version: '4.10.0',
     date: '2026-08-20',

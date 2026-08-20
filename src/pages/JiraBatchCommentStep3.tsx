@@ -30,6 +30,10 @@ export function JiraBatchCommentStep3(props: {
   attachmentColumn: string
   setAttachmentColumn: (v: string) => void
   isAdmin: boolean
+  canAiFormat: boolean
+  canAiReview: boolean
+  useAiReview: boolean
+  setUseAiReview: (v: boolean) => void
   useAiComment: boolean
   setUseAiComment: (v: boolean) => void
   selectedPromptId: string
@@ -65,7 +69,8 @@ export function JiraBatchCommentStep3(props: {
   const {
     toComment, commentTabLoading, commentReloadMsg, handleReloadCommentSheet, setCommentTabStep,
     setTrackedIssues, setCommentResults, setPreviewMode, setPreviewItems, commentColumn, setCommentColumn,
-    sheetHeaders, attachmentColumn, setAttachmentColumn, isAdmin, useAiComment, setUseAiComment,
+    sheetHeaders, attachmentColumn, setAttachmentColumn, useAiComment, setUseAiComment,
+    canAiFormat, canAiReview, useAiReview, setUseAiReview,
     selectedPromptId, setSelectedPromptId, availablePrompts, commentModel, setCommentModel, kbDocs,
     selectedKbDocIds, setSelectedKbDocIds, specContext, setSpecContext, commentResults,
     pendingCommentRequestId, previewMode, prefetchLoading, handleEnterPreview, commentSubmitting,
@@ -120,14 +125,33 @@ export function JiraBatchCommentStep3(props: {
                 </select>
                 <span className="field-hint">支援 Lark Drive 連結 和 Google Drive 分享連結（drive.google.com/file/d/...）；多個連結換行分隔。圖片自動上傳為 Jira 附件，影片自動寫入評論內文。</span>
               </label>
-              {isAdmin && (
-                <label className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                  <input type="checkbox" checked={useAiComment} onChange={e => setUseAiComment(e.target.checked)} />
-                  <span>AI 優化（管理員限定：Gemini 整理評論內容 + 二次分析）</span>
-                </label>
+              {/* 2026-08-20：原本一個「AI 優化」勾選框同時做兩件事，拆成兩個獨立項目，
+                  各自受權限控管（個人權限覆寫，見 SystemAdminPage 的「功能權限」）。 */}
+              {(canAiFormat || canAiReview) && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {canAiFormat && (
+                    <label className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, margin: 0 }}>
+                      <input type="checkbox" checked={useAiComment} onChange={e => setUseAiComment(e.target.checked)} />
+                      <span>AI 排版評論（用 Prompt 模板重寫評論本文，取代原文送出）</span>
+                    </label>
+                  )}
+                  {canAiReview && (
+                    <label className="field" style={{ flexDirection: 'row', alignItems: 'center', gap: 10, margin: 0 }}>
+                      <input type="checkbox" checked={useAiReview} onChange={e => setUseAiReview(e.target.checked)} />
+                      <span>AI 完整性分析（另外貼一則獨立評論，不影響本文）</span>
+                    </label>
+                  )}
+                  {(useAiComment || useAiReview) && (
+                    <span className="field-hint" style={{ marginLeft: 2 }}>
+                      每張單會產生 {useAiReview ? 2 : 1} 則評論
+                      {useAiReview && !useAiComment && '：第一則貼原文，第二則分析原文'}
+                      {useAiReview && useAiComment && '：第一則貼 AI 改寫後的正文，第二則分析實際貼出的內容'}
+                    </span>
+                  )}
+                </div>
               )}
 
-              {(useAiComment && isAdmin) && (
+              {(useAiComment || useAiReview) && (
                 <>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
                     <label className="field" style={{ flex: 1, margin: 0 }}>

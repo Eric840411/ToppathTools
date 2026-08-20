@@ -25,6 +25,7 @@ import {
   writeLimiter,
   getLarkToken,
   parseLarkSheetUrl,
+  accountHasPermission,
 } from '../shared.js'
 import { callLLM, readGeminiPrompts, renderPrompt } from './gemini.js'
 import { multiWritebackLark, type MultiWrite } from './integrations.js'
@@ -251,7 +252,11 @@ const batchCommentSchema = z.object({
     issueKey: z.string(),
     rowIndex: z.number(),
     rawComment: z.string(),
+    // useAi 是舊旗標，同時代表「AI 排版」與「AI 完整性分析」。2026-08-20 拆成兩個獨立旗標，
+    // 但保留 useAi 當 fallback，舊的呼叫端（含尚未更新的分頁）行為完全不變。
     useAi: z.boolean().default(false),
+    aiFormat: z.boolean().optional(),
+    aiReview: z.boolean().optional(),
     promptId: z.string().optional(),
     environment: z.string().optional(),
     version: z.string().optional(),
@@ -2085,6 +2090,25 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
     const body = batchCommentSchema.parse(req.body)
     const baseUrl = mustEnv('JIRA_BASE_URL')
 
+    // AI 兩項功能各自獨立授權。先前後端對 useAi 完全沒有驗證，只有前端把選項藏起來——
+    // 改 payload 就能繞過。權限一律以「登入 session 的帳號」為準（getAuthAccount），不能吃
+    // x-jira-email，否則權限本身也能被 header 偽造。沒權限直接回 403 說清楚是哪一項，
+    // 不靜默把旗標降成 false（靜默降級會讓使用者以為 AI 有跑）。
+    const authAccount = getAuthAccount(req)
+    const wantsFormat = body.comments.some(c => c.aiFormat ?? c.useAi)
+    const wantsReview = body.comments.some(c => c.aiReview ?? c.useAi)
+    if (wantsFormat || wantsReview) {
+      if (!authAccount) {
+        return res.status(403).json({ ok: false, message: 'AI 功能需要登入後才能使用' })
+      }
+      if (wantsFormat && !accountHasPermission(authAccount.email, authAccount.role, 'jira-ai-format')) {
+        return res.status(403).json({ ok: false, message: '這個帳號沒有「AI 排版評論」的權限，請聯繫管理員開通' })
+      }
+      if (wantsReview && !accountHasPermission(authAccount.email, authAccount.role, 'jira-ai-review')) {
+        return res.status(403).json({ ok: false, message: '這個帳號沒有「AI 完整性分析」的權限，請聯繫管理員開通' })
+      }
+    }
+
 
     const heavyTask = tryStartHeavyTask(req, 'jira-batch-comment', 'Jira 批次評論')
     if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
@@ -2152,7 +2176,11 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
         let usedAi = false
 
         // Admin-only: reformat comment content with AI before posting
-        if (item.useAi) {
+        // 兩個旗標各自獨立：只開分析不開排版時，第一則貼的是原文、第二則分析的也是原文；
+        // 兩個都開時，分析的是 AI 改寫後「實際貼出去」的正文（跟 CodeX 對齊的行為定義）。
+        const wantAiFormat = item.aiFormat ?? item.useAi
+        const wantAiReview = item.aiReview ?? item.useAi
+        if (wantAiFormat) {
           const hasAnyContent = commentText.trim() || item.environment || item.version || item.platform
           if (!hasAnyContent) {
             console.warn(`[batch-comment] ${item.issueKey} 無任何內容，跳過 AI 格式化`)
@@ -2308,7 +2336,7 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
           } else {
 
             // ── 第二則評論：AI 完整性分析 ──
-            if (item.useAi && commentText.trim()) {
+            if (wantAiReview && commentText.trim()) {
               try {
                 const summary = item.issueSummary?.trim() || '（無摘要）'
                 const description = item.issueDescription?.trim() || '（無描述）'
