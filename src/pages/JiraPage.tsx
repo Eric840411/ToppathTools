@@ -18,6 +18,14 @@ export interface Member {
   avatarUrl: string
 }
 
+export interface PersonResolveResult {
+  name: string
+  status: 'ok' | 'no_account' | 'ambiguous' | 'no_token' | 'not_authorized'
+  email?: string
+  label?: string
+  candidates?: string[]
+}
+
 export interface SheetRecord {
   [key: string]: string
   _rowIndex: string
@@ -564,10 +572,11 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
   // useAiComment 沿用原名代表「AI 排版」，避免把既有的其他引用點一起改名增加風險。
   const [useAiComment, setUseAiComment] = useState(false)
   const [useAiReview, setUseAiReview] = useState(false)
-  // 代理張貼：以誰的身分送出批量評論。候選名單一律由後端算（自己 ＋ 有授權的帳號），
-  // 前端不拿全帳號清單自己篩，避免把整份帳號名單洩出去。
-  const [commentAsEmail, setCommentAsEmail] = useState('')
-  const [commentAsCandidates, setCommentAsCandidates] = useState<{ email: string; label: string; self: boolean }[]>([])
+  // 逐列代發：選一個「填寫人」欄位，每一列各自用該列填寫人的身分張貼評論。
+  // 名字→帳號的比對與授權判斷全在後端（/api/jira/comment-as-resolve），前端只顯示結果。
+  const [personColumn, setPersonColumn] = useState('')
+  const [personResolve, setPersonResolve] = useState<PersonResolveResult[]>([])
+  const [personResolving, setPersonResolving] = useState(false)
   const canAiFormat = isAdmin || permissions.includes('jira-ai-format')
   const canAiReview = isAdmin || permissions.includes('jira-ai-review')
   const aiFormatOn = useAiComment && canAiFormat
@@ -1053,20 +1062,35 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
     return () => { alive = false }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 代理張貼候選名單（自己 ＋ 對我有 jira.comment.batch 授權的帳號）
+  // 選了填寫人欄位後，把這批要處理的列上出現過的名字送去後端解析（不重複），
+  // 回傳每個名字對應的帳號與狀態，送出前用來擋住有問題的批次。
   useEffect(() => {
-    if (!currentAccount) { setCommentAsCandidates([]); return }
+    if (!personColumn || toComment.length === 0) { setPersonResolve([]); return }
+    const names = Array.from(new Set(
+      toComment.map(issue => {
+        const rec = sheetRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
+        return rec ? getField(rec, personColumn).trim() : ''
+      }).filter(Boolean),
+    ))
+    if (names.length === 0) { setPersonResolve([]); return }
     let alive = true
+    setPersonResolving(true)
     ;(async () => {
       try {
-        const r = await fetch('/api/jira/comment-as-candidates')
-        const d = await r.json() as { ok: boolean; candidates?: { email: string; label: string; self: boolean }[] }
+        const r = await fetch('/api/jira/comment-as-resolve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...emailHeader },
+          body: JSON.stringify({ names }),
+        })
+        const d = await r.json() as { ok: boolean; results?: PersonResolveResult[] }
         if (!alive) return
-        setCommentAsCandidates(d.ok ? (d.candidates ?? []) : [])
-      } catch { if (alive) setCommentAsCandidates([]) }
+        setPersonResolve(d.ok ? (d.results ?? []) : [])
+      } catch { if (alive) setPersonResolve([]) }
+      finally { if (alive) setPersonResolving(false) }
     })()
     return () => { alive = false }
-  }, [currentAccount])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [personColumn, trackedIssues, sheetRecords])
 
   const fetchMembers = useCallback(async (email: string, projectKey?: string) => {
     setMembersLoading(true); setMembersError(''); setMembers([])
@@ -2148,6 +2172,18 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
     setUploadingRows(prev => { const s = new Set([...prev]); s.delete(rowIndex); return s })
   }
 
+  // 這一列的填寫人對應到哪個帳號（沒選填寫人欄位、或該列沒填名字 → 用自己送出）
+  const personEmailForRow = (rowIndex: number): string | undefined => {
+    if (!personColumn) return undefined
+    const rec = sheetRecords.find(r => Number(r._rowIndex) === rowIndex)
+    const name = rec ? getField(rec, personColumn).trim() : ''
+    if (!name) return undefined
+    const hit = personResolve.find(x => x.name.toLowerCase() === name.toLowerCase())
+    return hit && hit.status === 'ok' ? hit.email : undefined
+  }
+  // 有任何一個名字狀態不是 ok 就擋住送出——真的送出去的留言收不回來，寧可先擋
+  const personBlocking = personResolve.filter(x => x.status !== 'ok')
+
   type CommentPayload = {
     issueKey: string; rowIndex: number; rawComment: string; useAi: boolean; aiFormat?: boolean; aiReview?: boolean; promptId?: string
     cachedAttachments?: CachedAttachment[]; attachmentUrls: string[]
@@ -2161,12 +2197,9 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
     let submitRequestId = ''
     let sseResolved = false
     try {
-      // 以誰的身分張貼由 x-jira-email 決定，登入 cookie 才是「實際操作的人」；
-      // 兩者不同時後端會去查代理授權，沒授權就 403（不是前端說了算）。
-      const actAs = commentAsEmail && commentAsEmail !== currentAccount.email ? commentAsEmail : ''
       const resp = await fetch('/api/jira/batch-comment', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...emailHeader, ...(actAs ? { 'x-jira-email': actAs } : {}) },
+        headers: { 'Content-Type': 'application/json', ...emailHeader },
         body: JSON.stringify({
           comments,
           modelSpec: (aiFormatOn || aiReviewOn) ? commentModel : undefined,
@@ -2309,6 +2342,8 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
         aiFormat: aiFormatOn,
         aiReview: aiReviewOn,
         promptId: aiFormatOn ? selectedPromptId : undefined,
+        // 逐列代發：這一列的填寫人對應到的帳號（後端仍會重新驗證授權，不信前端）
+        commentAsEmail: personEmailForRow(item.rowIndex),
         cachedAttachments: validCached,
         attachmentUrls: fallbackUrls,
         issueSummary: item.summary,
@@ -3385,10 +3420,11 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
           setUseAiComment={setUseAiComment}
           canAiFormat={canAiFormat}
           canAiReview={canAiReview}
-          commentAsEmail={commentAsEmail}
-          setCommentAsEmail={setCommentAsEmail}
-          commentAsCandidates={commentAsCandidates}
-          selfEmail={currentAccount?.email ?? ''}
+          personColumn={personColumn}
+          setPersonColumn={setPersonColumn}
+          personResolve={personResolve}
+          personResolving={personResolving}
+          personBlocking={personBlocking}
           useAiReview={useAiReview}
           setUseAiReview={setUseAiReview}
           selectedPromptId={selectedPromptId}

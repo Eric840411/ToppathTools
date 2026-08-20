@@ -1731,6 +1731,39 @@ export function hasJiraDelegation(actorEmail: string, targetEmail: string, scope
   return !!row
 }
 
+/** 直接用某個帳號的 token 組 Basic Auth（逐列代發用）。沒有這個帳號、或帳號還沒建 Jira
+ *  API token 時回 null——後者是很常見的狀況，畫面上要能明確告訴使用者「去建 token」，
+ *  不能跟「查無此人」混為一談。 */
+export function jiraAuthForAccount(email: string): { auth: string; email: string; label: string } | null {
+  const account = readAccounts().find(a => a.email.toLowerCase() === email.toLowerCase())
+  if (!account || !account.token) return null
+  return {
+    auth: `Basic ${Buffer.from(`${account.email}:${account.token}`).toString('base64')}`,
+    email: account.email,
+    label: account.label || account.email,
+  }
+}
+
+/** 表格上的填寫人名字 → 後台帳號。真實資料（使用者提供的驗證表單）的名字是「Eric」「Lusa」
+ *  「Siara」，而後台 label 是「Eric Wu」「lusa」，所以需要三層比對：完全相等 → 大小寫/空白
+ *  正規化後相等 → label 的**第一個單字**相等。刻意不用 substring 包含比對——那會讓「Jack」
+ *  誤中「Jackson」（週報人名比對踩過同一個坑）。命中多筆時回全部，由呼叫端標成需要人工確認，
+ *  絕不自動挑一個。 */
+export function matchAccountsByPersonName(name: string): { email: string; label: string; hasToken: boolean }[] {
+  const norm = (v: string) => v.trim().toLowerCase().replace(/\s+/g, ' ')
+  const target = norm(name)
+  if (!target) return []
+  const accounts = readAccounts()
+  const shape = (a: { email: string; label: string; token?: string }) =>
+    ({ email: a.email, label: a.label || a.email, hasToken: !!a.token })
+
+  const exact = accounts.filter(a => norm(a.label || '') === target || norm(a.email.split('@')[0]) === target)
+  if (exact.length > 0) return exact.map(shape)
+
+  const byFirstWord = accounts.filter(a => norm(a.label || '').split(' ')[0] === target)
+  return byFirstWord.map(shape)
+}
+
 export type UserJiraAuthOptions = {
   /** 這支端點允許「用別人的身分」時要求的 scope；不給就是一律只能用自己。 */
   allowDelegationScope?: JiraDelegationScope

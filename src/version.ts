@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.12.0'
+export const APP_VERSION = '4.13.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.13.0',
+    date: '2026-08-20',
+    changes: [
+      "minor(jira): 代發改成「逐列依填寫人」——Step 3 選一個「填寫人欄位」，每一列各自用該列填寫人的身分張貼評論（v4.12.0 那個「整批一個身分」的下拉移除，避免兩套機制並存）。名字→帳號比對：完全相等 → 大小寫/空白正規化後相等 → 後台名稱的第一個單字相等（Eric → Eric Wu），刻意不用包含比對避免 Jack 誤中 Jackson；命中多筆一律標成需人工確認，不自動挑",
+      "minor(jira): 新增送出前檢查 POST /api/jira/comment-as-resolve——逐個填寫人回狀態（查無此人／對應多個帳號／沒建 Jira API Token／沒有代理授權），有任何一個不 ok 就擋住送出並說明要去哪裡處理。比對與授權判斷全在後端，前端只顯示結果",
+      "fix(jira): batch-comment 每一筆的代發身分後端一律重新驗證（授權 + token），不信前端傳來的 commentAsEmail——使用者可以跳過畫面檢查直接改 payload。整批任一筆過不了就全部擋下，不會跑到一半才發現第 37 列沒授權（前面 36 則已經貼出去收不回來）",
+      "fix(jira): 代發驗證失敗的早退路徑改到搶重任務鎖之前——原本驗證在拿鎖之後，403/400 直接 return 會把鎖留在原地沒人釋放，使用者後續所有批次操作都會被自己的殭屍鎖擋成 429（本機測試時實際踩到）",
+      "chore(jira): 操作歷史紀錄改成逐筆記錄實際使用的身分（含失敗的列），一個 job 可能有多個 Jira 身分，記在 job 層級會追不到；summary 也會標示其中幾筆是代發",
+    ],
+  },
   {
     version: '4.12.0',
     date: '2026-08-20',

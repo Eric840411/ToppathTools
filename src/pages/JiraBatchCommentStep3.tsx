@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { XianxiaIcon } from '../components/XianxiaIcon'
 import { StepGuide, ReloadSheetButton } from '../components/JiraStepWidgets'
 import { ModelSelector } from '../components/ModelSelector'
-import type { SheetRecord, TrackedIssue, StageOpResult, PreviewItem } from './JiraPage'
+import type { SheetRecord, TrackedIssue, StageOpResult, PreviewItem, PersonResolveResult } from './JiraPage'
 
 /**
  * 批量評論分頁 Step 3（設定評論內容 + 預覽送出）。純畫面元件，狀態留在 JiraPage.tsx 以 props 傳入
@@ -31,10 +31,11 @@ export function JiraBatchCommentStep3(props: {
   setAttachmentColumn: (v: string) => void
   isAdmin: boolean
   canAiFormat: boolean
-  commentAsEmail: string
-  setCommentAsEmail: (v: string) => void
-  commentAsCandidates: { email: string; label: string; self: boolean }[]
-  selfEmail: string
+  personColumn: string
+  setPersonColumn: (v: string) => void
+  personResolve: PersonResolveResult[]
+  personResolving: boolean
+  personBlocking: PersonResolveResult[]
   canAiReview: boolean
   useAiReview: boolean
   setUseAiReview: (v: boolean) => void
@@ -75,7 +76,7 @@ export function JiraBatchCommentStep3(props: {
     setTrackedIssues, setCommentResults, setPreviewMode, setPreviewItems, commentColumn, setCommentColumn,
     sheetHeaders, attachmentColumn, setAttachmentColumn, useAiComment, setUseAiComment,
     canAiFormat, canAiReview, useAiReview, setUseAiReview,
-    commentAsEmail, setCommentAsEmail, commentAsCandidates, selfEmail,
+    personColumn, setPersonColumn, personResolve, personResolving, personBlocking,
     selectedPromptId, setSelectedPromptId, availablePrompts, commentModel, setCommentModel, kbDocs,
     selectedKbDocIds, setSelectedKbDocIds, specContext, setSpecContext, commentResults,
     pendingCommentRequestId, previewMode, prefetchLoading, handleEnterPreview, commentSubmitting,
@@ -114,23 +115,56 @@ export function JiraBatchCommentStep3(props: {
           ? <div className="alert-info">目前無需添加評論的 Issue。</div>
           : (
             <div className="form-stack">
-              {/* 代理張貼：只有真的被授權過（候選超過一筆）才會出現，一般人看不到這個欄位 */}
-              {commentAsCandidates.length > 1 && (
-                <label className="field">
-                  <span>以誰的身分送出</span>
-                  <select value={commentAsEmail || selfEmail} onChange={e => setCommentAsEmail(e.target.value)}>
-                    {commentAsCandidates.map(c => (
-                      <option key={c.email} value={c.email}>{c.label}{c.self ? '（我自己）' : ''}</option>
-                    ))}
-                  </select>
-                  <span className="field-hint">
-                    Jira 上會顯示成這個帳號留的言；系統內部的操作紀錄仍會記下實際操作者是誰。
-                    {commentAsEmail && commentAsEmail !== selfEmail && (
-                      <b style={{ color: '#fbbf24' }}>　目前是代發模式。</b>
-                    )}
-                  </span>
-                </label>
+              {/* 逐列代發：選填寫人欄位後，每一列各自用該列填寫人的身分張貼 */}
+              <label className="field">
+                <span>填寫人欄位（選填 — 逐列以該列填寫人的身分張貼）</span>
+                <select value={personColumn} onChange={e => setPersonColumn(e.target.value)}>
+                  <option value="">— 全部用我自己的身分送出 —</option>
+                  {sheetHeaders.map((h, i) => <option key={h || `ph-${i}`} value={h}>{h}</option>)}
+                </select>
+                <span className="field-hint">
+                  選了之後，系統會把這一欄的名字對應到後台帳號，並用對應帳號的身分張貼該列的評論。
+                  Jira 上會顯示成那個人留的言；系統操作紀錄仍會記下實際操作者是你。
+                </span>
+              </label>
+
+              {personColumn && (
+                <div style={{ background: '#162032', border: `1px solid ${personBlocking.length > 0 ? '#7f1d1d' : '#2d3f55'}`, borderRadius: 8, padding: '10px 14px' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#94a3b8', marginBottom: 8 }}>
+                    送出前檢查{personResolving ? '（解析中…）' : `（${personResolve.length} 個填寫人）`}
+                  </div>
+                  {personResolve.length === 0 && !personResolving && (
+                    <div style={{ fontSize: 12, color: '#64748b' }}>這批勾選的列在這一欄沒有填任何名字，會全部用你自己的身分送出。</div>
+                  )}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {personResolve.map(r => {
+                      const ok = r.status === 'ok'
+                      const hint = {
+                        no_account: '後台查無此人 → 請先建立帳號',
+                        ambiguous: '對應到多個帳號 → 請確認要用哪一個',
+                        no_token: '尚未建立 Jira API Token → 請該帳號去設定',
+                        not_authorized: '你沒有代理張貼授權 → 請管理員到「Jira 代理張貼授權」開通',
+                        ok: '',
+                      }[r.status]
+                      return (
+                        <div key={r.name} style={{ fontSize: 12, display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
+                          <span style={{ color: ok ? '#4ade80' : '#f87171', fontWeight: 600, minWidth: 90 }}>{r.name}</span>
+                          <span style={{ color: ok ? '#94a3b8' : '#fca5a5' }}>
+                            {ok ? `→ ${r.label}（${r.email}）` : hint}
+                            {r.status === 'ambiguous' && r.candidates && `：${r.candidates.join('、')}`}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {personBlocking.length > 0 && (
+                    <div style={{ fontSize: 12, color: '#fca5a5', marginTop: 8 }}>
+                      有 {personBlocking.length} 個填寫人無法代發，處理完才能送出（評論送出去收不回來，所以這裡直接擋住）。
+                    </div>
+                  )}
+                </div>
               )}
+
               <label className="field">
                 <span>評論內容來源欄位 <em className="req">*</em></span>
                 <select value={commentColumn} onChange={e => setCommentColumn(e.target.value)}>
@@ -551,7 +585,7 @@ export function JiraBatchCommentStep3(props: {
                     <button type="button"
                       className={`submit-btn submit-btn--step${commentSubmitting ? ' loading' : ''}`}
                       style={{ whiteSpace: 'nowrap', flexShrink: 0, marginLeft: 'auto' }}
-                      disabled={commentSubmitting || !!pendingCommentRequestId}
+                      disabled={commentSubmitting || !!pendingCommentRequestId || personBlocking.length > 0 || personResolving}
                       onClick={handleSubmitFromPreview}>
                       {commentSubmitting ? '處理中...' : `確認送出（${previewItems.length} 筆）`}
                     </button>

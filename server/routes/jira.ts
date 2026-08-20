@@ -26,6 +26,9 @@ import {
   getLarkToken,
   parseLarkSheetUrl,
   accountHasPermission,
+  jiraAuthForAccount,
+  matchAccountsByPersonName,
+  hasJiraDelegation,
 } from '../shared.js'
 import { callLLM, readGeminiPrompts, renderPrompt } from './gemini.js'
 import { multiWritebackLark, type MultiWrite } from './integrations.js'
@@ -260,6 +263,8 @@ const batchCommentSchema = z.object({
     useAi: z.boolean().default(false),
     aiFormat: z.boolean().optional(),
     aiReview: z.boolean().optional(),
+    /** 這一列要用誰的身分張貼（逐列代發）。後端一定會重新驗證授權，不信前端說了算。 */
+    commentAsEmail: z.string().optional(),
     promptId: z.string().optional(),
     environment: z.string().optional(),
     version: z.string().optional(),
@@ -2087,16 +2092,10 @@ router.post('/api/lark/sheets/writeback', async (req, res, next) => {
  */
 router.post('/api/jira/batch-comment', async (req, res, next) => {
   try {
-    // 代理張貼：x-jira-email 是「要用誰的身分發評論」，登入 cookie 是「實際操作的人」。
-    // 兩者不同時，必須在 jira_account_delegates 查得到有效的 jira.comment.batch 授權
-    // （驗證在 userJiraAuth 裡，見 shared.ts）。沒有 actAs 時兩者相同，行為跟以前一樣。
-    const userAuth = userJiraAuth(req, { allowDelegationScope: 'jira.comment.batch' })
-    if (!userAuth) {
-      return res.status(403).json({
-        ok: false,
-        message: '沒有權限以這個帳號的身分張貼評論（未登入、或尚未取得代理授權）',
-      })
-    }
+    // 這支端點一律只認本人——代發改成「逐列」（每個 comment item 自己帶 commentAsEmail），
+    // 不再用 header 換整批身分，避免同時存在兩套身分來源。
+    const userAuth = userJiraAuth(req)
+    if (!userAuth) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
 
     const body = batchCommentSchema.parse(req.body)
     const baseUrl = mustEnv('JIRA_BASE_URL')
@@ -2121,14 +2120,47 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
     }
 
 
+    // job 歸屬永遠是「發起的人」，不是執行身分——否則代發時被代理者會看到不是自己發起的 job，
+    // 發起人反而查不到自己的進度。
+    const actorEmail = userAuth.actorEmail ?? userAuth.email
+
+    // 逐列代發：先把整批要用到的身分解析完並驗證授權，任何一筆過不了就整批擋下來，
+    // 不要跑到一半才發現第 37 列沒授權（那時前面 36 則留言已經貼出去、收不回來了）。
+    // 這裡一定要後端自己驗——使用者可以跳過畫面上的檢查直接改 payload（CodeX review 指出）。
+    const authByEmail = new Map<string, { auth: string; email: string; label: string }>()
+    for (const item of body.comments) {
+      const asEmail = item.commentAsEmail?.trim()
+      if (!asEmail || asEmail.toLowerCase() === actorEmail.toLowerCase()) continue
+      if (authByEmail.has(asEmail.toLowerCase())) continue
+      if (!hasJiraDelegation(actorEmail, asEmail, 'jira.comment.batch')) {
+        return res.status(403).json({
+          ok: false,
+          message: `沒有代理張貼授權：無法以 ${asEmail} 的身分張貼評論，請聯繫管理員開通`,
+        })
+      }
+      const targetAuth = jiraAuthForAccount(asEmail)
+      if (!targetAuth) {
+        return res.status(400).json({
+          ok: false,
+          message: `${asEmail} 尚未建立 Jira API Token，無法用這個身分張貼評論`,
+        })
+      }
+      authByEmail.set(asEmail.toLowerCase(), targetAuth)
+    }
+    const authForItem = (item: { commentAsEmail?: string }) => {
+      const asEmail = item.commentAsEmail?.trim()
+      if (!asEmail) return { auth: userAuth.auth, email: userAuth.email }
+      const hit = authByEmail.get(asEmail.toLowerCase())
+      return hit ? { auth: hit.auth, email: hit.email } : { auth: userAuth.auth, email: userAuth.email }
+    }
+
+    // 驗證通過才搶重任務鎖：驗證失敗要 return 的路徑一律走在拿鎖之前，
+    // 否則早退時鎖沒人釋放，使用者會被自己留下的殭屍鎖擋住後續所有批次操作。
     const heavyTask = tryStartHeavyTask(req, 'jira-batch-comment', 'Jira 批次評論')
     if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
     const clientIP = getClientIP(req)
     const userEmail = userAuth.email
-    // job 歸屬是「發起的人」而不是「執行身分」——否則以 Siara 身分送出時，Siara 會突然
-    // 看到一個不是自己發起的 job，而 Eric 反而查不到自己的進度。
-    const actorEmail = userAuth.actorEmail ?? userAuth.email
-    const actingAsOther = actorEmail.toLowerCase() !== userAuth.email.toLowerCase()
+
 
     // Generate a unique request ID and start background processing
     const requestId = `comment-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -2136,7 +2168,7 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
       status: 'running',
       createdAt: Date.now(),
       ownerEmail: actorEmail,
-      commentAsEmail: userAuth.email,
+      commentAsEmail: userAuth.email, // 逐列代發時每筆各自的身分記在 results 裡
       heavyTask: heavyTask.token,
       progress: { done: 0, total: body.comments.length, current: '' },
       callbacks: new Set(),
@@ -2148,7 +2180,7 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
 
     // Run the batch in background
     ;(async () => {
-      const results: { rowIndex: number; issueKey: string; ok: boolean; usedAi?: boolean; error?: string }[] = []
+      const results: { rowIndex: number; issueKey: string; ok: boolean; usedAi?: boolean; error?: string; commentAs?: string }[] = []
       // 讓 job store 上也能讀到這個累積中的陣列（同一個參考，push 進去兩邊都看得到），
       // 這樣 persistCommentJobSnapshot() 才能把「目前已經處理到哪幾筆」寫進 DB
       const jobEntry = commentJobStore.get(requestId)
@@ -2184,6 +2216,9 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
 
       for (const item of body.comments) {
         if (stoppedByAi) break
+
+        // 這一列要用誰的身分張貼（授權與 token 在進迴圈前就驗證過了）
+        const itemAuth = authForItem(item)
 
         // Push "currently processing" progress before starting this item
         pushCommentProgress(requestId, { done: results.length, total, current: item.issueKey })
@@ -2222,7 +2257,7 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
             } catch (aiErr) {
               stoppedByAi = String(aiErr)
               console.error(`[batch-comment] ${item.issueKey} AI 格式化失敗，中斷 batch：`, aiErr)
-              results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: false, usedAi: false, error: `AI 中斷：${stoppedByAi}` })
+              results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: false, usedAi: false, error: `AI 中斷：${stoppedByAi}` , commentAs: itemAuth.email })
               pushCommentProgress(requestId, { done: results.length, total, current: '' })
               break
             }
@@ -2276,7 +2311,7 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
           // Process cached files (already downloaded by prefetch)
           for (const cf of cachedImageFiles) {
             try {
-              const storedFilename = await uploadAttachmentToJira(item.issueKey, cf.filename, cf.buffer, cf.mimeType, userAuth.auth, baseUrl)
+              const storedFilename = await uploadAttachmentToJira(item.issueKey, cf.filename, cf.buffer, cf.mimeType, itemAuth.auth, baseUrl)
               uploadedFiles.push({ filename: storedFilename, isVideo: cf.isVideo })
               attachOk++
             } catch (attErr) {
@@ -2302,7 +2337,7 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
                   if (!larkToken) larkToken = await getLarkToken()
                   ;({ buffer, filename, mimeType } = await downloadLarkFile(fileToken, larkToken))
                 }
-                const storedFilename = await uploadAttachmentToJira(item.issueKey, filename, buffer, mimeType, userAuth.auth, baseUrl)
+                const storedFilename = await uploadAttachmentToJira(item.issueKey, filename, buffer, mimeType, itemAuth.auth, baseUrl)
                 uploadedFiles.push({ filename: storedFilename, isVideo: mimeType.startsWith('video/') })
                 attachOk++
               } catch (attErr) {
@@ -2343,12 +2378,12 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
           // 使用 v2 API 發送 wiki markup 評論（支援 !filename! 內嵌圖片）
           const resp = await fetch(`${baseUrl}/rest/api/2/issue/${item.issueKey}/comment`, {
             method: 'POST',
-            headers: { Authorization: userAuth.auth, Accept: 'application/json', 'Content-Type': 'application/json' },
+            headers: { Authorization: itemAuth.auth, Accept: 'application/json', 'Content-Type': 'application/json' },
             body: JSON.stringify({ body: wikiBody }),
           })
           if (!resp.ok) {
             const errData = await resp.json().catch(() => ({})) as { errorMessages?: string[] }
-            results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: false, usedAi: false, error: errData.errorMessages?.join(', ') ?? `HTTP ${resp.status}` })
+            results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: false, usedAi: false, error: errData.errorMessages?.join(', ') ?? `HTTP ${resp.status}` , commentAs: itemAuth.email })
           } else {
 
             // ── 第二則評論：AI 完整性分析 ──
@@ -2380,14 +2415,14 @@ ${commentText}
                 )
                 await fetch(`${baseUrl}/rest/api/2/issue/${item.issueKey}/comment`, {
                   method: 'POST',
-                  headers: { Authorization: userAuth.auth, Accept: 'application/json', 'Content-Type': 'application/json' },
+                  headers: { Authorization: itemAuth.auth, Accept: 'application/json', 'Content-Type': 'application/json' },
                   body: JSON.stringify({ body: `🤖 AI 完整性分析\n\n${analysisText.trim()}` }),
                 })
                 console.log(`[batch-comment] ${item.issueKey} AI 分析評論完成`)
               } catch (aiErr) {
                 if (isGeminiError(aiErr)) {
                   stoppedByAi = String(aiErr)
-                  results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: true, usedAi: true, error: `第一則評論已發送，AI 分析中斷：${stoppedByAi}` })
+                  results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: true, usedAi: true, error: `第一則評論已發送，AI 分析中斷：${stoppedByAi}` , commentAs: itemAuth.email })
                   pushCommentProgress(requestId, { done: results.length, total, current: '' })
                   break
                 }
@@ -2395,10 +2430,10 @@ ${commentText}
               }
             }
 
-            results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: true, usedAi })
+            results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: true, usedAi, commentAs: itemAuth.email })
           }
         } catch (jiraErr) {
-          results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: false, usedAi: false, error: String(jiraErr) })
+          results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: false, usedAi: false, error: String(jiraErr) , commentAs: itemAuth.email })
         }
 
         // Push progress after each item completes
@@ -2415,7 +2450,7 @@ ${commentText}
       const aiUsed = results.filter(r => r.usedAi).length
       log(
         stoppedByAi ? 'warn' : failCount > 0 ? 'warn' : 'ok',
-        clientIP, actingAsOther ? `${actorEmail}（代 ${userEmail}）` : userEmail,
+        clientIP, actorEmail,
         'Jira 批次評論',
         `成功 ${okCount} 筆${aiUsed > 0 ? `（AI ${aiUsed} 筆）` : ''}${failCount > 0 ? `，失敗 ${failCount} 筆` : ''}${stoppedByAi ? '，AI 中斷' : ''}`,
       )
@@ -2426,11 +2461,12 @@ ${commentText}
         const src = body.comments.find(c => c.rowIndex === r.rowIndex)
         return { ...r, commentPreview: (src?.rawComment ?? '').slice(0, 300) }
       })
-      // 內部稽核一定要記雙欄位：Jira 上只會看到執行身分（commentAs），看不出是誰代發的
-      addHistory('jira-comment', `Jira 批次評論`, `成功 ${okCount} 筆${failCount > 0 ? `，失敗 ${failCount} 筆` : ''}${stoppedByAi ? '，AI 中斷' : ''}${actingAsOther ? `（${actorEmail} 代 ${userEmail} 張貼）` : ''}`, {
+      // 內部稽核：Jira 上只看得到執行身分，看不出是誰代發的，所以這裡一定要記 actor；
+      // 逐列代發時一個 job 可能有多個執行身分，所以身分記在每一筆 result 上而不是 job 層級。
+      const delegatedCount = results.filter(r => r.commentAs && r.commentAs.toLowerCase() !== actorEmail.toLowerCase()).length
+      addHistory('jira-comment', `Jira 批次評論`, `成功 ${okCount} 筆${failCount > 0 ? `，失敗 ${failCount} 筆` : ''}${stoppedByAi ? '，AI 中斷' : ''}${delegatedCount > 0 ? `（其中 ${delegatedCount} 筆由 ${actorEmail} 代發）` : ''}`, {
         results: historyResults,
         actorEmail,
-        commentAsEmail: userEmail,
       })
 
       finishCommentJob(requestId, {
@@ -2520,31 +2556,48 @@ router.get('/api/jira/batch-comment/status/:requestId', (req, res) => {
 })
 
 /**
- * GET /api/jira/comment-as-candidates
- * 「以誰的身分送出」下拉的候選名單：自己 ＋ 對我有 jira.comment.batch 有效授權的帳號。
- * 名單一律由後端算——前端拿全帳號清單再自己篩，等於把整份帳號名單洩出去，
- * 這不只是實作細節，是資訊揭露邊界（跟 CodeX 討論定案）。
+ * POST /api/jira/comment-as-resolve
+ * 逐列代發的送出前檢查：吃表格「填寫人」欄的不重複名字，回每個名字對應的後台帳號與狀態。
+ * 比對與授權判斷全在後端——前端拿帳號清單自己比，等於把整份名單洩出去。
  */
-router.get('/api/jira/comment-as-candidates', (req, res) => {
-  const account = getAuthAccount(req)
-  if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
-  const accounts = readAccounts()
-  const me = accounts.find(a => a.email.toLowerCase() === account.email.toLowerCase())
-  const candidates: { email: string; label: string; self: boolean }[] = me
-    ? [{ email: me.email, label: me.label || me.email, self: true }]
-    : []
-  const rows = db.prepare(`
-    SELECT target_email FROM jira_account_delegates
-    WHERE actor_email = ? AND scope = 'jira.comment.batch'
-      AND enabled = 1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)
-  `).all(account.email.toLowerCase(), Date.now()) as { target_email: string }[]
-  for (const row of rows) {
-    const target = accounts.find(a => a.email.toLowerCase() === row.target_email)
-    if (!target) continue // 帳號可能已被刪除，授權列留著但不要列出不存在的人
-    if (candidates.some(c => c.email.toLowerCase() === target.email.toLowerCase())) continue
-    candidates.push({ email: target.email, label: target.label || target.email, self: false })
-  }
-  res.json({ ok: true, candidates })
+router.post('/api/jira/comment-as-resolve', (req, res, next) => {
+  try {
+    const account = getAuthAccount(req)
+    if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+    const { names } = z.object({ names: z.array(z.string()) }).parse(req.body)
+
+    const seen = new Set<string>()
+    const results = [] as {
+      name: string
+      status: 'ok' | 'no_account' | 'ambiguous' | 'no_token' | 'not_authorized'
+      email?: string
+      label?: string
+      candidates?: string[]
+    }[]
+
+    for (const raw of names) {
+      const name = raw.trim()
+      if (!name || seen.has(name.toLowerCase())) continue
+      seen.add(name.toLowerCase())
+
+      const matched = matchAccountsByPersonName(name)
+      if (matched.length === 0) { results.push({ name, status: 'no_account' }); continue }
+      if (matched.length > 1) {
+        // 只回 label，不回 email——歧義提示不需要洩漏更多欄位（CodeX review 建議）
+        results.push({ name, status: 'ambiguous', candidates: matched.map(m => m.label) })
+        continue
+      }
+      const hit = matched[0]
+      const isSelf = hit.email.toLowerCase() === account.email.toLowerCase()
+      if (!hit.hasToken) { results.push({ name, status: 'no_token', email: hit.email, label: hit.label }); continue }
+      if (!isSelf && !hasJiraDelegation(account.email, hit.email, 'jira.comment.batch')) {
+        results.push({ name, status: 'not_authorized', email: hit.email, label: hit.label })
+        continue
+      }
+      results.push({ name, status: 'ok', email: hit.email, label: hit.label })
+    }
+    res.json({ ok: true, results })
+  } catch (error) { next(error) }
 })
 
 // POST /api/jira/batch-transition
