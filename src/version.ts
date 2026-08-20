@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.15.0'
+export const APP_VERSION = '4.16.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.16.0',
+    date: '2026-08-20',
+    changes: [
+      "minor(weekly-report): 撈 Jira 單的條件加上「經辦人（assignee）是我」——原本只有回報者或 QA驗證人員，被指派做但不是回報者也不是驗證人員的單撈不到（使用者決定擴大範圍）",
+      "fix(weekly-report): role 判定跟著收緊——v4.13.1 用的「不是 reporter 就推定是驗證人員」反推，在加了 assignee 之後不再成立（可能只是被指派的）。改成實際比對 assignee 的 accountId，反推條件收成「不是 reporter、也不是 assignee、且已知驗證人員欄位裡沒有我」，role 值新增 assignee",
+      "minor(weekly-report): Jira 標籤歸集遇到「標題沒有中括號」的單，改成直接寫該張單的標題、一張單一條（原本保留單號）——標題本身就是人看得懂的描述，而它們彼此沒有共同標籤可以合併，串成一句只會變成很長一行（使用者指定）",
+    ],
+  },
   {
     version: '4.15.0',
     date: '2026-08-20',

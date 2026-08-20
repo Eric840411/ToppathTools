@@ -224,7 +224,7 @@ router.post('/api/weekly-report/jira-by-range', async (req, res) => {
     // 改用欄位名稱查詢，Jira 會跨所有同名欄位比對。已實測確認是超集合不是替換：
     // project = DSFT AND cf[10440] = currentUser() 與 project = DSFT AND "QA驗證人員" = currentUser()
     // 回傳完全相同的單，而後者另外還抓得到 P5MA／P5BU／LBCMS／HYSL 等專案的單。
-    const jql = `(reporter = currentUser() OR "QA驗證人員" = currentUser()) AND ((created >= "${startDate}" AND created < "${endExclusiveStr}") OR (updated >= "${startDate}" AND updated < "${endExclusiveStr}")) ORDER BY updated DESC`
+    const jql = `(reporter = currentUser() OR assignee = currentUser() OR "QA驗證人員" = currentUser()) AND ((created >= "${startDate}" AND created < "${endExclusiveStr}") OR (updated >= "${startDate}" AND updated < "${endExclusiveStr}")) ORDER BY updated DESC`
 
     const baseUrl = mustEnv('JIRA_BASE_URL')
     const resp = await fetch(`${baseUrl}/rest/api/3/search/jql`, {
@@ -233,7 +233,7 @@ router.post('/api/weekly-report/jira-by-range', async (req, res) => {
       body: JSON.stringify({
         jql,
         maxResults: 200,
-        fields: ['summary', 'status', 'created', 'updated', 'reporter', 'project', WEEKLY_REPORT_VERIFIER_FIELD_ID],
+        fields: ['summary', 'status', 'created', 'updated', 'reporter', 'assignee', 'project', WEEKLY_REPORT_VERIFIER_FIELD_ID],
       }),
     })
     if (!resp.ok) {
@@ -248,6 +248,7 @@ router.post('/api/weekly-report/jira-by-range', async (req, res) => {
         created?: string
         updated?: string
         reporter?: { accountId?: string }
+        assignee?: { accountId?: string } | null
         project?: { name?: string; key?: string }
         [key: string]: unknown
       }
@@ -276,7 +277,11 @@ router.post('/api/weekly-report/jira-by-range', async (req, res) => {
         // 已知代價：既是 reporter 又是驗證人員、但該專案驗證人員在其他欄位 id 的單，會被標成
         // reporter 而不是 both——只是標籤精細度，不影響有沒有撈到。
         const isVerifierByField = meAccountId ? verifierIds.includes(meAccountId) : false
-        const isVerifier = isVerifierByField || !isReporter
+        const isAssignee = meAccountId ? i.fields.assignee?.accountId === meAccountId : false
+        // 2026-08-20：撈單條件加上 assignee 之後，原本「不是 reporter 就推定是驗證人員」的反推不再成立
+        // （可能只是被指派的）。收緊成「不是 reporter、也不是 assignee，且已知的驗證人員欄位裡沒有我」→
+        // 那就只剩下「其他專案的驗證人員欄位」這一種可能（那些欄位 id 不同，值不在回應裡）。
+        const isVerifier = isVerifierByField || (!isReporter && !isAssignee)
         return {
           key: i.key,
           summary: i.fields.summary ?? '',
@@ -286,7 +291,7 @@ router.post('/api/weekly-report/jira-by-range', async (req, res) => {
           // 拿不到自己的 accountId 時（/myself 失敗）根本無從判斷身分——舊寫法會讓 isReporter
           // 一律 false，配合上面的反推就會把所有單都標成 verifier，等於用一個假答案蓋掉「不知道」。
           // 標成 unknown 誠實得多（CodeX review 指出）。
-          role: !meAccountId ? 'unknown' : isReporter && isVerifier ? 'both' : isVerifier ? 'verifier' : 'reporter',
+          role: !meAccountId ? 'unknown' : isReporter && isVerifier ? 'both' : isVerifier ? 'verifier' : isReporter ? 'reporter' : 'assignee',
           jiraProjectName: i.fields.project?.name ?? '',
         }
       })

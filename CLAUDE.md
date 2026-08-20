@@ -962,7 +962,7 @@ Dashboard（修仙版）Hero 橫幅下方顯示一張每日語錄小卡片，語
 
 **初版設計（2026-08-11～2026-08-16，已整個移除）**：最早是「一人一週固定一列、自己手動選成員/專案、多個工作項目全部合併塞進同一格補充說明文字」，Step 3 提供「依時間範圍撈 Jira 單號插入純文字」與「從 Sheet 分析本週內容（alias 精確比對＋四級信心分級＋AI 摘要成一段文字）」兩個輔助入口。2026-08-16 使用者提供真實 Lark Base 截圖後發現團隊實際用法完全不是這樣（見下方「批次掃描審核模式」背景轉折），改寫成批次掃描；**2026-08-16 稍後使用者進一步確認「個人自助」這個舊流程可以完全移除**，不需要跟批次掃描整合或並存。前端整個 `mode === 'individual'` 區塊、`SearchableSelect` 之外的 Step 2/3 UI、`insertAtCursor`/`handleRangeSearch`/`handleSheetRun` 等 handler，以及後端 `POST /api/weekly-report/sheet-analysis`、`POST /api/weekly-report/sheet-analysis-draft`、`POST /api/weekly-report/submit`（單筆新增）三支端點與 `analyzeSheetRows()`/`NAME_COLUMN_HINTS` 皆已刪除。**`POST /api/weekly-report/jira-by-range` 保留**（批次掃描的「依時間範圍撈 Jira 單」功能複用同一支端點，見下方），`readLarkSheetTab()`／`parseSheetDateCell()`／`evaluateConcatFormula()` 等共用 helper 也保留（`sheet-headers`／`batch-scan` 仍在用）。
 
-**撈單條件（`jira-by-range`）**：`(reporter = currentUser() OR "QA驗證人員" = currentUser()) AND ((created >= start AND created < end+1天) OR (updated >= start AND updated < end+1天)) ORDER BY updated DESC`——Reporter 是這個人「或」QA驗證人員是這個人，符合其一即列出（**2026-08-20 修正**：原本查寫死的 `cf[10440]`，但「QA驗證人員」在這個 Jira 實例是**每個專案各自一個自訂欄位**——列 `/rest/api/3/field` 有三十幾個同名的 people 欄位，10440 只是 DSFT 專案在用的那個，所以這個條件長期只對一個專案有效、其他專案全部漏抓。真實案例：P5MA-9303 的 QA驗證人員確實有 Eric Wu，但該專案用的是 `cf[10087]`。改用**欄位名稱**查詢，Jira 會跨所有同名欄位比對；已實測確認是超集合不是替換——同一個專案用舊 ID 與用名稱查回傳完全相同的單，用名稱另外還抓得到 P5MA／P5BU／LBCMS／HYSL 等專案）；「建立」或「更新」落在時間範圍內都算，不限工作流程階段（To Do/In Progress/Done 都會撈到）；結束日用「+1天、`<` 排除」而不是 `<= 結束日`，避免 Jira 日期比較只算到當天 00:00 的邊界問題。**不限制 project**，撈這個人 Jira token 能看到的所有專案（使用者明確要求「只要有關這個人的共享專案都能撈到」，不要另外做專案篩選）。`currentUser()` 能正確解析成操作者本人，是因為 `userJiraAuth(req)` 本來就是讀 `x-jira-email` header 對應到後端存的**個人**（不是共用 service account）token 組 Basic Auth，跟批量開單/評論用同一套。批次掃描的多帳號查詢（見下方）就是對這支端點用不同帳號的 email 平行呼叫多次，後端邏輯完全沒改。
+**撈單條件（`jira-by-range`）**：`(reporter = currentUser() OR assignee = currentUser() OR "QA驗證人員" = currentUser()) AND ((created >= start AND created < end+1天) OR (updated >= start AND updated < end+1天)) ORDER BY updated DESC`——Reporter、經辦人（assignee，**2026-08-20 使用者決定加入**）、QA驗證人員，三者符合其一即列出（**2026-08-20 修正**：原本查寫死的 `cf[10440]`，但「QA驗證人員」在這個 Jira 實例是**每個專案各自一個自訂欄位**——列 `/rest/api/3/field` 有三十幾個同名的 people 欄位，10440 只是 DSFT 專案在用的那個，所以這個條件長期只對一個專案有效、其他專案全部漏抓。真實案例：P5MA-9303 的 QA驗證人員確實有 Eric Wu，但該專案用的是 `cf[10087]`。改用**欄位名稱**查詢，Jira 會跨所有同名欄位比對；已實測確認是超集合不是替換——同一個專案用舊 ID 與用名稱查回傳完全相同的單，用名稱另外還抓得到 P5MA／P5BU／LBCMS／HYSL 等專案）；「建立」或「更新」落在時間範圍內都算，不限工作流程階段（To Do/In Progress/Done 都會撈到）；結束日用「+1天、`<` 排除」而不是 `<= 結束日`，避免 Jira 日期比較只算到當天 00:00 的邊界問題。**不限制 project**，撈這個人 Jira token 能看到的所有專案（使用者明確要求「只要有關這個人的共享專案都能撈到」，不要另外做專案篩選）。`currentUser()` 能正確解析成操作者本人，是因為 `userJiraAuth(req)` 本來就是讀 `x-jira-email` header 對應到後端存的**個人**（不是共用 service account）token 組 Basic Auth，跟批量開單/評論用同一套。批次掃描的多帳號查詢（見下方）就是對這支端點用不同帳號的 email 平行呼叫多次，後端邏輯完全沒改。
 
 **撈取範圍拿掉手動選日期，固定跟隨週期（v4.2.0，2026-08-17）**：原本「依時間範圍撈 Jira 單」面板讓使用者自己選開始/結束日期（預設帶今天/本週一），使用者反應不需要再選、直接跟 Sheet 掃描同一套「週五~週四」週期即可。新增 `GET /api/weekly-report/week-range`，直接複用既有的 `getFridayAnchoredWeekRange()`（跟 `batch-scan` 算的是同一套邏輯，不會有兩套週期定義），額外回傳 `startDate`/`endDate`（`YYYY-MM-DD`，從 `startUTC`/`endUTC` 直接 `toISOString().slice(0,10)`，因為這兩個 Date 是用 `Date.UTC(y,m-1,d)` 疊純日曆年月日組出來的，不是真正的 UTC 時間點，slice 拿到的年月日不會因時區換算跑掉）給前端當 `jira-by-range` 的查詢參數。前端頁面最上方（Step1 卡片之上）新增常駐 banner：即時時鐘（`setInterval` 每秒更新，用 `Intl.DateTimeFormat` 固定 `Asia/Taipei` 時區，不用瀏覽器當地時區——避免使用者裝置時區不是台灣時，顯示時間跟撈取週期對不上）+「本次資料撈取範圍」；`week-range` 掛載時只抓一次，不隨時鐘 tick 重新計算（兩者關注點分開，跟 CodeX 討論定案；頁面長開跨過週五午夜的情況目前沒有自動偵測，仰賴使用者下次操作前重新整理）。**`week-range` 抓取失敗會硬擋，不 fallback 成今天或空值**：`weekRangeInfo` 是 `null` 時查詢按鈕直接鎖住、頁首 banner 顯示「無法取得本週撈取範圍」，避免撈錯資料到不對的時間範圍卻沒有察覺。`scanResult` 裡原本重複顯示的「今天/撈取範圍」兩行拿掉（跟新的頁首 banner 重複），只保留「已排除範圍外/日期無法解析」這個警示，沒有排除筆數時整個提示不渲染。
 
@@ -1005,6 +1005,8 @@ Dashboard（修仙版）Hero 橫幅下方顯示一張每日語錄小卡片，語
 
 **公式儲存格修正（2026-08-16）**：使用者實測時選了「摘要」這欄（畫面上看起來最方便，因為 Lark 前端會顯示算好的結果），結果送進來的內容是公式原始文字沒被轉換。修法不是叫使用者避開這欄，而是新增 `evaluateConcatFormula()` 直接把常見的「字串字面值＋同列儲存格參照、用 `&` 串接」這個窄範圍公式樣式算出來（不是通用公式引擎，遇到看不懂的樣式直接放棄評估、保留原始文字，不會猜錯）；已用真實資料驗證 `"["&F2&"]["&E2&"]"&I2` 正確算出 `[OSM][H5]修改loading图`，跟 Lark 前端顯示一致。
 
+**role 判定的兩次收緊**：v4.13.1 因為拿不到其他專案的驗證人員欄位值，用 JQL 語意反推「不是 reporter 卻被撈出來 → 必然是驗證人員」；**v4.16.0 加上 assignee 之後這個反推就不成立了**（可能只是被指派的），改成實際比對 assignee 的 accountId，反推條件收成「不是 reporter、也不是 assignee、且已知的驗證人員欄位裡沒有我」。之後如果再往撈單條件加新的角色，**這段反推一定要跟著收緊**，否則會把新角色的單全部誤標成驗證人員。
+
 **Jira 單依標題中括號標籤歸集（v4.15.0，2026-08-20）**：撈回來的 Jira 單直接把單號寫進週報意義不大，改成可以依標題開頭的 `[xxx]` 標籤歸集成人看得懂的描述。規則是使用者當面確認的（第一版我猜成「沒有共同標籤就把所有標籤串成一句」，被當場糾正）：
 
 1. **先依第一個標籤分組**——沒有共同標籤的單**不是串成一句，而是拆成不同項目各寫一條**
@@ -1016,7 +1018,7 @@ Dashboard（修仙版）Hero 橫幅下方顯示一張每日語錄小卡片，語
 | `[OSM][GM][API日誌]` + `[OSM][API、GW]` + `[OSM][後端]`（使用者的真實三張單）| 一條「OSM相關需求測試」|
 | `[OSM][H5]` + `[OSM][H5]` | 一條「OSM H5相關需求測試」|
 | `[OSM][GM]` + `[LuckyLink][後端]` | **兩條**「OSM GM相關需求測試」「LuckyLink 後端相關需求測試」|
-| 標題沒有中括號 | 保留原本的單號 |
+| 標題沒有中括號 | **直接寫該張單的標題**，一張單一條（v4.16.0 改，原本是保留單號）|
 
 標籤只解析**標題開頭連續**的中括號（`/^(\[[^\]]+\])+/`），本文中間出現的中括號不算——「修正 [OSM] 顯示問題」的 `[OSM]` 不是分類標籤（CodeX review 建議）。
 

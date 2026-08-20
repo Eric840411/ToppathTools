@@ -27,7 +27,7 @@ function WarningIcon({ size = 14, style }: { size?: number; style?: CSSPropertie
 
 interface FieldOption { id: string; name: string }
 interface ParsedTable { appToken: string; tableId: string; members: FieldOption[]; projects: FieldOption[] }
-interface RangeIssue { key: string; summary: string; status: string; created: string; updated: string; role: 'reporter' | 'verifier' | 'both' | 'unknown'; jiraProjectName: string }
+interface RangeIssue { key: string; summary: string; status: string; created: string; updated: string; role: 'reporter' | 'verifier' | 'assignee' | 'both' | 'unknown'; jiraProjectName: string }
 
 /** 比對 Jira 專案真實名稱（例如 "P7-007 第三方測試"）跟 Lark 專案選項（例如 "P7-007-第三方測試"）——
  *  已用真實資料證實兩者幾乎一樣，只差空格/連字號，正規化（去空白連字號、轉小寫）後理論上會完全相等；
@@ -117,13 +117,13 @@ function leadingTags(summary: string): string[] {
  *  每組取該組所有單的共同標籤（同組第一個標籤必然相同，所以至少有一個），組成「◯◯相關需求測試」。
  *  例：[OSM][GM] + [OSM][後端] → 一條「OSM相關需求測試」（共同的只有 OSM）
  *      [OSM][GM] + [LuckyLink][後端] → 兩條「OSM GM相關需求測試」「LuckyLink 後端相關需求測試」
- *  標題沒有中括號的單另外歸一組、保留原本的單號內容，不硬生出沒有依據的描述。 */
-function jiraTagGroups(issues: { key: string; summary: string }[]): { labels: string[]; untaggedKeys: string[] } {
+ *  標題沒有中括號的單無法歸集，改成**直接寫該張單的標題**、一張單一條（使用者 2026-08-20 指定）。 */
+function jiraTagGroups(issues: { key: string; summary: string }[]): { labels: string[]; untagged: { key: string; summary: string }[] } {
   const groups = new Map<string, { key: string; summary: string }[]>()
-  const untaggedKeys: string[] = []
+  const untagged: { key: string; summary: string }[] = []
   for (const iss of issues) {
     const tags = leadingTags(iss.summary)
-    if (tags.length === 0) { untaggedKeys.push(iss.key); continue }
+    if (tags.length === 0) { untagged.push(iss); continue }
     const bucket = groups.get(tags[0])
     if (bucket) bucket.push(iss)
     else groups.set(tags[0], [iss])
@@ -134,7 +134,7 @@ function jiraTagGroups(issues: { key: string; summary: string }[]): { labels: st
     const common = tagLists[0].filter(tag => tagLists.every(l => l.includes(tag)))
     labels.push(`${common.join(' ')}相關需求測試`)
   }
-  return { labels, untaggedKeys }
+  return { labels, untagged }
 }
 
 /** 全自動載入的第三/四步：Jira 撈單＋頁籤日期式報表 也比照「來源 Sheet」自動化（2026-08-17 使用者要求）。
@@ -629,20 +629,21 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
   const tagApplied = !mergeJiraTags ? rawFlatItems : rawFlatItems.flatMap(({ person, item }) => {
     // 只有帶著 Jira 原始資料的項目才跑這條規則，不從 content 反推單號或標題（CodeX review 建議）
     if (!item.jiraIssues || item.jiraIssues.length === 0) return [{ person, item }]
-    const { labels, untaggedKeys } = jiraTagGroups(item.jiraIssues)
-    if (labels.length === 0) return [{ person, item }]
+    const { labels, untagged } = jiraTagGroups(item.jiraIssues)
+    if (labels.length === 0 && untagged.length === 0) return [{ person, item }]
     const out = labels.map((label, i) => ({
       person,
       item: { ...item, sourceRowId: `${item.sourceRowId} · 標籤${i + 1}`, content: label },
     }))
-    // 沒有標籤的那幾張單不併進任何一句描述，維持原本的單號內容單獨一列
-    if (untaggedKeys.length > 0) {
-      out.push({ person, item: { ...item, content: untaggedKeys.join('、') } })
+    // 沒有標籤的單無法歸集，直接寫該張單的標題、一張單一條——它們彼此沒有共同標籤可以合併，
+    // 串成一坨只會變成很長一行；標題本身就是人看得懂的描述（使用者指定）。
+    for (const iss of untagged) {
+      out.push({ person, item: { ...item, sourceRowId: `${item.sourceRowId} · ${iss.key}`, content: iss.summary } })
     }
     return out
   })
   const jiraTagAffected = !mergeJiraTags ? 0 : rawFlatItems.filter(({ item }) =>
-    item.jiraIssues && item.jiraIssues.length > 0 && jiraTagGroups(item.jiraIssues).labels.length > 0).length
+    item.jiraIssues && item.jiraIssues.length > 0).length
 
   const flatPreviewItems = !mergeOsm ? tagApplied : peopleList.flatMap(person => {
     // 讀 tagApplied 而不是 draftEdits——不然開啟 P7-005-OSM 合併時會直接吃原始草稿，
