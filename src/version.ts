@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.13.2'
+export const APP_VERSION = '4.14.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.14.0',
+    date: '2026-08-20',
+    changes: [
+      "minor(weekly-report): 草稿清單新增「P7-005-OSM 每人各自合併成一條」開關——同一人一週十幾筆 OSM 需求逐條寫進週報沒有意義，開啟後每個人的 P7-005-OSM 項目合併成一筆，補充說明統一寫「OSM需求」。預設關閉（使用者要的是可以選，不是自動幫他改），選擇存 localStorage 記住",
+      "chore(weekly-report): 合併做成 flatPreviewItems 這一層的衍生轉換，不動 draftEdits 原始資料——關掉開關完全恢復逐筆、草稿裡個別編輯過的內容不會消失；因為 flatPreviewItems 同時是預覽與送出 payload 的唯一來源，畫面跟實際寫進 Lark 的內容一定一致。專案名稱比對加 trim，避免來源字串帶空白漏合併",
+    ],
+  },
   {
     version: '4.13.2',
     date: '2026-08-20',

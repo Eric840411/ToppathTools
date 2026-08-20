@@ -90,6 +90,11 @@ const DEFAULT_SCAN_SHEET_CONTENT_COLUMNS = ['摘要']
 // 模糊比對，兩種寫法都吃得進去，不用要求使用者字元對字元打對）
 const DEFAULT_SCAN_SHEET_PROJECT_NAME = 'P7-005-OSM'
 const DEFAULT_TAB_DATE_PROJECT_NAME = 'P7-007-第三方測試'
+// 合併選項：歸類到這個專案的項目可以選擇「每人各自合併成一條」，補充說明統一寫成下面這句。
+// 使用者的實際情境是同一人一週有十幾筆 OSM 需求，逐條寫進週報沒有意義（2026-08-20）。
+const MERGE_PROJECT_NAME = DEFAULT_SCAN_SHEET_PROJECT_NAME
+const MERGE_CONTENT = 'OSM需求'
+const MERGE_PREF_KEY = 'toppath-weekly-merge-osm'
 
 /** 全自動載入的第三/四步：Jira 撈單＋頁籤日期式報表 也比照「來源 Sheet」自動化（2026-08-17 使用者要求）。
  *  本機跟正式服的 Jira 帳號清單不同（本機混了測試帳號），所以用「名字關鍵字」模糊比對現有清單，
@@ -311,6 +316,14 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
   const [scanResult, setScanResult] = useState<BatchScanResult | null>(null)
   const [draftEdits, setDraftEdits] = useState<Record<string, DraftItem[]>>({})
   const [activePerson, setActivePerson] = useState('')
+  // 預設關閉——使用者要的是「可以選」而不是「自動幫我合併」；開過一次記住選擇，不用每週重點
+  const [mergeOsm, setMergeOsm] = useState<boolean>(() => {
+    try { return localStorage.getItem(MERGE_PREF_KEY) === '1' } catch { return false }
+  })
+  const toggleMergeOsm = (v: boolean) => {
+    setMergeOsm(v)
+    try { localStorage.setItem(MERGE_PREF_KEY, v ? '1' : '0') } catch { /* 隱私模式等情況忽略 */ }
+  }
   const [unidentifiedResolved, setUnidentifiedResolved] = useState<Set<number>>(new Set())
   const [batchSubmitting, setBatchSubmitting] = useState(false)
   const [batchSubmitMsg, setBatchSubmitMsg] = useState('')
@@ -556,7 +569,28 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
   }
 
   const peopleList = Object.keys(draftEdits).sort((a, b) => a.localeCompare(b, 'zh-Hant'))
-  const flatPreviewItems = peopleList.flatMap(person => draftEdits[person].map(item => ({ person, item })))
+  const rawFlatItems = peopleList.flatMap(person => draftEdits[person].map(item => ({ person, item })))
+
+  // 合併是「衍生轉換」，不動 draftEdits 原始資料——關掉開關就完全恢復逐筆，草稿裡個別編輯過的
+  // 內容不會因為切換開關而消失。放在 flatPreviewItems 這一層是因為它同時是「預期結果預覽」和
+  // 「送出 payload」的唯一來源，在這裡合併，畫面跟實際寫進 Lark 的內容一定一致（跟 CodeX 討論定案）。
+  const mergeableCount = rawFlatItems.filter(({ item }) => item.projectName.trim() === MERGE_PROJECT_NAME).length
+  const flatPreviewItems = !mergeOsm ? rawFlatItems : peopleList.flatMap(person => {
+    const items = draftEdits[person] ?? []
+    const out: Array<{ person: string; item: DraftItem }> = []
+    let mergedInserted = false
+    for (const item of items) {
+      // trim 比對：Sheet／Jira 來源的專案名稱可能帶前後空白，不 trim 會漏合併（CodeX review 建議）
+      if (item.projectName.trim() === MERGE_PROJECT_NAME) {
+        if (mergedInserted) continue
+        mergedInserted = true
+        out.push({ person, item: { sourceRowId: `合併 · ${MERGE_PROJECT_NAME}`, content: MERGE_CONTENT, projectId: item.projectId, projectName: item.projectName } })
+        continue
+      }
+      out.push({ person, item })
+    }
+    return out
+  })
   const missingProjectTotal = flatPreviewItems.filter(({ item }) => !item.projectName).length
   const totalItemCount = flatPreviewItems.length
   const unresolvedUnidentifiedCount = (scanResult?.unidentified.length ?? 0) - unidentifiedResolved.size
@@ -997,6 +1031,9 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
           scanReady={scanReady}
           peopleList={peopleList}
           flatPreviewItems={flatPreviewItems}
+          mergeOsm={mergeOsm}
+          toggleMergeOsm={toggleMergeOsm}
+          mergeableCount={mergeableCount}
           missingProjectTotal={missingProjectTotal}
           totalItemCount={totalItemCount}
           unresolvedUnidentifiedCount={unresolvedUnidentifiedCount}
@@ -1052,6 +1089,7 @@ function BatchScanSection({
   draftEdits, activePerson, setActivePerson, unidentifiedResolved,
   batchSubmitting, batchSubmitMsg, batchSubmitResult,
   scanReady, peopleList, flatPreviewItems, missingProjectTotal, totalItemCount, unresolvedUnidentifiedCount,
+  mergeOsm, toggleMergeOsm, mergeableCount,
   updateScanSheet, handleLoadSheetHeaders, addScanSheet, removeScanSheet, toggleScanContentColumn,
   handleRunScan, updateDraftItem, removeDraftItem, addDraftItem, assignUnidentified, handleBatchSubmit,
   jiraPanelOpen, jiraAccountList, jiraSelectedEmails, weekRangeInfo, weekRangeError, jiraLoading, jiraMsg, jiraIssues, jiraChecked, jiraTargetPerson,
@@ -1075,6 +1113,9 @@ function BatchScanSection({
   scanReady: boolean
   peopleList: string[]
   flatPreviewItems: Array<{ person: string; item: DraftItem }>
+  mergeOsm: boolean
+  toggleMergeOsm: (v: boolean) => void
+  mergeableCount: number
   missingProjectTotal: number
   totalItemCount: number
   unresolvedUnidentifiedCount: number
@@ -1383,7 +1424,18 @@ function BatchScanSection({
       {/* 依人員分組草稿 */}
       {peopleList.length > 0 && (
             <div style={{ border: '1px solid #2d3f55', borderRadius: 10, background: '#10182a', padding: '18px 20px' }}>
-              <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 12 }}>依人員分組草稿</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 700 }}>依人員分組草稿</div>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#94a3b8', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={mergeOsm} onChange={e => toggleMergeOsm(e.target.checked)} />
+                  <span>{MERGE_PROJECT_NAME} 每人各自合併成一條（補充說明寫「{MERGE_CONTENT}」）</span>
+                </label>
+              </div>
+              {mergeOsm && mergeableCount > 0 && (
+                <div style={{ fontSize: 11, color: 'var(--cr-cyan, #38bdf8)', marginBottom: 12, padding: '6px 10px', borderRadius: 6, background: 'rgba(56,189,248,.08)', border: '1px solid rgba(56,189,248,.25)' }}>
+                  已開啟合併：{MERGE_PROJECT_NAME} 共 {mergeableCount} 筆，會<b>依每個人各自</b>合併成一條送出（下面清單仍顯示原始逐筆，可繼續編輯；關掉開關就恢復）。實際會寫進 Lark 的內容以下方「預期結果」為準。
+                </div>
+              )}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
                 {peopleList.map(p => (
                   <button key={p} onClick={() => setActivePerson(p)}
