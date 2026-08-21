@@ -825,14 +825,22 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
   if (!platform) return res.status(400).json({ ok: false, message: 'platform must be h5 or pc' })
 
   // ── Agent-based recording ────────────────────────────────────────────────────
-  if (agentId) {
-    const agent = agentConnections.get(agentId)
-    if (!agent || !agent.capabilities.includes('uat-record')) {
-      return res.status(400).json({ ok: false, message: `Agent ${agentId} 不支援 UAT 錄製或已離線` })
-    }
+  // 指名優先；沒指名而且本機錄製不可用時，自動挑一台空閒的 uat-record agent。
+  // 先前只有「指名」這一條路，但前端的執行節點預設是「自動選擇」（agentId 是
+  // 空字串），所以從 LAN／公網開啟時永遠掉到下面的 403——就算 agent 已經連上、
+  // 前端自己的檢查也認為「有 agent 就能錄」，畫面上看起來就是按了沒反應。
+  let agent = agentId ? agentConnections.get(agentId) : undefined
+  if (agentId && (!agent || !agent.capabilities.includes('uat-record'))) {
+    return res.status(400).json({ ok: false, message: `Agent ${agentId} 不支援 UAT 錄製或已離線` })
+  }
+  if (!agent && !isLocalRecordRequest(req)) {
+    agent = [...agentConnections.values()].find(a =>
+      a.capabilities.includes('uat-record') && !a.busy && a.ws.readyState === a.ws.OPEN)
+  }
+  if (agent) {
     const sessionId = `rec-agent-${Date.now()}-${randomUUID().slice(0, 8)}`
     uatAgentSessions.set(sessionId, {
-      agentId,
+      agentId: agent.agentId,
       steps: [{ name: '前往頁面', action: 'goto', value: url }],
       cropPending: false,
       done: false,
@@ -843,11 +851,17 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
 
   // ── Local recording (requires localhost/LAN access) ──────────────────────────
   if (!isLocalRecordRequest(req)) {
-    return res.status(403).json({
-      ok: false,
-      code: 'REMOTE_RECORD_UNSUPPORTED',
-      message: '公網環境不支援直接錄製。請選擇一個已連線的 Local Agent，或在伺服器本機 localhost 開啟 ToppathTools 錄製。',
-    })
+    // 走到這裡代表「不是本機、而且一台可用的 uat-record agent 都挑不到」。
+    // 有 agent 連著卻缺 capability 是最容易誤會的情況（舊版 start.command 會把
+    // capability 清單寫死），訊息要講清楚是哪一種，不然使用者只會看到「不支援」。
+    const connected = [...agentConnections.values()]
+    const withCapability = connected.filter(a => a.capabilities.includes('uat-record'))
+    const message = withCapability.length
+      ? `已連線的 Agent 都在忙碌中（${withCapability.length} 台），請等目前的任務結束再錄製。`
+      : connected.length
+        ? `有 ${connected.length} 台 Agent 連線中，但都沒有 uat-record 能力（可能是舊版）。請到 Local Agent 頁面按「更新程式碼」並重新啟動 Agent。`
+        : '公網環境不支援直接錄製。請先連接一台 Local Agent，或在伺服器本機 localhost 開啟 ToppathTools 錄製。'
+    return res.status(403).json({ ok: false, code: 'REMOTE_RECORD_UNSUPPORTED', message })
   }
 
   // Resolve redirect URLs before opening Chrome so local recording starts on

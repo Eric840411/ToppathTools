@@ -1324,7 +1324,6 @@ router.get('/api/machine-test/agent/install.bat', (req, res) => {
     `  echo set AGENT_OWNER_NAME=${agentOwnerName}`,
     `  echo set AGENT_TOKEN=${agentToken.token}`,
     '  echo set AGENT_LABEL=%COMPUTERNAME%',
-    '  echo set AGENT_CAPABILITIES=machine-test,scripted-bet,uat-record,uat-run,autospin',
     '  echo echo Starting Toppath Local Agent...',
     '  echo npx tsx server/agent-runner.ts',
     '  echo if %%errorlevel%% neq 0 pause',
@@ -1492,7 +1491,6 @@ router.get('/api/machine-test/agent/install-mac.command', (req, res) => {
     `export AGENT_OWNER_NAME="${agentOwnerName}"`,
     `export AGENT_TOKEN="${agentToken?.token ?? ''}"`,
     'export AGENT_LABEL="$(hostname)"',
-    'export AGENT_CAPABILITIES="machine-test,scripted-bet,uat-record,uat-run,autospin"',
     'echo "Starting Toppath Local Agent..."',
     'exec npx tsx server/agent-runner.ts',
     'EOF',
@@ -1510,7 +1508,7 @@ router.get('/api/machine-test/agent/install-mac.command', (req, res) => {
     'echo',
     'echo "  [AutoSpin] 若要在此機器跑 AutoSpin，需另外安裝 Python 引擎依賴："',
     'echo "    pip3 install opencv-python numpy requests playwright && python3 -m playwright install chromium"',
-    'echo ==================================================="',
+    'echo ===================================================',
     'echo',
   ].join('\n')
 

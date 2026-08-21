@@ -75,13 +75,15 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   // 執行位置：Playwright 跑在哪台機器上。'' = 自動挑一台線上的 agent，
   // 'server' = 明確要求跑在伺服器本機（fallback，公網環境不一定裝得動瀏覽器）
   const [agents, setAgents] = useState<BackendUatAgent[]>([])
+  /** 有連線、屬於自己、但缺 backend-uat capability 的 agent 數（多半是還沒更新程式碼） */
+  const [outdatedAgents, setOutdatedAgents] = useState(0)
   const [selectedAgentId, setSelectedAgentId] = useState('')
   const [runMode, setRunMode] = useState<{ mode: 'agent' | 'server'; agentHostname?: string } | null>(null)
   const loadAgents = useCallback(async () => {
     try {
       const response = await fetch('/api/osm-uat/agents')
-      const data = await response.json() as { ok: boolean; agents?: BackendUatAgent[] }
-      if (data.ok) setAgents(data.agents ?? [])
+      const data = await response.json() as { ok: boolean; agents?: BackendUatAgent[]; outdated?: number }
+      if (data.ok) { setAgents(data.agents ?? []); setOutdatedAgents(data.outdated ?? 0) }
     } catch { /* agent 清單抓不到就當作沒有可用 agent，不擋住主要流程 */ }
   }, [])
   useEffect(() => {
@@ -294,6 +296,12 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
                 ))}
                 <option value="server">伺服器端（fallback）</option>
               </select>
+              {!agents.length && outdatedAgents > 0 && (
+                <span className="uat-backend-cred-msg is-error">
+                  有 {outdatedAgents} 台 Agent 連線中，但版本太舊（沒有 backend-uat 能力）。
+                  請到「Local Agent」頁面按「更新程式碼」，然後重新啟動 Agent。
+                </span>
+              )}
               {runMode && (
                 <span className="uat-backend-cred-msg">
                   {runMode.mode === 'agent' ? `本次派工給 ${runMode.agentHostname ?? 'Agent'}` : '本次跑在伺服器端'}

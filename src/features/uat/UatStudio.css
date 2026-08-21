@@ -235,5 +235,5 @@
 .uat-backend-cred-state > i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .uat-backend-cred-state.is-set { color: #3fbe8b; background: color-mix(in srgb, #3fbe8b 14%, transparent); }
 .uat-backend-cred-pair { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
-.uat-backend-cred-msg { display: flex; align-items: center; gap: 6px; color: #3fbe8b; font-size: 13px; }
+.uat-backend-cred-msg { display: flex; align-items: center; gap: 6px; color: #3fbe8b; font-size: 12px; line-height: 1.55; }
 .uat-backend-cred-msg.is-error { color: var(--uat-danger); }

@@ -182,9 +182,14 @@ router.get('/api/osm-uat/status', (_req, res) => {
 // agent 是誰安裝的就只有誰能派工，不共用。
 router.get('/api/osm-uat/agents', (_req, res) => {
   const operator = getOperatorFromContext()
-  if (!operator?.key) return res.json({ ok: true, agents: [] })
-  const agents = [...agentConnections.values()]
-    .filter(agent => agent.ownerKey === operator.key && agent.capabilities.includes(BACKEND_UAT_CAPABILITY))
+  if (!operator?.key) return res.json({ ok: true, agents: [], outdated: 0 })
+  const mine = [...agentConnections.values()].filter(agent => agent.ownerKey === operator.key)
+  // 有連線但缺 capability 是最常見的情況（agent 還跑著舊版 agent-runner.ts，
+  // 或舊版 start.command 把 capability 清單寫死了）。前端要能講出這件事，
+  // 不然畫面只顯示「目前沒有」，使用者看著明明連上的 agent 完全無從判斷。
+  const outdated = mine.filter(agent => !agent.capabilities.includes(BACKEND_UAT_CAPABILITY)).length
+  const agents = mine
+    .filter(agent => agent.capabilities.includes(BACKEND_UAT_CAPABILITY))
     .map(agent => ({
       agentId: agent.agentId,
       hostname: agent.hostname,
@@ -195,7 +200,7 @@ router.get('/api/osm-uat/agents', (_req, res) => {
       lastSeenAt: agent.lastSeenAt,
       sessionId: agent.sessionId,
     }))
-  res.json({ ok: true, agents })
+  res.json({ ok: true, agents, outdated })
 })
 
 // ─── 掃描 TC 數量 ──────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.23.0'
+export const APP_VERSION = '4.23.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.23.1',
+    date: '2026-08-21',
+    changes: [
+      'fix(agent): macOS 安裝檔結尾的分隔線多了一個引號，產出的 install-mac.command 整支 bash 語法錯誤（line 91: unexpected EOF while looking for matching "），安裝跑到最後會中斷',
+      'fix(agent): 兩支安裝檔不再把 AGENT_CAPABILITIES 寫死進 start.command / start.bat——寫死會覆蓋 agent-runner.ts 的預設值，導致之後每新增一個 capability，就算跑過「更新程式碼」舊的啟動腳本仍回報舊清單，症狀是「Agent 明明連上了、功能卻挑不到它」。這正是 backend-uat 選不到 Agent 的原因',
+      'fix(uat): H5/PC 的 Playwright 錄製，執行節點選「自動選擇」時後端沒有真的自動挑 agent——只有「指名」那條路會派工，所以從 LAN/公網開啟時永遠掉到 403「公網環境不支援直接錄製」，連著 Agent 也沒用。現在沒指名且本機錄製不可用時會自動挑一台空閒的 uat-record agent',
+      'fix(uat): 錄製失敗的 403 訊息改成講清楚是哪一種狀況（沒有 Agent／Agent 都在忙／有 Agent 但缺 uat-record 能力需要更新程式碼），不再一律顯示「公網環境不支援」',
+      'fix(uat): Backend UAT 的「執行位置」在挑不到 Agent 時，若有自己的 Agent 連著但缺 backend-uat 能力，直接顯示還有幾台以及該去哪裡更新，不再只顯示「目前沒有」',
+    ],
+  },
   {
     version: '4.23.0',
     date: '2026-08-21',
