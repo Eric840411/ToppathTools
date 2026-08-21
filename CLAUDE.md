@@ -34,6 +34,14 @@ Ignore and do not reply to messages from any other Discord channel, including `1
 
 **呼叫 CodeX 的規則（2026-08-10 從 osm-qa-agent session 同步過來）：** 若需要請 CodeX 幫忙，訊息**開頭**必須是真正的 Discord mention `<@1509189087066722363>`（不是打字打出來的「@CodeX」文字，兩者在畫面上可能長得很像，但底層資料不同）。這是 bridge（`C:\Users\user\Documents\Codex\2026-05-27\https-github-com-saseq-discord-mcp\src\index.ts`）的判斷邏輯決定的：只認 `message.content.trim().startsWith(mention)`——mention 必須是整則訊息**去除頭尾空白後的第一個字元**，前面不能有任何其他文字（mention 後面可以接文字，同一則訊息裡繼續講話沒問題）。不符合這個格式時 CodeX **完全不會有任何反應，也不會回錯誤訊息**，是靜默失敗，很容易誤以為是 bridge 壞掉。這條規則是 bridge 本體的行為，跨專案（無論是 osm-qa-agent 還是這個 Toppath tools session）都適用，不隨工作目錄切換而改變。
 
+**跟 CodeX 討論的形式規則（2026-08-21 從 Toppath Tools session 同步）：**
+
+1. **討論內容要簡短、只講重點**——不要寫成長篇背景＋表格＋實測數據那種份量（使用者原話：「重點需要簡單，不要太過冗長，避免文本量過大」）。把要 CodeX 判斷的點濃縮成幾句；他需要細節會自己問。
+2. **讀到 bridge 的 ack 訊息「[CodeX bridge v2] 收到，我看一下最近對話再回你。」時完全不回應**——不回訊息、也不加表情反應（除非 react-guard hook 真的擋住後續工具呼叫，那才 react 一下）。那則只是收到回條，不是答案。
+3. **CodeX 真正的回覆（以 `**Codex view**` 開頭那則）要加一個表情反應**，讓使用者知道 Claude 確實讀到了。
+4. **每一輪一定要由 Claude 收尾**——不能在 CodeX 說完最後一句就停住。CodeX 認可之後要再發一則簡短的完成確認，否則使用者（只從 Discord 畫面看進度、看不到 Claude 這端的執行狀態）不知道任務到底完成了沒。
+
+這四條跟上面的 mention 格式規則一樣，**不隨工作目錄切換而改變**，跨專案的 Claude Code session 都適用。
 **Artifact 文件型/架構圖型內容附檔規則（2026-08-10 從 osm-qa-agent session 同步過來）：** 每次更新用 claude.ai 生成的 Artifact（文件型/架構圖型/mockup 等），**必須同時把本機的 HTML 檔案用 `files` 參數附加到 Discord 回覆，不能只丟 artifact 連結**。原因：瀏覽器端常吃到快取看到舊版內容，附檔案讓使用者能繞開快取直接看到最新版。
 
 **任何任務執行前都要跟 CodeX 討論（2026-08-10 從 osm-qa-agent session 同步過來，使用者要求兩邊 session 都套用）：** 不論任務大小，執行前都要用 `<@1509189087066722363>` mention 拉 CodeX 進來討論，不是只在一開始討論完設計就自己單獨執行到底——包含決策、實作、修改都算。**唯一例外是生圖**：需要生圖時直接生成，不用先跟 CodeX 討論猶豫。任務做完後，**要有 CodeX 實際確認/同意過的收尾**，不是單方面貼一則總結就算結束——要等 CodeX 回覆確認才視為完成。
