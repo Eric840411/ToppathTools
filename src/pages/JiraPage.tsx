@@ -92,6 +92,11 @@ const STAGE_COL = '處理階段'
 // 批量修改（獨立 Tab）用的處理階段標記——跟開單/評論/切換狀態共用同一個欄位名稱，但值域不同，
 // 純粹用來記錄「這筆已經被批量修改過」，防止同一份 Sheet 不小心重複執行造成附件/描述重複疊加
 const EDIT_STAGE_DONE = '已修改欄位'
+// 批量評論預設勾選的白名單：只有「還沒開始處理」或「只開了單」才代表這一列可能還需要補評論。
+// 刻意用白名單而不是列黑名單——處理階段的值域會越加越多（批量修改就自己加了「已修改欄位」），
+// 黑名單漏掉一個值，等於預設幫使用者重複送出評論，而評論送出去收不回來（跟 CodeX 討論定案）。
+const COMMENT_PENDING_STAGES = ['', '已開單']
+const stillNeedsComment = (stage: string) => COMMENT_PENDING_STAGES.includes(stage.trim())
 
 function loadSessionAccount(): AccountInfo | null {
   try {
@@ -1315,6 +1320,8 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
   // 每個 Tab 各自獨立的「已重新讀取」訊息，切換 Tab 不會互相殘留
   const [createReloadMsg, setCreateReloadMsg] = useState('')
   const [commentReloadMsg, setCommentReloadMsg] = useState('')
+  // 重新讀取時要分辨「這個 key 上次就在清單裡（沿用使用者的勾選）」還是「這次才新出現（套白名單）」
+  const prevCommentKeysRef = useRef<Set<string>>(new Set())
   const [editReloadMsg, setEditReloadMsg] = useState('')
   const [updateReloadMsg, setUpdateReloadMsg] = useState('')
   const handleReloadCreateSheet = async () => {
@@ -2516,7 +2523,9 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
       }
       if (foundKey && !seenKeys.has(foundKey)) {
         seenKeys.add(foundKey)
-        issues.push({ rowIndex: Number(rec._rowIndex), issueKey: foundKey, stage: '' })
+        // 只負責誠實把 Sheet 上的處理階段讀出來；這個值代表「可不可以送」「要不要預設勾選」
+        // 由各流程自己解讀，不在這裡下判斷（CodeX review：避免共用 extractor 污染其他流程）
+        issues.push({ rowIndex: Number(rec._rowIndex), issueKey: foundKey, stage: getField(rec, STAGE_COL).trim() })
       }
     }
     return issues
@@ -2549,7 +2558,10 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
       setCommentResults([])
       setPreviewMode(false)
       setPreviewItems([])
-      setCommentTabSelectedKeys(new Set(issues.map(i => i.issueKey)))
+      // 處理階段已經是「添加評論」或更後面階段的列預設不勾選，避免不小心重複送出評論；
+      // 使用者仍可手動勾回去（只是預設值，不是強制擋掉），跟批量修改的既有行為一致
+      setCommentTabSelectedKeys(new Set(issues.filter(i => stillNeedsComment(i.stage)).map(i => i.issueKey)))
+      prevCommentKeysRef.current = new Set(issues.map(i => i.issueKey))
       setCommentTabStep(2)
       setLastSheetUrl(url.trim()); setLastSheetSource(source)
     } catch { setCommentTabError('網路錯誤') }
@@ -2576,7 +2588,23 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
       setSheetRecords(records)
       setTrackedIssues(issues)
       const freshKeys = new Set(issues.map(i => i.issueKey))
-      setCommentTabSelectedKeys(prev => new Set([...prev, ...freshKeys].filter(k => freshKeys.has(k))))
+      // 原本這裡是 [...prev, ...freshKeys] 再過濾——union 完每個 fresh key 都會通過過濾，等於
+      // 每次重新讀取都把所有列重新勾回來，使用者手動取消勾選的動作會被洗掉（跟這段程式碼
+      // 自己的註解「保留已勾選 Issue」相矛盾）。改成：本來就在清單裡的沿用使用者的選擇，
+      // 這次新出現的列才套「還需要評論」的白名單。
+      // 先把「上一次讀到哪些 key」抓成區域變數再進 functional update——setState 的 updater 是延後
+      // 執行的，如果在裡面才讀 ref，這行下面的 ref 覆寫早就跑完了，新出現的列會全部被當成舊的
+      const knownBefore = prevCommentKeysRef.current
+      setCommentTabSelectedKeys(prev => {
+        const next = new Set<string>()
+        for (const iss of issues) {
+          const wasKnown = knownBefore.has(iss.issueKey)
+          const keep = wasKnown ? prev.has(iss.issueKey) : stillNeedsComment(iss.stage)
+          if (keep) next.add(iss.issueKey)
+        }
+        return next
+      })
+      prevCommentKeysRef.current = freshKeys
       setCommentReloadMsg(`通過 已重新讀取（${issues.length} 筆）`)
     } catch { setCommentTabError('網路錯誤') }
     finally { setCommentTabLoading(false) }

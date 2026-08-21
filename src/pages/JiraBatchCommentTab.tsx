@@ -165,6 +165,12 @@ export function JiraBatchCommentTab(props: {
                               style={{ color: '#93c5fd', fontWeight: 700, fontSize: 12, textDecoration: 'none' }}>
                               {issue.issueKey}
                             </a>
+                            {/* 處理階段已經走過評論（或更後面）的列：標示出來並預設不勾選，避免重複送出 */}
+                            {issue.stage.trim() && issue.stage.trim() !== '已開單' && (
+                              <div style={{ fontSize: 10, color: '#d29922', marginTop: 2, whiteSpace: 'nowrap' }}>
+                                已處理：{issue.stage.trim()}
+                              </div>
+                            )}
                           </td>
                           {visibleCols.map(h => (
                             <td key={h} style={{ ...tdBase, color: '#94a3b8' }}>

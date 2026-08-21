@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.17.0'
+export const APP_VERSION = '4.18.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.18.0',
+    date: '2026-08-21',
+    changes: [
+      "fix(jira): 批量評論從來沒有讀過 Sheet 的「處理階段」欄位——extractJiraIssuesFromRecords() 建物件時 stage 寫死空字串，導致已經標成「添加評論」的列還是被讀進來而且預設全部勾選，很容易重複送出評論（使用者實際遇到：DSFT-8134/8135 已於 8/20 17:04 評論過，仍被預設勾選）。改成誠實讀取處理階段，已評論或更後面階段的列預設不勾選並在清單標示「已處理：◯◯」，但不強制擋掉，可手動勾回去（跟批量修改既有行為一致）",
+      "chore(jira): 預設勾選用白名單（只有處理階段空白或「已開單」才勾）而不是列黑名單——這個欄位的值域會越加越多（批量修改就自己加了「已修改欄位」），黑名單漏一個值就等於預設幫使用者重複送出評論，而評論送出去收不回來",
+      "fix(jira): 批量評論的「重新讀取 Sheet」原本會把所有列重新勾回來——[...prev, ...freshKeys] union 之後每個 fresh key 都會通過過濾，使用者手動取消勾選的動作等於白做（跟那段程式碼自己的註解「保留已勾選 Issue」相矛盾）。改成本來就在清單裡的沿用使用者選擇、這次新出現的列才套白名單",
+    ],
+  },
   {
     version: '4.17.0',
     date: '2026-08-21',
