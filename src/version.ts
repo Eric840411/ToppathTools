@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.18.0'
+export const APP_VERSION = '4.18.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.18.1',
+    date: '2026-08-21',
+    changes: [
+      "fix(jira): 批量評論用來分辨「舊列/新列」的 previous keys ref，在重新讀取一份新 Sheet 或「重新開始」時沒有 reset——不同資料批次之間 key 剛好重複時會被誤判成舊列、沿用上一批的勾選狀態。改成每次進入讀取流程與清空工作流程時都先清掉（CodeX review 指出的邊界情況）",
+    ],
+  },
   {
     version: '4.18.0',
     date: '2026-08-21',

@@ -986,6 +986,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
       setSelectedProjectId(''); setSelectedIssueTypeId(''); setIssueTypes([])
       setMembers([]); setMembersError(''); setMembersLoading(false)
       setPendingCommentRequestId(''); setCommentProgress(null)
+    prevCommentKeysRef.current = new Set()
       setSubmitting(false); setCommentSubmitting(false); setTransitionSubmitting(false)
       setTransitionOptions([]); setSelectedTransitionId(''); setTransitionOptionsError(''); setTransitionOptionsLoading(false)
       setGeneratedSummaries({}); setSummaryProgress(null); setSummaryGenerating(false)
@@ -2535,6 +2536,9 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
     const url = urlOverride ?? commentTabUrl
     const source = sourceOverride ?? commentTabSource
     if (!url.trim()) return
+    // 換一份 Sheet／重新讀取一次＝這批資料跟上一批無關，先把「上次讀到哪些 key」清掉，
+    // 否則不同資料批次之間 key 剛好重複時會被誤判成舊列而沿用上一批的勾選（CodeX review 提醒）
+    prevCommentKeysRef.current = new Set()
     setCommentTabLoading(true); setCommentTabError(''); setCommentTabStep(1)
     try {
       const endpoint = source === 'lark' ? '/api/lark/sheets/records' : '/api/google/sheets/records'
