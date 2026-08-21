@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.22.1'
+export const APP_VERSION = '4.22.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.22.2',
+    date: '2026-08-21',
+    changes: [
+      'fix(uat): UAT 三個分頁（Backend/H5/PC）的字級校準到全站級距——原本 UatStudio.css 自成一套 7~12px 六階，比其他頁面（App.css 11/12/13、週報彙整 10~13.5）整體小一階，壓成 11(微標籤) / 12(說明與 meta) / 13(卡片標題、輸入框、按鈕) / 15(區塊標題) 四階',
+      'fix(uat): .uat-field 補上 font-size: 13px——原本完全沒設，28 處輸入框全部吃瀏覽器預設 16px，比全站輸入框（App.css 的 13px）大一階，才會出現「輸入框偏大、旁邊的字偏小」',
+      'fix(uat): 上移／下移／複製／移除從 8px（全站最小 10px）改成 11px 並補左右內距；模組序號、規則預覽、執行日誌等 5 處 font 簡寫寫法一併校正',
+    ],
+  },
   {
     version: '4.22.1',
     date: '2026-08-21',
