@@ -34,7 +34,7 @@ const AGENT_ID = `${AGENT_LABEL}_${process.pid}`
 const AGENT_OWNER_KEY = (process.env.AGENT_OWNER_KEY ?? '').trim()
 const AGENT_OWNER_NAME = (process.env.AGENT_OWNER_NAME ?? AGENT_OWNER_KEY).trim()
 const AGENT_TOKEN = (process.env.AGENT_TOKEN ?? '').trim()
-const AGENT_CAPABILITIES = (process.env.AGENT_CAPABILITIES ?? 'machine-test,scripted-bet,uat-record,uat-run,autospin')
+const AGENT_CAPABILITIES = (process.env.AGENT_CAPABILITIES ?? 'machine-test,scripted-bet,uat-record,uat-run,autospin,backend-uat')
   .split(',')
   .map(value => value.trim())
   .filter(Boolean)
@@ -108,6 +108,19 @@ interface UiScreenshotStartMessage {
   }
 }
 
+interface BackendUatStartMessage {
+  type: 'backend_uat_start'
+  sessionId: string
+  larkAppToken: string
+  larkTableId: string
+  filter?: string
+  dashGameType?: string
+  dashClientVersion?: string
+  modulePlan?: { instanceId: string; name: string; filters: string[] }[]
+  /** UAT_CP_USERNAME / UAT_CP_PASSWORD / UAT_NCH_* — 原封不動注入 spawn 的 env */
+  credEnv?: Record<string, string>
+}
+
 interface AutoSpinStartMessage {
   type: 'autospin_start'
   sessionId: string
@@ -123,6 +136,8 @@ type IncomingMessage =
   | UatScriptRunMessage
   | UiScreenshotStartMessage
   | AutoSpinStartMessage
+  | BackendUatStartMessage
+  | { type: 'backend_uat_stop'; sessionId: string }
   | { type: 'job_assigned'; machineCode: string }
   | { type: 'no_more_jobs' }
   | { type: 'stop' }
@@ -132,6 +147,27 @@ type IncomingMessage =
 const PYTHON_EXE = process.env.AUTOSPIN_PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3')
 let autospinChild: ChildProcess | null = null
 let luckylinkPollerChild: ChildProcess | null = null
+
+// ── Backend UAT (Playwright script spawned locally by this agent) ────────────
+// Server 只負責建 session 跟轉 log；真正的 Chromium 跑在這裡。
+let backendUatChild: ChildProcess | null = null
+let backendUatSessionId: string | null = null
+/** 這次執行的密碼，只留在記憶體，用來把 log 行裡的密碼遮掉 */
+let backendUatSecrets: string[] = []
+
+/**
+ * 送回 server 之前先遮一次密碼。server 端還會再遮一次——兩邊都做是因為
+ * Playwright 的例外堆疊或腳本自己 print env 都可能把密碼帶出來，
+ * 漏一次就會永久寫進 server 的 session.logs 並經 SSE 推給所有訂閱者。
+ */
+function redactBackendUatLine(line: string): string {
+  let out = line
+  for (const secret of backendUatSecrets) {
+    if (secret.length < 4) continue // 太短的字串到處都會誤中
+    out = out.split(secret).join('***')
+  }
+  return out
+}
 
 // ── UAT Recording (Chrome CDP) ───────────────────────────────────────────────
 
@@ -1123,6 +1159,97 @@ function connect() {
     }
 
     // ── Update source files from server ──────────────────────────────────────
+    // ── Backend UAT：在 agent 端 spawn Playwright 腳本，log 逐行轉回 server ──
+    if (msg.type === 'backend_uat_start') {
+      const startMsg = msg as BackendUatStartMessage
+      const { sessionId, larkAppToken, larkTableId, filter, dashGameType, dashClientVersion, modulePlan, credEnv } = startMsg
+
+      // 上一輪還沒收乾淨就先砍掉，避免兩個 Chromium 同時搶同一組帳號
+      if (backendUatChild) {
+        try { backendUatChild.kill('SIGTERM') } catch { /* ignore */ }
+        backendUatChild = null
+      }
+
+      const scriptDir = join(process.cwd(), 'server', 'uat-runner')
+      const scriptPath = join(scriptDir, 'run-lark-tc-backend.js')
+      if (!existsSync(scriptPath)) {
+        const message = `找不到 UAT 腳本：${scriptPath}（請在 Local Agent 頁面按「更新程式碼」重新下載）`
+        console.error(`[Agent:${AGENT_LABEL}] ${message}`)
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: 'backend_uat_done', sessionId, exitCode: null, error: message }))
+        }
+        return
+      }
+
+      backendUatSessionId = sessionId
+      // 密碼只留在記憶體給 redaction 用，不寫檔、不印 console
+      backendUatSecrets = [credEnv?.UAT_CP_PASSWORD, credEnv?.UAT_NCH_PASSWORD]
+        .filter((v): v is string => typeof v === 'string' && v.length > 0)
+
+      const sendLog = (line: string, stream: 'stdout' | 'stderr') => {
+        if (ws.readyState !== ws.OPEN) return
+        ws.send(JSON.stringify({ type: 'backend_uat_log', sessionId, line: redactBackendUatLine(line), stream }))
+      }
+
+      console.log(`[Agent:${AGENT_LABEL}] Backend UAT session ${sessionId} start → ${scriptPath}`)
+      const args = [scriptPath]
+      if (filter) args.push(filter)
+
+      const child = spawn(process.execPath, args, {
+        cwd: scriptDir, // 腳本用相對路徑讀 ./tc-registry.json 與 ./config/*，cwd 一定要是它自己的目錄
+        env: {
+          ...process.env,
+          FORCE_COLOR: '0',
+          LARK_APP_TOKEN: larkAppToken,
+          LARK_TABLE_ID: larkTableId,
+          ...(dashGameType ? { DASH_GAME_TYPE: dashGameType } : {}),
+          ...(dashClientVersion ? { DASH_CLIENT_VERSION: dashClientVersion } : {}),
+          ...(modulePlan?.length ? { UAT_MODULE_PLAN: JSON.stringify(modulePlan) } : {}),
+          ...(credEnv ?? {}),
+        },
+        windowsHide: true,
+      })
+      backendUatChild = child
+
+      child.stdout?.setEncoding('utf8')
+      child.stderr?.setEncoding('utf8')
+      child.stdout?.on('data', (chunk: string) => {
+        for (const line of chunk.split('\n')) if (line.trim()) sendLog(line, 'stdout')
+      })
+      child.stderr?.on('data', (chunk: string) => {
+        for (const line of chunk.split('\n')) if (line.trim()) sendLog(line, 'stderr')
+      })
+      child.on('close', (code) => {
+        console.log(`[Agent:${AGENT_LABEL}] Backend UAT ${sessionId} exited (code ${code})`)
+        if (backendUatChild === child) { backendUatChild = null; backendUatSessionId = null; backendUatSecrets = [] }
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: 'backend_uat_done', sessionId, exitCode: code }))
+        }
+      })
+      child.on('error', (err) => {
+        console.error(`[Agent:${AGENT_LABEL}] Backend UAT spawn error:`, err.message)
+        if (backendUatChild === child) { backendUatChild = null; backendUatSessionId = null; backendUatSecrets = [] }
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: 'backend_uat_done', sessionId, exitCode: null, error: err.message }))
+        }
+      })
+      return
+    }
+
+    if (msg.type === 'backend_uat_stop') {
+      const { sessionId } = msg as { type: 'backend_uat_stop'; sessionId: string }
+      // sessionId 對不上代表是上一輪的殘留指令，不能拿來砍現在正在跑的那一輪
+      if (backendUatChild && backendUatSessionId === sessionId) {
+        console.log(`[Agent:${AGENT_LABEL}] Backend UAT ${sessionId} stop requested`)
+        try { backendUatChild.kill('SIGTERM') } catch { /* ignore */ }
+        // 不在這裡送 done——child 的 close handler 會送，才拿得到真正的 exit code
+      } else if (ws.readyState === ws.OPEN) {
+        // 已經結束了，補一則 done 讓 server 不會卡在 running
+        ws.send(JSON.stringify({ type: 'backend_uat_done', sessionId, exitCode: null }))
+      }
+      return
+    }
+
     if (msg.type === 'update_sources') {
       const files = (msg as { type: 'update_sources'; files?: string[] }).files ?? []
       console.log(`[Agent:${AGENT_LABEL}] Updating ${files.length} source files from server`)

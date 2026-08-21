@@ -18,7 +18,12 @@ import { runGenerateTestcasesFileJob, runLarkGenerateTestcasesJob, resumeGenerat
 import { router as jiraRouter } from './routes/jira.js'
 import { router as gameshowRouter } from './routes/gameshow.js'
 import { router as autospinRouter, broadcastAgentLog, broadcastLuckylinkEvent } from './routes/autospin.js'
-import { router as osmUatRouter } from './routes/osm-uat.js'
+import {
+  router as osmUatRouter,
+  handleBackendUatAgentLog,
+  handleBackendUatAgentDone,
+  handleBackendUatAgentDisconnect,
+} from './routes/osm-uat.js'
 import { router as frontendAutoRouter, logBuffers, logClients, pushLog, activeRuns } from './routes/frontend-auto.js'
 import uiScreenshotRouter from './routes/ui-screenshot.js'
 import { activeRunners, pendingSourceUpdates, router as machineTestRouter } from './routes/machine-test.js'
@@ -588,6 +593,21 @@ wss.on('connection', (ws, req) => {
         return
       }
 
+      // Backend UAT：agent 端 spawn 的 Playwright 腳本，log 逐行轉進 osm-uat 的 SSE
+      if (msg.type === 'backend_uat_log' && msg.sessionId) {
+        const m = msg as unknown as { sessionId: string; line?: string; stream?: string }
+        if (typeof m.line === 'string') {
+          handleBackendUatAgentLog(m.sessionId, m.line, m.stream === 'stderr' ? 'stderr' : 'stdout')
+        }
+        return
+      }
+
+      if (msg.type === 'backend_uat_done' && msg.sessionId) {
+        const m = msg as unknown as { sessionId: string; exitCode?: number | null; error?: string }
+        handleBackendUatAgentDone(m.sessionId, m.exitCode ?? null, m.error)
+        return
+      }
+
       if (msg.type === 'claim_job' && msg.sessionId) {
         const code = claimJob(msg.sessionId, agentId)
         const statuses = getJobStatuses(msg.sessionId)
@@ -770,7 +790,10 @@ wss.on('connection', (ws, req) => {
     ws.on('close', () => {
       if (agentId) {
         const info = agentConnections.get(agentId)
-        if (info?.sessionId) {
+        // Backend UAT 先問過一輪：它的 sessionId 是 UUID，沒有 sb_ 前綴，
+        // 不先攔下來會掉進下面的機測分支去呼叫 cancelDistSession 並廣播機測錯誤
+        const handledByBackendUat = handleBackendUatAgentDisconnect(agentId)
+        if (info?.sessionId && !handledByBackendUat) {
           if (info.sessionId.startsWith('sb_')) {
             handleScriptedBetAgentDisconnect(info.sessionId, `Agent ${info.hostname} 已斷線`)
           } else {

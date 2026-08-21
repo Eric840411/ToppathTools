@@ -45,6 +45,14 @@ function loadConfig(): UatConfig {
   } catch { return defaults }
 }
 
+interface BackendUatAgent {
+  agentId: string
+  hostname: string
+  ownerName: string
+  busy: boolean
+  lastSeenAt: number
+}
+
 export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const xianxia = themeMode === 'xianxia'
   const [config, setConfig] = useState(loadConfig)
@@ -64,6 +72,23 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const [credDraft, setCredDraft] = useState<Record<string, { username: string; password: string }>>({})
   const [credMsg, setCredMsg] = useState<{ text: string; tone: 'ok' | 'error' | 'busy' } | null>(null)
   const credProfileLabel = (profile: string) => profile === 'cpBackend' ? 'CP 後台' : 'NC 後台'
+  // 執行位置：Playwright 跑在哪台機器上。'' = 自動挑一台線上的 agent，
+  // 'server' = 明確要求跑在伺服器本機（fallback，公網環境不一定裝得動瀏覽器）
+  const [agents, setAgents] = useState<BackendUatAgent[]>([])
+  const [selectedAgentId, setSelectedAgentId] = useState('')
+  const [runMode, setRunMode] = useState<{ mode: 'agent' | 'server'; agentHostname?: string } | null>(null)
+  const loadAgents = useCallback(async () => {
+    try {
+      const response = await fetch('/api/osm-uat/agents')
+      const data = await response.json() as { ok: boolean; agents?: BackendUatAgent[] }
+      if (data.ok) setAgents(data.agents ?? [])
+    } catch { /* agent 清單抓不到就當作沒有可用 agent，不擋住主要流程 */ }
+  }, [])
+  useEffect(() => {
+    void loadAgents()
+    const timer = window.setInterval(() => void loadAgents(), 10_000)
+    return () => window.clearInterval(timer)
+  }, [loadAgents])
   const loadCreds = useCallback(async () => {
     try {
       const response = await fetch('/api/osm-uat/backend-credentials')
@@ -190,12 +215,15 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const run = async () => {
     if (!config.modulePlan.length) return window.alert('請至少加入一個 Backend 測試模組')
     if (!modulePlanValid) return window.alert('每個模組都必須有名稱與至少一條 TC 匹配規則')
-    setLogs([]); statusRef.current = 'running'; setStatus('running')
-    const response = await fetch('/api/osm-uat/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...config, filter: config.filter || undefined, dashGameType: config.dashGameType || undefined, dashClientVersion: config.dashClientVersion || undefined }) })
+    setLogs([]); statusRef.current = 'running'; setStatus('running'); setRunMode(null)
+    const response = await fetch('/api/osm-uat/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...config, filter: config.filter || undefined, dashGameType: config.dashGameType || undefined, dashClientVersion: config.dashClientVersion || undefined, agentId: selectedAgentId || undefined }) })
     if (!response.ok) {
       const data = await response.json().catch(() => ({ error: '啟動失敗' })) as { error?: string }
       statusRef.current = 'idle'; setStatus('idle'); return window.alert(`啟動失敗：${data.error}`)
     }
+    const data = await response.json().catch(() => null) as { mode?: 'agent' | 'server'; agentHostname?: string } | null
+    if (data?.mode) setRunMode({ mode: data.mode, agentHostname: data.agentHostname })
+    void loadAgents()
     connect()
   }
 
@@ -253,6 +281,25 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
         </> : <>
           <div className="uat-pane-heading"><div><span>{xianxia ? 'ARRAY SETTINGS' : 'RUN SETTINGS'}</span><h3>{xianxia ? '陣眼設定' : '執行設定'}</h3><small>套用至本次模組流程</small></div></div>
           <div className="uat-backend-settings-form">
+            <div className="uat-backend-cred-box">
+              <b>執行位置</b>
+              <small>Playwright 實際跑在哪台機器。派工給 Local Agent 時，伺服器只負責建 session、轉日誌。</small>
+              <select className="uat-field" value={selectedAgentId} disabled={status === 'running'}
+                onChange={event => setSelectedAgentId(event.target.value)}>
+                <option value="">自動挑一台線上 Agent{agents.length ? `（目前 ${agents.filter(a => !a.busy).length} 台可用）` : '（目前沒有）'}</option>
+                {agents.map(agent => (
+                  <option value={agent.agentId} key={agent.agentId}>
+                    {agent.hostname}{agent.busy ? '（忙碌中）' : ''}
+                  </option>
+                ))}
+                <option value="server">伺服器端（fallback）</option>
+              </select>
+              {runMode && (
+                <span className="uat-backend-cred-msg">
+                  {runMode.mode === 'agent' ? `本次派工給 ${runMode.agentHostname ?? 'Agent'}` : '本次跑在伺服器端'}
+                </span>
+              )}
+            </div>
             <div className="uat-backend-cred-box">
               <b>後台登入帳密</b>
               <small>用你自己的帳號跑測試；密碼只存在伺服器，畫面不顯示。</small>

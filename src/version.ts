@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.22.3'
+export const APP_VERSION = '4.23.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.23.0',
+    date: '2026-08-21',
+    changes: [
+      'feat(uat): Backend UAT 改走 Agent 派工——Playwright 真正跑在有 backend-uat capability 的 Local Agent 上，server 只負責建 session、挑 agent、把 log 轉進既有的 SSE；公網主機不用再裝瀏覽器。伺服器端 spawn 保留當 fallback',
+      'feat(uat): 新增 4 支 WS 訊息 backend_uat_start / backend_uat_log / backend_uat_done / backend_uat_stop；執行設定頁新增「執行位置」下拉（自動挑一台／指定某台／伺服器端），清單每 10 秒刷新並顯示忙碌狀態',
+      'feat(uat): run-lark-tc-backend.js 與 tc-registry.json 加進 AGENT_SOURCE_WHITELIST（安裝檔與「更新程式碼」都吃這份白名單），agent package.json 補 xlsx',
+      'fix(uat): 指名的 Agent 不在線／忙碌一律回 409，不默默改跑在伺服器端——否則使用者以為跑在自己機器上，實際在公網主機開了一顆 Chromium',
+      'fix(uat): 停止改成分模式——agent 模式送 backend_uat_stop 並等 agent 回報 done 才收尾（才拿得到真實 exit code），fallback 模式才 kill 本機程序；agent 斷線在 worker 的 close handler 優先攔截，避免 UUID 形式的 sessionId 掉進機測分支誤呼叫 cancelDistSession',
+      'security(uat): 後台帳密隨派工走 WS 到 agent，但只在記憶體、不進 session record／logs／SSE／歷史紀錄，log 由 agent 與 server 各做一次 redaction；agent 上不留 config 檔。⚠️ CENTRAL_URL 預設仍是 ws://（明文），hub 換 wss:// 列為後續必修，詳見 docs/decisions.md',
+    ],
+  },
   {
     version: '4.22.3',
     date: '2026-08-21',

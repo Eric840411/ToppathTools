@@ -1110,6 +1110,54 @@ Dashboard（修仙版）Hero 橫幅下方顯示一張每日語錄小卡片，語
 
 ---
 
+## 24. OSM UAT 整合測試 — Backend 分頁改走 Agent 派工（2026-08-21，v4.23.0）
+
+**路由**：`/api/osm-uat/*`｜**page key**：`osm-uat`
+
+### 執行架構
+Playwright 從「server 本機 spawn」改成「派工給 Local Agent」（跟 AutoSpin 的 A2、scripted-bet 同一套）。**server 只負責建 session、挑 agent、把 log 轉進既有的 SSE**，真正的 Chromium 跑在 agent 端。伺服器端 spawn 保留當 fallback，所以公網（Spug）上不需要裝瀏覽器。
+
+| 模式 | 觸發 | 行為 |
+|------|------|------|
+| `agent` | 有可用 agent（自動挑）或前端指名 `agentId` | 送 `backend_uat_start`，agent 端 spawn `run-lark-tc-backend.js` |
+| `server` | 前端明確選「伺服器端（fallback）」，或沒指名且一台可用 agent 都沒有 | 舊行為，本機 spawn |
+
+**指名了卻挑不到一律 409，不默默 fallback**——否則使用者以為跑在自己機器上，實際在公網主機偷偷開了一顆 Chromium。
+
+### WS 訊息（4 支）
+| 訊息 | 方向 | 內容 |
+|------|------|------|
+| `backend_uat_start` | server → agent | `sessionId`／Lark appToken+tableId／`filter`／`dashGameType`／`dashClientVersion`／`modulePlan`／`credEnv` |
+| `backend_uat_log` | agent → server | `sessionId`／`line`／`stream`（stdout｜stderr），逐行轉發 |
+| `backend_uat_done` | agent → server | `sessionId`／`exitCode`／`error?` |
+| `backend_uat_stop` | server → agent | `sessionId` |
+
+`osm-uat.ts` 掛在 **worker process**（見 `server/worker.ts`），跟 `/ws/agent` 是同一個 process，所以直接拿 `agentConnections` 發訊息，不用再跨 process 轉一手。
+
+### 幾個容易踩的邊界
+- **停止要分支**：agent 模式送 `backend_uat_stop` 之後**不在當下收尾**，等 agent 回 `backend_uat_done` 才算真的停（才拿得到真實 exit code）；agent 已離線才直接標記。fallback 模式才 kill 本機 child。兩邊不共用同一套 kill 假設。
+- **agent 斷線要優先攔截**：Backend UAT 的 `sessionId` 是 UUID、沒有 `sb_` 前綴，不先在 worker 的 close handler 攔下來，會掉進既有的機測分支誤呼叫 `cancelDistSession` 並廣播機測錯誤。`handleBackendUatAgentDisconnect()` 回傳 boolean 就是給 worker 判斷「這輪我處理掉了」。
+- **`isSessionAlive()` 兩種模式分開判斷**：server 模式看 child 的 `exitCode`，agent 模式看該 agent 的 WS 還開著沒。只看 `session.status` 的話，agent 拔網路線會把使用者永久鎖在 409。
+- **腳本的 cwd 一定要是 `server/uat-runner/`**：`run-lark-tc-backend.js` 用相對路徑讀 `./tc-registry.json` 和 `./config/*`。
+
+### 腳本怎麼送到 agent
+`AGENT_SOURCE_WHITELIST`（`server/routes/machine-test.ts`）新增 `uat-runner/run-lark-tc-backend.js` 與 `uat-runner/tc-registry.json`，安裝檔與「更新程式碼」（`update_sources`）都是讀這份白名單，所以加進去就自動涵蓋兩條路徑。agent 的 `package.json` 補 `xlsx`（腳本會 import 它做報表比對）。
+
+**刻意不含 `config/backend-test-params.json`**——那裡面是真實帳密，帳密改走 `backend_uat_start` 的 `credEnv` 逐次帶，不在 agent 上留檔（延續 v4.22.0 的原則）。
+
+### ⚠️ 帳密會走 ws:// 離開本機（未完成項）
+帳密原本只注入本機子程序，派工之後必須跟著 `backend_uat_start` 走 `/ws/agent`，而 `CENTRAL_URL` 預設是 `ws://`（明文）。**這版是「延續既有明文通道」而不是安全完成態**（`autospin_start` 的 LuckyLink `loginPass` 早就走同一條線，不是新開的洞），但 v4.22.0 的保護在這條路徑上等於少了一半。已做的緩解：帳密只在記憶體不落任何紀錄、log 兩層 redaction（agent 送出前遮一次、server 收到後再遮一次）、agent 上不留 config 檔。**hub 換 `wss://` 列為後續必修**，詳見 `docs/decisions.md`。
+
+### 使用者操作
+| 操作 | 說明 |
+|------|------|
+| 選擇執行位置 | 執行設定頁「執行位置」下拉：自動挑一台線上 Agent／指定某一台／伺服器端（fallback）；清單每 10 秒刷新，顯示忙碌狀態 |
+| 執行模組流程 | 派工或本機 spawn，日誌一律走同一條 SSE，畫面不用分辨跑在哪 |
+| 停止執行 | agent 模式送停止指令給該 agent，fallback 模式 kill 本機程序 |
+| 查看本次跑在哪 | 啟動後「執行位置」下方顯示「本次派工給 ◯◯」或「本次跑在伺服器端」 |
+
+---
+
 ## 版本管理規則
 
 - **Patch (x.x.N)**：bug fix、小調整、文字修正

@@ -1,16 +1,27 @@
 /**
  * server/routes/osm-uat.ts
  * OSM UAT TC 自動化測試路由
+ * GET  /api/osm-uat/agents — 列出可派工的 Local Agent
  * POST /api/osm-uat/run    — 啟動測試（SSE 推進度）
  * POST /api/osm-uat/stop   — 停止測試
  * GET  /api/osm-uat/status — 查詢目前狀態
  * GET  /api/osm-uat/scan   — 掃描 Lark Bitable TC 數量摘要
+ *
+ * 執行有兩種模式（2026-08-21 起）：
+ *   agent  — 派工給有 backend-uat capability 的 Local Agent，Playwright 真正跑在
+ *            agent 端；server 只負責建 session、挑 agent、把 log 轉進既有的 SSE。
+ *   server — 舊行為，直接在 server 本機 spawn 腳本。保留當 fallback。
+ * 這支 router 掛在 worker process（見 server/worker.ts），跟 /ws/agent 的連線是
+ * 同一個 process，所以可以直接拿 agentConnections 發訊息，不用再跨 process 轉一手。
  */
 import { Router } from 'express'
 import { spawn, ChildProcess } from 'child_process'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
+import { randomUUID } from 'crypto'
 import { z } from 'zod'
+import { agentConnections, type AgentInfo } from '../agent-hub.js'
+import { getOperatorFromContext } from '../request-context.js'
 import {
   getLarkToken,
   writeLimiter,
@@ -32,20 +43,30 @@ export const router = Router()
 // ─── Session State ─────────────────────────────────────────────────────────────
 
 interface UatSession {
+  id: string
   status: 'idle' | 'running' | 'done' | 'error'
+  /** agent = Playwright 跑在 Local Agent 上；server = 在本機 spawn（fallback）*/
+  mode: 'agent' | 'server'
+  agentId?: string
+  agentHostname?: string
   startedAt: number
   finishedAt?: number
   logs: string[]
   process: ChildProcess | null
   heavyTask?: HeavyTaskToken
+  /**
+   * 這次執行用到的密碼，只留在記憶體裡供 log redaction 比對用。
+   * 絕對不進 session.logs / SSE / 歷史紀錄——agent 端已經遮一次，這是第二層
+   * （Playwright 例外堆疊、腳本自己 print env 都可能把密碼漏出來）。
+   */
+  secrets: string[]
 }
 
-let session: UatSession = {
-  status: 'idle',
-  startedAt: 0,
-  logs: [],
-  process: null,
+function emptySession(): UatSession {
+  return { id: '', status: 'idle', mode: 'server', startedAt: 0, logs: [], process: null, secrets: [] }
 }
+
+let session: UatSession = emptySession()
 
 // SSE clients
 const sseClients = new Set<import('express').Response>()
@@ -57,14 +78,37 @@ function broadcast(event: string, data: unknown) {
   }
 }
 
-function appendLog(line: string) {
+/**
+ * 把這次執行用到的密碼從 log 行裡遮掉。agent 端送出前已經遮過一次，
+ * 這是 server 端第二層——兩邊都做是因為漏一次就永久寫進 session.logs，
+ * 而 log 會被 SSE 推給所有訂閱者。空字串不比對（會把整行切碎）。
+ */
+function redactSecrets(line: string): string {
+  let out = line
+  for (const secret of session.secrets) {
+    if (secret.length < 4) continue // 太短的字串到處都會誤中
+    out = out.split(secret).join('***')
+  }
+  return out
+}
+
+function appendLog(rawLine: string) {
+  const line = redactSecrets(rawLine)
   session.logs.push(line)
   broadcast('log', { line })
 }
 
 // ─── SSE 訂閱 ──────────────────────────────────────────────────────────────────
 
-/** 把發動者自己的後台帳密轉成環境變數；沒設定就不注入，讓腳本走原本的 fallback */
+/**
+ * 把發動者自己的後台帳密轉成環境變數格式；沒設定就是空物件，讓腳本走原本的 fallback。
+ * 伺服器端模式直接當 spawn 的 env；agent 模式原封不動放進 backend_uat_start 的 payload，
+ * 由 agent 端在自己那邊 spawn 時注入。兩邊用同一組 key，腳本不用分辨自己被誰啟動。
+ *
+ * ⚠️ agent 模式代表這組帳密會走 /ws/agent 這條線離開本機。目前 CENTRAL_URL 預設是
+ * ws://（明文），所以這是「延續既有明文通道」而不是安全完成態——hub 換 wss 之前，
+ * 這條路徑跟 v4.22.0 把帳密移進 DB 的保護是有落差的。詳見 docs/decisions.md。
+ */
 function uatCredEnv(req: Request): Record<string, string> {
   const account = getAuthAccount(req)
   if (!account) return {}
@@ -73,6 +117,11 @@ function uatCredEnv(req: Request): Record<string, string> {
   if (creds.cpBackend) { env.UAT_CP_USERNAME = creds.cpBackend.username; env.UAT_CP_PASSWORD = creds.cpBackend.password }
   if (creds.nchBackend) { env.UAT_NCH_USERNAME = creds.nchBackend.username; env.UAT_NCH_PASSWORD = creds.nchBackend.password }
   return env
+}
+
+/** 從 cred env 取出密碼，給 log redaction 當比對用；只留在記憶體 */
+function secretsFromCredEnv(env: Record<string, string>): string[] {
+  return [env.UAT_CP_PASSWORD, env.UAT_NCH_PASSWORD].filter((v): v is string => !!v && v.length > 0)
 }
 
 // ─── 後台測試帳密（依登入帳號各存一份）─────────────────────────────────
@@ -118,10 +167,35 @@ router.get('/api/osm-uat/stream', (req, res) => {
 router.get('/api/osm-uat/status', (_req, res) => {
   res.json({
     status: session.status,
+    sessionId: session.id || undefined,
+    mode: session.status === 'idle' ? undefined : session.mode,
+    agentId: session.agentId,
+    agentHostname: session.agentHostname,
     startedAt: session.startedAt,
     finishedAt: session.finishedAt,
     logCount: session.logs.length,
   })
+})
+
+// ─── 可派工的 Agent 清單 ───────────────────────────────────────────────────────
+// 只列出「這個操作者自己的」agent，跟 scripted-bet / autospin 同一套規則：
+// agent 是誰安裝的就只有誰能派工，不共用。
+router.get('/api/osm-uat/agents', (_req, res) => {
+  const operator = getOperatorFromContext()
+  if (!operator?.key) return res.json({ ok: true, agents: [] })
+  const agents = [...agentConnections.values()]
+    .filter(agent => agent.ownerKey === operator.key && agent.capabilities.includes(BACKEND_UAT_CAPABILITY))
+    .map(agent => ({
+      agentId: agent.agentId,
+      hostname: agent.hostname,
+      ownerName: agent.ownerName,
+      capabilities: agent.capabilities,
+      busy: agent.busy,
+      connectedAt: agent.connectedAt,
+      lastSeenAt: agent.lastSeenAt,
+      sessionId: agent.sessionId,
+    }))
+  res.json({ ok: true, agents })
 })
 
 // ─── 掃描 TC 數量 ──────────────────────────────────────────────────────────────
@@ -173,6 +247,11 @@ router.get('/api/osm-uat/scan', async (req, res, next) => {
 const SCRIPT_PATH = process.env.OSM_QA_AGENT_SCRIPT
   ?? join(__dirname, '..', 'uat-runner', 'run-lark-tc-backend.js')
 
+/** agent 端要有這個 capability 才收得到 backend_uat_start */
+export const BACKEND_UAT_CAPABILITY = 'backend-uat'
+/** 前端用這個值明確要求走舊的伺服器端 spawn */
+const SERVER_MODE_SENTINEL = 'server'
+
 const modulePlanSchema = z.object({
   instanceId: z.string().min(1).max(100),
   name: z.string().min(1).max(100),
@@ -181,6 +260,8 @@ const modulePlanSchema = z.object({
 
 const runSchema = z.object({
   larkUrl: z.string().min(1),
+  /** 指定 agentId 派工；傳 'server' 代表明確要走伺服器端 spawn；不傳＝自動挑一台，沒有才 fallback */
+  agentId: z.string().trim().max(120).optional(),
   filter: z.string().optional(),
   dashGameType: z.string().optional(),
   dashClientVersion: z.string().optional(),
@@ -208,11 +289,67 @@ function parseLarkBitableUrl(url: string): { appToken: string; tableId: string }
   }
 }
 
+function isSessionAlive(): boolean {
+  if (session.status !== 'running') return false
+  if (session.mode === 'server') return session.process !== null && session.process.exitCode === null
+  // agent 模式：agent 斷線就當作沒在跑，否則 agent 拔網路線會把使用者永久鎖在 409
+  const agent = session.agentId ? agentConnections.get(session.agentId) : undefined
+  return !!agent && agent.ws.readyState === agent.ws.OPEN
+}
+
+/** 收尾：釋放重任務名額、通知 SSE、把 agent 標回空閒 */
+function finishSession(status: 'done' | 'error', tailLine: string, extra: Record<string, unknown> = {}) {
+  session.status = status
+  session.finishedAt = Date.now()
+  session.process = null
+  finishHeavyTask(session.heavyTask)
+  if (session.agentId) {
+    const agent = agentConnections.get(session.agentId)
+    if (agent && agent.sessionId === session.id) { agent.busy = false; agent.sessionId = null }
+  }
+  appendLog(tailLine)
+  broadcast('status', { status, ...extra })
+  // 送完最終狀態後關閉所有 SSE 連線，讓 client 乾淨地結束
+  setTimeout(() => {
+    for (const client of sseClients) {
+      try { client.end() } catch { /* SSE client already disconnected */ }
+    }
+    sseClients.clear()
+  }, 500)
+}
+
+// ─── Agent 回報（由 worker.ts 的 /ws/agent 收到訊息後呼叫）────────────────────
+
+/** agent 端 spawn 的腳本每印一行就轉一次；sessionId 對不上代表是上一輪的殘留，直接丟掉 */
+export function handleBackendUatAgentLog(sessionId: string, line: string, stream: 'stdout' | 'stderr') {
+  if (!session.id || session.id !== sessionId) return
+  appendLog(stream === 'stderr' ? `❌ [stderr] ${line}` : line)
+}
+
+/** agent 端腳本結束 */
+export function handleBackendUatAgentDone(sessionId: string, exitCode: number | null, error?: string) {
+  if (!session.id || session.id !== sessionId) return
+  if (error) appendLog(`❌ Agent 執行失敗: ${error}`)
+  finishSession(exitCode === 0 ? 'done' : 'error', `--- 執行結束（exit code: ${exitCode}）---`, { exitCode })
+}
+
+/**
+ * agent 在測試途中斷線：不會有 done 訊息了，主動收尾避免 session 永遠卡在 running。
+ * 回傳 true 代表這次斷線是這個 UAT session 的，worker 就不要再往 machine-test
+ * 那條路徑處理（那邊會誤呼叫 cancelDistSession 並廣播機測錯誤）。
+ */
+export function handleBackendUatAgentDisconnect(agentId: string): boolean {
+  if (session.status !== 'running' || session.mode !== 'agent' || session.agentId !== agentId) return false
+  finishSession('error', '--- 執行結束（Agent 連線中斷）---', { error: 'agent disconnected' })
+  return true
+}
+
+// ─── 啟動 ─────────────────────────────────────────────────────────────────────
+
 router.post('/api/osm-uat/run', (req, res) => {
-  // Check if the process is actually still alive (not just session.status)
-  // because frontend may detect completion from log before child process fully exits
-  const processAlive = session.process !== null && session.process.exitCode === null
-  if (processAlive) {
+  // 用 isSessionAlive 而不是只看 session.status——前端可能從 log 判斷完成、
+  // 但子程序還沒完全結束；反過來 agent 斷線時也不該把人鎖住
+  if (isSessionAlive()) {
     res.status(409).json({ ok: false, error: '測試已在執行中' })
     return
   }
@@ -223,11 +360,40 @@ router.post('/api/osm-uat/run', (req, res) => {
     return
   }
 
-  const { larkUrl, filter, dashGameType, dashClientVersion, modulePlan } = parsed.data
+  const { larkUrl, filter, dashGameType, dashClientVersion, modulePlan, agentId } = parsed.data
   const larkParams = parseLarkBitableUrl(larkUrl)
   if (!larkParams) {
     res.status(400).json({ ok: false, error: '無效的 Lark Bitable URL（需包含 /base/{token} 和 ?table={id}）' })
     return
+  }
+
+  // ── 挑 agent ──────────────────────────────────────────────────────────────
+  // 只有兩種情況會落到伺服器端 spawn：明確選了 'server'，或是沒指名而且真的
+  // 一台可用 agent 都沒有。指名了卻挑不到一定回 409——默默改跑在 server 上
+  // 等於在公網環境偷偷開一顆 Chromium，使用者還以為跑在自己機器上。
+  const wantServerMode = agentId === SERVER_MODE_SENTINEL
+  const operator = getOperatorFromContext()
+  let agent: AgentInfo | undefined
+  if (!wantServerMode) {
+    const mine = operator?.key
+      ? [...agentConnections.values()].filter(a =>
+          a.ownerKey === operator.key
+          && a.capabilities.includes(BACKEND_UAT_CAPABILITY)
+          && a.ws.readyState === a.ws.OPEN)
+      : []
+    if (agentId) {
+      agent = mine.find(a => a.agentId === agentId)
+      if (!agent) {
+        res.status(409).json({ ok: false, error: '指定的 Agent 不在線上或沒有 backend-uat 能力' })
+        return
+      }
+      if (agent.busy) {
+        res.status(409).json({ ok: false, error: '指定的 Agent 正在執行其他任務' })
+        return
+      }
+    } else {
+      agent = mine.find(a => !a.busy)
+    }
   }
 
   const heavyTask = tryStartHeavyTask(req, 'osm-uat', 'OSM UAT 自動化測試')
@@ -236,15 +402,51 @@ router.post('/api/osm-uat/run', (req, res) => {
     return
   }
 
-  // 清除舊 log
+  const credEnv = uatCredEnv(req)
+  const sessionId = randomUUID()
   session = {
+    id: sessionId,
     status: 'running',
+    mode: agent ? 'agent' : 'server',
+    agentId: agent?.agentId,
+    agentHostname: agent?.hostname,
     startedAt: Date.now(),
     logs: [],
     process: null,
     heavyTask: heavyTask.token,
+    secrets: secretsFromCredEnv(credEnv),
   }
-  broadcast('status', { status: 'running' })
+  broadcast('status', { status: 'running', mode: session.mode, agentId: session.agentId, agentHostname: session.agentHostname })
+
+  // ── A. 派工給 Agent ───────────────────────────────────────────────────────
+  if (agent) {
+    agent.busy = true
+    agent.sessionId = sessionId
+    appendLog(`\U0001f680 派工給 Agent：${agent.hostname}（${agent.agentId}）`)
+    try {
+      agent.ws.send(JSON.stringify({
+        type: 'backend_uat_start',
+        sessionId,
+        larkAppToken: larkParams.appToken,
+        larkTableId: larkParams.tableId,
+        filter: filter || undefined,
+        dashGameType: dashGameType || undefined,
+        dashClientVersion: dashClientVersion || undefined,
+        modulePlan: modulePlan?.length ? modulePlan : undefined,
+        credEnv,
+      }))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      finishSession('error', `❌ 派工失敗: ${message}`, { error: message })
+      res.status(502).json({ ok: false, error: `派工失敗：${message}` })
+      return
+    }
+    res.json({ ok: true, sessionId, mode: 'agent', agentId: agent.agentId, agentHostname: agent.hostname })
+    return
+  }
+
+  // ── B. 伺服器端 spawn（fallback，舊行為）──────────────────────────────────
+  appendLog(wantServerMode ? '\U0001f5a5️ 以伺服器端模式執行' : '\U0001f5a5️ 沒有可用的 Agent，改在伺服器端執行')
 
   const args = [SCRIPT_PATH]
   if (filter) args.push(filter)
@@ -261,7 +463,7 @@ router.post('/api/osm-uat/run', (req, res) => {
       ...(modulePlan?.length ? { UAT_MODULE_PLAN: JSON.stringify(modulePlan) } : {}),
       // 帳密改成用「發動這次測試的人」自己設定的那份（存在 DB，設定頁填），
       // 腳本端優先吃這幾個環境變數、沒有才 fallback 到 config 檔（2026-08-21）
-      ...uatCredEnv(req),
+      ...credEnv,
     },
     windowsHide: true,
   })
@@ -283,42 +485,45 @@ router.post('/api/osm-uat/run', (req, res) => {
   })
 
   child.on('close', (code) => {
-    session.status = code === 0 ? 'done' : 'error'
-    session.finishedAt = Date.now()
-    session.process = null
-    finishHeavyTask(session.heavyTask)
-    appendLog(`--- 執行結束（exit code: ${code}）---`)
-    broadcast('status', { status: session.status, exitCode: code })
-    // 送完最終狀態後關閉所有 SSE 連線，讓 client 乾淨地結束
-    setTimeout(() => {
-      for (const res of sseClients) {
-        try { res.end() } catch { /* SSE client already disconnected */ }
-      }
-      sseClients.clear()
-    }, 500)
+    finishSession(code === 0 ? 'done' : 'error', `--- 執行結束（exit code: ${code}）---`, { exitCode: code })
   })
 
   child.on('error', (err) => {
-    session.status = 'error'
-    session.finishedAt = Date.now()
-    session.process = null
-    finishHeavyTask(session.heavyTask)
-    broadcast('status', { status: 'error', error: err.message })
-    appendLog(`❌ 啟動失敗: ${err.message}`)
+    finishSession('error', `❌ 啟動失敗: ${err.message}`, { error: err.message })
   })
 
-  res.json({ ok: true })
+  res.json({ ok: true, sessionId, mode: 'server' })
 })
 
 // ─── 停止測試 ──────────────────────────────────────────────────────────────────
 
 router.post('/api/osm-uat/stop', (_req, res) => {
-  if (session.status !== 'running' || !session.process) {
+  if (session.status !== 'running') {
+    res.status(400).json({ ok: false, error: '目前沒有執行中的測試' })
+    return
+  }
+
+  // agent 模式跟本機 spawn 模式的停止方式完全不同，不共用同一套 kill 假設
+  if (session.mode === 'agent') {
+    const agent = session.agentId ? agentConnections.get(session.agentId) : undefined
+    if (agent && agent.ws.readyState === agent.ws.OPEN) {
+      agent.ws.send(JSON.stringify({ type: 'backend_uat_stop', sessionId: session.id }))
+      appendLog('\U0001f6d1 已送出停止指令給 Agent')
+      // 不在這裡收尾——等 agent 回 backend_uat_done 才算真的停了
+      res.json({ ok: true, mode: 'agent' })
+      return
+    }
+    finishSession('error', '\U0001f6d1 Agent 已離線，直接標記為停止', { error: 'agent offline' })
+    res.json({ ok: true, mode: 'agent', note: 'agent offline' })
+    return
+  }
+
+  if (!session.process) {
     res.status(400).json({ ok: false, error: '目前沒有執行中的測試' })
     return
   }
   session.process.kill('SIGTERM')
   finishHeavyTask(session.heavyTask)
-  appendLog('🛑 已手動停止測試')
-  res.json({ ok: true })
+  appendLog('\U0001f6d1 已手動停止測試')
+  res.json({ ok: true, mode: 'server' })
 })

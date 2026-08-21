@@ -55,6 +55,12 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'scripted-bet/types.ts':         join(SERVER_ROOT, 'scripted-bet', 'types.ts'),
   // AutoSpin Python 引擎（A2：agent 端 spawn 它跑 AutoSpin，自含單檔）
   'python/toppath-agent.py':       join(SERVER_ROOT, 'python', 'toppath-agent.py'),
+  // Backend UAT（agent 端 spawn 它跑 Playwright）。腳本用相對路徑讀 ./tc-registry.json，
+  // 所以兩個都要送過去，且要落在 agent 的 server/uat-runner/ 底下。
+  // 刻意不含 config/backend-test-params.json —— 那裡面是真實帳密，
+  // 帳密改走 backend_uat_start 的 credEnv 逐次帶，不在 agent 上留檔（v4.22.0 的原則）。
+  'uat-runner/run-lark-tc-backend.js': join(SERVER_ROOT, 'uat-runner', 'run-lark-tc-backend.js'),
+  'uat-runner/tc-registry.json':       join(SERVER_ROOT, 'uat-runner', 'tc-registry.json'),
 }
 
 export const router = Router()
@@ -1207,6 +1213,8 @@ router.get('/api/machine-test/agent/agent-package.json', (_req, res) => {
     dependencies: {
       playwright: '^1.58.2',
       ws: '^8.18.1',
+      // Backend UAT 腳本 run-lark-tc-backend.js 會 import xlsx 做報表比對
+      xlsx: '^0.18.5',
       zod: '^4.3.6',
     },
     devDependencies: {
