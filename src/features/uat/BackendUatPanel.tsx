@@ -62,7 +62,8 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   // 這裡永遠拿不到密碼本身，只知道「有沒有設過」；密碼欄留空送出＝沿用舊密碼。
   const [creds, setCreds] = useState<{ profile: string; username: string; hasPassword: boolean }[]>([])
   const [credDraft, setCredDraft] = useState<Record<string, { username: string; password: string }>>({})
-  const [credMsg, setCredMsg] = useState('')
+  const [credMsg, setCredMsg] = useState<{ text: string; tone: 'ok' | 'error' | 'busy' } | null>(null)
+  const credProfileLabel = (profile: string) => profile === 'cpBackend' ? 'CP 後台' : 'NC 後台'
   const loadCreds = useCallback(async () => {
     try {
       const response = await fetch('/api/osm-uat/backend-credentials')
@@ -74,8 +75,8 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const saveCred = async (profile: string) => {
     const draft = credDraft[profile] ?? { username: '', password: '' }
     const username = draft.username || creds.find(item => item.profile === profile)?.username || ''
-    if (!username) { setCredMsg('請先填帳號'); return }
-    setCredMsg('儲存中…')
+    if (!username) { setCredMsg({ text: `${credProfileLabel(profile)}：請先填帳號`, tone: 'error' }); return }
+    setCredMsg({ text: '儲存中…', tone: 'busy' })
     try {
       const response = await fetch('/api/osm-uat/backend-credentials', {
         method: 'PUT',
@@ -86,11 +87,11 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
       if (data.ok) {
         setCreds(data.credentials ?? [])
         setCredDraft(prev => ({ ...prev, [profile]: { username: '', password: '' } }))
-        setCredMsg('已儲存')
+        setCredMsg({ text: `${credProfileLabel(profile)}已儲存`, tone: 'ok' })
       } else {
-        setCredMsg(data.message ?? '儲存失敗')
+        setCredMsg({ text: data.message ?? `${credProfileLabel(profile)}儲存失敗`, tone: 'error' })
       }
-    } catch { setCredMsg('儲存失敗') }
+    } catch { setCredMsg({ text: `${credProfileLabel(profile)}儲存失敗`, tone: 'error' }) }
   }
   const streamRef = useRef<EventSource | null>(null)
   const logEnd = useRef<HTMLDivElement>(null)
@@ -254,22 +255,26 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
           <div className="uat-backend-settings-form">
             <div className="uat-backend-cred-box">
               <b>後台登入帳密</b>
-              <small>用你自己的帳號跑測試；密碼只會存在伺服器，畫面不會顯示。留空不改密碼。</small>
+              <small>用你自己的帳號跑測試；密碼只存在伺服器，畫面不顯示。</small>
               {creds.map(item => {
                 const draft = credDraft[item.profile] ?? { username: '', password: '' }
-                const label = item.profile === 'cpBackend' ? 'CP 後台' : 'NC 後台'
                 return (
                   <div className="uat-backend-cred-row" key={item.profile}>
-                    <span>{label}{item.hasPassword ? ' · 已設定' : ' · 未設定'}</span>
+                    <div className="uat-backend-cred-head">
+                      <strong>{credProfileLabel(item.profile)}</strong>
+                      <span className={`uat-backend-cred-state${item.hasPassword ? ' is-set' : ''}`}><i />{item.hasPassword ? '已設定' : '未設定'}</span>
+                    </div>
                     <input className="uat-field" placeholder={item.username || '帳號'} value={draft.username}
                       onChange={event => setCredDraft(prev => ({ ...prev, [item.profile]: { ...draft, username: event.target.value } }))} />
-                    <input className="uat-field" type="password" placeholder={item.hasPassword ? '（留空不改）' : '密碼'} value={draft.password}
-                      onChange={event => setCredDraft(prev => ({ ...prev, [item.profile]: { ...draft, password: event.target.value } }))} />
-                    <button type="button" className="uat-btn is-quiet" onClick={() => void saveCred(item.profile)}>儲存</button>
+                    <div className="uat-backend-cred-pair">
+                      <input className="uat-field" type="password" placeholder={item.hasPassword ? '密碼留空＝不修改' : '密碼'} value={draft.password}
+                        onChange={event => setCredDraft(prev => ({ ...prev, [item.profile]: { ...draft, password: event.target.value } }))} />
+                      <button type="button" className="uat-btn is-quiet" onClick={() => void saveCred(item.profile)}>儲存</button>
+                    </div>
                   </div>
                 )
               })}
-              {credMsg && <small>{credMsg}</small>}
+              {credMsg && <span className={`uat-backend-cred-msg${credMsg.tone === 'error' ? ' is-error' : ''}`}>{credMsg.tone === 'ok' ? '✓ ' : ''}{credMsg.text}</span>}
             </div>
             <label>{xianxia ? 'Lark 玉簡路徑' : 'Lark TC 路徑'}<textarea className="uat-field uat-backend-url" value={config.larkUrl} onChange={event => update({ larkUrl: event.target.value })} placeholder="https://xxx.larksuite.com/base/...?table=..." /></label>
             <button type="button" className="uat-btn is-quiet is-wide" disabled={!config.larkUrl || scanning} onClick={scan}>{scanning ? '掃描中' : (xianxia ? '重整玉簡索引' : '掃描 Lark TC')}</button>

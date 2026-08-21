@@ -224,8 +224,15 @@
 }
 
 /* 後台登入帳密（依登入帳號各存一份，密碼不回傳前端） */
-.uat-backend-cred-box { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid rgba(148,163,184,.25); border-radius: 10px; }
+.uat-backend-cred-box { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid rgba(148,163,184,.25); border-radius: 10px; }
 .uat-backend-cred-box > b { font-size: 12px; }
 .uat-backend-cred-box > small { opacity: .7; line-height: 1.5; }
-.uat-backend-cred-row { display: grid; grid-template-columns: minmax(88px, auto) 1fr 1fr auto; gap: 6px; align-items: center; }
-.uat-backend-cred-row > span { font-size: 11px; opacity: .8; white-space: nowrap; }
+.uat-backend-cred-row { display: flex; min-width: 0; flex-direction: column; gap: 7px; padding: 10px; border: 1px solid var(--uat-border); border-radius: 8px; background: var(--uat-panel-soft); }
+.uat-backend-cred-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.uat-backend-cred-head > strong { font-size: 12px; font-weight: 700; }
+.uat-backend-cred-state { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 999px; color: var(--uat-muted); background: color-mix(in srgb, var(--uat-muted) 16%, transparent); font-size: 10px; font-weight: 700; white-space: nowrap; }
+.uat-backend-cred-state > i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.uat-backend-cred-state.is-set { color: #3fbe8b; background: color-mix(in srgb, #3fbe8b 14%, transparent); }
+.uat-backend-cred-pair { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+.uat-backend-cred-msg { display: flex; align-items: center; gap: 6px; color: #3fbe8b; font-size: 11px; }
+.uat-backend-cred-msg.is-error { color: var(--uat-danger); }

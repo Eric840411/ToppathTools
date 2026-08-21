@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.22.0'
+export const APP_VERSION = '4.22.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.22.1',
+    date: '2026-08-21',
+    changes: [
+      'fix(uat): 「後台登入帳密」卡片改成每個後台一張子卡（帳號整行、密碼＋儲存同行）——原本是四欄橫排 grid，塞進 280~320px 的右側設定欄後兩個輸入框各只剩約 60px，帳號與 placeholder 全被截斷',
+      'fix(uat): 「已設定／未設定」從接在標籤字串後面改成右上角狀態膠囊；密碼 placeholder 改寫成「密碼留空＝不修改」，說明文字裡那句移除',
+      'fix(uat): 儲存結果訊息帶出是哪個後台並區分成功／失敗顏色，不再跟上方灰色說明文字長得一樣',
+    ],
+  },
   {
     version: '4.22.0',
     date: '2026-08-21',
