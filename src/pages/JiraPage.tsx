@@ -2217,7 +2217,10 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
     if (!personColumn) return selfEmail
     const rec = sheetRecords.find(r => Number(r._rowIndex) === rowIndex)
     const name = rec ? getField(rec, personColumn).trim() : ''
-    if (!name) return selfEmail
+    // 2026-08-21 使用者決定：選了填寫人欄位之後，該格空白一律當成「未設定」而不是自動帶入自己——
+    // 自動帶入等於幫使用者決定「這則留言用誰的名義發」，而那正是他要避免的（用錯身分回覆）。
+    // 沒選填寫人欄位時仍然是「整批用自己」，那是明確的選擇不是漏填。
+    if (!name) return ''
     const hit = personResolve.find(x => x.name.toLowerCase() === name.toLowerCase())
     return hit && hit.status === 'ok' ? (hit.email ?? '') : ''
   }

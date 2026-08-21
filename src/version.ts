@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.18.2'
+export const APP_VERSION = '4.18.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.18.3',
+    date: '2026-08-21',
+    changes: [
+      "fix(jira): 批量評論選了填寫人欄位後，Sheet 該格空白改成「未設定」並擋住送出，不再自動帶入登入者自己——自動帶入等於幫使用者決定「這則留言用誰的名義發」，而那正是要避免的（用錯身分回覆）。沒選填寫人欄位時維持「整批用自己」，那是明確的選擇不是漏填",
+    ],
+  },
   {
     version: '4.18.2',
     date: '2026-08-21',
