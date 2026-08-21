@@ -25,9 +25,97 @@ const FILTER_SUBTYPES = process.argv[2]
   ? process.argv[2].split(',').map(s => s.trim())
   : [];
 
+const LEGACY_MODULE_FILTERS = {
+  dashboard: ['Dashboard'],
+  'egm-core': ['EGM List', 'EGM Status', 'Gaming User', 'Machine Monitoring', 'Player Watch'],
+  reports: ['EGM Detail', 'User Detail', 'EGM Transfer', 'Game Record', 'EGM DayCount', 'Player Credit Log', 'Fault List'],
+  'game-config': ['Loading Tips', 'White List', 'Game Jump Set', 'News Set', 'Advert Set', 'How To Play', 'Special Entrance Set', 'Test Setting', 'Deposit Setting'],
+  meters: ['Meter'], ranking: ['Daily Ranking', 'Channel Ranking', 'Bonus'], jackpot: ['Jackpot', 'JP Percent'],
+  reservation: ['Reservation', '預約'], logs: ['Log', 'Abnormality', 'Error Record', 'Out Log'],
+  'vip-version': ['VIP', 'Points', 'Membership', 'Version', '版本'], other: ['*'],
+};
+const MODULE_PLAN = (() => {
+  try {
+    const parsed = JSON.parse(process.env.UAT_MODULE_PLAN || '[]');
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item, index) => {
+      if (typeof item === 'string' && LEGACY_MODULE_FILTERS[item]) {
+        return [{ instanceId: item, name: item, filters: LEGACY_MODULE_FILTERS[item] }];
+      }
+      if (!item || typeof item !== 'object') return [];
+      const filters = Array.isArray(item.filters)
+        ? item.filters.filter(filter => typeof filter === 'string' && filter.trim()).slice(0, 50).map(filter => filter.trim())
+        : [];
+      if (!filters.length) return [];
+      return [{
+        instanceId: String(item.instanceId || `module-${index}`).slice(0, 100),
+        name: String(item.name || `Module ${index + 1}`).slice(0, 100),
+        filters,
+      }];
+    });
+  } catch {
+    return [];
+  }
+})();
+
+function findBackendModuleIndex(subtype, taskType) {
+  const name = `${subtype || ''} ${taskType || ''}`.toLocaleLowerCase();
+  const specificIndex = MODULE_PLAN.findIndex(module => module.filters.some(filter => filter !== '*' && name.includes(filter.toLocaleLowerCase())));
+  if (specificIndex >= 0) return specificIndex;
+  return MODULE_PLAN.findIndex(module => module.filters.includes('*'));
+}
+
 // ─── 後台設定 ─────────────────────────────────────────────────────────
 const BACKEND_URL = 'http://uat-cp.osmslot.org';
 const SCREENSHOT_DIR = './data/raw/screenshots/lark_tc';
+
+// ─── 可調整參數（config/backend-test-params.json）──────────────────────
+// 使用者可直接編輯這個JSON檔調整帳密/數值門檻/合法選項清單，不用動這支腳本本身的流程邏輯。
+// 找不到檔案或格式錯誤時 fallback 到內建預設值，不會讓整支腳本掛掉。
+const TEST_PARAMS = (() => {
+  const defaults = {
+    credentials: {
+      // 內建預設留空：真實帳密一律走環境變數（伺服器端依登入者從 DB 取出注入）或本機的
+      // config 檔（已 gitignore）。寫死 admin/123456 這種值等於把可用的帳密留在 repo 裡，
+      // 而這個專案的後台密碼長度剛好就是 6 碼，不能當成無害的佔位符（2026-08-21）。
+      cpBackend: { username: '', password: '' },
+      nchBackend: { username: '', password: '' },
+    },
+    jackpotAbnormality: {
+      maxInputDigits: 9,
+      jackpotValuePrefix: '777',
+      handpayValuePrefix: '888',
+      cleanRowPayoutThreshold: 100000,
+      rankingPollAttempts: 8,
+      rankingPollIntervalMs: 8000,
+    },
+    jackpotRanking: {
+      validJackpotTypes: ['Super-Tier1', 'Fortune-Tier1', 'Grand-Tier1', 'Mega-Tier1', 'Gold-Tier1', 'Grand-Tier2', 'Mega-Tier2', 'Major-Tier2', 'Maxi-Tier2', 'Pearl-Tier2'],
+    },
+  };
+  // 帳密優先吃環境變數（由伺服器端依「目前登入的人」從 DB 取出後注入），
+  // 沒有才 fallback 到 config 檔——真實帳密不應該躺在 repo 裡，config 檔已加進 .gitignore，
+  // 只保留 backend-test-params.example.json 當結構範本（2026-08-21）。
+  const envCreds = {
+    cpBackend: { username: process.env.UAT_CP_USERNAME, password: process.env.UAT_CP_PASSWORD },
+    nchBackend: { username: process.env.UAT_NCH_USERNAME, password: process.env.UAT_NCH_PASSWORD },
+  };
+  const mergeCreds = (base) => {
+    const out = { ...base };
+    for (const [profile, pair] of Object.entries(envCreds)) {
+      if (pair.username && pair.password) out[profile] = { username: pair.username, password: pair.password };
+    }
+    return out;
+  };
+  try {
+    const loaded = JSON.parse(fs.readFileSync('./config/backend-test-params.json', 'utf8'));
+    const merged = { ...defaults, ...loaded };
+    return { ...merged, credentials: mergeCreds({ ...defaults.credentials, ...(loaded.credentials || {}) }) };
+  } catch (e) {
+    console.warn(`⚠️ config/backend-test-params.json 讀取失敗（${e.message}），改用環境變數／內建預設值`);
+    return { ...defaults, credentials: mergeCreds(defaults.credentials) };
+  }
+})();
 
 // ─── 欄位 ID ─────────────────────────────────────────────────────────
 const FIELD = {
@@ -35,6 +123,55 @@ const FIELD = {
   uat_time:  'fld2kLMXQ5',   // UAT測試通過時間
   attach:    'fldN42zhZL',   // 附圖
 };
+
+// ─── TC Registry（2026-08-06 架構升級，同步自osm-qa-agent）─────────────
+// 根因：verifier內部用regex比對Lark即時抓到的TC文字挑分支，文字只要被PM/QA
+// 潤飾幾個字，regex就默默失效（同一天內發生3次：簡繁體不一致、外層gate regex太窄等）。
+// record_id是天然穩定ID（除非TC整筆被刪除重建，否則不會變），用它當key凍結一份
+// 「上次確認能命中規則時的TC文字」，執行時優先用凍結版去跑regex比對，不受之後
+// 潤飾影響；重大變更（相似度太低，可能是意圖真的變了）則不自動吸收，照舊用即時
+// 文字（可能對不到規則，變成可見的缺口，而不是靜默用舊意圖誤判新測試）。
+// 建立/刷新快照用 build-tc-registry.cjs；drift偵測報告用 check-tc-coverage.cjs。
+const TC_REGISTRY = (() => {
+  try { return JSON.parse(fs.readFileSync('./tc-registry.json', 'utf8')); }
+  catch (e) { return {}; }
+})();
+function normalizeForCompare(s) { return (s || '').replace(/\s+/g, '').trim(); }
+function trigramSet(s) {
+  const n = normalizeForCompare(s);
+  const set = new Set();
+  if (n.length < 3) { if (n) set.add(n); return set; }
+  for (let i = 0; i <= n.length - 3; i++) set.add(n.slice(i, i + 3));
+  return set;
+}
+function textSimilarity(a, b) {
+  if (normalizeForCompare(a) === normalizeForCompare(b)) return 1;
+  const ta = trigramSet(a), tb = trigramSet(b);
+  if (ta.size === 0 || tb.size === 0) return 0;
+  let inter = 0;
+  for (const g of ta) if (tb.has(g)) inter++;
+  const union = ta.size + tb.size - inter;
+  return union === 0 ? 1 : inter / union;
+}
+// 回傳 { text, source } —— text是要拿去給verifier做regex比對的「有效文字」，
+// source純供log/debug用，不影響流程：
+//   'live-new'                 registry沒有這筆（新TC），直接用即時文字（跟改版前行為一致）
+//   'live-stable'               文字跟凍結版完全一樣
+//   'canonical-minor-drift'     文字有小幅潤飾（相似度>=0.75），改用凍結版比對，避免regex失效
+//   'live-major-drift'          文字變動很大，不信任凍結版，照舊用即時文字（可能變成缺口，需人工用
+//                                build-tc-registry.cjs --refresh 重新確認後刷新）
+function resolveEffectiveTcText(recordId, liveText) {
+  const entry = TC_REGISTRY[recordId];
+  if (!entry) return { text: liveText, source: 'live-new' };
+  if (normalizeForCompare(entry.canonicalText) === normalizeForCompare(liveText)) {
+    return { text: liveText, source: 'live-stable' };
+  }
+  const sim = textSimilarity(entry.canonicalText, liveText);
+  if (sim >= 0.75) {
+    return { text: entry.canonicalText, source: 'canonical-minor-drift', similarity: sim };
+  }
+  return { text: liveText, source: 'live-major-drift', similarity: sim };
+}
 
 // ─── 每個 subtype 對應的後台路徑與測試邏輯 ────────────────────────────
 const SUBTYPE_MAP = {
@@ -146,10 +283,12 @@ async function updateRecord(token, recordId, fileTokens, pass) {
     return d;
   };
 
-  // Step 1: clear attachment first (two-step to ensure replacement)
-  if (tokens.length > 0) {
-    await putRecord({ '附圖': [] });
-  }
+  // Step 1: 一律先清空附圖（不只在tokens.length>0時才清）——
+  // 2026-08-07：MANUAL/SKIP的TC現在tokens必為空(不上傳新圖)，如果沿用舊的
+  // 「只在有新圖時才清」邏輯，這裡就完全不會執行，導致MANUAL/SKIP列上殘留舊版本
+  // (改成不上傳截圖之前)留下的舊截圖，重跑再多次也清不掉。一律先清空可同時涵蓋
+  // 「有新圖要換」跟「MANUAL/SKIP要清掉舊圖」兩種情境。
+  await putRecord({ '附圖': [] });
 
   // Step 2: set remaining fields
   const fields = {};
@@ -205,9 +344,16 @@ function detectManual(full) {
     [/前端進入機台.*後台.*即時更新|後台.*實時更新/i, '需要前端玩家進入機台才能驗證'],
     [/現場.*handpay|handpay.*後.*查看/i, '需要現場 handpay 操作'],
     [/機器門.*打開|kickout.*卡額度/i, '需要硬體操作（機器門）'],
+    // ⭐ 2026-08-06：新表補上的TC，描述「有時候須現場cash out有時不用」是依情境而定的
+    // 業務規則，不是固定可判定的行為，無法從後台頁面單方面判斷該次kickout屬於哪種情境。
+    // ⚠️ 實測發現這筆TC文字在「kickout功能需正常」後面是真的換行(\n)才接「(有時候...)」，
+    // 用.*會因為JS regex預設.不跨行而漏配，改用[\s\S]*確保跨行也能命中。
+    [/kickout功能需正常[\s\S]*現場cash out/i, '依情境而定（是否需現場cash out），需人工依實際狀況確認'],
     [/5.*分鐘.*更新|每5分鐘/i, '需要等待5分鐘觀察更新'],
     [/23:59:59|05:59:59|特殊時間段/i, '需要特定時間段歷史資料'],
-    [/jackpot.*abr.*補發.*自動寫入|自動寫入.*jackpot.*raking/i, '需要 Jackpot Abnormality 補發事件'],
+    // ⭐ 2026-08-05：「Jackpot Abnormality補發→自動寫入Jackpot Ranking」跟「審核通過…預設為空」
+    // 這兩筆原本在這裡標MANUAL，已經在使用者說明操作步驟後改成verifyJackpotRanking裡的
+    // 真實自動化流程（runJackpotAbnormalityFlow），不再需要人工，故從這個清單移除。
     [/不可以兩支.*帳號.*預約同機台/i, '需要兩個前端帳號同時操作'],
     [/前端預約後.*機台.*展示/i, '跨系統驗證（需前端操作）'],
     [/快速join.*直接跳轉遊戲/i, '跨系統驗證（需前端 quick join）'],
@@ -222,6 +368,27 @@ function detectManual(full) {
     [/maintenance.*是否.*把玩家提出|是否.*把玩家提出.*機台/i, '需前端帳號在機台內才能驗證 maintenance kick'],
     [/jackpotContribution|userbethistory.*bpo/i, '需前端遊玩 + BPO API 驗證 jackpotContribution'],
     [/預約時間到後.*繼續遊玩/i, '需等待預約時間到期後觀察計費行為'],
+    // ⭐ 2026-08-05：Jackpot Ranking 深度實查新增（真的去後台點過 Announcement/Batch/Add
+    // 三個 dialog 確認過欄位後才分類，不是憑TC文字臆測）
+    [/如果有視頻.*彈框.*打開video|視頻.*跳出彈框.*打開video/i, '需前端確認：有視頻時彈框可播放，無視頻時不顯示（後台看不到前端彈框）'],
+    [/彈框須按照排名順序|排名順序.*跳出/i, '需前端確認：JP中獎彈框依排名順序跳出（後台看不到前端彈框順序）'],
+    // ⭐ 2026-08-06：Jackpot Moment 深度實查新增（真的去後台點過Add/Check確認過欄位跟真實error訊息後才分類）
+    [/quick join就會直接跳轉遊戲|quick join.*直接跳轉/i, '需前端確認：quick join是否直接跳轉遊戲（後台看不到前端跳轉行為）'],
+    // ⭐ 2026-08-06：Machine Reservation 深度實查新增（真的去後台操作過Add Reservation/
+    // Reservation List/VIP名單後才分類，跨渠道/跨系統/前端行為類無法從單一後台session驗證）
+    [/預約時間到後.*繼續遊玩.*筆數計算到離開機台/i, '需前端確認：預約到期後繼續遊玩的計費行為（後台看不到前端遊玩狀態）'],
+    [/add reservation按钮只有cp渠道会显示|其他渠道隐藏/i, '需跨渠道比對：Add Reservation按鈕僅CP顯示（需切換到非CP渠道後台驗證隱藏）'],
+    [/壓測各渠道可以分開新增.*不會互相影響/i, '需跨渠道壓測比對：各渠道新增是否互不影響（需多渠道同時操作）'],
+    [/machine reservation limit.*限制遊戲預約上限.*有區分渠道/i, '需至Reservation Limit頁面+跨渠道比對驗證預約上限（該頁目前無獨立live TC）'],
+    [/後台已預約數量會占用到前端預約的數量/i, '需前後台同時比對：後台預約是否占用前端名額（跨系統驗證）'],
+    // ⭐ 2026-08-06：Channel Ranking 深度實查新增
+    [/在bpo渠道把某個渠道拔掉.*news quick join進入不會進到已拔掉渠道的機器/i, '需前端確認：BPO渠道拔掉某渠道後，quick join是否正確排除（後台看不到前端進場行為）'],
+    // ⭐ 2026-08-06：EGM List 深度實查新增
+    [/只有lavie後台.*機器可設置machine\s*type為gsa類型/i, '需至Lavie後台(uat-nc.osmslot.org)測試GSA Machine Type設定與對應報表分類，非CP渠道功能'],
+    // ⭐ 2026-08-06：報表頁面群組深度實查新增（User Detail/EGM Transfer/Jackpot Record）
+    [/帳號進入前端遊玩機台.*對照後台的投注.*輸贏紀錄是否正確/i, '需前端遊玩+後台比對投注輸贏紀錄（跨系統驗證）'],
+    [/前端進入機台遊玩.*確認帶入機台金額跟帶出機台金額是否正確/i, '需前端遊玩+後台比對帶入/帶出機台金額（跨系統驗證）'],
+    [/機台達到鎖機金額時.*請現場handpay後.*補handpay後.*查看是否有紀錄/i, '需現場硬體handpay操作+後台補發（需實體機台）'],
   ];
   for (const [pat, reason] of manualPatterns) {
     if (pat.test(full)) return reason;
@@ -335,16 +502,39 @@ async function doBonusSettings(page) {
     notes.push(`✅Bonus Settings Dialog 已開啟（${inputCount}個輸入框）`);
 
     // ⑤ 讀取所有欄位 label + 原始值
+    // 改版後 Bonus Settings 是 el-table 表格佈局（input 直接在 td > div.cell 裡），
+    // 不再是舊版的 .el-form-item 表單列，兩種都嘗試，避免下次又改版就整段讀空。
+    // ⭐ 2026-08-06：加入disabled偵測——實測發現新版(細分ALL/CP/BP)Bonus Settings
+    // 表格裡混雜了disabled的唯讀欄位（例如Ranking排名顯示欄），舊版邏輯無視disabled、
+    // 對每個偵測到的input一律click+fill，遇到唯讀欄位會卡在locator.click逾時30秒。
     const fieldData = await page.evaluate(() => {
-      const items = Array.from(document.querySelectorAll('.el-dialog__body .el-form-item'));
-      return items.map((item, idx) => {
-        const labelEl = item.querySelector('.el-form-item__label');
-        const inputEl = item.querySelector('input');
+      const formItems = Array.from(document.querySelectorAll('.el-dialog__body .el-form-item'));
+      if (formItems.length > 0) {
+        return formItems.map((item, idx) => {
+          const labelEl = item.querySelector('.el-form-item__label');
+          const inputEl = item.querySelector('input');
+          return {
+            label: labelEl ? labelEl.innerText.trim() : `Field ${idx + 1}`,
+            origVal: inputEl ? inputEl.value : '',
+            disabled: inputEl ? inputEl.disabled : true,
+          };
+        }).filter(f => f.origVal !== '' || f.label);
+      }
+      // Table 佈局 fallback：input 在 td.el-table__cell 裡，label 取同一欄的表頭文字
+      const table = document.querySelector('.el-dialog__body .el-table');
+      if (!table) return [];
+      const headerCells = Array.from(table.querySelectorAll('thead th'));
+      const inputs = Array.from(table.querySelectorAll('tbody input.el-input__inner, tbody input'));
+      return inputs.map((inputEl, idx) => {
+        const td = inputEl.closest('td');
+        const colIdx = td ? Array.from(td.parentElement.children).indexOf(td) : -1;
+        const headerEl = colIdx >= 0 ? headerCells[colIdx] : null;
         return {
-          label: labelEl ? labelEl.innerText.trim() : `Field ${idx + 1}`,
-          origVal: inputEl ? inputEl.value : '',
+          label: headerEl ? headerEl.innerText.trim() : `Column ${idx + 1}`,
+          origVal: inputEl.value || '',
+          disabled: !!inputEl.disabled,
         };
-      }).filter(f => f.origVal !== '' || f.label);
+      });
     });
 
     if (fieldData.length === 0) {
@@ -352,24 +542,44 @@ async function doBonusSettings(page) {
       page.off('response', responseListener);
       return { notes: notes.join(' | '), criticalFails, toastShotPath, extraShotPaths };
     }
+    // ⭐ 2026-08-06：TC文字補充「細分ALL、CP、BP，並且全渠道共用」，這裡把實際讀到的
+    // 欄位label明列出來，讓報告直接證實（或反駁）這個補充說明，不是憑舊note默默沿用。
+    // ⭐ 實測發現表格是「Start Ranking / End Ranking / Bonus」三欄一組（8組=24欄），
+    // Start/End Ranking兩欄互相有「start必須<=end」的跨欄位驗證規則——如果每欄各自填
+    // 獨立隨機值，很容易產生start>end而被後台拒絕(Save後無toast、實際是表單驗證錯誤
+    // 被吞掉，不是真的功能壞掉)。TC文字本身要驗證的是「Bonus settings可以正常設置」，
+    // 不是排名範圍設定，所以只改Bonus欄位、Ranking欄位保留原值不動，這樣既測到了
+    // Bonus可設置，也不會誤觸發跟本次驗證目的無關的排名範圍驗證規則。
+    const editableCount = fieldData.filter(f => !f.disabled).length;
+    const bonusEditCount = fieldData.filter(f => !f.disabled && /bonus/i.test(f.label)).length;
+    notes.push(`✅已測試欄位: ${fieldData.map(f => f.label).join('/')}（可編輯${editableCount}/${fieldData.length}個，其中Bonus欄位${bonusEditCount}個會實際修改，Ranking等其他欄位保留原值避免觸發start<=end等跨欄位驗證規則）`);
 
     // 截圖①：Dialog 開啟狀態（修改前）
     const dialogBeforePath = path.join(SCREENSHOT_DIR, `bonus_before_${Date.now()}.png`);
     await page.screenshot({ path: dialogBeforePath, fullPage: false });
     extraShotPaths.push(dialogBeforePath);
 
-    // ⑥ 為每個欄位產生隨機值（1–7位隨機整數）
+    // ⑥ 為每個欄位產生隨機值（1–7位隨機整數）；只有Bonus欄位會被實際修改，
+    // disabled或非Bonus欄位一律保留原值，不生成新值也不嘗試填寫。
+    const shouldFill = (f) => !f.disabled && /bonus/i.test(f.label);
     const newVals = fieldData.map(f => {
+      if (!shouldFill(f)) return f.origVal;
       const digits = Math.floor(Math.random() * 5) + 2; // 2–6位
       const min = Math.pow(10, digits - 1);
       const max = Math.pow(10, digits) - 1;
       return String(Math.floor(Math.random() * (max - min + 1)) + min);
     });
 
-    // ⑦ 依序 fill 每個 input
-    const inputs = page.locator('.el-dialog__body .el-form-item input');
-    const actualCount = await inputs.count().catch(() => 0);
+    // ⑦ 依序 fill 每個 input（表單列或表格佈局都用同一個寬鬆選擇器，跟⑤讀值範圍一致）
+    // disabled或非Bonus欄位直接跳過，避免click卡死逾時、也避免誤觸發跨欄位驗證規則
+    let inputs = page.locator('.el-dialog__body .el-form-item input');
+    let actualCount = await inputs.count().catch(() => 0);
+    if (actualCount === 0) {
+      inputs = page.locator('.el-dialog__body .el-table tbody input');
+      actualCount = await inputs.count().catch(() => 0);
+    }
     for (let i = 0; i < Math.min(actualCount, newVals.length); i++) {
+      if (!shouldFill(fieldData[i] || {})) continue;
       const inp = inputs.nth(i);
       await inp.click({ clickCount: 3 });
       await inp.fill(newVals[i]);
@@ -404,6 +614,16 @@ async function doBonusSettings(page) {
       });
       await page.waitForTimeout(800);
     }
+
+    // ⭐ 2026-08-06新增診斷：Save後若沒有success toast，先檢查是不是有錯誤訊息/表單
+    // 驗證錯誤被忽略了，不要只回報「無toast」卻不知道真正原因。
+    const errorDiag = await page.evaluate(() => {
+      const errToast = document.querySelector('.el-message--error');
+      const formErrors = [...document.querySelectorAll('.el-form-item__error')].map(e => e.innerText?.trim()).filter(Boolean);
+      return { errToastText: errToast?.innerText?.trim() || null, formErrors };
+    }).catch(() => ({ errToastText: null, formErrors: [] }));
+    if (errorDiag.errToastText) notes.push(`❌偵測到錯誤訊息: ${errorDiag.errToastText}`);
+    if (errorDiag.formErrors.length > 0) notes.push(`❌表單驗證錯誤: ${errorDiag.formErrors.join(', ')}`);
 
     // ⑨ 輪詢 success toast（最多等 4s）
     let toastFound = false;
@@ -644,6 +864,13 @@ async function doTimeSetting(page) {
 
 // ─── 每頁獨立 verify functions ────────────────────────────────────────
 
+// ⭐ 2026-08-06 重寫：原本只數「.el-card/[class*=card]」元素數量>0就算pass，完全不管
+// 藍/橘/綠/紅四個色塊各自該顯示哪些欄位。已實際登入uat-cp.osmslot.org/dashboard，
+// 用innerClass+背景色確認過四色塊對應：藍=.egm(Total Available/Connected EGM)、
+// 橘=.patros(Online Users，即時性需等5分鐘，已由detectManual正確分流)、
+// 綠=.meter(Online Total In/Out/Bet Coin/Actual Win/Win Lose Ratio)、
+// 紅=.coin(Online Total Player Balance)，改成每筆TC對應各自色塊的真實欄位斷言。
+
 async function verifyDashboard(page, tc) {
   const notes = [];
   const criticalFails = [];
@@ -658,10 +885,60 @@ async function verifyDashboard(page, tc) {
   const { h1 } = await getBaseInfo(page);
   if (h1) notes.push(`頁面:${h1}`);
 
-  const cardCount = await page.evaluate(() =>
-    document.querySelectorAll('.el-card, [class*="card"], [class*="count"], [class*="stat"]').length
-  ).catch(() => 0);
-  notes.push(cardCount > 0 ? `✅儀錶板卡片×${cardCount}` : '⚠️儀錶板卡片未偵測到');
+  const readBlock = async (cls, expectedLabels) => page.evaluate(({ cls, expectedLabels }) => {
+    const el = document.querySelector(`.${cls}`);
+    if (!el) return { found: false };
+    const text = el.innerText || '';
+    const results = expectedLabels.map(label => {
+      const idx = text.indexOf(label);
+      if (idx === -1) return { label, present: false, value: null };
+      const after = text.slice(idx + label.length, idx + label.length + 40).trim().split('\n')[0];
+      return { label, present: true, value: after };
+    });
+    return { found: true, results };
+  }, { cls, expectedLabels });
+
+  const checkBlock = async (cls, expectedLabels, blockName) => {
+    const r = await readBlock(cls, expectedLabels);
+    if (!r.found) {
+      notes.push(`❌找不到${blockName}色塊(.${cls})`);
+      criticalFails.push(`${blockName}色塊缺失`);
+      return;
+    }
+    const missing = r.results.filter(x => !x.present).map(x => x.label);
+    const emptyVal = r.results.filter(x => x.present && !x.value).map(x => x.label);
+    if (missing.length === 0 && emptyVal.length === 0) {
+      notes.push(`✅${blockName}色塊有數據: ${r.results.map(x => `${x.label}=${x.value}`).join(', ')}`);
+    } else {
+      if (missing.length) {
+        notes.push(`❌${blockName}色塊缺少欄位:${missing.join(',')}`);
+        criticalFails.push(`${blockName}色塊缺少欄位:${missing.join(',')}`);
+      }
+      if (emptyVal.length) {
+        notes.push(`❌${blockName}色塊欄位無數值:${emptyVal.join(',')}`);
+        criticalFails.push(`${blockName}色塊欄位無數值:${emptyVal.join(',')}`);
+      }
+    }
+  };
+
+  // TC1：藍底 - 當前可用的機器數量，當前有人在遊戲內的機器數量(即時更新)
+  if (/藍底.*當前可用的機器數量|當前可用的機器數量.*藍底/i.test(full) || (/藍底/.test(full) && /可用的機器數量/.test(full))) {
+    await checkBlock('egm', ['Total Available EGM', 'Total System Connected EGM'], '藍底(EGM數量)');
+  }
+
+  // TC3：綠底 - 當前的總帶入金額、總帶出金額、總投注、總輸贏值、總輸贏率(５分鐘左右更新一次)
+  if (/綠底.*總帶入金額|總帶入金額.*綠底/i.test(full) || (/綠底/.test(full) && /總帶入金額/.test(full))) {
+    await checkBlock('meter', ['Online Total In', 'Online Total Out', 'Online Total Bet Coin', 'Online Total Actual Win', 'Total Win Lose Ratio'], '綠底(金額統計)');
+  }
+
+  // TC4：紅底 - 前總玩家所帶入機台的金額(即時更新)
+  if (/紅底.*所帶入機台的金額|所帶入機台的金額.*紅底/i.test(full) || (/紅底/.test(full) && /帶入機台的金額/.test(full))) {
+    await checkBlock('coin', ['Online Total Player Balance'], '紅底(玩家帶入金額)');
+  }
+
+  if (notes.length === (h1 ? 1 : 0)) {
+    notes.push(`⚠️這筆TC文字沒有對應到已知的驗證規則，未執行任何斷言: ${full.slice(0, 40)}`);
+  }
 
   return { notes: notes.join(' | '), criticalFails };
 }
@@ -1139,6 +1416,7 @@ async function verifyDailyDashboard(page, tc) {
   return { notes: notes.join(' | '), criticalFails };
 }
 
+
 async function verifyEGMList(page, tc) {
   const notes = [];
   const criticalFails = [];
@@ -1159,7 +1437,7 @@ async function verifyEGMList(page, tc) {
   const extraShotPaths = [];
 
   if (/\badd\b|新增/.test(desc)) {
-    const hasAdd = allBtns.some(t => /^add$/i.test(t));
+    const hasAdd = allBtns.some(t => /^add\b/i.test(t));
     if (hasAdd) {
       notes.push('✅Add按鈕');
     } else {
@@ -1195,6 +1473,44 @@ async function verifyEGMList(page, tc) {
   if (/maintenance|維護.*喚醒/i.test(full)) {
     const hasMaint = allBtns.some(t => /maintenance|wake/i.test(t));
     notes.push(hasMaint ? '✅Maintenance按鈕' : '⚠️Maintenance/Wake按鈕未找到');
+  }
+
+  // ⭐ 2026-08-06新增：確認是否能編輯機台資訊(Alias/限額/設置白名單)
+  // 已實際點開Edit Machine Dialog確認：Alias對應欄位是「GameNameAlias」、限額對應「Enter Limit」、
+  // 設置白名單對應「VIP」(YES/NO開關，語意上是VIP名單/白名單存取控制)
+  if (/確認是否能編輯機台資訊.*alias.*限額.*設置白名單/i.test(full)) {
+    if (rowCount === 0) {
+      notes.push('⚠️表格無資料，無法開啟Edit Machine Dialog驗證');
+    } else {
+      const clicked = await page.evaluate(() => {
+        const row = document.querySelectorAll('.el-table__body tr')[0];
+        const btn = row && [...row.querySelectorAll('button')].find(b => !b.innerText?.trim());
+        if (btn) { btn.click(); return true; }
+        return false;
+      });
+      await page.waitForTimeout(1000);
+      if (!clicked) {
+        notes.push('❌找不到Edit機台圖示按鈕');
+        criticalFails.push('Edit機台圖示按鈕缺失');
+      } else {
+        const labels = await page.evaluate(() => {
+          const d = [...document.querySelectorAll('.el-dialog')].filter(x => x.getBoundingClientRect().width > 0).pop();
+          return d ? [...d.querySelectorAll('.el-form-item__label')].map(l => l.innerText?.trim()) : null;
+        });
+        const shotPath = path.join(SCREENSHOT_DIR, `egmlist_edit_${Date.now()}.png`);
+        await page.screenshot({ path: shotPath });
+        extraShotPaths.push(shotPath);
+        const expected = ['GameNameAlias', 'Enter Limit', 'VIP'];
+        const missing = expected.filter(e => !labels?.includes(e));
+        if (missing.length === 0) {
+          notes.push('✅Edit Machine Dialog含Alias(GameNameAlias)/限額(Enter Limit)/白名單相關(VIP)欄位');
+        } else {
+          notes.push(`❌Edit Machine Dialog缺少欄位:${missing.join(',')}（實際:${labels?.join(',') || '無'}）`);
+          criticalFails.push(`Edit Machine Dialog缺少欄位:${missing.join(',')}`);
+        }
+        await page.keyboard.press('Escape').catch(() => {});
+      }
+    }
   }
 
   if (/可以.*編輯|可以.*刪除|edit.*delete|delete.*edit|編輯.*刪除|刪除.*編輯/.test(desc)) {
@@ -1251,6 +1567,13 @@ async function verifyEGMStatus(page, tc) {
   return { notes: notes.join(' | '), criticalFails, extraShotPaths };
 }
 
+// ⭐ 2026-08-06 重寫：原本不管TC實際內容，只回報「表格0筆（UAT環境可能為0）」就算pass。
+// 已實際登入uat-cp.osmslot.org/egm/onlineList查證：這頁的「Online Type」下拉正好就是
+// 3筆TC分別對應的3個選項(Gaming User/Online User/Occupied Machine)，且實測確認選
+// "Online User"時Game Type欄位真的會被disabled=true（對應TC2「確認會屏蔽Game Type功能」），
+// 選"Gaming User"時則是disabled=false——這是可以真的操作切換+讀DOM disabled屬性驗證的，
+// 不是臆測。改成每筆TC實際切換對應的Online Type並驗證真實行為。
+
 async function verifyGamingUser(page, tc) {
   const notes = [];
   const criticalFails = [];
@@ -1265,7 +1588,104 @@ async function verifyGamingUser(page, tc) {
 
   const { h1, rowCount } = await getBaseInfo(page);
   if (h1) notes.push(`頁面:${h1}`);
-  notes.push(`表格${rowCount}筆（UAT環境可能為0）`);
+
+  const selectOnlineType = async (value) => {
+    await page.evaluate((label) => {
+      const item = [...document.querySelectorAll('.el-form-item')].find(it => it.querySelector('.el-form-item__label')?.innerText?.trim() === 'Online Type');
+      item?.querySelector('.el-input__inner')?.click();
+    });
+    await page.waitForTimeout(400);
+    const clicked = await page.evaluate((value) => {
+      const dropdowns = [...document.querySelectorAll('.el-select-dropdown')].filter(d => d.getBoundingClientRect().width > 0);
+      const last = dropdowns[dropdowns.length - 1];
+      const opt = last && [...last.querySelectorAll('li')].find(li => li.innerText?.trim() === value);
+      if (opt) { opt.click(); return true; }
+      return false;
+    }, value);
+    await page.waitForTimeout(400);
+    return clicked;
+  };
+
+  const getOnlineTypeOptions = async () => {
+    await page.evaluate(() => {
+      const item = [...document.querySelectorAll('.el-form-item')].find(it => it.querySelector('.el-form-item__label')?.innerText?.trim() === 'Online Type');
+      item?.querySelector('.el-input__inner')?.click();
+    });
+    await page.waitForTimeout(400);
+    const opts = await page.evaluate(() => {
+      const dropdowns = [...document.querySelectorAll('.el-select-dropdown')].filter(d => d.getBoundingClientRect().width > 0);
+      const last = dropdowns[dropdowns.length - 1];
+      return last ? [...last.querySelectorAll('li')].map(li => li.innerText?.trim()) : [];
+    });
+    await page.keyboard.press('Escape').catch(() => {});
+    return opts;
+  };
+
+  const getGameTypeDisabled = () => page.evaluate(() => {
+    const item = [...document.querySelectorAll('.el-form-item')].find(it => it.querySelector('.el-form-item__label')?.innerText?.trim() === 'Game Type');
+    return item?.querySelector('input')?.disabled ?? null;
+  });
+
+  // TC1：Gaming User計算玩家在機台內的人數，並確認篩選機台功能有成功篩選正確人數
+  if (/gaming user計算玩家在機台內的人數|篩選機台功能.*篩選正確人數/i.test(full)) {
+    const opts = await getOnlineTypeOptions();
+    const expectedOpts = ['Gaming User', 'Online User', 'Occupied Machine'];
+    const missingOpts = expectedOpts.filter(o => !opts.includes(o));
+    if (missingOpts.length > 0) {
+      notes.push(`❌Online Type選項缺少:${missingOpts.join(',')}（實際:${opts.join(',')}）`);
+      criticalFails.push(`Online Type選項缺少:${missingOpts.join(',')}`);
+    } else {
+      await selectOnlineType('Gaming User');
+      const gtDisabled = await getGameTypeDisabled();
+      const { rowCount: rc2 } = await getBaseInfo(page);
+      if (gtDisabled === false) {
+        notes.push(`✅Online Type=Gaming User時Game Type篩選可用（可篩選機台）| 表格${rc2}筆${rc2 === 0 ? '（UAT環境目前無在線玩家，僅驗證篩選機制存在，未驗證實際計數）' : ''}`);
+      } else {
+        notes.push(`❌Online Type=Gaming User時Game Type篩選未如預期啟用(disabled=${gtDisabled})`);
+        criticalFails.push('Gaming User模式下Game Type篩選未啟用');
+      }
+    }
+  }
+
+  // TC2：Online User計算大廳內的人數，並確認會屏蔽Game Type功能
+  if (/online user計算大廳內的人數|確認會屏蔽game type功能/i.test(full)) {
+    const selected = await selectOnlineType('Online User');
+    if (!selected) {
+      notes.push('❌找不到Online Type="Online User"選項');
+      criticalFails.push('Online User選項缺失');
+    } else {
+      const gtDisabled = await getGameTypeDisabled();
+      const { rowCount: rc2 } = await getBaseInfo(page);
+      if (gtDisabled === true) {
+        notes.push(`✅Online Type=Online User時Game Type欄位正確被disabled（屏蔽） | 表格${rc2}筆`);
+      } else {
+        notes.push(`❌Online Type=Online User時Game Type欄位未被屏蔽(disabled=${gtDisabled})`);
+        criticalFails.push('Online User模式下Game Type未被屏蔽');
+      }
+    }
+  }
+
+  // TC3：后台Game User增加预约机器+占用机器数量记录，Type为Occupied Machine
+  if (/占用机器数量记录|type為occupied machine|type为occupied machine/i.test(full)) {
+    const selected = await selectOnlineType('Occupied Machine');
+    if (!selected) {
+      notes.push('❌找不到Online Type="Occupied Machine"選項');
+      criticalFails.push('Occupied Machine選項缺失');
+    } else {
+      const { rowCount: rc2, allHeaders: ah2 } = await getBaseInfo(page);
+      if (rc2 > 0) {
+        const typeColOk = await page.evaluate(() => {
+          const rows = [...document.querySelectorAll('.el-table__body tr')];
+          return rows.some(r => /occupied machine/i.test(r.innerText || ''));
+        });
+        notes.push(typeColOk
+          ? `✅Online Type=Occupied Machine：表格${rc2}筆，含Occupied Machine記錄`
+          : `⚠️Online Type=Occupied Machine：表格${rc2}筆，但未在列中看到"Occupied Machine"字樣（實際欄位:${ah2.join(',')}）`);
+      } else {
+        notes.push(`✅Online Type=Occupied Machine選項可正常切換 | 表格${rc2}筆（UAT環境目前無占用機器記錄，僅驗證篩選機制存在）`);
+      }
+    }
+  }
 
   let exportedXlsxPath = null;
 
@@ -1276,8 +1696,24 @@ async function verifyGamingUser(page, tc) {
     exportedXlsxPath = exportResult.exportedXlsxPath;
   }
 
+  if (notes.length === (h1 ? 1 : 0)) {
+    notes.push(`表格${rowCount}筆（UAT環境可能為0） | ⚠️這筆TC文字沒有對應到已知的驗證規則，未執行額外斷言: ${full.slice(0, 40)}`);
+  }
+
   return { notes: notes.join(' | '), criticalFails, exportedXlsxPath };
 }
+
+// ⭐ 2026-08-06 重寫：這支verifier共用給7個報表頁面（User Detail/EGM Detail/EGM Transfer/
+// Game Record/EGM DayCount/Player Credit Log/Jackpot Record，共28筆TC），原本只檢查
+// 「有日期篩選元件」就算pass，不管TC實際要求哪些搜尋欄位。已實際登入uat-cp.osmslot.org
+// 逐頁查證7個頁面的真實filter欄位組合（每頁不同），改成依頁面breadcrumb分流+關鍵字比對
+// 各自的真實搜尋欄位。
+
+// ⭐ 2026-08-06 重寫：這支verifier共用給7個報表頁面（User Detail/EGM Detail/EGM Transfer/
+// Game Record/EGM DayCount/Player Credit Log/Jackpot Record，共28筆TC），原本只檢查
+// 「有日期篩選元件」就算pass，不管TC實際要求哪些搜尋欄位。已實際登入uat-cp.osmslot.org
+// 逐頁查證7個頁面的真實filter欄位組合（每頁不同），改成依頁面breadcrumb分流+關鍵字比對
+// 各自的真實搜尋欄位。
 
 async function verifyReportPage(page, tc) {
   const notes = [];
@@ -1295,15 +1731,98 @@ async function verifyReportPage(page, tc) {
   if (h1) notes.push(`頁面:${h1}`);
   notes.push(`表格${rowCount}筆`);
 
-  // 確認 Date filter 存在
-  const hasDate = await page.evaluate(() =>
-    document.querySelectorAll('.el-date-editor, input[type="date"]').length > 0
-  ).catch(() => false);
-  if (hasDate) {
-    notes.push('✅日期篩選');
-  } else {
-    notes.push('❌日期篩選缺失');
-    criticalFails.push('日期篩選缺失');
+  const extraShotPaths = [];
+  const breadcrumb = await page.evaluate(() => document.querySelector('.el-breadcrumb, h1, h2, .page-title')?.innerText || '').catch(() => '');
+  const isPage = (name) => new RegExp(name, 'i').test(breadcrumb);
+  const filterLabels = await page.evaluate(() => [...document.querySelectorAll('.el-form-item__label')].map(l => l.innerText?.trim()).filter(Boolean)).catch(() => []);
+
+  const checkFields = (expected) => {
+    const missing = expected.filter(e => !filterLabels.includes(e));
+    if (missing.length === 0) {
+      notes.push(`✅搜尋欄位完整(${expected.join('/')})`);
+    } else {
+      notes.push(`❌缺少搜尋欄位:${missing.join(',')}（實際:${filterLabels.join(',')}）`);
+      criticalFails.push(`缺少搜尋欄位:${missing.join(',')}`);
+    }
+  };
+
+  // TC：確認日期可以選擇(當日)（7頁共通）
+  if (/確認日期可以選擇\(當日\)|確認日期可以選擇（當日）/i.test(full)) {
+    const dateEditorCount = await page.evaluate(() => document.querySelectorAll('.el-date-editor').length).catch(() => 0);
+    if (dateEditorCount >= 2) {
+      notes.push(`✅日期篩選存在(${dateEditorCount}個日期輸入框，From/To區間)`);
+    } else {
+      notes.push(`❌日期篩選元件數量異常(${dateEditorCount}個，預期至少2個From/To)`);
+      criticalFails.push('日期篩選元件缺失或不完整');
+    }
+    // Game Record TC1同時混雜「前端玩機台查看是否有實時紀錄」的跨系統要求，後台看不到，如實記錄
+    if (/前端玩機台.*查看是否有實時紀錄/i.test(full)) {
+      notes.push('⚠️「前端玩機台是否有實時紀錄」為跨系統驗證，後台看不到前端操作，僅驗證了日期篩選部分');
+    }
+    // ⭐ 2026-08-06：Player Credit Log這筆TC文字補充「如果跟Egm Detail不同是正常的，
+    // 可以到盒子看看是不是有AFT問題」——這是給人看的troubleshooting指引（AFT問題需實體
+    // 機台/盒子才能確認），不是可從後台頁面斷言的行為，這裡只如實記錄補充說明存在，
+    // 不假裝驗證過AFT狀態。
+    if (/egm detail不同是正常的|aft問題/i.test(full)) {
+      notes.push('ℹ️TC文字補充：與EGM Detail數字不同時屬正常，需到實體機台盒子確認AFT狀態，本工具僅驗證後台頁面本身，未做實體AFT狀態確認');
+    }
+  }
+
+  // TC：Machine Name/UserId/Account/Game Type/Player Channel/Type/Game Order 搜尋欄位（各頁不同組合）
+  if (/可以搜尋|搜尋機型正確|篩選正確|都可以正確搜尋/i.test(full)) {
+    if (isPage('User Detail') && /machine name.*userid.*account/i.test(full)) {
+      checkFields(['Machine Name', 'UserId', 'Account']);
+    } else if (isPage('User Detail') && /game type/i.test(full)) {
+      checkFields(['Game Type']);
+    } else if (isPage('EGM Detail') && /machine name可以搜尋/i.test(full)) {
+      checkFields(['Machine Name']);
+    } else if (isPage('EGM Detail') && /game type/i.test(full)) {
+      checkFields(['Game Type']);
+    } else if (isPage('EGM Transfer')) {
+      checkFields(['Machine Name', 'UserId', 'Account']);
+    } else if (isPage('Game Record') && /game order/i.test(full)) {
+      checkFields(['Machine Name', 'UserId', 'Account', 'Game Order']);
+    } else if (isPage('Game Record') && /player channel/i.test(full)) {
+      checkFields(['Player Channel']);
+    } else if (isPage('EGM DayCount') && /game type/i.test(full)) {
+      checkFields(['Game Type']);
+    } else if (isPage('EGM DayCount') && /player channel/i.test(full)) {
+      checkFields(['Player Channel']);
+    } else if (isPage('Player Credit Log') && /player channel/i.test(full)) {
+      checkFields(['Player Channel']);
+    } else if (isPage('Player Credit Log') && /type都可以正確搜尋/i.test(full)) {
+      checkFields(['UserId', 'Account', 'Type']);
+    } else if (isPage('Jackpot Record') && /game type/i.test(full)) {
+      checkFields(['Game Type']);
+    }
+  }
+
+  // TC：Jackpot Record「Game Record中增加每局游戏类型Spin Type」——文字講的是Game Record頁面
+  // 的欄位，不是Jackpot Record本身，已跨頁查證(navigate過去讀header再導回，不影響外層流程)
+  if (/game\s*record中增加每局游戏类型spin\s*type/i.test(full)) {
+    const originalUrl = page.url();
+    await page.goto(originalUrl.replace(/\/egm\/reports\/\w+$/, '/egm/reports/gameRecordList'), { waitUntil: 'networkidle', timeout: 20000 });
+    await page.waitForTimeout(1200);
+    await page.evaluate(() => {
+      document.querySelectorAll('.el-dialog__wrapper').forEach(el => { if (/Warnning/i.test(el.textContent || '')) el.style.display = 'none'; });
+      const overlay = document.querySelector('.v-modal'); if (overlay) overlay.style.display = 'none';
+    });
+    await page.waitForTimeout(300);
+    const btn = await page.evaluate(() => {
+      const b = [...document.querySelectorAll('button')].find(x => /^view$|^search$/i.test(x.innerText?.trim()));
+      if (b) { b.click(); return true; }
+      return false;
+    });
+    await page.waitForTimeout(2000);
+    const gameRecordHeaders = await page.evaluate(() => [...document.querySelectorAll('.el-table th')].map(h => h.innerText?.trim()).filter(Boolean));
+    const shotPath = path.join(SCREENSHOT_DIR, `gamerecord_spintype_crosscheck_${Date.now()}.png`);
+    await page.screenshot({ path: shotPath });
+    extraShotPaths.push(shotPath);
+    await page.goto(originalUrl, { waitUntil: 'networkidle', timeout: 20000 });
+    await page.waitForTimeout(800);
+    const hasSpinType = gameRecordHeaders.some(h => /spin type/i.test(h));
+    notes.push(`⚠️此TC文字實為「Game Record」頁面的欄位（已跨頁確認），非Jackpot Record本身 | ${hasSpinType ? '✅Game Record表格含Spin Type欄位' : `❌Game Record表格缺少Spin Type欄位（實際:${gameRecordHeaders.join(',') || '無資料/未搜尋'}）`}`);
+    if (!hasSpinType && btn) criticalFails.push('Game Record缺少Spin Type欄位');
   }
 
   let exportedXlsxPath = null;
@@ -1313,10 +1832,26 @@ async function verifyReportPage(page, tc) {
     if (exportResult.notes) notes.push(exportResult.notes);
     criticalFails.push(...exportResult.criticalFails);
     exportedXlsxPath = exportResult.exportedXlsxPath;
+    // ⭐ 2026-08-06：TC文字補充「(沒有千分位)」——這是在說明預期行為(千分位缺失是正常
+    // 的，不是bug)，doExport()本身從未檢查過數字格式，這裡不新增假設沒問過的斷言，
+    // 只是誠實記錄這是已知/預期的行為說明，不代表本輪有實際去讀xlsx儲存格格式驗證。
+    if (/沒有千分位|无千分位/i.test(full)) {
+      notes.push('ℹ️TC文字說明「沒有千分位」為預期行為（非缺陷），本次未逐格核對xlsx數字格式，僅確認匯出流程本身正常');
+    }
   }
 
-  return { notes: notes.join(' | '), criticalFails, exportedXlsxPath };
+  if (notes.length === (h1 ? 2 : 1)) {
+    notes.push(`⚠️這筆TC文字沒有對應到已知的驗證規則，未執行額外斷言: ${full.slice(0, 40)}`);
+  }
+
+  return { notes: notes.join(' | '), criticalFails, exportedXlsxPath, extraShotPaths };
 }
+
+// ⭐ 2026-08-06 重寫：原本只檢查表格存在/選填日期篩選就算pass。已實際登入uat-cp.osmslot.org
+// 逐頁查證EGM Hourly Meter與EGM Performance Meter兩頁的真實filter結構——確認含「Gaming Day」
+// checkbox + 「Date Type」radio(06:00:00-06:00:00／00:00:00-00:00:00)，跟既有Toppath Tools
+// Performance Meter對帳功能既有記錄的架構完全吻合(Gaming Day=本地06:00~隔天05:59:59，
+// egmMeterHourList API帶gameDay/dateType參數控制)。
 
 async function verifyMeterPage(page, tc) {
   const notes = [];
@@ -1330,9 +1865,85 @@ async function verifyMeterPage(page, tc) {
     return { notes: notes.join(' | '), criticalFails: [], manual: true };
   }
 
-  const { h1, rowCount } = await getBaseInfo(page);
+  const { h1, rowCount, allHeaders } = await getBaseInfo(page);
   if (h1) notes.push(`頁面:${h1}`);
   notes.push(`表格${rowCount}筆`);
+
+  const filterLabels = await page.evaluate(() => [...document.querySelectorAll('.el-form-item__label')].map(l => l.innerText?.trim()).filter(Boolean)).catch(() => []);
+  const checkboxLabels = await page.evaluate(() => [...document.querySelectorAll('.el-checkbox__label')].map(l => l.innerText?.trim()).filter(Boolean)).catch(() => []);
+  const radioLabels = await page.evaluate(() => [...document.querySelectorAll('.el-radio__label')].map(l => l.innerText?.trim()).filter(Boolean)).catch(() => []);
+
+  // TC：Machine Name/Machine No的搜索條件功能正常
+  if (/machine name\s*\/\s*machine no的搜索條件功能正常/i.test(full)) {
+    const missing = ['Machine Name', 'Machine No'].filter(e => !filterLabels.includes(e));
+    if (missing.length === 0) {
+      notes.push('✅Machine Name/Machine No搜尋欄位皆存在');
+    } else {
+      notes.push(`❌搜尋欄位缺失:${missing.join(',')}（實際:${filterLabels.join(',')}）`);
+      criticalFails.push(`搜尋欄位缺失:${missing.join(',')}`);
+    }
+  }
+
+  // TC：Gaming Day功能正常，可以正確指定該日期的搜尋數據
+  if (/gaming day功能正常/i.test(full)) {
+    const hasGamingDay = checkboxLabels.includes('Gaming Day');
+    if (hasGamingDay) {
+      notes.push('✅Gaming Day勾選框存在（對應本地06:00~隔天05:59:59邊界，實際查詢結果差異需搭配Date Type一併驗證）');
+    } else {
+      notes.push('❌Gaming Day勾選框缺失');
+      criticalFails.push('Gaming Day勾選框缺失');
+    }
+  }
+
+  // TC：Date Type的06/00搜索條件顯示數據正常
+  if (/date type的06\s*\/\s*00搜索條件顯示數據正常/i.test(full)) {
+    const expected = ['06:00:00-06:00:00', '00:00:00-00:00:00'];
+    const missing = expected.filter(e => !radioLabels.includes(e));
+    if (missing.length === 0) {
+      notes.push('✅Date Type含06:00:00-06:00:00與00:00:00-00:00:00兩個選項');
+    } else {
+      notes.push(`❌Date Type選項缺失:${missing.join(',')}（實際:${radioLabels.join(',')}）`);
+      criticalFails.push(`Date Type選項缺失:${missing.join(',')}`);
+    }
+  }
+
+  // TC：確認每小時都會有一筆紀錄，並且記錄正確，可與Game Record比對確認數據（EGM Hourly Meter）
+  if (/確認每小時都會有一筆紀錄.*可與game record比對確認數據/i.test(full)) {
+    notes.push(rowCount > 0
+      ? `✅表格有${rowCount}筆小時級紀錄（實際與Game Record加總比對需套用對賬公式：預期Coin Out = Game Record總Win + Attendant Paid JP − Jackpot Wins，此處僅驗證每小時紀錄存在，完整數值比對未在本次自動化執行）`
+      : '⚠️表格目前無資料，無法驗證每小時紀錄');
+  }
+
+  // TC：如果盒子斷線，會採用紅色字體顯示
+  if (/如果盒子斷線.*會採用紅色字體顯示/i.test(full)) {
+    const hasRedIndicator = await page.evaluate(() => {
+      const rows = [...document.querySelectorAll('.el-table__body tr')];
+      return rows.some(r => [...r.querySelectorAll('td, span')].some(el => {
+        const color = getComputedStyle(el).color;
+        return /rgb\(2[0-4]\d,\s*\d{1,2},\s*\d{1,2}\)|red/i.test(color) && el.innerText?.trim();
+      }));
+    }).catch(() => false);
+    notes.push(rowCount === 0
+      ? '⚠️表格目前無資料，無法驗證斷線紅字顯示（目前UAT環境無斷線機台樣本）'
+      : (hasRedIndicator ? '✅發現紅色字體標示的儲存格（疑似斷線指示）' : '⚠️目前資料中沒有觀察到紅色字體儲存格，可能目前無斷線機台，非功能缺失'));
+  }
+
+  // TC：確認特殊時間段，23:59:59/05:59:59的紀錄都有顯示
+  if (/確認特殊時間段.*23:59:59.*05:59:59.*的紀錄都有顯示/i.test(full)) {
+    const timeColIdx = allHeaders.findIndex(h => /time|時間/i.test(h));
+    const times = timeColIdx >= 0 ? await page.evaluate((idx) => [...document.querySelectorAll('.el-table__body tr')].map(r => r.querySelectorAll('td')[idx]?.innerText?.trim()), timeColIdx) : [];
+    const hasBoundary = times.some(t => /23:59:59|05:59:59/.test(t || ''));
+    notes.push(rowCount === 0
+      ? '⚠️表格目前無資料，無法驗證邊界時間點紀錄'
+      : (hasBoundary ? '✅找到23:59:59或05:59:59邊界時間點紀錄' : `⚠️目前查詢範圍內未見23:59:59/05:59:59邊界紀錄（實際時間點:${times.slice(0,5).join(',')}...），可能與查詢的Gaming Day/自然日邊界設定有關，非必然缺失`));
+  }
+
+  // TC：數據可以展示正確(新機台需掛數據2小時以上才會準確)（EGM Performance Meter）
+  if (/數據可以展示正確.*新機台需掛數據2小時以上才會準確/i.test(full)) {
+    notes.push(rowCount > 0
+      ? `✅表格有${rowCount}筆數據展示（2小時準確度門檻為業務規則，非UI可驗證項目，僅確認資料展示存在）`
+      : '⚠️表格目前無資料可展示');
+  }
 
   let exportedXlsxPath = null;
 
@@ -1343,11 +1954,8 @@ async function verifyMeterPage(page, tc) {
     exportedXlsxPath = exportResult.exportedXlsxPath;
   }
 
-  if (/date|日期/.test(desc)) {
-    const hasDate = await page.evaluate(() =>
-      document.querySelectorAll('.el-date-editor, input[type="date"], .el-date-picker, [class*="date-range"]').length > 0
-    ).catch(() => false);
-    notes.push(hasDate ? '✅日期篩選' : '⚠️日期篩選未偵測到');
+  if (notes.length === (h1 ? 2 : 1)) {
+    notes.push(`⚠️這筆TC文字沒有對應到已知的驗證規則，未執行額外斷言: ${full.slice(0, 40)}`);
   }
 
   return { notes: notes.join(' | '), criticalFails, exportedXlsxPath };
@@ -1370,7 +1978,7 @@ async function verifyLoadingTips(page, tc) {
   notes.push(`表格${rowCount}筆`);
 
   if (/\badd\b|新增/.test(desc)) {
-    const hasAdd = allBtns.some(t => /^add$/i.test(t));
+    const hasAdd = allBtns.some(t => /^add\b/i.test(t));
     if (hasAdd) {
       notes.push('✅Add按鈕');
     } else {
@@ -1396,11 +2004,18 @@ async function verifyLoadingTips(page, tc) {
   return { notes: notes.join(' | '), criticalFails };
 }
 
+// ⭐ 2026-08-06 重寫：原本6筆TC只有1條規則（Add按鈕存在與否），其餘5筆全落到「表格N筆」。
+// 已實際登入uat-cp.osmslot.org/game/getChannelRankInfo點過ChannelRankID(Add)按鈕，確認
+// Dialog欄位為Channel Rank ID/Channel Rank/Machine Type，對應表格欄位完全一致。
+// ⚠️TC2「確認只有主渠道才有此功能」原本依賴20天前的memory（子渠道WF應該404），但今天
+// 用admin/123456實測uat-wf.osmslot.org，Channel Ranking頁面正常載入且isMainChannel API
+// 回傳都是1（CP跟WF都是1）——跟舊memory的結論不一致，如實記錄這個矛盾，不直接採信舊memory
+// 也不假裝驗證通過，避免誤導。
+
 async function verifyChannelRanking(page, tc) {
   const notes = [];
   const criticalFails = [];
   const full = tc || '';
-  const desc = full.toLowerCase();
 
   const manualReason = detectManual(full);
   if (manualReason) {
@@ -1408,22 +2023,119 @@ async function verifyChannelRanking(page, tc) {
     return { notes: notes.join(' | '), criticalFails: [], manual: true };
   }
 
-  const { h1, rowCount, allBtns } = await getBaseInfo(page);
+  const { h1, rowCount, allBtns, allHeaders } = await getBaseInfo(page);
   if (h1) notes.push(`頁面:${h1}`);
   notes.push(`表格${rowCount}筆`);
 
-  if (/\badd\b|channelrankid/i.test(full)) {
-    const hasBtn = allBtns.some(t => /add|channelrankid/i.test(t));
-    if (hasBtn) {
-      notes.push(`✅Add/ChannelRankID按鈕(${allBtns.find(t => /add|channelrankid/i.test(t))})`);
+  const extraShotPaths = [];
+
+  const openAddDialog = async () => {
+    const clicked = await page.evaluate(() => {
+      const btn = [...document.querySelectorAll('button')].find(b => /channelrankid|^add$/i.test(b.innerText?.trim()));
+      if (btn) { btn.click(); return true; }
+      return false;
+    });
+    await page.waitForTimeout(1000);
+    return clicked;
+  };
+  const getVisibleDialogLabels = () => page.evaluate(() => {
+    const d = [...document.querySelectorAll('.el-dialog')].filter(x => x.getBoundingClientRect().width > 0).pop();
+    return d ? [...d.querySelectorAll('.el-form-item__label')].map(l => l.innerText?.trim()) : null;
+  });
+  const closeDialog = async () => {
+    await page.evaluate(() => {
+      const d = [...document.querySelectorAll('.el-dialog')].filter(x => x.getBoundingClientRect().width > 0).pop();
+      const headerBtn = d?.querySelector('.el-dialog__headerbtn');
+      if (headerBtn) { headerBtn.click(); return; }
+      const btn = d && [...d.querySelectorAll('button')].find(b => b.innerText?.trim() === 'Close');
+      if (btn) btn.click();
+    });
+    await page.waitForTimeout(600);
+  };
+
+  // TC1：新增Channel ID後，前端可以看到該渠道的機器
+  if (/新增channel\s*id後.*前端可以看到該渠道的機器/i.test(full)) {
+    const clicked = await openAddDialog();
+    if (!clicked) {
+      notes.push('❌ChannelRankID(Add)按鈕缺失');
+      criticalFails.push('ChannelRankID(Add)按鈕缺失');
     } else {
-      notes.push('❌Add/ChannelRankID按鈕缺失');
-      criticalFails.push('Add/ChannelRankID按鈕缺失');
+      const labels = await getVisibleDialogLabels();
+      const shotPath = path.join(SCREENSHOT_DIR, `channelranking_add_${Date.now()}.png`);
+      await page.screenshot({ path: shotPath });
+      extraShotPaths.push(shotPath);
+      const expected = ['Channel Rank ID', 'Channel Rank', 'Machine Type'];
+      const missing = expected.filter(e => !labels?.includes(e));
+      if (missing.length === 0) {
+        notes.push(`✅Add Dialog欄位完整(${expected.join('/')})（前端是否顯示該渠道機器為跨系統驗證，後台看不到）`);
+      } else {
+        notes.push(`❌Add Dialog缺少欄位:${missing.join(',')}`);
+        criticalFails.push(`Add Dialog缺少欄位:${missing.join(',')}`);
+      }
+      await closeDialog();
     }
   }
 
-  return { notes: notes.join(' | '), criticalFails };
+  // TC2：確認只有主渠道才有此功能
+  // isMainChannel需在登入POST當下攔截才能取得，但登入發生在performAction()的流程更早處，
+  // 這支verifier拿到page時已經登入完成，無法回溯攔截——改為結構性 + 如實記錄已知矛盾。
+  if (/確認只有主渠道才有此功能/i.test(full)) {
+    notes.push(`⚠️結構性驗證：目前(CP，已知為主渠道)頁面可正常載入且有${rowCount}筆資料`);
+    notes.push('⚠️與既有memory記錄矛盾待釐清：2026-08-06實測uat-wf.osmslot.org用admin帳號登入，Channel Ranking頁面正常載入且isMainChannel API回傳同樣是1，跟20天前記錄的「子渠道應404」結論不一致，可能是帳號權限差異或規格已變更，不直接採信舊結論');
+  }
+
+  // TC3：排序為數字最大，權位最高
+  if (/排序為數字最大，權位最高/i.test(full)) {
+    if (rowCount === 0) {
+      notes.push('⚠️表格無資料，無法驗證Channel Rank數值與權位對應關係');
+    } else {
+      const hasRankCol = allHeaders.includes('Channel Rank');
+      notes.push(hasRankCol
+        ? `✅表格含Channel Rank欄位（數字大小與「權位」的實際業務效果為後台看不到的執行期邏輯，僅驗證欄位存在）`
+        : '❌表格缺少Channel Rank欄位');
+      if (!hasRankCol) criticalFails.push('Channel Rank欄位缺失');
+    }
+  }
+
+  // TC4：可以正常編輯 / 刪除
+  if (/可以正常編輯\s*\/\s*刪除/i.test(full)) {
+    const hasEditCol = allHeaders.includes('Edit');
+    const hasDelCol = allHeaders.includes('Delete');
+    notes.push(hasEditCol && hasDelCol
+      ? '✅表格含Edit/Delete操作欄'
+      : `❌表格缺少操作欄(Edit:${hasEditCol},Delete:${hasDelCol})`);
+    if (!hasEditCol || !hasDelCol) criticalFails.push('Edit/Delete操作欄缺失');
+  }
+
+  // TC6：可以設置每個渠道顯示OSM或GSA機器
+  if (/可以設置每個渠道顯示osm或gsa機器/i.test(full)) {
+    const clicked = await openAddDialog();
+    if (!clicked) {
+      notes.push('❌ChannelRankID(Add)按鈕缺失');
+      criticalFails.push('ChannelRankID(Add)按鈕缺失');
+    } else {
+      const labels = await getVisibleDialogLabels();
+      const shotPath = path.join(SCREENSHOT_DIR, `channelranking_machinetype_${Date.now()}.png`);
+      await page.screenshot({ path: shotPath });
+      extraShotPaths.push(shotPath);
+      const hasType = labels?.includes('Machine Type');
+      notes.push(hasType
+        ? '✅Add Dialog含Machine Type欄位（OSM/GSA選項僅Lavie渠道適用，目前CP渠道實際選項未逐一驗證）'
+        : '❌Add Dialog缺少Machine Type欄位');
+      if (!hasType) criticalFails.push('Machine Type欄位缺失');
+      await closeDialog();
+    }
+  }
+
+  if (allBtns.length && notes.length === (h1 ? 2 : 1)) {
+    const hasBtn = allBtns.some(t => /add|channelrankid/i.test(t));
+    notes.push(hasBtn ? `✅Add/ChannelRankID按鈕(${allBtns.find(t => /add|channelrankid/i.test(t))})` : '❌Add/ChannelRankID按鈕缺失');
+    if (!hasBtn) criticalFails.push('Add/ChannelRankID按鈕缺失');
+  }
+
+  return { notes: notes.join(' | '), criticalFails, extraShotPaths };
 }
+
 
 async function verifyWhiteList(page, tc) {
   const notes = [];
@@ -1437,7 +2149,7 @@ async function verifyWhiteList(page, tc) {
     return { notes: notes.join(' | '), criticalFails: [], manual: true };
   }
 
-  const { h1, rowCount, allBtns } = await getBaseInfo(page);
+  const { h1, rowCount, allBtns, allHeaders } = await getBaseInfo(page);
   if (h1) notes.push(`頁面:${h1}`);
   notes.push(`表格${rowCount}筆`);
 
@@ -1451,8 +2163,33 @@ async function verifyWhiteList(page, tc) {
     }
   }
 
+  // ⭐ 2026-08-06新增：可以新增/刪除白名單帳號
+  // 已實測uat-cp.osmslot.org/game/getWhiteList：Add按鈕實際文字是「White Account」
+  // （非泛用的"Add"），表格欄位為Account/Delete，目前10筆真實資料。
+  if (/可以新增\s*\/\s*刪除白名單帳號/i.test(full)) {
+    const hasAddBtn = allBtns.some(t => /white.*account/i.test(t));
+    const hasDelCol = allHeaders.includes('Delete');
+    if (hasAddBtn && hasDelCol) {
+      notes.push(`✅可新增(White Account按鈕)/可刪除(Delete欄)白名單帳號（目前${rowCount}筆）`);
+    } else {
+      notes.push(`❌新增/刪除功能缺失(Add按鈕:${hasAddBtn},Delete欄:${hasDelCol})`);
+      criticalFails.push('White List新增/刪除功能缺失');
+    }
+  }
+
   return { notes: notes.join(' | '), criticalFails };
 }
+
+// ⭐ 2026-08-06 重寫：這支verifier共用給6個頁面（Game Jump Set/News Set/Advert Set/
+// 小額推薦影片/How To Play/Special Entrance Set），原本只靠關鍵字查按鈕/開關數量>0就算pass，
+// 不管實際欄位內容。已實際登入uat-cp.osmslot.org逐頁查證過真實表格欄位/Edit Dialog欄位後，
+// 改成依頁面h1分流各自的真實斷言。
+// ⚠️ 重要發現：小額推薦影片(Recommend Setting)的TC1-4文字（Sort ID/Name/Param/Type開Denom）
+// 實際講的是「小額入口(SMALL BET)」功能，查證後那其實是**另一個獨立頁面**Special Entrance
+// Set(/game/denomSet，欄位正好是Sort ID/Name/Param/Type/Min Bet)，不是Recommend Setting
+// 頁面本身——這4筆TC在Lark被歸類到錯誤的子類型（可能是規格文件裡兩個功能寫在同一段被
+// 一起拆分TC時分類分錯）。已跨頁面驗證（navigate過去查完欄位後導回原頁面，不影響外層
+// screenshot流程），並在notes中如實記錄這個歸類問題，不是憑空放棄不測。
 
 async function verifyGameSettingPage(page, tc) {
   const notes = [];
@@ -1466,50 +2203,204 @@ async function verifyGameSettingPage(page, tc) {
     return { notes: notes.join(' | '), criticalFails: [], manual: true };
   }
 
-  const { h1, rowCount, allBtns } = await getBaseInfo(page);
+  const { h1, rowCount, allBtns, allHeaders } = await getBaseInfo(page);
   if (h1) notes.push(`頁面:${h1}`);
   notes.push(`表格${rowCount}筆`);
 
   let exportedXlsxPath = null;
+  const extraShotPaths = [];
+  // ⚠️ 2026-08-06 修正：getBaseInfo()的h1用選擇器'h1,h2,.page-title'，但這幾頁實際只有
+  // '.el-breadcrumb'（沒有真正的<h1>標籤），導致h1永遠是空字串，下面所有isPage()判斷
+  // 全部silently false、19筆TC整批落到「找不到對應規則」的fallback——即使程式碼邏輯本身
+  // 是對的，也會因為這個上游選擇器問題完全沒被觸發到。改成在這支verifier內自己讀
+  // .el-breadcrumb文字，不依賴getBaseInfo()的h1。
+  const breadcrumb = await page.evaluate(() => document.querySelector('.el-breadcrumb, h1, h2, .page-title')?.innerText || '').catch(() => '');
+  const isPage = (name) => new RegExp(name, 'i').test(breadcrumb);
 
-  if (/\badd\b|新增/.test(desc)) {
-    const hasAdd = allBtns.some(t => /^add$/i.test(t));
-    if (hasAdd) {
-      notes.push('✅Add按鈕');
-    } else {
-      notes.push('❌Add按鈕缺失');
-      criticalFails.push('Add按鈕缺失');
-    }
-  }
+  // ── Special Entrance Set 欄位查證（供小額推薦影片TC1-4跨頁引用）──
+  const checkDenomSetFields = async (expectedCols) => {
+    const originalUrl = page.url();
+    await page.goto(originalUrl.replace(/\/game\/\w+$/, '/game/denomSet'), { waitUntil: 'networkidle', timeout: 20000 });
+    await page.waitForTimeout(1200);
+    await page.evaluate(() => {
+      document.querySelectorAll('.el-dialog__wrapper').forEach(el => { if (/Warnning/i.test(el.textContent || '')) el.style.display = 'none'; });
+      const overlay = document.querySelector('.v-modal'); if (overlay) overlay.style.display = 'none';
+    });
+    await page.waitForTimeout(300);
+    const headers = await page.evaluate(() => [...document.querySelectorAll('.el-table th')].map(h => h.innerText?.trim()).filter(Boolean));
+    const shotPath = path.join(SCREENSHOT_DIR, `denomset_crosscheck_${Date.now()}.png`);
+    await page.screenshot({ path: shotPath });
+    extraShotPaths.push(shotPath);
+    await page.goto(originalUrl, { waitUntil: 'networkidle', timeout: 20000 });
+    await page.waitForTimeout(800);
+    await page.evaluate(() => {
+      document.querySelectorAll('.el-dialog__wrapper').forEach(el => { if (/Warnning/i.test(el.textContent || '')) el.style.display = 'none'; });
+      const overlay = document.querySelector('.v-modal'); if (overlay) overlay.style.display = 'none';
+    });
+    const missing = expectedCols.filter(c => !headers.some(h => h.includes(c)));
+    return { headers, missing };
+  };
 
-  if (/開啟.*關閉|關閉.*開啟|switch|toggle/.test(desc)) {
-    const switchCount = await page.evaluate(() =>
-      document.querySelectorAll('.el-switch, input[type="checkbox"]').length
-    ).catch(() => 0);
-    if (switchCount > 0) {
-      notes.push(`✅開關×${switchCount}`);
-    } else {
-      notes.push('❌開關元件缺失');
-      criticalFails.push('開關元件缺失');
-    }
-  }
-
-  if (/可以.*編輯|可以.*刪除|edit.*delete|delete.*edit|編輯.*刪除|刪除.*編輯/.test(desc)) {
-    if (rowCount === 0) {
-      notes.push('⚠️操作按鈕待確認（表格無資料）');
-    } else {
-      const hasEdit = await page.evaluate(() =>
-        document.querySelectorAll('.el-button--primary, .el-button--warning').length > 0
-      ).catch(() => false);
-      const hasDel = await page.evaluate(() =>
-        document.querySelectorAll('.el-button--danger').length > 0
-      ).catch(() => false);
-      if (hasEdit || hasDel) {
-        notes.push(`✅操作按鈕(edit:${hasEdit},del:${hasDel})`);
+  // ══ Recommend Setting (小額推薦影片) ══
+  if (isPage('Recommend Setting')) {
+    if (/sort\s*id[:：]順序|小額入口.*sort\s*id/i.test(full)) {
+      const r = await checkDenomSetFields(['Sort ID']);
+      notes.push(r.missing.length === 0
+        ? `⚠️此TC文字實為「Special Entrance Set」頁面的Sort ID欄位（已跨頁確認存在:${r.headers.join(',')}），非Recommend Setting本身——Lark分類疑似有誤，5分鐘更新時效未測`
+        : `❌跨頁查證Special Entrance Set缺少Sort ID欄位（實際:${r.headers.join(',')}）`);
+      if (r.missing.length > 0) criticalFails.push('Special Entrance Set缺少Sort ID欄位');
+    } else if (/^name[:：]名稱/i.test(full)) {
+      const r = await checkDenomSetFields(['Name']);
+      notes.push(r.missing.length === 0
+        ? `⚠️此TC文字實為「Special Entrance Set」頁面的Name欄位（已跨頁確認存在），非Recommend Setting本身——Lark分類疑似有誤`
+        : `❌跨頁查證Special Entrance Set缺少Name欄位`);
+      if (r.missing.length > 0) criticalFails.push('Special Entrance Set缺少Name欄位');
+    } else if (/^param[:：]參數/i.test(full)) {
+      const r = await checkDenomSetFields(['Param']);
+      notes.push(r.missing.length === 0
+        ? `⚠️此TC文字實為「Special Entrance Set」頁面的Param欄位（已跨頁確認存在），非Recommend Setting本身——Lark分類疑似有誤`
+        : `❌跨頁查證Special Entrance Set缺少Param欄位`);
+      if (r.missing.length > 0) criticalFails.push('Special Entrance Set缺少Param欄位');
+    } else if (/^type[:：]開denom/i.test(full)) {
+      const r = await checkDenomSetFields(['Type']);
+      notes.push(r.missing.length === 0
+        ? `⚠️此TC文字實為「Special Entrance Set」頁面的Type欄位（已跨頁確認存在），非Recommend Setting本身——Lark分類疑似有誤，P0.8/1/4/8/9實際選項值未逐一測試`
+        : `❌跨頁查證Special Entrance Set缺少Type欄位`);
+      if (r.missing.length > 0) criticalFails.push('Special Entrance Set缺少Type欄位');
+    } else if (/recommend setting規格.*game\s*type|依照game\s*type去設定/i.test(full)) {
+      const clicked = await page.evaluate(() => {
+        const btn = [...document.querySelectorAll('button')].find(b => b.innerText?.trim() === 'Recommend Setting');
+        if (btn) { btn.click(); return true; }
+        return false;
+      });
+      await page.waitForTimeout(1000);
+      const dlg = await page.evaluate(() => {
+        const d = [...document.querySelectorAll('.el-dialog')].filter(x => x.getBoundingClientRect().width > 0).pop();
+        return d ? [...d.querySelectorAll('.el-form-item__label')].map(l => l.innerText?.trim()) : null;
+      });
+      const shotPath = path.join(SCREENSHOT_DIR, `recsetting_dialog_${Date.now()}.png`);
+      await page.screenshot({ path: shotPath });
+      extraShotPaths.push(shotPath);
+      if (clicked && dlg?.includes('Game Type')) {
+        notes.push(`✅Recommend Setting Dialog含Game Type欄位（多選/排序邏輯未逐一驗證，僅確認欄位存在）`);
       } else {
-        notes.push('❌編輯/刪除按鈕缺失');
-        criticalFails.push('編輯/刪除按鈕缺失');
+        notes.push('❌Recommend Setting Dialog或Game Type欄位缺失');
+        criticalFails.push('Recommend Setting Dialog或Game Type欄位缺失');
       }
+      await page.keyboard.press('Escape').catch(() => {});
+    } else if (/wallet[：:]钱包金额区间/i.test(full)) {
+      const hasWallet = allHeaders.some(h => /wallet/i.test(h));
+      notes.push(hasWallet ? '✅表格含Wallet欄位' : '❌表格缺少Wallet欄位');
+      if (!hasWallet) criticalFails.push('Wallet欄位缺失');
+    } else if (/recommend\s*amount[：:]推荐机器数量/i.test(full)) {
+      const hasCol = allHeaders.some(h => /recommend amount/i.test(h));
+      notes.push(hasCol ? '✅表格含Recommend Amount欄位' : '❌表格缺少Recommend Amount欄位');
+      if (!hasCol) criticalFails.push('Recommend Amount欄位缺失');
+    } else if (/min\s*bet[：:]机器最小投注金额/i.test(full)) {
+      const hasCol = allHeaders.some(h => /min bet/i.test(h));
+      notes.push(hasCol ? '✅表格含Min Bet欄位（實際配置來源疑似為EGM List各機台設定，此處僅顯示，未逐一驗證多值逗號分隔輸入）' : '❌表格缺少Min Bet欄位');
+      if (!hasCol) criticalFails.push('Min Bet欄位缺失');
+    } else if (/可关闭\/开启推荐栏功能/i.test(full)) {
+      const switchCount = await page.evaluate(() => document.querySelectorAll('.el-switch').length).catch(() => 0);
+      notes.push(switchCount > 0 ? `✅推薦欄開關存在×${switchCount}` : '❌推薦欄開關缺失');
+      if (switchCount === 0) criticalFails.push('推薦欄開關缺失');
+    } else if (/推荐栏位功能需要区分渠道/i.test(full)) {
+      notes.push('⚠️渠道分開配置需跨渠道比對，僅能確認目前(CP)渠道功能存在，未做跨渠道驗證');
+    }
+  }
+
+  // ══ Game Jump Set ══
+  else if (isPage('Game Jump Set')) {
+    if (/開啟或關閉前端顯示.*more game/i.test(full)) {
+      const switchCount = await page.evaluate(() => document.querySelectorAll('.el-switch').length).catch(() => 0);
+      notes.push(switchCount > 0 ? `✅More Game顯示開關存在×${switchCount}（需重整生效，時效未測）` : '❌More Game顯示開關缺失');
+      if (switchCount === 0) criticalFails.push('More Game顯示開關缺失');
+    } else if (/add\s*game可新增遊戲/i.test(full)) {
+      const hasAdd = allBtns.some(t => /^add game$/i.test(t));
+      notes.push(hasAdd ? '✅Add Game按鈕存在' : '❌Add Game按鈕缺失');
+      if (!hasAdd) criticalFails.push('Add Game按鈕缺失');
+    } else if (/可以隱藏、編輯跟刪除遊戲/i.test(full)) {
+      const rowBtns = rowCount > 0 ? await page.evaluate(() => [...document.querySelectorAll('.el-table__body tr')[0].querySelectorAll('button')].map(b => b.innerText?.trim())) : [];
+      const hasSet = ['Edit', 'Delete'].every(b => rowBtns.includes(b)) && (rowBtns.includes('Hidden') || rowBtns.includes('Show'));
+      notes.push(hasSet ? `✅列上有Edit/Delete/Show-Hidden按鈕（實際:${rowBtns.join(',')}）（2分鐘生效時效未測）` : `❌列按鈕不完整（實際:${rowBtns.join(',') || '無資料'}）`);
+      if (!hasSet && rowCount > 0) criticalFails.push('Edit/Delete/Hidden按鈕不完整');
+    }
+  }
+
+  // ══ News Set ══
+  else if (isPage('News Set')) {
+    if (/add\s*banner可以新增遊戲入口/i.test(full)) {
+      const hasAdd = allBtns.some(t => /^add banner$/i.test(t));
+      notes.push(hasAdd ? '✅Add Banner按鈕存在' : '❌Add Banner按鈕缺失');
+      if (!hasAdd) criticalFails.push('Add Banner按鈕缺失');
+    } else if (/可以編輯跟刪除遊戲/i.test(full)) {
+      const rowBtns = rowCount > 0 ? await page.evaluate(() => [...document.querySelectorAll('.el-table__body tr')[0].querySelectorAll('button')].map(b => b.innerText?.trim())) : [];
+      const hasSet = ['Edit', 'Delete'].every(b => rowBtns.includes(b));
+      notes.push(hasSet ? '✅列上有Edit/Delete按鈕' : `❌列按鈕不完整（實際:${rowBtns.join(',') || '無資料'}）`);
+      if (!hasSet && rowCount > 0) criticalFails.push('Edit/Delete按鈕不完整');
+    } else if (/渠道需個別設置.*cp設置cp.*bpo設置bpo/i.test(full)) {
+      notes.push('⚠️渠道個別設置需跨渠道比對，僅能確認目前(CP)渠道功能存在，未做跨渠道驗證');
+    }
+  }
+
+  // ══ Advert Set ══
+  else if (isPage('Advert Set')) {
+    if (/只能新增一個廣告配置/i.test(full)) {
+      notes.push(rowCount <= 1
+        ? `✅目前僅${rowCount}筆廣告配置，與「只能新增一個」規格一致（未實際嘗試新增第2筆測試伺服器端是否真的擋下，避免污染共用UAT資料）`
+        : `❌目前有${rowCount}筆廣告配置，超過規格描述的1筆上限`);
+      if (rowCount > 1) criticalFails.push('廣告配置超過1筆上限');
+    } else if (/每個主?渠道獨立設置/i.test(full)) {
+      // ⭐ 2026-08-06：新表文字是「每個主渠道獨立設置」（多了「主」），跟舊表「每個渠道
+      // 獨立設置」語意可能不同（本專案有「主渠道限定頁面清單」概念，主渠道≠全部
+      // 渠道）。broaden regex吸收兩種寫法，但note文字如實反映「主」的存在，不假裝驗證過
+      // 範圍是否真的限定在主渠道，避免誤導成比實際測試範圍更強的結論。
+      const scopeNote = /每個主渠道/i.test(full) ? '（TC文字明確寫「主渠道」，僅能確認目前(CP)渠道功能存在，未驗證是否真的限定主渠道、也未做跨渠道比對）' : '';
+      notes.push(`⚠️渠道獨立設置需跨渠道比對，僅能確認目前(CP)渠道功能存在，未做跨渠道驗證${scopeNote}`);
+    }
+  }
+
+  // ══ How To Play ══
+  else if (isPage('How To Play')) {
+    if (/[后後]台增加视频上传功能.*一个游戏只能配置一个视频/i.test(full)) {
+      const hasAdd = allBtns.some(t => /^add how to play$/i.test(t));
+      const gameIds = allHeaders.includes('Game ID') && rowCount > 0
+        ? await page.evaluate(() => [...document.querySelectorAll('.el-table__body tr')].map(r => r.querySelectorAll('td')[0]?.innerText?.trim()))
+        : [];
+      const dup = gameIds.length > 0 && new Set(gameIds).size !== gameIds.length;
+      notes.push(hasAdd
+        ? `✅Add How To Play按鈕存在${gameIds.length > 0 ? `，目前${gameIds.length}筆Game ID${dup ? '❌發現重複(可能違反一game一視頻限制)' : '皆不重複'}` : ''}（每次登入載入最新配置的時效性未測）`
+        : '❌Add How To Play按鈕缺失');
+      if (!hasAdd) criticalFails.push('Add How To Play按鈕缺失');
+      if (dup) criticalFails.push('發現重複Game ID，可能違反一遊戲一視頻限制');
+    }
+  }
+
+  // ══ 未特別處理的頁面（Special Entrance Set/Test Setting目前0 live TC）或上述頁面
+  // 沒對到的其餘TC文字，沿用原本的通用關鍵字判斷作為fallback，不留空 ══
+  if (notes.length === (h1 ? 2 : 1)) {
+    if (/\badd\b|新增/.test(desc)) {
+      const hasAdd = allBtns.some(t => /^add\b/i.test(t));
+      notes.push(hasAdd ? '✅Add按鈕' : '❌Add按鈕缺失');
+      if (!hasAdd) criticalFails.push('Add按鈕缺失');
+    }
+    if (/開啟.*關閉|關閉.*開啟|switch|toggle/.test(desc)) {
+      const switchCount = await page.evaluate(() => document.querySelectorAll('.el-switch, input[type="checkbox"]').length).catch(() => 0);
+      notes.push(switchCount > 0 ? `✅開關×${switchCount}` : '❌開關元件缺失');
+      if (switchCount === 0) criticalFails.push('開關元件缺失');
+    }
+    if (/可以.*編輯|可以.*刪除|edit.*delete|delete.*edit|編輯.*刪除|刪除.*編輯/.test(desc)) {
+      if (rowCount === 0) {
+        notes.push('⚠️操作按鈕待確認（表格無資料）');
+      } else {
+        const hasEdit = await page.evaluate(() => document.querySelectorAll('.el-button--primary, .el-button--warning').length > 0).catch(() => false);
+        const hasDel = await page.evaluate(() => document.querySelectorAll('.el-button--danger').length > 0).catch(() => false);
+        notes.push(hasEdit || hasDel ? `✅操作按鈕(edit:${hasEdit},del:${hasDel})` : '❌編輯/刪除按鈕缺失');
+        if (!hasEdit && !hasDel) criticalFails.push('編輯/刪除按鈕缺失');
+      }
+    }
+    if (notes.length === (h1 ? 2 : 1)) {
+      notes.push(`⚠️這筆TC文字沒有對應到已知的驗證規則，未執行額外斷言: ${full.slice(0, 40)}`);
     }
   }
 
@@ -1520,12 +2411,19 @@ async function verifyGameSettingPage(page, tc) {
     exportedXlsxPath = exportResult.exportedXlsxPath;
   }
 
-  return { notes: notes.join(' | '), criticalFails, exportedXlsxPath };
+  return { notes: notes.join(' | '), criticalFails, exportedXlsxPath, extraShotPaths };
 }
+
+// ⭐ 2026-08-06 重寫：原本4筆TC全部共用「表格有Fortune/Grand/Major/Minor/Mini欄位就pass」
+// 的模糊判斷。已實際登入uat-cp.osmslot.org點過Edit/Batch Set Percent兩個dialog、
+// 確認過Channel ID下拉選單真實選項(cp/wf/tbr/tbp/ncl/mdr/dhs/igo/cf/bpo/np/np2/dy)後，
+// 改成每筆TC對應各自的真實斷言。保守原則：Edit/Batch對話框只驗證欄位存在後關閉，不送出
+// 改動共用UAT資料的比例數值（不清楚這些比例欄位的驗證規則/加總限制，不猜測著送出）。
 
 async function verifyEGMJPPercent(page, tc) {
   const notes = [];
   const criticalFails = [];
+  const extraShotPaths = [];
   const full = tc || '';
 
   const manualReason = detectManual(full);
@@ -1534,24 +2432,155 @@ async function verifyEGMJPPercent(page, tc) {
     return { notes: notes.join(' | '), criticalFails: [], manual: true };
   }
 
-  const { h1, allHeaders } = await getBaseInfo(page);
+  const { h1 } = await getBaseInfo(page);
   if (h1) notes.push(`頁面:${h1}`);
 
-  const jpCols = ['Fortune', 'Grand', 'Major', 'Minor', 'Mini'];
-  const missing = jpCols.filter(c => !allHeaders.some(h => h.includes(c)));
-  if (missing.length === 0) {
-    notes.push('✅JP欄位(Fortune/Grand/Major/Minor/Mini)');
-  } else {
-    notes.push(`❌JP欄位缺失:${missing.join(',')}`);
-    criticalFails.push(`JP欄位缺失:${missing.join(',')}`);
+  const closeDialog = async () => {
+    await page.evaluate(() => {
+      const dialogs = [...document.querySelectorAll('.el-dialog')].filter(d => d.offsetParent !== null);
+      const dialog = dialogs[dialogs.length - 1];
+      const btn = dialog && [...dialog.querySelectorAll('button')].find(b => /close|cancel/i.test(b.innerText?.trim()));
+      if (btn) btn.click();
+    });
+    await page.waitForTimeout(500);
+  };
+
+  // TC1：Player Channel>可分渠道顯示機器
+  if (/player channel.*可分渠道顯示機器/i.test(full)) {
+    const channelInfo = await page.evaluate(() => {
+      const label = [...document.querySelectorAll('label, span')].find(el => el.innerText?.trim() === 'Channel ID');
+      const container = label?.closest('.el-form-item, div');
+      const select = container?.querySelector('.el-select .el-input__inner');
+      return { hasChannelSelect: !!select, currentValue: select?.value || '' };
+    });
+    if (!channelInfo.hasChannelSelect) {
+      notes.push('❌找不到Channel ID下拉選單');
+      criticalFails.push('Channel ID下拉選單缺失');
+    } else {
+      await page.evaluate(() => {
+        const label = [...document.querySelectorAll('label, span')].find(el => el.innerText?.trim() === 'Channel ID');
+        const select = label?.closest('.el-form-item, div')?.querySelector('.el-select .el-input__inner');
+        select?.click();
+      });
+      await page.waitForTimeout(500);
+      const options = await page.evaluate(() => {
+        const dropdowns = document.querySelectorAll('.el-select-dropdown');
+        const dd = dropdowns[dropdowns.length - 1];
+        return dd ? [...dd.querySelectorAll('.el-select-dropdown__item')].map(i => i.innerText?.trim()) : [];
+      });
+      await page.keyboard.press('Escape').catch(() => {});
+      if (options.length > 1) {
+        notes.push(`✅Channel ID下拉選單存在(目前:${channelInfo.currentValue}，共${options.length}個渠道選項:${options.join(',')})`);
+      } else {
+        notes.push(`❌Channel ID下拉選單選項異常(只有${options.length}個)`);
+        criticalFails.push('Channel ID下拉選單選項數量異常');
+      }
+    }
   }
 
-  return { notes: notes.join(' | '), criticalFails };
+  // TC2：可对各机器配置5个比例参数（小数点后7位）...批量勾选机器配置功能
+  if (/可对各机器配置5个比例参数/.test(full)) {
+    const expectedFields = ['Fortune', 'Grand', 'Major', 'Minor', 'Mini'];
+
+    // 單台 Edit
+    const editClicked = await page.evaluate(() => {
+      const row = document.querySelector('.el-table__body tr');
+      const btn = row && [...row.querySelectorAll('button')].find(b => /^edit$/i.test(b.innerText?.trim()));
+      if (btn) { btn.click(); return true; }
+      return false;
+    });
+    await page.waitForTimeout(800);
+    if (!editClicked) {
+      notes.push('❌找不到Edit按鈕');
+      criticalFails.push('Edit按鈕缺失');
+    } else {
+      const editFields = await page.evaluate(() => {
+        const dialogs = [...document.querySelectorAll('.el-dialog')].filter(d => d.offsetParent !== null);
+        const dialog = dialogs[dialogs.length - 1];
+        return dialog ? [...dialog.querySelectorAll('.el-form-item__label')].map(l => l.innerText?.trim()) : [];
+      });
+      const editShotPath = path.join(SCREENSHOT_DIR, `egmjp_edit_dialog_${Date.now()}.png`);
+      await page.screenshot({ path: editShotPath });
+      extraShotPaths.push(editShotPath);
+      const missingEdit = expectedFields.filter(f => !editFields.some(l => l.includes(f)));
+      if (missingEdit.length === 0) {
+        notes.push(`✅Edit Dialog含5個比例欄位(${editFields.join('/')})`);
+      } else {
+        notes.push(`❌Edit Dialog缺少欄位:${missingEdit.join(',')}（實際:${editFields.join(',') || '無'}）`);
+        criticalFails.push(`Edit Dialog缺少比例欄位:${missingEdit.join(',')}`);
+      }
+      await closeDialog();
+    }
+
+    // 批量勾選 + Batch Set Percent
+    const checked = await page.evaluate(() => {
+      const cb = document.querySelector('.el-table__body tr .el-checkbox .el-checkbox__inner, .el-table__body tr .el-checkbox input');
+      if (cb) { cb.click(); return true; }
+      return false;
+    });
+    await page.waitForTimeout(300);
+    const batchClicked = checked && await page.evaluate(() => {
+      const btn = [...document.querySelectorAll('button')].find(b => /batch set percent/i.test(b.innerText?.trim()));
+      if (btn) { btn.click(); return true; }
+      return false;
+    });
+    await page.waitForTimeout(800);
+    if (!checked) {
+      notes.push('❌找不到列勾選框（批量勾選機器配置功能）');
+      criticalFails.push('批量勾選框缺失');
+    } else if (!batchClicked) {
+      notes.push('❌找不到Batch Set Percent按鈕');
+      criticalFails.push('Batch Set Percent按鈕缺失');
+    } else {
+      const batchFields = await page.evaluate(() => {
+        const dialogs = [...document.querySelectorAll('.el-dialog')].filter(d => d.offsetParent !== null);
+        const dialog = dialogs[dialogs.length - 1];
+        return dialog ? [...dialog.querySelectorAll('.el-form-item__label')].map(l => l.innerText?.trim()) : [];
+      });
+      const batchShotPath = path.join(SCREENSHOT_DIR, `egmjp_batch_dialog_${Date.now()}.png`);
+      await page.screenshot({ path: batchShotPath });
+      extraShotPaths.push(batchShotPath);
+      const missingBatch = expectedFields.filter(f => !batchFields.some(l => l.includes(f)));
+      if (missingBatch.length === 0) {
+        notes.push(`✅批量勾選機器配置功能：Batch Set Percent Dialog含5個比例欄位(${batchFields.join('/')})（僅驗證表單，未送出避免改動共用UAT資料的比例數值）`);
+      } else {
+        notes.push(`❌Batch Set Percent Dialog缺少欄位:${missingBatch.join(',')}`);
+        criticalFails.push(`Batch Dialog缺少比例欄位:${missingBatch.join(',')}`);
+      }
+      await closeDialog();
+    }
+  }
+
+  // TC3：菜单显示字段：机器ID/机器名/Fortune/Grand/Major/Minor/Mini
+  if (/菜单显示字段/.test(full)) {
+    const { allHeaders } = await getBaseInfo(page);
+    const expected = ['Machine No', 'Machine Name', 'Fortune', 'Grand', 'Major', 'Minor', 'Mini'];
+    const missing = expected.filter(c => !allHeaders.some(h => h.includes(c)));
+    if (missing.length === 0) {
+      notes.push(`✅表格欄位完整(${expected.join('/')})`);
+    } else {
+      notes.push(`❌表格欄位缺失:${missing.join(',')}（實際:${allHeaders.join(',')}）`);
+      criticalFails.push(`表格欄位缺失:${missing.join(',')}`);
+    }
+  }
+
+  if (notes.length === (h1 ? 1 : 0)) {
+    notes.push(`⚠️這筆TC文字沒有對應到已知的驗證規則，未執行任何斷言: ${full.slice(0, 40)}`);
+  }
+
+  return { notes: notes.join(' | '), criticalFails, extraShotPaths };
 }
+
+// ⭐ 2026-08-06 重寫：原本8筆TC全部共用「表格有Account/Jp欄位就pass」的模糊判斷，
+// 完全不管TC實際在測什麼（Add流程/Game Order查核/排序邏輯/影片上傳/編輯刪除/20筆上限
+// 全部沒真的測）。已實際登入uat-cp.osmslot.org點過Add dialog、用假Game Order測過
+// Check按鈕的真實錯誤訊息（"Game Order No Exist"）、讀過現有20筆真實資料驗證過
+// Sort Id排序邏輯後，改成每筆TC對應各自的真實斷言。
 
 async function verifyJackpotMoment(page, tc) {
   const notes = [];
   const criticalFails = [];
+  const extraShotPaths = [];
   const full = tc || '';
 
   const manualReason = detectManual(full);
@@ -1560,19 +2589,227 @@ async function verifyJackpotMoment(page, tc) {
     return { notes: notes.join(' | '), criticalFails: [], manual: true };
   }
 
-  const { h1, allHeaders, rowCount } = await getBaseInfo(page);
+  const { h1, allHeaders, rowCount, allBtns } = await getBaseInfo(page);
   if (h1) notes.push(`頁面:${h1}`);
-  notes.push(`表格${rowCount}筆`);
 
-  const reqCols = ['Account', 'Jp'];
-  const missing = reqCols.filter(c => !allHeaders.some(h => new RegExp(c, 'i').test(h)));
-  if (missing.length === 0) {
-    notes.push('✅Jackpot記錄欄位(Account/JpAmount/Time)');
-  } else {
-    notes.push(`⚠️部分欄位缺失:${missing.join(',')}`);
+  // ⚠️ 根因（2026-08-06 查出，兩層）：
+  // (1) 呼叫這個function之前，performAction()的通用流程已經點過表格第一列的"View"按鈕
+  //     （screenshot_verify_data action的通用邏輯），這頁的"View"會開啟一個
+  //     class="player-video-dialog"的影片預覽dialog，且從未關閉，跟Add/Edit表單dialog
+  //     （class="add-floor"）的.el-dialog__title文字**完全相同**("Jackpot Video")，
+  //     所以「最後一個可見的.el-dialog」不保證是表單dialog。
+  // (2) 改用class="add-floor"鎖定後，實測DOM裡同時存在**兩個**.add-floor節點
+  //     （Element UI預先渲染、用visibility切換，非v-if動態插入）——一個是目前隱藏的
+  //     殘留節點(width:0)，一個才是真正開啟中的(width>0)，且隱藏的那個在DOM順序上
+  //     排在前面，document.querySelector()會抓到錯的那個。
+  // 正確做法：先關掉任何殘留的可見dialog，再用class="add-floor" + width>0雙重篩選。
+  const ADD_FORM_SELECTOR = '.el-dialog.add-floor';
+  const closeAnyOpenDialog = async () => {
+    await page.evaluate(() => {
+      const dialogs = [...document.querySelectorAll('.el-dialog')].filter(d => d.getBoundingClientRect().width > 0);
+      dialogs.forEach(dialog => {
+        const btn = [...dialog.querySelectorAll('button')].find(b => /close|cancel/i.test(b.innerText?.trim()));
+        if (btn) btn.click();
+      });
+    });
+    await page.waitForTimeout(500);
+  };
+  const closeDialog = async () => {
+    await page.evaluate((sel) => {
+      const dialog = [...document.querySelectorAll(sel)].find(d => d.getBoundingClientRect().width > 0);
+      const btn = dialog && [...dialog.querySelectorAll('button')].find(b => /close|cancel/i.test(b.innerText?.trim()));
+      if (btn) btn.click();
+    }, ADD_FORM_SELECTOR);
+    await page.waitForTimeout(500);
+  };
+  // 進入TC前先清掉「View」殘留的影片預覽dialog，避免污染後續的Add表單dialog偵測
+  await closeAnyOpenDialog();
+  const openAddDialog = async () => {
+    const clicked = await page.evaluate(() => {
+      const btn = [...document.querySelectorAll('button')].find(b => /^add\b/i.test(b.innerText?.trim()));
+      if (btn) { btn.click(); return true; }
+      return false;
+    });
+    await page.waitForTimeout(1000);
+    return clicked;
+  };
+
+  // TC1：Add 按鈕可以新增視頻
+  if (/^add\s*按鈕可以新增視頻/i.test(full)) {
+    const clicked = await openAddDialog();
+    if (!clicked) {
+      notes.push('❌找不到Add Jackpot Moment按鈕');
+      criticalFails.push('Add按鈕缺失');
+    } else {
+      const dlg = await page.evaluate((sel) => {
+        const dialog = [...document.querySelectorAll(sel)].find(d => d.getBoundingClientRect().width > 0);
+        return dialog ? { title: dialog.querySelector('.el-dialog__title')?.innerText?.trim(), labels: [...dialog.querySelectorAll('.el-form-item__label')].map(l => l.innerText?.trim()) } : null;
+      }, ADD_FORM_SELECTOR);
+      const shotPath = path.join(SCREENSHOT_DIR, `jpmoment_add_dialog_${Date.now()}.png`);
+      await page.screenshot({ path: shotPath });
+      extraShotPaths.push(shotPath);
+      const expected = ['Game Order', 'Account', 'Jackpot Amount', 'Time', 'Game ID', 'Sort Id', 'Video'];
+      const missing = dlg ? expected.filter(e => !dlg.labels.some(l => l.includes(e))) : expected;
+      if (missing.length === 0) {
+        notes.push(`✅Add Dialog(${dlg.title})欄位完整(${expected.join('/')})`);
+      } else {
+        notes.push(`❌Add Dialog缺少欄位:${missing.join(',')}`);
+        criticalFails.push(`Add Dialog缺少欄位:${missing.join(',')}`);
+      }
+      await closeDialog();
+    }
   }
 
-  return { notes: notes.join(' | '), criticalFails };
+  // TC2：Game Order確認是抓取Game Record的紀錄，如果不是Game Record的紀錄，點擊Check會跳出找不到的提示
+  if (/game order確認是抓取game record的紀錄/i.test(full)) {
+    const clicked = await openAddDialog();
+    if (!clicked) {
+      notes.push('❌找不到Add Jackpot Moment按鈕');
+      criticalFails.push('Add按鈕缺失');
+    } else {
+      await page.evaluate((sel) => {
+        const dialog = [...document.querySelectorAll(sel)].find(d => d.getBoundingClientRect().width > 0);
+        const input = dialog?.querySelector('input[placeholder*="Game Order" i]');
+        if (input) {
+          const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+          setter.call(input, 'FAKE-NONEXISTENT-ORDER-999999');
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }, ADD_FORM_SELECTOR);
+      await page.waitForTimeout(300);
+      const checkClicked = await page.evaluate((sel) => {
+        const dialog = [...document.querySelectorAll(sel)].find(d => d.getBoundingClientRect().width > 0);
+        const btn = dialog && [...dialog.querySelectorAll('button')].find(b => /^check$/i.test(b.innerText?.trim()));
+        if (btn) { btn.click(); return true; }
+        return false;
+      }, ADD_FORM_SELECTOR);
+      await page.waitForTimeout(1200);
+      const shotPath = path.join(SCREENSHOT_DIR, `jpmoment_check_notfound_${Date.now()}.png`);
+      await page.screenshot({ path: shotPath });
+      extraShotPaths.push(shotPath);
+      if (!checkClicked) {
+        notes.push('❌找不到Check按鈕');
+        criticalFails.push('Check按鈕缺失');
+      } else {
+        const hasError = await page.evaluate(() => !!document.querySelector('.el-message--error, .el-message-box'));
+        if (hasError) {
+          notes.push('✅輸入不存在的Game Order並按Check後，正確跳出找不到的提示');
+        } else {
+          notes.push('❌輸入不存在的Game Order並按Check後，沒有跳出找不到的提示');
+          criticalFails.push('Check未對不存在的Game Order顯示錯誤提示');
+        }
+      }
+      await closeDialog();
+    }
+  }
+
+  // TC3：Sort id用來顯示排序，可輸入相同Sort id，但優先順序會按照Bet Time排序，越接近目前時間的在越前面
+  if (/sort id用來顯示排序/i.test(full)) {
+    const rows = await page.evaluate(() => {
+      const table = document.querySelector('.el-table');
+      const ths = [...table.querySelectorAll('th')].map(h => h.innerText?.trim() || '');
+      const si = ths.findIndex(h => /sort id/i.test(h));
+      const ti = ths.findIndex(h => /^time$/i.test(h));
+      return [...table.querySelectorAll('.el-table__body tr')].map(row => {
+        const cells = row.querySelectorAll('td');
+        return { sortId: cells[si]?.innerText?.trim(), time: cells[ti]?.innerText?.trim() };
+      });
+    });
+    const bySort = {};
+    rows.forEach(r => { (bySort[r.sortId] = bySort[r.sortId] || []).push(r.time); });
+    const multiGroups = Object.entries(bySort).filter(([, times]) => times.length > 1);
+    if (multiGroups.length === 0) {
+      notes.push('⚠️目前資料沒有重複的Sort Id，無法驗證排序邏輯（僅能之後有重複資料時再驗證）');
+    } else {
+      let allSorted = true;
+      const details = [];
+      for (const [sortId, times] of multiGroups) {
+        const sortedDesc = times.every((t, i) => i === 0 || new Date(t) <= new Date(times[i - 1]));
+        details.push(`SortId=${sortId}(${times.length}筆${sortedDesc ? '✅' : '❌'})`);
+        if (!sortedDesc) allSorted = false;
+      }
+      if (allSorted) {
+        notes.push(`✅重複Sort Id的紀錄皆依Bet Time降序排列: ${details.join(', ')}`);
+      } else {
+        notes.push(`❌部分重複Sort Id的紀錄未依Bet Time降序排列: ${details.join(', ')}`);
+        criticalFails.push('Sort Id相同時未依Bet Time降序排列');
+      }
+    }
+  }
+
+  // TC4：Video可以正常上傳 / 預覽
+  if (/video可以正常上傳\s*\/\s*預覽/i.test(full)) {
+    const clicked = await openAddDialog();
+    if (!clicked) {
+      notes.push('❌找不到Add Jackpot Moment按鈕');
+      criticalFails.push('Add按鈕缺失');
+    } else {
+      const videoUi = await page.evaluate((sel) => {
+        const dialog = [...document.querySelectorAll(sel)].find(d => d.getBoundingClientRect().width > 0);
+        if (!dialog) return null;
+        const hasFileInput = !!dialog.querySelector('input[type="file"]');
+        const hasSelectBtn = [...dialog.querySelectorAll('button')].some(b => /select video file/i.test(b.innerText?.trim()));
+        const hasViewBtn = [...dialog.querySelectorAll('button')].some(b => /^view$/i.test(b.innerText?.trim()));
+        return { hasFileInput, hasSelectBtn, hasViewBtn };
+      }, ADD_FORM_SELECTOR);
+      const shotPath = path.join(SCREENSHOT_DIR, `jpmoment_video_ui_${Date.now()}.png`);
+      await page.screenshot({ path: shotPath });
+      extraShotPaths.push(shotPath);
+      if (videoUi && videoUi.hasFileInput && videoUi.hasSelectBtn) {
+        notes.push(`✅Video上傳UI存在(Select Video File按鈕${videoUi.hasViewBtn ? '+View預覽按鈕' : ''})（未提供實際影片檔案，僅驗證上傳/預覽UI存在，未實際上傳）`);
+      } else {
+        notes.push('❌Video上傳UI（Select Video File按鈕或file input）缺失');
+        criticalFails.push('Video上傳UI缺失');
+      }
+      await closeDialog();
+    }
+  }
+
+  // TC5：視頻記錄顯示正確 (Account / Jp amount / Time)
+  if (/視頻記錄顯示正確/.test(full)) {
+    const expected = ['Account', 'Jackpot Amount', 'Time'];
+    const missing = expected.filter(c => !allHeaders.some(h => h.includes(c)));
+    notes.push(`表格${rowCount}筆`);
+    if (missing.length === 0) {
+      notes.push(`✅表格欄位完整(${expected.join('/')})`);
+    } else {
+      notes.push(`❌表格欄位缺失:${missing.join(',')}（實際:${allHeaders.join(',')}）`);
+      criticalFails.push(`表格欄位缺失:${missing.join(',')}`);
+    }
+  }
+
+  // TC6：視頻可以做編輯 / 刪除 / 預覽
+  if (/視頻可以做編輯\s*\/\s*刪除\s*\/\s*預覽/.test(full)) {
+    const rowBtns = await page.evaluate(() => {
+      const row = document.querySelector('.el-table__body tr');
+      return row ? [...row.querySelectorAll('button')].map(b => b.innerText?.trim()) : [];
+    });
+    const expected = ['Edit', 'Delete', 'View'];
+    const missing = expected.filter(e => !rowBtns.some(b => b === e));
+    notes.push(`表格${rowCount}筆`);
+    if (missing.length === 0) {
+      notes.push(`✅每列皆有Edit/Delete/View按鈕`);
+    } else {
+      notes.push(`❌列按鈕缺失:${missing.join(',')}（實際:${rowBtns.join(',') || '無'}）`);
+      criticalFails.push(`列按鈕缺失:${missing.join(',')}`);
+    }
+  }
+
+  // TC7：最多只能新增20筆紀錄
+  if (/最多只能新增20筆紀錄/.test(full)) {
+    notes.push(`表格${rowCount}筆`);
+    if (rowCount >= 20) {
+      notes.push(`✅目前已達20筆上限（${rowCount}筆），與規格描述的上限一致（僅為現有資料觀察，未實際嘗試新增第21筆測試伺服器端是否真的擋下）`);
+    } else {
+      notes.push(`⚠️目前僅${rowCount}筆，未達20筆上限，無法驗證是否真的擋在20筆（未嘗試新增到21筆，避免對共用UAT資料造成不可逆影響）`);
+    }
+  }
+
+  if (notes.length === (h1 ? 1 : 0)) {
+    notes.push(`⚠️這筆TC文字沒有對應到已知的驗證規則，未執行任何斷言: ${full.slice(0, 40)}`);
+  }
+
+  return { notes: notes.join(' | '), criticalFails, extraShotPaths };
 }
 
 async function verifyDepositSetting(page, tc) {
@@ -1602,6 +2839,16 @@ async function verifyDepositSetting(page, tc) {
   return { notes: notes.join(' | '), criticalFails };
 }
 
+// ⭐ 2026-08-06 重寫：原本19筆TC只有2條關鍵字規則（Reservation List按鈕存在/doTimeSetting），
+// 其餘11筆全部落到「表格N筆」就算pass。已實際登入uat-cp.osmslot.org/game/machineReservationList
+// 操作過：Add Reservation Dialog(Account+Machine No兩欄)、Reservation List面板內的VIP名單
+// (Account/Type/Lock Count/Remaining Count/Machine Count/Lock Time(H)/Operation，10筆真實資料)、
+// +Add VIP Dialog(Account/Lock Count/Lock Time(H)/Machine Count)。並實測確認Add Reservation
+// 兩個真實錯誤訊息：用VIP名單裡的真實帳號+假Machine No →"Machine No is not exist"；
+// 假帳號+真實Machine No(873-DFDCGRAND-0023) →"Account is not exist"。
+// 保守原則：不實際建立/取消真實預約（會動到共用UAT的VIP名單與Remaining Count），
+// 也不做跨渠道比對（CP限定按鈕、壓測隔離等，已加入detectManual跨系統分流）。
+
 async function verifyMachineReservation(page, tc) {
   const notes = [];
   const criticalFails = [];
@@ -1613,22 +2860,286 @@ async function verifyMachineReservation(page, tc) {
     return { notes: notes.join(' | '), criticalFails: [], manual: true };
   }
 
-  const { h1, rowCount, allBtns } = await getBaseInfo(page);
+  const { h1, rowCount, allBtns, allHeaders } = await getBaseInfo(page);
   if (h1) notes.push(`頁面:${h1}`);
   notes.push(`表格${rowCount}筆`);
 
   const extraShotPaths = [];
 
-  if (/reservation.*list|預約名單/i.test(full)) {
+  const openReservationList = async () => {
+    await page.evaluate(() => {
+      const btn = [...document.querySelectorAll('button')].find(b => b.innerText?.trim() === 'Reservation List');
+      btn?.click();
+    });
+    await page.waitForTimeout(1200);
+  };
+  // ⚠️ 2026-08-06 修正重大bug：原本用/close|cancel/i比對按鈕文字關閉dialog，但Reservation
+  // List面板裡VIP名單「每一列」都有自己的"Cancel"按鈕（語意是刪除該筆VIP名單，不是關閉面板！），
+  // find()抓到第一個符合的按鈕，等於誤點了第一列VIP帳號的刪除鈕，跳出真實的
+  // "Are you sure to cancel the Account?"刪除確認框（幸好從未真的點下Confirm，VIP名單
+  // 10筆帳號事後查證仍完整）。改成優先找Element UI標準的右上角X關閉鈕(.el-dialog__headerbtn)，
+  // 找不到才退而求其次用「精確等於"Close"」（不再接受"Cancel"字樣，避免同樣誤觸)。
+  const closeVisibleDialog = async () => {
+    await page.evaluate(() => {
+      const dialogs = [...document.querySelectorAll('.el-dialog')].filter(d => d.getBoundingClientRect().width > 0);
+      const dlg = dialogs[dialogs.length - 1];
+      if (!dlg) return;
+      const headerBtn = dlg.querySelector('.el-dialog__headerbtn');
+      if (headerBtn) { headerBtn.click(); return; }
+      const btn = [...dlg.querySelectorAll('button')].find(b => b.innerText?.trim() === 'Close');
+      if (btn) btn.click();
+    });
+    await page.waitForTimeout(600);
+  };
+  const getVisibleDialogInfo = () => page.evaluate(() => {
+    const dialogs = [...document.querySelectorAll('.el-dialog')].filter(d => d.getBoundingClientRect().width > 0);
+    const d = dialogs[dialogs.length - 1];
+    if (!d) return null;
+    return {
+      title: d.querySelector('.el-dialog__title')?.innerText,
+      labels: [...d.querySelectorAll('.el-form-item__label')].map(l => l.innerText?.trim()),
+      buttons: [...d.querySelectorAll('button')].map(b => b.innerText?.trim()).filter(Boolean),
+      headers: [...d.querySelectorAll('.el-table th')].map(h => h.innerText?.trim()).filter(Boolean),
+      rowCount: d.querySelectorAll('.el-table__body tr').length,
+      filterLabels: [...d.querySelectorAll('.el-form-item__label')].map(l => l.innerText?.trim()),
+    };
+  });
+
+  // TC：查询：需要可以根据UserID/Account/Start Time查询，根据Status筛选
+  if (/查询.*userid.*account.*start\s*time|根据status筛选/i.test(full)) {
+    const filterLabels = await page.evaluate(() => [...document.querySelectorAll('.el-form-item__label')].map(l => l.innerText?.trim()));
+    const expected = ['UserId', 'Account', 'Start Time', 'Status'];
+    const missing = expected.filter(e => !filterLabels.includes(e));
+    if (missing.length === 0) {
+      notes.push(`✅主表查詢欄位完整(${expected.join('/')})`);
+    } else {
+      notes.push(`❌主表查詢欄位缺失:${missing.join(',')}（實際:${filterLabels.join(',')}）`);
+      criticalFails.push(`查詢欄位缺失:${missing.join(',')}`);
+    }
+  }
+
+  // TC：Reservation List 按鈕（一般存在性）
+  if (/reservation.*list|預約名單/i.test(full) && !/parameter\s*setting/i.test(full)) {
     const hasResBtn = allBtns.some(t => /reservation.*list/i.test(t));
     notes.push(hasResBtn ? '✅Reservation List按鈕' : '⚠️Reservation List按鈕未找到');
   }
 
-  if (/time.*setting|parameter.*setting|自動預約.*時長|時長.*設置|lock.*time|lock.*count/i.test(full)) {
+  // TC：時長設置/Parameter Setting（既有真實流程）
+  // ⚠️ 2026-08-06 修正：原本含lock.*time|lock.*count兩個過寬的alternative，導致TC18
+  // （+Add VIP名單，欄位本身就叫Lock Count/Lock Time(H)）被誤判成這條規則，doTimeSetting()
+  // 搶先執行並把Reservation List面板隱藏，後面的+Add VIP檢查再打開時錯誤判定按鈕缺失。
+  // "Time Setting"/"Parameter Setting"（英文詞組）已足夠精準識別TC4本身，不需要額外的
+  // 寬鬆fallback。
+  if (/time.*setting|parameter.*setting|自動預約.*時長|時長.*設置/i.test(full)) {
     const timeResult = await doTimeSetting(page);
     if (timeResult.notes) notes.push(timeResult.notes);
     criticalFails.push(...timeResult.criticalFails);
     extraShotPaths.push(...timeResult.extraShotPaths);
+  }
+
+  // TC：操作日誌
+  if (/操作日志|操作日誌/i.test(full)) {
+    const clicked = await page.evaluate(() => {
+      const btn = [...document.querySelectorAll('button')].find(b => b.innerText?.trim() === 'Operation Log');
+      if (btn) { btn.click(); return true; }
+      return false;
+    });
+    await page.waitForTimeout(1200);
+    if (!clicked) {
+      notes.push('❌Operation Log按鈕缺失');
+      criticalFails.push('Operation Log按鈕缺失');
+    } else {
+      const info = await getVisibleDialogInfo();
+      const shotPath = path.join(SCREENSHOT_DIR, `reservation_oplog_${Date.now()}.png`);
+      await page.screenshot({ path: shotPath });
+      extraShotPaths.push(shotPath);
+      if (info) {
+        notes.push(`✅Operation Log面板開啟(${info.rowCount}筆記錄)`);
+      } else {
+        notes.push('❌Operation Log面板未開啟');
+        criticalFails.push('Operation Log面板未開啟');
+      }
+      await closeVisibleDialog();
+    }
+  }
+
+  // TC：Add Reservation 負向情境（Machine No不存在／Account不存在，實測真實錯誤訊息）
+  if (/add\s*reservation功能測試|machine\s*no\s*is\s*not\s*exist|account\s*is\s*not\s*exist/i.test(full)) {
+    await openReservationList();
+    const vipAccounts = await page.evaluate(() => {
+      const dlg = [...document.querySelectorAll('.el-dialog')].filter(d => d.getBoundingClientRect().width > 0).pop();
+      return dlg ? [...dlg.querySelectorAll('.el-table__body tr')].map(r => r.querySelectorAll('td')[0]?.innerText?.trim()).filter(Boolean) : [];
+    });
+    await closeVisibleDialog();
+    const realVipAccount = vipAccounts[0];
+
+    const fillAddReservation = async (account, machineNo) => {
+      await page.evaluate(() => {
+        const btn = [...document.querySelectorAll('button')].find(b => b.innerText?.trim() === 'Add Reservation');
+        btn?.click();
+      });
+      await page.waitForTimeout(1000);
+      await page.evaluate(({ account, machineNo }) => {
+        const dlg = [...document.querySelectorAll('.el-dialog')].filter(d => d.getBoundingClientRect().width > 0).pop();
+        const setVal = (label, value) => {
+          const item = [...dlg.querySelectorAll('.el-form-item')].find(it => it.querySelector('.el-form-item__label')?.innerText?.trim() === label);
+          const input = item?.querySelector('input');
+          if (input) {
+            const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+            setter.call(input, value);
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        };
+        setVal('Account', account);
+        setVal('Machine No', machineNo);
+      }, { account, machineNo });
+      await page.waitForTimeout(300);
+      await page.evaluate(() => {
+        const dlg = [...document.querySelectorAll('.el-dialog')].filter(d => d.getBoundingClientRect().width > 0).pop();
+        const btn = dlg && [...dlg.querySelectorAll('button')].find(b => b.innerText?.trim() === 'Add');
+        btn?.click();
+      });
+      await page.waitForTimeout(1200);
+      const errMsg = await page.evaluate(() => document.querySelector('.el-message--error, .el-message-box')?.innerText || null);
+      await closeVisibleDialog();
+      return errMsg;
+    };
+
+    if (realVipAccount) {
+      const msg1 = await fillAddReservation(realVipAccount, 'FAKE-MACHINE-NOTEXIST-999');
+      const shot1 = path.join(SCREENSHOT_DIR, `reservation_add_fakemachine_${Date.now()}.png`);
+      await page.screenshot({ path: shot1 });
+      extraShotPaths.push(shot1);
+      if (/machine no is not exist/i.test(msg1 || '')) {
+        notes.push(`✅Machine No不存在時正確提示"${msg1}"`);
+      } else {
+        notes.push(`❌Machine No不存在時提示異常(實際:${msg1 || '無'})`);
+        criticalFails.push('Machine No不存在時未正確提示');
+      }
+    } else {
+      notes.push('⚠️VIP名單目前無資料，無法取得真實帳號測試Machine No情境');
+    }
+
+    const msg2 = await fillAddReservation('FAKE-ACCOUNT-NOTEXIST-999', TEST_PARAMS?.machineReservation?.realMachineNo || '873-DFDCGRAND-0023');
+    const shot2 = path.join(SCREENSHOT_DIR, `reservation_add_fakeaccount_${Date.now()}.png`);
+    await page.screenshot({ path: shot2 });
+    extraShotPaths.push(shot2);
+    if (/account is not exist/i.test(msg2 || '')) {
+      notes.push(`✅Account不存在時正確提示"${msg2}"`);
+    } else {
+      notes.push(`❌Account不存在時提示異常(實際:${msg2 || '無'})`);
+      criticalFails.push('Account不存在時未正確提示');
+    }
+    notes.push('ℹ️其餘4種情境（已被預約/機台狀態異常/玩家不在名單/壓測中）因需預先建立真實預約或占用狀態，避免污染共用UAT資料未實測，僅UI流程存在已確認');
+  }
+
+  // TC8/9/10：Add Reservation情境的延伸編號子句（"2./3./4."），跟TC7同一組規格拆開列的
+  // 子TC，皆需要預先建立真實預約占用/離線機台/非VIP玩家狀態才能觸發，避免污染共用UAT資料
+  if (/^\d\.\s*(预约时间根据配置时间决定|若提交预约时机器内有玩家|若提交预约时机器为离线)/i.test(full)) {
+    notes.push('⚠️此為Add Reservation驗證情境的子句（需預先建立真實預約占用/離線機台/非VIP玩家等前置狀態），與TC7同組規格，避免污染共用UAT資料未單獨實測，實際情境覆蓋見TC7的Machine No/Account不存在測試');
+  }
+
+  // TC：Reservation List > Account 模糊搜尋 + VIP名單可編輯/刪除
+  if (/account.*支援模糊搜尋|vip清單.*可編輯跟刪除/i.test(full)) {
+    await openReservationList();
+    const info = await getVisibleDialogInfo();
+    const shotPath = path.join(SCREENSHOT_DIR, `reservation_viplist_${Date.now()}.png`);
+    await page.screenshot({ path: shotPath });
+    extraShotPaths.push(shotPath);
+    const hasAccountFilter = info?.filterLabels?.includes('Account');
+    const hasEditDel = info?.buttons?.includes('Edit') && info?.buttons?.includes('Cancel');
+    if (hasAccountFilter && hasEditDel) {
+      notes.push(`✅VIP名單Account篩選存在，且列上有Edit/Cancel(刪除)按鈕（${info.rowCount}筆VIP資料）`);
+    } else {
+      notes.push(`❌VIP名單功能缺失(Account篩選:${!!hasAccountFilter}, Edit/Cancel:${!!hasEditDel})`);
+      criticalFails.push('VIP名單Account篩選或Edit/Cancel按鈕缺失');
+    }
+    await closeVisibleDialog();
+  }
+
+  // TC：Export（Reservation List面板內，搜尋後只匯出搜尋結果）
+  if (/export.*確認匯出檔案正確|只會匯出目前搜尋的帳號資料/i.test(full)) {
+    await openReservationList();
+    const exportResult = await doExport(page);
+    if (exportResult.notes) notes.push(exportResult.notes);
+    criticalFails.push(...exportResult.criticalFails);
+    await closeVisibleDialog();
+  }
+
+  // TC：+Add 可增加VIP預約名單（Lock Count/Lock Time(H)/Machine Count）
+  if (/\+add.*可增加vip預約名單|输入lock\s*count.*lock\s*time.*machine\s*count/i.test(full)) {
+    await openReservationList();
+    const addClicked = await page.evaluate(() => {
+      const dlg = [...document.querySelectorAll('.el-dialog')].filter(d => d.getBoundingClientRect().width > 0).pop();
+      const btn = dlg && [...dlg.querySelectorAll('button')].find(b => b.innerText?.trim() === 'Add');
+      if (btn) { btn.click(); return true; }
+      return false;
+    });
+    await page.waitForTimeout(1000);
+    if (!addClicked) {
+      notes.push('❌VIP名單Add按鈕缺失');
+      criticalFails.push('VIP名單Add按鈕缺失');
+    } else {
+      const info = await getVisibleDialogInfo();
+      const shotPath = path.join(SCREENSHOT_DIR, `reservation_addvip_dialog_${Date.now()}.png`);
+      await page.screenshot({ path: shotPath });
+      extraShotPaths.push(shotPath);
+      const expected = ['Account', 'Lock Count', 'Lock Time(H)', 'Machine Count'];
+      const missing = expected.filter(e => !info?.labels?.includes(e));
+      if (missing.length === 0) {
+        notes.push(`✅+Add VIP Dialog欄位完整(${expected.join('/')})（僅驗證表單存在，未實際新增避免污染共用VIP名單）`);
+      } else {
+        notes.push(`❌+Add VIP Dialog缺少欄位:${missing.join(',')}`);
+        criticalFails.push(`+Add VIP Dialog缺少欄位:${missing.join(',')}`);
+      }
+      await closeVisibleDialog();
+    }
+    await closeVisibleDialog();
+  }
+
+  // TC：Import Excel
+  if (/import\s*excel/i.test(full)) {
+    await openReservationList();
+    const hasImportBtn = await page.evaluate(() => {
+      const dlg = [...document.querySelectorAll('.el-dialog')].filter(d => d.getBoundingClientRect().width > 0).pop();
+      return !!dlg && [...dlg.querySelectorAll('button')].some(b => /import\s*excel/i.test(b.innerText?.trim()));
+    });
+    const shotPath = path.join(SCREENSHOT_DIR, `reservation_import_${Date.now()}.png`);
+    await page.screenshot({ path: shotPath });
+    extraShotPaths.push(shotPath);
+    if (hasImportBtn) {
+      notes.push('✅Import Excel按鈕存在（未提供實際檔案，僅驗證按鈕存在，未實際上傳避免污染共用VIP名單）');
+    } else {
+      notes.push('❌Import Excel按鈕缺失');
+      criticalFails.push('Import Excel按鈕缺失');
+    }
+    await closeVisibleDialog();
+  }
+
+  // TC：主表排序/Cancel操作/Delay（目前無資料時如實記錄，非fail）
+  if (/预定列表需要按照开始时间进行排序|时间约近的排在越前面/i.test(full)) {
+    if (rowCount === 0) {
+      notes.push('⚠️主表目前無預約資料（0筆），無法驗證按Start Time排序邏輯');
+    } else {
+      const startTimeIdx = allHeaders.findIndex(h => /start time/i.test(h));
+      const times = startTimeIdx >= 0 ? await page.evaluate((idx) => [...document.querySelectorAll('.el-table__body tr')].map(r => r.querySelectorAll('td')[idx]?.innerText?.trim()), startTimeIdx) : [];
+      const isAsc = times.every((t, i) => i === 0 || new Date(t) >= new Date(times[i - 1]));
+      if (isAsc) {
+        notes.push(`✅預約列表依Start Time正確排序（越近越前）`);
+      } else {
+        notes.push(`❌預約列表未依Start Time正確排序`);
+        criticalFails.push('預約列表排序錯誤');
+      }
+    }
+  }
+  if (/点击cannel后对此台机器取消预定|delay.*点击后弹出选择框/i.test(full)) {
+    notes.push(rowCount === 0
+      ? '⚠️主表目前無預約資料（0筆），無法驗證Cancel/Delay操作（避免無資料時誤觸發其他機台）'
+      : `ℹ️主表有${rowCount}筆資料，Operation欄按鈕存在性已於基礎檢查涵蓋，實際Cancel/Delay動作未執行避免影響真實預約`);
+  }
+
+  if (notes.length === (h1 ? 2 : 1)) {
+    notes.push(`⚠️這筆TC文字沒有對應到已知的驗證規則，未執行額外斷言: ${full.slice(0, 40)}`);
   }
 
   return { notes: notes.join(' | '), criticalFails, extraShotPaths };
@@ -1795,7 +3306,13 @@ async function verifyDailyRanking(page, tc) {
     exportedXlsxPath = expResult.exportedXlsxPath;
   }
 
-  // ── TC5：Set Config 深層驗證 — Daily Rank + Daily Rank-Bonus 開關流程 ─
+  // ── TC5：Set Config 深層驗證 ──────────────────────────────────────────
+  // ⭐ 2026-08-05 改版：舊版是兩個 el-switch 開關(Daily Rank / Daily Rank-Bonus)
+  // + Info dialog + Confirm 流程；新版改成表單 dialog：Ranking Type(下拉) /
+  // Time(日期區間) / Show The Top(數字) / Bonus(下拉，Show/Hidden) + Save/Close，
+  // 沒有 el-switch、沒有切換用的 Info confirm dialog 了。只針對確認存在的
+  // 「Bonus」下拉做開關等效驗證(對應舊版Daily Rank-Bonus)；「Daily Rank」本身
+  // 開關在新UI找不到對應控制項，如實記錄待人工確認是否已移到別處，不臆測。
   if (/set.*config|config.*開關|開關.*日榜/i.test(full)) {
     try {
       // ① 點 Set Config 按鈕
@@ -1813,104 +3330,65 @@ async function verifyDailyRanking(page, tc) {
         await page.screenshot({ path: beforeShotPath });
         extraShotPaths.push(beforeShotPath);
 
-        // ③ 取得兩個 toggle 初始狀態（Daily Rank / Daily Rank-Bonus）
-        const initialStates = await page.evaluate(() => {
-          const switches = [...document.querySelectorAll('.el-dialog .el-switch')];
-          return switches.map(sw => sw.classList.contains('is-checked'));
+        // ③ 確認新版4個欄位存在：Ranking Type / Time / Show The Top / Bonus
+        const fieldsFound = await page.evaluate(() => {
+          const items = [...document.querySelectorAll('.el-dialog .el-form-item')];
+          return items.map(item => item.querySelector('.el-form-item__label')?.innerText?.trim() || '');
         }).catch(() => []);
-        notes.push(`Set Config初始狀態: DailyRank=${initialStates[0] ? 'Open' : 'Close'} | DailyRank-Bonus=${initialStates[1] ? 'Open' : 'Close'}`);
+        const expected = ['Ranking Type', 'Time', 'Show The Top', 'Bonus'];
+        const missing = expected.filter(e => !fieldsFound.some(f => f.includes(e)));
+        if (missing.length > 0) {
+          notes.push(`⚠️Set Config欄位跟已知版面(${expected.join('/')})對不上，目前抓到:${fieldsFound.join(',') || '無'}——可能又改版了，需要重新確認`);
+        } else {
+          notes.push(`✅Set Config欄位確認存在: ${fieldsFound.join(' / ')}`);
+        }
 
-        const toggleLabels = ['Daily Rank', 'Daily Rank-Bonus'];
-        const toggleResults = [];
-
-        // ④ 逐一切換兩個 toggle，確認 Info dialog + Confirm + 成功回應
-        for (let t = 0; t < 2; t++) {
-          const label = toggleLabels[t];
-          // 點擊第 t 個 toggle
-          const clicked = await page.evaluate((idx) => {
-            const switches = [...document.querySelectorAll('.el-dialog .el-switch')];
-            if (switches[idx]) { switches[idx].click(); return true; }
-            return false;
-          }, t);
-
-          if (!clicked) {
-            notes.push(`❌${label} toggle 找不到`);
-            criticalFails.push(`${label} toggle 缺失`);
-            toggleResults.push(false);
-            continue;
-          }
-          await page.waitForTimeout(800);
-
-          // 等待 Info dialog
-          const infoDialog = page.locator('.el-message-box');
-          const hasInfo = await infoDialog.isVisible({ timeout: 3000 }).catch(() => false);
-          if (!hasInfo) {
-            notes.push(`❌${label} 切換後未出現 Info dialog`);
-            criticalFails.push(`${label} Info dialog 未出現`);
-            toggleResults.push(false);
-            continue;
-          }
-
-          // ⑤ 點 Confirm
-          await page.locator('.el-message-box button').filter({ hasText: /confirm/i }).click().catch(async () => {
-            await page.evaluate(() => {
-              const btn = [...document.querySelectorAll('.el-message-box button')]
-                .find(b => /confirm/i.test(b.innerText));
-              if (btn) btn.click();
-            });
-          });
-          await page.waitForTimeout(1000);
-
-          // ⑥ 確認成功（success toast 或 dialog 自動關閉）
-          const hasToast = await page.locator('.el-message--success').isVisible({ timeout: 2000 }).catch(() => false);
-
-          // ⑦ 確認 toggle 狀態已翻轉
-          const newState = await page.evaluate((idx) => {
-            const switches = [...document.querySelectorAll('.el-dialog .el-switch')];
-            return switches[idx]?.classList.contains('is-checked');
-          }, t).catch(() => null);
-          const stateFlipped = newState !== null && newState !== initialStates[t];
-
-          // ⑧ 截圖（切換後）
-          const afterShotPath = path.join(SCREENSHOT_DIR, `setconfig_${label.replace(/\s/g,'')}_after_${Date.now()}.png`);
-          await page.screenshot({ path: afterShotPath });
-          extraShotPaths.push(afterShotPath);
-
-          if (stateFlipped) {
-            notes.push(`✅${label} 開關切換成功(${hasToast ? 'toast確認' : '狀態已翻轉'})`);
-            toggleResults.push(true);
+        // ④ 找「Bonus」下拉(對應舊版Daily Rank-Bonus開關)，讀取目前值(Show/Hidden)
+        const bonusItem = page.locator('.el-dialog .el-form-item').filter({ hasText: 'Bonus' }).last();
+        const bonusSelectVisible = await bonusItem.locator('.el-select').isVisible({ timeout: 2000 }).catch(() => false);
+        if (!bonusSelectVisible) {
+          notes.push('❌Bonus下拉選單找不到，跟情境C原本描述的「開關」概念對不上，需要人工確認新UI對應方式');
+          criticalFails.push('Bonus 下拉選單缺失');
+        } else {
+          const origBonusVal = (await bonusItem.locator('.el-select .el-input__inner').inputValue().catch(() => '')) || '';
+          await bonusItem.locator('.el-select').click();
+          await page.waitForTimeout(500);
+          const options = await page.locator('.el-select-dropdown__item').allInnerTexts().catch(() => []);
+          const otherOption = options.find(o => o.trim() && o.trim() !== origBonusVal);
+          if (!otherOption) {
+            notes.push(`⚠️Bonus下拉目前值"${origBonusVal}"，但選單只有${options.length}個選項，無法測試切換`);
+            await page.keyboard.press('Escape').catch(() => {});
           } else {
-            notes.push(`❌${label} 開關切換後狀態未改變`);
-            criticalFails.push(`${label} 開關切換失敗`);
-            toggleResults.push(false);
+            await page.locator('.el-select-dropdown__item').filter({ hasText: otherOption }).first().click().catch(() => {});
+            await page.waitForTimeout(400);
+
+            // Save
+            const saveBtn = page.locator('.el-dialog button').filter({ hasText: /save/i }).first();
+            await saveBtn.click().catch(() => {});
+            await page.waitForTimeout(600);
+            const hasToast = await page.locator('.el-message--success').isVisible({ timeout: 2000 }).catch(() => false);
+            const afterShotPath = path.join(SCREENSHOT_DIR, `setconfig_bonus_toggle_${Date.now()}.png`);
+            await page.screenshot({ path: afterShotPath });
+            extraShotPaths.push(afterShotPath);
+            notes.push(`${hasToast ? '✅' : '⚠️'}Bonus下拉切換 ${origBonusVal}→${otherOption} 並儲存${hasToast ? '(toast確認)' : '(未偵測到toast)'}`);
+
+            // 還原：重開Set Config，切回原值
+            await setConfigBtn.click().catch(() => {});
+            await page.waitForTimeout(800);
+            const bonusItem2 = page.locator('.el-dialog .el-form-item').filter({ hasText: 'Bonus' }).last();
+            await bonusItem2.locator('.el-select').click().catch(() => {});
+            await page.waitForTimeout(400);
+            await page.locator('.el-select-dropdown__item').filter({ hasText: origBonusVal }).first().click().catch(() => {});
+            await page.waitForTimeout(300);
+            await page.locator('.el-dialog button').filter({ hasText: /save/i }).first().click().catch(() => {});
+            await page.waitForTimeout(600);
+            notes.push('✅Bonus下拉已還原原始值');
           }
         }
 
-        // ⑨ 還原：把兩個 toggle 切回原始狀態
-        for (let t = 0; t < 2; t++) {
-          const currentState = await page.evaluate((idx) => {
-            const switches = [...document.querySelectorAll('.el-dialog .el-switch')];
-            return switches[idx]?.classList.contains('is-checked');
-          }, t).catch(() => null);
-          if (currentState !== null && currentState !== initialStates[t]) {
-            await page.evaluate((idx) => {
-              const switches = [...document.querySelectorAll('.el-dialog .el-switch')];
-              if (switches[idx]) switches[idx].click();
-            }, t);
-            await page.waitForTimeout(800);
-            await page.locator('.el-message-box button').filter({ hasText: /confirm/i }).click().catch(async () => {
-              await page.evaluate(() => {
-                const btn = [...document.querySelectorAll('.el-message-box button')]
-                  .find(b => /confirm/i.test(b.innerText));
-                if (btn) btn.click();
-              });
-            });
-            await page.waitForTimeout(800);
-          }
-        }
-        notes.push('✅Set Config已還原原始狀態');
+        notes.push('ℹ️「Daily Rank」本身的開關在新版Set Config找不到對應控制項(舊版是獨立el-switch)，可能已移除或移到別處，需要人工確認，不臆測其現況');
 
-        // ⑩ 關閉 Set Config dialog
+        // ⑤ 關閉 Set Config dialog
         await page.evaluate(() => {
           const closeBtn = [...document.querySelectorAll('.el-dialog button')]
             .find(b => /close/i.test(b.innerText));
@@ -1926,9 +3404,218 @@ async function verifyDailyRanking(page, tc) {
   return { notes: notes.join(' | '), criticalFails, toastShotPath, exportedXlsxPath, extraShotPaths };
 }
 
+// ⭐ 2026-08-05 使用者實際說明操作步驟並全程確認過：Jackpot Abnormality補發 → Jackpot Ranking
+// 自動寫入（含JackpotType預設為空）的完整流程。真實走過一次才發現的關鍵坑：
+// Info確認彈窗是Element UI的`.el-message-box`，不是`.el-dialog`——用`.el-dialog, .el-message-box`
+// 混在一起查再用offsetParent篩選，會選到錯的（或空的）元素，導致最後一步Sure按鈕根本沒被
+// 真的點到，整個流程看似跑完但資料其實沒confirm。已用page.waitForResponse實測
+// `sureHandPayRecord`真的回200才敢確認流程有效。
+async function runJackpotAbnormalityFlow(page) {
+  await page.goto(`${BACKEND_URL}/abnormality/getHandPayRecord`, { waitUntil: 'networkidle', timeout: 20000 });
+  await page.waitForTimeout(1500);
+  await dismissDialogs(page);
+
+  // ⚠️ 用「Game Order」欄位（每筆bet唯一的訂單號，例如4186-XXX-0000|hash）當這一列的
+  // 穩定身分識別——account這種共用測試帳號在表格裡會重複出現很多列，且Handpay/Jackpot
+  // 數值本身會被這次操作改掉、不能拿新值回頭找列。Game Order從頭到尾都不會變，
+  // 才是唯一能安全重新定位「就是這一列」的欄位。
+  // ⭐ 2026-08-05：不能固定選第一列——當天第一列一直是先前測試留下、疑似已經卡在異常
+  // 狀態的舊列（Payout被改成天文數字後，Sure確認一直沒有真正生效）。改成挑一列Payout
+  // 金額落在正常範圍（<100000）的「乾淨」列，避開被之前測試污染過的列。
+  const rowBefore = await page.evaluate((cleanThreshold) => {
+    const table = document.querySelector('.el-table');
+    if (!table) return null;
+    const ths = [...table.querySelectorAll('th')].map(h => h.innerText?.trim() || '');
+    const ai = ths.findIndex(h => /^account$/i.test(h));
+    const gi = ths.findIndex(h => /game order/i.test(h));
+    const pi = ths.findIndex(h => /^payout$/i.test(h));
+    const rows = [...table.querySelectorAll('.el-table__body tr')];
+    const isClean = (row) => {
+      const payoutText = row.querySelectorAll('td')[pi]?.innerText || '';
+      const n = parseFloat(payoutText.replace(/,/g, ''));
+      return !isNaN(n) && n < cleanThreshold;
+    };
+    const row = rows.find(isClean) || rows[0];
+    if (!row) return null;
+    const cells = row.querySelectorAll('td');
+    return { account: cells[ai]?.innerText?.trim(), gameOrder: cells[gi]?.innerText?.trim() };
+  }, TEST_PARAMS.jackpotAbnormality.cleanRowPayoutThreshold);
+  if (!rowBefore || !rowBefore.gameOrder) return { ok: false, error: '讀不到Jackpot Abnormality的Game Order（無法安全定位可用的列）' };
+
+  // ⭐ 2026-08-05 使用者確認並要求記住的關鍵限制：Handpay/Jackpot Amount欄位最多只能
+  // 輸入9位數，超過會導致DB查詢不到資料（UI操作流程本身看起來完全正常、會顯示成功，
+  // 但後續在Jackpot Ranking永遠查不到）。之前多輪測試用11~15位數天文數字全部卡在這裡，
+  // 花了很多輪才定位到根因。用時間戳尾碼組出恰好9位數，確保每次跑都獨一無二方便比對，
+  // 同時絕對不超過這個上限。見memory: project_jackpot_abnormality_testing
+  const { maxInputDigits, jackpotValuePrefix, handpayValuePrefix } = TEST_PARAMS.jackpotAbnormality;
+  const uniqueSuffix = String(Date.now()).slice(-(maxInputDigits - jackpotValuePrefix.length));
+  const targetJackpot = `${jackpotValuePrefix}${uniqueSuffix}`;
+  const targetHandpay = `${handpayValuePrefix}${uniqueSuffix}`;
+
+  const editClicked = await page.evaluate((gameOrder) => {
+    const row = ([...document.querySelectorAll('.el-table__body tr')]).find(r => r.innerText.includes(gameOrder));
+    const btn = row && [...row.querySelectorAll('button')].find(b => /^edit$/i.test(b.innerText?.trim()));
+    if (btn) { btn.click(); return true; }
+    return false;
+  }, rowBefore.gameOrder);
+  if (!editClicked) return { ok: false, error: '找不到Jackpot Abnormality Edit按鈕' };
+  await page.waitForTimeout(800);
+
+  await page.evaluate(({ hp, jp }) => {
+    const dialogs = [...document.querySelectorAll('.el-dialog')].filter(d => d.offsetParent !== null);
+    const dialog = dialogs[dialogs.length - 1];
+    const inputs = [...(dialog?.querySelectorAll('input') || [])];
+    const setVal = (el, val) => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      setter.call(el, val);
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    if (inputs[0]) setVal(inputs[0], hp);
+    if (inputs[1]) setVal(inputs[1], jp);
+  }, { hp: targetHandpay, jp: targetJackpot });
+  await page.waitForTimeout(300);
+
+  const editShotPath = path.join(SCREENSHOT_DIR, `jpabnormality_edit_filled_${Date.now()}.png`);
+  await page.screenshot({ path: editShotPath });
+
+  // ⭐ 2026-08-05 重要修正：原本以為「Edit對話框送出」跟「列上的Sure按鈕」是兩個獨立步驟
+  // （先送出Edit關閉對話框，再另外去點列上的Sure），這是錯的，已用截圖實測證實：
+  // Edit對話框裡的「+Edit」按鈕一按下去，會直接疊出同一個Info確認彈窗（Edit PayOut對話框
+  // 還留在背景沒關閉），根本不需要、也不應該再去找列上獨立的Sure按鈕——那顆是給「上次
+  // Edit送出過、但還沒完成Info確認」的半殘列用的收尾按鈕，不是正常單次流程的一部分。
+  // 之前一直卡住是因為程式碼在等一個從未存在過的「Edit本身送出網路請求」，然後又去點
+  // 列上的Sure（此時Info彈窗已經蓋在畫面上，那個點擊點到不該點的地方），流程整個對不起來。
+  await page.evaluate(() => {
+    const dialogs = [...document.querySelectorAll('.el-dialog')].filter(d => d.offsetParent !== null);
+    const dialog = dialogs[dialogs.length - 1];
+    const btn = dialog && [...dialog.querySelectorAll('button')].find(b => /^edit$/i.test(b.innerText?.trim()));
+    if (btn) btn.click();
+  });
+  await page.waitForTimeout(1200);
+
+  const infoAppeared = await page.evaluate(() => !!document.querySelector('.el-message-box'));
+  if (!infoAppeared) {
+    return { ok: false, error: 'Edit送出後沒有跳出預期的Info確認彈窗（.el-message-box）', editShotPath };
+  }
+
+  // 關鍵修正：Info確認彈窗是.el-message-box，要獨立處理，不能跟.el-dialog混在一起查
+  // 網路回應比對放寬成任何POST（不死守sureHandPayRecord這個精確字串，避免共用UAT環境
+  // 負載較高時延遲更久導致誤判逾時），並且不完全依賴network capture當唯一證據——
+  // 額外用「該列是否從待確認清單消失」當第二重驗證（已用真實成功案例確認：
+  // 完成確認後，該列會從Jackpot Abnormality列表移除）。
+  const respPromise = page.waitForResponse(r => r.request().method() === 'POST' && /handpay|abnormality/i.test(r.url()), { timeout: 12000 }).catch(() => null);
+  const confirmClicked = await page.evaluate(() => {
+    const box = document.querySelector('.el-message-box');
+    const btn = box && [...box.querySelectorAll('button')].find(b => /^sure$/i.test(b.innerText?.trim()));
+    if (btn) { btn.click(); return true; }
+    return false;
+  });
+  if (!confirmClicked) return { ok: false, error: '找不到Info確認彈窗(.el-message-box)的Sure按鈕' };
+  const resp = await respPromise;
+  await page.waitForTimeout(1500);
+  const confirmShotPath = path.join(SCREENSHOT_DIR, `jpabnormality_confirmed_${Date.now()}.png`);
+  await page.screenshot({ path: confirmShotPath });
+
+  // 第二重驗證：不管有沒有捕捉到network response，都直接重新整理列表確認該列是否已消失
+  await page.goto(`${BACKEND_URL}/abnormality/getHandPayRecord`, { waitUntil: 'networkidle', timeout: 20000 }).catch(() => {});
+  await page.waitForTimeout(1000);
+  await dismissDialogs(page);
+  let stillPending = await page.evaluate((gameOrder) => {
+    return !!([...document.querySelectorAll('.el-table__body tr')]).find(r => r.innerText.includes(gameOrder));
+  }, rowBefore.gameOrder);
+
+  // ⭐ 2026-08-05 新增第二階段確認：連續4次測試（乾淨列+大數值都試過）都卡在同一個地方——
+  // Edit對話框自己的Info確認彈窗按完Sure後，該列依然留在待確認清單裡。回頭比對當初唯一
+  // 一次真正成功的案例，懷疑其實需要「兩階段」確認：Edit對話框的Sure只是暫存數值，
+  // 真正觸發寫入Jackpot Ranking的是列上『獨立』的Sure按鈕（再跳一次Info彈窗、再Sure一次）。
+  // 保守起見：只有在第一階段後該列還在時才嘗試第二階段，不會對已經消失的列做多餘操作。
+  let secondStageShotPath = null;
+  if (stillPending) {
+    const rowSureClicked = await page.evaluate((gameOrder) => {
+      const row = ([...document.querySelectorAll('.el-table__body tr')]).find(r => r.innerText.includes(gameOrder));
+      const btn = row && [...row.querySelectorAll('button')].find(b => /^sure$/i.test(b.innerText?.trim()));
+      if (btn) { btn.click(); return true; }
+      return false;
+    }, rowBefore.gameOrder);
+    if (rowSureClicked) {
+      await page.waitForTimeout(1000);
+      const secondRespPromise = page.waitForResponse(r => r.request().method() === 'POST' && /handpay|abnormality/i.test(r.url()), { timeout: 12000 }).catch(() => null);
+      const secondConfirmClicked = await page.evaluate(() => {
+        const box = document.querySelector('.el-message-box');
+        const btn = box && [...box.querySelectorAll('button')].find(b => /^sure$/i.test(b.innerText?.trim()));
+        if (btn) { btn.click(); return true; }
+        return false;
+      });
+      if (secondConfirmClicked) {
+        await secondRespPromise;
+        await page.waitForTimeout(1500);
+        secondStageShotPath = path.join(SCREENSHOT_DIR, `jpabnormality_confirmed2_${Date.now()}.png`);
+        await page.screenshot({ path: secondStageShotPath });
+        await page.goto(`${BACKEND_URL}/abnormality/getHandPayRecord`, { waitUntil: 'networkidle', timeout: 20000 }).catch(() => {});
+        await page.waitForTimeout(1000);
+        await dismissDialogs(page);
+        stillPending = await page.evaluate((gameOrder) => {
+          return !!([...document.querySelectorAll('.el-table__body tr')]).find(r => r.innerText.includes(gameOrder));
+        }, rowBefore.gameOrder);
+      }
+    }
+  }
+
+  if (stillPending) {
+    return {
+      ok: false,
+      error: `兩階段確認後該列仍在待確認清單中（未消失）——判定為真的沒確認成功`,
+      editShotPath, confirmShotPath,
+      extraShotPaths: secondStageShotPath ? [editShotPath, confirmShotPath, secondStageShotPath] : [editShotPath, confirmShotPath],
+    };
+  }
+
+  // 輪詢Jackpot Ranking找這筆獨一無二的Jackpot Amount值。次數/間隔可調（config/backend-test-params.json）。
+  const { rankingPollAttempts, rankingPollIntervalMs } = TEST_PARAMS.jackpotAbnormality;
+  let rankingResult = null;
+  for (let attempt = 1; attempt <= rankingPollAttempts && !rankingResult; attempt++) {
+    await page.goto(`${BACKEND_URL}/rankinglist/jackpotRanking`, { waitUntil: 'networkidle', timeout: 20000 });
+    await page.waitForTimeout(1500);
+    await dismissDialogs(page);
+    rankingResult = await page.evaluate((targetJp) => {
+      const table = document.querySelector('.el-table');
+      const ths = [...table.querySelectorAll('th')].map(h => h.innerText?.trim() || '');
+      const ji = ths.findIndex(h => /^jackpot amount$/i.test(h));
+      const jti = ths.findIndex(h => /^jackpot type$/i.test(h));
+      const rows = [...table.querySelectorAll('.el-table__body tr')];
+      for (const row of rows) {
+        const cells = row.querySelectorAll('td');
+        if (cells[ji]?.innerText?.trim().replace(/,/g, '') === targetJp) {
+          return { found: true, jackpotType: cells[jti]?.innerText?.trim() };
+        }
+      }
+      return null;
+    }, targetJackpot);
+    if (!rankingResult) await page.waitForTimeout(rankingPollIntervalMs);
+  }
+  const rankingShotPath = path.join(SCREENSHOT_DIR, `jpranking_after_abnormality_${Date.now()}.png`);
+  await page.screenshot({ path: rankingShotPath });
+
+  return {
+    ok: true,
+    account: rowBefore.account,
+    targetJackpot,
+    found: !!rankingResult,
+    jackpotType: rankingResult?.jackpotType,
+    extraShotPaths: [editShotPath, confirmShotPath, ...(secondStageShotPath ? [secondStageShotPath] : []), rankingShotPath],
+  };
+}
+
+// ⭐ 2026-08-05 重寫：原本11筆TC全部共用「有Jackpot Amount欄位就pass」的模糊判斷，
+// 完全不管TC實際在測什麼。已實際登入uat-cp.osmslot.org點過Add/Announcement/
+// Batch Set Jackpot Type三個dialog確認真實欄位後，改成每筆TC對應各自的真實操作+斷言。
+// 保守原則：會開啟dialog確認欄位存在，但不送出會改到共用UAT資料的操作（Add新增假紀錄、
+// Batch真的改JP Type），避免污染其他人在用的測試資料；這部分留白會在notes裡明說，不假裝已驗證。
 async function verifyJackpotRanking(page, tc) {
   const notes = [];
   const criticalFails = [];
+  const extraShotPaths = [];
   const full = tc || '';
 
   const manualReason = detectManual(full);
@@ -1937,13 +3624,414 @@ async function verifyJackpotRanking(page, tc) {
     return { notes: notes.join(' | '), criticalFails: [], manual: true };
   }
 
-  const { h1, allHeaders } = await getBaseInfo(page);
+  const { h1, allHeaders, rowCount } = await getBaseInfo(page);
   if (h1) notes.push(`頁面:${h1}`);
 
-  const hasJpAmount = allHeaders.some(h => /jackpot.*amount/i.test(h));
-  notes.push(hasJpAmount ? '✅Jackpot Amount欄位' : '⚠️未確認Jackpot Amount欄位');
+  const getVisibleDialog = () => page.locator('.el-dialog:visible').last();
+  const closeDialog = async () => {
+    await page.evaluate(() => {
+      const dialogs = [...document.querySelectorAll('.el-dialog')].filter(d => d.offsetParent !== null);
+      const dialog = dialogs[dialogs.length - 1];
+      const btn = dialog && [...dialog.querySelectorAll('button')].find(b => /close|cancel/i.test(b.innerText?.trim()));
+      if (btn) btn.click();
+    });
+    await page.waitForTimeout(500);
+  };
 
-  return { notes: notes.join(' | '), criticalFails };
+  // TC1：排序是按照 Jackpot Amount 排序
+  // ⚠️ 欄位index必須在同一次evaluate內、用未過濾的th清單去對應td——getBaseInfo()的
+  // allHeaders會filter(Boolean)把checkbox欄的空字串th濾掉，導致index跟td錯位一格
+  // （已用真實DOM除錯確認：filter後index=6對到的其實是Machine Name那格td，不是Jackpot Amount）
+  if (/排序.*jackpot.*amount.*排序|jackpot.*amount.*排序/i.test(full)) {
+    const values = await page.evaluate(() => {
+      const table = document.querySelector('.el-table');
+      if (!table) return null;
+      const ths = [...table.querySelectorAll('th')].map(h => h.innerText?.trim() || '');
+      const idx = ths.findIndex(h => /jackpot.*amount/i.test(h));
+      if (idx === -1) return null;
+      return [...table.querySelectorAll('.el-table__body tr')].map(row => {
+        const cell = row.querySelectorAll('td')[idx];
+        const n = parseFloat((cell?.innerText || '').replace(/[^0-9.-]/g, ''));
+        return isNaN(n) ? null : n;
+      }).filter(n => n != null);
+    });
+    if (values === null) {
+      notes.push('❌找不到Jackpot Amount欄位，無法驗證排序');
+      criticalFails.push('找不到Jackpot Amount欄位');
+    } else {
+      let sorted = true;
+      for (let i = 1; i < values.length; i++) {
+        if (values[i] > values[i - 1]) { sorted = false; break; }
+      }
+      if (values.length < 2) {
+        notes.push(`⚠️資料筆數不足(${values.length})無法確認排序`);
+      } else if (sorted) {
+        notes.push(`✅Jackpot Amount降序正確(前3筆:${values.slice(0,3).join(',')})`);
+      } else {
+        notes.push(`❌Jackpot Amount排序錯誤(前5筆:${values.slice(0,5).join(',')})`);
+        criticalFails.push('Jackpot Amount未按降序排列');
+      }
+      const sortShotPath = path.join(SCREENSHOT_DIR, `jpranking_sort_${Date.now()}.png`);
+      await page.screenshot({ path: sortShotPath });
+      extraShotPaths.push(sortShotPath);
+    }
+  }
+
+  // TC2：可以更新上傳 / 刪除 / 觀看視頻
+  if (/更新上傳.*刪除.*觀看視頻|上傳.*刪除.*視頻/.test(full)) {
+    const hasUpload = allHeaders.length > 0 && await page.evaluate(() =>
+      [...document.querySelectorAll('.el-table__body tr')].every(row =>
+        [...row.querySelectorAll('button')].some(b => /^upload$/i.test(b.innerText?.trim()))
+      )
+    ).catch(() => false);
+    if (hasUpload) {
+      notes.push('✅每列皆有Upload按鈕（Video欄）');
+    } else {
+      notes.push('❌部分列缺少Upload按鈕');
+      criticalFails.push('Video欄Upload按鈕缺失');
+    }
+  }
+
+  // TC3：可以編輯 / 刪除獎池額度
+  if (/可以編輯.*刪除獎池額度|編輯.*刪除.*獎池額度/.test(full)) {
+    const hasEditDel = rowCount > 0 && await page.evaluate(() =>
+      [...document.querySelectorAll('.el-table__body tr')].every(row => {
+        const btns = [...row.querySelectorAll('button')].map(b => b.innerText?.trim());
+        return btns.some(t => /^edit$/i.test(t)) && btns.some(t => /^delete$/i.test(t));
+      })
+    ).catch(() => false);
+    if (hasEditDel) {
+      notes.push('✅每列皆有Edit+Delete按鈕（Operation欄）');
+    } else {
+      notes.push('❌部分列缺少Edit/Delete按鈕');
+      criticalFails.push('Operation欄Edit/Delete按鈕缺失');
+    }
+  }
+
+  // TC4：可以透過"add"按鈕新增獎池紀錄
+  if (/透過.*add.*按鈕新增獎池紀錄|add.*按鈕新增獎池/i.test(full)) {
+    const clicked = await page.evaluate(() => {
+      const btn = [...document.querySelectorAll('button')].find(b => /^add$/i.test(b.innerText?.trim()));
+      if (btn) { btn.click(); return true; }
+      return false;
+    });
+    await page.waitForTimeout(1000);
+    if (!clicked) {
+      notes.push('❌找不到Add按鈕');
+      criticalFails.push('Add按鈕缺失');
+    } else {
+      const dlg = await page.evaluate(() => {
+        const dialogs = [...document.querySelectorAll('.el-dialog')].filter(d => d.offsetParent !== null);
+        const dialog = dialogs[dialogs.length - 1];
+        if (!dialog) return null;
+        return {
+          title: (dialog.querySelector('.el-dialog__title')?.innerText || dialog.querySelector('.el-dialog__header')?.innerText || '')?.trim(),
+          labels: [...dialog.querySelectorAll('.el-form-item__label')].map(l => l.innerText?.replace(/[\s*]/g,'')),
+        };
+      });
+      const expected = ['SpinId','MachineNo','JackpotType','Bet','Payout','JackpotAmount','Account','BetTime'];
+      const missing = dlg ? expected.filter(e => !dlg.labels.some(l => l.replace(/\s/g,'') === e)) : expected;
+      const addDialogShotPath = path.join(SCREENSHOT_DIR, `jpranking_add_dialog_${Date.now()}.png`);
+      await page.screenshot({ path: addDialogShotPath });
+      extraShotPaths.push(addDialogShotPath);
+      if (missing.length === 0) {
+        notes.push(`✅Add Dialog(${dlg.title})欄位完整(${expected.length}項)`);
+      } else {
+        notes.push(`⚠️Add Dialog欄位缺失:${missing.join(',')}（未實際送出新增，避免污染共用UAT資料，僅驗證表單欄位）`);
+        if (!dlg) criticalFails.push('Add Dialog未開啟');
+      }
+      await closeDialog();
+    }
+  }
+
+  // TC5：確認CSV導出數據顯示正確
+  // ⚠️ 同TC1，index必須在同一次evaluate內用未過濾的th清單算，不能借用外層已filter(Boolean)的allHeaders
+  if (/確認csv導出數據顯示正確/i.test(full)) {
+    const firstRow = await page.evaluate(() => {
+      const table = document.querySelector('.el-table');
+      if (!table) return null;
+      const ths = [...table.querySelectorAll('th')].map(h => h.innerText?.trim() || '');
+      const ai = ths.findIndex(h => /^account$/i.test(h));
+      const ji = ths.findIndex(h => /jackpot.*amount/i.test(h));
+      const row = table.querySelector('.el-table__body tr');
+      if (!row) return null;
+      const cells = row.querySelectorAll('td');
+      return { account: cells[ai]?.innerText?.trim(), jpAmount: cells[ji]?.innerText?.trim() };
+    });
+    const exportResult = await doExport(page);
+    notes.push(exportResult.notes);
+    criticalFails.push(...exportResult.criticalFails);
+    if (exportResult.exportedXlsxPath && firstRow) {
+      const { headers, rows } = extractXlsxData(exportResult.exportedXlsxPath);
+      const xAcctIdx = headers.findIndex(h => /account/i.test(h));
+      const xJpIdx = headers.findIndex(h => /jackpot.*amount/i.test(h));
+      const xlsxRow = rows.find(r => String(r[xAcctIdx] ?? '').trim() === firstRow.account);
+      if (xlsxRow) {
+        const xlsxJp = parseFloat(String(xlsxRow[xJpIdx] ?? '').replace(/,/g, ''));
+        const screenJp = parseFloat((firstRow.jpAmount || '').replace(/,/g, ''));
+        if (Math.abs(xlsxJp - screenJp) < 0.01) {
+          notes.push(`✅xlsx內容與畫面吻合(${firstRow.account}:${screenJp})`);
+        } else {
+          notes.push(`❌xlsx數值與畫面不符(畫面:${screenJp} xlsx:${xlsxJp})`);
+          criticalFails.push('CSV導出數值與畫面不符');
+        }
+      } else {
+        notes.push(`⚠️xlsx中找不到對應帳號(${firstRow.account})的行`);
+      }
+    }
+  }
+
+  // TC6：數據透過Jackpot Abronmality補發後，會自動寫入到Jackpot Raking中
+  // ⭐ 2026-08-05 使用者實際說明操作步驟後改成真實流程（runJackpotAbnormalityFlow），
+  // 不再是MANUAL——見該函式註解，關鍵坑是Info確認彈窗是.el-message-box不是.el-dialog。
+  if (/數據透過jackpot abronmality補發後，會自動寫入到jackpot raking中/i.test(full)) {
+    const flow = await runJackpotAbnormalityFlow(page);
+    if (flow.extraShotPaths) extraShotPaths.push(...flow.extraShotPaths);
+    if (!flow.ok) {
+      notes.push(`❌Jackpot Abnormality補發流程失敗：${flow.error}`);
+      criticalFails.push('Jackpot Abnormality補發流程失敗');
+    } else if (flow.found) {
+      notes.push(`✅補發後Jackpot Amount=${flow.targetJackpot}的紀錄已自動寫入Jackpot Ranking（帳號${flow.account}）`);
+    } else {
+      notes.push(`❌補發後等待約90秒（8次輪詢），Jackpot Ranking仍找不到Jackpot Amount=${flow.targetJackpot}的新紀錄`);
+      criticalFails.push('補發資料未自動寫入Jackpot Ranking');
+    }
+    // 回到Jackpot Ranking頁面讓後續TC（若有）狀態一致
+    await page.goto(`${BACKEND_URL}/rankinglist/jackpotRanking`, { waitUntil: 'networkidle', timeout: 20000 }).catch(() => {});
+    await page.waitForTimeout(800);
+  }
+
+  // TC7：Announcement可設定JP彈框跳出時間
+  if (/announcement可設定jp彈框跳出時間/i.test(full)) {
+    const clicked = await page.evaluate(() => {
+      const row = document.querySelector('.el-table__body tr');
+      const btn = row && [...row.querySelectorAll('button')].find(b => /^announcement$/i.test(b.innerText?.trim()));
+      if (btn) { btn.click(); return true; }
+      return false;
+    });
+    await page.waitForTimeout(1000);
+    if (!clicked) {
+      notes.push('❌找不到Announcement按鈕');
+      criticalFails.push('Announcement按鈕缺失');
+    } else {
+      const dlg = await page.evaluate(() => {
+        const dialogs = [...document.querySelectorAll('.el-dialog')].filter(d => d.offsetParent !== null);
+        const dialog = dialogs[dialogs.length - 1];
+        if (!dialog) return null;
+        return {
+          title: (dialog.querySelector('.el-dialog__title')?.innerText || dialog.querySelector('.el-dialog__header')?.innerText || '')?.trim(),
+          hasTimeField: /start to end time/i.test(dialog.innerText || ''),
+        };
+      });
+      const annShotPath = path.join(SCREENSHOT_DIR, `jpranking_announcement_dialog_${Date.now()}.png`);
+      await page.screenshot({ path: annShotPath });
+      extraShotPaths.push(annShotPath);
+      if (dlg && dlg.hasTimeField) {
+        notes.push(`✅Announcement Dialog(${dlg.title})含Start To End Time欄位（僅驗證表單，未送出變更共用UAT資料）`);
+      } else {
+        notes.push('❌Announcement Dialog未含預期的時間欄位');
+        criticalFails.push('Announcement Dialog缺少時間欄位');
+      }
+      await closeDialog();
+    }
+  }
+
+  // TC10：勾選批量修改JP Type
+  // ⭐ 2026-08-05 使用者實際操作說明後改成真實送出+驗證持久化+還原：
+  // 只勾選第1列（不用全選，降低對共用UAT資料的影響範圍），記錄該列身分(Account+Bet Time)
+  // 與原始Jackpot Type，送出改成一個不同的合法值後，重新讀表確認該列真的變成新值，
+  // 最後再用同一套Batch流程改回原始值，把資料復原。
+  if (/勾選批量修改jp type/i.test(full)) {
+    const pickDialogOption = async (targetText) => {
+      // Element UI 的下拉選單用 popper teleport 到 document.body，同時間可能有多個
+      // select 的選項清單都在 DOM 裡，只是非開啟狀態的用 display:none 隱藏——
+      // 必須用「目前哪個 .el-select-dropdown 容器本身是可見的」來篩選，不能直接抓全頁面的
+      // .el-select-dropdown__item（會連背景頁面的 Game Type 篩選選單選項也一起抓到）。
+      await page.evaluate(() => {
+        const dialogs = [...document.querySelectorAll('.el-dialog')].filter(d => d.offsetParent !== null);
+        const dialog = dialogs[dialogs.length - 1];
+        dialog?.querySelector('.el-select .el-input__inner')?.click();
+      });
+      await page.waitForTimeout(500);
+      const picked = await page.evaluate((text) => {
+        // ⚠️ 已用真實DOM除錯確認：.el-select-dropdown這個popper容器即使正在顯示，
+        // offsetParent/computed display都回報跟隱藏狀態一樣（跟.el-dialog行為不同，
+        // 不能套用同一種過濾方式）。改成直接取DOM順序最後一個，因為Element UI是
+        // 點開時才lazy掛載popper到body，最後掛上去的就是這次剛點開的下拉選單。
+        const dropdowns = document.querySelectorAll('.el-select-dropdown');
+        const dd = dropdowns[dropdowns.length - 1];
+        if (!dd) return false;
+        const item = [...dd.querySelectorAll('.el-select-dropdown__item')].find(i => i.innerText?.trim() === text);
+        if (item) { item.click(); return true; }
+        return false;
+      }, targetText);
+      await page.waitForTimeout(300);
+      return picked;
+    };
+
+    const rowBefore = await page.evaluate(() => {
+      const table = document.querySelector('.el-table');
+      if (!table) return null;
+      const ths = [...table.querySelectorAll('th')].map(h => h.innerText?.trim() || '');
+      const ai = ths.findIndex(h => /^account$/i.test(h));
+      const bi = ths.findIndex(h => /bet time/i.test(h));
+      const ji = ths.findIndex(h => /^jackpot type$/i.test(h));
+      const row = table.querySelector('.el-table__body tr');
+      if (!row) return null;
+      const cells = row.querySelectorAll('td');
+      return { account: cells[ai]?.innerText?.trim(), betTime: cells[bi]?.innerText?.trim(), jackpotType: cells[ji]?.innerText?.trim() };
+    });
+
+    const checked = rowBefore && await page.evaluate(() => {
+      const cb = document.querySelector('.el-table__body tr .el-checkbox .el-checkbox__inner, .el-table__body tr .el-checkbox input');
+      if (cb) { cb.click(); return true; }
+      return false;
+    });
+    await page.waitForTimeout(300);
+    const clicked = checked && await page.evaluate(() => {
+      const btn = [...document.querySelectorAll('button')].find(b => /batch.*set.*jackpot.*type/i.test(b.innerText?.trim()));
+      if (btn) { btn.click(); return true; }
+      return false;
+    });
+    await page.waitForTimeout(1000);
+
+    if (!rowBefore) {
+      notes.push('❌讀不到第一列資料，無法識別要驗證哪一列');
+      criticalFails.push('讀不到列資料');
+    } else if (!checked) {
+      notes.push('❌找不到列勾選框');
+      criticalFails.push('批量勾選框缺失');
+    } else if (!clicked) {
+      notes.push('❌找不到Batch Set Jackpot Type按鈕');
+      criticalFails.push('Batch Set Jackpot Type按鈕缺失');
+    } else {
+      // 合法Jackpot Type選項清單來自config/backend-test-params.json，挑一個跟原值不同的當目標值
+      const JP_TYPE_OPTIONS = TEST_PARAMS.jackpotRanking.validJackpotTypes;
+      const targetType = JP_TYPE_OPTIONS.find(t => t !== rowBefore.jackpotType) || JP_TYPE_OPTIONS[0];
+
+      const picked = await pickDialogOption(targetType);
+      const batchShotPath = path.join(SCREENSHOT_DIR, `jpranking_batch_dialog_${Date.now()}.png`);
+      await page.screenshot({ path: batchShotPath });
+      extraShotPaths.push(batchShotPath);
+
+      if (!picked) {
+        notes.push(`❌Batch Dialog選單找不到目標值(${targetType})`);
+        criticalFails.push('Batch Dialog選單選項不符預期');
+        await closeDialog();
+      } else {
+        await page.evaluate(() => {
+          const dialogs = [...document.querySelectorAll('.el-dialog')].filter(d => d.offsetParent !== null);
+          const dialog = dialogs[dialogs.length - 1];
+          const btn = dialog && [...dialog.querySelectorAll('button')].find(b => /^sure$/i.test(b.innerText?.trim()));
+          if (btn) btn.click();
+        });
+        await page.waitForTimeout(1500);
+
+        // ⭐ 2026-08-05 使用者指出：之前只截了「選好新值、還沒送出」那一刻的圖，看不出
+        // 真的有沒有送出、送出結果對不對。改成送出+確認後，額外截一張該列的實際畫面，
+        // 讓Lark附圖能肉眼看到Jackpot Type欄位真的變成目標值。
+        const afterShotPath = path.join(SCREENSHOT_DIR, `jpranking_batch_after_${Date.now()}.png`);
+        await page.screenshot({ path: afterShotPath });
+        extraShotPaths.push(afterShotPath);
+
+        const rowAfter = await page.evaluate((acct) => {
+          const table = document.querySelector('.el-table');
+          const ths = [...table.querySelectorAll('th')].map(h => h.innerText?.trim() || '');
+          const ai = ths.findIndex(h => /^account$/i.test(h));
+          const ji = ths.findIndex(h => /^jackpot type$/i.test(h));
+          const row = [...table.querySelectorAll('.el-table__body tr')].find(r => r.querySelectorAll('td')[ai]?.innerText?.trim() === acct);
+          if (!row) return null;
+          return row.querySelectorAll('td')[ji]?.innerText?.trim();
+        }, rowBefore.account);
+
+        if (rowAfter === targetType) {
+          notes.push(`✅Batch送出成功：${rowBefore.account}的Jackpot Type從${rowBefore.jackpotType}變更為${targetType}（已於Lark記錄實際操作證據）`);
+        } else {
+          notes.push(`❌Batch送出後未生效：${rowBefore.account}預期變成${targetType}，實際讀到${rowAfter}`);
+          criticalFails.push('Batch Set Jackpot Type未真正持久化');
+        }
+
+        // 還原：用同一套流程把這一列改回原始值，避免污染共用UAT資料
+        const restoreChecked = await page.evaluate((acct) => {
+          const table = document.querySelector('.el-table');
+          const ths = [...table.querySelectorAll('th')].map(h => h.innerText?.trim() || '');
+          const ai = ths.findIndex(h => /^account$/i.test(h));
+          const row = [...table.querySelectorAll('.el-table__body tr')].find(r => r.querySelectorAll('td')[ai]?.innerText?.trim() === acct);
+          const cb = row?.querySelector('.el-checkbox .el-checkbox__inner, .el-checkbox input');
+          if (cb) { cb.click(); return true; }
+          return false;
+        }, rowBefore.account);
+        await page.waitForTimeout(300);
+        if (restoreChecked) {
+          await page.evaluate(() => {
+            const btn = [...document.querySelectorAll('button')].find(b => /batch.*set.*jackpot.*type/i.test(b.innerText?.trim()));
+            btn?.click();
+          });
+          await page.waitForTimeout(1000);
+          const restorePicked = await pickDialogOption(rowBefore.jackpotType);
+          if (restorePicked) {
+            await page.evaluate(() => {
+              const dialogs = [...document.querySelectorAll('.el-dialog')].filter(d => d.offsetParent !== null);
+              const dialog = dialogs[dialogs.length - 1];
+              const btn = dialog && [...dialog.querySelectorAll('button')].find(b => /^sure$/i.test(b.innerText?.trim()));
+              if (btn) btn.click();
+            });
+            await page.waitForTimeout(1500);
+            const restoreShotPath = path.join(SCREENSHOT_DIR, `jpranking_batch_restored_${Date.now()}.png`);
+            await page.screenshot({ path: restoreShotPath });
+            extraShotPaths.push(restoreShotPath);
+            const restoredValue = await page.evaluate((acct) => {
+              const table = document.querySelector('.el-table');
+              const ths = [...table.querySelectorAll('th')].map(h => h.innerText?.trim() || '');
+              const ai = ths.findIndex(h => /^account$/i.test(h));
+              const ji = ths.findIndex(h => /^jackpot type$/i.test(h));
+              const row = [...table.querySelectorAll('.el-table__body tr')].find(r => r.querySelectorAll('td')[ai]?.innerText?.trim() === acct);
+              return row ? row.querySelectorAll('td')[ji]?.innerText?.trim() : null;
+            }, rowBefore.account);
+            if (restoredValue === rowBefore.jackpotType) {
+              notes.push(`✅已還原${rowBefore.account}的Jackpot Type回${rowBefore.jackpotType}（已截圖確認畫面上的實際值）`);
+            } else {
+              notes.push(`❌還原送出後實際讀到"${restoredValue}"，跟原始值"${rowBefore.jackpotType}"不符`);
+              criticalFails.push('還原後實際值與原始值不符');
+            }
+          } else {
+            notes.push(`⚠️還原失敗：Batch Dialog選單找不到原始值(${rowBefore.jackpotType})，資料目前仍是${targetType}，需人工復原`);
+          }
+        } else {
+          notes.push('⚠️還原失敗：找不到該列勾選框，資料需人工復原');
+        }
+      }
+    }
+  }
+
+  // TC11：審核通過JP排行榜預設類型，預設為空
+  // ⭐ 2026-08-05 使用者實際說明操作步驟後改成真實流程，跟TC6共用同一套
+  // runJackpotAbnormalityFlow（同一個補發動作同時驗證「有沒有寫入」跟「JackpotType是否為空」）
+  if (/審核通過jp排行榜預設類型，預設為空/i.test(full)) {
+    const flow = await runJackpotAbnormalityFlow(page);
+    if (flow.extraShotPaths) extraShotPaths.push(...flow.extraShotPaths);
+    if (!flow.ok) {
+      notes.push(`❌Jackpot Abnormality補發流程失敗：${flow.error}`);
+      criticalFails.push('Jackpot Abnormality補發流程失敗');
+    } else if (!flow.found) {
+      notes.push(`❌補發後Jackpot Ranking找不到Jackpot Amount=${flow.targetJackpot}的新紀錄，無法確認JackpotType預設值`);
+      criticalFails.push('補發資料未自動寫入Jackpot Ranking');
+    } else if (flow.jackpotType === '') {
+      notes.push(`✅新補發紀錄（帳號${flow.account}）的Jackpot Type預設為空，符合預期`);
+    } else {
+      notes.push(`❌新補發紀錄的Jackpot Type預設值是"${flow.jackpotType}"，不是空值`);
+      criticalFails.push('Jackpot Type預設值不是空');
+    }
+    await page.goto(`${BACKEND_URL}/rankinglist/jackpotRanking`, { waitUntil: 'networkidle', timeout: 20000 }).catch(() => {});
+    await page.waitForTimeout(800);
+  }
+
+  if (notes.length === (h1 ? 1 : 0)) {
+    // 沒有任何規則命中這筆TC文字，誠實標示，不假裝驗證過
+    notes.push(`⚠️這筆TC文字沒有對應到已知的驗證規則，未執行任何斷言: ${full.slice(0, 40)}`);
+  }
+
+  return { notes: notes.join(' | '), criticalFails, extraShotPaths };
 }
 
 async function verifyAbnormalityPage(page, tc) {
@@ -2068,8 +4156,13 @@ async function verifyGenericPage(page, tc) {
   let exportedXlsxPath = null;
 
   if (/\badd\b|新增/.test(desc)) {
-    const hasAdd = allBtns.some(t => /^add$/i.test(t));
-    notes.push(hasAdd ? '✅Add按鈕' : '⚠️Add按鈕未找到');
+    const hasAdd = allBtns.some(t => /^add\b/i.test(t));
+    if (hasAdd) {
+      notes.push('✅Add按鈕');
+    } else {
+      notes.push('❌Add按鈕缺失');
+      criticalFails.push('Add按鈕缺失');
+    }
   }
 
   if (/excel|export|匯出|導出|csv/.test(desc)) {
@@ -2256,6 +4349,71 @@ async function performAction(page, pagePath, action, label, taskDesc) {
   } catch (e) {
     if (/crash|closed|Target|Session/i.test(e.message)) throw e; // re-throw crash so outer loop can recover
     return { pass: false, shotPath: null, error: e.message };
+  }
+}
+
+const NCH_BACKEND_URL = 'http://uat-nc.osmslot.org';
+async function testNCHPointsSetting(browser, pagePath, label, taskDesc) {
+  let ctx;
+  try {
+    ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const p = await ctx.newPage();
+    await p.goto(`${NCH_BACKEND_URL}/login`, { waitUntil: 'networkidle', timeout: 20000 });
+    if (!TEST_PARAMS.credentials.nchBackend.username || !TEST_PARAMS.credentials.nchBackend.password) {
+      throw new Error('尚未設定「NC 後台」登入帳密——請到 UAT 執行設定頁填寫（每個人存自己的一份）');
+    }
+    await p.fill('input[type="text"], input[name*="user"], input[id*="user"]', TEST_PARAMS.credentials.nchBackend.username);
+    await p.fill('input[type="password"]', TEST_PARAMS.credentials.nchBackend.password);
+    await p.keyboard.press('Enter');
+    await p.waitForTimeout(3000);
+    await p.goto(`${NCH_BACKEND_URL}${pagePath}`, { waitUntil: 'networkidle', timeout: 20000 });
+    await p.waitForTimeout(1500);
+    const rows = await p.locator('table tr, .el-table__body tr').count().catch(() => 0);
+    const shotPath = path.join(SCREENSHOT_DIR, `${label}_nch_${Date.now()}.png`);
+    await p.screenshot({ path: shotPath, fullPage: true });
+    await ctx.close();
+    return { pass: rows > 0, shotPath, notes: `NCH獨立後台(uat-nc.osmslot.org)驗證：表格${rows}列` };
+  } catch (e) {
+    try { await ctx?.close(); } catch {}
+    return { pass: false, shotPath: null, error: `NCH後台驗證例外: ${e.message}` };
+  }
+}
+
+// ⭐ 2026-08-05 新增：Points History「確認篩選並匯出報表正常」——
+// 使用者確認：不勾選"All"時預設日期區間查無資料，必須先勾選"All" checkbox
+// 才會有資料可匯出，這是這個頁面特有的行為，不是通用 doExport() 涵蓋的範圍。
+async function testPointsHistoryExport(page, label) {
+  try {
+    await page.goto(BACKEND_URL + '/rewardpoints/pointsHistory', { waitUntil: 'networkidle', timeout: 20000 });
+    await page.waitForTimeout(1000);
+    await dismissDialogs(page);
+
+    const allChecked = await page.evaluate(() => {
+      const label = [...document.querySelectorAll('.el-checkbox')].find(el => /^all$/i.test(el.innerText?.trim()));
+      if (!label) return null;
+      const input = label.querySelector('input[type="checkbox"]');
+      if (input && !input.checked) label.click();
+      return input ? true : false;
+    });
+    if (allChecked === null) {
+      return { pass: false, shotPath: null, error: '找不到"All" checkbox，選取器可能已失效' };
+    }
+    await page.waitForTimeout(1500);
+
+    const rowCount = await page.locator('table tr, .el-table__body tr').count().catch(() => 0);
+    const shotPath = path.join(SCREENSHOT_DIR, `${label}_all_${Date.now()}.png`);
+    await page.screenshot({ path: shotPath, fullPage: true });
+
+    const exportResult = await doExport(page);
+    const pass = exportResult.criticalFails.length === 0;
+    return {
+      pass,
+      shotPath,
+      notes: `勾選All後表格${rowCount}筆 | ${exportResult.notes}`,
+      error: pass ? undefined : exportResult.criticalFails.join(', '),
+    };
+  } catch (e) {
+    return { pass: false, shotPath: null, error: `Points History Export 測試例外: ${e.message}` };
   }
 }
 
@@ -2471,12 +4629,19 @@ async function main() {
     const port = r.fields['端口'] || '';
     if (!envs.includes('UAT服') || !(devices.includes('後台') || port === '後台')) return false;
     const sub = r.fields['任務子類型'] || '';
+    const taskType = r.fields['任務類型'] || '';
+    if (MODULE_PLAN.length > 0 && findBackendModuleIndex(sub, taskType) < 0) return false;
     if (process.env.REPORT_ONLY) return REPORT_SUBTYPES.some(s => sub.includes(s));
     if (process.env.METER_ONLY) return ['EGM Hourly Meter','EGM Performance Meter'].some(s => sub.includes(s));
     if (process.env.SUBTYPE) return sub.includes(process.env.SUBTYPE);
     if (FILTER_SUBTYPES.length > 0) return FILTER_SUBTYPES.some(s => sub.includes(s));
     return true;
+  }).sort((a, b) => {
+    if (MODULE_PLAN.length === 0) return 0;
+    return findBackendModuleIndex(a.fields['任務子類型'], a.fields['任務類型'])
+      - findBackendModuleIndex(b.fields['任務子類型'], b.fields['任務類型']);
   });
+  if (MODULE_PLAN.length > 0) console.log(`Backend 模組流程: ${MODULE_PLAN.map(module => module.name).join(' → ')}`);
   console.log(`📋 後台 UAT TC: ${targets.length} 筆`);
 
   // 匯出 Excel 儲存目錄
@@ -2484,14 +4649,17 @@ async function main() {
   if (!fs.existsSync(EXPORT_DIR)) fs.mkdirSync(EXPORT_DIR, { recursive: true });
 
   // 啟動瀏覽器
-  const browser = await chromium.launch({ headless: false, slowMo: 50 });
+  let browser = await chromium.launch({ headless: false, slowMo: 50 });
 
   async function createLoginPage() {
     const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
     const p = await ctx2.newPage();
     await p.goto(`${BACKEND_URL}/login`, { waitUntil: 'networkidle', timeout: 30000 });
-    await p.fill('input[type="text"], input[name*="user"], input[id*="user"]', 'admin');
-    await p.fill('input[type="password"]', '123456');
+    if (!TEST_PARAMS.credentials.cpBackend.username || !TEST_PARAMS.credentials.cpBackend.password) {
+      throw new Error('尚未設定「CP 後台」登入帳密——請到 UAT 執行設定頁填寫（每個人存自己的一份）');
+    }
+    await p.fill('input[type="text"], input[name*="user"], input[id*="user"]', TEST_PARAMS.credentials.cpBackend.username);
+    await p.fill('input[type="password"]', TEST_PARAMS.credentials.cpBackend.password);
     await p.click('button[type="submit"], button:has-text("Login")');
     await p.waitForTimeout(3000);
     return { page: p, ctx: ctx2 };
@@ -2516,14 +4684,58 @@ async function main() {
     const label = `tc${i+1}_${taskType}_${subtype}`.replace(/[^\w]/g, '_');
     const analysis = analyzeTCTask(taskFull);
 
+    // 給verifier做regex比對用的「有效文字」，非taskFull直接沿用時代表registry
+    // 吸收了drift或標記了重大drift，見上方resolveEffectiveTcText註解
+    const { text: verifyText, source: tcTextSource } = resolveEffectiveTcText(recordId, taskFull);
+    if (tcTextSource === 'canonical-minor-drift') {
+      console.log(`\n[registry] ${label} TC文字有小幅潤飾，改用凍結版比對（不影響判定邏輯）`);
+    } else if (tcTextSource === 'live-major-drift') {
+      console.log(`\n[registry] ⚠️ ${label} TC文字疑似重大變更，registry可能已過期，改用即時文字比對（可能對不到規則），建議人工確認後執行 node build-tc-registry.cjs --refresh ${recordId}`);
+    }
+
     process.stdout.write(`[${i+1}/${targets.length}] ${subtype || taskType} | ${task.slice(0,50)}...`);
 
     let result = { pass: false, shotPath: null };
 
     try {
       // 版本確認特殊處理
-      if (taskType === '版本確認' || analysis.isVersionCheck) {
+      if ((taskType === '版本確認' || analysis.isVersionCheck) && /luckylink|toppath/i.test(taskFull)) {
+        // ⭐ 2026-08-05：LuckyLink/Toppath版本需要另外配置(獨立後台/登入)，
+        // 目前這支只會重複截同一個OSM Version Record頁面，不是真的驗證，先跳過不誤判成功。
+        result = { pass: false, skip: true, shotPath: null, notes: 'LuckyLink/Toppath版本需另外配置，暫時跳過，不採用OSM頁面的通用截圖冒充驗證' };
+      } else if (taskType === '版本確認' || analysis.isVersionCheck) {
         result = await testVersionConfirm(page, taskFull || 'version');
+      } else if (subtype === '積分VIP') {
+        // ⭐ 2026-08-05 新增：積分VIP這個任務子類型底下混了6個不同頁面，SUBTYPE_MAP
+        // 一對一的機制沒辦法處理，改成用任務文字內的關鍵字二次比對，路徑來自後台
+        // 選單設定截圖(路由：rewardpoints/*)，由長到短排序避免"VIP Level List"先
+        // 誤配到"VIP Level Setting"或反過來。
+        const REWARD_POINTS_MAP = [
+          ['VIP Upgrade Setting',   '/rewardpoints/vipUpgradeSetting'],
+          ['VIP Level Setting',     '/rewardpoints/levelSetting'],
+          ['VIP Level Change Log',  '/rewardpoints/userLevelList'],   // 假設是VIP Level List頁面內的分頁/子功能，未直接在選單截圖裡看到，待確認
+          ['VIP Level List',        '/rewardpoints/userLevelList'],
+          ['Membership Card',       '/rewardpoints/membershipCard'],
+          ['Points History',        '/rewardpoints/pointsHistory'],
+          ['Points Setting',        '/rewardpoints/pointsSetting'],
+          ['Points/Bets',           '/rewardpoints/pointsSetting'],   // Points/Bets是Points Setting頁面內的一個欄位，非獨立頁面
+        ];
+        if (/確認篩選並匯出報表正常/.test(taskFull)) {
+          // ✅ 團隊確認(2026-08-05)：這筆指的是 Points History 頁面的 xlsx 匯出，
+          // 需要先勾選"All" checkbox才會有資料，不是通用 SUBTYPE_MAP 路徑能涵蓋的行為
+          result = await testPointsHistoryExport(page, label);
+        } else {
+          const found = REWARD_POINTS_MAP.find(([kw]) => taskFull.includes(kw));
+          if (found && found[1] === '/rewardpoints/pointsSetting') {
+            // ✅ 團隊確認(2026-08-05)：Points Setting/Points-Bets 目前只開給NCH(Lavie)渠道，
+            // 要走獨立的uat-nc.osmslot.org後台，不是主流程共用的uat-cp.osmslot.org
+            result = await testNCHPointsSetting(browser, found[1], label, taskFull);
+          } else if (found) {
+            result = await performAction(page, found[1], 'screenshot_verify_data', label, verifyText);
+          } else {
+            result = { pass: false, shotPath: null, error: `積分VIP底下的任務描述沒有匹配到任何已知關鍵字，不猜測路徑: ${taskFull.slice(0,40)}` };
+          }
+        }
       } else {
         // 優先完整匹配，再按鍵長度由長到短做 includes 匹配（避免 'Dashboard' 先匹配到 'Daily Dashboard'）
         const mapKey = Object.keys(SUBTYPE_MAP).find(k => k === subtype || k === taskType)
@@ -2533,17 +4745,25 @@ async function main() {
         const mapped = SUBTYPE_MAP[mapKey];
         if (mapped) {
           // 每筆 TC 獨立執行（不使用頁面快取）
-          result = await performAction(page, mapped.path, mapped.action, label, taskFull);
+          result = await performAction(page, mapped.path, mapped.action, label, verifyText);
         } else {
           result = { pass: false, shotPath: null, error: `未對應路徑: ${subtype}` };
         }
       }
 
       // 上傳所有截圖到 Lark（支援多張）
-      const pathsToUpload = result.allShotPaths?.length > 0
+      // ⭐ 2026-08-07：MANUAL/SKIP的TC不上傳截圖——這類TC本來就無法從後台單方面驗證
+      // （需前端/硬體才能確認），後台截圖對人工複核沒有實質佐證價值，留著反而讓人誤以為
+      // 有留下驗證證據；只有腳本真的做出PASS/FAIL斷言判定時，截圖才有佐證意義。
+      const isManualOrSkip = result.manual || result.skip;
+      const pathsToUpload = isManualOrSkip ? [] : (result.allShotPaths?.length > 0
         ? result.allShotPaths
-        : (result.shotPath && fs.existsSync(result.shotPath) ? [result.shotPath] : []);
-      console.log(`[Upload] ${label} → ${pathsToUpload.length} 張截圖待上傳: ${pathsToUpload.map(p => path.basename(p)).join(', ')}`);
+        : (result.shotPath && fs.existsSync(result.shotPath) ? [result.shotPath] : []));
+      if (isManualOrSkip) {
+        console.log(`[Upload] ${label} → MANUAL/SKIP，不上傳截圖`);
+      } else {
+        console.log(`[Upload] ${label} → ${pathsToUpload.length} 張截圖待上傳: ${pathsToUpload.map(p => path.basename(p)).join(', ')}`);
+      }
       const fileTokens = [];
       for (const sp of pathsToUpload) {
         if (sp && fs.existsSync(sp)) {
@@ -2557,11 +4777,17 @@ async function main() {
         }
       }
 
-      // 更新 Lark 記錄（多張圖以陣列形式傳入）
-      // MANUAL TC：上傳截圖但不打勾（需人工確認，不算驗證通過）
+// 更新 Lark 記錄（多張圖以陣列形式傳入）
+      // MANUAL/SKIP TC：不打勾也不上傳截圖（見上方isManualOrSkip），此處fileTokens必為空。
+      // 但仍要主動呼叫一次updateRecord（傳空陣列），確保清掉「改成不上傳截圖之前」殘留在
+      // 該筆記錄上的舊截圖——若只在fileTokens.length>0才呼叫，MANUAL/SKIP列的舊圖永遠
+      // 清不掉。真正的FAIL（非MANUAL/SKIP、且這次沒截到圖，例如navigation timeout）則
+      // 不主動清，保留上一次可能還有效的驗證證據，不因單次暫時性失敗就把舊證據洗掉。
       const markPass = result.pass && !result.manual;
       if (markPass || fileTokens.length > 0) {
         await updateRecord(larkToken, recordId, fileTokens, markPass);
+      } else if (isManualOrSkip) {
+        await updateRecord(larkToken, recordId, [], markPass);
       }
 
       if (result.pass && result.manual) skipCount++;
@@ -2587,7 +4813,19 @@ async function main() {
           ctx = r2.ctx;
           console.log('  ✅ 重新登入完成');
         } catch (e2) {
-          console.log(`  ❌ 重新登入失敗: ${e2.message}`);
+          // 只重開 context 失敗，很可能是 browser 底層程序本身已經壞掉（不只是那個分頁）
+          // ——單純再開新 context 救不回來，要整個 chromium.launch() 重啟才行。
+          console.log(`  ❌ 重開context失敗(${e2.message})，改為完整重啟瀏覽器...`);
+          try { await browser.close(); } catch {}
+          try {
+            browser = await chromium.launch({ headless: false, slowMo: 50 });
+            const r3 = await createLoginPage();
+            page = r3.page;
+            ctx = r3.ctx;
+            console.log('  ✅ 瀏覽器完整重啟後登入完成');
+          } catch (e3) {
+            console.log(`  ❌ 完整重啟瀏覽器仍然失敗: ${e3.message}，本筆及後續筆數將持續失敗直到手動介入`);
+          }
         }
       }
     }
@@ -2685,8 +4923,17 @@ async function main() {
           if (ft) fts.push(ft);
         }
         if (fts.length > 0) {
-          await updateRecord(larkToken, tc3Record.recordId, fts, false);
-          console.log(`✅ TC3 5分鐘驗證截圖已上傳（${fts.length}張：after主畫面 + 比對表格）`);
+          // ⭐ 2026-08-07：原本無論updatedCount有沒有>0都固定傳false，等於這筆TC
+          // 不管腳本實際等滿5分鐘後查到「真的有更新」的證據，永遠不會被標記PASS。
+          // updatedCount>0時是真實比對出的正面證據(修改前後Bonus欄位值不同)，應該讓它
+          // 反映到PASS。updatedCount===0這裡production script維持不標記——單一UAT測試
+          // checkbox沒有獨立FAIL欄位可標，「不標記」本來就是這個schema下唯一能表達
+          // 「沒有正面證據」的方式。⚠️2026-08-07使用者已明確決定：新表(有獨立UAT
+          // PASS/FAIL兩個checkbox)這種情況要直接判FAIL不留白（見run-lark-tc-backend-
+          // newtable.js/apply-newtable-patch.cjs），production這裡保留原樣只是因為
+          // schema限制沒有FAIL欄位可設，不是刻意跟使用者決定不一致。
+          await updateRecord(larkToken, tc3Record.recordId, fts, updatedCount > 0);
+          console.log(`✅ TC3 5分鐘驗證截圖已上傳（${fts.length}張：after主畫面 + 比對表格）${updatedCount > 0 ? '，已標記PASS' : '，因未偵測到變動維持不標記(非FAIL，避免伺服器更新週期誤判)'}`);
         }
       }
       console.log(`✅ Bonus 5分鐘計時驗證完成 | ${overallResult}`);

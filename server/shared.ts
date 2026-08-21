@@ -1693,6 +1693,64 @@ export const mustEnv = (name: string) => {
   return value
 }
 
+// UAT 後台測試帳密：依「登入帳號」各存一份，不是全站共用一組。
+// 原本躺在 server/uat-runner/config/backend-test-params.json（真實帳密在 repo 裡，只差沒被 commit），
+// 2026-08-21 改成存 DB＋設定頁自己填。用 email 當 key 是因為 jira_accounts 的 primary key 就是 email，
+// 不用 display name（會被改、也不唯一）。密碼永遠不回傳給前端，只回「有沒有設過」。
+db.exec(`
+  CREATE TABLE IF NOT EXISTS uat_backend_credentials (
+    email      TEXT NOT NULL,
+    profile    TEXT NOT NULL,
+    username   TEXT NOT NULL,
+    password   TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (email, profile)
+  )
+`)
+
+export type UatBackendProfile = 'cpBackend' | 'nchBackend'
+export const UAT_BACKEND_PROFILES: UatBackendProfile[] = ['cpBackend', 'nchBackend']
+
+/** 給設定頁看的：只回帳號與「有沒有設過密碼」，永遠不回密碼本身 */
+export function listUatBackendCredentials(email: string) {
+  const rows = db.prepare(
+    'SELECT profile, username, password, updated_at FROM uat_backend_credentials WHERE email = ?',
+  ).all(email.toLowerCase()) as { profile: string; username: string; password: string; updated_at: number }[]
+  return UAT_BACKEND_PROFILES.map(profile => {
+    const hit = rows.find(r => r.profile === profile)
+    return { profile, username: hit?.username ?? '', hasPassword: !!hit?.password, updatedAt: hit?.updated_at ?? null }
+  })
+}
+
+/** 實際要拿去跑腳本時才讀得到密碼；只在後端使用，不經過任何回應/日誌 */
+export function getUatBackendCredentials(email: string) {
+  const rows = db.prepare(
+    'SELECT profile, username, password FROM uat_backend_credentials WHERE email = ?',
+  ).all(email.toLowerCase()) as { profile: string; username: string; password: string }[]
+  const out: Partial<Record<UatBackendProfile, { username: string; password: string }>> = {}
+  for (const r of rows) {
+    if ((UAT_BACKEND_PROFILES as string[]).includes(r.profile) && r.username && r.password) {
+      out[r.profile as UatBackendProfile] = { username: r.username, password: r.password }
+    }
+  }
+  return out
+}
+
+/** password 留空＝沿用舊密碼（設定頁不會顯示舊密碼，所以不能把空字串當成「清空」）*/
+export function saveUatBackendCredential(email: string, profile: UatBackendProfile, username: string, password: string) {
+  const key = email.toLowerCase()
+  const existing = db.prepare(
+    'SELECT password FROM uat_backend_credentials WHERE email = ? AND profile = ?',
+  ).get(key, profile) as { password: string } | undefined
+  const finalPassword = password || existing?.password || ''
+  db.prepare(`
+    INSERT INTO uat_backend_credentials (email, profile, username, password, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(email, profile) DO UPDATE SET
+      username = excluded.username, password = excluded.password, updated_at = excluded.updated_at
+  `).run(key, profile, username, finalPassword, Date.now())
+}
+
 const AUTH_COOKIE_NAME = 'toppath_auth'
 
 /**

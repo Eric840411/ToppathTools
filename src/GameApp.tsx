@@ -113,7 +113,7 @@ export function GameApp() {
           {activeTab === 'autospin'      && <AutoSpinPage />}
           {activeTab === 'url-pool'      && <UrlPoolPage currentAccount={globalAccount} />}
           {activeTab === 'jackpot'       && <JackpotPage />}
-          {activeTab === 'osm-uat'       && <OsmUatPage />}
+          {activeTab === 'osm-uat'       && <OsmUatPage themeMode="classic" />}
           {activeTab === 'history'       && <HistoryPage />}
           {activeTab === 'gs-imgcompare' && <GsImgComparePage />}
           {activeTab === 'gs-stats'      && <GsStatsPage />}

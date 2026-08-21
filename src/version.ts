@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.18.3'
+export const APP_VERSION = '4.22.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,59 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.22.0',
+    date: '2026-08-21',
+    changes: [
+      "security(uat): 後台測試帳密改成依登入帳號存 DB（uat_backend_credentials 表），在 UAT 執行設定頁自己填——原本真實帳密躺在 server/uat-runner/config/backend-test-params.json 且沒被 gitignore，一次 git add . 就會推上 GitHub。已確認該檔與 40MB 的 data/ 從來沒被 commit 過，所以不算外洩，加 .gitignore 就擋掉了",
+      "security(uat): 密碼只進不出——GET 只回帳號與 hasPassword，PUT 密碼留空代表沿用舊密碼（設定頁看不到舊密碼，所以空字串不能當成清空）；跑腳本時才由後端讀出來，經環境變數注入 spawn 的子程序，不進 log／SSE／歷史紀錄",
+      "chore(uat): run-lark-tc-backend.js 改成優先讀 UAT_CP_USERNAME/PASSWORD、UAT_NCH_USERNAME/PASSWORD 環境變數，沒有才 fallback 回 config 檔；新增 backend-test-params.example.json 當結構範本（帳密留空）",
+    ],
+  },
+  {
+    version: '4.21.0',
+    date: '2026-08-21',
+    changes: [
+      'feat(uat): Backend 流程升級為可編輯模組實例，可修改雙版本名稱、說明、識別色與 TC 匹配規則。',
+      'feat(uat): 新增自訂模組、模板重複加入與模組複製，設定自動保存並可繼續拖曳排序。',
+      'feat(uat): API 與 runner 改由模組契約篩選及排序 TC，保留舊版模組 ID 計畫相容能力。',
+    ],
+  },
+  {
+    version: '4.20.0',
+    date: '2026-08-21',
+    changes: [
+      'feat(uat): Backend 依 run-lark-tc-backend 實際能力拆成 11 個可加入、移除與拖曳排序的執行模組。',
+      'feat(uat): 模組順序與範圍會傳入全新 spawn 的 runner process，真正控制 TC 篩選及執行順序。',
+      'feat(uat): UAT 頁面改為滿版自適應工作台，寬螢幕三欄、中螢幕雙欄、窄螢幕單欄。',
+    ],
+  },
+  {
+    version: '4.19.2',
+    date: '2026-08-21',
+    changes: [
+      'fix(uat): 普通版改回 ToppathTools 既有深藍操作型色票，移除大面積白色卡片與淺色編輯畫布',
+      'fix(uat): 修仙版改為共用全站墨黑、青玉、古金與赤霄主題變數，避免 UAT 頁面產生獨立偏綠配色',
+    ],
+  },
+  {
+    version: '4.19.1',
+    date: '2026-08-21',
+    changes: [
+      'fix(uat): 完整落實普通版與修仙版雙視覺，修仙版加入玉簡、術式、陣眼、啟陣與靈流術語。',
+      'fix(uat): 修仙版依規範補上青玉、墨黑、符金、細金銘線、角符與命燈視覺語言。',
+    ],
+  },
+  {
+    version: '4.19.0',
+    date: '2026-08-21',
+    changes: [
+      'feat(uat): 重構 UAT 整合測試頁面，加入模組化積木編輯器、巢狀群組與重複區塊拖曳。',
+      'feat(uat): 串接 Playwright 錄製、腳本建立／編輯、Local Agent 執行、視覺資產與執行紀錄。',
+      'feat(uat): 積木流程會在執行前編譯為既有 action，保留舊腳本、SQLite schema 與 Agent 協定相容性。',
+      'feat(uat): 普通版與修仙版採用同一資訊架構，並支援桌面與窄螢幕排版。',
+    ],
+  },
   {
     version: '4.18.3',
     date: '2026-08-21',

@@ -1148,6 +1148,10 @@
   color: #cbd5e1; /* base bright text */
 }
 
+.main-content--full {
+  max-width: none;
+}
+
 /* ─── Page Layout ─────────────────────────────────── */
 .page-layout {
   display: flex;

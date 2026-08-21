@@ -852,7 +852,7 @@ function App() {
             {effectiveTab === 'gs-imgcompare' && <GsImgComparePage />}
           </>
         ) : (
-          <main className={`main-content${currentGroup?.id === 'weekly-report' ? ' main-content--full' : ''}`}>
+          <main className={`main-content${currentGroup?.id === 'weekly-report' || (currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-uat') ? ' main-content--full' : ''}`}>
             {currentGroup?.id === 'dashboard' && <DashboardPage themeMode={themeMode} />}
             {currentGroup?.id === 'jira' && <JiraPage account={globalAccount} isAdmin={globalAccount?.role === 'admin'} permissions={permissions} />}
             {currentGroup?.id === 'lark' && <LarkPage themeMode={themeMode} />}
@@ -865,7 +865,7 @@ function App() {
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'url-pool' && <UrlPoolPage currentAccount={globalAccount} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'scripted-bet' && <ScriptedBetPage currentAccount={globalAccount} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'jackpot' && <JackpotPage />}
-            {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-uat' && <OsmUatPage />}
+            {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-uat' && <OsmUatPage themeMode={themeMode} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'ui-screenshot' && <UiScreenshotPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'meter-reconcile' && <MeterReconcilePage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'egm-daycount' && <EgmDayCountPage />}

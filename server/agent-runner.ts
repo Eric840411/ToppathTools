@@ -496,7 +496,7 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
   }
   const log = (line: string) => sendEvent({ kind: 'log', line })
 
-  type StepObj = { name?: string; action: string; value?: string; selector?: string; x?: number; y?: number; baselineId?: string; threshold?: number; scrollStep?: number; maxScrolls?: number }
+  type StepObj = { name?: string; action: string; value?: string; selector?: string; x?: number; y?: number; baselineId?: string; threshold?: number; scrollStep?: number; maxScrolls?: number; failureMode?: 'inherit' | 'continue' | 'stop' | 'retry'; retryCount?: number }
   let steps: StepObj[]
   try { steps = JSON.parse(stepsRaw) as StepObj[] } catch {
     await log('❌ 步驟 JSON 解析失敗')
@@ -551,6 +551,8 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
       if (!uatScriptRuns.get(runId)?.active) { await log('🛑 執行已中止'); break }
       const label = step.name ?? `步驟 ${i + 1}`
       const idx = `[${i + 1}/${steps.length}]`
+      let stepAttempt = 0
+      while (true) {
       try {
         if (step.action === 'goto') {
           const target = step.value || startUrl
@@ -608,17 +610,29 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
           sendEvent({ kind: 'step_result', index: i, status: 'skip', message: `不支援: ${step.action}` })
           skipped++
         }
+        break
       } catch (err) {
         const errMsg = err instanceof Error ? err.message.split('\n')[0] : String(err)
+        const retryLimit = Math.min(10, Math.max(0, Number(step.retryCount) || 1))
+        if (step.failureMode === 'retry' && stepAttempt < retryLimit && !errMsg.includes('closed') && !errMsg.includes('Target crashed')) {
+          stepAttempt++
+          await log(`↻ ${idx} ${label}：第 ${stepAttempt}/${retryLimit} 次重試`)
+          continue
+        }
         await log(`❌ ${idx} ${label}：${errMsg}`)
         sendEvent({ kind: 'step_result', index: i, status: 'fail', message: errMsg })
         failed++
         const browserClosed = errMsg.includes('closed') || errMsg.includes('Target crashed')
-        if (failureMode === 'stop' || browserClosed) {
+        const effectiveFailureMode = step.failureMode === 'stop' || step.failureMode === 'continue' ? step.failureMode : failureMode
+        if (effectiveFailureMode === 'stop' || browserClosed) {
           await log(browserClosed ? '🛑 瀏覽器已關閉，中止執行' : '🛑 失敗後停止')
-          break
+          const active = uatScriptRuns.get(runId)
+          if (active) active.active = false
         }
+        break
       }
+      }
+      if (!uatScriptRuns.get(runId)?.active) break
     }
 
     const result = failed > 0 ? 'fail' : 'pass'

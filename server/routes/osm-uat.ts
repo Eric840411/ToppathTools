@@ -11,7 +11,17 @@ import { spawn, ChildProcess } from 'child_process'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { z } from 'zod'
-import { getLarkToken } from '../shared.js'
+import {
+  getLarkToken,
+  writeLimiter,
+  listUatBackendCredentials,
+  getUatBackendCredentials,
+  saveUatBackendCredential,
+  UAT_BACKEND_PROFILES,
+  type UatBackendProfile,
+} from '../shared.js'
+import { getAuthAccount } from '../auth-session.js'
+import type { Request } from 'express'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -54,6 +64,38 @@ function appendLog(line: string) {
 
 // ─── SSE 訂閱 ──────────────────────────────────────────────────────────────────
 
+/** 把發動者自己的後台帳密轉成環境變數；沒設定就不注入，讓腳本走原本的 fallback */
+function uatCredEnv(req: Request): Record<string, string> {
+  const account = getAuthAccount(req)
+  if (!account) return {}
+  const creds = getUatBackendCredentials(account.email)
+  const env: Record<string, string> = {}
+  if (creds.cpBackend) { env.UAT_CP_USERNAME = creds.cpBackend.username; env.UAT_CP_PASSWORD = creds.cpBackend.password }
+  if (creds.nchBackend) { env.UAT_NCH_USERNAME = creds.nchBackend.username; env.UAT_NCH_PASSWORD = creds.nchBackend.password }
+  return env
+}
+
+// ─── 後台測試帳密（依登入帳號各存一份）─────────────────────────────────
+// 密碼只進得去、出不來：GET 只回 hasPassword，PUT 留空代表沿用舊密碼。
+// 真實帳密以前躺在 server/uat-runner/config/backend-test-params.json（已加進 .gitignore）。
+router.get('/api/osm-uat/backend-credentials', (req, res) => {
+  const account = getAuthAccount(req)
+  if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+  res.json({ ok: true, credentials: listUatBackendCredentials(account.email) })
+})
+
+router.put('/api/osm-uat/backend-credentials', writeLimiter, (req, res) => {
+  const account = getAuthAccount(req)
+  if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+  const parsed = z.object({
+    profile: z.enum([UAT_BACKEND_PROFILES[0], ...UAT_BACKEND_PROFILES.slice(1)] as [string, ...string[]]),
+    username: z.string().trim().min(1).max(100),
+    password: z.string().max(200).optional(),
+  }).safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ ok: false, message: '參數格式錯誤' })
+  saveUatBackendCredential(account.email, parsed.data.profile as UatBackendProfile, parsed.data.username, parsed.data.password ?? '')
+  res.json({ ok: true, credentials: listUatBackendCredentials(account.email) })
+})
 router.get('/api/osm-uat/stream', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream')
   res.setHeader('Cache-Control', 'no-cache')
@@ -131,11 +173,24 @@ router.get('/api/osm-uat/scan', async (req, res, next) => {
 const SCRIPT_PATH = process.env.OSM_QA_AGENT_SCRIPT
   ?? join(__dirname, '..', 'uat-runner', 'run-lark-tc-backend.js')
 
+const modulePlanSchema = z.object({
+  instanceId: z.string().min(1).max(100),
+  name: z.string().min(1).max(100),
+  filters: z.array(z.string().trim().min(1).max(120)).min(1).max(50),
+})
+
 const runSchema = z.object({
   larkUrl: z.string().min(1),
   filter: z.string().optional(),
   dashGameType: z.string().optional(),
   dashClientVersion: z.string().optional(),
+  modulePlan: z.array(modulePlanSchema).min(1).max(40).superRefine((modules, context) => {
+    const ids = new Set<string>()
+    modules.forEach((module, index) => {
+      if (ids.has(module.instanceId)) context.addIssue({ code: 'custom', path: [index, 'instanceId'], message: '模組 ID 不可重複' })
+      ids.add(module.instanceId)
+    })
+  }).optional(),
 })
 
 function parseLarkBitableUrl(url: string): { appToken: string; tableId: string } | null {
@@ -168,7 +223,7 @@ router.post('/api/osm-uat/run', (req, res) => {
     return
   }
 
-  const { larkUrl, filter, dashGameType, dashClientVersion } = parsed.data
+  const { larkUrl, filter, dashGameType, dashClientVersion, modulePlan } = parsed.data
   const larkParams = parseLarkBitableUrl(larkUrl)
   if (!larkParams) {
     res.status(400).json({ ok: false, error: '無效的 Lark Bitable URL（需包含 /base/{token} 和 ?table={id}）' })
@@ -176,7 +231,7 @@ router.post('/api/osm-uat/run', (req, res) => {
   }
 
   const heavyTask = tryStartHeavyTask(req, 'osm-uat', 'OSM UAT 自動化測試')
-  if (!heavyTask.ok) {
+  if (heavyTask.ok === false) {
     res.status(429).json(heavyTaskConflict(heavyTask.task))
     return
   }
@@ -203,6 +258,10 @@ router.post('/api/osm-uat/run', (req, res) => {
       LARK_TABLE_ID: larkParams.tableId,
       ...(dashGameType ? { DASH_GAME_TYPE: dashGameType } : {}),
       ...(dashClientVersion ? { DASH_CLIENT_VERSION: dashClientVersion } : {}),
+      ...(modulePlan?.length ? { UAT_MODULE_PLAN: JSON.stringify(modulePlan) } : {}),
+      // 帳密改成用「發動這次測試的人」自己設定的那份（存在 DB，設定頁填），
+      // 腳本端優先吃這幾個環境變數、沒有才 fallback 到 config 檔（2026-08-21）
+      ...uatCredEnv(req),
     },
     windowsHide: true,
   })
@@ -233,7 +292,7 @@ router.post('/api/osm-uat/run', (req, res) => {
     // 送完最終狀態後關閉所有 SSE 連線，讓 client 乾淨地結束
     setTimeout(() => {
       for (const res of sseClients) {
-        try { res.end() } catch {}
+        try { res.end() } catch { /* SSE client already disconnected */ }
       }
       sseClients.clear()
     }, 500)

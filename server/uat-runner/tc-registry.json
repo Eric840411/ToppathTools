@@ -1,0 +1,849 @@
+{
+  "recvenTprAvPmA": {
+    "verifierName": "verifyDailyRanking",
+    "canonicalText": "(目前正式BPO跟CP沒有開日榜)排序是按照“投注額”排序",
+    "matchedVia": "/排序.*投注|投注.*排序|total.*bet.*amount|按照.*投注額/i",
+    "sub": "Daily Ranking",
+    "capturedAt": "2026-08-06T10:36:26.431Z"
+  },
+  "recvenTprAhnWT": {
+    "verifierName": "verifyDailyRanking",
+    "canonicalText": "Bonus settings可以正常設置\n細分ALL、CP、BP，並且全渠道共用",
+    "matchedVia": "/bonus\\s*settings?/i",
+    "sub": "Daily Ranking",
+    "capturedAt": "2026-08-06T14:14:41.328Z"
+  },
+  "recvenTprAm63j": {
+    "verifierName": "verifyDailyRanking",
+    "canonicalText": "名單和數據是按照服務器的每5分鐘更新一次，包括更新Bonus",
+    "matchedVia": "MANUAL(/5.*分鐘.*更新|每5分鐘/i)",
+    "sub": "Daily Ranking",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprANQtQ": {
+    "verifierName": "verifyDailyRanking",
+    "canonicalText": "確認CSV導出數據顯示正確",
+    "matchedVia": "/export|csv|導出|匯出/i",
+    "sub": "Daily Ranking",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAY907": {
+    "verifierName": "verifyDailyRanking",
+    "canonicalText": "Set Config可以開關日榜跟顯不顯示Bonus",
+    "matchedVia": "/set.*config|config.*開關|開關.*日榜/i",
+    "sub": "Daily Ranking",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAgv84": {
+    "verifierName": "verifyJackpotRanking",
+    "canonicalText": "排序是按照\"Jackpot Amount\"排序",
+    "matchedVia": "/排序.*jackpot.*amount.*排序|jackpot.*amount.*排序/i",
+    "sub": "Jackpot Ranking",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprA8VgQ": {
+    "verifierName": "verifyJackpotRanking",
+    "canonicalText": "可以更新上傳 / 刪除 / 觀看視頻",
+    "matchedVia": "/更新上傳.*刪除.*觀看視頻|上傳.*刪除.*視頻/",
+    "sub": "Jackpot Ranking",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprA1MlW": {
+    "verifierName": "verifyJackpotRanking",
+    "canonicalText": "可以編輯 / 刪除獎池額度",
+    "matchedVia": "/可以編輯.*刪除獎池額度|編輯.*刪除.*獎池額度/",
+    "sub": "Jackpot Ranking",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAFfBc": {
+    "verifierName": "verifyJackpotRanking",
+    "canonicalText": "可以透過\"add\"按鈕新增獎池紀錄",
+    "matchedVia": "/透過.*add.*按鈕新增獎池紀錄|add.*按鈕新增獎池/i",
+    "sub": "Jackpot Ranking",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAHUEQ": {
+    "verifierName": "verifyJackpotRanking",
+    "canonicalText": "確認CSV導出數據顯示正確",
+    "matchedVia": "/確認csv導出數據顯示正確/i",
+    "sub": "Jackpot Ranking",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAl8Jt": {
+    "verifierName": "verifyJackpotRanking",
+    "canonicalText": "數據透過Jackpot Abronmality補發後，會自動寫入到Jackpot Raking中",
+    "matchedVia": "/數據透過jackpot abronmality補發後，會自動寫入到jackpot raking中/i",
+    "sub": "Jackpot Ranking",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAC9L4": {
+    "verifierName": "verifyGameSettingPage",
+    "canonicalText": "后台增加视频上传功能，一个游戏只能配置一个视频（不区分渠道）\n每次登入游戏大厅时，加载一次最新配置",
+    "matchedVia": "/[后後]台增加视频上传功能.*一个游戏只能配置一个视频/i",
+    "sub": "How To Play",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAiYwK": {
+    "verifierName": "verifyGameSettingPage",
+    "canonicalText": "小額入口(SMALL BET)大廳+後台\n後台設置後需等五分鐘(每個渠道後台個別設置)\n(不是動的時間開始算5分鐘，是服務器時間5分為一個級距)\nSort ID:順序",
+    "matchedVia": "/sort\\s*id[:：]順序|小額入口.*sort\\s*id/i",
+    "sub": "小額推薦影片",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAYjfO": {
+    "verifierName": "verifyGameSettingPage",
+    "canonicalText": "Name:名稱(PC不受影響)",
+    "matchedVia": "/^name[:：]名稱/i",
+    "sub": "小額推薦影片",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAION6": {
+    "verifierName": "verifyGameSettingPage",
+    "canonicalText": "Param:參數由運營輸入",
+    "matchedVia": "/^param[:：]參數/i",
+    "sub": "小額推薦影片",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprA97qk": {
+    "verifierName": "verifyGameSettingPage",
+    "canonicalText": "Type:開Denom，設定目前支援P 0.8/P 1/P 4/P 8/P 9",
+    "matchedVia": "/^type[:：]開denom/i",
+    "sub": "小額推薦影片",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprA5AUv": {
+    "verifierName": "verifyMachineReservation",
+    "canonicalText": "Operation：点击Cannel后对此台机器取消预定；",
+    "matchedVia": "/点击cannel后对此台机器取消预定|delay.*点击后弹出选择框/i",
+    "sub": "自動預約相關功能",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAjmkn": {
+    "verifierName": "verifyMachineReservation",
+    "canonicalText": "预定列表需要按照开始时间进行排序，时间约近的排在越前面",
+    "matchedVia": "/预定列表需要按照开始时间进行排序|时间约近的排在越前面/i",
+    "sub": "自動預約相關功能",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAw3Pr": {
+    "verifierName": "verifyMachineReservation",
+    "canonicalText": "查询：需要可以根据UserID/Account/Start Time查询，根据Status筛选",
+    "matchedVia": "/查询.*userid.*account.*start\\s*time|根据status筛选/i",
+    "sub": "自動預約相關功能",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprApuFv": {
+    "verifierName": "verifyMachineReservation",
+    "canonicalText": "时长设置，页面中需要增加按钮“Time Setting”，打开后可配置预定时长>>Reservation List>Parameter Setting>點開才會看到\nReservation List>Setting>\n設置公共的\nLock Count(可預約機台數)、\nLock Time(H)(可預約小時)、\nMachine Count(可同時預約的機台)，確認功能正常",
+    "matchedVia": "/reservation.*list|預約名單/i",
+    "sub": "自動預約相關功能",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAsJ1i": {
+    "verifierName": "verifyMachineReservation",
+    "canonicalText": "操作日志，需要记录后台各项操作的日志（时长修改，名单设置，取消，延迟等操作）",
+    "matchedVia": "/操作日志|操作日誌/i",
+    "sub": "自動預約相關功能",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAht8j": {
+    "verifierName": "verifyMachineReservation",
+    "canonicalText": "預約時間到後，繼續遊玩，筆數計算到離開機台",
+    "matchedVia": "MANUAL(/預約時間到後.*繼續遊玩/i)",
+    "sub": "自動預約相關功能",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprA5wx7": {
+    "verifierName": "verifyMachineReservation",
+    "canonicalText": "Machine Reservation後台預約功能>Add Reservation功能測試>\n1.输入玩家Account/Machine No，立刻帮玩家预约机器\n\n各情境:\n1.用後台預約沒有的機台，提示:Machine No is not exist\n2.使用不存在玩家預約，提示:Account is not exist\n3.使用被預約的機台預約，提示:The machine has been reserved\n4.使用占用中或不在線的機台預約，提示:The machine status error\n5.使用不再預約名單內的玩家預約，提示: The player's reservation conditions are not met\n6.預約用壓測中的機台，提示:The machine is under stress testing",
+    "matchedVia": "/reservation.*list|預約名單/i",
+    "sub": "自動預約相關功能",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprA3iYq": {
+    "verifierName": "verifyMachineReservation",
+    "canonicalText": "2.预约时间根据配置时间决定，预约成功消耗一次预约次数",
+    "matchedVia": "/^\\d\\.\\s*(预约时间根据配置时间决定|若提交预约时机器内有玩家|若提交预约时机器为离线)/i",
+    "sub": "自動預約相關功能",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAS8fB": {
+    "verifierName": "verifyMachineReservation",
+    "canonicalText": "3.若提交预约时机器内有玩家或該玩家不再預約名單內，则无法预约",
+    "matchedVia": "/reservation.*list|預約名單/i",
+    "sub": "自動預約相關功能",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAuJKg": {
+    "verifierName": "verifyMachineReservation",
+    "canonicalText": "4.若提交预约时机器为离线/维护状态，则无法预约",
+    "matchedVia": "/^\\d\\.\\s*(预约时间根据配置时间决定|若提交预约时机器内有玩家|若提交预约时机器为离线)/i",
+    "sub": "自動預約相關功能",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprASEtn": {
+    "verifierName": "verifyMachineReservation",
+    "canonicalText": "5.Add Reservation按钮只有CP渠道会显示，其他渠道隐藏",
+    "matchedVia": "MANUAL(/add reservation按钮只有cp渠道会显示|其他渠道隐藏/i)",
+    "sub": "自動預約相關功能",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAbJS1": {
+    "verifierName": "verifyMachineReservation",
+    "canonicalText": "壓測各渠道可以分開新增，不會互相影響\n(比喻LV限制1台CT，玩家從CP進入，CT機台因為在LV，所以不可以預約)",
+    "matchedVia": "MANUAL(/壓測各渠道可以分開新增.*不會互相影響/i)",
+    "sub": "自動預約相關功能",
+    "capturedAt": "2026-08-06T14:14:45.538Z"
+  },
+  "recvenTprApOje": {
+    "verifierName": "verifyMachineReservation",
+    "canonicalText": "Machine Reservation Limit>限制遊戲預約上限，有區分渠道\n規格:后台是名额满了以后还能预约，如果后台先预约，也会计算在前端名额内",
+    "matchedVia": "MANUAL(/machine reservation limit.*限制遊戲預約上限.*有區分渠道/i)",
+    "sub": "自動預約相關功能",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAcwng": {
+    "verifierName": "verifyDashboard",
+    "canonicalText": "確認儀錶板有數據。\n藍底:當前可用的機器數量，當前有人在遊戲內的機器數量(即時更新) ",
+    "matchedVia": "/藍底.*當前可用的機器數量|當前可用的機器數量.*藍底/i",
+    "sub": "Dashboard",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprABeZ8": {
+    "verifierName": "verifyDashboard",
+    "canonicalText": "橘底:當前有多少玩家在大廳內(5分鐘更新一次) ",
+    "matchedVia": "MANUAL(/5.*分鐘.*更新|每5分鐘/i)",
+    "sub": "Dashboard",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprA8xbL": {
+    "verifierName": "verifyDashboard",
+    "canonicalText": "綠底:當前的總帶入金額、總帶出金額、總投注、總輸贏值、總輸贏率(５分鐘左右更新一次) ",
+    "matchedVia": "/綠底.*總帶入金額|總帶入金額.*綠底/i",
+    "sub": "Dashboard",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAcCmK": {
+    "verifierName": "verifyDashboard",
+    "canonicalText": "紅底:前總玩家所帶入機台的金額(即時更新)",
+    "matchedVia": "/紅底.*所帶入機台的金額|所帶入機台的金額.*紅底/i",
+    "sub": "Dashboard",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAHo3r": {
+    "verifierName": "verifyEGMList",
+    "canonicalText": "確認是否能編輯機台資訊(Alias/限額/設置白名單)",
+    "matchedVia": "/確認是否能編輯機台資訊.*alias.*限額.*設置白名單/i",
+    "sub": "EGM List",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAYMoV": {
+    "verifierName": "verifyEGMList",
+    "canonicalText": "Showcase設置功能正常，前端排序:預約 >showcase> 空閑 & 佔用\nMegawin (不影響排序，只影響顯示最優先)",
+    "matchedVia": "/showcase/i",
+    "sub": "EGM List",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAM9CA": {
+    "verifierName": "verifyEGMList",
+    "canonicalText": "可以batch set min bet(一次大量設置小面額)",
+    "matchedVia": "/batch.*set|批量設置/i",
+    "sub": "EGM List",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAhda9": {
+    "verifierName": "verifyEGMList",
+    "canonicalText": "只有Lavie後台:機器可設置Machine Type為GSA類型\n再到reports報表類查看Machine Type可篩選OSM或GSA類型\n也會有GSA EGM Metering報表分類\nLV後台有GSA(SHOW_MACHINE_TYPE = 4190)",
+    "matchedVia": "MANUAL(/只有lavie後台.*機器可設置machine\\s*type為gsa類型/i)",
+    "sub": "EGM List",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAFqZe": {
+    "verifierName": "verifyEGMStatus",
+    "canonicalText": "確認機台狀態(是否可維護/喚醒機台) ",
+    "matchedVia": "/maintenance|維護.*喚醒/i",
+    "sub": "EGM Status",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAQgTi": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "確認日期可以選擇(當日)",
+    "matchedVia": "/確認日期可以選擇\\(當日\\)|確認日期可以選擇（當日）/i",
+    "sub": "EGM Detail",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAXbWF": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "Machine Name可以搜尋",
+    "matchedVia": "/可以搜尋|搜尋機型正確|篩選正確|都可以正確搜尋/i",
+    "sub": "EGM Detail",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAJGtw": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "Game Type搜尋機型正確",
+    "matchedVia": "/可以搜尋|搜尋機型正確|篩選正確|都可以正確搜尋/i",
+    "sub": "EGM Detail",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAHa1c": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "可導出Excel表",
+    "matchedVia": "/excel|export|匯出|導出|csv/",
+    "sub": "EGM Detail",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAfDP6": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "帳號進入前端遊玩機台，對照後台的投注、輸贏紀錄是否正確。",
+    "matchedVia": "MANUAL(/投注.*輸贏.*紀錄.*是否正確/i)",
+    "sub": "User Detail",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprACXhH": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "確認日期可以選擇(當日)",
+    "matchedVia": "/確認日期可以選擇\\(當日\\)|確認日期可以選擇（當日）/i",
+    "sub": "User Detail",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprADviL": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "Machine Name、UserId、Account都可以搜尋",
+    "matchedVia": "/可以搜尋|搜尋機型正確|篩選正確|都可以正確搜尋/i",
+    "sub": "User Detail",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprA50LX": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "Game Type搜尋機型正確",
+    "matchedVia": "/可以搜尋|搜尋機型正確|篩選正確|都可以正確搜尋/i",
+    "sub": "User Detail",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAKkSA": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "可導出Excel表",
+    "matchedVia": "/excel|export|匯出|導出|csv/",
+    "sub": "User Detail",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAWQIW": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "前端進入機台遊玩，確認帶入機台金額跟帶出機台金額是否正確",
+    "matchedVia": "MANUAL(/帶入.*帶出.*金額.*是否正確/i)",
+    "sub": "EGM Transfer",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAL2eS": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "確認日期可以選擇(當日)",
+    "matchedVia": "/確認日期可以選擇\\(當日\\)|確認日期可以選擇（當日）/i",
+    "sub": "EGM Transfer",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAnBfe": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "Machine Name、UserId、Account都可以搜尋",
+    "matchedVia": "/可以搜尋|搜尋機型正確|篩選正確|都可以正確搜尋/i",
+    "sub": "EGM Transfer",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprA0aSs": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "可導出Excel表",
+    "matchedVia": "/excel|export|匯出|導出|csv/",
+    "sub": "EGM Transfer",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAV1Mr": {
+    "verifierName": "verifyGamingUser",
+    "canonicalText": "Gaming User計算玩家在機台內的人數，並確認篩選機台功能有成功篩選正確人數",
+    "matchedVia": "/gaming user計算玩家在機台內的人數|篩選機台功能.*篩選正確人數/i",
+    "sub": "Gaming User",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAtO6e": {
+    "verifierName": "verifyGamingUser",
+    "canonicalText": "Online User計算大廳內的人數，並確認會屏蔽Game Type功能",
+    "matchedVia": "/online user計算大廳內的人數|確認會屏蔽game type功能/i",
+    "sub": "Gaming User",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAQU33": {
+    "verifierName": "verifyGamingUser",
+    "canonicalText": "后台Game User增加预约机器+占用机器数量记录，Type为Occupied Machine\n每10分钟写一次数据(非操作時間)",
+    "matchedVia": "/占用机器数量记录|type為occupied machine|type为occupied machine/i",
+    "sub": "Gaming User",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprATT9i": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "前端玩機台，查看是否有實時紀錄，確認日期可以選擇(當日)",
+    "matchedVia": "/確認日期可以選擇\\(當日\\)|確認日期可以選擇（當日）/i",
+    "sub": "Game Record",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAk2GP": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "Machine Name、UserId、Account、Game Order都可以搜尋",
+    "matchedVia": "/可以搜尋|搜尋機型正確|篩選正確|都可以正確搜尋/i",
+    "sub": "Game Record",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAXocM": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "Player Channel篩選正確",
+    "matchedVia": "/可以搜尋|搜尋機型正確|篩選正確|都可以正確搜尋/i",
+    "sub": "Game Record",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAtDup": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "可導出Excel表(沒有千分位)",
+    "matchedVia": "/excel|export|匯出|導出|csv/",
+    "sub": "Game Record",
+    "capturedAt": "2026-08-06T14:14:49.791Z"
+  },
+  "recvenTprABY17": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "確認日期可以選擇(當日)",
+    "matchedVia": "/確認日期可以選擇\\(當日\\)|確認日期可以選擇（當日）/i",
+    "sub": "EGM DayCount",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAmU7F": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "Game Type搜尋機型正確",
+    "matchedVia": "/可以搜尋|搜尋機型正確|篩選正確|都可以正確搜尋/i",
+    "sub": "EGM DayCount",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprA3kez": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "Player Channel篩選正確",
+    "matchedVia": "/可以搜尋|搜尋機型正確|篩選正確|都可以正確搜尋/i",
+    "sub": "EGM DayCount",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAFTxj": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "可導出Excel表",
+    "matchedVia": "/excel|export|匯出|導出|csv/",
+    "sub": "EGM DayCount",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAgtmb": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "確認玩家的遊戲紀錄帶入帶出金額及下注金額 確認日期可以選擇(當日)\n如果跟Egm Detail不同是正常的，可以到盒子看看是不是有AFT問題(範例:AFT_in end transfer_pending:False,state:NONE)\n因為Egm Detail=機台實體數據\nPlayer Credit Log=OSM自己記錄用",
+    "matchedVia": "/確認日期可以選擇\\(當日\\)|確認日期可以選擇（當日）/i",
+    "sub": "Player Credit Log",
+    "capturedAt": "2026-08-06T14:14:54.024Z"
+  },
+  "recvenTprAtos7": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "Player Channel篩選正確",
+    "matchedVia": "/可以搜尋|搜尋機型正確|篩選正確|都可以正確搜尋/i",
+    "sub": "Player Credit Log",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAFu0k": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "UserId、Account、Type都可以正確搜尋",
+    "matchedVia": "/可以搜尋|搜尋機型正確|篩選正確|都可以正確搜尋/i",
+    "sub": "Player Credit Log",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAtQhc": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "可導出Excel表",
+    "matchedVia": "/excel|export|匯出|導出|csv/",
+    "sub": "Player Credit Log",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprA1HmG": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "機台達到鎖機金額時，請現場handpay後，補handpay後，查看是否有紀錄",
+    "matchedVia": "MANUAL(/現場.*handpay|handpay.*後.*查看/i)",
+    "sub": "Jackpot Record",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAD9hS": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "確認日期可以選擇(當日)",
+    "matchedVia": "/確認日期可以選擇\\(當日\\)|確認日期可以選擇（當日）/i",
+    "sub": "Jackpot Record",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAegR4": {
+    "verifierName": "verifyReportPage",
+    "canonicalText": "Game Type搜尋機型正確",
+    "matchedVia": "/可以搜尋|搜尋機型正確|篩選正確|都可以正確搜尋/i",
+    "sub": "Jackpot Record",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAYcTl": {
+    "verifierName": "verifyChannelRanking",
+    "canonicalText": "新增Channel ID後，前端可以看到該渠道的機器",
+    "matchedVia": "MANUAL(/前端可以看到|前端.*可以看到|前端.*能看到/i)",
+    "sub": "Channel Ranking",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprA1ocl": {
+    "verifierName": "verifyChannelRanking",
+    "canonicalText": "確認只有主渠道才有此功能",
+    "matchedVia": "/確認只有主渠道才有此功能/i",
+    "sub": "Channel Ranking",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprARMJa": {
+    "verifierName": "verifyChannelRanking",
+    "canonicalText": "排序為數字最大，權位最高",
+    "matchedVia": "/排序為數字最大，權位最高/i",
+    "sub": "Channel Ranking",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAVHSm": {
+    "verifierName": "verifyChannelRanking",
+    "canonicalText": "可以正常編輯 / 刪除",
+    "matchedVia": "/可以正常編輯\\s*\\/\\s*刪除/i",
+    "sub": "Channel Ranking",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAzYrA": {
+    "verifierName": "verifyChannelRanking",
+    "canonicalText": "在BPO渠道把某個渠道拔掉 從news quick join進入不會進到已拔掉渠道的機器(沒有顯示在前端的機器)",
+    "matchedVia": "MANUAL(/在bpo渠道把某個渠道拔掉.*news quick join進入不會進到已拔掉渠道的機器/i)",
+    "sub": "Channel Ranking",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAjUts": {
+    "verifierName": "verifyWhiteList",
+    "canonicalText": "可以新增 / 刪除白名單帳號",
+    "matchedVia": "/可以新增\\s*\\/\\s*刪除白名單帳號/i",
+    "sub": "White List",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAWTpn": {
+    "verifierName": "verifyJackpotMoment",
+    "canonicalText": "Add 按鈕可以新增視頻",
+    "matchedVia": "/^add\\s*按鈕可以新增視頻/i",
+    "sub": "Jackpot Moment",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAaHJ1": {
+    "verifierName": "verifyJackpotMoment",
+    "canonicalText": "Add 功能 - Game Order確認是抓取Game Record的紀錄，如果不是Game Record的紀錄，點擊Check會跳出找不到的提示，若有紀錄則會把細項一併寫入下方資料欄位",
+    "matchedVia": "/game order確認是抓取game record的紀錄/i",
+    "sub": "Jackpot Moment",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprARfXe": {
+    "verifierName": "verifyJackpotMoment",
+    "canonicalText": "Add 功能 - Sort id用來顯示排序，可輸入相同Sort id，但優先順序會按照Bet Time排序，越接近目前時間的在越前面",
+    "matchedVia": "/sort id用來顯示排序/i",
+    "sub": "Jackpot Moment",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAwYZM": {
+    "verifierName": "verifyJackpotMoment",
+    "canonicalText": "Add 功能 - Video可以正常上傳 / 預覽",
+    "matchedVia": "/video可以正常上傳\\s*\\/\\s*預覽/i",
+    "sub": "Jackpot Moment",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAuUlT": {
+    "verifierName": "verifyJackpotMoment",
+    "canonicalText": "視頻記錄顯示正確 (Account / Jp amount / Time)",
+    "matchedVia": "/視頻記錄顯示正確/",
+    "sub": "Jackpot Moment",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprA9eUu": {
+    "verifierName": "verifyJackpotMoment",
+    "canonicalText": "視頻可以做編輯 / 刪除 / 預覽",
+    "matchedVia": "/視頻可以做編輯\\s*\\/\\s*刪除\\s*\\/\\s*預覽/",
+    "sub": "Jackpot Moment",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAmtzD": {
+    "verifierName": "verifyJackpotMoment",
+    "canonicalText": "最多只能新增20筆紀錄",
+    "matchedVia": "/最多只能新增20筆紀錄/",
+    "sub": "Jackpot Moment",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAMVzj": {
+    "verifierName": "verifyJackpotMoment",
+    "canonicalText": "新增新的視頻輸入Game Order會自動帶入Game ID，quick join就會直接跳轉遊戲",
+    "matchedVia": "MANUAL(/quick join就會直接跳轉遊戲|quick join.*直接跳轉/i)",
+    "sub": "Jackpot Moment",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprA8JzE": {
+    "verifierName": "verifyMeterPage",
+    "canonicalText": "確認每小時都會有一筆紀錄，並且記錄正確，可與Game Record比對確認數據",
+    "matchedVia": "/確認每小時都會有一筆紀錄.*可與game record比對確認數據/i",
+    "sub": "EGM Hourly Meter",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAE2Dr": {
+    "verifierName": "verifyMeterPage",
+    "canonicalText": "如果盒子斷線，會採用紅色字體顯示",
+    "matchedVia": "MANUAL(/盒子.*斷線|斷線.*紅色|egm.*disconnect/i)",
+    "sub": "EGM Hourly Meter",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAoG89": {
+    "verifierName": "verifyMeterPage",
+    "canonicalText": "確認特殊時間段，23:59:59 / 05:59:59的紀錄都有顯示",
+    "matchedVia": "MANUAL(/23:59:59|05:59:59|特殊時間段/i)",
+    "sub": "EGM Hourly Meter",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAglDR": {
+    "verifierName": "verifyMeterPage",
+    "canonicalText": "Gaming Day功能正常，可以正確指定該日期的搜尋數據",
+    "matchedVia": "/gaming day功能正常/i",
+    "sub": "EGM Hourly Meter",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAzAL0": {
+    "verifierName": "verifyMeterPage",
+    "canonicalText": "Machine Name / Machine No的搜索條件功能正常",
+    "matchedVia": "/machine name\\s*\\/\\s*machine no的搜索條件功能正常/i",
+    "sub": "EGM Hourly Meter",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAcJ11": {
+    "verifierName": "verifyMeterPage",
+    "canonicalText": "Date Type的06 / 00搜索條件顯示數據正常",
+    "matchedVia": "/date type的06\\s*\\/\\s*00搜索條件顯示數據正常/i",
+    "sub": "EGM Hourly Meter",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAhARf": {
+    "verifierName": "verifyMeterPage",
+    "canonicalText": "數據可以展示正確(新機台需掛數據2小時以上才會準確)",
+    "matchedVia": "/數據可以展示正確.*新機台需掛數據2小時以上才會準確/i",
+    "sub": "EGM Performance Meter",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAkiPb": {
+    "verifierName": "verifyMeterPage",
+    "canonicalText": "Gaming Day功能正常，可以正確指定該日期的搜尋數據",
+    "matchedVia": "/gaming day功能正常/i",
+    "sub": "EGM Performance Meter",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAuUyR": {
+    "verifierName": "verifyMeterPage",
+    "canonicalText": "Machine Name / Machine No的搜索條件功能正常",
+    "matchedVia": "/machine name\\s*\\/\\s*machine no的搜索條件功能正常/i",
+    "sub": "EGM Performance Meter",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAiMYW": {
+    "verifierName": "verifyMeterPage",
+    "canonicalText": "Date Type的06 / 00搜索條件顯示數據正常",
+    "matchedVia": "/date type的06\\s*\\/\\s*00搜索條件顯示數據正常/i",
+    "sub": "EGM Performance Meter",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprA7Bqo": {
+    "verifierName": "verifyGameSettingPage",
+    "canonicalText": "後台有個開關，可開啟或關閉前端顯示(more game) 需重整才會吃到設定",
+    "matchedVia": "/開啟或關閉前端顯示.*more game/i",
+    "sub": "Game Jump Set",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAyKHc": {
+    "verifierName": "verifyGameSettingPage",
+    "canonicalText": "Add game可新增遊戲",
+    "matchedVia": "/add\\s*game可新增遊戲/i",
+    "sub": "Game Jump Set",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAc6J7": {
+    "verifierName": "verifyGameSettingPage",
+    "canonicalText": "可以隱藏、編輯跟刪除遊戲(須等待2分鐘左右)",
+    "matchedVia": "/可以隱藏、編輯跟刪除遊戲/i",
+    "sub": "Game Jump Set",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAI3aE": {
+    "verifierName": "verifyGameSettingPage",
+    "canonicalText": "Add Banner可以新增遊戲入口(可直接跳轉遊戲)",
+    "matchedVia": "/add\\s*banner可以新增遊戲入口/i",
+    "sub": "News Set",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAmlBZ": {
+    "verifierName": "verifyGameSettingPage",
+    "canonicalText": "可以編輯跟刪除遊戲",
+    "matchedVia": "/可以編輯跟刪除遊戲/i",
+    "sub": "News Set",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAVgQt": {
+    "verifierName": "verifyGameSettingPage",
+    "canonicalText": "渠道需個別設置 CP設置CP BPO設置BPO",
+    "matchedVia": "/渠道需個別設置.*cp設置cp.*bpo設置bpo/i",
+    "sub": "News Set",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAuuPd": {
+    "verifierName": "verifyEGMJPPercent",
+    "canonicalText": "Player Channel>可分渠道顯示機器",
+    "matchedVia": "/player channel.*可分渠道顯示機器/i",
+    "sub": "EGM JP Percent",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAGxFS": {
+    "verifierName": "verifyEGMJPPercent",
+    "canonicalText": "可对各机器配置5个比例参数（小数点后7位），分别为Fortune/Grand/Major/Minor/Mini（需要有批量勾选机器配置功能）",
+    "matchedVia": "/可对各机器配置5个比例参数/",
+    "sub": "EGM JP Percent",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAcJiv": {
+    "verifierName": "verifyEGMJPPercent",
+    "canonicalText": "菜单显示字段：机器ID/机器名/Fortune/Grand/Major/Minor/Mini",
+    "matchedVia": "/菜单显示字段/",
+    "sub": "EGM JP Percent",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAA8LV": {
+    "verifierName": "verifyEGMJPPercent",
+    "canonicalText": "服务器需要根据EGM JP Percent配置的比例，计算出机器每一笔游戏记录所对应注入奖池的总金额，并将数据传给Toppath\nrecordBet>>CP玩也有數據\n\"jackpotContribution\"=總下注額 X {Total Rate(%) X 0.01 } \nuserbethistory>>一定要用BPO的帳號去打才會有這東西，直接改URL還會是CP的\n\n",
+    "matchedVia": "MANUAL(/jackpotContribution|userbethistory.*bpo/i)",
+    "sub": "EGM JP Percent",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAFy9I": {
+    "verifierName": "verifyGameSettingPage",
+    "canonicalText": "只能新增一個廣告配置(0点刷新，每天只弹1次)",
+    "matchedVia": "/只能新增一個廣告配置/i",
+    "sub": "Advert Set",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAWOln": {
+    "verifierName": "verifyGameSettingPage",
+    "canonicalText": "每個主渠道獨立設置",
+    "matchedVia": "/每個主?渠道獨立設置/i",
+    "sub": "Advert Set",
+    "capturedAt": "2026-08-06T14:14:58.375Z"
+  },
+  "recveFY7nUeFBk": {
+    "verifierName": "verifyJackpotRanking",
+    "canonicalText": "Announcement可設定JP彈框跳出時間:只彈出一次 除非清緩存或換瀏覽器/裝置",
+    "matchedVia": "/announcement可設定jp彈框跳出時間/i",
+    "sub": "Jackpot Ranking",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recveFYEySyj8z": {
+    "verifierName": "verifyJackpotRanking",
+    "canonicalText": "如果有視頻，跳出彈框需可打開video，沒有視頻則不顯示video",
+    "matchedVia": "MANUAL(/如果有視頻.*彈框.*打開video|視頻.*跳出彈框.*打開video/i)",
+    "sub": "Jackpot Ranking",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recveFYGma21YO": {
+    "verifierName": "verifyJackpotRanking",
+    "canonicalText": "彈框須按照排名順序跳出(第一名最上面)",
+    "matchedVia": "MANUAL(/彈框須按照排名順序|排名順序.*跳出/i)",
+    "sub": "Jackpot Ranking",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvfkj2vzOtC0": {
+    "verifierName": "verifyMachineReservation",
+    "canonicalText": "後台已預約數量會占用到前端預約的數量>后台是名额满了以后还能预约，如果后台先预约，也会计算在前端名额内",
+    "matchedVia": "MANUAL(/後台已預約數量會占用到前端預約的數量/i)",
+    "sub": "自動預約相關功能",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvfklRlp11cQ": {
+    "verifierName": "verifyChannelRanking",
+    "canonicalText": "可以設置每個渠道顯示OSM或GSA機器，目前只有Lavie的機器可以設置GSA\n規格:勾選甚麼機種，那個渠道只顯示那個機種機器",
+    "matchedVia": "/可以設置每個渠道顯示osm或gsa機器/i",
+    "sub": "Channel Ranking",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvfknNbUeQB8": {
+    "verifierName": "verifyMachineReservation",
+    "canonicalText": "“Delay”，点击后弹出选择框，可选择在当前的预定时间基础上再推迟设定时间（3Hours）\n(1)需確認點Delay，玩家遊玩資料沒被清空",
+    "matchedVia": "MANUAL(/delay.*玩家.*遊玩資料|玩家遊玩資料.*沒被清空/i)",
+    "sub": "自動預約相關功能",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvfko6WsLDx5": {
+    "verifierName": "verifyMachineReservation",
+    "canonicalText": "Reservation List>\nAccount>支援模糊搜尋，View點了後才執行\n下方顯示的vip清單，可編輯跟刪除正常",
+    "matchedVia": "/reservation.*list|預約名單/i",
+    "sub": "自動預約相關功能",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvfko9iLzDux": {
+    "verifierName": "verifyMachineReservation",
+    "canonicalText": "Export>確認匯出檔案正確(如當下有搜尋，只會匯出目前搜尋的帳號資料)",
+    "matchedVia": "/export.*確認匯出檔案正確|只會匯出目前搜尋的帳號資料/i",
+    "sub": "自動預約相關功能",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvfkoaA0ksDd": {
+    "verifierName": "verifyMachineReservation",
+    "canonicalText": "+Add>可增加vip預約名單，輸入Lock Count(可預約機台數)、Lock Time(H)(可預約小時)、Machine Count(可同時預約的機台)也正確",
+    "matchedVia": "/reservation.*list|預約名單/i",
+    "sub": "自動預約相關功能",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvfkoaKHcOyB": {
+    "verifierName": "verifyMachineReservation",
+    "canonicalText": "Import Excel>上傳要新增的預約名單",
+    "matchedVia": "/reservation.*list|預約名單/i",
+    "sub": "自動預約相關功能",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvfqN3bqaTWm": {
+    "verifierName": "verifyGameSettingPage",
+    "canonicalText": "後台>Recommend Setting規格(小額遊戲推薦的小視頻)\n可配置多条数据，配置参数：\nGame Type：游戏名称，可选多个游戏，并且需要可以对多个游戏进行排序，排在前面的游戏机器优先推荐\n\nGame Type>依照Game Type去設定要輪播的機器(記得EGM list要去設定min bet) min bet設定要一致才會顯示",
+    "matchedVia": "/recommend setting規格.*game\\s*type|依照game\\s*type去設定/i",
+    "sub": "小額推薦影片",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvfqN710l52b": {
+    "verifierName": "verifyGameSettingPage",
+    "canonicalText": "  Wallet：钱包金额区间，玩家携带金额在对应区间内时，推荐设置游戏的机器",
+    "matchedVia": "/wallet[：:]钱包金额区间/i",
+    "sub": "小額推薦影片",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvfqN710lRUJ": {
+    "verifierName": "verifyGameSettingPage",
+    "canonicalText": "Recommend Amount：推荐机器数量",
+    "matchedVia": "/recommend\\s*amount[：:]推荐机器数量/i",
+    "sub": "小額推薦影片",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvfqN710LPGe": {
+    "verifierName": "verifyGameSettingPage",
+    "canonicalText": "Min Bet：机器最小投注金额，和小额入口一样可以设置多个，以’,’隔开（如0.8,4,8），表示推荐上述设置游戏中符合最小投注的机器",
+    "matchedVia": "/min\\s*bet[：:]机器最小投注金额/i",
+    "sub": "小額推薦影片",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAngA7": {
+    "verifierName": "verifyGameSettingPage",
+    "canonicalText": "可关闭/开启推荐栏功能",
+    "matchedVia": "/可关闭\\/开启推荐栏功能/i",
+    "sub": "小額推薦影片",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  },
+  "recvenTprAORs3": {
+    "verifierName": "verifyGameSettingPage",
+    "canonicalText": "推荐栏位功能需要区分渠道，每个渠道分开配置",
+    "matchedVia": "/推荐栏位功能需要区分渠道/i",
+    "sub": "小額推薦影片",
+    "capturedAt": "2026-08-06T10:36:26.432Z"
+  }
+}

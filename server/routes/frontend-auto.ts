@@ -1013,6 +1013,8 @@ type StepObj = {
   threshold?: number
   scrollStep?: number
   maxScrolls?: number
+  failureMode?: 'inherit' | 'continue' | 'stop' | 'retry'
+  retryCount?: number
 }
 
 function loadPng(buffer: Buffer) {
@@ -1155,6 +1157,8 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
         if (!activeRuns.has(runId)) { await log('🛑 執行已中止'); break }
         const label = step.name ?? `步驟 ${i + 1}`
         const idx = `[${i + 1}/${steps.length}]`
+        let stepAttempt = 0
+        while (true) {
         try {
           if (step.action === 'goto') {
             const target = step.value || startUrl
@@ -1231,18 +1235,29 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
             await log(`⏭ ${idx} ${label}（不支援的動作：${step.action}）`)
             skipped++
           }
+          break
         } catch (err) {
           const msg = err instanceof Error ? err.message.split('\n')[0] : String(err)
+          const retryLimit = Math.min(10, Math.max(0, Number(step.retryCount) || 1))
+          if (step.failureMode === 'retry' && stepAttempt < retryLimit && !msg.includes('closed') && !msg.includes('Target crashed')) {
+            stepAttempt++
+            await log(`↻ ${idx} ${label}：第 ${stepAttempt}/${retryLimit} 次重試`)
+            continue
+          }
           await log(`❌ ${idx} ${label}：${msg}`)
           failed++
           // If browser was closed externally, abort immediately
           const browserClosed = msg.includes('closed') || msg.includes('Stopped by user') || msg.includes('Target crashed')
-          if (failureMode === 'stop' || browserClosed) {
+          const effectiveFailureMode = step.failureMode === 'stop' || step.failureMode === 'continue' ? step.failureMode : failureMode
+          if (effectiveFailureMode === 'stop' || browserClosed) {
             if (browserClosed) await log('🛑 瀏覽器已關閉，中止執行')
             else await log('🛑 失敗後停止')
-            break
+            activeRuns.delete(runId)
           }
+          break
         }
+        }
+        if (!activeRuns.has(runId)) break
       }
 
       const result = failed > 0 ? 'fail' : 'pass'

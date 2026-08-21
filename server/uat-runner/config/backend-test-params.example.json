@@ -1,0 +1,37 @@
+{
+  "_說明": "後台UAT自動化測試（run-lark-tc-backend.js）的可調整參數。改這個檔案不會動到測試流程本身的邏輯，只調整數值/門檻/帳密這類設定。",
+  "credentials": {
+    "cpBackend": {
+      "username": "",
+      "password": ""
+    },
+    "nchBackend": {
+      "username": "",
+      "password": ""
+    }
+  },
+  "jackpotAbnormality": {
+    "_說明": "2026-08-05實測確認：Handpay/Jackpot Amount欄位最多只能輸入9位數，超過會導致DB查詢不到資料。",
+    "maxInputDigits": 9,
+    "jackpotValuePrefix": "777",
+    "handpayValuePrefix": "888",
+    "cleanRowPayoutThreshold": 100000,
+    "rankingPollAttempts": 8,
+    "rankingPollIntervalMs": 8000
+  },
+  "jackpotRanking": {
+    "_說明": "2026-08-05實測確認的10個合法Jackpot Type選項（後台下拉選單）",
+    "validJackpotTypes": [
+      "Super-Tier1",
+      "Fortune-Tier1",
+      "Grand-Tier1",
+      "Mega-Tier1",
+      "Gold-Tier1",
+      "Grand-Tier2",
+      "Mega-Tier2",
+      "Major-Tier2",
+      "Maxi-Tier2",
+      "Pearl-Tier2"
+    ]
+  }
+}
