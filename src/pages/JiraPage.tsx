@@ -825,7 +825,14 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
   }, [account])
 
   // 從 trackedIssues 中取出需要評論/切換的列
-  const toComment    = trackedIssues.filter(t => t.stage === '已開單' || t.stage === '')
+  // 批量評論分頁：Step 2 的勾選就是唯一依據，不再用 stage 二次過濾。
+  // 這條 filter 早就存在，但以前 extractJiraIssuesFromRecords() 把 stage 寫死空字串，形同虛設；
+  // v4.18.0 讓它真的讀處理階段之後這條 filter 被啟用，導致「已評論過」的列在 Step 3 整個消失——
+  // 連使用者手動勾回去也沒用，跟 v4.18.0「預設不勾但可以手動勾回」的設計直接矛盾（2026-08-21 修）。
+  // 開單流程維持原本行為：它的 trackedIssues 是整份 Sheet，本來就需要靠 stage 分流到各階段。
+  const toComment    = qaSubMode === 'comment'
+    ? trackedIssues
+    : trackedIssues.filter(t => t.stage === '已開單' || t.stage === '')
   const toTransition = trackedIssues.filter(t => t.stage === '添加評論')
   const transitionIssueKeyList = toTransition.map(t => t.issueKey).join('|')
 

@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.18.1'
+export const APP_VERSION = '4.18.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.18.2',
+    date: '2026-08-21',
+    changes: [
+      "fix(jira): 批量評論 Step 3 不再用處理階段二次過濾——toComment 那條 filter（stage 必須是空白或已開單）早就存在，但以前 stage 被寫死空字串所以形同虛設；v4.18.0 讓它真的讀處理階段之後這條 filter 被啟用，已評論過的列在 Step 3 整個消失，連使用者手動勾回去也沒用，跟 v4.18.0「預設不勾但可手動勾回」的設計直接矛盾。批量評論改成只看 Step 2 的勾選，開單流程維持原本的 stage 分流（那邊是流程門檻不是使用者選取清單）",
+    ],
+  },
   {
     version: '4.18.1',
     date: '2026-08-21',
