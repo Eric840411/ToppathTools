@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.22.2'
+export const APP_VERSION = '4.22.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.22.3',
+    date: '2026-08-21',
+    changes: [
+      'fix(uat): Backend / H5 / PC 三個分頁的頁籤文字改成垂直置中——.uat-main-tabs button 用 flex + align-items: baseline，baseline 對齊不會分配剩餘空間，整組文字會貼著 46px 方塊的頂端；改成 grid + align-content: center，兩個標籤之間仍是基線對齊但整組置中',
+      'fix(uat): .uat-studio 補上基準 font-size: 13px——原本沒設，任何沒有明確字級規則的文字都會掉回瀏覽器預設 16px（.uat-field 就是這樣壞的），H5/PC 分頁同樣受影響，補上基準值就不會再有漏網的元素',
+      'fix(uat): 術式庫／區塊庫／素材卡的標題從 12px 補齊到 13px，跟模組卡、腳本列、空狀態的卡片標題對齊——上一版機械式 +2 只把它們從 10px 帶到 12px',
+    ],
+  },
   {
     version: '4.22.2',
     date: '2026-08-21',
