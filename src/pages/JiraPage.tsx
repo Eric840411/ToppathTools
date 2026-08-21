@@ -577,6 +577,11 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
   const [personColumn, setPersonColumn] = useState('')
   const [personResolve, setPersonResolve] = useState<PersonResolveResult[]>([])
   const [personResolving, setPersonResolving] = useState(false)
+  // 逐列覆寫「這一列用誰的身分張貼」。刻意是暫時性的：重進預覽／重新讀取 Sheet 都會清掉——
+  // 那時候每一列的內容可能都不一樣了，沿用舊的指定有機會把評論用錯人的身分送出去
+  // （跟 CodeX 討論定案）。
+  const [rowCommentAs, setRowCommentAs] = useState<Record<number, string>>({})
+  const [commentAsCandidates, setCommentAsCandidates] = useState<{ email: string; label: string; self: boolean }[]>([])
   const canAiFormat = isAdmin || permissions.includes('jira-ai-format')
   const canAiReview = isAdmin || permissions.includes('jira-ai-review')
   const aiFormatOn = useAiComment && canAiFormat
@@ -1061,6 +1066,20 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
 
     return () => { alive = false }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 逐列下拉的候選名單（自己 ＋ 對我有代理授權的帳號），由後端算好回傳
+  useEffect(() => {
+    if (!currentAccount) { setCommentAsCandidates([]); return }
+    let alive = true
+    ;(async () => {
+      try {
+        const r = await fetch('/api/jira/comment-as-candidates')
+        const d = await r.json() as { ok: boolean; candidates?: { email: string; label: string; self: boolean }[] }
+        if (alive) setCommentAsCandidates(d.ok ? (d.candidates ?? []) : [])
+      } catch { if (alive) setCommentAsCandidates([]) }
+    })()
+    return () => { alive = false }
+  }, [currentAccount])
 
   // 選了填寫人欄位後，把這批要處理的列上出現過的名字送去後端解析（不重複），
   // 回傳每個名字對應的帳號與狀態，送出前用來擋住有問題的批次。
@@ -2040,6 +2059,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
   // Enter preview mode: fetch attachment cache then show preview table
   const handleEnterPreview = async () => {
     if (!commentColumn || toComment.length === 0) return
+    setRowCommentAs({}) // 重新產生預覽＝重新算一次身分，舊的逐列覆寫不沿用
     setPrefetchLoading(true)
     setPrefetchError('')
 
@@ -2172,16 +2192,30 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
     setUploadingRows(prev => { const s = new Set([...prev]); s.delete(rowIndex); return s })
   }
 
-  // 這一列的填寫人對應到哪個帳號（沒選填寫人欄位、或該列沒填名字 → 用自己送出）
-  const personEmailForRow = (rowIndex: number): string | undefined => {
-    if (!personColumn) return undefined
+  /** 這一列實際會用誰的身分張貼。優先序：逐列覆寫 → 填寫人欄位解析結果 → 自己。
+   *  回空字串代表「未設定」——Sheet 上的名字對不到帳號、或我沒有代理授權，這種情況**不會**
+   *  把 Sheet 上那個原始名字顯示出去（會讓人以為已經能用那個身分送出，實際送出才爆）。 */
+  const identityEmailForRow = (rowIndex: number): string => {
+    const override = rowCommentAs[rowIndex]
+    if (override) return override
+    const selfEmail = currentAccount?.email ?? ''
+    if (!personColumn) return selfEmail
     const rec = sheetRecords.find(r => Number(r._rowIndex) === rowIndex)
     const name = rec ? getField(rec, personColumn).trim() : ''
-    if (!name) return undefined
+    if (!name) return selfEmail
     const hit = personResolve.find(x => x.name.toLowerCase() === name.toLowerCase())
-    return hit && hit.status === 'ok' ? hit.email : undefined
+    return hit && hit.status === 'ok' ? (hit.email ?? '') : ''
   }
-  // 有任何一個名字狀態不是 ok 就擋住送出——真的送出去的留言收不回來，寧可先擋
+  /** 送出 payload 用：跟自己相同就不帶 commentAsEmail，維持「沒指定＝用自己的 token」的既有語意 */
+  const personEmailForRow = (rowIndex: number): string | undefined => {
+    const email = identityEmailForRow(rowIndex)
+    if (!email || email === currentAccount?.email) return undefined
+    return email
+  }
+  // 擋送出的依據是「逐列真的解析不出身分」，不是「名字清單上有紅字」——使用者可以在預覽表
+  // 直接用下拉補一個授權過的帳號，補完就該放行（送出前一樣會再跑一次 personEmailForRow，
+  // 不是只相信 UI 狀態，CodeX review 要求）。
+  const rowIdentityMissing = toComment.filter(i => !identityEmailForRow(i.rowIndex))
   const personBlocking = personResolve.filter(x => x.status !== 'ok')
 
   type CommentPayload = {
@@ -3425,6 +3459,10 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
           personResolve={personResolve}
           personResolving={personResolving}
           personBlocking={personBlocking}
+          rowIdentityMissing={rowIdentityMissing.length}
+          commentAsCandidates={commentAsCandidates}
+          identityEmailForRow={identityEmailForRow}
+          setRowCommentAs={setRowCommentAs}
           useAiReview={useAiReview}
           setUseAiReview={setUseAiReview}
           selectedPromptId={selectedPromptId}

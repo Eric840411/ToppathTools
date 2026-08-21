@@ -36,6 +36,11 @@ export function JiraBatchCommentStep3(props: {
   personResolve: PersonResolveResult[]
   personResolving: boolean
   personBlocking: PersonResolveResult[]
+  /** 預覽表裡「身分仍未設定」的列數——擋送出用的是這個，不是 personBlocking */
+  rowIdentityMissing: number
+  commentAsCandidates: { email: string; label: string; self: boolean }[]
+  identityEmailForRow: (rowIndex: number) => string
+  setRowCommentAs: (fn: (prev: Record<number, string>) => Record<number, string>) => void
   canAiReview: boolean
   useAiReview: boolean
   setUseAiReview: (v: boolean) => void
@@ -77,6 +82,7 @@ export function JiraBatchCommentStep3(props: {
     sheetHeaders, attachmentColumn, setAttachmentColumn, useAiComment, setUseAiComment,
     canAiFormat, canAiReview, useAiReview, setUseAiReview,
     personColumn, setPersonColumn, personResolve, personResolving, personBlocking,
+    rowIdentityMissing, commentAsCandidates, identityEmailForRow, setRowCommentAs,
     selectedPromptId, setSelectedPromptId, availablePrompts, commentModel, setCommentModel, kbDocs,
     selectedKbDocIds, setSelectedKbDocIds, specContext, setSpecContext, commentResults,
     pendingCommentRequestId, previewMode, prefetchLoading, handleEnterPreview, commentSubmitting,
@@ -389,6 +395,7 @@ export function JiraBatchCommentStep3(props: {
                     <th style={{ padding: '9px 10px', textAlign: 'left', color: '#64748b', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.4px', width: 80, whiteSpace: 'nowrap' }}>Jira 單號</th>
                     <th style={{ padding: '9px 10px', textAlign: 'left', color: '#64748b', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.4px', width: 180 }}>摘要</th>
                     <th style={{ padding: '9px 10px', textAlign: 'left', color: '#64748b', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.4px' }}>評論內容（可編輯）+ 附件</th>
+                    <th style={{ padding: '9px 10px', textAlign: 'left', color: '#64748b', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.4px', width: 150, whiteSpace: 'nowrap' }}>填寫人（以誰的身分送出）</th>
                     <th style={{ padding: '9px 10px', textAlign: 'left', color: '#64748b', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.4px', width: 140, whiteSpace: 'nowrap' }}>驗證狀態</th>
                   </tr>
                 </thead>
@@ -532,6 +539,29 @@ export function JiraBatchCommentStep3(props: {
                           )}
                         </div>
                       </td>
+                      <td style={{ padding: '8px 10px', verticalAlign: 'top', width: 150 }}>
+                        {(() => {
+                          const cur = identityEmailForRow(item.rowIndex)
+                          return (
+                            <>
+                              <select value={cur}
+                                onChange={e => setRowCommentAs(prev => ({ ...prev, [item.rowIndex]: e.target.value }))}
+                                style={{ width: '100%', background: '#0d1117', color: cur ? '#c9d1d9' : '#f85149',
+                                  border: `1px solid ${cur ? '#2d3f55' : 'rgba(248,81,73,0.5)'}`, borderRadius: 6, padding: '5px 7px', fontSize: 11 }}>
+                                <option value="">未設定</option>
+                                {commentAsCandidates.map(c => (
+                                  <option key={c.email} value={c.email}>{c.label}{c.self ? '（我自己）' : ''}</option>
+                                ))}
+                              </select>
+                              {!cur && (
+                                <div style={{ fontSize: 10, color: '#f85149', marginTop: 3, lineHeight: 1.4 }}>
+                                  這一列的填寫人對不到可用帳號，請直接在這裡選一個
+                                </div>
+                              )}
+                            </>
+                          )
+                        })()}
+                      </td>
                       <td style={{ padding: '8px 10px', verticalAlign: 'top' }}>
                         {item.hasError ? (
                           <>
@@ -577,6 +607,11 @@ export function JiraBatchCommentStep3(props: {
                       onClick={() => setPreviewMode(false)}>
                       ← 返回設定
                     </button>
+                    {rowIdentityMissing > 0 && (
+                      <span style={{ fontSize: 12, color: '#f85149', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        還有 {rowIdentityMissing} 列的填寫人未設定，補完才能送出
+                      </span>
+                    )}
                     {errCount > 0 && (
                       <span style={{ fontSize: 12, color: '#d29922', display: 'flex', alignItems: 'center', gap: 5 }}>
                         警 {errCount} 筆格式不完整，仍可強制送出
@@ -585,7 +620,7 @@ export function JiraBatchCommentStep3(props: {
                     <button type="button"
                       className={`submit-btn submit-btn--step${commentSubmitting ? ' loading' : ''}`}
                       style={{ whiteSpace: 'nowrap', flexShrink: 0, marginLeft: 'auto' }}
-                      disabled={commentSubmitting || !!pendingCommentRequestId || personBlocking.length > 0 || personResolving}
+                      disabled={commentSubmitting || !!pendingCommentRequestId || rowIdentityMissing > 0 || personResolving}
                       onClick={handleSubmitFromPreview}>
                       {commentSubmitting ? '處理中...' : `確認送出（${previewItems.length} 筆）`}
                     </button>

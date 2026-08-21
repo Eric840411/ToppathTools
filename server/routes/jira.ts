@@ -2556,6 +2556,34 @@ router.get('/api/jira/batch-comment/status/:requestId', (req, res) => {
 })
 
 /**
+ * GET /api/jira/comment-as-candidates
+ * 逐列「填寫人」下拉的候選名單：自己 ＋ 對我有 jira.comment.batch 有效授權的帳號。
+ * 名單一律由後端算——前端拿全帳號清單再自己篩，等於把整份帳號名單洩出去，這是資訊揭露
+ * 邊界不是實作細節（v4.12.0 定的原則；v4.13.0 改成逐列代發時一度移除，v4.17.0 加回來）。
+ */
+router.get('/api/jira/comment-as-candidates', (req, res) => {
+  const account = getAuthAccount(req)
+  if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+  const accounts = readAccounts()
+  const me = accounts.find(a => a.email.toLowerCase() === account.email.toLowerCase())
+  const candidates: { email: string; label: string; self: boolean }[] = me
+    ? [{ email: me.email, label: me.label || me.email, self: true }]
+    : []
+  const rows = db.prepare(`
+    SELECT target_email FROM jira_account_delegates
+    WHERE actor_email = ? AND scope = 'jira.comment.batch'
+      AND enabled = 1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)
+  `).all(account.email.toLowerCase(), Date.now()) as { target_email: string }[]
+  for (const row of rows) {
+    const target = accounts.find(a => a.email.toLowerCase() === row.target_email)
+    if (!target) continue // 帳號可能已被刪除，授權列留著但不列出不存在的人
+    if (candidates.some(c => c.email.toLowerCase() === target.email.toLowerCase())) continue
+    candidates.push({ email: target.email, label: target.label || target.email, self: false })
+  }
+  res.json({ ok: true, candidates })
+})
+
+/**
  * POST /api/jira/comment-as-resolve
  * 逐列代發的送出前檢查：吃表格「填寫人」欄的不重複名字，回每個名字對應的後台帳號與狀態。
  * 比對與授權判斷全在後端——前端拿帳號清單自己比，等於把整份名單洩出去。

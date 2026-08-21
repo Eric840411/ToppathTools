@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.16.0'
+export const APP_VERSION = '4.17.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.17.0',
+    date: '2026-08-21',
+    changes: [
+      "minor(jira): 批量評論預覽表新增「填寫人（以誰的身分送出）」欄位，逐列顯示這一列實際會用哪個帳號張貼，並可用下拉逐列調整。下拉選項只列「我能用的帳號」（自己＋已被授權代理的），名單由後端算（GET /api/jira/comment-as-candidates 加回來），前端不拿全帳號清單自己篩",
+      "fix(jira): Sheet 上的填寫人對不到後台帳號、或我沒有代理授權時，該列顯示「未設定」而不是把 Sheet 上的原始名字顯示出去——顯示原始名字會讓人以為那個身分已經可用，實際送出才失敗。未設定的列直接擋住送出，但可以在該列下拉直接補選一個授權帳號，不用回頭改 Sheet",
+      "chore(jira): 擋送出的依據從「名字清單有紅字」改成「逐列真的解析不出身分」，補選之後就放行；送出前一樣重新跑一次 personEmailForRow() 解析，不只相信 UI 下拉狀態（CodeX review 要求）。逐列覆寫是暫時性的，重進預覽就清掉——rowIndex 不是穩定識別，重讀 Sheet 後沿用舊指定有機會把評論用錯人的身分送出",
+    ],
+  },
   {
     version: '4.16.0',
     date: '2026-08-20',
