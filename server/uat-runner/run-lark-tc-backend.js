@@ -9,7 +9,7 @@ import { chromium } from 'playwright';
 import fs from 'fs';
 import path from 'path';
 import XLSX from 'xlsx';
-import { attachNetworkCapture, DEFAULT_THRESHOLDS } from './net-capture.js';
+import { attachNetworkCapture, DEFAULT_THRESHOLDS, formatStatsLine } from './net-capture.js';
 
 // ─── Lark 設定 ───────────────────────────────────────────────────────
 const LARK_TOKEN_URL = 'https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal';
@@ -4645,6 +4645,18 @@ const NET_THRESHOLDS = {
 /** 全程共用一個收集器：這支腳本中途可能整個重啟 browser（見下方 4817 附近的註解），
  *  收集器跟著 page 走的話統計會被截斷，所以掛在外層、每開一個新 page 就再掛一次。 */
 let netCapture = null;
+/** 每 2 秒把一份快照夾在 stdout 送出去給面板即時更新。
+ *  server 端（osm-uat.ts）會用行前綴把這種行挑掉，不會混進執行日誌。 */
+let statsTimer = null;
+
+function startStatsBroadcast() {
+  if (statsTimer) return;
+  statsTimer = setInterval(() => {
+    if (!netCapture) return;
+    try { console.log(formatStatsLine({ scope: 'backend', net: netCapture.summary() })); } catch { /* 快照失敗不能拖垮測試 */ }
+  }, 2000);
+  statsTimer.unref?.();
+}
 
 async function main() {
   // 取新 token
@@ -4692,6 +4704,7 @@ async function main() {
       thresholds: NET_THRESHOLDS,
       onSlow: (r) => console.log(`🐢 [網路] ${Math.round(r.durationMs)}ms（門檻 ${r.thresholdMs}ms）${r.kind} ${r.url.slice(0, 120)}`),
     });
+    startStatsBroadcast();
     await p.goto(`${BACKEND_URL}/login`, { waitUntil: 'networkidle', timeout: 30000 });
     if (!TEST_PARAMS.credentials.cpBackend.username || !TEST_PARAMS.credentials.cpBackend.password) {
       throw new Error('尚未設定「CP 後台」登入帳密——請到 UAT 執行設定頁填寫（每個人存自己的一份）');
@@ -4989,7 +5002,10 @@ async function main() {
 
   const manualCount = results.filter(r => r.manual).length;
   console.log(`\n✅ 完成！通過: ${passCount}  🔧需人工: ${manualCount}  跳過: ${skipCount}  失敗: ${failCount}`);
+  if (statsTimer) { clearInterval(statsTimer); statsTimer = null; }
   if (netCapture) {
+    // 最後一份一定要送：定時廣播最多晚 2 秒，面板停在倒數第二筆會跟日誌摘要對不起來
+    try { console.log(formatStatsLine({ scope: 'backend', net: netCapture.summary(), final: true })); } catch { /* 快照失敗不影響摘要 */ }
     try { console.log('\n' + netCapture.formatSummary()); } catch (e) { console.log(`⚠️ 網路量測摘要產生失敗: ${e.message}`); }
   }
   fs.writeFileSync('./data/raw/lark_tc_results.json', JSON.stringify(results, null, 2));

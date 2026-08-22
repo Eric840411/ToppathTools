@@ -22,6 +22,7 @@ import { randomUUID } from 'crypto'
 import { z } from 'zod'
 import { agentConnections, type AgentInfo } from '../agent-hub.js'
 import { getOperatorFromContext } from '../request-context.js'
+import { parseStatsLine } from '../uat-runner/net-capture.js'
 import {
   getLarkToken,
   writeLimiter,
@@ -60,10 +61,13 @@ interface UatSession {
    * （Playwright 例外堆疊、腳本自己 print env 都可能把密碼漏出來）。
    */
   secrets: string[]
+  /** 最後一份網路量測快照。SSE 是「接上之後才收得到」，中途才開面板的人
+   *  沒有這個就會一片空白到下一次 2 秒廣播為止 */
+  stats?: unknown
 }
 
 function emptySession(): UatSession {
-  return { id: '', status: 'idle', mode: 'server', startedAt: 0, logs: [], process: null, secrets: [] }
+  return { id: '', status: 'idle', mode: 'server', startedAt: 0, logs: [], process: null, secrets: [], stats: undefined }
 }
 
 let session: UatSession = emptySession()
@@ -92,7 +96,22 @@ function redactSecrets(line: string): string {
   return out
 }
 
+/**
+ * runner 的 stdout 是日誌與結構化快照共用的一條通道，用行前綴區分（見 net-capture.js）。
+ * 統計行要在這裡就攔掉：它是資料不是日誌，混進 session.logs 會把執行日誌洗版，
+ * 而且面板也拿不到——面板聽的是另一個 SSE event。
+ * 回傳 true 代表這行已被當成統計處理掉，呼叫端不要再當日誌記。
+ */
+function captureStatsLine(rawLine: string): boolean {
+  const stats = parseStatsLine(rawLine)
+  if (!stats) return false
+  session.stats = stats
+  broadcast('stats', stats)
+  return true
+}
+
 function appendLog(rawLine: string) {
+  if (captureStatsLine(rawLine)) return
   const line = redactSecrets(rawLine)
   session.logs.push(line)
   broadcast('log', { line })
@@ -157,6 +176,10 @@ router.get('/api/osm-uat/stream', (req, res) => {
   }
   // 送目前狀態
   res.write(`event: status\ndata: ${JSON.stringify({ status: session.status })}\n\n`)
+  // 中途才開面板的人要看得到目前的量測數字，不然會空白到下一次 2 秒廣播
+  if (session.stats) {
+    res.write(`event: stats\ndata: ${JSON.stringify(session.stats)}\n\n`)
+  }
 
   sseClients.add(res)
   req.on('close', () => sseClients.delete(res))

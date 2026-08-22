@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { XianxiaIcon } from '../../components/XianxiaIcon'
 import { BlockEditor } from './BlockEditor'
+import { NetworkPanel, type UatStatsPayload } from './NetworkPanel'
 import { compileExecutableSteps, countExecutableSteps, createStep, parseSteps, serializeSteps } from './step-model'
 import type { AgentOption, AutoBaseline, AutoFilter, AutoPlatform, AutoRun, AutoScript, AutoStep, AutoTemplate, OcrRegion, UatThemeMode } from './types'
 
@@ -53,6 +54,9 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
   const runStream = useRef<EventSource | null>(null)
   const activeRunId = useRef<string | null>(null)
   const [logs, setLogs] = useState<string[]>([])
+  // 網路量測快照：跟 log 走同一條 SSE，不同 event 名稱
+  const [netStats, setNetStats] = useState<UatStatsPayload | null>(null)
+  const [statsAt, setStatsAt] = useState<number | null>(null)
   const [running, setRunning] = useState(false)
   const [notice, setNotice] = useState('')
   const [runConfig, setRunConfig] = useState({
@@ -221,6 +225,7 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
     const runId = createData.run.id
     activeRunId.current = runId
     setRunning(true)
+    setNetStats(null); setStatsAt(null)
     runStream.current?.close()
     const stream = new EventSource(`/api/frontend-auto/log-stream/${runId}`)
     runStream.current = stream
@@ -228,6 +233,9 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
       const payload = JSON.parse(event.data) as { line: string }
       setLogs(lines => [...lines, payload.line])
       if (payload.line.includes('完成')) { setRunning(false); void loadRuns() }
+    })
+    stream.addEventListener('stats', event => {
+      try { setNetStats(JSON.parse(event.data) as UatStatsPayload); setStatsAt(Date.now()) } catch { /* 壞掉的一筆跳過就好，不要讓面板整個掛掉 */ }
     })
     await fetch(`/api/frontend-auto/runs/${runId}/execute`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -304,6 +312,7 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
               <label className="uat-check"><input type="checkbox" checked={isPublic} onChange={event => { setIsPublic(event.target.checked); setDirty(true) }} />{xianxia ? '允許同門啟用此玉簡' : '允許其他使用者執行此腳本'}</label>
               <div className="uat-run-actions">{running ? <button type="button" className="uat-btn is-danger" onClick={stopRun}>{xianxia ? '收陣' : '停止執行'}</button> : <button type="button" className="uat-btn is-primary" onClick={runScript}>{xianxia ? '啟陣推演' : '執行所選腳本'}</button>}<button type="button" className="uat-btn is-quiet" onClick={deleteScript} disabled={!selectedId}>{xianxia ? '焚毀玉簡' : '刪除腳本'}</button></div>
             </section>
+            <NetworkPanel stats={netStats} themeMode={themeMode} updatedAt={statsAt} />
             <section className="uat-panel uat-log-panel uat-inscribed-panel"><div className="uat-section-title"><span>{xianxia ? 'SPIRIT FLOW' : 'LIVE LOG'}</span><h3>{xianxia ? '靈流行跡' : '即時日誌'}</h3></div><pre>{logs.length ? logs.join('\n') : (xianxia ? '玉簡未啟，靈息未至。' : '尚未執行。設定完成後啟動腳本，日誌會顯示在這裡。')}</pre></section>
           </div>
         )}

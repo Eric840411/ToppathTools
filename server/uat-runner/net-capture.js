@@ -27,6 +27,25 @@ export const DEFAULT_THRESHOLDS = {
   other: 3000,
 };
 
+/**
+ * Backend runner 跟 server 之間只有 stdout 一條通道，要把結構化資料帶出來只能
+ * 在 log 流裡夾一行有標記的 JSON。這個前綴由 net-capture.js 統一定義，
+ * 印的那端（run-lark-tc-backend.js）跟解析的那端（osm-uat.ts）共用同一個常數，
+ * 不要兩邊各寫一份字串——改了一邊沒改另一邊，症狀是面板永遠不更新而且沒有錯誤。
+ */
+export const STATS_LINE_PREFIX = '@@UAT_STATS@@';
+
+/** 把一份快照序列化成可以直接 console.log 的單行 */
+export function formatStatsLine(payload) {
+  return STATS_LINE_PREFIX + JSON.stringify(payload);
+}
+
+/** 從一行 stdout 解析回快照；不是統計行就回 null */
+export function parseStatsLine(line) {
+  if (typeof line !== 'string' || !line.startsWith(STATS_LINE_PREFIX)) return null;
+  try { return JSON.parse(line.slice(STATS_LINE_PREFIX.length)); } catch { return null; }
+}
+
 /** 明細最多留幾筆，避免一個遊戲頁載入上千張圖把記憶體吃爆 */
 const MAX_RECORDS = 4000;
 /** summary 裡「最慢的前幾筆」列幾筆 */

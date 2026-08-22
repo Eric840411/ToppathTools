@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BACKEND_MODULES, createBackendModule, createCustomBackendModule, createDefaultBackendPlan, matchesBackendModule } from './backend-modules'
 import type { BackendModuleId, BackendModuleTone, BackendPlanModule, RunStatus, TcGroup, UatConfig, UatThemeMode } from './types'
+import { NetworkPanel, type UatStatsPayload } from './NetworkPanel'
 
 const STORAGE_KEY = 'osm_uat_config'
 const TONES: BackendModuleTone[] = ['blue', 'cyan', 'violet', 'amber', 'orange', 'green', 'rose', 'slate']
@@ -71,6 +72,9 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const [creds, setCreds] = useState<{ profile: string; username: string; hasPassword: boolean }[]>([])
   const [credDraft, setCredDraft] = useState<Record<string, { username: string; password: string }>>({})
   const [credMsg, setCredMsg] = useState<{ text: string; tone: 'ok' | 'error' | 'busy' } | null>(null)
+  // 網路量測快照：由 SSE 的 stats event 推上來，跟執行日誌同一條連線不同事件名
+  const [netStats, setNetStats] = useState<UatStatsPayload | null>(null)
+  const [statsAt, setStatsAt] = useState<number | null>(null)
   const credProfileLabel = (profile: string) => profile === 'cpBackend' ? 'CP 後台' : 'NC 後台'
   // 執行位置：Playwright 跑在哪台機器上。'' = 自動挑一台線上的 agent，
   // 'server' = 明確要求跑在伺服器本機（fallback，公網環境不一定裝得動瀏覽器）
@@ -128,6 +132,9 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
     const stream = new EventSource('/api/osm-uat/stream')
     streamRef.current = stream
     stream.addEventListener('log', event => setLogs(lines => [...lines, (JSON.parse(event.data) as { line: string }).line]))
+    stream.addEventListener('stats', event => {
+      try { setNetStats(JSON.parse(event.data) as UatStatsPayload); setStatsAt(Date.now()) } catch { /* 壞掉的一筆跳過就好，不要讓面板整個掛掉 */ }
+    })
     stream.addEventListener('status', event => {
       const next = (JSON.parse(event.data) as { status: RunStatus }).status
       statusRef.current = next
@@ -217,7 +224,7 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const run = async () => {
     if (!config.modulePlan.length) return window.alert('請至少加入一個 Backend 測試模組')
     if (!modulePlanValid) return window.alert('每個模組都必須有名稱與至少一條 TC 匹配規則')
-    setLogs([]); statusRef.current = 'running'; setStatus('running'); setRunMode(null)
+    setLogs([]); statusRef.current = 'running'; setStatus('running'); setRunMode(null); setNetStats(null); setStatsAt(null)
     const response = await fetch('/api/osm-uat/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...config, filter: config.filter || undefined, dashGameType: config.dashGameType || undefined, dashClientVersion: config.dashClientVersion || undefined, agentId: selectedAgentId || undefined }) })
     if (!response.ok) {
       const data = await response.json().catch(() => ({ error: '啟動失敗' })) as { error?: string }
@@ -342,7 +349,7 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
         </>}
       </aside>
 
-      <section className="uat-backend-results"><div className="uat-stat-grid"><Stat label={xianxia ? '試煉通過' : '通過'} value={summary.pass} tone="pass" /><Stat label={xianxia ? '待真人覆核' : '需人工'} value={summary.manual} tone="manual" /><Stat label={xianxia ? '略過' : '跳過'} value={summary.skip} tone="skip" /><Stat label={xianxia ? '陣眼失守' : '失敗'} value={summary.fail} tone="fail" /></div><section className="uat-panel uat-backend-log"><div className="uat-log-toolbar"><div className="uat-section-title"><span>{xianxia ? 'ARRAY RECORD' : 'PROCESS OUTPUT'}</span><h3>{xianxia ? '陣法行跡錄' : '即時執行日誌'}</h3></div><label className="uat-check"><input type="checkbox" checked={autoScroll} onChange={event => setAutoScroll(event.target.checked)} />{xianxia ? '追隨靈流' : '自動捲動'}</label><button type="button" className="uat-btn is-quiet" onClick={() => setLogs([])}>{xianxia ? '拂去殘痕' : '清除'}</button></div><pre onScroll={event => { const el = event.currentTarget; setAutoScroll(el.scrollHeight - el.scrollTop - el.clientHeight < 40) }}>{logs.length ? logs.join('\n') : (xianxia ? '玉簡未啟，靈息未至。' : '等待執行...')}<span ref={logEnd} /></pre></section></section>
+      <section className="uat-backend-results"><div className="uat-stat-grid"><Stat label={xianxia ? '試煉通過' : '通過'} value={summary.pass} tone="pass" /><Stat label={xianxia ? '待真人覆核' : '需人工'} value={summary.manual} tone="manual" /><Stat label={xianxia ? '略過' : '跳過'} value={summary.skip} tone="skip" /><Stat label={xianxia ? '陣眼失守' : '失敗'} value={summary.fail} tone="fail" /></div><NetworkPanel stats={netStats} themeMode={themeMode} updatedAt={statsAt} /><section className="uat-panel uat-backend-log"><div className="uat-log-toolbar"><div className="uat-section-title"><span>{xianxia ? 'ARRAY RECORD' : 'PROCESS OUTPUT'}</span><h3>{xianxia ? '陣法行跡錄' : '即時執行日誌'}</h3></div><label className="uat-check"><input type="checkbox" checked={autoScroll} onChange={event => setAutoScroll(event.target.checked)} />{xianxia ? '追隨靈流' : '自動捲動'}</label><button type="button" className="uat-btn is-quiet" onClick={() => setLogs([])}>{xianxia ? '拂去殘痕' : '清除'}</button></div><pre onScroll={event => { const el = event.currentTarget; setAutoScroll(el.scrollHeight - el.scrollTop - el.clientHeight < 40) }}>{logs.length ? logs.join('\n') : (xianxia ? '玉簡未啟，靈息未至。' : '等待執行...')}<span ref={logEnd} /></pre></section></section>
     </div>
   )
 }

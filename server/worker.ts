@@ -24,7 +24,7 @@ import {
   handleBackendUatAgentDone,
   handleBackendUatAgentDisconnect,
 } from './routes/osm-uat.js'
-import { router as frontendAutoRouter, logBuffers, logClients, pushLog, activeRuns } from './routes/frontend-auto.js'
+import { router as frontendAutoRouter, logBuffers, logClients, pushLog, pushStats, activeRuns } from './routes/frontend-auto.js'
 import uiScreenshotRouter from './routes/ui-screenshot.js'
 import { activeRunners, pendingSourceUpdates, router as machineTestRouter } from './routes/machine-test.js'
 import {
@@ -754,6 +754,9 @@ wss.on('connection', (ws, req) => {
 
         if (ev.kind === 'log') {
           void pushLog(runId, String(ev.line ?? ''))
+        } else if (ev.kind === 'stats') {
+          // agent 端每 2 秒送一次的量測快照，轉進 log-stream 的 stats event 給面板
+          pushStats(runId, ev)
         } else if (ev.kind === 'done') {
           const passed = Number(ev.passed ?? 0)
           const failed = Number(ev.failed ?? 0)

@@ -558,6 +558,7 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
   let netCapture: ReturnType<typeof attachNetworkCapture> | null = null
   let pinusProbe: Awaited<ReturnType<typeof attachPinusProbe>> | null = null
   let pinusDrainTimer: ReturnType<typeof setInterval> | null = null
+  let statsTimer: ReturnType<typeof setInterval> | null = null
   // 門檻走 server 派工時帶下來的值，沒帶就用共用預設
   const netThresholds = {
     api: msg.netThresholds?.api ?? DEFAULT_THRESHOLDS.api,
@@ -597,6 +598,20 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
     if (headed) {
       await page.setViewportSize({ width: w, height: h }).catch(() => {})
     }
+
+    // 每 2 秒把一份快照送回 server 給面板即時更新。走既有的 uat_run_event
+    // 結構化通道加一個 kind，不用像 Backend 那樣在 stdout 夾標記行
+    statsTimer = setInterval(() => {
+      if (!netCapture) return
+      try {
+        sendEvent({
+          kind: 'stats',
+          scope: 'frontend',
+          net: netCapture.summary(),
+          pinus: pinusProbe ? pinusProbe.summary() : undefined,
+        })
+      } catch { /* 快照失敗不能影響測試本身 */ }
+    }, 2000)
 
     // ── 網路量測：每支 API 與每張圖的載入時間，超標的當下就回報 ──────────
     // 逐筆回報會直接洗版（一個遊戲頁動輒幾百張圖），所以平常只累積、
@@ -723,6 +738,9 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
         if (st.present) await log('\n' + pinusProbe.formatSummary())
       } catch { /* 同上 */ }
     }
+    if (statsTimer) { clearInterval(statsTimer); statsTimer = null }
+    // 最後一份一定要送，否則面板停在倒數第二筆、跟日誌摘要對不起來
+    sendEvent({ kind: 'stats', scope: 'frontend', net: netSummary, pinus: pinusSummary, final: true })
     sendEvent({ kind: 'done', passed, failed, skipped, result, netSummary, pinusSummary })
   } catch (err) {
     const errMsg = err instanceof Error ? err.message.split('\n')[0] : String(err)
@@ -730,6 +748,7 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
     sendEvent({ kind: 'done', passed, failed, skipped, result: 'fail' })
   } finally {
     if (pinusDrainTimer) clearInterval(pinusDrainTimer)
+    if (statsTimer) clearInterval(statsTimer)
     netCapture?.detach()
     await browser?.close().catch(() => {})
     if (chromeProc) {

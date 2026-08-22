@@ -344,6 +344,9 @@ router.get('/api/frontend-auto/log-stream/:runId', (req, res) => {
 
   const send = (line: string) => res.write(`event: log\ndata: ${JSON.stringify({ line })}\n\n`)
   for (const line of logBuffers.get(runId) ?? []) send(line)
+  // 中途才開面板的人要看得到目前的量測數字
+  const snapshot = statsSnapshots.get(runId)
+  if (snapshot) res.write(`event: stats\ndata: ${JSON.stringify(snapshot)}\n\n`)
 
   let clients = logClients.get(runId)
   if (!clients) {
@@ -1066,6 +1069,20 @@ function findTemplateInPng(screen: PNG, template: PNG, threshold: number) {
   return best.diff <= threshold ? best : null
 }
 
+/**
+ * 每個 run 的最後一份量測快照。SSE 是「接上之後才收得到」，中途才開面板的人
+ * 沒有這個會一片空白到下一次 2 秒廣播為止。
+ */
+export const statsSnapshots = new Map<string, unknown>()
+
+/** 把量測快照推給面板；跟 log 走同一條 SSE，用不同 event 名稱區分 */
+export function pushStats(runId: string, stats: unknown) {
+  statsSnapshots.set(runId, stats)
+  for (const client of logClients.get(runId) ?? []) {
+    client.write(`event: stats\ndata: ${JSON.stringify(stats)}\n\n`)
+  }
+}
+
 export async function pushLog(runId: string, line: string) {
   const lines = logBuffers.get(runId) ?? []
   lines.push(line)
@@ -1120,6 +1137,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
     let netCapture: ReturnType<typeof attachNetworkCapture> | null = null
     let pinusProbe: Awaited<ReturnType<typeof attachPinusProbe>> | null = null
     let pinusDrainTimer: ReturnType<typeof setInterval> | null = null
+    let statsTimer: ReturnType<typeof setInterval> | null = null
     let chromeProfileDir: string | null = null
     let passed = 0
     let failed = 0
@@ -1171,6 +1189,14 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
         : await ctx.newPage()
       if (headed) await syncPlaywrightViewport(page, w, h, platform)
       else await page.setViewportSize({ width: w, height: h }).catch(() => {})
+
+      // 每 2 秒推一份快照給面板；跟 log 走同一條 SSE、不同 event 名稱
+      statsTimer = setInterval(() => {
+        if (!netCapture) return
+        try {
+          pushStats(runId, { scope: 'frontend', net: netCapture.summary(), pinus: pinusProbe?.summary() })
+        } catch { /* 快照失敗不能影響測試本身 */ }
+      }, 2000)
 
       // ── 網路量測 + pinus 攔截（跟 agent 端同一份模組、同一套行為）──────
       netCapture = attachNetworkCapture(page, {
@@ -1296,6 +1322,8 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
       const result = failed > 0 ? 'fail' : 'pass'
       await log(`─── 完成 ─── 通過 ${passed} ／ 失敗 ${failed} ／ 跳過 ${skipped}`)
 
+      if (statsTimer) { clearInterval(statsTimer); statsTimer = null }
+
       // 摘要要在關瀏覽器之前產出：pinus 最後一批訊息還在頁面端 buffer，
       // 等到 finally 時 page 已經沒了，那批會整批遺失
       if (netCapture) {
@@ -1308,6 +1336,10 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
           if (st.present) await log('\n' + pinusProbe.formatSummary())
         } catch { /* 同上 */ }
       }
+      // 最後一份一定要送，否則面板停在倒數第二筆、跟日誌摘要對不起來
+      try {
+        pushStats(runId, { scope: 'frontend', net: netCapture?.summary(), pinus: pinusProbe?.summary(), final: true })
+      } catch { /* 同上 */ }
 
       try {
         db.prepare('UPDATE frontend_auto_runs SET passed=?,failed=?,skipped=?,result=?,finished_at=? WHERE id=?')
@@ -1323,6 +1355,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
       } catch {}
     } finally {
       if (pinusDrainTimer) clearInterval(pinusDrainTimer)
+      if (statsTimer) clearInterval(statsTimer)
       netCapture?.detach()
       await browser?.close().catch(() => {})
       if (chromeProc && chromeProfileDir) killChromeProcess(chromeProc, chromeProfileDir)

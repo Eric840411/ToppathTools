@@ -1,0 +1,225 @@
+/**
+ * src/features/uat/NetworkPanel.tsx
+ *
+ * UAT 網路載入時間與 pinus 訊息的即時面板。Backend / H5 / PC 三個分頁共用同一個
+ * 元件——資料來源不同（Backend 走 stdout 夾標記行、H5/PC 走結構化事件），但到了
+ * 前端已經是同一個形狀，沒有理由做兩套 UI。
+ *
+ * 資料由各分頁自己接 SSE 的 `stats` event 之後傳進來，這個元件不自己連線：
+ * 兩邊的 SSE 端點不同（/api/osm-uat/stream vs /api/frontend-auto/log-stream/:runId），
+ * 連線與重連的責任留在原本就在管它的地方。
+ */
+import type { UatThemeMode } from './types'
+
+export interface NetStats {
+  count: number
+  avgMs: number | null
+  maxMs: number | null
+  p95Ms: number | null
+}
+
+export interface NetSlowRecord {
+  url: string
+  kind: 'api' | 'image' | 'other'
+  durationMs: number | null
+  overThresholdMs?: number
+  thresholdMs?: number
+}
+
+export interface NetSummary {
+  thresholds: { api: number; image: number; other: number }
+  totals: {
+    captured: number; counted: number; likelyCached: number
+    redirects: number; preflights: number; failed: number; dropped: number
+  }
+  api: NetStats
+  image: NetStats
+  other: NetStats
+  slow: NetSlowRecord[]
+}
+
+export interface PinusSummary {
+  total: number
+  pageDropped: number
+  routes: { key: string; count: number; avgMs: number | null; maxMs: number | null }[]
+}
+
+export interface UatStatsPayload {
+  scope?: string
+  net?: NetSummary
+  pinus?: PinusSummary
+  final?: boolean
+}
+
+const KIND_LABEL: Record<UatThemeMode, Record<'api' | 'image' | 'other', string>> = {
+  classic: { api: 'API', image: '圖檔', other: '其他' },
+  xianxia: { api: '法訊', image: '靈影', other: '其餘' },
+}
+
+const COPY = {
+  classic: {
+    kicker: 'NETWORK TELEMETRY', title: '網路監測',
+    timing: '載入時間', slow: '超過門檻的請求', pinus: 'pinus 訊息',
+    empty: '尚未開始量測', emptyHint: '執行測試後這裡會即時顯示每支 API 與每張圖的載入時間',
+    allGood: '全部在門檻內', allGoodHint: '目前沒有超過預期的請求',
+    noPinus: '這次沒有攔截到 pinus 訊息',
+    thKind: '類型', thDur: '耗時', thOver: '超出', thUrl: '網址',
+    thRoute: 'route', thTimes: '次數', thRtt: '往返',
+    cached: '疑似快取', redirect: '轉址', preflight: '預檢', failed: '失敗',
+    avg: 'ms 平均', threshold: '門檻', slowest: '最慢', rows: '筆',
+    updated: '更新於', finished: '已完成',
+  },
+  xianxia: {
+    kicker: 'SPIRIT FLOW', title: '靈脈流速',
+    timing: '流速觀測', slow: '滯澀之訊', pinus: '靈訊往來',
+    empty: '尚未起測', emptyHint: '推演開始後此處即現每道法訊與靈影的往返耗時',
+    allGood: '俱在限內', allGoodHint: '目前沒有逾限的訊息',
+    noPinus: '此次未攔得靈訊',
+    thKind: '類別', thDur: '耗時', thOver: '逾限', thUrl: '訊源',
+    thRoute: '訊道', thTimes: '次數', thRtt: '往返',
+    cached: '疑似留影', redirect: '轉引', preflight: '先探', failed: '失落',
+    avg: 'ms 均值', threshold: '限度', slowest: '最滯', rows: '道',
+    updated: '更新於', finished: '已圓滿',
+  },
+} as const
+
+/** p95 相對門檻的位置。超過門檻 = bad，逼近 80% 先示警——等真的爆掉才變色就太晚了 */
+function severityOf(p95: number | null, limit: number): '' | 'is-warn' | 'is-bad' {
+  if (p95 === null) return ''
+  if (p95 > limit) return 'is-bad'
+  return p95 / limit > 0.8 ? 'is-warn' : ''
+}
+
+export function NetworkPanel({ stats, themeMode, updatedAt }: {
+  stats: UatStatsPayload | null
+  themeMode: UatThemeMode
+  /** 最後收到快照的時間；沒有這個就分不出「數字是活的」還是「卡住了」 */
+  updatedAt: number | null
+}) {
+  const copy = COPY[themeMode]
+  const label = KIND_LABEL[themeMode]
+  const net = stats?.net
+  const pinus = stats?.pinus
+
+  if (!net) {
+    return (
+      <section className="uat-panel uat-net-panel">
+        <div className="uat-net-head">
+          <div><span className="uat-net-kicker">{copy.kicker}</span><h3>{copy.title}</h3></div>
+        </div>
+        <div className="uat-net-empty"><strong>{copy.empty}</strong><span>{copy.emptyHint}</span></div>
+      </section>
+    )
+  }
+
+  const kinds: ('api' | 'image' | 'other')[] = ['api', 'image', 'other']
+
+  return (
+    <section className="uat-panel uat-net-panel">
+      <div className="uat-net-head">
+        <div><span className="uat-net-kicker">{copy.kicker}</span><h3>{copy.title}</h3></div>
+        <span className={`uat-net-live${stats?.final ? ' is-done' : ''}`}>
+          <i />
+          {stats?.final
+            ? copy.finished
+            : `${copy.updated} ${updatedAt ? new Date(updatedAt).toLocaleTimeString('zh-TW', { hour12: false }) : '--:--:--'}`}
+        </span>
+      </div>
+
+      <div className="uat-net-tiles">
+        {kinds.map(kind => {
+          const st = net[kind]
+          const limit = net.thresholds[kind]
+          const ratio = st.p95Ms === null ? 0 : Math.min(1, st.p95Ms / limit)
+          return (
+            <article className={`uat-net-tile ${severityOf(st.p95Ms, limit)}`} key={kind}>
+              <div className="uat-net-tile-top">
+                <span>{label[kind]}</span>
+                <b>{st.count} {copy.rows}</b>
+              </div>
+              <div className="uat-net-tile-main">
+                <strong>{st.avgMs ?? '—'}</strong><span>{copy.avg}</span>
+              </div>
+              <div className="uat-net-gauge"><i style={{ width: `${(ratio * 100).toFixed(1)}%` }} /></div>
+              <div className="uat-net-gauge-marks">
+                <span>p95 {st.p95Ms ?? '—'}ms</span>
+                <span>{copy.threshold} {limit}ms</span>
+              </div>
+              <div className="uat-net-tile-row"><span>{copy.slowest}</span><b>{st.maxMs ?? '—'} ms</b></div>
+            </article>
+          )
+        })}
+      </div>
+
+      {/* 排除筆數要講清楚為什麼排除，不然使用者只會看到「擷取 381、統計 163」然後懷疑漏抓 */}
+      <div className="uat-net-chips">
+        <span className="uat-net-chip" title="推測值：完全沒有建線階段且總時間 < 5ms。Playwright 沒有暴露 fromDiskCache，所以這是訊號不是事實。快取命中的圖看起來一定很快，但那不代表首次載入也快。">
+          {copy.cached} <b>{net.totals.likelyCached}</b>
+        </span>
+        <span className="uat-net-chip" title="redirect 的每一跳都是獨立 request，不是使用者等待的實際內容">
+          {copy.redirect} <b>{net.totals.redirects}</b>
+        </span>
+        <span className="uat-net-chip" title="瀏覽器自己發的 OPTIONS 預檢請求">
+          {copy.preflight} <b>{net.totals.preflights}</b>
+        </span>
+        <span className="uat-net-chip">{copy.failed} <b>{net.totals.failed}</b></span>
+      </div>
+
+      <div className="uat-net-tables">
+        <div className="uat-net-table-block">
+          <h4>{copy.slow} <em>{net.slow.length}</em></h4>
+          <div className="uat-net-scroller">
+            {net.slow.length ? (
+              <table>
+                <thead><tr>
+                  <th style={{ width: 62 }}>{copy.thKind}</th>
+                  <th className="is-num" style={{ width: 72 }}>{copy.thDur}</th>
+                  <th className="is-num" style={{ width: 66 }}>{copy.thOver}</th>
+                  <th>{copy.thUrl}</th>
+                </tr></thead>
+                <tbody>
+                  {net.slow.slice(0, 50).map((r, i) => (
+                    <tr key={`${r.url}-${i}`}>
+                      <td><span className={`uat-net-kind is-${r.kind}`}>{label[r.kind]}</span></td>
+                      <td className="is-num">{Math.round(r.durationMs ?? 0)}</td>
+                      <td className="is-num is-over">+{Math.round(r.overThresholdMs ?? 0)}</td>
+                      <td className="is-url" title={r.url}>{r.url}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div className="uat-net-empty is-ok"><strong>✓ {copy.allGood}</strong><span>{copy.allGoodHint}</span></div>
+            )}
+          </div>
+        </div>
+
+        {/* pinus 區塊只有真的攔到訊息才顯示：Backend 測的後台管理站沒有 pinus，
+            永遠掛一個空表格在那邊只會讓人以為壞掉 */}
+        {pinus && pinus.total > 0 && (
+          <div className="uat-net-table-block">
+            <h4>{copy.pinus} <em>{pinus.total}</em></h4>
+            <div className="uat-net-scroller">
+              <table>
+                <thead><tr>
+                  <th>{copy.thRoute}</th>
+                  <th className="is-num" style={{ width: 54 }}>{copy.thTimes}</th>
+                  <th className="is-num" style={{ width: 74 }}>{copy.thRtt}</th>
+                </tr></thead>
+                <tbody>
+                  {pinus.routes.slice(0, 40).map(r => (
+                    <tr key={r.key}>
+                      <td className="is-url" title={r.key}>{r.key}</td>
+                      <td className="is-num">{r.count}</td>
+                      <td className="is-num">{r.avgMs !== null ? `${r.avgMs} ms` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
+  )
+}

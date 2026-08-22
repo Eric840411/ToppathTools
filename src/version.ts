@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.24.1'
+export const APP_VERSION = '4.25.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.25.0',
+    date: '2026-08-22',
+    changes: [
+      'feat(uat): 網路量測與 pinus 訊息新增即時面板，不再只有日誌文字——統計磚（API/圖檔/其他）顯示平均值與「p95 相對門檻」的位置條，左側色條標嚴重度（正常／逼近門檻 80%／超標）；另有超標請求清單與 pinus route 統計。Backend / H5 / PC 三個分頁共用同一個元件',
+      'feat(uat): 資料每 2 秒推一次，跟執行日誌走同一條 SSE、用獨立的 stats event。中途才打開面板的人會先收到目前的快照，不會空白到下一次廣播',
+      'feat(uat): Backend runner 跟 server 之間只有 stdout，改用行前綴（@@UAT_STATS@@）夾帶結構化快照，由 osm-uat.ts 在 appendLog 之前攔掉轉成 SSE event——不攔的話會把執行日誌洗版而且面板拿不到。前綴與序列化/解析都由 net-capture.js 統一提供，印的端與解析的端共用同一個常數',
+      'feat(uat): 排除筆數（疑似快取／轉址／預檢）做成 chip 並附滑鼠提示說明為什麼排除，避免使用者看到「擷取 381、統計 163」以為漏抓',
+      'fix(uat): 每次開跑前清空上一輪的快照，否則舊數字會留在畫面上被誤讀成這一輪的',
+    ],
+  },
   {
     version: '4.24.1',
     date: '2026-08-22',

@@ -237,3 +237,68 @@
 .uat-backend-cred-pair { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
 .uat-backend-cred-msg { display: flex; align-items: center; gap: 6px; color: #3fbe8b; font-size: 12px; line-height: 1.55; }
 .uat-backend-cred-msg.is-error { color: var(--uat-danger); }
+
+/* ─── 網路監測面板（Backend / H5 / PC 共用）───────────────────────────────────
+   沿用同一組 token 與 11/12/13/15 字級；語意色（good/warn/bad）跟 --uat-primary
+   分開，不然「藍色」同時代表品牌和某種狀態，掃一眼分不出哪個要處理。 */
+.uat-net-panel { padding: 16px; }
+.uat-net-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.uat-net-head h3 { margin: 3px 0 0; font-size: 15px; }
+.uat-net-kicker { display: block; color: var(--uat-primary); font-size: 11px; font-weight: 800; letter-spacing: .13em; }
+
+/* 跳動的點：沒有這個就分不出「數字是活的」還是「卡住了」 */
+.uat-net-live { display: inline-flex; align-items: center; gap: 7px; color: var(--uat-muted); font-size: 11px; white-space: nowrap; }
+.uat-net-live > i { width: 7px; height: 7px; border-radius: 50%; background: #3fbe8b; animation: uatNetPulse 2s infinite; }
+.uat-net-live.is-done > i { background: var(--uat-muted); animation: none; }
+@keyframes uatNetPulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, #3fbe8b 55%, transparent); }
+  70%  { box-shadow: 0 0 0 7px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .uat-net-live > i { animation: none; } }
+
+.uat-net-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.uat-net-tile { position: relative; overflow: hidden; display: flex; flex-direction: column; gap: 8px; padding: 12px 13px; border: 1px solid var(--uat-border); border-radius: 9px; background: var(--uat-panel-soft); }
+/* 嚴重度用色條不只用數字顏色：一整排掃過去，形狀差異比色相更快被看到 */
+.uat-net-tile::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: #3fbe8b; }
+.uat-net-tile.is-warn::before { background: #d99e22; }
+.uat-net-tile.is-bad::before { background: var(--uat-danger); }
+.uat-net-tile-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 700; }
+.uat-net-tile-top b { color: var(--uat-muted); font-family: Consolas, Monaco, monospace; font-size: 11px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.uat-net-tile-main { display: flex; align-items: baseline; gap: 6px; }
+.uat-net-tile-main strong { font-family: Consolas, Monaco, monospace; font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.uat-net-tile-main span { color: var(--uat-muted); font-size: 11px; }
+.uat-net-gauge { position: relative; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--uat-muted) 22%, transparent); }
+.uat-net-gauge > i { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: #3fbe8b; transition: width .45s cubic-bezier(.4,0,.2,1), background .3s; }
+.is-warn .uat-net-gauge > i { background: #d99e22; }
+.is-bad .uat-net-gauge > i { background: var(--uat-danger); }
+.uat-net-gauge-marks { display: flex; justify-content: space-between; color: var(--uat-muted); font-family: Consolas, Monaco, monospace; font-size: 11px; font-variant-numeric: tabular-nums; }
+.uat-net-tile-row { display: flex; justify-content: space-between; gap: 10px; color: var(--uat-muted); font-size: 11px; }
+.uat-net-tile-row b { color: var(--uat-text); font-family: Consolas, Monaco, monospace; font-weight: 400; font-variant-numeric: tabular-nums; }
+
+.uat-net-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 11px; }
+.uat-net-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px; border: 1px solid var(--uat-border); border-radius: 999px; color: var(--uat-muted); font-size: 11px; }
+.uat-net-chip[title] { border-style: dashed; cursor: help; }
+.uat-net-chip b { color: var(--uat-text); font-family: Consolas, Monaco, monospace; font-weight: 400; font-variant-numeric: tabular-nums; }
+
+.uat-net-tables { display: grid; grid-template-columns: 1.3fr 1fr; gap: 12px; margin-top: 14px; align-items: start; }
+.uat-net-table-block h4 { display: flex; align-items: baseline; gap: 7px; margin: 0 0 7px; font-size: 12px; }
+.uat-net-table-block h4 em { color: var(--uat-primary); font-family: Consolas, Monaco, monospace; font-style: normal; font-variant-numeric: tabular-nums; }
+.uat-net-scroller { max-height: 240px; overflow: auto; border: 1px solid var(--uat-border); border-radius: 8px; }
+.uat-net-scroller table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.uat-net-scroller thead th { position: sticky; top: 0; z-index: 1; padding: 7px 10px; text-align: left; color: var(--uat-muted); background: var(--uat-panel-deep); border-bottom: 1px solid var(--uat-border); font-size: 11px; font-weight: 700; letter-spacing: .05em; }
+.uat-net-scroller tbody td { padding: 7px 10px; border-top: 1px solid var(--uat-border); }
+.uat-net-scroller tbody tr:first-child td { border-top: 0; }
+.uat-net-scroller .is-num { font-family: Consolas, Monaco, monospace; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.uat-net-scroller .is-over { color: var(--uat-danger); font-weight: 600; }
+.uat-net-scroller .is-url { max-width: 0; width: 99%; overflow: hidden; color: var(--uat-muted); font-family: Consolas, Monaco, monospace; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.uat-net-kind { display: inline-block; min-width: 42px; padding: 1px 7px; border-radius: 999px; color: var(--uat-primary); background: var(--uat-primary-soft); text-align: center; font-size: 11px; font-weight: 700; }
+.uat-net-kind.is-image { color: #d99e22; background: color-mix(in srgb, #d99e22 14%, transparent); }
+.uat-net-kind.is-other { color: var(--uat-muted); background: color-mix(in srgb, var(--uat-muted) 16%, transparent); }
+
+.uat-net-empty { display: flex; min-height: 110px; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 16px; color: var(--uat-muted); text-align: center; }
+.uat-net-empty strong { font-size: 13px; }
+.uat-net-empty span { font-size: 11px; }
+.uat-net-empty.is-ok strong { color: #3fbe8b; }
+
+@media (max-width: 1100px) { .uat-net-tables { grid-template-columns: 1fr; } }

@@ -78,3 +78,8 @@ export declare function attachNetworkCapture(
     onSlow?: (record: NetRecord) => void
   },
 ): NetCollector
+
+/** stdout 夾帶結構化快照用的行前綴（印的端與解析的端共用同一個常數）*/
+export declare const STATS_LINE_PREFIX: string
+export declare function formatStatsLine(payload: unknown): string
+export declare function parseStatsLine(line: string): unknown | null
