@@ -1158,6 +1158,56 @@ Playwright 從「server 本機 spawn」改成「派工給 Local Agent」（跟 A
 
 ---
 
+## 25. UAT 網路載入量測與 pinus 攔截（2026-08-22，v4.24.0）
+
+### 共用模組放在 `server/uat-runner/`，不是新開一個 TS 模組
+三個啟動 Playwright 的地方執行方式各不相同：
+
+| 位置 | 怎麼跑 |
+|------|--------|
+| `server/uat-runner/run-lark-tc-backend.js` | 純 node 直接 spawn（Backend 分頁）|
+| `server/agent-runner.ts` | agent 端用 tsx 跑（H5/PC 派工）|
+| `server/routes/frontend-auto.ts` | 編譯進 `dist-server`（H5/PC 伺服器端）|
+
+**只有 `uat-runner/` 這個目錄會被 `scripts/build-server.cjs` 整包 `cpSync` 到 `dist-server`**，所以它是唯一一份原始碼三邊都載得到的位置。寫成 `.ts` 的話 Backend runner（純 node）載不了；寫在別的目錄的 `.js` 又不會被複製進 `dist-server`。型別給 TS 端用的宣告在隔壁 `net-capture.d.ts`（`include: ["server/**/*.ts"]` 會撿到它，`.d.ts` 不會被 emit）。
+
+**兩個檔案都要在 `AGENT_SOURCE_WHITELIST` 裡**——三個 runner 都 import 它們，少送一個 agent 端會在 **import 當下**直接炸掉，不是執行到才失敗。
+
+### 網路量測（`net-capture.js`，三個分頁都有）
+資料一律取自 Playwright 的 `requestfinished` + `request.timing()`，**不注入頁面 JS**——時間由瀏覽器本身提供最準，也不會被遊戲自己的程式碼干擾。
+
+**三種資料刻意排除在統計之外**（跟 CodeX 討論時他特別提的風險）：
+
+| 排除項 | 為什麼 |
+|--------|--------|
+| `likelyCached` | 快取命中的圖看起來一定很快，但那不代表首次載入也快，混進平均值會讓問題被蓋掉 |
+| `isRedirect` | redirect 每一跳都是獨立 request，不是使用者等待的實際內容 |
+| `isPreflight` | 瀏覽器自己發的 `OPTIONS`，同上 |
+
+**`likelyCached` 是推測不是事實**：Playwright 沒有暴露 `fromDiskCache`（那是 CDP `Network.responseReceived` 才有的欄位），這裡用「完全沒有建線階段 + 總時間 < 5ms」當訊號。欄位名稱刻意帶 `likely` 就是不要讓人把它當成確定的事。
+
+**門檻用固定值不用相對統計**（API 2000ms／圖檔 1500ms／其他 3000ms，`UAT_NET_THRESHOLD_*` 環境變數可覆寫）：UAT 要的是「這次有沒有異常」的紅黃綠判斷，固定值好解釋、好調參；p95 那種相對基準在樣本少的時候會飄到不能用來判定。
+
+**不逐筆回報**：一個遊戲頁動輒幾百張圖，逐筆丟進 SSE 會直接洗版。比照 AutoSpin `track_button_health()` 的做法——平常只累積，**只有超過門檻的才即時印出來**，收工時再出一次 summary。
+
+### pinus 攔截（`pinus-probe.js`，只有 H5/PC）
+Backend 測的是 CP／NC 後台管理站，那是一般網站沒有 pinus；掛上去也只是 `status().present === false`，不會壞事，所以三個 runner 用同一套接線不用特判。
+
+**補丁一定要打在 prototype 上**，這點是 AutoSpin 從 v3.90.1 一路踩到 v3.90.12 才確定的（見上面 AutoSpin 章節）：熱更新或斷線重連時遊戲會建立**全新的** `window.pinus` 物件，補在舊 instance 上的東西完全無效。`patchMethod()` 沿 prototype chain 找到「實際定義這個方法的物件」補在那裡，補一次永久生效，之後所有共用同一個 prototype 的新 instance 自動繼承。**已用測試驗證過重連情境**（換一個新的 `Object.create(proto)` 之後補丁仍然攔得到）。
+
+**訊息內容會裁形**（`safeShape()`，深度 3、陣列最多 10 筆、字串 200 字）：遊戲訊息裡可能有整份牌面／獎項表那種大陣列，完整保存會讓頁面記憶體爆掉、日誌也完全不能讀。
+
+**要定期 `drain()`**（三個 runner 都設 3 秒一次）把頁面端 buffer 搬回 node 端，滿了就會開始丟訊息。**摘要一定要在關瀏覽器之前產出**——最後一批訊息還在頁面端 buffer 裡，等到 `finally` 時 page 已經沒了，那批會整批遺失。
+
+### 使用者操作
+| 操作 | 說明 |
+|------|------|
+| 看載入量測 | 執行日誌自動顯示：超標的當下印一行 🐢，收工時印統計摘要 |
+| 看 pinus 訊息 | H5/PC 執行日誌收工時顯示，依 route 分組統計次數與往返時間 |
+| 調整門檻 | Backend 走 `UAT_NET_THRESHOLD_API` / `_IMAGE` / `_OTHER` 環境變數；H5/PC 由派工時帶 `netThresholds` |
+
+---
+
 ## 版本管理規則
 
 - **Patch (x.x.N)**：bug fix、小調整、文字修正

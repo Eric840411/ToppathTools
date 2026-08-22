@@ -22,6 +22,11 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { spawn, type ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
+// UAT 網路量測與 pinus 攔截：共用模組放在 server/uat-runner/ 底下，
+// 因為那是唯一一份 Backend runner（純 node）、agent（tsx）、server（編譯後）
+// 三邊都載得到的位置，詳見 net-capture.js 檔頭
+import { attachNetworkCapture, DEFAULT_THRESHOLDS } from './uat-runner/net-capture.js'
+import { attachPinusProbe } from './uat-runner/pinus-probe.js'
 import { MachineTestRunner } from './machine-test/runner.js'
 import type { MachineTestSession, MachineProfile, TestEvent } from './machine-test/types.js'
 import { ScriptedBetRunner } from './scripted-bet/runner.js'
@@ -94,6 +99,8 @@ interface UatScriptRunMessage {
   resolution: string
   failureMode: string
   headed: boolean
+  /** 網路量測門檻（毫秒）；沒帶就用 net-capture.js 的共用預設 */
+  netThresholds?: { api?: number; image?: number; other?: number }
 }
 
 interface UiScreenshotStartMessage {
@@ -548,6 +555,15 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
 
   const pw = await import('playwright')
   let browser: import('playwright').Browser | null = null
+  let netCapture: ReturnType<typeof attachNetworkCapture> | null = null
+  let pinusProbe: Awaited<ReturnType<typeof attachPinusProbe>> | null = null
+  let pinusDrainTimer: ReturnType<typeof setInterval> | null = null
+  // 門檻走 server 派工時帶下來的值，沒帶就用共用預設
+  const netThresholds = {
+    api: msg.netThresholds?.api ?? DEFAULT_THRESHOLDS.api,
+    image: msg.netThresholds?.image ?? DEFAULT_THRESHOLDS.image,
+    other: msg.netThresholds?.other ?? DEFAULT_THRESHOLDS.other,
+  }
   let chromeProc: ReturnType<typeof spawn> | null = null
   let chromeProfileDir: string | null = null
   let passed = 0; let failed = 0; let skipped = 0
@@ -581,6 +597,24 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
     if (headed) {
       await page.setViewportSize({ width: w, height: h }).catch(() => {})
     }
+
+    // ── 網路量測：每支 API 與每張圖的載入時間，超標的當下就回報 ──────────
+    // 逐筆回報會直接洗版（一個遊戲頁動輒幾百張圖），所以平常只累積、
+    // 只有超過門檻的才即時吐出來，收工時再出一次 summary
+    netCapture = attachNetworkCapture(page, {
+      thresholds: netThresholds,
+      onSlow: (r) => { void log(`🐢 [網路] ${Math.round(r.durationMs!)}ms（門檻 ${r.thresholdMs}ms）${r.kind} ${r.url.slice(0, 120)}`) },
+    })
+    // ── pinus 攔截：只有 H5/PC 的遊戲頁有；後台管理站沒有 pinus，
+    //    掛上去也只是 status().present = false，不會壞事
+    try {
+      pinusProbe = await attachPinusProbe(page)
+      // 定期把頁面端 buffer 搬回來——頁面 buffer 滿了就會開始丟訊息
+      pinusDrainTimer = setInterval(() => { void pinusProbe?.drain() }, 3000)
+    } catch (err) {
+      await log(`⚠️ pinus 攔截掛載失敗（不影響其他步驟）：${err instanceof Error ? err.message : String(err)}`)
+    }
+
     await log('✅ 執行頁面已準備完成')
 
     for (const [i, step] of steps.entries()) {
@@ -673,12 +707,30 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
 
     const result = failed > 0 ? 'fail' : 'pass'
     await log(`─── 完成 ─── 通過 ${passed} ／ 失敗 ${failed} ／ 跳過 ${skipped}`)
-    sendEvent({ kind: 'done', passed, failed, skipped, result })
+
+    // 量測摘要在關瀏覽器之前產出：pinus 的最後一批訊息還在頁面端 buffer 裡，
+    // 等到 finally 才 drain 的話 page 已經沒了，那批會整批遺失
+    let netSummary: ReturnType<NonNullable<typeof netCapture>['summary']> | undefined
+    let pinusSummary: ReturnType<NonNullable<typeof pinusProbe>['summary']> | undefined
+    if (netCapture) {
+      try { netSummary = netCapture.summary(); await log('\n' + netCapture.formatSummary()) } catch { /* 摘要失敗不影響判定 */ }
+    }
+    if (pinusProbe) {
+      try {
+        await pinusProbe.drain()
+        const st = await pinusProbe.status()
+        pinusSummary = pinusProbe.summary()
+        if (st.present) await log('\n' + pinusProbe.formatSummary())
+      } catch { /* 同上 */ }
+    }
+    sendEvent({ kind: 'done', passed, failed, skipped, result, netSummary, pinusSummary })
   } catch (err) {
     const errMsg = err instanceof Error ? err.message.split('\n')[0] : String(err)
     await log(`❌ 執行器初始化失敗：${errMsg}`)
     sendEvent({ kind: 'done', passed, failed, skipped, result: 'fail' })
   } finally {
+    if (pinusDrainTimer) clearInterval(pinusDrainTimer)
+    netCapture?.detach()
     await browser?.close().catch(() => {})
     if (chromeProc) {
       try {

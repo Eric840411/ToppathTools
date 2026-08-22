@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.23.1'
+export const APP_VERSION = '4.24.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.24.0',
+    date: '2026-08-22',
+    changes: [
+      'feat(uat): 新增網路載入量測——逐筆記錄每支 API 與每張圖的載入時間，超過門檻的當下就印進執行日誌，收工時出統計摘要（API/圖檔/其他各自的筆數、平均、p95、最慢，加上超標清單與最慢前 10 筆）。Backend / H5 / PC 三個分頁都有',
+      'feat(uat): 新增 pinus 協定攔截（只有 H5/PC，Backend 測的後台管理站沒有 pinus）——攔 request/response/push 並記錄每筆 request 的往返時間，那是 HTTP 層量不到的。補丁打在 prototype 上，熱更新或斷線重連換了新的 pinus 物件也不會失效（沿用 AutoSpin 花了 12 個版本才確定的做法）',
+      'feat(uat): 量測與攔截抽成共用模組 server/uat-runner/net-capture.js 與 pinus-probe.js——放這個目錄是因為它是唯一一份 Backend runner(純 node)、agent(tsx)、server(編譯後) 三邊都載得到的位置，同一份邏輯不用抄三次；兩個檔案也加進 AGENT_SOURCE_WHITELIST',
+      'fix(uat): 統計刻意排除「疑似快取命中／轉址跳轉／CORS 預檢」三種——快取命中的圖看起來一定快但不代表首次載入快，另外兩種不是使用者實際等待的內容，混進去會讓平均值失真。快取判定是推測不是事實（Playwright 沒有暴露 fromDiskCache），所以欄位叫 likelyCached',
+      'fix(uat): 門檻用固定值（API 2000ms／圖檔 1500ms／其他 3000ms，可用環境變數覆寫）而不是 p95 之類的相對統計——UAT 要的是「這次有沒有異常」的判斷，樣本少時相對統計會飄到不能用',
+    ],
+  },
   {
     version: '4.23.1',
     date: '2026-08-21',

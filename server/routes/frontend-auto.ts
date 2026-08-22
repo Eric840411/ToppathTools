@@ -1,6 +1,9 @@
 ﻿import express from 'express'
 import multer from 'multer'
 import { randomUUID } from 'crypto'
+// 跟 agent-runner.ts 用同一份共用模組（見 net-capture.js 檔頭說明為什麼放 uat-runner/）
+import { attachNetworkCapture, DEFAULT_THRESHOLDS } from '../uat-runner/net-capture.js'
+import { attachPinusProbe } from '../uat-runner/pinus-probe.js'
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 import { extname, join } from 'path'
 import { tmpdir } from 'os'
@@ -1114,6 +1117,9 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
     const log = (line: string) => pushLog(runId, line)
     let browser: import('playwright').Browser | null = null
     let chromeProc: ChildProcess | null = null
+    let netCapture: ReturnType<typeof attachNetworkCapture> | null = null
+    let pinusProbe: Awaited<ReturnType<typeof attachPinusProbe>> | null = null
+    let pinusDrainTimer: ReturnType<typeof setInterval> | null = null
     let chromeProfileDir: string | null = null
     let passed = 0
     let failed = 0
@@ -1165,6 +1171,19 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
         : await ctx.newPage()
       if (headed) await syncPlaywrightViewport(page, w, h, platform)
       else await page.setViewportSize({ width: w, height: h }).catch(() => {})
+
+      // ── 網路量測 + pinus 攔截（跟 agent 端同一份模組、同一套行為）──────
+      netCapture = attachNetworkCapture(page, {
+        thresholds: DEFAULT_THRESHOLDS,
+        onSlow: (r) => { void log(`🐢 [網路] ${Math.round(r.durationMs!)}ms（門檻 ${r.thresholdMs}ms）${r.kind} ${r.url.slice(0, 120)}`) },
+      })
+      try {
+        pinusProbe = await attachPinusProbe(page)
+        pinusDrainTimer = setInterval(() => { void pinusProbe?.drain() }, 3000)
+      } catch (err) {
+        await log(`⚠️ pinus 攔截掛載失敗（不影響其他步驟）：${err instanceof Error ? err.message : String(err)}`)
+      }
+
       await log('✅ 執行頁面已準備完成')
 
       for (const [i, step] of steps.entries()) {
@@ -1276,6 +1295,20 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
 
       const result = failed > 0 ? 'fail' : 'pass'
       await log(`─── 完成 ─── 通過 ${passed} ／ 失敗 ${failed} ／ 跳過 ${skipped}`)
+
+      // 摘要要在關瀏覽器之前產出：pinus 最後一批訊息還在頁面端 buffer，
+      // 等到 finally 時 page 已經沒了，那批會整批遺失
+      if (netCapture) {
+        try { await log('\n' + netCapture.formatSummary()) } catch { /* 摘要失敗不影響判定 */ }
+      }
+      if (pinusProbe) {
+        try {
+          await pinusProbe.drain()
+          const st = await pinusProbe.status()
+          if (st.present) await log('\n' + pinusProbe.formatSummary())
+        } catch { /* 同上 */ }
+      }
+
       try {
         db.prepare('UPDATE frontend_auto_runs SET passed=?,failed=?,skipped=?,result=?,finished_at=? WHERE id=?')
           .run(passed, failed, skipped, result, Date.now(), runId)
@@ -1289,6 +1322,8 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
           .run(passed, failed, skipped, 'fail', Date.now(), runId)
       } catch {}
     } finally {
+      if (pinusDrainTimer) clearInterval(pinusDrainTimer)
+      netCapture?.detach()
       await browser?.close().catch(() => {})
       if (chromeProc && chromeProfileDir) killChromeProcess(chromeProc, chromeProfileDir)
       activeRuns.delete(runId)

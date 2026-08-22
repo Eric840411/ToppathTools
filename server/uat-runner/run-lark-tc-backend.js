@@ -9,6 +9,7 @@ import { chromium } from 'playwright';
 import fs from 'fs';
 import path from 'path';
 import XLSX from 'xlsx';
+import { attachNetworkCapture, DEFAULT_THRESHOLDS } from './net-capture.js';
 
 // ─── Lark 設定 ───────────────────────────────────────────────────────
 const LARK_TOKEN_URL = 'https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal';
@@ -4613,6 +4614,19 @@ function analyzeTCTask(taskDesc) {
 }
 
 // ─── 主程式 ─────────────────────────────────────────────────────────
+/**
+ * 網路量測門檻。跟其他設定一樣走環境變數由 server 注入，沒設就用共用預設值。
+ * Backend 測的是後台管理站（不是遊戲），圖檔多半是小 icon，門檻沿用預設即可。
+ */
+const NET_THRESHOLDS = {
+  api: Number(process.env.UAT_NET_THRESHOLD_API) || DEFAULT_THRESHOLDS.api,
+  image: Number(process.env.UAT_NET_THRESHOLD_IMAGE) || DEFAULT_THRESHOLDS.image,
+  other: Number(process.env.UAT_NET_THRESHOLD_OTHER) || DEFAULT_THRESHOLDS.other,
+};
+/** 全程共用一個收集器：這支腳本中途可能整個重啟 browser（見下方 4817 附近的註解），
+ *  收集器跟著 page 走的話統計會被截斷，所以掛在外層、每開一個新 page 就再掛一次。 */
+let netCapture = null;
+
 async function main() {
   // 取新 token
   let larkToken = await getLarkToken();
@@ -4654,6 +4668,11 @@ async function main() {
   async function createLoginPage() {
     const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
     const p = await ctx2.newPage();
+    // 超標的當下就印出來，不然要等整輪跑完才知道哪一步慢；一般的逐筆不印（會洗版）
+    netCapture = attachNetworkCapture(p, {
+      thresholds: NET_THRESHOLDS,
+      onSlow: (r) => console.log(`🐢 [網路] ${Math.round(r.durationMs)}ms（門檻 ${r.thresholdMs}ms）${r.kind} ${r.url.slice(0, 120)}`),
+    });
     await p.goto(`${BACKEND_URL}/login`, { waitUntil: 'networkidle', timeout: 30000 });
     if (!TEST_PARAMS.credentials.cpBackend.username || !TEST_PARAMS.credentials.cpBackend.password) {
       throw new Error('尚未設定「CP 後台」登入帳密——請到 UAT 執行設定頁填寫（每個人存自己的一份）');
@@ -4947,6 +4966,9 @@ async function main() {
 
   const manualCount = results.filter(r => r.manual).length;
   console.log(`\n✅ 完成！通過: ${passCount}  🔧需人工: ${manualCount}  跳過: ${skipCount}  失敗: ${failCount}`);
+  if (netCapture) {
+    try { console.log('\n' + netCapture.formatSummary()); } catch (e) { console.log(`⚠️ 網路量測摘要產生失敗: ${e.message}`); }
+  }
   fs.writeFileSync('./data/raw/lark_tc_results.json', JSON.stringify(results, null, 2));
 }
 

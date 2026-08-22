@@ -61,6 +61,10 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   // 帳密改走 backend_uat_start 的 credEnv 逐次帶，不在 agent 上留檔（v4.22.0 的原則）。
   'uat-runner/run-lark-tc-backend.js': join(SERVER_ROOT, 'uat-runner', 'run-lark-tc-backend.js'),
   'uat-runner/tc-registry.json':       join(SERVER_ROOT, 'uat-runner', 'tc-registry.json'),
+  // UAT 網路量測與 pinus 攔截的共用模組。三個 runner 都 import 它們，
+  // 少送一個檔案 agent 端就會在 import 當下直接炸掉（不是執行到才失敗）。
+  'uat-runner/net-capture.js':         join(SERVER_ROOT, 'uat-runner', 'net-capture.js'),
+  'uat-runner/pinus-probe.js':         join(SERVER_ROOT, 'uat-runner', 'pinus-probe.js'),
 }
 
 export const router = Router()
