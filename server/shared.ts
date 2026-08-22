@@ -1708,6 +1708,63 @@ db.exec(`
   )
 `)
 
+/**
+ * 後台 TC 的積木步驟。
+ *
+ * ⚠️ **不能存回 tc-registry.json**：那個檔案在 runtime 是 `dist-server/` 底下的
+ * 建置產物，而 `npm run build` 每次都會 `rmSync` 整個 dist——使用者辛苦編好的積木
+ * 會在下一次部署時無聲消失。（第一版就是這樣寫的，測試時才發現。）
+ *
+ * 存 DB 之後：registry 檔案繼續當「出廠預設的路由表」（verifierName / 凍結文字），
+ * 使用者編的積木疊在上面，執行時由 server 合併後透過環境變數傳給 runner。
+ * 這樣 agent 派工也一併解決——積木跟著 backend_uat_start 的 payload 走，
+ * 不需要 agent 端有那個檔案。
+ *
+ * 積木是團隊共用的測試定義（跟 registry 同一個定位），所以不按 email 分。
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS uat_tc_steps (
+    record_id  TEXT PRIMARY KEY,
+    steps      TEXT NOT NULL,
+    updated_by TEXT,
+    updated_at INTEGER NOT NULL
+  )
+`)
+
+/** 全部 TC 的積木，recordId → steps。空陣列的不會出現在結果裡 */
+export function listUatTcSteps(): Record<string, unknown[]> {
+  const rows = db.prepare('SELECT record_id, steps FROM uat_tc_steps').all() as { record_id: string; steps: string }[]
+  const out: Record<string, unknown[]> = {}
+  for (const row of rows) {
+    try {
+      const parsed = JSON.parse(row.steps) as unknown[]
+      if (Array.isArray(parsed) && parsed.length) out[row.record_id] = parsed
+    } catch { /* 壞掉的一筆跳過，不要讓整份積木都讀不出來 */ }
+  }
+  return out
+}
+
+export function getUatTcSteps(recordId: string): unknown[] {
+  const row = db.prepare('SELECT steps FROM uat_tc_steps WHERE record_id = ?').get(recordId) as { steps: string } | undefined
+  if (!row) return []
+  try {
+    const parsed = JSON.parse(row.steps) as unknown[]
+    return Array.isArray(parsed) ? parsed : []
+  } catch { return [] }
+}
+
+/** 存空陣列＝刪除，回到走 registry 的 verifierName 舊路徑，不要留一筆空紀錄 */
+export function saveUatTcSteps(recordId: string, steps: unknown[], updatedBy: string) {
+  if (!steps.length) {
+    db.prepare('DELETE FROM uat_tc_steps WHERE record_id = ?').run(recordId)
+    return
+  }
+  db.prepare(`
+    INSERT INTO uat_tc_steps (record_id, steps, updated_by, updated_at) VALUES (?, ?, ?, ?)
+    ON CONFLICT(record_id) DO UPDATE SET steps = excluded.steps, updated_by = excluded.updated_by, updated_at = excluded.updated_at
+  `).run(recordId, JSON.stringify(steps), updatedBy, Date.now())
+}
+
 export type UatBackendProfile = 'cpBackend' | 'nchBackend'
 export const UAT_BACKEND_PROFILES: UatBackendProfile[] = ['cpBackend', 'nchBackend']
 

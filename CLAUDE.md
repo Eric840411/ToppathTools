@@ -1264,6 +1264,24 @@ Backend 測的是 CP／NC 後台管理站，那是一般網站沒有 pinus；掛
 - **`toNumber()` 取不到值回 `undefined` 不回 0**：回 0 會讓「沒抓到」跟「值就是 0」混在一起，比對時變成假通過。
 - **容差沿用既有 `cmp()` 的規則**（相對誤差 + 絕對誤差至少容許 1），不要另創一套。
 
+### 積木存哪裡：DB，不是 tc-registry.json（v4.27.0）
+**這點踩過一次**：第一版讓編輯器寫回 `tc-registry.json`，API 回成功、讀回來也對，但實測發現寫進去的是 **`dist-server/server/uat-runner/tc-registry.json`**——runtime 的 `__dirname` 在 dist 底下。而 `scripts/build-server.cjs` 開頭就 `rmSync(outDir)`，**使用者編好的積木會在下一次 `npm run build` 無聲消失**。
+
+現在的分工：
+| 東西 | 存哪 | 誰寫 |
+|------|------|------|
+| `verifierName`／`canonicalText`／`matchedVia` | `tc-registry.json` | 出廠預設，唯讀 |
+| 使用者編的 `steps` | DB `uat_tc_steps` | 編輯器 |
+
+執行時 server 把 DB 積木包成 `UAT_TC_STEPS` 環境變數帶給 runner（跟 `UAT_MODULE_PLAN` 同一套），runner 疊回 `TC_REGISTRY` 上。**agent 派工也走這條**（塞進 `backend_uat_start` 的 `credEnv`），所以 agent 端不需要有任何積木檔案。
+
+### 畫面（v4.27.0）
+之前整個 UAT 畫面**沒有「單筆 TC」這一層**——模組只設定「要收哪些 TC」，`/api/osm-uat/scan` 也只回分類統計，積木沒有地方可以掛。現在 scan 多回逐筆 `tcs`，模組卡片的「N TC」可展開看到實際收到哪幾筆，點進去開積木編輯器。
+
+- 編輯器放在**工作台下方的整寬區塊**，不放右側設定欄——那欄只有 280~320px，三欄編輯器塞不下
+- 模組 → TC 的比對沿用 `moduleCounts` 那一套（`matchesBackendModule`，specific 優先、沒有才落到 `*`），**不要另寫一份**：兩份比對邏輯遲早漂移，症狀是「清單顯示 4 筆但實際跑了 5 筆」
+- 積木庫與參數表單全部照後端回的 `BLOCK_DEFS` 自動長
+
 ### 後續階段
 | 階段 | 內容 |
 |------|------|

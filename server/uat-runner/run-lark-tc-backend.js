@@ -138,6 +138,28 @@ const TC_REGISTRY = (() => {
   try { return JSON.parse(fs.readFileSync('./tc-registry.json', 'utf8')); }
   catch (e) { return {}; }
 })();
+
+/**
+ * 使用者在畫面上編的積木。存在 server 的 DB（不是這個檔案——這份 registry 在
+ * runtime 是 dist-server/ 的建置產物，npm run build 會整個刪掉重建），
+ * 執行時由 server 透過 UAT_TC_STEPS 環境變數整包帶下來，這裡疊回 registry 上。
+ * agent 派工也走同一條路，agent 端不需要有任何積木檔案。
+ */
+(() => {
+  if (!process.env.UAT_TC_STEPS) return;
+  try {
+    const overlay = JSON.parse(process.env.UAT_TC_STEPS);
+    let n = 0;
+    for (const [recordId, steps] of Object.entries(overlay)) {
+      if (!Array.isArray(steps) || !steps.length) continue;
+      TC_REGISTRY[recordId] = { ...(TC_REGISTRY[recordId] ?? {}), steps };
+      n++;
+    }
+    if (n) console.log(`🧱 已載入 ${n} 筆 TC 的自訂積木`);
+  } catch (e) {
+    console.log(`⚠️ UAT_TC_STEPS 解析失敗，這次照原本的驗證器跑: ${e.message}`);
+  }
+})();
 function normalizeForCompare(s) { return (s || '').replace(/\s+/g, '').trim(); }
 function trigramSet(s) {
   const n = normalizeForCompare(s);

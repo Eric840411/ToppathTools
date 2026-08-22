@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BACKEND_MODULES, createBackendModule, createCustomBackendModule, createDefaultBackendPlan, matchesBackendModule } from './backend-modules'
 import type { BackendModuleId, BackendModuleTone, BackendPlanModule, RunStatus, TcGroup, UatConfig, UatThemeMode } from './types'
 import { NetworkPanel, type UatStatsPayload } from './NetworkPanel'
+import { BackendTcEditor, type BackendTc } from './BackendTcEditor'
 
 const STORAGE_KEY = 'osm_uat_config'
 const TONES: BackendModuleTone[] = ['blue', 'cyan', 'violet', 'amber', 'orange', 'green', 'rose', 'slate']
@@ -75,6 +76,11 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   // 網路量測快照：由 SSE 的 stats event 推上來，跟執行日誌同一條連線不同事件名
   const [netStats, setNetStats] = useState<UatStatsPayload | null>(null)
   const [statsAt, setStatsAt] = useState<number | null>(null)
+  // 單筆 TC 這一層：掃描才拿得到，模組展開後才看得見。積木是掛在 TC 上的，
+  // 沒有這層就沒有地方可以編（v4.27.0 之前整個畫面只有模組層級）
+  const [tcs, setTcs] = useState<BackendTc[]>([])
+  const [expandedModule, setExpandedModule] = useState<string | null>(null)
+  const [selectedTcId, setSelectedTcId] = useState<string | null>(null)
   const credProfileLabel = (profile: string) => profile === 'cpBackend' ? 'CP 後台' : 'NC 後台'
   // 執行位置：Playwright 跑在哪台機器上。'' = 自動挑一台線上的 agent，
   // 'server' = 明確要求跑在伺服器本機（fallback，公網環境不一定裝得動瀏覽器）
@@ -169,6 +175,28 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
     return counts
   }, [config.modulePlan, groups])
 
+  /**
+   * 每個模組收到哪幾筆 TC。比對規則沿用 moduleCounts 那一套（specific 優先、
+   * 沒有才落到 * 的 fallback 模組），不要另外寫一份——兩份比對邏輯遲早會漂移，
+   * 症狀是「清單顯示 4 筆但實際跑了 5 筆」。
+   */
+  const moduleTcs = useMemo(() => {
+    const out = new Map<string, BackendTc[]>()
+    const fallback = config.modulePlan.find(module => module.filters.includes('*'))
+    for (const tc of tcs) {
+      const key = tc.sub || tc.taskType || '未分類'
+      const specific = config.modulePlan.find(module => !module.filters.includes('*') && matchesBackendModule(module, key))
+      const match = specific ?? fallback
+      if (!match) continue
+      const list = out.get(match.instanceId) ?? []
+      list.push(tc)
+      out.set(match.instanceId, list)
+    }
+    return out
+  }, [config.modulePlan, tcs])
+
+  const selectedTc = tcs.find(tc => tc.recordId === selectedTcId) ?? null
+
   const updateModule = (instanceId: string, patch: Partial<BackendPlanModule>) => update({
     modulePlan: config.modulePlan.map(module => module.instanceId === instanceId ? { ...module, ...patch } : module),
   })
@@ -215,9 +243,9 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
     setScanning(true); setGroups(null)
     try {
       const response = await fetch(`/api/osm-uat/scan?larkUrl=${encodeURIComponent(config.larkUrl)}`)
-      const data = await response.json() as { ok?: boolean; total?: number; groups?: TcGroup[]; error?: string }
+      const data = await response.json() as { ok: boolean; error?: string; total?: number; groups?: TcGroup[]; tcs?: BackendTc[] }
       if (!data.ok) return window.alert(data.error ?? '掃描失敗')
-      setTotal(data.total ?? 0); setGroups(data.groups ?? [])
+      setTotal(data.total ?? 0); setGroups(data.groups ?? []); setTcs(data.tcs ?? [])
     } finally { setScanning(false) }
   }
 
@@ -262,12 +290,31 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
         <div className="uat-backend-module-list">
           <article className="uat-backend-module is-fixed is-cyan"><span className="uat-backend-module-grip" aria-hidden="true"><i /><i /><i /></span><div><strong>{xianxia ? '共用登入傀儡' : '共用登入與初始化'}</strong><small>取得 Lark token、載入 TC registry、啟動 Chromium 並登入 CP Backend</small></div><em>固定</em></article>
           {config.modulePlan.map((module, index) => (
-            <article className={`uat-backend-module is-${module.tone}${draggedModule === module.instanceId ? ' is-dragging' : ''}${selectedModuleId === module.instanceId ? ' is-selected' : ''}`} draggable={status !== 'running'} onClick={() => selectModule(module.instanceId)} onDragStart={() => setDraggedModule(module.instanceId)} onDragEnd={() => setDraggedModule(null)} onDragOver={event => event.preventDefault()} onDrop={() => { if (draggedModule) moveModule(draggedModule, module.instanceId); setDraggedModule(null) }} key={module.instanceId}>
+            <Fragment key={module.instanceId}>
+            <article className={`uat-backend-module is-${module.tone}${draggedModule === module.instanceId ? ' is-dragging' : ''}${selectedModuleId === module.instanceId ? ' is-selected' : ''}`} draggable={status !== 'running'} onClick={() => selectModule(module.instanceId)} onDragStart={() => setDraggedModule(module.instanceId)} onDragEnd={() => setDraggedModule(null)} onDragOver={event => event.preventDefault()} onDrop={() => { if (draggedModule) moveModule(draggedModule, module.instanceId); setDraggedModule(null) }}>
               <span className="uat-backend-module-grip" aria-hidden="true"><i /><i /><i /></span><span className="uat-backend-module-index">{String(index + 1).padStart(2, '0')}</span>
               <div><strong>{xianxia ? module.xianxiaName : module.name}{module.sourceId === 'custom' && <b className="uat-backend-custom-badge">自訂</b>}</strong><small>{module.description}</small><span className="uat-backend-rule-preview">{module.filters.join(' · ')}</span></div>
-              {groups && <em>{moduleCounts.get(module.instanceId) ?? 0} TC</em>}
+              {groups && <em className="uat-backend-module-count" role="button" tabIndex={0}
+                onClick={event => { event.stopPropagation(); setExpandedModule(prev => prev === module.instanceId ? null : module.instanceId) }}
+                onKeyDown={event => { if (event.key === "Enter") { event.stopPropagation(); setExpandedModule(prev => prev === module.instanceId ? null : module.instanceId) } }}>
+                {moduleCounts.get(module.instanceId) ?? 0} TC {expandedModule === module.instanceId ? "▾" : "▸"}</em>}
               <span className="uat-backend-module-actions"><button type="button" disabled={status === 'running' || index === 0} onClick={event => { event.stopPropagation(); moveModuleBy(module.instanceId, -1) }}>上移</button><button type="button" disabled={status === 'running' || index === config.modulePlan.length - 1} onClick={event => { event.stopPropagation(); moveModuleBy(module.instanceId, 1) }}>下移</button><button type="button" disabled={status === 'running'} onClick={event => { event.stopPropagation(); duplicateModule(module.instanceId) }}>複製</button><button type="button" disabled={status === 'running'} onClick={event => { event.stopPropagation(); removeModule(module.instanceId) }}>移除</button></span>
             </article>
+              {expandedModule === module.instanceId && (
+                <div className="uat-backend-tc-list" onClick={event => event.stopPropagation()}>
+                  {(moduleTcs.get(module.instanceId) ?? []).slice(0, 40).map(tc => (
+                    <button type="button" key={tc.recordId}
+                      className={`uat-backend-tc${selectedTcId === tc.recordId ? " is-selected" : ""}`}
+                      onClick={() => setSelectedTcId(tc.recordId)}>
+                      <span title={tc.text}>{tc.text || tc.recordId}</span>
+                      <em className={tc.stepCount ? "has-steps" : ""}>{tc.stepCount ? `${tc.stepCount} 積木` : "內建"}</em>
+                    </button>
+                  ))}
+                  {!(moduleTcs.get(module.instanceId) ?? []).length && <div className="uat-backend-tc-more">這個模組目前沒有收到 TC</div>}
+                  {(moduleTcs.get(module.instanceId) ?? []).length > 40 && <div className="uat-backend-tc-more">…另外還有 {(moduleTcs.get(module.instanceId) ?? []).length - 40} 筆</div>}
+                </div>
+              )}
+            </Fragment>
           ))}
           {!config.modulePlan.length && <div className="uat-backend-flow-empty"><strong>尚未加入測試模組</strong><span>新增自訂模組，或從左側模板庫加入。</span></div>}
         </div>
@@ -348,6 +395,18 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
           <span className={`uat-run-status is-${status}`}><i />{statusLabel}</span>
         </>}
       </aside>
+
+      {selectedTc && (
+        <section className="uat-panel uat-backend-tc-panel">
+          <BackendTcEditor
+            tc={selectedTc}
+            allTcs={tcs}
+            themeMode={themeMode}
+            onClose={() => setSelectedTcId(null)}
+            onSaved={(recordId, stepCount) => setTcs(prev => prev.map(t => t.recordId === recordId ? { ...t, stepCount } : t))}
+          />
+        </section>
+      )}
 
       <section className="uat-backend-results"><div className="uat-stat-grid"><Stat label={xianxia ? '試煉通過' : '通過'} value={summary.pass} tone="pass" /><Stat label={xianxia ? '待真人覆核' : '需人工'} value={summary.manual} tone="manual" /><Stat label={xianxia ? '略過' : '跳過'} value={summary.skip} tone="skip" /><Stat label={xianxia ? '陣眼失守' : '失敗'} value={summary.fail} tone="fail" /></div><NetworkPanel stats={netStats} themeMode={themeMode} updatedAt={statsAt} /><section className="uat-panel uat-backend-log"><div className="uat-log-toolbar"><div className="uat-section-title"><span>{xianxia ? 'ARRAY RECORD' : 'PROCESS OUTPUT'}</span><h3>{xianxia ? '陣法行跡錄' : '即時執行日誌'}</h3></div><label className="uat-check"><input type="checkbox" checked={autoScroll} onChange={event => setAutoScroll(event.target.checked)} />{xianxia ? '追隨靈流' : '自動捲動'}</label><button type="button" className="uat-btn is-quiet" onClick={() => setLogs([])}>{xianxia ? '拂去殘痕' : '清除'}</button></div><pre onScroll={event => { const el = event.currentTarget; setAutoScroll(el.scrollHeight - el.scrollTop - el.clientHeight < 40) }}>{logs.length ? logs.join('\n') : (xianxia ? '玉簡未啟，靈息未至。' : '等待執行...')}<span ref={logEnd} /></pre></section></section>
     </div>

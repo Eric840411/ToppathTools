@@ -23,11 +23,16 @@ import { z } from 'zod'
 import { agentConnections, type AgentInfo } from '../agent-hub.js'
 import { getOperatorFromContext } from '../request-context.js'
 import { parseStatsLine } from '../uat-runner/net-capture.js'
+import { BLOCK_DEFS } from '../uat-runner/block-engine.js'
+import { readFileSync as fsReadFileSync } from 'fs'
 import {
   getLarkToken,
   writeLimiter,
   listUatBackendCredentials,
   getUatBackendCredentials,
+  listUatTcSteps,
+  getUatTcSteps,
+  saveUatTcSteps,
   saveUatBackendCredential,
   UAT_BACKEND_PROFILES,
   type UatBackendProfile,
@@ -247,9 +252,11 @@ router.get('/api/osm-uat/scan', async (req, res, next) => {
     do {
       const url = `${base}/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records?page_size=500${pageToken ? `&page_token=${pageToken}` : ''}`
       const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-      const data = await r.json() as { data?: { items?: Array<{ fields: Record<string, unknown> }>; page_token?: string; has_more?: boolean } }
+      const data = await r.json() as { data?: { items?: Array<{ record_id?: string; fields: Record<string, unknown> }>; page_token?: string; has_more?: boolean } }
       const items = data.data?.items ?? []
-      allRecords.push(...items.map(i => i.fields))
+      // 連 record_id 一起留著：積木是掛在「單筆 TC」上的，只有分類統計的話
+      // 前端根本指不出要編哪一筆
+      allRecords.push(...items.map(i => ({ ...i.fields, __recordId: i.record_id })))
       pageToken = data.data?.has_more ? data.data.page_token : undefined
     } while (pageToken)
 
@@ -264,7 +271,24 @@ router.get('/api/osm-uat/scan', async (req, res, next) => {
       .sort((a, b) => a[0].localeCompare(b[0], 'zh-TW'))
       .map(([name, count]) => ({ name, count }))
 
-    res.json({ ok: true, total: allRecords.length, groups })
+    // 逐筆 TC：前端用它列出「這個模組收到哪幾筆」，點進去才有東西可以編積木。
+    // text 取的是 TC 描述欄位；registry 那邊是用 record_id 當 key，兩邊要對得起來。
+    const registry = readRegistryFile()
+    const savedSteps = listUatTcSteps()
+    const tcs = allRecords.map(f => {
+      const recordId = String(f.__recordId ?? '')
+      const entry = registry[recordId] as { verifierName?: string } | undefined
+      return {
+        recordId,
+        text: String(f['測試項目'] ?? f['任務描述'] ?? f['描述'] ?? f['內容'] ?? '').slice(0, 300),
+        sub: String(f['任務子類型'] ?? ''),
+        taskType: String(f['任務類型'] ?? ''),
+        stepCount: savedSteps[recordId]?.length ?? 0,
+        verifierName: entry?.verifierName ?? null,
+      }
+    }).filter(t => t.recordId)
+
+    res.json({ ok: true, total: allRecords.length, groups, tcs })
   } catch (err) {
     next(err)
   }
@@ -374,6 +398,56 @@ export function handleBackendUatAgentDisconnect(agentId: string): boolean {
 
 // ─── 啟動 ─────────────────────────────────────────────────────────────────────
 
+// ─── TC 積木 ─────────────────────────────────────────────────────────────────
+// 積木存在 DB（uat_tc_steps），**不是**存回 tc-registry.json——那個檔案在 runtime
+// 是 dist-server/ 底下的建置產物，npm run build 會整個刪掉重建，寫回去等於使用者
+// 編好的積木下次部署就消失（第一版這樣寫，測試時才發現）。
+// registry 檔案繼續當「出廠預設的路由表」，唯讀，只拿 verifierName 來顯示。
+
+function readRegistryFile(): Record<string, unknown> {
+  try {
+    const raw = fsReadFileSync(join(__dirname, '..', 'uat-runner', 'tc-registry.json'), 'utf8')
+    return JSON.parse(raw) as Record<string, unknown>
+  } catch {
+    return {}
+  }
+}
+
+// 積木是掛在單筆 TC 上的，存在 runner 讀的同一份 registry；前端改完就是改那個檔案，
+// 下一次 spawn 的 runner 直接讀得到（runner 是每次執行才啟動，不是常駐）。
+
+/** 積木定義給前端畫積木庫與參數表單用。刻意由後端提供，前端不要另抄一份 */
+router.get('/api/osm-uat/blocks', (_req, res) => {
+  res.json({ ok: true, blockDefs: BLOCK_DEFS })
+})
+
+/** 單筆 TC 的積木。verifierName 從 registry 檔案讀（那是出廠預設的路由表，唯讀）*/
+router.get('/api/osm-uat/tc-steps/:recordId', (req, res) => {
+  const recordId = String(req.params.recordId)
+  const entry = readRegistryFile()[recordId] as { verifierName?: string } | undefined
+  res.json({ ok: true, steps: getUatTcSteps(recordId), verifierName: entry?.verifierName ?? null })
+})
+
+const stepsSchema = z.object({
+  steps: z.array(z.object({ action: z.string().min(1).max(60) }).passthrough()).max(60),
+})
+
+router.put('/api/osm-uat/tc-steps/:recordId', writeLimiter, (req, res) => {
+  const account = getAuthAccount(req)
+  if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+  const parsed = stepsSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ ok: false, message: '積木格式錯誤' })
+
+  const unknown = parsed.data.steps.map(s => s.action).filter(a => !(a in BLOCK_DEFS))
+  if (unknown.length) {
+    // 存下不認得的積木，執行時才會失敗，那時已經離編輯很遠了；在存的時候就擋掉
+    return res.status(400).json({ ok: false, message: `不認得的積木：${[...new Set(unknown)].join('、')}` })
+  }
+
+  saveUatTcSteps(String(req.params.recordId), parsed.data.steps, account.email)
+  res.json({ ok: true, steps: parsed.data.steps })
+})
+
 router.post('/api/osm-uat/run', (req, res) => {
   // 用 isSessionAlive 而不是只看 session.status——前端可能從 log 判斷完成、
   // 但子程序還沒完全結束；反過來 agent 斷線時也不該把人鎖住
@@ -431,6 +505,10 @@ router.post('/api/osm-uat/run', (req, res) => {
   }
 
   const credEnv = uatCredEnv(req)
+  // 積木存在 DB，runner 讀不到，所以執行時整包帶下去（跟 UAT_MODULE_PLAN 同一套做法）。
+  // agent 派工也走這條，agent 端不需要有任何積木檔案。
+  const tcSteps = listUatTcSteps()
+  const tcStepsEnv = Object.keys(tcSteps).length ? { UAT_TC_STEPS: JSON.stringify(tcSteps) } : {}
   const sessionId = randomUUID()
   session = {
     id: sessionId,
@@ -461,7 +539,7 @@ router.post('/api/osm-uat/run', (req, res) => {
         dashGameType: dashGameType || undefined,
         dashClientVersion: dashClientVersion || undefined,
         modulePlan: modulePlan?.length ? modulePlan : undefined,
-        credEnv,
+        credEnv: { ...credEnv, ...tcStepsEnv },
       }))
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -489,6 +567,7 @@ router.post('/api/osm-uat/run', (req, res) => {
       ...(dashGameType ? { DASH_GAME_TYPE: dashGameType } : {}),
       ...(dashClientVersion ? { DASH_CLIENT_VERSION: dashClientVersion } : {}),
       ...(modulePlan?.length ? { UAT_MODULE_PLAN: JSON.stringify(modulePlan) } : {}),
+      ...tcStepsEnv,
       // 帳密改成用「發動這次測試的人」自己設定的那份（存在 DB，設定頁填），
       // 腳本端優先吃這幾個環境變數、沒有才 fallback 到 config 檔（2026-08-21）
       ...credEnv,

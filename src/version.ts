@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.26.0'
+export const APP_VERSION = '4.27.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.27.0',
+    date: '2026-08-23',
+    changes: [
+      'feat(uat): 後台積木化第二、三階段——畫面上可以編單筆 TC 的積木了。模組卡片的「N TC」可展開看到實際收到哪幾筆（之前整個畫面只有模組層級，掃描也只回分類統計，積木沒有地方可以掛），點進某一筆就開積木編輯器',
+      'feat(uat): 積木編輯器三欄——積木庫／步驟堆疊（可上移下移移除）／參數表單。積木定義與參數表單全部照後端 /api/osm-uat/blocks 回的 BLOCK_DEFS 自動長，前端不另抄一份，不會出現「畫面上有這顆積木、跑起來說不認得」',
+      'feat(uat): 支援「從其他 TC 複製積木」——121 筆只對應 23 支驗證器，同一支底下步驟高度重複，沒有複製就是逐筆手工 121 次',
+      'fix(uat): 積木改存 DB（uat_tc_steps）而不是寫回 tc-registry.json——那個檔案在 runtime 是 dist-server/ 的建置產物，npm run build 每次都會整個刪掉重建，第一版寫回去等於使用者編好的積木下次部署就無聲消失。實測時才發現',
+      'feat(uat): 執行時由 server 把 DB 裡的積木包成 UAT_TC_STEPS 環境變數帶給 runner（跟 UAT_MODULE_PLAN 同一套做法），agent 派工走 backend_uat_start 的 payload，agent 端不需要有任何積木檔案',
+      'fix(uat): 積木編輯器放在工作台下方的整寬區塊，不放右側設定欄——那欄只有 280~320px，三欄編輯器塞不下',
+    ],
+  },
   {
     version: '4.26.0',
     date: '2026-08-22',

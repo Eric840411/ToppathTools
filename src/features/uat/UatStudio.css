@@ -302,3 +302,71 @@
 .uat-net-empty.is-ok strong { color: #3fbe8b; }
 
 @media (max-width: 1100px) { .uat-net-tables { grid-template-columns: 1fr; } }
+
+/* ─── 後台單筆 TC 積木編輯器 ─────────────────────────────────────────────── */
+.uat-tc-editor { display: flex; flex-direction: column; gap: 11px; }
+.uat-tc-editor-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.uat-tc-editor-head h3 { margin: 3px 0 0; font-size: 15px; }
+.uat-tc-editor-id { display: block; margin-top: 4px; color: var(--uat-muted); font-size: 11px; }
+.uat-tc-editor-id code { font-family: Consolas, Monaco, monospace; }
+.uat-tc-editor-text { margin: 0; padding: 9px 11px; border-left: 3px solid var(--uat-primary); border-radius: 0 6px 6px 0; background: var(--uat-panel-soft); color: var(--uat-text); font-size: 12px; line-height: 1.65; white-space: pre-wrap; }
+.uat-tc-editor-hint { padding: 9px 11px; border: 1px dashed var(--uat-border-strong); border-radius: 7px; color: var(--uat-muted); font-size: 11px; line-height: 1.65; }
+.uat-tc-editor-hint code { margin: 0 3px; color: var(--uat-primary); font-family: Consolas, Monaco, monospace; }
+
+.uat-tc-editor-body { display: grid; grid-template-columns: 210px minmax(0, 1fr) 240px; gap: 11px; align-items: start; }
+@media (max-width: 1200px) { .uat-tc-editor-body { grid-template-columns: 1fr; } }
+
+.uat-tc-blocks h4, .uat-tc-inspector h4 { margin: 0 0 8px; font-size: 12px; }
+.uat-tc-blocks h5 { margin: 12px 0 5px; color: var(--uat-muted); font-size: 11px; letter-spacing: .08em; }
+.uat-tc-block { display: grid; grid-template-columns: 4px minmax(0, 1fr) auto; align-items: stretch; gap: 8px; width: 100%; margin-bottom: 5px; padding: 8px 9px; text-align: left; border: 1px solid var(--uat-border); border-radius: 6px; background: var(--uat-panel-soft); cursor: pointer; }
+.uat-tc-block:hover { border-color: var(--uat-primary); }
+.uat-tc-block > i { border-radius: 3px; background: var(--uat-primary); }
+.uat-tc-block.is-nav > i { background: #4b86e8; } .uat-tc-block.is-read > i { background: #35b8c5; }
+.uat-tc-block.is-assert > i { background: #3fbe8b; } .uat-tc-block.is-compare > i { background: #9a6ac7; }
+.uat-tc-block.is-evidence > i { background: #d99e22; } .uat-tc-block.is-legacy > i { background: var(--uat-danger); }
+.uat-tc-block strong { display: block; font-size: 12px; }
+.uat-tc-block small { display: block; color: var(--uat-muted); font-size: 11px; line-height: 1.45; }
+.uat-tc-block b { align-self: center; color: var(--uat-primary); font-size: 11px; }
+
+.uat-tc-steps { display: flex; flex-direction: column; gap: 6px; }
+.uat-tc-step { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 9px 10px; border: 1px solid var(--uat-border); border-left: 3px solid var(--uat-primary); border-radius: 7px; background: var(--uat-panel); cursor: pointer; }
+.uat-tc-step.is-selected { border-color: var(--uat-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--uat-primary) 13%, transparent); }
+.uat-tc-step.is-nav { border-left-color: #4b86e8; } .uat-tc-step.is-read { border-left-color: #35b8c5; }
+.uat-tc-step.is-assert { border-left-color: #3fbe8b; } .uat-tc-step.is-compare { border-left-color: #9a6ac7; }
+.uat-tc-step.is-evidence { border-left-color: #d99e22; } .uat-tc-step.is-legacy { border-left-color: var(--uat-danger); }
+.uat-tc-step.is-unknown { border-left-color: var(--uat-danger); }
+.uat-tc-step-index { color: var(--uat-muted); font: 700 11px Consolas, monospace; }
+.uat-tc-step strong { display: block; font-size: 12px; }
+.uat-tc-step small { display: block; overflow: hidden; color: var(--uat-muted); font: 11px Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.uat-tc-step-actions { display: flex; gap: 2px; }
+.uat-tc-step-actions button { padding: 4px 6px; border: 0; border-radius: 4px; background: transparent; color: var(--uat-muted); font-size: 11px; cursor: pointer; }
+.uat-tc-step-actions button:hover:not(:disabled) { color: var(--uat-primary); }
+.uat-tc-step-actions button:last-child:hover:not(:disabled) { color: var(--uat-danger); }
+.uat-tc-step-actions button:disabled { opacity: .35; cursor: default; }
+.uat-tc-steps-empty { display: flex; min-height: 120px; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--uat-muted); border: 1px dashed var(--uat-border-strong); border-radius: 8px; text-align: center; }
+.uat-tc-steps-empty strong { font-size: 12px; }
+.uat-tc-steps-empty span { font-size: 11px; }
+.uat-tc-copy { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; margin-top: 8px; padding-top: 9px; border-top: 1px solid var(--uat-border); }
+
+.uat-tc-inspector-desc { margin: 0 0 10px; color: var(--uat-muted); font-size: 11px; line-height: 1.6; }
+.uat-tc-inspector-empty { display: flex; min-height: 110px; align-items: center; justify-content: center; margin: 0; color: var(--uat-muted); font-size: 11px; text-align: center; }
+.uat-tc-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; color: var(--uat-muted); font-size: 11px; font-weight: 700; }
+.uat-tc-field b { color: var(--uat-danger); }
+.uat-tc-field small { color: color-mix(in srgb, var(--uat-muted) 80%, transparent); font-size: 11px; font-weight: 400; line-height: 1.5; }
+.uat-tc-field textarea.uat-field { height: 68px; resize: vertical; line-height: 1.5; }
+
+/* ─── 模組展開後的 TC 清單 ───────────────────────────────────────────────── */
+.uat-backend-tc-list { display: flex; flex-direction: column; gap: 4px; margin: 6px 0 2px 26px; padding-left: 11px; border-left: 1px dashed var(--uat-border-strong); }
+.uat-backend-tc { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 6px 9px; border: 1px solid transparent; border-radius: 6px; background: var(--uat-panel-soft); cursor: pointer; text-align: left; }
+.uat-backend-tc:hover { border-color: var(--uat-border-strong); }
+.uat-backend-tc.is-selected { border-color: var(--uat-primary); background: var(--uat-primary-soft); }
+.uat-backend-tc span { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.uat-backend-tc em { padding: 1px 7px; border-radius: 999px; color: var(--uat-muted); background: color-mix(in srgb, var(--uat-muted) 16%, transparent); font-size: 11px; font-style: normal; white-space: nowrap; }
+.uat-backend-tc em.has-steps { color: #3fbe8b; background: color-mix(in srgb, #3fbe8b 14%, transparent); }
+.uat-backend-tc-more { padding: 4px 9px; color: var(--uat-muted); font-size: 11px; }
+.uat-backend-module-count { cursor: pointer; user-select: none; }
+.uat-backend-module-count:hover { color: var(--uat-text); }
+/* 積木編輯器放在工作台下方獨立整寬區塊——右側設定欄只有 280~320px，
+   三欄編輯器（積木庫／步驟／參數）塞不下 */
+.uat-backend-tc-panel { padding: 16px; }
+.uat-tc-editor-actions { display: flex; gap: 6px; }
