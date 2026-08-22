@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.25.0'
+export const APP_VERSION = '4.26.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.26.0',
+    date: '2026-08-22',
+    changes: [
+      'feat(uat): 後台測試積木化第一階段——新增 block-engine.js 積木執行器，tc-registry.json 一筆 TC 多一個 steps 陣列，有 steps 就照積木跑、沒有就走原本的 verifierName/SUBTYPE_MAP。行為完全不變（目前 0 筆 TC 帶 steps），只是引擎換好了',
+      'feat(uat): 9 顆積木——開啟後台頁面／讀取色塊／讀取表格／欄位必須有值／兩值必須相等（可設容差）／排序必須正確／截圖／標記需人工／內建驗證器；每顆都宣告參數表與輸出入 kind，前端積木庫之後直接讀 BLOCK_DEFS，不另外抄一份',
+      'feat(uat): 內建驗證器積木讓 23 支既有 verifier 原樣可用，是遷移期的橋不是常駐相容層——終點是全部積木化，屆時 verifierName 與 SUBTYPE_MAP 一併移除',
+      'fix(uat): onFail 為 continue 時一樣要計入 criticalFails（只是不中止）——早期版本讓 continue 不算失敗，結果是「驗證失敗但整筆 TC 顯示通過」，這種假通過比直接報錯還糟（CodeX review 抓到）',
+      'fix(uat): 引用不存在的變數、變數型別不符、變數重名、缺必填參數、不認得的積木，一律 criticalFail 並中止且訊息指名是哪一顆積木的哪個欄位——這些都是寫錯積木而不是執行期狀況，靜默跳過會讓沒跑到的檢查看起來通過',
+      'feat(uat): 判定優先序明確化——有 criticalFails 就 FAIL，否則有 manual 就 MANUAL，否則 PASS；manual 代表「機器判不了」不是「這件事錯了」',
+    ],
+  },
   {
     version: '4.25.0',
     date: '2026-08-22',

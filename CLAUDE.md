@@ -1245,6 +1245,37 @@ Backend 測的是 CP／NC 後台管理站，那是一般網站沒有 pinus；掛
 
 ---
 
+## 27. 後台測試積木化（2026-08-22，v4.26.0 起，分階段）
+
+### 為什麼要做
+原本一筆 TC 能設定的只有「要不要跑」，**不能改「跑的時候檢查什麼」**——`tc-registry.json` 只存 `verifierName`，實際邏輯是 23 支寫死在 `run-lark-tc-backend.js`（5000 行）的函式加一張 `SUBTYPE_MAP`。加一種檢查只能改那支腳本。
+
+**終點是全部積木化**（使用者 2026-08-22 確認），不是兩套並存。所以 `verifierName` / `SUBTYPE_MAP` / `BUILTIN_VERIFIERS` 都是**遷移期的橋**，拆完要整段移除，不要在新功能上依賴它們。
+
+### 第一階段（v4.26.0）：引擎
+`server/uat-runner/block-engine.js`。registry 一筆 TC 多一個 `steps` 陣列，有就照積木跑、沒有走原路徑。**目前 0 筆 TC 帶 steps，所以行為完全沒變**，只是引擎換好了。
+
+9 顆積木：開啟後台頁面／讀取色塊／讀取表格／欄位必須有值／兩值必須相等／排序必須正確／截圖／標記需人工／內建驗證器。每顆宣告 `params`（前端積木庫與參數表單直接讀 `BLOCK_DEFS`，**不要在前端另抄一份**——抄兩份的結果是「畫面上有這顆積木、跑起來說不認得」）與 `outputKind`/`inputKind`。
+
+### 幾條在 review 中定下來、之後不要走回頭路的規則
+- **`onFail: continue` 一樣算失敗**，只是繼續跑好把剩下的問題一次看完。第一版寫成「continue 不計入 criticalFails」，等於驗證失敗卻整筆 TC 顯示通過——**假通過比直接報錯還糟**（CodeX review 抓到）。三種模式的差別只在「要不要繼續」，不在「算不算失敗」。
+- **`manual` 不是失敗**，它代表「這件事機器判不了」，不是「這件事錯了」。判定優先序：有 `criticalFails` → FAIL；否則有 `manual` → MANUAL；否則 PASS。
+- **這五種一律 criticalFail 且中止，不受 `onFail` 影響**：引用不存在的變數、變數型別不符、變數重名（除非明確 `overwrite: true`）、缺必填參數、不認得的積木。這些都是「積木寫錯了」不是執行期狀況，讓它 continue 只會讓後面每步都失敗、噴一堆看不懂的訊息。**不認得的積木尤其不能靜默跳過**——那會讓沒跑到的檢查看起來通過。
+- **`toNumber()` 取不到值回 `undefined` 不回 0**：回 0 會讓「沒抓到」跟「值就是 0」混在一起，比對時變成假通過。
+- **容差沿用既有 `cmp()` 的規則**（相對誤差 + 絕對誤差至少容許 1），不要另創一套。
+
+### 後續階段
+| 階段 | 內容 |
+|------|------|
+| 2 | `SUBTYPE_MAP` 的路徑表搬進 registry；逐支 verifier 宣告參數表（容差、等待時間、比對欄位清單），接成 `builtin_verifier` 的 `options` |
+| 3 | 前端積木編輯器（複用 `BlockEditor.tsx` 換一套積木定義）。**一定要支援「複製積木到另一筆 TC」**——121 筆只對應 23 支 verifier，同一支底下步驟高度重複，沒有複製就是 121 次手工 |
+| 4 | 逐筆把 TC 拆成積木；拆完移除 `verifierName`／`SUBTYPE_MAP`／`BUILTIN_VERIFIERS` |
+
+### 測試
+`server/uat-runner/block-engine.test.mjs`（`node server/uat-runner/block-engine.test.mjs`），35 項，用假 ctx 不開瀏覽器。**改動執行器語意時一定要先跑它**——這裡守的是「失敗不能變成通過」那條線。
+
+---
+
 ## 版本管理規則
 
 - **Patch (x.x.N)**：bug fix、小調整、文字修正

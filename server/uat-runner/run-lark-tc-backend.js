@@ -10,6 +10,7 @@ import fs from 'fs';
 import path from 'path';
 import XLSX from 'xlsx';
 import { attachNetworkCapture, DEFAULT_THRESHOLDS, formatStatsLine } from './net-capture.js';
+import { runSteps as runBlockSteps } from './block-engine.js';
 
 // ─── Lark 設定 ───────────────────────────────────────────────────────
 const LARK_TOKEN_URL = 'https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal';
@@ -4263,6 +4264,92 @@ async function callPageVerify(mapKey, page, tc) {
 }
 
 // ─── 後台測試 actions ────────────────────────────────────────────────
+/**
+ * 用積木跑一筆 TC。
+ *
+ * 這是 registry 有 `steps` 時走的路；沒有 steps 就 fallback 回既有的
+ * verifierName / SUBTYPE_MAP 那條路。fallback 是**遷移期的橋**不是常駐相容層——
+ * 終點是全部積木化，那時 verifierName 與 SUBTYPE_MAP 都會變成死碼可以整段移除
+ * （跟使用者與 CodeX 都確認過方向）。
+ *
+ * 回傳形狀刻意跟 performAction() 對齊，外層的截圖上傳與 Lark 回寫不用改。
+ */
+/**
+ * 內建驗證器名冊。`builtin_verifier` 積木靠這張表把名字對到函式。
+ *
+ * 這是**遷移期的橋**：終點是全部積木化，這張表會隨著 TC 逐筆拆成積木而縮小，
+ * 清空之後連同 SUBTYPE_MAP 一起移除。不要在新功能上依賴它。
+ *
+ * 目前每支都還是零參數模組——`options` 有傳下去但 verifier 還沒宣告自己的參數表。
+ * 下一步是逐支把寫死的常數（cmp() 的 pct = 0.01、Bonus 的 5 分鐘、報表的比對欄位
+ * 清單）接成 options，一次接一支，沒接的維持原行為。
+ */
+const BUILTIN_VERIFIERS = {
+  verifyAbnormalityPage,
+  verifyChannelRanking,
+  verifyDailyDashboard,
+  verifyDailyRanking,
+  verifyDashboard,
+  verifyDepositSetting,
+  verifyEGMJPPercent,
+  verifyEGMList,
+  verifyEGMStatus,
+  verifyGameSettingPage,
+  verifyGamingUser,
+  verifyGenericPage,
+  verifyJackpotMoment,
+  verifyJackpotRanking,
+  verifyLoadingTips,
+  verifyLogPage,
+  verifyMachineMonitoring,
+  verifyMachineReservation,
+  verifyMeterPage,
+  verifyPlayerWatch,
+  verifyReportPage,
+  verifyReservationLimit,
+  verifyWhiteList,
+};
+
+async function performSteps(page, steps, label) {
+  const result = await runBlockSteps(steps, {
+    page,
+    async openPath(targetPath, waitMs) {
+      await page.goto(BACKEND_URL + targetPath, { waitUntil: 'networkidle', timeout: 20000 });
+      await page.waitForTimeout(waitMs);
+    },
+    resolveSubtypePath(subtype) {
+      if (!subtype) return null;
+      const key = Object.keys(SUBTYPE_MAP).find(k => k === subtype)
+        || Object.keys(SUBTYPE_MAP).sort((a, b) => b.length - a.length).find(k => subtype.includes(k));
+      return key ? SUBTYPE_MAP[key].path : null;
+    },
+    async takeScreenshot(name) {
+      const safe = String(name).replace(/[^\w.-]/g, '_');
+      const shotPath = path.join(SCREENSHOT_DIR, `${safe}_${Date.now()}.png`);
+      try { await page.screenshot({ path: shotPath, fullPage: false }); return shotPath; }
+      catch { return null; }
+    },
+    async callBuiltin(name, options) {
+      const fn = BUILTIN_VERIFIERS[name];
+      if (typeof fn !== 'function') {
+        return { notes: `找不到內建驗證器「${name}」`, criticalFails: [`找不到內建驗證器「${name}」`], manual: false };
+      }
+      // options 目前原封不動傳給 verifier；每支 verifier 之後會逐一宣告自己的
+      // 參數表（容差、等待時間、比對欄位），沒宣告的就是零參數模組
+      return fn(page, label, options ?? {});
+    },
+  });
+  return {
+    pass: result.pass,
+    manual: result.manual,
+    notes: result.notes,
+    criticalFails: result.criticalFails,
+    allShotPaths: result.allShotPaths,
+    shotPath: result.allShotPaths[0] ?? null,
+    error: result.error,
+  };
+}
+
 async function performAction(page, pagePath, action, label, taskDesc) {
   try {
     await page.goto(BACKEND_URL + pagePath, { waitUntil: 'networkidle', timeout: 20000 });
@@ -4787,6 +4874,10 @@ async function main() {
             result = { pass: false, shotPath: null, error: `積分VIP底下的任務描述沒有匹配到任何已知關鍵字，不猜測路徑: ${taskFull.slice(0,40)}` };
           }
         }
+      } else if (Array.isArray(TC_REGISTRY[recordId]?.steps) && TC_REGISTRY[recordId].steps.length) {
+        // registry 這筆有積木就照積木跑。這是新的主要路徑；下面那條 SUBTYPE_MAP
+        // 的路是還沒拆成積木的 TC 在走的過渡橋。
+        result = await performSteps(page, TC_REGISTRY[recordId].steps, label);
       } else {
         // 優先完整匹配，再按鍵長度由長到短做 includes 匹配（避免 'Dashboard' 先匹配到 'Daily Dashboard'）
         const mapKey = Object.keys(SUBTYPE_MAP).find(k => k === subtype || k === taskType)
