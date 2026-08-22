@@ -247,7 +247,22 @@ async function getLarkToken() {
   return d.tenant_access_token;
 }
 
+/**
+ * UAT_DRY_RUN=1：照常跑測試、照常產出日誌與量測，但完全不動 Lark——
+ * 不上傳截圖、也不把 pass/fail PUT 回 TC 表。
+ *
+ * 加這個開關是因為這支腳本每跑一次都會寫回團隊共用的 TC 表，想驗證腳本本身
+ * （例如新加的網路量測）就沒辦法不弄髒那張表。
+ * ⚠️ 上傳與回寫要一起擋：只擋回寫的話截圖仍會進 Lark Drive，變成沒有掛在任何
+ * 記錄上的孤兒檔案，比兩者都做還糟。
+ */
+const DRY_RUN = process.env.UAT_DRY_RUN === '1';
+
 async function uploadAttachment(token, filePath) {
+  if (DRY_RUN) {
+    console.log(`  🧪 [dry-run] 略過上傳 Lark：${path.basename(filePath)}`);
+    return null;
+  }
   const fileBuffer = fs.readFileSync(filePath);
   const fileName = path.basename(filePath);
   const form = new FormData();
@@ -268,6 +283,10 @@ async function uploadAttachment(token, filePath) {
 }
 
 async function updateRecord(token, recordId, fileTokens, pass) {
+  if (DRY_RUN) {
+    console.log(`  🧪 [dry-run] 略過回寫 Lark：record=${recordId} pass=${pass}`);
+    return { code: 0, dryRun: true };
+  }
   // fileTokens: string (single) or string[] (multiple)
   const tokens = Array.isArray(fileTokens)
     ? fileTokens.filter(Boolean)
@@ -4788,8 +4807,12 @@ async function main() {
         if (sp && fs.existsSync(sp)) {
           try {
             const ft = await uploadAttachment(larkToken, sp);
-            fileTokens.push(ft);
-            console.log(` ✅ 上傳成功: ${path.basename(sp)}`);
+            // dry-run 時 uploadAttachment 回 null；沒有真的上傳就不要報「上傳成功」，
+            // 也不要把 null 塞進 fileTokens（那會變成一個對不到檔案的空 token）
+            if (ft) {
+              fileTokens.push(ft);
+              console.log(` ✅ 上傳成功: ${path.basename(sp)}`);
+            }
           } catch (e) {
             console.log(` ❌ 上傳失敗: ${path.basename(sp)} → ${e.message}`);
           }

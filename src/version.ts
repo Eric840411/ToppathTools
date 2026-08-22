@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.24.0'
+export const APP_VERSION = '4.24.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.24.1',
+    date: '2026-08-22',
+    changes: [
+      'feat(uat): Backend runner 新增 UAT_DRY_RUN=1——照常跑測試、照常產出日誌與網路量測，但完全不動 Lark（不上傳截圖、不把 pass/fail 回寫 TC 表）。原本每跑一次都會寫回團隊共用的 TC 表，想驗證腳本本身就沒辦法不弄髒那張表',
+      'fix(uat): dry-run 的上傳與回寫必須一起擋——只擋回寫的話截圖仍會進 Lark Drive，變成沒掛在任何記錄上的孤兒檔案，比兩者都做還糟（第一版只擋回寫，實跑時發現）',
+      'fix(uat): 上傳截圖的「✅ 上傳成功」改成只在真的上傳時才印，且不再把 null 塞進 fileTokens——dry-run 下沒有真的上傳卻報成功，假訊息比沒訊息更糟',
+    ],
+  },
   {
     version: '4.24.0',
     date: '2026-08-22',
