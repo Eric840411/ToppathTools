@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.27.0'
+export const APP_VERSION = '4.27.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.27.1',
+    date: '2026-08-23',
+    changes: [
+      'fix(uat): 編積木不用先掃描 Lark 了——新增 GET /api/osm-uat/tc-list 直接讀 tc-registry.json 快照，進頁面就有 121 筆可編。原本要先掃描純粹是我把 TC 清單接在既有掃描流程上的副作用，不是設計考量',
+      'feat(uat): 掃描變成「重新整理」——掃完以線上結果為準並補上快照之後新增的 TC（實測 registry 快照 121 筆 vs Lark 現有 134 筆，差 13 筆）；只存在於快照、這次沒掃到的仍保留在清單上並標「快照」，因為那多半是已從 Lark 移除的 TC，直接消失會讓人以為自己編的積木不見了',
+      'feat(uat): 尚未掃描時，流程區底部會標出 TC 清單來自哪一天的離線快照',
+    ],
+  },
   {
     version: '4.27.0',
     date: '2026-08-23',

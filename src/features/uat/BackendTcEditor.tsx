@@ -19,6 +19,8 @@ export interface BackendTc {
   taskType: string
   stepCount: number
   verifierName: string | null
+  /** registry = 只在離線快照裡看過（可能已從 Lark 移除）；live = 這次掃描確認存在 */
+  source?: 'registry' | 'live'
 }
 
 interface BlockParam {

@@ -370,3 +370,6 @@
    三欄編輯器（積木庫／步驟／參數）塞不下 */
 .uat-backend-tc-panel { padding: 16px; }
 .uat-tc-editor-actions { display: flex; gap: 6px; }
+/* 只存在於離線快照、這次掃描沒在 Lark 上找到的 TC——多半已被移除，
+   直接讓它消失的話使用者會以為自己編的積木不見了 */
+.uat-backend-tc-stale { margin-right: 6px; padding: 1px 6px; border-radius: 999px; color: #d99e22; background: color-mix(in srgb, #d99e22 14%, transparent); font-size: 11px; font-weight: 700; }

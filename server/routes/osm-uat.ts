@@ -285,6 +285,7 @@ router.get('/api/osm-uat/scan', async (req, res, next) => {
         taskType: String(f['任務類型'] ?? ''),
         stepCount: savedSteps[recordId]?.length ?? 0,
         verifierName: entry?.verifierName ?? null,
+        source: 'live' as const,
       }
     }).filter(t => t.recordId)
 
@@ -415,6 +416,43 @@ function readRegistryFile(): Record<string, unknown> {
 
 // 積木是掛在單筆 TC 上的，存在 runner 讀的同一份 registry；前端改完就是改那個檔案，
 // 下一次 spawn 的 runner 直接讀得到（runner 是每次執行才啟動，不是常駐）。
+
+/**
+ * 離線 TC 清單：直接讀 registry 快照，不用先掃描 Lark。
+ *
+ * 編輯積木需要的東西（recordId／文字／子類型）快照裡本來就有，沒有理由讓人
+ * 先等一次 Lark 往返才開始編。掃描的價值在於「補上快照之後新增的 TC、並確認
+ * 文字有沒有漂移」，所以掃描變成重新整理，不是進場門檻。
+ *
+ * source 要誠實標出來：`registry` 代表這筆只在 8/6 那份快照裡看過，
+ * 有可能已經從 Lark 移除；掃描過才會變成 `live`。
+ */
+router.get('/api/osm-uat/tc-list', (_req, res) => {
+  const registry = readRegistryFile()
+  const savedSteps = listUatTcSteps()
+  const tcs = Object.entries(registry).map(([recordId, raw]) => {
+    const entry = raw as { canonicalText?: string; sub?: string; verifierName?: string }
+    return {
+      recordId,
+      text: String(entry.canonicalText ?? '').slice(0, 300),
+      sub: String(entry.sub ?? ''),
+      taskType: '',
+      stepCount: savedSteps[recordId]?.length ?? 0,
+      verifierName: entry.verifierName ?? null,
+      source: 'registry' as const,
+    }
+  })
+  res.json({ ok: true, tcs, capturedAt: firstCapturedAt(registry) })
+})
+
+/** 快照時間，讓畫面講得出這份離線清單有多舊 */
+function firstCapturedAt(registry: Record<string, unknown>): string | null {
+  const times = Object.values(registry)
+    .map(v => (v as { capturedAt?: string }).capturedAt)
+    .filter((v): v is string => typeof v === 'string')
+    .sort()
+  return times[times.length - 1] ?? null
+}
 
 /** 積木定義給前端畫積木庫與參數表單用。刻意由後端提供，前端不要另抄一份 */
 router.get('/api/osm-uat/blocks', (_req, res) => {

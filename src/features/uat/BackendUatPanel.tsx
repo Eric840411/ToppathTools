@@ -81,6 +81,22 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const [tcs, setTcs] = useState<BackendTc[]>([])
   const [expandedModule, setExpandedModule] = useState<string | null>(null)
   const [selectedTcId, setSelectedTcId] = useState<string | null>(null)
+  const [tcSnapshotAt, setTcSnapshotAt] = useState<string | null>(null)
+  const [tcScanned, setTcScanned] = useState(false)
+  // 掛載就載入 registry 快照的 TC 清單——編積木需要的東西快照裡都有，
+  // 沒有理由讓人先等一次 Lark 往返才能開始編。掃描是「重新整理」不是進場門檻。
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await fetch('/api/osm-uat/tc-list')
+        const d = await r.json() as { ok: boolean; tcs?: BackendTc[]; capturedAt?: string | null }
+        if (!d.ok) return
+        // 已經掃描過就不要用快照蓋掉線上資料
+        setTcs(prev => prev.length ? prev : (d.tcs ?? []))
+        setTcSnapshotAt(d.capturedAt ?? null)
+      } catch { /* 離線清單載不到就等掃描，不擋住其他操作 */ }
+    })()
+  }, [])
   const credProfileLabel = (profile: string) => profile === 'cpBackend' ? 'CP 後台' : 'NC 後台'
   // 執行位置：Playwright 跑在哪台機器上。'' = 自動挑一台線上的 agent，
   // 'server' = 明確要求跑在伺服器本機（fallback，公網環境不一定裝得動瀏覽器）
@@ -245,7 +261,16 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
       const response = await fetch(`/api/osm-uat/scan?larkUrl=${encodeURIComponent(config.larkUrl)}`)
       const data = await response.json() as { ok: boolean; error?: string; total?: number; groups?: TcGroup[]; tcs?: BackendTc[] }
       if (!data.ok) return window.alert(data.error ?? '掃描失敗')
-      setTotal(data.total ?? 0); setGroups(data.groups ?? []); setTcs(data.tcs ?? [])
+      setTotal(data.total ?? 0); setGroups(data.groups ?? [])
+      // 線上結果為準；只存在於快照、這次沒掃到的保留下來但維持 registry 標記——
+      // 那多半是已經從 Lark 移除的 TC，直接消失的話使用者會以為自己編的積木不見了
+      setTcs(prev => {
+        const live = data.tcs ?? []
+        const liveIds = new Set(live.map(t => t.recordId))
+        const snapshotOnly = prev.filter(t => t.source !== 'live' && !liveIds.has(t.recordId))
+        return [...live, ...snapshotOnly]
+      })
+      setTcScanned(true)
     } finally { setScanning(false) }
   }
 
@@ -306,7 +331,10 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
                     <button type="button" key={tc.recordId}
                       className={`uat-backend-tc${selectedTcId === tc.recordId ? " is-selected" : ""}`}
                       onClick={() => setSelectedTcId(tc.recordId)}>
-                      <span title={tc.text}>{tc.text || tc.recordId}</span>
+                      <span title={tc.text}>
+                        {tc.source !== 'live' && tcScanned && <b className="uat-backend-tc-stale" title="這次掃描沒有在 Lark 上找到，可能已被移除">快照</b>}
+                        {tc.text || tc.recordId}
+                      </span>
                       <em className={tc.stepCount ? "has-steps" : ""}>{tc.stepCount ? `${tc.stepCount} 積木` : "內建"}</em>
                     </button>
                   ))}
@@ -318,7 +346,7 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
           ))}
           {!config.modulePlan.length && <div className="uat-backend-flow-empty"><strong>尚未加入測試模組</strong><span>新增自訂模組，或從左側模板庫加入。</span></div>}
         </div>
-        <footer className="uat-backend-flow-foot"><span>每個模組都是獨立實例，設定會儲存在此瀏覽器並傳入新的 runner process。</span><b>{groups ? `已掃描 ${total} TC` : '尚未掃描 TC'}</b></footer>
+        <footer className="uat-backend-flow-foot"><span>每個模組都是獨立實例，設定會儲存在此瀏覽器並傳入新的 runner process。{!tcScanned && tcs.length > 0 && ` TC 清單來自 ${tcSnapshotAt ? tcSnapshotAt.slice(0, 10) + ' 的' : ''}離線快照，掃描後會補上之後新增的。`}</span><b>{groups ? `已掃描 ${total} TC` : '尚未掃描 TC'}</b></footer>
       </main>
 
       <aside className="uat-backend-settings">
