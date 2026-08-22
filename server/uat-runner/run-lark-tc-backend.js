@@ -4332,12 +4332,12 @@ const BUILTIN_VERIFIERS = {
   verifyWhiteList,
 };
 
-async function performSteps(page, steps, label) {
+async function performSteps(p, steps, label) {
   const result = await runBlockSteps(steps, {
-    page,
+    page: p,
     async openPath(targetPath, waitMs) {
-      await page.goto(BACKEND_URL + targetPath, { waitUntil: 'networkidle', timeout: 20000 });
-      await page.waitForTimeout(waitMs);
+      await p.goto(BACKEND_URL + targetPath, { waitUntil: 'networkidle', timeout: 20000 });
+      await p.waitForTimeout(waitMs);
     },
     resolveSubtypePath(subtype) {
       if (!subtype) return null;
@@ -4345,10 +4345,34 @@ async function performSteps(page, steps, label) {
         || Object.keys(SUBTYPE_MAP).sort((a, b) => b.length - a.length).find(k => subtype.includes(k));
       return key ? SUBTYPE_MAP[key].path : null;
     },
+    /** 錄製產生的 click 積木用。選擇器支援 Playwright 的 text= 語法 */
+    async clickSelector(selector, waitMs) {
+      await p.locator(selector).first().click({ timeout: 10000 });
+      await p.waitForTimeout(waitMs);
+    },
+    async typeInto(selector, value) {
+      await p.locator(selector).first().fill(value, { timeout: 10000 });
+    },
+    /**
+     * 套用篩選：先把值填進欄位，再按查詢。沒指定查詢按鈕就試常見的幾個文字，
+     * 都找不到就按 Enter——不同報表頁的查詢鈕文字不一致，寫死一個會有一半頁面用不了。
+     */
+    async applyFilter(field, value, submitSelector, waitMs) {
+      const input = p.locator(`input[placeholder*="${field}"], input[name="${field}"]`).first();
+      if (await input.count()) await input.fill(value, { timeout: 10000 });
+      if (submitSelector) {
+        await p.locator(submitSelector).first().click({ timeout: 10000 });
+      } else {
+        const btn = p.locator('button:has-text("Search"), button:has-text("查詢"), button:has-text("搜尋")').first();
+        if (await btn.count()) await btn.click({ timeout: 10000 });
+        else await p.keyboard.press('Enter');
+      }
+      await p.waitForTimeout(waitMs);
+    },
     async takeScreenshot(name) {
       const safe = String(name).replace(/[^\w.-]/g, '_');
       const shotPath = path.join(SCREENSHOT_DIR, `${safe}_${Date.now()}.png`);
-      try { await page.screenshot({ path: shotPath, fullPage: false }); return shotPath; }
+      try { await p.screenshot({ path: shotPath, fullPage: false }); return shotPath; }
       catch { return null; }
     },
     async callBuiltin(name, options) {

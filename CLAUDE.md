@@ -1282,6 +1282,21 @@ Backend 測的是 CP／NC 後台管理站，那是一般網站沒有 pinus；掛
 - 模組 → TC 的比對沿用 `moduleCounts` 那一套（`matchesBackendModule`，specific 優先、沒有才落到 `*`），**不要另寫一份**：兩份比對邏輯遲早漂移，症狀是「清單顯示 4 筆但實際跑了 5 筆」
 - 積木庫與參數表單全部照後端回的 `BLOCK_DEFS` 自動長
 
+### 錄製（v4.28.0）
+`server/uat-runner/backend-recorder.js`。開一個有頭的 Chromium 自動登入後台，注入腳本把操作變積木；按住 **Alt** 點元素當場標斷言。
+
+**為什麼一定要有 Alt 這一步**：錄製只錄得到「你做了什麼」，錄不到「你在檢查什麼」。只錄動作的產出跑起來**永遠 PASS**——沒有斷言的腳本不是測試，是重播。所以停止錄製時若一顆斷言都沒有，會跳提示問清楚，不是安靜收下。
+
+**選擇器策略階梯**（跟 CodeX 討論定案，Element UI 的 class 大量是動態產生的，隨便抓一定脆）：
+① `data-testid`/`aria-label` 這類穩定屬性 → ② 表單欄位用 label 關聯 → ③ 按鈕用可見文字 → ④ **表格儲存格用「欄位名 + 第幾列」不要純結構路徑** → ⑤ 都沒有才用結構路徑。每顆記 `selectorStrategy`，退到 ⑤ 的最脆。
+**座標只當診斷資料不參與定位**——後台的座標在表格分頁、資料筆數、側欄展開、換螢幕下都會漂（H5 錄座標是因為遊戲畫在 canvas 上沒 DOM 可指）。
+
+**⚠️ 登入階段一定不能錄**：第一版沒擋，實測直接把後台密碼錄成 `type_text` 的 `value`——那會存進 DB、也會顯示在編輯器上。現在 server 登入完成後才呼叫 `__toppathArmRecorder()` 開始收，而且**密碼欄位一律不記值**（`type=password` 或 name/id 含 pass）。
+
+斷言標記會展開成實際積木（`eventsToSteps()`）：「必須有值」= `read_block` + `assert_filled` 兩顆，因為引擎的斷言是對變數做的不是對選擇器做的。
+
+**測試**：`server/uat-runner/backend-recorder.test.mjs`（15 項），不開瀏覽器驗轉換邏輯。
+
 ### 後續階段
 | 階段 | 內容 |
 |------|------|

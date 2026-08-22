@@ -65,6 +65,8 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose }: {
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ text: string; tone: 'ok' | 'error' } | null>(null)
   const [copyFrom, setCopyFrom] = useState('')
+  const [recSession, setRecSession] = useState<string | null>(null)
+  const [recCount, setRecCount] = useState(0)
   const [verifierName, setVerifierName] = useState<string | null>(null)
 
   useEffect(() => {
@@ -128,6 +130,67 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose }: {
     } catch { setMsg({ text: '複製失敗', tone: 'error' }) }
   }
 
+  // ── 錄製 ──────────────────────────────────────────────────────────────
+  // 開一個有頭的瀏覽器並自動登入後台，使用者的操作直接變積木；
+  // 要標檢查條件就按住 Alt 點元素（錄製只錄得到「做了什麼」，錄不到「在檢查什麼」）。
+  const startRecord = async () => {
+    setMsg({ text: '正在開啟後台並登入…', tone: 'ok' })
+    try {
+      const r = await fetch('/api/osm-uat/record/start', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recordId: tc.recordId }),
+      })
+      const d = await r.json() as { ok: boolean; sessionId?: string; message?: string }
+      if (!d.ok || !d.sessionId) return setMsg({ text: d.message ?? '錄製啟動失敗', tone: 'error' })
+      setRecSession(d.sessionId)
+      setRecCount(0)
+      setMsg({ text: '錄製中：在開啟的視窗操作；要標檢查條件就按住 Alt 點那個元素', tone: 'ok' })
+    } catch { setMsg({ text: '錄製啟動失敗', tone: 'error' }) }
+  }
+
+  // 錄製期間輪詢，讓按鈕顯示已經錄到幾顆——不然使用者不知道到底有沒有在錄。
+  // 使用者自己把瀏覽器關掉時 done 會變 true，這裡要負責收尾。
+  useEffect(() => {
+    if (!recSession) return
+    let stopped = false
+    const timer = window.setInterval(async () => {
+      try {
+        const r = await fetch(`/api/osm-uat/record/status/${recSession}`)
+        const d = await r.json() as { ok: boolean; done?: boolean; steps?: Step[] }
+        if (!d.ok || stopped) return
+        setRecCount(d.steps?.length ?? 0)
+        if (d.done) { stopped = true; window.clearInterval(timer); void finishRecord(recSession) }
+      } catch { /* 一次查不到不用中斷輪詢 */ }
+    }, 2000)
+    return () => { stopped = true; window.clearInterval(timer) }
+    // finishRecord 只用到參數帶進去的 sessionId，放進 deps 會讓 interval 每次 render 重建
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recSession])
+
+  /**
+   * 停止錄製並把積木接到現有清單後面。
+   * 沒有任何斷言的錄製跑起來永遠 PASS——那不是測試是重播，要問清楚而不是安靜收下。
+   */
+  const finishRecord = async (sessionId: string) => {
+    setRecSession(null)
+    try {
+      const r = await fetch(`/api/osm-uat/record/stop/${sessionId}`, { method: 'POST' })
+      const d = await r.json() as { ok: boolean; steps?: Step[]; hasAssertion?: boolean }
+      const recorded = d.steps ?? []
+      if (!recorded.length) return setMsg({ text: '這次沒有錄到任何操作', tone: 'error' })
+      if (!d.hasAssertion) {
+        const warn = `錄到 ${recorded.length} 顆積木，但一個檢查條件都沒有。\n\n`
+          + '這樣的腳本跑起來永遠 PASS（等於只是重播操作，不會驗任何東西）。\n'
+          + '仍要加入嗎？（也可以取消，重錄時按住 Alt 點元素標檢查條件）'
+        if (!window.confirm(warn)) return
+      }
+      setSteps(prev => [...prev, ...recorded])
+      setDirty(true)
+      setMsg({ text: `已加入 ${recorded.length} 顆積木，記得儲存`, tone: 'ok' })
+    } catch { setMsg({ text: '取得錄製結果失敗', tone: 'error' }) }
+  }
+
+
   const save = async () => {
     setSaving(true)
     try {
@@ -166,6 +229,13 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose }: {
           <small className="uat-tc-editor-id">{tc.sub || tc.taskType || '未分類'} · <code>{tc.recordId}</code></small>
         </div>
         <span className="uat-tc-editor-actions">
+          {recSession ? (
+            <button type="button" className="uat-btn is-danger" onClick={() => void finishRecord(recSession)}>
+              停止錄製（{recCount} 顆）
+            </button>
+          ) : (
+            <button type="button" className="uat-btn is-quiet" onClick={() => void startRecord()}>錄製</button>
+          )}
           <button type="button" className="uat-btn is-primary" disabled={!dirty || saving} onClick={() => void save()}>
             {saving ? '儲存中' : dirty ? '儲存' : '已儲存'}
           </button>

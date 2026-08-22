@@ -35,6 +35,44 @@ export const BLOCK_DEFS = {
       { key: 'waitMs', label: '開啟後等待（毫秒）', type: 'number', default: 1500 },
     ],
   },
+  click: {
+    label: '點擊元素', category: 'nav', defaultOnFail: 'stop',
+    description: '用選擇器點一個元素（錄製時自動產生）',
+    params: [
+      { key: 'selector', label: '選擇器', type: 'text', required: true, placeholder: 'text=查詢' },
+      // 錄製時記下是用哪一階策略抓到的。退到 cssPath 的最脆，編輯器會標黃底提醒
+      { key: 'selectorStrategy', label: '選擇器來源', type: 'text', help: 'dataAttr / label / text / tableCell / cssPath；錄製時自動填' },
+      { key: 'waitMs', label: '點完等待（毫秒）', type: 'number', default: 800 },
+    ],
+  },
+  type_text: {
+    label: '輸入文字', category: 'nav', defaultOnFail: 'stop',
+    description: '在欄位輸入內容（錄製時自動產生）',
+    params: [
+      { key: 'selector', label: '選擇器', type: 'text', required: true },
+      { key: 'value', label: '要輸入的內容', type: 'text', required: true },
+      { key: 'selectorStrategy', label: '選擇器來源', type: 'text' },
+    ],
+  },
+  apply_filter: {
+    label: '套用篩選', category: 'nav', defaultOnFail: 'stop',
+    description: '設定日期／Game Type／Client Version 之後按查詢',
+    params: [
+      { key: 'field', label: '欄位', type: 'text', required: true, placeholder: 'Date' },
+      { key: 'value', label: '值', type: 'text', required: true },
+      { key: 'submitSelector', label: '查詢按鈕選擇器', type: 'text', placeholder: 'text=Search' },
+      { key: 'waitMs', label: '查詢後等待（毫秒）', type: 'number', default: 1500 },
+    ],
+  },
+  assert_absent: {
+    label: '不能出現', category: 'assert', defaultOnFail: 'stop',
+    description: '這個元素不能存在，或這段文字不能出現在畫面上',
+    params: [
+      { key: 'selector', label: '不能出現的選擇器', type: 'text', placeholder: '.el-message--error' },
+      { key: 'text', label: '不能出現的文字', type: 'text', placeholder: '查無資料' },
+      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'manual'], default: 'stop' },
+    ],
+  },
   read_block: {
     label: '讀取色塊', category: 'read', outputKind: 'blockFields', defaultOnFail: 'stop',
     description: '用 selector 取區塊，抓每個標籤後面的值',
@@ -154,6 +192,9 @@ export function numbersEqual(a, b, tolerancePct = 1) {
  *   - page              Playwright page
  *   - openPath(path, waitMs)  導到後台某個路徑（登入沿用）
  *   - resolveSubtypePath(subtype) 子類型 → 路徑
+ *   - clickSelector(selector, waitMs)
+ *   - typeInto(selector, value)
+ *   - applyFilter(field, value, submitSelector, waitMs)
  *   - takeScreenshot(name) → 檔案路徑
  *   - callBuiltin(name, options) → { notes, criticalFails, manual }
  * @returns {{ pass: boolean, notes: string, criticalFails: string[], manual: boolean,
@@ -255,6 +296,36 @@ export async function runSteps(steps, ctx) {
         if (!target) { if (fail(step, `${tag}：對不到路徑（subtype=${step.subtype ?? '-'}）`) === 'stop') break; continue }
         await ctx.openPath(target, Number(step.waitMs) || 1500);
         notes.push(`${tag}：${target}`);
+
+      } else if (step.action === 'click') {
+        await ctx.clickSelector(step.selector, Number(step.waitMs) || 800);
+        notes.push(`${tag}：${step.selector}`);
+
+      } else if (step.action === 'type_text') {
+        await ctx.typeInto(step.selector, String(step.value ?? ''));
+        notes.push(`${tag}：${step.selector} ← ${String(step.value ?? '').slice(0, 40)}`);
+
+      } else if (step.action === 'apply_filter') {
+        await ctx.applyFilter(step.field, String(step.value ?? ''), step.submitSelector, Number(step.waitMs) || 1500);
+        notes.push(`${tag}：${step.field} = ${step.value}`);
+
+      } else if (step.action === 'assert_absent') {
+        // selector 與 text 至少要有一個，兩個都空的話這顆積木什麼都沒檢查卻會顯示通過
+        if (!step.selector && !step.text) {
+          criticalFails.push(`${tag}：選擇器與文字都沒填，這顆積木沒有檢查任何東西`);
+          notes.push(`❌ ${tag}：選擇器與文字都沒填`);
+          break;
+        }
+        const found = await ctx.page.evaluate(({ selector, text }) => {
+          if (selector) {
+            const el = document.querySelector(selector);
+            if (el && (el.offsetParent !== null || el.getClientRects().length)) return { by: 'selector', shown: (el.innerText || '').slice(0, 80) };
+          }
+          if (text && (document.body.innerText || '').includes(text)) return { by: 'text', shown: text };
+          return null;
+        }, { selector: step.selector ?? null, text: step.text ?? null });
+        if (found) { if (fail(step, `${tag}：不該出現的${found.by === 'text' ? '文字' : '元素'}出現了（${found.shown}）`) === 'stop') break; continue }
+        notes.push(`✅ ${tag}`);
 
       } else if (step.action === 'read_block') {
         const labels = toLines(step.labels);

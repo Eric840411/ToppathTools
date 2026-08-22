@@ -24,6 +24,7 @@ import { agentConnections, type AgentInfo } from '../agent-hub.js'
 import { getOperatorFromContext } from '../request-context.js'
 import { parseStatsLine } from '../uat-runner/net-capture.js'
 import { BLOCK_DEFS } from '../uat-runner/block-engine.js'
+import { backendRecorderScript, RECORDER_MARKER, eventsToSteps, hasAssertion } from '../uat-runner/backend-recorder.js'
 import { readFileSync as fsReadFileSync } from 'fs'
 import {
   getLarkToken,
@@ -301,6 +302,10 @@ const SCRIPT_PATH = process.env.OSM_QA_AGENT_SCRIPT
   ?? join(__dirname, '..', 'uat-runner', 'run-lark-tc-backend.js')
 
 /** agent 端要有這個 capability 才收得到 backend_uat_start */
+/** 錄製時要連的後台，跟 run-lark-tc-backend.js 的 BACKEND_URL 同一個環境。
+ *  兩邊各有一份是因為 runner 是獨立 spawn 的程序，共用不了模組層級的常數。 */
+const BACKEND_URL_FOR_RECORD = process.env.UAT_BACKEND_URL ?? 'http://uat-cp.osmslot.org'
+
 export const BACKEND_UAT_CAPABILITY = 'backend-uat'
 /** 前端用這個值明確要求走舊的伺服器端 spawn */
 const SERVER_MODE_SENTINEL = 'server'
@@ -452,6 +457,114 @@ function firstCapturedAt(registry: Record<string, unknown>): string | null {
     .filter((v): v is string => typeof v === 'string')
     .sort()
   return times[times.length - 1] ?? null
+}
+
+// ─── 錄製 ─────────────────────────────────────────────────────────────────────
+// 開一個有頭的 Chromium、自動登入後台，注入錄製腳本：使用者的操作變積木，
+// 按住 Alt 點元素當場標斷言。停止後轉成積木回傳，由前端塞進那筆 TC。
+//
+// 用 Playwright 而不是自己接 CDP（H5 那邊是接 CDP）：這裡需要「先自動登入再開始錄」，
+// Playwright 的 fill/click 直接就能做，自己接 CDP 要重寫一遍輸入模擬。
+
+interface RecordSession {
+  id: string
+  recordId: string
+  browser: import('playwright').Browser | null
+  events: unknown[]
+  done: boolean
+  error: string | null
+  startedAt: number
+}
+
+const recordSessions = new Map<string, RecordSession>()
+/** 錄製最長 30 分鐘，避免使用者關掉分頁就留一個瀏覽器在伺服器上 */
+const RECORD_MAX_MS = 30 * 60_000
+
+router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) => {
+  try {
+    const account = getAuthAccount(req)
+    if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+    const recordId = String((req.body as { recordId?: string })?.recordId ?? '')
+    if (!recordId) return res.status(400).json({ ok: false, message: '缺少 recordId' })
+
+    const creds = getUatBackendCredentials(account.email)
+    if (!creds.cpBackend?.username || !creds.cpBackend?.password) {
+      return res.status(400).json({ ok: false, message: '請先在執行設定填好 CP 後台帳密' })
+    }
+
+    const sessionId = randomUUID()
+    const session: RecordSession = { id: sessionId, recordId, browser: null, events: [], done: false, error: null, startedAt: Date.now() }
+    recordSessions.set(sessionId, session)
+
+    const pw = await import('playwright')
+    // headless: false —— 錄製本來就是要讓人在畫面上操作
+    const browser = await pw.chromium.launch({ headless: false, args: ['--start-maximized'] })
+    session.browser = browser
+    const ctx = await browser.newContext({ viewport: null })
+    const page = await ctx.newPage()
+
+    // 錄製腳本要在頁面自己的程式碼之前執行，才不會漏掉早期的事件
+    await ctx.addInitScript(backendRecorderScript())
+    page.on('console', msg => {
+      const text = msg.text()
+      if (!text.startsWith(RECORDER_MARKER)) return
+      try { session.events.push(JSON.parse(text.slice(RECORDER_MARKER.length).trim())) } catch { /* 壞掉的一筆跳過 */ }
+    })
+    page.on('close', () => { session.done = true })
+
+    // 自動登入，讓使用者一開始就在已登入的後台，不用自己打帳密
+    await page.goto(`${BACKEND_URL_FOR_RECORD}/login`, { waitUntil: 'networkidle', timeout: 30000 })
+    await page.fill('input[type="text"], input[name*="user"], input[id*="user"]', creds.cpBackend.username).catch(() => {})
+    await page.fill('input[type="password"]', creds.cpBackend.password).catch(() => {})
+    await page.keyboard.press('Enter').catch(() => {})
+    await page.waitForTimeout(2500)
+    // 登入完成之後才開始錄。在這之前的輸入是我們自己打的帳密，
+    // 錄進去等於把真實密碼寫成測試步驟（實測時真的錄到了才發現）。
+    session.events.length = 0
+    await page.evaluate(() => (window as unknown as { __toppathArmRecorder?: () => void }).__toppathArmRecorder?.()).catch(() => {})
+
+    setTimeout(() => { void stopRecordSession(sessionId) }, RECORD_MAX_MS).unref?.()
+    res.json({ ok: true, sessionId })
+  } catch (error) {
+    next(error)
+  }
+})
+
+router.get('/api/osm-uat/record/status/:sessionId', (req, res) => {
+  const session = recordSessions.get(String(req.params.sessionId))
+  if (!session) return res.status(404).json({ ok: false, message: '找不到錄製 session' })
+  const steps = eventsToSteps(session.events)
+  res.json({
+    ok: true,
+    done: session.done,
+    error: session.error,
+    eventCount: session.events.length,
+    steps,
+    // 沒有任何斷言的錄製跑起來永遠 PASS，前端要能在停止時提醒
+    hasAssertion: hasAssertion(steps),
+  })
+})
+
+router.post('/api/osm-uat/record/stop/:sessionId', async (req, res, next) => {
+  try {
+    const result = await stopRecordSession(String(req.params.sessionId))
+    if (!result) return res.status(404).json({ ok: false, message: '找不到錄製 session' })
+    res.json({ ok: true, ...result })
+  } catch (error) {
+    next(error)
+  }
+})
+
+async function stopRecordSession(sessionId: string) {
+  const session = recordSessions.get(sessionId)
+  if (!session) return null
+  session.done = true
+  try { await session.browser?.close() } catch { /* 已經關掉了 */ }
+  session.browser = null
+  const steps = eventsToSteps(session.events)
+  // 保留一小段時間讓前端來拿結果，之後才清掉
+  setTimeout(() => recordSessions.delete(sessionId), 5 * 60_000).unref?.()
+  return { steps, eventCount: session.events.length, hasAssertion: hasAssertion(steps) }
 }
 
 /** 積木定義給前端畫積木庫與參數表單用。刻意由後端提供，前端不要另抄一份 */

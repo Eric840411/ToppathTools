@@ -193,7 +193,45 @@ const BLUE = { 'Total Available EGM': '5', 'Total System Connected EGM': '2' };
   check('參數 JSON 壞掉不中斷，改用預設值', r3.pass === true && /不是合法 JSON/.test(r3.notes), r3.notes);
 }
 
-// ── 14. 純函式 ─────────────────────────────────────────────────────────
+// ── 14. 新動作積木（錄製會產生的那幾顆）───────────────────────────────
+{
+  const ctx = makeCtx();
+  ctx.clickSelector = async (sel, wait) => { ctx.calls.push({ kind: 'click', sel, wait }) };
+  ctx.typeInto = async (sel, val) => { ctx.calls.push({ kind: 'type', sel, val }) };
+  ctx.applyFilter = async (f, v, sub, wait) => { ctx.calls.push({ kind: 'filter', f, v, sub, wait }) };
+  const r = await runSteps([
+    { action: 'click', selector: 'text=查詢', selectorStrategy: 'text' },
+    { action: 'type_text', selector: '#kw', value: 'abc' },
+    { action: 'apply_filter', field: 'Date', value: '2026-08-22' },
+  ], ctx);
+  check('新動作積木可執行且 pass', r.pass === true, r);
+  check('click 有帶到 selector', ctx.calls.some(c => c.kind === 'click' && c.sel === 'text=查詢'), ctx.calls);
+  check('type 有帶到值', ctx.calls.some(c => c.kind === 'type' && c.val === 'abc'), ctx.calls);
+  check('filter 有帶到欄位', ctx.calls.some(c => c.kind === 'filter' && c.f === 'Date'), ctx.calls);
+}
+
+// ── 15. assert_absent（反向斷言）───────────────────────────────────────
+{
+  // 頁面上有錯誤提示 → 應該 FAIL
+  const shown = makeCtx();
+  shown.page.evaluate = async () => ({ by: 'selector', shown: '查詢失敗' });
+  const bad = await runSteps([{ action: 'assert_absent', selector: '.el-message--error' }], shown);
+  check('不該出現的元素出現了 → FAIL', bad.pass === false && bad.criticalFails.length === 1, bad.criticalFails);
+
+  // 沒出現 → pass
+  const clean = makeCtx();
+  clean.page.evaluate = async () => null;
+  const ok = await runSteps([{ action: 'assert_absent', text: '查無資料' }], clean);
+  check('沒出現 → pass', ok.pass === true, ok);
+
+  // selector 與 text 都沒填＝什麼都沒檢查，不能顯示通過
+  const empty = makeCtx();
+  empty.page.evaluate = async () => null;
+  const none = await runSteps([{ action: 'assert_absent' }], empty);
+  check('selector 與 text 都空 → FAIL（不能假裝檢查過）', none.pass === false, none.criticalFails);
+}
+
+// ── 16. 純函式 ─────────────────────────────────────────────────────────
 check('toNumber 去掉貨幣與千分位', toNumber('PHP 15,024,840') === 15024840);
 check('toNumber 處理負數', toNumber('-258') === -258);
 check('toNumber 空值回 undefined（不是 0）', toNumber('') === undefined && toNumber(null) === undefined);

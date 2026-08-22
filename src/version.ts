@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.27.1'
+export const APP_VERSION = '4.28.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.28.0',
+    date: '2026-08-23',
+    changes: [
+      'feat(uat): 後台 TC 新增錄製功能——開一個有頭的瀏覽器並自動登入後台，你的操作直接變積木；要標檢查條件就按住 Alt 點那個元素，當場選「必須有值／等於某數／排序要正確／不能出現／這裡要人工看／只記下來」。停止後整串接到那筆 TC 的積木後面',
+      'feat(uat): 新增 4 顆積木——點擊元素、輸入文字、套用篩選、不能出現（反向斷言）。原本只有正向斷言，表達不出「不能跳錯誤提示」「不能顯示查無資料」這類後台很常見的條件',
+      'feat(uat): 選擇器用策略階梯（穩定屬性 → label 關聯 → 可見文字 → 表格欄位名+列 → 結構路徑），每顆積木記下 selectorStrategy；座標只當診斷資料不參與定位——後台的座標在表格分頁、資料筆數、換螢幕下都會漂',
+      'fix(uat): 錄製不再把自動登入的帳密錄進積木——實測第一版真的把後台密碼寫成 type_text 的 value，那會存進 DB 也會顯示在編輯器上。改成登入完成後才開始錄，且密碼欄位一律不記值',
+      'feat(uat): 停止錄製時如果一顆斷言都沒標會跳提示——沒有斷言的腳本跑起來永遠 PASS，那不是測試是重播，安靜收下比報錯更糟',
+    ],
+  },
   {
     version: '4.27.1',
     date: '2026-08-23',
