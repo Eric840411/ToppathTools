@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.33.1'
+export const APP_VERSION = '4.34.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.34.0',
+    date: '2026-08-23',
+    changes: [
+      'feat(uat): 把兩個 note-only 檢查升級成會擋下的斷言——EGM Status 的「可維護/喚醒機台」與 EGM List 的「批量設置小面額」。原本查不到只寫一行 ⚠️、照樣通過，等於有看但沒擋；現在按鈕不見會真的判定失敗。這是刻意的行為變更，跟 v4.33.x 的等價拆解分開記',
+    ],
+  },
   {
     version: '4.33.1',
     date: '2026-08-23',
