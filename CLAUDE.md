@@ -1358,9 +1358,13 @@ v4.36.1 踩過一次：`callBuiltin` 把截圖檔名當成 TC 描述文字傳給
 
 判斷方式（`verifierRanAssertion()`，`verifier-params.js`）：有 `criticalFails`／是 `manual`／notes 裡有 ✅❌／有非哨兵的 ⚠️ → 算有跑。**不能只認驗證器自己印的「沒有對應到已知的驗證規則」**——23 支裡只有 9 支會印。
 
-**目前只套在積木路徑**（`builtin_verifier`）。舊的 `SUBTYPE_MAP` 路徑先量測不套：`node server/uat-runner/scan-zero-assertion.mjs` 靜態掃出 **19 筆現在是零斷言卻判定通過**（另 11 筆先被 `detectManual` 攔成人工判讀，那是正當結果）。套上去等於一次把 19 筆翻成 FAIL，是測試政策變更不是修 bug，要獨立決定、獨立版號——跟 v4.33.1／v4.34.0 那次同一個原則。
+**實際掃描結果是 0 筆**（`node server/uat-runner/scan-zero-assertion.mjs`）：121 筆裡 20 筆先被 `detectManual` 攔成人工判讀，其餘全部都對得到至少一條分支條件。所以這條防線是**防未來的迴歸**，不是在修現存的破口。
 
-19 筆的分布：`verifyGameSettingPage` 11、`verifyMachineReservation` 2、`verifyReportPage` 2，其餘五支各 1。
+> ⚠️ v4.38.0 的 changelog 寫「掃出 19 筆」是錯的，那是掃描器自己的兩個 bug 造出來的假數字，v4.38.1 已更正：
+> 1. 只認 `if (` 開頭的行，漏掉 `} else if (`——而一連串 `else if` 各接一筆 TC 正是驗證器最常見的寫法（`verifyGameSettingPage` 整支都是），虛報 11 筆
+> 2. flags 用 `replace(/[^a-z]/g,'')` 整段濾，把訊息字串裡的英文字母（`'需要現場 handpay 操作'` 的 handpay）也當成 flags，`new RegExp` 拋錯 → 那條 `detectManual` pattern 被默默丟掉 → 本來就標人工判讀的 TC 被誤算成假通過，虛報 8 筆
+>
+> **教訓跟這整輪一樣**：量測工具本身也要驗證。這兩個 bug 的共同點是「安靜地少算」——不會報錯，只會給出一個看起來很合理的數字。第一次報 19 是照著跑出來的結果講的，沒有抽樣核對；核對第一筆（`Name:名稱` 明明有 `/^name[:：]名稱/i` 分支）就發現不對。
 
 ### 測試
 `server/uat-runner/block-engine.test.mjs`（`node server/uat-runner/block-engine.test.mjs`），84 項，用假 ctx 不開瀏覽器。**改動執行器語意時一定要先跑它**——這裡守的是「失敗不能變成通過」那條線。

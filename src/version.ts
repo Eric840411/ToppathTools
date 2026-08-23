@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.38.0'
+export const APP_VERSION = '4.38.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.38.1',
+    date: '2026-08-24',
+    changes: [
+      'fix(uat): 更正 v4.38.0 的數字——實際零斷言的 TC 是 0 筆不是 19 筆。那 19 是掃描工具自己的兩個 bug 造出來的：只認 if 開頭漏掉 else if（虛報 11 筆），以及 flags 抽取把訊息字串裡的英文字母也算進去導致 detectManual 的 pattern 被丟掉（虛報 8 筆）',
+      'fix(uat): 修好掃描工具。121 筆裡 20 筆先被 detectManual 攔成人工判讀，其餘全部都對得到分支條件——「零斷言不得通過」這條防線是防未來迴歸，不是在修現存破口',
+    ],
+  },
   {
     version: '4.38.0',
     date: '2026-08-24',

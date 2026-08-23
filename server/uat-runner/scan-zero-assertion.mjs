@@ -24,23 +24,38 @@ for (let i = 0; i < lines.length; i++) {
   bodies[m[1]] = lines.slice(i, e);
 }
 
+/**
+ * 一行看起來是不是分支條件。
+ *
+ * ⚠️ 只認 `if (` 開頭會嚴重低估——驗證器裡最常見的寫法是一連串 `} else if (`
+ * 各接一筆 TC（verifyGameSettingPage 就是這樣）。漏掉 else if 的話，那些 TC 會
+ * 被誤判成「對不到任何分支」，掃描結果會憑空多出一堆假的假通過。
+ */
+const BRANCH_LINE = /^(\}\s*)?(else\s+)?if \(/;
+
 /** 從一行 `if (/xxx/i.test(full)) {` 取出那個 regex。用字串切割，不用 regex 去 parse regex */
 function pickRegex(line) {
   const t = line.trim();
-  if (!t.startsWith('if (') && !t.startsWith('[')) return null;
+  if (!BRANCH_LINE.test(t) && !t.startsWith('[')) return null;
   const at = ['.test(full)', '.test(desc)'].map(k => t.indexOf(k)).find(i => i >= 0);
   const cut = at === undefined ? t : t.slice(0, at);
   const start = cut.indexOf('/');
   const end = cut.lastIndexOf('/');
   if (start < 0 || end <= start) return null;
-  try { return new RegExp(cut.slice(start + 1, end), cut.slice(end + 1).replace(/[^a-z]/g, '').replace('g', '')) }
+  // ⚠️ flags 只能取緊接在結尾斜線之後的那幾個字母。
+  // 不能整段 replace(/[^a-z]/g,'')——detectManual 那些行長這樣：
+  //   [/現場.*handpay/i, '需要現場 handpay 操作'],
+  // 訊息字串裡的 "handpay" 會一起被當成 flags，new RegExp 拋錯，整條 pattern 就被
+  // 默默丟掉。丟掉 detectManual 的 pattern = 把本來就標人工判讀的 TC 誤算成假通過。
+  const flags = (cut.slice(end + 1).match(/^[a-z]*/) ?? [''])[0].replace('g', '');
+  try { return new RegExp(cut.slice(start + 1, end), flags) }
   catch { return null }
 }
 
 const regexOf = {};
 for (const [name, body] of Object.entries(bodies)) {
   regexOf[name] = body
-    .filter(l => l.trim().startsWith('if (') && /\.test\((full|desc)\)/.test(l))
+    .filter(l => BRANCH_LINE.test(l.trim()) && /\.test\((full|desc)\)/.test(l))
     .map(pickRegex).filter(Boolean);
 }
 
