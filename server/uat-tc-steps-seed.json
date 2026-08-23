@@ -1,0 +1,240 @@
+{
+  "kind": "toppath-uat-tc-steps",
+  "version": 1,
+  "count": 15,
+  "steps": {
+    "recvenTprA8xbL": [
+      {
+        "action": "open_page",
+        "subtype": "Dashboard",
+        "waitMs": 1500
+      },
+      {
+        "action": "read_block",
+        "selector": ".meter",
+        "labels": [
+          "Online Total In",
+          "Online Total Out",
+          "Online Total Bet Coin",
+          "Online Total Actual Win",
+          "Total Win Lose Ratio"
+        ],
+        "as": "green"
+      },
+      {
+        "action": "assert_filled",
+        "from": "green"
+      },
+      {
+        "action": "screenshot",
+        "name": "tc3_Dashboard"
+      }
+    ],
+    "recvenTprABeZ8": [
+      {
+        "action": "mark_manual",
+        "reason": "需要等待5分鐘觀察更新"
+      }
+    ],
+    "recvenTprAFqZe": [
+      {
+        "action": "open_page",
+        "path": "/egm/egmStatusList"
+      },
+      {
+        "action": "assert_control_exists",
+        "text": "Maintenance",
+        "note": "可維護/喚醒機台"
+      }
+    ],
+    "recvenTprAM9CA": [
+      {
+        "action": "open_page",
+        "path": "/egm/egmList"
+      },
+      {
+        "action": "assert_control_exists",
+        "text": "Batch",
+        "note": "批量設置小面額"
+      }
+    ],
+    "recvenTprARMJa": [
+      {
+        "action": "open_page",
+        "path": "/game/getChannelRankInfo"
+      },
+      {
+        "action": "assert_column_exists",
+        "columns": "Channel Rank",
+        "note": "權位欄位"
+      },
+      {
+        "action": "read_table",
+        "as": "rows",
+        "maxRows": 20
+      }
+    ],
+    "recvenTprAVHSm": [
+      {
+        "action": "open_page",
+        "path": "/game/getChannelRankInfo"
+      },
+      {
+        "action": "assert_column_exists",
+        "columns": "Edit\nDelete",
+        "note": "編輯/刪除操作欄"
+      }
+    ],
+    "recvenTprAcCmK": [
+      {
+        "action": "open_page",
+        "subtype": "Dashboard",
+        "waitMs": 1500
+      },
+      {
+        "action": "read_block",
+        "selector": ".coin",
+        "labels": [
+          "Online Total Player Balance"
+        ],
+        "as": "red"
+      },
+      {
+        "action": "assert_filled",
+        "from": "red"
+      },
+      {
+        "action": "screenshot",
+        "name": "tc4_Dashboard"
+      }
+    ],
+    "recvenTprAcJiv": [
+      {
+        "action": "open_page",
+        "path": "/game/egmJpPercent"
+      },
+      {
+        "action": "assert_column_exists",
+        "columns": "Fortune\nGrand\nMajor\nMinor\nMini",
+        "note": "五個比例欄位"
+      }
+    ],
+    "recvenTprAcwng": [
+      {
+        "action": "open_page",
+        "subtype": "Dashboard",
+        "waitMs": 1500
+      },
+      {
+        "action": "read_block",
+        "selector": ".egm",
+        "labels": [
+          "Total Available EGM",
+          "Total System Connected EGM"
+        ],
+        "as": "blue"
+      },
+      {
+        "action": "assert_filled",
+        "from": "blue"
+      },
+      {
+        "action": "screenshot",
+        "name": "tc1_Dashboard"
+      }
+    ],
+    "recvenTprAgv84": [
+      {
+        "action": "open_page",
+        "path": "/rankinglist/jackpotRanking"
+      },
+      {
+        "action": "assert_column_exists",
+        "columns": "Jackpot Amount"
+      },
+      {
+        "action": "read_table",
+        "as": "rows",
+        "maxRows": 50
+      },
+      {
+        "action": "assert_sorted",
+        "from": "rows",
+        "column": "Jackpot Amount",
+        "direction": "desc"
+      }
+    ],
+    "recvenTprAjUts": [
+      {
+        "action": "open_page",
+        "path": "/game/getWhiteList"
+      },
+      {
+        "action": "assert_control_exists",
+        "text": "White Account",
+        "note": "新增白名單帳號"
+      },
+      {
+        "action": "assert_column_exists",
+        "columns": "Delete",
+        "note": "刪除白名單帳號"
+      }
+    ],
+    "recvenTprAuUlT": [
+      {
+        "action": "open_page",
+        "path": "/game/upJackpotVideo"
+      },
+      {
+        "action": "assert_column_exists",
+        "columns": "Account\nJackpot Amount\nTime",
+        "note": "視頻記錄欄位"
+      }
+    ],
+    "recvenTprAuuPd": [
+      {
+        "action": "open_page",
+        "path": "/game/egmJpPercent"
+      },
+      {
+        "action": "assert_option_count",
+        "labelText": "Channel ID",
+        "min": 2,
+        "note": "Channel ID 可分渠道"
+      }
+    ],
+    "recvenTprAvPmA": [
+      {
+        "action": "open_page",
+        "path": "/rankinglist/dailyRanking"
+      },
+      {
+        "action": "assert_column_exists",
+        "columns": "Total Bet Amount"
+      },
+      {
+        "action": "read_table",
+        "as": "rows",
+        "maxRows": 50
+      },
+      {
+        "action": "assert_sorted",
+        "from": "rows",
+        "column": "Total Bet Amount",
+        "direction": "desc"
+      }
+    ],
+    "recvfklRlp11cQ": [
+      {
+        "action": "open_page",
+        "path": "/game/getChannelRankInfo"
+      },
+      {
+        "action": "assert_dialog_fields",
+        "trigger": "ChannelRankID",
+        "fields": "Machine Type",
+        "note": "可設定渠道顯示 OSM/GSA 機種"
+      }
+    ]
+  }
+}

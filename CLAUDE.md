@@ -1255,7 +1255,7 @@ Backend 測的是 CP／NC 後台管理站，那是一般網站沒有 pinus；掛
 ### 第一階段（v4.26.0）：引擎
 `server/uat-runner/block-engine.js`。registry 一筆 TC 多一個 `steps` 陣列，有就照積木跑、沒有走原路徑。**目前 0 筆 TC 帶 steps，所以行為完全沒變**，只是引擎換好了。
 
-9 顆積木：開啟後台頁面／讀取色塊／讀取表格／欄位必須有值／兩值必須相等／排序必須正確／截圖／標記需人工／內建驗證器。每顆宣告 `params`（前端積木庫與參數表單直接讀 `BLOCK_DEFS`，**不要在前端另抄一份**——抄兩份的結果是「畫面上有這顆積木、跑起來說不認得」）與 `outputKind`/`inputKind`。
+17 顆積木：開啟後台頁面／點擊／輸入文字／套用篩選／讀取色塊／讀取表格／欄位必須有值／兩值必須相等／排序必須正確／控制項必須存在／表格必須有這一欄／下拉選項數量／開對話框檢查欄位／不該出現／截圖／標記需人工／內建驗證器。每顆宣告 `params`（前端積木庫與參數表單直接讀 `BLOCK_DEFS`，**不要在前端另抄一份**——抄兩份的結果是「畫面上有這顆積木、跑起來說不認得」）與 `outputKind`/`inputKind`。
 
 ### 幾條在 review 中定下來、之後不要走回頭路的規則
 - **`onFail: continue` 一樣算失敗**，只是繼續跑好把剩下的問題一次看完。第一版寫成「continue 不計入 criticalFails」，等於驗證失敗卻整筆 TC 顯示通過——**假通過比直接報錯還糟**（CodeX review 抓到）。三種模式的差別只在「要不要繼續」，不在「算不算失敗」。
@@ -1297,15 +1297,36 @@ Backend 測的是 CP／NC 後台管理站，那是一般網站沒有 pinus；掛
 
 **測試**：`server/uat-runner/backend-recorder.test.mjs`（15 項），不開瀏覽器驗轉換邏輯。
 
+### 拆解方法：先跑基準，再比對（v4.32.0 起固定這樣做）
+
+**不要讀完程式碼就宣稱等價。**拆解流程固定三步：① 用同一組子類型過濾跑一次**拆解前**的結果存起來（`data/raw/lark_tc_results.json` 另存成 baseline）② 寫積木 ③ 帶 `UAT_TC_STEPS` 跑同一組，逐筆比對 `pass`／`manual`／`skip`。
+
+這套流程抓到過一個純看程式碼看不出來的 bug：引擎的 `finish()` 原本寫 `pass: criticalFails.length === 0 && !manual`，看起來很合理，但 runner 的計數是 `if (result.pass && result.manual) skipCount++`——也就是 runner 認為「manual 的那些本來就是 pass 且 manual」。引擎那個 `&& !manual` 會讓**每一筆人工判讀的 TC 都變成失敗**。只有比對基準才看得出來。
+
+### 什麼樣的 TC 拆得動（v4.32.0 實際拆過 A 類 41 筆之後的結論）
+
+一開始估「41 筆簡單的可以拆」，實際讀完那 9 支 verifier 之後**剩 13 筆**。差距不是估太樂觀，是分類的依據錯了——當時是照 TC 筆數和印象分的，沒讀程式碼。真正的界線是：
+
+| 拆得動 | 拆不動（留 `builtin_verifier`）|
+|--------|------|
+| 欄位存在、控制項存在、下拉選項數、排序、開對話框看欄位 | 跨頁流程（Jackpot Abnormality 補發後回頭查 Ranking）|
+| 也就是「打開頁面，看畫面上有沒有這個東西」 | 前後狀態比較（切 Online Type 前後 rowCount 變化）|
+| | 檔案下載後解析內容比對（CSV/xlsx 匯出）|
+| | 改資料再改回來（batch set 之後還原）|
+
+**8 筆本來就是 MANUAL 的不要拆**——拆完還是 manual，白做。
+
+**三筆原本是 note-only**（`notes.push(hasBtn ? '✅' : '⚠️未找到')`，查不到也不會失敗）拆成積木後會**真的失敗**。這是刻意的：原本那樣等於沒在驗。要改行為就要講出來，不能混在「等價轉換」裡帶過去。
+
 ### 後續階段
 | 階段 | 內容 |
 |------|------|
 | 2 | `SUBTYPE_MAP` 的路徑表搬進 registry；逐支 verifier 宣告參數表（容差、等待時間、比對欄位清單），接成 `builtin_verifier` 的 `options` |
-| 3 | 前端積木編輯器（複用 `BlockEditor.tsx` 換一套積木定義）。**一定要支援「複製積木到另一筆 TC」**——121 筆只對應 23 支 verifier，同一支底下步驟高度重複，沒有複製就是 121 次手工 |
-| 4 | 逐筆把 TC 拆成積木；拆完移除 `verifierName`／`SUBTYPE_MAP`／`BUILTIN_VERIFIERS` |
+| 3 | ✅ 前端積木編輯器（彈框，含積木庫搜尋、複製到另一筆 TC、匯出／匯入）|
+| 4 | 逐筆把 TC 拆成積木。**剩下的大宗是四支大 verifier**（`verifyReportPage` 28 筆／`verifyGameSettingPage` 19／`verifyMachineReservation` 19／`verifyMeterPage` 10 = 76 筆），這些是參數化模組的目標不是逐顆積木的目標 |
 
 ### 測試
-`server/uat-runner/block-engine.test.mjs`（`node server/uat-runner/block-engine.test.mjs`），35 項，用假 ctx 不開瀏覽器。**改動執行器語意時一定要先跑它**——這裡守的是「失敗不能變成通過」那條線。
+`server/uat-runner/block-engine.test.mjs`（`node server/uat-runner/block-engine.test.mjs`），57 項，用假 ctx 不開瀏覽器。**改動執行器語意時一定要先跑它**——這裡守的是「失敗不能變成通過」那條線。
 
 ---
 

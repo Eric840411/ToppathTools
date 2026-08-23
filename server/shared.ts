@@ -1731,6 +1731,26 @@ db.exec(`
   )
 `)
 
+// 若 server/uat-tc-steps-seed.json 存在，補齊缺少的 TC 積木。
+// 積木存在各環境自己的 DB，拆解成果不會自己跑到正式環境——沒有這個種子檔，
+// 拆好的積木只活在拆的人那台機器上。用 INSERT OR IGNORE：已經在 DB 裡的
+// （含使用者自己編輯過的）一律不動，種子只補「這個環境還沒有的那幾筆」。
+{
+  const stepsSeedPath = join(SERVER_ROOT, 'uat-tc-steps-seed.json')
+  if (existsSync(stepsSeedPath)) {
+    try {
+      const seed = JSON.parse(readFileSync(stepsSeedPath, 'utf-8')) as { steps?: Record<string, unknown[]> }
+      const entries = Object.entries(seed.steps ?? {})
+      const ins = db.prepare('INSERT OR IGNORE INTO uat_tc_steps (record_id, steps, updated_by, updated_at) VALUES (?, ?, ?, ?)')
+      const now = Date.now()
+      for (const [recordId, steps] of entries) {
+        if (Array.isArray(steps) && steps.length) ins.run(recordId, JSON.stringify(steps), 'seed', now)
+      }
+      console.log(`[DB] 已從 uat-tc-steps-seed.json 補齊缺少的 TC 積木（來源 ${entries.length} 筆）`)
+    } catch { /* 忽略 */ }
+  }
+}
+
 /** 全部 TC 的積木，recordId → steps。空陣列的不會出現在結果裡 */
 export function listUatTcSteps(): Record<string, unknown[]> {
   const rows = db.prepare('SELECT record_id, steps FROM uat_tc_steps').all() as { record_id: string; steps: string }[]

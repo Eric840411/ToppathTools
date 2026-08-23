@@ -87,9 +87,20 @@ export const BLOCK_DEFS = {
     label: '下拉選項數量', category: 'assert', defaultOnFail: 'stop',
     description: '下拉選單要存在，選項數量要符合',
     params: [
-      { key: 'selector', label: '下拉 selector', type: 'text', required: true, placeholder: 'select' },
+      { key: 'labelText', label: '用欄位標籤定位（建議）', type: 'text', placeholder: 'Channel ID', help: '同一頁常有好幾個下拉，抓「第一個」會抓錯。填標籤文字就會找那個標籤旁邊的下拉' },
+      { key: 'selector', label: '下拉 selector', type: 'text', placeholder: '.el-select .el-input__inner', help: '沒填標籤時才用' },
       { key: 'min', label: '至少幾個', type: 'number', default: 1 },
       { key: 'max', label: '最多幾個（留空不限）', type: 'number' },
+      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'manual'], default: 'stop' },
+    ],
+  },
+  assert_dialog_fields: {
+    label: '開對話框檢查欄位', category: 'assert', defaultOnFail: 'stop',
+    description: '點一個按鈕把對話框叫出來，確認裡面有這些欄位，然後關掉',
+    params: [
+      { key: 'trigger', label: '要點的按鈕文字', type: 'text', required: true, placeholder: 'Add' },
+      { key: 'fields', label: '對話框裡該有的欄位（一行一個）', type: 'textarea', required: true },
+      { key: 'scope', label: '按鈕在哪', type: 'select', options: ['page', 'firstRow'], default: 'page', help: 'firstRow 只在表格第一列裡找（例如每列各自的 Edit）' },
       { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'manual'], default: 'stop' },
     ],
   },
@@ -378,12 +389,25 @@ export async function runSteps(steps, ctx) {
       } else if (step.action === 'assert_option_count') {
         // 實測後台頁面 document.querySelectorAll('select').length === 0——Element UI 用的是
         // 自訂下拉，選項要展開才會出現在 .el-select-dropdown__item。所以先點開再數。
-        if (step.selector) {
-          await ctx.page.locator(step.selector).first().click({ timeout: 5000 }).catch(() => { /* 不是可點的就算了 */ });
-          await ctx.page.waitForTimeout(400);
-        }
-        const count = await ctx.page.evaluate(({ selector }) => {
-          const el = document.querySelector(selector);
+        // 有 labelText 就照 verifier 的做法：先找那個標籤，再取它同一個 form-item 裡的下拉。
+        // 抓「頁面第一個 .el-select」會在多下拉的頁面抓錯——EGM JP Percent 就是這樣數到 0 個選項的。
+        const opened = await ctx.page.evaluate(({ labelText, selector }) => {
+          let el = null;
+          if (labelText) {
+            const label = [...document.querySelectorAll('label, span, .el-form-item__label')]
+              .find(l => (l.innerText || '').trim() === labelText);
+            el = label?.closest('.el-form-item, div')?.querySelector('.el-select .el-input__inner, select');
+          }
+          if (!el && selector) el = document.querySelector(selector);
+          if (!el) return false;
+          el.click();
+          window.__uatOptionTarget = el;
+          return true;
+        }, { labelText: step.labelText || '', selector: step.selector || '' });
+        if (!opened) { if (fail(step, `${tag}：找不到下拉（${step.labelText || step.selector || '未指定'}）`) === 'stop') break; continue }
+        await ctx.page.waitForTimeout(500);
+        const count = await ctx.page.evaluate(() => {
+          const el = window.__uatOptionTarget;
           if (el && el.options) return el.options.length;                       // 原生 select
           const inEl = el ? el.querySelectorAll('option, li').length : 0;
           if (inEl) return inEl;
@@ -392,15 +416,71 @@ export async function runSteps(steps, ctx) {
             .filter(p => p.style.display !== 'none');
           const items = panels.flatMap(p => [...p.querySelectorAll('.el-select-dropdown__item')]);
           if (items.length) return items.length;
-          return el ? 0 : null;
-        }, { selector: step.selector });
-        if (count === null) { if (fail(step, `${tag}：找不到下拉 ${step.selector}`) === 'stop') break; continue }
+          return 0;
+        });
         const min = step.min === undefined ? 1 : Number(step.min);
         const max = step.max === undefined || step.max === '' ? null : Number(step.max);
         if (count < min || (max !== null && count > max)) {
           if (fail(step, `${tag}：選項數 ${count} 不在 ${min}~${max ?? '∞'} 之間`) === 'stop') break; continue;
         }
         notes.push(`✅ ${tag}：${count} 個選項`);
+
+      } else if (step.action === 'assert_dialog_fields') {
+        // 這是既有 verifier 裡重複最多次的一段：點 Add/Edit → 等對話框 → 讀
+        // .el-form-item__label → 比對該有的欄位 → 關掉。八支 verifier 各抄了一份，
+        // 所以做成一顆積木而不是讓使用者用 click + 三顆斷言自己拼。
+        const want = toLines(step.fields);
+        const opened = await ctx.page.evaluate(({ trigger, scope }) => {
+          // 後台登入後有一個站台層級的警告彈窗（「Currently N machines are abnormal」）
+          // 會一直開著。不先把「現在已經開著的」標記起來，等一下就會抓到它而不是我們
+          // 點開的那個——症狀是欄位讀成空的，看起來像對話框沒有欄位。
+          for (const d of document.querySelectorAll('.el-dialog, .el-drawer')) {
+            if (d.getBoundingClientRect().width > 0) d.setAttribute('data-uat-preexisting', '1');
+          }
+          const root = scope === 'firstRow'
+            ? document.querySelector('.el-table__body tr')
+            : document;
+          if (!root) return 'no-row';
+          const needle = String(trigger).toLowerCase();
+          const btn = [...root.querySelectorAll('button, .el-button, a')]
+            .find(b => (b.innerText || '').trim().toLowerCase().includes(needle));
+          if (!btn) return 'no-button';
+          btn.click();
+          return 'ok';
+        }, { trigger: step.trigger, scope: step.scope ?? 'page' });
+        if (opened !== 'ok') {
+          if (fail(step, `${tag}：${opened === 'no-row' ? '表格沒有任何列' : `找不到按鈕「${step.trigger}」`}`) === 'stop') break; continue;
+        }
+        await ctx.page.waitForTimeout(800);
+        // 對話框可能疊很多層，且關掉的那些還留在 DOM 裡（display 不一定是 none），
+        // 所以用「畫得出寬度」來判斷哪個是真的開著的，取最後一個＝最上層
+        const labels = await ctx.page.evaluate(() => {
+          const dialogs = [...document.querySelectorAll('.el-dialog, .el-drawer')]
+            .filter(d => d.getBoundingClientRect().width > 0 && !d.hasAttribute('data-uat-preexisting'));
+          const dialog = dialogs[dialogs.length - 1];
+          if (!dialog) return null;
+          return [...dialog.querySelectorAll('.el-form-item__label, label')]
+            .map(l => (l.innerText || '').replace(/[\s*:：]/g, '')).filter(Boolean);
+        });
+        const closeDialog = async () => {
+          await ctx.page.evaluate(() => {
+            const dialogs = [...document.querySelectorAll('.el-dialog, .el-drawer')]
+              .filter(d => d.getBoundingClientRect().width > 0 && !d.hasAttribute('data-uat-preexisting'));
+            const dialog = dialogs[dialogs.length - 1];
+            if (!dialog) return;
+            const x = dialog.querySelector('.el-dialog__headerbtn, .el-drawer__close-btn');
+            if (x) { x.click(); return }
+            const btn = [...dialog.querySelectorAll('button')]
+              .find(b => /^(close|cancel|取消|關閉)$/i.test((b.innerText || '').trim()));
+            btn?.click();
+          });
+          await ctx.page.waitForTimeout(400);
+        };
+        if (labels === null) { await closeDialog(); if (fail(step, `${tag}：點了「${step.trigger}」但對話框沒開起來`) === 'stop') break; continue }
+        const missing = want.filter(w => !labels.some(l => l.toLowerCase().includes(String(w).replace(/[\s*:：]/g, '').toLowerCase())));
+        await closeDialog();
+        if (missing.length) { if (fail(step, `${tag}：對話框缺少 ${missing.join('、')}（實際有：${labels.join('、').slice(0, 120)}）`) === 'stop') break; continue }
+        notes.push(`✅ ${tag}：${step.trigger} 對話框有 ${want.join('、')}`);
 
       } else if (step.action === 'assert_absent') {
         // selector 與 text 至少要有一個，兩個都空的話這顆積木什麼都沒檢查卻會顯示通過

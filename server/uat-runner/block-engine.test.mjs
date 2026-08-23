@@ -272,6 +272,44 @@ const BLUE = { 'Total Available EGM': '5', 'Total System Connected EGM': '2' };
   check('找不到下拉 → FAIL', (await runSteps([{ action: 'assert_option_count', selector: 'select' }], none)).pass === false)
 }
 
+// ── assert_dialog_fields ───────────────────────────────────────────────
+// 這顆有三次 page.evaluate（開→讀→關），假 ctx 用呼叫序號回不同結果
+function dialogCtx(seq) {
+  const ctx = makeCtx();
+  let i = 0;
+  ctx.page.evaluate = async () => seq[Math.min(i++, seq.length - 1)];
+  return ctx;
+}
+{
+  const ok = await runSteps(
+    [{ action: 'assert_dialog_fields', trigger: 'Add', fields: `Account
+Jackpot` }],
+    dialogCtx(['ok', ['Account', 'JackpotAmount', 'Note'], null]));
+  check('對話框有全部欄位 → pass', ok.pass === true, ok.notes)
+
+  const miss = await runSteps(
+    [{ action: 'assert_dialog_fields', trigger: 'Add', fields: `Account
+Jackpot` }],
+    dialogCtx(['ok', ['Account', 'Note'], null]));
+  check('對話框缺欄位 → FAIL 且指出缺哪個', miss.pass === false && /Jackpot/.test(miss.criticalFails.join('')), miss.criticalFails)
+
+  const noBtn = await runSteps(
+    [{ action: 'assert_dialog_fields', trigger: 'Add', fields: 'Account' }],
+    dialogCtx(['no-button']));
+  check('找不到按鈕 → FAIL', noBtn.pass === false && /Add/.test(noBtn.criticalFails.join('')), noBtn.criticalFails)
+
+  const noOpen = await runSteps(
+    [{ action: 'assert_dialog_fields', trigger: 'Add', fields: 'Account' }],
+    dialogCtx(['ok', null, null]));
+  check('點了但對話框沒開 → FAIL', noOpen.pass === false, noOpen.criticalFails)
+
+  // 欄位標籤常帶 * 與冒號（Element UI 必填標記），比對前兩邊都要正規化
+  const star = await runSteps(
+    [{ action: 'assert_dialog_fields', trigger: 'Add', fields: 'Machine Type' }],
+    dialogCtx(['ok', ['MachineType', 'ChannelId'], null]));
+  check('標籤含必填星號/冒號也要比對得到', star.pass === true, star.notes)
+}
+
 // ── 17. 純函式 ─────────────────────────────────────────────────────────
 check('toNumber 去掉貨幣與千分位', toNumber('PHP 15,024,840') === 15024840);
 check('toNumber 處理負數', toNumber('-258') === -258);

@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.32.0'
+export const APP_VERSION = '4.33.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.33.0',
+    date: '2026-08-23',
+    changes: [
+      'feat(uat): 41 筆 A 類 TC 拆掉 11 筆成積木，逐筆跟拆解前的結果比對過，41/41 完全一致（PASS/MANUAL/SKIP 都沒變）',
+      'feat(uat): 新增「開對話框檢查欄位」積木——點按鈕→等對話框→比對欄位→關掉，這段在八支 verifier 裡各抄了一份',
+      'fix(uat): 對話框積木只認「點擊之後才出現」的那個。後台登入後有一個站台層級的警告彈窗（Currently N machines are abnormal）一直開著，取「最後一個開著的」會取到它，症狀是欄位永遠讀成空的',
+      'fix(uat): 下拉選項數量積木改用欄位標籤定位。同一頁好幾個下拉時抓第一個會抓錯——EGM JP Percent 就是這樣數到 0 個選項',
+      'feat(uat): 積木改用種子檔隨程式碼帶到各環境（server/uat-tc-steps-seed.json）。積木存在各環境自己的 DB，沒有這個檔的話拆解成果只活在拆的人那台機器上；已在 DB 裡的一律不覆蓋',
+    ],
+  },
   {
     version: '4.32.0',
     date: '2026-08-23',
