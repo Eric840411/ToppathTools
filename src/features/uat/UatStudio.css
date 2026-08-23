@@ -341,7 +341,7 @@
 /* 三欄各自捲動、一起吃掉剩下的高度——整個彈框不捲，只有欄位內部捲，
    不然拉到一半會找不到剛剛在編的那顆積木 */
 .uat-tc-editor-body {
-  display: grid; grid-template-columns: 224px minmax(0, 1fr) 268px; gap: 12px;
+  display: grid; grid-template-columns: 208px minmax(0, 1fr) 288px; gap: 12px;
   flex: 1; min-height: 0;
 }
 .uat-tc-blocks, .uat-tc-steps, .uat-tc-inspector {
@@ -418,3 +418,19 @@
 /* 只存在於離線快照、這次掃描沒在 Lark 上找到的 TC——多半已被移除，
    直接讓它消失的話使用者會以為自己編的積木不見了 */
 .uat-backend-tc-stale { margin-right: 6px; padding: 1px 6px; border-radius: 999px; color: #d99e22; background: color-mix(in srgb, #d99e22 14%, transparent); font-size: 11px; font-weight: 700; }
+
+/* 積木庫搜尋：13 顆還好，之後變多要找得到 */
+.uat-tc-blocks h4 { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+.uat-tc-block-search { width: 96px; height: 26px; padding: 3px 8px; font-size: 11px; font-weight: 400; }
+.uat-tc-blocks-empty { margin: 14px 4px; color: var(--uat-muted); font-size: 11px; text-align: center; }
+
+/* 空狀態：講清楚下一步怎麼做，不要只說「尚未加入」 */
+.uat-tc-steps-empty { padding: 22px 18px; }
+.uat-tc-steps-empty span { max-width: 42ch; line-height: 1.7; }
+.uat-tc-steps-empty ol { margin: 12px 0 0; padding-left: 18px; text-align: left; color: var(--uat-muted); font-size: 11px; line-height: 1.9; }
+
+/* 「這顆沒過的話」：表單只講填什麼，這裡講失敗會怎樣 */
+.uat-tc-outcome { margin: 4px 0 12px; padding: 9px 11px; border-left: 3px solid var(--uat-primary); border-radius: 0 6px 6px 0; background: var(--uat-panel); }
+.uat-tc-outcome h5 { margin: 0 0 4px; color: var(--uat-primary); font-size: 11px; font-weight: 700; }
+.uat-tc-outcome p { margin: 0; color: var(--uat-text); font-size: 11px; font-weight: 400; line-height: 1.65; }
+

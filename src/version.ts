@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.29.0'
+export const APP_VERSION = '4.29.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.29.1',
+    date: '2026-08-23',
+    changes: [
+      'feat(uat): 積木庫加搜尋——比對標籤、說明與 action 名稱（使用者可能記得中文標籤，也可能記得 JSON 裡看過的 action key），找不到時明講「沒有符合的積木」',
+      'feat(uat): 參數欄新增「這顆沒過的話」白話說明，跟著 onFail 即時變。表單上只有 stop/continue/manual 三個字對不熟的人等於沒說，尤其 continue 最容易被誤會成放行——說明裡直接寫「整筆 TC 仍然是 FAIL，不是放行」',
+      'feat(uat): 步驟欄空狀態改成列出三種加積木的方式（積木庫／錄製／從其他 TC 複製），並說明「目前走內建驗證器，加了積木才改照積木跑」，不再只寫一句「尚未加入」',
+      'fix(uat): 彈框欄寬調成 208/1fr/288——積木庫窄一點、參數欄寬一點，中間的步驟欄拿到更多空間',
+    ],
+  },
   {
     version: '4.29.0',
     date: '2026-08-23',

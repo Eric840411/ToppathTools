@@ -66,6 +66,7 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose }: {
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ text: string; tone: 'ok' | 'error' } | null>(null)
   const [copyFrom, setCopyFrom] = useState('')
+  const [blockQuery, setBlockQuery] = useState('')
   const [recSession, setRecSession] = useState<string | null>(null)
   const [recCount, setRecCount] = useState(0)
   const [verifierName, setVerifierName] = useState<string | null>(null)
@@ -208,14 +209,18 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose }: {
   }
 
   const grouped = useMemo(() => {
+    // 搜尋比對標籤、說明與 action 名稱——使用者可能記得的是中文標籤，
+    // 也可能記得的是 JSON 裡看過的 action key
+    const q = blockQuery.trim().toLowerCase()
     const out = new Map<string, { action: string; def: BlockDef }[]>()
     for (const [action, def] of Object.entries(blockDefs)) {
+      if (q && ![def.label, def.description, action].some(v => v.toLowerCase().includes(q))) continue
       const list = out.get(def.category) ?? []
       list.push({ action, def })
       out.set(def.category, list)
     }
     return out
-  }, [blockDefs])
+  }, [blockDefs, blockQuery])
 
   const copyCandidates = allTcs.filter(t => t.recordId !== tc.recordId && t.stepCount > 0)
   const current = selected !== null ? steps[selected] : null
@@ -274,7 +279,12 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose }: {
 
       <div className="uat-tc-editor-body">
         <aside className="uat-tc-blocks">
-          <h4>{xianxia ? '術式庫' : '積木庫'}</h4>
+          <h4>
+            {xianxia ? '術式庫' : '積木庫'}
+            <input className="uat-field uat-tc-block-search" value={blockQuery} placeholder="搜尋…"
+              onChange={event => setBlockQuery(event.target.value)} />
+          </h4>
+          {!grouped.size && <p className="uat-tc-blocks-empty">沒有符合「{blockQuery}」的積木</p>}
           {[...grouped.entries()].map(([category, items]) => (
             <section key={category}>
               <h5>{CATEGORY_LABEL[category] ?? category}</h5>
@@ -313,7 +323,12 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose }: {
           }) : (
             <div className="uat-tc-steps-empty">
               <strong>尚未加入積木</strong>
-              <span>從左邊點一顆加入，或從其他 TC 複製一份過來</span>
+              <span>這筆 TC 目前走的是內建驗證器，加了積木之後才改照積木跑。</span>
+              <ol>
+                <li>從左邊的積木庫點一顆加入</li>
+                <li>或按右上角「錄製」，操作一次後台自動產生</li>
+                <li>或用下面的下拉選單複製其他 TC 的積木</li>
+              </ol>
             </div>
           )}
 
@@ -371,6 +386,12 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose }: {
                   {prm.help && <small>{prm.help}</small>}
                 </label>
               ))}
+              {/* 表單只講「填什麼」，這裡講「失敗會怎樣」——那才是使用者真正在決定的事 */}
+              <div className="uat-tc-outcome">
+                <h5>這顆沒過的話</h5>
+                <p>{outcomeText(String(current.onFail ?? currentDef.defaultOnFail ?? 'stop'), currentDef.category)}</p>
+              </div>
+
               {/* onFail 不是每顆積木都宣告，但每顆都吃得到，所以固定給一個 */}
               {!(currentDef.params ?? []).some(prm => prm.key === 'onFail') && (
                 <label className="uat-tc-field">
@@ -395,6 +416,28 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose }: {
       </div>
     </div>
   ), document.body)
+}
+
+/**
+ * 把 onFail 翻成白話。使用者在參數欄真正要決定的是「這顆沒過會怎樣」，
+ * 但表單上只看得到 stop/continue/manual 三個字，對不熟的人等於沒說。
+ * 特別要講清楚 continue 一樣算失敗——那是最容易被誤會成「放行」的一個。
+ */
+function outcomeText(onFail: string, category: string) {
+  const isAction = category === 'nav' || category === 'read' || category === 'evidence'
+  if (onFail === 'continue') {
+    return isAction
+      ? '這一步做不到時記一筆失敗，但後面的積木照跑。整筆 TC 仍然是 FAIL。'
+      : '條件不成立時記一筆失敗，但後面的積木照跑——想一次看完所有問題時用。整筆 TC 仍然是 FAIL，不是放行。'
+  }
+  if (onFail === 'manual') {
+    return isAction
+      ? '這一步做不到時不算失敗，整筆 TC 收斂成「需人工」。'
+      : '條件不成立時不算失敗，整筆 TC 收斂成「需人工」——代表機器判不了，不是判定它錯了。'
+  }
+  return isAction
+    ? '這一步做不到時整筆 TC 直接 FAIL，後面的積木不再執行。'
+    : '條件不成立時整筆 TC 直接 FAIL，後面的積木不再執行。'
 }
 
 function toText(value: unknown) {
