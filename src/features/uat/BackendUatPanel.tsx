@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { BACKEND_MODULES, createBackendModule, createCustomBackendModule, createDefaultBackendPlan, matchesBackendModule } from './backend-modules'
 import type { BackendModuleId, BackendModuleTone, BackendPlanModule, RunStatus, TcGroup, UatConfig, UatThemeMode } from './types'
 import { NetworkPanel, type UatStatsPayload } from './NetworkPanel'
-import { BackendTcEditor, type BackendTc } from './BackendTcEditor'
+import { BackendTcEditor, type BackendTc, type Step } from './BackendTcEditor'
 
 const STORAGE_KEY = 'osm_uat_config'
 const TONES: BackendModuleTone[] = ['blue', 'cyan', 'violet', 'amber', 'orange', 'green', 'rose', 'slate']
@@ -81,6 +81,13 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const [tcs, setTcs] = useState<BackendTc[]>([])
   const [expandedModule, setExpandedModule] = useState<string | null>(null)
   const [selectedTcId, setSelectedTcId] = useState<string | null>(null)
+  // 工作台層級的錄製：不用先選 TC，停止之後才問積木要放哪一筆。
+  // 錄製本身跟 TC 完全無關（後端也不再需要 recordId），先選 TC 只是舊 UI 的包袱。
+  const [recSession, setRecSession] = useState<string | null>(null)
+  const [recCount, setRecCount] = useState(0)
+  const [recMsg, setRecMsg] = useState('')
+  const [pendingSteps, setPendingSteps] = useState<Step[] | null>(null)
+  const [pickerQuery, setPickerQuery] = useState('')
   const [tcSnapshotAt, setTcSnapshotAt] = useState<string | null>(null)
   const [tcScanned, setTcScanned] = useState(false)
   // 掛載就載入 registry 快照的 TC 清單——編積木需要的東西快照裡都有，
@@ -213,6 +220,55 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
 
   const selectedTc = tcs.find(tc => tc.recordId === selectedTcId) ?? null
 
+  const startWorkbenchRecord = async () => {
+    setRecMsg('正在開啟後台並登入…')
+    try {
+      const response = await fetch('/api/osm-uat/record/start', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+      })
+      const data = await response.json() as { ok: boolean; sessionId?: string; message?: string }
+      if (!data.ok || !data.sessionId) { setRecMsg(data.message ?? '錄製啟動失敗'); return }
+      setRecSession(data.sessionId); setRecCount(0)
+      setRecMsg('錄製中：在開啟的視窗操作；要標檢查條件就按住 Alt 點那個元素')
+    } catch { setRecMsg('錄製啟動失敗') }
+  }
+
+  const finishWorkbenchRecord = useCallback(async (sessionId: string) => {
+    setRecSession(null)
+    try {
+      const response = await fetch(`/api/osm-uat/record/stop/${sessionId}`, { method: 'POST' })
+      const data = await response.json() as { ok: boolean; steps?: Step[]; hasAssertion?: boolean }
+      const recorded = data.steps ?? []
+      if (!recorded.length) { setRecMsg('這次沒有錄到任何操作'); return }
+      // 沒有斷言的腳本跑起來永遠 PASS，那不是測試是重播——問清楚而不是安靜收下
+      if (!data.hasAssertion) {
+        const warn = `錄到 ${recorded.length} 顆積木，但一個檢查條件都沒有。\n\n`
+          + '這樣的腳本跑起來永遠 PASS（等於只是重播操作，不會驗任何東西）。\n'
+          + '仍要保留嗎？（也可以取消，重錄時按住 Alt 點元素標檢查條件）'
+        if (!window.confirm(warn)) { setRecMsg('已捨棄這次錄製'); return }
+      }
+      setPendingSteps(recorded)
+      setPickerQuery('')
+      setRecMsg(`錄到 ${recorded.length} 顆積木，選一筆 TC 放進去`)
+    } catch { setRecMsg('取得錄製結果失敗') }
+  }, [])
+
+  // 錄製期間輪詢：讓按鈕看得出已經錄到幾顆；使用者自己關掉瀏覽器時也要收尾
+  useEffect(() => {
+    if (!recSession) return
+    let stopped = false
+    const timer = window.setInterval(async () => {
+      try {
+        const response = await fetch(`/api/osm-uat/record/status/${recSession}`)
+        const data = await response.json() as { ok: boolean; done?: boolean; steps?: Step[] }
+        if (!data.ok || stopped) return
+        setRecCount(data.steps?.length ?? 0)
+        if (data.done) { stopped = true; window.clearInterval(timer); void finishWorkbenchRecord(recSession) }
+      } catch { /* 一次查不到不用中斷輪詢 */ }
+    }, 2000)
+    return () => { stopped = true; window.clearInterval(timer) }
+  }, [recSession, finishWorkbenchRecord])
+
   const updateModule = (instanceId: string, patch: Partial<BackendPlanModule>) => update({
     modulePlan: config.modulePlan.map(module => module.instanceId === instanceId ? { ...module, ...patch } : module),
   })
@@ -310,7 +366,7 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
       <main className="uat-backend-flow">
         <div className="uat-backend-flow-head">
           <div className="uat-section-title"><span>{xianxia ? 'TRIAL SEQUENCE' : 'EXECUTION FLOW'}</span><h3>{xianxia ? '推演順序' : '執行流程'} <small>{config.modulePlan.length + 1} 個模組</small></h3><p>拖曳調整順序；點選卡片可編輯名稱、說明與 TC 匹配規則。</p></div>
-          <div className="uat-backend-flow-actions"><button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={addCustomModule}>新增模組</button><button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => { const plan = createDefaultBackendPlan(); update({ modulePlan: plan }); setSelectedModuleId(plan[0]?.instanceId ?? null) }}>還原預設</button><button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => { update({ modulePlan: [] }); setSelectedModuleId(null); setSettingsView('run') }}>清空流程</button></div>
+          <div className="uat-backend-flow-actions"><button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={addCustomModule}>新增模組</button><button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => { const plan = createDefaultBackendPlan(); update({ modulePlan: plan }); setSelectedModuleId(plan[0]?.instanceId ?? null) }}>還原預設</button><button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => { update({ modulePlan: [] }); setSelectedModuleId(null); setSettingsView('run') }}>清空流程</button>{recSession ? <button type="button" className="uat-btn is-danger" onClick={() => void finishWorkbenchRecord(recSession)}>停止錄製（{recCount} 顆）</button> : <button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => void startWorkbenchRecord()}>錄製</button>}</div>
         </div>
         <div className="uat-backend-module-list">
           <article className="uat-backend-module is-fixed is-cyan"><span className="uat-backend-module-grip" aria-hidden="true"><i /><i /><i /></span><div><strong>{xianxia ? '共用登入傀儡' : '共用登入與初始化'}</strong><small>取得 Lark token、載入 TC registry、啟動 Chromium 並登入 CP Backend</small></div><em>固定</em></article>
@@ -425,6 +481,43 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
         </>}
       </aside>
 
+      {recMsg && <div className="uat-backend-rec-bar">{recSession && <i />}{recMsg}</div>}
+
+      {/* 錄完才問要放哪一筆：先錄下來、再決定它屬於哪個 TC，比先選再錄更接近實際流程 */}
+      {pendingSteps && (
+        <div className="uat-studio uat-tc-modal" role="dialog" aria-modal="true"
+          onMouseDown={event => { if (event.target === event.currentTarget) setPendingSteps(null) }}>
+          <div className="uat-tc-picker">
+            <div className="uat-tc-picker-head">
+              <div>
+                <span className="uat-net-kicker">RECORDED</span>
+                <h3>錄到 {pendingSteps.length} 顆積木</h3>
+                <small>選一筆 TC 接上去。接上之後可以再編輯，確認沒問題才按儲存。</small>
+              </div>
+              <button type="button" className="uat-btn is-quiet" onClick={() => setPendingSteps(null)}>捨棄</button>
+            </div>
+            <input className="uat-field" value={pickerQuery} placeholder="搜尋 TC 描述或子類型…"
+              onChange={event => setPickerQuery(event.target.value)} />
+            <div className="uat-tc-picker-list">
+              {tcs
+                .filter(tc => {
+                  const q = pickerQuery.trim().toLowerCase()
+                  return !q || [tc.text, tc.sub, tc.recordId].some(v => v.toLowerCase().includes(q))
+                })
+                .slice(0, 80)
+                .map(tc => (
+                  <button type="button" className="uat-backend-tc" key={tc.recordId}
+                    onClick={() => { setSelectedTcId(tc.recordId) }}>
+                    <span title={tc.text}>[{tc.sub || '未分類'}] {tc.text || tc.recordId}</span>
+                    <em className={tc.stepCount ? 'has-steps' : ''}>{tc.stepCount ? `${tc.stepCount} 積木` : '內建'}</em>
+                  </button>
+                ))}
+              {!tcs.length && <div className="uat-backend-tc-more">TC 清單還沒載入</div>}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 積木編輯器改成彈框：三欄（積木庫／步驟／參數）在工作台的欄位裡怎麼放都太窄，
           彈框才拿得到整個視窗的寬度 */}
       {selectedTc && (
@@ -432,6 +525,8 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
           tc={selectedTc}
           allTcs={tcs}
           themeMode={themeMode}
+          pendingSteps={pendingSteps}
+          onPendingConsumed={() => { setPendingSteps(null); setRecMsg('') }}
           onClose={() => setSelectedTcId(null)}
           onSaved={(recordId, stepCount) => setTcs(prev => prev.map(t => t.recordId === recordId ? { ...t, stepCount } : t))}
         />

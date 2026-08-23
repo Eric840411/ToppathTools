@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.29.1'
+export const APP_VERSION = '4.30.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.30.0',
+    date: '2026-08-23',
+    changes: [
+      'feat(uat): 錄製按鈕移到工作台工具列，不用先選一筆 TC 才能開錄——錄製本身跟 TC 完全無關（後端收的 recordId 存進 session 之後從來沒被讀過），先選 TC 純粹是把錄製做在編輯器裡留下的門檻',
+      'feat(uat): 停止錄製後才問「放到哪一筆 TC」，跳一個帶搜尋的選擇器（121 筆一定要能搜）；選定後積木接到那筆後面並開啟編輯器，刻意不自動儲存，讓人看過再按儲存',
+      'feat(uat): 編輯器裡的錄製按鈕保留——已經在編某一筆時直接錄進去比較順，不用再選一次',
+      'fix(uat): 後端 /api/osm-uat/record/start 的 recordId 改成選填（原本沒帶就 400）',
+      'feat(uat): 錄製期間工作台頂端顯示狀態列（閃爍紅點 + 目前已錄幾顆 + Alt 標斷言的提示）',
+    ],
+  },
   {
     version: '4.29.1',
     date: '2026-08-23',

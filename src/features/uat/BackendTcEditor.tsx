@@ -43,13 +43,13 @@ interface BlockDef {
   defaultOnFail?: string
 }
 
-type Step = Record<string, unknown> & { action: string }
+export type Step = Record<string, unknown> & { action: string }
 
 const CATEGORY_LABEL: Record<string, string> = {
   nav: '導航', read: '讀取', assert: '驗證', compare: '比對', evidence: '證據與流程', legacy: '沿用既有',
 }
 
-export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose }: {
+export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendingSteps, onPendingConsumed }: {
   tc: BackendTc
   /** 給「從其他 TC 複製」用。121 筆只對應 23 支驗證器，同一支底下步驟高度重複，
    *  沒有複製功能就是逐筆手工 121 次 */
@@ -57,6 +57,9 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose }: {
   themeMode: UatThemeMode
   onSaved: (recordId: string, stepCount: number) => void
   onClose: () => void
+  /** 從工作台錄好、還沒決定要放哪一筆的積木；選定 TC 後由這裡接上去 */
+  pendingSteps?: Step[] | null
+  onPendingConsumed?: () => void
 }) {
   const xianxia = themeMode === 'xianxia'
   const [blockDefs, setBlockDefs] = useState<Record<string, BlockDef>>({})
@@ -94,6 +97,18 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose }: {
   }, [])
 
   useEffect(() => { void loadSteps(tc.recordId) }, [tc.recordId, loadSteps])
+
+  // 從工作台錄好的積木接到這一筆後面。刻意不自動儲存——讓人先看過再按儲存，
+  // 錄錯了直接關掉就沒事。
+  useEffect(() => {
+    if (!pendingSteps?.length) return
+    setSteps(prev => [...prev, ...pendingSteps])
+    setDirty(true)
+    setMsg({ text: `已接上錄製的 ${pendingSteps.length} 顆積木，確認後按儲存`, tone: 'ok' })
+    onPendingConsumed?.()
+    // pendingSteps 是一次性的，消費掉就不該再觸發
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingSteps])
 
   const addBlock = (action: string) => {
     const def = blockDefs[action]

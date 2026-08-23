@@ -484,8 +484,11 @@ router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) =>
   try {
     const account = getAuthAccount(req)
     if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+    // recordId 選填：錄製本身完全不需要知道你在哪一筆 TC（開瀏覽器、登入、注入、
+    // 收事件、轉積木都跟 TC 無關）。之前必填是因為錄製被做在編輯器裡，
+    // 等於把「先選一筆 TC」變成了錄製的門檻——那是 UI 的安排不是功能的需要。
+    // 現在可以從工作台直接開錄，停止後再決定積木要放哪一筆。
     const recordId = String((req.body as { recordId?: string })?.recordId ?? '')
-    if (!recordId) return res.status(400).json({ ok: false, message: '缺少 recordId' })
 
     const creds = getUatBackendCredentials(account.email)
     if (!creds.cpBackend?.username || !creds.cpBackend?.password) {
