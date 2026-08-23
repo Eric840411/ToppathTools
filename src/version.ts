@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.30.2'
+export const APP_VERSION = '4.31.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.31.0',
+    date: '2026-08-23',
+    changes: [
+      'feat(uat): 積木匯出／匯入——積木存在各環境自己的 DB（本機一份、Spug 正式環境一份），拆好的成果不會自己過去。工具列新增兩顆按鈕：匯出成一個 JSON 帶走，到另一個環境匯入',
+      'feat(uat): 匯入預設是合併（同一筆以檔案為準，檔案沒提到的保留），回報新增／覆蓋幾筆；帶 replace 旗標才會清掉本地多出來的',
+      'fix(uat): 匯入時就擋掉不認得的積木並指名是哪一顆——存進去要等到執行才炸，那時已經離匯入很遠了',
+      'feat(uat): 拆解 verifyDashboard 的 4 筆 TC 成積木（藍底/綠底/紅底各讀一個色塊驗欄位有值，橘底標需人工），拆解前後跑同一輪實測比對，9 筆結果與摘要行完全一致',
+    ],
+  },
   {
     version: '4.30.2',
     date: '2026-08-23',

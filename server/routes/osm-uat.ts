@@ -570,6 +570,65 @@ async function stopRecordSession(sessionId: string) {
   return { steps, eventCount: session.events.length, hasAssertion: hasAssertion(steps) }
 }
 
+/**
+ * 匯出全部積木。積木存在各環境自己的 DB（本機一份、Spug 正式環境一份），
+ * 拆好的成果不會自己跑過去——匯出成一個檔案帶過去匯入。
+ *
+ * 帶上 exportedAt 與 count 是為了讓拿到檔案的人看得出這份是什麼時候、多少筆，
+ * 不用打開一大包 JSON 自己數。
+ */
+router.get('/api/osm-uat/tc-steps/export', (_req, res) => {
+  const steps = listUatTcSteps()
+  res.setHeader('Content-Type', 'application/json; charset=utf-8')
+  res.setHeader('Content-Disposition', `attachment; filename="uat-tc-steps-${new Date().toISOString().slice(0, 10)}.json"`)
+  res.send(JSON.stringify({
+    kind: 'toppath-uat-tc-steps',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    count: Object.keys(steps).length,
+    steps,
+  }, null, 2))
+})
+
+const importSchema = z.object({
+  kind: z.literal('toppath-uat-tc-steps').optional(),
+  steps: z.record(z.string(), z.array(z.object({ action: z.string().min(1).max(60) }).passthrough()).max(60)),
+  /** 預設是合併（同一筆以匯入的為準，沒提到的保留）；true 才會清掉本地多出來的 */
+  replace: z.boolean().optional(),
+})
+
+router.post('/api/osm-uat/tc-steps/import', writeLimiter, (req, res) => {
+  const account = getAuthAccount(req)
+  if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+  const parsed = importSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ ok: false, message: '檔案格式不對，需要是匯出的 JSON' })
+
+  // 不認得的積木要在匯入時就擋掉——存進去之後要等到執行才炸，那時已經離匯入很遠了
+  const unknown = new Set<string>()
+  for (const steps of Object.values(parsed.data.steps)) {
+    for (const step of steps) if (!(step.action in BLOCK_DEFS)) unknown.add(step.action)
+  }
+  if (unknown.size) {
+    return res.status(400).json({ ok: false, message: `檔案裡有不認得的積木：${[...unknown].join('、')}。可能是從比較新的版本匯出的。` })
+  }
+
+  const before = listUatTcSteps()
+  let added = 0, updated = 0
+  for (const [recordId, steps] of Object.entries(parsed.data.steps)) {
+    if (before[recordId]) updated++
+    else added++
+    saveUatTcSteps(recordId, steps, account.email)
+  }
+
+  let removed = 0
+  if (parsed.data.replace) {
+    for (const recordId of Object.keys(before)) {
+      if (!(recordId in parsed.data.steps)) { saveUatTcSteps(recordId, [], account.email); removed++ }
+    }
+  }
+  res.json({ ok: true, added, updated, removed, total: Object.keys(listUatTcSteps()).length })
+})
+
 /** 積木定義給前端畫積木庫與參數表單用。刻意由後端提供，前端不要另抄一份 */
 router.get('/api/osm-uat/blocks', (_req, res) => {
   res.json({ ok: true, blockDefs: BLOCK_DEFS })

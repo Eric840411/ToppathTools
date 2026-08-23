@@ -220,6 +220,28 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
 
   const selectedTc = tcs.find(tc => tc.recordId === selectedTcId) ?? null
 
+  const importInput = useRef<HTMLInputElement | null>(null)
+  const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''   // 選同一個檔案兩次也要能觸發
+    if (!file) return
+    try {
+      const body = JSON.parse(await file.text()) as unknown
+      const response = await fetch('/api/osm-uat/tc-steps/import', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      })
+      const data = await response.json() as { ok: boolean; added?: number; updated?: number; total?: number; message?: string }
+      if (!data.ok) { setRecMsg(data.message ?? '匯入失敗'); return }
+      setRecMsg(`匯入完成：新增 ${data.added} 筆、覆蓋 ${data.updated} 筆，目前共 ${data.total} 筆有積木`)
+      // 清單上的「N 積木」徽章要跟著更新
+      const listed = await fetch('/api/osm-uat/tc-list').then(r => r.json()).catch(() => null) as { ok?: boolean; tcs?: BackendTc[] } | null
+      if (listed?.ok && listed.tcs) {
+        const counts = new Map(listed.tcs.map(t => [t.recordId, t.stepCount]))
+        setTcs(prev => prev.map(t => ({ ...t, stepCount: counts.get(t.recordId) ?? t.stepCount })))
+      }
+    } catch { setRecMsg('匯入失敗：檔案不是合法的 JSON') }
+  }
+
   const startWorkbenchRecord = async () => {
     setRecMsg('正在開啟後台並登入…')
     try {
@@ -366,7 +388,7 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
       <main className="uat-backend-flow">
         <div className="uat-backend-flow-head">
           <div className="uat-section-title"><span>{xianxia ? 'TRIAL SEQUENCE' : 'EXECUTION FLOW'}</span><h3>{xianxia ? '推演順序' : '執行流程'} <small>{config.modulePlan.length + 1} 個模組</small></h3><p>拖曳調整順序；點選卡片可編輯名稱、說明與 TC 匹配規則。</p></div>
-          <div className="uat-backend-flow-actions"><button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={addCustomModule}>新增模組</button><button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => { const plan = createDefaultBackendPlan(); update({ modulePlan: plan }); setSelectedModuleId(plan[0]?.instanceId ?? null) }}>還原預設</button><button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => { update({ modulePlan: [] }); setSelectedModuleId(null); setSettingsView('run') }}>清空流程</button>{recSession ? <button type="button" className="uat-btn is-danger" onClick={() => void finishWorkbenchRecord(recSession)}>停止錄製（{recCount} 顆）</button> : <button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => void startWorkbenchRecord()}>錄製</button>}</div>
+          <div className="uat-backend-flow-actions"><button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={addCustomModule}>新增模組</button><button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => { const plan = createDefaultBackendPlan(); update({ modulePlan: plan }); setSelectedModuleId(plan[0]?.instanceId ?? null) }}>還原預設</button><button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => { update({ modulePlan: [] }); setSelectedModuleId(null); setSettingsView('run') }}>清空流程</button>{recSession ? <button type="button" className="uat-btn is-danger" onClick={() => void finishWorkbenchRecord(recSession)}>停止錄製（{recCount} 顆）</button> : <button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => void startWorkbenchRecord()}>錄製</button>}<button type="button" className="uat-btn is-quiet" title="把所有 TC 的積木匯出成一個檔案，帶到別的環境匯入" onClick={() => { window.location.href = '/api/osm-uat/tc-steps/export' }}>匯出積木</button><button type="button" className="uat-btn is-quiet" title="從匯出的檔案匯入積木（同一筆以檔案為準，沒提到的保留）" onClick={() => importInput.current?.click()}>匯入積木</button><input ref={importInput} type="file" accept="application/json,.json" style={{ display: 'none' }} onChange={event => void handleImport(event)} /></div>
         </div>
         <div className="uat-backend-module-list">
           <article className="uat-backend-module is-fixed is-cyan"><span className="uat-backend-module-grip" aria-hidden="true"><i /><i /><i /></span><div><strong>{xianxia ? '共用登入傀儡' : '共用登入與初始化'}</strong><small>取得 Lark token、載入 TC registry、啟動 Chromium 並登入 CP Backend</small></div><em>固定</em></article>
