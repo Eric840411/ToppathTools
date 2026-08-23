@@ -1321,9 +1321,26 @@ Backend 測的是 CP／NC 後台管理站，那是一般網站沒有 pinus；掛
 ### 後續階段
 | 階段 | 內容 |
 |------|------|
-| 2 | `SUBTYPE_MAP` 的路徑表搬進 registry；逐支 verifier 宣告參數表（容差、等待時間、比對欄位清單），接成 `builtin_verifier` 的 `options` |
+| 2 | `SUBTYPE_MAP` 的路徑表搬進 registry；逐支 verifier 宣告參數表，接成 `builtin_verifier` 的 `options`。**第一支做 `verifyMeterPage`（10 筆）當樣板**——最小，而且它的容差比對本來就已經是參數化的形狀（`cmp()`），定完格式再複製到 19／19／28 那三支 |
 | 3 | ✅ 前端積木編輯器（彈框，含積木庫搜尋、複製到另一筆 TC、匯出／匯入）|
 | 4 | 逐筆把 TC 拆成積木。**剩下的大宗是四支大 verifier**（`verifyReportPage` 28 筆／`verifyGameSettingPage` 19／`verifyMachineReservation` 19／`verifyMeterPage` 10 = 76 筆），這些是參數化模組的目標不是逐顆積木的目標 |
+
+### 參數化模組的參數表要放比對語意，不是只放欄位名（2026-08-23 跟 CodeX 討論定案）
+
+四支大 verifier（`verifyReportPage` 28 筆／`verifyGameSettingPage` 19／`verifyMachineReservation` 19／`verifyMeterPage` 10 = 76 筆）走參數化模組，不逐顆積木——它們有頁面流程、資料狀態、欄位組合語意，硬拆會把 verifier 的上下文切碎。
+
+參數表**一開始就要帶比對語意**，只列欄位名稱的話，複製到另外三支時會發現不夠用、又要重拆一次：
+
+| 欄位 | 用途 |
+|------|------|
+| source / target | selector 或欄位 key |
+| 顯示名稱 | 錯誤訊息用（不要直接把 selector 丟給使用者看）|
+| parser / normalize | 取值後怎麼正規化 |
+| compare mode | `exact`／`number tolerance`／`percent`／`optional` |
+| tolerance | relative／absolute，**沿用既有 `cmp()` 的規則**，不要另創一套 |
+| 找不到時 | `fail`／`manual`／`skip` 三選一，要顯性宣告 |
+
+最後一項特別重要：verifier 裡常有歷史語意、warning-only、manual fallback 這種隱性規則（這輪就踩到兩筆 note-only），不逼它顯性宣告就會在轉換時被默默改掉。
 
 ### 測試
 `server/uat-runner/block-engine.test.mjs`（`node server/uat-runner/block-engine.test.mjs`），57 項，用假 ctx 不開瀏覽器。**改動執行器語意時一定要先跑它**——這裡守的是「失敗不能變成通過」那條線。
