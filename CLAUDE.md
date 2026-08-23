@@ -1323,7 +1323,7 @@ Backend 測的是 CP／NC 後台管理站，那是一般網站沒有 pinus；掛
 |------|------|
 | 2 | `SUBTYPE_MAP` 的路徑表搬進 registry；逐支 verifier 宣告參數表，接成 `builtin_verifier` 的 `options`。**第一支做 `verifyMeterPage`（10 筆）當樣板**——最小，而且它的容差比對本來就已經是參數化的形狀（`cmp()`），定完格式再複製到 19／19／28 那三支 |
 | 3 | ✅ 前端積木編輯器（彈框，含積木庫搜尋、複製到另一筆 TC、匯出／匯入）|
-| 4 | 逐筆把 TC 拆成積木。**剩下的大宗是四支大 verifier**（`verifyReportPage` 28 筆／`verifyGameSettingPage` 19／`verifyMachineReservation` 19／`verifyMeterPage` 10 = 76 筆），這些是參數化模組的目標不是逐顆積木的目標 |
+| 4 | 逐筆把 TC 拆成積木（A 類已拆 13 筆，全部比對過基準）。**剩下的大宗是四支大 verifier**（`verifyReportPage` 28 筆／`verifyGameSettingPage` 19／`verifyMachineReservation` 19／`verifyMeterPage` 10 = 76 筆），這些是參數化模組的目標不是逐顆積木的目標 |
 
 ### 參數化模組的參數表要放比對語意，不是只放欄位名（2026-08-23 跟 CodeX 討論定案）
 
@@ -1342,7 +1342,13 @@ Backend 測的是 CP／NC 後台管理站，那是一般網站沒有 pinus；掛
 
 最後一項特別重要：verifier 裡常有歷史語意、warning-only、manual fallback 這種隱性規則（這輪就踩到兩筆 note-only），不逼它顯性宣告就會在轉換時被默默改掉——而且改掉之後表面上還會看起來更「乾淨」。
 
-**再進一步：warning-only 要當成一種正式的比對結果，不是散在 notes 裡的一句話。**目前引擎的結果只有 pass／fail／manual 三種，表達不出「查了、沒過、但不擋」，所以這輪有兩筆（Jackpot Ranking／Jackpot Moment 的 Add Dialog）只能退回 `builtin_verifier`——原本的 verifier 只在「對話框沒開」時 criticalFail，欄位缺少只寫 ⚠️。補一種 `warn` 結果（或積木層的 `onFail: 'warn'`）之後這兩筆就拆得動了，四支大 verifier 裡同類的隱性規則也才有地方放。**這是階段 2 的前置，不是可選的**。
+### warn：查了、沒過、但不擋（v4.35.0 已實作）
+
+引擎原本只有 pass／fail／manual 三種結果，表達不出既有 verifier 裡大量存在的 `notes.push(ok ? '✅' : '⚠️未找到')` 這種語意。少了它，轉換時只能在「當成一般斷言」跟「不拆」之間二選一——而選前者會讓 verifier 悄悄變嚴格，**且改完表面上看起來更乾淨**（多一條會擋的檢查，誰看都像改進），review 時最難抓。
+
+`onFail: 'warn'` → 進 `warnings[]`，**不影響 pass 判定**。刻意不做「同一筆超過 N 個 warn 就升級成 fail」（跟 CodeX 討論定案）：那會變成隱性 fail，畫面顯示 PASS 卻可能被一條數量規則翻掉，規則變得不能解釋。真的需要門檻的話應該做成獨立的報表 gate。
+
+**同一顆積木裡不同等級的失敗要能分開**：`assert_dialog_fields` 的「對話框開不起來」（功能壞了）跟「開了但少一個欄位」（可能只是規格調整）不同級，所以多一個 `onMissingFields`。這不是特例——四支大 verifier 的參數表也要能逐個比對欄位各自宣告 `fail`／`manual`／`warn`／`skip`，一顆總開關會逼人在「全都擋」跟「全都不擋」之間選，兩個都不對。
 
 ### 測試
 `server/uat-runner/block-engine.test.mjs`（`node server/uat-runner/block-engine.test.mjs`），57 項，用假 ctx 不開瀏覽器。**改動執行器語意時一定要先跑它**——這裡守的是「失敗不能變成通過」那條線。

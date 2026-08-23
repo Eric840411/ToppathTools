@@ -310,6 +310,64 @@ Jackpot` }],
   check('標籤含必填星號/冒號也要比對得到', star.pass === true, star.notes)
 }
 
+// ── warn 級別 ─────────────────────────────────────────────────────────
+// 這一組守的是兩個方向：warn 不能把 PASS 變成 FAIL，也不能把該 FAIL 的吃掉
+{
+  const ctx = makeCtx(); ctx.page.evaluate = async () => null   // 找不到 → 觸發 fail()
+  const r = await runSteps([
+    { action: 'assert_control_exists', text: 'Maintenance', onFail: 'warn' },
+    { action: 'assert_control_exists', text: 'Batch', onFail: 'warn' },
+  ], ctx)
+  check('warn 不影響 pass 判定', r.pass === true, r)
+  check('warn 收進 warnings 而不是 criticalFails', r.warnings.length === 2 && r.criticalFails.length === 0, { w: r.warnings, c: r.criticalFails })
+  check('warn 會繼續跑後面的步驟（兩顆都執行到）', r.warnings.length === 2, r.warnings)
+  check('warn 用 ⚠️ 不用 ❌', /⚠️/.test(r.notes) && !/❌/.test(r.notes), r.notes)
+
+  // 同一筆裡 warn 跟真的 fail 並存時，fail 仍然要擋下來
+  const mixed = makeCtx(); mixed.page.evaluate = async () => null
+  const m = await runSteps([
+    { action: 'assert_control_exists', text: 'A', onFail: 'warn' },
+    { action: 'assert_control_exists', text: 'B', onFail: 'stop' },
+  ], mixed)
+  check('warn 不會讓同一筆裡真正的 fail 消失', m.pass === false && m.warnings.length === 1, { p: m.pass, w: m.warnings })
+
+  // warn 跟 manual 是不同的東西：warn 不該把整筆標成需人工判讀
+  const wm = makeCtx(); wm.page.evaluate = async () => null
+  const w = await runSteps([{ action: 'assert_control_exists', text: 'A', onFail: 'warn' }], wm)
+  check('warn 不會把整筆標成 manual', w.manual === false, w)
+
+  // 沒有任何 warn 時 warnings 是空陣列，不是 undefined（呼叫端會直接 .length）
+  const clean = makeCtx({ '.b': { X: '1' } })
+  const c = await runSteps([{ action: 'read_block', selector: '.b', labels: 'X', as: 'b' }], clean)
+  check('沒有 warn 時 warnings 是空陣列不是 undefined', Array.isArray(c.warnings) && c.warnings.length === 0, c.warnings)
+}
+
+// ── assert_dialog_fields 的兩檔嚴重度 ──────────────────────────────────
+// 既有 verifier 就是這樣分的：對話框沒開 = criticalFail，欄位缺少 = 只寫 ⚠️。
+// 少了這個區分，那兩筆 Add Dialog TC 就只能在「全都擋」跟「不拆」之間二選一。
+{
+  const miss = await runSteps(
+    [{ action: 'assert_dialog_fields', trigger: 'Add', fields: `Account
+Jackpot`, onMissingFields: 'warn' }],
+    dialogCtx(['ok', ['Account', 'Note'], null]));
+  check('對話框開了但缺欄位 → warn 不擋', miss.pass === true && miss.warnings.length === 1, { p: miss.pass, w: miss.warnings })
+
+  const notOpen = await runSteps(
+    [{ action: 'assert_dialog_fields', trigger: 'Add', fields: 'Account', onMissingFields: 'warn' }],
+    dialogCtx(['ok', null, null]));
+  check('對話框根本沒開 → 仍然 FAIL（不吃 onMissingFields）', notOpen.pass === false, notOpen.criticalFails)
+
+  const noBtn2 = await runSteps(
+    [{ action: 'assert_dialog_fields', trigger: 'Add', fields: 'Account', onMissingFields: 'warn' }],
+    dialogCtx(['no-button']));
+  check('找不到按鈕 → 仍然 FAIL（不吃 onMissingFields）', noBtn2.pass === false, noBtn2.criticalFails)
+
+  const inherit = await runSteps(
+    [{ action: 'assert_dialog_fields', trigger: 'Add', fields: 'Account' }],
+    dialogCtx(['ok', ['Note'], null]));
+  check('沒設 onMissingFields 就沿用 onFail（預設 stop → FAIL）', inherit.pass === false, inherit.criticalFails)
+}
+
 // ── 17. 純函式 ─────────────────────────────────────────────────────────
 check('toNumber 去掉貨幣與千分位', toNumber('PHP 15,024,840') === 15024840);
 check('toNumber 處理負數', toNumber('-258') === -258);

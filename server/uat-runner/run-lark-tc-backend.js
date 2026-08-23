@@ -4390,6 +4390,10 @@ async function performSteps(p, steps, label) {
     manual: result.manual,
     notes: result.notes,
     criticalFails: result.criticalFails,
+    // warn 級別的結果。notes 裡本來就有一份 ⚠️ 文字，但那是給人讀的；
+    // 這個欄位是結構化的，之後要在畫面上列、或統計「這批跑下來有幾個 warn」
+    // 才有東西可用——不接出來的話等於又退回散在字串裡
+    warnings: result.warnings,
     allShotPaths: result.allShotPaths,
     shotPath: result.allShotPaths[0] ?? null,
     error: result.error,

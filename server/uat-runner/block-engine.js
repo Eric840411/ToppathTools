@@ -71,7 +71,7 @@ export const BLOCK_DEFS = {
       { key: 'text', label: '文字或關鍵字', type: 'text', required: true, placeholder: 'Add' },
       { key: 'scope', label: '限定範圍', type: 'select', options: ['button', 'any'], default: 'button', help: 'button 只找按鈕與連結；any 找整頁任何可見元素' },
       { key: 'match', label: '比對方式', type: 'select', options: ['contains', 'startsWith', 'exact'], default: 'contains' },
-      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'manual'], default: 'stop' },
+      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
     ],
   },
   assert_column_exists: {
@@ -80,7 +80,7 @@ export const BLOCK_DEFS = {
     params: [
       { key: 'columns', label: '欄位名稱（一行一個）', type: 'textarea', required: true },
       { key: 'selector', label: '表格 selector', type: 'text', default: 'table', placeholder: 'table' },
-      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'manual'], default: 'stop' },
+      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
     ],
   },
   assert_option_count: {
@@ -91,7 +91,7 @@ export const BLOCK_DEFS = {
       { key: 'selector', label: '下拉 selector', type: 'text', placeholder: '.el-select .el-input__inner', help: '沒填標籤時才用' },
       { key: 'min', label: '至少幾個', type: 'number', default: 1 },
       { key: 'max', label: '最多幾個（留空不限）', type: 'number' },
-      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'manual'], default: 'stop' },
+      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
     ],
   },
   assert_dialog_fields: {
@@ -101,7 +101,11 @@ export const BLOCK_DEFS = {
       { key: 'trigger', label: '要點的按鈕文字', type: 'text', required: true, placeholder: 'Add' },
       { key: 'fields', label: '對話框裡該有的欄位（一行一個）', type: 'textarea', required: true },
       { key: 'scope', label: '按鈕在哪', type: 'select', options: ['page', 'firstRow'], default: 'page', help: 'firstRow 只在表格第一列裡找（例如每列各自的 Edit）' },
-      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'manual'], default: 'stop' },
+      { key: 'onFail', label: '對話框開不起來時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
+      // 「對話框沒開」跟「對話框開了但少一個欄位」是不同等級的問題：前者代表功能壞了，
+      // 後者可能只是規格調整。既有 verifier 就是這樣分的（前者 criticalFail、後者只寫 ⚠️），
+      // 一顆 onFail 管兩種會逼人在「全都擋」跟「全都不擋」之間選，兩個都不對。
+      { key: 'onMissingFields', label: '欄位缺少時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], help: '留空就跟上面一樣' },
     ],
   },
   assert_absent: {
@@ -110,7 +114,7 @@ export const BLOCK_DEFS = {
     params: [
       { key: 'selector', label: '不能出現的選擇器', type: 'text', placeholder: '.el-message--error' },
       { key: 'text', label: '不能出現的文字', type: 'text', placeholder: '查無資料' },
-      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'manual'], default: 'stop' },
+      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
     ],
   },
   read_block: {
@@ -136,7 +140,7 @@ export const BLOCK_DEFS = {
     description: '指定變數裡的標籤都要出現而且非空',
     params: [
       { key: 'from', label: '來源變數', type: 'text', required: true },
-      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'manual'], default: 'stop' },
+      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
     ],
   },
   assert_equals: {
@@ -147,7 +151,7 @@ export const BLOCK_DEFS = {
       { key: 'right', label: '右值', type: 'text', placeholder: 'apiData.total', required: true },
       // 容差開成參數，是因為現在 cmp() 裡寫死 pct = 0.01，要調只能改 5000 行那支
       { key: 'tolerancePct', label: '容差（%）', type: 'number', default: 1, help: '相對誤差；絕對誤差至少容許 1' },
-      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'manual'], default: 'stop' },
+      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
     ],
   },
   assert_sorted: {
@@ -157,7 +161,7 @@ export const BLOCK_DEFS = {
       { key: 'from', label: '來源變數（表格）', type: 'text', required: true },
       { key: 'column', label: '欄位名稱', type: 'text', required: true },
       { key: 'direction', label: '方向', type: 'select', options: ['desc', 'asc'], default: 'desc' },
-      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'manual'], default: 'stop' },
+      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
     ],
   },
   screenshot: {
@@ -244,6 +248,7 @@ export function numbersEqual(a, b, tolerancePct = 1) {
 export async function runSteps(steps, ctx) {
   const notes = [];
   const criticalFails = [];
+  const warnings = [];   // warn 級別：有檢查、有異常，但不影響 pass 判定
   const allShotPaths = [];
   const vars = {};
   let manual = false;
@@ -261,6 +266,19 @@ export async function runSteps(steps, ctx) {
     if (mode === 'manual') {
       manual = true;
       manualReason = manualReason || message;
+      notes.push(`⚠️ ${message}`);
+      return 'continue';
+    }
+    // warn：有檢查、有異常、但不擋流程。既有 verifier 裡大量存在的
+    // `notes.push(ok ? '✅' : '⚠️未找到')` 就是這個語意——少了這一種，轉換時只能
+    // 在「當成一般斷言」跟「不拆」之間二選一，而選前者會讓 verifier 悄悄變嚴格。
+    //
+    // 刻意不影響 pass 判定，也刻意不做「同一筆超過 N 個 warn 就升級成 fail」
+    // （跟 CodeX 討論定案）：那會變成隱性 fail——畫面顯示 PASS，卻可能被一條
+    // 數量規則翻掉，規則變得不能解釋。真的需要門檻的話應該做成獨立的報表 gate，
+    // 不是塞進單筆執行結果裡。
+    if (mode === 'warn') {
+      warnings.push(message);
       notes.push(`⚠️ ${message}`);
       return 'continue';
     }
@@ -479,7 +497,11 @@ export async function runSteps(steps, ctx) {
         if (labels === null) { await closeDialog(); if (fail(step, `${tag}：點了「${step.trigger}」但對話框沒開起來`) === 'stop') break; continue }
         const missing = want.filter(w => !labels.some(l => l.toLowerCase().includes(String(w).replace(/[\s*:：]/g, '').toLowerCase())));
         await closeDialog();
-        if (missing.length) { if (fail(step, `${tag}：對話框缺少 ${missing.join('、')}（實際有：${labels.join('、').slice(0, 120)}）`) === 'stop') break; continue }
+        if (missing.length) {
+          // 欄位缺少走自己那一檔（沒設就跟 onFail 一樣），不跟「對話框開不起來」同級
+          const fieldsStep = { ...step, onFail: step.onMissingFields ?? step.onFail };
+          if (fail(fieldsStep, `${tag}：對話框缺少 ${missing.join('、')}（實際有：${labels.join('、').slice(0, 120)}）`) === 'stop') break; continue;
+        }
         notes.push(`✅ ${tag}：${step.trigger} 對話框有 ${want.join('、')}`);
 
       } else if (step.action === 'assert_absent') {
@@ -625,11 +647,15 @@ export async function runSteps(steps, ctx) {
    */
   function finish() {
     return {
+      // warn 刻意不進這個判定：畫面顯示 PASS 就真的是 PASS，不會被別的規則翻掉。
+      // 它的價值是「有檢查、有記錄」變成結構化資料（可以統計、可以在畫面上列），
+      // 而不是原本散在 notes 字串裡的一句話。
       pass: criticalFails.length === 0,
       manual,
       manualReason,
       notes: notes.join(' | '),
       criticalFails,
+      warnings,
       allShotPaths,
       error: criticalFails[0] ?? null,
     };

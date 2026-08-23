@@ -1,7 +1,7 @@
 {
   "kind": "toppath-uat-tc-steps",
   "version": 1,
-  "count": 15,
+  "count": 17,
   "steps": {
     "recvenTprA8xbL": [
       {
@@ -34,6 +34,22 @@
       {
         "action": "mark_manual",
         "reason": "需要等待5分鐘觀察更新"
+      }
+    ],
+    "recvenTprAFfBc": [
+      {
+        "action": "open_page",
+        "path": "/rankinglist/jackpotRanking"
+      },
+      {
+        "action": "assert_control_exists",
+        "text": "Add"
+      },
+      {
+        "action": "assert_dialog_fields",
+        "trigger": "Add",
+        "onMissingFields": "warn",
+        "fields": "SpinId\nMachineNo\nJackpotType\nBet\nPayout\nJackpotAmount\nAccount\nBetTime"
       }
     ],
     "recvenTprAFqZe": [
@@ -83,6 +99,22 @@
         "action": "assert_column_exists",
         "columns": "Edit\nDelete",
         "note": "編輯/刪除操作欄"
+      }
+    ],
+    "recvenTprAWTpn": [
+      {
+        "action": "open_page",
+        "path": "/game/upJackpotVideo"
+      },
+      {
+        "action": "assert_control_exists",
+        "text": "Add"
+      },
+      {
+        "action": "assert_dialog_fields",
+        "trigger": "Add",
+        "onMissingFields": "warn",
+        "fields": "Game Order\nSort"
       }
     ],
     "recvenTprAcCmK": [

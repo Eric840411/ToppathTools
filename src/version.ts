@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.34.0'
+export const APP_VERSION = '4.35.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.35.0',
+    date: '2026-08-23',
+    changes: [
+      'feat(uat): 積木新增 warn 結果——「查了、沒過、但不擋」。既有 verifier 裡大量的「找不到就寫一行 ⚠️、照樣通過」就是這個語意，原本只有 pass/fail/manual 表達不出來，轉換時只能在「當成一般斷言」跟「不拆」之間二選一。warn 不影響 pass 判定，也不做數量門檻升級（那會變成畫面顯示 PASS 卻被別的規則翻掉）',
+      'feat(uat): 開對話框積木把兩種失敗分開——「對話框開不起來」（功能壞了）跟「開了但少一個欄位」（可能只是規格調整）可以各自設嚴重度。一顆總開關會逼人在全都擋跟全都不擋之間選',
+      'feat(uat): 補上這兩項之後，Jackpot Ranking／Jackpot Moment 的 Add Dialog 兩筆拆得動了，A 類積木化 11 → 13 筆，重跑比對仍然 41/41 一致',
+    ],
+  },
   {
     version: '4.34.0',
     date: '2026-08-23',
