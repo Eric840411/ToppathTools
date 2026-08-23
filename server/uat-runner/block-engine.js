@@ -430,15 +430,21 @@ export async function runSteps(steps, ctx) {
   return finish();
 
   /**
-   * 最終判定優先序（跟 CodeX 對過）：
-   *   有 criticalFails → FAIL
-   *   否則有 manual    → MANUAL
-   *   否則             → PASS
-   * manual 不是失敗，它代表「這件事機器判不了」，不是「這件事錯了」。
+   * 判定優先序：有 criticalFails → FAIL；否則有 manual → MANUAL；否則 PASS。
+   *
+   * ⚠️ 但 `pass` 這個欄位在 run-lark-tc-backend.js 的慣例裡是「**有沒有硬失敗**」，
+   * 不是「最終判定是不是 PASS」——manual 的 TC 在既有 verifier 裡回的是
+   * `pass: true` 搭配 `manual: true`，外層才用兩者組合出結論：
+   *     if (result.pass && result.manual) skipCount++      // 需人工
+   *     else if (result.pass) passCount++
+   *     else failCount++                                    // ← pass:false 就是失敗
+   * 所以這裡不能寫成 `&& !manual`：那會讓每一筆需人工的 TC 被算成失敗、
+   * 也會跟同一支測試裡沒拆解的 TC 統計方式不一致。
+   * （拆 Dashboard 時用「拆解前後跑同一輪比對」才抓到，光看程式碼看不出來。）
    */
   function finish() {
     return {
-      pass: criticalFails.length === 0 && !manual,
+      pass: criticalFails.length === 0,
       manual,
       manualReason,
       notes: notes.join(' | '),

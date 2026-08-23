@@ -76,7 +76,9 @@ const BLUE = { 'Total Available EGM': '5', 'Total System Connected EGM': '2' };
 {
   const ctx = makeCtx();
   const r = await runSteps([{ action: 'mark_manual', reason: '需等 5 分鐘觀察' }], ctx);
-  check('manual 不算 pass', r.pass === false, r);
+  // pass 在 runner 的慣例裡是「有沒有硬失敗」，不是最終判定。manual 要回 pass:true
+  // 搭配 manual:true，外層才會算成「需人工」；回 false 會被算成失敗。
+  check('manual 回 pass:true（外層用 pass+manual 組合判定需人工）', r.pass === true, r);
   check('manual 沒有 criticalFails', r.criticalFails.length === 0, r.criticalFails);
   check('manual 旗標有設', r.manual === true && r.manualReason.includes('5 分鐘'), r);
 }
@@ -89,7 +91,7 @@ const BLUE = { 'Total Available EGM': '5', 'Total System Connected EGM': '2' };
     { action: 'assert_filled', from: 'v', onFail: 'continue' },
     { action: 'mark_manual', reason: '也需人工' },
   ], ctx);
-  check('同時有 fail 與 manual 時 pass=false', r.pass === false, r);
+  check('同時有 fail 與 manual 時 pass=false（硬失敗優先）', r.pass === false, r);
   check('同時有 fail 與 manual 時 criticalFails 不為空（FAIL 優先）', r.criticalFails.length > 0, r.criticalFails);
 }
 

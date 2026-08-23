@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.30.1'
+export const APP_VERSION = '4.30.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.30.2',
+    date: '2026-08-23',
+    changes: [
+      'fix(uat): 積木引擎的 pass 欄位語意對齊 runner——原本 manual 時回 pass:false，但 run-lark-tc-backend.js 的計數是「pass && manual → 需人工、pass → 通過、其餘 → 失敗」，等於每一筆需人工的 TC 拆成積木後都會被算成失敗。pass 在這個 codebase 裡的意思是「有沒有硬失敗」不是「最終判定」',
+      'test(uat): 這個問題只有「拆解前後跑同一輪實測比對」才抓得到，光看程式碼看不出來；已把 Dashboard 4 筆的拆解前後比對納入驗證流程',
+    ],
+  },
   {
     version: '4.30.1',
     date: '2026-08-23',
