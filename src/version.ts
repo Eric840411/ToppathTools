@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.36.0'
+export const APP_VERSION = '4.36.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.36.1',
+    date: '2026-08-23',
+    changes: [
+      'fix(uat): 內建驗證器積木收到的引數是錯的，而且兩個錯法都不會報錯、只會靜默通過。第二個引數傳的是截圖檔名（tc12_XXX_YYY）而不是 TC 描述文字，驗證器裡每一條分支比對都不會命中 → 一個斷言都沒跑 → 沒有 criticalFails → 判定為通過。第一個引數 page 在該範圍內根本不存在（參數叫 p）',
+    ],
+  },
   {
     version: '4.36.0',
     date: '2026-08-23',

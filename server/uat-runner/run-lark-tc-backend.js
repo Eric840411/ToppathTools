@@ -4332,7 +4332,13 @@ const BUILTIN_VERIFIERS = {
   verifyWhiteList,
 };
 
-async function performSteps(p, steps, label) {
+/**
+ * 執行一筆 TC 的積木。
+ *
+ * taskFull 是 TC 的描述文字，內建驗證器要靠它比對自己該跑哪些分支——
+ * 少傳這個，builtin_verifier 積木會靜默通過（見 callBuiltin 的註解）。
+ */
+async function performSteps(p, steps, label, taskFull) {
   const result = await runBlockSteps(steps, {
     page: p,
     async openPath(targetPath, waitMs) {
@@ -4380,9 +4386,15 @@ async function performSteps(p, steps, label) {
       if (typeof fn !== 'function') {
         return { notes: `找不到內建驗證器「${name}」`, criticalFails: [`找不到內建驗證器「${name}」`], manual: false };
       }
-      // options 目前原封不動傳給 verifier；每支 verifier 之後會逐一宣告自己的
-      // 參數表（容差、等待時間、比對欄位），沒宣告的就是零參數模組
-      return fn(page, label, options ?? {});
+      // ⚠️ 這兩個引數都曾經傳錯，而且錯法都不會報錯、只會靜默通過：
+      //
+      // 1. 第一個曾經傳 `page`——那個變數在 performSteps 裡根本不存在（參數叫 p），
+      //    module 層也沒有，跑到就 ReferenceError。
+      // 2. 第二個曾經傳 `label`，但 label 是截圖檔名（tc12_XXX_YYY），verifier 要的
+      //    是 TC 的描述文字。傳 label 的話 verifier 裡每一條 /regex/.test(full) 都不會
+      //    命中 → 一個斷言都沒跑 → criticalFails 是空的 → **判定為通過**。
+      //    這正是最難察覺的那種錯：畫面上顯示綠色、日誌看起來正常。
+      return fn(p, taskFull, options ?? {});
     },
   });
   return {
@@ -4927,7 +4939,7 @@ async function main() {
       } else if (Array.isArray(TC_REGISTRY[recordId]?.steps) && TC_REGISTRY[recordId].steps.length) {
         // registry 這筆有積木就照積木跑。這是新的主要路徑；下面那條 SUBTYPE_MAP
         // 的路是還沒拆成積木的 TC 在走的過渡橋。
-        result = await performSteps(page, TC_REGISTRY[recordId].steps, label);
+        result = await performSteps(page, TC_REGISTRY[recordId].steps, label, taskFull);
       } else {
         // 優先完整匹配，再按鍵長度由長到短做 includes 匹配（避免 'Dashboard' 先匹配到 'Daily Dashboard'）
         const mapKey = Object.keys(SUBTYPE_MAP).find(k => k === subtype || k === taskType)
