@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.30.0'
+export const APP_VERSION = '4.30.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.30.1',
+    date: '2026-08-23',
+    changes: [
+      'fix(uat): 還沒拆成積木的 TC 打開不再是一片空白——改成把它現在實際在跑的那支內建驗證器擺成一顆 builtin_verifier 積木顯示出來。121 筆現在全都是這個狀態，顯示成空的會讓人以為這筆 TC 什麼都不做',
+      'fix(uat): 這顆是把既有行為顯性化，不標成未儲存變更（儲存鈕維持「已儲存」）；使用者可以在它前後插積木、把它換掉、或全部刪光回到原本行為',
+    ],
+  },
   {
     version: '4.30.0',
     date: '2026-08-23',

@@ -88,8 +88,14 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
     try {
       const r = await fetch(`/api/osm-uat/tc-steps/${encodeURIComponent(recordId)}`)
       const d = await r.json() as { ok: boolean; steps?: Step[]; verifierName?: string | null }
-      setSteps(d.steps ?? [])
+      const saved = d.steps ?? []
       setVerifierName(d.verifierName ?? null)
+      // 還沒拆成積木的 TC 不要顯示成「空的」——它現在其實是在跑那支內建驗證器。
+      // 把目前的行為擺成一顆 builtin_verifier 積木，看到的才是實際會執行的東西；
+      // 空白會讓人以為這筆 TC 什麼都不做。
+      // 不標 dirty：這只是把既有行為顯性化，還沒有任何改動。
+      setSteps(saved.length ? saved
+        : d.verifierName ? [{ action: 'builtin_verifier', name: d.verifierName }] : [])
       setSelected(null)
       setDirty(false)
       setMsg(null)
@@ -238,6 +244,8 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
   }, [blockDefs, blockQuery])
 
   const copyCandidates = allTcs.filter(t => t.recordId !== tc.recordId && t.stepCount > 0)
+  /** 這筆還沒拆成積木：畫面上唯一那顆就是我們補出來的內建驗證器 */
+  const isUnconverted = !dirty && steps.length === 1 && steps[0]?.action === 'builtin_verifier' && !tc.stepCount
   const current = selected !== null ? steps[selected] : null
   const currentDef = current ? blockDefs[current.action] : null
 
@@ -284,11 +292,11 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
 
       <p className="uat-tc-editor-text">{tc.text || '（這筆 TC 沒有描述文字）'}</p>
 
-      {!steps.length && (
+      {isUnconverted && (
         <div className="uat-tc-editor-hint">
-          目前這筆走的是內建驗證器
-          {verifierName ? <code>{verifierName}</code> : <span>（尚未對應）</span>}。
-          加了積木之後就改照積木跑；把積木全部刪掉再儲存會回到現在的行為。
+          這筆還沒拆成積木。下面那顆<b>內建驗證器</b>就是它<b>現在實際在跑的東西</b>
+          （<code>{verifierName}</code>，寫在 run-lark-tc-backend.js 裡）——列出來是為了讓你看得到目前的行為，
+          還沒有任何改動。你可以在它前後插積木、或直接把它換掉；全部刪光再儲存也會回到現在的行為。
         </div>
       )}
 
