@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.33.0'
+export const APP_VERSION = '4.33.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.33.1',
+    date: '2026-08-23',
+    changes: [
+      'fix(uat): A 類拆解收回兩筆，改回內建驗證器（EGM Status 的 Maintenance、EGM List 的 Batch）。這兩個原本查不到只寫一行 ⚠️、不算失敗，拆成積木後會真的擋下來——那是測試政策變更，不該混在「拆前拆後要一致」的重構裡。本輪拆解回到純等價的 9 筆',
+    ],
+  },
   {
     version: '4.33.0',
     date: '2026-08-23',

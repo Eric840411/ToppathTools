@@ -1,7 +1,7 @@
 {
   "kind": "toppath-uat-tc-steps",
   "version": 1,
-  "count": 15,
+  "count": 13,
   "steps": {
     "recvenTprA8xbL": [
       {
@@ -34,28 +34,6 @@
       {
         "action": "mark_manual",
         "reason": "需要等待5分鐘觀察更新"
-      }
-    ],
-    "recvenTprAFqZe": [
-      {
-        "action": "open_page",
-        "path": "/egm/egmStatusList"
-      },
-      {
-        "action": "assert_control_exists",
-        "text": "Maintenance",
-        "note": "可維護/喚醒機台"
-      }
-    ],
-    "recvenTprAM9CA": [
-      {
-        "action": "open_page",
-        "path": "/egm/egmList"
-      },
-      {
-        "action": "assert_control_exists",
-        "text": "Batch",
-        "note": "批量設置小面額"
       }
     ],
     "recvenTprARMJa": [
