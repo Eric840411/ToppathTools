@@ -1340,7 +1340,9 @@ Backend 測的是 CP／NC 後台管理站，那是一般網站沒有 pinus；掛
 | tolerance | relative／absolute，**沿用既有 `cmp()` 的規則**，不要另創一套 |
 | 找不到時 | `fail`／`manual`／`skip` 三選一，要顯性宣告 |
 
-最後一項特別重要：verifier 裡常有歷史語意、warning-only、manual fallback 這種隱性規則（這輪就踩到兩筆 note-only），不逼它顯性宣告就會在轉換時被默默改掉。
+最後一項特別重要：verifier 裡常有歷史語意、warning-only、manual fallback 這種隱性規則（這輪就踩到兩筆 note-only），不逼它顯性宣告就會在轉換時被默默改掉——而且改掉之後表面上還會看起來更「乾淨」。
+
+**再進一步：warning-only 要當成一種正式的比對結果，不是散在 notes 裡的一句話。**目前引擎的結果只有 pass／fail／manual 三種，表達不出「查了、沒過、但不擋」，所以這輪有兩筆（Jackpot Ranking／Jackpot Moment 的 Add Dialog）只能退回 `builtin_verifier`——原本的 verifier 只在「對話框沒開」時 criticalFail，欄位缺少只寫 ⚠️。補一種 `warn` 結果（或積木層的 `onFail: 'warn'`）之後這兩筆就拆得動了，四支大 verifier 裡同類的隱性規則也才有地方放。**這是階段 2 的前置，不是可選的**。
 
 ### 測試
 `server/uat-runner/block-engine.test.mjs`（`node server/uat-runner/block-engine.test.mjs`），57 項，用假 ctx 不開瀏覽器。**改動執行器語意時一定要先跑它**——這裡守的是「失敗不能變成通過」那條線。
