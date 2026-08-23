@@ -10,6 +10,7 @@
  * 抄兩份的下場是「畫面上有這顆積木、跑起來說不認得」。參數表單也是照定義自動長。
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { UatThemeMode } from './types'
 
 export interface BackendTc {
@@ -220,8 +221,23 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose }: {
   const current = selected !== null ? steps[selected] : null
   const currentDef = current ? blockDefs[current.action] : null
 
-  return (
-    <div className="uat-tc-editor">
+  // Esc 關閉：彈框沒有 Esc 會讓人覺得被困住
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      if (dirty && !window.confirm('有還沒儲存的變更，確定關閉嗎？')) return
+      onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [dirty, onClose])
+
+  // 用 portal 掛到 body：修仙版的外殼有 backdrop-filter，被它包住的話 position: fixed
+  // 會變成相對那個祖先而不是視窗，彈框會跑位、也會被側邊欄蓋住（實測踩到）
+  return createPortal((
+    <div className="uat-studio uat-tc-modal" role="dialog" aria-modal="true"
+      onMouseDown={event => { if (event.target === event.currentTarget) { if (!dirty || window.confirm('有還沒儲存的變更，確定關閉嗎？')) onClose() } }}>
+      <div className="uat-tc-editor">
       <div className="uat-tc-editor-head">
         <div>
           <span className="uat-net-kicker">TC STEPS</span>
@@ -376,8 +392,9 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose }: {
       </div>
 
       {msg && <span className={`uat-backend-cred-msg${msg.tone === 'error' ? ' is-error' : ''}`}>{msg.text}</span>}
+      </div>
     </div>
-  )
+  ), document.body)
 }
 
 function toText(value: unknown) {

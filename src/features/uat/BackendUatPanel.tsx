@@ -425,16 +425,16 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
         </>}
       </aside>
 
+      {/* 積木編輯器改成彈框：三欄（積木庫／步驟／參數）在工作台的欄位裡怎麼放都太窄，
+          彈框才拿得到整個視窗的寬度 */}
       {selectedTc && (
-        <section className="uat-panel uat-backend-tc-panel">
-          <BackendTcEditor
-            tc={selectedTc}
-            allTcs={tcs}
-            themeMode={themeMode}
-            onClose={() => setSelectedTcId(null)}
-            onSaved={(recordId, stepCount) => setTcs(prev => prev.map(t => t.recordId === recordId ? { ...t, stepCount } : t))}
-          />
-        </section>
+        <BackendTcEditor
+          tc={selectedTc}
+          allTcs={tcs}
+          themeMode={themeMode}
+          onClose={() => setSelectedTcId(null)}
+          onSaved={(recordId, stepCount) => setTcs(prev => prev.map(t => t.recordId === recordId ? { ...t, stepCount } : t))}
+        />
       )}
 
       <section className="uat-backend-results"><div className="uat-stat-grid"><Stat label={xianxia ? '試煉通過' : '通過'} value={summary.pass} tone="pass" /><Stat label={xianxia ? '待真人覆核' : '需人工'} value={summary.manual} tone="manual" /><Stat label={xianxia ? '略過' : '跳過'} value={summary.skip} tone="skip" /><Stat label={xianxia ? '陣眼失守' : '失敗'} value={summary.fail} tone="fail" /></div><NetworkPanel stats={netStats} themeMode={themeMode} updatedAt={statsAt} /><section className="uat-panel uat-backend-log"><div className="uat-log-toolbar"><div className="uat-section-title"><span>{xianxia ? 'ARRAY RECORD' : 'PROCESS OUTPUT'}</span><h3>{xianxia ? '陣法行跡錄' : '即時執行日誌'}</h3></div><label className="uat-check"><input type="checkbox" checked={autoScroll} onChange={event => setAutoScroll(event.target.checked)} />{xianxia ? '追隨靈流' : '自動捲動'}</label><button type="button" className="uat-btn is-quiet" onClick={() => setLogs([])}>{xianxia ? '拂去殘痕' : '清除'}</button></div><pre onScroll={event => { const el = event.currentTarget; setAutoScroll(el.scrollHeight - el.scrollTop - el.clientHeight < 40) }}>{logs.length ? logs.join('\n') : (xianxia ? '玉簡未啟，靈息未至。' : '等待執行...')}<span ref={logEnd} /></pre></section></section>

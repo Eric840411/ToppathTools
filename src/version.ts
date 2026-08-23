@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.28.1'
+export const APP_VERSION = '4.29.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.29.0',
+    date: '2026-08-23',
+    changes: [
+      'feat(uat): 積木編輯器改成彈框並重新設計佈局——三欄（積木庫／步驟／參數）放在工作台欄位裡怎麼調都太窄（右側設定欄只有 280~320px），中間那欄曾被擠成一個字寬、文字直排。彈框拿得到整個視窗寬度，三欄各自捲動、整個框不捲，拉到一半不會找不到剛剛在編的積木',
+      'feat(uat): 彈框支援點背景關閉與 Esc 關閉；有未儲存變更時兩者都會先確認',
+      'fix(uat): 彈框用 React portal 掛到 body——修仙版外殼有 backdrop-filter，被它包住的話 position: fixed 會相對那個祖先而不是視窗，實測彈框跑位而且被側邊欄蓋住；層級也提到既有 z-index: 9999 的元素之上',
+      'fix(uat): portal 之後彈框不再是 .uat-studio 的子孫，那組 --uat-* 變數解析不到，修仙版整個框變透明——彈框改成同時掛 .uat-studio 拿回 token（data-theme-mode 在 documentElement 上，修仙版覆寫照樣命中）',
+      'test(uat): 瀏覽器檢查擴充到普通版與修仙版各一組，驗到寬度、三欄不被擠扁、沒被其他元素蓋住、完整在視窗內、底色不透明、可加積木、無 JS 例外，共 20 項',
+    ],
+  },
   {
     version: '4.28.1',
     date: '2026-08-23',
