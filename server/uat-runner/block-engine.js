@@ -64,6 +64,35 @@ export const BLOCK_DEFS = {
       { key: 'waitMs', label: '查詢後等待（毫秒）', type: 'number', default: 1500 },
     ],
   },
+  assert_control_exists: {
+    label: '控制項必須存在', category: 'assert', defaultOnFail: 'stop',
+    description: '畫面上要有這個按鈕／連結（用可見文字比對，不分大小寫）',
+    params: [
+      { key: 'text', label: '文字或關鍵字', type: 'text', required: true, placeholder: 'Add' },
+      { key: 'scope', label: '限定範圍', type: 'select', options: ['button', 'any'], default: 'button', help: 'button 只找按鈕與連結；any 找整頁任何可見元素' },
+      { key: 'match', label: '比對方式', type: 'select', options: ['contains', 'startsWith', 'exact'], default: 'contains' },
+      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'manual'], default: 'stop' },
+    ],
+  },
+  assert_column_exists: {
+    label: '表格必須有這一欄', category: 'assert', defaultOnFail: 'stop',
+    description: '表頭要有指定的欄位名稱',
+    params: [
+      { key: 'columns', label: '欄位名稱（一行一個）', type: 'textarea', required: true },
+      { key: 'selector', label: '表格 selector', type: 'text', default: 'table', placeholder: 'table' },
+      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'manual'], default: 'stop' },
+    ],
+  },
+  assert_option_count: {
+    label: '下拉選項數量', category: 'assert', defaultOnFail: 'stop',
+    description: '下拉選單要存在，選項數量要符合',
+    params: [
+      { key: 'selector', label: '下拉 selector', type: 'text', required: true, placeholder: 'select' },
+      { key: 'min', label: '至少幾個', type: 'number', default: 1 },
+      { key: 'max', label: '最多幾個（留空不限）', type: 'number' },
+      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'manual'], default: 'stop' },
+    ],
+  },
   assert_absent: {
     label: '不能出現', category: 'assert', defaultOnFail: 'stop',
     description: '這個元素不能存在，或這段文字不能出現在畫面上',
@@ -309,6 +338,70 @@ export async function runSteps(steps, ctx) {
         await ctx.applyFilter(step.field, String(step.value ?? ''), step.submitSelector, Number(step.waitMs) || 1500);
         notes.push(`${tag}：${step.field} = ${step.value}`);
 
+      } else if (step.action === 'assert_control_exists') {
+        // 既有 verifier 是用 allBtns.some(t => /xxx/i.test(t)) 這種文字比對找按鈕，
+        // 這裡沿用同一種語意（預設不分大小寫的 contains），不要另創一套比對規則
+        const found = await ctx.page.evaluate(({ text, scope, match }) => {
+          const sel = scope === 'button' ? 'button, a, [role="button"], .el-button' : 'button, a, span, div, li, th, td, label';
+          const needle = String(text).toLowerCase();
+          for (const el of document.querySelectorAll(sel)) {
+            const t = (el.innerText || el.textContent || '').trim();
+            if (!t) continue;
+            const low = t.toLowerCase();
+            const hit = match === 'exact' ? low === needle : match === 'startsWith' ? low.startsWith(needle) : low.includes(needle);
+            if (hit) return t.slice(0, 60);
+          }
+          return null;
+        }, { text: step.text, scope: step.scope ?? 'button', match: step.match ?? 'contains' });
+        if (found === null) { if (fail(step, `${tag}：找不到「${step.text}」`) === 'stop') break; continue }
+        notes.push(`✅ ${tag}：${found}`);
+
+      } else if (step.action === 'assert_column_exists') {
+        const want = toLines(step.columns);
+        const headers = await ctx.page.evaluate(({ selector }) => {
+          // 跟 read_table 同一個理由：Element UI 的表頭在 .el-table__header 裡。
+          // 沿用既有 getBaseInfo() 的取法（'th, .el-table__header th'），
+          // 不要另創一套，不然同一頁兩邊看到的欄位會不一樣。
+          const all = [...document.querySelectorAll('th, .el-table__header th')]
+            .map(th => (th.innerText || '').trim()).filter(Boolean);
+          if (all.length) return all;
+          const table = document.querySelector(selector);
+          if (!table) return null;
+          return [...table.querySelectorAll('thead th, thead td')].map(th => (th.innerText || '').trim()).filter(Boolean);
+        }, { selector: step.selector || 'table' });
+        if (headers === null) { if (fail(step, `${tag}：找不到表格 ${step.selector || 'table'}`) === 'stop') break; continue }
+        const lower = headers.map(h => h.toLowerCase());
+        const missing = want.filter(w => !lower.some(h => h.includes(String(w).toLowerCase())));
+        if (missing.length) { if (fail(step, `${tag}：缺少欄位 ${missing.join('、')}（表頭有：${headers.join('、').slice(0, 120)}）`) === 'stop') break; continue }
+        notes.push(`✅ ${tag}：${want.join('、')}`);
+
+      } else if (step.action === 'assert_option_count') {
+        // 實測後台頁面 document.querySelectorAll('select').length === 0——Element UI 用的是
+        // 自訂下拉，選項要展開才會出現在 .el-select-dropdown__item。所以先點開再數。
+        if (step.selector) {
+          await ctx.page.locator(step.selector).first().click({ timeout: 5000 }).catch(() => { /* 不是可點的就算了 */ });
+          await ctx.page.waitForTimeout(400);
+        }
+        const count = await ctx.page.evaluate(({ selector }) => {
+          const el = document.querySelector(selector);
+          if (el && el.options) return el.options.length;                       // 原生 select
+          const inEl = el ? el.querySelectorAll('option, li').length : 0;
+          if (inEl) return inEl;
+          // Element UI 的下拉面板是掛在 body 底下的，不在原本那個元素裡面
+          const panels = [...document.querySelectorAll('.el-select-dropdown')]
+            .filter(p => p.style.display !== 'none');
+          const items = panels.flatMap(p => [...p.querySelectorAll('.el-select-dropdown__item')]);
+          if (items.length) return items.length;
+          return el ? 0 : null;
+        }, { selector: step.selector });
+        if (count === null) { if (fail(step, `${tag}：找不到下拉 ${step.selector}`) === 'stop') break; continue }
+        const min = step.min === undefined ? 1 : Number(step.min);
+        const max = step.max === undefined || step.max === '' ? null : Number(step.max);
+        if (count < min || (max !== null && count > max)) {
+          if (fail(step, `${tag}：選項數 ${count} 不在 ${min}~${max ?? '∞'} 之間`) === 'stop') break; continue;
+        }
+        notes.push(`✅ ${tag}：${count} 個選項`);
+
       } else if (step.action === 'assert_absent') {
         // selector 與 text 至少要有一個，兩個都空的話這顆積木什麼都沒檢查卻會顯示通過
         if (!step.selector && !step.text) {
@@ -346,11 +439,19 @@ export async function runSteps(steps, ctx) {
 
       } else if (step.action === 'read_table') {
         const rows = await ctx.page.evaluate(({ selector, maxRows }) => {
-          const table = document.querySelector(selector);
-          if (!table) return null;
-          const headers = [...table.querySelectorAll('thead th')].map(th => (th.innerText || '').trim());
-          const body = [...table.querySelectorAll('tbody tr')].slice(0, maxRows);
-          return body.map(tr => {
+          // Element UI 把表頭與表身拆成兩個 <table>（.el-table__header / .el-table__body），
+          // 用單一 table 選擇器只會拿到其中一個——實測後台頁面 querySelector('table')
+          // 抓到的是表頭那張，tbody tr 是 0 筆。所以表頭與表身要分開找。
+          const headers = [...document.querySelectorAll('.el-table__header th, table thead th')]
+            .map(th => (th.innerText || '').trim());
+          let body = [...document.querySelectorAll('.el-table__body tr')];
+          if (!body.length) {
+            const table = document.querySelector(selector);
+            if (!table) return null;
+            body = [...table.querySelectorAll('tbody tr')];
+          }
+          if (!headers.length && !body.length) return null;
+          return body.slice(0, maxRows).map(tr => {
             const cells = [...tr.querySelectorAll('td')].map(td => (td.innerText || '').trim());
             const row = {};
             cells.forEach((c, idx) => { row[headers[idx] || `col${idx}`] = c });

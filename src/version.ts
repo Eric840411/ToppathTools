@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.31.0'
+export const APP_VERSION = '4.32.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.32.0',
+    date: '2026-08-23',
+    changes: [
+      'feat(uat): 新增三顆控制項類斷言積木——控制項必須存在（按鈕/連結，用可見文字比對）、表格必須有這一欄、下拉選項數量。既有 verifier 驗的多半是這種「畫面上有沒有這個控制項」，不是原本積木做的「讀色塊→欄位有值」，少了這三顆就沒辦法把 TC 拆得等價',
+      'fix(uat): read_table 與 assert_column_exists 改成吃得下 Element UI——後台的表頭與表身是兩個獨立的 <table>（.el-table__header / .el-table__body），實測 querySelector("table") 抓到的是表頭那張、tbody tr 是 0 筆。表頭沿用既有 getBaseInfo() 的取法，不另創一套',
+      'fix(uat): assert_option_count 改成先展開再數——實測後台頁面沒有任何原生 select，Element UI 的選項要點開才會出現在掛在 body 底下的 .el-select-dropdown 面板裡',
+    ],
+  },
   {
     version: '4.31.0',
     date: '2026-08-23',

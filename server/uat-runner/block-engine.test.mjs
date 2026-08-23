@@ -23,6 +23,8 @@ function makeCtx(pageData = {}, builtin = null) {
         if (args?.selector in pageData) return pageData[args.selector];
         return null;
       },
+      async waitForTimeout() {},
+      locator() { return { first: () => ({ click: async () => {} }) } },
     },
     async openPath(p, w) { calls.push({ kind: 'open', p, w }); },
     resolveSubtypePath(sub) { return sub === 'Dashboard' ? '/dashboard' : null; },
@@ -233,7 +235,44 @@ const BLUE = { 'Total Available EGM': '5', 'Total System Connected EGM': '2' };
   check('selector 與 text 都空 → FAIL（不能假裝檢查過）', none.pass === false, none.criticalFails);
 }
 
-// ── 16. 純函式 ─────────────────────────────────────────────────────────
+// ── 16. 控制項類斷言（既有 verifier 驗的多半是這種）────────────────────
+{
+  const withBtn = makeCtx(); withBtn.page.evaluate = async () => 'Add EGM'
+  const ok = await runSteps([{ action: 'assert_control_exists', text: 'Add' }], withBtn)
+  check('找得到按鈕 → pass', ok.pass === true, ok.notes)
+
+  const noBtn = makeCtx(); noBtn.page.evaluate = async () => null
+  const bad = await runSteps([{ action: 'assert_control_exists', text: 'Add' }], noBtn)
+  check('找不到按鈕 → FAIL 且訊息指名', bad.pass === false && /Add/.test(bad.criticalFails.join('')), bad.criticalFails)
+
+  const noText = await runSteps([{ action: 'assert_control_exists' }], makeCtx())
+  check('沒填文字 → FAIL（必填）', noText.pass === false, noText.criticalFails)
+}
+
+{
+  const has = makeCtx(); has.page.evaluate = async () => ['UserId', 'Total Bet Amount', 'Win']
+  const ok = await runSteps([{ action: 'assert_column_exists', columns: 'Total Bet Amount' }], has)
+  check('表格有這一欄 → pass', ok.pass === true, ok.notes)
+
+  const miss = makeCtx(); miss.page.evaluate = async () => ['UserId', 'Win']
+  const bad = await runSteps([{ action: 'assert_column_exists', columns: 'Total Bet Amount\nJackpot' }], miss)
+  check('缺欄位 → FAIL 且列出缺哪些', bad.pass === false && /Total Bet Amount/.test(bad.criticalFails.join('')), bad.criticalFails)
+
+  const noTable = makeCtx(); noTable.page.evaluate = async () => null
+  const nt = await runSteps([{ action: 'assert_column_exists', columns: 'X' }], noTable)
+  check('找不到表格 → FAIL', nt.pass === false, nt.criticalFails)
+}
+
+{
+  const five = makeCtx(); five.page.evaluate = async () => 5
+  check('選項數在範圍內 → pass', (await runSteps([{ action: 'assert_option_count', selector: 'select', min: 2 }], five)).pass === true)
+  check('選項數低於下限 → FAIL', (await runSteps([{ action: 'assert_option_count', selector: 'select', min: 9 }], five)).pass === false)
+  check('選項數高於上限 → FAIL', (await runSteps([{ action: 'assert_option_count', selector: 'select', min: 1, max: 3 }], five)).pass === false)
+  const none = makeCtx(); none.page.evaluate = async () => null
+  check('找不到下拉 → FAIL', (await runSteps([{ action: 'assert_option_count', selector: 'select' }], none)).pass === false)
+}
+
+// ── 17. 純函式 ─────────────────────────────────────────────────────────
 check('toNumber 去掉貨幣與千分位', toNumber('PHP 15,024,840') === 15024840);
 check('toNumber 處理負數', toNumber('-258') === -258);
 check('toNumber 空值回 undefined（不是 0）', toNumber('') === undefined && toNumber(null) === undefined);
