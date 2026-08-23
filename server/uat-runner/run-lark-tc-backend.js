@@ -11,6 +11,7 @@ import path from 'path';
 import XLSX from 'xlsx';
 import { attachNetworkCapture, DEFAULT_THRESHOLDS, formatStatsLine } from './net-capture.js';
 import { runSteps as runBlockSteps } from './block-engine.js';
+import { resolveVerifierParams } from './verifier-params.js';
 
 // ─── Lark 設定 ───────────────────────────────────────────────────────
 const LARK_TOKEN_URL = 'https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal';
@@ -2892,7 +2893,7 @@ async function verifyDepositSetting(page, tc) {
 // 保守原則：不實際建立/取消真實預約（會動到共用UAT的VIP名單與Remaining Count），
 // 也不做跨渠道比對（CP限定按鈕、壓測隔離等，已加入detectManual跨系統分流）。
 
-async function verifyMachineReservation(page, tc) {
+async function verifyMachineReservation(page, tc, params = {}) {
   const notes = [];
   const criticalFails = [];
   const full = tc || '';
@@ -3008,6 +3009,15 @@ async function verifyMachineReservation(page, tc) {
 
   // TC：Add Reservation 負向情境（Machine No不存在／Account不存在，實測真實錯誤訊息）
   if (/add\s*reservation功能測試|machine\s*no\s*is\s*not\s*exist|account\s*is\s*not\s*exist/i.test(full)) {
+    // 預設值要跟 VERIFIER_PARAM_SCHEMAS 宣告的一致——走 SUBTYPE_MAP 那條舊路徑進來時
+    // 不會帶 params，兩邊不一致的話同一筆 TC 會因為「是怎麼被呼叫的」而驗到不同東西
+    const P = {
+      realMachineNo: params.realMachineNo ?? TEST_PARAMS?.machineReservation?.realMachineNo ?? '873-DFDCGRAND-0023',
+      fakeMachineNo: params.fakeMachineNo ?? 'FAKE-MACHINE-NOTEXIST-999',
+      fakeAccount: params.fakeAccount ?? 'FAKE-ACCOUNT-NOTEXIST-999',
+      expectMachineError: params.expectMachineError ?? 'machine no is not exist',
+      expectAccountError: params.expectAccountError ?? 'account is not exist',
+    };
     await openReservationList();
     const vipAccounts = await page.evaluate(() => {
       const dlg = [...document.querySelectorAll('.el-dialog')].filter(d => d.getBoundingClientRect().width > 0).pop();
@@ -3049,11 +3059,11 @@ async function verifyMachineReservation(page, tc) {
     };
 
     if (realVipAccount) {
-      const msg1 = await fillAddReservation(realVipAccount, 'FAKE-MACHINE-NOTEXIST-999');
+      const msg1 = await fillAddReservation(realVipAccount, P.fakeMachineNo);
       const shot1 = path.join(SCREENSHOT_DIR, `reservation_add_fakemachine_${Date.now()}.png`);
       await page.screenshot({ path: shot1 });
       extraShotPaths.push(shot1);
-      if (/machine no is not exist/i.test(msg1 || '')) {
+      if (new RegExp(P.expectMachineError, 'i').test(msg1 || '')) {
         notes.push(`✅Machine No不存在時正確提示"${msg1}"`);
       } else {
         notes.push(`❌Machine No不存在時提示異常(實際:${msg1 || '無'})`);
@@ -3063,11 +3073,11 @@ async function verifyMachineReservation(page, tc) {
       notes.push('⚠️VIP名單目前無資料，無法取得真實帳號測試Machine No情境');
     }
 
-    const msg2 = await fillAddReservation('FAKE-ACCOUNT-NOTEXIST-999', TEST_PARAMS?.machineReservation?.realMachineNo || '873-DFDCGRAND-0023');
+    const msg2 = await fillAddReservation(P.fakeAccount, P.realMachineNo);
     const shot2 = path.join(SCREENSHOT_DIR, `reservation_add_fakeaccount_${Date.now()}.png`);
     await page.screenshot({ path: shot2 });
     extraShotPaths.push(shot2);
-    if (/account is not exist/i.test(msg2 || '')) {
+    if (new RegExp(P.expectAccountError, 'i').test(msg2 || '')) {
       notes.push(`✅Account不存在時正確提示"${msg2}"`);
     } else {
       notes.push(`❌Account不存在時提示異常(實際:${msg2 || '無'})`);
@@ -4394,7 +4404,13 @@ async function performSteps(p, steps, label, taskFull) {
       //    是 TC 的描述文字。傳 label 的話 verifier 裡每一條 /regex/.test(full) 都不會
       //    命中 → 一個斷言都沒跑 → criticalFails 是空的 → **判定為通過**。
       //    這正是最難察覺的那種錯：畫面上顯示綠色、日誌看起來正常。
-      return fn(p, taskFull, options ?? {});
+      const { params, missing } = resolveVerifierParams(name, options, TEST_PARAMS);
+      if (missing.length) {
+        // 缺必填參數是設定問題不是執行期狀況，直接說清楚缺什麼，不要拿 undefined 往下跑
+        const msg = `內建驗證器「${name}」缺少必填參數：${missing.join('、')}（可在這顆積木的參數裡填，或設在 config/backend-test-params.json）`;
+        return { notes: msg, criticalFails: [msg], manual: false };
+      }
+      return fn(p, taskFull, params);
     },
   });
   return {

@@ -33,5 +33,9 @@
       "Maxi-Tier2",
       "Pearl-Tier2"
     ]
+  },
+  "machineReservation": {
+    "_說明": "自動預約（verifyMachineReservation）的參數。realMachineNo 是環境相依的——換一套 UAT 環境要重填，沿用舊機台號會「測得過但驗的是不存在的東西」。單筆 TC 可以在積木編輯器覆寫這裡的值。",
+    "realMachineNo": "873-DFDCGRAND-0023"
   }
 }

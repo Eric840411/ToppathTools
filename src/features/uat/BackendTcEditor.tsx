@@ -33,6 +33,15 @@ interface BlockParam {
   placeholder?: string
   help?: string
   required?: boolean
+  /** 換一套環境就要重填的值（真實帳號、真實機台號）。編輯器會標出來 */
+  envDependent?: boolean
+}
+
+/** 某支內建驗證器自己宣告的參數表。宣告在後端（uat-runner/verifier-params.js），前端只照著長表單 */
+interface VerifierSchema {
+  paramsGroup: string
+  label: string
+  params: BlockParam[]
 }
 
 interface BlockDef {
@@ -63,6 +72,7 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
 }) {
   const xianxia = themeMode === 'xianxia'
   const [blockDefs, setBlockDefs] = useState<Record<string, BlockDef>>({})
+  const [verifierSchemas, setVerifierSchemas] = useState<Record<string, VerifierSchema>>({})
   const [steps, setSteps] = useState<Step[]>([])
   const [selected, setSelected] = useState<number | null>(null)
   const [dirty, setDirty] = useState(false)
@@ -78,8 +88,12 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
     void (async () => {
       try {
         const r = await fetch('/api/osm-uat/blocks')
-        const d = await r.json() as { ok: boolean; blockDefs?: Record<string, BlockDef> }
-        if (d.ok) setBlockDefs(d.blockDefs ?? {})
+        const d = await r.json() as {
+          ok: boolean
+          blockDefs?: Record<string, BlockDef>
+          verifierSchemas?: Record<string, VerifierSchema>
+        }
+        if (d.ok) { setBlockDefs(d.blockDefs ?? {}); setVerifierSchemas(d.verifierSchemas ?? {}) }
       } catch { /* 積木庫載不到就顯示空清單，不擋住其他操作 */ }
     })()
   }, [])
@@ -248,6 +262,10 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
   const isUnconverted = !dirty && steps.length === 1 && steps[0]?.action === 'builtin_verifier' && !tc.stepCount
   const current = selected !== null ? steps[selected] : null
   const currentDef = current ? blockDefs[current.action] : null
+  // 選到 builtin_verifier 時，那支驗證器自己的參數表（沒宣告的就是零參數模組）
+  const currentSchema = current?.action === 'builtin_verifier' && typeof current.name === 'string'
+    ? verifierSchemas[current.name] ?? null
+    : null
 
   // Esc 關閉：彈框沒有 Esc 會讓人覺得被困住
   useEffect(() => {
@@ -409,6 +427,39 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
                   {prm.help && <small>{prm.help}</small>}
                 </label>
               ))}
+              {/* 內建驗證器自己的參數。沒宣告 schema 的就是零參數模組，這整塊不出現。
+                  值寫進 step.options，執行時的優先序是：
+                  這裡填的 → backend-test-params.json 的同名群組 → 宣告裡的預設 */}
+              {currentSchema && (
+                <div className="uat-tc-verifier-params">
+                  <h5>{currentSchema.label}的參數</h5>
+                  <p className="uat-tc-inspector-desc">
+                    留白就用預設值（來自 <code>backend-test-params.json</code> 或內建預設）。這裡填的只影響這一筆 TC。
+                  </p>
+                  {currentSchema.params.map(prm => {
+                    const opts = (current.options ?? {}) as Record<string, unknown>
+                    return (
+                      <label className="uat-tc-field" key={prm.key}>
+                        {prm.label}
+                        {prm.required && <b> *</b>}
+                        {/* 環境相依的值最危險的不是缺，是沿用舊環境的還測得過——
+                            綠燈但驗的是一個不存在的東西，所以要標出來 */}
+                        {prm.envDependent && <em className="uat-tc-envtag">換環境要重填</em>}
+                        <input
+                          className="uat-field"
+                          value={String(opts[prm.key] ?? '')}
+                          placeholder={prm.default !== undefined ? `預設：${String(prm.default)}` : ''}
+                          onChange={e => patchStep(selected!, {
+                            options: { ...opts, [prm.key]: e.target.value || undefined },
+                          })}
+                        />
+                        {prm.help && <small>{prm.help}</small>}
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+
               {/* 表單只講「填什麼」，這裡講「失敗會怎樣」——那才是使用者真正在決定的事 */}
               <div className="uat-tc-outcome">
                 <h5>這顆沒過的話</h5>

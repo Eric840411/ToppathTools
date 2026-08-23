@@ -24,6 +24,7 @@ import { agentConnections, type AgentInfo } from '../agent-hub.js'
 import { getOperatorFromContext } from '../request-context.js'
 import { parseStatsLine } from '../uat-runner/net-capture.js'
 import { BLOCK_DEFS } from '../uat-runner/block-engine.js'
+import { VERIFIER_PARAM_SCHEMAS } from '../uat-runner/verifier-params.js'
 import { backendRecorderScript, RECORDER_MARKER, eventsToSteps, hasAssertion } from '../uat-runner/backend-recorder.js'
 import { readFileSync as fsReadFileSync } from 'fs'
 import {
@@ -631,7 +632,9 @@ router.post('/api/osm-uat/tc-steps/import', writeLimiter, (req, res) => {
 
 /** 積木定義給前端畫積木庫與參數表單用。刻意由後端提供，前端不要另抄一份 */
 router.get('/api/osm-uat/blocks', (_req, res) => {
-  res.json({ ok: true, blockDefs: BLOCK_DEFS })
+  // verifierSchemas 讓編輯器在 builtin_verifier 積木底下長出那支驗證器自己的參數表單。
+  // 跟 blockDefs 同一個原則：宣告由後端出，前端不要另抄一份
+  res.json({ ok: true, blockDefs: BLOCK_DEFS, verifierSchemas: VERIFIER_PARAM_SCHEMAS })
 })
 
 /** 單筆 TC 的積木。verifierName 從 registry 檔案讀（那是出廠預設的路由表，唯讀）*/

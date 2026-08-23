@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.36.1'
+export const APP_VERSION = '4.37.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.37.0',
+    date: '2026-08-24',
+    changes: [
+      'feat(uat): 內建驗證器可以宣告自己吃哪些參數，編輯器照宣告自動長出表單，單筆 TC 可以覆寫。取值順序是「這筆 TC 填的 → backend-test-params.json → 宣告的預設」，必填缺值會明確說缺什麼，不會拿空值往下跑',
+      'feat(uat): 自動預約驗證器的五個寫死值改成可調參數（真實機台號、兩個假值、兩段預期錯誤訊息）。後台文案改了改參數就好，不用動程式碼',
+      'feat(uat): 環境相依的參數會標「換環境要重填」。這種值最危險的不是缺，是沿用舊環境的值還測得過——畫面綠燈，驗的卻是一個不存在的東西',
+    ],
+  },
   {
     version: '4.36.1',
     date: '2026-08-23',

@@ -68,6 +68,8 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   // 後台積木執行器：run-lark-tc-backend.js 會 import 它，少送 agent 端會在 import 當下炸掉
   'uat-runner/block-engine.js':        join(SERVER_ROOT, 'uat-runner', 'block-engine.js'),
   'uat-runner/backend-recorder.js':    join(SERVER_ROOT, 'uat-runner', 'backend-recorder.js'),
+  // 內建驗證器的參數宣告：同上，run-lark-tc-backend.js import 它，少送就 import 當下炸
+  'uat-runner/verifier-params.js':     join(SERVER_ROOT, 'uat-runner', 'verifier-params.js'),
 }
 
 export const router = Router()

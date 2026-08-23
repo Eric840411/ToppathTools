@@ -447,3 +447,34 @@
 .uat-tc-picker-head h3 { margin: 3px 0 0; font-size: 15px; }
 .uat-tc-picker-head small { display: block; margin-top: 4px; color: var(--uat-muted); font-size: 11px; }
 .uat-tc-picker-list { display: flex; flex-direction: column; gap: 4px; min-height: 0; overflow-y: auto; padding-right: 4px; }
+
+/* 內建驗證器的參數區：跟一般積木參數視覺上分開，讓人看得出這是「那支驗證器的設定」
+   而不是積木本身的欄位 */
+.uat-tc-verifier-params {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--uat-border);
+  border-radius: 8px;
+  background: var(--uat-surface-2);
+}
+.uat-tc-verifier-params h5 {
+  margin: 0 0 4px;
+  font-size: 12px;
+  color: var(--uat-text);
+}
+.uat-tc-verifier-params code {
+  font-size: 11px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--uat-surface-3, rgba(127, 127, 127, .14));
+}
+/* 環境相依的值：沿用舊環境的值還測得過是最難察覺的錯，標記要看得到但不搶戲 */
+.uat-tc-envtag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-style: normal;
+  color: var(--uat-warn, #b7791f);
+  background: color-mix(in srgb, var(--uat-warn, #b7791f) 14%, transparent);
+}
