@@ -24,6 +24,41 @@
  * 編輯器會另外標示。
  */
 
+/**
+ * 驗證器跑完但「一個斷言都沒跑」時的守門。
+ *
+ * ## 為什麼需要
+ * v4.36.1 修過一個 bug：callBuiltin 把截圖檔名當成 TC 描述文字傳給驗證器，
+ * 於是每一條 /regex/.test(full) 都不命中、一個斷言都沒執行、criticalFails 是空的
+ * → **判定通過**。畫面綠色、日誌正常，沒有任何地方會喊。
+ *
+ * 那次是接線錯，但同樣的結果還有別的成因：TC 描述文字被改過、驗證器的 regex 沒跟上、
+ * 之後再接錯一次。只靠「criticalFails 是空的就算過」，每一種成因都會靜默通過。
+ * 所以要有一條跟成因無關的防線：**沒跑到任何斷言，就不准算通過**。
+ *
+ * ## 怎麼判斷「有沒有跑到斷言」
+ * 驗證器的慣例是斷言結果一律寫成 ✅／❌ 開頭的 note，而背景資訊（`頁面:xxx`、
+ * `表格N筆`）不帶標記。note-only 的檢查用 ⚠️。所以：
+ *   有 criticalFails ／ 是 manual ／ notes 裡有 ✅❌ ／ 有非哨兵的 ⚠️  → 有跑
+ * 只有 23 支裡 9 支會自己印「沒有對應到已知的驗證規則」，所以不能只認那句話。
+ */
+const NO_ASSERTION_SENTINEL = /沒有對應到已知的驗證規則/;
+
+/**
+ * @param {{ notes?: string, criticalFails?: string[], manual?: boolean }} result
+ * @returns {boolean} true = 這次真的跑到至少一個斷言
+ */
+export function verifierRanAssertion(result) {
+  if (!result) return false;
+  if (result.manual) return true;                       // 人工判讀是正當結果，不是沒跑
+  if ((result.criticalFails ?? []).length) return true;
+  const notes = String(result.notes ?? '');
+  if (/[✅❌]/.test(notes)) return true;
+  // ⚠️ 也算跑過（note-only 的檢查查不到就是印 ⚠️），但哨兵那句本身不算——
+  // 那句的意思剛好相反：它就是在說「什麼都沒驗」
+  return notes.split(' | ').some(n => n.includes('⚠️') && !NO_ASSERTION_SENTINEL.test(n) && !n.includes('MANUAL'));
+}
+
 /** @type {Record<string, { paramsGroup: string, label: string, params: Array<object> }>} */
 export const VERIFIER_PARAM_SCHEMAS = {
   verifyMachineReservation: {

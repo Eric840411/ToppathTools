@@ -11,7 +11,7 @@ import path from 'path';
 import XLSX from 'xlsx';
 import { attachNetworkCapture, DEFAULT_THRESHOLDS, formatStatsLine } from './net-capture.js';
 import { runSteps as runBlockSteps } from './block-engine.js';
-import { resolveVerifierParams } from './verifier-params.js';
+import { resolveVerifierParams, verifierRanAssertion } from './verifier-params.js';
 
 // ─── Lark 設定 ───────────────────────────────────────────────────────
 const LARK_TOKEN_URL = 'https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal';
@@ -4410,7 +4410,14 @@ async function performSteps(p, steps, label, taskFull) {
         const msg = `內建驗證器「${name}」缺少必填參數：${missing.join('、')}（可在這顆積木的參數裡填，或設在 config/backend-test-params.json）`;
         return { notes: msg, criticalFails: [msg], manual: false };
       }
-      return fn(p, taskFull, params);
+      const out = await fn(p, taskFull, params);
+      // 跑完但一個斷言都沒跑到 → 不准算通過。這條防線跟成因無關：接線錯、TC 文字被改、
+      // regex 沒跟上，任何一種都會讓驗證器什麼都沒驗卻回一個空的 criticalFails。
+      if (!verifierRanAssertion(out)) {
+        const why = `內建驗證器「${name}」跑完但一個斷言都沒執行——通常是這筆 TC 的描述文字跟驗證器裡的判斷條件對不上。這種情況不算通過。`;
+        return { ...out, criticalFails: [...(out.criticalFails ?? []), why], notes: [out.notes, why].filter(Boolean).join(' | ') };
+      }
+      return out;
     },
   });
   return {

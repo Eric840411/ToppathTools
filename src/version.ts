@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.37.0'
+export const APP_VERSION = '4.38.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.38.0',
+    date: '2026-08-24',
+    changes: [
+      'feat(uat): 內建驗證器跑完但一個斷言都沒執行時，不准判定為通過。之前只要 criticalFails 是空的就算過——驗證器什麼都沒驗也算過，這種綠燈比直接失敗還糟',
+      'feat(uat): 新增零斷言掃描工具（server/uat-runner/scan-zero-assertion.mjs）。靜態掃出 19 筆 TC 現在是「跑完什麼都沒驗卻判定通過」，其中 11 筆集中在 Game Setting',
+      'note(uat): 這條防線目前只套在積木路徑，舊路徑先不套——一次把 19 筆翻成 FAIL 是測試政策變更，要獨立決定、獨立版號',
+    ],
+  },
   {
     version: '4.37.0',
     date: '2026-08-24',

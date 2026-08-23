@@ -5,6 +5,7 @@
  * 跑法：node server/uat-runner/block-engine.test.mjs
  */
 import { runSteps, toNumber, numbersEqual } from './block-engine.js';
+import { verifierRanAssertion } from './verifier-params.js';
 
 let pass = 0, fail = 0;
 function check(name, cond, extra) {
@@ -401,6 +402,25 @@ Machine No` }], m)
   check('沒資料預設 warn 不擋', z.pass === true && z.warnings.length === 1, { p: z.pass, w: z.warnings })
   check('要擋也可以明講 onFail: stop',
     (await runSteps([{ action: 'assert_row_count', min: 1, onFail: 'stop' }], none)).pass === false)
+}
+
+// ── 零斷言守門 ────────────────────────────────────────────────────────
+// 守的是：驗證器跑完但什麼都沒驗到時，不准判定為通過。
+// v4.36.1 就是踩到這個——接線傳錯，每條分支都不命中，結果一路綠燈。
+{
+  const ran = r => verifierRanAssertion(r)
+  check('只有背景資訊（頁面/筆數）→ 沒跑到斷言',
+    ran({ notes: '頁面:Meter | 表格10筆', criticalFails: [] }) === false)
+  check('有 ✅ → 有跑', ran({ notes: '頁面:X | ✅欄位完整', criticalFails: [] }) === true)
+  check('有 ❌ → 有跑', ran({ notes: '❌欄位缺失', criticalFails: ['欄位缺失'] }) === true)
+  check('note-only 的 ⚠️ 也算有跑（它確實查了，只是查不到不擋）',
+    ran({ notes: '表格0筆 | ⚠️目前無資料，無法驗證', criticalFails: [] }) === true)
+  check('「沒有對應到已知的驗證規則」那句哨兵不算有跑（它的意思剛好相反）',
+    ran({ notes: '頁面:X | ⚠️這筆TC文字沒有對應到已知的驗證規則，未執行任何斷言: abc', criticalFails: [] }) === false)
+  check('manual 是正當結果，不算沒跑',
+    ran({ notes: '⚠️ MANUAL: 需跨渠道比對', criticalFails: [], manual: true }) === true)
+  check('完全空的 → 沒跑', ran({ notes: '', criticalFails: [] }) === false)
+  check('undefined 也不能當成有跑', ran(undefined) === false)
 }
 
 // ── 17. 純函式 ─────────────────────────────────────────────────────────

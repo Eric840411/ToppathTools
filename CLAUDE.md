@@ -1350,8 +1350,20 @@ Backend 測的是 CP／NC 後台管理站，那是一般網站沒有 pinus；掛
 
 **同一顆積木裡不同等級的失敗要能分開**：`assert_dialog_fields` 的「對話框開不起來」（功能壞了）跟「開了但少一個欄位」（可能只是規格調整）不同級，所以多一個 `onMissingFields`。這不是特例——四支大 verifier 的參數表也要能逐個比對欄位各自宣告 `fail`／`manual`／`warn`／`skip`，一顆總開關會逼人在「全都擋」跟「全都不擋」之間選，兩個都不對。
 
+### 零斷言不得通過（v4.38.0）
+
+**驗證器跑完但一個斷言都沒執行時，不准判定為通過。**
+
+v4.36.1 踩過一次：`callBuiltin` 把截圖檔名當成 TC 描述文字傳給驗證器，於是每一條 `/regex/.test(full)` 都不命中、什麼都沒驗、`criticalFails` 是空的 → **綠燈**。那次是接線錯，但同樣結果還有別的成因（TC 文字被改、驗證器 regex 沒跟上、之後再接錯一次），所以要有一條跟成因無關的防線。
+
+判斷方式（`verifierRanAssertion()`，`verifier-params.js`）：有 `criticalFails`／是 `manual`／notes 裡有 ✅❌／有非哨兵的 ⚠️ → 算有跑。**不能只認驗證器自己印的「沒有對應到已知的驗證規則」**——23 支裡只有 9 支會印。
+
+**目前只套在積木路徑**（`builtin_verifier`）。舊的 `SUBTYPE_MAP` 路徑先量測不套：`node server/uat-runner/scan-zero-assertion.mjs` 靜態掃出 **19 筆現在是零斷言卻判定通過**（另 11 筆先被 `detectManual` 攔成人工判讀，那是正當結果）。套上去等於一次把 19 筆翻成 FAIL，是測試政策變更不是修 bug，要獨立決定、獨立版號——跟 v4.33.1／v4.34.0 那次同一個原則。
+
+19 筆的分布：`verifyGameSettingPage` 11、`verifyMachineReservation` 2、`verifyReportPage` 2，其餘五支各 1。
+
 ### 測試
-`server/uat-runner/block-engine.test.mjs`（`node server/uat-runner/block-engine.test.mjs`），57 項，用假 ctx 不開瀏覽器。**改動執行器語意時一定要先跑它**——這裡守的是「失敗不能變成通過」那條線。
+`server/uat-runner/block-engine.test.mjs`（`node server/uat-runner/block-engine.test.mjs`），84 項，用假 ctx 不開瀏覽器。**改動執行器語意時一定要先跑它**——這裡守的是「失敗不能變成通過」那條線。
 
 ---
 
