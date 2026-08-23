@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.28.0'
+export const APP_VERSION = '4.28.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.28.1',
+    date: '2026-08-23',
+    changes: [
+      'fix(uat): 模組卡片上的「N TC」徽章一直不出現，導致積木編輯器與錄製按鈕完全點不到——v4.27.1 把 TC 清單從掃描結果改成掛載時載入的離線快照，但徽章的顯示條件還掛在只有掃描後才有的 groups 上。改成看 tcs，並用實際歸到該模組的筆數',
+      'test(uat): 補上瀏覽器端到端檢查（真的載入頁面、點側邊欄進 UAT、展開模組、點 TC、確認編輯器與錄製按鈕在）——前兩版都只驗 API 就交出去，這個 bug 是使用者回報才發現的',
+    ],
+  },
   {
     version: '4.28.0',
     date: '2026-08-23',

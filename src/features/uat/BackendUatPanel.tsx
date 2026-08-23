@@ -319,10 +319,11 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
             <article className={`uat-backend-module is-${module.tone}${draggedModule === module.instanceId ? ' is-dragging' : ''}${selectedModuleId === module.instanceId ? ' is-selected' : ''}`} draggable={status !== 'running'} onClick={() => selectModule(module.instanceId)} onDragStart={() => setDraggedModule(module.instanceId)} onDragEnd={() => setDraggedModule(null)} onDragOver={event => event.preventDefault()} onDrop={() => { if (draggedModule) moveModule(draggedModule, module.instanceId); setDraggedModule(null) }}>
               <span className="uat-backend-module-grip" aria-hidden="true"><i /><i /><i /></span><span className="uat-backend-module-index">{String(index + 1).padStart(2, '0')}</span>
               <div><strong>{xianxia ? module.xianxiaName : module.name}{module.sourceId === 'custom' && <b className="uat-backend-custom-badge">自訂</b>}</strong><small>{module.description}</small><span className="uat-backend-rule-preview">{module.filters.join(' · ')}</span></div>
-              {groups && <em className="uat-backend-module-count" role="button" tabIndex={0}
+              {tcs.length > 0 && <em className="uat-backend-module-count" role="button" tabIndex={0}
+                title="展開看這個模組收到哪幾筆 TC，點進去可以編積木"
                 onClick={event => { event.stopPropagation(); setExpandedModule(prev => prev === module.instanceId ? null : module.instanceId) }}
                 onKeyDown={event => { if (event.key === "Enter") { event.stopPropagation(); setExpandedModule(prev => prev === module.instanceId ? null : module.instanceId) } }}>
-                {moduleCounts.get(module.instanceId) ?? 0} TC {expandedModule === module.instanceId ? "▾" : "▸"}</em>}
+                {(moduleTcs.get(module.instanceId) ?? []).length} TC {expandedModule === module.instanceId ? "▾" : "▸"}</em>}
               <span className="uat-backend-module-actions"><button type="button" disabled={status === 'running' || index === 0} onClick={event => { event.stopPropagation(); moveModuleBy(module.instanceId, -1) }}>上移</button><button type="button" disabled={status === 'running' || index === config.modulePlan.length - 1} onClick={event => { event.stopPropagation(); moveModuleBy(module.instanceId, 1) }}>下移</button><button type="button" disabled={status === 'running'} onClick={event => { event.stopPropagation(); duplicateModule(module.instanceId) }}>複製</button><button type="button" disabled={status === 'running'} onClick={event => { event.stopPropagation(); removeModule(module.instanceId) }}>移除</button></span>
             </article>
               {expandedModule === module.instanceId && (
