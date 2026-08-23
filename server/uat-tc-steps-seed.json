@@ -1,8 +1,30 @@
 {
   "kind": "toppath-uat-tc-steps",
   "version": 1,
-  "count": 25,
+  "count": 44,
   "steps": {
+    "recvenTprA3kez": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/gameCount"
+      },
+      {
+        "action": "assert_labels_contain",
+        "source": "formLabel",
+        "expect": "Player Channel"
+      }
+    ],
+    "recvenTprA50LX": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/plyerMachineCount"
+      },
+      {
+        "action": "assert_labels_contain",
+        "source": "formLabel",
+        "expect": "Game Type"
+      }
+    ],
     "recvenTprA8JzE": [
       {
         "action": "open_page",
@@ -40,10 +62,57 @@
         "name": "tc3_Dashboard"
       }
     ],
+    "recvenTprABY17": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/gameCount"
+      },
+      {
+        "action": "assert_element_count",
+        "selector": ".el-date-editor",
+        "label": "日期篩選（From/To）",
+        "min": 2
+      }
+    ],
     "recvenTprABeZ8": [
       {
         "action": "mark_manual",
         "reason": "需要等待5分鐘觀察更新"
+      }
+    ],
+    "recvenTprACXhH": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/plyerMachineCount"
+      },
+      {
+        "action": "assert_element_count",
+        "selector": ".el-date-editor",
+        "label": "日期篩選（From/To）",
+        "min": 2
+      }
+    ],
+    "recvenTprAD9hS": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/jackpotRecordList"
+      },
+      {
+        "action": "assert_element_count",
+        "selector": ".el-date-editor",
+        "label": "日期篩選（From/To）",
+        "min": 2
+      }
+    ],
+    "recvenTprADviL": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/plyerMachineCount"
+      },
+      {
+        "action": "assert_labels_contain",
+        "source": "formLabel",
+        "expect": "Machine Name\nUserId\nAccount"
       }
     ],
     "recvenTprAFfBc": [
@@ -73,6 +142,40 @@
         "note": "可維護/喚醒機台"
       }
     ],
+    "recvenTprAFu0k": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/rechargeRecordList"
+      },
+      {
+        "action": "assert_labels_contain",
+        "source": "formLabel",
+        "expect": "UserId\nAccount\nType"
+      }
+    ],
+    "recvenTprAJGtw": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/egmCount"
+      },
+      {
+        "action": "assert_labels_contain",
+        "source": "formLabel",
+        "expect": "Game Type"
+      }
+    ],
+    "recvenTprAL2eS": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/egmTransfer"
+      },
+      {
+        "action": "assert_element_count",
+        "selector": ".el-date-editor",
+        "label": "日期篩選（From/To）",
+        "min": 2
+      }
+    ],
     "recvenTprAM9CA": [
       {
         "action": "open_page",
@@ -82,6 +185,18 @@
         "action": "assert_control_exists",
         "text": "Batch",
         "note": "批量設置小面額"
+      }
+    ],
+    "recvenTprAQgTi": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/egmCount"
+      },
+      {
+        "action": "assert_element_count",
+        "selector": ".el-date-editor",
+        "label": "日期篩選（From/To）",
+        "min": 2
       }
     ],
     "recvenTprARMJa": [
@@ -98,6 +213,18 @@
         "action": "read_table",
         "as": "rows",
         "maxRows": 20
+      }
+    ],
+    "recvenTprATT9i": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/gameRecordList"
+      },
+      {
+        "action": "assert_element_count",
+        "selector": ".el-date-editor",
+        "label": "日期篩選（From/To）",
+        "min": 2
       }
     ],
     "recvenTprAVHSm": [
@@ -125,6 +252,28 @@
         "trigger": "Add",
         "onMissingFields": "warn",
         "fields": "Game Order\nSort"
+      }
+    ],
+    "recvenTprAXbWF": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/egmCount"
+      },
+      {
+        "action": "assert_labels_contain",
+        "source": "formLabel",
+        "expect": "Machine Name"
+      }
+    ],
+    "recvenTprAXocM": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/gameRecordList"
+      },
+      {
+        "action": "assert_labels_contain",
+        "source": "formLabel",
+        "expect": "Player Channel"
       }
     ],
     "recvenTprAcCmK": [
@@ -196,6 +345,17 @@
         "name": "tc1_Dashboard"
       }
     ],
+    "recvenTprAegR4": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/jackpotRecordList"
+      },
+      {
+        "action": "assert_labels_contain",
+        "source": "formLabel",
+        "expect": "Game Type"
+      }
+    ],
     "recvenTprAglDR": [
       {
         "action": "open_page",
@@ -205,6 +365,18 @@
         "action": "assert_labels_contain",
         "source": "checkboxLabel",
         "expect": "Gaming Day"
+      }
+    ],
+    "recvenTprAgtmb": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/rechargeRecordList"
+      },
+      {
+        "action": "assert_element_count",
+        "selector": ".el-date-editor",
+        "label": "日期篩選（From/To）",
+        "min": 2
       }
     ],
     "recvenTprAgv84": [
@@ -265,6 +437,17 @@
         "note": "刪除白名單帳號"
       }
     ],
+    "recvenTprAk2GP": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/gameRecordList"
+      },
+      {
+        "action": "assert_labels_contain",
+        "source": "formLabel",
+        "expect": "Machine Name\nUserId\nAccount\nGame Order"
+      }
+    ],
     "recvenTprAkiPb": [
       {
         "action": "open_page",
@@ -274,6 +457,39 @@
         "action": "assert_labels_contain",
         "source": "checkboxLabel",
         "expect": "Gaming Day"
+      }
+    ],
+    "recvenTprAmU7F": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/gameCount"
+      },
+      {
+        "action": "assert_labels_contain",
+        "source": "formLabel",
+        "expect": "Game Type"
+      }
+    ],
+    "recvenTprAnBfe": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/egmTransfer"
+      },
+      {
+        "action": "assert_labels_contain",
+        "source": "formLabel",
+        "expect": "Machine Name\nUserId\nAccount"
+      }
+    ],
+    "recvenTprAtos7": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/rechargeRecordList"
+      },
+      {
+        "action": "assert_labels_contain",
+        "source": "formLabel",
+        "expect": "Player Channel"
       }
     ],
     "recvenTprAuUlT": [

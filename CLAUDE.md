@@ -1323,7 +1323,20 @@ Backend 測的是 CP／NC 後台管理站，那是一般網站沒有 pinus；掛
 |------|------|
 | 2 | `SUBTYPE_MAP` 的路徑表搬進 registry；逐支 verifier 宣告參數表，接成 `builtin_verifier` 的 `options`。**第一支做 `verifyMeterPage`（10 筆）當樣板**——最小，而且它的容差比對本來就已經是參數化的形狀（`cmp()`），定完格式再複製到 19／19／28 那三支 |
 | 3 | ✅ 前端積木編輯器（彈框，含積木庫搜尋、複製到另一筆 TC、匯出／匯入）|
-| 4 | 逐筆把 TC 拆成積木（A 類已拆 13 筆，全部比對過基準）。**剩下的大宗是四支大 verifier**（`verifyReportPage` 28 筆／`verifyGameSettingPage` 19／`verifyMachineReservation` 19／`verifyMeterPage` 10 = 76 筆），這些是參數化模組的目標不是逐顆積木的目標 |
+| 4 | 逐筆把 TC 拆成積木。**目前 44/121，每一批都比對過拆解前的基準**：A 類 13、Meter 8、Report 19、Dashboard 4 |
+
+### 四支大 verifier 實際拆下來的樣子（跟原本假設不同）
+
+原本假設「大 verifier 要走參數化模組，不逐顆拆」。實際讀完之後只有一支符合：
+
+| verifier | 筆數 | 實際 |
+|---|---|---|
+| `verifyMeterPage` | 10 | **是平的**。8 筆非 manual 裡 6 筆是同一種「標籤集合含某些值」，只差來源（form／checkbox／radio）。已全拆 |
+| `verifyReportPage` | 28 | 12 搜尋欄位 + 7 日期元件 + 6 匯出 + 3 人工。前兩類 19 筆已拆 |
+| `verifyGameSettingPage` | 19 | 大部分是欄位／按鈕／開關存在，可拆；模組理由只有跨頁 + 匯出 |
+| `verifyMachineReservation` | 19 | **唯一真的需要模組**：填表→送出→讀 toast 錯誤訊息的多步驟流程，且需要環境相依的真實帳號／機台 |
+
+**「可導出Excel表」那類刻意不逐支拆**——三支大 verifier 都在呼叫同一個 `doExport()`（下載檔案→讀 xlsx→比對內容）。做成一顆共用積木一次涵蓋三支，各拆一份等於複製三次。
 
 ### 參數化模組的參數表要放比對語意，不是只放欄位名（2026-08-23 跟 CodeX 討論定案）
 

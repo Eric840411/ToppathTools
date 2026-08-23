@@ -107,6 +107,18 @@ export const BLOCK_DEFS = {
       { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
     ],
   },
+  assert_element_count: {
+    label: '元素數量', category: 'assert', defaultOnFail: 'stop',
+    description: '畫面上符合這個選擇器的元素要有幾個',
+    params: [
+      { key: 'selector', label: '選擇器', type: 'text', required: true, placeholder: '.el-date-editor' },
+      { key: 'label', label: '這是什麼（錯誤訊息用）', type: 'text', placeholder: '日期篩選',
+        help: '不填的話錯誤訊息只會出現選擇器，讀的人要自己去猜那是什麼' },
+      { key: 'min', label: '至少幾個', type: 'number', default: 1 },
+      { key: 'max', label: '最多幾個（留空不限）', type: 'number' },
+      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
+    ],
+  },
   assert_row_count: {
     label: '表格筆數', category: 'assert', defaultOnFail: 'warn',
     description: '表格至少要有幾筆。預設是 warn——沒資料通常代表當下環境沒樣本，不是功能壞了',
@@ -488,6 +500,21 @@ export async function runSteps(steps, ctx) {
           if (fail(step, `${tag}：缺少 ${missing.join('、')}（實際有：${found.join('、').slice(0, 120) || '（空的）'}）`) === 'stop') break; continue;
         }
         notes.push(`✅ ${tag}：${want.join('、')}`);
+
+      } else if (step.action === 'assert_element_count') {
+        // ⚠️ 這顆驗的是「畫面上有幾個這種元素」這個 DOM 事實，不是抽象的功能正確。
+        // 例：日期篩選查 .el-date-editor >= 2（From/To 兩個框）。頁面之後若改成
+        // 單一 range picker，數量會從 2 變 1 但功能其實沒壞——那時要改的是這裡的
+        // 期待值，不是把它當成「日期功能壞了」。失敗訊息也照這個講法寫。
+        const count = await ctx.page.evaluate(
+          (sel) => document.querySelectorAll(sel).length, step.selector);
+        const min = step.min === undefined ? 1 : Number(step.min);
+        const max = step.max === undefined || step.max === '' ? null : Number(step.max);
+        const what = step.label || step.selector;
+        if (count < min || (max !== null && count > max)) {
+          if (fail(step, `${tag}：${what} 目前 ${count} 個，預期 ${min}${max !== null ? `~${max}` : ' 個以上'}（驗的是 DOM 元素數量；頁面改版導致數量變動時要改的是這個期待值）`) === 'stop') break; continue;
+        }
+        notes.push(`✅ ${tag}：${what} ${count} 個`);
 
       } else if (step.action === 'assert_row_count') {
         const rowCount = await ctx.page.evaluate(() =>

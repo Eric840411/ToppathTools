@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.38.1'
+export const APP_VERSION = '4.39.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.39.0',
+    date: '2026-08-24',
+    changes: [
+      'feat(uat): 報表與匯出比對（verifyReportPage）拆掉 19 筆——12 筆搜尋欄位存在 + 7 筆日期篩選元件，比對基準 28/28 一致。積木化累計 44 筆',
+      'feat(uat): 新增「元素數量」積木。日期篩選那類驗的是 .el-date-editor 有幾個，不是查標籤文字，既有積木涵蓋不到',
+      'note(uat): 元素數量積木的失敗訊息會講明「驗的是 DOM 元素數量」——頁面之後若改成單一 range picker，數量從 2 變 1 但功能沒壞，那時要改的是期待值不是當成功能故障',
+    ],
+  },
   {
     version: '4.38.1',
     date: '2026-08-24',

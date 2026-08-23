@@ -404,6 +404,26 @@ Machine No` }], m)
     (await runSteps([{ action: 'assert_row_count', min: 1, onFail: 'stop' }], none)).pass === false)
 }
 
+// ── assert_element_count ──────────────────────────────────────────────
+{
+  const two = makeCtx(); two.page.evaluate = async () => 2
+  check('數量達標 → pass',
+    (await runSteps([{ action: 'assert_element_count', selector: '.el-date-editor', min: 2 }], two)).pass === true)
+
+  const one = makeCtx(); one.page.evaluate = async () => 1
+  const r = await runSteps([{ action: 'assert_element_count', selector: '.el-date-editor', label: '日期篩選', min: 2 }], one)
+  check('數量不足 → FAIL', r.pass === false)
+  check('錯誤訊息用看得懂的名稱，不是丟選擇器', /日期篩選/.test(r.criticalFails.join('')), r.criticalFails)
+  // 這顆驗的是 DOM 事實不是抽象功能——訊息要講清楚，不然頁面改版會被當成功能壞了
+  check('錯誤訊息要說明這是 DOM 數量期待', /DOM|期待值/.test(r.criticalFails.join('')), r.criticalFails)
+
+  const many = makeCtx(); many.page.evaluate = async () => 9
+  check('超過上限 → FAIL',
+    (await runSteps([{ action: 'assert_element_count', selector: 'x', min: 1, max: 3 }], many)).pass === false)
+  const zero = makeCtx(); zero.page.evaluate = async () => 0
+  check('一個都沒有 → FAIL', (await runSteps([{ action: 'assert_element_count', selector: 'x' }], zero)).pass === false)
+}
+
 // ── 零斷言守門 ────────────────────────────────────────────────────────
 // 守的是：驗證器跑完但什麼都沒驗到時，不准判定為通過。
 // v4.36.1 就是踩到這個——接線傳錯，每條分支都不命中，結果一路綠燈。
