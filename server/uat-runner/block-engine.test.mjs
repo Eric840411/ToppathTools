@@ -368,6 +368,41 @@ Jackpot`, onMissingFields: 'warn' }],
   check('沒設 onMissingFields 就沿用 onFail（預設 stop → FAIL）', inherit.pass === false, inherit.criticalFails)
 }
 
+// ── assert_labels_contain / assert_row_count ──────────────────────────
+{
+  const ctx = makeCtx(); ctx.page.evaluate = async () => ['Machine Name', 'Machine No', 'Date']
+  check('表單標籤齊全 → pass',
+    (await runSteps([{ action: 'assert_labels_contain', source: 'formLabel', expect: `Machine Name
+Machine No` }], ctx)).pass === true)
+
+  const m = makeCtx(); m.page.evaluate = async () => ['Machine Name']
+  const r = await runSteps([{ action: 'assert_labels_contain', source: 'formLabel', expect: `Machine Name
+Machine No` }], m)
+  check('缺一項 → FAIL 且指出缺哪個', r.pass === false && /Machine No/.test(r.criticalFails.join('')), r.criticalFails)
+
+  // 既有 verifier 用的是 labels.includes()（完全相等），預設不能悄悄放寬成 contains
+  const partial = makeCtx(); partial.page.evaluate = async () => ['Machine Name Extra']
+  check('預設完全相等：部分吻合不算數',
+    (await runSteps([{ action: 'assert_labels_contain', source: 'formLabel', expect: 'Machine Name' }], partial)).pass === false)
+  check('明確指定 contains 才放寬',
+    (await runSteps([{ action: 'assert_labels_contain', source: 'formLabel', expect: 'Machine Name', match: 'contains' }], partial)).pass === true)
+
+  const bad = makeCtx()
+  check('不認得的控制項種類 → FAIL',
+    (await runSteps([{ action: 'assert_labels_contain', source: 'nope', expect: 'X' }], bad)).pass === false)
+}
+{
+  const has = makeCtx(); has.page.evaluate = async () => 12
+  check('筆數足夠 → pass', (await runSteps([{ action: 'assert_row_count', min: 1 }], has)).pass === true)
+
+  // 預設 warn：沒資料通常是環境沒樣本，不是功能壞了
+  const none = makeCtx(); none.page.evaluate = async () => 0
+  const z = await runSteps([{ action: 'assert_row_count', min: 1 }], none)
+  check('沒資料預設 warn 不擋', z.pass === true && z.warnings.length === 1, { p: z.pass, w: z.warnings })
+  check('要擋也可以明講 onFail: stop',
+    (await runSteps([{ action: 'assert_row_count', min: 1, onFail: 'stop' }], none)).pass === false)
+}
+
 // ── 17. 純函式 ─────────────────────────────────────────────────────────
 check('toNumber 去掉貨幣與千分位', toNumber('PHP 15,024,840') === 15024840);
 check('toNumber 處理負數', toNumber('-258') === -258);

@@ -1,8 +1,18 @@
 {
   "kind": "toppath-uat-tc-steps",
   "version": 1,
-  "count": 17,
+  "count": 25,
   "steps": {
+    "recvenTprA8JzE": [
+      {
+        "action": "open_page",
+        "path": "/egm/meter/egmMeterHourList"
+      },
+      {
+        "action": "assert_row_count",
+        "min": 1
+      }
+    ],
     "recvenTprA8xbL": [
       {
         "action": "open_page",
@@ -140,6 +150,17 @@
         "name": "tc4_Dashboard"
       }
     ],
+    "recvenTprAcJ11": [
+      {
+        "action": "open_page",
+        "path": "/egm/meter/egmMeterHourList"
+      },
+      {
+        "action": "assert_labels_contain",
+        "source": "radioLabel",
+        "expect": "06:00:00-06:00:00\n00:00:00-00:00:00"
+      }
+    ],
     "recvenTprAcJiv": [
       {
         "action": "open_page",
@@ -175,6 +196,17 @@
         "name": "tc1_Dashboard"
       }
     ],
+    "recvenTprAglDR": [
+      {
+        "action": "open_page",
+        "path": "/egm/meter/egmMeterHourList"
+      },
+      {
+        "action": "assert_labels_contain",
+        "source": "checkboxLabel",
+        "expect": "Gaming Day"
+      }
+    ],
     "recvenTprAgv84": [
       {
         "action": "open_page",
@@ -196,6 +228,27 @@
         "direction": "desc"
       }
     ],
+    "recvenTprAhARf": [
+      {
+        "action": "open_page",
+        "path": "/egm/meter/egmPerformanceMeter"
+      },
+      {
+        "action": "assert_row_count",
+        "min": 1
+      }
+    ],
+    "recvenTprAiMYW": [
+      {
+        "action": "open_page",
+        "path": "/egm/meter/egmPerformanceMeter"
+      },
+      {
+        "action": "assert_labels_contain",
+        "source": "radioLabel",
+        "expect": "06:00:00-06:00:00\n00:00:00-00:00:00"
+      }
+    ],
     "recvenTprAjUts": [
       {
         "action": "open_page",
@@ -212,6 +265,17 @@
         "note": "刪除白名單帳號"
       }
     ],
+    "recvenTprAkiPb": [
+      {
+        "action": "open_page",
+        "path": "/egm/meter/egmPerformanceMeter"
+      },
+      {
+        "action": "assert_labels_contain",
+        "source": "checkboxLabel",
+        "expect": "Gaming Day"
+      }
+    ],
     "recvenTprAuUlT": [
       {
         "action": "open_page",
@@ -221,6 +285,17 @@
         "action": "assert_column_exists",
         "columns": "Account\nJackpot Amount\nTime",
         "note": "視頻記錄欄位"
+      }
+    ],
+    "recvenTprAuUyR": [
+      {
+        "action": "open_page",
+        "path": "/egm/meter/egmPerformanceMeter"
+      },
+      {
+        "action": "assert_labels_contain",
+        "source": "formLabel",
+        "expect": "Machine Name\nMachine No"
       }
     ],
     "recvenTprAuuPd": [
@@ -254,6 +329,17 @@
         "from": "rows",
         "column": "Total Bet Amount",
         "direction": "desc"
+      }
+    ],
+    "recvenTprAzAL0": [
+      {
+        "action": "open_page",
+        "path": "/egm/meter/egmMeterHourList"
+      },
+      {
+        "action": "assert_labels_contain",
+        "source": "formLabel",
+        "expect": "Machine Name\nMachine No"
       }
     ],
     "recvfklRlp11cQ": [

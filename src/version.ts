@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.35.0'
+export const APP_VERSION = '4.36.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.36.0',
+    date: '2026-08-23',
+    changes: [
+      'feat(uat): verifyMeterPage 的 8 筆全部拆成積木（另 2 筆本來就是人工判讀，不動），比對基準 10/10 一致。積木化累計 25 筆',
+      'feat(uat): 新增「表單控制項必須有這些」積木——搜尋欄位／勾選框／單選鈕三種來源用同一顆，靠 source 參數切換。Meter 那 8 筆裡有 6 筆是這個形狀，只差來源不同',
+      'feat(uat): 新增「表格筆數」積木，預設 warn 不擋——沒資料通常是當下環境沒樣本，不是功能壞了。實測 Meter 兩個頁面目前確實是 0 筆，正確走 ⚠️ 不失敗，跟原本 verifier 的行為一致',
+    ],
+  },
   {
     version: '4.35.0',
     date: '2026-08-23',

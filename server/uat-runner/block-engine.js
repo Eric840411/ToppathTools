@@ -94,6 +94,27 @@ export const BLOCK_DEFS = {
       { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
     ],
   },
+  assert_labels_contain: {
+    label: '表單控制項必須有這些', category: 'assert', defaultOnFail: 'stop',
+    description: '搜尋欄位／勾選框／單選鈕裡要有指定的項目',
+    params: [
+      { key: 'source', label: '找哪一種控制項', type: 'select', required: true, default: 'formLabel',
+        options: ['formLabel', 'checkboxLabel', 'radioLabel'],
+        help: 'formLabel=搜尋欄位標籤、checkboxLabel=勾選框、radioLabel=單選鈕。表格欄位請用「表格必須有這一欄」' },
+      { key: 'expect', label: '該有的項目（一行一個）', type: 'textarea', required: true },
+      { key: 'match', label: '比對方式', type: 'select', options: ['exact', 'contains'], default: 'exact',
+        help: '既有 verifier 用的是完全相等（labels.includes），改成 contains 會比較鬆' },
+      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
+    ],
+  },
+  assert_row_count: {
+    label: '表格筆數', category: 'assert', defaultOnFail: 'warn',
+    description: '表格至少要有幾筆。預設是 warn——沒資料通常代表當下環境沒樣本，不是功能壞了',
+    params: [
+      { key: 'min', label: '至少幾筆', type: 'number', default: 1 },
+      { key: 'onFail', label: '不足時', type: 'select', options: ['warn', 'stop', 'continue', 'manual'], default: 'warn' },
+    ],
+  },
   assert_dialog_fields: {
     label: '開對話框檢查欄位', category: 'assert', defaultOnFail: 'stop',
     description: '點一個按鈕把對話框叫出來，確認裡面有這些欄位，然後關掉',
@@ -442,6 +463,40 @@ export async function runSteps(steps, ctx) {
           if (fail(step, `${tag}：選項數 ${count} 不在 ${min}~${max ?? '∞'} 之間`) === 'stop') break; continue;
         }
         notes.push(`✅ ${tag}：${count} 個選項`);
+
+      } else if (step.action === 'assert_labels_contain') {
+        // verifyMeterPage 裡 8 筆有 6 筆是這個形狀，只差集合來源不同：
+        //   filterLabels   = .el-form-item__label   （Machine Name / Machine No）
+        //   checkboxLabels = .el-checkbox__label    （Gaming Day）
+        //   radioLabels    = .el-radio__label       （06:00:00-06:00:00 / 00:00:00-00:00:00）
+        // 所以做成一顆帶 source 的通用積木，不是三顆各寫一次
+        const SOURCES = {
+          formLabel: '.el-form-item__label',
+          checkboxLabel: '.el-checkbox__label',
+          radioLabel: '.el-radio__label',
+        };
+        const sel = SOURCES[step.source ?? 'formLabel'];
+        if (!sel) { if (fail(step, `${tag}：不認得的控制項種類「${step.source}」`) === 'stop') break; continue }
+        const found = await ctx.page.evaluate(
+          (s) => [...document.querySelectorAll(s)].map(l => (l.innerText || '').trim()).filter(Boolean), sel);
+        const want = toLines(step.expect);
+        const exact = (step.match ?? 'exact') === 'exact';
+        const missing = want.filter(w => exact
+          ? !found.includes(String(w))
+          : !found.some(f => f.toLowerCase().includes(String(w).toLowerCase())));
+        if (missing.length) {
+          if (fail(step, `${tag}：缺少 ${missing.join('、')}（實際有：${found.join('、').slice(0, 120) || '（空的）'}）`) === 'stop') break; continue;
+        }
+        notes.push(`✅ ${tag}：${want.join('、')}`);
+
+      } else if (step.action === 'assert_row_count') {
+        const rowCount = await ctx.page.evaluate(() =>
+          document.querySelectorAll('.el-table__body tr, table tbody tr').length);
+        const min = step.min === undefined ? 1 : Number(step.min);
+        if (rowCount < min) {
+          if (fail(step, `${tag}：只有 ${rowCount} 筆，少於 ${min} 筆`) === 'stop') break; continue;
+        }
+        notes.push(`✅ ${tag}：${rowCount} 筆`);
 
       } else if (step.action === 'assert_dialog_fields') {
         // 這是既有 verifier 裡重複最多次的一段：點 Add/Edit → 等對話框 → 讀
