@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.39.0'
+export const APP_VERSION = '4.40.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.40.0',
+    date: '2026-08-24',
+    changes: [
+      'fix(uat): 後台錄製改派工給 Local Agent，瀏覽器會開在你自己的機器上。原本是開在伺服器那台的桌面，從別台連進來完全看不到，但按鈕會變成「停止錄製」看起來像成功——回報的「點了錄製沒反應」就是這個',
+      'feat(uat): 錄製會用「執行位置」選的那台 agent；狀態列直接寫出瀏覽器開在哪台機器',
+      'feat(uat): 挑不到可用的 Local Agent 就直接擋下並說明原因，不退回伺服器端執行——那條路只會製造看不見的瀏覽器',
+      'note(uat): agent 需要按「更新程式碼」再重啟才會有錄製能力（舊版 agent-runner 不認得新的錄製指令）',
+    ],
+  },
   {
     version: '4.39.0',
     date: '2026-08-24',

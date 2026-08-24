@@ -470,7 +470,10 @@ function firstCapturedAt(registry: Record<string, unknown>): string | null {
 interface RecordSession {
   id: string
   recordId: string
-  browser: import('playwright').Browser | null
+  /** 錄製跑在哪一台 agent 上。斷線時要靠這個知道哪些 session 該收掉 */
+  agentId: string
+  /** 顯示用的名稱（hostname），讓使用者知道瀏覽器會開在哪台機器 */
+  agentLabel: string
   events: unknown[]
   done: boolean
   error: string | null
@@ -480,59 +483,96 @@ interface RecordSession {
 const recordSessions = new Map<string, RecordSession>()
 /** 錄製最長 30 分鐘，避免使用者關掉分頁就留一個瀏覽器在伺服器上 */
 const RECORD_MAX_MS = 30 * 60_000
+/** 錄製需要的 agent 能力。跟 H5/PC 錄製共用同一個 capability，agent 端本來就有 */
+const RECORD_CAPABILITY = 'uat-record'
 
 router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) => {
   try {
     const account = getAuthAccount(req)
     if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
     // recordId 選填：錄製本身完全不需要知道你在哪一筆 TC（開瀏覽器、登入、注入、
-    // 收事件、轉積木都跟 TC 無關）。之前必填是因為錄製被做在編輯器裡，
-    // 等於把「先選一筆 TC」變成了錄製的門檻——那是 UI 的安排不是功能的需要。
-    // 現在可以從工作台直接開錄，停止後再決定積木要放哪一筆。
+    // 收事件、轉積木都跟 TC 無關）。停止後再決定積木要放哪一筆。
     const recordId = String((req.body as { recordId?: string })?.recordId ?? '')
+    const wantAgentId = String((req.body as { agentId?: string })?.agentId ?? '')
 
     const creds = getUatBackendCredentials(account.email)
     if (!creds.cpBackend?.username || !creds.cpBackend?.password) {
       return res.status(400).json({ ok: false, message: '請先在執行設定填好 CP 後台帳密' })
     }
 
+    // ⚠️ 錄製一定要派工給 Local Agent，不做伺服器端 fallback。
+    //
+    // 原本是在 server 的 worker process 裡 chromium.launch({ headless: false })——
+    // 瀏覽器開在伺服器那台的桌面上。使用者從自己的機器連進來看不到任何視窗，
+    // 但 session 有起來、按鈕也變成「停止錄製（0 顆）」，看起來像成功。
+    // 使用者實際回報過這個問題（2026-08-24）。
+    //
+    // 這也是為什麼這裡刻意不留 fallback：錄製的重點就是「互動的瀏覽器要出現在
+    // 操作者眼前」，退回伺服器端等於製造一個只會假成功的路徑。挑不到 agent 就
+    // 直接擋下來講清楚原因（跟 CodeX 討論定案）。
+    const operator = getOperatorFromContext()
+    const mine = [...agentConnections.values()].filter(a => a.ownerKey === operator?.key)
+    const usable = mine.filter(a => a.capabilities.includes(RECORD_CAPABILITY) && a.ws.readyState === a.ws.OPEN)
+    const agent = wantAgentId
+      ? usable.find(a => a.agentId === wantAgentId)
+      : usable.find(a => !a.busy) ?? usable[0]
+    if (!agent) {
+      const why = mine.length === 0
+        ? '目前沒有連線中的 Local Agent。請先在「Local Agent」頁面啟動它。'
+        : wantAgentId
+          ? '指定的 Local Agent 不在線，或它的版本還沒有錄製能力（到 Local Agent 頁面按「更新程式碼」）。'
+          : '有連線的 Local Agent，但都缺少錄製能力（到 Local Agent 頁面按「更新程式碼」再重啟）。'
+      return res.status(409).json({ ok: false, message: `無法開始錄製：${why}錄製的瀏覽器必須開在你自己的機器上，所以不會退回伺服器端執行。` })
+    }
+
     const sessionId = randomUUID()
-    const session: RecordSession = { id: sessionId, recordId, browser: null, events: [], done: false, error: null, startedAt: Date.now() }
+    const session: RecordSession = {
+      id: sessionId, recordId, agentId: agent.agentId, agentLabel: agent.hostname || agent.agentId,
+      events: [], done: false, error: null, startedAt: Date.now(),
+    }
     recordSessions.set(sessionId, session)
 
-    const pw = await import('playwright')
-    // headless: false —— 錄製本來就是要讓人在畫面上操作
-    const browser = await pw.chromium.launch({ headless: false, args: ['--start-maximized'] })
-    session.browser = browser
-    const ctx = await browser.newContext({ viewport: null })
-    const page = await ctx.newPage()
-
-    // 錄製腳本要在頁面自己的程式碼之前執行，才不會漏掉早期的事件
-    await ctx.addInitScript(backendRecorderScript())
-    page.on('console', msg => {
-      const text = msg.text()
-      if (!text.startsWith(RECORDER_MARKER)) return
-      try { session.events.push(JSON.parse(text.slice(RECORDER_MARKER.length).trim())) } catch { /* 壞掉的一筆跳過 */ }
-    })
-    page.on('close', () => { session.done = true })
-
-    // 自動登入，讓使用者一開始就在已登入的後台，不用自己打帳密
-    await page.goto(`${BACKEND_URL_FOR_RECORD}/login`, { waitUntil: 'networkidle', timeout: 30000 })
-    await page.fill('input[type="text"], input[name*="user"], input[id*="user"]', creds.cpBackend.username).catch(() => {})
-    await page.fill('input[type="password"]', creds.cpBackend.password).catch(() => {})
-    await page.keyboard.press('Enter').catch(() => {})
-    await page.waitForTimeout(2500)
-    // 登入完成之後才開始錄。在這之前的輸入是我們自己打的帳密，
-    // 錄進去等於把真實密碼寫成測試步驟（實測時真的錄到了才發現）。
-    session.events.length = 0
-    await page.evaluate(() => (window as unknown as { __toppathArmRecorder?: () => void }).__toppathArmRecorder?.()).catch(() => {})
+    // 腳本由 server 提供，agent 端不留檔——跟 v4.22.0「帳密不落 agent 磁碟」同一個原則
+    agent.ws.send(JSON.stringify({
+      type: 'backend_record_start',
+      sessionId,
+      backendUrl: BACKEND_URL_FOR_RECORD,
+      recorderScript: backendRecorderScript(),
+      marker: RECORDER_MARKER,
+      username: creds.cpBackend.username,
+      password: creds.cpBackend.password,
+    }))
 
     setTimeout(() => { void stopRecordSession(sessionId) }, RECORD_MAX_MS).unref?.()
-    res.json({ ok: true, sessionId })
+    res.json({ ok: true, sessionId, agentLabel: session.agentLabel })
   } catch (error) {
     next(error)
   }
 })
+
+/** agent 錄到一顆積木就即時回報。前端那個「已錄到 N 顆」要即時才有意義 */
+export function handleBackendRecordEvent(sessionId: string, payload: string) {
+  const session = recordSessions.get(sessionId)
+  if (!session || session.done) return          // 未知或已結束的 session 一律忽略
+  try { session.events.push(JSON.parse(payload)) } catch { /* 壞掉的一筆跳過，不要整段中斷 */ }
+}
+
+/** agent 那邊結束了（使用者關掉視窗、或啟動就失敗） */
+export function handleBackendRecordDone(sessionId: string, error?: string | null) {
+  const session = recordSessions.get(sessionId)
+  if (!session) return
+  session.done = true
+  if (error) session.error = error
+}
+
+/** agent 斷線：那一輪錄製就結束了，已經錄到的仍然留著讓使用者取回 */
+export function handleBackendRecordAgentDisconnect(agentId: string) {
+  for (const session of recordSessions.values()) {
+    if (session.agentId !== agentId || session.done) continue
+    session.done = true
+    session.error = 'Local Agent 連線中斷，錄製已結束'
+  }
+}
 
 router.get('/api/osm-uat/record/status/:sessionId', (req, res) => {
   const session = recordSessions.get(String(req.params.sessionId))
@@ -563,8 +603,11 @@ async function stopRecordSession(sessionId: string) {
   const session = recordSessions.get(sessionId)
   if (!session) return null
   session.done = true
-  try { await session.browser?.close() } catch { /* 已經關掉了 */ }
-  session.browser = null
+  // 瀏覽器在 agent 那台，這裡只能請它關；agent 已經斷線就算了，session 本來就結束了
+  const agent = agentConnections.get(session.agentId)
+  if (agent && agent.ws.readyState === agent.ws.OPEN) {
+    agent.ws.send(JSON.stringify({ type: 'backend_record_stop', sessionId }))
+  }
   const steps = eventsToSteps(session.events)
   // 保留一小段時間讓前端來拿結果，之後才清掉
   setTimeout(() => recordSessions.delete(sessionId), 5 * 60_000).unref?.()

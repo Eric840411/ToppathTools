@@ -23,6 +23,9 @@ import {
   handleBackendUatAgentLog,
   handleBackendUatAgentDone,
   handleBackendUatAgentDisconnect,
+  handleBackendRecordEvent,
+  handleBackendRecordDone,
+  handleBackendRecordAgentDisconnect,
 } from './routes/osm-uat.js'
 import { router as frontendAutoRouter, logBuffers, logClients, pushLog, pushStats, activeRuns } from './routes/frontend-auto.js'
 import uiScreenshotRouter from './routes/ui-screenshot.js'
@@ -602,6 +605,18 @@ wss.on('connection', (ws, req) => {
         return
       }
 
+      // 後台錄製：agent 每錄到一顆積木就即時回報，前端那個「已錄到 N 顆」要即時才有意義
+      if (msg.type === 'backend_record_event' && msg.sessionId) {
+        const m = msg as { sessionId: string; payload?: string }
+        handleBackendRecordEvent(m.sessionId, String(m.payload ?? ''))
+        return
+      }
+      if (msg.type === 'backend_record_done' && msg.sessionId) {
+        const m = msg as { sessionId: string; error?: string | null }
+        handleBackendRecordDone(m.sessionId, m.error ?? null)
+        return
+      }
+
       if (msg.type === 'backend_uat_done' && msg.sessionId) {
         const m = msg as unknown as { sessionId: string; exitCode?: number | null; error?: string }
         handleBackendUatAgentDone(m.sessionId, m.exitCode ?? null, m.error)
@@ -795,6 +810,9 @@ wss.on('connection', (ws, req) => {
         const info = agentConnections.get(agentId)
         // Backend UAT 先問過一輪：它的 sessionId 是 UUID，沒有 sb_ 前綴，
         // 不先攔下來會掉進下面的機測分支去呼叫 cancelDistSession 並廣播機測錯誤
+        // 錄製 session 也要跟著收——瀏覽器在那台 agent 上，它斷了就不可能再錄到東西。
+        // 已經錄到的積木仍然留著讓使用者取回，不要一起丟掉。
+        handleBackendRecordAgentDisconnect(agentId)
         const handledByBackendUat = handleBackendUatAgentDisconnect(agentId)
         if (info?.sessionId && !handledByBackendUat) {
           if (info.sessionId.startsWith('sb_')) {

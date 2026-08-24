@@ -46,6 +46,9 @@ const AGENT_CAPABILITIES = (process.env.AGENT_CAPABILITIES ?? 'machine-test,scri
 const AGENT_VERSION = '2026-05-agent-owner-v1'
 
 let currentRunner: { stop: () => void } | null = null
+/** 後台錄製用的瀏覽器。錄製只會有一個 session，多開沒有意義而且會佔滿螢幕 */
+let backendRecordBrowser: import('playwright').Browser | null = null
+let backendRecordSessionId: string | null = null
 
 interface SessionJoinMessage {
   type: 'session_join'
@@ -128,6 +131,28 @@ interface BackendUatStartMessage {
   credEnv?: Record<string, string>
 }
 
+/**
+ * 後台錄製派工。
+ *
+ * 為什麼一定要在 agent 端開瀏覽器：錄製的重點是「互動的瀏覽器要出現在操作者眼前」。
+ * 原本這段是在 server 的 worker process 裡 chromium.launch({headless:false})——
+ * 瀏覽器開在伺服器那台的桌面上，使用者從自己的機器連進來什麼都看不到，
+ * 但 session 有起來、按鈕也變成「停止錄製」，看起來像成功。實際回報過這個問題。
+ */
+interface BackendRecordStartMessage {
+  type: 'backend_record_start'
+  sessionId: string
+  /** 後台網址（含 protocol），由 server 決定，agent 不自己猜 */
+  backendUrl: string
+  /** 注入頁面的錄製腳本原始碼。由 server 提供，agent 端不留檔 */
+  recorderScript: string
+  /** 頁面把錄到的積木用 console.log 印出來時的前綴 */
+  marker: string
+  /** 自動登入用。只留在記憶體，不寫檔 */
+  username: string
+  password: string
+}
+
 interface AutoSpinStartMessage {
   type: 'autospin_start'
   sessionId: string
@@ -145,6 +170,8 @@ type IncomingMessage =
   | AutoSpinStartMessage
   | BackendUatStartMessage
   | { type: 'backend_uat_stop'; sessionId: string }
+  | BackendRecordStartMessage
+  | { type: 'backend_record_stop'; sessionId: string }
   | { type: 'job_assigned'; machineCode: string }
   | { type: 'no_more_jobs' }
   | { type: 'stop' }
@@ -1304,6 +1331,67 @@ function connect() {
           ws.send(JSON.stringify({ type: 'backend_uat_done', sessionId, exitCode: null, error: err.message }))
         }
       })
+      return
+    }
+
+    if (msg.type === 'backend_record_start') {
+      const m = msg as BackendRecordStartMessage
+      // 上一輪沒收乾淨就先關掉，不然螢幕上會留一堆錄製視窗
+      if (backendRecordBrowser) {
+        try { await backendRecordBrowser.close() } catch { /* ignore */ }
+        backendRecordBrowser = null
+      }
+      const finish = (error?: string) => {
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: 'backend_record_done', sessionId: m.sessionId, error: error ?? null }))
+        }
+      }
+      try {
+        const pw = await import('playwright')
+        // headless: false —— 錄製本來就是要讓人在畫面上操作
+        const browser = await pw.chromium.launch({ headless: false, args: ['--start-maximized'] })
+        backendRecordBrowser = browser
+        backendRecordSessionId = m.sessionId
+        const ctx = await browser.newContext({ viewport: null })
+        const page = await ctx.newPage()
+        // 錄製腳本要在頁面自己的程式碼之前跑，才不會漏掉早期事件
+        await ctx.addInitScript(m.recorderScript)
+        page.on('console', message => {
+          const text = message.text()
+          if (!text.startsWith(m.marker)) return
+          if (ws.readyState !== ws.OPEN) return
+          ws.send(JSON.stringify({ type: 'backend_record_event', sessionId: m.sessionId, payload: text.slice(m.marker.length).trim() }))
+        })
+        // 使用者自己把視窗關掉也要收尾，不然 server 會一直等
+        page.on('close', () => { finish() })
+
+        await page.goto(`${m.backendUrl}/login`, { waitUntil: 'networkidle', timeout: 30000 })
+        await page.fill('input[type="text"], input[name*="user"], input[id*="user"]', m.username).catch(() => {})
+        await page.fill('input[type="password"]', m.password).catch(() => {})
+        await page.keyboard.press('Enter').catch(() => {})
+        await page.waitForTimeout(2500)
+        // 登入完成之後才開始收。在這之前輸入的是我們自己打的帳密，
+        // 錄進去等於把真實密碼寫成測試步驟（實測時真的錄到過）。
+        await page.evaluate(() => (window as unknown as { __toppathArmRecorder?: () => void }).__toppathArmRecorder?.()).catch(() => {})
+        console.log(`[Agent:${AGENT_LABEL}] 後台錄製 ${m.sessionId} 已開始（瀏覽器在這台機器上）`)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        console.error(`[Agent:${AGENT_LABEL}] 後台錄製啟動失敗: ${message}`)
+        backendRecordBrowser = null
+        finish(message)
+      }
+      return
+    }
+
+    if (msg.type === 'backend_record_stop') {
+      const { sessionId } = msg as { type: 'backend_record_stop'; sessionId: string }
+      if (backendRecordSessionId && backendRecordSessionId !== sessionId) return
+      try { await backendRecordBrowser?.close() } catch { /* ignore */ }
+      backendRecordBrowser = null
+      backendRecordSessionId = null
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ type: 'backend_record_done', sessionId, error: null }))
+      }
       return
     }
 

@@ -246,12 +246,15 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
     setRecMsg('正在開啟後台並登入…')
     try {
       const response = await fetch('/api/osm-uat/record/start', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        // 帶上「執行位置」選的那台。錄製的瀏覽器會開在那台機器上，
+        // 不帶的話會自動挑一台，使用者選了卻沒被採用
+        body: JSON.stringify({ agentId: selectedAgentId || undefined }),
       })
-      const data = await response.json() as { ok: boolean; sessionId?: string; message?: string }
+      const data = await response.json() as { ok: boolean; sessionId?: string; message?: string; agentLabel?: string }
       if (!data.ok || !data.sessionId) { setRecMsg(data.message ?? '錄製啟動失敗'); return }
       setRecSession(data.sessionId); setRecCount(0)
-      setRecMsg('錄製中：在開啟的視窗操作；要標檢查條件就按住 Alt 點那個元素')
+      setRecMsg(`錄製中：瀏覽器已開在 ${data.agentLabel || '你的 Local Agent'} 上。要標檢查條件就按住 Alt 點那個元素`)
     } catch { setRecMsg('錄製啟動失敗') }
   }
 

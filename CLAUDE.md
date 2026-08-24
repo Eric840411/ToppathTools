@@ -1295,6 +1295,21 @@ Backend 測的是 CP／NC 後台管理站，那是一般網站沒有 pinus；掛
 
 斷言標記會展開成實際積木（`eventsToSteps()`）：「必須有值」= `read_block` + `assert_filled` 兩顆，因為引擎的斷言是對變數做的不是對選擇器做的。
 
+**錄製一定要派工給 Local Agent，不做伺服器端 fallback（v4.40.0）**：原本是在 server 的 worker process 裡 `chromium.launch({ headless: false })`——**瀏覽器開在伺服器那台的桌面上**，使用者從自己的機器連進來什麼都看不到，但 session 有起來、按鈕也變成「停止錄製（0 顆）」，看起來像成功。使用者實際回報過（2026-08-24「點了錄製沒反應」）。
+
+Backend UAT 的執行早在 v4.23.0 就改成派工了，錄製漏掉沒跟著改。四支 WS 訊息比照 `backend_uat_*`：
+
+| 訊息 | 方向 | 內容 |
+|------|------|------|
+| `backend_record_start` | server → agent | `sessionId`／`backendUrl`／`recorderScript`（原始碼，agent 端不留檔）／`marker`／帳密 |
+| `backend_record_event` | agent → server | 每錄到一顆積木就即時回報一次 |
+| `backend_record_stop` | server → agent | `sessionId` |
+| `backend_record_done` | agent → server | `sessionId`／`error` |
+
+**刻意不留 fallback**（跟 CodeX 討論定案）：錄製的重點就是「互動的瀏覽器要出現在操作者眼前」，退回伺服器端等於製造一個只會假成功的路徑——這次就是被它坑的。挑不到 agent 直接 409 並說明原因。
+
+**逐顆即時回報而不是停止時一次回整包**：前端那個「已錄到 N 顆」的計數要即時才有意義（使用者靠它確認到底有沒有在錄）。server 端對未知或已結束的 session 一律忽略。
+
 **測試**：`server/uat-runner/backend-recorder.test.mjs`（15 項），不開瀏覽器驗轉換邏輯。
 
 ### 拆解方法：先跑基準，再比對（v4.32.0 起固定這樣做）
