@@ -1134,6 +1134,12 @@ Playwright 從「server 本機 spawn」改成「派工給 Local Agent」（跟 A
 
 `osm-uat.ts` 掛在 **worker process**（見 `server/worker.ts`），跟 `/ws/agent` 是同一個 process，所以直接拿 `agentConnections` 發訊息，不用再跨 process 轉一手。
 
+### UI 檢查腳本：導頁一定要先點群組再點子項
+
+`scripts/ui-checks/uat-subtype-modal.mjs`。這個 app **沒有 URL 路由**，頁面是純 React state——直接 `goto` 某個網址或直接點「UAT 整合測試」都到不了，因為子項在群組展開之前根本還沒 render。要先點「OSM Tools」再點子項。**我在這上面連續卡了三次驗證**才發現，之前那幾次「進不到 UAT 頁面」的結論全部作廢重來。
+
+腳本裡也會量彈框尺寸：這個版面的祖先有 `backdrop-filter`，會把 `position: fixed` 困在容器裡，沒用 portal 的彈框會被裁掉（積木編輯器與錄製選擇器都踩過）。**量到滿版才代表 portal 有效**——這是唯一能實際證明 portal 必要性的方法，光讀 CSS 看不出來。
+
 ### 停止：runner 一定要自己接 SIGTERM
 
 `chromium.launch()` **預設會註冊 `handleSIGTERM`** 去關瀏覽器。node 收到 SIGTERM 的預設行為是直接結束，但**只要有人註冊了 listener，那個預設就沒了**——於是瀏覽器被關掉、腳本卻還活著繼續跑下一筆 TC，每一筆都噴 `Target page, context or browser has been closed`。使用者看到的就是「按了停止還在跑」（2026-08-24 回報）。

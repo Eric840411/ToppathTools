@@ -91,6 +91,10 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const [pickerQuery, setPickerQuery] = useState('')
   /** 選擇器是否展開。跟 pendingSteps 分開——收起彈框不等於丟掉錄到的積木 */
   const [pickerOpen, setPickerOpen] = useState(false)
+  // 子類型篩選改成彈框複選。原本是自由輸入——使用者不知道有哪些可選、又容易打錯，
+  // 而且這個欄位會靜默縮小執行範圍（實際踩過：以為「執行模組流程」壞了）
+  const [subtypeModal, setSubtypeModal] = useState(false)
+  const [subtypeQuery, setSubtypeQuery] = useState('')
   // 錄到的是 Lark 上還沒有的新流程時，積木要有地方放。硬塞給既有 TC 會把那筆
   // 原本該驗的東西蓋掉，所以另存成自訂 TC——它帶一個歸戶關鍵字，之後掃到文字
   // 命中的 Lark TC 就能把積木搬過去。這不是第二份測試清單，是暫存區。
@@ -341,6 +345,28 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
     } catch { setRecMsg('存成自訂 TC 失敗') } finally { setSavingNewTc(false) }
   }
 
+  /** 可選的子類型與各自筆數。來源是已載入的 TC 清單（離線快照就有），不用先掃描 */
+  const subtypeOptions = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const tc of tcs) {
+      const key = (tc.sub || '').trim()
+      if (!key) continue
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+    return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh-TW')).map(([name, count]) => ({ name, count }))
+  }, [tcs])
+
+  /** 目前選了哪些。沿用既有的逗號分隔字串當儲存格式，後端契約完全不用改 */
+  const selectedSubtypes = useMemo(
+    () => config.filter.split(',').map(v => v.trim()).filter(Boolean),
+    [config.filter])
+  const toggleSubtype = (name: string) => {
+    const next = selectedSubtypes.includes(name)
+      ? selectedSubtypes.filter(v => v !== name)
+      : [...selectedSubtypes, name]
+    update({ filter: next.join(',') })
+  }
+
   const updateModule = (instanceId: string, patch: Partial<BackendPlanModule>) => update({
     modulePlan: config.modulePlan.map(module => module.instanceId === instanceId ? { ...module, ...patch } : module),
   })
@@ -544,7 +570,15 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
             </div>
             <label>{xianxia ? 'Lark 玉簡路徑' : 'Lark TC 路徑'}<textarea className="uat-field uat-backend-url" value={config.larkUrl} onChange={event => update({ larkUrl: event.target.value })} placeholder="https://xxx.larksuite.com/base/...?table=..." /></label>
             <button type="button" className="uat-btn is-quiet is-wide" disabled={!config.larkUrl || scanning} onClick={scan}>{scanning ? '掃描中' : (xianxia ? '重整玉簡索引' : '掃描 Lark TC')}</button>
-            <label>{xianxia ? '玉簡篩選' : 'Subtype 追加篩選'}<input className="uat-field" value={config.filter} onChange={event => update({ filter: event.target.value })} placeholder="留空套用模組範圍" /><small>以逗號分隔，會在模組範圍內再縮小。</small></label>
+            <label>{xianxia ? '玉簡篩選' : 'Subtype 追加篩選'}
+              <button type="button" className="uat-field uat-subtype-trigger" onClick={() => setSubtypeModal(true)}>
+                {selectedSubtypes.length
+                  ? `已選 ${selectedSubtypes.length} 個子類型`
+                  : '全部（套用模組範圍）'}
+                <em>選擇…</em>
+              </button>
+              <small>不選就是照模組流程跑；選了會在模組範圍內再縮小。</small>
+            </label>
             {/* 這個欄位存在 localStorage 會一直記著，而且它會蓋掉模組範圍——
                 使用者忘記自己填過，就會以為「執行模組流程」壞掉了（實際回報過：
                 「不會抓目前設定好的模塊，只會執行 gameRecord 的 TC」）。
@@ -579,6 +613,56 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
       )}
 
       {/* 錄完才問要放哪一筆：先錄下來、再決定它屬於哪個 TC，比先選再錄更接近實際流程 */}
+      {/* 子類型複選彈框。選項從已載入的 TC 清單算，不用先掃描；
+          一樣要 portal（外層 backdrop-filter 會困住 fixed） */}
+      {subtypeModal && createPortal((
+        <div className="uat-studio uat-tc-modal" role="dialog" aria-modal="true"
+          onMouseDown={event => { if (event.target === event.currentTarget) setSubtypeModal(false) }}>
+          <div className="uat-tc-picker">
+            <div className="uat-tc-picker-head">
+              <div>
+                <span className="uat-net-kicker">SUBTYPE</span>
+                <h3>選擇要跑的子類型</h3>
+                <small>
+                  {selectedSubtypes.length
+                    ? `已選 ${selectedSubtypes.length} 個——只有這些會跑，模組流程裡其他的都會被跳過。`
+                    : '目前沒有選任何子類型，會照模組流程跑全部。'}
+                </small>
+              </div>
+              <button type="button" className="uat-btn is-quiet" onClick={() => setSubtypeModal(false)}>完成</button>
+            </div>
+
+            <div className="uat-subtype-bar">
+              <input className="uat-field" value={subtypeQuery} placeholder="搜尋子類型…"
+                onChange={event => setSubtypeQuery(event.target.value)} />
+              <button type="button" className="uat-btn is-quiet" disabled={!selectedSubtypes.length}
+                onClick={() => update({ filter: '' })}>全部清除</button>
+            </div>
+
+            <div className="uat-tc-picker-list">
+              {subtypeOptions
+                .filter(o => !subtypeQuery.trim() || o.name.toLowerCase().includes(subtypeQuery.trim().toLowerCase()))
+                .map(o => {
+                  const on = selectedSubtypes.includes(o.name)
+                  return (
+                    <button type="button" key={o.name}
+                      className={'uat-backend-tc uat-subtype-row' + (on ? ' is-on' : '')}
+                      onClick={() => toggleSubtype(o.name)}>
+                      <span><i className="uat-subtype-check">{on ? '✓' : ''}</i>{o.name}</span>
+                      <em>{o.count} TC</em>
+                    </button>
+                  )
+                })}
+              {!subtypeOptions.length && (
+                <div className="uat-backend-tc-more">
+                  還沒有子類型可選——TC 清單還沒載入完，或這份 registry 是空的。
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ), document.body)}
+
       {/* 一定要 portal 出去：外層有 backdrop-filter 的祖先，position: fixed 會被困在
           那個容器裡畫不出來。積木編輯器踩過同一個坑，這裡是第二次——這個 studio 版面
           只要是彈框就得 portal，不要再用一般的絕對定位試 */}

@@ -575,3 +575,38 @@
 }
 .uat-filter-warn span { flex: 1; min-width: 0 }
 .uat-filter-warn .uat-btn { flex: none; padding: 3px 8px; font-size: 11px }
+
+/* 子類型篩選：從自由輸入改成複選彈框。
+   手打的問題不只是打錯——使用者根本不知道有哪些子類型可選 */
+.uat-subtype-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+}
+.uat-subtype-trigger em {
+  flex: none;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--uat-primary);
+}
+.uat-subtype-bar {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.uat-subtype-bar .uat-field { flex: 1; min-width: 0 }
+.uat-subtype-bar .uat-btn { flex: none }
+.uat-subtype-row.is-on {
+  border-left: 2px solid var(--uat-primary);
+  background: color-mix(in srgb, var(--uat-primary) 10%, transparent);
+}
+/* 勾選記號固定寬度，不然有勾/沒勾兩種狀態的文字會左右跳 */
+.uat-subtype-check {
+  display: inline-block;
+  width: 16px;
+  font-style: normal;
+  color: var(--uat-primary);
+}

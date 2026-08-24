@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.42.1'
+export const APP_VERSION = '4.43.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.43.0',
+    date: '2026-08-24',
+    changes: [
+      'feat(uat): 子類型篩選從手打改成彈框複選——列出全部 25 個子類型與各自 TC 筆數，可搜尋、可複選、可一鍵全部清除。原本要自己打字，既不知道有哪些可選也容易打錯',
+      'feat(uat): 選項來自已載入的 TC 清單（離線快照就有），不用先掃描 Lark 就能選',
+    ],
+  },
   {
     version: '4.42.1',
     date: '2026-08-24',
