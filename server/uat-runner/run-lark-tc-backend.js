@@ -4866,7 +4866,37 @@ async function main() {
   if (!fs.existsSync(EXPORT_DIR)) fs.mkdirSync(EXPORT_DIR, { recursive: true });
 
   // 啟動瀏覽器
-  let browser = await chromium.launch({ headless: false, slowMo: 50 });
+  /**
+   * 停止：一定要自己處理 SIGTERM。
+   *
+   * node 收到 SIGTERM 的預設行為是直接結束，但 chromium.launch() 預設會註冊
+   * handleSIGTERM 去關瀏覽器——**一旦有人註冊了 listener，node 的預設結束行為就沒了**。
+   * 結果是：瀏覽器被關掉，腳本卻還活著繼續跑下一筆 TC，每一筆都噴
+   * 「Target page, context or browser has been closed」。
+   * 使用者看到的就是「按了停止還在跑」（2026-08-24 回報）。
+   *
+   * 所以自己接一份：標記停止、關瀏覽器、明確 exit。同時把 Playwright 的預設
+   * 訊號處理關掉，避免兩邊搶著關同一顆瀏覽器。
+   */
+  let stopRequested = false;
+  const launchOpts = {
+    headless: false, slowMo: 50,
+    handleSIGTERM: false, handleSIGINT: false, handleSIGHUP: false,
+  };
+  let browser = await chromium.launch(launchOpts);
+
+  for (const sig of ['SIGTERM', 'SIGINT']) {
+    process.on(sig, () => {
+      if (stopRequested) process.exit(130);   // 按第二次就別再等了
+      stopRequested = true;
+      console.log('\n🛑 收到停止指令，正在收尾…');
+      // 關瀏覽器是非同步的，但不能無限等——3 秒後不管怎樣都結束，
+      // 不然「停止」會變成另一種形式的卡住
+      const bail = setTimeout(() => process.exit(130), 3000);
+      bail.unref?.();
+      Promise.resolve(browser?.close()).catch(() => {}).finally(() => process.exit(130));
+    });
+  }
 
   async function createLoginPage() {
     const ctx2 = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
@@ -5049,7 +5079,7 @@ async function main() {
           console.log(`  ❌ 重開context失敗(${e2.message})，改為完整重啟瀏覽器...`);
           try { await browser.close(); } catch {}
           try {
-            browser = await chromium.launch({ headless: false, slowMo: 50 });
+            browser = await chromium.launch(launchOpts);
             const r3 = await createLoginPage();
             page = r3.page;
             ctx = r3.ctx;

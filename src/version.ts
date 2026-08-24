@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.42.0'
+export const APP_VERSION = '4.42.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.42.1',
+    date: '2026-08-24',
+    changes: [
+      'fix(uat): 按停止之後還在跑。Playwright 預設會攔 SIGTERM 去關瀏覽器，而只要有人攔了，node「收到訊號就結束」的預設行為就沒了——瀏覽器關掉、腳本繼續跑下一筆，每筆都噴 Target page has been closed。現在改成腳本自己接訊號，關瀏覽器後明確結束',
+      'fix(uat): Agent 送出停止後多留一手——8 秒內沒結束就強制終止。單筆 TC 可以跑好幾分鐘，訊號也可能被函式庫攔走，沒有這層「停止」會變成「看起來停了但還在跑」',
+    ],
+  },
   {
     version: '4.42.0',
     date: '2026-08-24',

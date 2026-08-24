@@ -1134,6 +1134,17 @@ Playwright 從「server 本機 spawn」改成「派工給 Local Agent」（跟 A
 
 `osm-uat.ts` 掛在 **worker process**（見 `server/worker.ts`），跟 `/ws/agent` 是同一個 process，所以直接拿 `agentConnections` 發訊息，不用再跨 process 轉一手。
 
+### 停止：runner 一定要自己接 SIGTERM
+
+`chromium.launch()` **預設會註冊 `handleSIGTERM`** 去關瀏覽器。node 收到 SIGTERM 的預設行為是直接結束，但**只要有人註冊了 listener，那個預設就沒了**——於是瀏覽器被關掉、腳本卻還活著繼續跑下一筆 TC，每一筆都噴 `Target page, context or browser has been closed`。使用者看到的就是「按了停止還在跑」（2026-08-24 回報）。
+
+修法兩層，缺一不可：
+
+1. **runner**：`launch()` 帶 `handleSIGTERM/SIGINT/SIGHUP: false` 把 Playwright 的訊號處理關掉，自己接一份——關瀏覽器、3 秒逾時保險、明確 `process.exit(130)`。按第二次直接退出。
+2. **agent**：送出 SIGTERM 後起一個 8 秒計時，還沒結束就 `SIGKILL`。單筆 TC 可以跑好幾分鐘，訊號也可能被某個函式庫攔走；沒有這個升級，「停止」會變成「看起來停了但其實還在跑」。
+
+**⚠️ 這條在 Windows 上測不出來**：Windows 的 `child.kill('SIGTERM')` 不是真的送訊號，Node 直接強制終止程序，listener 根本不會執行（實測確認：註冊了 listener 的子程序仍然回 `signal=SIGTERM`、handler 沒印任何東西）。也就是說 Windows 上「停止」本來就會立刻生效，這個 bug 只在 macOS／Linux 的 agent 上出得來。要驗這條必須在 macOS agent 上跑。
+
 ### 幾個容易踩的邊界
 - **停止要分支**：agent 模式送 `backend_uat_stop` 之後**不在當下收尾**，等 agent 回 `backend_uat_done` 才算真的停（才拿得到真實 exit code）；agent 已離線才直接標記。fallback 模式才 kill 本機 child。兩邊不共用同一套 kill 假設。
 - **agent 斷線要優先攔截**：Backend UAT 的 `sessionId` 是 UUID、沒有 `sb_` 前綴，不先在 worker 的 close handler 攔下來，會掉進既有的機測分支誤呼叫 `cancelDistSession` 並廣播機測錯誤。`handleBackendUatAgentDisconnect()` 回傳 boolean 就是給 worker 判斷「這輪我處理掉了」。

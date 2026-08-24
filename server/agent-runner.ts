@@ -1405,7 +1405,17 @@ function connect() {
       // sessionId 對不上代表是上一輪的殘留指令，不能拿來砍現在正在跑的那一輪
       if (backendUatChild && backendUatSessionId === sessionId) {
         console.log(`[Agent:${AGENT_LABEL}] Backend UAT ${sessionId} stop requested`)
-        try { backendUatChild.kill('SIGTERM') } catch { /* ignore */ }
+        const dying = backendUatChild
+        try { dying.kill('SIGTERM') } catch { /* ignore */ }
+        // SIGTERM 之後一定要留一手：腳本可能正卡在某個長等待（單筆 TC 可以跑好幾
+        // 分鐘），或訊號被某個函式庫攔走。沒有這個升級，「停止」就會變成「看起來
+        // 停了但其實還在跑」——使用者實際踩過。
+        setTimeout(() => {
+          if (dying.exitCode === null && dying.signalCode === null) {
+            console.log(`[Agent:${AGENT_LABEL}] Backend UAT ${sessionId} 沒有在 8 秒內結束，改用 SIGKILL`)
+            try { dying.kill('SIGKILL') } catch { /* ignore */ }
+          }
+        }, 8000).unref?.()
         // 不在這裡送 done——child 的 close handler 會送，才拿得到真正的 exit code
       } else if (ws.readyState === ws.OPEN) {
         // 已經結束了，補一則 done 讓 server 不會卡在 running
