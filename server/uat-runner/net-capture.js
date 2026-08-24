@@ -280,3 +280,31 @@ export function attachNetworkCapture(page, options = {}) {
     },
   };
 }
+
+/**
+ * 把 URL 收斂成「之後拿來比對」用的樣式。
+ *
+ * 錄製時記下的是當下那一次的網址，裡面常有 id、token、時間戳。直接拿它當斷言條件，
+ * 換一筆資料或隔一天重跑就對不上了——錄完當天可以跑、明天全紅，是最難查的那種壞法。
+ *
+ * 收斂規則（保守，寧可少換也不要換錯）：
+ *   - query string 整段拿掉（分頁、時間範圍、token 幾乎都在這）
+ *   - 路徑裡「純數字」或「看起來像 uuid／長 hex」的片段換成 *
+ * 其餘原樣保留。原始網址仍然要一起留著，這裡回的是額外欄位不是取代。
+ */
+export function toUrlPattern(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    const parts = u.pathname.split('/').map(seg => {
+      if (!seg) return seg;
+      if (/^\d+$/.test(seg)) return '*';
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seg)) return '*';
+      if (/^[0-9a-f]{16,}$/i.test(seg)) return '*';
+      return seg;
+    });
+    return `${u.origin}${parts.join('/')}`;
+  } catch {
+    // 解析不出來就原樣回傳——猜錯比不換更糟
+    return rawUrl;
+  }
+}

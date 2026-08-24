@@ -48,6 +48,16 @@ function loadConfig(): UatConfig {
   } catch { return defaults }
 }
 
+interface RecNetCall {
+  method: string
+  url: string
+  /** 收斂過的網址（拿掉 query、id 換成 *），之後要把這筆變成斷言時是比對這個 */
+  urlPattern: string
+  status: number | null
+  durationMs: number | null
+  ts: number
+}
+
 interface BackendUatAgent {
   agentId: string
   hostname: string
@@ -91,6 +101,10 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const [pickerQuery, setPickerQuery] = useState('')
   /** 選擇器是否展開。跟 pendingSteps 分開——收起彈框不等於丟掉錄到的積木 */
   const [pickerOpen, setPickerOpen] = useState(false)
+  // 錄製期間打到的 API。錄製只錄得到 DOM 操作，但要決定「這一步該下什麼
+  // pass/fail」時，最需要知道的是它打了哪些後端——很多成功／失敗根本不在 DOM，
+  // 在 API 有沒有送出、回什麼碼。
+  const [recNet, setRecNet] = useState<RecNetCall[]>([])
   // 子類型篩選改成彈框複選。原本是自由輸入——使用者不知道有哪些可選、又容易打錯，
   // 而且這個欄位會靜默縮小執行範圍（實際踩過：以為「執行模組流程」壞了）
   const [subtypeModal, setSubtypeModal] = useState(false)
@@ -275,7 +289,7 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
       })
       const data = await response.json() as { ok: boolean; sessionId?: string; message?: string; agentLabel?: string }
       if (!data.ok || !data.sessionId) { setRecMsg(data.message ?? '錄製啟動失敗'); return }
-      setRecSession(data.sessionId); setRecCount(0)
+      setRecSession(data.sessionId); setRecCount(0); setRecNet([])
       setRecMsg(`錄製中：瀏覽器已開在 ${data.agentLabel || '你的 Local Agent'} 上。要標檢查條件：點視窗右下角的「標記模式」再點元素，或按住 Alt／⌥ Option 點`)
     } catch { setRecMsg('錄製啟動失敗') }
   }
@@ -308,9 +322,10 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
     const timer = window.setInterval(async () => {
       try {
         const response = await fetch(`/api/osm-uat/record/status/${recSession}`)
-        const data = await response.json() as { ok: boolean; done?: boolean; error?: string | null; steps?: Step[] }
+        const data = await response.json() as { ok: boolean; done?: boolean; error?: string | null; steps?: Step[]; netCalls?: RecNetCall[] }
         if (!data.ok || stopped) return
         setRecCount(data.steps?.length ?? 0)
+        setRecNet(data.netCalls ?? [])
         if (data.done) {
           stopped = true; window.clearInterval(timer)
           // 有 error 代表這輪根本沒開起來（最常見是 agent 沒重啟）。
@@ -599,6 +614,26 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
           <span className={`uat-run-status is-${status}`}><i />{statusLabel}</span>
         </>}
       </aside>
+
+      {/* 錄製期間即時列出打到的 API。放在狀態列下面而不是彈框裡——
+          使用者是「一邊操作一邊看」的，塞進彈框等於還要多開一次 */}
+      {recSession && !!recNet.length && (
+        <div className="uat-rec-net">
+          <h4>這次錄製打到的 API <em>{recNet.length}</em></h4>
+          <div className="uat-rec-net-list">
+            {[...recNet].reverse().slice(0, 40).map((c, i) => (
+              <div className="uat-rec-net-row" key={`${c.ts}-${i}`}>
+                <span className={`uat-net-method is-${c.method.toLowerCase()}`}>{c.method}</span>
+                {/* 非 2xx 標出來——那通常就是最值得下斷言的地方 */}
+                <b className={c.status && c.status >= 400 ? 'is-bad' : ''}>{c.status ?? '—'}</b>
+                <i>{c.durationMs == null ? '—' : `${c.durationMs}ms`}</i>
+                <span className="uat-rec-net-url" title={`${c.url}\n比對用樣式：${c.urlPattern}`}>{c.urlPattern}</span>
+              </div>
+            ))}
+          </div>
+          <small>顯示收斂過的網址（拿掉 query、id 換成 *）。滑鼠移上去看原始網址。</small>
+        </div>
+      )}
 
       {recMsg && (
         <div className="uat-backend-rec-bar">

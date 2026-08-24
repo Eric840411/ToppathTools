@@ -492,6 +492,12 @@ interface RecordSession {
    * 使用者實際被 (a) 卡住過，而且只能靠去讀 agent 的 terminal 才知道。
    */
   ready: boolean
+  /**
+   * 錄製期間打到的 API。使用者要決定「這一步該下什麼 pass/fail」時最需要這個——
+   * 很多成功／失敗根本不在 DOM，在 API 有沒有送出、回什麼碼。
+   * 只留最後 RECORD_NET_MAX 筆：一輪錄製可以打幾百支，全留會讓 status 回應爆掉。
+   */
+  netCalls: { method: string; url: string; urlPattern: string; status: number | null; durationMs: number | null; ts: number }[]
   events: unknown[]
   done: boolean
   error: string | null
@@ -505,6 +511,8 @@ const RECORD_MAX_MS = 30 * 60_000
 const RECORD_CAPABILITY = 'uat-record'
 /** agent 要在這段時間內回報瀏覽器已開好。開瀏覽器 + 導頁 + 登入實測約 6~8 秒，留三倍餘裕 */
 const RECORD_READY_TIMEOUT_MS = 25_000
+/** 錄製期間保留幾筆 API 紀錄。一輪可以打幾百支，全留會讓 status 回應爆掉 */
+const RECORD_NET_MAX = 120
 
 router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) => {
   try {
@@ -548,7 +556,7 @@ router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) =>
     const sessionId = randomUUID()
     const session: RecordSession = {
       id: sessionId, recordId, agentId: agent.agentId, agentLabel: agent.hostname || agent.agentId,
-      events: [], done: false, error: null, ready: false, startedAt: Date.now(),
+      events: [], netCalls: [], done: false, error: null, ready: false, startedAt: Date.now(),
     }
     recordSessions.set(sessionId, session)
 
@@ -578,6 +586,17 @@ router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) =>
     next(error)
   }
 })
+
+/** agent 回報錄製期間打到的一支 API */
+export function handleBackendRecordNet(sessionId: string, call: unknown) {
+  const session = recordSessions.get(sessionId)
+  if (!session || session.done) return
+  const c = call as RecordSession['netCalls'][number] | null
+  if (!c || typeof c.url !== 'string') return
+  session.netCalls.push(c)
+  // 超過上限就砍掉最舊的。看最近打了什麼比看整輪歷史有用得多
+  if (session.netCalls.length > RECORD_NET_MAX) session.netCalls.splice(0, session.netCalls.length - RECORD_NET_MAX)
+}
 
 /** agent 回報瀏覽器已經開好、也登入完了 */
 export function handleBackendRecordReady(sessionId: string) {
@@ -618,6 +637,7 @@ router.get('/api/osm-uat/record/status/:sessionId', (req, res) => {
     done: session.done,
     error: session.error,
     eventCount: session.events.length,
+    netCalls: session.netCalls,
     steps,
     // 沒有任何斷言的錄製跑起來永遠 PASS，前端要能在停止時提醒
     hasAssertion: hasAssertion(steps),

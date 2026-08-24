@@ -83,3 +83,9 @@ export declare function attachNetworkCapture(
 export declare const STATS_LINE_PREFIX: string
 export declare function formatStatsLine(payload: unknown): string
 export declare function parseStatsLine(line: string): unknown | null
+
+/**
+ * 把 URL 收斂成可比對的樣式：拿掉 query，路徑裡的純數字／uuid／長 hex 換成 *。
+ * 錄製時要記下這個，之後「把這筆 API 變成斷言」才不會因為 id/token/時間戳而對不上。
+ */
+export declare function toUrlPattern(rawUrl: string): string

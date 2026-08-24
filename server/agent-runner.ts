@@ -32,6 +32,9 @@ import type { MachineTestSession, MachineProfile, TestEvent } from './machine-te
 import { ScriptedBetRunner } from './scripted-bet/runner.js'
 import type { ScriptedBetAccount, ScriptedBetConfig, ScriptedBetEvent } from './scripted-bet/types.js'
 import type { Page } from 'playwright'
+// 錄製期間回報網路請求時，用同一套規則把網址收斂成可比對的樣式——
+// 規則只能有一份，兩邊各寫一份遲早漂移
+import { toUrlPattern } from './uat-runner/net-capture.js'
 
 const CENTRAL_URL = (process.env.CENTRAL_URL ?? 'ws://localhost:3000').trim().replace(/\/$/, '')
 const AGENT_LABEL = process.env.AGENT_LABEL ?? hostname()
@@ -1378,6 +1381,46 @@ function connect() {
         if (ws.readyState === ws.OPEN) {
           ws.send(JSON.stringify({ type: 'backend_record_ready', sessionId: m.sessionId }))
         }
+        /**
+         * 錄製期間把網路請求也回報上去。
+         *
+         * 錄製只錄得到 DOM 操作，但使用者要決定「這一步該下什麼 pass/fail」時，最需要
+         * 知道的其實是它打了哪些後端。看不到 API 的話，錄出來的斷言只能停在「畫面上
+         * 有這個字」那一層——而很多成功／失敗根本不在 DOM，在 API 有沒有送出、回什麼碼。
+         *
+         * 只送 xhr / fetch：一頁動輒上百個圖檔與靜態資源，全送會把 WS 洗爆，而且那些
+         * 對「要驗什麼」完全沒有幫助。
+         */
+        page.on('requestfinished', request => {
+          void (async () => {
+            try {
+              const type = request.resourceType()
+              if (type !== 'xhr' && type !== 'fetch') return
+              const response = await request.response().catch(() => null)
+              const timing = request.timing()
+              const durationMs = timing && timing.responseEnd > 0
+                ? Math.round(timing.responseEnd - timing.startTime)
+                : null
+              if (ws.readyState !== ws.OPEN) return
+              ws.send(JSON.stringify({
+                type: 'backend_record_net',
+                sessionId: m.sessionId,
+                call: {
+                  method: request.method(),
+                  url: request.url(),
+                  // 之後要「把這筆變成斷言」時是拿 pattern 去比對：錄下來的是當下那一次的
+                  // 網址，裡面常有 id／token／時間戳，直接當條件的話換一筆資料就全紅。
+                  // 原始網址一起留著，pattern 是額外欄位不是取代（CodeX review 要求）
+                  urlPattern: toUrlPattern(request.url()),
+                  status: response ? response.status() : null,
+                  durationMs,
+                  ts: Date.now(),
+                },
+              }))
+            } catch { /* 單一筆抓不到不要影響錄製本身 */ }
+          })()
+        })
+
         console.log(`[Agent:${AGENT_LABEL}] 後台錄製 ${m.sessionId} 已開始（瀏覽器在這台機器上）`)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)

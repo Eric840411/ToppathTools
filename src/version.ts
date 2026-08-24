@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.44.0'
+export const APP_VERSION = '4.45.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.45.0',
+    date: '2026-08-24',
+    changes: [
+      'feat(uat): 錄製期間即時列出打到的 API（method／狀態碼／耗時／網址），就在「已錄到 N 顆」旁邊。錄製只看得到 DOM 操作，但很多成功失敗根本不在畫面上、在 API 有沒有送出跟回什麼碼',
+      'feat(uat): 非 2xx 的請求會標紅——那通常就是最值得下斷言的地方',
+      'feat(uat): 網址會收斂成可比對的樣式（拿掉 query、id 換成 *），滑鼠移上去看原始網址。之後要把某筆 API 變成斷言時才不會因為 id 或時間戳而隔天全紅',
+    ],
+  },
   {
     version: '4.44.0',
     date: '2026-08-24',

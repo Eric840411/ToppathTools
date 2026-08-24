@@ -1134,6 +1134,16 @@ Playwright 從「server 本機 spawn」改成「派工給 Local Agent」（跟 A
 
 `osm-uat.ts` 掛在 **worker process**（見 `server/worker.ts`），跟 `/ws/agent` 是同一個 process，所以直接拿 `agentConnections` 發訊息，不用再跨 process 轉一手。
 
+### 錄製期間顯示打到的 API（v4.45.0）
+
+錄製只錄得到 DOM 操作。但使用者要決定「這一步該下什麼 pass/fail」時，最需要知道的其實是它打了哪些後端——**很多成功／失敗根本不在 DOM，在 API 有沒有送出、回什麼碼**。看不到 API 的話，錄出來的斷言只能停在「畫面上有這個字」那一層。
+
+agent 端 `page.on('requestfinished')` → `backend_record_net` → server 收進 session → `/record/status` 回傳 → 錄製狀態列下方即時列出。**只送 xhr／fetch**：一頁動輒上百個圖檔與靜態資源，全送會把 WS 洗爆，而且對「要驗什麼」沒有幫助。
+
+**URL 一定要 pattern 化**（`toUrlPattern()`，放在 `net-capture.js` 讓兩邊共用一份規則）：錄下來的是當下那一次的網址，裡面常有 id／token／時間戳。之後要把某筆 API 變成斷言時如果直接拿原始網址當條件，**錄完當天可以跑、隔天全紅**——最難查的那種壞法。收斂規則保守：拿掉整段 query、路徑裡純數字／uuid／長 hex 換成 `*`，其餘原樣。**原始網址一起留著**，pattern 是額外欄位不是取代（CodeX review 要求：資料模型一開始就要能轉斷言）。
+
+**`/ws/agent` 的註冊訊息是 `agent_ready` + `operatorKey` + `agentToken`**，不是 `register` + `ownerKey` + `token`。照直覺猜的話 server 會靜默拒絕，只回「目前沒有連線中的 Local Agent」，完全看不出是註冊格式錯了。檢查腳本見 `scripts/ui-checks/uat-record-network.mjs`。
+
 ### UI 檢查腳本：導頁一定要先點群組再點子項
 
 `scripts/ui-checks/uat-subtype-modal.mjs`。這個 app **沒有 URL 路由**，頁面是純 React state——直接 `goto` 某個網址或直接點「UAT 整合測試」都到不了，因為子項在群組展開之前根本還沒 render。要先點「OSM Tools」再點子項。**我在這上面連續卡了三次驗證**才發現，之前那幾次「進不到 UAT 頁面」的結論全部作廢重來。

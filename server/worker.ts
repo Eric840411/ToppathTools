@@ -24,6 +24,7 @@ import {
   handleBackendUatAgentDone,
   handleBackendUatAgentDisconnect,
   handleBackendRecordReady,
+  handleBackendRecordNet,
   handleBackendRecordEvent,
   handleBackendRecordDone,
   handleBackendRecordAgentDisconnect,
@@ -609,6 +610,10 @@ wss.on('connection', (ws, req) => {
       // 後台錄製：agent 每錄到一顆積木就即時回報，前端那個「已錄到 N 顆」要即時才有意義
       if (msg.type === 'backend_record_ready' && msg.sessionId) {
         handleBackendRecordReady(String(msg.sessionId))
+        return
+      }
+      if (msg.type === 'backend_record_net' && msg.sessionId) {
+        handleBackendRecordNet(String(msg.sessionId), (msg as { call?: unknown }).call)
         return
       }
       if (msg.type === 'backend_record_event' && msg.sessionId) {

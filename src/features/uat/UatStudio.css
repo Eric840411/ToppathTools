@@ -610,3 +610,65 @@
   font-style: normal;
   color: var(--uat-primary);
 }
+
+/* 錄製期間的 API 清單。放在狀態列下面而不是彈框裡——使用者是一邊操作一邊看的，
+   塞進彈框等於還要多開一次 */
+.uat-rec-net {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--uat-border);
+  background: var(--uat-surface-2);
+}
+.uat-rec-net h4 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--uat-text);
+}
+.uat-rec-net h4 em {
+  margin-left: 6px;
+  font-style: normal;
+  color: var(--uat-text-dim);
+}
+/* 限高自己捲：錄久了會累積上百筆，讓它把下面的內容推出畫面等於幫倒忙 */
+.uat-rec-net-list {
+  max-height: 190px;
+  overflow-y: auto;
+  font-size: 11px;
+}
+.uat-rec-net-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--uat-border) 45%, transparent);
+}
+.uat-rec-net-row b {
+  flex: none;
+  width: 34px;
+  font-variant-numeric: tabular-nums;
+  color: var(--uat-text-dim);
+}
+.uat-rec-net-row b.is-bad { color: var(--uat-bad, #e05260) }
+.uat-rec-net-row i {
+  flex: none;
+  width: 54px;
+  font-style: normal;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--uat-text-dim);
+}
+.uat-rec-net-url {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--uat-text);
+}
+.uat-rec-net small {
+  display: block;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--uat-text-dim);
+}
