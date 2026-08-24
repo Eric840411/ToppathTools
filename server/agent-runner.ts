@@ -1373,6 +1373,11 @@ function connect() {
         // 登入完成之後才開始收。在這之前輸入的是我們自己打的帳密，
         // 錄進去等於把真實密碼寫成測試步驟（實測時真的錄到過）。
         await page.evaluate(() => (window as unknown as { __toppathArmRecorder?: () => void }).__toppathArmRecorder?.()).catch(() => {})
+        // 回一個確認：沒有這個，server 分不出「agent 版本太舊沒接到」跟「正在錄但使用者還沒操作」
+        // ——兩者在畫面上都是「停止錄製（0 顆）」，完全一樣
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: 'backend_record_ready', sessionId: m.sessionId }))
+        }
         console.log(`[Agent:${AGENT_LABEL}] 後台錄製 ${m.sessionId} 已開始（瀏覽器在這台機器上）`)
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)

@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.40.0'
+export const APP_VERSION = '4.40.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.40.1',
+    date: '2026-08-24',
+    changes: [
+      'fix(uat): 錄製派工出去但 agent 沒接到時，會在 25 秒後明確失敗並說「Local Agent 沒有回應，通常是更新程式碼後還沒重啟」。之前這種情況跟「正在錄但你還沒操作」在畫面上完全一樣，都是「停止錄製（0 顆）」，只能自己去讀 agent 的終端機才知道',
+      'fix(uat): 錄製失敗時顯示真正的原因，不再顯示「這次沒錄到任何操作」——那把一個明確的失敗說成使用者自己沒操作',
+    ],
+  },
   {
     version: '4.40.0',
     date: '2026-08-24',

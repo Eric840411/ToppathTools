@@ -474,6 +474,15 @@ interface RecordSession {
   agentId: string
   /** 顯示用的名稱（hostname），讓使用者知道瀏覽器會開在哪台機器 */
   agentLabel: string
+  /**
+   * agent 有沒有回報「瀏覽器開好了」。
+   *
+   * 沒有這個欄位就分不出兩種情況——它們在畫面上長得一模一樣（「停止錄製（0 顆）」）：
+   *   a) agent 版本太舊，收到不認得的訊息默默丟掉，永遠不會有事情發生
+   *   b) 瀏覽器真的開好了，只是使用者還沒開始操作
+   * 使用者實際被 (a) 卡住過，而且只能靠去讀 agent 的 terminal 才知道。
+   */
+  ready: boolean
   events: unknown[]
   done: boolean
   error: string | null
@@ -485,6 +494,8 @@ const recordSessions = new Map<string, RecordSession>()
 const RECORD_MAX_MS = 30 * 60_000
 /** 錄製需要的 agent 能力。跟 H5/PC 錄製共用同一個 capability，agent 端本來就有 */
 const RECORD_CAPABILITY = 'uat-record'
+/** agent 要在這段時間內回報瀏覽器已開好。開瀏覽器 + 導頁 + 登入實測約 6~8 秒，留三倍餘裕 */
+const RECORD_READY_TIMEOUT_MS = 25_000
 
 router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) => {
   try {
@@ -528,7 +539,7 @@ router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) =>
     const sessionId = randomUUID()
     const session: RecordSession = {
       id: sessionId, recordId, agentId: agent.agentId, agentLabel: agent.hostname || agent.agentId,
-      events: [], done: false, error: null, startedAt: Date.now(),
+      events: [], done: false, error: null, ready: false, startedAt: Date.now(),
     }
     recordSessions.set(sessionId, session)
 
@@ -543,12 +554,27 @@ router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) =>
       password: creds.cpBackend.password,
     }))
 
+    // agent 沒在時限內回報開好瀏覽器就標成失敗。等下去只會讓使用者對著一個
+    // 「正在錄製」的畫面空等——那個畫面跟真的在錄完全一樣。
+    setTimeout(() => {
+      const current = recordSessions.get(sessionId)
+      if (!current || current.ready || current.done) return
+      current.done = true
+      current.error = `Local Agent「${session.agentLabel}」沒有回應。最常見的原因是更新程式碼之後還沒重啟 agent——舊版不認得錄製指令。請把 agent 停掉重新啟動再試一次。`
+    }, RECORD_READY_TIMEOUT_MS).unref?.()
+
     setTimeout(() => { void stopRecordSession(sessionId) }, RECORD_MAX_MS).unref?.()
     res.json({ ok: true, sessionId, agentLabel: session.agentLabel })
   } catch (error) {
     next(error)
   }
 })
+
+/** agent 回報瀏覽器已經開好、也登入完了 */
+export function handleBackendRecordReady(sessionId: string) {
+  const session = recordSessions.get(sessionId)
+  if (session) session.ready = true
+}
 
 /** agent 錄到一顆積木就即時回報。前端那個「已錄到 N 顆」要即時才有意義 */
 export function handleBackendRecordEvent(sessionId: string, payload: string) {

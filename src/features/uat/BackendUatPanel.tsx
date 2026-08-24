@@ -285,10 +285,17 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
     const timer = window.setInterval(async () => {
       try {
         const response = await fetch(`/api/osm-uat/record/status/${recSession}`)
-        const data = await response.json() as { ok: boolean; done?: boolean; steps?: Step[] }
+        const data = await response.json() as { ok: boolean; done?: boolean; error?: string | null; steps?: Step[] }
         if (!data.ok || stopped) return
         setRecCount(data.steps?.length ?? 0)
-        if (data.done) { stopped = true; window.clearInterval(timer); void finishWorkbenchRecord(recSession) }
+        if (data.done) {
+          stopped = true; window.clearInterval(timer)
+          // 有 error 代表這輪根本沒開起來（最常見是 agent 沒重啟）。
+          // 這種情況不要走「拿積木」那條路——那會顯示「這次沒錄到任何操作」，
+          // 把一個明確的失敗說成使用者自己沒操作。
+          if (data.error) { setRecSession(null); setRecMsg(data.error); return }
+          void finishWorkbenchRecord(recSession)
+        }
       } catch { /* 一次查不到不用中斷輪詢 */ }
     }, 2000)
     return () => { stopped = true; window.clearInterval(timer) }
