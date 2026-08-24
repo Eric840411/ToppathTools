@@ -1406,7 +1406,7 @@ Backend UAT 的執行早在 v4.23.0 就改成派工了，錄製漏掉沒跟著�
 |------|------|
 | 2 | `SUBTYPE_MAP` 的路徑表搬進 registry；逐支 verifier 宣告參數表，接成 `builtin_verifier` 的 `options`。**第一支做 `verifyMeterPage`（10 筆）當樣板**——最小，而且它的容差比對本來就已經是參數化的形狀（`cmp()`），定完格式再複製到 19／19／28 那三支 |
 | 3 | ✅ 前端積木編輯器（彈框，含積木庫搜尋、複製到另一筆 TC、匯出／匯入）|
-| 4 | 逐筆把 TC 拆成積木。**目前 44/121，每一批都比對過拆解前的基準**：A 類 13、Meter 8、Report 19、Dashboard 4 |
+| 4 | 逐筆把 TC 拆成積木。**目前 55/121，每一批都比對過拆解前的基準**：A 類 13、Meter 8、Report 19、GameSetting 11、Dashboard 4 |
 
 ### 四支大 verifier 實際拆下來的樣子（跟原本假設不同）
 
@@ -1416,7 +1416,7 @@ Backend UAT 的執行早在 v4.23.0 就改成派工了，錄製漏掉沒跟著�
 |---|---|---|
 | `verifyMeterPage` | 10 | **是平的**。8 筆非 manual 裡 6 筆是同一種「標籤集合含某些值」，只差來源（form／checkbox／radio）。已全拆 |
 | `verifyReportPage` | 28 | 12 搜尋欄位 + 7 日期元件 + 6 匯出 + 3 人工。前兩類 19 筆已拆 |
-| `verifyGameSettingPage` | 19 | 大部分是欄位／按鈕／開關存在，可拆；模組理由只有跨頁 + 匯出 |
+| `verifyGameSettingPage` | 19 | 已拆 11。剩下的是「每列都要有 Edit/Delete」「重複 Game ID 偵測」「只能有一筆」這類 |
 | `verifyMachineReservation` | 19 | **唯一真的需要模組**：填表→送出→讀 toast 錯誤訊息的多步驟流程，且需要環境相依的真實帳號／機台 |
 
 **「可導出Excel表」那類刻意不逐支拆**——三支大 verifier 都在呼叫同一個 `doExport()`（下載檔案→讀 xlsx→比對內容）。做成一顆共用積木一次涵蓋三支，各拆一份等於複製三次。

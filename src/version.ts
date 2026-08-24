@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.46.0'
+export const APP_VERSION = '4.47.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.47.0',
+    date: '2026-08-24',
+    changes: [
+      'feat(uat): 遊戲與後台設定（verifyGameSettingPage）拆掉 11 筆，比對基準 20/20 一致。積木化累計 55/121',
+      'note(uat): 其中 4 筆（Sort ID／Name／Param／Type）的 TC 掛在「小額推薦影片」底下，但實際驗的是 Special Entrance Set 頁面的欄位——原本的驗證器是跨頁去查再跳回來，積木直接開那一頁',
+    ],
+  },
   {
     version: '4.46.0',
     date: '2026-08-24',

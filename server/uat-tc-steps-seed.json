@@ -1,7 +1,7 @@
 {
   "kind": "toppath-uat-tc-steps",
   "version": 1,
-  "count": 44,
+  "count": 55,
   "steps": {
     "recvenTprA3kez": [
       {
@@ -23,6 +23,18 @@
         "action": "assert_labels_contain",
         "source": "formLabel",
         "expect": "Game Type"
+      }
+    ],
+    "recvenTprA7Bqo": [
+      {
+        "action": "open_page",
+        "path": "/game/gameJumpSet"
+      },
+      {
+        "action": "assert_element_count",
+        "selector": ".el-switch",
+        "label": "More Game 顯示開關",
+        "min": 1
       }
     ],
     "recvenTprA8JzE": [
@@ -60,6 +72,16 @@
       {
         "action": "screenshot",
         "name": "tc3_Dashboard"
+      }
+    ],
+    "recvenTprA97qk": [
+      {
+        "action": "open_page",
+        "path": "/game/denomSet"
+      },
+      {
+        "action": "assert_column_exists",
+        "columns": "Type"
       }
     ],
     "recvenTprABY17": [
@@ -151,6 +173,26 @@
         "action": "assert_labels_contain",
         "source": "formLabel",
         "expect": "UserId\nAccount\nType"
+      }
+    ],
+    "recvenTprAI3aE": [
+      {
+        "action": "open_page",
+        "path": "/game/bannerSet"
+      },
+      {
+        "action": "assert_control_exists",
+        "text": "Add Banner"
+      }
+    ],
+    "recvenTprAION6": [
+      {
+        "action": "open_page",
+        "path": "/game/denomSet"
+      },
+      {
+        "action": "assert_column_exists",
+        "columns": "Param"
       }
     ],
     "recvenTprAJGtw": [
@@ -274,6 +316,16 @@
         "action": "assert_labels_contain",
         "source": "formLabel",
         "expect": "Player Channel"
+      }
+    ],
+    "recvenTprAYjfO": [
+      {
+        "action": "open_page",
+        "path": "/game/denomSet"
+      },
+      {
+        "action": "assert_column_exists",
+        "columns": "Name"
       }
     ],
     "recvenTprAcCmK": [
@@ -421,6 +473,16 @@
         "expect": "06:00:00-06:00:00\n00:00:00-00:00:00"
       }
     ],
+    "recvenTprAiYwK": [
+      {
+        "action": "open_page",
+        "path": "/game/denomSet"
+      },
+      {
+        "action": "assert_column_exists",
+        "columns": "Sort ID"
+      }
+    ],
     "recvenTprAjUts": [
       {
         "action": "open_page",
@@ -479,6 +541,18 @@
         "action": "assert_labels_contain",
         "source": "formLabel",
         "expect": "Machine Name\nUserId\nAccount"
+      }
+    ],
+    "recvenTprAngA7": [
+      {
+        "action": "open_page",
+        "path": "/game/recommendSetting"
+      },
+      {
+        "action": "assert_element_count",
+        "selector": ".el-switch",
+        "label": "推薦欄開關",
+        "min": 1
       }
     ],
     "recvenTprAtos7": [
@@ -547,6 +621,16 @@
         "direction": "desc"
       }
     ],
+    "recvenTprAyKHc": [
+      {
+        "action": "open_page",
+        "path": "/game/gameJumpSet"
+      },
+      {
+        "action": "assert_control_exists",
+        "text": "Add Game"
+      }
+    ],
     "recvenTprAzAL0": [
       {
         "action": "open_page",
@@ -568,6 +652,36 @@
         "trigger": "ChannelRankID",
         "fields": "Machine Type",
         "note": "可設定渠道顯示 OSM/GSA 機種"
+      }
+    ],
+    "recvfqN710LPGe": [
+      {
+        "action": "open_page",
+        "path": "/game/recommendSetting"
+      },
+      {
+        "action": "assert_column_exists",
+        "columns": "Min Bet"
+      }
+    ],
+    "recvfqN710l52b": [
+      {
+        "action": "open_page",
+        "path": "/game/recommendSetting"
+      },
+      {
+        "action": "assert_column_exists",
+        "columns": "Wallet"
+      }
+    ],
+    "recvfqN710lRUJ": [
+      {
+        "action": "open_page",
+        "path": "/game/recommendSetting"
+      },
+      {
+        "action": "assert_column_exists",
+        "columns": "Recommend Amount"
       }
     ]
   }
