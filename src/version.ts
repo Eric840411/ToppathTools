@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.40.2'
+export const APP_VERSION = '4.41.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.41.0',
+    date: '2026-08-24',
+    changes: [
+      'fix(uat): 錄製的標斷言功能其實一直是壞的。注入腳本在最外層 appendChild，但那個時機 document.documentElement 還是 null，整行拋錯之後所有標斷言的監聽器都沒被註冊——一般操作照錄，只有標檢查條件完全沒反應，所以錄出來的腳本永遠零斷言、跑起來一定 PASS',
+      'feat(uat): 錄製視窗右下角新增常駐的「標記模式」徽章，點一下切換，開著時點任何元素都是標檢查條件。不用再依賴 Alt——Mac 鍵盤那顆鍵印的是 option／⌥，而且 Option+click 點到連結會被瀏覽器攔去下載',
+      'feat(uat): 錄完可以「另存成新 TC」。原本只能接到既有的 Lark TC，錄一個 Lark 上沒有的新流程只能硬塞給不相干的 TC，會蓋掉那筆原本該驗的東西',
+      'feat(uat): 自訂 TC 可以填「歸戶關鍵字」，之後掃到文字命中的 Lark TC 就能一鍵把積木搬過去。歸戶預設是接在既有積木後面不覆蓋，而且會留稽核紀錄',
+    ],
+  },
   {
     version: '4.40.2',
     date: '2026-08-24',

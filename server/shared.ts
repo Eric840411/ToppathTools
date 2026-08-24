@@ -1731,6 +1731,127 @@ db.exec(`
   )
 `)
 
+/**
+ * 自訂 TC：錄製出來、但 Lark 上還沒有對應那一筆的測試。
+ *
+ * ## 為什麼需要這張表
+ * 錄製原本只服務「Lark 已有 TC、幫它補自動化步驟」。但使用者最自然的用法是
+ * 「錄一個全新流程」——那種 TC 在 Lark 上不存在，硬塞給既有 TC 會把那筆原本
+ * 該驗的東西蓋掉。
+ *
+ * ## 為什麼不直接寫進 Lark
+ * 寫入團隊共用表的風險是資料污染，而且錯了很難查來源（跟 CodeX 討論過）。
+ * 這裡選擇存在工具裡，但用 link_keyword 讓它是**明確的暫態**而不是另一份
+ * 平行的測試清單——自訂 TC 自帶「我以後要歸到哪」，掃到文字命中的 Lark TC
+ * 就能把積木搬過去、這筆刪掉。
+ *
+ * ## 兩份清單的問題怎麼壓住
+ * 關鍵不是「不要有兩份」，是**看得出來哪些是自訂的**：畫面分開標示、分開計數，
+ * 執行結果明講「未回寫 Lark」。混在一起假裝同一種東西才會出事。
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS uat_custom_tcs (
+    id            TEXT PRIMARY KEY,
+    title         TEXT NOT NULL,
+    subtype       TEXT NOT NULL DEFAULT '',
+    /** 選填。之後掃 Lark 時用它比對，命中就能把積木歸戶過去 */
+    link_keyword  TEXT NOT NULL DEFAULT '',
+    steps         TEXT NOT NULL,
+    created_by    TEXT,
+    created_at    INTEGER NOT NULL,
+    updated_at    INTEGER NOT NULL
+  )
+`)
+
+export interface UatCustomTc {
+  id: string
+  title: string
+  subtype: string
+  linkKeyword: string
+  steps: unknown[]
+  createdBy: string | null
+  createdAt: number
+  updatedAt: number
+}
+
+export function listUatCustomTcs(): UatCustomTc[] {
+  const rows = db.prepare(`
+    SELECT id, title, subtype, link_keyword, steps, created_by, created_at, updated_at
+    FROM uat_custom_tcs ORDER BY created_at DESC
+  `).all() as Record<string, string | number | null>[]
+  return rows.map(row => ({
+    id: String(row.id),
+    title: String(row.title),
+    subtype: String(row.subtype ?? ''),
+    linkKeyword: String(row.link_keyword ?? ''),
+    // 壞掉的一筆不要讓整份清單掛掉——回空陣列，畫面上看得出來它沒有積木
+    steps: (() => { try { return JSON.parse(String(row.steps)) as unknown[] } catch { return [] } })(),
+    createdBy: row.created_by == null ? null : String(row.created_by),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  }))
+}
+
+export function saveUatCustomTc(input: {
+  id?: string; title: string; subtype?: string; linkKeyword?: string; steps: unknown[]; createdBy?: string
+}): string {
+  const now = Date.now()
+  const id = input.id || `custom_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+  db.prepare(`
+    INSERT INTO uat_custom_tcs (id, title, subtype, link_keyword, steps, created_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      title = excluded.title, subtype = excluded.subtype,
+      link_keyword = excluded.link_keyword, steps = excluded.steps, updated_at = excluded.updated_at
+  `).run(id, input.title, input.subtype ?? '', input.linkKeyword ?? '',
+    JSON.stringify(input.steps ?? []), input.createdBy ?? null, now, now)
+  return id
+}
+
+/**
+ * 歸戶紀錄：某筆自訂 TC 的積木被搬到哪一筆 Lark TC。
+ *
+ * 自訂那筆搬完就刪掉了，但軌跡要留——不然之後有人問「這些積木哪來的」會查不到。
+ * 這是 CodeX review 特別提的：可以刪資料，不能刪 audit trail。
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS uat_custom_tc_adoptions (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    custom_tc_id   TEXT NOT NULL,
+    custom_title   TEXT NOT NULL,
+    lark_record_id TEXT NOT NULL,
+    lark_text      TEXT NOT NULL DEFAULT '',
+    mode           TEXT NOT NULL,
+    step_count     INTEGER NOT NULL,
+    actor          TEXT,
+    created_at     INTEGER NOT NULL
+  )
+`)
+
+export function recordCustomTcAdoption(input: {
+  customTcId: string; customTitle: string; larkRecordId: string; larkText?: string;
+  /** append = 接在既有積木後面；replace = 覆蓋（只有二次確認過才會是這個） */
+  mode: 'append' | 'replace'; stepCount: number; actor?: string
+}) {
+  db.prepare(`
+    INSERT INTO uat_custom_tc_adoptions
+      (custom_tc_id, custom_title, lark_record_id, lark_text, mode, step_count, actor, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(input.customTcId, input.customTitle, input.larkRecordId, input.larkText ?? '',
+    input.mode, input.stepCount, input.actor ?? null, Date.now())
+}
+
+export function listCustomTcAdoptions(limit = 100) {
+  return db.prepare(`
+    SELECT custom_tc_id, custom_title, lark_record_id, lark_text, mode, step_count, actor, created_at
+    FROM uat_custom_tc_adoptions ORDER BY created_at DESC LIMIT ?
+  `).all(limit)
+}
+
+export function deleteUatCustomTc(id: string) {
+  return db.prepare('DELETE FROM uat_custom_tcs WHERE id = ?').run(id).changes
+}
+
 // 若 server/uat-tc-steps-seed.json 存在，補齊缺少的 TC 積木。
 // 積木存在各環境自己的 DB，拆解成果不會自己跑到正式環境——沒有這個種子檔，
 // 拆好的積木只活在拆的人那台機器上。用 INSERT OR IGNORE：已經在 DB 裡的

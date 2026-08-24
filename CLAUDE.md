@@ -1310,7 +1310,13 @@ Backend UAT 的執行早在 v4.23.0 就改成派工了，錄製漏掉沒跟著�
 
 **逐顆即時回報而不是停止時一次回整包**：前端那個「已錄到 N 顆」的計數要即時才有意義（使用者靠它確認到底有沒有在錄）。server 端對未知或已結束的 session 一律忽略。
 
-**測試**：`server/uat-runner/backend-recorder.test.mjs`（15 項），不開瀏覽器驗轉換邏輯。
+**標斷言不只有 Alt：視窗右下角有常駐的「標記模式」徽章（v4.41.0）**。Mac 鍵盤那顆鍵印的是 `option`／`⌥`，畫面寫「Alt」會讓人找不到（使用者實際問過）；而且 Mac 的 Chrome 上 Option+click 點到連結會觸發「下載連結目標」，跟標記動作打架。徽章點一下切換，開著時點任何元素都是標斷言，不依賴修飾鍵。Alt／⌥ 保留成快捷方式。
+
+**⚠️ 注入腳本不能在最外層 `document.documentElement.appendChild(...)`**（v4.41.0 修）。這支腳本是用 `addInitScript` 注入的，跑在頁面自己的程式碼之前，那個當下 `documentElement` **還是 null**——那一行拋錯，而且因為是在最外層拋的，**後面所有標斷言的監聽器都不會被註冊**。
+
+症狀極隱蔽：一般操作的錄製（click／change）註冊在那一行之前，照常運作、看起來錄得好好的；只有「按住 Alt 標檢查條件」完全沒反應，於是錄出來的腳本**永遠零斷言**——跑起來一定 PASS。15 項單元測試全過，完全抓不到。要掛 DOM 一律走 `mountRecorderUi()`：拿不到 root 就等 `DOMContentLoaded`。
+
+**測試**：`backend-recorder.test.mjs`（15 項，不開瀏覽器驗轉換邏輯）＋ **`backend-recorder.browser-test.mjs`（真的開 Chromium 注入、點徽章、驗行為）**。後者就是為了上面那個 bug 加的——它只有真的跑起來才看得見。**一定要用真的 `goto` 不要用 `setContent`**：兩者的 init script 執行時機不同，用 setContent 測會得到假的結論（查這個 bug 時先被它誤導過一次）。
 
 ### 拆解方法：先跑基準，再比對（v4.32.0 起固定這樣做）
 

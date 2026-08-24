@@ -125,7 +125,9 @@ export function backendRecorderScript() {
   // ── 錄動作 ───────────────────────────────────────────────────────────
   document.addEventListener('click', (event) => {
     if (!window.__toppathRecArmed) return;   // 登入階段不錄
-    if (event.altKey) return;            // Alt 是標斷言，不是操作
+    // 標記模式或按著 Alt 時，這一下是「標檢查條件」不是「操作」，不要錄成動作
+    if (isMarking(event)) return;
+    if (event.target && event.target.closest && event.target.closest('[data-toppath-recorder-ui]')) return;
     if (window.__toppathPicking) return;
     const el = event.target;
     if (!el || el.nodeType !== 1) return;
@@ -155,15 +157,70 @@ export function backendRecorderScript() {
     emit({ action: 'type_text', selector: d.selector, selectorStrategy: d.strategy, value: String(el.value || '') });
   }, true);
 
-  // ── Alt 標斷言 ───────────────────────────────────────────────────────
+  // ── 標斷言：Alt／⌥ 或「標記模式」徽章 ────────────────────────────────
+  //
+  // 一開始只做 Alt。但 Mac 鍵盤上那顆鍵印的是 option／⌥，畫面寫「Alt」會讓人
+  // 愣住（使用者實際問過）；而且 Mac 的 Chrome 上 Option+click 點到連結會觸發
+  // 「下載連結目標」，跟標記動作打架。
+  //
+  // 所以改成不依賴修飾鍵也能用：角落一個常駐徽章可以切換「標記模式」，開著的
+  // 時候點任何元素都是標斷言。Alt／⌥ 保留成快捷方式。
+  let markMode = false;
+  /** 目前滑鼠指著哪個元素。提前宣告，避免下面的徽章 handler 讀起來像用在宣告之前 */
+  let hover = null;
+  const isMarking = (event) => markMode || (event && event.altKey);
+
+  const BADGE = document.createElement('div');
+  BADGE.style.cssText = 'position:fixed;z-index:2147483645;right:14px;bottom:14px;padding:9px 13px;' +
+    'border-radius:999px;font:600 12px/1 system-ui,-apple-system,sans-serif;cursor:pointer;' +
+    'box-shadow:0 4px 14px rgba(0,0,0,.35);user-select:none;transition:background .15s,color .15s';
+  const paintBadge = () => {
+    BADGE.textContent = markMode ? '● 標記模式：開（點元素＝標檢查條件）' : '○ 標記模式：關（點一下開啟）';
+    BADGE.style.background = markMode ? '#3fbe8b' : '#1f2937';
+    BADGE.style.color = markMode ? '#06281c' : '#cbd5e1';
+  };
+  BADGE.addEventListener('click', (event) => {
+    event.preventDefault(); event.stopPropagation();
+    markMode = !markMode;
+    paintBadge();
+    if (!markMode) { HL.style.display = 'none'; hover = null; }
+  }, true);
+  // 徽章自己不能被錄成操作，也不能被當成標記目標
+  BADGE.setAttribute('data-toppath-recorder-ui', '1');
+
   const HL = document.createElement('div');
   HL.style.cssText = 'position:fixed;z-index:2147483646;pointer-events:none;border:2px solid #3fbe8b;' +
                      'border-radius:3px;background:rgba(63,190,139,.12);display:none';
-  document.documentElement.appendChild(HL);
+  /**
+   * ⚠️ 這段一定要延後掛，不能直接 appendChild。
+   *
+   * 這支腳本是用 addInitScript 注入的——它跑在頁面自己的程式碼之前，那個當下
+   * document.documentElement 還是 null。直接 appendChild 會拋
+   * 「Cannot read properties of null」，而且因為是在最外層拋的，**後面所有程式碼
+   * 都不會被執行**——也就是下面那些標斷言的監聽器從來沒被註冊過。
+   *
+   * 症狀非常隱蔽：一般操作的錄製（click / input）註冊在這一行之前，所以照常運作，
+   * 看起來錄得好好的；只有「按住 Alt 標檢查條件」完全沒反應。錄出來的腳本因此
+   * 永遠是零斷言——跑起來一定 PASS，那不是測試是重播。
+   *
+   * 實測才發現（真的開瀏覽器注入一次），單元測試看不出來。
+   */
+  const mountRecorderUi = () => {
+    const root = document.documentElement || document.body;
+    if (!root) return false;
+    root.appendChild(HL);
+    root.appendChild(BADGE);
+    paintBadge();
+    return true;
+  };
+  if (!mountRecorderUi()) {
+    document.addEventListener('DOMContentLoaded', mountRecorderUi, { once: true });
+  }
 
-  let hover = null;
   document.addEventListener('mousemove', (event) => {
-    if (!event.altKey) { HL.style.display = 'none'; hover = null; return; }
+    if (!isMarking(event)) { HL.style.display = 'none'; hover = null; return; }
+    // 徽章本身不當標記目標，不然點它會變成「標記這顆徽章」
+    if (event.target && event.target.closest && event.target.closest('[data-toppath-recorder-ui]')) { HL.style.display = 'none'; hover = null; return; }
     const el = document.elementFromPoint(event.clientX, event.clientY);
     if (!el || el === HL) return;
     hover = el;
@@ -186,7 +243,8 @@ export function backendRecorderScript() {
   }
 
   document.addEventListener('click', (event) => {
-    if (!event.altKey) return;
+    if (!isMarking(event)) return;
+    if (event.target && event.target.closest && event.target.closest('[data-toppath-recorder-ui]')) return;
     event.preventDefault(); event.stopPropagation();
     const el = hover || event.target;
     if (!el || el.nodeType !== 1) return;

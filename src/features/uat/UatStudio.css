@@ -478,3 +478,61 @@
   color: var(--uat-warn, #b7791f);
   background: color-mix(in srgb, var(--uat-warn, #b7791f) 14%, transparent);
 }
+
+/* 錄製結果的兩條出路：另存成新的自訂 TC，或接到既有 Lark TC。
+   視覺上要分開——它們不是同一件事，混在一起會讓人以為只是換個入口 */
+.uat-tc-picker-new {
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed var(--uat-border);
+  border-radius: 8px;
+  background: var(--uat-surface-2);
+}
+.uat-tc-picker-new h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--uat-text);
+}
+.uat-tc-picker-new-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.uat-tc-picker-new-row .uat-field { flex: 1 1 180px; min-width: 0 }
+.uat-tc-picker-new small {
+  display: block;
+  margin-top: 8px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--uat-text-dim);
+}
+/* 兩條路之間的分隔，讓人知道下面是另一種選擇不是延續 */
+.uat-tc-picker-or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 8px;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--uat-text-dim);
+}
+.uat-tc-picker-or::before,
+.uat-tc-picker-or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--uat-border);
+}
+/* 自訂 TC 在清單裡要看得出來跟 Lark TC 不同——「兩個答案」的問題靠這個壓住：
+   只要分得出來哪些是自訂的，就不會有人搞混 */
+.uat-backend-tc.is-custom { border-left: 2px solid var(--uat-warn, #b7791f) }
+.uat-backend-tc .uat-custom-tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-style: normal;
+  color: var(--uat-warn, #b7791f);
+  background: color-mix(in srgb, var(--uat-warn, #b7791f) 14%, transparent);
+}

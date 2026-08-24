@@ -38,6 +38,11 @@ import {
   saveUatBackendCredential,
   UAT_BACKEND_PROFILES,
   type UatBackendProfile,
+  listUatCustomTcs,
+  saveUatCustomTc,
+  deleteUatCustomTc,
+  recordCustomTcAdoption,
+  listCustomTcAdoptions,
 } from '../shared.js'
 import { getAuthAccount } from '../auth-session.js'
 import type { Request } from 'express'
@@ -697,6 +702,113 @@ router.post('/api/osm-uat/tc-steps/import', writeLimiter, (req, res) => {
     }
   }
   res.json({ ok: true, added, updated, removed, total: Object.keys(listUatTcSteps()).length })
+})
+
+/**
+ * ── 自訂 TC ────────────────────────────────────────────────────────────────
+ *
+ * 錄了一個 Lark 上還沒有的新流程時，積木要有地方放。硬塞給既有 TC 會把那筆原本
+ * 該驗的東西蓋掉，所以另外存一份。
+ *
+ * 這不是「第二份測試清單」，是**暫存區**——每筆帶一個歸戶關鍵字，之後掃到文字命中
+ * 的 Lark TC 就把積木搬過去、這筆刪掉。畫面上也刻意分開標示、分開計數，看得出來
+ * 哪些還沒歸戶。
+ */
+router.get('/api/osm-uat/custom-tcs', (_req, res) => {
+  res.json({ ok: true, customTcs: listUatCustomTcs() })
+})
+
+const customTcSchema = z.object({
+  id: z.string().max(80).optional(),
+  title: z.string().min(1).max(200),
+  subtype: z.string().max(80).optional(),
+  linkKeyword: z.string().max(200).optional(),
+  steps: z.array(z.object({ action: z.string().min(1).max(60) }).passthrough()).max(60),
+})
+
+router.put('/api/osm-uat/custom-tcs', writeLimiter, (req, res) => {
+  const account = getAuthAccount(req)
+  if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+  const parsed = customTcSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ ok: false, message: '資料格式不對（標題必填，積木最多 60 顆）' })
+  // 不認得的積木要在存的時候就擋掉——存進去要等到執行才炸，那時已經離這裡很遠了
+  const unknown = [...new Set(parsed.data.steps.map(step => step.action).filter(a => !(a in BLOCK_DEFS)))]
+  if (unknown.length) return res.status(400).json({ ok: false, message: `不認得的積木：${unknown.join('、')}` })
+  const id = saveUatCustomTc({ ...parsed.data, createdBy: account.email })
+  res.json({ ok: true, id })
+})
+
+router.delete('/api/osm-uat/custom-tcs/:id', writeLimiter, (req, res) => {
+  const account = getAuthAccount(req)
+  if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+  const changes = deleteUatCustomTc(String(req.params.id))
+  if (!changes) return res.status(404).json({ ok: false, message: '找不到這筆自訂 TC' })
+  res.json({ ok: true })
+})
+
+/**
+ * 歸戶候選：拿自訂 TC 的關鍵字去比對 Lark TC 的文字。
+ *
+ * **只提示、不自動選**——命中多筆一律全部列出讓人挑。這個專案在人名比對上踩過
+ * 「Jack 誤中 Jackson」的坑，同一個原則：寧可讓人多點一下，不要幫他決定。
+ */
+router.get('/api/osm-uat/custom-tcs/:id/adopt-candidates', (req, res) => {
+  const custom = listUatCustomTcs().find(item => item.id === String(req.params.id))
+  if (!custom) return res.status(404).json({ ok: false, message: '找不到這筆自訂 TC' })
+  const keyword = custom.linkKeyword.trim().toLowerCase()
+  if (!keyword) return res.json({ ok: true, candidates: [], reason: '這筆還沒填歸戶關鍵字' })
+  const savedSteps = listUatTcSteps()
+  const candidates = Object.entries((readRegistryFile() as Record<string, { canonicalText?: string; sub?: string }>))
+    .filter(([, value]) => String(value.canonicalText ?? '').toLowerCase().includes(keyword))
+    .slice(0, 50)
+    .map(([recordId, value]) => ({
+      recordId,
+      text: String(value.canonicalText ?? ''),
+      sub: String(value.sub ?? ''),
+      // 已經有積木的要標出來，不然使用者不知道歸戶過去會不會蓋到東西
+      existingStepCount: savedSteps[recordId]?.length ?? 0,
+    }))
+  res.json({ ok: true, candidates })
+})
+
+const adoptSchema = z.object({
+  recordId: z.string().min(1).max(80),
+  /** append = 接在既有積木後面（預設）；replace 只有前端二次確認過才會送 */
+  mode: z.enum(['append', 'replace']).default('append'),
+})
+
+router.post('/api/osm-uat/custom-tcs/:id/adopt', writeLimiter, (req, res) => {
+  const account = getAuthAccount(req)
+  if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+  const custom = listUatCustomTcs().find(item => item.id === String(req.params.id))
+  if (!custom) return res.status(404).json({ ok: false, message: '找不到這筆自訂 TC' })
+  const parsed = adoptSchema.safeParse(req.body)
+  if (!parsed.success) return res.status(400).json({ ok: false, message: '參數不對' })
+
+  const existing = listUatTcSteps()[parsed.data.recordId] ?? []
+  // 預設是接在後面而不是覆蓋。既有積木是別人花時間拆的，silent replace 不可接受
+  const merged = parsed.data.mode === 'replace' ? custom.steps : [...existing, ...custom.steps]
+  if (merged.length > 60) {
+    return res.status(400).json({ ok: false, message: `合併後會有 ${merged.length} 顆積木，超過單筆 60 顆的上限。請先精簡再歸戶。` })
+  }
+  saveUatTcSteps(parsed.data.recordId, merged, account.email)
+
+  // 自訂那筆刪掉，但軌跡留著——之後有人問「這些積木哪來的」要查得到
+  recordCustomTcAdoption({
+    customTcId: custom.id,
+    customTitle: custom.title,
+    larkRecordId: parsed.data.recordId,
+    larkText: String((readRegistryFile() as Record<string, { canonicalText?: string; sub?: string }>)[parsed.data.recordId]?.canonicalText ?? ''),
+    mode: parsed.data.mode,
+    stepCount: custom.steps.length,
+    actor: account.email,
+  })
+  deleteUatCustomTc(custom.id)
+  res.json({ ok: true, stepCount: merged.length, mode: parsed.data.mode })
+})
+
+router.get('/api/osm-uat/custom-tcs/adoptions', (_req, res) => {
+  res.json({ ok: true, adoptions: listCustomTcAdoptions() })
 })
 
 /** 積木定義給前端畫積木庫與參數表單用。刻意由後端提供，前端不要另抄一份 */

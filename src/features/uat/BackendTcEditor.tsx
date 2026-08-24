@@ -169,7 +169,7 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
 
   // ── 錄製 ──────────────────────────────────────────────────────────────
   // 開一個有頭的瀏覽器並自動登入後台，使用者的操作直接變積木；
-  // 要標檢查條件就按住 Alt 點元素（錄製只錄得到「做了什麼」，錄不到「在檢查什麼」）。
+  // 要標檢查條件用視窗右下角的「標記模式」或 Alt／⌥（錄製只錄得到「做了什麼」，錄不到「在檢查什麼」）。
   const startRecord = async () => {
     setMsg({ text: '正在開啟後台並登入…', tone: 'ok' })
     try {
@@ -181,7 +181,7 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
       if (!d.ok || !d.sessionId) return setMsg({ text: d.message ?? '錄製啟動失敗', tone: 'error' })
       setRecSession(d.sessionId)
       setRecCount(0)
-      setMsg({ text: '錄製中：在開啟的視窗操作；要標檢查條件就按住 Alt 點那個元素', tone: 'ok' })
+      setMsg({ text: '錄製中：在開啟的視窗操作；要標檢查條件：點視窗右下角的「標記模式」再點元素，或按住 Alt／⌥ Option 點', tone: 'ok' })
     } catch { setMsg({ text: '錄製啟動失敗', tone: 'error' }) }
   }
 
@@ -218,7 +218,7 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
       if (!d.hasAssertion) {
         const warn = `錄到 ${recorded.length} 顆積木，但一個檢查條件都沒有。\n\n`
           + '這樣的腳本跑起來永遠 PASS（等於只是重播操作，不會驗任何東西）。\n'
-          + '仍要加入嗎？（也可以取消，重錄時按住 Alt 點元素標檢查條件）'
+          + '仍要加入嗎？（也可以取消，重錄時用視窗右下角的「標記模式」，或按住 Alt／⌥ Option 點元素）'
         if (!window.confirm(warn)) return
       }
       setSteps(prev => [...prev, ...recorded])

@@ -91,6 +91,21 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const [pickerQuery, setPickerQuery] = useState('')
   /** 選擇器是否展開。跟 pendingSteps 分開——收起彈框不等於丟掉錄到的積木 */
   const [pickerOpen, setPickerOpen] = useState(false)
+  // 錄到的是 Lark 上還沒有的新流程時，積木要有地方放。硬塞給既有 TC 會把那筆
+  // 原本該驗的東西蓋掉，所以另存成自訂 TC——它帶一個歸戶關鍵字，之後掃到文字
+  // 命中的 Lark TC 就能把積木搬過去。這不是第二份測試清單，是暫存區。
+  const [newTcTitle, setNewTcTitle] = useState('')
+  const [newTcKeyword, setNewTcKeyword] = useState('')
+  const [savingNewTc, setSavingNewTc] = useState(false)
+  const [customTcs, setCustomTcs] = useState<{ id: string; title: string; linkKeyword: string; steps: unknown[] }[]>([])
+  const loadCustomTcs = useCallback(async () => {
+    try {
+      const r = await fetch('/api/osm-uat/custom-tcs')
+      const d = await r.json() as { ok: boolean; customTcs?: typeof customTcs }
+      if (d.ok) setCustomTcs(d.customTcs ?? [])
+    } catch { /* 載不到就當作沒有，不擋住主要流程 */ }
+  }, [])
+  useEffect(() => { void loadCustomTcs() }, [loadCustomTcs])
   const [tcSnapshotAt, setTcSnapshotAt] = useState<string | null>(null)
   const [tcScanned, setTcScanned] = useState(false)
   // 掛載就載入 registry 快照的 TC 清單——編積木需要的東西快照裡都有，
@@ -257,7 +272,7 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
       const data = await response.json() as { ok: boolean; sessionId?: string; message?: string; agentLabel?: string }
       if (!data.ok || !data.sessionId) { setRecMsg(data.message ?? '錄製啟動失敗'); return }
       setRecSession(data.sessionId); setRecCount(0)
-      setRecMsg(`錄製中：瀏覽器已開在 ${data.agentLabel || '你的 Local Agent'} 上。要標檢查條件就按住 Alt 點那個元素`)
+      setRecMsg(`錄製中：瀏覽器已開在 ${data.agentLabel || '你的 Local Agent'} 上。要標檢查條件：點視窗右下角的「標記模式」再點元素，或按住 Alt／⌥ Option 點`)
     } catch { setRecMsg('錄製啟動失敗') }
   }
 
@@ -272,7 +287,7 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
       if (!data.hasAssertion) {
         const warn = `錄到 ${recorded.length} 顆積木，但一個檢查條件都沒有。\n\n`
           + '這樣的腳本跑起來永遠 PASS（等於只是重播操作，不會驗任何東西）。\n'
-          + '仍要保留嗎？（也可以取消，重錄時按住 Alt 點元素標檢查條件）'
+          + '仍要保留嗎？（也可以取消，重錄時用視窗右下角的「標記模式」，或按住 Alt／⌥ Option 點元素）'
         if (!window.confirm(warn)) { setRecMsg('已捨棄這次錄製'); return }
       }
       setPendingSteps(recorded)
@@ -304,6 +319,27 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
     }, 2000)
     return () => { stopped = true; window.clearInterval(timer) }
   }, [recSession, finishWorkbenchRecord])
+
+  const saveAsCustomTc = async () => {
+    if (!pendingSteps?.length) return
+    const title = newTcTitle.trim()
+    if (!title) { setRecMsg('請先給這筆新 TC 一個名稱'); return }
+    setSavingNewTc(true)
+    try {
+      const response = await fetch('/api/osm-uat/custom-tcs', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, linkKeyword: newTcKeyword.trim(), steps: pendingSteps }),
+      })
+      const data = await response.json() as { ok: boolean; message?: string }
+      if (!data.ok) { setRecMsg(data.message ?? '存成自訂 TC 失敗'); return }
+      setPendingSteps(null); setPickerOpen(false)
+      setNewTcTitle(''); setNewTcKeyword('')
+      setRecMsg(newTcKeyword.trim()
+        ? `已存成自訂 TC「${title}」，之後掃到符合關鍵字的 Lark TC 可以一鍵歸戶`
+        : `已存成自訂 TC「${title}」（沒填歸戶關鍵字，之後想歸戶再補）`)
+      void loadCustomTcs()
+    } catch { setRecMsg('存成自訂 TC 失敗') } finally { setSavingNewTc(false) }
+  }
 
   const updateModule = (instanceId: string, patch: Partial<BackendPlanModule>) => update({
     modulePlan: config.modulePlan.map(module => module.instanceId === instanceId ? { ...module, ...patch } : module),
@@ -551,6 +587,26 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
                   setPendingSteps(null); setPickerOpen(false); setRecMsg('')
                 }}>捨棄</button>
             </div>
+            {/* 兩條路：接到既有 Lark TC（這件事本來就要測、只是還沒有積木），
+                或另存成自訂 TC（Lark 上根本沒有這筆）。第二條原本完全沒有，
+                只能硬塞給不相干的既有 TC——那會蓋掉那筆原本該驗的東西 */}
+            <div className="uat-tc-picker-new">
+              <h4>這是 Lark 上還沒有的新流程？</h4>
+              <div className="uat-tc-picker-new-row">
+                <input className="uat-field" value={newTcTitle} placeholder="給這筆新 TC 一個名稱（必填）"
+                  onChange={event => setNewTcTitle(event.target.value)} />
+                <input className="uat-field" value={newTcKeyword} placeholder="歸戶關鍵字（選填）"
+                  onChange={event => setNewTcKeyword(event.target.value)} />
+                <button type="button" className="uat-btn" disabled={savingNewTc || !newTcTitle.trim()}
+                  onClick={() => void saveAsCustomTc()}>另存成新 TC</button>
+              </div>
+              <small>
+                自訂 TC 存在這個工具裡、跟其他 TC 一起跑，但<b>不會回寫 Lark</b>（那邊沒有對應的列）。
+                填了歸戶關鍵字之後，掃描時只要有 Lark TC 的文字命中，就能一鍵把積木搬過去。
+              </small>
+            </div>
+
+            <div className="uat-tc-picker-or">或接到既有的 Lark TC</div>
             <input className="uat-field" value={pickerQuery} placeholder="搜尋 TC 描述或子類型…"
               onChange={event => setPickerQuery(event.target.value)} />
             <div className="uat-tc-picker-list">
