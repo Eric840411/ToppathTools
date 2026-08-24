@@ -545,6 +545,19 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
             <label>{xianxia ? 'Lark 玉簡路徑' : 'Lark TC 路徑'}<textarea className="uat-field uat-backend-url" value={config.larkUrl} onChange={event => update({ larkUrl: event.target.value })} placeholder="https://xxx.larksuite.com/base/...?table=..." /></label>
             <button type="button" className="uat-btn is-quiet is-wide" disabled={!config.larkUrl || scanning} onClick={scan}>{scanning ? '掃描中' : (xianxia ? '重整玉簡索引' : '掃描 Lark TC')}</button>
             <label>{xianxia ? '玉簡篩選' : 'Subtype 追加篩選'}<input className="uat-field" value={config.filter} onChange={event => update({ filter: event.target.value })} placeholder="留空套用模組範圍" /><small>以逗號分隔，會在模組範圍內再縮小。</small></label>
+            {/* 這個欄位存在 localStorage 會一直記著，而且它會蓋掉模組範圍——
+                使用者忘記自己填過，就會以為「執行模組流程」壞掉了（實際回報過：
+                「不會抓目前設定好的模塊，只會執行 gameRecord 的 TC」）。
+                填著的時候要講清楚，並且給一鍵清除 */}
+            {config.filter.trim() && (
+              <div className="uat-filter-warn">
+                <span>
+                  目前只會跑子類型含「<b>{config.filter.trim()}</b>」的 TC，
+                  <b>模組流程裡其他的都會被跳過</b>。
+                </span>
+                <button type="button" className="uat-btn is-quiet" onClick={() => update({ filter: '' })}>清除篩選</button>
+              </div>
+            )}
             <div className="uat-backend-setting-pair"><label>Game Type<input className="uat-field" value={config.dashGameType} onChange={event => update({ dashGameType: event.target.value })} placeholder="BWJL" /></label><label>Client Version<input className="uat-field" value={config.dashClientVersion} onChange={event => update({ dashClientVersion: event.target.value })} placeholder="H5(1.5)" /></label></div>
           </div>
           <div className="uat-backend-run-summary"><span><b>{config.modulePlan.length}</b> 個可執行模組</span><span><b>{groups ? config.modulePlan.reduce((sum, module) => sum + (moduleCounts.get(module.instanceId) ?? 0), 0) : '—'}</b> 個匹配 TC</span></div>

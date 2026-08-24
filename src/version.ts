@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.41.1'
+export const APP_VERSION = '4.42.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.42.0',
+    date: '2026-08-24',
+    changes: [
+      'feat(uat): 網路監測面板列出實際打了哪些 API——method 徽章（GET/POST/PUT/DELETE 各自顏色）、狀態碼（非 2xx 標紅）、耗時、完整網址。要基於 API 下 pass/fail 之前得先看得到有哪些可以下',
+      'feat(uat): 「Subtype 追加篩選」有填值時，執行設定會出現明顯警示說明「模組流程裡其他的都會被跳過」，並提供一鍵清除。這個欄位存在瀏覽器裡會一直記著，忘記填過就會以為「執行模組流程」抓不到設定好的模組',
+    ],
+  },
   {
     version: '4.41.1',
     date: '2026-08-24',

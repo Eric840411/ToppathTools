@@ -36,6 +36,10 @@ export interface NetSummary {
   image: NetStats
   other: NetStats
   slow: NetSlowRecord[]
+  /** 實際打了哪些 API，依發生順序。只列 api 這類，圖檔與靜態資源列出來只是洗版 */
+  apiCalls?: { method: string; url: string; status: number | null; durationMs: number | null; ts: number }[]
+  /** 超過上限沒帶出來的筆數。要講出來，不然使用者以為只打了這幾支 */
+  apiCallsTruncated?: number
 }
 
 export interface PinusSummary {
@@ -59,7 +63,7 @@ const KIND_LABEL: Record<UatThemeMode, Record<'api' | 'image' | 'other', string>
 const COPY = {
   classic: {
     kicker: 'NETWORK TELEMETRY', title: '網路監測',
-    timing: '載入時間', slow: '超過門檻的請求', pinus: 'pinus 訊息',
+    timing: '載入時間', slow: '超過門檻的請求', pinus: 'pinus 訊息', apiCalls: '實際呼叫的 API',
     empty: '尚未開始量測', emptyHint: '執行測試後這裡會即時顯示每支 API 與每張圖的載入時間',
     allGood: '全部在門檻內', allGoodHint: '目前沒有超過預期的請求',
     noPinus: '這次沒有攔截到 pinus 訊息',
@@ -71,7 +75,7 @@ const COPY = {
   },
   xianxia: {
     kicker: 'SPIRIT FLOW', title: '靈脈流速',
-    timing: '流速觀測', slow: '滯澀之訊', pinus: '靈訊往來',
+    timing: '流速觀測', slow: '滯澀之訊', pinus: '靈訊往來', apiCalls: '往返之術',
     empty: '尚未起測', emptyHint: '推演開始後此處即現每道法訊與靈影的往返耗時',
     allGood: '俱在限內', allGoodHint: '目前沒有逾限的訊息',
     noPinus: '此次未攔得靈訊',
@@ -193,6 +197,39 @@ export function NetworkPanel({ stats, themeMode, updatedAt }: {
             )}
           </div>
         </div>
+
+        {/* 實際打了哪些 API。原本只列「超過門檻的」，全部在門檻內時整片空白，
+            使用者根本不知道這頁打了哪些後端——而要基於 API 下 pass/fail 之前，
+            得先看得到有哪些可以下 */}
+        {!!net.apiCalls?.length && (
+          <div className="uat-net-table-block">
+            <h4>{copy.apiCalls} <em>{net.apiCalls.length}{net.apiCallsTruncated ? `+${net.apiCallsTruncated}` : ''}</em></h4>
+            <div className="uat-net-scroller">
+              <table>
+                <thead><tr>
+                  <th style={{ width: 62 }}>Method</th>
+                  <th className="is-num" style={{ width: 58 }}>狀態</th>
+                  <th className="is-num" style={{ width: 72 }}>{copy.thDur}</th>
+                  <th>{copy.thUrl}</th>
+                </tr></thead>
+                <tbody>
+                  {net.apiCalls.map((r, i) => (
+                    <tr key={`${r.url}-${r.ts}-${i}`}>
+                      <td><span className={`uat-net-method is-${r.method.toLowerCase()}`}>{r.method}</span></td>
+                      {/* 非 2xx 要一眼看得出來——那通常就是最值得下斷言的地方 */}
+                      <td className={`is-num${r.status && r.status >= 400 ? ' is-over' : ''}`}>{r.status ?? '—'}</td>
+                      <td className="is-num">{r.durationMs ?? '—'}</td>
+                      <td className="is-url" title={r.url}>{r.url}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {!!net.apiCallsTruncated && (
+                <div className="uat-net-empty"><span>另外還有 {net.apiCallsTruncated} 筆沒列出來（清單上限 60）</span></div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* pinus 區塊只有真的攔到訊息才顯示：Backend 測的後台管理站沒有 pinus，
             永遠掛一個空表格在那邊只會讓人以為壞掉 */}

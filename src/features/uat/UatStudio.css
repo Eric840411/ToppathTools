@@ -536,3 +536,42 @@
   color: var(--uat-warn, #b7791f);
   background: color-mix(in srgb, var(--uat-warn, #b7791f) 14%, transparent);
 }
+
+/* HTTP method 徽章：掃一排 API 時，形狀差異比讀文字快。
+   GET 是讀、POST/PUT/DELETE 會改資料——後者通常才是值得下斷言的地方 */
+.uat-net-method {
+  display: inline-block;
+  min-width: 44px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: .02em;
+  background: color-mix(in srgb, var(--uat-text-dim) 18%, transparent);
+  color: var(--uat-text-dim);
+}
+.uat-net-method.is-get    { background: color-mix(in srgb, var(--uat-good, #3fbe8b) 16%, transparent); color: var(--uat-good, #3fbe8b) }
+.uat-net-method.is-post   { background: color-mix(in srgb, var(--uat-primary) 18%, transparent);       color: var(--uat-primary) }
+.uat-net-method.is-put,
+.uat-net-method.is-patch  { background: color-mix(in srgb, var(--uat-warn, #b7791f) 16%, transparent); color: var(--uat-warn, #b7791f) }
+.uat-net-method.is-delete { background: color-mix(in srgb, var(--uat-bad, #e05260) 16%, transparent);  color: var(--uat-bad, #e05260) }
+
+/* 「Subtype 追加篩選」有值時的警示。
+   這個欄位存 localStorage 會一直記著，而且會蓋掉模組範圍——不講的話使用者
+   會以為「執行模組流程」壞了（實際回報過）。要夠顯眼但不搶掉主要操作。 */
+.uat-filter-warn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: -4px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border-left: 2px solid var(--uat-warn, #b7791f);
+  background: color-mix(in srgb, var(--uat-warn, #b7791f) 12%, transparent);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--uat-text);
+}
+.uat-filter-warn span { flex: 1; min-width: 0 }
+.uat-filter-warn .uat-btn { flex: none; padding: 3px 8px; font-size: 11px }
