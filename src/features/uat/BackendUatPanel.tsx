@@ -339,6 +339,30 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
     return () => { stopped = true; window.clearInterval(timer) }
   }, [recSession, finishWorkbenchRecord])
 
+  /**
+   * 把一筆錄到的 API 變成斷言積木。
+   *
+   * 只「看得到」的話，使用者還是得自己把「這支 API 應該回 200」翻譯成積木——
+   * 中間那段轉換正是不熟的人卡住的地方。
+   *
+   * 用 urlPattern 不用原始網址：原始網址裡的 id／token／時間戳會讓斷言
+   * 錄完當天可以跑、隔天全紅。
+   */
+  const addApiAssertion = (call: RecNetCall) => {
+    const is2xx = !!call.status && call.status >= 200 && call.status < 300
+    const step: Step = {
+      action: 'assert_api_called',
+      urlPattern: call.urlPattern,
+      // 錄到 2xx 就設成「要 2xx」；錄到非 2xx 則固定成當下那個碼——
+      // 那種情況使用者要的多半是「這裡本來就會這樣」或「這裡不該錯」，
+      // 兩種都得先看到實際的碼才好決定，預設成 2xx 等於我們幫他猜
+      expectStatus: is2xx ? '2xx' : 'exact',
+      ...(is2xx ? {} : { statusCode: call.status }),
+    }
+    setPendingSteps(prev => [...(prev ?? []), step])
+    setRecMsg(`已加一顆斷言：${call.method} ${call.urlPattern}（可在積木編輯器再調整）`)
+  }
+
   const saveAsCustomTc = async () => {
     if (!pendingSteps?.length) return
     const title = newTcTitle.trim()
@@ -622,16 +646,19 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
           <h4>這次錄製打到的 API <em>{recNet.length}</em></h4>
           <div className="uat-rec-net-list">
             {[...recNet].reverse().slice(0, 40).map((c, i) => (
-              <div className="uat-rec-net-row" key={`${c.ts}-${i}`}>
+              <button type="button" className="uat-rec-net-row" key={`${c.ts}-${i}`}
+                title="點一下把這支 API 變成斷言積木"
+                onClick={() => addApiAssertion(c)}>
                 <span className={`uat-net-method is-${c.method.toLowerCase()}`}>{c.method}</span>
                 {/* 非 2xx 標出來——那通常就是最值得下斷言的地方 */}
                 <b className={c.status && c.status >= 400 ? 'is-bad' : ''}>{c.status ?? '—'}</b>
                 <i>{c.durationMs == null ? '—' : `${c.durationMs}ms`}</i>
                 <span className="uat-rec-net-url" title={`${c.url}\n比對用樣式：${c.urlPattern}`}>{c.urlPattern}</span>
-              </div>
+                <em className="uat-rec-net-add">+ 斷言</em>
+              </button>
             ))}
           </div>
-          <small>顯示收斂過的網址（拿掉 query、id 換成 *）。滑鼠移上去看原始網址。</small>
+          <small>點任一列可以直接把它變成斷言積木。網址已收斂（拿掉 query、id 換成 *），滑鼠移上去看原始的。</small>
         </div>
       )}
 

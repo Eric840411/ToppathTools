@@ -127,6 +127,19 @@ export const BLOCK_DEFS = {
       { key: 'onFail', label: '不足時', type: 'select', options: ['warn', 'stop', 'continue', 'manual'], default: 'warn' },
     ],
   },
+  assert_api_called: {
+    label: '這支 API 必須被呼叫', category: 'assert', defaultOnFail: 'stop',
+    description: '這一步要打到指定的後端 API，而且狀態碼要符合',
+    params: [
+      { key: 'urlPattern', label: 'API 網址（可用 * 當萬用字元）', type: 'text', required: true,
+        placeholder: 'http://uat-cp.osmslot.org/api/egm/update/*',
+        help: '從錄製畫面的 API 清單點過來時會自動填。id／token 那些位置要用 *，不然換一筆資料就對不上' },
+      { key: 'expectStatus', label: '狀態碼要求', type: 'select', options: ['2xx', 'any', 'exact'], default: '2xx' },
+      { key: 'statusCode', label: '指定狀態碼（上面選 exact 才用）', type: 'number', placeholder: '200' },
+      { key: 'minCount', label: '至少被呼叫幾次', type: 'number', default: 1 },
+      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
+    ],
+  },
   assert_dialog_fields: {
     label: '開對話框檢查欄位', category: 'assert', defaultOnFail: 'stop',
     description: '點一個按鈕把對話框叫出來，確認裡面有這些欄位，然後關掉',
@@ -278,10 +291,23 @@ export function numbersEqual(a, b, tolerancePct = 1) {
  *             allShotPaths: string[], error: string|null }}
  *   形狀刻意跟 performAction() 對齊，外層的截圖上傳與 Lark 回寫不用改。
  */
+/**
+ * 把「只有 * 是萬用字元」的字面樣式轉成 RegExp。
+ * 其餘字元全部逸出，使用者不會不小心寫出一個真的 regex 然後被自己的 . 或 ? 咬到。
+ */
+export function wildcardToRegExp(pattern) {
+  const escaped = String(pattern).split('*')
+    .map(part => part.replace(/[.*+?^${}()|[\]\\]/g, m => `\\${m}`))
+    .join('.*');
+  return new RegExp(`^${escaped}$`);
+}
+
 export async function runSteps(steps, ctx) {
   const notes = [];
   const criticalFails = [];
   const warnings = [];   // warn 級別：有檢查、有異常，但不影響 pass 判定
+  /** 網路斷言的時間界線。每次 open_page 之後往前推，只問「這之後打了什麼」 */
+  let netMark = Date.now();
   const allShotPaths = [];
   const vars = {};
   let manual = false;
@@ -385,6 +411,11 @@ export async function runSteps(steps, ctx) {
       if (step.action === 'open_page') {
         const target = step.path || ctx.resolveSubtypePath(step.subtype);
         if (!target) { if (fail(step, `${tag}：對不到路徑（subtype=${step.subtype ?? '-'}）`) === 'stop') break; continue }
+        // ⚠️ 界線要設在導頁**之前**。
+        // openPath 會等到 networkidle 才回來——設在它後面的話，頁面載入時打的 API
+        // 全部落在界線之前，assert_api_called 會永遠看到 0 支。而「開這頁時打了哪些
+        // 後端」正是最常要驗的東西。實測才發現（單元測試是直接餵假資料，蓋不到這段）。
+        netMark = Date.now();
         await ctx.openPath(target, Number(step.waitMs) || 1500);
         notes.push(`${tag}：${target}`);
 
@@ -524,6 +555,33 @@ export async function runSteps(steps, ctx) {
           if (fail(step, `${tag}：只有 ${rowCount} 筆，少於 ${min} 筆`) === 'stop') break; continue;
         }
         notes.push(`✅ ${tag}：${rowCount} 筆`);
+
+      } else if (step.action === 'assert_api_called') {
+        // 很多成功／失敗根本不在 DOM，在 API 有沒有送出、回什麼碼。這顆補的就是那一層。
+        //
+        // 只看「這一步之後」打的：netMark 每次 open_page 之後往前推，所以問的是
+        // 「開了這頁、做了這些操作之後有沒有打到它」，不是整輪跑下來有沒有出現過。
+        if (typeof ctx.netCallsSince !== 'function') {
+          if (fail(step, `${tag}：這個執行環境沒有網路紀錄可查（runner 版本太舊）`) === 'stop') break; continue;
+        }
+        const calls = ctx.netCallsSince(netMark) ?? [];
+        const rx = wildcardToRegExp(step.urlPattern);
+        const matched = calls.filter(c => rx.test(String(c.url ?? '')) || rx.test(String(c.urlPattern ?? '')));
+        const mode = step.expectStatus ?? '2xx';
+        const statusOk = (c) => {
+          if (mode === 'any') return true;
+          if (mode === 'exact') return Number(c.status) === Number(step.statusCode);
+          return Number(c.status) >= 200 && Number(c.status) < 300;
+        };
+        const good = matched.filter(statusOk);
+        const need = step.minCount === undefined ? 1 : Number(step.minCount);
+        if (good.length < need) {
+          const why = matched.length
+            ? `打到了 ${matched.length} 次但狀態碼不符（實際：${[...new Set(matched.map(c => c.status))].join('、')}）`
+            : `完全沒有打到這支 API（這一步總共打了 ${calls.length} 支）`;
+          if (fail(step, `${tag}：${step.urlPattern} —— ${why}`) === 'stop') break; continue;
+        }
+        notes.push(`✅ ${tag}：${step.urlPattern}（${good.length} 次，狀態 ${[...new Set(good.map(c => c.status))].join('、')}）`);
 
       } else if (step.action === 'assert_dialog_fields') {
         // 這是既有 verifier 裡重複最多次的一段：點 Add/Edit → 等對話框 → 讀

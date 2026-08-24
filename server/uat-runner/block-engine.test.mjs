@@ -6,6 +6,7 @@
  */
 import { runSteps, toNumber, numbersEqual } from './block-engine.js';
 import { verifierRanAssertion } from './verifier-params.js';
+import { wildcardToRegExp } from './block-engine.js';
 
 let pass = 0, fail = 0;
 function check(name, cond, extra) {
@@ -422,6 +423,56 @@ Machine No` }], m)
     (await runSteps([{ action: 'assert_element_count', selector: 'x', min: 1, max: 3 }], many)).pass === false)
   const zero = makeCtx(); zero.page.evaluate = async () => 0
   check('一個都沒有 → FAIL', (await runSteps([{ action: 'assert_element_count', selector: 'x' }], zero)).pass === false)
+}
+
+// ── assert_api_called ─────────────────────────────────────────────────
+// 很多成功／失敗不在 DOM，在 API 有沒有送出、回什麼碼。這一組守的是那一層。
+function netCtx(calls) {
+  const ctx = makeCtx();
+  ctx.netCallsSince = () => calls;
+  return ctx;
+}
+const CALLS = [
+  { method: 'GET', url: 'http://x.org/api/egm/list?page=1', urlPattern: 'http://x.org/api/egm/list', status: 200 },
+  { method: 'POST', url: 'http://x.org/api/egm/update/12345', urlPattern: 'http://x.org/api/egm/update/*', status: 200 },
+  { method: 'POST', url: 'http://x.org/api/egm/save', urlPattern: 'http://x.org/api/egm/save', status: 500 },
+];
+{
+  const hit = await runSteps([{ action: 'assert_api_called', urlPattern: 'http://x.org/api/egm/list' }], netCtx(CALLS))
+  check('有打到而且 2xx → pass', hit.pass === true, hit.notes)
+
+  const miss = await runSteps([{ action: 'assert_api_called', urlPattern: 'http://x.org/api/nope' }], netCtx(CALLS))
+  check('完全沒打到 → FAIL，並講出這一步打了幾支', miss.pass === false && /總共打了 3 支/.test(miss.criticalFails.join('')), miss.criticalFails)
+
+  // 500 那筆：有打到但狀態碼不合格。錯誤訊息要分得出「沒打到」跟「打了但錯」
+  const bad = await runSteps([{ action: 'assert_api_called', urlPattern: 'http://x.org/api/egm/save' }], netCtx(CALLS))
+  check('打到了但回 500 → FAIL', bad.pass === false, bad.criticalFails)
+  check('訊息要說是狀態碼不符、不是沒打到', /狀態碼不符/.test(bad.criticalFails.join('')) && /500/.test(bad.criticalFails.join('')), bad.criticalFails)
+
+  const anyOk = await runSteps([{ action: 'assert_api_called', urlPattern: 'http://x.org/api/egm/save', expectStatus: 'any' }], netCtx(CALLS))
+  check('expectStatus=any 時 500 也算過', anyOk.pass === true, anyOk.notes)
+
+  const exact = await runSteps([{ action: 'assert_api_called', urlPattern: 'http://x.org/api/egm/save', expectStatus: 'exact', statusCode: 500 }], netCtx(CALLS))
+  check('expectStatus=exact 指定 500 → pass', exact.pass === true, exact.notes)
+
+  // 萬用字元是這顆的重點：錄下來的網址有 id，不能寫死
+  const wild = await runSteps([{ action: 'assert_api_called', urlPattern: 'http://x.org/api/egm/update/*' }], netCtx(CALLS))
+  check('* 對得到帶 id 的網址', wild.pass === true, wild.notes)
+
+  const twice = await runSteps([{ action: 'assert_api_called', urlPattern: 'http://x.org/api/egm/list', minCount: 2 }], netCtx(CALLS))
+  check('要求兩次但只打了一次 → FAIL', twice.pass === false, twice.criticalFails)
+
+  // 舊版 runner 沒有網路紀錄可查，不能默默當成通過
+  const noNet = await runSteps([{ action: 'assert_api_called', urlPattern: 'http://x.org/api/x' }], makeCtx())
+  check('執行環境沒有網路紀錄 → FAIL，不是靜默通過', noNet.pass === false, noNet.criticalFails)
+}
+{
+  // 使用者填的是字面字串，不該被當成 regex——不然網址裡的 ? 和 . 會咬到自己
+  check('只有 * 是萬用字元，. 照字面比對',
+    wildcardToRegExp('http://x.org/a.b').test('http://x.org/a.b') === true
+    && wildcardToRegExp('http://x.org/a.b').test('http://x.org/axb') === false)
+  check('? 不是萬用字元', wildcardToRegExp('http://x.org/a?b').test('http://x.org/a?b') === true)
+  check('要整段吻合，不是包含就算', wildcardToRegExp('http://x.org/api').test('http://x.org/api/extra') === false)
 }
 
 // ── 零斷言守門 ────────────────────────────────────────────────────────

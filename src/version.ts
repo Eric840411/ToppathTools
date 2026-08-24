@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.45.0'
+export const APP_VERSION = '4.46.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.46.0',
+    date: '2026-08-24',
+    changes: [
+      'feat(uat): 錄製時點任一筆 API 就直接產生一顆斷言積木——「這支 API 必須被呼叫，而且狀態碼要符合」。只看得到清單的話，使用者還是得自己把「這支應該回 200」翻譯成積木，中間那段轉換正是最卡的地方',
+      'feat(uat): 新積木「這支 API 必須被呼叫」，可設狀態碼要求（2xx／指定碼／不限）與至少幾次。網址用 * 當萬用字元，其餘字元照字面比對',
+      'feat(uat): 點過來時的預設值分兩種——錄到 2xx 就設成「要 2xx」，錄到非 2xx 則固定成當下那個碼。後者你要的多半是「這裡本來就會這樣」或「這裡不該錯」，預設成 2xx 等於幫你猜',
+    ],
+  },
   {
     version: '4.45.0',
     date: '2026-08-24',

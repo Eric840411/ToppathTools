@@ -4426,6 +4426,16 @@ async function performSteps(p, steps, label, taskFull) {
       try { await p.screenshot({ path: shotPath, fullPage: false }); return shotPath; }
       catch { return null; }
     },
+    /**
+     * 這個時間點之後打到的 API。assert_api_called 用它判斷「這一步有沒有打到後端」。
+     *
+     * netCapture 是整輪共用的（掛在同一個 page 上），所以一定要用時間界線切，
+     * 不然問的會變成「整輪跑下來有沒有出現過」——那幾乎永遠是 true，等於沒驗。
+     */
+    netCallsSince(sinceTs) {
+      if (!netCapture) return [];
+      return netCapture.records().filter(r => r.kind === 'api' && r.ts >= sinceTs);
+    },
     async callBuiltin(name, options) {
       const fn = BUILTIN_VERIFIERS[name];
       if (typeof fn !== 'function') {
