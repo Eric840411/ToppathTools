@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.47.0'
+export const APP_VERSION = '4.48.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.48.0',
+    date: '2026-08-24',
+    changes: [
+      'feat(uat): 自動預約拆掉 4 筆，比對基準 19/19 一致。積木化累計 59/121',
+      'fix(uat): 點擊被彈窗遮罩擋住時改用 JS 直接觸發下層元素。後台永遠開著一個警告彈窗，它的遮罩會讓點擊一路等到逾時——既有驗證器全都是這樣繞過去的，積木也要跟上',
+      'fix(uat): 開對話框積木新增「在前一步打開的面板裡找按鈕」選項，而且會在所有開著的面板裡找。原本取「最後一個開著的」會拿到那個站台警告彈窗',
+      'fix(uat): 按鈕文字改成精準比對優先——「Add」用包含比對會先命中「Add Reservation」',
+    ],
+  },
   {
     version: '4.47.0',
     date: '2026-08-24',

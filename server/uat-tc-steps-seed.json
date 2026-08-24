@@ -1,7 +1,7 @@
 {
   "kind": "toppath-uat-tc-steps",
   "version": 1,
-  "count": 55,
+  "count": 59,
   "steps": {
     "recvenTprA3kez": [
       {
@@ -499,6 +499,29 @@
         "note": "刪除白名單帳號"
       }
     ],
+    "recvenTprAjmkn": [
+      {
+        "action": "open_page",
+        "path": "/game/machineReservationList",
+        "waitMs": 2500
+      },
+      {
+        "action": "assert_column_exists",
+        "columns": "Start Time"
+      },
+      {
+        "action": "read_table",
+        "as": "rows",
+        "maxRows": 50
+      },
+      {
+        "action": "assert_sorted",
+        "from": "rows",
+        "column": "Start Time",
+        "direction": "asc",
+        "onFail": "warn"
+      }
+    ],
     "recvenTprAk2GP": [
       {
         "action": "open_page",
@@ -621,6 +644,18 @@
         "direction": "desc"
       }
     ],
+    "recvenTprAw3Pr": [
+      {
+        "action": "open_page",
+        "path": "/game/machineReservationList",
+        "waitMs": 2500
+      },
+      {
+        "action": "assert_labels_contain",
+        "source": "formLabel",
+        "expect": "UserId\nAccount\nStart Time\nStatus"
+      }
+    ],
     "recvenTprAyKHc": [
       {
         "action": "open_page",
@@ -652,6 +687,40 @@
         "trigger": "ChannelRankID",
         "fields": "Machine Type",
         "note": "可設定渠道顯示 OSM/GSA 機種"
+      }
+    ],
+    "recvfkoaA0ksDd": [
+      {
+        "action": "open_page",
+        "path": "/game/machineReservationList",
+        "waitMs": 2500
+      },
+      {
+        "action": "click",
+        "selector": "text=Reservation List",
+        "waitMs": 1500
+      },
+      {
+        "action": "assert_dialog_fields",
+        "trigger": "Add",
+        "scope": "openDialog",
+        "fields": "Account\nLock Count\nLock Time\nMachine Count"
+      }
+    ],
+    "recvfkoaKHcOyB": [
+      {
+        "action": "open_page",
+        "path": "/game/machineReservationList",
+        "waitMs": 2500
+      },
+      {
+        "action": "click",
+        "selector": "text=Reservation List",
+        "waitMs": 1500
+      },
+      {
+        "action": "assert_control_exists",
+        "text": "Import Excel"
       }
     ],
     "recvfqN710LPGe": [

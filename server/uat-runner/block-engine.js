@@ -146,7 +146,7 @@ export const BLOCK_DEFS = {
     params: [
       { key: 'trigger', label: '要點的按鈕文字', type: 'text', required: true, placeholder: 'Add' },
       { key: 'fields', label: '對話框裡該有的欄位（一行一個）', type: 'textarea', required: true },
-      { key: 'scope', label: '按鈕在哪', type: 'select', options: ['page', 'firstRow'], default: 'page', help: 'firstRow 只在表格第一列裡找（例如每列各自的 Edit）' },
+      { key: 'scope', label: '按鈕在哪', type: 'select', options: ['page', 'firstRow', 'openDialog'], default: 'page', help: 'firstRow 只在表格第一列裡找（例如每列各自的 Edit）；openDialog 在前一步打開的面板裡找' },
       { key: 'onFail', label: '對話框開不起來時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
       // 「對話框沒開」跟「對話框開了但少一個欄位」是不同等級的問題：前者代表功能壞了，
       // 後者可能只是規格調整。既有 verifier 就是這樣分的（前者 criticalFail、後者只寫 ⚠️），
@@ -595,19 +595,43 @@ export async function runSteps(steps, ctx) {
           for (const d of document.querySelectorAll('.el-dialog, .el-drawer')) {
             if (d.getBoundingClientRect().width > 0) d.setAttribute('data-uat-preexisting', '1');
           }
-          const root = scope === 'firstRow'
-            ? document.querySelector('.el-table__body tr')
-            : document;
-          if (!root) return 'no-row';
-          const needle = String(trigger).toLowerCase();
-          const btn = [...root.querySelectorAll('button, .el-button, a')]
-            .find(b => (b.innerText || '').trim().toLowerCase().includes(needle));
+          const needle = String(trigger).trim().toLowerCase();
+          const label = b => (b.innerText || '').trim().toLowerCase();
+          // 先找完全相同的再退到包含。不這樣的話「Add」會先命中「Add Reservation」——
+          // 既有 verifier 用的就是 === 精準比對，包含只是沒對到時的退路
+          const pick = (root) => {
+            const buttons = [...root.querySelectorAll('button, .el-button, a')];
+            return buttons.find(b => label(b) === needle) ?? buttons.find(b => label(b).includes(needle)) ?? null;
+          };
+
+          let btn = null;
+          if (scope === 'firstRow') {
+            const row = document.querySelector('.el-table__body tr');
+            if (!row) return 'no-row';
+            btn = pick(row);
+          } else if (scope === 'openDialog') {
+            // 有些按鈕（例如 VIP 名單的 Add）只存在於前一步打開的面板裡，整頁範圍會
+            // 抓到主頁上同名的那顆。
+            //
+            // 但也不能只取「最後一個開著的對話框」——站台層級的警告彈窗一直開著，
+            // 它在 DOM 裡的位置不固定，.pop() 有時候拿到的是它。改成「在所有開著的
+            // 面板裡找這顆按鈕」，找到的那個自然就是對的面板，不用猜。
+            const panels = [...document.querySelectorAll('.el-dialog, .el-drawer')]
+              .filter(d => d.getBoundingClientRect().width > 0);
+            if (!panels.length) return 'no-dialog';
+            for (const panel of panels) { btn = pick(panel); if (btn) break }
+          } else {
+            btn = pick(document);
+          }
           if (!btn) return 'no-button';
           btn.click();
           return 'ok';
         }, { trigger: step.trigger, scope: step.scope ?? 'page' });
         if (opened !== 'ok') {
-          if (fail(step, `${tag}：${opened === 'no-row' ? '表格沒有任何列' : `找不到按鈕「${step.trigger}」`}`) === 'stop') break; continue;
+          const reason = opened === 'no-row' ? '表格沒有任何列'
+            : opened === 'no-dialog' ? '前一步沒有打開任何面板（scope=openDialog 需要先有開著的對話框）'
+            : `找不到按鈕「${step.trigger}」`;
+          if (fail(step, `${tag}：${reason}`) === 'stop') break; continue;
         }
         await ctx.page.waitForTimeout(800);
         // 對話框可能疊很多層，且關掉的那些還留在 DOM 裡（display 不一定是 none），

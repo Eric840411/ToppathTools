@@ -4398,7 +4398,28 @@ async function performSteps(p, steps, label, taskFull) {
     },
     /** 錄製產生的 click 積木用。選擇器支援 Playwright 的 text= 語法 */
     async clickSelector(selector, waitMs) {
-      await p.locator(selector).first().click({ timeout: 10000 });
+      try {
+        await p.locator(selector).first().click({ timeout: 10000 });
+      } catch (e) {
+        // 後台登入後有一個站台層級的警告彈窗（「Currently N machines are abnormal」），
+        // 它的遮罩會把底下的按鈕蓋住，Playwright 的 click 會一直等到逾時。
+        //
+        // 既有的 verifier 全部是用 page.evaluate(() => btn.click()) 繞過去的——那不是
+        // 偶然，是這個後台的常態。所以攔截時改用 JS 直接觸發下層元素，跟 AutoSpin／
+        // 機台自動化測試處理選面額遮罩的做法同一套。
+        const text = /^text=/.test(selector) ? selector.replace(/^text=/, '') : null;
+        const clicked = await p.evaluate(({ sel, txt }) => {
+          const el = txt
+            ? [...document.querySelectorAll('button, a, .el-button')]
+                .find(b => (b.innerText || '').trim() === txt)
+            : document.querySelector(sel);
+          if (!el) return false;
+          el.click();
+          return true;
+        }, { sel: selector, txt: text }).catch(() => false);
+        if (!clicked) throw e;   // 真的找不到元素就照原本的錯誤拋出去，不要吞掉
+        console.log(`  ↳ 點擊被遮罩攔截，改用 JS 直接觸發：${selector}`);
+      }
       await p.waitForTimeout(waitMs);
     },
     async typeInto(selector, value) {
