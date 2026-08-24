@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.43.0'
+export const APP_VERSION = '4.44.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.44.0',
+    date: '2026-08-24',
+    changes: [
+      'feat(uat): 回寫 Lark 改成勾 PASS / FAIL 兩個新欄位（原本的 UAT測試 欄位保留在表上但不再寫入）',
+      'feat(uat): 失敗現在也會回寫了。原本只有通過才寫，沒勾的格子同時代表「測失敗」跟「還沒跑過」，表上分不出來',
+      'feat(uat): 勾一邊會清掉另一邊。同一筆 TC 重跑時，上次 FAIL 這次 PASS 不清的話兩個框都是勾的；人工判讀則兩個都清，因為機器判不了既不算通過也不算失敗',
+      'fix(uat): 回寫 Lark 失敗以前只印一行 warning，執行結果照樣顯示綠色——欄位型別或權限一有問題就會「畫面全通過、表上什麼都沒寫」而且沒人發現。現在會明顯報錯並在收工時再列一次',
+    ],
+  },
   {
     version: '4.43.0',
     date: '2026-08-24',

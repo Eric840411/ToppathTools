@@ -121,6 +121,9 @@ const TEST_PARAMS = (() => {
 })();
 
 // ─── 欄位 ID ─────────────────────────────────────────────────────────
+/** 回寫 Lark 失敗的紀錄。收工時要再報一次，不能讓它只留在中間的日誌裡被洗掉 */
+const larkWriteFailures = [];
+
 const FIELD = {
   uat_pass:  'fld8qizcOu',   // UAT測試 checkbox
   uat_time:  'fld2kLMXQ5',   // UAT測試通過時間
@@ -306,9 +309,25 @@ async function uploadAttachment(token, filePath) {
   return d.data.file_token;
 }
 
-async function updateRecord(token, recordId, fileTokens, pass) {
+/**
+ * 回寫 Lark。
+ *
+ * @param outcome 三態，不是布林：
+ *   'pass'   → 勾 PASS、清掉 FAIL
+ *   'fail'   → 勾 FAIL、清掉 PASS
+ *   'manual' → 兩個都清掉（機器判不了，既不是通過也不是失敗）
+ *   'none'   → 兩個都不動（例如只是要清舊截圖）
+ *
+ * 為什麼要三態：原本傳的是布林 markPass = result.pass && !result.manual，
+ * 「失敗」跟「人工判讀」都被壓成 false。以前只勾一個 UAT測試 時看不出差別；
+ * 現在要分別寫 PASS / FAIL 兩欄，就必須分得出來。
+ *
+ * 為什麼要清掉另一邊：同一筆 TC 會重跑。上次 FAIL 這次 PASS，不清的話兩個框
+ * 都是勾的，表上看起來自相矛盾。
+ */
+async function updateRecord(token, recordId, fileTokens, outcome) {
   if (DRY_RUN) {
-    console.log(`  🧪 [dry-run] 略過回寫 Lark：record=${recordId} pass=${pass}`);
+    console.log(`  🧪 [dry-run] 略過回寫 Lark：record=${recordId} outcome=${outcome}`);
     return { code: 0, dryRun: true };
   }
   // fileTokens: string (single) or string[] (multiple)
@@ -323,7 +342,13 @@ async function updateRecord(token, recordId, fileTokens, pass) {
       body: JSON.stringify({ fields }),
     });
     const d = await res.json();
-    if (d.code !== 0) console.warn(`  ⚠️ updateRecord ${recordId}: ${d.msg}`);
+    if (d.code !== 0) {
+      // ⚠️ 這裡以前只印 warning，整輪照樣顯示綠色的 PASS——欄位型別一改就會出現
+      // 「畫面全通過、Lark 上什麼都沒寫進去」而且沒人發現。回寫失敗是實質失敗，
+      // 要印得夠明顯，並且計數在收工時再講一次。
+      larkWriteFailures.push(`${recordId}: ${d.msg}`);
+      console.log(`  ❌ 回寫 Lark 失敗 ${recordId}: ${d.msg}（欄位型別或權限問題，這筆結果沒有被寫進表裡）`);
+    }
     return d;
   };
 
@@ -336,9 +361,19 @@ async function updateRecord(token, recordId, fileTokens, pass) {
 
   // Step 2: set remaining fields
   const fields = {};
-  if (pass) {
-    fields['UAT測試'] = true;
+  // PASS / FAIL 是兩個獨立的勾選欄位（使用者 2026-08-24 加的），互斥要自己維護。
+  // 原本的 UAT測試 欄位保留在表上但這裡不再寫入——使用者指定改寫這兩欄。
+  if (outcome === 'pass') {
+    fields['PASS'] = true;
+    fields['FAIL'] = false;
     fields['UAT測試通過時間'] = Date.now();
+  } else if (outcome === 'fail') {
+    fields['PASS'] = false;
+    fields['FAIL'] = true;
+  } else if (outcome === 'manual') {
+    // 機器判不了：兩個都清掉。留著上一輪的結果會讓人以為這次有驗過
+    fields['PASS'] = false;
+    fields['FAIL'] = false;
   }
   if (tokens.length > 0) {
     fields['附圖'] = tokens.map((ft, i) => ({
@@ -5044,11 +5079,10 @@ async function main() {
       // 該筆記錄上的舊截圖——若只在fileTokens.length>0才呼叫，MANUAL/SKIP列的舊圖永遠
       // 清不掉。真正的FAIL（非MANUAL/SKIP、且這次沒截到圖，例如navigation timeout）則
       // 不主動清，保留上一次可能還有效的驗證證據，不因單次暫時性失敗就把舊證據洗掉。
-      const markPass = result.pass && !result.manual;
-      if (markPass || fileTokens.length > 0) {
-        await updateRecord(larkToken, recordId, fileTokens, markPass);
-      } else if (isManualOrSkip) {
-        await updateRecord(larkToken, recordId, [], markPass);
+      // 三態：通過／失敗／人工判讀。原本壓成一個布林，分不出後兩者
+      const outcome = result.manual ? 'manual' : (result.pass ? 'pass' : 'fail');
+      if (outcome !== 'manual' || fileTokens.length > 0 || isManualOrSkip) {
+        await updateRecord(larkToken, recordId, fileTokens, outcome);
       }
 
       if (result.pass && result.manual) skipCount++;
@@ -5193,7 +5227,8 @@ async function main() {
           // PASS/FAIL兩個checkbox)這種情況要直接判FAIL不留白（見run-lark-tc-backend-
           // newtable.js/apply-newtable-patch.cjs），production這裡保留原樣只是因為
           // schema限制沒有FAIL欄位可設，不是刻意跟使用者決定不一致。
-          await updateRecord(larkToken, tc3Record.recordId, fts, updatedCount > 0);
+          // updatedCount === 0 時維持不標記（見上方註解），所以是 pass 或 none 而不是 fail
+          await updateRecord(larkToken, tc3Record.recordId, fts, updatedCount > 0 ? 'pass' : 'none');
           console.log(`✅ TC3 5分鐘驗證截圖已上傳（${fts.length}張：after主畫面 + 比對表格）${updatedCount > 0 ? '，已標記PASS' : '，因未偵測到變動維持不標記(非FAIL，避免伺服器更新週期誤判)'}`);
         }
       }
@@ -5208,6 +5243,14 @@ async function main() {
 
   const manualCount = results.filter(r => r.manual).length;
   console.log(`\n✅ 完成！通過: ${passCount}  🔧需人工: ${manualCount}  跳過: ${skipCount}  失敗: ${failCount}`);
+  // 回寫失敗要在收工時再講一次。只印在中間的話會被後面幾百行日誌洗掉，
+  // 使用者只會看到最後這行漂亮的統計，完全不知道結果沒進到 Lark。
+  if (larkWriteFailures.length) {
+    console.log(`\n❌ 有 ${larkWriteFailures.length} 筆結果沒有寫回 Lark（上面的統計是這次跑出來的，但表上沒更新）：`);
+    for (const line of larkWriteFailures.slice(0, 10)) console.log(`     ${line}`);
+    if (larkWriteFailures.length > 10) console.log(`     …另外還有 ${larkWriteFailures.length - 10} 筆`);
+    console.log(`   常見原因：欄位名稱或型別跟程式對不上（例如 PASS／FAIL 被改成非勾選欄位）、或這個 token 沒有寫入權限。`);
+  }
   if (statsTimer) { clearInterval(statsTimer); statsTimer = null; }
   if (netCapture) {
     // 最後一份一定要送：定時廣播最多晚 2 秒，面板停在倒數第二筆會跟日誌摘要對不起來
