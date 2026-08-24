@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { BACKEND_MODULES, createBackendModule, createCustomBackendModule, createDefaultBackendPlan, matchesBackendModule } from './backend-modules'
 import type { BackendModuleId, BackendModuleTone, BackendPlanModule, RunStatus, TcGroup, UatConfig, UatThemeMode } from './types'
 import { NetworkPanel, type UatStatsPayload } from './NetworkPanel'
@@ -88,6 +89,8 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const [recMsg, setRecMsg] = useState('')
   const [pendingSteps, setPendingSteps] = useState<Step[] | null>(null)
   const [pickerQuery, setPickerQuery] = useState('')
+  /** 選擇器是否展開。跟 pendingSteps 分開——收起彈框不等於丟掉錄到的積木 */
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [tcSnapshotAt, setTcSnapshotAt] = useState<string | null>(null)
   const [tcScanned, setTcScanned] = useState(false)
   // 掛載就載入 registry 快照的 TC 清單——編積木需要的東西快照裡都有，
@@ -273,6 +276,7 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
         if (!window.confirm(warn)) { setRecMsg('已捨棄這次錄製'); return }
       }
       setPendingSteps(recorded)
+      setPickerOpen(true)
       setPickerQuery('')
       setRecMsg(`錄到 ${recorded.length} 顆積木，選一筆 TC 放進去`)
     } catch { setRecMsg('取得錄製結果失敗') }
@@ -513,12 +517,27 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
         </>}
       </aside>
 
-      {recMsg && <div className="uat-backend-rec-bar">{recSession && <i />}{recMsg}</div>}
+      {recMsg && (
+        <div className="uat-backend-rec-bar">
+          {recSession && <i />}{recMsg}
+          {/* 彈框收起來之後要有辦法叫回來，不然錄好的積木等於卡在半空中 */}
+          {pendingSteps && !pickerOpen && (
+            <button type="button" className="uat-btn is-quiet" onClick={() => setPickerOpen(true)}>
+              選擇 TC（{pendingSteps.length} 顆待放）
+            </button>
+          )}
+        </div>
+      )}
 
       {/* 錄完才問要放哪一筆：先錄下來、再決定它屬於哪個 TC，比先選再錄更接近實際流程 */}
-      {pendingSteps && (
+      {/* 一定要 portal 出去：外層有 backdrop-filter 的祖先，position: fixed 會被困在
+          那個容器裡畫不出來。積木編輯器踩過同一個坑，這裡是第二次——這個 studio 版面
+          只要是彈框就得 portal，不要再用一般的絕對定位試 */}
+      {pendingSteps && pickerOpen && createPortal((
         <div className="uat-studio uat-tc-modal" role="dialog" aria-modal="true"
-          onMouseDown={event => { if (event.target === event.currentTarget) setPendingSteps(null) }}>
+          // 點背景只收起彈框，不丟掉錄到的積木。錄一次要花好幾分鐘，
+          // 一個誤點就整批消失是不能接受的；要丟掉得按「捨棄」明確表示。
+          onMouseDown={event => { if (event.target === event.currentTarget) setPickerOpen(false) }}>
           <div className="uat-tc-picker">
             <div className="uat-tc-picker-head">
               <div>
@@ -526,7 +545,11 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
                 <h3>錄到 {pendingSteps.length} 顆積木</h3>
                 <small>選一筆 TC 接上去。接上之後可以再編輯，確認沒問題才按儲存。</small>
               </div>
-              <button type="button" className="uat-btn is-quiet" onClick={() => setPendingSteps(null)}>捨棄</button>
+              <button type="button" className="uat-btn is-quiet"
+                onClick={() => {
+                  if (!window.confirm(`確定要丟掉這 ${pendingSteps.length} 顆積木嗎？丟掉之後要重錄一次。`)) return
+                  setPendingSteps(null); setPickerOpen(false); setRecMsg('')
+                }}>捨棄</button>
             </div>
             <input className="uat-field" value={pickerQuery} placeholder="搜尋 TC 描述或子類型…"
               onChange={event => setPickerQuery(event.target.value)} />
@@ -544,11 +567,16 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
                     <em className={tc.stepCount ? 'has-steps' : ''}>{tc.stepCount ? `${tc.stepCount} 積木` : '內建'}</em>
                   </button>
                 ))}
-              {!tcs.length && <div className="uat-backend-tc-more">TC 清單還沒載入</div>}
+              {!tcs.length && (
+                <div className="uat-backend-tc-more">
+                  還沒有 TC 可以選——請先在上面貼 Lark 網址按「掃描 TC」，掃完這裡就會列出來。
+                  <br />錄到的積木會留著，掃描完再回來選就行。
+                </div>
+              )}
             </div>
           </div>
         </div>
-      )}
+      ), document.body)}
 
       {/* 積木編輯器改成彈框：三欄（積木庫／步驟／參數）在工作台的欄位裡怎麼放都太窄，
           彈框才拿得到整個視窗的寬度 */}

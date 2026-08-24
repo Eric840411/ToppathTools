@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.40.1'
+export const APP_VERSION = '4.40.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.40.2',
+    date: '2026-08-24',
+    changes: [
+      'fix(uat): 錄完之後選 TC 的彈框改用 portal，跟積木編輯器一致——這個版面的祖先有 backdrop-filter，position: fixed 會被困在容器裡',
+      'fix(uat): 點彈框外面只收起來，不再把錄到的積木丟掉。錄一次要花好幾分鐘，一個誤點就整批消失不能接受；要丟掉得按「捨棄」並確認',
+      'feat(uat): 彈框收起來之後，狀態列會出現「選擇 TC（N 顆待放）」把它叫回來——不然錄好的積木等於卡在半空中',
+    ],
+  },
   {
     version: '4.40.1',
     date: '2026-08-24',
