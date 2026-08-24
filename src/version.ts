@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.41.0'
+export const APP_VERSION = '4.41.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.41.1',
+    date: '2026-08-24',
+    changes: [
+      'fix(uat): 掃描 Lark TC 後清單顯示的是一串 recordId 而不是任務文字。掃描讀的欄位名寫成「測試項目／任務描述／描述／內容」，但真實欄位叫「任務」——用 134 筆真實資料確認過，前面那四個一筆都沒有值，所以 text 永遠是空字串、畫面只好 fallback 顯示 recordId',
+      'feat(uat): 網路監測面板會列出實際打了哪些 API（method／狀態碼／耗時），不再只列超過門檻的。全部都在門檻內時原本整片空白，等於看不到這頁到底打了哪些後端',
+    ],
+  },
   {
     version: '4.41.0',
     date: '2026-08-24',

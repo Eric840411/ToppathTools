@@ -1282,6 +1282,19 @@ Backend 測的是 CP／NC 後台管理站，那是一般網站沒有 pinus；掛
 - 模組 → TC 的比對沿用 `moduleCounts` 那一套（`matchesBackendModule`，specific 優先、沒有才落到 `*`），**不要另寫一份**：兩份比對邏輯遲早漂移，症狀是「清單顯示 4 筆但實際跑了 5 筆」
 - 積木庫與參數表單全部照後端回的 `BLOCK_DEFS` 自動長
 
+### Lark TC 的欄位名是「任務」，不是「測試項目」
+
+用真實資料（`data/raw/lark_tc_all.json`，134 筆）確認過的完整欄位清單：
+
+```
+PROD測試 | UAT測試 | UAT測試通過時間 | 任務 | 任務類型 | 任務子類型
+创建日期 | 父記錄 | 父記錄 (1) | 父記錄 (1) (1) | 環境 | 編號 | 裝置 | 附圖 | 端口
+```
+
+`任務` 134 筆都有值；**`測試項目`／`任務描述`／`描述`／`內容` 全部 0 筆**。`/api/osm-uat/scan` 一度寫成後面那四個，於是 `text` 永遠是空字串，畫面 fallback 去顯示 `recordId`（`recvenTprA...`）——使用者看到的症狀是「文字被欄位 id 取代掉」（v4.41.1 修）。
+
+runner 讀的一直是 `f['任務']`，兩邊本來就該一致。**之後要加讀 Lark 欄位時，先去 `lark_tc_all.json` 對一次欄位名**，不要憑印象寫——那份就是 runner 自己 dump 的真實資料。
+
 ### 錄製（v4.28.0）
 `server/uat-runner/backend-recorder.js`。開一個有頭的 Chromium 自動登入後台，注入腳本把操作變積木；按住 **Alt** 點元素當場標斷言。
 

@@ -49,6 +49,8 @@ export function parseStatsLine(line) {
 /** 明細最多留幾筆，避免一個遊戲頁載入上千張圖把記憶體吃爆 */
 const MAX_RECORDS = 4000;
 /** summary 裡「最慢的前幾筆」列幾筆 */
+/** API 清單最多帶幾筆。一頁動輒上百個請求，全帶會讓 SSE payload 爆掉 */
+const API_LIST_MAX = 60;
 const SLOWEST_N = 10;
 
 /** Playwright resourceType → 我們的分類 */
@@ -218,6 +220,24 @@ export function attachNetworkCapture(page, options = {}) {
         slow,
         slowest,
         failures: failures.slice(0, SLOWEST_N),
+        /**
+         * 實際打了哪些 API，依發生順序。
+         *
+         * 原本只回 slow（超過門檻的）跟 slowest（最慢幾筆）——全部都在門檻內時
+         * 畫面上就整片空白，看起來像沒抓到東西，而且使用者根本不知道這頁到底打了
+         * 哪些後端。要基於 API 下 pass/fail 之前，得先看得到有哪些可以下。
+         *
+         * 只留 api 這類（圖檔／靜態資源列出來只是洗版），上限 API_LIST_MAX——
+         * 一頁動輒上百個請求，全帶會讓 SSE payload 爆掉。
+         */
+        apiCalls: api.slice(-API_LIST_MAX).map(r => ({
+          method: r.method,
+          url: r.url,
+          status: r.status,
+          durationMs: r.durationMs == null ? null : Math.round(r.durationMs),
+          ts: r.ts,
+        })),
+        apiCallsTruncated: Math.max(0, api.length - API_LIST_MAX),
       };
     },
 

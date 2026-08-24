@@ -287,7 +287,11 @@ router.get('/api/osm-uat/scan', async (req, res, next) => {
       const entry = registry[recordId] as { verifierName?: string } | undefined
       return {
         recordId,
-        text: String(f['測試項目'] ?? f['任務描述'] ?? f['描述'] ?? f['內容'] ?? '').slice(0, 300),
+        // ⚠️ 欄位名是「任務」。原本寫成 測試項目／任務描述／描述／內容 全都不存在，
+        // text 於是變成空字串，畫面 fallback 去顯示 recordId（recvenTprA...）——
+        // 使用者看到的「文字被欄位 id 取代」就是這個。runner 讀的一直是 f['任務']，
+        // 兩邊本來就該一致。
+        text: String(f['任務'] ?? f['測試項目'] ?? f['任務描述'] ?? f['描述'] ?? f['內容'] ?? '').slice(0, 300),
         sub: String(f['任務子類型'] ?? ''),
         taskType: String(f['任務類型'] ?? ''),
         stepCount: savedSteps[recordId]?.length ?? 0,
