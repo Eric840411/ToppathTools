@@ -124,6 +124,8 @@ export const BLOCK_DEFS = {
     description: '看表格第一列有沒有 Edit／Delete／View 這些操作按鈕',
     params: [
       { key: 'buttons', label: '每一個都要有（一行一個）', type: 'textarea', required: true, placeholder: 'Edit / Delete' },
+      { key: 'rows', label: '要檢查哪些列', type: 'select', options: ['first', 'all'], default: 'first',
+        help: 'first 只看第一列（快）；all 每一列都要有——「每一列都可以編輯／刪除」這種規格要用 all，只看第一列會漏掉後面壞掉的列' },
       { key: 'anyOf', label: '這些至少要有一個（一行一個，選填）', type: 'textarea',
         help: '有些頁面是 Hidden 或 Show 二選一，那種放這裡' },
       { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
@@ -581,11 +583,14 @@ export async function runSteps(steps, ctx) {
       } else if (step.action === 'assert_row_buttons') {
         // 既有 verifier 的形狀是：讀第一列的所有 button innerText，再檢查該有的在不在。
         // 有些頁面是 Hidden／Show 二選一，所以除了「每個都要有」還要支援「至少有一個」。
-        const rowBtns = await ctx.page.evaluate(() => {
-          const row = document.querySelector('.el-table__body tr');
-          if (!row) return null;
-          return [...row.querySelectorAll('button, .el-button')].map(b => (b.innerText || '').trim()).filter(Boolean);
-        });
+        // 「每一列都要有」跟「第一列有就好」是不同的規格。既有 verifier 兩種都有：
+        //   .every(row => ...)                    → 每一列（可以編輯/刪除獎池額度）
+        //   document.querySelector('...tr')       → 只看第一列（視頻可以編輯/刪除/預覽）
+        // 只做第一列的話，後面某一列缺按鈕會漏掉。
+        const allRows = await ctx.page.evaluate(() =>
+          [...document.querySelectorAll('.el-table__body tr')]
+            .map(row => [...row.querySelectorAll('button, .el-button')].map(b => (b.innerText || '').trim()).filter(Boolean)));
+        const rowBtns = allRows.length ? allRows[0] : null;
         if (rowBtns === null) {
           // 沒有列就看不到列上的按鈕。既有 verifier 是 rowCount > 0 才判定，等於直接跳過
           const empty = { ...step, onFail: step.onEmptyTable ?? 'warn' };
@@ -593,16 +598,22 @@ export async function runSteps(steps, ctx) {
         }
         const need = toLines(step.buttons);
         const anyOf = toLines(step.anyOf);
-        const missing = need.filter(b => !rowBtns.includes(String(b)));
-        const anyOk = !anyOf.length || anyOf.some(b => rowBtns.includes(String(b)));
-        if (missing.length || !anyOk) {
+        const scanRows = (step.rows ?? 'first') === 'all' ? allRows : [rowBtns];
+        const okRow = (btns) => need.every(b => btns.includes(String(b)))
+          && (!anyOf.length || anyOf.some(b => btns.includes(String(b))));
+        const badIdx = scanRows.findIndex(btns => !okRow(btns));
+        const bad = badIdx >= 0 ? scanRows[badIdx] : null;
+        const missing = bad ? need.filter(b => !bad.includes(String(b))) : [];
+        const anyOk = !bad || !anyOf.length || anyOf.some(b => bad.includes(String(b)));
+        if (bad) {
           const why = [
             missing.length ? `缺少 ${missing.join('、')}` : '',
             anyOk ? '' : `${anyOf.join(' 或 ')} 一個都沒有`,
           ].filter(Boolean).join('；');
-          if (fail(step, `${tag}：${why}（這一列實際有：${rowBtns.join('、') || '（沒有按鈕）'}）`) === 'stop') break; continue;
+          const where = (step.rows ?? 'first') === 'all' ? `第 ${badIdx + 1} 列` : '第一列';
+          if (fail(step, `${tag}：${where}${why}（該列實際有：${bad.join('、') || '（沒有按鈕）'}）`) === 'stop') break; continue;
         }
-        notes.push(`✅ ${tag}：${[...need, ...(anyOf.length ? [anyOf.join('/')] : [])].join('、')}`);
+        notes.push(`✅ ${tag}：${[...need, ...(anyOf.length ? [anyOf.join('/')] : [])].join('、')}（檢查了 ${scanRows.length} 列）`);
 
       } else if (step.action === 'assert_row_count') {
         const rowCount = await ctx.page.evaluate(() =>

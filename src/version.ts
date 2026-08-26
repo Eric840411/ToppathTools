@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.50.0'
+export const APP_VERSION = '4.51.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.51.0',
+    date: '2026-08-26',
+    changes: [
+      'feat(uat): 「表格列要有這些按鈕」積木可以選擇檢查第一列或每一列。「每一列都可以編輯／刪除」這種規格只看第一列會漏掉後面壞掉的列',
+      'feat(uat): 再拆 3 筆（Jackpot Ranking 的上傳／編輯刪除按鈕、Announcement 對話框），比對基準 9/9 一致。積木化累計 74/121',
+    ],
+  },
   {
     version: '4.50.0',
     date: '2026-08-26',

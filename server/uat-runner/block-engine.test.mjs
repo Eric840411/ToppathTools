@@ -477,29 +477,39 @@ const CALLS = [
 
 // ── assert_row_buttons ────────────────────────────────────────────────
 {
-  const has = makeCtx(); has.page.evaluate = async () => ['Edit', 'Delete', 'View']
+  const has = makeCtx(); has.page.evaluate = async () => [['Edit', 'Delete', 'View']]
   check('列上按鈕齊全 → pass',
     (await runSteps([{ action: 'assert_row_buttons', buttons: `Edit${'\n'}Delete` }], has)).pass === true)
 
-  const miss = makeCtx(); miss.page.evaluate = async () => ['Edit']
+  const miss = makeCtx(); miss.page.evaluate = async () => [['Edit']]
   const r = await runSteps([{ action: 'assert_row_buttons', buttons: `Edit${'\n'}Delete` }], miss)
   check('缺按鈕 → FAIL 且指出缺哪個', r.pass === false && /Delete/.test(r.criticalFails.join('')), r.criticalFails)
   check('訊息要列出這一列實際有什麼', /實際有/.test(r.criticalFails.join('')), r.criticalFails)
 
   // 有些頁面是 Hidden／Show 二選一
-  const hid = makeCtx(); hid.page.evaluate = async () => ['Edit', 'Delete', 'Show']
+  const hid = makeCtx(); hid.page.evaluate = async () => [['Edit', 'Delete', 'Show']]
   check('anyOf 有一個就算過',
     (await runSteps([{ action: 'assert_row_buttons', buttons: `Edit${'\n'}Delete`, anyOf: `Hidden${'\n'}Show` }], hid)).pass === true)
-  const neither = makeCtx(); neither.page.evaluate = async () => ['Edit', 'Delete']
+  const neither = makeCtx(); neither.page.evaluate = async () => [['Edit', 'Delete']]
   check('anyOf 一個都沒有 → FAIL',
     (await runSteps([{ action: 'assert_row_buttons', buttons: 'Edit', anyOf: `Hidden${'\n'}Show` }], neither)).pass === false)
 
   // 表格空的時候看不到列上的按鈕。既有 verifier 是直接跳過不擋
-  const empty = makeCtx(); empty.page.evaluate = async () => null
+  const empty = makeCtx(); empty.page.evaluate = async () => []
   const e = await runSteps([{ action: 'assert_row_buttons', buttons: 'Edit' }], empty)
   check('表格沒資料 → 預設 warn 不擋', e.pass === true && e.warnings.length === 1, { p: e.pass, w: e.warnings })
   check('表格沒資料也可以選擇要擋',
-    (await runSteps([{ action: 'assert_row_buttons', buttons: 'Edit', onEmptyTable: 'stop' }], makeCtx())).pass === false)
+    (await runSteps([{ action: 'assert_row_buttons', buttons: 'Edit', onEmptyTable: 'stop' }], empty)).pass === false)
+
+  // rows=all：只看第一列會漏掉後面壞掉的列，這正是「每一列都可以編輯／刪除」要防的
+  const mixed = makeCtx(); mixed.page.evaluate = async () => [['Edit', 'Delete'], ['Edit', 'Delete'], ['Edit']]
+  check('第一列正常但第三列缺 → rows=first 會漏掉（這是預期行為）',
+    (await runSteps([{ action: 'assert_row_buttons', buttons: `Edit
+Delete`, rows: 'first' }], mixed)).pass === true)
+  const allR = await runSteps([{ action: 'assert_row_buttons', buttons: `Edit
+Delete`, rows: 'all' }], mixed)
+  check('rows=all 抓得到後面那一列', allR.pass === false, allR.criticalFails)
+  check('訊息要指出是第幾列', /第 3 列/.test(allR.criticalFails.join('')), allR.criticalFails)
 }
 
 // ── assert_row_count 的上限 ───────────────────────────────────────────

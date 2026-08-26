@@ -1380,6 +1380,19 @@ Backend UAT 的執行早在 v4.23.0 就改成派工了，錄製漏掉沒跟著�
 
 **測試**：`backend-recorder.test.mjs`（15 項，不開瀏覽器驗轉換邏輯）＋ **`backend-recorder.browser-test.mjs`（真的開 Chromium 注入、點徽章、驗行為）**。後者就是為了上面那個 bug 加的——它只有真的跑起來才看得見。**一定要用真的 `goto` 不要用 `setContent`**：兩者的 init script 執行時機不同，用 setContent 測會得到假的結論（查這個 bug 時先被它誤導過一次）。
 
+### 「每一列都要有」跟「第一列有就好」是不同的規格
+
+既有 verifier 兩種寫法都有：
+
+```js
+[...rows].every(row => ...)              // 每一列（可以編輯/刪除獎池額度）
+document.querySelector('...tr')          // 只看第一列（視頻可以編輯/刪除/預覽）
+```
+
+`assert_row_buttons` 的 `rows` 參數要照原本那筆的寫法選。**只做第一列的話，後面某一列缺按鈕會整個漏掉**——測試裡有一條專門守這個（第一列正常、第三列缺 Delete，`rows: 'first'` 通過、`rows: 'all'` 抓得到並指出是第 3 列）。
+
+實測 Jackpot Ranking 那兩筆確實檢查了 50 列。
+
 ### 匯出：`doExport()` 本來就是共用的，不用「調和三支的差異」
 
 拆匯出前的假設是「三支 verifier 各有自己的 `doExport()`，要先列差異表」。實際讀完發現**它本來就是單一函式，14 個呼叫點全部是 `await doExport(page)`、零參數、完全相同**——原作者早就避掉了「三套幾乎一樣但細節漂移」的問題。所以 `run_export` 積木也不需要參數。
@@ -1424,7 +1437,7 @@ Backend UAT 的執行早在 v4.23.0 就改成派工了，錄製漏掉沒跟著�
 |------|------|
 | 2 | `SUBTYPE_MAP` 的路徑表搬進 registry；逐支 verifier 宣告參數表，接成 `builtin_verifier` 的 `options`。**第一支做 `verifyMeterPage`（10 筆）當樣板**——最小，而且它的容差比對本來就已經是參數化的形狀（`cmp()`），定完格式再複製到 19／19／28 那三支 |
 | 3 | ✅ 前端積木編輯器（彈框，含積木庫搜尋、複製到另一筆 TC、匯出／匯入）|
-| 4 | 逐筆把 TC 拆成積木。**目前 71/121，每一批都比對過拆解前的基準**：A 類 13、Report 19、GameSetting 11、Meter 8、匯出 7、列按鈕類 5、Reservation 4、Dashboard 4 |
+| 4 | 逐筆把 TC 拆成積木。**目前 74/121，每一批都比對過拆解前的基準**：A 類 13、Report 19、GameSetting 11、Meter 8、列按鈕類 8、匯出 7、Reservation 4、Dashboard 4 |
 
 ### 四支大 verifier 實際拆下來的樣子（跟原本假設不同）
 

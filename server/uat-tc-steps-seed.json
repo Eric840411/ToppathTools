@@ -1,8 +1,21 @@
 {
   "kind": "toppath-uat-tc-steps",
   "version": 1,
-  "count": 71,
+  "count": 74,
   "steps": {
+    "recveFY7nUeFBk": [
+      {
+        "action": "open_page",
+        "path": "/rankinglist/jackpotRanking",
+        "waitMs": 2500
+      },
+      {
+        "action": "assert_dialog_fields",
+        "trigger": "Announcement",
+        "scope": "firstRow",
+        "fields": "Time"
+      }
+    ],
     "recvenTprA0aSs": [
       {
         "action": "open_page",
@@ -14,6 +27,18 @@
       },
       {
         "action": "run_export"
+      }
+    ],
+    "recvenTprA1MlW": [
+      {
+        "action": "open_page",
+        "path": "/rankinglist/jackpotRanking",
+        "waitMs": 2500
+      },
+      {
+        "action": "assert_row_buttons",
+        "buttons": "Edit\nDelete",
+        "rows": "all"
       }
     ],
     "recvenTprA3kez": [
@@ -58,6 +83,18 @@
       {
         "action": "assert_row_count",
         "min": 1
+      }
+    ],
+    "recvenTprA8VgQ": [
+      {
+        "action": "open_page",
+        "path": "/rankinglist/jackpotRanking",
+        "waitMs": 2500
+      },
+      {
+        "action": "assert_row_buttons",
+        "buttons": "Upload",
+        "rows": "all"
       }
     ],
     "recvenTprA8xbL": [
