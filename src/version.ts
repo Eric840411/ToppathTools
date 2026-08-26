@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.48.0'
+export const APP_VERSION = '4.49.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.49.0',
+    date: '2026-08-26',
+    changes: [
+      'feat(uat): 新增「執行匯出」積木，一顆涵蓋跨三支驗證器的匯出檢查。拆掉 7 筆匯出 TC，比對基準 44/44 一致，積木化累計 66/121',
+      'feat(uat): 新增「送出查詢」積木。報表頁要先按 View／Search 送出查詢，匯出按鈕才會出現——兩種按鈕文字都會試，不同報表頁用的不一樣',
+      'feat(uat): 匯出時「等不到下載」改記成警告而不是成功。它本來就不是失敗條件（判定不變），但原本記成 ✅ 會讓人以為檔案一定下載好了',
+    ],
+  },
   {
     version: '4.48.0',
     date: '2026-08-24',

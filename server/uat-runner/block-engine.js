@@ -140,6 +140,24 @@ export const BLOCK_DEFS = {
       { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
     ],
   },
+  submit_search: {
+    label: '送出查詢', category: 'nav', defaultOnFail: 'stop',
+    description: '按報表頁的 View／Search 送出查詢。很多頁面要查過之後才會出現資料與匯出按鈕',
+    params: [
+      { key: 'waitMs', label: '查完等待（毫秒）', type: 'number', default: 2500 },
+      { key: 'onFail', label: '找不到查詢按鈕時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
+    ],
+  },
+  run_export: {
+    label: '執行匯出', category: 'evidence', defaultOnFail: 'stop',
+    description: '點 Export／CSV／Excel 按鈕，有確認視窗就按 Sure，並等下載',
+    params: [
+      { key: 'onFail', label: '找不到匯出按鈕時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
+      { key: 'onNoDownload', label: '等不到下載時', type: 'select', options: ['warn', 'continue', 'stop', 'manual'], default: 'warn',
+        help: '原本的驗證器把「等不到下載」記成成功。它不是失敗條件，但確實是可觀測的異常——預設用 warn 記下來，判定不受影響' },
+      { key: 'timeoutMs', label: '等下載幾毫秒', type: 'number', default: 10000 },
+    ],
+  },
   assert_dialog_fields: {
     label: '開對話框檢查欄位', category: 'assert', defaultOnFail: 'stop',
     description: '點一個按鈕把對話框叫出來，確認裡面有這些欄位，然後關掉',
@@ -582,6 +600,35 @@ export async function runSteps(steps, ctx) {
           if (fail(step, `${tag}：${step.urlPattern} —— ${why}`) === 'stop') break; continue;
         }
         notes.push(`✅ ${tag}：${step.urlPattern}（${good.length} 次，狀態 ${[...new Set(good.map(c => c.status))].join('、')}）`);
+
+      } else if (step.action === 'submit_search') {
+        // 報表頁要先送出查詢才會有資料與匯出按鈕。View／Search 兩種字都要試——
+        // 不同報表頁用的不一樣，逐頁去猜是錯的做法（原本的 screenshot_date_search 就是兩個都試）
+        if (typeof ctx.submitSearch !== 'function') {
+          if (fail(step, `${tag}：這個執行環境不支援送出查詢（runner 版本太舊）`) === 'stop') break; continue;
+        }
+        const searched = await ctx.submitSearch(Number(step.waitMs) || 2500);
+        if (!searched) { if (fail(step, `${tag}：找不到 View／Search 按鈕`) === 'stop') break; continue }
+        notes.push(`${tag}：已送出`);
+
+      } else if (step.action === 'run_export') {
+        // doExport() 在 run-lark-tc-backend.js 裡已經是單一共用函式，14 個呼叫點
+        // 完全同形、零參數——所以這顆積木也不需要參數，只是把它包成積木。
+        // 語意照原本的：只有「按鈕找不到」才是失敗。
+        if (typeof ctx.runExport !== 'function') {
+          if (fail(step, `${tag}：這個執行環境沒有匯出能力（runner 版本太舊）`) === 'stop') break; continue;
+        }
+        const ex = await ctx.runExport(Number(step.timeoutMs) || 10000);
+        if (!ex.hasButton) {
+          if (fail(step, `${tag}：找不到 Export／CSV／Excel 按鈕`) === 'stop') break; continue;
+        }
+        if (!ex.file) {
+          // 按鈕在、也點了，只是沒等到檔案。原本記成 ✅——判定不變，但要記成 warn，
+          // 不然看報告的人會以為檔案一定成功落地了
+          const noDl = { ...step, onFail: step.onNoDownload ?? 'warn' };
+          if (fail(noDl, `${tag}：按鈕有、也點下去了，但在 ${Number(step.timeoutMs) || 10000}ms 內沒等到下載`) === 'stop') break; continue;
+        }
+        notes.push(`✅ ${tag}：已下載 ${ex.file}`);
 
       } else if (step.action === 'assert_dialog_fields') {
         // 這是既有 verifier 裡重複最多次的一段：點 Add/Edit → 等對話框 → 讀

@@ -1380,6 +1380,14 @@ Backend UAT 的執行早在 v4.23.0 就改成派工了，錄製漏掉沒跟著�
 
 **測試**：`backend-recorder.test.mjs`（15 項，不開瀏覽器驗轉換邏輯）＋ **`backend-recorder.browser-test.mjs`（真的開 Chromium 注入、點徽章、驗行為）**。後者就是為了上面那個 bug 加的——它只有真的跑起來才看得見。**一定要用真的 `goto` 不要用 `setContent`**：兩者的 init script 執行時機不同，用 setContent 測會得到假的結論（查這個 bug 時先被它誤導過一次）。
 
+### 匯出：`doExport()` 本來就是共用的，不用「調和三支的差異」
+
+拆匯出前的假設是「三支 verifier 各有自己的 `doExport()`，要先列差異表」。實際讀完發現**它本來就是單一函式，14 個呼叫點全部是 `await doExport(page)`、零參數、完全相同**——原作者早就避掉了「三套幾乎一樣但細節漂移」的問題。所以 `run_export` 積木也不需要參數。
+
+**語意照原本的**：只有「Export 按鈕找不到」才算失敗；等不到下載**不是失敗條件**。唯一改動是把「等不到下載」從看起來像成功的 ✅ 改記成 `warn`——判定完全不變，但不會讓看報告的人以為檔案一定落地了。積木名稱刻意叫「執行匯出」不叫「確認下載成功」（CodeX review：不要過度承諾）。
+
+**⚠️ 報表頁要先送出查詢，Export 按鈕才會出現。**那 6 頁在 `SUBTYPE_MAP` 裡的 action 是 `screenshot_date_search`——它會先點 `View` 或 `Search` 才交給 verifier。積木只 `open_page` 的話一定找不到匯出按鈕。所以另外做了 `submit_search` 積木，而且**`View` 跟 `Search` 兩種字都要試**：不同報表頁用的不一樣，逐頁去猜是錯的做法（原本的程式碼就是兩個都試）。
+
 ### 後台的兩個常態陷阱（拆 Reservation 時連續踩到）
 
 **1. 站台警告彈窗的遮罩會擋住點擊。**後台登入後永遠開著一個「Currently N machines are abnormal」彈窗，它的遮罩讓 Playwright 的 `click()` 一路等到逾時。既有 verifier 全部是用 `page.evaluate(() => btn.click())` 繞過去的——那不是偶然，是這個後台的常態。`clickSelector()` 已經加上 fallback：被攔截就改用 JS 直接觸發下層元素（跟 AutoSpin／機測處理選面額遮罩同一套）。**真的找不到元素時仍然拋原本的錯，不要吞掉。**
@@ -1416,7 +1424,7 @@ Backend UAT 的執行早在 v4.23.0 就改成派工了，錄製漏掉沒跟著�
 |------|------|
 | 2 | `SUBTYPE_MAP` 的路徑表搬進 registry；逐支 verifier 宣告參數表，接成 `builtin_verifier` 的 `options`。**第一支做 `verifyMeterPage`（10 筆）當樣板**——最小，而且它的容差比對本來就已經是參數化的形狀（`cmp()`），定完格式再複製到 19／19／28 那三支 |
 | 3 | ✅ 前端積木編輯器（彈框，含積木庫搜尋、複製到另一筆 TC、匯出／匯入）|
-| 4 | 逐筆把 TC 拆成積木。**目前 59/121，每一批都比對過拆解前的基準**：A 類 13、Report 19、GameSetting 11、Meter 8、Reservation 4、Dashboard 4 |
+| 4 | 逐筆把 TC 拆成積木。**目前 66/121，每一批都比對過拆解前的基準**：A 類 13、Report 19、GameSetting 11、Meter 8、匯出 7、Reservation 4、Dashboard 4 |
 
 ### 四支大 verifier 實際拆下來的樣子（跟原本假設不同）
 

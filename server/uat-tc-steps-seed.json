@@ -1,8 +1,21 @@
 {
   "kind": "toppath-uat-tc-steps",
   "version": 1,
-  "count": 59,
+  "count": 66,
   "steps": {
+    "recvenTprA0aSs": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/egmTransfer",
+        "waitMs": 2500
+      },
+      {
+        "action": "submit_search"
+      },
+      {
+        "action": "run_export"
+      }
+    ],
     "recvenTprA3kez": [
       {
         "action": "open_page",
@@ -137,6 +150,19 @@
         "expect": "Machine Name\nUserId\nAccount"
       }
     ],
+    "recvenTprAFTxj": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/gameCount",
+        "waitMs": 2500
+      },
+      {
+        "action": "submit_search"
+      },
+      {
+        "action": "run_export"
+      }
+    ],
     "recvenTprAFfBc": [
       {
         "action": "open_page",
@@ -175,6 +201,19 @@
         "expect": "UserId\nAccount\nType"
       }
     ],
+    "recvenTprAHa1c": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/egmCount",
+        "waitMs": 2500
+      },
+      {
+        "action": "submit_search"
+      },
+      {
+        "action": "run_export"
+      }
+    ],
     "recvenTprAI3aE": [
       {
         "action": "open_page",
@@ -204,6 +243,19 @@
         "action": "assert_labels_contain",
         "source": "formLabel",
         "expect": "Game Type"
+      }
+    ],
+    "recvenTprAKkSA": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/plyerMachineCount",
+        "waitMs": 2500
+      },
+      {
+        "action": "submit_search"
+      },
+      {
+        "action": "run_export"
       }
     ],
     "recvenTprAL2eS": [
@@ -578,6 +630,32 @@
         "min": 1
       }
     ],
+    "recvenTprAtDup": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/gameRecordList",
+        "waitMs": 2500
+      },
+      {
+        "action": "submit_search"
+      },
+      {
+        "action": "run_export"
+      }
+    ],
+    "recvenTprAtQhc": [
+      {
+        "action": "open_page",
+        "path": "/egm/reports/rechargeRecordList",
+        "waitMs": 2500
+      },
+      {
+        "action": "submit_search"
+      },
+      {
+        "action": "run_export"
+      }
+    ],
     "recvenTprAtos7": [
       {
         "action": "open_page",
@@ -687,6 +765,16 @@
         "trigger": "ChannelRankID",
         "fields": "Machine Type",
         "note": "可設定渠道顯示 OSM/GSA 機種"
+      }
+    ],
+    "recvfko9iLzDux": [
+      {
+        "action": "open_page",
+        "path": "/game/machineReservationList",
+        "waitMs": 2500
+      },
+      {
+        "action": "run_export"
       }
     ],
     "recvfkoaA0ksDd": [

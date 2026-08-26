@@ -4457,6 +4457,40 @@ async function performSteps(p, steps, label, taskFull) {
       if (!netCapture) return [];
       return netCapture.records().filter(r => r.kind === 'api' && r.ts >= sinceTs);
     },
+    /**
+     * 執行匯出。直接借用既有的 doExport()——它已經是單一共用函式（14 個呼叫點
+     * 完全同形、零參數），積木沒有理由再寫一份「幾乎一樣但細節會漂移」的實作。
+     *
+     * 回傳只講事實：按鈕在不在、檔案有沒有下來。要不要算失敗由積木那邊決定——
+     * doExport() 原本把「等不到下載」記成 ✅，積木會改記成 warn（判定不變）。
+     */
+    /**
+     * 報表頁要先送出查詢才會有 Export 按鈕。原本的 screenshot_date_search 就是做這件事：
+     * 找 innerText 剛好是 View 或 Search 的按鈕點下去。
+     *
+     * 兩個都要試——不同報表頁用的字不一樣，逐頁去猜是錯的做法。用 JS 點是因為那個
+     * 站台警告彈窗的遮罩會擋住（跟 clickSelector 的 fallback 同一個理由）。
+     */
+    async submitSearch(waitMs) {
+      const clicked = await p.evaluate(() => {
+        const btn = [...document.querySelectorAll('button')]
+          .find(b => { const t = (b.innerText || '').trim(); return t === 'View' || t === 'Search' });
+        if (!btn) return false;
+        btn.click();
+        return true;
+      }).catch(() => false);
+      await p.waitForTimeout(waitMs);
+      return clicked;
+    },
+
+    async runExport() {
+      const r = await doExport(p);
+      return {
+        hasButton: r.criticalFails.length === 0,
+        file: r.exportedXlsxPath ? path.basename(r.exportedXlsxPath) : null,
+      };
+    },
+
     async callBuiltin(name, options) {
       const fn = BUILTIN_VERIFIERS[name];
       if (typeof fn !== 'function') {
