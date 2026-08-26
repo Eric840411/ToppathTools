@@ -119,12 +119,25 @@ export const BLOCK_DEFS = {
       { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
     ],
   },
+  assert_row_buttons: {
+    label: '表格列要有這些按鈕', category: 'assert', defaultOnFail: 'stop',
+    description: '看表格第一列有沒有 Edit／Delete／View 這些操作按鈕',
+    params: [
+      { key: 'buttons', label: '每一個都要有（一行一個）', type: 'textarea', required: true, placeholder: 'Edit / Delete' },
+      { key: 'anyOf', label: '這些至少要有一個（一行一個，選填）', type: 'textarea',
+        help: '有些頁面是 Hidden 或 Show 二選一，那種放這裡' },
+      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
+      { key: 'onEmptyTable', label: '表格沒資料時', type: 'select', options: ['warn', 'continue', 'stop', 'manual'], default: 'warn',
+        help: '沒有列就看不到列上的按鈕。既有驗證器是直接跳過不擋（rowCount > 0 才判定），這裡預設記成 warn' },
+    ],
+  },
   assert_row_count: {
     label: '表格筆數', category: 'assert', defaultOnFail: 'warn',
     description: '表格至少要有幾筆。預設是 warn——沒資料通常代表當下環境沒樣本，不是功能壞了',
     params: [
       { key: 'min', label: '至少幾筆', type: 'number', default: 1 },
-      { key: 'onFail', label: '不足時', type: 'select', options: ['warn', 'stop', 'continue', 'manual'], default: 'warn' },
+      { key: 'max', label: '最多幾筆（留空不限）', type: 'number', help: '例如「只能新增一個廣告配置」就填 1' },
+      { key: 'onFail', label: '不符時', type: 'select', options: ['warn', 'stop', 'continue', 'manual'], default: 'warn' },
     ],
   },
   assert_api_called: {
@@ -565,12 +578,42 @@ export async function runSteps(steps, ctx) {
         }
         notes.push(`✅ ${tag}：${what} ${count} 個`);
 
+      } else if (step.action === 'assert_row_buttons') {
+        // 既有 verifier 的形狀是：讀第一列的所有 button innerText，再檢查該有的在不在。
+        // 有些頁面是 Hidden／Show 二選一，所以除了「每個都要有」還要支援「至少有一個」。
+        const rowBtns = await ctx.page.evaluate(() => {
+          const row = document.querySelector('.el-table__body tr');
+          if (!row) return null;
+          return [...row.querySelectorAll('button, .el-button')].map(b => (b.innerText || '').trim()).filter(Boolean);
+        });
+        if (rowBtns === null) {
+          // 沒有列就看不到列上的按鈕。既有 verifier 是 rowCount > 0 才判定，等於直接跳過
+          const empty = { ...step, onFail: step.onEmptyTable ?? 'warn' };
+          if (fail(empty, `${tag}：表格目前沒有資料，看不到列上的按鈕`) === 'stop') break; continue;
+        }
+        const need = toLines(step.buttons);
+        const anyOf = toLines(step.anyOf);
+        const missing = need.filter(b => !rowBtns.includes(String(b)));
+        const anyOk = !anyOf.length || anyOf.some(b => rowBtns.includes(String(b)));
+        if (missing.length || !anyOk) {
+          const why = [
+            missing.length ? `缺少 ${missing.join('、')}` : '',
+            anyOk ? '' : `${anyOf.join(' 或 ')} 一個都沒有`,
+          ].filter(Boolean).join('；');
+          if (fail(step, `${tag}：${why}（這一列實際有：${rowBtns.join('、') || '（沒有按鈕）'}）`) === 'stop') break; continue;
+        }
+        notes.push(`✅ ${tag}：${[...need, ...(anyOf.length ? [anyOf.join('/')] : [])].join('、')}`);
+
       } else if (step.action === 'assert_row_count') {
         const rowCount = await ctx.page.evaluate(() =>
           document.querySelectorAll('.el-table__body tr, table tbody tr').length);
         const min = step.min === undefined ? 1 : Number(step.min);
+        const rowMax = step.max === undefined || step.max === '' ? null : Number(step.max);
         if (rowCount < min) {
           if (fail(step, `${tag}：只有 ${rowCount} 筆，少於 ${min} 筆`) === 'stop') break; continue;
+        }
+        if (rowMax !== null && rowCount > rowMax) {
+          if (fail(step, `${tag}：有 ${rowCount} 筆，超過上限 ${rowMax} 筆`) === 'stop') break; continue;
         }
         notes.push(`✅ ${tag}：${rowCount} 筆`);
 

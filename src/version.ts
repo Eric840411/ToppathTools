@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.49.0'
+export const APP_VERSION = '4.50.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.50.0',
+    date: '2026-08-26',
+    changes: [
+      'feat(uat): 新增「表格列要有這些按鈕」積木，支援「每個都要有」與「這幾個至少要有一個」（有些頁面是 Hidden 或 Show 二選一）。表格沒資料時預設記警告不擋——沒有列就看不到列上的按鈕，那不是功能壞了',
+      'feat(uat): 表格筆數積木補上上限，可以驗「只能新增一個廣告配置」這類規格',
+      'feat(uat): 拆掉 5 筆列按鈕與筆數上限類的 TC，比對基準 20/20 一致。積木化累計 71/121',
+    ],
+  },
   {
     version: '4.49.0',
     date: '2026-08-26',

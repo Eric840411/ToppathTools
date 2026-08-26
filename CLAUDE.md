@@ -1424,7 +1424,7 @@ Backend UAT 的執行早在 v4.23.0 就改成派工了，錄製漏掉沒跟著�
 |------|------|
 | 2 | `SUBTYPE_MAP` 的路徑表搬進 registry；逐支 verifier 宣告參數表，接成 `builtin_verifier` 的 `options`。**第一支做 `verifyMeterPage`（10 筆）當樣板**——最小，而且它的容差比對本來就已經是參數化的形狀（`cmp()`），定完格式再複製到 19／19／28 那三支 |
 | 3 | ✅ 前端積木編輯器（彈框，含積木庫搜尋、複製到另一筆 TC、匯出／匯入）|
-| 4 | 逐筆把 TC 拆成積木。**目前 66/121，每一批都比對過拆解前的基準**：A 類 13、Report 19、GameSetting 11、Meter 8、匯出 7、Reservation 4、Dashboard 4 |
+| 4 | 逐筆把 TC 拆成積木。**目前 71/121，每一批都比對過拆解前的基準**：A 類 13、Report 19、GameSetting 11、Meter 8、匯出 7、列按鈕類 5、Reservation 4、Dashboard 4 |
 
 ### 四支大 verifier 實際拆下來的樣子（跟原本假設不同）
 

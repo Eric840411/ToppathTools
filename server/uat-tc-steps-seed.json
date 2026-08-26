@@ -1,7 +1,7 @@
 {
   "kind": "toppath-uat-tc-steps",
   "version": 1,
-  "count": 66,
+  "count": 71,
   "steps": {
     "recvenTprA0aSs": [
       {
@@ -95,6 +95,17 @@
       {
         "action": "assert_column_exists",
         "columns": "Type"
+      }
+    ],
+    "recvenTprA9eUu": [
+      {
+        "action": "open_page",
+        "path": "/game/upJackpotVideo",
+        "waitMs": 2500
+      },
+      {
+        "action": "assert_row_buttons",
+        "buttons": "Edit\nDelete\nView"
       }
     ],
     "recvenTprABY17": [
@@ -199,6 +210,32 @@
         "action": "assert_labels_contain",
         "source": "formLabel",
         "expect": "UserId\nAccount\nType"
+      }
+    ],
+    "recvenTprAFy9I": [
+      {
+        "action": "open_page",
+        "path": "/game/advertSet",
+        "waitMs": 2500
+      },
+      {
+        "action": "assert_row_count",
+        "min": 0,
+        "max": 1,
+        "onFail": "stop"
+      }
+    ],
+    "recvenTprAGxFS": [
+      {
+        "action": "open_page",
+        "path": "/game/egmJpPercent",
+        "waitMs": 2500
+      },
+      {
+        "action": "assert_dialog_fields",
+        "trigger": "Edit",
+        "scope": "firstRow",
+        "fields": "Fortune\nGrand\nMajor\nMinor\nMini"
       }
     ],
     "recvenTprAHa1c": [
@@ -378,6 +415,18 @@
       {
         "action": "assert_column_exists",
         "columns": "Name"
+      }
+    ],
+    "recvenTprAc6J7": [
+      {
+        "action": "open_page",
+        "path": "/game/gameJumpSet",
+        "waitMs": 2500
+      },
+      {
+        "action": "assert_row_buttons",
+        "buttons": "Edit\nDelete",
+        "anyOf": "Hidden\nShow"
       }
     ],
     "recvenTprAcCmK": [
@@ -605,6 +654,17 @@
         "action": "assert_labels_contain",
         "source": "formLabel",
         "expect": "Game Type"
+      }
+    ],
+    "recvenTprAmlBZ": [
+      {
+        "action": "open_page",
+        "path": "/game/bannerSet",
+        "waitMs": 2500
+      },
+      {
+        "action": "assert_row_buttons",
+        "buttons": "Edit\nDelete"
       }
     ],
     "recvenTprAnBfe": [

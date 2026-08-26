@@ -475,6 +475,45 @@ const CALLS = [
   check('要整段吻合，不是包含就算', wildcardToRegExp('http://x.org/api').test('http://x.org/api/extra') === false)
 }
 
+// ── assert_row_buttons ────────────────────────────────────────────────
+{
+  const has = makeCtx(); has.page.evaluate = async () => ['Edit', 'Delete', 'View']
+  check('列上按鈕齊全 → pass',
+    (await runSteps([{ action: 'assert_row_buttons', buttons: `Edit${'\n'}Delete` }], has)).pass === true)
+
+  const miss = makeCtx(); miss.page.evaluate = async () => ['Edit']
+  const r = await runSteps([{ action: 'assert_row_buttons', buttons: `Edit${'\n'}Delete` }], miss)
+  check('缺按鈕 → FAIL 且指出缺哪個', r.pass === false && /Delete/.test(r.criticalFails.join('')), r.criticalFails)
+  check('訊息要列出這一列實際有什麼', /實際有/.test(r.criticalFails.join('')), r.criticalFails)
+
+  // 有些頁面是 Hidden／Show 二選一
+  const hid = makeCtx(); hid.page.evaluate = async () => ['Edit', 'Delete', 'Show']
+  check('anyOf 有一個就算過',
+    (await runSteps([{ action: 'assert_row_buttons', buttons: `Edit${'\n'}Delete`, anyOf: `Hidden${'\n'}Show` }], hid)).pass === true)
+  const neither = makeCtx(); neither.page.evaluate = async () => ['Edit', 'Delete']
+  check('anyOf 一個都沒有 → FAIL',
+    (await runSteps([{ action: 'assert_row_buttons', buttons: 'Edit', anyOf: `Hidden${'\n'}Show` }], neither)).pass === false)
+
+  // 表格空的時候看不到列上的按鈕。既有 verifier 是直接跳過不擋
+  const empty = makeCtx(); empty.page.evaluate = async () => null
+  const e = await runSteps([{ action: 'assert_row_buttons', buttons: 'Edit' }], empty)
+  check('表格沒資料 → 預設 warn 不擋', e.pass === true && e.warnings.length === 1, { p: e.pass, w: e.warnings })
+  check('表格沒資料也可以選擇要擋',
+    (await runSteps([{ action: 'assert_row_buttons', buttons: 'Edit', onEmptyTable: 'stop' }], makeCtx())).pass === false)
+}
+
+// ── assert_row_count 的上限 ───────────────────────────────────────────
+{
+  const two = makeCtx(); two.page.evaluate = async () => 2
+  check('超過上限 → FAIL（例如「只能新增一個廣告配置」）',
+    (await runSteps([{ action: 'assert_row_count', min: 0, max: 1, onFail: 'stop' }], two)).pass === false)
+  const one = makeCtx(); one.page.evaluate = async () => 1
+  check('剛好在上限內 → pass',
+    (await runSteps([{ action: 'assert_row_count', min: 0, max: 1 }], one)).pass === true)
+  check('沒填上限就不限制',
+    (await runSteps([{ action: 'assert_row_count', min: 0 }], two)).pass === true)
+}
+
 // ── 零斷言守門 ────────────────────────────────────────────────────────
 // 守的是：驗證器跑完但什麼都沒驗到時，不准判定為通過。
 // v4.36.1 就是踩到這個——接線傳錯，每條分支都不命中，結果一路綠燈。
