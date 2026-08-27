@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.64.1'
+export const APP_VERSION = '4.64.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.64.2',
+    date: '2026-08-27',
+    changes: [
+      'fix(普通版): 日期／時間輸入框的原生選擇器圖示在深色底上幾乎看不見——color-scheme: dark 原本只寫在修仙版的樣式表裡，普通版拿到的是 light 配色',
+      'note(普通版): 補在基礎樣式而不是複製一份到普通版——整個 app 不論哪個版面都是深色底，這條屬於基礎設定，不該只掛在其中一套皮膚上。連帶下拉面板與捲軸也一起正常了',
+    ],
+  },
   {
     version: '4.64.1',
     date: '2026-08-27',
