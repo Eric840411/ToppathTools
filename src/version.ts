@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.62.0'
+export const APP_VERSION = '4.63.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.63.0',
+    date: '2026-08-27',
+    changes: [
+      'feat(週報): Discord 提醒逐筆完整列出，不再「…等 N 筆」（使用者要求：省略對他沒有意義）。一個人一個欄位，每行還帶專案名稱',
+      'feat(週報): 按下按鈕之後的結果也一樣完整——已送出/跳過/失敗/待處理逐條列，訊息本體只留一行結論',
+      'note(週報): Discord 有硬上限（單欄 1024 字、單 embed 25 欄/6000 字、單訊息 10 個 embed），超過會整包被拒、訊息完全發不出去。改成自動切成多個欄位與多個 embed——切的是容器不是內容，不會因此少列任何一筆',
+    ],
+  },
   {
     version: '4.62.0',
     date: '2026-08-27',

@@ -21,7 +21,7 @@
  * defer 完全來得及。
  */
 import { Client, GatewayIntentBits, Events, type TextChannel } from 'discord.js'
-import { submitWeeklyDraft, clearRetryableSubmissions } from './routes/weekly-report.js'
+import { submitWeeklyDraft, clearRetryableSubmissions, packLines } from './routes/weekly-report.js'
 
 /** 按鈕的 custom_id。帶版本後綴——之後改了語意，舊訊息上的按鈕就不會被新程式誤解成同一件事 */
 const BTN_SUBMIT = 'weekly_submit_v1'
@@ -86,25 +86,40 @@ export function startWeeklyReportBot(): void {
     }
 
     const { outcome } = result
-    const lines: string[] = []
-    lines.push(`✅ **已送出 ${outcome.sent.length} 筆**（由 ${i.user.tag} 於 <t:${Math.floor(Date.now() / 1000)}:t> 按下）`)
-    if (outcome.skipped.length > 0) lines.push(`⏭️ 跳過 ${outcome.skipped.length} 筆（之前已經送過）`)
+
+    // 訊息本體只放一行結論；明細全部放 embed 欄位。
+    // **不做「…另有 N 筆」的省略**（2026-08-27 使用者要求）——訊息本體上限 2000 字元擠不下，
+    // 但 embed 欄位可以切成多個，切的是容器不是內容。
+    const summary = `✅ **已送出 ${outcome.sent.length} 筆**`
+      + (outcome.skipped.length > 0 ? `　⏭️ 跳過 ${outcome.skipped.length}` : '')
+      + (outcome.failed.length > 0 ? `　❌ 失敗 ${outcome.failed.length}` : '')
+      + (outcome.blockers.length > 0 ? `　⚠️ 待處理 ${outcome.blockers.length}` : '')
+      + `（由 ${i.user.tag} 於 <t:${Math.floor(Date.now() / 1000)}:t> 按下）`
+
+    const fields: Array<{ name: string; value: string; inline: boolean }> = []
+    if (outcome.sent.length > 0) {
+      fields.push(...packLines(`已送出（${outcome.sent.length}）`,
+        outcome.sent.map(x => `• ${x.person}：${x.content}`)))
+    }
+    if (outcome.skipped.length > 0) {
+      fields.push(...packLines(`跳過（${outcome.skipped.length}）`,
+        outcome.skipped.map(x => `• ${x.person}：${x.content}　—— ${x.reason}`)))
+    }
     if (outcome.failed.length > 0) {
-      lines.push(`❌ 失敗 ${outcome.failed.length} 筆：`)
-      for (const f of outcome.failed.slice(0, 3)) lines.push(`　• ${f.person}：${f.message.slice(0, 80)}`)
+      fields.push(...packLines(`失敗（${outcome.failed.length}）`,
+        outcome.failed.map(x => `• ${x.person}：${x.content}　—— ${x.message}`)))
     }
-    // 待處理一定要列出來並寫原因，不能只說「還有 N 筆」——使用者要知道為什麼、去哪處理
+    // 待處理一定要逐條列出並寫原因——使用者要知道為什麼、去哪處理
     if (outcome.blockers.length > 0) {
-      lines.push('', `⚠️ **還有 ${outcome.blockers.length} 項要你去頁面處理**：`)
-      for (const b of outcome.blockers.slice(0, 5)) lines.push(`　• ${b.detail}`)
-      if (outcome.blockers.length > 5) lines.push(`　…另有 ${outcome.blockers.length - 5} 項`)
+      fields.push(...packLines(`需要你去頁面處理（${outcome.blockers.length}）`,
+        outcome.blockers.map(b => `• ${b.detail}`)))
     }
 
-    let content = lines.join('\n')
-    // Discord 訊息本體上限 2000 字元，超過會整包被拒——寧可截斷也不要整則發不出去
-    if (content.length > 1900) content = `${content.slice(0, 1890)}\n…（過長已截斷）`
-
-    await i.editReply({ content, components: [disabledRow('已送出')] })
+    await i.editReply({
+      content: summary,
+      embeds: packFieldsIntoEmbeds(fields, '送出結果'),
+      components: [disabledRow('已送出')],
+    })
   })
 
   client.on(Events.Error, e => console.error('[WeeklyBot] Gateway 錯誤：', e))
@@ -113,6 +128,31 @@ export function startWeeklyReportBot(): void {
     console.error('[WeeklyBot] 登入失敗：', e)
     ready = false
   })
+}
+
+/** 把欄位切進多個 embed。Discord 一個 embed 最多 25 欄／6000 字元，超過整包被拒、
+ *  訊息完全發不出去。切的是容器不是內容，不會因此少列任何一筆。 */
+function packFieldsIntoEmbeds(fields: Array<{ name: string; value: string; inline: boolean }>, title: string) {
+  if (fields.length === 0) return []
+  const out: Array<Record<string, unknown>> = []
+  let cur: typeof fields = []
+  let len = 0
+  const flush = () => {
+    if (cur.length === 0) return
+    out.push({
+      title: out.length === 0 ? title : `${title}（續 ${out.length + 1}）`,
+      color: 0x62C6A5,
+      fields: cur,
+    })
+    cur = []; len = 0
+  }
+  for (const f of fields) {
+    const size = f.name.length + f.value.length
+    if (cur.length >= 25 || (cur.length > 0 && len + size > 5500)) flush()
+    cur.push(f); len += size
+  }
+  flush()
+  return out.slice(0, 10) as never
 }
 
 /** 按完之後的按鈕列——保留按鈕但一律 disabled，讓人看得出「這則已經處理過了」，
@@ -132,7 +172,9 @@ function disabledRow(label: string) {
  */
 export async function sendWeeklyReminderWithButton(payload: {
   content: string
-  embed: Record<string, unknown>
+  /** 可能不只一個——逐筆完整列出之後欄位數會隨人數成長，而 Discord 一個 embed
+   *  最多 25 欄／6000 字元，超過整包被拒。切的是容器不是內容。 */
+  embeds: Array<Record<string, unknown>>
 }): Promise<boolean> {
   const { channelId } = cfg()
   if (!client || !ready || !channelId) return false
@@ -141,7 +183,9 @@ export async function sendWeeklyReminderWithButton(payload: {
     if (!ch || !('send' in ch)) return false
     await (ch as TextChannel).send({
       content: payload.content,
-      embeds: [payload.embed as never],
+      // 一則訊息最多 10 個 embed；超過的話寧可少顯示尾巴也不要整則發不出去，
+      // 但真的到 10 個 embed（250 個欄位）代表資料量已經不適合塞在 Discord 裡了
+      embeds: payload.embeds.slice(0, 10) as never,
       components: [{
         type: 1,
         components: [{ type: 2, style: 3, label: '確認送出到 Lark', custom_id: BTN_SUBMIT }],

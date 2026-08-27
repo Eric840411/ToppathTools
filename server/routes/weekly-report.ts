@@ -1109,15 +1109,38 @@ export function clearRetryableSubmissions(): number {
   return r.changes
 }
 
+/** Discord 單一 field value 的硬上限是 1024 字元，超過整包被拒、訊息完全發不出去。
+ *  所以「顯示完整」不能靠一個大欄位塞完，要切成多個欄位。留 24 字元餘裕給續接標記。 */
+const DISCORD_FIELD_LIMIT = 1000
+
+/** 把一堆行塞進欄位，超過長度就切下一個欄位（標題加 (2)、(3)…）。
+ *  **單獨一行就超過上限時才截那一行**並明講截過——這是唯一會失去資訊的情況，
+ *  不能安靜地做。 */
+export function packLines(name: string, lines: string[]): Array<{ name: string; value: string; inline: boolean }> {
+  const out: Array<{ name: string; value: string; inline: boolean }> = []
+  let buf: string[] = []
+  let len = 0
+  const flush = () => {
+    if (buf.length === 0) return
+    out.push({ name: out.length === 0 ? name : `${name}（${out.length + 1}）`, value: buf.join('\n'), inline: false })
+    buf = []; len = 0
+  }
+  for (const raw of lines) {
+    const line = raw.length > DISCORD_FIELD_LIMIT ? `${raw.slice(0, DISCORD_FIELD_LIMIT - 12)}…（此行過長已截斷）` : raw
+    if (len + line.length + 1 > DISCORD_FIELD_LIMIT) flush()
+    buf.push(line); len += line.length + 1
+  }
+  flush()
+  return out
+}
+
 /** 組提醒訊息裡的預覽區塊。
  *
- *  ⚠️ 這是**預覽不是週報本身**，文案上一定要講清楚。備稿有一半規則只活在前端
- *  （專案預設帶入、P7-005-OSM 每人合併、Jira 標籤歸集、頁籤報表與未識別人員的手動指派），
- *  server 這邊跑的只有 Sheet 掃描那段，所以數字跟最後真的送進 Lark 的內容不會完全一致。
- *  假裝它等於最後結果，比不給預覽更糟——使用者會照著它去核對，然後發現對不上。
+ *  ⚠️ 這是**預覽不是週報本身**，文案上一定要講清楚。手動指派（未識別人員、只用表單名稱的
+ *  來源）這類需要人看著決定的部分只在頁面上跑，數字跟最後真的送進 Lark 的內容不保證一致。
  *
- *  **Jira 撈單刻意不放進來**：那要用「某個人的 Jira token」去查，而身分一律以登入 cookie
- *  為準（v4.10.0 收緊的邊界）。cron 沒有請求也沒有登入者，要撈就得繞過那條邊界，不值得。
+ *  **逐筆完整列出，不做「…等 N 筆」的省略**（2026-08-27 使用者要求：省略對他沒有意義，
+ *  他要的就是打開 Discord 就能核對完整內容）。長度靠切欄位處理，不是靠少列。
  */
 async function buildReminderPreview(): Promise<{ fields: Array<{ name: string; value: string; inline: boolean }>; footer: string }> {
   const sources = getReminderSources()
@@ -1143,41 +1166,40 @@ async function buildReminderPreview(): Promise<{ fields: Array<{ name: string; v
 
     const fields: Array<{ name: string; value: string; inline: boolean }> = []
 
-    // 逐人摘要。Discord 單一 field value 上限 1024 字元，人多時一定要截——
-    // 超過就被 API 整包拒絕，訊息會完全發不出去（比少列幾個人嚴重得多）
-    const byPerson = new Map<string, string[]>()
+    // 一個人一個欄位，逐筆列出。這樣人多的時候是「欄位變多」而不是「內容被砍」
+    const byPerson = new Map<string, Array<{ project: string; content: string }>>()
     for (const { person, item } of draft.items) {
       const list = byPerson.get(person) ?? []
-      list.push(item.content.replace(/\s+/g, ' ').slice(0, 40))
+      list.push({ project: item.projectName, content: item.content.replace(/\s+/g, ' ') })
       byPerson.set(person, list)
     }
+
     if (byPerson.size === 0) {
       fields.push({ name: '可自動送出的項目', value: '這個區間內沒有可自動判定的項目', inline: false })
     } else {
-      const shown = [...byPerson.entries()].slice(0, 8)
-      const lines = shown.map(([person, contents]) => {
-        const heads = contents.slice(0, 3)
-        const more = contents.length > heads.length ? `…等 ${contents.length} 筆` : ''
-        return `**${person}**（${contents.length}）：${heads.join('｜')}${more}`
+      fields.push({
+        name: `可自動送出的項目（${draft.stats.peopleCount} 人 / ${draft.stats.itemCount} 筆）`,
+        value: '逐筆列在下面，沒有省略。',
+        inline: false,
       })
-      if (byPerson.size > shown.length) lines.push(`…另有 ${byPerson.size - shown.length} 人`)
-      let value = lines.join('\n')
-      if (value.length > 1000) value = `${value.slice(0, 990)}\n…（過長已截斷）`
-      fields.push({ name: `可自動送出的項目（${draft.stats.peopleCount} 人 / ${draft.stats.itemCount} 筆）`, value, inline: false })
+      for (const [person, items] of byPerson) {
+        // 專案也一起列——核對週報時「這筆歸到哪個專案」跟內容一樣重要
+        const lines = items.map(i => `• \`${i.project || '（缺專案）'}\` ${i.content}`)
+        fields.push(...packLines(`${person}（${items.length}）`, lines))
+      }
     }
 
-    // 送不了的單獨列一欄——這是使用者真正要為此打開頁面的理由，不能安靜地漏掉
+    // 送不了的也逐條列——這是使用者真正要為此打開頁面的理由，更不能省略
     if (draft.blockers.length > 0) {
-      const heads = draft.blockers.slice(0, 6).map(b => `• ${b.detail}`)
-      if (draft.blockers.length > heads.length) heads.push(`…另有 ${draft.blockers.length - heads.length} 項`)
-      let value = heads.join('\n')
-      if (value.length > 1000) value = `${value.slice(0, 990)}\n…（過長已截斷）`
-      fields.push({ name: `需要你去頁面處理（${draft.blockers.length}）`, value, inline: false })
+      fields.push(...packLines(
+        `需要你去頁面處理（${draft.blockers.length}）`,
+        draft.blockers.map(b => `• ${b.detail}`),
+      ))
     }
 
     return {
       fields,
-      footer: 'Jira 撈單與手動指派只在頁面上跑，不含在這裡',
+      footer: '手動指派只在頁面上跑，不含在這裡',
     }
   } catch (e) {
     // 預覽算不出來絕不能連提醒本身都發不出去——提醒是主功能，預覽是附加的
@@ -1211,26 +1233,45 @@ async function sendWeeklyReminder(): Promise<{ sent: boolean; message: string }>
     } catch { /* 對照表壞掉不該擋住提醒本身 */ }
   }
 
-  const embed = {
-    title: '週報備稿提醒',
-    description: [
-      '按下面的按鈕直接送出，或開週報彙整頁自己確認。',
-      '**手動指派與比對不到專案的項目不會被送出**，會列在下面。',
-    ].join('\n'),
-    color: 0x62C6A5,
-    fields: [
-      { name: '本週撈取範圍', value: `${startLabel} ～ ${endLabel}`, inline: false },
-      ...preview.fields,
-    ],
-    footer: { text: preview.footer },
-    timestamp: new Date().toISOString(),
+  // Discord 一個 embed 最多 25 個欄位、總長 6000 字元，超過整包被拒、訊息完全發不出去。
+  // 逐筆完整列出之後欄位數會隨人數成長，所以要切成多個 embed（一則訊息最多 10 個）。
+  // **切的是容器不是內容**——不會因為切而少列任何一筆。
+  const EMBED_FIELD_MAX = 25
+  const EMBED_CHAR_MAX = 5500  // 留餘裕給 title/description/footer
+  const fieldChunks: Array<Array<{ name: string; value: string; inline: boolean }>> = []
+  {
+    let cur: Array<{ name: string; value: string; inline: boolean }> = []
+    let len = 0
+    for (const f of [{ name: '本週撈取範圍', value: `${startLabel} ～ ${endLabel}`, inline: false }, ...preview.fields]) {
+      const size = f.name.length + f.value.length
+      if (cur.length >= EMBED_FIELD_MAX || (cur.length > 0 && len + size > EMBED_CHAR_MAX)) {
+        fieldChunks.push(cur); cur = []; len = 0
+      }
+      cur.push(f); len += size
+    }
+    if (cur.length > 0) fieldChunks.push(cur)
   }
+
+  const embeds = fieldChunks.map((chunk, i) => ({
+    // 只有第一個 embed 帶標題與說明，後面的是續頁——每個都重複一次會很吵
+    ...(i === 0 ? {
+      title: '週報備稿提醒',
+      description: [
+        '按下面的按鈕直接送出，或開週報彙整頁自己確認。',
+        '**手動指派與比對不到專案的項目不會被送出**，會列在下面。',
+      ].join('\n'),
+    } : { title: `週報備稿提醒（續 ${i + 1}）` }),
+    color: 0x62C6A5,
+    fields: chunk,
+    ...(i === fieldChunks.length - 1 ? { footer: { text: preview.footer }, timestamp: new Date().toISOString() } : {}),
+  }))
+
 
   // 優先用 bot 發——只有 application 發的訊息才帶得動按鈕（webhook 送 components 會被
   // Discord 靜默丟掉，已實測）。bot 沒設定或還沒連上就退回 webhook：**沒有按鈕總比
   // 整則提醒都不見了好**。
   const { sendWeeklyReminderWithButton } = await import('../weekly-report-bot.js')
-  if (await sendWeeklyReminderWithButton({ content, embed })) {
+  if (await sendWeeklyReminderWithButton({ content, embeds })) {
     return { sent: true, message: '已送出提醒（帶按鈕）' }
   }
   await fetch(webhookUrl, {
@@ -1238,7 +1279,7 @@ async function sendWeeklyReminder(): Promise<{ sent: boolean; message: string }>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       content,
-      embeds: [embed],
+      embeds,
     }),
   })
   return { sent: true, message: '已送出提醒' }
