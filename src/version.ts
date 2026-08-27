@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.63.0'
+export const APP_VERSION = '4.63.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.63.1',
+    date: '2026-08-27',
+    changes: [
+      'fix(修仙版): 純文字被誤套上按鈕的漸層底色——CSS 規則用「行內樣式含某個藍色」來抓主要按鈕，但那比對的是顏色不是角色，任何把文字染成那個藍的元素都會中',
+      'note(修仙版): 受影響的不只 URL 帳號池的「我的 N」——TestCase 表格裡的 Jira 單號、Local Agent 的步驟編號也被套到。收窄成只吃 button/a/[role=button]，量過：6 個真按鈕全部保留，6 個誤傷全部消失',
+    ],
+  },
   {
     version: '4.63.0',
     date: '2026-08-27',

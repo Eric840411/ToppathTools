@@ -637,9 +637,17 @@ body::after {
   border-color: rgba(117, 215, 207, .48) !important;
 }
 
-.main-content [style*="rgb(99, 102, 241)"],
-.main-content [style*="rgb(59, 130, 246)"],
-.main-content [style*="rgb(37, 99, 235)"] {
+/* ⚠️ 一定要連 tag 一起限定。只寫 [style*="rgb(...)"] 的話比對到的是「顏色」不是「角色」，
+   任何把文字染成這個藍的元素都會被套上按鈕底色——踩過一次了，不要改回去。 */
+.main-content button[style*="rgb(99, 102, 241)"],
+.main-content button[style*="rgb(59, 130, 246)"],
+.main-content button[style*="rgb(37, 99, 235)"],
+.main-content a[style*="rgb(99, 102, 241)"],
+.main-content a[style*="rgb(59, 130, 246)"],
+.main-content a[style*="rgb(37, 99, 235)"],
+.main-content [role="button"][style*="rgb(99, 102, 241)"],
+.main-content [role="button"][style*="rgb(59, 130, 246)"],
+.main-content [role="button"][style*="rgb(37, 99, 235)"] {
   border-color: rgba(117, 215, 207, .52) !important;
   background: linear-gradient(145deg, rgba(50, 132, 122, .88), rgba(28, 79, 75, .9)) !important;
   color: #eaf8f5 !important;
