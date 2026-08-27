@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.59.0'
+export const APP_VERSION = '4.59.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.59.1',
+    date: '2026-08-27',
+    changes: [
+      'chore(週報): 拿掉訊息裡的網址之後，TOPPATH_BASE_URL 在這條路徑上就沒人用了，一併刪掉那行死程式碼——server 的 tsconfig 沒開 noUnusedLocals 不會被抓到，留著會讓人以為週報還需要設它',
+    ],
+  },
   {
     version: '4.59.0',
     date: '2026-08-27',

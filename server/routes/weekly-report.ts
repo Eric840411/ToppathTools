@@ -1151,7 +1151,6 @@ async function sendWeeklyReminder(): Promise<{ sent: boolean; message: string }>
     } catch { /* 對照表壞掉不該擋住提醒本身 */ }
   }
 
-  const baseUrl = process.env.TOPPATH_BASE_URL || 'http://localhost:3000'
   const embed = {
     title: '週報備稿提醒',
     description: [
