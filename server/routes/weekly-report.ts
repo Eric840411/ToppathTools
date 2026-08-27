@@ -7,7 +7,14 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import cron from 'node-cron'
+import { createHash } from 'crypto'
 import { addHistory, db, getLarkToken, mustEnv, userJiraAuth, parseLarkSheetUrl } from '../shared.js'
+// 週報呈現規則前後端共用同一份——server 這邊要算出「跟頁面一模一樣的內容」才能讓 Discord
+// 按鈕直接送出。複製一份到 server 的話，之後改規則會漏一邊，症狀是送出去的跟看到的不一樣。
+import {
+  applyDefaultScanSheetProject, buildPreviewItems,
+  type DraftItem as SharedDraftItem, type FlatItem,
+} from '../../shared/weekly-report-rules.js'
 
 export const router = Router()
 
@@ -606,6 +613,13 @@ router.post('/api/weekly-report/batch-submit', async (req, res) => {
           results.push({ index: i, ok: false, message: data.msg ?? resp.statusText })
         } else {
           results.push({ index: i, ok: true, recordId: data.data?.record?.record_id ?? '' })
+          // 記一筆給 Discord 按鈕那條路查重用。**只記錄不擋**——頁面本來就有自己的防重複
+          // 設計（append-only + 部分失敗時移除已成功的），改成會擋是行為變更。
+          try {
+            recordSubmitted(getFridayAnchoredWeekRange().startLabel, item.member, item.content, item.project ?? '', data.data?.record?.record_id ?? '', 'page', '')
+          } catch (e) {
+            console.warn('[WeeklyReport] 記錄送出紀錄失敗（不影響送出本身）：', e)
+          }
         }
       } catch (e) {
         results.push({ index: i, ok: false, message: e instanceof Error ? e.message : String(e) })
@@ -655,6 +669,10 @@ interface WeeklyReminderSources {
   savedAt: number
   weeklyUrl: string
   sheets: Array<{ url: string; dateColumn: string; personColumn: string; contentColumns: string[] }>
+  /** 兩個合併開關原本存在瀏覽器 localStorage，server 讀不到。不一起存過來的話，
+   *  Discord 送出的結果會跟使用者在頁面上勾的開關不一致——那正是這整件事要避免的不一致。*/
+  mergeOsm: boolean
+  mergeJiraTags: boolean
 }
 
 function getReminderSources(): WeeklyReminderSources | null {
@@ -662,7 +680,9 @@ function getReminderSources(): WeeklyReminderSources | null {
   if (!row?.value) return null
   try {
     const v = JSON.parse(row.value) as WeeklyReminderSources
-    return (v && Array.isArray(v.sheets) && typeof v.weeklyUrl === 'string') ? v : null
+    if (!v || !Array.isArray(v.sheets) || typeof v.weeklyUrl !== 'string') return null
+    // 舊資料沒有這兩個欄位，補上預設（跟前端 localStorage 沒設過時的預設一致：兩個都關）
+    return { ...v, mergeOsm: v.mergeOsm === true, mergeJiraTags: v.mergeJiraTags === true }
   } catch {
     return null
   }
@@ -693,6 +713,206 @@ function reminderCronExpr(cfg: WeeklyReminderConfig): string {
 
 let weeklyReminderTask: cron.ScheduledTask | null = null
 
+/**
+ * 後端版的「算出這週要送什麼」。走的是 shared/weekly-report-rules 那份規則，
+ * 跟頁面上跑的是同一套，不是複製一份。
+ *
+ * ## 跟頁面比，這裡少了什麼（**很重要，不要當成等價**）
+ * 1. **Jira 撈單**——要用某個人的 Jira token，而身分一律以登入 cookie 為準（v4.10.0 收緊的
+ *    邊界）。cron 沒有請求也沒有登入者，要撈就得繞過那條邊界，不做。
+ * 2. **手動指派**——頁籤日期式報表、未識別人員指派，本質上要有人看著決定。
+ * 3. **只用表單名稱的來源 Sheet**——那也是手動勾成員的，同上。
+ *
+ * 所以這支算出來的是「Sheet 掃描這條路上、可以自動判定的部分」。剩下的一律列進
+ * `blockers`，讓 Discord 訊息明講「這些要你自己去頁面處理」，而不是安靜地漏掉。
+ */
+export interface WeeklyDraftResult {
+  ok: true
+  weekRange: { startLabel: string; endLabel: string; todayLabel: string }
+  /** 可以直接送出的項目（專案已確定） */
+  items: FlatItem[]
+  /** 送不了、要人處理的事，附原因 */
+  blockers: Array<{ kind: 'missing_project' | 'unidentified' | 'source_error'; detail: string }>
+  stats: { peopleCount: number; itemCount: number }
+}
+
+export async function buildWeeklyDraft(sources: WeeklyReminderSources): Promise<
+  WeeklyDraftResult | { ok: false; message: string }
+> {
+  const base = await loadWeeklyBaseOptions(sources.weeklyUrl)
+  if (base.ok === false) return { ok: false, message: base.message }
+
+  const scan = await runBatchScan({
+    sheets: sources.sheets,
+    members: base.members.map(m => m.name),
+    projects: base.projects,
+  })
+
+  const withDefaults = applyDefaultScanSheetProject(
+    scan.draftsByPerson as Record<string, SharedDraftItem[]>,
+    sources.sheets[0]?.url,
+    base.projects,
+  )
+  const flat = buildPreviewItems(withDefaults, {
+    mergeOsm: sources.mergeOsm,
+    mergeJiraTags: sources.mergeJiraTags,
+  })
+
+  // 缺專案的送不了——Lark 那欄是單選，沒有值等於沒填。頁面上本來就會擋住送出，
+  // 這裡的行為要一致，不能因為走 Discord 就放寬
+  const items = flat.filter(x => !!x.item.projectId)
+  const blockers: WeeklyDraftResult['blockers'] = []
+  for (const x of flat) {
+    if (!x.item.projectId) {
+      blockers.push({ kind: 'missing_project', detail: `${x.person}：${x.item.content.slice(0, 40)}（比對不到專案）` })
+    }
+  }
+  for (const u of scan.unidentified) {
+    blockers.push({ kind: 'unidentified', detail: `填寫人「${u.rawName}」對不到成員名單：${u.content.slice(0, 30)}` })
+  }
+  for (const e of scan.sourceErrors) {
+    blockers.push({ kind: 'source_error', detail: `第 ${e.sheetIndex + 1} 份來源讀取失敗：${e.message}` })
+  }
+
+  return {
+    ok: true,
+    weekRange: scan.weekRange,
+    items,
+    blockers,
+    stats: { peopleCount: new Set(items.map(i => i.person)).size, itemCount: items.length },
+  }
+}
+
+// ─── Discord 按鈕送出：防重複 ─────────────────────────────────────────────────
+//
+// 按鈕會被連按、被多人按、Discord 自己也可能重送 interaction。**不能用「送出前查、送出後寫」**
+// ——中間有 race，兩個 request 會同時查到不存在（CodeX review 抓到）。
+//
+// 正確做法是**先搶再送**：用 unique key 直接 INSERT 成 `processing`，搶到的人才去寫 Lark，
+// 寫完再標 `sent`。INSERT 撞 unique 就代表別人已經在處理或處理完了，直接跳過。
+db.exec(`
+  CREATE TABLE IF NOT EXISTS weekly_report_submissions (
+    dedupe_key  TEXT PRIMARY KEY,
+    week_start  TEXT NOT NULL,
+    person      TEXT NOT NULL,
+    content     TEXT NOT NULL,
+    project     TEXT NOT NULL DEFAULT '',
+    status      TEXT NOT NULL DEFAULT 'processing',
+    record_id   TEXT NOT NULL DEFAULT '',
+    source      TEXT NOT NULL DEFAULT '',
+    actor       TEXT NOT NULL DEFAULT '',
+    error       TEXT NOT NULL DEFAULT '',
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  )
+`)
+
+/** 同一週、同一人、同一段內容、同一個專案就算同一筆。內容原樣進 key（不做正規化）——
+ *  正規化過頭會把「刻意寫兩條相近內容」誤判成重複，那是把資料吃掉，比留下重複更糟。*/
+function submissionKey(weekStart: string, person: string, content: string, projectName: string): string {
+  return createHash('sha256').update([weekStart, person, content, projectName].join(' ')).digest('hex').slice(0, 32)
+}
+
+/** 記一筆已經送出去的（給頁面那條路用）。**只記錄不擋**——頁面本來就有自己的防重複設計
+ *  （append-only + 部分失敗時移除已成功的），改成會擋是行為變更；這裡只是讓 Discord 那條路
+ *  知道「這筆頁面已經送過了」，按鈕就會跳過它。*/
+function recordSubmitted(weekStart: string, person: string, content: string, projectName: string, recordId: string, source: string, actor: string) {
+  const now = Date.now()
+  db.prepare(`
+    INSERT INTO weekly_report_submissions
+      (dedupe_key, week_start, person, content, project, status, record_id, source, actor, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 'sent', ?, ?, ?, ?, ?)
+    ON CONFLICT(dedupe_key) DO UPDATE SET status = 'sent', record_id = excluded.record_id, updated_at = excluded.updated_at
+  `).run(submissionKey(weekStart, person, content, projectName), weekStart, person, content, projectName, recordId, source, actor, now, now)
+}
+
+export interface WeeklySubmitOutcome {
+  sent: Array<{ person: string; content: string }>
+  skipped: Array<{ person: string; content: string; reason: string }>
+  failed: Array<{ person: string; content: string; message: string }>
+  blockers: WeeklyDraftResult['blockers']
+}
+
+/**
+ * 算出這週的草稿並寫進 Lark。給 Discord 按鈕用。
+ *
+ * **部分送出**：能自動判定的先送，需要人處理的留著並回報（跟 CodeX 定案）——因為使用者按下
+ * 按鈕的期待是「能送的先幫我送」，不是因為一個未識別人員就讓整週卡住。
+ */
+export async function submitWeeklyDraft(actor: string): Promise<
+  { ok: true; outcome: WeeklySubmitOutcome } | { ok: false; message: string }
+> {
+  const sources = getReminderSources()
+  if (!sources) return { ok: false, message: '還沒有來源設定——先開一次週報頁跑過掃描' }
+
+  const parsedBase = parseLarkBaseUrl(sources.weeklyUrl)
+  if (!parsedBase) return { ok: false, message: '週報表網址格式不正確' }
+
+  const draft = await buildWeeklyDraft(sources)
+  if (draft.ok === false) return { ok: false, message: draft.message }
+
+  const weekStart = draft.weekRange.startLabel
+  const outcome: WeeklySubmitOutcome = { sent: [], skipped: [], failed: [], blockers: draft.blockers }
+
+  const token = await getLarkToken()
+  const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
+  const claim = db.prepare(`
+    INSERT INTO weekly_report_submissions
+      (dedupe_key, week_start, person, content, project, status, source, actor, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 'processing', 'discord', ?, ?, ?)
+  `)
+
+  for (const { person, item } of draft.items) {
+    const key = submissionKey(weekStart, person, item.content, item.projectName)
+    // 先搶再送：撞 unique 代表別人已經在處理或處理完了
+    try {
+      const now = Date.now()
+      claim.run(key, weekStart, person, item.content, item.projectName, actor, now, now)
+    } catch {
+      const row = db.prepare('SELECT status FROM weekly_report_submissions WHERE dedupe_key = ?').get(key) as { status: string } | undefined
+      outcome.skipped.push({ person, content: item.content, reason: row?.status === 'sent' ? '已經送過了' : '另一個請求正在處理' })
+      continue
+    }
+
+    try {
+      const resp = await fetch(`${base}/open-apis/bitable/v1/apps/${parsedBase.appToken}/tables/${parsedBase.tableId}/records`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: { 成员: person, 专案: item.projectName, 补充说明: item.content } }),
+      })
+      const data = await resp.json() as { code?: number; msg?: string; data?: { record?: { record_id?: string } } }
+      if (!resp.ok || data.code !== 0) throw new Error(data.msg ?? resp.statusText)
+      db.prepare("UPDATE weekly_report_submissions SET status = 'sent', record_id = ?, updated_at = ? WHERE dedupe_key = ?")
+        .run(data.data?.record?.record_id ?? '', Date.now(), key)
+      outcome.sent.push({ person, content: item.content })
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      // 失敗的要放回去可以重試的狀態，不然這筆會被自己的 claim 永久卡住
+      db.prepare("UPDATE weekly_report_submissions SET status = 'failed', error = ?, updated_at = ? WHERE dedupe_key = ?")
+        .run(message.slice(0, 300), Date.now(), key)
+      outcome.failed.push({ person, content: item.content, message })
+    }
+  }
+
+  addHistory('weekly-report', `週報送出（Discord 按鈕）— ${outcome.sent.length} 筆成功`,
+    outcome.sent.slice(0, 10).map(i => `${i.person}：${i.content}`).join('\n').slice(0, 300),
+    {
+      actor, weekStart,
+      sentCount: outcome.sent.length, skippedCount: outcome.skipped.length,
+      failedCount: outcome.failed.length, blockerCount: outcome.blockers.length,
+    })
+
+  return { ok: true, outcome }
+}
+
+/** `failed` 的可以重試——把它從表上拿掉，下次按按鈕就會重新嘗試。
+ *  `processing` 卡住超過 10 分鐘的也一併清掉（程序中途掛掉會留下這種殭屍狀態）。*/
+export function clearRetryableSubmissions(): number {
+  const cutoff = Date.now() - 10 * 60 * 1000
+  const r = db.prepare("DELETE FROM weekly_report_submissions WHERE status = 'failed' OR (status = 'processing' AND updated_at < ?)").run(cutoff)
+  return r.changes
+}
+
 /** 組提醒訊息裡的預覽區塊。
  *
  *  ⚠️ 這是**預覽不是週報本身**，文案上一定要講清楚。備稿有一半規則只活在前端
@@ -717,50 +937,51 @@ async function buildReminderPreview(): Promise<{ fields: Array<{ name: string; v
   }
 
   try {
-    const base = await loadWeeklyBaseOptions(sources.weeklyUrl)
-    if (base.ok === false) {
+    const draft = await buildWeeklyDraft(sources)
+    if (draft.ok === false) {
       return {
-        fields: [{ name: '預覽', value: `讀不到週報表：${base.message}`, inline: false }],
+        fields: [{ name: '預覽', value: `讀不到週報表：${draft.message}`, inline: false }],
         footer: '預覽僅供參考，實際送出內容以週報頁面為準',
       }
     }
-
-    const scan = await runBatchScan({
-      sheets: sources.sheets,
-      members: base.members.map(m => m.name),
-      projects: base.projects,
-    })
 
     const fields: Array<{ name: string; value: string; inline: boolean }> = []
 
     // 逐人摘要。Discord 單一 field value 上限 1024 字元，人多時一定要截——
     // 超過就被 API 整包拒絕，訊息會完全發不出去（比少列幾個人嚴重得多）
-    const people = Object.entries(scan.draftsByPerson)
-    if (people.length === 0) {
-      fields.push({ name: '掃到的項目', value: '這個區間內沒有掃到任何項目', inline: false })
+    const byPerson = new Map<string, string[]>()
+    for (const { person, item } of draft.items) {
+      const list = byPerson.get(person) ?? []
+      list.push(item.content.replace(/\s+/g, ' ').slice(0, 40))
+      byPerson.set(person, list)
+    }
+    if (byPerson.size === 0) {
+      fields.push({ name: '可自動送出的項目', value: '這個區間內沒有可自動判定的項目', inline: false })
     } else {
-      const shown = people.slice(0, 8)
-      const lines = shown.map(([person, items]) => {
-        const heads = items.slice(0, 3).map(i => i.content.replace(/\s+/g, ' ').slice(0, 40))
-        const more = items.length > heads.length ? `…等 ${items.length} 筆` : ''
-        return `**${person}**（${items.length}）：${heads.join('｜')}${more}`
+      const shown = [...byPerson.entries()].slice(0, 8)
+      const lines = shown.map(([person, contents]) => {
+        const heads = contents.slice(0, 3)
+        const more = contents.length > heads.length ? `…等 ${contents.length} 筆` : ''
+        return `**${person}**（${contents.length}）：${heads.join('｜')}${more}`
       })
-      if (people.length > shown.length) lines.push(`…另有 ${people.length - shown.length} 人`)
+      if (byPerson.size > shown.length) lines.push(`…另有 ${byPerson.size - shown.length} 人`)
       let value = lines.join('\n')
       if (value.length > 1000) value = `${value.slice(0, 990)}\n…（過長已截斷）`
-      fields.push({ name: `掃到的項目（${scan.stats.peopleCount} 人 / ${scan.stats.itemCount} 筆）`, value, inline: false })
+      fields.push({ name: `可自動送出的項目（${draft.stats.peopleCount} 人 / ${draft.stats.itemCount} 筆）`, value, inline: false })
     }
 
-    // 需要人處理的事情單獨列一欄——這是使用者真正要為此打開頁面的理由
-    const todos: string[] = []
-    if (scan.stats.missingProjectCount > 0) todos.push(`${scan.stats.missingProjectCount} 筆比對不到專案，要手動補（沒補會擋住送出）`)
-    if (scan.stats.unidentifiedCount > 0) todos.push(`${scan.stats.unidentifiedCount} 筆的填寫人對不到成員名單，要手動指派`)
-    if (scan.sourceErrors.length > 0) todos.push(`${scan.sourceErrors.length} 個來源讀取失敗`)
-    if (todos.length > 0) fields.push({ name: '需要你處理', value: todos.map(t => `• ${t}`).join('\n'), inline: false })
+    // 送不了的單獨列一欄——這是使用者真正要為此打開頁面的理由，不能安靜地漏掉
+    if (draft.blockers.length > 0) {
+      const heads = draft.blockers.slice(0, 6).map(b => `• ${b.detail}`)
+      if (draft.blockers.length > heads.length) heads.push(`…另有 ${draft.blockers.length - heads.length} 項`)
+      let value = heads.join('\n')
+      if (value.length > 1000) value = `${value.slice(0, 990)}\n…（過長已截斷）`
+      fields.push({ name: `需要你去頁面處理（${draft.blockers.length}）`, value, inline: false })
+    }
 
     return {
       fields,
-      footer: '以上是系統預覽，僅供確認方向。Jira 撈單、合併規則與手動指派只在頁面上跑，實際送出內容以頁面為準',
+      footer: 'Jira 撈單與手動指派只在頁面上跑，不含在這裡',
     }
   } catch (e) {
     // 預覽算不出來絕不能連提醒本身都發不出去——提醒是主功能，預覽是附加的
@@ -795,22 +1016,36 @@ async function sendWeeklyReminder(): Promise<{ sent: boolean; message: string }>
   }
 
   const baseUrl = process.env.TOPPATH_BASE_URL || 'http://localhost:3000'
+  const embed = {
+    title: '週報備稿提醒',
+    description: [
+      '開啟週報彙整頁，Sheet 掃描／Jira 撈單／頁籤報表會自動跑完備稿。',
+      '**確認過內容再自己按「呈報宗門」送出。**',
+      '',
+      baseUrl,
+    ].join('\n'),
+    color: 0x62C6A5,
+    fields: [
+      { name: '本週撈取範圍', value: `${startLabel} ～ ${endLabel}`, inline: false },
+      ...preview.fields,
+    ],
+    footer: { text: preview.footer },
+    timestamp: new Date().toISOString(),
+  }
+
+  // 優先用 bot 發——只有 application 發的訊息才帶得動按鈕（webhook 送 components 會被
+  // Discord 靜默丟掉，已實測）。bot 沒設定或還沒連上就退回 webhook：**沒有按鈕總比
+  // 整則提醒都不見了好**。
+  const { sendWeeklyReminderWithButton } = await import('../weekly-report-bot.js')
+  if (await sendWeeklyReminderWithButton({ content, embed })) {
+    return { sent: true, message: '已送出提醒（帶按鈕）' }
+  }
   await fetch(webhookUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       content,
-      embeds: [{
-        title: '週報備稿提醒',
-        description: `開啟週報彙整頁，Sheet 掃描／Jira 撈單／頁籤報表會自動跑完備稿。\n**確認過內容再自己按「呈報宗門」送出。**\n\n${baseUrl}`,
-        color: 0x62C6A5,
-        fields: [
-          { name: '本週撈取範圍', value: `${startLabel} ～ ${endLabel}`, inline: false },
-          ...preview.fields,
-        ],
-        footer: { text: preview.footer },
-        timestamp: new Date().toISOString(),
-      }],
+      embeds: [embed],
     }),
   })
   return { sent: true, message: '已送出提醒' }
@@ -881,12 +1116,38 @@ router.put('/api/weekly-report/reminder/sources', (req, res) => {
         personColumn: z.string().min(1),
         contentColumns: z.array(z.string()).min(1),
       })).max(3),
+      mergeOsm: z.boolean().optional(),
+      mergeJiraTags: z.boolean().optional(),
     }).parse(req.body)
-    const payload: WeeklyReminderSources = { savedAt: Date.now(), weeklyUrl: body.weeklyUrl, sheets: body.sheets }
+    const payload: WeeklyReminderSources = {
+      savedAt: Date.now(), weeklyUrl: body.weeklyUrl, sheets: body.sheets,
+      mergeOsm: body.mergeOsm === true, mergeJiraTags: body.mergeJiraTags === true,
+    }
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(WEEKLY_REMINDER_SOURCES_KEY, JSON.stringify(payload))
     res.json({ ok: true })
   } catch (e) {
     res.status(400).json({ ok: false, message: e instanceof Error ? e.message : String(e) })
+  }
+})
+
+// GET /api/weekly-report/submit-preview — Discord 按鈕「會送出什麼」的乾跑，唯讀不寫 Lark。
+// 存在的理由：按鈕按下去就真的寫進團隊共用的週報表，收不回來。要驗證這條路算得對不對，
+// 得有一個不會產生副作用的方式先看結果——這支就是。
+router.get('/api/weekly-report/submit-preview', async (_req, res) => {
+  try {
+    const sources = getReminderSources()
+    if (!sources) return res.json({ ok: false, message: '還沒有來源設定——先開一次週報頁跑過掃描' })
+    const draft = await buildWeeklyDraft(sources)
+    if (draft.ok === false) return res.json({ ok: false, message: draft.message })
+    res.json({
+      ok: true,
+      weekRange: draft.weekRange,
+      stats: draft.stats,
+      wouldSend: draft.items.map(x => ({ person: x.person, project: x.item.projectName, content: x.item.content })),
+      blockers: draft.blockers,
+    })
+  } catch (e) {
+    res.status(500).json({ ok: false, message: e instanceof Error ? e.message : String(e) })
   }
 })
 

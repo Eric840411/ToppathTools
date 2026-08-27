@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.56.0'
+export const APP_VERSION = '4.57.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.57.0',
+    date: '2026-08-27',
+    changes: [
+      'feat(週報): Discord 提醒改由 Bot 發送並帶「確認送出到 Lark」按鈕，按一下就寫進週報表，按完按鈕反灰',
+      'feat(週報): 部分送出——能自動判定的先送，需要手動指派或比對不到專案的留著並在訊息裡列出原因，不會因為一筆卡住整週',
+      'feat(週報): 防重複用「先搶 unique key 再送」，不是查了再寫（連按/多人按/Discord 重送 interaction 中間會有 race）',
+      'feat(週報): 新增 GET /api/weekly-report/submit-preview 乾跑端點——按鈕按下去就真的寫進共用表收不回來，要有不產生副作用的方式先看會送什麼',
+      'note(週報): Webhook 仍保留為 fallback。Bot 沒設定或還沒連上時照樣發得出提醒，只是沒有按鈕',
+    ],
+  },
   {
     version: '4.56.0',
     date: '2026-08-27',

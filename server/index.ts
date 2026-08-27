@@ -449,6 +449,14 @@ server.listen(port, '0.0.0.0', () => {
       })
       .catch((error) => console.error('[Discord] lazy load failed:', error))
   }
+
+  // 啟動週報 Discord Bot（跟上面那支是不同的機器人、不同 token，刻意分開避免動到既有行為）。
+  // 沒設 token 就不啟動——這是選配功能，不該讓 server 起不來。
+  if (process.env.WEEKLY_DISCORD_BOT_TOKEN) {
+    import('./weekly-report-bot.js')
+      .then(({ startWeeklyReportBot }) => startWeeklyReportBot())
+      .catch((error) => console.error('[WeeklyBot] lazy load failed:', error))
+  }
 })
 
 

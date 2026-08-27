@@ -2,8 +2,9 @@ import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } f
 // 週報的呈現規則前後端共用同一份（shared/ 只放純函式，不碰 fs/DB/env/React）——
 // 在 server 再寫一份的話，之後改規則一定會漏一邊，症狀是「Discord 送出去的跟頁面上看到的不一樣」
 import {
-  DEFAULT_SCAN_SHEET_PROJECT_NAME, DEFAULT_TAB_DATE_PROJECT_NAME, MERGE_PROJECT_NAME,
+  DEFAULT_TAB_DATE_PROJECT_NAME, MERGE_PROJECT_NAME, DEFAULT_SCAN_SHEET_URL,
   MERGE_CONTENT, matchLarkProjectByJiraName, buildPreviewItems, countMergeable, countJiraTagAffected,
+  applyDefaultScanSheetProject,
 } from '../../shared/weekly-report-rules.js'
 
 /** 原生 emoji 替代圖示——docs/visual-style.md「禁忌」規定禁用原生 emoji 渲染，改用 icon asset。
@@ -89,7 +90,6 @@ const DEFAULT_WEEKLY_URL = 'https://casinoplus.sg.larksuite.com/base/FEyTb3Y7Ua6
  *  已知的欄位對應，不用使用者自己選（日期/填寫人欄名很明確；內容欄位使用者確認只要「摘要」）。
  *  仍可手動改成別的網址重新讀取，不是鎖死。名稱原本也叫「線上機台測試表單」，跟頁籤日期式報表的
  *  來源改名成同名後撞名，2026-08-17 同一天使用者改口這份叫「OSM需求單」。 */
-const DEFAULT_SCAN_SHEET_URL = 'https://casinoplus.sg.larksuite.com/sheets/JjLosMhsShlrfatriEBlX3d7gLd?sheet=1Xp7sf'
 const DEFAULT_SCAN_SHEET_DATE_COLUMN = '日期'
 const DEFAULT_SCAN_SHEET_PERSON_COLUMN = '填寫人'
 const DEFAULT_SCAN_SHEET_CONTENT_COLUMNS = ['摘要']
@@ -502,20 +502,10 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
       })
       const d = await r.json() as { ok: boolean; message?: string } & Partial<BatchScanResult>
       if (d.ok && d.draftsByPerson && d.stats && d.weekRange) {
-        // 「來源 Sheet」第一筆若還是預設帶入的那份，內容欄位（摘要）不是乾淨關鍵字，既有的專案關鍵字
-        // 比對抓不到，2026-08-17 使用者要求這個來源固定預設專案。sourceRowId "0-N" 代表 sheetIndex 0，
-        // 只補沒比對到的（projectName 已經有值就不覆蓋，保留後端關鍵字比對比較準的結果）。
-        const defaultScanSheetProject = (scanSheets[0]?.url === DEFAULT_SCAN_SHEET_URL)
-          ? matchLarkProjectByJiraName(DEFAULT_SCAN_SHEET_PROJECT_NAME, parsed.projects)
-          : undefined
-        const freshDrafts: Record<string, DraftItem[]> = defaultScanSheetProject
-          ? Object.fromEntries(Object.entries(d.draftsByPerson).map(([person, items]) => [
-              person,
-              items.map(it => (it.sourceRowId.startsWith('0-') && !it.projectName)
-                ? { ...it, projectId: defaultScanSheetProject.id, projectName: defaultScanSheetProject.name }
-                : it),
-            ]))
-          : d.draftsByPerson
+        // 「預設來源 Sheet 沒比對到專案就補 P7-005-OSM」這條規則在 shared/，後端算 Discord
+        // 送出內容時走的是同一支，不是複製一份
+        const freshDrafts: Record<string, DraftItem[]> =
+          applyDefaultScanSheetProject(d.draftsByPerson, scanSheets[0]?.url, parsed.projects)
         setScanResult({ weekRange: d.weekRange, stats: d.stats, draftsByPerson: freshDrafts, unidentified: d.unidentified ?? [], sourceErrors: d.sourceErrors ?? [] })
         // Sheet 重掃時「Sheet 來源重建、非 Sheet 來源（Jira 套用／手動新增／未識別人員手動指派）保留併回」——
         // 不能整包 setDraftEdits(d.draftsByPerson) 覆蓋，否則先前加進去的項目會被蓋掉（2026-08-16 bug，
@@ -542,6 +532,9 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
             sheets: scanSheets.filter(sh => !sh.nameOnly).map(sh => ({
               url: sh.url, dateColumn: sh.dateColumn, personColumn: sh.personColumn, contentColumns: sh.contentColumns,
             })),
+            // 兩個合併開關存在 localStorage，server 讀不到——不一起送過去的話，Discord 送出的
+            // 結果會跟畫面上勾的不一致
+            mergeOsm, mergeJiraTags,
           }),
         }).catch(() => { /* 預覽來源存不起來不該打斷使用者 */ })
         // 只是挑「預設顯示哪個人」的 UI 便利判斷，不是資料本身，這裡用呼叫當下的 draftEdits（closure）

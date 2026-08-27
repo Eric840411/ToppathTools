@@ -1123,7 +1123,35 @@ Dashboard（修仙版）Hero 橫幅下方顯示一張每日語錄小卡片，語
 - **預覽算不出來絕不能連提醒都發不出去**——整段包 try/catch，失敗就在欄位裡寫明原因，提醒照發
 - **Discord 單一 field value 上限 1024 字元**，人多時一定要截；超過會被 API 整包拒絕，訊息完全發不出去，比少列幾個人嚴重得多
 
-**Discord 原生按鈕做不到（已實測，不要再試）**：現在的 channel webhook 送 `components` 會 **HTTP 200 但被靜默丟掉**（回應裡 `"components":[]`，訊息照送、沒有按鈕、也不報錯）。要有按鈕得建 Discord App（Bot）發訊息，再加 interactions endpoint 或 gateway 接「按鈕被按了」。更大的問題是按鈕的意思是「不開頁面就送出」，那要求後端能算出跟頁面一模一樣的內容——也就是得先把週報規則抽成前後端共用的一份，Discord App 本身反而是小的。
+**Discord 按鈕直接送出（v4.56.0 + v4.57.0，2026-08-27）**：使用者建了 Discord App 之後做的。
+
+**Webhook 送 `components` 會被 Discord 靜默丟掉**（HTTP 200、訊息照送、回應裡 `"components":[]`、不報錯，已實測）。要有按鈕就一定得是 application 發的訊息。**專案裡本來就有 `discord.js`**（`server/discord-bot.ts` 在用），不用自己接 Gateway。
+
+**規則抽到 `shared/weekly-report-rules.ts`（v4.56.0）**：按鈕的意思是「不開頁面就送出」，那要求後端算得出跟頁面一模一樣的內容。抽的是純運算——`matchLarkProjectByJiraName`／`leadingTags`／`jiraTagGroups`／`applyDefaultScanSheetProject`／`buildPreviewItems`。**`shared/` 只放純函式、型別、常數，不碰 fs／DB／env／Express／React**（跟 CodeX 定案）——放 `server/lib/` 沒有這道界線，哪天不小心 import 到 server-only 的東西前端 build 會直接炸。前端 `moduleResolution: bundler` 吃得下 `.js` 後綴指向 `.ts`，`tsconfig.server.json` 的 `include` 要加 `shared/**/*.ts`、`exclude` 要排掉 `**/*.test.ts`。
+
+**抽不進來的三件事**（Discord 按鈕的範圍限制，不是還沒做）：
+
+| 項目 | 為什麼 |
+|------|--------|
+| Jira 撈單 | 要用某個人的 Jira token，而身分一律以登入 cookie 為準（v4.10.0 收緊的邊界）。cron 沒有請求也沒有登入者，要撈就得繞過那條邊界 |
+| 手動指派 | 頁籤日期式報表、未識別人員指派，本質上要有人看著決定 |
+| 只用表單名稱的來源 | 同上，也是手動勾成員 |
+
+所以按鈕送的是「Sheet 掃描這條路上可以自動判定的部分」，其餘一律進 `blockers` 並在訊息裡逐條列出原因——**不能安靜地漏掉**。
+
+**部分送出而不是整批擋下**（跟 CodeX 定案）：使用者按按鈕的期待是「能送的先幫我送」，不是因為一個未識別人員就讓整週可判定的資料全部卡住。
+
+**防重複一定要「先搶再送」不能「查了再寫」**（CodeX review 抓到）：後者中間有 race，連按時兩個 request 會同時查到不存在。做法是拿 `(週期起日, 人, 內容, 專案名)` 算 key 直接 `INSERT` 成 `processing`，撞 unique 就代表別人在處理或處理完了。**key 用專案名稱不用 id**——頁面那條路的 payload 只有名稱沒有 id，用 id 兩邊算出來的 key 不一樣、查重整個失效。`failed` 與卡超過 10 分鐘的 `processing` 會被清掉允許重試，否則失敗一次就永遠卡住。
+
+**頁面送出的也記進同一張表，但只記錄不擋**：頁面本來就有自己的防重複設計（append-only ＋ 部分失敗時移除已成功的），改成會擋是行為變更；記錄只是讓按鈕那條路知道「這筆頁面已經送過了」。
+
+**兩個合併開關要跟著來源設定一起存到後端**：它們原本只在瀏覽器 localStorage，server 讀不到。不一起存的話，Discord 送出的結果會跟使用者在頁面上勾的開關不一致——那正是這整件事要避免的不一致。前端在**掃描成功當下**一起 PUT。
+
+**Discord 的 3 秒硬限制**：按鈕被按之後 3 秒內一定要回應，否則顯示「此互動失敗」。送 Lark 一筆一筆寫必定超過，所以先 `deferUpdate()` 佔位、跑完再 `editReply()`。實測單純回應約 500ms，defer 綽綽有餘。
+
+**乾跑端點 `GET /api/weekly-report/submit-preview`**：按鈕按下去就真的寫進團隊共用的週報表、收不回來，所以要有一個不產生副作用的方式先看會送什麼。防重複的驗證（`scripts/ui-checks/weekly-dedupe-check.mjs`）也刻意**完全不碰 Lark**，用合成資料直接驗 claim 行為。
+
+**Bot 跟既有那支是不同的機器人、不同 token**（`WEEKLY_DISCORD_BOT_TOKEN` vs `DISCORD_BOT_TOKEN`），刻意分開避免動到既有 `discord-bot.ts` 的行為。Webhook 保留當 fallback——bot 沒設定或還沒連上時照樣發得出提醒，只是沒按鈕。
 
 ### 使用者操作
 | 操作 | 說明 |

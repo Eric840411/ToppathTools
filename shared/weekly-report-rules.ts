@@ -97,6 +97,36 @@ export function jiraTagGroups(issues: { key: string; summary: string }[]): {
   return { labels, untagged }
 }
 
+// ── 預設專案補值 ─────────────────────────────────────────────────────────────
+
+/** 預設那份來源 Sheet（`OSM需求單`）的網址。內容欄位是「摘要」——完整句子，不是乾淨關鍵字，
+ *  既有的專案關鍵字比對抓不到，所以 2026-08-17 使用者要求這個來源固定預設 P7-005-OSM。*/
+export const DEFAULT_SCAN_SHEET_URL = 'https://casinoplus.sg.larksuite.com/sheets/JjLosMhsShlrfatriEBlX3d7gLd?sheet=1Xp7sf'
+
+/**
+ * 把「預設來源 Sheet 沒比對到專案就補 P7-005-OSM」這條規則套上去。
+ *
+ * `sourceRowId` 是 `"{sheetIndex}-{rowIndex}"`，所以開頭 `"0-"` 代表來自第一份 Sheet。
+ * **只補沒比對到的**——`projectName` 已經有值就不覆蓋，後端關鍵字比對出來的結果比較準。
+ *
+ * 前端掃描完會呼叫它，後端要算出「跟頁面一樣的內容」時也呼叫同一支。
+ */
+export function applyDefaultScanSheetProject(
+  draftsByPerson: Record<string, DraftItem[]>,
+  firstSheetUrl: string | undefined,
+  projects: FieldOption[],
+): Record<string, DraftItem[]> {
+  if (firstSheetUrl !== DEFAULT_SCAN_SHEET_URL) return draftsByPerson
+  const fallback = matchLarkProjectByJiraName(DEFAULT_SCAN_SHEET_PROJECT_NAME, projects)
+  if (!fallback) return draftsByPerson
+  return Object.fromEntries(Object.entries(draftsByPerson).map(([person, items]) => [
+    person,
+    items.map(it => (it.sourceRowId.startsWith('0-') && !it.projectName)
+      ? { ...it, projectId: fallback.id, projectName: fallback.name }
+      : it),
+  ]))
+}
+
 // ── 草稿 → 送出內容 ───────────────────────────────────────────────────────────
 
 export interface PreviewOptions {
