@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.61.0'
+export const APP_VERSION = '4.62.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.62.0',
+    date: '2026-08-27',
+    changes: [
+      'feat(週報): 「Jira 標籤歸集」與「P7-005-OSM 每人合併」改成預設勾起（使用者要求）。不開的話 Jira 那段寫進週報的是一串裸單號',
+      'fix(週報): 來源 Sheet 的欄位下拉頂穿卡片——原生 select 不設寬度會撐到最長的那個 option，而這份 Sheet 有一欄的欄名長達兩百多字元',
+      'fix(週報): 同一個超長欄名做成 chip 會佔滿一整排把其他欄位擠掉，改成截斷＋滑鼠移上去看完整欄名',
+    ],
+  },
   {
     version: '4.61.0',
     date: '2026-08-27',

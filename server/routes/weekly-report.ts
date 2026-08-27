@@ -696,8 +696,10 @@ function getReminderSources(): WeeklyReminderSources | null {
   try {
     const v = JSON.parse(row.value) as WeeklyReminderSources
     if (!v || !Array.isArray(v.sheets) || typeof v.weeklyUrl !== 'string') return null
-    // 舊資料沒有這兩個欄位，補上預設（跟前端 localStorage 沒設過時的預設一致：兩個都關）
-    return { ...v, mergeOsm: v.mergeOsm === true, mergeJiraTags: v.mergeJiraTags === true }
+    // 舊資料沒有這兩個欄位，補上預設。**跟前端 localStorage 沒設過時的預設要一致**——
+    // 兩邊不同的話會出現「頁面上勾著、Discord 送出卻沒套用」這種對不起來的狀況。
+    // 2026-08-27 使用者要求兩個都改成預設開啟，所以這裡也是「不是明確 false 就當開」。
+    return { ...v, mergeOsm: v.mergeOsm !== false, mergeJiraTags: v.mergeJiraTags !== false }
   } catch {
     return null
   }

@@ -314,14 +314,15 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
   const [activePerson, setActivePerson] = useState('')
   // 預設關閉——使用者要的是「可以選」而不是「自動幫我合併」；開過一次記住選擇，不用每週重點
   const [mergeOsm, setMergeOsm] = useState<boolean>(() => {
-    try { return localStorage.getItem(MERGE_PREF_KEY) === '1' } catch { return false }
+    // 沒存過就預設開啟（2026-08-27 使用者要求）——存過 '0' 才是使用者真的關掉的
+    try { return localStorage.getItem(MERGE_PREF_KEY) !== '0' } catch { return true }
   })
   const toggleMergeOsm = (v: boolean) => {
     setMergeOsm(v)
     try { localStorage.setItem(MERGE_PREF_KEY, v ? '1' : '0') } catch { /* 隱私模式等情況忽略 */ }
   }
   const [mergeJiraTags, setMergeJiraTags] = useState<boolean>(() => {
-    try { return localStorage.getItem(JIRA_TAG_PREF_KEY) === '1' } catch { return false }
+    try { return localStorage.getItem(JIRA_TAG_PREF_KEY) !== '0' } catch { return true }
   })
   const toggleMergeJiraTags = (v: boolean) => {
     setMergeJiraTags(v)
@@ -1582,7 +1583,7 @@ function BatchScanSection({
                   <div>
                     <label style={{ display: 'block', fontSize: 10.5, color: '#94a3b8', marginBottom: 4 }}>日期欄位 <span style={{ color: 'var(--cr-rose)' }}>必選</span></label>
                     <select value={s.dateColumn} onChange={e => updateScanSheet(idx, { dateColumn: e.target.value })}
-                      style={{ padding: '6px 8px', background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 6, color: '#e2e8f0', fontSize: 12 }}>
+                      style={{ padding: '6px 8px', background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 6, color: '#e2e8f0', fontSize: 12, width: 240, maxWidth: '100%' }}>
                       <option value="">請選擇...</option>
                       {s.headers.map(h => <option key={h} value={h}>{h}</option>)}
                     </select>
@@ -1590,7 +1591,7 @@ function BatchScanSection({
                   <div>
                     <label style={{ display: 'block', fontSize: 10.5, color: '#94a3b8', marginBottom: 4 }}>填寫人欄位 <span style={{ color: 'var(--cr-rose)' }}>必選</span></label>
                     <select value={s.personColumn} onChange={e => updateScanSheet(idx, { personColumn: e.target.value })}
-                      style={{ padding: '6px 8px', background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 6, color: '#e2e8f0', fontSize: 12 }}>
+                      style={{ padding: '6px 8px', background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 6, color: '#e2e8f0', fontSize: 12, width: 240, maxWidth: '100%' }}>
                       <option value="">請選擇...</option>
                       {s.headers.map(h => <option key={h} value={h}>{h}</option>)}
                     </select>
@@ -1602,9 +1603,11 @@ function BatchScanSection({
                     {s.headers.map(h => {
                       const checked = s.contentColumns.includes(h)
                       return (
-                        <label key={h} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, padding: '3px 9px', borderRadius: 999, border: `1px solid ${checked ? 'var(--cr-cyan-border)' : '#2d3f55'}`, background: checked ? 'var(--cr-cyan-soft)' : 'transparent', color: checked ? 'var(--cr-cyan)' : '#94a3b8', cursor: 'pointer' }}>
-                          <input type="checkbox" checked={checked} onChange={() => toggleScanContentColumn(idx, h)} style={{ accentColor: 'var(--cr-cyan)' }} />
-                          {h}
+                        <label key={h} title={h} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, padding: '3px 9px', borderRadius: 999, border: `1px solid ${checked ? 'var(--cr-cyan-border)' : '#2d3f55'}`, background: checked ? 'var(--cr-cyan-soft)' : 'transparent', color: checked ? 'var(--cr-cyan)' : '#94a3b8', cursor: 'pointer', maxWidth: 340 }}>
+                          <input type="checkbox" checked={checked} onChange={() => toggleScanContentColumn(idx, h)} style={{ accentColor: 'var(--cr-cyan)', flexShrink: 0 }} />
+                          {/* 這份 Sheet 有欄名長達兩百多字元（整串熱更新版本清單），不截斷的話一個 chip
+                              就佔滿一整排，其他欄位被擠到看不見。title 保留完整欄名，滑鼠移上去看得到 */}
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{h}</span>
                         </label>
                       )
                     })}
