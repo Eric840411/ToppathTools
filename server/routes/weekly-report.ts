@@ -17,7 +17,7 @@ import {
 // 按鈕直接送出。複製一份到 server 的話，之後改規則會漏一邊，症狀是送出去的跟看到的不一樣。
 import {
   applyDefaultScanSheetProject, buildPreviewItems,
-  matchesAutoImportTarget, groupJiraIssuesToDrafts,
+  matchesAutoImportTarget, groupJiraIssuesToDrafts, DEFAULT_TAB_DATE_PROJECT_NAME, matchLarkProjectByJiraName,
   type DraftItem as SharedDraftItem, type FlatItem,
 } from '../../shared/weekly-report-rules.js'
 
@@ -830,6 +830,55 @@ async function fetchJiraDraftsForCron(
 }
 
 /**
+ * 頁籤日期式報表的草稿。**這條原本被我錯誤地歸類成「手動指派、後端做不到」**——它確實
+ * 沒有填寫人欄位，但頁面上根本不用人選：全自動載入會自動勾 Eric／Lusa／Siara 再套用。
+ * 那是規則不是判斷，後端當然算得出來（2026-08-27 使用者對照畫面才發現差了 15 筆）。
+ *
+ * 「哪份文件、哪些頁籤算數」的邏輯本來就在後端（`TAB_DATE_REPORT_SOURCES` +
+ * `parseTabTitleDate`），這裡只是把它接上，沒有另寫一套。
+ */
+async function buildTabDateDrafts(
+  members: LarkFieldOption[],
+  projects: LarkFieldOption[],
+): Promise<{ drafts: Array<{ person: string; item: SharedDraftItem }>; errors: string[] }> {
+  const { startUTC, endUTC } = getFridayAnchoredWeekRange()
+  const drafts: Array<{ person: string; item: SharedDraftItem }> = []
+  const errors: string[] = []
+
+  // 目標成員跟頁面同一套：用關鍵字模糊比對成員清單，不寫死名字
+  const targets = members.filter(m => matchesAutoImportTarget(m.name)).map(m => m.name)
+  if (targets.length === 0) return { drafts, errors }
+
+  // 頁籤標題是機台代碼（「20260826 LVDY 7台Triple Pot」），不是乾淨關鍵字，既有的專案
+  // 比對抓不到，所以固定預設「P7-007-第三方測試」——跟頁面 applyTabDateItem() 同一條規則
+  const defaultProject = matchLarkProjectByJiraName(DEFAULT_TAB_DATE_PROJECT_NAME, projects)
+
+  for (const src of TAB_DATE_REPORT_SOURCES) {
+    const result = await listLarkSheetTabs(src.spreadsheetToken)
+    if (result.ok === false) {
+      errors.push(`${src.label} 讀取失敗：${result.message}`)
+      continue
+    }
+    for (const tab of result.tabs) {
+      const d = parseTabTitleDate(tab.title)
+      if (d === null || d.getTime() < startUTC.getTime() || d.getTime() > endUTC.getTime()) continue
+      // sourceRowId 帶來源 key，兩份文件的 sheetId 剛好撞名時才追得出來是哪一份
+      const sourceRowId = `手動指派 · 頁籤 · ${src.key}:${tab.sheetId}`
+      for (const person of targets) {
+        drafts.push({
+          person,
+          item: {
+            sourceRowId, content: tab.title,
+            projectId: defaultProject?.id ?? '', projectName: defaultProject?.name ?? '',
+          },
+        })
+      }
+    }
+  }
+  return { drafts, errors }
+}
+
+/**
  * 後端版的「算出這週要送什麼」。走的是 shared/weekly-report-rules 那份規則，
  * 跟頁面上跑的是同一套，不是複製一份。
  *
@@ -885,6 +934,12 @@ export async function buildWeeklyDraft(sources: WeeklyReminderSources): Promise<
   for (const { person, item } of jira.drafts) {
     withDefaults[person] = [...(withDefaults[person] ?? []), item]
   }
+
+  // 頁籤日期式報表。跟頁面的全自動載入同一套：命中本週的頁籤自動給 Eric／Lusa／Siara 各一筆
+  const tabDate = await buildTabDateDrafts(base.members, base.projects)
+  for (const { person, item } of tabDate.drafts) {
+    withDefaults[person] = [...(withDefaults[person] ?? []), item]
+  }
   const flat = buildPreviewItems(withDefaults, {
     mergeOsm: sources.mergeOsm,
     mergeJiraTags: sources.mergeJiraTags,
@@ -904,6 +959,9 @@ export async function buildWeeklyDraft(sources: WeeklyReminderSources): Promise<
   }
   for (const e of scan.sourceErrors) {
     blockers.push({ kind: 'source_error', detail: `第 ${e.sheetIndex + 1} 份來源讀取失敗：${e.message}` })
+  }
+  for (const err of tabDate.errors) {
+    blockers.push({ kind: 'source_error', detail: err })
   }
   // 沒撈到的 Jira 帳號要明講，不能默默少資料（CodeX review 要求）
   for (const sk of jira.skipped) {

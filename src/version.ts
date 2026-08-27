@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.59.1'
+export const APP_VERSION = '4.60.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.60.0',
+    date: '2026-08-27',
+    changes: [
+      'fix(週報): Discord 那條路少了「頁籤日期式報表」的項目——我原本把它歸類成「手動指派、後端做不到」，但頁面上根本不用人選，全自動載入本來就會自動套給 Eric/Lusa/Siara。那是規則不是判斷，接上去就好',
+      'note(週報): 掃頁籤的邏輯（文件寫死、標題抓日期）本來就在後端，這次只是接進 buildWeeklyDraft，沒有另寫一套',
+    ],
+  },
   {
     version: '4.59.1',
     date: '2026-08-27',
