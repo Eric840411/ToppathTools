@@ -127,6 +127,81 @@ export function applyDefaultScanSheetProject(
   ]))
 }
 
+// ── Jira 撈單 → 草稿 ─────────────────────────────────────────────────────────
+
+/** 全自動載入的目標帳號。**本機跟正式服的 Jira 帳號清單不同**（本機混了測試帳號如 lusa／OM／ad，
+ *  正式服是乾淨的真實帳號如 Eric Wu／Lusa／Siara Lin），所以用「名字關鍵字」模糊比對現有清單，
+ *  不寫死特定 email/id，兩邊環境都能自動對上。 */
+export const AUTO_IMPORT_TARGET_KEYWORDS = ['eric', 'lusa', 'siara']
+
+export function matchesAutoImportTarget(name: string): boolean {
+  const n = name.toLowerCase()
+  return AUTO_IMPORT_TARGET_KEYWORDS.some(k => n.includes(k))
+}
+
+export interface JiraRangeIssue {
+  key: string
+  summary: string
+  jiraProjectName: string
+  /** 這張單是被哪些帳號查到的（同一張單可能同時是 A 的 reporter、B 的驗證人員）*/
+  accountLabels: string[]
+}
+
+/**
+ * 把撈回來的 Jira 單依「帳號 → Lark 成員」＋專案分組，變成草稿項目。
+ *
+ * **刻意不用帳號 label 直接對 Lark 成員名字**——已用真實資料證實兩份名單對不齊
+ * （Jira 有「Eric Wu」，某些 Lark Base 的成員清單只有「Eric」；正式服有「Siara Lin」
+ * 對應「Siara」）。所以用同一個關鍵字分別在兩份清單各找第一個符合的，再把兩邊接起來。
+ *
+ * content 是單號串（使用者看得到、可編輯），jiraIssues 留原始資料——標籤歸集是
+ * 「送出前的呈現規則」而不是草稿內容改寫，太早算成描述就失真了，使用者也看不出原本是哪幾張單。
+ */
+export function groupJiraIssuesToDrafts(
+  issues: JiraRangeIssue[],
+  larkMembers: FieldOption[],
+  larkProjects: FieldOption[],
+): Array<{ person: string; item: DraftItem }> {
+  const keywordToMember = new Map<string, string>()
+  for (const kw of AUTO_IMPORT_TARGET_KEYWORDS) {
+    const member = larkMembers.find(m => m.name.toLowerCase().includes(kw))
+    if (member) keywordToMember.set(kw, member.name)
+  }
+
+  type GroupAcc = { person: string; projectId: string; projectName: string; keys: string[]; issues: { key: string; summary: string }[] }
+  const groups = new Map<string, GroupAcc>()
+  for (const iss of issues) {
+    const matchedProject = matchLarkProjectByJiraName(iss.jiraProjectName, larkProjects)
+    const targetPersons = new Set<string>()
+    for (const label of iss.accountLabels) {
+      for (const [kw, member] of keywordToMember) {
+        if (label.toLowerCase().includes(kw)) targetPersons.add(member)
+      }
+    }
+    for (const person of targetPersons) {
+      const groupKey = `${person}::${matchedProject?.name ?? ''}`
+      let g = groups.get(groupKey)
+      if (!g) {
+        g = { person, projectId: matchedProject?.id ?? '', projectName: matchedProject?.name ?? '', keys: [], issues: [] }
+        groups.set(groupKey, g)
+      }
+      g.keys.push(iss.key)
+      g.issues.push({ key: iss.key, summary: iss.summary })
+    }
+  }
+
+  return [...groups.values()].map(g => ({
+    person: g.person,
+    item: {
+      sourceRowId: `Jira · ${g.person}`,
+      content: g.keys.join('、'),
+      projectId: g.projectId,
+      projectName: g.projectName,
+      jiraIssues: g.issues,
+    },
+  }))
+}
+
 // ── 草稿 → 送出內容 ───────────────────────────────────────────────────────────
 
 export interface PreviewOptions {

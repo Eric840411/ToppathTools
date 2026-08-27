@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.57.0'
+export const APP_VERSION = '4.58.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.58.0',
+    date: '2026-08-27',
+    changes: [
+      'feat(週報): Discord 那條路也會撈 Jira 了，用跟頁面同一套預設帳號（Eric/Lusa/Siara）',
+      'feat(週報): 背景撈 Jira 受既有的代理授權機制約束——來源設定記下「設定當下的登入者」當授權者（從 cookie 判定，不吃前端傳的值），撈別人的單要有 jira.read.asOther 授權，沒有就跳過並在訊息裡明講是誰、為什麼',
+      'note(週報): 前景頁面為了相容舊流程有 warning 放行的 fallback，背景排程刻意不套用——背景靜默放行比前景危險得多',
+      'fix(週報): 提醒訊息拿掉網址（使用者要求），文案改成講按鈕怎麼用',
+    ],
+  },
   {
     version: '4.57.0',
     date: '2026-08-27',

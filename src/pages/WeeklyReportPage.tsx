@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } f
 import {
   DEFAULT_TAB_DATE_PROJECT_NAME, MERGE_PROJECT_NAME, DEFAULT_SCAN_SHEET_URL,
   MERGE_CONTENT, matchLarkProjectByJiraName, buildPreviewItems, countMergeable, countJiraTagAffected,
-  applyDefaultScanSheetProject,
+  applyDefaultScanSheetProject, AUTO_IMPORT_TARGET_KEYWORDS, matchesAutoImportTarget,
 } from '../../shared/weekly-report-rules.js'
 
 /** 原生 emoji 替代圖示——docs/visual-style.md「禁忌」規定禁用原生 emoji 渲染，改用 icon asset。
@@ -101,16 +101,6 @@ const DEFAULT_SCAN_SHEET_CONTENT_COLUMNS = ['摘要']
 // 使用者的實際情境是同一人一週有十幾筆 OSM 需求，逐條寫進週報沒有意義（2026-08-20）。
 const MERGE_PREF_KEY = 'toppath-weekly-merge-osm'
 const JIRA_TAG_PREF_KEY = 'toppath-weekly-merge-jira-tags'
-
-/** 全自動載入的第三/四步：Jira 撈單＋頁籤日期式報表 也比照「來源 Sheet」自動化（2026-08-17 使用者要求）。
- *  本機跟正式服的 Jira 帳號清單不同（本機混了測試帳號），所以用「名字關鍵字」模糊比對現有清單，
- *  不寫死特定 email/id，兩邊環境都能自動對上——已用真實資料驗證正式服帳號清單有 Eric Wu／Lusa／
- *  Siara Lin，這個 Lark Base 的成員清單有 Eric Wu／Lusa／Siara，關鍵字比對兩邊都吃得到。 */
-const AUTO_IMPORT_TARGET_KEYWORDS = ['eric', 'lusa', 'siara']
-function matchesAutoImportTarget(name: string): boolean {
-  const n = name.toLowerCase()
-  return AUTO_IMPORT_TARGET_KEYWORDS.some(k => n.includes(k))
-}
 
 /** 頁首即時時鐘顯示用，固定用 Asia/Taipei（跟後端 getFridayAnchoredWeekRange() 同一個時區基準），
  *  不用瀏覽器當地時區，避免使用者裝置時區不是台灣時顯示的時間跟撈取週期對不上 */

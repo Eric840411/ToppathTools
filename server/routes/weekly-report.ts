@@ -8,11 +8,15 @@ import { Router } from 'express'
 import { z } from 'zod'
 import cron from 'node-cron'
 import { createHash } from 'crypto'
-import { addHistory, db, getLarkToken, mustEnv, userJiraAuth, parseLarkSheetUrl } from '../shared.js'
+import {
+  addHistory, db, getLarkToken, mustEnv, userJiraAuth, parseLarkSheetUrl,
+  hasJiraDelegation, jiraAuthForAccount, readAccounts, authEmailFromRequest,
+} from '../shared.js'
 // 週報呈現規則前後端共用同一份——server 這邊要算出「跟頁面一模一樣的內容」才能讓 Discord
 // 按鈕直接送出。複製一份到 server 的話，之後改規則會漏一邊，症狀是送出去的跟看到的不一樣。
 import {
   applyDefaultScanSheetProject, buildPreviewItems,
+  matchesAutoImportTarget, groupJiraIssuesToDrafts,
   type DraftItem as SharedDraftItem, type FlatItem,
 } from '../../shared/weekly-report-rules.js'
 
@@ -673,6 +677,12 @@ interface WeeklyReminderSources {
    *  Discord 送出的結果會跟使用者在頁面上勾的開關不一致——那正是這整件事要避免的不一致。*/
   mergeOsm: boolean
   mergeJiraTags: boolean
+  /** 設定當下的登入者。**一定是後端從 cookie 判定的，不吃前端傳的值**——這是背景撈 Jira
+   *  時唯一的授權依據，可被前端指定就等於誰都能冒用別人的 token。*/
+  actorEmail?: string
+  actorLabel?: string
+  /** 授權時間。之後查「這份設定是誰、什麼時候留下的」會需要（CodeX review 要求）*/
+  authorizedAt?: number
 }
 
 function getReminderSources(): WeeklyReminderSources | null {
@@ -713,6 +723,105 @@ function reminderCronExpr(cfg: WeeklyReminderConfig): string {
 
 let weeklyReminderTask: cron.ScheduledTask | null = null
 
+// ─── 背景撈 Jira：受 delegation 約束 ─────────────────────────────────────────
+//
+// v4.10.0 把身分邊界收緊成「以登入 cookie 為準」。排程沒有請求也沒有登入者，所以**不能**
+// 直接拿別人的 token 去撈。但這個場景本來就有機制：`jira_account_delegates` 的
+// `jira.read.asOther` scope，`/api/weekly-report/jira-by-range` 就是它唯一的使用者。
+//
+// 做法（跟 CodeX 定案）：
+// 1. 來源設定存下「設定當下的登入者」當 actor（**從 cookie 判定，不吃前端傳的值**），
+//    等於一個登入過的人明確授權了這件排程
+// 2. 背景撈某個帳號的 Jira 前，要求 actor→該帳號有有效的 `jira.read.asOther`，或該帳號
+//    就是 actor 本人
+// 3. **不套用 `fallbackAllowUnauthorized`**——前景頁面為了相容舊流程可以 warning 放行，
+//    背景排程不行。沒授權就跳過那個帳號，並在訊息裡明講「◯◯ 未授權，Jira 未撈」，
+//    不默默少資料
+// 4. 「預設帳號」只代表要嘗試撈誰，**不代表 actor 自動有權撈誰**
+
+/** 撈某個 Jira 帳號在區間內的單。auth 由呼叫端負責取得（也就是由呼叫端負責通過授權檢查）。*/
+async function fetchJiraIssuesInRange(auth: string, startDate: string, endDate: string): Promise<RangeIssueRaw[]> {
+  const endExclusive = new Date(`${endDate}T00:00:00Z`)
+  endExclusive.setUTCDate(endExclusive.getUTCDate() + 1)
+  const endExclusiveStr = endExclusive.toISOString().slice(0, 10)
+  const jql = `(reporter = currentUser() OR assignee = currentUser() OR "QA驗證人員" = currentUser()) AND ((created >= "${startDate}" AND created < "${endExclusiveStr}") OR (updated >= "${startDate}" AND updated < "${endExclusiveStr}")) ORDER BY updated DESC`
+  const baseUrl = mustEnv('JIRA_BASE_URL')
+  const resp = await fetch(`${baseUrl}/rest/api/3/search/jql`, {
+    method: 'POST',
+    headers: { Authorization: auth, Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jql, maxResults: 200, fields: ['summary', 'status', 'created', 'updated', 'project'] }),
+  })
+  if (!resp.ok) throw new Error(`Jira 查詢失敗 HTTP ${resp.status}`)
+  const data = await resp.json() as { issues?: Array<{ key: string; fields: { summary?: string; project?: { name?: string } } }> }
+  return (data.issues ?? []).map(i => ({
+    key: i.key,
+    summary: i.fields.summary ?? '',
+    jiraProjectName: i.fields.project?.name ?? '',
+  }))
+}
+
+interface RangeIssueRaw { key: string; summary: string; jiraProjectName: string }
+
+export interface JiraCronOutcome {
+  drafts: Array<{ person: string; item: SharedDraftItem }>
+  /** 沒撈成的帳號與原因，一定要讓使用者看到——默默少資料比少一個功能糟得多 */
+  skipped: Array<{ label: string; reason: string }>
+}
+
+/**
+ * 用來源設定裡記下的 actor 身分，撈預設目標帳號（Eric／Lusa／Siara）的 Jira 單。
+ *
+ * 沒有 actor（舊資料、或設定時沒有登入 session）就整段跳過——**不猜一個身分出來**。
+ */
+async function fetchJiraDraftsForCron(
+  sources: WeeklyReminderSources,
+  members: LarkFieldOption[],
+  projects: LarkFieldOption[],
+  startDate: string,
+  endDate: string,
+): Promise<JiraCronOutcome> {
+  const out: JiraCronOutcome = { drafts: [], skipped: [] }
+  const actor = (sources.actorEmail ?? '').toLowerCase()
+  if (!actor) {
+    out.skipped.push({ label: 'Jira', reason: '來源設定沒有記錄授權者——請重新開一次週報頁跑掃描' })
+    return out
+  }
+
+  const candidates = readAccounts().filter(a => matchesAutoImportTarget(a.label || a.email))
+  if (candidates.length === 0) {
+    out.skipped.push({ label: 'Jira', reason: '找不到符合 Eric／Lusa／Siara 的後台帳號' })
+    return out
+  }
+
+  const byIssue = new Map<string, { key: string; summary: string; jiraProjectName: string; accountLabels: string[] }>()
+  for (const acc of candidates) {
+    const label = acc.label || acc.email
+    const isSelf = acc.email.toLowerCase() === actor
+    // 「預設帳號」只代表要嘗試撈誰，不代表有權撈誰
+    if (!isSelf && !hasJiraDelegation(actor, acc.email, 'jira.read.asOther')) {
+      out.skipped.push({ label, reason: '沒有代理讀取授權（請管理員到「Jira 代理張貼授權」開通）' })
+      continue
+    }
+    const auth = jiraAuthForAccount(acc.email)
+    if (!auth) {
+      out.skipped.push({ label, reason: '這個帳號還沒建 Jira API Token' })
+      continue
+    }
+    try {
+      for (const iss of await fetchJiraIssuesInRange(auth.auth, startDate, endDate)) {
+        const existing = byIssue.get(iss.key)
+        if (existing) { if (!existing.accountLabels.includes(label)) existing.accountLabels.push(label) }
+        else byIssue.set(iss.key, { ...iss, accountLabels: [label] })
+      }
+    } catch (e) {
+      out.skipped.push({ label, reason: e instanceof Error ? e.message : String(e) })
+    }
+  }
+
+  out.drafts = groupJiraIssuesToDrafts([...byIssue.values()], members, projects)
+  return out
+}
+
 /**
  * 後端版的「算出這週要送什麼」。走的是 shared/weekly-report-rules 那份規則，
  * 跟頁面上跑的是同一套，不是複製一份。
@@ -732,7 +841,7 @@ export interface WeeklyDraftResult {
   /** 可以直接送出的項目（專案已確定） */
   items: FlatItem[]
   /** 送不了、要人處理的事，附原因 */
-  blockers: Array<{ kind: 'missing_project' | 'unidentified' | 'source_error'; detail: string }>
+  blockers: Array<{ kind: 'missing_project' | 'unidentified' | 'source_error' | 'jira_skipped'; detail: string }>
   stats: { peopleCount: number; itemCount: number }
 }
 
@@ -753,6 +862,22 @@ export async function buildWeeklyDraft(sources: WeeklyReminderSources): Promise<
     sources.sheets[0]?.url,
     base.projects,
   )
+
+  // 週期的 ISO 日期直接從 getFridayAnchoredWeekRange() 取——那兩個 Date 是用 Date.UTC(y,m-1,d)
+  // 疊純日曆年月日組出來的，不是真正的 UTC 時間點，slice 拿到的年月日不會因時區換算跑掉
+  const wr = getFridayAnchoredWeekRange()
+  const weekStartISO = wr.startUTC.toISOString().slice(0, 10)
+  const weekEndISO = wr.endUTC.toISOString().slice(0, 10)
+
+  // Jira 撈單併進來。跟頁面同一套：Sheet 來源建好之後，把 Jira 產生的項目疊上去
+  // （不是取代）。撈不到的帳號一律進 skipped，最後會出現在訊息的「需要你處理」欄位裡。
+  const jira = await fetchJiraDraftsForCron(
+    sources, base.members, base.projects,
+    weekStartISO, weekEndISO,
+  )
+  for (const { person, item } of jira.drafts) {
+    withDefaults[person] = [...(withDefaults[person] ?? []), item]
+  }
   const flat = buildPreviewItems(withDefaults, {
     mergeOsm: sources.mergeOsm,
     mergeJiraTags: sources.mergeJiraTags,
@@ -772,6 +897,10 @@ export async function buildWeeklyDraft(sources: WeeklyReminderSources): Promise<
   }
   for (const e of scan.sourceErrors) {
     blockers.push({ kind: 'source_error', detail: `第 ${e.sheetIndex + 1} 份來源讀取失敗：${e.message}` })
+  }
+  // 沒撈到的 Jira 帳號要明講，不能默默少資料（CodeX review 要求）
+  for (const sk of jira.skipped) {
+    blockers.push({ kind: 'jira_skipped', detail: `${sk.label} 的 Jira 沒撈到：${sk.reason}` })
   }
 
   return {
@@ -810,7 +939,7 @@ db.exec(`
 /** 同一週、同一人、同一段內容、同一個專案就算同一筆。內容原樣進 key（不做正規化）——
  *  正規化過頭會把「刻意寫兩條相近內容」誤判成重複，那是把資料吃掉，比留下重複更糟。*/
 function submissionKey(weekStart: string, person: string, content: string, projectName: string): string {
-  return createHash('sha256').update([weekStart, person, content, projectName].join(' ')).digest('hex').slice(0, 32)
+  return createHash('sha256').update([weekStart, person, content, projectName].join('\u0000')).digest('hex').slice(0, 32)
 }
 
 /** 記一筆已經送出去的（給頁面那條路用）。**只記錄不擋**——頁面本來就有自己的防重複設計
@@ -1019,10 +1148,8 @@ async function sendWeeklyReminder(): Promise<{ sent: boolean; message: string }>
   const embed = {
     title: '週報備稿提醒',
     description: [
-      '開啟週報彙整頁，Sheet 掃描／Jira 撈單／頁籤報表會自動跑完備稿。',
-      '**確認過內容再自己按「呈報宗門」送出。**',
-      '',
-      baseUrl,
+      '按下面的按鈕直接送出，或開週報彙整頁自己確認。',
+      '**手動指派與比對不到專案的項目不會被送出**，會列在下面。',
     ].join('\n'),
     color: 0x62C6A5,
     fields: [
@@ -1119,9 +1246,16 @@ router.put('/api/weekly-report/reminder/sources', (req, res) => {
       mergeOsm: z.boolean().optional(),
       mergeJiraTags: z.boolean().optional(),
     }).parse(req.body)
+    // actor **一定是從 cookie 判定**，不吃前端傳的值——這是背景撈 Jira 時唯一的授權依據，
+    // 可被前端指定就等於誰都能冒用別人的 token（v4.10.0 收緊身分邊界的同一個理由）
+    const actorEmail = authEmailFromRequest(req)
+    const actorAccount = actorEmail ? readAccounts().find(a => a.email.toLowerCase() === actorEmail.toLowerCase()) : undefined
     const payload: WeeklyReminderSources = {
       savedAt: Date.now(), weeklyUrl: body.weeklyUrl, sheets: body.sheets,
       mergeOsm: body.mergeOsm === true, mergeJiraTags: body.mergeJiraTags === true,
+      actorEmail: actorEmail ?? undefined,
+      actorLabel: actorAccount?.label ?? undefined,
+      authorizedAt: actorEmail ? Date.now() : undefined,
     }
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(WEEKLY_REMINDER_SOURCES_KEY, JSON.stringify(payload))
     res.json({ ok: true })
