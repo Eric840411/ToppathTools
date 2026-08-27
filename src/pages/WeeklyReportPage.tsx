@@ -1,4 +1,10 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
+// 週報的呈現規則前後端共用同一份（shared/ 只放純函式，不碰 fs/DB/env/React）——
+// 在 server 再寫一份的話，之後改規則一定會漏一邊，症狀是「Discord 送出去的跟頁面上看到的不一樣」
+import {
+  DEFAULT_SCAN_SHEET_PROJECT_NAME, DEFAULT_TAB_DATE_PROJECT_NAME, MERGE_PROJECT_NAME,
+  MERGE_CONTENT, matchLarkProjectByJiraName, buildPreviewItems, countMergeable, countJiraTagAffected,
+} from '../../shared/weekly-report-rules.js'
 
 /** 原生 emoji 替代圖示——docs/visual-style.md「禁忌」規定禁用原生 emoji 渲染，改用 icon asset。
  *  currentColor 描邊，一份線稿兩個版面（普通版/仙俠版）共用，外層文字顏色決定圖示顏色。 */
@@ -28,22 +34,6 @@ function WarningIcon({ size = 14, style }: { size?: number; style?: CSSPropertie
 interface FieldOption { id: string; name: string }
 interface ParsedTable { appToken: string; tableId: string; members: FieldOption[]; projects: FieldOption[] }
 interface RangeIssue { key: string; summary: string; status: string; created: string; updated: string; role: 'reporter' | 'verifier' | 'assignee' | 'both' | 'unknown'; jiraProjectName: string }
-
-/** 比對 Jira 專案真實名稱（例如 "P7-007 第三方測試"）跟 Lark 專案選項（例如 "P7-007-第三方測試"）——
- *  已用真實資料證實兩者幾乎一樣，只差空格/連字號，正規化（去空白連字號、轉小寫）後理論上會完全相等；
- *  完全相等比對不到才退一步用 contains，比對不到就回傳 undefined，不會亂猜 */
-function normalizeProjectName(s: string): string {
-  return s.trim().toLowerCase().replace(/[\s-]+/g, '')
-}
-function matchLarkProjectByJiraName(jiraProjectName: string, larkProjects: FieldOption[]): FieldOption | undefined {
-  if (!jiraProjectName) return undefined
-  const norm = normalizeProjectName(jiraProjectName)
-  return larkProjects.find(p => normalizeProjectName(p.name) === norm)
-    ?? larkProjects.find(p => {
-      const pn = normalizeProjectName(p.name)
-      return pn.includes(norm) || norm.includes(pn)
-    })
-}
 
 // ── 批次掃描審核（2026-08-16）：掃描來源 Sheet、抓出所有出現的人、一次幫全部人產草稿 ──
 // jiraIssues：Jira 撈單套用進來的原始資料（單號 + 標題成對存，不是兩個平行陣列——只存 summaries[]
@@ -107,47 +97,10 @@ const DEFAULT_SCAN_SHEET_CONTENT_COLUMNS = ['摘要']
 // 抓不到，2026-08-17 使用者要求直接寫死預設專案（已用真實資料驗證 Lark 選項實際字串是連字號格式
 // 「P7-005-OSM」/「P7-007-第三方測試」，不是使用者說的空格格式，但下面用既有的 matchLarkProjectByJiraName
 // 模糊比對，兩種寫法都吃得進去，不用要求使用者字元對字元打對）
-const DEFAULT_SCAN_SHEET_PROJECT_NAME = 'P7-005-OSM'
-const DEFAULT_TAB_DATE_PROJECT_NAME = 'P7-007-第三方測試'
 // 合併選項：歸類到這個專案的項目可以選擇「每人各自合併成一條」，補充說明統一寫成下面這句。
 // 使用者的實際情境是同一人一週有十幾筆 OSM 需求，逐條寫進週報沒有意義（2026-08-20）。
-const MERGE_PROJECT_NAME = DEFAULT_SCAN_SHEET_PROJECT_NAME
-const MERGE_CONTENT = 'OSM需求'
 const MERGE_PREF_KEY = 'toppath-weekly-merge-osm'
 const JIRA_TAG_PREF_KEY = 'toppath-weekly-merge-jira-tags'
-
-/** 取標題開頭連續的中括號標籤。刻意只吃開頭，本文中間出現的中括號不算——例如
- *  「修正 [OSM] 顯示問題」的 [OSM] 不是分類標籤（CodeX review 建議）。 */
-function leadingTags(summary: string): string[] {
-  const m = summary.trim().match(/^(\[[^\]]+\])+/)
-  if (!m) return []
-  return (m[0].match(/\[[^\]]+\]/g) ?? []).map(t => t.slice(1, -1).trim()).filter(Boolean)
-}
-
-/** 依標題標籤把一組 Jira 單歸集成幾句話。使用者定義的規則（2026-08-20 當面確認）：
- *  **先依第一個標籤分組**——沒有共同標籤的單不是串成一句，而是拆成不同項目各寫一條。
- *  每組取該組所有單的共同標籤（同組第一個標籤必然相同，所以至少有一個），組成「◯◯相關需求測試」。
- *  例：[OSM][GM] + [OSM][後端] → 一條「OSM相關需求測試」（共同的只有 OSM）
- *      [OSM][GM] + [LuckyLink][後端] → 兩條「OSM GM相關需求測試」「LuckyLink 後端相關需求測試」
- *  標題沒有中括號的單無法歸集，改成**直接寫該張單的標題**、一張單一條（使用者 2026-08-20 指定）。 */
-function jiraTagGroups(issues: { key: string; summary: string }[]): { labels: string[]; untagged: { key: string; summary: string }[] } {
-  const groups = new Map<string, { key: string; summary: string }[]>()
-  const untagged: { key: string; summary: string }[] = []
-  for (const iss of issues) {
-    const tags = leadingTags(iss.summary)
-    if (tags.length === 0) { untagged.push(iss); continue }
-    const bucket = groups.get(tags[0])
-    if (bucket) bucket.push(iss)
-    else groups.set(tags[0], [iss])
-  }
-  const labels: string[] = []
-  for (const list of groups.values()) {
-    const tagLists = list.map(i => leadingTags(i.summary))
-    const common = tagLists[0].filter(tag => tagLists.every(l => l.includes(tag)))
-    labels.push(`${common.join(' ')}相關需求測試`)
-  }
-  return { labels, untagged }
-}
 
 /** 全自動載入的第三/四步：Jira 撈單＋頁籤日期式報表 也比照「來源 Sheet」自動化（2026-08-17 使用者要求）。
  *  本機跟正式服的 Jira 帳號清單不同（本機混了測試帳號），所以用「名字關鍵字」模糊比對現有清單，
@@ -648,52 +601,14 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
   }
 
   const peopleList = Object.keys(draftEdits).sort((a, b) => a.localeCompare(b, 'zh-Hant'))
-  const rawFlatItems = peopleList.flatMap(person => draftEdits[person].map(item => ({ person, item })))
 
   // 合併是「衍生轉換」，不動 draftEdits 原始資料——關掉開關就完全恢復逐筆，草稿裡個別編輯過的
-  // 內容不會因為切換開關而消失。放在 flatPreviewItems 這一層是因為它同時是「預期結果預覽」和
-  // 「送出 payload」的唯一來源，在這裡合併，畫面跟實際寫進 Lark 的內容一定一致（跟 CodeX 討論定案）。
-  const mergeableCount = rawFlatItems.filter(({ item }) => item.projectName.trim() === MERGE_PROJECT_NAME).length
-  // 轉換順序：原始草稿 → Jira 標籤歸集（依 summary 語意，較細）→ P7-005-OSM 每人合併（依專案，較粗）。
-  // 兩個開關互相獨立；真的重疊時（Jira 單被歸到 P7-005-OSM）後者會把前者結果再併掉，符合
-  // 「P7-005-OSM 權重更高」的直覺（跟 CodeX 討論定案的順序）。
-  const tagApplied = !mergeJiraTags ? rawFlatItems : rawFlatItems.flatMap(({ person, item }) => {
-    // 只有帶著 Jira 原始資料的項目才跑這條規則，不從 content 反推單號或標題（CodeX review 建議）
-    if (!item.jiraIssues || item.jiraIssues.length === 0) return [{ person, item }]
-    const { labels, untagged } = jiraTagGroups(item.jiraIssues)
-    if (labels.length === 0 && untagged.length === 0) return [{ person, item }]
-    const out = labels.map((label, i) => ({
-      person,
-      item: { ...item, sourceRowId: `${item.sourceRowId} · 標籤${i + 1}`, content: label },
-    }))
-    // 沒有標籤的單無法歸集，直接寫該張單的標題、一張單一條——它們彼此沒有共同標籤可以合併，
-    // 串成一坨只會變成很長一行；標題本身就是人看得懂的描述（使用者指定）。
-    for (const iss of untagged) {
-      out.push({ person, item: { ...item, sourceRowId: `${item.sourceRowId} · ${iss.key}`, content: iss.summary } })
-    }
-    return out
-  })
-  const jiraTagAffected = !mergeJiraTags ? 0 : rawFlatItems.filter(({ item }) =>
-    item.jiraIssues && item.jiraIssues.length > 0).length
-
-  const flatPreviewItems = !mergeOsm ? tagApplied : peopleList.flatMap(person => {
-    // 讀 tagApplied 而不是 draftEdits——不然開啟 P7-005-OSM 合併時會直接吃原始草稿，
-    // 把上一段的 Jira 標籤歸集結果整個蓋掉
-    const items = tagApplied.filter(x => x.person === person).map(x => x.item)
-    const out: Array<{ person: string; item: DraftItem }> = []
-    let mergedInserted = false
-    for (const item of items) {
-      // trim 比對：Sheet／Jira 來源的專案名稱可能帶前後空白，不 trim 會漏合併（CodeX review 建議）
-      if (item.projectName.trim() === MERGE_PROJECT_NAME) {
-        if (mergedInserted) continue
-        mergedInserted = true
-        out.push({ person, item: { sourceRowId: `合併 · ${MERGE_PROJECT_NAME}`, content: MERGE_CONTENT, projectId: item.projectId, projectName: item.projectName } })
-        continue
-      }
-      out.push({ person, item })
-    }
-    return out
-  })
+  // 內容不會因為切換開關而消失。這一層同時是「預期結果預覽」和「送出 payload」的唯一來源，
+  // 在這裡合併，畫面跟實際寫進 Lark 的內容一定一致（跟 CodeX 討論定案）。
+  // 規則本體在 shared/weekly-report-rules.ts，後端的 Discord 送出走的是同一份，不是複製一份。
+  const flatPreviewItems = buildPreviewItems(draftEdits, { mergeJiraTags, mergeOsm })
+  const mergeableCount = countMergeable(draftEdits)
+  const jiraTagAffected = !mergeJiraTags ? 0 : countJiraTagAffected(draftEdits)
   const missingProjectTotal = flatPreviewItems.filter(({ item }) => !item.projectName).length
   const totalItemCount = flatPreviewItems.length
   const unresolvedUnidentifiedCount = (scanResult?.unidentified.length ?? 0) - unidentifiedResolved.size

@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.55.0'
+export const APP_VERSION = '4.56.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.56.0',
+    date: '2026-08-27',
+    changes: [
+      'refactor(週報): 專案名稱比對、Jira 標籤歸集、P7-005-OSM 合併這幾條規則抽到 shared/，前後端 import 同一份。行為零變化，22 項單元測試守著',
+      'note(週報): 這是「Discord 按鈕直接送出」的第一步——後端要算得出跟頁面一模一樣的內容，在 server 再寫一份的話，之後改規則會漏一邊，症狀是送出去的跟看到的不一樣',
+    ],
+  },
   {
     version: '4.55.0',
     date: '2026-08-27',
