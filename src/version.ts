@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.54.0'
+export const APP_VERSION = '4.55.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.55.0',
+    date: '2026-08-27',
+    changes: [
+      'feat(週報): 定時提醒的訊息附上預覽——掃到誰、幾筆、內容前幾條，以及「幾筆缺專案／幾筆填寫人對不到」這些真正需要開頁面處理的事',
+      'note(週報): 這是預覽不是週報本身。專案預設、合併開關、Jira 標籤歸集、手動指派都只在頁面上跑，數字不保證跟最後送出的一樣，訊息裡有寫明',
+      'note(週報): Jira 撈單刻意不放進預覽——那要用個人的 Jira token，而身分綁登入 cookie，cron 沒有登入者，不繞過那條邊界',
+    ],
+  },
   {
     version: '4.54.0',
     date: '2026-08-27',

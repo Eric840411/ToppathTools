@@ -1115,6 +1115,16 @@ Dashboard（修仙版）Hero 橫幅下方顯示一張每日語錄小卡片，語
 - 訊息裡的連結來自 `TOPPATH_BASE_URL`，**沒設就會是 `http://localhost:3000`**——每個環境的 `.env` 要各自設
 - 已用真實 cron 觸發驗證：排在 11:44，log 在 `11:44:00` 準點印出「已送出提醒」且 Discord 真的收到
 
+**訊息附預覽（v4.55.0）**：使用者要求訊息裡看得到內容。**文案一定要維持「預覽」的定位**（跟 CodeX 定案）——備稿有一半規則只活在前端（專案預設帶入、P7-005-OSM 合併、Jira 標籤歸集、頁籤報表與未識別人員的手動指派），server 只跑得了 Sheet 掃描那段，數字跟最後送進 Lark 的內容不保證一致。假裝它等於最後結果比不給預覽更糟——使用者會照著它核對然後發現對不上。
+
+- **server 不知道要掃哪幾份表**：`scanSheets` 是 `WeeklyReportPage.tsx` 的前端 state，連 localStorage 都沒存。所以前端在**每次掃描成功當下**把設定 PUT 到 `/api/weekly-report/reminder/sources`（settings key `weekly_report_reminder_sources`），cron 用「你上次實際用的設定」跑。**刻意不在 server 端另外寫一份預設來源常數**——那等於同一組設定前後端各一份，改了一邊就不一致
+- **`runBatchScan()` 與 `loadWeeklyBaseOptions()` 從既有端點抽出來共用**，不是在 cron 那邊複製一份掃描邏輯
+- **Jira 撈單刻意不放進預覽**：要用某個人的 Jira token 去查，而身分一律以登入 cookie 為準（v4.10.0 收緊的邊界）。cron 沒有請求也沒有登入者，要撈就得繞過那條邊界
+- **預覽算不出來絕不能連提醒都發不出去**——整段包 try/catch，失敗就在欄位裡寫明原因，提醒照發
+- **Discord 單一 field value 上限 1024 字元**，人多時一定要截；超過會被 API 整包拒絕，訊息完全發不出去，比少列幾個人嚴重得多
+
+**Discord 原生按鈕做不到（已實測，不要再試）**：現在的 channel webhook 送 `components` 會 **HTTP 200 但被靜默丟掉**（回應裡 `"components":[]`，訊息照送、沒有按鈕、也不報錯）。要有按鈕得建 Discord App（Bot）發訊息，再加 interactions endpoint 或 gateway 接「按鈕被按了」。更大的問題是按鈕的意思是「不開頁面就送出」，那要求後端能算出跟頁面一模一樣的內容——也就是得先把週報規則抽成前後端共用的一份，Discord App 本身反而是小的。
+
 ### 使用者操作
 | 操作 | 說明 |
 |------|------|

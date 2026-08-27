@@ -580,6 +580,17 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
           return merged
         })
         setUnidentifiedResolved(new Set())
+        // 把「這次用的來源設定」存給後端，定時提醒的預覽才知道要掃哪幾份表（v4.55.0）。
+        // 只在掃描成功後存＝存的一定是能跑得動的設定；fire-and-forget，存失敗不影響掃描結果。
+        fetch('/api/weekly-report/reminder/sources', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            weeklyUrl: url,
+            sheets: scanSheets.filter(sh => !sh.nameOnly).map(sh => ({
+              url: sh.url, dateColumn: sh.dateColumn, personColumn: sh.personColumn, contentColumns: sh.contentColumns,
+            })),
+          }),
+        }).catch(() => { /* 預覽來源存不起來不該打斷使用者 */ })
         // 只是挑「預設顯示哪個人」的 UI 便利判斷，不是資料本身，這裡用呼叫當下的 draftEdits（closure）
         // 做近似判斷即可接受——資料正確性已經由上面 setDraftEdits 的 functional update 保證
         setActivePerson(current => {

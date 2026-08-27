@@ -162,11 +162,15 @@ interface LarkFieldOption { id: string; name: string }
 interface LarkField { field_name: string; type: number; property?: { options?: { id: string; name: string }[] } | null }
 
 // POST /api/weekly-report/parse — 貼上網址，讀取欄位選項並驗證必要欄位存在
-router.post('/api/weekly-report/parse', async (req, res) => {
-  const body = z.object({ url: z.string().min(1) }).parse(req.body)
-  const parsed = parseLarkBaseUrl(body.url)
-  if (!parsed) return res.status(400).json({ ok: false, message: '網址格式不正確，需要包含 /base/{appToken} 與 ?table={tableId}' })
-
+/** 讀週報 Lark Base 的成員/專案下拉選項。抽出來讓定時提醒的預覽也能用同一份讀法，
+ *  不用在 cron 那邊再寫一次欄位判斷。失敗一律回 { ok: false, message }，
+ *  呼叫端自己決定要回 400 還是靜靜跳過。*/
+async function loadWeeklyBaseOptions(url: string): Promise<
+  { ok: true; appToken: string; tableId: string; members: LarkFieldOption[]; projects: LarkFieldOption[] }
+  | { ok: false; message: string; missingFields?: string[] }
+> {
+  const parsed = parseLarkBaseUrl(url)
+  if (!parsed) return { ok: false, message: '網址格式不正確，需要包含 /base/{appToken} 與 ?table={tableId}' }
   try {
     const token = await getLarkToken()
     const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
@@ -175,24 +179,38 @@ router.post('/api/weekly-report/parse', async (req, res) => {
     })
     const data = await resp.json() as { code?: number; msg?: string; data?: { items?: LarkField[] } }
     if (!resp.ok || data.code !== 0) {
-      return res.status(400).json({ ok: false, message: `讀取表格失敗：${data.msg ?? resp.statusText}（請確認網址正確、且此帳號有存取權限）` })
+      return { ok: false, message: `讀取表格失敗：${data.msg ?? resp.statusText}（請確認網址正確、且此帳號有存取權限）` }
     }
     const fields = data.data?.items ?? []
     const fieldNames = new Set(fields.map(f => f.field_name))
     const missingFields = REQUIRED_FIELDS.filter(f => !fieldNames.has(f))
     if (missingFields.length > 0) {
-      return res.status(400).json({ ok: false, message: `這張表缺少必要欄位：${missingFields.join('、')}`, missingFields })
+      return { ok: false, message: `這張表缺少必要欄位：${missingFields.join('、')}`, missingFields }
     }
-
     const memberField = fields.find(f => f.field_name === '成员')
     const projectField = fields.find(f => f.field_name === '专案')
-    const members: LarkFieldOption[] = (memberField?.property?.options ?? []).map(o => ({ id: o.id, name: o.name }))
-    const projects: LarkFieldOption[] = (projectField?.property?.options ?? []).map(o => ({ id: o.id, name: o.name }))
-
-    res.json({ ok: true, appToken: parsed.appToken, tableId: parsed.tableId, members, projects })
+    return {
+      ok: true, appToken: parsed.appToken, tableId: parsed.tableId,
+      members: (memberField?.property?.options ?? []).map(o => ({ id: o.id, name: o.name })),
+      projects: (projectField?.property?.options ?? []).map(o => ({ id: o.id, name: o.name })),
+    }
   } catch (e) {
-    res.status(500).json({ ok: false, message: `讀取失敗：${e instanceof Error ? e.message : String(e)}` })
+    return { ok: false, message: `讀取失敗：${e instanceof Error ? e.message : String(e)}` }
   }
+}
+
+router.post('/api/weekly-report/parse', async (req, res) => {
+  const body = z.object({ url: z.string().min(1) }).parse(req.body)
+  const result = await loadWeeklyBaseOptions(body.url)
+  // 用 === false 不用 !result.ok：這個 tsconfig 下後者不會把 union 收窄（readLarkSheetTab 的
+  // 呼叫端也是同一個寫法，見上面 runBatchScan 裡的 result.ok === false）
+  if (result.ok === false) {
+    return res.status(400).json({
+      ok: false, message: result.message,
+      ...(result.missingFields ? { missingFields: result.missingFields } : {}),
+    })
+  }
+  res.json({ ok: true, appToken: result.appToken, tableId: result.tableId, members: result.members, projects: result.projects })
 })
 
 // POST /api/weekly-report/jira-by-range — 依時間範圍撈這個人的 Jira 單
@@ -452,10 +470,91 @@ function findBestProjectByContentColumns(projects: LarkFieldOption[], contentCol
 interface SheetColumnMapping { url: string; dateColumn: string; personColumn: string; contentColumns: string[] }
 interface DraftItem { sourceRowId: string; content: string; projectId: string; projectName: string }
 
+/** 掃描邏輯本體。抽出來是為了讓「定時提醒的預覽」也能跑同一份——複製一份到 cron 那邊，
+ *  之後改比對規則一定會漏一邊（這正是不把整條備稿鏈搬到後端的同一個理由）。*/
+export async function runBatchScan(input: { sheets: SheetColumnMapping[]; members: string[]; projects: LarkFieldOption[] }) {
+  const { sheets, members, projects } = input
+
+  const { startUTC, endUTC, startLabel, endLabel, todayLabel } = getFridayAnchoredWeekRange()
+  const memberSet = new Map(members.map(m => [m.trim().toLowerCase(), m]))
+
+  const draftsByPerson: Record<string, DraftItem[]> = {}
+  const unidentified: Array<{ sourceRowId: string; rawName: string; content: string }> = []
+  const sourceErrors: Array<{ sheetIndex: number; message: string }> = []
+  let excludedOutOfRange = 0
+  let excludedUnparsableDate = 0
+
+  for (let sIdx = 0; sIdx < sheets.length; sIdx++) {
+    const sheet = sheets[sIdx]
+    const result = await readLarkSheetTab(sheet.url)
+    // 讀取失敗的來源不靜默略過（CodeX review：多來源時會變成「看起來掃描成功但其實少一份」），
+    // 記錄下來讓前端明確顯示是哪個來源失敗，但仍繼續處理其他成功的來源，不整個擋下來
+    if (result.ok === false) {
+      sourceErrors.push({ sheetIndex: sIdx, message: result.message })
+      continue
+    }
+
+    result.rows.forEach((row, rIdx) => {
+      const sourceRowId = `${sIdx}-${rIdx}`
+      const dateRaw = row[sheet.dateColumn] ?? ''
+      const dateVal = parseSheetDateCell(dateRaw)
+      if (dateVal === null) {
+        if (dateRaw.trim()) excludedUnparsableDate++
+        return
+      }
+      if (dateVal.getTime() < startUTC.getTime() || dateVal.getTime() > endUTC.getTime()) {
+        excludedOutOfRange++
+        return
+      }
+
+      const personRaw = row[sheet.personColumn] ?? ''
+      const names = splitPersonCell(personRaw, sheet.personColumn)
+      if (names.length === 0) return
+
+      const content = sheet.contentColumns.map(c => (row[c] ?? '').trim()).filter(Boolean).join(' ')
+      if (!content) return
+
+      const matchedProject = projects.find(p => p.name && content.toLowerCase().includes(p.name.toLowerCase()))
+        ?? findBestProjectByContentColumns(projects, sheet.contentColumns, row)
+
+      for (const name of names) {
+        const knownMember = memberSet.get(name.toLowerCase())
+        if (knownMember) {
+          if (!draftsByPerson[knownMember]) draftsByPerson[knownMember] = []
+          draftsByPerson[knownMember].push({
+            sourceRowId, content,
+            projectId: matchedProject?.id ?? '', projectName: matchedProject?.name ?? '',
+          })
+        } else {
+          unidentified.push({ sourceRowId, rawName: name, content })
+        }
+      }
+    })
+  }
+
+  const itemCount = Object.values(draftsByPerson).reduce((sum, items) => sum + items.length, 0)
+  const missingProjectCount = Object.values(draftsByPerson).reduce((sum, items) => sum + items.filter(i => !i.projectId).length, 0)
+
+  return {
+    weekRange: { startLabel, endLabel, todayLabel },
+    stats: {
+      peopleCount: Object.keys(draftsByPerson).length,
+      itemCount,
+      missingProjectCount,
+      unidentifiedCount: unidentified.length,
+      excludedOutOfRange,
+      excludedUnparsableDate,
+    },
+    draftsByPerson,
+    unidentified,
+    sourceErrors,
+  }
+}
+
 // POST /api/weekly-report/batch-scan
 router.post('/api/weekly-report/batch-scan', async (req, res) => {
   try {
-    const { sheets, members, projects } = z.object({
+    const parsed = z.object({
       sheets: z.array(z.object({
         url: z.string().min(1),
         dateColumn: z.string().min(1),
@@ -465,82 +564,7 @@ router.post('/api/weekly-report/batch-scan', async (req, res) => {
       members: z.array(z.string()),
       projects: z.array(z.object({ id: z.string(), name: z.string() })),
     }).parse(req.body) as { sheets: SheetColumnMapping[]; members: string[]; projects: LarkFieldOption[] }
-
-    const { startUTC, endUTC, startLabel, endLabel, todayLabel } = getFridayAnchoredWeekRange()
-    const memberSet = new Map(members.map(m => [m.trim().toLowerCase(), m]))
-
-    const draftsByPerson: Record<string, DraftItem[]> = {}
-    const unidentified: Array<{ sourceRowId: string; rawName: string; content: string }> = []
-    const sourceErrors: Array<{ sheetIndex: number; message: string }> = []
-    let excludedOutOfRange = 0
-    let excludedUnparsableDate = 0
-
-    for (let sIdx = 0; sIdx < sheets.length; sIdx++) {
-      const sheet = sheets[sIdx]
-      const result = await readLarkSheetTab(sheet.url)
-      // 讀取失敗的來源不靜默略過（CodeX review：多來源時會變成「看起來掃描成功但其實少一份」），
-      // 記錄下來讓前端明確顯示是哪個來源失敗，但仍繼續處理其他成功的來源，不整個擋下來
-      if (result.ok === false) {
-        sourceErrors.push({ sheetIndex: sIdx, message: result.message })
-        continue
-      }
-
-      result.rows.forEach((row, rIdx) => {
-        const sourceRowId = `${sIdx}-${rIdx}`
-        const dateRaw = row[sheet.dateColumn] ?? ''
-        const dateVal = parseSheetDateCell(dateRaw)
-        if (dateVal === null) {
-          if (dateRaw.trim()) excludedUnparsableDate++
-          return
-        }
-        if (dateVal.getTime() < startUTC.getTime() || dateVal.getTime() > endUTC.getTime()) {
-          excludedOutOfRange++
-          return
-        }
-
-        const personRaw = row[sheet.personColumn] ?? ''
-        const names = splitPersonCell(personRaw, sheet.personColumn)
-        if (names.length === 0) return
-
-        const content = sheet.contentColumns.map(c => (row[c] ?? '').trim()).filter(Boolean).join(' ')
-        if (!content) return
-
-        const matchedProject = projects.find(p => p.name && content.toLowerCase().includes(p.name.toLowerCase()))
-          ?? findBestProjectByContentColumns(projects, sheet.contentColumns, row)
-
-        for (const name of names) {
-          const knownMember = memberSet.get(name.toLowerCase())
-          if (knownMember) {
-            if (!draftsByPerson[knownMember]) draftsByPerson[knownMember] = []
-            draftsByPerson[knownMember].push({
-              sourceRowId, content,
-              projectId: matchedProject?.id ?? '', projectName: matchedProject?.name ?? '',
-            })
-          } else {
-            unidentified.push({ sourceRowId, rawName: name, content })
-          }
-        }
-      })
-    }
-
-    const itemCount = Object.values(draftsByPerson).reduce((sum, items) => sum + items.length, 0)
-    const missingProjectCount = Object.values(draftsByPerson).reduce((sum, items) => sum + items.filter(i => !i.projectId).length, 0)
-
-    res.json({
-      ok: true,
-      weekRange: { startLabel, endLabel, todayLabel },
-      stats: {
-        peopleCount: Object.keys(draftsByPerson).length,
-        itemCount,
-        missingProjectCount,
-        unidentifiedCount: unidentified.length,
-        excludedOutOfRange,
-        excludedUnparsableDate,
-      },
-      draftsByPerson,
-      unidentified,
-      sourceErrors,
-    })
+    res.json({ ok: true, ...await runBatchScan(parsed) })
   } catch (e) {
     res.status(500).json({ ok: false, message: `掃描失敗：${e instanceof Error ? e.message : String(e)}` })
   }
@@ -622,6 +646,27 @@ interface WeeklyReminderConfig {
 }
 
 const WEEKLY_REMINDER_KEY = 'weekly_report_reminder'
+const WEEKLY_REMINDER_SOURCES_KEY = 'weekly_report_reminder_sources'
+
+/** 提醒訊息要附預覽，就得知道「掃哪幾份表、哪些欄位」——但那是 WeeklyReportPage 的前端 state，
+ *  server 完全不知道。所以由前端在每次掃描成功當下把設定存過來，cron 用「你上次實際用的設定」跑。
+ *  刻意不在 server 端另外寫一份預設來源常數：那等於同一組設定前後端各一份，改了一邊就不一致。*/
+interface WeeklyReminderSources {
+  savedAt: number
+  weeklyUrl: string
+  sheets: Array<{ url: string; dateColumn: string; personColumn: string; contentColumns: string[] }>
+}
+
+function getReminderSources(): WeeklyReminderSources | null {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(WEEKLY_REMINDER_SOURCES_KEY) as { value: string } | undefined
+  if (!row?.value) return null
+  try {
+    const v = JSON.parse(row.value) as WeeklyReminderSources
+    return (v && Array.isArray(v.sheets) && typeof v.weeklyUrl === 'string') ? v : null
+  } catch {
+    return null
+  }
+}
 const DEFAULT_REMINDER: WeeklyReminderConfig = { enabled: false, weekday: 4, time: '10:00', mentionAll: false }
 
 function getReminderConfig(): WeeklyReminderConfig {
@@ -648,6 +693,84 @@ function reminderCronExpr(cfg: WeeklyReminderConfig): string {
 
 let weeklyReminderTask: cron.ScheduledTask | null = null
 
+/** 組提醒訊息裡的預覽區塊。
+ *
+ *  ⚠️ 這是**預覽不是週報本身**，文案上一定要講清楚。備稿有一半規則只活在前端
+ *  （專案預設帶入、P7-005-OSM 每人合併、Jira 標籤歸集、頁籤報表與未識別人員的手動指派），
+ *  server 這邊跑的只有 Sheet 掃描那段，所以數字跟最後真的送進 Lark 的內容不會完全一致。
+ *  假裝它等於最後結果，比不給預覽更糟——使用者會照著它去核對，然後發現對不上。
+ *
+ *  **Jira 撈單刻意不放進來**：那要用「某個人的 Jira token」去查，而身分一律以登入 cookie
+ *  為準（v4.10.0 收緊的邊界）。cron 沒有請求也沒有登入者，要撈就得繞過那條邊界，不值得。
+ */
+async function buildReminderPreview(): Promise<{ fields: Array<{ name: string; value: string; inline: boolean }>; footer: string }> {
+  const sources = getReminderSources()
+  if (!sources || sources.sheets.length === 0) {
+    return {
+      fields: [{
+        name: '預覽',
+        value: '還沒有預覽來源——先開一次週報頁跑過掃描，之後的提醒就會附上預覽。',
+        inline: false,
+      }],
+      footer: '預覽僅供參考，實際送出內容以週報頁面為準',
+    }
+  }
+
+  try {
+    const base = await loadWeeklyBaseOptions(sources.weeklyUrl)
+    if (base.ok === false) {
+      return {
+        fields: [{ name: '預覽', value: `讀不到週報表：${base.message}`, inline: false }],
+        footer: '預覽僅供參考，實際送出內容以週報頁面為準',
+      }
+    }
+
+    const scan = await runBatchScan({
+      sheets: sources.sheets,
+      members: base.members.map(m => m.name),
+      projects: base.projects,
+    })
+
+    const fields: Array<{ name: string; value: string; inline: boolean }> = []
+
+    // 逐人摘要。Discord 單一 field value 上限 1024 字元，人多時一定要截——
+    // 超過就被 API 整包拒絕，訊息會完全發不出去（比少列幾個人嚴重得多）
+    const people = Object.entries(scan.draftsByPerson)
+    if (people.length === 0) {
+      fields.push({ name: '掃到的項目', value: '這個區間內沒有掃到任何項目', inline: false })
+    } else {
+      const shown = people.slice(0, 8)
+      const lines = shown.map(([person, items]) => {
+        const heads = items.slice(0, 3).map(i => i.content.replace(/\s+/g, ' ').slice(0, 40))
+        const more = items.length > heads.length ? `…等 ${items.length} 筆` : ''
+        return `**${person}**（${items.length}）：${heads.join('｜')}${more}`
+      })
+      if (people.length > shown.length) lines.push(`…另有 ${people.length - shown.length} 人`)
+      let value = lines.join('\n')
+      if (value.length > 1000) value = `${value.slice(0, 990)}\n…（過長已截斷）`
+      fields.push({ name: `掃到的項目（${scan.stats.peopleCount} 人 / ${scan.stats.itemCount} 筆）`, value, inline: false })
+    }
+
+    // 需要人處理的事情單獨列一欄——這是使用者真正要為此打開頁面的理由
+    const todos: string[] = []
+    if (scan.stats.missingProjectCount > 0) todos.push(`${scan.stats.missingProjectCount} 筆比對不到專案，要手動補（沒補會擋住送出）`)
+    if (scan.stats.unidentifiedCount > 0) todos.push(`${scan.stats.unidentifiedCount} 筆的填寫人對不到成員名單，要手動指派`)
+    if (scan.sourceErrors.length > 0) todos.push(`${scan.sourceErrors.length} 個來源讀取失敗`)
+    if (todos.length > 0) fields.push({ name: '需要你處理', value: todos.map(t => `• ${t}`).join('\n'), inline: false })
+
+    return {
+      fields,
+      footer: '以上是系統預覽，僅供確認方向。Jira 撈單、合併規則與手動指派只在頁面上跑，實際送出內容以頁面為準',
+    }
+  } catch (e) {
+    // 預覽算不出來絕不能連提醒本身都發不出去——提醒是主功能，預覽是附加的
+    return {
+      fields: [{ name: '預覽', value: `預覽產生失敗：${e instanceof Error ? e.message : String(e)}`, inline: false }],
+      footer: '預覽僅供參考，實際送出內容以週報頁面為準',
+    }
+  }
+}
+
 /** 送出提醒到 Discord。webhook URL 沿用 AutoSpin 那組全域設定（同一個頻道，不另外設一份）。*/
 async function sendWeeklyReminder(): Promise<{ sent: boolean; message: string }> {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_webhook_url') as { value: string } | undefined
@@ -656,6 +779,7 @@ async function sendWeeklyReminder(): Promise<{ sent: boolean; message: string }>
 
   const cfg = getReminderConfig()
   const { startLabel, endLabel } = getFridayAnchoredWeekRange()
+  const preview = await buildReminderPreview()
 
   // mention 一定要放 content，塞在 embed 裡不會真的觸發 Discord 通知/ping（AutoSpin 那邊踩過）
   let content = '📋 該備週報了'
@@ -680,7 +804,11 @@ async function sendWeeklyReminder(): Promise<{ sent: boolean; message: string }>
         title: '週報備稿提醒',
         description: `開啟週報彙整頁，Sheet 掃描／Jira 撈單／頁籤報表會自動跑完備稿。\n**確認過內容再自己按「呈報宗門」送出。**\n\n${baseUrl}`,
         color: 0x62C6A5,
-        fields: [{ name: '本週撈取範圍', value: `${startLabel} ～ ${endLabel}`, inline: false }],
+        fields: [
+          { name: '本週撈取範圍', value: `${startLabel} ～ ${endLabel}`, inline: false },
+          ...preview.fields,
+        ],
+        footer: { text: preview.footer },
         timestamp: new Date().toISOString(),
       }],
     }),
@@ -738,6 +866,27 @@ router.post('/api/weekly-report/reminder/test', async (_req, res) => {
     res.json({ ok: r.sent, message: r.message })
   } catch (e) {
     res.status(500).json({ ok: false, message: e instanceof Error ? e.message : String(e) })
+  }
+})
+
+// PUT /api/weekly-report/reminder/sources — 前端掃描成功後把「這次用的來源設定」存過來，
+// 定時提醒的預覽就用這份跑。存的是設定不是結果，所以不會過期成錯誤資料，只會是「上次用的設定」。
+router.put('/api/weekly-report/reminder/sources', (req, res) => {
+  try {
+    const body = z.object({
+      weeklyUrl: z.string().min(1),
+      sheets: z.array(z.object({
+        url: z.string().min(1),
+        dateColumn: z.string().min(1),
+        personColumn: z.string().min(1),
+        contentColumns: z.array(z.string()).min(1),
+      })).max(3),
+    }).parse(req.body)
+    const payload: WeeklyReminderSources = { savedAt: Date.now(), weeklyUrl: body.weeklyUrl, sheets: body.sheets }
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(WEEKLY_REMINDER_SOURCES_KEY, JSON.stringify(payload))
+    res.json({ ok: true })
+  } catch (e) {
+    res.status(400).json({ ok: false, message: e instanceof Error ? e.message : String(e) })
   }
 })
 
