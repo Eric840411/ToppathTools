@@ -1105,6 +1105,16 @@ Dashboard（修仙版）Hero 橫幅下方顯示一張每日語錄小卡片，語
 
 專案比對只試 `matchLarkProjectByJiraName(tabName, ...)`，對不到就留空由「預期結果」標紅擋送出，不硬猜。
 
+**定時備稿提醒（v4.54.0，2026-08-27）**：`GET/PUT /api/weekly-report/reminder`＋`POST .../reminder/test`，設定「每週幾、幾點」，到點發一則 Discord 提醒。**只提醒、不自動送出**（使用者選 B）。
+
+**為什麼後端不自己把草稿產好**（跟 CodeX 討論定案）：備稿整條鏈都在前端——Sheet 掃描、Jira 撈單、專案關鍵字比對、P7-005-OSM 合併、Jira 標籤歸集、手動指派，全部是 `WeeklyReportPage.tsx` 的狀態。搬到 server 等於同一套規則前後端各維護一份，之後改比對規則一定會漏一邊。要做的前提是先把週報核心邏輯抽成前後端共用的 service，不是直接在 server 複製一份。所以這版只負責「到點提醒去開頁面」，開頁面之後既有的全自動載入本來就會自己跑完備稿。
+
+- cron 沿用 `server/routes/osm.ts` 的 `restartCron` 那套（`node-cron` +`{ timezone: 'Asia/Taipei' }`），模組載入時套用一次，所以 server 重啟後排程自動恢復
+- `reminderCronExpr()` 把 `HH:mm` 的**時分先轉成數字再組**——`"09:05"` 直接塞進 cron 表達式會變成 `05 09 * * 4`，前導零不是所有 cron 實作都吃
+- Webhook URL 沿用 AutoSpin 那組全域設定（`settings.discord_webhook_url`），不另外設一份；mention 一定要放 `content` 不能塞在 embed 裡（AutoSpin 那邊踩過，embed 裡的 `<@id>` 不會真的 ping）
+- 訊息裡的連結來自 `TOPPATH_BASE_URL`，**沒設就會是 `http://localhost:3000`**——每個環境的 `.env` 要各自設
+- 已用真實 cron 觸發驗證：排在 11:44，log 在 `11:44:00` 準點印出「已送出提醒」且 Discord 真的收到
+
 ### 使用者操作
 | 操作 | 說明 |
 |------|------|

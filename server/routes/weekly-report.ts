@@ -6,7 +6,8 @@
  */
 import { Router } from 'express'
 import { z } from 'zod'
-import { addHistory, getLarkToken, mustEnv, userJiraAuth, parseLarkSheetUrl } from '../shared.js'
+import cron from 'node-cron'
+import { addHistory, db, getLarkToken, mustEnv, userJiraAuth, parseLarkSheetUrl } from '../shared.js'
 
 export const router = Router()
 
@@ -600,3 +601,145 @@ router.post('/api/weekly-report/batch-submit', async (req, res) => {
   }
 })
 
+
+// ─── 定時備稿提醒（v4.53.0，2026-08-27）──────────────────────────────────────
+// 使用者要的是「定時自動備稿＋通知」，但**刻意只做提醒、不自動送出**（使用者選 B）。
+//
+// 為什麼不是後端自己把草稿產好：備稿整條鏈都在前端——Sheet 掃描、Jira 撈單、專案關鍵字
+// 比對、P7-005-OSM 合併、Jira 標籤歸集、手動指派，全部是 `WeeklyReportPage.tsx` 的狀態。
+// 搬到 server 等於同一套規則前後端各維護一份，之後改比對規則一定會漏一邊（跟 CodeX 討論
+// 定案：要做的前提是先把週報核心邏輯抽成前後端共用的 service，不是現在直接複製一份）。
+// 所以這裡只負責「到點提醒去開頁面」，開頁面之後既有的全自動載入本來就會自己跑完備稿。
+
+interface WeeklyReminderConfig {
+  enabled: boolean
+  /** 0=週日 … 6=週六。預設 4（週四）——週期是週五~週四，週四提醒剛好在收尾當天 */
+  weekday: number
+  /** HH:mm，Asia/Taipei */
+  time: string
+  /** 開啟時 @ 「帳號 → Discord Tag 對照表」裡的所有人（沿用 AutoSpin 那份，不另建一份名單）*/
+  mentionAll: boolean
+}
+
+const WEEKLY_REMINDER_KEY = 'weekly_report_reminder'
+const DEFAULT_REMINDER: WeeklyReminderConfig = { enabled: false, weekday: 4, time: '10:00', mentionAll: false }
+
+function getReminderConfig(): WeeklyReminderConfig {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(WEEKLY_REMINDER_KEY) as { value: string } | undefined
+  if (!row?.value) return { ...DEFAULT_REMINDER }
+  try {
+    const parsed = JSON.parse(row.value) as Partial<WeeklyReminderConfig>
+    return {
+      enabled: parsed.enabled === true,
+      weekday: typeof parsed.weekday === 'number' && parsed.weekday >= 0 && parsed.weekday <= 6 ? parsed.weekday : DEFAULT_REMINDER.weekday,
+      time: typeof parsed.time === 'string' && /^\d{1,2}:\d{2}$/.test(parsed.time) ? parsed.time : DEFAULT_REMINDER.time,
+      mentionAll: parsed.mentionAll === true,
+    }
+  } catch {
+    return { ...DEFAULT_REMINDER }
+  }
+}
+
+/** HH:mm + 週幾 → cron 表達式。時分先轉成數字再組，避免 "09:05" 這種前導零直接進 cron 表達式 */
+function reminderCronExpr(cfg: WeeklyReminderConfig): string {
+  const [hh, mm] = cfg.time.split(':')
+  return `${Number(mm)} ${Number(hh)} * * ${cfg.weekday}`
+}
+
+let weeklyReminderTask: cron.ScheduledTask | null = null
+
+/** 送出提醒到 Discord。webhook URL 沿用 AutoSpin 那組全域設定（同一個頻道，不另外設一份）。*/
+async function sendWeeklyReminder(): Promise<{ sent: boolean; message: string }> {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_webhook_url') as { value: string } | undefined
+  const webhookUrl = row?.value ?? ''
+  if (!webhookUrl) return { sent: false, message: '尚未設定 Discord Webhook URL（在「Discord 通知」設定頁）' }
+
+  const cfg = getReminderConfig()
+  const { startLabel, endLabel } = getFridayAnchoredWeekRange()
+
+  // mention 一定要放 content，塞在 embed 裡不會真的觸發 Discord 通知/ping（AutoSpin 那邊踩過）
+  let content = '📋 該備週報了'
+  if (cfg.mentionAll) {
+    try {
+      const mapRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('autospin_discord_user_map') as { value: string } | undefined
+      const map = mapRow?.value ? JSON.parse(mapRow.value) as Array<{ discordUserId?: string }> : []
+      const mentions = (Array.isArray(map) ? map : [])
+        .map(e => e.discordUserId).filter((id): id is string => !!id)
+        .map(id => `<@${id}>`).join(' ')
+      if (mentions) content = `${mentions} ${content}`
+    } catch { /* 對照表壞掉不該擋住提醒本身 */ }
+  }
+
+  const baseUrl = process.env.TOPPATH_BASE_URL || 'http://localhost:3000'
+  await fetch(webhookUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      content,
+      embeds: [{
+        title: '週報備稿提醒',
+        description: `開啟週報彙整頁，Sheet 掃描／Jira 撈單／頁籤報表會自動跑完備稿。\n**確認過內容再自己按「呈報宗門」送出。**\n\n${baseUrl}`,
+        color: 0x62C6A5,
+        fields: [{ name: '本週撈取範圍', value: `${startLabel} ～ ${endLabel}`, inline: false }],
+        timestamp: new Date().toISOString(),
+      }],
+    }),
+  })
+  return { sent: true, message: '已送出提醒' }
+}
+
+/** 重新套用排程。設定改動後要呼叫，模組載入時也會跑一次。*/
+export const restartWeeklyReminder = () => {
+  if (weeklyReminderTask) { weeklyReminderTask.stop(); weeklyReminderTask = null }
+  const cfg = getReminderConfig()
+  if (!cfg.enabled) return
+  const expr = reminderCronExpr(cfg)
+  if (!cron.validate(expr)) { console.warn('[WeeklyReminder] 無效的 cron 表達式：', expr); return }
+  weeklyReminderTask = cron.schedule(expr, async () => {
+    try {
+      const r = await sendWeeklyReminder()
+      addHistory('weekly-report', '週報備稿提醒（定時）', r.message, { triggeredBy: 'cron', schedule: expr })
+      console.log(`[WeeklyReminder] ${r.message}`)
+    } catch (err) { console.error('[WeeklyReminder] 定時提醒失敗：', err) }
+  }, { timezone: 'Asia/Taipei' })
+  console.log(`[WeeklyReminder] 已啟動，排程：${expr}（Asia/Taipei）`)
+}
+
+// GET /api/weekly-report/reminder
+router.get('/api/weekly-report/reminder', (_req, res) => {
+  const cfg = getReminderConfig()
+  res.json({ ok: true, config: cfg, cronExpr: cfg.enabled ? reminderCronExpr(cfg) : null })
+})
+
+// PUT /api/weekly-report/reminder — 整份覆蓋，存完立刻重新套用排程
+router.put('/api/weekly-report/reminder', (req, res) => {
+  try {
+    const body = z.object({
+      enabled: z.boolean(),
+      weekday: z.number().int().min(0).max(6),
+      time: z.string().regex(/^\d{1,2}:\d{2}$/, 'time 需為 HH:mm'),
+      mentionAll: z.boolean().optional(),
+    }).parse(req.body)
+    const [hh, mm] = body.time.split(':').map(Number)
+    if (hh > 23 || mm > 59) return res.status(400).json({ ok: false, message: 'time 超出範圍' })
+    const cfg: WeeklyReminderConfig = { ...body, mentionAll: body.mentionAll === true }
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(WEEKLY_REMINDER_KEY, JSON.stringify(cfg))
+    restartWeeklyReminder()
+    res.json({ ok: true, config: cfg, cronExpr: cfg.enabled ? reminderCronExpr(cfg) : null })
+  } catch (e) {
+    res.status(400).json({ ok: false, message: e instanceof Error ? e.message : String(e) })
+  }
+})
+
+// POST /api/weekly-report/reminder/test — 立刻送一則，不受啟用開關影響（比照 Discord 設定頁的試發送）
+router.post('/api/weekly-report/reminder/test', async (_req, res) => {
+  try {
+    const r = await sendWeeklyReminder()
+    res.json({ ok: r.sent, message: r.message })
+  } catch (e) {
+    res.status(500).json({ ok: false, message: e instanceof Error ? e.message : String(e) })
+  }
+})
+
+// 模組載入時套用一次，讓 server 重啟後排程自動恢復（跟 osm.ts 的 restartCron 同一套）
+restartWeeklyReminder()

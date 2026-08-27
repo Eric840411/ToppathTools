@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.53.0'
+export const APP_VERSION = '4.54.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.54.0',
+    date: '2026-08-27',
+    changes: [
+      'feat(週報): 定時備稿提醒——設定每週幾幾點，到點發一則 Discord 提醒去開週報頁。**不會自動送出**，內容仍由自己確認後按送出',
+      'fix(週報): 預設那份來源 Sheet 自動讀表頭時漏存分頁名稱，導致 v4.53.0 的「只用表單名稱」勾選框在它上面顯示不出來',
+    ],
+  },
   {
     version: '4.53.0',
     date: '2026-08-27',

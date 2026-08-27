@@ -83,6 +83,8 @@ interface ScanSheetConfig {
   /** 表單（分頁）名稱，讀表頭時一併拿到。勾了 nameOnly 就是拿它當內容 */
   tabName: string
 }
+const WEEKDAY_LABELS = ['週日', '週一', '週二', '週三', '週四', '週五', '週六']
+
 function newScanSheetConfig(): ScanSheetConfig {
   return { url: '', headers: [], headersMsg: '', dateColumn: '', personColumn: '', contentColumns: [], nameOnly: false, tabName: '' }
 }
@@ -444,11 +446,13 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: DEFAULT_SCAN_SHEET_URL }),
     })
       .then(r => r.json())
-      .then((d: { ok: boolean; headers?: string[] }) => {
+      // tabName 也要收下——「只用表單名稱」那個勾選框要有它才顯示得出來，
+      // 手動「讀取表頭」那條路徑本來就有存，這條自動路徑漏了就會變成「預設那份表勾不到」
+      .then((d: { ok: boolean; headers?: string[]; tabName?: string }) => {
         if (!d.ok) return
         const headers = d.headers ?? []
         setScanSheets(prev => prev.map((s, i) => (i === 0 && s.url === DEFAULT_SCAN_SHEET_URL) ? {
-          ...s, headers, headersMsg: `已讀取 ${headers.length} 個欄位`,
+          ...s, headers, tabName: d.tabName ?? '', headersMsg: `已讀取 ${headers.length} 個欄位`,
           dateColumn: headers.includes(DEFAULT_SCAN_SHEET_DATE_COLUMN) ? DEFAULT_SCAN_SHEET_DATE_COLUMN : '',
           personColumn: headers.includes(DEFAULT_SCAN_SHEET_PERSON_COLUMN) ? DEFAULT_SCAN_SHEET_PERSON_COLUMN : '',
           contentColumns: DEFAULT_SCAN_SHEET_CONTENT_COLUMNS.filter(c => headers.includes(c)),
@@ -914,6 +918,61 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
     setTabDateSelectedMembers(prev => ({ ...prev, [tabKey]: new Set(names) }))
   }
 
+  // ── 定時備稿提醒（2026-08-27）──
+  // 只提醒、不自動送出（使用者選 B）。後端 cron 到點發 Discord，開頁面之後既有的全自動載入
+  // 本來就會自己備好稿，最後仍由使用者確認內容再按送出。設定見 server/routes/weekly-report.ts。
+  const [reminderOpen, setReminderOpen] = useState(false)
+  const [reminder, setReminder] = useState<{ enabled: boolean; weekday: number; time: string; mentionAll: boolean } | null>(null)
+  const [reminderCron, setReminderCron] = useState<string | null>(null)
+  const [reminderMsg, setReminderMsg] = useState('')
+  const [reminderSaving, setReminderSaving] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/weekly-report/reminder').then(r => r.json()).then((d: { ok: boolean; config?: typeof reminder; cronExpr?: string | null }) => {
+      if (cancelled || !d.ok || !d.config) return
+      setReminder(d.config)
+      setReminderCron(d.cronExpr ?? null)
+    }).catch(() => { /* 讀不到就維持 null，畫面顯示讀取中，不擋住週報本身 */ })
+    return () => { cancelled = true }
+  }, [])
+
+  const saveReminder = async (patch: Partial<NonNullable<typeof reminder>>) => {
+    if (!reminder) return
+    const next = { ...reminder, ...patch }
+    setReminder(next)  // 樂觀更新，開關切下去要立刻有反應
+    setReminderSaving(true)
+    setReminderMsg('')
+    try {
+      const r = await fetch('/api/weekly-report/reminder', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(next),
+      })
+      const d = await r.json() as { ok: boolean; message?: string; config?: typeof reminder; cronExpr?: string | null }
+      if (d.ok && d.config) {
+        setReminder(d.config)
+        setReminderCron(d.cronExpr ?? null)
+        setReminderMsg('已儲存')
+      } else {
+        setReminderMsg(d.message || '儲存失敗')
+      }
+    } catch (e) {
+      setReminderMsg(`儲存失敗：${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setReminderSaving(false)
+    }
+  }
+
+  const testReminder = async () => {
+    setReminderMsg('送出中…')
+    try {
+      const r = await fetch('/api/weekly-report/reminder/test', { method: 'POST' })
+      const d = await r.json() as { ok: boolean; message?: string }
+      setReminderMsg(d.ok ? '已送出一則測試提醒到 Discord' : (d.message || '送出失敗'))
+    } catch (e) {
+      setReminderMsg(`送出失敗：${e instanceof Error ? e.message : String(e)}`)
+    }
+  }
+
   // ── 只用表單名稱的來源 Sheet（2026-08-27）──
   // 勾了 nameOnly 的那份不會進 batch-scan（後端根本沒讀到它），內容就是表單名稱本身，
   // 沒有填寫人欄位可以自動分類，所以跟頁籤日期式報表同一套：手動勾成員、可複選、按套用。
@@ -1105,6 +1164,61 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
           <span style={{ color: 'var(--cr-rose)' }}><WarningIcon size={11} /> {weekRangeError}</span>
         ) : (
           <span style={{ color: '#64748b' }}>撈取範圍讀取中…</span>
+        )}
+      </div>
+
+      {/* 定時備稿提醒（2026-08-27）：預設收合——這是「設定一次就不用再看」的東西，
+          常駐展開會把真正要操作的 Step 1 推下去 */}
+      <div style={{ border: '1px solid #2d3f55', borderRadius: 10, background: '#10182a', marginBottom: 14 }}>
+        <button onClick={() => setReminderOpen(o => !o)}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', background: 'transparent', border: 'none', color: '#e2e8f0', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', textAlign: 'left' }}>
+          <span style={{ color: '#64748b', fontSize: 10 }}>{reminderOpen ? '▼' : '▶'}</span>
+          <span>定時備稿提醒</span>
+          {reminder && (
+            <span style={{ fontSize: 11, fontWeight: 500, color: reminder.enabled ? 'var(--cr-cyan)' : '#64748b' }}>
+              {reminder.enabled ? '每' + WEEKDAY_LABELS[reminder.weekday] + ' ' + reminder.time + ' 發 Discord 提醒' : '未啟用'}
+            </span>
+          )}
+        </button>
+
+        {reminderOpen && (
+          <div style={{ padding: '0 16px 14px', borderTop: '1px solid #263345', paddingTop: 12 }}>
+            <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.75, marginBottom: 10 }}>
+              到點只發一則 Discord 提醒，<b style={{ color: '#e2e8f0' }}>不會自動送出週報</b>。
+              開頁面之後掃描／Jira 撈單／頁籤報表本來就會自己跑完備稿，內容確認過再自己按送出。
+            </div>
+            {!reminder ? (
+              <div style={{ fontSize: 11, color: '#64748b' }}>讀取設定中…</div>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, color: '#cbd5e1', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={reminder.enabled} onChange={e => saveReminder({ enabled: e.target.checked })} />
+                  <span>啟用</span>
+                </label>
+                <select value={reminder.weekday} onChange={e => saveReminder({ weekday: Number(e.target.value) })}
+                  style={{ padding: '6px 9px', background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 7, color: '#e2e8f0', fontSize: 11.5, fontFamily: 'inherit' }}>
+                  {WEEKDAY_LABELS.map((w, i) => <option key={i} value={i}>每{w}</option>)}
+                </select>
+                <input type="time" value={reminder.time} onChange={e => e.target.value && saveReminder({ time: e.target.value })}
+                  style={{ padding: '5px 9px', background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 7, color: '#e2e8f0', fontSize: 11.5, fontFamily: 'ui-monospace, monospace' }} />
+                <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11.5, color: '#cbd5e1', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={reminder.mentionAll} onChange={e => saveReminder({ mentionAll: e.target.checked })} />
+                  <span>@ 對照表裡的所有人</span>
+                </label>
+                <button onClick={testReminder}
+                  style={{ padding: '6px 12px', fontSize: 11, fontWeight: 700, borderRadius: 7, background: 'transparent', border: '1px solid #2d3f55', color: '#94a3b8', cursor: 'pointer' }}>
+                  試發送
+                </button>
+                {reminderSaving && <span style={{ fontSize: 11, color: '#64748b' }}>儲存中…</span>}
+                {!reminderSaving && reminderMsg && <span style={{ fontSize: 11, color: reminderMsg.includes('失敗') ? 'var(--cr-rose)' : 'var(--cr-cyan)' }}>{reminderMsg}</span>}
+              </div>
+            )}
+            {reminder?.enabled && reminderCron && (
+              <div style={{ fontSize: 10.5, color: '#64748b', marginTop: 9, fontFamily: 'ui-monospace, monospace' }}>
+                cron：{reminderCron}（Asia/Taipei）｜Webhook 沿用「Discord 通知」設定頁那一組
+              </div>
+            )}
+          </div>
         )}
       </div>
 
