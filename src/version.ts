@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.64.0'
+export const APP_VERSION = '4.64.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.64.1',
+    date: '2026-08-27',
+    changes: [
+      'fix(版面): 操作歷史紀錄改成滿版（原本鎖 860px，是全站最窄的一頁），卡片底色也跟其他頁對齊',
+      'fix(版面): 順手把同樣有內層寬度限制的圖片刪除驗證（900px）與知識庫（1280px＋自己多加一層 padding）一起改掉',
+      'note(版面): 逐頁量過一輪，現在每一頁的內容都填滿可用寬度。更新日誌頁刻意保留 720px——那是長文閱讀頁，拉寬反而難讀',
+    ],
+  },
   {
     version: '4.64.0',
     date: '2026-08-27',

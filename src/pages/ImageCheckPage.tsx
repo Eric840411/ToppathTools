@@ -185,7 +185,7 @@ export function ImageCheckPage() {
   const confirmed = result?.results.filter(r => !r.found) ?? []
 
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto' }}>
+    <div style={{ width: '100%' }}>
       {/* Input section — hide when session active */}
       {!sessionId && !result && (
         <>

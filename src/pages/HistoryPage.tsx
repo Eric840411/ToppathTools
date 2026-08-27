@@ -181,7 +181,7 @@ export function HistoryPage() {
   }, {})
 
   return (
-    <div style={{ maxWidth: 860, margin: '0 auto' }}>
+    <div style={{ width: '100%' }}>
       {/* Filters */}
       <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 20, flexWrap: 'wrap' }}>
         {/* Days */}
@@ -288,7 +288,7 @@ export function HistoryPage() {
               return (
                 <div
                   key={rec.id}
-                  style={{ border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden', background: '#1e293b' }}
+                  style={{ border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden', background: '#10182a' }}
                 >
                   <div
                     onClick={() => setExpandedId(isExpanded ? null : rec.id)}

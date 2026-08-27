@@ -272,7 +272,7 @@ export function KnowledgePage() {
   const currentFolder = typeof selectedFolderId === 'number' ? folders.find(f => f.id === selectedFolderId) : null
 
   return (
-    <div style={{ padding: '20px 28px', maxWidth: 1280, margin: '0 auto' }}>
+    <div style={{ width: '100%' }}>
 
       {/* ── Folder tabs bar ── */}
       <div className="section-card" style={{ marginBottom: 20, padding: '12px 20px' }}>
