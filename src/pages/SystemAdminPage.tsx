@@ -314,7 +314,7 @@ export function SystemAdminPage() {
   // ─── Styles ───────────────────────────────────────────────────────────────
 
   const card: React.CSSProperties = {
-    background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 12,
+    background: '#10182a', border: '1px solid #2d3f55', borderRadius: 12,
     padding: 24, marginBottom: 20,
   }
 
@@ -362,7 +362,7 @@ export function SystemAdminPage() {
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div style={{ padding: '20px 28px', maxWidth: 1100 }}>
+    <div style={{ width: '100%' }}>
       {/* Sub-tabs */}
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, background: '#162032', padding: 4, borderRadius: 8, width: 'fit-content', border: '1px solid #2d3f55' }}>
         {([['permissions', '功能權限'], ['accounts', '帳號管理']] as const).map(([id, label]) => (

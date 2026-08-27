@@ -74,23 +74,15 @@ export function EgmDayCountPage() {
   }
 
   const inputStyle: React.CSSProperties = {
-    background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 7, color: '#e2e8f0',
+    background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 7, color: '#e2e8f0',
     padding: '8px 10px', fontSize: 13,
   }
   const labelStyle: React.CSSProperties = { fontSize: 11, color: '#94a3b8', fontWeight: 700, marginBottom: 5, display: 'block' }
 
   return (
-    <div style={{ maxWidth: 1180, margin: '0 auto' }}>
-      <div style={{ marginBottom: 16 }}>
-        <h2 style={{ fontSize: 18, margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
-          Egm DayCount 對帳
-        </h2>
-        <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>
-          比對後台 Egm DayCount 彙總報表（gameCount）與 User Detail 逐筆列（playerMachineCount）回推加總是否一致
-        </p>
-      </div>
+    <div style={{ width: '100%' }}>
 
-      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', background: '#111c30', border: '1px solid #23344d', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', background: '#10182a', border: '1px solid #2d3f55', borderRadius: 12, padding: 16, marginBottom: 16 }}>
         <div>
           <label style={labelStyle}>日期</label>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
@@ -160,10 +152,10 @@ export function EgmDayCountPage() {
           <thead>
             <tr>
               <th style={{ width: 40 }}></th>
-              <th style={{ textAlign: 'left', padding: '9px 12px', background: '#162032', color: '#94a3b8', fontSize: 11, borderBottom: '1px solid #23344d' }}>欄位</th>
-              <th style={{ textAlign: 'right', padding: '9px 12px', background: '#162032', color: '#94a3b8', fontSize: 11, borderBottom: '1px solid #23344d' }}>Egm DayCount</th>
-              <th style={{ textAlign: 'right', padding: '9px 12px', background: '#162032', color: '#94a3b8', fontSize: 11, borderBottom: '1px solid #23344d' }}>User Detail 回推</th>
-              <th style={{ textAlign: 'right', padding: '9px 12px', background: '#162032', color: '#94a3b8', fontSize: 11, borderBottom: '1px solid #23344d' }}>差值</th>
+              <th style={{ textAlign: 'left', padding: '9px 12px', background: '#162032', color: '#94a3b8', fontSize: 11, borderBottom: '1px solid #2d3f55' }}>欄位</th>
+              <th style={{ textAlign: 'right', padding: '9px 12px', background: '#162032', color: '#94a3b8', fontSize: 11, borderBottom: '1px solid #2d3f55' }}>Egm DayCount</th>
+              <th style={{ textAlign: 'right', padding: '9px 12px', background: '#162032', color: '#94a3b8', fontSize: 11, borderBottom: '1px solid #2d3f55' }}>User Detail 回推</th>
+              <th style={{ textAlign: 'right', padding: '9px 12px', background: '#162032', color: '#94a3b8', fontSize: 11, borderBottom: '1px solid #2d3f55' }}>差值</th>
             </tr>
           </thead>
           <tbody>
@@ -189,7 +181,7 @@ export function EgmDayCountPage() {
           兩張報表若非同一時刻查詢，短時間內若有機台持續在跑（例如 AutoSpin），數字可能會有些微落差，不代表算錯。
         </p>
 
-        <div style={{ background: '#162338', border: '1px solid #23344d', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
+        <div style={{ background: '#10182a', border: '1px solid #2d3f55', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#94a3b8', marginBottom: 8 }}>
             有下注的帳號（{result.bettingUsers.length} 個，跨機台已彙整，不重複）
           </div>
@@ -217,7 +209,7 @@ export function EgmDayCountPage() {
           </table>
         </div>
 
-        <details style={{ background: '#162338', border: '1px solid #23344d', borderRadius: 10, padding: '2px 16px' }}>
+        <details style={{ background: '#10182a', border: '1px solid #2d3f55', borderRadius: 10, padding: '2px 16px' }}>
           <summary style={{ cursor: 'pointer', padding: '10px 0', fontSize: 12, color: '#94a3b8', fontWeight: 700 }}>
             ▸ User Detail 逐筆明細（{result.userDetail.recordCount} 筆{result.udTruncated ? '，警 超過單次查詢上限，以下可能不完整' : ''}）
           </summary>

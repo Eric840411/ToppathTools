@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.63.2'
+export const APP_VERSION = '4.64.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.64.0',
+    date: '2026-08-27',
+    changes: [
+      'fix(版面): Performance Meter 對帳／Egm DayCount 對帳／系統管理 三頁改成滿版自適應，不再用 maxWidth 鎖成中間一條窄欄',
+      'fix(版面): 這三頁的卡片外框與底色沿用其他頁面那一套（#2d3f55 / #10182a），不再每頁自己挑一組',
+      'fix(版面): 拿掉頁面裡重複的大標題——頂欄已經顯示頁名與副標了。系統管理頁的 h2 是區塊標題不是頁名，保留',
+    ],
+  },
   {
     version: '4.63.2',
     date: '2026-08-27',

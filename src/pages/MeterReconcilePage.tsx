@@ -142,7 +142,7 @@ export function MeterReconcilePage() {
   }
 
   const inputStyle: React.CSSProperties = {
-    background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 7, color: '#e2e8f0',
+    background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 7, color: '#e2e8f0',
     padding: '8px 10px', fontSize: 13,
   }
   const labelStyle: React.CSSProperties = { fontSize: 11, color: '#94a3b8', fontWeight: 700, marginBottom: 5, display: 'block' }
@@ -150,18 +150,10 @@ export function MeterReconcilePage() {
   const kvRow: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid #0f172a', fontVariantNumeric: 'tabular-nums' }
 
   return (
-    <div style={{ maxWidth: 1180, margin: '0 auto' }}>
-      <div style={{ marginBottom: 16 }}>
-        <h2 style={{ fontSize: 18, margin: '0 0 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
-          Performance Meter 對帳
-        </h2>
-        <p style={{ margin: 0, fontSize: 12, color: '#64748b' }}>
-          OSM / GCP EGM Metering 對 Game Record + Jackpot Abnormality，驗證 Coin Out 是否一致
-        </p>
-      </div>
+    <div style={{ width: '100%' }}>
 
       {/* Query bar */}
-      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', background: '#111c30', border: '1px solid #23344d', borderRadius: 12, padding: 16, marginBottom: 16 }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap', background: '#10182a', border: '1px solid #2d3f55', borderRadius: 12, padding: 16, marginBottom: 16 }}>
         <div>
           <label style={labelStyle}>機台名稱（Client Machine Name）</label>
           <input value={machineName} onChange={e => setMachineName(e.target.value)}
@@ -242,7 +234,7 @@ export function MeterReconcilePage() {
           </div>
 
           {/* Formula */}
-          <div style={{ background: '#0f172a', border: '1px solid #23344d', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontVariantNumeric: 'tabular-nums' }}>
+          <div style={{ background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 10, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontVariantNumeric: 'tabular-nums' }}>
             <b style={{ color: '#e2e8f0' }}>公式（{result.source === 'osm' ? 'OSM' : 'GCP'}）</b>：預期 Coin Out =
             {result.source === 'osm' ? (
               <>
@@ -304,7 +296,7 @@ export function MeterReconcilePage() {
               {result.jackpotAbnormality.records.length === 0
                 ? <p style={{ fontSize: 12, color: '#64748b' }}>當日無 Handpay 記錄</p>
                 : result.jackpotAbnormality.records.slice(0, 5).map((it, i) => (
-                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, padding: '6px 8px', border: '1px solid #23344d', borderRadius: 6, background: '#0f172a', fontVariantNumeric: 'tabular-nums' }}>
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11.5, padding: '6px 8px', border: '1px solid #2d3f55', borderRadius: 6, background: '#0b1322', fontVariantNumeric: 'tabular-nums' }}>
                     <span>{it.payoutTime?.slice(11, 16) ?? '—'} · {it.username ?? '—'}</span>
                     <span style={{ color: '#fbbf24', fontWeight: 700 }}>{fmt(it.handpay)}</span>
                   </div>
@@ -318,7 +310,7 @@ export function MeterReconcilePage() {
           </div>
 
           {/* Raw field debug */}
-          <details style={{ background: '#162338', border: '1px solid #23344d', borderRadius: 10, padding: '2px 16px', marginBottom: 16 }}>
+          <details style={{ background: '#10182a', border: '1px solid #2d3f55', borderRadius: 10, padding: '2px 16px', marginBottom: 16 }}>
             <summary style={{ cursor: 'pointer', padding: '10px 0', fontSize: 12, color: '#94a3b8', fontWeight: 700 }}>原始欄位對照表（除錯用，已驗證欄位標色）</summary>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8, paddingBottom: 14 }}>
               {result.rawMeterRow && Object.entries(result.rawMeterRow)
@@ -326,7 +318,7 @@ export function MeterReconcilePage() {
                 .map(([k, v]) => {
                   const known = KNOWN_FIELDS.find(f => f.key === k)
                   return (
-                    <div key={k} style={{ background: '#0f172a', border: `1px solid ${known ? 'rgba(34,197,94,.3)' : '#23344d'}`, borderRadius: 6, padding: '6px 9px', fontSize: 11 }}>
+                    <div key={k} style={{ background: '#0b1322', border: `1px solid ${known ? 'rgba(34,197,94,.3)' : '#2d3f55'}`, borderRadius: 6, padding: '6px 9px', fontSize: 11 }}>
                       <div style={{ color: known ? '#4ade80' : '#94a3b8' }}>
                         欄位 {k}{known ? ` · ${known.label}` : ''}{!known && <span style={{ color: '#64748b', fontSize: 9.5 }}> 語意未確認</span>}
                       </div>
@@ -341,14 +333,14 @@ export function MeterReconcilePage() {
 
       {/* Backend config */}
       <details open={configOpen} onToggle={e => setConfigOpen((e.target as HTMLDetailsElement).open)}
-        style={{ background: '#111c30', border: '1px solid #23344d', borderRadius: 10, padding: '2px 16px' }}>
+        style={{ background: '#10182a', border: '1px solid #2d3f55', borderRadius: 10, padding: '2px 16px' }}>
         <summary style={{ cursor: 'pointer', padding: '10px 0', fontSize: 12, color: '#94a3b8', fontWeight: 700 }}>後台設定（OSM / GCP 兩組後台連線資訊）</summary>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, paddingBottom: 16 }}>
           {(['osm', 'gcp'] as const).map(profile => {
             const cfg = profile === 'osm' ? osmConfig : gcpConfig
             const setCfg = profile === 'osm' ? setOsmConfig : setGcpConfig
             return (
-              <div key={profile} style={{ display: 'flex', flexDirection: 'column', gap: 8, background: '#0f172a', border: '1px solid #23344d', borderRadius: 8, padding: 12 }}>
+              <div key={profile} style={{ display: 'flex', flexDirection: 'column', gap: 8, background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 8, padding: 12 }}>
                 <div style={{ fontWeight: 700, fontSize: 13 }}>{profile === 'osm' ? 'OSM（CP）' : 'GCP（NC）'}</div>
                 {([
                   ['base_url', 'Base URL', 'https://backendservertest.osmslot.org'],
@@ -370,7 +362,7 @@ export function MeterReconcilePage() {
                     {savingCfg === profile ? '儲存中…' : '儲存設定'}
                   </button>
                   <button onClick={() => testConfig(profile)} disabled={testingCfg === profile}
-                    style={{ padding: '5px 14px', background: '#0f172a', color: '#93c5fd', border: '1px solid #2563eb', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>
+                    style={{ padding: '5px 14px', background: '#0b1322', color: '#93c5fd', border: '1px solid #2563eb', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>
                     {testingCfg === profile ? '測試中…' : '測試登入'}
                   </button>
                   {cfgMsg?.profile === profile && (
