@@ -8,6 +8,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import cron from 'node-cron'
 import { createHash } from 'crypto'
+import { getAuthAccount } from '../auth-session.js'
 import {
   addHistory, db, getLarkToken, mustEnv, userJiraAuth, parseLarkSheetUrl,
   hasJiraDelegation, jiraAuthForAccount, readAccounts, authEmailFromRequest,
@@ -661,6 +662,10 @@ interface WeeklyReminderConfig {
   time: string
   /** 開啟時 @ 「帳號 → Discord Tag 對照表」裡的所有人（沿用 AutoSpin 那份，不另建一份名單）*/
   mentionAll: boolean
+  /** 以誰的身分撈 Jira。**明確指定**，不是「誰最後在頁面跑過掃描」——後者會讓授權身分
+   *  被「誰路過」決定，而且畫面上完全看不出來變了（2026-08-27 使用者要求改掉）。
+   *  空的話才退回用來源設定裡記的 actor，維持舊資料可用。*/
+  jiraActorEmail?: string
 }
 
 const WEEKLY_REMINDER_KEY = 'weekly_report_reminder'
@@ -709,6 +714,7 @@ function getReminderConfig(): WeeklyReminderConfig {
       weekday: typeof parsed.weekday === 'number' && parsed.weekday >= 0 && parsed.weekday <= 6 ? parsed.weekday : DEFAULT_REMINDER.weekday,
       time: typeof parsed.time === 'string' && /^\d{1,2}:\d{2}$/.test(parsed.time) ? parsed.time : DEFAULT_REMINDER.time,
       mentionAll: parsed.mentionAll === true,
+      jiraActorEmail: typeof parsed.jiraActorEmail === 'string' ? parsed.jiraActorEmail : undefined,
     }
   } catch {
     return { ...DEFAULT_REMINDER }
@@ -781,9 +787,10 @@ async function fetchJiraDraftsForCron(
   endDate: string,
 ): Promise<JiraCronOutcome> {
   const out: JiraCronOutcome = { drafts: [], skipped: [] }
-  const actor = (sources.actorEmail ?? '').toLowerCase()
+  // 明確指定的優先；沒指定才退回「來源設定裡記的 actor」（舊資料相容）
+  const actor = (getReminderConfig().jiraActorEmail || sources.actorEmail || '').toLowerCase()
   if (!actor) {
-    out.skipped.push({ label: 'Jira', reason: '來源設定沒有記錄授權者——請重新開一次週報頁跑掃描' })
+    out.skipped.push({ label: 'Jira', reason: '還沒指定「以誰的身分撈 Jira」——請到週報頁的定時提醒設定裡選一個' })
     return out
   }
 
@@ -1196,9 +1203,21 @@ export const restartWeeklyReminder = () => {
 }
 
 // GET /api/weekly-report/reminder
-router.get('/api/weekly-report/reminder', (_req, res) => {
+router.get('/api/weekly-report/reminder', (req, res) => {
   const cfg = getReminderConfig()
-  res.json({ ok: true, config: cfg, cronExpr: cfg.enabled ? reminderCronExpr(cfg) : null })
+  const me = getAuthAccount(req)
+  const sources = getReminderSources()
+  res.json({
+    ok: true,
+    config: cfg,
+    cronExpr: cfg.enabled ? reminderCronExpr(cfg) : null,
+    // 畫面要顯示「目前實際會用誰」——沒明確指定時是退回來源設定裡記的 actor，
+    // 這件事不講清楚的話使用者看到空白會以為沒設定就不會撈
+    effectiveJiraActor: cfg.jiraActorEmail || sources?.actorEmail || '',
+    fallbackActorLabel: sources?.actorLabel ?? '',
+    candidates: readAccounts().map(a => ({ email: a.email, label: a.label || a.email })),
+    me: me ? { email: me.email, isAdmin: me.role === 'admin' } : null,
+  })
 })
 
 // PUT /api/weekly-report/reminder — 整份覆蓋，存完立刻重新套用排程
@@ -1209,10 +1228,28 @@ router.put('/api/weekly-report/reminder', (req, res) => {
       weekday: z.number().int().min(0).max(6),
       time: z.string().regex(/^\d{1,2}:\d{2}$/, 'time 需為 HH:mm'),
       mentionAll: z.boolean().optional(),
+      jiraActorEmail: z.string().optional(),
     }).parse(req.body)
     const [hh, mm] = body.time.split(':').map(Number)
     if (hh > 23 || mm > 59) return res.status(400).json({ ok: false, message: 'time 超出範圍' })
-    const cfg: WeeklyReminderConfig = { ...body, mentionAll: body.mentionAll === true }
+    // 指定 Jira 身分＝把自己的 token 授權給一個背景排程用，只能自己指定自己；
+    // 要指定別人得是管理員。這跟「誰路過就是誰」的差別，就是有沒有人為此負責。
+    const me = getAuthAccount(req)
+    const wantActor = (body.jiraActorEmail ?? '').trim().toLowerCase()
+    if (wantActor) {
+      if (!me) return res.status(401).json({ ok: false, message: '請先登入' })
+      const known = readAccounts().some(a => a.email.toLowerCase() === wantActor)
+      if (!known) return res.status(400).json({ ok: false, message: '找不到這個帳號' })
+      const isSelf = me.email.toLowerCase() === wantActor
+      if (!isSelf && me.role !== 'admin') {
+        return res.status(403).json({ ok: false, message: '只能指定自己；要指定別人需要管理員權限' })
+      }
+    }
+    const cfg: WeeklyReminderConfig = {
+      enabled: body.enabled, weekday: body.weekday, time: body.time,
+      mentionAll: body.mentionAll === true,
+      jiraActorEmail: wantActor || undefined,
+    }
     db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(WEEKLY_REMINDER_KEY, JSON.stringify(cfg))
     restartWeeklyReminder()
     res.json({ ok: true, config: cfg, cronExpr: cfg.enabled ? reminderCronExpr(cfg) : null })

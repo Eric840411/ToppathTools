@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.58.0'
+export const APP_VERSION = '4.59.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.59.0',
+    date: '2026-08-27',
+    changes: [
+      'feat(週報): 定時提醒設定多一個「以誰的身分撈 Jira」，明確指定而不是沿用「誰最後在頁面跑過掃描」——後者會讓授權身分被誰路過決定，畫面上還完全看不出來變了',
+      'feat(週報): 只能指定自己；要指定別人需要管理員權限（前端下拉限制＋後端再擋一次，不只靠 UI）',
+      'note(週報): 還沒明確指定時畫面會標黃字提醒目前沿用的是誰，不會安靜地用一個看不見的身分去撈',
+    ],
+  },
   {
     version: '4.58.0',
     date: '2026-08-27',

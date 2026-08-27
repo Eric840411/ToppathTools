@@ -831,17 +831,33 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
   // 只提醒、不自動送出（使用者選 B）。後端 cron 到點發 Discord，開頁面之後既有的全自動載入
   // 本來就會自己備好稿，最後仍由使用者確認內容再按送出。設定見 server/routes/weekly-report.ts。
   const [reminderOpen, setReminderOpen] = useState(false)
-  const [reminder, setReminder] = useState<{ enabled: boolean; weekday: number; time: string; mentionAll: boolean } | null>(null)
+  const [reminder, setReminder] = useState<{ enabled: boolean; weekday: number; time: string; mentionAll: boolean; jiraActorEmail?: string } | null>(null)
+  const [reminderMeta, setReminderMeta] = useState<{
+    effectiveJiraActor: string; fallbackActorLabel: string
+    candidates: Array<{ email: string; label: string }>
+    me: { email: string; isAdmin: boolean } | null
+  } | null>(null)
   const [reminderCron, setReminderCron] = useState<string | null>(null)
   const [reminderMsg, setReminderMsg] = useState('')
   const [reminderSaving, setReminderSaving] = useState(false)
 
   useEffect(() => {
     let cancelled = false
-    fetch('/api/weekly-report/reminder').then(r => r.json()).then((d: { ok: boolean; config?: typeof reminder; cronExpr?: string | null }) => {
+    fetch('/api/weekly-report/reminder').then(r => r.json()).then((d: {
+      ok: boolean; config?: typeof reminder; cronExpr?: string | null
+      effectiveJiraActor?: string; fallbackActorLabel?: string
+      candidates?: Array<{ email: string; label: string }>
+      me?: { email: string; isAdmin: boolean } | null
+    }) => {
       if (cancelled || !d.ok || !d.config) return
       setReminder(d.config)
       setReminderCron(d.cronExpr ?? null)
+      setReminderMeta({
+        effectiveJiraActor: d.effectiveJiraActor ?? '',
+        fallbackActorLabel: d.fallbackActorLabel ?? '',
+        candidates: d.candidates ?? [],
+        me: d.me ?? null,
+      })
     }).catch(() => { /* 讀不到就維持 null，畫面顯示讀取中，不擋住週報本身 */ })
     return () => { cancelled = true }
   }, [])
@@ -861,6 +877,8 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
         setReminder(d.config)
         setReminderCron(d.cronExpr ?? null)
         setReminderMsg('已儲存')
+        // 儲存成功後同步「目前實際會用誰」，不然畫面上還顯示舊的
+        setReminderMeta(m => m ? { ...m, effectiveJiraActor: d.config?.jiraActorEmail || m.effectiveJiraActor } : m)
       } else {
         setReminderMsg(d.message || '儲存失敗')
       }
@@ -1118,6 +1136,47 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
                   style={{ padding: '6px 12px', fontSize: 11, fontWeight: 700, borderRadius: 7, background: 'transparent', border: '1px solid #2d3f55', color: '#94a3b8', cursor: 'pointer' }}>
                   試發送
                 </button>
+              </div>
+            )}
+
+            {/* 以誰的身分撈 Jira。**明確指定**而不是「誰最後在頁面跑過掃描」——後者會讓授權
+                身分被誰路過決定，而且畫面上完全看不出來變了（2026-08-27 使用者要求改掉）。
+                只能選自己；要選別人得是管理員（後端也會再擋一次，不只靠這裡的下拉限制）。 */}
+            {reminder && reminderMeta && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #263345' }}>
+                <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.7, marginBottom: 8 }}>
+                  <b style={{ color: '#e2e8f0' }}>以誰的身分撈 Jira</b>——排程沒有登入者，要有一個人明確授權。
+                  撈別人的單仍需要「Jira 代理張貼授權」，沒有的話那個帳號會被跳過並在訊息裡標明。
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <select value={reminder.jiraActorEmail ?? ''} onChange={e => saveReminder({ jiraActorEmail: e.target.value })}
+                    style={{ padding: '6px 9px', background: '#0b1322', border: '1px solid #2d3f55', borderRadius: 7, color: '#e2e8f0', fontSize: 11.5, fontFamily: 'inherit', minWidth: 200 }}>
+                    <option value="">（未指定）</option>
+                    {reminderMeta.candidates
+                      .filter(c => reminderMeta.me?.isAdmin || c.email.toLowerCase() === (reminderMeta.me?.email ?? '').toLowerCase())
+                      .map(c => <option key={c.email} value={c.email}>{c.label}</option>)}
+                  </select>
+                  {!reminderMeta.me?.isAdmin && (
+                    <span style={{ fontSize: 10.5, color: '#64748b' }}>只能指定自己；要指定別人需要管理員權限</span>
+                  )}
+                </div>
+                {!reminder.jiraActorEmail && reminderMeta.effectiveJiraActor && (
+                  <div style={{ fontSize: 10.5, color: '#d8b45a', marginTop: 7 }}>
+                    尚未明確指定，目前會沿用最後一次跑掃描的人
+                    {reminderMeta.fallbackActorLabel ? '（' + reminderMeta.fallbackActorLabel + '）' : ''}
+                    ——那會隨著誰開過頁面而改變，建議明確指定一個。
+                  </div>
+                )}
+                {!reminder.jiraActorEmail && !reminderMeta.effectiveJiraActor && (
+                  <div style={{ fontSize: 10.5, color: 'var(--cr-rose)', marginTop: 7 }}>
+                    還沒有任何身分可用，Discord 那條路不會撈 Jira。
+                  </div>
+                )}
+              </div>
+            )}
+
+            {reminder && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', marginTop: 10 }}>
                 {reminderSaving && <span style={{ fontSize: 11, color: '#64748b' }}>儲存中…</span>}
                 {!reminderSaving && reminderMsg && <span style={{ fontSize: 11, color: reminderMsg.includes('失敗') ? 'var(--cr-rose)' : 'var(--cr-cyan)' }}>{reminderMsg}</span>}
               </div>
