@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.63.1'
+export const APP_VERSION = '4.63.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.63.2',
+    date: '2026-08-27',
+    changes: [
+      'fix(腳本化投注): 勾選框的勾勾偏右下沒對齊方框中心，改成使用者在 DevTools 調好的位置',
+    ],
+  },
   {
     version: '4.63.1',
     date: '2026-08-27',
