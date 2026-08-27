@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.51.0'
+export const APP_VERSION = '4.52.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.52.0',
+    date: '2026-08-27',
+    changes: [
+      'fix(uat): 12 筆 TC 原本跑起來是綠的，但一個斷言都沒執行——驗證器只寫了一行提示、沒有任何失敗條件。現在誠實標成「需人工判讀」，每筆附具體理由（要切到別的渠道才比得出來／要真的新增到第 21 筆才知道有沒有擋／需要離線機台當樣本…）',
+      'note(uat): 報表上會多 12 筆需人工判讀，但那才是實情——原本那 12 個綠燈會讓人以為這些事情有在測',
+    ],
+  },
   {
     version: '4.51.0',
     date: '2026-08-26',
