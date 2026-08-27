@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.52.0'
+export const APP_VERSION = '4.53.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.53.0',
+    date: '2026-08-27',
+    changes: [
+      'feat(週報): 來源 Sheet 可勾「只用表單名稱，不讀裡面的內容」——這份表不逐列掃描，改成一筆內容就是分頁名稱，手動勾成員套用（可複選）',
+      'note(週報): 逐份獨立，勾這份不影響其他份；套用的項目算「手動指派」來源，重跑掃描不會被清掉',
+    ],
+  },
   {
     version: '4.52.0',
     date: '2026-08-27',

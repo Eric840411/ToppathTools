@@ -72,9 +72,19 @@ interface ScanSheetConfig {
   dateColumn: string
   personColumn: string
   contentColumns: string[]
+  /**
+   * 只用表單名稱、不讀裡面的內容。
+   *
+   * 有些來源表加進來只是要記「這週有處理這份表」，內容逐列展開反而是雜訊。
+   * 勾了之後這份表不掃列，改成一個項目、內容就是表單名稱，手動指派給誰。
+   * **逐份獨立**——勾這份不影響其他份（使用者 2026-08-27 特別強調）。
+   */
+  nameOnly: boolean
+  /** 表單（分頁）名稱，讀表頭時一併拿到。勾了 nameOnly 就是拿它當內容 */
+  tabName: string
 }
 function newScanSheetConfig(): ScanSheetConfig {
-  return { url: '', headers: [], headersMsg: '', dateColumn: '', personColumn: '', contentColumns: [] }
+  return { url: '', headers: [], headersMsg: '', dateColumn: '', personColumn: '', contentColumns: [], nameOnly: false, tabName: '' }
 }
 
 const LAST_URL_KEY = 'weekly_report_last_url'
@@ -490,9 +500,9 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
       const r = await fetch('/api/weekly-report/sheet-headers', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: sheetUrl }),
       })
-      const d = await r.json() as { ok: boolean; message?: string; headers?: string[] }
+      const d = await r.json() as { ok: boolean; message?: string; headers?: string[]; tabName?: string }
       if (d.ok) {
-        updateScanSheet(idx, { headers: d.headers ?? [], dateColumn: '', personColumn: '', contentColumns: [], headersMsg: `已讀取 ${d.headers?.length ?? 0} 個欄位` })
+        updateScanSheet(idx, { headers: d.headers ?? [], tabName: d.tabName ?? '', dateColumn: '', personColumn: '', contentColumns: [], headersMsg: `已讀取 ${d.headers?.length ?? 0} 個欄位` })
       } else {
         updateScanSheet(idx, { headers: [], headersMsg: d.message || '讀取失敗' })
       }
@@ -513,7 +523,10 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
     }))
   }
 
-  const scanReady = scanSheets.every(s => s.url.trim() && s.dateColumn && s.personColumn && s.contentColumns.length > 0)
+  // 勾了「只用表單名稱」的那幾份不讀內容，自然不需要選日期／填寫人／內容欄位。
+  // 沒有這個豁免的話，勾了之後掃描按鈕會一直是鎖住的。
+  const scanReady = scanSheets.every(s =>
+    s.url.trim() && (s.nameOnly ? !!s.tabName : (s.dateColumn && s.personColumn && s.contentColumns.length > 0)))
 
   const handleRunScan = async () => {
     if (!parsed || !scanReady) return
@@ -522,7 +535,10 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
       const r = await fetch('/api/weekly-report/batch-scan', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sheets: scanSheets.map(s => ({ url: s.url, dateColumn: s.dateColumn, personColumn: s.personColumn, contentColumns: s.contentColumns })),
+          // 只用表單名稱的那幾份不送去掃描——後端掃的是「列」，而它們要的是表單名稱本身。
+          // 它們在前端直接產生項目，跟頁籤日期式報表同一套做法。
+          sheets: scanSheets.filter(s => !s.nameOnly)
+            .map(s => ({ url: s.url, dateColumn: s.dateColumn, personColumn: s.personColumn, contentColumns: s.contentColumns })),
           members: parsed.members.map(m => m.name),
           projects: parsed.projects,
         }),
@@ -898,6 +914,33 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
     setTabDateSelectedMembers(prev => ({ ...prev, [tabKey]: new Set(names) }))
   }
 
+  // ── 只用表單名稱的來源 Sheet（2026-08-27）──
+  // 勾了 nameOnly 的那份不會進 batch-scan（後端根本沒讀到它），內容就是表單名稱本身，
+  // 沒有填寫人欄位可以自動分類，所以跟頁籤日期式報表同一套：手動勾成員、可複選、按套用。
+  // key 用網址不用陣列 index——移除中間那份時 index 會位移，勾好的成員會跑到別份表上。
+  const [nameOnlyMembers, setNameOnlyMembers] = useState<Record<string, Set<string>>>({})
+  const setNameOnlyMembersFor = (key: string, names: string[]) =>
+    setNameOnlyMembers(prev => ({ ...prev, [key]: new Set(names) }))
+
+  const applyNameOnlySheet = (url: string, tabName: string) => {
+    const members = [...(nameOnlyMembers[url] ?? [])]
+    if (members.length === 0) return
+    // 「手動指派 · 」前綴＝非 Sheet 來源，重跑掃描時 isSheetSourced() 判定為 false 會被保留，
+    // 跟 Jira 套用／手動新增／未識別人員指派待遇一致（2026-08-16 那個被覆蓋的 bug 的修法）
+    const sourceRowId = `手動指派 · 表單 · ${url}`
+    const matched = parsed ? matchLarkProjectByJiraName(tabName, parsed.projects) : undefined
+    setDraftEdits(prev => {
+      const next = { ...prev }
+      for (const member of members) {
+        const existing = next[member] ?? []
+        if (existing.some(it => it.sourceRowId === sourceRowId)) continue
+        next[member] = [...existing, { sourceRowId, content: tabName, projectId: matched?.id ?? '', projectName: matched?.name ?? '' }]
+      }
+      return next
+    })
+    setNameOnlyMembers(prev => ({ ...prev, [url]: new Set() }))
+  }
+
   // membersOverride：全自動載入用（2026-08-17）——跳過畫面上的勾選 state，直接傳入要套用的成員清單，
   // 避免透過 setState 再讀 state 造成的非同步時序問題（setTabDateSelectedMembers 之後立刻呼叫這支，
   // state 還沒真的更新，會讀到舊值）。手動流程（畫面上點套用）不傳這個參數，行為完全不變。
@@ -1116,6 +1159,9 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
           missingProjectTotal={missingProjectTotal}
           totalItemCount={totalItemCount}
           unresolvedUnidentifiedCount={unresolvedUnidentifiedCount}
+          nameOnlyMembers={nameOnlyMembers}
+          setNameOnlyMembersFor={setNameOnlyMembersFor}
+          applyNameOnlySheet={applyNameOnlySheet}
           updateScanSheet={updateScanSheet}
           handleLoadSheetHeaders={handleLoadSheetHeaders}
           addScanSheet={addScanSheet}
@@ -1175,6 +1221,7 @@ function BatchScanSection({
   setJiraTargetPerson, openJiraPanel, toggleJiraAccount, handleJiraRangeSearch, toggleJiraChecked, applyJiraToPerson, applyJiraAuto,
   tabDateOpen, openTabDatePanel, tabDateLoading, tabDateMsg, tabDateSources, tabDateSourceErrors,
   handleTabDateScan, tabDateSelectedMembers, setTabDateMembersFor, applyTabDateItem,
+  nameOnlyMembers, setNameOnlyMembersFor, applyNameOnlySheet,
 }: {
   parsed: ParsedTable | null
   scanSheets: ScanSheetConfig[]
@@ -1239,6 +1286,9 @@ function BatchScanSection({
   tabDateSelectedMembers: Record<string, Set<string>>
   setTabDateMembersFor: (tabKey: string, names: string[]) => void
   applyTabDateItem: (sourceKey: string, sheetId: string, title: string) => void
+  nameOnlyMembers: Record<string, Set<string>>
+  setNameOnlyMembersFor: (key: string, names: string[]) => void
+  applyNameOnlySheet: (url: string, tabName: string) => void
 }) {
   if (!parsed) {
     return (
@@ -1411,7 +1461,40 @@ function BatchScanSection({
             </div>
             {s.headersMsg && <div style={{ fontSize: 10.5, color: s.headers.length ? '#64748b' : 'var(--cr-rose)', marginBottom: 8 }}>{s.headersMsg}</div>}
 
-            {s.headers.length > 0 && (
+            {/* 只用表單名稱：這份表加進來只是要記「這週有處理它」，內容逐列展開反而是雜訊。
+                勾了就不掃列，改成一個項目、內容就是表單名稱。**逐份獨立，不影響其他份**。
+                讀到表頭才顯示——沒讀之前不知道表單叫什麼，勾了也沒東西可用。 */}
+            {!!s.tabName && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 8, fontSize: 11.5, color: '#cbd5e1', cursor: 'pointer' }}>
+                <input type="checkbox" checked={s.nameOnly}
+                  onChange={e => updateScanSheet(idx, { nameOnly: e.target.checked })} />
+                <span>
+                  只用表單名稱，不讀裡面的內容
+                  <b style={{ color: 'var(--cr-cyan)', marginLeft: 6 }}>{s.tabName}</b>
+                </span>
+              </label>
+            )}
+
+            {s.nameOnly ? (
+              <div style={{ padding: '9px 11px', borderRadius: 7, background: '#0f1a2e', border: '1px dashed #2d3f55' }}>
+                <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.7, marginBottom: 8 }}>
+                  這份表不會逐列掃描，也沒有填寫人欄位可以自動分類——直接勾要記給誰，
+                  每個人各拿到一筆內容為「<b style={{ color: 'var(--cr-cyan)' }}>{s.tabName}</b>」的項目。
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <div style={{ width: 240, flexShrink: 0 }}>
+                    <SearchableMultiSelect selected={[...(nameOnlyMembers[s.url] ?? [])]}
+                      onChange={names => setNameOnlyMembersFor(s.url, names)}
+                      options={parsed.members} placeholder="選擇成員（可複選）..." />
+                  </div>
+                  <button onClick={() => applyNameOnlySheet(s.url, s.tabName)}
+                    disabled={(nameOnlyMembers[s.url]?.size ?? 0) === 0}
+                    style={{ padding: '6px 12px', fontSize: 11, fontWeight: 700, borderRadius: 7, background: 'var(--cr-cyan-soft)', color: 'var(--cr-cyan)', border: '1px solid var(--cr-cyan-border, transparent)', cursor: (nameOnlyMembers[s.url]?.size ?? 0) === 0 ? 'default' : 'pointer', opacity: (nameOnlyMembers[s.url]?.size ?? 0) === 0 ? .5 : 1 }}>
+                    套用（{nameOnlyMembers[s.url]?.size ?? 0} 人）
+                  </button>
+                </div>
+              </div>
+            ) : s.headers.length > 0 && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                   <div>
