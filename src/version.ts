@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.60.0'
+export const APP_VERSION = '4.61.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.61.0',
+    date: '2026-08-27',
+    changes: [
+      'fix(權限): 「Jira 代理張貼授權」新增時的用途寫死成「批量評論」，畫面上根本開不出「跨帳號讀取」那種授權——但週報撈單要的正是後者。表格早就會顯示兩種用途，只有新增那邊漏掉，所以會出現「開好了、狀態有效、但撈單還是被擋」',
+      'note(權限): 兩種用途是分開的，開了一種不會涵蓋另一種——寫入（用他的身分張貼）跟讀取（撈他的單）本來就該分開授權。說明文字補上這點',
+    ],
+  },
   {
     version: '4.60.0',
     date: '2026-08-27',

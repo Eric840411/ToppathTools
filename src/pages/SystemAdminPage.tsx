@@ -101,6 +101,10 @@ export function SystemAdminPage() {
   const [delegates, setDelegates] = useState<{ id: number; actor_email: string; target_email: string; scope: string; enabled: number; created_at: number; expires_at: number | null; revoked_at: number | null }[]>([])
   const [delActor, setDelActor] = useState('')
   const [delTarget, setDelTarget] = useState('')
+  // 用途（scope）原本寫死成 'jira.comment.batch'，所以畫面上根本開不出「跨帳號讀取」那種授權——
+  // 但週報的 Jira 撈單要的正是後者。表格那邊早就會顯示兩種用途了，只有新增這邊漏掉（2026-08-27
+  // 使用者實際去開授權才發現：開好了、狀態也是有效，但用途不對所以撈單還是被擋）。
+  const [delScope, setDelScope] = useState<'jira.comment.batch' | 'jira.read.asOther'>('jira.comment.batch')
   const [delMsg, setDelMsg] = useState('')
   const [cultivationInfo, setCultivationInfo] = useState<{ level: string; activeDays: number } | null>(null)
   const [cultivationDaysInput, setCultivationDaysInput] = useState(0)
@@ -218,7 +222,7 @@ export function SystemAdminPage() {
     const r = await fetch('/api/admin/jira-delegates', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ actorEmail: delActor, targetEmail: delTarget, scope: 'jira.comment.batch' }),
+      body: JSON.stringify({ actorEmail: delActor, targetEmail: delTarget, scope: delScope }),
     })
     const d = await r.json() as { ok: boolean; message?: string }
     setDelMsg(d.ok ? '通過 已新增授權' : `失敗 ${d.message ?? '新增失敗'}`)
@@ -737,7 +741,9 @@ export function SystemAdminPage() {
           <div style={{ borderTop: '1px solid #2d3f55', marginTop: 24, paddingTop: 20 }}>
             <h3 style={{ fontSize: 15, fontWeight: 600, color: '#e2e8f0', margin: '0 0 4px' }}>Jira 代理張貼授權</h3>
             <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 14px' }}>
-              指定「誰可以用誰的身分張貼批量評論」。被授權的人在批量評論會多出「以誰的身分送出」下拉；
+              指定「誰可以用誰的身分做事」。<b>兩種用途是分開的，開了一種不會涵蓋另一種</b>——
+              「批量評論」是<b>寫入</b>（用他的身分張貼留言），「跨帳號讀取」是<b>讀取</b>（週報撈他的 Jira 單）。<br />
+              被授權的人在批量評論會多出「以誰的身分送出」下拉；
               Jira 上只會顯示被代理的帳號，系統內部的操作紀錄仍會記下實際操作者。撤銷後保留紀錄可查。
             </p>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14 }}>
@@ -749,6 +755,12 @@ export function SystemAdminPage() {
               <select style={{ ...inputStyle, width: 200, margin: 0 }} value={delTarget} onChange={e => setDelTarget(e.target.value)}>
                 <option value="">誰的身分（被代理帳號）</option>
                 {accounts.map(a => <option key={a.email} value={a.email}>{a.label}</option>)}
+              </select>
+              <span style={{ color: '#64748b', fontSize: 12 }}>用途</span>
+              <select style={{ ...inputStyle, width: 190, margin: 0 }} value={delScope}
+                onChange={e => setDelScope(e.target.value as typeof delScope)}>
+                <option value="jira.comment.batch">批量評論（用他的身分張貼）</option>
+                <option value="jira.read.asOther">跨帳號讀取（週報撈單用）</option>
               </select>
               <button type="button" style={btnPrimary} onClick={addDelegate}>新增授權</button>
               {delMsg && <span style={{ fontSize: 12, color: delMsg.startsWith('通過') ? '#4ade80' : '#f87171' }}>{delMsg}</span>}
