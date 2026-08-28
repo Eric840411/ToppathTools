@@ -205,6 +205,19 @@ export const BLOCK_DEFS = {
   },
   // 「一個遊戲只能配置一個視頻」這種規格，驗的是某一欄不能有重複值。
   // 既有 verifier 是把整欄讀出來丟進 Set 比長度——做成積木才不用為了這條去寫程式。
+  // 「確認匯出數據顯示正確」這種 TC 驗的是：匯出的檔案內容要跟畫面上看到的一致。
+  // runner 裡有兩處在做同一件事（Daily Dashboard 依日期對、Jackpot Ranking 依帳號對），
+  // 形狀相同——用某一欄當 key 去檔案裡找到那一列，再比另一欄的數字。
+  assert_export_matches_screen: {
+    label: '匯出內容要跟畫面一致', category: 'assert', defaultOnFail: 'stop',
+    description: '匯出檔案，用某一欄當對照鍵找到同一列，確認數值跟畫面上的一樣',
+    params: [
+      { key: 'keyColumn', label: '用哪一欄對照（鍵）', type: 'text', required: true, placeholder: 'Account' },
+      { key: 'valueColumn', label: '要比對的數值欄', type: 'text', required: true, placeholder: 'Jackpot Amount' },
+      { key: 'onNoData', label: '畫面沒有資料時', type: 'select', options: ['warn', 'continue', 'manual', 'stop'], default: 'warn', help: '沒有資料就沒得對，通常不該算失敗' },
+      { key: 'onFail', label: '對不上時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
+    ],
+  },
   assert_column_unique: {
     label: '這一欄不能有重複值', category: 'assert', defaultOnFail: 'stop',
     description: '讀表格某一欄的所有值，確認沒有重複（例如「一個遊戲只能配一個視頻」）',
@@ -773,6 +786,71 @@ export async function runSteps(steps, ctx) {
         }
         notes.push(`✅ ${tag}：已下載 ${ex.file}`);
 
+      } else if (step.action === 'assert_export_matches_screen') {
+        if (typeof ctx.runExport !== 'function') {
+          if (fail(step, `${tag}：這個執行環境沒有匯出能力（runner 版本太舊）`) === 'stop') break; continue;
+        }
+        const keyCol = String(step.keyColumn ?? '').trim();
+        const valCol = String(step.valueColumn ?? '').trim();
+
+        // 先讀畫面第一列的「鍵」跟「值」——一定要在匯出之前讀，匯出可能會換頁或重整
+        const onScreen = await ctx.page.evaluate(({ keyCol, valCol }) => {
+          const heads = [...document.querySelectorAll('th, .el-table__header th')]
+            .map(th => (th.innerText || '').trim());
+          const ki = heads.findIndex(h => h.toLowerCase().includes(keyCol.toLowerCase()));
+          const vi = heads.findIndex(h => h.toLowerCase().includes(valCol.toLowerCase()));
+          if (ki < 0 || vi < 0) return { missingCol: true, heads };
+          const row = document.querySelector('.el-table__body tr');
+          if (!row) return { noRow: true };
+          const cells = row.querySelectorAll('td');
+          return { key: (cells[ki]?.innerText || '').trim(), value: (cells[vi]?.innerText || '').trim() };
+        }, { keyCol, valCol });
+
+        if (onScreen?.missingCol) {
+          if (fail(step, `${tag}：畫面上找不到欄位「${keyCol}」或「${valCol}」（目前欄位：${onScreen.heads.join('、') || '無'}）`) === 'stop') break;
+          continue;
+        }
+        if (!onScreen || onScreen.noRow) {
+          const mode = step.onNoData ?? 'warn';
+          if (fail({ ...step, onFail: mode }, `${tag}：畫面上沒有資料，沒得跟匯出檔比對`) === 'stop') break;
+          continue;
+        }
+
+        const ex = await ctx.runExport(Number(step.timeoutMs) || 10000);
+        if (!ex.hasButton) {
+          if (fail(step, `${tag}：找不到匯出按鈕`) === 'stop') break; continue;
+        }
+        if (!ex.rows || !ex.headers) {
+          // 檔案沒下載或讀不出來。這跟「內容對不上」不同——沒拿到檔案就是沒驗到，
+          // 不能當成驗過了（run_export 那顆也是同一個語意）。
+          if (fail({ ...step, onFail: 'warn' }, `${tag}：沒有拿到可解析的匯出檔，內容比對沒有執行`) === 'stop') break;
+          continue;
+        }
+
+        const ki = ex.headers.findIndex(h => String(h).toLowerCase().includes(keyCol.toLowerCase()));
+        const vi = ex.headers.findIndex(h => String(h).toLowerCase().includes(valCol.toLowerCase()));
+        if (ki < 0 || vi < 0) {
+          if (fail(step, `${tag}：匯出檔裡找不到欄位「${keyCol}」或「${valCol}」（檔案欄位：${ex.headers.join('、')}）`) === 'stop') break;
+          continue;
+        }
+        const fileRow = ex.rows.find(r => String(r[ki] ?? '').trim() === onScreen.key);
+        if (!fileRow) {
+          if (fail(step, `${tag}：匯出檔裡找不到「${keyCol}=${onScreen.key}」這一列`) === 'stop') break;
+          continue;
+        }
+        const fileVal = toNumber(String(fileRow[vi] ?? ''));
+        const screenVal = toNumber(onScreen.value);
+        if (fileVal === undefined || screenVal === undefined) {
+          // 不是數字就逐字比對——有些欄位本來就是文字
+          if (String(fileRow[vi] ?? '').trim() !== onScreen.value) {
+            if (fail(step, `${tag}：「${onScreen.key}」的「${valCol}」對不上（畫面 ${onScreen.value}／檔案 ${fileRow[vi]}）`) === 'stop') break;
+            continue;
+          }
+        } else if (!numbersEqual(fileVal, screenVal)) {
+          if (fail(step, `${tag}：「${onScreen.key}」的「${valCol}」對不上（畫面 ${screenVal}／檔案 ${fileVal}）`) === 'stop') break;
+          continue;
+        }
+        notes.push(`✅ 匯出檔與畫面一致（${onScreen.key} 的 ${valCol}＝${onScreen.value}）`);
       } else if (step.action === 'assert_column_unique') {
         const colName = String(step.column ?? '').trim();
         const got = await ctx.page.evaluate(({ colName }) => {

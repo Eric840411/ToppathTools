@@ -593,5 +593,61 @@ check('numbersEqual undefined 一律不相等', numbersEqual(undefined, 5) === f
   check('有重複但設成 warn → 不影響判定但要留下警告', r.pass === true && r.warnings.length === 1);
 }
 
+// ── assert_export_matches_screen ────────────────────────────────────────────
+// 守的是「匯出檔跟畫面不一致卻報通過」。另外三種情況要分得開：畫面沒資料（沒得驗）、
+// 檔案沒下載（沒驗到）、真的對不上（驗了不過）——混成同一種就會有假通過。
+{
+  const mk = ({ screen, headers, rows, hasButton = true }) => ({
+    page: {
+      evaluate: async (fn, arg) => {
+        if (arg && 'keyCol' in arg) return screen;
+        return null;
+      },
+      waitForTimeout: async () => {},
+      keyboard: { press: async () => {} },
+    },
+    openPath: async () => {},
+    runExport: async () => ({ hasButton, file: rows ? 'x.xlsx' : null, headers, rows }),
+  });
+
+  const step = { action: 'assert_export_matches_screen', keyColumn: 'Account', valueColumn: 'Jackpot Amount' };
+
+  let r = await runSteps([step], mk({
+    screen: { key: 'user01', value: '1,234.00' },
+    headers: ['Account', 'Jackpot Amount'], rows: [['user01', '1234']],
+  }));
+  check('數值一致（畫面帶千分位）→ 通過', r.pass === true && r.criticalFails.length === 0);
+
+  r = await runSteps([step], mk({
+    screen: { key: 'user01', value: '1234' },
+    headers: ['Account', 'Jackpot Amount'], rows: [['user01', '9999']],
+  }));
+  check('數值不一致 → 失敗', r.pass === false);
+
+  r = await runSteps([step], mk({
+    screen: { key: 'user01', value: '1234' },
+    headers: ['Account', 'Jackpot Amount'], rows: [['other', '1234']],
+  }));
+  check('檔案裡找不到同一列 → 失敗（不是靜默通過）', r.pass === false);
+
+  r = await runSteps([step], mk({ screen: { noRow: true }, headers: null, rows: null }));
+  check('畫面沒資料 → 預設只警告', r.pass === true && r.warnings.length === 1);
+
+  r = await runSteps([step], mk({
+    screen: { key: 'user01', value: '1234' }, headers: null, rows: null,
+  }));
+  check('檔案沒解析出來 → 記成警告而不是通過', r.warnings.length === 1);
+
+  r = await runSteps([step], mk({
+    screen: { key: 'user01', value: '1234' }, headers: null, rows: null, hasButton: false,
+  }));
+  check('找不到匯出按鈕 → 失敗', r.pass === false);
+
+  r = await runSteps([step], mk({
+    screen: { missingCol: true, heads: ['A', 'B'] }, headers: null, rows: null,
+  }));
+  check('畫面上沒有那個欄位 → 失敗（不是當成沒資料）', r.pass === false);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

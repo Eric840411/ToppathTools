@@ -1,7 +1,7 @@
 {
   "kind": "toppath-uat-tc-steps",
   "version": 1,
-  "count": 77,
+  "count": 78,
   "steps": {
     "recveFY7nUeFBk": [
       {
@@ -986,6 +986,18 @@
       {
         "action": "assert_column_unique",
         "column": "Game ID"
+      }
+    ],
+    "recvenTprAHUEQ": [
+      {
+        "action": "open_page",
+        "path": "/rankinglist/jackpotRanking",
+        "waitMs": 2500
+      },
+      {
+        "action": "assert_export_matches_screen",
+        "keyColumn": "Account",
+        "valueColumn": "Jackpot Amount"
       }
     ]
   }

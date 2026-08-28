@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.67.0'
+export const APP_VERSION = '4.68.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.68.0',
+    date: '2026-08-29',
+    changes: [
+      'feat(uat): 新積木「匯出內容要跟畫面一致」——用某一欄當對照鍵在匯出檔裡找到同一列，比對數值。7 項單元測試，把「畫面沒資料」「檔案沒下載」「真的對不上」分成三種結果，不混成一種',
+      'feat(uat): 拆掉 Jackpot Ranking 的匯出比對那筆。積木化累計 78/121，可拆的都拆完了',
+      'docs(uat): 剩下 12 筆逐筆寫明為什麼不拆（會改後台資料 2、要真實玩家或交易資料 6、跨頁長輪詢 1、其他 3），另外 31 筆本來就是人工判讀',
+    ],
+  },
   {
     version: '4.67.0',
     date: '2026-08-29',

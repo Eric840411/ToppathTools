@@ -4516,9 +4516,17 @@ async function performSteps(p, steps, label, taskFull) {
 
     async runExport() {
       const r = await doExport(p);
+      // 一併把檔案內容解析出來給積木用。不這樣的話「匯出的內容要跟畫面一致」這種驗證
+      // 就得在積木裡自己讀檔，等於把檔案處理散到兩個地方。
+      let data = null;
+      if (r.exportedXlsxPath) {
+        try { data = extractXlsxData(r.exportedXlsxPath) } catch (e) { data = null }
+      }
       return {
         hasButton: r.criticalFails.length === 0,
         file: r.exportedXlsxPath ? path.basename(r.exportedXlsxPath) : null,
+        headers: data?.headers ?? null,
+        rows: data?.rows ?? null,
       };
     },
 
