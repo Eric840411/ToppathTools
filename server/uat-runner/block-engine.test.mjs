@@ -550,5 +550,48 @@ check('toNumber 空值回 undefined（不是 0）', toNumber('') === undefined &
 check('numbersEqual 絕對誤差至少容許 1', numbersEqual(0, 1, 0) === true);
 check('numbersEqual undefined 一律不相等', numbersEqual(undefined, 5) === false);
 
+// ── assert_column_unique ────────────────────────────────────────────────────
+// 守的是「有重複卻報通過」這條線。表格沒資料跟有重複是兩回事，不能混成同一種結果。
+{
+  const mkCtx = (heads, values) => ({
+    page: {
+      evaluate: async (fn, arg) => {
+        // 模擬瀏覽器端：直接照積木要的形狀回資料，不真的跑 DOM
+        const idx = heads.findIndex(h => h.toLowerCase() === String(arg.colName).toLowerCase());
+        if (idx < 0) return { missing: true, heads };
+        return { missing: false, values };
+      },
+      waitForTimeout: async () => {},
+      keyboard: { press: async () => {} },
+    },
+    openPath: async () => {},
+  });
+
+  let r = await runSteps([{ action: 'assert_column_unique', column: 'Game ID' }],
+    mkCtx(['Game ID', 'Name'], ['A', 'B', 'C']));
+  check('沒有重複 → 通過', r.pass === true && r.criticalFails.length === 0);
+
+  r = await runSteps([{ action: 'assert_column_unique', column: 'Game ID' }],
+    mkCtx(['Game ID'], ['A', 'B', 'A']));
+  check('有重複 → 失敗', r.pass === false);
+  check('有重複 → 訊息要指出是哪個值', r.criticalFails.join('').includes('A'));
+
+  r = await runSteps([{ action: 'assert_column_unique', column: 'Game ID' }],
+    mkCtx(['Game ID'], []));
+  check('表格沒資料 → 預設只警告不算失敗', r.pass === true && r.warnings.length === 1);
+
+  r = await runSteps([{ action: 'assert_column_unique', column: 'Game ID', onEmptyTable: 'stop' }],
+    mkCtx(['Game ID'], []));
+  check('表格沒資料 → 明確設成 stop 時才算失敗', r.pass === false);
+
+  r = await runSteps([{ action: 'assert_column_unique', column: '不存在的欄' }],
+    mkCtx(['Game ID'], ['A']));
+  check('欄位不存在 → 失敗（不是靜默跳過）', r.pass === false);
+
+  r = await runSteps([{ action: 'assert_column_unique', column: 'Game ID', onFail: 'warn' }],
+    mkCtx(['Game ID'], ['A', 'A']));
+  check('有重複但設成 warn → 不影響判定但要留下警告', r.pass === true && r.warnings.length === 1);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

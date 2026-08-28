@@ -1,7 +1,7 @@
 {
   "kind": "toppath-uat-tc-steps",
   "version": 1,
-  "count": 76,
+  "count": 77,
   "steps": {
     "recveFY7nUeFBk": [
       {
@@ -961,6 +961,23 @@
         "scope": "firstRow",
         "fields": "GameNameAlias\nEnter Limit\nVIP",
         "onFail": "warn"
+      }
+    ],
+    "recvenTprAC9L4": [
+      {
+        "action": "open_page",
+        "path": "/game/howToPlay",
+        "waitMs": 2500
+      },
+      {
+        "action": "assert_control_exists",
+        "text": "Add How To Play",
+        "scope": "button",
+        "match": "exact"
+      },
+      {
+        "action": "assert_column_unique",
+        "column": "Game ID"
       }
     ]
   }

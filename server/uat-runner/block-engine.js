@@ -203,6 +203,17 @@ export const BLOCK_DEFS = {
       { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
     ],
   },
+  // 「一個遊戲只能配置一個視頻」這種規格，驗的是某一欄不能有重複值。
+  // 既有 verifier 是把整欄讀出來丟進 Set 比長度——做成積木才不用為了這條去寫程式。
+  assert_column_unique: {
+    label: '這一欄不能有重複值', category: 'assert', defaultOnFail: 'stop',
+    description: '讀表格某一欄的所有值，確認沒有重複（例如「一個遊戲只能配一個視頻」）',
+    params: [
+      { key: 'column', label: '欄位名稱', type: 'text', required: true, placeholder: 'Game ID' },
+      { key: 'onEmptyTable', label: '表格沒資料時', type: 'select', options: ['warn', 'continue', 'manual', 'stop'], default: 'warn', help: '沒有資料就驗不了重複，通常不該算失敗' },
+      { key: 'onFail', label: '有重複時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
+    ],
+  },
   assert_absent: {
     label: '不能出現', category: 'assert', defaultOnFail: 'stop',
     description: '這個元素不能存在，或這段文字不能出現在畫面上',
@@ -762,6 +773,39 @@ export async function runSteps(steps, ctx) {
         }
         notes.push(`✅ ${tag}：已下載 ${ex.file}`);
 
+      } else if (step.action === 'assert_column_unique') {
+        const colName = String(step.column ?? '').trim();
+        const got = await ctx.page.evaluate(({ colName }) => {
+          // 表頭與內容在兩個不同的 <table> 裡（Element UI），沿用既有取法
+          const heads = [...document.querySelectorAll('th, .el-table__header th')]
+            .map(th => (th.innerText || '').trim());
+          const idx = heads.findIndex(h => h.toLowerCase() === colName.toLowerCase());
+          if (idx < 0) return { missing: true, heads };
+          const rows = [...document.querySelectorAll('.el-table__body tr')];
+          return {
+            missing: false,
+            values: rows.map(r => (r.querySelectorAll('td')[idx]?.innerText || '').trim()).filter(Boolean),
+          };
+        }, { colName });
+
+        if (got.missing) {
+          if (fail(step, `${tag}：找不到欄位「${colName}」（目前欄位：${got.heads.join('、') || '無'}）`) === 'stop') break;
+          continue;
+        }
+        if (got.values.length === 0) {
+          // 沒有資料就驗不了重複。這跟「驗了但有重複」是不同的事，不能混成同一種結果。
+          const mode = step.onEmptyTable ?? 'warn';
+          if (fail({ ...step, onFail: mode }, `${tag}：表格沒有資料，無法驗證「${colName}」是否重複`) === 'stop') break;
+          continue;
+        }
+        const seen = new Set();
+        const dups = [];
+        for (const v of got.values) { if (seen.has(v)) { if (!dups.includes(v)) dups.push(v) } else seen.add(v) }
+        if (dups.length > 0) {
+          if (fail(step, `${tag}：「${colName}」有重複值：${dups.slice(0, 5).join('、')}${dups.length > 5 ? ` …等 ${dups.length} 個` : ''}`) === 'stop') break;
+          continue;
+        }
+        notes.push(`✅「${colName}」${got.values.length} 筆皆不重複`);
       } else if (step.action === 'assert_dialog_opens') {
         // 只驗「面板打得開」。有些 TC 就只要求這個（例如預約的 Operation Log 只驗
         // 面板開啟＋幾筆記錄），硬用 assert_dialog_fields 會被逼著編一份不存在的欄位

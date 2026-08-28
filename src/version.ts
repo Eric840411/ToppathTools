@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.65.0'
+export const APP_VERSION = '4.66.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.66.0',
+    date: '2026-08-29',
+    changes: [
+      'feat(uat): 新積木「這一欄不能有重複值」，7 項單元測試。「一個遊戲只能配一個視頻」這種規格靠它驗',
+      'feat(uat): 拆掉 How To Play 那筆，**按鈕存在與 Game ID 不重複兩件一起拆**——只拆一半會讓覆蓋率變好但驗證變薄。積木化累計 77/121',
+      'fix(uat): 積木的導頁補上跟 builtin 一樣的收尾（關掉站台層級的 Warnning 彈窗）。少了這步，積木是在跟 builtin 不一樣的畫面狀態下跑的，比對就沒有意義',
+    ],
+  },
   {
     version: '4.65.0',
     date: '2026-08-29',
