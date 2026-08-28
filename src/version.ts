@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.64.2'
+export const APP_VERSION = '4.65.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.65.0',
+    date: '2026-08-29',
+    changes: [
+      'feat(uat): 新積木「對話框要打得開」——有些 TC 只要求面板打得開、沒規定裡面該有哪些欄位，硬用既有的欄位檢查會被逼著編一份不存在的規格出來',
+      'feat(uat): 對話框積木可以指定「按鈕是圖示沒有文字」——表格每列的 Edit 常常只是圖示，照文字找不到',
+      'feat(uat): 再拆 2 筆（Daily Ranking 匯出、EGM List 編輯機台資訊），比對基準一致。積木化累計 76/121',
+      'feat(uat): runner 新增 UAT_TC_ONLY，可以只跑指定的幾筆 TC。取基準時不用連帶跑到同組裡會改後台資料的那幾筆',
+      'fix(uat): 「預約 → 操作日志」查出是假通過（既有檢查抓到的是一直開著的 Warnning 彈窗），這版先維持原狀不動，另案處理',
+    ],
+  },
   {
     version: '4.64.2',
     date: '2026-08-27',

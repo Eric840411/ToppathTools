@@ -4970,6 +4970,18 @@ async function main() {
     if (MODULE_PLAN.length > 0 && findBackendModuleIndex(sub, taskType) < 0) return false;
     if (process.env.REPORT_ONLY) return REPORT_SUBTYPES.some(s => sub.includes(s));
     if (process.env.METER_ONLY) return ['EGM Hourly Meter','EGM Performance Meter'].some(s => sub.includes(s));
+    // UAT_TC_ONLY：只跑指定的幾筆 recordId（逗號分隔）。
+    //
+    // 為什麼需要比子類型更細的過濾：拆積木前要先跑一次「拆解前」的基準，但子類型是
+    // 一整組——例如 Daily Ranking 裡除了要驗的「CSV 導出」，還有一筆 Bonus settings
+    // **會真的去改後台設定**，自動預約那組有「+Add 新增 VIP 名單」「Import Excel」
+    // 會建資料。為了取一筆基準而動到共用 UAT 環境的資料是不划算的。
+    //
+    // 放在 SUBTYPE 之前：這是最精確的指定，有給就以它為準。
+    if (process.env.UAT_TC_ONLY) {
+      const only = process.env.UAT_TC_ONLY.split(',').map(x => x.trim()).filter(Boolean);
+      return only.includes(r.record_id);
+    }
     if (process.env.SUBTYPE) return sub.includes(process.env.SUBTYPE);
     if (FILTER_SUBTYPES.length > 0) return FILTER_SUBTYPES.some(s => sub.includes(s));
     return true;

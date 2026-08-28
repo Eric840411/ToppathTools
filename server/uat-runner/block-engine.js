@@ -180,11 +180,27 @@ export const BLOCK_DEFS = {
       { key: 'trigger', label: '要點的按鈕文字', type: 'text', required: true, placeholder: 'Add' },
       { key: 'fields', label: '對話框裡該有的欄位（一行一個）', type: 'textarea', required: true },
       { key: 'scope', label: '按鈕在哪', type: 'select', options: ['page', 'firstRow', 'openDialog'], default: 'page', help: 'firstRow 只在表格第一列裡找（例如每列各自的 Edit）；openDialog 在前一步打開的面板裡找' },
+      // 表格每列的 Edit 常常只是一個圖示，沒有文字可以比對。既有 verifier 是用
+      // 「這一列裡沒有文字的那顆 button」找的，這裡把那個做法變成可選的。
+      { key: 'triggerKind', label: '按鈕長什麼樣', type: 'select', options: ['text', 'icon'], default: 'text', help: 'icon＝這顆按鈕沒有文字（只有圖示），照位置找而不是照文字找' },
       { key: 'onFail', label: '對話框開不起來時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
       // 「對話框沒開」跟「對話框開了但少一個欄位」是不同等級的問題：前者代表功能壞了，
       // 後者可能只是規格調整。既有 verifier 就是這樣分的（前者 criticalFail、後者只寫 ⚠️），
       // 一顆 onFail 管兩種會逼人在「全都擋」跟「全都不擋」之間選，兩個都不對。
       { key: 'onMissingFields', label: '欄位缺少時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], help: '留空就跟上面一樣' },
+    ],
+  },
+  // 有些 TC 只要求「這個面板打得開」，沒有規定裡面該有哪些欄位（例如預約的 Operation Log
+  // 只驗「面板開啟＋幾筆記錄」）。用 assert_dialog_fields 硬湊會被逼著編一份不存在的欄位規格，
+  // 那是把驗證內容憑空加嚴，不是積木化。
+  assert_dialog_opens: {
+    label: '對話框要打得開', category: 'assert', defaultOnFail: 'stop',
+    description: '點一個按鈕，確認面板真的開起來（不檢查裡面有什麼），然後關掉',
+    params: [
+      { key: 'trigger', label: '要點的按鈕文字', type: 'text', required: true, placeholder: 'Operation Log' },
+      { key: 'scope', label: '按鈕在哪', type: 'select', options: ['page', 'firstRow'], default: 'page' },
+      { key: 'triggerKind', label: '按鈕長什麼樣', type: 'select', options: ['text', 'icon'], default: 'text', help: 'icon＝這顆按鈕沒有文字（只有圖示）' },
+      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
     ],
   },
   assert_absent: {
@@ -289,6 +305,65 @@ function resolveRef(vars, ref) {
     cur = cur[p];
   }
   return cur;
+}
+
+/**
+ * 點一個按鈕把對話框叫出來。assert_dialog_fields 與 assert_dialog_opens 共用同一份——
+ * 各寫一份的話，之後修「怎麼找按鈕」只會改到其中一邊。
+ *
+ * triggerKind='icon'：找**沒有文字**的按鈕。表格每列的 Edit 常常只是一個圖示，沒有 label
+ * 可以比對；既有 verifier 就是用「這一列裡沒有文字的那顆 button」找的。
+ *
+ * 回傳 'ok' | 'no-row' | 'no-dialog' | 'no-button'
+ */
+async function clickDialogTrigger(page, { trigger, scope, triggerKind }) {
+  return page.evaluate(({ trigger, scope, triggerKind }) => {
+    // 後台登入後有一個站台層級的警告彈窗（「Currently N machines are abnormal」）
+    // 會一直開著。不先把「現在已經開著的」標記起來，等一下就會抓到它而不是我們
+    // 點開的那個——症狀是欄位讀成空的，看起來像對話框沒有欄位。
+    for (const d of document.querySelectorAll('.el-dialog, .el-drawer')) {
+      if (d.getBoundingClientRect().width > 0) d.setAttribute('data-uat-preexisting', '1');
+    }
+    const needle = String(trigger ?? '').trim().toLowerCase();
+    const label = b => (b.innerText || '').trim().toLowerCase();
+    const pick = (root) => {
+      const buttons = [...root.querySelectorAll('button, .el-button, a')];
+      if (triggerKind === 'icon') return buttons.find(b => !label(b)) ?? null;
+      // 先找完全相同的再退到包含。不這樣的話「Add」會先命中「Add Reservation」——
+      // 既有 verifier 用的就是 === 精準比對，包含只是沒對到時的退路
+      return buttons.find(b => label(b) === needle) ?? buttons.find(b => label(b).includes(needle)) ?? null;
+    };
+
+    let btn = null;
+    if (scope === 'firstRow') {
+      const row = document.querySelector('.el-table__body tr');
+      if (!row) return 'no-row';
+      btn = pick(row);
+    } else if (scope === 'openDialog') {
+      // 有些按鈕（例如 VIP 名單的 Add）只存在於前一步打開的面板裡，整頁範圍會
+      // 抓到主頁上同名的那顆。
+      //
+      // 但也不能只取「最後一個開著的對話框」——站台層級的警告彈窗一直開著，
+      // 它在 DOM 裡的位置不固定，.pop() 有時候拿到的是它。改成「在所有開著的
+      // 面板裡找這顆按鈕」，找到的那個自然就是對的面板，不用猜。
+      const panels = [...document.querySelectorAll('.el-dialog, .el-drawer')]
+        .filter(d => d.getBoundingClientRect().width > 0);
+      if (!panels.length) return 'no-dialog';
+      for (const panel of panels) { btn = pick(panel); if (btn) break }
+    } else {
+      btn = pick(document);
+    }
+    if (!btn) return 'no-button';
+    btn.click();
+    return 'ok';
+  }, { trigger, scope: scope ?? 'page', triggerKind: triggerKind ?? 'text' });
+}
+
+/** 開不起來時給人看的原因。兩顆積木共用，訊息才會一致。 */
+function dialogOpenFailReason(status, trigger, triggerKind) {
+  if (status === 'no-row') return '表格沒有任何列';
+  if (status === 'no-dialog') return '前一步沒有打開任何面板（scope=openDialog 需要先有開著的對話框）';
+  return triggerKind === 'icon' ? '這一列裡找不到沒有文字的圖示按鈕' : `找不到按鈕「${trigger}」`;
 }
 
 /** 從畫面文字取數字：去掉貨幣符號、千分位、百分比 */
@@ -419,6 +494,9 @@ export async function runSteps(steps, ctx) {
    */
   const checkParams = (step, tag, def) => {
     const missing = (def.params ?? [])
+      // triggerKind='icon' 代表「找沒有文字的那顆按鈕」，這時 trigger 本來就沒有東西可填。
+      // 不放行的話，唯一能用 icon 模式的方式是填一個假的文字，那比留空更難懂。
+      .filter(prm => !(prm.key === 'trigger' && step.triggerKind === 'icon'))
       .filter(prm => prm.required && (step[prm.key] === undefined || String(step[prm.key]).trim() === ''))
       .map(prm => prm.label);
     if (!missing.length) return true;
@@ -684,54 +762,47 @@ export async function runSteps(steps, ctx) {
         }
         notes.push(`✅ ${tag}：已下載 ${ex.file}`);
 
+      } else if (step.action === 'assert_dialog_opens') {
+        // 只驗「面板打得開」。有些 TC 就只要求這個（例如預約的 Operation Log 只驗
+        // 面板開啟＋幾筆記錄），硬用 assert_dialog_fields 會被逼著編一份不存在的欄位
+        // 規格出來——那是把驗證憑空加嚴，不是積木化。
+        const opened = await clickDialogTrigger(ctx.page, step);
+        if (opened !== 'ok') {
+          const reason = dialogOpenFailReason(opened, step.trigger, step.triggerKind);
+          if (fail(step, `${tag}：${reason}`) === 'stop') break; continue;
+        }
+        // 面板有進場動畫。既有 verifier 等 1200ms，這裡本來只等 800ms——差這 400ms 就會
+        // 看成「沒開起來」。等待時間要跟既有行為對齊，不然拆解前後的結果會不一樣。
+        await ctx.page.waitForTimeout(1400);
+        // 排除站台層級那個一直開著的警告彈窗（前面已經標記過），只看這次真的開起來的
+        const dlg = await ctx.page.evaluate(() => {
+          const dialogs = [...document.querySelectorAll('.el-dialog, .el-drawer')]
+            .filter(d => d.getBoundingClientRect().width > 0 && !d.hasAttribute('data-uat-preexisting'));
+          const dialog = dialogs[dialogs.length - 1];
+          if (!dialog) return null;
+          return { rowCount: dialog.querySelectorAll('.el-table__body tr').length };
+        });
+        if (!dlg) {
+          // 只說「沒開起來」很難查——把畫面上所有可見面板的標題列出來，才看得出是
+          // 真的沒開、還是開的那個被當成站台層級的既有彈窗排除掉了
+          const seen = await ctx.page.evaluate(() =>
+            [...document.querySelectorAll('.el-dialog, .el-drawer')]
+              .filter(d => d.getBoundingClientRect().width > 0)
+              .map(d => `${d.querySelector('.el-dialog__title, .el-drawer__title')?.innerText?.trim() || '(無標題)'}${d.hasAttribute('data-uat-preexisting') ? '[點擊前就開著]' : ''}`));
+          const detail = seen.length ? `目前可見面板：${seen.join('、')}` : '畫面上沒有任何可見面板';
+          if (fail(step, `${tag}：點了「${step.trigger}」但沒有新面板開起來（${detail}）`) === 'stop') break; continue;
+        }
+        notes.push(`✅${step.trigger} 面板開啟（${dlg.rowCount} 筆記錄）`);
+        await ctx.page.keyboard.press('Escape').catch(() => {});
+        await ctx.page.waitForTimeout(300);
       } else if (step.action === 'assert_dialog_fields') {
         // 這是既有 verifier 裡重複最多次的一段：點 Add/Edit → 等對話框 → 讀
         // .el-form-item__label → 比對該有的欄位 → 關掉。八支 verifier 各抄了一份，
         // 所以做成一顆積木而不是讓使用者用 click + 三顆斷言自己拼。
         const want = toLines(step.fields);
-        const opened = await ctx.page.evaluate(({ trigger, scope }) => {
-          // 後台登入後有一個站台層級的警告彈窗（「Currently N machines are abnormal」）
-          // 會一直開著。不先把「現在已經開著的」標記起來，等一下就會抓到它而不是我們
-          // 點開的那個——症狀是欄位讀成空的，看起來像對話框沒有欄位。
-          for (const d of document.querySelectorAll('.el-dialog, .el-drawer')) {
-            if (d.getBoundingClientRect().width > 0) d.setAttribute('data-uat-preexisting', '1');
-          }
-          const needle = String(trigger).trim().toLowerCase();
-          const label = b => (b.innerText || '').trim().toLowerCase();
-          // 先找完全相同的再退到包含。不這樣的話「Add」會先命中「Add Reservation」——
-          // 既有 verifier 用的就是 === 精準比對，包含只是沒對到時的退路
-          const pick = (root) => {
-            const buttons = [...root.querySelectorAll('button, .el-button, a')];
-            return buttons.find(b => label(b) === needle) ?? buttons.find(b => label(b).includes(needle)) ?? null;
-          };
-
-          let btn = null;
-          if (scope === 'firstRow') {
-            const row = document.querySelector('.el-table__body tr');
-            if (!row) return 'no-row';
-            btn = pick(row);
-          } else if (scope === 'openDialog') {
-            // 有些按鈕（例如 VIP 名單的 Add）只存在於前一步打開的面板裡，整頁範圍會
-            // 抓到主頁上同名的那顆。
-            //
-            // 但也不能只取「最後一個開著的對話框」——站台層級的警告彈窗一直開著，
-            // 它在 DOM 裡的位置不固定，.pop() 有時候拿到的是它。改成「在所有開著的
-            // 面板裡找這顆按鈕」，找到的那個自然就是對的面板，不用猜。
-            const panels = [...document.querySelectorAll('.el-dialog, .el-drawer')]
-              .filter(d => d.getBoundingClientRect().width > 0);
-            if (!panels.length) return 'no-dialog';
-            for (const panel of panels) { btn = pick(panel); if (btn) break }
-          } else {
-            btn = pick(document);
-          }
-          if (!btn) return 'no-button';
-          btn.click();
-          return 'ok';
-        }, { trigger: step.trigger, scope: step.scope ?? 'page' });
+        const opened = await clickDialogTrigger(ctx.page, step);
         if (opened !== 'ok') {
-          const reason = opened === 'no-row' ? '表格沒有任何列'
-            : opened === 'no-dialog' ? '前一步沒有打開任何面板（scope=openDialog 需要先有開著的對話框）'
-            : `找不到按鈕「${step.trigger}」`;
+          const reason = dialogOpenFailReason(opened, step.trigger, step.triggerKind);
           if (fail(step, `${tag}：${reason}`) === 'stop') break; continue;
         }
         await ctx.page.waitForTimeout(800);

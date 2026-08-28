@@ -1,7 +1,7 @@
 {
   "kind": "toppath-uat-tc-steps",
   "version": 1,
-  "count": 74,
+  "count": 76,
   "steps": {
     "recveFY7nUeFBk": [
       {
@@ -936,6 +936,31 @@
       {
         "action": "assert_column_exists",
         "columns": "Recommend Amount"
+      }
+    ],
+    "recvenTprANQtQ": [
+      {
+        "action": "open_page",
+        "path": "/rankinglist/dailyRanking",
+        "waitMs": 2500
+      },
+      {
+        "action": "run_export"
+      }
+    ],
+    "recvenTprAHo3r": [
+      {
+        "action": "open_page",
+        "path": "/egm/egmList",
+        "waitMs": 3000
+      },
+      {
+        "action": "assert_dialog_fields",
+        "trigger": "",
+        "triggerKind": "icon",
+        "scope": "firstRow",
+        "fields": "GameNameAlias\nEnter Limit\nVIP",
+        "onFail": "warn"
       }
     ]
   }
