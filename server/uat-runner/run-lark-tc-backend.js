@@ -2991,7 +2991,11 @@ async function verifyMachineReservation(page, tc, params = {}) {
     await page.waitForTimeout(600);
   };
   const getVisibleDialogInfo = () => page.evaluate(() => {
-    const dialogs = [...document.querySelectorAll('.el-dialog')].filter(d => d.getBoundingClientRect().width > 0);
+    const dialogs = [...document.querySelectorAll('.el-dialog')].filter(d =>
+      d.getBoundingClientRect().width > 0
+      // ⚠️ 一定要排除站台層級那個一直開著的 Warnning 彈窗。不排除的話，面板根本沒打開
+      // 也會抓到它，回報成「面板開啟(0筆記錄)」——假通過。不要拿掉這個條件。
+      && !/Warnning|Warning/i.test(d.textContent || ''));
     const d = dialogs[dialogs.length - 1];
     if (!d) return null;
     return {
@@ -4409,6 +4413,13 @@ async function performSteps(p, steps, label, taskFull) {
     async openPath(targetPath, waitMs) {
       await p.goto(BACKEND_URL + targetPath, { waitUntil: 'networkidle', timeout: 20000 });
       await p.waitForTimeout(waitMs);
+      // ⚠️ 一定要跟 builtin 走同一套收尾。後台每頁載入後都會彈站台層級的 Warnning 彈窗，
+      // 它的 .v-modal 遮罩會擋住後續操作——builtin 路徑每次導頁後都會呼叫這支，積木這邊
+      // 漏掉的話，積木是在「跟 builtin 不一樣的畫面狀態」下跑的。
+      //
+      // 實際踩到：預約頁的 Operation Log 積木版一直失敗、builtin 版卻通過，一度以為是
+      // builtin 假通過。真正的原因是積木這邊沒關掉那個彈窗。環境沒對齊，比對就沒有意義。
+      await dismissWarningDialog(p);
     },
     resolveSubtypePath(subtype) {
       if (!subtype) return null;
