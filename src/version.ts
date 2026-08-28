@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.66.0'
+export const APP_VERSION = '4.67.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.67.0',
+    date: '2026-08-29',
+    changes: [
+      'fix(uat): 8 筆已拆的 TC 用「包含」找按鈕，改成用實測到的按鈕全名精準比對。包含比對會讓「Add」命中「Add Reservation」——驗的是 A、實際通過的可能是 B',
+      'note(uat): 每一筆的全名都取自基準跑實際命中的文字，不是用猜的。實測發現「Batch」命中的其實是「Batch Set Jackpot Model」、「Maintenance」是「Server Maintenance」、Jackpot Moment 那顆「Add」是「Add Jackpot Moment」',
+    ],
+  },
   {
     version: '4.66.0',
     date: '2026-08-29',

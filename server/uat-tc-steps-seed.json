@@ -218,7 +218,8 @@
       },
       {
         "action": "assert_control_exists",
-        "text": "Add"
+        "text": "Add",
+        "match": "exact"
       },
       {
         "action": "assert_dialog_fields",
@@ -234,8 +235,9 @@
       },
       {
         "action": "assert_control_exists",
-        "text": "Maintenance",
-        "note": "可維護/喚醒機台"
+        "text": "Server Maintenance",
+        "note": "可維護/喚醒機台",
+        "match": "exact"
       }
     ],
     "recvenTprAFu0k": [
@@ -295,7 +297,8 @@
       },
       {
         "action": "assert_control_exists",
-        "text": "Add Banner"
+        "text": "Add Banner",
+        "match": "exact"
       }
     ],
     "recvenTprAION6": [
@@ -351,8 +354,9 @@
       },
       {
         "action": "assert_control_exists",
-        "text": "Batch",
-        "note": "批量設置小面額"
+        "text": "Batch Set Jackpot Model",
+        "note": "批量設置小面額",
+        "match": "exact"
       }
     ],
     "recvenTprAQgTi": [
@@ -413,7 +417,8 @@
       },
       {
         "action": "assert_control_exists",
-        "text": "Add"
+        "text": "Add Jackpot Moment",
+        "match": "exact"
       },
       {
         "action": "assert_dialog_fields",
@@ -629,7 +634,8 @@
       {
         "action": "assert_control_exists",
         "text": "White Account",
-        "note": "新增白名單帳號"
+        "note": "新增白名單帳號",
+        "match": "exact"
       },
       {
         "action": "assert_column_exists",
@@ -838,7 +844,8 @@
       },
       {
         "action": "assert_control_exists",
-        "text": "Add Game"
+        "text": "Add Game",
+        "match": "exact"
       }
     ],
     "recvenTprAzAL0": [
@@ -905,7 +912,8 @@
       },
       {
         "action": "assert_control_exists",
-        "text": "Import Excel"
+        "text": "Import Excel",
+        "match": "exact"
       }
     ],
     "recvfqN710LPGe": [
