@@ -70,6 +70,12 @@
 
 ---
 
+## 視覺風格規範
+
+**凡涉及Toppath UI、生圖、icon、mockup、文案術語、配色，開始前必須先讀** [docs/visual-style.md](docs/visual-style.md) **並套用，除非使用者明確指定其他風格。** 這是操作流程，不是可選參考資料。摘要：普通版（現行操作型UI）+ 仙俠版（青玉/墨黑/金符色票+術語表）雙版本、一律禁用原生emoji。決策背景見 [docs/decisions.md](docs/decisions.md)。
+
+---
+
 ## 驗證標準
 
 每次重要改動後，最低驗證：
