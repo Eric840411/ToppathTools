@@ -1,7 +1,7 @@
 {
   "kind": "toppath-uat-tc-steps",
   "version": 1,
-  "count": 78,
+  "count": 79,
   "steps": {
     "recveFY7nUeFBk": [
       {
@@ -998,6 +998,18 @@
         "action": "assert_export_matches_screen",
         "keyColumn": "Account",
         "valueColumn": "Jackpot Amount"
+      }
+    ],
+    "recvenTprAsJ1i": [
+      {
+        "action": "open_page",
+        "path": "/game/machineReservationList",
+        "waitMs": 2500
+      },
+      {
+        "action": "assert_dialog_opens",
+        "trigger": "Operation Log",
+        "scope": "page"
       }
     ]
   }

@@ -2,13 +2,9 @@ import { APP_VERSION, CHANGELOG } from '../version'
 
 export function ChangelogPage() {
   return (
-    <div style={{ maxWidth: 720, margin: '0 auto', padding: '8px 0' }}>
+    <div style={{ width: '100%', padding: '8px 0' }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
-        <div>
-          <h2 style={{ fontSize: 20, fontWeight: 700, margin: 0, color: '#f1f5f9' }}>更版日誌</h2>
-          <p style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>Toppath Tools · Workflow Integrator</p>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 28 }}>
         <div style={{
           padding: '6px 14px', background: 'rgba(99,102,241,.15)', border: '1px solid rgba(99,102,241,.3)',
           borderRadius: 99, fontSize: 13, fontWeight: 700, color: '#a5b4fc',

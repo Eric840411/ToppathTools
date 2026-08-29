@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.68.0'
+export const APP_VERSION = '4.69.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.69.0',
+    date: '2026-08-29',
+    changes: [
+      'fix(uat): 積木找按鈕時「按鈕」要優先於「連結」。預約頁上有一個跟按鈕同名的 <a>Operation Log</a> 排在前面，混在一起找就會點到連結、面板永遠不會開',
+      'feat(uat): 預約「操作日志」拆成積木（先前因為上面那個問題卡住）。積木化累計 79/121',
+      'fix(版面): 更新日誌頁改成滿版、拿掉重複的頁面標題（頂欄本來就有顯示）',
+      'docs: 補提交視覺風格規範與 UAT 決策紀錄三份文件',
+    ],
+  },
   {
     version: '4.68.0',
     date: '2026-08-29',

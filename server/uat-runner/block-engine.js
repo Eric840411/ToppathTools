@@ -351,11 +351,21 @@ async function clickDialogTrigger(page, { trigger, scope, triggerKind }) {
     const needle = String(trigger ?? '').trim().toLowerCase();
     const label = b => (b.innerText || '').trim().toLowerCase();
     const pick = (root) => {
-      const buttons = [...root.querySelectorAll('button, .el-button, a')];
-      if (triggerKind === 'icon') return buttons.find(b => !label(b)) ?? null;
+      // ⚠️ 按鈕優先於連結，不能把三種放同一個 querySelectorAll 靠文件順序決定。
+      // 實測踩到：預約頁上有一個 <a>Operation Log</a>（選單連結）排在真正的
+      // <button>Operation Log</button> 前面，混在一起找就會點到那個連結、面板永遠不會開。
+      // 既有 verifier 用的是 querySelectorAll('button')，連結只是找不到時的退路。
+      const buttons = [...root.querySelectorAll('button, .el-button')];
+      const links = [...root.querySelectorAll('a, [role="button"]')];
+      if (triggerKind === 'icon') return buttons.find(b => !label(b)) ?? links.find(b => !label(b)) ?? null;
       // 先找完全相同的再退到包含。不這樣的話「Add」會先命中「Add Reservation」——
       // 既有 verifier 用的就是 === 精準比對，包含只是沒對到時的退路
-      return buttons.find(b => label(b) === needle) ?? buttons.find(b => label(b).includes(needle)) ?? null;
+      // 每一層都是「先精準再包含」，且按鈕整組試完才輪到連結
+      return buttons.find(b => label(b) === needle)
+        ?? links.find(b => label(b) === needle)
+        ?? buttons.find(b => label(b).includes(needle))
+        ?? links.find(b => label(b).includes(needle))
+        ?? null;
     };
 
     let btn = null;
