@@ -22,6 +22,7 @@ import { randomUUID } from 'crypto'
 import { z } from 'zod'
 import { agentConnections, type AgentInfo } from '../agent-hub.js'
 import { getOperatorFromContext } from '../request-context.js'
+import { db } from '../shared.js'
 import { parseStatsLine } from '../uat-runner/net-capture.js'
 import { BLOCK_DEFS } from '../uat-runner/block-engine.js'
 import { VERIFIER_PARAM_SCHEMAS } from '../uat-runner/verifier-params.js'
@@ -108,6 +109,107 @@ function redactSecrets(line: string): string {
   return out
 }
 
+// ─── 執行歷史 ────────────────────────────────────────────────────────────────
+//
+// 在這之前，每次跑完只寫一份 lark_tc_results.json 而且**整個覆蓋**——沒有時間、
+// 沒有耗時、沒有失敗原因、沒有上一次。結果是這些問題全部答不出來：
+//   這條 TC 是一直在壞還是今天才壞？這次比上次多壞幾條？
+//   這幾條失敗是不是同一個原因？哪個模組拖最久？有沒有時好時壞的不穩定測試？
+//
+// **不穩定的測試比沒有測試更糟**——它會讓人養成「紅的再跑一次就好」的習慣，
+// 然後真的壞掉那次也被當成雜訊。要偵測它就一定得有逐次的歷史。
+db.exec(`
+  CREATE TABLE IF NOT EXISTS uat_run_history (
+    id           TEXT PRIMARY KEY,
+    started_at   INTEGER NOT NULL,
+    finished_at  INTEGER NOT NULL,
+    duration_ms  INTEGER NOT NULL,
+    mode         TEXT NOT NULL DEFAULT '',
+    agent_id     TEXT NOT NULL DEFAULT '',
+    filter       TEXT NOT NULL DEFAULT '',
+    pass_count   INTEGER NOT NULL DEFAULT 0,
+    fail_count   INTEGER NOT NULL DEFAULT 0,
+    manual_count INTEGER NOT NULL DEFAULT 0,
+    skip_count   INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE IF NOT EXISTS uat_run_results (
+    run_id      TEXT NOT NULL,
+    record_id   TEXT NOT NULL,
+    subtype     TEXT NOT NULL DEFAULT '',
+    task        TEXT NOT NULL DEFAULT '',
+    outcome     TEXT NOT NULL,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    reasons     TEXT NOT NULL DEFAULT '',
+    notes       TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (run_id, record_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_uat_run_results_record ON uat_run_results(record_id);
+`)
+
+/** 整輪結果的行前綴。跟 runner 那邊是同一個字串——兩邊各寫一份的話，改了一邊沒改
+ *  另一邊的症狀是「歷史永遠是空的而且沒有任何錯誤訊息」。 */
+const RESULTS_LINE_PREFIX = '@@UAT_RESULTS@@'
+
+interface RunResultRow {
+  recordId: string; subtype?: string; task?: string
+  pass?: boolean; manual?: boolean; skip?: boolean
+  durationMs?: number; criticalFails?: string[]; notes?: string; error?: string
+}
+
+/** 三態要分清楚：manual 優先於 pass（人工判讀不是通過），skip 再優先於 fail。
+ *  壓成布林就分不出「機器判不了」跟「驗過了不合格」，那正是先前假綠燈的來源。 */
+function outcomeOf(r: RunResultRow): 'pass' | 'fail' | 'manual' | 'skip' {
+  if (r.manual) return 'manual'
+  if (r.skip) return 'skip'
+  return r.pass ? 'pass' : 'fail'
+}
+
+/** 收到 runner 印出來的整輪結果，存進歷史。回傳 true 代表這行是結果不是日誌。 */
+function captureResultsLine(session: UatSession, rawLine: string): boolean {
+  const idx = rawLine.indexOf(RESULTS_LINE_PREFIX)
+  if (idx < 0) return false
+  try {
+    const payload = JSON.parse(rawLine.slice(idx + RESULTS_LINE_PREFIX.length)) as {
+      startedAt?: number; finishedAt?: number; filter?: string[]; results?: RunResultRow[]
+    }
+    const rows = payload.results ?? []
+    const runId = session.id || `run_${Date.now()}`
+    const startedAt = payload.startedAt ?? session.startedAt ?? Date.now()
+    const finishedAt = payload.finishedAt ?? Date.now()
+    const tally = { pass: 0, fail: 0, manual: 0, skip: 0 }
+    for (const r of rows) tally[outcomeOf(r)]++
+
+    const insertRun = db.prepare(`
+      INSERT OR REPLACE INTO uat_run_history
+        (id, started_at, finished_at, duration_ms, mode, agent_id, filter, pass_count, fail_count, manual_count, skip_count)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    const insertRow = db.prepare(`
+      INSERT OR REPLACE INTO uat_run_results
+        (run_id, record_id, subtype, task, outcome, duration_ms, reasons, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    // 整輪一起寫。寫到一半失敗會留下「有 run 沒有 results」的半套資料，
+    // 那比整筆沒寫更難查
+    db.transaction(() => {
+      insertRun.run(runId, startedAt, finishedAt, Math.max(0, finishedAt - startedAt),
+        session.mode ?? '', session.agentId ?? '', (payload.filter ?? []).join(','),
+        tally.pass, tally.fail, tally.manual, tally.skip)
+      for (const r of rows) {
+        insertRow.run(runId, r.recordId, r.subtype ?? '', r.task ?? '', outcomeOf(r),
+          r.durationMs ?? 0,
+          [...(r.criticalFails ?? []), ...(r.error ? [r.error] : [])].join(' | ').slice(0, 800),
+          (r.notes ?? '').slice(0, 800))
+      }
+    })()
+    console.log(`[UAT] 已記錄執行歷史 ${runId}：${rows.length} 筆（通過 ${tally.pass}／失敗 ${tally.fail}／人工 ${tally.manual}／略過 ${tally.skip}）`)
+  } catch (e) {
+    // 歷史存不起來絕不能讓整輪測試看起來失敗——測試結果本身已經跑完了
+    console.warn('[UAT] 執行歷史記錄失敗（不影響本次測試結果）：', e)
+  }
+  return true
+}
+
 /**
  * runner 的 stdout 是日誌與結構化快照共用的一條通道，用行前綴區分（見 net-capture.js）。
  * 統計行要在這裡就攔掉：它是資料不是日誌，混進 session.logs 會把執行日誌洗版，
@@ -124,6 +226,8 @@ function captureStatsLine(rawLine: string): boolean {
 
 function appendLog(rawLine: string) {
   if (captureStatsLine(rawLine)) return
+  // 結果行跟統計行一樣是資料不是日誌——混進 session.logs 會把執行日誌洗版
+  if (captureResultsLine(session, rawLine)) return
   const line = redactSecrets(rawLine)
   session.logs.push(line)
   broadcast('log', { line })
@@ -1054,4 +1158,75 @@ router.post('/api/osm-uat/stop', (_req, res) => {
   finishHeavyTask(session.heavyTask)
   appendLog('\U0001f6d1 已手動停止測試')
   res.json({ ok: true, mode: 'server' })
+})
+
+// ─── 執行歷史查詢 ────────────────────────────────────────────────────────────
+
+/** GET /api/osm-uat/history — 最近幾輪的總覽，含「跟上一輪比多壞了幾條」 */
+router.get('/api/osm-uat/history', (req, res) => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100)
+    const runs = db.prepare(`
+      SELECT id, started_at, finished_at, duration_ms, mode, agent_id, filter,
+             pass_count, fail_count, manual_count, skip_count
+      FROM uat_run_history ORDER BY started_at DESC LIMIT ?
+    `).all(limit) as Array<Record<string, number | string>>
+    // 跟前一輪比。**比的是相鄰兩輪**，不是跟第一輪比——「這次比上次多壞幾條」
+    // 才是每天實際會問的問題
+    const withDelta = runs.map((run, i) => {
+      const prev = runs[i + 1]
+      return {
+        ...run,
+        failDelta: prev ? Number(run.fail_count) - Number(prev.fail_count) : null,
+      }
+    })
+    res.json({ ok: true, runs: withDelta })
+  } catch (e) {
+    res.status(500).json({ ok: false, message: e instanceof Error ? e.message : String(e) })
+  }
+})
+
+/**
+ * GET /api/osm-uat/history/flaky — 時好時壞的測試。
+ *
+ * **不穩定的測試比沒有測試更糟**：它會讓人養成「紅的再跑一次就好」的習慣，
+ * 然後真的壞掉那次也被當成雜訊。判定條件刻意保守——最近 N 輪裡「有通過也有失敗」
+ * 才算，MANUAL／SKIP 不列入（那不是不穩定，是本來就沒在驗）。
+ */
+router.get('/api/osm-uat/history/flaky', (req, res) => {
+  try {
+    const window = Math.min(Math.max(Number(req.query.window) || 10, 2), 50)
+    const runIds = db.prepare('SELECT id FROM uat_run_history ORDER BY started_at DESC LIMIT ?')
+      .all(window) as Array<{ id: string }>
+    if (runIds.length < 2) return res.json({ ok: true, flaky: [], window: runIds.length, note: '歷史還不足兩輪，算不出不穩定測試' })
+    const placeholders = runIds.map(() => '?').join(',')
+    const rows = db.prepare(`
+      SELECT record_id, subtype, task,
+             SUM(outcome = 'pass') AS passes,
+             SUM(outcome = 'fail') AS fails,
+             COUNT(*) AS total
+      FROM uat_run_results WHERE run_id IN (${placeholders})
+      GROUP BY record_id HAVING passes > 0 AND fails > 0
+      ORDER BY fails DESC, record_id
+    `).all(...runIds.map(r => r.id)) as Array<Record<string, number | string>>
+    res.json({ ok: true, window: runIds.length, flaky: rows })
+  } catch (e) {
+    res.status(500).json({ ok: false, message: e instanceof Error ? e.message : String(e) })
+  }
+})
+
+/** GET /api/osm-uat/history/:runId — 某一輪的逐筆結果（含失敗原因與耗時）*/
+router.get('/api/osm-uat/history/:runId', (req, res) => {
+  try {
+    const run = db.prepare('SELECT * FROM uat_run_history WHERE id = ?').get(req.params.runId)
+    if (!run) return res.status(404).json({ ok: false, message: '找不到這一輪紀錄' })
+    const results = db.prepare(`
+      SELECT record_id, subtype, task, outcome, duration_ms, reasons, notes
+      FROM uat_run_results WHERE run_id = ?
+      ORDER BY CASE outcome WHEN 'fail' THEN 0 WHEN 'manual' THEN 1 WHEN 'skip' THEN 2 ELSE 3 END, duration_ms DESC
+    `).all(req.params.runId)
+    res.json({ ok: true, run, results })
+  } catch (e) {
+    res.status(500).json({ ok: false, message: e instanceof Error ? e.message : String(e) })
+  }
 })

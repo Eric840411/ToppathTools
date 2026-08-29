@@ -285,6 +285,11 @@ async function getLarkToken() {
  */
 const DRY_RUN = process.env.UAT_DRY_RUN === '1';
 
+/** 整輪結果的行前綴。**印的端與解析的端一定要共用同一個常數**——兩邊各寫一份字串的話，
+ *  改了一邊沒改另一邊，症狀是「歷史永遠是空的而且沒有任何錯誤訊息」。 */
+const RESULTS_LINE_PREFIX = '@@UAT_RESULTS@@';
+const RUN_STARTED_AT = Date.now();
+
 async function uploadAttachment(token, filePath) {
   if (DRY_RUN) {
     console.log(`  🧪 [dry-run] 略過上傳 Lark：${path.basename(filePath)}`);
@@ -5081,6 +5086,9 @@ async function main() {
     const r = targets[i];
     const f = r.fields;
     const recordId = r.record_id;
+    // 逐筆耗時。沒有這個就答不出「哪個模組拖最久」「哪條突然變慢」——
+    // 而那是自動化測試最容易發現退化的訊號之一。
+    const tcStartedAt = Date.now();
     const taskType = f['任務類型'] || '';
     const subtype = f['任務子類型'] || '';
     const taskFull = f['任務'] || '';
@@ -5209,11 +5217,28 @@ async function main() {
       const noteStr = result.notes ? ` (${result.notes})` : '';
       const statusIcon = result.manual ? '🔧' : result.pass ? '✅' : result.skip ? '⏭' : '❌';
       console.log(` ${statusIcon}${noteStr}${result.error ? ' ' + result.error : ''}`);
-      results.push({ recordId, subtype, task, pass: result.pass, manual: result.manual, skip: result.skip });
+      results.push({
+        recordId, subtype, task,
+        pass: result.pass, manual: result.manual, skip: result.skip,
+        durationMs: Date.now() - tcStartedAt,
+        // 失敗原因：畫面上本來就有，但沒存進結果——事後想分析「這幾條是不是同一個
+        // 原因」就只能翻 log。criticalFails 是機器判定的依據，notes 是人看的說明。
+        criticalFails: result.criticalFails ?? [],
+        notes: result.notes ?? '',
+        error: result.error ?? '',
+      });
 
     } catch (e) {
       failCount++;
       console.log(` ❌ ${e.message}`);
+      // 這裡原本沒有 results.push——整筆炸掉的 TC 會從結果裡消失，
+      // 統計數字對不上而且事後查不到它跑過
+      results.push({
+        recordId, subtype, task,
+        pass: false, manual: false, skip: false,
+        durationMs: Date.now() - tcStartedAt,
+        criticalFails: [String(e.message ?? e)], notes: '', error: String(e.message ?? e),
+      });
       // 若 page 崩潰，重新建立
       if (/crash|closed|Target|Session/i.test(e.message)) {
         console.log('  🔄 偵測到 page crash，重新建立瀏覽器頁面...');
@@ -5374,6 +5399,24 @@ async function main() {
     try { console.log('\n' + netCapture.formatSummary()); } catch (e) { console.log(`⚠️ 網路量測摘要產生失敗: ${e.message}`); }
   }
   fs.writeFileSync('./data/raw/lark_tc_results.json', JSON.stringify(results, null, 2));
+
+  // 這個檔案每次跑都整個覆蓋，等於沒有歷史——「這條是一直在壞還是今天才壞」
+  // 「這次比上次多壞幾條」「有沒有時好時壞的不穩定測試」全部答不出來。
+  //
+  // 印一行機器可讀的結果讓 server 收進 DB。**用 log 行而不是叫 runner 自己寫 DB**：
+  // 派工模式下 runner 跑在別台機器上，根本碰不到 server 的資料庫；而 log 本來就
+  // 會經由 backend_uat_log 轉回來，兩種模式共用同一條路（跟 @@UAT_STATS@@ 同一個做法）。
+  try {
+    console.log(RESULTS_LINE_PREFIX + JSON.stringify({
+      startedAt: RUN_STARTED_AT,
+      finishedAt: Date.now(),
+      filter: FILTER_SUBTYPES,
+      results,
+    }));
+  } catch (e) {
+    // 結果送不出去不該讓整輪測試看起來像失敗
+    console.log(`⚠️ 執行結果無法輸出（歷史紀錄這次會缺一筆）：${e.message}`);
+  }
 }
 
 main().catch(console.error);

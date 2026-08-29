@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.70.0'
+export const APP_VERSION = '4.71.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.71.0',
+    date: '2026-08-30',
+    changes: [
+      'feat(uat): 每次執行存成歷史紀錄。原本只寫一份結果檔而且整個覆蓋，所以「這條是一直在壞還是今天才壞」「這次比上次多壞幾條」全部答不出來',
+      'feat(uat): 逐筆記錄耗時與失敗原因。以前 pass:false 卻沒說為什麼，事後想分析「這幾條是不是同一個原因」只能翻 log',
+      'feat(uat): 新增不穩定測試偵測——最近 N 輪裡有通過也有失敗的才算，MANUAL/SKIP 不列入。歷史不足兩輪時明講算不出來，不回空陣列假裝沒有',
+      'fix(uat): TC 整筆炸掉時走 catch，原本那裡沒有記進結果——炸掉的 TC 會從結果裡消失，統計數字對不上而且事後查不到它跑過',
+    ],
+  },
   {
     version: '4.70.0',
     date: '2026-08-30',
