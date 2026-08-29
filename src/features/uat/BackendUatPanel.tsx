@@ -488,8 +488,59 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   }, { pass: 0, manual: 0, skip: 0, fail: 0 })
   const statusLabel = status === 'idle' ? (xianxia ? '玉簡未啟' : '待機') : status === 'running' ? (xianxia ? '推演中' : '執行中') : status === 'done' ? (xianxia ? '推演完成' : '完成') : (xianxia ? '陣眼失守' : '錯誤')
 
+  // ── 第一屏行動列要用的資訊（2026-08-29）──
+  // 量過：原本「執行模組流程」在 y=1298、視窗高 1000，**要捲兩屏才看得到**。
+  // 新使用者第一個問題是「我要怎麼開始跑」，第一屏卻只有設定沒有動作。
+  // 這裡不搬走任何既有控制項，只是把主要動作補到第一屏並說明它會做什麼。
+  const plannedTcTotal = groups
+    ? config.modulePlan.reduce((sum, module) => sum + (moduleCounts.get(module.instanceId) ?? 0), 0)
+    : null
+  const targetAgent = selectedAgentId
+    ? agents.find(agent => agent.agentId === selectedAgentId)?.hostname ?? selectedAgentId
+    : agents.some(agent => !agent.busy)
+      ? `自動挑一台（${agents.filter(agent => !agent.busy).length} 台可用）`
+      : null
+  // 三個起手步驟各自的完成狀態。**這不只是新手教學，也是「按鈕為什麼是灰的」的答案**
+  // ——原本按鈕 disabled 時畫面上沒有任何地方說明原因。
+  const startSteps = [
+    { label: xianxia ? '選要推演的術式' : '選要跑的模組', done: modulePlanValid },
+    { label: xianxia ? '選在哪具傀儡上跑' : '選在哪台機器跑', done: !!targetAgent },
+    { label: xianxia ? '啟陣' : '開始執行', done: false },
+  ]
+  const blockedReason = !config.larkUrl
+    ? 'Lark TC 路徑還沒填（在右邊「執行設定」）'
+    : !modulePlanValid
+      ? '每個模組都要有名稱與至少一條 TC 匹配規則'
+      : null
+
   return (
     <div className="uat-backend-workbench">
+      {/* 第一屏行動列：整頁唯一的主要按鈕，外加「按下去會發生什麼」。
+          放在 workbench 最上面而不是頁首——頁首在 OsmUatPage，把狀態拉上去要動到
+          元件邊界，這裡放一樣在第一屏內，改動範圍小很多。 */}
+      <div className="uat-backend-launch">
+        <div className="uat-backend-launch-steps">
+          {startSteps.map((step, index) => (
+            <span className={`uat-launch-step${step.done ? ' is-done' : ''}`} key={step.label}>
+              <i>{index + 1}</i>{step.label}
+            </span>
+          ))}
+          {blockedReason
+            ? <span className="uat-launch-block">{blockedReason}</span>
+            : <span className="uat-launch-ready">{xianxia ? '陣眼齊備，可以啟陣' : '前兩步都好了，可以執行'}</span>}
+        </div>
+        <div className="uat-backend-launch-cta">
+          <div className="uat-backend-launch-meta">
+            <b>{config.modulePlan.length}</b> 個模組
+            {plannedTcTotal !== null && <> · 共 <b>{plannedTcTotal}</b> 筆 TC</>}
+            {targetAgent && <> · 跑在 <b>{targetAgent}</b></>}
+          </div>
+          {status === 'running'
+            ? <button type="button" className="uat-btn is-danger is-wide" onClick={() => fetch('/api/osm-uat/stop', { method: 'POST' })}>{xianxia ? '收陣' : '停止執行'}</button>
+            : <button type="button" className="uat-btn is-primary is-wide" disabled={!modulePlanValid || !config.larkUrl} onClick={run}>{xianxia ? '依序啟陣' : '開始執行'}</button>}
+        </div>
+      </div>
+
       <aside className="uat-backend-library">
         <div className="uat-pane-heading"><div><span>{xianxia ? 'SPELL LIBRARY' : 'MODULE LIBRARY'}</span><h3>{xianxia ? '術式庫' : '模組庫'}</h3><small>模板可重複加入並獨立編輯</small></div></div>
         <button type="button" className="uat-btn is-primary is-wide uat-backend-create" disabled={status === 'running'} onClick={addCustomModule}>{xianxia ? '新增自訂術式' : '新增自訂模組'}</button>
@@ -503,7 +554,20 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
       <main className="uat-backend-flow">
         <div className="uat-backend-flow-head">
           <div className="uat-section-title"><span>{xianxia ? 'TRIAL SEQUENCE' : 'EXECUTION FLOW'}</span><h3>{xianxia ? '推演順序' : '執行流程'} <small>{config.modulePlan.length + 1} 個模組</small></h3><p>拖曳調整順序；點選卡片可編輯名稱、說明與 TC 匹配規則。</p></div>
-          <div className="uat-backend-flow-actions"><button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={addCustomModule}>新增模組</button><button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => { const plan = createDefaultBackendPlan(); update({ modulePlan: plan }); setSelectedModuleId(plan[0]?.instanceId ?? null) }}>還原預設</button><button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => { update({ modulePlan: [] }); setSelectedModuleId(null); setSettingsView('run') }}>清空流程</button>{recSession ? <button type="button" className="uat-btn is-danger" onClick={() => void finishWorkbenchRecord(recSession)}>停止錄製（{recCount} 顆）</button> : <button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => void startWorkbenchRecord()}>錄製</button>}<button type="button" className="uat-btn is-quiet" title="把所有 TC 的積木匯出成一個檔案，帶到別的環境匯入" onClick={() => { window.location.href = '/api/osm-uat/tc-steps/export' }}>匯出積木</button><button type="button" className="uat-btn is-quiet" title="從匯出的檔案匯入積木（同一筆以檔案為準，沒提到的保留）" onClick={() => importInput.current?.click()}>匯入積木</button><input ref={importInput} type="file" accept="application/json,.json" style={{ display: 'none' }} onChange={event => void handleImport(event)} /></div>
+          <div className="uat-backend-flow-actions">
+            <button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={addCustomModule}>新增模組</button>
+            <button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => { const plan = createDefaultBackendPlan(); update({ modulePlan: plan }); setSelectedModuleId(plan[0]?.instanceId ?? null) }}>還原預設</button>
+            {recSession
+              ? <button type="button" className="uat-btn is-danger" onClick={() => void finishWorkbenchRecord(recSession)}>停止錄製（{recCount} 顆）</button>
+              : <button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => void startWorkbenchRecord()}>錄製</button>}
+            <button type="button" className="uat-btn is-quiet" title="把所有 TC 的積木匯出成一個檔案，帶到別的環境匯入" onClick={() => { window.location.href = '/api/osm-uat/tc-steps/export' }}>匯出積木</button>
+            <button type="button" className="uat-btn is-quiet" title="從匯出的檔案匯入積木（同一筆以檔案為準，沒提到的保留）" onClick={() => importInput.current?.click()}>匯入積木</button>
+            {/* 破壞性動作排在最後、用分隔線隔開。刻意不加確認彈窗——那只會養成
+                無腦點確認的習慣，真正該做的是讓它「看起來就不一樣」且不順手誤按 */}
+            <span className="uat-action-sep" aria-hidden="true" />
+            <button type="button" className="uat-btn is-danger-quiet" disabled={status === 'running'} onClick={() => { update({ modulePlan: [] }); setSelectedModuleId(null); setSettingsView('run') }}>清空流程</button>
+            <input ref={importInput} type="file" accept="application/json,.json" style={{ display: 'none' }} onChange={event => void handleImport(event)} />
+          </div>
         </div>
         <div className="uat-backend-module-list">
           <article className="uat-backend-module is-fixed is-cyan"><span className="uat-backend-module-grip" aria-hidden="true"><i /><i /><i /></span><div><strong>{xianxia ? '共用登入傀儡' : '共用登入與初始化'}</strong><small>取得 Lark token、載入 TC registry、啟動 Chromium 並登入 CP Backend</small></div><em>固定</em></article>
@@ -634,7 +698,8 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
             <div className="uat-backend-setting-pair"><label>Game Type<input className="uat-field" value={config.dashGameType} onChange={event => update({ dashGameType: event.target.value })} placeholder="BWJL" /></label><label>Client Version<input className="uat-field" value={config.dashClientVersion} onChange={event => update({ dashClientVersion: event.target.value })} placeholder="H5(1.5)" /></label></div>
           </div>
           <div className="uat-backend-run-summary"><span><b>{config.modulePlan.length}</b> 個可執行模組</span><span><b>{groups ? config.modulePlan.reduce((sum, module) => sum + (moduleCounts.get(module.instanceId) ?? 0), 0) : '—'}</b> 個匹配 TC</span></div>
-          <div className="uat-backend-run-actions"><button type="button" className="uat-btn is-primary is-wide" disabled={status === 'running' || !modulePlanValid || !config.larkUrl} onClick={run}>{xianxia ? '依序啟陣' : '執行模組流程'}</button><button type="button" className="uat-btn is-danger is-wide" disabled={status !== 'running'} onClick={() => fetch('/api/osm-uat/stop', { method: 'POST' })}>{xianxia ? '收陣' : '停止執行'}</button></div>
+          {/* 執行／停止已移到第一屏的行動列（.uat-backend-launch）。這裡不再放第二組——
+              兩顆做同一件事的按鈕會讓人不確定哪顆才是對的。 */}
           <span className={`uat-run-status is-${status}`}><i />{statusLabel}</span>
         </>}
       </aside>

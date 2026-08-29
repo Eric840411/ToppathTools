@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.69.0'
+export const APP_VERSION = '4.70.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.70.0',
+    date: '2026-08-30',
+    changes: [
+      'feat(uat): 第一屏加上行動列——「開始執行」從 y=1298（要捲兩屏）移到 y=268，並寫明按下去會跑幾個模組、幾筆 TC、跑在哪台機器',
+      'feat(uat): 起手三步（選模組 → 選機器 → 執行）會跟著狀態變色，而且按鈕是灰的時候直接寫出原因。以前按鈕 disabled 時畫面上沒有任何地方說明為什麼',
+      'feat(uat): 破壞性動作「清空流程」移到最後、用分隔線隔開並改成紅色描邊。刻意不加確認彈窗——那只會養成無腦點確認的習慣',
+      'note(uat): 執行設定裡原本那組執行/停止按鈕已移除，全頁只留一顆主要按鈕。兩顆做同一件事會讓人不確定哪顆才是對的',
+    ],
+  },
   {
     version: '4.69.0',
     date: '2026-08-29',

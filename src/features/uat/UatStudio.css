@@ -672,3 +672,47 @@
   font-size: 10px;
   color: var(--uat-text-dim);
 }
+
+/* ─── 第一屏行動列（2026-08-29）────────────────────────────────────────────
+   量過：原本「執行模組流程」在 y=1298、視窗高 1000，要捲兩屏才看得到。
+   新使用者第一個問題是「我要怎麼開始跑」，第一屏卻只有設定沒有動作。
+   ⚠️ workbench 是三欄 grid，這條要 span 到底，不然會掉進第一欄。 */
+.uat-backend-launch {
+  grid-column: 1 / -1;
+  display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--uat-border);
+  background: color-mix(in srgb, var(--uat-primary) 6%, var(--uat-panel));
+}
+.uat-backend-launch-steps { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; }
+.uat-launch-step { display: inline-flex; align-items: center; gap: 6px; color: var(--uat-muted); }
+.uat-launch-step + .uat-launch-step::before { content: '→'; margin-right: 4px; color: var(--uat-muted); opacity: .6; }
+.uat-launch-step i {
+  display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%;
+  font-style: normal; font-size: 11px; font-weight: 700;
+  border: 1px solid var(--uat-border); color: var(--uat-muted); background: var(--uat-panel);
+}
+/* 已完成的步驟要看得出來——這行同時是「按鈕為什麼是灰的」的答案，不只是新手教學 */
+.uat-launch-step.is-done { color: var(--uat-text); }
+.uat-launch-step.is-done i { border-color: var(--uat-primary); background: var(--uat-primary); color: #fff; }
+.uat-launch-ready { margin-left: 6px; font-size: 11.5px; color: var(--uat-ok, #4ade80); }
+.uat-launch-block { margin-left: 6px; font-size: 11.5px; color: var(--uat-danger); }
+
+.uat-backend-launch-cta { display: flex; align-items: center; gap: 14px; margin-left: auto; }
+.uat-backend-launch-meta { font-size: 12px; color: var(--uat-muted); font-variant-numeric: tabular-nums; text-align: right; }
+.uat-backend-launch-meta b { color: var(--uat-text); }
+.uat-backend-launch-cta .uat-btn { width: auto; padding: 11px 26px; font-size: 13.5px; white-space: nowrap; }
+
+/* 破壞性動作跟一般動作之間要有實體分隔。刻意不用確認彈窗——那只會養成
+   無腦點確認的習慣，反而更危險。 */
+.uat-action-sep { width: 1px; align-self: stretch; margin: 0 3px; background: var(--uat-border); }
+.uat-btn.is-danger-quiet {
+  color: var(--uat-danger);
+  border-color: color-mix(in srgb, var(--uat-danger) 34%, var(--uat-border));
+  background: transparent;
+}
+.uat-btn.is-danger-quiet:hover:not(:disabled) { background: color-mix(in srgb, var(--uat-danger) 10%, transparent); }
+
+@media (max-width: 1100px) {
+  .uat-backend-launch-cta { margin-left: 0; width: 100%; justify-content: space-between; }
+}
