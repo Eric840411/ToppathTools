@@ -93,7 +93,12 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const [riskFailed, setRiskFailed] = useState<Array<{ record_id: string; subtype: string; task: string; reasons: string }>>([])
   const [riskManual, setRiskManual] = useState<Array<{ recordId: string; sub: string; reason: string; task: string }>>([])
   const [riskFlaky, setRiskFlaky] = useState<Array<{ record_id: string; subtype: string; task: string; fails: number }>>([])
+  // 本次耗時與跟上一輪比。**跟上一輪比而不是跟平均比**——「這次是不是變慢了」
+  // 才是每天實際會問的；跟平均比會被一次異常值長期拉歪。
+  const [runTiming, setRunTiming] = useState<{ durationMs: number; deltaMs: number | null } | null>(null)
   const [coverage, setCoverage] = useState<{ total: number; machine: number; manual: number; uncovered: number; machinePercent: number } | null>(null)
+  // 模組庫預設收起：它是「加新模組」的管理動作，本次要跑什麼才是主角
+  const [libraryOpen, setLibraryOpen] = useState(false)
   const [netStats, setNetStats] = useState<UatStatsPayload | null>(null)
   const [statsAt, setStatsAt] = useState<number | null>(null)
   // 單筆 TC 這一層：掃描才拿得到，模組展開後才看得見。積木是掛在 TC 上的，
@@ -515,9 +520,15 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
     let cancelled = false
     void (async () => {
       try {
-        const runs = await fetch('/api/osm-uat/history?limit=1').then(r => r.json())
+        // 拿兩筆才算得出「較上次」
+        const runs = await fetch('/api/osm-uat/history?limit=2').then(r => r.json())
         const runId = runs?.runs?.[0]?.id
         if (!runId || cancelled) return
+        const cur = runs.runs[0], prev = runs.runs[1]
+        setRunTiming({
+          durationMs: Number(cur.duration_ms) || 0,
+          deltaMs: prev ? (Number(cur.duration_ms) || 0) - (Number(prev.duration_ms) || 0) : null,
+        })
         const detail = await fetch(`/api/osm-uat/history/${runId}`).then(r => r.json())
         if (cancelled || !detail.ok) return
         setRiskFailed((detail.results ?? []).filter((r: { outcome: string }) => r.outcome === 'fail'))
@@ -588,33 +599,10 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
         </div>
       </div>
 
-      <aside className="uat-backend-library">
-        <div className="uat-pane-heading"><div><span>{xianxia ? 'SPELL LIBRARY' : 'MODULE LIBRARY'}</span><h3>{xianxia ? '術式庫' : '模組庫'}</h3><small>模板可重複加入並獨立編輯</small></div></div>
-        <button type="button" className="uat-btn is-primary is-wide uat-backend-create" disabled={status === 'running'} onClick={addCustomModule}>{xianxia ? '新增自訂術式' : '新增自訂模組'}</button>
-        {(['核心資料', '營運驗證', '系統治理'] as const).map(category => (
-          <section className="uat-backend-library-group" key={category}><h4>{category}</h4>
-            {BACKEND_MODULES.filter(module => module.category === category).map(module => <button type="button" className={`uat-backend-library-item is-${module.tone}`} onClick={() => addModule(module.id)} disabled={status === 'running'} key={module.id}><i /><span><strong>{xianxia ? module.xianxiaName : module.name}</strong><small>{module.description}</small></span><b>加入</b></button>)}
-          </section>
-        ))}
-      </aside>
-
-      <main className="uat-backend-flow">
+      <aside className="uat-backend-plan">
         <div className="uat-backend-flow-head">
           <div className="uat-section-title"><span>{xianxia ? 'TRIAL SEQUENCE' : 'EXECUTION FLOW'}</span><h3>{xianxia ? '推演順序' : '執行流程'} <small>{config.modulePlan.length + 1} 個模組</small></h3><p>拖曳調整順序；點選卡片可編輯名稱、說明與 TC 匹配規則。</p></div>
-          <div className="uat-backend-flow-actions">
-            <button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={addCustomModule}>新增模組</button>
-            <button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => { const plan = createDefaultBackendPlan(); update({ modulePlan: plan }); setSelectedModuleId(plan[0]?.instanceId ?? null) }}>還原預設</button>
-            {recSession
-              ? <button type="button" className="uat-btn is-danger" onClick={() => void finishWorkbenchRecord(recSession)}>停止錄製（{recCount} 顆）</button>
-              : <button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => void startWorkbenchRecord()}>錄製</button>}
-            <button type="button" className="uat-btn is-quiet" title="把所有 TC 的積木匯出成一個檔案，帶到別的環境匯入" onClick={() => { window.location.href = '/api/osm-uat/tc-steps/export' }}>匯出積木</button>
-            <button type="button" className="uat-btn is-quiet" title="從匯出的檔案匯入積木（同一筆以檔案為準，沒提到的保留）" onClick={() => importInput.current?.click()}>匯入積木</button>
-            {/* 破壞性動作排在最後、用分隔線隔開。刻意不加確認彈窗——那只會養成
-                無腦點確認的習慣，真正該做的是讓它「看起來就不一樣」且不順手誤按 */}
-            <span className="uat-action-sep" aria-hidden="true" />
-            <button type="button" className="uat-btn is-danger-quiet" disabled={status === 'running'} onClick={() => { update({ modulePlan: [] }); setSelectedModuleId(null); setSettingsView('run') }}>清空流程</button>
-            <input ref={importInput} type="file" accept="application/json,.json" style={{ display: 'none' }} onChange={event => void handleImport(event)} />
-          </div>
+          
         </div>
         <div className="uat-backend-module-list">
           <article className="uat-backend-module is-fixed is-cyan"><span className="uat-backend-module-grip" aria-hidden="true"><i /><i /><i /></span><div><strong>{xianxia ? '共用登入傀儡' : '共用登入與初始化'}</strong><small>取得 Lark token、載入 TC registry、啟動 Chromium 並登入 CP Backend</small></div><em>固定</em></article>
@@ -652,6 +640,125 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
           {!config.modulePlan.length && <div className="uat-backend-flow-empty"><strong>尚未加入測試模組</strong><span>新增自訂模組，或從左側模板庫加入。</span></div>}
         </div>
         <footer className="uat-backend-flow-foot"><span>每個模組都是獨立實例，設定會儲存在此瀏覽器並傳入新的 runner process。{!tcScanned && tcs.length > 0 && ` TC 清單來自 ${tcSnapshotAt ? tcSnapshotAt.slice(0, 10) + ' 的' : ''}離線快照，掃描後會補上之後新增的。`}</span><b>{groups ? `已掃描 ${total} TC` : '尚未掃描 TC'}</b></footer>
+        {/* 模組庫＝管理動作，預設收起來。設計圖左欄只有「本次要跑什麼」，
+            加新模組收到這顆按鈕後面，不跟執行清單搶主視覺（跟 CodeX 定案）。
+            **拖曳排序保留**：版面語意一致不代表要犧牲已存在且有用的互動能力。 */}
+        <button type="button" className="uat-btn is-quiet is-wide uat-plan-edit"
+          onClick={() => setLibraryOpen(open => !open)}>
+          {libraryOpen ? '收起模組庫' : (xianxia ? '編輯術式計畫' : '編輯模組計畫')}
+        </button>
+        {libraryOpen && (
+          <div className="uat-backend-library is-inline">
+<div className="uat-backend-flow-actions">
+            <button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={addCustomModule}>新增模組</button>
+            <button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => { const plan = createDefaultBackendPlan(); update({ modulePlan: plan }); setSelectedModuleId(plan[0]?.instanceId ?? null) }}>還原預設</button>
+            {recSession
+              ? <button type="button" className="uat-btn is-danger" onClick={() => void finishWorkbenchRecord(recSession)}>停止錄製（{recCount} 顆）</button>
+              : <button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => void startWorkbenchRecord()}>錄製</button>}
+            <button type="button" className="uat-btn is-quiet" title="把所有 TC 的積木匯出成一個檔案，帶到別的環境匯入" onClick={() => { window.location.href = '/api/osm-uat/tc-steps/export' }}>匯出積木</button>
+            <button type="button" className="uat-btn is-quiet" title="從匯出的檔案匯入積木（同一筆以檔案為準，沒提到的保留）" onClick={() => importInput.current?.click()}>匯入積木</button>
+            {/* 破壞性動作排在最後、用分隔線隔開。刻意不加確認彈窗——那只會養成
+                無腦點確認的習慣，真正該做的是讓它「看起來就不一樣」且不順手誤按 */}
+            <span className="uat-action-sep" aria-hidden="true" />
+            <button type="button" className="uat-btn is-danger-quiet" disabled={status === 'running'} onClick={() => { update({ modulePlan: [] }); setSelectedModuleId(null); setSettingsView('run') }}>清空流程</button>
+            <input ref={importInput} type="file" accept="application/json,.json" style={{ display: 'none' }} onChange={event => void handleImport(event)} />
+          </div>
+        <div className="uat-pane-heading"><div><span>{xianxia ? 'SPELL LIBRARY' : 'MODULE LIBRARY'}</span><h3>{xianxia ? '術式庫' : '模組庫'}</h3><small>模板可重複加入並獨立編輯</small></div></div>
+        <button type="button" className="uat-btn is-primary is-wide uat-backend-create" disabled={status === 'running'} onClick={addCustomModule}>{xianxia ? '新增自訂術式' : '新增自訂模組'}</button>
+        {(['核心資料', '營運驗證', '系統治理'] as const).map(category => (
+          <section className="uat-backend-library-group" key={category}><h4>{category}</h4>
+            {BACKEND_MODULES.filter(module => module.category === category).map(module => <button type="button" className={`uat-backend-library-item is-${module.tone}`} onClick={() => addModule(module.id)} disabled={status === 'running'} key={module.id}><i /><span><strong>{xianxia ? module.xianxiaName : module.name}</strong><small>{module.description}</small></span><b>加入</b></button>)}
+          </section>
+        ))}
+          </div>
+        )}
+      </aside>
+
+      <main className="uat-backend-center">
+
+        {/* 本次總覽。除了四種結果，補上覆蓋率與這一輪耗時——
+            「這次跑了什麼」跟「整體驗到多少」是兩個不同的問題，並排才看得懂。 */}
+        <div className="uat-stat-grid">
+          <Stat label={xianxia ? '試煉通過' : '通過'} value={summary.pass} tone="pass" />
+          <Stat label={xianxia ? '待真人覆核' : '需人工'} value={summary.manual} tone="manual" />
+          <Stat label={xianxia ? '略過' : '跳過'} value={summary.skip} tone="skip" />
+          <Stat label={xianxia ? '陣眼失守' : '失敗'} value={summary.fail} tone="fail" />
+          {/* 耗時放進同一排。沒有它就答不出「這次是不是變慢了」——
+              而變慢往往是退化最早出現的訊號，比失敗更早。 */}
+          <article className="uat-stat is-time">
+            <span>{xianxia ? '推演耗時' : '本次耗時'}</span>
+            <strong>{runTiming ? formatDuration(runTiming.durationMs) : '—'}</strong>
+            {runTiming?.deltaMs != null && runTiming.deltaMs !== 0 && (
+              <em className={runTiming.deltaMs > 0 ? 'is-slower' : 'is-faster'}>
+                {runTiming.deltaMs > 0 ? '慢' : '快'} {formatDuration(Math.abs(runTiming.deltaMs))}
+              </em>
+            )}
+          </article>
+        </div>
+
+        {/* ── 風險佇列 ──
+            三欄的資料來源刻意不同，也各自標明時間範圍：
+              失敗＝這一輪的實際結果／需人工＝靜態分類（跟這輪跑不跑無關）／Flaky＝跨輪歷史
+            不標的話使用者會以為三個都是「這次跑出來的」。 */}
+        <section className="uat-panel uat-risk-queue">
+          <div className="uat-section-title">
+            <span>{xianxia ? 'RISK QUEUE' : 'RISK QUEUE'}</span>
+            <h3>{xianxia ? '待處危局' : '風險佇列'} <small>{riskFailed.length + riskManual.length + riskFlaky.length}</small></h3>
+            <p>這裡列的是「需要人處理」的，不是統計數字。</p>
+          </div>
+          <div className="uat-risk-cols">
+            <div className="uat-risk-col is-fail">
+              <h4>失敗的測試 <b>{riskFailed.length}</b></h4>
+              <small>這一輪跑出來的</small>
+              {riskFailed.length === 0
+                ? <p className="uat-risk-empty">{status === 'done' ? '這一輪沒有失敗' : '跑完才知道'}</p>
+                : <ul>{riskFailed.slice(0, 8).map(item => (
+                    <li key={item.record_id} title={item.reasons}>
+                      <em>{item.subtype}</em>{item.task.slice(0, 26)}
+                      {item.reasons && <span className="uat-risk-why">{item.reasons.slice(0, 40)}</span>}
+                    </li>))}</ul>}
+              {riskFailed.length > 8 && <p className="uat-risk-more">…另有 {riskFailed.length - 8} 筆</p>}
+            </div>
+
+            <div className="uat-risk-col is-manual">
+              <h4>需人工確認 <b>{riskManual.length}</b></h4>
+              <small>機器判不了，跟這輪跑不跑無關</small>
+              {riskManual.length === 0
+                ? <p className="uat-risk-empty">沒有</p>
+                : <ul>{riskManual.slice(0, 8).map(item => (
+                    <li key={item.recordId} title={item.task}>
+                      <em>{item.sub}</em>{item.task.slice(0, 26)}
+                      <span className="uat-risk-why">{item.reason}</span>
+                    </li>))}</ul>}
+              {riskManual.length > 8 && <p className="uat-risk-more">…另有 {riskManual.length - 8} 筆</p>}
+            </div>
+
+            <div className="uat-risk-col is-flaky">
+              <h4>Flaky 候選 <b>{riskFlaky.length}</b></h4>
+              <small>最近幾輪裡有過有敗</small>
+              {riskFlaky.length === 0
+                ? <p className="uat-risk-empty">歷史還不夠，或目前沒有</p>
+                : <ul>{riskFlaky.slice(0, 8).map(item => (
+                    <li key={item.record_id} title={item.task}>
+                      <em>{item.subtype}</em>{item.task.slice(0, 26)}
+                      <span className="uat-risk-why">失敗 {item.fails} 次</span>
+                    </li>))}</ul>}
+              {riskFlaky.length > 8 && <p className="uat-risk-more">…另有 {riskFlaky.length - 8} 筆</p>}
+            </div>
+          </div>
+
+          {/* 覆蓋率三分法。**刻意不壓成單一百分比**——把待人工灌進去數字會好看但騙人，
+              而且單一數字會被優化：把難驗的標成人工判讀，覆蓋率反而上升。 */}
+          {coverage && (
+            <div className="uat-coverage-row">
+              <span className="uat-coverage-main"><b>{coverage.machinePercent}%</b> 機器驗過</span>
+              <span className="uat-coverage-part is-machine">機器驗過 <b>{coverage.machine}</b></span>
+              <span className="uat-coverage-part is-manual">已分類、待人工 <b>{coverage.manual}</b></span>
+              <span className="uat-coverage-part is-none">未涵蓋 <b>{coverage.uncovered}</b></span>
+              <span className="uat-coverage-note">共 {coverage.total} 筆．待人工那些機器沒有跑任何斷言</span>
+            </div>
+          )}
+        </section>
       </main>
 
       <aside className="uat-backend-settings">
@@ -750,6 +857,12 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
           <span className={`uat-run-status is-${status}`}><i />{statusLabel}</span>
         </>}
       </aside>
+
+      <section className="uat-backend-bottom">
+<NetworkPanel stats={netStats} themeMode={themeMode} updatedAt={statsAt} />
+<section className="uat-panel uat-backend-log"><div className="uat-log-toolbar"><div className="uat-section-title"><span>{xianxia ? 'ARRAY RECORD' : 'PROCESS OUTPUT'}</span><h3>{xianxia ? '陣法行跡錄' : '即時執行日誌'}</h3></div><label className="uat-check"><input type="checkbox" checked={autoScroll} onChange={event => setAutoScroll(event.target.checked)} />{xianxia ? '追隨靈流' : '自動捲動'}</label><button type="button" className="uat-btn is-quiet" onClick={() => setLogs([])}>{xianxia ? '拂去殘痕' : '清除'}</button></div><pre onScroll={event => { const el = event.currentTarget; setAutoScroll(el.scrollHeight - el.scrollTop - el.clientHeight < 40) }}>{logs.length ? logs.join('\n') : (xianxia ? '玉簡未啟，靈息未至。' : '等待執行...')}<span ref={logEnd} /></pre></section>
+      </section>
+
 
       {/* 錄製期間即時列出打到的 API。放在狀態列下面而不是彈框裡——
           使用者是「一邊操作一邊看」的，塞進彈框等於還要多開一次 */}
@@ -919,84 +1032,18 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
         />
       )}
 
-      <section className="uat-backend-results">
-        {/* 本次總覽。除了四種結果，補上覆蓋率與這一輪耗時——
-            「這次跑了什麼」跟「整體驗到多少」是兩個不同的問題，並排才看得懂。 */}
-        <div className="uat-stat-grid">
-          <Stat label={xianxia ? '試煉通過' : '通過'} value={summary.pass} tone="pass" />
-          <Stat label={xianxia ? '待真人覆核' : '需人工'} value={summary.manual} tone="manual" />
-          <Stat label={xianxia ? '略過' : '跳過'} value={summary.skip} tone="skip" />
-          <Stat label={xianxia ? '陣眼失守' : '失敗'} value={summary.fail} tone="fail" />
-        </div>
-
-        {/* ── 風險佇列 ──
-            三欄的資料來源刻意不同，也各自標明時間範圍：
-              失敗＝這一輪的實際結果／需人工＝靜態分類（跟這輪跑不跑無關）／Flaky＝跨輪歷史
-            不標的話使用者會以為三個都是「這次跑出來的」。 */}
-        <section className="uat-panel uat-risk-queue">
-          <div className="uat-section-title">
-            <span>{xianxia ? 'RISK QUEUE' : 'RISK QUEUE'}</span>
-            <h3>{xianxia ? '待處危局' : '風險佇列'} <small>{riskFailed.length + riskManual.length + riskFlaky.length}</small></h3>
-            <p>這裡列的是「需要人處理」的，不是統計數字。</p>
-          </div>
-          <div className="uat-risk-cols">
-            <div className="uat-risk-col is-fail">
-              <h4>失敗的測試 <b>{riskFailed.length}</b></h4>
-              <small>這一輪跑出來的</small>
-              {riskFailed.length === 0
-                ? <p className="uat-risk-empty">{status === 'done' ? '這一輪沒有失敗' : '跑完才知道'}</p>
-                : <ul>{riskFailed.slice(0, 8).map(item => (
-                    <li key={item.record_id} title={item.reasons}>
-                      <em>{item.subtype}</em>{item.task.slice(0, 26)}
-                      {item.reasons && <span className="uat-risk-why">{item.reasons.slice(0, 40)}</span>}
-                    </li>))}</ul>}
-              {riskFailed.length > 8 && <p className="uat-risk-more">…另有 {riskFailed.length - 8} 筆</p>}
-            </div>
-
-            <div className="uat-risk-col is-manual">
-              <h4>需人工確認 <b>{riskManual.length}</b></h4>
-              <small>機器判不了，跟這輪跑不跑無關</small>
-              {riskManual.length === 0
-                ? <p className="uat-risk-empty">沒有</p>
-                : <ul>{riskManual.slice(0, 8).map(item => (
-                    <li key={item.recordId} title={item.task}>
-                      <em>{item.sub}</em>{item.task.slice(0, 26)}
-                      <span className="uat-risk-why">{item.reason}</span>
-                    </li>))}</ul>}
-              {riskManual.length > 8 && <p className="uat-risk-more">…另有 {riskManual.length - 8} 筆</p>}
-            </div>
-
-            <div className="uat-risk-col is-flaky">
-              <h4>Flaky 候選 <b>{riskFlaky.length}</b></h4>
-              <small>最近幾輪裡有過有敗</small>
-              {riskFlaky.length === 0
-                ? <p className="uat-risk-empty">歷史還不夠，或目前沒有</p>
-                : <ul>{riskFlaky.slice(0, 8).map(item => (
-                    <li key={item.record_id} title={item.task}>
-                      <em>{item.subtype}</em>{item.task.slice(0, 26)}
-                      <span className="uat-risk-why">失敗 {item.fails} 次</span>
-                    </li>))}</ul>}
-              {riskFlaky.length > 8 && <p className="uat-risk-more">…另有 {riskFlaky.length - 8} 筆</p>}
-            </div>
-          </div>
-
-          {/* 覆蓋率三分法。**刻意不壓成單一百分比**——把待人工灌進去數字會好看但騙人，
-              而且單一數字會被優化：把難驗的標成人工判讀，覆蓋率反而上升。 */}
-          {coverage && (
-            <div className="uat-coverage-row">
-              <span className="uat-coverage-main"><b>{coverage.machinePercent}%</b> 機器驗過</span>
-              <span className="uat-coverage-part is-machine">機器驗過 <b>{coverage.machine}</b></span>
-              <span className="uat-coverage-part is-manual">已分類、待人工 <b>{coverage.manual}</b></span>
-              <span className="uat-coverage-part is-none">未涵蓋 <b>{coverage.uncovered}</b></span>
-              <span className="uat-coverage-note">共 {coverage.total} 筆．待人工那些機器沒有跑任何斷言</span>
-            </div>
-          )}
-        </section>
-
-        <NetworkPanel stats={netStats} themeMode={themeMode} updatedAt={statsAt} />
-<section className="uat-panel uat-backend-log"><div className="uat-log-toolbar"><div className="uat-section-title"><span>{xianxia ? 'ARRAY RECORD' : 'PROCESS OUTPUT'}</span><h3>{xianxia ? '陣法行跡錄' : '即時執行日誌'}</h3></div><label className="uat-check"><input type="checkbox" checked={autoScroll} onChange={event => setAutoScroll(event.target.checked)} />{xianxia ? '追隨靈流' : '自動捲動'}</label><button type="button" className="uat-btn is-quiet" onClick={() => setLogs([])}>{xianxia ? '拂去殘痕' : '清除'}</button></div><pre onScroll={event => { const el = event.currentTarget; setAutoScroll(el.scrollHeight - el.scrollTop - el.clientHeight < 40) }}>{logs.length ? logs.join('\n') : (xianxia ? '玉簡未啟，靈息未至。' : '等待執行...')}<span ref={logEnd} /></pre></section></section>
     </div>
   )
+}
+
+/** 毫秒轉人看得懂的時間。**不用小數秒**——測試耗時的量級是分鐘，
+ *  顯示到毫秒只會讓數字變長而且每次都不一樣，看不出趨勢。 */
+function formatDuration(ms: number): string {
+  const total = Math.round(ms / 1000)
+  if (total < 60) return `${total}s`
+  const m = Math.floor(total / 60)
+  const sec = total % 60
+  return sec ? `${m}m ${sec}s` : `${m}m`
 }
 
 function Stat({ label, value, tone }: { label: string; value: number; tone: string }) {

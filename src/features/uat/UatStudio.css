@@ -761,3 +761,94 @@
   .uat-risk-cols { grid-template-columns: 1fr; }
   .uat-coverage-note { margin-left: 0; }
 }
+
+/* 本次耗時那一格。五格所以 grid 從 4 欄改成自動排 */
+.uat-stat-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.uat-stat.is-time { border-left-color: var(--uat-primary); flex-wrap: wrap; }
+.uat-stat.is-time strong { font-size: 16px; font-variant-numeric: tabular-nums; }
+.uat-stat.is-time em { width: 100%; margin-top: 2px; font-style: normal; font-size: 10.5px; text-align: right; }
+/* 變慢用警示色、變快用正常色——變慢才是需要注意的訊號 */
+.uat-stat.is-time em.is-slower { color: var(--uat-warn, #fbbf24); }
+.uat-stat.is-time em.is-faster { color: var(--uat-ok, #4ade80); }
+
+/* ─── 照設計圖重排（2026-08-30）──────────────────────────────────────────────
+   版面：
+     [行動列 跨三欄]
+     [模組計畫 340] [總覽＋風險佇列 彈性] [執行設定 330]
+     [即時輸出 彈性 | 網路量測  ← 跨三欄再切兩欄]
+
+   跟改版前的差別：總覽與風險佇列從「最下面」搬到「正中間」——原本要捲到
+   底才看得到這次跑得怎樣，等於資訊在畫面上的位置跟它的重要性相反。 */
+.uat-backend-workbench {
+  grid-template-columns: minmax(300px, 340px) minmax(420px, 1fr) minmax(300px, 330px);
+  grid-template-rows: auto auto auto;
+}
+.uat-backend-plan, .uat-backend-center, .uat-backend-settings { min-width: 0; padding: 16px; }
+.uat-backend-plan { background: var(--uat-panel); border-right: 1px solid var(--uat-border); }
+.uat-backend-center { background: var(--uat-panel-soft); display: flex; flex-direction: column; gap: 12px; }
+
+/* 下排跨滿三欄，內部再切「日誌 | 網路量測」。日誌給比較多空間——
+   出事時要往回捲看上下文，網路量測是幾個數字，不需要那麼寬 */
+.uat-backend-bottom {
+  grid-column: 1 / -1;
+  display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 12px;
+  padding: 16px; border-top: 1px solid var(--uat-border); background: var(--uat-panel);
+}
+.uat-backend-bottom > * { min-width: 0; }
+/* 下排的日誌不再需要撐 400px——它現在跟網路量測並排，兩邊高度要對齊 */
+.uat-backend-bottom .uat-backend-log pre { min-height: 260px; max-height: 340px; overflow: auto; }
+
+/* 模組庫收在按鈕後面：它是管理動作，不跟「本次要跑什麼」搶位置 */
+.uat-plan-edit { margin-top: 12px; }
+.uat-backend-library.is-inline {
+  margin-top: 10px; padding: 10px; border: 1px dashed var(--uat-border); border-radius: 8px;
+  background: var(--uat-panel-soft);
+}
+.uat-backend-library.is-inline .uat-backend-library-group { margin-top: 12px; }
+
+@media (max-width: 1280px) {
+  .uat-backend-workbench { grid-template-columns: 1fr; }
+  .uat-backend-plan, .uat-backend-settings { border: none; border-bottom: 1px solid var(--uat-border); }
+  .uat-backend-bottom { grid-template-columns: 1fr; }
+}
+
+/* 左欄（模組計畫）壓縮版。原本的卡片是為了寬的中欄設計的，塞進 340px 會把
+   名稱擠成一個字（第一版重排實際跑出來就是「D-」「E-」這種）。
+   設計圖那欄本來就是「名稱 + TC 數」的清單，逐列動作收成第二行。 */
+.uat-backend-plan .uat-backend-module-list { min-height: 0; padding: 10px 0 0; }
+.uat-backend-plan .uat-backend-module {
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  grid-template-areas: 'grip name tc' '. actions actions';
+  min-height: 0; padding: 8px 9px; row-gap: 4px;
+}
+.uat-backend-plan .uat-backend-module-grip { grid-area: grip; }
+/* TC 數與序號要明確指定區域——不指定的話 grid 會把它們自動塞進第二列的
+   第一格，跟動作按鈕疊在一起（實際跑出來是「25 TC:移」這種疊字） */
+.uat-backend-plan .uat-backend-module > em { grid-area: tc; }
+.uat-backend-plan .uat-backend-module > b { grid-area: name; justify-self: end; align-self: start; opacity: .55; }
+.uat-backend-plan .uat-backend-module > div { grid-area: name; min-width: 0; }
+.uat-backend-plan .uat-backend-module strong { display: block; font-size: 12.5px; }
+/* 說明文字在窄欄裡只會佔空間又讀不完——名稱與 TC 數才是這欄要回答的 */
+.uat-backend-plan .uat-backend-module small,
+.uat-backend-plan .uat-backend-module-filters { display: none; }
+.uat-backend-plan .uat-backend-module-actions {
+  grid-area: actions; display: flex; gap: 4px; flex-wrap: wrap;
+}
+.uat-backend-plan .uat-backend-module-actions button { font-size: 10.5px; padding: 2px 6px; }
+/* 序號小一點，把寬度讓給名稱 */
+.uat-backend-plan .uat-backend-module > b { font-size: 10.5px; }
+
+/* 標題列在窄欄要橫排，不然「執行流程 12 個模組」會一個字一行 */
+.uat-backend-plan .uat-backend-flow-head { display: block; }
+.uat-backend-plan .uat-section-title h3 { font-size: 14px; }
+.uat-backend-plan .uat-section-title p { font-size: 11px; margin: 4px 0 0; }
+/* 展開的模組庫裡才會出現工具列，讓它自己換行排 */
+.uat-backend-library.is-inline .uat-backend-flow-actions {
+  display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px;
+}
+
+/* 這條註記在窄欄裡會被旁邊的按鈕擠成一個字一行（實際跑出來是直排的「尚未掃描TC」）。
+   窄欄就讓它自己一整排，不要跟按鈕搶同一行 */
+.uat-backend-plan .uat-backend-flow-foot { display: block; font-size: 11px; line-height: 1.7; }
+.uat-backend-plan .uat-backend-flow-foot > * { display: block; width: 100%; }
+.uat-backend-plan .uat-backend-flow-foot button { width: auto; margin-top: 6px; }

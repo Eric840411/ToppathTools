@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.73.0'
+export const APP_VERSION = '4.74.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.74.0',
+    date: '2026-08-30',
+    changes: [
+      'feat(uat): 版面照設計圖重排——行動列跨頂、下面三欄（模組計畫／總覽＋風險佇列／執行設定）、最下面兩欄（即時輸出｜網路量測）',
+      'note(uat): 總覽與風險佇列從「捲到最底」搬到「正中間」。原本要捲到底才看得到這次跑得怎樣，等於資訊在畫面上的位置跟它的重要性相反',
+      'feat(uat): 左欄合併成單一「模組計畫」，拖曳排序保留；模組庫與管理動作（新增/還原/錄製/匯出匯入/清空）收到「編輯模組計畫」後面',
+      'feat(uat): 本次耗時加進總覽，並顯示跟上一輪比快了還是慢了——變慢往往比失敗更早出現，是退化最早的訊號',
+    ],
+  },
   {
     version: '4.73.0',
     date: '2026-08-30',
