@@ -27,6 +27,9 @@ import { parseStatsLine } from '../uat-runner/net-capture.js'
 import { BLOCK_DEFS } from '../uat-runner/block-engine.js'
 import { VERIFIER_PARAM_SCHEMAS } from '../uat-runner/verifier-params.js'
 import { backendRecorderScript, RECORDER_MARKER, eventsToSteps, hasAssertion } from '../uat-runner/backend-recorder.js'
+// detectManual 跟 runner 共用同一份——各寫一份的話，畫面上算出來的「需人工」筆數
+// 會跟實際跑出來的對不起來，而且那種不一致沒有任何錯誤訊息
+import { detectManual } from '../uat-runner/detect-manual.js'
 import { readFileSync as fsReadFileSync } from 'fs'
 import {
   getLarkToken,
@@ -1226,6 +1229,50 @@ router.get('/api/osm-uat/history/:runId', (req, res) => {
       ORDER BY CASE outcome WHEN 'fail' THEN 0 WHEN 'manual' THEN 1 WHEN 'skip' THEN 2 ELSE 3 END, duration_ms DESC
     `).all(req.params.runId)
     res.json({ ok: true, run, results })
+  } catch (e) {
+    res.status(500).json({ ok: false, message: e instanceof Error ? e.message : String(e) })
+  }
+})
+
+/**
+ * GET /api/osm-uat/coverage — 機器覆蓋率三分法。
+ *
+ * **刻意不壓成單一百分比**（跟 CodeX 討論定案）：把「已分類、待人工」灌進 coverage
+ * 會讓數字很好看但騙人——那些 TC 機器一個斷言都沒跑。更糟的是單一數字會被優化：
+ * 把難驗的案例標成人工判讀，覆蓋率反而上升，剛好獎勵了錯誤的行為。
+ *
+ * 三個數字各自對應不同的處理方式：
+ *   機器驗過 → 要維持不退化   已分類待人工 → 要有人真的去看   未涵蓋 → 要繼續拆
+ */
+router.get('/api/osm-uat/coverage', (_req, res) => {
+  try {
+    const registry = JSON.parse(fsReadFileSync(join(__dirname, '..', 'uat-runner', 'tc-registry.json'), 'utf8')) as Record<string, { canonicalText?: string; sub?: string }>
+    // detectManual 跟 runner 共用同一份——各寫一份的話畫面上的「需人工」筆數
+    // 會跟實際跑出來的對不起來，而且那種不一致沒有任何錯誤訊息
+    const withSteps = new Set(
+      (db.prepare('SELECT record_id FROM uat_tc_steps').all() as Array<{ record_id: string }>).map(r => r.record_id))
+
+    let machine = 0, manual = 0, uncovered = 0
+    const manualList: Array<{ recordId: string; sub: string; reason: string; task: string }> = []
+    for (const [id, entry] of Object.entries(registry)) {
+      const text = entry.canonicalText ?? ''
+      if (withSteps.has(id)) { machine++; continue }
+      const reason = detectManual(text)
+      if (reason) {
+        manual++
+        manualList.push({ recordId: id, sub: entry.sub ?? '', reason, task: text.slice(0, 80) })
+      } else {
+        uncovered++
+      }
+    }
+    const total = machine + manual + uncovered
+    res.json({
+      ok: true,
+      total, machine, manual, uncovered,
+      // 主指標只算「機器真的驗過的」。分母是全部，不是扣掉人工之後的
+      machinePercent: total ? Math.round((machine / total) * 10000) / 100 : 0,
+      manualList,
+    })
   } catch (e) {
     res.status(500).json({ ok: false, message: e instanceof Error ? e.message : String(e) })
   }

@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.71.0'
+export const APP_VERSION = '4.72.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.72.0',
+    date: '2026-08-30',
+    changes: [
+      'feat(uat): 新增機器覆蓋率端點，三分法：機器驗過 79 / 已分類待人工 31 / 未涵蓋 11',
+      'note(uat): 刻意不壓成單一百分比——把人工判讀灌進 coverage 數字會很好看但騙人（那些機器一個斷言都沒跑），而且單一數字會被優化：把難驗的標成人工判讀反而讓覆蓋率上升',
+      'refactor(uat): detectManual 抽成 runner 與 server 共用的模組。各寫一份的話，畫面上算的「需人工」筆數會跟實際跑出來的對不起來，而且那種不一致沒有任何錯誤訊息',
+    ],
+  },
   {
     version: '4.71.0',
     date: '2026-08-30',
