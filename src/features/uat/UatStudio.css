@@ -716,3 +716,48 @@
 @media (max-width: 1100px) {
   .uat-backend-launch-cta { margin-left: 0; width: 100%; justify-content: space-between; }
 }
+
+/* ─── 風險佇列（2026-08-30）────────────────────────────────────────────────
+   「哪裡需要人處理」比一堆統計圖表實用——它給的是待辦清單不是數字。
+   三欄的資料來源刻意不同（這一輪結果／靜態分類／跨輪歷史），所以每欄都要標
+   時間範圍，不然使用者會以為三個都是「這次跑出來的」。 */
+.uat-risk-queue { margin-top: 14px; padding: 14px 16px; }
+.uat-risk-queue .uat-section-title p { margin: 4px 0 0; font-size: 11.5px; color: var(--uat-muted); }
+.uat-risk-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 12px; }
+.uat-risk-col { padding: 11px 12px; border: 1px solid var(--uat-border); border-radius: 8px; background: var(--uat-panel-soft); min-width: 0; }
+.uat-risk-col h4 { margin: 0; font-size: 12.5px; display: flex; align-items: center; gap: 7px; }
+.uat-risk-col h4 b { font-variant-numeric: tabular-nums; }
+.uat-risk-col > small { display: block; margin: 2px 0 8px; font-size: 10.5px; color: var(--uat-muted); }
+.uat-risk-col.is-fail h4 b { color: var(--uat-danger); }
+.uat-risk-col.is-manual h4 b { color: var(--uat-warn, #fbbf24); }
+.uat-risk-col.is-flaky h4 b { color: var(--uat-note, #a78bfa); }
+.uat-risk-col ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.uat-risk-col li { font-size: 11.5px; line-height: 1.5; color: var(--uat-text); min-width: 0; }
+.uat-risk-col li em {
+  display: inline-block; margin-right: 6px; padding: 1px 6px; border-radius: 4px;
+  font-style: normal; font-size: 10px; color: var(--uat-muted);
+  border: 1px solid var(--uat-border); background: var(--uat-panel);
+}
+/* 原因要能換行看完整。截斷成一行的話，「這幾條是不是同一個原因」還是看不出來 */
+.uat-risk-why { display: block; margin-top: 1px; font-size: 10.5px; color: var(--uat-muted); word-break: break-word; }
+.uat-risk-empty, .uat-risk-more { margin: 6px 0 0; font-size: 11px; color: var(--uat-muted); }
+
+/* 覆蓋率三分法。主指標大、三個分項並列——**不壓成單一百分比**，因為單一數字
+   會被優化：把難驗的標成人工判讀，覆蓋率反而上升。 */
+.uat-coverage-row {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--uat-border);
+  font-size: 11.5px; color: var(--uat-muted);
+}
+.uat-coverage-main { font-size: 13px; color: var(--uat-text); }
+.uat-coverage-main b { font-size: 17px; color: var(--uat-primary); font-variant-numeric: tabular-nums; margin-right: 4px; }
+.uat-coverage-part b { margin-left: 4px; color: var(--uat-text); font-variant-numeric: tabular-nums; }
+.uat-coverage-part.is-machine b { color: var(--uat-ok, #4ade80); }
+.uat-coverage-part.is-manual b { color: var(--uat-warn, #fbbf24); }
+.uat-coverage-part.is-none b { color: var(--uat-muted); }
+.uat-coverage-note { margin-left: auto; font-size: 10.5px; }
+
+@media (max-width: 1100px) {
+  .uat-risk-cols { grid-template-columns: 1fr; }
+  .uat-coverage-note { margin-left: 0; }
+}

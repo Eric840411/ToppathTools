@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.72.0'
+export const APP_VERSION = '4.73.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.73.0',
+    date: '2026-08-30',
+    changes: [
+      'feat(uat): 新增「風險佇列」——失敗的測試／需人工確認／Flaky 候選三欄並列，列的是待辦清單不是統計數字',
+      'note(uat): 三欄的資料來源刻意不同並各自標明時間範圍：失敗＝這一輪的實際結果、需人工＝靜態分類（跟這輪跑不跑無關）、Flaky＝跨輪歷史。不標的話會被誤以為三個都是這次跑出來的',
+      'feat(uat): 覆蓋率三分法顯示在結果區底部：65.29% 機器驗過 ／ 機器驗過 79 ／ 已分類待人工 31 ／ 未涵蓋 11',
+      'note(uat): 失敗清單改用執行歷史而不是解析日誌——日誌只有計數，而且正則比對很脆；歷史本來就逐筆存了失敗原因',
+    ],
+  },
   {
     version: '4.72.0',
     date: '2026-08-30',

@@ -85,6 +85,15 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const [credDraft, setCredDraft] = useState<Record<string, { username: string; password: string }>>({})
   const [credMsg, setCredMsg] = useState<{ text: string; tone: 'ok' | 'error' | 'busy' } | null>(null)
   // 網路量測快照：由 SSE 的 stats event 推上來，跟執行日誌同一條連線不同事件名
+  // ── 風險佇列（2026-08-30）──
+  // 「哪裡需要人處理」比一堆統計圖表實用——它給的是待辦清單不是數字。
+  // 三欄的資料來源刻意不同：失敗來自「這一輪的實際結果」、需人工來自「靜態分類」、
+  // Flaky 來自「跨輪歷史」。混成同一個來源就會答錯——例如把這輪沒跑到的
+  // 人工判讀 TC 當成「這輪需要處理」。
+  const [riskFailed, setRiskFailed] = useState<Array<{ record_id: string; subtype: string; task: string; reasons: string }>>([])
+  const [riskManual, setRiskManual] = useState<Array<{ recordId: string; sub: string; reason: string; task: string }>>([])
+  const [riskFlaky, setRiskFlaky] = useState<Array<{ record_id: string; subtype: string; task: string; fails: number }>>([])
+  const [coverage, setCoverage] = useState<{ total: number; machine: number; manual: number; uncovered: number; machinePercent: number } | null>(null)
   const [netStats, setNetStats] = useState<UatStatsPayload | null>(null)
   const [statsAt, setStatsAt] = useState<number | null>(null)
   // 單筆 TC 這一層：掃描才拿得到，模組展開後才看得見。積木是掛在 TC 上的，
@@ -482,6 +491,44 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
     connect()
   }
 
+  // 覆蓋率與 flaky 跟「有沒有在跑」無關，掛載時抓一次就好
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const [cov, flaky] = await Promise.all([
+          fetch('/api/osm-uat/coverage').then(r => r.json()),
+          fetch('/api/osm-uat/history/flaky').then(r => r.json()),
+        ])
+        if (cancelled) return
+        if (cov.ok) { setCoverage(cov); setRiskManual(cov.manualList ?? []) }
+        if (flaky.ok) setRiskFlaky(flaky.flaky ?? [])
+      } catch { /* 風險佇列拿不到不該讓整頁壞掉 */ }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  // 跑完才有「這一輪失敗了哪些」。**用歷史紀錄而不是解析日誌**——日誌只有計數，
+  // 而且正則比對很脆；歷史紀錄本來就逐筆存了失敗原因。
+  useEffect(() => {
+    if (status !== 'done') return
+    let cancelled = false
+    void (async () => {
+      try {
+        const runs = await fetch('/api/osm-uat/history?limit=1').then(r => r.json())
+        const runId = runs?.runs?.[0]?.id
+        if (!runId || cancelled) return
+        const detail = await fetch(`/api/osm-uat/history/${runId}`).then(r => r.json())
+        if (cancelled || !detail.ok) return
+        setRiskFailed((detail.results ?? []).filter((r: { outcome: string }) => r.outcome === 'fail'))
+        // 跑完順便更新 flaky——這一輪的結果會改變判定
+        const flaky = await fetch('/api/osm-uat/history/flaky').then(r => r.json())
+        if (!cancelled && flaky.ok) setRiskFlaky(flaky.flaky ?? [])
+      } catch { /* 同上 */ }
+    })()
+    return () => { cancelled = true }
+  }, [status])
+
   const summary = logs.reduce((result, line) => {
     const match = line.match(/通過:\s*(\d+).*需人工:\s*(\d+).*跳過:\s*(\d+).*失敗:\s*(\d+)/)
     return match ? { pass: +match[1], manual: +match[2], skip: +match[3], fail: +match[4] } : result
@@ -872,7 +919,82 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
         />
       )}
 
-      <section className="uat-backend-results"><div className="uat-stat-grid"><Stat label={xianxia ? '試煉通過' : '通過'} value={summary.pass} tone="pass" /><Stat label={xianxia ? '待真人覆核' : '需人工'} value={summary.manual} tone="manual" /><Stat label={xianxia ? '略過' : '跳過'} value={summary.skip} tone="skip" /><Stat label={xianxia ? '陣眼失守' : '失敗'} value={summary.fail} tone="fail" /></div><NetworkPanel stats={netStats} themeMode={themeMode} updatedAt={statsAt} /><section className="uat-panel uat-backend-log"><div className="uat-log-toolbar"><div className="uat-section-title"><span>{xianxia ? 'ARRAY RECORD' : 'PROCESS OUTPUT'}</span><h3>{xianxia ? '陣法行跡錄' : '即時執行日誌'}</h3></div><label className="uat-check"><input type="checkbox" checked={autoScroll} onChange={event => setAutoScroll(event.target.checked)} />{xianxia ? '追隨靈流' : '自動捲動'}</label><button type="button" className="uat-btn is-quiet" onClick={() => setLogs([])}>{xianxia ? '拂去殘痕' : '清除'}</button></div><pre onScroll={event => { const el = event.currentTarget; setAutoScroll(el.scrollHeight - el.scrollTop - el.clientHeight < 40) }}>{logs.length ? logs.join('\n') : (xianxia ? '玉簡未啟，靈息未至。' : '等待執行...')}<span ref={logEnd} /></pre></section></section>
+      <section className="uat-backend-results">
+        {/* 本次總覽。除了四種結果，補上覆蓋率與這一輪耗時——
+            「這次跑了什麼」跟「整體驗到多少」是兩個不同的問題，並排才看得懂。 */}
+        <div className="uat-stat-grid">
+          <Stat label={xianxia ? '試煉通過' : '通過'} value={summary.pass} tone="pass" />
+          <Stat label={xianxia ? '待真人覆核' : '需人工'} value={summary.manual} tone="manual" />
+          <Stat label={xianxia ? '略過' : '跳過'} value={summary.skip} tone="skip" />
+          <Stat label={xianxia ? '陣眼失守' : '失敗'} value={summary.fail} tone="fail" />
+        </div>
+
+        {/* ── 風險佇列 ──
+            三欄的資料來源刻意不同，也各自標明時間範圍：
+              失敗＝這一輪的實際結果／需人工＝靜態分類（跟這輪跑不跑無關）／Flaky＝跨輪歷史
+            不標的話使用者會以為三個都是「這次跑出來的」。 */}
+        <section className="uat-panel uat-risk-queue">
+          <div className="uat-section-title">
+            <span>{xianxia ? 'RISK QUEUE' : 'RISK QUEUE'}</span>
+            <h3>{xianxia ? '待處危局' : '風險佇列'} <small>{riskFailed.length + riskManual.length + riskFlaky.length}</small></h3>
+            <p>這裡列的是「需要人處理」的，不是統計數字。</p>
+          </div>
+          <div className="uat-risk-cols">
+            <div className="uat-risk-col is-fail">
+              <h4>失敗的測試 <b>{riskFailed.length}</b></h4>
+              <small>這一輪跑出來的</small>
+              {riskFailed.length === 0
+                ? <p className="uat-risk-empty">{status === 'done' ? '這一輪沒有失敗' : '跑完才知道'}</p>
+                : <ul>{riskFailed.slice(0, 8).map(item => (
+                    <li key={item.record_id} title={item.reasons}>
+                      <em>{item.subtype}</em>{item.task.slice(0, 26)}
+                      {item.reasons && <span className="uat-risk-why">{item.reasons.slice(0, 40)}</span>}
+                    </li>))}</ul>}
+              {riskFailed.length > 8 && <p className="uat-risk-more">…另有 {riskFailed.length - 8} 筆</p>}
+            </div>
+
+            <div className="uat-risk-col is-manual">
+              <h4>需人工確認 <b>{riskManual.length}</b></h4>
+              <small>機器判不了，跟這輪跑不跑無關</small>
+              {riskManual.length === 0
+                ? <p className="uat-risk-empty">沒有</p>
+                : <ul>{riskManual.slice(0, 8).map(item => (
+                    <li key={item.recordId} title={item.task}>
+                      <em>{item.sub}</em>{item.task.slice(0, 26)}
+                      <span className="uat-risk-why">{item.reason}</span>
+                    </li>))}</ul>}
+              {riskManual.length > 8 && <p className="uat-risk-more">…另有 {riskManual.length - 8} 筆</p>}
+            </div>
+
+            <div className="uat-risk-col is-flaky">
+              <h4>Flaky 候選 <b>{riskFlaky.length}</b></h4>
+              <small>最近幾輪裡有過有敗</small>
+              {riskFlaky.length === 0
+                ? <p className="uat-risk-empty">歷史還不夠，或目前沒有</p>
+                : <ul>{riskFlaky.slice(0, 8).map(item => (
+                    <li key={item.record_id} title={item.task}>
+                      <em>{item.subtype}</em>{item.task.slice(0, 26)}
+                      <span className="uat-risk-why">失敗 {item.fails} 次</span>
+                    </li>))}</ul>}
+              {riskFlaky.length > 8 && <p className="uat-risk-more">…另有 {riskFlaky.length - 8} 筆</p>}
+            </div>
+          </div>
+
+          {/* 覆蓋率三分法。**刻意不壓成單一百分比**——把待人工灌進去數字會好看但騙人，
+              而且單一數字會被優化：把難驗的標成人工判讀，覆蓋率反而上升。 */}
+          {coverage && (
+            <div className="uat-coverage-row">
+              <span className="uat-coverage-main"><b>{coverage.machinePercent}%</b> 機器驗過</span>
+              <span className="uat-coverage-part is-machine">機器驗過 <b>{coverage.machine}</b></span>
+              <span className="uat-coverage-part is-manual">已分類、待人工 <b>{coverage.manual}</b></span>
+              <span className="uat-coverage-part is-none">未涵蓋 <b>{coverage.uncovered}</b></span>
+              <span className="uat-coverage-note">共 {coverage.total} 筆．待人工那些機器沒有跑任何斷言</span>
+            </div>
+          )}
+        </section>
+
+        <NetworkPanel stats={netStats} themeMode={themeMode} updatedAt={statsAt} />
+<section className="uat-panel uat-backend-log"><div className="uat-log-toolbar"><div className="uat-section-title"><span>{xianxia ? 'ARRAY RECORD' : 'PROCESS OUTPUT'}</span><h3>{xianxia ? '陣法行跡錄' : '即時執行日誌'}</h3></div><label className="uat-check"><input type="checkbox" checked={autoScroll} onChange={event => setAutoScroll(event.target.checked)} />{xianxia ? '追隨靈流' : '自動捲動'}</label><button type="button" className="uat-btn is-quiet" onClick={() => setLogs([])}>{xianxia ? '拂去殘痕' : '清除'}</button></div><pre onScroll={event => { const el = event.currentTarget; setAutoScroll(el.scrollHeight - el.scrollTop - el.clientHeight < 40) }}>{logs.length ? logs.join('\n') : (xianxia ? '玉簡未啟，靈息未至。' : '等待執行...')}<span ref={logEnd} /></pre></section></section>
     </div>
   )
 }
