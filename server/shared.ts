@@ -13,7 +13,7 @@ import multer from 'multer'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { z } from 'zod'
-import { getOperatorFromContext, type OperatorInfo } from './request-context.js'
+import { getAuthEmailFromContext, getOperatorFromContext, type OperatorInfo } from './request-context.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -81,7 +81,13 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS account_cultivation (
     operator_key    TEXT PRIMARY KEY,
     active_days     INTEGER NOT NULL DEFAULT 0,
-    last_login_date TEXT
+    last_login_date TEXT,
+    -- 修為：有留下操作歷史才算一次（見 recordCultivationAction 的說明）
+    total_actions   INTEGER NOT NULL DEFAULT 0,
+    -- 今日功課。刻意不從 operation_history 回算：那張表的 operator_key 來自
+    -- ctx.user（吃得到 header），跟修為記在誰身上的依據不一致，而且它 7 天會被清。
+    today_actions   INTEGER NOT NULL DEFAULT 0,
+    today_date      TEXT
   );
   CREATE TABLE IF NOT EXISTS heavy_tasks (
     id          TEXT PRIMARY KEY,
@@ -324,6 +330,15 @@ db.exec(`
   if (!cols.find(c => c.name === 'last_login_date')) {
     db.exec(`ALTER TABLE account_cultivation ADD COLUMN last_login_date TEXT`)
   }
+  if (!cols.find(c => c.name === 'total_actions')) {
+    db.exec(`ALTER TABLE account_cultivation ADD COLUMN total_actions INTEGER NOT NULL DEFAULT 0`)
+  }
+  if (!cols.find(c => c.name === 'today_actions')) {
+    db.exec(`ALTER TABLE account_cultivation ADD COLUMN today_actions INTEGER NOT NULL DEFAULT 0`)
+  }
+  if (!cols.find(c => c.name === 'today_date')) {
+    db.exec(`ALTER TABLE account_cultivation ADD COLUMN today_date TEXT`)
+  }
 }
 
 // Seed default permissions if table is empty
@@ -551,7 +566,52 @@ export function addHistory(
   const operatorName = operator?.name ?? ''
   db.prepare('INSERT INTO operation_history (id, feature, title, summary, detail, operator_key, operator_name, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
     .run(id, feature, title, summary, JSON.stringify(detail), operatorKey, operatorName, Date.now())
+  recordCultivationAction()
 }
+
+/**
+ * 修為累計。掛在 addHistory 是刻意的選擇（跟 CodeX 討論定案）：
+ *
+ * ❌ **不要掛在全站 middleware**（`index.ts` 的 recordLoginDay 那裡）。那裡每一支
+ *    已登入的 API 都會過，包含 Dashboard 每 30 秒的輪詢與 heartbeat——光開著網頁
+ *    不做事，一天就 ~2880 次，修為會變成「開著網頁的時間」，跟「有做事被看見」
+ *    剛好相反。
+ * ✅ 掛在這裡，定義剛好是「有留下操作歷史，才算一次修為」，語意乾淨也好解釋，
+ *    而且 40 個呼叫端都不用動。
+ *
+ * ⚠️ 記在**登入帳號**上，不是 addHistory 的 operatorKey——後者來自 ctx.user，
+ *    吃得到 header，等於讓人可以把修為記到別人頭上。背景工作（cron、agent 回報）
+ *    沒有登入身分，authEmail 是 undefined，自然不會被計入，這正是我們要的。
+ */
+function recordCultivationAction() {
+  const email = getAuthEmailFromContext()
+  if (!email) return
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
+  db.prepare(`
+    INSERT INTO account_cultivation (operator_key, total_actions, active_days, last_login_date, today_actions, today_date)
+    VALUES (?, 1, 0, ?, 1, ?)
+    ON CONFLICT(operator_key) DO UPDATE SET
+      total_actions = total_actions + 1,
+      -- 跨日就從 1 重新起算，不是累加。用 CASE 而不是先查再寫，避免兩次呼叫之間跨日
+      today_actions = CASE WHEN account_cultivation.today_date = excluded.today_date
+                           THEN account_cultivation.today_actions + 1 ELSE 1 END,
+      today_date    = excluded.today_date
+  `).run(email, today, today)
+}
+
+/** 每日功課的階段。門檻刻意訂得低——這是「今天有在修行」的鼓勵，不是 KPI */
+export const DAILY_QUEST_TIERS = [
+  { at: 3,  name: '吐納' },
+  { at: 5,  name: '小周天' },
+  { at: 10, name: '大周天' },
+] as const
+
+/** 副稱號。依累計修為顯示，**不影響境界**（境界仍只看 active_days） */
+export const CULTIVATION_EPITHETS = [
+  { at: 0,   name: '閉關中' },
+  { at: 50,  name: '勤修' },
+  { at: 200, name: '破境在即' },
+] as const
 
 /** 境界稱號（自動依「登入天數」推進，靈感來自《凡人修仙傳》）——門檻可視情況調整（單位：天）*/
 export const CULTIVATION_LEVELS = [
@@ -594,8 +654,32 @@ function levelForDays(activeDays: number) {
 }
 
 export function getCultivationInfo(operatorKey: string) {
-  const row = db.prepare('SELECT active_days FROM account_cultivation WHERE operator_key = ?').get(operatorKey) as { active_days: number } | undefined
-  return levelForDays(row?.active_days ?? 0)
+  const row = db.prepare(
+    'SELECT active_days, total_actions, today_actions, today_date FROM account_cultivation WHERE operator_key = ?',
+  ).get(operatorKey) as
+    { active_days: number; total_actions: number; today_actions: number; today_date: string | null } | undefined
+
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Taipei' })
+  // today_date 不是今天就代表今天還沒動過——不能直接信 today_actions，
+  // 那是「上次有動作的那天」留下來的數字
+  const todayActions = row && row.today_date === today ? row.today_actions : 0
+  const totalActions = row?.total_actions ?? 0
+
+  let quest: { name: string; at: number } | null = null
+  for (const t of DAILY_QUEST_TIERS) if (todayActions >= t.at) quest = { name: t.name, at: t.at }
+  const nextQuest = DAILY_QUEST_TIERS.find(t => todayActions < t.at) ?? null
+
+  let epithet: string = CULTIVATION_EPITHETS[0].name
+  for (const e of CULTIVATION_EPITHETS) if (totalActions >= e.at) epithet = e.name
+
+  return {
+    ...levelForDays(row?.active_days ?? 0),
+    totalActions,
+    todayActions,
+    epithet,
+    questDone: quest?.name ?? null,
+    nextQuest: nextQuest ? { name: nextQuest.name, at: nextQuest.at } : null,
+  }
 }
 
 /** 管理員手動調整某帳號的累計登入天數（等同直接調整境界）——只改 active_days，

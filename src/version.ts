@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.78.0'
+export const APP_VERSION = '4.79.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.79.0',
+    date: '2026-08-30',
+    changes: [
+      'feat(xianxia): 新增「修為」系列——側邊欄境界徽章旁多一個依累計操作次數變化的副稱號（閉關中／勤修／破境在即），下方多一條今日功課進度（3 次吐納／5 次小周天／10 次大周天）',
+      'feat(xianxia): account_cultivation.total_actions 這個欄位存在很久但從來沒被寫入過（全部帳號都是 0，程式裡零處寫入），這版把它接上',
+      'note(xianxia): 境界規則完全沒動，仍然只看累計登入天數。跟 CodeX 討論定案第一版不動——境界現在等於資歷，突然改成看工作量會讓既有排名跳動，管理員可手動調天數那個功能也會變得語意矛盾',
+      'note(xianxia): 修為累加掛在 addHistory() 不是全站 middleware。middleware 每支已登入 API 都會過，包含 Dashboard 每 30 秒輪詢與 heartbeat——光開著網頁不做事一天就 ~2880 次，修為會變成「開著網頁的時間」。掛在 addHistory 的定義剛好是「有留下操作歷史才算一次」，40 個呼叫端都不用動',
+      'note(xianxia): 修為記在 cookie 認證的帳號上（RequestContext 新增 authEmail），不是 addHistory 的 operatorKey——後者來自 ctx.user 吃得到 header，等於可以把修為記到別人頭上（跟 v4.10.0 收緊 Jira 身分邊界同一類問題）。背景工作沒有登入身分，自然不計入',
+      'note(xianxia): 今日次數存在 account_cultivation 而不是從 operation_history 回算——那張表的 operator_key 來源不同，而且 7 天會被清',
+    ],
+  },
   {
     version: '4.78.0',
     date: '2026-08-30',

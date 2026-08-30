@@ -194,7 +194,7 @@ app.use((req, _res, next) => {
   const userDisplay = authAccount?.label ?? toDisplayName(user, req)
   const operation = buildOperationLabel(req)
   runWithRequestContext(
-    { ip, user, userDisplay, path: req.path, method: req.method, operation },
+    { ip, user, userDisplay, authEmail: authAccount?.email, path: req.path, method: req.method, operation },
     () => {
       if (req.path.startsWith('/api/') && !shouldSkipAccessLog(req)) {
         log('info', ip, user, `${req.method} ${req.path}`)

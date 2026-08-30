@@ -356,7 +356,12 @@ function App() {
   const [globalAccount, setGlobalAccount] = useState<AccountInfo | null>(loadGlobalAccount)
   const [authChecking, setAuthChecking] = useState(true)
   const [permissions, setPermissions] = useState<string[]>([])
-  const [cultivation, setCultivation] = useState<{ level: string; levelIndex: number; activeDays: number; nextLevel: string | null; nextThreshold: number | null } | null>(null)
+  const [cultivation, setCultivation] = useState<{
+    level: string; levelIndex: number; activeDays: number; nextLevel: string | null; nextThreshold: number | null
+    // 修為系列（v4.79.0）：境界仍只看 activeDays，這幾個只做呈現，不影響升級
+    totalActions: number; todayActions: number; epithet: string
+    questDone: string | null; nextQuest: { name: string; at: number } | null
+  } | null>(null)
   const [breakthroughLevel, setBreakthroughLevel] = useState<string | null>(null)
   const [breakthroughPreviewHold] = useState(() => new URLSearchParams(window.location.search).get('breakthrough-hold') === '1')
   const closeBreakthrough = useCallback(() => setBreakthroughLevel(null), [])
@@ -458,10 +463,23 @@ function App() {
     let cancelled = false
     fetch('/api/account/cultivation')
       .then(r => r.json())
-      .then((d: { ok: boolean; level?: string; levelIndex?: number; activeDays?: number; nextLevel?: string | null; nextThreshold?: number | null }) => {
+      .then((d: {
+        ok: boolean; level?: string; levelIndex?: number; activeDays?: number
+        nextLevel?: string | null; nextThreshold?: number | null
+        totalActions?: number; todayActions?: number; epithet?: string
+        questDone?: string | null; nextQuest?: { name: string; at: number } | null
+      }) => {
         if (cancelled || !d.ok) return
         const levelIndex = d.levelIndex ?? BREAKTHROUGH_REALMS.findIndex(realm => realm.name === d.level)
-        const info = { activeDays: d.activeDays!, level: d.level!, levelIndex: Math.max(0, levelIndex), nextLevel: d.nextLevel ?? null, nextThreshold: d.nextThreshold ?? null }
+        const info = {
+          activeDays: d.activeDays!, level: d.level!, levelIndex: Math.max(0, levelIndex),
+          nextLevel: d.nextLevel ?? null, nextThreshold: d.nextThreshold ?? null,
+          // 舊版後端沒有這幾個欄位，給預設值讓畫面不會炸——這支在部署過程中
+          // 可能短暫遇到前端新、後端舊的狀態
+          totalActions: d.totalActions ?? 0, todayActions: d.todayActions ?? 0,
+          epithet: d.epithet ?? '閉關中',
+          questDone: d.questDone ?? null, nextQuest: d.nextQuest ?? null,
+        }
         setCultivation(info)
 
         const storageKey = `toppath-cultivation-seen:${globalAccount.email}`
@@ -784,12 +802,36 @@ function App() {
               <div className="sidebar-user-info">
                 <span className="sidebar-user-name">{globalAccount.label}</span>
                 {cultivation && themeMode === 'xianxia' && (
-                  <span
-                    className="sidebar-user-cultivation"
-                    title={cultivation.nextLevel ? `已登入 ${cultivation.activeDays} 天，還差 ${cultivation.nextThreshold! - cultivation.activeDays} 天晉升「${cultivation.nextLevel}」` : `已登入 ${cultivation.activeDays} 天，已達最高境界`}
-                  >
-                    {cultivation.level}
-                  </span>
+                  <div className="sidebar-cultivation">
+                    <div className="sidebar-cultivation-row">
+                      <span
+                        className="sidebar-user-cultivation"
+                        title={cultivation.nextLevel ? `已登入 ${cultivation.activeDays} 天，還差 ${cultivation.nextThreshold! - cultivation.activeDays} 天晉升「${cultivation.nextLevel}」` : `已登入 ${cultivation.activeDays} 天，已達最高境界`}
+                      >
+                        {cultivation.level}
+                      </span>
+                      {/* 副稱號依「修為」顯示，跟境界是兩套：境界＝資歷，副稱號＝最近有沒有在做事 */}
+                      <span className="sidebar-cultivation-epithet" title={`累計修為 ${cultivation.totalActions}`}>
+                        {cultivation.epithet}
+                      </span>
+                    </div>
+                    {/* 今日功課。刻意只顯示今天——這是「今天有在修行」的鼓勵，不是 KPI */}
+                    <div
+                      className="sidebar-cultivation-quest"
+                      title={cultivation.nextQuest
+                        ? `今日已行 ${cultivation.todayActions} 事，再 ${cultivation.nextQuest.at - cultivation.todayActions} 事可成「${cultivation.nextQuest.name}」`
+                        : `今日已行 ${cultivation.todayActions} 事，功課圓滿`}
+                    >
+                      <span className="sidebar-cultivation-quest-label">
+                        {cultivation.questDone ? `今日${cultivation.questDone}` : '今日功課'}
+                      </span>
+                      <span className="sidebar-cultivation-bar">
+                        <i style={{ width: `${cultivation.nextQuest
+                          ? Math.min(100, Math.round((cultivation.todayActions / cultivation.nextQuest.at) * 100))
+                          : 100}%` }} />
+                      </span>
+                    </div>
+                  </div>
                 )}
                 <button
                   type="button"

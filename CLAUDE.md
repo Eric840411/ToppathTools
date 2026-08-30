@@ -963,10 +963,33 @@ OSM／GCP 是兩個不同後台（OSM 用 CP 後台 `qat-cp.osmslot.org`，GCP �
 
 **管理員手動調整境界**（`server/routes/permissions.ts`）：`SystemAdminPage.tsx` 帳號列表每列新增「調整境界」按鈕，開啟小視窗可直接輸入累計登入天數，或用下拉選單快速帶入某境界對應的門檻天數。實作上直接改 `account_cultivation.active_days`（`setCultivationDays()`），不是額外的覆寫欄位——調整後帳號正常登入仍會從這個新天數繼續往上累計，跟自動累計共用同一個計數器。`PUT /api/admin/accounts/:email/cultivation`（`requireAdmin` 保護）、`GET .../cultivation` 讀目前境界、`GET /api/admin/cultivation-levels` 給前端下拉選單用的境界門檻清單。
 
+**修為 / 每日功課 / 副稱號（2026-08-30，v4.79.0，跟 CodeX 討論定案）**
+
+境界維持「只看累計登入天數」不變，另外疊一層「修為」＝累計操作次數。**兩套刻意分開**：境界＝資歷，修為＝最近有沒有在做事。第一版不把兩者合併成同一個升級公式——境界現在等於資歷，突然改成看工作量會讓既有排名跳動，而且「管理員可手動調天數」那個功能會變得語意矛盾。
+
+`account_cultivation.total_actions` 這個欄位**存在很久但從來沒被寫入過**（全部帳號都是 0，程式裡零處寫入），這版才接上。
+
+**累加點是 `addHistory()`（`server/shared.ts`），不是全站 middleware**：
+
+| 位置 | 為什麼不用／用 |
+|------|--------------|
+| `index.ts` 的全站 middleware（`recordLoginDay` 那裡）| ❌ 每支已登入 API 都會過，含 Dashboard 每 30 秒輪詢與 heartbeat。光開著網頁不做事一天就 ~2880 次，修為會變成「開著網頁的時間」 |
+| `addHistory()` | ✅ 40 個呼叫點全是真實操作，定義剛好是「有留下操作歷史才算一次修為」，而且 40 個呼叫端都不用動 |
+
+**⚠️ 修為記在 cookie 認證的帳號上，不是 `addHistory` 的 `operatorKey`**：後者來自 `ctx.user`，吃得到 header（例如 `x-jira-email`），等於可以把修為記到別人頭上——跟 v4.10.0 收緊 Jira 身分邊界是同一類問題。`RequestContext` 新增 `authEmail`（只來自 cookie），`recordCultivationAction()` 用它。背景工作（cron／agent 回報）沒有登入身分，`authEmail` 是 undefined，自然不計入，這正是想要的。
+
+**今日次數存在 `account_cultivation.today_actions`／`today_date`，不從 `operation_history` 回算**：那張表的 `operator_key` 來源跟修為不一致，而且它 7 天會被自動清空。跨日用 SQL `CASE` 在同一次 upsert 裡判斷歸零，不先查再寫（避免兩次呼叫之間跨日）。
+
+門檻：功課 3／5／10 次＝吐納／小周天／大周天；副稱號 0／50／200 次＝閉關中／勤修／破境在即。都刻意訂得低——這是「今天有在修行」的鼓勵，不是 KPI。
+
+> 已驗證 8 項（`scripts/ui-checks/cultivation-action-check.mjs`，用真實 request context 呼叫 `addHistory`，不碰外部服務）：有登入身分會累加｜背景工作不累加｜**header 冒用他人 email 拿不到修為**｜今日次數正確｜功課階段與副稱號計算正確。測試資料已清除。
+
 ### 使用者操作
 | 操作 | 說明 |
 |------|------|
 | 查看目前境界 | 側邊欄帳號名稱下方的小徽章，滑鼠移上去顯示累計登入天數與距離下一階還差幾天 |
+| 查看副稱號 | 境界徽章旁，依累計修為顯示閉關中／勤修／破境在即，滑鼠移上去顯示累計修為數 |
+| 查看今日功課 | 副稱號下方一條細進度，顯示今天做了幾件事、還差幾件到下一階段（吐納／小周天／大周天）|
 | 查看群英榜排行 | 獨立頁面，列出所有帳號依境界/登入天數排名，自己的那一列會高亮 |
 | 管理員調整境界 | 系統管理頁帳號列表「調整境界」按鈕，可直接輸入天數或用下拉選單快速帶入境界門檻 |
 

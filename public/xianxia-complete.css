@@ -2629,3 +2629,62 @@ h3 {
   .dashboard-bar-fill::before,
   .dashboard-bar-fill::after { display: none; }
 }
+
+/* ── 修為 / 每日功課（v4.79.0）──
+   境界＝資歷（累計登入天數），副稱號與功課＝最近有沒有在做事（累計操作次數）。
+   兩套分開是刻意的：直接把境界改成看工作量會讓既有排名跳動，
+   而且管理員可以手動調天數那個功能會變得語意矛盾（跟 CodeX 討論定案）。 */
+.sidebar-cultivation {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 3px;
+}
+
+.sidebar-cultivation-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sidebar-cultivation-epithet {
+  font-family: var(--xx-serif);
+  font-size: 10px;
+  letter-spacing: .08em;
+  padding: 1px 6px;
+  color: var(--xx-jade);
+  border: 1px solid rgba(117, 215, 207, .28);
+  background: var(--xx-jade-soft);
+  white-space: nowrap;
+}
+
+.sidebar-cultivation-quest {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sidebar-cultivation-quest-label {
+  font-family: var(--xx-serif);
+  font-size: 10px;
+  letter-spacing: .06em;
+  color: var(--xx-faint);
+  white-space: nowrap;
+}
+
+/* 功課進度用最細的一條線就好——側邊欄空間有限，
+   而且它是附註不是主角，做得跟儀表板的靈脈條一樣重會喧賓奪主 */
+.sidebar-cultivation-bar {
+  flex: 1;
+  min-width: 28px;
+  height: 2px;
+  background: rgba(163, 184, 197, .16);
+  position: relative;
+}
+
+.sidebar-cultivation-bar i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--xx-jade-strong), var(--xx-gold-bright));
+  transition: width .6s ease;
+}
