@@ -2451,7 +2451,8 @@ h3 {
 }
 
 .dashboard-bar-fill {
-  background-image: url('/themes/xianxia/qi-tiles/qi-medium-anim.webp') !important;
+  /* 這裡原本指向 qi-medium-anim.webp（第一輪的單張貼圖），檔案已刪除。
+     後面三段版會蓋掉這條，所以畫面看不出來——但那是死引用，移掉。 */
   background-repeat: repeat-x !important;
   background-size: auto 100% !important;
   background-color: transparent !important;
