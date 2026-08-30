@@ -595,8 +595,8 @@ export function JiraBatchCommentStep3(props: {
                         <span>{commentProgress ? `處理中 ${commentProgress.done} / ${commentProgress.total}` : '提交中...'}</span>
                         {commentProgress && <span>{pct}%</span>}
                       </div>
-                      <div style={{ height: 6, borderRadius: 3, background: '#1e2d3d', overflow: 'hidden' }}>
-                        <div style={{ height: '100%', borderRadius: 3, background: '#3b82f6', width: `${pct}%`, transition: 'width 0.3s ease' }} />
+                      <div className="batch-progress-track" style={{ height: 6, borderRadius: 3, background: '#1e2d3d', overflow: 'hidden' }}>
+                        <div className="batch-progress-fill" style={{ height: '100%', borderRadius: 3, background: '#3b82f6', width: `${pct}%`, transition: 'width 0.3s ease' }} />
                       </div>
                     </div>
                   )}

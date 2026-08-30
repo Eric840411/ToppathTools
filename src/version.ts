@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.79.0'
+export const APP_VERSION = '4.79.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.79.1',
+    date: '2026-08-30',
+    changes: [
+      'fix(xianxia): Jira 批量開單／評論／修改／更新狀態這 4 個工具的進度條，先前在修仙版下是原封不動的藍色——它們是行內樣式寫死 #3b82f6、完全沒有 class，所以 CSS 主題碰不到。加上 class 後改成青玉漸層',
+      'note(xianxia): 也因為沒有 class，我第一次用 class 掃描全站進度條時完全掃不到這幾條。全站共有 10 處這種行內寫死顏色的進度條，另外 5 處（GS 統計／OSM 版號同步／UI 截圖的三色狀態條）這版未動——UI 截圖那三條是綠/橘/紅的語意色，不該被統一成青玉',
+      'note(xianxia): 覆寫必須用 !important——行內樣式優先權高於 class，不加會靜默失效。而且這幾條只有真的在跑批次時才看得到，失效可以很久沒人發現，所以另外寫了驗證腳本（注入同結構元素比對 computed style，不用真的跑批次去建 Jira 單）',
+    ],
+  },
   {
     version: '4.79.0',
     date: '2026-08-30',

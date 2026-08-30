@@ -3605,8 +3605,8 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
                   <span>{hasTransProg ? `處理中 ${transDone} / ${transTotal}` : '提交中...'}</span>
                   {hasTransProg && <span>{transct}%</span>}
                 </div>
-                <div style={{ height: 6, borderRadius: 3, background: '#1e2d3d', overflow: 'hidden' }}>
-                  <div style={{ height: '100%', borderRadius: 3, background: '#3b82f6', width: `${transct}%`, transition: 'width 0.3s ease', animation: transct === 0 ? 'progressPulse 1.5s ease-in-out infinite' : 'none' }} />
+                <div className="batch-progress-track" style={{ height: 6, borderRadius: 3, background: '#1e2d3d', overflow: 'hidden' }}>
+                  <div className="batch-progress-fill" style={{ height: '100%', borderRadius: 3, background: '#3b82f6', width: `${transct}%`, transition: 'width 0.3s ease', animation: transct === 0 ? 'progressPulse 1.5s ease-in-out infinite' : 'none' }} />
                 </div>
               </div>
             )

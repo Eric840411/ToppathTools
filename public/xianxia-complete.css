@@ -2689,3 +2689,25 @@ h3 {
   background: linear-gradient(90deg, var(--xx-jade-strong), var(--xx-gold-bright));
   transition: width .6s ease;
 }
+
+/* ── 批量工具的進度條（2026-08-30）──
+   Jira 批量開單／評論／修改／更新狀態這 4 個工具的進度條原本是**行內樣式寫死
+   `#3b82f6` 藍色、沒有任何 class**，所以 CSS 主題完全碰不到它——修仙版下
+   它們是原封不動的藍色，跟整頁格格不入。（也因為沒有 class，用 class 掃描
+   全站進度條時完全掃不到，是我第一次盤點時漏掉的。）
+
+   加了 class 之後在這裡改色。**必須 !important**：行內樣式的優先權高於
+   class，不加蓋不掉。普通版不載這份 CSS，所以行內的藍色原樣保留，沒有被動到。
+
+   刻意只換色，不套靈氣素材：這幾條在跑批次時會連續刷新，
+   而且旁邊就是要盯的筆數與錯誤訊息，做得太重會蓋過真正要看的東西。 */
+.batch-progress-track {
+  background: rgba(163, 184, 197, .14) !important;
+  border-radius: 99px !important;
+}
+
+.batch-progress-fill {
+  background: linear-gradient(90deg, var(--xx-jade-strong), var(--xx-jade)) !important;
+  border-radius: 99px !important;
+  box-shadow: 0 0 10px rgba(117, 215, 207, .28);
+}

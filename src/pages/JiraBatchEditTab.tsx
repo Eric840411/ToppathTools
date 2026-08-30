@@ -615,8 +615,8 @@ export function JiraBatchEditTab(props: {
                   <span>{ep ? `處理中 ${ep.done} / ${ep.total}` : '提交中...'}</span>
                   {ep && <span>{epct}%</span>}
                 </div>
-                <div style={{ height: 6, borderRadius: 3, background: '#1e2d3d', overflow: 'hidden' }}>
-                  <div style={{ height: '100%', borderRadius: 3, background: '#3b82f6', width: `${epct}%`, transition: 'width 0.3s ease', animation: epct === 0 ? 'progressPulse 1.5s ease-in-out infinite' : 'none' }} />
+                <div className="batch-progress-track" style={{ height: 6, borderRadius: 3, background: '#1e2d3d', overflow: 'hidden' }}>
+                  <div className="batch-progress-fill" style={{ height: '100%', borderRadius: 3, background: '#3b82f6', width: `${epct}%`, transition: 'width 0.3s ease', animation: epct === 0 ? 'progressPulse 1.5s ease-in-out infinite' : 'none' }} />
                 </div>
               </div>
             )

@@ -763,8 +763,8 @@ export function JiraCreateStep3(props: {
                   <span>{cp ? `處理中 ${cp.done} / ${cp.total}` : '提交中...'}</span>
                   {cp && <span>{cpct}%</span>}
                 </div>
-                <div style={{ height: 6, borderRadius: 3, background: '#1e2d3d', overflow: 'hidden' }}>
-                  <div style={{ height: '100%', borderRadius: 3, background: '#3b82f6', width: `${cpct}%`, transition: 'width 0.3s ease' }} />
+                <div className="batch-progress-track" style={{ height: 6, borderRadius: 3, background: '#1e2d3d', overflow: 'hidden' }}>
+                  <div className="batch-progress-fill" style={{ height: '100%', borderRadius: 3, background: '#3b82f6', width: `${cpct}%`, transition: 'width 0.3s ease' }} />
                 </div>
               </div>
             )
