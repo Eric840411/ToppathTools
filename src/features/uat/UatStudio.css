@@ -803,7 +803,9 @@
 .uat-backend-bottom .uat-backend-log pre { min-height: 260px; max-height: 340px; overflow: auto; }
 
 /* 模組庫收在按鈕後面：它是管理動作，不跟「本次要跑什麼」搶位置 */
-.uat-plan-edit { margin-top: 12px; }
+/* 這顆已經移到標題列右邊，不再是欄位底部的整寬按鈕，所以不用 margin-top；
+   標題列是 align-items: flex-start，稍微往下推一點跟標題基線對齊比較好看 */
+.uat-plan-edit { flex: none; margin-top: 2px; white-space: nowrap; }
 .uat-backend-library.is-inline {
   margin-top: 10px; padding: 10px; border: 1px dashed var(--uat-border); border-radius: 8px;
   background: var(--uat-panel-soft);
@@ -864,7 +866,9 @@
 .uat-backend-plan .uat-backend-module > b { font-size: 10.5px; }
 
 /* 標題列在窄欄要橫排，不然「執行流程 12 個模組」會一個字一行 */
-.uat-backend-plan .uat-backend-flow-head { display: block; }
+/* 原本因為右側插槽是空的才改成 block；按鈕搬進來之後還原成 flex，
+   標題與按鈕才會左右分開（.uat-backend-flow-head 本來就是 space-between） */
+.uat-backend-plan .uat-backend-flow-head { display: flex; align-items: flex-start; }
 .uat-backend-plan .uat-section-title h3 { font-size: 14px; }
 .uat-backend-plan .uat-section-title p { font-size: 11px; margin: 4px 0 0; }
 /* 展開的模組庫裡才會出現工具列，讓它自己換行排 */

@@ -629,7 +629,16 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
       <aside className="uat-backend-plan">
         <div className="uat-backend-flow-head">
           <div className="uat-section-title"><span>{xianxia ? 'TRIAL SEQUENCE' : 'EXECUTION FLOW'}</span><h3>{xianxia ? '推演順序' : '執行流程'} <small>{config.modulePlan.length + 1} 個模組</small></h3><p>拖曳調整順序；點選卡片可編輯名稱、說明與 TC 匹配規則。</p></div>
-          
+          {/* 模組庫＝管理動作，預設收起來。設計圖左欄只有「本次要跑什麼」，
+              加新模組收到這顆按鈕後面，不跟執行清單搶主視覺（跟 CodeX 定案）。
+              **拖曳排序保留**：版面語意一致不代表要犧牲已存在且有用的互動能力。
+
+              放在標題列右邊而不是欄位最底下（2026-08-30 使用者要求）：原本它在
+              清單＋說明文字之後，位置最不顯眼，而它是這一欄唯一的入口動作。
+              標題列本來就是 space-between、右邊留著空插槽，這裡剛好補上。 */}
+          <button type="button" className="uat-btn is-quiet uat-plan-edit"
+            onClick={() => setLibraryOpen(open => !open)}>
+            {libraryOpen ? '收起模組庫' : (xianxia ? '編輯術式計畫' : '編輯模組計畫')}</button>
         </div>
         <div className="uat-backend-module-list">
           <article className="uat-backend-module is-fixed is-cyan"><span className="uat-backend-module-grip" aria-hidden="true"><i /><i /><i /></span><div><strong>{xianxia ? '共用登入傀儡' : '共用登入與初始化'}</strong><small>取得 Lark token、載入 TC registry、啟動 Chromium 並登入 CP Backend</small></div><em>固定</em></article>
@@ -667,13 +676,7 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
           {!config.modulePlan.length && <div className="uat-backend-flow-empty"><strong>尚未加入測試模組</strong><span>新增自訂模組，或從左側模板庫加入。</span></div>}
         </div>
         <footer className="uat-backend-flow-foot"><span>每個模組都是獨立實例，設定會儲存在此瀏覽器並傳入新的 runner process。{!tcScanned && tcs.length > 0 && ` TC 清單來自 ${tcSnapshotAt ? tcSnapshotAt.slice(0, 10) + ' 的' : ''}離線快照，掃描後會補上之後新增的。`}</span><b>{groups ? `已掃描 ${total} TC` : '尚未掃描 TC'}</b></footer>
-        {/* 模組庫＝管理動作，預設收起來。設計圖左欄只有「本次要跑什麼」，
-            加新模組收到這顆按鈕後面，不跟執行清單搶主視覺（跟 CodeX 定案）。
-            **拖曳排序保留**：版面語意一致不代表要犧牲已存在且有用的互動能力。 */}
-        <button type="button" className="uat-btn is-quiet is-wide uat-plan-edit"
-          onClick={() => setLibraryOpen(open => !open)}>
-          {libraryOpen ? '收起模組庫' : (xianxia ? '編輯術式計畫' : '編輯模組計畫')}
-        </button>
+
         {libraryOpen && (
           <div className="uat-backend-library is-inline">
 <div className="uat-backend-flow-actions">

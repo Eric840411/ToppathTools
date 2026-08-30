@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.79.3'
+export const APP_VERSION = '4.79.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.79.4',
+    date: '2026-08-30',
+    changes: [
+      'fix(uat): 「編輯術式計畫」從左欄最底下移到標題列右上。它原本在清單＋說明文字之後，位置最不顯眼，而它是這一欄唯一的入口動作',
+      'note(uat): 標題列本來就是 flex + space-between、右邊留著空插槽（先前因為插槽是空的才被改成 display:block），按鈕搬進去剛好補上，還原成 flex 即可，不用新增版面結構',
+    ],
+  },
   {
     version: '4.79.3',
     date: '2026-08-30',
