@@ -617,6 +617,15 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
         </div>
       </div>
 
+      {/* 下排（網路量測＋執行日誌）刻意放在三欄**之前**。
+          原本在最下面，實測日誌頂端在 y=1580、要捲 580px 才看得到——
+          而那正是跑測試時最需要盯的東西。
+          grid 的視覺順序跟著 DOM 走，所以搬 DOM 就夠，不用另外設 order。 */}
+      <section className="uat-backend-bottom">
+<NetworkPanel stats={netStats} themeMode={themeMode} updatedAt={statsAt} />
+<section className="uat-panel uat-backend-log"><div className="uat-log-toolbar"><div className="uat-section-title"><span>{xianxia ? 'ARRAY RECORD' : 'PROCESS OUTPUT'}</span><h3>{xianxia ? '陣法行跡錄' : '即時執行日誌'}</h3></div><label className="uat-check"><input type="checkbox" checked={autoScroll} onChange={event => setAutoScroll(event.target.checked)} />{xianxia ? '追隨靈流' : '自動捲動'}</label><button type="button" className="uat-btn is-quiet" onClick={() => setLogs([])}>{xianxia ? '拂去殘痕' : '清除'}</button></div><pre onScroll={event => { const el = event.currentTarget; setAutoScroll(el.scrollHeight - el.scrollTop - el.clientHeight < 40) }}>{logs.length ? logs.join('\n') : (xianxia ? '玉簡未啟，靈息未至。' : '等待執行...')}<span ref={logEnd} /></pre></section>
+      </section>
+
       <aside className="uat-backend-plan">
         <div className="uat-backend-flow-head">
           <div className="uat-section-title"><span>{xianxia ? 'TRIAL SEQUENCE' : 'EXECUTION FLOW'}</span><h3>{xianxia ? '推演順序' : '執行流程'} <small>{config.modulePlan.length + 1} 個模組</small></h3><p>拖曳調整順序；點選卡片可編輯名稱、說明與 TC 匹配規則。</p></div>
@@ -867,10 +876,6 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
         </>}
       </aside>
 
-      <section className="uat-backend-bottom">
-<NetworkPanel stats={netStats} themeMode={themeMode} updatedAt={statsAt} />
-<section className="uat-panel uat-backend-log"><div className="uat-log-toolbar"><div className="uat-section-title"><span>{xianxia ? 'ARRAY RECORD' : 'PROCESS OUTPUT'}</span><h3>{xianxia ? '陣法行跡錄' : '即時執行日誌'}</h3></div><label className="uat-check"><input type="checkbox" checked={autoScroll} onChange={event => setAutoScroll(event.target.checked)} />{xianxia ? '追隨靈流' : '自動捲動'}</label><button type="button" className="uat-btn is-quiet" onClick={() => setLogs([])}>{xianxia ? '拂去殘痕' : '清除'}</button></div><pre onScroll={event => { const el = event.currentTarget; setAutoScroll(el.scrollHeight - el.scrollTop - el.clientHeight < 40) }}>{logs.length ? logs.join('\n') : (xianxia ? '玉簡未啟，靈息未至。' : '等待執行...')}<span ref={logEnd} /></pre></section>
-      </section>
 
 
       {/* 錄製期間即時列出打到的 API。放在狀態列下面而不是彈框裡——

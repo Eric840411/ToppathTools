@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.79.1'
+export const APP_VERSION = '4.79.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.79.2',
+    date: '2026-08-30',
+    changes: [
+      'fix(uat): 執行日誌與網路量測搬到三欄之前。原本在最下面，實測日誌頂端在 y=1580、要捲 580px 才看得到——而那正是跑測試時最需要盯的東西',
+      'fix(uat): 模組清單加上高度上限 460px ＋ 內部捲動。它原本沒有上限、實測長到 995px，而三欄是 grid 同列、高度會被最長的那欄綁架，整排被撐到 1234px，中間那欄因此空了 724px',
+      'note(uat): 頁面總高 2007px → 1848px。三欄從 1234 降到 1074，但**沒有降到預估的 655**——因為現在最高的變成執行設定欄（表單本身 803px）。要再降就得連表單一起限高，那會讓填表變成在小框裡捲，這版沒做',
+      'note(uat): 積木編輯器其實是彈框（role=dialog）不是頁面區塊，所以「擺在積木上面」實際上是指「移到工作台上方」——從 JSX 讀順序會判斷錯，要實際量',
+    ],
+  },
   {
     version: '4.79.1',
     date: '2026-08-30',

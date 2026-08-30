@@ -787,12 +787,16 @@
 .uat-backend-plan { background: var(--uat-panel); border-right: 1px solid var(--uat-border); }
 .uat-backend-center { background: var(--uat-panel-soft); display: flex; flex-direction: column; gap: 12px; }
 
-/* 下排跨滿三欄，內部再切「日誌 | 網路量測」。日誌給比較多空間——
-   出事時要往回捲看上下文，網路量測是幾個數字，不需要那麼寬 */
+/* 跨滿三欄，內部再切「日誌 | 網路量測」。日誌給比較多空間——
+   出事時要往回捲看上下文，網路量測是幾個數字，不需要那麼寬。
+
+   ⚠️ 這一排已經**搬到三欄之前**（2026-08-30）。原本在最下面，實測日誌頂端
+   在 y=1580、要捲 580px 才看得到，而那正是跑測試時最需要盯的東西。
+   分隔線也跟著從 border-top 改成 border-bottom——它現在是上面那一排。 */
 .uat-backend-bottom {
   grid-column: 1 / -1;
   display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(0, 1fr); gap: 12px;
-  padding: 16px; border-top: 1px solid var(--uat-border); background: var(--uat-panel);
+  padding: 16px; border-bottom: 1px solid var(--uat-border); background: var(--uat-panel);
 }
 .uat-backend-bottom > * { min-width: 0; }
 /* 下排的日誌不再需要撐 400px——它現在跟網路量測並排，兩邊高度要對齊 */
@@ -815,7 +819,16 @@
 /* 左欄（模組計畫）壓縮版。原本的卡片是為了寬的中欄設計的，塞進 340px 會把
    名稱擠成一個字（第一版重排實際跑出來就是「D-」「E-」這種）。
    設計圖那欄本來就是「名稱 + TC 數」的清單，逐列動作收成第二行。 */
-.uat-backend-plan .uat-backend-module-list { min-height: 0; padding: 10px 0 0; }
+/* ⚠️ 一定要有高度上限。這個清單沒有上限時實測長到 995px，而三欄是 grid 同列，
+   高度會被最長的那欄綁架——整排被撐到 1234px，中間那欄因此空了 724px，
+   下排也被推到第一屏之外。限高之後三欄高度才由內容決定，模組再多也只在
+   清單內部捲，不會牽動整頁。 */
+.uat-backend-plan .uat-backend-module-list {
+  min-height: 0;
+  max-height: 460px;
+  overflow-y: auto;
+  padding: 10px 0 0;
+}
 .uat-backend-plan .uat-backend-module {
   grid-template-columns: 14px minmax(0, 1fr) auto;
   grid-template-areas: 'grip name tc' '. actions actions';
