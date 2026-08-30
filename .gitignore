@@ -52,3 +52,7 @@ $null
 # （帳密改由每個登入帳號自己在設定頁填、存 DB；data/ 是每次跑出來的截圖與 raw JSON，約 40MB）
 server/uat-runner/config/backend-test-params.json
 server/uat-runner/data/
+
+# 修仙版靈氣素材的中間產物（可由 scripts/ui-checks/slice-qi-atlas.py 從
+# assets-src/xianxia/qi-atlas.png 重新產生，不需要進版控）
+public/themes/xianxia/qi-parts/

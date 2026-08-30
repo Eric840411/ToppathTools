@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.77.0'
+export const APP_VERSION = '4.78.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,22 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.78.0',
+    date: '2026-08-30',
+    changes: [
+      'feat(xianxia): 進度條改用 CodeX 的圓弧三段素材——左端圓弧 / 中段可平鋪 / 右端靈氣發散，全部是動畫 WebP。條身從 3px 提到 12px（3~5px 下素材只剩一條淡線，等於白貼）',
+      'feat(xianxia): 進度條每次進到 Dashboard 都從 0 長出來。首次渲染沒有前一個寬度可比對，CSS transition 不會觸發，所以要先畫一次 0% 下一幀才給目標值；兩層 rAF 缺一不可，同一幀內改值會被合併成一次樣式計算',
+      'fix(xianxia): 進度條改回圓弧條狀。不能用 overflow:hidden 裁圓角——尾端發散是要往外溢出的絕對定位偽元素，會被一起裁掉。改用 border-radius，背景圖會被圓角 border-box 裁掉而偽元素不受影響',
+      'note(art): 切 atlas 不能假設是規則格線——生成模型排出來的精靈大小間距都不一致（mid 300~335、tail 334~354），按 rows/cols 均分會切歪。用 alpha 投影偵測實際邊界',
+      'note(art): 分離精靈的門檻不能用 128——實測 tail 那列會量到 5 段，其中 17px 的間隙其實是同一張圖內部的空隙，等於把一張圖切成兩半。降到 32 才穩定',
+      'note(art): atlas 裡精靈間距只有 30~36px，光暈本來就跨到隔壁，切圖門檻再低都會切到——完美分離做不到。改用外緣羽化讓被切處淡出，邊界殘留 alpha 從最高 78 降到 ≤5',
+      'note(art): mid 刻意不羽化上下緣。它要填滿整條軌道，留透明邊會讓軌道底色透出來變成黑邊（第一輪踩過，成因是裁切留太寬讓靈氣只覆蓋 44% 高度）',
+      'note(art): 三段是分開生成的，色調不同、直接拼會在接縫處出現色差方塊。要色調對齊＋內側羽化才接得順',
+      'note(art): 補幀是相鄰幀交叉淡化，不是真的重繪中間動作——變化大的地方會像疊影。CodeX 一組只給 4 幀，補到 24 幀',
+      'note(art): 動畫烘在 WebP 裡，CSS 停不掉也調不了速度。prefers-reduced-motion 只能整組換成靜態圖並隱藏兩端',
+    ],
+  },
   {
     version: '4.77.0',
     date: '2026-08-30',

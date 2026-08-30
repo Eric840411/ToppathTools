@@ -2426,3 +2426,206 @@ h3 {
 @media (prefers-reduced-motion: reduce) {
   .dashboard-bar-fill::after { animation: none; }
 }
+
+/* ── 靈脈進度條改用動畫 WebP（2026-08-30，使用者指定要用 CodeX 的素材且要動態）──
+
+   前一版是純 CSS（細線＋呼吸金菱）。使用者要求改用美術素材、而且要動態，
+   所以改成貼 qi-*-anim.webp。
+
+   動畫是**烘進檔案裡的**，不是 CSS animation：
+   - 好處：靈氣的流動是真的畫出來的，CSS 做不出那種質感
+   - 代價：速度不能用 CSS 調，要改快慢得重新產生檔案
+           （scripts/ui-checks/make-qi-webp.py）
+   - 代價：prefers-reduced-motion **關不掉它**。CSS 停得了 animation，
+           停不了圖片自己的動畫。所以下面在 reduce 時直接換回靜態 PNG。
+
+   高度必須提到 12px：實測 3~5px 下這批素材只剩一條淡線，
+   跟純色沒有差別，等於白貼。 */
+.dashboard-bar-track {
+  height: 12px !important;
+  background: rgba(163, 184, 197, .10) !important;
+}
+
+.dashboard-bar-track::after {
+  top: 15px;
+}
+
+.dashboard-bar-fill {
+  background-image: url('/themes/xianxia/qi-tiles/qi-medium-anim.webp') !important;
+  background-repeat: repeat-x !important;
+  background-size: auto 100% !important;
+  background-color: transparent !important;
+}
+
+/* 端點金菱在 12px 軌道上要放大一點，不然會被靈氣蓋掉 */
+.dashboard-bar-fill::after {
+  width: 9px;
+  height: 9px;
+  margin-top: -4.5px;
+  right: -4.5px;
+}
+
+/* ── 進度條前緣：靈氣發散（2026-08-30，CodeX 設計、Claude 實作）──
+
+   取代原本那顆會呼吸的金菱。使用者說不要「一顆實體裝飾物」，要靈氣散開的感覺。
+
+   **刻意不烘成 WebP**（CodeX 的判斷，我同意）：這個端點會跟著進度值跑，
+   3%～100% 都在移動。方形透明 WebP 在低進度時會溢出軌道、縮放也不好控；
+   而且它本質上是 particle / aura burst，不是貼圖材質。
+   WebP 留給後面那段流動的靈氣，前緣用 DOM 做才跟得上百分比。
+
+   三層（CodeX 的分層），用兩個偽元素裝：
+     ::after  = 青玉前緣光暈（radial）+ 往外散的金色細芒（repeating-conic）
+     ::before = 往前甩出去的氣絲（scaleX + opacity 循環）
+   兩層都掛在 fill 的右緣，所以位置自動跟著寬度走，不用 JS 算。 */
+
+.dashboard-bar-fill::after {
+  content: "";
+  position: absolute;
+  right: -14px;
+  top: 50%;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 0;
+  pointer-events: none;
+  border-radius: 0;
+  /* 上一版的金菱是 background + rotate(45deg)，這裡整組蓋掉 */
+  background:
+    radial-gradient(circle at 50% 50%,
+      rgba(240, 216, 156, .95) 0 7%,
+      rgba(120, 213, 200, .55) 20%,
+      rgba(120, 213, 200, .16) 40%,
+      transparent 64%),
+    repeating-conic-gradient(from 0deg at 50% 50%,
+      rgba(240, 216, 156, .40) 0deg 3deg,
+      transparent 3deg 26deg);
+  /* 沒有這層遮罩的話，conic 的細芒會在 28px 的方形邊界被切成直角 */
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 0 28%, rgba(0, 0, 0, .45) 46%, transparent 70%);
+  mask-image: radial-gradient(circle at 50% 50%, #000 0 28%, rgba(0, 0, 0, .45) 46%, transparent 70%);
+  box-shadow: none;
+  transform: none;
+  animation: xx-qi-burst 2.4s ease-in-out infinite;
+}
+
+@keyframes xx-qi-burst {
+  0%, 100% { opacity: .74; transform: scale(.9) rotate(0deg); }
+  50%      { opacity: 1;   transform: scale(1.14) rotate(16deg); }
+}
+
+/* 往前甩出去的氣絲。transform-origin 放左邊，才會是「從前緣往外拉長」
+   而不是「整條一起變長變短」 */
+.dashboard-bar-fill::before {
+  content: "";
+  position: absolute;
+  right: -30px;
+  top: 50%;
+  width: 30px;
+  height: 2px;
+  margin-top: -1px;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(240, 216, 156, .65), rgba(120, 213, 200, .25) 55%, transparent);
+  transform-origin: left center;
+  animation: xx-qi-wisp 2.4s ease-out infinite;
+}
+
+@keyframes xx-qi-wisp {
+  0%   { transform: scaleX(.15); opacity: 0; }
+  25%  { opacity: .85; }
+  100% { transform: scaleX(1.5); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-bar-fill::after { animation: none; opacity: .85; }
+  .dashboard-bar-fill::before { animation: none; opacity: .5; transform: scaleX(1); }
+}
+
+/* ── 進度條改回圓弧條狀（2026-08-30 使用者指定）──
+   先前為了「中式方角」把圓角拿掉，使用者要圓弧。
+
+   ⚠️ 不能用 overflow: hidden 去裁靈氣貼圖——尾端的發散效果是掛在 fill 上的
+   絕對定位偽元素，它本來就要往外溢出，裁了就沒了。
+   改用 border-radius：背景圖本來就會被圓角的 border-box 裁掉，
+   而絕對定位的偽元素不受影響。兩個需求同時成立，不用二選一。 */
+.dashboard-bar-track {
+  border-radius: 99px !important;
+}
+
+.dashboard-bar-fill {
+  border-radius: 99px !important;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   進度條改用 CodeX 的三段素材（2026-08-30）
+
+   結構：左端圓弧 / 中段可平鋪 / 右端靈氣發散
+     .dashboard-bar-fill          背景 = 中段，background-repeat-x
+     .dashboard-bar-fill::before  = 左端圓弧
+     .dashboard-bar-fill::after   = 右端發散（會往外溢出，所以用偽元素不用背景圖層——
+                                     背景會被元素邊界裁掉，偽元素不會）
+
+   三張的條身都以中段為基準縮放過，組起來垂直對得齊。
+   顯示比例：條身 12px 對應素材的 48px，所以其餘尺寸都是 ×0.25。
+   ══════════════════════════════════════════════════════════════════ */
+
+.dashboard-bar-fill {
+  background-image: url('/themes/xianxia/qi-tiles/qi-mid-anim.webp') !important;
+  background-repeat: repeat-x !important;
+  background-size: auto 100% !important;
+  background-color: transparent !important;
+}
+
+/* 左端圓弧：94x57 的素材，條身 48 → 12px，所以 ×0.25 = 23.5x14.25 */
+.dashboard-bar-fill::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 23.5px;
+  height: 14.25px;
+  margin-top: -7.125px;
+  pointer-events: none;
+  background: url('/themes/xianxia/qi-tiles/qi-cap-anim.webp') left center / 100% 100% no-repeat;
+  /* 上一版這裡是 CSS 畫的氣絲，整組蓋掉 */
+  transform: none;
+  animation: none;
+  opacity: 1;
+}
+
+/* 右端發散：160x62 → ×0.25 = 40x15.5。靠左貼齊 fill 的右緣往外散。
+   ⚠️ 素材切圖的 alpha 門檻要夠低（CROP_MIN=6），否則最外圈很淡的光絲會在
+   切圖階段就被切掉——那就是「發散看起來被裁掉」的成因，不是 CSS 的問題。 */
+.dashboard-bar-fill::after {
+  content: "";
+  position: absolute;
+  right: -30px;
+  left: auto;
+  top: 50%;
+  width: 41.25px;
+  height: 15.5px;
+  margin-top: -7.75px;
+  pointer-events: none;
+  background: url('/themes/xianxia/qi-tiles/qi-tail-anim.webp') left center / 100% 100% no-repeat;
+  /* 上一版是 radial + conic 畫的光爆，連遮罩一起清掉，否則會疊在素材上 */
+  -webkit-mask-image: none;
+  mask-image: none;
+  box-shadow: none;
+  border-radius: 0;
+  transform: none;
+  animation: none;
+  opacity: 1;
+  z-index: 3;
+}
+
+/* 動態是烘在 WebP 裡的，CSS 停不掉；減少動態時整組換回靜態 PNG */
+/* 動態烘在 WebP 裡，CSS 停不掉。減少動態時換成靜態圖——
+   用的是**同一組素材的第一幀**（qi-mid-static.png），不是第一輪那張舊圖，
+   否則關掉動畫的人會看到完全不同樣子的條子。
+   cap/tail 是偽元素的背景圖，同樣換成不會動的版本做不到（它們只有動畫版），
+   所以這裡一併把兩端隱藏，只留乾淨的靜態條身。 */
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-bar-fill {
+    background-image: url('/themes/xianxia/qi-tiles/qi-mid-static.png') !important;
+  }
+  .dashboard-bar-fill::before,
+  .dashboard-bar-fill::after { display: none; }
+}

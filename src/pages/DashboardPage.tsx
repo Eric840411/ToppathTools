@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 type DashboardSummary = {
   ok: boolean
@@ -172,6 +172,29 @@ export function DashboardPage({ themeMode = 'xianxia' }: { themeMode?: 'classic'
       window.clearInterval(ticker)
     }
   }, [])
+
+  // 進度條「每次進到這頁都從 0 長出來」。
+  //
+  // ⚠️ 不能只靠 CSS transition：首次渲染時瀏覽器沒有「前一個寬度」可以比對，
+  //    直接就畫在最終位置，過渡不會發生。所以要先畫一次 0%、下一幀才給目標值。
+  //
+  // ⚠️ 兩層 requestAnimationFrame 是必要的：同一幀內把 0% 改成目標值，
+  //    瀏覽器會合併成一次樣式計算，一樣看不到過渡。第一層讓 0% 真的被畫出來，
+  //    第二層才改值。
+  //
+  // ⚠️ 只跑一次。這頁每 30 秒會重新抓資料，若跟著 summary 每次都重播，
+  //    使用者盯著看的時候會每半分鐘被歸零一次。
+  const [barsGrown, setBarsGrown] = useState(false)
+  const growStartedRef = useRef(false)
+  useEffect(() => {
+    if (!summary || growStartedRef.current) return
+    growStartedRef.current = true
+    const id = requestAnimationFrame(() => requestAnimationFrame(() => setBarsGrown(true)))
+    return () => cancelAnimationFrame(id)
+  }, [summary])
+
+  /** 還沒長出來時一律回 0%，讓 CSS 的 width transition 有起點 */
+  const barW = (p: number) => (barsGrown ? `${p}%` : '0%')
 
   // 修仙版的徽章文字。原本不論哪個版面都是 LIVE / SESSION / LOW / WATCH——
   // 卡片標題已經寫「靈脈負荷」了，旁邊卻掛一個英文縮寫，同一張卡裡兩種世界觀在打架。
@@ -362,19 +385,19 @@ export function DashboardPage({ themeMode = 'xianxia' }: { themeMode?: 'classic'
               <div className="dashboard-bars">
                 <div className="dashboard-bar-row">
                   <div className="dashboard-bar-top"><span>{metricName('丹爐負載', 'Server RSS')}</span><b>{summary.server.memory.rssText} / 800 MB</b></div>
-                  <div className="dashboard-bar-track"><span className="dashboard-bar-fill dashboard-bar-fill--green" style={{ width: `${serverMemPct}%` }} /></div>
+                  <div className="dashboard-bar-track"><span className="dashboard-bar-fill dashboard-bar-fill--green" style={{ width: barW(serverMemPct) }} /></div>
                 </div>
                 <div className="dashboard-bar-row">
                   <div className="dashboard-bar-top"><span>{metricName('執役負載', 'Worker RSS')}</span><b>{summary.worker.memoryText?.rss ?? 'N/A'} / 700 MB</b></div>
-                  <div className="dashboard-bar-track"><span className="dashboard-bar-fill dashboard-bar-fill--yellow" style={{ width: `${workerMemPct}%` }} /></div>
+                  <div className="dashboard-bar-track"><span className="dashboard-bar-fill dashboard-bar-fill--yellow" style={{ width: barW(workerMemPct) }} /></div>
                 </div>
                 <div className="dashboard-bar-row">
                   <div className="dashboard-bar-top"><span>{metricName('洞府容量', 'System Memory')}</span><b>{summary.server.memory.systemUsedText} / {summary.server.memory.systemTotalText}</b></div>
-                  <div className="dashboard-bar-track"><span className="dashboard-bar-fill dashboard-bar-fill--indigo" style={{ width: `${systemMemPct}%` }} /></div>
+                  <div className="dashboard-bar-track"><span className="dashboard-bar-fill dashboard-bar-fill--indigo" style={{ width: barW(systemMemPct) }} /></div>
                 </div>
                 <div className="dashboard-bar-row">
                   <div className="dashboard-bar-top"><span>{metricName('靈脈壓力', 'Request Pressure')}</span><b>{summary.totals.requestsPerMinute} req/min</b></div>
-                  <div className="dashboard-bar-track"><span className="dashboard-bar-fill" style={{ width: `${requestPct}%` }} /></div>
+                  <div className="dashboard-bar-track"><span className="dashboard-bar-fill" style={{ width: barW(requestPct) }} /></div>
                 </div>
               </div>
               <div className="dashboard-mini-grid">
