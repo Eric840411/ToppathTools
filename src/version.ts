@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.80.0'
+export const APP_VERSION = '4.80.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.80.1',
+    date: '2026-08-30',
+    changes: [
+      'fix(uat): 日誌自動捲動不再把整頁一起拉走。scrollIntoView 少了 block:nearest，預設值會連視窗一起捲——日誌以前在頁面最底下所以看不出問題，v4.79.2 搬到第一屏之後，每來一行日誌就把整頁往下拉 760px，等於把使用者從剛搬上來的日誌旁邊拖走',
+      'chore(ui-checks): 新增 uat-run-preview.mjs——攔截 SSE 餵合成資料，可以看到「執行中」的畫面而不用真的跑一次（真的跑會用真實帳密登入 CP/NC 後台，UAT_DRY_RUN 也只保證不寫 Lark）',
+    ],
+  },
   {
     version: '4.80.0',
     date: '2026-08-30',

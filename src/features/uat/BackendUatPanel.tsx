@@ -231,7 +231,14 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   }, [])
 
   useEffect(() => { connect(); return () => streamRef.current?.close() }, [connect])
-  useEffect(() => { if (autoScroll && status === 'running') logEnd.current?.scrollIntoView({ behavior: 'smooth' }) }, [autoScroll, logs, status])
+  // ⚠️ `block: 'nearest'` 不能省。預設值會連**整頁**一起捲到這個元素——
+  //    日誌以前在頁面最底下，捲過去剛好就是你要看的位置，所以看不出問題；
+  //    v4.79.2 把它搬到第一屏之後，每來一行日誌就會把整頁往下拉 760px，
+  //    等於把使用者從剛搬上來的日誌旁邊拖走。
+  //    'nearest' 只捲最近的可捲祖先（也就是日誌自己的 <pre>），不動視窗。
+  useEffect(() => {
+    if (autoScroll && status === 'running') logEnd.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [autoScroll, logs, status])
 
   const update = (patch: Partial<UatConfig>) => setConfig(value => {
     const next = { ...value, ...patch }
