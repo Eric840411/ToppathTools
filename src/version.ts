@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.80.1'
+export const APP_VERSION = '4.80.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.80.2',
+    date: '2026-08-30',
+    changes: [
+      'fix(uat): 網路監測兩張表的網址不再被截斷。做法不是加寬欄位，而是把每一列都重複的 origin 抽出來只在表格標題旁寫一次，每列只留路徑——實測 origin 佔整串網址 50%，被截掉的正好是唯一有區別、也唯一有用的 endpoint 名稱',
+      'note(uat): 只有全部列同源時才抽。混到不同 host 時抽掉會讓人分不出哪一筆打去哪裡，那種情況維持完整網址繼續截斷。滑鼠移上去的 title 一律仍是完整網址',
+    ],
+  },
   {
     version: '4.80.1',
     date: '2026-08-30',

@@ -55,6 +55,31 @@ export interface UatStatsPayload {
   final?: boolean
 }
 
+/**
+ * 兩張表的網址欄永遠塞不下——但塞不下的原因不是「網址太長」，
+ * 是**每一列開頭都重複同一段 origin**。實測 `https://qat-cp.osmslot.org/...`
+ * 這種長度下，origin 就佔掉整串的 50%，而被截掉的正好是唯一有區別、
+ * 也唯一有用的那半（endpoint 名稱）。
+ *
+ * 所以做法不是「想辦法塞下」，是**把共同的 origin 抽出來只寫一次**，
+ * 每一列只留路徑。這樣不用加寬任何欄位就能看到完整的 endpoint。
+ *
+ * ⚠️ 只有在**全部**列都同源時才抽。混到不同 host 時抽掉會讓人分不出
+ * 哪一筆打去哪裡——那種情況寧可維持完整網址、繼續截斷。
+ */
+function commonOrigin(urls: string[]): string | null {
+  const origins = new Set<string>()
+  for (const u of urls) {
+    try { origins.add(new URL(u).origin) } catch { return null }  // 不是合法網址就別猜
+  }
+  return origins.size === 1 ? [...origins][0] : null
+}
+
+/** 有共同 origin 就只回路徑，否則原樣回傳 */
+function shortUrl(url: string, origin: string | null): string {
+  return origin && url.startsWith(origin) ? url.slice(origin.length) || '/' : url
+}
+
 const KIND_LABEL: Record<UatThemeMode, Record<'api' | 'image' | 'other', string>> = {
   classic: { api: 'API', image: '圖檔', other: '其他' },
   xianxia: { api: '法訊', image: '靈影', other: '其餘' },
@@ -103,6 +128,9 @@ export function NetworkPanel({ stats, themeMode, updatedAt }: {
   const copy = COPY[themeMode]
   const label = KIND_LABEL[themeMode]
   const net = stats?.net
+  // 兩張表分開算——慢速那張可能只剩圖檔、API 那張只剩 API，來源不一定一樣
+  const slowOrigin = commonOrigin((net?.slow ?? []).map(r => r.url))
+  const apiOrigin = commonOrigin((net?.apiCalls ?? []).map(r => r.url))
   const pinus = stats?.pinus
 
   if (!net) {
@@ -171,7 +199,8 @@ export function NetworkPanel({ stats, themeMode, updatedAt }: {
 
       <div className="uat-net-tables">
         <div className="uat-net-table-block">
-          <h4>{copy.slow} <em>{net.slow.length}</em></h4>
+          <h4>{copy.slow} <em>{net.slow.length}</em>
+            {slowOrigin && <b className="uat-net-origin" title={slowOrigin}>{slowOrigin.replace(/^https?:\/\//, '')}</b>}</h4>
           <div className="uat-net-scroller">
             {net.slow.length ? (
               <table>
@@ -187,7 +216,7 @@ export function NetworkPanel({ stats, themeMode, updatedAt }: {
                       <td><span className={`uat-net-kind is-${r.kind}`}>{label[r.kind]}</span></td>
                       <td className="is-num">{Math.round(r.durationMs ?? 0)}</td>
                       <td className="is-num is-over">+{Math.round(r.overThresholdMs ?? 0)}</td>
-                      <td className="is-url" title={r.url}>{r.url}</td>
+                      <td className="is-url" title={r.url}>{shortUrl(r.url, slowOrigin)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -203,7 +232,8 @@ export function NetworkPanel({ stats, themeMode, updatedAt }: {
             得先看得到有哪些可以下 */}
         {!!net.apiCalls?.length && (
           <div className="uat-net-table-block">
-            <h4>{copy.apiCalls} <em>{net.apiCalls.length}{net.apiCallsTruncated ? `+${net.apiCallsTruncated}` : ''}</em></h4>
+            <h4>{copy.apiCalls} <em>{net.apiCalls.length}{net.apiCallsTruncated ? `+${net.apiCallsTruncated}` : ''}</em>
+            {apiOrigin && <b className="uat-net-origin" title={apiOrigin}>{apiOrigin.replace(/^https?:\/\//, '')}</b>}</h4>
             <div className="uat-net-scroller">
               <table>
                 <thead><tr>
@@ -219,7 +249,7 @@ export function NetworkPanel({ stats, themeMode, updatedAt }: {
                       {/* 非 2xx 要一眼看得出來——那通常就是最值得下斷言的地方 */}
                       <td className={`is-num${r.status && r.status >= 400 ? ' is-over' : ''}`}>{r.status ?? '—'}</td>
                       <td className="is-num">{r.durationMs ?? '—'}</td>
-                      <td className="is-url" title={r.url}>{r.url}</td>
+                      <td className="is-url" title={r.url}>{shortUrl(r.url, apiOrigin)}</td>
                     </tr>
                   ))}
                 </tbody>

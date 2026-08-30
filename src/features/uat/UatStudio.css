@@ -951,3 +951,15 @@
 
 /* 彈框裡不需要再重複一次「術式庫」標題——彈框自己的標題已經寫了 */
 .uat-backend-library-modal .uat-pane-heading { display: none; }
+
+/* 被抽出來的共同 origin。放在表格標題旁邊當一次性的說明——
+   每一列重複寫一次 host 只會把真正有區別的 endpoint 擠掉（實測 origin 佔網址一半長度）。 */
+.uat-net-origin {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--uat-border);
+  border-radius: 4px;
+  color: var(--uat-muted);
+  font: 400 10px Consolas, Monaco, monospace;
+  vertical-align: middle;
+}
