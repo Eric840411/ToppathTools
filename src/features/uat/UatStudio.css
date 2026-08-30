@@ -829,6 +829,18 @@
   overflow-y: auto;
   padding: 10px 0 0;
 }
+
+/* ⚠️ 這條跟上面的 max-height 是一組，不能只加一個。
+   `.uat-backend-module-list` 是 flex column，flex 子項預設 `flex-shrink: 1`——
+   容器一旦有高度上限，瀏覽器會**先把子項壓扁**再考慮捲動。
+   實測漏掉這條時卡片被壓成 31px（內容需要 67px），副標被切掉一半、卡片看起來
+   互相重疊，使用者回報「積木的明細整個跑版」。
+
+   線索其實在量測數字裡就有：清單 scrollHeight 只有 497，而限高前內容是 995——
+   內容沒有溢出而是被壓縮了。當時只看到「可以捲動」就過關了，沒追問這個落差。 */
+.uat-backend-plan .uat-backend-module-list > .uat-backend-module {
+  flex-shrink: 0;
+}
 .uat-backend-plan .uat-backend-module {
   grid-template-columns: 14px minmax(0, 1fr) auto;
   grid-template-areas: 'grip name tc' '. actions actions';

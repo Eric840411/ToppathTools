@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.79.2'
+export const APP_VERSION = '4.79.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.79.3',
+    date: '2026-08-30',
+    changes: [
+      'fix(uat): 修正 v4.79.2 造成的模組卡片跑版——卡片被壓成 31px（內容需要 67px），副標被切掉、看起來互相重疊',
+      'note(uat): 根因是 flex 捲動容器的經典陷阱：.uat-backend-module-list 是 flex column，子項預設 flex-shrink:1，容器一有 max-height 瀏覽器會先把子項壓扁再考慮捲動。max-height 與 flex-shrink:0 是一組，不能只加一個',
+      'note(uat): 線索本來就在量測數字裡——限高後清單 scrollHeight 只有 497，而限高前內容是 995。內容沒有溢出而是被壓縮了。當時只確認「可以捲動 ✅」就過關，沒追問這個落差',
+    ],
+  },
   {
     version: '4.79.2',
     date: '2026-08-30',
