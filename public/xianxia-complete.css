@@ -2261,3 +2261,168 @@ h2,
 h3 {
   font-weight: 600;
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   縱深修正（2026-08-30）：修仙感原本只做在第一屏，往下捲就變回一般深色後台
+
+   ⚠️ 動手前先查過既有規則，有幾項本來就做了，不要重複造：
+   - .dashboard-metric::before 已經有「左上角」金線角飾
+   - .dashboard-metric-value 已經是襯線（只是白色）
+   - .main-content th 已經是金色 + 字距（只是 sans）
+   所以這裡只補「缺的那一半」，不是重寫。
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── 角飾補右下角 ──
+   先前只有左上一道，單邊看起來像沒畫完。補上對角那道才成「框」。
+   .dashboard-metric::after 已經被右上角的光暈佔用了，所以這裡用 background
+   圖層來畫兩道 1px 金線，不去搶第二個偽元素（搶了會把光暈弄掉） */
+.dashboard-panel::after,
+.dashboard-metric::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--xx-line-gold), var(--xx-line-gold)) 100% 100% / 20px 1px no-repeat,
+    linear-gradient(var(--xx-line-gold), var(--xx-line-gold)) 100% 100% / 1px 20px no-repeat;
+}
+
+/* metric 的右上光暈是既有效果，要保留——所以連同角飾一起重新宣告，
+   而不是讓上面那條把它蓋掉 */
+.dashboard-metric::after {
+  background:
+    linear-gradient(var(--xx-line-gold), var(--xx-line-gold)) 100% 100% / 20px 1px no-repeat,
+    linear-gradient(var(--xx-line-gold), var(--xx-line-gold)) 100% 100% / 1px 20px no-repeat,
+    radial-gradient(circle at 100% 0%, rgba(117, 215, 207, .045), transparent 40%);
+}
+
+/* ── 數字改金色 ──
+   原本是近白色。整頁最先被看到的就是這幾個數字，讓金色去承擔「結構」的角色，
+   青玉留給狀態（在線／進行中），兩個顏色才有分工。都在強調＝都不強調。 */
+.dashboard-metric-value,
+.scripted-bet-metric-value,
+.local-agent-metric-value {
+  color: var(--xx-gold-bright) !important;
+  font-weight: 900;
+}
+
+/* 數字後面的單位維持低調，不要跟著變金色搶掉數字本身 */
+.dashboard-metric-value span {
+  color: var(--xx-muted) !important;
+  font-weight: 400;
+}
+
+/* ── 表頭改襯線 ──
+   顏色跟字距本來就有了，缺的是字體。這是最低成本、感受差最大的一項：
+   不動任何欄寬與資料，只換表頭氣質。
+   text-transform: uppercase 對中文無效，留著不影響。 */
+.main-content th {
+  font-family: var(--xx-serif) !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+}
+
+/* 表頭的灰底改成幾乎看不見——中式版面靠線不靠塊。
+   不是整個拿掉：完全平掉的話長表格捲動時會找不到表頭在哪。 */
+.dashboard-table thead tr,
+.sheet-preview-table thead tr {
+  background: rgba(14, 29, 41, .35) !important;
+}
+
+/* ── 徽章改印章樣式 ──
+   方角、細金邊、襯線。圓角膠囊是後台語彙，方章才是中式的。
+
+   ⚠️ 字距用 .07em 不用 .14em：字距是中文排版的手法，套在拉丁字上會被拉變形。
+   實測「0 running / 0 queued」這顆在 .14em 下明顯被撐開很難看，
+   但同一條規則也吃得到中文徽章，沒辦法用選擇器分開——只能取一個兩邊都成立的值。 */
+.dashboard-chip,
+.osm-badge,
+.cr-pill {
+  border-radius: 2px !important;
+  font-family: var(--xx-serif) !important;
+  letter-spacing: .07em !important;
+}
+
+/* ── 區塊標題 ──
+   「在場弟子錄」這種標題原本是 sans，跟 Hero 的襯線斷開了 */
+.dashboard-panel-head h2,
+.dashboard-panel-head h3 {
+  font-family: var(--xx-serif) !important;
+  letter-spacing: .16em;
+}
+
+/* ── 靈脈式進度條 ──
+   原本是 8px 高、圓角膠囊、實心填充——那是 Material 的語彙，
+   跟旁邊「靈脈負荷」「靈力儲量」這些詞完全不搭。
+   改成：細線 + 底下刻度 + 端點一顆會呼吸的金菱（「吐納」）。
+
+   ⚠️ 查過才知道：--green / --yellow / --indigo 這三個修飾類別是
+   「每一列固定一個顏色」（Server 恆綠、Worker 恆黃），**不是嚴重度**。
+   所以既有那條把它們統一成青玉的規則是對的，不要「還原」成三色——
+   那會讓人以為顏色有意義。
+
+   刻意沒做「超過門檻改成脈動」：目前 markup 裡沒有任何門檻狀態，
+   要做得先有那個訊號，那是資料層的事，不在這次純樣式的範圍。 */
+.dashboard-bar-track {
+  height: 3px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: rgba(163, 184, 197, .16) !important;
+  /* 端點的金菱要凸出軌道外，base 的 overflow: hidden 會把它切掉 */
+  overflow: visible !important;
+  position: relative;
+  margin-bottom: 9px;
+}
+
+/* 刻度：軌道下方一排短線。用 repeating-gradient 畫，不用多加 DOM */
+.dashboard-bar-track::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 6px;
+  height: 4px;
+  pointer-events: none;
+  background: repeating-linear-gradient(90deg,
+    rgba(163, 184, 197, .3) 0 1px,
+    transparent 1px 8.333%);
+}
+
+.dashboard-bar-fill {
+  border-radius: 0 !important;
+  position: relative;
+  overflow: visible;
+}
+
+/* 端點金菱 —— 動的位置剛好就是「目前到哪」，
+   所以這個動態本身在傳達資訊，不只是裝飾 */
+.dashboard-bar-fill::after {
+  content: "";
+  position: absolute;
+  right: -3.5px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin-top: -3.5px;
+  background: var(--xx-gold-bright);
+  transform: rotate(45deg);
+  box-shadow: 0 0 8px rgba(240, 216, 156, .8);
+  animation: xx-breath 3.6s ease-in-out infinite;
+}
+
+@keyframes xx-breath {
+  0%, 100% {
+    box-shadow: 0 0 6px rgba(240, 216, 156, .55);
+    transform: rotate(45deg) scale(1);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(240, 216, 156, 1), 0 0 28px rgba(240, 216, 156, .4);
+    transform: rotate(45deg) scale(1.22);
+  }
+}
+
+/* 這是每天開著的儀表板。系統設定關閉動畫的人不該被迫看四顆一直在跳的光點 */
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-bar-fill::after { animation: none; }
+}

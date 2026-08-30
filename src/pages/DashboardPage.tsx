@@ -173,12 +173,26 @@ export function DashboardPage({ themeMode = 'xianxia' }: { themeMode?: 'classic'
     }
   }, [])
 
+  // 修仙版的徽章文字。原本不論哪個版面都是 LIVE / SESSION / LOW / WATCH——
+  // 卡片標題已經寫「靈脈負荷」了，旁邊卻掛一個英文縮寫，同一張卡裡兩種世界觀在打架。
+  // 判定門檻完全不動，只換顯示文字。
+  const chip = (zh: string, en: string) => (themeMode === 'xianxia' ? zh : en)
+
+  // 資源面板的欄位名。修仙版顯示「中文主標 + 英文小字」而不是直接翻掉——
+  // Server RSS 這種是查問題時要用的名字，翻掉之後跟 log／文件對不起來。
+  const metricName = (zh: string, en: string) =>
+    themeMode === 'xianxia'
+      ? <>{zh}<em style={{ fontStyle: 'normal', opacity: .55, fontSize: '.82em', marginLeft: 6 }}>{en}</em></>
+      : <>{en}</>
+
   const pressure = useMemo(() => {
-    if (!summary) return { label: 'LOW', className: 'dashboard-chip--good' }
-    if (summary.totals.errorsPerMinute > 0 || !summary.worker.connected) return { label: 'WATCH', className: 'dashboard-chip--warn' }
-    if (summary.totals.activeRequests >= 8 || summary.requests.p95Ms >= 2000) return { label: 'HIGH', className: 'dashboard-chip--warn' }
-    return { label: 'LOW', className: 'dashboard-chip--good' }
-  }, [summary])
+    const lo = { label: chip('安穩', 'LOW'), className: 'dashboard-chip--good' }
+    if (!summary) return lo
+    if (summary.totals.errorsPerMinute > 0 || !summary.worker.connected) return { label: chip('留意', 'WATCH'), className: 'dashboard-chip--warn' }
+    if (summary.totals.activeRequests >= 8 || summary.requests.p95Ms >= 2000) return { label: chip('亢盛', 'HIGH'), className: 'dashboard-chip--warn' }
+    return lo
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [summary, themeMode])
 
   if (loading && !summary) {
     return <div className="dashboard-page"><div className="dashboard-empty">正在載入監控資料...</div></div>
@@ -237,12 +251,12 @@ export function DashboardPage({ themeMode = 'xianxia' }: { themeMode?: 'classic'
 
       <section className="dashboard-metrics">
         <article className="dashboard-metric">
-          <div className="dashboard-metric-label">{themeMode === 'xianxia' ? '在線弟子' : '在線人數'} <span className="dashboard-chip dashboard-chip--good">LIVE</span></div>
+          <div className="dashboard-metric-label">{themeMode === 'xianxia' ? '在線弟子' : '在線人數'} <span className="dashboard-chip dashboard-chip--good">{chip('在線', 'LIVE')}</span></div>
           <div className="dashboard-metric-value">{summary.totals.onlineUsers}<span>人</span></div>
           <div className="dashboard-metric-note">最近 60 秒內仍有 heartbeat 的使用者</div>
         </article>
         <article className="dashboard-metric">
-          <div className="dashboard-metric-label">{themeMode === 'xianxia' ? '在冊道契' : '登入 Session'} <span className="dashboard-chip dashboard-chip--blue">SESSION</span></div>
+          <div className="dashboard-metric-label">{themeMode === 'xianxia' ? '在冊道契' : '登入 Session'} <span className="dashboard-chip dashboard-chip--blue">{chip('在冊', 'SESSION')}</span></div>
           <div className="dashboard-metric-value">{summary.totals.activeSessions}<span>組</span></div>
           <div className="dashboard-metric-note">尚未過期的登入 session</div>
         </article>
@@ -252,7 +266,7 @@ export function DashboardPage({ themeMode = 'xianxia' }: { themeMode?: 'classic'
           <div className="dashboard-metric-note">{summary.totals.requestsPerMinute} req/min，平均回應 {summary.requests.averageMs} ms{(summary.totals.activeLongConnections ?? 0) > 0 ? `，${summary.totals.activeLongConnections} SSE 連線` : ''}</div>
         </article>
         <article className="dashboard-metric">
-          <div className="dashboard-metric-label">{themeMode === 'xianxia' ? '靈力儲量' : '記憶體用量'} <span className="dashboard-chip dashboard-chip--warn">WATCH</span></div>
+          <div className="dashboard-metric-label">{themeMode === 'xianxia' ? '靈力儲量' : '記憶體用量'} <span className="dashboard-chip dashboard-chip--warn">{chip('留意', 'WATCH')}</span></div>
           <div className="dashboard-metric-value">{summary.server.memory.rssText.replace(' MB', '')}<span>MB</span></div>
           <div className="dashboard-metric-note">Server RSS，目前低於 PM2 重啟門檻</div>
         </article>
@@ -347,27 +361,27 @@ export function DashboardPage({ themeMode = 'xianxia' }: { themeMode?: 'classic'
             <div className="dashboard-panel-body">
               <div className="dashboard-bars">
                 <div className="dashboard-bar-row">
-                  <div className="dashboard-bar-top"><span>Server RSS</span><b>{summary.server.memory.rssText} / 800 MB</b></div>
+                  <div className="dashboard-bar-top"><span>{metricName('丹爐負載', 'Server RSS')}</span><b>{summary.server.memory.rssText} / 800 MB</b></div>
                   <div className="dashboard-bar-track"><span className="dashboard-bar-fill dashboard-bar-fill--green" style={{ width: `${serverMemPct}%` }} /></div>
                 </div>
                 <div className="dashboard-bar-row">
-                  <div className="dashboard-bar-top"><span>Worker RSS</span><b>{summary.worker.memoryText?.rss ?? 'N/A'} / 700 MB</b></div>
+                  <div className="dashboard-bar-top"><span>{metricName('執役負載', 'Worker RSS')}</span><b>{summary.worker.memoryText?.rss ?? 'N/A'} / 700 MB</b></div>
                   <div className="dashboard-bar-track"><span className="dashboard-bar-fill dashboard-bar-fill--yellow" style={{ width: `${workerMemPct}%` }} /></div>
                 </div>
                 <div className="dashboard-bar-row">
-                  <div className="dashboard-bar-top"><span>System Memory</span><b>{summary.server.memory.systemUsedText} / {summary.server.memory.systemTotalText}</b></div>
+                  <div className="dashboard-bar-top"><span>{metricName('洞府容量', 'System Memory')}</span><b>{summary.server.memory.systemUsedText} / {summary.server.memory.systemTotalText}</b></div>
                   <div className="dashboard-bar-track"><span className="dashboard-bar-fill dashboard-bar-fill--indigo" style={{ width: `${systemMemPct}%` }} /></div>
                 </div>
                 <div className="dashboard-bar-row">
-                  <div className="dashboard-bar-top"><span>Request Pressure</span><b>{summary.totals.requestsPerMinute} req/min</b></div>
+                  <div className="dashboard-bar-top"><span>{metricName('靈脈壓力', 'Request Pressure')}</span><b>{summary.totals.requestsPerMinute} req/min</b></div>
                   <div className="dashboard-bar-track"><span className="dashboard-bar-fill" style={{ width: `${requestPct}%` }} /></div>
                 </div>
               </div>
               <div className="dashboard-mini-grid">
-                <div className="dashboard-mini-stat"><span>Server Uptime</span><b>{formatUptime(summary.server.uptimeMs)}</b></div>
-                <div className="dashboard-mini-stat"><span>Worker Latency</span><b>{summary.worker.connected ? `${summary.worker.latencyMs} ms` : '離線'}</b></div>
-                <div className="dashboard-mini-stat"><span>p95 Response</span><b>{summary.requests.p95Ms} ms</b></div>
-                <div className="dashboard-mini-stat"><span>Errors / 1m</span><b>{summary.totals.errorsPerMinute}</b></div>
+                <div className="dashboard-mini-stat"><span>{metricName('開爐時長', 'Server Uptime')}</span><b>{formatUptime(summary.server.uptimeMs)}</b></div>
+                <div className="dashboard-mini-stat"><span>{metricName('執役延遲', 'Worker Latency')}</span><b>{summary.worker.connected ? `${summary.worker.latencyMs} ms` : '離線'}</b></div>
+                <div className="dashboard-mini-stat"><span>{metricName('回應 p95', 'p95 Response')}</span><b>{summary.requests.p95Ms} ms</b></div>
+                <div className="dashboard-mini-stat"><span>{metricName('每分異常', 'Errors / 1m')}</span><b>{summary.totals.errorsPerMinute}</b></div>
               </div>
             </div>
           </article>

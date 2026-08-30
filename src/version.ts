@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.76.0'
+export const APP_VERSION = '4.77.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,20 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.77.0',
+    date: '2026-08-30',
+    changes: [
+      'feat(xianxia): 修仙感原本只做在第一屏，往下捲一屏就變回一般深色後台。這版補上縱深：數據卡數字改金色襯線、角飾補上右下角（先前只有左上一道，單邊看起來像沒畫完）、表頭改襯線、徽章改方角印章樣式',
+      'feat(xianxia): 徽章文字中文化——LIVE/SESSION/LOW/WATCH/HIGH → 在線/在冊/安穩/留意/亢盛。卡片標題已經寫「靈脈負荷」，旁邊卻掛英文縮寫，同一張卡裡兩種世界觀在打架。判定門檻完全沒動，只換顯示文字',
+      'feat(xianxia): 資源面板改「中文主標 + 英文小字」（丹爐負載 Server RSS）。英文刻意不翻掉——那是查問題時要用的名字，翻掉會跟 log/文件對不起來',
+      'feat(xianxia): 進度條改靈脈式——細線 + 刻度 + 端點會呼吸的金菱（吐納）。原本是 8px 圓角膠囊實心填充，那是 Material 的語彙，跟「靈脈負荷」這個詞完全不搭。已加 prefers-reduced-motion',
+      'note(xianxia): 徽章字距用 .07em 不是 .14em——字距是中文排版手法，套在拉丁字上會變形，實測「0 running / 0 queued」在 .14em 下明顯被撐開',
+      'note(xianxia): --green/--yellow/--indigo 這三個進度條修飾類別是「每列固定一色」不是嚴重度（Server 恆綠、Worker 恆黃），所以既有那條統一成青玉的規則是對的，沒有「還原成三色」',
+      'note(xianxia): 刻意沒做「超過門檻改成脈動」——markup 裡沒有門檻狀態，要做得先有那個訊號，那是資料層不在純樣式範圍',
+      'note(xianxia): CodeX 生成的靈氣貼圖實測後不採用於常駐進度條——3~5px 高度下只剩一條淡線，要 14px 以上才看得出質感，為此加高會讓素材反過來主導版面。素材保留給強調態/儀式態',
+    ],
+  },
   {
     version: '4.76.0',
     date: '2026-08-30',
