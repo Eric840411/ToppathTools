@@ -658,7 +658,7 @@ export function JiraCreateStep3(props: {
                                     style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 4, border: '1px solid #2d4a2d', cursor: 'pointer', flexShrink: 0 }}
                                     onClick={() => setDescLightboxSrc(`/api/jira/attachment-cache/${att.cacheId}`)} />
                                 ) : (
-                                  <span key={ai} title={att.filename} style={{ fontSize: 10, color: '#d29922', padding: '2px 4px', background: 'rgba(210,153,34,0.1)', border: '1px solid rgba(210,153,34,0.3)', borderRadius: 4 }}>啟</span>
+                                  <span key={ai} title={att.filename} style={{ fontSize: 10, color: '#d29922', padding: '2px 4px', background: 'rgba(210,153,34,0.1)', border: '1px solid rgba(210,153,34,0.3)', borderRadius: 4 }}>影片</span>
                                 )
                               ))}
                               {(descAttachMap[rowIdx] ?? []).filter(a => !a.cacheId).map((att, ai) => (

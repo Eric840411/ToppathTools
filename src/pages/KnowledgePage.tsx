@@ -416,7 +416,7 @@ export function KnowledgePage() {
                           doc.type === 'pdf' ? 'badge--error' :
                           doc.type === 'google_doc' ? 'badge--ok' :
                           doc.type === 'file_upload' ? 'badge--warn' : ''
-                        }`} style={{ fontSize: 11, padding: '2px 7px' }}>
+                        }`} style={{ fontSize: 11, padding: '2px 7px', whiteSpace: 'nowrap' }}>
                           {TYPE_LABELS[doc.type]}
                         </span>
                       </td>
@@ -431,7 +431,7 @@ export function KnowledgePage() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: stale && doc.cached_at ? '#fbbf24' : '#94a3b8', whiteSpace: 'nowrap' }}>
                           <span style={{ width: 7, height: 7, borderRadius: '50%', background: doc.cached_at ? (stale ? '#fbbf24' : '#22c55e') : '#64748b', flexShrink: 0 }} />
                           {doc.cached_at
-                            ? `${fmtSize(doc.content_length)} · ${fmtDate(doc.cached_at)}${stale ? ' 警' : ''}`
+                            ? `${fmtSize(doc.content_length)} · ${fmtDate(doc.cached_at)}${stale ? '（已過期）' : ''}`
                             : '無快取'}
                         </div>
                       </td>
@@ -652,7 +652,11 @@ function FolderTab({ label, count, color, active, onClick, onDelete }: {
         {color && <span style={{ width: 9, height: 9, borderRadius: '50%', background: color, flexShrink: 0 }} />}
         {label}
         <span style={{
-          fontSize: 11, borderRadius: 9, padding: '0 6px', minWidth: 18, textAlign: 'center',
+          // 只給 padding 的話，數字的垂直位置是由父層 line-height 決定的，看起來會偏下。
+          // 用 inline-flex 置中並給固定高度才會真的在圓圈正中間。
+          fontSize: 11, borderRadius: 9, padding: '0 6px', minWidth: 18,
+          height: 18, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          lineHeight: 1,
           background: active ? (color ? `${color}33` : 'rgba(99,102,241,.25)') : '#1e293b',
           color: active ? (color ?? '#a5b4fc') : '#94a3b8',
         }}>{count}</span>

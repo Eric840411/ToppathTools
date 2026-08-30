@@ -1025,7 +1025,7 @@ export function AutoSpinPage() {
                       title="從帳號池選取"
                       style={{ fontSize: 13, padding: '4px 8px', flexShrink: 0, color: '#2563eb' }}
                       onClick={() => setShowUrlPicker(true)}>
-                      冊
+                      選取
                     </button>
                   </div>
                   {showUrlPicker && (
@@ -1538,7 +1538,7 @@ export function AutoSpinPage() {
                         }}>
                           {EVENT_LABEL[r.event] ?? r.event}
                         </span>
-                        {r.isAnomaly ? ' 警' : ''}
+                        {r.isAnomaly ? '（異常）' : ''}
                       </td>
                       <td style={{ padding: '6px 10px', color: '#94a3b8' }}>{r.note || '—'}</td>
                     </tr>

@@ -685,9 +685,9 @@ function ProfilesPanel() {
 const statusIcon = (s?: string) => {
   if (s === 'pass') return '通過'
   if (s === 'fail') return '失敗'
-  if (s === 'warn') return '警'
-  if (s === 'skip') return '⏭'
-  return '訊'
+  if (s === 'warn') return '警告'
+  if (s === 'skip') return '略過'
+  return '未知'
 }
 
 const statusClass = (s?: string) => {
@@ -769,7 +769,7 @@ function AudioPlayer({ machineCode, sessionId }: { machineCode: string; sessionI
         onClick={e => { e.stopPropagation(); setOpen(true) }}
         style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, padding: 0, lineHeight: 1 }}
       >
-        聲
+        播放
       </button>
     )
   }
@@ -1331,7 +1331,9 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
           background: 'rgba(251,191,36,0.08)', border: '1.5px solid rgba(251,191,36,0.35)', borderRadius: 8,
           padding: '10px 16px', marginBottom: 12, fontSize: 13,
         }}>
-          <span style={{ fontSize: 16 }}>迅</span>
+          {/* 原本是一個意義不明的「迅」字（emoji 移除後的殘骸）。改成純色圓點，
+              警告的語意由旁邊那句話跟整塊的黃色底色表達，不需要一個看不懂的字 */}
+          <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', background: '#fbbf24', flexShrink: 0 }} />
           <span style={{ flex: 1, color: '#fbbf24' }}>
             <strong>目前有測試正在進行中。</strong>若要查看即時進度，請點擊「觀看」加入廣播頻道。
           </span>
@@ -1559,7 +1561,7 @@ export function MachineTestPage({ account }: { account: AccountInfo | null }) {
                     style={{ fontSize: 13, padding: '4px 8px', flexShrink: 0, color: '#2563eb' }}
                     disabled={running}
                     onClick={() => setUrlPickerOpen(i)}>
-                    冊
+                    選取
                   </button>
                   {lobbyUrls.length > 1 && (
                     <button type="button" className="btn-ghost"

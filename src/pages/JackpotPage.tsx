@@ -306,7 +306,7 @@ export function JackpotPage() {
                               ? val.toLocaleString()
                               : <span style={{ color: '#cbd5e1' }}>—</span>}
                             {!alertOn && (
-                              <span title="Lark 告警已關閉" style={{ marginLeft: 4, fontSize: 10, color: '#94a3b8' }}>靜</span>
+                              <span title="Lark 告警已關閉" style={{ marginLeft: 4, fontSize: 10, color: '#94a3b8' }}>已靜音</span>
                             )}
                           </td>
                         )

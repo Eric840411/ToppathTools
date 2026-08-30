@@ -555,7 +555,7 @@ export function JiraBatchEditTab(props: {
                                         style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 4, border: '1px solid #2d4a2d', cursor: 'pointer', flexShrink: 0 }}
                                         onClick={() => setEditDescLightboxSrc(`/api/jira/attachment-cache/${att.cacheId}`)} />
                                     ) : (
-                                      <span key={ai} title={att.filename} style={{ fontSize: 10, color: '#d29922', padding: '2px 4px', background: 'rgba(210,153,34,0.1)', border: '1px solid rgba(210,153,34,0.3)', borderRadius: 4 }}>啟</span>
+                                      <span key={ai} title={att.filename} style={{ fontSize: 10, color: '#d29922', padding: '2px 4px', background: 'rgba(210,153,34,0.1)', border: '1px solid rgba(210,153,34,0.3)', borderRadius: 4 }}>影片</span>
                                     )
                                   ))}
                                   {issueAtts.filter(a => !a.cacheId).map((att, ai) => (

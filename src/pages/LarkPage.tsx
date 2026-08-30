@@ -646,10 +646,10 @@ export function LarkPage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
                       <span className="src-card-label">規格書 {idx + 1}</span>
                       <div style={{ display: 'flex', gap: 4 }}>
                         {([
-                          { key: 'lark',  label: 'Lark Wiki',   emoji: '頁', icon: 'wiki'  as const },
-                          { key: 'file',  label: 'PDF / Word',  emoji: '附', icon: 'file'  as const },
-                          { key: 'gdocs', label: 'Google 文檔', emoji: '網', icon: 'gdocs' as const },
-                        ] as { key: SpecSource; label: string; emoji: string; icon: 'wiki' | 'file' | 'gdocs' }[]).map(({ key, label, icon }) => (
+                          { key: 'lark',  label: 'Lark Wiki',  icon: 'wiki'  as const },
+                          { key: 'file',  label: 'PDF / Word', icon: 'file'  as const },
+                          { key: 'gdocs', label: 'Google 文檔', icon: 'gdocs' as const },
+                        ] as { key: SpecSource; label: string; icon: 'wiki' | 'file' | 'gdocs' }[]).map(({ key, label, icon }) => (
                           <button key={key} type="button"
                             onClick={() => updateSource(src.id, { type: key, url: '', file: undefined })}
                             className={`src-type-btn${src.type === key ? ' active' : ''}`}
@@ -742,10 +742,10 @@ export function LarkPage({ themeMode }: { themeMode: 'classic' | 'xianxia' }) {
                       <span className="src-card-label">規格書 {idx + 1}</span>
                       <div style={{ display: 'flex', gap: 4 }}>
                         {([
-                          { key: 'lark',  label: 'Lark Wiki',  emoji: '頁', icon: 'wiki'  as const },
-                          { key: 'file',  label: 'PDF / Word', emoji: '附', icon: 'file'  as const },
-                          { key: 'gdocs', label: 'Google 文檔', emoji: '網', icon: 'gdocs' as const },
-                        ] as { key: SpecSource; label: string; emoji: string; icon: 'wiki' | 'file' | 'gdocs' }[]).map(({ key, label, icon }) => (
+                          { key: 'lark',  label: 'Lark Wiki', icon: 'wiki'  as const },
+                          { key: 'file',  label: 'PDF / Word', icon: 'file'  as const },
+                          { key: 'gdocs', label: 'Google 文檔', icon: 'gdocs' as const },
+                        ] as { key: SpecSource; label: string; icon: 'wiki' | 'file' | 'gdocs' }[]).map(({ key, label, icon }) => (
                           <button
                             key={key}
                             type="button"

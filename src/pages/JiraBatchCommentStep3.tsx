@@ -483,7 +483,6 @@ export function JiraBatchCommentStep3(props: {
                                           style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 4, border: '1px solid #2d3f55' }} />
                                       ) : (
                                         <div style={{ width: 60, height: 60, background: 'rgba(234,179,8,0.08)', border: '1px solid rgba(234,179,8,0.4)', borderRadius: 4, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontSize: 18, gap: 2, cursor: 'default' }}>
-                                          <span>啟</span>
                                           <span style={{ fontSize: 9, color: '#f59e0b' }}>未上傳</span>
                                         </div>
                                       )}

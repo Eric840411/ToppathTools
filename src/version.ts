@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.75.0'
+export const APP_VERSION = '4.75.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.75.1',
+    date: '2026-08-30',
+    changes: [
+      'fix(ui): 清掉先前移除 emoji 時留下的孤立單字標籤——AutoSpin 戰績的「警」改成「（異常）」、機測狀態的「警」/「訊」改成「警告」/「未知」（順帶把還是符號的「⏭」改成「略過」）、Jira 帳號 PIN 鈕的「鎖」/「啟」改成「已鎖」/「未設」',
+      'fix(knowledge): 類型徽章加 nowrap 不再斷行；快取狀態的「 警」改成「（已過期）」；分類數字改用 inline-flex 置中，不再偏下',
+      'chore(ui-checks): 新增 orphan-glyph-scan.mjs 掃這類殘骸，並分成「畫面上看得到」與「只在字串裡」兩層——後者多半是欄位名或 log 關鍵字，混在一起看會有 100 多筆雜訊而失去意義',
+      'note(ui-checks): 掃描器自己會先用已知樣本驗三條 regex——它的 regex 被 shell 吃掉反向參照三次，每次症狀都是「安靜地回報乾淨」，而那正是最難察覺的失敗方式。驗不過就直接 exit 2，不准輸出「沒問題」',
+      'note(ui-checks): 這輪第一次跑回報「沒有可疑」是假的；修好 regex 後同一份程式碼掃出 103 處。工具說乾淨不等於乾淨',
+    ],
+  },
   {
     version: '4.75.0',
     date: '2026-08-30',

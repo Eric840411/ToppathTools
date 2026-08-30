@@ -381,14 +381,14 @@ export function JiraAccountModal({ currentEmail, onClose, onSelect, onClearCurre
                         <button type="button" title={acc.hasPIN ? '修改 PIN' : '設定 PIN'}
                           onClick={() => openPinSetup(acc.email)}
                           style={{ padding: '0 10px', background: acc.hasPIN ? '#fef9c3' : 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: acc.hasPIN ? '#92400e' : '#94a3b8' }}>
-                          {acc.hasPIN ? '鎖' : '啟'}
+                          {acc.hasPIN ? '已鎖' : '未設'}
                         </button>
                         {isAdmin && (
                           <>
                             <button type="button" title="修改角色"
                               onClick={() => roleEditTarget === acc.email ? setRoleEditTarget(null) : openRoleEdit(acc)}
                               style={{ padding: '0 10px', background: roleEditTarget === acc.email ? '#ede9fe' : 'none', border: 'none', borderLeft: '1px solid #f1f5f9', cursor: 'pointer', fontSize: 13, color: '#6366f1' }}>
-                              面
+                              角色
                             </button>
                             <button type="button"
                               disabled={deleteLoading === acc.email}

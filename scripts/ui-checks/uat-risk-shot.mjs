@@ -1,0 +1,25 @@
+import { chromium } from 'playwright';
+import Database from 'better-sqlite3';
+const db = new Database('../../server/data.db');
+const sess = db.prepare('SELECT sid FROM auth_sessions WHERE expires_at > ? ORDER BY created_at DESC LIMIT 1').get(Date.now());
+const browser = await chromium.launch();
+const ctx = await browser.newContext({ viewport: { width: 1700, height: 1000 } });
+await ctx.addCookies([{ name: 'toppath_auth', value: sess.sid, domain: 'localhost', path: '/' }]);
+const page = await ctx.newPage();
+await page.goto('http://localhost:3000/', { waitUntil: 'networkidle' });
+await page.evaluate(() => localStorage.setItem('toppath-theme-mode', 'classic'));
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForTimeout(1500);
+await page.locator('text=OSM Tools').first().click().catch(()=>{});
+await page.waitForTimeout(700);
+await page.locator('text=UAT 整合測試').first().click().catch(()=>{});
+await page.waitForTimeout(3500);
+const el = page.locator('.uat-risk-queue').first();
+if (!await el.count()) { console.log('❌ 找不到風險佇列'); await browser.close(); process.exit(1) }
+await el.scrollIntoViewIfNeeded();
+await page.waitForTimeout(500);
+await el.screenshot({ path: 'uat-risk.png' });
+const t = await el.innerText();
+console.log('風險佇列文字：');
+console.log(t.split('\n').slice(0, 22).map(x => '  ' + x).join('\n'));
+await browser.close();
