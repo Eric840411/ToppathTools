@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.74.0'
+export const APP_VERSION = '4.75.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.75.0',
+    date: '2026-08-30',
+    changes: [
+      'feat(uat): 風險佇列改成設計圖版本——每欄固定顯示 5 筆、三欄等高，超出的用「查看全部 N 筆」壓縮成一行連結',
+      'feat(uat): 新增查看全部彈框，逐筆完整顯示失敗原因；標題列另有「查看全部」把三類合在一起看',
+      'note(uat): 等高是重點——全部攤開的話待人工那欄會拉很長、另外兩欄空著，一眼看過去反而看不出三類的比重',
+      'note(uat): 不用「…另有 N 筆」那種寫法——那句話沒有出口，使用者知道還有卻不知道去哪看',
+    ],
+  },
   {
     version: '4.74.0',
     date: '2026-08-30',

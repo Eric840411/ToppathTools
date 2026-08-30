@@ -852,3 +852,57 @@
 .uat-backend-plan .uat-backend-flow-foot { display: block; font-size: 11px; line-height: 1.7; }
 .uat-backend-plan .uat-backend-flow-foot > * { display: block; width: 100%; }
 .uat-backend-plan .uat-backend-flow-foot button { width: auto; margin-top: 6px; }
+
+/* ─── 風險佇列改成設計圖版本（2026-08-30）──────────────────────────────────
+   固定顯示 5 筆、三欄等高、超出的收進「查看全部 N 筆」。
+   **等高是重點**：全部攤開的話待人工那欄會拉到很長、另外兩欄空著，
+   一眼看過去反而看不出三類的比重。 */
+.uat-risk-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.uat-risk-all, .uat-risk-more-btn {
+  font: 600 11.5px/1 'Noto Sans TC', sans-serif; padding: 5px 10px; border-radius: 6px; cursor: pointer;
+  background: transparent; border: 1px solid var(--uat-border); color: var(--uat-primary);
+}
+.uat-risk-all:hover, .uat-risk-more-btn:hover { border-color: var(--uat-primary); }
+.uat-risk-all i, .uat-risk-more-btn i { font-style: normal; margin-left: 3px; }
+
+/* 三欄等高：內容區用 flex 撐開，「查看全部」永遠貼在底 */
+.uat-risk-col { display: flex; flex-direction: column; }
+.uat-risk-col ul { flex: 1; }
+.uat-risk-more-btn { align-self: flex-start; margin-top: 9px; width: 100%; text-align: left; }
+
+/* 一列一筆、不換行。原因收進 title 與彈框——攤在清單上只會把三欄高度拉歪，
+   而且掃描時看的是「哪個模組哪一條」，不是原因全文 */
+.uat-risk-col li {
+  display: flex; align-items: baseline; gap: 6px;
+  white-space: nowrap; overflow: hidden;
+}
+.uat-risk-col li > span { overflow: hidden; text-overflow: ellipsis; }
+.uat-risk-col li em { flex-shrink: 0; }
+
+/* 欄標記用 CSS 畫，不用 emoji——專案規範禁用原生 emoji（見 docs/visual-style.md） */
+.uat-risk-mark { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; background: currentColor; }
+.uat-risk-col.is-failed .uat-risk-mark { color: var(--uat-danger); }
+.uat-risk-col.is-manual .uat-risk-mark { color: var(--uat-warn, #fbbf24); }
+.uat-risk-col.is-flaky .uat-risk-mark { color: var(--uat-note, #a78bfa); }
+.uat-risk-col.is-failed h4 b { color: var(--uat-danger); }
+.uat-risk-col.is-manual h4 b { color: var(--uat-warn, #fbbf24); }
+.uat-risk-col.is-flaky h4 b { color: var(--uat-note, #a78bfa); }
+
+/* ── 查看全部彈框 ── */
+.uat-risk-modal { max-width: 860px; width: min(860px, 92vw); }
+.uat-risk-modal-list { max-height: 62vh; overflow: auto; display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.uat-risk-modal-row {
+  padding: 9px 11px; border: 1px solid var(--uat-border); border-left: 3px solid var(--uat-border);
+  border-radius: 7px; background: var(--uat-panel-soft);
+}
+.uat-risk-modal-row.is-failed { border-left-color: var(--uat-danger); }
+.uat-risk-modal-row.is-manual { border-left-color: var(--uat-warn, #fbbf24); }
+.uat-risk-modal-row.is-flaky { border-left-color: var(--uat-note, #a78bfa); }
+.uat-risk-modal-main { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+.uat-risk-modal-kind { font-size: 10.5px; color: var(--uat-muted); }
+.uat-risk-modal-main em {
+  font-style: normal; font-size: 10.5px; padding: 1px 6px; border-radius: 4px;
+  color: var(--uat-muted); border: 1px solid var(--uat-border); background: var(--uat-panel);
+}
+/* 原因在彈框裡才完整顯示——這是彈框存在的理由，只把清單變長沒有意義 */
+.uat-risk-modal-why { margin: 5px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--uat-muted); word-break: break-word; }

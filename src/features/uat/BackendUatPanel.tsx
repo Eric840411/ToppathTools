@@ -98,6 +98,10 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const [runTiming, setRunTiming] = useState<{ durationMs: number; deltaMs: number | null } | null>(null)
   const [coverage, setCoverage] = useState<{ total: number; machine: number; manual: number; uncovered: number; machinePercent: number } | null>(null)
   // 模組庫預設收起：它是「加新模組」的管理動作，本次要跑什麼才是主角
+  // 設計圖每欄固定顯示 5 筆，超出的收進「查看全部」。**三欄等高才掃得快**——
+  // 全部攤開的話待人工那欄會拉到很長，另外兩欄空著，反而看不出比重。
+  const RISK_PREVIEW = 5
+  const [riskModal, setRiskModal] = useState<null | 'all' | 'failed' | 'manual' | 'flaky'>(null)
   const [libraryOpen, setLibraryOpen] = useState(false)
   const [netStats, setNetStats] = useState<UatStatsPayload | null>(null)
   const [statsAt, setStatsAt] = useState<number | null>(null)
@@ -540,6 +544,20 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
     return () => { cancelled = true }
   }, [status])
 
+  // 三欄形狀不同（失敗來自執行歷史、需人工來自靜態分類、flaky 來自跨輪統計），
+  // 先正規化成同一個形狀，清單與彈框才不用各寫一份渲染
+  const riskItems = {
+    failed: riskFailed.map(r => ({ id: r.record_id, group: r.subtype, text: r.task, why: r.reasons })),
+    manual: riskManual.map(r => ({ id: r.recordId, group: r.sub, text: r.task, why: r.reason })),
+    flaky: riskFlaky.map(r => ({ id: r.record_id, group: r.subtype, text: r.task, why: `最近幾輪失敗 ${r.fails} 次` })),
+  }
+  const riskTotal = riskItems.failed.length + riskItems.manual.length + riskItems.flaky.length
+  const RISK_COLS = [
+    { key: 'failed' as const, label: '失敗的測試', scope: '這一輪跑出來的', empty: status === 'done' ? '這一輪沒有失敗' : '跑完才知道' },
+    { key: 'manual' as const, label: '需人工確認', scope: '機器判不了，跟這輪跑不跑無關', empty: '沒有' },
+    { key: 'flaky' as const, label: 'Flaky 候選', scope: '最近幾輪裡有過有敗', empty: '歷史還不夠，或目前沒有' },
+  ]
+
   const summary = logs.reduce((result, line) => {
     const match = line.match(/通過:\s*(\d+).*需人工:\s*(\d+).*跳過:\s*(\d+).*失敗:\s*(\d+)/)
     return match ? { pass: +match[1], manual: +match[2], skip: +match[3], fail: +match[4] } : result
@@ -701,54 +719,45 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
               失敗＝這一輪的實際結果／需人工＝靜態分類（跟這輪跑不跑無關）／Flaky＝跨輪歷史
             不標的話使用者會以為三個都是「這次跑出來的」。 */}
         <section className="uat-panel uat-risk-queue">
-          <div className="uat-section-title">
-            <span>{xianxia ? 'RISK QUEUE' : 'RISK QUEUE'}</span>
-            <h3>{xianxia ? '待處危局' : '風險佇列'} <small>{riskFailed.length + riskManual.length + riskFlaky.length}</small></h3>
-            <p>這裡列的是「需要人處理」的，不是統計數字。</p>
+          <div className="uat-risk-head">
+            <div className="uat-section-title">
+              <span>RISK QUEUE</span>
+              <h3>{xianxia ? '待處危局' : '風險佇列'} <small>{riskTotal}</small></h3>
+              <p>這裡列的是「需要人處理」的，不是統計數字。</p>
+            </div>
+            {riskTotal > 0 && (
+              <button type="button" className="uat-risk-all" onClick={() => setRiskModal('all')}>
+                查看全部 <i>›</i>
+              </button>
+            )}
           </div>
           <div className="uat-risk-cols">
-            <div className="uat-risk-col is-fail">
-              <h4>失敗的測試 <b>{riskFailed.length}</b></h4>
-              <small>這一輪跑出來的</small>
-              {riskFailed.length === 0
-                ? <p className="uat-risk-empty">{status === 'done' ? '這一輪沒有失敗' : '跑完才知道'}</p>
-                : <ul>{riskFailed.slice(0, 8).map(item => (
-                    <li key={item.record_id} title={item.reasons}>
-                      <em>{item.subtype}</em>{item.task.slice(0, 26)}
-                      {item.reasons && <span className="uat-risk-why">{item.reasons.slice(0, 40)}</span>}
-                    </li>))}</ul>}
-              {riskFailed.length > 8 && <p className="uat-risk-more">…另有 {riskFailed.length - 8} 筆</p>}
-            </div>
-
-            <div className="uat-risk-col is-manual">
-              <h4>需人工確認 <b>{riskManual.length}</b></h4>
-              <small>機器判不了，跟這輪跑不跑無關</small>
-              {riskManual.length === 0
-                ? <p className="uat-risk-empty">沒有</p>
-                : <ul>{riskManual.slice(0, 8).map(item => (
-                    <li key={item.recordId} title={item.task}>
-                      <em>{item.sub}</em>{item.task.slice(0, 26)}
-                      <span className="uat-risk-why">{item.reason}</span>
-                    </li>))}</ul>}
-              {riskManual.length > 8 && <p className="uat-risk-more">…另有 {riskManual.length - 8} 筆</p>}
-            </div>
-
-            <div className="uat-risk-col is-flaky">
-              <h4>Flaky 候選 <b>{riskFlaky.length}</b></h4>
-              <small>最近幾輪裡有過有敗</small>
-              {riskFlaky.length === 0
-                ? <p className="uat-risk-empty">歷史還不夠，或目前沒有</p>
-                : <ul>{riskFlaky.slice(0, 8).map(item => (
-                    <li key={item.record_id} title={item.task}>
-                      <em>{item.subtype}</em>{item.task.slice(0, 26)}
-                      <span className="uat-risk-why">失敗 {item.fails} 次</span>
-                    </li>))}</ul>}
-              {riskFlaky.length > 8 && <p className="uat-risk-more">…另有 {riskFlaky.length - 8} 筆</p>}
-            </div>
+            {RISK_COLS.map(col => {
+              const items = riskItems[col.key]
+              return (
+                <div className={`uat-risk-col is-${col.key}`} key={col.key}>
+                  <h4><span className="uat-risk-mark" aria-hidden="true" />{col.label} <b>{items.length}</b></h4>
+                  <small>{col.scope}</small>
+                  {items.length === 0
+                    ? <p className="uat-risk-empty">{col.empty}</p>
+                    : <ul>{items.slice(0, RISK_PREVIEW).map(item => (
+                        // 一列一筆、不換行——設計圖那欄是掃描用的，原因收進 title 與彈框。
+                        // 全部攤開的話三欄高度會差很多，掃起來反而慢
+                        <li key={item.id} title={`${item.text}\n${item.why}`}>
+                          <em>{item.group}</em><span>{item.text}</span>
+                        </li>))}</ul>}
+                  {/* 超過就壓縮成一行連結，不用「…另有 N 筆」——那句話沒有出口，
+                      使用者知道還有卻不知道去哪看 */}
+                  {items.length > RISK_PREVIEW && (
+                    <button type="button" className="uat-risk-more-btn" onClick={() => setRiskModal(col.key)}>
+                      查看全部 {items.length} 筆 <i>›</i>
+                    </button>
+                  )}
+                </div>
+              )
+            })}
           </div>
 
-          {/* 覆蓋率三分法。**刻意不壓成單一百分比**——把待人工灌進去數字會好看但騙人，
-              而且單一數字會被優化：把難驗的標成人工判讀，覆蓋率反而上升。 */}
           {coverage && (
             <div className="uat-coverage-row">
               <span className="uat-coverage-main"><b>{coverage.machinePercent}%</b> 機器驗過</span>
@@ -1020,6 +1029,48 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
 
       {/* 積木編輯器改成彈框：三欄（積木庫／步驟／參數）在工作台的欄位裡怎麼放都太窄，
           彈框才拿得到整個視窗的寬度 */}
+        {/* 「查看全部」的彈框。**一定要 portal**：這個 studio 版面的祖先有
+            backdrop-filter，position: fixed 會被困在容器裡畫不出來——積木編輯器
+            與 TC 選擇器都踩過同一個坑，這是第三次，不要再用一般絕對定位試。 */}
+        {riskModal && createPortal((
+          <div className="uat-studio uat-tc-modal" role="dialog" aria-modal="true"
+            onMouseDown={event => { if (event.target === event.currentTarget) setRiskModal(null) }}>
+            <div className="uat-tc-picker uat-risk-modal">
+              <div className="uat-tc-picker-head">
+                <div>
+                  <span className="uat-net-kicker">RISK QUEUE</span>
+                  <h3>{riskModal === 'all' ? '全部待處理項目' : RISK_COLS.find(c => c.key === riskModal)?.label}</h3>
+                  <small>
+                    {riskModal === 'all'
+                      ? '三類合在一起，每一筆都標了它是哪一類、以及為什麼。'
+                      : RISK_COLS.find(c => c.key === riskModal)?.scope}
+                  </small>
+                </div>
+                <button type="button" className="uat-btn is-quiet" onClick={() => setRiskModal(null)}>關閉</button>
+              </div>
+              <div className="uat-risk-modal-list">
+                {(riskModal === 'all'
+                  ? RISK_COLS.flatMap(c => riskItems[c.key].map(i => ({ ...i, kind: c.key, kindLabel: c.label })))
+                  : riskItems[riskModal].map(i => ({ ...i, kind: riskModal, kindLabel: '' }))
+                ).map(item => (
+                  <div className={`uat-risk-modal-row is-${item.kind}`} key={`${item.kind}-${item.id}`}>
+                    <div className="uat-risk-modal-main">
+                      {item.kindLabel && <b className="uat-risk-modal-kind">{item.kindLabel}</b>}
+                      <em>{item.group}</em>
+                      <span>{item.text}</span>
+                    </div>
+                    {/* 原因在這裡才完整顯示——這是彈框存在的理由，只是把清單變長沒有意義 */}
+                    {item.why && <p className="uat-risk-modal-why">{item.why}</p>}
+                  </div>
+                ))}
+                {(riskModal === 'all' ? riskTotal : riskItems[riskModal].length) === 0 && (
+                  <div className="uat-backend-tc-more">目前沒有這一類的項目。</div>
+                )}
+              </div>
+            </div>
+          </div>
+        ), document.body)}
+
       {selectedTc && (
         <BackendTcEditor
           tc={selectedTc}
