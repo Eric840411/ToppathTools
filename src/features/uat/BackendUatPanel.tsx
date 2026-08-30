@@ -638,7 +638,9 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
               標題列本來就是 space-between、右邊留著空插槽，這裡剛好補上。 */}
           <button type="button" className="uat-btn is-quiet uat-plan-edit"
             onClick={() => setLibraryOpen(open => !open)}>
-            {libraryOpen ? '收起模組庫' : (xianxia ? '編輯術式計畫' : '編輯模組計畫')}</button>
+            {/* 改成彈框之後這裡不再切換文字：彈框自己有「關閉」，
+                而且它一開就蓋住這顆按鈕，「收起模組庫」根本看不到 */}
+            {xianxia ? '編輯術式計畫' : '編輯模組計畫'}</button>
         </div>
         <div className="uat-backend-module-list">
           <article className="uat-backend-module is-fixed is-cyan"><span className="uat-backend-module-grip" aria-hidden="true"><i /><i /><i /></span><div><strong>{xianxia ? '共用登入傀儡' : '共用登入與初始化'}</strong><small>取得 Lark token、載入 TC registry、啟動 Chromium 並登入 CP Backend</small></div><em>固定</em></article>
@@ -677,8 +679,26 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
         </div>
         <footer className="uat-backend-flow-foot"><span>每個模組都是獨立實例，設定會儲存在此瀏覽器並傳入新的 runner process。{!tcScanned && tcs.length > 0 && ` TC 清單來自 ${tcSnapshotAt ? tcSnapshotAt.slice(0, 10) + ' 的' : ''}離線快照，掃描後會補上之後新增的。`}</span><b>{groups ? `已掃描 ${total} TC` : '尚未掃描 TC'}</b></footer>
 
-        {libraryOpen && (
-          <div className="uat-backend-library is-inline">
+        {/* 術式庫改成彈框（2026-08-30 使用者要求）。原本是在左欄裡往下展開，
+            整包動作列＋模板清單接在說明文字後面，把欄位拉得很長，
+            而且它是「管理／編輯」的情境，跟旁邊「本次要跑什麼」的閱讀動線是分開的。
+
+            ⚠️ 一定要用 createPortal 掛到 body：這個版面的祖先有 backdrop-filter，
+               會把 position: fixed 困在容器裡，不走 portal 的彈框會被裁掉。
+               （這頁的積木編輯器與風險佇列彈框都是為了同一個原因用 portal。） */}
+        {libraryOpen && createPortal((
+          <div className="uat-studio uat-tc-modal" role="dialog" aria-modal="true"
+            onMouseDown={event => { if (event.target === event.currentTarget) setLibraryOpen(false) }}>
+          <div className="uat-tc-picker uat-backend-library-modal">
+            <div className="uat-tc-picker-head">
+              <div>
+                <span className="uat-net-kicker">{xianxia ? 'SPELL LIBRARY' : 'MODULE LIBRARY'}</span>
+                <h3>{xianxia ? '編輯術式計畫' : '編輯模組計畫'}</h3>
+                <small>加入、移除、匯入匯出這次要跑的模組</small>
+              </div>
+              <button type="button" className="uat-btn is-quiet" onClick={() => setLibraryOpen(false)}>關閉</button>
+            </div>
+          <div className="uat-backend-library">
 <div className="uat-backend-flow-actions">
             <button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={addCustomModule}>新增模組</button>
             <button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => { const plan = createDefaultBackendPlan(); update({ modulePlan: plan }); setSelectedModuleId(plan[0]?.instanceId ?? null) }}>還原預設</button>
@@ -701,7 +721,9 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
           </section>
         ))}
           </div>
-        )}
+          </div>
+          </div>
+        ), document.body)}
       </aside>
 
       <main className="uat-backend-center">

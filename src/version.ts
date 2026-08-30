@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.79.4'
+export const APP_VERSION = '4.80.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.80.0',
+    date: '2026-08-30',
+    changes: [
+      'feat(uat): 「編輯術式計畫」改成彈框開啟。原本是在左欄裡往下展開，整包動作列＋模板清單接在說明文字後面，把欄位拉得很長；而它是「管理／編輯」的情境，跟旁邊「本次要跑什麼」的閱讀動線本來就該分開',
+      'note(uat): 一定要用 createPortal 掛到 body——這個版面的祖先有 backdrop-filter，會把 position:fixed 困在容器裡，不走 portal 的彈框會被裁掉。這頁的積木編輯器與風險佇列彈框都是為了同一個原因用 portal',
+      'note(uat): 按鈕文字不再在「編輯／收起」之間切換——彈框一開就蓋住那顆按鈕，切換後的文字根本看不到',
+    ],
+  },
   {
     version: '4.79.4',
     date: '2026-08-30',

@@ -935,3 +935,19 @@
 }
 /* 原因在彈框裡才完整顯示——這是彈框存在的理由，只把清單變長沒有意義 */
 .uat-risk-modal-why { margin: 5px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--uat-muted); word-break: break-word; }
+
+/* ── 術式庫彈框（2026-08-30）──
+   原本 `.uat-backend-library.is-inline` 是在左欄裡往下展開，把欄位拉得很長。
+   改成彈框之後沿用 `.uat-tc-picker` 那套外框，只調寬度與內部捲動範圍。 */
+.uat-backend-library-modal { max-width: 760px; width: min(760px, 92vw); }
+
+/* 內容自己捲，不要讓整個彈框長到超出視窗——模板清單有三組、加起來很長 */
+.uat-backend-library-modal .uat-backend-library {
+  max-height: 68vh;
+  overflow-y: auto;
+  margin-top: 12px;
+  padding-right: 4px;
+}
+
+/* 彈框裡不需要再重複一次「術式庫」標題——彈框自己的標題已經寫了 */
+.uat-backend-library-modal .uat-pane-heading { display: none; }
