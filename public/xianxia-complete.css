@@ -1472,6 +1472,10 @@ a > .xianxia-icon {
   margin: 10px 0 7px !important;
   font-size: clamp(28px, 3.2vw, 42px) !important;
   letter-spacing: .1em !important;
+  /* App.css 的 .dashboard-intro h1 指定 font-weight: 760，那是普通版漸層標題用的。
+     Noto Serif TC 沒有 760 這個字重，瀏覽器會拿 700 合成假粗體，大字級下邊緣會糊。
+     這裡蓋成真的有的 900——選擇器要跟 App.css 同樣具體才蓋得掉，光寫 h1 會輸 */
+  font-weight: 900 !important;
 }
 .dashboard-intro h1::before { display: none !important; }
 .dashboard-intro p {
@@ -2212,4 +2216,48 @@ input[type="radio"] {
   .realm-art::after,
   .realm-art img,
   .cultivation-hero__seal { animation: none !important; }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   排版修正（2026-08-30）
+   
+   三個實測到的問題：
+   1. 整份 CSS 都在用 --xx-serif，但先前沒有任何地方載入 Noto Serif TC。
+      字體本身已改由 App.tsx 跟著主題一起掛（沒裝的機器原本會掉到新細明體，
+      等於每個人看到的修仙版長得不一樣）。
+   2. button 完全沒有 font-family 規則 —— 表單控制項不會繼承 body 的字體，
+      瀏覽器會給 OS 預設，實測是 Arial，連中文 fallback 都沒有。
+   3. 標題階層裡只有 h1 是襯線，h2 以下是 sans，所以往下捲一屏
+      襯線的氣質就消失了。
+   ══════════════════════════════════════════════════════════════════ */
+
+/* 表單控制項不繼承字體，必須明講。這條要放在前面，讓後面更具體的規則蓋得掉 */
+button,
+input,
+select,
+textarea,
+optgroup {
+  font-family: inherit;
+}
+
+/* 區塊標題一律襯線。字距用 .08em 這種保守值——再大會把既有的欄寬撐開，
+   這是共用外殼，不是只有 Dashboard 在用 */
+h1,
+h2,
+h3,
+.card-title,
+.section-title {
+  font-family: var(--xx-serif);
+  letter-spacing: .08em;
+}
+
+/* Noto Serif TC 的實體字重只有 200~900 的整百級。先前指定 760 這種中間值，
+   瀏覽器會拿 700 合成假粗體，邊緣會糊；直接用真的有的 900 */
+h1 {
+  font-weight: 900;
+}
+
+h2,
+h3 {
+  font-weight: 600;
 }

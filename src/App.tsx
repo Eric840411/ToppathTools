@@ -384,7 +384,9 @@ function App() {
     document.documentElement.dataset.themeMode = themeMode
     localStorage.setItem('toppath-theme-mode', themeMode)
     const LINK_ID = 'xianxia-theme-link'
+    const FONT_ID = 'xianxia-font-link'
     const existing = document.getElementById(LINK_ID) as HTMLLinkElement | null
+    const existingFont = document.getElementById(FONT_ID) as HTMLLinkElement | null
     if (themeMode === 'xianxia') {
       if (!existing) {
         const link = document.createElement('link')
@@ -393,8 +395,20 @@ function App() {
         link.href = '/xianxia-complete.css'
         document.head.appendChild(link)
       }
+      // 修仙版整份 CSS 都在用 --xx-serif（"Noto Serif TC"），但先前從來沒有載入過這個
+      // 字體——有裝的機器看起來是對的，沒裝的會一路 fallback 到新細明體，等於每個人
+      // 看到的修仙版長得不一樣。跟著主題一起掛，普通版不用付這個成本。
+      // 載不到（離線／被擋）時就是退回本機字體，跟先前行為相同，不會更糟。
+      if (!existingFont) {
+        const font = document.createElement('link')
+        font.id = FONT_ID
+        font.rel = 'stylesheet'
+        font.href = 'https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;500;600;700;900&display=swap'
+        document.head.appendChild(font)
+      }
     } else {
       existing?.remove()
+      existingFont?.remove()
     }
   }, [themeMode])
 

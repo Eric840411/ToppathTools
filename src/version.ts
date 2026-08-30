@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.75.1'
+export const APP_VERSION = '4.76.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.76.0',
+    date: '2026-08-30',
+    changes: [
+      'fix(xianxia): 修仙版整份 CSS 都在用 --xx-serif（Noto Serif TC），但先前從來沒有任何地方載入這個字體——有裝的機器看起來是對的，沒裝的會掉到新細明體，等於每個人看到的修仙版不是同一個東西。改成跟主題一起掛 Google Fonts，普通版不載',
+      'fix(xianxia): h1 的 font-weight 從 760 改成 900。Noto Serif TC 沒有 760 這個實體字重，瀏覽器是拿 700 合成假粗體，大字級下邊緣會糊（App.css 那條 .dashboard-intro h1 是普通版漸層標題用的，選擇器要同樣具體才蓋得掉）',
+      'fix(xianxia): button/input/select/textarea 補上 font-family: inherit——表單控制項不會繼承 body 字體，先前實測是 Arial，連中文 fallback 都沒有',
+      'fix(xianxia): h2/h3 與區塊標題改用襯線。先前只有 h1 是襯線，往下捲一屏襯線的氣質就消失了',
+      'chore(ui-checks): 新增 xianxia-typography.mjs 量測實際生效的字體',
+      'note(ui-checks): 判斷字體有沒有真的載到，getComputedStyle 跟 document.fonts.check() 兩種都會給假答案——前者不管載沒載到都回報同一個名字，後者對本機字體一律回 true（實測連 Windows 上不存在的 Songti TC 都回 ✅）。可靠的是用 canvas 量文字寬度比對',
+    ],
+  },
   {
     version: '4.75.1',
     date: '2026-08-30',
