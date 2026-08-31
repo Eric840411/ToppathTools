@@ -397,7 +397,12 @@ function App() {
         const link = document.createElement('link')
         link.id = LINK_ID
         link.rel = 'stylesheet'
-        link.href = '/xianxia-complete.css'
+        // ⚠️ 一定要帶版號。這支放在 public/，檔名**沒有 content hash**（Vite 只對
+        //    打包進 bundle 的資源加 hash），而伺服器回 `Cache-Control: max-age=14400`
+        //    —— 也就是改了 CSS 之後，已經開過網站的人最多 4 小時看不到新樣式。
+        //    症狀很難聯想：JS 是 hash 檔名所以立刻更新，CSS 卻是舊的，
+        //    畫面會變成「新功能都在、但樣式停在上一版」。2026-08-31 正式站實際踩到。
+        link.href = `/xianxia-complete.css?v=${APP_VERSION}`
         document.head.appendChild(link)
       }
       // 修仙版整份 CSS 都在用 --xx-serif（"Noto Serif TC"），但先前從來沒有載入過這個

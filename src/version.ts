@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.81.0'
+export const APP_VERSION = '4.81.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.81.1',
+    date: '2026-08-31',
+    changes: [
+      'fix(xianxia): 修仙版 CSS 加上版號查詢字串，改版後不會再拿到快取的舊樣式。這支放在 public/ 所以檔名沒有 content hash（Vite 只對打包進 bundle 的資源加 hash），而伺服器回 Cache-Control: max-age=14400——改了 CSS 之後已經開過網站的人最多 4 小時看不到新樣式',
+      'note(xianxia): 症狀很難聯想：JS 是 hash 檔名所以立刻更新、CSS 卻是舊的，畫面變成「新功能都在、但樣式停在上一版」。2026-08-31 正式站合併後實際踩到——中文徽章/金色數字/修為都上了，只有進度條還是舊的扁平色塊',
+      'note(xianxia): CSS 裡面 url() 引用的圖片仍是固定檔名，之後如果原地換掉同名素材一樣會遇到快取。真的要換內容時建議改檔名，不要原地覆蓋',
+    ],
+  },
   {
     version: '4.81.0',
     date: '2026-08-31',
