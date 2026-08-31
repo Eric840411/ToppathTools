@@ -272,11 +272,26 @@ export function AutoSpinPage() {
   const [rcEnv, setRcEnv] = useState<'osm' | 'gcp'>('osm')
   /** 日期快捷。'custom' 才展開起訖日期輸入 */
   const [rcDatePreset, setRcDatePreset] = useState<'today' | 'yesterday' | '7d' | 'custom'>('yesterday')
+
+  // ⚠️ 預設快捷一定要**同時**把日期填進去。
+  //    只設 preset 不設日期的話，按鈕看起來是選中的、但 rcRangeStart/End 是空字串，
+  //    而 runReconcile() 開頭有 `if (!rcRangeStart || !rcRangeEnd) return` ——
+  //    使用者一載入頁面就按「執行對帳」會**完全沒反應**（請求根本沒發出去），
+  //    只有一行容易錯過的小字提示。實測就是這樣，驗證時發現 reconcile/run 從未被呼叫。
+  useEffect(() => {
+    if (rcRangeStart || rcRangeEnd) return   // 使用者已經動過就不要覆蓋
+    const d = new Date()
+    d.setDate(d.getDate() - 1)               // 對應預設的「昨天」
+    const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    setRcRangeStart(`${day} 00:00:00`)
+    setRcRangeEnd(`${day} 23:59:59`)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [rcRangeStart, setRcRangeStart] = useState('')
   const [rcRangeEnd, setRcRangeEnd] = useState('')
   const [rcMachineType, setRcMachineType] = useState('')
   const [rcPlayerId, setRcPlayerId] = useState('')
-  const [rcResult, setRcResult] = useState<null | { summary: string; details: {status:string;uid:string;time:string;bet:number;win:number;note:string}[]; backendAnomalies: {uid:string;time:string;bet:number;win:number;note:string}[] }>(null)
+  const [rcResult, setRcResult] = useState<null | { summary: string; notice?: string; backendOnly?: number; details: {status:string;uid:string;time:string;bet:number;win:number;note:string}[]; backendAnomalies: {uid:string;time:string;bet:number;win:number;note:string}[] }>(null)
   const [rcReports, setRcReports] = useState<{id:number;runAt:number;rangeStart:string;rangeEnd:string;machineType:string;frontCount:number;backendCount:number;matchedCount:number;unmatchedCount:number;anomalyCount:number;summary:string}[]>([])
 
   // 連線設定改成讀共用的 meter_reconcile_config（由後端依環境挑），
@@ -301,8 +316,8 @@ export function AutoSpinPage() {
       })
       type RcDetail = { status: string; uid: string; time: string; bet: number; win: number; note: string }
       type RcAnomaly = { uid: string; time: string; bet: number; win: number; note: string }
-      const d = await r.json() as { ok: boolean; summary?: string; details?: RcDetail[]; backendAnomalies?: RcAnomaly[]; message?: string }
-      if (d.ok) setRcResult({ summary: d.summary ?? '', details: d.details ?? [], backendAnomalies: d.backendAnomalies ?? [] })
+      const d = await r.json() as { ok: boolean; summary?: string; notice?: string; backendOnly?: number; details?: RcDetail[]; backendAnomalies?: RcAnomaly[]; message?: string }
+      if (d.ok) setRcResult({ summary: d.summary ?? '', notice: d.notice ?? '', backendOnly: d.backendOnly ?? 0, details: d.details ?? [], backendAnomalies: d.backendAnomalies ?? [] })
       else setRcConfigMsg(`失敗 ${d.message}`)
       fetchRcReports()
     } finally { setRcRunning(false) }
@@ -1273,7 +1288,14 @@ export function AutoSpinPage() {
           {rcResult && (
             <div style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 8, padding: 14 }}>
               <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>對帳結果</div>
-              <div style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 10, padding: '6px 10px', background: '#f1f5f9', borderRadius: 6 }}>{rcResult.summary}</div>
+              <div style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 6, padding: '6px 10px', background: '#f1f5f9', borderRadius: 6 }}>{rcResult.summary}</div>
+              {/* 前端 0 筆時主動說明。不講的話使用者看到「後台 34 筆」但沒有異常，
+                  只能自己猜是不是壞了——實際上那只是「這段時間 AutoSpin 沒在跑」*/}
+              {rcResult.notice && (
+                <div style={{ fontSize: 12, color: '#93c5fd', marginBottom: 10, padding: '7px 10px', background: 'rgba(59,130,246,.10)', border: '1px solid rgba(59,130,246,.28)', borderRadius: 6 }}>
+                  {rcResult.notice}
+                </div>
+              )}
 
               {rcResult.backendAnomalies.length > 0 && (
                 <div style={{ marginBottom: 10 }}>
@@ -1286,7 +1308,9 @@ export function AutoSpinPage() {
                 </div>
               )}
 
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>前端紀錄比對 ({rcResult.details.length} 筆)</div>
+              {/* 原本叫「前端紀錄比對」，但現在兩側都列了（含僅後台有的），
+                  沿用舊名字會讓人以為下面只有前端紀錄 */}
+              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>比對明細 ({rcResult.details.length} 筆)</div>
               <div style={{ maxHeight: 300, overflowY: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                   <thead><tr style={{ background: '#162032' }}>
@@ -1294,9 +1318,19 @@ export function AutoSpinPage() {
                   </tr></thead>
                   <tbody>
                     {rcResult.details.map((d, i) => (
+                      /* ⚠️ 「僅後台有」不能用紅色。它多半只是查詢範圍內有真人玩家的紀錄，
+                            不是異常；標紅會讓人以為有 34 筆問題（跟 CodeX 討論定案）。
+                            紅色只留給真正的掉單。 */
                       <tr key={i} style={{ background: d.status === 'MISSING' ? 'rgba(239,68,68,0.08)' : 'transparent', borderBottom: '1px solid #1e293b' }}>
                         <td style={{ padding: '4px 8px' }}>
-                          <span style={{ padding: '1px 6px', borderRadius: 4, background: d.status === 'MATCH' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.12)', color: d.status === 'MATCH' ? '#16a34a' : '#dc2626', fontWeight: 600 }}>{d.status}</span>
+                          {(() => {
+                            const tone = d.status === 'MATCH'
+                              ? { bg: 'rgba(16,185,129,0.15)', fg: '#16a34a', label: '相符' }
+                              : d.status === 'BACKEND_ONLY'
+                                ? { bg: 'rgba(148,163,184,0.14)', fg: '#94a3b8', label: '僅後台有' }
+                                : { bg: 'rgba(239,68,68,0.12)', fg: '#dc2626', label: '掉單' }
+                            return <span style={{ padding: '1px 6px', borderRadius: 4, background: tone.bg, color: tone.fg, fontWeight: 600 }}>{tone.label}</span>
+                          })()}
                         </td>
                         <td style={{ padding: '4px 8px', fontFamily: 'monospace', fontSize: 10 }}>{d.uid}</td>
                         <td style={{ padding: '4px 8px', color: '#94a3b8' }}>{d.time}</td>
@@ -1317,14 +1351,20 @@ export function AutoSpinPage() {
               <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>歷史對帳紀錄</div>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                 <thead><tr style={{ background: '#162032' }}>
-                  {['時間', '範圍', '機台', '前端', '後台', '匹配', '未匹配', '異常'].map(h => <th key={h} style={{ padding: '6px 8px', borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>{h}</th>)}
+                  {/* 「範圍」改成「查詢區間」、「機台」改成「機台篩選」——
+                      原本那兩個欄名讓人以為是資料本身的屬性，其實都是「這次查詢用的條件」。
+                      使用者原話：「機台寫全部根本看不懂，範圍的用意也看不懂」。
+                      逐筆的局號在上面的比對明細裡（一列一局），歷史這張是一次查詢一列，
+                      塞不下 34 個局號。 */}
+                  {['執行時間', '查詢區間', '機台篩選', '前端', '後台', '相符', '掉單', '異常'].map(h => <th key={h} style={{ padding: '6px 8px', borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>{h}</th>)}
                 </tr></thead>
                 <tbody>
                   {rcReports.map(r => (
                     <tr key={r.id} style={{ borderBottom: '1px solid #1e293b', background: r.unmatchedCount > 0 ? 'rgba(239,68,68,0.08)' : 'transparent' }}>
                       <td style={{ padding: '5px 8px', color: '#94a3b8' }}>{new Date(r.runAt).toLocaleString('zh-TW')}</td>
                       <td style={{ padding: '5px 8px', fontSize: 10 }}>{r.rangeStart.slice(0, 16)} ~ {r.rangeEnd.slice(0, 16)}</td>
-                      <td style={{ padding: '5px 8px' }}>{r.machineType || '全部'}</td>
+                      {/* 空值代表「沒有指定機台」，不是有一台叫「全部」的機器 */}
+                      <td style={{ padding: '5px 8px', color: r.machineType ? undefined : '#64748b' }}>{r.machineType || '不限'}</td>
                       <td style={{ padding: '5px 8px' }}>{r.frontCount}</td>
                       <td style={{ padding: '5px 8px' }}>{r.backendCount}</td>
                       <td style={{ padding: '5px 8px', color: '#16a34a', fontWeight: 600 }}>{r.matchedCount}</td>

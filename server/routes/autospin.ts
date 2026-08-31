@@ -2317,6 +2317,26 @@ router.post('/api/autospin/reconcile/run', async (req, res) => {
     }
   }
 
+  // 4b. 反向：後台有、前端沒有
+  //
+  // 原本只從 normFront 那一側迭代，所以**前端 0 筆時清單完全是空的**——
+  // 摘要寫「後台 34 筆」但畫面一筆都沒有，看起來就像壞掉。
+  //
+  // ⚠️ 但這一側**不能算進「未匹配」**（跟 CodeX 討論定案）：
+  //    「前端有、後台沒有」= 掉單，是對帳真正要抓的問題
+  //    「後台有、前端沒有」= AutoSpin 沒在跑的期間本來就會有（真人玩家的紀錄），
+  //                        多數情況完全正常
+  //    混成同一個數字，使用者看到 34 會以為有 34 筆異常，其實一筆問題都沒有。
+  let backendOnly = 0
+  normBackend.forEach((br, i) => {
+    if (usedIdx.has(i)) return
+    backendOnly++
+    details.push({
+      status: 'BACKEND_ONLY', uid: br.uid, time: br.time, bet: br.bet, win: br.win,
+      note: br.orderId ? `局號 ${br.orderId}` : '',
+    })
+  })
+
   // 5. Anomaly detection on backend records
   const anomalies: { uid: string; time: string; bet: number; win: number; note: string }[] = []
   for (const br of normBackend) {
@@ -2336,7 +2356,9 @@ router.post('/api/autospin/reconcile/run', async (req, res) => {
   }
 
   // 6. Save report
-  const summary = `前端 ${normFront.length} 筆 / 後台 ${normBackend.length} 筆 / 匹配 ${matched} / 未匹配 ${unmatched} / 異常 ${anomalies.length}`
+  // 「掉單」跟「僅後台有」一定要分開列。前者是問題、後者多半只是查詢範圍內
+  // 有真人玩家的紀錄——合成一個「未匹配」會讓人誤判嚴重程度。
+  const summary = `前端 ${normFront.length} 筆 / 後台 ${normBackend.length} 筆 / 匹配 ${matched} / 掉單 ${unmatched} / 僅後台有 ${backendOnly} / 異常 ${anomalies.length}`
   const reportId = (db.prepare(`
     INSERT INTO reconcile_reports
     (rangeStart, rangeEnd, machineType, frontCount, backendCount, matchedCount, unmatchedCount, anomalyCount, summary, details)
@@ -2347,7 +2369,15 @@ router.post('/api/autospin/reconcile/run', async (req, res) => {
     summary, JSON.stringify({ details, anomalies }),
   ) as { lastInsertRowid: number }).lastInsertRowid
 
-  return res.json({ ok: true, reportId, summary, matched, unmatched, anomalies: anomalies.length, details, backendAnomalies: anomalies })
+  return res.json({
+    ok: true, reportId, summary, matched, unmatched,
+    backendOnly,
+    anomalies: anomalies.length, details, backendAnomalies: anomalies,
+    // 前端 0 筆時要主動說明，不要讓使用者自己從「34 筆但沒有異常」去推
+    notice: normFront.length === 0 && normBackend.length > 0
+      ? `這段時間沒有 AutoSpin 前端紀錄，因此無法進行雙向比對。下方 ${normBackend.length} 筆為後台既有遊戲紀錄，不代表異常。`
+      : '',
+  })
 })
 
 // GET /api/autospin/reconcile/reports — list saved reports

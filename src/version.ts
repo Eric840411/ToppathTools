@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.85.1'
+export const APP_VERSION = '4.86.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.86.0',
+    date: '2026-08-31',
+    changes: [
+      'feat(autospin): 後台對帳改成雙向。原本只從前端紀錄那一側迭代，所以前端 0 筆時清單完全是空的——摘要寫「後台 34 筆」但畫面一筆都沒有，看起來就像壞掉。現在後台有、前端沒有的也會列出來（含局號）',
+      'note(autospin): 「掉單」跟「僅後台有」分開算。前者是前端有後台沒有＝真的問題；後者在 AutoSpin 沒跑的期間本來就會有（真人玩家的紀錄），混成一個「未匹配」會讓人看到 34 就以為有 34 筆異常（跟 CodeX 討論定案）',
+      'note(autospin): 「僅後台有」用中性灰不用紅色。紅色只留給真正的掉單，不然警示色會失去意義',
+      'feat(autospin): 前端 0 筆時主動顯示說明，不讓使用者自己從「34 筆但沒有異常」去推是不是壞了',
+      'fix(autospin): 歷史紀錄欄名改清楚——「機台」顯示「全部」其實是篩選條件不是機台名，改成「機台篩選／不限」；「範圍」改成「查詢區間」。使用者原話：「機台寫全部根本看不懂，範圍的用意也看不懂」',
+      'fix(autospin): 預設日期快捷沒有同時填入日期，導致一載入頁面按「執行對帳」完全沒反應——請求根本沒發出去，只有一行容易錯過的小字。按鈕看起來是選中的但 state 是空的',
+    ],
+  },
   {
     version: '4.85.1',
     date: '2026-08-31',
