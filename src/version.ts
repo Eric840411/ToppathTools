@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.80.2'
+export const APP_VERSION = '4.81.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.81.0',
+    date: '2026-08-31',
+    changes: [
+      'fix(permissions): 權限頁的三筆 Jira 權限收成一筆「Jira 批量工具」。原本「批量開單（QA 模式）」「批量開單（PM 模式）」「批次更新票」在 canAccess() 裡是 OR、而且都指向同一頁——關掉其中一個沒有任何效果，等於給管理員三個假開關',
+      'note(permissions): 合併規則是 OR 不是挑一個。實際資料裡 jira-update 對 pm 是 0，單留它會當場撤掉 PM 的存取權而且沒人會發現是這次造成的。OR 保證每個角色改動前後的實際存取結果完全一樣',
+      'note(permissions): 原本有一段反方向的 migration（把 jira 拆成 jira-qa + jira-pm，PM 模式時代寫的）已刪除。留著會跟新的合併互相推翻——插入的 jira 列會在下次啟動被拆回去，而且不會有任何錯誤訊息',
+      'note(permissions): 舊 key 的 DB 資料保留不硬刪，但已從 ALL_PAGE_KEYS / PAGE_META / canAccess 移除，不再參與判斷。逐工具權限（頁內 4 個分頁各自 gate）範圍大得多，要做該獨立一版',
+    ],
+  },
   {
     version: '4.80.2',
     date: '2026-08-30',

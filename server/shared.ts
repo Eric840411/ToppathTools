@@ -371,19 +371,42 @@ db.exec(`
   }
 }
 
-// Migration: split 'jira' into 'jira-qa' and 'jira-pm' in role_permissions
+// Migration: jira-qa / jira-pm / jira-update 合併回單一的 'jira'（2026-08-31）
+//
+// 背景：權限頁列了三筆 Jira 權限，但 App.tsx 的判斷是三者 **OR**、而且都指向
+// 同一個頁面。也就是說管理員關掉其中一個開關，使用者照樣進得去——
+// 畫面看起來是三個獨立開關，實際上是一個。這比顆粒度不夠細危險，
+// 因為它製造假的安全感（跟 CodeX 討論定案收成一筆）。
+//
+// ⚠️ **這裡原本有一段反方向的 migration**（把 'jira' 拆成 'jira-qa' + 'jira-pm'），
+//    是 PM 模式還在的時代寫的。PM 模式早就整個移除了，那段留著會跟這段打架：
+//    我插入的 'jira' 列會在下一次啟動被它拆回去，而且不會有任何錯誤訊息。
+//    所以是**刪掉它**，不是兩段並存。
+//
+// ⚠️ 合併規則一定要是 OR，不能挑其中一個當 canonical：實際資料裡
+//    jira-update 對 pm 是 0，單留它會**當場撤掉 PM 的存取權**，
+//    而且沒人會發現是這次改動造成的。OR 才能保證每個 role 改動前後
+//    的實際存取結果完全一樣。
 {
-  const jiraRows = db.prepare("SELECT COUNT(*) as c FROM role_permissions WHERE page_key = 'jira'").get() as { c: number }
-  if (jiraRows.c > 0) {
+  const LEGACY = ['jira-qa', 'jira-pm', 'jira-update']
+  const legacyRows = db.prepare(
+    `SELECT role, page_key, allowed FROM role_permissions WHERE page_key IN (${LEGACY.map(() => '?').join(',')})`,
+  ).all(...LEGACY) as { role: string; page_key: string; allowed: number }[]
+
+  if (legacyRows.length) {
+    const merged = new Map<string, number>()
+    for (const row of legacyRows) merged.set(row.role, (merged.get(row.role) ?? 0) || (row.allowed ? 1 : 0))
+
     db.transaction(() => {
-      // copy jira → jira-pm, then rename jira → jira-qa
-      const rows = db.prepare("SELECT role, allowed FROM role_permissions WHERE page_key = 'jira'").all() as { role: string; allowed: number }[]
-      for (const row of rows) {
-        db.prepare("INSERT OR IGNORE INTO role_permissions (role, page_key, allowed) VALUES (?, 'jira-pm', ?)").run(row.role, row.allowed)
+      for (const [role, allowed] of merged) {
+        // idempotent：已經有 'jira' 的 role 不覆蓋——那可能是管理員後來手動調過的
+        db.prepare("INSERT OR IGNORE INTO role_permissions (role, page_key, allowed) VALUES (?, 'jira', ?)")
+          .run(role, allowed)
       }
-      db.exec("UPDATE role_permissions SET page_key = 'jira-qa' WHERE page_key = 'jira'")
+      // 舊 key 的資料留著不刪（CodeX 建議）：真的有問題時還能對照，
+      // 但它們已經從 ALL_PAGE_KEYS / PAGE_META / canAccess 移除，不再參與任何判斷。
     })()
-    console.log('[DB] role_permissions: jira → jira-qa + jira-pm 已遷移')
+    console.log(`[DB] role_permissions: jira-qa/jira-pm/jira-update → jira 已合併（${merged.size} 個角色）`)
   }
 }
 
@@ -1694,7 +1717,11 @@ export const deleteAccountByEmail = (email: string) =>
 // ─── Permission helpers ───────────────────────────────────────────────────────
 
 export const ALL_PAGE_KEYS = [
-  'jira-qa','jira-pm','jira-update','lark','osm','machinetest','imagecheck','osm-config',
+  // 'jira' 一個 key 對應整個 Jira 批量工具頁（開單／評論／更新狀態／修改）。
+  // 舊的 jira-qa / jira-pm / jira-update 已移除——它們看起來是三個獨立開關，
+  // 實際上是 OR 成同一個 gate；jira-pm 更是已移除功能（PM 模式）的殘留位。
+  // DB 裡的舊資料留著沒刪，但不在這份清單裡就不會出現在權限頁、也擋不了任何東西。
+  'jira','lark','osm','machinetest','imagecheck','osm-config',
   'autospin','url-pool','jackpot','osm-uat',
   'gs-imgcompare','gs-logchecker','gs-bonusv2','history','knowledge','local-agent',
   'ui-screenshot','discord-notify','meter-reconcile','egm-daycount','cultivation-board','xianxia-quotes','weekly-report',

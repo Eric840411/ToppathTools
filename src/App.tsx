@@ -521,8 +521,9 @@ function App() {
     if (!globalAccount) return false
     if (tabId === 'dashboard') return true
     if (globalAccount.role === 'admin') return true
-    // 'jira' tab is accessible if user has either jira-qa, jira-pm, or jira-update
-    if (tabId === 'jira') return permissions.includes('jira-qa') || permissions.includes('jira-pm') || permissions.includes('jira-update')
+    // Jira 頁的特例整條移除：canonical key 改成 'jira' 之後剛好等於 tabId，
+    // 直接走下面那行通用判斷就好。原本那條是三個 key 的 OR，是「看起來三個開關
+    // 其實只有一個」的來源。
     if (tabId === 'scripted-bet') return permissions.includes('machinetest') || permissions.includes('url-pool')
     return permissions.includes(tabId)
   }

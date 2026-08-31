@@ -93,6 +93,29 @@ When adding a new route:
 3. If it needs Gemini, import from `./gemini.js`
 4. No need to touch `index.ts` unless adding a brand new router
 
+# Jira 權限三合一（2026-08-31，v4.81.0）
+
+權限頁原本列三筆 Jira 權限（「批量開單（QA 模式）」「批量開單（PM 模式）」「批次更新票」），但 `App.tsx` 的判斷是：
+
+```ts
+if (tabId === 'jira') return permissions.includes('jira-qa')
+  || permissions.includes('jira-pm') || permissions.includes('jira-update')
+```
+
+**三個 key 是 OR、而且都指向同一個頁面。**管理員關掉其中一個，使用者照樣進得去——畫面看起來是三個獨立開關，實際上是一個。**這比顆粒度不夠細危險，因為它製造假的安全感。**（跟 CodeX 討論，他也認為這算 bug fix 不是功能調整。）
+
+收成單一的 `jira`，`canAccess()` 的特例整條移除——canonical key 剛好等於 tabId，直接走通用判斷。
+
+**⚠️ 合併規則一定要是 OR，不能挑其中一個當 canonical。**實際資料裡 `jira-update` 對 pm 是 0，單留它會**當場撤掉 PM 的存取權**，而且不會有人發現是這次改動造成的。OR 才能保證每個角色改動前後的實際存取結果完全一樣。
+
+**⚠️ 原本有一段反方向的 migration**（把 `jira` 拆成 `jira-qa` + `jira-pm`，PM 模式還在的時代寫的）。那段留著會跟新的合併打架：插入的 `jira` 列會在下一次啟動被它拆回去，而且**不會有任何錯誤訊息**。所以是刪掉它，不是兩段並存。這是「退不了已經跑過的 DB migration」那一類問題的變形——方向相反的兩段 migration 並存，等於每次啟動互相推翻。
+
+舊 key 的資料保留不硬刪（CodeX 建議，真有問題時還能對照），但已從 `ALL_PAGE_KEYS`／`PAGE_META`／`canAccess()` 移除，不再參與任何判斷。
+
+**逐工具權限（頁內 4 個分頁各自 gate）是另一件事**，牽涉頁內 tab、API 權限、按鈕 disable、錯誤提示，範圍比「清掉誤導權限」大得多，要做該獨立一版。
+
+> 已驗證 7 項（`scripts/ui-checks/jira-perm-merge-check.mjs`，跑完會完整還原 role_permissions）：合併結果等於三個舊 key 的 OR｜**PM 沒有被誤撤權限**｜重跑兩次不重複插入｜**手動調整過的 `jira` 列不被 migration 推翻**｜舊 key 資料仍保留。
+
 # 批量評論預覽表的「填寫人」欄（2026-08-21，v4.17.0）
 
 批量評論 Step 3 的預覽表每一列多一欄「填寫人（以誰的身分送出）」，顯示這一列實際會用哪個帳號張貼，並可用下拉**逐列調整**。三條規則：
@@ -287,7 +310,9 @@ Keep Claude for:
 ### 功能說明
 從 Lark Bitable 讀取規格，批量在 Jira 建立 Issue、批量添加評論、批量轉換狀態。
 
-**PM 模式已移除**：原本的 QA/PM 雙模式切換（`mode` state）與 PM 模式專屬的「從 Lark PM 規格自動建立 Epic + Story」流程（`JiraPmModeTab.tsx`、後端 `/api/jira/pm-read-bitable`、`/api/jira/pm-batch-create`）已整個拿掉，現在只保留 4 大批量工具（開單/評論/更新狀態/修改）。帳號管理（`JiraAccountModal.tsx` 的 `role` 欄位/`accountHasRole()`）與全域權限系統（`permissions` 的 `jira-pm` key、`SystemAdminPage.tsx` 的「Jira 批量開單（PM 模式）」權限項）刻意保留未動，供未來若要重新加回類似功能時使用，目前純粹是未使用的殘留權限位。
+**PM 模式已移除**：原本的 QA/PM 雙模式切換（`mode` state）與 PM 模式專屬的「從 Lark PM 規格自動建立 Epic + Story」流程（`JiraPmModeTab.tsx`、後端 `/api/jira/pm-read-bitable`、`/api/jira/pm-batch-create`）已整個拿掉，現在只保留 4 大批量工具（開單/評論/更新狀態/修改）。帳號管理（`JiraAccountModal.tsx` 的 `role` 欄位/`accountHasRole()`）保留未動。
+
+**權限位已於 2026-08-31（v4.81.0）收掉**——原本「刻意保留」的 `jira-pm` 連同 `jira-qa`／`jira-update` 一起合併成單一的 `jira`。原因不是為了整潔：那三個 key 在 `canAccess()` 裡是 **OR**、而且都指向同一個頁面，**關掉其中一個沒有任何效果**，等於在管理介面上給了三個假開關。詳見下方「Jira 權限三合一」。
 
 ### 使用者操作
 | 操作 | 說明 |
