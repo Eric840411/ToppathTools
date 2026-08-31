@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.86.0'
+export const APP_VERSION = '4.87.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.87.0',
+    date: '2026-08-31',
+    changes: [
+      'fix(autospin): 後台對帳的字在深色底上讀不到。摘要列是淺灰字（#cbd5e1）配近白底（#f1f5f9），對比只有 1.36:1——WCAG 對內文的最低要求是 4.5:1，等於看不見。異常明細是深褐字配深底 1.60:1、歷史表的 0 值 1.42:1。現在分別是 10.01 / 8.04',
+      'note(autospin): 根因是這個分頁整份是淺色主題時代寫的，全站換深底之後從沒更新。同一頁還有 3 條近白色（#e5e7eb）表格框線、3 個亮藍/亮綠色塊，一併換掉',
+      'feat(autospin): AutoSpin 頁補上普通版／修仙版差異。這頁原本完全沒有接 themeMode，兩版看起來一模一樣；先前的些微差別只是 xianxia-complete.css 的全域規則意外掃到，不是設計出來的',
+      'note(autospin): 皮膚只換標題用詞與字體（對帳結果↔◈勘帳結果、比對明細↔逐局明細、執行對帳↔起帳勘校）。資料欄位用詞兩版完全相同——相符／掉單／僅後台有／查詢區間／機台篩選 都是剛反映過看不懂才改清楚的，再套一層修仙詞會把可讀性弄丟',
+    ],
+  },
   {
     version: '4.86.0',
     date: '2026-08-31',

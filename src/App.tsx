@@ -923,7 +923,7 @@ function App() {
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'machinetest' && <MachineTestPage account={globalAccount} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'imagecheck' && <ImageCheckPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm-config' && <OsmConfigComparePage />}
-            {currentGroup?.id === 'osm-tools' && effectiveTab === 'autospin' && <AutoSpinPage />}
+            {currentGroup?.id === 'osm-tools' && effectiveTab === 'autospin' && <AutoSpinPage themeMode={themeMode} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'url-pool' && <UrlPoolPage currentAccount={globalAccount} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'scripted-bet' && <ScriptedBetPage currentAccount={globalAccount} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'jackpot' && <JackpotPage />}

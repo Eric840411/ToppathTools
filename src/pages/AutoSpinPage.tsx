@@ -146,7 +146,26 @@ function ToggleSwitch({ checked, disabled, onToggle }: { checked: boolean; disab
   )
 }
 
-export function AutoSpinPage() {
+/**
+ * 這頁原本完全沒有 themeMode，所以普通版／修仙版看起來一模一樣
+ * （使用者 2026-08-31 回報）。差異只有 xianxia-complete.css 全域規則
+ * 意外掃到的部分（例如表頭變成古金襯線），不是設計出來的。
+ *
+ * 皮膚只換「外框語言」——標題用詞與字體。**資料欄位的用詞兩版完全相同**：
+ * 相符／掉單／僅後台有／查詢區間／機台篩選 都是使用者剛反映過看不懂才改清楚的，
+ * 再套一層修仙詞會把剛修好的可讀性弄丟（見 feedback_theme_skin_vs_architecture）。
+ */
+export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' | 'xianxia' } = {}) {
+  const isXianxia = themeMode === 'xianxia'
+  /** 面板標題：修仙版古金襯線 + 角標，普通版乾淨無襯線 */
+  const panelTitle = (_t: string, size = 13): React.CSSProperties => ({
+    fontWeight: 700, fontSize: size, marginBottom: 8,
+    color: isXianxia ? 'var(--cr-violet)' : '#e2e8f0',
+    fontFamily: isXianxia ? '"Noto Serif TC", serif' : 'inherit',
+    letterSpacing: isXianxia ? '.06em' : undefined,
+  })
+  const T = (classic: string, xianxia: string) => (isXianxia ? xianxia : classic)
+
   const [tab, setTab] = useState<'configs' | 'templates' | 'history' | 'reconcile' | 'compare3' | 'run' | 'jpgroups'>('configs')
 
   // ── Config tab ──────────────────────────────────────────────────────────────
@@ -925,13 +944,13 @@ export function AutoSpinPage() {
         </div>
       )}
       {userLabel && (
-        <div style={{ padding: '6px 12px', background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, marginBottom: 10, fontSize: 12, color: '#1d4ed8' }}>
+        <div style={{ padding: '6px 12px', background: 'rgba(59,130,246,.10)', border: '1px solid rgba(59,130,246,.28)', borderRadius: 8, marginBottom: 10, fontSize: 12, color: '#93c5fd' }}>
           目前帳號：{userLabel}
         </div>
       )}
 
       {/* Tab bar */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', marginBottom: 16 }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid #2d3f55', marginBottom: 16 }}>
         <button style={tabStyle('configs')} onClick={() => setTab('configs')}>機台設定</button>
         <button style={tabStyle('templates')} onClick={() => { setTab('templates'); fetchTemplates() }}>模板管理</button>
         <button style={tabStyle('history')} onClick={() => { setTab('history'); fetchHistory() }}>歷史戰績</button>
@@ -957,7 +976,7 @@ export function AutoSpinPage() {
             <thead>
               <tr style={{ background: '#162032', textAlign: 'left' }}>
                 {['機台類型', 'Game Title Code', '模板類型', 'RTMP', '錄影', '模板偵測', '隨機下注', '隨機離開', '啟用', '操作'].map(h => (
-                  <th key={h} style={{ padding: '8px 10px', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}
+                  <th key={h} style={{ padding: '8px 10px', borderBottom: '1px solid #2d3f55', whiteSpace: 'nowrap' }}
                     title={h === '隨機下注' ? '這裡只是開關，實際點擊用的 XPath 清單改到「機台自動化測試」的機種設定檔（ideck_xpaths）配置，跟 iDeck 測試共用同一份' : undefined}>
                     {h}
                   </th>
@@ -982,9 +1001,9 @@ export function AutoSpinPage() {
                   <td style={{ padding: '7px 10px' }}>
                     <div style={{ display: 'flex', gap: 4 }}>
                       <button onClick={() => handleEditConfig(c)}
-                        style={{ padding: '2px 8px', background: '#eff6ff', color: '#1d4ed8', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>編輯</button>
+                        style={{ padding: '2px 8px', background: 'rgba(59,130,246,.14)', color: '#93c5fd', border: '1px solid rgba(59,130,246,.26)', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>編輯</button>
                       <button onClick={() => handleCopyConfig(c)} title="複製這台的設定當作新機台的起點"
-                        style={{ padding: '2px 8px', background: '#f0fdf4', color: '#16a34a', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>複製配置</button>
+                        style={{ padding: '2px 8px', background: 'rgba(117,215,207,.14)', color: 'var(--cr-emerald)', border: '1px solid rgba(117,215,207,.26)', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>複製配置</button>
                       <button onClick={() => handleDeleteConfig(c.machineType)}
                         style={{ padding: '2px 8px', background: 'rgba(239,68,68,0.12)', color: '#dc2626', border: 'none', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}>刪除</button>
                     </div>
@@ -1182,7 +1201,7 @@ export function AutoSpinPage() {
               所以整塊換成「選一個環境」。設定本身到「Performance Meter 對帳」
               那頁維護，這裡不再有第二份。 */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '2px 4px' }}>
-            <span style={{ fontSize: 11, color: '#94a3b8' }}>環境</span>
+            <span style={{ fontSize: 11, color: '#94a3b8' }}>{T('環境', '道場')}</span>
             {([['osm', 'OSM（CP 後台）'], ['gcp', 'GCP（NC 後台）']] as const).map(([v, label]) => (
               <button
                 key={v} type="button" onClick={() => setRcEnv(v)}
@@ -1213,7 +1232,7 @@ export function AutoSpinPage() {
                 「某一天」或「昨天某段時間」，不是長期報表，所以給快捷比給空白框實用。
                 （近 7 天會拉比較多資料，標示出來讓人知道那是重活。）*/}
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
-              <span style={{ fontSize: 11, color: '#94a3b8' }}>快捷</span>
+              <span style={{ fontSize: 11, color: '#94a3b8' }}>{T('快捷', '速選')}</span>
               {([
                 ['today', '今天', 0],
                 ['yesterday', '昨天', 1],
@@ -1278,8 +1297,8 @@ export function AutoSpinPage() {
                 </div>
               ))}
               <button onClick={runReconcile} disabled={rcRunning}
-                style={{ padding: '7px 20px', background: rcRunning ? '#9ca3af' : '#16a34a', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13, cursor: rcRunning ? 'default' : 'pointer' }}>
-                {rcRunning ? '對帳中...' : '執行對帳'}
+                style={{ padding: '7px 20px', background: rcRunning ? '#475569' : (isXianxia ? 'var(--xx-jade-solid)' : '#16a34a'), color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13, cursor: rcRunning ? 'default' : 'pointer' }}>
+                {rcRunning ? T('對帳中…', '勘校中…') : T('執行對帳', '起帳勘校')}
               </button>
             </div>
           </div>
@@ -1287,8 +1306,14 @@ export function AutoSpinPage() {
           {/* Latest result */}
           {rcResult && (
             <div style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 8, padding: 14 }}>
-              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>對帳結果</div>
-              <div style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 6, padding: '6px 10px', background: '#f1f5f9', borderRadius: 6 }}>{rcResult.summary}</div>
+              <div style={panelTitle('t')}>{T('對帳結果', '◈ 勘帳結果')}</div>
+              {/* 這行原本是 #cbd5e1 的淺灰字配 #f1f5f9 的近白底——淺色主題時代的殘留。
+                      整頁換成深底之後就變成「白底上的淺灰字」，等於看不見（使用者實際回報）。 */}
+              <div style={{
+                fontSize: 12.5, color: '#e2e8f0', marginBottom: 6, padding: '8px 11px',
+                background: 'rgba(148,163,184,.10)', border: '1px solid #2d3f55',
+                borderRadius: 6, fontVariantNumeric: 'tabular-nums',
+              }}>{rcResult.summary}</div>
               {/* 前端 0 筆時主動說明。不講的話使用者看到「後台 34 筆」但沒有異常，
                   只能自己猜是不是壞了——實際上那只是「這段時間 AutoSpin 沒在跑」*/}
               {rcResult.notice && (
@@ -1299,9 +1324,10 @@ export function AutoSpinPage() {
 
               {rcResult.backendAnomalies.length > 0 && (
                 <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#d97706', marginBottom: 4 }}>後台異常 ({rcResult.backendAnomalies.length} 筆)</div>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--cr-amber)', marginBottom: 4 }}>後台異常 ({rcResult.backendAnomalies.length} 筆)</div>
                   {rcResult.backendAnomalies.map((a, i) => (
-                    <div key={i} style={{ fontSize: 11, color: '#92400e', padding: '2px 8px', background: 'rgba(251,191,36,0.12)', borderRadius: 4, marginBottom: 2 }}>
+                    /* #92400e 是深褐色，在淺色底上才讀得到；深底上幾乎跟背景一樣暗 */
+                    <div key={i} style={{ fontSize: 11, color: 'var(--cr-amber)', padding: '3px 8px', background: 'rgba(234,216,166,0.10)', border: '1px solid rgba(234,216,166,.20)', borderRadius: 4, marginBottom: 3 }}>
                       {a.note} | uid={a.uid} time={a.time} bet={a.bet} win={a.win}
                     </div>
                   ))}
@@ -1310,11 +1336,11 @@ export function AutoSpinPage() {
 
               {/* 原本叫「前端紀錄比對」，但現在兩側都列了（含僅後台有的），
                   沿用舊名字會讓人以為下面只有前端紀錄 */}
-              <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>比對明細 ({rcResult.details.length} 筆)</div>
+              <div style={{ ...panelTitle('t', 12), marginBottom: 4, marginTop: 2 }}>{T('比對明細', '逐局明細')} ({rcResult.details.length} 筆)</div>
               <div style={{ maxHeight: 300, overflowY: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                   <thead><tr style={{ background: '#162032' }}>
-                    {['狀態', 'UID', '時間', 'Bet', 'Win', '備註'].map(h => <th key={h} style={{ padding: '5px 8px', borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>{h}</th>)}
+                    {['狀態', 'UID', '時間', 'Bet', 'Win', '備註'].map(h => <th key={h} style={{ padding: '5px 8px', borderBottom: '1px solid #2d3f55', textAlign: 'left' }}>{h}</th>)}
                   </tr></thead>
                   <tbody>
                     {rcResult.details.map((d, i) => (
@@ -1325,10 +1351,10 @@ export function AutoSpinPage() {
                         <td style={{ padding: '4px 8px' }}>
                           {(() => {
                             const tone = d.status === 'MATCH'
-                              ? { bg: 'rgba(16,185,129,0.15)', fg: '#16a34a', label: '相符' }
+                              ? { bg: 'rgba(117,215,207,0.15)', fg: 'var(--cr-emerald)', label: '相符' }
                               : d.status === 'BACKEND_ONLY'
                                 ? { bg: 'rgba(148,163,184,0.14)', fg: '#94a3b8', label: '僅後台有' }
-                                : { bg: 'rgba(239,68,68,0.12)', fg: '#dc2626', label: '掉單' }
+                                : { bg: 'rgba(223,118,94,0.16)', fg: 'var(--cr-rose)', label: '掉單' }
                             return <span style={{ padding: '1px 6px', borderRadius: 4, background: tone.bg, color: tone.fg, fontWeight: 600 }}>{tone.label}</span>
                           })()}
                         </td>
@@ -1348,7 +1374,7 @@ export function AutoSpinPage() {
           {/* History of reports */}
           {rcReports.length > 0 && (
             <div>
-              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}>歷史對帳紀錄</div>
+              <div style={panelTitle('t')}>{T('歷史對帳紀錄', '◈ 歷代勘帳錄')}</div>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
                 <thead><tr style={{ background: '#162032' }}>
                   {/* 「範圍」改成「查詢區間」、「機台」改成「機台篩選」——
@@ -1356,7 +1382,7 @@ export function AutoSpinPage() {
                       使用者原話：「機台寫全部根本看不懂，範圍的用意也看不懂」。
                       逐筆的局號在上面的比對明細裡（一列一局），歷史這張是一次查詢一列，
                       塞不下 34 個局號。 */}
-                  {['執行時間', '查詢區間', '機台篩選', '前端', '後台', '相符', '掉單', '異常'].map(h => <th key={h} style={{ padding: '6px 8px', borderBottom: '1px solid #e5e7eb', textAlign: 'left' }}>{h}</th>)}
+                  {['執行時間', '查詢區間', '機台篩選', '前端', '後台', '相符', '掉單', '異常'].map(h => <th key={h} style={{ padding: '6px 8px', borderBottom: '1px solid #2d3f55', textAlign: 'left' }}>{h}</th>)}
                 </tr></thead>
                 <tbody>
                   {rcReports.map(r => (
@@ -1367,9 +1393,9 @@ export function AutoSpinPage() {
                       <td style={{ padding: '5px 8px', color: r.machineType ? undefined : '#64748b' }}>{r.machineType || '不限'}</td>
                       <td style={{ padding: '5px 8px' }}>{r.frontCount}</td>
                       <td style={{ padding: '5px 8px' }}>{r.backendCount}</td>
-                      <td style={{ padding: '5px 8px', color: '#16a34a', fontWeight: 600 }}>{r.matchedCount}</td>
-                      <td style={{ padding: '5px 8px', color: r.unmatchedCount > 0 ? '#dc2626' : '#374151', fontWeight: r.unmatchedCount > 0 ? 700 : 400 }}>{r.unmatchedCount}</td>
-                      <td style={{ padding: '5px 8px', color: r.anomalyCount > 0 ? '#d97706' : '#374151' }}>{r.anomalyCount}</td>
+                      <td style={{ padding: '5px 8px', color: 'var(--cr-emerald)', fontWeight: 600 }}>{r.matchedCount}</td>
+                      <td style={{ padding: '5px 8px', color: r.unmatchedCount > 0 ? 'var(--cr-rose)' : '#64748b', fontWeight: r.unmatchedCount > 0 ? 700 : 400 }}>{r.unmatchedCount}</td>
+                      <td style={{ padding: '5px 8px', color: r.anomalyCount > 0 ? 'var(--cr-amber)' : '#64748b' }}>{r.anomalyCount}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1611,7 +1637,7 @@ export function AutoSpinPage() {
                 <thead>
                   <tr style={{ background: '#162032', textAlign: 'left' }}>
                     {['時間', '機台', 'Spin#', '餘額', '事件', '備註'].map(h => (
-                      <th key={h} style={{ padding: '7px 10px', borderBottom: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{h}</th>
+                      <th key={h} style={{ padding: '7px 10px', borderBottom: '1px solid #2d3f55', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
