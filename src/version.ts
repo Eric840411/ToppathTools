@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.83.0'
+export const APP_VERSION = '4.84.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.84.0',
+    date: '2026-08-31',
+    changes: [
+      'feat(autospin): 執行監控頁的執行日誌上方新增三路對帳摘要，不用再跟對帳分頁來回切。點摘要跳原分頁；有異常的機台會列在右邊，點了跳過去並聚焦那一台',
+      'note(autospin): 放日誌上方不放右欄（CodeX 判斷）——右欄是「觀察輔助資訊」，左欄才是跑測試時的主流程，而對帳摘要本質上是「本次執行的健康度」。而且右欄已經有三個面板、之前才因為擠爆修過一次，再塞一個會重演',
+      'note(autospin): 顏色只標異常。全部相符時保持中性，不然一排彩色 chip 反而看不出哪一台要處理',
+      'fix(autospin): 對帳狀態原本只在「三路對帳」分頁輪詢，所以摘要列放到執行監控後會永遠顯示「尚無資料」。這個 bug 在本機看不出來——本機真的沒有比對資料，「尚無資料」剛好也是正確顯示，只有餵合成資料驗非空狀態才抓得到',
+    ],
+  },
   {
     version: '4.83.0',
     date: '2026-08-31',

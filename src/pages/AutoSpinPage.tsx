@@ -387,6 +387,8 @@ export function AutoSpinPage() {
   const [cmpMachines, setCmpMachines] = useState<CompareMachineRow[]>([])
   const [cmpSessionCount, setCmpSessionCount] = useState(0)
   const [cmpHasBoxLeg, setCmpHasBoxLeg] = useState(false)
+  /** 從執行監控的摘要點進來時要聚焦哪一台。點總摘要就是 null（不聚焦） */
+  const [cmpFocusMachine, setCmpFocusMachine] = useState<string | null>(null)
   const [cmpExpanded, setCmpExpanded] = useState<string | null>(null)
   const [cmpDetail, setCmpDetail] = useState<Record<string, CompareDetailRow[]>>({})
   const [cmpConfigOpen, setCmpConfigOpen] = useState(false)
@@ -477,8 +479,13 @@ export function AutoSpinPage() {
   const removeCompareField = (gIdx: number, fIdx: number) =>
     setCmpGroups(gs => gs.map((g, i) => i === gIdx ? { ...g, fields: g.fields.filter((_, j) => j !== fIdx) } : g))
 
+  // ⚠️ 執行監控（run）也要輪詢，不是只有三路對帳分頁。
+  //    v4.84.0 把對帳摘要放到執行日誌上方之後，如果這裡還只認 compare3，
+  //    摘要列會**永遠顯示「尚無資料」**——而且在本機看不出來，
+  //    因為本機真的沒有比對資料，「尚無資料」剛好也是正確的顯示。
+  //    這種「錯誤狀態跟正確狀態長得一樣」的 bug 只有餵合成資料才驗得出來。
   useEffect(() => {
-    if (tab !== 'compare3') return
+    if (tab !== 'compare3' && tab !== 'run') return
     fetchCompareStatus()
     const t = setInterval(() => { if (!document.hidden) fetchCompareStatus() }, 5000)
     return () => clearInterval(t)
@@ -1344,11 +1351,16 @@ export function AutoSpinPage() {
                     {cmpMachines.map(m => {
                       const key = `${m.sessionId}:${m.machineType}`
                       const attn = m.mismatched > 0 || m.missing > 0
+                      // 從執行監控的摘要點進來時，把那一台標出來——不然跳過來還要自己找，
+                      // 「帶 filter 到該機台」就只做了一半（CodeX 設計裡的要求）
+                      const focused = cmpFocusMachine === m.machineType
                       return (
                         <Fragment key={key}>
-                          <tr onClick={() => toggleCompareDetail(m.sessionId, m.machineType)} style={{ cursor: 'pointer' }}
+                          <tr onClick={() => toggleCompareDetail(m.sessionId, m.machineType)}
+                            style={{ cursor: 'pointer', background: focused ? 'rgba(117,215,207,.10)' : undefined,
+                              boxShadow: focused ? 'inset 3px 0 0 var(--cr-cyan)' : undefined }}
                             onMouseEnter={e => { e.currentTarget.style.background = 'rgba(117,215,207,.05)' }}
-                            onMouseLeave={e => { e.currentTarget.style.background = 'transparent' }}>
+                            onMouseLeave={e => { e.currentTarget.style.background = focused ? 'rgba(117,215,207,.10)' : 'transparent' }}>
                             <td style={{ padding: '7px 10px', borderBottom: '1px solid #182236', fontWeight: 700 }}>{m.machineType}</td>
                             <td style={{ padding: '7px 10px', borderBottom: '1px solid #182236', color: '#64748b', fontSize: 10.5 }}>{m.agentLabel}</td>
                             <td style={{ padding: '7px 10px', borderBottom: '1px solid #182236', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{m.compared}</td>
@@ -1889,6 +1901,100 @@ export function AutoSpinPage() {
                   </div>
                 </div>
               )}
+
+              {/* ── 三路對帳摘要（2026-08-31，CodeX 設計）──────────────────────────
+                  放在執行日誌**上方**，不是右欄。理由（CodeX 的判斷，我同意）：
+                  右欄是「觀察輔助資訊」，左欄才是跑測試時的主流程，而對帳摘要
+                  本質上是「本次執行的健康度」，該跟日誌同層。
+
+                  ⚠️ 刻意**不搬整套對帳 UI 過來**：右欄已經有三個面板（截圖監控／
+                     LuckyLink JP／SLS 錯誤日誌），而且之前才因為擠爆修過一次
+                     （截圖監控限高 420px）。再塞一個完整面板會重演同樣問題。
+                     明細留在「三路對帳」分頁，這裡只出告警級摘要。
+
+                  ⚠️ 顏色**只標異常**。全部相符時保持中性，不然一排彩色 chip
+                     反而看不出哪一台要處理。 */}
+              {(() => {
+                if (!cmpEnabled) return null
+                const total = cmpMachines.reduce((a, m) => ({
+                  compared: a.compared + m.compared,
+                  matched: a.matched + m.matched,
+                  mismatched: a.mismatched + m.mismatched,
+                  missing: a.missing + m.missing,
+                }), { compared: 0, matched: 0, mismatched: 0, missing: 0 })
+                const jump = (mt?: string) => {
+                  setTab('compare3')
+                  fetchCompareGroups()
+                  fetchComparePrefs()
+                  if (mt) setCmpFocusMachine(mt)
+                }
+                const badge = (label: string, n: number, tone: 'bad' | 'warn' | 'ok') => {
+                  if (n === 0 && tone !== 'ok') return null
+                  const c = tone === 'bad'
+                    ? { bg: 'rgba(244,63,94,.14)', fg: '#fb7185', bd: 'rgba(244,63,94,.35)' }
+                    : tone === 'warn'
+                      ? { bg: 'rgba(234,179,8,.13)', fg: '#eab308', bd: 'rgba(234,179,8,.32)' }
+                      : { bg: 'transparent', fg: '#94a3b8', bd: 'transparent' }
+                  return (
+                    <span style={{
+                      fontSize: 11, padding: '2px 7px', borderRadius: 4,
+                      background: c.bg, color: c.fg, border: `1px solid ${c.bd}`, whiteSpace: 'nowrap',
+                    }}>{label} {n}</span>
+                  )
+                }
+                return (
+                  <div
+                    /* 給一個穩定識別：分頁列上也有一顆叫「三路對帳」的按鈕，
+                       只靠文字找會抓錯元素（驗證腳本第一版就是這樣抓到分頁列的）*/
+                    data-testid="autospin-compare-bar"
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+                      padding: '7px 10px', marginBottom: 8,
+                      border: '1px solid #2d3f55', borderRadius: 8, background: '#162032',
+                    }}>
+                    <button
+                      type="button" onClick={() => jump()}
+                      style={{
+                        fontSize: 12, fontWeight: 700, color: '#e2e8f0', background: 'none',
+                        border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline dotted',
+                      }}
+                      title="跳到「三路對帳」分頁看逐筆明細"
+                    >三路對帳</button>
+                    {total.compared === 0 ? (
+                      <span style={{ fontSize: 11, color: '#64748b' }}>
+                        尚無資料{cmpMachines.length === 0 ? '（這次執行還沒有機台被比對到）' : ''}
+                      </span>
+                    ) : (
+                      <>
+                        <span style={{ fontSize: 11, color: '#94a3b8' }}>已比對 {total.compared} 筆</span>
+                        {badge('不符', total.mismatched, 'bad')}
+                        {badge('缺資料', total.missing, 'warn')}
+                        {total.mismatched === 0 && total.missing === 0 && (
+                          <span style={{ fontSize: 11, color: '#4ade80' }}>全部相符</span>
+                        )}
+                      </>
+                    )}
+                    <div style={{ flex: 1 }} />
+                    {/* 逐台只在有異常時才列出來——正常的機台不需要佔位置 */}
+                    {cmpMachines.filter(m => m.mismatched > 0 || m.missing > 0).slice(0, 4).map(m => (
+                      <button
+                        key={`${m.sessionId}:${m.machineType}`} type="button"
+                        onClick={() => jump(m.machineType)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 5, fontSize: 11,
+                          padding: '2px 7px', borderRadius: 4, cursor: 'pointer',
+                          background: 'rgba(244,63,94,.08)', border: '1px solid rgba(244,63,94,.25)', color: '#e2e8f0',
+                        }}
+                        title="跳到三路對帳並聚焦這台"
+                      >
+                        <b style={{ fontWeight: 700 }}>{m.machineType}</b>
+                        {m.mismatched > 0 && <span style={{ color: '#fb7185' }}>不符 {m.mismatched}</span>}
+                        {m.missing > 0 && <span style={{ color: '#eab308' }}>缺 {m.missing}</span>}
+                      </button>
+                    ))}
+                  </div>
+                )
+              })()}
 
               {/* Log panel: filter/search + pinus category chips + bounded scrollable body */}
               {(() => {
