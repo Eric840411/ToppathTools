@@ -2050,10 +2050,19 @@ function loadReconcileConfig(env: ReconcileEnv = 'osm') {
   // 先鋪共用設定（依環境挑前綴），再讓自己的表覆蓋上去
   const shared = db.prepare('SELECT key, value FROM meter_reconcile_config').all() as { key: string; value: string }[]
   const prefix = `${env}_`
+  // ⚠️ 兩張表的 key 命名不一樣，必須明確對應。共用設定是 snake_case
+  //    （osm_channel_id），這支讀的是 camelCase（cfg.channelId）——
+  //    不轉的話 channelId 永遠是 undefined、fallback 到寫死的 '873'。
+  //    OSM 剛好就是 873 所以看不出來，但 **GCP 會靜默用錯 channel**（應為 892），
+  //    查回來的是別的渠道的資料而且不會報錯。
+  const KEY_MAP: Record<string, string> = {
+    channel_id: 'channelId',
+    player_studio_id: 'playerstudioid',
+  }
   for (const r of shared) {
     if (!r.key.startsWith(prefix)) continue
-    // meter_reconcile_config 用 snake_case（osm_base_url），這支用 camel-ish（base_url）
-    cfg[r.key.slice(prefix.length)] = r.value
+    const bare = r.key.slice(prefix.length)
+    cfg[KEY_MAP[bare] ?? bare] = r.value
   }
   // origin 有了就順便補 referer——後台會檢查，少了會被擋，
   // 而共用設定裡沒有這個欄位（Meter 那支是自己組的）
@@ -2143,7 +2152,9 @@ async function fetchBackendRecords(
 
       // Token expired → auto re-login once
       if (d.code === 40200 && cfg.auto_login !== 'false' && !reloginDone) {
+        console.warn('[reconcile] token 過期，嘗試自動重新登入')
         const newToken = await reconcileLogin(cfg)
+        if (!newToken) console.warn('[reconcile] 自動重新登入失敗——帳密可能不對，或登入路徑不同')
         if (newToken) {
           // ⚠️ 重讀時要沿用同一個環境。用預設值會在 GCP 情境下把設定換成 OSM，
           //    而且只在 token 過期那一刻才發生，極難重現
@@ -2156,11 +2167,24 @@ async function fetchBackendRecords(
         break
       }
 
+      // 非預期的錯誤碼要留下痕跡。原本只有 40200 有處理，其他狀況（例如
+      // 權限不足、參數被拒）會直接落到下面的 items 判斷、當成「沒資料」break，
+      // 使用者看到的是「後台 0 筆」而不是錯誤——查不到是壞在哪
+      if (d.code !== undefined && d.code !== 20000) {
+        console.warn(`[reconcile] 後台回非成功碼 ${d.code}：${(d as { message?: string }).message ?? ''}`)
+        break
+      }
+
       const items = d.data?.items ?? []
       if (!Array.isArray(items) || items.length === 0) break
       all.push(...items)
       if (items.length < pageSize) break
-    } catch { break }
+    } catch (e) {
+      // 原本是 `catch { break }`——把所有例外靜默吞掉，回 0 筆且不留任何痕跡。
+      // 這正是「後台明明有 34 筆卻回 0」查不出原因的其中一個障礙
+      console.warn('[reconcile] 後台查詢失敗:', e instanceof Error ? e.message : e)
+      break
+    }
   }
   return all
 }

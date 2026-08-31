@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.85.0'
+export const APP_VERSION = '4.85.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.85.1',
+    date: '2026-08-31',
+    changes: [
+      'fix(autospin): 後台對帳查不到資料。根因是這工具原本完全沒有設定——它自己的 reconcile_config 表是空的，所以連 base_url、帳密、token 都沒有，自然查不到也登入不了。v4.85.0 改讀共用設定之後就通了，實測回傳 34 筆、跟後台畫面一致',
+      'fix(autospin): 共用設定的 key 是 snake_case（osm_channel_id），但程式讀的是 camelCase（cfg.channelId），不轉換的話永遠 fallback 到寫死的 873。OSM 剛好就是 873 所以看不出來，但 GCP 會靜默查到別的渠道（應為 892）',
+      'fix(autospin): 後台查詢的 catch 原本是 `catch { break }`，把所有例外靜默吞掉、回 0 筆且不留痕跡；非 20000 的錯誤碼也會被當成「沒資料」。兩者都補上 log——這正是「後台明明有 34 筆卻回 0」查不出原因的障礙之一',
+      'note(autospin): 參數格式不是問題。實測用新 token 時「空白分隔」與「ISO UTC」、dateTimeType 0 與 1，四種組合都回 total 34，所以這支端點兩種格式都吃',
+    ],
+  },
   {
     version: '4.85.0',
     date: '2026-08-31',
