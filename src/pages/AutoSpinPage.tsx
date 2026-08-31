@@ -266,9 +266,12 @@ export function AutoSpinPage() {
   }
 
   // ── Reconcile tab ───────────────────────────────────────────────────────────
-  const [rcConfig, setRcConfig] = useState<Record<string, string>>({})
   const [rcConfigMsg, setRcConfigMsg] = useState('')
   const [rcRunning, setRcRunning] = useState(false)
+  /** 對帳用哪個環境。對應共用設定 meter_reconcile_config 的 osm_/gcp_ 兩組前綴 */
+  const [rcEnv, setRcEnv] = useState<'osm' | 'gcp'>('osm')
+  /** 日期快捷。'custom' 才展開起訖日期輸入 */
+  const [rcDatePreset, setRcDatePreset] = useState<'today' | 'yesterday' | '7d' | 'custom'>('yesterday')
   const [rcRangeStart, setRcRangeStart] = useState('')
   const [rcRangeEnd, setRcRangeEnd] = useState('')
   const [rcMachineType, setRcMachineType] = useState('')
@@ -276,37 +279,14 @@ export function AutoSpinPage() {
   const [rcResult, setRcResult] = useState<null | { summary: string; details: {status:string;uid:string;time:string;bet:number;win:number;note:string}[]; backendAnomalies: {uid:string;time:string;bet:number;win:number;note:string}[] }>(null)
   const [rcReports, setRcReports] = useState<{id:number;runAt:number;rangeStart:string;rangeEnd:string;machineType:string;frontCount:number;backendCount:number;matchedCount:number;unmatchedCount:number;anomalyCount:number;summary:string}[]>([])
 
-  const fetchRcConfig = async () => {
-    const r = await fetch('/api/autospin/reconcile/config')
-    const d = await r.json() as { config?: Record<string, string> }
-    setRcConfig(d.config ?? {})
-  }
+  // 連線設定改成讀共用的 meter_reconcile_config（由後端依環境挑），
+  // 前端不再自己抓一份、也不再有畫面可以編輯它——原本的 fetchRcConfig 與
+  // rcConfig state 都已移除，留著只會讓人以為這頁還有自己的設定。
 
-  const saveRcConfig = async () => {
-    setRcConfigMsg('')
-    const r = await fetch('/api/autospin/reconcile/config', {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        base_url: rcConfig.base_url ?? '',
-        login_path: rcConfig.login_path ?? '/auth/login',
-        token: rcConfig.token ?? '',
-        lastlogintime: rcConfig.lastlogintime ?? '',
-        channelId: rcConfig.channelId ?? '873',
-        playerstudioid: rcConfig.playerstudioid ?? '',
-        origin: rcConfig.origin ?? '',
-        referer: rcConfig.referer ?? '',
-        login_username: rcConfig.login_username ?? '',
-        login_password: rcConfig.login_password ?? '',
-        auto_login: rcConfig.auto_login !== 'false',
-      }),
-    })
-    const d = await r.json() as { ok: boolean }
-    setRcConfigMsg(d.ok ? '通過 已儲存' : '失敗 儲存失敗')
-  }
 
   const testRcConnection = async () => {
     setRcConfigMsg('測試中...')
-    const r = await fetch('/api/autospin/reconcile/test', { method: 'POST' })
+    const r = await fetch('/api/autospin/reconcile/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ env: rcEnv }) })
     const d = await r.json() as { ok: boolean; message?: string }
     setRcConfigMsg(d.ok ? `通過 ${d.message}` : `失敗 ${d.message}`)
   }
@@ -317,7 +297,7 @@ export function AutoSpinPage() {
     try {
       const r = await fetch('/api/autospin/reconcile/run', {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'x-user-label': getGlobalUserLabel() },
-        body: JSON.stringify({ rangeStart: rcRangeStart, rangeEnd: rcRangeEnd, machineType: rcMachineType, playerId: rcPlayerId }),
+        body: JSON.stringify({ rangeStart: rcRangeStart, rangeEnd: rcRangeEnd, machineType: rcMachineType, playerId: rcPlayerId, env: rcEnv }),
       })
       type RcDetail = { status: string; uid: string; time: string; bet: number; win: number; note: string }
       type RcAnomaly = { uid: string; time: string; bet: number; win: number; note: string }
@@ -940,7 +920,7 @@ export function AutoSpinPage() {
         <button style={tabStyle('configs')} onClick={() => setTab('configs')}>機台設定</button>
         <button style={tabStyle('templates')} onClick={() => { setTab('templates'); fetchTemplates() }}>模板管理</button>
         <button style={tabStyle('history')} onClick={() => { setTab('history'); fetchHistory() }}>歷史戰績</button>
-        <button style={tabStyle('reconcile')} onClick={() => { setTab('reconcile'); fetchRcConfig(); fetchRcReports() }}>後台對帳</button>
+        <button style={tabStyle('reconcile')} onClick={() => { setTab('reconcile'); fetchRcReports() }}>後台對帳</button>
         <button style={tabStyle('compare3')} onClick={() => { setTab('compare3'); fetchCompareGroups(); fetchComparePrefs() }}>三路對帳</button>
         <button style={tabStyle('jpgroups')} onClick={() => { setTab('jpgroups'); fetchJpGroups() }}>JP Group</button>
         <button style={tabStyle('run')} onClick={() => { setTab('run'); fetchCaptures(); fetchHubAgents(); fetchJpGroups() }}>▶ 執行監控</button>
@@ -1175,44 +1155,107 @@ export function AutoSpinPage() {
       {tab === 'reconcile' && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, overflow: 'auto' }}>
 
-          {/* Auth Config */}
-          <details open>
-            <summary style={{ fontWeight: 700, fontSize: 13, cursor: 'pointer', marginBottom: 8 }}>後台 API 設定</summary>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '0 4px' }}>
-              {[
-                { key: 'base_url', label: 'Base URL', placeholder: 'https://backendservertest.osmslot.org' },
-                { key: 'origin', label: 'Origin', placeholder: 'https://qat-cp.osmslot.org' },
-                { key: 'token', label: 'Token（直接填入可跳過登入）', placeholder: '0000873_1-...' },
-                { key: 'channelId', label: 'Channel ID', placeholder: '873' },
-                { key: 'playerstudioid', label: 'Player Studio ID', placeholder: 'cp,wf,tbr,...' },
-                { key: 'login_username', label: '登入帳號（自動登入用）', placeholder: 'admin' },
-                { key: 'login_password', label: '登入密碼', placeholder: '' },
-              ].map(({ key, label, placeholder }) => (
-                <div key={key} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <label style={{ fontSize: 11, color: '#94a3b8', minWidth: 200, textAlign: 'right' }}>{label}</label>
-                  <input value={rcConfig[key] ?? ''} onChange={e => setRcConfig(c => ({ ...c, [key]: e.target.value }))}
-                    placeholder={placeholder} type={key === 'login_password' ? 'password' : 'text'}
-                    style={{ flex: 1, padding: '4px 8px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 12 }} />
-                </div>
-              ))}
-              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                <button onClick={saveRcConfig} style={{ padding: '5px 14px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>儲存設定</button>
-                <button onClick={testRcConnection} style={{ padding: '5px 14px', background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>測試連線</button>
-                {rcConfigMsg && <span style={{ fontSize: 12, color: rcConfigMsg.startsWith('通過') ? '#16a34a' : '#dc2626', alignSelf: 'center' }}>{rcConfigMsg}</span>}
-              </div>
-            </div>
-          </details>
+          {/* ── 連線設定：從手填改成選環境（2026-08-31）────────────────────────
+              原本這裡是一整塊要手填的表單（Base URL／Origin／Token／Channel／
+              Player Studio ID／登入帳密），存在自己的 `reconcile_config` 表。
+
+              ⚠️ 但那張表**實際上是空的**（0 筆，從沒被存過），而 Meter／DayCount
+                 共用的 `meter_reconcile_config` 早就有完整一份、值還一模一樣，
+                 **而且兩邊打的是同一組 API**（/egm/reports/gameRecordList）。
+                 等於要使用者重填一份已經存在的設定，而且填了才發現沒人存過。
+
+              所以整塊換成「選一個環境」。設定本身到「Performance Meter 對帳」
+              那頁維護，這裡不再有第二份。 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '2px 4px' }}>
+            <span style={{ fontSize: 11, color: '#94a3b8' }}>環境</span>
+            {([['osm', 'OSM（CP 後台）'], ['gcp', 'GCP（NC 後台）']] as const).map(([v, label]) => (
+              <button
+                key={v} type="button" onClick={() => setRcEnv(v)}
+                style={{
+                  padding: '5px 12px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
+                  border: `1px solid ${rcEnv === v ? 'var(--cr-cyan)' : '#2d3f55'}`,
+                  background: rcEnv === v ? 'rgba(117,215,207,.12)' : 'transparent',
+                  color: rcEnv === v ? 'var(--cr-cyan)' : '#94a3b8', fontWeight: rcEnv === v ? 700 : 400,
+                }}
+              >{label}</button>
+            ))}
+            <button onClick={testRcConnection} type="button"
+              style={{ padding: '5px 12px', background: 'transparent', color: '#94a3b8', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>
+              測試連線
+            </button>
+            {rcConfigMsg && <span style={{ fontSize: 12, color: rcConfigMsg.startsWith('通過') ? '#16a34a' : '#dc2626' }}>{rcConfigMsg}</span>}
+            <div style={{ flex: 1 }} />
+            <span style={{ fontSize: 11, color: '#64748b' }}>
+              連線設定沿用「Performance Meter 對帳」那頁，這裡不用再填一次
+            </span>
+          </div>
 
           {/* Run Reconciliation */}
           <div style={{ background: '#162032', border: '1px solid #2d3f55', borderRadius: 8, padding: 14 }}>
             <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>▶ 執行對帳</div>
+            {/* 日期快捷。原本只有兩個純文字框，要自己打「2026-04-06 00:00:00」——
+                格式錯了也不會有人提醒。這種後台 game record 對帳日常排查多半是
+                「某一天」或「昨天某段時間」，不是長期報表，所以給快捷比給空白框實用。
+                （近 7 天會拉比較多資料，標示出來讓人知道那是重活。）*/}
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+              <span style={{ fontSize: 11, color: '#94a3b8' }}>快捷</span>
+              {([
+                ['today', '今天', 0],
+                ['yesterday', '昨天', 1],
+                ['7d', '近 7 天', 6],
+              ] as const).map(([key, label, backDays]) => (
+                <button
+                  key={key} type="button"
+                  onClick={() => {
+                    // 用本地時間組，不要用 toISOString——那是 UTC，台灣早上會變成前一天
+                    const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+                    const end = new Date()
+                    const start = new Date()
+                    if (key === 'yesterday') { end.setDate(end.getDate() - 1); start.setDate(start.getDate() - 1) }
+                    else start.setDate(start.getDate() - backDays)
+                    setRcDatePreset(key)
+                    setRcRangeStart(`${fmt(start)} 00:00:00`)
+                    setRcRangeEnd(`${fmt(end)} 23:59:59`)
+                  }}
+                  style={{
+                    padding: '4px 10px', fontSize: 11, borderRadius: 5, cursor: 'pointer',
+                    border: `1px solid ${rcDatePreset === key ? 'var(--cr-cyan)' : '#2d3f55'}`,
+                    background: rcDatePreset === key ? 'rgba(117,215,207,.12)' : 'transparent',
+                    color: rcDatePreset === key ? 'var(--cr-cyan)' : '#94a3b8',
+                  }}
+                >{label}</button>
+              ))}
+              <button type="button" onClick={() => setRcDatePreset('custom')}
+                style={{
+                  padding: '4px 10px', fontSize: 11, borderRadius: 5, cursor: 'pointer',
+                  border: `1px solid ${rcDatePreset === 'custom' ? 'var(--cr-cyan)' : '#2d3f55'}`,
+                  background: rcDatePreset === 'custom' ? 'rgba(117,215,207,.12)' : 'transparent',
+                  color: rcDatePreset === 'custom' ? 'var(--cr-cyan)' : '#94a3b8',
+                }}
+              >自訂</button>
+              {rcDatePreset === '7d' && (
+                <span style={{ fontSize: 11, color: '#eab308' }}>近 7 天資料量大，查詢會比較久</span>
+              )}
+            </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              {[
-                { label: '開始時間', val: rcRangeStart, set: setRcRangeStart, ph: '2026-04-06 00:00:00' },
-                { label: '結束時間', val: rcRangeEnd, set: setRcRangeEnd, ph: '2026-04-06 23:59:59' },
+              {/* 自訂時才展開起訖日期；選了快捷就不用看到兩個輸入框 */}
+              {rcDatePreset === 'custom' && ([
+                { label: '開始日期', val: rcRangeStart, set: setRcRangeStart, tail: '00:00:00' },
+                { label: '結束日期', val: rcRangeEnd, set: setRcRangeEnd, tail: '23:59:59' },
+              ] as const).map(({ label, val, set, tail }) => (
+                <div key={label}>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>{label}</div>
+                  {/* 後端要的是「YYYY-MM-DD HH:mm:ss」，但 <input type="date"> 只給日期，
+                      所以把時分秒補在這裡，使用者不用自己打格式 */}
+                  <input type="date" value={(val || '').slice(0, 10)}
+                    onChange={e => set(e.target.value ? `${e.target.value} ${tail}` : '')}
+                    style={{ padding: '5px 8px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 12, width: 180 }} />
+                </div>
+              ))}
+              {([
                 { label: '機台類型（留空=全部）', val: rcMachineType, set: setRcMachineType, ph: 'JJBXGRAND' },
                 { label: 'Player ID（留空=全部）', val: rcPlayerId, set: setRcPlayerId, ph: '' },
-              ].map(({ label, val, set, ph }) => (
+              ] as const).map(({ label, val, set, ph }) => (
                 <div key={label}>
                   <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>{label}</div>
                   <input value={val} onChange={e => set(e.target.value)} placeholder={ph}

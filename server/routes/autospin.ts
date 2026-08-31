@@ -2027,10 +2027,41 @@ router.put('/api/autospin/reconcile/config', (req, res) => {
 })
 
 // Helper: load reconcile config from DB
-function loadReconcileConfig() {
-  const rows = db.prepare('SELECT key, value FROM reconcile_config').all() as { key: string; value: string }[]
+/**
+ * 後台對帳的連線設定。
+ *
+ * ⚠️ 這頁原本有一整塊手填表單（Base URL／Origin／Token／Channel／帳密），存在自己的
+ *    `reconcile_config` 表——但那張表**實際上是空的**（0 筆，從沒被存過），而
+ *    Meter／DayCount 共用的 `meter_reconcile_config` 早就有完整一份、值還一模一樣
+ *    （同樣的 backendservertest / qat-cp / 873 / 帳密），**而且兩邊打的是同一組 API**
+ *    （`/egm/reports/gameRecordList`）。等於使用者被要求重填一份已經存在的設定。
+ *
+ *    所以改成直接讀共用設定，依環境取 `osm_` 或 `gcp_` 前綴那組。
+ *
+ * ⚠️ `reconcile_config` 仍然優先：它存的是登入後拿到的 token/lastlogintime
+ *    （見 `/reconcile/login`），那是這支自己維護的登入狀態，不能被共用設定蓋掉。
+ *    共用設定只補「連線目標與帳密」這些底層欄位。
+ */
+type ReconcileEnv = 'osm' | 'gcp'
+
+function loadReconcileConfig(env: ReconcileEnv = 'osm') {
   const cfg: Record<string, string> = {}
-  for (const r of rows) cfg[r.key] = r.value
+
+  // 先鋪共用設定（依環境挑前綴），再讓自己的表覆蓋上去
+  const shared = db.prepare('SELECT key, value FROM meter_reconcile_config').all() as { key: string; value: string }[]
+  const prefix = `${env}_`
+  for (const r of shared) {
+    if (!r.key.startsWith(prefix)) continue
+    // meter_reconcile_config 用 snake_case（osm_base_url），這支用 camel-ish（base_url）
+    cfg[r.key.slice(prefix.length)] = r.value
+  }
+  // origin 有了就順便補 referer——後台會檢查，少了會被擋，
+  // 而共用設定裡沒有這個欄位（Meter 那支是自己組的）
+  if (cfg.origin && !cfg.referer) cfg.referer = cfg.origin.replace(/\/?$/, '/')
+
+  const own = db.prepare('SELECT key, value FROM reconcile_config').all() as { key: string; value: string }[]
+  for (const r of own) if (r.value) cfg[r.key] = r.value
+
   return cfg
 }
 
@@ -2074,6 +2105,9 @@ async function fetchBackendRecords(
   cfg: Record<string, string>,
   startDt: string, endDt: string,
   playerId = '', pageSize = 50, maxPages = 5,
+  /** token 過期要重讀設定時，得知道當初用的是哪個環境——不傳的話會退回 osm，
+   *  在 GCP 情境下把設定悄悄換掉，而且只在過期那一刻發生 */
+  env: ReconcileEnv = 'osm',
 ): Promise<unknown[]> {
   const baseUrl = (cfg.base_url || 'https://backendservertest.osmslot.org').replace(/\/$/, '')
   const endpoint = `${baseUrl}/egm/reports/gameRecordList`
@@ -2111,7 +2145,9 @@ async function fetchBackendRecords(
       if (d.code === 40200 && cfg.auto_login !== 'false' && !reloginDone) {
         const newToken = await reconcileLogin(cfg)
         if (newToken) {
-          cfg = loadReconcileConfig()
+          // ⚠️ 重讀時要沿用同一個環境。用預設值會在 GCP 情境下把設定換成 OSM，
+          //    而且只在 token 過期那一刻才發生，極難重現
+          cfg = loadReconcileConfig(env)
           headers = reconcileHeaders(cfg)
           reloginDone = true
           page-- // retry this page
@@ -2130,9 +2166,12 @@ async function fetchBackendRecords(
 }
 
 // POST /api/autospin/reconcile/test — test backend API connection
-router.post('/api/autospin/reconcile/test', async (_req, res) => {
+router.post('/api/autospin/reconcile/test', async (req, res) => {
   try {
-    const cfg = loadReconcileConfig()
+    // 測試連線也要吃 env，否則選了 GCP 卻永遠在測 OSM——
+    // 那會給出「連線正常」但實際上根本沒測到要用的那組設定
+    const env = req.body?.env === 'gcp' ? 'gcp' as const : 'osm' as const
+    const cfg = loadReconcileConfig(env)
     if (!cfg.token && cfg.auto_login === 'true') {
       const t = await reconcileLogin(cfg)
       if (!t) return res.json({ ok: false, message: '自動登入失敗，請確認帳密或手動填入 token' })
@@ -2182,15 +2221,18 @@ router.post('/api/autospin/reconcile/run', async (req, res) => {
     rangeEnd: z.string(),
     machineType: z.string().default(''),
     playerId: z.string().default(''),
+    // 環境：對應共用設定 meter_reconcile_config 的 osm_/gcp_ 兩組前綴。
+    // 舊的呼叫端沒帶這個欄位，預設 osm 維持原本行為
+    env: z.enum(['osm', 'gcp']).default('osm'),
   }).parse(req.body)
 
   const userLabel = (req.headers['x-user-label'] as string) || ''
 
   // 1. Fetch backend records
-  const cfg = loadReconcileConfig()
+  const cfg = loadReconcileConfig(body.env)
   let backendItems: unknown[] = []
   try {
-    backendItems = await fetchBackendRecords(cfg, body.rangeStart, body.rangeEnd, body.playerId)
+    backendItems = await fetchBackendRecords(cfg, body.rangeStart, body.rangeEnd, body.playerId, 50, 5, body.env)
   } catch (e) {
     return res.status(500).json({ ok: false, message: `後台 API 查詢失敗：${e}` })
   }

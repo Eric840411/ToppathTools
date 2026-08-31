@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.84.0'
+export const APP_VERSION = '4.85.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.85.0',
+    date: '2026-08-31',
+    changes: [
+      'feat(autospin): 後台對帳整塊手填的「後台 API 設定」換成選環境（OSM／GCP）。原本要填 Base URL／Origin／Token／Channel／Player Studio ID／登入帳密，但那份設定 Meter／DayCount 早就有一份完整的、值還一模一樣，而且兩邊打的是同一組 API',
+      'note(autospin): 它自己的 reconcile_config 表實際上是 0 筆——從沒被存過。等於使用者被要求重填一份已經存在的設定，填了才會發現沒人存過',
+      'feat(autospin): 日期改成快捷（今天／昨天／近 7 天／自訂）＋ 真正的日期選擇器，預設昨天。原本是純文字框要自己打「2026-04-06 00:00:00」，格式錯了也不會有人提醒',
+      'note(autospin): 近 7 天會標示「資料量大，查詢會比較久」——這種後台 game record 對帳日常排查多半是某一天，長範圍是事故追查才用（跟 CodeX 討論定案）',
+      'fix(autospin): 環境有確實串進請求與「測試連線」。只做下拉不帶進 API 的話，選了 GCP 卻永遠在測 OSM，會給出「連線正常」但根本沒測到要用的那組',
+    ],
+  },
   {
     version: '4.84.0',
     date: '2026-08-31',
