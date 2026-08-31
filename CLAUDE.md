@@ -654,6 +654,51 @@ SAS/MML/G2S 三組各自依 `name`（遊戲代碼）分組，組內列出每台�
 
 > 已驗證 19 項（`server/python/test_err_snapshot.py`，用假 page 不開瀏覽器）：三種嚴重度分得開｜長時間沒恢復會升級｜恢復秒數正確回填且不會被二次覆蓋｜統計取最大恢復秒數與最後一筆非空描述｜快照有上限不會無限長大。
 
+**SPIN 次數 ≠ 局數（2026-08-31，v4.88.0）**
+
+實體機台上按 SPIN 不保證起局——可能落在動畫中、FG/JP 進行中。原本兩者混在同一個
+`spin_count` 裡，「spins 90、ok 100%」會被誤讀成「跑了 90 局全部成功」。
+
+`do_spin()` 依**結束訊號**把每一下分類（訊號在 8 秒內先到者為準，每 0.3 秒輪詢）：
+
+| outcome | 訊號 | 報告文字 |
+|---|---|---|
+| `completed` | pinus `moneyNtc` 結算 | **完成局數** |
+| `completed_late` | 逾時後、下一次 spin 前才見到 coin 更新 | 延遲推定完成 |
+| `suspected` | 按鈕 `disabled → enabled` | 疑似完成（無結算證據）|
+| `unknown` | 8 秒內三個訊號都沒到 | 不確定 |
+| `not_started` | 伺服器回 errcode 明確拒絕 | 未起局 |
+
+**⚠️ 四類不能互相合併。**`suspected` 有「局跑過了」的狀態轉換證據、`not_started` 是根本沒起，
+併起來會低估局數；`suspected` 變多本身就是訊號——代表 `moneyNtc` 收不到，
+正是熱更新後 pinus 補丁失效的典型症狀（v3.90.x 那批問題）。
+
+**`completed_late` 的補判規則（跟 CodeX 討論定案）**：
+
+- **一定要在按下這次 spin「之前」補判**上一筆。這次的結算會把 `__coinUpdatedAt` 往前推，
+  之後就分不出是上一局晚到還是這一局剛結算。這個時機同時讓
+  `coinUpdatedAt <= nextSpinStartAt` 自動成立。
+- **只補上一筆，不做待判佇列。**`__coinUpdatedAt` 是「任何一則帶 `coin` 欄位的 pinus 訊息」
+  都會更新（route 與 reason **都沒過濾**），所以一次 coin 更新**無法歸屬到特定某一局**；
+  連續多筆 unknown 時拿一次更新去分配只會做出更精緻的錯覺。
+  **也不會因此漏判**——每次 spin 前檢查上一筆，A、B 連續 unknown 時 B 之前查 A、C 之前查 B。
+- **距離點擊超過 `RECLASSIFY_MAX_GAP_SEC`（30 秒）就不補**；卡過 FG/JP 等待（`osm_handled`）
+  或觸發過 fallback bonus 時直接清掉 pending。那段一定有派彩造成的 coin 更新，
+  拿它補判會把**派彩誤記成上一局的結算**。
+- **⚠️ 刻意不併進 `completed`。**它的證據等級低於 8 秒內收到的結算——只證明「這段期間曾經有
+  coin 更新」。併進去會讓「完成局數」從確定訊號變成混合訊號，而且改版前後不可比。
+  用詞是「延遲**推定**完成」不是「延遲完成」（CodeX 要求，不要過度承諾）。
+- 這個比例本身是健康指標：變多代表結算訊號常常晚到或漏接。
+
+**⚠️ 有些機台的 Spin 按鈕全程不切換 disabled**（實測 BULLBLITZ 累計 553 次 `suspected` 全是 0，
+RISINGROCKETS 也是）。那種機台**只剩 `moneyNtc` 一個完成訊號、沒有第二道保險**，
+`unknown` 落在「訊號丟失」而非「動畫太久」的機率比有按鈕訊號的機台高。
+
+> 已驗證 15 項（`server/python/test_late_reclassify.py`，用假 page 不開瀏覽器）：
+> 該補的有補｜coin 沒更新／時間戳倒退／超過 30 秒／沒有待判紀錄／計數器已是 0／讀不到時間戳
+> 一律不補｜一筆只補一次｜**補判前後 outcome 總數守恆**（只能搬動分類，不能憑空生出局數）。
+> 報告渲染另以本機攔截伺服器捕捉真實 embed 確認（webhook 設定測完已還原）。
+
 **帳號 → Discord Tag 對照表（2026-07-30）**：`mentionForUserLabel(userLabel)` 依 session 派工時的帳號（`agentSessions.get(sessionId).userLabel`）查 `autospin_discord_user_map`（`settings` 表 JSON 陣列），找到就回傳 `<@discordUserId> ` 字串。**這個 mention 一定要寫進 Discord webhook payload 的 `content` 欄位，不能塞在 `embed` 裡**——embed 的 title/description/fields 就算文字寫 `<@id>` 也不會觸發 Discord 通知/ping，只有訊息本體的 `content` 才會。套用範圍：即時彙報通知（`notifyDiscord()`，含新建訊息與 PATCH 編輯兩種情境，但 Discord 對「編輯訊息新增 mention」通常不會重新推播通知，只有第一次建立訊息時的 ping 保證有效）與定時彙總報告（每次都是全新訊息，一定會 ping）。
 
 **標題附帶 gmid（2026-07-31）**：`maybe_send_status_report()` 從 `mp['config'].get('gameTitleCode')` 取值，經 `post_status_report()` 一併 POST 給伺服器，`buildStatusReportEmbed()` 標題變成 `— {machineType}（{gameTitleCode}）`——單純顯示 `machineType` 在名稱相近時（如 RISINGROCKET / RISINGROCKETS）無法分辨是哪一台機器發的報告，加上 gmid 才能唯一對應。

@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.87.1'
+export const APP_VERSION = '4.88.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.88.0',
+    date: '2026-08-31',
+    changes: [
+      'feat(autospin): 定時彙總報告新增「延遲推定完成」。原本 8 秒內收不到任何訊號就固定記成「不確定」，但那一局常常只是結算晚到——現在下一次 spin 前若觀察到 coin 更新，就把它改判成延遲推定完成',
+      'note(autospin): 刻意不併進「完成局數」（跟 CodeX 討論定案）。__coinUpdatedAt 是任何一則帶 coin 欄位的 pinus 訊息都會更新，route 與 reason 都沒過濾，只能證明「這段期間曾經有 coin 更新」，證據等級低於 8 秒內收到的結算。併進去會讓完成局數從確定訊號變成混合訊號，而且改版前後不可比',
+      'note(autospin): 只補上一筆不做待判佇列。一次 coin 更新無法歸屬到特定某一局，連續多筆 unknown 時拿它去分配只會做出更精緻的錯覺；而補判點是「每次 spin 前檢查上一筆」，所以連續 unknown 也不會漏判',
+      'note(autospin): 距離點擊超過 30 秒、或中間卡過 FG/JP 等待與 fallback bonus，一律不補判——那段一定有派彩造成的 coin 更新，拿它補判會把派彩誤記成上一局的結算',
+    ],
+  },
   {
     version: '4.87.1',
     date: '2026-08-31',

@@ -490,6 +490,15 @@ interface StatusReportStats {
   outcomeCounts?: {
     /** coin_update：有 moneyNtc 結算，確定完成一局 */
     completed?: number
+    /** 原本逾時判成 unknown，但下一次 spin 前才觀察到 coin 更新 → 推定那一局其實跑完了。
+     *
+     *  ⚠️ **刻意不併進 completed**（跟 CodeX 討論定案）。`__coinUpdatedAt` 是「任何一則
+     *     帶 coin 欄位的 pinus 訊息」都會更新，route 與 reason 都沒過濾，所以它只證明
+     *     「這段期間曾經有 coin 更新」，證據等級低於 8 秒內收到的結算。併進去會讓
+     *     「完成局數」從確定訊號變成混合訊號，而且改版前後不可比。
+     *
+     *  這個比例本身就是健康指標：變多代表結算訊號常常晚到或漏接。 */
+    completed_late?: number
     /** button_disabled_toggle：按鈕進出 spinning，局跑過了但缺結算證據。
      *  這個數字變多本身就是訊號——代表 moneyNtc 收不到（pinus 補丁失效）*/
     suspected?: number
@@ -536,12 +545,20 @@ function buildStatusReportEmbed(opts: {
     const oc = st.outcomeCounts
     if (!oc) return out
     const n = (v?: number) => (v ?? 0).toLocaleString()
-    out.push(`完成局數: **${n(oc.completed)}**`)
+    // 主數字只放「確定完成」，延遲推定的另外標。合併成一個數字就沒辦法
+    // 一眼看出結算訊號的品質——而那正是這台機器最該盯的東西。
+    const late = oc.completed_late ?? 0
+    out.push(late > 0
+      ? `完成局數: **${n(oc.completed)}**（＋延遲推定 ${n(late)} = ${((oc.completed ?? 0) + late).toLocaleString()}）`
+      : `完成局數: **${n(oc.completed)}**`)
     // 疑似完成一定要列在旁邊：它變多代表 moneyNtc 收不到，
     // 那是熱更新後 pinus 補丁失效的早期訊號，合併掉就看不見了
     const rest: string[] = []
     if ((oc.suspected ?? 0) > 0) rest.push(`疑似完成 ${n(oc.suspected)}（無結算證據）`)
-    if ((oc.unknown ?? 0) > 0) rest.push(`不確定 ${n(oc.unknown)}（逾時）`)
+    // 用詞是「延遲推定完成」不是「延遲完成」——它是推定不是確定（CodeX 要求，
+    // 不要過度承諾）
+    if (late > 0) rest.push(`延遲推定完成 ${n(late)}（逾時後才見到結算）`)
+    if ((oc.unknown ?? 0) > 0) rest.push(`不確定 ${n(oc.unknown)}（逾時且無後續結算）`)
     if ((oc.not_started ?? 0) > 0) rest.push(`未起局 ${n(oc.not_started)}（伺服器拒絕）`)
     if (rest.length) out.push(`> ${rest.join('｜')}`)
     return out
@@ -727,7 +744,7 @@ router.post('/api/autospin/status-report-test', async (req, res) => {
       errcodeCounts: { '5': 1 }, recoverCount: 0, kickoutCount: 1, crChecks: 8, crNoResponse: 0,
       // 假資料也示範「影響」欄位，這樣按試發送就看得到新格式長怎樣
       errImpact: { '5': { count: 1, deducted: 0, unknown: 0, needsReconcile: 0, maxRecoverSec: 2.4, lastDes: 'request timeout' } },
-      outcomeCounts: { completed: 30, suspected: 8, unknown: 4, not_started: 0 },
+      outcomeCounts: { completed: 30, completed_late: 5, suspected: 8, unknown: 4, not_started: 0 },
     },
     cumulative: {
       spinCount: 1234, okSpinCount: 1200, winCount: 89, totalWin: 34210, lastCoin: 500000,
@@ -741,7 +758,7 @@ router.post('/api/autospin/status-report-test', async (req, res) => {
         '29': { count: 1, deducted: 1, unknown: 0, needsReconcile: 1, maxRecoverSec: 31.5, lastDes: 'internal error' },
       },
       // 刻意讓「疑似完成」佔比明顯：試發送時才看得出這欄要拿來幹嘛
-      outcomeCounts: { completed: 980, suspected: 180, unknown: 70, not_started: 4 },
+      outcomeCounts: { completed: 980, completed_late: 96, suspected: 180, unknown: 70, not_started: 4 },
     },
   }
 

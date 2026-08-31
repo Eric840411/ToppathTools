@@ -1105,7 +1105,10 @@ def do_spin(page, cfg: dict):
     有些機台的 Spin 按鈕動畫全程不會切換 disabled/class（例如 RISINGROCKETS），
     只靠①偵測時，每次 Spin 都會固定卡滿 8 秒才返回，AutoSpin 連續跑很多輪時等於被拖慢 8 倍以上。
 
-    回傳：失敗回傳 None；成功回傳 (balance_before, balance_after, rejected, outcome) 這個 4-tuple。
+    回傳：失敗回傳 None；成功回傳
+    (balance_before, balance_after, rejected, outcome, coin_ts_at_click) 這個 5-tuple。
+    最後一個是「按下去當下 window.__coinUpdatedAt 的值」，給 outcome='unknown' 時
+    回頭補判用（見 reclassify_pending_unknown）。
     balance_before/after 其中一個或兩個都可能是 None，代表當下讀不到餘額；
     rejected 代表這次 Spin 被遊戲伺服器明確拒絕（例如 errcode:100）。
 
@@ -1115,6 +1118,8 @@ def do_spin(page, cfg: dict):
       'suspected'    button_disabled_toggle —— 按鈕進入 spinning 又離開，
                      代表前端認定跑過一局，**但缺結算證據**
       'unknown'      timeout_8s —— 什麼訊號都沒收到，不代表沒跑
+                     （下一次 spin 前可能被補判成 'completed_late'，見
+                      reclassify_pending_unknown）
       'not_started'  spin_rejected —— 伺服器明確拒絕，確定沒起
 
     ⚠️ 'suspected' 不能跟 'not_started' 併成一類。前者有「disabled → enabled」的狀態
@@ -1222,7 +1227,57 @@ def do_spin(page, cfg: dict):
     else:
         outcome = 'unknown'
 
-    return (balance_before, balance_after, rejected, outcome)
+    return (balance_before, balance_after, rejected, outcome, updated_at_before)
+
+
+# 補判的時間上限。超過就不補——中間若卡過 FG/JP 等待（最長 15 分鐘），
+# 那段一定有派彩造成的 coin 更新，拿它來補判會把派彩誤記成上一局的結算。
+RECLASSIFY_MAX_GAP_SEC = 30.0
+
+
+def reclassify_pending_unknown(page, mp, mt: str = '') -> bool:
+    """把上一次判成 unknown、但之後才觀察到 coin 更新的那一筆改記成 completed_late。
+
+    ⚠️ **一定要在按下這次 spin「之前」呼叫。**這一次的結算會把 __coinUpdatedAt
+       往前推，補判就分不出那是上一局晚到、還是這一局剛結算。
+       這個呼叫時機同時也讓 CodeX 提的 `coinUpdatedAt <= nextSpinStartAt` 自動成立
+       ——還沒點下去，讀到的值必然早於下一次 spin 的起點。
+
+    ⚠️ **只補上一筆，不做待判佇列**（跟 CodeX 討論定案）。
+       `__coinUpdatedAt` 是「任何一則帶 coin 欄位的 pinus 訊息」都會更新，
+       route 跟 reason 都沒過濾，所以一次 coin 更新**無法歸屬到特定某一局**。
+       連續多筆 unknown 時拿一次更新去分配，只會做出更精緻的錯覺。
+       而且不會因此漏判——補判點是「每次 spin 前檢查上一筆」，
+       A、B 連續 unknown 時 B 之前檢查 A、C 之前檢查 B，每一筆各有一次機會。
+
+    ⚠️ 這只證明「spin 之後、下一次 spin 之前曾經有 coin 更新」，
+       **證據等級低於 8 秒內收到的結算**，所以歸成獨立的 completed_late，
+       不能併進 completed（併進去等於把確定訊號換成混合訊號）。
+    """
+    pending = mp.get('pending_unknown')
+    if not pending:
+        return False
+    mp['pending_unknown'] = None   # 一筆只有一次機會
+
+    gap = time.time() - pending['at']
+    if gap > RECLASSIFY_MAX_GAP_SEC:
+        return False
+    try:
+        now_coin_ts = get_coin_updated_at(page)
+    except Exception:
+        return False
+    if now_coin_ts <= pending['coinTs']:
+        return False
+
+    counts = mp.setdefault('outcome_counts', {})
+    if counts.get('unknown', 0) <= 0:
+        return False
+    counts['unknown'] -= 1
+    counts['completed_late'] = counts.get('completed_late', 0) + 1
+    # reason 留在 log 裡，之後看測試資料才追得回來是哪一條規則命中的（CodeX 建議）
+    log(f"[{mt}] 上一次 spin 補判為「延遲推定完成」"
+        f"（late_coin_update_within_{int(RECLASSIFY_MAX_GAP_SEC)}s，逾時後 {gap:.1f}s 才見到 coin 更新）")
+    return True
 
 
 def execute_bonus_action(page, cfg: dict, mt: str, spin_sel_cfg: str):
@@ -1804,14 +1859,27 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
                 with osm_status_lock:
                     osm_connected = gmid in osm_status_cache
 
+                # ⚠️ 補判一定要在點下這次 spin 之前——這次的結算會把 __coinUpdatedAt
+                #    往前推，之後就分不出是上一局晚到還是這一局剛結算。
+                if osm_handled:
+                    # 中間卡過 FG/JP：那段一定有派彩造成的 coin 更新，
+                    # 拿它補判會把派彩誤記成上一局的結算，直接放棄這一筆。
+                    mp['pending_unknown'] = None
+                reclassify_pending_unknown(page, mp, mt)
+
                 spin_result = do_spin(page, cfg)
                 if spin_result:
-                    balance_before, balance_after, spin_rejected, spin_outcome = spin_result
+                    balance_before, balance_after, spin_rejected, spin_outcome, coin_ts_at_click = spin_result
                     # spin_count 是「按鈕嘗試次數」，不是局數——名字保留是為了不動既有欄位，
                     # 但報告上已經改叫 spin_attempts，不再讓人誤會成局數
                     mp['spin_count'] += 1
                     mp['outcome_counts'] = mp.get('outcome_counts', {})
                     mp['outcome_counts'][spin_outcome] = mp['outcome_counts'].get(spin_outcome, 0) + 1
+                    # 只有 unknown 需要留下來等下一次 spin 前補判；其餘三種都已經定案
+                    mp['pending_unknown'] = (
+                        {'coinTs': coin_ts_at_click, 'at': time.time()}
+                        if spin_outcome == 'unknown' else None
+                    )
                     mp['error_count'] = 0
                     if not spin_rejected:
                         mp['ok_spin_count'] = mp.get('ok_spin_count', 0) + 1
@@ -1854,6 +1922,9 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
                             log(f"[{mt}] ⚠️ 連續 10 次 Spin 餘額都沒變化，且無 OSMWatcher 資料，判斷為特殊遊戲，執行 bonusAction（相容 fallback）")
                             execute_bonus_action(page, cfg, mt, cfg.get('spinSelector') or '')
                             mp['no_change_count'] = 0
+                            # 跟 osm_handled 同一個理由：bonus 派彩會更新 coin，
+                            # 拿它補判會把派彩誤記成上一局的結算
+                            mp['pending_unknown'] = None
 
                     # ── 進度回報（獨立於截圖週期，避免 Discord 通知的 Spin 數卡在很舊的數字）──
                     # 截圖/歷史紀錄仍維持每 screenshot_interval 次才寫一次；這裡只是輕量地讓
