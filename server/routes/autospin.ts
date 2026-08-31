@@ -458,11 +458,28 @@ router.post('/api/autospin/status-report-settings', (req, res) => {
   res.json({ ok: true })
 })
 
+/** 每個 errcode 的「影響」結論。Agent 端由 summarize_err_snapshots() 算好送上來。 */
+interface ErrImpact {
+  count: number
+  /** 餘額有減少但這局沒轉成 —— 也就是「扣了錢沒東西」，這是唯一真正該升級的訊號 */
+  deducted: number
+  /** 當下讀不到餘額，判斷不了有沒有扣 */
+  unknown: number
+  /** 需要進一步對帳的筆數（扣款疑慮／狀態不明／長時間沒恢復）*/
+  needsReconcile: number
+  /** 從錯誤到下一次成功 spin 最久花了幾秒 —— 熱更新測試真正要回報的「多久恢復」*/
+  maxRecoverSec: number | null
+  /** 伺服器自己給的錯誤描述，回答「異常是什麼」*/
+  lastDes: string
+}
+
 interface StatusReportStats {
   spinCount: number; okSpinCount: number; winCount: number; totalWin: number; lastCoin: number | null
   errcodeCounts: Record<string, number>; errcodeTimes?: Record<string, number[]>
   recoverCount: number; kickoutCount: number
   crChecks: number; crNoResponse: number
+  /** 舊版 Agent 不會送這個欄位，所以是選填——沒有就退回只顯示次數 */
+  errImpact?: Record<string, ErrImpact>
 }
 
 /** errcode 發生時間（epoch ms）格式化成台北時區 HH:mm:ss，供報告內文顯示最近幾次發生時間。 */
@@ -486,13 +503,30 @@ function buildStatusReportEmbed(opts: {
   const { machineType, gameTitleCode, periodMinutes, cumulative, period, uptimeMinutes, fields, customNote, isTest, aiAnalysis } = opts
   const fmtPct = (ok: number, total: number) => total > 0 ? `${((ok / total) * 100).toFixed(1)}%` : '—'
   /** 每個 errcode 一行（Discord 引用格式），有時間點的話換行縮排列在下面，避免一長串塞成一行看不清楚。 */
-  const errcodeStr = (m: Record<string, number>, times?: Record<string, number[]>) => {
+  const errcodeStr = (
+    m: Record<string, number>,
+    times?: Record<string, number[]>,
+    impact?: Record<string, ErrImpact>,
+  ) => {
     const entries = Object.entries(m).filter(([, n]) => n > 0)
     if (entries.length === 0) return '> 無'
     return entries.map(([code, n]) => {
       const ts = times?.[code]
-      const line = `> \`err${code}\` × ${n}`
-      return ts && ts.length > 0 ? `${line}　最近 ${ts.map(fmtErrTime).join('、')}` : line
+      let line = `> \`err${code}\` × ${n}`
+      // 「影響」結論。開發問的是「對玩家有什麼影響」，光給 errcode 次數答不出來——
+      // 扣款疑慮把錯誤分成三種完全不同的嚴重度，恢復秒數回答「服務中斷多久」，
+      // 描述回答「異常是什麼」。這三項合起來才是可以直接回覆開發的內容。
+      const im = impact?.[code]
+      if (im) {
+        const parts: string[] = []
+        parts.push(im.deducted > 0 ? `**扣款疑慮 ${im.deducted}**` : '扣款疑慮 0')
+        if (im.unknown > 0) parts.push(`餘額不明 ${im.unknown}`)
+        if (im.maxRecoverSec !== null) parts.push(`最長恢復 ${im.maxRecoverSec}s`)
+        if (im.needsReconcile > 0) parts.push(`待查帳 ${im.needsReconcile}`)
+        line += `\n> 　↳ ${parts.join('｜')}`
+        if (im.lastDes) line += `\n> 　↳ 伺服器描述：${im.lastDes}`
+      }
+      return ts && ts.length > 0 ? `${line}\n> 　↳ 最近 ${ts.map(fmtErrTime).join('、')}` : line
     }).join('\n')
   }
 
@@ -501,7 +535,7 @@ function buildStatusReportEmbed(opts: {
   lines.push(`**本期間**（約 ${periodMinutes.toFixed(1)} 分鐘）`)
   if (fields.spins) lines.push(`spins: ${period.spinCount.toLocaleString()}（ok ${period.okSpinCount.toLocaleString()}，${fmtPct(period.okSpinCount, period.spinCount)}）`)
   if (fields.winRate) lines.push(`wins: ${period.winCount.toLocaleString()}, totalWin: ${period.totalWin.toLocaleString()}`)
-  if (fields.errcodes) lines.push('errcode:', errcodeStr(period.errcodeCounts))
+  if (fields.errcodes) lines.push('errcode:', errcodeStr(period.errcodeCounts, undefined, period.errImpact))
   if (fields.recover) lines.push(`RECOVER: ${period.recoverCount}`)
   if (fields.kickouts) lines.push(`kickouts: ${period.kickoutCount}`)
   if (fields.crChecks) lines.push(`CR checks: ${period.crChecks}，無回應 ${period.crNoResponse}`)
@@ -509,7 +543,7 @@ function buildStatusReportEmbed(opts: {
   lines.push('**累計**')
   if (fields.spins) lines.push(`spins: ${cumulative.spinCount.toLocaleString()}（ok ${cumulative.okSpinCount.toLocaleString()}，${fmtPct(cumulative.okSpinCount, cumulative.spinCount)}）`)
   if (fields.winRate) lines.push(`wins: ${cumulative.winCount.toLocaleString()}, totalWin: ${cumulative.totalWin.toLocaleString()}${cumulative.lastCoin != null ? `, lastCoin: ~${cumulative.lastCoin.toLocaleString()}` : ''}`)
-  if (fields.errcodes) lines.push('errcode:', errcodeStr(cumulative.errcodeCounts, cumulative.errcodeTimes))
+  if (fields.errcodes) lines.push('errcode:', errcodeStr(cumulative.errcodeCounts, cumulative.errcodeTimes, cumulative.errImpact))
   if (fields.recover) lines.push(`RECOVER: ${cumulative.recoverCount}`)
   if (fields.kickouts) lines.push(`kickouts: ${cumulative.kickoutCount}`)
   if (fields.crChecks) lines.push(`CR checks: ${cumulative.crChecks}，無回應 ${cumulative.crNoResponse}`)
@@ -647,12 +681,20 @@ router.post('/api/autospin/status-report-test', async (req, res) => {
     period: {
       spinCount: 42, okSpinCount: 41, winCount: 5, totalWin: 1234, lastCoin: null,
       errcodeCounts: { '5': 1 }, recoverCount: 0, kickoutCount: 1, crChecks: 8, crNoResponse: 0,
+      // 假資料也示範「影響」欄位，這樣按試發送就看得到新格式長怎樣
+      errImpact: { '5': { count: 1, deducted: 0, unknown: 0, needsReconcile: 0, maxRecoverSec: 2.4, lastDes: 'request timeout' } },
     },
     cumulative: {
       spinCount: 1234, okSpinCount: 1200, winCount: 89, totalWin: 34210, lastCoin: 500000,
       errcodeCounts: { '5': 3, '29': 1 },
       errcodeTimes: { '5': [now - 12 * 60000, now - 8 * 60000, now - 3 * 60000], '29': [now - 15 * 60000] },
       recoverCount: 1, kickoutCount: 4, crChecks: 240, crNoResponse: 2,
+      // 刻意讓 err29 有一筆扣款疑慮：試發送時才看得出「有問題」跟「沒問題」
+      // 在版面上長得不一樣（扣款疑慮會粗體標出來）
+      errImpact: {
+        '5': { count: 3, deducted: 0, unknown: 0, needsReconcile: 0, maxRecoverSec: 8.2, lastDes: 'service restarting' },
+        '29': { count: 1, deducted: 1, unknown: 0, needsReconcile: 1, maxRecoverSec: 31.5, lastDes: 'internal error' },
+      },
     },
   }
 

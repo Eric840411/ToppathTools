@@ -1351,6 +1351,96 @@ def track_button_health(mt: str, data: dict):
             f"觸屏 {snapshot['touch_ok']}/{snapshot['touch_ok']+snapshot['touch_err']} 正常")
 
 
+# ── errcode 現場快照 ──────────────────────────────────────────────────────────
+# 為什麼要這個：定時彙總報告原本只有「errcode + 次數 + 最近幾次時間」，
+# 開發問「對玩家有什麼影響」時答不出來。但影響資料當下其實已經抓到了——
+# `get_last_spin_err()` 有 errcodedes、`do_spin()` 有 balance_before/after——
+# 只是沒被綁在一起帶進報告。這裡就是把它們綁起來。
+#
+# 最關鍵的欄位是 deducted（餘額有沒有被扣但這局沒轉成）。它把錯誤分成三種
+# 完全不同的嚴重度，而原本的計數器分不出來：
+#   扣了、沒轉成 → 玩家真的損失，要升級查帳
+#   沒扣、沒轉成 → 只是按了沒反應，重按就好
+#   扣了、也轉成 → 那個 errcode 其實無害，是雜訊
+ERR_SNAPSHOT_KEEP = 300      # 本機最多留幾筆完整快照（Discord 上只出統計結論，不塞明細）
+RECONCILE_GAP_SEC = 30.0     # 超過這麼久沒有成功 spin，就算「不只是單局失敗」，標記需要查帳
+
+
+def record_err_snapshot(page, mp: dict, balance_before, balance_after):
+    """spin 被伺服器拒絕時，記一筆現場快照。
+
+    ⚠️ errcode 是從 `window.__lastSpinErr` 讀的，那是「最近一次」而不是
+       「這一次」。緊接在拒絕後讀通常就是對的那筆，但如果同一輪內連續多次
+       拒絕、而中間沒有機會讀取，可能會拿到後面那個。這裡接受這個誤差——
+       要精準對應得改 do_spin 的回傳值，那會動到它的簽章與四個呼叫點。"""
+    err = get_last_spin_err(page) or {}
+    now = time.time()
+    last_ok = mp.get('last_ok_spin_ts')
+    unknown = balance_before is None or balance_after is None
+    deducted = (not unknown) and balance_after < balance_before
+    stalled = last_ok is not None and (now - last_ok) > RECONCILE_GAP_SEC
+
+    snap = {
+        'ts': int(now * 1000),
+        'errcode': str(err.get('errcode', '')),
+        'errcodedes': (err.get('errcodedes') or '')[:120],
+        'balanceBefore': balance_before,
+        'balanceAfter': balance_after,
+        'deducted': deducted,
+        'balanceUnknown': unknown,
+        'recoverSec': None,          # 等下一次成功 spin 才填得出來
+        # CodeX 的「異常升級」設計：不是每筆都去查帳，只有這三種才標記。
+        # 熱更新期間本來就會有一堆預期內的錯誤，全部打成查帳事件等於沒有訊號。
+        'needsReconcile': bool(deducted or unknown or stalled),
+    }
+    buf = mp.setdefault('err_snapshots', [])
+    buf.append(snap)
+    if len(buf) > ERR_SNAPSHOT_KEEP:
+        del buf[:-ERR_SNAPSHOT_KEEP]
+    return snap
+
+
+def mark_spin_recovered(mp: dict):
+    """成功 spin 之後回填「從錯誤到恢復花了幾秒」。
+
+    往回找還沒填 recoverSec 的快照——它們就是這次成功之前積著的那批。
+    這個數字是熱更新測試真正要回報的東西之一：不是「錯了幾次」，
+    而是「服務多久才恢復」。"""
+    now = time.time()
+    for snap in reversed(mp.get('err_snapshots', [])):
+        if snap.get('recoverSec') is not None:
+            break
+        snap['recoverSec'] = round(now - snap['ts'] / 1000.0, 1)
+    mp['last_ok_spin_ts'] = now
+
+
+def summarize_err_snapshots(snaps: list) -> dict:
+    """把快照收斂成「每個 errcode 一行結論」，這是要送上 Discord 的形狀。
+
+    Discord 上不塞明細（訊息會爆），只出統計結論：
+    發生幾次、其中幾次有扣款疑慮、最長多久才恢復、伺服器最後怎麼解釋。"""
+    out = {}
+    for snap in snaps:
+        key = snap.get('errcode') or '?'
+        row = out.setdefault(key, {
+            'count': 0, 'deducted': 0, 'unknown': 0,
+            'needsReconcile': 0, 'maxRecoverSec': None, 'lastDes': '',
+        })
+        row['count'] += 1
+        if snap.get('deducted'):
+            row['deducted'] += 1
+        if snap.get('balanceUnknown'):
+            row['unknown'] += 1
+        if snap.get('needsReconcile'):
+            row['needsReconcile'] += 1
+        rec = snap.get('recoverSec')
+        if rec is not None and (row['maxRecoverSec'] is None or rec > row['maxRecoverSec']):
+            row['maxRecoverSec'] = rec
+        if snap.get('errcodedes'):
+            row['lastDes'] = snap['errcodedes']
+    return out
+
+
 CR_NO_RESPONSE_TIMEOUT = 60.0  # 秒；被動觀察，超過這麼久沒有新的 daily-analysis 按鈕健康度事件就算一次「無回應」
 
 def check_cr_gap(mt: str):
@@ -1396,6 +1486,9 @@ def maybe_send_status_report(mp: dict, page):
         'errcodeCounts': errcode_counts, 'errcodeTimes': errcode_times,
         'recoverCount': recover_count, 'kickoutCount': mp.get('kickout_count', 0),
         'crChecks': cr_checks, 'crNoResponse': cr_no_response,
+        # 每個 errcode 的「影響」結論（扣款疑慮/最長恢復/伺服器描述），
+        # 這是報告能回答「對玩家有什麼影響」的關鍵欄位
+        'errImpact': summarize_err_snapshots(mp.get('err_snapshots', [])),
     }
     baseline = mp.get('report_period_start')
     if baseline is None:
@@ -1416,6 +1509,10 @@ def maybe_send_status_report(mp: dict, page):
             'kickoutCount': cumulative['kickoutCount'] - baseline['kickoutCount'],
             'crChecks': cumulative['crChecks'] - baseline['crChecks'],
             'crNoResponse': cumulative['crNoResponse'] - baseline['crNoResponse'],
+            # 本期間的快照 = 時間戳晚於上次送出的那些。不像次數可以相減，
+            # 快照要靠時間過濾才切得出區間
+            'errImpact': summarize_err_snapshots(
+                [x for x in mp.get('err_snapshots', []) if x['ts'] / 1000.0 >= last_sent]),
         }
         period_minutes = (now - last_sent) / 60
 
@@ -1681,6 +1778,15 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
                     mp['error_count'] = 0
                     if not spin_rejected:
                         mp['ok_spin_count'] = mp.get('ok_spin_count', 0) + 1
+                        mark_spin_recovered(mp)
+                    else:
+                        # 記下現場：錯誤描述 + 餘額前後 + 是否需要查帳。
+                        # 只有計數器的話，事後完全答不出「對玩家的影響」。
+                        snap = record_err_snapshot(page, mp, balance_before, balance_after)
+                        if snap['deducted']:
+                            log(f"[{mt}] ⚠️ errcode {snap['errcode']} 且餘額減少 "
+                                f"{snap['balanceBefore']:.2f} → {snap['balanceAfter']:.2f}"
+                                f"（扣款但未轉成，需要查帳）")
                     with spin_interval_lock:
                         ov = spin_interval_override
                     spin_interval = ov if ov is not None else float(cfg.get('spinInterval') or 1.0)

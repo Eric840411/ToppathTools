@@ -624,6 +624,36 @@ SAS/MML/G2S 三組各自依 `name`（遊戲代碼）分組，組內列出每台�
 
 **AI 分析區塊（2026-07-30）**：`generateStatusReportAiAnalysis()`（`server/routes/autospin.ts`）把累計統計（含 errcode 明細與時間點）組成 prompt 丟給 Gemini（`resolveGeminiKeyEntries()` 拿第一組可用 key，不做多 key 輪替重試——這是背景 best-effort 附加功能，不是使用者主動觸發等待結果的前景操作），請它用繁中判斷「是否異常」+「哪個時間段可能機器異常導致中斷」。找不到可用 key、呼叫失敗、逾時（20 秒）一律回傳 `null`，報告照常送出、只是不含 AI 分析區塊，不會拖累整個定時彙總報告功能。**開關預設關閉**（`autospin_status_report_ai_enabled`，Discord 通知設定頁「啟用 AI 分析區塊」）——關閉時完全不呼叫 `generateStatusReportAiAnalysis()`，零額外開銷，考量正式環境長時間跑多台機台會持續累積 AI 費用；真實回報（`/agent/:id/status-report`）與試發送（`/api/autospin/status-report-test`）都跟隨同一個開關。判斷「規則式（不燒 token）vs AI」該選哪個時，優先問使用者，不要預設都開 AI——這類數字型異常判斷（errcode 次數/RECOVER/CR 無回應是否超標）本質是門檻邏輯，訓練專屬模型是不必要的過度工程，比呼叫 Gemini 成本更高、更難維護。
 
+**errcode 現場快照 → 回答「對玩家有什麼影響」（2026-08-31，v4.82.0）**
+
+定時彙總報告原本的 errcode 區塊只有「代碼 + 次數 + 最近幾次時間」。開發問「具體影響是什麼、對玩家有什麼影響」時完全答不出來——因為報告只證明「發生過」。
+
+**影響資料其實一直都抓得到，只是沒被綁在一起**：`get_last_spin_err()` 早就存了 `errcodedes`（伺服器自己給的錯誤描述）、`do_spin()` 早就回傳 `(balance_before, balance_after, rejected)`，但報告只留了一個計數器，其餘全丟掉。
+
+**`record_err_snapshot()`（`toppath-agent.py`）** 在 spin 被拒絕時記一筆現場快照：errcode、errcodedes、餘額前後、是否需要查帳、以及（下次成功後回填的）恢復秒數。
+
+**餘額前後是關鍵**——它把錯誤分成三種嚴重度完全不同的情況，而原本的計數器分不出來：
+
+| 情況 | 意義 | 該做什麼 |
+|---|---|---|
+| 扣了、沒轉成 | **玩家真的損失** | 升級查帳，這是要報的 bug |
+| 沒扣、沒轉成 | 按了沒反應，重按就好 | 嚴重度低 |
+| 扣了、也轉成 | 那個 errcode 其實無害 | 是雜訊 |
+
+**查帳採「異常升級」不是每筆都查**（跟 CodeX 討論定案）：只有扣款疑慮、餘額讀不到、或超過 `RECONCILE_GAP_SEC`（30 秒）沒有成功 spin，才標記 `needsReconcile`。**熱更新期間本來就會有一堆預期內的錯誤，全部打成查帳事件等於沒有訊號**，報告也會變慢。
+
+**快照分兩層存**：Discord 只出統計結論（每個 errcode 一行：次數／扣款疑慮／最長恢復／伺服器描述），本機保留最近 `ERR_SNAPSHOT_KEEP`（300）筆完整快照。全塞進 Discord 訊息會爆。
+
+**恢復秒數是往回填的**：錯誤發生當下不知道要多久才好，要等下一次成功 spin 才算得出來（`mark_spin_recovered()`）。這個數字本身就是熱更新測試要回報的指標——**不是「錯了幾次」，而是「服務多久才恢復」**。
+
+⚠️ **errcode 來源有已知誤差**：從 `window.__lastSpinErr` 讀的是「最近一次」而不是「這一次」。緊接在拒絕後讀通常是對的，但同一輪內連續多次拒絕可能拿到後面那個。要精準對應得改 `do_spin()` 的簽章與四個呼叫點，這版沒做。
+
+⚠️ **這個改動補不回已經跑過的資料**——過去那些 errcode 當下的餘額沒被記下來，只能重跑一次測試才拿得到。
+
+⚠️ **agent 端要按「更新程式碼」**才會拿到新的 `toppath-agent.py`（它在 `AGENT_SOURCE_WHITELIST` 裡，但不會自動更新）。
+
+> 已驗證 19 項（`server/python/test_err_snapshot.py`，用假 page 不開瀏覽器）：三種嚴重度分得開｜長時間沒恢復會升級｜恢復秒數正確回填且不會被二次覆蓋｜統計取最大恢復秒數與最後一筆非空描述｜快照有上限不會無限長大。
+
 **帳號 → Discord Tag 對照表（2026-07-30）**：`mentionForUserLabel(userLabel)` 依 session 派工時的帳號（`agentSessions.get(sessionId).userLabel`）查 `autospin_discord_user_map`（`settings` 表 JSON 陣列），找到就回傳 `<@discordUserId> ` 字串。**這個 mention 一定要寫進 Discord webhook payload 的 `content` 欄位，不能塞在 `embed` 裡**——embed 的 title/description/fields 就算文字寫 `<@id>` 也不會觸發 Discord 通知/ping，只有訊息本體的 `content` 才會。套用範圍：即時彙報通知（`notifyDiscord()`，含新建訊息與 PATCH 編輯兩種情境，但 Discord 對「編輯訊息新增 mention」通常不會重新推播通知，只有第一次建立訊息時的 ping 保證有效）與定時彙總報告（每次都是全新訊息，一定會 ping）。
 
 **標題附帶 gmid（2026-07-31）**：`maybe_send_status_report()` 從 `mp['config'].get('gameTitleCode')` 取值，經 `post_status_report()` 一併 POST 給伺服器，`buildStatusReportEmbed()` 標題變成 `— {machineType}（{gameTitleCode}）`——單純顯示 `machineType` 在名稱相近時（如 RISINGROCKET / RISINGROCKETS）無法分辨是哪一台機器發的報告，加上 gmid 才能唯一對應。

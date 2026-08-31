@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.81.2'
+export const APP_VERSION = '4.82.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.82.0',
+    date: '2026-08-31',
+    changes: [
+      'feat(autospin): 定時彙總報告的 errcode 從「只有次數」升級成「影響結論」——每個 errcode 現在會顯示扣款疑慮幾次、最長多久才恢復、伺服器自己怎麼描述這個錯誤。開發問「對玩家有什麼影響」時可以直接回答',
+      'note(autospin): 影響資料其實一直都抓得到，只是沒被綁在一起——get_last_spin_err() 早就存了 errcodedes、do_spin() 早就回傳 balance_before/after，但報告只留了一個計數器。這版把它們綁成一筆現場快照',
+      'note(autospin): 餘額前後是關鍵。它把錯誤分成三種嚴重度完全不同的情況：扣了沒轉成（玩家真損失，要查帳）／沒扣沒轉成（按了沒反應，重按就好）／扣了也轉成（errcode 無害）。原本的計數器完全分不出來',
+      'note(autospin): 查帳採「異常升級」不是每筆都查（跟 CodeX 定案）——只有扣款疑慮、餘額讀不到、或超過 30 秒沒恢復才標記 needsReconcile。熱更新期間本來就會有一堆預期內的錯誤，全部打成查帳事件等於沒有訊號',
+      'note(autospin): 快照分兩層存：Discord 只出統計結論（訊息會爆），本機保留最近 300 筆完整快照',
+    ],
+  },
   {
     version: '4.81.2',
     date: '2026-08-31',
