@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.81.1'
+export const APP_VERSION = '4.81.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.81.2',
+    date: '2026-08-31',
+    changes: [
+      'fix(xianxia): 進度條數值很小時，尾端靈氣會戳出軌道左邊。tail 原本用 right:-30px 定位，左緣永遠固定在 fill 右緣往左 11.25px（寬 41.25 − 外凸 30），fill 一旦比 11.25px 窄就會往左跑出去——實測 0% 凸 11px、1% 凸 8px',
+      'note(xianxia): 改成用 left 定位並以 min() 把重疊量夾在 fill 自己的寬度內。fill 夠寬時照樣重疊 11.25px 讓接縫順，很窄時重疊量自動縮到最多貼齊 fill 左緣',
+      'note(ui-checks): 新增 bar-overflow-check.mjs 攔截 dashboard summary 塞 0/1%/3%/60% 四種寬度一次驗。⚠️ 這支第一版在 CSS 改用 left 定位之後給出假的全綠——它只讀 right、拿到 auto 變成 NaN 再退成 0，算出一個看起來正常的假位置。量測工具本身也要跟著改動驗一次',
+    ],
+  },
   {
     version: '4.81.1',
     date: '2026-08-31',

@@ -2598,8 +2598,15 @@ h3 {
 .dashboard-bar-fill::after {
   content: "";
   position: absolute;
-  right: -30px;
-  left: auto;
+  /* ⚠️ 不能用 `right: -30px`。那樣 tail 的左緣永遠固定在 fill 右緣往左 11.25px
+     （寬 41.25 − 外凸 30），fill 一旦比 11.25px 窄，它就會**戳出軌道左邊**。
+     實測 0% 時往左凸 11px、1% 時 8px——使用者回報「靈脈壓力那條的靈氣跑到外面」。
+
+     改成從左邊定位，並用 min() 把「往回重疊的量」夾在 fill 自己的寬度以內：
+     fill 夠寬時照樣重疊 11.25px（接縫才順），fill 很窄時重疊量自動縮到 100%，
+     也就是最多貼齊 fill 左緣，不會再往左跑。 */
+  left: calc(100% - min(11.25px, 100%));
+  right: auto;
   top: 50%;
   width: 41.25px;
   height: 15.5px;
