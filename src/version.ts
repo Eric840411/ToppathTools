@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.87.0'
+export const APP_VERSION = '4.87.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.87.1',
+    date: '2026-08-31',
+    changes: [
+      'fix(xianxia): 靈氣進度條在低百分比時左端是方角不是圓弧。中段是一張硬邊矩形貼圖，本來靠 border-radius 裁成膠囊，但圓角半徑會依元素尺寸等比縮小——3px 寬時只剩約 1.5px，等於沒有圓角；而 cap 素材左端是漸變的，遮不住底下那塊全高的不透明矩形',
+      'note(xianxia): 修法是 padding-left + background-clip: content-box，讓中段完全不畫在最左邊 6px，左端一律交給 cap。極窄時中段內容框寬度是 0，只剩 cap，自然就是圓的',
+      'note(xianxia): 順手把 cap 的 z-index 提到 tail 之上。tail 的 left 是 calc(100% - min(11.25px, 100%))，fill 夠窄時會算成 0，41.25px 寬的 tail 會蓋住 23.5px 的 cap',
+      'note(xianxia): 這個只在 0.5%~2% 這個窄帶出得來（真實案例：靈脈壓力 4 req/min → 1%）。本機當下 req/min 較高、fill 有 47.9px，照當下數值看重現不出來——要掃過寬度才驗得到',
+    ],
+  },
   {
     version: '4.87.0',
     date: '2026-08-31',

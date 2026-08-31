@@ -2573,6 +2573,30 @@ h3 {
   background-repeat: repeat-x !important;
   background-size: auto 100% !important;
   background-color: transparent !important;
+
+  /* ⚠️ 中段底圖不能畫到最左邊，左端一律交給 cap 偽元素。
+     否則低百分比時左端會是**一刀切的方角**（使用者 2026-08-31 回報
+     「初始位置沒有圓弧呈現」，當時靈脈壓力 4 req/min → round(4/300*100) = 1%）。
+
+     成因是兩件事同時發生，少一件都不會壞：
+       ① 中段是一張硬邊矩形貼圖，`border-radius: 99px` 本來會把它裁成膠囊，
+          但**圓角半徑會依元素尺寸等比縮小**——3px 寬時半徑只剩約 1.5px，
+          等於沒有圓角。
+       ② cap 素材的左端是漸變的（alpha 4→252 花了 13 欄），遮不住底下那塊
+          全高的不透明矩形。
+
+     修法：padding-left 把內容框往右推，background-clip 只畫在內容框裡。
+     全站是 border-box（src/index.css），所以 padding 不會把條子撐寬。
+       width 0~6px  → 內容框寬 0 → 中段完全不畫，左端只有 cap → 圓的
+       width 更寬   → 中段從 6px 開始，被 23.5px 的 cap 蓋住（cap 從約 3.3px
+                      起就已經不透明），接縫看不出來
+
+     ⚠️ 這個只在 0.5%~2% 這個窄帶出得來。本機當下 req/min 較高、fill 有 47.9px，
+        照當下數值看是重現不出來的——要掃過寬度才驗得到
+        （scripts/ui-checks/qi-cap-narrow.mjs）。 */
+  padding-left: 6px !important;
+  background-clip: content-box !important;
+  background-origin: content-box !important;
 }
 
 /* 左端圓弧：94x57 的素材，條身 48 → 12px，所以 ×0.25 = 23.5x14.25 */
@@ -2590,6 +2614,22 @@ h3 {
   transform: none;
   animation: none;
   opacity: 1;
+  /* ⚠️ 一定要壓過 tail 的 z-index: 3。
+     tail 的 left 是 `calc(100% - min(11.25px, 100%))`——那個 min() 是為了
+     「fill 很窄時 tail 不要戳出軌道左邊」而加的（見下方註解），但副作用是
+     **fill 窄到某個程度，tail 的 left 就會變成 0**，於是 41.25px 寬、
+     z-index 3 的 tail 整個蓋在 23.5px 的 cap 上面，左端就變成 tail 那一刀切的邊緣。
+
+     真實案例：靈脈壓力 = 4 req/min → round(4/300*100) = **1%** → fill 約 3px，
+     min(11.25px, 3px) = 3px → left = 0。使用者回報「初始位置沒有圓弧呈現」。
+
+     ⚠️ 這個只在低百分比時才出得來。本機當下 req/min 較高、fill 有 47.9px，
+        tail 的 left 是 36.7px，離 cap 很遠，**照當下數值去看是重現不出來的**——
+        要把寬度掃過一遍才看得見（scripts/ui-checks/qi-cap-narrow.mjs）。
+
+     左端的形狀由 cap 定義，所以重疊時 cap 要在上面。cap 右緣本來就是漸淡的
+     （素材最後一欄 alpha=0），所以壓在上面不會把 tail 的發散切斷。 */
+  z-index: 4;
 }
 
 /* 右端發散：160x62 → ×0.25 = 40x15.5。靠左貼齊 fill 的右緣往外散。
