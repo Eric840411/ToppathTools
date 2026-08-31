@@ -480,6 +480,24 @@ interface StatusReportStats {
   crChecks: number; crNoResponse: number
   /** 舊版 Agent 不會送這個欄位，所以是選填——沒有就退回只顯示次數 */
   errImpact?: Record<string, ErrImpact>
+  /**
+   * 局數分類。spinCount 是**按鈕嘗試次數**，這裡才是「跑了幾局」。
+   * 實體機台上按 SPIN 可能落在動畫中或 FG/JP，那一下不會起局——
+   * 兩者混在一起的話，「spins 90、ok 100%」會被誤讀成「跑了 90 局全部成功」。
+   *
+   * 舊版 Agent 沒有這個欄位，所以是選填；沒有就退回舊格式。
+   */
+  outcomeCounts?: {
+    /** coin_update：有 moneyNtc 結算，確定完成一局 */
+    completed?: number
+    /** button_disabled_toggle：按鈕進出 spinning，局跑過了但缺結算證據。
+     *  這個數字變多本身就是訊號——代表 moneyNtc 收不到（pinus 補丁失效）*/
+    suspected?: number
+    /** timeout_8s：什麼訊號都沒收到。不代表沒跑，所以不能算成沒起局 */
+    unknown?: number
+    /** spin_rejected：伺服器明確拒絕，確定沒起 */
+    not_started?: number
+  }
 }
 
 /** errcode 發生時間（epoch ms）格式化成台北時區 HH:mm:ss，供報告內文顯示最近幾次發生時間。 */
@@ -503,6 +521,32 @@ function buildStatusReportEmbed(opts: {
   const { machineType, gameTitleCode, periodMinutes, cumulative, period, uptimeMinutes, fields, customNote, isTest, aiAnalysis } = opts
   const fmtPct = (ok: number, total: number) => total > 0 ? `${((ok / total) * 100).toFixed(1)}%` : '—'
   /** 每個 errcode 一行（Discord 引用格式），有時間點的話換行縮排列在下面，避免一長串塞成一行看不清楚。 */
+  /**
+   * 「按了幾次」跟「跑了幾局」要分開列。
+   *
+   * ⚠️ 舊格式的 `ok%`（非拒絕比例 ÷ 按鈕次數）**已經拿掉**，因為它會誤導：
+   *    button_disabled_toggle 跟 timeout_8s 都不等於「成功跑一局」，
+   *    但都被算進 ok。而且「ok」聽起來像品質判定，它其實只是結束原因。
+   *    一個百分比蓋不住四種狀態（跟 CodeX 討論定案）。
+   *
+   * 舊版 Agent 沒有 outcomeCounts，那就退回只印嘗試次數——不要憑空生一個局數。
+   */
+  const spinLines = (st: StatusReportStats): string[] => {
+    const out = [`spin 嘗試: ${st.spinCount.toLocaleString()} 次`]
+    const oc = st.outcomeCounts
+    if (!oc) return out
+    const n = (v?: number) => (v ?? 0).toLocaleString()
+    out.push(`完成局數: **${n(oc.completed)}**`)
+    // 疑似完成一定要列在旁邊：它變多代表 moneyNtc 收不到，
+    // 那是熱更新後 pinus 補丁失效的早期訊號，合併掉就看不見了
+    const rest: string[] = []
+    if ((oc.suspected ?? 0) > 0) rest.push(`疑似完成 ${n(oc.suspected)}（無結算證據）`)
+    if ((oc.unknown ?? 0) > 0) rest.push(`不確定 ${n(oc.unknown)}（逾時）`)
+    if ((oc.not_started ?? 0) > 0) rest.push(`未起局 ${n(oc.not_started)}（伺服器拒絕）`)
+    if (rest.length) out.push(`> ${rest.join('｜')}`)
+    return out
+  }
+
   const errcodeStr = (
     m: Record<string, number>,
     times?: Record<string, number[]>,
@@ -533,7 +577,7 @@ function buildStatusReportEmbed(opts: {
   const lines: string[] = []
   if (isTest) lines.push('⚠️ **這是試發送測試訊息，以下為假資料，非真實 AutoSpin 執行結果**', '')
   lines.push(`**本期間**（約 ${periodMinutes.toFixed(1)} 分鐘）`)
-  if (fields.spins) lines.push(`spins: ${period.spinCount.toLocaleString()}（ok ${period.okSpinCount.toLocaleString()}，${fmtPct(period.okSpinCount, period.spinCount)}）`)
+  if (fields.spins) lines.push(...spinLines(period))
   if (fields.winRate) lines.push(`wins: ${period.winCount.toLocaleString()}, totalWin: ${period.totalWin.toLocaleString()}`)
   if (fields.errcodes) lines.push('errcode:', errcodeStr(period.errcodeCounts, undefined, period.errImpact))
   if (fields.recover) lines.push(`RECOVER: ${period.recoverCount}`)
@@ -541,7 +585,7 @@ function buildStatusReportEmbed(opts: {
   if (fields.crChecks) lines.push(`CR checks: ${period.crChecks}，無回應 ${period.crNoResponse}`)
   lines.push('')
   lines.push('**累計**')
-  if (fields.spins) lines.push(`spins: ${cumulative.spinCount.toLocaleString()}（ok ${cumulative.okSpinCount.toLocaleString()}，${fmtPct(cumulative.okSpinCount, cumulative.spinCount)}）`)
+  if (fields.spins) lines.push(...spinLines(cumulative))
   if (fields.winRate) lines.push(`wins: ${cumulative.winCount.toLocaleString()}, totalWin: ${cumulative.totalWin.toLocaleString()}${cumulative.lastCoin != null ? `, lastCoin: ~${cumulative.lastCoin.toLocaleString()}` : ''}`)
   if (fields.errcodes) lines.push('errcode:', errcodeStr(cumulative.errcodeCounts, cumulative.errcodeTimes, cumulative.errImpact))
   if (fields.recover) lines.push(`RECOVER: ${cumulative.recoverCount}`)
@@ -683,6 +727,7 @@ router.post('/api/autospin/status-report-test', async (req, res) => {
       errcodeCounts: { '5': 1 }, recoverCount: 0, kickoutCount: 1, crChecks: 8, crNoResponse: 0,
       // 假資料也示範「影響」欄位，這樣按試發送就看得到新格式長怎樣
       errImpact: { '5': { count: 1, deducted: 0, unknown: 0, needsReconcile: 0, maxRecoverSec: 2.4, lastDes: 'request timeout' } },
+      outcomeCounts: { completed: 30, suspected: 8, unknown: 4, not_started: 0 },
     },
     cumulative: {
       spinCount: 1234, okSpinCount: 1200, winCount: 89, totalWin: 34210, lastCoin: 500000,
@@ -695,6 +740,8 @@ router.post('/api/autospin/status-report-test', async (req, res) => {
         '5': { count: 3, deducted: 0, unknown: 0, needsReconcile: 0, maxRecoverSec: 8.2, lastDes: 'service restarting' },
         '29': { count: 1, deducted: 1, unknown: 0, needsReconcile: 1, maxRecoverSec: 31.5, lastDes: 'internal error' },
       },
+      // 刻意讓「疑似完成」佔比明顯：試發送時才看得出這欄要拿來幹嘛
+      outcomeCounts: { completed: 980, suspected: 180, unknown: 70, not_started: 4 },
     },
   }
 

@@ -1105,9 +1105,22 @@ def do_spin(page, cfg: dict):
     有些機台的 Spin 按鈕動畫全程不會切換 disabled/class（例如 RISINGROCKETS），
     只靠①偵測時，每次 Spin 都會固定卡滿 8 秒才返回，AutoSpin 連續跑很多輪時等於被拖慢 8 倍以上。
 
-    回傳：失敗回傳 None；成功回傳 (balance_before, balance_after, rejected) 這個 3-tuple
-    （balance_before/after 其中一個或兩個都可能是 None，代表當下讀不到餘額；rejected 代表
-    這次 Spin 被遊戲伺服器明確拒絕，例如 errcode:100「請求超時或未確認錯誤」）。"""
+    回傳：失敗回傳 None；成功回傳 (balance_before, balance_after, rejected, outcome) 這個 4-tuple。
+    balance_before/after 其中一個或兩個都可能是 None，代表當下讀不到餘額；
+    rejected 代表這次 Spin 被遊戲伺服器明確拒絕（例如 errcode:100）。
+
+    outcome 是「這一下到底有沒有跑成一局」的分類，取自結束訊號（跟 CodeX 討論定案）：
+
+      'completed'    coin_update —— 有 moneyNtc 結算，**確定完成一局**
+      'suspected'    button_disabled_toggle —— 按鈕進入 spinning 又離開，
+                     代表前端認定跑過一局，**但缺結算證據**
+      'unknown'      timeout_8s —— 什麼訊號都沒收到，不代表沒跑
+      'not_started'  spin_rejected —— 伺服器明確拒絕，確定沒起
+
+    ⚠️ 'suspected' 不能跟 'not_started' 併成一類。前者有「disabled → enabled」的狀態
+       轉換證據（局跑過了），後者是根本沒起，兩者相反；併起來會低估局數。
+       而且 suspected 變多本身就是訊號——那代表 moneyNtc 收不到，
+       正是熱更新後 pinus 補丁失效的典型症狀（v3.90.x 那批問題）。"""
     spin_sel_cfg = cfg.get('spinSelector') or ''
     mt = cfg.get('machineType', '')
 
@@ -1198,7 +1211,18 @@ def do_spin(page, cfg: dict):
     else:
         log(f"[{mt}] Spin 耗時 {duration:.1f}s（訊號：{exit_reason}）")
 
-    return (balance_before, balance_after, rejected)
+    # 「按了幾次」不等於「跑了幾局」——實體機台上按 SPIN 可能落在動畫中或 FG/JP，
+    # 那一下不會起局。這裡把結束訊號翻譯成局的狀態，報告才分得開這兩件事。
+    if exit_reason.startswith('coin_update'):
+        outcome = 'completed'
+    elif exit_reason.startswith('button_disabled_toggle'):
+        outcome = 'suspected'
+    elif exit_reason.startswith('spin_rejected'):
+        outcome = 'not_started'
+    else:
+        outcome = 'unknown'
+
+    return (balance_before, balance_after, rejected, outcome)
 
 
 def execute_bonus_action(page, cfg: dict, mt: str, spin_sel_cfg: str):
@@ -1489,6 +1513,11 @@ def maybe_send_status_report(mp: dict, page):
         # 每個 errcode 的「影響」結論（扣款疑慮/最長恢復/伺服器描述），
         # 這是報告能回答「對玩家有什麼影響」的關鍵欄位
         'errImpact': summarize_err_snapshots(mp.get('err_snapshots', [])),
+        # 局數分類。spinCount 是按鈕嘗試次數，這裡才是「跑了幾局」。
+        # 兩者分開之後，原本的 ok%（非拒絕比例）就沒有意義了，報告已拿掉——
+        # 一個百分比蓋不住四種狀態，而且「ok」聽起來像品質判定，
+        # 但它其實只是結束原因（跟 CodeX 討論定案）。
+        'outcomeCounts': dict(mp.get('outcome_counts', {})),
     }
     baseline = mp.get('report_period_start')
     if baseline is None:
@@ -1513,6 +1542,10 @@ def maybe_send_status_report(mp: dict, page):
             # 快照要靠時間過濾才切得出區間
             'errImpact': summarize_err_snapshots(
                 [x for x in mp.get('err_snapshots', []) if x['ts'] / 1000.0 >= last_sent]),
+            'outcomeCounts': {
+                k: v - baseline.get('outcomeCounts', {}).get(k, 0)
+                for k, v in cumulative['outcomeCounts'].items()
+            },
         }
         period_minutes = (now - last_sent) / 60
 
@@ -1773,8 +1806,12 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
 
                 spin_result = do_spin(page, cfg)
                 if spin_result:
-                    balance_before, balance_after, spin_rejected = spin_result
+                    balance_before, balance_after, spin_rejected, spin_outcome = spin_result
+                    # spin_count 是「按鈕嘗試次數」，不是局數——名字保留是為了不動既有欄位，
+                    # 但報告上已經改叫 spin_attempts，不再讓人誤會成局數
                     mp['spin_count'] += 1
+                    mp['outcome_counts'] = mp.get('outcome_counts', {})
+                    mp['outcome_counts'][spin_outcome] = mp['outcome_counts'].get(spin_outcome, 0) + 1
                     mp['error_count'] = 0
                     if not spin_rejected:
                         mp['ok_spin_count'] = mp.get('ok_spin_count', 0) + 1

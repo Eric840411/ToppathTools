@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.82.0'
+export const APP_VERSION = '4.83.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.83.0',
+    date: '2026-08-31',
+    changes: [
+      'feat(autospin): 報告把「按了幾次 SPIN」跟「跑了幾局」拆開。實體機台上按 SPIN 可能落在動畫中或 FG/JP，那一下不會起局，但原本 spin_count 照樣 +1——所以「spins 90（ok 90，100.0%）」其實是按了 90 次，不是跑了 90 局',
+      'feat(autospin): 依 do_spin() 的結束訊號分四類：完成局數（coin_update，有 moneyNtc 結算）／疑似完成（button_disabled_toggle，局跑過但缺結算證據）／不確定（timeout_8s）／未起局（spin_rejected）',
+      'note(autospin): 疑似完成一定要單獨列，不能跟未起局併一起。前者有「按鈕 disabled→enabled」的狀態轉換證據（局跑過了），後者是伺服器直接拒絕（根本沒起），兩者相反，併起來會低估局數',
+      'note(autospin): 疑似完成變多本身就是訊號——代表 moneyNtc 收不到，那正是熱更新後 pinus 補丁失效的典型症狀（v3.90.x 那批問題）。合併掉就看不到這個早期警訊',
+      'note(autospin): ok% 已拿掉。它是「非拒絕 ÷ 按鈕次數」，但 button_disabled_toggle 跟 timeout_8s 都不等於成功跑一局卻都被算進 ok；而且「ok」聽起來像品質判定，實際只是結束原因。一個百分比蓋不住四種狀態（跟 CodeX 討論定案）',
+    ],
+  },
   {
     version: '4.82.0',
     date: '2026-08-31',
