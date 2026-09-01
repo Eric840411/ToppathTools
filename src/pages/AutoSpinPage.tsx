@@ -311,7 +311,7 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
   const [rcMachineType, setRcMachineType] = useState('')
   const [rcPlayerId, setRcPlayerId] = useState('')
   const [rcResult, setRcResult] = useState<null | { summary: string; notice?: string; backendOnly?: number; backendStatus?: string; backendError?: { type: string; message: string; backendCode?: number; page?: number } | null; details: {status:string;uid:string;time:string;bet:number;win:number;note:string}[]; backendAnomalies: {uid:string;time:string;bet:number;win:number;note:string}[] }>(null)
-  const [rcReports, setRcReports] = useState<{id:number;runAt:number;rangeStart:string;rangeEnd:string;machineType:string;frontCount:number;backendCount:number;matchedCount:number;unmatchedCount:number;anomalyCount:number;summary:string}[]>([])
+  const [rcReports, setRcReports] = useState<{id:number;runAt:number;rangeStart:string;rangeEnd:string;machineType:string;frontCount:number;backendCount:number;matchedCount:number;unmatchedCount:number;anomalyCount:number;summary:string;backendStatus?:string}[]>([])
 
   // 連線設定改成讀共用的 meter_reconcile_config（由後端依環境挑），
   // 前端不再自己抓一份、也不再有畫面可以編輯它——原本的 fetchRcConfig 與
@@ -1407,7 +1407,7 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                       使用者原話：「機台寫全部根本看不懂，範圍的用意也看不懂」。
                       逐筆的局號在上面的比對明細裡（一列一局），歷史這張是一次查詢一列，
                       塞不下 34 個局號。 */}
-                  {['執行時間', '查詢區間', '機台篩選', '前端', '後台', '相符', '掉單', '異常'].map(h => <th key={h} style={{ padding: '6px 8px', borderBottom: '1px solid #2d3f55', textAlign: 'left' }}>{h}</th>)}
+                  {['執行時間', '查詢區間', '機台篩選', '狀態', '前端', '後台', '相符', '掉單', '異常'].map(h => <th key={h} style={{ padding: '6px 8px', borderBottom: '1px solid #2d3f55', textAlign: 'left' }}>{h}</th>)}
                 </tr></thead>
                 <tbody>
                   {rcReports.map(r => (
@@ -1416,6 +1416,21 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                       <td style={{ padding: '5px 8px', fontSize: 10 }}>{r.rangeStart.slice(0, 16)} ~ {r.rangeEnd.slice(0, 16)}</td>
                       {/* 空值代表「沒有指定機台」，不是有一台叫「全部」的機器 */}
                       <td style={{ padding: '5px 8px', color: r.machineType ? undefined : '#64748b' }}>{r.machineType || '不限'}</td>
+                      {/* ⚠️ 沒有這一欄的話，失敗那次會被存成看起來正常的一列——
+                          畫面上有紅色警告，但歷史表只留下「後台 0」，之後回看
+                          完全分不出是查詢失敗還是真的沒資料。
+                          空字串＝加這欄之前跑的，**顯示「—」不顯示「正常」**：
+                          那些列我們根本不知道當時成不成功，標成正常等於幫過去的
+                          資料做出沒有根據的宣稱。 */}
+                      <td style={{ padding: '5px 8px' }}>
+                        {(() => {
+                          const st = r.backendStatus || ''
+                          if (st === 'failed') return <span style={{ color: 'var(--cr-rose)', fontWeight: 700 }}>查詢失敗</span>
+                          if (st === 'partial') return <span style={{ color: 'var(--cr-amber)', fontWeight: 700 }}>不完整</span>
+                          if (st === 'ok') return <span style={{ color: '#64748b' }}>正常</span>
+                          return <span style={{ color: '#475569' }} title="這筆是加上狀態記錄之前跑的，無法得知當時後台查詢是否成功">—</span>
+                        })()}
+                      </td>
                       <td style={{ padding: '5px 8px' }}>{r.frontCount}</td>
                       <td style={{ padding: '5px 8px' }}>{r.backendCount}</td>
                       <td style={{ padding: '5px 8px', color: 'var(--cr-emerald)', fontWeight: 600 }}>{r.matchedCount}</td>

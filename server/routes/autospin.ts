@@ -2475,12 +2475,14 @@ router.post('/api/autospin/reconcile/run', async (req, res) => {
   const summary = `前端 ${normFront.length} 筆 / 後台 ${normBackend.length} 筆 / 匹配 ${matched} / 掉單 ${unmatched} / 僅後台有 ${backendOnly} / 異常 ${anomalies.length}`
   const reportId = (db.prepare(`
     INSERT INTO reconcile_reports
-    (rangeStart, rangeEnd, machineType, frontCount, backendCount, matchedCount, unmatchedCount, anomalyCount, summary, details)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (rangeStart, rangeEnd, machineType, frontCount, backendCount, matchedCount, unmatchedCount, anomalyCount, summary, details, backendStatus)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     body.rangeStart, body.rangeEnd, body.machineType,
     normFront.length, normBackend.length, matched, unmatched, anomalies.length,
     summary, JSON.stringify({ details, anomalies }),
+    // 失敗的那次也要留下痕跡，否則歷史表上它跟「真的沒資料」長得一樣
+    backendError ? (backendError.partial ? 'partial' : 'failed') : 'ok',
   ) as { lastInsertRowid: number }).lastInsertRowid
 
   return res.json({
@@ -2509,7 +2511,7 @@ router.post('/api/autospin/reconcile/run', async (req, res) => {
 
 // GET /api/autospin/reconcile/reports — list saved reports
 router.get('/api/autospin/reconcile/reports', (_req, res) => {
-  const rows = db.prepare('SELECT id, runAt, rangeStart, rangeEnd, machineType, frontCount, backendCount, matchedCount, unmatchedCount, anomalyCount, summary FROM reconcile_reports ORDER BY id DESC LIMIT 50').all()
+  const rows = db.prepare('SELECT id, runAt, rangeStart, rangeEnd, machineType, frontCount, backendCount, matchedCount, unmatchedCount, anomalyCount, summary, backendStatus FROM reconcile_reports ORDER BY id DESC LIMIT 50').all()
   res.json({ ok: true, reports: rows })
 })
 

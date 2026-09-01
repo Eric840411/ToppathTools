@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.89.0'
+export const APP_VERSION = '4.90.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.90.0',
+    date: '2026-09-01',
+    changes: [
+      'feat(autospin): 對帳歷史紀錄新增「狀態」欄（正常／不完整／查詢失敗）。畫面上雖然已經會顯示紅色警告，但失敗那次照樣被存進歷史，之後回看只剩「後台 0」——跟剛修好的問題一模一樣，只是晚一步才發生',
+      'note(autospin): 既有紀錄一律顯示「—」不是預設成「正常」。那些列是加這欄之前跑的，我們不知道當時成不成功，標成正常等於幫過去的資料做出沒有根據的宣稱',
+      'note(autospin): 這個工具沒有匯出功能，歷史紀錄就是結果被帶離現場的唯一路徑（CodeX review 提醒 partial 結果不要被誤用）',
+    ],
+  },
   {
     version: '4.89.0',
     date: '2026-09-01',

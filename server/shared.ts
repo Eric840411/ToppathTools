@@ -964,6 +964,26 @@ db.exec(`
   )
 `)
 
+// backendStatus（2026-09-01，v4.89.1）——這次查詢的後台資料完不完整。
+//
+// ⚠️ 沒有這一欄的話，**失敗的那次會被存成看起來正常的一列**：畫面上有紅色警告，
+//    但歷史表只留下「後台 0」，之後回看完全分不出是「查詢失敗」還是「真的沒資料」
+//    ——跟修好的那個問題一模一樣，只是晚了一步才發生（CodeX review 提到「結果被
+//    誤用」的實際發生位置；這個工具沒有匯出功能，歷史紀錄就是那條路）。
+//
+// ⚠️ 既有列一律留空字串代表「不知道」，**不是預設成 'ok'**。
+//    那些列是加這一欄之前跑的，我們根本不知道當時成不成功；標成 ok 等於
+//    幫過去的資料做出沒有根據的宣稱，而使用者手上那六筆全 0 的紀錄
+//    很可能正好都是失敗的。
+try {
+  const cols = db.prepare(`PRAGMA table_info(reconcile_reports)`).all() as { name: string }[]
+  if (!cols.some(c => c.name === 'backendStatus')) {
+    db.exec(`ALTER TABLE reconcile_reports ADD COLUMN backendStatus TEXT NOT NULL DEFAULT ''`)
+  }
+} catch (e) {
+  console.warn('[reconcile_reports] backendStatus 欄位新增失敗:', e)
+}
+
 // autospin_compare_groups — 三路對帳（SLS recordBet / 盒子日誌 / Pinus history）使用者自訂比對群組
 // 一組 = 一個比較單位（例如「下注金額」），fields 是 JSON 陣列 [{source: 'sls'|'box'|'pinus', path, label?}]
 // 全域共用（不分帳號）——比對定義是團隊共同的量測標準，不是個人偏好，跟 reconcile_config 一樣的定位。
