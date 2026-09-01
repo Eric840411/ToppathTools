@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.88.0'
+export const APP_VERSION = '4.89.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.89.0',
+    date: '2026-09-01',
+    changes: [
+      'fix(autospin): 後台對帳的「測試連線」會謊報成功。fetchBackendRecords 失敗時是回空陣列不是拋錯，所以 token 沒有／登入失敗／權限不足通通被說成「連線成功，測試查詢回傳 0 筆」——這不只是沒幫助，是主動把排查引到錯的方向',
+      'fix(autospin): 「查詢失敗」跟「這段時間真的沒資料」原本在畫面上長得一模一樣。現在失敗會在摘要上方顯示警告，說明是哪一種失敗（沒設定／token 失效／後台錯誤碼／網路），並帶出代碼與頁數',
+      'note(autospin): 抓到一部分才失敗時照常比對但標成「資料不完整」（跟 CodeX 討論定案）——已抓到的仍有診斷價值，但不標示的話會有人拿不完整的資料下結論。partial 用黃色、failed 用紅色，兩種嚴重度分開',
+      'note(autospin): 後台原始錯誤訊息只進 server log，前端只拿受控文字——外部系統的訊息可能含內部欄位、路徑或帳號資訊',
+      'fix(autospin): auto_login 這個 key 在兩張設定表裡都不存在（永遠 undefined），但 fetchBackendRecords 當它預設開、測試連線當它預設關——同一組設定下測試連線比實際查詢還弱。統一成預設開',
+      'fix(autospin): 「完全沒設定過」跟「帳密不對」改成分開的訊息。兩者下一步完全不同，先前都回「請確認帳密」，在全新環境上等於把人導去檢查一組還不存在的帳密',
+    ],
+  },
   {
     version: '4.88.0',
     date: '2026-08-31',

@@ -310,7 +310,7 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
   const [rcRangeEnd, setRcRangeEnd] = useState('')
   const [rcMachineType, setRcMachineType] = useState('')
   const [rcPlayerId, setRcPlayerId] = useState('')
-  const [rcResult, setRcResult] = useState<null | { summary: string; notice?: string; backendOnly?: number; details: {status:string;uid:string;time:string;bet:number;win:number;note:string}[]; backendAnomalies: {uid:string;time:string;bet:number;win:number;note:string}[] }>(null)
+  const [rcResult, setRcResult] = useState<null | { summary: string; notice?: string; backendOnly?: number; backendStatus?: string; backendError?: { type: string; message: string; backendCode?: number; page?: number } | null; details: {status:string;uid:string;time:string;bet:number;win:number;note:string}[]; backendAnomalies: {uid:string;time:string;bet:number;win:number;note:string}[] }>(null)
   const [rcReports, setRcReports] = useState<{id:number;runAt:number;rangeStart:string;rangeEnd:string;machineType:string;frontCount:number;backendCount:number;matchedCount:number;unmatchedCount:number;anomalyCount:number;summary:string}[]>([])
 
   // 連線設定改成讀共用的 meter_reconcile_config（由後端依環境挑），
@@ -335,8 +335,8 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
       })
       type RcDetail = { status: string; uid: string; time: string; bet: number; win: number; note: string }
       type RcAnomaly = { uid: string; time: string; bet: number; win: number; note: string }
-      const d = await r.json() as { ok: boolean; summary?: string; notice?: string; backendOnly?: number; details?: RcDetail[]; backendAnomalies?: RcAnomaly[]; message?: string }
-      if (d.ok) setRcResult({ summary: d.summary ?? '', notice: d.notice ?? '', backendOnly: d.backendOnly ?? 0, details: d.details ?? [], backendAnomalies: d.backendAnomalies ?? [] })
+      const d = await r.json() as { ok: boolean; summary?: string; notice?: string; backendOnly?: number; backendStatus?: string; backendError?: { type: string; message: string; backendCode?: number; page?: number } | null; details?: RcDetail[]; backendAnomalies?: RcAnomaly[]; message?: string }
+      if (d.ok) setRcResult({ summary: d.summary ?? '', notice: d.notice ?? '', backendOnly: d.backendOnly ?? 0, backendStatus: d.backendStatus, backendError: d.backendError ?? null, details: d.details ?? [], backendAnomalies: d.backendAnomalies ?? [] })
       else setRcConfigMsg(`失敗 ${d.message}`)
       fetchRcReports()
     } finally { setRcRunning(false) }
@@ -1307,6 +1307,31 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
           {rcResult && (
             <div style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 8, padding: 14 }}>
               <div style={panelTitle('t')}>{T('對帳結果', '◈ 勘帳結果')}</div>
+              {/* ⚠️ 警告一定要放在摘要「上面」。查詢根本沒成功時，摘要那排 0
+                      是沒有意義的數字——先看到 0 再看到警告，結論已經下完了。
+                      partial 用黃色（資料有但不完整）、failed 用紅色（完全沒查到），
+                      兩種嚴重度不同，共用一個顏色會讓人分不出還能不能參考。 */}
+              {rcResult.backendError && (() => {
+                const partial = rcResult.backendStatus === 'partial'
+                const tone = partial
+                  ? { fg: 'var(--cr-amber)', bg: 'rgba(234,216,166,.10)', bd: 'rgba(234,216,166,.30)', title: '後台資料不完整' }
+                  : { fg: 'var(--cr-rose)', bg: 'rgba(223,118,94,.10)', bd: 'rgba(223,118,94,.32)', title: '後台查詢失敗' }
+                const detail = [
+                  rcResult.backendError.backendCode ? `代碼 ${rcResult.backendError.backendCode}` : '',
+                  rcResult.backendError.page ? `第 ${rcResult.backendError.page} 頁` : '',
+                ].filter(Boolean).join('・')
+                return (
+                  <div style={{ marginBottom: 10, padding: '9px 12px', background: tone.bg, border: `1px solid ${tone.bd}`, borderRadius: 6 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: tone.fg, marginBottom: 3 }}>
+                      {tone.title}{detail ? `（${detail}）` : ''}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.55 }}>
+                      {rcResult.backendError.message}
+                      {partial && '　下方結果只涵蓋已取得的部分，不能當成完整結論。'}
+                    </div>
+                  </div>
+                )
+              })()}
               {/* 這行原本是 #cbd5e1 的淺灰字配 #f1f5f9 的近白底——淺色主題時代的殘留。
                       整頁換成深底之後就變成「白底上的淺灰字」，等於看不見（使用者實際回報）。 */}
               <div style={{

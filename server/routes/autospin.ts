@@ -2126,6 +2126,42 @@ async function reconcileLogin(cfg: Record<string, string>): Promise<string | nul
   } catch { return null }
 }
 
+/**
+ * 後台查詢的失敗原因。
+ *
+ * ⚠️ 這個型別存在的理由：原本 `fetchBackendRecords()` **任何失敗都是 `break` 回空陣列**，
+ *    於是「查詢失敗」跟「這段時間真的沒有資料」在畫面上長得**一模一樣**。
+ *    使用者在正式環境查不到資料時完全無從判斷是壞在哪（2026-09-01 實際回報）。
+ *
+ * ⚠️ 更糟的是「測試連線」：它拿到空陣列還是回「連線成功，測試查詢回傳 0 筆」——
+ *    token 沒有、登入失敗、權限不足通通會被說成連線成功。那不只是沒幫助，
+ *    是**主動誤導排查方向**。
+ *
+ * `message` 是後台原始訊息，**只進 server log 不給前端**（跟 CodeX 討論定案）：
+ * 外部系統的訊息可能含內部欄位、路徑或帳號資訊。前端只拿受控的 `userMessage`。
+ */
+type ReconcileFetchErrorType = 'missing_config' | 'auth_failed' | 'api_error' | 'network_error'
+type ReconcileFetchError = {
+  type: ReconcileFetchErrorType
+  /** 後台原始訊息，只進 log */
+  message: string
+  /** 給畫面看的受控文字，不含外部系統內部細節 */
+  userMessage: string
+  backendCode?: number
+  page?: number
+  /** 已經抓到一些才失敗（例如第 3 頁掛掉）——資料仍有診斷價值但不完整 */
+  partial: boolean
+}
+
+/** `auto_login` 這個 key 在兩張設定表裡都不存在，所以永遠是 undefined。
+ *
+ *  ⚠️ 原本兩個地方對「undefined」的解讀剛好相反：
+ *     `fetchBackendRecords` 是 `!== 'false'`（預設**開**）
+ *     `/reconcile/test`     是 `=== 'true'` （預設**關**）
+ *  也就是同一組設定下，執行對帳會自動重登、測試連線不會——兩者行為不一致，
+ *  而且測試連線比實際查詢還弱，等於測不出真實狀況。統一成預設開。 */
+const autoLoginEnabled = (cfg: Record<string, string>) => cfg.auto_login !== 'false'
+
 // Helper: fetch game records from backend API (mirrors BackendRecordClient.fetch_game_records)
 async function fetchBackendRecords(
   cfg: Record<string, string>,
@@ -2134,15 +2170,31 @@ async function fetchBackendRecords(
   /** token 過期要重讀設定時，得知道當初用的是哪個環境——不傳的話會退回 osm，
    *  在 GCP 情境下把設定悄悄換掉，而且只在過期那一刻發生 */
   env: ReconcileEnv = 'osm',
-): Promise<unknown[]> {
+): Promise<{ records: unknown[]; error?: ReconcileFetchError }> {
   const baseUrl = (cfg.base_url || 'https://backendservertest.osmslot.org').replace(/\/$/, '')
   const endpoint = `${baseUrl}/egm/reports/gameRecordList`
   const channel = cfg.channelId || '873'
   const playerstudioid = cfg.playerstudioid || 'cp,wf,tbr,tbp,ncl,bpo,mdr,dhs,cf,np,pf,igo,ALL'
 
+  // 連 token 跟帳密都沒有 → 這不是「查無資料」，是根本沒辦法查。
+  // 正式環境最常見的情況：`meter_reconcile_config` 從來沒在那個環境設定過
+  // （本機跟 Spug 的 DB 是分開的），於是每次查詢都靜默回 0 筆。
+  if (!cfg.token && !cfg.login_password) {
+    return {
+      records: [],
+      error: {
+        type: 'missing_config',
+        message: `no token and no login_password for env=${env}`,
+        userMessage: '這個環境還沒有後台連線設定。請先到「Performance Meter 對帳」頁面設定並測試登入。',
+        partial: false,
+      },
+    }
+  }
+
   let headers = reconcileHeaders(cfg)
   const all: unknown[] = []
   let reloginDone = false
+  let error: ReconcileFetchError | undefined
 
   for (let page = 1; page <= maxPages; page++) {
     const params = new URLSearchParams({
@@ -2171,7 +2223,15 @@ async function fetchBackendRecords(
       if (d.code === 40200 && cfg.auto_login !== 'false' && !reloginDone) {
         console.warn('[reconcile] token 過期，嘗試自動重新登入')
         const newToken = await reconcileLogin(cfg)
-        if (!newToken) console.warn('[reconcile] 自動重新登入失敗——帳密可能不對，或登入路徑不同')
+        if (!newToken) {
+          console.warn('[reconcile] 自動重新登入失敗——帳密可能不對，或登入路徑不同')
+          error = {
+            type: 'auth_failed',
+            message: 'relogin failed after backend code 40200',
+            userMessage: 'token 已失效，自動重新登入失敗。請確認後台帳密是否正確。',
+            backendCode: 40200, page, partial: all.length > 0,
+          }
+        }
         if (newToken) {
           // ⚠️ 重讀時要沿用同一個環境。用預設值會在 GCP 情境下把設定換成 OSM，
           //    而且只在 token 過期那一刻才發生，極難重現
@@ -2181,6 +2241,12 @@ async function fetchBackendRecords(
           page-- // retry this page
           continue
         }
+        if (!error) error = {
+          type: 'auth_failed',
+          message: 'backend code 40200 and auto-login disabled or already retried',
+          userMessage: 'token 已失效，且無法自動重新登入。',
+          backendCode: 40200, page, partial: all.length > 0,
+        }
         break
       }
 
@@ -2188,7 +2254,16 @@ async function fetchBackendRecords(
       // 權限不足、參數被拒）會直接落到下面的 items 判斷、當成「沒資料」break，
       // 使用者看到的是「後台 0 筆」而不是錯誤——查不到是壞在哪
       if (d.code !== undefined && d.code !== 20000) {
-        console.warn(`[reconcile] 後台回非成功碼 ${d.code}：${(d as { message?: string }).message ?? ''}`)
+        const raw = (d as { message?: string }).message ?? ''
+        console.warn(`[reconcile] 後台回非成功碼 ${d.code}：${raw}`)
+        // ⚠️ 原始 message 只留在 log。外部系統的訊息可能含內部欄位／路徑／帳號
+        //    （跟 CodeX 討論定案），前端只拿受控文字 + code。
+        error = {
+          type: 'api_error',
+          message: raw,
+          userMessage: `後台 API 回應錯誤（代碼 ${d.code}）。`,
+          backendCode: d.code, page, partial: all.length > 0,
+        }
         break
       }
 
@@ -2199,11 +2274,18 @@ async function fetchBackendRecords(
     } catch (e) {
       // 原本是 `catch { break }`——把所有例外靜默吞掉，回 0 筆且不留任何痕跡。
       // 這正是「後台明明有 34 筆卻回 0」查不出原因的其中一個障礙
-      console.warn('[reconcile] 後台查詢失敗:', e instanceof Error ? e.message : e)
+      const raw = e instanceof Error ? e.message : String(e)
+      console.warn('[reconcile] 後台查詢失敗:', raw)
+      error = {
+        type: 'network_error',
+        message: raw,
+        userMessage: `後台查詢失敗（第 ${page} 頁）。可能是網路不通或後台無回應。`,
+        page, partial: all.length > 0,
+      }
       break
     }
   }
-  return all
+  return { records: all, error }
 }
 
 // POST /api/autospin/reconcile/test — test backend API connection
@@ -2213,16 +2295,28 @@ router.post('/api/autospin/reconcile/test', async (req, res) => {
     // 那會給出「連線正常」但實際上根本沒測到要用的那組設定
     const env = req.body?.env === 'gcp' ? 'gcp' as const : 'osm' as const
     const cfg = loadReconcileConfig(env)
-    if (!cfg.token && cfg.auto_login === 'true') {
+    // ⚠️ 「完全沒設定過」要跟「帳密不對」分開講。
+    //    這兩種的下一步完全不同：前者要去把設定建起來，後者是改帳密。
+    //    先前兩種都回「自動登入失敗，請確認帳密」，在全新環境上等於把人
+    //    導去檢查一組根本還不存在的帳密。
+    if (!cfg.token && !cfg.login_password) {
+      return res.json({ ok: false, message: '這個環境還沒有後台連線設定。請先到「Performance Meter 對帳」頁面設定並測試登入。' })
+    }
+    if (!cfg.token && autoLoginEnabled(cfg)) {
       const t = await reconcileLogin(cfg)
-      if (!t) return res.json({ ok: false, message: '自動登入失敗，請確認帳密或手動填入 token' })
+      if (!t) return res.json({ ok: false, message: '自動登入失敗，請確認帳密是否正確，或手動填入 token' })
     }
     // Test: fetch 1 record for last hour
     const now = new Date()
     const start = new Date(now.getTime() - 60 * 60 * 1000)
     const fmt = (d: Date) => d.toISOString().replace('T', ' ').slice(0, 19)
-    const items = await fetchBackendRecords(cfg, fmt(start), fmt(now), '', 1, 1)
-    return res.json({ ok: true, message: `連線成功，測試查詢回傳 ${items.length} 筆` })
+    const { records, error } = await fetchBackendRecords(cfg, fmt(start), fmt(now), '', 1, 1, env)
+    // ⚠️ 這裡原本不管有沒有失敗都回「連線成功，測試查詢回傳 N 筆」——
+    //    因為舊版 fetchBackendRecords 失敗時是回空陣列不是拋錯。
+    //    結果 token 沒有／登入失敗／權限不足通通被說成連線成功，
+    //    等於主動把排查引到錯的方向。有 error 一律回失敗。
+    if (error) return res.json({ ok: false, message: error.userMessage })
+    return res.json({ ok: true, message: `連線成功，測試查詢回傳 ${records.length} 筆` })
   } catch (e: unknown) {
     return res.status(500).json({ ok: false, message: String(e) })
   }
@@ -2272,8 +2366,11 @@ router.post('/api/autospin/reconcile/run', async (req, res) => {
   // 1. Fetch backend records
   const cfg = loadReconcileConfig(body.env)
   let backendItems: unknown[] = []
+  let backendError: ReconcileFetchError | undefined
   try {
-    backendItems = await fetchBackendRecords(cfg, body.rangeStart, body.rangeEnd, body.playerId, 50, 5, body.env)
+    const fetched = await fetchBackendRecords(cfg, body.rangeStart, body.rangeEnd, body.playerId, 50, 5, body.env)
+    backendItems = fetched.records
+    backendError = fetched.error
   } catch (e) {
     return res.status(500).json({ ok: false, message: `後台 API 查詢失敗：${e}` })
   }
@@ -2394,6 +2491,19 @@ router.post('/api/autospin/reconcile/run', async (req, res) => {
     notice: normFront.length === 0 && normBackend.length > 0
       ? `這段時間沒有 AutoSpin 前端紀錄，因此無法進行雙向比對。下方 ${normBackend.length} 筆為後台既有遊戲紀錄，不代表異常。`
       : '',
+    // ── 後台查詢的狀態（2026-09-01）───────────────────────────────────
+    // 「查詢失敗」跟「這段時間真的沒資料」原本在畫面上長得一模一樣，
+    // 使用者在正式環境查不到資料時完全無從判斷壞在哪。
+    //
+    // ⚠️ partial（抓到一部分才失敗）**照常比對但一定要標示**（跟 CodeX 討論定案）：
+    //    已抓到的資料仍有診斷價值，整個當失敗等於丟掉它；但不標示的話
+    //    使用者會拿不完整的資料下結論，那比沒有結果更危險。
+    backendStatus: backendError ? (backendError.partial ? 'partial' : 'failed') : 'ok',
+    // 只給受控文字，後台原始 message 留在 server log
+    backendError: backendError
+      ? { type: backendError.type, message: backendError.userMessage, backendCode: backendError.backendCode, page: backendError.page }
+      : null,
+    backendIncomplete: Boolean(backendError),
   })
 })
 
