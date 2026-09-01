@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.90.1'
+export const APP_VERSION = '4.91.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.91.0',
+    date: '2026-09-01',
+    changes: [
+      'fix(uat): 積木路徑收工前自動截一張，補回積木化時掉掉的截圖證據。舊的 builtin 路徑是無條件先截圖再判定，拆成積木後截圖變成要自己加的一顆積木——79 筆有積木的 TC 裡只有 3 筆加了，其餘 76 筆的證據默默不見了。跟 agent 無關，伺服器端跑也一樣',
+      'note(uat): 拆解時的基準比對只比了 pass/manual/skip，沒比截圖產出，所以「判定一致」的結論是對的但看不見證據少了。之後做等價重構，驗收條件要包含產出物不只判定結果',
+      'note(uat): 已有截圖積木的 TC 不重複自動截——顯式截圖代表作者指定了證據點；MANUAL/SKIP 也不截，那類本來就不上傳；截圖失敗只吞掉不影響判定，它是證據不是斷言',
+      'note(uat): 只截一張且就在收工前。stop 模式（預設）失敗時迴圈當場中斷，所以「失敗關鍵點」跟「收工前」是同一個時間點，分開截會得到兩張一樣的圖',
+    ],
+  },
   {
     version: '4.90.1',
     date: '2026-09-01',

@@ -451,6 +451,8 @@ export async function runSteps(steps, ctx) {
   /** 網路斷言的時間界線。每次 open_page 之後往前推，只問「這之後打了什麼」 */
   let netMark = Date.now();
   const allShotPaths = [];
+  /** 跑過幾次「截圖」積木。>0 代表作者自己指定了證據點，就不自動補截。 */
+  let explicitShots = 0;
   const vars = {};
   let manual = false;
   let manualReason = '';
@@ -1071,7 +1073,8 @@ export async function runSteps(steps, ctx) {
 
       } else if (step.action === 'screenshot') {
         const shot = await ctx.takeScreenshot(step.name || `step${i + 1}`);
-        if (shot) { allShotPaths.push(shot); notes.push(`${tag}：${step.name || `step${i + 1}`}`) }
+        // 作者自己指定過證據點就不再自動補截（見下方 finish() 的說明）
+        if (shot) { explicitShots++; allShotPaths.push(shot); notes.push(`${tag}：${step.name || `step${i + 1}`}`) }
         else if (fail(step, `${tag}：截圖失敗`) === 'stop') break;
 
       } else if (step.action === 'mark_manual') {
@@ -1113,7 +1116,36 @@ export async function runSteps(steps, ctx) {
    * 也會跟同一支測試裡沒拆解的 TC 統計方式不一致。
    * （拆 Dashboard 時用「拆解前後跑同一輪比對」才抓到，光看程式碼看不出來。）
    */
-  function finish() {
+  /**
+   * ⚠️ 收工前自動截一張——這是**補回積木化時掉掉的證據**，不是新功能。
+   *
+   * 舊的 builtin 路徑（`performAction()`）是**無條件**先 `page.screenshot()` 再判定，
+   * 所以每一筆都有截圖。拆成積木之後截圖變成一顆要自己加的積木，而 79 筆裡只有 3 筆加了
+   * ——**76 筆的截圖證據默默不見了**（2026-09-01 使用者問「為什麼用 agent 執行不會截圖」
+   * 才發現，跟 agent 無關）。
+   *
+   * ⚠️ 我當時的拆解驗證沒抓到：基準比對只比了 `pass`/`manual`/`skip`，**沒比截圖產出**。
+   *    判定確實一致（當時的結論沒錯），但證據少了，而那個差異比對方法看不見。
+   *
+   * **為什麼只截一張、而且就在收工前**（跟 CodeX 討論定案，實作上比他原本設想的更簡單）：
+   *   - `stop` 模式（預設）失敗時迴圈**當場 break**，所以「失敗關鍵點」跟「收工前」
+   *     是**同一個時間點**——分開截會得到兩張一模一樣的圖。
+   *   - `continue` 模式的中途失敗刻意不額外截：那多半是預期容錯或探索步驟，
+   *     每個都截會讓 Lark 附件膨脹、反而更難讀（CodeX 的原話）。
+   *   - `explicitShots > 0` 就完全不補：顯式的截圖積木代表**作者指定了證據點**，
+   *     自動再加一張會破壞那個語意。
+   *   - `manual` 不截：那類 TC 本來就不上傳截圖（2026-08-07 規則——機器判不了的 TC
+   *     留後台截圖反而讓人誤以為有驗證證據）。
+   */
+  async function finish() {
+    if (explicitShots === 0 && !manual && typeof ctx.takeScreenshot === 'function') {
+      try {
+        const shot = await ctx.takeScreenshot('result');
+        if (shot) allShotPaths.push(shot);
+      } catch {
+        // 截圖失敗不能影響判定——它是證據不是斷言
+      }
+    }
     return {
       // warn 刻意不進這個判定：畫面顯示 PASS 就真的是 PASS，不會被別的規則翻掉。
       // 它的價值是「有檢查、有記錄」變成結構化資料（可以統計、可以在畫面上列），

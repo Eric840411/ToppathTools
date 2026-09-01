@@ -73,7 +73,10 @@ const BLUE = { 'Total Available EGM': '5', 'Total System Connected EGM': '2' };
     { action: 'screenshot', name: 'never' },
   ], ctx);
   check('stop 失敗算 FAIL', r.pass === false, r);
-  check('stop 之後不再執行', r.allShotPaths.length === 0, r.allShotPaths);
+  // 原本是斷言「截圖數 == 0」來證明後面沒跑。收工會自動補一張之後那個間接證據失效，
+  // 改成直接看有沒有跑到名為 never 的那顆——比數量更精準，也不會被自動截圖干擾。
+  check('stop 之後不再執行', !r.allShotPaths.some(p => p.includes('never')), r.allShotPaths);
+  check('  但收工仍自動留下證據', r.allShotPaths.some(p => p.includes('result')), r.allShotPaths);
 }
 
 // ── 4. manual 不是失敗 ─────────────────────────────────────────────────
@@ -113,7 +116,7 @@ const BLUE = { 'Total Available EGM': '5', 'Total System Connected EGM': '2' };
     { action: 'screenshot', name: 'never' },
   ], ctx);
   check('引用不存在變數 → FAIL', r.pass === false && r.criticalFails.length === 1, r.criticalFails);
-  check('引用不存在變數 → 中止', r.allShotPaths.length === 0, r.allShotPaths);
+  check('引用不存在變數 → 中止', !r.allShotPaths.some(p => p.includes('never')), r.allShotPaths);
 }
 
 // ── 8. 變數型別不符要擋下來 ────────────────────────────────────────────
@@ -188,7 +191,8 @@ const BLUE = { 'Total Available EGM': '5', 'Total System Connected EGM': '2' };
   const ctx = makeCtx({}, { notes: 'verifyDashboard ok', criticalFails: [], manual: false });
   const r = await runSteps([{ action: 'builtin_verifier', name: 'verifyDashboard', options: '{"tolerancePct":2}' }], ctx);
   check('內建驗證器可呼叫且 pass', r.pass === true, r);
-  check('參數有原封不動傳下去', ctx.calls.at(-1)?.options?.tolerancePct === 2, ctx.calls.at(-1));
+  // 收工的自動截圖會排在最後，所以不能再用 at(-1) 抓 builtin 那一筆
+  check('參數有原封不動傳下去', ctx.calls.find(c => c.kind === 'builtin')?.options?.tolerancePct === 2, ctx.calls);
 
   const bad = makeCtx({}, { notes: 'boom', criticalFails: ['色塊缺失'], manual: false });
   const r2 = await runSteps([{ action: 'builtin_verifier', name: 'verifyDashboard' }], bad);
@@ -647,6 +651,37 @@ check('numbersEqual undefined 一律不相等', numbersEqual(undefined, 5) === f
     screen: { missingCol: true, heads: ['A', 'B'] }, headers: null, rows: null,
   }));
   check('畫面上沒有那個欄位 → 失敗（不是當成沒資料）', r.pass === false);
+}
+
+// ── 自動收工截圖（v4.91.0）──────────────────────────────────────────────
+// 補回積木化時掉掉的證據：builtin 路徑是無條件先截圖再判定，積木路徑原本
+// 只有顯式加了「截圖」積木才會截，79 筆裡只有 3 筆有加。
+{
+  const ctx = makeCtx({ '.blue-block': { 'A': '1' } });
+  const r = await runSteps([{ action: 'read_block', selector: '.blue-block', labels: 'A', as: 'b' }], ctx);
+  check('沒有截圖積木時，收工自動截一張', r.allShotPaths.length === 1 && r.allShotPaths[0].includes('result'), r.allShotPaths);
+}
+{
+  // 作者自己指定了證據點就不再補——否則會破壞「顯式截圖代表作者指定」這個語意
+  const ctx = makeCtx({ '.blue-block': { 'A': '1' } });
+  const r = await runSteps([
+    { action: 'read_block', selector: '.blue-block', labels: 'A', as: 'b' },
+    { action: 'screenshot', name: 'mine' },
+  ], ctx);
+  check('已有截圖積木時不重複自動截', r.allShotPaths.length === 1 && r.allShotPaths[0].includes('mine'), r.allShotPaths);
+}
+{
+  // MANUAL 本來就不上傳截圖（2026-08-07 規則），不用白截
+  const ctx = makeCtx();
+  const r = await runSteps([{ action: 'mark_manual', reason: '要人看' }], ctx);
+  check('MANUAL 不自動截圖', r.manual === true && r.allShotPaths.length === 0, r.allShotPaths);
+}
+{
+  // 截圖失敗是證據問題，不能反過來把判定弄成失敗
+  const ctx = makeCtx({ '.blue-block': { 'A': '1' } });
+  ctx.takeScreenshot = async () => { throw new Error('disk full') };
+  const r = await runSteps([{ action: 'read_block', selector: '.blue-block', labels: 'A', as: 'b' }], ctx);
+  check('截圖失敗不影響判定', r.pass === true && r.allShotPaths.length === 0, r);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
