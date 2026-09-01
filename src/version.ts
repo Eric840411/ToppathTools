@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.90.0'
+export const APP_VERSION = '4.90.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.90.1',
+    date: '2026-09-01',
+    changes: [
+      'fix(uat): Backend UAT 派工到 Local Agent 直接失敗——detect-manual.js 沒在 AGENT_SOURCE_WHITELIST 裡，agent 端 import 當下就炸（Cannot find module）。這個檔案是 v4.52.0 新增的，當時漏了加進白名單，隔幾天真的派工才爆出來',
+      'feat(uat): 新增 scripts/ui-checks/agent-source-closure.mjs——從 agent 實際會 spawn 的進入點做 BFS 算相依閉包，跟白名單比對。這類漏檔已經發生兩次（net-capture/pinus-probe 那次、這次），而且症狀只出現在 agent 的 stderr，server 端完全看不出原因',
+      'note(uat): 守門已驗證在修正前的版本上確實抓得到這個缺檔，不是裝飾用的檢查',
+    ],
+  },
   {
     version: '4.90.0',
     date: '2026-09-01',

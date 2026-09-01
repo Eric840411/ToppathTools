@@ -70,7 +70,16 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'uat-runner/backend-recorder.js':    join(SERVER_ROOT, 'uat-runner', 'backend-recorder.js'),
   // 內建驗證器的參數宣告：同上，run-lark-tc-backend.js import 它，少送就 import 當下炸
   'uat-runner/verifier-params.js':     join(SERVER_ROOT, 'uat-runner', 'verifier-params.js'),
+  // 人工判讀的判定規則（v4.52.0 新增，但當時漏了加進這份白名單）：
+  // run-lark-tc-backend.js 與 osm-uat.ts 都 import 它
+  'uat-runner/detect-manual.js':       join(SERVER_ROOT, 'uat-runner', 'detect-manual.js'),
 }
+
+// ⚠️ 這份白名單漏一個檔案，agent 端會在 **import 當下**直接炸掉（不是執行到才失敗），
+//    而且錯誤只出現在 agent 的 stderr——server 這邊完全看不出是白名單的問題。
+//    已經發生過兩次（net-capture/pinus-probe 那次、detect-manual.js 這次，
+//    後者是 v4.52.0 新增檔案時漏加，隔了幾天才在真的派工時爆出來）。
+//    加新 import 之後跑一次：node scripts/ui-checks/agent-source-closure.mjs
 
 export const router = Router()
 

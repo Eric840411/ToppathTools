@@ -1441,6 +1441,22 @@ agent 端 `page.on('requestfinished')` → `backend_record_net` → server 收�
 - **腳本的 cwd 一定要是 `server/uat-runner/`**：`run-lark-tc-backend.js` 用相對路徑讀 `./tc-registry.json` 和 `./config/*`。
 
 ### 腳本怎麼送到 agent
+
+**⚠️ `AGENT_SOURCE_WHITELIST` 漏一個檔案，agent 端會在 import 當下直接炸掉**——不是執行到那行
+才失敗，是整個腳本起不來；而且錯誤只出現在 **agent 的 stderr**，server 這邊完全看不出原因。
+
+**已經發生兩次**：net-capture.js / pinus-probe.js 那次，以及 `detect-manual.js`
+（v4.52.0 新增檔案時漏加，隔了幾天真的派工才爆出來，使用者看到的是
+`Cannot find module '.../detect-manual.js'`）。
+
+**加新 import 之後跑一次 `node scripts/ui-checks/agent-source-closure.mjs`**——
+它從 agent 實際會 spawn 的進入點做 BFS 算相依閉包跟白名單比對，純靜態分析不連服務。
+已驗證它在修正前的版本上確實抓得到 `detect-manual.js`（不是裝飾用的檢查）。
+
+`update_sources`、安裝檔、`/agent-source/:relPath` 三條路徑**都是讀 `Object.keys(AGENT_SOURCE_WHITELIST)`**，
+所以加進白名單就三邊都涵蓋，不用各改一次。
+
+### 腳本怎麼送到 agent（原說明）
 `AGENT_SOURCE_WHITELIST`（`server/routes/machine-test.ts`）新增 `uat-runner/run-lark-tc-backend.js` 與 `uat-runner/tc-registry.json`，安裝檔與「更新程式碼」（`update_sources`）都是讀這份白名單，所以加進去就自動涵蓋兩條路徑。agent 的 `package.json` 補 `xlsx`（腳本會 import 它做報表比對）。
 
 **刻意不含 `config/backend-test-params.json`**——那裡面是真實帳密，帳密改走 `backend_uat_start` 的 `credEnv` 逐次帶，不在 agent 上留檔（延續 v4.22.0 的原則）。
