@@ -187,8 +187,14 @@ export function backendRecorderScript() {
   }, true);
   // 徽章自己不能被錄成操作，也不能被當成標記目標
   BADGE.setAttribute('data-toppath-recorder-ui', '1');
+  /** 目前開著的選單的關閉函式。同一時間只允許一個——不然點第二個元素時
+   *  第一個會留在畫面上（使用者 2026-09-01 回報「點一個就會產生第二個」）。 */
+  let closeCurrentPicker = null;
 
   const HL = document.createElement('div');
+  // 刻意**不**標 data-toppath-recorder-ui：HL 是 pointer-events:none，
+  // 本來就不可能成為點擊目標，標了沒有實質保護，反而讓
+  // browser-test 的 [data-toppath-recorder-ui] 選擇器一次命中兩個元素。
   HL.style.cssText = 'position:fixed;z-index:2147483646;pointer-events:none;border:2px solid #3fbe8b;' +
                      'border-radius:3px;background:rgba(63,190,139,.12);display:none';
   /**
@@ -254,7 +260,29 @@ export function backendRecorderScript() {
     const d = describe(el);
     const value = (el.innerText || el.value || '').trim().slice(0, 80);
 
+    // 同一時間只留一個選單。少了這行，點第二個元素時第一個會留在畫面上。
+    if (closeCurrentPicker) closeCurrentPicker();
+
     const menu = document.createElement('div');
+    // ⚠️ **這一行是關鍵**，不是為了整潔。
+    //
+    //    上面那兩個守衛都是靠 closest('[data-toppath-recorder-ui]')
+    //    判斷「這個點擊是不是打在錄製器自己的 UI 上」。選單少了這個標記，就會被當成
+    //    一般頁面元素，於是在「標記模式」開著的時候：
+    //
+    //      點選單裡的「必須有值」
+    //        → document 的 capture 監聽器先跑，判定這是一次「標記」
+    //        → 它呼叫 event.stopPropagation()，**選項按鈕自己的 onclick 永遠不會執行**
+    //        → 斷言沒送出、舊選單沒關閉
+    //        → 同時又對「選單自己的那顆按鈕」開了第二個選單
+    //
+    //    使用者看到的是「點一個就會產生第二個」，但真正的後果更嚴重：
+    //    **標記模式下根本選不了檢查項目，錄出來會是零斷言**——而零斷言的腳本
+    //    跑起來一定 PASS，跟 v4.41.0 那次踩到的是同一種假成功。
+    //
+    //    佐證：使用者截圖裡第二個選單的選擇器是 ... > button > span > small，
+    //    正是 menuItem() 自己的 DOM 結構。
+    menu.setAttribute('data-toppath-recorder-ui', '1');
     menu.style.cssText = 'position:fixed;z-index:2147483647;width:262px;padding:6px;border:1px solid #42566f;' +
       'border-radius:9px;background:#0a1628;box-shadow:0 16px 40px rgba(0,0,0,.55);' +
       'font-family:system-ui,sans-serif;left:' + Math.min(event.clientX, innerWidth - 280) + 'px;top:' +
@@ -264,7 +292,15 @@ export function backendRecorderScript() {
     title.style.cssText = 'margin:5px 8px 7px;color:#94a3b8;font-size:11px;font-weight:700';
     menu.appendChild(title);
 
-    const close = () => { menu.remove(); window.__toppathPicking = false; };
+    let outsideHandler = null;
+    const close = () => {
+      menu.remove();
+      window.__toppathPicking = false;
+      // 原本從選項按鈕呼叫 close() 時不會解除這個監聽器，會一直累積殘留
+      if (outsideHandler) { document.removeEventListener('click', outsideHandler, true); outsideHandler = null; }
+      if (closeCurrentPicker === close) closeCurrentPicker = null;
+    };
+    closeCurrentPicker = close;
 
     const options = [
       ['必須有值', '非空就通過。最常用', '#3fbe8b', () => ({ kind: 'filled' })],
@@ -304,9 +340,10 @@ export function backendRecorderScript() {
     menu.appendChild(foot);
 
     document.documentElement.appendChild(menu);
-    setTimeout(() => document.addEventListener('click', function once(ev) {
-      if (!menu.contains(ev.target)) { close(); document.removeEventListener('click', once, true); }
-    }, true), 0);
+    setTimeout(() => {
+      outsideHandler = (ev) => { if (!menu.contains(ev.target)) close(); };
+      document.addEventListener('click', outsideHandler, true);
+    }, 0);
   }, true);
 
   /** 抓這個元素旁邊的標籤文字，當作 read_block 的 labels */

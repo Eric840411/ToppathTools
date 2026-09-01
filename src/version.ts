@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.91.0'
+export const APP_VERSION = '4.91.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.91.1',
+    date: '2026-09-01',
+    changes: [
+      'fix(uat): 錄製標記選單沒標 data-toppath-recorder-ui，於是標記模式下點選單裡的選項會被當成「標記新元素」——capture 監聽器的 stopPropagation() 讓選項自己的 onclick 永遠不會執行，斷言沒送出、選單沒關，還對選單自己的按鈕又開了一個',
+      'note(uat): 使用者看到的是「點一個就會產生第二個」，但真正的後果是標記模式下根本錄不出任何斷言——零斷言的腳本跑起來一定 PASS，跟 v4.41.0 那次是同一種假成功',
+      'fix(uat): 同一時間只留一個標記選單；close() 一併解除外部點擊監聽器（原本從選項按鈕呼叫時不會解除，會累積殘留）',
+      'note(uat): 回歸測試加在 browser-test 而不是單元測試——後者只驗轉換邏輯，不會真的派發事件走完 capture/target 兩階段，看不到這個問題',
+    ],
+  },
   {
     version: '4.91.0',
     date: '2026-09-01',

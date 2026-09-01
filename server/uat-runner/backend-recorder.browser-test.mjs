@@ -62,4 +62,35 @@ const menuVisible = await page.evaluate(() => !!window.__toppathPicking);
 console.log('\n開著時點按鈕 → 進入標記流程:', menuVisible ? '是 ✅' : '否 ❌');
 console.log('  有沒有被誤錄成操作:', events.length === afterPlainClick ? '沒有 ✅' : '多錄了 ❌');
 
+// 5) 標記模式下點選單裡的選項，要真的送出斷言、關掉選單，而且不能再開一個
+//
+// ⚠️ 這是 2026-09-01 那個 bug 的回歸測試。當時選單沒有 data-toppath-recorder-ui，
+//    於是 markMode 開著時點選項會被 document 的 capture 監聽器當成「標記新元素」，
+//    它的 stopPropagation() 讓選項自己的 onclick 永遠不會執行——
+//    斷言沒送出、選單沒關，還對「選單自己的按鈕」又開了一個。
+//    使用者看到「點一個就會產生第二個」，實際後果是**標記模式下錄不出任何斷言**。
+//
+//    單元測試看不到這個：它只驗轉換邏輯，不會真的派發事件走完 capture/target 兩階段。
+const menuCount = async () => page.evaluate(() =>
+  document.querySelectorAll('[data-toppath-recorder-ui]').length);
+const beforePick = events.length;
+console.log();
+console.log('選單開啟時，recorder UI 元素數（徽章 + 選單 = 2）:', await menuCount());
+
+// 點第一個選項「必須有值」
+await page.evaluate(() => {
+  const menus = [...document.querySelectorAll('[data-toppath-recorder-ui]')];
+  const menu = menus.find(m => (m.textContent || '').includes('要檢查這個元素的什麼'));
+  menu?.querySelector('button')?.click();
+});
+await page.waitForTimeout(250);
+
+const added = events.slice(beforePick);
+console.log('點選項後：');
+console.log('  有送出斷言:', added.some(e => e.assertion) ? '是 ✅' : `否 ❌（多出 ${JSON.stringify(added)}）`);
+console.log('  斷言種類:', added.find(e => e.assertion)?.assertion?.kind ?? '(無)');
+console.log('  選單已關閉:', (await menuCount()) === 1 ? '是 ✅（只剩徽章）' : `否 ❌（還有 ${await menuCount()} 個）`);
+console.log('  沒有開出第二個選單:', (await menuCount()) <= 1 ? '是 ✅' : '否 ❌');
+console.log('  picking 狀態已解除:', (await page.evaluate(() => !!window.__toppathPicking)) === false ? '是 ✅' : '否 ❌');
+
 await browser.close();
