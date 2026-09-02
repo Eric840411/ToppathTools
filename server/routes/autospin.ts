@@ -5,7 +5,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { spawn, ChildProcess } from 'child_process'
-import { existsSync, readdirSync, writeFileSync, readFileSync, mkdirSync, unlinkSync, statSync } from 'fs'
+import { existsSync, readdirSync, writeFileSync, readFileSync, appendFileSync, mkdirSync, unlinkSync, statSync } from 'fs'
 import { join, extname } from 'path'
 import { fileURLToPath } from 'url'
 import { dirname } from 'path'
@@ -17,6 +17,7 @@ import { randomUUID } from 'crypto'
 import { agentConnections, getAvailableAgents } from '../agent-hub.js'
 // 只讀取 Machine Test 現成維護的 OSMWatcher 狀態 map，不改動 machine-test.ts 本身
 import { osmMachineStatus, agentUpdateStatus } from './machine-test.js'
+import { matchesLogFilter, isEmptyFilter, type PinusCategory } from '../../shared/autospin-log-rules.js'
 import { resolveGeminiKeyEntries } from './gemini.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -70,7 +71,132 @@ const sseClients = new Map<string, Set<import('express').Response>>()
 //    真正完整的紀錄要靠 server 落檔，那是另一版的事。
 const MAX_LOGS = 10000  // cap per session to prevent unbounded memory growth
 
+// ─── 執行日誌落檔（2026-09-02）────────────────────────────────────────────────
+//
+// ⚠️ 畫面只留最近 10,000 行，**再多就被丟掉**——長時間跑的 session 事後查問題時
+//    最需要的往往正是被丟掉的那段。所以完整紀錄寫成檔案，畫面歸畫面。
+//
+// 沿用 machine-test 的 cctv-saves 那套慣例：固定目錄 + 保留天數 GC，
+// 不另創一種做法。
+const AUTOSPIN_LOG_DIR = join(SERVER_ROOT, 'autospin-logs')
+const AUTOSPIN_LOG_RETENTION_DAYS = 14
+
+function autospinLogPath(sessionId: string): string {
+  // sessionId 會進檔名，一定要擋掉路徑穿越——它來自 URL 參數
+  return join(AUTOSPIN_LOG_DIR, `${sessionId.replace(/[^\w.-]/g, '_')}.log`)
+}
+
+/** 檔案第一行寫擁有者。
+ *
+ *  ⚠️ **不能只靠記憶體裡的 session 判斷擁有者**——session 兩小時就被 GC，
+ *     但檔案要留 14 天給事後查問題用。session 消失之後如果沒有別的依據，
+ *     就變成「只要知道 sessionId 就能下載別人的執行日誌」。
+ *     寫進檔案本身，是唯一跟檔案一樣長壽的作法。 */
+const LOG_OWNER_PREFIX = '#owner='
+
+function appendSessionLog(sessionId: string, line: string) {
+  try {
+    if (!existsSync(AUTOSPIN_LOG_DIR)) mkdirSync(AUTOSPIN_LOG_DIR, { recursive: true })
+    const path = autospinLogPath(sessionId)
+    if (!existsSync(path)) {
+      const owner = agentSessions.get(sessionId)?.userLabel ?? ''
+      writeFileSync(path, `${LOG_OWNER_PREFIX}${owner}\n`, 'utf8')
+    }
+    appendFileSync(path, line.endsWith('\n') ? line : line + '\n', 'utf8')
+  } catch {
+    // 寫不進去不能影響執行本身——日誌是紀錄不是功能
+  }
+}
+
+/** 讀檔案第一行記的擁有者。'' 代表當時沒有帳號資訊（伺服器端 fallback 模式）。 */
+function sessionLogOwner(path: string): string | null {
+  try {
+    const head = readFileSync(path, 'utf8').slice(0, 200).split('\n')[0]
+    return head.startsWith(LOG_OWNER_PREFIX) ? head.slice(LOG_OWNER_PREFIX.length) : null
+  } catch { return null }
+}
+
+/** 超過保留天數的紀錄檔清掉。不清的話磁碟會一直長，
+ *  而 AutoSpin 是會連跑好幾小時、每天跑的東西。 */
+function gcAutospinLogs() {
+  try {
+    if (!existsSync(AUTOSPIN_LOG_DIR)) return
+    const cutoff = Date.now() - AUTOSPIN_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000
+    for (const name of readdirSync(AUTOSPIN_LOG_DIR)) {
+      const full = join(AUTOSPIN_LOG_DIR, name)
+      try { if (statSync(full).mtimeMs < cutoff) unlinkSync(full) } catch { /* 單一檔案失敗不影響其他 */ }
+    }
+  } catch { /* 目錄有問題就跳過，不要讓 GC 拖垮啟動 */ }
+}
+gcAutospinLogs()
+setInterval(gcAutospinLogs, 6 * 60 * 60 * 1000)
+
+/**
+ * GET /api/autospin/session-log/:id — 下載這次執行的**完整**紀錄檔。
+ *
+ * 使用者要求：「要根據使用者篩選的內容導出，如果沒有篩選則全導出」。
+ * 所以篩選條件用 query 帶過來，在這裡用**跟畫面同一份規則**過濾
+ * （`shared/autospin-log-rules.ts`）——兩邊各寫一份的話會出現
+ * 「畫面 12 筆、導出 15 筆」這種沒人查得出來的落差。
+ *
+ * ⚠️ 這支給的是「檔案裡的全部」，不是畫面上那 10,000 行。
+ *    畫面那顆舊的「下載」拿的是被截斷過的記憶體資料，兩者用途不同。
+ */
+router.get('/api/autospin/session-log/:id', (req, res) => {
+  const path = autospinLogPath(String(req.params.id))
+  if (!existsSync(path)) return res.status(404).json({ ok: false, message: '找不到這次執行的紀錄檔（可能已超過保留期限 14 天）' })
+
+  // ⚠️ 擁有者以檔案裡記的為準，不是記憶體 session——session 兩小時就沒了，
+  //    檔案留 14 天。owner 是空字串代表當時沒有帳號資訊（伺服器端 fallback 模式），
+  //    那種沿用既有行為不擋（跟 SSE／截圖那幾支一致）。
+  const owner = sessionLogOwner(path)
+  if (owner) {
+    // ⚠️ `requestUserLabel()` 讀的是 `x-user-label` header，單看它像是可以偽造。
+    //    **實際上走正常路徑偽造不了**——proxy（server/index.ts 的 proxyToWorker）
+    //    會用登入 cookie 推出來的身分覆寫這個 header：
+    //        if (ctx?.userDisplay && ...) headers.set('x-user-label', ctx.userDisplay)
+    //    我測的時候就是被這個擋掉的：對 3000 送假 label 完全無效，
+    //    直打 worker 的 3010 才擋得下來（403）。
+    //
+    //    ⚠️ 但這代表安全性**依賴 worker 的 3010 不對外**。這是部署假設不是程式保證，
+    //    跟 v4.10.0 收緊 Jira 身分邊界時處理的是同一類問題。
+    //    這裡沿用 autospin 其他端點既有的信任模型，沒有另立一套。
+    const who = requestUserLabel(req)
+    if (!who || who !== owner) return res.status(403).json({ ok: false, message: '這不是你的執行紀錄' })
+  }
+
+  const raw = readFileSync(path, 'utf8')
+  const lines = raw.split('\n').filter(l => l && !l.startsWith(LOG_OWNER_PREFIX))
+
+  const pinusParam = typeof req.query.pinus === 'string' ? req.query.pinus : ''
+  const filter = {
+    cat: typeof req.query.cat === 'string' ? req.query.cat : 'all',
+    search: typeof req.query.q === 'string' ? req.query.q : '',
+    pinusCats: pinusParam ? pinusParam.split(',') as PinusCategory[] : undefined,
+  }
+  const filtered = isEmptyFilter(filter) ? lines : lines.filter(l => matchesLogFilter(l, filter))
+
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const suffix = isEmptyFilter(filter) ? '完整' : '已篩選'
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+  // ⚠️ HTTP header 只能放 latin-1。檔名帶中文（「完整」「已篩選」）會讓 Express 直接
+  //    丟 500 `Invalid character in header content`——實測踩到。
+  //    ASCII 的放 filename=，中文的走 RFC 5987 的 filename*=，兩個都給，
+  //    支援的瀏覽器用後者、不支援的退回前者。
+  const asciiName = `autospin-${isEmptyFilter(filter) ? 'full' : 'filtered'}_${stamp}.txt`
+  const utf8Name = encodeURIComponent(`autospin-${suffix}_${stamp}.txt`)
+  res.setHeader('Content-Disposition', `attachment; filename="${asciiName}"; filename*=UTF-8''${utf8Name}`)
+  // 開頭寫清楚這份是不是篩過的——不然拿到檔案的人分不出「只有 12 行」是
+  // 因為篩選還是因為真的只跑了 12 行
+  const header = isEmptyFilter(filter)
+    ? `# AutoSpin 完整執行紀錄（共 ${lines.length} 行）\n`
+    : `# AutoSpin 執行紀錄（已依畫面篩選：類別=${filter.cat}${filter.search ? ` 關鍵字=${filter.search}` : ''}）`
+      + `　${filtered.length} / ${lines.length} 行\n`
+  res.send(header + filtered.join('\n') + '\n')
+})
+
 function broadcastLog(sessionId: string, line: string) {
+  appendSessionLog(sessionId, line)
   const state = sessions.get(sessionId)
   if (state) {
     state.logs.push(line)
@@ -1216,6 +1342,7 @@ setInterval(() => {
 }, 15 * 60 * 1000)  // run every 15 min
 
 function broadcastAgentLog(sessionId: string, line: string) {
+  appendSessionLog(sessionId, line)
   const s = agentSessions.get(sessionId)
   if (s) {
     s.logs.push(line)

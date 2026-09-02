@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.96.0'
+export const APP_VERSION = '4.97.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.97.0',
+    date: '2026-09-02',
+    changes: [
+      'feat(autospin): 執行日誌落檔。畫面只留最近 10,000 行、再多就丟掉，但事後查問題最需要的往往正是被丟掉那段。現在完整紀錄寫成檔案（server/autospin-logs/，保留 14 天，沿用 cctv-saves 那套 GC 慣例）',
+      'feat(autospin): 新增 GET /api/autospin/session-log/:id 下載完整紀錄，並支援依畫面篩選導出——沒篩選就全導。篩選規則抽到 shared/autospin-log-rules.ts 前後端共用，兩邊各寫一份會出現「畫面 12 筆、導出 15 筆」這種沒人查得出來的落差',
+      'note(autospin): 擁有者寫在檔案第一行，不是只靠記憶體 session 判斷——session 兩小時就被 GC，但檔案留 14 天，只靠記憶體會變成「知道 sessionId 就能下載別人的紀錄」',
+    ],
+  },
   {
     version: '4.96.0',
     date: '2026-09-02',

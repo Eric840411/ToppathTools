@@ -56,3 +56,6 @@ server/uat-runner/data/
 # 修仙版靈氣素材的中間產物（可由 scripts/ui-checks/slice-qi-atlas.py 從
 # assets-src/xianxia/qi-atlas.png 重新產生，不需要進版控）
 public/themes/xianxia/qi-parts/
+
+# AutoSpin 執行紀錄檔（每次執行產生，保留 14 天後自動清）——不要進版控
+server/autospin-logs/
