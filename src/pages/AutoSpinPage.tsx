@@ -626,6 +626,22 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
   const [liveSpinInterval, setLiveSpinInterval] = useState<number>(1.0)
   const [liveIntervalSaving, setLiveIntervalSaving] = useState(false)
   const logBoxRef = useRef<HTMLDivElement>(null)
+
+  /** 執行模式切換。**一份實作，兩個分支各掛一次**——
+   *  放進「執行模式」卡是照 CodeX 的設計，但那張卡只在 remote agent 模式渲染，
+   *  所以 server 模式也要掛一份，否則切過去就回不來（v4.98.3 的 bug）。 */
+  const modeToggle = (
+    <div style={{ display: 'flex', border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden' }}>
+      {(['hub', 'server'] as const).map(m => (
+        <button key={m} onClick={() => setRunMode(m)}
+          style={{ flex: 1, padding: '6px 8px', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer',
+            background: runMode === m ? 'var(--xx-jade-solid)' : '#162032',
+            color: runMode === m ? '#fff' : '#94a3b8' }}>
+          {m === 'hub' ? '遠端 Agent' : '伺服器端（fallback）'}
+        </button>
+      ))}
+    </div>
+  )
   // 'key' = 只看重點（警告/錯誤 + 狀態真的改變了的事件）。規則在 shared/ 裡，
   // 導出時後端跑同一份，畫面跟導出才不會不一致。
   const [logFilter, setLogFilter] = useState<'all' | 'key' | 'sys' | 'spin' | 'shot' | 'error'>('all')
@@ -1906,8 +1922,24 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
 
           <div style={{ flex: 1, display: 'flex', gap: 16, minHeight: 0, overflow: 'hidden' }}>
 
+            {/* 執行模式切換：**一份實作、兩個分支各掛一次**。
+                ⚠️ v4.98.3 我把它移進「執行模式」那張卡（照 CodeX 的設計），
+                   但那張卡只在 hub 分支渲染——切到伺服器端之後切換鈕整個消失、
+                   **回不去了**（使用者 2026-09-02 回報）。
+                   照設計把它放進卡裡是對的，但不能因此讓另一個模式沒有出口。
+                顏色用全站的玉色；原本的 #2563eb 是別處帶來的藍，
+                在這套配色裡是唯一一塊不屬於色票的顏色。 */}
             {/* Left: controls + log */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
+
+              {/* ⚠️ 這顆一定要在**兩種模式都掛得到**。
+                  v4.98.3 我把它移進「執行模式」那張卡裡（照 CodeX 的設計），
+                  但那張卡只在 hub 分支渲染——結果切到伺服器端之後切換鈕整個消失，
+                  **回不去了**（使用者 2026-09-02 回報）。
+                  抽成一份、兩個分支各掛一次；不是複製兩份實作。 */}
+              {runMode === 'server' && (
+                <div style={{ maxWidth: 340 }}>{modeToggle}</div>
+              )}
 
               {runMode === 'server' ? (
                 /* ── Server mode controls ── */
@@ -1946,19 +1978,7 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                 <div className="autospin-run-cards">
                   <section style={{ background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 10, padding: '10px 13px', display: 'flex', flexDirection: 'column', gap: 9, minWidth: 0 }}>
                   <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--cr-violet)', letterSpacing: '.04em' }}>執行模式</div>
-                  {/* 分段切換，兩段平分卡片寬度（CodeX 的設計就是放在這張卡裡）。
-                      顏色沿用全站的 --cr-cyan，原本那個 #2563eb 是別處帶來的藍，
-                      在這個配色裡是唯一一塊不屬於這套色票的顏色。 */}
-                  <div style={{ display: 'flex', border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden' }}>
-                    {(['hub', 'server'] as const).map(m => (
-                      <button key={m} onClick={() => setRunMode(m)}
-                        style={{ flex: 1, padding: '6px 8px', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer',
-                          background: runMode === m ? 'var(--xx-jade-solid)' : '#162032',
-                          color: runMode === m ? '#fff' : '#94a3b8' }}>
-                        {m === 'hub' ? '遠端 Agent' : '伺服器端（fallback）'}
-                      </button>
-                    ))}
-                  </div>
+                  {modeToggle}
 
                   {/* ① Agent picker */}
                   <div>

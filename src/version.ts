@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.98.3'
+export const APP_VERSION = '4.98.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.98.4',
+    date: '2026-09-02',
+    changes: [
+      'fix(autospin): 切到「伺服器端（fallback）」之後切換鈕整個消失、回不去。v4.98.3 我把它移進「執行模式」那張卡（照設計），但那張卡只在遠端 Agent 模式渲染——照設計把它放進卡裡是對的，但不能因此讓另一個模式沒有出口',
+      'note(autospin): 修法是抽成一份實作、兩個分支各掛一次，不是複製兩份',
+    ],
+  },
   {
     version: '4.98.3',
     date: '2026-09-02',
