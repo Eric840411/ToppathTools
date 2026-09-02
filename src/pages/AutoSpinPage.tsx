@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, Fragment } from 'react'
+import { matchesLogFilterPre } from '../../shared/autospin-log-rules'
 import { UrlPoolPickerModal } from '../components/UrlPoolPickerModal'
 
 /** 下載完整執行日誌（不受目前的搜尋/分類篩選影響，永遠是全部原始內容）——
@@ -78,6 +79,11 @@ function classifyLogLine(l: string): LogCategory {
 // ─── Pinus sub-categories (for the pinus category chips) ───────────────────────
 
 type PinusCategory = 'connect' | 'enter' | 'spin' | 'money' | 'broadcast' | 'heartbeat' | 'other'
+
+/** 表格「類別」欄的短標籤。原本是整行純文字、只能靠顏色分辨。 */
+const CAT_LABEL: Record<LogCategory, string> = {
+  sys: '系統', spin: 'Spin', shot: '截圖', warn: '警告', err: '錯誤', pinus: 'pinus', other: '—',
+}
 
 const PINUS_CATEGORY_META: { key: PinusCategory; label: string }[] = [
   { key: 'spin', label: 'Spin 動作' },
@@ -620,7 +626,13 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
   const [liveSpinInterval, setLiveSpinInterval] = useState<number>(1.0)
   const [liveIntervalSaving, setLiveIntervalSaving] = useState(false)
   const logBoxRef = useRef<HTMLDivElement>(null)
-  const [logFilter, setLogFilter] = useState<'all' | 'sys' | 'spin' | 'shot' | 'error'>('all')
+  // 'key' = 只看重點（警告/錯誤 + 狀態真的改變了的事件）。規則在 shared/ 裡，
+  // 導出時後端跑同一份，畫面跟導出才不會不一致。
+  const [logFilter, setLogFilter] = useState<'all' | 'key' | 'sys' | 'spin' | 'shot' | 'error'>('all')
+  /** pinus 那排平常收起來——它預設全部關閉，本來就是「要看才打開」的東西 */
+  const [pinusOpen, setPinusOpen] = useState(false)
+  /** 關掉「跟隨最新」的當下有幾行。用來算「暫停期間錯過了什麼」 */
+  const [pausedAtLen, setPausedAtLen] = useState<number | null>(null)
   const [logSearch, setLogSearch] = useState('')
   const [visiblePinusCats, setVisiblePinusCats] = useState<Set<PinusCategory>>(new Set())
   const [autoScrollLog, setAutoScrollLog] = useState(true)
@@ -2179,100 +2191,181 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
               {/* Log panel: filter/search + pinus category chips + bounded scrollable body */}
               {(() => {
                 const rawLogs = runMode === 'server' ? logs : agentLogs
+                // 暫停跟隨期間錯過了什麼。只算「暫停之後新增的」，所以用當時的長度當基準。
+                const missedCount = pausedAtLen === null ? 0 : Math.max(0, rawLogs.length - pausedAtLen)
+                const missedErrors = missedCount === 0 ? 0
+                  : rawLogs.slice(-missedCount).filter(e => e.cat === 'err' || e.cat === 'warn').length
+                // 完整紀錄檔要用這次執行的 sessionId。兩種模式各自有自己的。
+                const activeSessionId = runMode === 'server' ? sessionId : agentSessionId
                 // 已經在收到當下分類好了，這裡不再重算（原本每次 render 都重跑一次正規表示式）
                 const categorized = rawLogs
                 const pinusCatCounts = new Map<PinusCategory, number>()
                 for (const c of categorized) {
                   if (c.pinusCat) pinusCatCounts.set(c.pinusCat, (pinusCatCounts.get(c.pinusCat) ?? 0) + 1)
                 }
-                const visible = categorized.filter(c => {
-                  if (c.pinusCat && !visiblePinusCats.has(c.pinusCat)) return false
-                  if (logFilter === 'sys' && c.cat !== 'sys') return false
-                  if (logFilter === 'spin' && c.cat !== 'spin') return false
-                  if (logFilter === 'shot' && c.cat !== 'shot') return false
-                  if (logFilter === 'error' && c.cat !== 'warn' && c.cat !== 'err') return false
-                  if (logSearch && !c.text.toLowerCase().includes(logSearch.toLowerCase())) return false
-                  return true
-                })
+                // ⚠️ 用 shared/ 那份，不要在這裡另寫一套。
+                //    我第一版就是只把「只看重點」加進共用檔、這裡還是舊的那套，
+                //    結果按鈕按下去完全沒反應——兩份實作漂掉的第一個症狀。
+                //    用 Pre 版是因為分類已經在收到當下算好了，不能再算一次（那會變回 O(N²)）。
+                const visible = categorized.filter(c => matchesLogFilterPre(c.text, c.cat, c.pinusCat, {
+                  cat: logFilter,
+                  pinusCats: [...visiblePinusCats],
+                  search: logSearch,
+                }))
                 const catColor: Record<LogCategory, string> = {
                   sys: 'var(--cr-cyan)', spin: '#e2e8f0', shot: 'var(--cr-violet)', warn: '#ead8a6', err: 'var(--cr-rose)', pinus: '#5b6b85', other: '#94a3b8',
                 }
                 const catBg: Partial<Record<LogCategory, string>> = { spin: 'rgba(117,215,207,0.06)' }
                 return (
                   <div className="autospin-log-panel" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden' }}>
-                    {/* Header: title/count + search + auto-scroll + clear */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#162032', borderBottom: '1px solid #2d3f55', flexWrap: 'wrap' }}>
+                    {/* ── 單一工具列（2026-09-02，照 CodeX 的設計改）──────────────────
+                        原本是「標題列 + 類別晶片列 + pinus 晶片列」共三排，在這個高度下
+                        光工具列就吃掉一半，日誌本體只剩約 120px——使用者原話「日誌能見度很小」。
+                        收成一排，pinus 那組改成點開才展開（平常只顯示一顆帶數量的按鈕）。 */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: '#162032', borderBottom: '1px solid #2d3f55', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>執行日誌</span>
                       <span style={{ fontSize: 11, color: '#64748b' }}
-                        title={`畫面最多保留最近 ${MAX_VISIBLE_LOGS.toLocaleString()} 行；超過的會被捨棄，下載到的也是這一份`}>
-                        {visible.length} / {rawLogs.length} 行
-                        {rawLogs.length >= MAX_VISIBLE_LOGS && <b style={{ color: 'var(--cr-amber)', marginLeft: 4 }}>（已達上限）</b>}
+                        title={`畫面最多保留最近 ${MAX_VISIBLE_LOGS.toLocaleString()} 行；超過的會被捨棄。要完整紀錄請用下方的「完整紀錄檔」`}>
+                        {visible.length}/{rawLogs.length}
+                        {rawLogs.length >= MAX_VISIBLE_LOGS && <b style={{ color: 'var(--cr-amber)', marginLeft: 3 }}>（已達上限）</b>}
                       </span>
-                      <div style={{ flex: 1 }} />
-                      <input value={logSearch} onChange={e => setLogSearch(e.target.value)} placeholder="搜尋日誌內容…"
-                        style={{ padding: '3px 8px', fontSize: 11, border: '1px solid #2d3f55', borderRadius: 5, background: '#0f172a', color: '#e2e8f0', width: 130 }} />
-                      <button className={`cr-pill${autoScrollLog ? ' cr-pill--active' : ''}`} onClick={() => setAutoScrollLog(v => !v)}
-                        style={{ fontSize: 11, padding: '3px 9px', borderRadius: 5, border: '1px solid #2d3f55', cursor: 'pointer',
-                          background: autoScrollLog ? 'var(--cr-cyan-soft)' : '#0f172a', color: autoScrollLog ? 'var(--cr-cyan)' : '#94a3b8' }}>
-                        自動捲到底
-                      </button>
-                      {/* ⚠️ 下載的是「畫面上這份」——也就是被上限截斷過的。
-                          原本上限是 500，所以按下載其實只拿到最後 500 行，
-                          但畫面沒說，多數人會以為是完整紀錄。上限拉到 10,000 之後
-                          好很多，但仍不是「完整」——真正完整要靠 server 落檔（另一版做）。
-                          在旁邊把行數寫出來，至少不會誤會。 */}
-                      <button className="cr-pill" onClick={() => downloadExecutionLog(rawLogs.map(e => e.text))}
-                        style={{ fontSize: 11, padding: '3px 9px', borderRadius: 5, border: '1px solid #2d3f55', background: '#0f172a', color: '#94a3b8', cursor: 'pointer' }}>
-                        下載
-                      </button>
-                      <button className="cr-pill" onClick={() => (runMode === 'server' ? setLogs([]) : setAgentLogs([]))}
-                        style={{ fontSize: 11, padding: '3px 9px', borderRadius: 5, border: '1px solid #2d3f55', background: '#0f172a', color: '#94a3b8', cursor: 'pointer' }}>
-                        清空
-                      </button>
-                    </div>
-                    {/* Filter chips */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: '#162032', borderBottom: '1px solid #2d3f55', flexWrap: 'wrap' }}>
-                      {([['all', '全部'], ['sys', '系統'], ['spin', 'Spin'], ['shot', '截圖'], ['error', '錯誤/警告']] as const).map(([key, label]) => (
+
+                      {/* 類別：多了「只看重點」——使用者的困擾是訊號被稀釋，不是捲太快 */}
+                      {([['all', '全部'], ['key', '只看重點'], ['error', '錯誤/警告'], ['spin', 'Spin'], ['sys', '系統'], ['shot', '截圖']] as const).map(([key, label]) => (
                         <button key={key} className={`cr-pill${logFilter === key ? ' cr-pill--active' : ''}`} onClick={() => setLogFilter(key)}
-                          style={{ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 999, cursor: 'pointer',
+                          style={{ fontSize: 11, fontWeight: 600, padding: '2px 9px', borderRadius: 999, cursor: 'pointer',
                             border: `1px solid ${logFilter === key ? 'var(--cr-cyan)' : '#2d3f55'}`,
                             background: logFilter === key ? 'var(--cr-cyan)' : '#0f172a', color: logFilter === key ? '#03222b' : '#94a3b8' }}>
                           {label}
                         </button>
                       ))}
+
+                      {/* pinus 平常收起來只佔一顆。它預設全部關閉，本來就是「要看才打開」的東西 */}
+                      <button className="cr-pill" onClick={() => setPinusOpen(v => !v)}
+                        style={{ fontSize: 11, padding: '2px 9px', borderRadius: 999, cursor: 'pointer', border: '1px solid #2d3f55',
+                          background: visiblePinusCats.size ? 'var(--cr-cyan-soft)' : '#0f172a', color: visiblePinusCats.size ? 'var(--cr-cyan)' : '#64748b' }}>
+                        pinus{visiblePinusCats.size ? `（${visiblePinusCats.size}）` : ''} {pinusOpen ? '▲' : '▼'}
+                      </button>
+
+                      <div style={{ flex: 1 }} />
+                      <input value={logSearch} onChange={e => setLogSearch(e.target.value)} placeholder="搜尋…"
+                        style={{ padding: '3px 8px', fontSize: 11, border: '1px solid #2d3f55', borderRadius: 5, background: '#0f172a', color: '#e2e8f0', width: 120 }} />
+                      <button className={`cr-pill${autoScrollLog ? ' cr-pill--active' : ''}`}
+                        onClick={() => setAutoScrollLog(v => {
+                          // 關掉的當下記住現在幾行——之後才算得出「暫停期間新增了多少」
+                          setPausedAtLen(v ? rawLogs.length : null)
+                          return !v
+                        })}
+                        style={{ fontSize: 11, padding: '2px 9px', borderRadius: 5, border: '1px solid #2d3f55', cursor: 'pointer',
+                          background: autoScrollLog ? 'var(--cr-cyan-soft)' : '#0f172a', color: autoScrollLog ? 'var(--cr-cyan)' : '#94a3b8' }}>
+                        跟隨最新
+                      </button>
+                      <button className="cr-pill" onClick={() => (runMode === 'server' ? setLogs([]) : setAgentLogs([]))}
+                        style={{ fontSize: 11, padding: '2px 9px', borderRadius: 5, border: '1px solid #2d3f55', background: '#0f172a', color: '#94a3b8', cursor: 'pointer' }}>
+                        清空
+                      </button>
                     </div>
-                    {/* Pinus category chips: 預設全部收合，個別勾選才顯示該類 pinus 訊息 */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: '#101827', borderBottom: '1px solid #2d3f55', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 10, color: '#64748b', fontWeight: 700 }}>pinus 分類：</span>
-                      {PINUS_CATEGORY_META.map(({ key, label }) => {
-                        const count = pinusCatCounts.get(key) ?? 0
-                        const on = visiblePinusCats.has(key)
-                        return (
-                          <button key={key} className={`cr-pill${on ? ' cr-pill--active-soft' : ''}`}
-                            onClick={() => setVisiblePinusCats(prev => {
+
+                    {pinusOpen && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', background: '#101827', borderBottom: '1px solid #2d3f55', flexWrap: 'wrap' }}>
+                        {PINUS_CATEGORY_META.map(({ key, label }) => {
+                          const count = pinusCatCounts.get(key) ?? 0
+                          const on = visiblePinusCats.has(key)
+                          return (
+                            <button key={key} onClick={() => setVisiblePinusCats(prev => {
                               const next = new Set(prev)
                               if (next.has(key)) next.delete(key); else next.add(key)
                               return next
                             })}
-                            style={{ fontSize: 10.5, fontWeight: 600, padding: '2px 8px', borderRadius: 999, cursor: 'pointer',
-                              border: `1px solid ${on ? 'var(--cr-cyan)' : '#2d3f55'}`,
-                              background: on ? 'var(--cr-cyan-soft)' : '#0f172a', color: on ? 'var(--cr-cyan)' : '#64748b' }}>
-                            {label}{count > 0 ? `（${count}）` : ''}
-                          </button>
-                        )
-                      })}
+                              style={{ fontSize: 10.5, fontWeight: 600, padding: '2px 8px', borderRadius: 999, cursor: 'pointer',
+                                border: `1px solid ${on ? 'var(--cr-cyan)' : '#2d3f55'}`,
+                                background: on ? 'var(--cr-cyan-soft)' : '#0f172a', color: on ? 'var(--cr-cyan)' : '#64748b' }}>
+                              {label}{count > 0 ? `（${count}）` : ''}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+
+                    {/* ⚠️ 暫停跟隨時要告訴你「錯過了什麼」。
+                        不然停下來讀 = 失去掌握，使用者只好一直開著跟隨、然後什麼都看不清。 */}
+                    {!autoScrollLog && missedCount > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', background: 'rgba(234,216,166,.10)', borderBottom: '1px solid rgba(234,216,166,.28)' }}>
+                        <span style={{ fontSize: 11.5, color: 'var(--cr-amber)' }}>
+                          已暫停跟隨，期間新增 <b>{missedCount}</b> 行
+                          {missedErrors > 0 && <b style={{ color: 'var(--cr-rose)' }}>（其中 {missedErrors} 筆錯誤）</b>}
+                        </span>
+                        <button onClick={() => { setAutoScrollLog(true); setPausedAtLen(null) }}
+                          style={{ fontSize: 11, padding: '2px 9px', borderRadius: 5, border: '1px solid var(--cr-amber)', background: 'transparent', color: 'var(--cr-amber)', cursor: 'pointer' }}>
+                          跳到最新
+                        </button>
+                      </div>
+                    )}
+
+                    {/* 表頭：時間／類別／訊息。原本是一整行純文字，掃起來只能靠顏色 */}
+                    <div style={{ display: 'flex', gap: 8, padding: '4px 12px', background: '#101827', borderBottom: '1px solid #2d3f55', fontSize: 10, color: 'var(--cr-violet)', fontWeight: 700, letterSpacing: '.04em' }}>
+                      <span style={{ width: 66, flexShrink: 0 }}>時間</span>
+                      <span style={{ width: 52, flexShrink: 0 }}>類別</span>
+                      <span style={{ flex: 1, minWidth: 0 }}>訊息</span>
                     </div>
-                    {/* Body */}
+
                     <div ref={logBoxRef}
-                      style={{ flex: 1, minHeight: 0, background: '#0f172a', padding: '8px 12px', overflowY: 'auto', fontFamily: 'monospace', fontSize: 11, lineHeight: 1.7 }}>
+                      style={{ flex: 1, minHeight: 0, background: '#0f172a', overflowY: 'auto', fontSize: 11, lineHeight: 1.65 }}>
                       {rawLogs.length === 0
-                        ? <span style={{ color: '#475569' }}>等待啟動...</span>
+                        ? <div style={{ color: '#475569', padding: '8px 12px' }}>等待啟動...</div>
                         : visible.length === 0
-                          ? <span style={{ color: '#475569' }}>沒有符合篩選條件的日誌</span>
-                          : visible.map((c, i) => (
-                            <div key={i} style={{ color: catColor[c.cat], background: catBg[c.cat] ?? 'transparent', borderRadius: 3, padding: '0 3px' }}>{c.text}</div>
-                          ))
+                          ? <div style={{ color: '#475569', padding: '8px 12px' }}>沒有符合篩選條件的日誌</div>
+                          : visible.map((c, i) => {
+                            // ⚠️ 單行截斷不折行（跟 CodeX 定案）：監控頁的核心是快速掃，
+                            //    不是讀長文。折行會讓每列高度不固定，之後要做虛擬清單就沒辦法算位置。
+                            //    完整內容用 title 帶出來。
+                            const m = /^\[(\d{2}:\d{2}:\d{2})\]\s*/.exec(c.text)
+                            return (
+                              <div key={i} title={c.text}
+                                style={{ display: 'flex', gap: 8, padding: '1px 12px', background: catBg[c.cat] ?? 'transparent' }}>
+                                <span style={{ width: 66, flexShrink: 0, color: '#475569', fontFamily: 'monospace' }}>{m ? m[1] : '—'}</span>
+                                <span style={{ width: 52, flexShrink: 0, color: catColor[c.cat], fontSize: 10 }}>
+                                  {c.pinusCat ? 'pinus' : CAT_LABEL[c.cat]}
+                                </span>
+                                <span style={{ flex: 1, minWidth: 0, color: catColor[c.cat], fontFamily: 'monospace',
+                                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                  {m ? c.text.slice(m[0].length) : c.text}
+                                </span>
+                              </div>
+                            )
+                          })
                       }
+                    </div>
+
+                    {/* ── 兩顆導出（v4.97.0 的後端）────────────────────────────────
+                        分開是刻意的：一顆給「我現在看到的」、一顆給「全部」。
+                        原本只有一顆「下載」，拿的是畫面上被截斷過的資料，
+                        使用者會以為那是完整紀錄——那才是真正會害人的地方。 */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: '#162032', borderTop: '1px solid #2d3f55', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 10.5, color: '#64748b', flex: 1, minWidth: 160 }}>
+                        「依目前篩選導出」給你畫面上這些；「完整紀錄檔」給你整場的原始紀錄（伺服器保留 14 天）
+                      </span>
+                      <button className="cr-pill" onClick={() => downloadExecutionLog(visible.map(e => e.text))}
+                        style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, border: '1px solid #2d3f55', background: '#0f172a', color: '#94a3b8', cursor: 'pointer' }}>
+                        依目前篩選導出（{visible.length}）
+                      </button>
+                      <button className="cr-pill" disabled={!activeSessionId}
+                        onClick={() => {
+                          if (!activeSessionId) return
+                          const q = new URLSearchParams()
+                          if (logFilter !== 'all') q.set('cat', logFilter)
+                          if (logSearch) q.set('q', logSearch)
+                          if (visiblePinusCats.size) q.set('pinus', [...visiblePinusCats].join(','))
+                          q.set('userLabel', getGlobalUserLabel())
+                          window.location.href = `/api/autospin/session-log/${activeSessionId}?${q}`
+                        }}
+                        title={activeSessionId ? '下載伺服器上這次執行的完整紀錄（不受畫面 10,000 行上限影響）' : '這次還沒有執行紀錄'}
+                        style={{ fontSize: 11, padding: '3px 10px', borderRadius: 5, cursor: activeSessionId ? 'pointer' : 'not-allowed',
+                          border: `1px solid ${activeSessionId ? 'var(--cr-cyan)' : '#2d3f55'}`,
+                          background: activeSessionId ? 'var(--cr-cyan-soft)' : '#0f172a',
+                          color: activeSessionId ? 'var(--cr-cyan)' : '#475569', opacity: activeSessionId ? 1 : .6 }}>
+                        完整紀錄檔
+                      </button>
                     </div>
                   </div>
                 )

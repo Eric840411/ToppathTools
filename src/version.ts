@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.97.0'
+export const APP_VERSION = '4.98.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.98.0',
+    date: '2026-09-02',
+    changes: [
+      'feat(autospin): 執行日誌面板重做（照 CodeX 的設計）。原本標題列＋類別晶片列＋pinus 晶片列共三排，在這個高度下光工具列就吃掉一半、日誌本體只剩約 120px。收成一排之後日誌區從 120px 變 420px',
+      'feat(autospin): 日誌改成 時間／類別／訊息 分欄，單行截斷不折行（完整內容用 hover）。原本是一整行純文字，只能靠顏色分辨',
+      'feat(autospin): 新增「只看重點」——使用者的困擾不是捲太快，是訊號被稀釋。實測 53 行裡只看重點剩 8 行。規則不發明新分類，只是把既有的警告/錯誤加上狀態真的改變了的事件組合起來',
+      'feat(autospin): 暫停跟隨時顯示「期間新增 N 行、其中 X 筆錯誤」＋跳到最新——不然停下來讀就等於失去掌握',
+      'feat(autospin): 導出拆成兩顆：「依目前篩選導出」給畫面上這些、「完整紀錄檔」給整場原始紀錄（走 v4.97.0 的後端）',
+      'fix(autospin): 篩選改用 shared/ 那份，元件內不再自己寫一套。第一版只把「只看重點」加進共用檔、畫面還在用舊的那套，結果按鈕按下去完全沒反應——兩份實作漂掉的第一個症狀',
+    ],
+  },
   {
     version: '4.97.0',
     date: '2026-09-02',
