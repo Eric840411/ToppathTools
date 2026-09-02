@@ -1440,6 +1440,53 @@ agent 端 `page.on('requestfinished')` → `backend_record_net` → server 收�
 - **`isSessionAlive()` 兩種模式分開判斷**：server 模式看 child 的 `exitCode`，agent 模式看該 agent 的 WS 還開著沒。只看 `session.status` 的話，agent 拔網路線會把使用者永久鎖在 409。
 - **腳本的 cwd 一定要是 `server/uat-runner/`**：`run-lark-tc-backend.js` 用相對路徑讀 `./tc-registry.json` 和 `./config/*`。
 
+### Agent 版本比對用原始碼指紋，不用版號（2026-09-02，v4.94.0）
+
+**手動維護的版號一定會漂，而且這個專案有活證據**：`agent-runner.ts` 裡的
+`AGENT_VERSION = '2026-05-agent-owner-v1'` **從 5 月起沒動過**，而 agent 的原始碼
+這期間改了很多次。server 只是把它收進 `version` 顯示，拿它判斷新舊等於沒判斷。
+
+改成比對「白名單那批原始碼的指紋」（`server/agent-source-hash.ts`）：改了就一定測得出來，
+不需要任何人記得 bump。
+
+**⚠️ 三個一定會踩的點：**
+
+1. **指紋要對「實際 serve 出去的內容」算，不是對 repo 裡的原始檔。**
+   `serveAgentSource()` 會把 `machine-test/runner.ts` 的 gemini import 改寫成 agent 專用版本
+   ——照原始檔算的話 agent 的副本永遠對不上，會**固定顯示需要更新**（CodeX review 提醒）。
+   所以 serve 跟 hash 共用 `agentSourceContent()`，不各寫一份。
+2. **換行要正規化**（CRLF→LF，檔尾收斂成剛好一個 `
+`，用 `
+*$` 不是 `
++$`）。
+   repo 在 Windows 上 checkout 是 CRLF、agent 可能是 macOS——不正規化就固定顯示需要更新。
+3. **要排序後再算。**`Object.keys()` 的順序不保證跨版本穩定，順序一變指紋就變。
+
+**三種狀態，因為下一步不一樣**（跟 CodeX 討論定案，不能合成一個「不是最新」）：
+
+| 狀態 | 判斷 | 使用者要做什麼 |
+|---|---|---|
+| `needs_update` | agent 手上檔案指紋 ≠ server | 按「更新程式碼」 |
+| `needs_restart` | 檔案已最新，但**啟動當下**那批要重啟的檔案指紋是舊的 | 重開 agent |
+| `unknown` | 舊版 agent 沒回報指紋 | **不要當成最新**——那會讓真正落後的顯示正常 |
+
+**⚠️ `RESTART_REQUIRED_SOURCES` 的判斷依據是「`agent-runner.ts` 有沒有靜態 import 它」**，
+不是看檔名。`uat-runner/net-capture.js` 與 `pinus-probe.js` 最容易歸錯邊——名字在
+`uat-runner/` 底下看起來像 runner 專用，但 `agent-runner.ts` 是**直接 import** 它們的
+（H5/PC 派工要用），所以要重啟。反過來 `run-lark-tc-backend.js`／`toppath-agent.py`／
+`block-engine.js` 是每次執行才 spawn，寫完下次跑就生效。
+
+**⚠️ `update_sources` 完成後 agent 會回報新的 `sourceHash`，但刻意不更新 `bootRestartHash`**
+——那個要重啟才會變，它正是「檔案新了但跑的是舊的」的判斷依據；在那裡跟著更新的話
+「需要重啟」就永遠偵測不到。
+
+> 已驗證 19 項（`scripts/ui-checks/agent-version-check.mjs`）：CRLF/LF 一致｜檔尾換行差異容忍｜
+> 鍵順序無關｜少一個檔案測得出來｜三種狀態各自正確｜**沒回報指紋是 unknown 不是 current**｜
+> 兩者都落後時先報 needs_update（更新完才知道要不要重啟）｜需重啟清單分類正確。
+>
+> ⚠️ **派工當下的警告還沒接**：`/api/autospin/hub-agents` 等派工用的端點各自獨立，
+> 要逐支帶上 `updateStatus`。目前只有 Local Agent 頁會顯示。
+
 ### 腳本怎麼送到 agent
 
 **⚠️ `AGENT_SOURCE_WHITELIST` 漏一個檔案，agent 端會在 import 當下直接炸掉**——不是執行到那行

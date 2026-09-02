@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.93.1'
+export const APP_VERSION = '4.94.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.94.0',
+    date: '2026-09-02',
+    changes: [
+      'feat(agent): Local Agent 落後時會提示。判斷改用「白名單原始碼的指紋」不是版號——原本那個 AGENT_VERSION 寫死成 2026-05 的字串，從那之後沒動過，而 agent 的原始碼改了很多次，手動版號一定會漂',
+      'note(agent): 「需要更新」跟「需要重啟」分成兩種提示，因為下一步不一樣——前者按更新程式碼，後者要重開 agent。update_sources 只寫檔案不重啟，所以會有「檔案是新的、跑的是舊的」這個中間狀態，原本完全看不見（只在 agent 自己的終端機印一行）',
+      'note(agent): 需要重啟的判斷依據是 agent-runner.ts 有沒有靜態 import 它，不是看檔名。net-capture.js/pinus-probe.js 名字在 uat-runner/ 底下但被直接 import，要重啟；run-lark-tc-backend.js/toppath-agent.py 每次執行才 spawn，寫完就生效',
+      'note(agent): 指紋對「實際 serve 出去的內容」算（含 runner.ts 的 import 改寫）並正規化換行——不然 agent 的副本永遠對不上，會固定顯示需要更新',
+      'note(agent): 舊版 agent 沒回報指紋時顯示「版本未知」，不當成最新——當成最新會讓真正落後的 agent 看起來正常',
+    ],
+  },
   {
     version: '4.93.1',
     date: '2026-09-02',

@@ -9,6 +9,9 @@ interface LocalAgent {
   tokenId: string
   capabilities: string[]
   version?: string
+  /** 'current' | 'needs_update' | 'needs_restart' | 'unknown'。
+   *  由 server 比對原始碼指紋算出來，不是手動維護的版號 */
+  updateStatus?: string
   busy: boolean
   sessionId?: string | null
   connectedAt: number
@@ -393,6 +396,33 @@ export function LocalAgentPage({ currentAccount }: Props) {
                   {agent.capabilities.map(cap => <span className="local-agent-cap" key={cap}>{cap}</span>)}
                   {agent.version && <span className="local-agent-cap">{agent.version}</span>}
                 </div>
+                {/* ⚠️ 「需要更新」跟「需要重啟」刻意分成兩種——**下一步不一樣**：
+                    前者按下面的「更新程式碼」，後者要重開 agent。
+                    合成一句「不是最新」會讓人不知道該做什麼（跟 CodeX 討論定案）。
+
+                    判斷依據是原始碼指紋不是版本字串——`agent.version` 那個從 2026-05
+                    起就沒動過，手動版號一定會漂。 */}
+                {agent.updateStatus && agent.updateStatus !== 'current' && (() => {
+                  const tone = {
+                    needs_update:  { fg: 'var(--cr-rose)',  bg: 'rgba(223,118,94,.12)',  bd: 'rgba(223,118,94,.35)',
+                                     title: '需要更新程式碼',
+                                     hint: '這台 agent 手上的檔案跟伺服器不一致，有些功能會吃不到。按下方「更新程式碼」。' },
+                    needs_restart: { fg: 'var(--cr-amber)', bg: 'rgba(234,216,166,.10)', bd: 'rgba(234,216,166,.32)',
+                                     title: '需要重啟 agent',
+                                     hint: '檔案已經是最新的，但目前跑著的程式是更新前載入的——要重開 agent 才會生效。' },
+                    unknown:       { fg: '#94a3b8',         bg: 'rgba(148,163,184,.10)', bd: '#2d3f55',
+                                     title: '版本未知',
+                                     hint: '這台 agent 沒有回報版本資訊（多半是舊版）。建議更新一次程式碼並重開。' },
+                  }[agent.updateStatus]
+                  if (!tone) return null
+                  return (
+                    <div style={{ marginTop: 6, padding: '7px 10px', borderRadius: 6,
+                                  background: tone.bg, border: `1px solid ${tone.bd}` }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: tone.fg }}>{tone.title}</div>
+                      <div style={{ fontSize: 11.5, color: '#cbd5e1', lineHeight: 1.5, marginTop: 2 }}>{tone.hint}</div>
+                    </div>
+                  )
+                })()}
                 {updateResults[agent.agentId] && (
                   <div style={{ marginTop: 4, fontSize: 12, color: updateResults[agent.agentId].ok ? '#4ade80' : '#f87171' }}>
                     {updateResults[agent.agentId].message}

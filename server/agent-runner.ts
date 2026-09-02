@@ -25,6 +25,7 @@ import { randomUUID } from 'crypto'
 // UAT 網路量測與 pinus 攔截：共用模組放在 server/uat-runner/ 底下，
 // 因為那是唯一一份 Backend runner（純 node）、agent（tsx）、server（編譯後）
 // 三邊都載得到的位置，詳見 net-capture.js 檔頭
+import { hashSources, RESTART_REQUIRED_SOURCES } from './agent-source-hash.js'
 import { attachNetworkCapture, DEFAULT_THRESHOLDS } from './uat-runner/net-capture.js'
 import { attachPinusProbe } from './uat-runner/pinus-probe.js'
 import { MachineTestRunner } from './machine-test/runner.js'
@@ -46,7 +47,52 @@ const AGENT_CAPABILITIES = (process.env.AGENT_CAPABILITIES ?? 'machine-test,scri
   .split(',')
   .map(value => value.trim())
   .filter(Boolean)
+/**
+ * ⚠️ **這個字串不能拿來判斷版本新舊。**它從 2026-05 起就沒動過，而 agent 的原始碼
+ *    這期間改了很多次——手動維護的版號一定會漂，這就是活證據。
+ *    真正的新舊判斷走下面的原始碼指紋（`computeSourceHashes`）。
+ *    這裡留著只是給人看的協定標記。
+ */
 const AGENT_VERSION = '2026-05-agent-owner-v1'
+
+/**
+ * 算「我手上這批白名單檔案」的指紋，跟 server 對。
+ *
+ * 兩個指紋分開回傳，因為它們對應到**不同的下一步**：
+ *   all          → 跟 server 不一致 = 檔案落後，按「更新程式碼」
+ *   restartScoped → 檔案已是最新、但**啟動當下**這個值是舊的 = 重開 agent
+ *
+ * ⚠️ 演算法用 `agent-source-hash.ts` 這支共用模組（它自己也在白名單裡），
+ *    不在這邊另寫一份——兩邊各寫一份必然漂掉，而漂掉的症狀是「永遠顯示需要更新」。
+ */
+async function computeSourceHashes(): Promise<{ all: string; restartScoped: string } | null> {
+  try {
+    const baseUrl = CENTRAL_URL.replace(/^wss?/, (m) => m.includes('wss') ? 'https' : 'http')
+    const resp = await fetch(`${baseUrl}/api/machine-test/agent/source-manifest`)
+    if (!resp.ok) return null
+    const manifest = await resp.json() as { files?: string[] }
+    const files = manifest.files ?? []
+    if (!files.length) return null
+    const all: Record<string, string> = {}
+    const restart: Record<string, string> = {}
+    for (const rel of files) {
+      const target = join(process.cwd(), 'server', ...rel.split('/'))
+      // 檔案不存在就當成空字串——那本身就是一種「跟 server 不一樣」，
+      // 不要跳過（跳過會讓「少了一個檔案」跟「完全一致」算出同樣的指紋）
+      let content = ''
+      try { content = readFileSync(target, 'utf8') } catch { content = '' }
+      all[rel] = content
+      if (RESTART_REQUIRED_SOURCES.has(rel)) restart[rel] = content
+    }
+    return { all: hashSources(all), restartScoped: hashSources(restart) }
+  } catch {
+    return null   // 算不出來就回報 undefined，server 會顯示「版本未知」而不是假裝最新
+  }
+}
+
+/** 啟動當下那批「要重啟才生效」的檔案指紋。之後就算檔案被換掉，這個值也不變
+ *  ——那正是「檔案新了但跑的是舊的」的判斷依據。 */
+let bootRestartHash: string | undefined
 
 let currentRunner: { stop: () => void } | null = null
 /** 後台錄製用的瀏覽器。錄製只會有一個 session，多開沒有意義而且會佔滿螢幕 */
@@ -1098,8 +1144,13 @@ function connect() {
   console.log(`[Agent:${AGENT_LABEL}] Connecting to ${url} ...`)
   const ws = new WebSocket(url)
 
-  ws.on('open', () => {
+  ws.on('open', async () => {
     console.log(`[Agent:${AGENT_LABEL}] Connected — ready`)
+    // 每次連線都重算：可能是重連，而這期間 server 端的程式碼可能已經更新
+    const bootHashes = await computeSourceHashes()
+    // ⚠️ 只在第一次記下來。之後檔案被換掉這個值也不變——那正是
+    //    「檔案是新的、但跑的還是舊的」的判斷依據；每次重連都更新就永遠測不出來。
+    if (bootRestartHash === undefined) bootRestartHash = bootHashes?.restartScoped
     ws.send(JSON.stringify({
       type: 'agent_ready',
       agentId: AGENT_ID,
@@ -1109,6 +1160,8 @@ function connect() {
       agentToken: AGENT_TOKEN,
       capabilities: AGENT_CAPABILITIES,
       version: AGENT_VERSION,
+      sourceHash: bootHashes?.all,
+      bootRestartHash,
     }))
   })
 
@@ -1491,8 +1544,14 @@ function connect() {
         }
       }
       const allOk = results.length > 0 && results.every(r => r.ok)
-      ws.send(JSON.stringify({ type: 'sources_updated', ok: allOk, results }))
-      console.log(`[Agent:${AGENT_LABEL}] Source update ${allOk ? 'succeeded' : 'failed (partial)'}. Restart agent to apply.`)
+      // 更新完要回報新指紋，不然畫面上還是顯示落後，使用者會以為沒生效而重按。
+      // ⚠️ bootRestartHash 刻意不更新——那個要重啟才會變，它正是「檔案新了但跑的是舊的」
+      //    的判斷依據；在這裡跟著更新的話「需要重啟」就永遠不會被偵測到。
+      const after = await computeSourceHashes()
+      ws.send(JSON.stringify({ type: 'sources_updated', ok: allOk, results, sourceHash: after?.all }))
+      const needRestart = after && bootRestartHash !== undefined && after.restartScoped !== bootRestartHash
+      console.log(`[Agent:${AGENT_LABEL}] Source update ${allOk ? 'succeeded' : 'failed (partial)'}.`
+        + (needRestart ? ' ⚠️ 有需要重啟才生效的檔案被更新，請重開 agent。' : ' 這批檔案下次執行就會生效，不用重啟。'))
       return
     }
 

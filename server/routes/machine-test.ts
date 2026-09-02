@@ -21,6 +21,10 @@ import {
   verifyLocalAgentToken,
 } from '../shared.js'
 import { callGeminiVision, callGeminiVisionMulti, readGeminiKeys } from './gemini.js'
+import {
+  hashOne, hashSources, RESTART_REQUIRED_SOURCES,
+  compareAgentSources, type AgentUpdateStatus,
+} from '../agent-source-hash.js'
 import { MachineTestRunner } from '../machine-test/runner.js'
 import type { MachineTestSession, MachineProfile } from '../machine-test/types.js'
 import {
@@ -73,6 +77,8 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   // 人工判讀的判定規則（v4.52.0 新增，但當時漏了加進這份白名單）：
   // run-lark-tc-backend.js 與 osm-uat.ts 都 import 它
   'uat-runner/detect-manual.js':       join(SERVER_ROOT, 'uat-runner', 'detect-manual.js'),
+  // 版本比對的演算法：兩端跑同一份，避免「server 用 A、agent 用 B」漂掉
+  'agent-source-hash.ts':              join(SERVER_ROOT, 'agent-source-hash.ts'),
 }
 
 // ⚠️ 這份白名單漏一個檔案，agent 端會在 **import 當下**直接炸掉（不是執行到才失敗），
@@ -1248,19 +1254,48 @@ router.get('/api/machine-test/agent/agent-package.json', (_req, res) => {
 })
 
 /** GET /api/machine-test/agent/source/:file ??serve whitelisted source files */
+/**
+ * agent 實際會拿到的檔案內容。
+ *
+ * ⚠️ **指紋一定要對這個算，不能對 repo 裡的原始檔算。**下面那段 import 改寫
+ *    會讓 `machine-test/runner.ts` 送出去的內容跟原始檔不同——照原始檔算的話
+ *    agent 的副本永遠對不上，會**固定顯示需要更新**（CodeX review 提醒）。
+ *    所以 serve 跟 hash 共用這一支，不各寫一份。
+ */
+function agentSourceContent(relPath: string): string | null {
+  const filePath = AGENT_SOURCE_WHITELIST[relPath]
+  if (!filePath || !existsSync(filePath)) return null
+  let content = readFileSync(filePath, 'utf-8')
+  // For runner.ts, rewrite gemini import to use standalone agent version
+  if (relPath === 'machine-test/runner.ts') {
+    content = content.replace(
+      /import \{[^}]+\} from '\.\.\/routes\/gemini\.js'/,
+      "import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'",
+    )
+  }
+  return content
+}
+
+/** server 目前 serve 出去的整批指紋，以及其中「要重啟才生效」那批的指紋 */
+export function agentSourceFingerprints(): { all: string; restartScoped: string; perFile: Record<string, string> } {
+  const all: Record<string, string> = {}
+  const restart: Record<string, string> = {}
+  const perFile: Record<string, string> = {}
+  for (const relPath of Object.keys(AGENT_SOURCE_WHITELIST)) {
+    const content = agentSourceContent(relPath)
+    if (content === null) continue
+    all[relPath] = content
+    perFile[relPath] = hashOne(content)
+    if (RESTART_REQUIRED_SOURCES.has(relPath)) restart[relPath] = content
+  }
+  return { all: hashSources(all), restartScoped: hashSources(restart), perFile }
+}
+
 function serveAgentSource(relPath: string) {
   return (_req: import('express').Request, res: import('express').Response) => {
-    const filePath = AGENT_SOURCE_WHITELIST[relPath]
-    if (!filePath || !existsSync(filePath)) {
-      return res.status(404).json({ ok: false, message: `???????? ${relPath}` })
-    }
-    let content = readFileSync(filePath, 'utf-8')
-    // For runner.ts, rewrite gemini import to use standalone agent version
-    if (relPath === 'machine-test/runner.ts') {
-      content = content.replace(
-        /import \{[^}]+\} from '\.\.\/routes\/gemini\.js'/,
-        "import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'",
-      )
+    const content = agentSourceContent(relPath)
+    if (content === null) {
+      return res.status(404).json({ ok: false, message: `找不到白名單來源：${relPath}` })
     }
     res.setHeader('Content-Type', 'text/plain; charset=utf-8')
     res.setHeader('Content-Disposition', `attachment; filename="${relPath.split('/').pop()}"`)
@@ -1271,6 +1306,24 @@ function serveAgentSource(relPath: string) {
 for (const relPath of Object.keys(AGENT_SOURCE_WHITELIST)) {
   router.get(`/api/machine-test/agent/source/${relPath}`, serveAgentSource(relPath))
 }
+
+/**
+ * GET /api/machine-test/agent/source-manifest
+ *
+ * agent 啟動時來拿「該有哪些檔案」跟「期望的指紋」，自己算完手上的再回報。
+ * 刻意讓 agent 自己算而不是 server 猜——server 不知道那台機器上實際躺著什麼。
+ */
+router.get('/api/machine-test/agent/source-manifest', (_req, res) => {
+  const fp = agentSourceFingerprints()
+  res.json({
+    ok: true,
+    files: Object.keys(AGENT_SOURCE_WHITELIST),
+    restartFiles: [...RESTART_REQUIRED_SOURCES],
+    expectedAll: fp.all,
+    expectedRestartScoped: fp.restartScoped,
+    perFile: fp.perFile,
+  })
+})
 
 /** GET /api/machine-test/agent/install.bat ??installer with embedded server URL */
 router.get('/api/machine-test/agent/install.bat', (req, res) => {
@@ -1565,6 +1618,9 @@ router.get('/api/local-agent/status', (_req, res) => {
   if (!operator?.key) {
     return res.json({ ok: true, operator: null, agents: [], tokens: [], counts: { connected: 0, ready: 0, busy: 0, tokens: 0 } })
   }
+  // ⚠️ 一定要提到迴圈外算一次。放在 .map 裡等於「每個 agent × 2 次 × 讀 19 個檔案」，
+  //    而這支清單是前端會輪詢的。
+  const fingerprints = agentSourceFingerprints()
   const agents = [...agentConnections.values()]
     .filter(agent => agent.ownerKey === operator.key)
     .map(agent => ({
@@ -1574,6 +1630,14 @@ router.get('/api/local-agent/status', (_req, res) => {
       tokenId: agent.tokenId,
       capabilities: agent.capabilities,
       version: agent.version,
+      // 「需要更新」跟「需要重啟」分開——下一步不一樣：前者按更新程式碼，後者重開 agent。
+      // 混成一個「不是最新」會讓人不知道該做什麼（跟 CodeX 討論定案）。
+      updateStatus: compareAgentSources({
+        expectedAll: fingerprints.all,
+        expectedRestartScoped: fingerprints.restartScoped,
+        agentAll: agent.sourceHash,
+        agentRestartScopedAtBoot: agent.bootRestartHash,
+      }) as AgentUpdateStatus,
       busy: agent.busy,
       sessionId: agent.sessionId,
       connectedAt: agent.connectedAt,

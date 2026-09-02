@@ -44,6 +44,11 @@ export interface AgentInfo {
   tokenId: string
   capabilities: string[]
   version?: string
+  /** agent 手上白名單檔案「現在」的指紋。舊版 agent 不會回報，留 undefined 代表版本未知 */
+  sourceHash?: string
+  /** agent **啟動當下**「要重啟才生效」那批檔案的指紋。
+   *  跟 sourceHash 分開存，才分得出「檔案落後」跟「檔案新了但跑的是舊的」 */
+  bootRestartHash?: string
   connectedAt: number
   lastSeenAt: number
   busy: boolean

@@ -533,6 +533,9 @@ wss.on('connection', (ws, req) => {
         agentToken?: string
         capabilities?: string[]
         version?: string
+        /** 原始碼指紋。版本比對改用這個，不用手動維護的 version 字串 */
+        sourceHash?: string
+        bootRestartHash?: string
         sessionId?: string
         event?: unknown
         machineCode?: string
@@ -568,6 +571,9 @@ wss.on('connection', (ws, req) => {
           tokenId: verifiedToken.id,
           capabilities,
           version: typeof msg.version === 'string' ? msg.version : undefined,
+          // 版本比對改用原始碼指紋，不用手動維護的版本字串（那個從 5 月起就沒動過）
+          sourceHash: typeof msg.sourceHash === 'string' ? msg.sourceHash : undefined,
+          bootRestartHash: typeof msg.bootRestartHash === 'string' ? msg.bootRestartHash : undefined,
           connectedAt: now,
           lastSeenAt: now,
           busy: false,
@@ -575,6 +581,14 @@ wss.on('connection', (ws, req) => {
         }
         agentConnections.set(agentId, info)
         log('info', '-', '-', `Agent connected: ${agentId} (${info.hostname}) owner=${info.ownerName || 'unowned'} capabilities=${info.capabilities.join(',')}`)
+        return
+      }
+
+      // agent 更新完檔案會回報新指紋。不收的話按了「更新程式碼」畫面仍顯示落後，
+      // 使用者會以為沒生效而重按。bootRestartHash 刻意不更新——那要重啟才會變。
+      if (msg.type === 'sources_updated' && agentId) {
+        const info = agentConnections.get(agentId)
+        if (info && typeof msg.sourceHash === 'string') info.sourceHash = msg.sourceHash
         return
       }
 
