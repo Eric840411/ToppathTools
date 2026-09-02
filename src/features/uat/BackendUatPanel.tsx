@@ -142,6 +142,77 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
     } catch { /* 載不到就當作沒有，不擋住主要流程 */ }
   }, [])
   useEffect(() => { void loadCustomTcs() }, [loadCustomTcs])
+  /** 正在歸戶的那筆自訂 TC（展開候選清單用） */
+  const [adoptFor, setAdoptFor] = useState<string | null>(null)
+  const [adoptCands, setAdoptCands] = useState<{ recordId: string; text: string; sub: string; existingStepCount: number }[]>([])
+  const [adoptReason, setAdoptReason] = useState('')
+  const [adoptBusy, setAdoptBusy] = useState(false)
+  /** 補填歸戶關鍵字用的暫存（key = 自訂 TC id） */
+  const [kwDraft, setKwDraft] = useState<Record<string, string>>({})
+
+  const openAdopt = useCallback(async (item: { id: string; title: string; linkKeyword: string }) => {
+    setAdoptFor(item.id); setAdoptCands([]); setAdoptReason('')
+    try {
+      const r = await fetch(`/api/osm-uat/custom-tcs/${item.id}/adopt-candidates`)
+      const d = await r.json() as { ok: boolean; candidates?: typeof adoptCands; reason?: string }
+      setAdoptCands(d.candidates ?? [])
+      setAdoptReason(d.reason ?? (d.candidates?.length ? '' : '關鍵字沒有命中任何 Lark TC'))
+    } catch { setAdoptReason('讀取候選失敗') }
+  }, [])
+
+  /** 補填／修改歸戶關鍵字。用同一支 PUT（帶 id 就是更新），不另開端點 */
+  const saveKeyword = useCallback(async (item: { id: string; title: string; steps: unknown[] }, keyword: string) => {
+    setAdoptBusy(true)
+    try {
+      await fetch('/api/osm-uat/custom-tcs', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: item.id, title: item.title, linkKeyword: keyword, steps: item.steps }),
+      })
+      await loadCustomTcs()
+    } finally { setAdoptBusy(false) }
+  }, [loadCustomTcs])
+
+  const doAdopt = useCallback(async (customId: string, recordId: string, existingStepCount: number) => {
+    // ⚠️ 預設是「接在既有積木後面」不是覆蓋——既有積木是別人花時間拆的。
+    //    只有使用者在這裡明確二次確認過才送 replace（後端也只認這兩種）。
+    let mode: 'append' | 'replace' = 'append'
+    if (existingStepCount > 0) {
+      mode = window.confirm(
+        `這筆 Lark TC 已經有 ${existingStepCount} 顆積木。
+
+` +
+        `按「確定」＝改成只用自訂 TC 的積木（原本那 ${existingStepCount} 顆會被取代）
+` +
+        `按「取消」＝接在後面，兩邊都留著`,
+      ) ? 'replace' : 'append'
+    }
+    setAdoptBusy(true)
+    try {
+      const r = await fetch(`/api/osm-uat/custom-tcs/${customId}/adopt`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ recordId, mode }),
+      })
+      const d = await r.json() as { ok: boolean; stepCount?: number; message?: string }
+      if (!d.ok) { setAdoptReason(d.message ?? '歸戶失敗'); return }
+      setAdoptFor(null)
+      await loadCustomTcs()
+      // 清單上那個「N 積木」徽章要跟著更新——不然歸戶完看起來像沒生效
+      // （沿用匯入積木成功後的同一套刷新做法）
+      const listed = await fetch('/api/osm-uat/tc-list').then(r => r.json()).catch(() => null) as { ok?: boolean; tcs?: BackendTc[] } | null
+      if (listed?.ok && listed.tcs) {
+        const counts = new Map(listed.tcs.map(t => [t.recordId, t.stepCount]))
+        setTcs(prev => prev.map(t => ({ ...t, stepCount: counts.get(t.recordId) ?? t.stepCount })))
+      }
+      setRecMsg(`已把 ${d.stepCount ?? '?'} 顆積木歸戶到 ${recordId}（${mode === 'replace' ? '取代原有' : '接在後面'}）`)
+    } finally { setAdoptBusy(false) }
+  }, [loadCustomTcs])
+
+  const deleteCustomTc = useCallback(async (item: { id: string; title: string; steps: unknown[] }) => {
+    if (!window.confirm(`確定要刪掉自訂 TC「${item.title}」嗎？裡面有 ${item.steps.length} 顆積木，刪掉要重錄。`)) return
+    await fetch(`/api/osm-uat/custom-tcs/${item.id}`, { method: 'DELETE' })
+    if (adoptFor === item.id) setAdoptFor(null)
+    await loadCustomTcs()
+  }, [adoptFor, loadCustomTcs])
   const [tcSnapshotAt, setTcSnapshotAt] = useState<string | null>(null)
   const [tcScanned, setTcScanned] = useState(false)
   // 掛載就載入 registry 快照的 TC 清單——編積木需要的東西快照裡都有，
@@ -686,6 +757,66 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
         </div>
         <footer className="uat-backend-flow-foot"><span>每個模組都是獨立實例，設定會儲存在此瀏覽器並傳入新的 runner process。{!tcScanned && tcs.length > 0 && ` TC 清單來自 ${tcSnapshotAt ? tcSnapshotAt.slice(0, 10) + ' 的' : ''}離線快照，掃描後會補上之後新增的。`}</span><b>{groups ? `已掃描 ${total} TC` : '尚未掃描 TC'}</b></footer>
 
+        {/* ── 未歸戶的自訂 TC（2026-09-02）────────────────────────────────
+            ⚠️ 這一區原本**完全不存在**。存檔是好的（進 `uat_custom_tcs` 表），
+               但 `customTcs` 這個 state 載入之後 JSX 一次都沒用到——
+               使用者錄了 26 顆積木存成「Test」，然後在畫面上到處找不到它
+               （2026-09-02 回報「這個存放的TC是放到哪去了？」）。
+
+            自訂 TC 是**暫存區不是第二份測試清單**：它不會被執行，要先歸戶到
+            某一筆真實的 Lark TC 才會跟著跑。所以這區的重點是「還沒歸戶的有幾筆」
+            跟「怎麼歸過去」，不是把它做成另一個可執行清單。 */}
+        {customTcs.length > 0 && (
+          <section className="uat-backend-customtc">
+            <div className="uat-backend-customtc-head">
+              <strong>未歸戶的自訂 TC <em>{customTcs.length}</em></strong>
+              <small>錄起來但還沒接到 Lark TC 上。<b>歸戶之後才會跟著跑</b>——現在放著不會被執行。</small>
+            </div>
+            {customTcs.map(item => {
+              const draft = kwDraft[item.id] ?? item.linkKeyword
+              return (
+                <article key={item.id} className="uat-backend-customtc-row">
+                  <div className="uat-backend-customtc-main">
+                    <strong>{item.title}</strong>
+                    <span>{item.steps.length} 顆積木</span>
+                  </div>
+                  {/* 動作列排在輸入框「前面」是刻意的：這欄是窄的側欄，
+                      標題＋輸入框＋三顆按鈕三欄並排會把輸入框壓到看不見佔位文字
+                      （實測只剩「歸戶關」還溢出）。改成第一列放標題與動作、
+                      輸入框獨佔第二列。 */}
+                  <div className="uat-backend-customtc-actions">
+                    {draft !== item.linkKeyword && (
+                      <button type="button" className="uat-btn is-quiet" disabled={adoptBusy}
+                        onClick={() => void saveKeyword(item, draft)}>存關鍵字</button>
+                    )}
+                    <button type="button" className="uat-btn" disabled={adoptBusy}
+                      onClick={() => void openAdopt({ ...item, linkKeyword: draft })}>找歸戶對象</button>
+                    <button type="button" className="uat-btn is-quiet" disabled={adoptBusy}
+                      onClick={() => void deleteCustomTc(item)}>刪除</button>
+                  </div>
+                  <input className="uat-field uat-backend-customtc-kw" value={draft}
+                    placeholder="歸戶關鍵字：拿這段文字去比對 Lark TC"
+                    onChange={event => setKwDraft(prev => ({ ...prev, [item.id]: event.target.value }))} />
+                  {adoptFor === item.id && (
+                    <div className="uat-backend-customtc-cands">
+                      {adoptReason && <p>{adoptReason}</p>}
+                      {/* 只提示、不自動選——命中多筆一律列出讓人挑。
+                          這個專案在人名比對上踩過「Jack 誤中 Jackson」的坑，同一個原則。 */}
+                      {adoptCands.map(c => (
+                        <button key={c.recordId} type="button" className="uat-backend-customtc-cand"
+                          disabled={adoptBusy} onClick={() => void doAdopt(item.id, c.recordId, c.existingStepCount)}>
+                          <span>{c.text || c.recordId}</span>
+                          <small>{c.sub}{c.existingStepCount > 0 && ` · 已有 ${c.existingStepCount} 顆積木`}</small>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </article>
+              )
+            })}
+          </section>
+        )}
+
         {/* 術式庫改成彈框（2026-08-30 使用者要求）。原本是在左欄裡往下展開，
             整包動作列＋模板清單接在說明文字後面，把欄位拉得很長，
             而且它是「管理／編輯」的情境，跟旁邊「本次要跑什麼」的閱讀動線是分開的。
@@ -1031,8 +1162,11 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
                   onClick={() => void saveAsCustomTc()}>另存成新 TC</button>
               </div>
               <small>
-                自訂 TC 存在這個工具裡、跟其他 TC 一起跑，但<b>不會回寫 Lark</b>（那邊沒有對應的列）。
-                填了歸戶關鍵字之後，掃描時只要有 Lark TC 的文字命中，就能一鍵把積木搬過去。
+                {/* ⚠️ 原本寫「跟其他 TC 一起跑」——那是錯的。執行時只帶掛在真實 Lark TC 上的
+                    積木（UAT_TC_STEPS），runner 裡沒有自訂 TC 的概念。寫成會跑比看不到更糟：
+                    使用者會以為錄好的積木已經在測了。 */}
+                自訂 TC 先存在這個工具裡的暫存區，<b>還不會被執行</b>——要先歸戶到某一筆 Lark TC 才會跟著跑。
+                填了歸戶關鍵字之後，下面「未歸戶的自訂 TC」那區就能一鍵把積木搬過去。
               </small>
             </div>
 

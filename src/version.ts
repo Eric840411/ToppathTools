@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.91.1'
+export const APP_VERSION = '4.92.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.92.0',
+    date: '2026-09-02',
+    changes: [
+      'feat(uat): 補上「未歸戶的自訂 TC」區塊。錄製後另存的自訂 TC 原本存進 DB 就從畫面上消失了——customTcs 這個 state 載入之後 JSX 一次都沒用到，使用者錄了 26 顆積木存成「Test」然後到處找不到',
+      'fix(uat): 修掉錯誤文案。原本寫「自訂 TC 跟其他 TC 一起跑」，但執行時只帶掛在真實 Lark TC 上的積木，runner 裡沒有自訂 TC 的概念——寫成會跑比看不到更糟，會讓人以為錄好的積木已經在測了',
+      'note(uat): 新區塊可以補歸戶關鍵字、找歸戶對象（列出文字命中的 Lark TC，並標示對方已有幾顆積木避免蓋掉）、刪除。歸戶預設是接在既有積木後面，要取代得二次確認',
+      'note(uat): 「不歸戶就直接執行自訂 TC」刻意沒做——Lark 上沒有對應的列，結果沒地方寫回，要先決定結果去處才動得了',
+    ],
+  },
   {
     version: '4.91.1',
     date: '2026-09-01',

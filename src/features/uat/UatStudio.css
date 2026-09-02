@@ -963,3 +963,60 @@
   font: 400 10px Consolas, Monaco, monospace;
   vertical-align: middle;
 }
+
+/* ── 未歸戶的自訂 TC（2026-09-02，v4.92.0）──────────────────────────────
+   這一區原本完全不存在：存檔進了 DB，但畫面上沒有任何地方顯示，
+   使用者錄完存起來就再也找不到。
+
+   刻意用「待辦」的視覺語言（琥珀色左緣）而不是跟模組卡片一樣——
+   它們不是可執行的清單項目，是**還沒接上去的暫存品**，看起來一樣會誤導。 */
+.uat-backend-customtc {
+  margin-top: 12px;
+  border: 1px solid rgba(234, 216, 166, .26);
+  border-left: 3px solid var(--cr-amber);
+  border-radius: 8px;
+  background: rgba(234, 216, 166, .06);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.uat-backend-customtc-head { display: flex; flex-direction: column; gap: 2px; }
+.uat-backend-customtc-head strong { font-size: 13px; color: var(--cr-amber); }
+.uat-backend-customtc-head strong em {
+  font-style: normal; margin-left: 6px; padding: 0 6px; border-radius: 999px;
+  background: rgba(234, 216, 166, .16); font-size: 11px;
+}
+.uat-backend-customtc-head small { font-size: 11.5px; color: #94a3b8; line-height: 1.5; }
+.uat-backend-customtc-row {
+  display: grid;
+  /* 兩欄就好：標題 + 動作。這欄是窄側欄，硬塞三欄會把輸入框壓到看不見佔位文字。 */
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 8px;
+  align-items: center;
+  padding: 8px 0;
+  border-top: 1px solid rgba(234, 216, 166, .16);
+}
+/* 輸入框獨佔第二列，才有足夠寬度顯示完整佔位文字 */
+.uat-backend-customtc-kw { grid-column: 1 / -1; width: 100%; }
+.uat-backend-customtc-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.uat-backend-customtc-main strong { font-size: 12.5px; color: #e2e8f0; overflow-wrap: anywhere; }
+.uat-backend-customtc-main span { font-size: 11px; color: #94a3b8; }
+.uat-backend-customtc-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+/* 候選清單跨滿三欄，不要被擠在最後一欄裡 */
+.uat-backend-customtc-cands { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 4px; }
+.uat-backend-customtc-cands p { margin: 2px 0; font-size: 11.5px; color: #94a3b8; }
+.uat-backend-customtc-cand {
+  display: flex; flex-direction: column; gap: 2px; align-items: flex-start;
+  width: 100%; padding: 7px 10px; text-align: left; cursor: pointer;
+  border: 1px solid #2d3f55; border-radius: 6px;
+  background: rgba(148, 163, 184, .08); color: #e2e8f0; font: inherit; font-size: 12px;
+}
+.uat-backend-customtc-cand:hover { border-color: var(--cr-cyan); background: rgba(117, 215, 207, .10); }
+.uat-backend-customtc-cand small { color: #94a3b8; font-size: 11px; }
+.uat-backend-customtc-cand:disabled { opacity: .5; cursor: default; }
+
+@media (max-width: 720px) {
+  .uat-backend-customtc-row { grid-template-columns: minmax(0, 1fr); }
+  .uat-backend-customtc-actions { justify-content: flex-start; }
+}
