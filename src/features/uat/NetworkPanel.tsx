@@ -80,6 +80,40 @@ function shortUrl(url: string, origin: string | null): string {
   return origin && url.startsWith(origin) ? url.slice(origin.length) || '/' : url
 }
 
+/**
+ * 拆成「路徑」與「主機」兩段（2026-09-02，使用者選的 C 案）。
+ *
+ * ⚠️ 上面 `commonOrigin()` 是**全有全無**：只要有一筆是別的 host 就整個放棄縮短。
+ *    真實資料剛好踩中——21 筆裡 20 筆同一個後台、1 筆是 `uat-cp` 的
+ *    challenge-platform，於是**每一列都退回完整網址被截成 `https://u…`**，
+ *    整欄零資訊（使用者 2026-09-02 回報「不夠直觀」）。
+ *
+ *    拆成兩行就繞開這個限制：路徑永遠看得到，主機各自標各自的，
+ *    不需要「全部同源」這個前提。
+ *
+ * query 不放進路徑（`/egm/...?page=1&pageSize=1000&dateTime[]=...` 會長到把版面撐爆），
+ * 只留一個 `?` 記號表示有帶參數；完整網址仍在 title 裡。
+ */
+function splitUrl(url: string): { path: string; host: string; hasQuery: boolean } {
+  try {
+    const u = new URL(url)
+    return { path: u.pathname || '/', host: u.host, hasQuery: !!u.search }
+  } catch {
+    return { path: url, host: '', hasQuery: false }   // 不是合法網址就原樣顯示，不猜
+  }
+}
+
+/** 出現次數最多的 host。用來把「跟大家一樣」的那些淡化、只讓例外跳出來 */
+function dominantHost(urls: string[]): string {
+  const count = new Map<string, number>()
+  for (const u of urls) {
+    try { const h = new URL(u).host; count.set(h, (count.get(h) ?? 0) + 1) } catch { /* 不是網址就跳過 */ }
+  }
+  let best = '', n = 0
+  for (const [h, c] of count) if (c > n) { best = h; n = c }
+  return best
+}
+
 const KIND_LABEL: Record<UatThemeMode, Record<'api' | 'image' | 'other', string>> = {
   classic: { api: 'API', image: '圖檔', other: '其他' },
   xianxia: { api: '法訊', image: '靈影', other: '其餘' },
@@ -131,6 +165,11 @@ export function NetworkPanel({ stats, themeMode, updatedAt }: {
   // 兩張表分開算——慢速那張可能只剩圖檔、API 那張只剩 API，來源不一定一樣
   const slowOrigin = commonOrigin((net?.slow ?? []).map(r => r.url))
   const apiOrigin = commonOrigin((net?.apiCalls ?? []).map(r => r.url))
+  const apiMainHost = dominantHost((net?.apiCalls ?? []).map(r => r.url))
+  /** 最新的排最上面（使用者 2026-09-02 要求）。
+   *  ⚠️ 一定要複製再排——直接 sort 會就地改動 props 傳進來的陣列，
+   *     那個陣列也是統計數字的來源，改到它會讓別處讀到被重排過的資料。 */
+  const apiCallsNewestFirst = [...(net?.apiCalls ?? [])].sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0))
   const pinus = stats?.pinus
 
   if (!net) {
@@ -243,15 +282,27 @@ export function NetworkPanel({ stats, themeMode, updatedAt }: {
                   <th>{copy.thUrl}</th>
                 </tr></thead>
                 <tbody>
-                  {net.apiCalls.map((r, i) => (
+                  {apiCallsNewestFirst.map((r, i) => {
+                    // 路徑在上、主機在下（使用者選的 C 案）。真正能分辨彼此的是路徑，
+                    // 原本整欄顯示同一段 origin 被截斷成 `https://u…`，等於沒有資訊。
+                    const { path, host, hasQuery } = splitUrl(r.url)
+                    return (
                     <tr key={`${r.url}-${r.ts}-${i}`}>
                       <td><span className={`uat-net-method is-${r.method.toLowerCase()}`}>{r.method}</span></td>
                       {/* 非 2xx 要一眼看得出來——那通常就是最值得下斷言的地方 */}
                       <td className={`is-num${r.status && r.status >= 400 ? ' is-over' : ''}`}>{r.status ?? '—'}</td>
                       <td className="is-num">{r.durationMs ?? '—'}</td>
-                      <td className="is-url" title={r.url}>{shortUrl(r.url, apiOrigin)}</td>
+                      {/* is-url 本身帶 nowrap + overflow:hidden + max-width:0（給單行截斷用的），
+                          兩行式一定要另加 is-url-2line 覆蓋掉，否則第二行會被裁掉看不見 */}
+                      <td className="is-url is-url-2line" title={r.url}>
+                        <span className="uat-net-path">{path}{hasQuery && <i className="uat-net-q">?</i>}</span>
+                        {/* 跟多數列同一個主機就淡化（那是背景資訊）；
+                            不一樣的才標出來——那種才是需要注意的 */}
+                        {host && <span className={`uat-net-host${apiMainHost && host !== apiMainHost ? ' is-odd' : ''}`}>{host}</span>}
+                      </td>
                     </tr>
-                  ))}
+                    )
+                  })}
                 </tbody>
               </table>
               {!!net.apiCallsTruncated && (

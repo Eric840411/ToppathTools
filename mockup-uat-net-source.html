@@ -1,0 +1,108 @@
+<!-- 訊源欄呈現方式 mockup（2026-09-02）
+     使用者：「這個訊源還是這樣呈現，不夠直觀」
+     資料是 2026-09-01 那次真實錄製的 21 筆 apiCalls，沒有捏造。 -->
+<title>訊源欄呈現方式</title>
+<style>
+  :root{
+    --bg:#0b111c; --panel:#111c2e; --line:#2d3f55; --text:#e2e8f0; --dim:#94a3b8; --faint:#64748b;
+    --cyan:#75d7cf; --gold:#c7a96b; --rose:#df765e; --amber:#ead8a6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;padding:28px;background:var(--bg);color:var(--text);
+       font-family:"Noto Sans TC",system-ui,sans-serif;font-size:14px;line-height:1.6}
+  h1{font-size:19px;margin:0 0 4px;color:var(--gold);font-family:"Noto Serif TC",serif}
+  .sub{color:var(--dim);font-size:12.5px;margin:0 0 24px}
+  .grid{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(430px,1fr));align-items:start}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .card.rec{border-color:rgba(117,215,207,.5)}
+  .card>header{padding:11px 14px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+  .card>header b{font-size:13.5px}
+  .tag{font-size:10.5px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--dim)}
+  .tag.now{border-color:rgba(223,118,94,.45);color:var(--rose)}
+  .tag.rec{border-color:rgba(117,215,207,.5);color:var(--cyan)}
+  .why{padding:9px 14px;font-size:11.5px;color:var(--dim);border-bottom:1px solid var(--line);background:rgba(148,163,184,.05)}
+  table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}
+  th{text-align:left;padding:7px 12px;color:var(--gold);font-weight:600;font-size:11px;
+     letter-spacing:.05em;border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:6px 12px;border-bottom:1px solid rgba(45,63,85,.5);vertical-align:top}
+  tr:last-child td{border-bottom:0}
+  .m{font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(148,163,184,.14);color:var(--dim)}
+  .ok{color:var(--cyan)} .ms{text-align:right;white-space:nowrap}
+  code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px}
+  .clip{display:block;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--faint)}
+  .host{font-size:10px;color:var(--faint)}
+  .hostbadge{font-size:9.5px;padding:0 5px;border-radius:3px;background:rgba(234,216,166,.14);color:var(--amber);margin-left:6px}
+  .cnt{font-size:10.5px;color:var(--dim);margin-left:6px}
+  .bar{height:3px;border-radius:2px;background:var(--cyan);opacity:.65;margin-top:3px}
+  .note{margin:26px 0 0;padding:12px 14px;border:1px solid var(--line);border-left:3px solid var(--gold);
+        border-radius:8px;background:rgba(199,169,107,.06);font-size:12.5px;color:var(--dim)}
+  .note b{color:var(--text)}
+</style>
+
+<h1>「訊源」欄要怎麼呈現</h1>
+<p class="sub">資料是 2026-09-01 那次真實錄製的 <b>21 筆</b> API 呼叫，沒有捏造。
+關鍵事實：<b style="color:var(--amber)">21 筆裡 20 筆是同一個主機</b>，而且只有 <b style="color:var(--amber)">10 個不重複路徑</b>。</p>
+
+<div class="grid" id="grid"></div>
+
+<div class="note">
+  <b>為什麼現在這樣不好用</b><br>
+  整欄都在顯示同一段 <code>https://uat-backendservertest.osmslot.org</code>，被截斷後每一列長得一模一樣
+  （<code>https://u…</code>）。真正能分辨彼此的是<b>路徑</b>，而它剛好被截掉了。
+  <br><br>
+  <b>我建議 B。</b>21 筆只有 10 個端點，重複的佔一半以上——先看「打了哪些、哪個慢」，
+  要追某一筆再展開。A 是最小改動、順序完整保留；C 資訊最全但列高變兩倍，43 筆時要捲很久。
+</div>
+
+<script>
+const DATA = [{"m": "POST", "s": 200, "d": 15, "host": "uat-cp.osmslot.org", "path": "/cdn-cgi/challenge-platform/h/b/jsd/oneshot/e694063b5082/0.5420642095453265:1788261318:jDGKhzdquyIrAQQTLTgnrGSAZXlbqMbr2SbAv-XZmH4/a3442602bc8b49fb", "q": false, "full": "http://uat-cp.osmslot.org/cdn-cgi/challenge-platform/h/b/jsd/oneshot/e694063b5082/0.5420642095453265:1788261318:jDGKhzdquyIrAQQTLTgnrGSAZXlbqMbr2SbAv-XZmH4/a3442602bc8b49fb"}, {"m": "POST", "s": 200, "d": 310, "host": "uat-backendservertest.osmslot.org", "path": "/auth/login", "q": false, "full": "https://uat-backendservertest.osmslot.org/auth/login"}, {"m": "POST", "s": 200, "d": 244, "host": "uat-backendservertest.osmslot.org", "path": "/auth/permissionInfo", "q": true, "full": "https://uat-backendservertest.osmslot.org/auth/permissionInfo?token=0004186_1-d7de2a560b115e8276026f7f571402f8&clientversion=2.5.10.3&channelId=4186"}, {"m": "POST", "s": 200, "d": 171, "host": "uat-backendservertest.osmslot.org", "path": "/dashboard/playerAndJackpot", "q": true, "full": "https://uat-backendservertest.osmslot.org/dashboard/playerAndJackpot?param=1&isall=false&channelId=4186"}, {"m": "POST", "s": 200, "d": 175, "host": "uat-backendservertest.osmslot.org", "path": "/dashboard/machine", "q": true, "full": "https://uat-backendservertest.osmslot.org/dashboard/machine?param=1&isall=false&channelId=4186"}, {"m": "POST", "s": 200, "d": 202, "host": "uat-backendservertest.osmslot.org", "path": "/egm/egm_exception_monitor/monitorRecordList", "q": true, "full": "https://uat-backendservertest.osmslot.org/egm/egm_exception_monitor/monitorRecordList?page=1&pageSize=1000&dateTime[]=2026-08-25+20:04:49&dateTime[]=2026-09-01+20:04:49&channelId=4186"}, {"m": "POST", "s": 200, "d": 227, "host": "uat-backendservertest.osmslot.org", "path": "/dashboard/dayDataSummary", "q": true, "full": "https://uat-backendservertest.osmslot.org/dashboard/dayDataSummary?param=1&isall=false&channelId=4186"}, {"m": "POST", "s": 200, "d": 235, "host": "uat-backendservertest.osmslot.org", "path": "/dashboard/onlinePlayers", "q": true, "full": "https://uat-backendservertest.osmslot.org/dashboard/onlinePlayers?param=1&isall=false&channelId=4186"}, {"m": "GET", "s": 200, "d": 352, "host": "uat-backendservertest.osmslot.org", "path": "/public/warningInfo", "q": true, "full": "https://uat-backendservertest.osmslot.org/public/warningInfo?haveItems=1&channelId=4186"}, {"m": "POST", "s": 200, "d": 255, "host": "uat-backendservertest.osmslot.org", "path": "/auth/permissionInfo", "q": true, "full": "https://uat-backendservertest.osmslot.org/auth/permissionInfo?token=0004186_1-d7de2a560b115e8276026f7f571402f8&clientversion=2.5.10.3&channelId="}, {"m": "POST", "s": 200, "d": 181, "host": "uat-backendservertest.osmslot.org", "path": "/game/getBannerSet", "q": false, "full": "https://uat-backendservertest.osmslot.org/game/getBannerSet"}, {"m": "POST", "s": 200, "d": 221, "host": "uat-backendservertest.osmslot.org", "path": "/egm/egm_exception_monitor/monitorRecordList", "q": true, "full": "https://uat-backendservertest.osmslot.org/egm/egm_exception_monitor/monitorRecordList?page=1&pageSize=1000&dateTime[]=2026-08-25+20:04:52&dateTime[]=2026-09-01+20:04:52&channelId=4186"}, {"m": "GET", "s": 200, "d": 275, "host": "uat-backendservertest.osmslot.org", "path": "/public/warningInfo", "q": true, "full": "https://uat-backendservertest.osmslot.org/public/warningInfo?haveItems=1&channelId=4186"}, {"m": "POST", "s": 200, "d": 273, "host": "uat-backendservertest.osmslot.org", "path": "/auth/permissionInfo", "q": true, "full": "https://uat-backendservertest.osmslot.org/auth/permissionInfo?token=0004186_1-d7de2a560b115e8276026f7f571402f8&clientversion=2.5.10.3&channelId="}, {"m": "POST", "s": 200, "d": 169, "host": "uat-backendservertest.osmslot.org", "path": "/game/getBannerSet", "q": false, "full": "https://uat-backendservertest.osmslot.org/game/getBannerSet"}, {"m": "POST", "s": 200, "d": 196, "host": "uat-backendservertest.osmslot.org", "path": "/egm/egm_exception_monitor/monitorRecordList", "q": true, "full": "https://uat-backendservertest.osmslot.org/egm/egm_exception_monitor/monitorRecordList?page=1&pageSize=1000&dateTime[]=2026-08-25+20:05:00&dateTime[]=2026-09-01+20:05:00&channelId=4186"}, {"m": "GET", "s": 200, "d": 456, "host": "uat-backendservertest.osmslot.org", "path": "/public/warningInfo", "q": true, "full": "https://uat-backendservertest.osmslot.org/public/warningInfo?haveItems=1&channelId=4186"}, {"m": "POST", "s": 200, "d": 247, "host": "uat-backendservertest.osmslot.org", "path": "/auth/permissionInfo", "q": true, "full": "https://uat-backendservertest.osmslot.org/auth/permissionInfo?token=0004186_1-d7de2a560b115e8276026f7f571402f8&clientversion=2.5.10.3&channelId="}, {"m": "POST", "s": 200, "d": 162, "host": "uat-backendservertest.osmslot.org", "path": "/game/getBannerSet", "q": false, "full": "https://uat-backendservertest.osmslot.org/game/getBannerSet"}, {"m": "POST", "s": 200, "d": 223, "host": "uat-backendservertest.osmslot.org", "path": "/egm/egm_exception_monitor/monitorRecordList", "q": true, "full": "https://uat-backendservertest.osmslot.org/egm/egm_exception_monitor/monitorRecordList?page=1&pageSize=1000&dateTime[]=2026-08-25+20:05:07&dateTime[]=2026-09-01+20:05:07&channelId=4186"}, {"m": "GET", "s": 200, "d": 381, "host": "uat-backendservertest.osmslot.org", "path": "/public/warningInfo", "q": true, "full": "https://uat-backendservertest.osmslot.org/public/warningInfo?haveItems=1&channelId=4186"}];
+const MAIN = 'uat-backendservertest.osmslot.org';
+const el = (h) => { const d=document.createElement('div'); d.innerHTML=h.trim(); return d.firstChild };
+const short = p => p.length > 46 ? p.slice(0,22) + '…' + p.slice(-20) : p;
+
+function card(tagCls, tag, title, why, inner){
+  return `<section class="card ${tagCls==='rec'?'rec':''}"><header><b>${title}</b><span class="tag ${tagCls}">${tag}</span></header>
+    <div class="why">${why}</div>${inner}</section>`;
+}
+const head = extra => `<table><thead><tr><th>METHOD</th><th>狀態</th><th class="ms">耗時</th><th>${extra}</th></tr></thead><tbody>`;
+
+// 現況
+let now = head('訊源');
+for (const r of DATA.slice(0,7))
+  now += `<tr><td><span class="m">${r.m}</span></td><td class="ok">${r.s}</td><td class="ms">${r.d}</td>
+          <td><code class="clip">${r.host ? 'https://' + r.host.slice(0,1) + '…' : ''}</code></td></tr>`;
+now += '</tbody></table>';
+
+// A：只顯示路徑
+let a = head('端點');
+for (const r of DATA.slice(0,7))
+  a += `<tr><td><span class="m">${r.m}</span></td><td class="ok">${r.s}</td><td class="ms">${r.d}</td>
+        <td><code>${short(r.path)}</code>${r.q?'<span class="cnt">?…</span>':''}${r.host!==MAIN?`<span class="hostbadge">${r.host.split('.')[0]}</span>`:''}</td></tr>`;
+a += '</tbody></table>';
+
+// B：依端點彙總
+const g = new Map();
+for (const r of DATA){ const k=r.path; if(!g.has(k)) g.set(k,{path:k,host:r.host,n:0,tot:0,max:0,bad:0});
+  const x=g.get(k); x.n++; x.tot+=r.d; x.max=Math.max(x.max,r.d); if(r.s>=400)x.bad++ }
+const groups=[...g.values()].sort((x,y)=>y.max-x.max);
+let b = `<table><thead><tr><th>端點</th><th class="ms">次數</th><th class="ms">平均</th><th class="ms">最慢</th></tr></thead><tbody>`;
+for(const x of groups.slice(0,8))
+  b += `<tr><td><code>${short(x.path)}</code>${x.host!==MAIN?`<span class="hostbadge">${x.host.split('.')[0]}</span>`:''}
+        <div class="bar" style="width:${Math.max(4,Math.round(x.max/497*100))}%"></div></td>
+        <td class="ms">${x.n}</td><td class="ms">${Math.round(x.tot/x.n)}</td><td class="ms">${x.max}</td></tr>`;
+b += '</tbody></table>';
+
+// C：兩行
+let c = head('訊源');
+for (const r of DATA.slice(0,6))
+  c += `<tr><td><span class="m">${r.m}</span></td><td class="ok">${r.s}</td><td class="ms">${r.d}</td>
+        <td><code>${short(r.path)}</code><div class="host">${r.host}</div></td></tr>`;
+c += '</tbody></table>';
+
+document.getElementById('grid').append(
+  el(card('now','現在','現況：每一列都一樣','截斷後只剩 <code>https://u…</code>，整欄零資訊，要 hover 才知道是什麼。', now)),
+  el(card('rec','建議','B　依端點彙總','21 筆收成 10 列。直接回答「打了哪些、哪個慢」。不是主要主機的會標出來。順序資訊移到展開層。', b)),
+  el(card('','選項','A　只顯示路徑','最小改動，一列一筆、順序完整保留。主機相同就不重複顯示，不同的才標。', a)),
+  el(card('','選項','C　路徑 + 主機兩行','資訊最完整，但列高變兩倍——這次 43 筆就要捲很久。', c)),
+);
+</script>

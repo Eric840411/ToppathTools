@@ -281,7 +281,14 @@
 .uat-net-chip[title] { border-style: dashed; cursor: help; }
 .uat-net-chip b { color: var(--uat-text); font-family: Consolas, Monaco, monospace; font-weight: 400; font-variant-numeric: tabular-nums; }
 
-.uat-net-tables { display: grid; grid-template-columns: 1.3fr 1fr; gap: 12px; margin-top: 14px; align-items: start; }
+/* ⚠️ 原本寫死 `1.3fr 1fr`。這個面板實測只有 667px 寬，切完之後「往返之術」那塊
+   只剩 285px，扣掉三個固定寬欄位（method/狀態/耗時）**訊源欄只剩 110px**——
+   而最長的路徑 `/egm/egm_exception_monitor/monitorRecordList` 光是文字就要約 300px。
+   訊源改成兩行式（v4.93.0）之後，那個寬度會讓路徑逐字斷行，比原本截斷還難讀。
+
+   改成 auto-fit：放不下兩欄就自動疊成一欄（此時訊源欄有約 490px，夠放最長的路徑），
+   容器夠寬時才並排。不寫死斷點，跟著實際可用寬度走。 */
+.uat-net-tables { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 12px; margin-top: 14px; align-items: start; }
 .uat-net-table-block h4 { display: flex; align-items: baseline; gap: 7px; margin: 0 0 7px; font-size: 12px; }
 .uat-net-table-block h4 em { color: var(--uat-primary); font-family: Consolas, Monaco, monospace; font-style: normal; font-variant-numeric: tabular-nums; }
 .uat-net-scroller { max-height: 240px; overflow: auto; border: 1px solid var(--uat-border); border-radius: 8px; }
@@ -1019,4 +1026,48 @@
 @media (max-width: 720px) {
   .uat-backend-customtc-row { grid-template-columns: minmax(0, 1fr); }
   .uat-backend-customtc-actions { justify-content: flex-start; }
+}
+
+/* ── 訊源欄改成「路徑在上、主機在下」（2026-09-02，v4.93.0）─────────────
+   原本整欄顯示同一段 origin，被截斷後每一列都是 `https://u…`，等於零資訊。
+   真正能分辨彼此的是路徑——把它放到第一行、給滿寬度。
+
+   ⚠️ 既有的 commonOrigin() 只在「全部同源」時才縮短，真實資料裡
+      21 筆有 20 筆同源、1 筆不同，於是整個機制失效。兩行式不需要那個前提。 */
+.uat-net-path {
+  display: block;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  color: #e2e8f0;
+  /* 先讓它在 / 之類的地方斷，真的斷不了才逐字斷 */
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+.uat-net-q { font-style: normal; color: var(--cr-amber); margin-left: 2px; }
+/* 主機是背景資訊：跟多數列一樣就讓它退到後面，不要跟路徑搶注意力 */
+.uat-net-host {
+  display: block;
+  font-size: 10px;
+  color: #64748b;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+/* 例外的主機才標出來——整欄都一樣時，不一樣的那一筆才是要注意的 */
+.uat-net-host.is-odd { color: var(--cr-amber); }
+.uat-net-host.is-odd::before { content: '↳ '; opacity: .7; }
+/* ⚠️ .is-url 本身是給「單行截斷」用的（nowrap + overflow:hidden + max-width:0）。
+   兩行式必須整組覆蓋掉，不然第二行的主機會被裁掉——而那正是這次要補的資訊。
+   滯澀之訊那張表仍用單行，所以不能直接改 .is-url 本身。 */
+.uat-net-scroller .is-url.is-url-2line {
+  /* ⚠️ `width: 99%` 一定要留著。那是讓這一欄吃掉「其餘固定寬欄位之後的剩餘寬度」
+     的表格慣用手法——把它改成 auto，欄寬會垮成一百出頭 px，路徑變成逐字斷行
+     （實測過，比原本截斷還難讀）。要改的只有 nowrap／overflow／max-width 那三項。 */
+  width: 99%;
+  max-width: none;
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+  padding-top: 5px;
+  padding-bottom: 5px;
 }

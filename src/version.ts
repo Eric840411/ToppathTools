@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.92.0'
+export const APP_VERSION = '4.93.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.93.0',
+    date: '2026-09-02',
+    changes: [
+      'fix(uat): 網路面板「訊源」欄改成路徑在上、主機在下。原本整欄都在顯示同一段 origin，被截斷後每一列都是 https://u…，等於零資訊——真正能分辨彼此的是路徑，而它剛好被截掉',
+      'note(uat): 根因是 commonOrigin() 全有全無：只在「全部列同源」時才縮短。真實資料 21 筆裡 20 筆同源、1 筆不同，整個機制就失效了',
+      'fix(uat): 兩張網路表格改成放不下就自動疊成一欄。原本寫死 1.3fr 1fr，面板只有 667px 時訊源欄只剩 110px，最長的路徑光文字就要約 300px，會逐字斷行比原本截斷還難讀',
+      'feat(uat): API 呼叫清單改成最新的排在最上面',
+      'note(uat): 跟多數列同一個主機就淡化，不一樣的才標色——整欄都一樣時，不一樣的那筆才是要注意的',
+    ],
+  },
   {
     version: '4.92.0',
     date: '2026-09-02',
