@@ -34,6 +34,12 @@ check('少一個檔案測得出來',
 // 檔案存在但內容空 vs 檔案不存在：agent 端把讀不到當空字串，兩者要能區分「有沒有這個鍵」
 check('空內容的檔案仍計入（不會跟「沒有這個檔案」撞在一起）',
   hashSources({ a: '1', b: '' }) !== hashSources({ a: '1' }));
+// ⚠️ 上面那條同時也守著一個兩端一致性問題：server 端原本讀不到就 `continue`（key 消失），
+//    agent 端是 `content = ''`（key 留著）。只要白名單指到一個不存在的檔案，指紋就
+//    **永遠對不起來**，畫面固定「需要更新」而且按了也不會好——最糟的壞法，
+//    因為使用者最後只會學會忽略這個提示。server 端已改成也留 key。
+check('「讀不到」在兩端都要留 key，不能一邊跳過',
+  hashSources({ a: '1', gone: '' }) !== hashSources({ a: '1' }));
 
 console.log('\n2) 三種狀態');
 const E = { expectedAll: 'AAA', expectedRestartScoped: 'RRR' };

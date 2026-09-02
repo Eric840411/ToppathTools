@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.95.1'
+export const APP_VERSION = '4.95.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.95.2',
+    date: '2026-09-02',
+    changes: [
+      'fix(agent): 兩端對「檔案讀不到」的處理不一致——server 端跳過那個 key、agent 端補空字串留著 key。只要白名單指到一個不存在的檔案，指紋就永遠對不起來，畫面會固定顯示「需要更新」而且按了更新也不會好',
+      'note(agent): 那是最糟的一種壞法——使用者按了沒用，最後只會學會忽略這個提示。現在兩端都留 key，並加測試守住',
+    ],
+  },
   {
     version: '4.95.1',
     date: '2026-09-02',

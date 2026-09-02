@@ -1323,8 +1323,12 @@ function computeAgentSourceFingerprints(): { all: string; restartScoped: string;
   const restart: Record<string, string> = {}
   const perFile: Record<string, string> = {}
   for (const relPath of Object.keys(AGENT_SOURCE_WHITELIST)) {
-    const content = agentSourceContent(relPath)
-    if (content === null) continue
+    // ⚠️ 讀不到也要留 key，內容當空字串——**必須跟 agent 端一致**。
+    //    agent 那邊讀不到是 `catch { content = '' }`（key 留著）；
+    //    server 這邊原本是 `continue`（key 消失）。兩邊對不齊的話，只要白名單指到
+    //    一個不存在的檔案，指紋就**永遠對不起來**，畫面固定顯示「需要更新」，
+    //    而且按了更新也不會好——那正是最糟的壞法：使用者最後學會忽略這個提示。
+    const content = agentSourceContent(relPath) ?? ''
     all[relPath] = content
     perFile[relPath] = hashOne(content)
     if (RESTART_REQUIRED_SOURCES.has(relPath)) restart[relPath] = content
