@@ -586,10 +586,16 @@ wss.on('connection', (ws, req) => {
 
       // agent 更新完檔案會回報新指紋。不收的話按了「更新程式碼」畫面仍顯示落後，
       // 使用者會以為沒生效而重按。bootRestartHash 刻意不更新——那要重啟才會變。
+      //
+      // ⚠️ **這裡絕對不能 return。**下面（同一個 handler 內）本來就有一段
+      //    `sources_updated` 的處理，負責 resolve 前端那個「更新程式碼」的等待。
+      //    v4.94.0 我在這裡加了 `return`，把它整個擋掉——結果 agent 端明明成功
+      //    （終端機印出 19 個檔案全部更新），畫面卻**永遠卡在「更新中…」**。
+      //    這是「加攔截時順手 return」最典型的壞法：新功能沒錯，錯在把既有的路徑切斷。
       if (msg.type === 'sources_updated' && agentId) {
         const info = agentConnections.get(agentId)
         if (info && typeof msg.sourceHash === 'string') info.sourceHash = msg.sourceHash
-        return
+        // 不 return，讓它繼續往下走到既有的回覆邏輯
       }
 
       if (msg.type === 'event' && msg.sessionId && msg.event) {

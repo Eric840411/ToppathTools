@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.94.1'
+export const APP_VERSION = '4.94.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.94.2',
+    date: '2026-09-02',
+    changes: [
+      'fix(agent): 「更新程式碼」按下去畫面永遠卡在「更新中…」。v4.94.0 我在 worker 加了一段接收指紋的攔截，卻順手寫了 return，把下面既有那段「回覆前端」的處理整個擋掉——agent 端其實成功了（終端機 19 個檔案全部更新），只有畫面永遠等不到回應',
+      'note(agent): 錯不在新功能，錯在加攔截時切斷了既有路徑。同一個 handler 裡對同一種訊息做兩件事時，前面那段不能 return',
+    ],
+  },
   {
     version: '4.94.1',
     date: '2026-09-02',
