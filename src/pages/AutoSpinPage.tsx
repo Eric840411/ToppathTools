@@ -1900,16 +1900,9 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
             </div>
           )}
 
-          {/* Mode toggle */}
-          <div style={{ display: 'flex', gap: 0, border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden', alignSelf: 'flex-start' }}>
-            {(['hub', 'server'] as const).map(m => (
-              <button key={m} onClick={() => setRunMode(m)}
-                style={{ padding: '7px 20px', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer',
-                  background: runMode === m ? '#2563eb' : '#1e293b', color: runMode === m ? '#fff' : '#94a3b8' }}>
-                {m === 'hub' ? '遠端 Agent' : '伺服器端（fallback）'}
-              </button>
-            ))}
-          </div>
+          {/* 執行模式切換已經移進下面「執行模式」那張卡裡（照 CodeX 的設計）——
+              它本來就是那張卡在講的事，放外面等於同一個主題被切成兩塊，
+              而且獨佔一整排高度。 */}
 
           <div style={{ flex: 1, display: 'flex', gap: 16, minHeight: 0, overflow: 'hidden' }}>
 
@@ -1953,6 +1946,19 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                 <div className="autospin-run-cards">
                   <section style={{ background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 10, padding: '10px 13px', display: 'flex', flexDirection: 'column', gap: 9, minWidth: 0 }}>
                   <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--cr-violet)', letterSpacing: '.04em' }}>執行模式</div>
+                  {/* 分段切換，兩段平分卡片寬度（CodeX 的設計就是放在這張卡裡）。
+                      顏色沿用全站的 --cr-cyan，原本那個 #2563eb 是別處帶來的藍，
+                      在這個配色裡是唯一一塊不屬於這套色票的顏色。 */}
+                  <div style={{ display: 'flex', border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden' }}>
+                    {(['hub', 'server'] as const).map(m => (
+                      <button key={m} onClick={() => setRunMode(m)}
+                        style={{ flex: 1, padding: '6px 8px', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer',
+                          background: runMode === m ? 'var(--xx-jade-solid)' : '#162032',
+                          color: runMode === m ? '#fff' : '#94a3b8' }}>
+                        {m === 'hub' ? '遠端 Agent' : '伺服器端（fallback）'}
+                      </button>
+                    ))}
+                  </div>
 
                   {/* ① Agent picker */}
                   <div>

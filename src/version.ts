@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.98.2'
+export const APP_VERSION = '4.98.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.98.3',
+    date: '2026-09-02',
+    changes: [
+      'fix(autospin): 遠端 Agent／伺服器端 切換鈕移進「執行模式」卡裡（照 CodeX 的設計）。原本浮在卡片外面獨佔一整排，而它本來就是那張卡在講的事，放外面等於同一個主題被切成兩塊',
+      'fix(autospin): 切換鈕顏色從 #2563eb 改成全站的玉色。那個藍是別處帶來的，在這個配色裡是唯一一塊不屬於這套色票的顏色',
+      'note(autospin): 新增 scripts/ui-checks/autospin-run-fixture.mjs——用塞滿的假資料驗版面。先前每次驗證都在空狀態下做（沒有 LuckyLink、沒有截圖、沒有對帳資料、沒有獎池），空的時候什麼版面都好看，會撐爆的是塞滿的時候',
+    ],
+  },
   {
     version: '4.98.2',
     date: '2026-09-02',
