@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.98.1'
+export const APP_VERSION = '4.98.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.98.2',
+    date: '2026-09-02',
+    changes: [
+      'fix(autospin): Agent 選擇卡精簡。原本每台把 6 個 capability 全列出來（machine-test · scripted-bet · uat-record · uat-run · autospin · backend-uat），在那個欄寬會折成三行，是整張卡最寬也最高的東西——而這份清單本來就只列支援 autospin 的 agent，再列一次對「要挑哪台」完全沒幫助。移到 tooltip',
+      'fix(autospin): 落後提示從整句話收成短標籤（待更新／需重開／版本未知）+ tooltip，完整說明留在 Local Agent 頁',
+      'fix(autospin): 三卡改成寬螢幕時給明確比例（agent 最窄、控制最寬），不再等寬。等寬的結果是左邊空一大片、右邊擠成一團——三張卡的內容量差很多。窄螢幕仍自動疊回去',
+    ],
+  },
   {
     version: '4.98.1',
     date: '2026-09-02',

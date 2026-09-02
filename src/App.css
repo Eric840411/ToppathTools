@@ -5068,3 +5068,22 @@
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* ── AutoSpin 執行監控：上半部三卡（2026-09-02）─────────────────────────
+   使用者：「agent 選擇器感覺可以再調整，不用這麼寬」。
+
+   ⚠️ 不能只用 `repeat(auto-fit, minmax(...))`——那會讓三欄**等寬**，
+      而這三張卡的內容量差很多：Agent 選擇只有機器名＋狀態，執行控制卻有
+      三顆按鈕＋滑桿＋說明。等寬的結果是左邊空一大片、右邊擠成一團。
+
+   寬度夠時給明確比例（agent 最窄、控制最寬）；不夠時退回 auto-fit 自動疊，
+   不寫死斷點以外的行為——寫死三欄在窄視窗會每欄都放不下（訊源欄那次的教訓）。 */
+.autospin-run-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(268px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+@media (min-width: 1180px) {
+  .autospin-run-cards { grid-template-columns: minmax(0, .82fr) minmax(0, 1fr) minmax(0, 1.18fr); }
+}

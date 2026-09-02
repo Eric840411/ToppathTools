@@ -1950,7 +1950,7 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
 
                    用 auto-fit 不寫死三欄：這區塊在窄視窗會自動疊回去，
                    不然三欄擠在一起每欄都放不下（跟訊源欄那次同一個教訓）。 */
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(268px, 1fr))', gap: 10, alignItems: 'start' }}>
+                <div className="autospin-run-cards">
                   <section style={{ background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 10, padding: '10px 13px', display: 'flex', flexDirection: 'column', gap: 9, minWidth: 0 }}>
                   <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--cr-violet)', letterSpacing: '.04em' }}>執行模式</div>
 
@@ -1958,7 +1958,9 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
                       <span style={{ fontSize: 11.5, fontWeight: 700, color: '#94a3b8' }}>① 選擇執行 Agent</span>
-                      <span style={{ marginLeft: 'auto', fontSize: 11, color: '#64748b' }}>線上、支援 autospin 的 agent</span>
+                      {/* 「線上、支援 autospin 的 agent」這句拿掉——它佔了一整排寬度，
+                          而清單裡本來就只會出現這種 agent，講一次跟不講沒差別。
+                          真的需要知道的時候，空清單那段提示文字已經說明了。 */}
                       <button className="cr-icon-btn" onClick={fetchHubAgents} title="重新整理" style={{ marginLeft: 10, color: 'var(--cr-cyan)', background: 'none', border: 'none', cursor: 'pointer' }}>
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M3 12a9 9 0 0 1 15.3-6.4M21 12a9 9 0 0 1-15.3 6.4" /><path d="M18 3v4h-4M6 21v-4h4" /></svg>
                       </button>
@@ -1980,16 +1982,26 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                                 {sel && <div style={{ position: 'absolute', inset: 3, borderRadius: '50%', background: 'var(--cr-cyan)' }} />}
                               </div>
                               <div style={{ flex: 1, minWidth: 0 }}>
-                                <span style={{ fontWeight: 700, fontSize: 13, color: '#e2e8f0' }}>{a.hostname}</span>
-                                <span style={{ fontSize: 10, color: '#64748b', marginLeft: 8 }}>{a.capabilities.join(' · ')}</span>
+                                {/* ⚠️ capability 清單原本整串列出來（machine-test · scripted-bet · uat-record
+                                    · uat-run · autospin · backend-uat），在這個欄寬會折成三行，
+                                    是這張卡最寬也最高的東西。而這份清單**本來就只列支援 autospin 的 agent**
+                                    ——把 capability 再列一次等於重複，對「要挑哪台」完全沒幫助。
+                                    移到 tooltip，需要時滑上去看。 */}
+                                <span style={{ fontWeight: 700, fontSize: 13, color: '#e2e8f0' }}
+                                  title={`capabilities：${a.capabilities.join('、')}`}>{a.hostname}</span>
                                 {/* 派工前先讓人看到這台落後。**顯示但不擋**——落後不一定影響這次要跑的功能，
                                     急著測時被擋住更煩（跟 CodeX 討論定案）。 */}
+                                {/* 收成短標籤 + tooltip：完整說明留在 Local Agent 頁，
+                                    這裡只要讓人看到「這台有狀況」就夠了 */}
                                 {a.updateStatus && a.updateStatus !== 'current' && (
-                                  <div style={{ fontSize: 10.5, marginTop: 2, color: a.updateStatus === 'needs_restart' ? 'var(--cr-amber)' : 'var(--cr-rose)' }}>
-                                    {a.updateStatus === 'needs_restart' ? '⚠ 這台需要重開 agent 才會吃到新程式'
-                                      : a.updateStatus === 'unknown' ? '⚠ 這台沒回報版本，可能是舊版'
-                                      : '⚠ 這台程式碼落後，部分功能可能吃不到（可照樣派工）'}
-                                  </div>
+                                  <span style={{ fontSize: 10, marginLeft: 8, padding: '0 5px', borderRadius: 4,
+                                    color: a.updateStatus === 'needs_restart' ? 'var(--cr-amber)' : 'var(--cr-rose)',
+                                    background: a.updateStatus === 'needs_restart' ? 'rgba(234,216,166,.12)' : 'rgba(223,118,94,.12)' }}
+                                    title={a.updateStatus === 'needs_restart' ? '檔案已是最新，但跑著的程式是更新前載入的——重開 agent 才生效。可照樣派工。'
+                                      : a.updateStatus === 'unknown' ? '這台沒回報版本，多半是舊版。建議到 Local Agent 頁更新並重開。可照樣派工。'
+                                      : '程式碼落後於伺服器，可能吃不到新功能。到 Local Agent 頁按「更新程式碼」。可照樣派工。'}>
+                                    {a.updateStatus === 'needs_restart' ? '需重開' : a.updateStatus === 'unknown' ? '版本未知' : '待更新'}
+                                  </span>
                                 )}
                               </div>
                               <span style={{ fontSize: 11, color: a.busy ? '#ead8a6' : 'var(--cr-cyan)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
