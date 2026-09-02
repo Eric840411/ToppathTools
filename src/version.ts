@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.95.2'
+export const APP_VERSION = '4.96.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.96.0',
+    date: '2026-09-02',
+    changes: [
+      'feat(autospin): 執行日誌畫面保留行數從 500 拉到 10,000（server 端 2000 也一起拉到 10,000，不然前端放寬也拿不到更多）',
+      'fix(autospin): 日誌分類改成「收到當下算一次」。原本存純字串、在 render 裡重新跑一次正規表示式分類，而每收到一行就 render 一次——整場是 O(N²)。這才是原本不敢把上限拉高的真正原因',
+      'fix(autospin): 「下載」按鈕拿的是畫面上那份被截斷的資料——原本上限 500，所以按下載其實只有最後 500 行，畫面卻沒說。現在行數旁邊標明上限，達到上限會顯示「（已達上限）」',
+      'note(autospin): 刻意不做「無限」——無限只是把記憶體爆掉的時間延後，而且會讓瀏覽器承擔不該承擔的儲存責任。真正完整的紀錄要靠 server 落檔，那是另一版（跟 CodeX 討論定案）',
+    ],
+  },
   {
     version: '4.95.2',
     date: '2026-09-02',

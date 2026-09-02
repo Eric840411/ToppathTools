@@ -50,6 +50,19 @@ interface CaptureFile {
 
 type LogCategory = 'sys' | 'spin' | 'shot' | 'warn' | 'err' | 'pinus' | 'other'
 
+/** 畫面保留的行數上限。真正完整的紀錄要靠 server 落檔（另一版做），
+ *  這裡刻意不做「無限」——無限只是把卡死延後，而且會讓瀏覽器承擔不該承擔的儲存責任
+ *  （跟 CodeX 討論定案）。 */
+const MAX_VISIBLE_LOGS = 10000
+
+/** 一行日誌 + 它的分類。分類在「收到當下」算一次，不要在 render 裡重算。 */
+type LogEntry = { text: string; cat: LogCategory; pinusCat: PinusCategory | null }
+
+function toLogEntry(text: string): LogEntry {
+  const cat = classifyLogLine(text)
+  return { text, cat, pinusCat: cat === 'pinus' ? classifyPinusRoute(text) : null }
+}
+
 function classifyLogLine(l: string): LogCategory {
   if (l.includes('[pinus:')) return 'pinus'
   if (l.includes('[console:error]')) return 'err'
@@ -591,8 +604,16 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
   const [agentRunning, setAgentRunning] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [agentSessionId, setAgentSessionId] = useState<string | null>(null)
-  const [logs, setLogs] = useState<string[]>([])
-  const [agentLogs, setAgentLogs] = useState<string[]>([])
+  /**
+   * ⚠️ 存的是**已分類**的物件，不是原始字串。
+   *
+   *    原本存字串，然後在 render 裡 `rawLogs.map(classifyLogLine)` ——
+   *    而每收到一行 SSE 就 render 一次，所以整場跑下來是 **O(N²)**。
+   *    500 行沒感覺，上限一拉高就會卡死（這也是原本不敢拉高的真正原因）。
+   *    改成進來時算一次，render 只做過濾。
+   */
+  const [logs, setLogs] = useState<LogEntry[]>([])
+  const [agentLogs, setAgentLogs] = useState<LogEntry[]>([])
   const [captures, setCaptures] = useState<CaptureFile[]>([])
   const [agentCaptures, setAgentCaptures] = useState<{ name: string; time: number }[]>([])
   const [startError, setStartError] = useState('')
@@ -743,8 +764,9 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
         return
       }
       const line = data.line ?? ''
-      if (isAgent) setAgentLogs(prev => [...prev.slice(-500), line])
-      else setLogs(prev => [...prev.slice(-500), line])
+      const entry = toLogEntry(line)
+      if (isAgent) setAgentLogs(prev => [...prev.slice(-(MAX_VISIBLE_LOGS - 1)), entry])
+      else setLogs(prev => [...prev.slice(-(MAX_VISIBLE_LOGS - 1)), entry])
     }
     es.onerror = () => {
       es.close()
@@ -827,7 +849,7 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
     if (hubStopping) return
     setHubStopping(true)
     setAgentPaused(false)
-    setAgentLogs(prev => [...prev, '[系統] 正在停止 Agent...'])
+    setAgentLogs(prev => [...prev, toLogEntry('[系統] 正在停止 Agent...')])
     try {
       await fetch('/api/autospin/hub-stop', {
         method: 'POST',
@@ -852,7 +874,7 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
         agentSessionIdRef.current = null
         setAgentSessionId(null)
         setHubStopping(false)
-        setAgentLogs(prev => [...prev, '[系統] Agent 已停止'])
+        setAgentLogs(prev => [...prev, toLogEntry('[系統] Agent 已停止')])
         setTimeout(() => { if (evtSourceRef.current) { evtSourceRef.current.close(); evtSourceRef.current = null } }, 3000)
         void fetchHubAgents()
       }
@@ -2157,10 +2179,8 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
               {/* Log panel: filter/search + pinus category chips + bounded scrollable body */}
               {(() => {
                 const rawLogs = runMode === 'server' ? logs : agentLogs
-                const categorized = rawLogs.map(l => {
-                  const cat = classifyLogLine(l)
-                  return { text: l, cat, pinusCat: cat === 'pinus' ? classifyPinusRoute(l) : null }
-                })
+                // 已經在收到當下分類好了，這裡不再重算（原本每次 render 都重跑一次正規表示式）
+                const categorized = rawLogs
                 const pinusCatCounts = new Map<PinusCategory, number>()
                 for (const c of categorized) {
                   if (c.pinusCat) pinusCatCounts.set(c.pinusCat, (pinusCatCounts.get(c.pinusCat) ?? 0) + 1)
@@ -2183,7 +2203,11 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                     {/* Header: title/count + search + auto-scroll + clear */}
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#162032', borderBottom: '1px solid #2d3f55', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 12, fontWeight: 700, color: '#e2e8f0' }}>執行日誌</span>
-                      <span style={{ fontSize: 11, color: '#64748b' }}>{visible.length} / {rawLogs.length} 行</span>
+                      <span style={{ fontSize: 11, color: '#64748b' }}
+                        title={`畫面最多保留最近 ${MAX_VISIBLE_LOGS.toLocaleString()} 行；超過的會被捨棄，下載到的也是這一份`}>
+                        {visible.length} / {rawLogs.length} 行
+                        {rawLogs.length >= MAX_VISIBLE_LOGS && <b style={{ color: 'var(--cr-amber)', marginLeft: 4 }}>（已達上限）</b>}
+                      </span>
                       <div style={{ flex: 1 }} />
                       <input value={logSearch} onChange={e => setLogSearch(e.target.value)} placeholder="搜尋日誌內容…"
                         style={{ padding: '3px 8px', fontSize: 11, border: '1px solid #2d3f55', borderRadius: 5, background: '#0f172a', color: '#e2e8f0', width: 130 }} />
@@ -2192,7 +2216,12 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                           background: autoScrollLog ? 'var(--cr-cyan-soft)' : '#0f172a', color: autoScrollLog ? 'var(--cr-cyan)' : '#94a3b8' }}>
                         自動捲到底
                       </button>
-                      <button className="cr-pill" onClick={() => downloadExecutionLog(rawLogs)}
+                      {/* ⚠️ 下載的是「畫面上這份」——也就是被上限截斷過的。
+                          原本上限是 500，所以按下載其實只拿到最後 500 行，
+                          但畫面沒說，多數人會以為是完整紀錄。上限拉到 10,000 之後
+                          好很多，但仍不是「完整」——真正完整要靠 server 落檔（另一版做）。
+                          在旁邊把行數寫出來，至少不會誤會。 */}
+                      <button className="cr-pill" onClick={() => downloadExecutionLog(rawLogs.map(e => e.text))}
                         style={{ fontSize: 11, padding: '3px 9px', borderRadius: 5, border: '1px solid #2d3f55', background: '#0f172a', color: '#94a3b8', cursor: 'pointer' }}>
                         下載
                       </button>

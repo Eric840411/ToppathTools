@@ -64,7 +64,11 @@ const sessions = new Map<string, SessionState>()
 // SSE subscribers: sessionId → list of res objects
 const sseClients = new Map<string, Set<import('express').Response>>()
 
-const MAX_LOGS = 2000  // cap per session to prevent unbounded memory growth
+// 前端畫面保留 10,000 行（MAX_VISIBLE_LOGS），server 這邊要跟上——
+// 不然前端就算放寬也拿不到更多，使用者會以為是前端沒生效。
+// ⚠️ 刻意不做「無限」：無限只是把記憶體爆掉的時間延後（跟 CodeX 討論定案）。
+//    真正完整的紀錄要靠 server 落檔，那是另一版的事。
+const MAX_LOGS = 10000  // cap per session to prevent unbounded memory growth
 
 function broadcastLog(sessionId: string, line: string) {
   const state = sessions.get(sessionId)
