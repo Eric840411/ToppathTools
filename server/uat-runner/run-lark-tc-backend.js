@@ -115,7 +115,23 @@ const TEST_PARAMS = (() => {
     const merged = { ...defaults, ...loaded };
     return { ...merged, credentials: mergeCreds({ ...defaults.credentials, ...(loaded.credentials || {}) }) };
   } catch (e) {
-    console.warn(`⚠️ config/backend-test-params.json 讀取失敗（${e.message}），改用環境變數／內建預設值`);
+    // ⚠️ **agent 派工時這個檔案不存在是「設計如此」，不是錯誤。**
+    //    config/backend-test-params.json 裡是真實帳密，刻意不列入 AGENT_SOURCE_WHITELIST，
+    //    帳密改走 backend_uat_start 的 credEnv 逐次帶（v4.22.0 的原則）。
+    //
+    //    但原本一律 console.warn，而 runner 的 stderr 在畫面上會被標成
+    //    `❌ [stderr]`——**每一次 agent 派工都會出現一行看起來像報錯的東西**。
+    //    使用者問過兩次「這是什麼報錯」（2026-09-01、2026-09-02）。
+    //    把預期內的狀況印成錯誤，代價是讓人習慣忽略錯誤訊息，那比不印還糟。
+    //
+    //    所以分兩種：帳密已經從環境變數拿到 → 一切正常，印在 stdout 說明來源；
+    //    連環境變數也沒有 → 這才是真的有問題，維持 stderr 警告。
+    const haveEnvCreds = Object.values(envCreds).some(pair => pair.username && pair.password);
+    if (haveEnvCreds) {
+      console.log('🔑 帳密來自派工時帶入的環境變數（agent 端刻意不存 config 檔，屬正常）');
+    } else {
+      console.warn(`⚠️ 讀不到 config/backend-test-params.json（${e.message}），而且環境變數也沒有帳密——登入很可能會失敗`);
+    }
     return { ...defaults, credentials: mergeCreds(defaults.credentials) };
   }
 })();

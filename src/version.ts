@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.93.0'
+export const APP_VERSION = '4.93.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.93.1',
+    date: '2026-09-02',
+    changes: [
+      'fix(uat): 每次 agent 派工都會出現一行看起來像報錯的「config/backend-test-params.json 讀取失敗」。那個檔案裡是真實帳密、刻意不送到 agent（帳密改走派工訊息帶），所以在 agent 上讀不到是設計如此——但它印在 stderr，畫面上會被標成 ❌',
+      'note(uat): 現在分兩種：帳密已從環境變數拿到就印在 stdout 說明來源；連環境變數也沒有才是真的有問題，維持 stderr 警告。把預期內的狀況印成錯誤，代價是讓人習慣忽略錯誤訊息，那比不印還糟',
+    ],
+  },
   {
     version: '4.93.0',
     date: '2026-09-02',
