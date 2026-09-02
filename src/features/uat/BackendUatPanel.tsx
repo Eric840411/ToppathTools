@@ -64,6 +64,8 @@ interface BackendUatAgent {
   ownerName: string
   busy: boolean
   lastSeenAt: number
+  /** 'current' | 'needs_update' | 'needs_restart' | 'unknown'——伺服器比對原始碼指紋算出來的 */
+  updateStatus?: string
 }
 
 export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
@@ -967,10 +969,25 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
                 {agents.map(agent => (
                   <option value={agent.agentId} key={agent.agentId}>
                     {agent.hostname}{agent.busy ? '（忙碌中）' : ''}
+                    {agent.updateStatus === 'needs_update' ? '　⚠ 程式碼落後'
+                      : agent.updateStatus === 'needs_restart' ? '　⚠ 需重開 agent'
+                      : agent.updateStatus === 'unknown' ? '　⚠ 版本未知' : ''}
                   </option>
                 ))}
                 <option value="server">伺服器端（fallback）</option>
               </select>
+              {/* 選到落後的 agent 時說清楚，但**不擋**——落後不一定影響這次要跑的東西。
+                  訊息刻意寫「可能吃不到」不是「會失敗」，避免使用者以為一定跑不動。 */}
+              {(() => {
+                const picked = agents.find(a => a.agentId === selectedAgentId)
+                if (!picked || !picked.updateStatus || picked.updateStatus === 'current') return null
+                const msg = picked.updateStatus === 'needs_restart'
+                  ? '這台 agent 的檔案已是最新，但跑著的程式是更新前載入的——重開 agent 才會生效。可以照樣派工，只是可能吃不到新功能。'
+                  : picked.updateStatus === 'unknown'
+                    ? '這台 agent 沒有回報版本（多半是舊版）。建議到 Local Agent 頁更新一次並重開。可以照樣派工。'
+                    : '這台 agent 的程式碼落後於伺服器，可能吃不到新功能。到 Local Agent 頁按「更新程式碼」即可。可以照樣派工。'
+                return <p className="uat-hint" style={{ color: 'var(--cr-amber)' }}>{msg}</p>
+              })()}
               {!agents.length && outdatedAgents > 0 && (
                 <span className="uat-backend-cred-msg is-error">
                   有 {outdatedAgents} 台 Agent 連線中，但版本太舊（沒有 backend-uat 能力）。

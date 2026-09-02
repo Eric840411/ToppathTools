@@ -51,6 +51,7 @@ import {
 import { getAuthAccount } from '../auth-session.js'
 import type { Request } from 'express'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
+import { agentUpdateStatus } from './machine-test.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
@@ -341,6 +342,9 @@ router.get('/api/osm-uat/agents', (_req, res) => {
       connectedAt: agent.connectedAt,
       lastSeenAt: agent.lastSeenAt,
       sessionId: agent.sessionId,
+      // 派工前先讓人知道這台是不是落後（顯示但不擋——落後不一定影響這次要跑的功能，
+      // 急著測的時候被擋住更煩；跟 CodeX 討論定案）
+      updateStatus: agentUpdateStatus(agent),
     }))
   res.json({ ok: true, agents, outdated })
 })

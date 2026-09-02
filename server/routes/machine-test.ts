@@ -1276,8 +1276,49 @@ function agentSourceContent(relPath: string): string | null {
   return content
 }
 
+/** 指紋算一次要讀 19 個檔案。派工清單會被輪詢、而且每個 agent 都要比一次，
+ *  所以記憶化幾秒。原始碼改動延遲幾秒才反映在畫面上無所謂。 */
+let fingerprintCache: { at: number; value: { all: string; restartScoped: string; perFile: Record<string, string> } } | null = null
+const FINGERPRINT_TTL_MS = 3000
+
 /** server 目前 serve 出去的整批指紋，以及其中「要重啟才生效」那批的指紋 */
 export function agentSourceFingerprints(): { all: string; restartScoped: string; perFile: Record<string, string> } {
+  if (fingerprintCache && Date.now() - fingerprintCache.at < FINGERPRINT_TTL_MS) return fingerprintCache.value
+  const value = computeAgentSourceFingerprints()
+  fingerprintCache = { at: Date.now(), value }
+  return value
+}
+
+/** 給其他派工端點（AutoSpin／UAT／機測／腳本化投注）共用的判斷。
+ *  分散在各支自己算會漂，跟這整件事想解決的問題是同一個。 */
+export function agentUpdateStatus(agent: { sourceHash?: string; bootRestartHash?: string }): AgentUpdateStatus {
+  const fp = agentSourceFingerprints()
+  return compareAgentSources({
+    expectedAll: fp.all,
+    expectedRestartScoped: fp.restartScoped,
+    agentAll: agent.sourceHash,
+    agentRestartScopedAtBoot: agent.bootRestartHash,
+  })
+}
+
+/**
+ * 目前這份原始碼對應的 app 版本。
+ *
+ * ⚠️ **不要用 package.json**——它停在 4.21.0，實際版本已經 4.9x。
+ *    真正會被維護的是 `src/version.ts` 的 APP_VERSION（每次改動都要求同步更新）。
+ *    server 端沒有現成的常數，所以直接讀那個檔案。
+ *
+ * 讀不到就回 null，畫面顯示「未知」——**不要編一個數字出來**，那比沒有更糟。
+ */
+export function readAppVersion(): string | null {
+  try {
+    const m = readFileSync(join(SERVER_ROOT, '..', 'src', 'version.ts'), 'utf-8')
+      .match(/APP_VERSION\s*=\s*'([^']+)'/)
+    return m ? m[1] : null
+  } catch { return null }
+}
+
+function computeAgentSourceFingerprints(): { all: string; restartScoped: string; perFile: Record<string, string> } {
   const all: Record<string, string> = {}
   const restart: Record<string, string> = {}
   const perFile: Record<string, string> = {}
@@ -1322,6 +1363,8 @@ router.get('/api/machine-test/agent/source-manifest', (_req, res) => {
     expectedAll: fp.all,
     expectedRestartScoped: fp.restartScoped,
     perFile: fp.perFile,
+    // agent 更新完會把這個記在本機，之後回報「我這份對應 v4.94.x」給人看
+    serverVersion: readAppVersion(),
   })
 })
 
@@ -1638,6 +1681,13 @@ router.get('/api/local-agent/status', (_req, res) => {
         agentAll: agent.sourceHash,
         agentRestartScopedAtBoot: agent.bootRestartHash,
       }) as AgentUpdateStatus,
+      // 給畫面顯示用：agent 手上那份的指紋、以及伺服器現在的指紋。
+      // 兩個都給，落後時人才看得出「差在哪」而不只是一句紅字。
+      sourceHash: agent.sourceHash ?? null,
+      expectedHash: fingerprints.all,
+      // 目前版本 / 目標版本（使用者要求看得到數字，不只是指紋）
+      sourceVersion: agent.sourceVersion ?? null,
+      serverVersion: readAppVersion(),
       busy: agent.busy,
       sessionId: agent.sessionId,
       connectedAt: agent.connectedAt,

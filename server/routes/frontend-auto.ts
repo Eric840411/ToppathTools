@@ -14,6 +14,7 @@ import WebSocket from 'ws'
 import { PNG } from 'pngjs'
 import { db } from '../shared.js'
 import { agentConnections, uatAgentSessions, uatRunSessions, getAvailableAgents } from '../agent-hub.js'
+import { agentUpdateStatus } from './machine-test.js'
 
 export const router = express.Router()
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 30 * 1024 * 1024 } })
@@ -809,7 +810,8 @@ function connectRecorder(sess: RecSession, port: number) {
 function getUatAgents() {
   return [...agentConnections.values()]
     .filter(a => a.capabilities.includes('uat-record'))
-    .map(a => ({ agentId: a.agentId, hostname: a.hostname, busy: a.busy }))
+    // updateStatus：派工前讓人看得出這台是不是落後（顯示不擋）
+    .map(a => ({ agentId: a.agentId, hostname: a.hostname, busy: a.busy, updateStatus: agentUpdateStatus(a) }))
 }
 
 router.get('/api/frontend-auto/record/available', (req, res) => {

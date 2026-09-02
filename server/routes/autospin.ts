@@ -16,7 +16,7 @@ import { fetchSlsErrors, fetchRecordBet, testSlsRecordBetConnection, type SlsBet
 import { randomUUID } from 'crypto'
 import { agentConnections, getAvailableAgents } from '../agent-hub.js'
 // 只讀取 Machine Test 現成維護的 OSMWatcher 狀態 map，不改動 machine-test.ts 本身
-import { osmMachineStatus } from './machine-test.js'
+import { osmMachineStatus, agentUpdateStatus } from './machine-test.js'
 import { resolveGeminiKeyEntries } from './gemini.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -1486,6 +1486,9 @@ router.get('/api/autospin/hub-agents', (_req, res) => {
       hostname: a.hostname,
       ownerName: a.ownerName,
       capabilities: a.capabilities,
+      // 派工前先讓人知道這台是不是落後（顯示但不擋——落後不一定影響這次要跑的功能，
+      // 急著測的時候被擋住更煩；跟 CodeX 討論定案）
+      updateStatus: agentUpdateStatus(a),
       busy: a.busy,
       connectedAt: a.connectedAt,
       lastSeenAt: a.lastSeenAt,

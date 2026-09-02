@@ -5,6 +5,7 @@ import { ScriptedBetRunner } from '../scripted-bet/runner.js'
 import { agentConnections, getAvailableAgents, type AgentInfo } from '../agent-hub.js'
 import type { ScriptedBetAccount, ScriptedBetAccountStatus, ScriptedBetConfig, ScriptedBetEvent, ScriptedBetMachineProfile } from '../scripted-bet/types.js'
 import { getOperatorFromContext, type OperatorInfo } from '../request-context.js'
+import { agentUpdateStatus } from './machine-test.js'
 
 function extractMachineType(machineCode: string): string {
   const parts = machineCode.split('-')
@@ -347,6 +348,9 @@ router.get('/api/scripted-bet/agents', (_req, res) => {
       hostname: agent.hostname,
       ownerName: agent.ownerName,
       capabilities: agent.capabilities,
+      // 派工前先讓人知道這台是不是落後（顯示但不擋——落後不一定影響這次要跑的功能，
+      // 急著測的時候被擋住更煩；跟 CodeX 討論定案）
+      updateStatus: agentUpdateStatus(agent),
       busy: agent.busy,
       connectedAt: agent.connectedAt,
       lastSeenAt: agent.lastSeenAt,

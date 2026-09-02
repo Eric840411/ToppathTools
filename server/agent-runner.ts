@@ -70,7 +70,7 @@ async function computeSourceHashes(): Promise<{ all: string; restartScoped: stri
     const baseUrl = CENTRAL_URL.replace(/^wss?/, (m) => m.includes('wss') ? 'https' : 'http')
     const resp = await fetch(`${baseUrl}/api/machine-test/agent/source-manifest`)
     if (!resp.ok) return null
-    const manifest = await resp.json() as { files?: string[] }
+    const manifest = await resp.json() as { files?: string[]; serverVersion?: string | null }
     const files = manifest.files ?? []
     if (!files.length) return null
     const all: Record<string, string> = {}
@@ -93,6 +93,18 @@ async function computeSourceHashes(): Promise<{ all: string; restartScoped: stri
 /** 啟動當下那批「要重啟才生效」的檔案指紋。之後就算檔案被換掉，這個值也不變
  *  ——那正是「檔案新了但跑的是舊的」的判斷依據。 */
 let bootRestartHash: string | undefined
+
+/** 記住「這份原始碼是更新到哪一版拿到的」，純粹給人看。
+ *  ⚠️ 這是**宣稱**不是事實——檔案被手動改過的話它會說謊，
+ *     所以判斷新舊一律以指紋為準，這個只負責讓畫面上有個數字可看。 */
+const SOURCE_VERSION_FILE = join(process.cwd(), 'server', '.source-version')
+function readSourceVersion(): string | undefined {
+  try { return readFileSync(SOURCE_VERSION_FILE, 'utf8').trim() || undefined } catch { return undefined }
+}
+function writeSourceVersion(v: string | null | undefined) {
+  if (!v) return
+  try { writeFileSync(SOURCE_VERSION_FILE, v, 'utf8') } catch { /* 寫不進去就算了，不影響功能 */ }
+}
 
 let currentRunner: { stop: () => void } | null = null
 /** 後台錄製用的瀏覽器。錄製只會有一個 session，多開沒有意義而且會佔滿螢幕 */
@@ -1162,6 +1174,7 @@ function connect() {
       version: AGENT_VERSION,
       sourceHash: bootHashes?.all,
       bootRestartHash,
+      sourceVersion: readSourceVersion(),
     }))
   })
 
@@ -1548,7 +1561,15 @@ function connect() {
       // ⚠️ bootRestartHash 刻意不更新——那個要重啟才會變，它正是「檔案新了但跑的是舊的」
       //    的判斷依據；在這裡跟著更新的話「需要重啟」就永遠不會被偵測到。
       const after = await computeSourceHashes()
-      ws.send(JSON.stringify({ type: 'sources_updated', ok: allOk, results, sourceHash: after?.all }))
+      // 更新成功才記版本——部分失敗時記下去會宣稱自己是新版，實際上不是
+      if (allOk) {
+        try {
+          const baseUrl2 = CENTRAL_URL.replace(/^wss?/, (m) => m.includes('wss') ? 'https' : 'http')
+          const mf = await fetch(`${baseUrl2}/api/machine-test/agent/source-manifest`).then(r => r.json()) as { serverVersion?: string | null }
+          writeSourceVersion(mf.serverVersion)
+        } catch { /* 拿不到版本不影響更新本身 */ }
+      }
+      ws.send(JSON.stringify({ type: 'sources_updated', ok: allOk, results, sourceHash: after?.all, sourceVersion: readSourceVersion() }))
       const needRestart = after && bootRestartHash !== undefined && after.restartScoped !== bootRestartHash
       console.log(`[Agent:${AGENT_LABEL}] Source update ${allOk ? 'succeeded' : 'failed (partial)'}.`
         + (needRestart ? ' ⚠️ 有需要重啟才生效的檔案被更新，請重開 agent。' : ' 這批檔案下次執行就會生效，不用重啟。'))

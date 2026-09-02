@@ -46,6 +46,9 @@ export interface AgentInfo {
   version?: string
   /** agent 手上白名單檔案「現在」的指紋。舊版 agent 不會回報，留 undefined 代表版本未知 */
   sourceHash?: string
+  /** agent 上次更新程式碼時，伺服器當下的版本。給人看的數字，判斷仍以指紋為準
+   *  ——這是「宣稱」，指紋才是「事實」（檔案被手動改過的話版本會說謊） */
+  sourceVersion?: string
   /** agent **啟動當下**「要重啟才生效」那批檔案的指紋。
    *  跟 sourceHash 分開存，才分得出「檔案落後」跟「檔案新了但跑的是舊的」 */
   bootRestartHash?: string

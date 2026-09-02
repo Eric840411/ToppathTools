@@ -582,7 +582,7 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
   // ── Run tab ─────────────────────────────────────────────────────────────────
   const [runMode, setRunMode] = useState<'server' | 'hub'>('hub')
   // agent-hub 派工（A2）
-  interface HubAgent { agentId: string; hostname: string; ownerName: string; capabilities: string[]; busy: boolean; sessionId: string | null }
+  interface HubAgent { agentId: string; hostname: string; ownerName: string; capabilities: string[]; busy: boolean; sessionId: string | null; updateStatus?: string }
   const [hubAgents, setHubAgents] = useState<HubAgent[]>([])
   const [selectedAgentId, setSelectedAgentId] = useState('')
   const [hubDispatching, setHubDispatching] = useState(false)
@@ -1939,6 +1939,15 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <span style={{ fontWeight: 700, fontSize: 13, color: '#e2e8f0' }}>{a.hostname}</span>
                                 <span style={{ fontSize: 10, color: '#64748b', marginLeft: 8 }}>{a.capabilities.join(' · ')}</span>
+                                {/* 派工前先讓人看到這台落後。**顯示但不擋**——落後不一定影響這次要跑的功能，
+                                    急著測時被擋住更煩（跟 CodeX 討論定案）。 */}
+                                {a.updateStatus && a.updateStatus !== 'current' && (
+                                  <div style={{ fontSize: 10.5, marginTop: 2, color: a.updateStatus === 'needs_restart' ? 'var(--cr-amber)' : 'var(--cr-rose)' }}>
+                                    {a.updateStatus === 'needs_restart' ? '⚠ 這台需要重開 agent 才會吃到新程式'
+                                      : a.updateStatus === 'unknown' ? '⚠ 這台沒回報版本，可能是舊版'
+                                      : '⚠ 這台程式碼落後，部分功能可能吃不到（可照樣派工）'}
+                                  </div>
+                                )}
                               </div>
                               <span style={{ fontSize: 11, color: a.busy ? '#ead8a6' : 'var(--cr-cyan)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                                 <span className={a.busy ? undefined : 'cr-status-dot'} style={{ width: 6, height: 6, borderRadius: '50%', background: a.busy ? '#ead8a6' : 'var(--cr-cyan)' }} />

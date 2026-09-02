@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.94.2'
+export const APP_VERSION = '4.95.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.95.0',
+    date: '2026-09-02',
+    changes: [
+      'feat(agent): Local Agent 卡片列出「目前版本 / 目標版本」與各自的原始碼指紋。原本畫面上那個版號是寫死的 2026-05-agent-owner-v1，看了等於沒看',
+      'note(agent): 版本號是 agent 上次更新時記下來的宣稱值，指紋才是事實——檔案被手動改過的話版本會說謊，所以狀態一律以指紋判定。沒更新過的 agent 顯示「未知」，不編一個數字出來',
+      'feat(agent): 派工選單也會標出落後的 agent——AutoSpin、UAT、腳本化投注、前端錄製四支端點都帶上狀態',
+      'note(agent): 派工時顯示但不擋，訊息寫「可能吃不到新功能」不是「會失敗」——落後不一定影響這次要跑的東西，急著測時被擋住更煩（跟 CodeX 討論定案）',
+      'fix(agent): 伺服器版本從 src/version.ts 讀，不用 package.json——後者停在 4.21.0，實際已經 4.9x',
+    ],
+  },
   {
     version: '4.94.2',
     date: '2026-09-02',

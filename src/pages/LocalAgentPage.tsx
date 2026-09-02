@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { AccountInfo } from '../components/JiraAccountModal'
 import { XianxiaIcon } from '../components/XianxiaIcon'
+import { APP_VERSION } from '../version'
 
 interface LocalAgent {
   agentId: string
@@ -12,6 +13,14 @@ interface LocalAgent {
   /** 'current' | 'needs_update' | 'needs_restart' | 'unknown'。
    *  由 server 比對原始碼指紋算出來，不是手動維護的版號 */
   updateStatus?: string
+  /** agent 手上那份原始碼的指紋（版本的真實依據） */
+  sourceHash?: string | null
+  /** 伺服器現在這份的指紋 */
+  expectedHash?: string
+  /** agent 上次更新到的版本（宣稱值，判斷仍以指紋為準） */
+  sourceVersion?: string | null
+  /** 伺服器現在的版本（目標版本） */
+  serverVersion?: string | null
   busy: boolean
   sessionId?: string | null
   connectedAt: number
@@ -394,7 +403,14 @@ export function LocalAgentPage({ currentAccount }: Props) {
                 </div>
                 <div className="local-agent-caps">
                   {agent.capabilities.map(cap => <span className="local-agent-cap" key={cap}>{cap}</span>)}
-                  {agent.version && <span className="local-agent-cap">{agent.version}</span>}
+                  {/* ⚠️ 原本這裡顯示 `agent.version`，也就是寫死的 `2026-05-agent-owner-v1`
+                      ——從 5 月起沒動過，看了等於沒看（使用者 2026-09-02 問「版號怎麼看」
+                      看到的就是它）。改成顯示**原始碼指紋**，那才是版本的真實依據。 */}
+                  <span className="local-agent-cap"
+                    title={`目前版本：${agent.sourceVersion ?? '未知'}（指紋 ${agent.sourceHash ?? '未回報'}）
+目標版本：${agent.serverVersion ?? '未知'}（指紋 ${agent.expectedHash ?? '—'}）`}>
+                    {agent.sourceVersion ? `v${agent.sourceVersion}` : '版本未知'}
+                  </span>
                 </div>
                 {/* ⚠️ 「需要更新」跟「需要重啟」刻意分成兩種——**下一步不一樣**：
                     前者按下面的「更新程式碼」，後者要重開 agent。
@@ -402,14 +418,30 @@ export function LocalAgentPage({ currentAccount }: Props) {
 
                     判斷依據是原始碼指紋不是版本字串——`agent.version` 那個從 2026-05
                     起就沒動過，手動版號一定會漂。 */}
+                {/* 最新時也要說一聲。只有壞掉才有訊息的話，使用者無從確認「我到底是不是最新」
+                    ——那正是他問「版號怎麼看」的原因。 */}
+                {/* 使用者明確要求「列出當前版本號，還有目標版本號」。
+                    ⚠️ 版本號是 agent 上次更新時記下來的**宣稱值**，指紋才是事實
+                       ——檔案被手動改過的話版本會說謊，所以狀態一律以指紋判定。 */}
+                <div style={{ marginTop: 6, display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 11.5, color: '#94a3b8' }}>
+                  <span>目前版本：<b style={{ color: '#e2e8f0' }}>{agent.sourceVersion ? `v${agent.sourceVersion}` : '未知'}</b>
+                    {agent.sourceHash && <span style={{ color: '#64748b' }}> · {agent.sourceHash.slice(0, 8)}</span>}</span>
+                  <span>目標版本：<b style={{ color: '#e2e8f0' }}>{agent.serverVersion ? `v${agent.serverVersion}` : `v${APP_VERSION}`}</b>
+                    {agent.expectedHash && <span style={{ color: '#64748b' }}> · {agent.expectedHash.slice(0, 8)}</span>}</span>
+                </div>
+                {agent.updateStatus === 'current' && (
+                  <div style={{ marginTop: 6, fontSize: 11.5, color: 'var(--cr-emerald)' }}>
+                    ✓ 已是最新
+                  </div>
+                )}
                 {agent.updateStatus && agent.updateStatus !== 'current' && (() => {
                   const tone = {
                     needs_update:  { fg: 'var(--cr-rose)',  bg: 'rgba(223,118,94,.12)',  bd: 'rgba(223,118,94,.35)',
                                      title: '需要更新程式碼',
-                                     hint: '這台 agent 手上的檔案跟伺服器不一致，有些功能會吃不到。按下方「更新程式碼」。' },
+                                     hint: `這台 agent 手上的檔案跟伺服器（v${APP_VERSION}）不一致，有些功能會吃不到。按下方「更新程式碼」。` },
                     needs_restart: { fg: 'var(--cr-amber)', bg: 'rgba(234,216,166,.10)', bd: 'rgba(234,216,166,.32)',
                                      title: '需要重啟 agent',
-                                     hint: '檔案已經是最新的，但目前跑著的程式是更新前載入的——要重開 agent 才會生效。' },
+                                     hint: `檔案已經跟伺服器（v${APP_VERSION}）一致了，但目前跑著的程式是更新前載入的——要重開 agent 才會生效。` },
                     unknown:       { fg: '#94a3b8',         bg: 'rgba(148,163,184,.10)', bd: '#2d3f55',
                                      title: '版本未知',
                                      hint: '這台 agent 沒有回報版本資訊（多半是舊版）。建議更新一次程式碼並重開。' },
