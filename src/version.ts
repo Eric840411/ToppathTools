@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.98.4'
+export const APP_VERSION = '4.98.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.98.5',
+    date: '2026-09-02',
+    changes: [
+      'fix(autospin): 切到「伺服器端（fallback）」不再把整個左半邊換成另一套版面。三張卡兩種模式都渲染，用不到的（Agent 選擇、LuckyLink JP 比對、截圖監控）改成反灰保留，切模式不用重新找東西在哪',
+      'note(autospin): 這是同一個問題被回報的第二次——v4.98.4 只修好「切換鈕消失」，版面本身仍然整個換掉。使用者原話：「其他功能的介面不能保留嗎? 可以做成反灰的，而不是變成這樣呈現」',
+      'test(autospin): 新增 scripts/ui-checks/autospin-mode-switch.mjs（14 項），實際切一次模式再切回來，驗卡片數／標題／切換鈕／反灰狀態。兩次回報都是 build 乾淨、型別乾淨，只有真的切一次才看得見',
+    ],
+  },
   {
     version: '4.98.4',
     date: '2026-09-02',

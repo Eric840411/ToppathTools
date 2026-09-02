@@ -5087,3 +5087,13 @@
 @media (min-width: 1180px) {
   .autospin-run-cards { grid-template-columns: minmax(0, .82fr) minmax(0, 1fr) minmax(0, 1.18fr); }
 }
+
+/* 切到伺服器端時，用不到的面板**反灰保留**，不是拿掉。
+   使用者原話：「其他功能的介面不能保留嗎? 可以做成反灰的，而不是變成這樣呈現」
+   ——切模式不該讓人重新找東西在哪。 */
+.autospin-pane-off {
+  opacity: .42;
+  filter: grayscale(.65);
+  pointer-events: none;
+  user-select: none;
+}

@@ -1932,38 +1932,11 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
             {/* Left: controls + log */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0, minHeight: 0, overflow: 'hidden' }}>
 
-              {/* ⚠️ 這顆一定要在**兩種模式都掛得到**。
-                  v4.98.3 我把它移進「執行模式」那張卡裡（照 CodeX 的設計），
-                  但那張卡只在 hub 分支渲染——結果切到伺服器端之後切換鈕整個消失，
-                  **回不去了**（使用者 2026-09-02 回報）。
-                  抽成一份、兩個分支各掛一次；不是複製兩份實作。 */}
-              {runMode === 'server' && (
-                <div style={{ maxWidth: 340 }}>{modeToggle}</div>
-              )}
+              {/* v4.98.4 曾在這裡多掛一顆切換鈕，是為了補「切到 server 之後回不去」。
+                  現在三張卡兩種模式都渲染了，卡一裡那顆就永遠在，這裡不用再掛第二顆。 */}
 
-              {runMode === 'server' ? (
-                /* ── Server mode controls ── */
-                <>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button className="cr-btn cr-btn--jade" onClick={handleStart} disabled={running}
-                      style={{ padding: '8px 20px', background: running ? '#4b5563' : 'var(--xx-jade-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: running ? 'default' : 'pointer' }}>
-                      啟動 AutoSpin
-                    </button>
-                    <button className="cr-btn cr-btn--cinnabar" onClick={handleStop} disabled={!running}
-                      style={{ padding: '8px 20px', background: !running ? '#4b5563' : 'var(--xx-cinnabar-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: !running ? 'default' : 'pointer' }}>
-                      停止
-                    </button>
-                    <span style={{ fontSize: 12, padding: '4px 10px', borderRadius: 12, background: running ? 'var(--cr-cyan-soft)' : '#1e293b', color: running ? 'var(--cr-cyan)' : '#6b7280', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      <span className={running ? 'cr-status-dot' : undefined} style={{ width: 6, height: 6, borderRadius: '50%', background: running ? 'var(--cr-cyan)' : '#6b7280', flexShrink: 0 }} />
-                      {running ? '執行中' : '未執行'}
-                    </span>
-                    {startError && <span style={{ color: 'var(--cr-rose)', fontSize: 12, borderLeft: '2px solid var(--cr-rose)', paddingLeft: 6 }}>{startError}</span>}
-                  </div>
-                  <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                    執行中的機台：{configs.filter(c => c.enabled).length} 台（已啟用）
-                  </div>
-                </>
-              ) : (
+              {(
+
                 /* ── Remote agent (agent-hub) mode controls ──
                    跟 mockup 討論的方向一致：原本 4 個各自獨立、有自己 border/background 的區塊
                    （Agent 選擇/LuckyLink/按鈕列/Spin 間隔）合併成一個緊湊的控制區塊，內部用細分隔線
@@ -1979,9 +1952,16 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                   <section style={{ background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 10, padding: '10px 13px', display: 'flex', flexDirection: 'column', gap: 9, minWidth: 0 }}>
                   <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--cr-violet)', letterSpacing: '.04em' }}>執行模式</div>
                   {modeToggle}
+                  {runMode === 'server' && (
+                    <div style={{ fontSize: 11, color: '#94a3b8', background: '#162032', border: '1px solid #2d3f55', borderRadius: 7, padding: '6px 9px', lineHeight: 1.5 }}>
+                      伺服器端模式直接在後端主機執行，不需要挑 Agent。下方選項維持顯示但停用，切回「遠端 Agent」即可恢復。
+                    </div>
+                  )}
 
-                  {/* ① Agent picker */}
-                  <div>
+                  {/* ① Agent picker
+                      ⚠️ server 模式不是把它拿掉，是**反灰**（使用者明確要求）。
+                         拿掉會讓整個左半邊換一套版面，切模式等於重新找東西在哪。 */}
+                  <div className={runMode === 'server' ? 'autospin-pane-off' : undefined}>
                     <div style={{ display: 'flex', alignItems: 'center', marginBottom: 6 }}>
                       <span style={{ fontSize: 11.5, fontWeight: 700, color: '#94a3b8' }}>① 選擇執行 Agent</span>
                       {/* 「線上、支援 autospin 的 agent」這句拿掉——它佔了一整排寬度，
@@ -2044,7 +2024,12 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                   </section>
 
                   <section style={{ background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 10, padding: '10px 13px', display: 'flex', flexDirection: 'column', gap: 9, minWidth: 0 }}>
-                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--cr-violet)', letterSpacing: '.04em' }}>LuckyLink JP 比對 / 截圖</div>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--cr-violet)', letterSpacing: '.04em' }}>
+                    LuckyLink JP 比對 / 截圖
+                    {runMode === 'server' && <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 400, color: '#64748b' }}>（僅遠端 Agent 模式）</span>}
+                  </div>
+                  <div className={runMode === 'server' ? 'autospin-pane-off' : undefined}
+                       style={runMode === 'server' ? { display: 'flex', flexDirection: 'column', gap: 9 } : { display: 'contents' }}>
 
                   {/* ② LuckyLink JP Compare options */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -2088,10 +2073,38 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                     <span style={{ fontSize: 11, color: '#64748b', paddingLeft: 23 }}>關閉後不會再定期截圖上傳；下次啟動 AutoSpin session 才會生效，執行中切換不會立即改變</span>
                   </div>
 
+                  </div>
                   </section>
 
                   <section style={{ background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 10, padding: '10px 13px', display: 'flex', flexDirection: 'column', gap: 9, minWidth: 0 }}>
                   <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--cr-violet)', letterSpacing: '.04em' }}>執行控制</div>
+                  {/* ⚠️ 伺服器端模式**沿用同一張卡**，只換裡面的按鈕。
+                      原本切模式會把整個左半邊換成另一組完全不同的版面——
+                      使用者原話：「照理來說版面功能不影響」「可以做成反灰的，
+                      而不是變成這樣呈現」。切換模式不該讓人重新找東西在哪。 */}
+                  {runMode === 'server' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <button className="cr-btn cr-btn--jade" onClick={handleStart} disabled={running}
+                      style={{ padding: '8px 20px', background: running ? '#4b5563' : 'var(--xx-jade-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: running ? 'default' : 'pointer' }}>
+                      啟動 AutoSpin
+                    </button>
+                    <button className="cr-btn cr-btn--cinnabar" onClick={handleStop} disabled={!running}
+                      style={{ padding: '8px 20px', background: !running ? '#4b5563' : 'var(--xx-cinnabar-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 14, cursor: !running ? 'default' : 'pointer' }}>
+                      停止
+                    </button>
+                    <span style={{ fontSize: 12, padding: '4px 10px', borderRadius: 12, background: running ? 'var(--cr-cyan-soft)' : '#1e293b', color: running ? 'var(--cr-cyan)' : '#6b7280', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <span className={running ? 'cr-status-dot' : undefined} style={{ width: 6, height: 6, borderRadius: '50%', background: running ? 'var(--cr-cyan)' : '#6b7280', flexShrink: 0 }} />
+                      {running ? '執行中' : '未執行'}
+                    </span>
+                    {startError && <span style={{ color: 'var(--cr-rose)', fontSize: 12, borderLeft: '2px solid var(--cr-rose)', paddingLeft: 6 }}>{startError}</span>}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                    執行中的機台：{configs.filter(c => c.enabled).length} 台（已啟用）
+                  </div>
+                    </div>
+                  )}
+                  {runMode === 'server' ? null : <>
 
                   {/* ④ Status + controls row */}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -2144,6 +2157,7 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                     </button>
                     <span style={{ fontSize: 11, color: '#64748b' }}>覆蓋所有機台間隔，Agent 3秒內生效</span>
                   </div>
+                  </>}
                   </section>
                 </div>
               )}
