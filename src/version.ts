@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.98.0'
+export const APP_VERSION = '4.98.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.98.1',
+    date: '2026-09-02',
+    changes: [
+      'feat(autospin): 執行監控上半部改成三卡並排（執行模式／LuckyLink JP 比對・截圖／執行控制），原本是四段由上往下堆。上半部變矮之後日誌高度再從 420px 變 516px——這跟「日誌能見度小」是同一個問題的另一半',
+      'note(autospin): 用 auto-fit 不寫死三欄，窄視窗會自動疊回去。寫死的話每欄都放不下（跟訊源欄那次同一個教訓）',
+    ],
+  },
   {
     version: '4.98.0',
     date: '2026-09-02',

@@ -1943,7 +1943,16 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                    跟 mockup 討論的方向一致：原本 4 個各自獨立、有自己 border/background 的區塊
                    （Agent 選擇/LuckyLink/按鈕列/Spin 間隔）合併成一個緊湊的控制區塊，內部用細分隔線
                    取代各自的外框，減少堆疊起來的高度。*/
-                <div style={{ background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 10, padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 9 }}>
+                /* ── 三卡並排（2026-09-02，照 CodeX 的設計）───────────────────
+                   原本是單欄堆疊：Agent 選擇／LuckyLink／截圖／控制列由上往下排，
+                   四段加起來把日誌往下擠。改成並排之後上半部矮很多，日誌拿得到更多高度
+                   ——這跟「日誌能見度小」是同一個問題的另一半。
+
+                   用 auto-fit 不寫死三欄：這區塊在窄視窗會自動疊回去，
+                   不然三欄擠在一起每欄都放不下（跟訊源欄那次同一個教訓）。 */
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(268px, 1fr))', gap: 10, alignItems: 'start' }}>
+                  <section style={{ background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 10, padding: '10px 13px', display: 'flex', flexDirection: 'column', gap: 9, minWidth: 0 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--cr-violet)', letterSpacing: '.04em' }}>執行模式</div>
 
                   {/* ① Agent picker */}
                   <div>
@@ -1994,7 +2003,10 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                     )}
                   </div>
 
-                  <div style={{ borderTop: '1px solid #1e293b' }} />
+                  </section>
+
+                  <section style={{ background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 10, padding: '10px 13px', display: 'flex', flexDirection: 'column', gap: 9, minWidth: 0 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--cr-violet)', letterSpacing: '.04em' }}>LuckyLink JP 比對 / 截圖</div>
 
                   {/* ② LuckyLink JP Compare options */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -2038,7 +2050,10 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                     <span style={{ fontSize: 11, color: '#64748b', paddingLeft: 23 }}>關閉後不會再定期截圖上傳；下次啟動 AutoSpin session 才會生效，執行中切換不會立即改變</span>
                   </div>
 
-                  <div style={{ borderTop: '1px solid #1e293b' }} />
+                  </section>
+
+                  <section style={{ background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 10, padding: '10px 13px', display: 'flex', flexDirection: 'column', gap: 9, minWidth: 0 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--cr-violet)', letterSpacing: '.04em' }}>執行控制</div>
 
                   {/* ④ Status + controls row */}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -2091,6 +2106,7 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                     </button>
                     <span style={{ fontSize: 11, color: '#64748b' }}>覆蓋所有機台間隔，Agent 3秒內生效</span>
                   </div>
+                  </section>
                 </div>
               )}
 
