@@ -1686,7 +1686,19 @@ router.get('/api/local-agent/status', (_req, res) => {
       sourceHash: agent.sourceHash ?? null,
       expectedHash: fingerprints.all,
       // 目前版本 / 目標版本（使用者要求看得到數字，不只是指紋）
-      sourceVersion: agent.sourceVersion ?? null,
+      //
+      // ⚠️ **指紋一樣就代表版本一樣，直接推出來。**
+      //    第一版只讀 agent 自己記在本機的值，結果畫面變成
+      //    「目前版本：未知 · 55d9b11a　目標版本：v4.95.0 · 55d9b11a　✓ 已是最新」
+      //    ——兩邊指紋一模一樣、狀態說最新，版本卻寫未知，自相矛盾
+      //    （使用者 2026-09-02 直接指出來）。
+      //
+      //    而且那個本機檔案有雞生蛋問題：agent 要先拿到新的 agent-runner.ts、
+      //    再重啟、再更新一次才寫得下去，等於永遠慢一輪。
+      //    指紋相符時直接用伺服器版本，這兩個問題一起消失。
+      sourceVersion: (agent.sourceHash && agent.sourceHash === fingerprints.all)
+        ? readAppVersion()
+        : (agent.sourceVersion ?? null),
       serverVersion: readAppVersion(),
       busy: agent.busy,
       sessionId: agent.sessionId,

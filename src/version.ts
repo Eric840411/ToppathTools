@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.95.0'
+export const APP_VERSION = '4.95.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.95.1',
+    date: '2026-09-02',
+    changes: [
+      'fix(agent): 「目前版本」顯示未知但指紋跟伺服器一模一樣、狀態又寫「已是最新」——自相矛盾。指紋相同就代表版本相同，直接推出來，不必等 agent 自己記',
+      'note(agent): 原本那套「agent 把版本記在本機」有雞生蛋問題：要先拿到新的 agent-runner.ts、再重啟、再更新一次才寫得下去，等於永遠慢一輪。保留成落後時的補充資訊（那時才需要知道它停在哪一版）',
+    ],
+  },
   {
     version: '4.95.0',
     date: '2026-09-02',
