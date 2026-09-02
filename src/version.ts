@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.94.0'
+export const APP_VERSION = '4.94.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.94.1',
+    date: '2026-09-02',
+    changes: [
+      'fix(agent): agent-source-hash.ts 自己也被 agent-runner.ts 靜態 import，卻沒列進「需要重啟」清單——演算法改了不重啟，agent 會繼續用舊算法卻被判成不用重啟',
+      'feat(agent): 需重啟清單改成從程式碼推導出來對答案，不再只是一份手寫的 Set。手寫清單跟手動版號是同一個病：有人加了 import 它不會自己跟上，而且不會報錯，只會靜靜把「該重啟」判成「不用重啟」（CodeX review 提醒）',
+    ],
+  },
   {
     version: '4.94.0',
     date: '2026-09-02',

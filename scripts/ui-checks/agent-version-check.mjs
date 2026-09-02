@@ -63,5 +63,67 @@ for (const f of ['agent-runner.ts', 'machine-test/runner.ts', 'uat-runner/net-ca
 for (const f of ['uat-runner/run-lark-tc-backend.js', 'python/toppath-agent.py', 'uat-runner/block-engine.js'])
   check(`${f} 不需重啟`, !RESTART_REQUIRED_SOURCES.has(f));
 
+console.log('\n6) 需重啟清單不能手寫了就放著——從程式碼推導出來對答案');
+// ⚠️ RESTART_REQUIRED_SOURCES 是手寫的 Set，跟「手動版號會漂」是同一個病：
+//    有人加了新的 import，這份清單不會自己跟上，而且**不會有任何錯誤**
+//    ——只會靜靜地把「該重啟」判成「不用重啟」，使用者按了更新以為好了，
+//    實際跑的還是舊的（CodeX review 提醒：要逼它明確歸類，不要默默漏掉）。
+{
+  const fs = await import('node:fs');
+  const readRel = (rel) => {
+    for (const cand of [rel, rel.replace(/\.js$/, '.ts')]) {
+      const abs = path.join(root, 'server', cand);
+      if (!fs.existsSync(abs)) continue;
+      let src = fs.readFileSync(abs, 'utf8');
+      // ⚠️ 要讀「agent 實際拿到的那份」，不是 repo 裡的原始檔。
+      //    serveAgentSource() 會把 runner.ts 的 gemini import 改寫成 ./gemini-agent.js，
+      //    照原始檔走的話會漏掉 gemini-agent.ts，然後這支守門會反過來說「你多列了」。
+      //    （第一次跑就是這樣誤報的。）
+      if (cand === 'machine-test/runner.ts') {
+        src = src.replace(
+          /import \{[^}]+\} from '\.\.\/routes\/gemini\.js'/,
+          "import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'",
+        );
+      }
+      return src;
+    }
+    return null;
+  };
+  // 只認靜態 import。之後若有人改成 dynamic import，這支會抓到「被 import 卻沒列」
+  // 或反過來的落差而變紅，逼人明確決定要不要算進需重啟。
+  const staticImports = (src) =>
+    [...src.matchAll(/^\s*import\s[^;]*?from\s+['"](\.[^'"]+)['"]/gm)].map(m => m[1]);
+  const seen = new Set();
+  const walk = (rel) => {
+    if (seen.has(rel)) return;
+    seen.add(rel);
+    const src = readRel(rel);
+    if (!src) return;
+    const dir = path.posix.dirname(rel);
+    for (const spec of staticImports(src)) walk(path.posix.normalize(path.posix.join(dir, spec)));
+  };
+  walk('agent-runner.ts');
+
+  // 只比對白名單內的——非白名單的檔案 agent 根本不會拿到
+  const mt = fs.readFileSync(path.join(root, 'server/routes/machine-test.ts'), 'utf8');
+  const block = mt.slice(mt.indexOf('AGENT_SOURCE_WHITELIST'));
+  const whitelist = new Set(
+    [...block.slice(0, block.indexOf('\n}')).matchAll(/'([^']+\.(?:ts|js|json|ps1|py))'\s*:/g)].map(m => m[1]),
+  );
+
+  // ⚠️ 副檔名要對齊才比得起來：TS 的 ESM import 寫的是 `./machine-test/runner.js`，
+  //    但磁碟上與白名單裡都是 `.ts`。不處理的話推導結果會少一半，
+  //    然後這支守門就會反過來說「你多列了」——量測工具自己先錯。
+  const toWhitelistKey = (f) => whitelist.has(f) ? f
+    : whitelist.has(f.replace(/\.js$/, '.ts')) ? f.replace(/\.js$/, '.ts')
+    : null;
+  const derived = new Set([...seen].map(toWhitelistKey).filter(Boolean));
+  const missing = [...derived].filter(f => !RESTART_REQUIRED_SOURCES.has(f));
+  const extra = [...RESTART_REQUIRED_SOURCES].filter(f => !derived.has(f));
+  check('被靜態 import 卻沒列進需重啟的：無', missing.length === 0, missing.join(', '));
+  check('列了卻其實沒被 import 的：無', extra.length === 0, extra.join(', '));
+  console.log(`     （從 agent-runner.ts 推導出 ${derived.size} 個白名單內的相依）`);
+}
+
 console.log(`\n${fail === 0 ? '全部通過' : fail + ' 項未過'}（pass ${pass} / fail ${fail}）`);
 process.exit(fail ? 1 : 0);
