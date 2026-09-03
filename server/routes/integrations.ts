@@ -2818,6 +2818,47 @@ router.post('/api/url-pool/:account/release', (req, res) => {
 })
 
 // GET /api/url-pool/overrides — returns DB-saved URL overrides as { [account]: url }
+/**
+ * GET /api/url-pool/assigned
+ *
+ * 哪些帳號被我們自己的工具「綁在設定裡」。
+ *
+ * ⚠️ **中轉認領是自願制，實際上幾乎沒人走。**實測（2026-09-04）：`autospin_configs`
+ *    裡已設定的 8 台 Game URL，**5 台在用帳號池的帳號、0 台走中轉**，
+ *    而畫面顯示「使用中 0」——有人正在用 osmel103，但別人完全看不到。
+ *
+ * 好消息是這個資訊本來就在手上：那些 Game URL 裡就寫著 `username=osmel103`。
+ * AutoSpin／機台測試都是我們自己的工具、設定都在自己的 DB，
+ * 所以「誰綁了哪個帳號」**不需要任何人配合**，直接從設定反推。
+ *
+ * ⚠️ 這跟「使用中」**不是同一件事**，畫面上要分開（跟 CodeX 討論定案）：
+ *    「有人按了中轉」是主動宣告正在用；「設定裡填著」可能只是留著沒在跑。
+ *    但仍然要標示——別人把它搶走，那台機台下次啟動就會撞帳號。
+ *
+ * ⚠️ 回傳的 key 是 **username** 不是帳號。伺服器端沒有帳號池的名單
+ *    （那是前端的 `urlPoolData.ts`），讓前端自己對應，避免為了這支端點
+ *    把整份名單再複製一份到後端。
+ */
+router.get('/api/url-pool/assigned', (_req, res) => {
+  try {
+    const rows = db.prepare(`SELECT userLabel, machineType, gameUrl FROM autospin_configs WHERE gameUrl <> ''`)
+      .all() as { userLabel: string; machineType: string; gameUrl: string }[]
+    const out: Record<string, { by: string; machineType: string }> = {}
+    for (const r of rows) {
+      const u = /[?&]username=([^&]+)/.exec(r.gameUrl)?.[1]
+      if (!u) continue
+      // 同一個帳號被多台綁住時保留第一筆就好——重點是「有人綁著」，不是列出全部
+      if (!out[u]) out[u] = { by: r.userLabel || '(未指定帳號)', machineType: r.machineType }
+    }
+    res.json({ ok: true, assigned: out })
+  } catch (e) {
+    console.error('[url-pool] 讀取已設定帳號失敗：', e)
+    // ⚠️ 失敗要讓前端知道，不要回空物件——空的會被畫成「沒有任何人綁著」，
+    //    那正是這支端點要修的那種誤導
+    res.status(500).json({ ok: false, message: '讀取已設定帳號失敗' })
+  }
+})
+
 router.get('/api/url-pool/overrides', (_req, res) => {
   const rows = db.prepare('SELECT account, url FROM url_pool_overrides').all() as { account: string; url: string }[]
   const map: Record<string, string> = {}

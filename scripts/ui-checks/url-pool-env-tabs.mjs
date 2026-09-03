@@ -97,6 +97,36 @@ check('帳號回到 9111 開頭', back.第一筆帳號.startsWith('9111'), back.
 check('總計回到 191', back.總計 === '191');
 check('QAT 沒有「無 URL」的列', back.無URL標記 === 0, `${back.無URL標記} 列`);
 
+console.log('\n5) 「已設定」要跟「使用中」分開');
+// ⚠️ 中轉認領是自願制，實測 8 台已設定的 Game URL 有 5 台在用帳號池的帳號、0 台走中轉，
+//    而畫面顯示「使用中 0」。這一組驗的就是那 5 台現在看不看得見。
+{
+  const st = await page.evaluate(() => {
+    const t = document.body.innerText;
+    const num = (label) => { const m = new RegExp(label + '\\s*(\\d+)').exec(t); return m ? Number(m[1]) : null };
+    const rows = [...document.querySelectorAll('tbody tr')];
+    const withAssigned = rows.filter(r => (r.textContent || '').includes('已設定'));
+    return {
+      已設定: num('已設定'), 使用中: num('使用中'), 可用: num('可用'), 總計: num('總計'),
+      有已設定標記的列: withAssigned.length,
+      // ⚠️ 不能用 querySelector('[title]') 抓第一個——那一列的 URL 欄也有 title，
+      //    會抓到網址而不是狀態標籤（第一版就是這樣誤報的）
+      第一個已設定的標題: [...(withAssigned[0]?.querySelectorAll('[title]') ?? [])]
+        .find(el => (el.textContent || '').includes('已設定'))?.getAttribute('title') ?? '',
+      讀取失敗橫幅: t.includes('讀不到「已設定」狀態'),
+    };
+  });
+  check('沒有出現讀取失敗橫幅', !st.讀取失敗橫幅);
+  check('「已設定」是獨立統計，沒有併進使用中', st.已設定 !== null && st.使用中 !== null);
+  check('QAT 有帳號被設定綁著（實測 5 台）', (st.已設定 ?? 0) > 0, `已設定 ${st.已設定}`);
+  check('列上看得到「已設定」標記', st.有已設定標記的列 > 0, `${st.有已設定標記的列} 列`);
+  check('標記會講是誰的哪一台', /設定裡填著這個帳號/.test(st.第一個已設定的標題), st.第一個已設定的標題.slice(0, 50));
+  // ⚠️ 可用不能把「已設定」的算進去——算進去別人拿走會撞帳號，正是要修的問題
+  check('可用沒有把已設定的算進去',
+    (st.可用 ?? 0) + (st.已設定 ?? 0) + (st.使用中 ?? 0) <= (st.總計 ?? 0),
+    `${st.可用}+${st.已設定}+${st.使用中} <= ${st.總計}`);
+}
+
 console.log(`\n${fail === 0 ? '全部通過' : fail + ' 項未過'}（pass ${pass} / fail ${fail}）`);
 await browser.close();
 process.exit(fail ? 1 : 0);

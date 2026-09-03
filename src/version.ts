@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.105.0'
+export const APP_VERSION = '4.106.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.106.0',
+    date: '2026-09-04',
+    changes: [
+      'fix(url-pool): 「使用中」原本幾乎是失效的。它只認中轉連結的自願認領，但實測 autospin_configs 已設定的 8 台 Game URL 裡有 5 台在用帳號池的帳號、0 台走中轉——lusa 正在用 osmel103，畫面卻顯示「使用中 0」',
+      'feat(url-pool): 新增「已設定」狀態，從 autospin_configs.gameUrl 的 username 反推。這些工具是我們自己的、設定就在自己的 DB，所以不需要任何人配合就知道誰綁了哪個帳號',
+      'note(url-pool): 「已設定」跟「使用中」刻意分開（跟 CodeX 討論定案）——前者是某台機台的設定綁著，可能沒在跑；後者是有人主動按了中轉。混成一個會讓人不知道能不能搶。但「可用」不再把已設定的算進去（191 → 186），因為拿走的話那台下次啟動會撞帳號',
+      'feat(url-pool): 讀不到「已設定」時顯示警告橫幅。靜默的話畫面會顯示「已設定 0」，看起來像沒有人綁著——那正是這個功能要修的誤導',
+      'note(url-pool): 端點回傳的 key 是 username 不是帳號，讓前端自己對應——伺服器端沒有帳號池名單（那是前端的 urlPoolData.ts），不為了這支端點把整份名單複製到後端',
+    ],
+  },
   {
     version: '4.105.0',
     date: '2026-09-04',

@@ -38,6 +38,15 @@ export function UrlPoolPage({ currentAccount }: Props) {
   const [poolEnv, setPoolEnv] = useState<PoolEnv>('qat')
   const [overrides, setOverrides] = useState<Record<string, string>>({})
   /**
+   * 被我們自己的工具「綁在設定裡」的帳號（key 是 username）。
+   *
+   * ⚠️ 跟 `claims`（中轉認領）**不是同一件事**。中轉是自願制，實測幾乎沒人走——
+   *    8 台已設定的 Game URL 裡 5 台在用帳號池的帳號、0 台走中轉，畫面卻顯示「使用中 0」。
+   *    這份是從 `autospin_configs.gameUrl` 反推的，不需要任何人配合。
+   */
+  const [assigned, setAssigned] = useState<Record<string, { by: string; machineType: string }>>({})
+  const [assignedFailed, setAssignedFailed] = useState(false)
+  /**
    * ⚠️ 資料要跟著 env 重算，而且 override 要一起套。
    *    原本是 mount 時把 override 併進去存成 state——切 env 之後那份 state 還是舊環境的，
    *    切回來也不會重抓（那支 fetch 只跑一次）。改成「原始資料 + override」在 render 時合併。
@@ -59,6 +68,19 @@ export function UrlPoolPage({ currentAccount }: Props) {
       .then(r => r.json())
       .then((o: Record<string, string>) => setOverrides(o))
       .catch(() => { /* keep static data */ })
+  }, [])
+
+  // ⚠️ 即時查，不做快取（跟 CodeX 討論定案）：資料量很小（691 × 8），而且
+  //    autospin_configs 是使用者手動改的，多一層快取只會讓狀態更難解釋。
+  useEffect(() => {
+    fetch('/api/url-pool/assigned')
+      .then(r => r.json())
+      .then((d: { ok: boolean; assigned?: Record<string, { by: string; machineType: string }> }) => {
+        if (d.ok && d.assigned) { setAssigned(d.assigned); setAssignedFailed(false) }
+        else setAssignedFailed(true)
+      })
+      // ⚠️ 失敗要標示。靜默當成「沒有人綁著」正是這個功能要修的那種誤導
+      .catch(() => setAssignedFailed(true))
   }, [])
 
   // ── SSE connection ──────────────────────────────────────────────────────────
@@ -154,8 +176,11 @@ export function UrlPoolPage({ currentAccount }: Props) {
     return true
   })
 
-  const totalInUse = Object.keys(claims).length
-  const totalAvail = localData.length - totalInUse
+  const totalInUse = localData.filter(r => claims[r.account]).length
+  const totalAssigned = localData.filter(r => !claims[r.account] && assigned[r.username]).length
+  const totalNoUrl = localData.filter(r => !r.url).length
+  // 可用 = 沒被認領、沒被設定綁著、而且真的有 URL
+  const totalAvail = localData.filter(r => !claims[r.account] && !assigned[r.username] && r.url).length
   const myCount = Object.values(claims).filter(c => c.claimedBy === myLabel).length
 
   return (
@@ -187,6 +212,10 @@ export function UrlPoolPage({ currentAccount }: Props) {
           <StatBadge label="總計" value={localData.length} color="#6b7280" />
           <StatBadge label="可用" value={totalAvail} color="#16a34a" />
           <StatBadge label="使用中" value={totalInUse} color={totalInUse > 0 ? '#dc2626' : '#6b7280'} />
+          {/* ⚠️ 「已設定」跟「使用中」要分開（CodeX review）：前者是某台機台的設定綁著這個帳號，
+              可能沒在跑；後者是有人主動按了中轉。混成一個會讓人不知道能不能搶。 */}
+          <StatBadge label="已設定" value={totalAssigned} color={totalAssigned > 0 ? '#d97706' : '#6b7280'} />
+          {totalNoUrl > 0 && <StatBadge label="無 URL" value={totalNoUrl} color="#eab308" />}
           {myLabel && <StatBadge label="我的" value={myCount} color="#2563eb" />}
         </div>
 
@@ -219,6 +248,14 @@ export function UrlPoolPage({ currentAccount }: Props) {
       {!currentAccount && (
         <div style={{ padding: '10px 14px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 8, marginBottom: 12, fontSize: 13, color: '#fbbf24' }}>
           請先在右上角選擇帳號才能複製使用 URL
+        </div>
+      )}
+
+      {/* ⚠️ 讀不到「已設定」時一定要講。靜默的話畫面會顯示「已設定 0」，
+          看起來像「沒有人綁著」——那正是這個功能要修的誤導。 */}
+      {assignedFailed && (
+        <div style={{ padding: '8px 12px', background: 'rgba(234,179,8,.08)', border: '1px solid rgba(234,179,8,.35)', borderRadius: 8, marginBottom: 12, fontSize: 12, color: '#eab308' }}>
+          <b>讀不到「已設定」狀態</b>——下面的「可用」可能包含其實已經被某台機台設定綁住的帳號，拿走會撞帳號。重新整理再試一次。
         </div>
       )}
 
@@ -280,9 +317,15 @@ export function UrlPoolPage({ currentAccount }: Props) {
                       /* ⚠️ 有帳號但沒有 URL 的不能標成「可用」——點下去會產生一個空的中轉連結。
                             這 27 筆是產 token 的腳本沒跑出來的，刻意保留在清單上（過濾掉的話
                             沒有人會知道它們存在），但要標清楚而且擋住複製。 */
-                      row.url
-                        ? <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: '#dcfce7', color: '#16a34a' }}>可用</span>
-                        : <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: 'rgba(234,179,8,.15)', color: '#eab308' }} title="這個帳號存在，但來源表上沒有 URL。用「編輯」補上就能使用。">無 URL</span>
+                      !row.url
+                        ? <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: 'rgba(234,179,8,.15)', color: '#eab308' }} title="這個帳號存在，但來源表上沒有 URL。用「編輯」補上就能使用。">無 URL</span>
+                        : assigned[row.username]
+                        ? <span
+                            style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: 'rgba(217,119,6,.15)', color: '#d97706' }}
+                            title={`${assigned[row.username].by} 的「${assigned[row.username].machineType}」設定裡填著這個帳號。可能沒在跑，但拿走的話那台下次啟動會撞帳號。`}
+                          >已設定 · {assigned[row.username].machineType}</span>
+                        : <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: '#dcfce7', color: '#16a34a' }}>可用</span>
+
                     )}
                   </td>
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>
