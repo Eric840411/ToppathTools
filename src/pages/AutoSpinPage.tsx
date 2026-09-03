@@ -372,7 +372,9 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
   interface CompareGroupDef { id: string; name: string; fields: CompareField[]; tolerance: number }
   interface CompareMachineRow { sessionId: string; machineType: string; agentLabel: string; compared: number; matched: number; mismatched: number; missing: number; unmatched?: number; ambiguous?: number }
   interface CompareDetailGroup { groupId: string; groupName: string; values: { source: string; path: string; value: unknown }[]; status: string; note: string }
-  interface CompareDetailRow { spinIndex: number; spinTime: string; status: string; groups: CompareDetailGroup[] }
+  /** `match` 是配對診斷（v4.103.0 起）。舊資料沒有這個欄位，一律當 null 處理。 */
+  interface CompareMatchDiag { matchMethod?: string; windowMs?: number; candidateCount?: number; contested?: boolean; timeDeltaMs?: number | null }
+  interface CompareDetailRow { spinIndex: number; spinTime: string; status: string; groups: CompareDetailGroup[]; match?: CompareMatchDiag | null }
 
   const SRC_LABEL: Record<CompareField['source'], string> = { sls: 'SLS', box: '盒子', pinus: 'Pinus' }
   const SRC_COLOR: Record<CompareField['source'], { bg: string; fg: string }> = {
@@ -1597,6 +1599,10 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                                           {cmpGroups.map(g => (
                                             <th key={g.id} style={{ padding: '5px 8px', textAlign: 'left', color: '#64748b', borderBottom: '1px solid #1e293b' }}>{g.name}</th>
                                           ))}
+                                          {/* ⚠️ 一定要能看到「憑什麼說這兩筆是同一輪」。使用者原話：
+                                              「只有這些資訊我不確定到底有沒有對上真正的數值」——
+                                              配對是靠時間近似做的，不給依據就只能盲信 */}
+                                          <th style={{ padding: '5px 8px', textAlign: 'left', color: '#64748b', borderBottom: '1px solid #1e293b' }}>配對依據</th>
                                           <th style={{ padding: '5px 8px', textAlign: 'left', color: '#64748b', borderBottom: '1px solid #1e293b' }}>狀態</th>
                                         </tr>
                                       </thead>
@@ -1619,10 +1625,28 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                                                 ))}
                                               </td>
                                             ))}
+                                            {/* 配對依據：時間差 + 候選數。相符時證明「憑什麼認定是同一輪」，
+                                                配不到／多筆候選時說明是哪一種情況 */}
+                                            <td style={{ padding: '4px 8px', borderBottom: '1px solid #131d30', fontFamily: 'ui-monospace, Consolas, monospace', color: '#64748b', fontSize: 10 }}>
+                                              {(() => {
+                                                const m = row.match
+                                                if (!m || m.candidateCount === undefined) return <span style={{ color: '#334155' }}>—</span>
+                                                if (m.candidateCount === 0) return <span>時間窗內無 Pinus 紀錄</span>
+                                                if (m.contested) return <span style={{ color: 'var(--cr-amber)' }}>與相鄰輪次搶同一筆</span>
+                                                if (m.candidateCount > 1) return <span style={{ color: 'var(--cr-amber)' }}>{m.candidateCount} 筆候選，拒絕猜</span>
+                                                const d = m.timeDeltaMs ?? 0
+                                                return <span>時間差 {d > 0 ? '+' : ''}{(d / 1000).toFixed(0)}s · 唯一候選</span>
+                                              })()}
+                                            </td>
                                             <td style={{ padding: '4px 8px', borderBottom: '1px solid #131d30' }}>
                                               {row.status === 'match' && <span style={{ color: 'var(--cr-cyan)' }}>✓ 相符</span>}
                                               {row.status === 'mismatch' && <span style={{ color: 'var(--cr-rose)', fontWeight: 700 }}>✕ 不符</span>}
                                               {row.status === 'missing_data' && <span style={{ color: '#475569' }}>缺資料</span>}
+                                              {/* ⚠️ v4.103.0 新增的兩個狀態當時漏了這裡——只改了上方摘要徽章，
+                                                  逐筆列的狀態欄沒有對應分支，於是整格是**空白**。
+                                                  使用者回報「看起來還是會有空的」有一半是這個造成的。 */}
+                                              {row.status === 'unmatched' && <span style={{ color: '#94a3b8' }}>配不到</span>}
+                                              {row.status === 'ambiguous_match' && <span style={{ color: 'var(--cr-amber)' }}>多筆候選</span>}
                                             </td>
                                           </tr>
                                         ))}

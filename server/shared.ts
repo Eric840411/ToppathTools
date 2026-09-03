@@ -979,6 +979,45 @@ db.exec(`
   )
 `)
 
+/**
+ * ⚠️ 這張表原本**完全沒有索引，也就沒有 UNIQUE**，但寫入端用的是
+ * `INSERT OR IGNORE`——沒有衝突對象，`OR IGNORE` 等於什麼都沒擋。
+ *
+ * `historyListReq` 每次回傳「最近 15 筆」，跟上一次輪詢重疊的部分就會再存一份。
+ * 實測（BULLBLITZ，2026-09-03）：120 列裡只有 92 個不重複時間點，
+ * 而三路對帳那 16 筆 `ambiguous_match` **全部**都是「同一輪被存兩次」造成的
+ * ——不是相鄰輪次。配對時看到 2 個候選就拒絕，於是明明對得上的輪次被判成無法判定。
+ *
+ * ⚠️ **這也是「提高撈取頻率會讓情況更糟」的原因**：撈越頻繁 → 重疊越多 →
+ *    重複越多 → 更多輪次被誤判。要先修這個才能談提高覆蓋率。
+ *
+ * UNIQUE 鍵用 `(sessionId, machineType, gmid, recordTime)`（跟 CodeX 討論定案）。
+ *
+ * ⚠️ **`gmid` 一定要在鍵裡面。**只用 `(session, machineType, recordTime)` 是個 workaround，
+ *    它假設「同一台同一秒只會有一筆有意義的資料」。但 `historyListReq` 回的是
+ *    **玩家帳號**的歷史不是機台的——多台共用同一遊戲帳號時，A 台撈回來的 15 筆
+ *    會混著 B 台的輪次。那時 `recordTime` 單獨就不夠精準：A 台自己某輪跟撈到的
+ *    B 台某輪剛好同一秒，就會互相擠掉一筆。加了 gmid 反而更保守——
+ *    同一輪重複回來照樣被擋，不同輪就算同秒也不互擠。
+ *
+ * ⚠️ **但加 gmid 不能解決共用帳號造成的覆蓋率稀釋**（CodeX 提醒）：那是
+ *    「每次只回 15 筆、被多台瓜分」的問題，真正的解法是加大 `pagecount`
+ *    或確保每台獨立帳號。不要把這個索引當成多機台的完整修復。
+ */
+try {
+  // ⚠️ 先按新鍵清重複再建索引。順序反過來的話 CREATE UNIQUE INDEX 會直接失敗，
+  //    而失敗被 catch 吞掉之後，表面上沒事、實際上索引根本沒建立。
+  const dropped = db.prepare(`
+    DELETE FROM reconcile_front_records WHERE id NOT IN (
+      SELECT MIN(id) FROM reconcile_front_records GROUP BY sessionId, machineType, gmid, recordTime
+    )
+  `).run().changes
+  if (dropped > 0) console.log(`[DB] 已清除 ${dropped} 筆重複的前台戰績紀錄（同 session/機台/gmid/時間）`)
+  // 舊索引（沒有 gmid）要先移除，不然兩個 UNIQUE 並存時舊的那個仍會擋掉合法資料
+  db.exec(`DROP INDEX IF EXISTS idx_rfr_unique`)
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_rfr_unique_v2 ON reconcile_front_records (sessionId, machineType, gmid, recordTime)`)
+} catch (e) { console.error('[DB] 前台戰績紀錄去重失敗：', e) }
+
 // reconcile_reports — saved reconciliation run results
 db.exec(`
   CREATE TABLE IF NOT EXISTS reconcile_reports (

@@ -2759,6 +2759,64 @@ function getPath(obj: unknown, path: string): unknown {
 }
 
 /**
+ * SLS 查詢的健康狀態與退避。
+ *
+ * ⚠️ **錯誤看得見跟節流要同時做**（CodeX review）。只把錯誤印出來的話，
+ *    多人一起用時錯誤雖然看得見，但還是會繼續用同樣的頻率打爆 SLS。
+ *
+ * 請求量本來就是 `使用者數 × 機台數 × 3 次/分鐘` 線性成長，而
+ * `fetchRecordBet()` 沒有任何 rate limit 或快取。所以連續失敗時一定要退避，
+ * 不能每 20 秒照樣重試。
+ */
+type SlsFailKind = 'no_credentials' | 'throttled' | 'timeout' | 'other'
+interface SlsHealth { fails: number; nextAttemptAt: number; kind: SlsFailKind; message: string; at: number }
+const slsHealth = new Map<string, SlsHealth>()
+
+/** 從錯誤訊息分類。分類本身要保守——認不出來一律 `other`，不要猜成限流。 */
+function classifySlsError(e: unknown): { kind: SlsFailKind; message: string } {
+  const msg = e instanceof Error ? e.message : String(e)
+  const low = msg.toLowerCase()
+  if (/憑證尚未設定|credential/i.test(msg)) return { kind: 'no_credentials', message: msg }
+  if (low.includes('throttl') || low.includes('too many') || low.includes('quota') || low.includes('429')) return { kind: 'throttled', message: msg }
+  if (low.includes('timeout') || low.includes('etimedout') || low.includes('econnreset')) return { kind: 'timeout', message: msg }
+  return { kind: 'other', message: msg }
+}
+
+function noteSlsFail(key: string, e: unknown): void {
+  const { kind, message } = classifySlsError(e)
+  const prev = slsHealth.get(key)
+  const fails = (prev?.fails ?? 0) + 1
+  // 20s → 40 → 80 → 160 → 320，上限 5 分鐘。憑證沒設定的話重試也沒用，直接用上限。
+  const delayMs = kind === 'no_credentials' ? 300_000 : Math.min(20_000 * 2 ** (fails - 1), 300_000)
+  slsHealth.set(key, { fails, nextAttemptAt: Date.now() + delayMs, kind, message: message.slice(0, 300), at: Date.now() })
+  // 第 1、2、3 次都印，之後每 5 次印一次——完全靜默是這次要修的問題，
+  // 但每 20 秒印一行也會把日誌洗掉
+  if (fails <= 3 || fails % 5 === 0) {
+    console.error(`[三路對帳] SLS 查詢失敗（${key}，第 ${fails} 次，${kind}）：${message.slice(0, 200)}｜${Math.round(delayMs / 1000)} 秒後重試`)
+  }
+}
+
+function noteSlsOk(key: string): void {
+  const prev = slsHealth.get(key)
+  if (prev && prev.fails > 0) console.log(`[三路對帳] SLS 查詢已恢復（${key}，先前連續失敗 ${prev.fails} 次）`)
+  slsHealth.delete(key)
+}
+
+function slsBackedOff(key: string): boolean {
+  const h = slsHealth.get(key)
+  return !!h && Date.now() < h.nextAttemptAt
+}
+
+/** 給畫面用：目前有哪些機台的 SLS 查詢是壞的 */
+export function slsHealthSnapshot(): Array<{ key: string; fails: number; kind: SlsFailKind; message: string; retryInSec: number }> {
+  const now = Date.now()
+  return [...slsHealth.entries()].map(([key, h]) => ({
+    key, fails: h.fails, kind: h.kind, message: h.message,
+    retryInSec: Math.max(0, Math.round((h.nextAttemptAt - now) / 1000)),
+  }))
+}
+
+/**
  * SLS 一輪 ↔ Pinus 戰績紀錄的配對。**抽成純函式是為了測得到**——
  * 這段的失敗方式是「配錯人卻顯示相符」，比配不到更糟，一定要有回歸測試。
  */
@@ -2906,11 +2964,24 @@ async function compareMachineCycle(sessionId: string, machineType: string, gameT
    */
   const fromSec = Math.max(nowSec - 600, sessionStartedAt ? Math.floor(sessionStartedAt / 1000) : 0)
 
+  // ⚠️ 被 backoff 擋住的機台這輪直接跳過（見 slsHealth 的說明）
+  const backoffKey = `${sessionId}::${machineType}`
+  if (slsBackedOff(backoffKey)) return
+
   let slsRecords: SlsBetRecord[] = []
   try {
     slsRecords = await fetchRecordBet(fromSec, nowSec, gameTitleCode, 300)
-  } catch {
-    // SLS 憑證未設定 / API 逾時——這台機器這輪先跳過，不中斷其他機台，下一輪再試
+    noteSlsOk(backoffKey)
+  } catch (e) {
+    /**
+     * ⚠️ 這裡原本是 `catch { return }`，**一個字都不印**。
+     *
+     * 後果：SLS 憑證沒設、逾時、被限流——全部長得一樣，就是「畫面數字不動」。
+     * 使用者根本分不出是「這段時間真的沒下注」還是「查詢整個掛了」。
+     * 跟今天早上 `historyListReq` 那個 uid 問題是同一種壞法：靜默吞掉訊號，
+     * 於是問題可以存在很久沒人發現（CodeX review：先讓錯誤看得見，再談節流）。
+     */
+    noteSlsFail(backoffKey, e)
     return
   }
   if (slsRecords.length === 0) return
@@ -3059,6 +3130,9 @@ router.get('/api/autospin/compare/status', (req, res) => {
     machines,
     groupCount: groups.length,
     sessionCount: sessions.length,
+    // ⚠️ SLS 查詢壞掉時畫面一定要看得出來。原本失敗是靜默的，使用者只會看到
+    //    「數字不動」，分不出是這段時間沒下注還是查詢整個掛了。
+    slsHealth: slsHealthSnapshot(),
     hasBoxLeg: groups.some(g => g.fields.some(f => f.source === 'box')),
   })
 })

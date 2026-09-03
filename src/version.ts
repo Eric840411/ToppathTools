@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.103.1'
+export const APP_VERSION = '4.104.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.104.0',
+    date: '2026-09-03',
+    changes: [
+      'fix(autospin): reconcile_front_records 補上 UNIQUE 索引。這張表原本完全沒有索引，但寫入用 INSERT OR IGNORE——沒有衝突對象等於什麼都沒擋，每次輪詢回「最近 15 筆」跟上次重疊的部分就再存一份。實測 120 列裡只有 92 個不重複時間點，而 16 筆「多筆候選」全部是同一輪被存兩次造成的。清掉重複＋建索引後降到 3 筆',
+      'note(autospin): UNIQUE 鍵含 gmid（sessionId, machineType, gmid, recordTime）。historyListReq 回的是玩家帳號的歷史不是機台的，多台共用帳號時 A 台會撈到 B 台的輪次；只用 recordTime 的話「A 自己某輪跟撈到的 B 某輪同一秒」會互相擠掉',
+      'fix(autospin): SLS 查詢失敗不再靜默吞掉。原本 catch { return } 一個字都不印，憑證沒設／逾時／被限流全部長得一樣就是「數字不動」。現在分類記錄（no_credentials／throttled／timeout／other）並回報到畫面',
+      'feat(autospin): SLS 連續失敗時指數退避（20s→40→80…上限 5 分鐘），憑證未設定直接用上限。請求量本來是「使用者數 × 機台數 × 3 次/分鐘」線性成長且零節流，多人同時用會一直打',
+      'fix(autospin): 逐筆明細補上 unmatched／ambiguous_match 的狀態顯示。v4.103.0 新增這兩個狀態時只改了摘要徽章，明細的狀態欄沒有對應分支所以整格空白——使用者回報「看起來還是會有空的」有一半是這個',
+      'feat(autospin): 逐筆明細新增「配對依據」欄，顯示時間差與候選數。配對是靠時間近似做的，不給依據使用者只能盲信（原話：「只有這些資訊我不確定到底有沒有對上真正的數值」）',
+    ],
+  },
   {
     version: '4.103.1',
     date: '2026-09-03',
