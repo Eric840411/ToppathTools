@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.98.6'
+export const APP_VERSION = '4.98.7'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.98.7',
+    date: '2026-09-03',
+    changes: [
+      'fix(weekly-report): Discord 送出按鈕按下後立刻變成反灰的「發送中…」。原本用 deferUpdate() 只 ACK 不動訊息，整段送出期間按鈕還是可點的「確認送出到 Lark」，使用者怕重複點（改用 update()，它同時是 ACK 也是編輯）',
+      'fix(weekly-report): 送出失敗的按鈕從「送出失敗」（永遠反灰）改成可點的「重試送出」——clearRetryableSubmissions() 本來就是為了讓失敗能重試而存在，把出口關掉等於那段程式碼白寫',
+      'feat(weekly-report): process 死在送出途中留下的「發送中…」卡片，下次 bot 連上時自動復原成「重試送出」並註明「不確定完成到哪一筆、重試不會重複送」。刻意不做 timeout——能跑到 ClientReady 就代表舊 process 已經不在了',
+      'note(weekly-report): 按鈕 disabled 只是視覺防呆不是正確性保證（CodeX 原話）；真正擋重複的一直是送出前「先 INSERT 搶 claim」那層，所以就算連點也不會在 Lark 長出重複的列',
+      'test(weekly-report): 新增 scripts/ui-checks/weekly-submit-button-state.mjs（18 項，用假 client 不連 Discord，跑完還原 settings 表）',
+    ],
+  },
   {
     version: '4.98.6',
     date: '2026-09-03',

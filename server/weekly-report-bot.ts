@@ -17,14 +17,45 @@
  *
  * ## Discord 的 3 秒硬限制
  * 按鈕被按之後 3 秒內一定要回應，否則使用者看到「此互動失敗」。送 Lark 一筆一筆寫，
- * 一定超過 3 秒——所以先 `deferUpdate()` 佔位，跑完再 `editReply()`。實測單純回應約 500ms，
- * defer 完全來得及。
+ * 一定超過 3 秒——所以按下當下先 `update()` 把按鈕改成反灰的「發送中…」（它同時是 ACK
+ * 也是編輯），跑完再 `editReply()` 出結果。實測編輯約 500ms，來得及。
+ *
+ * ⚠️ 這裡原本用 `deferUpdate()`——它只 ACK、**不動訊息**，整段送出期間按鈕還是可點的
+ * 「確認送出到 Lark」（使用者 2026-09-03 回報怕重複點）。但要注意：**按鈕 disabled 只是
+ * 視覺防呆，不是正確性保證**，真正擋重複的一直是 `submitWeeklyDraft()` 裡「先 INSERT
+ * 搶 claim」那層（CodeX 原話）。
  */
 import { Client, GatewayIntentBits, Events, type TextChannel } from 'discord.js'
 import { submitWeeklyDraft, clearRetryableSubmissions, packLines } from './routes/weekly-report.js'
+import { db } from './shared.js'
 
 /** 按鈕的 custom_id。帶版本後綴——之後改了語意，舊訊息上的按鈕就不會被新程式誤解成同一件事 */
 const BTN_SUBMIT = 'weekly_submit_v1'
+
+/**
+ * 「有一則卡片正在送出中」的紀錄。
+ *
+ * ⚠️ 按鈕 disabled **只是視覺防呆，不是正確性保證**（CodeX 原話）——正確性一直是靠
+ *    `submitWeeklyDraft()` 裡「先 INSERT 搶 claim」那層。這裡解決的是使用者狂點的體感。
+ *
+ * ⚠️ 但一旦按下就 disable，**process 中途掛掉的話按鈕會永遠卡在「發送中…」**，
+ *    從 Discord 再也按不了。所以一定要有復原路徑，不能永遠鎖死。
+ */
+const PENDING_KEY = 'weekly_report_submit_pending'
+type PendingSubmit = { channelId: string; messageId: string; startedAt: number; userTag: string }
+
+function readPending(): PendingSubmit | null {
+  try {
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(PENDING_KEY) as { value: string } | undefined
+    return row ? JSON.parse(row.value) as PendingSubmit : null
+  } catch { return null }
+}
+function writePending(p: PendingSubmit | null): void {
+  try {
+    if (p) db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(PENDING_KEY, JSON.stringify(p))
+    else db.prepare('DELETE FROM settings WHERE key = ?').run(PENDING_KEY)
+  } catch (e) { console.error('[WeeklyBot] 寫入送出中狀態失敗：', e) }
+}
 
 let client: Client | null = null
 let ready = false
@@ -56,6 +87,10 @@ export function startWeeklyReportBot(): void {
   client.once(Events.ClientReady, c => {
     ready = true
     console.log(`[WeeklyBot] Gateway 已連上：${c.user.tag}`)
+    // 上一個 process 死在送出途中的話，那張卡片還停在「發送中…」且按不了。
+    // 這裡不用等 timeout：**能跑到 ClientReady 就代表舊 process 已經不在了**，
+    // 留下來的 pending 一定是遺骸，直接復原成可重試。
+    void recoverStuckSubmit()
   })
 
   client.on(Events.InteractionCreate, async i => {
@@ -68,19 +103,43 @@ export function startWeeklyReportBot(): void {
       return
     }
 
-    // 送 Lark 一定超過 3 秒，先 defer 佔位，不然使用者會看到「此互動失敗」
-    await i.deferUpdate()
+    // 送 Lark 一定超過 3 秒，3 秒內沒回應使用者會看到「此互動失敗」。
+    // ⚠️ 原本是 `deferUpdate()`——它只 ACK、**不動訊息**，所以整段送出期間按鈕還是
+    //    綠色的「確認送出到 Lark」而且點得下去（使用者 2026-09-03 回報怕重複點）。
+    //    改用 `update()`：它同時是 ACK 也是編輯，一次解決。實測編輯約 500ms，來得及。
+    // ⚠️ 順序是「先記 pending，再改按鈕」，不能反過來。
+    //    反過來的話，改完按鈕、記錄失敗（writePending 自己吞例外）＝卡片停在「發送中…」
+    //    但沒有任何復原線索，永遠鎖死。這個順序最壞只會多記一筆用不到的 pending，
+    //    下次啟動把一張沒真的送出的卡片改成「重試送出」——安全的方向。
+    writePending({ channelId: i.channelId, messageId: i.message.id, startedAt: Date.now(), userTag: i.user.tag })
+    await i.update({ components: [disabledRow('發送中…')] })
 
     // 上一輪失敗的、以及中途掛掉留下的殭屍 processing，按之前先清掉才重試得了
     clearRetryableSubmissions()
 
     const actor = `discord:${i.user.tag}(${i.user.id})`
-    const result = await submitWeeklyDraft(actor)
+    let result: Awaited<ReturnType<typeof submitWeeklyDraft>>
+    try {
+      result = await submitWeeklyDraft(actor)
+    } catch (e) {
+      // ⚠️ 這裡不能只是 rethrow：拋出去的話 pending 留著、按鈕停在「發送中…」，
+      //    而 process 沒死所以 ClientReady 的復原也不會跑——就真的鎖死了。
+      writePending(null)
+      await i.editReply({
+        content: `❌ 送出時發生未預期錯誤：${e instanceof Error ? e.message : String(e)}`,
+        components: [enabledRow('重試送出')],
+      }).catch(() => {})
+      return
+    }
+    writePending(null)
 
     if (result.ok === false) {
       await i.editReply({
         content: `❌ 送不出去：${result.message}`,
-        components: [disabledRow('送出失敗')],
+        // ⚠️ 原本是 disabledRow('送出失敗')——失敗之後從 Discord 就再也按不了。
+        //    但 clearRetryableSubmissions() 本來就是為了讓失敗的能重試而存在，
+        //    把出口關掉等於那段程式碼白寫（CodeX：不要永遠鎖死）。
+        components: [enabledRow('重試送出')],
       })
       return
     }
@@ -164,6 +223,47 @@ function disabledRow(label: string) {
   }
 }
 
+/** 可以按的按鈕。初次發送、失敗後重試、卡死復原共用同一份——三處各寫一份遲早會漂。 */
+function enabledRow(label: string) {
+  return {
+    type: 1 as const,
+    components: [{ type: 2 as const, style: 3 as const, label, custom_id: BTN_SUBMIT }],
+  }
+}
+
+/**
+ * 把上一個 process 死在送出途中留下的「發送中…」卡片復原成可重試。
+ *
+ * ⚠️ 刻意**不做 timeout 判斷**。timeout 的用途是分辨「還在跑」跟「已經死了」，
+ *    但這支只在 ClientReady 跑——能跑到這裡就代表舊 process 已經不在，
+ *    留著的 pending 必然是遺骸。加 timeout 只會讓復原白白晚 N 分鐘，
+ *    而使用者當下看到的就是卡死（CodeX：「體感會像壞掉」）。
+ *
+ * 失敗一律吞掉：訊息可能已被刪除、頻道權限可能變了，這些都不該讓 bot 起不來。
+ */
+async function recoverStuckSubmit(): Promise<void> {
+  const p = readPending()
+  if (!p) return
+  writePending(null)
+  const mins = Math.round((Date.now() - p.startedAt) / 60000)
+  console.warn(`[WeeklyBot] 發現中斷的送出（${p.userTag} 於 ${mins} 分鐘前按下），復原按鈕`)
+  try {
+    const ch = await client!.channels.fetch(p.channelId)
+    if (!ch || !('messages' in ch)) return
+    const msg = await (ch as TextChannel).messages.fetch(p.messageId)
+    await msg.edit({
+      // ⚠️ 一定要講「不確定送出去幾筆」。送到一半掛掉時，前面那些是真的寫進 Lark 了，
+      //    說成「沒有送出」會讓人重送一次；但重送本身是安全的——資料層的 claim 會擋掉
+      //    已經送成功的那幾筆，所以按下去只會補送剩下的。
+      content: `⚠️ 上一次送出中斷了（${p.userTag} 於 ${mins} 分鐘前按下），不確定完成到哪一筆。`
+        + `可以直接重試——已經寫進 Lark 的不會重複送。`,
+      components: [enabledRow('重試送出')],
+    })
+  } catch (e) {
+    console.error('[WeeklyBot] 復原中斷的送出失敗（訊息可能已被刪除）：', e)
+  }
+}
+
 /**
  * 發一則帶「確認送出」按鈕的提醒。
  *
@@ -186,10 +286,7 @@ export async function sendWeeklyReminderWithButton(payload: {
       // 一則訊息最多 10 個 embed；超過的話寧可少顯示尾巴也不要整則發不出去，
       // 但真的到 10 個 embed（250 個欄位）代表資料量已經不適合塞在 Discord 裡了
       embeds: payload.embeds.slice(0, 10) as never,
-      components: [{
-        type: 1,
-        components: [{ type: 2, style: 3, label: '確認送出到 Lark', custom_id: BTN_SUBMIT }],
-      }],
+      components: [enabledRow('確認送出到 Lark')],
     })
     return true
   } catch (e) {
@@ -197,3 +294,7 @@ export async function sendWeeklyReminderWithButton(payload: {
     return false
   }
 }
+
+/** 只給檢查腳本用。正式程式碼不要從這裡取——這幾支是模組內部狀態。 */
+export const __testables = { readPending, writePending, recoverStuckSubmit, enabledRow, disabledRow, PENDING_KEY,
+  setClientForTest: (c: unknown) => { client = c as Client } }

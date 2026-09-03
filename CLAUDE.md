@@ -1348,7 +1348,19 @@ Dashboard（修仙版）Hero 橫幅下方顯示一張每日語錄小卡片，語
 
 **兩個合併開關要跟著來源設定一起存到後端**：它們原本只在瀏覽器 localStorage，server 讀不到。不一起存的話，Discord 送出的結果會跟使用者在頁面上勾的開關不一致——那正是這整件事要避免的不一致。前端在**掃描成功當下**一起 PUT。
 
-**Discord 的 3 秒硬限制**：按鈕被按之後 3 秒內一定要回應，否則顯示「此互動失敗」。送 Lark 一筆一筆寫必定超過，所以先 `deferUpdate()` 佔位、跑完再 `editReply()`。實測單純回應約 500ms，defer 綽綽有餘。
+**Discord 的 3 秒硬限制**：按鈕被按之後 3 秒內一定要回應，否則顯示「此互動失敗」。送 Lark 一筆一筆寫必定超過，所以按下當下先 **`update()`**（它同時是 ACK 也是編輯）把按鈕改成反灰的「發送中…」，跑完再 `editReply()` 出結果。實測編輯約 500ms，來得及。
+
+**⚠️ `deferUpdate()` 只 ACK、不動訊息**（v4.98.7 修）：原本用它佔位，結果整段送出期間按鈕還是可點的「確認送出到 Lark」，使用者怕重複點（2026-09-03 回報）。**但按鈕 disabled 只是視覺防呆，不是正確性保證**（CodeX 原話）——真正擋重複的一直是送出前「先 INSERT 搶 claim」那層，連點本來就不會產生重複的 Lark 列。
+
+**⚠️ 一旦按下就 disable，就必須有復原路徑，否則比原本更糟**：process 死在送出途中的話，卡片永遠停在「發送中…」、從 Discord 再也按不了（原本至少還停在可點狀態）。做法是按下當下把 `{channelId, messageId, startedAt, userTag}` 記進 `settings.weekly_report_submit_pending`，bot 下次 `ClientReady` 時發現遺骸就把卡片改回「重試送出」。
+
+- **刻意不做 timeout 判斷**：timeout 的用途是分辨「還在跑」跟「已經死了」，但這支只在 ClientReady 跑——**能跑到那裡就代表舊 process 已經不在**，留著的必然是遺骸。加 timeout 只會讓復原白晚 N 分鐘，而使用者當下看到的就是卡死。
+- **順序是「先記 pending，再改按鈕」**。反過來的話，改完按鈕、記錄失敗（`writePending` 自己吞例外）＝卡片停在「發送中…」但沒有任何復原線索，永遠鎖死。現在的順序最壞只會多記一筆用不到的 pending。
+- **復原文案一定要講「不確定完成到哪一筆」**：送到一半掛掉時前面那幾筆是真的寫進 Lark 了，說成「沒有送出」會誤導；但重試本身安全，claim 會擋掉已成功的那幾筆。
+- 送出失敗也改成可點的「重試送出」，不再是永遠反灰的「送出失敗」——`clearRetryableSubmissions()` 本來就是為了讓失敗能重試而存在，把出口關掉等於那段程式碼白寫。
+
+> 已驗證 18 項（`scripts/ui-checks/weekly-submit-button-state.mjs`，用假 client 不連 Discord，跑完還原 settings 表）。
+> ⚠️ **`update()` 在真實 Discord 上的行為沒辦法在本機驗**——本機的 `WEEKLY_DISCORD_BOT_TOKEN` 是刻意註解掉的（兩個環境同時跑 bot 會造成重複寫入 Lark），只有 Spug 上才驗得到。
 
 **乾跑端點 `GET /api/weekly-report/submit-preview`**：按鈕按下去就真的寫進團隊共用的週報表、收不回來，所以要有一個不產生副作用的方式先看會送什麼。防重複的驗證（`scripts/ui-checks/weekly-dedupe-check.mjs`）也刻意**完全不碰 Lark**，用合成資料直接驗 claim 行為。
 
