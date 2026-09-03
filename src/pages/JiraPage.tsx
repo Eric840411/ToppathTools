@@ -564,8 +564,16 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
   const [reconcileTo, setReconcileTo] = useState('')
   const [reconcileLoading, setReconcileLoading] = useState(false)
   const [reconcileMatches, setReconcileMatches] = useState<{ rowIndex: number; sheetSummary: string; jiraKey: string; jiraSummary: string; jiraCreated: string; confidence: string }[]>([])
-  /** 這次查詢實際從 Jira 抓了幾筆／幾頁、是不是完整。`null` = 舊版 server 沒回報，當成「不確定」。 */
-  const [reconcileFetchInfo, setReconcileFetchInfo] = useState<{ fetched: number; pages: number; complete: boolean; reason: string | null } | null>(null)
+  /**
+   * 這次查詢實際從 Jira 抓了幾筆／幾頁、是不是完整。`null` = 還沒查過。
+   *
+   * ⚠️ `complete` 是**三態**不是布林。「不確定」（舊版 server 沒回報這些欄位）
+   *    一定要跟「完整」分開——第一版我把不確定做成 `null` 然後所有判斷都寫成
+   *    `info && !info.complete`，結果不確定的情況橫幅跟確認**全部被跳過**，
+   *    等於靜默放行。那正是這次要修的那種壞法，只是換個地方發生
+   *    （CodeX review 抓到：危險確認的條件要涵蓋 `!== 'yes'`，不是只看 `=== 'no'`）。
+   */
+  const [reconcileFetchInfo, setReconcileFetchInfo] = useState<{ fetched: number | null; pages: number; complete: 'yes' | 'no' | 'unknown'; reason: string | null } | null>(null)
   const [reconcileUnmatchedJira, setReconcileUnmatchedJira] = useState<{ key: string; summary: string; created: string }[]>([])
   const [reconcileUnmatchedRows, setReconcileUnmatchedRows] = useState<{ rowIndex: number; sheetSummary: string }[]>([])
   const [reconcileSelected, setReconcileSelected] = useState<Set<number>>(new Set())
@@ -3854,12 +3862,14 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
                     jiraFetched?: number; pageCount?: number; reachedLimit?: boolean; limitReason?: string | null; isComplete?: boolean }
                   try { resp = JSON.parse(text) } catch { setReconcileMsg(`Server 回傳非 JSON（HTTP ${raw.status}）：${text.slice(0, 200)}`); return }
                   if (!resp.ok) { setReconcileMsg(resp.message ?? '查詢失敗'); return }
-                  // ⚠️ 舊版 server 不回這幾個欄位。`isComplete` 讀不到時**不要當成完整**——
-                  //    預設成 true 等於在舊 server 上把截斷的結果重新標成「完整」，
-                  //    比沒做這個功能更糟。undefined 一律走「不確定」那條。
-                  setReconcileFetchInfo(resp.jiraFetched === undefined ? null : {
-                    fetched: resp.jiraFetched, pages: resp.pageCount ?? 0,
-                    complete: resp.isComplete === true, reason: resp.limitReason ?? null,
+                  // ⚠️ 舊版 server 不回這幾個欄位。讀不到時走 'unknown'——**不是 null**。
+                  //    設成 null 的話下面的橫幅與危險確認（都寫成 `info && ...`）會整個被跳過，
+                  //    「不確定」就變成靜默放行了。要跟「完整」分得開才有意義。
+                  setReconcileFetchInfo({
+                    fetched: resp.jiraFetched ?? null,
+                    pages: resp.pageCount ?? 0,
+                    complete: resp.isComplete === true ? 'yes' : resp.isComplete === false ? 'no' : 'unknown',
+                    reason: resp.limitReason ?? null,
                   })
                   setReconcileMatches(resp.matches ?? [])
                   setReconcileUnmatchedJira(resp.unmatchedJiraIssues ?? [])
@@ -3876,11 +3886,19 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
 
               {/* ⚠️ 警告要放在結果「上面」。放下面的話使用者已經看完那排數字、
                   結論也下完了才看到警告——跟後台對帳那次同一個教訓。 */}
-              {reconcileFetchInfo && !reconcileFetchInfo.complete && (
+              {/* 三種狀態的嚴重度不同，共用一個顏色會讓人分不出還能不能參考 */}
+              {reconcileFetchInfo?.complete === 'no' && (
                 <div style={{ marginTop: 10, padding: '8px 11px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.45)', fontSize: 12.5, color: '#fca5a5', lineHeight: 1.6 }}>
                   <b>⚠️ 結果不完整</b>——已達搜尋上限（{reconcileFetchInfo.reason === 'maxIssues' ? '筆數' : '頁數'}），
                   從 Jira 讀了 {reconcileFetchInfo.fetched} 筆就停住，符合條件的單子還有更多沒被讀進來。
                   <b>請縮小日期範圍後分批處理</b>；直接補回填只會補到其中一部分，剩下的列會維持空白且不會有提示。
+                </div>
+              )}
+              {reconcileFetchInfo?.complete === 'unknown' && (
+                <div style={{ marginTop: 10, padding: '8px 11px', borderRadius: 8, background: 'rgba(234,179,8,.08)', border: '1px solid rgba(234,179,8,.45)', fontSize: 12.5, color: '#fde68a', lineHeight: 1.6 }}>
+                  <b>無法確認結果是否完整</b>——這個後端版本沒有回報讀取範圍（v4.99.0 之前的版本，
+                  Jira 查詢在第 100 筆就會停住而且不會有任何提示）。<b>請先更新後端</b>；
+                  在那之前建議把日期範圍切到每批不超過 100 筆再補回填。
                 </div>
               )}
 
@@ -3892,20 +3910,31 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
                         現在一律把「從 Jira 抓了幾筆／幾頁」講出來，讓範圍變成顯性資訊。 */}
                     <span style={{ fontSize: 13, color: '#e2e8f0' }}>
                       配對 {reconcileMatches.length} 筆（可勾選後補回填）
-                      {reconcileFetchInfo && (
-                        <span style={{ color: '#94a3b8', fontSize: 12 }}>
+                      {/* ⚠️ 「不確定」不能用成功語氣寫（CodeX review）。讀不到範圍時
+                          明講讀不到，不要顯示一個看起來很完整的筆數。 */}
+                      {reconcileFetchInfo?.complete === 'unknown' ? (
+                        <span style={{ color: '#fde68a', fontSize: 12 }}>{' '}· 讀取範圍不明（後端版本較舊）</span>
+                      ) : reconcileFetchInfo && (
+                        <span style={{ color: reconcileFetchInfo.complete === 'no' ? '#fca5a5' : '#94a3b8', fontSize: 12 }}>
                           {' '}· 本次從 Jira 讀取 {reconcileFetchInfo.fetched} 筆／{reconcileFetchInfo.pages} 頁
+                          {reconcileFetchInfo.complete === 'no' && '（已達上限，不完整）'}
                         </span>
                       )}
                     </span>
                     <button className="submit-btn submit-btn--sm" disabled={reconcileApplying || reconcileSelected.size === 0} onClick={async () => {
-                      // ⚠️ 結果不完整時要擋一次確認再送。這支工具是拿來修資料的——
-                      //    拿不完整的集合去 reconcile 會造成「以為修完」的二次事故（CodeX review）。
-                      if (reconcileFetchInfo && !reconcileFetchInfo.complete) {
-                        const why = reconcileFetchInfo.reason === 'maxIssues' ? '筆數' : '頁數'
+                      // ⚠️ 條件是 `!== 'yes'`，不是 `=== 'no'`（CodeX review 特別點名）。
+                      //    「不確定」也要擋——只擋明確不完整的話，舊版後端那條路
+                      //    （查詢其實在第 100 筆就被截斷）會完全沒有防護，
+                      //    而那正是這次要修的原始 bug。
+                      //    這支工具是拿來修資料的，拿不完整的集合去 reconcile 會造成
+                      //    「以為修完」的二次事故。
+                      if (reconcileFetchInfo && reconcileFetchInfo.complete !== 'yes') {
+                        const head = reconcileFetchInfo.complete === 'no'
+                          ? `⚠️ 這次的查詢結果不完整（已達${reconcileFetchInfo.reason === 'maxIssues' ? '筆數' : '頁數'}上限，從 Jira 讀了 ${reconcileFetchInfo.fetched} 筆就停住）。`
+                          : `⚠️ 無法確認這次的查詢結果是否完整（後端版本較舊，沒有回報讀取範圍；那些版本的 Jira 查詢會在第 100 筆停住且不會有提示）。`
                         if (!window.confirm(
-                          `⚠️ 這次的查詢結果不完整（已達${why}上限，從 Jira 讀了 ${reconcileFetchInfo.fetched} 筆就停住）。\n\n`
-                          + `Jira 裡符合條件的單子還有更多沒被讀進來，現在補回填只會補到其中一部分，`
+                          `${head}\n\n`
+                          + `Jira 裡符合條件的單子可能還有更多沒被讀進來，現在補回填只會補到其中一部分，`
                           + `剩下的列會維持空白而且不會有任何提示。\n\n`
                           + `建議先縮小日期範圍分批處理。仍要補回填目前這 ${reconcileSelected.size} 筆嗎？`
                         )) return

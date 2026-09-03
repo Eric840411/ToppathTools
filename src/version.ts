@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.99.0'
+export const APP_VERSION = '4.99.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.99.1',
+    date: '2026-09-03',
+    changes: [
+      'fix(jira): 對帳補回填的「無法確認是否完整」改成真正的第三態，不再被靜默放行。v4.99.0 我把它做成 null、而橫幅與危險確認都寫成 `info && !info.complete`，結果舊版後端那條路（查詢其實在第 100 筆就被截斷）橫幅跟確認全部被跳過——同一種壞法換個地方發生（CodeX review 抓到：條件要涵蓋 !== yes 不是只看 === no）',
+      'fix(jira): 不確定時標題改顯示「讀取範圍不明（後端版本較舊）」，不再顯示一個看起來很完整的筆數；橫幅用黃色跟明確不完整的紅色分開，兩者嚴重度不同',
+      'test(jira): 新增 scripts/ui-checks/jira-reconcile-completeness.mjs（17 項），三種後端回應各驗一輪，全程 route 攔截不打 Jira 不碰 Lark',
+    ],
+  },
   {
     version: '4.99.0',
     date: '2026-09-03',
