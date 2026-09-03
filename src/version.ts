@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.101.0'
+export const APP_VERSION = '4.102.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.102.0',
+    date: '2026-09-03',
+    changes: [
+      'fix(autospin): 三路對帳的 Pinus 側終於會有資料。historyListReq 送出的 uid 一直是空字串（取自 window._uid / window.pinus.uid，這個遊戲兩個都沒有），伺服器每次回 errcode 15 參數錯誤——實測某 session 打了 10 次全失敗、reconcile_front_records 一筆都沒有，三路對帳因此 111 筆全部顯示「缺資料」',
+      'fix(autospin): 非 0 的 errcode 一定印出來（含 route/uid/errcode/描述）。原本錯誤回應沒有 list 欄位就直接落到 `if not records: return` 靜默結束，一行日誌都沒有——這才是它拖這麼久沒被發現的原因',
+      'fix(autospin): 取不到 uid 就不送 historyListReq，改印一行節流過的說明。原本照送空字串，等於每 20 次 spin 打一個註定失敗的請求',
+      'note(autospin): uid 只從 gate.gateHandler.loginReq 的回應擷取，刻意不「看到任何帶 uid 的封包就記」（CodeX review）——broadcast 那類廣播裡的 uid 可能是別的玩家，真實日誌就同時出現過兩個 uid。泛抓會把「撈不到資料」變成更危險的「撈到別人的戰績」',
+      'test(autospin): 新增 server/python/test_pinus_history.py（18 項，假 page）與 scripts/ui-checks/pinus-uid-capture.mjs（11 項，直接從 toppath-agent.py 抽出那段 JS 來跑）。後者已驗證把條件放寬成「任何封包都認」時會變紅 3 項',
+    ],
+  },
   {
     version: '4.101.0',
     date: '2026-09-03',

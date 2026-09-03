@@ -219,6 +219,10 @@ daily_log_lock = threading.Lock()
 # 按鈕健康度追蹤（從 daily-analysis 的 success_json 事件解析，只算 iDeck/觸屏按鈕，不算其他事件類型）
 # machineType -> {'ideck_ok':int, 'ideck_err':int, 'touch_ok':int, 'touch_err':int, 'since_summary':int}
 button_health: dict = {}
+
+# 「還沒拿到 uid 所以略過戰績查詢」的次數，用來節流那行日誌。
+# module-level 即可：spawn 模式下每個 child 各自一份，天然隔離（跟 button_health 同理）。
+pinus_uid_skip_count: dict = {}
 button_health_lock = threading.Lock()
 BUTTON_SUMMARY_EVERY = 20  # 每累積這麼多次按鈕確認事件，印一次健康度摘要
 
@@ -385,6 +389,14 @@ TOPPATH_MONITOR_SCRIPT = r"""
         var isSpinReq = route && route.indexOf('dealGMActionReq') !== -1 && msg && msg.isspin === 1;
         return origRequest.call(this, route, msg, function (resp) {
           pushPinusLog('response', route, resp);
+          // ⚠️ uid **只認登入回應**，不要「看到任何帶 uid 的封包就記」。
+          //    historyListReq 要的是「目前登入者」的 uid；broadcastReq 這類廣播裡的 uid
+          //    可能是別的玩家（實際日誌就同時出現過 325599 與 328980）。泛抓會把
+          //    「撈不到資料」這個 bug 變成更危險的「撈到別人的戰績」（CodeX review）。
+          if (route && route.indexOf('gate.gateHandler.loginReq') !== -1 && resp) {
+            var u = resp.uid || (resp.data && resp.data.uid);
+            if (u) window.__pinusUid = String(u);
+          }
           if (resp && typeof resp.coin === 'number') {
             window.__lastCoin = resp.coin;
             window.__coinUpdatedAt = Date.now();
@@ -959,15 +971,42 @@ def poll_monitor_logs(page, mt: str):
 def fetch_and_post_pinus_records(page, machine_type: str):
     """透過 window.pinus.request 取得歷史戰績並上傳到伺服器"""
     try:
-        uid = page.evaluate("window._uid || (window.pinus && window.pinus.uid) || ''")
-        records = page.evaluate("""(uid) => new Promise((resolve) => {
+        # ⚠️ uid 原本取自 `window._uid || window.pinus.uid`——**這個遊戲兩個都沒有**，
+        #    所以永遠是空字串，送出去每次都被伺服器回 errcode 15「參數錯誤」。
+        #    實測（BULLBLITZ，2026-09-03）：整個 session 打了 10 次 historyListReq、
+        #    10 次全失敗、`reconcile_front_records` 一筆都沒有，而三路對帳因此
+        #    111 筆全部顯示「缺資料」。真正的 uid 在登入回應裡，由 pinus 補丁記進
+        #    `window.__pinusUid`（只認 loginReq 的回應，見上方註解）。
+        uid = page.evaluate("window.__pinusUid || window._uid || (window.pinus && window.pinus.uid) || ''")
+        if not uid:
+            # 取不到就不要送——照送空字串只是每 20 次 spin 打一個註定失敗的請求，
+            # 污染日誌也污染伺服器，真正的錯誤還是被淹掉（CodeX review）。
+            # 節流：同一台機台每 10 次才印一次，不然它本身會變成洗版來源。
+            mp_skip = pinus_uid_skip_count.get(machine_type, 0) + 1
+            pinus_uid_skip_count[machine_type] = mp_skip
+            if mp_skip == 1 or mp_skip % 10 == 0:
+                log(f"[{machine_type}] 略過戰績紀錄：還沒取得 uid（第 {mp_skip} 次；uid 由登入回應提供，重連後才會再出現）")
+            return
+        result = page.evaluate("""(uid) => new Promise((resolve) => {
             var p = window.pinus;
-            if (!p || typeof p.request !== 'function') { resolve([]); return; }
+            if (!p || typeof p.request !== 'function') { resolve({err: 'no_pinus'}); return; }
             p.request('status.statusHandler.historyListReq',
-                {uid: uid || '', pageindex: 0, pagecount: 15},
-                function(res) { resolve((res && res.list) ? res.list : []); }
+                {uid: uid, pageindex: 0, pagecount: 15},
+                function(res) { resolve({res: res}); }
             );
         })""", uid)
+        if result.get('err') == 'no_pinus':
+            return
+        res = result.get('res') or {}
+        # ⚠️ 非 0 的 errcode **一定要印出來**。原本錯誤回應沒有 `list`，就直接落到
+        #    `if not records: return` 靜默結束——這次的問題本來一分鐘就該看出來，
+        #    是這個靜默 return 把訊號整個吃掉，拖了十天沒人發現（CodeX review）。
+        errcode = res.get('errcode')
+        if isinstance(errcode, (int, float)) and errcode != 0:
+            log(f"[{machine_type}] 戰績紀錄查詢失敗：historyListReq errcode={errcode} "
+                f"{res.get('errcodedes', '')}（uid={uid}）")
+            return
+        records = res.get('list') or []
         if not records:
             return
         normalized = []

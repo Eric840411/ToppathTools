@@ -806,6 +806,16 @@ RISINGROCKETS 也是）。那種機台**只剩 `moneyNtc` 一個完成訊號、�
 
 **配對邏輯**：SLS `recordBet` 的 `roundId` 欄位（例如 `"900-BZZF-0003|6A79AD7F003"`）與 AutoSpin 機台設定的 `gameTitleCode`（例如 `"900-BZZF-0003"`）前半段格式相同，用來把 SLS log 過濾到正確機台；`roundId` 再跟 Pinus `historyListReq` 回傳的 `order_id` 做精確字串比對配對同一筆下注（沒有做時間相近度 fallback——不像上面「後台對帳」2 路比對那樣有 bet/win/time 容錯配對，3 路對帳目前只信任明確的 ID 對應，避免配錯筆數字反而誤判成不符）。「機台有沒有在跑」的偵測是看 `autospin_history` 最近 5 分鐘內有沒有寫入紀錄（agent 本來就持續在寫），不是自己維護一份派工機台清單（`hub-dispatch` 當下沒有記錄實際派了哪些機台到 session 物件上，這樣判斷更準）。
 
+**Pinus 側的 uid 一定要從登入回應拿（2026-09-03，v4.102.0）**：`fetch_and_post_pinus_records()` 原本用 `window._uid || window.pinus.uid` 取 uid，**這個遊戲兩個都沒有**，所以送出去永遠是空字串，伺服器每次回 `errcode 15 參數錯誤`。實測某個 session 打了 10 次全失敗、`reconcile_front_records` 一筆都沒有，三路對帳因此 111 筆全部顯示「缺資料」。
+
+**⚠️ 它拖這麼久沒被發現，是因為錯誤被靜默吞掉**：錯誤回應沒有 `list` 欄位，程式直接落到 `if not records: return`，一行日誌都不印（成功會印、拋例外會印，唯獨「拿到 0 筆」什麼都不印）。現在非 0 errcode 一定印出來，含 route／uid／errcode／描述。
+
+**⚠️ uid 只認 `gate.gateHandler.loginReq` 的回應**，刻意不做「看到任何帶 uid 的封包就記」（跟 CodeX 討論定案）——`broadcastReq` 那類廣播裡的 uid 可能是**別的玩家**（真實日誌同時出現過 `325599` 與 `328980`）。泛抓會把「撈不到資料」這個 bug 變成更危險的「撈到別人的戰績」，而且看起來完全正常。取不到 uid 時直接跳過查詢並印一行節流過的說明，不要照送空字串。
+
+> 已驗證：`server/python/test_pinus_history.py`（18 項，假 page）＋ `scripts/ui-checks/pinus-uid-capture.mjs`（11 項，**直接從 `toppath-agent.py` 抽出那段 JS 來跑**，不是複製一份）。後者已注入違規確認會變紅——把條件放寬成「任何封包都認」時 3 項紅，包含「登入後再收到別人的 broadcast 不會被蓋掉」。
+>
+> ⚠️ **agent 端要按「更新程式碼」再重開 AutoSpin 才會生效**（`toppath-agent.py` 在白名單裡但不會自動更新）。
+
 **盒子日誌尚未串接**：`resolveFieldValue()` 對 `source: 'box'` 的欄位固定回傳 `undefined`，任何包含盒子欄位的比對群組會固定停在 `missing_data` 狀態，前端畫面在有此類群組時會明確顯示黃色提示「盒子硬體日誌尚未串接資料來源」，不會假裝已經比對過。之後真的串接時只需要在 `resolveFieldValue()` 補上 `ctx.box` 的實際資料來源，比對群組設定本身不用重新設定。
 
 ### 使用者操作
