@@ -1360,7 +1360,7 @@ Dashboard（修仙版）Hero 橫幅下方顯示一張每日語錄小卡片，語
 - 送出失敗也改成可點的「重試送出」，不再是永遠反灰的「送出失敗」——`clearRetryableSubmissions()` 本來就是為了讓失敗能重試而存在，把出口關掉等於那段程式碼白寫。
 
 - **pending 的清除要用 `try/finally` 包住整段，不要每個出口各清一次**（CodeX review 點名）：後者靠擺放位置成立，之後有人加一個 early return 就會靜默漏掉，症狀是「這次正常收尾了，下次重啟卻把一張已經有結果的卡片覆蓋成『上一次送出中斷了』」。
-- **已知範圍限制**：`ClientReady` 直接清 pending 的前提是**單一 process**。之後若變成多 instance 同時跑 bot，一台重啟會把另一台正在跑的送出誤判成遺骸——目前 pm2 單 process 重啟模型下沒問題（CodeX 提醒）。
+- **已知範圍限制**：`ClientReady` 直接清 pending 的前提是**單一 process**。之後若變成多 instance 同時跑 bot，一台重啟會把另一台正在跑的送出誤判成遺骸——目前 pm2 單 process 重啟模型下沒問題（CodeX 提醒）。真要水平擴 bot 的話，pending 復原要改成帶 owner／lease／heartbeat 的模型，不能只看「有沒有這筆紀錄」。
 
 > 已驗證 22 項（`scripts/ui-checks/weekly-submit-button-state.mjs`，用假 client 不連 Discord，跑完還原 settings 表），含「清除必須在 finally 裡」的結構檢查——**已注入違規確認它會變紅**。
 > ⚠️ **`update()` 在真實 Discord 上的行為沒辦法在本機驗**——本機的 `WEEKLY_DISCORD_BOT_TOKEN` 是刻意註解掉的（兩個環境同時跑 bot 會造成重複寫入 Lark），只有 Spug 上才驗得到。
