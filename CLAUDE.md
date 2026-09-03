@@ -1359,7 +1359,10 @@ Dashboard（修仙版）Hero 橫幅下方顯示一張每日語錄小卡片，語
 - **復原文案一定要講「不確定完成到哪一筆」**：送到一半掛掉時前面那幾筆是真的寫進 Lark 了，說成「沒有送出」會誤導；但重試本身安全，claim 會擋掉已成功的那幾筆。
 - 送出失敗也改成可點的「重試送出」，不再是永遠反灰的「送出失敗」——`clearRetryableSubmissions()` 本來就是為了讓失敗能重試而存在，把出口關掉等於那段程式碼白寫。
 
-> 已驗證 18 項（`scripts/ui-checks/weekly-submit-button-state.mjs`，用假 client 不連 Discord，跑完還原 settings 表）。
+- **pending 的清除要用 `try/finally` 包住整段，不要每個出口各清一次**（CodeX review 點名）：後者靠擺放位置成立，之後有人加一個 early return 就會靜默漏掉，症狀是「這次正常收尾了，下次重啟卻把一張已經有結果的卡片覆蓋成『上一次送出中斷了』」。
+- **已知範圍限制**：`ClientReady` 直接清 pending 的前提是**單一 process**。之後若變成多 instance 同時跑 bot，一台重啟會把另一台正在跑的送出誤判成遺骸——目前 pm2 單 process 重啟模型下沒問題（CodeX 提醒）。
+
+> 已驗證 22 項（`scripts/ui-checks/weekly-submit-button-state.mjs`，用假 client 不連 Discord，跑完還原 settings 表），含「清除必須在 finally 裡」的結構檢查——**已注入違規確認它會變紅**。
 > ⚠️ **`update()` 在真實 Discord 上的行為沒辦法在本機驗**——本機的 `WEEKLY_DISCORD_BOT_TOKEN` 是刻意註解掉的（兩個環境同時跑 bot 會造成重複寫入 Lark），只有 Spug 上才驗得到。
 
 **乾跑端點 `GET /api/weekly-report/submit-preview`**：按鈕按下去就真的寫進團隊共用的週報表、收不回來，所以要有一個不產生副作用的方式先看會送什麼。防重複的驗證（`scripts/ui-checks/weekly-dedupe-check.mjs`）也刻意**完全不碰 Lark**，用合成資料直接驗 claim 行為。

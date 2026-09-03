@@ -114,6 +114,11 @@ export function startWeeklyReportBot(): void {
     writePending({ channelId: i.channelId, messageId: i.message.id, startedAt: Date.now(), userTag: i.user.tag })
     await i.update({ components: [disabledRow('發送中…')] })
 
+    // ⚠️ 從這裡到結束**整段包在 try/finally 裡**，pending 一律在 finally 清掉。
+    //    不要改回「每個出口各清一次」——那是靠擺放位置成立的，之後有人加一個
+    //    early return 就會漏掉，而漏掉的症狀是：這次明明正常收尾了，下次 bot 重啟卻
+    //    把一張已經有結果的卡片覆蓋成「上一次送出中斷了」（CodeX review 點出的風險）。
+    try {
     // 上一輪失敗的、以及中途掛掉留下的殭屍 processing，按之前先清掉才重試得了
     clearRetryableSubmissions()
 
@@ -122,16 +127,14 @@ export function startWeeklyReportBot(): void {
     try {
       result = await submitWeeklyDraft(actor)
     } catch (e) {
-      // ⚠️ 這裡不能只是 rethrow：拋出去的話 pending 留著、按鈕停在「發送中…」，
-      //    而 process 沒死所以 ClientReady 的復原也不會跑——就真的鎖死了。
-      writePending(null)
+      // ⚠️ 這裡不能只是 rethrow：拋出去的話按鈕停在「發送中…」，而 process 沒死、
+      //    ClientReady 的復原也不會跑——使用者就真的按不了了。
       await i.editReply({
         content: `❌ 送出時發生未預期錯誤：${e instanceof Error ? e.message : String(e)}`,
         components: [enabledRow('重試送出')],
       }).catch(() => {})
       return
     }
-    writePending(null)
 
     if (result.ok === false) {
       await i.editReply({
@@ -179,6 +182,11 @@ export function startWeeklyReportBot(): void {
       embeds: packFieldsIntoEmbeds(fields, '送出結果'),
       components: [disabledRow('已送出')],
     })
+    } finally {
+      // 正常收尾、失敗收尾、例外，走到這裡都代表「這一輪已經有結果了」，
+      // 不該再被下次啟動當成中斷的遺骸補一次舊狀態。
+      writePending(null)
+    }
   })
 
   client.on(Events.Error, e => console.error('[WeeklyBot] Gateway 錯誤：', e))

@@ -15,7 +15,8 @@ export const CHANGELOG: ChangelogEntry[] = [
       'fix(weekly-report): 送出失敗的按鈕從「送出失敗」（永遠反灰）改成可點的「重試送出」——clearRetryableSubmissions() 本來就是為了讓失敗能重試而存在，把出口關掉等於那段程式碼白寫',
       'feat(weekly-report): process 死在送出途中留下的「發送中…」卡片，下次 bot 連上時自動復原成「重試送出」並註明「不確定完成到哪一筆、重試不會重複送」。刻意不做 timeout——能跑到 ClientReady 就代表舊 process 已經不在了',
       'note(weekly-report): 按鈕 disabled 只是視覺防呆不是正確性保證（CodeX 原話）；真正擋重複的一直是送出前「先 INSERT 搶 claim」那層，所以就算連點也不會在 Lark 長出重複的列',
-      'test(weekly-report): 新增 scripts/ui-checks/weekly-submit-button-state.mjs（18 項，用假 client 不連 Discord，跑完還原 settings 表）',
+      'refactor(weekly-report): pending 的清除改用 try/finally 包住整段，不再是每個出口各清一次——後者靠擺放位置成立，之後有人加一個 early return 就會靜默漏掉（CodeX review 點名的風險）',
+      'test(weekly-report): 新增 scripts/ui-checks/weekly-submit-button-state.mjs（22 項，用假 client 不連 Discord，跑完還原 settings 表），含「清除必須在 finally 裡」的結構檢查，已驗證注入違規時會變紅',
     ],
   },
   {

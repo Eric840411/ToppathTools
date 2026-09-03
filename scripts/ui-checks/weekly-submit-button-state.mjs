@@ -100,6 +100,33 @@ threw = false;
 try { await recoverStuckSubmit() } catch { threw = true }
 check('頻道抓不到時不拋例外', !threw);
 
+console.log('\n6) pending 一定要在所有出口都被清掉（CodeX review 點名的風險）');
+// ⚠️ 這條沒辦法靠跑一次證明——要證明的是「**任何**出口都會清」，而出口會隨著
+//    之後改動增加。所以改成驗結構：清除必須寫在 finally 裡，而不是每個出口各寫一次。
+//    靠擺放位置成立的性質，之後有人加一個 early return 就會靜默失效，
+//    症狀是「這次正常收尾了，下次重啟卻把有結果的卡片覆蓋成『上一次送出中斷了』」。
+{
+  const fs = await import('node:fs');
+  const src = fs.readFileSync(path.join(root, 'server/weekly-report-bot.ts'), 'utf8');
+  const handler = src.slice(src.indexOf('Events.InteractionCreate'), src.indexOf('Events.Error'));
+  const sets = [...handler.matchAll(/writePending\(\{/g)].length;
+  const clears = [...handler.matchAll(/writePending\(null\)/g)].length;
+  check('handler 裡只有一處設定 pending', sets === 1, `${sets} 處`);
+  check('handler 裡只有一處清除 pending（不是每個出口各清一次）', clears === 1, `${clears} 處`);
+  // finally 到清除之間只允許註解與空白
+  const inFinally = new RegExp('\\}\\s*finally\\s*\\{(?:\\s*\\/\\/[^\\n]*\\n)*\\s*writePending\\(null\\)').test(handler);
+  check('那一處在 finally 裡', inFinally);
+  // 設定 pending 之後、進 try 之前不能有 return——那段沒有 finally 保護。
+  // ⚠️ 一定要先剝掉註解再比：這段的說明文字裡就有「early return 就會漏掉」，
+  //    不剝的話這條永遠是紅的（第一次跑就被自己的註解咬到）。
+  // ⚠️ 剝註解要用 [^\r\n] 不能用 `.*$`：這個 repo 的檔案是 CRLF，而 JS 的 `.`
+  //    不匹配 \r，`$` 沒有 m 旗標時又只認字串結尾——兩個加起來就是一行都剝不掉。
+  const between = handler
+    .slice(handler.indexOf('writePending({'), handler.indexOf('try {'))
+    .replace(/\/\/[^\r\n]*/g, '');
+  check('設定 pending 之後到進 try 之前沒有 return', !new RegExp('\\breturn\\b').test(between));
+}
+
 // ── 還原 ──
 if (original) db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(PENDING_KEY, original.value);
 else db.prepare('DELETE FROM settings WHERE key = ?').run(PENDING_KEY);
