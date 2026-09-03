@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.102.0'
+export const APP_VERSION = '4.103.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.103.0',
+    date: '2026-09-03',
+    changes: [
+      'fix(autospin): 三路對帳改用「同機台＋時間相近」配對。Pinus 的 historyListReq 根本沒有 order id（實測回傳欄位只有 time/gameid/gmid/bet/win/gmname），原本的 pinusByOrderId.get(sls.roundId) 精確比對永遠不可能命中',
+      'feat(autospin): 狀態拆成 unmatched（找不到可配對的紀錄）／ambiguous_match（時間窗內多筆，系統拒絕猜）／missing_data（配到了但某一路缺欄位）。三者的下一步完全不同，混成一個看不出該做哪件事',
+      'note(autospin): 規則一律保守——寧可 unmatched 不要假相符。bet/win 只當配對後的驗證不當配對鍵（連續同注額的 bet 完全一樣，拿來縮候選會製造精準的錯覺）；還會反向檢查「同一筆 Pinus 被兩輪搶走」，那種情況兩輪都拒絕',
+      'perf(autospin): 時間窗依實測分布定為 ±1000ms。用 285 輪真實資料重算：±1000ms 可配對 101 筆、±3000ms 只有 49 筆——放寬反而更糟，因為 spin 間隔實測 3~4 秒，窗一大就必然抓到相鄰輪次。上線後 ambiguous 從 21 筆降到 0',
+      'feat(autospin): 每筆留配對診斷（matchMethod／windowMs／candidateCount／contested／timeDeltaMs），之後要調窗才不是黑箱',
+      'test(autospin): 新增 scripts/ui-checks/pinus-sls-matching.mjs（24 項，fixture 相對窗寬表達），已驗證把「多筆候選取第一筆」注入後會變紅 3 項',
+    ],
+  },
   {
     version: '4.102.0',
     date: '2026-09-03',

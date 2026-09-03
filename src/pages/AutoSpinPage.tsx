@@ -370,7 +370,7 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
   // ── 三路對帳 tab（SLS recordBet / 盒子日誌 / Pinus history）───────────────────
   interface CompareField { source: 'sls' | 'box' | 'pinus'; path: string; label?: string }
   interface CompareGroupDef { id: string; name: string; fields: CompareField[]; tolerance: number }
-  interface CompareMachineRow { sessionId: string; machineType: string; agentLabel: string; compared: number; matched: number; mismatched: number; missing: number }
+  interface CompareMachineRow { sessionId: string; machineType: string; agentLabel: string; compared: number; matched: number; mismatched: number; missing: number; unmatched?: number; ambiguous?: number }
   interface CompareDetailGroup { groupId: string; groupName: string; values: { source: string; path: string; value: unknown }[]; status: string; note: string }
   interface CompareDetailRow { spinIndex: number; spinTime: string; status: string; groups: CompareDetailGroup[] }
 
@@ -1549,7 +1549,7 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                   <tbody>
                     {cmpMachines.map(m => {
                       const key = `${m.sessionId}:${m.machineType}`
-                      const attn = m.mismatched > 0 || m.missing > 0
+                      const attn = m.mismatched > 0 || m.missing > 0 || (m.unmatched ?? 0) > 0 || (m.ambiguous ?? 0) > 0
                       // 從執行監控的摘要點進來時，把那一台標出來——不然跳過來還要自己找，
                       // 「帶 filter 到該機台」就只做了一半（CodeX 設計裡的要求）
                       const focused = cmpFocusMachine === m.machineType
@@ -1570,7 +1570,14 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: attn ? 'var(--cr-rose-soft, rgba(223,118,94,.12))' : 'var(--cr-cyan-soft)', color: attn ? 'var(--cr-rose)' : 'var(--cr-cyan)' }}>
                                 <span style={{ width: 5, height: 5, borderRadius: '50%', background: attn ? 'var(--cr-amber)' : 'var(--cr-cyan)' }} />
                                 {attn
-                                  ? [m.mismatched > 0 ? `${m.mismatched} 筆不符` : '', m.missing > 0 ? `${m.missing} 筆缺資料` : ''].filter(Boolean).join(' · ')
+                                  ? [
+                                      m.mismatched > 0 ? `${m.mismatched} 筆不符` : '',
+                                      // ⚠️ 三種要分開講。「配不到」要去看配對規則、「多筆候選」代表系統
+                                      //    拒絕猜、「缺資料」是配到了但某一路沒有值——下一步完全不同
+                                      (m.unmatched ?? 0) > 0 ? `${m.unmatched} 筆配不到` : '',
+                                      (m.ambiguous ?? 0) > 0 ? `${m.ambiguous} 筆多筆候選` : '',
+                                      m.missing > 0 ? `${m.missing} 筆缺資料` : '',
+                                    ].filter(Boolean).join(' · ')
                                   : '正常'}
                               </span>
                             </td>

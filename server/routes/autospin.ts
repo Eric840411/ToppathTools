@@ -2758,6 +2758,94 @@ function getPath(obj: unknown, path: string): unknown {
   }, obj)
 }
 
+/**
+ * SLS 一輪 ↔ Pinus 戰績紀錄的配對。**抽成純函式是為了測得到**——
+ * 這段的失敗方式是「配錯人卻顯示相符」，比配不到更糟，一定要有回歸測試。
+ */
+/**
+ * ⚠️ **這個值是用實測分布定的，不是憑感覺**（CodeX 要求）。
+ *
+ * 285 輪真實 SLS × 165 筆真實 Pinus 紀錄（BULLBLITZ，2026-09-03）重算的結果：
+ *
+ * | 窗寬 | 可配對 | 配不到 | 多筆拒絕 |
+ * |------|-------|-------|---------|
+ * | ±500ms  |  57 | 213 |  15 |
+ * | **±1000ms** | **101** | 152 |  32 |
+ * | ±1500ms | 101 | 152 |  32 |
+ * | ±2000ms |  94 | 151 |  40 |
+ * | ±3000ms |  49 | 148 |  88 |
+ * | ±5000ms |   8 | 144 | 133 |
+ *
+ * **放寬反而更糟**：spin 間隔實測 3~4 秒，窗一放大就必然抓到相鄰輪次，
+ * 全部變成 ambiguous。第一版設 ±3000ms 只配得到 49 筆，±1000ms 有 101 筆。
+ *
+ * 兩邊時間都是秒級，實際觀察到的真實時間差只有 `0` 與 `-1000ms` 兩種，
+ * 所以 ±1000ms 剛好涵蓋「同一秒或相鄰一秒」，再寬就只是在製造歧義。
+ *
+ * 要再調的話**先用實際資料重算這張表**，不要直接改數字。
+ */
+export const PINUS_MATCH_WINDOW_MS = 1000
+
+/** Pinus 的 recordTime 是本地時間字串（UTC+8），SLS 的 time 是 epoch 秒 */
+export function pinusRecordTimeToMs(recordTime: unknown): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(String(recordTime ?? ''))
+  if (!m) return null
+  const [, y, mo, d, h, mi, s] = m
+  // ⚠️ 用 Date.UTC 疊出來再減 8 小時，不要用 `new Date("...")`——後者會依
+  //    **伺服器的**本地時區解讀，同一份資料在不同機器上會算出不同時間。
+  return Date.UTC(+y, +mo - 1, +d, +h, +mi, +s) - 8 * 3600_000
+}
+
+export interface PinusMatchPick<T> {
+  candidateCount: number
+  /** 時間窗內剛好一筆、而且沒有被別輪搶走時才有值 */
+  matched: T | null
+  /** 唯一候選被兩輪以上同時選中 */
+  contested: boolean
+  timeDeltaMs: number | null
+}
+
+/**
+ * ⚠️ 規則一律保守：**寧可 unmatched，不要假相符**（跟 CodeX 討論定案）。
+ *
+ * - 配對鍵只有「同 gmid + 時間窗內唯一候選」
+ * - **不用 bet/win 縮候選**——連續同注額的輪次 bet 完全一樣、win 常常都是 0，
+ *   拿來當配對鍵會製造「看似精準」的錯覺。它們只該當配對**之後**的驗證
+ * - 候選 0 筆 → 配不到；>1 筆 → 拒絕猜
+ * - **還要反向檢查**：spin 間隔 4~5 秒、窗 ±3 秒時，相鄰兩輪很可能各自
+ *   「唯一」對到同一筆 Pinus。只看「一輪對到幾筆」抓不到這種，
+ *   所以同一筆被搶兩次時兩邊都判成無法判定
+ */
+export function matchPinusRounds<T extends { gmid?: string; recordTime?: unknown }>(
+  slsRounds: { timeSec: number; gmid: string }[],
+  pinusRows: T[],
+  windowMs: number = PINUS_MATCH_WINDOW_MS,
+): PinusMatchPick<T>[] {
+  const timed = pinusRows
+    .map(row => ({ row, at: pinusRecordTimeToMs(row.recordTime) }))
+    .filter((x): x is { row: T; at: number } => x.at !== null)
+
+  const picked = slsRounds.map(sls => {
+    const at = sls.timeSec * 1000
+    const hits = timed.filter(x =>
+      (!sls.gmid || !x.row.gmid || x.row.gmid === sls.gmid) && Math.abs(x.at - at) <= windowMs)
+    return { at, count: hits.length, hit: hits.length === 1 ? hits[0] : null }
+  })
+
+  const claims = new Map<T, number>()
+  for (const p of picked) if (p.hit) claims.set(p.hit.row, (claims.get(p.hit.row) ?? 0) + 1)
+
+  return picked.map(p => {
+    const contested = p.hit ? (claims.get(p.hit.row) ?? 0) > 1 : false
+    return {
+      candidateCount: p.count,
+      matched: contested ? null : (p.hit?.row ?? null),
+      contested,
+      timeDeltaMs: p.hit && !contested ? p.hit.at - p.at : null,
+    }
+  })
+}
+
 function resolveFieldValue(field: CompareField, ctx: CompareContext): unknown {
   if (field.source === 'box') return undefined // 盒子日誌尚未串接
   return getPath(ctx[field.source], field.path)
@@ -2813,7 +2901,14 @@ async function compareMachineCycle(sessionId: string, machineType: string, gameT
     SELECT orderId, bet, win, recordTime, gmid, gameid FROM reconcile_front_records
     WHERE sessionId = ? AND machineType = ? AND createdAt >= ?
   `).all(sessionId, machineType, fromSec * 1000) as PinusFrontRow[]
-  const pinusByOrderId = new Map(pinusRows.map(r => [r.orderId, r]))
+  // ⚠️ **Pinus 的 historyListReq 根本沒有 order id**（實測 BULLBLITZ 2026-09-03：
+  //    欄位只有 time/gameid/gmid/bet/win/gmname），所以 orderId 一律是空字串，
+  //    原本的 `pinusByOrderId.get(sls.roundId)` 精確比對永遠不可能命中。
+  //    改用時間+機台的保守配對，規則與理由見 matchPinusRounds()。
+  const picks = matchPinusRounds(
+    slsRecords.map(r => ({ timeSec: r.time, gmid: String((r.raw as Record<string, unknown> | undefined)?.gmid ?? '') })),
+    pinusRows,
+  )
 
   let spinIndex = (db.prepare('SELECT COUNT(*) as c FROM autospin_compare_results WHERE sessionId = ? AND machineType = ?')
     .get(sessionId, machineType) as { c: number }).c
@@ -2829,19 +2924,43 @@ async function compareMachineCycle(sessionId: string, machineType: string, gameT
   `)
 
   const tx = db.transaction(() => {
-    for (const sls of slsRecords) {
+    for (let i = 0; i < slsRecords.length; i++) {
+      const sls = slsRecords[i]
+      const p = picks[i]
       const roundKey = sls.roundId || `sls-t:${sls.time}`
       if (!existingKeys.has(roundKey)) { spinIndex++; existingKeys.add(roundKey) }
-      const pinus = pinusByOrderId.get(sls.roundId)
+
+      const { candidateCount: count, contested, matched: pinus, timeDeltaMs } = p
       const ctx: CompareContext = {
         sls: sls.raw,
-        pinus: pinus ? { orderId: pinus.orderId, bet: pinus.bet, win: pinus.win, recordTime: pinus.recordTime, gmid: pinus.gmid, gameid: pinus.gameid } : undefined,
+        pinus: pinus
+          ? { orderId: pinus.orderId, bet: pinus.bet, win: pinus.win, recordTime: pinus.recordTime, gmid: pinus.gmid, gameid: pinus.gameid }
+          : undefined,
       }
       const groupResults = groups.map(g => evaluateGroup(g, ctx))
-      const status = groupResults.some(g => g.status === 'mismatch')
-        ? 'mismatch'
-        : groupResults.some(g => g.status === 'missing_data') ? 'missing_data' : 'match'
-      upsert.run(sessionId, machineType, roundKey, spinIndex, new Date(sls.time * 1000).toISOString(), status, JSON.stringify(groupResults))
+
+      /**
+       * ⚠️ 狀態要分得開（CodeX review）。
+       * 「找不到可配對的紀錄」跟「配到了但某一路缺欄位」是完全不同的事——
+       * 混成一個 missing_data，看到的人不知道該去修配對規則還是去補資料來源。
+       */
+      let status: string
+      if (count === 0) status = 'unmatched'
+      else if (count > 1 || contested) status = 'ambiguous_match'
+      else if (groupResults.some(g => g.status === 'mismatch')) status = 'mismatch'
+      else if (groupResults.some(g => g.status === 'missing_data')) status = 'missing_data'
+      else status = 'match'
+
+      // 診斷欄位：之後要把 ±3 秒調成 ±5 秒時，才不會變成憑感覺調（CodeX 要求）
+      const diag = {
+        matchMethod: 'time_gmid',
+        windowMs: PINUS_MATCH_WINDOW_MS,
+        candidateCount: count,
+        contested,
+        timeDeltaMs,
+      }
+      upsert.run(sessionId, machineType, roundKey, spinIndex, new Date(sls.time * 1000).toISOString(),
+        status, JSON.stringify({ groups: groupResults, match: diag }))
     }
   })
   tx()
@@ -2898,9 +3017,13 @@ router.get('/api/autospin/compare/status', (req, res) => {
         COUNT(*) as compared,
         SUM(CASE WHEN status = 'match' THEN 1 ELSE 0 END) as matched,
         SUM(CASE WHEN status = 'mismatch' THEN 1 ELSE 0 END) as mismatched,
-        SUM(CASE WHEN status = 'missing_data' THEN 1 ELSE 0 END) as missing
+        SUM(CASE WHEN status = 'missing_data' THEN 1 ELSE 0 END) as missing,
+        -- ⚠️ 這兩個一定要跟 missing 分開統計。「找不到可配對的紀錄」要去修配對規則，
+        --    「配到了但缺欄位」要去補資料來源——合在一起看不出該做哪件事。
+        SUM(CASE WHEN status = 'unmatched' THEN 1 ELSE 0 END) as unmatched,
+        SUM(CASE WHEN status = 'ambiguous_match' THEN 1 ELSE 0 END) as ambiguous
       FROM autospin_compare_results WHERE sessionId = ? GROUP BY machineType
-    `).all(session.id) as { machineType: string; compared: number; matched: number; mismatched: number; missing: number }[]
+    `).all(session.id) as { machineType: string; compared: number; matched: number; mismatched: number; missing: number; unmatched: number; ambiguous: number }[]
     for (const r of rows) {
       machines.push({ sessionId: session.id, machineType: r.machineType, agentLabel: session.userLabel, ...r })
     }
@@ -2931,7 +3054,18 @@ router.get('/api/autospin/compare/detail/:machineType', (req, res) => {
 
   res.json({
     ok: true,
-    rows: rows.reverse().map(r => ({ spinIndex: r.spinIndex, spinTime: r.spinTime, status: r.status, groups: JSON.parse(r.groups || '[]') })),
+    // ⚠️ 這個欄位有兩種形狀：舊資料是「群組陣列」，v4.103.0 起是
+    //    `{ groups, match }`（多帶配對診斷）。舊列一定要照樣讀得出來——
+    //    這張表不會清空，直接改讀新形狀會讓所有既有紀錄的明細變成空白。
+    rows: rows.reverse().map(r => {
+      const parsed = JSON.parse(r.groups || '[]') as unknown
+      const isNew = parsed && !Array.isArray(parsed) && typeof parsed === 'object'
+      return {
+        spinIndex: r.spinIndex, spinTime: r.spinTime, status: r.status,
+        groups: isNew ? ((parsed as { groups?: unknown }).groups ?? []) : parsed,
+        match: isNew ? (parsed as { match?: unknown }).match ?? null : null,
+      }
+    }),
   })
 })
 
