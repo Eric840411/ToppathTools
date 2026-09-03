@@ -1694,7 +1694,11 @@ function BatchScanSection({
               )}
               {mergeOsm && mergeableCount > 0 && (
                 <div style={{ fontSize: 11, color: 'var(--cr-cyan, #38bdf8)', marginBottom: 12, padding: '6px 10px', borderRadius: 6, background: 'rgba(56,189,248,.08)', border: '1px solid rgba(56,189,248,.25)' }}>
-                  已開啟合併：{MERGE_PROJECT_NAME} 共 {mergeableCount} 筆，會<b>依每個人各自</b>合併成一條送出（下面清單仍顯示原始逐筆，可繼續編輯；關掉開關就恢復）。實際會寫進 Lark 的內容以下方「預期結果」為準。
+                  {/* ⚠️ 原本寫「下面清單仍顯示原始逐筆，可繼續編輯」——那句對**已被合併**的項目
+                      是錯的：編輯完全不影響送出的內容，一律變成「OSM需求」。使用者實際踩到
+                      （2026-09-03：手動打了「熱更新測試」，預覽變成「OSM需求」，以為資料掉了）。
+                      文案往「以為有效」的方向錯，比沒寫更糟。 */}
+                  已開啟合併：{MERGE_PROJECT_NAME} 共 {mergeableCount} 筆，會<b>依每個人各自</b>合併成一條，補充說明統一顯示為「{MERGE_CONTENT}」——<b>被合併的項目在這裡編輯不會改變送出的內容</b>。<b>手動新增的項目不參與合併</b>，會單獨保留。關掉開關就恢復逐筆。實際會寫進 Lark 的內容以下方「預期結果」為準。
                 </div>
               )}
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>

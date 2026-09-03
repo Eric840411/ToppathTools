@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.98.5'
+export const APP_VERSION = '4.98.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.98.6',
+    date: '2026-09-03',
+    changes: [
+      'fix(weekly-report): 手動新增的項目不再被「P7-005-OSM 每人合併成一條」吃掉。使用者手動打的「熱更新測試」在預覽裡被改寫成「OSM需求」，看起來像資料掉了——合併的用意是收斂自動掃進來的批量內容，手動打字是明確的意圖表達，不同性質',
+      'fix(weekly-report): 合併開關下方的說明原本寫「下面清單仍顯示原始逐筆，可繼續編輯」，但被合併的項目編輯完全不影響送出內容。文案往「以為有效」的方向錯，改成明講「被合併的項目在這裡編輯不會改變送出的內容」',
+      'note(weekly-report): 刻意不豁免 Jira 套用與手動指派（跟 CodeX 討論定案）——那兩者仍是系統批量產物，一起豁免會把合併開關的效果稀釋掉',
+      'test(weekly-report): 新增 scripts/ui-checks/weekly-merge-manual-exempt.mjs（16 項），已先在修正前的版本上驗證會變紅（6 項紅，含回報症狀本身）',
+    ],
+  },
   {
     version: '4.98.5',
     date: '2026-09-02',

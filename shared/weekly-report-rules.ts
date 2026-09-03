@@ -40,6 +40,27 @@ export const DEFAULT_TAB_DATE_PROJECT_NAME = 'P7-007-第三方測試'
 export const MERGE_PROJECT_NAME = DEFAULT_SCAN_SHEET_PROJECT_NAME
 export const MERGE_CONTENT = 'OSM需求'
 
+/**
+ * 「手動新增」那顆按鈕產生的項目，`sourceRowId` 固定是這個字串
+ * （`WeeklyReportPage.tsx` 的 `addDraftItem`）。
+ */
+export const MANUAL_SOURCE_ROW_ID = '手動新增'
+
+/**
+ * 這一筆是不是使用者自己打字加的。
+ *
+ * ⚠️ 手動新增的項目**不參與 P7-005-OSM 合併**（2026-09-03，跟 CodeX 討論定案）。
+ *    合併的用意是「一週十幾筆 OSM 需求逐條寫沒意義」，處理的是**自動掃進來的批量內容**；
+ *    但手動打字是明確的意圖表達，被併掉等於使用者輸入的文字**靜默消失**——
+ *    真實案例：使用者打了「熱更新測試」，預覽裡變成「OSM需求」，看起來像資料掉了。
+ *
+ * ⚠️ 刻意**不**豁免 `Jira · …`／`手動指派 · …`（CodeX 明確反對）：
+ *    那兩者仍是系統批量產物，一起豁免會把合併開關的效果稀釋掉。
+ */
+export function isManualItem(item: { sourceRowId: string }): boolean {
+  return item.sourceRowId === MANUAL_SOURCE_ROW_ID
+}
+
 // ── 專案名稱比對 ──────────────────────────────────────────────────────────────
 
 /** 比對 Jira 專案真實名稱（例如 "P7-007 第三方測試"）跟 Lark 專案選項（例如 "P7-007-第三方測試"）——
@@ -250,13 +271,14 @@ export function buildPreviewItems(
 
   if (!options.mergeOsm) return tagApplied
 
+
   return peopleList.flatMap(person => {
     const items = tagApplied.filter(x => x.person === person).map(x => x.item)
     const out: FlatItem[] = []
     let mergedInserted = false
     for (const item of items) {
       // trim 比對：Sheet／Jira 來源的專案名稱可能帶前後空白，不 trim 會漏合併（CodeX review 建議）
-      if (item.projectName.trim() === MERGE_PROJECT_NAME) {
+      if (item.projectName.trim() === MERGE_PROJECT_NAME && !isManualItem(item)) {
         if (mergedInserted) continue
         mergedInserted = true
         out.push({
@@ -276,11 +298,16 @@ export function buildPreviewItems(
   })
 }
 
-/** 有幾筆會被 P7-005-OSM 合併規則吃到（畫面上顯示「開啟後會合併 N 筆」用） */
+/**
+ * 有幾筆會被 P7-005-OSM 合併規則吃到（畫面上顯示「開啟後會合併 N 筆」用）。
+ *
+ * ⚠️ 這裡的條件必須跟 `buildPreviewItems()` 裡那一行**完全一致**（含手動新增的豁免），
+ *    否則畫面會說「會合併 6 筆」但實際只併了 5 筆——數字對不上而且沒有任何徵兆。
+ */
 export function countMergeable(draftsByPerson: Record<string, DraftItem[]>): number {
   return Object.values(draftsByPerson)
     .flat()
-    .filter(item => item.projectName.trim() === MERGE_PROJECT_NAME).length
+    .filter(item => item.projectName.trim() === MERGE_PROJECT_NAME && !isManualItem(item)).length
 }
 
 /** 有幾筆帶著 Jira 原始資料、會被標籤歸集規則處理到 */
