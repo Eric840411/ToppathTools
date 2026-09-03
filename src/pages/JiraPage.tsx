@@ -564,6 +564,8 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
   const [reconcileTo, setReconcileTo] = useState('')
   const [reconcileLoading, setReconcileLoading] = useState(false)
   const [reconcileMatches, setReconcileMatches] = useState<{ rowIndex: number; sheetSummary: string; jiraKey: string; jiraSummary: string; jiraCreated: string; confidence: string }[]>([])
+  /** 這次查詢實際從 Jira 抓了幾筆／幾頁、是不是完整。`null` = 舊版 server 沒回報，當成「不確定」。 */
+  const [reconcileFetchInfo, setReconcileFetchInfo] = useState<{ fetched: number; pages: number; complete: boolean; reason: string | null } | null>(null)
   const [reconcileUnmatchedJira, setReconcileUnmatchedJira] = useState<{ key: string; summary: string; created: string }[]>([])
   const [reconcileUnmatchedRows, setReconcileUnmatchedRows] = useState<{ rowIndex: number; sheetSummary: string }[]>([])
   const [reconcileSelected, setReconcileSelected] = useState<Set<number>>(new Set())
@@ -3848,9 +3850,17 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
                     }),
                   })
                   const text = await raw.text()
-                  let resp: { ok: boolean; matches?: typeof reconcileMatches; unmatchedJiraIssues?: typeof reconcileUnmatchedJira; unmatchedSheetRows?: typeof reconcileUnmatchedRows; message?: string }
+                  let resp: { ok: boolean; matches?: typeof reconcileMatches; unmatchedJiraIssues?: typeof reconcileUnmatchedJira; unmatchedSheetRows?: typeof reconcileUnmatchedRows; message?: string
+                    jiraFetched?: number; pageCount?: number; reachedLimit?: boolean; limitReason?: string | null; isComplete?: boolean }
                   try { resp = JSON.parse(text) } catch { setReconcileMsg(`Server 回傳非 JSON（HTTP ${raw.status}）：${text.slice(0, 200)}`); return }
                   if (!resp.ok) { setReconcileMsg(resp.message ?? '查詢失敗'); return }
+                  // ⚠️ 舊版 server 不回這幾個欄位。`isComplete` 讀不到時**不要當成完整**——
+                  //    預設成 true 等於在舊 server 上把截斷的結果重新標成「完整」，
+                  //    比沒做這個功能更糟。undefined 一律走「不確定」那條。
+                  setReconcileFetchInfo(resp.jiraFetched === undefined ? null : {
+                    fetched: resp.jiraFetched, pages: resp.pageCount ?? 0,
+                    complete: resp.isComplete === true, reason: resp.limitReason ?? null,
+                  })
                   setReconcileMatches(resp.matches ?? [])
                   setReconcileUnmatchedJira(resp.unmatchedJiraIssues ?? [])
                   setReconcileUnmatchedRows(resp.unmatchedSheetRows ?? [])
@@ -3864,11 +3874,42 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
 
               {reconcileMsg && <p style={{ color: '#ef4444', fontSize: 12, marginTop: 8 }}>{reconcileMsg === '請先選擇帳號' ? '請先在頁面上方選擇 Jira 帳號，再使用對帳功能' : reconcileMsg}</p>}
 
+              {/* ⚠️ 警告要放在結果「上面」。放下面的話使用者已經看完那排數字、
+                  結論也下完了才看到警告——跟後台對帳那次同一個教訓。 */}
+              {reconcileFetchInfo && !reconcileFetchInfo.complete && (
+                <div style={{ marginTop: 10, padding: '8px 11px', borderRadius: 8, background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.45)', fontSize: 12.5, color: '#fca5a5', lineHeight: 1.6 }}>
+                  <b>⚠️ 結果不完整</b>——已達搜尋上限（{reconcileFetchInfo.reason === 'maxIssues' ? '筆數' : '頁數'}），
+                  從 Jira 讀了 {reconcileFetchInfo.fetched} 筆就停住，符合條件的單子還有更多沒被讀進來。
+                  <b>請縮小日期範圍後分批處理</b>；直接補回填只會補到其中一部分，剩下的列會維持空白且不會有提示。
+                </div>
+              )}
+
               {reconcileMatches.length > 0 && (
                 <div style={{ marginTop: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontSize: 13, color: '#e2e8f0' }}>找到 {reconcileMatches.length} 筆配對（可勾選後補回填）</span>
+                    {/* ⚠️ 文案不能寫成像「就這些」。原本是「找到 N 筆配對」，而 N 是被 Jira
+                        截斷後的數字（實測 231 筆只看到 100），讀起來卻像全部找完了。
+                        現在一律把「從 Jira 抓了幾筆／幾頁」講出來，讓範圍變成顯性資訊。 */}
+                    <span style={{ fontSize: 13, color: '#e2e8f0' }}>
+                      配對 {reconcileMatches.length} 筆（可勾選後補回填）
+                      {reconcileFetchInfo && (
+                        <span style={{ color: '#94a3b8', fontSize: 12 }}>
+                          {' '}· 本次從 Jira 讀取 {reconcileFetchInfo.fetched} 筆／{reconcileFetchInfo.pages} 頁
+                        </span>
+                      )}
+                    </span>
                     <button className="submit-btn submit-btn--sm" disabled={reconcileApplying || reconcileSelected.size === 0} onClick={async () => {
+                      // ⚠️ 結果不完整時要擋一次確認再送。這支工具是拿來修資料的——
+                      //    拿不完整的集合去 reconcile 會造成「以為修完」的二次事故（CodeX review）。
+                      if (reconcileFetchInfo && !reconcileFetchInfo.complete) {
+                        const why = reconcileFetchInfo.reason === 'maxIssues' ? '筆數' : '頁數'
+                        if (!window.confirm(
+                          `⚠️ 這次的查詢結果不完整（已達${why}上限，從 Jira 讀了 ${reconcileFetchInfo.fetched} 筆就停住）。\n\n`
+                          + `Jira 裡符合條件的單子還有更多沒被讀進來，現在補回填只會補到其中一部分，`
+                          + `剩下的列會維持空白而且不會有任何提示。\n\n`
+                          + `建議先縮小日期範圍分批處理。仍要補回填目前這 ${reconcileSelected.size} 筆嗎？`
+                        )) return
+                      }
                       setReconcileApplying(true)
                       try {
                         const selected = reconcileMatches.filter(m => reconcileSelected.has(m.rowIndex))

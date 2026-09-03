@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.98.7'
+export const APP_VERSION = '4.99.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.99.0',
+    date: '2026-09-03',
+    changes: [
+      'fix(jira): 對帳補回填的 Jira 查詢改成分頁，不再靜默截斷在 100 筆。原本只發一次 maxResults:200，但 /rest/api/3/search/jql 的伺服器端硬上限是 100——實測 DSFT 某兩天實際有 231 筆、工具只看到 100，漏掉 131 筆（57%）',
+      'note(jira): 這個截斷完全沒有徵兆，因為新端點的回應沒有 total 欄位，只有 nextPageToken + isLast。不讀那兩個欄位的話「拿到 100 筆」跟「總共就 100 筆」長得一模一樣。而這支工具的用途正是補回遺失的單號，漏掉的列會一直空白沒人發現',
+      'feat(jira): 回應多帶 jiraFetched / pageCount / reachedLimit / limitReason / isComplete，一路傳到 UI。標題從「找到 N 筆配對」改成「配對 N 筆 · 本次從 Jira 讀取 X 筆／Y 頁」——原本那句讀起來像「就這些」',
+      'feat(jira): 命中上限（MAX_PAGES 20／MAX_ISSUES 2000）時，結果上方顯示紅色警告，且按補回填要先過一次確認對話框。拿不完整的集合去 reconcile 會造成「以為修完」的二次事故（跟 CodeX 討論定案）',
+      'note(jira): 前端讀不到 isComplete 時當成「不確定」不是當成完整——預設 true 等於在舊版 server 上把截斷結果重新標成完整，比沒做這個功能更糟',
+    ],
+  },
   {
     version: '4.98.7',
     date: '2026-09-03',

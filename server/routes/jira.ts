@@ -1831,21 +1831,58 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
 
     // ── Step 1: Query Jira for issues created in the date range ──────────────
     const jql = `project="${projectKey}" AND created>="${createdFrom.slice(0,10)}" AND created<="${createdTo.slice(0,10)}" ORDER BY created ASC`
-    const jiraResp = await fetch(`${baseUrl}/rest/api/3/search/jql`, {
-      method: 'POST',
-      headers: { Authorization: userAuth.auth, Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ jql, maxResults: 200, fields: ['summary', 'created', 'reporter', 'status'] }),
-    })
-    if (!jiraResp.ok) {
-      const errText = await jiraResp.text().catch(() => '')
-      return res.json({ ok: false, message: `Jira 查詢失敗 HTTP ${jiraResp.status}：${errText.slice(0, 200)}` })
+    /**
+     * ⚠️ 一定要分頁。
+     *
+     * 原本只發一次、帶 `maxResults: 200`——但 `/rest/api/3/search/jql` 的伺服器端
+     * 硬上限是 **100**，多要不會多給。實測（DSFT 2026-09-03~09-04）：實際有 231 筆，
+     * 工具只看到 100，**漏掉 131 筆（57%）而且畫面上寫「找到 100 筆配對」**。
+     *
+     * 這支端點的回應**沒有 `total` 欄位**（跟舊的 `/search` 不同），只有
+     * `nextPageToken` + `isLast`。所以不讀那兩個欄位的話，「拿到 100 筆」跟
+     * 「總共就 100 筆」在程式裡長得一模一樣，截斷完全沒有徵兆——
+     * 而這支工具的用途正是補回遺失的單號，漏掉的列會一直維持空白沒人發現。
+     *
+     * 上限的用意不是「不要截斷」，是**截斷必須看得見、不能被當成完整結果送出**
+     * （跟 CodeX 討論定案）。命中上限時 `isComplete: false` 會一路傳到 UI。
+     */
+    const MAX_PAGES = 20
+    const MAX_ISSUES = 2000
+    const jiraIssues: Array<{ key: string; summary: string; created: string }> = []
+    let nextPageToken: string | undefined
+    let pageCount = 0
+    let reachedLimit = false
+    let limitReason: 'maxPages' | 'maxIssues' | null = null
+
+    for (;;) {
+      const body: Record<string, unknown> = { jql, maxResults: 100, fields: ['summary', 'created', 'reporter', 'status'] }
+      if (nextPageToken) body.nextPageToken = nextPageToken
+      const jiraResp = await fetch(`${baseUrl}/rest/api/3/search/jql`, {
+        method: 'POST',
+        headers: { Authorization: userAuth.auth, Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!jiraResp.ok) {
+        const errText = await jiraResp.text().catch(() => '')
+        // ⚠️ 中途某一頁失敗也要整支失敗，不能把「已經抓到的幾頁」當成結果回去——
+        //    那又變成一份看不出殘缺的資料，正是這次要修的問題。
+        return res.json({ ok: false, message: `Jira 查詢失敗 HTTP ${jiraResp.status}（第 ${pageCount + 1} 頁）：${errText.slice(0, 200)}` })
+      }
+      const jiraData = (await jiraResp.json()) as {
+        issues?: { key: string; fields: { summary: string; created: string } }[]
+        nextPageToken?: string
+        isLast?: boolean
+      }
+      pageCount++
+      for (const i of jiraData.issues ?? []) {
+        jiraIssues.push({ key: i.key, summary: i.fields.summary, created: i.fields.created })
+      }
+      // `isLast` 沒回傳時，用「還有沒有 token」當備援判斷，不要預設成還有下一頁
+      if (jiraData.isLast === true || !jiraData.nextPageToken) break
+      if (pageCount >= MAX_PAGES) { reachedLimit = true; limitReason = 'maxPages'; break }
+      if (jiraIssues.length >= MAX_ISSUES) { reachedLimit = true; limitReason = 'maxIssues'; break }
+      nextPageToken = jiraData.nextPageToken
     }
-    const jiraData = (await jiraResp.json()) as { issues?: { key: string; fields: { summary: string; created: string } }[] }
-    const jiraIssues = (jiraData.issues ?? []).map(i => ({
-      key: i.key,
-      summary: i.fields.summary,
-      created: i.fields.created,
-    }))
 
     // ── Step 2: Read Sheet headers + find rows with empty Jira key ───────────
     const larkToken = await getLarkToken()
@@ -1994,7 +2031,12 @@ router.post('/api/jira/reconcile/preview', async (req, res, next) => {
     const unmatchedJira = remainingJira.slice(posCount)
     const unmatchedRows = remainingRows.slice(posCount)
 
-    res.json({ ok: true, matches, unmatchedJiraIssues: unmatchedJira, unmatchedSheetRows: unmatchedRows })
+    // ⚠️ `isComplete` 一定要一路傳到 UI。截斷本身不可怕，「看起來像完整」才可怕——
+    //    拿不完整的集合去 reconcile 會造成「以為修完」的二次事故（CodeX review）。
+    res.json({
+      ok: true, matches, unmatchedJiraIssues: unmatchedJira, unmatchedSheetRows: unmatchedRows,
+      jiraFetched: jiraIssues.length, pageCount, reachedLimit, limitReason, isComplete: !reachedLimit,
+    })
   } catch (error) {
     next(error)
   }
