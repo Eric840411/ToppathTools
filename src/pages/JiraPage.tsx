@@ -3787,12 +3787,17 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
               {/* ⚠️ 一定要標明「這份清單涵蓋什麼範圍」。原本沒帶 Sheet、也沒有建立者概念，
                   列出來的是所有人所有 Sheet 的紀錄，但畫面上完全看不出來
                   ——使用者以為是自己的（2026-09-03 回報）。 */}
-              {pendingScope && (
-                <p style={{ fontSize: 12, color: pendingScope.scope === 'sheet' ? '#94a3b8' : '#fde68a', margin: '0 0 8px' }}>
-                  {pendingScope.scope === 'sheet'
-                    ? '範圍：目前這份 Sheet 的未完成紀錄'
-                    : `範圍：全部 Sheet（${pendingScope.sheets} 份）的未完成紀錄——包含其他人建立的。上方填入 Sheet 網址後再開啟，就只會顯示那一份。`}
-                </p>
+              {/* ⚠️ 「全部 Sheet」那種狀態要做成明顯的 warning 方塊，不是有顏色的說明文字
+                  （CodeX review）。使用者原本的困擾就是「我以為這些是我的」——
+                  一行淡黃色小字掃過去跟一般說明長得一樣，等於沒講。 */}
+              {pendingScope?.scope === 'sheet' && (
+                <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 8px' }}>範圍：目前這份 Sheet 的未完成紀錄</p>
+              )}
+              {pendingScope && pendingScope.scope !== 'sheet' && (
+                <div style={{ marginBottom: 10, padding: '8px 11px', borderRadius: 8, background: 'rgba(234,179,8,.08)', border: '1px solid rgba(234,179,8,.45)', fontSize: 12.5, color: '#fde68a', lineHeight: 1.6 }}>
+                  <b>⚠️ 這不只是你的紀錄</b>——目前列的是<b>全部 {pendingScope.sheets} 份 Sheet</b> 的未完成紀錄，
+                  包含其他人建立的。在上方填入 Sheet 網址後再開啟這個面板，就只會顯示那一份。
+                </div>
               )}
               {pendingRows.length === 0
                 ? <p style={{ color: '#94a3b8', fontSize: 13 }}>目前沒有待補的回寫記錄。</p>

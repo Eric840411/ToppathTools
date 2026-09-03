@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.100.0'
+export const APP_VERSION = '4.100.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.100.1',
+    date: '2026-09-03',
+    changes: [
+      'style(jira): 待補記錄「列的是全部 Sheet、包含其他人建立的」改成明顯的警告方塊，不再是一行淡黃色小字（CodeX review 建議）。使用者原本的困擾就是「我以為這些是我的」——普通說明文字掃過去跟一般提示長得一樣，等於沒講',
+    ],
+  },
   {
     version: '4.100.0',
     date: '2026-09-03',
