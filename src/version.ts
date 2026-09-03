@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.104.0'
+export const APP_VERSION = '4.104.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.104.1',
+    date: '2026-09-03',
+    changes: [
+      'fix(autospin): 執行監控上的「全部相符」是假宣稱。判斷寫成「沒有不符也沒有缺資料」，完全沒算 v4.103.0 新增的 unmatched／ambiguous——15 筆全部配不到照樣顯示「全部相符」。改成「相符數 == 已比對數」才算',
+      'feat(autospin): 摘要列顯性列出相符數，並補上「配不到」「多筆候選」兩個徽章。原本只列異常，看不到「對上了幾筆」就無從判斷這個工具有沒有在做事',
+      'feat(autospin): 逐台一律列出（原本只列有異常的），每台顯示 機台名 + 相符/已比對。多機台時原本完全看不出「這個數字是誰的」（使用者原話：「我要看誰的，有不符跟相符」）；正常的用中性色不搶注意力，有問題的才上色',
+    ],
+  },
   {
     version: '4.104.0',
     date: '2026-09-03',

@@ -2212,7 +2212,16 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                   matched: a.matched + m.matched,
                   mismatched: a.mismatched + m.mismatched,
                   missing: a.missing + m.missing,
-                }), { compared: 0, matched: 0, mismatched: 0, missing: 0 })
+                  unmatched: a.unmatched + (m.unmatched ?? 0),
+                  ambiguous: a.ambiguous + (m.ambiguous ?? 0),
+                }), { compared: 0, matched: 0, mismatched: 0, missing: 0, unmatched: 0, ambiguous: 0 })
+                /** ⚠️ 「全部相符」的判斷一定要用「相符數 == 已比對數」，不能只看
+                 *     「沒有不符也沒有缺資料」——那個寫法完全沒算 unmatched／ambiguous，
+                 *     15 筆全部配不到照樣會顯示「全部相符」。那是假宣稱，
+                 *     跟今天修的其他問題同一類。 */
+                const allMatched = total.compared > 0 && total.matched === total.compared
+                const needsAttention = (m: CompareMachineRow) =>
+                  m.mismatched > 0 || m.missing > 0 || (m.unmatched ?? 0) > 0 || (m.ambiguous ?? 0) > 0
                 const jump = (mt?: string) => {
                   setTab('compare3')
                   fetchCompareGroups()
@@ -2258,31 +2267,46 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                     ) : (
                       <>
                         <span style={{ fontSize: 11, color: '#94a3b8' }}>已比對 {total.compared} 筆</span>
+                        {/* 相符數要顯性列出來。原本只列異常，使用者看不到「對上了幾筆」，
+                            也就無從判斷這個工具到底有沒有在做事（原話：「我要看誰的，有不符跟相符」）*/}
+                        <span style={{ fontSize: 11, color: total.matched > 0 ? '#4ade80' : '#64748b' }}>相符 {total.matched}</span>
                         {badge('不符', total.mismatched, 'bad')}
+                        {badge('配不到', total.unmatched, 'warn')}
+                        {badge('多筆候選', total.ambiguous, 'warn')}
                         {badge('缺資料', total.missing, 'warn')}
-                        {total.mismatched === 0 && total.missing === 0 && (
-                          <span style={{ fontSize: 11, color: '#4ade80' }}>全部相符</span>
-                        )}
+                        {allMatched && <span style={{ fontSize: 11, color: '#4ade80' }}>全部相符</span>}
                       </>
                     )}
                     <div style={{ flex: 1 }} />
-                    {/* 逐台只在有異常時才列出來——正常的機台不需要佔位置 */}
-                    {cmpMachines.filter(m => m.mismatched > 0 || m.missing > 0).slice(0, 4).map(m => (
-                      <button
-                        key={`${m.sessionId}:${m.machineType}`} type="button"
-                        onClick={() => jump(m.machineType)}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 5, fontSize: 11,
-                          padding: '2px 7px', borderRadius: 4, cursor: 'pointer',
-                          background: 'rgba(244,63,94,.08)', border: '1px solid rgba(244,63,94,.25)', color: '#e2e8f0',
-                        }}
-                        title="跳到三路對帳並聚焦這台"
-                      >
-                        <b style={{ fontWeight: 700 }}>{m.machineType}</b>
-                        {m.mismatched > 0 && <span style={{ color: '#fb7185' }}>不符 {m.mismatched}</span>}
-                        {m.missing > 0 && <span style={{ color: '#eab308' }}>缺 {m.missing}</span>}
-                      </button>
-                    ))}
+                    {/* ⚠️ 逐台**一律列出**，不再只列有異常的。原本的想法是「正常的不用佔位置」，
+                        但那樣多機台時完全看不出「這個數字是誰的」——使用者原話：「我要看誰的」。
+                        改成正常的用中性色（不搶注意力），有問題的才上色。 */}
+                    {cmpMachines.slice(0, 4).map(m => {
+                      const bad = needsAttention(m)
+                      return (
+                        <button
+                          key={`${m.sessionId}:${m.machineType}`} type="button"
+                          onClick={() => jump(m.machineType)}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 5, fontSize: 11,
+                            padding: '2px 7px', borderRadius: 4, cursor: 'pointer', color: '#e2e8f0',
+                            background: bad ? 'rgba(244,63,94,.08)' : 'transparent',
+                            border: `1px solid ${bad ? 'rgba(244,63,94,.25)' : '#2d3f55'}`,
+                          }}
+                          title="跳到三路對帳並聚焦這台"
+                        >
+                          <b style={{ fontWeight: 700 }}>{m.machineType}</b>
+                          <span style={{ color: m.matched > 0 ? '#4ade80' : '#64748b' }}>{m.matched}/{m.compared}</span>
+                          {m.mismatched > 0 && <span style={{ color: '#fb7185' }}>不符 {m.mismatched}</span>}
+                          {(m.unmatched ?? 0) > 0 && <span style={{ color: '#eab308' }}>配不到 {m.unmatched}</span>}
+                          {(m.ambiguous ?? 0) > 0 && <span style={{ color: '#eab308' }}>候選 {m.ambiguous}</span>}
+                          {m.missing > 0 && <span style={{ color: '#eab308' }}>缺 {m.missing}</span>}
+                        </button>
+                      )
+                    })}
+                    {cmpMachines.length > 4 && (
+                      <span style={{ fontSize: 11, color: '#64748b' }}>…另有 {cmpMachines.length - 4} 台</span>
+                    )}
                   </div>
                 )
               })()}
