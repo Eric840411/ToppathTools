@@ -1,0 +1,102 @@
+/**
+ * URL 帳號池的 QAT / UAT 分頁。
+ *
+ * 兩件事要守：
+ * ① 切分頁要**真的換一批資料**（不是同一批的篩選）——兩邊網域不同、號段不同
+ * ② **27 筆「有帳號但沒有 URL」的不能標成可用**。那些是產 token 的腳本沒跑出來的，
+ *    刻意保留在清單上（過濾掉的話沒有人會知道它們存在），但點下去會產生一個空的
+ *    中轉連結，所以必須擋住複製並標示原因。
+ *
+ * ⚠️ 這支不會認領任何帳號——`複製使用 URL` 會觸發自動認領，測試不該去佔用真實帳號。
+ *    只檢查按鈕的可用狀態，不按下去。
+ *
+ * 跑法：node scripts/ui-checks/url-pool-env-tabs.mjs
+ */
+import { chromium } from 'playwright';
+import Database from 'better-sqlite3';
+import { fileURLToPath } from 'url';
+import path from 'path';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const db = new Database(path.join(root, 'server/data.db'));
+const sess = db.prepare('SELECT sid FROM auth_sessions WHERE expires_at > ? ORDER BY created_at DESC LIMIT 1').get(Date.now());
+if (!sess) { console.log('沒有有效登入 session'); process.exit(1) }
+
+let pass = 0, fail = 0;
+const check = (n, ok, extra = '') => { console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${n}${extra ? '  ' + extra : ''}`); ok ? pass++ : fail++ };
+
+const browser = await chromium.launch();
+const ctx = await browser.newContext({ viewport: { width: 1600, height: 1000 } });
+await ctx.addCookies([{ name: 'toppath_auth', value: sess.sid, domain: 'localhost', path: '/' }]);
+const page = await ctx.newPage();
+// ⚠️ 這支端點會真的佔用帳號。攔掉，確保測試不會影響正在用的人。
+await page.route('**/api/url-pool/*/claim', r => r.fulfill({ json: { ok: false, message: 'blocked by test' } }));
+
+await page.goto('http://localhost:3000/', { waitUntil: 'domcontentloaded' });
+await page.waitForTimeout(1800);
+// 這個 app 沒有 URL 路由，要先點群組再點子項
+for (const t of ['OSM Tools', 'URL 帳號池', '靈脈調度']) {
+  const l = page.locator(`text=${t}`).first();
+  if (await l.count()) { await l.click().catch(() => {}); await page.waitForTimeout(900) }
+}
+await page.waitForTimeout(1200);
+
+const readTable = () => page.evaluate(() => {
+  const rows = [...document.querySelectorAll('tbody tr')];
+  const cells = r => [...r.querySelectorAll('td')].map(td => (td.textContent || '').trim());
+  return {
+    列數: rows.length,
+    第一筆帳號: cells(rows[0] ?? document.createElement('tr'))[0] ?? '',
+    網域: (document.body.innerText.match(/https:\/\/[a-z-]*osm-redirect\.osmslot\.org/g) ?? [])
+      .filter((v, i, a) => a.indexOf(v) === i),
+    無URL標記: [...document.querySelectorAll('tbody tr')].filter(r => (r.textContent || '').includes('無 URL')).length,
+    總計: (document.body.innerText.match(/總計\s*(\d+)/) ?? [])[1] ?? '',
+  };
+});
+
+console.log('\n1) 預設是 QAT');
+const qat = await readTable();
+check('有資料', qat.列數 > 0, `${qat.列數} 列`);
+check('帳號是 9111 開頭（QAT 號段）', qat.第一筆帳號.startsWith('9111'), qat.第一筆帳號);
+check('網域是 osm-redirect（非 uat-）', qat.網域.every(d => !d.includes('uat-')), qat.網域.join(','));
+check('總計 191', qat.總計 === '191', qat.總計);
+
+console.log('\n2) 切到 UAT —— 要換一批資料，不是篩選');
+await page.locator('[data-testid="url-pool-env-uat"]').click();
+await page.waitForTimeout(900);
+const uat = await readTable();
+check('帳號變成 9361 開頭（UAT 號段）', uat.第一筆帳號.startsWith('9361'), uat.第一筆帳號);
+check('網域變成 uat-osm-redirect', uat.網域.some(d => d.includes('uat-')), uat.網域.join(','));
+check('總計 500', uat.總計 === '500', uat.總計);
+check('看得到「無 URL」標記', uat.無URL標記 > 0, `本頁 ${uat.無URL標記} 列`);
+
+console.log('\n3) 沒有 URL 的不能複製');
+// ⚠️ 這一條是重點：標示對了但按鈕還能按的話，使用者會拿到一個空的中轉連結
+const noUrlBtn = await page.evaluate(() => {
+  const row = [...document.querySelectorAll('tbody tr')].find(r => (r.textContent || '').includes('無 URL'));
+  if (!row) return null;
+  const btn = [...row.querySelectorAll('button')].find(b => (b.textContent || '').includes('複製使用 URL'));
+  return btn ? { disabled: btn.disabled, title: btn.title } : null;
+});
+check('找得到無 URL 的列', noUrlBtn !== null);
+check('複製按鈕是停用的', noUrlBtn?.disabled === true);
+check('停用原因寫在 title 裡', /沒有 URL/.test(noUrlBtn?.title ?? ''), noUrlBtn?.title);
+
+const okBtn = await page.evaluate(() => {
+  const row = [...document.querySelectorAll('tbody tr')].find(r => !(r.textContent || '').includes('無 URL'));
+  const btn = row ? [...row.querySelectorAll('button')].find(b => (b.textContent || '').includes('複製使用 URL')) : null;
+  return btn ? { disabled: btn.disabled } : null;
+});
+check('有 URL 的仍可複製（沒有誤擋）', okBtn?.disabled === false);
+
+console.log('\n4) 切回 QAT 要完全還原');
+await page.locator('[data-testid="url-pool-env-qat"]').click();
+await page.waitForTimeout(900);
+const back = await readTable();
+check('帳號回到 9111 開頭', back.第一筆帳號.startsWith('9111'), back.第一筆帳號);
+check('總計回到 191', back.總計 === '191');
+check('QAT 沒有「無 URL」的列', back.無URL標記 === 0, `${back.無URL標記} 列`);
+
+console.log(`\n${fail === 0 ? '全部通過' : fail + ' 項未過'}（pass ${pass} / fail ${fail}）`);
+await browser.close();
+process.exit(fail ? 1 : 0);

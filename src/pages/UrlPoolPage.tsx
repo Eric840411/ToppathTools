@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AccountInfo } from '../components/JiraAccountModal'
 import { URL_POOL_DATA, type UrlPoolEntry } from '../data/urlPoolData'
+import { URL_POOL_DATA_UAT } from '../data/urlPoolDataUat'
+
+/** 環境。兩邊是完全獨立的帳號池，網域也不同（osm-redirect vs uat-osm-redirect）。 */
+type PoolEnv = 'qat' | 'uat'
+const POOL_SOURCE: Record<PoolEnv, UrlPoolEntry[]> = { qat: URL_POOL_DATA, uat: URL_POOL_DATA_UAT }
+const POOL_LABEL: Record<PoolEnv, string> = { qat: 'QAT', uat: 'UAT' }
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -29,9 +35,14 @@ export function UrlPoolPage({ currentAccount }: Props) {
   const [editingRow, setEditingRow] = useState<string | null>(null)
   const [editUrl, setEditUrl] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
-  const [localData, setLocalData] = useState<UrlPoolEntry[]>(() =>
-    URL_POOL_DATA.map(r => ({ ...r }))
-  )
+  const [poolEnv, setPoolEnv] = useState<PoolEnv>('qat')
+  const [overrides, setOverrides] = useState<Record<string, string>>({})
+  /**
+   * ⚠️ 資料要跟著 env 重算，而且 override 要一起套。
+   *    原本是 mount 時把 override 併進去存成 state——切 env 之後那份 state 還是舊環境的，
+   *    切回來也不會重抓（那支 fetch 只跑一次）。改成「原始資料 + override」在 render 時合併。
+   */
+  const localData = POOL_SOURCE[poolEnv].map(r => ({ ...r, url: overrides[r.account] ?? r.url }))
   const [filter, setFilter] = useState<'all' | 'available' | 'in-use' | 'mine'>('all')
   const [searchText, setSearchText] = useState('')
   const [loadingAccount, setLoadingAccount] = useState<string | null>(null)
@@ -46,9 +57,7 @@ export function UrlPoolPage({ currentAccount }: Props) {
   useEffect(() => {
     fetch('/api/url-pool/overrides')
       .then(r => r.json())
-      .then((overrides: Record<string, string>) => {
-        setLocalData(URL_POOL_DATA.map(r => ({ ...r, url: overrides[r.account] ?? r.url })))
-      })
+      .then((o: Record<string, string>) => setOverrides(o))
       .catch(() => { /* keep static data */ })
   }, [])
 
@@ -117,7 +126,7 @@ export function UrlPoolPage({ currentAccount }: Props) {
         alert(err.message ?? '儲存失敗')
         return
       }
-      setLocalData(prev => prev.map(r => r.account === account ? { ...r, url: editUrl } : r))
+      setOverrides(prev => ({ ...prev, [account]: editUrl }))
       setEditingRow(null)
     } catch {
       alert('網路錯誤')
@@ -153,6 +162,27 @@ export function UrlPoolPage({ currentAccount }: Props) {
     <div style={{ padding: '0 0 24px' }}>
       {/* ── Header stats ─────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', gap: 16, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+        {/* ⚠️ 兩個環境是**完全獨立的帳號池**（網域不同、號段不同），不是同一批資料的篩選。
+            所以做成分頁而不是篩選鈕——放在篩選鈕旁邊會讓人以為可以「同時看兩邊」。 */}
+        <div style={{ display: 'flex', gap: 4, padding: 3, background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 8 }}>
+          {(['qat', 'uat'] as const).map(e => (
+            <button
+              key={e} type="button" onClick={() => setPoolEnv(e)}
+              /* ⚠️ 給穩定識別：側邊欄有「總網試煉 UAT 整合測試」，
+                 只靠文字找 UAT 會抓到那一個（驗證腳本第一版就是這樣點錯的）*/
+              data-testid={`url-pool-env-${e}`}
+              style={{
+                padding: '5px 16px', borderRadius: 6, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
+                border: 'none', background: poolEnv === e ? '#2563eb' : 'transparent',
+                color: poolEnv === e ? '#fff' : '#94a3b8',
+              }}
+            >
+              {POOL_LABEL[e]}
+              <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 400, opacity: .75 }}>{POOL_SOURCE[e].length}</span>
+            </button>
+          ))}
+        </div>
+
         <div style={{ display: 'flex', gap: 8 }}>
           <StatBadge label="總計" value={localData.length} color="#6b7280" />
           <StatBadge label="可用" value={totalAvail} color="#16a34a" />
@@ -247,7 +277,12 @@ export function UrlPoolPage({ currentAccount }: Props) {
                         {isClaimedByMe ? '我' : claim.claimedBy}
                       </span>
                     ) : (
-                      <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: '#dcfce7', color: '#16a34a' }}>可用</span>
+                      /* ⚠️ 有帳號但沒有 URL 的不能標成「可用」——點下去會產生一個空的中轉連結。
+                            這 27 筆是產 token 的腳本沒跑出來的，刻意保留在清單上（過濾掉的話
+                            沒有人會知道它們存在），但要標清楚而且擋住複製。 */
+                      row.url
+                        ? <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: '#dcfce7', color: '#16a34a' }}>可用</span>
+                        : <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 12, background: 'rgba(234,179,8,.15)', color: '#eab308' }} title="這個帳號存在，但來源表上沒有 URL。用「編輯」補上就能使用。">無 URL</span>
                     )}
                   </td>
                   <td style={{ ...td, whiteSpace: 'nowrap' }}>
@@ -255,10 +290,12 @@ export function UrlPoolPage({ currentAccount }: Props) {
                       {/* 複製使用 URL — available to anyone with account, triggers auto-claim on use */}
                       <button
                         type="button"
-                        disabled={!currentAccount || isLoading}
+                        disabled={!currentAccount || isLoading || !row.url}
                         onClick={() => handleCopyProxyUrl(row)}
                         style={btnSm(isCopied ? '#16a34a' : '#2563eb')}
-                        title="複製中轉 URL，貼到 AutoSpin / 機台測試 Game URL，開啟時自動認領"
+                        title={row.url
+                          ? '複製中轉 URL，貼到 AutoSpin / 機台測試 Game URL，開啟時自動認領'
+                          : '這個帳號沒有 URL，請先用「編輯」補上'}
                       >
                         {isCopied ? '已複製！' : '複製使用 URL'}
                       </button>

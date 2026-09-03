@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.104.1'
+export const APP_VERSION = '4.105.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.105.0',
+    date: '2026-09-04',
+    changes: [
+      'feat(url-pool): URL 帳號池新增 QAT / UAT 分頁。UAT 共 500 筆，從 Lark 表匯入（token 由 osm-agent 腳本產生）',
+      'note(url-pool): 兩個環境是完全獨立的帳號池（網域 osm-redirect vs uat-osm-redirect、號段 9111 vs 9361），所以做成分頁不是篩選鈕——放在篩選列旁邊會讓人以為可以同時看兩邊',
+      'note(url-pool): UAT 有 27 筆「帳號存在但腳本沒產出 URL」，刻意保留在清單上並標示「無 URL」、擋住複製，而不是過濾掉。過濾掉的話沒有人會知道它們存在、也不會有人去補；留著就能直接用「編輯」補上',
+      'note(url-pool): UAT 表沒有機台代碼欄，label 取自 URL 的 gameid 參數',
+      'fix(url-pool): URL override 改成 render 時合併而不是 mount 時併進 state。原本切環境後那份 state 還是舊環境的，而載入 override 的 fetch 只跑一次，切回來也不會重抓',
+      'test(url-pool): 新增 scripts/ui-checks/url-pool-env-tabs.mjs（15 項）。⚠️ 腳本會攔掉 claim 端點——「複製使用 URL」會真的認領帳號，測試不該去佔用別人在用的',
+    ],
+  },
   {
     version: '4.104.1',
     date: '2026-09-03',
