@@ -31,7 +31,7 @@ import {
   hasJiraDelegation,
 } from '../shared.js'
 import { callLLM, readGeminiPrompts, renderPrompt } from './gemini.js'
-import { multiWritebackLark, type MultiWrite } from './integrations.js'
+import { multiWritebackLark, multiWritebackLarkBatch, type MultiWrite } from './integrations.js'
 import { getAuthAccount } from '../auth-session.js'
 import { withRequestOperation } from '../request-context.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
@@ -2080,9 +2080,48 @@ router.post('/api/jira/reconcile/apply', async (req, res, next) => {
       }
     })
 
-    const wbResults = await multiWritebackLark(sheetUrl, wbWrites)
+    /**
+     * ⚠️ **結果不能只活在 HTTP response 裡**（CodeX review）。
+     *
+     * 這支寫 Lark 要花很久（131 列 × 5 欄），實測會被反向代理的 60 秒逾時切斷。
+     * 逾時的是「連線」，**伺服器這邊還在繼續寫**——所以有一部分列其實成功了，
+     * 但那個 response 永遠送不到前端，使用者只看到一個 SyntaxError，
+     * 完全不知道成功幾筆。
+     *
+     * 做法：開寫之前先把每一列建成 `pending`，寫完一列就更新成 `done`／`failed`。
+     * 這樣就算連線斷了，重新整理「待補記錄」面板仍然看得到哪些沒補完，
+     * 而且可以直接用既有的「全部重試」補完剩下的。
+     *
+     * ⚠️ 中途狀態刻意用既有的 `pending` 而不是新增一個 `writing`：
+     *    面板的查詢條件是 `status=pending,failed`，新增的狀態值不會被列出來——
+     *    process 中途掛掉的話那些列會變成**看不見也retry 不到**的孤兒。
+     *    這正是今天已經修過兩次的那種壞法，不要再造一個。
+     */
+    const applyRunId = randomUUID()
+    const nowMs = Date.now()
+    const upsert = db.prepare(
+      `INSERT INTO jira_pending_writebacks (created_at, sheet_url, row_index, jira_key, jira_url, summary, status, updated_at, apply_run_id)
+       VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+       ON CONFLICT(sheet_url, row_index, jira_key) DO UPDATE SET status='pending', updated_at=excluded.updated_at, apply_run_id=excluded.apply_run_id`,
+    )
+    const markRow = db.prepare(
+      `UPDATE jira_pending_writebacks SET status=?, error=?, updated_at=?, attempt_count=attempt_count+1
+       WHERE sheet_url=? AND row_index=? AND jira_key=?`,
+    )
+    const keyOfRow = new Map(matches.map(m => [m.rowIndex, m.jiraKey]))
+    for (const m of matches) {
+      upsert.run(nowMs, sheetUrl, m.rowIndex, m.jiraKey, `${jiraBase}/browse/${m.jiraKey}`, m.jiraSummary ?? '', nowMs, applyRunId)
+    }
+
+    const wbResults = await multiWritebackLarkBatch(sheetUrl, wbWrites, {
+      onRowResult: r => {
+        const key = keyOfRow.get(r.rowIndex)
+        if (!key) return
+        markRow.run(r.ok ? 'done' : 'failed', r.error ?? null, Date.now(), sheetUrl, r.rowIndex, key)
+      },
+    })
     const succeeded = wbResults.filter(r => r.ok).length
-    res.json({ ok: true, results: wbResults, succeeded, failed: wbResults.length - succeeded })
+    res.json({ ok: true, results: wbResults, succeeded, failed: wbResults.length - succeeded, applyRunId })
   } catch (error) {
     next(error)
   }

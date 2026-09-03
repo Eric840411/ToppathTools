@@ -742,6 +742,146 @@ function colIndexToLetter(idx: number): string {
   return result
 }
 
+/**
+ * 讀出表頭並算好「新欄位要從第幾欄開始接」。
+ *
+ * ⚠️ `multiWritebackLark` 裡目前有一份**逐字相同的內嵌版本**，刻意沒有改它去呼叫這支
+ *    ——那支被批次開單／批量修改共用，CodeX review 明確要求不要動它的行為。
+ *    等批次版在 reconcile 上跑穩了，再回頭讓舊的也切過來（那時才一併驗證）。
+ *    在那之前這兩份是已知的重複，不是疏忽。
+ */
+async function resolveSheetHeaders(base: string, token: string, spreadsheetToken: string, sheetId: string) {
+  const headerRange = sheetId ? `${sheetId}!A1:ZZ2` : 'A1:ZZ2'
+  const resp = await fetch(
+    `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${headerRange}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  )
+  const raw = await resp.text()
+  if (!resp.ok) throw new Error(`Lark Sheets header API error: HTTP ${resp.status} — ${raw.slice(0, 200)}`)
+  const data = JSON.parse(raw) as { code?: number; msg?: string; data?: { valueRange?: { values?: unknown[][] } } }
+  if (data.code !== 0) throw new Error(`Lark Sheets header API error: code ${data.code} — ${data.msg ?? ''}`)
+  const rows = data.data?.valueRange?.values ?? []
+  const cellText = (c: unknown): string => {
+    if (c === null || c === undefined) return ''
+    if (typeof c === 'object') {
+      const o = c as Record<string, unknown>
+      return 'text' in o && o.text != null ? String(o.text) : ''
+    }
+    return String(c)
+  }
+  const row1 = (rows[0] ?? []).map(cellText)
+  const row2 = (rows[1] ?? []).map(cellText)
+  const len = Math.max(row1.length, row2.length)
+  const headerCandidates = Array.from({ length: len },
+    (_, i) => [row1[i], row2[i]].filter((h): h is string => !!h?.trim()))
+  // ⚠️ 用 headers.length 當附加起點會拿到 702（Lark 回的是完整 ZZ 範圍），
+  //    即使表格實際只到 S 欄——會產生 [A 這種無效欄位字母。要找最後一個非空的。
+  const lastNonEmpty = headerCandidates.reduce((max, c, i) => (c.some(x => x.trim()) ? i : max), -1)
+  return { headerCandidates, nextAppendColIdx: lastNonEmpty + 1 }
+}
+
+const normalizeColName = (s: string) => s.replace(/[\s\n↓↑→←]+/g, '').toLowerCase()
+
+/**
+ * 批次版的多欄回寫：用 Lark `values_batch_update` 一次送多個 range。
+ *
+ * ⚠️ **為什麼要有這支**：舊的 `multiWritebackLark` 是「一個欄位打一次 API、完全循序」。
+ *    對帳補回填每列要寫 5 個欄位，131 列 = **655 次循序呼叫**，實測會超過反向代理的
+ *    60 秒逾時被切斷，前端拿到 HTML 錯誤頁、`r.json()` 直接爆 SyntaxError
+ *    （使用者 2026-09-03 回報）。而且逾時的只是連線，**伺服器還在繼續寫**——
+ *    使用者不知道成功幾筆。
+ *
+ * ⚠️ **刻意不直接改舊的那支**（CodeX review）：它被批次開單／批量修改共用，
+ *    呼叫端可能已經依賴它的錯誤模型（中斷時機、逐格失敗結果、欄位順序）。
+ *    表面型別一樣但錯誤語意變了，是最難發現的那種破壞。
+ *
+ * **逐列結果怎麼保住**：預設一次送 `rowsPerCall` 列。整批成功就整批標成功；
+ * 整批失敗時**自動退回逐列重送**，才能指出是哪一列壞掉——不做這步的話，
+ * 一列失敗會把同批的其他列全部誤標成失敗。
+ */
+export const multiWritebackLarkBatch = async (
+  sheetUrl: string,
+  writes: MultiWrite[],
+  opts: {
+    /** 每次 API 呼叫塞幾列。預設 20（× 5 欄 = 100 個 range） */
+    rowsPerCall?: number
+    /** 每寫完一列就回報一次，讓呼叫端能即時落 DB——不要只靠最後的回傳值，
+     *  連線斷掉時那個回傳值根本送不出去 */
+    onRowResult?: (r: { rowIndex: number; ok: boolean; error?: string }) => void
+  } = {},
+): Promise<{ rowIndex: number; ok: boolean; error?: string }[]> => {
+  const { spreadsheetToken, sheetId } = parseLarkSheetUrl(sheetUrl)
+  if (!spreadsheetToken) throw new Error('無法解析 Lark Sheet URL')
+  const token = await getLarkToken()
+  const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
+  const { headerCandidates, nextAppendColIdx } = await resolveSheetHeaders(base, token, spreadsheetToken, sheetId)
+
+  // ── 先把所有會用到的欄位解析好（缺的建起來）。
+  //    放在批次寫入之前，是因為建欄位會改動表頭，混在批次裡會讓欄位位置在中途變動。
+  let appendIdx = nextAppendColIdx
+  const colIdxOf = new Map<string, number>()
+  const allColNames = [...new Set(writes.flatMap(w => Object.keys(w.columns)))]
+  for (const colName of allColNames) {
+    const found = headerCandidates.findIndex(c => c.some(h => normalizeColName(h) === normalizeColName(colName)))
+    if (found !== -1) { colIdxOf.set(colName, found); continue }
+    const letter = colIndexToLetter(appendIdx)
+    const cell = sheetId ? `${sheetId}!${letter}1:${letter}1` : `${letter}1:${letter}1`
+    const r = await fetch(`${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ valueRange: { range: cell, values: [[colName]] } }),
+    })
+    const t = await r.text().catch(() => '')
+    let j: { code?: number; msg?: string } = {}
+    try { j = JSON.parse(t) } catch { /* ignore */ }
+    if (!r.ok || j.code !== 0) throw new Error(`無法建立欄位「${colName}」：HTTP ${r.status} code ${j.code} — ${(j.msg ?? t).slice(0, 200)}`)
+    headerCandidates.push([colName])
+    colIdxOf.set(colName, appendIdx)
+    appendIdx++
+  }
+
+  const rangesFor = (w: MultiWrite) => Object.entries(w.columns).map(([colName, value]) => {
+    const letter = colIndexToLetter(colIdxOf.get(colName)!)
+    const cell = `${letter}${w.rowIndex}`
+    return { range: sheetId ? `${sheetId}!${cell}:${cell}` : `${cell}:${cell}`, values: [[serializeLarkValue(value)]] }
+  })
+
+  /** 送一次 batch_update。回 null 代表成功，否則回錯誤訊息。 */
+  const sendBatch = async (valueRanges: ReturnType<typeof rangesFor>): Promise<string | null> => {
+    const r = await fetch(`${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values_batch_update`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ valueRanges }),
+    })
+    const t = await r.text().catch(() => '')
+    let j: { code?: number; msg?: string } = {}
+    try { j = JSON.parse(t) } catch { /* ignore */ }
+    if (!r.ok) return `HTTP ${r.status} — ${t.slice(0, 200)}`
+    if (j.code !== 0) return `Lark API code ${j.code} — ${(j.msg ?? t).slice(0, 200)}`
+    return null
+  }
+
+  const results: { rowIndex: number; ok: boolean; error?: string }[] = []
+  const report = (r: { rowIndex: number; ok: boolean; error?: string }) => {
+    results.push(r)
+    try { opts.onRowResult?.(r) } catch (e) { console.error('[WB-Batch] onRowResult 失敗：', e) }
+  }
+
+  const size = Math.max(1, opts.rowsPerCall ?? 20)
+  for (let i = 0; i < writes.length; i += size) {
+    const chunk = writes.slice(i, i + size)
+    const err = await sendBatch(chunk.flatMap(rangesFor))
+    if (!err) { for (const w of chunk) report({ rowIndex: w.rowIndex, ok: true }); continue }
+    // ⚠️ 整批失敗**不能**把整批標成失敗——可能只有一列有問題。退回逐列重送找出來。
+    console.warn(`[WB-Batch] 第 ${i}~${i + chunk.length - 1} 批失敗，退回逐列重送：${err}`)
+    for (const w of chunk) {
+      const e2 = await sendBatch(rangesFor(w))
+      report({ rowIndex: w.rowIndex, ok: !e2, error: e2 ?? undefined })
+    }
+  }
+  return results
+}
+
 export const multiWritebackLark = async (sheetUrl: string, writes: MultiWrite[]) => {
   console.log('[WB-Lark] 1. parseLarkSheetUrl')
   const { spreadsheetToken, sheetId } = parseLarkSheetUrl(sheetUrl)

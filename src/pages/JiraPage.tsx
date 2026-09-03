@@ -4001,14 +4001,43 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
                             sheetUrl: reconcileSheetUrl,
                             matches: selected.map(m => ({ rowIndex: m.rowIndex, jiraKey: m.jiraKey, jiraSummary: m.jiraSummary })),
                           }),
-                        }).then(r => r.json()) as { ok: boolean; succeeded: number; failed: number; message?: string }
-                        if (resp.ok) {
-                          setReconcileMsg(`通過 補回填完成：${resp.succeeded} 成功，${resp.failed} 失敗`)
-                        } else {
-                          setReconcileMsg(resp.message ?? '補回填失敗')
+                        })
+                        // ⚠️ 不要直接 `.then(r => r.json())`。這支被反向代理逾時切斷時回的是
+                        //    HTML 錯誤頁，`r.json()` 會拋出 `Unexpected token '<'`——
+                        //    使用者看到的是一個完全無助於判斷的 SyntaxError
+                        //    （2026-09-03 實際回報）。先讀 text 再自己解析，才講得出真正發生什麼。
+                        const raw = await resp.text()
+                        let data: { ok: boolean; succeeded: number; failed: number; message?: string }
+                        try { data = JSON.parse(raw) } catch {
+                          setReconcileMsg(
+                            `⚠️ 連線在補回填完成前就中斷了（HTTP ${resp.status}，回應不是 JSON）。`
+                            + `伺服器可能已經寫入了一部分——**請開「待補記錄」查看實際狀態**，`
+                            + `還沒補完的可以直接按「全部重試」。`,
+                          )
+                          return
                         }
-                      } catch (e) { setReconcileMsg(String(e)) }
-                      finally { setReconcileApplying(false) }
+                        if (data.ok) {
+                          setReconcileMsg(`通過 補回填完成：${data.succeeded} 成功，${data.failed} 失敗`)
+                        } else {
+                          setReconcileMsg(data.message ?? '補回填失敗')
+                        }
+                      } catch (e) {
+                        // 網路層直接斷（不是拿到錯誤頁）也是同一種情況：寫入可能已經在跑
+                        setReconcileMsg(`${String(e)}——伺服器可能已經寫入了一部分，請開「待補記錄」查看實際狀態。`)
+                      }
+                      finally {
+                        setReconcileApplying(false)
+                        // ⚠️ 成功失敗都要重查。逐列狀態是寫在 DB 裡的，就算上面那個回應整個
+                        //    收不到，這裡重查仍然看得到哪些補完了、哪些還沒。
+                        try {
+                          const fresh = await fetch(pendingQueryUrl()).then(r => r.json()) as { ok: boolean; rows?: typeof pendingRows; scope?: string; distinctSheets?: number }
+                          if (fresh.ok) {
+                            setPendingRows(fresh.rows ?? [])
+                            setPendingWritebackCount(fresh.rows?.length ?? 0)
+                            setPendingScope({ scope: fresh.scope ?? 'all', sheets: fresh.distinctSheets ?? 0 })
+                          }
+                        } catch { /* 查不到不影響上面已經顯示的結果 */ }
+                      }
                     }}>
                       {reconcileApplying ? '補回填中...' : `補回填選取（${reconcileSelected.size} 筆）`}
                     </button>

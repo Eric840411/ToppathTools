@@ -243,6 +243,9 @@ try {
  *    那兩種狀態的意思是「這筆還沒補進 Sheet」——自動清掉就真的救不回來了，
  *    而且不會有人發現。舊的未處理紀錄改成在畫面上標示逾期，由人決定要不要處理。
  */
+// 一次補回填算一個 run，方便事後把同一批撈出來看。舊資料是 NULL。
+try { db.exec(`ALTER TABLE jira_pending_writebacks ADD COLUMN apply_run_id TEXT`) } catch { /* already exists */ }
+
 export const PENDING_WRITEBACK_DONE_RETENTION_DAYS = 30
 
 /**

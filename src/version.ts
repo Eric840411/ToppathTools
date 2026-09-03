@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.100.1'
+export const APP_VERSION = '4.101.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.101.0',
+    date: '2026-09-03',
+    changes: [
+      'fix(jira): 對帳補回填改用 Lark values_batch_update 批次寫入，131 列從 655 次循序呼叫降到 7 次。原本會超過反向代理的 60 秒逾時被切斷，前端拿到 HTML 錯誤頁、r.json() 爆 SyntaxError（使用者實際回報）',
+      'feat(jira): 每一列的寫入結果即時落 DB（pending → done/failed，帶 apply_run_id）。逾時的只是連線、伺服器還在寫，結果只活在 HTTP response 裡的話使用者永遠不知道成功幾筆；現在重新整理「待補記錄」就看得到，還沒補完的可以直接按全部重試',
+      'feat(jira): 前端改成先讀 text 再自己解析，拿到 HTML 時給明確訊息「連線在補回填完成前就中斷了，請開待補記錄查看實際狀態」，不再是無助於判斷的 SyntaxError；成功失敗都會重查待補清單',
+      'note(jira): 刻意新增 multiWritebackLarkBatch 而不是改舊的 multiWritebackLark（CodeX review）——舊的被批次開單／批量修改共用，呼叫端可能依賴它的錯誤模型，表面型別一樣但錯誤語意變了是最難發現的破壞。等這支穩了再回頭讓舊的切過來',
+      'note(jira): 中途狀態用既有的 pending 而不是新增 writing——面板查的是 status=pending,failed，新狀態值不會被列出來，process 掛掉會產生看不見也重試不到的孤兒',
+      'test(jira): 新增 scripts/ui-checks/lark-batch-writeback.mjs（18 項，假 fetch 不連 Lark），另用「真實試算表 + 不存在的分頁」對真的 Lark API 驗過 payload 形狀（回 sheetId not found，對照組回 Missing required parameter，沒有寫到任何地方）',
+    ],
+  },
   {
     version: '4.100.1',
     date: '2026-09-03',
