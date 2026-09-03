@@ -498,6 +498,8 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
   // 不用重複貼網址。只記錄「最後成功讀取的網址/來源」，不直接動各工具自己的原始資料
   // 狀態（sheetRecords 等），避免跟各工具既有的處理邏輯（trackedIssues 共用機制等）打架。
   const [lastSheetUrl, setLastSheetUrl] = useState('')
+  /** 待補記錄這次查的是不是只有目前這份 Sheet（後端回的 scope），以及涵蓋幾份 Sheet */
+  const [pendingScope, setPendingScope] = useState<{ scope: string; sheets: number } | null>(null)
   const [lastSheetSource, setLastSheetSource] = useState<SheetSource>('lark')
   // 記錄「這個分頁上一次自動套用的是哪個 Sheet（url::source）」——不是單純
   // 「這個分頁本輪自動讀過了嗎」，這樣換了新 Sheet 後切回已經自動讀過的分頁
@@ -553,6 +555,29 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
   const [createResults, setCreateResults] = useState<IssueCreateResult[]>([])
   const [pendingWritebackCount, setPendingWritebackCount] = useState(0)
   const [retryingWriteback, setRetryingWriteback] = useState(false)
+
+  /**
+   * 待補記錄的查詢網址。
+   *
+   * ⚠️ 原本三個呼叫點都寫死 `?status=pending,failed`，**沒有帶 Sheet**——
+   *    結果面板列的是所有人、所有 Sheet、所有時間的未完成紀錄（使用者看到 248 筆）。
+   *    這張表本身也沒有「誰建立的」欄位，所以現階段能篩的只有 Sheet。
+   *    抽成一支避免三個地方各改各的。
+   */
+  const pendingQueryUrl = () => {
+    const url = (sheetUrl || lastSheetUrl).trim()
+    return url
+      ? `/api/jira/pending-writebacks?status=pending,failed&sheetUrl=${encodeURIComponent(url)}`
+      : '/api/jira/pending-writebacks?status=pending,failed'
+  }
+
+  /** 逾期分級。**只標示不自動刪**——pending/failed 代表「還沒補進 Sheet」，清掉救不回來。 */
+  const pendingAging = (createdAt: number): { label: string; color: string } | null => {
+    const days = Math.floor((Date.now() - createdAt) / 86400_000)
+    if (days >= 30) return { label: `長期未處理（${days} 天）`, color: '#ef4444' }
+    if (days >= 7) return { label: `逾期（${days} 天）`, color: '#f59e0b' }
+    return null
+  }
   // Pending writebacks panel (persistent)
   const [pendingRows, setPendingRows] = useState<{ id: number; row_index: number; jira_key: string; jira_url: string; summary: string; status: string; error: string | null; attempt_count: number; created_at: number }[]>([])
   const [showPendingPanel, setShowPendingPanel] = useState(false)
@@ -3714,8 +3739,9 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
               <button
                 style={{ background: 'none', border: 'none', color: '#475569', fontSize: 12, cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
                 onClick={async () => {
-                  const r = await fetch('/api/jira/pending-writebacks?status=pending,failed').then(r => r.json()) as { ok: boolean; rows?: typeof pendingRows }
+                  const r = await fetch(pendingQueryUrl()).then(r => r.json()) as { ok: boolean; rows?: typeof pendingRows; scope?: string; distinctSheets?: number }
                   if (r.ok) { setPendingRows(r.rows ?? []); setPendingWritebackCount(r.rows?.length ?? 0) }
+                  setPendingScope({ scope: r.scope ?? 'all', sheets: r.distinctSheets ?? 0 })
                   setShowPendingPanel(true)
                 }}
               >補回填工具</button>
@@ -3727,8 +3753,9 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
             <h3 className="section-title" style={{ margin: 0 }}>補回填工具</h3>
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="settings-btn" onClick={async () => {
-                const r = await fetch('/api/jira/pending-writebacks?status=pending,failed').then(r => r.json()) as { ok: boolean; rows?: typeof pendingRows }
+                const r = await fetch(pendingQueryUrl()).then(r => r.json()) as { ok: boolean; rows?: typeof pendingRows; scope?: string; distinctSheets?: number }
                 if (r.ok) setPendingRows(r.rows ?? [])
+                setPendingScope({ scope: r.scope ?? 'all', sheets: r.distinctSheets ?? 0 })
                 setShowPendingPanel(s => !s)
               }}>{showPendingPanel ? '▲ 收起' : '待補記錄'}</button>
               <button className="settings-btn" onClick={() => setReconcileOpen(o => !o)}>
@@ -3757,6 +3784,16 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
           {/* Pending writebacks list */}
           {showPendingPanel && (
             <div style={{ marginTop: 12 }}>
+              {/* ⚠️ 一定要標明「這份清單涵蓋什麼範圍」。原本沒帶 Sheet、也沒有建立者概念，
+                  列出來的是所有人所有 Sheet 的紀錄，但畫面上完全看不出來
+                  ——使用者以為是自己的（2026-09-03 回報）。 */}
+              {pendingScope && (
+                <p style={{ fontSize: 12, color: pendingScope.scope === 'sheet' ? '#94a3b8' : '#fde68a', margin: '0 0 8px' }}>
+                  {pendingScope.scope === 'sheet'
+                    ? '範圍：目前這份 Sheet 的未完成紀錄'
+                    : `範圍：全部 Sheet（${pendingScope.sheets} 份）的未完成紀錄——包含其他人建立的。上方填入 Sheet 網址後再開啟，就只會顯示那一份。`}
+                </p>
+              )}
               {pendingRows.length === 0
                 ? <p style={{ color: '#94a3b8', fontSize: 13 }}>目前沒有待補的回寫記錄。</p>
                 : <>
@@ -3772,7 +3809,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
                         }).then(r => r.json()) as { ok: boolean; succeeded: number; retried: number }
                         if (resp.ok) {
                           alert(`補回填完成：${resp.succeeded}/${resp.retried} 筆成功`)
-                          const fresh = await fetch('/api/jira/pending-writebacks?status=pending,failed').then(r => r.json()) as { ok: boolean; rows?: typeof pendingRows }
+                          const fresh = await fetch(pendingQueryUrl()).then(r => r.json()) as { ok: boolean; rows?: typeof pendingRows }
                           if (fresh.ok) setPendingRows(fresh.rows ?? [])
                           setPendingWritebackCount(fresh.rows?.length ?? 0)
                         }
@@ -3789,6 +3826,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
                           <th>Row</th>
                           <th>摘要</th>
                           <th>狀態</th>
+                          <th>停留時間</th>
                           <th>嘗試</th>
                           <th>錯誤</th>
                         </tr>
@@ -3803,6 +3841,16 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
                               <span style={{ color: r.status === 'done' ? '#22c55e' : r.status === 'failed' ? '#ef4444' : '#f59e0b' }}>
                                 {r.status}
                               </span>
+                            </td>
+                            {/* 只標示、不自動刪——pending/failed 代表「還沒補進 Sheet」，
+                                自動清掉就真的救不回來而且不會有人發現（跟 CodeX 討論定案） */}
+                            <td style={{ fontSize: 11 }}>
+                              {(() => {
+                                const a = pendingAging(r.created_at)
+                                return a
+                                  ? <span style={{ color: a.color }}>{a.label}</span>
+                                  : <span style={{ color: '#64748b' }}>—</span>
+                              })()}
                             </td>
                             <td style={{ color: '#94a3b8' }}>{r.attempt_count}</td>
                             <td style={{ color: '#ef4444', fontSize: 11, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.error ?? '—'}</td>

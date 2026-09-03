@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.99.1'
+export const APP_VERSION = '4.100.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.100.0',
+    date: '2026-09-03',
+    changes: [
+      'fix(jira): 補回填的「待補記錄」面板改成只列目前這份 Sheet。原本三個查詢點都寫死 status=pending,failed、沒帶 sheetUrl，列的是所有人所有 Sheet 所有時間的未完成紀錄（使用者看到 248 筆），而畫面上完全看不出範圍',
+      'feat(jira): 沒有 Sheet 網址可篩時（直接開面板），明確標示「範圍：全部 Sheet（N 份）——包含其他人建立的」，不再讓人誤以為是自己的',
+      'feat(jira): jira_pending_writebacks 加保留期——done 超過 30 天自動清掉。這張表原本完全沒有清理邏輯，done 的也不刪只是被畫面條件濾掉，所以會無限成長',
+      'note(jira): pending / failed 一律不自動刪（跟 CodeX 討論定案），只在表上多一欄「停留時間」標示逾期（7 天）／長期未處理（30 天）。那兩種狀態代表「還沒補進 Sheet」，自動清掉救不回來而且不會有人發現',
+      'note(jira): 這張表沒有「誰建立的」欄位，所以現階段只篩得了 Sheet、篩不了人。加 created_by 是另一件事（既有紀錄沒有擁有者，要先決定怎麼處理，CodeX 建議不要藏起來）',
+      'test(jira): 新增 scripts/ui-checks/pending-writeback-retention.mjs（11 項，合成資料、跑完確認真實資料筆數不變），已驗證把 status=done 條件拿掉時會變紅（6 項）',
+    ],
+  },
   {
     version: '4.99.1',
     date: '2026-09-03',

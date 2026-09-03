@@ -232,6 +232,36 @@ try {
   db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_jpw_unique ON jira_pending_writebacks (sheet_url, row_index, jira_key)`)
 } catch { /* already exists or no duplicates */ }
 
+/**
+ * 待補回填紀錄的保留期。
+ *
+ * 這張表原本**完全沒有清理**，只會一直長大（使用者 2026-09-03 看到 248 筆，
+ * 而且那是從功能上線累積至今的）。連 `done` 的也不刪，只是被畫面上的
+ * `status=pending,failed` 條件濾掉看不見而已。
+ *
+ * ⚠️ **只清 `done`，`pending`／`failed` 一律不自動刪**（跟 CodeX 討論定案）。
+ *    那兩種狀態的意思是「這筆還沒補進 Sheet」——自動清掉就真的救不回來了，
+ *    而且不會有人發現。舊的未處理紀錄改成在畫面上標示逾期，由人決定要不要處理。
+ */
+export const PENDING_WRITEBACK_DONE_RETENTION_DAYS = 30
+
+/**
+ * 清掉過期的 `done` 紀錄，回傳刪了幾筆。
+ *
+ * ⚠️ **`status='done'` 這個條件是這支唯一的安全保證，不要放寬。**
+ *    抽成函式就是為了讓檢查腳本能跑「同一份程式碼」——在測試裡複製一份 SQL
+ *    的話，之後有人放寬條件，測試照樣是綠的。
+ */
+export function cleanupDoneWritebacks(now = Date.now()): number {
+  const cutoff = now - PENDING_WRITEBACK_DONE_RETENTION_DAYS * 86400_000
+  return db.prepare(`DELETE FROM jira_pending_writebacks WHERE status='done' AND updated_at < ?`).run(cutoff).changes
+}
+
+try {
+  const n = cleanupDoneWritebacks()
+  if (n > 0) console.log(`[DB] 已清理 ${n} 筆超過 ${PENDING_WRITEBACK_DONE_RETENTION_DAYS} 天的 done 補回填紀錄`)
+} catch (e) { console.error('[DB] 清理補回填紀錄失敗：', e) }
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS role_permissions (
     role     TEXT NOT NULL,

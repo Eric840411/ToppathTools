@@ -1747,7 +1747,13 @@ router.get('/api/jira/pending-writebacks', (req, res) => {
   }
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
   const rows = db.prepare(`SELECT * FROM jira_pending_writebacks ${where} ORDER BY created_at DESC LIMIT 500`).all(...params)
-  res.json({ ok: true, rows })
+  // 沒帶 sheetUrl 時另外回報「這是全部人／全部 Sheet 的」，讓畫面能誠實標示範圍。
+  // 這張表**沒有建立者欄位**，所以現階段無法只顯示自己的——不要在 UI 上暗示它做得到。
+  const scope = sheetUrl ? 'sheet' : 'all'
+  const distinctSheets = sheetUrl ? 1 : (db.prepare(
+    `SELECT COUNT(DISTINCT sheet_url) n FROM jira_pending_writebacks ${where}`,
+  ).get(...params) as { n: number }).n
+  res.json({ ok: true, rows, scope, distinctSheets })
 })
 
 // POST /api/jira/pending-writebacks/retry
