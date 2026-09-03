@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.103.0'
+export const APP_VERSION = '4.103.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.103.1',
+    date: '2026-09-03',
+    changes: [
+      'fix(autospin): 三路對帳不再把「session 開始之前的輪次」算成配不到。SLS 是依機台抓最近 600 秒，Pinus 只查這個 session——兩邊範圍不對稱，session 剛啟動時會撈到上一個 session 打的輪次，那些這次的 agent 根本沒觀測過。真實案例：164 筆裡 147 筆是這種，使用者看到「148 筆配不到」以為配對壞了',
+      'note(autospin): 範圍內的 17 筆其實是 match 10 / ambiguous 7 / unmatched 0——matcher 是好的，錯的是統計範圍。修完同一台機台顯示相符 19 / 配不到 0',
+      'note(autospin): 這個問題在 v4.103.0 之前就存在，只是全部叫「缺資料」混在一起看不出來；把狀態拆細反而讓它顯形',
+      'note(autospin): 已寫進 DB 的範圍外紀錄刻意不刪（跟 CodeX 討論定案）——那是當時規則下真實產生的結果，刪掉會讓排查紀錄斷掉。改的是報表口徑，不是竄改歷史；統計與逐筆明細同口徑，否則數字沒了、展開卻還是一排 unmatched',
+    ],
+  },
   {
     version: '4.103.0',
     date: '2026-09-03',

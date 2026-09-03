@@ -2880,13 +2880,31 @@ function evaluateGroup(group: CompareGroupRow, ctx: CompareContext): GroupEvalRe
 
 interface PinusFrontRow { orderId: string; bet: number; win: number; recordTime: string; gmid: string; gameid: string }
 
-async function compareMachineCycle(sessionId: string, machineType: string, gameTitleCode: string, groups: CompareGroupRow[]): Promise<void> {
+async function compareMachineCycle(sessionId: string, machineType: string, gameTitleCode: string, groups: CompareGroupRow[], sessionStartedAt?: number): Promise<void> {
   if (groups.length === 0 || !gameTitleCode) return
 
   const nowSec = Math.floor(Date.now() / 1000)
-  // 每輪往回看 10 分鐘（含一點重疊），已存在的 round 靠 UNIQUE(sessionId, machineType, roundKey) upsert
-  // 自然去重，不需要自己追蹤「上次掃到哪」
-  const fromSec = nowSec - 600
+  /**
+   * 每輪往回看 10 分鐘（含一點重疊），已存在的 round 靠
+   * UNIQUE(sessionId, machineType, roundKey) upsert 自然去重。
+   *
+   * ⚠️ **但下界不能早於 session 開始時間。**
+   *
+   * SLS 是依**機台**抓的（`fetchRecordBet(from, now, gameTitleCode)`），
+   * 而 Pinus 只查 `sessionId = 這一次`——兩邊範圍不對稱。session 剛啟動時，
+   * 這 10 分鐘會撈到**上一個 session** 打的輪次，那些這次的 agent 根本沒觀測過，
+   * 於是全部被標成 `unmatched`。
+   *
+   * 真實案例（2026-09-03）：164 筆裡 **147 筆是 session 開始前的**，
+   * 使用者看到「148 筆配不到」以為配對壞了；真正在範圍內的 17 筆其實是
+   * match 10 / ambiguous 7 / **unmatched 0**——matcher 是好的，是統計範圍錯了。
+   *
+   * 這個統計要回答的是「**本次 session 內**，agent 觀測到的資料能不能對上 SLS」，
+   * 所以兩邊都要被 session 邊界約束（跟 CodeX 討論定案）。
+   * 反過來放寬 Pinus 不限 sessionId 雖然覆蓋率會變好看，但會把上一個 session 的
+   * 歷史資料混進這次的覆蓋率，之後分不出是即時撈取成功還是剛好被歷史補到。
+   */
+  const fromSec = Math.max(nowSec - 600, sessionStartedAt ? Math.floor(sessionStartedAt / 1000) : 0)
 
   let slsRecords: SlsBetRecord[] = []
   try {
@@ -2985,7 +3003,7 @@ async function runCompareCycle(): Promise<void> {
     for (const { machineType } of activeMachines) {
       const gameTitleCode = configs.find(c => c.machineType === machineType)?.gameTitleCode || ''
       try {
-        await compareMachineCycle(session.id, machineType, gameTitleCode, groups)
+        await compareMachineCycle(session.id, machineType, gameTitleCode, groups, session.startedAt)
       } catch (e) {
         console.error(`[autospin][compare] ${session.id}/${machineType} 比對失敗：`, e)
       }
@@ -3022,8 +3040,14 @@ router.get('/api/autospin/compare/status', (req, res) => {
         --    「配到了但缺欄位」要去補資料來源——合在一起看不出該做哪件事。
         SUM(CASE WHEN status = 'unmatched' THEN 1 ELSE 0 END) as unmatched,
         SUM(CASE WHEN status = 'ambiguous_match' THEN 1 ELSE 0 END) as ambiguous
-      FROM autospin_compare_results WHERE sessionId = ? GROUP BY machineType
-    `).all(session.id) as { machineType: string; compared: number; matched: number; mismatched: number; missing: number; unmatched: number; ambiguous: number }[]
+      FROM autospin_compare_results
+      -- ⚠️ 只統計 session 開始之後的輪次。SLS 是依機台抓的，session 剛啟動那 10 分鐘
+      --    會含到**上一個 session** 打的輪次——那些這次的 agent 根本沒觀測過，
+      --    算進來會讓「配不到」看起來爆表（真實案例：164 筆裡 147 筆是這種）。
+      --    ⚠️ 舊資料**刻意不刪**（CodeX review）：那是當時規則下真實產生的結果，
+      --       刪掉會讓排查紀錄斷掉。改的是報表口徑，不是竄改歷史。
+      WHERE sessionId = ? AND spinTime >= ? GROUP BY machineType
+    `).all(session.id, new Date(session.startedAt).toISOString()) as { machineType: string; compared: number; matched: number; mismatched: number; missing: number; unmatched: number; ambiguous: number }[]
     for (const r of rows) {
       machines.push({ sessionId: session.id, machineType: r.machineType, agentLabel: session.userLabel, ...r })
     }
@@ -3049,8 +3073,10 @@ router.get('/api/autospin/compare/detail/:machineType', (req, res) => {
   const limit = Math.min(parseInt(req.query.limit as string) || 100, 500)
   const rows = db.prepare(`
     SELECT spinIndex, spinTime, status, groups FROM autospin_compare_results
-    WHERE sessionId = ? AND machineType = ? ORDER BY spinIndex DESC LIMIT ?
-  `).all(sessionId, req.params.machineType, limit) as { spinIndex: number; spinTime: string; status: string; groups: string }[]
+    -- 逐筆明細也要跟統計同口徑，否則「148 筆配不到」的數字沒了、
+    -- 展開卻還是一整排 unmatched，反而更難解釋
+    WHERE sessionId = ? AND machineType = ? AND spinTime >= ? ORDER BY spinIndex DESC LIMIT ?
+  `).all(sessionId, req.params.machineType, new Date(session.startedAt).toISOString(), limit) as { spinIndex: number; spinTime: string; status: string; groups: string }[]
 
   res.json({
     ok: true,
