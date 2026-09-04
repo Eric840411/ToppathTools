@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.106.0'
+export const APP_VERSION = '4.107.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.107.0',
+    date: '2026-09-04',
+    changes: [
+      'fix(url-pool): 加了 UAT 之後，其他工具仍然只看得到 191 筆 QAT。AutoSpin 與機台測試共用的「帳號池選取」彈窗、以及腳本化投注的帳號清單都沒跟著更新——使用者截圖回報彈窗顯示「共 191 個帳號」',
+      'feat(url-pool): 帳號池選取彈窗與腳本化投注都加上 QAT / UAT 分頁',
+      'refactor(url-pool): 環境定義抽到 src/data/urlPoolEnv.ts 共用。原本三個地方各自 import 資料檔再組，這正是「加了資料源卻漏掉消費端」的原因；抽成一份之後不會再有某個工具默默停在只有 QAT',
+      'fix(url-pool): 選取清單排除沒有 URL 的帳號（UAT 有 27 筆）。選了會把空字串帶進 Game URL 欄位；腳本化投注的預設勾選也一併排除',
+      'note(url-pool): 腳本化投注執行中不給切環境——切了會換掉整份清單但勾選還是舊環境的；切換時一併清空勾選',
+      'note(url-pool): 環境判斷用 username 反查不是帳號號段。號段目前是 9111（QAT）／9361（UAT），但那是資料剛好不是規則',
+    ],
+  },
   {
     version: '4.106.0',
     date: '2026-09-04',

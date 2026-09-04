@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AccountInfo } from '../components/JiraAccountModal'
-import { URL_POOL_DATA, type UrlPoolEntry } from '../data/urlPoolData'
+import { type UrlPoolEntry } from '../data/urlPoolData'
+import { POOL_SOURCE, POOL_LABEL, POOL_ENVS, type PoolEnv } from '../data/urlPoolEnv'
 
 interface MachineProfile {
   machineType: string
@@ -155,8 +156,19 @@ function FlowStep({ n, name, note, active }: { n: number; name: string; note: st
 
 export function ScriptedBetPage({ currentAccount }: Props) {
   const initialSettings = loadScriptedBetSettings()
-  const [rows, setRows] = useState<UrlPoolEntry[]>(() => URL_POOL_DATA.map(r => ({ ...r })))
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(URL_POOL_DATA.slice(0, 20).map(r => r.account)))
+  /**
+   * ⚠️ 這頁也吃帳號池。加 UAT 時如果只改彈窗，這裡會**默默停在只有 QAT**——
+   *    跟今天已經發生兩次的「加了東西但漏掉某個讀取端」同一種。
+   *    環境定義一律從 `urlPoolEnv` 拿，不要自己 import 兩個資料檔再組。
+   */
+  const [poolEnv, setPoolEnv] = useState<PoolEnv>('qat')
+  const [overrides, setOverrides] = useState<Record<string, string>>({})
+  // 跟著分頁重算；override 在這裡才套上（存成 state 的話切分頁不會更新）
+  const rows: UrlPoolEntry[] = POOL_SOURCE[poolEnv].map(r => ({ ...r, url: overrides[r.account] ?? r.url }))
+  // ⚠️ 只選有 URL 的當預設。UAT 有 27 筆沒有 URL（產 token 的腳本沒跑出來），
+  //    預設勾進去會讓那幾台帶著空網址去跑。
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(POOL_SOURCE.qat.filter(r => r.url).slice(0, 20).map(r => r.account)))
   const [targetMachineCode, setTargetMachineCode] = useState(initialSettings.targetMachineCode)
   const [spinMin, setSpinMin] = useState(initialSettings.spinMin)
   const [spinMax, setSpinMax] = useState(initialSettings.spinMax)
@@ -259,7 +271,7 @@ export function ScriptedBetPage({ currentAccount }: Props) {
     fetch('/api/url-pool/overrides')
       .then(r => r.json())
       .then((overrides: Record<string, string>) => {
-        setRows(URL_POOL_DATA.map(r => ({ ...r, url: overrides[r.account] ?? r.url })))
+        setOverrides(overrides)
       })
       .catch(() => {})
   }, [])
@@ -608,6 +620,30 @@ export function ScriptedBetPage({ currentAccount }: Props) {
       <section className="section-card">
         <div className="scripted-table-head">
           <h2 className="section-title" style={{ margin: 0 }}>帳號執行清單</h2>
+          {/* ⚠️ 環境分頁。跟 URL 帳號池頁與帳號池選取彈窗同一套心智模型。
+              執行中不給切——切了會換掉整份清單，但勾選的帳號還是舊環境的。 */}
+          <div style={{ display: 'flex', gap: 4 }}>
+            {POOL_ENVS.map(e => (
+              <button
+                key={e} type="button" data-testid={`scripted-env-${e}`}
+                disabled={runState === 'running'}
+                onClick={() => { setPoolEnv(e); setSelected(new Set()) }}
+                style={{
+                  padding: '4px 12px', borderRadius: 6, fontSize: 12, fontWeight: 700,
+                  cursor: runState === 'running' ? 'not-allowed' : 'pointer',
+                  opacity: runState === 'running' ? .5 : 1,
+                  border: `1px solid ${poolEnv === e ? '#2563eb' : '#2d3f55'}`,
+                  background: poolEnv === e ? '#2563eb' : 'transparent',
+                  color: poolEnv === e ? '#fff' : '#94a3b8',
+                }}
+              >
+                {POOL_LABEL[e]}
+                <span style={{ marginLeft: 5, fontSize: 10.5, fontWeight: 400, opacity: .75 }}>
+                  {POOL_SOURCE[e].filter(r => r.url).length}
+                </span>
+              </button>
+            ))}
+          </div>
           <label className="field scripted-search">
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="搜尋帳號 / username / label / url..." disabled={runState === 'running'} />
           </label>

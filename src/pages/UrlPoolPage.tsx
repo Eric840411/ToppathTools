@@ -1,12 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { AccountInfo } from '../components/JiraAccountModal'
-import { URL_POOL_DATA, type UrlPoolEntry } from '../data/urlPoolData'
-import { URL_POOL_DATA_UAT } from '../data/urlPoolDataUat'
-
-/** 環境。兩邊是完全獨立的帳號池，網域也不同（osm-redirect vs uat-osm-redirect）。 */
-type PoolEnv = 'qat' | 'uat'
-const POOL_SOURCE: Record<PoolEnv, UrlPoolEntry[]> = { qat: URL_POOL_DATA, uat: URL_POOL_DATA_UAT }
-const POOL_LABEL: Record<PoolEnv, string> = { qat: 'QAT', uat: 'UAT' }
+import { type UrlPoolEntry } from '../data/urlPoolData'
+import { POOL_SOURCE, POOL_LABEL, type PoolEnv } from '../data/urlPoolEnv'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 

@@ -127,6 +127,43 @@ console.log('\n5) 「已設定」要跟「使用中」分開');
     `${st.可用}+${st.已設定}+${st.使用中} <= ${st.總計}`);
 }
 
+console.log('\n6) 消費端也要看得到 UAT（不是只有帳號池那頁）');
+// ⚠️ v4.105.0 給帳號池加了 UAT，但 AutoSpin／機台測試共用的「帳號池選取」彈窗
+//    仍然只看得到 191 筆 QAT——使用者截圖回報「共 191 個帳號」。
+//    加資料源時漏掉消費端，跟今天修過兩次的「新增狀態但漏掉讀取端」同一種。
+{
+  await page.locator('text=OSM Tools').first().click().catch(() => {});
+  await page.waitForTimeout(600);
+  for (const t of ['AutoSpin', '傀儡監院']) {
+    const l = page.locator(`text=${t}`).first();
+    if (await l.count()) { await l.click().catch(() => {}); await page.waitForTimeout(1600); break }
+  }
+  // ⚠️ 彈窗不是一顆按鈕就開得了：要先按機台列的「編輯」，才會出現 Game URL 旁的「選取」。
+  //    第一版直接找含「帳號池」的按鈕，結果只找到側邊欄的「URL 帳號池」導覽項。
+  await page.locator('button', { hasText: '編輯' }).first().click().catch(() => {});
+  await page.waitForTimeout(900);
+  const poolBtn = page.locator('button[title="從帳號池選取"]').first();
+  if (await poolBtn.count() === 0) {
+    check('找得到「從帳號池選取」按鈕', false, '（機台編輯表單可能沒展開）');
+  } else {
+    await poolBtn.click();
+    await page.waitForTimeout(1000);
+    const hasTabs = await page.locator('[data-testid="pool-picker-env-uat"]').count();
+    check('彈窗有 UAT 分頁', hasTabs > 0);
+    if (hasTabs > 0) {
+      const readCount = () => page.evaluate(() =>
+        (document.body.innerText.match(/共 (\d+) 個帳號/) ?? [])[1] ?? '');
+      const before = await readCount();
+      await page.locator('[data-testid="pool-picker-env-uat"]').click();
+      await page.waitForTimeout(800);
+      const after = await readCount();
+      check('切到 UAT 之後筆數改變', before !== after, `${before} -> ${after}`);
+      // ⚠️ 27 筆沒有 URL 的不能出現在可選清單——選了會把空字串帶進 Game URL
+      check('可選的是 473 筆（沒有 URL 的 27 筆被排除）', after === '473', after);
+    }
+  }
+}
+
 console.log(`\n${fail === 0 ? '全部通過' : fail + ' 項未過'}（pass ${pass} / fail ${fail}）`);
 await browser.close();
 process.exit(fail ? 1 : 0);
