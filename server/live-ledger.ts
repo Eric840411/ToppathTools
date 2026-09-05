@@ -51,6 +51,158 @@ export interface BindDecision {
 /** 金額比較的容差。兩邊都是後台/前端送來的數字，浮點誤差要容忍，但不能寬到跨檔位。 */
 const BET_EPSILON = 0.005
 
+// ─── D 方案：username 過濾 + spin_index 序列對齊 ─────────────────────────
+//
+// ⚠️ **時間窗不能當鑑別器。**實測（本機 13,876 筆 dealGMActionReq）spin 間隔中位數
+//    6 秒，而規格原本的窗 −2s~+30s 寬 32 秒 → 每筆約 5.3 個候選，全部判 AMBIGUOUS。
+//    根因是 bet 固定 1250，窗內沒有第二個鑑別特徵。後台側實測局間隔 p90 9 秒、
+//    max 146 秒——單看時間的話那筆 146 秒的會被誤判成掉單。
+//
+// 改用後台自己給的 `spin_index`（逐局遞增序號）做序列對齊。實測 200 筆連續樣本
+// **跳號率 0.0%**，`bet_time_precise` 單調遞增，所以這個順序是可信的。
+//
+// ⚠️ 候選集在**查詢階段**就砍掉（帶 playerName 過濾），不是在比對階段篩。
+//    別人的局根本不會進來。
+
+export interface BackendRound {
+  orderId: string
+  gmid: string
+  username: string
+  spinIndex: number
+  bet: number
+  betTimePrecise: number
+}
+export interface AlignDecision {
+  spinId: number
+  result: BindResult
+  orderId?: string
+  spinIndex?: number
+  /** 對齊之後的驗證結果——不通過就不算 resolved */
+  verify?: { betOk: boolean; timeOk: boolean; latencyOk?: boolean; deltaMs?: number }
+  reason?: string
+}
+
+/**
+ * spin_index 序列對齊。
+ *
+ * 前提：`rounds` 已經是**單一帳號 × 單一機台**的集合（查詢階段用 playerName 過濾），
+ * 且 `spins` 與 `rounds` 都各自有序。
+ *
+ * ⚠️ **錨定之後才遞推，而且每一筆都要驗**（規格方要求）。「錯位整段偏移」是序列
+ *    對齊最危險的失敗模式——一旦錨錯，後面每一筆都錯而且看起來都「成功」。
+ *    所以：
+ *      - spin_index 跳號 → 該筆標 AMBIGUOUS 並**重新錨定**，不硬推
+ *      - 每筆用 bet 相等 + bet_time_precise 單調性做 sanity check，不過就不算 resolved
+ *
+ * ⚠️ 對齊用「已綁定的最後一筆」當錨。第一次沒有錨時，用時間最接近的唯一候選錨一次；
+ *    錨不出來就整批 not_found，**不猜**——寧可這一輪不綁，下一輪後台資料更完整再試。
+ */
+export function alignBySpinIndex(
+  spins: Array<PendingSpin & { spinSeq: number }>,
+  rounds: BackendRound[],
+  opts: {
+    /** 錨定時的時間窗（單一候選才錨） */
+    anchorWindowMs: number
+    /** 逐筆容忍的最大入帳延遲。⚠️ 必須小於 spin 間隔，否則平移一格也會通過 */
+    maxLatencyMs: number
+    /** 後台時間比 spin 早多少仍可接受（時鐘偏移用，通常很小） */
+    maxLeadMs: number
+  },
+  alreadyBound: ReadonlySet<string> = new Set(),
+): AlignDecision[] {
+  const free = rounds.filter(r => !alreadyBound.has(r.orderId)).slice()
+    .sort((a, b) => a.spinIndex - b.spinIndex)
+  const ordered = spins.slice().sort((a, b) => a.spinSeq - b.spinSeq)
+  if (ordered.length === 0) return []
+  if (free.length === 0) {
+    return ordered.map(s => ({ spinId: s.id, result: 'not_found' as const, reason: 'no_backend_rounds' }))
+  }
+
+  const out: AlignDecision[] = []
+  let cursor = -1          // free[] 的索引
+  let lastIndex: number | null = null
+  let lastTime = -Infinity
+  /**
+   * ⚠️ 這一輪之內已經配掉的位置。**重新錨定時一定要排除它們。**
+   *    少了這個，跳號後重新錨定會往回搜到已經配過的那幾筆，
+   *    於是同一張後台單在同一次呼叫裡被配給兩筆 spin——兩邊都顯示 resolved。
+   *    （DB 那層有 unique index 會擋下第二筆，但那時已經是「一筆綁成、一筆莫名失敗」，
+   *    看起來像偶發錯誤而不是邏輯錯誤，很難查。）
+   */
+  const used = new Set<number>()
+
+  for (const s of ordered) {
+    // ① 還沒錨定 → 用時間找唯一候選錨一次
+    if (cursor < 0) {
+      const near = free
+        .map((r, i) => ({ r, i }))
+        .filter(({ r, i }) => !used.has(i)
+          && Math.abs(r.betTimePrecise - s.observedAt) <= opts.anchorWindowMs
+          && Math.abs(r.bet - s.betAmount) <= BET_EPSILON)
+      if (near.length !== 1) {
+        // ⚠️ 錨不出來就不錨。硬錨會讓後面整段偏移，而且每一筆看起來都成功。
+        out.push({ spinId: s.id, result: 'not_found', reason: near.length === 0 ? 'no_anchor' : 'anchor_ambiguous' })
+        continue
+      }
+      cursor = near[0].i
+    } else {
+      cursor++
+    }
+    // 遞推也可能走到已經用掉的位置（重新錨定之後），一樣要跳過
+    while (cursor < free.length && used.has(cursor)) cursor++
+
+    if (cursor >= free.length) {
+      out.push({ spinId: s.id, result: 'not_found', reason: 'beyond_backend' })
+      continue
+    }
+    const r = free[cursor]
+
+    // ② 跳號 → 不硬推，重新錨定
+    if (lastIndex !== null && r.spinIndex !== lastIndex + 1) {
+      out.push({ spinId: s.id, result: 'ambiguous', reason: `index_gap:${lastIndex}->${r.spinIndex}` })
+      cursor = -1; lastIndex = null
+      continue
+    }
+
+    /**
+     * ③ 每一筆都驗，不通過就不算 resolved。
+     *
+     * ⚠️ **`latencyOk` 這一條是反向驗收逼出來的，不是可有可無的加分項。**
+     *    第一版只驗 bet 相等 + 時間單調，結果把後台序列整體平移一格之後
+     *    **回填率還有 95%**——因為 bet 是常數、平移後時間依然單調遞增，
+     *    兩個檢查都通過。那正是「看起來成功」的失敗模式：整段配到隔壁那一局。
+     *
+     * ⚠️ 逐筆的時間差上界**必須小於 spin 間隔**，否則平移一格仍在容忍範圍內、
+     *    這條就形同虛設。實測 spin 間隔中位數 6 秒，所以上界要明顯小於 6 秒。
+     *    真正的值要用 P0 那輪實測的入帳延遲分布來定——**這也讓延遲量測從
+     *    「交付項」變成「設計前提」**：如果後台入帳延遲的 p95 大於 spin 間隔，
+     *    序列對齊在原理上就分不出正確與平移，那要回頭找第三個鑑別特徵。
+     */
+    const betOk = Math.abs(r.bet - s.betAmount) <= BET_EPSILON
+    const timeOk = r.betTimePrecise >= lastTime
+    const delta = r.betTimePrecise - s.observedAt
+    const latencyOk = delta >= -opts.maxLeadMs && delta <= opts.maxLatencyMs
+    if (!betOk || !timeOk || !latencyOk) {
+      out.push({
+        spinId: s.id, result: 'ambiguous',
+        verify: { betOk, timeOk, latencyOk, deltaMs: delta },
+        reason: !betOk ? `bet_mismatch:${r.bet}!=${s.betAmount}`
+          : !timeOk ? 'time_not_monotonic'
+          : `latency_out_of_band:${delta}ms`,
+      })
+      cursor = -1; lastIndex = null
+      continue
+    }
+
+    out.push({ spinId: s.id, result: 'resolved', orderId: r.orderId, spinIndex: r.spinIndex,
+      verify: { betOk, timeOk, latencyOk, deltaMs: delta } })
+    used.add(cursor)
+    lastIndex = r.spinIndex
+    lastTime = r.betTimePrecise
+  }
+  return out
+}
+
 /**
  * 把 pending 的 spin 綁到後台局號。**純函式**——不碰 DB，才驗得動。
  *
