@@ -3,6 +3,7 @@
  * Express app entry point — sets up middleware, mounts route files, and starts the server.
  * All business logic lives in server/routes/*.ts and server/shared.ts.
  */
+import { buildInfo } from './build-info.js'
 import cors from 'cors'
 import dotenv from 'dotenv'
 import express from 'express'
@@ -207,6 +208,20 @@ app.use((req, _res, next) => {
 app.use(dashboardMetricsMiddleware)
 
 // ─── Health ───────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/build-info — 這支 process 現在跑的是哪一份程式碼。
+ *
+ * ⚠️ **刻意不 proxy 到 worker**：這支端點的用途正是分辨兩支 process 有沒有
+ *    載入同一次 build 的產物。proxy 過去就只會拿到 worker 的，看不出差異。
+ *    要看 worker 的請直接打 :3010/api/build-info。
+ *
+ * 起因：restart 只下了一半、worker 跑了 698 分鐘前的舊碼，而指令沒報任何錯，
+ * 當時沒有任何端點回答得了「worker 跑的是哪份碼」。
+ */
+app.get('/api/build-info', (_req, res) => {
+  res.json({ ok: true, ...buildInfo('toppath-server') })
+})
 
 app.get('/api/health', (_req, res) => {
   res.json({

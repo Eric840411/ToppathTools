@@ -5,6 +5,7 @@
  * This process intentionally starts small: health, capacity, and runtime
  * telemetry first. Heavy job execution can move here one route at a time.
  */
+import { buildInfo } from './build-info.js'
 import cors from 'cors'
 import Bottleneck from 'bottleneck'
 import dotenv from 'dotenv'
@@ -80,6 +81,11 @@ const workerQueue = new Bottleneck({
 })
 
 app.use(cors())
+
+// 見 server/index.ts 同名端點的說明：用來分辨兩支 process 是不是載入同一次 build。
+app.get('/api/build-info', (_req, res) => {
+  res.json({ ok: true, ...buildInfo('toppath-worker') })
+})
 app.use('/api/machine-test/osm-status', express.text({ type: '*/*', limit: '5mb' }))
 app.use((req, res, next) => {
   if (req.path === '/api/machine-test/osm-status') return next()

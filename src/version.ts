@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.109.0'
+export const APP_VERSION = '4.109.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.109.1',
+    date: '2026-09-05',
+    changes: [
+      'feat(ops): 新增 GET /api/build-info（server 與 worker 各一支），回報這個 process 實際載入的編譯產物時間。兩支的 buildAt 不一致就代表有一支沒跟上這次 build',
+      'note(ops): 起因是我自己踩到——改完對帳程式碼後說「兩支都要重啟」，然後只重啟了 server，worker 繼續跑 698 分鐘前的舊碼，而指令沒報任何錯。當時沒有任何端點回答得了「worker 跑的是哪份碼」，只能靠 PM2 uptime 間接推',
+      'note(ops): 用編譯產物的 mtime 而不是啟動時間——啟動時間只說明何時起來的，說不出起來時載入的是哪一版。這支端點刻意不 proxy 到 worker，proxy 過去就看不出兩邊的差異了',
+      'feat(live-ledger): recon_backend_record 補 spinIndex / betTimePrecise / username / filterField / filterValue。betTimePrecise 是兩個驗收指標的分母，沒有它就量不出配對抖動與入帳延遲',
+    ],
+  },
   {
     version: '4.109.0',
     date: '2026-09-05',
