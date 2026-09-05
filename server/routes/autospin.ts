@@ -2,6 +2,7 @@
  * server/routes/autospin.ts
  * AutoSpin management: machine configs, template files, session control.
  */
+import { recordSpinObservation } from '../live-ledger.js'
 import { Router } from 'express'
 import { z } from 'zod'
 import { spawn, ChildProcess } from 'child_process'
@@ -2079,6 +2080,56 @@ echo "============================================"
 // ─── History (戰績監控) endpoints ─────────────────────────────────────────────
 
 // POST /api/autospin/agent/:id/history — agent posts a history entry
+/**
+ * POST /api/autospin/agent/:id/recon-spin — Live Ledger 的觀測落庫（三段式綁定的第 ① 段）。
+ *
+ * agent 每按一次 spin 就打一次，orderId 留空、狀態 PENDING；worker 之後用
+ * spin_index 序列對齊把後台局號回填進來。
+ *
+ * ⚠️ 這支要**極度輕量且絕不能擋住主迴圈**：agent 端是 fire-and-forget，
+ *    這裡任何失敗都只記 log 不回錯——對帳掛掉不該讓壓測停下來。
+ *
+ * ⚠️ `betAmount` 是選填。實測目前這台機台的 `dealGMActionReq` 請求裡**沒有 bet 欄位**
+ *    （下注額是另一個動作設定的），而餘額在這個 session 完全沒變動，所以也推不出來。
+ *    序列對齊在 bet 未知時會跳過該項驗證（仍有 spin_index 連續性與時間帶兩道），
+ *    但那等於少一道保護——見 live-ledger.ts 裡的說明。
+ */
+router.post('/api/autospin/agent/:id/recon-spin', (req, res) => {
+  const s = agentSessions.get(req.params.id)
+  if (!s) return res.status(404).json({ ok: false })
+  try {
+    const b = z.object({
+      env: z.enum(['qat', 'uat']),
+      machineType: z.string(),
+      gmid: z.string().default(''),
+      username: z.string().default(''),
+      spinSeq: z.number(),
+      betAmount: z.number().nullable().optional(),
+      balanceBefore: z.number().nullable().optional(),
+      balanceAfter: z.number().nullable().optional(),
+      winObserved: z.number().nullable().optional(),
+      observedAt: z.number(),
+    }).parse(req.body)
+    recordSpinObservation({
+      env: b.env, sessionId: req.params.id, machineType: b.machineType, gmid: b.gmid,
+      spinSeq: b.spinSeq, betAmount: b.betAmount ?? 0,
+      balanceBefore: b.balanceBefore ?? null, balanceAfter: b.balanceAfter ?? null,
+      winObserved: b.winObserved ?? null, observedAt: b.observedAt,
+    })
+    // username 存在 recon_spin 的 note 欄（P0 還沒有專屬欄位），worker 拉取時要用它當過濾值
+    if (b.username) {
+      db.prepare(`UPDATE recon_spin SET note=? WHERE env=? AND sessionId=? AND machineType=? AND spinSeq=?`)
+        .run(`username=${b.username}`, b.env, req.params.id, b.machineType, b.spinSeq)
+    }
+    res.json({ ok: true })
+  } catch (e) {
+    // ⚠️ 不要回 4xx／5xx。agent 端是 fire-and-forget，回錯只會在它的日誌洗版，
+    //    而且對帳本身掛掉不該影響壓測。真正的訊號在 server log 與 recon_spin 有沒有在長。
+    console.error('[live-ledger] recon-spin 落庫失敗：', e)
+    res.json({ ok: false })
+  }
+})
+
 router.post('/api/autospin/agent/:id/history', (req, res) => {
   const s = agentSessions.get(req.params.id)
   if (!s) return res.status(404).json({ ok: false })

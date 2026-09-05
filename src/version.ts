@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.109.1'
+export const APP_VERSION = '4.110.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.110.0',
+    date: '2026-09-05',
+    changes: [
+      'feat(live-ledger): agent 側寫入點完成——每次 spin 即時落庫 recon_spin（POST /api/autospin/agent/:id/recon-spin）。fire-and-forget 走背景執行緒，對帳掛掉不會影響壓測',
+      'note(live-ledger): env 與 username 從 Game URL 推導（uat-osm-redirect → uat；username 取 query 參數）。username 是後台查詢的過濾值，推錯會導致整批對到別人的資料',
+      'fix(live-ledger): ⚠️ agent 側目前拿不到 bet——dealGMActionReq 的請求裡沒有這個欄位，而實測 session 的餘額完全沒變動也推不出來。錨定與逐筆驗證原本都會拿 bet 比對，未知時會變成「全部錨不到、回填率 0%」，看起來像設計失敗其實只是沒這個欄位。改成未知時跳過該項，betOk 記成 undefined（跳過）而不是 true（通過）',
+      'fix(live-ledger): toppath-agent.py 缺 import re——py_compile 過不代表跑得動，未 import 的模組要執行到那一行才會 NameError。改成實際呼叫函式驗證',
+    ],
+  },
   {
     version: '4.109.1',
     date: '2026-09-05',

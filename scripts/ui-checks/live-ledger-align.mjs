@@ -226,5 +226,27 @@ console.log('\n13) 反向驗收：差一位的配對必須被拒絕');
     `${OPT.maxLatencyMs}ms < 6000ms`);
 }
 
+console.log('\n14) agent 側 bet 未知時仍要能對齊（實測就是這個情況）');
+// ⚠️ 實測 dealGMActionReq 的請求裡**沒有 bet 欄位**，而該 session 的餘額也完全沒變動
+//    （31567505770.86 → 相同），所以 agent 側目前拿不到 bet。
+//    若「錨定」或「逐筆驗證」把未知的 bet 當成不符，結果會是全部 no_anchor／ambiguous、
+//    回填率 0%——看起來像設計失敗，其實只是我們沒有這個欄位。
+//    這一組守的就是那個差點被帶進驗收的坑。
+{
+  const s = spins(10).map(x => ({ ...x, betAmount: 0 }));   // bet 未知
+  const out = run(s, rounds(10));
+  check('bet 未知時照樣全部對得上', out.every(x => x.result === 'resolved'), JSON.stringify(results(out)));
+  check('betOk 記成 undefined（跳過）而不是 true（通過）',
+    out.every(x => x.verify?.betOk === undefined), JSON.stringify(out[0].verify));
+  check('其餘兩道驗證仍然有效', out.every(x => x.verify?.timeOk === true && x.verify?.latencyOk === true));
+}
+{
+  // bet 未知也不能因此放過差一位——latencyOk 仍要擋得住
+  const s = spins(10).map(x => ({ ...x, betAmount: 0 }));
+  const shifted = rounds(10).map(r => ({ ...r, betTimePrecise: r.betTimePrecise + 6000 }));
+  const resolvedCount = run(s, shifted).filter(x => x.result === 'resolved').length;
+  check('bet 未知時，差一位仍被時間帶擋住', resolvedCount < 10, `resolved ${resolvedCount}/10`);
+}
+
 console.log(`\n${fail === 0 ? '全部通過' : fail + ' 項未過'}（pass ${pass} / fail ${fail}）`);
 process.exit(fail ? 1 : 0);

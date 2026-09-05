@@ -12,6 +12,7 @@ import multiprocessing
 import queue
 import signal
 import os
+import re
 import tempfile
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs
@@ -126,6 +127,43 @@ def post_history(machine_type: str, balance, spin_count: int, event: str = 'bala
         if d.get('isAnomaly'):
             log(f"[{machine_type}] ⚠️ 異常偵測：餘額相比本次開局下降超過 30%")
     except Exception:
+        pass
+
+def post_recon_spin(machine_type: str, cfg: dict, spin_seq: int, balance_before, balance_after, observed_at_ms: int):
+    """Live Ledger 觀測落庫——三段式綁定的第 ① 段。
+
+    ⚠️ 一定要走 async_call 丟背景執行緒。這支每次 spin 都會呼叫，
+       同步打會把網路延遲加進 spin 迴圈的節奏裡，直接影響壓測本身的間隔。
+
+    ⚠️ env 與 username 都從 Game URL 推——agent 這側沒有別的來源：
+       uat-osm-redirect → uat，其餘 → qat；username 取 query 的 username 參數。
+       username 是後台查詢的過濾值，推錯會導致整批對到別人的資料（後端有防呆會擋，
+       但那時只會看到 DEGRADED，不會知道是這裡推錯）。
+    """
+    try:
+        url = cfg.get('gameUrl') or ''
+        env = 'uat' if 'uat-osm-redirect' in url else 'qat'
+        m = re.search(r'[?&]username=([^&]+)', url)
+        username = m.group(1) if m else ''
+        requests.post(
+            f"{server_url}/api/autospin/agent/{session_id}/recon-spin",
+            json={
+                'env': env,
+                'machineType': machine_type,
+                'gmid': cfg.get('gameTitleCode') or '',
+                'username': username,
+                'spinSeq': spin_seq,
+                # ⚠️ bet 目前拿不到：dealGMActionReq 的請求裡沒有 bet 欄位（下注額是另一個
+                #    動作設定的），而餘額在實測的 session 完全沒變動，也推不出來。
+                #    留 None，序列對齊會跳過 bet 驗證。
+                'betAmount': None,
+                'balanceBefore': balance_before,
+                'balanceAfter': balance_after,
+                'observedAt': observed_at_ms,
+            },
+            timeout=5)
+    except Exception:
+        # 對帳落庫失敗絕不能影響壓測。真正的訊號是 recon_spin 有沒有在長。
         pass
 
 spin_interval_override = None  # set by server via should-stop poll
@@ -1920,6 +1958,9 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
                         if spin_outcome == 'unknown' else None
                     )
                     mp['error_count'] = 0
+                    # Live Ledger：每次 spin 即時落庫（fire-and-forget，不擋主迴圈）
+                    async_call(post_recon_spin, mt, cfg, mp['spin_count'],
+                               balance_before, balance_after, int(time.time() * 1000))
                     if not spin_rejected:
                         mp['ok_spin_count'] = mp.get('ok_spin_count', 0) + 1
                         mark_spin_recovered(mp)

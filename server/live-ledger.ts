@@ -78,7 +78,8 @@ export interface AlignDecision {
   orderId?: string
   spinIndex?: number
   /** 對齊之後的驗證結果——不通過就不算 resolved */
-  verify?: { betOk: boolean; timeOk: boolean; latencyOk?: boolean; deltaMs?: number }
+  /** `betOk` 為 undefined 代表 agent 側沒有 bet 可比——是**跳過**不是通過 */
+  verify?: { betOk?: boolean; timeOk: boolean; latencyOk?: boolean; deltaMs?: number }
   reason?: string
 }
 
@@ -134,11 +135,15 @@ export function alignBySpinIndex(
   for (const s of ordered) {
     // ① 還沒錨定 → 用時間找唯一候選錨一次
     if (cursor < 0) {
+      // ⚠️ bet 未知時**錨定也要跳過 bet 比對**，否則永遠錨不到（betAmount=0 對不上任何一張單），
+      //    結果會是「全部 no_anchor、回填率 0%」——看起來像設計失敗，其實只是我們沒有這個欄位。
+      //    這個坑我差點帶進驗收。
+      const anchorBetKnown = Number.isFinite(s.betAmount) && s.betAmount > 0
       const near = free
         .map((r, i) => ({ r, i }))
         .filter(({ r, i }) => !used.has(i)
           && Math.abs(r.betTimePrecise - s.observedAt) <= opts.anchorWindowMs
-          && Math.abs(r.bet - s.betAmount) <= BET_EPSILON)
+          && (!anchorBetKnown || Math.abs(r.bet - s.betAmount) <= BET_EPSILON))
       if (near.length !== 1) {
         // ⚠️ 錨不出來就不錨。硬錨會讓後面整段偏移，而且每一筆看起來都成功。
         out.push({ spinId: s.id, result: 'not_found', reason: near.length === 0 ? 'no_anchor' : 'anchor_ambiguous' })
@@ -192,15 +197,29 @@ export function alignBySpinIndex(
      *    `bet_coin_now` 是逐局遞變的執行餘額，鑑別力比時間強得多，而且 L2 本來
      *    就要收它。屆時把它從「配對後驗證」升格為「配對鍵」即可，不用重新設計。
      */
-    const betOk = Math.abs(r.bet - s.betAmount) <= BET_EPSILON
+    /**
+     * ⚠️ **agent 側的 bet 目前拿不到，所以未知時要跳過這項而不是判失敗。**
+     *
+     * 實測：`dealGMActionReq` 的請求裡沒有 bet 欄位（下注額是另一個動作設定的），
+     * 而實測 session 的餘額完全沒有變動（31567505770.86 → 相同），也推不出來。
+     * 判失敗的話**每一筆都會變 AMBIGUOUS**，驗收直接歸零——而那不是配對錯，
+     * 是我們沒有這個資料。
+     *
+     * ⚠️ 但這等於少一道保護，要誠實記錄：`betOk` 會是 `undefined` 而不是 `true`，
+     *    畫面與驗收報告要看得出「這批是在沒有 bet 驗證的情況下對上的」。
+     *    補這個資料的兩條路（待規格方裁示）：從下注設定動作攔 bet，
+     *    或改用 begin/end_machine_coin 的差值。
+     */
+    const betKnown = Number.isFinite(s.betAmount) && s.betAmount > 0
+    const betOk = betKnown ? Math.abs(r.bet - s.betAmount) <= BET_EPSILON : undefined
     const timeOk = r.betTimePrecise >= lastTime
     const delta = r.betTimePrecise - s.observedAt
     const latencyOk = delta >= -opts.maxLeadMs && delta <= opts.maxLatencyMs
-    if (!betOk || !timeOk || !latencyOk) {
+    if (betOk === false || !timeOk || !latencyOk) {
       out.push({
         spinId: s.id, result: 'ambiguous',
         verify: { betOk, timeOk, latencyOk, deltaMs: delta },
-        reason: !betOk ? `bet_mismatch:${r.bet}!=${s.betAmount}`
+        reason: betOk === false ? `bet_mismatch:${r.bet}!=${s.betAmount}`
           : !timeOk ? 'time_not_monotonic'
           : `latency_out_of_band:${delta}ms`,
       })
