@@ -2,7 +2,13 @@
  * server/routes/autospin.ts
  * AutoSpin management: machine configs, template files, session control.
  */
-import { recordSpinObservation } from '../live-ledger.js'
+import { recordSpinObservation, noteSourceHealth } from '../live-ledger.js'
+
+/**
+ * 連續幾筆觀測落庫失敗。⚠️ fire-and-forget 不代表不留痕——
+ * 2026-09-05 曾因 INSERT 少一個佔位符，連續兩小時零筆寫入而外部完全看不出來。
+ */
+let reconSpinFailStreak = 0
 import { Router } from 'express'
 import { z } from 'zod'
 import { spawn, ChildProcess } from 'child_process'
@@ -2096,7 +2102,9 @@ echo "============================================"
  */
 router.post('/api/autospin/agent/:id/recon-spin', (req, res) => {
   const s = agentSessions.get(req.params.id)
-  if (!s) return res.status(404).json({ ok: false })
+  // ⚠️ 這裡原本也是裸的 `{ ok: false }`，跟落庫失敗長得一模一樣——
+  //    查問題時分不出「session 不存在」和「寫入炸了」，兩者的下一步完全不同。
+  if (!s) return res.status(404).json({ ok: false, reason: 'session_not_found' })
   try {
     const b = z.object({
       env: z.enum(['qat', 'uat']),
@@ -2123,12 +2131,28 @@ router.post('/api/autospin/agent/:id/recon-spin', (req, res) => {
       db.prepare(`UPDATE recon_spin SET note=? WHERE env=? AND sessionId=? AND machineType=? AND spinSeq=?`)
         .run(`username=${b.username}`, b.env, req.params.id, b.machineType, b.spinSeq)
     }
+    reconSpinFailStreak = 0
     res.json({ ok: true })
   } catch (e) {
     // ⚠️ 不要回 4xx／5xx。agent 端是 fire-and-forget，回錯只會在它的日誌洗版，
-    //    而且對帳本身掛掉不該影響壓測。真正的訊號在 server log 與 recon_spin 有沒有在長。
+    //    而且對帳本身掛掉不該影響壓測。
+    //
+    // ⚠️ **但「不擋壓測」不等於「不留痕」。**這個決定的實際後果發生過一次：
+    //    2026-09-05 因為 INSERT 少一個佔位符，**連續兩小時每一筆都落庫失敗、
+    //    零筆寫入，而外部看起來完全正常**（HTTP 200、端點一直在被打）。
+    //    log 裡其實有印，但沒有人會盯著 log 看。
+    //    所以連續失敗要進 recon_source_health，健康列自然會亮。
+    const reason = e instanceof Error ? `${e.name}: ${e.message.slice(0, 200)}` : String(e).slice(0, 200)
+    reconSpinFailStreak++
     console.error('[live-ledger] recon-spin 落庫失敗：', e)
-    res.json({ ok: false })
+    if (reconSpinFailStreak === 1 || reconSpinFailStreak % 20 === 0) {
+      // env 可能就是解析失敗的那一項，取不到時退回 'qat' 只為了有地方記——
+      // 這是診斷列不是資料，不會污染任何一邊的對帳結果。
+      const envForHealth = (req.body?.env === 'uat' ? 'uat' : 'qat') as 'qat' | 'uat'
+      noteSourceHealth(envForHealth, 'recon-spin', false, 'write_failed',
+        `連續 ${reconSpinFailStreak} 筆觀測落庫失敗：${reason}`)
+    }
+    res.json({ ok: false, reason })
   }
 })
 

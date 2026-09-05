@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.112.0'
+export const APP_VERSION = '4.112.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.112.1',
+    date: '2026-09-06',
+    changes: [
+      'fix(live-ledger): ⚠️ v4.112.0 加 outcome 欄位時三個地方只改到兩個（INSERT 欄位清單／VALUES 佔位符／run 參數），造成 RangeError 讓**每一筆觀測落庫都失敗**。實際後果是連續兩小時零筆寫入而外部完全看不出來：HTTP 200、端點一直被打、回應只有裸的 {ok:false}',
+      'fix(live-ledger): recon-spin 端點回應帶上拒絕原因，且 session 不存在（404）與寫入失敗改成分得出來——原本兩者都是裸的 {ok:false}，查問題時分不出，而兩者的下一步完全不同',
+      'feat(live-ledger): 連續落庫失敗會寫進 recon_source_health，健康列自然會亮。fire-and-forget 不擋壓測是對的，但**不代表不留痕**——log 有印，可是沒有人會盯著 log 看',
+      'test(live-ledger): 新增 scripts/ui-checks/live-ledger-write-path.mjs（18 項，跑完自動還原）。型別檢查抓不到 SQL 字串的佔位符數量，align 那 49 項是純函式不碰 DB——**只有真的寫一次才測得出來**',
+      'note(live-ledger): env 刻意**不給預設值**。把 UAT 的局默默寫進 QAT 比整批失敗更糟——失敗看得見，寫錯環境看不見',
+    ],
+  },
   {
     version: '4.112.0',
     date: '2026-09-05',

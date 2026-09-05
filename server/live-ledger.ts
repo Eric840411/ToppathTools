@@ -476,8 +476,8 @@ export function recordSpinObservation(row: {
 }): void {
   db.prepare(`
     INSERT INTO recon_spin (env, sessionId, machineType, gmid, spinSeq, betAmount,
-      balanceBefore, balanceAfter, winObserved, status, observedAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
+      balanceBefore, balanceAfter, winObserved, status, observedAt, outcome)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)
     ON CONFLICT(env, sessionId, machineType, spinSeq) DO UPDATE SET
       betAmount=excluded.betAmount, balanceBefore=excluded.balanceBefore,
       balanceAfter=excluded.balanceAfter, winObserved=excluded.winObserved,
