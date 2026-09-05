@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.108.0'
+export const APP_VERSION = '4.109.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.109.0',
+    date: '2026-09-05',
+    changes: [
+      'feat(live-ledger): P0 改採方案 D——查詢階段用 playerName 過濾 + spin_index 序列對齊，取代原本的時間窗匹配。時間窗降級為拉取範圍粗篩，bet 與餘額降級為配對後驗證',
+      'feat(live-ledger): 拉取後強制驗證「回傳的 username 全部等於目標」，不一致整批標 DEGRADED 不進綁定。實測 playerId 傳錯值型別時後台不報錯、直接回傳未過濾的全部 16,824 筆——少了這道防呆，一個參數打錯就會靜默地對到別人的資料上',
+      'note(live-ledger): 反向驗收逼出逐筆時間差檢查。原本只驗 bet 相等 + 時間單調，把後台序列平移一格之後回填率仍有 95%——因為 bet 是常數、平移後時間依然單調，兩個檢查都通過。那正是「看起來成功」的失敗模式',
+      'note(live-ledger): 決定容忍上界的是「配對抖動」（bet_time_precise − observedAt 的變異，實測 max 500ms）不是「入帳延遲」（fetchedAt − bet_time_precise）。兩者常被混為一談——後者決定的是 PENDING→MISSING 門檻，跟配對鑑別力無關',
+      'fix(live-ledger): 跳號後重新錨定會往回配到同一輪內已用掉的單，兩筆 spin 都顯示 resolved。DB 的 unique index 會擋下第二筆，但那時已經是「一筆成功、一筆莫名失敗」，會被誤認成偶發故障而不是邏輯錯誤',
+      'test(live-ledger): live-ledger-align.mjs（36 項，含規格方指定的 9 項必測與反向驗收）＋ live-ledger-guard.mjs（15 項）',
+    ],
+  },
   {
     version: '4.108.0',
     date: '2026-09-05',

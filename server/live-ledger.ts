@@ -172,11 +172,25 @@ export function alignBySpinIndex(
      *    **回填率還有 95%**——因為 bet 是常數、平移後時間依然單調遞增，
      *    兩個檢查都通過。那正是「看起來成功」的失敗模式：整段配到隔壁那一局。
      *
-     * ⚠️ 逐筆的時間差上界**必須小於 spin 間隔**，否則平移一格仍在容忍範圍內、
+     * ⚠️ 逐筆的時間差上界**必須小於 spin 間隔**，否則差一位仍落在容忍範圍內、
      *    這條就形同虛設。實測 spin 間隔中位數 6 秒，所以上界要明顯小於 6 秒。
-     *    真正的值要用 P0 那輪實測的入帳延遲分布來定——**這也讓延遲量測從
-     *    「交付項」變成「設計前提」**：如果後台入帳延遲的 p95 大於 spin 間隔，
-     *    序列對齊在原理上就分不出正確與平移，那要回頭找第三個鑑別特徵。
+     *
+     * ⚠️ **決定這個上界的是「配對抖動」，不是「入帳延遲」——兩者是不同的量**
+     *    （我原本混為一談，規格方更正）：
+     *
+     *      配對抖動 = `bet_time_precise − observedAt` 的**變異**
+     *                 ← 決定容忍上界能設多低。實測目前 max 500ms，對 6 秒間隔約 12 倍餘裕
+     *      入帳延遲 = `fetchedAt − bet_time_precise`（紀錄多久後才查得到）
+     *                 ← 決定 PENDING → MISSING 的 90 秒門檻，**跟配對鑑別力無關**
+     *
+     *    理由：`bet_time_precise` 是後端自己記的下注時間，不是紀錄可見的時間。
+     *    所以就算入帳延遲 60 秒，只要延遲得「一致」，抖動仍然是穩定的 500ms，
+     *    配對完全不受影響。
+     *
+     * ⚠️ 如果 P0 實測的**抖動 max** 逼近 spin 間隔的一半，**不要自己放寬上界**——
+     *    那時的正解是加第三個鑑別特徵。備援已經現成：`begin_machine_coin` /
+     *    `bet_coin_now` 是逐局遞變的執行餘額，鑑別力比時間強得多，而且 L2 本來
+     *    就要收它。屆時把它從「配對後驗證」升格為「配對鍵」即可，不用重新設計。
      */
     const betOk = Math.abs(r.bet - s.betAmount) <= BET_EPSILON
     const timeOk = r.betTimePrecise >= lastTime
@@ -264,6 +278,89 @@ export function bindSpins(
       timeDeltaMs: only.dateTime - spin.observedAt,
     }
   })
+}
+
+// ─── 後台拉取 ────────────────────────────────────────────────────────────
+
+/**
+ * 把 gameRecordList 的一列正規化。
+ *
+ * ⚠️ 時間一律轉成 **epoch ms (UTC)**。`bet_time_precise` 是 epoch **秒**（帶小數），
+ *    直接當毫秒用會差 1000 倍，而症狀是「全部配不到」——看起來像後台掛了。
+ */
+export function normalizeBackendRow(raw: Record<string, unknown>): BackendRound & { win: number; playerId: string } | null {
+  const orderId = String(raw.order_id ?? '')
+  if (!orderId) return null
+  const btp = Number(raw.bet_time_precise)
+  return {
+    orderId,
+    gmid: String(raw.uid ?? ''),
+    username: String(raw.username ?? ''),
+    spinIndex: Number(raw.spin_index ?? -1),
+    bet: Number(raw.bet ?? 0),
+    win: Number(raw.win ?? 0),
+    playerId: String(raw.userid ?? ''),
+    betTimePrecise: Number.isFinite(btp) ? Math.round(btp * 1000) : NaN,
+  }
+}
+
+export interface FetchGuardResult {
+  ok: boolean
+  rows: Array<ReturnType<typeof normalizeBackendRow>>
+  /** 不 ok 時的原因，會寫進 recon_source_health */
+  errKind?: 'wrong_account' | 'bad_shape'
+  message?: string
+}
+
+/**
+ * ⚠️ **拉取後必驗「回傳的 username 全部等於我們要的那一個」**（規格方升格為必做）。
+ *
+ * 實測：`playerId` 傳 username 時後台**不報錯，直接回傳未過濾的全部 16,824 筆**。
+ * 少了這道防呆，一個參數打錯就會讓整套對帳靜默地對到別人的資料上，
+ * 而且畫面會顯示得很正常——這正是這份規格從頭在防的失敗類型。
+ *
+ * 不一致時整批標 DEGRADED、**不進綁定**。寧可這一輪沒有資料，也不要對到別人的局。
+ */
+export function guardFetchedRows(rawItems: unknown[], expectUsername: string): FetchGuardResult {
+  const rows = rawItems
+    .map(x => normalizeBackendRow(x as Record<string, unknown>))
+    .filter((x): x is NonNullable<ReturnType<typeof normalizeBackendRow>> => x !== null)
+
+  const foreign = rows.filter(r => r.username !== expectUsername)
+  if (foreign.length > 0) {
+    const names = [...new Set(foreign.map(r => r.username))].slice(0, 3)
+    return {
+      ok: false, rows: [], errKind: 'wrong_account',
+      message: `回傳含非目標帳號（期待 ${expectUsername}，出現 ${names.join('/')}${names.length < new Set(foreign.map(r => r.username)).size ? '…' : ''}）：${foreign.length}/${rows.length} 筆`,
+    }
+  }
+  // spin_index / bet_time_precise 缺一不可——序列對齊完全依賴這兩個欄位
+  const broken = rows.filter(r => !Number.isFinite(r.betTimePrecise) || r.spinIndex < 0)
+  if (broken.length > 0) {
+    return {
+      ok: false, rows: [], errKind: 'bad_shape',
+      message: `${broken.length}/${rows.length} 筆缺 spin_index 或 bet_time_precise，序列對齊無法進行`,
+    }
+  }
+  return { ok: true, rows }
+}
+
+/** 記錄資料源健康狀態。DEGRADED 判定與畫面健康列都讀這張。 */
+export function noteSourceHealth(env: ReconEnv, source: string, ok: boolean, errKind?: string, message?: string): void {
+  const now = Date.now()
+  if (ok) {
+    db.prepare(`
+      INSERT INTO recon_source_health (env, source, lastOkAt, failCount) VALUES (?, ?, ?, 0)
+      ON CONFLICT(env, source) DO UPDATE SET lastOkAt=excluded.lastOkAt, failCount=0, errKind=NULL, message=NULL, backoffUntil=NULL
+    `).run(env, source, now)
+    return
+  }
+  db.prepare(`
+    INSERT INTO recon_source_health (env, source, lastErrAt, failCount, errKind, message) VALUES (?, ?, ?, 1, ?, ?)
+    ON CONFLICT(env, source) DO UPDATE SET
+      lastErrAt=excluded.lastErrAt, failCount=recon_source_health.failCount+1,
+      errKind=excluded.errKind, message=excluded.message
+  `).run(env, source, now, errKind ?? 'unknown', (message ?? '').slice(0, 300))
 }
 
 // ─── 設定（存 DB，不寫死）────────────────────────────────────────────────
