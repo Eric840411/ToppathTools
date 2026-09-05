@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.107.0'
+export const APP_VERSION = '4.108.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.108.0',
+    date: '2026-09-05',
+    changes: [
+      'feat(live-ledger): AutoSpin 即時對帳 P0 基礎——六張新表（recon_spin / recon_backend_record / recon_watermark / recon_source_health / recon_finding / recon_settings）與綁定引擎。全部新開表，不動現有 reconcile_* 與 autospin_compare_*',
+      'note(live-ledger): 為什麼重做——舊的 30 份後台對帳報告完成雙向比對的有 0 份、1,860 筆三路對帳 match 只有 17% 且 mismatch 歷史上出現過 0 次。根因是沒有穩定的對帳鍵，只能靠 ±1 秒時間窗猜，而且只比一個我們自己設定的常數欄位',
+      'note(live-ledger): 核心是三段式綁定——觀測落庫、回填 orderId、之後所有比對以 orderId 為鍵。時間只在回填時用一次，綁定成功就寫死永不重算；現況是每一輪都用時間重新猜，錯誤不會收斂',
+      'note(live-ledger): 一筆後台局號只能被綁一次，靠 partial unique index 擋而不是靠程式碼記得檢查；門檻參數全部存 DB 不寫死；所有時間存 epoch ms(UTC)，只在查詢邊界與顯示時轉換',
+      'test(live-ledger): 新增 scripts/ui-checks/live-ledger-bind.mjs（23 項，純函式不碰 DB）。守的是「該拒絕的有沒有拒絕」——綁錯會產生看起來對上、其實是別一局的假對帳，後面每期的金額比對都會建立在錯的鍵上',
+      'note(live-ledger): ⚠️ 實測發現規格預設的 −2s~+30s 時間窗在真實 spin 節奏（中位數 6 秒）下每筆約有 5.3 個候選，會全部判 AMBIGUOUS，驗收標準達不到。已回報規格方待裁示，未自行改規格',
+    ],
+  },
   {
     version: '4.107.0',
     date: '2026-09-04',

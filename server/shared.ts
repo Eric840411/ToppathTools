@@ -963,6 +963,166 @@ db.exec(`
   )
 `)
 
+/* ─── Live Ledger（AutoSpin 即時對帳，規格 v2 / 2026-09-05）─────────────────
+ *
+ * ⚠️ **全部新開表，不動現有的 `reconcile_*` 與 `autospin_compare_*`。**
+ *    那些是舊工具的歷史紀錄，混寫會讓兩邊都不可信（規格書明訂）。
+ *    舊表保留，只下架入口與排程。
+ *
+ * 為什麼重做（實查 server/data.db 的數字，不是從程式碼推論）：
+ *   - `/reconcile/*` 的 30 份報告，`frontCount>0` 的有 **0** 份——從沒完成過雙向比對
+ *   - `/compare/*` 的 1,860 筆：match 只有 17%、unmatched 52%、**mismatch 永遠是 0**
+ *     ——「抓不抓得到差異」從未被證實
+ *   - 根因：Pinus `historyListReq` 沒有 order id，只能靠 ±1 秒時間窗猜；
+ *     而且只比 `sls.requestJSON.amount ↔ pinus.bet` 一個欄位，那還是我們自己設的常數
+ *
+ * 核心機制是**三段式綁定**：觀測落庫（0 秒）→ 回填 orderId（15~90 秒）→ 之後所有
+ * 比對都以 orderId 為鍵。**時間只在回填時用一次，關係建立後永不重算**——
+ * 現況是每一輪都用時間重新猜，所以每一輪都有猜錯的機會而且不會收斂。
+ *
+ * ⚠️ 所有時間一律存 **epoch ms (UTC)**，只在查詢邊界與顯示時轉換。
+ *    三個資料源三種格式：LuckyLink 是 epoch ms、OSM 後台吃 UTC+8 字串、
+ *    Pinus 是本地時間字串。不統一的話對帳會在時區上先錯一次。
+ *
+ * ⚠️ `env`（qat/uat）在每張表裡，而且進主鍵／唯一鍵。兩個環境的資料不可混在
+ *    同一張表比——orderId 在不同環境可能重號。
+ */
+
+// recon_spin — 證人側的事實（agent 即時寫，worker 回填 orderId）
+db.exec(`
+  CREATE TABLE IF NOT EXISTS recon_spin (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    env            TEXT NOT NULL,
+    sessionId      TEXT NOT NULL,
+    machineType    TEXT NOT NULL DEFAULT '',
+    gmid           TEXT NOT NULL DEFAULT '',
+    spinSeq        INTEGER NOT NULL DEFAULT 0,
+    betAmount      REAL NOT NULL DEFAULT 0,
+    balanceBefore  REAL,
+    balanceAfter   REAL,
+    winObserved    REAL,
+    orderId        TEXT,
+    -- PENDING / MATCH / MISSING / AMBIGUOUS（命名以規格書那張表為準，不另生別名）
+    status         TEXT NOT NULL DEFAULT 'PENDING',
+    -- resolved / ambiguous / not_found —— 不允許「勉強配一個」
+    bindResult     TEXT,
+    -- ⚠️ 這三個時間戳是用來**實測校準 90 秒門檻**的。沒有它們，90 秒只是猜。
+    observedAt     INTEGER NOT NULL,
+    firstQueriedAt INTEGER,
+    boundAt        INTEGER,
+    latencyMs      INTEGER,
+    note           TEXT,
+    UNIQUE (env, sessionId, machineType, spinSeq)
+  )
+`)
+db.exec(`CREATE INDEX IF NOT EXISTS idx_recon_spin_status ON recon_spin (env, status, observedAt)`)
+db.exec(`CREATE INDEX IF NOT EXISTS idx_recon_spin_bind ON recon_spin (env, gmid, observedAt)`)
+// ⚠️ 一筆後台局號只能被綁定一次。靠唯一索引擋，不靠程式碼記得檢查。
+//    partial index：orderId 還沒回填（NULL）的不參與唯一性。
+db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_recon_spin_order ON recon_spin (env, orderId) WHERE orderId IS NOT NULL`)
+
+// recon_backend_record — 主帳本快照（worker 15s 增量）
+db.exec(`
+  CREATE TABLE IF NOT EXISTS recon_backend_record (
+    env           TEXT NOT NULL,
+    orderId       TEXT NOT NULL,
+    gmid          TEXT NOT NULL DEFAULT '',
+    playerId      TEXT NOT NULL DEFAULT '',
+    bet           REAL NOT NULL DEFAULT 0,
+    win           REAL NOT NULL DEFAULT 0,
+    balanceBefore REAL,
+    balanceAfter  REAL,
+    dateTime      INTEGER NOT NULL,
+    fetchedAt     INTEGER NOT NULL,
+    -- ⚠️ raw 一定要留。後台欄位語意會變，留原始 JSON 才能事後重算而不用重跑壓測。
+    raw           TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (env, orderId)
+  )
+`)
+db.exec(`CREATE INDEX IF NOT EXISTS idx_recon_backend_lookup ON recon_backend_record (env, gmid, dateTime)`)
+
+/**
+ * recon_watermark — 每個資料源已經拉到哪裡。
+ *
+ * ⚠️ PM2 重啟、部署、當機都會發生。沒有游標就會**重抓或漏抓**，
+ *    而漏抓的症狀是「莫名其妙多了幾筆 MISSING」，查起來像掉單但其實是我們沒拉到。
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS recon_watermark (
+    env       TEXT NOT NULL,
+    source    TEXT NOT NULL,
+    scope     TEXT NOT NULL DEFAULT '',
+    cursorTs  INTEGER NOT NULL DEFAULT 0,
+    cursorId  TEXT NOT NULL DEFAULT '',
+    updatedAt INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (env, source, scope)
+  )
+`)
+
+// recon_source_health — 健康列與 DEGRADED 判定的依據
+db.exec(`
+  CREATE TABLE IF NOT EXISTS recon_source_health (
+    env          TEXT NOT NULL,
+    source       TEXT NOT NULL,
+    lastOkAt     INTEGER,
+    lastErrAt    INTEGER,
+    failCount    INTEGER NOT NULL DEFAULT 0,
+    backoffUntil INTEGER,
+    errKind      TEXT,
+    message      TEXT,
+    PRIMARY KEY (env, source)
+  )
+`)
+
+/**
+ * recon_finding — 所有異常的**單一出口**。
+ *
+ * ⚠️ 畫面、Discord 告警、事後報表全部讀這張表，不各自從原始資料重算。
+ *    各自重算必然出現「畫面 12 筆、通知 15 筆」那種對不起來的落差
+ *    （AutoSpin 的日誌篩選規則就是為了這個才做成前後端共用一份）。
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS recon_finding (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    env         TEXT NOT NULL,
+    line        TEXT NOT NULL,
+    severity    TEXT NOT NULL DEFAULT 'warn',
+    refType     TEXT NOT NULL DEFAULT '',
+    refId       TEXT NOT NULL DEFAULT '',
+    amountDelta REAL,
+    detectedAt  INTEGER NOT NULL,
+    notifiedAt  INTEGER,
+    resolvedAt  INTEGER,
+    note        TEXT NOT NULL DEFAULT ''
+  )
+`)
+db.exec(`CREATE INDEX IF NOT EXISTS idx_recon_finding_open ON recon_finding (env, resolvedAt, detectedAt)`)
+
+/**
+ * 門檻參數存 DB 不寫死（規格書明訂）。
+ *
+ * ⚠️ 不同環境的後台報表延遲可能差很多，90 秒這個值必須能被實測校準——
+ *    `recon_spin` 的三個時間戳就是為了算出真正的延遲分布。
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS recon_settings (
+    env   TEXT NOT NULL,
+    key   TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (env, key)
+  )
+`)
+{
+  const ins = db.prepare(`INSERT OR IGNORE INTO recon_settings (env, key, value) VALUES (?, ?, ?)`)
+  for (const env of ['qat', 'uat']) {
+    ins.run(env, 'pendingTimeoutSec', '90')      // PENDING 超過幾秒升級 MISSING
+    ins.run(env, 'bindWindowBeforeSec', '2')     // 綁定時間窗下界（spin 之前）
+    ins.run(env, 'bindWindowAfterSec', '30')     // 綁定時間窗上界（spin 之後）
+    ins.run(env, 'fetchIntervalSec', '15')       // gameRecordList 增量週期
+    ins.run(env, 'sessionGraceSec', '300')       // session 結束後的收尾窗
+  }
+}
+
 // reconcile_front_records — game records posted from agent (pinus JS)
 db.exec(`
   CREATE TABLE IF NOT EXISTS reconcile_front_records (
