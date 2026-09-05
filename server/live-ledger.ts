@@ -415,19 +415,25 @@ export function recordSpinObservation(row: {
 export function upsertBackendRecords(env: ReconEnv, rows: Array<{
   orderId: string; gmid: string; playerId: string; bet: number; win: number
   balanceBefore?: number | null; balanceAfter?: number | null; dateTime: number; raw: unknown
-}>): number {
+  spinIndex?: number | null; betTimePrecise?: number | null; username?: string
+}>, filter?: { field: string; value: string }): number {
   const stmt = db.prepare(`
-    INSERT INTO recon_backend_record (env, orderId, gmid, playerId, bet, win, balanceBefore, balanceAfter, dateTime, fetchedAt, raw)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO recon_backend_record (env, orderId, gmid, playerId, bet, win, balanceBefore, balanceAfter,
+      dateTime, fetchedAt, raw, spinIndex, betTimePrecise, username, filterField, filterValue)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(env, orderId) DO UPDATE SET
       bet=excluded.bet, win=excluded.win, balanceBefore=excluded.balanceBefore,
-      balanceAfter=excluded.balanceAfter, dateTime=excluded.dateTime, fetchedAt=excluded.fetchedAt, raw=excluded.raw
+      balanceAfter=excluded.balanceAfter, dateTime=excluded.dateTime, fetchedAt=excluded.fetchedAt,
+      raw=excluded.raw, spinIndex=excluded.spinIndex, betTimePrecise=excluded.betTimePrecise,
+      username=excluded.username, filterField=excluded.filterField, filterValue=excluded.filterValue
   `)
   const now = Date.now()
   const tx = db.transaction(() => {
     for (const r of rows) {
       stmt.run(env, r.orderId, r.gmid, r.playerId, r.bet, r.win,
-        r.balanceBefore ?? null, r.balanceAfter ?? null, r.dateTime, now, JSON.stringify(r.raw ?? null))
+        r.balanceBefore ?? null, r.balanceAfter ?? null, r.dateTime, now, JSON.stringify(r.raw ?? null),
+        r.spinIndex ?? null, r.betTimePrecise ?? null, r.username ?? '',
+        filter?.field ?? '', filter?.value ?? '')
     }
   })
   tx()

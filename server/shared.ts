@@ -1036,10 +1036,33 @@ db.exec(`
     fetchedAt     INTEGER NOT NULL,
     -- ⚠️ raw 一定要留。後台欄位語意會變，留原始 JSON 才能事後重算而不用重跑壓測。
     raw           TEXT NOT NULL DEFAULT '',
+    -- 序列對齊的鍵。從 raw 挖得出來，但那樣建不了索引也不好稽核。
+    spinIndex     INTEGER,
+    /* ⚠️ **兩個驗收指標的分母都是這一欄**，沒有它就量不出來：
+     *      配對抖動 = betTimePrecise − observedAt   （決定容忍上界）
+     *      入帳延遲 = fetchedAt − betTimePrecise    （決定 PENDING→MISSING 門檻）
+     *    epoch ms（後台給的是帶小數的秒，要 ×1000）*/
+    betTimePrecise INTEGER,
+    username      TEXT NOT NULL DEFAULT '',
+    /* ⚠️ 留下「這批資料實際是用什麼條件撈的」。
+     *    實測 playerId 傳錯值型別時後台會靜默回傳全庫，事後只看資料本身
+     *    分不出「真的過濾過」還是「過濾失效但剛好都是同一個人」。
+     *    存下過濾欄位與值，才證明得了每一批的來源。*/
+    filterField   TEXT NOT NULL DEFAULT '',
+    filterValue   TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (env, orderId)
   )
 `)
 db.exec(`CREATE INDEX IF NOT EXISTS idx_recon_backend_lookup ON recon_backend_record (env, gmid, dateTime)`)
+// 既有安裝補欄位（CREATE TABLE IF NOT EXISTS 不會改已存在的表）
+for (const [col, decl] of [
+  ['spinIndex', 'INTEGER'], ['betTimePrecise', 'INTEGER'],
+  ['username', `TEXT NOT NULL DEFAULT ''`],
+  ['filterField', `TEXT NOT NULL DEFAULT ''`], ['filterValue', `TEXT NOT NULL DEFAULT ''`],
+] as const) {
+  try { db.exec(`ALTER TABLE recon_backend_record ADD COLUMN ${col} ${decl}`) } catch { /* 已存在 */ }
+}
+db.exec(`CREATE INDEX IF NOT EXISTS idx_recon_backend_seq ON recon_backend_record (env, username, spinIndex)`)
 
 /**
  * recon_watermark — 每個資料源已經拉到哪裡。
