@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.111.0'
+export const APP_VERSION = '4.111.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.111.1',
+    date: '2026-09-05',
+    changes: [
+      'fix(autospin): ⚠️ 大廳廣告 overlay 是「延遲出現」的——逐秒觀察實測第 1~3 秒畫面乾淨、第 4 秒 PLAY GAME 廣告才畫出來。原本在 goto 之後立刻清一次，等於清到空氣；廣告真的出現時卡片已經被點過了。選擇器（.advert-container .closeBtn）一直是對的，錯的是時間點',
+      'fix(autospin): dismiss_lobby_overlays() 改成輪詢式（最長 15 秒），而且**不能在 min_wait(6s) 之前宣告乾淨**——那個當下的「乾淨」只代表廣告還沒畫出來，是這支函式最容易寫錯的地方：看起來成功、實際上什麼都沒等到。清不乾淨一律中止進場，不硬點卡片',
+      'fix(autospin): 新增機台佔用偵測（.gm-info-join-unable，文字 Occupied）。佔用時 Join 按鈕仍然存在只是 disabled，不先判這個的話會被歸成「此機種不需要 Join」繼續往下走變成旁觀者。也比等 enterGMNtc 逾時 12 秒快，而且是明確訊號不是推測',
+    ],
+  },
   {
     version: '4.111.0',
     date: '2026-09-05',

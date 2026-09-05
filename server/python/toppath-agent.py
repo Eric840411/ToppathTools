@@ -666,14 +666,46 @@ def machine_panel_open(page) -> bool:
     return False
 
 
-def dismiss_lobby_overlays(page, mt: str) -> bool:
-    """關掉蓋在大廳上的廣告／Tips 彈窗。回傳有沒有真的關掉東西。
+# 廣告 overlay 是**延遲出現**的（實測第 4 秒才畫出來），所以清彈窗一定要輪詢，
+# 而且不能太早宣告乾淨——見 dismiss_lobby_overlays() 的說明。
+LOBBY_OVERLAY_MIN_WAIT_SEC = 6.0
+LOBBY_OVERLAY_TIMEOUT_SEC = 15.0
 
-    只點明確的關閉鈕，**不 force-click 彈窗本體**——大廳這幾層的本體按下去是
+
+def lobby_overlay_present(page) -> bool:
+    """大廳上還有沒有蓋著的廣告／Tips。判準是「看得到的關閉鈕或廣告容器」。"""
+    for sel in ['[class*="advert"]'] + LOBBY_OVERLAY_CLOSE_SELS:
+        try:
+            els = page.locator(sel).all()
+            if els and any(e.is_visible() for e in els):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def dismiss_lobby_overlays(page, mt: str,
+                           min_wait: float = LOBBY_OVERLAY_MIN_WAIT_SEC,
+                           timeout: float = LOBBY_OVERLAY_TIMEOUT_SEC) -> bool:
+    """輪詢式清掉蓋在大廳上的廣告／Tips 彈窗。回傳「畫面是不是乾淨的」。
+
+    ⚠️ **一定要輪詢，不能載入完立刻清一次就算數。**實測逐秒觀察：
+
+        第 1~3 秒  沒有任何 overlay
+        第 4 秒    `PLAY GAME` 廣告才出現（`.advert-container` 裡的 `.closeBtn`）
+
+    也就是說「goto 之後馬上清」會清到空氣，然後等廣告真的出現時，卡片已經被點過了。
+    選擇器一直都是對的，**錯的是時間點**。
+
+    ⚠️ 同理，**不能在 `min_wait` 之前就宣告乾淨**——那個當下的「乾淨」只代表
+    廣告還沒畫出來。這是這支函式最容易寫錯的地方：看起來成功、實際上什麼都沒等到。
+
+    只點明確的關閉鈕，**不 force-click 彈窗本體**——這幾層的本體按下去是
     `PLAY GAME`／`Join`，會把我們帶到另一台機器上，比沒關掉更糟。
     """
-    closed = False
-    for _ in range(3):
+    t0 = time.time()
+    clean_streak = 0
+    while time.time() - t0 < timeout:
         hit = False
         for sel in LOBBY_OVERLAY_CLOSE_SELS:
             try:
@@ -681,8 +713,7 @@ def dismiss_lobby_overlays(page, mt: str) -> bool:
                     if not el.is_visible():
                         continue
                     el.evaluate("el => el.click()")
-                    log(f"[{mt}] 關閉大廳彈窗: {sel}")
-                    closed = True
+                    log(f"[{mt}] 關閉大廳彈窗: {sel}（第 {time.time() - t0:.1f}s）")
                     hit = True
                     time.sleep(0.3)
                     break
@@ -690,9 +721,19 @@ def dismiss_lobby_overlays(page, mt: str) -> bool:
                 continue
             if hit:
                 break
-        if not hit:
-            break
-    return closed
+        if hit:
+            clean_streak = 0
+            continue
+        # 沒東西可點：確認真的乾淨，但必須先撐過 min_wait（廣告還沒出現時也是「乾淨」）
+        clean_streak = clean_streak + 1 if not lobby_overlay_present(page) else 0
+        if clean_streak >= 2 and time.time() - t0 >= min_wait:
+            log(f"[{mt}] 大廳畫面已乾淨（耗時 {time.time() - t0:.1f}s）")
+            return True
+        time.sleep(0.8)
+    still = lobby_overlay_present(page)
+    log(f"[{mt}] {'⚠️ 逾時仍有彈窗未關掉' if still else '大廳畫面已乾淨（逾時前一刻）'}"
+        f"（{timeout:.0f}s）")
+    return not still
 
 
 def dismiss_known_overlays(page, mt: str, rounds: int = 3):
@@ -856,9 +897,11 @@ def enter_game(page, cfg: dict) -> bool:
     #    機台面板就開不起來——接著「找不到 Join」被當成「此機種不需要」，一路走成旁觀者。
     #    （2026-09-05 由 DOM dump 確認：畫面上只有 .quick-join/.recommend-join 這類廣告按鈕，
     #     `.gm-info-box` 與 `.pop-page-watch` 兩個都不存在，代表面板真的沒開。）
-    if dismiss_lobby_overlays(page, mt):
-        log(f"[{mt}] 已清除大廳浮動彈窗，等待 0.6s 讓畫面穩定")
-        time.sleep(0.6)
+    if not dismiss_lobby_overlays(page, mt):
+        log(f"[{mt}] ❌ 大廳彈窗清不掉——這時點卡片會點到廣告（PLAY GAME），"
+            f"而不是開啟機台面板，中止進場。")
+        return False
+    time.sleep(0.4)
 
     # 捲動到目標卡片並點擊
     try:
@@ -885,6 +928,24 @@ def enter_game(page, cfg: dict) -> bool:
     # 1) 文字需完全等於「Join」（不是子字串比對，避免誤中「Join Now」之類的其他按鈕）
     # 2) 找到多個符合時，逐一檢查取第一個「可見」的（不是 DOM 順序第一個）
     # 3) 用 JS evaluate click（繞過 Playwright pointer-events 攔截，跟卡片點擊同一招）
+    # ⚠️ 先看機台是不是被別人佔著。佔用時 Join 按鈕仍然存在，但帶 `gm-info-join-unable`
+    #    且文字是 `Occupied`——不先判這個的話，「找不到文字等於 Join 的按鈕」會被歸成
+    #    「此機種不需要 Join」繼續往下走，變成旁觀者，又是同一種誤判。
+    #    這也比等 enterGMNtc 逾時 12 秒快得多，而且是明確訊號不是推測。
+    try:
+        occupied = page.locator('.gm-info-join-unable').all()
+        if occupied and any(e.is_visible() for e in occupied):
+            txt = ''
+            try:
+                txt = (occupied[0].inner_text() or '').strip()
+            except Exception:
+                pass
+            log(f"[{mt}] ❌ 機台目前被佔用（Join 為 disabled{f'，文字「{txt}」' if txt else ''}）——"
+                f"無法入座，中止進場。請換一台空閒機台。")
+            return False
+    except Exception:
+        pass
+
     log(f"[{mt}] 嘗試尋找 Join 按鈕（不一定存在）...")
     try:
         join_candidates = page.locator(".gm-info-box span:text-is('Join')").all()
