@@ -489,22 +489,39 @@ export function runBindCycle(env: ReconEnv, now = Date.now()): {
   const pendingTimeoutMs = reconSetting(env, 'pendingTimeoutSec') * 1000
 
   const spins = db.prepare(`
-    SELECT id, gmid, betAmount, observedAt FROM recon_spin
+    SELECT id, sessionId, machineType, gmid, spinSeq, betAmount, observedAt FROM recon_spin
     WHERE env=? AND status IN ('PENDING','AMBIGUOUS') AND orderId IS NULL
-  `).all(env) as PendingSpin[]
+    ORDER BY sessionId, machineType, spinSeq
+  `).all(env) as Array<PendingSpin & { sessionId: string; machineType: string; spinSeq: number }>
   if (spins.length === 0) return { scanned: 0, resolved: 0, ambiguous: 0, notFound: 0, missing: 0 }
 
   const oldest = Math.min(...spins.map(s => s.observedAt))
   const records = db.prepare(`
-    SELECT orderId, gmid, bet, dateTime FROM recon_backend_record
-    WHERE env=? AND dateTime >= ? AND dateTime <= ?
-  `).all(env, oldest - cfg.beforeMs, now + cfg.afterMs) as BackendRecord[]
+    SELECT orderId, gmid, username, spinIndex, bet, betTimePrecise FROM recon_backend_record
+    WHERE env=? AND betTimePrecise IS NOT NULL AND betTimePrecise >= ? AND betTimePrecise <= ?
+  `).all(env, oldest - cfg.beforeMs, now + cfg.afterMs) as BackendRound[]
 
   const bound = new Set(
     (db.prepare('SELECT orderId FROM recon_spin WHERE env=? AND orderId IS NOT NULL').all(env) as { orderId: string }[])
       .map(r => r.orderId))
 
-  const decisions = bindSpins(spins, records, cfg, bound)
+  // ⚠️ 序列對齊的前提是「單一帳號 × 單一機台」——spin_index 是那一台自己的序號，
+  //    把兩台的觀測混在同一個序列裡會從第一筆就錯位，而且錯位之後每一筆看起來都對得上。
+  //    所以先分組，各組各自錨定；`bound` 跨組共用，避免同一張單被兩組搶走。
+  const opts = { anchorWindowMs: cfg.afterMs, maxLatencyMs: cfg.afterMs, maxLeadMs: cfg.beforeMs }
+  const groups = new Map<string, typeof spins>()
+  for (const s of spins) {
+    const k = `${s.sessionId}|${s.machineType}`
+    const g = groups.get(k); if (g) g.push(s); else groups.set(k, [s])
+  }
+  const decisions: AlignDecision[] = []
+  for (const g of groups.values()) {
+    const gmids = new Set(g.map(s => s.gmid).filter(Boolean))
+    const scoped = gmids.size ? records.filter(r => gmids.has(r.gmid)) : records
+    decisions.push(...alignBySpinIndex(g, scoped, opts, bound))
+    // 這一組綁掉的單要立刻進 bound，否則下一組可能重複配到同一張
+    for (const d of decisions) if (d.result === 'resolved' && d.orderId) bound.add(d.orderId)
+  }
 
   const markFirstQuery = db.prepare('UPDATE recon_spin SET firstQueriedAt=? WHERE id=? AND firstQueriedAt IS NULL')
   const setResolved = db.prepare(`

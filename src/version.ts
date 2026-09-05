@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.110.0'
+export const APP_VERSION = '4.111.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,21 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.111.0',
+    date: '2026-09-05',
+    changes: [
+      'feat(live-ledger): 後台拉取迴圈上線（server/live-ledger-fetch.ts，掛在 worker）——每 15 秒對每個作用中的 (env, 帳號) 增量拉 gameRecordList，落庫後跑序列對齊。已用真實後台驗證：單輪抓回 4000 筆，spin_index／bet_time_precise／username 全部正確',
+      'fix(live-ledger): ⚠️ 撞到分頁上限時原本回 ok:true 且照樣把 watermark 推到最大時間戳。這支 API 是「新到舊」排序，截斷截掉的是較舊那段——推游標等於把沒抓到的那段永久跳過，而且事後查不出少了什麼（跟 v4.99.0 Jira 分頁同一個坑）。改成標示 reachedLimit、游標不前進、寫進 recon_source_health',
+      'fix(live-ledger): runBindCycle 還在用舊的時間窗 bindSpins，改用 alignBySpinIndex（D 案），並先按 (sessionId, machineType) 分組再對齊——spin_index 是單台自己的序號，兩台混在同一序列會從第一筆就錯位',
+      'note(live-ledger): UAT 沒有後台連線設定（meter_reconcile_config 只有 osm_/gcp_ 兩組且都指向 QAT），env=uat 一律回 missing_config，不靜默回 0 筆',
+      'feat(live-ledger): MISSING 接近 100% 且零配對時，告警文案明確指向「先確認機台真的有成局」而不是「後台掉單」——後者會把人導去查完全錯的地方',
+      'fix(autospin): ⚠️ enter_game() 四種情況全部 return True（含 enterGMNtc errcode≠0 與 12 秒逾時），而且「改用 DOM 偵測」那句是假的、底下根本沒有偵測。這讓進場失敗被判成成功——實際造成連續 29 小時、16,573 次 spin、0 局成功、每發回 errcode 25「该玩家已经不在机器上了」，期間 autospin_history 照寫、spin_count 照長，沒有任何告警',
+      'fix(autospin): 新增 detect_seat_state() 分辨已入座／旁觀／大廳——is_in_game() 的四個 selector 對旁觀者全部命中且不確定時預設回 True，天生分辨不了。主迴圈的「掉出去就重進」保險也一併補上旁觀判定',
+      'fix(autospin): 點機台卡片「之前」先清大廳彈窗（全螢幕 PLAY GAME 廣告、預約機台權益 Tips）——原本只在點完之後清，蓋住大廳的那兩層在點擊當下還在，面板開不起來。面板判定改用明確 selector，不用 .bg（這個站廣告／Tips／面板全是 .bg）',
+      'fix(autospin): url-pool 中轉網址要先解 base64 才取得到 username——帳號藏在 to= 參數裡，路徑上的數字是帳號池門號 id 不是遊戲帳號。直接取會拿到空字串，導致對帳一筆都對不上卻看起來像設計失敗',
+    ],
+  },
   {
     version: '4.110.0',
     date: '2026-09-05',

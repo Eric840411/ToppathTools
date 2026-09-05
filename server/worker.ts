@@ -6,6 +6,7 @@
  * telemetry first. Heavy job execution can move here one route at a time.
  */
 import { buildInfo } from './build-info.js'
+import { startLiveLedgerLoop } from './live-ledger-fetch.js'
 import cors from 'cors'
 import Bottleneck from 'bottleneck'
 import dotenv from 'dotenv'
@@ -891,6 +892,10 @@ process.on('uncaughtException', err => {
 process.on('unhandledRejection', reason => {
   console.error('[Worker] unhandledRejection:', reason)
 })
+
+// Live Ledger 後台拉取迴圈。⚠️ 掛在 worker 不是 server——AutoSpin 的 agent 連線與
+// recon-spin 觀測都在這個 process，兩邊各跑一份會對同一個後台重複查詢。
+startLiveLedgerLoop()
 
 server.listen(port, '0.0.0.0', () => {
   console.log(`[Worker] toppath-worker listening on http://localhost:${port}`)

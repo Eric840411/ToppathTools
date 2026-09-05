@@ -32,7 +32,7 @@ function toUtcIso(dateStr: string, hh: number, mm = 0, ss = 0): string {
 // 所以 WIN/LOSE、RTP 一律用 coinIn/coinOut/jackpotWins 現算，不要直接讀 hourly row 的欄位 2/26。
 const FIELD = { gamesPlayed: '5', coinIn: '6', coinOut: '10', jackpotWins: '29' } as const
 
-function loadMeterConfig(profile: Profile): Record<string, string> {
+export function loadMeterConfig(profile: Profile): Record<string, string> {
   const rows = db.prepare('SELECT key, value FROM meter_reconcile_config WHERE key LIKE ?').all(`${profile}_%`) as { key: string; value: string }[]
   const cfg: Record<string, string> = {}
   for (const r of rows) cfg[r.key.slice(profile.length + 1)] = r.value
@@ -91,7 +91,7 @@ async function meterGet(profile: Profile, cfg: Record<string, string>, path: str
 }
 
 /** POST 呼叫（gameRecordList 是 POST + query string 參數的舊風格 API）。*/
-async function meterPost(profile: Profile, cfg: Record<string, string>, path: string, params: URLSearchParams): Promise<any> {
+export async function meterPost(profile: Profile, cfg: Record<string, string>, path: string, params: URLSearchParams): Promise<any> {
   const baseUrl = (cfg.base_url || 'https://backendservertest.osmslot.org').replace(/\/$/, '')
   let headers = meterHeaders(cfg)
   let r = await fetch(`${baseUrl}${path}?${params}`, { method: 'POST', headers })

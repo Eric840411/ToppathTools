@@ -14,6 +14,8 @@ import signal
 import os
 import re
 import tempfile
+import base64
+import urllib.parse
 from datetime import datetime
 from urllib.parse import urlparse, parse_qs
 
@@ -129,6 +131,44 @@ def post_history(machine_type: str, balance, spin_count: int, event: str = 'bala
     except Exception:
         pass
 
+def resolve_real_game_url(url: str) -> str:
+    """把 URL 帳號池的中轉網址還原成真正的遊戲網址。
+
+    ⚠️ 這一步不能省。中轉網址長這樣：
+
+        http://<host>/api/url-pool/go/9111222002?user=Eric%20Wu&to=<base64>
+
+    **帳號不在這一層**——`username=osmel002` 是藏在 base64 的 `to=` 裡面的。
+    直接對中轉網址取 `username` 會拿到空字串，然後：
+
+      · recon_spin 落庫時 username 是空的
+      · 後台拉取沒有過濾值可用
+      · 結果是一筆都對不上，但**畫面上看起來就像「設計失敗」**，
+        而不是「網址沒解開」——這正是最難查的那種壞法。
+
+    路徑上的 `9111222002` 是帳號池的門號 id、不是遊戲帳號，不能拿來當 username。
+
+    解不開時回傳原字串（不是空字串）：讓後面的 username 取值照舊失敗，
+    比在這裡吞掉、讓上層拿到一個看似正常的空值好。
+    """
+    if '/api/url-pool/go/' not in url:
+        return url
+    m = re.search(r'[?&]to=([^&]+)', url)
+    if not m:
+        return url
+    try:
+        raw = urllib.parse.unquote(m.group(1))
+        # base64 少了 padding 會丟 binascii.Error，補滿再解
+        raw += '=' * (-len(raw) % 4)
+        decoded = base64.b64decode(raw).decode('utf-8')
+    except Exception:
+        return url
+    # ⚠️ b64decode 對非法字元「不會拋例外」——它默默略過，`!!!` 解出來是空字串。
+    #    不檢查就會把一個壞掉的網址靜默換成 ''，比解不開更糟：
+    #    上層拿到空字串會以為「這台沒有 Game URL」，而不是「網址壞了」。
+    return decoded if decoded.startswith('http') else url
+
+
 def post_recon_spin(machine_type: str, cfg: dict, spin_seq: int, balance_before, balance_after, observed_at_ms: int):
     """Live Ledger 觀測落庫——三段式綁定的第 ① 段。
 
@@ -141,7 +181,7 @@ def post_recon_spin(machine_type: str, cfg: dict, spin_seq: int, balance_before,
        但那時只會看到 DEGRADED，不會知道是這裡推錯）。
     """
     try:
-        url = cfg.get('gameUrl') or ''
+        url = resolve_real_game_url(cfg.get('gameUrl') or '')
         env = 'uat' if 'uat-osm-redirect' in url else 'qat'
         m = re.search(r'[?&]username=([^&]+)', url)
         username = m.group(1) if m else ''
@@ -497,6 +537,37 @@ def is_in_game(page) -> bool:
     return True  # 保守策略：不確定時視為在遊戲中
 
 
+def detect_seat_state(page) -> str:
+    """分辨「真的坐上機台」還是「只是在旁觀」。回傳 seated / spectator / lobby / unknown。
+
+    ⚠️ 為什麼不能用 `is_in_game()`：**旁觀者一樣看得到 Spin 按鈕和餘額**。
+       那支的四個 selector 對旁觀模式全部命中，而且不確定時預設回 True。
+       用它判進場，等於把「坐在旁邊看」判成「已入座」。
+
+    這正是 2026-09-05 那次 29 小時無效壓測的根因：進場流程判定成功 → 主迴圈開始按 spin
+    → 每一發都回 `errcode 25 该玩家已经不在机器上了` → 16,573 次、0 局、沒有任何告警。
+
+    判斷依據是**旁觀面板還開著沒有**（`.pop-page-watch`）——點卡片會開這個面板，
+    真的按下 Join 入座後它會關掉。面板還在＝還沒入座。
+    """
+    try:
+        for sel in ['.bg.pop-page-watch', '.pop-page-watch']:
+            els = page.locator(sel).all()
+            if els and any(e.is_visible() for e in els):
+                return 'spectator'
+        grid = page.locator('#grid_gm_item').all()
+        if grid and any(e.is_visible() for e in grid):
+            return 'lobby'
+        for sel in ['.my-button.btn_spin', '.btn_spin .my-button',
+                    '.balance-bg.hand_balance', '.h-balance.hand_balance']:
+            els = page.locator(sel).all()
+            if els and any(e.is_visible() for e in els):
+                return 'seated'
+    except Exception:
+        pass
+    return 'unknown'
+
+
 def click_positions(page, positions: list):
     """點擊指定座標位（尋找文字內容為 'X,Y' 的 span），對應 AutoSpin.py click_multiple_positions()"""
     for pos in positions:
@@ -569,6 +640,59 @@ def wait_for_enter_gm(page, timeout_ms: int = 12000, baseline_ts: float = 0):
 # 清彈窗邏輯（原本只在 CCTV 步驟使用，範圍窄不會誤點遊戲 UI 本身，適合搬進入場流程重用）
 OVERLAY_SELS = ['div.bg', '[class*="win-frame"]', '[class*="bonus-popup"]', '[class*="float-layer"]']
 CLOSE_BTN_SELS = ['[class*="btn_close"]', '[class*="close-btn"]', '.btn_ok', 'button[class*="close"]', 'button[class*="ok"]', '.btn_take']
+
+
+# 大廳專用：這幾層會蓋住機台卡片，讓點擊打不開機台面板。
+# ⚠️ 跟 OVERLAY_SELS 分開，因為那組含 `div.bg`——`.bg` 在這個站是通用 class，
+#    廣告、Tips、機台面板**全都是它**。拿它當「面板開了沒」的判準會誤判。
+LOBBY_OVERLAY_CLOSE_SELS = [
+    '[class*="advert"] [class*="close"]', '[class*="advert"] .closeBtn',
+    '[class*="tips"] [class*="close"]', '[class*="tip-"] [class*="close"]',
+    '.close', '.closeBtn', '.btn-close', '[class*="btn_close"]', '[class*="close-btn"]',
+]
+# 機台面板真的開了的判準（**不含 `.bg`**）
+MACHINE_PANEL_SELS = ['.bg.pop-page-watch', '.pop-page-watch', '[class*="gm-info"]', '.gm-info-box']
+
+
+def machine_panel_open(page) -> bool:
+    """機台面板是不是真的開著。⚠️ 不要用 `.bg` 判——見 LOBBY_OVERLAY_CLOSE_SELS 的說明。"""
+    for sel in MACHINE_PANEL_SELS:
+        try:
+            els = page.locator(sel).all()
+            if els and any(e.is_visible() for e in els):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def dismiss_lobby_overlays(page, mt: str) -> bool:
+    """關掉蓋在大廳上的廣告／Tips 彈窗。回傳有沒有真的關掉東西。
+
+    只點明確的關閉鈕，**不 force-click 彈窗本體**——大廳這幾層的本體按下去是
+    `PLAY GAME`／`Join`，會把我們帶到另一台機器上，比沒關掉更糟。
+    """
+    closed = False
+    for _ in range(3):
+        hit = False
+        for sel in LOBBY_OVERLAY_CLOSE_SELS:
+            try:
+                for el in page.locator(sel).all():
+                    if not el.is_visible():
+                        continue
+                    el.evaluate("el => el.click()")
+                    log(f"[{mt}] 關閉大廳彈窗: {sel}")
+                    closed = True
+                    hit = True
+                    time.sleep(0.3)
+                    break
+            except Exception:
+                continue
+            if hit:
+                break
+        if not hit:
+            break
+    return closed
 
 
 def dismiss_known_overlays(page, mt: str, rounds: int = 3):
@@ -727,6 +851,15 @@ def enter_game(page, cfg: dict) -> bool:
         return False
     log(f"[{mt}] 找到目標卡片: {target_item.get_attribute('title') or game_title_code}")
 
+    # ⚠️ **點卡片之前**先清一次彈窗。原本只在點完卡片之後清，但蓋住大廳的那幾層
+    #    （全螢幕 `PLAY GAME` 廣告 `advert-container`、「預約機台權益」Tips）在點擊當下還在，
+    #    機台面板就開不起來——接著「找不到 Join」被當成「此機種不需要」，一路走成旁觀者。
+    #    （2026-09-05 由 DOM dump 確認：畫面上只有 .quick-join/.recommend-join 這類廣告按鈕，
+    #     `.gm-info-box` 與 `.pop-page-watch` 兩個都不存在，代表面板真的沒開。）
+    if dismiss_lobby_overlays(page, mt):
+        log(f"[{mt}] 已清除大廳浮動彈窗，等待 0.6s 讓畫面穩定")
+        time.sleep(0.6)
+
     # 捲動到目標卡片並點擊
     try:
         target_item.scroll_into_view_if_needed(timeout=3000)
@@ -764,9 +897,34 @@ def enter_game(page, cfg: dict) -> bool:
                 joined = True
                 break
         if not joined:
-            log(f"[{mt}] 找不到 Join 按鈕（此機種可能不需要），繼續下一步")
+            # ⚠️ 「找不到 Join」有兩種完全不同的意思，不能都當成可以繼續：
+            #    ① 這個機種真的不需要 Join（面板開著、就是沒有那顆按鈕）
+            #    ② 面板根本沒開（點卡片沒反應／被彈窗蓋掉）——這時往下走就是旁觀者
+            #
+            #    先前兩種都印「此機種可能不需要，繼續下一步」，於是 ② 一路走到主迴圈，
+            #    變成坐在旁邊按 spin 按 29 小時。
+            if machine_panel_open(page):
+                log(f"[{mt}] 面板已開但沒有 Join 按鈕（此機種不需要 Join），繼續下一步")
+            else:
+                # 面板沒開＝點卡片沒生效。多半是還有彈窗蓋著——再清一次、重點一次卡片。
+                log(f"[{mt}] 機台面板未開啟，再清一次彈窗後重試點擊卡片...")
+                dismiss_lobby_overlays(page, mt)
+                time.sleep(0.6)
+                try:
+                    target_item.evaluate("el => el.click()")
+                    time.sleep(1.5)
+                except Exception:
+                    pass
+                if machine_panel_open(page):
+                    log(f"[{mt}] 重試後面板已開，繼續下一步")
+                else:
+                    log(f"[{mt}] ❌ 機台面板始終沒有開啟（找不到 {', '.join(MACHINE_PANEL_SELS)}）——"
+                        f"點卡片沒有生效，或仍被廣告／Tips 彈窗蓋住。"
+                        f"這時往下走只會變成旁觀者（每一發 spin 回 errcode 25），中止進場。")
+                    return False
     except Exception as e:
-        log(f"[{mt}] 找不到 Join 按鈕（此機種可能不需要），繼續下一步: {e}")
+        log(f"[{mt}] ❌ 尋找 Join 按鈕時發生例外，中止進場: {e}")
+        return False
 
     # ── 清除已知浮動彈窗（Game Preview / Jackpot 宣傳面板等）── 與 Machine Test 完全同步
     # 選用 machine-test/runner.ts CCTV 步驟同一套 overlay/close-btn selector（範圍窄，不會誤點遊戲 UI）
@@ -802,17 +960,37 @@ def enter_game(page, cfg: dict) -> bool:
     log(f"[{mt}] 等待 enterGMNtc WebSocket 事件確認進入成功（最多 12s）...")
     t0 = time.time()
     enter_ev = wait_for_enter_gm(page, 12000, enter_baseline_ts)
+    # ⚠️ 這一段先前**四種情況全部 return True**，包括 errcode≠0 和 12 秒逾時。
+    #    註解寫「與 Machine Test 完全同步」，但 machine-test 的判定其實是：
+    #      errcode=0 → pass ｜ errcode≠0 → **fail** ｜ 逾時+DOM → warn ｜ 都沒有 → **fail**
+    #    這份只複製了訊息文字、沒有複製判定，是最難發現的那種漂移：日誌長得一模一樣。
+    #
+    #    尤其「改用 DOM 偵測判斷是否進入成功」那句是**假的**——底下根本沒有任何偵測，
+    #    直接 return True。逾時等於進場成功。
     if enter_ev:
         errcode = enter_ev.get('errcode', 0)
         if errcode == 0:
             log(f"[{mt}] ✅ enterGMNtc 確認進入成功（耗時 {time.time() - t0:.1f}s）")
-        else:
-            log(f"[{mt}] ⚠️ enterGMNtc errcode={errcode}: {enter_ev.get('errcodedes', '')}（耗時 {time.time() - t0:.1f}s）")
-    else:
-        log(f"[{mt}] ⚠️ 未收到 enterGMNtc（12s 逾時），改用 DOM 偵測判斷是否進入成功")
+            log(f"[{mt}] ── 進入流程結束，總耗時 {time.time() - t_start:.1f}s ──")
+            return True
+        log(f"[{mt}] ❌ 進入失敗：enterGMNtc errcode={errcode} — {enter_ev.get('errcodedes', '')}"
+            f"（耗時 {time.time() - t0:.1f}s）")
+        return False
 
-    log(f"[{mt}] ── 進入流程結束，總耗時 {time.time() - t_start:.1f}s ──")
-    return True
+    # 逾時：真的做 DOM 偵測，而且要能分辨「旁觀」——這是先前缺的那一步
+    seat = detect_seat_state(page)
+    log(f"[{mt}] ⚠️ 未收到 enterGMNtc（12s 逾時），改用 DOM 偵測：座位狀態 = {seat}")
+    if seat == 'seated':
+        # 對齊 machine-test 的 warn：沒有 enterGMNtc 佐證，但畫面上確實不是旁觀面板也不是大廳
+        log(f"[{mt}] ⚠️ 以 DOM 判定為已入座（無 enterGMNtc 佐證，降級通過）")
+        log(f"[{mt}] ── 進入流程結束，總耗時 {time.time() - t_start:.1f}s ──")
+        return True
+    if seat == 'spectator':
+        log(f"[{mt}] ❌ 仍停留在旁觀面板——**沒有真的入座**。"
+            f"繼續下去每一發 spin 都會回 errcode 25（该玩家已经不在机器上了），中止進場。")
+    else:
+        log(f"[{mt}] ❌ 未收到 enterGMNtc 且 DOM 判定為 {seat}，無法確認已入座，中止進場。")
+    return False
 
 
 def execute_bet_random(page, ideck_xpaths: list):
@@ -1922,9 +2100,14 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
                         log(f"[{mt}] 重新載入失敗: {re_err}")
                     continue
 
-                # 若被踢回大廳，重新進入
-                if not is_in_game(page):
-                    log(f"[{mt}] 偵測到回到大廳，重新進入遊戲...")
+                # 若被踢回大廳、或掉進旁觀模式，重新進入
+                # ⚠️ 只查 is_in_game() 抓不到旁觀模式——那支對旁觀者的 Spin／餘額 selector
+                #    全部命中，會回 True。29 小時無效壓測就是卡在這裡：進場誤判之後，
+                #    這個「掉出去了就重進」的保險也跟著失效，沒有任何一層攔得住。
+                seat_now = detect_seat_state(page)
+                if seat_now == 'spectator' or not is_in_game(page):
+                    reason = '停留在旁觀面板（未入座）' if seat_now == 'spectator' else '回到大廳'
+                    log(f"[{mt}] 偵測到{reason}，重新進入遊戲...")
                     if enter_game(page, cfg):
                         time.sleep(3.0)
                     continue
