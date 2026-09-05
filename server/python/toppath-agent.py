@@ -928,10 +928,15 @@ def enter_game(page, cfg: dict) -> bool:
     # 1) 文字需完全等於「Join」（不是子字串比對，避免誤中「Join Now」之類的其他按鈕）
     # 2) 找到多個符合時，逐一檢查取第一個「可見」的（不是 DOM 順序第一個）
     # 3) 用 JS evaluate click（繞過 Playwright pointer-events 攔截，跟卡片點擊同一招）
-    # ⚠️ 先看機台是不是被別人佔著。佔用時 Join 按鈕仍然存在，但帶 `gm-info-join-unable`
-    #    且文字是 `Occupied`——不先判這個的話，「找不到文字等於 Join 的按鈕」會被歸成
+    # ⚠️ 先看機台能不能入座。不能入座時 Join 按鈕**仍然存在**，只是帶 `gm-info-join-unable`
+    #    且文字變成 `Occupied`——不先判這個的話，「找不到文字等於 Join 的按鈕」會被歸成
     #    「此機種不需要 Join」繼續往下走，變成旁觀者，又是同一種誤判。
     #    這也比等 enterGMNtc 逾時 12 秒快得多，而且是明確訊號不是推測。
+    #
+    # ⚠️ **畫面上的 `Occupied` 分不出「有人在玩」和「維護中」。**已用後台
+    #    `/egm/floor/egmList` 核對過：三台 RISINGROCKETS 在畫面上都寫 Occupied，
+    #    但 `machineStatus` 其實是 `maintain`。所以訊息只能說「無法入座」，
+    #    不能說死是被人佔用——講錯原因會讓人去等一個永遠不會釋放的機台。
     try:
         occupied = page.locator('.gm-info-join-unable').all()
         if occupied and any(e.is_visible() for e in occupied):
@@ -940,8 +945,9 @@ def enter_game(page, cfg: dict) -> bool:
                 txt = (occupied[0].inner_text() or '').strip()
             except Exception:
                 pass
-            log(f"[{mt}] ❌ 機台目前被佔用（Join 為 disabled{f'，文字「{txt}」' if txt else ''}）——"
-                f"無法入座，中止進場。請換一台空閒機台。")
+            log(f"[{mt}] ❌ 機台目前無法入座（Join 為 disabled{f'，畫面顯示「{txt}」' if txt else ''}）"
+                f"——可能是有人在玩，也可能是維護中，畫面上分不出來。中止進場。"
+                f"確認實際狀態請查後台 egmList 的 machineStatus（occupy / maintain）。")
             return False
     except Exception:
         pass

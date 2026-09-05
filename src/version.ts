@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.111.1'
+export const APP_VERSION = '4.111.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.111.2',
+    date: '2026-09-05',
+    changes: [
+      'fix(autospin): 無法入座的訊息不再說死是「被佔用」。已用後台 /egm/floor/egmList 核對：三台 RISINGROCKETS 畫面上都顯示 Occupied，但 machineStatus 其實是 maintain（維護中）——**畫面上那個字分不出「有人在玩」和「維護中」**。講錯原因會讓人去等一個永遠不會釋放的機台，跟 MISSING 告警文案是同一條規則',
+    ],
+  },
   {
     version: '4.111.1',
     date: '2026-09-05',
