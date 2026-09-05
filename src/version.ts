@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.111.2'
+export const APP_VERSION = '4.112.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.112.0',
+    date: '2026-09-05',
+    changes: [
+      'feat(live-ledger): 配對改用「扣掉系統性偏移後比殘差」，取代原本的 30 秒絕對窗。首輪實測 57 筆的 Δt max **剛好等於 30,000ms**——那不是巧合，是分布被窗切斷的痕跡，14 筆後台紀錄因此永遠綁不上。殘差 p95 只有 2,960ms、max 4,364ms，所以 ±5 秒容忍值比原本**嚴格 6 倍**卻不誤殺',
+      'fix(live-ledger): ⚠️ offset 一定要用**配對過的樣本**估，不能拿 HTTP Date header 的時鐘差代替。實測 Date 偏移 +93 秒、Δt 中位數 +29 秒，兩者差 64.5 秒——bet_time_precise 跟後台 web 不是同一個時鐘，拿 Date 去校正會比不校正更錯',
+      'feat(live-ledger): 新增 bindMethod 欄位（residual / absolute_window）。樣本不足 10 筆時退回絕對窗，但**一定要標記**——兩者信心度差一個數量級，混成同一個回填率等於把「嚴格對上的」和「寬鬆撿到的」當成同一件事',
+      'fix(live-ledger): ⚠️ MISSING 改成可逆。原本它是終局狀態，所以門檻只要訂得比實際入帳延遲緊一點，資料就被永久污染，而畫面上顯示的是「掉單」——對一筆其實有入帳的局說掉單，比不報還糟。實測首輪就有 14 筆紀錄晚到、對應 spin 早已被判 MISSING。現在 30 分鐘內可回綁並標記 lateArrival，runBindCycle 回傳 lateRebound 讓「門檻訂太緊」看得見',
+      'feat(live-ledger): recon_spin 記錄 agent 自己的 spin outcome（completed / suspected / not_started 等）。⚠️ 這是回填率的**分母**——沒成局的嘗試本來就不會有後台紀錄，混進分母會讓對帳看起來像壞了（實測 timeout 約 29%，48/139=34.5% vs 48/59=81.4%，是完全不同的結論）',
+      'fix(live-ledger): 錨定那一步也要扣掉偏移。偏移 +29 秒而錨定窗 30 秒，不扣的話整個分布貼在窗邊緣，偏移微幅右移就全部錨不到',
+    ],
+  },
   {
     version: '4.111.2',
     date: '2026-09-05',

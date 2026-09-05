@@ -1064,6 +1064,33 @@ for (const [col, decl] of [
 }
 db.exec(`CREATE INDEX IF NOT EXISTS idx_recon_backend_seq ON recon_backend_record (env, username, spinIndex)`)
 
+// recon_spin.outcome —— agent 對這一下 spin 的判定
+// （completed / completed_late / suspected / unknown / not_started）。
+//
+// ⚠️ **這個欄位是回填率的分母。**沒成局的 spin 嘗試本來就不會有後台紀錄，
+//    把它們算進分母，對帳工具看起來就會像壞了：
+//
+//      分母含全部 spin      → 48/139 = 34.5%   （會被讀成「D 案不成立」）
+//      分母只算真的成局的   → 48/59  = 81.4%   （真正的意思是「缺 11 筆」）
+//
+//    實測 timeout 佔 29%——機台一不穩，回填率就崩，但那不是對帳的問題。
+//    這跟 errcode 25 那次同構：數字看起來像設計失敗，其實成因在別處。
+//
+// recon_spin.bindMethod —— 這一筆是用哪種時間判準綁上的（residual / absolute_window）。
+// ⚠️ 兩者信心度差一個數量級（±5s vs ±30s），**驗收時一定要分開統計**。
+//
+// recon_spin.lateArrival —— 曾經被判成 MISSING、之後紀錄才進來而回綁成功。
+// ⚠️ MISSING 原本是終局狀態，於是「門檻訂得比實際延遲緊一點」＝資料被永久污染，
+//    而畫面上顯示的是「掉單」。**對一筆其實有入帳的局說掉單，比不報還糟。**
+//    實測首輪就有 14 筆後台紀錄晚到、對應的 spin 早已被判 MISSING 再也綁不回去。
+for (const [col, decl] of [
+  ['outcome', `TEXT NOT NULL DEFAULT ''`],
+  ['bindMethod', `TEXT NOT NULL DEFAULT ''`],
+  ['lateArrival', 'INTEGER NOT NULL DEFAULT 0'],
+] as const) {
+  try { db.exec(`ALTER TABLE recon_spin ADD COLUMN ${col} ${decl}`) } catch { /* 已存在 */ }
+}
+
 /**
  * recon_watermark — 每個資料源已經拉到哪裡。
  *

@@ -248,5 +248,104 @@ console.log('\n14) agent 側 bet 未知時仍要能對齊（實測就是這個�
   check('bet 未知時，差一位仍被時間帶擋住', resolvedCount < 10, `resolved ${resolvedCount}/10`);
 }
 
+console.log('\n13.5) 殘差比對（扣掉系統性偏移）');
+// ⚠️ 這一節用**真實量到的偏移**：Δt 中位數 +29,090ms，殘差 p95 2,960ms、max 4,364ms。
+//    首輪實測 57 筆的 Δt max **剛好等於 30,000ms**——那不是巧合，是分布被 30 秒絕對窗
+//    切斷的痕跡。有 14 筆後台紀錄因此永遠綁不上。
+{
+  const OFFSET = 29_090;      // 實測中位數
+  const RES_TOL = 5_000;      // 殘差容忍值
+  // ⚠️ GAP 要 > 2×max殘差，否則相鄰兩筆反向的殘差會讓後台時間**非單調**
+  //    （±4,364 反向相差 8,728ms > 6,000ms 的間隔），被單調性檢查正確擋下。
+  //    第一版測試就踩到這個，看起來像殘差比對壞了，其實是我編的資料不可能出現——
+  //    真實資料的 bet_time_precise 是單調的（實測 200 筆跳號率 0.0%）。
+  const GAP = 12_000;
+  // 後台時間 = spin 時間 + 偏移 + 各自的殘差
+  const mk = (residuals) => {
+    const s = residuals.map((_, i) => ({
+      id: i + 1, spinSeq: i + 1, gmid: GM, betAmount: 1250, observedAt: T + i * GAP,
+    }));
+    const r = residuals.map((res, i) => ({
+      orderId: `o${i + 1}`, gmid: GM, username: 'u', spinIndex: i + 1, bet: 1250,
+      betTimePrecise: T + i * GAP + OFFSET + res,
+    }));
+    return { s, r };
+  };
+  const OPT_RES = { anchorWindowMs: 30000, maxLatencyMs: 30000, maxLeadMs: 2000,
+    offsetMs: OFFSET, residualToleranceMs: RES_TOL };
+  const OPT_ABS = { anchorWindowMs: 30000, maxLatencyMs: 30000, maxLeadMs: 2000 };
+
+  // 實測殘差量級（含 max 4,364ms）
+  const real = [0, 707, -707, 2960, -2960, 4364, -4364, 1200, -1200, 300];
+  {
+    const { s, r } = mk(real);
+    const d = alignBySpinIndex(s, r, OPT_RES);
+    check('殘差模式：實測量級的殘差全部綁得上',
+      d.filter(x => x.result === 'resolved').length === real.length,
+      `resolved ${d.filter(x => x.result === 'resolved').length}/${real.length}`);
+    check('殘差模式會標記 bindMethod=residual', d.every(x => x.result !== 'resolved' || x.bindMethod === 'residual'));
+  }
+  // ⚠️ 同一批資料在絕對窗下會被切斷——這就是首輪 14 筆綁不上的成因
+  {
+    const { s, r } = mk(real);
+    const d = alignBySpinIndex(s, r, OPT_ABS);
+    const lost = d.filter(x => x.result !== 'resolved').length;
+    check('⚠️ 絕對窗會切掉偏移超過上限的那幾筆（重現首輪的缺口）', lost > 0, `未綁 ${lost}/${real.length}`);
+  }
+  // 沒有 offset 估計 → 退回絕對窗，而且要標記出來
+  {
+    const { s, r } = mk([0, 100, -100]);
+    const d = alignBySpinIndex(s, r, { ...OPT_ABS, offsetMs: null });
+    check('offset 估不出來時標記 bindMethod=absolute_window',
+      d.every(x => x.result !== 'resolved' || x.bindMethod === 'absolute_window'));
+  }
+  // 殘差超標要擋下來（不是無條件放行）
+  {
+    const { s, r } = mk([0, 0, 12_000, 0]);
+    const d = alignBySpinIndex(s, r, OPT_RES);
+    check('殘差超出容忍值的那一筆被擋下', d[2].result !== 'resolved', `第 3 筆 ${d[2].result}`);
+  }
+  // 單調性仍然是獨立的一道檢查——殘差在容忍內、但後台時間倒退，一樣要擋
+  {
+    const { s, r } = mk([0, 0, 0, 0]);
+    r[2].betTimePrecise = r[1].betTimePrecise - 1;   // 讓第 3 筆時間倒退
+    const d = alignBySpinIndex(s, r, OPT_RES);
+    check('後台時間倒退時仍被單調性擋下（殘差模式沒有繞過這道檢查）',
+      d[2].result !== 'resolved', `第 3 筆 ${d[2].result}`);
+  }
+  // 錨定也要扣偏移：偏移 29s 而錨定窗若只有 5s，不扣就完全錨不到
+  {
+    const { s, r } = mk([0, 0, 0]);
+    const tight = { anchorWindowMs: 5000, maxLatencyMs: 30000, maxLeadMs: 2000,
+      offsetMs: OFFSET, residualToleranceMs: RES_TOL };
+    const d = alignBySpinIndex(s, r, tight);
+    check('錨定有扣掉系統性偏移（否則窄錨定窗下完全錨不到）',
+      d[0].result === 'resolved', `第 1 筆 ${d[0].result} ${d[0].reason || ''}`);
+  }
+}
+
+console.log('\n14) ⚠️ 真實參數下時間帶沒有鑑別力（這節記錄現況，不是在驗保護有效）');
+// 上面第 13 節用的是**合成參數**：間隔 6 秒、容忍 4 秒，所以「差一位」確實擋得住。
+// 但 2026-09-05 的真實量測是：
+//
+//     spin 間隔 p50 = 2,931 ms      （不是假設的 6,000 ms）
+//     Δt 標準差     = 1,348 ms      （48 筆 MATCH，橫跨 285 秒）
+//     → 合理容忍值至少 ±3σ ≈ 4,044 ms  >  spin 間隔 2,931 ms
+//
+// **容忍值必須大於 spin 間隔，否則誤殺合法配對；但一旦大於，差一位就落在容忍內。**
+// 這是結構性的，不是參數沒調好——在這個 spin 速率下時間**做不到**鑑別。
+//
+// 所以 `spin_index` 序列是唯一的錯位防線。這節就是用來擋掉「以為補了時間帶就補回了
+// 防線」這個誤解；假設不再成立時它會變紅，提醒重新評估。
+{
+  const REAL_GAP_MS = 2931;   // 實測 p50
+  const REAL_SIGMA = 1348;    // 實測標準差（48 筆 MATCH）
+  const needed = Math.round(3 * REAL_SIGMA);
+  check('真實 spin 間隔下，±3σ 容忍值大於一次 spin 間距（時間擋不掉差一位）',
+    needed > REAL_GAP_MS, `±3σ ${needed}ms > 間隔 ${REAL_GAP_MS}ms`);
+  check('要讓時間恢復鑑別力所需的最小間隔算得出來',
+    needed >= 4000 && needed <= 20000, `建議 >= ${needed}ms（約 ${(needed / 1000).toFixed(1)}s）`);
+}
+
 console.log(`\n${fail === 0 ? '全部通過' : fail + ' 項未過'}（pass ${pass} / fail ${fail}）`);
 process.exit(fail ? 1 : 0);

@@ -2109,12 +2109,14 @@ router.post('/api/autospin/agent/:id/recon-spin', (req, res) => {
       balanceAfter: z.number().nullable().optional(),
       winObserved: z.number().nullable().optional(),
       observedAt: z.number(),
+      outcome: z.string().default(''),
     }).parse(req.body)
     recordSpinObservation({
       env: b.env, sessionId: req.params.id, machineType: b.machineType, gmid: b.gmid,
       spinSeq: b.spinSeq, betAmount: b.betAmount ?? 0,
       balanceBefore: b.balanceBefore ?? null, balanceAfter: b.balanceAfter ?? null,
       winObserved: b.winObserved ?? null, observedAt: b.observedAt,
+      outcome: b.outcome,
     })
     // username 存在 recon_spin 的 note 欄（P0 還沒有專屬欄位），worker 拉取時要用它當過濾值
     if (b.username) {

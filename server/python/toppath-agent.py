@@ -169,7 +169,8 @@ def resolve_real_game_url(url: str) -> str:
     return decoded if decoded.startswith('http') else url
 
 
-def post_recon_spin(machine_type: str, cfg: dict, spin_seq: int, balance_before, balance_after, observed_at_ms: int):
+def post_recon_spin(machine_type: str, cfg: dict, spin_seq: int, balance_before, balance_after,
+                    observed_at_ms: int, outcome: str = ''):
     """Live Ledger 觀測落庫——三段式綁定的第 ① 段。
 
     ⚠️ 一定要走 async_call 丟背景執行緒。這支每次 spin 都會呼叫，
@@ -199,6 +200,11 @@ def post_recon_spin(machine_type: str, cfg: dict, spin_seq: int, balance_before,
                 'betAmount': None,
                 'balanceBefore': balance_before,
                 'balanceAfter': balance_after,
+                # agent 自己對這一下 spin 的判定：completed / completed_late /
+                # suspected / unknown / not_started（v4.88.0 就算出來了，只是沒送出去）。
+                # ⚠️ 這個欄位決定回填率的**分母**——沒成局的嘗試本來就不會有後台紀錄，
+                #    混進分母會讓對帳看起來像壞了（實測 timeout 佔 29%，34% vs 81% 的差別）。
+                'outcome': outcome or '',
                 'observedAt': observed_at_ms,
             },
             timeout=5)
@@ -2210,7 +2216,8 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
                     mp['error_count'] = 0
                     # Live Ledger：每次 spin 即時落庫（fire-and-forget，不擋主迴圈）
                     async_call(post_recon_spin, mt, cfg, mp['spin_count'],
-                               balance_before, balance_after, int(time.time() * 1000))
+                               balance_before, balance_after, int(time.time() * 1000),
+                               spin_outcome)
                     if not spin_rejected:
                         mp['ok_spin_count'] = mp.get('ok_spin_count', 0) + 1
                         mark_spin_recovered(mp)

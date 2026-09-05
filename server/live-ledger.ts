@@ -19,6 +19,15 @@ export type ReconEnv = 'qat' | 'uat'
 /** 狀態命名以規格書那張表為準，不要另生別名 */
 export type ReconStatus = 'PENDING' | 'MATCH' | 'MISSING' | 'AMBIGUOUS'
 export type BindResult = 'resolved' | 'ambiguous' | 'not_found'
+/**
+ * 這一筆是用哪種時間判準綁上的。
+ *
+ * ⚠️ **兩者信心度差一個數量級，統計時一定要分開算。**
+ *    `residual` 是扣掉系統性偏移後比殘差（±5s，嚴格）；
+ *    `absolute_window` 是樣本不足時的退路（±30s，寬鬆）。
+ *    混成同一個回填率＝把「嚴格對上的」和「寬鬆撿到的」當成同一件事。
+ */
+export type BindMethod = 'residual' | 'absolute_window'
 
 export interface PendingSpin {
   id: number
@@ -80,6 +89,8 @@ export interface AlignDecision {
   /** 對齊之後的驗證結果——不通過就不算 resolved */
   /** `betOk` 為 undefined 代表 agent 側沒有 bet 可比——是**跳過**不是通過 */
   verify?: { betOk?: boolean; timeOk: boolean; latencyOk?: boolean; deltaMs?: number }
+  /** 用殘差還是絕對窗綁上的——驗收要分開統計 */
+  bindMethod?: BindMethod
   reason?: string
 }
 
@@ -108,6 +119,20 @@ export function alignBySpinIndex(
     maxLatencyMs: number
     /** 後台時間比 spin 早多少仍可接受（時鐘偏移用，通常很小） */
     maxLeadMs: number
+    /**
+     * `Δt = betTimePrecise − observedAt` 的**系統性偏移**（估不出來時傳 null）。
+     *
+     * ⚠️ 這個值一定要**用配對過的樣本估**，不能拿 HTTP `Date` header 算的時鐘差來代替。
+     *    實測（2026-09-05）：`Date` header 偏移 +93 秒，而 Δt 中位數是 +29 秒，
+     *    兩者差 64.5 秒——`bet_time_precise` 跟後台 web 不是同一個時鐘。
+     *    拿 Date 去校正會**比不校正更錯**。
+     */
+    offsetMs?: number | null
+    /**
+     * 扣掉 offset 之後的殘差容忍值。實測殘差 p95 = 2,960ms、max = 4,364ms，
+     * 所以 ±5 秒綽綽有餘，而且比原本的 30 秒絕對窗**嚴格 6 倍**。
+     */
+    residualToleranceMs?: number
   },
   alreadyBound: ReadonlySet<string> = new Set(),
 ): AlignDecision[] {
@@ -118,6 +143,22 @@ export function alignBySpinIndex(
   if (free.length === 0) {
     return ordered.map(s => ({ spinId: s.id, result: 'not_found' as const, reason: 'no_backend_rounds' }))
   }
+
+  /**
+   * 有沒有可用的 offset 估計，決定這一輪用哪一種時間判準：
+   *   `residual`        —— 扣掉系統性偏移後比殘差（嚴格 6 倍，正常路徑）
+   *   `absolute_window` —— 樣本不足時的退路，寬鬆很多
+   *
+   * ⚠️ **兩者一定要標記，不能混成同一個回填率。**它們的信心度差一個數量級；
+   *    混在一起算，等於把「嚴格對上的」和「寬鬆撿到的」當成同一件事——
+   *    那正是這個專案一再踩到的那類問題（規格方要求）。
+   */
+  const offset = (typeof opts.offsetMs === 'number' && Number.isFinite(opts.offsetMs))
+    ? opts.offsetMs : null
+  const residualTol = opts.residualToleranceMs ?? 5000
+  const bindMethod: BindMethod = offset === null ? 'absolute_window' : 'residual'
+  // 錨定窗：有 offset 時用殘差容忍值，沒有時沿用原本的絕對窗
+  const anchorTol = offset === null ? opts.anchorWindowMs : residualTol
 
   const out: AlignDecision[] = []
   let cursor = -1          // free[] 的索引
@@ -139,10 +180,13 @@ export function alignBySpinIndex(
       //    結果會是「全部 no_anchor、回填率 0%」——看起來像設計失敗，其實只是我們沒有這個欄位。
       //    這個坑我差點帶進驗收。
       const anchorBetKnown = Number.isFinite(s.betAmount) && s.betAmount > 0
+      // ⚠️ **錨定也要扣掉系統性偏移。**實測偏移是 +29 秒、而錨定窗是 30 秒——
+      //    不扣的話整個分布貼在窗的邊緣（實測 max 剛好等於 30,000ms，那是被切斷的痕跡），
+      //    偏移只要微幅右移，新的每一筆就全部掉出窗外、再也錨不到。
       const near = free
         .map((r, i) => ({ r, i }))
         .filter(({ r, i }) => !used.has(i)
-          && Math.abs(r.betTimePrecise - s.observedAt) <= opts.anchorWindowMs
+          && Math.abs((r.betTimePrecise - s.observedAt) - (offset ?? 0)) <= anchorTol
           && (!anchorBetKnown || Math.abs(r.bet - s.betAmount) <= BET_EPSILON))
       if (near.length !== 1) {
         // ⚠️ 錨不出來就不錨。硬錨會讓後面整段偏移，而且每一筆看起來都成功。
@@ -214,7 +258,10 @@ export function alignBySpinIndex(
     const betOk = betKnown ? Math.abs(r.bet - s.betAmount) <= BET_EPSILON : undefined
     const timeOk = r.betTimePrecise >= lastTime
     const delta = r.betTimePrecise - s.observedAt
-    const latencyOk = delta >= -opts.maxLeadMs && delta <= opts.maxLatencyMs
+    // 有 offset 就比殘差；沒有才退回絕對窗（並由 bindMethod 標記出來）
+    const latencyOk = offset === null
+      ? (delta >= -opts.maxLeadMs && delta <= opts.maxLatencyMs)
+      : Math.abs(delta - offset) <= residualTol
     if (betOk === false || !timeOk || !latencyOk) {
       out.push({
         spinId: s.id, result: 'ambiguous',
@@ -228,7 +275,7 @@ export function alignBySpinIndex(
     }
 
     out.push({ spinId: s.id, result: 'resolved', orderId: r.orderId, spinIndex: r.spinIndex,
-      verify: { betOk, timeOk, latencyOk, deltaMs: delta } })
+      verify: { betOk, timeOk, latencyOk, deltaMs: delta }, bindMethod })
     used.add(cursor)
     lastIndex = r.spinIndex
     lastTime = r.betTimePrecise
@@ -418,6 +465,14 @@ export function recordSpinObservation(row: {
   env: ReconEnv; sessionId: string; machineType: string; gmid: string; spinSeq: number
   betAmount: number; balanceBefore?: number | null; balanceAfter?: number | null
   winObserved?: number | null; observedAt: number
+  /**
+   * agent 對這一下 spin 的判定：completed / completed_late / suspected /
+   * unknown / not_started。
+   *
+   * ⚠️ **這是回填率的分母。**沒成局的嘗試本來就不會有後台紀錄，混進分母會讓
+   *    對帳看起來像壞了（實測 timeout 約 29%，48/139=34.5% vs 48/59=81.4%）。
+   */
+  outcome?: string
 }): void {
   db.prepare(`
     INSERT INTO recon_spin (env, sessionId, machineType, gmid, spinSeq, betAmount,
@@ -425,9 +480,11 @@ export function recordSpinObservation(row: {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?)
     ON CONFLICT(env, sessionId, machineType, spinSeq) DO UPDATE SET
       betAmount=excluded.betAmount, balanceBefore=excluded.balanceBefore,
-      balanceAfter=excluded.balanceAfter, winObserved=excluded.winObserved
+      balanceAfter=excluded.balanceAfter, winObserved=excluded.winObserved,
+      outcome=excluded.outcome
   `).run(row.env, row.sessionId, row.machineType, row.gmid, row.spinSeq, row.betAmount,
-    row.balanceBefore ?? null, row.balanceAfter ?? null, row.winObserved ?? null, row.observedAt)
+    row.balanceBefore ?? null, row.balanceAfter ?? null, row.winObserved ?? null, row.observedAt,
+    row.outcome ?? '')
 }
 
 /** 後台增量落庫。⚠️ upsert：重啟後重疊拉取不能產生重複，也不能覆蓋成舊值。 */
@@ -482,18 +539,72 @@ export function writeWatermark(env: ReconEnv, source: string, cursorTs: number, 
  * ⚠️ `firstQueriedAt` 只在**第一次**去找它時寫入。之後每輪都覆蓋的話，
  *    「從按下 spin 到入帳花多久」就永遠算不出來——而那正是校準 90 秒門檻的依據。
  */
+/**
+ * 已經判成 MISSING 之後，還願意回頭重綁多久。
+ *
+ * ⚠️ **MISSING 必須可逆。**原本它是終局狀態，所以門檻只要訂得比實際入帳延遲緊一點,
+ *    資料就被永久污染——而畫面上顯示的是「掉單」。**對一筆其實有入帳的局說掉單,
+ *    比不報還糟。**實測首輪就有 14 筆後台紀錄晚到、對應的 spin 早已被判 MISSING。
+ *
+ * ⚠️ 但也不能無上限回頭掃，否則掃描集合會無限長大。30 分鐘遠大於實測的入帳延遲
+ *    （p95 約 60 秒），又不會讓每一輪都在重掃整個歷史。
+ */
+export const LATE_REBIND_WINDOW_MS = 30 * 60 * 1000
+
+/**
+ * 殘差容忍值。實測（2026-09-05，57 筆）殘差 p50 = 707ms、p95 = 2,960ms、max = 4,364ms,
+ * 所以 ±5 秒有足夠餘裕，而且比原本的 30 秒絕對窗**嚴格 6 倍**。
+ *
+ * ⚠️ 要調這個值一定要**用實際分布重算**，不要憑感覺（跟當初定 ±1000ms 那個窗同一個做法）。
+ */
+export const RESIDUAL_TOLERANCE_MS = 5000
+
+/** 估 offset 至少要幾筆樣本。不足就退回絕對窗，並且**標記出來**。 */
+export const MIN_OFFSET_SAMPLES = 10
+
+/**
+ * 用**已經配對成功的樣本**估 `Δt = betTimePrecise − observedAt` 的系統性偏移（取中位數）。
+ *
+ * ⚠️ **絕對不能拿 HTTP `Date` header 的時鐘差來代替。**實測 2026-09-05：
+ *    `Date` header 偏移 +93 秒、Δt 中位數 +29 秒，**兩者差 64.5 秒**——
+ *    `bet_time_precise` 跟後台 web 根本不是同一個時鐘。用 Date 校正會比不校正更錯。
+ *
+ * ⚠️ 逐 `(env, machineType)` 估、而且只取最近 N 筆滾動更新：offset 是三個東西的合成
+ *    （本機時鐘偏差 ＋ 來源時鐘偏差 ＋ `bet_time_precise` 的語意差異），
+ *    只有第一項是全域的。時鐘也會被 NTP 校正、會漂，所以不能在 session 開頭估一次就固定。
+ */
+export function estimateMatchOffset(env: ReconEnv, machineType: string, limit = 50): number | null {
+  const rows = db.prepare(`
+    SELECT b.betTimePrecise - s.observedAt AS dt
+    FROM recon_spin s JOIN recon_backend_record b ON b.orderId = s.orderId AND b.env = s.env
+    WHERE s.env = ? AND s.machineType = ? AND s.status = 'MATCH' AND s.orderId IS NOT NULL
+    ORDER BY s.observedAt DESC LIMIT ?
+  `).all(env, machineType, limit) as { dt: number }[]
+  if (rows.length < MIN_OFFSET_SAMPLES) return null
+  const d = rows.map(r => r.dt).sort((a, b) => a - b)
+  const m = Math.floor(d.length / 2)
+  return d.length % 2 ? d[m] : Math.round((d[m - 1] + d[m]) / 2)
+}
+
 export function runBindCycle(env: ReconEnv, now = Date.now()): {
   scanned: number; resolved: number; ambiguous: number; notFound: number; missing: number
+  /**
+   * 本來已判掉單、因後台紀錄晚到而綁回來的筆數。
+   * ⚠️ 持續 > 0 代表 `pendingTimeoutSec` 訂得比實際入帳延遲緊——那是門檻要調，
+   *    不是資料有問題。這個數字就是用來看見這件事的。
+   */
+  lateRebound: number
 } {
   const cfg = bindConfigOf(env)
   const pendingTimeoutMs = reconSetting(env, 'pendingTimeoutSec') * 1000
 
   const spins = db.prepare(`
-    SELECT id, sessionId, machineType, gmid, spinSeq, betAmount, observedAt FROM recon_spin
-    WHERE env=? AND status IN ('PENDING','AMBIGUOUS') AND orderId IS NULL
+    SELECT id, sessionId, machineType, gmid, spinSeq, betAmount, observedAt, status FROM recon_spin
+    WHERE env=? AND status IN ('PENDING','AMBIGUOUS','MISSING') AND orderId IS NULL
+      AND observedAt >= ?
     ORDER BY sessionId, machineType, spinSeq
-  `).all(env) as Array<PendingSpin & { sessionId: string; machineType: string; spinSeq: number }>
-  if (spins.length === 0) return { scanned: 0, resolved: 0, ambiguous: 0, notFound: 0, missing: 0 }
+  `).all(env, now - LATE_REBIND_WINDOW_MS) as Array<PendingSpin & { sessionId: string; machineType: string; spinSeq: number; status: string }>
+  if (spins.length === 0) return { scanned: 0, resolved: 0, ambiguous: 0, notFound: 0, missing: 0, lateRebound: 0 }
 
   const oldest = Math.min(...spins.map(s => s.observedAt))
   const records = db.prepare(`
@@ -508,7 +619,6 @@ export function runBindCycle(env: ReconEnv, now = Date.now()): {
   // ⚠️ 序列對齊的前提是「單一帳號 × 單一機台」——spin_index 是那一台自己的序號，
   //    把兩台的觀測混在同一個序列裡會從第一筆就錯位，而且錯位之後每一筆看起來都對得上。
   //    所以先分組，各組各自錨定；`bound` 跨組共用，避免同一張單被兩組搶走。
-  const opts = { anchorWindowMs: cfg.afterMs, maxLatencyMs: cfg.afterMs, maxLeadMs: cfg.beforeMs }
   const groups = new Map<string, typeof spins>()
   for (const s of spins) {
     const k = `${s.sessionId}|${s.machineType}`
@@ -518,6 +628,13 @@ export function runBindCycle(env: ReconEnv, now = Date.now()): {
   for (const g of groups.values()) {
     const gmids = new Set(g.map(s => s.gmid).filter(Boolean))
     const scoped = gmids.size ? records.filter(r => gmids.has(r.gmid)) : records
+    // offset 逐 (env, machineType) 估。估不出來（樣本 < 10）就退回絕對窗，
+    // 由 bindMethod 標記成 absolute_window，驗收時分開算。
+    const offsetMs = estimateMatchOffset(env, g[0].machineType)
+    const opts = {
+      anchorWindowMs: cfg.afterMs, maxLatencyMs: cfg.afterMs, maxLeadMs: cfg.beforeMs,
+      offsetMs, residualToleranceMs: RESIDUAL_TOLERANCE_MS,
+    }
     decisions.push(...alignBySpinIndex(g, scoped, opts, bound))
     // 這一組綁掉的單要立刻進 bound，否則下一組可能重複配到同一張
     for (const d of decisions) if (d.result === 'resolved' && d.orderId) bound.add(d.orderId)
@@ -525,13 +642,14 @@ export function runBindCycle(env: ReconEnv, now = Date.now()): {
 
   const markFirstQuery = db.prepare('UPDATE recon_spin SET firstQueriedAt=? WHERE id=? AND firstQueriedAt IS NULL')
   const setResolved = db.prepare(`
-    UPDATE recon_spin SET orderId=?, status='MATCH', bindResult='resolved', boundAt=?, latencyMs=? WHERE id=?
+    UPDATE recon_spin SET orderId=?, status='MATCH', bindResult='resolved', boundAt=?, latencyMs=?,
+      bindMethod=?, lateArrival=? WHERE id=?
   `)
   const setAmbiguous = db.prepare(`UPDATE recon_spin SET status='AMBIGUOUS', bindResult='ambiguous' WHERE id=?`)
   const setNotFound = db.prepare(`UPDATE recon_spin SET status='PENDING', bindResult='not_found' WHERE id=?`)
   const setMissing = db.prepare(`UPDATE recon_spin SET status='MISSING', bindResult='not_found' WHERE id=?`)
 
-  let resolved = 0, ambiguous = 0, notFound = 0, missing = 0
+  let resolved = 0, ambiguous = 0, notFound = 0, missing = 0, lateRebound = 0
   const byId = new Map(spins.map(s => [s.id, s]))
   const tx = db.transaction(() => {
     for (const d of decisions) {
@@ -541,7 +659,12 @@ export function runBindCycle(env: ReconEnv, now = Date.now()): {
         // ⚠️ 這裡可能撞唯一索引（同一張單被別的 env/session 綁走）。撞到就退回 ambiguous，
         //    不要讓整個交易炸掉——一筆綁不上不該讓其他幾百筆都失敗。
         try {
-          setResolved.run(d.orderId!, now, now - s.observedAt, d.spinId)
+          // lateArrival：這一筆本來已經被判成掉單，是紀錄晚到才綁回來的。
+          // 一定要標記——不標的話，統計上看不出「門檻訂太緊」這件事。
+          const wasMissing = s.status === 'MISSING'
+          setResolved.run(d.orderId!, now, now - s.observedAt,
+            d.bindMethod ?? '', wasMissing ? 1 : 0, d.spinId)
+          if (wasMissing) lateRebound++
           resolved++
         } catch {
           setAmbiguous.run(d.spinId); ambiguous++
@@ -557,7 +680,7 @@ export function runBindCycle(env: ReconEnv, now = Date.now()): {
     }
   })
   tx()
-  return { scanned: spins.length, resolved, ambiguous, notFound, missing }
+  return { scanned: spins.length, resolved, ambiguous, notFound, missing, lateRebound }
 }
 
 /** P0 驗收用的統計：回填成功率與 AMBIGUOUS 佔比。 */
