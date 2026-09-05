@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.112.1'
+export const APP_VERSION = '4.113.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.113.0',
+    date: '2026-09-06',
+    changes: [
+      'feat(autospin): 新增「對帳台」分頁（Live Ledger），取代原本的「後台對帳」與「三路對帳」。四層版面照規格書：資料源健康 → KPI → 五條對帳線＋時間軸 → 逐筆明細（前端／後台欄位並排、游標分頁、新資料暫存列、單筆下鑽看三方原始資料）',
+      'feat(autospin): ⚠️ 只有 L1 有資料，L2~L5 一律標成「未實作」並寫出缺什麼，不填 0 也不塗綠。規格書第一條原則就是「最危險的失敗是安靜地報一切正常」，並明訂「缺資料顯示 —，永遠不顯示 0；0 是一個結論，— 是沒有結論」。LuckyLink 那盞燈是灰色的「未串接」不是綠燈——畫成綠燈等於宣稱 JP 對帳正常，而它根本沒在對',
+      'fix(autospin): ⚠️ KPI 吃時間視窗、逐筆表不吃——同一畫面兩個分母（KPI 顯示「掉單 0」而下面表格滿是掉單）。實際做出來截圖才看到，逐筆查詢補上同一個 minutes 參數',
+      'feat(autospin): 執行監控移除右欄（截圖監控／LuckyLink JP 面板／SLS 錯誤日誌）與三路對帳摘要，只留派工設定與執行日誌',
+      'fix(autospin): AutoSpin 停止時會先正常離開機台（leave_game，含 errcode 10002 重試）。⚠️ 原本直接關瀏覽器，座位在後台仍掛著這個帳號，下一次要測同一台就被自己上一輪的殘留擋成 Occupied——實測連續佔掉 JJBX-0004／0007 兩台，而症狀看起來像「被別人佔用」',
+    ],
+  },
   {
     version: '4.112.1',
     date: '2026-09-06',

@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback, Fragment } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import LiveLedgerTab from '../components/LiveLedgerTab'
 import { matchesLogFilterPre } from '../../shared/autospin-log-rules'
 import { UrlPoolPickerModal } from '../components/UrlPoolPickerModal'
 
@@ -41,11 +42,6 @@ interface AutospinConfig {
   logApiEnv: string
 }
 
-interface CaptureFile {
-  name: string
-  dir: string
-  mtime: number
-}
 
 // ─── Log classification (for filter chips / hide-pinus toggle) ─────────────────
 
@@ -105,20 +101,7 @@ function classifyPinusRoute(l: string): PinusCategory {
   return 'other'
 }
 
-function relativeShotTime(ts: number): string {
-  const s = Math.max(0, Math.round((Date.now() - ts) / 1000))
-  if (s < 5) return '剛剛'
-  if (s < 60) return `${s}秒前`
-  const m = Math.round(s / 60)
-  if (m < 60) return `${m}分前`
-  const h = Math.round(m / 60)
-  return `${h}小時前`
-}
 
-function extractSpinNo(name: string): string | null {
-  const m = name.match(/_(\d+)\.png$/i)
-  return m ? String(parseInt(m[1], 10)) : null
-}
 
 const EMPTY_CONFIG: AutospinConfig = {
   machineType: '', gameUrl: '', rtmpName: '', rtmpUrl: '',
@@ -174,18 +157,12 @@ function ToggleSwitch({ checked, disabled, onToggle }: { checked: boolean; disab
  * 相符／掉單／僅後台有／查詢區間／機台篩選 都是使用者剛反映過看不懂才改清楚的，
  * 再套一層修仙詞會把剛修好的可讀性弄丟（見 feedback_theme_skin_vs_architecture）。
  */
-export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' | 'xianxia' } = {}) {
-  const isXianxia = themeMode === 'xianxia'
+// themeMode 目前用不到（用到它的兩個分頁已移除），但 prop 保留——
+// App.tsx 仍然會傳，而且之後對帳台要做仙俠版時會需要。
+export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {}) {
   /** 面板標題：修仙版古金襯線 + 角標，普通版乾淨無襯線 */
-  const panelTitle = (_t: string, size = 13): React.CSSProperties => ({
-    fontWeight: 700, fontSize: size, marginBottom: 8,
-    color: isXianxia ? 'var(--cr-violet)' : '#e2e8f0',
-    fontFamily: isXianxia ? '"Noto Serif TC", serif' : 'inherit',
-    letterSpacing: isXianxia ? '.06em' : undefined,
-  })
-  const T = (classic: string, xianxia: string) => (isXianxia ? xianxia : classic)
 
-  const [tab, setTab] = useState<'configs' | 'templates' | 'history' | 'reconcile' | 'compare3' | 'run' | 'jpgroups'>('configs')
+  const [tab, setTab] = useState<'configs' | 'templates' | 'history' | 'ledger' | 'run' | 'jpgroups'>('configs')
 
   // ── Config tab ──────────────────────────────────────────────────────────────
   const [configs, setConfigs] = useState<AutospinConfig[]>([])
@@ -304,12 +281,8 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
   }
 
   // ── Reconcile tab ───────────────────────────────────────────────────────────
-  const [rcConfigMsg, setRcConfigMsg] = useState('')
-  const [rcRunning, setRcRunning] = useState(false)
   /** 對帳用哪個環境。對應共用設定 meter_reconcile_config 的 osm_/gcp_ 兩組前綴 */
-  const [rcEnv, setRcEnv] = useState<'osm' | 'gcp'>('osm')
   /** 日期快捷。'custom' 才展開起訖日期輸入 */
-  const [rcDatePreset, setRcDatePreset] = useState<'today' | 'yesterday' | '7d' | 'custom'>('yesterday')
 
   // ⚠️ 預設快捷一定要**同時**把日期填進去。
   //    只設 preset 不設日期的話，按鈕看起來是選中的、但 rcRangeStart/End 是空字串，
@@ -327,205 +300,20 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
   }, [])
   const [rcRangeStart, setRcRangeStart] = useState('')
   const [rcRangeEnd, setRcRangeEnd] = useState('')
-  const [rcMachineType, setRcMachineType] = useState('')
-  const [rcPlayerId, setRcPlayerId] = useState('')
-  const [rcResult, setRcResult] = useState<null | { summary: string; notice?: string; backendOnly?: number; backendStatus?: string; backendError?: { type: string; message: string; backendCode?: number; page?: number } | null; details: {status:string;uid:string;time:string;bet:number;win:number;note:string}[]; backendAnomalies: {uid:string;time:string;bet:number;win:number;note:string}[] }>(null)
-  const [rcReports, setRcReports] = useState<{id:number;runAt:number;rangeStart:string;rangeEnd:string;machineType:string;frontCount:number;backendCount:number;matchedCount:number;unmatchedCount:number;anomalyCount:number;summary:string;backendStatus?:string}[]>([])
 
   // 連線設定改成讀共用的 meter_reconcile_config（由後端依環境挑），
   // 前端不再自己抓一份、也不再有畫面可以編輯它——原本的 fetchRcConfig 與
   // rcConfig state 都已移除，留著只會讓人以為這頁還有自己的設定。
 
 
-  const testRcConnection = async () => {
-    setRcConfigMsg('測試中...')
-    const r = await fetch('/api/autospin/reconcile/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ env: rcEnv }) })
-    const d = await r.json() as { ok: boolean; message?: string }
-    setRcConfigMsg(d.ok ? `通過 ${d.message}` : `失敗 ${d.message}`)
-  }
 
-  const runReconcile = async () => {
-    if (!rcRangeStart || !rcRangeEnd) { setRcConfigMsg('請填寫時間範圍'); return }
-    setRcRunning(true); setRcResult(null)
-    try {
-      const r = await fetch('/api/autospin/reconcile/run', {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-user-label': getGlobalUserLabel() },
-        body: JSON.stringify({ rangeStart: rcRangeStart, rangeEnd: rcRangeEnd, machineType: rcMachineType, playerId: rcPlayerId, env: rcEnv }),
-      })
-      type RcDetail = { status: string; uid: string; time: string; bet: number; win: number; note: string }
-      type RcAnomaly = { uid: string; time: string; bet: number; win: number; note: string }
-      const d = await r.json() as { ok: boolean; summary?: string; notice?: string; backendOnly?: number; backendStatus?: string; backendError?: { type: string; message: string; backendCode?: number; page?: number } | null; details?: RcDetail[]; backendAnomalies?: RcAnomaly[]; message?: string }
-      if (d.ok) setRcResult({ summary: d.summary ?? '', notice: d.notice ?? '', backendOnly: d.backendOnly ?? 0, backendStatus: d.backendStatus, backendError: d.backendError ?? null, details: d.details ?? [], backendAnomalies: d.backendAnomalies ?? [] })
-      else setRcConfigMsg(`失敗 ${d.message}`)
-      fetchRcReports()
-    } finally { setRcRunning(false) }
-  }
 
-  const fetchRcReports = async () => {
-    const r = await fetch('/api/autospin/reconcile/reports')
-    const d = await r.json() as { reports?: typeof rcReports }
-    setRcReports(d.reports ?? [])
-  }
-
-  // ── 三路對帳 tab（SLS recordBet / 盒子日誌 / Pinus history）───────────────────
-  interface CompareField { source: 'sls' | 'box' | 'pinus'; path: string; label?: string }
-  interface CompareGroupDef { id: string; name: string; fields: CompareField[]; tolerance: number }
-  interface CompareMachineRow { sessionId: string; machineType: string; agentLabel: string; compared: number; matched: number; mismatched: number; missing: number; unmatched?: number; ambiguous?: number }
-  interface CompareDetailGroup { groupId: string; groupName: string; values: { source: string; path: string; value: unknown }[]; status: string; note: string }
-  /** `match` 是配對診斷（v4.103.0 起）。舊資料沒有這個欄位，一律當 null 處理。 */
-  interface CompareMatchDiag { matchMethod?: string; windowMs?: number; candidateCount?: number; contested?: boolean; timeDeltaMs?: number | null }
-  interface CompareDetailRow { spinIndex: number; spinTime: string; status: string; groups: CompareDetailGroup[]; match?: CompareMatchDiag | null }
-
-  const SRC_LABEL: Record<CompareField['source'], string> = { sls: 'SLS', box: '盒子', pinus: 'Pinus' }
-  const SRC_COLOR: Record<CompareField['source'], { bg: string; fg: string }> = {
-    sls: { bg: 'rgba(56,189,248,.15)', fg: '#38bdf8' },
-    box: { bg: 'rgba(251,146,60,.15)', fg: '#fb923c' },
-    pinus: { bg: 'var(--cr-violet-soft)', fg: 'var(--cr-violet)' },
-  }
   // 每個來源實際存在的欄位（不讓使用者手打路徑，直接從真實資料結構挑）——
   // SLS 取自 recordBet log 的 requestJSON/responseJSON（server/lib/sls.ts SlsBetRecord.raw 結構）；
   // Pinus 取自 reconcile_front_records 正規化後的欄位；盒子日誌尚未串接，只先預留使用者原本提過的
   // 欄位名稱（fresh_current_credits），選了也會固定顯示缺資料直到真的串接
-  const FIELD_CATALOG: Record<CompareField['source'], { path: string; label: string }[]> = {
-    sls: [
-      { path: 'requestJSON.amount', label: '下注金額（amount）' },
-      { path: 'requestJSON.validBet', label: '有效下注（validBet）' },
-      { path: 'requestJSON.payout', label: '派彩金額（payout）' },
-      { path: 'requestJSON.moneyAfter', label: '下注後餘額（moneyAfter）' },
-      { path: 'requestJSON.usedCash', label: '使用現金（usedCash）' },
-      { path: 'requestJSON.usedMoneyMud', label: '使用泥碼（usedMoneyMud）' },
-      { path: 'requestJSON.remainingMoneyMud', label: '剩餘泥碼（remainingMoneyMud）' },
-      { path: 'requestJSON.initialMoneyMud', label: '初始泥碼（initialMoneyMud）' },
-      { path: 'requestJSON.roundId', label: '回合 ID（roundId）' },
-      { path: 'requestJSON.machineId', label: '機台代碼（machineId）' },
-      { path: 'requestJSON.betTimestamp', label: '下注時間戳（betTimestamp）' },
-      { path: 'requestJSON.payoutTimestamp', label: '派彩時間戳（payoutTimestamp）' },
-      { path: 'responseJSON.balance', label: '即時餘額（balance）' },
-      { path: 'responseJSON.moneyMud', label: '泥碼餘額（moneyMud）' },
-      { path: 'responseJSON.error', label: '錯誤碼（error）' },
-    ],
-    pinus: [
-      { path: 'bet', label: '下注額（bet）' },
-      { path: 'win', label: '贏分（win）' },
-      { path: 'orderId', label: '訂單 ID（orderId）' },
-      { path: 'recordTime', label: '紀錄時間（recordTime）' },
-      { path: 'gmid', label: 'gmid' },
-      { path: 'gameid', label: 'gameid' },
-    ],
-    box: [
-      { path: 'fresh_current_credits', label: '目前分數（fresh_current_credits，尚未串接）' },
-    ],
-  }
 
-  const [cmpGroups, setCmpGroups] = useState<CompareGroupDef[]>([])
-  const [cmpGroupsMsg, setCmpGroupsMsg] = useState('')
-  const [cmpMachines, setCmpMachines] = useState<CompareMachineRow[]>([])
-  const [cmpSessionCount, setCmpSessionCount] = useState(0)
-  const [cmpHasBoxLeg, setCmpHasBoxLeg] = useState(false)
-  /** 從執行監控的摘要點進來時要聚焦哪一台。點總摘要就是 null（不聚焦） */
-  const [cmpFocusMachine, setCmpFocusMachine] = useState<string | null>(null)
-  const [cmpExpanded, setCmpExpanded] = useState<string | null>(null)
-  const [cmpDetail, setCmpDetail] = useState<Record<string, CompareDetailRow[]>>({})
-  const [cmpConfigOpen, setCmpConfigOpen] = useState(false)
-  const [cmpLastUpdated, setCmpLastUpdated] = useState<number | null>(null)
-  const [cmpRunNowMsg, setCmpRunNowMsg] = useState('')
-  const [cmpEnabled, setCmpEnabled] = useState(true)
-  const [cmpEnabledLoading, setCmpEnabledLoading] = useState(false)
 
-  const fetchComparePrefs = async () => {
-    const r = await fetch('/api/autospin/compare/prefs', { headers: { 'x-user-label': getGlobalUserLabel() } })
-    const d = await r.json() as { ok: boolean; compareEnabled?: boolean }
-    if (d.ok) setCmpEnabled(d.compareEnabled ?? true)
-  }
-  const toggleCompareEnabled = async () => {
-    setCmpEnabledLoading(true)
-    const next = !cmpEnabled
-    try {
-      await fetch('/api/autospin/compare/prefs', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-user-label': getGlobalUserLabel() },
-        body: JSON.stringify({ compareEnabled: next }),
-      })
-      setCmpEnabled(next)
-    } finally { setCmpEnabledLoading(false) }
-  }
-
-  const fetchCompareDetail = useCallback(async (sessionId: string, machineType: string) => {
-    const r = await fetch(`/api/autospin/compare/detail/${encodeURIComponent(machineType)}?sessionId=${encodeURIComponent(sessionId)}`, { headers: { 'x-user-label': getGlobalUserLabel() } })
-    const d = await r.json() as { ok: boolean; rows?: CompareDetailRow[] }
-    if (d.ok) setCmpDetail(prev => ({ ...prev, [`${sessionId}:${machineType}`]: d.rows ?? [] }))
-  }, [])
-
-  const fetchCompareStatus = useCallback(async () => {
-    const r = await fetch('/api/autospin/compare/status', { headers: { 'x-user-label': getGlobalUserLabel() } })
-    const d = await r.json() as { ok: boolean; machines?: CompareMachineRow[]; sessionCount?: number; hasBoxLeg?: boolean }
-    if (!d.ok) return
-    setCmpMachines(d.machines ?? [])
-    setCmpSessionCount(d.sessionCount ?? 0)
-    setCmpHasBoxLeg(!!d.hasBoxLeg)
-    setCmpLastUpdated(Date.now())
-    if (cmpExpanded) {
-      const [sid, mt] = cmpExpanded.split(':')
-      if (sid && mt) fetchCompareDetail(sid, mt)
-    }
-  }, [cmpExpanded, fetchCompareDetail])
-
-  const toggleCompareDetail = (sessionId: string, machineType: string) => {
-    const key = `${sessionId}:${machineType}`
-    if (cmpExpanded === key) { setCmpExpanded(null); return }
-    setCmpExpanded(key)
-    fetchCompareDetail(sessionId, machineType)
-  }
-
-  const fetchCompareGroups = async () => {
-    const r = await fetch('/api/autospin/compare/groups')
-    const d = await r.json() as { ok: boolean; groups?: CompareGroupDef[] }
-    setCmpGroups(d.groups ?? [])
-  }
-
-  const saveCompareGroups = async () => {
-    setCmpGroupsMsg('')
-    const r = await fetch('/api/autospin/compare/groups', {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ groups: cmpGroups }),
-    })
-    const d = await r.json() as { ok: boolean; groups?: CompareGroupDef[] }
-    if (d.ok) { setCmpGroups(d.groups ?? []); setCmpGroupsMsg('通過 已儲存') } else setCmpGroupsMsg('失敗 儲存失敗')
-  }
-
-  const runCompareNow = async () => {
-    setCmpRunNowMsg('試算中...')
-    const r = await fetch('/api/autospin/compare/run-now', { method: 'POST' })
-    const d = await r.json() as { ok: boolean }
-    setCmpRunNowMsg(d.ok ? '通過 已試算' : '失敗 試算失敗')
-    fetchCompareStatus()
-  }
-
-  const addCompareGroup = () => setCmpGroups(gs => [...gs, { id: '', name: '新群組', fields: [], tolerance: 0.01 }])
-  const removeCompareGroup = (idx: number) => setCmpGroups(gs => gs.filter((_, i) => i !== idx))
-  const updateCompareGroupName = (idx: number, name: string) => setCmpGroups(gs => gs.map((g, i) => i === idx ? { ...g, name } : g))
-  const addCompareField = (idx: number, source: CompareField['source'], path: string) => {
-    if (!path) return
-    setCmpGroups(gs => gs.map((g, i) => {
-      if (i !== idx) return g
-      if (g.fields.some(f => f.source === source && f.path === path)) return g // 已經選過同一個欄位，不重複加
-      return { ...g, fields: [...g.fields, { source, path }] }
-    }))
-  }
-  const removeCompareField = (gIdx: number, fIdx: number) =>
-    setCmpGroups(gs => gs.map((g, i) => i === gIdx ? { ...g, fields: g.fields.filter((_, j) => j !== fIdx) } : g))
-
-  // ⚠️ 執行監控（run）也要輪詢，不是只有三路對帳分頁。
-  //    v4.84.0 把對帳摘要放到執行日誌上方之後，如果這裡還只認 compare3，
-  //    摘要列會**永遠顯示「尚無資料」**——而且在本機看不出來，
-  //    因為本機真的沒有比對資料，「尚無資料」剛好也是正確的顯示。
-  //    這種「錯誤狀態跟正確狀態長得一樣」的 bug 只有餵合成資料才驗得出來。
-  useEffect(() => {
-    if (tab !== 'compare3' && tab !== 'run') return
-    fetchCompareStatus()
-    const t = setInterval(() => { if (!document.hidden) fetchCompareStatus() }, 5000)
-    return () => clearInterval(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab])
 
   // ── History tab ─────────────────────────────────────────────────────────────
   interface HistoryRow {
@@ -622,8 +410,6 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
    */
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [agentLogs, setAgentLogs] = useState<LogEntry[]>([])
-  const [captures, setCaptures] = useState<CaptureFile[]>([])
-  const [agentCaptures, setAgentCaptures] = useState<{ name: string; time: number }[]>([])
   const [startError, setStartError] = useState('')
   const [liveSpinInterval, setLiveSpinInterval] = useState<number>(1.0)
   const [liveIntervalSaving, setLiveIntervalSaving] = useState(false)
@@ -684,45 +470,7 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
   useEffect(() => { fetchScreenshotPrefs() }, [])
 
   // ── LuckyLink runtime status (populated from SSE luckylink_event) ─────────────
-  interface LuckylinkPoolEntry { name: string; rawValue: number; displayValue: number; basevalue: number; maxValue: number; overageValue: number }
-  interface LuckylinkDiff { name: string; prev: number | null; curr: number; delta: number | null; state: string; matchedGameCodes?: string[] }
-  interface LuckylinkAlertEntry { level: 'error' | 'warn' | 'info'; name: string; state: string; message?: string; ts: string; prev?: number; curr?: number; delta?: number }
-  interface LuckylinkStatus { connected: boolean; jpGroupCode: string; pollCount: number; lastPollTs: string | null; pool: LuckylinkPoolEntry[]; diffs: LuckylinkDiff[]; alerts: LuckylinkAlertEntry[]; error: string | null }
-  const [luckylinkStatus, setLuckylinkStatus] = useState<LuckylinkStatus | null>(null)
-  const [llPanelOpen, setLlPanelOpen] = useState(true)
 
-  // ── SLS error logs ───────────────────────────────────────────────────────────
-  interface SlsEntry { time: number; timeStr: string; project: string; logstore: string; content: string; level: string }
-  const [slsMachineNo, setSlsMachineNo] = useState('')
-  const [slsEntries, setSlsEntries] = useState<SlsEntry[]>([])
-  const [slsLoading, setSlsLoading] = useState(false)
-  const [slsError, setSlsError] = useState('')
-  const [slsPanelOpen, setSlsPanelOpen] = useState(false)
-  const slsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  const fetchSlsErrors = useCallback(async (machineNo: string) => {
-    if (!machineNo.trim()) return
-    setSlsLoading(true); setSlsError('')
-    try {
-      const r = await fetch(`/api/autospin/sls-errors?machineNo=${encodeURIComponent(machineNo)}&limit=20`)
-      const d = await r.json() as { ok: boolean; entries?: SlsEntry[]; message?: string }
-      if (d.ok) setSlsEntries(d.entries ?? [])
-      else setSlsError(d.message ?? '查詢失敗')
-    } catch (e) {
-      setSlsError(String(e))
-    } finally {
-      setSlsLoading(false)
-    }
-  }, [])
-
-  // auto-refresh SLS every 60s while running
-  useEffect(() => {
-    if (slsTimerRef.current) { clearInterval(slsTimerRef.current); slsTimerRef.current = null }
-    if ((running || agentRunning) && slsMachineNo.trim()) {
-      slsTimerRef.current = setInterval(() => fetchSlsErrors(slsMachineNo), 60_000)
-    }
-    return () => { if (slsTimerRef.current) clearInterval(slsTimerRef.current) }
-  }, [running, agentRunning, slsMachineNo, fetchSlsErrors])
   const evtSourceRef = useRef<EventSource | null>(null)
   const captureTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   // Ref to always hold latest agentSessionId for interval callbacks (avoids stale closure)
@@ -742,7 +490,7 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
       setAgentSessionId(ad.sessionId)
       connectSSE(ad.sessionId, true)
       if (!captureTimerRef.current) {
-        captureTimerRef.current = setInterval(() => fetchAgentCaptures(ad.sessionId!), 5000)
+        captureTimerRef.current = setInterval(() => 5000)
       }
     }
     if (!ad.running) {
@@ -750,18 +498,6 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
       setAgentSessionId(null)
     }
   }, [sessionId])
-
-  const fetchCaptures = useCallback(async () => {
-    const r = await fetch('/api/autospin/captures-list')
-    const d = await r.json() as { files?: CaptureFile[] }
-    setCaptures(d.files ?? [])
-  }, [])
-
-  const fetchAgentCaptures = useCallback(async (sid: string) => {
-    const r = await fetch(`/api/autospin/agent/screenshots/${sid}`, { headers: { 'x-user-label': getGlobalUserLabel() } })
-    const d = await r.json() as { files?: { name: string; time: number }[] }
-    setAgentCaptures(d.files ?? [])
-  }, [])
 
   const connectSSE = useCallback((sid: string, isAgent = false, fromIndex = 0) => {
     if (evtSourceRef.current) evtSourceRef.current.close()
@@ -773,26 +509,6 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
     const es = new EventSource(url)
     es.onmessage = (e) => {
       const data = JSON.parse(e.data) as { line?: string; luckylink_event?: Record<string, unknown> }
-      if (data.luckylink_event) {
-        const evt = data.luckylink_event as { type?: string; data?: Record<string, unknown>; ts?: string }
-        if (evt.type === 'luckylink_start') {
-          const d = evt.data as { jpGroupCode?: string }
-          setLuckylinkStatus({ connected: true, jpGroupCode: d?.jpGroupCode ?? '', pollCount: 0, lastPollTs: null, pool: [], diffs: [], alerts: [], error: null })
-        } else if (evt.type === 'luckylink_pool') {
-          const d = evt.data as { poll?: number; pool?: LuckylinkPoolEntry[]; diffs?: LuckylinkDiff[] }
-          setLuckylinkStatus(prev => prev ? { ...prev, pollCount: d.poll ?? prev.pollCount, lastPollTs: evt.ts ?? null, pool: d.pool ?? [], diffs: d.diffs ?? [] } : prev)
-        } else if (evt.type === 'luckylink_alert') {
-          const d = evt.data as { level?: string; name?: string; state?: string; message?: string; prev?: number; curr?: number; delta?: number }
-          const alert: LuckylinkAlertEntry = { level: (d.level ?? 'info') as 'error' | 'warn' | 'info', name: d.name ?? '', state: d.state ?? '', message: d.message, ts: evt.ts ?? new Date().toISOString(), prev: d.prev, curr: d.curr, delta: d.delta }
-          setLuckylinkStatus(prev => prev ? { ...prev, alerts: [...prev.alerts.slice(-20), alert] } : prev)
-        } else if (evt.type === 'luckylink_error') {
-          const d = evt.data as { message?: string; fatal?: boolean }
-          setLuckylinkStatus(prev => prev ? { ...prev, error: d.message ?? '未知錯誤', connected: !d.fatal } : prev)
-        } else if (evt.type === 'luckylink_stop') {
-          setLuckylinkStatus(prev => prev ? { ...prev, connected: false } : prev)
-        }
-        return
-      }
       const line = data.line ?? ''
       const entry = toLogEntry(line)
       if (isAgent) setAgentLogs(prev => [...prev.slice(-(MAX_VISIBLE_LOGS - 1)), entry])
@@ -819,7 +535,6 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
     setRunning(true)
     setSessionId(d.sessionId!)
     connectSSE(d.sessionId!)
-    captureTimerRef.current = setInterval(fetchCaptures, 5000)
   }
 
   const handleStop = async () => {
@@ -847,7 +562,7 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
   }, [agentRunning])
 
   const handleDispatchAgent = async () => {
-    setStartError(''); setAgentLogs([]); setAgentCaptures([]); setLuckylinkStatus(null)
+    setStartError(''); setAgentLogs([])
     setHubDispatching(true)
     try {
       const r = await fetch('/api/autospin/hub-dispatch', {
@@ -1006,11 +721,16 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
         <button style={tabStyle('configs')} onClick={() => setTab('configs')}>機台設定</button>
         <button style={tabStyle('templates')} onClick={() => { setTab('templates'); fetchTemplates() }}>模板管理</button>
         <button style={tabStyle('history')} onClick={() => { setTab('history'); fetchHistory() }}>歷史戰績</button>
-        <button style={tabStyle('reconcile')} onClick={() => { setTab('reconcile'); fetchRcReports() }}>後台對帳</button>
-        <button style={tabStyle('compare3')} onClick={() => { setTab('compare3'); fetchCompareGroups(); fetchComparePrefs() }}>三路對帳</button>
+        <button style={tabStyle('ledger')} onClick={() => setTab('ledger')}>對帳台</button>
         <button style={tabStyle('jpgroups')} onClick={() => { setTab('jpgroups'); fetchJpGroups() }}>JP Group</button>
-        <button style={tabStyle('run')} onClick={() => { setTab('run'); fetchCaptures(); fetchHubAgents(); fetchJpGroups() }}>▶ 執行監控</button>
+        <button style={tabStyle('run')} onClick={() => { setTab('run'); fetchHubAgents(); fetchJpGroups() }}>▶ 執行監控</button>
       </div>
+
+      {/* ── 對帳台（Live Ledger）───────────────────────────────────────────────
+           取代原本的「後台對帳」與「三路對帳」兩個分頁。舊工具的歷史資料表
+           （reconcile_* / autospin_compare_*）**保留不動**——那是既有紀錄，
+           混寫或刪除會讓兩邊都不可信。這裡只是把入口收掉。 */}
+      {tab === 'ledger' && <LiveLedgerTab userLabel={userLabel} />}
 
       {/* ── Configs tab ─────────────────────────────────────────────────────── */}
       {tab === 'configs' && (
@@ -1237,494 +957,6 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
         </div>
       )}
 
-      {/* ── Reconcile tab ───────────────────────────────────────────────────── */}
-      {tab === 'reconcile' && (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, overflow: 'auto' }}>
-
-          {/* ── 連線設定：從手填改成選環境（2026-08-31）────────────────────────
-              原本這裡是一整塊要手填的表單（Base URL／Origin／Token／Channel／
-              Player Studio ID／登入帳密），存在自己的 `reconcile_config` 表。
-
-              ⚠️ 但那張表**實際上是空的**（0 筆，從沒被存過），而 Meter／DayCount
-                 共用的 `meter_reconcile_config` 早就有完整一份、值還一模一樣，
-                 **而且兩邊打的是同一組 API**（/egm/reports/gameRecordList）。
-                 等於要使用者重填一份已經存在的設定，而且填了才發現沒人存過。
-
-              所以整塊換成「選一個環境」。設定本身到「Performance Meter 對帳」
-              那頁維護，這裡不再有第二份。 */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '2px 4px' }}>
-            <span style={{ fontSize: 11, color: '#94a3b8' }}>{T('環境', '道場')}</span>
-            {([['osm', 'OSM（CP 後台）'], ['gcp', 'GCP（NC 後台）']] as const).map(([v, label]) => (
-              <button
-                key={v} type="button" onClick={() => setRcEnv(v)}
-                style={{
-                  padding: '5px 12px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
-                  border: `1px solid ${rcEnv === v ? 'var(--cr-cyan)' : '#2d3f55'}`,
-                  background: rcEnv === v ? 'rgba(117,215,207,.12)' : 'transparent',
-                  color: rcEnv === v ? 'var(--cr-cyan)' : '#94a3b8', fontWeight: rcEnv === v ? 700 : 400,
-                }}
-              >{label}</button>
-            ))}
-            <button onClick={testRcConnection} type="button"
-              style={{ padding: '5px 12px', background: 'transparent', color: '#94a3b8', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 12, cursor: 'pointer' }}>
-              測試連線
-            </button>
-            {rcConfigMsg && <span style={{ fontSize: 12, color: rcConfigMsg.startsWith('通過') ? '#16a34a' : '#dc2626' }}>{rcConfigMsg}</span>}
-            <div style={{ flex: 1 }} />
-            <span style={{ fontSize: 11, color: '#64748b' }}>
-              連線設定沿用「Performance Meter 對帳」那頁，這裡不用再填一次
-            </span>
-          </div>
-
-          {/* Run Reconciliation */}
-          <div style={{ background: '#162032', border: '1px solid #2d3f55', borderRadius: 8, padding: 14 }}>
-            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10 }}>▶ 執行對帳</div>
-            {/* 日期快捷。原本只有兩個純文字框，要自己打「2026-04-06 00:00:00」——
-                格式錯了也不會有人提醒。這種後台 game record 對帳日常排查多半是
-                「某一天」或「昨天某段時間」，不是長期報表，所以給快捷比給空白框實用。
-                （近 7 天會拉比較多資料，標示出來讓人知道那是重活。）*/}
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
-              <span style={{ fontSize: 11, color: '#94a3b8' }}>{T('快捷', '速選')}</span>
-              {([
-                ['today', '今天', 0],
-                ['yesterday', '昨天', 1],
-                ['7d', '近 7 天', 6],
-              ] as const).map(([key, label, backDays]) => (
-                <button
-                  key={key} type="button"
-                  onClick={() => {
-                    // 用本地時間組，不要用 toISOString——那是 UTC，台灣早上會變成前一天
-                    const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-                    const end = new Date()
-                    const start = new Date()
-                    if (key === 'yesterday') { end.setDate(end.getDate() - 1); start.setDate(start.getDate() - 1) }
-                    else start.setDate(start.getDate() - backDays)
-                    setRcDatePreset(key)
-                    setRcRangeStart(`${fmt(start)} 00:00:00`)
-                    setRcRangeEnd(`${fmt(end)} 23:59:59`)
-                  }}
-                  style={{
-                    padding: '4px 10px', fontSize: 11, borderRadius: 5, cursor: 'pointer',
-                    border: `1px solid ${rcDatePreset === key ? 'var(--cr-cyan)' : '#2d3f55'}`,
-                    background: rcDatePreset === key ? 'rgba(117,215,207,.12)' : 'transparent',
-                    color: rcDatePreset === key ? 'var(--cr-cyan)' : '#94a3b8',
-                  }}
-                >{label}</button>
-              ))}
-              <button type="button" onClick={() => setRcDatePreset('custom')}
-                style={{
-                  padding: '4px 10px', fontSize: 11, borderRadius: 5, cursor: 'pointer',
-                  border: `1px solid ${rcDatePreset === 'custom' ? 'var(--cr-cyan)' : '#2d3f55'}`,
-                  background: rcDatePreset === 'custom' ? 'rgba(117,215,207,.12)' : 'transparent',
-                  color: rcDatePreset === 'custom' ? 'var(--cr-cyan)' : '#94a3b8',
-                }}
-              >自訂</button>
-              {rcDatePreset === '7d' && (
-                <span style={{ fontSize: 11, color: '#eab308' }}>近 7 天資料量大，查詢會比較久</span>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-              {/* 自訂時才展開起訖日期；選了快捷就不用看到兩個輸入框 */}
-              {rcDatePreset === 'custom' && ([
-                { label: '開始日期', val: rcRangeStart, set: setRcRangeStart, tail: '00:00:00' },
-                { label: '結束日期', val: rcRangeEnd, set: setRcRangeEnd, tail: '23:59:59' },
-              ] as const).map(({ label, val, set, tail }) => (
-                <div key={label}>
-                  <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>{label}</div>
-                  {/* 後端要的是「YYYY-MM-DD HH:mm:ss」，但 <input type="date"> 只給日期，
-                      所以把時分秒補在這裡，使用者不用自己打格式 */}
-                  <input type="date" value={(val || '').slice(0, 10)}
-                    onChange={e => set(e.target.value ? `${e.target.value} ${tail}` : '')}
-                    style={{ padding: '5px 8px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 12, width: 180 }} />
-                </div>
-              ))}
-              {([
-                { label: '機台類型（留空=全部）', val: rcMachineType, set: setRcMachineType, ph: 'JJBXGRAND' },
-                { label: 'Player ID（留空=全部）', val: rcPlayerId, set: setRcPlayerId, ph: '' },
-              ] as const).map(({ label, val, set, ph }) => (
-                <div key={label}>
-                  <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>{label}</div>
-                  <input value={val} onChange={e => set(e.target.value)} placeholder={ph}
-                    style={{ padding: '5px 8px', border: '1px solid #2d3f55', borderRadius: 6, fontSize: 12, width: 180 }} />
-                </div>
-              ))}
-              <button onClick={runReconcile} disabled={rcRunning}
-                style={{ padding: '7px 20px', background: rcRunning ? '#475569' : (isXianxia ? 'var(--xx-jade-solid)' : '#16a34a'), color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13, cursor: rcRunning ? 'default' : 'pointer' }}>
-                {rcRunning ? T('對帳中…', '勘校中…') : T('執行對帳', '起帳勘校')}
-              </button>
-            </div>
-          </div>
-
-          {/* Latest result */}
-          {rcResult && (
-            <div style={{ background: '#1e293b', border: '1px solid #2d3f55', borderRadius: 8, padding: 14 }}>
-              <div style={panelTitle('t')}>{T('對帳結果', '◈ 勘帳結果')}</div>
-              {/* ⚠️ 警告一定要放在摘要「上面」。查詢根本沒成功時，摘要那排 0
-                      是沒有意義的數字——先看到 0 再看到警告，結論已經下完了。
-                      partial 用黃色（資料有但不完整）、failed 用紅色（完全沒查到），
-                      兩種嚴重度不同，共用一個顏色會讓人分不出還能不能參考。 */}
-              {rcResult.backendError && (() => {
-                const partial = rcResult.backendStatus === 'partial'
-                const tone = partial
-                  ? { fg: 'var(--cr-amber)', bg: 'rgba(234,216,166,.10)', bd: 'rgba(234,216,166,.30)', title: '後台資料不完整' }
-                  : { fg: 'var(--cr-rose)', bg: 'rgba(223,118,94,.10)', bd: 'rgba(223,118,94,.32)', title: '後台查詢失敗' }
-                const detail = [
-                  rcResult.backendError.backendCode ? `代碼 ${rcResult.backendError.backendCode}` : '',
-                  rcResult.backendError.page ? `第 ${rcResult.backendError.page} 頁` : '',
-                ].filter(Boolean).join('・')
-                return (
-                  <div style={{ marginBottom: 10, padding: '9px 12px', background: tone.bg, border: `1px solid ${tone.bd}`, borderRadius: 6 }}>
-                    <div style={{ fontSize: 12.5, fontWeight: 700, color: tone.fg, marginBottom: 3 }}>
-                      {tone.title}{detail ? `（${detail}）` : ''}
-                    </div>
-                    <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.55 }}>
-                      {rcResult.backendError.message}
-                      {partial && '　下方結果只涵蓋已取得的部分，不能當成完整結論。'}
-                    </div>
-                  </div>
-                )
-              })()}
-              {/* 這行原本是 #cbd5e1 的淺灰字配 #f1f5f9 的近白底——淺色主題時代的殘留。
-                      整頁換成深底之後就變成「白底上的淺灰字」，等於看不見（使用者實際回報）。 */}
-              <div style={{
-                fontSize: 12.5, color: '#e2e8f0', marginBottom: 6, padding: '8px 11px',
-                background: 'rgba(148,163,184,.10)', border: '1px solid #2d3f55',
-                borderRadius: 6, fontVariantNumeric: 'tabular-nums',
-              }}>{rcResult.summary}</div>
-              {/* 前端 0 筆時主動說明。不講的話使用者看到「後台 34 筆」但沒有異常，
-                  只能自己猜是不是壞了——實際上那只是「這段時間 AutoSpin 沒在跑」*/}
-              {rcResult.notice && (
-                <div style={{ fontSize: 12, color: '#93c5fd', marginBottom: 10, padding: '7px 10px', background: 'rgba(59,130,246,.10)', border: '1px solid rgba(59,130,246,.28)', borderRadius: 6 }}>
-                  {rcResult.notice}
-                </div>
-              )}
-
-              {rcResult.backendAnomalies.length > 0 && (
-                <div style={{ marginBottom: 10 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--cr-amber)', marginBottom: 4 }}>後台異常 ({rcResult.backendAnomalies.length} 筆)</div>
-                  {rcResult.backendAnomalies.map((a, i) => (
-                    /* #92400e 是深褐色，在淺色底上才讀得到；深底上幾乎跟背景一樣暗 */
-                    <div key={i} style={{ fontSize: 11, color: 'var(--cr-amber)', padding: '3px 8px', background: 'rgba(234,216,166,0.10)', border: '1px solid rgba(234,216,166,.20)', borderRadius: 4, marginBottom: 3 }}>
-                      {a.note} | uid={a.uid} time={a.time} bet={a.bet} win={a.win}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* 原本叫「前端紀錄比對」，但現在兩側都列了（含僅後台有的），
-                  沿用舊名字會讓人以為下面只有前端紀錄 */}
-              <div style={{ ...panelTitle('t', 12), marginBottom: 4, marginTop: 2 }}>{T('比對明細', '逐局明細')} ({rcResult.details.length} 筆)</div>
-              <div style={{ maxHeight: 300, overflowY: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                  <thead><tr style={{ background: '#162032' }}>
-                    {['狀態', 'UID', '時間', 'Bet', 'Win', '備註'].map(h => <th key={h} style={{ padding: '5px 8px', borderBottom: '1px solid #2d3f55', textAlign: 'left' }}>{h}</th>)}
-                  </tr></thead>
-                  <tbody>
-                    {rcResult.details.map((d, i) => (
-                      /* ⚠️ 「僅後台有」不能用紅色。它多半只是查詢範圍內有真人玩家的紀錄，
-                            不是異常；標紅會讓人以為有 34 筆問題（跟 CodeX 討論定案）。
-                            紅色只留給真正的掉單。 */
-                      <tr key={i} style={{ background: d.status === 'MISSING' ? 'rgba(239,68,68,0.08)' : 'transparent', borderBottom: '1px solid #1e293b' }}>
-                        <td style={{ padding: '4px 8px' }}>
-                          {(() => {
-                            const tone = d.status === 'MATCH'
-                              ? { bg: 'rgba(117,215,207,0.15)', fg: 'var(--cr-emerald)', label: '相符' }
-                              : d.status === 'BACKEND_ONLY'
-                                ? { bg: 'rgba(148,163,184,0.14)', fg: '#94a3b8', label: '僅後台有' }
-                                : { bg: 'rgba(223,118,94,0.16)', fg: 'var(--cr-rose)', label: '掉單' }
-                            return <span style={{ padding: '1px 6px', borderRadius: 4, background: tone.bg, color: tone.fg, fontWeight: 600 }}>{tone.label}</span>
-                          })()}
-                        </td>
-                        <td style={{ padding: '4px 8px', fontFamily: 'monospace', fontSize: 10 }}>{d.uid}</td>
-                        <td style={{ padding: '4px 8px', color: '#94a3b8' }}>{d.time}</td>
-                        <td style={{ padding: '4px 8px' }}>{d.bet}</td>
-                        <td style={{ padding: '4px 8px' }}>{d.win}</td>
-                        <td style={{ padding: '4px 8px', color: '#94a3b8' }}>{d.note || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* History of reports */}
-          {rcReports.length > 0 && (
-            <div>
-              <div style={panelTitle('t')}>{T('歷史對帳紀錄', '◈ 歷代勘帳錄')}</div>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
-                <thead><tr style={{ background: '#162032' }}>
-                  {/* 「範圍」改成「查詢區間」、「機台」改成「機台篩選」——
-                      原本那兩個欄名讓人以為是資料本身的屬性，其實都是「這次查詢用的條件」。
-                      使用者原話：「機台寫全部根本看不懂，範圍的用意也看不懂」。
-                      逐筆的局號在上面的比對明細裡（一列一局），歷史這張是一次查詢一列，
-                      塞不下 34 個局號。 */}
-                  {['執行時間', '查詢區間', '機台篩選', '狀態', '前端', '後台', '相符', '掉單', '異常'].map(h => <th key={h} style={{ padding: '6px 8px', borderBottom: '1px solid #2d3f55', textAlign: 'left' }}>{h}</th>)}
-                </tr></thead>
-                <tbody>
-                  {rcReports.map(r => (
-                    <tr key={r.id} style={{ borderBottom: '1px solid #1e293b', background: r.unmatchedCount > 0 ? 'rgba(239,68,68,0.08)' : 'transparent' }}>
-                      <td style={{ padding: '5px 8px', color: '#94a3b8' }}>{new Date(r.runAt).toLocaleString('zh-TW')}</td>
-                      <td style={{ padding: '5px 8px', fontSize: 10 }}>{r.rangeStart.slice(0, 16)} ~ {r.rangeEnd.slice(0, 16)}</td>
-                      {/* 空值代表「沒有指定機台」，不是有一台叫「全部」的機器 */}
-                      <td style={{ padding: '5px 8px', color: r.machineType ? undefined : '#64748b' }}>{r.machineType || '不限'}</td>
-                      {/* ⚠️ 沒有這一欄的話，失敗那次會被存成看起來正常的一列——
-                          畫面上有紅色警告，但歷史表只留下「後台 0」，之後回看
-                          完全分不出是查詢失敗還是真的沒資料。
-                          空字串＝加這欄之前跑的，**顯示「—」不顯示「正常」**：
-                          那些列我們根本不知道當時成不成功，標成正常等於幫過去的
-                          資料做出沒有根據的宣稱。 */}
-                      <td style={{ padding: '5px 8px' }}>
-                        {(() => {
-                          const st = r.backendStatus || ''
-                          if (st === 'failed') return <span style={{ color: 'var(--cr-rose)', fontWeight: 700 }}>查詢失敗</span>
-                          if (st === 'partial') return <span style={{ color: 'var(--cr-amber)', fontWeight: 700 }}>不完整</span>
-                          if (st === 'ok') return <span style={{ color: '#64748b' }}>正常</span>
-                          return <span style={{ color: '#475569' }} title="這筆是加上狀態記錄之前跑的，無法得知當時後台查詢是否成功">—</span>
-                        })()}
-                      </td>
-                      <td style={{ padding: '5px 8px' }}>{r.frontCount}</td>
-                      <td style={{ padding: '5px 8px' }}>{r.backendCount}</td>
-                      <td style={{ padding: '5px 8px', color: 'var(--cr-emerald)', fontWeight: 600 }}>{r.matchedCount}</td>
-                      <td style={{ padding: '5px 8px', color: r.unmatchedCount > 0 ? 'var(--cr-rose)' : '#64748b', fontWeight: r.unmatchedCount > 0 ? 700 : 400 }}>{r.unmatchedCount}</td>
-                      <td style={{ padding: '5px 8px', color: r.anomalyCount > 0 ? 'var(--cr-amber)' : '#64748b' }}>{r.anomalyCount}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── 三路對帳 tab ─────────────────────────────────────────────────────── */}
-      {tab === 'compare3' && (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 16, overflow: 'auto' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ fontSize: 11.5, color: '#64748b', flex: 1 }}>與 AutoSpin 執行同步即時比對，多機台並行 — 每台獨立統計，展開查看逐筆 Spin</div>
-            <span style={{ fontSize: 11.5, color: '#94a3b8' }}>啟用三路對帳（依帳號設定）</span>
-            <ToggleSwitch checked={cmpEnabled} disabled={cmpEnabledLoading} onToggle={toggleCompareEnabled} />
-          </div>
-          {!cmpEnabled && (
-            <div style={{ fontSize: 11.5, color: '#94a3b8', background: 'rgba(148,163,184,.08)', border: '1px solid #2d3f55', borderRadius: 6, padding: '6px 10px' }}>
-              已關閉——你目前執行中的機台不會再打 SLS/Pinus 查詢，也不會產生新的比對紀錄；比對群組定義仍是全域共用，重新開啟就會繼續累積
-            </div>
-          )}
-
-          {cmpHasBoxLeg && (
-            <div style={{ fontSize: 11.5, color: '#fb923c', background: 'rgba(251,146,60,.1)', border: '1px solid rgba(251,146,60,.3)', borderRadius: 6, padding: '6px 10px' }}>
-              ⚠ 目前有比對群組包含「盒子」欄位，機台盒子硬體日誌（fresh_current_credits）尚未串接資料來源，這些群組會固定顯示「缺資料」
-            </div>
-          )}
-
-          {/* Live per-machine table */}
-          <div style={{ border: '1px solid #2d3f55', borderRadius: 9, overflow: 'hidden', background: '#10182a' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', background: '#162032' }}>
-              <span className={cmpSessionCount > 0 ? 'cr-status-dot' : undefined} style={{ width: 7, height: 7, borderRadius: '50%', background: cmpSessionCount > 0 ? 'var(--cr-cyan)' : '#475569', flexShrink: 0 }} />
-              <span style={{ fontSize: 12.5, fontWeight: 700 }}>即時比對</span>
-              <span style={{ fontSize: 10.5, color: '#64748b' }}>{cmpSessionCount} 個 session 執行中</span>
-              <span style={{ flex: 1 }} />
-              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'var(--cr-cyan-soft)', color: 'var(--cr-cyan)' }}>
-                {cmpMachines.reduce((s, m) => s + m.matched, 0)} 相符
-              </span>
-              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'var(--cr-rose-soft, rgba(223,118,94,.12))', color: 'var(--cr-rose)' }}>
-                {cmpMachines.reduce((s, m) => s + m.mismatched, 0)} 不符
-              </span>
-              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: 'rgba(234,216,166,.14)', color: 'var(--cr-amber)' }}>
-                {cmpMachines.reduce((s, m) => s + m.missing, 0)} 缺資料
-              </span>
-            </div>
-            <div style={{ padding: 12, background: '#0f172a' }}>
-              {cmpGroups.length === 0 ? (
-                <div style={{ fontSize: 12, color: '#64748b', padding: '10px 4px' }}>尚未設定任何比對群組，請先在下方「比對群組設定」新增至少一組欄位</div>
-              ) : cmpMachines.length === 0 ? (
-                <div style={{ fontSize: 12, color: '#64748b', padding: '10px 4px' }}>目前沒有偵測到執行中的機台比對資料（AutoSpin 需在跑，且有機台已產生 Spin 紀錄）</div>
-              ) : (
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
-                  <thead>
-                    <tr>
-                      {['機台', 'Agent', '已比對', '相符', '不符', '缺資料', '狀態'].map((h, i) => (
-                        <th key={h} style={{ textAlign: i >= 2 && i <= 5 ? 'right' : 'left', padding: '6px 10px', color: '#64748b', fontWeight: 600, borderBottom: '1px solid #1e293b' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cmpMachines.map(m => {
-                      const key = `${m.sessionId}:${m.machineType}`
-                      const attn = m.mismatched > 0 || m.missing > 0 || (m.unmatched ?? 0) > 0 || (m.ambiguous ?? 0) > 0
-                      // 從執行監控的摘要點進來時，把那一台標出來——不然跳過來還要自己找，
-                      // 「帶 filter 到該機台」就只做了一半（CodeX 設計裡的要求）
-                      const focused = cmpFocusMachine === m.machineType
-                      return (
-                        <Fragment key={key}>
-                          <tr onClick={() => toggleCompareDetail(m.sessionId, m.machineType)}
-                            style={{ cursor: 'pointer', background: focused ? 'rgba(117,215,207,.10)' : undefined,
-                              boxShadow: focused ? 'inset 3px 0 0 var(--cr-cyan)' : undefined }}
-                            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(117,215,207,.05)' }}
-                            onMouseLeave={e => { e.currentTarget.style.background = focused ? 'rgba(117,215,207,.10)' : 'transparent' }}>
-                            <td style={{ padding: '7px 10px', borderBottom: '1px solid #182236', fontWeight: 700 }}>{m.machineType}</td>
-                            <td style={{ padding: '7px 10px', borderBottom: '1px solid #182236', color: '#64748b', fontSize: 10.5 }}>{m.agentLabel}</td>
-                            <td style={{ padding: '7px 10px', borderBottom: '1px solid #182236', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{m.compared}</td>
-                            <td style={{ padding: '7px 10px', borderBottom: '1px solid #182236', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: 'var(--cr-cyan)', fontWeight: 700 }}>{m.matched}</td>
-                            <td style={{ padding: '7px 10px', borderBottom: '1px solid #182236', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: m.mismatched > 0 ? 'var(--cr-rose)' : undefined, fontWeight: m.mismatched > 0 ? 700 : 400 }}>{m.mismatched}</td>
-                            <td style={{ padding: '7px 10px', borderBottom: '1px solid #182236', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{m.missing}</td>
-                            <td style={{ padding: '7px 10px', borderBottom: '1px solid #182236' }}>
-                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: attn ? 'var(--cr-rose-soft, rgba(223,118,94,.12))' : 'var(--cr-cyan-soft)', color: attn ? 'var(--cr-rose)' : 'var(--cr-cyan)' }}>
-                                <span style={{ width: 5, height: 5, borderRadius: '50%', background: attn ? 'var(--cr-amber)' : 'var(--cr-cyan)' }} />
-                                {attn
-                                  ? [
-                                      m.mismatched > 0 ? `${m.mismatched} 筆不符` : '',
-                                      // ⚠️ 三種要分開講。「配不到」要去看配對規則、「多筆候選」代表系統
-                                      //    拒絕猜、「缺資料」是配到了但某一路沒有值——下一步完全不同
-                                      (m.unmatched ?? 0) > 0 ? `${m.unmatched} 筆配不到` : '',
-                                      (m.ambiguous ?? 0) > 0 ? `${m.ambiguous} 筆多筆候選` : '',
-                                      m.missing > 0 ? `${m.missing} 筆缺資料` : '',
-                                    ].filter(Boolean).join(' · ')
-                                  : '正常'}
-                              </span>
-                            </td>
-                          </tr>
-                          {cmpExpanded === key && (
-                            <tr>
-                              <td colSpan={7} style={{ padding: 0 }}>
-                                <div style={{ padding: '10px 14px 14px', background: '#0b1322', borderBottom: '1px solid #182236' }}>
-                                  {!cmpDetail[key] || cmpDetail[key].length === 0 ? (
-                                    <div style={{ fontSize: 11, color: '#64748b' }}>尚無逐筆資料</div>
-                                  ) : (
-                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10.5 }}>
-                                      <thead>
-                                        <tr>
-                                          <th style={{ padding: '5px 8px', textAlign: 'left', color: '#64748b', borderBottom: '1px solid #1e293b' }}>Spin</th>
-                                          <th style={{ padding: '5px 8px', textAlign: 'left', color: '#64748b', borderBottom: '1px solid #1e293b' }}>時間</th>
-                                          {cmpGroups.map(g => (
-                                            <th key={g.id} style={{ padding: '5px 8px', textAlign: 'left', color: '#64748b', borderBottom: '1px solid #1e293b' }}>{g.name}</th>
-                                          ))}
-                                          {/* ⚠️ 一定要能看到「憑什麼說這兩筆是同一輪」。使用者原話：
-                                              「只有這些資訊我不確定到底有沒有對上真正的數值」——
-                                              配對是靠時間近似做的，不給依據就只能盲信 */}
-                                          <th style={{ padding: '5px 8px', textAlign: 'left', color: '#64748b', borderBottom: '1px solid #1e293b' }}>配對依據</th>
-                                          <th style={{ padding: '5px 8px', textAlign: 'left', color: '#64748b', borderBottom: '1px solid #1e293b' }}>狀態</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {cmpDetail[key].map(row => (
-                                          <tr key={row.spinIndex} style={{ background: row.status === 'mismatch' ? 'rgba(223,118,94,.06)' : 'transparent' }}>
-                                            <td style={{ padding: '4px 8px', borderBottom: '1px solid #131d30', fontFamily: 'ui-monospace, Consolas, monospace', color: '#cbd5e1' }}>#{row.spinIndex}</td>
-                                            <td style={{ padding: '4px 8px', borderBottom: '1px solid #131d30', fontFamily: 'ui-monospace, Consolas, monospace', color: '#cbd5e1' }}>{row.spinTime ? new Date(row.spinTime).toLocaleTimeString('zh-TW') : '—'}</td>
-                                            {row.groups.map(g => (
-                                              <td key={g.groupId} style={{ padding: '4px 8px', borderBottom: '1px solid #131d30', fontFamily: 'ui-monospace, Consolas, monospace' }}>
-                                                {g.values.map((v, i) => (
-                                                  <span key={i} style={{ marginRight: 6 }}>
-                                                    <span style={{ fontSize: 8.5, fontWeight: 800, padding: '1px 5px', borderRadius: 3, marginRight: 3, background: SRC_COLOR[v.source as CompareField['source']].bg, color: SRC_COLOR[v.source as CompareField['source']].fg }}>
-                                                      {SRC_LABEL[v.source as CompareField['source']]}
-                                                    </span>
-                                                    <span style={{ color: v.value === undefined || v.value === null ? '#475569' : g.status === 'mismatch' ? 'var(--cr-rose)' : '#cbd5e1', fontWeight: g.status === 'mismatch' ? 700 : 400 }}>
-                                                      {v.value === undefined || v.value === null ? '—' : String(v.value)}
-                                                    </span>
-                                                  </span>
-                                                ))}
-                                              </td>
-                                            ))}
-                                            {/* 配對依據：時間差 + 候選數。相符時證明「憑什麼認定是同一輪」，
-                                                配不到／多筆候選時說明是哪一種情況 */}
-                                            <td style={{ padding: '4px 8px', borderBottom: '1px solid #131d30', fontFamily: 'ui-monospace, Consolas, monospace', color: '#64748b', fontSize: 10 }}>
-                                              {(() => {
-                                                const m = row.match
-                                                if (!m || m.candidateCount === undefined) return <span style={{ color: '#334155' }}>—</span>
-                                                if (m.candidateCount === 0) return <span>時間窗內無 Pinus 紀錄</span>
-                                                if (m.contested) return <span style={{ color: 'var(--cr-amber)' }}>與相鄰輪次搶同一筆</span>
-                                                if (m.candidateCount > 1) return <span style={{ color: 'var(--cr-amber)' }}>{m.candidateCount} 筆候選，拒絕猜</span>
-                                                const d = m.timeDeltaMs ?? 0
-                                                return <span>時間差 {d > 0 ? '+' : ''}{(d / 1000).toFixed(0)}s · 唯一候選</span>
-                                              })()}
-                                            </td>
-                                            <td style={{ padding: '4px 8px', borderBottom: '1px solid #131d30' }}>
-                                              {row.status === 'match' && <span style={{ color: 'var(--cr-cyan)' }}>✓ 相符</span>}
-                                              {row.status === 'mismatch' && <span style={{ color: 'var(--cr-rose)', fontWeight: 700 }}>✕ 不符</span>}
-                                              {row.status === 'missing_data' && <span style={{ color: '#475569' }}>缺資料</span>}
-                                              {/* ⚠️ v4.103.0 新增的兩個狀態當時漏了這裡——只改了上方摘要徽章，
-                                                  逐筆列的狀態欄沒有對應分支，於是整格是**空白**。
-                                                  使用者回報「看起來還是會有空的」有一半是這個造成的。 */}
-                                              {row.status === 'unmatched' && <span style={{ color: '#94a3b8' }}>配不到</span>}
-                                              {row.status === 'ambiguous_match' && <span style={{ color: 'var(--cr-amber)' }}>多筆候選</span>}
-                                            </td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                        </Fragment>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
-            <div style={{ display: 'flex', gap: 8, padding: '8px 12px', background: '#0d1626', borderTop: '1px solid #1e293b', fontSize: 10.5, color: '#64748b' }}>
-              <span>最後更新 <b style={{ color: '#cbd5e1' }}>{cmpLastUpdated ? `${Math.max(0, Math.round((Date.now() - cmpLastUpdated) / 1000))} 秒前` : '尚未更新'}</b></span>
-              <span style={{ marginLeft: 'auto' }}>資料來源：<b style={{ color: '#cbd5e1' }}>SLS recordBet</b> · <b style={{ color: '#cbd5e1' }}>盒子日誌（尚未串接）</b> · <b style={{ color: '#cbd5e1' }}>Pinus history</b></span>
-            </div>
-          </div>
-
-          {/* Comparison groups config */}
-          <div style={{ border: '1px solid #2d3f55', borderRadius: 9, overflow: 'hidden', background: '#10182a' }}>
-            <div onClick={() => setCmpConfigOpen(o => !o)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', background: '#162032', cursor: 'pointer' }}>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#475569', flexShrink: 0 }} />
-              <span style={{ fontSize: 12.5, fontWeight: 700 }}>比對群組設定</span>
-              <span style={{ fontSize: 10.5, color: '#64748b' }}>{cmpGroups.length} 組</span>
-              <span style={{ flex: 1 }} />
-              <span style={{ fontSize: 10, color: '#64748b', transform: cmpConfigOpen ? 'rotate(90deg)' : undefined, transition: 'transform .2s' }}>▶</span>
-            </div>
-            {cmpConfigOpen && (
-              <div style={{ padding: 12, background: '#0f172a' }}>
-                {cmpGroups.map((g, idx) => (
-                  <div key={idx} style={{ border: '1px solid #22314a', borderRadius: 8, padding: '10px 12px', marginBottom: 8, background: '#0d1626' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                      <input value={g.name} onChange={e => updateCompareGroupName(idx, e.target.value)}
-                        style={{ background: 'transparent', border: 'none', borderBottom: '1px dashed #334155', color: 'var(--cr-violet)', fontWeight: 700, fontSize: 12, padding: '2px 0', width: 160 }} />
-                      <span style={{ fontSize: 10, color: '#64748b' }}>比對這組欄位的數字是否一致</span>
-                      <span style={{ flex: 1 }} />
-                      <button onClick={() => removeCompareGroup(idx)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 12 }}>✕ 刪除群組</button>
-                    </div>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                      {g.fields.map((f, fIdx) => {
-                        const known = FIELD_CATALOG[f.source].find(c => c.path === f.path)
-                        return (
-                          <span key={fIdx} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, padding: '3px 9px 3px 7px', borderRadius: 999, background: '#16223a', border: '1px solid #2d3f55', color: '#cbd5e1' }}>
-                            <span style={{ fontSize: 8.5, fontWeight: 800, padding: '1px 5px', borderRadius: 3, background: SRC_COLOR[f.source].bg, color: SRC_COLOR[f.source].fg }}>{SRC_LABEL[f.source]}</span>
-                            {known ? known.label : f.path}
-                            <button onClick={() => removeCompareField(idx, fIdx)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 12, lineHeight: 1, padding: 0 }}>✕</button>
-                          </span>
-                        )
-                      })}
-                      {(['sls', 'pinus', 'box'] as const).map(src => (
-                        <select key={src} value="" onChange={e => addCompareField(idx, src, e.target.value)}
-                          style={{ fontSize: 10.5, padding: '3px 8px', borderRadius: 999, border: '1px dashed #334155', background: 'transparent', color: '#64748b', cursor: 'pointer' }}>
-                          <option value="">+ {SRC_LABEL[src]} 欄位</option>
-                          {FIELD_CATALOG[src].map(f => (
-                            <option key={f.path} value={f.path} style={{ color: '#0f172a' }}>{f.label}</option>
-                          ))}
-                        </select>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                <button onClick={addCompareGroup} style={{ fontSize: 10.5, padding: '3px 10px', borderRadius: 999, border: '1px dashed #334155', background: 'transparent', color: '#64748b', cursor: 'pointer', marginTop: 2 }}>+ 新增比對群組</button>
-                <div style={{ display: 'flex', gap: 8, marginTop: 14, alignItems: 'center' }}>
-                  <button onClick={saveCompareGroups} style={{ padding: '7px 16px', background: 'var(--xx-jade-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>儲存設定</button>
-                  <button onClick={runCompareNow} style={{ padding: '7px 16px', background: 'var(--cr-cyan-soft)', color: 'var(--cr-cyan)', border: '1px solid var(--cr-cyan-border, transparent)', borderRadius: 6, fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>試算目前資料</button>
-                  {cmpGroupsMsg && <span style={{ fontSize: 12, color: cmpGroupsMsg.startsWith('通過') ? '#16a34a' : '#dc2626' }}>{cmpGroupsMsg}</span>}
-                  {cmpRunNowMsg && <span style={{ fontSize: 12, color: '#64748b' }}>{cmpRunNowMsg}</span>}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* ── History tab ─────────────────────────────────────────────────────── */}
       {tab === 'history' && (
@@ -2193,124 +1425,6 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
                 </div>
               )}
 
-              {/* ── 三路對帳摘要（2026-08-31，CodeX 設計）──────────────────────────
-                  放在執行日誌**上方**，不是右欄。理由（CodeX 的判斷，我同意）：
-                  右欄是「觀察輔助資訊」，左欄才是跑測試時的主流程，而對帳摘要
-                  本質上是「本次執行的健康度」，該跟日誌同層。
-
-                  ⚠️ 刻意**不搬整套對帳 UI 過來**：右欄已經有三個面板（截圖監控／
-                     LuckyLink JP／SLS 錯誤日誌），而且之前才因為擠爆修過一次
-                     （截圖監控限高 420px）。再塞一個完整面板會重演同樣問題。
-                     明細留在「三路對帳」分頁，這裡只出告警級摘要。
-
-                  ⚠️ 顏色**只標異常**。全部相符時保持中性，不然一排彩色 chip
-                     反而看不出哪一台要處理。 */}
-              {(() => {
-                if (!cmpEnabled) return null
-                const total = cmpMachines.reduce((a, m) => ({
-                  compared: a.compared + m.compared,
-                  matched: a.matched + m.matched,
-                  mismatched: a.mismatched + m.mismatched,
-                  missing: a.missing + m.missing,
-                  unmatched: a.unmatched + (m.unmatched ?? 0),
-                  ambiguous: a.ambiguous + (m.ambiguous ?? 0),
-                }), { compared: 0, matched: 0, mismatched: 0, missing: 0, unmatched: 0, ambiguous: 0 })
-                /** ⚠️ 「全部相符」的判斷一定要用「相符數 == 已比對數」，不能只看
-                 *     「沒有不符也沒有缺資料」——那個寫法完全沒算 unmatched／ambiguous，
-                 *     15 筆全部配不到照樣會顯示「全部相符」。那是假宣稱，
-                 *     跟今天修的其他問題同一類。 */
-                const allMatched = total.compared > 0 && total.matched === total.compared
-                const needsAttention = (m: CompareMachineRow) =>
-                  m.mismatched > 0 || m.missing > 0 || (m.unmatched ?? 0) > 0 || (m.ambiguous ?? 0) > 0
-                const jump = (mt?: string) => {
-                  setTab('compare3')
-                  fetchCompareGroups()
-                  fetchComparePrefs()
-                  if (mt) setCmpFocusMachine(mt)
-                }
-                const badge = (label: string, n: number, tone: 'bad' | 'warn' | 'ok') => {
-                  if (n === 0 && tone !== 'ok') return null
-                  const c = tone === 'bad'
-                    ? { bg: 'rgba(244,63,94,.14)', fg: '#fb7185', bd: 'rgba(244,63,94,.35)' }
-                    : tone === 'warn'
-                      ? { bg: 'rgba(234,179,8,.13)', fg: '#eab308', bd: 'rgba(234,179,8,.32)' }
-                      : { bg: 'transparent', fg: '#94a3b8', bd: 'transparent' }
-                  return (
-                    <span style={{
-                      fontSize: 11, padding: '2px 7px', borderRadius: 4,
-                      background: c.bg, color: c.fg, border: `1px solid ${c.bd}`, whiteSpace: 'nowrap',
-                    }}>{label} {n}</span>
-                  )
-                }
-                return (
-                  <div
-                    /* 給一個穩定識別：分頁列上也有一顆叫「三路對帳」的按鈕，
-                       只靠文字找會抓錯元素（驗證腳本第一版就是這樣抓到分頁列的）*/
-                    data-testid="autospin-compare-bar"
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
-                      padding: '7px 10px', marginBottom: 8,
-                      border: '1px solid #2d3f55', borderRadius: 8, background: '#162032',
-                    }}>
-                    <button
-                      type="button" onClick={() => jump()}
-                      style={{
-                        fontSize: 12, fontWeight: 700, color: '#e2e8f0', background: 'none',
-                        border: 'none', padding: 0, cursor: 'pointer', textDecoration: 'underline dotted',
-                      }}
-                      title="跳到「三路對帳」分頁看逐筆明細"
-                    >三路對帳</button>
-                    {total.compared === 0 ? (
-                      <span style={{ fontSize: 11, color: '#64748b' }}>
-                        尚無資料{cmpMachines.length === 0 ? '（這次執行還沒有機台被比對到）' : ''}
-                      </span>
-                    ) : (
-                      <>
-                        <span style={{ fontSize: 11, color: '#94a3b8' }}>已比對 {total.compared} 筆</span>
-                        {/* 相符數要顯性列出來。原本只列異常，使用者看不到「對上了幾筆」，
-                            也就無從判斷這個工具到底有沒有在做事（原話：「我要看誰的，有不符跟相符」）*/}
-                        <span style={{ fontSize: 11, color: total.matched > 0 ? '#4ade80' : '#64748b' }}>相符 {total.matched}</span>
-                        {badge('不符', total.mismatched, 'bad')}
-                        {badge('配不到', total.unmatched, 'warn')}
-                        {badge('多筆候選', total.ambiguous, 'warn')}
-                        {badge('缺資料', total.missing, 'warn')}
-                        {allMatched && <span style={{ fontSize: 11, color: '#4ade80' }}>全部相符</span>}
-                      </>
-                    )}
-                    <div style={{ flex: 1 }} />
-                    {/* ⚠️ 逐台**一律列出**，不再只列有異常的。原本的想法是「正常的不用佔位置」，
-                        但那樣多機台時完全看不出「這個數字是誰的」——使用者原話：「我要看誰的」。
-                        改成正常的用中性色（不搶注意力），有問題的才上色。 */}
-                    {cmpMachines.slice(0, 4).map(m => {
-                      const bad = needsAttention(m)
-                      return (
-                        <button
-                          key={`${m.sessionId}:${m.machineType}`} type="button"
-                          onClick={() => jump(m.machineType)}
-                          style={{
-                            display: 'flex', alignItems: 'center', gap: 5, fontSize: 11,
-                            padding: '2px 7px', borderRadius: 4, cursor: 'pointer', color: '#e2e8f0',
-                            background: bad ? 'rgba(244,63,94,.08)' : 'transparent',
-                            border: `1px solid ${bad ? 'rgba(244,63,94,.25)' : '#2d3f55'}`,
-                          }}
-                          title="跳到三路對帳並聚焦這台"
-                        >
-                          <b style={{ fontWeight: 700 }}>{m.machineType}</b>
-                          <span style={{ color: m.matched > 0 ? '#4ade80' : '#64748b' }}>{m.matched}/{m.compared}</span>
-                          {m.mismatched > 0 && <span style={{ color: '#fb7185' }}>不符 {m.mismatched}</span>}
-                          {(m.unmatched ?? 0) > 0 && <span style={{ color: '#eab308' }}>配不到 {m.unmatched}</span>}
-                          {(m.ambiguous ?? 0) > 0 && <span style={{ color: '#eab308' }}>候選 {m.ambiguous}</span>}
-                          {m.missing > 0 && <span style={{ color: '#eab308' }}>缺 {m.missing}</span>}
-                        </button>
-                      )
-                    })}
-                    {cmpMachines.length > 4 && (
-                      <span style={{ fontSize: 11, color: '#64748b' }}>…另有 {cmpMachines.length - 4} 台</span>
-                    )}
-                  </div>
-                )
-              })()}
-
               {/* Log panel: filter/search + pinus category chips + bounded scrollable body */}
               {(() => {
                 const rawLogs = runMode === 'server' ? logs : agentLogs
@@ -2503,165 +1617,6 @@ export function AutoSpinPage({ themeMode = 'classic' }: { themeMode?: 'classic' 
             </div>
 
             {/* Right: screenshots + SLS errors */}
-            <div style={{ flex: '0 0 260px', display: 'flex', flexDirection: 'column', gap: 8, overflow: 'auto' }}>
-              {/* LuckyLink JP 監控 panel — visible when LL enabled */}
-              {luckylinkEnabled && (
-                <div style={{ border: `1px solid ${luckylinkStatus?.alerts.some(a => a.level === 'error') ? '#7f1d1d' : '#2d3f55'}`, borderRadius: 8, overflow: 'hidden' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', background: luckylinkStatus?.alerts.some(a => a.level === 'error') ? 'rgba(239,68,68,0.08)' : '#162032', cursor: 'pointer' }}
-                    onClick={() => setLlPanelOpen(v => !v)}>
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: !luckylinkStatus ? '#6b7280' : luckylinkStatus.error ? '#ef4444' : luckylinkStatus.connected ? '#22c55e' : '#f59e0b' }} />
-                    <span style={{ fontSize: 12, fontWeight: 600, color: '#cbd5e1', flex: 1 }}>
-                      LuckyLink JP {luckylinkStatus?.pollCount ? `Poll#${luckylinkStatus.pollCount}` : ''}
-                      {luckylinkStatus?.alerts.some(a => a.level === 'error') ? <span style={{ color: 'var(--cr-rose)' }}> · 異常</span> : luckylinkStatus?.alerts.some(a => a.level === 'warn') ? <span style={{ color: '#ead8a6' }}> · 警告</span> : ''}
-                    </span>
-                    <span style={{ fontSize: 10, color: '#64748b' }}>{llPanelOpen ? '▲' : '▼'}</span>
-                  </div>
-                  {llPanelOpen && (
-                    <div style={{ padding: 8, background: '#1e293b', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      {!luckylinkStatus ? (
-                        <div style={{ fontSize: 11, color: '#64748b' }}>等待 Poller 啟動...</div>
-                      ) : (
-                        <>
-                          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 10, color: '#94a3b8' }}>
-                            <span>Group: <b style={{ color: '#cbd5e1' }}>{luckylinkStatus.jpGroupCode}</b></span>
-                            {luckylinkStatus.lastPollTs && <span>更新: <b style={{ color: '#cbd5e1' }}>{new Date(luckylinkStatus.lastPollTs).toLocaleTimeString('zh-TW')}</b></span>}
-                            <span style={{ color: luckylinkStatus.connected ? '#22c55e' : '#f59e0b' }}>{luckylinkStatus.connected ? '連線中' : '已停止'}</span>
-                          </div>
-                          {luckylinkStatus.error && <div style={{ fontSize: 11, color: '#ef4444', background: 'rgba(239,68,68,0.08)', borderRadius: 4, padding: '4px 6px' }}>{luckylinkStatus.error}</div>}
-                          {(luckylinkStatus.diffs.length > 0 || luckylinkStatus.pool.length > 0) && (
-                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
-                              <thead><tr style={{ color: '#64748b' }}>
-                                <th style={{ textAlign: 'left', paddingBottom: 3 }}>Level</th>
-                                <th style={{ textAlign: 'right', paddingBottom: 3 }}>金額</th>
-                                <th style={{ textAlign: 'right', paddingBottom: 3 }}>變化</th>
-                              </tr></thead>
-                              <tbody>
-                                {(luckylinkStatus.diffs.length > 0 ? luckylinkStatus.diffs : luckylinkStatus.pool.map(p => ({ name: p.name, curr: p.displayValue, prev: null, delta: null, state: 'init' as const, matchedGameCodes: [] }))).map((d, i) => {
-                                  const stateColor = d.state === 'drop' ? '#ef4444' : d.state === 'reset' ? '#22c55e' : d.state === 'increase' ? '#38bdf8' : d.state === 'frozen' ? '#f59e0b' : '#94a3b8'
-                                  const hasMatch = d.matchedGameCodes && d.matchedGameCodes.length > 0
-                                  const fmtPHP = (v: number) => `₱${v >= 1000 ? v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : v.toFixed(2)}`
-                                  return (
-                                    <tr key={i} style={{ borderTop: '1px solid #0f172a' }}>
-                                      <td style={{ padding: '2px 0', color: hasMatch ? '#7dd3fc' : '#cbd5e1' }} title={hasMatch ? `匹配: ${d.matchedGameCodes!.join(', ')}` : undefined}>{d.name}</td>
-                                      <td style={{ textAlign: 'right', color: '#e2e8f0', fontVariantNumeric: 'tabular-nums' }}>{typeof d.curr === 'number' ? fmtPHP(d.curr) : d.curr}</td>
-                                      <td style={{ textAlign: 'right', color: stateColor }}>{d.delta !== null && d.delta !== undefined ? `${d.delta >= 0 ? '+' : '-'}₱${Math.abs(d.delta).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}</td>
-                                    </tr>
-                                  )
-                                })}
-                              </tbody>
-                            </table>
-                          )}
-                          {luckylinkStatus.alerts.length > 0 && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3, borderTop: '1px solid #0f172a', paddingTop: 4 }}>
-                              {luckylinkStatus.alerts.slice(-5).map((a, i) => (
-                                <div key={i} style={{ fontSize: 10, borderLeft: `3px solid ${a.level === 'error' ? 'var(--cr-rose)' : a.level === 'warn' ? '#ead8a6' : 'var(--cr-cyan)'}`, paddingLeft: 6, color: '#cbd5e1' }}>
-                                  <span style={{ color: a.level === 'error' ? 'var(--cr-rose)' : a.level === 'warn' ? '#ead8a6' : 'var(--cr-cyan)' }}>
-                                    {a.name} [{a.state}]
-                                  </span>
-                                  {a.message && <span style={{ color: '#94a3b8' }}> {a.message}</span>}
-                                  {a.prev !== undefined && <span style={{ color: '#64748b' }}> ({a.prev}→{a.curr})</span>}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-              {/* SLS Error Logs panel */}
-              <div style={{ border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', background: slsEntries.some(e => e.level === 'ERROR') ? 'rgba(239,68,68,0.08)' : '#162032', cursor: 'pointer' }}
-                  onClick={() => setSlsPanelOpen(v => !v)}>
-                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: slsEntries.length > 0 ? (slsEntries.some(e => e.level === 'ERROR') ? '#ef4444' : '#f59e0b') : '#cbd5e1', flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, fontWeight: 600, color: '#cbd5e1', flex: 1 }}>
-                    SLS 錯誤日誌 {slsEntries.length > 0 ? `(${slsEntries.length})` : ''}
-                  </span>
-                  <span style={{ fontSize: 10, color: '#64748b' }}>{slsPanelOpen ? '▲' : '▼'}</span>
-                </div>
-                {slsPanelOpen && (
-                  <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6, background: '#1e293b' }}>
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      <select value={slsMachineNo} onChange={e => { setSlsMachineNo(e.target.value); setSlsEntries([]) }}
-                        style={{ flex: 1, fontSize: 11, padding: '4px 6px', border: '1px solid #2d3f55', borderRadius: 5 }}>
-                        <option value=''>— 選擇機台 —</option>
-                        {configs.filter(c => c.machineNo).map(c => (
-                          <option key={c.machineType} value={c.machineNo}>{c.machineType} ({c.machineNo})</option>
-                        ))}
-                      </select>
-                      <button className="cr-btn" onClick={() => fetchSlsErrors(slsMachineNo)} disabled={!slsMachineNo || slsLoading}
-                        style={{ fontSize: 11, padding: '4px 8px', background: slsMachineNo ? 'var(--xx-jade-solid)' : '#334155', color: slsMachineNo ? '#fff' : '#9ca3af', border: 'none', borderRadius: 5, cursor: slsMachineNo ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center' }}>
-                        {slsLoading ? '...' : (
-                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.3-4.3" /></svg>
-                        )}
-                      </button>
-                    </div>
-                    {slsError && <div style={{ fontSize: 11, color: 'var(--cr-rose)' }}>{slsError}</div>}
-                    {slsEntries.length === 0 && !slsLoading && !slsError && slsMachineNo && (
-                      <div style={{ fontSize: 11, color: '#64748b' }}>近 24 小時無錯誤記錄</div>
-                    )}
-                    {slsEntries.map((e, i) => (
-                      <div key={i} style={{ fontSize: 10, borderLeft: `3px solid ${e.level === 'ERROR' ? 'var(--cr-rose)' : e.level === 'WARN' || e.level === 'WARNING' ? '#ead8a6' : '#6b7280'}`, paddingLeft: 6, color: '#cbd5e1' }}>
-                        <div style={{ color: '#94a3b8', marginBottom: 2 }}>{e.timeStr} · <span style={{ color: e.level === 'ERROR' ? 'var(--cr-rose)' : '#ead8a6', fontWeight: 700 }}>{e.level}</span></div>
-                        <div style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all', color: '#1e293b' }}>{e.content.slice(0, 160)}{e.content.length > 160 ? '…' : ''}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* 截圖監控獨立限高＋自己捲動（2026-08-17 使用者回報：機台一多，截圖越疊越多，會把
-                  上面 LuckyLink JP／SLS 錯誤日誌兩個面板一起往上推出可視範圍，要滑很久才看得到）。
-                  截圖區塊限制最高 420px、自己 overflow-y 捲動，LuckyLink/SLS 面板留在外層 column
-                  的一般排版流裡，不受截圖數量影響，永遠可見在上方，不用捲。 */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 420, overflowY: 'auto', paddingRight: 2 }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: '#cbd5e1' }}>截圖監控</span>
-                  <button className="cr-icon-btn" onClick={fetchCaptures} style={{ fontSize: 11, color: 'var(--cr-cyan)', background: 'none', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M3 12a9 9 0 0 1 15.3-6.4M21 12a9 9 0 0 1-15.3 6.4" /><path d="M18 3v4h-4M6 21v-4h4" /></svg>
-                    重新整理
-                  </button>
-                </div>
-                {(() => {
-                  const raw = runMode === 'server' ? captures : agentCaptures
-                  if (raw.length === 0) return <p style={{ color: '#64748b', fontSize: 12 }}>尚無截圖</p>
-                  const items = [...raw].reverse().map(f => ({
-                    name: f.name,
-                    ts: 'mtime' in f ? f.mtime : f.time,
-                    src: runMode === 'server'
-                      ? `/api/autospin/captures/${encodeURIComponent(f.name)}`
-                      : `/api/autospin/agent/screenshot/${agentSessionId}/${encodeURIComponent(f.name)}?userLabel=${encodeURIComponent(getGlobalUserLabel())}`,
-                    spinNo: extractSpinNo(f.name),
-                  }))
-                  return (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                      {items.map((it, i) => (
-                        <div key={it.name} onClick={() => setLightbox(it.src)}
-                          className={`autospin-shot${i === 0 ? ' autospin-shot--latest' : ''}`}
-                          style={{ position: 'relative', border: '1px solid #2d3f55', borderRadius: 8, overflow: 'hidden', aspectRatio: '1 / 1', background: '#0f172a', cursor: 'zoom-in' }}>
-                          <img
-                            src={it.src}
-                            alt={it.name}
-                            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
-                            onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                          {i === 0 && (
-                            <>
-                              <span className="cr-status-dot" style={{ position: 'absolute', top: 6, left: 6, width: 6, height: 6, borderRadius: '50%', background: 'var(--cr-cyan)' }} />
-                              <span style={{ position: 'absolute', top: 4, right: 4, background: 'var(--xx-jade-solid)', color: '#fff', fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4 }}>最新</span>
-                            </>
-                          )}
-                          <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '4px 6px', background: 'linear-gradient(0deg, rgba(0,0,0,0.75), transparent)', fontSize: 9.5, color: '#e2e8f0', display: 'flex', justifyContent: 'space-between' }}>
-                            <span>{it.spinNo ? `Spin #${it.spinNo}` : it.name}</span>
-                            <b style={{ color: 'var(--cr-cyan)' }}>{relativeShotTime(it.ts)}</b>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )
-                })()}
-              </div>
-            </div>
           </div>
         </div>
       )}

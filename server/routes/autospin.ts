@@ -3,6 +3,7 @@
  * AutoSpin management: machine configs, template files, session control.
  */
 import { recordSpinObservation, noteSourceHealth } from '../live-ledger.js'
+import { overview as ledgerOverview, ledgerRows, ledgerDetail } from '../live-ledger-query.js'
 
 /**
  * 連續幾筆觀測落庫失敗。⚠️ fire-and-forget 不代表不留痕——
@@ -2153,6 +2154,46 @@ router.post('/api/autospin/agent/:id/recon-spin', (req, res) => {
         `連續 ${reconSpinFailStreak} 筆觀測落庫失敗：${reason}`)
     }
     res.json({ ok: false, reason })
+  }
+})
+
+// ─── 對帳台（Live Ledger 畫面）─────────────────────────────────────────
+//
+// ⚠️ 這幾支的共同原則：**沒有結論就回 null，不要回 0。**
+//    規格書明訂「0 是一個結論，— 是沒有結論」，混用等於主動誤導。
+
+function reconEnvOf(req: { query: Record<string, unknown> }): 'qat' | 'uat' {
+  return req.query.env === 'uat' ? 'uat' : 'qat'
+}
+
+router.get('/api/autospin/live-ledger/overview', (req, res) => {
+  try {
+    const minutes = Math.min(Math.max(Number(req.query.minutes) || 30, 1), 24 * 60)
+    res.json(ledgerOverview(reconEnvOf(req as never), minutes))
+  } catch (e) {
+    res.status(500).json({ ok: false, reason: String(e) })
+  }
+})
+
+router.get('/api/autospin/live-ledger/rows', (req, res) => {
+  try {
+    const f = req.query.filter
+    res.json({ ok: true, ...ledgerRows(reconEnvOf(req as never), {
+      limit: Number(req.query.limit) || 50,
+      minutes: Number(req.query.minutes) || undefined,
+      cursor: req.query.cursor ? Number(req.query.cursor) : null,
+      filter: f === 'abnormal' || f === 'pending' ? f : 'all',
+    }) })
+  } catch (e) {
+    res.status(500).json({ ok: false, reason: String(e) })
+  }
+})
+
+router.get('/api/autospin/live-ledger/row/:id', (req, res) => {
+  try {
+    res.json(ledgerDetail(reconEnvOf(req as never), Number(req.params.id)))
+  } catch (e) {
+    res.status(500).json({ ok: false, reason: String(e) })
   }
 })
 

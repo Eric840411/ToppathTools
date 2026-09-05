@@ -543,6 +543,84 @@ def is_in_game(page) -> bool:
     return True  # 保守策略：不確定時視為在遊戲中
 
 
+EXIT_SELECTORS_DEFAULT = [
+    '.handle-main .my-button.btn_cashout', '.my-button.btn_cashout', '.btn_cashout',
+    '[class*="btn_cashout"]', '[class*="exit"]', '[class*="back"]',
+]
+
+
+def wait_for_leave_gm(page, timeout_ms: int = 10000, baseline_ts: float = 0):
+    """等 leaveGMNtc，回傳事件 dict 或 None。跟 wait_for_enter_gm 同一套做法。"""
+    deadline = time.time() + timeout_ms / 1000
+    while time.time() < deadline:
+        for frame in page.frames:
+            try:
+                events = frame.evaluate("window.__gmEvents || []")
+            except Exception:
+                continue
+            for ev in reversed(events or []):
+                if ev.get('event') == 'leaveGMNtc' and ev.get('ts', 0) > baseline_ts:
+                    return ev
+        time.sleep(0.3)
+    return None
+
+
+def leave_game(page, cfg: dict, mt: str) -> bool:
+    """停止前正常離開機台，把座位還回去。
+
+    ⚠️ **不做這件事的後果不是「少一步收尾」，是把機台鎖住。**AutoSpin 原本停止時
+       直接關瀏覽器，座位在後台仍掛著這個帳號（egmList 的 `userName` 看得到），
+       下一次要測同一台就被自己上一輪的殘留擋成 Occupied。實測連續佔掉兩台。
+       而且症狀是「機台被別人佔用」，完全看不出是自己造成的。
+
+    ⚠️ `errcode 10002` 要重試（跟 machine-test 的退出步驟同一個處理）——
+       那個碼代表「這次離機請求沒被接受」，不重試就等於沒離開。
+
+    回傳有沒有確認離機成功（收到 errcode=0 的 leaveGMNtc）。
+    """
+    selectors = ([cfg.get('exitSelector')] if cfg.get('exitSelector') else []) + EXIT_SELECTORS_DEFAULT
+    for attempt in range(1, 4):
+        baseline = time.time() * 1000
+        clicked = False
+        for sel in selectors:
+            if not sel:
+                continue
+            try:
+                for el in page.locator(sel).all():
+                    if not el.is_visible():
+                        continue
+                    # JS click：跟進場點卡片同一招，繞過可能蓋在上面的遮罩
+                    el.evaluate("el => el.click()")
+                    log(f"[{mt}] 點擊離開機台按鈕: {sel}（第 {attempt} 次）")
+                    clicked = True
+                    break
+            except Exception:
+                continue
+            if clicked:
+                break
+        if not clicked:
+            log(f"[{mt}] ⚠️ 找不到離開機台的按鈕（試過 {len(selectors)} 個選擇器），座位可能仍被佔用")
+            return False
+
+        ev = wait_for_leave_gm(page, 10000, baseline)
+        if ev is None:
+            log(f"[{mt}] ⚠️ 未收到 leaveGMNtc（10s 逾時，第 {attempt} 次）")
+            continue
+        errcode = ev.get('errcode', 0)
+        if errcode == 0:
+            log(f"[{mt}] ✅ 已離開機台（leaveGMNtc errcode=0），座位已釋放")
+            return True
+        if errcode == 10002:
+            log(f"[{mt}] leaveGMNtc errcode=10002，重試（第 {attempt}/3 次）")
+            time.sleep(1.0)
+            continue
+        log(f"[{mt}] ⚠️ leaveGMNtc errcode={errcode}: {ev.get('errcodedes', '')}")
+        return False
+    log(f"[{mt}] ⚠️ 離機重試 3 次仍未確認成功——**座位可能還被佔著**，"
+        f"下次要測這台會看到 Occupied。可到後台 egmList 確認 userName 是否仍掛著。")
+    return False
+
+
 def detect_seat_state(page) -> str:
     """分辨「真的坐上機台」還是「只是在旁觀」。回傳 seated / spectator / lobby / unknown。
 
@@ -2399,6 +2477,12 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
             except Exception as e:
                 mp['error_count'] += 1
                 log(f"[{mt}] 錯誤: {e}")
+
+        # ⚠️ **關瀏覽器之前一定要先離機。**直接關掉的話座位會留在後台被佔著
+        #    （後台 egmList 看得到 userName 還掛在上面），下一次要測同一台就被
+        #    「自己上一輪的殘留」擋住。實測連續佔掉 JJBX-0004 / JJBX-0007 兩台，
+        #    多跑幾輪就把可用機台耗光——而且症狀是「機台被佔用」，看不出是自己造成的。
+        leave_game(page, cfg, mt)
 
         log(f"[{mt}] 停止執行，關閉瀏覽器")
         try:
