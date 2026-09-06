@@ -1574,7 +1574,9 @@ export function decideAgentGone(
   now: number,
   graceMs = AGENT_GONE_GRACE_MS,
   maxAgeMs = SESSION_MAX_AGE_MS,
-): { agentAlive: boolean; agentGone: boolean; goneSince: number | undefined; hardExpired: boolean } {
+): { agentAlive: boolean; agentGone: boolean; goneSince: number | undefined; hardExpired: boolean
+     /** 要寫回 session 的年齡起點——年齡未知時就是「第一次看到它」的時間 */
+     startedAt: number } {
   /**
    * ⚠️ **絕對上限要在所有其他判斷之前，而且不能被任何早退繞過。**
    *
@@ -1586,15 +1588,30 @@ export function decideAgentGone(
    * 我原本的測試「fallback session 不適用」測的是它**照設計被排除**，
    * 不是它**安全**——那給了假的安心。
    */
-  const hardExpired = !!s.startedAt && now - s.startedAt > maxAgeMs
-  if (hardExpired) return { agentAlive: false, agentGone: true, goneSince: s.agentGoneSince, hardExpired: true }
+  //
+  // ⚠️ **這裡不能有免除條款。**第一版寫的是 `!!s.startedAt && ...`——
+  //    沒有 `startedAt` 的 session 就不受上限保護。那正是同一個形狀第三次出現：
+  //
+  //        if (!dispatchedAgentId) return 活著     ← 上一版修掉的
+  //        if (!startedAt)         不套用上限      ← 又一個
+  //
+  //    而這道防線的**全部價值**就在於「跟所有判斷都獨立、誰都繞不過」，
+  //    它自己有一個繞得過的洞就等於沒有。用「正常路徑一定會設 startedAt」
+  //    去論證它不需要保護，邏輯是反的——這條存在的意義就是擋正常路徑之外的東西。
+  //
+  //    年齡未知就從「第一次看到它」開始算，免除條款直接消失。
+  const startedAt = s.startedAt ?? now
+  const hardExpired = now - startedAt > maxAgeMs
+  if (hardExpired) {
+    return { agentAlive: false, agentGone: true, goneSince: s.agentGoneSince, hardExpired: true, startedAt }
+  }
 
   // 沒有派工 agent（agent 自己啟動 / 伺服器端 fallback）→ 沒有 WS 可判斷。
   // ⚠️ 這裡只能當活著（判死會誤殺），所以**保護完全落在上面那條絕對上限**。
-  if (!s.dispatchedAgentId) return { agentAlive: true, agentGone: false, goneSince: undefined, hardExpired: false }
-  if (connOpen) return { agentAlive: true, agentGone: false, goneSince: undefined, hardExpired: false }
+  if (!s.dispatchedAgentId) return { agentAlive: true, agentGone: false, goneSince: undefined, hardExpired: false, startedAt }
+  if (connOpen) return { agentAlive: true, agentGone: false, goneSince: undefined, hardExpired: false, startedAt }
   const since = s.agentGoneSince ?? now
-  return { agentAlive: false, agentGone: now - since > graceMs, goneSince: since, hardExpired: false }
+  return { agentAlive: false, agentGone: now - since > graceMs, goneSince: since, hardExpired: false, startedAt }
 }
 
 
@@ -1620,6 +1637,8 @@ router.get('/api/autospin/agent/:id/should-stop', (req, res) => {
   const conn = s.dispatchedAgentId ? agentConnections.get(s.dispatchedAgentId) : undefined
   const d = decideAgentGone(s, !!(conn && conn.ws.readyState === conn.ws.OPEN), Date.now())
   s.agentGoneSince = d.goneSince
+  // 年齡未知的 session 補上起點，之後照常計時（見 decideAgentGone 的說明）
+  if (!s.startedAt) s.startedAt = d.startedAt
   if (s.status === 'running' && d.agentAlive) s.lastHeartbeat = Date.now()
   if (d.agentGone && s.status === 'running') {
     s.status = 'stopped'

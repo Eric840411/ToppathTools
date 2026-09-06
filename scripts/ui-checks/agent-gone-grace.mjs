@@ -80,9 +80,18 @@ console.log('\n3b) 絕對上限跟所有判活邏輯獨立');
   const a = decideAgentGone({ dispatchedAgentId: 'ag1', startedAt: T }, true, T + MAX + 1, GRACE, MAX);
   check('agent 連線正常但超過上限 → **照樣收尾**', a.agentGone === true && a.hardExpired === true);
 
-  // 沒有 startedAt 的舊 session 不會被誤殺
-  const b = decideAgentGone({ dispatchedAgentId: 'ag1' }, true, T + 999_999_999, GRACE, MAX);
-  check('沒有 startedAt → 不因上限收尾（不猜）', b.hardExpired === false);
+  // 🚨 這條原本寫的是「沒有 startedAt → 不因上限收尾（不猜）」——**那是一條免除條款**，
+  //    而這道防線的全部價值就在於「誰都繞不過」。同一個形狀第三次出現：
+  //        if (!dispatchedAgentId) return 活著   ← 上一版修掉的
+  //        if (!startedAt)         不套用上限    ← 這一條
+  //    而且它一樣有綠色測試背書。按「把上限拿掉看哪條會紅」的驗法：
+  //    沒有 startedAt 的 session 跑 10 小時，舊那條測試是綠的 → 它在描述行為，不是防止失敗。
+  //
+  //    現在改成「年齡未知就從第一次看到它開始算」，免除條款消失。
+  const b = decideAgentGone({ dispatchedAgentId: 'ag1' }, true, T, GRACE, MAX);
+  check('沒有 startedAt → 補上「第一次看到」當起點', b.startedAt === T && b.hardExpired === false);
+  const c = decideAgentGone({ dispatchedAgentId: 'ag1', startedAt: T }, true, T + MAX + 1, GRACE, MAX);
+  check('🚨 補上起點之後，一樣會被上限收掉（免除條款已消失）', c.hardExpired === true);
 }
 
 console.log('\n4) ⚠️ 兩道保險的時序：心跳逾時不能搶在寬限期之前開槍');

@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.118.2'
+export const APP_VERSION = '4.118.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.118.3',
+    date: '2026-09-07',
+    changes: [
+      'fix(autospin): ⚠️ **絕對上限自己有一條免除條款**——`!!s.startedAt &&` 讓沒有起點的 session 不受保護。而這道防線的全部價值就在於「跟所有判斷都獨立、誰都繞不過」，有一個繞得過的洞就等於沒有。改成「年齡未知就從第一次看到它開始算」，免除條款直接消失',
+      'note(autospin): 這是同一個形狀第三次出現（`if (!dispatchedAgentId) return 活著`／`if (!startedAt) 不套用上限`），而且**每次都有一條綠色測試在旁邊背書**。用「正常路徑一定會設 startedAt」去論證它不需要保護，邏輯是反的——這條存在的意義就是擋正常路徑之外的東西',
+      'test(autospin): 舊測試「沒有 startedAt → 不因上限收尾（不猜）」按「把上限拿掉看哪條會紅」的驗法**是綠的**，所以它在描述行為不是防止失敗。已改成驗「補上起點之後一樣會被收掉」',
+    ],
+  },
   {
     version: '4.118.2',
     date: '2026-09-07',
