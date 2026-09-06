@@ -1083,6 +1083,18 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_recon_backend_seq ON recon_backend_recor
 // ⚠️ MISSING 原本是終局狀態，於是「門檻訂得比實際延遲緊一點」＝資料被永久污染，
 //    而畫面上顯示的是「掉單」。**對一筆其實有入帳的局說掉單，比不報還糟。**
 //    實測首輪就有 14 筆後台紀錄晚到、對應的 spin 早已被判 MISSING 再也綁不回去。
+// recon_source_health.clockOffsetMs —— 本機與後台 web 的時鐘差（從 HTTP Date header 量）。
+// ⚠️ **這個值只做觀測，絕對不參與配對校正。**實測 2026-09-05：Date header 偏移 +93 秒、
+//    而 bet_time_precise 對 observedAt 的偏移是 +29 秒，**兩者差 64.5 秒**——
+//    `bet_time_precise` 跟後台 web 不是同一個時鐘，拿它去校正配對會比不校正更錯。
+//    留著是因為它不需提權就量得到，而且 >5 秒就該示警（那 94 秒如果早顯示出來，
+//    我們不用查到最後才發現）。
+for (const [col, decl] of [
+  ['clockOffsetMs', 'INTEGER'], ['clockCheckedAt', 'INTEGER'],
+] as const) {
+  try { db.exec(`ALTER TABLE recon_source_health ADD COLUMN ${col} ${decl}`) } catch { /* 已存在 */ }
+}
+
 for (const [col, decl] of [
   ['outcome', `TEXT NOT NULL DEFAULT ''`],
   ['bindMethod', `TEXT NOT NULL DEFAULT ''`],

@@ -2189,6 +2189,46 @@ router.get('/api/autospin/live-ledger/rows', (req, res) => {
   }
 })
 
+// 門檻設定：讀／寫 recon_settings。
+// ⚠️ 每個參數都要能在畫面上看到「預設值」與「這個值影響什麼」——
+//    90 秒這種門檻寫死在腦子裡的話，之後沒有人敢動它，也沒有人知道動了會怎樣。
+const SETTING_META: Record<string, { label: string; unit: string; dflt: number; effect: string }> = {
+  pendingTimeoutSec: { label: '掉單判定門檻', unit: '秒', dflt: 90,
+    effect: '等待入帳超過這個時間就判成掉單。訂太緊會把「只是晚到」誤報成掉單（可回綁但會先發告警）；訂太鬆則真的掉單要很久才看得到。' },
+  bindWindowBeforeSec: { label: '時間窗下界', unit: '秒', dflt: 2,
+    effect: '後台時間可以比 spin 早多少仍接受（時鐘偏移用）。' },
+  bindWindowAfterSec: { label: '時間窗上界', unit: '秒', dflt: 30,
+    effect: '只在還估不出系統性偏移（樣本 < 10）時當退路使用；有偏移估計之後改比殘差（±5 秒）。' },
+  fetchIntervalSec: { label: '後台拉取間隔', unit: '秒', dflt: 15,
+    effect: '多久去後台拉一次增量。調小會更快發現掉單，但對後台壓力較大。' },
+  sessionGraceSec: { label: 'session 收尾窗', unit: '秒', dflt: 300,
+    effect: 'session 結束後還要繼續拉取多久，把最後那批 PENDING 收乾淨。' },
+}
+
+router.get('/api/autospin/live-ledger/settings', (req, res) => {
+  try {
+    const env = reconEnvOf(req as never)
+    const rows = db.prepare('SELECT key, value FROM recon_settings WHERE env=?').all(env) as { key: string; value: string }[]
+    const cur = new Map(rows.map(r => [r.key, Number(r.value)]))
+    res.json({ ok: true, env, settings: Object.entries(SETTING_META).map(([key, m]) => ({
+      key, ...m, value: cur.has(key) ? cur.get(key) : m.dflt, isDefault: (cur.get(key) ?? m.dflt) === m.dflt,
+    })) })
+  } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
+})
+
+router.put('/api/autospin/live-ledger/settings', (req, res) => {
+  try {
+    const env = reconEnvOf(req as never)
+    const b = z.object({ key: z.string(), value: z.number() }).parse(req.body)
+    // ⚠️ 不認得的 key 回 400，**不要靜默忽略**——靜默忽略會讓使用者以為改成功了。
+    if (!SETTING_META[b.key]) return res.status(400).json({ ok: false, reason: `不認得的設定項：${b.key}` })
+    if (!Number.isFinite(b.value) || b.value <= 0) return res.status(400).json({ ok: false, reason: '必須是正數' })
+    db.prepare(`INSERT INTO recon_settings (env, key, value) VALUES (?, ?, ?)
+      ON CONFLICT(env, key) DO UPDATE SET value=excluded.value`).run(env, b.key, String(b.value))
+    res.json({ ok: true })
+  } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
+})
+
 router.get('/api/autospin/live-ledger/row/:id', (req, res) => {
   try {
     res.json(ledgerDetail(reconEnvOf(req as never), Number(req.params.id)))

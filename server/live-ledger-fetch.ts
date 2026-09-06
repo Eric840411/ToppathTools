@@ -272,6 +272,8 @@ export async function runLiveLedgerCycle(now = Date.now()): Promise<{
     if (!r.ok) failures++
     envs.add(s.env)
   }
+  // 時鐘偏移每輪量一次（只做觀測，不參與校正——見 probeServerClock 的說明）
+  for (const env of envs) await probeServerClock(env)
   const bind: Record<string, { scanned: number; resolved: number; ambiguous: number; missing: number }> = {}
   for (const env of envs) {
     const b = runBindCycle(env, now)
@@ -288,6 +290,14 @@ export async function runLiveLedgerCycle(now = Date.now()): Promise<{
  */
 export function startLiveLedgerLoop(): void {
   if (timer) return
+  // 一次性回填：findings 機制上線前就判定的 MISSING／AMBIGUOUS 補記錄，
+  // 否則「近期告警 0」會跟「真的沒問題」長得一樣。
+  void import('./live-ledger.js').then(m => {
+    for (const env of ['qat', 'uat'] as const) {
+      const n = m.backfillFindings(env)
+      if (n) console.log(`[live-ledger] ${env} 回填 ${n} 筆既有 finding`)
+    }
+  }).catch(e => console.warn('[live-ledger] finding 回填失敗:', e))
   const tick = async () => {
     if (running) return
     running = true
@@ -311,4 +321,41 @@ export function startLiveLedgerLoop(): void {
 
 export function stopLiveLedgerLoop(): void {
   if (timer) { clearTimeout(timer); timer = null }
+}
+
+/**
+ * 量本機與後台 web 的時鐘差（HTTP `Date` header）。
+ *
+ * ⚠️ **只做觀測，絕對不參與配對校正。**實測 2026-09-05：
+ *    Date header 偏移 +93 秒，而 `bet_time_precise − observedAt` 的偏移是 +29 秒，
+ *    **兩者差 64.5 秒**——`bet_time_precise` 跟後台 web 不是同一個時鐘。
+ *    拿這個值去校正配對，會比不校正更錯。
+ *
+ * 留著的理由：它不需要提權就量得到，而且 > 5 秒就該示警——
+ * 那 94 秒如果早就顯示在畫面上，我們不會查到最後才發現。
+ */
+export async function probeServerClock(env: ReconEnv): Promise<number | null> {
+  const profile = PROFILE_OF[env]
+  if (!profile) return null
+  const cfg = loadMeterConfig(profile)
+  const base = (cfg.base_url || '').replace(/\/$/, '')
+  if (!base) return null
+  try {
+    const t0 = Date.now()
+    const r = await fetch(base, { method: 'HEAD' })
+    const t1 = Date.now()
+    const d = r.headers.get('date')
+    if (!d) return null
+    const server = new Date(d).getTime()
+    if (!Number.isFinite(server)) return null
+    // 用往返中點當本機對照時間，把 RTT 的一半誤差抵掉
+    const offset = Math.round(server - (t0 + t1) / 2)
+    db.prepare(`
+      INSERT INTO recon_source_health (env, source, failCount, clockOffsetMs, clockCheckedAt)
+      VALUES (?, 'clock', 0, ?, ?)
+      ON CONFLICT(env, source) DO UPDATE SET clockOffsetMs=excluded.clockOffsetMs,
+        clockCheckedAt=excluded.clockCheckedAt
+    `).run(env, offset, Date.now())
+    return offset
+  } catch { return null }
 }

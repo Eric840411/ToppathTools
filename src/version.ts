@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.113.0'
+export const APP_VERSION = '4.114.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.114.0',
+    date: '2026-09-06',
+    changes: [
+      'feat(live-ledger): 對帳台接上真資料——近期告警（recon_finding）、門檻設定可調（recon_settings，每個參數標預設值與「這個值影響什麼」）、覆蓋率拆成嚴格／寬鬆兩個數字、時鐘偏移燈',
+      'fix(live-ledger): ⚠️ 一次性回填既有的 MISSING／AMBIGUOUS 成 finding。findings 是後來才加的，不回填的話畫面顯示「近期告警 0」而 DB 裡有 127 筆掉單——0 會被讀成「沒問題」，正是這份規格在防的假結論。實測回填 127 筆',
+      'note(live-ledger): ⚠️ **L1 金額比對做不了，不是漏做**。實測 184 筆觀測 hasBet=0、hasWin=0——dealGMActionReq 請求裡沒有 bet，win 也沒被攔下來，A 側是空的。跟 L2 卡在同一個根因（agent 對 pinus 的攔截範圍不夠）。所以 finding 目前只有綁定層（掉單／無法判定／晚到回綁），畫面上明寫「金額不符尚未實作」',
+      'feat(live-ledger): 時鐘偏移量測（HTTP Date header）寫進 recon_source_health，>5 秒示警。⚠️ 只做觀測，不參與配對校正——實測 Date 偏移 +93s 而配對偏移 +29s，兩者差 64.5 秒，拿它校正會比不校正更錯',
+      'fix(live-ledger): 設定寫入不認得的 key 回 400 不靜默忽略；前端更新失敗會顯示原因——靜默失敗會讓使用者以為改成功了，之後拿舊門檻的結果下結論',
+    ],
+  },
   {
     version: '4.113.0',
     date: '2026-09-06',

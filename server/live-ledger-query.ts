@@ -14,6 +14,7 @@
  * 是完全不同的意思，混用等於主動誤導。
  */
 import { db } from './shared.js'
+import { recentFindings, type FindingRow } from './live-ledger.js'
 import type { ReconEnv } from './live-ledger.js'
 
 export type LampState = 'ok' | 'warn' | 'bad' | 'unwired'
@@ -26,6 +27,8 @@ export interface Lamp {
    *  延遲數字在資料源斷掉那一刻會**停住不動**，看起來永遠健康。 */
   agoSec: number | null
   note: string
+  /** 附註數值（例如時鐘偏移量）。延遲毫秒只能當附註，不能當主指標 */
+  detail?: string
 }
 
 export interface LedgerLine {
@@ -58,8 +61,8 @@ export function healthLamps(env: ReconEnv, now = Date.now()): Lamp[] {
   const agentAgo = ago(lastSpin?.t)
 
   // 後台拉取與寫入點的健康，來自 recon_source_health
-  const rows = db.prepare('SELECT source, lastOkAt, lastErrAt, failCount, errKind, message FROM recon_source_health WHERE env=?')
-    .all(env) as { source: string; lastOkAt: number | null; lastErrAt: number | null; failCount: number; errKind: string | null; message: string | null }[]
+  const rows = db.prepare('SELECT source, lastOkAt, lastErrAt, failCount, errKind, message, clockOffsetMs, clockCheckedAt FROM recon_source_health WHERE env=?')
+    .all(env) as { source: string; lastOkAt: number | null; lastErrAt: number | null; failCount: number; errKind: string | null; message: string | null; clockOffsetMs: number | null; clockCheckedAt: number | null }[]
   const bySource = new Map(rows.map(r => [r.source, r]))
 
   const backend = bySource.get('gameRecordList')
@@ -89,6 +92,23 @@ export function healthLamps(env: ReconEnv, now = Date.now()): Lamp[] {
       //    畫成綠燈等於宣稱「JP 對帳正常」，而它根本沒在對。
       state: 'unwired', agoSec: null, note: '尚未串接（L4／L5 未實作）',
     },
+    (() => {
+      // 時鐘偏移燈。⚠️ 這盞只反映「本機 vs 後台 web」，**不是**配對用的偏移——
+      //    兩者實測差 64.5 秒。它的用途是：偏移大到離譜時要看得見（那 94 秒
+      //    如果早就顯示出來，就不用查到最後）。
+      const c = bySource.get('clock')
+      const off = c?.clockOffsetMs ?? null
+      const bad = off !== null && Math.abs(off) > 5000
+      return {
+        key: 'clock', label: '時鐘偏移',
+        state: (off === null ? 'warn' : bad ? 'warn' : 'ok') as LampState,
+        agoSec: ago(c?.clockCheckedAt),
+        note: off === null ? '尚未量測'
+          : `本機比後台 web ${off > 0 ? '慢' : '快'} ${Math.abs(Math.round(off / 1000))} 秒`
+            + '（僅供觀測，不參與配對校正）',
+        detail: off === null ? '—' : `${off > 0 ? '+' : ''}${(off / 1000).toFixed(1)}s`,
+      }
+    })(),
     {
       key: 'engine', label: '對帳引擎',
       state: writer?.failCount ? 'bad' : 'ok',
@@ -105,7 +125,8 @@ export interface Overview {
   session: { sessionId: string; machineType: string; firstAt: number; lastAt: number } | null
   health: Lamp[]
   kpi: {
-    coverage: { matched: number; eligible: number; total: number; ratio: number | null }
+    coverage: { matched: number; eligible: number; total: number; ratio: number | null
+      strict: number; fallback: number; unlabelled: number }
     /** ⚠️ 規格書說這是「這頁的頭號數字」，但 P0 只做綁定不做金額比對 → null */
     netDelta: null
     netDeltaReason: string
@@ -120,6 +141,7 @@ export interface Overview {
   bindMethods: { residual: number; absolute_window: number; unknown: number }
   lateRebound: number
   pendingTimeoutSec: number
+  findings: FindingRow[]
 }
 
 /**
@@ -233,6 +255,11 @@ export function overview(env: ReconEnv, windowMinutes = 30, now = Date.now()): O
       coverage: {
         matched, eligible: eligibleRows.length, total: rows.length,
         ratio: eligibleRows.length ? matched / eligibleRows.length : null,
+        // ⚠️ 嚴格與寬鬆一定要分開。兩者信心度差一個數量級（殘差 ±5s vs 絕對窗 ±30s），
+        //    混成一個回填率＝把「嚴格對上的」和「寬鬆撿到的」當成同一件事。
+        strict: bindMethods.residual,
+        fallback: bindMethods.absolute_window,
+        unlabelled: bindMethods.unknown,
       },
       netDelta: null,
       netDeltaReason: 'P0 只建立對帳鍵（綁定），還沒做任何金額比對。有了金額比對才算得出累計差額。',
@@ -243,6 +270,7 @@ export function overview(env: ReconEnv, windowMinutes = 30, now = Date.now()): O
     },
     lines, timeline, bindMethods,
     lateRebound: rows.filter(r => r.lateArrival === 1).length,
+    findings: recentFindings(env, 20),
     pendingTimeoutSec: timeoutSec,
   }
 }

@@ -662,6 +662,8 @@ export function runBindCycle(env: ReconEnv, now = Date.now()): {
           // lateArrival：這一筆本來已經被判成掉單，是紀錄晚到才綁回來的。
           // 一定要標記——不標的話，統計上看不出「門檻訂太緊」這件事。
           const wasMissing = s.status === 'MISSING'
+          // 曾判掉單、現在綁回來了 → 標成已解決但保留紀錄，那正是門檻訂太緊的證據
+          if (wasMissing) resolveFinding(env, 'missing', d.spinId, '紀錄晚到，已回綁')
           setResolved.run(d.orderId!, now, now - s.observedAt,
             d.bindMethod ?? '', wasMissing ? 1 : 0, d.spinId)
           if (wasMissing) lateRebound++
@@ -671,9 +673,12 @@ export function runBindCycle(env: ReconEnv, now = Date.now()): {
         }
       } else if (d.result === 'ambiguous') {
         setAmbiguous.run(d.spinId); ambiguous++
+        recordFinding(env, 'ambiguous', d.spinId, { severity: 'warn', note: d.reason ?? '' })
       } else if (now - s.observedAt > pendingTimeoutMs) {
         // 超過門檻還沒綁上 → 掉單
         setMissing.run(d.spinId); missing++
+        recordFinding(env, 'missing', d.spinId, { severity: 'critical',
+          note: `超過 ${Math.round(pendingTimeoutMs / 1000)} 秒仍查無對應後台紀錄` })
       } else {
         setNotFound.run(d.spinId); notFound++
       }
@@ -707,4 +712,96 @@ export function bindStats(env: ReconEnv, sinceMs?: number): {
     resolveRate: decided > 0 ? (r.m || 0) / decided : 0,
     ambiguousRate: decided > 0 ? (r.a || 0) / decided : 0,
   }
+}
+
+// ─── findings（近期告警）────────────────────────────────────────────────
+//
+// ⚠️ **這一期能產生的是「綁定層」的 finding，不是金額 finding。**
+//
+// L1 的定義是「agent 觀測 bet/win ↔ 後台 bet/win」，但實測 agent 側**兩個都沒有**
+// （184 筆觀測：hasBet=0、hasWin=0）——`dealGMActionReq` 的請求裡沒有 bet 欄位，
+// win 也沒有被攔下來。A 側是空的，比對就不成立。這跟 L2 卡的是同一個根因
+// （agent 對 pinus 訊息的攔截範圍不夠），不是這裡漏做。
+//
+// 所以現在寫進 recon_finding 的是：掉單、無法判定、晚到回綁。這三件都是真的、
+// 都值得看，只是它們回答的是「對帳鍵健不健康」而不是「金額對不對」。
+// **畫面上必須講清楚是哪一種**，否則使用者會以為金額已經驗過了。
+
+export type FindingKind = 'missing' | 'ambiguous' | 'late_arrival'
+
+/**
+ * 寫入 finding。同一筆 spin 的同一種 finding 只記一次——
+ * ⚠️ 不去重的話，每 15 秒一輪的迴圈會把同一筆掉單重複寫成幾百列，
+ *    「近期告警」就變成一直在刷同一件事，真正的新問題反而被埋掉。
+ */
+export function recordFinding(env: ReconEnv, kind: FindingKind, spinId: number, opts: {
+  severity?: 'info' | 'warn' | 'critical'; note?: string; amountDelta?: number | null
+} = {}): boolean {
+  const exists = db.prepare(
+    `SELECT 1 FROM recon_finding WHERE env=? AND line=? AND refType='spin' AND refId=?`
+  ).get(env, kind, String(spinId))
+  if (exists) return false
+  db.prepare(`
+    INSERT INTO recon_finding (env, line, severity, refType, refId, amountDelta, detectedAt, note)
+    VALUES (?, ?, ?, 'spin', ?, ?, ?, ?)
+  `).run(env, kind, opts.severity ?? (kind === 'missing' ? 'critical' : 'warn'),
+    String(spinId), opts.amountDelta ?? null, Date.now(), opts.note ?? '')
+  return true
+}
+
+export interface FindingRow {
+  id: number; env: string; line: string; severity: string
+  refType: string; refId: string; amountDelta: number | null
+  detectedAt: number; resolvedAt: number | null; note: string
+  machineType?: string; spinSeq?: number
+}
+
+/** 近期告警。已解決的（例如掉單後來回綁成功）預設不列。 */
+export function recentFindings(env: ReconEnv, limit = 20, includeResolved = false): FindingRow[] {
+  return db.prepare(`
+    SELECT f.*, s.machineType, s.spinSeq
+    FROM recon_finding f
+    LEFT JOIN recon_spin s ON s.id = CAST(f.refId AS INTEGER) AND s.env = f.env
+    WHERE f.env = ? ${includeResolved ? '' : 'AND f.resolvedAt IS NULL'}
+    ORDER BY f.detectedAt DESC LIMIT ?
+  `).all(env, limit) as FindingRow[]
+}
+
+/**
+ * 掉單後來又綁上了 → 把那筆 finding 標成已解決。
+ *
+ * ⚠️ **不能只是不再顯示，要留下「曾經被判成掉單」的紀錄。**
+ *    那正是「pendingTimeout 訂太緊」的證據；刪掉就看不出門檻該不該調。
+ */
+export function resolveFinding(env: ReconEnv, kind: FindingKind, spinId: number, note = ''): void {
+  db.prepare(`
+    UPDATE recon_finding SET resolvedAt=?, note = CASE WHEN ?='' THEN note ELSE note || ' / ' || ? END
+    WHERE env=? AND line=? AND refType='spin' AND refId=? AND resolvedAt IS NULL
+  `).run(Date.now(), note, note, env, kind, String(spinId))
+}
+
+/**
+ * 把「已經是 MISSING／AMBIGUOUS、但還沒有對應 finding」的舊列補上。
+ *
+ * ⚠️ 沒有這一步的話，畫面上的「近期告警」會是 **0 筆，而 DB 裡有 127 筆掉單**——
+ *    `0` 會被讀成「沒問題」，那正是這整份規格在防的假結論。
+ *    findings 是後來才加的，那些列當時沒有機會被記錄。
+ *
+ * 只回填最近 7 天、而且靠 `recordFinding()` 自己去重，重跑安全。
+ */
+export function backfillFindings(env: ReconEnv, days = 7): number {
+  const since = Date.now() - days * 86400_000
+  const rows = db.prepare(`
+    SELECT id, status, observedAt FROM recon_spin
+    WHERE env=? AND observedAt >= ? AND status IN ('MISSING','AMBIGUOUS')
+  `).all(env, since) as { id: number; status: string; observedAt: number }[]
+  let n = 0
+  for (const r of rows) {
+    const kind: FindingKind = r.status === 'MISSING' ? 'missing' : 'ambiguous'
+    if (recordFinding(env, kind, r.id, {
+      severity: kind === 'missing' ? 'critical' : 'warn',
+      note: '（回填：findings 機制上線前就已判定）',
+    })) n++
+  }
+  return n
 }

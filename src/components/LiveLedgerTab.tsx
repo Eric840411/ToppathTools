@@ -41,7 +41,12 @@ const fmtAgo = (s: number | null) => {
 }
 const fmtClock = (ms: number) => new Date(ms).toLocaleTimeString('zh-TW', { hour12: false })
 
-interface Lamp { key: string; label: string; state: string; agoSec: number | null; note: string }
+interface Lamp { key: string; label: string; state: string; agoSec: number | null; note: string; detail?: string }
+interface Finding {
+  id: number; line: string; severity: string; refId: string; detectedAt: number
+  note: string; machineType?: string; spinSeq?: number; resolvedAt: number | null
+}
+interface Setting { key: string; label: string; unit: string; dflt: number; value: number; isDefault: boolean; effect: string }
 interface Line {
   id: string; name: string; desc: string; implemented: boolean; reason?: string
   counts?: { match: number; pending: number; missing: number; ambiguous: number }
@@ -52,7 +57,8 @@ interface Overview {
   session: { sessionId: string; machineType: string; firstAt: number; lastAt: number } | null
   health: Lamp[]
   kpi: {
-    coverage: { matched: number; eligible: number; total: number; ratio: number | null }
+    coverage: { matched: number; eligible: number; total: number; ratio: number | null
+      strict: number; fallback: number; unlabelled: number }
     netDelta: null; netDeltaReason: string
     missing: { count: number; oldestAgeSec: number | null }
     mismatch: null; mismatchReason: string
@@ -64,6 +70,7 @@ interface Overview {
   bindMethods: { residual: number; absolute_window: number; unknown: number }
   lateRebound: number
   pendingTimeoutSec: number
+  findings: Finding[]
 }
 interface Row {
   id: number; observedAt: number; machineType: string; gmid: string; spinSeq: number
@@ -90,6 +97,9 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
   /** 使用者捲到表格中間時新資料不自動插入，只在頂端提示。傳統翻頁在即時流上會打架。 */
   const [buffered, setBuffered] = useState<Row[]>([])
   const scrolledRef = useRef(false)
+  const [settings, setSettings] = useState<Setting[]>([])
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingMsg, setSettingMsg] = useState('')
 
   const h = useCallback((): Record<string, string> =>
     userLabel ? { 'x-user-label': userLabel } : {}, [userLabel])
@@ -128,6 +138,29 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
     return () => clearInterval(t)
     // eslint-disable-next-line
   }, [env, minutes, filter, rows])
+
+  const loadSettings = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/autospin/live-ledger/settings?env=${env}`, { headers: h() })
+      const d = await r.json()
+      if (d.ok) setSettings(d.settings)
+    } catch { /* 下次再試 */ }
+  }, [env, h])
+  useEffect(() => { loadSettings() }, [loadSettings])
+
+  const saveSetting = async (key: string, value: number) => {
+    setSettingMsg('')
+    try {
+      const r = await fetch(`/api/autospin/live-ledger/settings?env=${env}`, {
+        method: 'PUT', headers: { ...h(), 'content-type': 'application/json' },
+        body: JSON.stringify({ key, value }),
+      })
+      const d = await r.json()
+      // ⚠️ 失敗要講原因。靜默失敗會讓使用者以為改成功了，之後拿舊門檻的結果下結論。
+      setSettingMsg(d.ok ? `已更新 ${key}` : `更新失敗：${d.reason ?? '未知原因'}`)
+      if (d.ok) { loadSettings(); loadOverview() }
+    } catch (e) { setSettingMsg(`更新失敗：${e}`) }
+  }
 
   const openDetail = async (id: number) => {
     if (openId === id) { setOpenId(null); setDetail(null); return }
@@ -181,7 +214,7 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
             {/* ⚠️ 顯示「距上次成功多久」而不是「延遲幾毫秒」——延遲數字在資料源
                 斷掉那一刻會停住不動，看起來永遠健康 */}
             <span style={{ color: C.ink3, fontVariantNumeric: 'tabular-nums' }}>
-              {l.state === 'unwired' ? '未串接' : fmtAgo(l.agoSec)}
+              {l.state === 'unwired' ? '未串接' : (l.detail ?? fmtAgo(l.agoSec))}
             </span>
           </div>
         ))}
@@ -191,7 +224,9 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(168px,1fr))', gap: 10 }}>
         <Kpi label="已對帳 / 可對帳 spin"
           value={k ? `${k.coverage.matched} / ${k.coverage.eligible}` : '—'}
-          sub={k?.coverage.ratio === null || !k ? '無樣本' : `覆蓋率 ${(k.coverage.ratio * 100).toFixed(1)}%`}
+          sub={k?.coverage.ratio === null || !k ? '無樣本'
+            : `覆蓋率 ${(k.coverage.ratio * 100).toFixed(1)}% · 嚴格 ${k.coverage.strict} / 寬鬆 ${k.coverage.fallback}`            + (k.coverage.unlabelled ? ` / 未標記 ${k.coverage.unlabelled}` : '')}
+          title="嚴格＝扣掉系統性偏移後比殘差（±5s）；寬鬆＝樣本不足時退回絕對窗（±30s）。兩者信心度差一個數量級，所以分開列。"
           tone={k && k.coverage.ratio !== null && k.coverage.ratio > 0.95 ? 'good' : undefined} />
         {/* ⚠️ 規格書說累計差額是「這頁的頭號數字」，但 P0 只綁定不比金額。
             這格顯示 0 會讓人以為「今天沒差錢」——那是主動誤導。 */}
@@ -271,6 +306,71 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
               </div>
             )}
           </div>
+        </Panel>
+      </div>
+
+      {/* 近期告警 + 門檻設定 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(360px,1fr))', gap: 12 }}>
+        <Panel title="近期告警" right={`未解決 ${ov?.findings.length ?? 0} 筆`}>
+          {/* ⚠️ 這裡列的是**綁定層**的告警（掉單／無法判定），不是金額不符——
+              agent 側目前沒有 bet／win，金額比對還做不了。不寫清楚的話，
+              使用者會以為金額已經驗過了。 */}
+          <div style={{ padding: '8px 13px', fontSize: 10.5, color: C.ink3, borderBottom: `1px solid ${C.line}` }}>
+            綁定層告警（掉單／無法判定）。金額不符尚未實作——agent 端沒有 bet／win 可比。
+          </div>
+          <div style={{ maxHeight: 240, overflow: 'auto' }}>
+            {(ov?.findings ?? []).map(f => (
+              <div key={f.id} style={{ display: 'flex', gap: 9, alignItems: 'baseline', padding: '7px 13px', borderBottom: `1px solid ${C.line}`, fontSize: 12 }}>
+                <span style={{
+                  fontSize: 10, padding: '1px 7px', borderRadius: 99, flex: 'none',
+                  color: f.severity === 'critical' ? C.bad : C.pending,
+                  background: `${f.severity === 'critical' ? C.bad : C.pending}22`,
+                }}>{f.line === 'missing' ? '掉單' : f.line === 'ambiguous' ? '無法判定' : f.line}</span>
+                <span style={{ color: C.ink3, fontVariantNumeric: 'tabular-nums' }}>{fmtClock(f.detectedAt)}</span>
+                <span style={{ color: C.ink }}>{f.machineType ?? '—'} #{f.spinSeq ?? '—'}</span>
+                <span style={{ color: C.ink3, fontSize: 11, marginLeft: 'auto', textAlign: 'right' }}>{f.note}</span>
+              </div>
+            ))}
+            {ov && ov.findings.length === 0 && (
+              <div style={{ padding: 20, textAlign: 'center', color: C.ink3, fontSize: 12 }}>
+                目前沒有未解決的綁定層告警
+              </div>
+            )}
+          </div>
+        </Panel>
+
+        <Panel title="門檻設定" right={
+          <button onClick={() => setSettingsOpen(o => !o)} style={{
+            padding: '2px 9px', fontSize: 11, borderRadius: 5, cursor: 'pointer',
+            background: 'transparent', color: C.ink2, border: `1px solid ${C.line}`,
+          }}>{settingsOpen ? '收合' : '展開'}</button>
+        }>
+          {settingsOpen ? (
+            <div style={{ padding: '4px 0' }}>
+              {settings.map(s => (
+                <div key={s.key} style={{ padding: '10px 13px', borderBottom: `1px solid ${C.line}` }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <b style={{ fontSize: 12.5, color: C.ink }}>{s.label}</b>
+                    <input type="number" defaultValue={s.value} min={1}
+                      onBlur={e => { const v = Number(e.target.value); if (v !== s.value) saveSetting(s.key, v) }}
+                      style={{ width: 78, marginLeft: 'auto', background: C.panel2, color: C.ink, border: `1px solid ${C.line}`, borderRadius: 5, padding: '3px 7px', fontSize: 12, textAlign: 'right' }} />
+                    <span style={{ fontSize: 11, color: C.ink3, width: 18 }}>{s.unit}</span>
+                  </div>
+                  {/* ⚠️ 每個參數都要寫「預設值」與「這個值影響什麼」——
+                      不寫的話沒有人敢動它，也沒有人知道動了會怎樣 */}
+                  <div style={{ fontSize: 10.5, color: C.ink3, marginTop: 4, lineHeight: 1.6 }}>
+                    預設 {s.dflt}{s.unit}{s.isDefault ? '' : '（已調整）'} · {s.effect}
+                  </div>
+                </div>
+              ))}
+              {settingMsg && <div style={{ padding: '8px 13px', fontSize: 11.5, color: settingMsg.includes('失敗') ? C.bad : C.match }}>{settingMsg}</div>}
+            </div>
+          ) : (
+            <div style={{ padding: '12px 13px', fontSize: 11.5, color: C.ink3 }}>
+              {settings.length} 個可調參數（掉單門檻、時間窗、拉取間隔、收尾窗）。
+              {settings.some(s => !s.isDefault) && <b style={{ color: C.pending }}> 有參數已被調整過。</b>}
+            </div>
+          )}
         </Panel>
       </div>
 
