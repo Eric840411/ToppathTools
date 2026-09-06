@@ -56,6 +56,12 @@ export interface AgentInfo {
   lastSeenAt: number
   busy: boolean
   sessionId: string | null
+  /**
+   * 這台 agent 目前這次派工是給哪個帳號的。
+   * ⚠️ 用來把「agent 斷線」對應回「哪些 AutoSpin session 該停」——
+   *    Python 是 HTTP 輪詢，agent 死掉它不會知道，會變孤兒繼續跑。
+   */
+  dispatchUserLabel?: string
 }
 
 export const agentConnections = new Map<string, AgentInfo>()

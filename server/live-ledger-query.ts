@@ -137,6 +137,10 @@ export interface Overview {
   ok: true
   env: ReconEnv
   windowMinutes: number
+  /** 這一頁在看誰的資料。null＝跨使用者檢視（除錯用）。⚠️ 顯示分流，不是權限 */
+  viewer: string | null
+  /** 這個範圍內有多少筆歸不了戶（早於 userLabel 欄位上線）。⚠️ 不能預設歸給檢視者 */
+  unattributed: number
   session: { sessionId: string; machineType: string; firstAt: number; lastAt: number } | null
   health: Lamp[]
   kpi: {
@@ -168,16 +172,22 @@ export interface Overview {
  *    （48/139 = 34.5% vs 48/59 = 81.4%，兩個數字導向完全相反的結論）。
  *    舊資料沒有 outcome 欄位，那時一律算進 eligible（保守，寧可低估覆蓋率）。
  */
-export function overview(env: ReconEnv, windowMinutes = 30, now = Date.now()): Overview {
+/**
+ * ⚠️ `viewer` 是**顯示分流**，不是權限隔離——過濾值來自 client 自己送的 header。
+ *    傳 null 代表跨使用者檢視（除錯用），畫面上要標清楚。
+ */
+export function overview(env: ReconEnv, windowMinutes = 30, now = Date.now(), viewer: string | null = null): Overview {
   const since = now - windowMinutes * 60_000
   const timeoutSec = setting(env, 'pendingTimeoutSec', PENDING_TIMEOUT_DEFAULT)
 
   const rows = db.prepare(`
-    SELECT id, sessionId, machineType, status, observedAt, outcome, bindMethod, lateArrival
-    FROM recon_spin WHERE env=? AND observedAt >= ? ORDER BY observedAt
-  `).all(env, since) as {
+    SELECT id, sessionId, machineType, status, observedAt, outcome, bindMethod, lateArrival, userLabel
+    FROM recon_spin WHERE env=? AND observedAt >= ?
+      ${viewer === null ? '' : 'AND userLabel = ?'}
+    ORDER BY observedAt
+  `).all(...(viewer === null ? [env, since] : [env, since, viewer])) as {
     id: number; sessionId: string; machineType: string; status: string
-    observedAt: number; outcome: string; bindMethod: string; lateArrival: number
+    observedAt: number; outcome: string; bindMethod: string; lateArrival: number; userLabel: string
   }[]
 
   const NOT_STARTED = new Set(['not_started'])
@@ -237,7 +247,7 @@ export function overview(env: ReconEnv, windowMinutes = 30, now = Date.now()): O
   // L4/L5 的統計來自 JP 那兩張表（跟 spin 無關——池是整個群組共用的）
   const jp = jpSummary(env, since)
   // L1/L2 的金額比對統計（只算已 MATCH 且兩側金額都齊的列）
-  const amt = amountStats(env, since)
+  const amt = amountStats(env, since, viewer)
   const lines: LedgerLine[] = [
     {
       id: 'L1', name: '單局', desc: 'agent 觀測 ↔ gameRecordList · key=orderId',
@@ -272,7 +282,9 @@ export function overview(env: ReconEnv, windowMinutes = 30, now = Date.now()): O
   ]
 
   return {
-    ok: true, env, windowMinutes, session,
+    ok: true, env, windowMinutes, viewer,
+    unattributed: viewer === null ? rows.filter(r => !r.userLabel).length : 0,
+    session,
     health: healthLamps(env, now),
     kpi: {
       coverage: {
@@ -293,7 +305,7 @@ export function overview(env: ReconEnv, windowMinutes = 30, now = Date.now()): O
     },
     lines, timeline, bindMethods,
     lateRebound: rows.filter(r => r.lateArrival === 1).length,
-    findings: recentFindings(env, 20),
+    findings: recentFindings(env, 20, false, viewer),
     jp,
     pendingTimeoutSec: timeoutSec,
   }
@@ -328,6 +340,8 @@ export interface LedgerRow {
  */
 export function ledgerRows(env: ReconEnv, opts: {
   limit?: number; cursor?: number | null; filter?: 'all' | 'abnormal' | 'pending'
+  /** ⚠️ 顯示分流用，不是權限隔離。null＝跨使用者檢視 */
+  viewer?: string | null
   /** ⚠️ 一定要跟 overview 吃同一個時間視窗。少了它，KPI 顯示「掉單 0」而下面
    *  表格滿是掉單——同一畫面兩個分母，使用者不知道該信哪個。 */
   minutes?: number
@@ -341,6 +355,7 @@ export function ledgerRows(env: ReconEnv, opts: {
     args.push((opts.now ?? Date.now()) - opts.minutes * 60_000)
   }
   if (opts.cursor) { where.push('s.observedAt < ?'); args.push(opts.cursor) }
+  if (opts.viewer) { where.push('s.userLabel = ?'); args.push(opts.viewer) }
   if (opts.filter === 'abnormal') where.push(`s.status IN ('MISSING','AMBIGUOUS')`)
   else if (opts.filter === 'pending') where.push(`s.status = 'PENDING'`)
 
@@ -369,7 +384,7 @@ export function ledgerRows(env: ReconEnv, opts: {
 }
 
 /** 單筆下鑽：三方原始資料。這是**唯一**顯示原始資料的地方，上面都是結論。 */
-export function ledgerDetail(env: ReconEnv, id: number): {
+export function ledgerDetail(env: ReconEnv, id: number, viewer: string | null = null): {
   ok: boolean
   spin?: Record<string, unknown>
   backend?: Record<string, unknown> | null
@@ -377,6 +392,8 @@ export function ledgerDetail(env: ReconEnv, id: number): {
   luckylink: { available: false; reason: string }
 } {
   const spin = db.prepare('SELECT * FROM recon_spin WHERE env=? AND id=?').get(env, id) as Record<string, unknown> | undefined
+  // 不是自己的就當作找不到（顯示分流；真要擋要用登入身分）
+  if (spin && viewer && spin.userLabel !== viewer) return { ok: false, luckylink: { available: false, reason: '不在目前檢視範圍' } }
   if (!spin) return { ok: false, luckylink: { available: false, reason: '尚未串接' } }
   let backend: Record<string, unknown> | null = null
   let backendRaw: unknown = null
@@ -402,7 +419,7 @@ export function ledgerDetail(env: ReconEnv, id: number): {
  * ⚠️ `checked` 是**分母**：只算「已 MATCH 且 agent 側金額算得出來」的列。
  *    沒起局的 spin 本來就沒有金額，混進分母會讓不符率看起來很低。
  */
-export function amountStats(env: ReconEnv, sinceMs: number): {
+export function amountStats(env: ReconEnv, sinceMs: number, viewer: string | null = null): {
   checked: number; l1Bad: number; l2Bad: number
 } {
   const r = db.prepare(`
@@ -410,11 +427,14 @@ export function amountStats(env: ReconEnv, sinceMs: number): {
     JOIN recon_backend_record b ON b.orderId = s.orderId AND b.env = s.env
     WHERE s.env=? AND s.status='MATCH' AND s.observedAt >= ?
       AND (s.betAmount > 0 OR s.winObserved IS NOT NULL)
-  `).get(env, sinceMs) as { checked: number }
+      ${viewer === null ? '' : 'AND s.userLabel = ?'}
+  `).get(...(viewer === null ? [env, sinceMs] : [env, sinceMs, viewer])) as { checked: number }
   const f = db.prepare(`
     SELECT line, COUNT(*) n FROM recon_finding
-    WHERE env=? AND detectedAt >= ? AND line IN ('l1_amount','l2_balance') GROUP BY line
-  `).all(env, sinceMs) as { line: string; n: number }[]
+    WHERE env=? AND detectedAt >= ? AND line IN ('l1_amount','l2_balance')
+      ${viewer === null ? '' : 'AND userLabel = ?'}
+    GROUP BY line
+  `).all(...(viewer === null ? [env, sinceMs] : [env, sinceMs, viewer])) as { line: string; n: number }[]
   const by = new Map(f.map(x => [x.line, x.n]))
   return { checked: r?.checked ?? 0, l1Bad: by.get('l1_amount') ?? 0, l2Bad: by.get('l2_balance') ?? 0 }
 }

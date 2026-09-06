@@ -55,6 +55,7 @@ interface Line {
 }
 interface Overview {
   ok: boolean; env: string; windowMinutes: number
+  viewer: string | null; unattributed: number
   session: { sessionId: string; machineType: string; firstAt: number; lastAt: number } | null
   health: Lamp[]
   kpi: {
@@ -101,22 +102,25 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
   const [settings, setSettings] = useState<Setting[]>([])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingMsg, setSettingMsg] = useState('')
+  /** 跨使用者檢視。⚠️ 這是除錯用的，不是權限——過濾值本來就是 client 送的 header */
+  const [showAll, setShowAll] = useState(false)
 
   const h = useCallback((): Record<string, string> =>
     userLabel ? { 'x-user-label': userLabel } : {}, [userLabel])
 
   const loadOverview = useCallback(async () => {
     try {
-      const r = await fetch(`/api/autospin/live-ledger/overview?env=${env}&minutes=${minutes}`, { headers: h() })
+      const r = await fetch(`/api/autospin/live-ledger/overview?env=${env}&minutes=${minutes}${showAll ? '&scope=all' : ''}`, { headers: h() })
       const d = await r.json()
       if (d.ok) { setOv(d); setErr('') } else setErr(d.reason || '讀取失敗')
     } catch (e) { setErr(String(e)) }
-  }, [env, minutes, h])
+  }, [env, minutes, h, showAll])
 
   const loadRows = useCallback(async (reset: boolean) => {
     try {
       // ⚠️ 一定要帶 minutes——KPI 吃視窗、表格不吃的話，同一畫面會出現兩個分母
       const q = new URLSearchParams({ env, filter, limit: '50', minutes: String(minutes) })
+      if (showAll) q.set('scope', 'all')
       if (!reset && cursor) q.set('cursor', String(cursor))
       const r = await fetch(`/api/autospin/live-ledger/rows?${q}`, { headers: h() })
       const d = await r.json()
@@ -131,14 +135,14 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
       } else setRows(prev => [...prev, ...d.rows])
       setCursor(d.nextCursor)
     } catch { /* 靜默：下一輪會再試 */ }
-  }, [env, filter, cursor, h, rows, minutes])
+  }, [env, filter, cursor, h, rows, minutes, showAll])
 
-  useEffect(() => { loadOverview(); loadRows(true) /* eslint-disable-next-line */ }, [env, minutes, filter])
+  useEffect(() => { loadOverview(); loadRows(true) /* eslint-disable-next-line */ }, [env, minutes, filter, showAll])
   useEffect(() => {
     const t = setInterval(() => { loadOverview(); loadRows(true) }, 5000)
     return () => clearInterval(t)
     // eslint-disable-next-line
-  }, [env, minutes, filter, rows])
+  }, [env, minutes, filter, rows, showAll])
 
   const loadSettings = useCallback(async () => {
     try {
@@ -167,7 +171,7 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
     if (openId === id) { setOpenId(null); setDetail(null); return }
     setOpenId(id); setDetail(null)
     try {
-      const r = await fetch(`/api/autospin/live-ledger/row/${id}?env=${env}`, { headers: h() })
+      const r = await fetch(`/api/autospin/live-ledger/row/${id}?env=${env}${showAll ? '&scope=all' : ''}`, { headers: h() })
       setDetail(await r.json())
     } catch { setDetail({ ok: false }) }
   }
@@ -179,6 +183,15 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
       {/* 標題列 + 篩選 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ fontSize: 13, color: C.ink2 }}>
+          {/* ⚠️ 一定要明寫在看誰的資料。不寫的話使用者會把「自己沒有資料」
+              誤讀成「系統沒有資料」。 */}
+          <span style={{
+            display: 'inline-block', padding: '1px 9px', borderRadius: 99, marginRight: 9,
+            fontSize: 11.5, background: showAll ? '#3a2a12' : '#16304a',
+            color: showAll ? C.pending : '#7dd3fc', border: `1px solid ${showAll ? C.pending : '#2563eb'}55`,
+          }}>
+            {showAll ? '跨使用者檢視（除錯用）' : `目前顯示：${userLabel || '（未指定帳號）'}`}
+          </span>
           {ov?.session
             ? <>session <b style={{ color: C.ink }}>{ov.session.sessionId}</b> · {ov.session.machineType}
               · 最後觀測 {fmtClock(ov.session.lastAt)}</>
@@ -189,6 +202,14 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
             style={{ background: C.panel2, color: C.ink, border: `1px solid ${C.line}`, borderRadius: 6, padding: '4px 8px', fontSize: 12 }}>
             <option value="qat">QAT</option><option value="uat">UAT</option>
           </select>
+          <button onClick={() => setShowAll(v => !v)}
+            title="跨使用者檢視是除錯用的。⚠️ 這一頁的分流依據是 client 送的 header，本來就不是權限隔離。"
+            style={{
+              padding: '4px 10px', fontSize: 11.5, borderRadius: 6, cursor: 'pointer',
+              background: showAll ? '#3a2a12' : 'transparent',
+              color: showAll ? C.pending : C.ink2,
+              border: `1px solid ${showAll ? C.pending : C.line}`,
+            }}>{showAll ? '顯示全部（含他人）' : '只顯示自己'}</button>
           <select value={minutes} onChange={e => setMinutes(Number(e.target.value))}
             style={{ background: C.panel2, color: C.ink, border: `1px solid ${C.line}`, borderRadius: 6, padding: '4px 8px', fontSize: 12 }}>
             <option value={30}>近 30 分鐘</option><option value={120}>近 2 小時</option>
@@ -197,6 +218,12 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
         </div>
       </div>
 
+      {showAll && (ov?.unattributed ?? 0) > 0 && (
+        <div style={{ padding: '8px 12px', background: '#2a2418', border: `1px solid ${C.pending}55`, borderRadius: 6, fontSize: 12, color: C.pending }}>
+          其中 {ov!.unattributed} 筆**無法歸屬到任何帳號**（早於歸屬欄位上線）。
+          這些不會出現在任何人的個人檢視裡——刻意不預設歸給檢視者，保留期到了會自然淘汰。
+        </div>
+      )}
       {err && <div style={{ padding: 10, background: '#3b1a1a', border: `1px solid ${C.bad}`, borderRadius: 6, fontSize: 12.5 }}>{err}</div>}
 
       {/* ① 資料源健康列 —— 放最上面是刻意的：底下所有數字的意義都取決於這幾盞燈 */}
@@ -342,7 +369,7 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
             ))}
             {ov && ov.findings.length === 0 && (
               <div style={{ padding: 20, textAlign: 'center', color: C.ink3, fontSize: 12 }}>
-                目前沒有未解決的綁定層告警
+                {showAll ? '目前沒有未解決的綁定層告警' : '你目前沒有未解決的告警（不代表系統沒有異常——這裡只顯示屬於你的）'}
               </div>
             )}
           </div>
@@ -455,7 +482,10 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
               ))}
               {rows.length === 0 && (
                 <tr><td colSpan={9} style={{ padding: 24, textAlign: 'center', color: C.ink3, fontSize: 12.5 }}>
-                  這個範圍內沒有觀測紀錄
+                  {/* ⚠️ **不能寫成「沒有異常」**——那會讓人以為系統驗過了、一切正常。
+                      實際是「這個範圍內沒有屬於你的資料」，兩件事差很多。 */}
+                  {showAll ? '這個範圍內沒有任何觀測紀錄'
+                    : `你目前沒有對帳資料（${userLabel || '未指定帳號'}）。換個時間範圍，或切到「顯示全部」看看是不是別人的。`}
                 </td></tr>
               )}
             </tbody>

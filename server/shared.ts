@@ -1064,6 +1064,15 @@ for (const [col, decl] of [
 }
 db.exec(`CREATE INDEX IF NOT EXISTS idx_recon_backend_seq ON recon_backend_record (env, username, spinIndex)`)
 
+// recon_finding 也要分流，否則異常清單仍然全公開。
+// 由 spin 衍生的 finding 沿用該 spin 的 userLabel；不是由 spin 衍生的（例如來源健康度）
+// 留空字串當系統級，兩者在畫面上要分得出來。
+for (const [col, decl] of [
+  ['userLabel', `TEXT NOT NULL DEFAULT ''`],
+] as const) {
+  try { db.exec(`ALTER TABLE recon_finding ADD COLUMN ${col} ${decl}`) } catch { /* 已存在 */ }
+}
+
 // recon_spin.outcome —— agent 對這一下 spin 的判定
 // （completed / completed_late / suspected / unknown / not_started）。
 //
@@ -1181,6 +1190,18 @@ for (const [col, decl] of [
 
 for (const [col, decl] of [
   ['outcome', `TEXT NOT NULL DEFAULT ''`],
+  // 這一筆觀測屬於哪個帳號。**寫入當下由 server 蓋章**（從 agentSessions 取），
+  // 不採用 agent／前端送上來的值。
+  //
+  // ⚠️ **這是「顯示分流」，不是權限隔離。**過濾條件來自 `x-user-label` header，
+  //    而那是 client 自己送的——實測換個假名字一樣打得進來。任何人改個 header
+  //    就看得到別人的資料。要真隔離必須改用登入身分（cookie → auth_sessions），
+  //    **不要在 UI 或文件上把它講成隔離/權限**。
+  //
+  // ⚠️ 為什麼不靠 join `autospin_agent_sessions` 反查：那張表會被 GC，實測 6 個
+  //    sessionId 只有最新一個查得到 userLabel，3,122 筆裡有 322 筆**永久歸不了戶**。
+  //    歸屬要在寫入當下就決定，事後推不回來。
+  ['userLabel', `TEXT NOT NULL DEFAULT ''`],
   ['bindMethod', `TEXT NOT NULL DEFAULT ''`],
   ['lateArrival', 'INTEGER NOT NULL DEFAULT 0'],
 ] as const) {

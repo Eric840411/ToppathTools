@@ -1162,6 +1162,11 @@ interface AgentSession {
   pauseRequested: boolean
   userLabel: string
   spinIntervalOverride: number | null
+  /**
+   * 這個 session 是派工給哪一台 agent 的（hub 模式才有）。
+   * ⚠️ 用來判斷「agent 已經不在了，但 Python 還活著」——見 should-stop 的說明。
+   */
+  dispatchedAgentId?: string
   heavyTask?: HeavyTaskToken
   // LuckyLink poller state — replayed on SSE reconnect so panel survives refresh
   luckylinkJpGroupCode?: string
@@ -1428,6 +1433,11 @@ router.post('/api/autospin/agent/start', (req, res) => {
       id: sessionId, status: 'running', startedAt: Date.now(), lastHeartbeat: Date.now(),
       logs: [], screenshots: [], stopRequested: false, pauseRequested: false, userLabel, spinIntervalOverride: null,
       heavyTask: heavyTask.token,
+      // ⚠️ 把這個 session 連回派工的那台 agent。沒有這條線的話，agent 被 pm2 停掉之後
+      //    沒有人知道該停哪個 session——Python 是 HTTP 輪詢、不吃 agent 的 WebSocket，
+      //    會變成孤兒繼續跑（實測停止後又寫了 2,762 筆）。
+      dispatchedAgentId: [...agentConnections.values()]
+        .find(a => a.busy && a.dispatchUserLabel === userLabel)?.agentId,
     })
   }
   // Return configs merged with machine_test_profiles selectors
@@ -1535,8 +1545,35 @@ router.get('/api/autospin/agent/:id/should-stop', (req, res) => {
     return res.json({ stop: false, sessionNotFound: true, pause: false, spinInterval: null })
   }
   if (s.status === 'running') s.lastHeartbeat = Date.now()
+
+  /**
+   * ⚠️ **孤兒 Python 會靠自己的輪詢養活自己。**
+   *
+   * Python 引擎是用 HTTP 輪詢這支 API 的，跟 agent 的 WebSocket 完全無關——
+   * `pm2 stop` 掉 agent 之後，Python 變成孤兒**繼續跑**。而上面那行
+   * `s.lastHeartbeat = Date.now()` 是被**它自己的輪詢**更新的，所以
+   * 30 秒的心跳逾時掃描永遠不會觸發，session 永遠是 running，
+   * 於是它永遠收不到停止指令。
+   *
+   * 實際後果（2026-09-07 回報）：04:02Z 下停止，那個 session 寫到 07:29Z，
+   * **停止後又寫了 2,762 筆**，現場有 11 個父行程已消失的 python.exe。
+   *
+   * 所以派工模式下要再問一句：**派給它的那台 agent 還連著嗎？**
+   * 不在了就叫停——agent 沒了，就沒有人能正常收尾這個 session。
+   */
+  let agentGone = false
+  if (s.dispatchedAgentId) {
+    const conn = agentConnections.get(s.dispatchedAgentId)
+    agentGone = !conn || conn.ws.readyState !== conn.ws.OPEN
+    if (agentGone && s.status === 'running') {
+      s.status = 'stopped'
+      finishHeavyTask(s.heavyTask)
+      broadcastAgentLog(s.id, '[Agent] 派工的 Local Agent 已離線，session 標記停止（避免 Python 變成孤兒繼續跑）')
+    }
+  }
+
   res.json({
-    stop: s.stopRequested || s.status === 'stopped',
+    stop: s.stopRequested || s.status === 'stopped' || agentGone,
     pause: s.pauseRequested ?? false,
     spinInterval: s.spinIntervalOverride ?? null,
     // OSMWatcher 狀態（key=gmid），AutoSpin 每 3 秒隨心跳一起拿到，判斷是否進入特殊遊戲
@@ -1695,6 +1732,8 @@ router.post('/api/autospin/hub-dispatch', (req, res) => {
   const dispatchId = `hub-${Date.now()}`
   agent.busy = true
   agent.sessionId = dispatchId
+  // 派工是給哪個帳號的——Python 之後呼叫 /agent/start 時靠它把 session 連回這台 agent
+  agent.dispatchUserLabel = userLabel
   agent.ws.send(JSON.stringify({ type: 'autospin_start', sessionId: dispatchId, userLabel, luckylinkConfig: resolvedLuckylink ?? { enabled: false } }))
   res.json({ ok: true, agentId: agent.agentId, hostname: agent.hostname, dispatchId })
 })
@@ -2147,6 +2186,10 @@ router.post('/api/autospin/agent/:id/recon-spin', (req, res) => {
       balanceBefore: b.balanceBefore ?? null, balanceAfter: b.balanceAfter ?? null,
       winObserved: b.winObserved ?? null, observedAt: b.observedAt,
       outcome: b.outcome,
+      // ⚠️ **歸屬由 server 從 session 蓋章，不採用 agent 送上來的值。**
+      //    而且不能事後靠 join autospin_agent_sessions 反查——那張表會被 GC，
+      //    實測 6 個 sessionId 只有最新一個查得到，3,122 筆有 322 筆永久歸不了戶。
+      userLabel: s.userLabel || '',
     })
     // username 存在 recon_spin 的 note 欄（P0 還沒有專屬欄位），worker 拉取時要用它當過濾值
     if (b.username) {
@@ -2183,6 +2226,22 @@ router.post('/api/autospin/agent/:id/recon-spin', (req, res) => {
 // ⚠️ 這幾支的共同原則：**沒有結論就回 null，不要回 0。**
 //    規格書明訂「0 是一個結論，— 是沒有結論」，混用等於主動誤導。
 
+/**
+ * 這一次要看誰的資料。
+ *
+ * ⚠️ **這是顯示分流，不是權限隔離。**`x-user-label` 是 client 自己送的 header，
+ *    實測換個假名字一樣打得進來——任何人改個 header 就看得到別人的。
+ *    使用者要的是「不然看了會很奇怪」，顯示分流就夠；但**不要在 UI 或文件上
+ *    把它講成隔離或權限**。真要隔離必須改用登入身分（cookie → auth_sessions）。
+ *
+ * `?scope=all` 是給除錯用的跨使用者檢視，畫面上要標清楚。
+ */
+function viewerOf(req: { query: Record<string, unknown>; headers: Record<string, unknown> }): string | null {
+  if (req.query.scope === 'all') return null
+  const h = req.headers['x-user-label']
+  return typeof h === 'string' && h ? h : null
+}
+
 function reconEnvOf(req: { query: Record<string, unknown> }): 'qat' | 'uat' {
   return req.query.env === 'uat' ? 'uat' : 'qat'
 }
@@ -2190,7 +2249,7 @@ function reconEnvOf(req: { query: Record<string, unknown> }): 'qat' | 'uat' {
 router.get('/api/autospin/live-ledger/overview', (req, res) => {
   try {
     const minutes = Math.min(Math.max(Number(req.query.minutes) || 30, 1), 24 * 60)
-    res.json(ledgerOverview(reconEnvOf(req as never), minutes))
+    res.json(ledgerOverview(reconEnvOf(req as never), minutes, Date.now(), viewerOf(req as never)))
   } catch (e) {
     res.status(500).json({ ok: false, reason: String(e) })
   }
@@ -2204,6 +2263,7 @@ router.get('/api/autospin/live-ledger/rows', (req, res) => {
       minutes: Number(req.query.minutes) || undefined,
       cursor: req.query.cursor ? Number(req.query.cursor) : null,
       filter: f === 'abnormal' || f === 'pending' ? f : 'all',
+      viewer: viewerOf(req as never),
     }) })
   } catch (e) {
     res.status(500).json({ ok: false, reason: String(e) })
@@ -2262,7 +2322,7 @@ router.put('/api/autospin/live-ledger/settings', (req, res) => {
 
 router.get('/api/autospin/live-ledger/row/:id', (req, res) => {
   try {
-    res.json(ledgerDetail(reconEnvOf(req as never), Number(req.params.id)))
+    res.json(ledgerDetail(reconEnvOf(req as never), Number(req.params.id), viewerOf(req as never)))
   } catch (e) {
     res.status(500).json({ ok: false, reason: String(e) })
   }

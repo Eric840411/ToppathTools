@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.117.2'
+export const APP_VERSION = '4.118.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.118.0',
+    date: '2026-09-07',
+    changes: [
+      'feat(live-ledger): 對帳台改成分個人顯示。recon_spin／recon_finding 加 userLabel，**寫入當下由 server 從 session 蓋章**，不採用 agent／前端送上來的值',
+      'note(live-ledger): ⚠️ **這是顯示分流，不是權限隔離。**過濾條件來自 x-user-label header，而那是 client 自己送的——實測換個假名字一樣打得進來。要真隔離必須改用登入身分。程式碼註解與 UI 都不會把它講成隔離',
+      'fix(live-ledger): 歸屬不能靠事後 join autospin_agent_sessions——那張表會被 GC，實測 6 個 sessionId 只有最新一個查得到，3,122 筆有 322 筆永久歸不了戶。既有資料一律留空字串當「未歸屬」，**絕對不預設歸給當下的檢視者**',
+      'feat(live-ledger): 空狀態文案改成「你目前沒有對帳資料」而不是「沒有異常」——後者會讓人以為系統驗過了、一切正常。標題列明寫「目前顯示：誰」，另有「顯示全部」切換並標明是跨使用者除錯檢視',
+      'fix(autospin): 🚨 **孤兒 Python 會靠自己的輪詢養活自己。**Python 是 HTTP 輪詢 /should-stop、跟 agent 的 WebSocket 無關，pm2 停掉 agent 之後它變孤兒繼續跑；而心跳是被**它自己的輪詢**更新的，所以 30 秒逾時掃描永遠不觸發、session 永遠 running、它永遠收不到停止指令。實測：04:02Z 下停止，session 寫到 07:29Z，**停止後又寫了 2,762 筆**，現場 11 個孤兒 python.exe。現在派工模式會檢查「派給它的那台 agent 還連著嗎」，不在了就叫停',
+    ],
+  },
   {
     version: '4.117.2',
     date: '2026-09-06',

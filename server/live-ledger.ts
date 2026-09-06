@@ -476,18 +476,25 @@ export function recordSpinObservation(row: {
    *    對帳看起來像壞了（實測 timeout 約 29%，48/139=34.5% vs 48/59=81.4%）。
    */
   outcome?: string
+  /**
+   * 這筆觀測屬於哪個帳號。⚠️ **由端點從 session 取，不要相信 client 送的值。**
+   *    而且這是**顯示分流不是權限隔離**——過濾用的 header 任何人都能偽造。
+   */
+  userLabel?: string
 }): void {
   db.prepare(`
     INSERT INTO recon_spin (env, sessionId, machineType, gmid, spinSeq, betAmount,
-      balanceBefore, balanceAfter, winObserved, status, observedAt, outcome)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)
+      balanceBefore, balanceAfter, winObserved, status, observedAt, outcome, userLabel)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)
     ON CONFLICT(env, sessionId, machineType, spinSeq) DO UPDATE SET
       betAmount=excluded.betAmount, balanceBefore=excluded.balanceBefore,
       balanceAfter=excluded.balanceAfter, winObserved=excluded.winObserved,
-      outcome=excluded.outcome
+      outcome=excluded.outcome,
+      -- ⚠️ userLabel 只在還沒歸屬時才補；已經有主人的不要被後來的寫入改掉
+      userLabel=CASE WHEN recon_spin.userLabel='' THEN excluded.userLabel ELSE recon_spin.userLabel END
   `).run(row.env, row.sessionId, row.machineType, row.gmid, row.spinSeq, row.betAmount,
     row.balanceBefore ?? null, row.balanceAfter ?? null, row.winObserved ?? null, row.observedAt,
-    row.outcome ?? '')
+    row.outcome ?? '', row.userLabel ?? '')
 }
 
 /** 後台增量落庫。⚠️ upsert：重啟後重疊拉取不能產生重複，也不能覆蓋成舊值。 */
@@ -769,15 +776,19 @@ export type FindingKind = 'missing' | 'ambiguous' | 'late_arrival' | 'l1_amount'
 export function recordFinding(env: ReconEnv, kind: FindingKind, spinId: number, opts: {
   severity?: 'info' | 'warn' | 'critical'; note?: string; amountDelta?: number | null
 } = {}): boolean {
+  // 由 spin 衍生的 finding 沿用該 spin 的歸屬——不然異常清單還是全公開。
+  // 查不到就留空字串（系統級），**不要**歸給當下的檢視者。
+  const owner = (db.prepare('SELECT userLabel FROM recon_spin WHERE id=?')
+    .get(spinId) as { userLabel?: string } | undefined)?.userLabel ?? ''
   const exists = db.prepare(
     `SELECT 1 FROM recon_finding WHERE env=? AND line=? AND refType='spin' AND refId=?`
   ).get(env, kind, String(spinId))
   if (exists) return false
   db.prepare(`
-    INSERT INTO recon_finding (env, line, severity, refType, refId, amountDelta, detectedAt, note)
-    VALUES (?, ?, ?, 'spin', ?, ?, ?, ?)
+    INSERT INTO recon_finding (env, line, severity, refType, refId, amountDelta, detectedAt, note, userLabel)
+    VALUES (?, ?, ?, 'spin', ?, ?, ?, ?, ?)
   `).run(env, kind, opts.severity ?? (kind === 'missing' ? 'critical' : 'warn'),
-    String(spinId), opts.amountDelta ?? null, Date.now(), opts.note ?? '')
+    String(spinId), opts.amountDelta ?? null, Date.now(), opts.note ?? '', owner)
   return true
 }
 
@@ -789,14 +800,15 @@ export interface FindingRow {
 }
 
 /** 近期告警。已解決的（例如掉單後來回綁成功）預設不列。 */
-export function recentFindings(env: ReconEnv, limit = 20, includeResolved = false): FindingRow[] {
+export function recentFindings(env: ReconEnv, limit = 20, includeResolved = false, viewer: string | null = null): FindingRow[] {
   return db.prepare(`
     SELECT f.*, s.machineType, s.spinSeq
     FROM recon_finding f
     LEFT JOIN recon_spin s ON s.id = CAST(f.refId AS INTEGER) AND s.env = f.env
     WHERE f.env = ? ${includeResolved ? '' : 'AND f.resolvedAt IS NULL'}
+      ${viewer === null ? '' : 'AND f.userLabel = ?'}
     ORDER BY f.detectedAt DESC LIMIT ?
-  `).all(env, limit) as FindingRow[]
+  `).all(...(viewer === null ? [env, limit] : [env, viewer, limit])) as FindingRow[]
 }
 
 /**
