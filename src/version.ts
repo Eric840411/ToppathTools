@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.116.2'
+export const APP_VERSION = '4.117.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.117.0',
+    date: '2026-09-06',
+    changes: [
+      'fix(autospin): 🚨 **金額推導會產生負值，而負值比 0 危險。**實測推出過 aBet = -5040 = -14 × 360（後台 bBet=360，跨了多局的差值）。-5040 不是 0 也不是 null，是一個**看起來有效**的數字——它會直接穿過「跳過 null」那道防線，讓 L1 產出一筆「金額差 5,400」的假不符。加合理性檢查：bet 必須 > 0 且不超過開打前餘額、win 不可為負，不通過一律改 None。**錯誤值比缺值危險——缺值只是少一筆樣本，錯值是一筆假警報**',
+      'fix(autospin): ⚠️ 根因是我還在用 __lastCoin 當「前一則 end」——正是我自己註記過不能用的那個無路由過濾全域。改成從 __moneyLog 取最後一則 reason=end',
+      'fix(autospin): win 推導成功率 0% 的成因：**結束訊號是 begin 觸發的，不是 end**。do_spin 的完成判定看「coin 有沒有更新」，而 begin 也會更新 coin，所以退出等待時 end 常常還沒到（bet 只需要 begin，所以 46%；win 需要 end，所以 0%）。補一段最多 1.5 秒的寬限只等 end',
+    ],
+  },
   {
     version: '4.116.2',
     date: '2026-09-06',

@@ -1249,6 +1249,30 @@ def read_money_seq(page) -> int:
     return 0
 
 
+def read_last_end_coin(page):
+    """`__moneyLog` 裡最後一則 reason='end' 的 coin —— 也就是「這一局開打前的餘額」。
+
+    ⚠️ **不能用 `read_balance()`（`__lastCoin`）代替。**那是無路由過濾的單一全域，
+       任何帶 coin 的封包都會覆蓋它。實測後果（2026-09-06）：
+
+           spinSeq 26  推出 aBet = -5040 = -14 × 360   後台 bBet = 360
+
+       `-5040` **不是 0、也不是 null，是一個「看起來有效」的數字**——它會穿過
+       「跳過 null」那道防線，讓 L1 產出一筆「金額差 5,400」的假不符。
+       **錯誤值比缺值危險。**
+    """
+    for frame in page.frames:
+        try:
+            v = frame.evaluate(
+                "(() => { const l = (window.__moneyLog || []).filter(x => x.reason === 'end');"
+                " return l.length ? l[l.length - 1].coin : null })()")
+            if v is not None:
+                return v
+        except Exception:
+            continue
+    return None
+
+
 def read_money_since(page, seq: int) -> list:
     """取序號大於 seq 的 moneyNtc 流水。"""
     for frame in page.frames:
@@ -1293,6 +1317,23 @@ def derive_round_amounts(entries: list, prev_end_coin):
     end_coin = end.get('coin') if end is not None else None
     bet = (prev_end_coin - begin_coin) if (prev_end_coin is not None and begin_coin is not None) else None
     win = (end_coin - begin_coin) if (end_coin is not None and begin_coin is not None) else None
+
+    # ⚠️ **合理性檢查——不通過一律改成 None，不要保留錯值。**
+    #
+    #    實測（2026-09-06）推出過 `aBet = -5040 = -14 × 360`（後台 bBet=360），
+    #    那是跨了多局的差值。`-5040` **不是 0、也不是 null，是一個「看起來有效」
+    #    的數字**——它會直接穿過「跳過 null」那道防線，讓 L1 產出一筆
+    #    「金額差 5,400」的假不符。
+    #
+    #    **錯誤值比缺值危險**：缺值只是少一筆樣本，錯值是一筆假警報，
+    #    而假警報會訓練人忽略告警。寧可少一筆樣本。
+    if bet is not None:
+        # 下注不可能是 0 或負數；也不可能超過開打前的餘額
+        if bet <= 0 or (prev_end_coin is not None and bet > prev_end_coin):
+            bet = None
+    if win is not None and win < 0:
+        # 派彩不可能是負的——負值代表這個 end 不屬於這一局
+        win = None
     return (bet, win, prev_end_coin, end_coin)
 
 
@@ -1661,6 +1702,8 @@ def do_spin(page, cfg: dict):
     balance_before = read_balance(page)
     # ⚠️ 一定要在**按下之前**記序號，之後才分得出哪幾則 moneyNtc 屬於這一局
     money_seq_before = read_money_seq(page)
+    # 這一局開打前的餘額＝流水裡最後一則 end。⚠️ 不用 __lastCoin，見 read_last_end_coin 說明。
+    prev_end_coin = read_last_end_coin(page)
     updated_at_before = get_coin_updated_at(page)
     click_start = time.time()
 
@@ -1717,9 +1760,21 @@ def do_spin(page, cfg: dict):
 
     balance_after = read_balance(page)
     # 從這一局自己的 moneyNtc 流水算出 bet／win（見 derive_round_amounts 的說明）
+    # ⚠️ **結束訊號可能是 `begin` 觸發的，不是 `end`。**`do_spin()` 的完成判定看的是
+    #    「coin 有沒有更新」，而 begin 也會更新 coin——所以退出等待時 end 常常還沒到。
+    #    實測後果（2026-09-06）：bet 推得出 46%，**win 是 0%**（win 需要 end）。
+    #    這裡補一段短寬限，只等 end，不影響主迴圈節奏（上限 1.5 秒）。
     money_entries = read_money_since(page, money_seq_before)
+    if not rejected:
+        _wait_end = time.time() + 1.5
+        while time.time() < _wait_end:
+            has_begin = any(e.get('reason') == 'begin' for e in money_entries)
+            if has_begin and any(e.get('reason') == 'end' for e in money_entries):
+                break
+            time.sleep(0.15)
+            money_entries = read_money_since(page, money_seq_before)
     round_bet, round_win, round_bal_before, round_bal_after = derive_round_amounts(
-        money_entries, balance_before)
+        money_entries, prev_end_coin)
     duration = time.time() - click_start
     if rejected:
         log(f"[{mt}] ⚠️ Spin 被伺服器拒絕，耗時 {duration:.1f}s（{exit_reason}）")
