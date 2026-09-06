@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.118.1'
+export const APP_VERSION = '4.118.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.118.2',
+    date: '2026-09-07',
+    changes: [
+      'fix(autospin): 🚨 **殭屍迴圈在「沒有 dispatchedAgentId」那條路徑上原封不動。**decideAgentGone 第一行就早退成 agentAlive:true，於是心跳照樣被 Python 自己的輪詢更新、逾時永遠不觸發——跟修之前一模一樣。而那種 session（agent 自己啟動、沒走 hub 派工）正是最容易沒人看著、最容易變孤兒的那類',
+      'feat(autospin): 新增 session 絕對上限（預設 8 小時，AUTOSPIN_SESSION_MAX_AGE_MS 可調），**跟所有判活邏輯獨立**、任何早退都繞不過。今天的教訓正是「聰明的判活邏輯會被繞過」——就算將來冒出第三種沒想到的續命路徑，最壞情況也被封在這個數字上。這次事故是 3.5 小時／2,762 筆',
+      'fix(autospin): 收尾訊息分辨「agent 離線」與「跑太久被上限收掉」——兩者的下一步完全不同：前者查連線，後者要問為什麼跑了這麼久沒人管',
+      'test(autospin): ⚠️ 舊測試「fallback session 不適用 → 一律當活著」測的是它**照設計被排除**，不是它**安全**——它在有洞的版本上是綠的，**給了假的安心**。已用「超過絕對上限一樣收尾」取代，並實測確認新測試在無上限的版本上會變紅',
+    ],
+  },
   {
     version: '4.118.1',
     date: '2026-09-07',

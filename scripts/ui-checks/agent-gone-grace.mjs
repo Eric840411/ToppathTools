@@ -53,10 +53,36 @@ console.log('\n2) ⚠️ 不會誤殺：pm2 restart 這種短暫斷線');
   check('清掉之後再斷線 → 從新的時間點重新計時，不會沿用舊的', c.agentGone === false && c.goneSince === T + 60_000);
 }
 
-console.log('\n3) 伺服器端 fallback session 不適用這個機制');
+const MAX = 8 * 60 * 60 * 1000;
+
+console.log('\n3) ⚠️ 沒有 dispatchedAgentId 的 session：靠絕對上限保護，不是靠判活');
 {
-  const a = decideAgentGone({}, false, T + 999_999, GRACE);
-  check('沒有 dispatchedAgentId → 一律當活著，永不因此收尾', a.agentAlive === true && a.agentGone === false);
+  // 這種 session 沒有 WS 可判斷，只能當活著（判死會誤殺）——**保護完全落在絕對上限**
+  const a = decideAgentGone({ startedAt: T }, false, T + 999_999, GRACE, MAX);
+  check('未逾上限 → 當活著（判死會誤殺）', a.agentAlive === true && a.agentGone === false);
+
+  // 🚨 這是規格方抓到的洞：原本這條路徑**永遠 agentAlive:true**，於是心跳照樣被
+  //    Python 自己的輪詢更新、逾時永遠不觸發，跟修之前一模一樣。而且這種 session
+  //    （agent 自己啟動、沒走 hub 派工）正是最容易沒人看著、最容易變孤兒的那類。
+  //
+  // ⚠️ 舊的測試寫的是「沒有 dispatchedAgentId → 一律當活著，永不因此收尾」——
+  //    它測的是**照設計被排除**，不是**安全**。那條測試在有洞的版本上是綠的，
+  //    給了假的安心。這一節就是為了取代它。
+  const b = decideAgentGone({ startedAt: T }, false, T + MAX + 1, GRACE, MAX);
+  check('🚨 超過絕對上限 → **一樣收尾**（這是舊測試漏掉的）',
+    b.agentGone === true && b.hardExpired === true);
+  check('   而且 agentAlive=false（心跳不會再被續命）', b.agentAlive === false);
+}
+
+console.log('\n3b) 絕對上限跟所有判活邏輯獨立');
+{
+  // 就算 agent 連線好好的，超過上限一樣收——這一道不受任何偵測結果影響
+  const a = decideAgentGone({ dispatchedAgentId: 'ag1', startedAt: T }, true, T + MAX + 1, GRACE, MAX);
+  check('agent 連線正常但超過上限 → **照樣收尾**', a.agentGone === true && a.hardExpired === true);
+
+  // 沒有 startedAt 的舊 session 不會被誤殺
+  const b = decideAgentGone({ dispatchedAgentId: 'ag1' }, true, T + 999_999_999, GRACE, MAX);
+  check('沒有 startedAt → 不因上限收尾（不猜）', b.hardExpired === false);
 }
 
 console.log('\n4) ⚠️ 兩道保險的時序：心跳逾時不能搶在寬限期之前開槍');

@@ -1548,6 +1548,18 @@ router.post('/api/autospin/agent/:id/stop', (req, res) => {
 const AGENT_GONE_GRACE_MS = Number(process.env.AUTOSPIN_AGENT_GONE_GRACE_MS) || 90_000
 
 /**
+ * session 的**絕對上限**。超過就強制收尾，**不管任何判活邏輯**。
+ *
+ * ⚠️ 這一道刻意跟所有偵測機制獨立。今天的教訓正是「聰明的判活邏輯會被繞過」——
+ *    孤兒 Python 用自己的輪詢把心跳續命，30 秒逾時整整 3.5 小時沒燒斷，多寫 2,762 筆。
+ *    就算將來又冒出第三種我們沒想到的續命路徑，這一條也擋得住，
+ *    最壞情況會被封在這個數字上。
+ *
+ * 8 小時：長壓測跑整個工作天是合理的，但沒有人會刻意讓一個 session 跑超過一天。
+ */
+const SESSION_MAX_AGE_MS = Number(process.env.AUTOSPIN_SESSION_MAX_AGE_MS) || 8 * 60 * 60 * 1000
+
+/**
  * 「這個 session 該不該因為 agent 不見了而收尾」的判定。**抽成純函式才測得動**
  * ——這段邏輯要有真的 agent 斷線才跑得到，不抽出來就只能靠上線後出事才發現。
  *
@@ -1557,16 +1569,32 @@ const AGENT_GONE_GRACE_MS = Number(process.env.AUTOSPIN_AGENT_GONE_GRACE_MS) || 
  *   `goneSince`   要寫回 session 的計時起點（undefined 代表清掉）
  */
 export function decideAgentGone(
-  s: { dispatchedAgentId?: string; agentGoneSince?: number },
+  s: { dispatchedAgentId?: string; agentGoneSince?: number; startedAt?: number },
   connOpen: boolean,
   now: number,
   graceMs = AGENT_GONE_GRACE_MS,
-): { agentAlive: boolean; agentGone: boolean; goneSince: number | undefined } {
-  // 沒有派工 agent（伺服器端 fallback）→ 這個機制不適用，一律當活著
-  if (!s.dispatchedAgentId) return { agentAlive: true, agentGone: false, goneSince: undefined }
-  if (connOpen) return { agentAlive: true, agentGone: false, goneSince: undefined }
+  maxAgeMs = SESSION_MAX_AGE_MS,
+): { agentAlive: boolean; agentGone: boolean; goneSince: number | undefined; hardExpired: boolean } {
+  /**
+   * ⚠️ **絕對上限要在所有其他判斷之前，而且不能被任何早退繞過。**
+   *
+   * 這裡原本第一行就是「沒有 dispatchedAgentId → 一律當活著」——結果是
+   * **沒走 hub 派工的 session 完全沒有被這套機制保護**：心跳照樣被 Python
+   * 自己的輪詢更新、逾時永遠不觸發，跟修之前一模一樣。而那種 session
+   * （agent 端自己啟動的）正是最容易沒人看著、最容易變孤兒的那類。
+   *
+   * 我原本的測試「fallback session 不適用」測的是它**照設計被排除**，
+   * 不是它**安全**——那給了假的安心。
+   */
+  const hardExpired = !!s.startedAt && now - s.startedAt > maxAgeMs
+  if (hardExpired) return { agentAlive: false, agentGone: true, goneSince: s.agentGoneSince, hardExpired: true }
+
+  // 沒有派工 agent（agent 自己啟動 / 伺服器端 fallback）→ 沒有 WS 可判斷。
+  // ⚠️ 這裡只能當活著（判死會誤殺），所以**保護完全落在上面那條絕對上限**。
+  if (!s.dispatchedAgentId) return { agentAlive: true, agentGone: false, goneSince: undefined, hardExpired: false }
+  if (connOpen) return { agentAlive: true, agentGone: false, goneSince: undefined, hardExpired: false }
   const since = s.agentGoneSince ?? now
-  return { agentAlive: false, agentGone: now - since > graceMs, goneSince: since }
+  return { agentAlive: false, agentGone: now - since > graceMs, goneSince: since, hardExpired: false }
 }
 
 
@@ -1596,8 +1624,12 @@ router.get('/api/autospin/agent/:id/should-stop', (req, res) => {
   if (d.agentGone && s.status === 'running') {
     s.status = 'stopped'
     finishHeavyTask(s.heavyTask)
-    broadcastAgentLog(s.id, `[Agent] 派工的 Local Agent 離線超過 ${Math.round(AGENT_GONE_GRACE_MS / 1000)} 秒，`
-      + 'session 標記停止（避免 Python 變成孤兒繼續跑）')
+    // ⚠️ 兩種收尾原因要分得出來——「agent 離線」跟「跑太久被上限收掉」
+    //    的下一步完全不同：前者查連線，後者要問「為什麼跑了這麼久沒人管」。
+    broadcastAgentLog(s.id, d.hardExpired
+      ? `[Agent] session 已執行超過 ${Math.round(SESSION_MAX_AGE_MS / 3_600_000)} 小時的絕對上限，強制收尾`
+      : `[Agent] 派工的 Local Agent 離線超過 ${Math.round(AGENT_GONE_GRACE_MS / 1000)} 秒，`
+        + 'session 標記停止（避免 Python 變成孤兒繼續跑）')
   }
   const agentGone = d.agentGone
 
