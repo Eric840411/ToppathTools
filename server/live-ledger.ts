@@ -759,7 +759,7 @@ export function bindStats(env: ReconEnv, sinceMs?: number): {
 // 都值得看，只是它們回答的是「對帳鍵健不健康」而不是「金額對不對」。
 // **畫面上必須講清楚是哪一種**，否則使用者會以為金額已經驗過了。
 
-export type FindingKind = 'missing' | 'ambiguous' | 'late_arrival'
+export type FindingKind = 'missing' | 'ambiguous' | 'late_arrival' | 'l1_amount' | 'l2_balance'
 
 /**
  * 寫入 finding。同一筆 spin 的同一種 finding 只記一次——
@@ -836,4 +836,80 @@ export function backfillFindings(env: ReconEnv, days = 7): number {
     })) n++
   }
   return n
+}
+
+// ─── L1 單局 / L2 餘額：金額比對 ────────────────────────────────────────
+//
+// ⚠️ 這兩條線在 v4.115.0 之前做不了——agent 側 `betAmount`／`winObserved` 全是 0。
+//    v4.116.0 起 agent 從 `moneyNtc` 的 `reason`（begin/end）算得出來：
+//      bet = 前一則 end 的 coin − 這一局 begin 的 coin
+//      win = 這一局 end 的 coin − 這一局 begin 的 coin
+//    實測對照後台：88 對 88、10 對 10。
+//
+// ⚠️ **金額為 null 一律跳過，不要當成 0 去比。**沒起局的 spin 本來就沒有金額，
+//    拿 0 去比會製造一整批假不符——而假警報會訓練人忽略告警，比不比還糟。
+
+/** 金額比對的容差。跟 BET_EPSILON 同一個量級，只留浮點誤差空間。 */
+const AMOUNT_EPSILON = 0.005
+
+export interface AmountCompareResult {
+  checked: number; l1Bad: number; l2Bad: number; skipped: number
+}
+
+/**
+ * 對已綁定（MATCH）且兩側金額都齊的列做 L1／L2 比對。
+ *
+ * L1：agent 的 bet/win ↔ 後台的 bet/win
+ * L2：agent 觀測的餘額變化 ↔ (win − bet)
+ *     ——「扣款但未轉成」只有這條抓得到，是整份規格價值最高的一條。
+ */
+export function compareAmounts(env: ReconEnv, sinceMs: number): AmountCompareResult {
+  const rows = db.prepare(`
+    SELECT s.id, s.spinSeq, s.betAmount aBet, s.winObserved aWin,
+           s.balanceBefore, s.balanceAfter, b.bet bBet, b.win bWin
+    FROM recon_spin s JOIN recon_backend_record b ON b.orderId = s.orderId AND b.env = s.env
+    WHERE s.env = ? AND s.status = 'MATCH' AND s.observedAt >= ?
+  `).all(env, sinceMs) as {
+    id: number; spinSeq: number; aBet: number | null; aWin: number | null
+    balanceBefore: number | null; balanceAfter: number | null; bBet: number; bWin: number
+  }[]
+
+  const out: AmountCompareResult = { checked: 0, l1Bad: 0, l2Bad: 0, skipped: 0 }
+  for (const r of rows) {
+    const hasBet = r.aBet !== null && r.aBet > 0
+    const hasWin = r.aWin !== null
+    if (!hasBet && !hasWin) { out.skipped++; continue }
+    out.checked++
+
+    // L1：逐欄比對。缺的那一側跳過而不是當 0。
+    const betBad = hasBet && Math.abs(r.aBet! - r.bBet) > AMOUNT_EPSILON
+    const winBad = hasWin && Math.abs(r.aWin! - r.bWin) > AMOUNT_EPSILON
+    if (betBad || winBad) {
+      out.l1Bad++
+      const delta = (winBad ? r.aWin! - r.bWin : 0) - (betBad ? r.aBet! - r.bBet : 0)
+      recordFinding(env, 'l1_amount', r.id, {
+        severity: 'critical', amountDelta: delta,
+        note: [
+          betBad ? `bet 前端 ${r.aBet} ≠ 後台 ${r.bBet}` : '',
+          winBad ? `win 前端 ${r.aWin} ≠ 後台 ${r.bWin}` : '',
+        ].filter(Boolean).join('；'),
+      })
+    }
+
+    // L2：餘額變化應該等於 win − bet。
+    // ⚠️ **這條是「扣款但未轉成」的唯一偵測手段。**餘額少了 bet 卻沒有對應的局，
+    //    或扣了款但 win 沒進來，都會在這裡浮出來。
+    if (r.balanceBefore !== null && r.balanceAfter !== null && hasBet) {
+      const observed = r.balanceAfter - r.balanceBefore
+      const expected = (hasWin ? r.aWin! : r.bWin) - r.aBet!
+      if (Math.abs(observed - expected) > AMOUNT_EPSILON) {
+        out.l2Bad++
+        recordFinding(env, 'l2_balance', r.id, {
+          severity: 'critical', amountDelta: observed - expected,
+          note: `餘額變化 ${observed}，但依 bet/win 應為 ${expected}`,
+        })
+      }
+    }
+  }
+  return out
 }

@@ -357,6 +357,12 @@ export async function runLiveLedgerCycle(now = Date.now()): Promise<{
   const bind: Record<string, { scanned: number; resolved: number; ambiguous: number; missing: number }> = {}
   for (const env of envs) {
     const b = runBindCycle(env, now)
+    // 綁定完才有兩側金額可比。L1/L2 只看已 MATCH 的列。
+    const { compareAmounts } = await import('./live-ledger.js')
+    const amt = compareAmounts(env, now - 6 * 3600_000)
+    if (amt.l1Bad || amt.l2Bad) {
+      console.log(`[live-ledger] ${env} 金額比對：檢查 ${amt.checked} 筆，L1 不符 ${amt.l1Bad}、L2 不符 ${amt.l2Bad}`)
+    }
     bind[env] = { scanned: b.scanned, resolved: b.resolved, ambiguous: b.ambiguous, missing: b.missing }
     const diag = diagnoseAllMissing(env, now - 3600_000)
     if (diag.level === 'alert') noteSourceHealth(env, 'bind', false, 'all_missing', diag.message)

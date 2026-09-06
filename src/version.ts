@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.115.0'
+export const APP_VERSION = '4.116.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.116.0',
+    date: '2026-09-06',
+    changes: [
+      'feat(autospin): ⚠️ **agent 終於拿得到 bet 與 win——而那個欄位一直都在。**moneyNtc 帶 `reason`（begin=扣完注的餘額／end=派彩後的餘額），CLAUDE.md 早就註記過「route 與 reason 都沒過濾」，但從來沒有人拿 reason 來用。bet = 前一則 end − 這一局 begin；win = 這一局 end − begin。實測對照後台：88 對 88、10 對 10',
+      'fix(autospin): 新增 window.__moneyLog（只收 moneyNtc、帶 reason 與序號），跟 __lastCoin 分開。⚠️ 後者是無路由過濾的單一全域，任何帶 coin 的封包都會覆蓋它——拿它當「這一局的餘額」會抓到上一局的尾巴或這一局的一半，而那會讓 L2 產生大量假不符。假警報會訓練人忽略告警，比沒有 L2 更糟',
+      'feat(live-ledger): L1（單局金額）與 L2（餘額）比對上線。L2 是「扣款但未轉成」的唯一偵測手段，也是整份規格價值最高的一條',
+      'fix(live-ledger): 金額算不出來時一律送 null 不送 0，比對時跳過不當 0 比。0 會被讀成「這局下注 0 元」，而且會製造一整批假不符',
+      'fix(live-ledger): 對帳線附上金額比對的**樣本數**。⚠️ 0 筆時明寫「尚無樣本（agent 端要更新程式碼）」——否則「不符 0」會被讀成「驗過了、沒問題」',
+    ],
+  },
   {
     version: '4.115.0',
     date: '2026-09-06',

@@ -37,6 +37,9 @@ export interface LedgerLine {
   name: string
   desc: string
   implemented: boolean
+  /** 金額比對過的筆數 / 其中不符的筆數。⚠️ 附樣本數，3 筆對到 3 筆也是 100% */
+  amountChecked?: number
+  amountBad?: number
   /** 未實作時說明缺什麼——不寫的話畫面上只會是一個空格，看不出是「沒問題」還是「沒做」 */
   reason?: string
   counts?: { match: number; pending: number; missing: number; ambiguous: number }
@@ -233,18 +236,22 @@ export function overview(env: ReconEnv, windowMinutes = 30, now = Date.now()): O
 
   // L4/L5 的統計來自 JP 那兩張表（跟 spin 無關——池是整個群組共用的）
   const jp = jpSummary(env, since)
+  // L1/L2 的金額比對統計（只算已 MATCH 且兩側金額都齊的列）
+  const amt = amountStats(env, since)
   const lines: LedgerLine[] = [
     {
       id: 'L1', name: '單局', desc: 'agent 觀測 ↔ gameRecordList · key=orderId',
       implemented: true,
       counts: { match: matched, pending: pending.total, missing: missingRows.length, ambiguous },
-      // P0 只綁定不比金額，所以連 L1 也還沒有差額
       delta: null,
+      // 金額比對的樣本數與不符筆數（v4.116.0 起 agent 有 bet/win 了）
+      amountChecked: amt.checked, amountBad: amt.l1Bad,
     },
     {
-      id: 'L2', name: '餘額', desc: '觀測餘額差 ↔ balanceBefore/After 串接',
-      implemented: false, delta: null,
-      reason: 'agent 端的餘額不是「這一局」的——讀的是共用的 __lastCoin 全域，任何路由帶 coin 都會覆蓋它。要先改成逐局對齊擷取（只認這次 spin 之後的第一則 moneyNtc）。',
+      id: 'L2', name: '餘額', desc: '觀測餘額變化 ↔ (win − bet) · 抓「扣款但未轉成」',
+      implemented: true, delta: null,
+      counts: { match: amt.checked - amt.l2Bad, pending: 0, missing: 0, ambiguous: amt.l2Bad },
+      amountChecked: amt.checked, amountBad: amt.l2Bad,
     },
     {
       id: 'L3', name: '上下分', desc: '入離機事件 ↔ EGM Transfer',
@@ -387,4 +394,27 @@ export function ledgerDetail(env: ReconEnv, id: number): {
     //    這裡是前者：整個 LuckyLink 都還沒串，不是這一筆抓不到。
     luckylink: { available: false, reason: 'LuckyLink 尚未串接，L4／L5 未實作' },
   }
+}
+
+/**
+ * 金額比對的統計（純讀，不重算——重算會在每次開畫面時重複寫 finding）。
+ *
+ * ⚠️ `checked` 是**分母**：只算「已 MATCH 且 agent 側金額算得出來」的列。
+ *    沒起局的 spin 本來就沒有金額，混進分母會讓不符率看起來很低。
+ */
+export function amountStats(env: ReconEnv, sinceMs: number): {
+  checked: number; l1Bad: number; l2Bad: number
+} {
+  const r = db.prepare(`
+    SELECT COUNT(*) checked FROM recon_spin s
+    JOIN recon_backend_record b ON b.orderId = s.orderId AND b.env = s.env
+    WHERE s.env=? AND s.status='MATCH' AND s.observedAt >= ?
+      AND (s.betAmount > 0 OR s.winObserved IS NOT NULL)
+  `).get(env, sinceMs) as { checked: number }
+  const f = db.prepare(`
+    SELECT line, COUNT(*) n FROM recon_finding
+    WHERE env=? AND detectedAt >= ? AND line IN ('l1_amount','l2_balance') GROUP BY line
+  `).all(env, sinceMs) as { line: string; n: number }[]
+  const by = new Map(f.map(x => [x.line, x.n]))
+  return { checked: r?.checked ?? 0, l1Bad: by.get('l1_amount') ?? 0, l2Bad: by.get('l2_balance') ?? 0 }
 }

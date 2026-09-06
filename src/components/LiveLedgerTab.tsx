@@ -50,6 +50,7 @@ interface Setting { key: string; label: string; unit: string; dflt: number; valu
 interface Line {
   id: string; name: string; desc: string; implemented: boolean; reason?: string
   counts?: { match: number; pending: number; missing: number; ambiguous: number }
+  amountChecked?: number; amountBad?: number
   delta: number | null
 }
 interface Overview {
@@ -259,6 +260,14 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
                   <b style={{ color: C.ink }}>{l.id} {l.name}</b>
                   <span style={{ display: 'block', fontSize: 10.5, color: C.ink3, marginTop: 1 }}>
                     {l.implemented ? l.desc : `未實作 · ${l.reason}`}
+                    {/* ⚠️ 附樣本數——3 筆對到 3 筆也是 100%。金額比對 0 筆時要看得出來，
+                        否則「不符 0」會被讀成「驗過了、沒問題」 */}
+                    {l.amountChecked !== undefined && (
+                      <span style={{ display: 'block', marginTop: 1, color: l.amountChecked === 0 ? C.pending : C.ink3 }}>
+                        {l.amountChecked === 0 ? '金額比對：尚無樣本（agent 端要更新程式碼才會送 bet／win）'
+                          : `金額比對 ${l.amountChecked} 筆 · 不符 ${l.amountBad}`}
+                      </span>
+                    )}
                   </span>
                 </div>
                 {l.implemented && c

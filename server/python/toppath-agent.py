@@ -170,7 +170,7 @@ def resolve_real_game_url(url: str) -> str:
 
 
 def post_recon_spin(machine_type: str, cfg: dict, spin_seq: int, balance_before, balance_after,
-                    observed_at_ms: int, outcome: str = ''):
+                    observed_at_ms: int, outcome: str = '', bet=None, win=None):
     """Live Ledger 觀測落庫——三段式綁定的第 ① 段。
 
     ⚠️ 一定要走 async_call 丟背景執行緒。這支每次 spin 都會呼叫，
@@ -197,7 +197,11 @@ def post_recon_spin(machine_type: str, cfg: dict, spin_seq: int, balance_before,
                 # ⚠️ bet 目前拿不到：dealGMActionReq 的請求裡沒有 bet 欄位（下注額是另一個
                 #    動作設定的），而餘額在實測的 session 完全沒變動，也推不出來。
                 #    留 None，序列對齊會跳過 bet 驗證。
-                'betAmount': None,
+                # ⚠️ 從 moneyNtc 的 begin/end 算出來的**這一局**的金額。
+                #    算不出來時送 None（畫面顯示「—」），**不要送 0**——
+                #    0 會被讀成「這局下注 0 元」，那是假資料不是缺資料。
+                'betAmount': bet,
+                'winObserved': win,
                 'balanceBefore': balance_before,
                 'balanceAfter': balance_after,
                 # agent 自己對這一下 spin 的判定：completed / completed_late /
@@ -318,6 +322,10 @@ TOPPATH_MONITOR_SCRIPT = r"""
   if (window.__toppathMonitorInjected) return;
   window.__toppathMonitorInjected = true;
   window.__lastCoin = null;
+  // moneyNtc 專用的流水（含 reason）。⚠️ 跟 __lastCoin 分開——後者是無路由過濾的
+  // 單一全域，任何帶 coin 的封包都會覆蓋它，拿它當「這一局的餘額」一定會抓錯局。
+  window.__moneyLog = [];
+  window.__moneySeq = 0;
   window.__coinUpdatedAt = 0;
   window.__gmEvents = [];
   window.__pinusLog = [];
@@ -508,6 +516,28 @@ TOPPATH_MONITOR_SCRIPT = r"""
           if (data && typeof data.coin === 'number') {
             window.__lastCoin = data.coin;
             window.__coinUpdatedAt = Date.now();
+          }
+          // ⚠️ **moneyNtc 的 `reason` 一直都在，只是從來沒被用過。**
+          //    實測值域只有兩個：
+          //      reason='begin' → 扣完注之後的餘額
+          //      reason='end'   → 派彩之後的餘額
+          //    有了它就能算出 agent 側一直缺的兩個數字：
+          //      bet = 前一則 end 的 coin − 這一局 begin 的 coin
+          //      win = 這一局 end 的 coin − 這一局 begin 的 coin
+          //    實測對照後台：1998653−1998565=88（後台 bet=88 ✓）、
+          //                  1998653−1998643=10（後台 win=10 ✓）
+          //
+          // ⚠️ 這裡**只收 moneyNtc**，不是任何帶 coin 的訊息。`window.__lastCoin`
+          //    是無路由過濾的單一全域（任何封包帶 coin 都會覆蓋它），拿它當
+          //    「這一局的餘額」會抓到上一局的尾巴或這一局的一半——那會讓 L2
+          //    產生大量假不符，而假警報會訓練人忽略告警，比沒有 L2 更糟。
+          if (route === 'moneyNtc' && data && typeof data.coin === 'number') {
+            window.__moneySeq = (window.__moneySeq || 0) + 1;
+            window.__moneyLog.push({
+              seq: window.__moneySeq, coin: data.coin,
+              reason: String(data.reason || ''), ts: Date.now(),
+            });
+            if (window.__moneyLog.length > 200) window.__moneyLog.shift();
           }
           cb && cb(data);
         });
@@ -1198,6 +1228,65 @@ def get_balance(page, selector: str):
         return None
 
 
+def read_money_seq(page) -> int:
+    """目前 moneyNtc 流水的序號。按下 spin 前記一次，之後只看「比它新」的那幾則。"""
+    for frame in page.frames:
+        try:
+            v = frame.evaluate("window.__moneySeq ?? null")
+            if v is not None:
+                return int(v)
+        except Exception:
+            continue
+    return 0
+
+
+def read_money_since(page, seq: int) -> list:
+    """取序號大於 seq 的 moneyNtc 流水。"""
+    for frame in page.frames:
+        try:
+            v = frame.evaluate("(window.__moneyLog || []).filter(x => x.seq > %d)" % seq)
+            if v:
+                return v
+        except Exception:
+            continue
+    return []
+
+
+def derive_round_amounts(entries: list, prev_end_coin):
+    """從 moneyNtc 流水算出這一局的 bet / win / 前後餘額。
+
+    ⚠️ **這是 L1 與 L2 唯一的資料來源，而它一直都在。**`moneyNtc` 帶 `reason`：
+       `begin` = 扣完注的餘額、`end` = 派彩後的餘額。CLAUDE.md 早就註記過
+       「route 與 reason 都沒過濾」，但沒有人拿 reason 來用。
+
+         bet = 前一則 end 的 coin − 這一局 begin 的 coin
+         win = 這一局 end 的 coin − 這一局 begin 的 coin
+
+       實測對照後台：1998653−1998565=88（後台 bet=88 ✓）
+                     1998653−1998643=10（後台 win=10 ✓）
+
+    ⚠️ **不要用 `__lastCoin`。**那是無路由過濾的單一全域，任何帶 coin 的封包都會
+       覆蓋它，抓到的可能是上一局的尾巴或這一局的一半。用它做 L2 會產生大量
+       假不符——而假警報會訓練人忽略告警，比沒有 L2 更糟。
+
+    回傳 (bet, win, balance_before, balance_after)，算不出來的項目回 None
+    （**不是 0**——0 會被讀成「這局下注 0 元」，那是假資料不是缺資料）。
+    """
+    begin = next((e for e in entries if e.get('reason') == 'begin'), None)
+    end = None
+    if begin is not None:
+        end = next((e for e in entries
+                    if e.get('reason') == 'end' and e.get('seq', 0) > begin.get('seq', 0)), None)
+    if begin is None:
+        # 沒有 begin 代表這一下沒有起局（被拒絕／逾時），不要硬算
+        return (None, None, prev_end_coin, None)
+    begin_coin = begin.get('coin')
+    end_coin = end.get('coin') if end is not None else None
+    bet = (prev_end_coin - begin_coin) if (prev_end_coin is not None and begin_coin is not None) else None
+    win = (end_coin - begin_coin) if (end_coin is not None and begin_coin is not None) else None
+    return (bet, win, prev_end_coin, end_coin)
+
+
 def read_balance(page):
     """從 pinus WebSocket 攔截讀取餘額（window.__lastCoin），掃描所有 frame。
     完整移植自 machine-test/runner.ts 的 readBalance() — 不再依賴 DOM selector（selector 常隨版更失效）。"""
@@ -1561,6 +1650,8 @@ def do_spin(page, cfg: dict):
         pass
 
     balance_before = read_balance(page)
+    # ⚠️ 一定要在**按下之前**記序號，之後才分得出哪幾則 moneyNtc 屬於這一局
+    money_seq_before = read_money_seq(page)
     updated_at_before = get_coin_updated_at(page)
     click_start = time.time()
 
@@ -1616,6 +1707,10 @@ def do_spin(page, cfg: dict):
             pass
 
     balance_after = read_balance(page)
+    # 從這一局自己的 moneyNtc 流水算出 bet／win（見 derive_round_amounts 的說明）
+    money_entries = read_money_since(page, money_seq_before)
+    round_bet, round_win, round_bal_before, round_bal_after = derive_round_amounts(
+        money_entries, balance_before)
     duration = time.time() - click_start
     if rejected:
         log(f"[{mt}] ⚠️ Spin 被伺服器拒絕，耗時 {duration:.1f}s（{exit_reason}）")
@@ -1633,7 +1728,11 @@ def do_spin(page, cfg: dict):
     else:
         outcome = 'unknown'
 
-    return (balance_before, balance_after, rejected, outcome, updated_at_before)
+    # ⚠️ 多回四個：這一局自己的 bet／win／前後餘額（來自 moneyNtc 的 begin/end）。
+    #    `balance_before/after` 是舊的 __lastCoin 讀值，保留給既有邏輯用；
+    #    對帳一律用 round_* 那四個——它們是**這一局**的，不是「最近兩次」。
+    return (balance_before, balance_after, rejected, outcome, updated_at_before,
+            round_bet, round_win, round_bal_before, round_bal_after)
 
 
 # 補判的時間上限。超過就不補——中間若卡過 FG/JP 等待（最長 15 分鐘），
@@ -2280,7 +2379,8 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
 
                 spin_result = do_spin(page, cfg)
                 if spin_result:
-                    balance_before, balance_after, spin_rejected, spin_outcome, coin_ts_at_click = spin_result
+                    (balance_before, balance_after, spin_rejected, spin_outcome, coin_ts_at_click,
+                     round_bet, round_win, round_bal_before, round_bal_after) = spin_result
                     # spin_count 是「按鈕嘗試次數」，不是局數——名字保留是為了不動既有欄位，
                     # 但報告上已經改叫 spin_attempts，不再讓人誤會成局數
                     mp['spin_count'] += 1
@@ -2293,9 +2393,11 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
                     )
                     mp['error_count'] = 0
                     # Live Ledger：每次 spin 即時落庫（fire-and-forget，不擋主迴圈）
+                    # ⚠️ 對帳用 round_* 那四個（這一局自己的），不是 balance_before/after
+                    #    ——後者讀的是 __lastCoin，無路由過濾，會抓到別局的值。
                     async_call(post_recon_spin, mt, cfg, mp['spin_count'],
-                               balance_before, balance_after, int(time.time() * 1000),
-                               spin_outcome)
+                               round_bal_before, round_bal_after, int(time.time() * 1000),
+                               spin_outcome, round_bet, round_win)
                     if not spin_rejected:
                         mp['ok_spin_count'] = mp.get('ok_spin_count', 0) + 1
                         mark_spin_recovered(mp)
