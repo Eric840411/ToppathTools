@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.118.0'
+export const APP_VERSION = '4.118.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.118.1',
+    date: '2026-09-07',
+    changes: [
+      'fix(autospin): ⚠️ **殭屍的輪詢不該構成 session 的生命證明。**should-stop 原本無條件更新心跳，而那正是保險絲失效的原因——孤兒 Python 用自己的輪詢把 session 續命，30 秒逾時永遠不觸發。改成「agent 還連著才更新」，逾時就變回一道**獨立**的防線。兩道互相獨立的保險，比一道聰明的保險可靠',
+      'fix(autospin): ⚠️ agent 斷線要有寬限期（預設 90 秒，AUTOSPIN_AGENT_GONE_GRACE_MS 可調）。瞬間判定的話，**每次 pm2 restart 推程式碼都會殺掉一輪正在跑的長壓測**——而 agent 重啟是常態動作',
+      'fix(autospin): ⚠️ 心跳逾時改成由寬限期推導（寬限 + 30 秒）。原本寫死 30 秒，比寬限期短——**掃描會先開槍，寬限期等於白設**。兩個計時器各寫一個數字就會互相打架',
+      'test(autospin): 判定抽成純函式 decideAgentGone() 才測得動（這段要有真的斷線才跑得到）。新增 9 項檢查，**「會殺」與「不會誤殺」都驗**——只驗前者等於只做了一半',
+    ],
+  },
   {
     version: '4.118.0',
     date: '2026-09-07',

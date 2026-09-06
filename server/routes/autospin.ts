@@ -1167,6 +1167,8 @@ interface AgentSession {
    * ⚠️ 用來判斷「agent 已經不在了，但 Python 還活著」——見 should-stop 的說明。
    */
   dispatchedAgentId?: string
+  /** 從什麼時候開始找不到那台 agent。⚠️ 要有寬限期，不能斷一下就殺——見 should-stop */
+  agentGoneSince?: number
   heavyTask?: HeavyTaskToken
   // LuckyLink poller state — replayed on SSE reconnect so panel survives refresh
   luckylinkJpGroupCode?: string
@@ -1538,39 +1540,66 @@ router.post('/api/autospin/agent/:id/stop', (req, res) => {
 })
 
 // GET /api/autospin/agent/:id/should-stop — agent polls for stop command (also serves as heartbeat)
+/**
+ * agent 斷線多久才收尾這個 session。
+ * ⚠️ 要大於一次 `pm2 restart` 的空窗（推程式碼時的常態動作），否則每次推版都會
+ *    殺掉正在跑的長壓測。90 秒遠大於重啟需要的時間，又遠短於「跑了整晚沒人管」。
+ */
+const AGENT_GONE_GRACE_MS = Number(process.env.AUTOSPIN_AGENT_GONE_GRACE_MS) || 90_000
+
+/**
+ * 「這個 session 該不該因為 agent 不見了而收尾」的判定。**抽成純函式才測得動**
+ * ——這段邏輯要有真的 agent 斷線才跑得到，不抽出來就只能靠上線後出事才發現。
+ *
+ * 回傳：
+ *   `agentAlive`  agent 還在（或這是伺服器端 fallback session，沒有 agent 概念）
+ *   `agentGone`   斷線已超過寬限期，該收尾了
+ *   `goneSince`   要寫回 session 的計時起點（undefined 代表清掉）
+ */
+export function decideAgentGone(
+  s: { dispatchedAgentId?: string; agentGoneSince?: number },
+  connOpen: boolean,
+  now: number,
+  graceMs = AGENT_GONE_GRACE_MS,
+): { agentAlive: boolean; agentGone: boolean; goneSince: number | undefined } {
+  // 沒有派工 agent（伺服器端 fallback）→ 這個機制不適用，一律當活著
+  if (!s.dispatchedAgentId) return { agentAlive: true, agentGone: false, goneSince: undefined }
+  if (connOpen) return { agentAlive: true, agentGone: false, goneSince: undefined }
+  const since = s.agentGoneSince ?? now
+  return { agentAlive: false, agentGone: now - since > graceMs, goneSince: since }
+}
+
+
 router.get('/api/autospin/agent/:id/should-stop', (req, res) => {
   const s = agentSessions.get(req.params.id)
   if (!s) {
     // Session not found (server restarted) — tell agent to reconnect, not stop
     return res.json({ stop: false, sessionNotFound: true, pause: false, spinInterval: null })
   }
-  if (s.status === 'running') s.lastHeartbeat = Date.now()
-
   /**
-   * ⚠️ **孤兒 Python 會靠自己的輪詢養活自己。**
+   * ⚠️ **殭屍的輪詢不該構成 session 的生命證明。**
    *
-   * Python 引擎是用 HTTP 輪詢這支 API 的，跟 agent 的 WebSocket 完全無關——
-   * `pm2 stop` 掉 agent 之後，Python 變成孤兒**繼續跑**。而上面那行
-   * `s.lastHeartbeat = Date.now()` 是被**它自己的輪詢**更新的，所以
-   * 30 秒的心跳逾時掃描永遠不會觸發，session 永遠是 running，
-   * 於是它永遠收不到停止指令。
+   * 這一行原本是無條件更新的，於是：Python 是 HTTP 輪詢、跟 agent 的 WebSocket 無關，
+   * agent 被 pm2 停掉之後它變孤兒繼續跑——而 session 的心跳是被**它自己的輪詢**
+   * 更新的，所以 30 秒逾時掃描永遠不觸發、session 永遠 running、它永遠收不到停止
+   * 指令。一個自我維持的迴圈：保險絲被它要保護的東西自己短路了。
+   * （實測 2026-09-07：04:02Z 下停止，寫到 07:29Z，**多寫 2,762 筆**。）
    *
-   * 實際後果（2026-09-07 回報）：04:02Z 下停止，那個 session 寫到 07:29Z，
-   * **停止後又寫了 2,762 筆**，現場有 11 個父行程已消失的 python.exe。
-   *
-   * 所以派工模式下要再問一句：**派給它的那台 agent 還連著嗎？**
-   * 不在了就叫停——agent 沒了，就沒有人能正常收尾這個 session。
+   * 改成「agent 還連著才更新心跳」之後，30 秒逾時就變回一道**獨立**的防線：
+   * 就算下面那個 WS 判定因為任何原因失效，逾時仍然會把 session 收掉。
+   * **兩道互相獨立的保險，比一道聰明的保險可靠。**
    */
-  let agentGone = false
-  if (s.dispatchedAgentId) {
-    const conn = agentConnections.get(s.dispatchedAgentId)
-    agentGone = !conn || conn.ws.readyState !== conn.ws.OPEN
-    if (agentGone && s.status === 'running') {
-      s.status = 'stopped'
-      finishHeavyTask(s.heavyTask)
-      broadcastAgentLog(s.id, '[Agent] 派工的 Local Agent 已離線，session 標記停止（避免 Python 變成孤兒繼續跑）')
-    }
+  const conn = s.dispatchedAgentId ? agentConnections.get(s.dispatchedAgentId) : undefined
+  const d = decideAgentGone(s, !!(conn && conn.ws.readyState === conn.ws.OPEN), Date.now())
+  s.agentGoneSince = d.goneSince
+  if (s.status === 'running' && d.agentAlive) s.lastHeartbeat = Date.now()
+  if (d.agentGone && s.status === 'running') {
+    s.status = 'stopped'
+    finishHeavyTask(s.heavyTask)
+    broadcastAgentLog(s.id, `[Agent] 派工的 Local Agent 離線超過 ${Math.round(AGENT_GONE_GRACE_MS / 1000)} 秒，`
+      + 'session 標記停止（避免 Python 變成孤兒繼續跑）')
   }
+  const agentGone = d.agentGone
 
   res.json({
     stop: s.stopRequested || s.status === 'stopped' || agentGone,
@@ -1639,7 +1668,17 @@ router.post('/api/autospin/agent/stop-all', (req, res) => {
 // （不再是「不管誰的，抓第一個在跑的」，避免不同操作者互相看到彼此的執行日誌/截圖）。
 router.get('/api/autospin/agent/status', (req, res) => {
   const userLabel = (req.headers['x-user-label'] as string) || ''
-  const HEARTBEAT_TIMEOUT = 30_000 // 30s — agent polls every 3s
+  /**
+   * ⚠️ **這個值必須大於 agent 斷線的寬限期，否則兩道保險會互相打架。**
+   *
+   * 心跳現在只在「agent 還連著」時才更新（見 should-stop 的說明），所以
+   * `pm2 restart` 期間心跳就停了。如果逾時比寬限期短，**掃描會先開槍**——
+   * 那寬限期等於白設，每次推程式碼還是會殺掉正在跑的長壓測。
+   *
+   * 取「寬限期 + 30 秒」：掃描仍然是一道獨立防線（WS 判定失效時它照樣會收），
+   * 但不會搶在寬限期之前動手。
+   */
+  const HEARTBEAT_TIMEOUT = AGENT_GONE_GRACE_MS + 30_000
   let active: AgentSession | undefined
   for (const s of agentSessions.values()) {
     if (s.status !== 'running') continue
