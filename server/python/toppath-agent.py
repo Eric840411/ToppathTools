@@ -619,6 +619,28 @@ def _click_by_text(page, texts: list, mt: str, label: str) -> bool:
     return False
 
 
+def visible_button_signature(page) -> str:
+    """畫面上可見按鈕的指紋。用來判斷「這一下點擊到底有沒有讓畫面改變」。
+
+    ⚠️ **為什麼需要這個**：2026-09-06 實測 JJBXGOLD-1001，按下 cashout 前後
+       畫面**完全一樣**（同一組按鈕、沒有跳出任何 dialog）——也就是說第一步
+       根本沒生效，後面走再多階段都沒有意義。
+
+       沒有這個檢查的話，日誌只會顯示「點了 cashout → 沒收到 leaveGMNtc →
+       點 Exit → 找不到 → 點 Confirm → 還是出不來」，看起來像「步驟不夠」，
+       而真相是「第一步就沒被遊戲收到」。**兩者的下一步完全不同**：
+       前者要補步驟，後者要查點擊為什麼沒生效（遮罩？按鈕 disabled？別的入口？）。
+    """
+    try:
+        return page.evaluate(
+            "(() => Array.from(document.querySelectorAll('button, .my-button, [class*=btn_]'))"
+            ".filter(e => e.offsetParent !== null)"
+            ".map(e => (e.className || '') + '|' + (e.innerText || '').trim().slice(0, 20))"
+            ".sort().join(';'))()")
+    except Exception:
+        return ''
+
+
 def click_exit_confirm(page, mt: str) -> bool:
     """離機第二／三階段：Exit 按鈕 → Confirm 對話框。回傳有沒有點到東西。
 
@@ -695,6 +717,16 @@ def leave_game(page, cfg: dict, mt: str) -> bool:
     #    machine-test 的 stepExit() 早就有這三段，這支只移植了第一段就重複三次，
     #    所以對 JJBXGOLD 這類機種等於完全沒有作用——而症狀是「機台一直被佔用」，
     #    看起來像離機沒做，其實是只做了一半。
+    # ⚠️ **離機前也要清遮罩。**AutoSpin 早就為 Spin 修過這件事：`.select-main` 選面額
+    #    遮罩蓋住按鈕時**點擊不會拋例外**，遊戲只是完全收不到動作——靠例外處理的
+    #    fallback 不會被觸發，症狀是「點了但什麼都沒發生」。
+    #    2026-09-06 實測 JJBXGOLD-1001：按 cashout 前後畫面**完全沒變**
+    #    （按鈕清單一模一樣、沒有跳出任何 dialog），正是這個形狀。
+    #    這是假說不是定論——但清遮罩很便宜，而且本來就該做。
+    dismiss_denom_overlay(page, mt)
+    dismiss_jackpot_notification(page, mt)
+
+    sig_before = visible_button_signature(page)
     for attempt in range(1, 4):
         baseline = time.time() * 1000
         clicked = False
@@ -717,6 +749,13 @@ def leave_game(page, cfg: dict, mt: str) -> bool:
         if not clicked:
             log(f"[{mt}] ⚠️ 找不到離開機台的按鈕（試過 {len(selectors)} 個選擇器），座位可能仍被佔用")
             return False
+
+        # ⚠️ 先確認這一下**有沒有讓畫面改變**。沒變就代表點擊沒被遊戲收到，
+        #    再走 Exit／Confirm 也沒有意義，而且會讓日誌看起來像「步驟不夠」。
+        if attempt == 1 and sig_before and visible_button_signature(page) == sig_before:
+            log(f"[{mt}] ⚠️ 按下離開按鈕後畫面完全沒有變化——**這一步沒有生效**，"
+                f"不是缺後續步驟。可能是被遮罩擋住、按鈕實際是 disabled、"
+                f"或這個機種的離機入口不同。")
 
         ev = wait_for_leave_gm(page, 10000, baseline)
         if ev is None:

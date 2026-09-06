@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.117.1'
+export const APP_VERSION = '4.117.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.117.2',
+    date: '2026-09-06',
+    changes: [
+      'fix(autospin): 離機前先清遮罩（選面額／JP 中獎通知）。⚠️ AutoSpin 早就為 Spin 修過同一件事：`.select-main` 遮罩蓋住按鈕時**點擊不會拋例外**，遊戲只是完全收不到動作——靠例外處理的 fallback 不會被觸發。實測 JJBXGOLD-1001 按 cashout 前後畫面完全沒變，正是這個形狀（假說，未經現場驗證）',
+      'feat(autospin): 新增「這一下點擊有沒有讓畫面改變」的檢查。⚠️ 沒有它的話日誌只會顯示「點了 cashout → 沒收到訊號 → 點 Exit → 找不到 → 還是出不來」，看起來像**步驟不夠**；而真相可能是**第一步就沒被遊戲收到**。兩者的下一步完全不同：前者要補步驟，後者要查點擊為什麼沒生效',
+      'note(autospin): 更正 v4.117.1 的部分結論——「不是攔截壞了、是沒按完該按的按鈕」只對一半。JJBXGOLD 那台是**連第一步都沒生效**，收不到 leaveGMNtc 是必然的。三階段對 JJBX 那類有效，但那台要先確認 ① 到底有沒有被收到',
+    ],
+  },
   {
     version: '4.117.1',
     date: '2026-09-06',
