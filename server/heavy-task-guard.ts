@@ -110,6 +110,15 @@ function toPublicTask(row: HeavyTaskRow) {
   }
 }
 
+/**
+ * 鎖住多久之後視為卡死、自動釋放。
+ *
+ * ⚠️ 這個值要**大於任何一次合法的重任務**，否則會在跑到一半把鎖放掉、
+ *    讓第二個任務插進來。AutoSpin／機測／UAT 都可能跑數小時，所以訂 6 小時：
+ *    比實際任務長很多，又遠短於啟動復原用的 24 小時（那個是不同的情境）。
+ */
+const STALE_TASK_MS = 6 * 60 * 60 * 1000
+
 export function tryStartHeavyTask(
   req: Request,
   type: string,
@@ -117,7 +126,30 @@ export function tryStartHeavyTask(
 ): { ok: true; token: HeavyTaskToken } | { ok: false; task: HeavyTask } {
   const user = taskUser(req)
   const existing = activeTasks.get(user.key)
-  if (existing) return { ok: false, task: existing }
+  if (existing) {
+    /**
+     * ⚠️ **卡住的鎖必須能自癒。**
+     *
+     * 2026-09-06 實際發生：`hub-stop` 只設 `stopRequested`、不釋放鎖，而 Python 端
+     * 若先死掉就沒有人回報 `/agent/:id/stop`——那筆 heavy task 於是永久留著，
+     * **同一個帳號再也派不了工**。而且它持久化在 DB，重啟 worker 也清不掉。
+     *
+     * 更糟的是症狀（「你目前已有重任務正在執行」）**看起來像使用者自己的問題**，
+     * 不像 bug——所以不會有人來報，只會有人放棄。
+     *
+     * 只靠「修好所有釋放路徑」不夠：漏掉任何一條，下一次又會卡死，而且一樣沒人發現。
+     * 所以再加一道時間上的自癒。這裡刻意訂得比啟動時那個 24 小時緊得多——
+     * 那個是「重啟後復原」的容錯，這個是「同一個 process 內鎖住太久」，兩者的
+     * 合理上限差很遠。
+     */
+    if (Date.now() - existing.startedAt > STALE_TASK_MS) {
+      console.warn(`[heavy-task] 自動釋放卡住的鎖：${existing.type} (${existing.id})`
+        + ` 已 running ${Math.round((Date.now() - existing.startedAt) / 60000)} 分鐘`)
+      finishHeavyTask({ id: existing.id, userKey: existing.userKey })
+    } else {
+      return { ok: false, task: existing }
+    }
+  }
 
   const now = Date.now()
   const task: HeavyTask = {

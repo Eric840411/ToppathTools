@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.116.1'
+export const APP_VERSION = '4.116.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.116.2',
+    date: '2026-09-06',
+    changes: [
+      'fix(autospin): ⚠️ **hub-stop 從不釋放重任務鎖**，只設 stopRequested，指望 Python 端回報 /agent/:id/stop 才釋放——Python 若先死掉，那筆 heavy task 就永久留著，而且持久化在 DB，重啟 worker 也清不掉，同一個帳號再也派不了工',
+      'note(autospin): 這個洞先前被「加入既有 session」那條路徑遮住了（新 process 繞過鎖，只是會接到正在收尾的 session 然後被立刻叫停——就是 v4.116.1 修的那個症狀）。收緊那條路徑之後，這個洞從「偶發亂象」變成硬阻塞。**修一個 bug 讓另一個現形，這種相依要一起看**',
+      'feat(heavy-task): 卡住的鎖會自癒——running 超過 6 小時自動釋放。⚠️ 只靠「修好所有釋放路徑」不夠：漏掉任何一條下次又會卡死，而症狀（「你目前已有重任務正在執行」）**看起來像使用者自己的問題**，不像 bug，所以不會有人來報，只會有人放棄。6 小時遠大於任何一次合法任務，又遠短於啟動復原用的 24 小時',
+    ],
+  },
   {
     version: '4.116.1',
     date: '2026-09-06',

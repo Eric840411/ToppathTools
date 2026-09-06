@@ -1718,8 +1718,23 @@ router.post('/api/autospin/hub-stop', (req, res) => {
     a.sessionId = null
   }
   // 同步請求 Python 端的 agent session 停止（雙保險：should-stop 輪詢）
+  //
+  // ⚠️ **同時要釋放重任務鎖，不能只設 stopRequested。**原本這裡只設旗標，
+  //    指望 Python 端收到 /should-stop 之後回報 /agent/:id/stop 才釋放——
+  //    但 Python 若先死掉（或根本沒接到），那筆 heavy task 就**永久留著**，
+  //    而且它是持久化在 DB 的，重啟 worker 也清不掉。
+  //
+  //    這個洞先前被「加入既有 session」那條路徑遮住了（新 process 繞過鎖，
+  //    只是會接到一個正在收尾的 session 然後被立刻叫停 —— 那就是「派工後
+  //    馬上停止」那個症狀）。v4.116.1 把那條路徑收緊之後，這個洞就從
+  //    「偶發亂象」變成「同一個帳號再也派不了工」的硬阻塞。
+  //
+  //    使用者按下停止就是明確表達「我不要它跑了」，這時還把鎖留著只會擋住他自己。
   for (const s of agentSessions.values()) {
-    if (s.status === 'running' && (!userLabel || s.userLabel === userLabel)) s.stopRequested = true
+    if (s.status === 'running' && (!userLabel || s.userLabel === userLabel)) {
+      s.stopRequested = true
+      finishHeavyTask(s.heavyTask)
+    }
   }
   res.json({ ok: true, stopped })
 })
