@@ -634,7 +634,16 @@ def leave_game(page, cfg: dict, mt: str) -> bool:
 
         ev = wait_for_leave_gm(page, 10000, baseline)
         if ev is None:
-            log(f"[{mt}] ⚠️ 未收到 leaveGMNtc（10s 逾時，第 {attempt} 次）")
+            # ⚠️ 收不到 leaveGMNtc 時**再看一次畫面**。實測（2026-09-06）：
+            #    連「有成局、enterGMNtc 收得到」的 session 也拿不到 leaveGMNtc，
+            #    所以不能只靠這一個訊號判定離機失敗——那會讓每次都重試三輪、
+            #    浪費 30 秒，而且最後回報的「座位可能還被佔著」可能是誤報。
+            #    回到大廳（看得到機台列表）就是離機成功的獨立證據。
+            seat = detect_seat_state(page)
+            if seat == 'lobby':
+                log(f"[{mt}] ✅ 已離開機台（未收到 leaveGMNtc，但畫面已回到大廳）")
+                return True
+            log(f"[{mt}] ⚠️ 未收到 leaveGMNtc（10s 逾時，第 {attempt} 次）；座位狀態＝{seat}")
             continue
         errcode = ev.get('errcode', 0)
         if errcode == 0:

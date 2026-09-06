@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.116.0'
+export const APP_VERSION = '4.116.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.116.1',
+    date: '2026-09-06',
+    changes: [
+      'fix(autospin): ⚠️ 派工時會接到「已被要求停止但還沒收尾」的舊 session。「加入既有 session」那條路徑只檢查 status===running，沒檢查 stopRequested——於是新的 Python 加進去、下一次心跳（≤3 秒）就被叫停，畫面上是「開始執行 Spin 循環」下一行就「停止執行」。再派工一次又會好，所以看起來像偶發問題。實際發生過兩次',
+      'fix(autospin): 離機收不到 leaveGMNtc 時改看畫面。實測連「有成局、enterGMNtc 收得到」的 session 也拿不到 leaveGMNtc，只靠這一個訊號會每次都重試三輪浪費 30 秒，而且最後回報的「座位可能還被佔著」可能是誤報。回到大廳是離機成功的獨立證據',
+    ],
+  },
   {
     version: '4.116.0',
     date: '2026-09-06',

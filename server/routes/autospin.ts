@@ -1402,7 +1402,13 @@ router.post('/api/autospin/agent/start', (req, res) => {
     // 衝突（不是使用者手動又點了一次派工），只要衝突對象本身也是 autospin-agent、而且已經有一個
     // 屬於同一個 userLabel 的 running session（就是剛剛那個搶到名額的 process 建立的），直接讓
     // 這個 process 加入既有 session 就好，不要擋下來讓它永遠卡在重連失敗。
-    const existing = [...agentSessions.values()].find(s => s.status === 'running' && s.userLabel === userLabel)
+    // ⚠️ **一定要排除已經被要求停止的 session。**只看 `status === 'running'` 的話，
+    //    使用者按下停止、agent 還沒完全收尾的那個空窗期內重新派工，新的 Python 會
+    //    加入那個正在收尾的 session，然後在下一次心跳（≤3 秒）就被自己的 /should-stop
+    //    叫停——畫面上看到的是「開始執行 Spin 循環」下一行就「停止執行」，
+    //    而且再派工一次又會好，所以看起來像偶發問題。實際發生過兩次（2026-09-06 回報）。
+    const existing = [...agentSessions.values()].find(s =>
+      s.status === 'running' && s.userLabel === userLabel && !s.stopRequested)
     if (heavyTask.task.type === 'autospin-agent' && existing) {
       sessionId = existing.id
     } else {
