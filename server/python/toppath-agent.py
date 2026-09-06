@@ -595,6 +595,84 @@ def wait_for_leave_gm(page, timeout_ms: int = 10000, baseline_ts: float = 0):
     return None
 
 
+# 第二／三階段的按鈕。⚠️ 順序照 machine-test 的 stepExit()，不要自己重排——
+# 有些機種是 Exit 之後才跳 Confirm，反過來點會在對話框還沒出現時就先找 Confirm。
+EXIT_STAGE2_SELS = ['.function-btn .reserve-btn-gray']
+EXIT_STAGE2_TEXTS = ['Exit', 'Exit To Lobby', '離開', '退出']
+EXIT_CONFIRM_TEXTS = ['Confirm', '確認', '确认', 'OK', 'Yes']
+
+
+def _click_by_text(page, texts: list, mt: str, label: str) -> bool:
+    """按可見文字點按鈕。用 JS click 繞過可能蓋在上面的遮罩（跟進場點卡片同一招）。"""
+    for t in texts:
+        for sel in (f"button:text-is('{t}')", f"button:has-text('{t}')", f"*:text-is('{t}')"):
+            try:
+                for el in page.locator(sel).all():
+                    if not el.is_visible():
+                        continue
+                    el.evaluate("el => el.click()")
+                    log(f"[{mt}] 點擊{label}：「{t}」")
+                    time.sleep(0.6)
+                    return True
+            except Exception:
+                continue
+    return False
+
+
+def click_exit_confirm(page, mt: str) -> bool:
+    """離機第二／三階段：Exit 按鈕 → Confirm 對話框。回傳有沒有點到東西。
+
+    ⚠️ 這兩段是 JJBXGOLD 這類機種**唯一**出得來的路徑——光按 cashout 沒有用。
+       實測 JJBX 一次就出來、JJBXGOLD 連點三次都出不來，差別就在這裡。
+    """
+    hit = False
+    for sel in EXIT_STAGE2_SELS:
+        try:
+            for el in page.locator(sel).all():
+                if el.is_visible():
+                    el.evaluate("el => el.click()")
+                    log(f"[{mt}] 點擊 Exit 按鈕：{sel}")
+                    time.sleep(0.6)
+                    hit = True
+                    break
+        except Exception:
+            continue
+        if hit:
+            break
+    if not hit:
+        hit = _click_by_text(page, EXIT_STAGE2_TEXTS, mt, 'Exit 按鈕')
+    # Confirm 不論前一步有沒有點到都試一次——有些機種 cashout 之後就直接跳確認框
+    if _click_by_text(page, EXIT_CONFIRM_TEXTS, mt, '確認對話框'):
+        hit = True
+    return hit
+
+
+def wait_leave_or_lobby(page, mt: str, timeout_sec: float, baseline: float) -> bool:
+    """等 leaveGMNtc **或** 畫面回到大廳，先到者為準。
+
+    ⚠️ 頁面切換可能比固定 sleep 久（machine-test 用 12 秒輪詢），
+       所以不能只等訊號——那正是先前每次都逾時放棄的原因。
+    """
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        ev = wait_for_leave_gm(page, 500, baseline)
+        if ev is not None:
+            code = ev.get('errcode', 0)
+            if code == 0:
+                log(f"[{mt}] ✅ 已離開機台（leaveGMNtc errcode=0）")
+                return True
+            if code == 10002:
+                log(f"[{mt}] leaveGMNtc errcode=10002（遊戲仍在進行），稍後重試")
+                return False
+            log(f"[{mt}] ⚠️ leaveGMNtc errcode={code}: {ev.get('errcodedes', '')}")
+            return False
+        if detect_seat_state(page) == 'lobby':
+            log(f"[{mt}] ✅ 已離開機台（畫面已回到大廳）")
+            return True
+        time.sleep(0.5)
+    return False
+
+
 def leave_game(page, cfg: dict, mt: str) -> bool:
     """停止前正常離開機台，把座位還回去。
 
@@ -609,6 +687,14 @@ def leave_game(page, cfg: dict, mt: str) -> bool:
     回傳有沒有確認離機成功（收到 errcode=0 的 leaveGMNtc）。
     """
     selectors = ([cfg.get('exitSelector')] if cfg.get('exitSelector') else []) + EXIT_SELECTORS_DEFAULT
+    # ⚠️ **有些機種光按 cashout 出不來，要再走 Exit → Confirm 兩段。**
+    #    實測（2026-09-06，同一段流程、同一個選擇器）：
+    #        osmel003 @ 873-JJBX-0004      → 一次點擊就回到大廳 ✅
+    #        osmel006 @ 873-JJBXGOLD-1001  → 連點 3 次都出不來 ❌
+    #    差別不是攔截壞掉（那樣兩台都會失敗），是**機種需要的步驟不同**。
+    #    machine-test 的 stepExit() 早就有這三段，這支只移植了第一段就重複三次，
+    #    所以對 JJBXGOLD 這類機種等於完全沒有作用——而症狀是「機台一直被佔用」，
+    #    看起來像離機沒做，其實是只做了一半。
     for attempt in range(1, 4):
         baseline = time.time() * 1000
         clicked = False
@@ -644,6 +730,9 @@ def leave_game(page, cfg: dict, mt: str) -> bool:
                 log(f"[{mt}] ✅ 已離開機台（未收到 leaveGMNtc，但畫面已回到大廳）")
                 return True
             log(f"[{mt}] ⚠️ 未收到 leaveGMNtc（10s 逾時，第 {attempt} 次）；座位狀態＝{seat}")
+            # 第二／三階段：Exit 按鈕 → Confirm 對話框（移植自 machine-test stepExit）
+            if click_exit_confirm(page, mt) and wait_leave_or_lobby(page, mt, 12.0, baseline):
+                return True
             continue
         errcode = ev.get('errcode', 0)
         if errcode == 0:

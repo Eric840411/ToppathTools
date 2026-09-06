@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.117.0'
+export const APP_VERSION = '4.117.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.117.1',
+    date: '2026-09-06',
+    changes: [
+      'fix(autospin): 🚨 **離機只做了三分之一，所以有些機種永遠出不來、座位一直被佔著**（使用者回報的正是這件事）。machine-test 的 stepExit() 是三階段：① cashout → ② Exit／Exit To Lobby 按鈕 → ③ Confirm 對話框，最後輪詢 DOM 最多 12 秒。AutoSpin 只移植了 ① 然後重複三次',
+      'note(autospin): 實測證據（同一段流程、同一個選擇器）：osmel003 @ 873-JJBX-0004 一次點擊就回到大廳 ✅；osmel006 @ 873-JJBXGOLD-1001 連點 3 次都出不來 ❌。**差別不是攔截壞掉**（那樣兩台都會失敗），是機種需要的步驟不同——而症狀「機台一直被佔用」看起來像離機沒做，其實是只做了一半',
+      'fix(autospin): 等待改成「leaveGMNtc 或畫面回到大廳，先到者為準」，最多 12 秒。頁面切換可能比固定等待久——只等訊號正是先前每次都逾時放棄的原因',
+    ],
+  },
   {
     version: '4.117.0',
     date: '2026-09-06',
