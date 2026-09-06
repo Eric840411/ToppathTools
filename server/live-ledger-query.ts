@@ -15,6 +15,7 @@
  */
 import { db } from './shared.js'
 import { recentFindings, type FindingRow } from './live-ledger.js'
+import { jpSummary } from './live-ledger-jp.js'
 import type { ReconEnv } from './live-ledger.js'
 
 export type LampState = 'ok' | 'warn' | 'bad' | 'unwired'
@@ -88,9 +89,20 @@ export function healthLamps(env: ReconEnv, now = Date.now()): Lamp[] {
     },
     {
       key: 'luckylink', label: 'LuckyLink',
-      // ⚠️ 刻意是 unwired 不是 ok。JP 那兩條線（L4/L5）一支 API 都還沒串，
-      //    畫成綠燈等於宣稱「JP 對帳正常」，而它根本沒在對。
-      state: 'unwired', agoSec: null, note: '尚未串接（L4／L5 未實作）',
+      // ⚠️ 兩支報表分開看——合成一盞燈的話，哪一支壞掉分不出來。
+      //    任一支失敗就亮紅；都沒量測過才是 warn（不是綠）。
+      state: (() => {
+        const pc = bySource.get('poolChangeReport'); const aw = bySource.get('awardsReport')
+        if (!pc && !aw) return 'warn' as LampState
+        if ((pc?.failCount ?? 0) > 0 || (aw?.failCount ?? 0) > 0) return 'bad' as LampState
+        return 'ok' as LampState
+      })(),
+      agoSec: ago(bySource.get('poolChangeReport')?.lastOkAt),
+      note: (() => {
+        const pc = bySource.get('poolChangeReport'); const aw = bySource.get('awardsReport')
+        const bad = [pc?.failCount ? `池變動：${pc.message || pc.errKind}` : '', aw?.failCount ? `中獎：${aw.message || aw.errKind}` : ''].filter(Boolean)
+        return bad.length ? bad.join('；') : '池變動／中獎兩支報表'
+      })(),
     },
     (() => {
       // 時鐘偏移燈。⚠️ 這盞只反映「本機 vs 後台 web」，**不是**配對用的偏移——
@@ -142,6 +154,7 @@ export interface Overview {
   lateRebound: number
   pendingTimeoutSec: number
   findings: FindingRow[]
+  jp: ReturnType<typeof jpSummary>
 }
 
 /**
@@ -218,6 +231,8 @@ export function overview(env: ReconEnv, windowMinutes = 30, now = Date.now()): O
 
   const oldestMissing = missingRows.length ? Math.max(...missingRows.map(age)) : null
 
+  // L4/L5 的統計來自 JP 那兩張表（跟 spin 無關——池是整個群組共用的）
+  const jp = jpSummary(env, since)
   const lines: LedgerLine[] = [
     {
       id: 'L1', name: '單局', desc: 'agent 觀測 ↔ gameRecordList · key=orderId',
@@ -237,14 +252,15 @@ export function overview(env: ReconEnv, windowMinutes = 30, now = Date.now()): O
       reason: '尚未拉取 EGM Transfer 報表。',
     },
     {
-      id: 'L4', name: 'JP 中獎', desc: 'awardsReport ↔ 後台 JP 紀錄',
-      implemented: false, delta: null,
-      reason: 'LuckyLink awardsReport 尚未串接。',
+      id: 'L4', name: 'JP 中獎', desc: 'awardsReport 三條等式 · 自洽／basevalue／跨報表',
+      implemented: true, delta: null,
+      counts: { match: jp.awards - jp.awardsBad, pending: 0, missing: 0, ambiguous: jp.awardsBad },
     },
     {
-      id: 'L5', name: 'JP 池', desc: 'poolChangeReport ↔ coinIn × increment%',
-      implemented: false, delta: null,
-      reason: 'LuckyLink poolChangeReport 尚未串接。',
+      id: 'L5', name: 'JP 池', desc: 'poolChangeReport · change ≈ coinInΔ × increment%',
+      implemented: true, delta: null,
+      // skipped 歸在 pending：它們是「刻意沒驗」（中獎那筆／池已滿頂），不是問題也不是通過
+      counts: { match: jp.poolOk, pending: jp.poolSkipped, missing: 0, ambiguous: jp.poolMismatch },
     },
   ]
 
@@ -271,6 +287,7 @@ export function overview(env: ReconEnv, windowMinutes = 30, now = Date.now()): O
     lines, timeline, bindMethods,
     lateRebound: rows.filter(r => r.lateArrival === 1).length,
     findings: recentFindings(env, 20),
+    jp,
     pendingTimeoutSec: timeoutSec,
   }
 }

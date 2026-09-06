@@ -2205,6 +2205,16 @@ const SETTING_META: Record<string, { label: string; unit: string; dflt: number; 
     effect: 'session 結束後還要繼續拉取多久，把最後那批 PENDING 收乾淨。' },
 }
 
+router.get('/api/autospin/live-ledger/jp', async (req, res) => {
+  try {
+    const { jpMatrix, jpSummary } = await import('../live-ledger-jp.js')
+    const env = reconEnvOf(req as never)
+    const minutes = Math.min(Math.max(Number(req.query.minutes) || 30, 1), 24 * 60)
+    const since = Date.now() - minutes * 60_000
+    res.json({ ok: true, env, minutes, summary: jpSummary(env, since), matrix: jpMatrix(env, since) })
+  } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
+})
+
 router.get('/api/autospin/live-ledger/settings', (req, res) => {
   try {
     const env = reconEnvOf(req as never)

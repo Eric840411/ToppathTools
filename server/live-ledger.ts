@@ -27,7 +27,7 @@ export type BindResult = 'resolved' | 'ambiguous' | 'not_found'
  *    `absolute_window` 是樣本不足時的退路（±30s，寬鬆）。
  *    混成同一個回填率＝把「嚴格對上的」和「寬鬆撿到的」當成同一件事。
  */
-export type BindMethod = 'residual' | 'absolute_window'
+export type BindMethod = 'residual' | 'residual_global' | 'absolute_window'
 
 export interface PendingSpin {
   id: number
@@ -133,6 +133,8 @@ export function alignBySpinIndex(
      * 所以 ±5 秒綽綽有餘，而且比原本的 30 秒絕對窗**嚴格 6 倍**。
      */
     residualToleranceMs?: number
+    /** 這個 offset 是逐機台估的還是全域估的——信心度不同，要標記出來 */
+    offsetScope?: 'machine' | 'global' | null
   },
   alreadyBound: ReadonlySet<string> = new Set(),
 ): AlignDecision[] {
@@ -156,7 +158,8 @@ export function alignBySpinIndex(
   const offset = (typeof opts.offsetMs === 'number' && Number.isFinite(opts.offsetMs))
     ? opts.offsetMs : null
   const residualTol = opts.residualToleranceMs ?? 5000
-  const bindMethod: BindMethod = offset === null ? 'absolute_window' : 'residual'
+  const bindMethod: BindMethod = offset === null ? 'absolute_window'
+    : opts.offsetScope === 'global' ? 'residual_global' : 'residual'
   // 錨定窗：有 offset 時用殘差容忍值，沒有時沿用原本的絕對窗
   const anchorTol = offset === null ? opts.anchorWindowMs : residualTol
 
@@ -573,6 +576,32 @@ export const MIN_OFFSET_SAMPLES = 10
  *    （本機時鐘偏差 ＋ 來源時鐘偏差 ＋ `bet_time_precise` 的語意差異），
  *    只有第一項是全域的。時鐘也會被 NTP 校正、會漂，所以不能在 session 開頭估一次就固定。
  */
+/**
+⚠️ **冷啟動的雞生蛋問題**：要 10 筆配對樣本才估得出偏移，但偏移本身就把配對截斷了。
+ *
+ * 實測（897-BIGFULINK-2065 第一次上線）：Δt = 26068 / 29692 / 29684，全部貼在 30 秒
+ * 絕對窗的邊緣，28 筆後台紀錄只綁上 3 筆——而 3 < 10，所以永遠切不到殘差模式。
+ * 新機台會**永久卡在寬鬆模式而且配對率極低**。
+ *
+ * 解法：逐機台樣本不足時，退而用**同 env 的全域偏移**。理由是那個偏移主要來自
+ * 本機時鐘偏差（全域的），逐機台的部分只是次要成分。用全域值仍然比 30 秒絕對窗準得多。
+ *
+ * ⚠️ 但這兩者要**分得出來**（`residual` vs `residual_global`）——全域值沒有把
+ *    該機台特有的成分算進去，信心度不同，統計時不能混。
+ */
+export function estimateGlobalOffset(env: ReconEnv, limit = 200): number | null {
+  const rows = db.prepare(`
+    SELECT b.betTimePrecise - s.observedAt AS dt
+    FROM recon_spin s JOIN recon_backend_record b ON b.orderId = s.orderId AND b.env = s.env
+    WHERE s.env = ? AND s.status = 'MATCH' AND s.orderId IS NOT NULL
+    ORDER BY s.observedAt DESC LIMIT ?
+  `).all(env, limit) as { dt: number }[]
+  if (rows.length < MIN_OFFSET_SAMPLES) return null
+  const d = rows.map(r => r.dt).sort((x, y) => x - y)
+  const m = Math.floor(d.length / 2)
+  return d.length % 2 ? d[m] : Math.round((d[m - 1] + d[m]) / 2)
+}
+
 export function estimateMatchOffset(env: ReconEnv, machineType: string, limit = 50): number | null {
   const rows = db.prepare(`
     SELECT b.betTimePrecise - s.observedAt AS dt
@@ -630,10 +659,13 @@ export function runBindCycle(env: ReconEnv, now = Date.now()): {
     const scoped = gmids.size ? records.filter(r => gmids.has(r.gmid)) : records
     // offset 逐 (env, machineType) 估。估不出來（樣本 < 10）就退回絕對窗，
     // 由 bindMethod 標記成 absolute_window，驗收時分開算。
-    const offsetMs = estimateMatchOffset(env, g[0].machineType)
+    // 逐機台優先；樣本不足退全域（見 estimateGlobalOffset 的雞生蛋說明）
+    const perMachine = estimateMatchOffset(env, g[0].machineType)
+    const offsetMs = perMachine ?? estimateGlobalOffset(env)
+    const offsetScope: 'machine' | 'global' | null = perMachine !== null ? 'machine' : (offsetMs !== null ? 'global' : null)
     const opts = {
       anchorWindowMs: cfg.afterMs, maxLatencyMs: cfg.afterMs, maxLeadMs: cfg.beforeMs,
-      offsetMs, residualToleranceMs: RESIDUAL_TOLERANCE_MS,
+      offsetMs, residualToleranceMs: RESIDUAL_TOLERANCE_MS, offsetScope,
     }
     decisions.push(...alignBySpinIndex(g, scoped, opts, bound))
     // 這一組綁掉的單要立刻進 bound，否則下一組可能重複配到同一張

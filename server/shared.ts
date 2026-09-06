@@ -1083,6 +1083,90 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_recon_backend_seq ON recon_backend_recor
 // ⚠️ MISSING 原本是終局狀態，於是「門檻訂得比實際延遲緊一點」＝資料被永久污染，
 //    而畫面上顯示的是「掉單」。**對一筆其實有入帳的局說掉單，比不報還糟。**
 //    實測首輪就有 14 筆後台紀錄晚到、對應的 spin 早已被判 MISSING 再也綁不回去。
+// ─── Live Ledger P2：LuckyLink（L4 JP 中獎 / L5 JP 池）────────────────────
+//
+// ⚠️ 全部新開表，不動任何既有的 luckylink_* 或 autospin_compare_*。
+//    那些是舊工具的歷史紀錄，混寫會讓兩邊都不可信。
+db.exec(`
+  CREATE TABLE IF NOT EXISTS recon_pool_change (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    env           TEXT NOT NULL,
+    -- ⚠️ 一次投注會對該機台掛的每個 Level 各寫一筆（同 timestamp、同 reqmd5、
+    --    同 coinIn 區間），所以 reqmd5 + levelid 才是唯一，不是 reqmd5 自己。
+    reqmd5        TEXT NOT NULL DEFAULT '',
+    levelid       TEXT NOT NULL DEFAULT '',
+    machineid     TEXT NOT NULL DEFAULT '',
+    groupid       TEXT NOT NULL DEFAULT '',
+    machineName   TEXT NOT NULL DEFAULT '',
+    groupName     TEXT NOT NULL DEFAULT '',
+    levelName     TEXT NOT NULL DEFAULT '',
+    protocallevelid INTEGER,
+    oldcoinin     REAL, newcoinin REAL,
+    before_       REAL, change_ REAL, after_ REAL,
+    beforeover    REAL, afterover REAL,
+    poolamount    REAL,
+    reason        TEXT NOT NULL DEFAULT '',
+    ts            INTEGER NOT NULL,
+    fetchedAt     INTEGER NOT NULL,
+    -- 逐筆驗證結果：ok / mismatch / skipped_overflow / unknown_reason
+    verify        TEXT NOT NULL DEFAULT '',
+    verifyDelta   REAL,
+    raw           TEXT,
+    UNIQUE (env, reqmd5, levelid, ts)
+  )
+`)
+db.exec(`CREATE INDEX IF NOT EXISTS idx_recon_pool_ts ON recon_pool_change (env, ts)`)
+db.exec(`CREATE INDEX IF NOT EXISTS idx_recon_pool_machine ON recon_pool_change (env, machineName, ts)`)
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS recon_jp_award (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    env           TEXT NOT NULL,
+    awardKey      TEXT NOT NULL,
+    machineName   TEXT NOT NULL DEFAULT '',
+    gmid          TEXT NOT NULL DEFAULT '',
+    groupName     TEXT NOT NULL DEFAULT '',
+    levelid       TEXT NOT NULL DEFAULT '',
+    levelname     TEXT NOT NULL DEFAULT '',
+    protocallevelid INTEGER,
+    amount        REAL,
+    beforeAmount  REAL,
+    afterAmount   REAL,
+    isException   INTEGER NOT NULL DEFAULT 0,
+    ts            INTEGER NOT NULL,
+    fetchedAt     INTEGER NOT NULL,
+    -- L4 三條等式各自的結果，分開存才知道是哪一條不成立
+    eqSelfOk      INTEGER, eqBasevalueOk INTEGER, eqPoolOk INTEGER,
+    verifyNote    TEXT NOT NULL DEFAULT '',
+    raw           TEXT,
+    UNIQUE (env, awardKey)
+  )
+`)
+
+// 機台 ↔ 獎池對應。⚠️ egmList 兩個環境都回 0 筆，所以從 poolChangeReport 反推。
+// resolvedBy: config（設定帶入，還沒被報表證實）→ observed（報表真的出現過）。
+// **設定與實測不符 = 機台掛錯獎池**，那是平常看不出來的配置 bug，本身就該產生 finding。
+db.exec(`
+  CREATE TABLE IF NOT EXISTS recon_machine_map (
+    env           TEXT NOT NULL,
+    machineName   TEXT NOT NULL,
+    levelid       TEXT NOT NULL,
+    groupid       TEXT NOT NULL DEFAULT '',
+    groupName     TEXT NOT NULL DEFAULT '',
+    levelName     TEXT NOT NULL DEFAULT '',
+    protocallevelid INTEGER,
+    incrementPercent REAL,
+    basevalue     REAL,
+    maxValue      REAL,
+    channelId     TEXT NOT NULL DEFAULT '',
+    assetnumber   TEXT NOT NULL DEFAULT '',
+    resolvedBy    TEXT NOT NULL DEFAULT 'config',
+    verifiedAt    INTEGER,
+    updatedAt     INTEGER NOT NULL,
+    PRIMARY KEY (env, machineName, levelid)
+  )
+`)
+
 // recon_source_health.clockOffsetMs —— 本機與後台 web 的時鐘差（從 HTTP Date header 量）。
 // ⚠️ **這個值只做觀測，絕對不參與配對校正。**實測 2026-09-05：Date header 偏移 +93 秒、
 //    而 bet_time_precise 對 observedAt 的偏移是 +29 秒，**兩者差 64.5 秒**——

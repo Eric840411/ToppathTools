@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.114.0'
+export const APP_VERSION = '4.115.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,19 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.115.0',
+    date: '2026-09-06',
+    changes: [
+      'feat(live-ledger): L4／L5（LuckyLink JP 中獎與 JP 池）串接完成。新增三張表（recon_pool_change／recon_jp_award／recon_machine_map）＋獨立輪詢。實測落庫 202 筆池變動、**驗證 202/202 全中**（change ≈ coinInΔ × incrementPercent），機台↔獎池從 poolChangeReport 反推出 2 台 4 池',
+      'fix(live-ledger): ⚠️ LuckyLink 回應是 data.items 不是 data.list。用猜的會得到最難查的形狀——連得上、code=20000、total 有數字，但**一筆都拿不到**。先驗真實回應才發現',
+      'fix(live-ledger): ⚠️ 跨通道要用 isall=true + channelId=0，不是逐機台換 channelId。實測同一組憑證：isall=false+channelId=897 回 40501 權限不足；isall=true+channelId=0 回 20000 拿得到 897 的局。逐機台換反而會撞權限。實測拉到 28 筆 897 的紀錄（bet=88）',
+      'fix(live-ledger): ⚠️ **冷啟動的雞生蛋問題**——要 10 筆配對樣本才估得出系統性偏移，但偏移本身把配對截斷了。實測新機台 Δt = 26068/29692/29684 全部貼在 30 秒窗邊緣，28 筆只綁上 3 筆，而 3 < 10 所以永遠切不到殘差模式。新增全域偏移 fallback（29091ms），綁定率 3 → 15 筆，並標記成 residual_global 跟逐機台的 residual 分開統計',
+      'fix(live-ledger): 通道權限不足要跟「掉單」分得出來。查不到那個通道當然全部 MISSING，但正解是去要權限不是查金流——說錯原因會讓人往完全錯的方向查',
+      'fix(live-ledger): 時鐘量測改成獨立節奏（每 5 分鐘），不再掛在拉取路徑上。原本掛在「跑完所有 scope 之後」，而 scope 從 recon_spin 反推——沒有壓測在跑就沒有 scope，於是**時鐘從來沒被量過**，我清單上標「已串」但 DB 裡沒有資料可以佐證',
+      'note(live-ledger): 晚到回綁實測生效——3 筆 MISSING 因後台紀錄晚到而回綁成 MATCH 並標 lateArrival=1',
+    ],
+  },
   {
     version: '4.114.0',
     date: '2026-09-06',

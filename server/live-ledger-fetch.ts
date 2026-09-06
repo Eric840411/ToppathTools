@@ -53,7 +53,27 @@ export interface FetchOutcome {
   toMs?: number
 }
 
+/**
+ * ⚠️ `dateTime[]` 一定要用 **ISO-Z**（`toISOString()`）。
+ *    空白分隔的 `YYYY-MM-DD HH:mm:ss` 會被後端當**本地時間（UTC+8）**解讀，
+ *    拿 UTC 值去填就會查到 0 筆——而且不報錯，看起來就像「這段時間沒有局」。
+ *    兩種格式不能混用。
+ */
 function isoOf(ms: number): string { return new Date(ms).toISOString() }
+
+/**
+ * 從 gmid 前綴推通道（`897-BIGFULINK-2065` → `897`）。
+ *
+ * ⚠️ **不能全域寫死一個 channelId。**實測 897 那台的局用 873 去查一定查不到，
+ *    結果是每一筆都變 MISSING——看起來像「全部掉單」，其實是查錯通道。
+ */
+/** 預設走全通道模式。設成 false 會退回「由 gmid 推單一通道」的舊行為。 */
+const CHANNEL_ALL_MODE = process.env.LIVE_LEDGER_CHANNEL_ALL !== 'false'
+
+export function channelOfGmid(gmid: string, dflt: string): string {
+  const m = /^(\d{3,4})-/.exec(gmid || '')
+  return m ? m[1] : dflt
+}
 
 /**
  * 對單一 (env, 帳號) 拉一輪。
@@ -62,7 +82,7 @@ function isoOf(ms: number): string { return new Date(ms).toISOString() }
  * 兩者必須是同一個字串，否則守門會擋掉本來就該收的資料。
  */
 export async function fetchBackendForScope(
-  env: ReconEnv, username: string, now = Date.now(),
+  env: ReconEnv, username: string, now = Date.now(), gmid = '',
 ): Promise<FetchOutcome> {
   const source = 'gameRecordList'
   if (!username) {
@@ -107,9 +127,17 @@ export async function fetchBackendForScope(
       clientMachineName: '', playerId: '', playerName: username, orderId: '',
       page: String(page), pageSize: String(PAGE_SIZE),
       dateTimeType: '0',
-      playerstudioid: 'cp,wf,tbr,tbp,ncl,bpo,mdr,dhs,cf,np,pf,igo,ALL',
-      bgType: profile === 'gcp' ? '2' : '0', dataType: '0', isall: 'false',
-      channelId: cfg.channel_id || '873',
+      playerstudioid: 'cp,wf,tbr,tbp,ncl,bpo,mdr,dhs,cf,np,pf,igo,np2,dy,ALL',
+      bgType: profile === 'gcp' ? '2' : '0', dataType: '0',
+      // ⚠️ **跨通道要用 `isall=true` + `channelId=0`，不是逐機台換 channelId。**
+      //    實測（同一組憑證，同一台 897-BIGFULINK-2065）：
+      //      isall=false + channelId=897 → code 40501 權限不足
+      //      isall=true  + channelId=0   → code 20000、total=28、拿得到 897 的局
+      //    逐機台換 channelId 反而會撞權限——方向對、做法錯，這是實測推翻的。
+      isall: 'true',
+      // `0` 代表全通道。`channelOfGmid()` 留著當 fallback——萬一某個環境不吃 `0`，
+      // 至少還能退回單一通道查詢，而不是整個查不到。
+      channelId: CHANNEL_ALL_MODE ? '0' : channelOfGmid(gmid, cfg.channel_id || '873'),
     })
     params.append('dateTime[]', isoOf(fromMs))
     params.append('dateTime[]', isoOf(toMs))
@@ -129,8 +157,15 @@ export async function fetchBackendForScope(
     if (data?.code && data.code !== 20000) {
       const o: FetchOutcome = {
         ok: false, fetched: 0, upserted: 0, pages,
-        errKind: data.code === 40200 ? 'auth_failed' : 'api_error',
-        message: `後台回 code=${data.code}（第 ${page} 頁）`, fromMs, toMs,
+        errKind: data.code === 40200 ? 'auth_failed'
+          : (data.code === 40501 || data.code === 403) ? 'no_channel_permission' : 'api_error',
+        // ⚠️ 通道權限不足要跟「掉單」分得出來——實測後台帳號只有 873 的權限，
+        //    用它查 897 的機台會什麼都查不到，於是每一筆都變 MISSING。
+        //    **正解是去要通道權限，不是查金流。**說錯原因會讓人往完全錯的方向查。
+        message: (data.code === 40501 || data.code === 403)
+          ? `後台帳號沒有通道 ${channelOfGmid(gmid, cfg.channel_id || '873')} 的權限（code=${data.code}）`
+            + '——這個通道的對帳結果不可用，不是掉單'
+          : `後台回 code=${data.code}（第 ${page} 頁）`, fromMs, toMs,
       }
       noteSourceHealth(env, source, false, o.errKind, o.message)
       return o
@@ -205,18 +240,18 @@ export async function fetchBackendForScope(
  *    ② session 結束後還要再拉一段時間（寬限期）把 PENDING 收乾淨，
  *       只看「還在跑的 session」會讓最後那批永遠停在 PENDING
  */
-export function activeScopes(now = Date.now()): Array<{ env: ReconEnv; username: string }> {
+export function activeScopes(now = Date.now()): Array<{ env: ReconEnv; username: string; gmid: string }> {
   const graceMs = Math.max(reconSetting('qat', 'sessionGraceSec'), 60) * 1000
   const rows = db.prepare(`
-    SELECT DISTINCT env, note FROM recon_spin
+    SELECT DISTINCT env, note, gmid FROM recon_spin
     WHERE observedAt >= ? AND note IS NOT NULL AND note != ''
-  `).all(now - graceMs) as { env: string; note: string }[]
-  const out = new Map<string, { env: ReconEnv; username: string }>()
+  `).all(now - graceMs) as { env: string; note: string; gmid: string }[]
+  const out = new Map<string, { env: ReconEnv; username: string; gmid: string }>()
   for (const r of rows) {
     const m = /username=([^;\s]+)/.exec(r.note || '')
     if (!m) continue
     const env = (r.env === 'uat' ? 'uat' : 'qat') as ReconEnv
-    out.set(`${env}|${m[1]}`, { env, username: m[1] })
+    out.set(`${env}|${m[1]}`, { env, username: m[1], gmid: r.gmid || '' })
   }
   return [...out.values()]
 }
@@ -247,6 +282,14 @@ export function diagnoseAllMissing(env: ReconEnv, sinceMs: number): { level: 'ok
   // 樣本太少不下結論——剛開跑時本來就會全部 PENDING
   if (!r || r.total < 20) return { level: 'ok' }
   if (r.matched > 0) return { level: 'ok' }
+  // ⚠️ 通道權限不足時**不能報成掉單**。查不到那個通道的資料當然全部 MISSING，
+  //    但正解是去要權限，不是查金流——說錯原因會讓人往完全錯的方向查。
+  const perm = db.prepare(`SELECT message FROM recon_source_health
+    WHERE env=? AND source='gameRecordList' AND errKind='no_channel_permission'`).get(env) as { message: string } | undefined
+  if (perm) {
+    return { level: 'warn', message: `這個區間的對帳結果**不可用**：${perm.message}。` +
+      '畫面上的掉單數字在權限補齊之前沒有意義。' }
+  }
   const ratio = (r.missing || 0) / r.total
   if (ratio < 0.9) return { level: 'ok' }
   return {
@@ -258,22 +301,59 @@ export function diagnoseAllMissing(env: ReconEnv, sinceMs: number): { level: 'ok
 }
 
 /** 跑一輪：所有作用中的 (env, 帳號) 各拉一次，然後每個 env 跑一次序列對齊。 */
+/**
+ * 時鐘量測**不能掛在拉取路徑上**。
+ *
+ * ⚠️ 第一版把它放在「跑完所有 scope 之後」，而 `activeScopes()` 是從 `recon_spin`
+ *    反推的——沒有壓測在跑就沒有 scope，於是**時鐘從來沒被量過**，
+ *    `recon_source_health` 裡連 `clock` 那一列都不存在。
+ *    我清單上標「已串」但 DB 裡沒有資料可以佐證，是規格方核對時抓到的。
+ *
+ *    時鐘偏移跟「有沒有在壓測」無關，健康列應該隨時都看得到它——
+ *    今天那 94 秒如果只有壓測時才量得到，等於還是要靠人記得去查。
+ */
+const CLOCK_PROBE_INTERVAL_MS = 5 * 60_000
+/** JP 池／中獎不依賴有沒有壓測在跑（池是整個群組共用的），所以獨立節奏。 */
+const JP_CYCLE_INTERVAL_MS = 60_000
+let lastJpCycle = 0
+let lastClockProbe = 0
+
 export async function runLiveLedgerCycle(now = Date.now()): Promise<{
   scopes: number; fetched: number; upserted: number; failures: number
   bind: Record<string, { scanned: number; resolved: number; ambiguous: number; missing: number }>
 }> {
   const { runBindCycle } = await import('./live-ledger.js')
+  // 時鐘量測獨立於有沒有 scope——每 5 分鐘一次
+  if (now - lastClockProbe >= CLOCK_PROBE_INTERVAL_MS) {
+    lastClockProbe = now
+    for (const env of ['qat', 'uat'] as const) await probeServerClock(env)
+  }
+
+  // L4/L5：JP 池與中獎。跟 scope 無關——池是整個群組共用的，不是我們的 spin 才有。
+  if (now - lastJpCycle >= JP_CYCLE_INTERVAL_MS) {
+    lastJpCycle = now
+    const { runJpCycle } = await import('./live-ledger-jp.js')
+    for (const env of ['qat'] as const) {
+      try {
+        const j = await runJpCycle(env, now)
+        if (j.poolStored || j.awardStored || j.errors.length) {
+          console.log(`[live-ledger] JP ${env} 池 ${j.poolStored}/${j.poolFetched}` +
+            ` 不符 ${j.poolMismatch} · 中獎 ${j.awardStored} 異常 ${j.awardBad}` +
+            (j.errors.length ? ` · ${j.errors[0]}` : ''))
+        }
+      } catch (e) { console.warn('[live-ledger] JP 迴圈失敗:', e) }
+    }
+  }
+
   const scopes = activeScopes(now)
   let fetched = 0, upserted = 0, failures = 0
   const envs = new Set<ReconEnv>()
   for (const s of scopes) {
-    const r = await fetchBackendForScope(s.env, s.username, now)
+    const r = await fetchBackendForScope(s.env, s.username, now, s.gmid)
     fetched += r.fetched; upserted += r.upserted
     if (!r.ok) failures++
     envs.add(s.env)
   }
-  // 時鐘偏移每輪量一次（只做觀測，不參與校正——見 probeServerClock 的說明）
-  for (const env of envs) await probeServerClock(env)
   const bind: Record<string, { scanned: number; resolved: number; ambiguous: number; missing: number }> = {}
   for (const env of envs) {
     const b = runBindCycle(env, now)
