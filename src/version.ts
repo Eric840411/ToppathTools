@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.118.3'
+export const APP_VERSION = '4.119.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.119.0',
+    date: '2026-09-07',
+    changes: [
+      'fix(autospin): 機台被佔用／維護中時**回大廳重試，不中止也不重啟**（使用者指定）。原本是直接結束整個 session，要人重新派工；佔用是暫時狀態，機台空出來就該自己接上',
+      'note(autospin): ⚠️ 但**仍然不往下走**——往下走就是以旁觀者身分坐在那裡按 spin，那是 29 小時／16,573 次／0 局那次的成因，而且 autospin_history 照樣在寫、畫面上完全看不出來。「重試」跟「當作沒事繼續」是兩件事，這裡只做前者',
+      'fix(autospin): ⚠️ 重試迴圈分段睡並檢查 stop_flag——機台一直沒空出來時不能變成另一種停不下來的迴圈',
+    ],
+  },
   {
     version: '4.118.3',
     date: '2026-09-07',

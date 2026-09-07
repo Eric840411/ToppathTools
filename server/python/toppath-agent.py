@@ -1085,9 +1085,49 @@ def dismiss_jackpot_notification(page, mt: str = '') -> bool:
     return False
 
 
+OCCUPIED_RETRY_SEC = 30
+
+
 def enter_game(page, cfg: dict) -> bool:
-    """從大廳進入指定遊戲，對應 AutoSpin.py scroll_and_click_game()。
-    每個步驟都印出開始/結束與耗時，方便追蹤整段進入流程實際花的時間。"""
+    """進場。機台被佔用／維護中時**回大廳重試，不中止也不重啟**（2026-09-07 使用者指定）。
+
+    ⚠️ 「重試」跟「當作沒事繼續往下走」是兩件事，這裡只做前者。
+       往下走就是以旁觀者身分坐在那裡按 spin——那是 29 小時／16,573 次／0 局
+       那次的成因，而且 `autospin_history` 照樣在寫、畫面上完全看不出來。
+
+    ⚠️ 重試迴圈**必須看得到停止訊號**，否則機台一直沒空出來時就變成另一種
+       停不下來的迴圈——那正是我們這兩天一直在修的東西。
+    """
+    attempt = 0
+    while not stop_flag.is_set():
+        r = _enter_game_once(page, cfg)
+        if r != 'retry':
+            return bool(r)
+        attempt += 1
+        mt = cfg.get('machineType') or ''
+        log(f"[{mt}] ⏳ 第 {attempt} 次等待機台空出來…（每 {OCCUPIED_RETRY_SEC} 秒重試一次，可隨時按停止）")
+        # 分段睡，才能在停止訊號進來時立刻收斂，不用等滿一輪
+        for _ in range(OCCUPIED_RETRY_SEC):
+            if stop_flag.is_set():
+                return False
+            time.sleep(1.0)
+        # 回大廳再走一次完整流程（重新載入，避免停在機台面板上）
+        try:
+            page.goto(resolve_real_game_url(cfg.get('gameUrl') or ''),
+                      wait_until='domcontentloaded', timeout=30000)
+        except Exception as e:
+            log(f"[{mt}] 重新載入大廳失敗：{e}")
+    return False
+
+
+def _enter_game_once(page, cfg: dict):
+    """走一次進場流程（從大廳點卡片進入指定遊戲）。
+
+    回傳 True／False，或 `'retry'`——機台暫時無法入座（佔用／維護），
+    由 `enter_game()` 的迴圈負責等待後重來。
+
+    每個步驟都印出開始/結束與耗時，方便追蹤整段進入流程實際花的時間。
+    """
     mt = cfg['machineType']
     game_title_code = cfg.get('gameTitleCode') or ''
     if not game_title_code:
@@ -1196,10 +1236,17 @@ def enter_game(page, cfg: dict) -> bool:
                 txt = (occupied[0].inner_text() or '').strip()
             except Exception:
                 pass
-            log(f"[{mt}] ❌ 機台目前無法入座（Join 為 disabled{f'，畫面顯示「{txt}」' if txt else ''}）"
-                f"——可能是有人在玩，也可能是維護中，畫面上分不出來。中止進場。"
-                f"確認實際狀態請查後台 egmList 的 machineStatus（occupy / maintain）。")
-            return False
+            # ⚠️ **不中止、不重啟——回大廳重走一次流程**（2026-09-07 使用者指定）。
+            #    佔用／維護是暫時狀態，機台空出來就該自己接上，不需要人來重新派工。
+            #
+            # ⚠️ 但**仍然不能往下走**。往下走就是以旁觀者身分坐在那裡按 spin——
+            #    那是 29 小時／16,573 次／0 局那次的成因，而且畫面上完全看不出來。
+            #    「重試」跟「當作沒事繼續」是兩件事，這裡只做前者。
+            log(f"[{mt}] ⏳ 機台目前無法入座（Join 為 disabled{f'，畫面顯示「{txt}」' if txt else ''}）"
+                f"——可能是有人在玩，也可能是維護中，畫面上分不出來。"
+                f"{OCCUPIED_RETRY_SEC} 秒後回大廳重試（不中止、不重啟）。"
+                f"想確認實際狀態可查後台 egmList 的 machineStatus（occupy / maintain）。")
+            return 'retry'
     except Exception:
         pass
 
