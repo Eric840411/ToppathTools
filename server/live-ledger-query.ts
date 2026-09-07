@@ -430,8 +430,17 @@ export function ledgerDetail(env: ReconEnv, id: number, viewer: string | null = 
   return {
     ok: true, spin, backend, backendRaw,
     // ⚠️ 「本來就沒有」跟「該有卻沒抓到」要分開講（規格書要求）。
-    //    這裡是前者：整個 LuckyLink 都還沒串，不是這一筆抓不到。
-    luckylink: { available: false, reason: 'LuckyLink 尚未串接，L4／L5 未實作' },
+    //
+    // 🚨 **這句原本寫「L4／L5 未實作」，那是錯的**——它們早就實作了，
+    //    JP cycle 每 60 秒還在跑。使用者因此來問「L4/L5 什麼時候要做」。
+    //
+    //    真正的原因是**它們不是逐 spin 的線**：JP 池與中獎是整個群組共用的，
+    //    跟哪一次 spin 無關，所以單筆明細本來就不會有 LuckyLink 資料。
+    //    要看它們得去上方的線別統計。
+    luckylink: {
+      available: false,
+      reason: 'L4／L5 是群組層級的比對（JP 池／中獎），不掛在單一 spin 上——請看上方的線別統計',
+    },
   }
 }
 

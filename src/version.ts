@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.125.3'
+export const APP_VERSION = '4.125.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.125.4',
+    date: '2026-09-07',
+    changes: [
+      'fix(live-ledger): 🚨 **逐筆明細寫「L4／L5 未實作」是錯的**——它們早就實作了，JP cycle 每 60 秒還在跑。使用者因此來問「L4/L5 什麼時候要做」。真正的原因是**它們不是逐 spin 的線**：JP 池與中獎是整個群組共用的，跟哪一次 spin 無關，所以單筆明細本來就不會有資料。文案改成講清楚這件事，並指向上方的線別統計',
+    ],
+  },
   {
     version: '4.125.3',
     date: '2026-09-07',
