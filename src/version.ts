@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.125.0'
+export const APP_VERSION = '4.125.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.125.1',
+    date: '2026-09-07',
+    changes: [
+      'fix(agent): 🚨 **按下停止之後機台被父程序不斷重新拉起**。AutoSpin 是「一個父程序 + 每台機台一個子程序」。伺服器在執行中重啟時（部署就會），子程序自己重新註冊拿到新的 session id——**但那是它自己那個 process 裡的變數，父程序不知道**。父程序還拿著已失效的 id 在問「該停了嗎」，而它只看回應裡有沒有 `stop`；**session 不存在的回應裡當然沒有 `stop`**，所以父程序永遠等不到停止指令，只會一直看到子程序結束、再把它拉起來',
+      'fix(agent): 修法開**兩條互相獨立**的路（同 v4.118「絕對上限不依賴判活邏輯」的原則）：① 子程序重新註冊後把新 session id 寫回共用狀態，父程序改用它輪詢 ② 子程序一收到停止就設共用旗標，**就算 ① 整條失效也停得下來**。另加最後一道閘：有人要求停止時，監控迴圈不准再復活機台',
+      'fix(agent): ⚠️ 父程序刻意**不自己重新註冊**——那會再開一個 session，跟子程序各拿一個，狀態更亂。只等子程序把新 id 寫回來（它本來就會做）',
+      'test(agent): `server/python/test_parent_stop.py`（18 項，純函式不開瀏覽器）。**已注入舊行為確認會變紅**（退回「只看 resp.stop」→ 4 項轉紅，包含重現 bug 的那條）。共用狀態讀取拋例外時一律 fail-safe：不亂停、也不阻擋既有的斷線自動復原',
+    ],
+  },
   {
     version: '4.125.0',
     date: '2026-09-07',

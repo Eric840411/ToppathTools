@@ -55,6 +55,70 @@ screenshot_enabled: bool = True  # 截圖監控依帳號開關（2026-08-17）�
 stop_flag = threading.Event()
 pause_flag = threading.Event()
 
+# ─── 父子程序的共用狀態（沿用既有的 heartbeats Manager dict，不另開一個）──────────
+#
+# 🚨 **2026-09-07：按下停止之後機台被父程序不斷重新拉起。**
+#
+#    AutoSpin 是「一個父程序 + 每台機台一個子程序」。伺服器在執行中重啟時
+#    （部署就會），子程序會自己重新註冊拿到新的 session id——**但那是它自己那個
+#    process 裡的變數，父程序完全不知道**。父程序還拿著舊的、已失效的 id 在問
+#    「該停了嗎」，而 `poll_stop_parent()` 只看回應裡有沒有 `stop`；
+#    session 不存在的回應裡當然沒有 `stop`，**所以父程序永遠等不到停止指令**，
+#    只會一直看到子程序結束、再把它重新拉起來。使用者按停止 → 子程序乖乖離機關
+#    瀏覽器 → 父程序把它重啟 → 無限循環。
+#
+#    這裡開兩條**互相獨立**的路（跟 v4.118 那次「絕對上限不依賴判活邏輯」同一個原則）：
+#      ① `__sessionId`     子程序重新註冊後寫回，父程序改用它去輪詢
+#      ② `__stopRequested` 子程序一收到停止就設，父程序看到就停——
+#                          **就算 ① 整條失效，這條照樣停得下來**
+#    鍵名用 `__` 前綴，跟以機台代碼為鍵的心跳不會撞。
+SHARED_SESSION_KEY = '__sessionId'
+SHARED_STOP_KEY = '__stopRequested'
+shared_state = None
+
+
+def parent_poll_session_id(shared, fallback: str) -> str:
+    """父程序該用哪個 session id 去輪詢。子程序重新註冊過就用它寫回來的那個。"""
+    try:
+        return (shared.get(SHARED_SESSION_KEY) if shared is not None else None) or fallback
+    except Exception:
+        return fallback
+
+
+def parent_should_stop(resp: dict, shared) -> bool:
+    """父程序該不該停。**兩條互相獨立的路，任一成立就停。**
+
+    ⚠️ 刻意不合併成一個條件：`resp` 那條在 session 失效時整條失去作用
+    （不存在的 session 回應裡沒有 `stop`），而那正是這個 bug 發生的情境。
+    """
+    if isinstance(resp, dict) and resp.get('stop'):
+        return True
+    try:
+        return bool(shared is not None and shared.get(SHARED_STOP_KEY))
+    except Exception:
+        return False
+
+
+def restart_blocked(shared) -> bool:
+    """監控迴圈該不該放棄重啟這台機台。
+
+    🚨 有人要求停止就不准重啟——這是「按下停止卻一直被拉起來」的最後一道閘。
+    """
+    try:
+        return bool(shared is not None and shared.get(SHARED_STOP_KEY))
+    except Exception:
+        return False
+
+
+def share_set(key: str, value) -> None:
+    """寫入父子共用狀態。拿不到共用物件（例如單元測試）時安靜略過。"""
+    if shared_state is None:
+        return
+    try:
+        shared_state[key] = value
+    except Exception:
+        pass
+
 # 連續失敗時的退避（見主迴圈失敗分支的說明）
 RELOAD_BACKOFF_BASE_SEC = 5.0
 RELOAD_BACKOFF_MAX_SEC = 120.0
@@ -265,6 +329,9 @@ def poll_stop():
                                                'prevSessionId': session_id}, timeout=10)
                     new_data = resp.json()
                     session_id = new_data['sessionId']
+                    # ⚠️ 一定要寫回共用狀態——父程序還拿著舊的 id 在輪詢，
+                    #    不寫回的話它永遠收不到停止指令，會一直重啟這台機台。
+                    share_set(SHARED_SESSION_KEY, session_id)
                     local_log(f"[Agent] 重新連線成功，新 Session: {session_id}")
                     log(f"[Agent] 斷線重連成功（伺服器重啟），繼續執行中")
                 except Exception as e:
@@ -273,6 +340,9 @@ def poll_stop():
                 continue
             if d.get('stop'):
                 log("[Agent] 伺服器發出停止指令")
+                # ⚠️ 第二條獨立的路：直接告訴父程序「這是要停」。
+                #    就算上面那條 session id 同步整個失效，父程序也停得下來。
+                share_set(SHARED_STOP_KEY, True)
                 stop_flag.set()
                 break
             # Update spin interval override if provided
@@ -2623,6 +2693,8 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
     的共享 dict，parent 傳入）在每次主迴圈迭代開頭寫入目前時間，讓 parent 端的監控迴圈能判斷
     這台機台是「活著且有在動」還是「process 還在但卡死」（例如瀏覽器已無回應），據此自動重啟。"""
     global session_id, server_url, user_label, keyword_actions, machine_actions, AGENT_START_TS, screenshot_enabled
+    global shared_state
+    shared_state = heartbeats   # 沿用既有的 Manager dict 當共用通道（見檔頭說明）
     session_id = session_id_
     server_url = server_url_
     user_label = user_label_
@@ -3129,14 +3201,27 @@ def main():
 
     def poll_stop_parent():
         while not global_stop.is_set():
+            # ① 子程序若重新註冊過，用它寫回來的新 session id——
+            #    用父程序自己那個舊的會永遠問到一個不存在的 session
+            sid = parent_poll_session_id(heartbeats, session_id)
             try:
-                r = requests.get(f"{server_url}/api/autospin/agent/{session_id}/should-stop", timeout=5)
+                r = requests.get(f"{server_url}/api/autospin/agent/{sid}/should-stop", timeout=5)
                 d = r.json()
-                if d.get('stop'):
+                if parent_should_stop(d, heartbeats):
                     global_stop.set()
                     break
+                if d.get('sessionNotFound'):
+                    # ⚠️ **不要在這裡重新註冊。**父程序自己去註冊會再開一個 session，
+                    #    跟子程序各拿一個，狀態更亂。這裡只負責等子程序把新 id 寫回來
+                    #    （它本來就會做），下一輪就會問到對的 session。
+                    pass
             except Exception:
                 pass
+            # ② 完全獨立的第二條路：子程序收到停止就會設這個旗標。
+            #    上面整段（包含 HTTP 請求本身）壞掉時，這條照樣停得下來。
+            if parent_should_stop({}, heartbeats):
+                global_stop.set()
+                break
             time.sleep(3)
 
     threading.Thread(target=poll_stop_parent, daemon=True).start()
@@ -3159,6 +3244,11 @@ def main():
                 continue
             if restart_counts[mt] >= MAX_RESTARTS_PER_MACHINE:
                 continue  # 已達重啟上限，之前那次觸發時已經印過警告訊息了
+            # 🚨 **有人要求停止就不准重啟。**這是那個「按下停止卻一直被拉起來」的
+            #    最後一道閘：即使 global_stop 因為任何原因還沒被設起來，
+            #    只要任何一個子程序看過停止指令，這裡就不再復活它。
+            if restart_blocked(heartbeats):
+                continue
             reason = "process 已終止" if not alive else f"心跳超過 {HEARTBEAT_STALE_SEC}s 無更新（瀏覽器可能已無回應）"
             log(f"[{mt}] ⚠️ 偵測到異常（{reason}），自動重啟該機台...")
             if alive:
