@@ -358,7 +358,12 @@ export async function runLiveLedgerCycle(now = Date.now()): Promise<{
   for (const env of envs) {
     const b = runBindCycle(env, now)
     // 綁定完才有兩側金額可比。L1/L2 只看已 MATCH 的列。
-    const { compareAmounts } = await import('./live-ledger.js')
+    const { compareAmounts, findUnobservedRounds, recordUnobservedFindings } = await import('./live-ledger.js')
+    // 🚨 反向檢查：後台有局但前端沒觀測到。**這個方向原本完全看不到**——
+    //    資料流是 spin-driven，沒有 spin 的局根本不會進入任何查詢。
+    const unobs = findUnobservedRounds(env, now - 6 * 3600_000, now)
+    const newUnobs = unobs.length ? recordUnobservedFindings(env, unobs) : 0
+    if (newUnobs) console.log(`[live-ledger] ${env} 後台有局但前端未觀測：新增 ${newUnobs} 筆（總計 ${unobs.length}）`)
     const amt = compareAmounts(env, now - 6 * 3600_000)
     if (amt.l1Bad || amt.l2Bad) {
       console.log(`[live-ledger] ${env} 金額比對：檢查 ${amt.checked} 筆，L1 不符 ${amt.l1Bad}、L2 不符 ${amt.l2Bad}`)

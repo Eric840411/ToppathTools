@@ -14,7 +14,7 @@
  * 是完全不同的意思，混用等於主動誤導。
  */
 import { db } from './shared.js'
-import { recentFindings, nowOnObservedAxis, type FindingRow } from './live-ledger.js'
+import { recentFindings, nowOnObservedAxis, findUnobservedRounds, type FindingRow } from './live-ledger.js'
 import { jpSummary } from './live-ledger-jp.js'
 import type { ReconEnv } from './live-ledger.js'
 
@@ -161,6 +161,8 @@ export interface Overview {
   lateRebound: number
   pendingTimeoutSec: number
   findings: FindingRow[]
+  /** 後台有局、前端從頭到尾沒觀測到的筆數。⚠️ 這個方向原本完全看不到 */
+  unobserved: number
   jp: ReturnType<typeof jpSummary>
 }
 
@@ -309,6 +311,10 @@ export function overview(env: ReconEnv, windowMinutes = 30, now = Date.now(), vi
     lines, timeline, bindMethods,
     lateRebound: rows.filter(r => r.lateArrival === 1).length,
     findings: recentFindings(env, 20, false, viewer),
+    // 🚨 後台有局但前端沒觀測到。⚠️ **不套 viewer 過濾**——它本來就沒有對應的
+    //    spin，也就沒有歸屬；而且「有別人在玩同一個帳號」正是它要抓的其中一種可能，
+    //    照 viewer 篩會把那種情況篩掉。
+    unobserved: findUnobservedRounds(env, since, now).length,
     jp,
     pendingTimeoutSec: timeoutSec,
   }

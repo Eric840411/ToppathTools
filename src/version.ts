@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.120.0'
+export const APP_VERSION = '4.121.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.121.0',
+    date: '2026-09-07',
+    changes: [
+      'feat(live-ledger): 🚨 新增**反向檢查**——後台有局、但前端從頭到尾沒觀測到。這是整個資料流的方向盲點：現況是 spin-driven，`recon_spin` 是驅動表、後台紀錄只是配對素材，所以這種局**不會出現在任何地方**——不是被標成異常，是根本不存在於畫面上。實測後台 25 秒內連續成局 8 次而整段只有 1 筆 spin 觀測，舊查法完全看不到',
+      'note(live-ledger): 這類發現對 QA 最值錢，因為有三種可能而且處理方式都不同：① agent 漏觀測 ② 機台自己連續跑（免費遊戲／自動旋轉）③ **同一個帳號有別人在玩**——第三種不報出來的話，所有金額比對都在跟別人的局混算',
+      'fix(live-ledger): 未觀測檢查要排除尾端寬限窗（agent 的觀測可能還在路上），否則最近幾秒的局會一直誤報。寬限用跟 MISSING 同一個門檻，兩邊「等多久才算異常」保持一致',
+      'note(live-ledger): unobserved finding 的 refType 是 `round` 不是 `spin`——它本來就沒有對應的 spin，硬塞進 spin 的命名空間會讓「哪一筆」查不回去。畫面上也**不套個人過濾**：它沒有歸屬，而且「有別人在玩同一個帳號」正是它要抓的其中一種可能，照 viewer 篩會把那種情況篩掉',
+    ],
+  },
   {
     version: '4.120.0',
     date: '2026-09-07',

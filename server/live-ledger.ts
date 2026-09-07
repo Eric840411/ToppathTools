@@ -768,7 +768,7 @@ export function bindStats(env: ReconEnv, sinceMs?: number): {
 // 都值得看，只是它們回答的是「對帳鍵健不健康」而不是「金額對不對」。
 // **畫面上必須講清楚是哪一種**，否則使用者會以為金額已經驗過了。
 
-export type FindingKind = 'missing' | 'ambiguous' | 'late_arrival' | 'l1_amount' | 'l2_balance'
+export type FindingKind = 'missing' | 'ambiguous' | 'late_arrival' | 'l1_amount' | 'l2_balance' | 'unobserved'
 
 /**
  * 寫入 finding。同一筆 spin 的同一種 finding 只記一次——
@@ -1087,4 +1087,77 @@ export function nowOnObservedAxis(env: ReconEnv, now = Date.now()): number {
     const off = r?.clockOffsetMs
     return Number.isFinite(off) ? now + (off as number) : now
   } catch { return now }
+}
+
+// ─── 反向檢查：後台有局、但前端從頭到尾沒觀測到 ──────────────────────
+//
+// 🚨 **這是整個資料流的方向盲點，不是邊角案例。**
+//
+// 現況是 **spin-driven**：`recon_spin` 是驅動表，後台紀錄只是拿來配對的素材。
+// 所以「後台有一局、agent 從頭到尾沒觀測到」這件事**不會出現在任何地方**
+// ——不是被標成異常，是**根本不存在於畫面上**。
+//
+// 實測（2026-09-07）：後台在 25 秒內連續成局 8 次（spinIndex 5671~5678 無缺口），
+// 而整段只有 1 筆 spin 觀測。舊的查法完全看不到這 8 局。
+//
+// ⚠️ 對 QA 來說這恰好是最值錢的一類發現，因為它有三種可能、每一種的處理都不同：
+//   ① agent 漏觀測（跟「按了 34 次只成局 11 次」是同一問題的反面）
+//   ② 機台自己連續跑（免費遊戲／自動旋轉），一次動作產生多局
+//   ③ **同一個帳號有別人在玩** ← 不報出來的話，所有金額比對都在跟別人的局混算
+//
+// ⚠️ 一定要排除「還在等 spin 上報」的尾端窗口，否則最近幾秒的局會一直誤報。
+
+export interface UnobservedRound {
+  orderId: string; gmid: string; username: string
+  spinIndex: number; bet: number; win: number; betTimePrecise: number
+}
+
+/**
+ * 找出「後台有紀錄、但沒有任何 spin 綁到」的局。
+ *
+ * `tailGraceMs` 是尾端寬限——比這個新的局不算，因為 agent 的觀測可能還在路上。
+ * 預設用跟 MISSING 同一個門檻，兩邊的「等多久才算異常」保持一致。
+ */
+export function findUnobservedRounds(
+  env: ReconEnv, sinceMs: number, now = Date.now(), tailGraceMs?: number,
+): UnobservedRound[] {
+  const grace = tailGraceMs ?? reconSetting(env, 'pendingTimeoutSec') * 1000
+  // ⚠️ 時間比較一律用校正後的軸——betTimePrecise 在後台軸上（見 nowOnObservedAxis）
+  const cutoff = nowOnObservedAxis(env, now) - grace
+  return db.prepare(`
+    SELECT b.orderId, b.gmid, b.username, b.spinIndex, b.bet, b.win, b.betTimePrecise
+    FROM recon_backend_record b
+    WHERE b.env = ? AND b.betTimePrecise >= ? AND b.betTimePrecise <= ?
+      AND NOT EXISTS (
+        SELECT 1 FROM recon_spin s WHERE s.env = b.env AND s.orderId = b.orderId
+      )
+    ORDER BY b.betTimePrecise
+  `).all(env, sinceMs, cutoff) as UnobservedRound[]
+}
+
+/**
+ * 把「有單無 spin」落成 finding。
+ *
+ * ⚠️ 這類 finding 的 `refType` 是 `round` 不是 `spin`——它本來就沒有對應的 spin，
+ *    硬塞進 spin 的命名空間會讓「哪一筆」查不回去。
+ */
+export function recordUnobservedFindings(env: ReconEnv, rounds: UnobservedRound[]): number {
+  const exists = db.prepare(
+    `SELECT 1 FROM recon_finding WHERE env=? AND line='unobserved' AND refType='round' AND refId=?`)
+  const ins = db.prepare(`
+    INSERT INTO recon_finding (env, line, severity, refType, refId, amountDelta, detectedAt, note, userLabel)
+    VALUES (?, 'unobserved', 'warn', 'round', ?, ?, ?, ?, '')
+  `)
+  let n = 0
+  const tx = db.transaction(() => {
+    for (const r of rounds) {
+      if (exists.get(env, r.orderId)) continue
+      ins.run(env, r.orderId, r.bet ?? null, Date.now(),
+        `後台有局但前端沒有觀測到（${r.gmid} idx=${r.spinIndex} bet=${r.bet}）`
+        + '——可能是 agent 漏觀測、機台自己連續跑，或**同一個帳號有別人在玩**')
+      n++
+    }
+  })
+  tx()
+  return n
 }
