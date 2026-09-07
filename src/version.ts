@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.124.1'
+export const APP_VERSION = '4.125.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.125.0',
+    date: '2026-09-07',
+    changes: [
+      'fix(live-ledger): 🚨 **餘額後與 win 幾乎全空**——實測最近 2 小時 outcome=completed 有 455 筆，餘額前 98.5%、bet 91.4%，但**餘額後 0.2%、win 0.2%**（各只有 1 筆）。兩者都要「這一局 begin 之後的 end」，而 do_spin() 只多等 1.5 秒，實測 end 幾乎從不在那個窗內到——那個寬限形同虛設，還每局白等 1.5 秒',
+      'feat(agent): 改成**往回補而不是等更久**：下一次 spin 點下去之前檢查 money log，end 到了就用同一個 spinSeq 重送把值補上（upsert 鍵剛好是 env+sessionId+machineType+spinSeq）。跟既有的 completed_late 補判同一個時機與紀律——必須在點下這次 spin 之前，否則分不出哪個 end 屬於誰',
+      'feat(agent): ⚠️ **停止時要再補一次**（CodeX review 提的尾端風險）——玩到最後一局就停止時沒有「下一次 spin」，那一局的餘額後／win 會永遠是空的。而且要在 leave_game 之前跑，離機動作會產生別的 coin 更新',
+      'fix(live-ledger): ⚠️ upsert 改成 COALESCE，**已知值不准被 null 覆蓋**。原本寫 excluded.x，任何一次帶 null 的重送都會把先前補好的值抹掉，而且完全沒有徵兆。代價是無法再把值改回 null——刻意取捨：這裡的 null 一律代表「還算不出來」',
+      'fix(live-ledger): 🚨 **no_bet 不該顯示「等待入帳」**（使用者直接指出）。它的 status 停在 PENDING，於是畫面把它算進待入帳、逐筆明細還寫「還在等，不是問題」——**但它按設計永遠不會入帳**。把不會發生的事說成還在等，比不顯示更糟：使用者會一直等一個不會來的東西。改成「未起注」，顏色換中性灰（沿用待入帳的顏色等於還在暗示它會入帳），並從待入帳統計裡拿掉、另外報 noRound',
+      'fix(agent): do_spin 的退出訊號文字原本寫死「moneyNtc end，遊戲已結算」，但 __coinUpdatedAt 對 begin 也會更新——那句話比它知道的多講。改成「收到 moneyNtc，尚未確認是否已結算」',
+    ],
+  },
   {
     version: '4.124.1',
     date: '2026-09-07',

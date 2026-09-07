@@ -20,6 +20,19 @@ const C = {
   line: '#2d3f55', panel: '#16202e', panel2: '#1b2739',
 }
 
+/**
+ * 這些 outcome 的 spin **不可能起局**，所以不該顯示成「等待入帳」。
+ *
+ * 🚨 `no_bet` 的 status 停在 `PENDING`，畫面原本因此寫「等待入帳」與
+ *    「尚未入帳（還在等，不是問題）」——**但它按設計永遠不會入帳**。
+ *    把不會發生的事說成「還在等」比不顯示更糟：使用者會一直等一個不會來的東西。
+ */
+const NO_ROUND_OUTCOMES = new Set(['not_started', 'no_bet'])
+const noRound = (outcome?: string) => !!outcome && NO_ROUND_OUTCOMES.has(outcome)
+const NO_ROUND_LABEL: Record<string, string> = {
+  no_bet: '未起注', not_started: '未起局',
+}
+
 const STATUS_LABEL: Record<string, string> = {
   MATCH: '相符', MISMATCH: '不符', MISSING: '掉單', PENDING: '等待入帳',
   AMBIGUOUS: '無法判定', DEGRADED: '資料源異常', HANDPAY: '人工派彩',
@@ -465,10 +478,13 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
                     <td style={td}>
                       <span style={{
                         display: 'inline-block', padding: '1px 8px', borderRadius: 99, fontSize: 10.5,
-                        color: STATUS_COLOR[r.status] ?? C.tool,
-                        background: `${STATUS_COLOR[r.status] ?? C.tool}22`,
-                        border: `1px solid ${STATUS_COLOR[r.status] ?? C.tool}55`,
-                      }}>{STATUS_LABEL[r.status] ?? r.status}</span>
+                        // ⚠️ 顏色也要換掉。沿用「等待入帳」那個色等於還在暗示它會入帳——
+                        //    用中性灰表示「這一筆不在流程裡」，不是一種待處理狀態。
+                        color: noRound(r.outcome) ? C.ink3 : (STATUS_COLOR[r.status] ?? C.tool),
+                        background: `${noRound(r.outcome) ? C.ink3 : (STATUS_COLOR[r.status] ?? C.tool)}22`,
+                        border: `1px solid ${noRound(r.outcome) ? C.ink3 : (STATUS_COLOR[r.status] ?? C.tool)}55`,
+                      }}>{noRound(r.outcome) ? (NO_ROUND_LABEL[r.outcome] ?? '未起注')
+                        : (STATUS_LABEL[r.status] ?? r.status)}</span>
                     </td>
                   </tr>
                   {openId === r.id && (
@@ -578,9 +594,13 @@ function Detail({ d, row }: { d: Record<string, unknown> | null; row: Row }) {
           {kv('username', backend.username)}
         </>)
         : card('B · OSM 後台', <div style={{ fontSize: 11.5, color: C.ink3 }}>
-          {row.status === 'PENDING' ? '尚未入帳（還在等，不是問題）'
-            : row.status === 'MISSING' ? '超過門檻仍查無對應紀錄 → 判定掉單'
-              : '沒有綁定到後台紀錄'}
+          {noRound(row.outcome)
+            ? (row.outcome === 'not_started'
+              ? '這一下被伺服器明確拒絕，沒有起局 → 後台本來就不會有紀錄，不需入帳'
+              : '這一下沒有收到起注訊號（多半在特殊遊戲期間）→ 後台本來就不會有紀錄，不需入帳')
+            : row.status === 'PENDING' ? '尚未入帳（還在等，不是問題）'
+              : row.status === 'MISSING' ? '超過門檻仍查無對應紀錄 → 判定掉單'
+                : '沒有綁定到後台紀錄'}
         </div>, true)}
       {/* ⚠️「本來就沒有」跟「該有卻沒抓到」要分開講 */}
       {card('C · LuckyLink', <div style={{ fontSize: 11.5, color: C.ink3 }}>

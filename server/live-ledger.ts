@@ -487,9 +487,19 @@ export function recordSpinObservation(row: {
       balanceBefore, balanceAfter, winObserved, status, observedAt, outcome, userLabel)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)
     ON CONFLICT(env, sessionId, machineType, spinSeq) DO UPDATE SET
-      betAmount=excluded.betAmount, balanceBefore=excluded.balanceBefore,
-      balanceAfter=excluded.balanceAfter, winObserved=excluded.winObserved,
-      outcome=excluded.outcome,
+      -- ⚠️ **已知值不准被 null 覆蓋。**agent 會用同一個 spinSeq 重送來補
+      --    「餘額後 / win」（那兩個要等結算才算得出來，見下方說明）。
+      --    寫成 excluded.x 的話，任何一次帶 null 的重送都會把先前補好的值**抹掉**——
+      --    而且完全沒有徵兆，只會看到欄位又變回空的。
+      --    代價是無法再把某個值改回 null；那是刻意的取捨：這裡的 null 一律代表
+      --    「還算不出來」，不是一個有意義的值。
+      betAmount=COALESCE(excluded.betAmount, recon_spin.betAmount),
+      balanceBefore=COALESCE(excluded.balanceBefore, recon_spin.balanceBefore),
+      balanceAfter=COALESCE(excluded.balanceAfter, recon_spin.balanceAfter),
+      winObserved=COALESCE(excluded.winObserved, recon_spin.winObserved),
+      -- outcome 仍然可以被改寫（unknown → completed_late 這種補判要蓋得過去），
+      -- 但空字串不算答案，不要用它蓋掉已經定案的分類
+      outcome=CASE WHEN excluded.outcome='' THEN recon_spin.outcome ELSE excluded.outcome END,
       -- ⚠️ userLabel 只在還沒歸屬時才補；已經有主人的不要被後來的寫入改掉
       userLabel=CASE WHEN recon_spin.userLabel='' THEN excluded.userLabel ELSE recon_spin.userLabel END
   `).run(row.env, row.sessionId, row.machineType, row.gmid, row.spinSeq, row.betAmount,

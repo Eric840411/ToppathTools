@@ -192,11 +192,22 @@ export function overview(env: ReconEnv, windowMinutes = 30, now = Date.now(), vi
     observedAt: number; outcome: string; bindMethod: string; lateArrival: number; userLabel: string
   }[]
 
-  const NOT_STARTED = new Set(['not_started'])
+  /**
+   * 這些 outcome 的 spin **不可能起局**，所以不該出現在任何「還在等」的數字裡。
+   *
+   * 🚨 `no_bet` 原本漏了：它的 status 停在 `PENDING`，於是畫面把它算進
+   *    「等待入帳」、逐筆明細也寫「尚未入帳（還在等，不是問題）」——
+   *    **但它按設計永遠不會入帳。**把不會發生的事說成「還在等」，
+   *    比不顯示更糟：使用者會一直等一個不會來的東西
+   *    （2026-09-07 使用者直接指出這點）。
+   */
+  const NOT_STARTED = new Set(['not_started', 'no_bet'])
   const eligibleRows = rows.filter(r => !r.outcome || !NOT_STARTED.has(r.outcome))
   const matched = rows.filter(r => r.status === 'MATCH').length
   const missingRows = rows.filter(r => r.status === 'MISSING')
-  const pendingRows = rows.filter(r => r.status === 'PENDING')
+  // ⚠️ 待入帳只算「真的有起局、只是還沒回來」的那些
+  const pendingRows = rows.filter(r => r.status === 'PENDING' && !NOT_STARTED.has(r.outcome ?? ''))
+  const noRoundCount = rows.filter(r => NOT_STARTED.has(r.outcome ?? '')).length
   const ambiguous = rows.filter(r => r.status === 'AMBIGUOUS').length
 
   // ⚠️ 年齡也要用校正後的時間軸，否則畫面上的 0–30s／30–90s 分桶跟
@@ -205,6 +216,8 @@ export function overview(env: ReconEnv, windowMinutes = 30, now = Date.now(), vi
   const age = (r: { observedAt: number }) => (nowObs - r.observedAt) / 1000
   const pending = {
     total: pendingRows.length,
+    /** 沒起注、不需入帳的筆數。分開報，不要混進待入帳。 */
+    noRound: noRoundCount,
     a0_30: pendingRows.filter(r => age(r) < 30).length,
     a30_90: pendingRows.filter(r => age(r) >= 30 && age(r) < 90).length,
     a90: pendingRows.filter(r => age(r) >= 90).length,
