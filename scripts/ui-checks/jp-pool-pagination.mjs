@@ -58,6 +58,16 @@ check('   視窗寬度大於 cycle 間隔（60 秒），才不會有縫',
 check('   上界往回留一點，避免讀到還在寫的那一秒',
   /const LIVE_LAG_SEC = \d+/.test(src));
 
+console.log('\n4b) 🚨 查詢視窗的時區 —— 這支 API 吃「本地時間」不是 UTC');
+// 實測（2026-09-08）：同一時段送 UTC 字串回 0 筆、送本地字串回 500 筆。
+// 送錯的話整條管線會**穩定落後 8 小時**，而且看起來一切正常
+// （資料一直在進來，只是永遠是 8 小時前的）——最難發現的那種壞法。
+check('🚨 toIso 有加時區位移，不是直接 toISOString',
+  /const LL_TZ_OFFSET_MS = 8 \* 3600_000/.test(src)
+  && /new Date\(ms \+ LL_TZ_OFFSET_MS\)\.toISOString\(\)/.test(src));
+check('   註解講清楚跟 OSM／GCP 後台相反（同名參數不同時區）',
+  /OSM／GCP/.test(src) && /相反/.test(src));
+
 console.log('\n5) 補進度要有界，不能把單輪拖死');
 check('一輪最多補固定片數', /slices < CATCHUP_SLICES_PER_CYCLE/.test(src));
 check('補到即時視窗就停（兩邊不重疊浪費）', /cursor < liveFrom/.test(src));

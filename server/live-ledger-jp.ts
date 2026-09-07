@@ -56,7 +56,24 @@ const CATCHUP_SLICES_PER_CYCLE = 4
  */
 const MIN_SLICE_SEC = 1
 
-const toIso = (ms: number) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ')
+/**
+ * 🚨 **這支 API 的 `dateTime` 是「本地時間（UTC+8）」，不是 UTC。**
+ *
+ * 原本送的是 `toISOString()`（UTC），於是**每次查詢的視窗都往前偏了 8 小時**——
+ * 整條 L4／L5 管線一直落後真實時間 8 小時。
+ *
+ * 實測證據（2026-09-08）：同一個時段（資料表裡有 1314 筆）
+ *     送 UTC 字串  [2026-09-06 06:00 → 07:00] → **0 筆**
+ *     送本地字串   [2026-09-06 14:00 → 15:00] → **500 筆**
+ * 而且資料表最新是 9/7 17:25、當下是 9/8 01:30——**正好差 8 小時**。
+ *
+ * ⚠️ **不要跟 OSM／GCP 後台的規則搞混。**那邊的 `dateTime[]` 確實是 ISO UTC
+ *    （見 CLAUDE.md「Performance Meter 對帳」），**LuckyLink 這支相反**。
+ *    兩個後台的同名參數用不同時區，是這次踩到的坑。
+ */
+const LL_TZ_OFFSET_MS = 8 * 3600_000
+const toIso = (ms: number) =>
+  new Date(ms + LL_TZ_OFFSET_MS).toISOString().slice(0, 19).replace('T', ' ')
 
 /** LuckyLink 的 timestamp 可能是秒或毫秒，也可能是字串。統一成 epoch ms。 */
 function tsMs(v: number | string): number {

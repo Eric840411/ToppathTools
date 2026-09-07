@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.126.0'
+export const APP_VERSION = '4.126.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.126.1',
+    date: '2026-09-08',
+    changes: [
+      'fix(live-ledger): 🚨 **LuckyLink 的 `dateTime` 是本地時間（UTC+8），不是 UTC**——我們一直送 UTC 字串，所以**整條 L4／L5 管線穩定落後 8 小時**。實測同一時段：送 UTC 回 **0 筆**、送本地字串回 **500 筆**；修正前資料表最新 9/7 17:27、當下 9/8 01:27，差距**正好 8.0 小時**',
+      'note(live-ledger): ⚠️ **跟 OSM／GCP 後台相反**。那邊的 `dateTime[]` 確實是 ISO UTC（CLAUDE.md 早就寫死），LuckyLink 這支不是。兩個後台的同名參數用不同時區——這就是這次踩到的坑',
+      'fix(live-ledger): ⚠️ 修完時區後**游標也要校回真實資料點**。舊游標是在偏移的語意下寫的，會宣稱「完整到 9/8 01:23」而實際只到 9/7 17:27，那 8 小時會被當成已完成永遠跳過。校回後第一輪就補進 1,174 筆',
+      'test(live-ledger): 檢查加到 15 項，新增時區防回歸。**已注入違規確認會變紅**（退回 toISOString → 轉紅）',
+      'docs: 把時區規則、分頁截斷、以及三段已知缺口（13.7h／0.8h／16.9h）寫進 `docs/decisions.md`，含回補前要先驗證那段是否真的有資料的提醒（CodeX 建議）',
+    ],
+  },
   {
     version: '4.126.0',
     date: '2026-09-07',
