@@ -25,6 +25,37 @@ const COLD_START_SEC = 24 * 3600
 const PAGE_SIZE = 500
 const MAX_PAGES = 10
 
+/**
+ * ── 抓取視窗策略（2026-09-07 重寫）─────────────────────────────────────────
+ *
+ * 🚨 **舊做法會靜默掉資料。**原本用「游標 → now」當單一視窗，上限 500×10=5000。
+ *    而這支 API 是**新到舊**排序——撞上限時拿到的是**最新的 5000 筆**，
+ *    游標接著跳到最新那筆，**中間沒抓到的那段就永遠跳過去了**。
+ *    實測資料表有 13.7 小時與 16.9 小時兩個缺口，而且完全沒有徵兆
+ *    （跟 Jira 對帳 v4.99.0 同一種壞法）。
+ *
+ * 新做法分兩條：
+ *   ① **即時視窗**：每輪固定只看「往前 LIVE_WINDOW_SEC」。cycle 每 60 秒跑一次，
+ *      這個視窗永遠很小，**結構上不可能撞上限**。
+ *   ② **補進度**：游標保留，但只用來偵測落後。落後時用固定長度的小切片往前補，
+ *      一輪最多補 CATCHUP_SLICES_PER_CYCLE 片，不會把單輪拖太久。
+ *
+ * ⚠️ **切片撞上限時要把它切一半重試，不能讓游標跳過沒抓到的資料**——
+ *    那正是舊做法的錯誤。切到 MIN_SLICE_SEC 還撞上限才承認「這段補不完」，
+ *    **明確記錄成缺口**再往前走（否則會永遠卡在同一片，一筆都補不進來）。
+ */
+const LIVE_WINDOW_SEC = 90
+/** 上界往回留一點，避免讀到「這一秒還在寫」的邊界（CodeX 建議 now-10s）。 */
+const LIVE_LAG_SEC = 10
+const CATCHUP_SLICE_SEC = 30 * 60
+const CATCHUP_SLICES_PER_CYCLE = 4
+/**
+ * ⚠️ **最小切片 1 秒**（CodeX 定案）。這支資料的時間精度到秒——
+ * 同一秒還打滿 5000 筆的話，**再切已經沒有意義，因為時間條件無法再區分資料**。
+ * 那時要做的是明確報「這一秒抓不完」，而不是繼續切或偷偷跳過。
+ */
+const MIN_SLICE_SEC = 1
+
 const toIso = (ms: number) => new Date(ms).toISOString().slice(0, 19).replace('T', ' ')
 
 /** LuckyLink 的 timestamp 可能是秒或毫秒，也可能是字串。統一成 epoch ms。 */
@@ -48,6 +79,28 @@ function writeWm(env: ReconEnv, source: string, ts: number): void {
     INSERT INTO recon_watermark (env, source, scope, cursorTs, updatedAt) VALUES (?, ?, '', ?, ?)
     ON CONFLICT(env, source, scope) DO UPDATE SET cursorTs=excluded.cursorTs, updatedAt=excluded.updatedAt
   `).run(env, source, ts, Date.now())
+}
+
+/**
+ * 抓一段時間窗的池變動，並**明確回報有沒有撞到分頁上限**。
+ *
+ * 🚨 `capped` 是這整個修正的關鍵。舊版只看「拿到幾筆」，而
+ *    「剛好 5000 筆」跟「其實更多、只給了 5000」在程式裡長得一模一樣——
+ *    這正是 Jira 對帳 v4.99.0 那次的同一種壞法：**截斷完全沒有徵兆**。
+ */
+export async function fetchSlice(env: ReconEnv, fromMs: number, toMs: number): Promise<{
+  ok: boolean; items: LlPoolChange[]; capped: boolean; errKind?: string; message?: string
+}> {
+  const items: LlPoolChange[] = []
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    const r = await fetchPoolChanges(env, toIso(fromMs), toIso(toMs), '', page, PAGE_SIZE)
+    if (!r.ok) return { ok: false, items, capped: false, errKind: r.errKind, message: r.message }
+    items.push(...r.items)
+    // 沒填滿一頁 = 這段已經拿完
+    if (r.items.length < PAGE_SIZE) return { ok: true, items, capped: false }
+  }
+  // 十頁都填滿 → 這段**可能還有更多沒拿到**，不能當成完整
+  return { ok: true, items, capped: true }
 }
 
 /** Level 參數快取——每輪重抓一次就好，437 筆不大但也不必每頁都拉。 */
@@ -101,19 +154,59 @@ export async function runJpCycle(env: ReconEnv, now = Date.now()): Promise<JpCyc
   // ── L5：池變動 ──
   {
     const wm = readWm(env, 'poolChangeReport')
-    const from = wm > 0 ? wm - OVERLAP_SEC * 1000 : now - COLD_START_SEC * 1000
-    const collected: LlPoolChange[] = []
-    let failed = false
-    for (let page = 1; page <= MAX_PAGES; page++) {
-      const r = await fetchPoolChanges(env, toIso(from), toIso(now + 60_000), '', page, PAGE_SIZE)
-      if (!r.ok) {
-        noteLlHealth(env, 'poolChangeReport', false, r.errKind, r.message)
-        out.errors.push(`poolChangeReport 第 ${page} 頁：${r.message ?? r.errKind}`)
-        failed = true; break
-      }
-      collected.push(...r.items)
-      if (r.items.length < PAGE_SIZE) break
+    const liveFrom = now - LIVE_WINDOW_SEC * 1000
+    const liveTo = now - LIVE_LAG_SEC * 1000
+
+    // ① 即時視窗——固定小範圍，結構上不可能撞上限
+    const live = await fetchSlice(env, liveFrom, liveTo)
+    const collected: LlPoolChange[] = [...live.items]
+    let failed = !live.ok
+    if (!live.ok) {
+      noteLlHealth(env, 'poolChangeReport', false, live.errKind, live.message)
+      out.errors.push(`poolChangeReport 即時視窗：${live.message ?? live.errKind}`)
     }
+
+    // ② 補進度——游標落後時，用切片往前補。切片撞上限就對半切，
+    //    切到 1 秒還撞上限就明確報「這一秒抓不完」並停住（不偷偷跳過）。
+    if (!failed) {
+      let cursor = wm > 0 ? wm - OVERLAP_SEC * 1000 : now - COLD_START_SEC * 1000
+      let slices = 0
+      while (cursor < liveFrom && slices < CATCHUP_SLICES_PER_CYCLE) {
+        let sliceEnd = Math.min(cursor + CATCHUP_SLICE_SEC * 1000, liveFrom)
+        let got = await fetchSlice(env, cursor, sliceEnd)
+        // 撞上限就對半切，直到裝得下或切到最小單位
+        while (got.ok && got.capped && (sliceEnd - cursor) > MIN_SLICE_SEC * 1000) {
+          sliceEnd = cursor + Math.max(MIN_SLICE_SEC * 1000, Math.floor((sliceEnd - cursor) / 2))
+          got = await fetchSlice(env, cursor, sliceEnd)
+        }
+        if (!got.ok) {
+          noteLlHealth(env, 'poolChangeReport', false, got.errKind, got.message)
+          out.errors.push(`poolChangeReport 補進度 ${toIso(cursor)}：${got.message ?? got.errKind}`)
+          break
+        }
+        if (got.capped) {
+          /**
+           * 🚨 切到最小單位還打滿——**時間條件已經無法再區分資料**（CodeX 定案）。
+           *    這時：不推進游標、明確報錯、停止自動補。
+           *
+           * ⚠️ **刻意讓補進度卡住而不是跳過去。**跳過去等於靜默掉資料，
+           *    那正是這次要修的 bug；卡住至少看得見，而且即時視窗照常運作，
+           *    當下的資料不會斷。要解得換更細的條件（id／流水號／更深分頁）。
+           */
+          out.errors.push(
+            `poolChangeReport 補進度卡住：${toIso(cursor)} 這 ${MIN_SLICE_SEC} 秒內就打滿 `
+            + `${MAX_PAGES * PAGE_SIZE} 筆上限，時間條件已無法再細分。`
+            + '需要改用更細的條件（id／流水號／更深分頁）才補得完，自動補進度已停止。')
+          break
+        }
+        collected.push(...got.items)
+        cursor = sliceEnd
+        slices++
+      }
+      // 游標代表「到這個時間點為止是完整的」——只有補完整的切片才推進
+      if (cursor > wm) writeWm(env, 'poolChangeReport', cursor)
+    }
+
     if (!failed) {
       noteLlHealth(env, 'poolChangeReport', true)
       out.poolFetched = collected.length
@@ -125,7 +218,12 @@ export async function runJpCycle(env: ReconEnv, now = Date.now()): Promise<JpCyc
         ON CONFLICT(env, reqmd5, levelid, ts) DO UPDATE SET
           verify=excluded.verify, verifyDelta=excluded.verifyDelta, fetchedAt=excluded.fetchedAt
       `)
-      let maxTs = wm
+      /**
+       * ⚠️ **這裡刻意不再用「抓到的資料最大時間」去推游標。**
+       *    那是舊做法：撞上限時拿到的是最新的一批，推過去就把中間沒抓到的
+       *    整段跳過了。游標現在只由「完整補完的切片」推進（見上面），
+       *    代表「到這個時間點為止是完整的」，而不是「我看過最新的一筆」。
+       */
       const tx = db.transaction(() => {
         for (const c of collected) {
           const t = tsMs(c.timestamp)
@@ -140,12 +238,10 @@ export async function runJpCycle(env: ReconEnv, now = Date.now()): Promise<JpCyc
           upsertMachineMap(env, c, lv)
           out.poolStored++
           if (v.verify === 'mismatch') out.poolMismatch++
-          if (t > maxTs) maxTs = t
         }
       })
       tx()
-      // ⚠️ 沒有資料時不要把游標推到 now——那會把「還沒吐出來的那段」永久跳過
-      if (maxTs > wm) writeWm(env, 'poolChangeReport', maxTs)
+      out.poolFetched = collected.length
     }
   }
 
