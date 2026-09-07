@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.123.2'
+export const APP_VERSION = '4.124.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,22 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.124.0',
+    date: '2026-09-07',
+    changes: [
+      'feat(live-ledger): 🚨 **沒起注的 Spin 不再被當成掉單**。每按一次 Spin 就送一筆對帳，但特殊遊戲（FG/JP）期間按 Spin 不會起新的一局，後台自然沒有紀錄 → 全部被標成「後台查無此局」。實測 **51 段連續 ≥5 次、最長連續 56 次**，而且其中一筆 `not_started` 還**被綁到某張後台單**——一局根本沒起卻搶走別局的紀錄，真正的主人反而永遠配不到',
+      'note(live-ledger): ⚠️ 原本以為有保護，查了才發現**那個保護只在 OSMWatcher 連線時存在**（沒連線時完全不進 wait_for_normal_osm_status，主迴圈一路 do_spin 打下去），而使用者的環境一直是未連線。是使用者反問「不開 OSMWatcher 的話你怎麼知道」才發現的',
+      'feat(agent): 判準改用 `moneyNtc.reason === begin`（真的起注扣款）。⚠️ **不能用 `end`**：FG 派彩也會發 `end`，拿它當局成立會繼續混淆。判定順序上 `no_bet` 必須排在 `completed` 之前，否則 FG 期間每次按鈕都會被記成「完成一局」',
+      'feat(agent): begin 訊號三態，用意是 **fail-open**——某款遊戲若根本不發 begin，一律套用會讓整台機台的對帳**靜默歸零**，比誤報嚴重得多。`unknown`（還沒看過 begin）不套規則｜`supported`（看過至少一次）才信任｜`disabled`（久久收不到）停用並告警',
+      'feat(agent): ⚠️ 第三態用**次數與時間雙門檻**（400 次 **且** 20 分鐘），不用「有 end 卻沒 begin」——後者跟正常 FG **長得一模一樣**，會讓一場長 FG 把規則自己關掉；而 begin 真的壞掉時症狀也相同，agent 端分不出來（CodeX review 定案）',
+      'feat(live-ledger): 🚨 **shadow check —— 唯一能真的分辨 FG 與「begin 壞掉」的訊號在後台**。FG：沒 begin、後台也沒有新的一般局；begin 壞掉：沒 begin、**後台仍然有新的一般局**。判成 no_bet 的 spin 若在後台找得到一張**還沒被認領**的單，就產生 `begin_signal_suspect` 告警。⚠️ 必須在正式綁定之後跑（先跑會跟正主搶單），且只改 finding 不改 spin 狀態',
+      'fix(live-ledger): ⚠️ **`unknown` 刻意不列入排除**。它是「沒收到訊號」不是「沒發生」——目前有 **172 筆 unknown 已經配對成功**，排除等於一次丟掉那些真實資料、把不確定當成沒發生',
+      'fix(live-ledger): 一次性收拾既有誤報：撤銷「沒起注卻被標成掉單」的告警、解除那筆錯誤綁定把單還給正主。⚠️ **不刪任何 spin 列、也不改它的 status**——那是當時真實的觀測，刪掉等於竄改歷史。已上線驗證：錯誤綁定 1 → 0、殘留誤報 0 筆',
+      'test(agent): `server/python/test_begin_signal.py`（15 項）。⚠️ **測試抓到我一個真的 bug**：`last_begin_at = 0.0` 在 Python 裡是 falsy，`if last_begin_at` 會讓時間門檻永遠不成立——正式環境的 time.time() 不會是 0，所以這個 bug 只會在測試裡現形',
+      'test(live-ledger): `scripts/ui-checks/live-ledger-no-bet.mjs`（18 項，跑完還原資料表）。**已注入違規確認會變紅**（把 unknown 加進排除清單 → 2 項轉紅）',
+    ],
+  },
   {
     version: '4.123.2',
     date: '2026-09-07',

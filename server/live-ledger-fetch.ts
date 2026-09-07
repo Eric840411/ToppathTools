@@ -374,6 +374,14 @@ export async function runLiveLedgerCycle(now = Date.now()): Promise<{
 
   const bind: Record<string, { scanned: number; resolved: number; ambiguous: number; missing: number }> = {}
   for (const env of envsToProcess) {
+    // ⚠️ **一定要在 runBindCycle 之前**：那 1 筆「一局沒起卻綁到後台單」的錯誤綁定
+    //    要先解開，正主才有機會在這一輪配到那張單。放後面的話正主要多等一輪。
+    const { cleanupNonRoundFindings } = await import('./live-ledger.js')
+    const cleaned = cleanupNonRoundFindings(env)
+    if (cleaned.resolved || cleaned.unbound) {
+      console.log(`[live-ledger] ${env} 收拾沒起注的誤報：撤銷告警 ${cleaned.resolved} 筆、`
+        + `解除錯誤綁定 ${cleaned.unbound} 筆`)
+    }
     const b = runBindCycle(env, now)
     // 綁定完才有兩側金額可比。L1/L2 只看已 MATCH 的列。
     const { compareAmounts, findUnobservedRounds, recordUnobservedFindings, resolveBoundUnobserved } = await import('./live-ledger.js')

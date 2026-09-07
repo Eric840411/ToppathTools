@@ -1862,6 +1862,9 @@ def do_spin(page, cfg: dict):
                      （下一次 spin 前可能被補判成 'completed_late'，見
                       reclassify_pending_unknown）
       'not_started'  spin_rejected —— 伺服器明確拒絕，確定沒起
+      'no_bet'       沒收到 moneyNtc begin —— 按了但**沒有起注**，
+                     多半是在特殊遊戲（FG/JP）期間。只有 begin 訊號可信
+                     （state == 'supported'）時才會標，見 update_begin_signal_state
 
     ⚠️ 'suspected' 不能跟 'not_started' 併成一類。前者有「disabled → enabled」的狀態
        轉換證據（局跑過了），後者是根本沒起，兩者相反；併起來會低估局數。
@@ -1979,12 +1982,18 @@ def do_spin(page, cfg: dict):
 
     # 「按了幾次」不等於「跑了幾局」——實體機台上按 SPIN 可能落在動畫中或 FG/JP，
     # 那一下不會起局。這裡把結束訊號翻譯成局的狀態，報告才分得開這兩件事。
-    if exit_reason.startswith('coin_update'):
+    has_begin = any(e.get('reason') == 'begin' for e in money_entries)
+    begin_state = update_begin_signal_state(has_begin, mt)
+    if exit_reason.startswith('spin_rejected'):
+        outcome = 'not_started'
+    elif begin_state == 'supported' and not has_begin:
+        # ⚠️ **這一支一定要排在 'completed' 之前。**FG 派彩也會觸發 coin_update，
+        #    先判 completed 的話，特殊遊戲期間的每一次按鈕都會被記成「完成一局」。
+        outcome = 'no_bet'
+    elif exit_reason.startswith('coin_update'):
         outcome = 'completed'
     elif exit_reason.startswith('button_disabled_toggle'):
         outcome = 'suspected'
-    elif exit_reason.startswith('spin_rejected'):
-        outcome = 'not_started'
     else:
         outcome = 'unknown'
 
@@ -1993,6 +2002,80 @@ def do_spin(page, cfg: dict):
     #    對帳一律用 round_* 那四個——它們是**這一局**的，不是「最近兩次」。
     return (balance_before, balance_after, rejected, outcome, updated_at_before,
             round_bet, round_win, round_bal_before, round_bal_after)
+
+
+# ─── begin 訊號的三態（跟 CodeX 討論定案）───────────────────────────────────
+#
+# 🚨 **問題**：每按一次 Spin 就送一筆對帳，但特殊遊戲（FG/JP）期間按 Spin
+#    不會起新的一局，後台自然沒有紀錄 → 被標成「後台查無此局」。
+#    實測有 51 段連續 ≥5 次，最長連續 56 次。
+#
+#    原以為有保護，查了才發現**那個保護只在 OSMWatcher 連線時存在**
+#    （沒連線時完全不進 wait_for_normal_osm_status，主迴圈一路 do_spin 打下去），
+#    而使用者的環境一直是未連線。
+#
+# **判準是 `moneyNtc.reason == 'begin'`**——那是「真的起注扣款了」。
+# ⚠️ 不能用 `end`：FG 派彩也會發 `end`，拿它當局成立會繼續混淆。
+#
+# 三態的用意是 **fail-open**：某款遊戲若根本不發 `begin`，
+# 一律套用新規則會把整台機台的對帳**靜默歸零**——比現在的誤報嚴重得多。
+#
+#   'unknown'    還沒看過任何 begin → **不套用新規則**，維持現況（fail-open）
+#   'supported'  看過至少一次 begin → 才開始信任它、才會標「沒起注」
+#   'disabled'   進入 supported 之後久久收不到 begin → 停用規則並告警，
+#                不要繼續靜默排除
+#
+# ⚠️ **第三態的觸發訊號刻意不用「有 end 卻沒 begin」。**
+#    那個跟正常的 FG **長得一模一樣**（FG 每次派彩都發 end、餘額也變、就是沒 begin），
+#    用它當異常會讓一場長 FG 把規則自己關掉。而 begin 偵測真的壞掉時症狀也是
+#    「有 end、沒 begin」——**兩者用那個訊號在 agent 端分不出來**。
+#
+#    這裡用的是**次數與時間的雙門檻**（CodeX review：單用次數會被長 FG 打爆，
+#    單用時間會卡在沒人操作或機台停住）。兩個都超過才停用規則。
+#    它不宣稱能分辨 FG 跟故障，只說「這已經久到不像正常的 bonus」。
+#
+# 🚨 **真正能分開這兩件事的訊號在伺服器端，不在這裡**：
+#    FG → 沒 begin、有 end、**後台也沒有新的一般局**
+#    begin 壞掉 → 沒 begin、**後台仍然有新的一般局**
+#    所以伺服器端另有一道 shadow check：判成 no_bet 的 spin 若在後台**真的**
+#    找得到對應的局，就產生告警（見 live-ledger.ts 的 begin_signal_suspect）。
+#    這裡的雙門檻只是保底，不是主要偵測手段。
+#
+# 每台機台是獨立 process（multiprocessing spawn），所以這幾個 module-level 變數
+# 天然就是每台各自一份，不需要跨 process 傳遞。
+begin_signal_state = 'unknown'
+no_begin_streak = 0
+# ⚠️ 初始值用 None 不用 0.0——`0.0` 在 Python 裡是 falsy，
+#    寫成 `if last_begin_at` 會把「時間戳剛好是 0」跟「還沒看過 begin」混成同一件事。
+#    正式環境的 time.time() 不會是 0，所以這個 bug 只會在測試裡現形——
+#    也確實是測試抓到的（不然就會帶著一個永遠不成立的時間門檻上線）。
+last_begin_at = None
+NO_BEGIN_STREAK_LIMIT = 400
+NO_BEGIN_SECONDS_LIMIT = 20 * 60
+
+
+def update_begin_signal_state(has_begin: bool, mt: str, now: float = None) -> str:
+    """更新這台機台的 begin 訊號狀態，回傳更新後的狀態。"""
+    global begin_signal_state, no_begin_streak, last_begin_at
+    now = time.time() if now is None else now
+    if has_begin:
+        if begin_signal_state == 'unknown':
+            log(f"[{mt}] 已偵測到 moneyNtc begin 訊號，啟用「沒起注不記帳」判定")
+        begin_signal_state = 'supported'
+        no_begin_streak = 0
+        last_begin_at = now
+        return begin_signal_state
+    if begin_signal_state == 'supported':
+        no_begin_streak += 1
+        # ⚠️ 兩個門檻要**同時**滿足。只看次數會被長 FG 打爆；
+        #    只看時間會在「沒人操作／機台停住」時誤觸發。
+        elapsed = (now - last_begin_at) if last_begin_at is not None else 0.0
+        if no_begin_streak >= NO_BEGIN_STREAK_LIMIT and elapsed >= NO_BEGIN_SECONDS_LIMIT:
+            begin_signal_state = 'disabled'
+            log(f"[{mt}] ⚠️ 連續 {no_begin_streak} 次、共 {elapsed / 60:.0f} 分鐘收不到 "
+                f"moneyNtc begin —— begin 訊號可能已失效，停用「沒起注不記帳」判定、"
+                f"恢復全部記錄。（這不是正常的特殊遊戲長度，請檢查 pinus 攔截是否還有效）")
+    return begin_signal_state
 
 
 # 補判的時間上限。超過就不補——中間若卡過 FG/JP 等待（最長 15 分鐘），

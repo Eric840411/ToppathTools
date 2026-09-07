@@ -637,15 +637,20 @@ export function runBindCycle(env: ReconEnv, now = Date.now()): {
   //    用未校正的 now 的話，90 秒門檻實際會變成 183 秒。
   const nowObs = nowOnObservedAxis(env, now)
 
-  const spins = db.prepare(`
-    SELECT id, sessionId, machineType, gmid, spinSeq, betAmount, observedAt, status FROM recon_spin
+  const allPending = db.prepare(`
+    SELECT id, sessionId, machineType, gmid, spinSeq, betAmount, observedAt, status, outcome FROM recon_spin
     WHERE env=? AND status IN ('PENDING','AMBIGUOUS','MISSING') AND orderId IS NULL
       AND observedAt >= ?
     ORDER BY sessionId, machineType, spinSeq
-  `).all(env, now - LATE_REBIND_WINDOW_MS) as Array<PendingSpin & { sessionId: string; machineType: string; spinSeq: number; status: string }>
-  if (spins.length === 0) return { scanned: 0, resolved: 0, ambiguous: 0, notFound: 0, missing: 0, lateRebound: 0 }
+  `).all(env, now - LATE_REBIND_WINDOW_MS) as Array<PendingSpin & {
+    sessionId: string; machineType: string; spinSeq: number; status: string; outcome?: string
+  }>
+  // 不可能擁有一局的那些不參與配對；但**不是丟掉**——它們要進 shadow check（見下）
+  const spins = allPending.filter(s => !NON_ROUND_OUTCOMES.has(s.outcome ?? ''))
+  const nonRoundSpins = allPending.filter(s => NON_ROUND_OUTCOMES.has(s.outcome ?? ''))
+  if (allPending.length === 0) return { scanned: 0, resolved: 0, ambiguous: 0, notFound: 0, missing: 0, lateRebound: 0 }
 
-  const oldest = Math.min(...spins.map(s => s.observedAt))
+  const oldest = Math.min(...allPending.map(s => s.observedAt))
   const records = db.prepare(`
     SELECT orderId, gmid, username, spinIndex, bet, betTimePrecise FROM recon_backend_record
     WHERE env=? AND betTimePrecise IS NOT NULL AND betTimePrecise >= ? AND betTimePrecise <= ?
@@ -726,6 +731,59 @@ export function runBindCycle(env: ReconEnv, now = Date.now()): {
     }
   })
   tx()
+  /**
+   * ── shadow check：唯一能真的分辨「FG」跟「begin 訊號壞掉」的訊號 ──────────
+   *
+   * 🚨 agent 端分不出這兩件事——兩者的症狀都是「沒有 begin、有 end、餘額有變」。
+   *    能分開的只有後台：
+   *
+   *      FG          → 沒 begin、**後台也沒有新的一般局**
+   *      begin 壞掉  → 沒 begin、**後台仍然有新的一般局**
+   *
+   *    所以這裡對「已經判成不可能起局」的那些 spin **仍然算一次配對，但不綁定**。
+   *    如果它在後台真的找得到一張**還沒被別人認領**的單，就代表我們把真實的一局
+   *    判成了沒起注——那是 begin 規則失效的實證，要立刻告警。
+   *
+   * ⚠️ **一定要在正式綁定「之後」才做，而且只看還沒被認領的單。**
+   *    先做的話會跟真正的主人搶單；不看認領狀態的話，FG 前後相鄰的正常局
+   *    會落在容忍窗內、被誤報成訊號故障。
+   *
+   * ⚠️ 這裡**不改任何 spin 的狀態**，只產生 finding。shadow 的意思就是不影響主流程——
+   *    真要恢復配對，是人看到告警後去修 begin 偵測，不是讓它自己偷偷改判。
+   */
+  let beginSuspect = 0
+  if (nonRoundSpins.length > 0) {
+    const unclaimed = records.filter(r => !bound.has(r.orderId))
+    if (unclaimed.length > 0) {
+      const shadowTx = db.transaction(() => {
+        // 分組規則跟正式配對完全一致（session × machineType），不另寫一套
+        const shadowGroups = new Map<string, typeof nonRoundSpins>()
+        for (const s of nonRoundSpins) {
+          const k = `${s.sessionId}|${s.machineType}`
+          const g = shadowGroups.get(k); if (g) g.push(s); else shadowGroups.set(k, [s])
+        }
+        for (const g of shadowGroups.values()) {
+          const gmids = new Set(g.map(s => s.gmid).filter(Boolean))
+          const scoped = gmids.size ? unclaimed.filter(r => gmids.has(r.gmid)) : unclaimed
+          if (scoped.length === 0) continue
+          const nn = bindNearestNeighbour(g, scoped, { residualToleranceMs: RESIDUAL_TOLERANCE_MS }, bound)
+          for (const d of nn.decisions) {
+            if (d.result !== 'resolved' || !d.orderId) continue
+            if (recordFinding(env, 'begin_signal_suspect', d.spinId, {
+              severity: 'warn',
+              note: `判成「沒起注」的 spin 在後台找得到對應的局（${d.orderId}）`
+                + '——begin 訊號可能已失效，這一局被漏記了。請檢查 pinus 攔截是否還有效。',
+            })) beginSuspect++
+          }
+        }
+      })
+      shadowTx()
+    }
+  }
+  if (beginSuspect > 0) {
+    console.log(`[live-ledger] ⚠️ ${env} begin 訊號疑似失效：${beginSuspect} 筆判成沒起注的 spin 在後台找得到對應局`)
+  }
+
   return { scanned: spins.length, resolved, ambiguous, notFound, missing, lateRebound }
 }
 
@@ -769,6 +827,23 @@ export function bindStats(env: ReconEnv, sinceMs?: number): {
 // **畫面上必須講清楚是哪一種**，否則使用者會以為金額已經驗過了。
 
 export type FindingKind = 'missing' | 'ambiguous' | 'late_arrival' | 'l1_amount' | 'l2_balance' | 'unobserved'
+  | 'begin_signal_suspect'
+
+/**
+ * 這些 outcome 的 spin **不可能擁有一局**，一律不參與配對、也不產生掉單告警。
+ *
+ * 🚨 **為什麼需要這條**：每按一次 Spin 就送一筆對帳紀錄，但特殊遊戲（FG/JP）期間
+ *    按 Spin 不會起新的一局，後台自然沒有紀錄 → 全部被標成「後台查無此局」。
+ *    實測 51 段連續 ≥5 次、最長連續 56 次，而且**其中一筆 not_started 還被綁到
+ *    某張後台單**——一局根本沒起卻搶走別局的紀錄，真正的主人反而配不到。
+ *
+ *   `not_started`  伺服器回 errcode 明確拒絕，確定沒起
+ *   `no_bet`       沒收到 moneyNtc begin，代表沒有起注扣款（多半在 FG/JP 期間）
+ *
+ * ⚠️ **`unknown` 刻意不列入。**它是「沒收到訊號」不是「沒發生」——實際上目前
+ *    有 172 筆 unknown 已經配對成功。把不確定當成沒發生，會一次丟掉那些真實資料。
+ */
+const NON_ROUND_OUTCOMES = new Set(['not_started', 'no_bet'])
 
 /**
  * 寫入 finding。同一筆 spin 的同一種 finding 只記一次——
@@ -835,11 +910,51 @@ export function resolveFinding(env: ReconEnv, kind: FindingKind, spinId: number,
  *
  * 只回填最近 7 天、而且靠 `recordFinding()` 自己去重，重跑安全。
  */
+/**
+ * 一次性收拾「不可能起局的 spin 卻被標成掉單」的既有紀錄。
+ *
+ * ⚠️ **不刪任何 spin 列，也不改它的 status。**那些列是當時真實產生的觀測，
+ *    改掉等於竄改歷史。這裡只做兩件事：
+ *      ① 把它們既有的 `missing` 告警標成已解決，並寫明理由
+ *      ② 解除「一局根本沒起，卻被綁到某張後台單」的錯誤綁定——
+ *         那張單要還給真正的主人，否則正主永遠配不到（實測有 1 筆）
+ *
+ * 重跑安全：已解決的不會再動，已解除的不會再被選出來。
+ */
+export function cleanupNonRoundFindings(env: ReconEnv): { resolved: number; unbound: number } {
+  const bad = db.prepare(`
+    SELECT id, orderId FROM recon_spin
+    WHERE env=? AND COALESCE(outcome,'') IN ('not_started','no_bet')
+  `).all(env) as { id: number; orderId: string | null }[]
+  let resolved = 0, unbound = 0
+  const tx = db.transaction(() => {
+    for (const r of bad) {
+      const before = db.prepare(
+        `SELECT COUNT(*) n FROM recon_finding WHERE env=? AND line='missing' AND refType='spin' AND refId=? AND resolvedAt IS NULL`
+      ).get(env, String(r.id)) as { n: number }
+      if (before.n > 0) {
+        resolveFinding(env, 'missing', r.id,
+          '這一下沒有起注（FG/JP 期間或伺服器拒絕），後台本來就不會有這一局——原本的掉單告警是誤報')
+        resolved++
+      }
+      if (r.orderId) {
+        // 一局沒起卻綁到單＝把別局的紀錄搶過來，一定是錯的
+        db.prepare(`UPDATE recon_spin SET orderId=NULL, status='PENDING', bindResult=NULL,
+          bindMethod='', boundAt=NULL WHERE id=?`).run(r.id)
+        unbound++
+      }
+    }
+  })
+  tx()
+  return { resolved, unbound }
+}
+
 export function backfillFindings(env: ReconEnv, days = 7): number {
   const since = Date.now() - days * 86400_000
   const rows = db.prepare(`
     SELECT id, status, observedAt FROM recon_spin
     WHERE env=? AND observedAt >= ? AND status IN ('MISSING','AMBIGUOUS')
+      AND COALESCE(outcome,'') NOT IN ('not_started','no_bet')
   `).all(env, since) as { id: number; status: string; observedAt: number }[]
   let n = 0
   for (const r of rows) {
