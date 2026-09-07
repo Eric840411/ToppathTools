@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.122.0'
+export const APP_VERSION = '4.123.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,21 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.123.0',
+    date: '2026-09-07',
+    changes: [
+      'fix(autospin): 🚨 **按了暫停還是繼續跑**——`pauseRequested` 只在記憶體，靠 5 秒一次的快照落 DB。worker 掛掉重啟（日誌實際出現 `Worker websocket error`）時從**暫停之前**那份快照復原，暫停就這樣沒了、機台自己繼續 spin，而畫面徽章讀的是另一個地方、還停在「已暫停」。改成暫停／繼續／停止／改間隔**當下就寫 DB**',
+      'fix(autospin): ⚠️ 定時快照不准用舊的控制狀態覆寫新的（CodeX review 指出的競態）——加 `controlUpdatedAt`，DB 比記憶體新時把控制欄位讀回來再寫出去。兩邊收斂到「最新的意圖」，不是「最後寫的人贏」。沒有這道的話即時寫入會被下一次快照無聲蓋掉，**症狀跟修好之前一模一樣**',
+      'fix(autospin): 🚨 **重任務鎖會變孤兒，把帳號鎖 24 小時**——鎖的釋放原本全部掛在「有人打 API」（hub-stop、心跳逾時掃描）。使用者直接關掉 agent 視窗時一條都不會跑到，而重啟 worker 又會**把鎖復原、session 不會回來**。使用者 2026-09-07 一天踩兩次，症狀是 agent 顯示可派工、Python 一啟動就 exit 1',
+      'feat(autospin): 鎖現在會綁到它保護的 session（`heavy_tasks.lock_key`，這欄以前從沒被寫過），才有辦法判斷「鎖在、session 不在」。開機復原與每分鐘的背景掃描都用這個判斷；**背景掃描刻意不依賴任何請求**——聰明的判定會被繞過，笨的定時掃描不會',
+      'feat(autospin): ⚠️ 孤兒判斷只套用在 `autospin-agent`（跟 CodeX 討論定案）。其他型別可能沒有 session 的概念、或鎖本身就是唯一真相，誤清比留著危險。舊資料沒綁 session id 時**不能直接判死**，退回用 userLabel 比對且要過 5 分鐘寬限期，否則會把升級當下正在跑的 session 保護整個拔掉',
+      'feat(autospin): 執行監控新增「卡住的重任務鎖」警示與強制清除。**放在控制列上面**——使用者是先看到派工沒反應才往下找原因的。真正的問題是 `hub-dispatch` 本身會成功、429 是 agent 端 Python 註冊時才發生的，**那個錯誤只出現在 agent 終端機、網頁完全看不到**。清除會寫進操作歷史；它是救援工具不是正常流程',
+      'fix(autospin): 🚨 **Spin 失敗時是無延遲的死循環**——失敗分支整條沒有任何等待（只有成功路徑有），`page.reload()` 失敗時 `except: pass` 讓 error_count 永遠歸不了零。實測日誌 400~405 次失敗**全部落在同一秒**。加指數退避（5s→120s），而且用可被停止打斷的等待，不是 time.sleep——否則等於為了修「停不下來」製造另一個「停不下來」',
+      'fix(autospin): agent 重連時帶 `reconnect: true` + `prevSessionId`，伺服器才把上一個 session 的暫停沿用過來。收窄條件（CodeX review）：同一個 userLabel、上一個 session 不是被明確停止的、且在 10 分鐘內，而且**只繼承 pauseRequested 這一個欄位**，不讓已結束的 session 復活',
+      'test(autospin): 新增 `scripts/ui-checks/autospin-lock-orphan.mjs`（23 項，跑完還原兩張表）。**已注入違規確認會變紅**——把孤兒判斷改成永遠說「有主人」、把暫停的即時寫入拿掉，對應 3 項轉紅',
+    ],
+  },
   {
     version: '4.122.0',
     date: '2026-09-07',

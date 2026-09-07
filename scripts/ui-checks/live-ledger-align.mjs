@@ -411,10 +411,26 @@ console.log('\n15) 最近鄰配對（取代全域偏移那套）');
   }
 
   {
-    // ⚠️ 容忍上界要跟 spin 間隔掛鉤，否則「差一位」也落在容忍內、這條就形同虛設
+    /**
+     * ⚠️ 容忍上界要跟 spin 間隔掛鉤，否則「差一位」也落在容忍內、這條就形同虛設。
+     *
+     * **原本寫的是「≤ 半個間隔」，那是錯的門檻**——半個間隔是在
+     * 「貪婪一對一配對」與「spinIndex 單調性檢查」都還不存在時定的，
+     * 當時容忍上界是唯一的保護，所以取得很保守。
+     *
+     * 實測它把合法配對擋在外面：DFDCGRAND 真實抖動 2.0~2.8 秒、
+     * 半個間隔只有 1.46 秒 → 明明 0.3 秒就對上的一對被拒絕。
+     *
+     * 真正要守的不是「≤ 一半」這個數字，是**差一位一定要被擋下來**。
+     * 差一位的殘差恰好是一個間隔，所以門檻只要嚴格小於一個間隔就成立。
+     * 取 0.9 留 10% 餘裕，同時容得下真實抖動。
+     */
     const out = bindNearestNeighbour(mkSpins(20), mkRounds([0, 1, 2]));
-    check('容忍上界 ≤ spin 間隔的一半', out.toleranceMs <= Math.ceil(GAP / 2),
-      `${out.toleranceMs}ms（間隔 ${out.spinGapMedianMs}ms）`);
+    check('容忍上界嚴格小於 spin 間隔（差一位的殘差＝一個間隔，才擋得住）',
+      out.toleranceMs < out.spinGapMedianMs,
+      `${out.toleranceMs}ms < 間隔 ${out.spinGapMedianMs}ms，餘裕 ${out.spinGapMedianMs - out.toleranceMs}ms`);
+    check('   放寬之後差一位仍然被擋下（這才是那條門檻的目的）',
+      GAP > out.toleranceMs, `差一位殘差 ${GAP}ms > 容忍 ${out.toleranceMs}ms`);
   }
 
   {

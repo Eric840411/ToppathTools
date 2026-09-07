@@ -27,6 +27,8 @@ type HeavyTaskRow = {
   started_at: number | null
   finished_at: number | null
   error: string | null
+  /** 這筆鎖保護的東西的識別碼（autospin-agent 存 session id）。舊資料是 null。 */
+  lock_key: string | null
 }
 
 const activeTasks = new Map<string, HeavyTask>()
@@ -47,6 +49,23 @@ const activeTasks = new Map<string, HeavyTask>()
     if (now - startedAt > STALE_MS) {
       db.prepare("UPDATE heavy_tasks SET status = 'error', finished_at = ?, error = ? WHERE id = ?")
         .run(now, '重任務追蹤逾期未結束（伺服器重啟後復原時判定為異常，非正常結束）', row.id)
+      continue
+    }
+    /**
+     * ⚠️ **孤兒鎖不要復原。**
+     *
+     * 這段原本是「running 的一律復原」，但**鎖跟它保護的 session 存在兩張不同的表**，
+     * 各自獨立復原——鎖回來了、session 沒回來，就變成一筆誰也對不上的鎖，
+     * 而清理門檻是 24 小時，等於把那個帳號鎖一整天。實測 2026-09-07 一天內發生兩次。
+     *
+     * 只對 `autospin-agent` 做這個檢查（跟 CodeX 討論定案）：這種鎖本來就是
+     * session 的附屬保護，沒有 session 就沒有意義。**其他型別不要套**——
+     * 它們可能沒有 session 的概念，或鎖本身就是唯一真相，誤清比留著危險。
+     */
+    if (row.type === 'autospin-agent' && !autospinLockHasLiveOwner(row.lock_key, row.user_label, startedAt, now)) {
+      db.prepare("UPDATE heavy_tasks SET status = 'error', finished_at = ?, error = ? WHERE id = ?")
+        .run(now, '孤兒鎖：開機復原時找不到對應的 AutoSpin session（未復原此鎖）', row.id)
+      console.log(`[heavy-task-guard] 未復原孤兒鎖 ${row.id}（user=${row.user_label}）`)
       continue
     }
     activeTasks.set(row.user_key, {
@@ -163,11 +182,74 @@ export function tryStartHeavyTask(
   activeTasks.set(user.key, task)
   db.prepare(`
     INSERT OR REPLACE INTO heavy_tasks
-      (id, user_key, user_label, type, label, status, created_at, started_at, finished_at, error)
-    VALUES (?, ?, ?, ?, ?, 'running', ?, ?, NULL, NULL)
+      (id, user_key, user_label, type, label, status, created_at, started_at, finished_at, error, lock_key)
+    VALUES (?, ?, ?, ?, ?, 'running', ?, ?, NULL, NULL, NULL)
   `).run(task.id, task.userKey, task.userLabel, task.type, task.label, now, now)
   notifyWorker('/internal/worker/tasks/start', task)
   return { ok: true, token: { id: task.id, userKey: user.key } }
+}
+
+/**
+ * 這個 autospin-agent 鎖還有沒有活著的 session？
+ *
+ * ⚠️ **刻意直接查表，不 import autospin.ts**——那支檔案 import 了本檔，
+ *    反向 import 會形成循環相依（跟 v4.10.0 `userJiraAuth()` 不 import
+ *    `auth-session.ts` 是同一個理由）。
+ *
+ * `lock_key` 是 session id。舊資料沒有這個值（這欄以前從沒被寫過），
+ * **不能因此直接判成孤兒**——那會把升級當下正在跑的 session 誤殺。
+ * 沒有 lock_key 時退一步用 userLabel 比對，而且要過寬限期才敢判死。
+ */
+const UNBOUND_LOCK_GRACE_MS = 5 * 60 * 1000
+
+export function autospinLockHasLiveOwner(
+  lockKey: string | null | undefined, userLabel: string, startedAt: number, now: number,
+): boolean {
+  const rows = db.prepare('SELECT id, data FROM autospin_agent_sessions').all() as { id: string; data: string }[]
+  const live: { id: string; userLabel?: string; status?: string }[] = []
+  for (const r of rows) {
+    try {
+      const d = JSON.parse(r.data) as { userLabel?: string; status?: string }
+      if (d.status === 'running') live.push({ id: r.id, userLabel: d.userLabel, status: d.status })
+    } catch { /* 壞掉的 row 當作不存在 */ }
+  }
+  if (lockKey) return live.some(s => s.id === lockKey)
+  // 舊資料：沒綁 session id，只能用 userLabel 猜，而且要夠老才敢判死
+  if (live.some(s => s.userLabel === userLabel)) return true
+  return now - startedAt < UNBOUND_LOCK_GRACE_MS
+}
+
+/** 把鎖綁到它保護的 session。⚠️ 一定要在建立 session 的同一個同步流程裡呼叫，中間不要有 await。 */
+export function bindHeavyTaskOwner(token: HeavyTaskToken | null | undefined, ownerRef: string) {
+  if (!token || !ownerRef) return
+  db.prepare('UPDATE heavy_tasks SET lock_key = ? WHERE id = ?').run(ownerRef, token.id)
+}
+
+/**
+ * 直接用 id 釋放一筆鎖——給背景掃描與「強制清除」用。
+ * ⚠️ 跟 `finishHeavyTask` 分開是因為那支要求呼叫端手上有 token，
+ *    而這兩個情境的前提正好是**沒有人握著 token**（token 隨 session 一起不見了）。
+ * 收尾狀態用 `error` 不用 `done`：它不是正常結束，稽核軌跡要看得出差別。
+ */
+export function releaseHeavyTaskById(id: string, reason: string): boolean {
+  const row = db.prepare("SELECT * FROM heavy_tasks WHERE id = ? AND status = 'running'").get(id) as HeavyTaskRow | undefined
+  if (!row) return false
+  const current = activeTasks.get(row.user_key)
+  if (current?.id === id) activeTasks.delete(row.user_key)
+  db.prepare("UPDATE heavy_tasks SET status = 'error', finished_at = ?, error = ? WHERE id = ?")
+    .run(Date.now(), reason, id)
+  notifyWorker('/internal/worker/tasks/finish', {
+    id: row.id, userKey: row.user_key, userLabel: row.user_label,
+    type: row.type, label: row.label,
+    startedAt: row.started_at ?? row.created_at, finishedAt: Date.now(),
+  })
+  return true
+}
+
+/** 目前還 running 的 autospin-agent 鎖（給背景掃描與強制清除畫面用）。 */
+export function listRunningAutospinLocks() {
+  return db.prepare("SELECT * FROM heavy_tasks WHERE status = 'running' AND type = 'autospin-agent'")
+    .all() as HeavyTaskRow[]
 }
 
 export function finishHeavyTask(token: HeavyTaskToken | null | undefined) {

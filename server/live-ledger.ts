@@ -1009,8 +1009,25 @@ export function bindNearestNeighbour(
     return { ...empty, decisions: ordered.map(s => ({ spinId: s.id, result: 'not_found' as const, reason: 'no_backend_rounds' })) }
   }
 
-  // ① 自我校準：每一局對「時間最近的 spin」的有號差，取中位數當偏移
-  const nearestDeltas = free.map(r => {
+  // ① spin 間隔中位數（先算，因為偏移估計要用它當可信範圍）
+  const gaps: number[] = []
+  for (let i = 1; i < ordered.length; i++) {
+    const g = ordered[i].observedAt - ordered[i - 1].observedAt
+    if (g > 0 && g < 5 * 60_000) gaps.push(g)
+  }
+  const gapMedian = median(gaps)
+
+  // ② 自我校準：每一局對「時間最近的 spin」的有號差，取中位數當偏移
+  //
+  // ⚠️ **只能用「看起來真的成對」的那些來估。**實測（2026-09-07）：
+  //    873-DFDCGRAND-1111 有 16/30 的局根本沒有對應的 spin（agent 漏觀測），
+  //    那些局的「最近 spin 距離」是雜訊（41~85 秒），把中位數拉到 3,194ms
+  //    ——而實際多數配對只差 0.3 秒。結果是容忍值 1,458ms 反而把真正的配對
+  //    全部擋在外面：**離 spin 只有 0.3 秒的局配不上**。
+  //
+  //    這是「用雜訊校準訊號」：漏觀測越多，偏移估得越歪，配對率越低，
+  //    看起來就越像綁定器壞掉——而其實是 agent 漏觀測造成的二次傷害。
+  const allDeltas = free.map(r => {
     let best = Infinity
     for (const s of ordered) {
       const d = r.betTimePrecise - s.observedAt
@@ -1018,18 +1035,33 @@ export function bindNearestNeighbour(
     }
     return best
   }).filter(Number.isFinite)
-  const offsetMs = median(nearestDeltas) ?? 0
-
-  // ② spin 間隔中位數 → 決定容忍上界（半個間隔）
-  const gaps: number[] = []
-  for (let i = 1; i < ordered.length; i++) {
-    const g = ordered[i].observedAt - ordered[i - 1].observedAt
-    if (g > 0 && g < 5 * 60_000) gaps.push(g)
-  }
-  const gapMedian = median(gaps)
+  // 可信範圍：一個 spin 間隔以內（再寬就可能是配到隔壁那一局），至少 5 秒
+  const plausible = Math.max(gapMedian ?? 5000, 5000)
+  const trusted = allDeltas.filter(d => Math.abs(d) <= plausible)
+  // ⚠️ **可信樣本不足時用 0，不要退回未過濾的中位數。**
+  //    我第一版寫 `trusted.length >= 3 ? trusted : allDeltas`——那是拿雜訊當預設值：
+  //    候選集裡若沒有幾對真的成對，`allDeltas` 的中位數可能是好幾小時，
+  //    再套上 ±2.6 秒的容忍，就會把幾小時外的局配上來。實測這個 fallback
+  //    一次製造了 **48 筆配錯**。
+  //
+  //    偏移 0 是安全的失敗方式：配不到就是配不到，不會配錯。
+  //    跟「缺值就補一個保守的預設」同一條——退路不能比沒有退路更危險。
+  const offsetMs = trusted.length >= 3 ? (median(trusted) ?? 0) : 0
   const configured = opts.residualToleranceMs ?? RESIDUAL_TOLERANCE_MS
-  // ⚠️ 上界一定要小於 spin 間隔，否則「差一位」也落在容忍內、這條就形同虛設
-  const toleranceMs = gapMedian ? Math.max(500, Math.min(configured, Math.floor(gapMedian / 2))) : configured
+  /**
+   * 上界。⚠️ **一定要小於 spin 間隔**，否則「差一位」也落在容忍內、這條就形同虛設。
+   *
+   * ⚠️ 但也不能取半個間隔——那是在「貪婪一對一 + spinIndex 單調性」兩道保護
+   *    加進來之前訂的保守值。實測（2026-09-07）真實抖動達 2.0~2.8 秒，
+   *    而 spin 間隔約 2.9 秒 → 半個間隔 1.46 秒**把合法配對擋在外面**：
+   *    離 spin 只有 1.2~2.0 秒的局配不上，看起來像綁定率低，其實是門檻太緊。
+   *
+   *    取 0.9 個間隔：仍然小於一個間隔（差一位到不了），而且真正的配對因為
+   *    殘差更小、在貪婪指派時會先被配走，隔壁那局搶不到。
+   */
+  const toleranceMs = gapMedian
+    ? Math.max(500, Math.min(configured, Math.floor(gapMedian * 0.9)))
+    : configured
 
   // ③ 產生所有可接受的配對，按殘差由小到大貪婪一對一指派
   type Pair = { si: number; ri: number; residual: number; delta: number }

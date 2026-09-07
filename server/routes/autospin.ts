@@ -19,7 +19,11 @@ import { fileURLToPath } from 'url'
 import { dirname } from 'path'
 import { db, addHistory, upload } from '../shared.js'
 import { getOperatorFromContext } from '../request-context.js'
-import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
+import {
+  finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, bindHeavyTaskOwner,
+  autospinLockHasLiveOwner, releaseHeavyTaskById, listRunningAutospinLocks,
+  type HeavyTaskToken,
+} from '../heavy-task-guard.js'
 import { fetchSlsErrors, fetchRecordBet, testSlsRecordBetConnection, type SlsBetRecord } from '../lib/sls.js'
 import { randomUUID } from 'crypto'
 import { agentConnections, getAvailableAgents } from '../agent-hub.js'
@@ -1170,6 +1174,12 @@ interface AgentSession {
   /** 從什麼時候開始找不到那台 agent。⚠️ 要有寬限期，不能斷一下就殺——見 should-stop */
   agentGoneSince?: number
   heavyTask?: HeavyTaskToken
+  /**
+   * 控制狀態（stopRequested / pauseRequested / spinIntervalOverride）最後一次被
+   * **使用者**改動的時間。⚠️ 用途是「舊快照不准覆寫新控制意圖」，見
+   * `persistAgentSessionSnapshot()` 的說明。
+   */
+  controlUpdatedAt?: number
   // LuckyLink poller state — replayed on SSE reconnect so panel survives refresh
   luckylinkJpGroupCode?: string
   luckylinkConnected?: boolean
@@ -1203,6 +1213,32 @@ const agentSessions = new Map<string, AgentSession>()
   if (restored > 0) console.log(`[autospin] 已從 DB 復原 ${restored} 筆 AutoSpin agent session`)
 }
 
+/**
+ * 使用者改動控制狀態時**當場**寫 DB，不等 5 秒的定時快照。
+ *
+ * 🚨 **這是 2026-09-07「按了暫停還是繼續跑」的根因修正。**
+ *    `pauseRequested` 原本只在記憶體，快照 5 秒一次。worker 掛掉重啟時
+ *    （日誌實際出現 `Worker websocket error`）從快照復原，而那份快照是
+ *    暫停**之前**拍的 → 暫停就這樣沒了，機台自己繼續跑，
+ *    而畫面徽章讀的是另一個地方、還停在「已暫停」。
+ *
+ *    使用者按下的那一刻就是明確意圖，不該由一份可能過期的快照重建。
+ */
+function markControlChanged(s: AgentSession) {
+  s.controlUpdatedAt = Date.now()
+  try {
+    const { logs: _l, screenshots: _s, ...rest } = s
+    db.prepare(`
+      INSERT INTO autospin_agent_sessions (id, data, updatedAt) VALUES (?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET data = excluded.data, updatedAt = excluded.updatedAt
+    `).run(s.id, JSON.stringify(rest), Date.now())
+  } catch (e) {
+    // 寫不進去不能讓使用者的操作整個失敗——但一定要留下痕跡，
+    // 否則就回到「靜默成功」那種最難查的壞法
+    console.error('[autospin] 控制狀態即時寫入失敗（暫停/停止可能撐不過重啟）:', e)
+  }
+}
+
 function persistAgentSessionSnapshot() {
   const upsert = db.prepare(`
     INSERT INTO autospin_agent_sessions (id, data, updatedAt) VALUES (?, ?, ?)
@@ -1213,8 +1249,32 @@ function persistAgentSessionSnapshot() {
     (db.prepare('SELECT id FROM autospin_agent_sessions').all() as { id: string }[]).map(r => r.id),
   )
   const now = Date.now()
+  /**
+   * ⚠️ **舊快照不准覆寫新的控制狀態**（CodeX review 指出的競態）。
+   *
+   * 定時快照是從記憶體整包寫出去的。只要有任何一條路徑讓 DB 裡的控制狀態
+   * 比記憶體新（例如另一個 process 寫入、或這個 process 剛從舊狀態復原），
+   * 下一次快照就會把使用者剛按下的暫停無聲蓋掉——**症狀跟修好之前一模一樣**，
+   * 而且更難查，因為即時寫入那段看起來是好的。
+   *
+   * 做法：發現 DB 那筆的 `controlUpdatedAt` 比記憶體新時，**把控制欄位讀回記憶體**
+   * 再寫出去。兩邊收斂到「最新的那個意圖」，而不是「最後寫的人贏」。
+   */
+  const readRow = db.prepare('SELECT data FROM autospin_agent_sessions WHERE id = ?')
   const tx = db.transaction(() => {
     for (const [id, s] of agentSessions.entries()) {
+      try {
+        const row = readRow.get(id) as { data: string } | undefined
+        if (row) {
+          const stored = JSON.parse(row.data) as Partial<AgentSession>
+          if ((stored.controlUpdatedAt ?? 0) > (s.controlUpdatedAt ?? 0)) {
+            s.stopRequested = stored.stopRequested ?? s.stopRequested
+            s.pauseRequested = stored.pauseRequested ?? s.pauseRequested
+            s.spinIntervalOverride = stored.spinIntervalOverride ?? s.spinIntervalOverride
+            s.controlUpdatedAt = stored.controlUpdatedAt
+          }
+        }
+      } catch { /* 壞掉的 row 就當作沒有，照常寫出去 */ }
       const { logs: _logs, screenshots: _screenshots, ...rest } = s
       upsert.run(id, JSON.stringify(rest), now)
       existingIds.delete(id)
@@ -1394,9 +1454,114 @@ function broadcastLuckylinkEvent(sessionId: string, event: object) {
 /** Exported so worker.ts can forward luckylink_event from agent WebSocket into AutoSpin SSE */
 export { broadcastAgentLog, broadcastLuckylinkEvent }
 
+/**
+ * 找出重連前的那個 session。記憶體裡可能已經沒有了（`sessionNotFound` 的定義就是如此），
+ * 所以要退回查持久化快照那張表。
+ */
+function findPreviousSessionForReconnect(prevSessionId: string | undefined, userLabel: string):
+  Partial<AgentSession> | null {
+  if (prevSessionId) {
+    const inMem = agentSessions.get(prevSessionId)
+    if (inMem) return inMem
+    try {
+      const row = db.prepare('SELECT data FROM autospin_agent_sessions WHERE id = ?')
+        .get(prevSessionId) as { data: string } | undefined
+      if (row) return JSON.parse(row.data) as Partial<AgentSession>
+    } catch { /* 壞掉的 row 當作沒有 */ }
+  }
+  // 沒帶 prevSessionId（舊版 agent）→ 退回用 userLabel 找最近一筆
+  let best: Partial<AgentSession> | null = null
+  for (const s of agentSessions.values()) {
+    if (s.userLabel !== userLabel) continue
+    if (!best || (s.lastHeartbeat ?? 0) > (best.lastHeartbeat ?? 0)) best = s
+  }
+  return best
+}
+
+/**
+ * ── 孤兒鎖背景掃描 ───────────────────────────────────────────────────────────
+ *
+ * 🚨 **鎖的釋放原本全部掛在「有人主動打 API」**：`hub-stop`、`/agent/status` 的心跳
+ *    逾時掃描。使用者直接關掉 agent 視窗（沒按停止）時，**一條都不會跑到**——
+ *    鎖就留著，而重啟 worker 又會把它復原、session 卻不會回來，接著卡 24 小時。
+ *    2026-09-07 使用者一天內踩到兩次。
+ *
+ * **這一道刻意不依賴任何請求**，跟 v4.118 那次「絕對上限要獨立於判活邏輯」同一個原則：
+ * 聰明的判定會被繞過，笨的定時掃描不會。
+ */
+const ORPHAN_LOCK_SCAN_INTERVAL_MS = 60_000
+setInterval(() => {
+  try {
+    for (const row of listRunningAutospinLocks()) {
+      const startedAt = row.started_at ?? row.created_at
+      if (autospinLockHasLiveOwner(row.lock_key, row.user_label, startedAt, Date.now())) continue
+      if (releaseHeavyTaskById(row.id, '孤兒鎖：背景掃描發現此鎖沒有對應的 AutoSpin session')) {
+        console.log(`[autospin] 背景掃描釋放孤兒鎖 ${row.id}（user=${row.user_label}）`)
+      }
+    }
+  } catch (e) {
+    console.error('[autospin] 孤兒鎖掃描失敗:', e)
+  }
+}, ORPHAN_LOCK_SCAN_INTERVAL_MS)
+
+/**
+ * ── 重任務鎖：檢視與強制清除 ──────────────────────────────────────────────────
+ *
+ * ⚠️ **這是救援工具，不是正常流程**（CodeX review 定調）。
+ *    正常情況下鎖會由停止流程或上面那個背景掃描自己收掉；
+ *    需要按這顆按鈕就代表有一條路徑漏了，**值得去查為什麼**，
+ *    而不是養成「卡住就按一下」的習慣。
+ *
+ * 所以這兩支端點刻意做到：① 先讓使用者看到鎖是什麼、綁的 session 還在不在
+ * ② 清除一定寫進操作歷史（誰、什麼時候、清了哪一筆）。
+ */
+router.get('/api/autospin/locks', (req, res) => {
+  const userLabel = (req.headers['x-user-label'] as string) || ''
+  const now = Date.now()
+  const rows = listRunningAutospinLocks()
+    .filter(r => !userLabel || r.user_label === userLabel)
+    .map(r => {
+      const startedAt = r.started_at ?? r.created_at
+      const ownerAlive = autospinLockHasLiveOwner(r.lock_key, r.user_label, startedAt, now)
+      return {
+        id: r.id,
+        userLabel: r.user_label,
+        label: r.label,
+        startedAt,
+        ageMs: now - startedAt,
+        sessionId: r.lock_key,
+        // ⚠️ 三態，不是布林。「查不到綁定的 session id」跟「綁了但那個 session 不在」
+        //    的下一步不一樣——前者多半是升級前留下的舊資料。
+        ownerState: !r.lock_key ? 'unknown' : (ownerAlive ? 'alive' : 'missing'),
+        orphan: !ownerAlive,
+      }
+    })
+  res.json({ ok: true, locks: rows })
+})
+
+router.post('/api/autospin/locks/:id/force-clear', (req, res) => {
+  const userLabel = (req.headers['x-user-label'] as string) || ''
+  const row = listRunningAutospinLocks().find(r => r.id === req.params.id)
+  if (!row) return res.status(404).json({ ok: false, message: '找不到這筆鎖，可能已經被釋放了' })
+  // 只能清自己的——別人的鎖代表別人正在跑，清掉會讓他的 session 失去保護
+  if (userLabel && row.user_label !== userLabel) {
+    return res.status(403).json({ ok: false, message: '只能清除自己帳號的鎖' })
+  }
+  const startedAt = row.started_at ?? row.created_at
+  const wasOrphan = !autospinLockHasLiveOwner(row.lock_key, row.user_label, startedAt, Date.now())
+  const ok = releaseHeavyTaskById(row.id, `使用者手動強制清除（${userLabel || '未知帳號'}）`)
+  // ⚠️ 一定要記進歷史：這是繞過正常流程的動作，事後要查得到是誰在什麼情況下按的。
+  //    特別是 wasOrphan=false 那種——那代表使用者清掉了一個**看起來還活著**的鎖。
+  addHistory('autospin', 'AutoSpin 強制清除重任務鎖',
+    wasOrphan ? '清除孤兒鎖' : '⚠️ 清除了仍偵測得到 session 的鎖',
+    { lockId: row.id, sessionId: row.lock_key, userLabel: row.user_label, wasOrphan, ageMs: Date.now() - startedAt })
+  res.json({ ok, wasOrphan })
+})
+
 // POST /api/autospin/agent/start — agent registers and gets configs
 router.post('/api/autospin/agent/start', (req, res) => {
-  const userLabel = (req.body as { userLabel?: string }).userLabel ?? ''
+  const body = req.body as { userLabel?: string; reconnect?: boolean; prevSessionId?: string }
+  const userLabel = body.userLabel ?? ''
   const heavyTask = tryStartHeavyTask(req, 'autospin-agent', 'AutoSpin Agent')
   let sessionId: string
   let isNewSession = false
@@ -1429,11 +1594,37 @@ router.post('/api/autospin/agent/start', (req, res) => {
         finishHeavyTask(s.heavyTask)
       }
     }
+    /**
+     * ⚠️ **重連時要把使用者的暫停帶過來，但只有重連才可以。**
+     *
+     * Python 在 `/should-stop` 回 `sessionNotFound` 時會自己重新註冊。
+     * 走這條路建出來的新 session 若一律 `pauseRequested: false`，
+     * 使用者按下的暫停就在重連當下無聲消失、機台自己繼續跑。
+     *
+     * 收窄條件（CodeX review 要求，避免「新派工誤帶到舊暫停」或
+     * 「client 永遠送 reconnect 導致一啟動就卡住」）：
+     *   ① Python 明確送 `reconnect: true`（使用者主動派工不會送）
+     *   ② 找得到上一個 session，且 **userLabel 相同**
+     *   ③ 上一個 session **不是被明確停止的**（stopped / stopRequested 一律不繼承，
+     *      否則等於把已結束的 session 復活）
+     *   ④ 上一個 session 是**近期**的，不是幾小時前的殘骸
+     * 而且**只繼承 pauseRequested 這一個控制欄位**——其餘一律用新 session 的預設值。
+     */
+    const RECONNECT_INHERIT_MAX_AGE_MS = 10 * 60 * 1000
+    let inheritedPause = false
+    if (body.reconnect === true) {
+      const prev = findPreviousSessionForReconnect(body.prevSessionId, userLabel)
+      if (prev && prev.userLabel === userLabel && prev.status !== 'stopped' && !prev.stopRequested
+        && Date.now() - (prev.lastHeartbeat ?? 0) < RECONNECT_INHERIT_MAX_AGE_MS) {
+        inheritedPause = prev.pauseRequested === true
+      }
+    }
     sessionId = `agent-${Date.now()}`
     isNewSession = true
     agentSessions.set(sessionId, {
       id: sessionId, status: 'running', startedAt: Date.now(), lastHeartbeat: Date.now(),
-      logs: [], screenshots: [], stopRequested: false, pauseRequested: false, userLabel, spinIntervalOverride: null,
+      logs: [], screenshots: [], stopRequested: false, pauseRequested: inheritedPause, userLabel, spinIntervalOverride: null,
+      controlUpdatedAt: inheritedPause ? Date.now() : undefined,
       heavyTask: heavyTask.token,
       // ⚠️ 把這個 session 連回派工的那台 agent。沒有這條線的話，agent 被 pm2 停掉之後
       //    沒有人知道該停哪個 session——Python 是 HTTP 輪詢、不吃 agent 的 WebSocket，
@@ -1441,6 +1632,13 @@ router.post('/api/autospin/agent/start', (req, res) => {
       dispatchedAgentId: [...agentConnections.values()]
         .find(a => a.busy && a.dispatchUserLabel === userLabel)?.agentId,
     })
+    // ⚠️ 把鎖綁到這個 session，之後才有辦法判斷「鎖在、session 不在」＝孤兒。
+    //    一定要在同一個同步流程裡做完，中間不能有 await，否則背景掃描可能
+    //    在「鎖已建立、還沒綁 session」的空窗期把它誤判成孤兒。
+    bindHeavyTaskOwner(heavyTask.token, sessionId)
+    if (inheritedPause) {
+      broadcastAgentLog(sessionId, '[Agent] 斷線重連：沿用你先前按下的「暫停」，未自動繼續執行')
+    }
   }
   // Return configs merged with machine_test_profiles selectors
   // （entryTouchPoints/entryTouchPoints2 讓 AutoSpin 的進入機台流程與 Machine Test 完全一致）
@@ -1677,6 +1875,7 @@ router.post('/api/autospin/agent/:id/pause', (req, res) => {
   if (!s) return res.status(404).json({ ok: false })
   if (s.userLabel !== requestUserLabel(req)) return res.status(403).json({ ok: false, message: '無權限操作此 session' })
   s.pauseRequested = true
+  markControlChanged(s)   // ⚠️ 先落 DB 再回應，否則 worker 一重啟暫停就沒了
   broadcastAgentLog(req.params.id, '[Agent] 已暫停')
   return res.json({ ok: true })
 })
@@ -1687,6 +1886,7 @@ router.post('/api/autospin/agent/:id/resume', (req, res) => {
   if (!s) return res.status(404).json({ ok: false })
   if (s.userLabel !== requestUserLabel(req)) return res.status(403).json({ ok: false, message: '無權限操作此 session' })
   s.pauseRequested = false
+  markControlChanged(s)
   broadcastAgentLog(req.params.id, '[Agent] 已繼續')
   return res.json({ ok: true })
 })
@@ -1698,6 +1898,7 @@ router.post('/api/autospin/agent/:id/spin-interval', (req, res) => {
   if (s.userLabel !== requestUserLabel(req)) return res.status(403).json({ ok: false, message: '無權限操作此 session' })
   const v = parseFloat((req.body as { value?: string }).value ?? '')
   s.spinIntervalOverride = isNaN(v) ? null : Math.max(0.1, Math.min(60, v))
+  markControlChanged(s)
   return res.json({ ok: true, spinInterval: s.spinIntervalOverride })
 })
 
@@ -1708,6 +1909,7 @@ router.post('/api/autospin/agent/stop-all', (req, res) => {
   for (const s of agentSessions.values()) {
     if (s.status === 'running' && s.userLabel === userLabel) {
       s.stopRequested = true
+      markControlChanged(s)
       finishHeavyTask(s.heavyTask)
     }
   }
@@ -1862,6 +2064,7 @@ router.post('/api/autospin/hub-stop', (req, res) => {
   for (const s of agentSessions.values()) {
     if (s.status === 'running' && (!userLabel || s.userLabel === userLabel)) {
       s.stopRequested = true
+      markControlChanged(s)
       finishHeavyTask(s.heavyTask)
     }
   }

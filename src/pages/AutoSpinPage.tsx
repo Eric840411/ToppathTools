@@ -396,6 +396,18 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
   const [selectedAgentId, setSelectedAgentId] = useState('')
   const [hubDispatching, setHubDispatching] = useState(false)
   const [hubStopping, setHubStopping] = useState(false)
+  /**
+   * 卡住的重任務鎖。
+   *
+   * 🚨 **為什麼要在畫面上主動偵測，而不是等使用者按到錯誤**：
+   *    `hub-dispatch` 本身會成功，429「你目前已有重任務正在執行」是 agent 端的
+   *    Python 去註冊時才發生的——**那個錯誤只出現在 agent 的終端機，網頁完全看不到**。
+   *    使用者在網頁上只會看到派工按鈕轉了一下就沒反應，完全不知道被什麼擋住。
+   *    2026-09-07 使用者就是這樣卡了兩次。
+   */
+  type StuckLock = { id: string; userLabel: string; label: string; startedAt: number; ageMs: number; sessionId: string | null; ownerState: 'alive' | 'missing' | 'unknown'; orphan: boolean }
+  const [stuckLocks, setStuckLocks] = useState<StuckLock[]>([])
+  const [clearingLockId, setClearingLockId] = useState('')
   const [running, setRunning] = useState(false)
   const [agentRunning, setAgentRunning] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -560,6 +572,41 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
   useEffect(() => {
     if (agentRunning) setHubDispatching(false)
   }, [agentRunning])
+
+  // 只在「自己沒有在跑」的時候查——有在跑的話那筆鎖本來就該存在，不是問題
+  useEffect(() => {
+    if (agentRunning) { setStuckLocks([]); return }
+    let cancelled = false
+    const load = async () => {
+      try {
+        const r = await fetch('/api/autospin/locks', { headers: { 'x-user-label': getGlobalUserLabel() } })
+        const d = await r.json() as { ok: boolean; locks?: StuckLock[] }
+        if (!cancelled && d.ok) setStuckLocks(d.locks ?? [])
+      } catch { /* 查不到就不顯示，不要為了這個跳錯誤打斷使用者 */ }
+    }
+    load()
+    const t = setInterval(load, 15000)
+    return () => { cancelled = true; clearInterval(t) }
+  }, [agentRunning])
+
+  const handleForceClearLock = async (lock: StuckLock) => {
+    // ⚠️ 二次確認只在「看起來還活著」時擋——孤兒鎖直接清就好，
+    //    每次都問會讓使用者養成無腦按確認的習慣，真正該停下來看的那次就擋不住了。
+    if (lock.ownerState === 'alive'
+      && !window.confirm('這筆鎖仍然對得到一個執行中的 session。強制清除會讓那個 session 失去保護，可能造成同一個帳號同時跑兩份。確定要清除嗎？')) return
+    setClearingLockId(lock.id)
+    try {
+      const r = await fetch(`/api/autospin/locks/${encodeURIComponent(lock.id)}/force-clear`, {
+        method: 'POST', headers: { 'x-user-label': getGlobalUserLabel() },
+      })
+      const d = await r.json() as { ok: boolean; message?: string }
+      if (!d.ok) setStartError(d.message ?? '清除失敗')
+      setStuckLocks(prev => prev.filter(l => l.id !== lock.id))
+    } catch (e) {
+      setStartError('清除失敗：' + String(e))
+    }
+    setClearingLockId('')
+  }
 
   const handleDispatchAgent = async () => {
     setStartError(''); setAgentLogs([])
@@ -1368,6 +1415,42 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                     </div>
                   )}
                   {runMode === 'server' ? null : <>
+
+                  {/* 卡住的重任務鎖警示——放在控制列「上面」：使用者是先看到派工沒反應才往下找原因的，
+                      放下面等於他已經按過好幾次、也已經下了「工具壞了」的結論之後才看到說明。 */}
+                  {stuckLocks.length > 0 && (
+                    <div style={{ border: '1px solid var(--cr-rose-border, rgba(223,118,94,0.4))', background: 'rgba(223,118,94,0.10)', borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--cr-rose)' }}>
+                        偵測到卡住的重任務鎖 —— 這會讓派工失敗
+                      </div>
+                      <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: 1.6 }}>
+                        你目前沒有在執行，但伺服器上還留著一筆屬於你的鎖。這種情況下按「派工啟動」，
+                        agent 會啟動、但 Python 註冊時會被擋掉，<strong>而那個錯誤只會出現在 agent 的終端機、網頁上看不到</strong>。
+                      </div>
+                      {stuckLocks.map(lock => (
+                        <div key={lock.id} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', fontSize: 12 }}>
+                          <span style={{ padding: '2px 8px', borderRadius: 10, fontWeight: 600, background: lock.ownerState === 'alive' ? 'rgba(199,169,107,0.16)' : 'rgba(223,118,94,0.16)', color: lock.ownerState === 'alive' ? 'var(--cr-violet)' : 'var(--cr-rose)' }}>
+                            {lock.ownerState === 'missing' ? '孤兒鎖（session 已不存在）'
+                              : lock.ownerState === 'unknown' ? '無法確認（升級前留下的舊資料）'
+                              : '仍偵測得到 session'}
+                          </span>
+                          <span style={{ color: '#94a3b8' }}>
+                            {lock.label} · 已存在 {Math.round(lock.ageMs / 60000)} 分鐘
+                            {lock.sessionId ? ` · ${lock.sessionId.slice(0, 14)}…` : ' · 未綁定 session'}
+                          </span>
+                          <button type="button" className="cr-btn" disabled={clearingLockId === lock.id}
+                            onClick={() => handleForceClearLock(lock)}
+                            style={{ padding: '3px 12px', fontSize: 12, borderRadius: 6, border: '1px solid var(--cr-rose)', background: 'transparent', color: 'var(--cr-rose)', cursor: clearingLockId === lock.id ? 'default' : 'pointer', fontWeight: 600 }}>
+                            {clearingLockId === lock.id ? '清除中…' : '強制清除'}
+                          </button>
+                        </div>
+                      ))}
+                      <div style={{ fontSize: 11, color: '#64748b' }}>
+                        正常情況下這些鎖會自己被回收（背景每分鐘掃一次）。會需要按這顆按鈕就代表有一條路徑漏了，
+                        清除動作會寫進操作歷史。
+                      </div>
+                    </div>
+                  )}
 
                   {/* ④ Status + controls row */}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>

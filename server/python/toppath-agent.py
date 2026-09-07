@@ -55,6 +55,22 @@ screenshot_enabled: bool = True  # 截圖監控依帳號開關（2026-08-17）�
 stop_flag = threading.Event()
 pause_flag = threading.Event()
 
+# 連續失敗時的退避（見主迴圈失敗分支的說明）
+RELOAD_BACKOFF_BASE_SEC = 5.0
+RELOAD_BACKOFF_MAX_SEC = 120.0
+
+
+def wait_with_stop(seconds: float) -> bool:
+    """等待指定秒數，但**收到停止指令就立刻返回**。
+
+    ⚠️ 這裡一定不能用 `time.sleep()`。退避最長會等到 120 秒，用 sleep 的話
+       使用者按下停止之後畫面要卡兩分鐘才有反應——那等於為了修「停不下來」
+       製造出另一個「停不下來」。
+
+    回傳 True 代表是被停止打斷的。
+    """
+    return stop_flag.wait(timeout=max(0.0, seconds))
+
 log_queue: "queue.Queue[str]" = queue.Queue()
 
 def log(msg: str):
@@ -240,8 +256,13 @@ def poll_stop():
             if d.get('sessionNotFound'):
                 local_log("[Agent] Session 已失效，嘗試重新連線伺服器...")
                 try:
+                    # ⚠️ 一定要標明這是「重連」而不是使用者主動派工——伺服器只有在重連時
+                    #    才會把上一個 session 的暫停狀態帶過來。不帶這個旗標的話，
+                    #    使用者按下的暫停會在重連當下無聲消失、機台自己繼續跑。
                     resp = requests.post(f"{server_url}/api/autospin/agent/start",
-                                         json={'userLabel': user_label}, timeout=10)
+                                         json={'userLabel': user_label,
+                                               'reconnect': True,
+                                               'prevSessionId': session_id}, timeout=10)
                     new_data = resp.json()
                     session_id = new_data['sessionId']
                     local_log(f"[Agent] 重新連線成功，新 Session: {session_id}")
@@ -2631,6 +2652,9 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
                         if spin_outcome == 'unknown' else None
                     )
                     mp['error_count'] = 0
+                    # ⚠️ 成功一次就把退避階梯歸零，否則機台恢復正常之後
+                    #    仍然背著先前累積的等待時間，越跑越慢。
+                    mp['reload_attempts'] = 0
                     # Live Ledger：每次 spin 即時落庫（fire-and-forget，不擋主迴圈）
                     # ⚠️ 對帳用 round_* 那四個（這一局自己的），不是 balance_before/after
                     #    ——後者讀的是 __lastCoin，無路由過濾，會抓到別局的值。
@@ -2801,8 +2825,24 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
                             enter_game(page, cfg)
                             time.sleep(3.0)
                             mp['error_count'] = 0
-                        except Exception:
-                            pass
+                        except Exception as re_err:
+                            # 🚨 **這裡原本是 `pass`，而且失敗路徑整條沒有任何等待。**
+                            #    reload 失敗 → error_count 永遠歸不了零 → 下一次迭代
+                            #    立刻又 reload 一次，中間零延遲。實測日誌裡
+                            #    400~405 次失敗**全部落在同一秒**，CPU 與後端一起被打滿，
+                            #    使用者當下的感覺就是「怎麼樣都停不下來」。
+                            log(f"[{mt}] 重新載入失敗：{re_err}")
+                        # ⚠️ 不論 reload 成功與否都要退避。只在失敗時等的話，
+                        #    「reload 成功但遊戲仍然進不去」一樣會變成高速迴圈。
+                        backoff = min(RELOAD_BACKOFF_MAX_SEC,
+                                      RELOAD_BACKOFF_BASE_SEC * (2 ** min(mp.get('reload_attempts', 0), 5)))
+                        mp['reload_attempts'] = mp.get('reload_attempts', 0) + 1
+                        log(f"[{mt}] 等待 {backoff:.0f} 秒後再試（第 {mp['reload_attempts']} 次重載）")
+                        wait_with_stop(backoff)
+                    else:
+                        # ⚠️ 單次失敗也要等一下。原本只有成功路徑有 sleep，
+                        #    連續失敗時整個迴圈是全速空轉的。
+                        wait_with_stop(min(spin_interval, 2.0))
 
             except PwTimeout:
                 mp['error_count'] += 1
