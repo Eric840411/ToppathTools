@@ -354,11 +354,32 @@ export async function runLiveLedgerCycle(now = Date.now()): Promise<{
     if (!r.ok) failures++
     envs.add(s.env)
   }
+  /**
+   * ⚠️ **綁定／撤銷／未觀測掃描不能只在「有壓測在跑」時執行。**
+   *
+   * 這些工作處理的正是「事情已經發生、但還沒收斂」的狀態：晚到的後台紀錄要回綁、
+   * 誤判的 unobserved 要撤銷。而 `activeScopes()` 只認最近 5 分鐘有觀測的帳號——
+   * session 一結束就什麼都不做了，**該撤銷的誤報永遠掛在那裡**。
+   * 實測：9 筆「已綁上卻還標成未觀測」就是這樣卡住的。
+   *
+   * 跟時鐘量測那次同一個坑：把維護性的工作掛在「有活動」的條件下，
+   * 活動停止時它就再也不會收斂。
+   */
+  const envsToProcess = new Set<ReconEnv>(envs)
+  for (const env of ['qat', 'uat'] as const) {
+    const has = db.prepare(`SELECT 1 FROM recon_spin WHERE env=? AND observedAt >= ? LIMIT 1`)
+      .get(env, now - 12 * 3600_000)
+    if (has) envsToProcess.add(env)
+  }
+
   const bind: Record<string, { scanned: number; resolved: number; ambiguous: number; missing: number }> = {}
-  for (const env of envs) {
+  for (const env of envsToProcess) {
     const b = runBindCycle(env, now)
     // 綁定完才有兩側金額可比。L1/L2 只看已 MATCH 的列。
-    const { compareAmounts, findUnobservedRounds, recordUnobservedFindings } = await import('./live-ledger.js')
+    const { compareAmounts, findUnobservedRounds, recordUnobservedFindings, resolveBoundUnobserved } = await import('./live-ledger.js')
+    // ⚠️ 先把「後來綁上了」的誤報撤銷，再掃新的——順序反過來會讓剛撤銷的又被記一次。
+    const undone = resolveBoundUnobserved(env)
+    if (undone) console.log(`[live-ledger] ${env} 撤銷 ${undone} 筆「有單無 spin」誤報（後來綁上了）`)
     // 🚨 反向檢查：後台有局但前端沒觀測到。**這個方向原本完全看不到**——
     //    資料流是 spin-driven，沒有 spin 的局根本不會進入任何查詢。
     const unobs = findUnobservedRounds(env, now - 6 * 3600_000, now)

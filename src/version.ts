@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.121.0'
+export const APP_VERSION = '4.122.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.122.0',
+    date: '2026-09-07',
+    changes: [
+      'fix(live-ledger): 🚨 **123 筆 l1_amount CRITICAL 全部是假警報**——「前端 bet」是 2500／500／2250／1600 這種湊出來的數字（balanceAfter 33/34 是 null，推導拿不到這一局的 end），而後台一律 1250。**對帳把自己的已知壞資料當成了對方的錯。**加通則：上游資料源已知不可信時，那條線不得產生 critical。判準是 balanceAfter 為 null 就跳過不比對',
+      'note(live-ledger): ⚠️ 這不是技術問題是信任問題——對帳工具第一天喊 123 次狼，之後沒有人會再看它的告警。修綁定花的力氣就是為了讓它說的話有人信，這個會一次全毀。所幸 notifiedAt 是 0/123，一則都還沒推出去',
+      'fix(live-ledger): 🚨 **由缺席推導出來的狀態必須可撤銷**——缺席隨時可能只是還沒到。unobserved finding 原本一旦標記就不回頭看，實測 29 筆裡 9 筆是誤報（該局 1 秒後就綁上了）。這正是 MISSING 那個舊陷阱在新線上重演。已加 resolveBoundUnobserved()，撤銷但保留紀錄（那是寬限窗訂太緊的證據）',
+      'fix(live-ledger): ⚠️ 綁定／撤銷／未觀測掃描原本關在「有 active scope 才跑」的迴圈裡——session 一結束就什麼都不做，**該撤銷的誤報永遠掛在那裡**（實測 9 筆就是這樣卡住的）。跟時鐘量測那次同一個坑：把維護性工作掛在「有活動」的條件下，活動停止時它就再也不會收斂',
+      'note(live-ledger): 回填率口徑改採規格方裁定的三分法——配對能力（P0 門檻掛這裡）／觀測覆蓋（只報告不當 pass-fail）／端到端（畫面頭號數字）。**三個一定要一起顯示**：這次就是活例子，單一數字 89.5% 看起來像綁定器有問題，拆開之後**綁定器是 100%、缺口全在觀測**——會導致去修沒壞的東西',
+    ],
+  },
   {
     version: '4.121.0',
     date: '2026-09-07',

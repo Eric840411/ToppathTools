@@ -890,8 +890,26 @@ export function compareAmounts(env: ReconEnv, sinceMs: number): AmountCompareRes
 
   const out: AmountCompareResult = { checked: 0, l1Bad: 0, l2Bad: 0, skipped: 0 }
   for (const r of rows) {
-    const hasBet = r.aBet !== null && r.aBet > 0
-    const hasWin = r.aWin !== null
+    /**
+     * 🚨 **上游資料源已知不可信時，這條線不得產生 critical。**
+     *
+     * 實測（2026-09-07）：123 筆 l1_amount CRITICAL **全部是假警報**——
+     * 「前端 bet」是 2500／500／2250／1600 這種湊出來的數字，
+     * 而後台一律 1250。成因是 `balanceAfter` 33/34 是 null，
+     * 金額推導拿不到這一局的 `end`，湊出的值不是這一局的。
+     *
+     * 也就是說：**對帳把自己的已知壞資料當成了對方的錯。**
+     *
+     * ⚠️ 這不是技術問題是信任問題：對帳工具第一天喊 123 次狼，
+     *    之後沒有人會再看它的告警。我們花這麼多力氣修綁定，
+     *    就是為了讓它說的話有人信——這個會一次全毀。
+     *
+     * 判準：`balanceAfter` 是 null 就代表這一局的後半段沒抓到，
+     * 金額推導不完整 → **跳過，不比對**。寧可少一筆樣本。
+     */
+    const derivationComplete = r.balanceAfter !== null
+    const hasBet = derivationComplete && r.aBet !== null && r.aBet > 0
+    const hasWin = derivationComplete && r.aWin !== null
     if (!hasBet && !hasWin) { out.skipped++; continue }
     out.checked++
 
@@ -1160,4 +1178,23 @@ export function recordUnobservedFindings(env: ReconEnv, rounds: UnobservedRound[
   })
   tx()
   return n
+}
+
+/**
+ * 後來綁上了的局，把它的 `unobserved` finding 標成已解決。
+ *
+ * ⚠️ **任何「由缺席推導出來的狀態」都必須可撤銷。**缺席隨時可能只是還沒到。
+ *    這正是 MISSING 那個舊陷阱在新線上重演——當初 MISSING 就是因為
+ *    「一旦標記就不再回頭看」而失真，實測 29 筆裡有 9 筆是這樣來的誤報。
+ *
+ * ⚠️ 保留紀錄不刪：那是「寬限窗訂太緊」的證據，刪掉就看不出門檻該不該調
+ *    （跟 MISSING 的 lateArrival 同一個理由）。
+ */
+export function resolveBoundUnobserved(env: ReconEnv): number {
+  return db.prepare(`
+    UPDATE recon_finding SET resolvedAt = ?,
+      note = note || '｜後來綁上了（誤報，寬限窗可能太緊）'
+    WHERE env = ? AND line = 'unobserved' AND refType = 'round' AND resolvedAt IS NULL
+      AND EXISTS (SELECT 1 FROM recon_spin s WHERE s.env = recon_finding.env AND s.orderId = recon_finding.refId)
+  `).run(Date.now(), env).changes
 }
