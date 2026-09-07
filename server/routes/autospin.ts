@@ -1175,10 +1175,21 @@ interface AgentSession {
   agentGoneSince?: number
   heavyTask?: HeavyTaskToken
   /**
-   * 控制狀態（stopRequested / pauseRequested / spinIntervalOverride）最後一次被
-   * **使用者**改動的時間。⚠️ 用途是「舊快照不准覆寫新控制意圖」，見
+   * 控制狀態（stopRequested / pauseRequested / spinIntervalOverride）被**使用者**
+   * 改動過幾次。⚠️ 用途是「舊快照不准覆寫新控制意圖」，見
    * `persistAgentSessionSnapshot()` 的說明。
+   *
+   * 🚨 **這裡刻意用單調遞增的計數器，不用時間戳**（CodeX review 提醒）。
+   *    用 `Date.now()` 的話，機器時間往回跳（NTP 校正、手動改時間）會讓
+   *    **剛寫入的暫停拿到比 DB 裡更小的值** → 下一次快照判定「DB 比較新」
+   *    → 把使用者剛按的暫停用舊值蓋回去。**那正是這一版要修的 bug 原樣復活**，
+   *    而且更難查，因為它只在時鐘飄動時發生。
+   *
+   *    計數器在 worker 重啟時會跟著快照一起復原（見上方復原區塊），
+   *    所以重啟後不會歸零倒退。
    */
+  controlVersion?: number
+  /** 純粹給人看的最後改動時間，**不參與任何判斷**。 */
   controlUpdatedAt?: number
   // LuckyLink poller state — replayed on SSE reconnect so panel survives refresh
   luckylinkJpGroupCode?: string
@@ -1225,6 +1236,7 @@ const agentSessions = new Map<string, AgentSession>()
  *    使用者按下的那一刻就是明確意圖，不該由一份可能過期的快照重建。
  */
 function markControlChanged(s: AgentSession) {
+  s.controlVersion = (s.controlVersion ?? 0) + 1
   s.controlUpdatedAt = Date.now()
   try {
     const { logs: _l, screenshots: _s, ...rest } = s
@@ -1267,10 +1279,11 @@ function persistAgentSessionSnapshot() {
         const row = readRow.get(id) as { data: string } | undefined
         if (row) {
           const stored = JSON.parse(row.data) as Partial<AgentSession>
-          if ((stored.controlUpdatedAt ?? 0) > (s.controlUpdatedAt ?? 0)) {
+          if ((stored.controlVersion ?? 0) > (s.controlVersion ?? 0)) {
             s.stopRequested = stored.stopRequested ?? s.stopRequested
             s.pauseRequested = stored.pauseRequested ?? s.pauseRequested
             s.spinIntervalOverride = stored.spinIntervalOverride ?? s.spinIntervalOverride
+            s.controlVersion = stored.controlVersion
             s.controlUpdatedAt = stored.controlUpdatedAt
           }
         }
@@ -1490,7 +1503,12 @@ function findPreviousSessionForReconnect(prevSessionId: string | undefined, user
  * 聰明的判定會被繞過，笨的定時掃描不會。
  */
 const ORPHAN_LOCK_SCAN_INTERVAL_MS = 60_000
+// ⚠️ 防重疊（CodeX review）：掃描本身會查 DB，機台多／DB 忙的時候可能超過一分鐘。
+//    沒有這道的話會有兩輪同時在跑，對同一筆鎖各自判斷、各自釋放。
+let orphanScanRunning = false
 setInterval(() => {
+  if (orphanScanRunning) return
+  orphanScanRunning = true
   try {
     for (const row of listRunningAutospinLocks()) {
       const startedAt = row.started_at ?? row.created_at
@@ -1501,6 +1519,10 @@ setInterval(() => {
     }
   } catch (e) {
     console.error('[autospin] 孤兒鎖掃描失敗:', e)
+  } finally {
+    // ⚠️ 一定要 finally。放在 try 尾端的話，中途拋錯就再也不會歸位，
+    //    掃描永久停擺——而且完全不會有徵兆（跟 v4.98.7 那個 pending 清除同一個形狀）。
+    orphanScanRunning = false
   }
 }, ORPHAN_LOCK_SCAN_INTERVAL_MS)
 
@@ -1624,6 +1646,7 @@ router.post('/api/autospin/agent/start', (req, res) => {
     agentSessions.set(sessionId, {
       id: sessionId, status: 'running', startedAt: Date.now(), lastHeartbeat: Date.now(),
       logs: [], screenshots: [], stopRequested: false, pauseRequested: inheritedPause, userLabel, spinIntervalOverride: null,
+      controlVersion: inheritedPause ? 1 : 0,
       controlUpdatedAt: inheritedPause ? Date.now() : undefined,
       heavyTask: heavyTask.token,
       // ⚠️ 把這個 session 連回派工的那台 agent。沒有這條線的話，agent 被 pm2 停掉之後

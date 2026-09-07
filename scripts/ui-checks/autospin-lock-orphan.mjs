@@ -110,7 +110,16 @@ try {
     check('兩個停止路徑（stop-all／hub-stop）都有落 DB', stopSites === 2, `找到 ${stopSites} 處`);
 
     check('🚨 定時快照不准用舊控制狀態覆寫新的',
-      /stored\.controlUpdatedAt \?\? 0\) > \(s\.controlUpdatedAt \?\? 0\)/.test(src));
+      /stored\.controlVersion \?\? 0\) > \(s\.controlVersion \?\? 0\)/.test(src));
+    // 🚨 時鐘往回跳（NTP 校正）時，剛寫入的暫停會拿到比 DB 更小的時間戳
+    //    → 快照判定「DB 比較新」→ 用舊值蓋掉使用者剛按的暫停。
+    //    那正是這一版要修的 bug 原樣復活，而且只在時鐘飄動時發生、極難查。
+    check('🚨 用單調遞增的版本號判斷新舊，不用時間戳（時鐘往回跳會讓舊意圖看起來比較新）',
+      /s\.controlVersion = \(s\.controlVersion \?\? 0\) \+ 1/.test(src)
+      && !/controlUpdatedAt \?\? 0\) > \(/.test(src));
+    check('背景掃描有防重疊，而且歸位寫在 finally（放 try 尾端的話拋一次錯就永久停擺）',
+      /if \(orphanScanRunning\) return/.test(src)
+      && /finally \{[\s\S]{0,300}orphanScanRunning = false/.test(src));
     check('鎖有綁到它保護的 session（否則第 1 節那些判斷全部失效）',
       /bindHeavyTaskOwner\(heavyTask\.token, sessionId\)/.test(src));
     check('背景掃描不依賴任何請求（setInterval，不是掛在某支 API 裡）',

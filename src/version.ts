@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.123.0'
+export const APP_VERSION = '4.123.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.123.1',
+    date: '2026-09-07',
+    changes: [
+      'fix(autospin): 🚨 **快照的新舊判斷改用單調遞增的版本號，不用時間戳**（CodeX review）。用 `Date.now()` 的話，機器時間往回跳（NTP 校正）會讓**剛寫入的暫停拿到比 DB 更小的值** → 快照判定「DB 比較新」→ 把使用者剛按的暫停用舊值蓋回去。**那正是 v4.123.0 要修的 bug 原樣復活**，而且只在時鐘飄動時發生、極難查',
+      'fix(autospin): 孤兒鎖背景掃描加防重疊——掃描會查 DB，忙的時候可能超過一分鐘，沒有這道會有兩輪同時對同一筆鎖各自判斷。⚠️ 歸位寫在 `finally`：放 try 尾端的話中途拋一次錯就永久停擺，而且完全沒有徵兆（跟 v4.98.7 那個 pending 清除同一個形狀）',
+      'test(autospin): 檢查加到 25 項，兩條新的**已注入違規確認會變紅**',
+    ],
+  },
   {
     version: '4.123.0',
     date: '2026-09-07',
