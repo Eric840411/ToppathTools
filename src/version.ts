@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.119.0'
+export const APP_VERSION = '4.120.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.120.0',
+    date: '2026-09-07',
+    changes: [
+      'fix(live-ledger): 🚨 **v4.115.0 的全域偏移 fallback 會主動製造假相符。**實測 873-BULLBLITZ-0136：後台 53 局**全部**落在某個 spin 的 ±2 秒內（資料完美），卻只綁上 4 筆而且**4 筆全錯**（差 27／34／28／34 秒），還餓死正主——真正對應的 spin 被標成 MISSING。成因是從整個 env 的歷史樣本估出 +29 秒偏移，那是**舊 session 時鐘慢 93 秒時的產物**，拿來校正現在等於用過去的錯誤污染當下',
+      'feat(live-ledger): 改用最近鄰配對（bindNearestNeighbour）：**偏移從這一輪的候選集自己算**、不吃歷史；容忍上界跟 spin 間隔掛鉤（半個間隔）；一對一貪婪指派（殘差小的先配）；配完檢查 spinIndex 單調性，倒退就標 AMBIGUOUS 不硬綁。同一批真實資料重跑：**4 筆全錯 → 93 筆正確**，時間差回到 ±2 秒、spinIndex 完全單調',
+      'note(live-ledger): ⚠️ 金額在這裡沒有鑑別力——後台 bet 恆為 1250，拿常數去分辨 53 局等於沒有條件。這正是規格書把配對鍵定成「playerName ＋ 時間最近鄰 ＋ spinIndex 單調性」的原因',
+      'fix(live-ledger): ⚠️ 老化計算**一邊校正一邊不校正**：observedAt 在後台時間軸（與 dateTime 對得到同一秒），now 卻是本機時間軸（慢 93 秒），90 秒的 MISSING 門檻實際變成 183 秒。實證分界 01:46:23 正好等於 now−93s−90s。已統一到同一條軸（nowOnObservedAxis）',
+      'test(live-ledger): 新增 9 項最近鄰測試，含這次事故的回歸。⚠️ 其中一項刻意寫成**記錄限制**而不是驗保護：偏移遠大於 spin 間隔時，時間資訊本身就不足以區分（整體平移的資料跟正確資料在資訊上相同），自我校準會收斂到 ≈0。真正的緩解是不要引入外來偏移——先前那套等於人為製造出這個情境',
+    ],
+  },
   {
     version: '4.119.0',
     date: '2026-09-07',

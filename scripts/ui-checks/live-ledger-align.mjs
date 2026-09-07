@@ -347,5 +347,93 @@ console.log('\n14) ⚠️ 真實參數下時間帶沒有鑑別力（這節記錄
     needed >= 4000 && needed <= 20000, `建議 >= ${needed}ms（約 ${(needed / 1000).toFixed(1)}s）`);
 }
 
+console.log('\n15) 最近鄰配對（取代全域偏移那套）');
+// 🚨 這一節守的是 2026-09-07 的實測事故：後台 53 局**全部**落在某個 spin 的 ±2 秒內，
+//    但因為套用了從舊 session 估出來的 +29 秒全域偏移，只綁上 4 筆而且**4 筆全錯**
+//    （差 27～34 秒），還餓死正主（真正對應的 spin 被標 MISSING）。
+//    那是假相符——對帳工具最壞的一種輸出。
+{
+  const { bindNearestNeighbour } = await import(
+    pathToFileURL(path.join(root, 'dist-server/server/live-ledger.js')).href);
+  const T0 = 1_788_745_000_000;
+  const GAP = 3000;
+  const mkSpins = n => Array.from({ length: n }, (_, i) => ({
+    id: i + 1, spinSeq: i + 1, gmid: 'g', betAmount: 0, observedAt: T0 + i * GAP,
+  }));
+  const mkRounds = idxs => idxs.map((i, k) => ({
+    orderId: `o${k}`, gmid: 'g', username: 'u', spinIndex: 5538 + k,
+    bet: 1250, betTimePrecise: T0 + i * GAP + 100,
+  }));
+
+  {
+    const s = mkSpins(20);
+    const r = mkRounds([0, 1, 2, 5, 6, 7, 12, 13]);   // 只有部分 spin 成局
+    const out = bindNearestNeighbour(s, r);
+    const resolved = out.decisions.filter(d => d.result === 'resolved');
+    check('完美資料 → 全部綁上且不多綁', resolved.length === r.length, `resolved ${resolved.length}/${r.length}`);
+    check('偏移自己算出來 ≈ 0（不吃歷史）', Math.abs(out.offsetMs) < 500, `${out.offsetMs}ms`);
+    const ok = resolved.every(d => {
+      const round = r.find(x => x.orderId === d.orderId);
+      const spin = s.find(x => x.id === d.spinId);
+      return Math.abs(round.betTimePrecise - spin.observedAt) < 500;
+    });
+    check('每一筆都配到同一秒的那一局（不是隔壁）', ok);
+  }
+
+  {
+    // 偏移小於半個間隔時，自我校準抓得到
+    const s = mkSpins(20);
+    const OFF = 1200;   // < GAP/2
+    const r = mkRounds([0, 1, 2, 5, 6]).map(x => ({ ...x, betTimePrecise: x.betTimePrecise + OFF }));
+    const out = bindNearestNeighbour(s, r);
+    check('偏移 < 半個間隔 → 自己校準得出來', Math.abs(out.offsetMs - (OFF + 100)) < 400, `${out.offsetMs}ms`);
+    check('且仍然全部綁上', out.decisions.filter(d => d.result === 'resolved').length === r.length);
+  }
+
+  {
+    /**
+     * ⚠️ **能力邊界：偏移大於 spin 間隔時，時間資訊本身就不夠用。**
+     *
+     * 29 秒偏移／3 秒間隔下，每一局「最近的 spin」是 10 個之後那個，
+     * 自我校準只會算出 ≈0——這不是實作錯誤，是**用時間無法區分**：
+     * 整體平移之後的資料，跟正確資料在資訊上完全相同
+     * （跟第 13 節那個「索引與時間一起平移」是同一件事）。
+     *
+     * 這一條刻意寫成「記錄限制」而不是「驗保護有效」，不要以為它守得住什麼。
+     * 真正的緩解是**不要引入外來偏移**——先前那套用歷史全域偏移的作法，
+     * 等於人為製造出這個情境，比沒有校正更糟。
+     */
+    const s = mkSpins(20);
+    const r = mkRounds([0, 1, 2]).map(x => ({ ...x, betTimePrecise: x.betTimePrecise + 29_000 }));
+    const out = bindNearestNeighbour(s, r);
+    check('（記錄限制）偏移遠大於間隔時自我校準抓不到，會收斂到 ≈0',
+      Math.abs(out.offsetMs) < 2000, `${out.offsetMs}ms —— 這是結構性限制，不是 bug`);
+  }
+
+  {
+    // ⚠️ 容忍上界要跟 spin 間隔掛鉤，否則「差一位」也落在容忍內、這條就形同虛設
+    const out = bindNearestNeighbour(mkSpins(20), mkRounds([0, 1, 2]));
+    check('容忍上界 ≤ spin 間隔的一半', out.toleranceMs <= Math.ceil(GAP / 2),
+      `${out.toleranceMs}ms（間隔 ${out.spinGapMedianMs}ms）`);
+  }
+
+  {
+    // 一對一：一局不能被兩個 spin 搶
+    const out = bindNearestNeighbour(mkSpins(3), mkRounds([1]));
+    check('一局只會綁到一個 spin', out.decisions.filter(d => d.result === 'resolved').length === 1);
+  }
+
+  {
+    // spinIndex 倒退 → AMBIGUOUS，不硬綁（整段偏移的唯一徵兆）
+    const r = [
+      { orderId: 'a', gmid: 'g', username: 'u', spinIndex: 100, bet: 1250, betTimePrecise: T0 + 100 },
+      { orderId: 'b', gmid: 'g', username: 'u', spinIndex: 99, bet: 1250, betTimePrecise: T0 + GAP + 100 },
+    ];
+    const out = bindNearestNeighbour(mkSpins(4), r);
+    check('spinIndex 倒退 → 標 AMBIGUOUS 不硬綁',
+      out.decisions.some(d => d.result === 'ambiguous' && /not_monotonic/.test(d.reason ?? '')));
+  }
+}
+
 console.log(`\n${fail === 0 ? '全部通過' : fail + ' 項未過'}（pass ${pass} / fail ${fail}）`);
 process.exit(fail ? 1 : 0);

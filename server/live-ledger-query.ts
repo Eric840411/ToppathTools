@@ -14,7 +14,7 @@
  * 是完全不同的意思，混用等於主動誤導。
  */
 import { db } from './shared.js'
-import { recentFindings, type FindingRow } from './live-ledger.js'
+import { recentFindings, nowOnObservedAxis, type FindingRow } from './live-ledger.js'
 import { jpSummary } from './live-ledger-jp.js'
 import type { ReconEnv } from './live-ledger.js'
 
@@ -197,7 +197,10 @@ export function overview(env: ReconEnv, windowMinutes = 30, now = Date.now(), vi
   const pendingRows = rows.filter(r => r.status === 'PENDING')
   const ambiguous = rows.filter(r => r.status === 'AMBIGUOUS').length
 
-  const age = (r: { observedAt: number }) => (now - r.observedAt) / 1000
+  // ⚠️ 年齡也要用校正後的時間軸，否則畫面上的 0–30s／30–90s 分桶跟
+  //    MISSING 判定用的是兩把不同的尺（見 nowOnObservedAxis）。
+  const nowObs = nowOnObservedAxis(env, now)
+  const age = (r: { observedAt: number }) => (nowObs - r.observedAt) / 1000
   const pending = {
     total: pendingRows.length,
     a0_30: pendingRows.filter(r => age(r) < 30).length,

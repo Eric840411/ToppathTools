@@ -27,7 +27,7 @@ export type BindResult = 'resolved' | 'ambiguous' | 'not_found'
  *    `absolute_window` 是樣本不足時的退路（±30s，寬鬆）。
  *    混成同一個回填率＝把「嚴格對上的」和「寬鬆撿到的」當成同一件事。
  */
-export type BindMethod = 'residual' | 'residual_global' | 'absolute_window'
+export type BindMethod = 'nearest' | 'residual' | 'residual_global' | 'absolute_window'
 
 export interface PendingSpin {
   id: number
@@ -633,6 +633,9 @@ export function runBindCycle(env: ReconEnv, now = Date.now()): {
 } {
   const cfg = bindConfigOf(env)
   const pendingTimeoutMs = reconSetting(env, 'pendingTimeoutSec') * 1000
+  // ⚠️ 老化一律用**校正到 observedAt 那條軸**的時間（見 nowOnObservedAxis）。
+  //    用未校正的 now 的話，90 秒門檻實際會變成 183 秒。
+  const nowObs = nowOnObservedAxis(env, now)
 
   const spins = db.prepare(`
     SELECT id, sessionId, machineType, gmid, spinSeq, betAmount, observedAt, status FROM recon_spin
@@ -667,14 +670,13 @@ export function runBindCycle(env: ReconEnv, now = Date.now()): {
     // offset 逐 (env, machineType) 估。估不出來（樣本 < 10）就退回絕對窗，
     // 由 bindMethod 標記成 absolute_window，驗收時分開算。
     // 逐機台優先；樣本不足退全域（見 estimateGlobalOffset 的雞生蛋說明）
-    const perMachine = estimateMatchOffset(env, g[0].machineType)
-    const offsetMs = perMachine ?? estimateGlobalOffset(env)
-    const offsetScope: 'machine' | 'global' | null = perMachine !== null ? 'machine' : (offsetMs !== null ? 'global' : null)
-    const opts = {
-      anchorWindowMs: cfg.afterMs, maxLatencyMs: cfg.afterMs, maxLeadMs: cfg.beforeMs,
-      offsetMs, residualToleranceMs: RESIDUAL_TOLERANCE_MS, offsetScope,
-    }
-    decisions.push(...alignBySpinIndex(g, scoped, opts, bound))
+    // 🚨 **不再用歷史偏移。**v4.115.0 那套（逐機台→全域 fallback）會把舊 session
+    //    的時鐘偏差帶進來污染現在：實測拿到 +29 秒的陳舊偏移，把配對推去 29 秒外，
+    //    53 局完美資料（全部落在某個 spin 的 ±2 秒內）只綁上 4 筆而且**4 筆全錯**，
+    //    還餓死正主——真正對應的 spin 被標成 MISSING。那是假相符，是最壞的輸出。
+    //    改用「這一輪自己算偏移」的最近鄰配對，見 bindNearestNeighbour。
+    const nn = bindNearestNeighbour(g, scoped, { residualToleranceMs: RESIDUAL_TOLERANCE_MS }, bound)
+    decisions.push(...nn.decisions)
     // 這一組綁掉的單要立刻進 bound，否則下一組可能重複配到同一張
     for (const d of decisions) if (d.result === 'resolved' && d.orderId) bound.add(d.orderId)
   }
@@ -703,7 +705,7 @@ export function runBindCycle(env: ReconEnv, now = Date.now()): {
           const wasMissing = s.status === 'MISSING'
           // 曾判掉單、現在綁回來了 → 標成已解決但保留紀錄，那正是門檻訂太緊的證據
           if (wasMissing) resolveFinding(env, 'missing', d.spinId, '紀錄晚到，已回綁')
-          setResolved.run(d.orderId!, now, now - s.observedAt,
+          setResolved.run(d.orderId!, now, nowObs - s.observedAt,
             d.bindMethod ?? '', wasMissing ? 1 : 0, d.spinId)
           if (wasMissing) lateRebound++
           resolved++
@@ -713,7 +715,7 @@ export function runBindCycle(env: ReconEnv, now = Date.now()): {
       } else if (d.result === 'ambiguous') {
         setAmbiguous.run(d.spinId); ambiguous++
         recordFinding(env, 'ambiguous', d.spinId, { severity: 'warn', note: d.reason ?? '' })
-      } else if (now - s.observedAt > pendingTimeoutMs) {
+      } else if (nowObs - s.observedAt > pendingTimeoutMs) {
         // 超過門檻還沒綁上 → 掉單
         setMissing.run(d.spinId); missing++
         recordFinding(env, 'missing', d.spinId, { severity: 'critical',
@@ -924,4 +926,165 @@ export function compareAmounts(env: ReconEnv, sinceMs: number): AmountCompareRes
     }
   }
   return out
+}
+
+// ─── 最近鄰配對（取代全域偏移那套）────────────────────────────────────
+//
+// 🚨 **v4.115.0 的全域偏移 fallback 會主動製造假相符。**
+//
+// 實測（2026-09-07，873-BULLBLITZ-0136）：後台 53 局**全部**落在某個 spin 的
+// ±2 秒內，資料完美。但實際只綁上 4 筆而且**4 筆全錯**（差 27／34／28／34 秒），
+// 全部標 `residual_global`。
+//
+// 成因：`estimateGlobalOffset()` 從整個 env 的歷史 MATCH 樣本估偏移，估出 +29 秒
+// ——那是**舊 session 時鐘慢 93 秒時的產物**。現在時鐘對齊了（Δt≈0），
+// 這個陳舊偏移把配對主動推去 29 秒外的那一局，而且**餓死正主**（真正對應的
+// spin 被標成 MISSING）。
+//
+// ⚠️ 教訓：**「全域」這個假設本身要被檢驗。**偏移是時鐘關係，而時鐘關係會變；
+//    拿跨時段的歷史樣本去校正當下，等於用過去的錯誤去污染現在。
+//
+// ⚠️ 另一條同樣重要：**金額在這裡沒有鑑別力**。後台 `bet` 恆為 1250，
+//    拿常數去分辨 53 局等於沒有條件。規格書把配對鍵定成
+//    「playerName ＋ 時間最近鄰 ＋ spinIndex 單調性」正是因為這件事。
+
+/** 每一輪自我校準出來的偏移與配對結果。 */
+export interface NearestBindResult {
+  decisions: AlignDecision[]
+  /** 這一輪從候選集自己算出來的系統性偏移（毫秒）。⚠️ 不吃歷史資料 */
+  offsetMs: number
+  /** 判定用的殘差上界。取「設定值」與「spin 間隔一半」的較小者 */
+  toleranceMs: number
+  spinGapMedianMs: number | null
+}
+
+function median(xs: number[]): number | null {
+  if (!xs.length) return null
+  const a = [...xs].sort((x, y) => x - y)
+  const m = Math.floor(a.length / 2)
+  return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2)
+}
+
+/**
+ * 時間最近鄰配對 + spinIndex 單調性檢查。
+ *
+ * ⚠️ **偏移從這一輪的候選集自己算**（每一局對最近的 spin 取中位數），不吃歷史。
+ *    這樣時鐘關係改變時會自動跟上，而且不可能被別的 session 污染。
+ *
+ * ⚠️ **距離要有上界**，而且上界要跟 spin 間隔掛鉤：最近鄰若超過半個間隔，
+ *    那多半是配到隔壁那一局。實測的錯配就是 27~34 秒，而 spin 間隔約 3 秒。
+ *
+ * ⚠️ 一對一：一局只能配一個 spin，一個 spin 只能配一局。按殘差由小到大貪婪指派，
+ *    先配最有把握的，避免「差的先搶走好的位置」。
+ */
+export function bindNearestNeighbour(
+  spins: Array<PendingSpin & { spinSeq: number }>,
+  rounds: BackendRound[],
+  opts: { residualToleranceMs?: number } = {},
+  alreadyBound: ReadonlySet<string> = new Set(),
+): NearestBindResult {
+  const free = rounds.filter(r => !alreadyBound.has(r.orderId) && Number.isFinite(r.betTimePrecise))
+  const ordered = [...spins].sort((a, b) => a.spinSeq - b.spinSeq)
+  const empty = { decisions: [] as AlignDecision[], offsetMs: 0, toleranceMs: 0, spinGapMedianMs: null }
+  if (!ordered.length) return empty
+  if (!free.length) {
+    return { ...empty, decisions: ordered.map(s => ({ spinId: s.id, result: 'not_found' as const, reason: 'no_backend_rounds' })) }
+  }
+
+  // ① 自我校準：每一局對「時間最近的 spin」的有號差，取中位數當偏移
+  const nearestDeltas = free.map(r => {
+    let best = Infinity
+    for (const s of ordered) {
+      const d = r.betTimePrecise - s.observedAt
+      if (Math.abs(d) < Math.abs(best)) best = d
+    }
+    return best
+  }).filter(Number.isFinite)
+  const offsetMs = median(nearestDeltas) ?? 0
+
+  // ② spin 間隔中位數 → 決定容忍上界（半個間隔）
+  const gaps: number[] = []
+  for (let i = 1; i < ordered.length; i++) {
+    const g = ordered[i].observedAt - ordered[i - 1].observedAt
+    if (g > 0 && g < 5 * 60_000) gaps.push(g)
+  }
+  const gapMedian = median(gaps)
+  const configured = opts.residualToleranceMs ?? RESIDUAL_TOLERANCE_MS
+  // ⚠️ 上界一定要小於 spin 間隔，否則「差一位」也落在容忍內、這條就形同虛設
+  const toleranceMs = gapMedian ? Math.max(500, Math.min(configured, Math.floor(gapMedian / 2))) : configured
+
+  // ③ 產生所有可接受的配對，按殘差由小到大貪婪一對一指派
+  type Pair = { si: number; ri: number; residual: number; delta: number }
+  const pairs: Pair[] = []
+  ordered.forEach((s, si) => {
+    free.forEach((r, ri) => {
+      const delta = r.betTimePrecise - s.observedAt
+      const residual = Math.abs(delta - offsetMs)
+      if (residual <= toleranceMs) pairs.push({ si, ri, residual, delta })
+    })
+  })
+  pairs.sort((a, b) => a.residual - b.residual)
+  const spinTaken = new Map<number, Pair>()
+  const roundTaken = new Set<number>()
+  for (const p of pairs) {
+    if (spinTaken.has(p.si) || roundTaken.has(p.ri)) continue
+    spinTaken.set(p.si, p); roundTaken.add(p.ri)
+  }
+
+  // ④ spinIndex 單調性：配好之後，spinIndex 必須隨 spinSeq 遞增
+  //    ⚠️ 違反就退回 AMBIGUOUS，**不硬綁**——那是「整段偏移」的唯一徵兆。
+  const assigned = [...spinTaken.entries()].sort((a, b) => a[0] - b[0])
+  const bad = new Set<number>()
+  let lastIdx = -Infinity
+  for (const [si, p] of assigned) {
+    const idx = free[p.ri].spinIndex
+    if (idx <= lastIdx) bad.add(si)
+    else lastIdx = idx
+  }
+
+  const decisions: AlignDecision[] = ordered.map((s, si) => {
+    const p = spinTaken.get(si)
+    if (!p) return { spinId: s.id, result: 'not_found', reason: 'no_candidate_in_tolerance' }
+    if (bad.has(si)) {
+      return {
+        spinId: s.id, result: 'ambiguous',
+        reason: `spin_index_not_monotonic:${free[p.ri].spinIndex}`,
+        verify: { timeOk: false, deltaMs: p.delta },
+      }
+    }
+    return {
+      spinId: s.id, result: 'resolved',
+      orderId: free[p.ri].orderId, spinIndex: free[p.ri].spinIndex,
+      bindMethod: 'nearest',
+      verify: { timeOk: true, latencyOk: true, deltaMs: p.delta },
+    }
+  })
+  return { decisions, offsetMs, toleranceMs, spinGapMedianMs: gapMedian }
+}
+
+/**
+ * 把伺服器的 `now` 換算到 `observedAt` 所在的時間軸。
+ *
+ * ⚠️ **老化計算一邊校正一邊不校正，門檻就會變成別的數字。**
+ *
+ * 實測（2026-09-07）：`recon_source_health.clockOffsetMs = 92914`（本機比後台慢 93 秒），
+ * 而 `observedAt` 跟後台 `dateTime` 對得到同一秒（53 局全部落在 ±2 秒內）。
+ * 也就是說 `observedAt` 在「後台時間軸」上，而 `now` 在「本機時間軸」上——
+ * 兩者相減會少算 93 秒，**90 秒的 MISSING 門檻實際變成 183 秒**。
+ *
+ * 實證分界：MISSING/PENDING 的界線落在 01:46:23，正好等於
+ * `now(01:49:26) − 93s − 90s`。不是推論，是對得上的。
+ *
+ * ⚠️ 這裡用的是「本機 vs 後台 web」的偏移，而它**跟配對用的偏移不是同一個**
+ *    （配對那個要從資料自己算，見 bindNearestNeighbour）。這裡可以用它，是因為
+ *    實測 `observedAt` 與後台 `dateTime` 幾乎重合——agent 的時鐘跟後台對得上。
+ *    這個前提哪天不成立，這個換算也要跟著重新驗。
+ */
+export function nowOnObservedAxis(env: ReconEnv, now = Date.now()): number {
+  try {
+    const r = db.prepare(`SELECT clockOffsetMs FROM recon_source_health WHERE env=? AND source='clock'`)
+      .get(env) as { clockOffsetMs: number | null } | undefined
+    const off = r?.clockOffsetMs
+    return Number.isFinite(off) ? now + (off as number) : now
+  } catch { return now }
 }
