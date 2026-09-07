@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.125.2'
+export const APP_VERSION = '4.125.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.125.3',
+    date: '2026-09-07',
+    changes: [
+      'fix(agent): 🚨 **對帳落庫原本連回應都不看**——`post_recon_spin` 吞掉所有例外、也不檢查回應內容，於是「HTTP 200 但 ok:false」跟成功長得一模一樣。v4.112.1 就是這樣整整兩小時零寫入而沒人發現。改成節流印出（同類最多每 60 秒一次），看得到但不洗版',
+      'fix(agent): 🚨 **結算補登那段也是全靜默**——補成功、找不到 end、送出失敗三種情況完全分不出來。實際在查「餘額後為什麼還是空的」時就卡在這裡：程式碼看起來都對，但沒有任何東西能證明它有沒有被執行到。補上補登結果與待補佇列長度的日誌',
+      'note(agent): 這兩處都不是新功能，是**把既有的靜默路徑變成可觀測**。查不出原因時，先讓它留下痕跡，比繼續靠讀程式碼推理有用',
+    ],
+  },
   {
     version: '4.125.2',
     date: '2026-09-07',

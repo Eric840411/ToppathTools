@@ -249,6 +249,21 @@ def resolve_real_game_url(url: str) -> str:
     return decoded if decoded.startswith('http') else url
 
 
+_warn_last = {}
+
+
+def _throttled_warn(key: str, msg: str, every_sec: float = 60.0) -> None:
+    """同一類警告最多每 60 秒印一次——要看得到，但不能洗版。"""
+    now = time.time()
+    if now - _warn_last.get(key, 0) < every_sec:
+        return
+    _warn_last[key] = now
+    try:
+        log(f"⚠️ {msg}")
+    except Exception:
+        print(f"[warn] {msg}")
+
+
 def post_recon_spin(machine_type: str, cfg: dict, spin_seq: int, balance_before, balance_after,
                     observed_at_ms: int, outcome: str = '', bet=None, win=None):
     """Live Ledger 觀測落庫——三段式綁定的第 ① 段。
@@ -266,7 +281,7 @@ def post_recon_spin(machine_type: str, cfg: dict, spin_seq: int, balance_before,
         env = 'uat' if 'uat-osm-redirect' in url else 'qat'
         m = re.search(r'[?&]username=([^&]+)', url)
         username = m.group(1) if m else ''
-        requests.post(
+        _r = requests.post(
             f"{server_url}/api/autospin/agent/{session_id}/recon-spin",
             json={
                 'env': env,
@@ -292,9 +307,18 @@ def post_recon_spin(machine_type: str, cfg: dict, spin_seq: int, balance_before,
                 'observedAt': observed_at_ms,
             },
             timeout=5)
-    except Exception:
-        # 對帳落庫失敗絕不能影響壓測。真正的訊號是 recon_spin 有沒有在長。
-        pass
+        # ⚠️ **不要只看有沒有拋例外。**這支原本連回應都不看，於是
+        #    「HTTP 200 但 ok:false」跟成功長得一模一樣——v4.112.1 就是這樣
+        #    整整兩小時零寫入而沒人發現。節流印出來，不洗版但查得到。
+        try:
+            if _r.status_code >= 400 or not (_r.json() or {}).get('ok', True):
+                _throttled_warn('recon-spin', f"對帳落庫被拒：HTTP {_r.status_code} {_r.text[:120]}")
+        except Exception:
+            pass
+    except Exception as e:
+        # 對帳落庫失敗絕不能影響壓測，但要留得下痕跡——全靜默的話，
+        # 「沒送出去」跟「送出去但沒生效」完全分不出來。
+        _throttled_warn('recon-spin-exc', f"對帳落庫失敗：{e}")
 
 spin_interval_override = None  # set by server via should-stop poll
 spin_interval_lock = __import__('threading').Lock()
@@ -2230,6 +2254,17 @@ def try_backfill_settlement(page, mp: dict, cfg: dict, mt: str) -> int:
                    p['balanceBefore'], end_coin, p['observedAt'], p['outcome'], p['bet'], win)
         filled += 1
     mp['pending_settlements'] = remaining
+    # ⚠️ **這段原本完全靜默**，補成功或補不到都不留痕跡——於是
+    #    「沒被呼叫到」「呼叫了但找不到 end」「找到了但送出失敗」三種
+    #    完全分不出來。實際查這個問題時就卡在這裡。
+    if filled:
+        _throttled_warn('backfill-ok', f"[{mt}] 已補登 {filled} 局的結算金額"
+                                       f"（待補佇列剩 {len(remaining)}）", every_sec=30.0)
+    elif remaining:
+        _throttled_warn('backfill-wait',
+                        f"[{mt}] 有 {len(remaining)} 局在等結算，money log 裡目前找到 "
+                        f"{len(ends)} 則 end（最舊待補局 begin seq={queue[0]['beginSeq']}）",
+                        every_sec=30.0)
     return filled
 
 
