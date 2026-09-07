@@ -410,6 +410,18 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
   const [clearingLockId, setClearingLockId] = useState('')
   const [running, setRunning] = useState(false)
   const [agentRunning, setAgentRunning] = useState(false)
+  /**
+   * 連續幾次拿不到狀態。
+   *
+   * 🚨 **重啟服務那段時間，畫面「不知道」狀態，卻仍然肯定地顯示「Agent 執行中」**
+   *    ——使用者按了停止、東西真的停了，畫面卻還掛著執行中，看起來像停不下來
+   *    （2026-09-07 實際回報）。
+   *
+   *    查不到就沿用舊值本身是對的（一次網路抖動不該把畫面切成未連線），
+   *    **但不能把沿用的舊值當成現況顯示**。這跟對帳那邊「`0` 是結論、`—` 是沒有結論」
+   *    是同一條：**沒有答案要說沒有答案，不要拿上一個答案頂替。**
+   */
+  const [statusUnknownStreak, setStatusUnknownStreak] = useState(0)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [agentSessionId, setAgentSessionId] = useState<string | null>(null)
   /**
@@ -489,13 +501,37 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
   const agentSessionIdRef = useRef<string | null>(null)
 
   const fetchStatus = useCallback(async () => {
-    const r = await fetch('/api/autospin/status')
-    const d = await r.json() as { running: boolean; sessionId: string | null }
-    setRunning(d.running)
-    if (d.sessionId && d.sessionId !== sessionId) setSessionId(d.sessionId)
+    /**
+     * ⚠️ **兩支狀態查詢要各自獨立，不能讓前一支的失敗連坐後一支。**
+     *
+     * 這裡原本整段沒有 try/catch，而第一個動作是打 `/api/autospin/status`
+     * （伺服器端 fallback 模式的狀態，跟 agent 模式無關）。那支一失敗——
+     * 例如**部署重啟的那幾秒**——整個函式就中斷在那裡，
+     * 後面「更新 agent 執行狀態」那段**完全不會執行**。
+     *
+     * 後果是畫面上的「Agent 執行中」停在舊值：agent 其實早就停了，
+     * 但按鈕與徽章還是執行中的樣子，使用者會以為停不下來。
+     * 這顆輪詢是整個執行狀態的唯一來源，它不該有任何一條路會整段放棄。
+     */
+    try {
+      const r = await fetch('/api/autospin/status')
+      const d = await r.json() as { running: boolean; sessionId: string | null }
+      setRunning(d.running)
+      if (d.sessionId && d.sessionId !== sessionId) setSessionId(d.sessionId)
+    } catch { /* 伺服器端 fallback 模式的狀態拿不到，不影響下面的 agent 狀態 */ }
     // Agent status — also auto-connect SSE if a new session is detected（帳號各自的 session，不共用）
-    const ar = await fetch('/api/autospin/agent/status', { headers: { 'x-user-label': getGlobalUserLabel() } })
-    const ad = await ar.json() as { running: boolean; sessionId: string | null }
+    let ad: { running: boolean; sessionId: string | null }
+    try {
+      const ar = await fetch('/api/autospin/agent/status', { headers: { 'x-user-label': getGlobalUserLabel() } })
+      ad = await ar.json() as { running: boolean; sessionId: string | null }
+    } catch {
+      // ⚠️ 查不到就**維持現狀**，不要當成「已停止」——一次網路抖動就把畫面
+      //    切回未連線，使用者會以為 session 掉了。下一次輪詢（4 秒）自然會補上。
+      //    但要記下來，連續失敗時畫面會改成「狀態未知」，不再假裝知道。
+      setStatusUnknownStreak(n => n + 1)
+      return
+    }
+    setStatusUnknownStreak(0)
     setAgentRunning(ad.running)
     if (ad.running && ad.sessionId && ad.sessionId !== agentSessionIdRef.current) {
       agentSessionIdRef.current = ad.sessionId
@@ -1474,9 +1510,14 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                         繼續
                       </button>
                     )}
-                    <span style={{ fontSize: 12, padding: '4px 10px', borderRadius: 12, background: hubStopping ? 'rgba(223,118,94,0.14)' : agentPaused ? 'rgba(199,169,107,0.14)' : agentRunning ? 'var(--cr-cyan-soft)' : '#1e293b', color: hubStopping ? 'var(--cr-rose)' : agentPaused ? 'var(--cr-violet)' : agentRunning ? 'var(--cr-cyan)' : '#6b7280', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      <span className={agentRunning && !hubStopping ? 'cr-status-dot' : undefined} style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: hubStopping ? 'var(--cr-rose)' : agentPaused ? 'var(--cr-violet)' : agentRunning ? 'var(--cr-cyan)' : '#6b7280' }} />
-                      {hubStopping ? '停止中…' : agentPaused ? '已暫停' : agentRunning ? 'Agent 執行中' : '未連線'}
+                    {/* ⚠️ 「狀態未知」要排在所有判斷之前，而且**不能沿用執行中的青色**——
+                        用同一個顏色等於還在宣稱它在跑。用琥珀色明確表示「這是警示，不是狀態」。 */}
+                    <span style={{ fontSize: 12, padding: '4px 10px', borderRadius: 12, background: statusUnknownStreak >= 2 ? 'rgba(199,169,107,0.14)' : hubStopping ? 'rgba(223,118,94,0.14)' : agentPaused ? 'rgba(199,169,107,0.14)' : agentRunning ? 'var(--cr-cyan-soft)' : '#1e293b', color: statusUnknownStreak >= 2 ? 'var(--cr-violet)' : hubStopping ? 'var(--cr-rose)' : agentPaused ? 'var(--cr-violet)' : agentRunning ? 'var(--cr-cyan)' : '#6b7280', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                      title={statusUnknownStreak >= 2 ? '連續拿不到伺服器狀態，畫面顯示的可能已經過期。伺服器恢復後會自動更新。' : undefined}>
+                      <span className={agentRunning && !hubStopping && statusUnknownStreak < 2 ? 'cr-status-dot' : undefined} style={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, background: statusUnknownStreak >= 2 ? 'var(--cr-violet)' : hubStopping ? 'var(--cr-rose)' : agentPaused ? 'var(--cr-violet)' : agentRunning ? 'var(--cr-cyan)' : '#6b7280' }} />
+                      {statusUnknownStreak >= 2 ? '狀態未知（連不上伺服器）'
+                        : hubStopping ? '停止中…' : agentPaused ? '已暫停'
+                        : agentRunning ? 'Agent 執行中' : '未連線'}
                     </span>
                     {agentSessionId && <span style={{ fontSize: 11, color: 'var(--cr-cyan)' }}>Session: {agentSessionId.slice(0, 8)}…</span>}
 

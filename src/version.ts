@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.124.0'
+export const APP_VERSION = '4.124.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.124.1',
+    date: '2026-09-07',
+    changes: [
+      'fix(autospin): 🚨 **重啟服務期間，畫面「不知道」狀態卻仍肯定地顯示「Agent 執行中」**。使用者按了停止、東西真的停了，畫面卻還掛著執行中，看起來像停不下來。根因：每 4 秒同步狀態的那顆輪詢**整段沒有錯誤處理**，而它第一個動作是打 `/api/autospin/status`——那支一失敗（部署重啟的那幾秒必然失敗），後面「更新 agent 執行狀態」那段**完全不會執行**',
+      'fix(autospin): 兩支狀態查詢改成各自獨立，前一支失敗不再連坐後一支。這顆輪詢是整個執行狀態的唯一來源，不該有任何一條路會整段放棄',
+      'feat(autospin): ⚠️ **連續拿不到狀態時，徽章改顯示「狀態未知（連不上伺服器）」**，不再繼續顯示上一次的值。查不到時沿用舊值本身是對的（一次抖動不該把畫面切成未連線），**但不能把沿用的舊值當成現況顯示**——跟對帳那邊「`0` 是結論、`—` 是沒有結論」同一條。顏色刻意不沿用執行中的青色，用琥珀色表示這是警示不是狀態',
+    ],
+  },
   {
     version: '4.124.0',
     date: '2026-09-07',
