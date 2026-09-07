@@ -2164,10 +2164,13 @@ last_round_begin = None
 # 結算補登的等待上限。超過就放棄——再久就有可能跨到別局或 FG 派彩，
 # 補上去的數字會是錯的，而錯值比缺值危險（見 derive_round_amounts 的說明）。
 SETTLEMENT_BACKFILL_MAX_SEC = 30.0
+# 待補結算的佇列上限。0.3 秒間隔 × 30 秒的等待上限 ≈ 100 局，取 200 留餘裕；
+# 超過就丟掉最舊的——那些本來也快要過期了。
+PENDING_SETTLEMENT_MAX = 200
 
 
-def try_backfill_settlement(page, mp: dict, cfg: dict, mt: str) -> bool:
-    """把上一局缺的「餘額後 / win」補上。
+def try_backfill_settlement(page, mp: dict, cfg: dict, mt: str) -> int:
+    """把還缺「餘額後 / win」的那幾局補上。回傳這次補了幾筆。
 
     🚨 **為什麼需要**：`win` 與 `餘額後` 都要「這一局 begin 之後的 end」，
        而 `do_spin()` 只多等 1.5 秒。實測（2026-09-07，最近 2 小時）
@@ -2175,37 +2178,59 @@ def try_backfill_settlement(page, mp: dict, cfg: dict, mt: str) -> bool:
        那個寬限形同虛設，還每局白等 1.5 秒。
 
     做法是**往回補，不是等更久**：下一次 spin 點下去之前檢查 money log，
-    如果 end 已經到了就用同一個 `spinSeq` 重送把值補上
+    end 到了就用同一個 `spinSeq` 重送把值補上
     （upsert 鍵是 `(env, sessionId, machineType, spinSeq)`）。
 
-    ⚠️ **一定要在點下這次 spin 之前呼叫**——跟 `reclassify_pending_unknown` 同一個
-       紀律。點下去之後這一局的 begin 會進 money log，就分不清哪個 end 屬於誰了。
+    🚨 **一定要是佇列，不能只留「上一局」一個位子**（2026-09-07 使用者提出）：
+       Spin 間隔 0.3~0.5 秒時，第 N 局的結算還沒回來，第 N+1、N+2 局就把那個位子
+       覆蓋掉了——補登幾乎不會成功。
 
-    回傳 True 代表這次真的補了一筆。
+    🚨 **而且配對一定要「依序一對一」，不能每局各自去找「我後面第一個 end」。**
+       快速連打時 end_N 可能晚於 begin_{N+1} 才到，那時第 N+1 局往後找到的第一個
+       end 其實是**第 N 局的結算**——會把上一局的派彩記到這一局頭上。
+       **錯值比缺值危險**：缺值只是少一筆樣本，錯值是一筆看起來有效的假資料。
+       所以這裡把待補的局**由舊到新**排好，把 end **依序**一一配過去。
+
+    ⚠️ **一定要在點下這次 spin 之前呼叫**——跟 `reclassify_pending_unknown` 同一個
+       紀律。點下去之後這一局的 begin 會進 money log，界線就糊掉了。
     """
-    p = mp.get('pending_settlement')
-    if not p:
+    queue = mp.get('pending_settlements') or []
+    if not queue:
         return False
+    now = time.time()
     # 太久沒等到就放棄——再久有可能跨到別局或 FG 派彩，補上去會是錯的
-    if time.time() - p['at'] > SETTLEMENT_BACKFILL_MAX_SEC:
-        mp['pending_settlement'] = None
+    queue = [p for p in queue if now - p['at'] <= SETTLEMENT_BACKFILL_MAX_SEC]
+    if not queue:
+        mp['pending_settlements'] = []
         return False
-    entries = read_money_since(page, p['beginSeq'])
-    end = next((e for e in entries if e.get('reason') == 'end'), None)
-    if end is None:
-        return False
-    end_coin = end.get('coin')
-    if end_coin is None:
-        mp['pending_settlement'] = None
-        return False
-    win = end_coin - p['beginCoin'] if p.get('beginCoin') is not None else None
-    # 沿用 derive_round_amounts 的合理性檢查：派彩不可能是負的
-    if win is not None and win < 0:
-        win = None
-    mp['pending_settlement'] = None
-    async_call(post_recon_spin, mt, cfg, p['spinSeq'],
-               p['balanceBefore'], end_coin, p['observedAt'], p['outcome'], p['bet'], win)
-    return True
+    queue.sort(key=lambda p: p['beginSeq'])
+    # 只需要從最舊那一局的 begin 之後開始看
+    entries = read_money_since(page, queue[0]['beginSeq'])
+    ends = [e for e in entries if e.get('reason') == 'end' and e.get('coin') is not None]
+    ends.sort(key=lambda e: e.get('seq', 0))
+
+    filled = 0
+    remaining = []
+    for idx, p in enumerate(queue):
+        # 依序一對一：第 i 舊的待補局配第 i 個 end
+        if idx >= len(ends):
+            remaining.append(p)
+            continue
+        end = ends[idx]
+        # 這個 end 一定要落在這一局的 begin 之後，否則不是它的
+        if end.get('seq', 0) <= p['beginSeq']:
+            remaining.append(p)
+            continue
+        end_coin = end.get('coin')
+        win = end_coin - p['beginCoin'] if p.get('beginCoin') is not None else None
+        # 沿用 derive_round_amounts 的合理性檢查：派彩不可能是負的
+        if win is not None and win < 0:
+            win = None
+        async_call(post_recon_spin, mt, cfg, p['spinSeq'],
+                   p['balanceBefore'], end_coin, p['observedAt'], p['outcome'], p['bet'], win)
+        filled += 1
+    mp['pending_settlements'] = remaining
+    return filled
 
 
 def reclassify_pending_unknown(page, mp, mt: str = '') -> bool:
@@ -2845,8 +2870,8 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
                     # 中間卡過 FG/JP：那段一定有派彩造成的 coin 更新，
                     # 拿它補判會把派彩誤記成上一局的結算，直接放棄這一筆。
                     mp['pending_unknown'] = None
-                    # 同一個理由：FG 派彩的 end 拿去補上一局的結算會是錯的
-                    mp['pending_settlement'] = None
+                    # 同一個理由：FG 派彩的 end 拿去補結算會是錯的，整個佇列都要丟
+                    mp['pending_settlements'] = []
                 reclassify_pending_unknown(page, mp, mt)
                 # 上一局缺的「餘額後 / win」——結算的 end 多半在我們返回之後才到，
                 # 所以在這裡回頭補（同樣必須在點下這次 spin 之前）
@@ -2866,14 +2891,17 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
                         {'coinTs': coin_ts_at_click, 'at': time.time()}
                         if spin_outcome == 'unknown' else None
                     )
-                    # 這一局起了注、但結算還沒到 → 留著下一輪（或停止時）回頭補
-                    mp['pending_settlement'] = (
-                        {'spinSeq': mp['spin_count'], 'beginSeq': last_round_begin.get('seq', 0),
-                         'beginCoin': last_round_begin.get('coin'), 'balanceBefore': round_bal_before,
-                         'bet': round_bet, 'outcome': spin_outcome,
-                         'observedAt': int(time.time() * 1000), 'at': time.time()}
-                        if (last_round_begin is not None and round_bal_after is None) else None
-                    )
+                    # 這一局起了注、但結算還沒到 → 排進佇列，下一輪（或停止時）回頭補。
+                    # ⚠️ 是**佇列**不是單一位子：0.3~0.5 秒的 Spin 間隔下，
+                    #    第 N 局的結算還沒回來，第 N+1、N+2 局就會把單一位子覆蓋掉。
+                    if last_round_begin is not None and round_bal_after is None:
+                        q = mp.get('pending_settlements') or []
+                        q.append({'spinSeq': mp['spin_count'], 'beginSeq': last_round_begin.get('seq', 0),
+                                  'beginCoin': last_round_begin.get('coin'), 'balanceBefore': round_bal_before,
+                                  'bet': round_bet, 'outcome': spin_outcome,
+                                  'observedAt': int(time.time() * 1000), 'at': time.time()})
+                        # 丟最舊的——它們本來也快過期了
+                        mp['pending_settlements'] = q[-PENDING_SETTLEMENT_MAX:]
                     mp['error_count'] = 0
                     # ⚠️ 成功一次就把退避階梯歸零，否則機台恢復正常之後
                     #    仍然背著先前累積的等待時間，越跑越慢。
@@ -3092,8 +3120,9 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
         #    （CodeX review 提的尾端風險）。離機動作會產生別的 coin 更新，
         #    所以一定要在 leave_game 之前跑。
         try:
-            if try_backfill_settlement(page, mp, cfg, mt):
-                log(f"[{mt}] 已補登最後一局的結算金額")
+            n_filled = try_backfill_settlement(page, mp, cfg, mt)
+            if n_filled:
+                log(f"[{mt}] 已補登 {n_filled} 局的結算金額（收尾）")
         except Exception as e:
             log(f"[{mt}] 最後一局結算補登失敗（不影響停止流程）：{e}")
 

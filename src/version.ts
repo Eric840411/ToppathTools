@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.125.1'
+export const APP_VERSION = '4.125.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.125.2',
+    date: '2026-09-07',
+    changes: [
+      'fix(agent): 🚨 **結算補登在 0.3~0.5 秒的 Spin 間隔下幾乎不會成功**（使用者提出）。v4.125.0 只留「上一局」一個位子——第 N 局的結算還沒回來，第 N+1、N+2 局就把它覆蓋掉了。改成佇列（上限 200，超過丟最舊的）',
+      'fix(agent): 🚨 **而且配對必須「依序一對一」，不能每局各自去找「我後面第一個 end」**。快速連打時 end_N 可能晚於 begin_{N+1} 才到，那時第 N+1 局往後找到的第一個 end 其實是**第 N 局的結算**——會把上一局的派彩記到這一局頭上。錯值比缺值危險：缺值只是少一筆樣本，錯值是一筆看起來有效的假資料',
+      'test(agent): `server/python/test_settlement_backfill.py`（20 項，假 page 不開瀏覽器），專門測快速連打的配對。**已注入天真做法確認會變紅**（改成各自找「我後面第一個 end」→ 6 項轉紅，包含「第 2 局拿到第 1 局的結算」那條）',
+    ],
+  },
   {
     version: '4.125.1',
     date: '2026-09-07',
