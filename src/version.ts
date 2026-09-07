@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.123.1'
+export const APP_VERSION = '4.123.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.123.2',
+    date: '2026-09-07',
+    changes: [
+      'fix(autospin): 🚨 **v4.123.0 加的孤兒鎖判定，把使用者正在使用的鎖清掉了**——鎖建立於 15:10:34、**15:10:36 就被清除**（建立後 2 秒）。session 建立時只在記憶體，最多要 5 秒才被快照寫進 DB，而判定讀的是 DB：一個剛建立、完全正常的 session 在那個空窗裡看起來就像不存在。清掉之後 Python 還在跑（spin 持續寫入）但伺服器已不認得它，網頁的日誌串流因此接不上、看起來像卡住',
+      'fix(autospin): 🚨 **模組載入不可以有破壞性副作用**——那段判定寫在 heavy-task-guard 的 module-level restore 裡，而那個區塊會在**任何 import 這支檔案的 process** 執行，包含 npm run build 與檢查腳本。也就是跑一次 build 就會改動正式的鎖狀態。改成只留在 60 秒的定時掃描：短命的 build／測試 process 活不到觸發，不需要靠環境變數猜 process 身分（pm2 restart 不重讀 env，那條路本身不可靠）',
+      'fix(autospin): 三道分開的防護刻意都留——① session 一建立就立刻落 DB（從源頭關掉空窗）② 剛建立 60 秒內的鎖一律不判死（①寫入失敗時仍擋得住）③ 破壞性判定移出模組載入。三道各自獨立，不共用假設',
+      'test(autospin): 檢查加到 30 項，新增「剛建立的鎖不判死」與「模組載入不做孤兒判定」兩節。**已注入違規確認會變紅**（拿掉剛建立的保護期 → 對應項轉紅）。⚠️ 既有那三條原本用 age=0，會被新的保護期永遠放行變成裝飾品，已改成 age=61 秒',
+    ],
+  },
   {
     version: '4.123.1',
     date: '2026-09-07',

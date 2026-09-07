@@ -53,12 +53,25 @@ try {
   {
     mkSession(TEST_PREFIX + 'live');
     mkSession(TEST_PREFIX + 'dead', { status: 'stopped' });
+    // ⚠️ 起始時間要拉到「剛建立保護期」之外，否則測到的是下面 1b 那道寬限期，
+    //    而不是這裡真正要驗的判斷——那會讓這三條變成永遠通過的裝飾品。
     check('綁到的 session 還在 running → 有主人',
-      autospinLockHasLiveOwner(TEST_PREFIX + 'live', 'TestUser', NOW, NOW) === true);
+      autospinLockHasLiveOwner(TEST_PREFIX + 'live', 'TestUser', NOW - 61_000, NOW) === true);
     check('🚨 綁到的 session 已停止 → 判成孤兒',
-      autospinLockHasLiveOwner(TEST_PREFIX + 'dead', 'TestUser', NOW, NOW) === false);
+      autospinLockHasLiveOwner(TEST_PREFIX + 'dead', 'TestUser', NOW - 61_000, NOW) === false);
     check('🚨 綁到的 session 完全不存在 → 判成孤兒',
-      autospinLockHasLiveOwner(TEST_PREFIX + 'nope', 'TestUser', NOW, NOW) === false);
+      autospinLockHasLiveOwner(TEST_PREFIX + 'nope', 'TestUser', NOW - 61_000, NOW) === false);
+  }
+
+  console.log('\n1b) 🚨 剛建立的鎖一律不判死 —— 真的害使用者斷線的那個 bug');
+  // session 建立時只在記憶體，最多 5 秒後才被快照寫進 DB。而判定讀的就是 DB，
+  // 所以一個「剛建立、完全正常」的 session 在那個空窗裡看起來就像不存在。
+  // 實測：鎖建立後 2 秒就被判成孤兒清掉，使用者的 AutoSpin 當場跟伺服器脫節、日誌停住。
+  {
+    check('🚨 鎖剛建立 2 秒、綁的 session 還沒被快照寫進去 → 不判死',
+      autospinLockHasLiveOwner(TEST_PREFIX + 'not_yet_snapshotted', 'TestUser', NOW - 2000, NOW) === true);
+    check('🚨 同一筆過了保護期之後 → 才判成孤兒（保護期不能變成永久豁免）',
+      autospinLockHasLiveOwner(TEST_PREFIX + 'not_yet_snapshotted', 'TestUser', NOW - 61_000, NOW) === false);
   }
 
   console.log('\n2) ⚠️ 舊資料（沒綁 session id）不能直接判成孤兒');
@@ -122,8 +135,23 @@ try {
       && /finally \{[\s\S]{0,300}orphanScanRunning = false/.test(src));
     check('鎖有綁到它保護的 session（否則第 1 節那些判斷全部失效）',
       /bindHeavyTaskOwner\(heavyTask\.token, sessionId\)/.test(src));
+    check('🚨 session 一建立就立刻落 DB，不等 5 秒快照（從源頭關掉那個空窗）',
+      /persistNewSession\(created\)/.test(src));
     check('背景掃描不依賴任何請求（setInterval，不是掛在某支 API 裡）',
       /setInterval\(\(\) => \{[\s\S]{0,500}listRunningAutospinLocks\(\)/.test(src));
+  }
+
+  console.log('\n5b) 🚨 模組載入不可以有破壞性副作用');
+  {
+    const guardSrc = readFileSync(path.join(root, 'server/heavy-task-guard.ts'), 'utf8');
+    // 那個 restore 區塊會在**任何 import 這支檔案的 process** 執行——包含 `npm run build`
+    // 與檢查腳本。判定寫在那裡時，我跑 build 就把使用者兩秒前建立的鎖清掉了。
+    // 建置工具不該有能力改動正式的鎖狀態。
+    const restoreBlock = guardSrc.slice(0, guardSrc.indexOf('export function tryStartHeavyTask'));
+    check('🚨 模組載入的 restore 不做 autospin 孤兒判定',
+      !/autospinLockHasLiveOwner/.test(restoreBlock));
+    check('孤兒清除只留在定時掃描裡（短命的 build／測試 process 活不到觸發）',
+      /listRunningAutospinLocks\(\)/.test(readFileSync(path.join(root, 'server/routes/autospin.ts'), 'utf8')));
   }
 
   console.log('\n6) agent 端');

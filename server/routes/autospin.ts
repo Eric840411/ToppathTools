@@ -1235,9 +1235,7 @@ const agentSessions = new Map<string, AgentSession>()
  *
  *    使用者按下的那一刻就是明確意圖，不該由一份可能過期的快照重建。
  */
-function markControlChanged(s: AgentSession) {
-  s.controlVersion = (s.controlVersion ?? 0) + 1
-  s.controlUpdatedAt = Date.now()
+function writeSessionRow(s: AgentSession, why: string) {
   try {
     const { logs: _l, screenshots: _s, ...rest } = s
     db.prepare(`
@@ -1247,8 +1245,29 @@ function markControlChanged(s: AgentSession) {
   } catch (e) {
     // 寫不進去不能讓使用者的操作整個失敗——但一定要留下痕跡，
     // 否則就回到「靜默成功」那種最難查的壞法
-    console.error('[autospin] 控制狀態即時寫入失敗（暫停/停止可能撐不過重啟）:', e)
+    console.error(`[autospin] session 即時寫入失敗（${why}）:`, e)
   }
+}
+
+/**
+ * 🚨 **session 一建立就立刻落 DB，不等 5 秒的定時快照。**
+ *
+ * 2026-09-07 實際發生：孤兒鎖的判定是讀 `autospin_agent_sessions` 的，
+ * 而 session 建立後最多要 5 秒才會被快照寫進去——一個**剛建立、完全正常**的
+ * session 在那個空窗裡看起來就像不存在，鎖建立後 **2 秒**就被判成孤兒清掉，
+ * 使用者的 AutoSpin 當場跟伺服器脫節。
+ *
+ * 判定端另外也加了「剛建立的鎖不判死」的寬限期。**兩道刻意都留**：
+ * 這一道從源頭消除空窗，那一道在寫入失敗時仍然擋得住。
+ */
+function persistNewSession(s: AgentSession) {
+  writeSessionRow(s, '新建 session')
+}
+
+function markControlChanged(s: AgentSession) {
+  s.controlVersion = (s.controlVersion ?? 0) + 1
+  s.controlUpdatedAt = Date.now()
+  writeSessionRow(s, '控制狀態變更')
 }
 
 function persistAgentSessionSnapshot() {
@@ -1659,6 +1678,10 @@ router.post('/api/autospin/agent/start', (req, res) => {
     //    一定要在同一個同步流程裡做完，中間不能有 await，否則背景掃描可能
     //    在「鎖已建立、還沒綁 session」的空窗期把它誤判成孤兒。
     bindHeavyTaskOwner(heavyTask.token, sessionId)
+    // ⚠️ 順序：先寫 session 再綁鎖也可以，但**兩件事一定要在綁鎖的同一個同步流程裡做完**，
+    //    中間不能有 await——否則就重新打開那個「鎖已存在、session 還查不到」的空窗。
+    const created = agentSessions.get(sessionId)
+    if (created) persistNewSession(created)
     if (inheritedPause) {
       broadcastAgentLog(sessionId, '[Agent] 斷線重連：沿用你先前按下的「暫停」，未自動繼續執行')
     }

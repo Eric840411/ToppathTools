@@ -62,12 +62,23 @@ const activeTasks = new Map<string, HeavyTask>()
      * session 的附屬保護，沒有 session 就沒有意義。**其他型別不要套**——
      * 它們可能沒有 session 的概念，或鎖本身就是唯一真相，誤清比留著危險。
      */
-    if (row.type === 'autospin-agent' && !autospinLockHasLiveOwner(row.lock_key, row.user_label, startedAt, now)) {
-      db.prepare("UPDATE heavy_tasks SET status = 'error', finished_at = ?, error = ? WHERE id = ?")
-        .run(now, '孤兒鎖：開機復原時找不到對應的 AutoSpin session（未復原此鎖）', row.id)
-      console.log(`[heavy-task-guard] 未復原孤兒鎖 ${row.id}（user=${row.user_label}）`)
-      continue
-    }
+    /**
+     * 🚨 **這裡刻意「只把鎖讀回記憶體」，不做任何孤兒判定。**
+     *
+     * 孤兒的清除交給 `autospin.ts` 那個 60 秒的背景掃描。原因是這個區塊會在
+     * **任何 import 這支檔案的 process** 執行——包含 `npm run build` 與檢查腳本。
+     *
+     * 2026-09-07 實際發生（我自己加防護時挖的洞）：判定寫在這裡時，
+     * 我跑 build 把使用者**兩秒前才建立**的鎖標成孤兒清掉了
+     * ——因為 session 建立後最多要 5 秒才會被快照寫進 DB，
+     * 而這個判定讀的是 DB，剛建立的 session 在那個空窗裡看起來就像不存在。
+     * 使用者的 AutoSpin 當場跟伺服器脫節、網頁日誌停住。
+     *
+     * **建置工具不該有能力改動正式的鎖狀態。**改放進 60 秒的定時掃描之後，
+     * 短命的 build／測試 process 根本活不到觸發的時候，
+     * 不需要靠環境變數或猜 process 身分來排除（`pm2 restart` 不會重讀 env，
+     * 那條路本身就不可靠）。
+     */
     activeTasks.set(row.user_key, {
       id: row.id, userKey: row.user_key, userLabel: row.user_label,
       type: row.type, label: row.label, startedAt,
@@ -201,6 +212,8 @@ export function tryStartHeavyTask(
  * 沒有 lock_key 時退一步用 userLabel 比對，而且要過寬限期才敢判死。
  */
 const UNBOUND_LOCK_GRACE_MS = 5 * 60 * 1000
+/** 剛建立的鎖的保護期——要大於快照間隔（5 秒）夠多，留給 DB 忙碌時的餘裕。 */
+const NEW_LOCK_GRACE_MS = 60 * 1000
 
 export function autospinLockHasLiveOwner(
   lockKey: string | null | undefined, userLabel: string, startedAt: number, now: number,
@@ -213,6 +226,18 @@ export function autospinLockHasLiveOwner(
       if (d.status === 'running') live.push({ id: r.id, userLabel: d.userLabel, status: d.status })
     } catch { /* 壞掉的 row 當作不存在 */ }
   }
+  /**
+   * 🚨 **剛建立的鎖一律不判死，即使已經綁了 session id。**
+   *
+   * session 建立時只在記憶體，最多要 5 秒後才被快照寫進
+   * `autospin_agent_sessions`。這個函式讀的是那張表——所以在那個空窗裡，
+   * 一個**完全正常、剛剛才建立**的 session 看起來就像不存在。
+   * 2026-09-07 實測：鎖建立後 **2 秒**就被判成孤兒清掉。
+   *
+   * 這道跟下面那個「沒綁 session id」的寬限期是**不同的兩件事**，
+   * 不要合併——那個是給舊資料的，這個是給快照延遲的。
+   */
+  if (now - startedAt < NEW_LOCK_GRACE_MS) return true
   if (lockKey) return live.some(s => s.id === lockKey)
   // 舊資料：沒綁 session id，只能用 userLabel 猜，而且要夠老才敢判死
   if (live.some(s => s.userLabel === userLabel)) return true
