@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.130.0'
+export const APP_VERSION = '4.130.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.130.1',
+    date: '2026-09-08',
+    changes: [
+      'fix(uat): 🚨 **「零斷言不得通過」那道防線壞掉一段時間了，沒人發現**。`scan-zero-assertion.mjs` 用 regex 從 `run-lark-tc-backend.js` 撈 `detectManual` 的原始碼，而 v4.52.0 已經把它抽成獨立檔案——`.match()` 回 null、整支拋錯。它只在有人手動跑時才執行，所以壞了也沒有徵兆',
+      'fix(uat): 修法不是改路徑，而是**直接 import 真正的 `detectManual`**。① 檔案再搬家也不會壞（壞了是載入期就炸，不是靜默）② 用的是 production 真正在跑的那份判斷，不會跟它漂掉。CLAUDE.md 記過「用字串切 pattern 會抓錯」（理由文字含 `/` 的那幾條），這一改把那整類問題消掉',
+      'fix(uat): ⚠️ **有假通過要 exit 非 0**。原本不論結果都 exit 0——那樣它只是報告不是防線，接進 CI 也永遠是綠的。另加一道：**連一筆都分析不到也算失敗**，因為靜態解析跟不上重構時最可能的症狀不是報錯，而是安靜地分析 0 筆然後說「沒有問題」',
+      'test(uat): 修好後實測 121 筆可分析 / 32 筆人工判讀 / **0 筆假通過**（32 = 原本 20 + v4.52.0 新增的 12，數字內部一致）。**已注入一筆假通過確認抓得到**（1 筆、exit 1），還原後回 0——證明那個 0 不是「什麼都沒驗」',
+    ],
+  },
   {
     version: '4.130.0',
     date: '2026-09-08',

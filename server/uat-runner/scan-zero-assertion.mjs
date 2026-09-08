@@ -11,6 +11,21 @@
  * 跑法：cd server/uat-runner && node scan-zero-assertion.mjs
  */
 import fs from 'fs';
+/**
+ * 🚨 **直接 import 真正的 detectManual，不要再去 parse 它的原始碼。**
+ *
+ * 原本是拿 regex 從 `run-lark-tc-backend.js` 撈 `function detectManual` 的內文，
+ * 再把裡面每一行的 pattern 切出來。v4.52.0 把 detectManual 抽成獨立檔案之後，
+ * 那個 regex 就再也對不到——`.match(...)` 回 null、整支掃描器直接拋錯。
+ * 而它只在有人手動跑的時候才會執行，所以**壞了一段時間都沒人發現**，
+ * 「零斷言不得通過」那道防線等於一直是空的。
+ *
+ * 改成 import 有兩個好處：① 檔案再搬家也不會壞（壞了也是編譯期就炸，不是靜默）
+ * ② 用的是 **production 真正在跑的那份判斷**，不會跟它漂掉。
+ * CLAUDE.md 記過「用字串切 pattern 會抓錯」（理由文字含 `/` 的那幾條），
+ * 這一改把那整類問題消掉。
+ */
+import { detectManual } from './detect-manual.js';
 
 const src = fs.readFileSync('run-lark-tc-backend.js', 'utf8');
 const lines = src.split(/\r?\n/);
@@ -59,12 +74,6 @@ for (const [name, body] of Object.entries(bodies)) {
     .map(pickRegex).filter(Boolean);
 }
 
-// detectManual 的樣式：這些 TC 會在任何斷言之前就被判成人工判讀，是正當結果不是假通過
-const dm = src.match(/function detectManual[\s\S]*?\n\}/)[0];
-const manualPatterns = dm.split(/\r?\n/)
-  .filter(l => l.trim().startsWith('['))
-  .map(pickRegex).filter(Boolean);
-
 const reg = JSON.parse(fs.readFileSync('tc-registry.json', 'utf8'));
 let total = 0, manual = 0;
 const falsePass = [];
@@ -73,7 +82,9 @@ for (const [, v] of Object.entries(reg)) {
   const text = v.canonicalText || '';
   if (!name || !regexOf[name]?.length) continue;
   total++;
-  if (manualPatterns.some(r => r.test(text))) { manual++; continue }   // 先被判成 MANUAL
+  // 先被 detectManual 攔下的不算假通過——那是正當的人工判讀結果。
+  // ⚠️ 這裡呼叫的是 production 真正在跑的那支，不是複製一份規則。
+  if (detectManual(text)) { manual++; continue }
   if (!regexOf[name].some(r => r.test(text))) falsePass.push([name, text.replace(/\s+/g, ' ').slice(0, 46)]);
 }
 
@@ -85,3 +96,19 @@ for (const [n] of falsePass) by[n] = (by[n] || 0) + 1;
 for (const [n, c] of Object.entries(by).sort((a, b) => b[1] - a[1])) console.log(`  ${String(c).padStart(3)}  ${n}`);
 console.log('\n全部列出：');
 for (const [n, t] of falsePass) console.log(`  ${n.padEnd(26)}${t}`);
+
+/**
+ * ⚠️ **有假通過就要 exit 非 0。**
+ *
+ * 原本不論結果都 exit 0——那樣它只是一份報告，不是防線：接進 CI 也永遠是綠的，
+ * 而「零斷言卻判通過」正是它要擋的東西。
+ *
+ * 另外一個保險：**連一筆都分析不到也算失敗**。這支的判斷完全靠靜態解析驗證器
+ * 原始碼，解析方式一旦跟不上重構（就像 detectManual 被抽成獨立檔案那次），
+ * 最可能的症狀不是報錯，而是**安靜地分析 0 筆然後說「沒有問題」**。
+ */
+if (total === 0) {
+  console.log('\n❌ 一筆都分析不到——多半是驗證器的寫法變了、靜態解析跟不上，不是「沒有問題」');
+  process.exit(1);
+}
+process.exit(falsePass.length ? 1 : 0);
