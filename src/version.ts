@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.127.2'
+export const APP_VERSION = '4.127.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,14 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.127.3',
+    date: '2026-09-08',
+    changes: [
+      'style(autospin): 兩張卡改成**等高**，寬度調回原本的比例（使用者更正：要的是等高不是等寬）。`align-items` 從 `start` 改成 `stretch`——兩張卡的內容高度本來就差 50px，`start` 會讓右邊那張的下緣缺一角。stretch 只拉外框，內容仍然靠上，不會被扯開',
+      'note(autospin): ⚠️ v4.127.2 把兩張改成等寬是**我讀錯需求**。使用者說的「寬度調整一致」指的是視覺上要對齊，而真正沒對齊的是**下緣**——等寬反而讓右卡放不下三顆按鈕＋滑桿＋說明。實測：595 / 805、高度都是 166、零橫向溢出',
+    ],
+  },
   {
     version: '4.127.2',
     date: '2026-09-08',
