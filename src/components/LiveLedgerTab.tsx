@@ -103,6 +103,9 @@ interface PoolLevel {
   /** ⚠️ 占**設定上限**的百分比，不是拿獎池名稱裡的數字算的 */
   waterPct: number | null
   atCap: boolean; mismatch: number; samples: number
+  /** 這個池底下有沒有「我現在正在跑」的機台。有的話排最上面並標色。 */
+  mine: boolean
+  myMachines: string[]
 }
 interface PoolMismatch {
   ts: number; machineName: string; levelName: string
@@ -124,6 +127,7 @@ interface PoolsPayload {
   mismatches: PoolMismatch[]
   atCapCount: number
   machines: MachineRow[]
+  myGmids: string[]
 }
 
 const lampColor = (s: string) =>
@@ -339,6 +343,13 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 9 }}>
           <span style={{ fontSize: 12.5, fontWeight: 700, color: C.tool, letterSpacing: '.05em' }}>獎池</span>
           <span style={{ fontSize: 11, color: C.ink3 }}>L4 / L5 · 每 60 秒自動比對</span>
+          {/* ⚠️ 有「我的池」時要講出來，否則使用者看到順序變了會以為排序壞了 */}
+          {pools && pools.levels.some(l => l.mine) && (
+            <span style={{ fontSize: 10.5, padding: '1px 7px', borderRadius: 99,
+              background: 'rgba(56,189,248,.13)', color: C.tool, border: `1px solid ${C.tool}44` }}>
+              你正在跑的機台所屬的池已排到最上面
+            </span>
+          )}
           <span style={{ marginLeft: 'auto', fontSize: 11, color: C.ink3 }}>
             {pools ? `${pools.summary.levels} 個 Level · ${pools.summary.machines} 台` : '讀取中…'}
           </span>
@@ -374,10 +385,19 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
             title="change ≈ (新投入額 − 舊投入額) × 增額%，誤差 > 0.01 就算不符" />
           <Kpi label="相符" value={pools ? pools.summary.poolOk.toLocaleString() : '—'}
             sub="誤差 ≤ 0.01" tone={pools && pools.summary.poolMismatch === 0 ? 'good' : undefined} />
-          <Kpi label="最高水位" value={pools && pools.levels.length && pools.levels[0].waterPct !== null
-            ? `${pools.levels[0].waterPct.toFixed(1)}%` : '—'}
-            sub={pools && pools.levels.length ? pools.levels[0].levelName : '—'}
-            title="占設定 maxValue 的百分比" />
+          {/* 🚨 **不能取 levels[0]。**排序改成「我正在跑的池排最上面」之後，
+              第一列不再是水位最高的那個——實測會顯示「最高水位 3.0%」，
+              而真正的最高是 100%（JPBZZF3）。這種錯特別危險：數字看起來很正常，
+              只是**默默把最嚴重的那個藏起來**。 */}
+          {(() => {
+            const top = (pools?.levels ?? []).reduce<PoolLevel | null>(
+              (best, l) => l.waterPct === null ? best
+                : (best === null || l.waterPct > (best.waterPct ?? -1)) ? l : best, null)
+            return <Kpi label="最高水位" value={top ? `${top.waterPct!.toFixed(1)}%` : '—'}
+              sub={top ? top.levelName : '—'}
+              tone={top && top.waterPct! >= 100 ? 'bad' : undefined}
+              title="占設定 maxValue 的百分比。⚠️ 這是全部獎池裡的最大值，不是表格第一列——表格是依「我正在跑的」優先排序的。" />
+          })()}
         </div>
 
         {/* ⚠️ 水位一律用設定的 maxValue 算。獎池名稱裡的數字是 basevalue——
@@ -392,14 +412,23 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
                 <th key={t} style={th}>{t}</th>))}
             </tr></thead>
             <tbody>
-              {(pools?.levels ?? []).slice(0, 8).map(l => (
-                <tr key={l.levelName}>
+              {/* ⚠️ 上限要含「我的池」全部——我的池被截掉的話，這整個優先顯示就白做了。
+                  我的池 3 個就顯示 3+8，不是只顯示前 8。 */}
+              {(pools?.levels ?? []).slice(0, 8 + (pools?.levels.filter(l => l.mine).length ?? 0)).map(l => (
+                <tr key={l.levelName} style={l.mine ? { background: 'rgba(56,189,248,.06)' } : undefined}>
                   <td style={td}>
                     <span style={{ display: 'inline-block', width: 3, height: 14, borderRadius: 2, verticalAlign: -3, marginRight: 7,
                       background: l.atCap ? C.bad : l.mismatch > 0 ? C.pending : C.match }} />
                     <b>{l.levelName}</b>
-                    <div style={{ color: C.ink3, fontSize: 10.5, marginLeft: 10 }}>
-                      {l.sampleMachine}{l.machineCount > 1 ? ` · ${l.machineCount} 台` : ''}
+                    {/* ⚠️ gmid 用**跟狀態色不同**的顏色。狀態色（紅／黃／綠）已經在講
+                        「這個池有沒有問題」，拿同一組色講「這是不是我的」會分不出來。 */}
+                    <div style={{ fontSize: 10.5, marginLeft: 10 }}>
+                      <span style={{ color: l.mine ? C.tool : C.ink3, fontWeight: l.mine ? 700 : 400 }}>
+                        {l.sampleMachine}</span>
+                      {l.machineCount > 1 && <span style={{ color: C.ink3 }}> · {l.machineCount} 台</span>}
+                      {l.mine && l.myMachines.length > 1 && (
+                        <span style={{ color: C.tool }}>（我的 {l.myMachines.length} 台）</span>
+                      )}
                     </div>
                   </td>
                   <td style={td}>

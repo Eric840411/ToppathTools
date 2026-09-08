@@ -424,9 +424,18 @@ export type PoolLevelRow = {
   atCap: boolean
   mismatch: number
   samples: number
+  /** 這個獎池底下有沒有「使用者現在正在跑」的機台。有的話排最上面並標色。 */
+  mine: boolean
+  /** 我的哪幾台屬於這個池——標色時要標對是哪一台，不能只標代表機。 */
+  myMachines: string[]
 }
 
-export function jpPoolLevels(env: ReconEnv, sinceMs: number): PoolLevelRow[] {
+/**
+ * @param myGmids 使用者現在正在跑的機台（gmid）。這些機台所屬的獎池會排在最上面
+ *   並標色——使用者要的是「我這次在測的池怎麼樣」，其他池是背景資訊。
+ *   ⚠️ 空集合時退回原本的嚴重度排序，不做任何特殊處理。
+ */
+export function jpPoolLevels(env: ReconEnv, sinceMs: number, myGmids: Set<string> = new Set()): PoolLevelRow[] {
   const maps = db.prepare(
     'SELECT machineName, levelName, incrementPercent, basevalue, maxValue FROM recon_machine_map WHERE env=?'
   ).all(env) as { machineName: string; levelName: string; incrementPercent: number | null; basevalue: number | null; maxValue: number | null }[]
@@ -451,11 +460,13 @@ export function jpPoolLevels(env: ReconEnv, sinceMs: number): PoolLevelRow[] {
     const key = m.levelName
     const seen = byLevel.get(key)
     const lat = latestByKey.get(`${m.machineName}|${m.levelName}`)
+    const isMine = myGmids.has(m.machineName)
     if (!seen) {
       const a = aggByLevel.get(key)
       const cur = lat?.cur ?? null
       const max = Number.isFinite(m.maxValue as number) && (m.maxValue as number) > 0 ? m.maxValue : null
       byLevel.set(key, {
+        mine: isMine, myMachines: isMine ? [m.machineName] : [],
         levelName: key, machineCount: 1, sampleMachine: m.machineName,
         current: cur, maxValue: max, basevalue: m.basevalue,
         incrementPercent: m.incrementPercent,
@@ -467,6 +478,13 @@ export function jpPoolLevels(env: ReconEnv, sinceMs: number): PoolLevelRow[] {
       })
     } else {
       seen.machineCount++
+      if (isMine) {
+        seen.mine = true
+        if (!seen.myMachines.includes(m.machineName)) seen.myMachines.push(m.machineName)
+        // ⚠️ 代表機優先顯示「我的那台」——這個池可能掛 43 台，
+        //    顯示別人的機台代碼對使用者沒有意義。
+        seen.sampleMachine = m.machineName
+      }
       // 取有值的那一台當代表；已經有值就不覆蓋
       if (seen.current === null && lat) {
         seen.current = lat.cur
@@ -478,6 +496,10 @@ export function jpPoolLevels(env: ReconEnv, sinceMs: number): PoolLevelRow[] {
     }
   }
   return [...byLevel.values()].sort((a, b) => {
+    // ⚠️ **「我正在跑的」排在最前面，優先於嚴重度**（使用者要求）。
+    //    有 2 台就是最上面 2 個、3 台就 3 個——因為那是他這次在測的東西，
+    //    別台的池再嚴重也是背景資訊。同為「我的」時才回到嚴重度排序。
+    if (a.mine !== b.mine) return a.mine ? -1 : 1
     // 有問題的排前面：滿頂 → 有不符 → 水位高的
     if (a.atCap !== b.atCap) return a.atCap ? -1 : 1
     if ((a.mismatch > 0) !== (b.mismatch > 0)) return a.mismatch > 0 ? -1 : 1

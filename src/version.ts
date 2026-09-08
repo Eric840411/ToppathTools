@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.128.0'
+export const APP_VERSION = '4.129.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,16 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.129.0',
+    date: '2026-09-08',
+    changes: [
+      'feat(live-ledger): **你正在跑的機台所屬的獎池排到最上面**，gmid 用青色標出（使用者要求）。有 2 台就最上面 2 個、3 台就 3 個。這優先於嚴重度排序——別台的池再嚴重也是背景資訊，使用者要看的是「我這次在測的池怎麼樣」。沒有的話完全照原本的嚴重度排序，不做特殊處理',
+      'feat(live-ledger): ⚠️ 代表機優先顯示「我的那台」——JPBZZF3 掛了 43 台，顯示別人的機台代碼對使用者沒有意義。gmid 的顏色**刻意跟狀態色分開**：紅／黃／綠已經在講「這個池有沒有問題」，用同一組色講「這是不是我的」會分不出來',
+      'fix(live-ledger): 🚨 **「最高水位」不能取 `levels[0]`**。排序改成「我的池優先」之後第一列不再是水位最高的——實測顯示成「最高水位 3.0%」，而真正的最高是 **100%（JPBZZF3 已滿頂）**。這種錯特別危險：數字看起來完全正常，只是**默默把最嚴重的那個藏起來**。改成對全部 level 取最大值',
+      'fix(live-ledger): 表格上限要含「我的池」全部——固定 slice(0,8) 會把第 9 個之後的「我的池」截掉，那樣這整個優先顯示就白做了',
+    ],
+  },
   {
     version: '4.128.0',
     date: '2026-09-08',

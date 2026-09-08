@@ -2583,7 +2583,11 @@ router.get('/api/autospin/live-ledger/pools', async (req, res) => {
     const env = reconEnvOf(req as never)
     const minutes = Math.min(Math.max(Number(req.query.minutes) || 360, 1), 7 * 24 * 60)
     const since = Date.now() - minutes * 60_000
-    const levels = jpPoolLevels(env, since)
+    // ⚠️ 先算機台總覽，才知道「使用者現在正在跑哪幾台」——
+    //    那些機台所屬的獎池要排到最上面並標色（使用者要求）。
+    const machines = machineOverview(env, since, viewerOf(req as never))
+    const myGmids = new Set(machines.map(m => m.gmid).filter(Boolean))
+    const levels = jpPoolLevels(env, since, myGmids)
     res.json({
       ok: true, env, minutes,
       summary: jpSummary(env, since),
@@ -2592,7 +2596,9 @@ router.get('/api/autospin/live-ledger/pools', async (req, res) => {
       // ⚠️ 「滿頂」用實際池值比對設定上限算出來的，不是數 skipped_overflow——
       //    那個狀態的字面意思是「這筆沒驗」，不是「池滿了」。
       atCapCount: levels.filter(l => l.atCap).reduce((n, l) => n + l.machineCount, 0),
-      machines: machineOverview(env, since, viewerOf(req as never)),
+      machines,
+      /** 這一輪判定為「使用者正在跑」的機台，前端標色時用同一份，不要各算一次 */
+      myGmids: [...myGmids],
     })
   } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
 })
