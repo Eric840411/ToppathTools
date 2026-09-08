@@ -360,23 +360,8 @@ router.get('/api/osm-uat/scan', async (req, res, next) => {
       return
     }
 
-    const token = await getLarkToken()
-    const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
     const { appToken, tableId } = params
-
-    // Fetch all records with pagination
-    const allRecords: Array<Record<string, unknown>> = []
-    let pageToken: string | undefined
-    do {
-      const url = `${base}/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records?page_size=500${pageToken ? `&page_token=${pageToken}` : ''}`
-      const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
-      const data = await r.json() as { data?: { items?: Array<{ record_id?: string; fields: Record<string, unknown> }>; page_token?: string; has_more?: boolean } }
-      const items = data.data?.items ?? []
-      // 連 record_id 一起留著：積木是掛在「單筆 TC」上的，只有分類統計的話
-      // 前端根本指不出要編哪一筆
-      allRecords.push(...items.map(i => ({ ...i.fields, __recordId: i.record_id })))
-      pageToken = data.data?.has_more ? data.data.page_token : undefined
-    } while (pageToken)
+    const allRecords = await fetchLarkTableRecords(appToken, tableId)
 
     // Group by 任務子類型 (subtype), fallback to 任務類型 (type)
     const counts = new Map<string, number>()
@@ -398,6 +383,8 @@ router.get('/api/osm-uat/scan', async (req, res, next) => {
       const entry = registry[recordId] as { verifierName?: string } | undefined
       return {
         recordId,
+        storageKey: tcStorageKey(tableId, recordId),
+        number: String(f['編號'] ?? '').trim(),
         // ⚠️ 欄位名是「任務」。原本寫成 測試項目／任務描述／描述／內容 全都不存在，
         // text 於是變成空字串，畫面 fallback 去顯示 recordId（recvenTprA...）——
         // 使用者看到的「文字被欄位 id 取代」就是這個。runner 讀的一直是 f['任務']，
@@ -405,7 +392,7 @@ router.get('/api/osm-uat/scan', async (req, res, next) => {
         text: String(f['任務'] ?? f['測試項目'] ?? f['任務描述'] ?? f['描述'] ?? f['內容'] ?? '').slice(0, 300),
         sub: String(f['任務子類型'] ?? ''),
         taskType: String(f['任務類型'] ?? ''),
-        stepCount: savedSteps[recordId]?.length ?? 0,
+        stepCount: stepsForRecord(savedSteps, tableId, recordId).length,
         verifierName: entry?.verifierName ?? null,
         source: 'live' as const,
       }
@@ -431,26 +418,28 @@ export const BACKEND_UAT_CAPABILITY = 'backend-uat'
 /** 前端用這個值明確要求走舊的伺服器端 spawn */
 const SERVER_MODE_SENTINEL = 'server'
 
-const modulePlanSchema = z.object({
-  instanceId: z.string().min(1).max(100),
-  name: z.string().min(1).max(100),
-  filters: z.array(z.string().trim().min(1).max(120)).min(1).max(50),
+const uatStepSchema = z.object({ action: z.string().min(1).max(60) }).passthrough()
+const customTrialSchema = z.object({
+  id: z.string().min(1).max(80),
+  title: z.string().trim().min(1).max(200),
+  steps: z.array(uatStepSchema).min(1).max(60),
 })
 
 const runSchema = z.object({
-  larkUrl: z.string().min(1),
+  larkUrl: z.string().min(1).optional(),
   /** 指定 agentId 派工；傳 'server' 代表明確要走伺服器端 spawn；不傳＝自動挑一台，沒有才 fallback */
   agentId: z.string().trim().max(120).optional(),
   filter: z.string().optional(),
   dashGameType: z.string().optional(),
   dashClientVersion: z.string().optional(),
-  modulePlan: z.array(modulePlanSchema).min(1).max(40).superRefine((modules, context) => {
-    const ids = new Set<string>()
-    modules.forEach((module, index) => {
-      if (ids.has(module.instanceId)) context.addIssue({ code: 'custom', path: [index, 'instanceId'], message: '模組 ID 不可重複' })
-      ids.add(module.instanceId)
-    })
-  }).optional(),
+  dryRun: z.boolean().optional(),
+  onlyRecordIds: z.array(z.string().min(1).max(80)).max(20).optional(),
+  stepsOverride: z.record(z.string().max(180), z.array(uatStepSchema).max(60)).optional(),
+  customTrial: customTrialSchema.optional(),
+}).superRefine((value, context) => {
+  if (!value.larkUrl && !value.customTrial) {
+    context.addIssue({ code: 'custom', path: ['larkUrl'], message: '一般執行需要 Lark TC 路徑' })
+  }
 })
 
 function parseLarkBitableUrl(url: string): { appToken: string; tableId: string } | null {
@@ -466,6 +455,46 @@ function parseLarkBitableUrl(url: string): { appToken: string; tableId: string }
   } catch {
     return null
   }
+}
+
+/**
+ * Lark 的 record_id 只在單一 table 內唯一。複製表格後可能保留相同 record_id，
+ * 所以使用者錄製的積木用 tableId + recordId 當真正的儲存鍵。
+ * 舊資料仍是裸 recordId；讀取時保留 fallback，既有積木不需要搬移。
+ */
+function tcStorageKey(tableId: string, recordId: string): string {
+  return `${tableId}:${recordId}`
+}
+
+function bareRecordId(storageKey: string): string {
+  const separator = storageKey.indexOf(':')
+  return separator >= 0 ? storageKey.slice(separator + 1) : storageKey
+}
+
+function stepsForRecord(saved: Record<string, unknown[]>, tableId: string, recordId: string): unknown[] {
+  return saved[tcStorageKey(tableId, recordId)] ?? saved[recordId] ?? []
+}
+
+async function fetchLarkTableRecords(appToken: string, tableId: string): Promise<Array<Record<string, unknown>>> {
+  const token = await getLarkToken()
+  const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
+  const allRecords: Array<Record<string, unknown>> = []
+  let pageToken: string | undefined
+  do {
+    const url = `${base}/open-apis/bitable/v1/apps/${appToken}/tables/${tableId}/records?page_size=500${pageToken ? `&page_token=${pageToken}` : ''}`
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    const data = await response.json() as {
+      code?: number; msg?: string
+      data?: { items?: Array<{ record_id?: string; fields: Record<string, unknown> }>; page_token?: string; has_more?: boolean }
+    }
+    if (!response.ok || (data.code != null && data.code !== 0)) {
+      throw new Error(data.msg || `Lark records request failed (${response.status})`)
+    }
+    const items = data.data?.items ?? []
+    allRecords.push(...items.map(item => ({ ...item.fields, __recordId: item.record_id })))
+    pageToken = data.data?.has_more ? data.data.page_token : undefined
+  } while (pageToken)
+  return allRecords
 }
 
 function isSessionAlive(): boolean {
@@ -560,6 +589,8 @@ router.get('/api/osm-uat/tc-list', (_req, res) => {
     const entry = raw as { canonicalText?: string; sub?: string; verifierName?: string }
     return {
       recordId,
+      storageKey: recordId,
+      number: '',
       text: String(entry.canonicalText ?? '').slice(0, 300),
       sub: String(entry.sub ?? ''),
       taskType: '',
@@ -608,7 +639,18 @@ interface RecordSession {
    * 很多成功／失敗根本不在 DOM，在 API 有沒有送出、回什麼碼。
    * 只留最後 RECORD_NET_MAX 筆：一輪錄製可以打幾百支，全留會讓 status 回應爆掉。
    */
-  netCalls: { method: string; url: string; urlPattern: string; status: number | null; durationMs: number | null; ts: number }[]
+  netCalls: {
+    method: string
+    url: string
+    urlPattern: string
+    status: number | null
+    durationMs: number | null
+    ts: number
+    kind?: 'api' | 'image' | 'other'
+    resourceType?: string
+    failure?: string | null
+  }[]
+  consoleLogs: { type: string; text: string; location?: string; ts: number }[]
   events: unknown[]
   done: boolean
   error: string | null
@@ -624,6 +666,7 @@ const RECORD_CAPABILITY = 'uat-record'
 const RECORD_READY_TIMEOUT_MS = 25_000
 /** 錄製期間保留幾筆 API 紀錄。一輪可以打幾百支，全留會讓 status 回應爆掉 */
 const RECORD_NET_MAX = 120
+const RECORD_CONSOLE_MAX = 120
 
 router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) => {
   try {
@@ -667,7 +710,7 @@ router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) =>
     const sessionId = randomUUID()
     const session: RecordSession = {
       id: sessionId, recordId, agentId: agent.agentId, agentLabel: agent.hostname || agent.agentId,
-      events: [], netCalls: [], done: false, error: null, ready: false, startedAt: Date.now(),
+      events: [], netCalls: [], consoleLogs: [], done: false, error: null, ready: false, startedAt: Date.now(),
     }
     recordSessions.set(sessionId, session)
 
@@ -704,9 +747,34 @@ export function handleBackendRecordNet(sessionId: string, call: unknown) {
   if (!session || session.done) return
   const c = call as RecordSession['netCalls'][number] | null
   if (!c || typeof c.url !== 'string') return
-  session.netCalls.push(c)
+  session.netCalls.push({
+    method: typeof c.method === 'string' ? c.method : 'GET',
+    url: c.url,
+    urlPattern: typeof c.urlPattern === 'string' ? c.urlPattern : c.url,
+    status: typeof c.status === 'number' ? c.status : null,
+    durationMs: typeof c.durationMs === 'number' ? c.durationMs : null,
+    ts: typeof c.ts === 'number' ? c.ts : Date.now(),
+    kind: c.kind === 'api' || c.kind === 'image' || c.kind === 'other' ? c.kind : undefined,
+    resourceType: typeof c.resourceType === 'string' ? c.resourceType : undefined,
+    failure: typeof c.failure === 'string' ? c.failure : null,
+  })
   // 超過上限就砍掉最舊的。看最近打了什麼比看整輪歷史有用得多
   if (session.netCalls.length > RECORD_NET_MAX) session.netCalls.splice(0, session.netCalls.length - RECORD_NET_MAX)
+}
+
+/** agent 回報錄製視窗的 console / pageerror */
+export function handleBackendRecordConsole(sessionId: string, entry: unknown) {
+  const session = recordSessions.get(sessionId)
+  if (!session || session.done) return
+  const row = entry as RecordSession['consoleLogs'][number] | null
+  if (!row || typeof row.text !== 'string') return
+  session.consoleLogs.push({
+    type: typeof row.type === 'string' ? row.type : 'log',
+    text: row.text.slice(0, 800),
+    location: typeof row.location === 'string' ? row.location.slice(0, 240) : undefined,
+    ts: typeof row.ts === 'number' ? row.ts : Date.now(),
+  })
+  if (session.consoleLogs.length > RECORD_CONSOLE_MAX) session.consoleLogs.splice(0, session.consoleLogs.length - RECORD_CONSOLE_MAX)
 }
 
 /** agent 回報瀏覽器已經開好、也登入完了 */
@@ -749,6 +817,8 @@ router.get('/api/osm-uat/record/status/:sessionId', (req, res) => {
     error: session.error,
     eventCount: session.events.length,
     netCalls: session.netCalls,
+    netSummary: summarizeRecordNet(session.netCalls),
+    consoleLogs: session.consoleLogs,
     steps,
     // 沒有任何斷言的錄製跑起來永遠 PASS，前端要能在停止時提醒
     hasAssertion: hasAssertion(steps),
@@ -777,7 +847,39 @@ async function stopRecordSession(sessionId: string) {
   const steps = eventsToSteps(session.events)
   // 保留一小段時間讓前端來拿結果，之後才清掉
   setTimeout(() => recordSessions.delete(sessionId), 5 * 60_000).unref?.()
-  return { steps, eventCount: session.events.length, hasAssertion: hasAssertion(steps) }
+  return {
+    steps,
+    eventCount: session.events.length,
+    hasAssertion: hasAssertion(steps),
+    netCalls: session.netCalls,
+    netSummary: summarizeRecordNet(session.netCalls),
+    consoleLogs: session.consoleLogs,
+  }
+}
+
+function summarizeRecordNet(calls: RecordSession['netCalls']) {
+  const real = calls.filter(c => !c.failure && typeof c.durationMs === 'number')
+  const byKind = (kind: 'api' | 'image' | 'other') => {
+    const rows = real.filter(c => (c.kind ?? 'api') === kind)
+    const durations = rows.map(c => c.durationMs).filter((v): v is number => typeof v === 'number').sort((a, b) => a - b)
+    const sum = durations.reduce((a, b) => a + b, 0)
+    return {
+      count: rows.length,
+      avgMs: durations.length ? Math.round(sum / durations.length) : null,
+      maxMs: durations.length ? Math.round(durations[durations.length - 1]) : null,
+    }
+  }
+  return {
+    total: calls.length,
+    failed: calls.filter(c => c.failure).length,
+    api: byKind('api'),
+    image: byKind('image'),
+    other: byKind('other'),
+    slow: real.filter(c => {
+      const limit = (c.kind ?? 'api') === 'api' ? 2000 : (c.kind === 'image' ? 1500 : 3000)
+      return Number(c.durationMs) > limit
+    }).slice(-20),
+  }
 }
 
 /**
@@ -845,8 +947,8 @@ router.post('/api/osm-uat/tc-steps/import', writeLimiter, (req, res) => {
  * 錄了一個 Lark 上還沒有的新流程時，積木要有地方放。硬塞給既有 TC 會把那筆原本
  * 該驗的東西蓋掉，所以另外存一份。
  *
- * 這不是「第二份測試清單」，是**暫存區**——每筆帶一個歸戶關鍵字，之後掃到文字命中
- * 的 Lark TC 就把積木搬過去、這筆刪掉。畫面上也刻意分開標示、分開計數，看得出來
+ * 這不是「第二份測試清單」，是**暫存區**——每筆帶一個 Lark 編號，之後以編號精確
+ * 找到候選 TC，再把積木搬過去、這筆刪掉。畫面上也刻意分開標示、分開計數，看得出來
  * 哪些還沒歸戶。
  */
 router.get('/api/osm-uat/custom-tcs', (_req, res) => {
@@ -857,7 +959,7 @@ const customTcSchema = z.object({
   id: z.string().max(80).optional(),
   title: z.string().min(1).max(200),
   subtype: z.string().max(80).optional(),
-  linkKeyword: z.string().max(200).optional(),
+  linkNumber: z.string().max(80).optional(),
   steps: z.array(z.object({ action: z.string().min(1).max(60) }).passthrough()).max(60),
 })
 
@@ -882,32 +984,47 @@ router.delete('/api/osm-uat/custom-tcs/:id', writeLimiter, (req, res) => {
 })
 
 /**
- * 歸戶候選：拿自訂 TC 的關鍵字去比對 Lark TC 的文字。
- *
- * **只提示、不自動選**——命中多筆一律全部列出讓人挑。這個專案在人名比對上踩過
- * 「Jack 誤中 Jackson」的坑，同一個原則：寧可讓人多點一下，不要幫他決定。
+ * 歸戶候選：以 Lark 主欄位「編號」精確比對目前選定的表格。
+ * 任務文案可以自由改寫；編號不變就仍能找到。編號在表內可能重複，因此只列候選，
+ * 由使用者挑要接的那一列，不替他猜。
  */
-router.get('/api/osm-uat/custom-tcs/:id/adopt-candidates', (req, res) => {
-  const custom = listUatCustomTcs().find(item => item.id === String(req.params.id))
-  if (!custom) return res.status(404).json({ ok: false, message: '找不到這筆自訂 TC' })
-  const keyword = custom.linkKeyword.trim().toLowerCase()
-  if (!keyword) return res.json({ ok: true, candidates: [], reason: '這筆還沒填歸戶關鍵字' })
-  const savedSteps = listUatTcSteps()
-  const candidates = Object.entries((readRegistryFile() as Record<string, { canonicalText?: string; sub?: string }>))
-    .filter(([, value]) => String(value.canonicalText ?? '').toLowerCase().includes(keyword))
-    .slice(0, 50)
-    .map(([recordId, value]) => ({
-      recordId,
-      text: String(value.canonicalText ?? ''),
-      sub: String(value.sub ?? ''),
-      // 已經有積木的要標出來，不然使用者不知道歸戶過去會不會蓋到東西
-      existingStepCount: savedSteps[recordId]?.length ?? 0,
-    }))
-  res.json({ ok: true, candidates })
+router.get('/api/osm-uat/custom-tcs/:id/adopt-candidates', async (req, res, next) => {
+  try {
+    const custom = listUatCustomTcs().find(item => item.id === String(req.params.id))
+    if (!custom) return res.status(404).json({ ok: false, message: '找不到這筆自訂 TC' })
+    const number = String(req.query.number ?? custom.linkNumber).trim().toLocaleUpperCase()
+    if (!number) return res.json({ ok: true, candidates: [], reason: '這筆還沒填 Lark 編號' })
+    const params = parseLarkBitableUrl(String(req.query.larkUrl ?? ''))
+    if (!params) return res.json({ ok: true, candidates: [], reason: '請先貼上要查詢的 Lark 表格網址' })
+
+    const records = await fetchLarkTableRecords(params.appToken, params.tableId)
+    const savedSteps = listUatTcSteps()
+    const candidates = records
+      .filter(fields => String(fields['編號'] ?? '').trim().toLocaleUpperCase() === number)
+      .slice(0, 100)
+      .map(fields => {
+        const recordId = String(fields.__recordId ?? '')
+        return {
+          recordId,
+          storageKey: tcStorageKey(params.tableId, recordId),
+          tableId: params.tableId,
+          number: String(fields['編號'] ?? '').trim(),
+          text: String(fields['任務'] ?? ''),
+          sub: String(fields['任務子類型'] ?? fields['任務類型'] ?? ''),
+          existingStepCount: stepsForRecord(savedSteps, params.tableId, recordId).length,
+        }
+      })
+      .filter(candidate => candidate.recordId)
+    res.json({ ok: true, candidates })
+  } catch (error) {
+    next(error)
+  }
 })
 
 const adoptSchema = z.object({
   recordId: z.string().min(1).max(80),
+  tableId: z.string().min(1).max(80).optional(),
+  larkText: z.string().max(1000).optional(),
   /** append = 接在既有積木後面（預設）；replace 只有前端二次確認過才會送 */
   mode: z.enum(['append', 'replace']).default('append'),
 })
@@ -920,20 +1037,26 @@ router.post('/api/osm-uat/custom-tcs/:id/adopt', writeLimiter, (req, res) => {
   const parsed = adoptSchema.safeParse(req.body)
   if (!parsed.success) return res.status(400).json({ ok: false, message: '參數不對' })
 
-  const existing = listUatTcSteps()[parsed.data.recordId] ?? []
+  const storageKey = parsed.data.tableId
+    ? tcStorageKey(parsed.data.tableId, parsed.data.recordId)
+    : parsed.data.recordId
+  const allSaved = listUatTcSteps()
+  const existing = parsed.data.tableId
+    ? stepsForRecord(allSaved, parsed.data.tableId, parsed.data.recordId)
+    : allSaved[parsed.data.recordId] ?? []
   // 預設是接在後面而不是覆蓋。既有積木是別人花時間拆的，silent replace 不可接受
   const merged = parsed.data.mode === 'replace' ? custom.steps : [...existing, ...custom.steps]
   if (merged.length > 60) {
     return res.status(400).json({ ok: false, message: `合併後會有 ${merged.length} 顆積木，超過單筆 60 顆的上限。請先精簡再歸戶。` })
   }
-  saveUatTcSteps(parsed.data.recordId, merged, account.email)
+  saveUatTcSteps(storageKey, merged, account.email)
 
   // 自訂那筆刪掉，但軌跡留著——之後有人問「這些積木哪來的」要查得到
   recordCustomTcAdoption({
     customTcId: custom.id,
     customTitle: custom.title,
-    larkRecordId: parsed.data.recordId,
-    larkText: String((readRegistryFile() as Record<string, { canonicalText?: string; sub?: string }>)[parsed.data.recordId]?.canonicalText ?? ''),
+    larkRecordId: storageKey,
+    larkText: parsed.data.larkText ?? String((readRegistryFile() as Record<string, { canonicalText?: string }>)[parsed.data.recordId]?.canonicalText ?? ''),
     mode: parsed.data.mode,
     stepCount: custom.steps.length,
     actor: account.email,
@@ -955,9 +1078,13 @@ router.get('/api/osm-uat/blocks', (_req, res) => {
 
 /** 單筆 TC 的積木。verifierName 從 registry 檔案讀（那是出廠預設的路由表，唯讀）*/
 router.get('/api/osm-uat/tc-steps/:recordId', (req, res) => {
-  const recordId = String(req.params.recordId)
-  const entry = readRegistryFile()[recordId] as { verifierName?: string } | undefined
-  res.json({ ok: true, steps: getUatTcSteps(recordId), verifierName: entry?.verifierName ?? null })
+  const storageKey = String(req.params.recordId)
+  const entry = readRegistryFile()[bareRecordId(storageKey)] as { verifierName?: string } | undefined
+  // scoped key 沒資料時 fallback 舊的裸 recordId，既有積木可以直接沿用；一旦儲存
+  // 新版本就會寫到 scoped key，避免其他 Lark table 的同名 recordId 被覆蓋。
+  const scoped = getUatTcSteps(storageKey)
+  const legacy = storageKey.includes(':') ? getUatTcSteps(bareRecordId(storageKey)) : []
+  res.json({ ok: true, steps: scoped.length ? scoped : legacy, verifierName: entry?.verifierName ?? null })
 })
 
 const stepsSchema = z.object({
@@ -994,10 +1121,18 @@ router.post('/api/osm-uat/run', (req, res) => {
     return
   }
 
-  const { larkUrl, filter, dashGameType, dashClientVersion, modulePlan, agentId } = parsed.data
-  const larkParams = parseLarkBitableUrl(larkUrl)
-  if (!larkParams) {
+  const { larkUrl, filter, dashGameType, dashClientVersion, agentId, dryRun, onlyRecordIds, stepsOverride, customTrial } = parsed.data
+  const larkParams = larkUrl ? parseLarkBitableUrl(larkUrl) : null
+  if (!larkParams && !customTrial) {
     res.status(400).json({ ok: false, error: '無效的 Lark Bitable URL（需包含 /base/{token} 和 ?table={id}）' })
+    return
+  }
+  const overrideUnknown = [...new Set([
+    ...Object.values(stepsOverride ?? {}).flat(),
+    ...(customTrial?.steps ?? []),
+  ].map(step => step.action).filter(action => !(action in BLOCK_DEFS)))]
+  if (overrideUnknown.length) {
+    res.status(400).json({ ok: false, error: `不認得的積木：${overrideUnknown.join('、')}` })
     return
   }
 
@@ -1030,6 +1165,16 @@ router.post('/api/osm-uat/run', (req, res) => {
     }
   }
 
+  // 舊版 runner 不認得 UAT_CUSTOM_TRIAL，過去會忽略它並退回「跑整張 Lark 表」。
+  // 自訂 TC 試跑屬於精確執行，Agent 原始碼落後或版本未知時直接擋下來，不能猜。
+  if (customTrial && agent) {
+    const updateStatus = agentUpdateStatus(agent)
+    if (updateStatus === 'needs_update' || updateStatus === 'unknown') {
+      res.status(409).json({ ok: false, error: '這台 Local Agent 尚未支援單筆試跑。請先更新程式碼，再重新試跑。' })
+      return
+    }
+  }
+
   const heavyTask = tryStartHeavyTask(req, 'osm-uat', 'OSM UAT 自動化測試')
   if (heavyTask.ok === false) {
     res.status(429).json(heavyTaskConflict(heavyTask.task))
@@ -1037,10 +1182,19 @@ router.post('/api/osm-uat/run', (req, res) => {
   }
 
   const credEnv = uatCredEnv(req)
-  // 積木存在 DB，runner 讀不到，所以執行時整包帶下去（跟 UAT_MODULE_PLAN 同一套做法）。
+  // 積木存在 DB，runner 讀不到，所以執行時整包帶下去。
   // agent 派工也走這條，agent 端不需要有任何積木檔案。
-  const tcSteps = listUatTcSteps()
+  const tcSteps = { ...listUatTcSteps(), ...(stepsOverride ?? {}) }
   const tcStepsEnv = Object.keys(tcSteps).length ? { UAT_TC_STEPS: JSON.stringify(tcSteps) } : {}
+  const runScopeEnv = {
+    ...(dryRun || customTrial ? { UAT_DRY_RUN: '1' } : {}),
+    // 相容性保險：新版 runner 看到 CUSTOM_TRIAL 會直接跑暫時 TC；舊版 runner
+    // 雖然不認得這個參數，仍會被不存在於 Lark 的 custom id 篩成 0 筆，絕不全跑。
+    ...(customTrial
+      ? { UAT_TC_ONLY: customTrial.id }
+      : onlyRecordIds?.length ? { UAT_TC_ONLY: onlyRecordIds.join(',') } : {}),
+    ...(customTrial ? { UAT_CUSTOM_TRIAL: JSON.stringify(customTrial) } : {}),
+  }
   const sessionId = randomUUID()
   session = {
     id: sessionId,
@@ -1065,13 +1219,12 @@ router.post('/api/osm-uat/run', (req, res) => {
       agent.ws.send(JSON.stringify({
         type: 'backend_uat_start',
         sessionId,
-        larkAppToken: larkParams.appToken,
-        larkTableId: larkParams.tableId,
+        larkAppToken: larkParams?.appToken ?? '',
+        larkTableId: larkParams?.tableId ?? '',
         filter: filter || undefined,
         dashGameType: dashGameType || undefined,
         dashClientVersion: dashClientVersion || undefined,
-        modulePlan: modulePlan?.length ? modulePlan : undefined,
-        credEnv: { ...credEnv, ...tcStepsEnv },
+        credEnv: { ...credEnv, ...tcStepsEnv, ...runScopeEnv },
       }))
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -1094,12 +1247,12 @@ router.post('/api/osm-uat/run', (req, res) => {
     env: {
       ...process.env,
       FORCE_COLOR: '0',
-      LARK_APP_TOKEN: larkParams.appToken,
-      LARK_TABLE_ID: larkParams.tableId,
+      LARK_APP_TOKEN: larkParams?.appToken ?? '',
+      LARK_TABLE_ID: larkParams?.tableId ?? '',
       ...(dashGameType ? { DASH_GAME_TYPE: dashGameType } : {}),
       ...(dashClientVersion ? { DASH_CLIENT_VERSION: dashClientVersion } : {}),
-      ...(modulePlan?.length ? { UAT_MODULE_PLAN: JSON.stringify(modulePlan) } : {}),
       ...tcStepsEnv,
+      ...runScopeEnv,
       // 帳密改成用「發動這次測試的人」自己設定的那份（存在 DB，設定頁填），
       // 腳本端優先吃這幾個環境變數、沒有才 fallback 到 config 檔（2026-08-21）
       ...credEnv,

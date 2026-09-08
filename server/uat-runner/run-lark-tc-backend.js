@@ -28,45 +28,21 @@ const FILTER_SUBTYPES = process.argv[2]
   ? process.argv[2].split(',').map(s => s.trim())
   : [];
 
-const LEGACY_MODULE_FILTERS = {
-  dashboard: ['Dashboard'],
-  'egm-core': ['EGM List', 'EGM Status', 'Gaming User', 'Machine Monitoring', 'Player Watch'],
-  reports: ['EGM Detail', 'User Detail', 'EGM Transfer', 'Game Record', 'EGM DayCount', 'Player Credit Log', 'Fault List'],
-  'game-config': ['Loading Tips', 'White List', 'Game Jump Set', 'News Set', 'Advert Set', 'How To Play', 'Special Entrance Set', 'Test Setting', 'Deposit Setting'],
-  meters: ['Meter'], ranking: ['Daily Ranking', 'Channel Ranking', 'Bonus'], jackpot: ['Jackpot', 'JP Percent'],
-  reservation: ['Reservation', '預約'], logs: ['Log', 'Abnormality', 'Error Record', 'Out Log'],
-  'vip-version': ['VIP', 'Points', 'Membership', 'Version', '版本'], other: ['*'],
-};
-const MODULE_PLAN = (() => {
+const CUSTOM_TRIAL = (() => {
+  if (!process.env.UAT_CUSTOM_TRIAL) return null;
   try {
-    const parsed = JSON.parse(process.env.UAT_MODULE_PLAN || '[]');
-    if (!Array.isArray(parsed)) return [];
-    return parsed.flatMap((item, index) => {
-      if (typeof item === 'string' && LEGACY_MODULE_FILTERS[item]) {
-        return [{ instanceId: item, name: item, filters: LEGACY_MODULE_FILTERS[item] }];
-      }
-      if (!item || typeof item !== 'object') return [];
-      const filters = Array.isArray(item.filters)
-        ? item.filters.filter(filter => typeof filter === 'string' && filter.trim()).slice(0, 50).map(filter => filter.trim())
-        : [];
-      if (!filters.length) return [];
-      return [{
-        instanceId: String(item.instanceId || `module-${index}`).slice(0, 100),
-        name: String(item.name || `Module ${index + 1}`).slice(0, 100),
-        filters,
-      }];
-    });
-  } catch {
-    return [];
+    const value = JSON.parse(process.env.UAT_CUSTOM_TRIAL);
+    if (!value || typeof value !== 'object' || !Array.isArray(value.steps) || !value.steps.length) return null;
+    return {
+      id: String(value.id || `custom-${Date.now()}`).slice(0, 80),
+      title: String(value.title || '自訂 TC').slice(0, 200),
+      steps: value.steps,
+    };
+  } catch (e) {
+    console.log(`⚠️ UAT_CUSTOM_TRIAL 解析失敗: ${e.message}`);
+    return null;
   }
 })();
-
-function findBackendModuleIndex(subtype, taskType) {
-  const name = `${subtype || ''} ${taskType || ''}`.toLocaleLowerCase();
-  const specificIndex = MODULE_PLAN.findIndex(module => module.filters.some(filter => filter !== '*' && name.includes(filter.toLocaleLowerCase())));
-  if (specificIndex >= 0) return specificIndex;
-  return MODULE_PLAN.findIndex(module => module.filters.includes('*'));
-}
 
 // ─── 後台設定 ─────────────────────────────────────────────────────────
 const BACKEND_URL = 'http://uat-cp.osmslot.org';
@@ -170,8 +146,15 @@ const TC_REGISTRY = (() => {
   try {
     const overlay = JSON.parse(process.env.UAT_TC_STEPS);
     let n = 0;
-    for (const [recordId, steps] of Object.entries(overlay)) {
+    // 舊版用裸 recordId；新版用 tableId:recordId，因為複製 Lark table 後可能保留
+    // 相同 recordId。先套舊資料，再讓目前 table 的 scoped 版本覆蓋它。
+    const applicable = [
+      ...Object.entries(overlay).filter(([key]) => !key.includes(':')),
+      ...Object.entries(overlay).filter(([key]) => key.startsWith(`${TABLE_ID}:`)),
+    ];
+    for (const [storageKey, steps] of applicable) {
       if (!Array.isArray(steps) || !steps.length) continue;
+      const recordId = storageKey.includes(':') ? storageKey.slice(storageKey.indexOf(':') + 1) : storageKey;
       TC_REGISTRY[recordId] = { ...(TC_REGISTRY[recordId] ?? {}), steps };
       n++;
     }
@@ -4914,12 +4897,21 @@ function startStatsBroadcast() {
 }
 
 async function main() {
-  // 取新 token
-  let larkToken = await getLarkToken();
-  console.log('✅ Lark token 取得');
-
-  // 從 Lark API 動態拉取所有 TC
-  const allRecords = await fetchAllTCsFromLark(larkToken);
+  // 自訂 TC 試跑不需要先存在 Lark，也不會回寫，因此可直接建立一筆暫時 TC。
+  let larkToken = '';
+  let allRecords;
+  if (CUSTOM_TRIAL) {
+    TC_REGISTRY[CUSTOM_TRIAL.id] = { steps: CUSTOM_TRIAL.steps };
+    allRecords = [{
+      record_id: CUSTOM_TRIAL.id,
+      fields: { '環境': ['UAT服'], '裝置': ['後台'], '任務類型': '自訂 TC', '任務子類型': '自訂 TC', '任務': CUSTOM_TRIAL.title },
+    }];
+    console.log(`🧪 自訂 TC 獨立試跑：${CUSTOM_TRIAL.title}（不讀取、不回寫 Lark）`);
+  } else {
+    larkToken = await getLarkToken();
+    console.log('✅ Lark token 取得');
+    allRecords = await fetchAllTCsFromLark(larkToken);
+  }
 
   // 篩後台 + UAT 服
   const REPORT_SUBTYPES = ['EGM Detail','User Detail','EGM Transfer','Game Record','EGM DayCount','Player Credit Log','Jackpot Record','EGM Hourly Meter','EGM Performance Meter'];
@@ -4928,11 +4920,9 @@ async function main() {
     const devices = r.fields['裝置'] || [];
     const port = r.fields['端口'] || '';
     if (!envs.includes('UAT服') || !(devices.includes('後台') || port === '後台')) return false;
+    if (CUSTOM_TRIAL) return true;
     const sub = r.fields['任務子類型'] || '';
     const taskType = r.fields['任務類型'] || '';
-    if (MODULE_PLAN.length > 0 && findBackendModuleIndex(sub, taskType) < 0) return false;
-    if (process.env.REPORT_ONLY) return REPORT_SUBTYPES.some(s => sub.includes(s));
-    if (process.env.METER_ONLY) return ['EGM Hourly Meter','EGM Performance Meter'].some(s => sub.includes(s));
     // UAT_TC_ONLY：只跑指定的幾筆 recordId（逗號分隔）。
     //
     // 為什麼需要比子類型更細的過濾：拆積木前要先跑一次「拆解前」的基準，但子類型是
@@ -4945,15 +4935,12 @@ async function main() {
       const only = process.env.UAT_TC_ONLY.split(',').map(x => x.trim()).filter(Boolean);
       return only.includes(r.record_id);
     }
+    if (process.env.REPORT_ONLY) return REPORT_SUBTYPES.some(s => sub.includes(s));
+    if (process.env.METER_ONLY) return ['EGM Hourly Meter','EGM Performance Meter'].some(s => sub.includes(s));
     if (process.env.SUBTYPE) return sub.includes(process.env.SUBTYPE);
     if (FILTER_SUBTYPES.length > 0) return FILTER_SUBTYPES.some(s => sub.includes(s));
     return true;
-  }).sort((a, b) => {
-    if (MODULE_PLAN.length === 0) return 0;
-    return findBackendModuleIndex(a.fields['任務子類型'], a.fields['任務類型'])
-      - findBackendModuleIndex(b.fields['任務子類型'], b.fields['任務類型']);
   });
-  if (MODULE_PLAN.length > 0) console.log(`Backend 模組流程: ${MODULE_PLAN.map(module => module.name).join(' → ')}`);
   console.log(`📋 後台 UAT TC: ${targets.length} 筆`);
 
   // 匯出 Excel 儲存目錄
@@ -5206,7 +5193,7 @@ async function main() {
     }
 
     // 每 20 筆刷新 token
-    if ((i + 1) % 20 === 0) {
+    if (!CUSTOM_TRIAL && (i + 1) % 20 === 0) {
       larkToken = await getLarkToken();
       console.log('🔄 Lark token 刷新');
     }

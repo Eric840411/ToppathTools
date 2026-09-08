@@ -171,7 +171,7 @@ export function backendRecorderScript() {
   const isMarking = (event) => markMode || (event && event.altKey);
 
   const BADGE = document.createElement('div');
-  BADGE.style.cssText = 'position:fixed;z-index:2147483645;right:14px;bottom:14px;padding:9px 13px;' +
+  BADGE.style.cssText = 'position:fixed;z-index:2147483645;right:14px;bottom:54px;padding:9px 13px;' +
     'border-radius:999px;font:600 12px/1 system-ui,-apple-system,sans-serif;cursor:pointer;' +
     'box-shadow:0 4px 14px rgba(0,0,0,.35);user-select:none;transition:background .15s,color .15s';
   const paintBadge = () => {
@@ -187,6 +187,21 @@ export function backendRecorderScript() {
   }, true);
   // 徽章自己不能被錄成操作，也不能被當成標記目標
   BADGE.setAttribute('data-toppath-recorder-ui', '1');
+
+  const SHOT = document.createElement('button');
+  SHOT.type = 'button';
+  SHOT.textContent = '加入截圖指令';
+  SHOT.style.cssText = 'position:fixed;z-index:2147483645;right:14px;bottom:14px;padding:8px 12px;' +
+    'border:0;border-radius:999px;background:#0f766e;color:#d1fae5;font:600 12px/1 system-ui,-apple-system,sans-serif;' +
+    'box-shadow:0 4px 14px rgba(0,0,0,.35);cursor:pointer';
+  SHOT.setAttribute('data-toppath-recorder-ui', '1');
+  SHOT.addEventListener('click', (event) => {
+    event.preventDefault(); event.stopPropagation();
+    if (!window.__toppathRecArmed) return;
+    const name = prompt('截圖名稱（之後跑 TC 時會用這個名字產生截圖並上傳 Lark）', 'recorded-shot');
+    if (name === null) return;
+    emit({ action: 'screenshot', name: name.trim() || 'recorded-shot' });
+  }, true);
   /** 目前開著的選單的關閉函式。同一時間只允許一個——不然點第二個元素時
    *  第一個會留在畫面上（使用者 2026-09-01 回報「點一個就會產生第二個」）。 */
   let closeCurrentPicker = null;
@@ -216,6 +231,7 @@ export function backendRecorderScript() {
     if (!root) return false;
     root.appendChild(HL);
     root.appendChild(BADGE);
+    root.appendChild(SHOT);
     paintBadge();
     return true;
   };
@@ -369,7 +385,7 @@ export function eventsToSteps(events) {
   const steps = [];
   let varSeq = 0;
   for (const ev of events ?? []) {
-    if (ev.action === 'click' || ev.action === 'type_text') {
+    if (ev.action === 'click' || ev.action === 'type_text' || ev.action === 'screenshot') {
       steps.push(ev);
       continue;
     }

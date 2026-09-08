@@ -1,50 +1,15 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { BACKEND_MODULES, createBackendModule, createCustomBackendModule, createDefaultBackendPlan, matchesBackendModule } from './backend-modules'
-import type { BackendModuleId, BackendModuleTone, BackendPlanModule, RunStatus, TcGroup, UatConfig, UatThemeMode } from './types'
+import type { RunStatus, TcGroup, UatConfig, UatThemeMode } from './types'
 import { NetworkPanel, type UatStatsPayload } from './NetworkPanel'
 import { BackendTcEditor, type BackendTc, type Step } from './BackendTcEditor'
 
 const STORAGE_KEY = 'osm_uat_config'
-const TONES: BackendModuleTone[] = ['blue', 'cyan', 'violet', 'amber', 'orange', 'green', 'rose', 'slate']
-
-function newInstanceId(prefix = 'custom') {
-  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
-}
-
-function sanitizeModule(value: unknown): BackendPlanModule | null {
-  if (!value || typeof value !== 'object') return null
-  const item = value as Partial<BackendPlanModule>
-  if (typeof item.instanceId !== 'string' || typeof item.name !== 'string' || !Array.isArray(item.filters)) return null
-  const filters = item.filters.filter((filter): filter is string => typeof filter === 'string' && filter.trim().length > 0).map(filter => filter.trim())
-  if (!filters.length) return null
-  return {
-    instanceId: item.instanceId,
-    sourceId: item.sourceId ?? 'custom',
-    name: item.name,
-    xianxiaName: typeof item.xianxiaName === 'string' ? item.xianxiaName : item.name,
-    description: typeof item.description === 'string' ? item.description : '',
-    tone: TONES.includes(item.tone as BackendModuleTone) ? item.tone as BackendModuleTone : 'blue',
-    filters,
-  }
-}
-
 function loadConfig(): UatConfig {
-  const defaults: UatConfig = { larkUrl: '', filter: '', dashGameType: '', dashClientVersion: '', modulePlan: createDefaultBackendPlan() }
+  const defaults: UatConfig = { larkUrl: '', filter: '', dashGameType: '', dashClientVersion: '' }
   try {
-    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as Partial<UatConfig> & { modulePlan?: unknown[] }
-    let modulePlan = defaults.modulePlan
-    if (Array.isArray(stored.modulePlan) && stored.modulePlan.length) {
-      if (stored.modulePlan.every(item => typeof item === 'string')) {
-        modulePlan = stored.modulePlan.flatMap(id => {
-          const definition = BACKEND_MODULES.find(module => module.id === id)
-          return definition ? [createBackendModule(definition)] : []
-        })
-      } else {
-        modulePlan = stored.modulePlan.map(sanitizeModule).filter((module): module is BackendPlanModule => Boolean(module))
-      }
-    }
-    return { ...defaults, ...stored, modulePlan: modulePlan.length ? modulePlan : defaults.modulePlan }
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as Partial<UatConfig>
+    return { ...defaults, ...stored }
   } catch { return defaults }
 }
 
@@ -55,6 +20,25 @@ interface RecNetCall {
   urlPattern: string
   status: number | null
   durationMs: number | null
+  ts: number
+  kind?: 'api' | 'image' | 'other'
+  resourceType?: string
+  failure?: string | null
+}
+
+interface RecNetSummary {
+  total: number
+  failed: number
+  api: { count: number; avgMs: number | null; maxMs: number | null }
+  image: { count: number; avgMs: number | null; maxMs: number | null }
+  other: { count: number; avgMs: number | null; maxMs: number | null }
+  slow: RecNetCall[]
+}
+
+interface RecConsoleLog {
+  type: string
+  text: string
+  location?: string
   ts: number
 }
 
@@ -78,9 +62,6 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const [groups, setGroups] = useState<TcGroup[] | null>(null)
   const [total, setTotal] = useState(0)
   const [scanning, setScanning] = useState(false)
-  const [draggedModule, setDraggedModule] = useState<string | null>(null)
-  const [selectedModuleId, setSelectedModuleId] = useState<string | null>(config.modulePlan[0]?.instanceId ?? null)
-  const [settingsView, setSettingsView] = useState<'run' | 'module'>('run')
   // 後台測試帳密：依登入帳號各存一份在後端（不再放 repo 裡的 config 檔）。
   // 這裡永遠拿不到密碼本身，只知道「有沒有設過」；密碼欄留空送出＝沿用舊密碼。
   const [creds, setCreds] = useState<{ profile: string; username: string; hasPassword: boolean }[]>([])
@@ -104,14 +85,12 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   // 全部攤開的話待人工那欄會拉到很長，另外兩欄空著，反而看不出比重。
   const RISK_PREVIEW = 5
   const [riskModal, setRiskModal] = useState<null | 'all' | 'failed' | 'manual' | 'flaky'>(null)
-  const [libraryOpen, setLibraryOpen] = useState(false)
   const [netStats, setNetStats] = useState<UatStatsPayload | null>(null)
   const [statsAt, setStatsAt] = useState<number | null>(null)
   // 單筆 TC 這一層：掃描才拿得到，模組展開後才看得見。積木是掛在 TC 上的，
   // 沒有這層就沒有地方可以編（v4.27.0 之前整個畫面只有模組層級）
   const [tcs, setTcs] = useState<BackendTc[]>([])
-  const [expandedModule, setExpandedModule] = useState<string | null>(null)
-  const [selectedTcId, setSelectedTcId] = useState<string | null>(null)
+  const [selectedTcKey, setSelectedTcKey] = useState<string | null>(null)
   // 工作台層級的錄製：不用先選 TC，停止之後才問積木要放哪一筆。
   // 錄製本身跟 TC 完全無關（後端也不再需要 recordId），先選 TC 只是舊 UI 的包袱。
   const [recSession, setRecSession] = useState<string | null>(null)
@@ -125,17 +104,18 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   // pass/fail」時，最需要知道的是它打了哪些後端——很多成功／失敗根本不在 DOM，
   // 在 API 有沒有送出、回什麼碼。
   const [recNet, setRecNet] = useState<RecNetCall[]>([])
-  // 子類型篩選改成彈框複選。原本是自由輸入——使用者不知道有哪些可選、又容易打錯，
-  // 而且這個欄位會靜默縮小執行範圍（實際踩過：以為「執行模組流程」壞了）
+  const [recNetSummary, setRecNetSummary] = useState<RecNetSummary | null>(null)
+  const [recConsole, setRecConsole] = useState<RecConsoleLog[]>([])
+  // 子類型篩選使用彈框複選，選項直接來自 TC 清單，避免自由輸入打錯。
   const [subtypeModal, setSubtypeModal] = useState(false)
   const [subtypeQuery, setSubtypeQuery] = useState('')
   // 錄到的是 Lark 上還沒有的新流程時，積木要有地方放。硬塞給既有 TC 會把那筆
-  // 原本該驗的東西蓋掉，所以另存成自訂 TC——它帶一個歸戶關鍵字，之後掃到文字
-  // 命中的 Lark TC 就能把積木搬過去。這不是第二份測試清單，是暫存區。
+  // 原本該驗的東西蓋掉，所以另存成自訂 TC——它帶一個 Lark 編號，之後以編號
+  // 精確找到候選列再把積木搬過去。任務文案改寫不會影響歸戶。
   const [newTcTitle, setNewTcTitle] = useState('')
-  const [newTcKeyword, setNewTcKeyword] = useState('')
+  const [newTcNumber, setNewTcNumber] = useState('')
   const [savingNewTc, setSavingNewTc] = useState(false)
-  const [customTcs, setCustomTcs] = useState<{ id: string; title: string; linkKeyword: string; steps: unknown[] }[]>([])
+  const [customTcs, setCustomTcs] = useState<{ id: string; title: string; linkNumber: string; steps: unknown[] }[]>([])
   const loadCustomTcs = useCallback(async () => {
     try {
       const r = await fetch('/api/osm-uat/custom-tcs')
@@ -146,35 +126,38 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   useEffect(() => { void loadCustomTcs() }, [loadCustomTcs])
   /** 正在歸戶的那筆自訂 TC（展開候選清單用） */
   const [adoptFor, setAdoptFor] = useState<string | null>(null)
-  const [adoptCands, setAdoptCands] = useState<{ recordId: string; text: string; sub: string; existingStepCount: number }[]>([])
+  const [adoptCands, setAdoptCands] = useState<{ recordId: string; storageKey: string; tableId: string; number: string; text: string; sub: string; existingStepCount: number }[]>([])
   const [adoptReason, setAdoptReason] = useState('')
   const [adoptBusy, setAdoptBusy] = useState(false)
-  /** 補填歸戶關鍵字用的暫存（key = 自訂 TC id） */
-  const [kwDraft, setKwDraft] = useState<Record<string, string>>({})
+  /** 補填 Lark 編號用的暫存（key = 自訂 TC id） */
+  const [numberDraft, setNumberDraft] = useState<Record<string, string>>({})
+  const [selectedAgentId, setSelectedAgentId] = useState('')
 
-  const openAdopt = useCallback(async (item: { id: string; title: string; linkKeyword: string }) => {
+  const openAdopt = useCallback(async (item: { id: string; title: string; linkNumber: string }) => {
     setAdoptFor(item.id); setAdoptCands([]); setAdoptReason('')
     try {
-      const r = await fetch(`/api/osm-uat/custom-tcs/${item.id}/adopt-candidates`)
+      const query = new URLSearchParams({ larkUrl: config.larkUrl, number: item.linkNumber })
+      const r = await fetch(`/api/osm-uat/custom-tcs/${item.id}/adopt-candidates?${query}`)
       const d = await r.json() as { ok: boolean; candidates?: typeof adoptCands; reason?: string }
       setAdoptCands(d.candidates ?? [])
-      setAdoptReason(d.reason ?? (d.candidates?.length ? '' : '關鍵字沒有命中任何 Lark TC'))
+      setAdoptReason(d.reason ?? (d.candidates?.length ? '' : `編號 ${item.linkNumber || '（未填）'} 沒有命中任何 Lark TC`))
     } catch { setAdoptReason('讀取候選失敗') }
-  }, [])
+  }, [config.larkUrl])
 
-  /** 補填／修改歸戶關鍵字。用同一支 PUT（帶 id 就是更新），不另開端點 */
-  const saveKeyword = useCallback(async (item: { id: string; title: string; steps: unknown[] }, keyword: string) => {
+  /** 補填／修改 Lark 編號。用同一支 PUT（帶 id 就是更新），不另開端點 */
+  const saveNumber = useCallback(async (item: { id: string; title: string; steps: unknown[] }, number: string) => {
     setAdoptBusy(true)
     try {
       await fetch('/api/osm-uat/custom-tcs', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: item.id, title: item.title, linkKeyword: keyword, steps: item.steps }),
+        body: JSON.stringify({ id: item.id, title: item.title, linkNumber: number.trim(), steps: item.steps }),
       })
       await loadCustomTcs()
     } finally { setAdoptBusy(false) }
   }, [loadCustomTcs])
 
-  const doAdopt = useCallback(async (customId: string, recordId: string, existingStepCount: number) => {
+  const doAdopt = useCallback(async (customId: string, candidate: typeof adoptCands[number]) => {
+    const { recordId, storageKey, tableId, text, existingStepCount } = candidate
     // ⚠️ 預設是「接在既有積木後面」不是覆蓋——既有積木是別人花時間拆的。
     //    只有使用者在這裡明確二次確認過才送 replace（後端也只認這兩種）。
     let mode: 'append' | 'replace' = 'append'
@@ -192,22 +175,39 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
     try {
       const r = await fetch(`/api/osm-uat/custom-tcs/${customId}/adopt`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recordId, mode }),
+        body: JSON.stringify({ recordId, tableId, larkText: text, mode }),
       })
       const d = await r.json() as { ok: boolean; stepCount?: number; message?: string }
       if (!d.ok) { setAdoptReason(d.message ?? '歸戶失敗'); return }
       setAdoptFor(null)
       await loadCustomTcs()
-      // 清單上那個「N 積木」徽章要跟著更新——不然歸戶完看起來像沒生效
-      // （沿用匯入積木成功後的同一套刷新做法）
-      const listed = await fetch('/api/osm-uat/tc-list').then(r => r.json()).catch(() => null) as { ok?: boolean; tcs?: BackendTc[] } | null
-      if (listed?.ok && listed.tcs) {
-        const counts = new Map(listed.tcs.map(t => [t.recordId, t.stepCount]))
-        setTcs(prev => prev.map(t => ({ ...t, stepCount: counts.get(t.recordId) ?? t.stepCount })))
-      }
-      setRecMsg(`已把 ${d.stepCount ?? '?'} 顆積木歸戶到 ${recordId}（${mode === 'replace' ? '取代原有' : '接在後面'}）`)
+      setTcs(prev => prev.map(t => t.storageKey === storageKey ? { ...t, stepCount: d.stepCount ?? t.stepCount } : t))
+      setRecMsg(`已把 ${d.stepCount ?? '?'} 顆積木歸戶到 ${candidate.number}／${recordId}（${mode === 'replace' ? '取代原有' : '接在後面'}）`)
     } finally { setAdoptBusy(false) }
   }, [loadCustomTcs])
+
+  const runCustomTrial = useCallback(async (item: { id: string; title: string; steps: unknown[] }) => {
+    if (status === 'running') { setRecMsg('目前已有 UAT 在執行，請等它結束再試跑'); return }
+    setRecMsg(`試跑中：${item.title}。不需要先歸戶，這輪也不會回寫 Lark。`)
+    try {
+      const response = await fetch('/api/osm-uat/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId: selectedAgentId || undefined,
+          dashGameType: config.dashGameType || undefined,
+          dashClientVersion: config.dashClientVersion || undefined,
+          dryRun: true,
+          customTrial: { id: item.id, title: item.title, steps: item.steps },
+        }),
+      })
+      const data = await response.json() as { ok: boolean; error?: string; message?: string }
+      if (!data.ok) { setRecMsg(data.error ?? data.message ?? '試跑啟動失敗'); return }
+      setStatus('running')
+    } catch {
+      setRecMsg('試跑啟動失敗')
+    }
+  }, [config.dashGameType, config.dashClientVersion, selectedAgentId, status])
 
   const deleteCustomTc = useCallback(async (item: { id: string; title: string; steps: unknown[] }) => {
     if (!window.confirm(`確定要刪掉自訂 TC「${item.title}」嗎？裡面有 ${item.steps.length} 顆積木，刪掉要重錄。`)) return
@@ -237,7 +237,6 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const [agents, setAgents] = useState<BackendUatAgent[]>([])
   /** 有連線、屬於自己、但缺 backend-uat capability 的 agent 數（多半是還沒更新程式碼） */
   const [outdatedAgents, setOutdatedAgents] = useState(0)
-  const [selectedAgentId, setSelectedAgentId] = useState('')
   const [runMode, setRunMode] = useState<{ mode: 'agent' | 'server'; agentHostname?: string } | null>(null)
   const loadAgents = useCallback(async () => {
     try {
@@ -319,40 +318,7 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
     return next
   })
 
-  const selectedModule = config.modulePlan.find(module => module.instanceId === selectedModuleId) ?? null
-  const modulePlanValid = config.modulePlan.length > 0 && config.modulePlan.every(module => module.name.trim() && module.filters.length > 0)
-  const moduleCounts = useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const group of groups ?? []) {
-      const specific = config.modulePlan.find(module => !module.filters.includes('*') && matchesBackendModule(module, group.name))
-      const fallback = config.modulePlan.find(module => module.filters.includes('*'))
-      const match = specific ?? fallback
-      if (match) counts.set(match.instanceId, (counts.get(match.instanceId) ?? 0) + group.count)
-    }
-    return counts
-  }, [config.modulePlan, groups])
-
-  /**
-   * 每個模組收到哪幾筆 TC。比對規則沿用 moduleCounts 那一套（specific 優先、
-   * 沒有才落到 * 的 fallback 模組），不要另外寫一份——兩份比對邏輯遲早會漂移，
-   * 症狀是「清單顯示 4 筆但實際跑了 5 筆」。
-   */
-  const moduleTcs = useMemo(() => {
-    const out = new Map<string, BackendTc[]>()
-    const fallback = config.modulePlan.find(module => module.filters.includes('*'))
-    for (const tc of tcs) {
-      const key = tc.sub || tc.taskType || '未分類'
-      const specific = config.modulePlan.find(module => !module.filters.includes('*') && matchesBackendModule(module, key))
-      const match = specific ?? fallback
-      if (!match) continue
-      const list = out.get(match.instanceId) ?? []
-      list.push(tc)
-      out.set(match.instanceId, list)
-    }
-    return out
-  }, [config.modulePlan, tcs])
-
-  const selectedTc = tcs.find(tc => tc.recordId === selectedTcId) ?? null
+  const selectedTc = tcs.find(tc => tc.storageKey === selectedTcKey) ?? null
 
   const importInput = useRef<HTMLInputElement | null>(null)
   const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -370,8 +336,8 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
       // 清單上的「N 積木」徽章要跟著更新
       const listed = await fetch('/api/osm-uat/tc-list').then(r => r.json()).catch(() => null) as { ok?: boolean; tcs?: BackendTc[] } | null
       if (listed?.ok && listed.tcs) {
-        const counts = new Map(listed.tcs.map(t => [t.recordId, t.stepCount]))
-        setTcs(prev => prev.map(t => ({ ...t, stepCount: counts.get(t.recordId) ?? t.stepCount })))
+        const counts = new Map(listed.tcs.map(t => [t.storageKey, t.stepCount]))
+        setTcs(prev => prev.map(t => ({ ...t, stepCount: counts.get(t.storageKey) ?? t.stepCount })))
       }
     } catch { setRecMsg('匯入失敗：檔案不是合法的 JSON') }
   }
@@ -387,7 +353,7 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
       })
       const data = await response.json() as { ok: boolean; sessionId?: string; message?: string; agentLabel?: string }
       if (!data.ok || !data.sessionId) { setRecMsg(data.message ?? '錄製啟動失敗'); return }
-      setRecSession(data.sessionId); setRecCount(0); setRecNet([])
+      setRecSession(data.sessionId); setRecCount(0); setRecNet([]); setRecNetSummary(null); setRecConsole([])
       setRecMsg(`錄製中：瀏覽器已開在 ${data.agentLabel || '你的 Local Agent'} 上。要標檢查條件：點視窗右下角的「標記模式」再點元素，或按住 Alt／⌥ Option 點`)
     } catch { setRecMsg('錄製啟動失敗') }
   }
@@ -420,10 +386,20 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
     const timer = window.setInterval(async () => {
       try {
         const response = await fetch(`/api/osm-uat/record/status/${recSession}`)
-        const data = await response.json() as { ok: boolean; done?: boolean; error?: string | null; steps?: Step[]; netCalls?: RecNetCall[] }
+        const data = await response.json() as {
+          ok: boolean
+          done?: boolean
+          error?: string | null
+          steps?: Step[]
+          netCalls?: RecNetCall[]
+          netSummary?: RecNetSummary
+          consoleLogs?: RecConsoleLog[]
+        }
         if (!data.ok || stopped) return
         setRecCount(data.steps?.length ?? 0)
         setRecNet(data.netCalls ?? [])
+        setRecNetSummary(data.netSummary ?? null)
+        setRecConsole(data.consoleLogs ?? [])
         if (data.done) {
           stopped = true; window.clearInterval(timer)
           // 有 error 代表這輪根本沒開起來（最常見是 agent 沒重啟）。
@@ -469,15 +445,15 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
     try {
       const response = await fetch('/api/osm-uat/custom-tcs', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, linkKeyword: newTcKeyword.trim(), steps: pendingSteps }),
+        body: JSON.stringify({ title, linkNumber: newTcNumber.trim(), steps: pendingSteps }),
       })
       const data = await response.json() as { ok: boolean; message?: string }
       if (!data.ok) { setRecMsg(data.message ?? '存成自訂 TC 失敗'); return }
       setPendingSteps(null); setPickerOpen(false)
-      setNewTcTitle(''); setNewTcKeyword('')
-      setRecMsg(newTcKeyword.trim()
-        ? `已存成自訂 TC「${title}」，之後掃到符合關鍵字的 Lark TC 可以一鍵歸戶`
-        : `已存成自訂 TC「${title}」（沒填歸戶關鍵字，之後想歸戶再補）`)
+      setNewTcTitle(''); setNewTcNumber('')
+      setRecMsg(newTcNumber.trim()
+        ? `已存成自訂 TC「${title}」，可用 Lark 編號 ${newTcNumber.trim()} 精確找歸戶對象`
+        : `已存成自訂 TC「${title}」（沒填 Lark 編號，之後想歸戶再補）`)
       void loadCustomTcs()
     } catch { setRecMsg('存成自訂 TC 失敗') } finally { setSavingNewTc(false) }
   }
@@ -504,47 +480,6 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
     update({ filter: next.join(',') })
   }
 
-  const updateModule = (instanceId: string, patch: Partial<BackendPlanModule>) => update({
-    modulePlan: config.modulePlan.map(module => module.instanceId === instanceId ? { ...module, ...patch } : module),
-  })
-  const selectModule = (instanceId: string) => { setSelectedModuleId(instanceId); setSettingsView('module') }
-  const addModule = (id: BackendModuleId) => {
-    const definition = BACKEND_MODULES.find(module => module.id === id)
-    if (!definition) return
-    const module = createBackendModule(definition, newInstanceId(id))
-    update({ modulePlan: [...config.modulePlan, module] }); selectModule(module.instanceId)
-  }
-  const addCustomModule = () => {
-    const module = createCustomBackendModule(newInstanceId())
-    update({ modulePlan: [...config.modulePlan, module] }); selectModule(module.instanceId)
-  }
-  const duplicateModule = (instanceId: string) => {
-    const source = config.modulePlan.find(module => module.instanceId === instanceId)
-    if (!source) return
-    const copy = { ...source, instanceId: newInstanceId(source.sourceId), name: `${source.name} 副本`, xianxiaName: `${source.xianxiaName} 副本`, filters: [...source.filters] }
-    const index = config.modulePlan.findIndex(module => module.instanceId === instanceId)
-    const next = [...config.modulePlan]; next.splice(index + 1, 0, copy)
-    update({ modulePlan: next }); selectModule(copy.instanceId)
-  }
-  const removeModule = (instanceId: string) => {
-    const next = config.modulePlan.filter(module => module.instanceId !== instanceId)
-    update({ modulePlan: next })
-    if (selectedModuleId === instanceId) { setSelectedModuleId(next[0]?.instanceId ?? null); setSettingsView(next.length ? 'module' : 'run') }
-  }
-  const moveModule = (source: string, target: string) => {
-    if (source === target) return
-    const next = [...config.modulePlan]
-    const from = next.findIndex(module => module.instanceId === source); const to = next.findIndex(module => module.instanceId === target)
-    if (from < 0 || to < 0) return
-    const [moved] = next.splice(from, 1); next.splice(to, 0, moved)
-    update({ modulePlan: next })
-  }
-  const moveModuleBy = (instanceId: string, offset: -1 | 1) => {
-    const from = config.modulePlan.findIndex(module => module.instanceId === instanceId); const to = from + offset
-    if (from < 0 || to < 0 || to >= config.modulePlan.length) return
-    const next = [...config.modulePlan]; [next[from], next[to]] = [next[to], next[from]]; update({ modulePlan: next })
-  }
-
   const scan = async () => {
     if (!config.larkUrl) return
     setScanning(true); setGroups(null)
@@ -557,8 +492,8 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
       // 那多半是已經從 Lark 移除的 TC，直接消失的話使用者會以為自己編的積木不見了
       setTcs(prev => {
         const live = data.tcs ?? []
-        const liveIds = new Set(live.map(t => t.recordId))
-        const snapshotOnly = prev.filter(t => t.source !== 'live' && !liveIds.has(t.recordId))
+        const liveKeys = new Set(live.map(t => t.storageKey))
+        const snapshotOnly = prev.filter(t => t.source !== 'live' && !liveKeys.has(t.storageKey))
         return [...live, ...snapshotOnly]
       })
       setTcScanned(true)
@@ -566,8 +501,7 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   }
 
   const run = async () => {
-    if (!config.modulePlan.length) return window.alert('請至少加入一個 Backend 測試模組')
-    if (!modulePlanValid) return window.alert('每個模組都必須有名稱與至少一條 TC 匹配規則')
+    if (!config.larkUrl.trim()) return window.alert('請先填入 Lark TC 路徑')
     setLogs([]); statusRef.current = 'running'; setStatus('running'); setRunMode(null); setNetStats(null); setStatsAt(null)
     const response = await fetch('/api/osm-uat/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...config, filter: config.filter || undefined, dashGameType: config.dashGameType || undefined, dashClientVersion: config.dashClientVersion || undefined, agentId: selectedAgentId || undefined }) })
     if (!response.ok) {
@@ -644,30 +578,19 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   }, { pass: 0, manual: 0, skip: 0, fail: 0 })
   const statusLabel = status === 'idle' ? (xianxia ? '玉簡未啟' : '待機') : status === 'running' ? (xianxia ? '推演中' : '執行中') : status === 'done' ? (xianxia ? '推演完成' : '完成') : (xianxia ? '陣眼失守' : '錯誤')
 
-  // ── 第一屏行動列要用的資訊（2026-08-29）──
-  // 量過：原本「執行模組流程」在 y=1298、視窗高 1000，**要捲兩屏才看得到**。
-  // 新使用者第一個問題是「我要怎麼開始跑」，第一屏卻只有設定沒有動作。
-  // 這裡不搬走任何既有控制項，只是把主要動作補到第一屏並說明它會做什麼。
-  const plannedTcTotal = groups
-    ? config.modulePlan.reduce((sum, module) => sum + (moduleCounts.get(module.instanceId) ?? 0), 0)
-    : null
   const targetAgent = selectedAgentId
     ? agents.find(agent => agent.agentId === selectedAgentId)?.hostname ?? selectedAgentId
     : agents.some(agent => !agent.busy)
       ? `自動挑一台（${agents.filter(agent => !agent.busy).length} 台可用）`
       : null
-  // 三個起手步驟各自的完成狀態。**這不只是新手教學，也是「按鈕為什麼是灰的」的答案**
-  // ——原本按鈕 disabled 時畫面上沒有任何地方說明原因。
   const startSteps = [
-    { label: xianxia ? '選要推演的術式' : '選要跑的模組', done: modulePlanValid },
+    { label: xianxia ? '載入玉簡' : '設定 Lark TC', done: !!config.larkUrl.trim() },
     { label: xianxia ? '選在哪具傀儡上跑' : '選在哪台機器跑', done: !!targetAgent },
     { label: xianxia ? '啟陣' : '開始執行', done: false },
   ]
   const blockedReason = !config.larkUrl
     ? 'Lark TC 路徑還沒填（在右邊「執行設定」）'
-    : !modulePlanValid
-      ? '每個模組都要有名稱與至少一條 TC 匹配規則'
-      : null
+    : null
 
   return (
     <div className="uat-backend-workbench">
@@ -687,13 +610,12 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
         </div>
         <div className="uat-backend-launch-cta">
           <div className="uat-backend-launch-meta">
-            <b>{config.modulePlan.length}</b> 個模組
-            {plannedTcTotal !== null && <> · 共 <b>{plannedTcTotal}</b> 筆 TC</>}
+            {groups ? <>已讀取 <b>{total}</b> 筆 TC</> : <>尚未讀取 Lark TC</>}
             {targetAgent && <> · 跑在 <b>{targetAgent}</b></>}
           </div>
           {status === 'running'
             ? <button type="button" className="uat-btn is-danger is-wide" onClick={() => fetch('/api/osm-uat/stop', { method: 'POST' })}>{xianxia ? '收陣' : '停止執行'}</button>
-            : <button type="button" className="uat-btn is-primary is-wide" disabled={!modulePlanValid || !config.larkUrl} onClick={run}>{xianxia ? '依序啟陣' : '開始執行'}</button>}
+            : <button type="button" className="uat-btn is-primary is-wide" disabled={!config.larkUrl} onClick={run}>{xianxia ? '啟陣' : '開始執行'}</button>}
         </div>
       </div>
 
@@ -708,74 +630,40 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
 
       <aside className="uat-backend-plan">
         <div className="uat-backend-flow-head">
-          <div className="uat-section-title"><span>{xianxia ? 'TRIAL SEQUENCE' : 'EXECUTION FLOW'}</span><h3>{xianxia ? '推演順序' : '執行流程'} <small>{config.modulePlan.length + 1} 個模組</small></h3><p>拖曳調整順序；點選卡片可編輯名稱、說明與 TC 匹配規則。</p></div>
-          {/* 模組庫＝管理動作，預設收起來。設計圖左欄只有「本次要跑什麼」，
-              加新模組收到這顆按鈕後面，不跟執行清單搶主視覺（跟 CodeX 定案）。
-              **拖曳排序保留**：版面語意一致不代表要犧牲已存在且有用的互動能力。
-
-              放在標題列右邊而不是欄位最底下（2026-08-30 使用者要求）：原本它在
-              清單＋說明文字之後，位置最不顯眼，而它是這一欄唯一的入口動作。
-              標題列本來就是 space-between、右邊留著空插槽，這裡剛好補上。 */}
-          <button type="button" className="uat-btn is-quiet uat-plan-edit"
-            onClick={() => setLibraryOpen(open => !open)}>
-            {/* 改成彈框之後這裡不再切換文字：彈框自己有「關閉」，
-                而且它一開就蓋住這顆按鈕，「收起模組庫」根本看不到 */}
-            {xianxia ? '編輯術式計畫' : '編輯模組計畫'}</button>
+          <div className="uat-section-title"><span>{xianxia ? 'TC INDEX' : 'TC LIBRARY'}</span><h3>{xianxia ? '玉簡清單' : 'TC 清單'} <small>{tcs.length} 筆</small></h3><p>直接從 Lark 表格讀取；點選 TC 可查看與編輯積木。</p></div>
         </div>
-        <div className="uat-backend-module-list">
-          <article className="uat-backend-module is-fixed is-cyan"><span className="uat-backend-module-grip" aria-hidden="true"><i /><i /><i /></span><div><strong>{xianxia ? '共用登入傀儡' : '共用登入與初始化'}</strong><small>取得 Lark token、載入 TC registry、啟動 Chromium 並登入 CP Backend</small></div><em>固定</em></article>
-          {config.modulePlan.map((module, index) => (
-            <Fragment key={module.instanceId}>
-            <article className={`uat-backend-module is-${module.tone}${draggedModule === module.instanceId ? ' is-dragging' : ''}${selectedModuleId === module.instanceId ? ' is-selected' : ''}`} draggable={status !== 'running'} onClick={() => selectModule(module.instanceId)} onDragStart={() => setDraggedModule(module.instanceId)} onDragEnd={() => setDraggedModule(null)} onDragOver={event => event.preventDefault()} onDrop={() => { if (draggedModule) moveModule(draggedModule, module.instanceId); setDraggedModule(null) }}>
-              <span className="uat-backend-module-grip" aria-hidden="true"><i /><i /><i /></span><span className="uat-backend-module-index">{String(index + 1).padStart(2, '0')}</span>
-              <div><strong>{xianxia ? module.xianxiaName : module.name}{module.sourceId === 'custom' && <b className="uat-backend-custom-badge">自訂</b>}</strong><small>{module.description}</small><span className="uat-backend-rule-preview">{module.filters.join(' · ')}</span></div>
-              {tcs.length > 0 && <em className="uat-backend-module-count" role="button" tabIndex={0}
-                title="展開看這個模組收到哪幾筆 TC，點進去可以編積木"
-                onClick={event => { event.stopPropagation(); setExpandedModule(prev => prev === module.instanceId ? null : module.instanceId) }}
-                onKeyDown={event => { if (event.key === "Enter") { event.stopPropagation(); setExpandedModule(prev => prev === module.instanceId ? null : module.instanceId) } }}>
-                {(moduleTcs.get(module.instanceId) ?? []).length} TC {expandedModule === module.instanceId ? "▾" : "▸"}</em>}
-              <span className="uat-backend-module-actions"><button type="button" disabled={status === 'running' || index === 0} onClick={event => { event.stopPropagation(); moveModuleBy(module.instanceId, -1) }}>上移</button><button type="button" disabled={status === 'running' || index === config.modulePlan.length - 1} onClick={event => { event.stopPropagation(); moveModuleBy(module.instanceId, 1) }}>下移</button><button type="button" disabled={status === 'running'} onClick={event => { event.stopPropagation(); duplicateModule(module.instanceId) }}>複製</button><button type="button" disabled={status === 'running'} onClick={event => { event.stopPropagation(); removeModule(module.instanceId) }}>移除</button></span>
-            </article>
-              {expandedModule === module.instanceId && (
-                <div className="uat-backend-tc-list" onClick={event => event.stopPropagation()}>
-                  {(moduleTcs.get(module.instanceId) ?? []).slice(0, 40).map(tc => (
-                    <button type="button" key={tc.recordId}
-                      className={`uat-backend-tc${selectedTcId === tc.recordId ? " is-selected" : ""}`}
-                      onClick={() => setSelectedTcId(tc.recordId)}>
-                      <span title={tc.text}>
-                        {tc.source !== 'live' && tcScanned && <b className="uat-backend-tc-stale" title="這次掃描沒有在 Lark 上找到，可能已被移除">快照</b>}
-                        {tc.text || tc.recordId}
-                      </span>
-                      <em className={tc.stepCount ? "has-steps" : ""}>{tc.stepCount ? `${tc.stepCount} 積木` : "內建"}</em>
-                    </button>
-                  ))}
-                  {!(moduleTcs.get(module.instanceId) ?? []).length && <div className="uat-backend-tc-more">這個模組目前沒有收到 TC</div>}
-                  {(moduleTcs.get(module.instanceId) ?? []).length > 40 && <div className="uat-backend-tc-more">…另外還有 {(moduleTcs.get(module.instanceId) ?? []).length - 40} 筆</div>}
-                </div>
-              )}
-            </Fragment>
+        <div className="uat-backend-flow-actions">
+          {recSession
+            ? <button type="button" className="uat-btn is-danger" onClick={() => void finishWorkbenchRecord(recSession)}>停止錄製（{recCount} 顆）</button>
+            : <button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => void startWorkbenchRecord()}>錄製新 TC</button>}
+          <button type="button" className="uat-btn is-quiet" onClick={() => { window.location.href = '/api/osm-uat/tc-steps/export' }}>匯出積木</button>
+          <button type="button" className="uat-btn is-quiet" onClick={() => importInput.current?.click()}>匯入積木</button>
+          <input ref={importInput} type="file" accept="application/json,.json" style={{ display: 'none' }} onChange={event => void handleImport(event)} />
+        </div>
+        <div className="uat-backend-tc-list uat-backend-all-tcs">
+          {tcs.map(tc => (
+            <button type="button" key={tc.storageKey}
+              className={`uat-backend-tc${selectedTcKey === tc.storageKey ? ' is-selected' : ''}`}
+              onClick={() => setSelectedTcKey(tc.storageKey)}>
+              <span title={tc.text}>
+                {tc.source !== 'live' && tcScanned && <b className="uat-backend-tc-stale" title="這次掃描沒有在 Lark 上找到，可能已被移除">快照</b>}
+                {tc.number && <b>{tc.number} </b>}{tc.text || tc.recordId}
+              </span>
+              <em className={tc.stepCount ? 'has-steps' : ''}>{tc.stepCount ? `${tc.stepCount} 積木` : '內建'}</em>
+            </button>
           ))}
-          {!config.modulePlan.length && <div className="uat-backend-flow-empty"><strong>尚未加入測試模組</strong><span>新增自訂模組，或從左側模板庫加入。</span></div>}
+          {!tcs.length && <div className="uat-backend-flow-empty"><strong>尚未載入 TC</strong><span>填入 Lark TC 路徑後按「掃描 Lark TC」。</span></div>}
         </div>
-        <footer className="uat-backend-flow-foot"><span>每個模組都是獨立實例，設定會儲存在此瀏覽器並傳入新的 runner process。{!tcScanned && tcs.length > 0 && ` TC 清單來自 ${tcSnapshotAt ? tcSnapshotAt.slice(0, 10) + ' 的' : ''}離線快照，掃描後會補上之後新增的。`}</span><b>{groups ? `已掃描 ${total} TC` : '尚未掃描 TC'}</b></footer>
+        <footer className="uat-backend-flow-foot"><span>{!tcScanned && tcs.length > 0 && `目前是 ${tcSnapshotAt ? tcSnapshotAt.slice(0, 10) + ' 的' : ''}離線快照；掃描後會同步 Lark 新增的 TC。`}</span><b>{groups ? `已讀取 ${total} TC` : '尚未讀取 Lark'}</b></footer>
 
-        {/* ── 未歸戶的自訂 TC（2026-09-02）────────────────────────────────
-            ⚠️ 這一區原本**完全不存在**。存檔是好的（進 `uat_custom_tcs` 表），
-               但 `customTcs` 這個 state 載入之後 JSX 一次都沒用到——
-               使用者錄了 26 顆積木存成「Test」，然後在畫面上到處找不到它
-               （2026-09-02 回報「這個存放的TC是放到哪去了？」）。
-
-            自訂 TC 是**暫存區不是第二份測試清單**：它不會被執行，要先歸戶到
-            某一筆真實的 Lark TC 才會跟著跑。所以這區的重點是「還沒歸戶的有幾筆」
-            跟「怎麼歸過去」，不是把它做成另一個可執行清單。 */}
         {customTcs.length > 0 && (
           <section className="uat-backend-customtc">
             <div className="uat-backend-customtc-head">
-              <strong>未歸戶的自訂 TC <em>{customTcs.length}</em></strong>
-              <small>錄起來但還沒接到 Lark TC 上。<b>歸戶之後才會跟著跑</b>——現在放著不會被執行。</small>
+              <strong>自訂 TC <em>{customTcs.length}</em></strong>
+              <small>可以先獨立試跑，確認後再用 Lark 編號選擇歸戶對象。</small>
             </div>
             {customTcs.map(item => {
-              const draft = kwDraft[item.id] ?? item.linkKeyword
+              const draft = numberDraft[item.id] ?? item.linkNumber
               return (
                 <article key={item.id} className="uat-backend-customtc-row">
                   <div className="uat-backend-customtc-main">
@@ -787,29 +675,33 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
                       （實測只剩「歸戶關」還溢出）。改成第一列放標題與動作、
                       輸入框獨佔第二列。 */}
                   <div className="uat-backend-customtc-actions">
-                    {draft !== item.linkKeyword && (
+                    <button type="button" className="uat-btn is-primary" disabled={adoptBusy || status === 'running'}
+                      onClick={() => void runCustomTrial(item)}>試跑</button>
+                    {draft !== item.linkNumber && (
                       <button type="button" className="uat-btn is-quiet" disabled={adoptBusy}
-                        onClick={() => void saveKeyword(item, draft)}>存關鍵字</button>
+                        onClick={() => void saveNumber(item, draft)}>存編號</button>
                     )}
                     <button type="button" className="uat-btn" disabled={adoptBusy}
-                      onClick={() => void openAdopt({ ...item, linkKeyword: draft })}>找歸戶對象</button>
+                      onClick={() => void openAdopt({ ...item, linkNumber: draft })}>找歸戶對象</button>
                     <button type="button" className="uat-btn is-quiet" disabled={adoptBusy}
                       onClick={() => void deleteCustomTc(item)}>刪除</button>
                   </div>
                   <input className="uat-field uat-backend-customtc-kw" value={draft}
-                    placeholder="歸戶關鍵字：拿這段文字去比對 Lark TC"
-                    onChange={event => setKwDraft(prev => ({ ...prev, [item.id]: event.target.value }))} />
+                    placeholder="Lark 編號，例如 T-A-002"
+                    onChange={event => setNumberDraft(prev => ({ ...prev, [item.id]: event.target.value }))} />
                   {adoptFor === item.id && (
                     <div className="uat-backend-customtc-cands">
                       {adoptReason && <p>{adoptReason}</p>}
-                      {/* 只提示、不自動選——命中多筆一律列出讓人挑。
-                          這個專案在人名比對上踩過「Jack 誤中 Jackson」的坑，同一個原則。 */}
+                      {/* 編號在同一張表可能重複，所以命中多筆仍全部列出讓人挑。 */}
                       {adoptCands.map(c => (
-                        <button key={c.recordId} type="button" className="uat-backend-customtc-cand"
-                          disabled={adoptBusy} onClick={() => void doAdopt(item.id, c.recordId, c.existingStepCount)}>
-                          <span>{c.text || c.recordId}</span>
-                          <small>{c.sub}{c.existingStepCount > 0 && ` · 已有 ${c.existingStepCount} 顆積木`}</small>
-                        </button>
+                        <div key={c.storageKey} className="uat-backend-customtc-cand">
+                          <div>
+                            <span><b>{c.number}</b> {c.text || c.recordId}</span>
+                            <small>{c.sub}{c.existingStepCount > 0 && ` · 已有 ${c.existingStepCount} 顆積木`}</small>
+                          </div>
+                          <button type="button" className="uat-btn" disabled={adoptBusy}
+                            onClick={() => void doAdopt(item.id, c)}>歸戶</button>
+                        </div>
                       ))}
                     </div>
                   )}
@@ -819,51 +711,6 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
           </section>
         )}
 
-        {/* 術式庫改成彈框（2026-08-30 使用者要求）。原本是在左欄裡往下展開，
-            整包動作列＋模板清單接在說明文字後面，把欄位拉得很長，
-            而且它是「管理／編輯」的情境，跟旁邊「本次要跑什麼」的閱讀動線是分開的。
-
-            ⚠️ 一定要用 createPortal 掛到 body：這個版面的祖先有 backdrop-filter，
-               會把 position: fixed 困在容器裡，不走 portal 的彈框會被裁掉。
-               （這頁的積木編輯器與風險佇列彈框都是為了同一個原因用 portal。） */}
-        {libraryOpen && createPortal((
-          <div className="uat-studio uat-tc-modal" role="dialog" aria-modal="true"
-            onMouseDown={event => { if (event.target === event.currentTarget) setLibraryOpen(false) }}>
-          <div className="uat-tc-picker uat-backend-library-modal">
-            <div className="uat-tc-picker-head">
-              <div>
-                <span className="uat-net-kicker">{xianxia ? 'SPELL LIBRARY' : 'MODULE LIBRARY'}</span>
-                <h3>{xianxia ? '編輯術式計畫' : '編輯模組計畫'}</h3>
-                <small>加入、移除、匯入匯出這次要跑的模組</small>
-              </div>
-              <button type="button" className="uat-btn is-quiet" onClick={() => setLibraryOpen(false)}>關閉</button>
-            </div>
-          <div className="uat-backend-library">
-<div className="uat-backend-flow-actions">
-            <button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={addCustomModule}>新增模組</button>
-            <button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => { const plan = createDefaultBackendPlan(); update({ modulePlan: plan }); setSelectedModuleId(plan[0]?.instanceId ?? null) }}>還原預設</button>
-            {recSession
-              ? <button type="button" className="uat-btn is-danger" onClick={() => void finishWorkbenchRecord(recSession)}>停止錄製（{recCount} 顆）</button>
-              : <button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => void startWorkbenchRecord()}>錄製</button>}
-            <button type="button" className="uat-btn is-quiet" title="把所有 TC 的積木匯出成一個檔案，帶到別的環境匯入" onClick={() => { window.location.href = '/api/osm-uat/tc-steps/export' }}>匯出積木</button>
-            <button type="button" className="uat-btn is-quiet" title="從匯出的檔案匯入積木（同一筆以檔案為準，沒提到的保留）" onClick={() => importInput.current?.click()}>匯入積木</button>
-            {/* 破壞性動作排在最後、用分隔線隔開。刻意不加確認彈窗——那只會養成
-                無腦點確認的習慣，真正該做的是讓它「看起來就不一樣」且不順手誤按 */}
-            <span className="uat-action-sep" aria-hidden="true" />
-            <button type="button" className="uat-btn is-danger-quiet" disabled={status === 'running'} onClick={() => { update({ modulePlan: [] }); setSelectedModuleId(null); setSettingsView('run') }}>清空流程</button>
-            <input ref={importInput} type="file" accept="application/json,.json" style={{ display: 'none' }} onChange={event => void handleImport(event)} />
-          </div>
-        <div className="uat-pane-heading"><div><span>{xianxia ? 'SPELL LIBRARY' : 'MODULE LIBRARY'}</span><h3>{xianxia ? '術式庫' : '模組庫'}</h3><small>模板可重複加入並獨立編輯</small></div></div>
-        <button type="button" className="uat-btn is-primary is-wide uat-backend-create" disabled={status === 'running'} onClick={addCustomModule}>{xianxia ? '新增自訂術式' : '新增自訂模組'}</button>
-        {(['核心資料', '營運驗證', '系統治理'] as const).map(category => (
-          <section className="uat-backend-library-group" key={category}><h4>{category}</h4>
-            {BACKEND_MODULES.filter(module => module.category === category).map(module => <button type="button" className={`uat-backend-library-item is-${module.tone}`} onClick={() => addModule(module.id)} disabled={status === 'running'} key={module.id}><i /><span><strong>{xianxia ? module.xianxiaName : module.name}</strong><small>{module.description}</small></span><b>加入</b></button>)}
-          </section>
-        ))}
-          </div>
-          </div>
-          </div>
-        ), document.body)}
       </aside>
 
       <main className="uat-backend-center">
@@ -945,20 +792,7 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
       </main>
 
       <aside className="uat-backend-settings">
-        <div className="uat-backend-settings-tabs"><button type="button" className={settingsView === 'run' ? 'is-active' : ''} onClick={() => setSettingsView('run')}>執行設定</button><button type="button" className={settingsView === 'module' ? 'is-active' : ''} disabled={!selectedModule} onClick={() => setSettingsView('module')}>模組編輯</button></div>
-        {settingsView === 'module' && selectedModule ? <>
-          <div className="uat-pane-heading"><div><span>{xianxia ? 'SPELL CONTRACT' : 'MODULE CONTRACT'}</span><h3>{xianxia ? '術式設定' : '模組編輯'}</h3><small>修改會即時保存到目前流程</small></div></div>
-          <div className="uat-backend-settings-form uat-backend-module-editor">
-            <label>普通版名稱<input className="uat-field" value={selectedModule.name} disabled={status === 'running'} onChange={event => updateModule(selectedModule.instanceId, { name: event.target.value })} /></label>
-            <label>修仙版名稱<input className="uat-field" value={selectedModule.xianxiaName} disabled={status === 'running'} onChange={event => updateModule(selectedModule.instanceId, { xianxiaName: event.target.value })} /></label>
-            <label>模組說明<textarea className="uat-field" value={selectedModule.description} disabled={status === 'running'} onChange={event => updateModule(selectedModule.instanceId, { description: event.target.value })} /></label>
-            <label>TC 匹配規則<textarea className="uat-field uat-code-field uat-backend-rules" value={selectedModule.filters.join('\n')} disabled={status === 'running'} onChange={event => updateModule(selectedModule.instanceId, { filters: event.target.value.split('\n').map(value => value.trim()).filter(Boolean) })} placeholder={'每行一個關鍵字\n例如：Daily Ranking'} /><small>不區分大小寫，匹配任務類型或子類型；單獨輸入 * 代表接收未分類 TC。</small></label>
-            <label>識別色<select className="uat-field" value={selectedModule.tone} disabled={status === 'running'} onChange={event => updateModule(selectedModule.instanceId, { tone: event.target.value as BackendModuleTone })}>{TONES.map(tone => <option value={tone} key={tone}>{tone}</option>)}</select></label>
-          </div>
-          <div className="uat-backend-editor-meta"><span>模組 ID</span><code>{selectedModule.instanceId}</code><b>{groups ? `${moduleCounts.get(selectedModule.instanceId) ?? 0} TC` : `${selectedModule.filters.length} 條規則`}</b></div>
-          <div className="uat-backend-editor-actions"><button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => duplicateModule(selectedModule.instanceId)}>複製模組</button><button type="button" className="uat-btn is-danger" disabled={status === 'running'} onClick={() => removeModule(selectedModule.instanceId)}>移除模組</button></div>
-        </> : <>
-          <div className="uat-pane-heading"><div><span>{xianxia ? 'ARRAY SETTINGS' : 'RUN SETTINGS'}</span><h3>{xianxia ? '陣眼設定' : '執行設定'}</h3><small>套用至本次模組流程</small></div></div>
+          <div className="uat-pane-heading"><div><span>{xianxia ? 'ARRAY SETTINGS' : 'RUN SETTINGS'}</span><h3>{xianxia ? '陣眼設定' : '執行設定'}</h3><small>套用至本次 TC 執行</small></div></div>
           <div className="uat-backend-settings-form">
             <div className="uat-backend-cred-box">
               <b>執行位置</b>
@@ -1029,42 +863,46 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
               <button type="button" className="uat-field uat-subtype-trigger" onClick={() => setSubtypeModal(true)}>
                 {selectedSubtypes.length
                   ? `已選 ${selectedSubtypes.length} 個子類型`
-                  : '全部（套用模組範圍）'}
+                  : '全部 TC'}
                 <em>選擇…</em>
               </button>
-              <small>不選就是照模組流程跑；選了會在模組範圍內再縮小。</small>
+              <small>不選會執行表格內所有符合 UAT 後台條件的 TC；選擇後只跑指定子類型。</small>
             </label>
-            {/* 這個欄位存在 localStorage 會一直記著，而且它會蓋掉模組範圍——
-                使用者忘記自己填過，就會以為「執行模組流程」壞掉了（實際回報過：
-                「不會抓目前設定好的模塊，只會執行 gameRecord 的 TC」）。
-                填著的時候要講清楚，並且給一鍵清除 */}
             {config.filter.trim() && (
               <div className="uat-filter-warn">
                 <span>
-                  目前只會跑子類型含「<b>{config.filter.trim()}</b>」的 TC，
-                  <b>模組流程裡其他的都會被跳過</b>。
+                  目前只會跑子類型含「<b>{config.filter.trim()}</b>」的 TC。
                 </span>
                 <button type="button" className="uat-btn is-quiet" onClick={() => update({ filter: '' })}>清除篩選</button>
               </div>
             )}
             <div className="uat-backend-setting-pair"><label>Game Type<input className="uat-field" value={config.dashGameType} onChange={event => update({ dashGameType: event.target.value })} placeholder="BWJL" /></label><label>Client Version<input className="uat-field" value={config.dashClientVersion} onChange={event => update({ dashClientVersion: event.target.value })} placeholder="H5(1.5)" /></label></div>
           </div>
-          <div className="uat-backend-run-summary"><span><b>{config.modulePlan.length}</b> 個可執行模組</span><span><b>{groups ? config.modulePlan.reduce((sum, module) => sum + (moduleCounts.get(module.instanceId) ?? 0), 0) : '—'}</b> 個匹配 TC</span></div>
+          <div className="uat-backend-run-summary"><span><b>{groups ? total : '—'}</b> 個 Lark TC</span><span><b>{selectedSubtypes.length || '全部'}</b> 子類型範圍</span></div>
           {/* 執行／停止已移到第一屏的行動列（.uat-backend-launch）。這裡不再放第二組——
               兩顆做同一件事的按鈕會讓人不確定哪顆才是對的。 */}
           <span className={`uat-run-status is-${status}`}><i />{statusLabel}</span>
-        </>}
       </aside>
 
 
 
       {/* 錄製期間即時列出打到的 API。放在狀態列下面而不是彈框裡——
           使用者是「一邊操作一邊看」的，塞進彈框等於還要多開一次 */}
-      {recSession && !!recNet.length && (
+      {recSession && (recNetSummary || recNet.length > 0 || recConsole.length > 0) && (
         <div className="uat-rec-net">
-          <h4>這次錄製打到的 API <em>{recNet.length}</em></h4>
-          <div className="uat-rec-net-list">
-            {[...recNet].reverse().slice(0, 40).map((c, i) => (
+          <h4>錄製監控 <em>Network {recNetSummary?.total ?? recNet.length} · Console {recConsole.length}</em></h4>
+          {recNetSummary && (
+            <div className="uat-rec-net-summary">
+              <span>API <b>{recNetSummary.api.count}</b>{recNetSummary.api.avgMs !== null && <i>avg {recNetSummary.api.avgMs}ms</i>}</span>
+              <span>圖檔 <b>{recNetSummary.image.count}</b>{recNetSummary.image.avgMs !== null && <i>avg {recNetSummary.image.avgMs}ms</i>}</span>
+              <span>其他 <b>{recNetSummary.other.count}</b>{recNetSummary.other.avgMs !== null && <i>avg {recNetSummary.other.avgMs}ms</i>}</span>
+              <span className={recNetSummary.failed ? 'is-bad' : ''}>失敗 <b>{recNetSummary.failed}</b></span>
+              <span className={recNetSummary.slow.length ? 'is-bad' : ''}>慢速 <b>{recNetSummary.slow.length}</b></span>
+            </div>
+          )}
+          {!!recNet.filter(c => (c.kind ?? 'api') === 'api').length && (
+            <div className="uat-rec-net-list">
+            {[...recNet].filter(c => (c.kind ?? 'api') === 'api').reverse().slice(0, 40).map((c, i) => (
               <button type="button" className="uat-rec-net-row" key={`${c.ts}-${i}`}
                 title="點一下把這支 API 變成斷言積木"
                 onClick={() => addApiAssertion(c)}>
@@ -1076,8 +914,19 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
                 <em className="uat-rec-net-add">+ 斷言</em>
               </button>
             ))}
-          </div>
-          <small>點任一列可以直接把它變成斷言積木。網址已收斂（拿掉 query、id 換成 *），滑鼠移上去看原始的。</small>
+            </div>
+          )}
+          {!!recConsole.length && (
+            <div className="uat-rec-console-list">
+              {[...recConsole].reverse().slice(0, 30).map((row, i) => (
+                <div className={`uat-rec-console-row is-${row.type}`} key={`${row.ts}-${i}`} title={row.location}>
+                  <b>{row.type}</b>
+                  <span>{row.text}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <small>API 列可直接變成斷言積木；Network 摘要用來看網速、慢速與失敗請求；Console 會收 JS error/warn/log。</small>
         </div>
       )}
 
@@ -1106,8 +955,8 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
                 <h3>選擇要跑的子類型</h3>
                 <small>
                   {selectedSubtypes.length
-                    ? `已選 ${selectedSubtypes.length} 個——只有這些會跑，模組流程裡其他的都會被跳過。`
-                    : '目前沒有選任何子類型，會照模組流程跑全部。'}
+                    ? `已選 ${selectedSubtypes.length} 個——只會執行這些子類型。`
+                    : '目前沒有選任何子類型，會執行表格內全部符合條件的 TC。'}
                 </small>
               </div>
               <button type="button" className="uat-btn is-quiet" onClick={() => setSubtypeModal(false)}>完成</button>
@@ -1173,17 +1022,13 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
               <div className="uat-tc-picker-new-row">
                 <input className="uat-field" value={newTcTitle} placeholder="給這筆新 TC 一個名稱（必填）"
                   onChange={event => setNewTcTitle(event.target.value)} />
-                <input className="uat-field" value={newTcKeyword} placeholder="歸戶關鍵字（選填）"
-                  onChange={event => setNewTcKeyword(event.target.value)} />
+                <input className="uat-field" value={newTcNumber} placeholder="Lark 編號，例如 T-A-002（選填）"
+                  onChange={event => setNewTcNumber(event.target.value)} />
                 <button type="button" className="uat-btn" disabled={savingNewTc || !newTcTitle.trim()}
                   onClick={() => void saveAsCustomTc()}>另存成新 TC</button>
               </div>
               <small>
-                {/* ⚠️ 原本寫「跟其他 TC 一起跑」——那是錯的。執行時只帶掛在真實 Lark TC 上的
-                    積木（UAT_TC_STEPS），runner 裡沒有自訂 TC 的概念。寫成會跑比看不到更糟：
-                    使用者會以為錄好的積木已經在測了。 */}
-                自訂 TC 先存在這個工具裡的暫存區，<b>還不會被執行</b>——要先歸戶到某一筆 Lark TC 才會跟著跑。
-                填了歸戶關鍵字之後，下面「未歸戶的自訂 TC」那區就能一鍵把積木搬過去。
+                自訂 TC 會先存在工具裡，儲存後即可獨立試跑；確認腳本沒問題，再填入 Lark「編號」精確找歸戶候選。
               </small>
             </div>
 
@@ -1194,13 +1039,13 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
               {tcs
                 .filter(tc => {
                   const q = pickerQuery.trim().toLowerCase()
-                  return !q || [tc.text, tc.sub, tc.recordId].some(v => v.toLowerCase().includes(q))
+                  return !q || [tc.number, tc.text, tc.sub, tc.recordId].some(v => v.toLowerCase().includes(q))
                 })
                 .slice(0, 80)
                 .map(tc => (
-                  <button type="button" className="uat-backend-tc" key={tc.recordId}
-                    onClick={() => { setSelectedTcId(tc.recordId) }}>
-                    <span title={tc.text}>[{tc.sub || '未分類'}] {tc.text || tc.recordId}</span>
+                  <button type="button" className="uat-backend-tc" key={tc.storageKey}
+                    onClick={() => { setSelectedTcKey(tc.storageKey) }}>
+                    <span title={tc.text}>[{tc.number || tc.sub || '未分類'}] {tc.text || tc.recordId}</span>
                     <em className={tc.stepCount ? 'has-steps' : ''}>{tc.stepCount ? `${tc.stepCount} 積木` : '內建'}</em>
                   </button>
                 ))}
@@ -1266,8 +1111,8 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
           themeMode={themeMode}
           pendingSteps={pendingSteps}
           onPendingConsumed={() => { setPendingSteps(null); setRecMsg('') }}
-          onClose={() => setSelectedTcId(null)}
-          onSaved={(recordId, stepCount) => setTcs(prev => prev.map(t => t.recordId === recordId ? { ...t, stepCount } : t))}
+          onClose={() => setSelectedTcKey(null)}
+          onSaved={(storageKey, stepCount) => setTcs(prev => prev.map(t => t.storageKey === storageKey ? { ...t, stepCount } : t))}
         />
       )}
 

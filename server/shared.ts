@@ -2271,9 +2271,10 @@ db.exec(`
  *
  * ## 為什麼不直接寫進 Lark
  * 寫入團隊共用表的風險是資料污染，而且錯了很難查來源（跟 CodeX 討論過）。
- * 這裡選擇存在工具裡，但用 link_keyword 讓它是**明確的暫態**而不是另一份
- * 平行的測試清單——自訂 TC 自帶「我以後要歸到哪」，掃到文字命中的 Lark TC
- * 就能把積木搬過去、這筆刪掉。
+ * 這裡選擇存在工具裡，但用 Lark「編號」讓它是**明確的暫態**而不是另一份
+ * 平行的測試清單——自訂 TC 自帶「我以後要歸到哪」，之後用編號精確找到
+ * 候選列，再把積木搬過去、這筆刪掉。資料庫欄位沿用 link_keyword 是為了
+ * 相容既有安裝；API 與畫面已改稱 linkNumber。
  *
  * ## 兩份清單的問題怎麼壓住
  * 關鍵不是「不要有兩份」，是**看得出來哪些是自訂的**：畫面分開標示、分開計數，
@@ -2284,7 +2285,7 @@ db.exec(`
     id            TEXT PRIMARY KEY,
     title         TEXT NOT NULL,
     subtype       TEXT NOT NULL DEFAULT '',
-    /** 選填。之後掃 Lark 時用它比對，命中就能把積木歸戶過去 */
+    /** 歷史欄位名；現在保存 Lark「編號」 */
     link_keyword  TEXT NOT NULL DEFAULT '',
     steps         TEXT NOT NULL,
     created_by    TEXT,
@@ -2297,7 +2298,7 @@ export interface UatCustomTc {
   id: string
   title: string
   subtype: string
-  linkKeyword: string
+  linkNumber: string
   steps: unknown[]
   createdBy: string | null
   createdAt: number
@@ -2313,7 +2314,7 @@ export function listUatCustomTcs(): UatCustomTc[] {
     id: String(row.id),
     title: String(row.title),
     subtype: String(row.subtype ?? ''),
-    linkKeyword: String(row.link_keyword ?? ''),
+    linkNumber: String(row.link_keyword ?? ''),
     // 壞掉的一筆不要讓整份清單掛掉——回空陣列，畫面上看得出來它沒有積木
     steps: (() => { try { return JSON.parse(String(row.steps)) as unknown[] } catch { return [] } })(),
     createdBy: row.created_by == null ? null : String(row.created_by),
@@ -2323,7 +2324,7 @@ export function listUatCustomTcs(): UatCustomTc[] {
 }
 
 export function saveUatCustomTc(input: {
-  id?: string; title: string; subtype?: string; linkKeyword?: string; steps: unknown[]; createdBy?: string
+  id?: string; title: string; subtype?: string; linkNumber?: string; steps: unknown[]; createdBy?: string
 }): string {
   const now = Date.now()
   const id = input.id || `custom_${now.toString(36)}_${Math.random().toString(36).slice(2, 8)}`
@@ -2333,7 +2334,7 @@ export function saveUatCustomTc(input: {
     ON CONFLICT(id) DO UPDATE SET
       title = excluded.title, subtype = excluded.subtype,
       link_keyword = excluded.link_keyword, steps = excluded.steps, updated_at = excluded.updated_at
-  `).run(id, input.title, input.subtype ?? '', input.linkKeyword ?? '',
+  `).run(id, input.title, input.subtype ?? '', input.linkNumber ?? '',
     JSON.stringify(input.steps ?? []), input.createdBy ?? null, now, now)
   return id
 }

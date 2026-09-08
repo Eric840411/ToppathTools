@@ -193,7 +193,6 @@ interface BackendUatStartMessage {
   filter?: string
   dashGameType?: string
   dashClientVersion?: string
-  modulePlan?: { instanceId: string; name: string; filters: string[] }[]
   /** UAT_CP_USERNAME / UAT_CP_PASSWORD / UAT_NCH_* — 原封不動注入 spawn 的 env */
   credEnv?: Record<string, string>
 }
@@ -1279,7 +1278,7 @@ function connect() {
     // ── Backend UAT：在 agent 端 spawn Playwright 腳本，log 逐行轉回 server ──
     if (msg.type === 'backend_uat_start') {
       const startMsg = msg as BackendUatStartMessage
-      const { sessionId, larkAppToken, larkTableId, filter, dashGameType, dashClientVersion, modulePlan, credEnv } = startMsg
+      const { sessionId, larkAppToken, larkTableId, filter, dashGameType, dashClientVersion, credEnv } = startMsg
 
       // 上一輪還沒收乾淨就先砍掉，避免兩個 Chromium 同時搶同一組帳號
       if (backendUatChild) {
@@ -1321,7 +1320,6 @@ function connect() {
           LARK_TABLE_ID: larkTableId,
           ...(dashGameType ? { DASH_GAME_TYPE: dashGameType } : {}),
           ...(dashClientVersion ? { DASH_CLIENT_VERSION: dashClientVersion } : {}),
-          ...(modulePlan?.length ? { UAT_MODULE_PLAN: JSON.stringify(modulePlan) } : {}),
           ...(credEnv ?? {}),
         },
         windowsHide: true,

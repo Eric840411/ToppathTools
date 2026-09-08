@@ -4,25 +4,11 @@ export type AutoPlatform = 'h5' | 'pc'
 export type AutoFilter = 'all' | 'mine' | 'public'
 export type RunStatus = 'idle' | 'running' | 'done' | 'error'
 export type StepFailureMode = 'inherit' | 'continue' | 'stop' | 'retry'
-export type BackendModuleId = 'dashboard' | 'egm-core' | 'reports' | 'game-config' | 'meters' | 'ranking' | 'jackpot' | 'reservation' | 'logs' | 'vip-version' | 'other'
-export type BackendModuleTone = 'blue' | 'cyan' | 'violet' | 'amber' | 'orange' | 'green' | 'rose' | 'slate'
-
-export interface BackendPlanModule {
-  instanceId: string
-  sourceId: BackendModuleId | 'custom'
-  name: string
-  xianxiaName: string
-  description: string
-  tone: BackendModuleTone
-  filters: string[]
-}
-
 export interface UatConfig {
   larkUrl: string
   filter: string
   dashGameType: string
   dashClientVersion: string
-  modulePlan: BackendPlanModule[]
 }
 
 export interface TcGroup { name: string; count: number }

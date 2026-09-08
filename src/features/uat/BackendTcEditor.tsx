@@ -15,6 +15,10 @@ import type { UatThemeMode } from './types'
 
 export interface BackendTc {
   recordId: string
+  /** tableId:recordId；避免複製過的 Lark table 出現相同 recordId 時互相覆蓋 */
+  storageKey: string
+  /** Lark 主欄位「編號」，例如 T-A-002 */
+  number: string
   text: string
   sub: string
   taskType: string
@@ -64,7 +68,7 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
    *  沒有複製功能就是逐筆手工 121 次 */
   allTcs: BackendTc[]
   themeMode: UatThemeMode
-  onSaved: (recordId: string, stepCount: number) => void
+  onSaved: (storageKey: string, stepCount: number) => void
   onClose: () => void
   /** 從工作台錄好、還沒決定要放哪一筆的積木；選定 TC 後由這裡接上去 */
   pendingSteps?: Step[] | null
@@ -116,7 +120,7 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
     } catch { setMsg({ text: '讀取積木失敗', tone: 'error' }) }
   }, [])
 
-  useEffect(() => { void loadSteps(tc.recordId) }, [tc.recordId, loadSteps])
+  useEffect(() => { void loadSteps(tc.storageKey) }, [tc.storageKey, loadSteps])
 
   // 從工作台錄好的積木接到這一筆後面。刻意不自動儲存——讓人先看過再按儲存，
   // 錄錯了直接關掉就沒事。
@@ -231,14 +235,14 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
   const save = async () => {
     setSaving(true)
     try {
-      const r = await fetch(`/api/osm-uat/tc-steps/${encodeURIComponent(tc.recordId)}`, {
+      const r = await fetch(`/api/osm-uat/tc-steps/${encodeURIComponent(tc.storageKey)}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ steps }),
       })
       const d = await r.json() as { ok: boolean; message?: string }
       if (!d.ok) { setMsg({ text: d.message ?? '儲存失敗', tone: 'error' }); return }
       setDirty(false)
       setMsg({ text: steps.length ? `已儲存 ${steps.length} 顆積木` : '已清空，這筆會回去走原本的驗證器', tone: 'ok' })
-      onSaved(tc.recordId, steps.length)
+      onSaved(tc.storageKey, steps.length)
     } catch { setMsg({ text: '儲存失敗', tone: 'error' }) }
     finally { setSaving(false) }
   }
@@ -257,7 +261,7 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
     return out
   }, [blockDefs, blockQuery])
 
-  const copyCandidates = allTcs.filter(t => t.recordId !== tc.recordId && t.stepCount > 0)
+  const copyCandidates = allTcs.filter(t => t.storageKey !== tc.storageKey && t.stepCount > 0)
   /** 這筆還沒拆成積木：畫面上唯一那顆就是我們補出來的內建驗證器 */
   const isUnconverted = !dirty && steps.length === 1 && steps[0]?.action === 'builtin_verifier' && !tc.stepCount
   const current = selected !== null ? steps[selected] : null
@@ -288,7 +292,7 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
         <div>
           <span className="uat-net-kicker">TC STEPS</span>
           <h3>{xianxia ? '術式編排' : '積木編輯'}</h3>
-          <small className="uat-tc-editor-id">{tc.sub || tc.taskType || '未分類'} · <code>{tc.recordId}</code></small>
+          <small className="uat-tc-editor-id">{tc.sub || tc.taskType || '未分類'} · {tc.number && <><code>{tc.number}</code> · </>}<code>{tc.recordId}</code></small>
         </div>
         <span className="uat-tc-editor-actions">
           {recSession ? (
@@ -378,8 +382,8 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
               <select className="uat-field" value={copyFrom} onChange={e => setCopyFrom(e.target.value)}>
                 <option value="">從其他 TC 複製積木…</option>
                 {copyCandidates.map(t => (
-                  <option value={t.recordId} key={t.recordId}>
-                    [{t.sub || '未分類'}] {t.text.slice(0, 40) || t.recordId}（{t.stepCount} 顆）
+                  <option value={t.storageKey} key={t.storageKey}>
+                    [{t.number || t.sub || '未分類'}] {t.text.slice(0, 40) || t.recordId}（{t.stepCount} 顆）
                   </option>
                 ))}
               </select>

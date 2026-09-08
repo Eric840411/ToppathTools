@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.129.0'
+export const APP_VERSION = '4.130.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,18 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.130.0',
+    date: '2026-09-08',
+    changes: [
+      'feat(uat): **Backend UAT 移除模組計畫，改為 TC 直接執行**（CodeX 實作）。不再維護模組模板、模組實例、關鍵字匹配規則與執行排序——先前的模組計畫決策由這版取代',
+      'feat(uat): Lark 掃描直接回傳表格內的 TC 與子類型統計；主執行只用**環境／裝置條件**與使用者**明確選擇的 Subtype** 篩選。⚠️ 重點在**不再透過模組漏斗排除新 TC**——舊做法下新加的 TC 若沒被任何模組的關鍵字命中就會被靜默漏掉',
+      'feat(uat): 左側改成單一 TC 清單，錄製、積木匯入匯出、單筆 TC 編輯都從清單進入',
+      'feat(uat): 自訂 TC 可用 `UAT_CUSTOM_TRIAL` 建立暫時 TC **獨立 dry-run**，不需要先歸戶、也不需要提供 Lark 表格；試跑**不讀取、不上傳、不回寫 Lark**。確認後再以 Lark「編號」精確選擇歸戶對象',
+      'feat(uat): 🚨 **試跑對舊版 agent 做了兩層防護**，因為舊 runner 不認得 `UAT_CUSTOM_TRIAL`、會忽略它並**退回「跑整張 Lark 表」**——那是最壞的失敗方式。① agent 原始碼落後或版本未知時直接 409 擋下，不猜 ② 仍然把 `UAT_TC_ONLY` 設成 custom id，就算擋漏了，舊 runner 也會被一個不存在於 Lark 的 id 篩成 0 筆，**絕不全跑**',
+      'note(uat): ⚠️ 既有問題（**不是這版造成的**，改動前後都一樣）：`server/uat-runner/scan-zero-assertion.mjs` 目前跑不起來（`detectManual` 的 regex 對不到），代表「零斷言不得通過」那道防線現在是死的。需要另外修——量測工具本身也要驗',
+    ],
+  },
   {
     version: '4.129.0',
     date: '2026-09-08',
