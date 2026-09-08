@@ -7,6 +7,19 @@ import { callGeminiWithRotation } from './gemini.js'
 
 export const router = Router()
 
+/**
+ * 繁體專用字的偵測集合——**只用來標示，不做自動轉換。**
+ *
+ * ⚠️ 這裡刻意不接簡繁轉換：一句台詞被自動改字之後，**沒有人看得出它被改過**，
+ *    而改錯一個字就變成一句原著裡不存在的話——那正是這個功能最該避免的事。
+ *    所以只在畫面上標一個「繁」，由人決定要不要用。
+ *
+ * ⚠️ 不完整是預期的（不可能窮舉），漏標最多是少一個提示，不會弄壞任何東西。
+ */
+// ⚠️ 收錄前要逐字確認「這個字簡繁真的不同形」。第一版收了「墟」——但簡繁都寫「墟」，
+//    於是《圣墟》整部作品每次都被誤標成繁體。**偵測器自己也要驗**。
+const TRAD_ONLY = /[會說這來個學經萬國無傳聖劍長變紀蒼誅飄邊為與們時實對開關發點頭沒過還種樣讓從應機轉間問題靈華氣鬥龍鳳島東馬車遠達運遊過還電腦網絡當語詞讀寫愛樂觀點題]/
+
 type QuoteRow = { id: string; text: string; source: string; created_at: number; last_used_cycle: number }
 
 function todayTaipei(): string {
@@ -115,14 +128,33 @@ router.post('/api/xianxia/quotes/ai-suggest', async (req, res) => {
    *    模型幾乎只會在被點名的作品裡繞。所以改成從一個較大的清單隨機抽幾部當例子，
    *    而且**優先抽語錄庫還沒有的**。
    */
+  /**
+   * 🚨 **每一部都要同時記簡體與繁體寫法，比對時兩種都試。**
+   *
+   *    這裡本來只寫繁體，而語錄庫裡存的絕大多數是簡體——於是
+   *    「诛仙」對不上 POOL 的「誅仙」，明明已經有 4 則的作品被算成
+   *    **還沒收錄過**，反而被優先當例子推給模型。修多樣性的那段自己踩了
+   *    同一個坑：**看起來有在避開重複，實際上比對根本沒對上。**
+   *
+   *    例子一律送簡體那個寫法出去（見下方 prompt 的簡體要求）。
+   */
   const POOL = [
-    '凡人修仙傳', '仙逆', '斗破蒼穹', '誅仙', '一念永恆', '遮天', '完美世界', '聖墟',
-    '莽荒紀', '星辰變', '盤龍', '雪中悍刀行', '劍來', '武動乾坤', '大主宰', '神墓',
-    '飄邈之旅', '佛本是道', '長生界', '不朽凡人', '我欲封天', '無限恐怖',
+    { s: '凡人修仙传', t: '凡人修仙傳' }, { s: '仙逆', t: '仙逆' },
+    { s: '斗破苍穹', t: '斗破蒼穹' }, { s: '诛仙', t: '誅仙' },
+    { s: '一念永恒', t: '一念永恆' }, { s: '遮天', t: '遮天' },
+    { s: '完美世界', t: '完美世界' }, { s: '圣墟', t: '聖墟' },
+    { s: '莽荒纪', t: '莽荒紀' }, { s: '星辰变', t: '星辰變' },
+    { s: '盘龙', t: '盤龍' }, { s: '雪中悍刀行', t: '雪中悍刀行' },
+    { s: '剑来', t: '劍來' }, { s: '武动乾坤', t: '武動乾坤' },
+    { s: '大主宰', t: '大主宰' }, { s: '神墓', t: '神墓' },
+    { s: '飘邈之旅', t: '飄邈之旅' }, { s: '佛本是道', t: '佛本是道' },
+    { s: '长生界', t: '長生界' }, { s: '不朽凡人', t: '不朽凡人' },
+    { s: '我欲封天', t: '我欲封天' }, { s: '无限恐怖', t: '無限恐怖' },
   ]
-  const fresh = POOL.filter(w => !haveSources.some(s => s.includes(w) || w.includes(s)))
+  const hit = (w: string) => haveSources.some(s => s.includes(w) || w.includes(s))
+  const fresh = POOL.filter(w => !hit(w.s) && !hit(w.t))
   const pickFrom = fresh.length >= 4 ? fresh : POOL
-  const examples = [...pickFrom].sort(() => Math.random() - 0.5).slice(0, 5)
+  const examples = [...pickFrom].sort(() => Math.random() - 0.5).slice(0, 5).map(w => w.s)
 
   // ⚠️ 已有的句子只餵**最近 60 則**：全部塞進去會把 prompt 撐爆，
   //    而且模型對長清單的遵守度本來就會下降。真正保證不重複的是下面的去重，不是這段。
@@ -139,17 +171,32 @@ router.post('/api/xianxia/quotes/ai-suggest', async (req, res) => {
       ? `以下句子語錄庫已經有了，**一句都不要重複**（連改寫過的版本也不要）：\n${avoidText.map(t => `- ${t}`).join('\n')}`
       : '',
     '每句請用「台詞內容｜出處作品名」這個格式輸出，一行一句，不要編號、不要多餘說明文字。',
+    // ⚠️ 這些作品的原著本來就是簡體寫成的，庫裡 21 則有 19 則也是簡體。
+    //    統一成簡體不只是外觀一致，也讓下面的去重真的有效——同一句用兩種寫法
+    //    存進來，精確比對是擋不掉的。
+    '**台詞內容與出處作品名一律使用簡體中文**，不要輸出繁體字。',
     '只列出你有信心真的存在於原著/劇集台詞的句子，不要自己編造或改寫；如果不確定某句的確切字句或出處，請不要列出，寧可少列也不要列錯。',
+    // ⚠️ 實測：指定單一作品又要 8 句時，模型會用「小心駛得萬年船」「斬草不除根」
+    //    這類通用成語湊數。明講一次，但**不能只靠這句**——真正的防線是人工那關。
+    '通用成語、俗諺、勵志金句都不算——必須是該作品裡真的出現過的台詞。寧可只給兩三句，也不要湊數量。',
   ].filter(Boolean).join('\n')
   try {
     const text = await callGeminiWithRotation(fullPrompt)
-    const suggestions = text
-      .split('\n')
-      .map(line => line.trim())
-      .filter(Boolean)
+    const rawLines = text.split('\n').map(line => line.trim()).filter(Boolean)
+    /**
+     * 🚨 **沒有「｜」分隔的行一律丟掉。**
+     *
+     *    模型常會先寫一句開場白（「以下是 5 句知名中國網路小說的經典名言：」），
+     *    原本那行會被當成一句語錄收進候選清單——**出處空白、內容是說明文字**。
+     *    要求的格式就是「台詞｜出處」，對不上格式的行就不是語錄。
+     *
+     * ⚠️ 丟掉幾行要回報，理由跟去重那邊一樣：安靜地少給會被當成 AI 很懶。
+     */
+    const parsable = rawLines.filter(l => l.includes('｜'))
+    const suggestions = parsable
       .map(line => {
         const [quoteText, source] = line.split('｜').map(s => s?.trim() ?? '')
-        return { text: quoteText, source: source ?? '' }
+        return { text: quoteText, source: source ?? '', hasTraditional: TRAD_ONLY.test(`${quoteText}${source ?? ''}`) }
       })
       .filter(s => s.text)
 
@@ -186,6 +233,7 @@ router.post('/api/xianxia/quotes/ai-suggest', async (req, res) => {
     res.json({
       ok: true, suggestions: deduped,
       duplicatesDropped: suggestions.length - deduped.length,
+      unparsedDropped: rawLines.length - parsable.length,
     })
   } catch (error) {
     res.status(500).json({ ok: false, message: error instanceof Error ? error.message : String(error) })

@@ -8,7 +8,7 @@ type Quote = {
   last_used_cycle: number
 }
 
-type Suggestion = { text: string; source: string }
+type Suggestion = { text: string; source: string; hasTraditional?: boolean }
 
 export function XianxiaQuotesPage() {
   const [quotes, setQuotes] = useState<Quote[]>([])
@@ -25,6 +25,8 @@ export function XianxiaQuotesPage() {
   const [onlySource, setOnlySource] = useState('')
   /** 這次被去重擋掉幾句——要顯示出來，安靜地少給會被誤會成「AI 很懶」。 */
   const [dropped, setDropped] = useState(0)
+  /** 格式不符被丟掉的行數（模型的開場白那種）。同樣要顯示，不能安靜地少給。 */
+  const [unparsed, setUnparsed] = useState(0)
   const [suggesting, setSuggesting] = useState(false)
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [suggestError, setSuggestError] = useState('')
@@ -113,6 +115,7 @@ export function XianxiaQuotesPage() {
       if (res.ok) {
         setSuggestions(res.suggestions ?? [])
         setDropped(res.duplicatesDropped ?? 0)
+        setUnparsed(res.unparsedDropped ?? 0)
         // ⚠️ 「一句都沒有」有兩種完全不同的原因，不能用同一句話帶過——
         //    全被去重擋掉時叫人「再試一次」是沒用的建議。
         if ((res.suggestions ?? []).length === 0) {
@@ -227,6 +230,11 @@ export function XianxiaQuotesPage() {
                 {suggesting ? 'AI 生成中…' : 'AI 建議'}
               </button>
             </div>
+            {unparsed > 0 && suggestions.length > 0 && (
+              <p className="discord-notify-card-note" style={{ color: '#8fb3d9' }}>
+                另有 {unparsed} 行不符「台詞｜出處」格式已略過（多半是 AI 的開場白）
+              </p>
+            )}
             {dropped > 0 && suggestions.length > 0 && (
               <div className="discord-notify-msg" style={{ fontSize: 12 }}>
                 已自動擋掉 {dropped} 句語錄庫裡已經有的
@@ -236,7 +244,17 @@ export function XianxiaQuotesPage() {
             {suggestions.map((s, idx) => (
               <div key={idx} style={{ border: '1px solid #334155', borderRadius: 6, padding: 10, marginBottom: 8 }}>
                 <div style={{ fontSize: 13, marginBottom: 4 }}>{s.text}</div>
-                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8 }}>出處：{s.source || '（未標示）'}</div>
+                <div style={{ fontSize: 12, color: '#64748b', marginBottom: 8, display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span>出處：{s.source || '（未標示）'}</span>
+                  {/* ⚠️ 只標示不自動轉換：改了字沒人看得出來，改錯一個字就變成
+                      原著裡不存在的話。要不要用交給人決定。 */}
+                  {s.hasTraditional && (
+                    <span
+                      title="語錄庫統一用簡體，這句含繁體字。系統刻意不自動轉換——改錯一個字就會變成原著裡不存在的話。"
+                      style={{ color: '#ead8a6', border: '1px solid #6b5b34', borderRadius: 4, padding: '0 5px', fontSize: 11 }}
+                    >繁體</span>
+                  )}
+                </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button className="discord-notify-btn discord-notify-btn--primary" onClick={() => handleAcceptSuggestion(s, idx)}>加入語錄庫</button>
                   <button className="discord-notify-btn discord-notify-btn--secondary" onClick={() => setSuggestions(prev => prev.filter((_, i) => i !== idx))}>忽略</button>
