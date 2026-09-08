@@ -1,0 +1,232 @@
+<title>對帳台多機台版面</title>
+<style>
+  :root {
+    --bg: #0b1220; --panel: #111c2e; --panel2: #16233a; --line: #24354f;
+    --ink: #e6edf7; --ink2: #9fb2cc; --ink3: #64798f;
+    --cyan: #38bdf8; --good: #34d399; --bad: #f87171; --warn: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 26px 18px 60px; background: var(--bg); color: var(--ink);
+    font: 14px/1.65 "Inter", "Noto Sans TC", system-ui, sans-serif; }
+  .wrap { max-width: 1120px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 6px; }
+  .lede { color: var(--ink2); font-size: 13px; margin: 0 0 6px; max-width: 74ch; }
+  .lede b { color: var(--ink); }
+  h2 { font-size: 15px; margin: 30px 0 5px; display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+  .tag { font-size: 10.5px; font-weight: 700; letter-spacing: .4px; padding: 2px 8px; border-radius: 99px; border: 1px solid; }
+  .tag.hot { color: var(--bad); border-color: #f8717155; background: #f8717116; }
+  .tag.rec { color: var(--good); border-color: #34d39955; background: #34d39916; }
+  .tag.alt { color: var(--ink3); border-color: var(--line); background: #ffffff08; }
+  .why { color: var(--ink2); font-size: 12.5px; margin: 0 0 12px; max-width: 78ch; }
+  .why b { color: var(--ink); }
+  .frame { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 13px; }
+  .bar { display: flex; align-items: center; gap: 9px; font-size: 12px; color: var(--ink2); margin-bottom: 11px; flex-wrap: wrap; }
+  .pill { padding: 1px 9px; border-radius: 99px; font-size: 11.5px; background: #16304a; color: #7dd3fc; border: 1px solid #2563eb55; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(146px, 1fr)); gap: 8px; }
+  .kpi { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; }
+  .kpi .l { font-size: 11px; color: var(--ink3); }
+  .kpi .v { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 1px; }
+  .kpi .s { font-size: 10.5px; color: var(--ink3); }
+  .kpi.bad { border-color: #f8717166; } .kpi.bad .v { color: var(--bad); }
+  .kpi.warn { border-color: #fbbf2455; } .kpi.warn .v { color: var(--warn); }
+  .kpi.good .v { color: var(--good); }
+  .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 620px; }
+  th { text-align: left; font-weight: 600; color: var(--ink3); font-size: 11px; padding: 7px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 8px; border-bottom: 1px solid #1c2b42; font-variant-numeric: tabular-nums; }
+  tr.hot td { background: #2a1618; } tr.sel td { background: #14263c; }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; }
+  .dim { color: var(--ink3); } .num-bad { color: var(--bad); font-weight: 700; } .num-ok { color: var(--good); }
+  .stripe { display: inline-block; width: 3px; height: 15px; border-radius: 2px; vertical-align: -3px; margin-right: 7px; }
+  .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+  .meter { display: inline-block; width: 96px; height: 6px; border-radius: 3px; background: #1e3350; overflow: hidden; vertical-align: middle; margin-right: 7px; }
+  .meter i { display: block; height: 100%; }
+  .note { border-left: 2px solid var(--warn); background: #fbbf2410; padding: 9px 12px; border-radius: 0 7px 7px 0; font-size: 12.5px; color: var(--ink2); margin-top: 11px; }
+  .note.bad { border-color: var(--bad); background: #f8717110; }
+  .note.ok { border-color: var(--good); background: #34d39910; }
+  .note b { color: var(--ink); }
+  .fix { border: 1px solid #f8717144; background: #f8717110; border-radius: 9px; padding: 12px 14px; margin: 0 0 24px; font-size: 12.5px; color: var(--ink2); }
+  .fix b { color: var(--ink); }
+  .fix h3 { margin: 0 0 6px; font-size: 13px; color: var(--bad); }
+</style>
+
+<div class="wrap">
+  <h1>對帳台 · 多機台版面（第 3 版）</h1>
+  <p class="lede">
+    這張表要回答的是<b>「LuckyLink 獎池的增減值有沒有符合預期、有沒有超出」</b>，
+    所以獎池排第一、機台總覽第二。所有數字都是資料庫裡的真實值。
+  </p>
+
+  <div class="fix">
+    <h3>⚠️ 第 2 版我判斷錯了，這版更正</h3>
+    我把獎池名稱裡的「70M」當成上限，然後說 <span class="mono">GRAND-JJBXGOLD 70M</span> 已經超出。
+    <b>那是錯的——名稱裡的數字是 basevalue（歸零後的起始值），不是上限。</b>實際設定是：
+    <div class="mono" style="margin:7px 0 6px;color:var(--ink)">
+      basevalue = 70,000,000　　maxValue = 9,999,999,999
+    </div>
+    池在 70,000,055 只是剛歸零後累積了 55，離真正的上限差了兩個數量級。
+    <b>凡是要判斷「超出」，一律讀設定值，不讀名稱。</b>
+  </div>
+
+  <!-- ① 獎池 -->
+  <h2>① 獎池 <span class="tag hot">主角</span></h2>
+  <p class="why">
+    每筆池變動都驗 <span class="mono">change ≈ (新投入額 − 舊投入額) × 增額%</span>。
+    庫裡目前 <b>15,849 筆相符、2 筆不符、594 筆因已達上限而未驗</b>。
+  </p>
+  <div class="frame">
+    <div class="bar">
+      <span class="pill">目前顯示：Eric Wu（你的機台所屬的獎池）</span>
+      <span>3 台執行中 · 最後觀測 01:42:07</span>
+    </div>
+    <div class="kpis">
+      <div class="kpi bad"><div class="l">已達設定上限</div><div class="v">42</div><div class="s">台 · JPBZZF3 滿頂</div></div>
+      <div class="kpi warn"><div class="l">增減值不符</div><div class="v">2</div><div class="s">JJBXGOLD-1001</div></div>
+      <div class="kpi good"><div class="l">相符</div><div class="v">15,849</div><div class="s">誤差 ≤ 0.01</div></div>
+      <div class="kpi"><div class="l">最高水位</div><div class="v">100%</div><div class="s">JPBZZF3</div></div>
+    </div>
+
+    <div style="margin-top:13px;font-size:12px;color:var(--ink3)">各獎池水位 —— 一律用設定值計算，不看名稱</div>
+    <div class="scroll">
+      <table style="margin-top:5px">
+        <thead><tr>
+          <th style="width:190px">獎池 Level</th><th style="width:150px">水位（占上限）</th>
+          <th>目前池值</th><th>設定上限</th><th>增額%</th><th>狀態</th>
+        </tr></thead>
+        <tbody>
+          <tr class="hot">
+            <td><span class="stripe" style="background:var(--bad)"></span><b>JPBZZF3</b>
+              <div class="dim mono" style="margin-left:10px">892-BZZF-* · 42 台</div></td>
+            <td><span class="meter"><i style="width:100%;background:var(--bad)"></i></span><span class="num-bad">100%</span></td>
+            <td class="num-bad">999,999,999</td><td>999,999,999</td><td class="num-bad">0.75</td>
+            <td><span class="dot" style="background:var(--bad)"></span>已滿頂</td>
+          </tr>
+          <tr>
+            <td><span class="stripe" style="background:var(--good)"></span><b>BB_Grand</b>
+              <div class="dim mono" style="margin-left:10px">873-BULLBLITZ-0136</div></td>
+            <td><span class="meter"><i style="width:3%;background:var(--good)"></i></span>3.0%</td>
+            <td>3,038,743</td><td>99,999,999</td><td>0.002</td>
+            <td><span class="dot" style="background:var(--good)"></span>正常</td>
+          </tr>
+          <tr>
+            <td><span class="stripe" style="background:var(--good)"></span><b>GRAND-JJBXGOLD 70M</b>
+              <div class="dim mono" style="margin-left:10px">873-JJBXGOLD-1001</div></td>
+            <td><span class="meter"><i style="width:1%;background:var(--good)"></i></span>0.7%</td>
+            <td>70,000,056</td><td>9,999,999,999</td><td>0.005</td>
+            <td><span class="dot" style="background:var(--warn)"></span>有不符</td>
+          </tr>
+          <tr>
+            <td><span class="stripe" style="background:var(--good)"></span><b>DFDC-G-New3</b>
+              <div class="dim mono" style="margin-left:10px">873-DFDC-0003 / 0004</div></td>
+            <td><span class="meter"><i style="width:36%;background:var(--good)"></i></span>35.7%</td>
+            <td>15,002,254</td><td>42,000,000</td><td>0.003</td>
+            <td><span class="dot" style="background:var(--good)"></span>正常</td>
+          </tr>
+          <tr>
+            <td><span class="stripe" style="background:var(--good)"></span><b>Big Fu Grand</b>
+              <div class="dim mono" style="margin-left:10px">897-BIGFULINK-2065</div></td>
+            <td><span class="meter"><i style="width:1%;background:var(--good)"></i></span>0.1%</td>
+            <td>1,006,511</td><td>999,999,999</td><td>0.004</td>
+            <td><span class="dot" style="background:var(--good)"></span>正常</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note bad">
+      <b>JPBZZF3 是真正的「超出」，而且是 42 台一起。</b>池值就等於設定上限 999,999,999，
+      累積已改走溢流池。它的增額% 是 <b>0.75</b>——別的池是 0.002~0.015，<b>差了兩個數量級</b>，
+      這多半就是它衝到頂的原因。這件事現在畫面上完全看不到。
+    </div>
+
+    <div style="margin-top:14px;font-size:12px;color:var(--ink3)">增減值不符明細（真實資料）</div>
+    <div class="scroll">
+      <table style="margin-top:5px">
+        <thead><tr><th>時間</th><th>機台 / Level</th><th>投入額變化</th><th>預期</th><th>實際</th><th>差</th><th>可能原因</th></tr></thead>
+        <tbody>
+          <tr class="hot">
+            <td class="dim">09-07 14:00:02</td><td>JJBXGOLD-1001<div class="dim">GRAND</div></td>
+            <td class="num-bad">−10,224</td><td>−51.12</td><td>+2.20</td><td class="num-bad">+53.32</td>
+            <td class="dim">投入額<b style="color:var(--warn)">倒退</b>，且池值剛回到 basevalue<br>→ 疑似中獎後歸零</td>
+          </tr>
+          <tr class="hot">
+            <td class="dim">09-07 14:00:02</td><td>JJBXGOLD-1001<div class="dim">MAJOR</div></td>
+            <td class="num-bad">−10,224</td><td>−51.12</td><td>+2.20</td><td class="num-bad">+53.32</td>
+            <td class="dim">同一時刻、同一台</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <b>⚠️ 不能只寫「加太多 53.32」。</b>公式是拿投入額差推預期值，投入額變負（−10,224）時
+      預期值也跟著變負，差額自然很大——<b>那不代表獎池真的被多加了 53</b>。
+      而且池值當下正好等於 basevalue（70,000,000），比較像中獎歸零，不是超發。
+      不標原因的話，看的人會去追一筆不存在的問題。
+    </div>
+  </div>
+
+  <!-- ② 機台 -->
+  <h2>② 機台總覽 <span class="tag rec">一台一列</span></h2>
+  <p class="why">
+    多台一起跑時<b>加總會把問題藏起來</b>——「掉單 4」可能是一台掉 4 筆，也可能是四台各掉 1 筆，
+    處置完全不同。每台一列、有問題的排前面，點一列就篩選下面的逐筆明細。
+  </p>
+  <div class="frame">
+    <div class="scroll">
+      <table>
+        <thead><tr><th style="width:180px">機台</th><th>覆蓋率</th><th>已對帳</th><th>掉單</th><th>等待</th><th>未起注</th><th>池不符</th><th>最後觀測</th></tr></thead>
+        <tbody>
+          <tr class="sel">
+            <td><span class="stripe" style="background:var(--bad)"></span><b>JJBXGOLD</b>
+              <div class="dim mono" style="margin-left:10px">873-JJBXGOLD-1001</div></td>
+            <td class="dim">—</td><td class="dim">—</td><td class="dim">0</td><td class="dim">0</td><td class="dim">0</td>
+            <td class="num-bad">2</td><td class="dim">14:00:02</td>
+          </tr>
+          <tr>
+            <td><span class="stripe" style="background:var(--warn)"></span><b>BULLBLITZ</b>
+              <div class="dim mono" style="margin-left:10px">873-BULLBLITZ-0136</div></td>
+            <td>71%</td><td>102 / 144</td><td class="num-bad">5</td><td>7</td><td class="dim">22</td>
+            <td class="dim">0</td><td class="dim">01:42:07</td>
+          </tr>
+          <tr>
+            <td><span class="stripe" style="background:var(--good)"></span><b>JJBX</b>
+              <div class="dim mono" style="margin-left:10px">873-JJBX-0004</div></td>
+            <td class="num-ok">100%</td><td>176 / 176</td><td class="dim">0</td><td>1</td><td class="dim">6</td>
+            <td class="dim">0</td><td class="dim">01:41:58</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <b>刻意不做：</b>把多台合成一個「總健康分數」。那又是把分布壓成一個數字——
+      前天才被這種做法騙過（覆蓋率 89.5% 看起來像綁定器壞了，拆開才發現綁定器是 100%）。
+    </div>
+  </div>
+
+  <!-- ③ 只看自己 -->
+  <h2>③ 「每個人看自己的」</h2>
+  <div class="frame">
+    <div class="scroll">
+      <table>
+        <thead><tr><th style="width:130px">層級</th><th>範圍</th><th>做得到嗎</th></tr></thead>
+        <tbody>
+          <tr><td>spin 對帳</td><td>你自己派工的 session</td><td class="num-ok">可以，已經是這樣</td></tr>
+          <tr><td>機台總覽</td><td>你這次跑的那幾台</td><td class="num-ok">可以</td></tr>
+          <tr><td>獎池</td><td>你的機台<b>所屬</b>的獎池</td>
+            <td><span style="color:var(--warn)">部分</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <b>⚠️ 第三列不能假裝做得到。</b>獎池是群組共用的，累積本來就混著所有人的投入。
+      能做到的是「只列出<b>你的機台所屬</b>的那幾個池」，不是「只算你造成的池變動」。
+      文案要寫「你的機台所屬的獎池」——寫成「你的獎池」會讓人以為數字只反映自己，排查時就會對不上。
+    </div>
+  </div>
+
+  <h2>備案 · 每台一個分頁 <span class="tag alt">機台很多時</span></h2>
+  <p class="why">
+    10 台以上時 ② 的列表會太長。但分頁的缺點是<b>沒被選到的那幾台看不見</b>——
+    監控畫面最怕問題躲在沒點開的分頁裡。真到那個程度，比較好的做法可能是
+    <b>「只列有問題的」＋一個「顯示全部」開關</b>，而不是分頁。
+  </p>
+</div>

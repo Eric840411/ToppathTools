@@ -1,0 +1,295 @@
+<title>對帳台完成圖</title>
+<style>
+  :root {
+    --bg: #0b1220; --panel: #111c2e; --panel2: #16233a; --line: #24354f; --line2: #1c2b42;
+    --ink: #e6edf7; --ink2: #9fb2cc; --ink3: #64798f;
+    --cyan: #38bdf8; --good: #34d399; --bad: #f87171; --warn: #fbbf24; --violet: #a78bfa;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 20px 16px 48px; background: var(--bg); color: var(--ink);
+    font: 13.5px/1.6 "Inter", "Noto Sans TC", system-ui, sans-serif; }
+  .wrap { max-width: 1240px; margin: 0 auto; }
+  .screen { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 14px; }
+
+  .topbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--ink2); margin-bottom: 13px; }
+  .pill { padding: 2px 9px; border-radius: 99px; font-size: 11.5px; background: #16304a; color: #7dd3fc; border: 1px solid #2563eb55; }
+  .sel { background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; color: var(--ink); padding: 3px 9px; font-size: 12px; }
+  .spacer { margin-left: auto; }
+
+  h2 { font-size: 13px; margin: 0 0 8px; color: var(--violet); letter-spacing: .05em; font-weight: 700;
+       display: flex; align-items: center; gap: 8px; }
+  h2 .cnt { font-weight: 400; color: var(--ink3); letter-spacing: 0; }
+  section + section { margin-top: 16px; }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(142px, 1fr)); gap: 8px; }
+  .kpi { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; }
+  .kpi .l { font-size: 10.5px; color: var(--ink3); }
+  .kpi .v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.25; }
+  .kpi .s { font-size: 10px; color: var(--ink3); }
+  .kpi.bad { border-color: #f8717155; } .kpi.bad .v { color: var(--bad); }
+  .kpi.warn { border-color: #fbbf2444; } .kpi.warn .v { color: var(--warn); }
+  .kpi.good .v { color: var(--good); }
+  .kpi.muted .v { color: var(--ink3); font-size: 17px; }
+
+  .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 640px; }
+  th { text-align: left; font-weight: 600; color: var(--ink3); font-size: 10.5px; padding: 6px 8px;
+       border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 7px 8px; border-bottom: 1px solid var(--line2); font-variant-numeric: tabular-nums; }
+  tr.sel td { background: #14263c; }
+  tr.hot td { background: #26161a; }
+  .mono { font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+  .dim { color: var(--ink3); } .bad { color: var(--bad); font-weight: 700; } .ok { color: var(--good); }
+  .stripe { display: inline-block; width: 3px; height: 14px; border-radius: 2px; vertical-align: -3px; margin-right: 7px; }
+  .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 5px; vertical-align: 1px; }
+  .meter { display: inline-block; width: 86px; height: 5px; border-radius: 3px; background: #1e3350; overflow: hidden; vertical-align: middle; margin-right: 7px; }
+  .meter i { display: block; height: 100%; }
+  .chip { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 10px; }
+  .chip.bad { background: rgba(248,113,113,.13); color: var(--bad); font-weight: 600; }
+  .chip.warn { background: rgba(251,191,36,.13); color: var(--warn); font-weight: 600; }
+  .chip.dim { background: #1e293b; color: var(--ink3); }
+
+  .band { border-left: 2px solid var(--bad); background: rgba(248,113,113,.07); padding: 8px 11px;
+          border-radius: 0 7px 7px 0; font-size: 12px; color: var(--ink2); margin-bottom: 9px; }
+  .band b { color: var(--ink); }
+  .band.warn { border-color: var(--warn); background: rgba(251,191,36,.07); }
+
+  .lines { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 7px; }
+  .lcard { background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; }
+  .lcard .n { font-size: 11px; font-weight: 700; }
+  .lcard .d { font-size: 10px; color: var(--ink3); }
+  .lcard .r { font-size: 12px; margin-top: 3px; font-variant-numeric: tabular-nums; }
+  .lcard.off { opacity: .55; }
+
+  .detail { background: #0d1727; border: 1px solid var(--line2); border-radius: 8px; padding: 10px;
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 9px; margin: 6px 0 2px; }
+  .dcard { border: 1px dashed var(--line); border-radius: 7px; padding: 8px 10px; }
+  .dcard h4 { margin: 0 0 5px; font-size: 10.5px; color: var(--ink3); letter-spacing: .05em; font-weight: 700; }
+  .kv { display: flex; justify-content: space-between; gap: 10px; font-size: 11.5px; }
+  .kv span:first-child { color: var(--ink3); }
+
+  .notes { margin-top: 22px; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px;
+           background: #0e1725; font-size: 12px; color: var(--ink2); }
+  .notes h3 { margin: 0 0 8px; font-size: 12.5px; color: var(--ink); }
+  .notes li { margin-bottom: 6px; }
+  .notes b { color: var(--ink); }
+  .lead { color: var(--ink2); font-size: 12.5px; margin: 0 0 14px; max-width: 76ch; }
+  .lead b { color: var(--ink); }
+  h1 { font-size: 19px; margin: 0 0 5px; }
+</style>
+
+<div class="wrap">
+  <h1>對帳台 · 完成後的畫面</h1>
+  <p class="lead">
+    這張是<b>做完之後長什麼樣</b>，不是選項比較。所有數字都是目前資料庫裡的真實值
+    （池變動 18,285 相符／819 已達上限／7 不符）。
+  </p>
+
+  <div class="screen">
+    <!-- 頂欄 -->
+    <div class="topbar">
+      <span class="pill">Eric Wu · 你的機台與所屬獎池</span>
+      <span><b style="color:var(--ink)">4</b> 台執行中 · 最後觀測 10:31:02</span>
+      <span class="spacer"></span>
+      <select class="sel"><option>qat</option><option>uat</option></select>
+      <select class="sel"><option>近 6 小時</option><option>近 24 小時</option></select>
+    </div>
+
+    <!-- ① 獎池 -->
+    <section>
+      <h2>① 獎池 <span class="cnt">L4 / L5 · 每 60 秒自動比對</span></h2>
+
+      <div class="band">
+        <b>7 筆增減值不符，全部是同一種情況：投入額倒退。</b>
+        分佈在 JJBXGOLD-1001（4）與 JJBXGRAND-0132（3），時間集中在 09-07 14:00 與 09-08 09:26～09:28。
+        投入額變成負值時公式會推出負的預期增額，差額因此很大——<b>這不代表獎池真的被多加了錢</b>。
+      </div>
+
+      <div class="kpis">
+        <div class="kpi bad"><div class="l">已達設定上限</div><div class="v">42</div><div class="s">台 · JPBZZF3 滿頂</div></div>
+        <div class="kpi warn"><div class="l">增減值不符</div><div class="v">7</div><div class="s">2 台 · 皆投入額倒退</div></div>
+        <div class="kpi good"><div class="l">相符</div><div class="v">18,285</div><div class="s">誤差 ≤ 0.01</div></div>
+        <div class="kpi"><div class="l">最高水位</div><div class="v">100%</div><div class="s">占設定上限</div></div>
+        <div class="kpi muted"><div class="l">資料新鮮度</div><div class="v">1 分鐘前</div><div class="s">游標已追上</div></div>
+      </div>
+
+      <div class="dim" style="font-size:11px;margin:11px 0 4px">
+        水位一律用<b style="color:var(--ink2)">設定的 maxValue</b> 計算——獎池名稱裡的數字是 basevalue，不是上限
+      </div>
+      <div class="scroll">
+        <table>
+          <thead><tr>
+            <th style="width:200px">獎池 Level</th><th style="width:150px">水位（占上限）</th>
+            <th>目前池值</th><th>設定上限</th><th>增額%</th><th>不符</th><th>狀態</th>
+          </tr></thead>
+          <tbody>
+            <tr class="hot">
+              <td><span class="stripe" style="background:var(--bad)"></span><b>JPBZZF3</b>
+                <div class="dim mono" style="margin-left:10px">892-BZZF-* · 42 台</div></td>
+              <td><span class="meter"><i style="width:100%;background:var(--bad)"></i></span><span class="bad">100.00%</span></td>
+              <td class="bad">999,999,999</td><td>999,999,999</td><td class="bad">0.75</td><td class="dim">0</td>
+              <td><span class="dot" style="background:var(--bad)"></span>已滿頂 · 走溢流</td>
+            </tr>
+            <tr class="hot">
+              <td><span class="stripe" style="background:var(--warn)"></span><b>GRAND-JJBXGOLD 70M</b>
+                <div class="dim mono" style="margin-left:10px">873-JJBXGOLD-1001</div></td>
+              <td><span class="meter"><i style="width:1%;background:var(--good)"></i></span>0.70%</td>
+              <td>70,010,517</td><td>9,999,999,999</td><td>0.005</td><td class="bad">2</td>
+              <td><span class="dot" style="background:var(--warn)"></span>有不符</td>
+            </tr>
+            <tr class="hot">
+              <td><span class="stripe" style="background:var(--warn)"></span><b>JJBX-GRAND-F / G / M</b>
+                <div class="dim mono" style="margin-left:10px">873-JJBXGRAND-0132</div></td>
+              <td><span class="meter"><i style="width:2%;background:var(--good)"></i></span>1.75%</td>
+              <td>17,500,000</td><td>999,999,999</td><td>0.004</td><td class="bad">3</td>
+              <td><span class="dot" style="background:var(--warn)"></span>有不符</td>
+            </tr>
+            <tr>
+              <td><span class="stripe" style="background:var(--good)"></span><b>DFDC-G-New3</b>
+                <div class="dim mono" style="margin-left:10px">873-DFDC-0003 / 0004</div></td>
+              <td><span class="meter"><i style="width:36%;background:var(--good)"></i></span>35.72%</td>
+              <td>15,002,254</td><td>42,000,000</td><td>0.003</td><td class="dim">0</td>
+              <td><span class="dot" style="background:var(--good)"></span>正常</td>
+            </tr>
+            <tr>
+              <td><span class="stripe" style="background:var(--good)"></span><b>BB_Grand</b>
+                <div class="dim mono" style="margin-left:10px">873-BULLBLITZ-0136</div></td>
+              <td><span class="meter"><i style="width:3%;background:var(--good)"></i></span>3.04%</td>
+              <td>3,038,743</td><td>99,999,999</td><td>0.002</td><td class="dim">0</td>
+              <td><span class="dot" style="background:var(--good)"></span>正常</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="dim" style="font-size:11px;margin:12px 0 4px">不符明細 —— 每一筆都要講出「可能原因」</div>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>時間</th><th>機台 / Level</th><th>投入額變化</th><th>預期增額</th><th>實際增額</th><th>差</th><th>可能原因</th></tr></thead>
+          <tbody>
+            <tr class="hot"><td class="dim">09-08 09:26</td><td>JJBXGOLD-1001 <span class="dim">GRAND</span></td>
+              <td class="bad">−2,081,938</td><td>−10,409.69</td><td>+0.19</td><td class="bad">+10,409.88</td>
+              <td><span class="chip warn">投入額倒退</span> <span class="dim">疑似 meter 重置</span></td></tr>
+            <tr class="hot"><td class="dim">09-08 09:28</td><td>JJBXGRAND-0132 <span class="dim">F / G / M</span></td>
+              <td class="bad">−17,270</td><td>−69.08</td><td>+0.072</td><td class="bad">+69.15</td>
+              <td><span class="chip warn">投入額倒退</span> <span class="dim">同一時刻三個 Level 一起</span></td></tr>
+            <tr class="hot"><td class="dim">09-07 14:00</td><td>JJBXGOLD-1001 <span class="dim">GRAND / MAJOR</span></td>
+              <td class="bad">−10,224</td><td>−51.12</td><td>+2.20</td><td class="bad">+53.32</td>
+              <td><span class="chip warn">投入額倒退</span> <span class="dim">池值當下＝basevalue，疑似中獎歸零</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ② 機台 -->
+    <section>
+      <h2>② 機台總覽 <span class="cnt">L1 / L2 · 點一列篩選下方明細</span></h2>
+      <div class="scroll">
+        <table>
+          <thead><tr><th style="width:190px">機台</th><th>覆蓋率</th><th>已對帳</th><th>掉單</th><th>待入帳</th><th>未起注</th><th>池不符</th><th>最後觀測</th></tr></thead>
+          <tbody>
+            <tr class="hot">
+              <td><span class="stripe" style="background:var(--bad)"></span><b>BIGFULINK</b>
+                <div class="dim mono" style="margin-left:10px">897-BIGFULINK-2065</div></td>
+              <td><span class="meter"><i style="width:59%;background:var(--bad)"></i></span><span class="bad">58.8%</span></td>
+              <td>1,596 / 2,714</td><td class="bad">1,118</td><td>164</td><td class="dim">16</td><td class="dim">0</td><td class="dim">昨日</td>
+            </tr>
+            <tr class="sel">
+              <td><span class="stripe" style="background:var(--warn)"></span><b>BULLBLITZ</b>
+                <div class="dim mono" style="margin-left:10px">873-BULLBLITZ-0136</div></td>
+              <td><span class="meter"><i style="width:86%;background:var(--warn)"></i></span>86.2%</td>
+              <td>1,064 / 1,233</td><td class="bad">132</td><td>153</td><td class="dim">116</td><td class="dim">0</td><td class="dim">10:31:02</td>
+            </tr>
+            <tr>
+              <td><span class="stripe" style="background:var(--good)"></span><b>JJBX</b>
+                <div class="dim mono" style="margin-left:10px">873-JJBX-0004</div></td>
+              <td><span class="meter"><i style="width:100%;background:var(--good)"></i></span><span class="ok">100%</span></td>
+              <td>59 / 59</td><td class="dim">0</td><td>118</td><td class="dim">0</td><td class="dim">0</td><td class="dim">10:30:55</td>
+            </tr>
+            <tr>
+              <td><span class="stripe" style="background:var(--warn)"></span><b>JJBXGOLD</b>
+                <div class="dim mono" style="margin-left:10px">873-JJBXGOLD-1001</div></td>
+              <td class="dim">—</td><td class="dim">—</td><td class="dim">0</td><td class="dim">0</td><td class="dim">0</td>
+              <td class="bad">2</td><td class="dim">09:26:07</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="band warn" style="margin:9px 0 0">
+        <b>不做「總健康分數」。</b>覆蓋率 58.8% 跟 100% 混成一個數字之後，看到的人會去修沒壞的東西——
+        真正要處理的是 BIGFULINK 那 1,118 筆掉單，不是「整體 82%」。
+      </div>
+    </section>
+
+    <!-- ③ 逐筆 -->
+    <section>
+      <h2>③ 逐筆明細 <span class="cnt">已篩：BULLBLITZ · 點一列展開三路來源</span></h2>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>時間</th><th>機台</th><th>局號</th><th>bet 前端</th><th>bet 後台</th><th>win 後台</th><th>延遲</th><th>狀態</th></tr></thead>
+          <tbody>
+            <tr><td class="dim">10:31:02</td><td>BULLBLITZ <span class="dim">#1810</span></td><td class="mono dim">|6A9E…011</td>
+              <td>2,500</td><td>2,500</td><td>0</td><td>0.8s</td><td><span class="dot" style="background:var(--good)"></span>相符</td></tr>
+            <tr class="sel"><td class="dim">10:30:00</td><td>BULLBLITZ <span class="dim">#1809</span></td><td class="dim">—</td>
+              <td>2,500</td><td class="dim">—</td><td class="dim">—</td><td class="dim">—</td><td><span class="dot" style="background:var(--bad)"></span>掉單</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="detail">
+        <div class="dcard">
+          <h4>A · AUTOSPIN 觀測</h4>
+          <div class="kv"><span>observedAt</span><span class="mono">10:30:00.412</span></div>
+          <div class="kv"><span>outcome</span><span>completed</span></div>
+          <div class="kv"><span>bet</span><span>2,500</span></div>
+          <div class="kv"><span>餘額 前 → 後</span><span>1,093,808 → 1,093,803</span></div>
+        </div>
+        <div class="dcard">
+          <h4>B · OSM 後台</h4>
+          <div class="dim" style="font-size:11.5px">超過門檻仍查無對應紀錄 → 判定掉單<br>
+            <span style="color:var(--ink3)">已等待 92 秒（門檻 90 秒）</span></div>
+        </div>
+        <div class="dcard">
+          <h4>C · LUCKYLINK</h4>
+          <div class="dim" style="font-size:11.5px">L4／L5 是群組層級（JP 池／中獎），不掛在單一 spin 上——請看上方獎池區</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ④ 線別 -->
+    <section>
+      <h2>④ 線別狀態</h2>
+      <div class="lines">
+        <div class="lcard"><div class="n">L1 單局</div><div class="d">觀測 ↔ gameRecordList</div>
+          <div class="r"><span class="ok">相符 2,719</span> · <span class="bad">掉單 1,250</span></div></div>
+        <div class="lcard"><div class="n">L2 餘額</div><div class="d">餘額變化 ↔ win − bet</div>
+          <div class="r"><span class="ok">相符 2,719</span> · 不符 0</div></div>
+        <div class="lcard off"><div class="n">L3 上下分</div><div class="d">入離機 ↔ EGM Transfer</div>
+          <div class="r dim">尚未拉取報表</div></div>
+        <div class="lcard"><div class="n">L4 JP 中獎</div><div class="d">awardsReport 三條等式</div>
+          <div class="r dim">本區間 0 筆中獎</div></div>
+        <div class="lcard"><div class="n">L5 JP 池</div><div class="d">poolChangeReport</div>
+          <div class="r"><span class="ok">相符 18,285</span> · <span class="bad">不符 7</span></div></div>
+        <div class="lcard off"><div class="n">L6 / L7</div><div class="d">連線健康 · 協定廣播</div>
+          <div class="r dim">未實作</div></div>
+      </div>
+    </section>
+  </div>
+
+  <div class="notes">
+    <h3>幾個刻意的設計決定</h3>
+    <ul style="margin:0;padding-left:18px">
+      <li><b>獎池排第一，spin 對帳排第二。</b>這張表要回答的是「獎池增減值有沒有符合預期、有沒有超出」，
+        不是「每一局有沒有對上」。</li>
+      <li><b>水位一律用設定的 <span class="mono">maxValue</span>，不看獎池名稱。</b>
+        「GRAND-JJBXGOLD <b>70M</b>」的 70M 是 basevalue，實際上限是 9,999,999,999——
+        用名稱判斷會得出「已超出」這種完全相反的結論。</li>
+      <li><b>7 筆不符收成一條橫幅，不是七列。</b>它們全部是同一種情況（投入額倒退），
+        分開讀會以為有七個獨立問題。</li>
+      <li><b>不符明細一定要有「可能原因」欄。</b>只寫「加太多 10,409」會讓人去追一筆不存在的超發；
+        真正的原因是投入額變成負值，公式因此推出負的預期值。</li>
+      <li><b>沒有「總健康分數」。</b>覆蓋率 58.8% 跟 100% 壓成一個數字，會讓人去修沒壞的東西。</li>
+      <li><b>獎池那一區的範圍是「你的機台所屬的獎池」，不是「你的獎池」。</b>
+        池被所有人共用，寫成後者會讓人以為數字只反映自己，排查時必然對不上。</li>
+    </ul>
+  </div>
+</div>

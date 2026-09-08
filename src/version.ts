@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.127.3'
+export const APP_VERSION = '4.128.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,19 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.128.0',
+    date: '2026-09-08',
+    changes: [
+      'feat(live-ledger): 對帳台新增**獎池區**並排在第一位。這張表要回答的是「LuckyLink 獎池的增減值有沒有符合預期、有沒有超出」，spin 逐局對帳是手段不是目的（使用者指正）。上線就看到兩件現在才浮出來的事：**JPBZZF3 43 台池值已等於設定上限 999,999,999**（增額% 0.75，別的池是 0.002~0.015），以及 7 筆增減值不符',
+      'feat(live-ledger): 🚨 **水位一律用設定的 `maxValue` 計算，不看獎池名稱**。`GRAND-JJBXGOLD 70M` 的「70M」是 basevalue，實際上限是 9,999,999,999——拿名稱判斷會得出「已超出」這種完全相反的結論（我犯過一次，使用者當場糾正）。「已滿頂」也是用實際池值比對上限算的，不是數 `skipped_overflow`——那個狀態的字面意思是「這筆沒驗」',
+      'feat(live-ledger): ⚠️ 不符**收成一條橫幅，不是逐列**。實測 7 筆全部是同一種情況（投入額倒退），分開列會讓人以為有七個獨立問題。明細另外附「可能原因」欄——只寫「加太多 10,409」會讓人去追一筆不存在的超發，真正的原因是投入額變負、公式因此推出負的預期值',
+      'feat(live-ledger): 新增**機台總覽**（一台一列，有問題的排前面，點一列篩選逐筆明細）。多台一起跑時加總會把問題藏起來——實測「掉單 1,250」其中 1,118 筆全在 BIGFULINK-2065 一台上。⚠️ 刻意**不做**「總健康分數」：覆蓋率 58.8% 跟 100% 壓成一個數字，看到的人會去修沒壞的那台',
+      'fix(live-ledger): 機台篩選在**查詢**做，不讓前端拿 50 筆再自己濾——那樣篩完可能一筆不剩，而使用者會以為「這台沒有資料」。`machineFilter` 也補進 `useCallback` 的 deps，否則會抓到上一輪的值，症狀是「要點兩下才篩」',
+      'fix(live-ledger): 順手修掉時間軸的橫向溢出。每格 minWidth 2px，選 24 小時（288 格）時實測 1166px 塞進 697px 的欄位、把整個面板撐開推歪隔壁。這是既有問題，把視窗拉大才暴露出來',
+      'test(live-ledger): 新增 `scripts/ui-checks/live-ledger-shot.mjs` 實際渲染量測。⚠️ 踩到兩個坑並記在腳本裡：**cookie 名稱是 `toppath_auth` 不是 `sid`**；**預設視窗只有 30 分鐘、那段常常沒資料**，用它量會得到「不符明細不見了」這種假結論',
+    ],
+  },
   {
     version: '4.127.3',
     date: '2026-09-08',

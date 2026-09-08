@@ -368,6 +368,8 @@ export function ledgerRows(env: ReconEnv, opts: {
    *  表格滿是掉單——同一畫面兩個分母，使用者不知道該信哪個。 */
   minutes?: number
   now?: number
+  /** 只看這台。空字串＝不篩。 */
+  machineType?: string
 } = {}): { rows: LedgerRow[]; nextCursor: number | null } {
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200)
   const where: string[] = ['s.env = ?']
@@ -380,6 +382,9 @@ export function ledgerRows(env: ReconEnv, opts: {
   if (opts.viewer) { where.push('s.userLabel = ?'); args.push(opts.viewer) }
   if (opts.filter === 'abnormal') where.push(`s.status IN ('MISSING','AMBIGUOUS')`)
   else if (opts.filter === 'pending') where.push(`s.status = 'PENDING'`)
+  // ⚠️ 機台篩選要在**查詢**做，不能讓前端拿到 50 筆之後自己濾——
+  //    那樣篩完可能一筆都不剩，而使用者會以為「這台沒有資料」。
+  if (opts.machineType) { where.push('s.machineType = ?'); args.push(opts.machineType) }
 
   const rows = db.prepare(`
     SELECT s.id, s.observedAt, s.machineType, s.gmid, s.spinSeq, s.status, s.outcome,
@@ -468,4 +473,70 @@ export function amountStats(env: ReconEnv, sinceMs: number, viewer: string | nul
   `).all(...(viewer === null ? [env, sinceMs] : [env, sinceMs, viewer])) as { line: string; n: number }[]
   const by = new Map(f.map(x => [x.line, x.n]))
   return { checked: r?.checked ?? 0, l1Bad: by.get('l1_amount') ?? 0, l2Bad: by.get('l2_balance') ?? 0 }
+}
+
+/**
+ * ── 機台總覽（對帳台第二區）─────────────────────────────────────────────────
+ *
+ * 🚨 **一台一列，有問題的排前面。**多台一起跑時把數字加總會把問題藏起來：
+ *    「掉單 1,250」可能是一台掉 1,118（實測 BIGFULINK-2065 就是），
+ *    也可能是四台各掉 300——處置完全不同。
+ *
+ * ⚠️ 刻意**不提供**「總健康分數」。實測覆蓋率 58.8%（BIGFULINK）跟 100%（JJBX）
+ *    壓成一個數字之後，看到的人會去修沒壞的那台。
+ */
+export type MachineRow = {
+  machineType: string; gmid: string
+  matched: number; eligible: number
+  /** 已對帳／可對帳。分母**不含**不可能起局的那些（見 NOT_STARTED）。 */
+  coverage: number | null
+  missing: number; pending: number; noRound: number; ambiguous: number
+  lastAt: number | null
+}
+
+export function machineOverview(
+  env: ReconEnv, sinceMs: number, viewer: string | null = null,
+): MachineRow[] {
+  const rows = db.prepare(`
+    SELECT machineType, gmid, status, outcome, observedAt
+    FROM recon_spin WHERE env=? AND observedAt >= ?
+      ${viewer === null ? '' : 'AND userLabel = ?'}
+  `).all(...(viewer === null ? [env, sinceMs] : [env, sinceMs, viewer])) as {
+    machineType: string; gmid: string; status: string; outcome: string; observedAt: number
+  }[]
+
+  const NON_ROUND = new Set(['not_started', 'no_bet'])
+  const by = new Map<string, MachineRow>()
+  for (const r of rows) {
+    const key = `${r.machineType}|${r.gmid}`
+    let m = by.get(key)
+    if (!m) {
+      m = {
+        machineType: r.machineType, gmid: r.gmid, matched: 0, eligible: 0,
+        coverage: null, missing: 0, pending: 0, noRound: 0, ambiguous: 0, lastAt: null,
+      }
+      by.set(key, m)
+    }
+    const nonRound = NON_ROUND.has(r.outcome ?? '')
+    if (nonRound) m.noRound++
+    else {
+      m.eligible++
+      if (r.status === 'MATCH') m.matched++
+      else if (r.status === 'MISSING') m.missing++
+      else if (r.status === 'PENDING') m.pending++
+      else if (r.status === 'AMBIGUOUS') m.ambiguous++
+    }
+    if (m.lastAt === null || r.observedAt > m.lastAt) m.lastAt = r.observedAt
+  }
+
+  const out = [...by.values()]
+  for (const m of out) {
+    // ⚠️ 沒有樣本就是 null，不是 0——「0%」會被讀成「全部沒對上」
+    m.coverage = m.eligible > 0 ? m.matched / m.eligible : null
+  }
+  // 有問題的排前面：掉單多 → 覆蓋率低 → 樣本多
+  return out.sort((a, b) =>
+    (b.missing - a.missing)
+    || ((a.coverage ?? 1) - (b.coverage ?? 1))
+    || (b.eligible - a.eligible))
 }

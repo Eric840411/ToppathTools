@@ -399,3 +399,134 @@ export function jpSummary(env: ReconEnv, sinceMs: number): {
     observed: m?.observed ?? 0, configOnly: (m?.levels ?? 0) - (m?.observed ?? 0),
   }
 }
+
+/**
+ * ── 獎池水位（對帳台第一區的資料來源）─────────────────────────────────────────
+ *
+ * 🚨 **水位一律用設定的 `maxValue` 算，不看獎池名稱。**
+ *    `GRAND-JJBXGOLD 70M` 的「70M」是 **basevalue**（歸零後的起始值），
+ *    實際上限是 9,999,999,999。2026-09-08 我拿名稱當上限判斷過一次「已超出」，
+ *    結論完全相反——使用者當場糾正。名稱是人取的，不是資料。
+ *
+ * 同一個 levelName 可能掛在很多台機器上（JPBZZF3 有 42 台），池是共用的，
+ * 所以這裡**依 levelName 收斂成一列**，機台數另外列出來。
+ */
+export type PoolLevelRow = {
+  levelName: string
+  machineCount: number
+  sampleMachine: string
+  current: number | null
+  maxValue: number | null
+  basevalue: number | null
+  incrementPercent: number | null
+  /** 目前池值占設定上限的百分比。maxValue 缺就是 null——**不要用 0 代替**。 */
+  waterPct: number | null
+  atCap: boolean
+  mismatch: number
+  samples: number
+}
+
+export function jpPoolLevels(env: ReconEnv, sinceMs: number): PoolLevelRow[] {
+  const maps = db.prepare(
+    'SELECT machineName, levelName, incrementPercent, basevalue, maxValue FROM recon_machine_map WHERE env=?'
+  ).all(env) as { machineName: string; levelName: string; incrementPercent: number | null; basevalue: number | null; maxValue: number | null }[]
+
+  // 每個 (機台, level) 的最新池值——池是共用的，取任一台的最新值即可代表這個 level
+  const latest = db.prepare(`
+    SELECT machineName, levelName, after_ AS cur, ts FROM recon_pool_change p
+    WHERE env=? AND ts=(SELECT MAX(ts) FROM recon_pool_change q
+                        WHERE q.env=p.env AND q.levelName=p.levelName AND q.machineName=p.machineName)
+    GROUP BY machineName, levelName
+  `).all(env) as { machineName: string; levelName: string; cur: number; ts: number }[]
+  const latestByKey = new Map(latest.map(r => [`${r.machineName}|${r.levelName}`, r]))
+
+  const agg = db.prepare(`
+    SELECT levelName, SUM(CASE WHEN verify='mismatch' THEN 1 ELSE 0 END) bad, COUNT(*) n
+    FROM recon_pool_change WHERE env=? AND ts >= ? GROUP BY levelName
+  `).all(env, sinceMs) as { levelName: string; bad: number; n: number }[]
+  const aggByLevel = new Map(agg.map(a => [a.levelName, a]))
+
+  const byLevel = new Map<string, PoolLevelRow>()
+  for (const m of maps) {
+    const key = m.levelName
+    const seen = byLevel.get(key)
+    const lat = latestByKey.get(`${m.machineName}|${m.levelName}`)
+    if (!seen) {
+      const a = aggByLevel.get(key)
+      const cur = lat?.cur ?? null
+      const max = Number.isFinite(m.maxValue as number) && (m.maxValue as number) > 0 ? m.maxValue : null
+      byLevel.set(key, {
+        levelName: key, machineCount: 1, sampleMachine: m.machineName,
+        current: cur, maxValue: max, basevalue: m.basevalue,
+        incrementPercent: m.incrementPercent,
+        waterPct: cur !== null && max ? (cur / max) * 100 : null,
+        // ⚠️ 判「滿頂」用實際數值比對設定上限，不是靠 verify='skipped_overflow'——
+        //    那個狀態的字面意思是「這筆沒驗」，不是「池滿了」。
+        atCap: cur !== null && max ? cur >= max : false,
+        mismatch: a?.bad ?? 0, samples: a?.n ?? 0,
+      })
+    } else {
+      seen.machineCount++
+      // 取有值的那一台當代表；已經有值就不覆蓋
+      if (seen.current === null && lat) {
+        seen.current = lat.cur
+        if (seen.maxValue) {
+          seen.waterPct = (lat.cur / seen.maxValue) * 100
+          seen.atCap = lat.cur >= seen.maxValue
+        }
+      }
+    }
+  }
+  return [...byLevel.values()].sort((a, b) => {
+    // 有問題的排前面：滿頂 → 有不符 → 水位高的
+    if (a.atCap !== b.atCap) return a.atCap ? -1 : 1
+    if ((a.mismatch > 0) !== (b.mismatch > 0)) return a.mismatch > 0 ? -1 : 1
+    return (b.waterPct ?? -1) - (a.waterPct ?? -1)
+  })
+}
+
+/**
+ * 增減值不符的逐筆明細，**帶「可能原因」**。
+ *
+ * 🚨 只寫「加太多 10,409」會讓人去追一筆不存在的超發。
+ *    實測 7 筆不符**全部**是投入額變成負值（meter 重置／中獎歸零）造成的——
+ *    公式拿投入額差推預期增額，負的投入額會推出負的預期值，差額自然很大。
+ *    **原因欄不是裝飾，是防止誤判的必要資訊。**
+ */
+export type PoolMismatchRow = {
+  ts: number; machineName: string; levelName: string
+  coinIn: number; expected: number | null; actual: number; delta: number | null
+  before: number; basevalue: number | null
+  cause: 'coinin_negative' | 'at_basevalue' | 'unknown'
+}
+
+export function poolMismatches(env: ReconEnv, sinceMs: number, limit = 50): PoolMismatchRow[] {
+  const rows = db.prepare(`
+    SELECT p.ts, p.machineName, p.levelName, p.oldcoinin, p.newcoinin, p.before_, p.change_, p.verifyDelta,
+           m.incrementPercent, m.basevalue
+    FROM recon_pool_change p
+    LEFT JOIN recon_machine_map m ON m.env=p.env AND m.machineName=p.machineName AND m.levelName=p.levelName
+    WHERE p.env=? AND p.verify='mismatch' AND p.ts >= ?
+    ORDER BY p.ts DESC LIMIT ?
+  `).all(env, sinceMs, limit) as Record<string, number | string | null>[]
+
+  return rows.map(r => {
+    const coinIn = (r.newcoinin as number) - (r.oldcoinin as number)
+    const incr = r.incrementPercent as number | null
+    const before = r.before_ as number
+    const base = r.basevalue as number | null
+    return {
+      ts: r.ts as number,
+      machineName: String(r.machineName), levelName: String(r.levelName),
+      coinIn,
+      expected: incr !== null ? coinIn * incr : null,
+      actual: r.change_ as number,
+      delta: r.verifyDelta as number | null,
+      before, basevalue: base,
+      // ⚠️ 順序有意義：投入額倒退是最強的解釋，優先於「池值剛好在 basevalue」
+      cause: coinIn < 0 ? 'coinin_negative'
+        : (base !== null && Math.abs(before - base) < 1) ? 'at_basevalue'
+          : 'unknown',
+    }
+  })
+}

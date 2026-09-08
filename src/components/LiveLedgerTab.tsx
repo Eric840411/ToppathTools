@@ -96,6 +96,36 @@ interface Row {
   spinIndex: number | null; betTimePrecise: number | null
 }
 
+interface PoolLevel {
+  levelName: string; machineCount: number; sampleMachine: string
+  current: number | null; maxValue: number | null; basevalue: number | null
+  incrementPercent: number | null
+  /** ⚠️ 占**設定上限**的百分比，不是拿獎池名稱裡的數字算的 */
+  waterPct: number | null
+  atCap: boolean; mismatch: number; samples: number
+}
+interface PoolMismatch {
+  ts: number; machineName: string; levelName: string
+  coinIn: number; expected: number | null; actual: number; delta: number | null
+  before: number; basevalue: number | null
+  cause: 'coinin_negative' | 'at_basevalue' | 'unknown'
+}
+interface MachineRow {
+  machineType: string; gmid: string
+  matched: number; eligible: number; coverage: number | null
+  missing: number; pending: number; noRound: number; ambiguous: number
+  lastAt: number | null
+}
+interface PoolsPayload {
+  env: string; minutes: number
+  summary: { poolRows: number; poolOk: number; poolMismatch: number; poolSkipped: number
+    awards: number; awardsBad: number; machines: number; levels: number }
+  levels: PoolLevel[]
+  mismatches: PoolMismatch[]
+  atCapCount: number
+  machines: MachineRow[]
+}
+
 const lampColor = (s: string) =>
   s === 'ok' ? C.match : s === 'warn' ? C.pending : s === 'bad' ? C.bad : C.tool
 
@@ -117,6 +147,10 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
   const [settingMsg, setSettingMsg] = useState('')
   /** 跨使用者檢視。⚠️ 這是除錯用的，不是權限——過濾值本來就是 client 送的 header */
   const [showAll, setShowAll] = useState(false)
+  /** 獎池與機台總覽。⚠️ 跟 overview 共用同一個 minutes——分開帶會讓上下兩塊用不同分母。 */
+  const [pools, setPools] = useState<PoolsPayload | null>(null)
+  /** 點機台那一列會把逐筆明細篩成那台；再點一次取消。 */
+  const [machineFilter, setMachineFilter] = useState<string>('')
 
   const h = useCallback((): Record<string, string> =>
     userLabel ? { 'x-user-label': userLabel } : {}, [userLabel])
@@ -129,10 +163,19 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
     } catch (e) { setErr(String(e)) }
   }, [env, minutes, h, showAll])
 
+  const loadPools = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/autospin/live-ledger/pools?env=${env}&minutes=${minutes}${showAll ? '&scope=all' : ''}`, { headers: h() })
+      const d = await r.json() as PoolsPayload & { ok: boolean }
+      if (d.ok) setPools(d)
+    } catch { /* 獎池讀不到不該讓整頁掛掉——下面的區塊自己會顯示「讀取中」 */ }
+  }, [env, minutes, h, showAll])
+
   const loadRows = useCallback(async (reset: boolean) => {
     try {
       // ⚠️ 一定要帶 minutes——KPI 吃視窗、表格不吃的話，同一畫面會出現兩個分母
       const q = new URLSearchParams({ env, filter, limit: '50', minutes: String(minutes) })
+      if (machineFilter) q.set('machineType', machineFilter)
       if (showAll) q.set('scope', 'all')
       if (!reset && cursor) q.set('cursor', String(cursor))
       const r = await fetch(`/api/autospin/live-ledger/rows?${q}`, { headers: h() })
@@ -148,9 +191,13 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
       } else setRows(prev => [...prev, ...d.rows])
       setCursor(d.nextCursor)
     } catch { /* 靜默：下一輪會再試 */ }
-  }, [env, filter, cursor, h, rows, minutes, showAll])
+  // ⚠️ machineFilter 一定要進 deps。少了它，useCallback 會抓到上一輪的值——
+  //    症狀是「點了機台但表格沒篩，再點一次才對」，看起來像是要點兩下。
+  }, [env, filter, cursor, h, rows, minutes, showAll, machineFilter])
 
-  useEffect(() => { loadOverview(); loadRows(true) /* eslint-disable-next-line */ }, [env, minutes, filter, showAll])
+  useEffect(() => { loadOverview(); loadPools(); loadRows(true) /* eslint-disable-next-line */ }, [env, minutes, filter, showAll])
+  // 機台篩選只影響逐筆明細——上面的獎池與機台總覽不跟著變（那兩塊是全域的）
+  useEffect(() => { loadRows(true) /* eslint-disable-next-line */ }, [machineFilter])
   useEffect(() => {
     const t = setInterval(() => { loadOverview(); loadRows(true) }, 5000)
     return () => clearInterval(t)
@@ -283,6 +330,208 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
           sub={ov ? `晚到回綁 ${ov.lateRebound} 筆` : '—'} />
       </div>
 
+
+      {/* ── ②b 獎池 ──────────────────────────────────────────────────────────
+          🚨 **放在 KPI 之後、對帳線之前是刻意的。**這張表要回答的是
+             「LuckyLink 獎池的增減值有沒有符合預期、有沒有超出」——
+             spin 逐局對帳是手段，獎池才是目的（使用者 2026-09-08 指正）。 */}
+      <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, background: C.panel, padding: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 9 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 700, color: C.tool, letterSpacing: '.05em' }}>獎池</span>
+          <span style={{ fontSize: 11, color: C.ink3 }}>L4 / L5 · 每 60 秒自動比對</span>
+          <span style={{ marginLeft: 'auto', fontSize: 11, color: C.ink3 }}>
+            {pools ? `${pools.summary.levels} 個 Level · ${pools.summary.machines} 台` : '讀取中…'}
+          </span>
+        </div>
+
+        {/* ⚠️ 不符收成一條橫幅，不是逐列讓人讀。實測 7 筆全部是同一種情況
+            （投入額倒退）——分開列會讓人以為有七個獨立問題。 */}
+        {pools && pools.mismatches.length > 0 && (() => {
+          const neg = pools.mismatches.filter(m => m.cause === 'coinin_negative').length
+          const machines = [...new Set(pools.mismatches.map(m => m.machineName))]
+          return (
+            <div style={{ borderLeft: `2px solid ${C.bad}`, background: 'rgba(248,113,113,.07)',
+              padding: '8px 11px', borderRadius: '0 7px 7px 0', fontSize: 12, color: C.ink2, marginBottom: 9 }}>
+              <b style={{ color: C.ink }}>{pools.mismatches.length} 筆增減值不符</b>
+              {neg === pools.mismatches.length
+                ? <>，<b style={{ color: C.ink }}>全部是同一種情況：投入額倒退</b>。
+                  投入額變成負值時公式會推出負的預期增額，差額因此很大——
+                  <b style={{ color: C.ink }}>這不代表獎池真的被多加了錢</b>。</>
+                : <>，其中 {neg} 筆是投入額倒退。</>}
+              <span style={{ color: C.ink3 }}>　分佈：{machines.join('、')}</span>
+            </div>
+          )
+        })()}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(146px,1fr))', gap: 8 }}>
+          <Kpi label="已達設定上限" value={dash(pools?.atCapCount)}
+            sub={pools ? `台 · ${pools.levels.filter(l => l.atCap).map(l => l.levelName).join('、') || '—'}` : '—'}
+            tone={pools && pools.atCapCount > 0 ? 'bad' : undefined}
+            title="池值已經等於設定的 maxValue，累積改走溢流池。⚠️ 這是用實際池值比對設定上限算的，不是數 skipped_overflow——那個狀態的意思是「這筆沒驗」。" />
+          <Kpi label="增減值不符" value={dash(pools?.summary.poolMismatch)}
+            sub={pools ? `共驗 ${pools.summary.poolRows.toLocaleString()} 筆` : '—'}
+            tone={pools && pools.summary.poolMismatch > 0 ? 'amb' : undefined}
+            title="change ≈ (新投入額 − 舊投入額) × 增額%，誤差 > 0.01 就算不符" />
+          <Kpi label="相符" value={pools ? pools.summary.poolOk.toLocaleString() : '—'}
+            sub="誤差 ≤ 0.01" tone={pools && pools.summary.poolMismatch === 0 ? 'good' : undefined} />
+          <Kpi label="最高水位" value={pools && pools.levels.length && pools.levels[0].waterPct !== null
+            ? `${pools.levels[0].waterPct.toFixed(1)}%` : '—'}
+            sub={pools && pools.levels.length ? pools.levels[0].levelName : '—'}
+            title="占設定 maxValue 的百分比" />
+        </div>
+
+        {/* ⚠️ 水位一律用設定的 maxValue 算。獎池名稱裡的數字是 basevalue——
+            2026-09-08 拿名稱當上限判斷過一次「已超出」，結論完全相反。 */}
+        <div style={{ fontSize: 10.5, color: C.ink3, margin: '11px 0 4px' }}>
+          各獎池水位 —— 一律用設定的 <code style={{ color: C.ink2 }}>maxValue</code> 計算，獎池名稱裡的數字是 basevalue 不是上限
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 620 }}>
+            <thead><tr>
+              {['獎池 Level', '水位（占上限）', '目前池值', '設定上限', '增額%', '不符', '狀態'].map(t => (
+                <th key={t} style={th}>{t}</th>))}
+            </tr></thead>
+            <tbody>
+              {(pools?.levels ?? []).slice(0, 8).map(l => (
+                <tr key={l.levelName}>
+                  <td style={td}>
+                    <span style={{ display: 'inline-block', width: 3, height: 14, borderRadius: 2, verticalAlign: -3, marginRight: 7,
+                      background: l.atCap ? C.bad : l.mismatch > 0 ? C.pending : C.match }} />
+                    <b>{l.levelName}</b>
+                    <div style={{ color: C.ink3, fontSize: 10.5, marginLeft: 10 }}>
+                      {l.sampleMachine}{l.machineCount > 1 ? ` · ${l.machineCount} 台` : ''}
+                    </div>
+                  </td>
+                  <td style={td}>
+                    {l.waterPct === null ? <span style={{ color: C.ink3 }}>—</span> : <>
+                      <span style={{ display: 'inline-block', width: 74, height: 5, borderRadius: 3, background: '#1e3350',
+                        overflow: 'hidden', verticalAlign: 'middle', marginRight: 7 }}>
+                        <span style={{ display: 'block', height: '100%', width: `${Math.min(100, l.waterPct)}%`,
+                          background: l.atCap ? C.bad : l.waterPct > 80 ? C.pending : C.match }} />
+                      </span>
+                      <span style={{ color: l.atCap ? C.bad : C.ink, fontWeight: l.atCap ? 700 : 400 }}>
+                        {l.waterPct.toFixed(2)}%</span>
+                    </>}
+                  </td>
+                  <td style={{ ...td, color: l.atCap ? C.bad : C.ink, fontWeight: l.atCap ? 700 : 400 }}>
+                    {l.current === null ? '—' : Math.round(l.current).toLocaleString()}</td>
+                  <td style={td}>{l.maxValue === null ? '—' : l.maxValue.toLocaleString()}</td>
+                  <td style={{ ...td, color: (l.incrementPercent ?? 0) > 0.1 ? C.bad : C.ink }}>
+                    {l.incrementPercent ?? '—'}</td>
+                  <td style={{ ...td, color: l.mismatch > 0 ? C.bad : C.ink3, fontWeight: l.mismatch > 0 ? 700 : 400 }}>
+                    {l.mismatch}</td>
+                  <td style={td}>
+                    <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', marginRight: 5,
+                      background: l.atCap ? C.bad : l.mismatch > 0 ? C.pending : C.match }} />
+                    {l.atCap ? '已滿頂 · 走溢流' : l.mismatch > 0 ? '有不符' : '正常'}
+                  </td>
+                </tr>
+              ))}
+              {pools && pools.levels.length === 0 && (
+                <tr><td colSpan={7} style={{ ...td, color: C.ink3 }}>這個時間窗內沒有獎池資料</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* ⚠️ 「可能原因」欄不是裝飾：只寫「加太多 10,409」會讓人去追一筆不存在的超發 */}
+        {pools && pools.mismatches.length > 0 && (<>
+          <div style={{ fontSize: 10.5, color: C.ink3, margin: '12px 0 4px' }}>不符明細 —— 每一筆都要講出「可能原因」</div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 620 }}>
+              <thead><tr>
+                {['時間', '機台 / Level', '投入額變化', '預期增額', '實際增額', '差', '可能原因'].map(t => (
+                  <th key={t} style={th}>{t}</th>))}
+              </tr></thead>
+              <tbody>
+                {pools.mismatches.slice(0, 10).map((m, i) => (
+                  <tr key={`${m.ts}-${m.levelName}-${i}`}>
+                    <td style={{ ...td, color: C.ink3 }}>{fmtClock(m.ts)}</td>
+                    <td style={td}>{m.machineName}<div style={{ color: C.ink3, fontSize: 10.5 }}>{m.levelName}</div></td>
+                    <td style={{ ...td, color: m.coinIn < 0 ? C.bad : C.ink, fontWeight: m.coinIn < 0 ? 700 : 400 }}>
+                      {m.coinIn.toLocaleString()}</td>
+                    <td style={td}>{m.expected === null ? '—' : m.expected.toFixed(2)}</td>
+                    <td style={td}>{m.actual}</td>
+                    <td style={{ ...td, color: C.bad, fontWeight: 700 }}>
+                      {m.delta === null ? '—' : (m.delta > 0 ? '+' : '') + m.delta.toFixed(2)}</td>
+                    <td style={td}>
+                      {m.cause === 'coinin_negative' ? <>
+                        <span style={{ padding: '0 6px', borderRadius: 4, fontSize: 10, fontWeight: 600,
+                          background: 'rgba(251,191,36,.13)', color: C.pending }}>投入額倒退</span>
+                        <span style={{ color: C.ink3, marginLeft: 6 }}>疑似 meter 重置</span>
+                      </> : m.cause === 'at_basevalue' ? <>
+                        <span style={{ padding: '0 6px', borderRadius: 4, fontSize: 10, fontWeight: 600,
+                          background: 'rgba(251,191,36,.13)', color: C.pending }}>池值＝basevalue</span>
+                        <span style={{ color: C.ink3, marginLeft: 6 }}>疑似中獎歸零</span>
+                      </> : <span style={{ color: C.ink3 }}>未分類 —— 需要人工看</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>)}
+      </div>
+
+      {/* ── ②c 機台總覽 ──────────────────────────────────────────────────────
+          🚨 **一台一列，有問題的排前面。**多台一起跑時把數字加總會把問題藏起來：
+             實測「掉單 1,250」其中 1,118 筆全在 BIGFULINK-2065 一台上。
+          ⚠️ 刻意**不做**「總健康分數」——覆蓋率 58.8% 跟 100% 壓成一個數字，
+             看到的人會去修沒壞的那台。 */}
+      {pools && pools.machines.length > 0 && (
+        <div style={{ border: `1px solid ${C.line}`, borderRadius: 10, background: C.panel, padding: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: C.tool, letterSpacing: '.05em' }}>機台總覽</span>
+            <span style={{ fontSize: 11, color: C.ink3 }}>
+              {machineFilter ? `已篩：${machineFilter}（再點一次取消）` : '點一列可篩選下方逐筆明細'}
+            </span>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 620 }}>
+              <thead><tr>
+                {['機台', '覆蓋率', '已對帳', '掉單', '待入帳', '未起注', '最後觀測'].map(t => (
+                  <th key={t} style={th}>{t}</th>))}
+              </tr></thead>
+              <tbody>
+                {pools.machines.map(m => {
+                  const sel = machineFilter === m.machineType
+                  const pct = m.coverage === null ? null : m.coverage * 100
+                  return (
+                    <tr key={`${m.machineType}|${m.gmid}`}
+                      onClick={() => setMachineFilter(sel ? '' : m.machineType)}
+                      style={{ cursor: 'pointer', background: sel ? '#14263c' : undefined }}>
+                      <td style={td}>
+                        <span style={{ display: 'inline-block', width: 3, height: 14, borderRadius: 2, verticalAlign: -3, marginRight: 7,
+                          background: m.missing > 0 ? C.bad : pct !== null && pct < 95 ? C.pending : C.match }} />
+                        <b>{m.machineType}</b>
+                        <div style={{ color: C.ink3, fontSize: 10.5, marginLeft: 10 }}>{m.gmid}</div>
+                      </td>
+                      <td style={td}>
+                        {pct === null ? <span style={{ color: C.ink3 }}>—</span> : <>
+                          <span style={{ display: 'inline-block', width: 62, height: 5, borderRadius: 3, background: '#1e3350',
+                            overflow: 'hidden', verticalAlign: 'middle', marginRight: 7 }}>
+                            <span style={{ display: 'block', height: '100%', width: `${pct}%`,
+                              background: pct < 80 ? C.bad : pct < 95 ? C.pending : C.match }} />
+                          </span>
+                          <span style={{ color: pct < 80 ? C.bad : C.ink }}>{pct.toFixed(1)}%</span>
+                        </>}
+                      </td>
+                      <td style={td}>{m.matched.toLocaleString()} / {m.eligible.toLocaleString()}</td>
+                      <td style={{ ...td, color: m.missing > 0 ? C.bad : C.ink3, fontWeight: m.missing > 0 ? 700 : 400 }}>
+                        {m.missing}</td>
+                      <td style={td}>{m.pending}</td>
+                      {/* 未起注不是問題，用灰的——它本來就不需要入帳 */}
+                      <td style={{ ...td, color: C.ink3 }}>{m.noRound}</td>
+                      <td style={{ ...td, color: C.ink3 }}>{m.lastAt ? fmtClock(m.lastAt) : '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(360px,1fr))', gap: 12 }}>
         {/* ③a 五條對帳線 */}
         <Panel title="五條對帳線" right={`視窗 ${ov?.windowMinutes ?? '—'} 分鐘`}>
@@ -328,7 +577,10 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
         {/* ③b 時間軸 */}
         <Panel title="時間軸" right="每格 5 分鐘 · 顏色＝該格最嚴重狀態">
           <div style={{ padding: '14px 12px' }}>
-            <div style={{ display: 'flex', gap: 2, alignItems: 'flex-end', height: 34 }}>
+            {/* ⚠️ 每格 minWidth 2px，選 24 小時（288 格）時總寬會超過欄寬——
+                實測 1166px 塞進 697px 的欄位。加 overflowX 讓它自己捲，
+                不要把整個面板撐開（那會連帶推歪隔壁的對帳線）。 */}
+            <div style={{ display: 'flex', gap: 2, alignItems: 'flex-end', height: 34, overflowX: 'auto' }}>
               {(ov?.timeline ?? []).map(b => (
                 <div key={b.at} title={`${fmtClock(b.at)} · ${b.n} 筆 · ${STATUS_LABEL[b.worst.toUpperCase()] ?? '無 spin'}`}
                   style={{
@@ -518,6 +770,8 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
   )
 }
 
+const th: React.CSSProperties = { textAlign: 'left', fontWeight: 600, color: C.ink3, fontSize: 10.5,
+  padding: '6px 10px', borderBottom: `1px solid ${C.line}`, whiteSpace: 'nowrap' }
 const td: React.CSSProperties = { padding: '7px 10px', borderBottom: '1px solid #22304310', color: C.ink2, whiteSpace: 'nowrap' }
 const tdN: React.CSSProperties = { ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: C.ink }
 

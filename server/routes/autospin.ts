@@ -2535,6 +2535,7 @@ router.get('/api/autospin/live-ledger/rows', (req, res) => {
       minutes: Number(req.query.minutes) || undefined,
       cursor: req.query.cursor ? Number(req.query.cursor) : null,
       filter: f === 'abnormal' || f === 'pending' ? f : 'all',
+      machineType: String(req.query.machineType ?? '').trim() || undefined,
       viewer: viewerOf(req as never),
     }) })
   } catch (e) {
@@ -2565,6 +2566,34 @@ router.get('/api/autospin/live-ledger/jp', async (req, res) => {
     const minutes = Math.min(Math.max(Number(req.query.minutes) || 30, 1), 24 * 60)
     const since = Date.now() - minutes * 60_000
     res.json({ ok: true, env, minutes, summary: jpSummary(env, since), matrix: jpMatrix(env, since) })
+  } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
+})
+
+/**
+ * 對帳台第一區（獎池）與第二區（機台總覽）的資料。
+ *
+ * 🚨 這兩區合成一支端點，是因為它們**必須吃同一個時間視窗**。
+ *    分成兩支各自帶 minutes，前端很容易讓上下兩塊用不同的分母——
+ *    那正是「同一畫面兩個數字互相矛盾、使用者不知道該信哪個」的來源。
+ */
+router.get('/api/autospin/live-ledger/pools', async (req, res) => {
+  try {
+    const { jpPoolLevels, poolMismatches, jpSummary } = await import('../live-ledger-jp.js')
+    const { machineOverview } = await import('../live-ledger-query.js')
+    const env = reconEnvOf(req as never)
+    const minutes = Math.min(Math.max(Number(req.query.minutes) || 360, 1), 7 * 24 * 60)
+    const since = Date.now() - minutes * 60_000
+    const levels = jpPoolLevels(env, since)
+    res.json({
+      ok: true, env, minutes,
+      summary: jpSummary(env, since),
+      levels,
+      mismatches: poolMismatches(env, since, 50),
+      // ⚠️ 「滿頂」用實際池值比對設定上限算出來的，不是數 skipped_overflow——
+      //    那個狀態的字面意思是「這筆沒驗」，不是「池滿了」。
+      atCapCount: levels.filter(l => l.atCap).reduce((n, l) => n + l.machineCount, 0),
+      machines: machineOverview(env, since, viewerOf(req as never)),
+    })
   } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
 })
 
