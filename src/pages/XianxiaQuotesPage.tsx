@@ -21,6 +21,10 @@ export function XianxiaQuotesPage() {
   const [editSource, setEditSource] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
   const [suggestCount, setSuggestCount] = useState(5)
+  /** 只從這部作品裡找。⚠️ 指定單一作品時模型的準確度明顯較高，也避開「一直重複那幾部」。 */
+  const [onlySource, setOnlySource] = useState('')
+  /** 這次被去重擋掉幾句——要顯示出來，安靜地少給會被誤會成「AI 很懶」。 */
+  const [dropped, setDropped] = useState(0)
   const [suggesting, setSuggesting] = useState(false)
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [suggestError, setSuggestError] = useState('')
@@ -104,11 +108,18 @@ export function XianxiaQuotesPage() {
       const res = await fetch('/api/xianxia/quotes/ai-suggest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ count: suggestCount }),
+        body: JSON.stringify({ count: suggestCount, onlySource: onlySource.trim() || undefined }),
       }).then(r => r.json())
       if (res.ok) {
         setSuggestions(res.suggestions ?? [])
-        if ((res.suggestions ?? []).length === 0) setSuggestError('AI 沒有給出有信心的候選句子，可以再試一次或換個數量')
+        setDropped(res.duplicatesDropped ?? 0)
+        // ⚠️ 「一句都沒有」有兩種完全不同的原因，不能用同一句話帶過——
+        //    全被去重擋掉時叫人「再試一次」是沒用的建議。
+        if ((res.suggestions ?? []).length === 0) {
+          setSuggestError(res.duplicatesDropped
+            ? `這次 ${res.duplicatesDropped} 句全都是語錄庫已經有的，已自動擋掉。可以指定一部還沒收錄的作品再試。`
+            : 'AI 沒有給出有信心的候選句子，可以再試一次或換個數量')
+        }
       } else {
         setSuggestError(res.message ?? 'AI 建議失敗')
       }
@@ -180,6 +191,14 @@ export function XianxiaQuotesPage() {
             <p className="discord-notify-card-note">
               請 Gemini 幫忙生成候選語錄草稿——但這只是草稿，AI 可能編造根本不存在的句子或講錯出處，
               請自己確認出處真的存在才按「加入語錄庫」，不會自動幫你存進去。
+              {/* ⚠️ 實測：指定單一作品又要 8 句時，回來的有好幾句是「小心駛得萬年船」
+                  「斬草不除根」這類通用成語——不是那部作品的原創台詞，是模型為了湊滿
+                  數量填的。數量越大湊數越明顯，這件事要講出來，不能讓人以為指定作品就可靠。 */}
+              <br />
+              <span style={{ color: '#ead8a6' }}>
+                ⚠️ 數量拉太大時，AI 會用通用成語湊數（實測指定單一作品要 8 句就出現了）。
+                一次 3~5 句、需要更多就多按幾次，品質會比較穩。
+              </span>
             </p>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
               <input
@@ -191,6 +210,15 @@ export function XianxiaQuotesPage() {
                 value={suggestCount}
                 onChange={e => setSuggestCount(Math.min(10, Math.max(1, Number(e.target.value) || 1)))}
               />
+              {/* 指定作品是最有效的辦法——模型在單一作品上的準確度明顯高於「隨便給幾句」，
+                  也是避開「一直重複那幾部」最直接的手段 */}
+              <input
+                className="discord-notify-input"
+                style={{ flex: 1, minWidth: 0 }}
+                placeholder="只從這部作品裡找（選填，例：遮天）"
+                value={onlySource}
+                onChange={e => setOnlySource(e.target.value)}
+              />
               <button
                 className="discord-notify-btn discord-notify-btn--secondary"
                 onClick={handleSuggest}
@@ -199,6 +227,11 @@ export function XianxiaQuotesPage() {
                 {suggesting ? 'AI 生成中…' : 'AI 建議'}
               </button>
             </div>
+            {dropped > 0 && suggestions.length > 0 && (
+              <div className="discord-notify-msg" style={{ fontSize: 12 }}>
+                已自動擋掉 {dropped} 句語錄庫裡已經有的
+              </div>
+            )}
             {suggestError && <div className="discord-notify-msg discord-notify-msg--error">{suggestError}</div>}
             {suggestions.map((s, idx) => (
               <div key={idx} style={{ border: '1px solid #334155', borderRadius: 6, padding: 10, marginBottom: 8 }}>
