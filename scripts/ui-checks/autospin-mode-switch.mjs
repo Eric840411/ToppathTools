@@ -66,7 +66,10 @@ const snapshot = () => page.evaluate(() => {
 
 const before = await snapshot();
 console.log('\n1) 遠端 Agent 模式（基準）');
-check('三張卡都在', before.卡片數 === 3, JSON.stringify(before.卡片標題));
+// ⚠️ v4.127.0 起是**兩張**卡——中間那張「LuckyLink JP 比對 / 截圖」已移除
+//    （獎池監控改由對帳台 L4/L5 負責）。這裡改的是期望值，不是放寬斷言：
+//    仍然嚴格比對數量與標題，只是正確答案從 3 變成 2。
+check('兩張卡都在', before.卡片數 === 2, JSON.stringify(before.卡片標題));
 check('切換鈕在', before.有切換鈕);
 check('agent 選擇沒有反灰', !before.agent選擇已反灰);
 check('日誌面板在', before.有日誌面板);
@@ -77,7 +80,7 @@ await page.locator('button', { hasText: '伺服器端' }).first().click();
 await page.waitForTimeout(700);
 const after = await snapshot();
 console.log('\n2) 切到伺服器端——版面要保留，不是換一套');
-check('三張卡還在（不是被換掉）', after.卡片數 === 3, JSON.stringify(after.卡片標題));
+check('兩張卡還在（不是被換掉）', after.卡片數 === 2, JSON.stringify(after.卡片標題));
 check('卡片標題完全沒變', JSON.stringify(after.卡片標題) === JSON.stringify(before.卡片標題));
 check('切換鈕還在（能切回去）', after.有切換鈕);
 check('agent 選擇變成反灰（不是消失）', after.agent選擇已反灰);
@@ -89,7 +92,7 @@ await page.locator('button', { hasText: '遠端 Agent' }).first().click();
 await page.waitForTimeout(700);
 const back = await snapshot();
 console.log('\n3) 切回遠端 Agent——要完全還原');
-check('三張卡還在', back.卡片數 === 3);
+check('兩張卡還在', back.卡片數 === 2);
 check('agent 選擇恢復可用', !back.agent選擇已反灰);
 check('跟一開始一模一樣', JSON.stringify(back.卡片標題) === JSON.stringify(before.卡片標題));
 

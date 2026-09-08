@@ -394,6 +394,8 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
   interface HubAgent { agentId: string; hostname: string; ownerName: string; capabilities: string[]; busy: boolean; sessionId: string | null; updateStatus?: string }
   const [hubAgents, setHubAgents] = useState<HubAgent[]>([])
   const [selectedAgentId, setSelectedAgentId] = useState('')
+  /** 目前選到的 agent。下拉只帶文字，狀態徽章靠這個物件在選單下方完整顯示。 */
+  const selectedAgent = hubAgents.find(a => a.agentId === selectedAgentId)
   const [hubDispatching, setHubDispatching] = useState(false)
   const [hubStopping, setHubStopping] = useState(false)
   /**
@@ -1293,47 +1295,45 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
                         沒有可用 agent。在機器執行 <code style={{ background: '#162032', padding: '1px 5px', borderRadius: 4 }}>start-agent.sh</code>（Mac）或 <code style={{ background: '#162032', padding: '1px 5px', borderRadius: 4 }}>start-agent.bat</code>（Windows）並完成配對後會出現在這裡。
                       </div>
                     ) : (
+                      /* ⚠️ 2026-09-08 從「每台一張卡」改成下拉選單（使用者要求）。
+                         卡片式一台就佔一整排，機台一多就把整張卡撐得又高又寬。
+
+                         ⚠️ **但下拉不能把狀態吃掉**：忙碌／待更新原本是有顏色的徽章，
+                            native select 的選項放不進顏色與 tooltip。所以選項只帶文字，
+                            **選中那台的狀態另外用一行完整顯示**（含顏色與說明）——
+                            資訊不能因為換了控制項就消失。 */
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        {hubAgents.map(a => {
-                          const sel = selectedAgentId === a.agentId
-                          return (
-                            <div key={a.agentId} onClick={() => !a.busy && setSelectedAgentId(a.agentId)}
-                              className={`autospin-agent-card${sel ? ' autospin-agent-card--selected' : ''}`}
-                              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 11px', borderRadius: 9, cursor: a.busy ? 'not-allowed' : 'pointer',
-                                opacity: a.busy ? 0.6 : 1 }}>
-                              <div style={{ width: 16, height: 16, borderRadius: '50%', border: `2px solid ${sel ? 'var(--cr-cyan)' : '#475569'}`, flexShrink: 0, position: 'relative' }}>
-                                {sel && <div style={{ position: 'absolute', inset: 3, borderRadius: '50%', background: 'var(--cr-cyan)' }} />}
-                              </div>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                {/* ⚠️ capability 清單原本整串列出來（machine-test · scripted-bet · uat-record
-                                    · uat-run · autospin · backend-uat），在這個欄寬會折成三行，
-                                    是這張卡最寬也最高的東西。而這份清單**本來就只列支援 autospin 的 agent**
-                                    ——把 capability 再列一次等於重複，對「要挑哪台」完全沒幫助。
-                                    移到 tooltip，需要時滑上去看。 */}
-                                <span style={{ fontWeight: 700, fontSize: 13, color: '#e2e8f0' }}
-                                  title={`capabilities：${a.capabilities.join('、')}`}>{a.hostname}</span>
-                                {/* 派工前先讓人看到這台落後。**顯示但不擋**——落後不一定影響這次要跑的功能，
-                                    急著測時被擋住更煩（跟 CodeX 討論定案）。 */}
-                                {/* 收成短標籤 + tooltip：完整說明留在 Local Agent 頁，
-                                    這裡只要讓人看到「這台有狀況」就夠了 */}
-                                {a.updateStatus && a.updateStatus !== 'current' && (
-                                  <span style={{ fontSize: 10, marginLeft: 8, padding: '0 5px', borderRadius: 4,
-                                    color: a.updateStatus === 'needs_restart' ? 'var(--cr-amber)' : 'var(--cr-rose)',
-                                    background: a.updateStatus === 'needs_restart' ? 'rgba(234,216,166,.12)' : 'rgba(223,118,94,.12)' }}
-                                    title={a.updateStatus === 'needs_restart' ? '檔案已是最新，但跑著的程式是更新前載入的——重開 agent 才生效。可照樣派工。'
-                                      : a.updateStatus === 'unknown' ? '這台沒回報版本，多半是舊版。建議到 Local Agent 頁更新並重開。可照樣派工。'
-                                      : '程式碼落後於伺服器，可能吃不到新功能。到 Local Agent 頁按「更新程式碼」。可照樣派工。'}>
-                                    {a.updateStatus === 'needs_restart' ? '需重開' : a.updateStatus === 'unknown' ? '版本未知' : '待更新'}
-                                  </span>
-                                )}
-                              </div>
-                              <span style={{ fontSize: 11, color: a.busy ? '#ead8a6' : 'var(--cr-cyan)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                                <span className={a.busy ? undefined : 'cr-status-dot'} style={{ width: 6, height: 6, borderRadius: '50%', background: a.busy ? '#ead8a6' : 'var(--cr-cyan)' }} />
-                                {a.busy ? '忙碌' : '可派工'}
+                        <select value={selectedAgentId} onChange={e => setSelectedAgentId(e.target.value)}
+                          style={{ width: '100%', background: '#16233a', border: '1px solid #2d3f55', borderRadius: 7, color: '#e2e8f0', padding: '6px 9px', fontSize: 13 }}>
+                          <option value=''>— 選擇 Agent —</option>
+                          {hubAgents.map(a => (
+                            /* 忙碌的直接 disabled——卡片式原本靠 onClick 擋，
+                               換成下拉就要用 disabled，否則選得下去、派工才失敗 */
+                            <option key={a.agentId} value={a.agentId} disabled={a.busy}>
+                              {a.hostname}{a.busy ? '（忙碌中）' : ''}
+                            </option>
+                          ))}
+                        </select>
+                        {selectedAgent && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 11 }}
+                            title={`capabilities：${selectedAgent.capabilities.join('、')}`}>
+                            <span style={{ color: selectedAgent.busy ? '#ead8a6' : 'var(--cr-cyan)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                              <span className={selectedAgent.busy ? undefined : 'cr-status-dot'} style={{ width: 6, height: 6, borderRadius: '50%', background: selectedAgent.busy ? '#ead8a6' : 'var(--cr-cyan)' }} />
+                              {selectedAgent.busy ? '忙碌' : '可派工'}
+                            </span>
+                            {/* 派工前先讓人看到這台落後。**顯示但不擋**——落後不一定影響這次要跑的功能。 */}
+                            {selectedAgent.updateStatus && selectedAgent.updateStatus !== 'current' && (
+                              <span style={{ padding: '0 5px', borderRadius: 4,
+                                color: selectedAgent.updateStatus === 'needs_restart' ? 'var(--cr-amber)' : 'var(--cr-rose)',
+                                background: selectedAgent.updateStatus === 'needs_restart' ? 'rgba(234,216,166,.12)' : 'rgba(223,118,94,.12)' }}
+                                title={selectedAgent.updateStatus === 'needs_restart' ? '檔案已是最新，但跑著的程式是更新前載入的——重開 agent 才生效。可照樣派工。'
+                                  : selectedAgent.updateStatus === 'unknown' ? '這台沒回報版本，多半是舊版。建議到 Local Agent 頁更新並重開。可照樣派工。'
+                                  : '程式碼落後於伺服器，可能吃不到新功能。到 Local Agent 頁按「更新程式碼」。可照樣派工。'}>
+                                {selectedAgent.updateStatus === 'needs_restart' ? '需重開' : selectedAgent.updateStatus === 'unknown' ? '版本未知' : '待更新'}
                               </span>
-                            </div>
-                          )
-                        })}
+                            )}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

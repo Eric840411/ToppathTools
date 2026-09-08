@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.127.0'
+export const APP_VERSION = '4.127.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,15 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.127.1',
+    date: '2026-09-08',
+    changes: [
+      'style(autospin): 執行監控的卡片格線從三欄改成兩欄。中間那張已於 v4.127.0 移除，三欄模板留下一個空的第三欄——右邊空一大塊、跟下面的執行日誌對不齊（使用者回報）',
+      'style(autospin): 選擇 Agent 從「每台一張卡」改成下拉選單。卡片式一台就佔一整排，機台一多就把整張卡撐得又高又寬。⚠️ **但下拉不能把狀態吃掉**——忙碌／待更新原本是有顏色的徽章，native select 的選項放不進顏色與 tooltip，所以選項只帶文字，**選中那台的狀態另外用一行完整顯示**。忙碌的用 `disabled`（卡片式原本靠 onClick 擋，換成下拉就得改用 disabled，否則選得下去、派工才失敗）',
+      'test(autospin): `autospin-mode-switch.mjs` 的期望值從三張卡改成兩張。⚠️ 改的是**正確答案**不是放寬斷言——仍然嚴格比對數量與標題。版面另以 `autospin-run-fixture.mjs` 塞滿假資料量測：零橫向溢出、兩張卡合計填滿寬度',
+    ],
+  },
   {
     version: '4.127.0',
     date: '2026-09-08',
