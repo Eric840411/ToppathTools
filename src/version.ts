@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.127.1'
+export const APP_VERSION = '4.127.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.127.2',
+    date: '2026-09-08',
+    changes: [
+      'style(autospin): 執行模式與執行控制兩張卡改成**等寬**（使用者要求）。前一版給右卡多一點是因為 Agent 選擇還是卡片式；改成下拉之後左卡不再需要額外寬度，兩張一樣寬看起來才像同一層級的東西。實測 700 / 700、零橫向溢出',
+    ],
+  },
   {
     version: '4.127.1',
     date: '2026-09-08',
