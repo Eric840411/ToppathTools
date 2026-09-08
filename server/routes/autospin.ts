@@ -519,10 +519,6 @@ function isCompareEnabled(userLabel: string): boolean {
 // 截圖監控依帳號開關（2026-08-17，使用者要求「不要常駐，讓使用者決定」）——只在 AutoSpin 啟動時
 // 讀一次（見 /agent/start），啟動後切換此開關要等下次重啟 session 才生效，不是即時的（跟 CodeX
 // 討論定案：即時生效要多一條 agent polling/server push，這版先做成本低的「下次啟動生效」）
-function isScreenshotEnabled(userLabel: string): boolean {
-  const row = getNotifyPrefsRow(userLabel)
-  return row ? row.screenshotEnabled !== 0 : true
-}
 function legacySetting(key: string): string | undefined {
   return (db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined)?.value
 }
@@ -992,9 +988,9 @@ function isDiscordNotifyEnabled(userLabel: string): boolean {
   return legacySetting('discord_notify_enabled') !== '0'
 }
 
-type NotifyFieldKey = 'gameUrl' | 'spinCount' | 'errorSummary' | 'screenshotUrl'
+type NotifyFieldKey = 'gameUrl' | 'spinCount' | 'errorSummary'
 const DEFAULT_NOTIFY_FIELDS: Record<NotifyFieldKey, boolean> = {
-  gameUrl: true, spinCount: true, errorSummary: true, screenshotUrl: true,
+  gameUrl: true, spinCount: true, errorSummary: true,
 }
 
 /** 哪些欄位要顯示在通知卡片上（狀態欄固定顯示，不受此設定影響）。依帳號分開。 */
@@ -1191,11 +1187,6 @@ interface AgentSession {
   controlVersion?: number
   /** 純粹給人看的最後改動時間，**不參與任何判斷**。 */
   controlUpdatedAt?: number
-  // LuckyLink poller state — replayed on SSE reconnect so panel survives refresh
-  luckylinkJpGroupCode?: string
-  luckylinkConnected?: boolean
-  luckylinkPoolSnapshot?: Record<string, unknown> | null
-  luckylinkAlerts?: Record<string, unknown>[]
 }
 
 const agentSessions = new Map<string, AgentSession>()
@@ -1334,7 +1325,7 @@ const discordNotifyState = new Map<string, { messageId: string; status: NotifySt
 
 function buildDiscordEmbed(
   status: NotifyStatus, machineType: string,
-  opts: { gameUrl?: string; spinCount?: number; errorSummary?: string; screenshotUrl?: string },
+  opts: { gameUrl?: string; spinCount?: number; errorSummary?: string },
   userLabel: string,
 ) {
   const meta = NOTIFY_STATUS_META[status]
@@ -1345,7 +1336,7 @@ function buildDiscordEmbed(
   if (enabledFields.spinCount) fields.push({ name: 'Spin 數', value: String(opts.spinCount ?? 0), inline: true })
   if (enabledFields.gameUrl && opts.gameUrl) fields.push({ name: 'Game URL', value: opts.gameUrl.length > 300 ? opts.gameUrl.slice(0, 300) + '…' : opts.gameUrl })
   if (enabledFields.errorSummary && opts.errorSummary) fields.push({ name: '錯誤摘要', value: opts.errorSummary.slice(0, 500) })
-  if (enabledFields.screenshotUrl && opts.screenshotUrl) fields.push({ name: '截圖', value: opts.screenshotUrl })
+
   const title = `${meta.emoji} ${getDiscordTitleTemplate().replace(/\{machineType\}/g, machineType)}`
   const footer = getDiscordFooterText()
   return {
@@ -1374,7 +1365,6 @@ async function finalizeSessionNotifications(sessionId: string) {
     const status: NotifyStatus = (anomalyRow?.cnt ?? 0) > 0 ? 'failed' : 'success'
     await notifyDiscord(sessionId, machineType, status, {
       spinCount: lastRow?.spinCount ?? 0,
-      screenshotUrl: session ? latestScreenshotUrl(session, machineType) : undefined,
     }).catch(() => {})
   }
 }
@@ -1459,32 +1449,9 @@ function broadcastAgentLog(sessionId: string, line: string) {
   if (clients) for (const r of clients) r.write(`data: ${JSON.stringify({ line })}\n\n`)
 }
 
-/** Broadcast a structured LuckyLink event to SSE clients (parsed separately from log lines).
- *  Also persists the latest state so reconnecting clients get a snapshot replay. */
-function broadcastLuckylinkEvent(sessionId: string, event: object) {
-  const s = agentSessions.get(sessionId)
-  if (s) {
-    const evt = event as { type?: string; data?: Record<string, unknown> }
-    if (evt.type === 'luckylink_start') {
-      const d = (evt.data ?? {}) as { jpGroupCode?: string }
-      s.luckylinkJpGroupCode = d.jpGroupCode ?? ''
-      s.luckylinkConnected = true
-      s.luckylinkPoolSnapshot = null
-      s.luckylinkAlerts = []
-    } else if (evt.type === 'luckylink_pool') {
-      s.luckylinkPoolSnapshot = event as Record<string, unknown>
-    } else if (evt.type === 'luckylink_alert') {
-      s.luckylinkAlerts = [...(s.luckylinkAlerts ?? []).slice(-19), event as Record<string, unknown>]
-    } else if (evt.type === 'luckylink_stop' || evt.type === 'luckylink_error') {
-      s.luckylinkConnected = false
-    }
-  }
-  const clients = agentSseClients.get(sessionId)
-  if (clients) for (const r of clients) r.write(`data: ${JSON.stringify({ luckylink_event: event })}\n\n`)
-}
 
 /** Exported so worker.ts can forward luckylink_event from agent WebSocket into AutoSpin SSE */
-export { broadcastAgentLog, broadcastLuckylinkEvent }
+export { broadcastAgentLog }
 
 /**
  * 找出重連前的那個 session。記憶體裡可能已經沒有了（`sessionNotFound` 的定義就是如此），
@@ -1744,8 +1711,7 @@ router.post('/api/autospin/agent/start', (req, res) => {
       if (c.enabled) notifyDiscord(sessionId, c.machineType, 'queued', { gameUrl: c.gameUrl }).catch(() => {})
     }
   }
-  // screenshotEnabled 是帳號層級偏好（不是逐機台設定），放頂層給 Python 端在 main() 存成全域變數
-  res.json({ ok: true, sessionId, configs: merged, keywordActions, machineActions, screenshotEnabled: isScreenshotEnabled(userLabel) })
+  res.json({ ok: true, sessionId, configs: merged, keywordActions, machineActions })
 })
 
 // POST /api/autospin/agent/:id/log — agent posts a log line（或一次多行 lines[]，供背景佇列批次上傳用）
@@ -2017,12 +1983,12 @@ router.get('/api/autospin/hub-agents', (_req, res) => {
   res.json({ ok: true, agents })
 })
 
-// POST /api/autospin/hub-dispatch { agentId, luckylinkConfig? } — 命令選定的 agent 啟動 AutoSpin（spawn Python 引擎）
+// POST /api/autospin/hub-dispatch { agentId } — 命令選定的 agent 啟動 AutoSpin（spawn Python 引擎）
 router.post('/api/autospin/hub-dispatch', (req, res) => {
   const operator = getOperatorFromContext()
   if (!operator?.key) return res.status(401).json({ ok: false, message: '請先選擇帳號' })
   const userLabel = (req.headers['x-user-label'] as string) || ''
-  const body = req.body as { agentId?: string; luckylinkConfig?: { enabled: boolean; jpGroupCode: string; pollIntervalSec: number } }
+  const body = req.body as { agentId?: string }
   const agentId = String(body.agentId ?? '').trim()
   // 指定 agentId 時直接查連線（即使 busy 旗標殘留也允許重新派工；agent-runner 會先 kill 舊 Python 再啟新的，不會雙開）
   let agent
@@ -2036,43 +2002,16 @@ router.post('/api/autospin/hub-dispatch', (req, res) => {
     return res.status(409).json({ ok: false, message: agentId ? '選定的 Agent 不可用（離線）' : '沒有可用的 AutoSpin Agent' })
   }
 
-  // Resolve JP Group config from DB if luckylinkConfig is enabled
-  let resolvedLuckylink: { enabled: boolean; jpGroupCode: string; pollIntervalSec: number; luckylinkUrl: string; luckylinkGroupName: string; loginUser: string; loginPass: string; gameCodes: string[]; environment: string } | undefined
-  if (body.luckylinkConfig?.enabled) {
-    // Fail loudly if caller sent enabled:true but omitted jpGroupCode
-    if (!body.luckylinkConfig.jpGroupCode) {
-      return res.status(400).json({ ok: false, message: 'luckylinkConfig.enabled=true 但未帶 jpGroupCode' })
-    }
-    // Clamp pollIntervalSec to 10–3600; reject non-numeric
-    const rawPoll = body.luckylinkConfig.pollIntervalSec
-    if (rawPoll !== undefined && (typeof rawPoll !== 'number' || !Number.isFinite(rawPoll))) {
-      return res.status(400).json({ ok: false, message: 'luckylinkConfig.pollIntervalSec 必須為數字' })
-    }
-    const pollIntervalSec = typeof rawPoll === 'number' ? Math.max(10, Math.min(3600, Math.round(rawPoll))) : 60
-
-    const jpGroup = db.prepare('SELECT * FROM jp_groups WHERE code=? AND enabled=1').get(body.luckylinkConfig.jpGroupCode) as JpGroupRow | undefined
-    if (!jpGroup) return res.status(400).json({ ok: false, message: `JP Group "${body.luckylinkConfig.jpGroupCode}" 不存在或已停用` })
-    let gameCodes: string[] = []
-    try { gameCodes = JSON.parse(jpGroup.game_codes || '[]') } catch { /* bad data */ }
-    resolvedLuckylink = {
-      enabled: true,
-      jpGroupCode: jpGroup.code,
-      pollIntervalSec,
-      luckylinkUrl: jpGroup.luckylink_url,
-      luckylinkGroupName: jpGroup.luckylink_group_name,
-      loginUser: jpGroup.login_user ?? 'admin',
-      loginPass: jpGroup.login_pass ?? '123456',
-      gameCodes,
-      environment: jpGroup.environment,
-    }
-  }
+  // LuckyLink JP 比對已於 2026-09-08 移除——獎池監控改由對帳台的 L4/L5 負責
+  // （每 60 秒固定跑、逐筆驗證公式並落庫，不需要靠 AutoSpin 派工時順便做）。
+  // ⚠️ `jp_groups` 表與資料刻意保留：對帳台之後要擴到 UAT/PROD 還需要那些網址與憑證。
 
   const dispatchId = `hub-${Date.now()}`
   agent.busy = true
   agent.sessionId = dispatchId
   // 派工是給哪個帳號的——Python 之後呼叫 /agent/start 時靠它把 session 連回這台 agent
   agent.dispatchUserLabel = userLabel
-  agent.ws.send(JSON.stringify({ type: 'autospin_start', sessionId: dispatchId, userLabel, luckylinkConfig: resolvedLuckylink ?? { enabled: false } }))
+  agent.ws.send(JSON.stringify({ type: 'autospin_start', sessionId: dispatchId, userLabel }))
   res.json({ ok: true, agentId: agent.agentId, hostname: agent.hostname, dispatchId })
 })
 
@@ -2130,13 +2069,7 @@ router.get('/api/autospin/agent/stream/:id', (req, res) => {
   res.flushHeaders()
   if (s) {
     for (const line of s.logs.slice(fromIndex)) res.write(`data: ${JSON.stringify({ line })}\n\n`)
-    // Replay latest LuckyLink state so reconnecting clients can initialize the JP panel
-    if (s.luckylinkJpGroupCode !== undefined) {
-      const startEvt = { type: 'luckylink_start', data: { jpGroupCode: s.luckylinkJpGroupCode, replayed: true }, ts: new Date().toISOString() }
-      res.write(`data: ${JSON.stringify({ luckylink_event: startEvt })}\n\n`)
-      if (s.luckylinkPoolSnapshot) res.write(`data: ${JSON.stringify({ luckylink_event: s.luckylinkPoolSnapshot })}\n\n`)
-      for (const a of (s.luckylinkAlerts ?? [])) res.write(`data: ${JSON.stringify({ luckylink_event: a })}\n\n`)
-    }
+    // LuckyLink JP 狀態的 replay 已於 2026-09-08 移除（比對改由對帳台 L4/L5 負責）
   }
   if (!agentSseClients.has(id)) agentSseClients.set(id, new Set())
   agentSseClients.get(id)!.add(res)
@@ -2703,7 +2636,6 @@ router.post('/api/autospin/agent/:id/history', (req, res) => {
     gameUrl: cfg?.gameUrl,
     spinCount: body.spinCount,
     errorSummary,
-    screenshotUrl: latestScreenshotUrl(s, body.machineType),
   }).catch(() => {})
 
   return res.json({ ok: true, isAnomaly: !!isAnomaly })
@@ -3275,16 +3207,9 @@ router.put('/api/autospin/compare/prefs', (req, res) => {
   res.json({ ok: true })
 })
 
-// GET/PUT /api/autospin/screenshot-prefs — 截圖監控依帳號開關（2026-08-17，使用者要求「不要常駐，
-// 讓使用者決定要不要開」）；只在下次啟動 AutoSpin 時生效（見 /agent/start），不是即時的
-router.get('/api/autospin/screenshot-prefs', (req, res) => {
-  res.json({ ok: true, screenshotEnabled: isScreenshotEnabled(requestUserLabel(req)) })
-})
-router.put('/api/autospin/screenshot-prefs', (req, res) => {
-  const body = z.object({ screenshotEnabled: z.boolean() }).parse(req.body)
-  upsertNotifyPrefs(requestUserLabel(req), { screenshotEnabled: body.screenshotEnabled ? 1 : 0 })
-  res.json({ ok: true })
-})
+// ⚠️ `autospin_notify_prefs.screenshotEnabled` 是 **legacy 欄位、已無任何作用**。
+//    截圖監控於 2026-09-08 移除，讀寫它的端點與前端一併拿掉。欄位本身刻意保留
+//    （刪欄位要動 schema，收益不大），但**不要再接回任何執行路徑**。
 
 // GET /api/autospin/compare/groups
 router.get('/api/autospin/compare/groups', (_req, res) => {

@@ -19,7 +19,7 @@ import { larkGenerateSchema, log, verifyLocalAgentToken, getClientIP, getUser, d
 import { runGenerateTestcasesFileJob, runLarkGenerateTestcasesJob, resumeGenerationJob, type WorkerUploadFile } from './routes/integrations.js'
 import { router as jiraRouter } from './routes/jira.js'
 import { router as gameshowRouter } from './routes/gameshow.js'
-import { router as autospinRouter, broadcastAgentLog, broadcastLuckylinkEvent } from './routes/autospin.js'
+import { router as autospinRouter, broadcastAgentLog } from './routes/autospin.js'
 import {
   router as osmUatRouter,
   handleBackendUatAgentLog,
@@ -27,6 +27,7 @@ import {
   handleBackendUatAgentDisconnect,
   handleBackendRecordReady,
   handleBackendRecordNet,
+  handleBackendRecordConsole,
   handleBackendRecordEvent,
   handleBackendRecordDone,
   handleBackendRecordAgentDisconnect,
@@ -646,6 +647,10 @@ wss.on('connection', (ws, req) => {
         handleBackendRecordNet(String(msg.sessionId), (msg as { call?: unknown }).call)
         return
       }
+      if (msg.type === 'backend_record_console' && msg.sessionId) {
+        handleBackendRecordConsole(String(msg.sessionId), (msg as { entry?: unknown }).entry)
+        return
+      }
       if (msg.type === 'backend_record_event' && msg.sessionId) {
         const m = msg as { sessionId: string; payload?: string }
         handleBackendRecordEvent(m.sessionId, String(m.payload ?? ''))
@@ -691,35 +696,8 @@ wss.on('connection', (ws, req) => {
         return
       }
 
-      if (msg.type === 'luckylink_event' && msg.sessionId && msg.event) {
-        // Forward structured LuckyLink poller events into the AutoSpin SSE log stream
-        type LuckylinkEvt = { type?: string; data?: Record<string, unknown>; ts?: string }
-        const evt = msg.event as LuckylinkEvt
-        let logLine: string
-        if (evt.type === 'luckylink_pool' && evt.data) {
-          const d = evt.data as { poll?: number; pool?: { name: string; currentValue: number }[]; diffs?: { name: string; state: string; delta: number | null }[] }
-          const poolStr = (d.pool ?? []).map((l: { name: string; currentValue: number }) => `${l.name}=${l.currentValue.toFixed ? l.currentValue.toFixed(2) : l.currentValue}`).join(' | ')
-          logLine = `[LL] Poll#${d.poll ?? '?'} ${poolStr || '(no data)'}`
-        } else if (evt.type === 'luckylink_alert' && evt.data) {
-          const d = evt.data as { level?: string; name?: string; state?: string; delta?: number; prev?: number; curr?: number }
-          const icon = d.level === 'error' ? '❌' : d.level === 'warn' ? '⚠️' : '✅'
-          logLine = `[LL] ${icon} ${d.name} ${d.state} prev=${d.prev ?? '?'} curr=${d.curr ?? '?'} Δ${d.delta?.toFixed ? d.delta.toFixed(2) : d.delta}`
-        } else if (evt.type === 'luckylink_start' && evt.data) {
-          const d = evt.data as { jpGroupCode?: string; luckylinkUrl?: string; pollIntervalSec?: number }
-          logLine = `[LL] 啟動 jpGroup=${d.jpGroupCode} interval=${d.pollIntervalSec}s url=${d.luckylinkUrl}`
-        } else if (evt.type === 'luckylink_stop' && evt.data) {
-          const d = evt.data as { jpGroupCode?: string; polls?: number }
-          logLine = `[LL] 停止 jpGroup=${d.jpGroupCode} 共輪詢 ${d.polls ?? 0} 次`
-        } else if (evt.type === 'luckylink_error' && evt.data) {
-          const d = evt.data as { message?: string; fatal?: boolean }
-          logLine = `[LL] ${d.fatal ? '💥 FATAL' : '⚠️ ERR'} ${d.message ?? '未知錯誤'}`
-        } else {
-          logLine = `[LL] ${JSON.stringify(evt)}`
-        }
-        broadcastAgentLog(msg.sessionId, logLine)
-        broadcastLuckylinkEvent(msg.sessionId, msg.event as object)
-        return
-      }
+      // LuckyLink JP 比對已於 2026-09-08 移除（改由對帳台 L4/L5 負責），
+      // agent 端不再送 luckylink_event，這段轉發已無來源。
 
       if (msg.type === 'sources_updated') {
         const result = msg as { type: 'sources_updated'; ok: boolean; results?: { file: string; ok: boolean; error?: string }[] }
@@ -796,7 +774,7 @@ wss.on('connection', (ws, req) => {
         } else if (ev.kind === 'cdp_warn') {
           // CDP connection failed but Chrome is running — keep session alive
           // Frontend will see recPolling=true but steps won't be captured
-          ;(sess as Record<string, unknown>).cdpWarning = ev.message
+          ;(sess as unknown as Record<string, unknown>).cdpWarning = ev.message
         }
         return
       }

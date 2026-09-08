@@ -465,35 +465,9 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
   const [visiblePinusCats, setVisiblePinusCats] = useState<Set<PinusCategory>>(new Set())
   const [autoScrollLog, setAutoScrollLog] = useState(true)
 
-  // ── LuckyLink JP compare (dispatch options) ──────────────────────────────────
-  const [luckylinkEnabled, setLuckylinkEnabled] = useState(false)
-  const [luckylinkJpGroupCode, setLuckylinkJpGroupCode] = useState('')
-  const [luckylinkPollIntervalSec, setLuckylinkPollIntervalSec] = useState(60)
-
-  // ── 截圖監控依帳號開關（2026-08-17，使用者要求「不要常駐，讓使用者決定」）──────────────
-  // 跟三路對帳的 cmpEnabled 同一套模式：伺服器持久化的每帳號偏好，不是純前端 state；
-  // 只在下次啟動 AutoSpin session 時生效，不是即時的（見 server 端註解）
-  const [screenshotEnabled, setScreenshotEnabled] = useState(true)
-  const [screenshotEnabledLoading, setScreenshotEnabledLoading] = useState(false)
-  const fetchScreenshotPrefs = async () => {
-    const r = await fetch('/api/autospin/screenshot-prefs', { headers: { 'x-user-label': getGlobalUserLabel() } })
-    const d = await r.json() as { ok: boolean; screenshotEnabled?: boolean }
-    if (d.ok) setScreenshotEnabled(d.screenshotEnabled ?? true)
-  }
-  const toggleScreenshotEnabled = async () => {
-    setScreenshotEnabledLoading(true)
-    const next = !screenshotEnabled
-    try {
-      await fetch('/api/autospin/screenshot-prefs', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json', 'x-user-label': getGlobalUserLabel() },
-        body: JSON.stringify({ screenshotEnabled: next }),
-      })
-      setScreenshotEnabled(next)
-    } finally { setScreenshotEnabledLoading(false) }
-  }
-  useEffect(() => { fetchScreenshotPrefs() }, [])
-
-  // ── LuckyLink runtime status (populated from SSE luckylink_event) ─────────────
+  // ⚠️ LuckyLink JP 比對與截圖監控已於 2026-09-08 移除。
+  //    獎池監控改由對帳台的 L4/L5 負責——那條路每 60 秒固定跑、會逐筆驗證
+  //    `change ≈ 投入額差 × 增額%` 並落庫，不需要在派工時多一個勾選框。
 
   const evtSourceRef = useRef<EventSource | null>(null)
   const captureTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -556,7 +530,7 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
       : `/api/autospin/stream/${sid}${fromIndex > 0 ? `?from=${fromIndex}` : ''}`
     const es = new EventSource(url)
     es.onmessage = (e) => {
-      const data = JSON.parse(e.data) as { line?: string; luckylink_event?: Record<string, unknown> }
+      const data = JSON.parse(e.data) as { line?: string }
       const line = data.line ?? ''
       const entry = toLogEntry(line)
       if (isAgent) setAgentLogs(prev => [...prev.slice(-(MAX_VISIBLE_LOGS - 1)), entry])
@@ -653,9 +627,6 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
         headers: { 'Content-Type': 'application/json', 'x-user-label': getGlobalUserLabel() },
         body: JSON.stringify({
           agentId: selectedAgentId,
-          luckylinkConfig: luckylinkEnabled
-            ? { enabled: true, jpGroupCode: luckylinkJpGroupCode, pollIntervalSec: luckylinkPollIntervalSec }
-            : { enabled: false },
         }),
       })
       const d = await r.json() as { ok: boolean; message?: string }
@@ -1369,58 +1340,6 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
 
                   </section>
 
-                  <section style={{ background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 10, padding: '10px 13px', display: 'flex', flexDirection: 'column', gap: 9, minWidth: 0 }}>
-                  <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--cr-violet)', letterSpacing: '.04em' }}>
-                    LuckyLink JP 比對 / 截圖
-                    {runMode === 'server' && <span style={{ marginLeft: 8, fontSize: 10.5, fontWeight: 400, color: '#64748b' }}>（僅遠端 Agent 模式）</span>}
-                  </div>
-                  <div className={runMode === 'server' ? 'autospin-pane-off' : undefined}
-                       style={runMode === 'server' ? { display: 'flex', flexDirection: 'column', gap: 9 } : { display: 'contents' }}>
-
-                  {/* ② LuckyLink JP Compare options */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none' }}>
-                      <input type="checkbox" checked={luckylinkEnabled} onChange={e => setLuckylinkEnabled(e.target.checked)} style={{ width: 15, height: 15 }} />
-                      <span style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd' }}>啟用 LuckyLink JP 比對</span>
-                    </label>
-                    {luckylinkEnabled && (
-                      <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                          <span style={{ fontSize: 11, color: '#64748b' }}>JP Group</span>
-                          <select value={luckylinkJpGroupCode} onChange={e => setLuckylinkJpGroupCode(e.target.value)}
-                            style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 5, color: '#e2e8f0', padding: '4px 8px', fontSize: 13, minWidth: 160 }}>
-                            <option value=''>-- 選擇 JP Group --</option>
-                            {jpGroups.filter(g => g.enabled).map(g => (
-                              <option key={g.code} value={g.code}>{g.display_name} ({g.environment})</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                          <span style={{ fontSize: 11, color: '#64748b' }}>輪詢間隔（秒）</span>
-                          <input type="number" min={10} max={600} value={luckylinkPollIntervalSec} onChange={e => setLuckylinkPollIntervalSec(Number(e.target.value))}
-                            style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 5, color: '#e2e8f0', padding: '4px 8px', fontSize: 13, width: 90 }} />
-                        </div>
-                        {!luckylinkJpGroupCode && (
-                          <span style={{ fontSize: 11, color: '#ead8a6', borderLeft: '2px solid #ead8a6', paddingLeft: 6, alignSelf: 'flex-end', paddingBottom: 4 }}>請選擇 JP Group</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  <div style={{ borderTop: '1px solid #1e293b' }} />
-
-                  {/* ③ 截圖監控依帳號開關（2026-08-17）——只在下次啟動 session 生效，不是即時的，
-                      文案直接寫明避免使用者以為切換當下就會立即停止/恢復截圖 */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: screenshotEnabledLoading ? 'default' : 'pointer', userSelect: 'none', opacity: screenshotEnabledLoading ? 0.6 : 1 }}>
-                      <input type="checkbox" checked={screenshotEnabled} disabled={screenshotEnabledLoading} onChange={toggleScreenshotEnabled} style={{ width: 15, height: 15 }} />
-                      <span style={{ fontSize: 13, fontWeight: 600, color: '#93c5fd' }}>啟用截圖監控</span>
-                    </label>
-                    <span style={{ fontSize: 11, color: '#64748b', paddingLeft: 23 }}>關閉後不會再定期截圖上傳；下次啟動 AutoSpin session 才會生效，執行中切換不會立即改變</span>
-                  </div>
-
-                  </div>
-                  </section>
 
                   <section style={{ background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 10, padding: '10px 13px', display: 'flex', flexDirection: 'column', gap: 9, minWidth: 0 }}>
                   <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--cr-violet)', letterSpacing: '.04em' }}>執行控制</div>
@@ -1490,8 +1409,8 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
 
                   {/* ④ Status + controls row */}
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <button className="cr-btn cr-btn--jade" onClick={handleDispatchAgent} disabled={agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)}
-                      style={{ padding: '7px 18px', background: (agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)) ? '#4b5563' : 'var(--xx-jade-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: (agentRunning || hubDispatching || !selectedAgentId || (luckylinkEnabled && !luckylinkJpGroupCode)) ? 'default' : 'pointer' }}>
+                    <button className="cr-btn cr-btn--jade" onClick={handleDispatchAgent} disabled={agentRunning || hubDispatching || !selectedAgentId}
+                      style={{ padding: '7px 18px', background: (agentRunning || hubDispatching || !selectedAgentId) ? '#4b5563' : 'var(--xx-jade-solid)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 700, fontSize: 13.5, cursor: (agentRunning || hubDispatching || !selectedAgentId) ? 'default' : 'pointer' }}>
                       {hubDispatching ? '派工中…' : '派工啟動'}
                     </button>
                     <button className="cr-btn cr-btn--cinnabar" onClick={handleStopHub} disabled={hubStopping || (!agentRunning && !hubDispatching)}
@@ -1740,7 +1659,6 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
               )}
             </div>
 
-            {/* Right: screenshots + SLS errors */}
           </div>
         </div>
       )}

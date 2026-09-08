@@ -48,7 +48,9 @@ user_label = ""
 session_id = None
 keyword_actions: dict = {}  # enter_game() 讀這個當作 bare global（fallback 用），machine_worker() 進場時賦值
 machine_actions: dict = {}  # 目前未串接的殘留變數，保留只為了跟伺服器回傳的資料形狀一致
-screenshot_enabled: bool = True  # 截圖監控依帳號開關（2026-08-17），啟動當下讀一次，不即時生效
+# 截圖監控（上傳到畫廊）已於 2026-09-08 移除——獎池監控改由對帳台的 L4/L5 負責，
+# 那條路每 60 秒固定跑、會逐筆驗證公式並落庫，不需要靠 AutoSpin 順便截圖。
+# ⚠️ `page.screenshot()` 本身沒有拿掉：模板比對需要它。
 
 # ─── 工具函數 ─────────────────────────────────────────────────────────────────
 
@@ -181,15 +183,8 @@ def log_worker():
 
 def async_call(fn, *args, **kwargs):
     """在背景執行緒跑一個網路呼叫（fire-and-forget），避免呼叫方（主 Spin 迴圈）被同步網路請求卡住。
-    post_history()/send_screenshot()/send_lark() 都是 best-effort、內部已吞掉例外，適合這樣用。"""
+    post_history()/send_lark() 都是 best-effort、內部已吞掉例外，適合這樣用。"""
     threading.Thread(target=fn, args=args, kwargs=kwargs, daemon=True).start()
-
-def send_screenshot(name: str, img_bytes: bytes):
-    try:
-        requests.post(f"{server_url}/api/autospin/agent/{session_id}/screenshot",
-                      files={'file': (name, img_bytes, 'image/png')}, timeout=15)
-    except Exception as e:
-        log(f"[截圖上傳失敗] {e}")
 
 def send_stopped():
     try:
@@ -2748,11 +2743,11 @@ def _parent_signal_handler(signum, frame):
 
 def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: dict,
                     keyword_actions_: dict, machine_actions_: dict, heartbeats=None,
-                    screenshot_enabled_: bool = True):
+                    ):
     """單一機台的完整生命週期，跑在自己獨立的 process 裡。heartbeats（multiprocessing.Manager
     的共享 dict，parent 傳入）在每次主迴圈迭代開頭寫入目前時間，讓 parent 端的監控迴圈能判斷
     這台機台是「活著且有在動」還是「process 還在但卡死」（例如瀏覽器已無回應），據此自動重啟。"""
-    global session_id, server_url, user_label, keyword_actions, machine_actions, AGENT_START_TS, screenshot_enabled
+    global session_id, server_url, user_label, keyword_actions, machine_actions, AGENT_START_TS
     global shared_state
     shared_state = heartbeats   # 沿用既有的 Manager dict 當共用通道（見檔頭說明）
     session_id = session_id_
@@ -2760,7 +2755,6 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
     user_label = user_label_
     keyword_actions = keyword_actions_
     machine_actions = machine_actions_
-    screenshot_enabled = screenshot_enabled_
     AGENT_START_TS = time.time()
 
     signal.signal(signal.SIGINT,  lambda s, f: stop_flag.set())
@@ -3059,15 +3053,11 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
                         log(f"[{mt}] Spin #{mp['spin_count']} (間隔 {spin_interval}s)")
                     if mp['spin_count'] % screenshot_interval == 0:
                         try:
-                            # 截圖本身（page.screenshot()）仍然要拍，因為下面的模板比對（Bonus/Error
-                            # 偵測）需要這張圖才能運作；screenshot_enabled 只控制「要不要上傳存進
-                            # 截圖監控畫廊」這個部分，不影響模板偵測/戰績紀錄/對帳資料（2026-08-17，
-                            # 使用者反應的是截圖監控畫廊洗版的問題，不是要連這些功能一起關掉）
+                            # ⚠️ **`page.screenshot()` 本身一定要留著。**
+                            #    截圖監控（上傳到畫廊）已於 2026-09-08 移除，但這張圖同時是
+                            #    **模板比對（Bonus/Error 偵測）唯一的輸入**，而戰績紀錄與
+                            #    Pinus 對帳資料也共用這個觸發點。把整段拿掉會連帶弄壞那三個。
                             img = page.screenshot()
-                            name = f"{mt}_{mp['spin_count']:06d}.png"
-                            if screenshot_enabled:
-                                async_call(send_screenshot, name, img)
-                                log(f"[{mt}] 截圖已上傳: {name}")
 
                             # ── 戰績紀錄 + 對帳資料 ───────────────────────────
                             bal_for_history = mp.get('last_balance')
@@ -3199,8 +3189,7 @@ def main():
         machine_actions_data = data.get('machineActions', {})
         # 截圖監控依帳號開關（2026-08-17），帳號層級偏好、不是逐機台設定，只在這裡（啟動當下）讀一次，
         # 啟動後切換不會即時生效，要等下次重啟 session（跟 CodeX 討論定案，範圍/成本考量）
-        screenshot_enabled_data = data.get('screenshotEnabled', True)
-        print(f"[Agent] Session: {session_id}，共 {len(configs)} 台機台，截圖監控：{'開啟' if screenshot_enabled_data else '關閉'}")
+        print(f"[Agent] Session: {session_id}，共 {len(configs)} 台機台")
     except Exception as e:
         print(f"[ERROR] 無法連接伺服器: {e}")
         sys.exit(1)
@@ -3242,7 +3231,7 @@ def main():
     def spawn_machine(mt: str) -> None:
         proc = multiprocessing.Process(
             target=machine_worker,
-            args=(session_id, server_url, user_label, machine_cfgs[mt], keyword_actions_data, machine_actions_data, heartbeats, screenshot_enabled_data),
+            args=(session_id, server_url, user_label, machine_cfgs[mt], keyword_actions_data, machine_actions_data, heartbeats),
         )
         proc.start()
         machine_procs[mt] = proc

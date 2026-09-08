@@ -111,6 +111,12 @@ let currentRunner: { stop: () => void } | null = null
 let backendRecordBrowser: import('playwright').Browser | null = null
 let backendRecordSessionId: string | null = null
 
+function backendRecordKind(resourceType: string) {
+  if (resourceType === 'xhr' || resourceType === 'fetch') return 'api'
+  if (resourceType === 'image') return 'image'
+  return 'other'
+}
+
 interface SessionJoinMessage {
   type: 'session_join'
   sessionId: string
@@ -241,7 +247,7 @@ type IncomingMessage =
 // ── AutoSpin (Python engine spawned locally by this agent) ───────────────────
 const PYTHON_EXE = process.env.AUTOSPIN_PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3')
 let autospinChild: ChildProcess | null = null
-let luckylinkPollerChild: ChildProcess | null = null
+// luckylinkPollerChild 已於 2026-09-08 移除（LuckyLink JP 比對改由對帳台 L4/L5 負責）
 
 // ── Backend UAT (Playwright script spawned locally by this agent) ────────────
 // Server 只負責建 session 跟轉 log；真正的 Chromium 跑在這裡。
@@ -1213,10 +1219,6 @@ function connect() {
       if (autospinChild) {
         try { autospinChild.kill('SIGTERM') } catch { /* ignore */ }
       }
-      if (luckylinkPollerChild) {
-        try { luckylinkPollerChild.kill('SIGTERM') } catch { /* ignore */ }
-        luckylinkPollerChild = null
-      }
       // Abort any pending claim
       pendingClaimResolve?.(null)
       pendingClaimResolve = null
@@ -1229,16 +1231,10 @@ function connect() {
     if (msg.type === 'autospin_start') {
       const startMsg = msg as AutoSpinStartMessage
       const { sessionId, userLabel } = startMsg
-      const luckylinkConfig = (startMsg as unknown as { luckylinkConfig?: { enabled: boolean; jpGroupCode?: string; pollIntervalSec?: number; luckylinkUrl?: string; luckylinkGroupName?: string; loginUser?: string; loginPass?: string } }).luckylinkConfig
 
       if (autospinChild) {
         try { autospinChild.kill('SIGTERM') } catch { /* ignore */ }
         autospinChild = null
-      }
-      // Kill any previous poller
-      if (luckylinkPollerChild) {
-        try { luckylinkPollerChild.kill('SIGTERM') } catch { /* ignore */ }
-        luckylinkPollerChild = null
       }
 
       const httpBase = CENTRAL_URL.replace(/^wss?/, (s) => (s.includes('wss') ? 'https' : 'http'))
@@ -1263,10 +1259,6 @@ function connect() {
         console.log(`[Agent:${AGENT_LABEL}] AutoSpin process exited (code ${code})`)
         if (autospinChild === child) autospinChild = null
         // Stop poller when AutoSpin ends
-        if (luckylinkPollerChild) {
-          try { luckylinkPollerChild.kill('SIGTERM') } catch { /* ignore */ }
-          luckylinkPollerChild = null
-        }
         if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'agent_done', sessionId }))
       })
       child.on('error', (err) => {
@@ -1276,51 +1268,9 @@ function connect() {
       })
 
       // ── Spawn LuckyLink poller if requested ──────────────────────────────────
-      if (luckylinkConfig?.enabled && luckylinkConfig.luckylinkUrl) {
-        const pollerPath = join(process.cwd(), 'server', 'luckylink-poller.mjs')
-        if (!existsSync(pollerPath)) {
-          console.warn(`[Agent:${AGENT_LABEL}] LuckyLink poller not found: ${pollerPath}`)
-        } else {
-          console.log(`[Agent:${AGENT_LABEL}] LuckyLink poller start → group=${luckylinkConfig.jpGroupCode} url=${luckylinkConfig.luckylinkUrl} interval=${luckylinkConfig.pollIntervalSec}s`)
-          const gameCodes = (luckylinkConfig as unknown as { gameCodes?: string[] }).gameCodes ?? []
-          const pollerEnv = {
-            ...process.env,
-            LL_URL: luckylinkConfig.luckylinkUrl,
-            LL_GROUP_NAME: luckylinkConfig.luckylinkGroupName ?? '',
-            LL_LOGIN_USER: luckylinkConfig.loginUser ?? 'admin',
-            LL_LOGIN_PASS: luckylinkConfig.loginPass ?? '123456',
-            LL_POLL_SEC: String(luckylinkConfig.pollIntervalSec ?? 60),
-            LL_JP_GROUP_CODE: luckylinkConfig.jpGroupCode ?? '',
-            LL_GAME_CODES: gameCodes.join(','),
-          }
-          const NODE_EXE = process.execPath
-          const poller = spawn(NODE_EXE, [pollerPath], { env: pollerEnv })
-          luckylinkPollerChild = poller
-          poller.stdout?.setEncoding('utf8')
-          poller.stderr?.setEncoding('utf8')
-          poller.stdout?.on('data', (c: string) => {
-            for (const line of c.split('\n').filter(Boolean)) {
-              console.log(`[LL-POLL] ${line}`)
-              // Forward structured events to hub via websocket
-              try {
-                const evt = JSON.parse(line) as { type?: string; data?: unknown; ts?: string }
-                if (evt.type && ws.readyState === ws.OPEN) {
-                  ws.send(JSON.stringify({ type: 'luckylink_event', event: evt, sessionId }))
-                }
-              } catch { /* not JSON, plain log line */ }
-            }
-          })
-          poller.stderr?.on('data', (c: string) => { for (const l of c.split('\n').filter(Boolean)) console.error(`[LL-POLL][err] ${l}`) })
-          poller.on('close', (code) => {
-            console.log(`[Agent:${AGENT_LABEL}] LuckyLink poller exited (code ${code})`)
-            if (luckylinkPollerChild === poller) luckylinkPollerChild = null
-          })
-          poller.on('error', (err) => {
-            console.error(`[Agent:${AGENT_LABEL}] LuckyLink poller spawn error:`, err)
-            if (luckylinkPollerChild === poller) luckylinkPollerChild = null
-          })
-        }
-      }
+      // LuckyLink JP 比對已於 2026-09-08 移除——獎池監控改由對帳台的 L4/L5 負責。
+      // ⚠️ `jp_groups` 資料表與後端資料刻意保留：對帳台之後要擴到 UAT/PROD 時
+      //    還需要那些網址與憑證，重建成本比留著高。
 
       return
     }
@@ -1427,9 +1377,30 @@ function connect() {
         await ctx.addInitScript(m.recorderScript)
         page.on('console', message => {
           const text = message.text()
-          if (!text.startsWith(m.marker)) return
           if (ws.readyState !== ws.OPEN) return
-          ws.send(JSON.stringify({ type: 'backend_record_event', sessionId: m.sessionId, payload: text.slice(m.marker.length).trim() }))
+          if (text.startsWith(m.marker)) {
+            ws.send(JSON.stringify({ type: 'backend_record_event', sessionId: m.sessionId, payload: text.slice(m.marker.length).trim() }))
+            return
+          }
+          const loc = message.location()
+          ws.send(JSON.stringify({
+            type: 'backend_record_console',
+            sessionId: m.sessionId,
+            entry: {
+              type: message.type(),
+              text: text.slice(0, 800),
+              location: loc?.url ? `${loc.url}:${loc.lineNumber ?? 0}` : '',
+              ts: Date.now(),
+            },
+          }))
+        })
+        page.on('pageerror', error => {
+          if (ws.readyState !== ws.OPEN) return
+          ws.send(JSON.stringify({
+            type: 'backend_record_console',
+            sessionId: m.sessionId,
+            entry: { type: 'pageerror', text: error.message.slice(0, 800), ts: Date.now() },
+          }))
         })
         // 使用者自己把視窗關掉也要收尾，不然 server 會一直等
         page.on('close', () => { finish() })
@@ -1454,14 +1425,13 @@ function connect() {
          * 知道的其實是它打了哪些後端。看不到 API 的話，錄出來的斷言只能停在「畫面上
          * 有這個字」那一層——而很多成功／失敗根本不在 DOM，在 API 有沒有送出、回什麼碼。
          *
-         * 只送 xhr / fetch：一頁動輒上百個圖檔與靜態資源，全送會把 WS 洗爆，而且那些
-         * 對「要驗什麼」完全沒有幫助。
+         * API 明細供「一鍵變斷言」使用；圖檔與其他資源則供網速監控使用。
+         * server 只保留最後一段，避免長時間錄製把 WS 與 status payload 洗爆。
          */
         page.on('requestfinished', request => {
           void (async () => {
             try {
               const type = request.resourceType()
-              if (type !== 'xhr' && type !== 'fetch') return
               const response = await request.response().catch(() => null)
               const timing = request.timing()
               const durationMs = timing && timing.responseEnd > 0
@@ -1480,11 +1450,34 @@ function connect() {
                   urlPattern: toUrlPattern(request.url()),
                   status: response ? response.status() : null,
                   durationMs,
+                  kind: backendRecordKind(type),
+                  resourceType: type,
                   ts: Date.now(),
                 },
               }))
             } catch { /* 單一筆抓不到不要影響錄製本身 */ }
           })()
+        })
+        page.on('requestfailed', request => {
+          try {
+            if (ws.readyState !== ws.OPEN) return
+            const type = request.resourceType()
+            ws.send(JSON.stringify({
+              type: 'backend_record_net',
+              sessionId: m.sessionId,
+              call: {
+                method: request.method(),
+                url: request.url(),
+                urlPattern: toUrlPattern(request.url()),
+                status: null,
+                durationMs: null,
+                kind: backendRecordKind(type),
+                resourceType: type,
+                failure: request.failure()?.errorText ?? 'request failed',
+                ts: Date.now(),
+              },
+            }))
+          } catch { /* 單一筆抓不到不要影響錄製本身 */ }
         })
 
         console.log(`[Agent:${AGENT_LABEL}] 後台錄製 ${m.sessionId} 已開始（瀏覽器在這台機器上）`)

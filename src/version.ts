@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.126.1'
+export const APP_VERSION = '4.127.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,17 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  {
+    version: '4.127.0',
+    date: '2026-09-08',
+    changes: [
+      'feat(autospin): 移除派工頁的「啟用 LuckyLink JP 比對」與「啟用截圖監控」兩個開關（使用者決定，之後在對帳工具一次做好）。獎池監控改由對帳台的 L4／L5 負責——那條路**每 60 秒固定跑**、會逐筆驗證 `change ≈ 投入額差 × 增額%` 並落庫，不需要在派工時多勾一個框',
+      'note(autospin): ⚠️ **代價要講清楚**：agent 那支 poller 是唯一涵蓋 **UAT／PROD** 的路（對帳台目前只跑 QAT），移除後那兩個環境暫時沒有獎池能見度。`jp_groups` 表與資料**刻意保留**——對帳台之後要擴到 UAT／PROD 還需要那些網址與憑證',
+      'fix(autospin): 🚨 **`page.screenshot()` 本身沒有拿掉**。那個觸發點同時是**模板比對（Bonus／Error 偵測）唯一的輸入**，戰績紀錄與 Pinus 對帳資料也共用它。原本的開關只控制「要不要上傳到畫廊」那一行——整段拿掉會連帶弄壞那三個功能',
+      'fix(autospin): Discord 即時彙報的「截圖」欄位一併移除。沒有上傳就永遠是空的，**留一個永遠空白的欄位跟「顯示過期值」是同一類問題**',
+      'note(autospin): ⚠️ `autospin_notify_prefs.screenshotEnabled` 是 **legacy 欄位、已無任何作用**，但刻意保留（刪欄位要動 schema，收益不大）。已從所有執行路徑拔乾淨並在程式碼標明，**不要再接回去**（CodeX 建議）。舊截圖檔案也留著當排查素材',
+    ],
+  },
   {
     version: '4.126.1',
     date: '2026-09-08',
