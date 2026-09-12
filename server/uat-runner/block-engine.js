@@ -26,6 +26,37 @@
  * params 的 type：text | number | textarea | select | boolean
  */
 export const BLOCK_DEFS = {
+  set_tc_result: {
+    label: '回填 Lark PASS／FAIL', category: 'result', defaultOnFail: 'stop',
+    description: '人工指定此 TC 的結果；試跑只預覽，正式執行才回寫，不覆蓋執行失敗',
+    params: [{ key: 'outcome', label: '指定判定', type: 'select', options: ['', 'PASS', 'FAIL'], required: true },
+      { key: 'reason', label: '判定說明', type: 'text', required: true }],
+  },
+  assert_region_image: {
+    label: '區域圖片比對', category: 'assert', defaultOnFail: 'stop',
+    description: '比對元素截圖與人工確認的 PNG 基準圖；缺圖不會自動通過',
+    params: [{ key: 'selector', label: '區域選擇器', type: 'text', required: true },
+      { key: 'baselinePng', label: 'PNG 基準圖', type: 'textarea', required: true },
+      { key: 'thresholdPct', label: '容許差異百分比', type: 'number', default: 1 },
+      { key: 'pixelTolerance', label: '像素色差容差（0～255）', type: 'number', default: 20 }],
+  },
+  wait: {
+    label: '等待更新', category: 'nav', defaultOnFail: 'stop',
+    description: '共用等待只執行一次；等待結束後仍需加入檢查條件',
+    params: [{ key: 'waitMs', label: '等待毫秒', type: 'number', default: 1000, required: true }],
+  },
+  set_checked: {
+    label: '設定勾選狀態', category: 'nav', defaultOnFail: 'stop',
+    params: [{ key: 'selector', label: '選擇器', type: 'text', required: true }, { key: 'checked', label: '勾選', type: 'boolean', default: true }],
+  },
+  select_option: {
+    label: '選擇下拉選項', category: 'nav', defaultOnFail: 'stop',
+    params: [{ key: 'selector', label: '選擇器', type: 'text', required: true }, { key: 'value', label: '選項值', type: 'text', required: true }],
+  },
+  assert_text: {
+    label: '文字必須符合', category: 'assert', defaultOnFail: 'stop',
+    params: [{ key: 'selector', label: '選擇器', type: 'text', required: true }, { key: 'expect', label: '期望文字', type: 'text', required: true }, { key: 'match', label: '比對方式', type: 'select', options: ['exact', 'contains'], default: 'exact' }],
+  },
   open_page: {
     label: '開啟後台頁面', category: 'nav', defaultOnFail: 'stop',
     description: '依子類型自動帶路徑，登入沿用同一個 session',
@@ -51,6 +82,27 @@ export const BLOCK_DEFS = {
     params: [
       { key: 'selector', label: '選擇器', type: 'text', required: true },
       { key: 'value', label: '要輸入的內容', type: 'text', required: true },
+      { key: 'selectorStrategy', label: '選擇器來源', type: 'text' },
+    ],
+  },
+  keypress: {
+    label: '按下按鍵', category: 'nav', defaultOnFail: 'stop',
+    description: '重播特殊鍵或數字鍵；一般文字仍使用輸入文字積木',
+    params: [
+      { key: 'key', label: '按鍵', type: 'text', required: true, placeholder: 'Enter' },
+      { key: 'selector', label: '先聚焦的元素', type: 'text', help: '選填；有填就先聚焦該元素' },
+      { key: 'selectorStrategy', label: '選擇器來源', type: 'text' },
+    ],
+  },
+  drag: {
+    label: '拖曳元素', category: 'nav', defaultOnFail: 'stop',
+    description: '依錄製時的起點與終點重播滑鼠拖曳',
+    params: [
+      { key: 'selector', label: '拖曳目標', type: 'text', required: true },
+      { key: 'fromX', label: '起點 X', type: 'number', required: true },
+      { key: 'fromY', label: '起點 Y', type: 'number', required: true },
+      { key: 'toX', label: '終點 X', type: 'number', required: true },
+      { key: 'toY', label: '終點 Y', type: 'number', required: true },
       { key: 'selectorStrategy', label: '選擇器來源', type: 'text' },
     ],
   },
@@ -238,10 +290,10 @@ export const BLOCK_DEFS = {
   },
   read_block: {
     label: '讀取色塊', category: 'read', outputKind: 'blockFields', defaultOnFail: 'stop',
-    description: '用 selector 取區塊，抓每個標籤後面的值',
+    description: '用 selector 取區塊；有標籤就抓標籤後面的值，沒標籤就讀元素本身',
     params: [
       { key: 'selector', label: '區塊 selector', type: 'text', placeholder: '.blue-block', required: true },
-      { key: 'labels', label: '要抓的標籤（一行一個）', type: 'textarea', required: true },
+      { key: 'labels', label: '要抓的標籤（一行一個）', type: 'textarea', help: '留白時讀取元素本身的文字或值' },
       { key: 'as', label: '存成變數名', type: 'text', placeholder: 'blueBlock', required: true },
     ],
   },
@@ -269,7 +321,8 @@ export const BLOCK_DEFS = {
       { key: 'left', label: '左值', type: 'text', placeholder: 'blueBlock.TotalAvailableEGM', required: true },
       { key: 'right', label: '右值', type: 'text', placeholder: 'apiData.total', required: true },
       // 容差開成參數，是因為現在 cmp() 裡寫死 pct = 0.01，要調只能改 5000 行那支
-      { key: 'tolerancePct', label: '容差（%）', type: 'number', default: 1, help: '相對誤差；絕對誤差至少容許 1' },
+      { key: 'tolerancePct', label: '容差（%）', type: 'number', default: 1, help: '相對誤差；精確相等時兩種容差都設為 0' },
+      { key: 'absoluteTolerance', label: '絕對容差', type: 'number', default: 1, help: '舊腳本預設 1；精確相等填 0' },
       { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
     ],
   },
@@ -286,7 +339,7 @@ export const BLOCK_DEFS = {
   screenshot: {
     label: '截圖', category: 'evidence', defaultOnFail: 'continue',
     description: '存證並附回 Lark TC',
-    params: [{ key: 'name', label: '檔名', type: 'text', placeholder: 'tc1_Dashboard' }],
+    params: [{ key: 'name', label: '檔名', type: 'text', placeholder: 'tc1_Dashboard' }, { key: 'selector', label: '截圖區域（留空截畫面）', type: 'text' }],
   },
   mark_manual: {
     label: '標記需人工', category: 'evidence',
@@ -393,6 +446,23 @@ async function clickDialogTrigger(page, { trigger, scope, triggerKind }) {
   }, { trigger, scope: scope ?? 'page', triggerKind: triggerKind ?? 'text' });
 }
 
+/**
+ * 錄製器的 text=/label= 代表使用者當時看到的完整名稱。Playwright 舊 selector
+ * 預設是模糊比對，text=Edit 會命中 Credit；統一在這裡改成 exact，並優先取可見元素。
+ */
+async function recordedLocator(page, selector) {
+  let exact = null;
+  if (selector.startsWith('text=')) exact = page.getByText(selector.slice(5), { exact: true });
+  else if (selector.startsWith('label=')) exact = page.getByLabel(selector.slice(6), { exact: true });
+  if (!exact) return page.locator(selector).first();
+  const count = await exact.count();
+  for (let i = 0; i < count; i++) {
+    const candidate = exact.nth(i);
+    if (await candidate.isVisible().catch(() => false)) return candidate;
+  }
+  return count ? exact.first() : page.locator(selector).first();
+}
+
 /** 開不起來時給人看的原因。兩顆積木共用，訊息才會一致。 */
 function dialogOpenFailReason(status, trigger, triggerKind) {
   if (status === 'no-row') return '表格沒有任何列';
@@ -411,9 +481,9 @@ export function toNumber(value) {
 }
 
 /** 相對容差比對；絕對誤差至少容許 1（沿用既有 cmp() 的規則，不要另創一套） */
-export function numbersEqual(a, b, tolerancePct = 1) {
+export function numbersEqual(a, b, tolerancePct = 1, absoluteTolerance = 1) {
   if (a === undefined || b === undefined) return false;
-  return Math.abs(a - b) <= Math.max(Math.abs(b) * (tolerancePct / 100), 1);
+  return Math.abs(a - b) <= Math.max(Math.abs(b) * (tolerancePct / 100), absoluteTolerance);
 }
 
 /**
@@ -424,8 +494,10 @@ export function numbersEqual(a, b, tolerancePct = 1) {
  *   - page              Playwright page
  *   - openPath(path, waitMs)  導到後台某個路徑（登入沿用）
  *   - resolveSubtypePath(subtype) 子類型 → 路徑
- *   - clickSelector(selector, waitMs)
+ *   - clickSelector(selector, waitMs, viewport, recordedViewport)
  *   - typeInto(selector, value)
+ *   - pressKey(selector, key)
+ *   - dragPointer(step)
  *   - applyFilter(field, value, submitSelector, waitMs)
  *   - takeScreenshot(name) → 檔案路徑
  *   - callBuiltin(name, options) → { notes, criticalFails, manual }
@@ -444,16 +516,18 @@ export function wildcardToRegExp(pattern) {
   return new RegExp(`^${escaped}$`);
 }
 
-export async function runSteps(steps, ctx) {
+export async function runSteps(steps, ctx, options = {}) {
   const notes = [];
+  const diagnostics = [];
+  let declaredOutcome = null;
   const criticalFails = [];
   const warnings = [];   // warn 級別：有檢查、有異常，但不影響 pass 判定
   /** 網路斷言的時間界線。每次 open_page 之後往前推，只問「這之後打了什麼」 */
-  let netMark = Date.now();
+  let netMark = options.state?.netMark ?? Date.now();
   const allShotPaths = [];
   /** 跑過幾次「截圖」積木。>0 代表作者自己指定了證據點，就不自動補截。 */
   let explicitShots = 0;
-  const vars = {};
+  const vars = options.state?.vars ?? {};
   let manual = false;
   let manualReason = '';
 
@@ -542,6 +616,7 @@ export async function runSteps(steps, ctx) {
   };
 
   for (const [i, step] of (steps ?? []).entries()) {
+    if (step.disabled === true) continue;
     const def = BLOCK_DEFS[step.action];
     const tag = `[${i + 1}/${steps.length}] ${def?.label ?? step.action}`;
 
@@ -555,7 +630,39 @@ export async function runSteps(steps, ctx) {
     if (!checkParams(step, tag, def)) break;
 
     try {
-      if (step.action === 'open_page') {
+      if (step.action === 'set_tc_result') {
+        if (!ctx.multiTc) throw new Error('回填判定積木只適用於多 TC 工作台，請先綁定 TC');
+        if (!['PASS', 'FAIL'].includes(step.outcome)) throw new Error('請明確選擇 PASS 或 FAIL');
+        declaredOutcome = step.outcome.toLowerCase();
+        notes.push(`${tag}：人工指定 ${step.outcome}，${step.reason}；正式執行才回寫 Lark`);
+      } else if (step.action === 'assert_region_image') {
+        if (!ctx.compareRegion) throw new Error('此執行環境不支援區域圖片比對，請更新 Agent');
+        const compared = await ctx.compareRegion(step);
+        diagnostics.push({ expected: compared.expected, actual: compared.actual, differencePct: compared.differencePct });
+        allShotPaths.push(...(compared.shots || [])); explicitShots += (compared.shots || []).length;
+        if (!compared.pass) { if (fail(step, `${tag}：${compared.message}`) === 'stop') break; }
+        else notes.push(`${tag}：${compared.message}`);
+      } else if (step.action === 'wait') {
+        const ms = Number(step.waitMs);
+        if (!Number.isFinite(ms) || ms < 0 || ms > 600000) throw new Error('等待時間必須介於 0～600000 毫秒');
+        await ctx.page.waitForTimeout(ms);
+        notes.push(`${tag}：${ms} ms`);
+      } else if (step.action === 'set_checked') {
+        const target = await recordedLocator(ctx.page, step.selector);
+        await target.setChecked(Boolean(step.checked));
+      } else if (step.action === 'select_option') {
+        const target = await recordedLocator(ctx.page, step.selector);
+        await target.selectOption(String(step.value));
+      } else if (step.action === 'assert_text') {
+        const target = await recordedLocator(ctx.page, step.selector);
+        if (await target.count() !== 1) throw new Error('檢查目標必須唯一且存在');
+        const actual = await target.evaluate(el => 'value' in el ? String(el.value) : (el.innerText || ''));
+        const expected = String(step.expect);
+        diagnostics.push({ expected, actual });
+        const ok = step.match === 'contains' ? actual.includes(expected) : actual.trim() === expected.trim();
+        if (!ok) { if (fail(step, `${tag}：期望「${expected}」，實際「${actual}」`) === 'stop') break; }
+        else notes.push(`✅ ${tag}：${actual}`);
+      } else if (step.action === 'open_page') {
         const target = step.path || ctx.resolveSubtypePath(step.subtype);
         if (!target) { if (fail(step, `${tag}：對不到路徑（subtype=${step.subtype ?? '-'}）`) === 'stop') break; continue }
         // ⚠️ 界線要設在導頁**之前**。
@@ -567,12 +674,21 @@ export async function runSteps(steps, ctx) {
         notes.push(`${tag}：${target}`);
 
       } else if (step.action === 'click') {
-        await ctx.clickSelector(step.selector, Number(step.waitMs) || 800);
-        notes.push(`${tag}：${step.selector}`);
+        const mode = await ctx.clickSelector(step.selector, Number(step.waitMs) || 800,
+          step.viewport ?? { x: step.x, y: step.y }, step.recordedViewport);
+        notes.push(`${tag}：${step.selector}${mode === 'coordinate' ? '（selector 失效，使用座標備援）' : ''}`);
 
       } else if (step.action === 'type_text') {
         await ctx.typeInto(step.selector, String(step.value ?? ''));
         notes.push(`${tag}：${step.selector} ← ${String(step.value ?? '').slice(0, 40)}`);
+
+      } else if (step.action === 'keypress') {
+        await ctx.pressKey(step.selector, String(step.key));
+        notes.push(`${tag}：${step.key}${step.selector ? ` @ ${step.selector}` : ''}`);
+
+      } else if (step.action === 'drag') {
+        await ctx.dragPointer(step);
+        notes.push(`${tag}：(${step.fromX},${step.fromY}) → (${step.toX},${step.toY})`);
 
       } else if (step.action === 'apply_filter') {
         await ctx.applyFilter(step.field, String(step.value ?? ''), step.submitSelector, Number(step.waitMs) || 1500);
@@ -684,8 +800,9 @@ export async function runSteps(steps, ctx) {
         // 例：日期篩選查 .el-date-editor >= 2（From/To 兩個框）。頁面之後若改成
         // 單一 range picker，數量會從 2 變 1 但功能其實沒壞——那時要改的是這裡的
         // 期待值，不是把它當成「日期功能壞了」。失敗訊息也照這個講法寫。
-        const count = await ctx.page.evaluate(
-          (sel) => document.querySelectorAll(sel).length, step.selector);
+        const count = /^(?:text|label)=/.test(step.selector)
+          ? await (await recordedLocator(ctx.page, step.selector)).count()
+          : await ctx.page.evaluate((sel) => document.querySelectorAll(sel).length, step.selector);
         const min = step.min === undefined ? 1 : Number(step.min);
         const max = step.max === undefined || step.max === '' ? null : Number(step.max);
         const what = step.label || step.selector;
@@ -981,9 +1098,20 @@ export async function runSteps(steps, ctx) {
           notes.push(`❌ ${tag}：選擇器與文字都沒填`);
           break;
         }
-        const found = await ctx.page.evaluate(({ selector, text }) => {
+        let found = null;
+        // 錄製器會產生 Playwright 的 text=/label= 選擇器；這兩種不能交給原生
+        // document.querySelector。先用 locator 處理，CSS 才走原本的 DOM 快路徑。
+        if (step.selector && /^(?:text|label)=/.test(step.selector)) {
+          const loc = await recordedLocator(ctx.page, step.selector);
+          const visible = await loc.isVisible().catch(() => false);
+          if (visible) found = {
+            by: 'selector',
+            shown: await loc.innerText().then(t => t.slice(0, 80)).catch(() => String(step.selector)),
+          };
+        }
+        if (!found) found = await ctx.page.evaluate(({ selector, text }) => {
           if (selector) {
-            const el = document.querySelector(selector);
+            const el = /^(?:text|label)=/.test(selector) ? null : document.querySelector(selector);
             if (el && (el.offsetParent !== null || el.getClientRects().length)) return { by: 'selector', shown: (el.innerText || '').slice(0, 80) };
           }
           if (text && (document.body.innerText || '').includes(text)) return { by: 'text', shown: text };
@@ -994,17 +1122,55 @@ export async function runSteps(steps, ctx) {
 
       } else if (step.action === 'read_block') {
         const labels = toLines(step.labels);
-        const got = await ctx.page.evaluate(({ selector, labels }) => {
-          const el = document.querySelector(selector);
-          if (!el) return null;
-          const text = el.innerText || '';
-          const out = {};
-          for (const label of labels) {
-            const idx = text.indexOf(label);
-            out[label] = idx === -1 ? null : (text.slice(idx + label.length, idx + label.length + 40).trim().split('\n')[0] || '');
-          }
-          return out;
-        }, { selector: step.selector, labels });
+        const got = /^(?:text|label)=/.test(step.selector)
+          ? await (await recordedLocator(ctx.page, step.selector)).evaluate((el, labels) => {
+              const text = el.innerText || '';
+              const out = {};
+              if (!labels.length) {
+                const formValue = /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) ? String(el.value ?? '') : '';
+                // 純圖示按鈕沒有 innerText，但「必須有值」在這種元素上的合理語意是
+                // 元素存在；輸入元件則仍讀實際 value，空欄位不能因此假通過。
+                out.value = /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)
+                  ? formValue
+                  : (text.trim() || el.getAttribute('aria-label') || el.getAttribute('title') || '（元素存在）');
+              }
+              for (const label of labels) {
+                const idx = text.indexOf(label);
+                if (idx === -1) {
+                  const own = /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) ? String(el.value ?? '').trim() : text.trim();
+                  // 錄製時可能直接標在值元素（例如文字 OSM）上，label 則從外層 form-item
+                  // 推得 Machine Type。這不是「區塊內找不到標籤」，而是 selector 已經指到值本身。
+                  out[label] = labels.length === 1 && own && !own.includes('\n') ? own : null;
+                  continue
+                }
+                const tail = text.slice(idx + label.length, idx + label.length + 40).trim().split('\n')[0] || '';
+                out[label] = tail || (text.trim() === label ? text.trim() : '');
+              }
+              return out;
+            }, labels).catch(() => null)
+          : await ctx.page.evaluate(({ selector, labels }) => {
+              const el = document.querySelector(selector);
+              if (!el) return null;
+              const text = el.innerText || '';
+              const out = {};
+              if (!labels.length) {
+                const formValue = /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) ? String(el.value ?? '') : '';
+                out.value = /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)
+                  ? formValue
+                  : (text.trim() || el.getAttribute('aria-label') || el.getAttribute('title') || '（元素存在）');
+              }
+              for (const label of labels) {
+                const idx = text.indexOf(label);
+                if (idx === -1) {
+                  const own = /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) ? String(el.value ?? '').trim() : text.trim();
+                  out[label] = labels.length === 1 && own && !own.includes('\n') ? own : null;
+                  continue
+                }
+                const tail = text.slice(idx + label.length, idx + label.length + 40).trim().split('\n')[0] || '';
+                out[label] = tail || (text.trim() === label ? text.trim() : '');
+              }
+              return out;
+            }, { selector: step.selector, labels });
         if (got === null) { if (fail(step, `${tag}：找不到區塊 ${step.selector}`) === 'stop') break; continue }
         if (!setVar(step, tag, step.as, 'blockFields', got)) break;
         notes.push(`${tag}：${Object.entries(got).map(([k, v]) => `${k}=${v ?? '(缺)'}`).join(', ')}`);
@@ -1055,11 +1221,14 @@ export async function runSteps(steps, ctx) {
         const flat = Object.fromEntries(Object.entries(vars).map(([k, v]) => [k, v.value]));
         const l = toNumber(resolveRef(flat, step.left));
         const r = toNumber(resolveRef(flat, step.right));
+        diagnostics.push({ expected: String(r ?? '?'), actual: String(l ?? '?') });
         if (l === undefined || r === undefined) {
           if (fail(step, `${tag}：取不到值（${step.left}=${l ?? '?'}, ${step.right}=${r ?? '?'}）`) === 'stop') break; continue;
         }
         const tol = step.tolerancePct === undefined ? 1 : Number(step.tolerancePct);
-        if (!numbersEqual(l, r, tol)) { if (fail(step, `${tag}：${l} ≠ ${r}（容差 ${tol}%）`) === 'stop') break; continue }
+        const abs = step.absoluteTolerance === undefined ? 1 : Number(step.absoluteTolerance);
+        if (!Number.isFinite(tol) || tol < 0 || !Number.isFinite(abs) || abs < 0) throw new Error('容差必須是大於等於 0 的數字');
+        if (!numbersEqual(l, r, tol, abs)) { if (fail(step, `${tag}：${l} ≠ ${r}（容差 ${tol}%／${abs}）`) === 'stop') break; continue }
         notes.push(`✅ ${tag}：${l} ≈ ${r}`);
 
       } else if (step.action === 'assert_sorted') {
@@ -1072,7 +1241,7 @@ export async function runSteps(steps, ctx) {
         notes.push(`✅ ${tag}：${vals.length} 列排序正確`);
 
       } else if (step.action === 'screenshot') {
-        const shot = await ctx.takeScreenshot(step.name || `step${i + 1}`);
+        const shot = await ctx.takeScreenshot(step.name || `step${i + 1}`, step.selector);
         // 作者自己指定過證據點就不再自動補截（見下方 finish() 的說明）
         if (shot) { explicitShots++; allShotPaths.push(shot); notes.push(`${tag}：${step.name || `step${i + 1}`}`) }
         else if (fail(step, `${tag}：截圖失敗`) === 'stop') break;
@@ -1138,7 +1307,8 @@ export async function runSteps(steps, ctx) {
    *     留後台截圖反而讓人誤以為有驗證證據）。
    */
   async function finish() {
-    if (explicitShots === 0 && !manual && typeof ctx.takeScreenshot === 'function') {
+    if (options.state) { options.state.vars = vars; options.state.netMark = netMark; }
+    if (options.autoScreenshot !== false && explicitShots === 0 && !manual && typeof ctx.takeScreenshot === 'function') {
       try {
         const shot = await ctx.takeScreenshot('result');
         if (shot) allShotPaths.push(shot);
@@ -1150,6 +1320,7 @@ export async function runSteps(steps, ctx) {
       // warn 刻意不進這個判定：畫面顯示 PASS 就真的是 PASS，不會被別的規則翻掉。
       // 它的價值是「有檢查、有記錄」變成結構化資料（可以統計、可以在畫面上列），
       // 而不是原本散在 notes 字串裡的一句話。
+      diagnostics, declaredOutcome,
       pass: criticalFails.length === 0,
       manual,
       manualReason,

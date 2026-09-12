@@ -15,6 +15,9 @@
  * 同一個 process，所以可以直接拿 agentConnections 發訊息，不用再跨 process 轉一手。
  */
 import { Router } from 'express'
+import { hostname } from 'node:os'
+import { startServerRecorder } from '../uat-server-recorder.js'
+import { createInterface } from 'node:readline'
 import { spawn, ChildProcess } from 'child_process'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
@@ -52,11 +55,14 @@ import { getAuthAccount } from '../auth-session.js'
 import type { Request } from 'express'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { agentUpdateStatus } from './machine-test.js'
+import { registerRecordedScriptRoutes, getRecordedScript, captureRecordedScriptResult, tcBindingSchema } from '../uat-recorded-scripts.js'
+import { validateMultiTcScript } from '../uat-runner/multi-tc.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
 export const router = Router()
+registerRecordedScriptRoutes(router)
 
 // ─── Session State ─────────────────────────────────────────────────────────────
 
@@ -170,6 +176,7 @@ function outcomeOf(r: RunResultRow): 'pass' | 'fail' | 'manual' | 'skip' {
 
 /** 收到 runner 印出來的整輪結果，存進歷史。回傳 true 代表這行是結果不是日誌。 */
 function captureResultsLine(session: UatSession, rawLine: string): boolean {
+  if (captureRecordedScriptResult(session.id, rawLine)) return true
   const idx = rawLine.indexOf(RESULTS_LINE_PREFIX)
   if (idx < 0) return false
   try {
@@ -436,8 +443,10 @@ const runSchema = z.object({
   onlyRecordIds: z.array(z.string().min(1).max(80)).max(20).optional(),
   stepsOverride: z.record(z.string().max(180), z.array(uatStepSchema).max(60)).optional(),
   customTrial: customTrialSchema.optional(),
+  recordedScriptId: z.string().min(1).max(80).optional(),
+  stopAfter: z.number().int().min(0).max(299).optional(),
 }).superRefine((value, context) => {
-  if (!value.larkUrl && !value.customTrial) {
+  if (!value.larkUrl && !value.customTrial && !value.recordedScriptId) {
     context.addIssue({ code: 'custom', path: ['larkUrl'], message: '一般執行需要 Lark TC 路徑' })
   }
 })
@@ -619,6 +628,7 @@ function firstCapturedAt(registry: Record<string, unknown>): string | null {
 // Playwright 的 fill/click 直接就能做，自己接 CDP 要重寫一遍輸入模擬。
 
 interface RecordSession {
+  serverStop?: () => Promise<void>
   id: string
   recordId: string
   /** 錄製跑在哪一台 agent 上。斷線時要靠這個知道哪些 session 該收掉 */
@@ -651,6 +661,7 @@ interface RecordSession {
     failure?: string | null
   }[]
   consoleLogs: { type: string; text: string; location?: string; ts: number }[]
+  wsFrames: { direction: 'sent' | 'received' | 'open' | 'close'; url: string; payload: string; ts: number }[]
   events: unknown[]
   done: boolean
   error: string | null
@@ -667,6 +678,7 @@ const RECORD_READY_TIMEOUT_MS = 25_000
 /** 錄製期間保留幾筆 API 紀錄。一輪可以打幾百支，全留會讓 status 回應爆掉 */
 const RECORD_NET_MAX = 120
 const RECORD_CONSOLE_MAX = 120
+const RECORD_WS_MAX = 120
 
 router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) => {
   try {
@@ -676,22 +688,41 @@ router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) =>
     // 收事件、轉積木都跟 TC 無關）。停止後再決定積木要放哪一筆。
     const recordId = String((req.body as { recordId?: string })?.recordId ?? '')
     const wantAgentId = String((req.body as { agentId?: string })?.agentId ?? '')
+    const bindingsResult = z.array(tcBindingSchema).max(20).safeParse(req.body?.bindings ?? [])
+    if (!bindingsResult.success) return res.status(400).json({ ok: false, message: 'TC 綁定格式不正確' })
+    const bindings = bindingsResult.data
+    if (new Set(bindings.map(b => b.recordId)).size !== bindings.length || new Set(bindings.map(b => b.tableId)).size > 1) {
+      return res.status(400).json({ ok: false, message: '請選擇同一張 Lark 表格中的不同 TC' })
+    }
 
     const creds = getUatBackendCredentials(account.email)
     if (!creds.cpBackend?.username || !creds.cpBackend?.password) {
       return res.status(400).json({ ok: false, message: '請先在執行設定填好 CP 後台帳密' })
     }
 
-    // ⚠️ 錄製一定要派工給 Local Agent，不做伺服器端 fallback。
-    //
-    // 原本是在 server 的 worker process 裡 chromium.launch({ headless: false })——
-    // 瀏覽器開在伺服器那台的桌面上。使用者從自己的機器連進來看不到任何視窗，
-    // 但 session 有起來、按鈕也變成「停止錄製（0 顆）」，看起來像成功。
-    // 使用者實際回報過這個問題（2026-08-24）。
-    //
-    // 這也是為什麼這裡刻意不留 fallback：錄製的重點就是「互動的瀏覽器要出現在
-    // 操作者眼前」，退回伺服器端等於製造一個只會假成功的路徑。挑不到 agent 就
-    // 直接擋下來講清楚原因（跟 CodeX 討論定案）。
+    if (wantAgentId === 'server') {
+      if ([...recordSessions.values()].some(s => s.agentId === 'server' && !s.done)) return res.status(409).json({ ok: false, message: '伺服器已有錄製視窗，請先停止或關閉該視窗' })
+      const sessionId = randomUUID()
+      const recording: RecordSession = { id: sessionId, recordId, agentId: 'server', agentLabel: `伺服器 ${hostname()}`,
+        events: [], netCalls: [], consoleLogs: [], wsFrames: [], done: false, error: null, ready: false, startedAt: Date.now() }
+      recordSessions.set(sessionId, recording)
+      try {
+        const controller = await startServerRecorder({ backendUrl: BACKEND_URL_FOR_RECORD, username: creds.cpBackend.username,
+          password: creds.cpBackend.password, script: backendRecorderScript({ sessionId, bindings }), marker: RECORDER_MARKER,
+          event: payload => handleBackendRecordEvent(sessionId, payload), net: call => handleBackendRecordNet(sessionId, call),
+          console: entry => handleBackendRecordConsole(sessionId, entry), ws: frame => handleBackendRecordWs(sessionId, frame),
+          done: error => { handleBackendRecordDone(sessionId, error); setTimeout(() => recordSessions.delete(sessionId), 5 * 60_000).unref?.() },
+        })
+        recording.serverStop = controller.stop
+        recording.ready = true
+        setTimeout(() => { void stopRecordSession(sessionId) }, RECORD_MAX_MS).unref?.()
+        return res.json({ ok: true, sessionId, agentLabel: recording.agentLabel, mode: 'server' })
+      } catch (error) {
+        recording.done = true
+        return res.status(500).json({ ok: false, message: `伺服器錄製啟動失敗：${error instanceof Error ? error.message : String(error)}。請確認伺服器有可互動桌面與 Chromium。` })
+      }
+    }
+    // Automatic/Agent mode never silently opens a browser on the server.
     const operator = getOperatorFromContext()
     const mine = [...agentConnections.values()].filter(a => a.ownerKey === operator?.key)
     const usable = mine.filter(a => a.capabilities.includes(RECORD_CAPABILITY) && a.ws.readyState === a.ws.OPEN)
@@ -710,7 +741,7 @@ router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) =>
     const sessionId = randomUUID()
     const session: RecordSession = {
       id: sessionId, recordId, agentId: agent.agentId, agentLabel: agent.hostname || agent.agentId,
-      events: [], netCalls: [], consoleLogs: [], done: false, error: null, ready: false, startedAt: Date.now(),
+      events: [], netCalls: [], consoleLogs: [], wsFrames: [], done: false, error: null, ready: false, startedAt: Date.now(),
     }
     recordSessions.set(sessionId, session)
 
@@ -719,7 +750,7 @@ router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) =>
       type: 'backend_record_start',
       sessionId,
       backendUrl: BACKEND_URL_FOR_RECORD,
-      recorderScript: backendRecorderScript(),
+      recorderScript: backendRecorderScript({ sessionId, bindings }),
       marker: RECORDER_MARKER,
       username: creds.cpBackend.username,
       password: creds.cpBackend.password,
@@ -777,6 +808,21 @@ export function handleBackendRecordConsole(sessionId: string, entry: unknown) {
   if (session.consoleLogs.length > RECORD_CONSOLE_MAX) session.consoleLogs.splice(0, session.consoleLogs.length - RECORD_CONSOLE_MAX)
 }
 
+/** agent 回報錄製視窗的 WebSocket 開關與雙向封包；payload 已在 agent 端遮罩、這裡再限長。 */
+export function handleBackendRecordWs(sessionId: string, frame: unknown) {
+  const session = recordSessions.get(sessionId)
+  if (!session || session.done) return
+  const row = frame as RecordSession['wsFrames'][number] | null
+  if (!row || !['sent', 'received', 'open', 'close'].includes(row.direction) || typeof row.url !== 'string') return
+  session.wsFrames.push({
+    direction: row.direction,
+    url: row.url.slice(0, 500),
+    payload: typeof row.payload === 'string' ? row.payload.slice(0, 1500) : '',
+    ts: typeof row.ts === 'number' ? row.ts : Date.now(),
+  })
+  if (session.wsFrames.length > RECORD_WS_MAX) session.wsFrames.splice(0, session.wsFrames.length - RECORD_WS_MAX)
+}
+
 /** agent 回報瀏覽器已經開好、也登入完了 */
 export function handleBackendRecordReady(sessionId: string) {
   const session = recordSessions.get(sessionId)
@@ -819,6 +865,7 @@ router.get('/api/osm-uat/record/status/:sessionId', (req, res) => {
     netCalls: session.netCalls,
     netSummary: summarizeRecordNet(session.netCalls),
     consoleLogs: session.consoleLogs,
+    wsFrames: session.wsFrames,
     steps,
     // 沒有任何斷言的錄製跑起來永遠 PASS，前端要能在停止時提醒
     hasAssertion: hasAssertion(steps),
@@ -838,12 +885,16 @@ router.post('/api/osm-uat/record/stop/:sessionId', async (req, res, next) => {
 async function stopRecordSession(sessionId: string) {
   const session = recordSessions.get(sessionId)
   if (!session) return null
-  session.done = true
   // 瀏覽器在 agent 那台，這裡只能請它關；agent 已經斷線就算了，session 本來就結束了
+  if (session.serverStop) await session.serverStop()
   const agent = agentConnections.get(session.agentId)
   if (agent && agent.ws.readyState === agent.ws.OPEN) {
     agent.ws.send(JSON.stringify({ type: 'backend_record_stop', sessionId }))
+    // Allow the agent to flush the focused input and acknowledge; don't discard its final events.
+    const deadline = Date.now() + 2500
+    while (!session.done && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50))
   }
+  session.done = true
   const steps = eventsToSteps(session.events)
   // 保留一小段時間讓前端來拿結果，之後才清掉
   setTimeout(() => recordSessions.delete(sessionId), 5 * 60_000).unref?.()
@@ -854,6 +905,7 @@ async function stopRecordSession(sessionId: string) {
     netCalls: session.netCalls,
     netSummary: summarizeRecordNet(session.netCalls),
     consoleLogs: session.consoleLogs,
+    wsFrames: session.wsFrames,
   }
 }
 
@@ -1121,7 +1173,18 @@ router.post('/api/osm-uat/run', (req, res) => {
     return
   }
 
-  const { larkUrl, filter, dashGameType, dashClientVersion, agentId, dryRun, onlyRecordIds, stepsOverride, customTrial } = parsed.data
+  const { filter, dashGameType, dashClientVersion, agentId, dryRun, onlyRecordIds, stepsOverride, customTrial, recordedScriptId, stopAfter } = parsed.data
+  const account = getAuthAccount(req)
+  if (stopAfter !== undefined && (!dryRun || !recordedScriptId)) return res.status(400).json({ ok: false, error: '局部執行只適用於多 TC 試跑' })
+  const multiScript = recordedScriptId && account ? getRecordedScript(recordedScriptId, account.email) : null
+  if (recordedScriptId && !multiScript) return res.status(404).json({ ok: false, error: '找不到你的多 TC 腳本' })
+  if (multiScript) {
+    if (stopAfter !== undefined && stopAfter >= multiScript.steps.length) return res.status(400).json({ ok: false, error: '試跑終點超出腳本步驟' })
+    if (customTrial || stepsOverride || onlyRecordIds) return res.status(400).json({ ok: false, error: '多 TC 腳本不可混用單筆試跑或步驟覆寫' })
+    const errors = validateMultiTcScript(multiScript, true)
+    if (errors.length) return res.status(400).json({ ok: false, error: errors.join('；') })
+  }
+  const larkUrl = multiScript?.larkUrl ?? parsed.data.larkUrl
   const larkParams = larkUrl ? parseLarkBitableUrl(larkUrl) : null
   if (!larkParams && !customTrial) {
     res.status(400).json({ ok: false, error: '無效的 Lark Bitable URL（需包含 /base/{token} 和 ?table={id}）' })
@@ -1167,7 +1230,7 @@ router.post('/api/osm-uat/run', (req, res) => {
 
   // 舊版 runner 不認得 UAT_CUSTOM_TRIAL，過去會忽略它並退回「跑整張 Lark 表」。
   // 自訂 TC 試跑屬於精確執行，Agent 原始碼落後或版本未知時直接擋下來，不能猜。
-  if (customTrial && agent) {
+  if ((customTrial || multiScript) && agent) {
     const updateStatus = agentUpdateStatus(agent)
     if (updateStatus === 'needs_update' || updateStatus === 'unknown') {
       res.status(409).json({ ok: false, error: '這台 Local Agent 尚未支援單筆試跑。請先更新程式碼，再重新試跑。' })
@@ -1194,6 +1257,9 @@ router.post('/api/osm-uat/run', (req, res) => {
       ? { UAT_TC_ONLY: customTrial.id }
       : onlyRecordIds?.length ? { UAT_TC_ONLY: onlyRecordIds.join(',') } : {}),
     ...(customTrial ? { UAT_CUSTOM_TRIAL: JSON.stringify(customTrial) } : {}),
+    // Old runners must select zero records, never replay the whole table if they ignore this payload.
+    ...(stopAfter !== undefined ? { UAT_MULTI_STOP_AFTER: String(stopAfter) } : {}),
+    ...(multiScript ? { UAT_MULTI_SCRIPT: JSON.stringify(multiScript), UAT_TC_ONLY: `multi-script-${multiScript.id}` } : {}),
   }
   const sessionId = randomUUID()
   session = {
@@ -1242,6 +1308,8 @@ router.post('/api/osm-uat/run', (req, res) => {
   const args = [SCRIPT_PATH]
   if (filter) args.push(filter)
 
+  const multiPayload = runScopeEnv.UAT_MULTI_SCRIPT
+  if (multiPayload) { delete runScopeEnv.UAT_MULTI_SCRIPT; Object.assign(runScopeEnv, { UAT_MULTI_SCRIPT_STDIN: '1' }) }
   const child = spawn('node', args, {
     cwd: dirname(SCRIPT_PATH),
     env: {
@@ -1260,21 +1328,12 @@ router.post('/api/osm-uat/run', (req, res) => {
     windowsHide: true,
   })
 
+  child.stdin.on('error', () => { /* child may fail before reading */ })
+  child.stdin.end(multiPayload || '')
   session.process = child
 
-  child.stdout.on('data', (data: Buffer) => {
-    const text = data.toString()
-    text.split('\n').forEach(line => {
-      if (line.trim()) appendLog(line)
-    })
-  })
-
-  child.stderr.on('data', (data: Buffer) => {
-    const text = data.toString()
-    text.split('\n').forEach(line => {
-      if (line.trim()) appendLog(`❌ [stderr] ${line}`)
-    })
-  })
+  createInterface({ input: child.stdout }).on('line', line => { if (line.trim()) appendLog(line) })
+  createInterface({ input: child.stderr }).on('line', line => { if (line.trim()) appendLog(`❌ [stderr] ${line}`) })
 
   child.on('close', (code) => {
     finishSession(code === 0 ? 'done' : 'error', `--- 執行結束（exit code: ${code}）---`, { exitCode: code })

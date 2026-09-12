@@ -9,8 +9,10 @@ import { chromium } from 'playwright';
 import fs from 'fs';
 import path from 'path';
 import XLSX from 'xlsx';
+import { pngPreview, compareRegionPng } from './recorder-visual.js';
 import { attachNetworkCapture, DEFAULT_THRESHOLDS, formatStatsLine } from './net-capture.js';
 import { runSteps as runBlockSteps } from './block-engine.js';
+import { runMultiTcSteps, validateMultiTcScript, publishMultiTcResults } from './multi-tc.js';
 import { resolveVerifierParams, verifierRanAssertion } from './verifier-params.js';
 
 // ─── Lark 設定 ───────────────────────────────────────────────────────
@@ -20,6 +22,8 @@ const APP_SECRET     = 'HFXG1sWdNDiX0Aa4MngsTgzFxUKAci8I';
 const APP_TOKEN      = process.env.LARK_APP_TOKEN || 'RjiabXR3Ra2pm4shI05lD4azgjg';
 const TABLE_ID       = process.env.LARK_TABLE_ID  || 'tbllkNHrRF5ii6Qc';
 const LARK_BASE      = 'https://open.larksuite.com/open-apis';
+// Invalid payloads must fail closed, never fall through to the ordinary whole-table run.
+const MULTI_SCRIPT = process.env.UAT_MULTI_SCRIPT_STDIN === '1' ? JSON.parse(fs.readFileSync(0, 'utf8')) : process.env.UAT_MULTI_SCRIPT ? JSON.parse(process.env.UAT_MULTI_SCRIPT) : null;
 
 // ─── 篩選設定（留空 = 跑全部，填入 subtype 名稱 = 只跑該分類）─────────
 // 用法: node run-lark-tc-backend.js "Daily Dashboard"
@@ -331,7 +335,7 @@ async function uploadAttachment(token, filePath) {
  * 為什麼要清掉另一邊：同一筆 TC 會重跑。上次 FAIL 這次 PASS，不清的話兩個框
  * 都是勾的，表上看起來自相矛盾。
  */
-async function updateRecord(token, recordId, fileTokens, outcome) {
+async function updateRecord(token, recordId, fileTokens, outcome, atomic = false) {
   if (DRY_RUN) {
     console.log(`  🧪 [dry-run] 略過回寫 Lark：record=${recordId} outcome=${outcome}`);
     return { code: 0, dryRun: true };
@@ -363,16 +367,18 @@ async function updateRecord(token, recordId, fileTokens, outcome) {
   // 「只在有新圖時才清」邏輯，這裡就完全不會執行，導致MANUAL/SKIP列上殘留舊版本
   // (改成不上傳截圖之前)留下的舊截圖，重跑再多次也清不掉。一律先清空可同時涵蓋
   // 「有新圖要換」跟「MANUAL/SKIP要清掉舊圖」兩種情境。
-  await putRecord({ '附圖': [] });
+  if (!atomic) await putRecord({ '附圖': [] });
 
   // Step 2: set remaining fields
   const fields = {};
+  if (atomic) fields['附圖'] = [];
   // PASS / FAIL 是兩個獨立的勾選欄位（使用者 2026-08-24 加的），互斥要自己維護。
   // 原本的 UAT測試 欄位保留在表上但這裡不再寫入——使用者指定改寫這兩欄。
   if (outcome === 'pass') {
     fields['PASS'] = true;
     fields['FAIL'] = false;
-    fields['UAT測試通過時間'] = Date.now();
+    // Multi-TC tables only require PASS, FAIL and 附圖; the legacy timestamp column is optional there.
+    if (!atomic) fields['UAT測試通過時間'] = Date.now();
   } else if (outcome === 'fail') {
     fields['PASS'] = false;
     fields['FAIL'] = true;
@@ -1147,17 +1153,28 @@ function dashCompare(dashVals, dcVals, label) {
   return `【${label}】${results.join(' ')}`;
 }
 
-async function dismissWarningDialog(page) {
+async function dismissWarningDialog(page, waitMs = 3000) {
   // JS-hide Warning dialog to avoid triggering Vue Router navigation via Cancel button
-  await page.locator('.el-dialog').filter({ hasText: /Warnning|Warning/i }).waitFor({ state: 'visible', timeout: 3000 }).catch(() => {});
-  await page.evaluate(() => {
+  if (waitMs > 0) {
+    await page.locator('.el-dialog').filter({ hasText: /Warnning|Warning/i })
+      .waitFor({ state: 'visible', timeout: waitMs }).catch(() => {});
+  }
+  const dismissed = await page.evaluate(() => {
+    let found = false;
     document.querySelectorAll('.el-dialog__wrapper').forEach(el => {
-      if (/Warnning|Warning/i.test(el.textContent || '')) el.style.display = 'none';
+      if (/Warnning|Warning/i.test(el.textContent || '')) {
+        el.style.display = 'none';
+        found = true;
+      }
     });
-    const overlay = document.querySelector('.v-modal');
-    if (overlay) overlay.style.display = 'none';
+    if (found) {
+      const overlay = document.querySelector('.v-modal');
+      if (overlay) overlay.style.display = 'none';
+    }
+    return found;
   });
-  await page.waitForTimeout(500);
+  if (dismissed) await page.waitForTimeout(500);
+  return dismissed;
 }
 
 async function runDashFilterTest(page, filterLabel, targetDate, gameType, clientVersion, extraShotPaths, notes, criticalFails) {
@@ -4334,9 +4351,58 @@ const BUILTIN_VERIFIERS = {
  * taskFull 是 TC 的描述文字，內建驗證器要靠它比對自己該跑哪些分支——
  * 少傳這個，builtin_verifier 積木會靜默通過（見 callBuiltin 的註解）。
  */
-async function performSteps(p, steps, label, taskFull) {
-  const result = await runBlockSteps(steps, {
+async function performSteps(p, steps, label, taskFull, multiBindings = null) {
+  const recordedLocator = async (selector) => {
+    let exact = null;
+    if (selector.startsWith('text=')) exact = p.getByText(selector.slice(5), { exact: true });
+    else if (selector.startsWith('label=')) exact = p.getByLabel(selector.slice(6), { exact: true });
+    if (multiBindings) {
+      const target = exact || p.locator(selector);
+      if (await target.count() !== 1) throw new Error(`定位必須唯一：${selector}（命中 ${await target.count()} 個）`);
+      return target;
+    }
+    if (!exact) return p.locator(selector).first();
+    const count = await exact.count();
+    for (let i = 0; i < count; i++) {
+      const candidate = exact.nth(i);
+      if (await candidate.isVisible().catch(() => false)) return candidate;
+    }
+    // 舊腳本可能依賴模糊 selector；完全沒有 exact 時才回退。
+    return count ? exact.first() : p.locator(selector).first();
+  };
+  const coordinateViewportOk = async (recordedViewport) => {
+    if (!recordedViewport || !Number(recordedViewport.width) || !Number(recordedViewport.height)) return false;
+    const current = await p.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+    return Math.abs(current.width - Number(recordedViewport.width)) <= 4
+      && Math.abs(current.height - Number(recordedViewport.height)) <= 4;
+  };
+  const execute = multiBindings ? (items, context) => runMultiTcSteps(items, context, multiBindings) : runBlockSteps;
+  const result = await execute(steps, {
     page: p,
+    onStep({ index, step, recordId }) { console.log(`[多 TC 步驟 ${index + 1}/${steps.length}] ${recordId || '共用'} | ${step.action}`); },
+    async previewEvidence(shot) { return pngPreview(fs.readFileSync(shot)); },
+    async compareRegion(step) {
+      const target = await recordedLocator(step.selector);
+      const actual = await target.screenshot({ timeout: 10000 });
+      const compared = compareRegionPng(step.baselinePng, actual, Number(step.thresholdPct ?? 1), Number(step.pixelTolerance ?? 20));
+      const stem = path.join(SCREENSHOT_DIR, `region_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
+      const shots = [stem + '_actual.png'];
+      fs.writeFileSync(shots[0], actual);
+      if (compared.diffPng) { shots.push(stem + '_diff.png'); fs.writeFileSync(shots[1], compared.diffPng); }
+      return { ...compared, diffPng: undefined, shots };
+    },
+    async checkLocator(step) {
+      if (!step.selector) return;
+      const target = step.selector.startsWith('text=') ? p.getByText(step.selector.slice(5), { exact: true })
+        : step.selector.startsWith('label=') ? p.getByLabel(step.selector.slice(6), { exact: true }) : p.locator(step.selector);
+      const count = await target.count();
+      const info = { count, visible: false, bounds: null };
+      if (count !== 1) { const error = new Error(`定位必須唯一：${step.selector}（命中 ${count} 個）`); error.locator = info; throw error; }
+      info.visible = await target.isVisible();
+      info.bounds = await target.boundingBox();
+      try { if (info.bounds) info.preview = pngPreview(await p.screenshot({ timeout: 5000 }), info.bounds); } catch { /* diagnostics must not alter execution */ }
+      return info;
+    },
     async openPath(targetPath, waitMs) {
       await p.goto(BACKEND_URL + targetPath, { waitUntil: 'networkidle', timeout: 20000 });
       await p.waitForTimeout(waitMs);
@@ -4355,33 +4421,70 @@ async function performSteps(p, steps, label, taskFull) {
       return key ? SUBTYPE_MAP[key].path : null;
     },
     /** 錄製產生的 click 積木用。選擇器支援 Playwright 的 text= 語法 */
-    async clickSelector(selector, waitMs) {
+    async clickSelector(selector, waitMs, viewport, recordedViewport) {
+      // 錄製是在登入完成後才開始，因此登入時出現的站台 Warning 不會成為錄製步驟。
+      // 重播前先清掉已經可見的同一種 Warning，讓錄製與執行從相同畫面狀態開始。
+      await dismissWarningDialog(p, 0);
+      // Playwright 的舊式 text= 是模糊比對；例如 text=Edit 也會命中
+      // Player Credit Log（Credit 包含 edit），導致錄製腳本點到側欄後整段走錯頁。
+      // 錄製器存下的是使用者實際點到的完整可見文字，所以重播時先做 exact；
+      // 舊資料若沒有完全相同的文字，再退回原本的模糊 selector 維持相容。
+      const target = await recordedLocator(selector);
       try {
-        await p.locator(selector).first().click({ timeout: 10000 });
+        await target.click({ timeout: 10000 });
       } catch (e) {
+        if (multiBindings) throw e;
         // 後台登入後有一個站台層級的警告彈窗（「Currently N machines are abnormal」），
         // 它的遮罩會把底下的按鈕蓋住，Playwright 的 click 會一直等到逾時。
         //
         // 既有的 verifier 全部是用 page.evaluate(() => btn.click()) 繞過去的——那不是
         // 偶然，是這個後台的常態。所以攔截時改用 JS 直接觸發下層元素，跟 AutoSpin／
         // 機台自動化測試處理選面額遮罩的做法同一套。
-        const text = /^text=/.test(selector) ? selector.replace(/^text=/, '') : null;
-        const clicked = await p.evaluate(({ sel, txt }) => {
-          const el = txt
-            ? [...document.querySelectorAll('button, a, .el-button')]
-                .find(b => (b.innerText || '').trim() === txt)
-            : document.querySelector(sel);
-          if (!el) return false;
+        // 直接對 Playwright 已解析到的同一個節點觸發 click。舊版會另找 button/a，
+        // selector 若解析到選單內的 span（本次 Game Setting）便會漏掉。
+        // HTMLElement.click() 仍會冒泡到 Vue 綁在父層的 handler。
+        const clicked = await target.evaluate(el => {
           el.click();
           return true;
-        }, { sel: selector, txt: text }).catch(() => false);
-        if (!clicked) throw e;   // 真的找不到元素就照原本的錯誤拋出去，不要吞掉
+        }).catch(() => false);
+        if (!clicked) {
+          const x = Number(viewport?.x), y = Number(viewport?.y);
+          const viewportOk = await coordinateViewportOk(recordedViewport);
+          if (!viewportOk || !Number.isFinite(x) || !Number.isFinite(y)) throw e;
+          const inside = await p.evaluate(({ x, y }) => x >= 0 && y >= 0 && x < innerWidth && y < innerHeight, { x, y });
+          if (!inside) throw e;
+          await p.mouse.click(x, y);
+          await p.waitForTimeout(waitMs);
+          console.log(`  ↳ selector 找不到，viewport 相符，使用錄製座標：(${x}, ${y})`);
+          return 'coordinate';
+        }
         console.log(`  ↳ 點擊被遮罩攔截，改用 JS 直接觸發：${selector}`);
       }
       await p.waitForTimeout(waitMs);
+      return 'selector';
     },
     async typeInto(selector, value) {
-      await p.locator(selector).first().fill(value, { timeout: 10000 });
+      await (await recordedLocator(selector)).fill(value, { timeout: 10000 });
+    },
+    async pressKey(selector, key) {
+      if (selector) {
+        const target = await recordedLocator(selector);
+        if (await target.count()) await target.focus({ timeout: 10000 });
+      }
+      await p.keyboard.press(key);
+    },
+    async dragPointer(step) {
+      if (!await coordinateViewportOk(step.recordedViewport)) {
+        throw new Error('拖曳錄製時與執行時的 viewport 不一致，拒絕用座標重播');
+      }
+      const points = [Number(step.fromX), Number(step.fromY), Number(step.toX), Number(step.toY)];
+      if (points.some(v => !Number.isFinite(v))) throw new Error('拖曳座標不完整');
+      const [fromX, fromY, toX, toY] = points;
+      await p.mouse.move(fromX, fromY);
+      await p.mouse.down();
+      await p.mouse.move(toX, toY, { steps: 12 });
+      await p.mouse.up();
+      await p.waitForTimeout(Number(step.waitMs) || 500);
     },
     /**
      * 套用篩選：先把值填進欄位，再按查詢。沒指定查詢按鈕就試常見的幾個文字，
@@ -4399,10 +4502,14 @@ async function performSteps(p, steps, label, taskFull) {
       }
       await p.waitForTimeout(waitMs);
     },
-    async takeScreenshot(name) {
+    async takeScreenshot(name, selector) {
       const safe = String(name).replace(/[^\w.-]/g, '_');
       const shotPath = path.join(SCREENSHOT_DIR, `${safe}_${Date.now()}.png`);
-      try { await p.screenshot({ path: shotPath, fullPage: false }); return shotPath; }
+      try {
+        if (selector) await (await recordedLocator(selector)).screenshot({ path: shotPath });
+        else await p.screenshot({ path: shotPath, fullPage: false });
+        return shotPath;
+      }
       catch { return null; }
     },
     /**
@@ -4486,6 +4593,7 @@ async function performSteps(p, steps, label, taskFull) {
       return out;
     },
   });
+  if (multiBindings) return result;
   return {
     pass: result.pass,
     manual: result.manual,
@@ -4896,7 +5004,88 @@ function startStatsBroadcast() {
   statsTimer.unref?.();
 }
 
+async function runRecordedMultiScript() {
+  const script = MULTI_SCRIPT;
+  const errors = validateMultiTcScript(script, true);
+  if (errors.length) throw new Error(errors.join('；'));
+  if (script.tableId !== TABLE_ID) throw new Error('多 TC 腳本與執行的 Lark 表格不同');
+  let browser;
+  let token = '';
+  let results = [];
+  let publishFailures = [];
+  let stopped = false;
+  let bindingsVerified = false;
+  const onStop = () => { stopped = true; void browser?.close().catch(() => {}); };
+  process.once('SIGTERM', onStop); process.once('SIGINT', onStop);
+  try {
+    token = await getLarkToken();
+    const live = await fetchAllTCsFromLark(token);
+    const ids = new Set(live.map(row => row.record_id));
+    const missing = script.bindings.filter(b => !ids.has(b.recordId));
+    if (missing.length) throw new Error(`Lark 已找不到綁定的 TC：${missing.map(b => b.number + '/' + b.recordId).join('、')}，請重新綁定`);
+    bindingsVerified = true;
+    if (stopped) throw new Error('執行已停止');
+    console.log(`多 TC 腳本：${script.title}｜${script.bindings.length} TC｜${script.steps.length} 步｜${DRY_RUN ? '試跑，不上傳或回寫' : '正式執行並回寫 Lark'}`);
+    browser = await chromium.launch({ headless: false, handleSIGTERM: false, handleSIGINT: false, handleSIGHUP: false });
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
+    const page = await context.newPage();
+    netCapture = attachNetworkCapture(page, { thresholds: NET_THRESHOLDS }); startStatsBroadcast();
+    const creds = TEST_PARAMS.credentials.cpBackend;
+    if (!creds.username || !creds.password) throw new Error('尚未設定 CP 後台登入帳密');
+    await page.goto(`${BACKEND_URL}/login`, { waitUntil: 'networkidle', timeout: 30000 });
+    await page.fill('input[type="text"], input[name*="user"], input[id*="user"]', creds.username);
+    await page.fill('input[type="password"]', creds.password);
+    await page.click('button[type="submit"], button:has-text("Login")');
+    await page.waitForURL(url => !url.pathname.includes('/login'), { timeout: 20000 });
+    await dismissWarningDialog(page);
+    const stopAfter = Number(process.env.UAT_MULTI_STOP_AFTER);
+    const partial = DRY_RUN && Number.isInteger(stopAfter) && stopAfter >= 0 && stopAfter < script.steps.length;
+    const executed = await performSteps(page, partial ? script.steps.slice(0, stopAfter + 1) : script.steps, script.id, script.title, script.bindings);
+    if (partial) for (const row of executed.results) {
+      if (row.outcome === 'pass') { row.outcome = 'unverified'; row.pass = false; row.manual = true; }
+      row.notes += ` | 局部試跑至第 ${stopAfter + 1} 步，非完整 TC 驗證`;
+    }
+    results = executed.results;
+    if (stopped) {
+      for (const row of results) if (row.outcome !== 'fail') {
+        row.outcome = 'blocked'; row.pass = false; row.manual = true; row.notes += ' | 使用者停止執行';
+      }
+    }
+    if (!DRY_RUN && !stopped) {
+      token = await getLarkToken();
+      publishFailures = await publishMultiTcResults(results, {
+        upload: shot => uploadAttachment(token, shot),
+        update: (recordId, tokens, outcome) => updateRecord(token, recordId, tokens, outcome, true),
+        onError: message => console.log(`Lark 回寫失敗：${message}`),
+      });
+    }
+  } catch (error) {
+    console.error(`多 TC 腳本受阻：${error.message}`);
+    if (!results.length) results = script.bindings.map(b => ({ recordId: b.recordId, task: b.text, subtype: b.sub,
+      pass: false, manual: true, skip: false, outcome: 'blocked', assertions: 0, allShotPaths: [], criticalFails: [], notes: error.message, error: null }));
+    if (bindingsVerified && !DRY_RUN && !stopped) {
+      publishFailures = await publishMultiTcResults(results, {
+        upload: shot => uploadAttachment(token, shot),
+        update: (recordId, tokens, outcome) => updateRecord(token, recordId, tokens, outcome, true),
+        onError: message => console.log(`受阻結果回寫失敗：${message}`),
+      });
+    }
+    process.exitCode = 1;
+  } finally {
+    await browser?.close().catch(() => {});
+    if (statsTimer) { clearInterval(statsTimer); statsTimer = null; }
+    const finishedAt = Date.now();
+    const payload = { script, startedAt: RUN_STARTED_AT, finishedAt, dryRun: DRY_RUN, stopped, results, publishFailures };
+    console.log('@@UAT_MULTI_RESULTS@@' + JSON.stringify(payload));
+    console.log(RESULTS_LINE_PREFIX + JSON.stringify({ startedAt: RUN_STARTED_AT, finishedAt, results: results.map(({ steps, sharedSteps, evidence, ...row }) => row), filter: [] }));
+    for (const row of results) console.log(`${row.outcome.toUpperCase()} | ${row.task} | ${row.allShotPaths.length} 張圖片${DRY_RUN ? '（試跑未上傳）' : row.published ? '（已回寫）' : '（未回寫）'}`);
+    if (results.some(r => r.outcome !== 'pass') || publishFailures.length || stopped) process.exitCode = 1;
+    process.removeListener('SIGTERM', onStop); process.removeListener('SIGINT', onStop);
+  }
+}
+
 async function main() {
+  if (MULTI_SCRIPT) return runRecordedMultiScript();
   // 自訂 TC 試跑不需要先存在 Lark，也不會回寫，因此可直接建立一筆暫時 TC。
   let larkToken = '';
   let allRecords;
@@ -4997,6 +5186,9 @@ async function main() {
     await p.fill('input[type="password"]', TEST_PARAMS.credentials.cpBackend.password);
     await p.click('button[type="submit"], button:has-text("Login")');
     await p.waitForTimeout(3000);
+    // 登入後的站台警告是在錄製器啟用前自動處理，因此不會出現在錄製 JSON。
+    // 試跑也要做同一件事，否則第一顆 click 會被 .el-dialog__wrapper 擋住。
+    await dismissWarningDialog(p);
     return { page: p, ctx: ctx2 };
   }
 
@@ -5345,4 +5537,4 @@ async function main() {
   }
 }
 
-main().catch(console.error);
+main().catch(error => { console.error(error); process.exitCode = 1; });

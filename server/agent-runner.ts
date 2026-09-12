@@ -22,6 +22,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { spawn, type ChildProcess } from 'child_process'
 import { randomUUID } from 'crypto'
+import { createInterface } from 'node:readline'
 // UAT 網路量測與 pinus 攔截：共用模組放在 server/uat-runner/ 底下，
 // 因為那是唯一一份 Backend runner（純 node）、agent（tsx）、server（編譯後）
 // 三邊都載得到的位置，詳見 net-capture.js 檔頭
@@ -115,6 +116,14 @@ function backendRecordKind(resourceType: string) {
   if (resourceType === 'xhr' || resourceType === 'fetch') return 'api'
   if (resourceType === 'image') return 'image'
   return 'other'
+}
+
+/** WebSocket payload 可能含 token／密碼。只保留排錯需要的前段，常見敏感欄位先遮罩。 */
+function redactRecordedPayload(payload: string | Buffer) {
+  const text = Buffer.isBuffer(payload) ? payload.toString('utf8') : String(payload)
+  return text.slice(0, 1500)
+    .replace(/([?&](?:token|access_token|authorization|password|secret)=)[^&\s]+/gi, '$1***')
+    .replace(/("(?:token|accessToken|authorization|password|passwd|secret)"\s*:\s*)"[^"]*"/gi, '$1"***"')
 }
 
 interface SessionJoinMessage {
@@ -1311,6 +1320,9 @@ function connect() {
       const args = [scriptPath]
       if (filter) args.push(filter)
 
+      const runnerEnv = { ...(credEnv ?? {}) }
+      const multiPayload = runnerEnv.UAT_MULTI_SCRIPT
+      if (multiPayload) { delete runnerEnv.UAT_MULTI_SCRIPT; runnerEnv.UAT_MULTI_SCRIPT_STDIN = '1' }
       const child = spawn(process.execPath, args, {
         cwd: scriptDir, // 腳本用相對路徑讀 ./tc-registry.json 與 ./config/*，cwd 一定要是它自己的目錄
         env: {
@@ -1320,20 +1332,16 @@ function connect() {
           LARK_TABLE_ID: larkTableId,
           ...(dashGameType ? { DASH_GAME_TYPE: dashGameType } : {}),
           ...(dashClientVersion ? { DASH_CLIENT_VERSION: dashClientVersion } : {}),
-          ...(credEnv ?? {}),
+          ...runnerEnv,
         },
         windowsHide: true,
       })
+      child.stdin?.on('error', () => { /* child may fail before reading */ })
+      child.stdin?.end(multiPayload || '')
       backendUatChild = child
 
-      child.stdout?.setEncoding('utf8')
-      child.stderr?.setEncoding('utf8')
-      child.stdout?.on('data', (chunk: string) => {
-        for (const line of chunk.split('\n')) if (line.trim()) sendLog(line, 'stdout')
-      })
-      child.stderr?.on('data', (chunk: string) => {
-        for (const line of chunk.split('\n')) if (line.trim()) sendLog(line, 'stderr')
-      })
+      if (child.stdout) createInterface({ input: child.stdout }).on('line', line => { if (line.trim()) sendLog(line, 'stdout') })
+      if (child.stderr) createInterface({ input: child.stderr }).on('line', line => { if (line.trim()) sendLog(line, 'stderr') })
       child.on('close', (code) => {
         console.log(`[Agent:${AGENT_LABEL}] Backend UAT ${sessionId} exited (code ${code})`)
         if (backendUatChild === child) { backendUatChild = null; backendUatSessionId = null; backendUatSecrets = [] }
@@ -1400,6 +1408,25 @@ function connect() {
             entry: { type: 'pageerror', text: error.message.slice(0, 800), ts: Date.now() },
           }))
         })
+        page.on('websocket', socket => {
+          const sendFrame = (direction: 'sent' | 'received' | 'open' | 'close', payload?: string | Buffer) => {
+            if (ws.readyState !== ws.OPEN) return
+            ws.send(JSON.stringify({
+              type: 'backend_record_ws',
+              sessionId: m.sessionId,
+              frame: {
+                direction,
+                url: socket.url(),
+                payload: payload === undefined ? '' : redactRecordedPayload(payload),
+                ts: Date.now(),
+              },
+            }))
+          }
+          sendFrame('open')
+          socket.on('framesent', event => sendFrame('sent', event.payload))
+          socket.on('framereceived', event => sendFrame('received', event.payload))
+          socket.on('close', () => sendFrame('close'))
+        })
         // 使用者自己把視窗關掉也要收尾，不然 server 會一直等
         page.on('close', () => { finish() })
 
@@ -1408,9 +1435,28 @@ function connect() {
         await page.fill('input[type="password"]', m.password).catch(() => {})
         await page.keyboard.press('Enter').catch(() => {})
         await page.waitForTimeout(2500)
+        // Backend runner 會在登入後清掉站台層級的 Warning；錄製也必須從同一個畫面狀態開始。
+        // 這類 dialog 若留著，使用者看到的是遮罩後的選單，錄下來的第一步卻可能是底下的
+        // Game Setting；試跑時 Playwright 就會因 .el-dialog__wrapper 攔截點擊而逾時。
+        await page.evaluate(() => {
+          let found = false
+          document.querySelectorAll<HTMLElement>('.el-dialog__wrapper').forEach(el => {
+            if (/Warnning|Warning/i.test(el.textContent || '')) {
+              el.style.display = 'none'
+              found = true
+            }
+          })
+          if (found) {
+            const overlay = document.querySelector<HTMLElement>('.v-modal')
+            if (overlay) overlay.style.display = 'none'
+          }
+        }).catch(() => {})
         // 登入完成之後才開始收。在這之前輸入的是我們自己打的帳密，
         // 錄進去等於把真實密碼寫成測試步驟（實測時真的錄到過）。
         await page.evaluate(() => (window as unknown as { __toppathArmRecorder?: () => void }).__toppathArmRecorder?.()).catch(() => {})
+        page.on('domcontentloaded', () => {
+          void page.evaluate(() => (window as unknown as { __toppathArmRecorder?: () => void }).__toppathArmRecorder?.()).catch(() => {})
+        })
         // 回一個確認：沒有這個，server 分不出「agent 版本太舊沒接到」跟「正在錄但使用者還沒操作」
         // ——兩者在畫面上都是「停止錄製（0 顆）」，完全一樣
         if (ws.readyState === ws.OPEN) {
@@ -1491,6 +1537,11 @@ function connect() {
     if (msg.type === 'backend_record_stop') {
       const { sessionId } = msg as { type: 'backend_record_stop'; sessionId: string }
       if (backendRecordSessionId && backendRecordSessionId !== sessionId) return
+      for (const context of backendRecordBrowser?.contexts() ?? []) {
+        for (const page of context.pages()) {
+          await page.evaluate(() => (window as unknown as { __toppathFlushRecorder?: () => void }).__toppathFlushRecorder?.()).catch(() => {})
+        }
+      }
       try { await backendRecordBrowser?.close() } catch { /* ignore */ }
       backendRecordBrowser = null
       backendRecordSessionId = null

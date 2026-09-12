@@ -1,0 +1,50 @@
+import { chromium } from 'playwright';
+import assert from 'node:assert/strict';
+import { BLOCK_DEFS } from '../../server/uat-runner/block-engine.js';
+const browser = await chromium.launch();
+try {
+ const page = await browser.newPage({viewport:{width:1440,height:1000}});
+ const errors=[]; page.on('pageerror',e=>errors.push(e.message));
+ let scripts=[{id:'s',title:'Dashboard 四區',tableId:'t',larkUrl:'https://fixture.test/base/app?table=t',bindings:[{recordId:'r',tableId:'t',number:'TC-1',text:'Orange',sub:''}],steps:[{action:'screenshot',tcId:'r'}]}];
+ let runs=0;
+ await page.addInitScript(()=>{window.EventSource=class extends EventTarget { close(){} }; localStorage.setItem('osm_uat_config',JSON.stringify({larkUrl:'https://fixture.test/base/app?table=t'}));});
+ await page.route('**/api/**',async route=>{
+  const req=route.request(),url=new URL(req.url());let data={ok:true};
+  if(url.pathname.endsWith('/recorded-scripts')) { if(req.method()==='PUT'){ const s={...req.postDataJSON(),id:req.postDataJSON().id||'new'}; scripts=[...scripts.filter(x=>x.id!==s.id),s];data.script=s;}else data.scripts=scripts;}
+  else if(url.pathname.endsWith('/blocks')) data.blockDefs=BLOCK_DEFS;
+  else if(url.pathname.endsWith('/results'))data.runs=[];
+  else if(url.pathname.endsWith('/status'))data.status='idle';
+  else if(url.pathname.endsWith('/run'))runs++;
+  else if(url.pathname.endsWith('/agents'))data.agents=[];
+  else if(url.pathname.endsWith('/backend-credentials'))data.credentials=[];
+  else if(url.pathname.endsWith('/tc-list'))data.tcs=[{recordId:'legacy',storageKey:'t:legacy',text:'Legacy verifier',source:'registry',stepCount:0}];
+  else if(url.pathname.endsWith('/scan'))data.tcs=[{recordId:'r',storageKey:'t:r',text:'Orange',number:'TC-1',sub:'',source:'live'}];
+  else if(url.pathname.endsWith('/custom-tcs'))data.tcs=[];
+  await route.fulfill({json:data});
+ });
+ await page.goto('http://127.0.0.1:5199/scripts/ui-checks/uat-status-fixture.html');
+ await page.getByRole('button',{name:/Dashboard 四區/}).waitFor();
+ assert.equal(await page.getByText('Legacy verifier',{exact:false}).count(),0);
+ assert.equal(await page.getByText('風險佇列',{exact:false}).count(),0);
+ await page.getByLabel('搜尋錄製腳本').fill('no match');assert.equal(await page.getByRole('button',{name:/Dashboard 四區/}).count(),0);
+ await page.getByLabel('搜尋錄製腳本').fill('TC-1');
+ await page.getByRole('button',{name:/Dashboard 四區/}).click();
+ assert.equal(await page.getByLabel('腳本名稱').inputValue(),'Dashboard 四區');
+ await page.getByLabel('腳本名稱').fill('Dashboard 已更新');
+ await page.getByRole('button',{name:/^儲存 \*$/}).click();
+ await page.getByRole('status').filter({hasText:'腳本已儲存'}).waitFor();
+ await page.getByRole('button',{name:'關閉',exact:true}).click();
+ await page.getByRole('button',{name:/Dashboard 已更新/}).waitFor();
+ await page.getByRole('button',{name:'錄製腳本',exact:true}).last().click();
+ assert.equal(await page.getByLabel('腳本名稱').inputValue(),'');
+ assert.equal(await page.locator('.uat-multi-steps li').count(),0);
+ await page.getByRole('button',{name:'關閉',exact:true}).click();
+ await page.getByRole('button',{name:'舊版 TC 模式',exact:true}).click();
+ await page.getByRole('button',{name:/Legacy verifier/}).waitFor();
+ await page.getByRole('button',{name:'返回錄製腳本',exact:true}).click();
+ assert.equal(runs,0,'opening scripts must not trigger legacy batch runs');
+ await page.getByRole('button',{name:/Dashboard 已更新/}).waitFor();
+ await page.screenshot({path:'C:/Users/user/AppData/Local/Temp/recorded-library.png'});
+ assert.deepEqual(errors,[]);
+ console.log('PASS recorded library search, direct open, save refresh, fresh script, legacy isolation and no accidental execution');
+}finally{await browser.close();}

@@ -20,33 +20,69 @@
  *   ⑤ 都沒有才用結構路徑
  * 每一步都記下 `selectorStrategy`，退到 ⑤ 的最脆，編輯器會標出來讓人盯。
  *
- * ## 座標只當診斷資料
- * 不參與定位。後台的座標在表格分頁、資料筆數、側欄展開、換螢幕下都會漂；
- * H5 那邊錄座標是因為遊戲畫在 canvas 上沒有 DOM 可指，後台不一樣。
+ * ## 座標是受保護的最後備援
+ * selector 完全找不到且錄製／執行 viewport 相符時才使用。表格分頁、資料筆數、側欄
+ * 展開仍可能讓座標漂移，因此正常路徑永遠先使用 selector，並在結果裡標明是否曾回退。
  */
 
 /** 錄製器把積木用這個前綴印到 console，外面透過 CDP 收 */
 export const RECORDER_MARKER = '__TOPPATH_BACKEND_REC__';
 
-export function backendRecorderScript() {
+export function backendRecorderScript(options = {}) {
   return `(() => {
   if (window.__toppathBackendRecorder) return;
   window.__toppathBackendRecorder = true;
 
   const MARK = ${JSON.stringify(RECORDER_MARKER)};
+  const CONFIG = ${JSON.stringify(options)};
+  const storageKey = 'toppath-recorder-' + (CONFIG.sessionId || 'single');
+  let owner = '';
+  let paused = false;
+  try { const saved = JSON.parse(sessionStorage.getItem(storageKey) || '{}'); owner = saved.owner || ''; paused = !!saved.paused; } catch {}
+  const saveSelection = () => { try { sessionStorage.setItem(storageKey, JSON.stringify({ owner, paused })); } catch {} };
   // 自動登入那段不能錄——那是為了讓使用者一開始就在已登入的後台，不是他要測的操作，
   // 而且會把帳密寫進積木。server 登入完成後才呼叫 __toppathArmRecorder()。
   window.__toppathRecArmed = false;
-  window.__toppathArmRecorder = () => { window.__toppathRecArmed = true; };
-  const emit = (step) => { try { console.info(MARK, JSON.stringify(step)); } catch {} };
+  window.__toppathArmRecorder = () => {
+    if (window.__toppathRecArmed) return;
+    window.__toppathRecArmed = true;
+    if (CONFIG.bindings?.length) emit({ action: 'open_page', path: location.pathname + location.search + location.hash });
+  };
+  const emit = (step) => {
+    if (paused || !window.__toppathRecArmed) return;
+    const scoped = step.assertion || step.action === 'screenshot';
+    if (CONFIG.bindings?.length && scoped) {
+      if (!owner) { alert('請先選擇檢查與截圖所屬的 Lark TC'); return; }
+      step.tcId = owner;
+    }
+    try { console.info(MARK, JSON.stringify(step)); return true; } catch { return false; }
+  };
 
   // ── 選擇器策略階梯 ───────────────────────────────────────────────────
   const esc = (v) => String(v).replace(/"/g, '\\\\"');
 
+  const cleanText = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+  const isUniqueCss = (selector) => {
+    try { return document.querySelectorAll(selector).length === 1; }
+    catch { return false; }
+  };
+
+  /**
+   * click 的 event.target 經常是按鈕裡的 <i>/<span>。直接描述它會錄出
+   * button > i 或 button > span；圖示、版型一改就壞。先升到真正接收操作的節點。
+   */
+  function actionableTarget(el) {
+    if (!el || !el.closest) return el;
+    return el.closest('button, a, input, textarea, select, [role="button"], [role="menuitem"], [role="option"], .el-menu-item, .el-submenu__title') || el;
+  }
+
   function stableAttr(el) {
-    for (const attr of ['data-testid', 'data-test', 'data-uat', 'aria-label']) {
+    for (const attr of ['data-testid', 'data-test', 'data-uat', 'aria-label', 'name']) {
       const v = el.getAttribute && el.getAttribute(attr);
-      if (v) return { selector: '[' + attr + '="' + esc(v) + '"]', strategy: 'dataAttr' };
+      if (v) {
+        const selector = '[' + attr + '="' + esc(v) + '"]';
+        if (isUniqueCss(selector)) return { selector, strategy: 'dataAttr' };
+      }
     }
     if (el.id && !/^[0-9]/.test(el.id) && !/el-id-|^\\d+$/.test(el.id)) {
       return { selector: '#' + CSS.escape(el.id), strategy: 'dataAttr' };
@@ -81,9 +117,11 @@ export function backendRecorderScript() {
   }
 
   function byText(el) {
-    if (!/^(button|a|span|li|div)$/i.test(el.tagName)) return null;
-    const text = (el.innerText || '').trim();
-    if (!text || text.length > 30 || text.includes('\\n')) return null;
+    if (!/^(button|a|span|li|div)$/i.test(el.tagName) && !el.matches('[role="button"], [role="menuitem"], [role="option"]')) return null;
+    const raw = String(el.innerText || '').trim();
+    if (raw.includes('\\n')) return null;
+    const text = cleanText(raw);
+    if (!text || text.length > 30 || /^[\\d\\s.,%$+\\-]+$/.test(text)) return null;
     return { selector: 'text=' + text, strategy: 'text' };
   }
 
@@ -94,18 +132,39 @@ export function backendRecorderScript() {
     const row = td.closest('tr');
     const idx = Array.from(row.children).indexOf(td);
     const head = table.querySelectorAll('thead th')[idx];
-    const col = head ? (head.innerText || '').trim() : '';
+    const col = head ? cleanText(head.innerText || '') : '';
     const rowIdx = Array.from(row.parentElement.children).indexOf(row) + 1;
-    if (!col) return null;
-    // 記欄位名 + 第幾列，不是純 nth-child——欄位順序調整時至少欄位名還對得上
-    return { selector: 'table >> tr:nth-child(' + rowIdx + ') >> [data-col="' + esc(col) + '"]',
-             strategy: 'tableCell', column: col, rowIndex: rowIdx };
+    const rows = Array.from(document.querySelectorAll('tbody tr'));
+    const cells = Array.from(row.children);
+    // 用該列一個簡短且在目前表格中唯一的值當錨點。這樣排序或翻頁後仍能找到同一筆，
+    // 也不依賴頁面根本沒有提供的 data-col 屬性。
+    let rowText = '';
+    for (const cell of cells) {
+      if (cell === td) continue;
+      const candidate = cleanText(cell.innerText || '');
+      if (!candidate || candidate.length > 60) continue;
+      const occurrences = rows.filter(r => Array.from(r.children).some(c => cleanText(c.innerText || '') === candidate)).length;
+      if (occurrences === 1) { rowText = candidate; break; }
+    }
+    const rowSelector = rowText
+      ? 'tr:has(td:text-is(' + JSON.stringify(rowText) + '))'
+      : cssPath(table).selector + ' tbody > tr:nth-of-type(' + rowIdx + ')';
+    const cellSelector = rowSelector + ' > td:nth-of-type(' + (idx + 1) + ')';
+    let tail = '';
+    const target = actionableTarget(el);
+    if (target && target !== td) {
+      const tag = target.tagName.toLowerCase();
+      const same = Array.from(td.querySelectorAll(tag));
+      const targetIdx = same.indexOf(target);
+      if (targetIdx >= 0) tail = ' ' + tag + ':nth-of-type(' + (targetIdx + 1) + ')';
+    }
+    return { selector: cellSelector + tail, strategy: 'tableCell', column: col, rowIndex: rowIdx, rowText };
   }
 
   function cssPath(el) {
     const parts = [];
     let node = el;
-    while (node && node.nodeType === 1 && parts.length < 4) {
+    while (node && node.nodeType === 1 && parts.length < 12) {
       let part = node.tagName.toLowerCase();
       const parent = node.parentElement;
       if (parent) {
@@ -113,39 +172,141 @@ export function backendRecorderScript() {
         if (same.length > 1) part += ':nth-of-type(' + (same.indexOf(node) + 1) + ')';
       }
       parts.unshift(part);
+      if (isUniqueCss(parts.join(' > '))) break;
       node = parent;
     }
     return { selector: parts.join(' > '), strategy: 'cssPath' };
   }
 
-  function describe(el) {
-    return stableAttr(el) || byLabel(el) || byText(el) || byTableCell(el) || cssPath(el);
+  function byStableRegion(el) {
+    const parts = [];
+    let node = el;
+    for (let depth = 0; node && node.parentElement && depth < 5; depth++) {
+      const parent = node.parentElement;
+      const peers = Array.from(parent.children).filter(c => c.tagName === node.tagName);
+      parts.unshift(node.tagName.toLowerCase() + (peers.length > 1 ? ':nth-of-type(' + (peers.indexOf(node) + 1) + ')' : ''));
+      const anchor = stableAttr(parent);
+      if (anchor && !['app', 'root'].includes(parent.id)) {
+        const selector = anchor.selector + ' > ' + parts.join(' > ');
+        if (isUniqueCss(selector)) return { selector, strategy: 'region' };
+      }
+      node = parent;
+    }
+    return null;
   }
+
+  function describe(el) {
+    return stableAttr(el) || byLabel(el) || byTableCell(el) || byStableRegion(el) || byText(el) || cssPath(el);
+  }
+
+  const viewportInfo = () => ({ width: innerWidth, height: innerHeight });
+  let suppressClickUntil = 0;
+  const recordedValues = new WeakMap();
+  const flushInput = (el) => {
+    if (!el || !/^(INPUT|TEXTAREA)$/.test(el.tagName) || /^(checkbox|radio|button|submit)$/i.test(el.type)) return;
+    if (el.closest('[data-toppath-recorder-ui]') || paused || !window.__toppathRecArmed) return;
+    const value = String(el.value || '');
+    if (recordedValues.get(el) === value) return;
+    // Untouched controls must not become unexpected fill steps when merely focused/clicked.
+    if (!recordedValues.has(el)) return;
+    recordedValues.set(el, value);
+    const d = describe(el);
+    const secret = /password/i.test(el.type) || /pass/i.test(el.name || '') || /pass/i.test(el.id || '');
+    emit({ action: 'type_text', selector: d.selector, selectorStrategy: d.strategy, value: secret ? '' : value, ...(secret ? { secret: true } : {}) });
+  };
+  document.addEventListener('input', event => {
+    const el = event.target;
+    if (el && /^(INPUT|TEXTAREA)$/.test(el.tagName) && !el.closest('[data-toppath-recorder-ui]')) {
+      if (!recordedValues.has(el)) recordedValues.set(el, null);
+    }
+  }, true);
+  document.addEventListener('focusout', event => flushInput(event.target), true);
+  window.__toppathFlushRecorder = () => flushInput(document.activeElement);
 
   // ── 錄動作 ───────────────────────────────────────────────────────────
   document.addEventListener('click', (event) => {
     if (!window.__toppathRecArmed) return;   // 登入階段不錄
+    if (Date.now() < suppressClickUntil) return; // mouseup 後瀏覽器可能再送 click，拖曳不能錄兩次
     // 標記模式或按著 Alt 時，這一下是「標檢查條件」不是「操作」，不要錄成動作
     if (isMarking(event)) return;
     if (event.target && event.target.closest && event.target.closest('[data-toppath-recorder-ui]')) return;
     if (window.__toppathPicking) return;
-    const el = event.target;
+    const el = actionableTarget(event.target);
     if (!el || el.nodeType !== 1) return;
+    flushInput(document.activeElement);
+    if (/^(checkbox|radio)$/i.test(el.type || '') || /^(SELECT|OPTION)$/.test(el.tagName)) return;
+    if (el.tagName === 'LABEL' && el.querySelector('input[type="checkbox"],input[type="radio"]')) return;
     const d = describe(el);
     emit({
       action: 'click',
       selector: d.selector,
       selectorStrategy: d.strategy,
-      // 只做診斷不定位，執行時不會用到
+      // selector 找不到時才作備援；runner 會先確認錄製與執行 viewport 相符。
       viewport: { x: Math.round(event.clientX), y: Math.round(event.clientY) },
+      x: Math.round(event.clientX), y: Math.round(event.clientY),
+      recordedViewport: viewportInfo(),
     });
+  }, true);
+
+  // 特殊鍵與數字鍵逐鍵保留。一般文字交給 change 記最終值，避免每打一個字就多一顆積木。
+  // 密碼欄位即使是數字也不能寫入 JSON；自動登入發生在 armed 之前，這裡再守一次使用者
+  // 操作到其他密碼欄位的情況。
+  const RECORDED_KEYS = new Set(['Enter', 'Escape', 'Tab', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ',
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
+  document.addEventListener('keydown', (event) => {
+    if (!window.__toppathRecArmed || !RECORDED_KEYS.has(event.key)) return;
+    const el = event.target;
+    if (!el || el.nodeType !== 1 || (el.closest && el.closest('[data-toppath-recorder-ui]'))) return;
+    if (/password/i.test(el.type || '') || /pass/i.test(el.name || '') || /pass/i.test(el.id || '')) return;
+    const textInput = /^(INPUT|TEXTAREA)$/.test(el.tagName) || el.isContentEditable;
+    if (textInput && /^[0-9 ]$/.test(event.key)) return;
+    if (event.key === 'Enter' || event.key === 'Tab') flushInput(el);
+    const d = describe(el);
+    emit({ action: 'keypress', key: event.key, selector: d.selector, selectorStrategy: d.strategy });
+  }, true);
+
+  // 自製遊戲／元件的拖曳通常不是 HTML5 drag event，因此從滑鼠軌跡判斷。
+  // 超過 8px 才成立，普通點擊和手震不會被錄成 drag。
+  let dragState = null;
+  document.addEventListener('mousedown', (event) => {
+    if (!window.__toppathRecArmed || paused || isMarking(event) || event.button !== 0) return;
+    const el = event.target;
+    if (!el || el.nodeType !== 1 || (el.closest && el.closest('[data-toppath-recorder-ui]'))) return;
+    const target = actionableTarget(el);
+    const d = describe(target);
+    dragState = { selector: d.selector, selectorStrategy: d.strategy,
+      from: { x: Math.round(event.clientX), y: Math.round(event.clientY) }, moved: false };
+  }, true);
+  document.addEventListener('mousemove', (event) => {
+    if (!dragState || dragState.moved) return;
+    if (Math.hypot(event.clientX - dragState.from.x, event.clientY - dragState.from.y) > 8) dragState.moved = true;
+  }, true);
+  document.addEventListener('mouseup', (event) => {
+    if (!dragState) return;
+    const current = dragState;
+    dragState = null;
+    if (!current.moved || Math.hypot(event.clientX - current.from.x, event.clientY - current.from.y) <= 8) return;
+    suppressClickUntil = Date.now() + 100;
+    emit({ action: 'drag', selector: current.selector, selectorStrategy: current.selectorStrategy,
+      fromX: current.from.x, fromY: current.from.y,
+      toX: Math.round(event.clientX), toY: Math.round(event.clientY),
+      recordedViewport: viewportInfo() });
   }, true);
 
   document.addEventListener('change', (event) => {
     if (!window.__toppathRecArmed) return;   // 登入階段不錄
     const el = event.target;
     if (!el || !('value' in el)) return;
-    if (/^(checkbox|radio)$/i.test(el.type)) return;
+    if (el.closest && el.closest('[data-toppath-recorder-ui]')) return;
+    if (/^(checkbox|radio)$/i.test(el.type)) {
+      const d = describe(el);
+      emit({ action: 'set_checked', selector: d.selector, selectorStrategy: d.strategy, checked: el.checked }); return;
+    }
+    if (el.tagName === 'SELECT') {
+      const d = describe(el);
+      emit({ action: 'select_option', selector: d.selector, selectorStrategy: d.strategy, value: el.value }); return;
+    }
+    if (/^(INPUT|TEXTAREA)$/.test(el.tagName)) { flushInput(el); return; }
     // 密碼欄位絕對不記值。錄製結果會存進 DB、也會顯示在編輯器上，
     // 把真實密碼寫進測試定義等於到處散佈憑證。
     if (/password/i.test(el.type) || /pass/i.test(el.name || '') || /pass/i.test(el.id || '')) {
@@ -188,6 +349,38 @@ export function backendRecorderScript() {
   // 徽章自己不能被錄成操作，也不能被當成標記目標
   BADGE.setAttribute('data-toppath-recorder-ui', '1');
 
+  const PANEL = document.createElement('div');
+  PANEL.setAttribute('data-toppath-recorder-ui', '1');
+  PANEL.style.cssText = 'position:fixed;right:14px;bottom:102px;z-index:2147483645;width:320px;max-width:calc(100vw - 28px);padding:12px;background:#101716;color:#e2e8f0;border:1px solid #42566f;border-radius:8px;font:13px system-ui';
+  const title = document.createElement('div');
+  title.textContent = '檢查與截圖歸屬（操作預設共用）';
+  PANEL.appendChild(title);
+  const ownerSelect = document.createElement('select');
+  ownerSelect.setAttribute('aria-label', '檢查與截圖歸屬');
+  ownerSelect.style.cssText = 'width:100%;margin:8px 0;padding:6px;background:#18312f;color:#fff';
+  for (const b of [{ recordId: '', number: '', text: '請選擇 TC' }, ...(CONFIG.bindings || [])]) {
+    const option = document.createElement('option'); option.value = b.recordId;
+    option.textContent = (b.number ? b.number + '｜' : '') + b.text;
+    ownerSelect.appendChild(option);
+  }
+  ownerSelect.value = owner;
+  ownerSelect.onchange = () => { flushInput(document.activeElement); owner = ownerSelect.value; saveSelection(); };
+  PANEL.appendChild(ownerSelect);
+  const pauseButton = document.createElement('button');
+  const paintPause = () => { pauseButton.textContent = paused ? '繼續錄製' : '暫停錄製'; };
+  paintPause();
+  pauseButton.onclick = () => { flushInput(document.activeElement); paused = !paused; saveSelection(); paintPause(); };
+  PANEL.appendChild(pauseButton);
+  const info = document.createElement('div');
+  info.style.cssText = 'margin-top:8px;color:#a9b8b3';
+  info.textContent = '用標記模式點選欄位。截圖可重複加入；錄製後可逐步修改歸屬。';
+  PANEL.appendChild(info);
+  const feedback = document.createElement('div');
+  feedback.setAttribute('role', 'status');
+  feedback.style.cssText = 'margin-top:8px;color:#7ff0b8';
+  PANEL.appendChild(feedback);
+  let shotSequence = 0;
+
   const SHOT = document.createElement('button');
   SHOT.type = 'button';
   SHOT.textContent = '加入截圖指令';
@@ -197,10 +390,11 @@ export function backendRecorderScript() {
   SHOT.setAttribute('data-toppath-recorder-ui', '1');
   SHOT.addEventListener('click', (event) => {
     event.preventDefault(); event.stopPropagation();
-    if (!window.__toppathRecArmed) return;
-    const name = prompt('截圖名稱（之後跑 TC 時會用這個名字產生截圖並上傳 Lark）', 'recorded-shot');
-    if (name === null) return;
-    emit({ action: 'screenshot', name: name.trim() || 'recorded-shot' });
+    if (!window.__toppathRecArmed) { feedback.textContent = '尚未開始錄製，請等待登入完成。'; return; }
+    if (paused) { feedback.textContent = '目前暫停中，請先按「繼續錄製」再加入截圖。'; return; }
+    if (CONFIG.bindings?.length && !owner) { feedback.textContent = '請先選擇截圖所屬 TC。'; return; }
+    const name = 'recorded-shot-' + Date.now() + '-' + (++shotSequence);
+    if (emit({ action: 'screenshot', name })) feedback.textContent = '已加入截圖指令（' + shotSequence + '）。停止錄製後合併進腳本，試跑時才拍攝圖片。';
   }, true);
   /** 目前開著的選單的關閉函式。同一時間只允許一個——不然點第二個元素時
    *  第一個會留在畫面上（使用者 2026-09-01 回報「點一個就會產生第二個」）。 */
@@ -232,6 +426,7 @@ export function backendRecorderScript() {
     root.appendChild(HL);
     root.appendChild(BADGE);
     root.appendChild(SHOT);
+    if (CONFIG.bindings?.length) root.appendChild(PANEL);
     paintBadge();
     return true;
   };
@@ -324,6 +519,11 @@ export function backendRecorderScript() {
         const want = prompt('期望值（已帶入目前的值）', value);
         return want === null ? null : { kind: 'equals', expect: want };
       }],
+      ['文字必須相等', '自行確認期望文字', '#3fbe8b', () => {
+        const expect = prompt('期望文字（請依規格確認，當下畫面不一定正確）', value);
+        return expect === null ? null : { kind: 'text', expect };
+      }],
+      ['截取這個區域', '保存到目前所屬 TC 的附圖', '#3fbe8b', () => ({ kind: 'screenshot' })],
       ['這個表格要排序正確', '依這一欄遞減', '#3fbe8b', () => ({ kind: 'sorted' })],
       ['不能出現／不能是這個值', '出現就算 FAIL', '#f87171', () => ({ kind: 'absent' })],
       ['這裡要人工看', '機器判不了，不算失敗', '#d99e22', () => {
@@ -385,7 +585,7 @@ export function eventsToSteps(events) {
   const steps = [];
   let varSeq = 0;
   for (const ev of events ?? []) {
-    if (ev.action === 'click' || ev.action === 'type_text' || ev.action === 'screenshot') {
+    if (['open_page', 'click', 'type_text', 'keypress', 'drag', 'screenshot', 'set_checked', 'select_option', 'wait'].includes(ev.action)) {
       steps.push(ev);
       continue;
     }
@@ -393,24 +593,32 @@ export function eventsToSteps(events) {
     const kind = ev.assertion.kind;
     const varName = `v${++varSeq}`;
     const labels = ev.label ? [ev.label] : [];
+    const owned = ev.tcId ? { tcId: ev.tcId } : {};
+    if (kind === 'screenshot') {
+      steps.push({ action: 'screenshot', selector: ev.selector, selectorStrategy: ev.selectorStrategy, name: ev.label || 'region', ...owned }); continue;
+    }
+    if (kind === 'text') {
+      steps.push({ action: 'assert_text', selector: ev.selector, selectorStrategy: ev.selectorStrategy, expect: String(ev.assertion.expect ?? ''), match: 'exact', ...owned });
+      continue;
+    }
 
     if (kind === 'filled' || kind === 'equals' || kind === 'capture') {
-      steps.push({ action: 'read_block', selector: ev.selector, selectorStrategy: ev.selectorStrategy, labels, as: varName });
-      if (kind === 'filled') steps.push({ action: 'assert_filled', from: varName });
-      if (kind === 'equals') steps.push({ action: 'assert_equals', left: `${varName}.${labels[0] ?? ''}`, right: String(ev.assertion.expect ?? ''), tolerancePct: 1 });
+      steps.push({ action: 'read_block', selector: ev.selector, selectorStrategy: ev.selectorStrategy, labels, as: varName, ...owned });
+      if (kind === 'filled') steps.push({ action: 'assert_filled', from: varName, ...owned });
+      if (kind === 'equals') steps.push({ action: 'assert_equals', left: `${varName}.${labels[0] ?? 'value'}`, right: String(ev.assertion.expect ?? ''), tolerancePct: ev.tcId ? 0 : 1, ...(ev.tcId ? { absoluteTolerance: 0 } : {}), ...owned });
       continue;
     }
     if (kind === 'sorted') {
-      steps.push({ action: 'read_table', selector: 'table', as: varName });
-      steps.push({ action: 'assert_sorted', from: varName, column: ev.column ?? ev.label ?? '', direction: 'desc' });
+      steps.push({ action: 'read_table', selector: 'table', as: varName, ...owned });
+      steps.push({ action: 'assert_sorted', from: varName, column: ev.column ?? ev.label ?? '', direction: 'desc', ...owned });
       continue;
     }
     if (kind === 'absent') {
-      steps.push({ action: 'assert_absent', selector: ev.selector, text: ev.currentValue || undefined });
+      steps.push({ action: 'assert_absent', selector: ev.selector, text: ev.currentValue || undefined, ...owned });
       continue;
     }
     if (kind === 'manual') {
-      steps.push({ action: 'mark_manual', reason: ev.assertion.reason || '需人工確認' });
+      steps.push({ action: 'mark_manual', reason: ev.assertion.reason || '需人工確認', ...owned });
       continue;
     }
   }
@@ -419,6 +627,6 @@ export function eventsToSteps(events) {
 
 /** 這串積木裡有沒有任何斷言。沒有的話錄出來的東西永遠 PASS，要擋下來問清楚 */
 export function hasAssertion(steps) {
-  const ASSERTIONS = new Set(['assert_filled', 'assert_equals', 'assert_sorted', 'assert_absent', 'mark_manual']);
+  const ASSERTIONS = new Set(['assert_filled', 'assert_equals', 'assert_sorted', 'assert_absent', 'assert_text', 'assert_api_called', 'mark_manual']);
   return (steps ?? []).some(s => ASSERTIONS.has(s.action));
 }

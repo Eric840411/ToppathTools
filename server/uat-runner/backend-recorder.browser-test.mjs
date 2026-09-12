@@ -31,14 +31,20 @@ page.on('console', m => {
 // 一定要用真的導頁：setContent 的 init script 時機跟實際 goto 不同，
 // 用它測會得到假的結論（第一次就是這樣誤判成「徽章沒掛上去」）
 await page.goto('data:text/html,' + encodeURIComponent(
-  '<button id="go">送出查詢</button>'
-  + '<table class="el-table__header"><thead><tr><th>Machine Name</th></tr></thead></table>'));
+  '<nav>Player Credit Log</nav>'
+  + '<button id="go">送出查詢</button>'
+  + '<button class="edit"><span>Edit</span></button>'
+  + '<input id="amount" type="text">'
+  + '<div id="slider" style="width:180px;height:24px;background:#ccc"></div>'
+  + '<table><thead><tr><th>Name</th><th>Action</th></tr></thead>'
+  + '<tbody><tr><td>ChannelRankID</td><td><button class="icon-action"><i style="display:block;width:12px;height:12px"></i></button></td></tr></tbody></table>'));
 await page.evaluate(() => window.__toppathArmRecorder?.());
 await page.waitForTimeout(200);
 
 // 1) 徽章存在、預設是關
-const badge = page.locator('[data-toppath-recorder-ui]');
-console.log('徽章存在:', await badge.count() === 1);
+const badge = page.locator('div[data-toppath-recorder-ui]:has-text("標記模式")').first();
+const badgeCount = await badge.count();
+console.log('徽章存在:', badgeCount === 1);
 console.log('預設文字:', (await badge.innerText()).trim());
 const box = await badge.boundingBox();
 console.log('徽章位置（右下角）:', box ? `x=${Math.round(box.x)} y=${Math.round(box.y)}` : '(量不到)');
@@ -49,18 +55,54 @@ await page.waitForTimeout(150);
 const afterPlainClick = events.length;
 console.log('\n關著時點按鈕 → 錄到', afterPlainClick, '筆（應該是 1 筆 click 動作）:', JSON.stringify(events[0]?.action ?? null));
 
+// 2b) 點到按鈕內的 span，要升到 button 並錄完整文字；不能留下 button > span，
+//     也不能讓 Edit 在重播時誤命中 Player Credit Log。
+await page.click('.edit span');
+await page.waitForTimeout(100);
+const editEvent = events.at(-1);
+console.log('巢狀 span 點擊 → 使用可操作祖先:', editEvent?.selector === 'text=Edit' ? '是 ✅' : `否 ❌（${editEvent?.selector}）`);
+
+// 2c) 純圖示表格按鈕沒有文字，必須用列內容錨定，且產出的 selector 真的找得到按鈕。
+await page.click('.icon-action i');
+await page.waitForTimeout(100);
+const tableEvent = events.at(-1);
+const tableMatches = tableEvent?.selector ? await page.locator(tableEvent.selector).count() : 0;
+console.log('表格圖示 → 列內容錨定:', tableEvent?.selectorStrategy === 'tableCell' && tableEvent.selector.includes('ChannelRankID') ? '是 ✅' : `否 ❌（${tableEvent?.selector}）`);
+console.log('表格 selector 可執行且唯一:', tableMatches === 1 ? '是 ✅' : `否 ❌（命中 ${tableMatches}）`);
+
+const beforeKeys = events.length;
+await page.focus('#amount');
+await page.keyboard.press('7');
+await page.keyboard.press('Enter');
+await page.waitForTimeout(100);
+const keyEvents = events.slice(beforeKeys).filter(event => event.action === 'keypress');
+console.log('文字欄數字合併成輸入，Enter 保留:', keyEvents.map(event => event.key).join(',') === 'Enter' && events.slice(beforeKeys).some(event => event.action === 'type_text' && event.value === '7') ? '是 ✅' : `否 ❌（${JSON.stringify(keyEvents)}）`);
+
+const sliderBox = await page.locator('#slider').boundingBox();
+const beforeDrag = events.length;
+await page.mouse.move(sliderBox.x + 10, sliderBox.y + 12);
+await page.mouse.down();
+await page.mouse.move(sliderBox.x + 90, sliderBox.y + 12, { steps: 5 });
+await page.mouse.up();
+await page.waitForTimeout(100);
+const dragEvent = events.slice(beforeDrag).find(event => event.action === 'drag');
+console.log('超過 8px 拖曳被記錄:', dragEvent && dragEvent.toX - dragEvent.fromX >= 79 ? '是 ✅' : `否 ❌（${JSON.stringify(dragEvent)}）`);
+
 // 3) 點徽章開啟
+const beforeBadge = events.length;
 await badge.click();
 await page.waitForTimeout(150);
 console.log('\n點徽章後文字:', (await badge.innerText()).trim());
-console.log('點徽章本身有沒有被錄成操作:', events.length === afterPlainClick ? '沒有 ✅' : '被錄進去了 ❌');
+const badgeDidNotRecord = events.length === beforeBadge;
+console.log('點徽章本身有沒有被錄成操作:', badgeDidNotRecord ? '沒有 ✅' : '被錄進去了 ❌');
 
 // 4) 開著時點按鈕，應該跳出標記選單而不是錄成操作
 await page.click('#go');
 await page.waitForTimeout(300);
 const menuVisible = await page.evaluate(() => !!window.__toppathPicking);
 console.log('\n開著時點按鈕 → 進入標記流程:', menuVisible ? '是 ✅' : '否 ❌');
-console.log('  有沒有被誤錄成操作:', events.length === afterPlainClick ? '沒有 ✅' : '多錄了 ❌');
+const markingDidNotRecord = events.length === beforeBadge;
+console.log('  有沒有被誤錄成操作:', markingDidNotRecord ? '沒有 ✅' : '多錄了 ❌');
 
 // 5) 標記模式下點選單裡的選項，要真的送出斷言、關掉選單，而且不能再開一個
 //
@@ -72,10 +114,11 @@ console.log('  有沒有被誤錄成操作:', events.length === afterPlainClick 
 //
 //    單元測試看不到這個：它只驗轉換邏輯，不會真的派發事件走完 capture/target 兩階段。
 const menuCount = async () => page.evaluate(() =>
-  document.querySelectorAll('[data-toppath-recorder-ui]').length);
+  [...document.querySelectorAll('[data-toppath-recorder-ui]')]
+    .filter(el => (el.textContent || '').includes('要檢查這個元素的什麼')).length);
 const beforePick = events.length;
 console.log();
-console.log('選單開啟時，recorder UI 元素數（徽章 + 選單 = 2）:', await menuCount());
+console.log('標記選單已開啟:', await menuCount() === 1 ? '是 ✅' : '否 ❌');
 
 // 點第一個選項「必須有值」
 await page.evaluate(() => {
@@ -89,8 +132,21 @@ const added = events.slice(beforePick);
 console.log('點選項後：');
 console.log('  有送出斷言:', added.some(e => e.assertion) ? '是 ✅' : `否 ❌（多出 ${JSON.stringify(added)}）`);
 console.log('  斷言種類:', added.find(e => e.assertion)?.assertion?.kind ?? '(無)');
-console.log('  選單已關閉:', (await menuCount()) === 1 ? '是 ✅（只剩徽章）' : `否 ❌（還有 ${await menuCount()} 個）`);
-console.log('  沒有開出第二個選單:', (await menuCount()) <= 1 ? '是 ✅' : '否 ❌');
-console.log('  picking 狀態已解除:', (await page.evaluate(() => !!window.__toppathPicking)) === false ? '是 ✅' : '否 ❌');
+console.log('  選單已關閉:', (await menuCount()) === 0 ? '是 ✅' : `否 ❌（還有 ${await menuCount()} 個）`);
+console.log('  沒有開出第二個選單:', (await menuCount()) === 0 ? '是 ✅' : '否 ❌');
+const pickingClosed = (await page.evaluate(() => !!window.__toppathPicking)) === false;
+console.log('  picking 狀態已解除:', pickingClosed ? '是 ✅' : '否 ❌');
+
+const failures = [];
+if (badgeCount !== 1) failures.push('recorder badge missing');
+if (afterPlainClick !== 1 || events[0]?.action !== 'click') failures.push('plain click was not recorded once');
+if (editEvent?.selector !== 'text=Edit') failures.push('nested click did not normalize to actionable button');
+if (tableEvent?.selectorStrategy !== 'tableCell' || !tableEvent?.selector?.includes('ChannelRankID') || tableMatches !== 1) failures.push('table icon selector is not stable/executable');
+if (keyEvents.map(event => event.key).join(',') !== 'Enter' || !events.slice(beforeKeys).some(event => event.action === 'type_text' && event.value === '7')) failures.push('text input/Enter recording failed');
+if (!dragEvent || dragEvent.toX - dragEvent.fromX < 79) failures.push('drag recording failed');
+if (!badgeDidNotRecord || !markingDidNotRecord) failures.push('recorder UI/marking click leaked into actions');
+if (!menuVisible || !added.some(e => e.assertion) || await menuCount() !== 0 || !pickingClosed) failures.push('assertion picker flow failed');
 
 await browser.close();
+if (failures.length) throw new Error(`backend recorder browser test failed: ${failures.join('; ')}`);
+console.log('\nBackend recorder browser test passed.');

@@ -71,6 +71,9 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'uat-runner/pinus-probe.js':         join(SERVER_ROOT, 'uat-runner', 'pinus-probe.js'),
   // 後台積木執行器：run-lark-tc-backend.js 會 import 它，少送 agent 端會在 import 當下炸掉
   'uat-runner/block-engine.js':        join(SERVER_ROOT, 'uat-runner', 'block-engine.js'),
+  'uat-runner/recorder-visual.js': join(SERVER_ROOT, 'uat-runner', 'recorder-visual.js'),
+  'uat-runner/multi-tc.js':            join(SERVER_ROOT, 'uat-runner', 'multi-tc.js'),
+  'uat-runner/step-dependencies.js': join(SERVER_ROOT, 'uat-runner', 'step-dependencies.js'),
   'uat-runner/backend-recorder.js':    join(SERVER_ROOT, 'uat-runner', 'backend-recorder.js'),
   // 內建驗證器的參數宣告：同上，run-lark-tc-backend.js import 它，少送就 import 當下炸
   'uat-runner/verifier-params.js':     join(SERVER_ROOT, 'uat-runner', 'verifier-params.js'),
@@ -1239,6 +1242,7 @@ router.get('/api/machine-test/agent/agent-package.json', (_req, res) => {
       ws: '^8.18.1',
       // Backend UAT 腳本 run-lark-tc-backend.js 會 import xlsx 做報表比對
       xlsx: '^0.18.5',
+      pngjs: '^7.0.0',
       zod: '^4.3.6',
     },
     devDependencies: {

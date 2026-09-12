@@ -57,12 +57,13 @@ interface BlockDef {
 }
 
 export type Step = Record<string, unknown> & { action: string }
+type EditorMode = 'visual' | 'json'
 
 const CATEGORY_LABEL: Record<string, string> = {
   nav: '導航', read: '讀取', assert: '驗證', compare: '比對', evidence: '證據與流程', legacy: '沿用既有',
 }
 
-export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendingSteps, onPendingConsumed }: {
+export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, onRecordScript, pendingSteps, onPendingConsumed }: {
   tc: BackendTc
   /** 給「從其他 TC 複製」用。121 筆只對應 23 支驗證器，同一支底下步驟高度重複，
    *  沒有複製功能就是逐筆手工 121 次 */
@@ -70,6 +71,7 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
   themeMode: UatThemeMode
   onSaved: (storageKey: string, stepCount: number) => void
   onClose: () => void
+  onRecordScript?: () => void
   /** 從工作台錄好、還沒決定要放哪一筆的積木；選定 TC 後由這裡接上去 */
   pendingSteps?: Step[] | null
   onPendingConsumed?: () => void
@@ -78,14 +80,15 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
   const [blockDefs, setBlockDefs] = useState<Record<string, BlockDef>>({})
   const [verifierSchemas, setVerifierSchemas] = useState<Record<string, VerifierSchema>>({})
   const [steps, setSteps] = useState<Step[]>([])
+  const [editorMode, setEditorMode] = useState<EditorMode>('visual')
+  const [jsonDraft, setJsonDraft] = useState('[]')
+  const [jsonError, setJsonError] = useState<string | null>(null)
   const [selected, setSelected] = useState<number | null>(null)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState<{ text: string; tone: 'ok' | 'error' } | null>(null)
   const [copyFrom, setCopyFrom] = useState('')
   const [blockQuery, setBlockQuery] = useState('')
-  const [recSession, setRecSession] = useState<string | null>(null)
-  const [recCount, setRecCount] = useState(0)
   const [verifierName, setVerifierName] = useState<string | null>(null)
 
   useEffect(() => {
@@ -112,8 +115,12 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
       // 把目前的行為擺成一顆 builtin_verifier 積木，看到的才是實際會執行的東西；
       // 空白會讓人以為這筆 TC 什麼都不做。
       // 不標 dirty：這只是把既有行為顯性化，還沒有任何改動。
-      setSteps(saved.length ? saved
-        : d.verifierName ? [{ action: 'builtin_verifier', name: d.verifierName }] : [])
+      const loadedSteps: Step[] = saved.length ? saved
+        : d.verifierName ? [{ action: 'builtin_verifier', name: d.verifierName }] : []
+      setSteps(loadedSteps)
+      setJsonDraft(JSON.stringify(loadedSteps, null, 2))
+      setJsonError(null)
+      setEditorMode('visual')
       setSelected(null)
       setDirty(false)
       setMsg(null)
@@ -159,6 +166,59 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
     setSteps(prev => prev.filter((_, i) => i !== index)); setSelected(null); setDirty(true)
   }
 
+  const parseJsonSteps = useCallback((source: string): Step[] | null => {
+    try {
+      const value: unknown = JSON.parse(source)
+      if (!Array.isArray(value)) throw new Error('最外層必須是步驟陣列 [ ... ]')
+      value.forEach((item, index) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+          throw new Error(`第 ${index + 1} 筆必須是 JSON 物件`)
+        }
+        const action = (item as Record<string, unknown>).action
+        if (typeof action !== 'string' || !action.trim()) {
+          throw new Error(`第 ${index + 1} 筆缺少 action`)
+        }
+        if (Object.keys(blockDefs).length && !blockDefs[action]) {
+          throw new Error(`第 ${index + 1} 筆使用不支援的 action：${action}`)
+        }
+      })
+      setJsonError(null)
+      return value as Step[]
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'JSON 格式錯誤'
+      setJsonError(message)
+      setMsg({ text: `JSON 無法套用：${message}`, tone: 'error' })
+      return null
+    }
+  }, [blockDefs])
+
+  const applyJson = useCallback(() => {
+    const parsed = parseJsonSteps(jsonDraft)
+    if (!parsed) return null
+    const changed = JSON.stringify(parsed) !== JSON.stringify(steps)
+    setSteps(parsed)
+    setJsonDraft(JSON.stringify(parsed, null, 2))
+    setSelected(null)
+    if (changed) setDirty(true)
+    setMsg({
+      text: changed ? `JSON 已套用，共 ${parsed.length} 顆積木；確認後按儲存` : 'JSON 格式正確，內容沒有變更',
+      tone: 'ok',
+    })
+    return parsed
+  }, [jsonDraft, parseJsonSteps, steps])
+
+  const switchEditorMode = (mode: EditorMode) => {
+    if (mode === editorMode) return
+    if (mode === 'json') {
+      setJsonDraft(JSON.stringify(steps, null, 2))
+      setJsonError(null)
+      setEditorMode('json')
+      return
+    }
+    if (!applyJson()) return
+    setEditorMode('visual')
+  }
+
   const doCopy = async () => {
     if (!copyFrom) return
     if (steps.length && !window.confirm('這會覆蓋目前的積木，確定嗎？')) return
@@ -171,78 +231,21 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
     } catch { setMsg({ text: '複製失敗', tone: 'error' }) }
   }
 
-  // ── 錄製 ──────────────────────────────────────────────────────────────
-  // 開一個有頭的瀏覽器並自動登入後台，使用者的操作直接變積木；
-  // 要標檢查條件用視窗右下角的「標記模式」或 Alt／⌥（錄製只錄得到「做了什麼」，錄不到「在檢查什麼」）。
-  const startRecord = async () => {
-    setMsg({ text: '正在開啟後台並登入…', tone: 'ok' })
-    try {
-      const r = await fetch('/api/osm-uat/record/start', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recordId: tc.recordId }),
-      })
-      const d = await r.json() as { ok: boolean; sessionId?: string; message?: string }
-      if (!d.ok || !d.sessionId) return setMsg({ text: d.message ?? '錄製啟動失敗', tone: 'error' })
-      setRecSession(d.sessionId)
-      setRecCount(0)
-      setMsg({ text: '錄製中：在開啟的視窗操作；要標檢查條件：點視窗右下角的「標記模式」再點元素，或按住 Alt／⌥ Option 點', tone: 'ok' })
-    } catch { setMsg({ text: '錄製啟動失敗', tone: 'error' }) }
-  }
-
-  // 錄製期間輪詢，讓按鈕顯示已經錄到幾顆——不然使用者不知道到底有沒有在錄。
-  // 使用者自己把瀏覽器關掉時 done 會變 true，這裡要負責收尾。
-  useEffect(() => {
-    if (!recSession) return
-    let stopped = false
-    const timer = window.setInterval(async () => {
-      try {
-        const r = await fetch(`/api/osm-uat/record/status/${recSession}`)
-        const d = await r.json() as { ok: boolean; done?: boolean; steps?: Step[] }
-        if (!d.ok || stopped) return
-        setRecCount(d.steps?.length ?? 0)
-        if (d.done) { stopped = true; window.clearInterval(timer); void finishRecord(recSession) }
-      } catch { /* 一次查不到不用中斷輪詢 */ }
-    }, 2000)
-    return () => { stopped = true; window.clearInterval(timer) }
-    // finishRecord 只用到參數帶進去的 sessionId，放進 deps 會讓 interval 每次 render 重建
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recSession])
-
-  /**
-   * 停止錄製並把積木接到現有清單後面。
-   * 沒有任何斷言的錄製跑起來永遠 PASS——那不是測試是重播，要問清楚而不是安靜收下。
-   */
-  const finishRecord = async (sessionId: string) => {
-    setRecSession(null)
-    try {
-      const r = await fetch(`/api/osm-uat/record/stop/${sessionId}`, { method: 'POST' })
-      const d = await r.json() as { ok: boolean; steps?: Step[]; hasAssertion?: boolean }
-      const recorded = d.steps ?? []
-      if (!recorded.length) return setMsg({ text: '這次沒有錄到任何操作', tone: 'error' })
-      if (!d.hasAssertion) {
-        const warn = `錄到 ${recorded.length} 顆積木，但一個檢查條件都沒有。\n\n`
-          + '這樣的腳本跑起來永遠 PASS（等於只是重播操作，不會驗任何東西）。\n'
-          + '仍要加入嗎？（也可以取消，重錄時用視窗右下角的「標記模式」，或按住 Alt／⌥ Option 點元素）'
-        if (!window.confirm(warn)) return
-      }
-      setSteps(prev => [...prev, ...recorded])
-      setDirty(true)
-      setMsg({ text: `已加入 ${recorded.length} 顆積木，記得儲存`, tone: 'ok' })
-    } catch { setMsg({ text: '取得錄製結果失敗', tone: 'error' }) }
-  }
-
-
   const save = async () => {
+    const stepsToSave = editorMode === 'json' ? parseJsonSteps(jsonDraft) : steps
+    if (!stepsToSave) return
     setSaving(true)
     try {
       const r = await fetch(`/api/osm-uat/tc-steps/${encodeURIComponent(tc.storageKey)}`, {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ steps }),
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ steps: stepsToSave }),
       })
       const d = await r.json() as { ok: boolean; message?: string }
       if (!d.ok) { setMsg({ text: d.message ?? '儲存失敗', tone: 'error' }); return }
+      setSteps(stepsToSave)
+      setJsonDraft(JSON.stringify(stepsToSave, null, 2))
       setDirty(false)
-      setMsg({ text: steps.length ? `已儲存 ${steps.length} 顆積木` : '已清空，這筆會回去走原本的驗證器', tone: 'ok' })
-      onSaved(tc.storageKey, steps.length)
+      setMsg({ text: stepsToSave.length ? `已儲存 ${stepsToSave.length} 顆積木` : '已清空，這筆會回去走原本的驗證器', tone: 'ok' })
+      onSaved(tc.storageKey, stepsToSave.length)
     } catch { setMsg({ text: '儲存失敗', tone: 'error' }) }
     finally { setSaving(false) }
   }
@@ -294,14 +297,14 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
           <h3>{xianxia ? '術式編排' : '積木編輯'}</h3>
           <small className="uat-tc-editor-id">{tc.sub || tc.taskType || '未分類'} · {tc.number && <><code>{tc.number}</code> · </>}<code>{tc.recordId}</code></small>
         </div>
+        <span className="uat-tc-editor-mode" role="group" aria-label="編輯模式">
+          <button type="button" className={editorMode === 'visual' ? 'is-active' : ''}
+            onClick={() => switchEditorMode('visual')}>視覺編輯</button>
+          <button type="button" className={editorMode === 'json' ? 'is-active' : ''}
+            onClick={() => switchEditorMode('json')}>JSON 編輯</button>
+        </span>
         <span className="uat-tc-editor-actions">
-          {recSession ? (
-            <button type="button" className="uat-btn is-danger" onClick={() => void finishRecord(recSession)}>
-              停止錄製（{recCount} 顆）
-            </button>
-          ) : (
-            <button type="button" className="uat-btn is-quiet" onClick={() => void startRecord()}>錄製</button>
-          )}
+          {onRecordScript && <button type="button" className="uat-btn is-quiet" onClick={() => { if (!dirty || window.confirm('尚有未儲存修改，確定開啟錄製腳本？')) onRecordScript() }}>錄製腳本</button>}
           <button type="button" className="uat-btn is-primary" disabled={!dirty || saving} onClick={() => void save()}>
             {saving ? '儲存中' : dirty ? '儲存' : '已儲存'}
           </button>
@@ -322,7 +325,32 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
         </div>
       )}
 
-      <div className="uat-tc-editor-body">
+      {editorMode === 'json' ? (
+        <section className="uat-tc-json">
+          <div className="uat-tc-json-toolbar">
+            <div>
+              <strong>此 TC 的 steps JSON</strong>
+              <small>每個物件都必須有 action；儲存前會檢查格式與積木名稱。</small>
+            </div>
+            <button type="button" className="uat-btn is-quiet" onClick={() => void applyJson()}>套用並格式化</button>
+          </div>
+          <textarea
+            className={`uat-tc-json-editor${jsonError ? ' is-error' : ''}`}
+            aria-label="TC steps JSON"
+            aria-invalid={Boolean(jsonError)}
+            spellCheck={false}
+            value={jsonDraft}
+            onChange={event => {
+              setJsonDraft(event.target.value)
+              setJsonError(null)
+              setDirty(true)
+            }}
+          />
+          <div className={`uat-tc-json-status${jsonError ? ' is-error' : ''}`}>
+            {jsonError ? `格式錯誤：${jsonError}` : '可直接修改 JSON；按「套用並格式化」可先檢查，按「儲存」也會自動檢查。'}
+          </div>
+        </section>
+      ) : <div className="uat-tc-editor-body">
         <aside className="uat-tc-blocks">
           <h4>
             {xianxia ? '術式庫' : '積木庫'}
@@ -371,7 +399,7 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
               <span>這筆 TC 目前走的是內建驗證器，加了積木之後才改照積木跑。</span>
               <ol>
                 <li>從左邊的積木庫點一顆加入</li>
-                <li>或按右上角「錄製」，操作一次後台自動產生</li>
+                <li>或使用「錄製腳本」，建立可綁定一筆或多筆 TC 的腳本</li>
                 <li>或用下面的下拉選單複製其他 TC 的積木</li>
               </ol>
             </div>
@@ -488,7 +516,7 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, pendi
             <p className="uat-tc-inspector-empty">點中間的積木來編參數</p>
           )}
         </aside>
-      </div>
+      </div>}
 
       {msg && <span className={`uat-backend-cred-msg${msg.tone === 'error' ? ' is-error' : ''}`}>{msg.text}</span>}
       </div>

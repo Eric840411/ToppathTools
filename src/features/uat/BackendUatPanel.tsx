@@ -3,6 +3,9 @@ import { createPortal } from 'react-dom'
 import type { RunStatus, TcGroup, UatConfig, UatThemeMode } from './types'
 import { NetworkPanel, type UatStatsPayload } from './NetworkPanel'
 import { BackendTcEditor, type BackendTc, type Step } from './BackendTcEditor'
+import { MultiTcRecorder, type RecordedScript } from './MultiTcRecorder'
+import { RecordedScriptLibrary } from './RecordedScriptLibrary'
+import { RecordedScriptBatch } from './RecordedScriptBatch'
 
 const STORAGE_KEY = 'osm_uat_config'
 function loadConfig(): UatConfig {
@@ -42,10 +45,18 @@ interface RecConsoleLog {
   ts: number
 }
 
+interface RecWsFrame {
+  direction: 'sent' | 'received' | 'open' | 'close'
+  url: string
+  payload: string
+  ts: number
+}
+
 interface BackendUatAgent {
   agentId: string
   hostname: string
   ownerName: string
+  capabilities: string[]
   busy: boolean
   lastSeenAt: number
   /** 'current' | 'needs_update' | 'needs_restart' | 'unknown'——伺服器比對原始碼指紋算出來的 */
@@ -55,6 +66,14 @@ interface BackendUatAgent {
 export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const xianxia = themeMode === 'xianxia'
   const [config, setConfig] = useState(loadConfig)
+  const [multiRecorderOpen, setMultiRecorderOpen] = useState(false)
+  const [legacyMode, setLegacyMode] = useState(false)
+  const [recordedScripts, setRecordedScripts] = useState<RecordedScript[]>([])
+  const [selectedScriptIds, setSelectedScriptIds] = useState<string[]>([])
+  const [batchBusy, setBatchBusy] = useState(false)
+  const [initialScript, setInitialScript] = useState<RecordedScript>()
+  const [libraryRevision, setLibraryRevision] = useState(0)
+  const openScript = (script?: RecordedScript) => { setInitialScript(script); setMultiRecorderOpen(true) }
   const [status, setStatus] = useState<RunStatus>('idle')
   const statusRef = useRef<RunStatus>('idle')
   const [logs, setLogs] = useState<string[]>([])
@@ -96,6 +115,7 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const [recSession, setRecSession] = useState<string | null>(null)
   const [recCount, setRecCount] = useState(0)
   const [recMsg, setRecMsg] = useState('')
+  const [recToast, setRecToast] = useState<{ id: number; message: string } | null>(null)
   const [pendingSteps, setPendingSteps] = useState<Step[] | null>(null)
   const [pickerQuery, setPickerQuery] = useState('')
   /** 選擇器是否展開。跟 pendingSteps 分開——收起彈框不等於丟掉錄到的積木 */
@@ -106,6 +126,12 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const [recNet, setRecNet] = useState<RecNetCall[]>([])
   const [recNetSummary, setRecNetSummary] = useState<RecNetSummary | null>(null)
   const [recConsole, setRecConsole] = useState<RecConsoleLog[]>([])
+  const [recWsFrames, setRecWsFrames] = useState<RecWsFrame[]>([])
+  useEffect(() => {
+    if (!recToast) return
+    const timer = window.setTimeout(() => setRecToast(current => current?.id === recToast.id ? null : current), 7000)
+    return () => window.clearTimeout(timer)
+  }, [recToast])
   // 子類型篩選使用彈框複選，選項直接來自 TC 清單，避免自由輸入打錯。
   const [subtypeModal, setSubtypeModal] = useState(false)
   const [subtypeQuery, setSubtypeQuery] = useState('')
@@ -242,8 +268,19 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
     try {
       const response = await fetch('/api/osm-uat/agents')
       const data = await response.json() as { ok: boolean; agents?: BackendUatAgent[]; outdated?: number }
-      if (data.ok) { setAgents(data.agents ?? []); setOutdatedAgents(data.outdated ?? 0) }
-    } catch { /* agent 清單抓不到就當作沒有可用 agent，不擋住主要流程 */ }
+      if (!data.ok) return null
+      const online = data.agents ?? []
+      const outdated = data.outdated ?? 0
+      setAgents(online)
+      setOutdatedAgents(outdated)
+      // agentId 內含 PID，Agent 每次重啟都會換 ID。保留舊選擇會讓錄製送出一個
+      // 已離線的 ID，即使同一台機器已重新連線，後端仍只能回 409。
+      setSelectedAgentId(current => current && !online.some(agent => agent.agentId === current) ? '' : current)
+      return { online, outdated }
+    } catch {
+      // 清單抓不到與「確定沒有 Agent」是兩件事；開始錄製時要分開提示。
+      return null
+    }
   }, [])
   useEffect(() => {
     void loadAgents()
@@ -303,6 +340,24 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   }, [])
 
   useEffect(() => { connect(); return () => streamRef.current?.close() }, [connect])
+  // A completed run closes its SSE stream. Multi-TC starts reconnect above; polling also
+  // reconciles missed completion notifications without touching the unsaved script.
+  useEffect(() => {
+    if (status !== 'running') return
+    let cancelled = false
+    const refresh = async () => {
+      try {
+        const response = await fetch('/api/osm-uat/status')
+        if (!response.ok) return
+        const snapshot = await response.json() as { status?: RunStatus }
+        if (!cancelled && snapshot.status && ['idle', 'running', 'done', 'error'].includes(snapshot.status)) {
+          statusRef.current = snapshot.status; setStatus(snapshot.status)
+        }
+      } catch { /* preserve current state until a confirmed response */ }
+    }
+    const timer = window.setInterval(() => void refresh(), 3000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [status])
   // ⚠️ `block: 'nearest'` 不能省。預設值會連**整頁**一起捲到這個元素——
   //    日誌以前在頁面最底下，捲過去剛好就是你要看的位置，所以看不出問題；
   //    v4.79.2 把它搬到第一屏之後，每來一行日誌就會把整頁往下拉 760px，
@@ -342,22 +397,6 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
     } catch { setRecMsg('匯入失敗：檔案不是合法的 JSON') }
   }
 
-  const startWorkbenchRecord = async () => {
-    setRecMsg('正在開啟後台並登入…')
-    try {
-      const response = await fetch('/api/osm-uat/record/start', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        // 帶上「執行位置」選的那台。錄製的瀏覽器會開在那台機器上，
-        // 不帶的話會自動挑一台，使用者選了卻沒被採用
-        body: JSON.stringify({ agentId: selectedAgentId || undefined }),
-      })
-      const data = await response.json() as { ok: boolean; sessionId?: string; message?: string; agentLabel?: string }
-      if (!data.ok || !data.sessionId) { setRecMsg(data.message ?? '錄製啟動失敗'); return }
-      setRecSession(data.sessionId); setRecCount(0); setRecNet([]); setRecNetSummary(null); setRecConsole([])
-      setRecMsg(`錄製中：瀏覽器已開在 ${data.agentLabel || '你的 Local Agent'} 上。要標檢查條件：點視窗右下角的「標記模式」再點元素，或按住 Alt／⌥ Option 點`)
-    } catch { setRecMsg('錄製啟動失敗') }
-  }
-
   const finishWorkbenchRecord = useCallback(async (sessionId: string) => {
     setRecSession(null)
     try {
@@ -394,12 +433,14 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
           netCalls?: RecNetCall[]
           netSummary?: RecNetSummary
           consoleLogs?: RecConsoleLog[]
+          wsFrames?: RecWsFrame[]
         }
         if (!data.ok || stopped) return
         setRecCount(data.steps?.length ?? 0)
         setRecNet(data.netCalls ?? [])
         setRecNetSummary(data.netSummary ?? null)
         setRecConsole(data.consoleLogs ?? [])
+        setRecWsFrames(data.wsFrames ?? [])
         if (data.done) {
           stopped = true; window.clearInterval(timer)
           // 有 error 代表這輪根本沒開起來（最常見是 agent 沒重啟）。
@@ -586,7 +627,7 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const startSteps = [
     { label: xianxia ? '載入玉簡' : '設定 Lark TC', done: !!config.larkUrl.trim() },
     { label: xianxia ? '選在哪具傀儡上跑' : '選在哪台機器跑', done: !!targetAgent },
-    { label: xianxia ? '啟陣' : '開始執行', done: false },
+    { label: legacyMode ? '執行舊版 TC' : '選擇或錄製腳本', done: false },
   ]
   const blockedReason = !config.larkUrl
     ? 'Lark TC 路徑還沒填（在右邊「執行設定」）'
@@ -606,16 +647,16 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
           ))}
           {blockedReason
             ? <span className="uat-launch-block">{blockedReason}</span>
-            : <span className="uat-launch-ready">{xianxia ? '陣眼齊備，可以啟陣' : '前兩步都好了，可以執行'}</span>}
+            : <span className="uat-launch-ready">{legacyMode ? '可執行舊版 TC 批次測試' : '選擇已儲存腳本，或新增腳本開始錄製'}</span>}
         </div>
         <div className="uat-backend-launch-cta">
           <div className="uat-backend-launch-meta">
             {groups ? <>已讀取 <b>{total}</b> 筆 TC</> : <>尚未讀取 Lark TC</>}
             {targetAgent && <> · 跑在 <b>{targetAgent}</b></>}
           </div>
-          {status === 'running'
+          {status === 'running' && !batchBusy
             ? <button type="button" className="uat-btn is-danger is-wide" onClick={() => fetch('/api/osm-uat/stop', { method: 'POST' })}>{xianxia ? '收陣' : '停止執行'}</button>
-            : <button type="button" className="uat-btn is-primary is-wide" disabled={!config.larkUrl} onClick={run}>{xianxia ? '啟陣' : '開始執行'}</button>}
+            : <button type="button" className="uat-btn is-primary is-wide" disabled={batchBusy || !config.larkUrl} onClick={legacyMode ? run : () => openScript()}>{legacyMode ? '執行舊版 TC' : '錄製腳本'}</button>}
         </div>
       </div>
 
@@ -629,15 +670,23 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
       </section>
 
       <aside className="uat-backend-plan">
+        <button type="button" className="uat-btn is-quiet" disabled={batchBusy || !!recSession || status === 'running'} onClick={() => setLegacyMode(value => !value)}>{legacyMode ? '返回錄製腳本' : '舊版 TC 模式'}</button>
+        {!legacyMode ? <RecordedScriptLibrary revision={libraryRevision} disabled={batchBusy || !!recSession || status === 'running'} onOpen={openScript} selectedIds={selectedScriptIds} onSelection={setSelectedScriptIds} onScripts={setRecordedScripts} /> : <>
+        <p>舊版模式：逐筆 TC、內建驗證器及積木檔案。此處的批次執行不會執行錄製腳本。</p>
         <div className="uat-backend-flow-head">
           <div className="uat-section-title"><span>{xianxia ? 'TC INDEX' : 'TC LIBRARY'}</span><h3>{xianxia ? '玉簡清單' : 'TC 清單'} <small>{tcs.length} 筆</small></h3><p>直接從 Lark 表格讀取；點選 TC 可查看與編輯積木。</p></div>
         </div>
-        <div className="uat-backend-flow-actions">
+        <div className="uat-tc-toolbar">
+          <div className="uat-tc-record-actions" aria-label="錄製工具">
+          <button type="button" className="uat-btn" disabled={!!recSession} onClick={() => openScript()}>錄製腳本</button>
           {recSession
-            ? <button type="button" className="uat-btn is-danger" onClick={() => void finishWorkbenchRecord(recSession)}>停止錄製（{recCount} 顆）</button>
-            : <button type="button" className="uat-btn is-quiet" disabled={status === 'running'} onClick={() => void startWorkbenchRecord()}>錄製新 TC</button>}
-          <button type="button" className="uat-btn is-quiet" onClick={() => { window.location.href = '/api/osm-uat/tc-steps/export' }}>匯出積木</button>
-          <button type="button" className="uat-btn is-quiet" onClick={() => importInput.current?.click()}>匯入積木</button>
+            && <button type="button" className="uat-btn is-danger" onClick={() => void finishWorkbenchRecord(recSession)}>停止錄製（{recCount} 顆）</button>}
+          </div>
+          <div className="uat-tc-file-actions" aria-label="積木檔案管理">
+            <span>積木檔案</span>
+            <button type="button" aria-label="匯入積木" onClick={() => importInput.current?.click()}>匯入</button>
+            <button type="button" aria-label="匯出積木" onClick={() => { window.location.href = '/api/osm-uat/tc-steps/export' }}>匯出</button>
+          </div>
           <input ref={importInput} type="file" accept="application/json,.json" style={{ display: 'none' }} onChange={event => void handleImport(event)} />
         </div>
         <div className="uat-backend-tc-list uat-backend-all-tcs">
@@ -711,9 +760,11 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
           </section>
         )}
 
+        </>}
       </aside>
 
       <main className="uat-backend-center">
+        {legacyMode ? <>
 
         {/* 本次總覽。除了四種結果，補上覆蓋率與這一輪耗時——
             「這次跑了什麼」跟「整體驗到多少」是兩個不同的問題，並排才看得懂。 */}
@@ -789,6 +840,8 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
             </div>
           )}
         </section>
+        </> : <RecordedScriptBatch scripts={recordedScripts} selectedIds={selectedScriptIds} onOrder={setSelectedScriptIds} agentId={selectedAgentId} running={status === 'running'} busy={batchBusy} onBusy={setBatchBusy} onRun={() => { statusRef.current = 'running'; setStatus('running'); connect() }} />}
+
       </main>
 
       <aside className="uat-backend-settings">
@@ -797,7 +850,7 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
             <div className="uat-backend-cred-box">
               <b>執行位置</b>
               <small>Playwright 實際跑在哪台機器。派工給 Local Agent 時，伺服器只負責建 session、轉日誌。</small>
-              <select className="uat-field" value={selectedAgentId} disabled={status === 'running'}
+              <select className="uat-field" value={selectedAgentId} disabled={batchBusy || status === 'running'}
                 onChange={event => setSelectedAgentId(event.target.value)}>
                 <option value="">自動挑一台線上 Agent{agents.length ? `（目前 ${agents.filter(a => !a.busy).length} 台可用）` : '（目前沒有）'}</option>
                 {agents.map(agent => (
@@ -859,7 +912,7 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
             </div>
             <label>{xianxia ? 'Lark 玉簡路徑' : 'Lark TC 路徑'}<textarea className="uat-field uat-backend-url" value={config.larkUrl} onChange={event => update({ larkUrl: event.target.value })} placeholder="https://xxx.larksuite.com/base/...?table=..." /></label>
             <button type="button" className="uat-btn is-quiet is-wide" disabled={!config.larkUrl || scanning} onClick={scan}>{scanning ? '掃描中' : (xianxia ? '重整玉簡索引' : '掃描 Lark TC')}</button>
-            <label>{xianxia ? '玉簡篩選' : 'Subtype 追加篩選'}
+            {legacyMode && <><label>{xianxia ? '玉簡篩選' : 'Subtype 追加篩選'}
               <button type="button" className="uat-field uat-subtype-trigger" onClick={() => setSubtypeModal(true)}>
                 {selectedSubtypes.length
                   ? `已選 ${selectedSubtypes.length} 個子類型`
@@ -877,8 +930,9 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
               </div>
             )}
             <div className="uat-backend-setting-pair"><label>Game Type<input className="uat-field" value={config.dashGameType} onChange={event => update({ dashGameType: event.target.value })} placeholder="BWJL" /></label><label>Client Version<input className="uat-field" value={config.dashClientVersion} onChange={event => update({ dashClientVersion: event.target.value })} placeholder="H5(1.5)" /></label></div>
+            </>}
           </div>
-          <div className="uat-backend-run-summary"><span><b>{groups ? total : '—'}</b> 個 Lark TC</span><span><b>{selectedSubtypes.length || '全部'}</b> 子類型範圍</span></div>
+          <div className="uat-backend-run-summary"><span><b>{groups ? total : '—'}</b> 個 Lark TC</span>{legacyMode && <span><b>{selectedSubtypes.length || '全部'}</b> 子類型範圍</span>}</div>
           {/* 執行／停止已移到第一屏的行動列（.uat-backend-launch）。這裡不再放第二組——
               兩顆做同一件事的按鈕會讓人不確定哪顆才是對的。 */}
           <span className={`uat-run-status is-${status}`}><i />{statusLabel}</span>
@@ -888,9 +942,9 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
 
       {/* 錄製期間即時列出打到的 API。放在狀態列下面而不是彈框裡——
           使用者是「一邊操作一邊看」的，塞進彈框等於還要多開一次 */}
-      {recSession && (recNetSummary || recNet.length > 0 || recConsole.length > 0) && (
+      {recSession && (recNetSummary || recNet.length > 0 || recConsole.length > 0 || recWsFrames.length > 0) && (
         <div className="uat-rec-net">
-          <h4>錄製監控 <em>Network {recNetSummary?.total ?? recNet.length} · Console {recConsole.length}</em></h4>
+          <h4>錄製監控 <em>Network {recNetSummary?.total ?? recNet.length} · Console {recConsole.length} · WebSocket {recWsFrames.length}</em></h4>
           {recNetSummary && (
             <div className="uat-rec-net-summary">
               <span>API <b>{recNetSummary.api.count}</b>{recNetSummary.api.avgMs !== null && <i>avg {recNetSummary.api.avgMs}ms</i>}</span>
@@ -926,7 +980,17 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
               ))}
             </div>
           )}
-          <small>API 列可直接變成斷言積木；Network 摘要用來看網速、慢速與失敗請求；Console 會收 JS error/warn/log。</small>
+          {!!recWsFrames.length && (
+            <div className="uat-rec-console-list">
+              {[...recWsFrames].reverse().slice(0, 30).map((row, i) => (
+                <div className="uat-rec-console-row" key={`${row.ts}-${i}`} title={row.url}>
+                  <b>WS {row.direction === 'sent' ? '→' : row.direction === 'received' ? '←' : row.direction.toUpperCase()}</b>
+                  <span>{row.payload || row.url}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <small>API 列可直接變成斷言積木；Network 摘要用來看網速、慢速與失敗請求；Console 會收 JS error/warn/log；WebSocket 顯示雙向封包。</small>
         </div>
       )}
 
@@ -939,6 +1003,13 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
               選擇 TC（{pendingSteps.length} 顆待放）
             </button>
           )}
+        </div>
+      )}
+
+      {recToast && (
+        <div className="uat-record-toast" role="alert" aria-live="assertive">
+          <div><strong>無法開始錄製</strong><span>{recToast.message}</span></div>
+          <button type="button" aria-label="關閉提示" onClick={() => setRecToast(null)}>×</button>
         </div>
       )}
 
@@ -996,6 +1067,9 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
       {/* 一定要 portal 出去：外層有 backdrop-filter 的祖先，position: fixed 會被困在
           那個容器裡畫不出來。積木編輯器踩過同一個坑，這裡是第二次——這個 studio 版面
           只要是彈框就得 portal，不要再用一般的絕對定位試 */}
+      {multiRecorderOpen && <MultiTcRecorder initialScript={initialScript} open={multiRecorderOpen} onClose={() => { setMultiRecorderOpen(false); setLibraryRevision(n => n + 1) }} tcs={tcs}
+        larkUrl={config.larkUrl} agentId={selectedAgentId} running={status === 'running'} themeMode={themeMode}
+        onRun={() => { statusRef.current = 'running'; setStatus('running'); connect() }} />}
       {pendingSteps && pickerOpen && createPortal((
         <div className="uat-studio uat-tc-modal" role="dialog" aria-modal="true"
           // 點背景只收起彈框，不丟掉錄到的積木。錄一次要花好幾分鐘，
@@ -1111,6 +1185,7 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
           themeMode={themeMode}
           pendingSteps={pendingSteps}
           onPendingConsumed={() => { setPendingSteps(null); setRecMsg('') }}
+          onRecordScript={() => { setSelectedTcKey(null); openScript() }}
           onClose={() => setSelectedTcKey(null)}
           onSaved={(storageKey, stepCount) => setTcs(prev => prev.map(t => t.storageKey === storageKey ? { ...t, stepCount } : t))}
         />

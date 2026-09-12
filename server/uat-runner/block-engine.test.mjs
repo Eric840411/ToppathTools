@@ -206,17 +206,24 @@ const BLUE = { 'Total Available EGM': '5', 'Total System Connected EGM': '2' };
 // ── 14. 新動作積木（錄製會產生的那幾顆）───────────────────────────────
 {
   const ctx = makeCtx();
-  ctx.clickSelector = async (sel, wait) => { ctx.calls.push({ kind: 'click', sel, wait }) };
+  ctx.clickSelector = async (sel, wait, viewport, recordedViewport) => { ctx.calls.push({ kind: 'click', sel, wait, viewport, recordedViewport }); return 'selector' };
   ctx.typeInto = async (sel, val) => { ctx.calls.push({ kind: 'type', sel, val }) };
+  ctx.pressKey = async (sel, key) => { ctx.calls.push({ kind: 'keypress', sel, key }) };
+  ctx.dragPointer = async (step) => { ctx.calls.push({ kind: 'drag', step }) };
   ctx.applyFilter = async (f, v, sub, wait) => { ctx.calls.push({ kind: 'filter', f, v, sub, wait }) };
   const r = await runSteps([
-    { action: 'click', selector: 'text=查詢', selectorStrategy: 'text' },
+    { action: 'click', selector: 'text=查詢', selectorStrategy: 'text', viewport: { x: 12, y: 34 }, recordedViewport: { width: 1280, height: 720 } },
     { action: 'type_text', selector: '#kw', value: 'abc' },
+    { action: 'keypress', selector: '#kw', key: 'Enter' },
+    { action: 'drag', selector: '#slider', fromX: 10, fromY: 20, toX: 80, toY: 20 },
     { action: 'apply_filter', field: 'Date', value: '2026-08-22' },
   ], ctx);
   check('新動作積木可執行且 pass', r.pass === true, r);
   check('click 有帶到 selector', ctx.calls.some(c => c.kind === 'click' && c.sel === 'text=查詢'), ctx.calls);
   check('type 有帶到值', ctx.calls.some(c => c.kind === 'type' && c.val === 'abc'), ctx.calls);
+  check('keypress 有帶到 selector 與按鍵', ctx.calls.some(c => c.kind === 'keypress' && c.sel === '#kw' && c.key === 'Enter'), ctx.calls);
+  check('drag 有帶到完整座標', ctx.calls.some(c => c.kind === 'drag' && c.step.toX === 80), ctx.calls);
+  check('click 有帶到座標備援資料', ctx.calls.some(c => c.kind === 'click' && c.viewport?.x === 12 && c.recordedViewport?.width === 1280), ctx.calls);
   check('filter 有帶到欄位', ctx.calls.some(c => c.kind === 'filter' && c.f === 'Date'), ctx.calls);
 }
 

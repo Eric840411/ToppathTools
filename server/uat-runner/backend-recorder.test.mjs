@@ -22,6 +22,12 @@ check('動作事件原樣變積木', acts.length === 2 && acts[0].action === 'cl
 const shots = eventsToSteps([{ action: 'screenshot', name: 'after-save' }]);
 check('截圖指令原樣變成 screenshot 積木', shots.length === 1 && shots[0].action === 'screenshot' && shots[0].name === 'after-save', shots);
 
+const gestures = eventsToSteps([
+  { action: 'keypress', selector: '#amount', key: 'Enter' },
+  { action: 'drag', selector: '#slider', fromX: 10, fromY: 20, toX: 80, toY: 20, recordedViewport: { width: 1280, height: 720 } },
+]);
+check('按鍵與拖曳事件原樣變成積木', gestures.length === 2 && gestures[0].action === 'keypress' && gestures[1].action === 'drag', gestures);
+
 const filled = eventsToSteps([{ assertion: { kind: 'filled' }, selector: '.el-card', label: 'Total Available EGM', currentValue: '5' }]);
 check('必須有值展開成 read_block + assert_filled', filled.length === 2 && filled[0].action === 'read_block' && filled[1].action === 'assert_filled', filled);
 check('read_block 帶到標籤', filled[0].labels[0] === 'Total Available EGM', filled[0]);
@@ -56,6 +62,7 @@ check('注入腳本語法合法', syntaxOk);
 check('注入腳本有處理 Alt', src.includes('event.altKey'));
 check('注入腳本含完整選擇器階梯', ['dataAttr', 'label', 'text', 'tableCell', 'cssPath'].every(s => src.includes(s)));
 check('注入腳本有截圖指令按鈕', src.includes('加入截圖指令') && src.includes("action: 'screenshot'"));
+check('注入腳本有特殊鍵與 8px 拖曳門檻', src.includes("action: 'keypress'") && src.includes("action: 'drag'") && src.includes('> 8'));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

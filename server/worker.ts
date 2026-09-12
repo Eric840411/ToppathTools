@@ -28,6 +28,7 @@ import {
   handleBackendRecordReady,
   handleBackendRecordNet,
   handleBackendRecordConsole,
+  handleBackendRecordWs,
   handleBackendRecordEvent,
   handleBackendRecordDone,
   handleBackendRecordAgentDisconnect,
@@ -649,6 +650,10 @@ wss.on('connection', (ws, req) => {
       }
       if (msg.type === 'backend_record_console' && msg.sessionId) {
         handleBackendRecordConsole(String(msg.sessionId), (msg as { entry?: unknown }).entry)
+        return
+      }
+      if (msg.type === 'backend_record_ws' && msg.sessionId) {
+        handleBackendRecordWs(String(msg.sessionId), (msg as { frame?: unknown }).frame)
         return
       }
       if (msg.type === 'backend_record_event' && msg.sessionId) {

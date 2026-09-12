@@ -1,5 +1,15 @@
 # ToppathTools — 架構決策記錄
 
+## [2026-09-10] 一份錄製腳本綁定多筆 Lark TC
+
+- 多 TC 腳本獨立存入 `uat_recorded_scripts`，不複製到四筆既有單 TC 積木。每份綁定同一張表，使用 tableId + recordId 識別，編號只作顯示。
+- 步驟保持單一時間順序，tcId 歸屬可重複切換。操作預設共用，檢查、讀值、截圖需指定 TC；等待一次供多筆 TC 共用。錄後可改歸屬、排序、參數與 JSON。
+- 每筆 TC 各自累積檢查與證據。硬失敗優先，零檢查／警告為未驗證，共用前置失敗為受阻。多 TC 的錄製元素定位遇到歧義直接報錯，不使用座標或 JS 點擊備援。
+- 正式回寫先完成該筆所有圖片上傳，再以一次 Lark 更新替換附件與 PASS／FAIL。上傳失敗不清舊圖，回寫狀態獨立顯示。未驗證／受阻清除兩個勾選。
+- 試跑仍操作後台，但不寫 Lark。每輪保存腳本快照與各 TC 結果至 `uat_recorded_script_runs`。Agent 更新白名單包含 multi-tc.js；舊 Agent 用不存在的 UAT_TC_ONLY 防止誤跑整表。
+- 驗證：multi-tc.test.mjs、backend-recorder.multi-test.mjs、scripts/ui-checks/multi-tc-workbench.mjs。瀏覽器與 Lark 寫入驗證使用本機 fixture/mock，不寫團隊實際 TC。
+
+
 > 每條決策附上日期、理由、適用範圍、重看條件。
 
 ---
@@ -262,3 +272,19 @@ CodeX 指出那個分頁現在已經沒有任何功能在使用（派工不再�
 - 左側改為單一 TC 清單，錄製、積木匯入匯出與單筆 TC 編輯都從清單進入。
 - 自訂 TC 可用 `UAT_CUSTOM_TRIAL` 建立暫時 TC 獨立 dry-run，不需要先歸戶或提供 Lark 表格；試跑不讀取、不上傳也不回寫 Lark。確認後再以 Lark「編號」精確選擇歸戶對象。
 - 單筆試跑同時以自訂 ID 設定 `UAT_TC_ONLY` 作為向下相容保險：舊 runner 不認得 `UAT_CUSTOM_TRIAL` 時只能篩出 0 筆，禁止退回全表執行；已知落後的 Local Agent 會在派工前直接拒絕並要求更新。
+
+# 2026-09-09 — Backend UAT 錄製 selector 必須描述操作語意
+
+- click 事件先從 `event.target` 提升到真正可操作的 button、link、form control 或 Element UI menu item；不保存按鈕內層的 `i`／`span`。
+- selector 順序固定為穩定屬性、表單 label、表格列錨點、完整可見文字、結構 CSS。結構 CSS 只作最後退路。
+- 表格 selector 以該列目前唯一的短文字錨定，再指定儲存格與操作元素；頁面沒有提供的 `data-col` 不得被當成定位條件。
+- `text=` 與 `label=` 在 runner 中代表完整名稱，先選可見的 exact match；只有載入舊腳本且完全找不到 exact match 時才使用 Playwright 舊式模糊比對。
+- 遠端 headed browser、console／network 監控沿用現有 Local Agent 架構，並依 `ws-monitor.mjs` 的事件方式接入 WebSocket 監控；其 class + `nth-of-type` selector 不作為正式錄製策略。
+- 操作事件涵蓋 click、change 最終值、特殊鍵／數字鍵，以及移動超過 8px 的滑鼠拖曳。密碼欄位不保存值或逐鍵內容。
+- click 的錄製座標只在 selector 完全找不到、viewport 尺寸相符且座標仍在畫面內時作最後備援；執行結果必須標出發生過座標回退。
+- WebSocket 監控收 open／close／sent／received，payload 在 Agent 端先遮罩常見憑證欄位並截斷，Server 端再次限長。
+
+
+### 2026-09-11 多 TC 錄製編輯與證據診斷
+
+保留 recordId 歸屬模型，新增步驟拖曳／複製／停用／插入／指定位置補錄與前綴試跑。局部成功一律列未驗證；停用斷言不算通過。區域圖片比對只使用人工上傳基準圖，缺圖或尺寸不符不能 PASS。逐步資料與縮圖隨當輪快照保存，原圖仍用於 Lark 回寫；預覽容量受限時保留本機原圖路徑。大腳本以 stdin 傳入 runner，stdout 用 readline 保留跨 chunk 的完整 UTF-8 JSON 行。既有 Agent 圖片能力需 pngjs@7，新安裝包已加入依賴。
