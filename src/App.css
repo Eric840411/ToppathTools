@@ -3126,6 +3126,16 @@
   background: rgba(245,158,11,0.12); color: #fbbf24;
 }
 
+/* 機種卡：點一下看這個機種分布在哪些渠道 */
+.osm-gt-card {
+  cursor: pointer;
+  transition: border-color .12s ease, transform .12s ease;
+}
+.osm-gt-card:hover {
+  border-color: #3b82f6 !important;
+  transform: translateY(-1px);
+}
+
 /* Online + 未達標 alert */
 .osm-offtarget-alert {
   margin: 6px 0 4px; padding: 8px 12px;
@@ -5103,3 +5113,159 @@
   pointer-events: none;
   user-select: none;
 }
+
+/* ===== OSM 機種分布彈窗：型號標籤（v4.142.1） =====
+   型號那行原本是純文字，跟底下機台名稱同色、字級只差 1px，
+   一個渠道最多 16 個型號（NP 實測 12 個）連排下來時掃不出層級。
+
+   ⚠️ 兩套外觀，靠 <html data-theme-mode> 分（App.tsx 每次切換都會無條件寫這個屬性）：
+     普通版（預設）→ 樸素但清楚的標籤：左側色條 + 深底 + 圓角，用既有的 slate/藍色系
+     修仙版         → 術式銘牌：青玉光刃 + 金符角標 + 斜切角 + hover 掃光
+
+   為什麼這裡可以用 CSS 判斷，而境界徽章那些不行（見 CLAUDE.md 第 21 節）：
+   那些是「修仙版才存在的內容」，普通版下不該被渲染出來；型號標籤在兩個模式
+   **都必須存在**，只有外觀不同，所以本質上是樣式問題。而 data-theme-mode 是
+   App.tsx 直接寫在 documentElement 上的，跟 xianxia-complete.css 有沒有載入無關。 */
+
+/* ---------- 普通版：清楚的標籤 ---------- */
+.osm-modeltag {
+  position: relative; display: flex; align-items: center; gap: 7px;
+  height: 24px; margin-bottom: 4px; padding: 0 9px 0 10px;
+  background: #1a2740;
+  border: 1px solid #2d3f5c;
+  border-left: 3px solid #60a5fa;
+  border-radius: 4px;
+}
+.osm-modeltag__label {
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+  font-size: 11.5px; font-weight: 600; color: #dbeafe;
+}
+.osm-modeltag__count { margin-left: auto; font-size: 10.5px; color: #8296b0; }
+/* 金符是修仙版限定的裝飾，普通版整個不顯示 */
+.osm-modeltag__rune { display: none; }
+/* 這組型號裡有版本跟基準不同的線上機台 → 左側色條轉成既有的 diff 黃（跟版本標籤同一個顏色）*/
+.osm-modeltag--alert { border-left-color: #fbbf24; }
+/* 一台都不在線上的型號：降透明但照樣列出來——它本身就是「這個渠道跑什麼型號」的答案 */
+.osm-modeltag--empty { opacity: .55; }
+.osm-modeltag--empty .osm-modeltag__label { color: #94a3b8; }
+.osm-modeltag--nolabel .osm-modeltag__label { color: #94a3b8; font-style: italic; }
+
+/* ---------- 修仙版：術式銘牌 ---------- */
+/* 銘牌本體（底色／外框／斜切角／掃光）一律 CSS——型號名長度差很多
+   （wlzbhelix9 ~ wlzbhelix10pct19），整條出圖一定會被拉伸模糊；
+   只有兩端固定尺寸的裝飾件用 CodeX 畫的透明 PNG。 */
+:root[data-theme-mode="xianxia"] .osm-modeltag {
+  height: 26px; padding: 0 13px 0 20px; overflow: hidden;
+  background:
+    linear-gradient(100deg, rgba(127,240,184,.16) 0%, rgba(127,240,184,.05) 42%, rgba(240,198,116,.10) 100%),
+    #111c2e;
+  border: 1px solid rgba(127,240,184,.45);
+  border-radius: 0;
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 9px 100%, 0 calc(100% - 9px));
+}
+/* 左端青玉光刃 */
+:root[data-theme-mode="xianxia"] .osm-modeltag::before {
+  content: ""; position: absolute; left: 1px; top: 0; bottom: 0; width: 14px;
+  background: url(/osm/modeltag-blade.png) center / contain no-repeat;
+  filter: drop-shadow(0 0 5px rgba(127,240,184,.8));
+}
+/* 掃光：靜態時停在左外側，hover 才跑一次（16 個標籤常駐動畫會很吵，也吃 CPU）*/
+:root[data-theme-mode="xianxia"] .osm-modeltag::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: -60%; width: 45%; pointer-events: none;
+  background: linear-gradient(100deg, transparent, rgba(214,255,235,.42), transparent);
+  transform: skewX(-18deg);
+}
+:root[data-theme-mode="xianxia"] .osm-modeltag:hover::after {
+  animation: osm-modeltag-sweep .42s ease-out 1;
+}
+@keyframes osm-modeltag-sweep { from { left: -60%; } to { left: 120%; } }
+
+:root[data-theme-mode="xianxia"] .osm-modeltag__label {
+  position: relative; letter-spacing: .02em; color: #e8fff4;
+  text-shadow: 0 0 7px rgba(127,240,184,.45);
+}
+:root[data-theme-mode="xianxia"] .osm-modeltag__count { position: relative; color: #8aa0b4; }
+/* 右端金符（font-size:0 把備援的 ◆ 字元藏掉，圖載不到時仍有東西可看）*/
+:root[data-theme-mode="xianxia"] .osm-modeltag__rune {
+  display: block; position: relative; flex: 0 0 auto;
+  width: 11px; height: 16px; font-size: 0;
+  background: url(/osm/modeltag-rune.png) center / contain no-repeat;
+  filter: drop-shadow(0 0 4px rgba(240,198,116,.75));
+}
+/* 修仙版的異常提示：只讓光刃轉金色低頻呼吸，不整條閃 */
+:root[data-theme-mode="xianxia"] .osm-modeltag--alert { border-color: rgba(240,198,116,.55); }
+:root[data-theme-mode="xianxia"] .osm-modeltag--alert::before {
+  filter: drop-shadow(0 0 5px rgba(240,198,116,.9)) hue-rotate(-72deg) saturate(1.5);
+  animation: osm-modeltag-breathe 2.4s ease-in-out infinite;
+}
+@keyframes osm-modeltag-breathe { 0%, 100% { opacity: .75; } 50% { opacity: 1; } }
+:root[data-theme-mode="xianxia"] .osm-modeltag--empty .osm-modeltag__label { color: #8aa0b4; }
+:root[data-theme-mode="xianxia"] .osm-modeltag--nolabel .osm-modeltag__label { color: #8aa0b4; }
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme-mode="xianxia"] .osm-modeltag:hover::after { animation: none; }
+  :root[data-theme-mode="xianxia"] .osm-modeltag--alert::before { animation: none; }
+}
+
+/* ===== OSM 機種分布彈窗：搜尋列（v4.143.0） =====
+   ⚠️ 兩個版面模式共用同一組樣式（只有型號標籤分兩套）。搜尋列是操作元件不是裝飾，
+   修仙化它只會讓輸入框變難讀——沿用「操作型工具只換皮不換骨」那條原則。 */
+.osm-dist-tools {
+  padding: 9px 16px; border-bottom: 1px solid #24344a;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.osm-dist-searchwrap { position: relative; display: flex; align-items: center; }
+.osm-dist-searchico {
+  position: absolute; left: 9px; font-size: 11.5px; color: #64748b; pointer-events: none;
+}
+.osm-dist-search {
+  width: 100%; background: #0e1728; border: 1px solid #2d3f5c; border-radius: 6px;
+  color: #f1f5f9; font: 12px/1 ui-monospace, Menlo, Consolas, monospace;
+  padding: 7px 28px 7px 26px;
+}
+/* placeholder 用一般字體——等寬字下的中文會被拉開，很難讀 */
+.osm-dist-search::placeholder { color: #5b6b82; font-family: inherit; }
+.osm-dist-search:focus {
+  outline: none; border-color: #3b82f6; box-shadow: 0 0 0 2px rgba(59,130,246,.18);
+}
+.osm-dist-clear {
+  position: absolute; right: 5px; background: none; border: none; color: #64748b;
+  cursor: pointer; font-size: 15px; line-height: 1; padding: 2px 5px;
+}
+.osm-dist-clear:hover { color: #cbd5e1; }
+.osm-dist-toolrow {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-size: 11.5px; color: #94a3b8;
+}
+.osm-dist-toolrow label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.osm-dist-count { font-size: 11px; color: #93c5fd; display: flex; align-items: center; gap: 4px; }
+.osm-dist-count b { color: #dbeafe; }
+
+/* 命中處高亮。用 <mark> 的語意標籤，但顏色要自己壓——瀏覽器預設是黃底黑字，在深色底上很刺眼 */
+.osm-dist-hit {
+  background: rgba(59,130,246,.32); color: #e8f1ff; border-radius: 2px; padding: 0 1px;
+}
+
+/* ⚠️「有命中但全被離線開關藏住」——這個狀態最容易被誤讀成「沒有這台機器」。
+   所以它跟下面的空狀態刻意用完全不同的顏色與版位，而且給一顆**真的按鈕**
+   （CodeX review：不要只寫一句灰字，要做成可行動提示）。 */
+.osm-dist-hidden {
+  font-size: 11px; color: #fbbf24; padding: 2px 0 7px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.osm-dist-reveal {
+  background: #3a2d0c; border: 1px solid #f0c674; color: #f0c674;
+  font: 600 10.5px system-ui; padding: 2.5px 9px; border-radius: 5px;
+  cursor: pointer; white-space: nowrap;
+}
+.osm-dist-reveal:hover { background: #4d3a10; }
+
+/* 完全沒命中：置中灰字。跟上面那個黃字＋按鈕的狀態一眼就分得出來 */
+.osm-dist-empty {
+  padding: 24px 16px; text-align: center; font-size: 12px; color: #64748b; line-height: 1.8;
+}
+.osm-dist-empty code {
+  color: #cbd5e1; background: #1a2740; padding: 1px 5px; border-radius: 3px;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
+}
+.osm-dist-empty-sub { color: #5b6b82; font-size: 11px; margin-top: 2px; }

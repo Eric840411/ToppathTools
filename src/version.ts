@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.132.0'
+export const APP_VERSION = '4.143.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,148 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.143.0', date: '2026-09-12', changes: ['feat(osm): 機種分布彈窗加搜尋欄，比對渠道／型號／機台名稱／版本並高亮命中；「有命中但被離線開關藏住」與「完全沒命中」用不同狀態呈現，前者附「顯示離線」按鈕，避免誤讀成沒有這台機器'] },
+  { version: '4.142.1', date: '2026-09-12', changes: ['fix(osm): 型號銘牌的特效改成只在修仙版顯示；普通版換成樸素但清楚的標籤（左側色條＋深底＋圓角），不再出現青玉光刃與金符'] },
+  { version: '4.142.0', date: '2026-09-12', changes: ['feat(osm): 機種分布彈窗的型號改成銘牌樣式（青玉光刃＋金符角標＋hover 掃光），一個渠道十幾個型號連排時掃得出層級；版本跟基準不同的型號光刃轉金色呼吸，全離線型號降透明但照樣列出'] },
+  { version: '4.141.1', date: '2026-09-11', changes: ['fix(uat): 統一錄製腳本入口與名稱，移除单筆 TC 的獨立錄製啟動流程；一筆與多筆 TC 共用同一錄製工作台'] },
+  { version: '4.141.0', date: '2026-09-11', changes: ['feat(uat): 主清單改為錄製腳本，支援搜尋、直接開啟與新增；逐筆 TC、內建驗證器、積木匯入匯出及舊覆蓋率移入舊版 TC 模式，避免誤執行批次流程'] },
+  { version: '4.140.5', date: '2026-09-11', changes: ['fix(uat): 錄製警告區分問題數量與實際步驟編號，列出未指定 TC 和結構路徑定位的步驟，包含回填判定並排除停用步驟'] },
+  { version: '4.140.4', date: '2026-09-11', changes: ['fix(uat): 錄製截圖改為直接新增指令並顯示回饋，避免原生 prompt 被取消；釐清停止錄製與補錄流程，伺服器登入等待延遲警告視窗後才開始錄製'] },
+  { version: '4.140.3', date: '2026-09-11', changes: ['fix(uat): 試跑前檢查來源變數是否有啟用且順序正確的讀取步驟；提供定位問題與補建讀取入口，缺少 selector 時禁止執行'] },
+  { version: '4.140.2', date: '2026-09-11', changes: ['fix(uat): 切換新腳本完整重置編輯狀態；工作台直接載入與更新 Lark TC，已儲存腳本可追加綁定且保留原有步驟'] },
+  { version: '4.140.1', date: '2026-09-11', changes: ['fix(uat): 多 TC 正式回寫只更新 PASS、FAIL、附圖，不再依賴舊模板的 UAT測試通過時間欄位，避免 FieldNameNotFound 導致整筆寫入被拒絕'] },
+  { version: '4.140.0', date: '2026-09-11', changes: ['feat(uat): 新增回填 Lark PASS／FAIL 積木，每筆 TC 可明確指定判定與說明；試跑預覽、正式執行才回寫，人工 PASS 不覆蓋執行失敗或受阻'] },
+  { version: '4.139.2', date: '2026-09-11', changes: ['fix(uat): 多 TC 試跑啟動時重新連接狀態串流，避免結束後按鈕永久停用；執行中定期核對後端狀態，並顯示按鈕等待原因'] },
+  { version: '4.139.1', date: '2026-09-11', changes: ['fix(uat): 多 TC 儲存採用前後端共用欄位驗證，明確指出缺少腳本名稱、綁定或超出步驟限制；試跑區直接顯示錯誤與名稱填寫捷徑，失敗保留錄製步驟'] },
+  { version: '4.139.0', date: '2026-09-11', changes: ['feat(uat): 明確選取伺服器時支援直接開啟桌面錄製，無須 Local Agent；一般與多 TC 錄製共用此模式，畫面提示瀏覽器開啟位置', 'fix(uat): 伺服器錄製支援登入後開始收事件、換頁重新啟用、停止時保存最後輸入及關窗收尾；不會由 Agent 模式自動退回伺服器'] },
+  {
+    version: '4.138.0', date: '2026-09-11', changes: [
+      'feat(uat): 多 TC 工作台新增拖曳排序、複製、停用、指定位置插入與補錄；可從頭試跑至選取步驟，局部結果不視為完整驗證',
+      'feat(uat): 逐步診斷呈現定位命中數、元素位置與金框預覽、預期／實際值、耗時與各 TC 證據圖；停用檢查不計入 PASS',
+      'feat(uat): 新增區域 PNG 基準圖比對、差異門檻與差異圖；缺基準圖不自動建立、不判 PASS',
+      'fix(uat): 多 TC 腳本改由 stdin 傳入，避免 PNG 基準圖超過 Windows 環境變數上限；Agent 與伺服器以完整 UTF-8 行接收大型結果',
+    ],
+  },
+  {
+    version: '4.137.0',
+    date: '2026-09-10',
+    changes: [
+      'fix(osm): 機種渠道分布彈窗的拆分欄位改成 machineType（例如 dfdcgrand1／wlzbhelix25）——v4.136.0 拿錯欄位，用了機殼名稱 modelName，使用者指正後改回。machineType 本來就在資料裡，所以 v4.136.0 為了 modelName 加的後端欄位一併收回，這版是純前端改動、不用重啟 server',
+      'feat(osm): 型號用自然排序（數字部分按數值比），不是台數多寡。真實資料裡 wlzbhelix 這個機種底下有 16 種型號（wlzbhelix6、8、9、10…25），本質上是一份版本清單，按名稱掃比較好讀；純字串排序會把 wlzbhelix10 排在 wlzbhelix9 前面',
+      'fix(osm): 型號的正規化只做 trim + 小寫。已用全渠道真實資料（1460 筆 egmList）確認這個欄位很乾淨——0 筆空值、0 組大小寫或空白不一致（65 種全部本來就是小寫），所以不需要像機殼名稱那種麻煩的合併判斷；編號不同一律視為不同型號，不會因為前綴一樣就併起來',
+      'fix(osm): 型號不以機種代碼開頭的機台照樣列出（真實資料裡 CP 的 4171-BWJL-9015 型號是 test3），不會因為「看起來不像這個機種的型號」就藏掉',
+      'test(osm): scripts/ui-checks/osm-gametype-dist.test.ts 的型號分組案例改用真實 machineType 資料，共 55 項。已注入違規確認會變紅——把結尾編號去掉（等於把 wlzbhelix9/10/25 全併一組）、排序退回純字串比較、丟掉沒有型號的那組，合計 11 項轉紅（含台數守恆）',
+    ],
+  },
+  {
+    version: '4.136.0',
+    date: '2026-09-10',
+    changes: [
+      'feat(osm): 機種渠道分布彈窗依使用者回饋調整——渠道底下再按機型（egmList 的 modelName，例如「Helix +」「Kaskada K43」）拆開，每個機型各自顯示台數與線上數；渠道標題多顯示「N 種機型」',
+      'fix(osm): 彈窗關閉鈕的 × 改用 flex 置中。× 這個字元在 em box 裡本來就偏下，靠 lineHeight 對不準（使用者實際回報看起來偏下）',
+      'feat(osm): 後端 syncOsmChannel 把 egmList 的 modelName 帶進 OsmMachine。⚠️ 刻意不帶 modelId——已用全渠道真實資料（1460 筆）驗證同一個機型會對到不同的 modelId（Mars X 對到 117/101/93、Helix + 對到 116/110/97），拿 id 當識別會把同一個機型拆成好幾組；反過來沒有任何一個 modelId 對到兩個機型名稱，所以名稱才是能用的識別',
+      'feat(osm): 機型分組只把「大小寫與空白」的差異視為同一個機型（真實資料裡「KASCADA K27」／「Kascada K27」各 15 台、「Mars X」×310／「MarsX」×8）。⚠️ 拼字或型號本身的差異一律不自動合併：「Kascada K43」／「Kaskada K43」／「K43」、「Helix」／「Helix +」、「Peak Curve」／「Peak Curve 49」——看起來很像同一台，但合錯會把兩種機型的台數併成一個數字而且畫面上看不出來（跟人名比對不用 substring 同一條原則）',
+      'fix(osm): 平手時的機型顯示名稱改用 codepoint 順序而不是 localeCompare。真實資料裡兩種寫法各 15 台是真的平手，而 localeCompare 會忽略空白權重、結果隨環境 locale 資料而變，同一份資料在不同機器上會顯示不同寫法',
+      'test(osm): scripts/ui-checks/osm-gametype-dist.test.ts 擴到 56 項，機型分組的案例全部取自真實 egmList 資料。已注入違規確認會變紅——過度正規化把 Helix/Helix + 合併 3 項紅、丟掉沒有機型的那組 5 項紅（含台數守恆）',
+    ],
+  },
+  {
+    version: '4.135.0',
+    date: '2026-09-10',
+    changes: [
+      'feat(osm): 機台版本 Dashboard 的機種卡可以點了——點下去彈窗列出這個機種分布在哪些渠道、每台機器叫什麼名字、版本、連線狀態。先前要找一個機種在哪，只能一個渠道一個渠道展開翻',
+      'feat(osm): 彈窗預設只列線上機台，另有開關可顯示離線／未知（使用者決定）。⚠️ 但「只有離線機台」的渠道**仍然會被列出來**並顯示台數——使用者要回答的問題是「這個機種在哪些渠道」，把那種渠道整段藏掉等於告訴他那個渠道沒有這個機種，而那可能正好是他在找的那台',
+      'feat(osm): 彈窗的版本欄會把「跟線上最多台在用的版本不同」標成黃色。⚠️ 基準只看線上機台——離線機台的版本可能是很久以前的，算進去會把還在線上的正常機台標成異常；只有一種版本時不標色',
+      'refactor(osm): 機種代碼的取法收成單一來源 gameTypeOf()（src/pages/osm-gametype-dist.ts）。先前同一個檔案裡有兩套：機種卡的數字有「切不出中段就退回 machineType」那層，「缺少機台」那段只寫了 split("-")[1]，於是名稱裡沒有分隔號的機台會被算進卡片數字、卻永遠不會出現在缺少清單裡。彈窗必須跟卡片同一套，不然彈窗台數會跟卡片數字對不上',
+      'refactor(osm): 分組／版本基準／可見列這三段純判斷抽到 src/pages/osm-gametype-dist.ts，留在元件裡只能靠肉眼看。資料完全來自畫面上已有的 channelResults，不打新的 API、不重新同步——機種卡的數字本來就是從它算的，只是 allMachinesFlat 那行 flatten 時把「這台屬於哪個渠道」丟掉了',
+      'test(osm): 新增 scripts/ui-checks/osm-gametype-dist.test.ts（35 項：29 項規則 + 6 項接線）。已注入違規確認會變紅——濾掉全離線渠道 9 項紅、拿掉 machineType fallback 2 項、版本基準含離線機台 2 項、就地排序 1 項',
+    ],
+  },
+  {
+    version: '4.134.1',
+    date: '2026-09-10',
+    changes: ['fix(uat): TC 清單操作區改為雙欄錄製入口與獨立檔案管理列，避免多 TC 按鈕擠出側欄並遮住相鄰內容；窄欄位文字可換行'],
+  },
+  {
+    version: '4.134.0',
+    date: '2026-09-10',
+    changes: [
+      'feat(uat): 多 TC 錄製腳本共用操作流程，可切換檢查與截圖歸屬；以 Lark tableId／recordId 綁定，支援同編號不同 TC',
+      'feat(uat): 新增歸屬編輯、TC 檢查與圖片對照、保存、試跑、正式回寫與執行快照；單筆失敗隔離，受阻與未驗證不標 PASS',
+      'fix(uat): 文字輸入合併、勾選與下拉記錄目標狀態，停止前保存最後輸入，支援暫停錄製及區域截圖',
+    ],
+  },
+  {
+    version: '4.133.6',
+    date: '2026-09-10',
+    changes: [
+      'fix(jira): 批量開單的強制必填改成前後端共用同一份規則——判斷本體抽到 shared/jira-required-fields.ts，前端擋送出與後端 /api/jira/batch-create 的補驗都走那一份，後端沒有自己的第二份清單（各寫一份的話遲早漂移，而漂移的症狀是「畫面標必填、送出卻放行」，沒有任何徵兆）',
+      'fix(jira): /api/jira/batch-create 補上強制必填的後端驗證。先前只擋「摘要空白」一條，改 payload 就能送出缺 描述/受託人/回報人/RD負責人 的單（跟 v4.11.0 批量評論 AI 旗標那次同一類問題：當時也是只有前端把選項藏起來）。逐列回錯誤並跳過該列，不整批 400——前端是逐筆呼叫的',
+      'fix(jira): 後端補驗會抓到「Sheet 人名對不到帳號」那個洞——前端對這種 user 欄位送出的是 accountId 為空字串的物件，只檢查 key 存在會把它當成填好了，先前那些列會開出沒有受託人的單且事後查不到',
+      'fix(jira): RD負責人在每個專案可能是不同的 customfield id（跟週報「QA驗證人員」同一個坑），所以 createmeta 拿得到時只認 meta 裡真的存在的欄位，不把常數清單跟 meta 聯集——聯集會在別的專案同時要求 customfield_10428 與該專案真正的那個 id，而前者不在建立畫面上，結果是「每一列都被擋、擋的理由還不存在」',
+      'fix(jira): 回報人只在動態欄位模式強制。傳統模式（createmeta 讀取失敗時的 fallback）的前端驗證本來就不查回報人（Sheet 的「回報人」欄多半是人名、對不到 accountId），後端硬要求會把那條 fallback 路徑整條擋死；前端送出時多帶 dynamicFieldMode，沒帶（舊的快取前端）一律當成傳統模式',
+      'test(jira): 新增 shared/jira-required-fields.test.ts（34 項純函式測試）與改寫 scripts/ui-checks/jira-required-field-guard.mjs（25 項接線檢查，前端擋送出＋後端補驗都驗）。兩支都已注入違規確認會變紅：前者 7 項、後者 5 項',
+    ],
+  },
+  {
+    version: '4.133.5',
+    date: '2026-09-10',
+    changes: [
+      'fix(jira): 批量開單 Step 3「描述/受託人/回報人/RD負責人」的必填防呆自 v3.97.0（2026-08-12）起失效——validateDynamicFields() 拿 field.required（Jira createmeta 自己回的旗標）當必填條件，但這四欄在 Jira 本來就是選填，它們的必填是前端用 isForcedRequiredField() 加的，於是變成「畫面標紅星、送出完全不擋」，空值直接開單，而後端 batch-create 只擋摘要也不會拒。條件改成 isFieldRequired(field)（= Jira 必填 or 強制必填），恢復 v3.39.0 的行為',
+      'fix(jira): 新增 resolveRowDescription() 讓驗證與送出共用同一套「cellValues → Sheet 內容欄」fallback——送出路徑本來就有這層 fallback，驗證若只讀 cellValues 會出現「送出時明明會用 Sheet 值、驗證卻說必填未填」，跟 v4.6.1 摘要那條縫完全同型',
+      'test(jira): 新增 scripts/ui-checks/jira-required-field-guard.mjs（15 項結構檢查）守住必填判斷不得退回 field.required、兩支 resolver 前後端共用、強制必填清單不得縮小；已注入違規確認 4 項會轉紅',
+    ],
+  },
+  {
+    version: '4.133.4',
+    date: '2026-09-10',
+    changes: [
+      'fix(uat): 修仙版固定頂欄會遮住正上方錄製提示；提示改放到頂欄完整高度下方，並新增實際遮擋偵測，確認提示上、中、下三處都能成為最上層可見元素',
+    ],
+  },
+  {
+    version: '4.133.3',
+    date: '2026-09-10',
+    changes: [
+      'fix(uat): 錄製錯誤提示依使用者回饋從右下角移到畫面正上方置中，保留頂欄間距、關閉按鈕與 7 秒自動收起',
+    ],
+  },
+  {
+    version: '4.133.2',
+    date: '2026-09-09',
+    changes: [
+      'fix(uat): 錄製啟動失敗改成右下角浮動提示窗，提供明確標題、關閉按鈕與 7 秒自動收起；提示固定在 viewport，不會再出現在頁面內容最底部',
+      'fix(uat): 錄製中的持續狀態仍保留在原狀態列，與短暫錯誤提示拆開，避免自動收起錯誤時連錄製進度一起清除',
+    ],
+  },
+  {
+    version: '4.133.1',
+    date: '2026-09-09',
+    changes: [
+      'fix(uat): 點「錄製新 TC」時即時重查 Local Agent；沒有連線、狀態讀取失敗或缺少 uat-record 能力時，直接在頁面說明處理方式，不再只留下難以理解的 409 Conflict',
+      'fix(uat): Local Agent 重啟後 agentId 會因 PID 改變，現在會自動清除已離線的舊選擇並改用最新線上 Agent，避免同一台機器明明重連仍被判定為指定 Agent 不在線',
+    ],
+  },
+  {
+    version: '4.133.0',
+    date: '2026-09-09',
+    changes: [
+      'feat(uat): 後台錄製新增 KEYPRESS，逐鍵保留 Enter／Escape／Tab／方向鍵／空白與數字鍵；一般文字仍由 change 記最終值，密碼欄位不保存按鍵',
+      'feat(uat): 後台錄製新增自製拖曳偵測，mousedown 到 mouseup 移動超過 8px 才產生 drag 積木，並避免 mouseup 後的 click 被重複記錄',
+      'feat(uat): selector 完全失效時可使用錄製座標備援；只有錄製與執行 viewport 尺寸相符且座標仍在畫面內才會執行，結果會明確標出曾使用座標',
+      'feat(uat): Local Agent 新增 WebSocket open／close／sent／received 監控，雙向 payload 會截斷並遮罩常見 token、authorization、password、secret 欄位，錄製監控面板同步顯示',
+    ],
+  },
+  {
+    version: '4.132.1',
+    date: '2026-09-09',
+    changes: [
+      'fix(uat): 後台錄製器點到按鈕內的 span／i 時，先提升到真正可操作的 button／menu item 再產生 selector，避免錄成 button > i 這類版型一改就失效的路徑',
+      'fix(uat): 表格操作改用該列唯一文字作錨點，產生可直接由 Playwright 執行的 selector；移除原本假設頁面存在 data-col、實際卻找不到元素的 selector',
+      'fix(uat): 錄製文字在重播與斷言時優先採完整文字及可見元素，避免 text=Edit 誤命中 Player Credit Log；只有舊腳本找不到完整文字時才回退模糊比對',
+      'test(uat): 真實 Chromium 回歸測試新增巢狀 span、表格純圖示按鈕、selector 唯一性及標記選單流程，另保留 17 項錄製轉換與 134 項積木引擎測試',
+    ],
+  },
   {
     version: '4.132.0',
     date: '2026-09-08',

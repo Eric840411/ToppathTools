@@ -1,4 +1,14 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
+import {
+  gameTypeOf,
+  isMachineOnline,
+  groupByChannelForType,
+  hasVersionMismatch,
+  matchRange,
+  referenceVersion,
+  searchDistribution,
+} from './osm-gametype-dist'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -95,8 +105,10 @@ function getVersionDistribution(machines: OsmMachine[]): Map<string, number> {
 }
 
 
+// 機種代碼取法與 online 判定都在 osm-gametype-dist.ts（有單元測試），這裡只留薄包裝，
+// 避免同一份規則在這個檔案裡長出第二套——那正是「缺少機台」那段跟機種卡數字對不上的原因。
 function isOnline(m: OsmMachine): boolean {
-  return (m.onlineState ?? '').toString().trim().toLowerCase() === 'online'
+  return isMachineOnline(m)
 }
 
 function countOnlineStates(machines: OsmMachine[]) {
@@ -259,6 +271,283 @@ function MachineTable({ machines, targets }: { machines: OsmMachine[]; targets: 
         )
       })}
     </div>
+  )
+}
+
+// ── 機種渠道分布彈窗 ──
+// 同一個機種會散在好幾個渠道上，先前只能一個渠道一個渠道翻。點上方機種卡就列出它分布在
+// 哪些渠道、每台機器叫什麼。
+//
+// 資料完全來自畫面上已有的 channelResults，不打新的 API、不重新同步——機種卡的數字本來就是
+// 從它算的，只是 allMachinesFlat 那行 flatten 時把「這台屬於哪個渠道」丟掉了。
+function GameTypeChannelsModal({ type, channelResults, onClose }: {
+  type: string
+  channelResults: OsmChannelResult[]
+  onClose: () => void
+}) {
+  // 預設隱藏不在線上的機台（使用者決定），但保留開關
+  const [showOffline, setShowOffline] = useState(false)
+  const [query, setQuery] = useState('')
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+
+  // ⚠️ 改搜尋字串時把清單捲回最上面。不做的話會出現跟「被離線開關藏住」同一類的假象：
+  // 使用者捲到下面（141 台的機種捲得很長）才打字，結果命中的那幾列在最上面，
+  // 畫面上只看到一片空白——看起來像沒有命中，其實只是捲過頭了。
+  useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = 0 }, [query])
+
+  useEffect(() => {
+    // ⚠️ Esc 一律關彈窗，即使搜尋框有字——刻意不改成「先清搜尋」（跟 CodeX 討論定案：
+    // 不為了這個加行為複雜度）。清除用輸入框右邊那顆 ×。
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  // 分組規則（含「只有離線機台的渠道也要列出來」）在 osm-gametype-dist.ts，有單元測試。
+  // 渠道順序沿用 channelResults 自己的順序，跟左邊那排渠道卡一致（使用者決定）。
+  const groups = groupByChannelForType(channelResults, type)
+
+  const totalCount = groups.reduce((sum, g) => sum + g.machines.length, 0)
+  const totalOnline = groups.reduce((sum, g) => sum + g.online, 0)
+  const totalOffline = groups.reduce((sum, g) => sum + g.offline, 0)
+  const totalUnknown = groups.reduce((sum, g) => sum + g.unknown, 0)
+
+  // 版本標色的參考點：線上機台裡最多台在用的那個版本（只看線上，理由見那支函式的註解）
+  const refVersion = referenceVersion(groups)
+
+  const hiddenLabel = totalUnknown > 0 ? '離線/未知' : '離線'
+
+  // 搜尋＋「顯示離線」開關套用後實際要畫的東西（規則在 osm-gametype-dist.ts，有單元測試）
+  const found = searchDistribution(groups, query, showOffline)
+  const q = query.trim().toLowerCase()
+
+  /** 命中處高亮。用 React 節點組，不碰 innerHTML。 */
+  const hl = (text: string) => {
+    const r = matchRange(text, q)
+    if (!r) return text
+    return (
+      <>
+        {text.slice(0, r[0])}
+        <mark className="osm-dist-hit">{text.slice(r[0], r[1])}</mark>
+        {text.slice(r[1])}
+      </>
+    )
+  }
+
+  /** 「顯示離線」按鈕。⚠️ 一定要是真的按鈕不是一句灰字（CodeX review）。 */
+  const revealBtn = (
+    <button type="button" className="osm-dist-reveal" onClick={() => setShowOffline(true)}>
+      顯示離線
+    </button>
+  )
+
+  return createPortal(
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 4000, background: 'rgba(3,7,18,0.72)',
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '8vh 16px 24px',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          width: 'min(560px, 100%)', background: '#111c2e', border: '1px solid #334155',
+          borderRadius: 12, boxShadow: '0 18px 48px rgba(0,0,0,0.55)', overflow: 'hidden',
+          display: 'flex', flexDirection: 'column', maxHeight: '80vh',
+        }}
+      >
+        <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid #24344a', display: 'flex', gap: 12 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, color: '#93c5fd', marginBottom: 5, wordBreak: 'break-all' }}>{type}</div>
+            <div style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.65 }}>
+              {groups.length === 0 ? (
+                <>目前沒有任何渠道有這個機種</>
+              ) : (
+                <>
+                  分布在 <b style={{ color: '#f1f5f9' }}>{groups.length}</b> 個渠道，共 <b style={{ color: '#f1f5f9' }}>{totalCount}</b> 台
+                  {' — '}線上 <b style={{ color: '#f1f5f9' }}>{totalOnline}</b>
+                  {totalOffline > 0 && <>、離線 <b style={{ color: '#f1f5f9' }}>{totalOffline}</b></>}
+                  {totalUnknown > 0 && <>、未知 <b style={{ color: '#f1f5f9' }}>{totalUnknown}</b></>}
+                  <div style={{ color: '#64748b', marginTop: 2 }}>機種卡的「OSM」只算線上機台</div>
+                </>
+              )}
+            </div>
+          </div>
+          <button
+            type="button" onClick={onClose} aria-label="關閉"
+            style={{
+              background: 'none', border: '1px solid #334155', color: '#94a3b8', borderRadius: 6,
+              width: 26, height: 26, flex: '0 0 auto', cursor: 'pointer', fontSize: 15, padding: 0,
+              // × 這個字元在 em box 裡本來就偏下，靠 lineHeight 對不準（使用者回報過），
+              // 用 flex 置中才會真的在框框正中間
+              display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+            }}
+          >
+            ×
+          </button>
+        </div>
+
+        {totalCount > 0 && (
+          <div className="osm-dist-tools">
+            <div className="osm-dist-searchwrap">
+              <span className="osm-dist-searchico" aria-hidden>🔍</span>
+              <input
+                className="osm-dist-search"
+                type="text"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="搜尋渠道／型號／機台名稱／版本"
+                aria-label="搜尋這個機種的渠道、型號、機台名稱或版本"
+              />
+              {query && (
+                <button type="button" className="osm-dist-clear" title="清除搜尋"
+                  onClick={() => setQuery('')}>×</button>
+              )}
+            </div>
+            <div className="osm-dist-toolrow">
+              {totalCount > totalOnline && (
+                <label>
+                  <input type="checkbox" checked={showOffline} onChange={e => setShowOffline(e.target.checked)} />
+                  顯示{hiddenLabel}機台（{totalCount - totalOnline} 台）
+                </label>
+              )}
+              {found.active && (
+                // ⚠️ 這行的分母是機種總台數，不是搜尋結果——上方「共 N 台」維持部署現況，
+                // 搜尋的縮放只在這裡表達，兩個數字才不會互相矛盾。
+                <span className="osm-dist-count">
+                  符合 <b>{found.matchCount}</b> / {found.totalCount} 台
+                  {found.hiddenByOffline > 0 && (
+                    <>
+                      ，另有 <b>{found.hiddenByOffline}</b> 台{hiddenLabel}已隱藏 {revealBtn}
+                    </>
+                  )}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {found.active && found.matchCount === 0 ? (
+          // ⚠️ 這個狀態一定要跟「有命中但全被離線開關藏住」長得不一樣（CodeX review）：
+          // 那個是黃字＋按鈕，這個是置中灰字。兩者混在一起的話，使用者會把「被藏住」
+          // 誤讀成「沒有這台機器」。
+          <div className="osm-dist-empty">
+            沒有符合 <code>{query.trim()}</code> 的渠道、型號、機台或版本
+            <div className="osm-dist-empty-sub">比對這四項，不是模糊比對</div>
+          </div>
+        ) : (
+        <div ref={bodyRef} style={{ overflowY: 'auto', padding: '4px 0 10px' }}>
+          {found.channels.map(({ channel: g, models, matchCount }, gi) => {
+            const channelVisible = showOffline ? g.machines.length : g.online
+            return (
+              <div key={g.name} style={{ padding: '10px 16px 4px', borderTop: gi === 0 ? 'none' : '1px solid #1c2942' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7, flexWrap: 'wrap' }}>
+                  <span className="osm-channel-badge" style={{ background: CHANNEL_COLORS[g.name] ?? '#888', fontSize: 10, flexShrink: 0 }}>{hl(g.name)}</span>
+                  <span style={{ fontSize: 11.5, color: '#94a3b8' }}>
+                    {/* 搜尋中顯示「符合數 / 總數」——只寫符合數的話會跟上方的渠道統計對不上 */}
+                    {found.active
+                      ? <><b style={{ color: '#f1f5f9' }}>{matchCount}</b> / {g.machines.length} 台</>
+                      : <><b style={{ color: '#f1f5f9' }}>{g.machines.length}</b> 台</>}
+                    {' · '}線上 <b style={{ color: '#f1f5f9' }}>{g.online}</b>
+                    {g.offline > 0 && <>{' · '}離線 <b style={{ color: '#f1f5f9' }}>{g.offline}</b></>}
+                    {g.unknown > 0 && <>{' · '}未知 <b style={{ color: '#f1f5f9' }}>{g.unknown}</b></>}
+                    {models.length > 1 && <>{' · '}<b style={{ color: '#f1f5f9' }}>{models.length}</b> 種機型</>}
+                  </span>
+                </div>
+
+                {models.map(mg => {
+                  const visible = mg.visible
+                  // 這組型號裡有沒有版本跟基準不同的線上機台。**訊號跟版本欄標黃色共用
+                  // 同一支 hasVersionMismatch()**——自己在這裡再寫一份 some() 等於畫面上
+                  // 兩個地方各自定義「異常」，之後一定漂（那支函式的註解就是講這件事）。
+                  // ⚠️ 一律看整組 mg.group.machines，不是搜尋後的 mg.matched：
+                  // 這個型號有沒有版本異常是事實，不該因為搜尋縮小範圍就消失。
+                  const tagClass = [
+                    'osm-modeltag',
+                    hasVersionMismatch(mg.group.machines, refVersion) ? 'osm-modeltag--alert' : '',
+                    mg.group.online === 0 ? 'osm-modeltag--empty' : '',
+                    mg.group.label ? '' : 'osm-modeltag--nolabel',
+                  ].filter(Boolean).join(' ')
+                  return (
+                    <div key={mg.group.key || '(none)'} style={{ marginBottom: 8 }}>
+                      {/* 機型那一行永遠顯示，即使這個機型底下一台都不在線上——它本身就是答案 */}
+                      <div className={tagClass}>
+                        <span className="osm-modeltag__label">{mg.group.label ? hl(mg.group.label) : '型號未提供'}</span>
+                        <span className="osm-modeltag__count">
+                          {found.active
+                            ? <>{mg.matched.length} / {mg.group.machines.length} 台</>
+                            : <>{mg.group.machines.length} 台</>}
+                          {mg.group.online !== mg.group.machines.length && <>（線上 {mg.group.online}）</>}
+                        </span>
+                        <span className="osm-modeltag__rune">&#9670;</span>
+                      </div>
+                      {/* ⚠️ 搜尋中、命中的全是離線機台 → 明講並給一顆真的按鈕。
+                          不講的話這裡會是一片空白，跟「這個型號沒有符合的」完全分不出來。 */}
+                      {found.active && visible.length === 0 && mg.matched.length > 0 && (
+                        <div className="osm-dist-hidden">
+                          <span>找到 {mg.matched.length} 台符合搜尋的{hiddenLabel}機台，目前被「顯示{hiddenLabel}機台」隱藏</span>
+                          {revealBtn}
+                        </div>
+                      )}
+                      {visible.length > 0 && (
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5 }}>
+                          <tbody>
+                            {visible.map(m => {
+                              const on = isMachineOnline(m)
+                              const off = (m.onlineState ?? '').toString().trim().toLowerCase() === 'offline'
+                              const diff = !!refVersion && on && !!m.version && m.version !== refVersion
+                              return (
+                                <tr key={m.id}>
+                                  <td style={{ padding: '3.5px 0', borderBottom: '1px solid #1a2537', fontFamily: 'monospace', color: on ? '#cbd5e1' : '#64748b' }}>
+                                    {hl(m.machineName || m.id)}
+                                  </td>
+                                  <td style={{ padding: '3.5px 0', borderBottom: '1px solid #1a2537', width: 96 }}>
+                                    <span className={diff ? 'osm-version-tag osm-version-tag--diff' : 'osm-version-tag'} style={{ fontSize: 11 }}>
+                                      {m.version ? hl(m.version) : '—'}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '3.5px 0', borderBottom: '1px solid #1a2537', width: 64, textAlign: 'right' }}>
+                                    {on ? (
+                                      <span className="osm-badge osm-badge--online">Online</span>
+                                    ) : off ? (
+                                      <span className="osm-badge osm-badge--offline">Offline</span>
+                                    ) : (
+                                      <span className="osm-badge osm-badge--muted">{m.onlineState || '—'}</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  )
+                })}
+
+                {/* 搜尋中時這句不顯示——上面每個型號已經各自講了「符合 N 台但被藏住」，
+                    再加一句渠道層級的會重複，而且它的台數是整個渠道的、跟搜尋結果對不上 */}
+                {!found.active && channelVisible === 0 && (
+                  // ⚠️ 這個渠道一台都不在線上時，渠道與機型那幾行仍然要顯示——使用者要回答的
+                  // 問題是「這個機種在哪些渠道、什麼機型」，整段藏掉會讓他以為這裡沒有這個機種。
+                  <div style={{ fontSize: 11, color: '#64748b', paddingBottom: 6 }}>
+                    這個渠道的 {g.machines.length} 台都不在線上，開啟上方開關可以看到機器名稱
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+        )}
+
+        <div style={{ padding: '9px 16px', borderTop: '1px solid #24344a', fontSize: 11, color: '#64748b', display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+          <span>{refVersion ? '黃色版本 = 跟線上最多台在用的 ' + refVersion + ' 不同' : '渠道順序跟左邊那排渠道卡一致'}</span>
+          <span>Esc 或點灰底關閉</span>
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
 
@@ -630,6 +919,7 @@ export function OsmPage() {
   const [osmError, setOsmError] = useState<string | null>(null)
   const [neverSynced, setNeverSynced] = useState(true)
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null)
+  const [distType, setDistType] = useState<string | null>(null)
 
   // Machine type target versions (machineType → category → version)
   const [targets, setTargets] = useState<Record<string, Record<string, string>>>({})
@@ -1036,8 +1326,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
   const globalConn = countOnlineStates(allMachinesFlat)
   const gameTypeCounts: { type: string; count: number }[] = Object.entries(
     allMachinesFlat.filter(isOnline).reduce<Record<string, number>>((acc, m) => {
-      const parts = m.machineName.split('-')
-      const t = (parts.length >= 2 ? parts[1] : m.machineType || parts[0]).toLowerCase()
+      const t = gameTypeOf(m)
       acc[t] = (acc[t] ?? 0) + 1
       return acc
     }, {})
@@ -1303,7 +1592,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
                     return next
                   })
                   return (
-                    <div key={type} style={{ background: '#162032', border: `1px solid ${hasMissing ? '#fca5a5' : '#334155'}`, borderRadius: 8, padding: '7px 10px' }}>
+                    <div key={type} className="osm-gt-card" onClick={() => setDistType(type)} title="看這個機種分布在哪些渠道" style={{ background: '#162032', border: `1px solid ${hasMissing ? '#fca5a5' : '#334155'}`, borderRadius: 8, padding: '7px 10px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
                         <span style={{ fontFamily: 'monospace', fontSize: 12, fontWeight: 700, color: '#93c5fd' }}>{type}</span>
                         {diff !== null && diff !== 0 && (
@@ -1326,7 +1615,7 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
                         <div style={{ marginTop: 5, borderTop: '1px solid #f87171' }}>
                           <button
                             type="button"
-                            onClick={toggleExpand}
+                            onClick={e => { e.stopPropagation(); toggleExpand() }}
                             style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 10, color: '#f87171', padding: '3px 0', width: '100%', textAlign: 'left', fontWeight: 600 }}
                           >
                             {isExpanded ? '▲' : '▼'} 缺少 {missingMachines.length} 台
@@ -1819,6 +2108,14 @@ setLarkSyncMsg({ ok: true, msg: `已同步 ${data.totalCount} 筆，涵蓋分頁
           </div>
         )}
       </section>
+
+      {distType && (
+        <GameTypeChannelsModal
+          type={distType}
+          channelResults={channelResults}
+          onClose={() => setDistType(null)}
+        />
+      )}
 
     </div>
   )
