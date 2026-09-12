@@ -35,6 +35,7 @@ import { multiWritebackLark, multiWritebackLarkBatch, type MultiWrite } from './
 import { getAuthAccount } from '../auth-session.js'
 import { withRequestOperation } from '../request-context.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
+import { missingForcedRequiredFields } from '../../shared/jira-required-fields.js'
 
 export const router = Router()
 
@@ -242,6 +243,11 @@ const batchCreateSchema = z.object({
   projectId: z.string().optional(),
   projectKey: z.string().optional(),
   issueTypeId: z.string().optional(),
+  // 前端這次是走「動態欄位模式」還是「傳統模式」。用途只有一個：決定要不要強制 reporter。
+  // 傳統模式的前端驗證本來就不查回報人（Sheet 的「回報人」欄多半是人名、對不到 accountId），
+  // 後端硬要求會把 createmeta 讀取失敗時的 fallback 路徑整條擋死。沒帶這個欄位（舊的快取
+  // 前端）一律當成傳統模式，往保守的方向靠。
+  dynamicFieldMode: z.boolean().optional(),
 })
 
 const writebackSchema = z.object({
@@ -1489,6 +1495,19 @@ router.post('/api/jira/batch-create', async (req, res, next) => {
     for (const row of body.rows) {
       if (!row.summary.replace(/[\r\n]+/g, '').trim()) {
         results.push({ rowIndex: row.rowIndex, error: '缺少摘要欄位，已略過' })
+        continue
+      }
+      // 強制必填的後端補驗（v4.133.6）。這支端點先前只擋「摘要空白」一條，改 payload 就能
+      // 送出缺 描述/受託人/回報人/RD負責人 的單（跟 v4.11.0 批量評論 AI 旗標那次同一類問題：
+      // 當時也是只有前端把選項藏起來）。判斷本體在 shared/jira-required-fields.ts，跟前端擋
+      // 送出用的是**同一份**規則，後端沒有自己的第二份清單。
+      // 逐列回錯誤、跳過這一列，跟上面摘要那條同一個做法——前端是逐筆呼叫的，整批 400 會讓
+      // 已經合法的列也連帶失敗。
+      const missingRequired = missingForcedRequiredFields(row, dynamicFieldMeta, {
+        requireReporter: body.dynamicFieldMode === true,
+      })
+      if (missingRequired.length > 0) {
+        results.push({ rowIndex: row.rowIndex, error: `缺少必填欄位：${missingRequired.join('、')}，已略過` })
         continue
       }
       try {

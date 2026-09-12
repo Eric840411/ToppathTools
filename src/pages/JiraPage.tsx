@@ -10,6 +10,7 @@ import { JiraBatchUpdateTab } from './JiraBatchUpdateTab'
 import { JiraBatchEditTab } from './JiraBatchEditTab'
 import { JiraCreateStep12 } from './JiraCreateStep12'
 import { JiraCreateStep3 } from './JiraCreateStep3'
+import { isJiraFieldRequired } from '../../shared/jira-required-fields.js'
 import { JiraCreateStep4 } from './JiraCreateStep4'
 
 export interface Member {
@@ -1436,13 +1437,11 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
   // ── Dynamic field helpers ──
   // 強制必填欄位：即使 Jira 標記為選填，這幾欄也一律自動顯示並要求填寫
   // （摘要 = summary 已是 Jira 必填；這裡補上 描述/受託人/RD負責人/回報人）
-  const isForcedRequiredField = (f: NormalizedJiraField) =>
-    f.key === 'description' ||
-    f.key === 'assignee' ||
-    f.key === 'reporter' ||
-    f.key === 'customfield_10428' ||
-    f.name.includes('RD負責人')
-  const isFieldRequired = (f: NormalizedJiraField) => f.required || isForcedRequiredField(f)
+  //
+  // ⚠️ 判斷本體在 shared/jira-required-fields.ts，後端 batch-create 的補驗走的是**同一份**，
+  // 不是複製一份——兩邊各寫一份清單的話遲早漂移，而漂移的症狀是「畫面標必填、送出卻放行」，
+  // 完全沒有徵兆（v3.97.0～v4.133.4 就是這樣壞了三個月）。
+  const isFieldRequired = (f: NormalizedJiraField) => isJiraFieldRequired(f)
   const requiredJiraFields = jiraFields.filter(isFieldRequired)
   const optionalJiraFields = jiraFields.filter(f => !isFieldRequired(f))
   const activeOptionalJiraFields = optionalJiraFields.filter(f => activeOptionalKeys.includes(f.key))
@@ -1738,6 +1737,16 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
     return record ? getField(record, SHEET_FIELD.summary).trim() : ''
   }
 
+  // 描述跟摘要一樣有兩個來源：Step 3 手動填寫（cellValues）與 Sheet 原始「內容」欄。動態欄位
+  // 模式的送出路徑本來就有 `rowCells['description'] || Sheet 內容` 這層 fallback，驗證若只讀
+  // cellValues 就會出現「送出時明明會用 Sheet 值、驗證卻說必填未填」——跟 v4.6.1 摘要那條縫
+  // 完全同一種。統一由這支 helper 供驗證與送出共用。
+  const resolveRowDescription = (rowIdx: number, record?: SheetRecord): string => {
+    const fromCell = cellValues[rowIdx]?.['description']?.trim()
+    if (fromCell) return fromCell
+    return record ? getField(record, SHEET_FIELD.description).trim() : ''
+  }
+
   const validateDynamicFields = (): boolean => {
     const errors: Record<number, Record<string, string>> = {}
     const fieldsToCheck = [...requiredJiraFields, ...activeOptionalJiraFields]
@@ -1745,9 +1754,18 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
       const rowIdx = Number(record._rowIndex)
       const rowVals = cellValues[rowIdx] ?? {}
       for (const field of fieldsToCheck) {
-        // summary 走共用 resolver（AI 生成的值不在 cellValues 裡），其餘欄位仍只看 cellValues
-        const val = field.key === 'summary' ? resolveRowSummary(rowIdx, record) : rowVals[field.key]?.trim()
-        if (field.required && !val) {
+        // summary / description 走共用 resolver（AI 生成的摘要與 Sheet 原始「內容」都不在
+        // cellValues 裡），其餘欄位仍只看 cellValues
+        const val = field.key === 'summary'
+          ? resolveRowSummary(rowIdx, record)
+          : field.key === 'description'
+            ? resolveRowDescription(rowIdx, record)
+            : rowVals[field.key]?.trim()
+        // ⚠️ 一定要用 isFieldRequired() 不能用 field.required——後者是 Jira createmeta 自己回的
+        // 旗標，而「描述/受託人/回報人/RD負責人」在 Jira 是選填，它們的必填是我們用
+        // isForcedRequiredJiraField() 加的。用 field.required 的話這四欄會「畫面標紅星、送出不擋」，
+        // 空值直接開單且後端也不會拒（batch-create 只擋摘要）。v3.97.0 加這個條件時誤放行了。
+        if (isFieldRequired(field) && !val) {
           if (!errors[rowIdx]) errors[rowIdx] = {}
           errors[rowIdx][field.key] = `${field.name} 為必填`
           continue
@@ -1907,7 +1925,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
         const finalSummary = summaryPrefix ? summaryPrefix + rawFinalSummary : rawFinalSummary
         return {
           summary: finalSummary,
-          description: rowCells['description'] || getField(r, SHEET_FIELD.description),
+          description: resolveRowDescription(rowIdx, r),
           assigneeAccountId: undefined,
           rdOwnerAccountId: undefined,
           reporterAccountId: undefined as string | undefined,
@@ -1966,7 +1984,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
           const resp = await fetch('/api/jira/batch-create', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...emailHeader },
-            body: JSON.stringify({ rows: [rows[i]], sheetUrl, projectId: selectedProjectId, projectKey: project?.key, issueTypeId: selectedIssueTypeId, batchToken }),
+            body: JSON.stringify({ rows: [rows[i]], sheetUrl, projectId: selectedProjectId, projectKey: project?.key, issueTypeId: selectedIssueTypeId, batchToken, dynamicFieldMode: jiraFields.length > 0 }),
           })
           const data = await resp.json() as { ok: boolean; results?: IssueCreateResult[]; message?: string }
           if (data.ok && data.results) results.push(...data.results)
