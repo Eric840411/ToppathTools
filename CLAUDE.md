@@ -2525,6 +2525,48 @@ Lark 附件膨脹反而更難讀。
 
 ---
 
+## UAT 面板的按鈕與配色慣例（2026-09-13，v4.143.1）
+
+**⚠️ 裸 `.uat-btn` 沒有框。**它本體是 `border: 1px solid transparent; background: transparent`——
+框是靠 `.is-primary` / `.is-quiet` / `.is-danger` 這些變體來的。`:disabled` 只多加 `opacity: .45`。
+
+所以**寫 `className="uat-btn"` 而不帶變體 = 一段看不出是按鈕的純文字**，啟用與停用都一樣。
+v4.143.1 修掉 10 顆這樣的按鈕（MultiTcRecorder 6、RecordedScriptBatch 3、RecordedScriptLibrary 1），
+而且它們剛好全都是**主要動作**——次要動作反而都有 `.is-quiet`，視覺層級整個反過來。
+
+規則：**每個區塊的主要動作 `is-primary`，其餘一律至少 `is-quiet`，不准有裸的。**
+
+⚠️ **不可逆的動作刻意不給 `is-primary`**：「正式執行並回寫 Lark」是 `is-quiet`，
+鼓勵的路徑（儲存並試跑）才是 `is-primary`；真正的承諾點是確認框裡的「確認執行」，那顆才 primary。
+
+**⚠️ 顏色一律走 `--uat-*` token，不要寫死。**`[data-theme-mode="xianxia"] .uat-studio` 已經把整組
+token 重映射成修仙色（`--uat-primary` → 玄月青 `#75d7cf`、`--uat-accent` → 古金 `#d6b770`），
+寫死色等於**繞過一個已經接好的主題系統**。v4.143.1 清掉 6 處寫死綠：
+
+| 原本 | 色相 | 問題 |
+|---|---|---|
+| `#18312f` / `#101716` | 175° / 171° | 色相其實對（同玄月青），但沒跟著 token |
+| `#426056` / `#62c6a5` | **160° / 161°** | **偏離玄月青 15°**，看起來是「綠」不是「青」 |
+
+🚨 **而且 `.uat-multi-message` 那條沒有主題前綴，普通版也是薄荷綠**——普通版 palette 是藍
+`#3b82f6`＋青 `#22d3ee`，跑出一條薄荷綠是 off-palette。跟 v4.142.1 型號銘牌那次同一類問題
+（修仙版的東西漏到普通版），只是這次是顏色不是特效。改成 `var(--uat-primary)` 兩個模式各自正確。
+
+⚠️ **語意色不要一起換掉**：`.uat-multi-result.is-pass` 的綠是「通過」不是品牌色，
+不能改成 `--uat-primary`（普通版會變藍）。它改成 `#20a76c`——**這支檔案自己的 pass 色**
+（`.uat-result-dot.is-pass`／`.uat-stat.is-pass` 都用它），原本用 `#62c6a5` 是跟自己不一致。
+
+> 已驗證 10 項（`.tmp-verify.mjs` 形式的量測：兩個模式各自量按鈕有沒有框、提示條顏色、
+> 輸入框寬度、空狀態）。關鍵證據：提示條在普通版 `rgb(59,130,246)`、修仙版 `rgb(117,215,207)`，
+> **修好前兩個模式都是 `rgb(98,198,165)`**。
+> 回歸：block-engine 137、backend-recorder 19、multi-tc-workbench／recorded-batch／
+> recorded-library／uat-status-recovery 全過。
+>
+> ⚠️ `uat-record-toast.mjs` 失敗，但**改動前用同一個 commit 版本跑也是同一行失敗**——
+> 它驅動的是真實 app（要登入與資料），不是這次改動造成的。
+
+---
+
 ## 版本管理規則
 
 - **Patch (x.x.N)**：bug fix、小調整、文字修正

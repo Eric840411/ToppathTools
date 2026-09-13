@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.143.0'
+export const APP_VERSION = '4.143.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.143.1', date: '2026-09-13', changes: ['fix(uat): 錄製腳本工作台的 10 顆主要動作補上按鈕外框——原本是裸 uat-btn（透明框＋透明底），看起來像純文字；主要動作改 is-primary、其餘 is-quiet', 'fix(uat): 彈窗內寫死的離群綠改走 --uat-primary，修仙版跟著玄月青、普通版跟著藍；提示條原本沒有主題前綴，兩個模式都是薄荷綠', 'fix(uat): 腳本名稱輸入框加寬度上限（原本 1440 下 1063px，把儲存鈕推到 1000px 之外）；「各 TC 對照」補空狀態說明'] },
   { version: '4.143.0', date: '2026-09-12', changes: ['feat(osm): 機種分布彈窗加搜尋欄，比對渠道／型號／機台名稱／版本並高亮命中；「有命中但被離線開關藏住」與「完全沒命中」用不同狀態呈現，前者附「顯示離線」按鈕，避免誤讀成沒有這台機器'] },
   { version: '4.142.1', date: '2026-09-12', changes: ['fix(osm): 型號銘牌的特效改成只在修仙版顯示；普通版換成樸素但清楚的標籤（左側色條＋深底＋圓角），不再出現青玉光刃與金符'] },
   { version: '4.142.0', date: '2026-09-12', changes: ['feat(osm): 機種分布彈窗的型號改成銘牌樣式（青玉光刃＋金符角標＋hover 掃光），一個渠道十幾個型號連排時掃得出層級；版本跟基準不同的型號光刃轉金色呼吸，全離線型號降透明但照樣列出'] },

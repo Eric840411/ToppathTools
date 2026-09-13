@@ -1173,14 +1173,14 @@
 /* Multi-TC recorder: shared layout, theme tokens change only presentation. */
 .uat-multi-overlay { position: fixed; inset: 0; z-index: 11000; padding: 24px; background: #08131bcc; display: grid; place-items: center; color: #e2e8f0; font-family: system-ui, sans-serif; }
 .uat-multi-workbench { width: min(1440px, 100%); max-height: calc(100dvh - 48px); overflow: auto; background: #111e2c; border: 1px solid #394b61; border-radius: 14px; padding: 22px; box-shadow: 0 24px 90px #0008; }
-.uat-multi-overlay.is-xianxia .uat-multi-workbench { background: #101716; border-color: #426056; }
+.uat-multi-overlay.is-xianxia .uat-multi-workbench { background: color-mix(in srgb, var(--uat-primary) 5%, var(--uat-panel-deep)); border-color: color-mix(in srgb, var(--uat-primary) 26%, var(--uat-border)); }
 .uat-multi-header { display: flex; justify-content: space-between; align-items: start; gap: 16px; }
 .uat-multi-header h2 { margin: 0; font-size: 22px; }
 .uat-multi-workbench p { color: #b3c2cf; font-size: 13px; line-height: 1.6; }
 .uat-multi-workbench h3 { font-size: 16px; margin: 18px 0 10px; }
 .uat-multi-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
 .uat-multi-workbench input:not([type=checkbox]), .uat-multi-workbench select, .uat-multi-workbench textarea { min-width: 0; max-width: 100%; border: 1px solid #42566d; border-radius: 6px; padding: 8px; background: #0a1521; color: #e2e8f0; font: inherit; font-size: 13px; }
-.uat-multi-overlay.is-xianxia input:not([type=checkbox]), .uat-multi-overlay.is-xianxia select, .uat-multi-overlay.is-xianxia textarea { background: #18312f; border-color: #426056; }
+.uat-multi-overlay.is-xianxia input:not([type=checkbox]), .uat-multi-overlay.is-xianxia select, .uat-multi-overlay.is-xianxia textarea { background: color-mix(in srgb, var(--uat-primary) 10%, var(--uat-panel-deep)); border-color: color-mix(in srgb, var(--uat-primary) 26%, var(--uat-border)); }
 .uat-multi-toolbar select { max-width: 300px; }
 .uat-multi-toolbar input { flex: 1; }
 .uat-multi-layout { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 24px; }
@@ -1191,14 +1191,17 @@
 .uat-multi-candidates span, .uat-multi-candidates b, .uat-multi-candidates small { display: block; }
 .uat-multi-workbench small { color: #a5b5c4; font-size: 12px; line-height: 1.5; }
 .uat-multi-review, .uat-multi-result { display: grid; gap: 6px; padding: 12px; margin: 10px 0; background: #ffffff06; border: 1px solid #364757; border-radius: 8px; overflow-wrap: anywhere; font-size: 13px; }
-.uat-multi-result.is-pass { border-left: 3px solid #62c6a5; }
+.uat-multi-result.is-pass { border-left: 3px solid #20a76c; }
 .uat-multi-result.is-fail { border-left: 3px solid #d94a3a; }
 .uat-multi-result.is-blocked, .uat-multi-result.is-unverified { border-left: 3px solid #d8b45a; }
 .uat-multi-workbench .uat-multi-alert { color: #efc878; }
-.uat-multi-message { padding: 10px 12px; background: #62c6a50b; border-left: 3px solid #62c6a5; min-height: 20px; }
+/* ⚠️ 腳本名稱不需要撐滿整行——1440 下量到 1063px，會把「儲存」推到 1000px 之外，
+   儲存鈕跟它儲存的對象在視覺上被拆開。給個上限讓它們留在同一個視覺群組裡。 */
+.uat-multi-workbench input[aria-label="腳本名稱"] { max-width: 460px; }
+.uat-multi-message { padding: 10px 12px; background: color-mix(in srgb, var(--uat-primary) 5%, transparent); border-left: 3px solid var(--uat-primary); min-height: 20px; }
 .uat-multi-steps { list-style: none; margin: 12px 0; padding: 0; }
 .uat-multi-steps > li { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(130px, 1fr) auto; align-items: center; gap: 8px; border: 1px solid #364757; border-radius: 7px; margin: 8px 0; padding: 10px; }
-.uat-multi-steps > li.is-selected { border-color: #62c6a5; }
+.uat-multi-steps > li.is-selected { border-color: var(--uat-primary); }
 .uat-multi-step-name { background: none; border: 0; text-align: left; color: inherit; cursor: pointer; font-size: 13px; overflow-wrap: anywhere; }
 .uat-multi-step-name small { display: block; margin-top: 5px; word-break: break-all; }
 .uat-multi-step-actions { display: flex; gap: 3px; }
@@ -1207,7 +1210,7 @@
 .uat-multi-params label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; }
 .uat-multi-params > small { grid-column: 1 / -1; }
 .uat-multi-json { width: 100%; min-height: 240px; box-sizing: border-box; font-family: monospace !important; }
-.uat-multi-live, .uat-multi-confirm { background: #62c6a50b; border: 1px solid #426056; border-radius: 8px; padding: 12px; font-size: 13px; }
+.uat-multi-live, .uat-multi-confirm { background: color-mix(in srgb, var(--uat-primary) 5%, transparent); border: 1px solid color-mix(in srgb, var(--uat-primary) 26%, var(--uat-border)); border-radius: 8px; padding: 12px; font-size: 13px; }
 .uat-multi-live > div { padding: 6px 0; overflow-wrap: anywhere; }
 .uat-multi-confirm button { margin-right: 8px; }
 .uat-multi-api { display: flex; gap: 10px; align-items: center; margin: 8px 0; }

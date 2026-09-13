@@ -218,7 +218,7 @@ export function MultiTcRecorder({ open, onClose, tcs, larkUrl, agentId, running,
         }}><option value="">新腳本／初始畫面</option>{scripts.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}</select>
         <button className="uat-btn is-quiet" disabled={!!recId || busy} onClick={fresh}>新腳本</button>
         <input ref={titleInput} aria-label="腳本名稱" required placeholder="例如 Dashboard 四區檢查" value={script.title} disabled={!!recId} onChange={e => edit({ ...script, title: e.target.value })} />
-        <button className="uat-btn" disabled={busy || !!recId || !script.title || !script.bindings.length} onClick={() => void act(async () => { await save(); setMessage('腳本已儲存。') })}>儲存{dirty ? ' *' : ''}</button>
+        <button className="uat-btn is-quiet" disabled={busy || !!recId || !script.title || !script.bindings.length} onClick={() => void act(async () => { await save(); setMessage('腳本已儲存。') })}>儲存{dirty ? ' *' : ''}</button>
       </div>
       <p className="uat-multi-message" role="status">{message || '先綁定 Lark TC，再開始錄製；相同編號的不同列會分開保存。'}</p>
       <div className="uat-multi-layout">
@@ -235,13 +235,13 @@ export function MultiTcRecorder({ open, onClose, tcs, larkUrl, agentId, running,
             }} /><span><b>{tc.number || tc.recordId}</b>{tc.text}<small>{tc.recordId}</small></span>
           </label>)}</div>
           {!candidates.length && !tcLoading && <p>{query ? '沒有符合搜尋條件的 TC，請調整搜尋文字。' : !script.tableId ? '請先在主畫面填入 Lark 表格網址。' : '尚無可選 TC，請按「重新載入 Lark TC」。'}</p>}
-          <h3>各 TC 對照</h3>{rows.map(({ binding, checks, shots, declared }) => <div className="uat-multi-review" key={binding.recordId}><strong>{label(binding)}</strong><span>{checks} 個檢查 · {shots} 張預定截圖</span>{declared ? <small>人工指定 {String(declared)}；實際執行失敗仍為 FAIL</small> : !checks && <small className="uat-multi-alert">没有檢查或指定判定，執行後將列為未驗證</small>}{!shots && <small>尚未指定截圖證據</small>}</div>)}
+          <h3>各 TC 對照</h3>{!rows.length && <p>勾選上方 TC 之後，這裡會列出每筆 TC 有幾個檢查、幾張預定截圖。</p>}{rows.map(({ binding, checks, shots, declared }) => <div className="uat-multi-review" key={binding.recordId}><strong>{label(binding)}</strong><span>{checks} 個檢查 · {shots} 張預定截圖</span>{declared ? <small>人工指定 {String(declared)}；實際執行失敗仍為 FAIL</small> : !checks && <small className="uat-multi-alert">没有檢查或指定判定，執行後將列為未驗證</small>}{!shots && <small>尚未指定截圖證據</small>}</div>)}
         </aside>
         <main className="uat-multi-editor">
           <h3>2. 錄製與調整步驟</h3><p>{agentId === 'server' ? '錄製位置：伺服器桌面。瀏覽器會開在伺服器這台電腦，請在該桌面操作。' : '錄製位置：Local Agent。瀏覽器會開在選取的 Agent 電腦。'}</p>
           <div className="uat-multi-toolbar">
             {recId ? <button className="uat-btn is-danger" disabled={busy} onClick={() => void stopRecording()}>停止錄製（{liveSteps.length} 步）</button>
-              : <button className="uat-btn" disabled={busy || running || !script.bindings.length} onClick={() => void startRecording()}>錄製並接在後面</button>}
+              : <button className="uat-btn is-primary" disabled={busy || running || !script.bindings.length} onClick={() => void startRecording()}>錄製並接在後面</button>}
             {!recId && selected !== null && <button className="uat-btn is-quiet" disabled={busy || running || !script.bindings.length} onClick={() => void startRecording(selected + 1)}>補錄至第 {selected + 1} 步後</button>}
             <small>補錄會新開錄製視窗，請自行操作至需要補錄的位置；可用暫停略過準備動作。切換 TC 只影響檢查與截圖；一般操作預設共用。暫停可在錄製視窗操作。</small>
           </div>
@@ -260,7 +260,7 @@ export function MultiTcRecorder({ open, onClose, tcs, larkUrl, agentId, running,
             </div>
             {!!unassigned && <p className="uat-multi-alert">共 {unassigned} 個步驟尚未指定 TC（第 {unassignedSteps.join('、')} 步）。檢查、讀值、截圖與回填判定都需指定 TC，才能試跑或正式執行。</p>}
             {!!weakSteps.length && <p className="uat-multi-alert">共 {weakSteps.length} 個步驟使用結構路徑定位（第 {weakSteps.join('、')} 步），請試跑確認能找到正確元素。</p>}
-            {jsonOpen && <div><textarea aria-label="多 TC 步驟 JSON" className="uat-multi-json" value={json} onChange={e => setJson(e.target.value)} /><button className="uat-btn" onClick={() => {
+            {jsonOpen && <div><textarea aria-label="多 TC 步驟 JSON" className="uat-multi-json" value={json} onChange={e => setJson(e.target.value)} /><button className="uat-btn is-primary" onClick={() => {
               try { const steps: unknown = JSON.parse(json); if (!Array.isArray(steps) || steps.some(s => !s || typeof s.action !== 'string')) throw new Error('必須是積木陣列'); edit({ ...script, steps }); setJsonOpen(false) }
               catch (e) { setMessage(`JSON 錯誤：${String(e)}`) }
             }}>套用 JSON</button></div>}
@@ -298,8 +298,8 @@ export function MultiTcRecorder({ open, onClose, tcs, larkUrl, agentId, running,
           {!!recId && <p>目前顯示本輪即時步驟，尚未合併到腳本。按「停止錄製」會收齊步驟、關閉錄製視窗並返回編輯；接著再儲存試跑。補錄會新增步驟，原有錯誤步驟仍需修正或刪除。</p>}
           {!!saveErrors.length && <div className="uat-multi-alert" role="alert">{saveErrors.join('；')}{!script.title.trim() && <button className="uat-btn is-quiet" onClick={() => titleInput.current?.focus()}>填寫腳本名稱</button>}</div>}
           {!!actionError && <p className="uat-multi-alert" role="alert">{actionError}。錄製步驟仍保留，修正後可重試。</p>}<p>試跑會操作後台，但不寫 Lark；正式執行會以本次圖片取代各筆 TC 的附圖。</p>
-          <div className="uat-multi-toolbar"><button className="uat-btn" disabled={busy || !!recId || running || !script.steps.length || !!unassigned || !!saveErrors.length || !!dependencyIssues.length} onClick={() => void run(true)}>儲存並試跑</button><button className="uat-btn" disabled={busy || !!recId || running || !script.steps.length || !!unassigned || !!saveErrors.length || !!dependencyIssues.length} onClick={() => setConfirmRun(true)}>正式執行並回寫 Lark</button></div>
-          {confirmRun && <div className="uat-multi-confirm"><strong>本次將更新 {script.bindings.length} 筆 TC 的附圖與 PASS／FAIL。</strong><p>未驗證／受阻將清除兩個勾選；一筆 TC 失敗不會讓其他 TC 自動失敗。</p><button className="uat-btn" disabled={busy} onClick={() => void run(false)}>確認執行</button><button className="uat-btn is-quiet" onClick={() => setConfirmRun(false)}>取消</button></div>}
+          <div className="uat-multi-toolbar"><button className="uat-btn is-primary" disabled={busy || !!recId || running || !script.steps.length || !!unassigned || !!saveErrors.length || !!dependencyIssues.length} onClick={() => void run(true)}>儲存並試跑</button><button className="uat-btn is-quiet" disabled={busy || !!recId || running || !script.steps.length || !!unassigned || !!saveErrors.length || !!dependencyIssues.length} onClick={() => setConfirmRun(true)}>正式執行並回寫 Lark</button></div>
+          {confirmRun && <div className="uat-multi-confirm"><strong>本次將更新 {script.bindings.length} 筆 TC 的附圖與 PASS／FAIL。</strong><p>未驗證／受阻將清除兩個勾選；一筆 TC 失敗不會讓其他 TC 自動失敗。</p><button className="uat-btn is-primary" disabled={busy} onClick={() => void run(false)}>確認執行</button><button className="uat-btn is-quiet" onClick={() => setConfirmRun(false)}>取消</button></div>}
           {!!runs.length && <div className="uat-multi-results"><h3>最近結果</h3><p>{new Date(runs[0].createdAt).toLocaleString()} · {runs[0].dryRun ? '試跑' : '正式執行'}{runs[0].stopped ? ' · 已停止' : ''}</p><MultiTcResults results={runs[0].results} dryRun={runs[0].dryRun} /></div>}
         </main>
       </div>
