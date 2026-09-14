@@ -1247,3 +1247,35 @@
 .uat-script-risks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .uat-script-risks p { overflow-wrap: anywhere; }
 @media (max-width: 760px) { .uat-script-risks { grid-template-columns: 1fr; } }
+
+/* ===== 錄製腳本清單：上下留白 + 結果卡配色（v4.145.0） =====
+   使用者回報「按鈕都太過貼合」「PASS / FAIL 缺少顏色區別」。 */
+
+/* `.uat-tc-record-actions` 原本只有欄與欄之間的 gap，**上下完全沒有間距**，
+   所以「錄製腳本／重新整理」「全選搜尋結果／清除選取」兩排會跟上下的說明文字、
+   搜尋框黏成一塊。 */
+.uat-tc-record-actions { margin: 10px 0; }
+.uat-tc-record-actions:first-child { margin-top: 0; }
+/* 搜尋框自己已經有 margin-top，上面那排又加了 margin-bottom 會疊起來——
+   ⚠️ 相鄰的 block margin 在這裡**不會**合併（父層是 flex），所以要自己收掉 */
+.uat-tc-record-actions + .uat-field { margin-top: 0; }
+/* 「已選 N 份」那行原本緊貼在按鈕下緣 */
+.uat-tc-record-actions + small,
+.uat-field + small { display: block; margin-top: 8px; }
+
+/* 腳本列之間 4px 太密，勾選框又讓每列變高，看起來是連在一起的一整塊 */
+.uat-backend-all-tcs { gap: 7px; }
+.uat-script-select-row { padding: 1px 0; }
+
+/* ── 結果卡：PASS / FAIL 本來就有顏色 class，只是元件沒套上去 ──
+   ⚠️ 這跟 v4.143.1 那批裸 `.uat-btn` 是同一個毛病：樣式早就寫好了，
+   render 的時候沒帶 class，所以五張卡長得一模一樣。
+   底下這兩條是原本缺的（完成腳本／預設沒有對應的 class）。 */
+.uat-stat.is-done { border-left-color: var(--uat-primary); }
+.uat-stat.is-done strong { color: var(--uat-primary); }
+/* 數字是 0 時只把「數字」轉灰——0 個失敗不需要跟真的有失敗時一樣搶眼。
+   ⚠️ 左邊色條**不能**跟著轉灰：使用者回報「缺少顏色區別」時畫面正好全是 0，
+   連色條一起灰掉的話，正是他抱怨的那個狀態下五張卡還是長得一模一樣。 */
+.uat-stat.is-zero strong { color: var(--uat-muted); }
+/* 「舊版 TC 模式」切換鈕原本直接貼著底下的 SCRIPT LIBRARY 標題 */
+.uat-backend-plan > .uat-btn:first-child { margin-bottom: 12px; }

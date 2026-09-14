@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.144.2'
+export const APP_VERSION = '4.145.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.145.0', date: '2026-09-14', changes: ['fix(uat): 錄製腳本清單的按鈕與清單列補上上下間距（原本多處是 0px 完全貼合）', 'fix(uat): PASS／FAIL／待確認 結果卡套上顏色——顏色 class 早就存在，只是 render 時沒帶上去；值為 0 時只把數字轉灰、色條保留，避免全 0 時五張卡仍長得一樣'] },
   { version: '4.144.2', date: '2026-09-14', changes: ['fix(gemini): 程式碼的 fallback 模型 gemini-2.0-flash 已被 Google 下架（generateContent 回 404），任何沒設 GEMINI_MODEL 的環境每一次呼叫都會失敗；9 處改成 gemini-2.5-flash，Discord bot 候選清單也一併換掉'] },
   { version: '4.144.1', date: '2026-09-14', changes: ['fix(testcase): 加編號前綴可信度檢查（CodeX review）——前綴打錯字會靜默變成新分組，依前綴重編號會把它當獨立系列乖乖編號；現在會警告但不自動改'] },
   { version: '4.144.0', date: '2026-09-14', changes: ['feat(testcase): 規格書超過 12000 字改成分批送 Gemini 再合併，不再靜默砍掉超出的部分', 'fix(testcase): extractJsonBlock 容忍「只有開頭沒有收尾」的 ```json fence——原本截斷時 fence 會擋住截斷修復那層，三層修復全部失效', 'fix(testcase): 合併後依前綴分組重編號（POS_/NEG_/BND_ 各自編），前綴帶語意不可壓成同一種；某批失敗保留其他批但明確標示結果不完整'] },

@@ -61,7 +61,24 @@ export function RecordedScriptBatch({ scripts, selectedIds, onOrder, agentId, ru
     } catch (e) { setMessage(`後續派工已取消，但停止目前腳本失敗：${String(e)}。請再按停止。`) }
   }
   return <>
-    <div className="uat-stat-grid">{[['PASS', all.filter(r => r.outcome === 'pass').length], ['FAIL', all.filter(r => r.outcome === 'fail').length], ['待確認／受阻', risks[1].rows.length], ['完成腳本', entries.filter(e => e.state === 'done').length], ['耗時（秒）', Math.round(entries.reduce((sum, e) => sum + (e.durationMs || 0), 0) / 1000)]].map(([label, value]) => <article className="uat-stat" key={label}><span>{label}</span><strong>{value}</strong></article>)}</div>
+    {/* ⚠️ 五張卡原本全是 `className="uat-stat"`——而 `.uat-stat.is-pass/.is-fail/.is-manual`
+        的顏色 CSS 早就存在，只是 render 時沒帶 class，所以長得一模一樣（使用者回報
+        「PASS / FAIL 缺少顏色區別」）。跟 v4.143.1 那批裸 `.uat-btn` 是同一個毛病。 */}
+    <div className="uat-stat-grid">{([
+      ['PASS', all.filter(r => r.outcome === 'pass').length, 'is-pass'],
+      ['FAIL', all.filter(r => r.outcome === 'fail').length, 'is-fail'],
+      ['待確認／受阻', risks[1].rows.length, 'is-manual'],
+      ['完成腳本', entries.filter(e => e.state === 'done').length, 'is-done'],
+      ['耗時（秒）', Math.round(entries.reduce((sum, e) => sum + (e.durationMs || 0), 0) / 1000), 'is-time'],
+    ] as [string, number, string][]).map(([label, value, tone]) => (
+      // 0 的時候降存在感：0 個失敗不需要跟真的有失敗時一樣搶眼
+      // ⚠️ tone 一律套上，is-zero 只額外把「數字」轉灰。
+      // 早期寫成 `value === 0 ? 'is-zero' : tone` —— 但使用者回報時畫面正好全是 0，
+      // 那樣等於在他抱怨的那個狀態下五張卡依然長得一模一樣。
+      <article className={`uat-stat ${tone}${value === 0 ? ' is-zero' : ''}`} key={label}>
+        <span>{label}</span><strong>{value}</strong>
+      </article>
+    ))}</div>
     <section className="uat-panel uat-risk-queue">
       <div className="uat-section-title"><span>SCRIPT QUEUE</span><h3>腳本執行順序 <small>{selectedIds.length} 份</small></h3><p>由上往下逐份執行。可只勾選一份；上下移動可調整優先順序。</p></div>
       <ol className="uat-script-order">{selectedIds.map((id, i) => <li key={id}><span>{selected[i]?.title || '腳本已不存在，請移除'}</span><div>{[-1, 1].map(delta => <button className="uat-btn is-quiet" key={delta} disabled={locked || i + delta < 0 || i + delta >= selectedIds.length} aria-label={`${selected[i]?.title || id}${delta < 0 ? '優先' : '延後'}`} onClick={() => { const next = [...selectedIds]; [next[i], next[i + delta]] = [next[i + delta], next[i]]; onOrder(next) }}>{delta < 0 ? '上移' : '下移'}</button>)}<button className="uat-btn is-quiet" disabled={locked} onClick={() => onOrder(selectedIds.filter(key => key !== id))}>移除</button></div></li>)}</ol>
