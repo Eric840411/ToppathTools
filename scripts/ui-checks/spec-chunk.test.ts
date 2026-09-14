@@ -14,6 +14,7 @@ import {
   renumberCases,
   describeBatchOutcome,
   runBatched,
+  checkPrefixConsistency,
 } from '../../server/lib/spec-chunk.ts'
 
 let pass = 0
@@ -179,6 +180,45 @@ const arrOf = (...ids: string[]) => ids.map(id => ({ 編號: id }))
     return { feature_name: '後來才有的名稱', test_cases: arrOf('J_001') }
   })
   eq('第一批失敗時仍取得到後面的 feature_name', r.featureName, '後來才有的名稱')
+}
+
+// ── 前綴可信度（CodeX review 提的防線）──────────────────────────────────────
+// 這條防的是「打錯字變成新分組」：POS_ROOM_ 打成 POS_ROMO_ 時，依前綴分組會把它當成
+// 全新系列乖乖從 001 編起，編號看起來完全正常，沒有任何地方會說那是打錯字。
+{
+  const clean = [
+    { 編號: 'POS_ROOM_001', 測試類型: '正面測試' },
+    { 編號: 'NEG_LOBBY_001', 測試類型: '負面測試' },
+    { 編號: 'BND_BAL_001', 測試類型: '邊界測試' },
+  ]
+  eq('前綴與測試類型一致時不報', checkPrefixConsistency(clean), [])
+}
+{
+  // 前綴說正面、欄位說負面 → 其中一個是錯的，人要知道
+  const bad = [{ 編號: 'POS_ROOM_001', 測試類型: '負面測試' }]
+  const issues = checkPrefixConsistency(bad)
+  eq('前綴與測試類型對不上會報', issues.map(i => i.kind), ['type_mismatch'])
+  eq('訊息講得出哪裡對不上', issues[0]?.detail?.includes('負面測試') ?? false, true)
+}
+{
+  // 第一段不是 POS/NEG/BND
+  const issues = checkPrefixConsistency([{ 編號: 'XXX_ROOM_001', 測試類型: '正面測試' }])
+  eq('未知的第一段會報', issues.map(i => i.kind), ['unknown_type'])
+}
+{
+  // 打錯字：25 筆正常 + 1 筆 POS_ROMO_
+  const many = [
+    ...Array.from({ length: 25 }, () => ({ 編號: 'POS_ROOM_001', 測試類型: '正面測試' })),
+    { 編號: 'POS_ROMO_001', 測試類型: '正面測試' },
+  ]
+  const issues = checkPrefixConsistency(many)
+  eq('只出現一次的異類前綴會被點名', issues.some(i => i.kind === 'rare_prefix' && i.prefix === 'POS_ROMO_'), true)
+  // ⚠️ 只回報不自動改——改成 POS_ROOM_ 是猜測，猜錯就是竄改資料
+  eq('檢查不會動到資料', renumberCases(many)[25].編號, 'POS_ROMO_001')
+}
+{
+  // 沒編號的模板不該被這條檢查騷擾
+  eq('沒有編號時不報', checkPrefixConsistency([{ 測試標題: 'x' } as never]), [])
 }
 
 console.log('')

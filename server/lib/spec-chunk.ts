@@ -163,3 +163,78 @@ export async function runBatched<T>(
   }
   return { collected, featureName, failures }
 }
+
+/**
+ * 編號前綴第一段 ↔ 測試類型 的對照。
+ *
+ * ⚠️ **只對得起第一段**。真實資料實測的第二段是「功能模組」的縮寫而不是「類別」
+ * （ENT／BAL／DRW／PAY／CON／SYS／LOT…，一次就出現 12 種），模型自己發明、沒有固定集合，
+ * 所以第二段**不做比對**——硬要比只會產生一堆假警告，久了就沒人看警告了。
+ */
+const TYPE_BY_PREFIX: Record<string, string> = {
+  POS: '正面測試',
+  NEG: '負面測試',
+  BND: '邊界測試',
+}
+
+export interface PrefixIssue {
+  kind: 'unknown_type' | 'type_mismatch' | 'rare_prefix'
+  prefix: string
+  detail: string
+}
+
+/**
+ * 檢查編號前綴是否可信（CodeX review 提的防線：不要只相信模型給的 prefix）。
+ *
+ * 🚨 這條防的是**打錯字變成新分組**：模型把 `POS_ROOM_` 打成 `POS_ROMO_` 時，
+ * 依前綴分組的重編號會把它當成一個全新的系列、乖乖從 001 編起——
+ * **編號看起來完全正常，沒有任何地方會說那是同一組打錯字的**。
+ *
+ * ⚠️ 只回報、**不自動改**。把 `POS_ROMO_` 改成 `POS_ROOM_` 是猜測，猜錯就是竄改資料；
+ * 而打錯字這件事本來就該讓人看到，不是默默補好。
+ */
+export function checkPrefixConsistency(
+  cases: { 編號?: unknown; 測試類型?: unknown }[],
+): PrefixIssue[] {
+  const issues: PrefixIssue[] = []
+  const counts = new Map<string, number>()
+  for (const c of cases) {
+    const p = parseCaseNumber(c?.編號)
+    if (p) counts.set(p.prefix, (counts.get(p.prefix) ?? 0) + 1)
+  }
+
+  const seenBadType = new Set<string>()
+  const seenMismatch = new Set<string>()
+  for (const c of cases) {
+    const p = parseCaseNumber(c?.編號)
+    if (!p) continue
+    const head = p.prefix.split(/[_-]/)[0]?.toUpperCase() ?? ''
+    const expected = TYPE_BY_PREFIX[head]
+    if (!expected) {
+      if (!seenBadType.has(p.prefix)) {
+        seenBadType.add(p.prefix)
+        issues.push({ kind: 'unknown_type', prefix: p.prefix, detail: `前綴第一段「${head}」不是 POS／NEG／BND` })
+      }
+      continue
+    }
+    const actual = typeof c?.測試類型 === 'string' ? c.測試類型.trim() : ''
+    if (actual && actual !== expected && !seenMismatch.has(p.prefix + actual)) {
+      seenMismatch.add(p.prefix + actual)
+      issues.push({
+        kind: 'type_mismatch', prefix: p.prefix,
+        detail: `前綴是 ${head}（應為「${expected}」）但測試類型欄位寫「${actual}」`,
+      })
+    }
+  }
+
+  // 只出現一兩次、而別的前綴有一大票 → 多半是打錯字打出來的新分組
+  const total = [...counts.values()].reduce((a, b) => a + b, 0)
+  if (counts.size > 1 && total >= 20) {
+    for (const [prefix, n] of counts) {
+      if (n <= 1 && total / counts.size >= 3) {
+        issues.push({ kind: 'rare_prefix', prefix, detail: `只出現 ${n} 次（其餘前綴平均 ${(total / counts.size).toFixed(1)} 次），可能是打錯字` })
+      }
+    }
+  }
+  return issues
+}

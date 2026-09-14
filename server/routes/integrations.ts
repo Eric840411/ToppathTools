@@ -42,7 +42,7 @@ import { readAccounts } from '../shared.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { getAuthAccount } from '../auth-session.js'
 import { getOperatorFromContext } from '../request-context.js'
-import { splitSpecIntoChunks, renumberCases, describeBatchOutcome, runBatched } from '../lib/spec-chunk.js'
+import { splitSpecIntoChunks, renumberCases, describeBatchOutcome, runBatched, checkPrefixConsistency } from '../lib/spec-chunk.js'
 
 export const router = Router()
 
@@ -357,6 +357,12 @@ const generateWithGemini = async (
 
   // ⚠️ 每批都會自己從 001 開始編號，合併後整批重號——而重號在畫面上看起來完全正常
   // （每筆都有編號、格式也對），是最難用肉眼發現的壞法。所以由程式統一重編。
+  // CodeX review 的防線：不要只相信模型給的 prefix。打錯字會靜默變成一個新分組，
+  // 而依前綴分組的重編號會把它當成獨立系列乖乖編號——編號看起來完全正常。
+  // ⚠️ 只警告不自動改：把 POS_ROMO_ 改成 POS_ROOM_ 是猜測，猜錯就是竄改資料。
+  for (const issue of checkPrefixConsistency(collected as { 編號?: unknown; 測試類型?: unknown }[])) {
+    console.warn(`[TestCase] ⚠️ 編號前綴可疑（${issue.kind}）：${issue.prefix} — ${issue.detail}`)
+  }
   const renumbered = renumberCases(collected as { 編號?: unknown }[])
   const note = describeBatchOutcome({ total: chunks.length, succeeded: chunks.length - failures.length, failures })
   if (note) {

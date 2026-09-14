@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.144.0'
+export const APP_VERSION = '4.144.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.144.1', date: '2026-09-14', changes: ['fix(testcase): 加編號前綴可信度檢查（CodeX review）——前綴打錯字會靜默變成新分組，依前綴重編號會把它當獨立系列乖乖編號；現在會警告但不自動改'] },
   { version: '4.144.0', date: '2026-09-14', changes: ['feat(testcase): 規格書超過 12000 字改成分批送 Gemini 再合併，不再靜默砍掉超出的部分', 'fix(testcase): extractJsonBlock 容忍「只有開頭沒有收尾」的 ```json fence——原本截斷時 fence 會擋住截斷修復那層，三層修復全部失效', 'fix(testcase): 合併後依前綴分組重編號（POS_/NEG_/BND_ 各自編），前綴帶語意不可壓成同一種；某批失敗保留其他批但明確標示結果不完整'] },
   { version: '4.143.2', date: '2026-09-14', changes: ['chore(testcase): 加上 Gemini 回應診斷 log（finishReason／parts 數／token 用量）與規格書截斷量，用來查「回傳格式非合法 JSON」的真正成因；純新增 log，不改任何行為'] },
   { version: '4.143.1', date: '2026-09-13', changes: ['fix(uat): 錄製腳本工作台的 10 顆主要動作補上按鈕外框——原本是裸 uat-btn（透明框＋透明底），看起來像純文字；主要動作改 is-primary、其餘 is-quiet', 'fix(uat): 彈窗內寫死的離群綠改走 --uat-primary，修仙版跟著玄月青、普通版跟著藍；提示條原本沒有主題前綴，兩個模式都是薄荷綠', 'fix(uat): 腳本名稱輸入框加寬度上限（原本 1440 下 1063px，把儲存鈕推到 1000px 之外）；「各 TC 對照」補空狀態說明'] },
