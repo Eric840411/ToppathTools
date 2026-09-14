@@ -26,7 +26,7 @@ async function askGemini(prompt: string): Promise<string> {
   if (!key) throw new Error('未設定 GEMINI_API_KEY')
 
   // Discord bot 優先用 2.0-flash（額度高），fallback 到 1.5-flash
-  const models = ['gemini-2.0-flash', 'gemini-1.5-flash']
+  const models = ['gemini-2.5-flash', 'gemini-flash-latest']
 
   for (const model of models) {
     const resp = await fetch(

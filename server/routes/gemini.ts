@@ -305,7 +305,7 @@ function probeUpdateStatus(label: string, error: string | null) {
 /** Dispatches a Gemini call through a per-key rate limiter with error fallback.
  *  Always starts from key[0]; falls back to next key only on RESOURCE_EXHAUSTED/429/503. */
 export const callGeminiWithRotation = (prompt: string): Promise<string> => {
-  const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
+  const model = process.env.GEMINI_MODEL ?? 'gemini-2.5-flash'
   const taskId = startAiTask('gemini', 'text', model)
 
   const keyEntries = resolveGeminiKeyEntries()
@@ -339,7 +339,7 @@ export const _callGeminiWithRotation = async (prompt: string, startIndex?: numbe
   const keyEntries = resolveGeminiKeyEntries()
 
   if (keyEntries.length === 0) throw new Error('沒有可用的 Gemini API Key，請在設定中新增')
-  const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
+  const model = process.env.GEMINI_MODEL ?? 'gemini-2.5-flash'
 
   const _startIndex = (startIndex ?? 0) % keyEntries.length
 
@@ -551,7 +551,7 @@ export const callGeminiVision = async (
 ): Promise<string> => {
   const keyEntries = resolveGeminiVisionKeyEntries(ownerEmail, personalKeyOverride)
   if (keyEntries.length === 0) throw new Error('沒有可用的 Gemini API Key，請至 AI 模型設定 > 個人 Key 新增 Gemini Key')
-  const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
+  const model = process.env.GEMINI_MODEL ?? 'gemini-2.5-flash'
   const taskId = startAiTask('gemini', 'vision', model)
   const failures: string[] = []
   activateAiTask(taskId)
@@ -630,7 +630,7 @@ export const callGeminiVisionMulti = async (
 ): Promise<string> => {
   const keyEntries = resolveGeminiVisionKeyEntries(ownerEmail, personalKeyOverride)
   if (keyEntries.length === 0) throw new Error('沒有可用的 Gemini API Key，請至 AI 模型設定 > 個人 Key 新增 Gemini Key')
-  const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
+  const model = process.env.GEMINI_MODEL ?? 'gemini-2.5-flash'
   const taskId = startAiTask('gemini', 'vision-multi', model)
   const failures: string[] = []
   activateAiTask(taskId)
@@ -930,7 +930,7 @@ router.post('/api/gemini/probe', heavyLimiter, async (_req, res) => {
   const envKey = process.env.GEMINI_API_KEY ?? ''
   const keys: { label: string; key: string }[] = [...stored]
   if (envKey) keys.push({ label: 'env', key: envKey })
-  const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
+  const model = process.env.GEMINI_MODEL ?? 'gemini-2.5-flash'
   const results = await Promise.all(keys.map(async ({ label, key }) => {
     try {
       const resp = await fetch(

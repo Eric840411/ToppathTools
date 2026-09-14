@@ -415,7 +415,7 @@ router.post('/api/image-check/parse-screenshot', async (req, res) => {
     ]
     if (keyEntries.length === 0) return res.status(400).json({ ok: false, message: 'missing Gemini API key' })
 
-    const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
+    const model = process.env.GEMINI_MODEL ?? 'gemini-2.5-flash'
     const prompt = `This is a screenshot of a git diff or version control UI showing file changes.
 Extract ALL file paths that are marked as "deleted" (shown in red, labeled "deleted", or with a "D" indicator).
 Return ONLY a JSON array of strings. Example: ["assets/foo.png","assets/bar.webp"]

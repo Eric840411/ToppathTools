@@ -20,7 +20,7 @@ const callOllamaVisionAgent = async (prompt: string, imageBase64: string, model:
 const geminiGenerate = async (parts: unknown[]): Promise<string> => {
   const key = process.env.GEMINI_API_KEY ?? ''
   if (!key) throw new Error('GEMINI_API_KEY 環境變數未設定（請在 start.bat 中加入 set GEMINI_API_KEY=...）')
-  const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
+  const model = process.env.GEMINI_MODEL ?? 'gemini-2.5-flash'
   const resp = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
     {

@@ -804,7 +804,7 @@ ${errcodeDetail}
 - 本期間（約 ${periodMinutes.toFixed(1)} 分鐘）：Spin ${period.spinCount} 次、errcode ${Object.values(period.errcodeCounts ?? {}).reduce((a, b) => a + b, 0)} 次、RECOVER ${period.recoverCount} 次`
 
   const { key } = keyEntries[0]
-  const model = process.env.GEMINI_MODEL ?? 'gemini-2.0-flash'
+  const model = process.env.GEMINI_MODEL ?? 'gemini-2.5-flash'
   try {
     const resp = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`,
