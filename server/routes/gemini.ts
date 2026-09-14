@@ -352,7 +352,7 @@ export const _callGeminiWithRotation = async (prompt: string, startIndex?: numbe
     // 429/RESOURCE_EXHAUSTED rotates to the next key (quota issue, key-specific)
     let attempt503 = 0
     let resp: Response
-    let data: { candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[]; error?: { code?: number; message?: string; status?: string } }
+    let data: { candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[]; usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number }; error?: { code?: number; message?: string; status?: string } }
 
     while (true) {
       resp = await fetch(
@@ -403,8 +403,27 @@ export const _callGeminiWithRotation = async (prompt: string, startIndex?: numbe
       recordGeminiError(label, errMsg)
       throw new Error(`Gemini API 錯誤 (${resp.status}): ${data.error?.message ?? '未知錯誤'}`)
     }
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text
-    if (!text) throw new Error(`Gemini 回傳空結果，finishReason: ${data.candidates?.[0]?.finishReason ?? 'unknown'}`)
+    const cand = data.candidates?.[0]
+    const text = cand?.content?.parts?.[0]?.text
+    // ⚠️ 診斷用：回應「不完整但非空」時，這裡是唯一能分辨原因的地方。
+    // finishReason 原本只在 text 完全為空時才讀（見下一行），所以
+    // MAX_TOKENS／SAFETY／RECITATION 造成的半截回應會被當成正常結果送下去，
+    // 之後在 JSON.parse 才爆掉，錯誤訊息卻只說「格式非合法」——指錯方向。
+    const parts = cand?.content?.parts
+    const usage = data.usageMetadata
+    console.log(
+      `[Gemini] model=${model} finishReason=${cand?.finishReason ?? 'unknown'}`
+      + ` parts=${parts?.length ?? 0} textChars=${text?.length ?? 0}`
+      + ` promptTok=${usage?.promptTokenCount ?? '-'} outTok=${usage?.candidatesTokenCount ?? '-'}`
+      + ` thoughtsTok=${usage?.thoughtsTokenCount ?? '-'}`,
+    )
+    if (cand?.finishReason && cand.finishReason !== 'STOP') {
+      console.warn(`[Gemini] ⚠️ finishReason=${cand.finishReason}（非 STOP）——回應可能不完整，後續 JSON 解析若失敗，原因在這裡而不是格式`)
+    }
+    if ((parts?.length ?? 0) > 1) {
+      console.warn(`[Gemini] ⚠️ 回應有 ${parts!.length} 個 part，但目前只取 parts[0]，其餘 ${parts!.length - 1} 個被丟棄`)
+    }
+    if (!text) throw new Error(`Gemini 回傳空結果，finishReason: ${cand?.finishReason ?? 'unknown'}`)
     recordGeminiSuccess(label)
     return text
   }

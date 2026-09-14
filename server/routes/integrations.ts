@@ -271,8 +271,18 @@ const generateWithGemini = async (
     jira_issues: jiraJson,
     ...extraVars,
   })
+  // ⚠️ 診斷用：規格書超過 12000 字的部分是**靜默丟掉**的（上面三個 slice），
+  // 生成會照樣「成功」，但 AI 只看過前面一段——不印出來的話沒有任何地方查得到。
+  const SPEC_LIMIT = 12000
+  const dropped = Math.max(0, docContent.length - SPEC_LIMIT)
+  console.log(
+    `[TestCase] 規格書 ${docContent.length} 字 → 實際送出 ${Math.min(docContent.length, SPEC_LIMIT)} 字`
+    + (dropped > 0 ? `（⚠️ 丟棄 ${dropped} 字，AI 沒看到這部分）` : '（未截斷）')
+    + ` | prompt 全長 ${prompt.length} 字`,
+  )
+
   const raw = await callLLM(prompt, modelSpec)
-  console.log('[TestCase] Gemini 原始回傳前 300 字：', raw.slice(0, 300))
+  console.log(`[TestCase] Gemini 原始回傳 ${raw.length} 字，前 300 字：`, raw.slice(0, 300))
 
   const extracted = extractJsonBlock(raw)
   try {
