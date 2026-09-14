@@ -42,6 +42,7 @@ import { readAccounts } from '../shared.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { getAuthAccount } from '../auth-session.js'
 import { getOperatorFromContext } from '../request-context.js'
+import { splitSpecIntoChunks, renumberCases, describeBatchOutcome, runBatched } from '../lib/spec-chunk.js'
 
 export const router = Router()
 
@@ -102,6 +103,12 @@ interface GenerateApiResult {
   csvFilename?: string
   csvFormat?: 'testcase' | 'jira' | 'dynamic'
   jobId?: string
+  /**
+   * 規格書分批生成時的結果摘要。
+   * ⚠️ 有某批失敗時，這是唯一會說「結果不完整」的欄位——沒有它的話，
+   * 畫面上只會看到「生成 N 筆」，看不出少了哪幾段的案例。
+   */
+  batchNote?: string
 }
 
 // ─── SSE Job Store ────────────────────────────────────────────────────────────
@@ -190,6 +197,12 @@ function extractJsonArray(raw: string): string {
 function extractJsonBlock(raw: string): string {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/i)
   if (fenced) return fenced[1].trim()
+  // ⚠️ 上面那條要求 fence **成對**。回應被截斷時只有開頭的 ```json、沒有收尾，
+  // 配不到就會整段（含 fence）往下走，於是 repairTruncatedArray 的
+  // `startsWith('[')` 永遠不成立——專門處理截斷的那層被 fence 擋在門外，等於沒作用。
+  // 這裡先把「只有開頭」的 fence 剝掉，截斷修復才接得到。
+  const openFence = /^\s*```(?:json)?[ \t]*\r?\n?/i.exec(raw)
+  if (openFence) raw = raw.slice(openFence[0].length)
   const objStart = raw.indexOf('{')
   const arrStart = raw.indexOf('[')
   let start = -1
@@ -249,41 +262,11 @@ function repairTruncatedArray(json: string): string {
   return trimmed.slice(0, lastClose + 1) + ']'
 }
 
-const generateWithGemini = async (
-  docContent: string,
-  promptId?: string,
-  jiraIssues?: object[],
-  modelSpec?: string,
-  extraVars?: Record<string, string>,
-): Promise<TestCase[] | JiraTestCaseResult> => {
-  const prompts = readGeminiPrompts()
-  const tpl = (promptId ? prompts.find(p => p.id === promptId) : null)
-    ?? prompts.find(p => p.id === 'testcase-default')
-    ?? prompts.find(p => p.id === 'default')
-    ?? prompts[0]
-  if (!tpl) throw new Error('找不到可用的 Prompt 模板')
+/** 規格書送進 prompt 的單批上限。超過就分批（原本是直接 slice 掉，見下方註解）。 */
+const SPEC_LIMIT = 12000
 
-  const jiraJson = jiraIssues && jiraIssues.length > 0 ? JSON.stringify(jiraIssues, null, 2) : '[]'
-  const prompt = renderPrompt(tpl.template, {
-    rawText: docContent.slice(0, 12000),
-    docContent: docContent.slice(0, 12000),
-    specText: docContent.slice(0, 12000),   // alias used by testcase-second-pass
-    jira_issues: jiraJson,
-    ...extraVars,
-  })
-  // ⚠️ 診斷用：規格書超過 12000 字的部分是**靜默丟掉**的（上面三個 slice），
-  // 生成會照樣「成功」，但 AI 只看過前面一段——不印出來的話沒有任何地方查得到。
-  const SPEC_LIMIT = 12000
-  const dropped = Math.max(0, docContent.length - SPEC_LIMIT)
-  console.log(
-    `[TestCase] 規格書 ${docContent.length} 字 → 實際送出 ${Math.min(docContent.length, SPEC_LIMIT)} 字`
-    + (dropped > 0 ? `（⚠️ 丟棄 ${dropped} 字，AI 沒看到這部分）` : '（未截斷）')
-    + ` | prompt 全長 ${prompt.length} 字`,
-  )
-
-  const raw = await callLLM(prompt, modelSpec)
-  console.log(`[TestCase] Gemini 原始回傳 ${raw.length} 字，前 300 字：`, raw.slice(0, 300))
-
+/** 解析一次 Gemini 回傳。三層修復都失敗才丟錯。 */
+function parseGeminiJson(raw: string, batchLabel: string): TestCase[] | JiraTestCaseResult {
   const extracted = extractJsonBlock(raw)
   try {
     return JSON.parse(extracted)
@@ -294,13 +277,96 @@ const generateWithGemini = async (
       return JSON.parse(sanitized)
     } catch {
       // Pass 3: truncated response — cut at last complete object
+      const repaired = repairTruncatedArray(sanitized)
       try {
-        return JSON.parse(repairTruncatedArray(sanitized))
+        const out = JSON.parse(repaired)
+        // ⚠️ 這條路徑代表回應被截斷、我們砍掉最後一個不完整的物件把它救回來。
+        // 不印出來的話，使用者會拿到「成功但少筆數」的結果而完全不知情——
+        // 對產測試案例來說，少幾筆而不自知比直接報錯更危險。
+        console.warn(
+          `[TestCase] ⚠️ ${batchLabel} 回應被截斷，已砍掉最後一筆不完整的資料救回`
+          + `${Array.isArray(out) ? ` ${out.length} 筆` : ''}`
+          + `（原始 ${raw.length} 字 → 可解析 ${repaired.length} 字）。實際筆數可能少於 AI 原本要產出的。`,
+        )
+        return out
       } catch {
         throw new Error(`Gemini 回傳格式非合法 JSON：${extracted.slice(0, 300)}`)
       }
     }
   }
+}
+
+const generateWithGemini = async (
+  docContent: string,
+  promptId?: string,
+  jiraIssues?: object[],
+  modelSpec?: string,
+  extraVars?: Record<string, string>,
+  onBatchNote?: (note: string) => void,
+): Promise<TestCase[] | JiraTestCaseResult> => {
+  const prompts = readGeminiPrompts()
+  const tpl = (promptId ? prompts.find(p => p.id === promptId) : null)
+    ?? prompts.find(p => p.id === 'testcase-default')
+    ?? prompts.find(p => p.id === 'default')
+    ?? prompts[0]
+  if (!tpl) throw new Error('找不到可用的 Prompt 模板')
+
+  const jiraJson = jiraIssues && jiraIssues.length > 0 ? JSON.stringify(jiraIssues, null, 2) : '[]'
+  const callOnce = async (spec: string, batchLabel: string) => {
+    const prompt = renderPrompt(tpl.template, {
+      rawText: spec,
+      docContent: spec,
+      specText: spec,   // alias used by testcase-second-pass
+      jira_issues: jiraJson,
+      ...extraVars,
+    })
+    const raw = await callLLM(prompt, modelSpec)
+    console.log(`[TestCase] ${batchLabel} Gemini 回傳 ${raw.length} 字，前 200 字：`, raw.slice(0, 200))
+    return parseGeminiJson(raw, batchLabel)
+  }
+
+  // ⚠️ 先前這裡是 `docContent.slice(0, 12000)`——超過的部分**靜默丟掉**，生成照樣顯示
+  // 成功，但 AI 只看過前面一段，後半的需求一條測試案例都沒有，而且沒有任何地方查得到。
+  // 現在改成分批送再合併（2026-09-14 跟 CodeX 討論定案：段落切、不重疊、合併後重編號、
+  // 某批失敗保留其他批但要明講）。
+  const chunks = splitSpecIntoChunks(docContent, SPEC_LIMIT)
+  console.log(`[TestCase] 規格書 ${docContent.length} 字 → 切成 ${chunks.length} 批（單批上限 ${SPEC_LIMIT} 字）`)
+
+  if (chunks.length <= 1) {
+    // 沒超過上限：行為跟以前完全一樣，不走分批邏輯
+    return callOnce(chunks[0] ?? docContent, '單批')
+  }
+
+  // ⚠️ 迴圈本體抽在 server/lib/spec-chunk.ts（有測試）——「合併」與「部分失敗」
+  // 這兩條路徑留在 route 裡的話只能靠肉眼看。
+  const { collected, featureName, failures } = await runBatched<TestCase | JiraTestCase>(
+    chunks,
+    async (chunk, label) => {
+      try {
+        return await callOnce(chunk, label)
+      } catch (e) {
+        console.error(`[TestCase] ⚠️ ${label} 失敗：${e instanceof Error ? e.message : String(e)}`)
+        throw e
+      }
+    },
+  )
+
+  if (collected.length === 0) {
+    throw new Error(`規格書分 ${chunks.length} 批生成，全部失敗。最後一個原因：${failures.at(-1)?.error ?? '未知'}`)
+  }
+
+  // ⚠️ 每批都會自己從 001 開始編號，合併後整批重號——而重號在畫面上看起來完全正常
+  // （每筆都有編號、格式也對），是最難用肉眼發現的壞法。所以由程式統一重編。
+  const renumbered = renumberCases(collected as { 編號?: unknown }[])
+  const note = describeBatchOutcome({ total: chunks.length, succeeded: chunks.length - failures.length, failures })
+  if (note) {
+    console.log(`[TestCase] ${note}`)
+    onBatchNote?.(note)
+  }
+
+  return featureName
+    ? { feature_name: featureName, test_cases: renumbered as unknown as JiraTestCase[] }
+    : renumbered as unknown as TestCase[]
 }
 
 /** 在指定資料夾動態建立新的 Bitable，並設定好所需欄位，回傳 appToken / tableId / url */
@@ -2282,15 +2348,18 @@ export async function runGenerateTestcasesFileJob(params: {
 
   const sourceLabel = fileNames.join(', ')
   log('info', params.clientIp, params.user, 'TestCase file worker started', sourceLabel)
-  const cases = await generateWithGemini(finalContent, promptId, undefined, modelSpec, Object.keys(extraVars).length ? extraVars : undefined)
+  // ⚠️ 分批時若有某批失敗，這個 note 是唯一會告訴使用者「結果不完整」的地方——
+  // 只印 console 的話，畫面會顯示生成成功而看不出少了東西。
+  let batchNote = ''
+  const cases = await generateWithGemini(finalContent, promptId, undefined, modelSpec, Object.keys(extraVars).length ? extraVars : undefined, n => { batchNote = n })
   const jiraResult = normalizeJiraTestCaseResult(cases)
   if (jiraResult) {
     const { written, bitableUrl, featureName } = await writeJiraTestCasesToBitable(jiraResult, sourceLabel)
     const csv = createJiraTestCaseCsvArtifact(jiraResult, sourceLabel)
     const count = jiraResult.test_cases.length
     log('ok', params.clientIp, params.user, 'TestCase file worker completed (Jira format)', `generated ${count}, written ${written}`)
-    addHistory('testcase', `TestCase 生成 - ${sourceLabel}`, `生成 ${count} 筆，寫入 ${written} 筆`, { sourceLabel, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvFormat: csv.format }, { operator: fileJobOperator })
-    return { ok: true, generated: count, written, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format }
+    addHistory('testcase', `TestCase 生成 - ${sourceLabel}`, `生成 ${count} 筆，寫入 ${written} 筆${batchNote ? `｜${batchNote}` : ''}`, { sourceLabel, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvFormat: csv.format }, { operator: fileJobOperator })
+    return { ok: true, generated: count, written, cases: jiraResult.test_cases, bitableUrl, featureName, format: 'jira', csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format, batchNote }
   }
   if (!usesLegacyTestCaseSchema(promptId)) {
     const dynamicCases = extractGeneratedRows(cases)
@@ -2298,7 +2367,7 @@ export async function runGenerateTestcasesFileJob(params: {
     const { written, bitableUrl } = await writeDynamicTestCasesToBitable(dynamicCases, sourceLabel)
     const csv = createDynamicTestCaseCsvArtifact(dynamicCases, sourceLabel)
     log('ok', params.clientIp, params.user, 'TestCase file worker completed (dynamic schema)', `generated ${dynamicCases.length}, written ${written}`)
-    addHistory('testcase', `TestCase 生成 - ${sourceLabel}`, `生成 ${dynamicCases.length} 筆，寫入 ${written} 筆`, {
+    addHistory('testcase', `TestCase 生成 - ${sourceLabel}`, `生成 ${dynamicCases.length} 筆，寫入 ${written} 筆${batchNote ? `｜${batchNote}` : ''}`, {
       sourceLabel, cases: dynamicCases, bitableUrl, csvFormat: csv.format, promptId,
     }, { operator: fileJobOperator })
     return {
@@ -2321,8 +2390,8 @@ export async function runGenerateTestcasesFileJob(params: {
   const csv = createTestCaseCsvArtifact(casesArr, sourceLabel)
 
   log('ok', params.clientIp, params.user, 'TestCase file worker completed', `generated ${casesArr.length}, written ${written}`)
-  addHistory('testcase', `TestCase 生成 - ${sourceLabel}`, `生成 ${casesArr.length} 筆，寫入 ${written} 筆`, { sourceLabel, cases: casesArr, bitableUrl, csvFormat: csv.format }, { operator: fileJobOperator })
-  return { ok: true, generated: casesArr.length, written, cases: casesArr, bitableUrl, csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format }
+  addHistory('testcase', `TestCase 生成 - ${sourceLabel}`, `生成 ${casesArr.length} 筆，寫入 ${written} 筆${batchNote ? `｜${batchNote}` : ''}`, { sourceLabel, cases: casesArr, bitableUrl, csvFormat: csv.format }, { operator: fileJobOperator })
+  return { ok: true, generated: casesArr.length, written, cases: casesArr, batchNote, bitableUrl, csvContent: csv.content, csvFilename: csv.filename, csvFormat: csv.format }
 }
 
 router.post(
