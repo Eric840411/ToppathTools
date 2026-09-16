@@ -531,6 +531,15 @@ export function backendRecorderScript(options = {}) {
         return why === null ? null : { kind: 'manual', reason: why };
       }],
       ['只記下來，不檢查', '存成變數給後面的積木用', '#64748b', () => ({ kind: 'capture' })],
+      // 標記上傳欄位。使用者看得到的是按鈕或 + 方塊，真正收檔案的是藏起來的 input，
+      // 所以這裡不是記「點到的那個元素」，是從它找出那個 input（findUploadTarget）。
+      ['這裡是上傳欄位', '直接產生一顆上傳積木，素材待選', '#4b8bf5', () => {
+        const r = findUploadTarget(el);
+        // 找不到就當場說清楚並要求重新標記——**不退回結構路徑、不取第一個**，
+        // 那會讓圖靜靜傳到別的欄位，報告上完全看不出來。
+        if (r.error) { alert(r.error); return null; }
+        return { kind: 'upload', selector: r.selector, fieldLabel: r.fieldLabel };
+      }],
     ];
 
     for (const [label, hint, color, make] of options) {
@@ -538,7 +547,12 @@ export function backendRecorderScript(options = {}) {
       b.onclick = (e) => {
         e.preventDefault(); e.stopPropagation();
         const picked = make();
-        if (picked) {
+        if (picked && picked.kind === 'upload') {
+          // 上傳不是斷言，是一顆操作積木——selector 指的是找到的那個 input，
+          // 不是使用者點到的那顆按鈕
+          emit({ action: 'upload_file', selector: picked.selector,
+                 selectorStrategy: 'uploadField', fieldLabel: picked.fieldLabel });
+        } else if (picked) {
           emit({ assertion: picked, selector: d.selector, selectorStrategy: d.strategy,
                  currentValue: value, label: labelOf(el), column: d.column ?? null });
         }
@@ -563,6 +577,93 @@ export function backendRecorderScript(options = {}) {
   }, true);
 
   /** 抓這個元素旁邊的標籤文字，當作 read_block 的 labels */
+  /**
+   * 從使用者標記的那個元素找出「真正收檔案的 input」，並產生一個只命中它的選擇器。
+   *
+   * 為什麼需要這段：使用者看得到的是「Select Video File」那顆按鈕或一個 + 方塊，
+   * 真正的 <input type=file> 是藏起來的兄弟節點（Element UI 的 el-upload 就是這樣）。
+   *
+   * ⚠️ 規則是「**容器邊界**」不是「往上找幾層」（CodeX review）：
+   *    往上找到的容器裡**必須剛好只有一個** file input。0 個或 2 個以上一律停下來，
+   *    **不准繼續往外擴、不准猜一個**——猜錯的後果是圖靜靜傳到別的欄位，
+   *    上傳成功、綠燈、截圖都有，報告上完全看不出來。
+   *    五層只是搜尋上限，不是安全保證。
+   */
+  var UPLOAD_MAX_LEVELS = 5;
+  function findUploadTarget(el) {
+    // ① 直接點到 input 本身
+    var direct = null;
+    if (el.tagName === 'INPUT' && el.type === 'file') direct = el;
+    // ② label 明確關聯
+    if (!direct && el.tagName === 'LABEL') {
+      var forId = el.getAttribute('for');
+      var byFor = forId ? document.getElementById(forId) : el.querySelector('input[type=file]');
+      if (byFor && byFor.tagName === 'INPUT' && byFor.type === 'file') direct = byFor;
+    }
+    if (direct) {
+      var box = direct.closest('.el-upload, .el-form-item, .el-card, td, li') || direct.parentElement;
+      return buildUploadSelector(direct, box || direct.parentElement);
+    }
+    // ③ 往上找容器，第一個「剛好只有一個 file input」的就停
+    var node = el;
+    for (var i = 0; i < UPLOAD_MAX_LEVELS && node; i++) {
+      var found = node.querySelectorAll('input[type=file]');
+      if (found.length === 1) return buildUploadSelector(found[0], node);
+      if (found.length > 1) {
+        return { error: '這個範圍裡有 ' + found.length + ' 個檔案欄位，分不出要傳哪一個。請標記更靠近那個欄位的位置。' };
+      }
+      node = node.parentElement;
+    }
+    return { error: '在這個位置附近（往上 ' + UPLOAD_MAX_LEVELS + ' 層）找不到檔案欄位。請直接標記上傳區塊本身。' };
+  }
+
+  /**
+   * 產生選擇器並**反查確認只命中剛才那一個 input**。
+   *
+   * ⚠️ 用容器的可見文字圈住它（:has-text），不要用結構路徑——
+   *    同一頁的兩塊上傳區結構常常一模一樣（H5 Icon / PC Icon），
+   *    結構路徑換個版面就指到另一塊。
+   * ⚠️ :has-text 是 Playwright 的語法，瀏覽器裡沒有，所以這裡用等價的
+   *    DOM 判斷自己驗一次：符合「同類容器 + 含這段文字 + 含 file input」的
+   *    必須剛好一個，而且它的 input 就是剛才找到的那個。
+   */
+  function buildUploadSelector(input, container) {
+    // ⚠️ 找 input 的容器（最內層、剛好只有一個 file input）通常是 .el-upload，
+    //    而它的文字只有「+」——用它去圈根本分不出是哪一塊。
+    //    所以「找 input」跟「取名字」是兩件事：input 已經定了，這裡只是往外找一層
+    //    **文字足以認出它**的祖先。往外找在這裡是安全的，因為最後一定會反查
+    //    「這個選擇器是不是只命中剛才那個 input」——認錯就會被擋下來。
+    var node = container || input.parentElement;
+    for (var level = 0; level < 8 && node && node !== document.body; level++) {
+      var base = null;
+      if (node.classList) {
+        for (var k = 0; k < node.classList.length; k++) {
+          var c = node.classList[k];
+          if (/^(is-|has-|active|show|open|hover|focus)/.test(c)) continue;
+          base = '.' + c; break;
+        }
+      }
+      if (!base) base = node.tagName.toLowerCase();
+      var lines = (node.innerText || '').split('\\n').map(function (x) { return x.trim(); }).filter(Boolean);
+      for (var t = 0; t < lines.length && t < 3; t++) {
+        var text = lines[t];
+        // 「+」「×」這種單字元或純符號認不出東西，跳過
+        if (text.length < 2 || !/[A-Za-z0-9\u4e00-\u9fff]/.test(text)) continue;
+        var same = Array.prototype.filter.call(document.querySelectorAll(base), function (n) {
+          return (n.innerText || '').indexOf(text) >= 0 && n.querySelectorAll('input[type=file]').length > 0;
+        });
+        if (same.length === 1 && same[0].querySelectorAll('input[type=file]')[0] === input) {
+          return {
+            selector: base + ':has-text("' + text.replace(/"/g, '\\\\"') + '") input[type=file]',
+            fieldLabel: text,
+          };
+        }
+      }
+      node = node.parentElement;
+    }
+    return { error: '找不到能唯一認出這個上傳欄位的標題文字。請改標記外面一層（例如含「PC Icon」那張卡）。' };
+  }
+
   function labelOf(el) {
     const own = (el.innerText || '').trim();
     const card = el.closest('.el-card, .el-form-item, td, li') || el.parentElement;
@@ -585,7 +686,7 @@ export function eventsToSteps(events) {
   const steps = [];
   let varSeq = 0;
   for (const ev of events ?? []) {
-    if (['open_page', 'click', 'type_text', 'keypress', 'drag', 'screenshot', 'set_checked', 'select_option', 'wait'].includes(ev.action)) {
+    if (['open_page', 'click', 'type_text', 'keypress', 'drag', 'screenshot', 'set_checked', 'select_option', 'wait', 'upload_file'].includes(ev.action)) {
       steps.push(ev);
       continue;
     }

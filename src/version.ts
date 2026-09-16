@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.150.2'
+export const APP_VERSION = '4.151.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.151.0', date: '2026-09-16', changes: ['feat(uat): 錄製時可以標記上傳欄位——按住 Alt（或開標記模式）點那個上傳區塊，選「這裡是上傳欄位」就直接產生一顆「上傳檔案」積木，selector 與欄位名稱都填好，素材待選。使用者看得到的是按鈕或 + 方塊，真正收檔案的是藏起來的 input，這段由工具自己找', 'fix(uat): 標記那一下會攔住原本的點擊，所以不會跳出作業系統的選檔視窗、也不會多錄一顆沒用的 click', '⚠️ 找 input 的規則是容器邊界不是層數：往上找到的容器裡必須剛好只有一個 file input，0 個或 2 個以上一律停下來要求重新標記——不往外擴、不猜一個、不退回結構路徑；產生 selector 之後還會反查確認只命中剛才那一個'] },
   { version: '4.150.2', date: '2026-09-16', changes: ['fix(uat): 「上傳檔案」拿掉 .first()，改成強制唯一命中——同一頁有多個上傳區時（例如 Bonus Page Setting 的 H5 Icon 與 PC Icon，結構一模一樣），選擇器不夠精確會靜默傳到第一個：上傳成功、綠燈、截圖都有，圖卻進了別的欄位，報告上完全看不出來', 'fix(uat): 命中 0 個或 2 個以上都當場失敗並說明怎麼縮小範圍（附可直接抄的 .el-card:has-text(...) 寫法）；實測 div:has-text 的寫法只差一個 .el-card 就會打到 H5 Icon'] },
   { version: '4.150.1', date: '2026-09-16', changes: ['fix(agent): 「Source files 已更新」訊息拿掉 emoji——修仙版是襯線字體，那個勾會顯示成缺字方塊；成功/失敗本來就用綠紅色表示，emoji 是多餘的', 'fix(xianxia): 字體串補上系統 emoji 字體。⚠️ 一定要排在 serif / sans-serif 這種通用家族**之前**——通用家族什麼字都吃，排在它後面的字體永遠輪不到（第一版就寫錯，看起來有加、實際沒作用）'] },
   { version: '4.150.0', date: '2026-09-16', changes: ['feat(uat): 新增「上傳檔案」積木——走 Playwright setInputFiles 直接把檔案塞進頁面的 input，作業系統的選檔視窗完全不會打開（所以錄製錄不到、重播也不會卡在那個視窗）', 'feat(uat): 上傳素材集中存在 server，步驟只記素材 id——換哪一台 Agent 執行都拿得到，解掉「腳本在不同裝置執行會不會衝突」的問題；單檔上限 20MB，runner 用每輪一張的取用票去 HTTP 取，不隨派工 payload 傳輸', 'feat(uat): 素材依副檔名與 MIME 分成影片／圖檔／CSV／文件／其他，清單可篩選；⚠️ 分類只用於顯示與篩選，刻意不擋上傳——擋了就測不了「上傳錯誤格式應該被拒絕」這種 TC'] },
