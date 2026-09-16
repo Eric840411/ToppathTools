@@ -472,6 +472,25 @@ function dialogOpenFailReason(status, trigger, triggerKind) {
 }
 
 /** 從畫面文字取數字：去掉貨幣符號、千分位、百分比 */
+/**
+ * 一筆 TC 的結果最後會被算進哪一格統計。
+ *
+ * ⚠️ 這支的存在理由是「只有一份規則」。先前 runner 裡寫著這段判斷，而測試為了
+ *    驗「沒驗到不可以算成通過」在自己那邊**複製了一份**同樣的規則——兩邊日後
+ *    只要有一邊改了，測試會繼續綠、實際統計卻已經不同（CodeX review 指出）。
+ *    現在 runner 與測試都 import 這一支。
+ *
+ * ⚠️ 這是對既有行為的**原樣抽取**，不是重新設計。特別是
+ *    `pass=false, manual=true`（blocked）目前會回 'fail'，而 Lark 回填那邊卻用
+ *    'manual'——兩者確實不一致，但那是既有行為，要改是另一件事，不要順手「修正」。
+ */
+export function countBucket(result) {
+  if (result.pass && result.manual) return 'skip';
+  if (result.pass) return 'pass';
+  if (result.skip) return 'skip';
+  return 'fail';
+}
+
 export function toNumber(value) {
   if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
   if (value === undefined || value === null) return undefined;

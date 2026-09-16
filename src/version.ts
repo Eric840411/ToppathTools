@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.148.1'
+export const APP_VERSION = '4.148.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.148.2', date: '2026-09-16', changes: ['chore(uat): 把「一筆 TC 算進哪一格統計」的規則抽成 block-engine 的 countBucket()，runner 與測試 import 同一支（CodeX review 指出測試原本自己複製了一份規則，兩邊日後不同步時測試會繼續綠、實際統計卻已經變了）', 'test(uat): 釘住 countBucket 的四條分支，包含 blocked（pass=false、manual=true）目前算 fail、卻用 manual 回填 Lark 這個既有的不一致——釘住是為了之後真要改時看得到，不是認可它'] },
   { version: '4.148.1', date: '2026-09-16', changes: ['fix(uat): v4.148.0 的修正只做了一半（CodeX review 指出）——「沒驗到」走 warn 時 pass 仍是 true，外層 runner 照樣算進 passCount，等於沒改；預設改成 manual，runner 會走 skipCount 並回填「需人工」', 'fix(uat): 「排序必須正確」不再 filter 掉比不了的列——原本 [900, oops, 100] 會變成 [900, 100] 印出「2 列排序正確」並通過，中間那列的違規被靜默跳過；現在會指出是第幾列、佔幾列，不拿殘缺的集合下結論', '⚠️ 既有那筆 Start Time 的排序斷言會從 PASS 變成 MANUAL——2026-09-16 10:00:00 這種格式解不成數字，它本來就沒有真的比過任何一列'] },
   { version: '4.148.0', date: '2026-09-16', changes: ['fix(uat): 「排序必須正確」積木在欄名打錯時會假通過——原本會 map 出一整排 undefined、被 filter 清空，然後「空陣列必然有序」印出「0 列排序正確」並讓整筆 TC 通過；實測資料明明沒有遞減也照樣 pass。欄位不存在改成直接擋下並列出目前有哪些欄位', 'fix(uat): 同一顆積木在「空表格」或「整欄都不是數字」時也不再印成通過，改走新的 onNoData（預設 warn）——例如 Start Time 這種 2026-09-16 10:00:00 格式 toNumber 解不出來，原本那條斷言等於從來沒驗過'] },
   { version: '4.147.0', date: '2026-09-16', changes: ['feat(uat): 錄製腳本工作台的「各 TC 對照」每張卡加上「解除綁定」——原本解除只有左側候選清單的 checkbox 一個入口，而那份清單會被搜尋字串過濾、也要 Lark TC 載入成功才有，所以搜尋框有字或重開已存腳本時，已綁的 TC 會變成完全解不掉', 'feat(uat): 錄製腳本工作台支援 Esc 關閉；錄製中與忙碌中不關（關掉就失去停止錄製的入口，而 agent 端瀏覽器還開著），跟關閉鈕本來就有的 disabled 條件一致', 'fix(uat): 未儲存判斷納入「還沒套用的 JSON 草稿」——JSON 編輯框打字不會標記 dirty，原本 Esc／關閉會直接把草稿丟掉', 'fix(uat): 解除綁定時一併清掉「新增步驟歸屬」，否則之後加的步驟會綁回一個已經不存在的 recordId（畫面上的 select 會退回顯示共用，但值其實還在，看不出來）'] },

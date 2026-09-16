@@ -4,7 +4,7 @@
  *
  * 跑法：node server/uat-runner/block-engine.test.mjs
  */
-import { runSteps, toNumber, numbersEqual } from './block-engine.js';
+import { runSteps, toNumber, numbersEqual, countBucket } from './block-engine.js';
 import { verifierRanAssertion } from './verifier-params.js';
 import { wildcardToRegExp } from './block-engine.js';
 
@@ -200,7 +200,9 @@ const BLUE = { 'Total Available EGM': '5', 'Total System Connected EGM': '2' };
   //    ——所以「算成 PASS」等於 `pass && !manual`。只檢查 notes 的話，
   //    onNotComparable 用 warn（pass=true、manual=false）照樣會被算進 PASS，
   //    測試卻是綠的（CodeX review 指出）。
-  const countsAsPass = r => r.pass === true && r.manual !== true;
+  // ⚠️ 直接用 runner 在用的那一支，不要在測試裡複製規則——
+  //    複製的話兩邊日後不同步，測試會繼續綠、實際統計卻已經變了。
+  const countsAsPass = r => countBucket(r) === 'pass';
   const sortedCases = [
     ['空表格', []],
     ['整欄都不是數字', [{ bet: 'aaa' }, { bet: 'bbb' }]],
@@ -230,6 +232,17 @@ const BLUE = { 'Total Available EGM': '5', 'Total System Connected EGM': '2' };
     { action: 'assert_sorted', from: 't', column: 'bet', direction: 'desc' },
   ], makeCtx({ table: [{ bet: '900' }, { bet: '500' }, { bet: '100' }] }));
   check('全部可解析且有序 → 仍然算 PASS', countsAsPass(allNum), allNum.notes);
+
+  // countBucket 本身也要驗——它現在是 runner 統計的唯一來源，改壞了整份報表會錯。
+  // 這裡照 runner 原本那四條分支逐一釘住，包含「blocked（pass=false, manual=true）
+  // 算 fail」這個既有的不一致：它跟 Lark 回填用的 'manual' 對不起來，但那是既有
+  // 行為，釘住是為了「之後真要改時會有人看到這條紅」，不是認可它。
+  check('通過且需人工 → skip', countBucket({ pass: true, manual: true }) === 'skip');
+  check('單純通過 → pass', countBucket({ pass: true, manual: false }) === 'pass');
+  check('明確跳過 → skip', countBucket({ pass: false, manual: false, skip: true }) === 'skip');
+  check('失敗 → fail', countBucket({ pass: false, manual: false, skip: false }) === 'fail');
+  check('blocked（pass=false、manual=true）目前算 fail（既有行為，刻意釘住）',
+    countBucket({ pass: false, manual: true, skip: false }) === 'fail');
 }
 
 // ── 13. builtin_verifier 相容層 ────────────────────────────────────────

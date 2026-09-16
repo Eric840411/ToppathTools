@@ -11,7 +11,7 @@ import path from 'path';
 import XLSX from 'xlsx';
 import { pngPreview, compareRegionPng } from './recorder-visual.js';
 import { attachNetworkCapture, DEFAULT_THRESHOLDS, formatStatsLine } from './net-capture.js';
-import { runSteps as runBlockSteps } from './block-engine.js';
+import { runSteps as runBlockSteps, countBucket } from './block-engine.js';
 import { runMultiTcSteps, validateMultiTcScript, publishMultiTcResults } from './multi-tc.js';
 import { resolveVerifierParams, verifierRanAssertion } from './verifier-params.js';
 
@@ -5327,9 +5327,11 @@ async function main() {
         await updateRecord(larkToken, recordId, fileTokens, outcome);
       }
 
-      if (result.pass && result.manual) skipCount++;
-      else if (result.pass) passCount++;
-      else if (result.skip) skipCount++;
+      // 規則收在 block-engine 的 countBucket()，測試 import 同一支——
+      // 先前測試自己複製了一份，兩邊日後不同步時測試會繼續綠（CodeX review 指出）
+      const bucket = countBucket(result);
+      if (bucket === 'pass') passCount++;
+      else if (bucket === 'skip') skipCount++;
       else failCount++;
 
       const noteStr = result.notes ? ` (${result.notes})` : '';
