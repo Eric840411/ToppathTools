@@ -258,7 +258,11 @@ const BLUE = { 'Total Available EGM': '5', 'Total System Connected EGM': '2' };
     check("bucket 'pass' 加到 passCount", /bucket === 'pass'\)\s*passCount\+\+/.test(seg), seg);
     check("bucket 'skip' 加到 skipCount", /bucket === 'skip'\)\s*skipCount\+\+/.test(seg), seg);
     check('其餘落到 failCount', /else\s+failCount\+\+/.test(seg), seg);
-    check('runner 沒有自己再寫一份分類規則',
+    // ⚠️ 這一條只排除**特定寫法**（`result.pass && result.manual`），
+    //    抓不到等價的改寫（換順序、拆成變數、用 if/else 串）。
+    //    它擋的是「複製貼上舊那段」這個最可能的迴歸路徑，不是「證明沒有第二份規則」
+    //    ——不要把它讀成後者（CodeX review 特別點名這個限制）。
+    check('runner 沒有把舊那段分類規則複製回來',
       !/result\.pass\s*&&\s*result\.manual/.test(runnerSrc.slice(runnerSrc.indexOf('const bucket = countBucket('))), 'still duplicated');
   }
 }
