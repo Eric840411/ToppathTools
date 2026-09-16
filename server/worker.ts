@@ -708,11 +708,19 @@ wss.on('connection', (ws, req) => {
       // agent 端不再送 luckylink_event，這段轉發已無來源。
 
       if (msg.type === 'sources_updated') {
-        const result = msg as { type: 'sources_updated'; ok: boolean; results?: { file: string; ok: boolean; error?: string }[] }
+        const result = msg as { type: 'sources_updated'; ok: boolean; results?: { file: string; ok: boolean; error?: string }[] ; stillDiff?: string[] }
         const pending = pendingSourceUpdates.get(agentId)
         if (pending) {
           const failedFiles = (result.results ?? []).filter(r => !r.ok).map(r => r.file)
-          pending.resolve({ ok: result.ok, error: failedFiles.length > 0 ? `${failedFiles.join(', ')} 更新失敗` : undefined })
+          // 寫入失敗與「寫完仍不一致」是兩種不同的問題，訊息要分得開：
+          // 前者是下載/寫檔壞了，後者是內容本身對不上（伺服器那邊的檔案跟預期不同）。
+          const stillDiff = Array.isArray(result.stillDiff) ? result.stillDiff : []
+          const error = failedFiles.length > 0
+            ? `${failedFiles.join(', ')} 更新失敗`
+            : stillDiff.length > 0
+              ? `檔案都寫進去了，但這幾個跟伺服器還是不一致：${stillDiff.join('、')}`
+              : undefined
+          pending.resolve({ ok: result.ok && stillDiff.length === 0, error })
         }
         return
       }

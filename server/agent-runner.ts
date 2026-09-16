@@ -1622,7 +1622,11 @@ function connect() {
           writeSourceVersion(mf.serverVersion)
         } catch { /* 拿不到版本不影響更新本身 */ }
       }
-      ws.send(JSON.stringify({ type: 'sources_updated', ok: allOk, results, sourceHash: after?.all, sourceDiff: after?.diff, sourceVersion: readSourceVersion() }))
+      // ⚠️ 「每個檔案都寫成功」跟「寫完之後內容跟伺服器一致」是兩件事。
+      //    只回報寫入結果的話，會出現「更新成功」但指紋照樣對不上，
+      //    使用者只能反覆按更新——實際發生過。寫完立刻回報還差哪幾個。
+      const stillDiff = after?.diff ?? []
+      ws.send(JSON.stringify({ type: 'sources_updated', ok: allOk, results, stillDiff, sourceHash: after?.all, sourceDiff: after?.diff, sourceVersion: readSourceVersion() }))
       const needRestart = after && bootRestartHash !== undefined && after.restartScoped !== bootRestartHash
       console.log(`[Agent:${AGENT_LABEL}] Source update ${allOk ? 'succeeded' : 'failed (partial)'}.`
         + (needRestart ? ' ⚠️ 有需要重啟才生效的檔案被更新，請重開 agent。' : ' 這批檔案下次執行就會生效，不用重啟。'))
