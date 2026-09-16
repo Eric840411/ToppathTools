@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.146.0'
+export const APP_VERSION = '4.146.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.146.1', date: '2026-09-16', changes: ['fix(xianxia): 空狀態的法陣改成跟著盒子縮（height: min(86%, 176px)），不再寫死 176px——UAT 網路面板那類 min-height 只有 110px 的盒子會把圓切成一條橫帶，看起來像素材壞掉；同時拿掉為了裁切而加的 overflow: hidden，改成本來就放得下'] },
   { version: '4.146.0', date: '2026-09-16', changes: ['feat(xianxia): 修仙版加四種視覺效果並做全站套用——靈光（hover 鎏金浮起）／陣法紋（Loading 與空狀態的法陣素材，旋轉由 CSS 做）／文字浮現（頂欄標題與每日仙語逐字進場）／卡片光暈（每日仙語跟著滑鼠）', 'fix(xianxia): 文字浮現的延遲改用 inline --i 計算，不用 :nth-child 寫死到第 8 個字——原本 mockup 的寫法會讓超過 8 字的句子後半段永遠停在 opacity:0、整段看不見', 'fix(xianxia): 每日仙語卡補上 class（原本是純 inline style，CSS 的 ::after 光暈掛不上去）', 'chore(xianxia): 效果全部寫在 public/xianxia-complete.css（該檔在普通版是整份移除的，結構性免疫），JSX 改動一律 gate 在 themeMode 判斷'] },
   { version: '4.145.0', date: '2026-09-14', changes: ['fix(uat): 錄製腳本清單的按鈕與清單列補上上下間距（原本多處是 0px 完全貼合）', 'fix(uat): PASS／FAIL／待確認 結果卡套上顏色——顏色 class 早就存在，只是 render 時沒帶上去；值為 0 時只把數字轉灰、色條保留，避免全 0 時五張卡仍長得一樣'] },
   { version: '4.144.2', date: '2026-09-14', changes: ['fix(gemini): 程式碼的 fallback 模型 gemini-2.0-flash 已被 Google 下架（generateContent 回 404），任何沒設 GEMINI_MODEL 的環境每一次呼叫都會失敗；9 處改成 gemini-2.5-flash，Discord bot 候選清單也一併換掉'] },

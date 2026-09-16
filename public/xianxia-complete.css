@@ -2850,7 +2850,6 @@ h3 {
 .uat-net-empty, .uat-risk-empty, .uat-inspector-empty, .uat-backend-flow-empty,
 .uat-tc-blocks-empty, .uat-tc-inspector-empty, .uat-tc-steps-empty {
   position: relative;
-  overflow: hidden;
   isolation: isolate;       /* 讓底下的 z-index:-1 只退到這個盒子的底層，不會鑽到頁面背景 */
 }
 .osm-empty::before, .dashboard-table-empty::before, .local-agent-empty::before,
@@ -2860,10 +2859,18 @@ h3 {
 .uat-tc-blocks-empty::before, .uat-tc-inspector-empty::before,
 .uat-tc-steps-empty::before {
   content: "";
+  /* ⚠️ 尺寸一定要跟著盒子縮，不能寫死 176px。
+        `.uat-net-empty` 這類空狀態 min-height 只有 110px，176px 的法陣會被
+        切成一條橫帶——圓的上下被削平，看起來像素材壞了。
+        （實測：110px 高的盒子裡，176px 的圓只露出 137px 寬的弦，
+        跟使用者截圖量到的尺寸完全吻合。）
+     ⚠️ 置中用 `inset:0 + margin:auto`，不是 `translate(-50%,-50%)`——
+        transform 要完整留給旋轉動畫，混在一起的話 keyframe 會把位移蓋掉。 */
   position: absolute;
-  left: 50%; top: 50%;
-  width: 176px; height: 176px;
-  margin: -88px 0 0 -88px;
+  inset: 0;
+  margin: auto;
+  height: min(86%, 176px);
+  aspect-ratio: 1;
   background: url("/themes/xianxia/array/loading-array-192.webp") center / contain no-repeat;
   opacity: .085;
   animation: xx-array-spin 26s linear infinite;

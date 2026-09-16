@@ -47,11 +47,15 @@ const HTML = [
   ' .loading-spinner{width:36px;height:36px;border:3px solid #2d3f55;border-top-color:#3b82f6;border-radius:50%;animation:spin .8s linear infinite}',
   ' @keyframes spin{to{transform:rotate(360deg)}}',
   ' .badge{display:inline-block;padding:2px 8px;border:1px solid #334155;border-radius:4px;font-size:12px}',
+  // 照 UatStudio.css 的真實數值：min-height 只有 110px。
+  // v4.146.0 的法陣寫死 176px，在這種盒子裡會被切成一條橫帶。
+  ' .uat-net-empty{display:flex;min-height:110px;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:16px;text-align:center;color:#8996a3}',
   '</style></head><body>',
   '<div class="section-card" id="card">一張卡</div>',
   '<div class="osm-empty" id="empty">目前沒有資料</div>',
   '<div class="loading-state"><div class="loading-spinner" id="spin"></div><span>讀取中…</span></div>',
   '<span class="badge" id="badge">徽章</span>',
+  '<div class="uat-net-empty" id="short"><strong>尚未起測</strong><span>推演開始後此處即現每道法訊與靈影的往返耗時</span></div>',
   '<div class="xx-glow" id="glow" style="border:1px solid #7a6a3d;border-radius:8px;padding:14px 18px;margin-top:12px">',
   '<span class="xx-reveal" id="rev">' + WORDS + '</span>',
   '</div>',
@@ -98,6 +102,10 @@ const probe = () => page.evaluate(() => {
     emptyBg: g('#empty', '::before').backgroundImage,
     emptyOverflow: g('#empty').overflow,
     glowAfter: g('#glow', '::after').backgroundImage,
+    shortBoxH: document.querySelector('#short').getBoundingClientRect().height,
+    shortRuneH: parseFloat(g('#short', '::before').height) || 0,
+    shortRuneW: parseFloat(g('#short', '::before').width) || 0,
+    shortRuneBg: g('#short', '::before').backgroundImage,
     wordCount: words.length,
     firstDelay: getComputedStyle(words[0]).animationDelay,
     lastDelay: getComputedStyle(last).animationDelay,
@@ -151,11 +159,28 @@ ok('① spinner 換成法陣素材', xianxia.spinBg.includes('loading-array-64.w
 eq('① spinner 邊框收掉（不然法陣外面還有一圈藍）', xianxia.spinBorder, '0px')
 eq('① spinner 轉速蓋掉原本的 .8s', xianxia.spinAnim, '9s')
 ok('② 空狀態有法陣背景', xianxia.emptyBg.includes('loading-array-192.webp'), xianxia.emptyBg.slice(0, 58))
-eq('② 空狀態要 overflow:hidden，法陣才不會溢出盒子', xianxia.emptyOverflow, 'hidden')
+// v4.146.1：法陣改成跟著盒子縮，所以不再需要用 overflow 裁切。
+// ⚠️ 這條不是刪掉舊斷言，是換成更強的那個——真正要守的是「法陣有沒有被切」，
+//    下面「矮盒子」那組才是本體；靠 overflow:hidden 只是把裁切藏起來，看起來一樣壞。
+eq('② 空狀態不靠 overflow 裁切（法陣本身就會縮進去）', xianxia.emptyOverflow, 'visible')
 ok('③ 卡片 hover 會浮起', xxCardHover.transform !== 'none', xxCardHover.transform)
 ok('③ 徽章 hover 有鎏金光圈', xxBadgeHover.shadow !== 'none')
 ok('③ 徽章 hover 不位移（inline 元素套 transform 會壞版）', xxBadgeHover.transform === 'none', xxBadgeHover.transform)
 ok('④ 卡片光暈的 ::after 有漸層', xianxia.glowAfter.includes('gradient'))
+
+// ── 使用者 2026-09-16 回報的裁切：min-height 只有 110px 的盒子放不下寫死的 176px 法陣 ──
+// 實測 110px 高的盒子裡，176px 的圓只露出 137px 寬的弦——上下被削平，看起來像素材壞了。
+console.log('\n── 矮盒子（min-height 110px）：法陣要縮進去，不能被裁 ──')
+ok('矮盒子也有法陣', xianxia.shortRuneBg.includes('loading-array-192.webp'))
+ok('法陣高度不超過盒子（超過就會被切成一條橫帶）',
+  xianxia.shortRuneH > 0 && xianxia.shortRuneH <= xianxia.shortBoxH + 0.5,
+  '法陣 ' + xianxia.shortRuneH.toFixed(1) + 'px / 盒子 ' + xianxia.shortBoxH.toFixed(1) + 'px')
+ok('法陣仍是正圓（寬高相等），沒有被壓扁',
+  Math.abs(xianxia.shortRuneW - xianxia.shortRuneH) < 0.5,
+  xianxia.shortRuneW.toFixed(1) + ' x ' + xianxia.shortRuneH.toFixed(1))
+ok('縮完仍在 36px 的可辨識下限之上',
+  xianxia.shortRuneH >= 36, xianxia.shortRuneH.toFixed(1) + 'px')
+eq('普通版的矮盒子沒有法陣', classic.shortRuneBg, 'none')
 
 console.log('\n── 文字浮現：mockup 那個「第 9 字之後永遠看不見」的坑 ──')
 ok('逐字拆開', xianxia.wordCount > 8, xianxia.wordCount + ' 個字')
