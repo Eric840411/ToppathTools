@@ -496,8 +496,10 @@ export function backendRecorderScript(options = {}) {
     menu.setAttribute('data-toppath-recorder-ui', '1');
     menu.style.cssText = 'position:fixed;z-index:2147483647;width:262px;padding:6px;border:1px solid #42566f;' +
       'border-radius:9px;background:#0a1628;box-shadow:0 16px 40px rgba(0,0,0,.55);' +
-      'font-family:system-ui,sans-serif;left:' + Math.min(event.clientX, innerWidth - 280) + 'px;top:' +
-      Math.min(event.clientY, innerHeight - 320) + 'px';
+      // 先擺在點擊處，掛上去之後再依實際尺寸修正（見下面 getBoundingClientRect 那段）。
+      // max-height + overflow 是最後一道：選單比視窗還高時至少捲得到，不會有選項永遠碰不到。
+      'font-family:system-ui,sans-serif;box-sizing:border-box;max-height:calc(100vh - 16px);overflow-y:auto;'+
+      'left:' + event.clientX + 'px;top:' + event.clientY + 'px';
     const title = document.createElement('h5');
     title.textContent = '要檢查這個元素的什麼？';
     title.style.cssText = 'margin:5px 8px 7px;color:#94a3b8;font-size:11px;font-weight:700';
@@ -570,6 +572,17 @@ export function backendRecorderScript(options = {}) {
     menu.appendChild(foot);
 
     document.documentElement.appendChild(menu);
+    // ⚠️ 位置一定要「掛上去、量到真實尺寸」之後再算。
+    //    原本是用寫死的 320 去夾（top: min(clientY, innerHeight - 320)），
+    //    選單一變長就從下面被裁掉——使用者實際遇到的就是這個：
+    //    最後兩個選項（含新加的「這裡是上傳欄位」）整個看不到，等於功能碰不到。
+    //    頁面沒有捲軸時特別明顯，因為連捲下去看的機會都沒有。
+    var box = menu.getBoundingClientRect();
+    var pad = 8;
+    var left = Math.max(pad, Math.min(event.clientX, innerWidth - box.width - pad));
+    var top = Math.max(pad, Math.min(event.clientY, innerHeight - box.height - pad));
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
     setTimeout(() => {
       outsideHandler = (ev) => { if (!menu.contains(ev.target)) close(); };
       document.addEventListener('click', outsideHandler, true);

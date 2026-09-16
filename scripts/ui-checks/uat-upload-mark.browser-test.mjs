@@ -74,6 +74,40 @@ try {
     return { events: [...events], dialogs: [...dialogs], menuShown: menu > 0 }
   }
 
+  // ── 0. 選單不可以被視窗裁掉 ──
+  // ⚠️ 使用者實際遇到：選單從下面被切掉，最後兩個選項（含「這裡是上傳欄位」）
+  //    整個看不到——功能等於碰不到。原因是位置用寫死的高度去夾，選單一變長就爆。
+  //    沒有捲軸的頁面特別明顯，連捲下去看的機會都沒有。
+  for (const [w, h, where] of [[1200, 800, '一般視窗'], [900, 420, '很矮的視窗'], [900, 300, '極矮的視窗']]) {
+    await page.setViewportSize({ width: w, height: h })
+    // 點畫面很下面的位置，這是最容易被裁到的情況
+    await page.evaluate(() => { window.__toppathRecArmed = true })
+    const plus = page.locator('#plus-PCIcon')
+    await plus.scrollIntoViewIfNeeded()
+    await plus.click({ modifiers: ['Alt'] })
+    await page.waitForTimeout(150)
+    const menu = page.locator('[data-toppath-recorder-ui]').filter({ hasText: '要檢查這個元素的什麼' }).first()
+    const fits = await menu.evaluate((el, vp) => {
+      const b = el.getBoundingClientRect()
+      return { top: b.top >= 0, bottom: b.bottom <= vp.h, left: b.left >= 0, right: b.right <= vp.w,
+               scrollable: el.scrollHeight > el.clientHeight ? el.clientHeight > 0 : true }
+    }, { w, h })
+    ok(`${where}：選單完全在畫面內`, fits.top && fits.bottom && fits.left && fits.right, JSON.stringify(fits))
+    // 最後一個選項要點得到（碰不到就等於沒有這個功能）
+    const last = menu.getByText('這裡是上傳欄位', { exact: false }).first()
+    if (await last.count()) {
+      await last.scrollIntoViewIfNeeded()
+      const vis = await last.isVisible()
+      ok(`${where}：「這裡是上傳欄位」碰得到`, vis)
+    } else {
+      ok(`${where}：「這裡是上傳欄位」碰得到`, false, '選項根本不在選單裡')
+    }
+    await page.keyboard.press('Escape').catch(() => {})
+    await page.mouse.click(2, 2)
+    await page.waitForTimeout(120)
+  }
+  await page.setViewportSize({ width: 1200, height: 800 })
+
   // ── 1. 正常：標 PC Icon 的 + 方塊 ──
   const pc = await markAndPick('plus-PCIcon', '這裡是上傳欄位')
   const upl = pc.events.find(e => e.action === 'upload_file')
