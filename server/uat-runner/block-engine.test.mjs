@@ -184,6 +184,28 @@ const BLUE = { 'Total Available EGM': '5', 'Total System Connected EGM': '2' };
     { action: 'assert_sorted', from: 't', column: 'bet', direction: 'desc' },
   ], makeCtx({ table: [{ bet: '100' }, { bet: '900' }] }));
   check('排序不符 → FAIL', bad.pass === false, bad.notes);
+
+  // ⚠️ 欄名打錯是最容易出事的情況：舊版會 map 出一整排 undefined、被 filter 清空，
+  //    然後「空陣列必然有序」→ 印「✅ 0 列排序正確」→ 整筆 TC 通過。
+  //    下面這組資料本身是 [100, 900]（沒有遞減），欄名一打錯就會被蓋掉。
+  const badCol = await runSteps([
+    { action: 'read_table', selector: 'table', as: 't' },
+    { action: 'assert_sorted', from: 't', column: 'bettt', direction: 'desc' },
+  ], makeCtx({ table: [{ bet: '100' }, { bet: '900' }] }));
+  check('欄名打錯 → FAIL，不可以假通過', badCol.pass === false, badCol.notes);
+  check('而且要講出目前有哪些欄位', /目前欄位：bet/.test(badCol.notes), badCol.notes);
+
+  const emptyTable = await runSteps([
+    { action: 'read_table', selector: 'table', as: 't' },
+    { action: 'assert_sorted', from: 't', column: 'bet', direction: 'desc' },
+  ], makeCtx({ table: [] }));
+  check('空表格不印成「排序正確」', !/排序正確/.test(emptyTable.notes), emptyTable.notes);
+
+  const textCol = await runSteps([
+    { action: 'read_table', selector: 'table', as: 't' },
+    { action: 'assert_sorted', from: 't', column: 'name', direction: 'desc' },
+  ], makeCtx({ table: [{ name: 'bbb' }, { name: 'aaa' }] }));
+  check('整欄都不是數字 → 不印成通過（沒驗到就是沒驗到）', !/✅.*排序正確/.test(textCol.notes), textCol.notes);
 }
 
 // ── 13. builtin_verifier 相容層 ────────────────────────────────────────

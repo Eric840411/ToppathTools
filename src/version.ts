@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.147.0'
+export const APP_VERSION = '4.148.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.148.0', date: '2026-09-16', changes: ['fix(uat): 「排序必須正確」積木在欄名打錯時會假通過——原本會 map 出一整排 undefined、被 filter 清空，然後「空陣列必然有序」印出「0 列排序正確」並讓整筆 TC 通過；實測資料明明沒有遞減也照樣 pass。欄位不存在改成直接擋下並列出目前有哪些欄位', 'fix(uat): 同一顆積木在「空表格」或「整欄都不是數字」時也不再印成通過，改走新的 onNoData（預設 warn）——例如 Start Time 這種 2026-09-16 10:00:00 格式 toNumber 解不出來，原本那條斷言等於從來沒驗過'] },
   { version: '4.147.0', date: '2026-09-16', changes: ['feat(uat): 錄製腳本工作台的「各 TC 對照」每張卡加上「解除綁定」——原本解除只有左側候選清單的 checkbox 一個入口，而那份清單會被搜尋字串過濾、也要 Lark TC 載入成功才有，所以搜尋框有字或重開已存腳本時，已綁的 TC 會變成完全解不掉', 'feat(uat): 錄製腳本工作台支援 Esc 關閉；錄製中與忙碌中不關（關掉就失去停止錄製的入口，而 agent 端瀏覽器還開著），跟關閉鈕本來就有的 disabled 條件一致', 'fix(uat): 未儲存判斷納入「還沒套用的 JSON 草稿」——JSON 編輯框打字不會標記 dirty，原本 Esc／關閉會直接把草稿丟掉', 'fix(uat): 解除綁定時一併清掉「新增步驟歸屬」，否則之後加的步驟會綁回一個已經不存在的 recordId（畫面上的 select 會退回顯示共用，但值其實還在，看不出來）'] },
   { version: '4.146.1', date: '2026-09-16', changes: ['fix(xianxia): 空狀態的法陣改成跟著盒子縮（height: min(86%, 176px)），不再寫死 176px——UAT 網路面板那類 min-height 只有 110px 的盒子會把圓切成一條橫帶，看起來像素材壞掉；同時拿掉為了裁切而加的 overflow: hidden，改成本來就放得下'] },
   { version: '4.146.0', date: '2026-09-16', changes: ['feat(xianxia): 修仙版加四種視覺效果並做全站套用——靈光（hover 鎏金浮起）／陣法紋（Loading 與空狀態的法陣素材，旋轉由 CSS 做）／文字浮現（頂欄標題與每日仙語逐字進場）／卡片光暈（每日仙語跟著滑鼠）', 'fix(xianxia): 文字浮現的延遲改用 inline --i 計算，不用 :nth-child 寫死到第 8 個字——原本 mockup 的寫法會讓超過 8 字的句子後半段永遠停在 opacity:0、整段看不見', 'fix(xianxia): 每日仙語卡補上 class（原本是純 inline style，CSS 的 ::after 光暈掛不上去）', 'chore(xianxia): 效果全部寫在 public/xianxia-complete.css（該檔在普通版是整份移除的，結構性免疫），JSX 改動一律 gate 在 themeMode 判斷'] },

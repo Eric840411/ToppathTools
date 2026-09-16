@@ -333,6 +333,7 @@ export const BLOCK_DEFS = {
       { key: 'from', label: '來源變數（表格）', type: 'text', required: true },
       { key: 'column', label: '欄位名稱', type: 'text', required: true },
       { key: 'direction', label: '方向', type: 'select', options: ['desc', 'asc'], default: 'desc' },
+      { key: 'onNoData', label: '沒有可比較的數值時', type: 'select', options: ['warn', 'continue', 'manual', 'stop'], default: 'warn', help: '空表格或整欄都不是數字：這是「沒驗到」不是「驗過了」，不會印成通過' },
       { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
     ],
   },
@@ -1234,10 +1235,30 @@ export async function runSteps(steps, ctx, options = {}) {
       } else if (step.action === 'assert_sorted') {
         const rows = needVar(step, tag, step.from, def.inputKind);
         if (rows === undefined) break;
-        const vals = rows.map(r => toNumber(r[step.column])).filter(v => v !== undefined);
+        const sortCol = String(step.column ?? '').trim();
+        // ⚠️ 欄名打錯時，原本的寫法會 map 出一整排 undefined、被 filter 清空，
+        //    然後「空陣列必然有序」→ 印出「✅ 0 列排序正確」→ **整筆 TC 通過**。
+        //    實測：資料是 [100, 900]（明明沒有遞減），只要欄名打錯就 pass=true。
+        //    這跟 v4.38.0「零斷言不得通過」是同一件事，只是那道防線只蓋到舊的
+        //    verifier 路徑，沒蓋到積木。欄位不存在是**積木寫錯**，不是執行期狀況。
+        const knownCols = [...new Set(rows.flatMap(r => (r && typeof r === 'object') ? Object.keys(r) : []))];
+        if (rows.length > 0 && !knownCols.includes(sortCol)) {
+          criticalFails.push(`${tag}：表格裡沒有欄位「${sortCol}」（目前欄位：${knownCols.join('、') || '無'}）`);
+          notes.push(`❌ ${tag}：表格裡沒有欄位「${sortCol}」（目前欄位：${knownCols.join('、') || '無'}）`);
+          return finish();
+        }
+        const vals = rows.map(r => toNumber(r[sortCol])).filter(v => v !== undefined);
+        if (vals.length === 0) {
+          // 欄位在、但一個可比的值都沒有（空表格，或整欄都不是數字）。
+          // 這是「沒驗到」不是「驗過了」，不可以印 ✅。
+          const mode = step.onNoData ?? 'warn';
+          if (fail({ ...step, onFail: mode },
+            `${tag}：「${sortCol}」沒有可比較的數值（${rows.length} 列），排序沒有驗到`) === 'stop') break;
+          continue;
+        }
         const desc = (step.direction ?? 'desc') === 'desc';
         const bad = vals.findIndex((v, k) => k > 0 && (desc ? v > vals[k - 1] : v < vals[k - 1]));
-        if (bad !== -1) { if (fail(step, `${tag}：第 ${bad + 1} 列開始排序不符（${step.column}）`) === 'stop') break; continue }
+        if (bad !== -1) { if (fail(step, `${tag}：第 ${bad + 1} 列開始排序不符（${sortCol}）`) === 'stop') break; continue }
         notes.push(`✅ ${tag}：${vals.length} 列排序正確`);
 
       } else if (step.action === 'screenshot') {
