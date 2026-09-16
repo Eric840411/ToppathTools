@@ -4577,10 +4577,30 @@ async function performSteps(p, steps, label, taskFull, multiBindings = null) {
       } catch (e) {
         return { ok: false, error: `取素材失敗：${e instanceof Error ? e.message : String(e)}` };
       }
+      // ⚠️ **不可以用 .first()**。同一頁常常有好幾個上傳區（例如 H5 Icon 與 PC Icon，
+      //    結構一模一樣），`.first()` 會在選擇器不夠精確時**靜靜地傳到第一個**——
+      //    上傳成功、綠燈、截圖都有，圖卻進了別的欄位，報告上完全看不出來。
+      //    實測：`div:has-text("PC Icon") input[type=file]` 會打到 H5 Icon。
+      //    所以這裡強制唯一命中，命中多個就當場失敗並說清楚（CodeX review 指出）。
+      const locator = p.locator(selector);
+      let hits;
+      try { hits = await locator.count(); }
+      catch (e) { return { ok: false, error: `選擇器有問題（${selector}）：${e instanceof Error ? e.message : String(e)}` }; }
+      if (hits === 0) {
+        return { ok: false, error: `找不到檔案欄位（${selector}）。Element UI 的上傳欄位通常是隱藏的 input[type=file]` };
+      }
+      if (hits > 1) {
+        return {
+          ok: false,
+          error: `檔案欄位「${selector}」符合 ${hits} 個，無法確定要傳到哪一個。`
+            + '請把選擇器縮到只剩一個——例如用該區塊的標題文字圈住它：'
+            + '.el-card:has-text("PC Icon") input[type=file]',
+        };
+      }
       try {
-        await p.locator(selector).first().setInputFiles({ name, mimeType: mime, buffer: buf });
+        await locator.setInputFiles({ name, mimeType: mime, buffer: buf });
       } catch (e) {
-        return { ok: false, error: `找不到檔案欄位或塞不進去（${selector}）：${e instanceof Error ? e.message : String(e)}` };
+        return { ok: false, error: `檔案塞不進去（${selector}）：${e instanceof Error ? e.message : String(e)}` };
       }
       return { ok: true, name, size: buf.length };
     },
