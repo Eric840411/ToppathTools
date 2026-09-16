@@ -528,15 +528,30 @@ function isSessionAlive(): boolean {
 }
 
 /** 收尾：釋放重任務名額、通知 SSE、把 agent 標回空閒 */
-function finishSession(status: 'done' | 'error', tailLine: string, extra: Record<string, unknown> = {}) {
+/**
+ * @param confirmedStopped 這一輪是不是**真的確認停了**。
+ *
+ * ⚠️ 「連線中斷」不等於「執行結束」。agent 斷線時 runner 可能還在對方機器上跑、
+ *    還在逐筆回寫 Lark。第一版我在這裡無條件放掉同腳本鎖，等於斷線就讓別人
+ *    可以重跑同一份——**跟我自己寫在註解裡的說法相反**（CodeX review 抓到，P1）。
+ *
+ *    只有這幾種算確認停止：runner 回報 exit code、agent 回 backend_uat_done、
+ *    本機 child 結束、還沒真的派工就失敗。
+ *    斷線與「agent 離線直接標記停止」一律**保留鎖**，由人明確解除。
+ */
+function finishSession(status: 'done' | 'error', tailLine: string, extra: Record<string, unknown> = {}, confirmedStopped = true) {
   session.status = status
   session.finishedAt = Date.now()
   session.process = null
   finishHeavyTask(session.heavyTask)
-  // 同腳本互斥：一定要在這裡放，不是靠 agent 連線判斷——
-  // 斷線不代表已經停止（可能還在對方機器上跑、還在回寫 Lark）。
-  releaseScriptLock(session.id)
-  forgetRunContext(session.id)
+  // 同腳本互斥：**只有確認停了才放鎖**。斷線不算（見上面的說明）。
+  if (confirmedStopped) {
+    releaseScriptLock(session.id)
+    forgetRunContext(session.id)
+  } else {
+    appendLog("連線中斷，但無法確認對方是否真的停止——這份腳本仍保留執行鎖。"
+      + "確認那台機器上沒有在跑之後，可以在腳本清單手動解除。")
+  }
   if (session.agentId) {
     const agent = agentConnections.get(session.agentId)
     if (agent && agent.sessionId === session.id) { agent.busy = false; agent.sessionId = null }
@@ -574,7 +589,7 @@ export function handleBackendUatAgentDone(sessionId: string, exitCode: number | 
  */
 export function handleBackendUatAgentDisconnect(agentId: string): boolean {
   if (session.status !== 'running' || session.mode !== 'agent' || session.agentId !== agentId) return false
-  finishSession('error', '--- 執行結束（Agent 連線中斷）---', { error: 'agent disconnected' })
+  finishSession('error', '--- 執行結束（Agent 連線中斷）---', { error: 'agent disconnected' }, false)
   return true
 }
 
@@ -1470,7 +1485,7 @@ router.post('/api/osm-uat/stop', (_req, res) => {
       res.json({ ok: true, mode: 'agent' })
       return
     }
-    finishSession('error', '\U0001f6d1 Agent 已離線，直接標記為停止', { error: 'agent offline' })
+    finishSession('error', '\U0001f6d1 Agent 已離線，直接標記為停止', { error: 'agent offline' }, false)
     res.json({ ok: true, mode: 'agent', note: 'agent offline' })
     return
   }

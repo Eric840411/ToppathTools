@@ -378,3 +378,22 @@ A 之後仍然可能發生跨腳本／跨入口的撞寫。**同腳本互斥只�
 
 > 驗證：`node scripts/ui-checks/recorded-script-shared.mjs`（18 項）。
 > 已注入違規確認會變紅：拿掉 `revision` 條件 → 3 紅；搶鎖永遠成功 → 3 紅。
+
+### ⚠️ 補記（同日，v4.155.1）：「斷線保留鎖」第一版其實沒做到
+
+v4.155.0 的註解寫著「Agent 斷線不當作已停止」，但 `handleBackendUatAgentDisconnect()`
+會呼叫 `finishSession()`，而那裡**無條件**放掉同腳本鎖——**程式碼跟註解相反**。
+另一個人可以在 runner 還在回寫 Lark 的時候重跑同一份腳本（CodeX review，P1）。
+
+而那時測試是綠的，因為那條「斷線後鎖仍在」**根本沒有觸發斷線**，只是查了一下鎖還在不在。
+
+修法：`finishSession` 加 `confirmedStopped`，只有這幾種算確認停止——
+runner 回報 exit code、agent 回 `backend_uat_done`、本機 child 結束、還沒派工就失敗。
+
+⚠️ 保留鎖之後必須有出口：**六小時自動過期不能當成停止證明**（CodeX），
+所以另外做了人工解除端點。這是救援工具不是正常流程（跟 AutoSpin 孤兒鎖那次同一個模式）。
+
+⚠️ **測試的限制要寫在測試裡**：真正的斷線 handler 需要模組內的 session 處於執行中，
+而 session 沒有匯出。所以那一段是**接線檢查**——讀原始碼確認兩條斷線路徑都帶
+`false`、放鎖那行確實包在 `if (confirmedStopped)` 裡。**它驗的是接線不是執行結果**，
+檔案裡已標明，不要當成「跑過一次斷線」。

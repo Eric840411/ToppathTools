@@ -13,9 +13,11 @@
  */
 import { randomUUID } from 'node:crypto'
 import Database from 'better-sqlite3'
+import { readFileSync } from 'node:fs'
 import {
   acquireScriptLock, releaseScriptLock, isScriptRunning,
   rememberRunContext, forgetRunContext, saveRecordedScriptDoc,
+  forceReleaseScriptLock, captureRecordedScriptResult,
 } from '../../dist-server/server/uat-recorded-scripts.js'
 
 const db = new Database('server/data.db')
@@ -54,9 +56,33 @@ try {
   eq('第二個人被擋下來', second.ok, false)
   ok('而且說得出是誰在跑', second.ok === false && second.holder === 'a@x.com', second.holder)
 
-  // ⚠️ Agent 斷線不等於停止——鎖必須還在，否則別人會在對方還在回寫 Lark 時插進來
-  eq('（模擬 agent 斷線）鎖仍然在', isScriptRunning(scriptId), true)
+  // ⚠️ 這裡要**真的走斷線那條程式碼**，不能只查鎖還在不在。
+  //    第一版就是只查鎖——而那時候斷線其實會放鎖，測試卻是綠的（CodeX 抓到，P1）。
+  //    `handleBackendUatAgentDisconnect()` 會走 finishSession()，那才是會放鎖的地方。
+  const before = isScriptRunning(scriptId)
+  eq('斷線前鎖在', before, true)
+  // ⚠️ 真正的斷線 handler 需要 osm-uat 模組裡那個 session 處於執行中，
+  //    而 session 沒有匯出、也不適合從外面硬造。所以這一段退一步做**接線檢查**：
+  //    直接讀原始碼確認兩條斷線路徑都帶 confirmedStopped = false，
+  //    而且放鎖那行真的被包在 if (confirmedStopped) 裡面。
+  //    ⚠️ 它驗的是接線不是執行結果，不要當成「跑過一次斷線」。
+  {
+    const src = readFileSync('server/routes/osm-uat.ts', 'utf8')
+    const seg = src.slice(src.indexOf('function finishSession'), src.indexOf('function finishSession') + 1600)
+    ok('放鎖被包在 if (confirmedStopped) 裡',
+      /if \(confirmedStopped\)\s*\{[\s\S]{0,200}releaseScriptLock/.test(seg), seg.slice(0, 0))
+    ok('Agent 連線中斷那條帶 false（不算確認停止）',
+      /agent disconnected' \}, false\)/.test(src))
+    ok('Agent 離線直接標記停止那條也帶 false',
+      /agent offline' \}, false\)/.test(src))
+    ok('沒有任何一條斷線路徑直接呼叫 releaseScriptLock',
+      !/disconnect[\s\S]{0,300}releaseScriptLock/.test(src))
+  }
+  eq('鎖不會自己消失（斷線不等於停止，必須由人或正常收尾才放）', isScriptRunning(scriptId), true)
   eq('斷線後別人仍然搶不到', acquireScriptLock(scriptId, randomUUID(), 'c@x.com').ok, false)
+  ok('但有一條人工解除的路（否則會永遠卡住）',
+    forceReleaseScriptLock(scriptId).released === true)
+  eq('人工解除後就搶得到', acquireScriptLock(scriptId, s1, 'a@x.com').ok, true)
 
   // ── 3. 起跑與刪除的競態 ──
   // 刪除的檢查跟搶鎖走同一張表，所以「正在跑」時刪不掉
@@ -69,9 +95,11 @@ try {
 
   // ── 4. 執行結果要記真正執行的人 ──
   const runId = randomUUID()
+  // ⚠️ 要走**產品那支**。第一版是自己 INSERT 再讀回來——那只是在驗自己寫的 SQL，
+  //    產品那邊把 executed_by 拿掉也不會紅（CodeX 抓到，跟樂觀鎖那次同一個形狀）。
   rememberRunContext(runId, { scriptId, revision: 3, executedBy: 'b@x.com' })
-  db.prepare('INSERT INTO uat_recorded_script_runs(id, script_id, owner, executed_by, script_revision, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(runId, scriptId, 'a@x.com', 'b@x.com', 3, '{}', Date.now())
+  const line = '@@UAT_MULTI_RESULTS@@' + JSON.stringify({ script: makeScript() })
+  eq('產品的結果保存函式有認出這一行', captureRecordedScriptResult(runId, line), true)
   const run = db.prepare('SELECT owner, executed_by, script_revision FROM uat_recorded_script_runs WHERE id = ?').get(runId)
   eq('owner 仍是建立者', run.owner, 'a@x.com')
   ok('但執行者另外記著，不會掛在建立者名下', run.executed_by === 'b@x.com', run.executed_by)

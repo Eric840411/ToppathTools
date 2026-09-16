@@ -109,6 +109,22 @@ export function releaseScriptLock(sessionId: string) {
   db.prepare('DELETE FROM uat_recorded_script_locks WHERE session_id = ?').run(sessionId)
 }
 
+/**
+ * 人工解除同腳本鎖。
+ *
+ * ⚠️ 為什麼一定要有這支：斷線之後鎖是**刻意保留**的（斷線不等於停止），
+ *    而「六小時自動過期」不能當成停止證明（CodeX）。所以必須有一條讓人
+ *    在確認過對方機器上沒在跑之後明確解除的路徑，否則會永遠卡住。
+ *    這是救援工具，不是正常流程——正常結束會自己放。
+ */
+export function forceReleaseScriptLock(scriptId: string): { released: boolean; holder?: string } {
+  const cur = db.prepare('SELECT holder FROM uat_recorded_script_locks WHERE script_id = ?')
+    .get(scriptId) as { holder: string } | undefined
+  if (!cur) return { released: false }
+  db.prepare('DELETE FROM uat_recorded_script_locks WHERE script_id = ?').run(scriptId)
+  return { released: true, holder: cur.holder }
+}
+
 export function isScriptRunning(scriptId: string): boolean {
   const r = db.prepare('SELECT 1 FROM uat_recorded_script_locks WHERE script_id = ? AND acquired_at >= ?')
     .get(scriptId, Date.now() - SCRIPT_LOCK_MAX_MS)
@@ -246,6 +262,15 @@ export function registerRecordedScriptRoutes(router: Router) {
     db.prepare('UPDATE uat_recorded_scripts SET deleted_at = ?, deleted_by = ? WHERE id = ? AND deleted_at IS NULL')
       .run(Date.now(), account.email, id)
     res.json({ ok: true })
+  })
+
+  router.post('/api/osm-uat/recorded-scripts/:id/force-unlock', writeLimiter, (req, res) => {
+    const account = getAuthAccount(req)
+    if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+    const r = forceReleaseScriptLock(String(req.params.id))
+    if (!r.released) return res.status(404).json({ ok: false, message: '這份腳本目前沒有執行鎖' })
+    console.warn(`[UAT] ${account.email} 人工解除了腳本 ${req.params.id} 的執行鎖（原持有者 ${r.holder}）`)
+    res.json({ ok: true, previousHolder: r.holder })
   })
 
   router.get('/api/osm-uat/recorded-scripts/:id/results', (req, res) => {
