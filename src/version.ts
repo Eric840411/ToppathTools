@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.149.0'
+export const APP_VERSION = '4.149.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.149.1', date: '2026-09-16', changes: ['fix(osm): 機種分布彈窗的搜尋框拿掉放大鏡圖示——那是 emoji，修仙版的襯線字體沒有對應字形，會顯示成缺字方塊；同時把為它保留的左內距收回來，避免 placeholder 憑空縮排'] },
   { version: '4.149.0', date: '2026-09-16', changes: ['fix(theme): 普通版會顯示修仙版素材（正式站回報）——兩個洞都在兩個模式共用的地方：`.main-content::before` 在 App.css 直接掛修仙版底圖（而壓淡它的 opacity:.18 只寫在 xianxia-complete.css，所以普通版看到的是全不透明版），側邊欄的 XianxiaIcon 完全沒有 themeMode 判斷', 'fix(theme): 側邊欄導覽圖示在普通版改回原本的 group.icon（emoji），修仙版維持 PNG 圖示；背景圖搬進 xianxia-complete.css，那支檔在普通版是整份被移除的', 'test(theme): 新增 scripts/ui-checks/xianxia-asset-leak.mjs——掃 build 產物裡有沒有未加防護的修仙版素材，並釘住未 gate 的 XianxiaIcon 呼叫點數量（目前 18 個，頁面內裝飾用，普通版要顯示什麼還沒決定）'] },
   { version: '4.148.2', date: '2026-09-16', changes: ['chore(uat): 把「一筆 TC 算進哪一格統計」的規則抽成 block-engine 的 countBucket()，runner 與測試 import 同一支（CodeX review 指出測試原本自己複製了一份規則，兩邊日後不同步時測試會繼續綠、實際統計卻已經變了）', 'test(uat): 釘住 countBucket 的四條分支，包含 blocked（pass=false、manual=true）目前算 fail、卻用 manual 回填 Lark 這個既有的不一致——釘住是為了之後真要改時看得到，不是認可它'] },
   { version: '4.148.1', date: '2026-09-16', changes: ['fix(uat): v4.148.0 的修正只做了一半（CodeX review 指出）——「沒驗到」走 warn 時 pass 仍是 true，外層 runner 照樣算進 passCount，等於沒改；預設改成 manual，runner 會走 skipCount 並回填「需人工」', 'fix(uat): 「排序必須正確」不再 filter 掉比不了的列——原本 [900, oops, 100] 會變成 [900, 100] 印出「2 列排序正確」並通過，中間那列的違規被靜默跳過；現在會指出是第幾列、佔幾列，不拿殘缺的集合下結論', '⚠️ 既有那筆 Start Time 的排序斷言會從 PASS 變成 MANUAL——2026-09-16 10:00:00 這種格式解不成數字，它本來就沒有真的比過任何一列'] },

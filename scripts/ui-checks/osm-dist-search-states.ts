@@ -61,7 +61,11 @@ function renderModal(query: string, showOffline: boolean): string {
   const totalCount = groups.reduce((s, g) => s + g.machines.length, 0)
 
   const tools = `<div class="osm-dist-tools">
-    <div class="osm-dist-searchwrap"><span class="osm-dist-searchico">🔍</span>
+    <!-- ⚠️ 這份 DOM 是照 OsmPage 的彈窗「抄」的，元件改了它不會自己跟著改。
+         2026-09-16 移除搜尋框的 🔍 時實際踩到：元件已經改好，這支仍然 PASS，
+         因為它渲染的是自己這份還留著圖示的舊 markup。
+         它驗的是「CSS 與判斷邏輯」，**不驗 markup 有沒有跟元件同步**。 -->
+    <div class="osm-dist-searchwrap">
     <input class="osm-dist-search" value="${esc(query)}" placeholder="搜尋渠道／型號／機台名稱／版本">
     ${query ? '<button class="osm-dist-clear">×</button>' : ''}</div>
     <div class="osm-dist-toolrow">

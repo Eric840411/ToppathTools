@@ -5219,13 +5219,13 @@
   display: flex; flex-direction: column; gap: 8px;
 }
 .osm-dist-searchwrap { position: relative; display: flex; align-items: center; }
-.osm-dist-searchico {
-  position: absolute; left: 9px; font-size: 11.5px; color: #64748b; pointer-events: none;
-}
 .osm-dist-search {
   width: 100%; background: #0e1728; border: 1px solid #2d3f5c; border-radius: 6px;
   color: #f1f5f9; font: 12px/1 ui-monospace, Menlo, Consolas, monospace;
-  padding: 7px 28px 7px 26px;
+  /* 左內距原本 26px 是為了讓開絕對定位的放大鏡圖示。圖示已移除（修仙版的
+     襯線字體沒有 emoji 字形，🔍 會變成缺字方塊），內距要一起收回來，
+     不然 placeholder 會憑空縮排一截。 */
+  padding: 7px 28px 7px 10px;
 }
 /* placeholder 用一般字體——等寬字下的中文會被拉開，很難讀 */
 .osm-dist-search::placeholder { color: #5b6b82; font-family: inherit; }

@@ -391,7 +391,6 @@ function GameTypeChannelsModal({ type, channelResults, onClose }: {
         {totalCount > 0 && (
           <div className="osm-dist-tools">
             <div className="osm-dist-searchwrap">
-              <span className="osm-dist-searchico" aria-hidden>🔍</span>
               <input
                 className="osm-dist-search"
                 type="text"
