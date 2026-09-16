@@ -7,6 +7,7 @@
 import { runSteps, toNumber, numbersEqual, countBucket } from './block-engine.js';
 import { verifierRanAssertion } from './verifier-params.js';
 import { wildcardToRegExp } from './block-engine.js';
+import { readFileSync } from 'node:fs';
 
 let pass = 0, fail = 0;
 function check(name, cond, extra) {
@@ -243,6 +244,23 @@ const BLUE = { 'Total Available EGM': '5', 'Total System Connected EGM': '2' };
   check('失敗 → fail', countBucket({ pass: false, manual: false, skip: false }) === 'fail');
   check('blocked（pass=false、manual=true）目前算 fail（既有行為，刻意釘住）',
     countBucket({ pass: false, manual: true, skip: false }) === 'fail');
+
+  // ⚠️ 共用函式只守「分類規則」，守不到「runner 把分類加到錯的計數器」
+  //    ——例如 `if (bucket === 'pass') skipCount++`。那需要整合測試，但真正的
+  //    整合測試要跑完整 runner（含 Lark 與瀏覽器），跑不動。這裡退一步做靜態
+  //    檢查：直接讀 runner 那段接線，確認三個 bucket 各自加到自己的計數器。
+  //    ⚠️ 它驗的是「接線」不是「執行結果」，不要當成整合測試（CodeX review）。
+  {
+    const runnerSrc = readFileSync(new URL('./run-lark-tc-backend.js', import.meta.url), 'utf8');
+    const wiring = runnerSrc.slice(runnerSrc.indexOf('const bucket = countBucket('));
+    const seg = wiring.slice(0, wiring.indexOf('const noteStr'));
+    check('runner 用的是共用的 countBucket()', /const bucket = countBucket\(result\)/.test(seg), seg);
+    check("bucket 'pass' 加到 passCount", /bucket === 'pass'\)\s*passCount\+\+/.test(seg), seg);
+    check("bucket 'skip' 加到 skipCount", /bucket === 'skip'\)\s*skipCount\+\+/.test(seg), seg);
+    check('其餘落到 failCount', /else\s+failCount\+\+/.test(seg), seg);
+    check('runner 沒有自己再寫一份分類規則',
+      !/result\.pass\s*&&\s*result\.manual/.test(runnerSrc.slice(runnerSrc.indexOf('const bucket = countBucket('))), 'still duplicated');
+  }
 }
 
 // ── 13. builtin_verifier 相容層 ────────────────────────────────────────
