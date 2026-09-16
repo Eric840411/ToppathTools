@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { XianxiaReveal } from '../components/XianxiaReveal'
 
 type DashboardSummary = {
   ok: boolean
@@ -242,7 +243,7 @@ export function DashboardPage({ themeMode = 'xianxia' }: { themeMode?: 'classic'
         {themeMode === 'xianxia' ? (
           <div className="dashboard-hero-copy">
             <div className="dashboard-hero-kicker">TOPPATH WORKFLOW INTEGRATOR</div>
-            <h1>萬法歸樞，諸事可觀</h1>
+            <h1><XianxiaReveal text="萬法歸樞，諸事可觀" /></h1>
             <p>將在線弟子、任務流轉與靈脈負荷收束於同一座道樞，讓每一筆法事皆可觀、可追、可覆核。</p>
           </div>
         ) : (
@@ -257,15 +258,31 @@ export function DashboardPage({ themeMode = 'xianxia' }: { themeMode?: 'classic'
         </div>
       </div>
 
+      {/* ④ 卡片光暈 + ① 文字浮現。
+          ⚠️ 這張卡原本是純 inline style、沒有任何 class，所以 CSS 的
+             `::after` 光暈根本掛不上去——先補 class 才做得了效果。
+          ⚠️ key={dailyQuote.text}：仙語每天才換一次，但這個元件會跟著
+             Dashboard 每 30 秒的輪詢一起 re-render；沒有 key 的話
+             進場動畫每 30 秒重跑一次。 */}
       {themeMode === 'xianxia' && dailyQuote && (
-        <div style={{
-          border: '1px solid var(--xx-line-gold, #7a6a3d)',
-          borderRadius: 8,
-          padding: '14px 18px',
-          marginBottom: 16,
-          background: 'rgba(122, 106, 61, 0.08)',
-        }}>
-          <div style={{ fontSize: 14, fontStyle: 'italic', color: '#d8cfa8', marginBottom: 6 }}>「{dailyQuote.text}」</div>
+        <div
+          className="xx-glow"
+          onPointerMove={e => {
+            const r = e.currentTarget.getBoundingClientRect()
+            e.currentTarget.style.setProperty('--mx', `${e.clientX - r.left}px`)
+            e.currentTarget.style.setProperty('--my', `${e.clientY - r.top}px`)
+          }}
+          style={{
+            border: '1px solid var(--xx-line-gold, #7a6a3d)',
+            borderRadius: 8,
+            padding: '14px 18px',
+            marginBottom: 16,
+            background: 'rgba(122, 106, 61, 0.08)',
+          }}
+        >
+          <div style={{ fontSize: 14, fontStyle: 'italic', color: '#d8cfa8', marginBottom: 6 }}>
+            <XianxiaReveal key={dailyQuote.text} text={`「${dailyQuote.text}」`} />
+          </div>
           <div style={{ fontSize: 12, color: '#8a7f5a', textAlign: 'right' }}>—— {dailyQuote.source || '出處未詳'}</div>
         </div>
       )}

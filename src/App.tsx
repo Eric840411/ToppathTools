@@ -34,6 +34,7 @@ import ChangelogModal from './components/ChangelogModal'
 import GeminiSettingsModal from './components/GeminiSettingsModal'
 import AiAgentMonitorWidget from './components/AiAgentMonitorWidget'
 import { XianxiaIcon, type XianxiaIconName } from './components/XianxiaIcon'
+import { XianxiaReveal } from './components/XianxiaReveal'
 import { type AccountInfo } from './components/JiraAccountModal'
 import { AuthLoginModal } from './components/AuthLoginModal'
 import { APP_VERSION } from './version'
@@ -858,7 +859,15 @@ function App() {
         <div className="app-topbar">
           <div className="app-topbar-left" title={currentDescription}>
             {themeMode === 'xianxia' && <span className="app-topbar-kicker">TAIXUAN CONTROL CENTER</span>}
-            <span className="app-topbar-title">{currentThemeLabel}</span>
+            <span className="app-topbar-title">
+              {/* 修仙版：頁面標題逐字浮現。改這一個地方＝全站每一頁都有，
+                  不用逐頁加（全站只有 8 個頁內 <h1>，標題其實都在這條頂欄）。
+                  ⚠️ key 一定要帶——沒有它的話 App 每次 re-render 都會重跑進場動畫，
+                  而 Dashboard 每 30 秒輪詢一次，畫面就會一直在閃。 */}
+              {themeMode === 'xianxia'
+                ? <XianxiaReveal key={currentThemeLabel} text={currentThemeLabel} />
+                : currentThemeLabel}
+            </span>
             {themeMode === 'xianxia' && currentThemeLabel !== currentPageLabel && <span className="app-topbar-group">{currentPageLabel}</span>}
           </div>
           <div className="app-global-search">

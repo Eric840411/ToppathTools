@@ -2758,3 +2758,169 @@ h3 {
   border-radius: 99px !important;
   box-shadow: 0 0 10px rgba(117, 215, 207, .28);
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   修仙版視覺效果（2026-09-16）— 靈光／陣法紋／文字浮現／卡片光暈
+
+   ⚠️ 這整份 CSS 在普通版是被 `App.tsx` 整份 remove 掉的（不是靠選擇器擋），
+      所以這裡的規則**不需要** `[data-theme-mode="xianxia"]` 前綴，
+      而且普通版是結構性免疫、不可能漏過去。
+      → 反過來說：**JSX 改動沒有這層保護**，一定要 gate 在 `themeMode === 'xianxia'`。
+
+   ⚠️ 改完一定要進版號。這支檔在 public/ 底下**沒有 content hash**，
+      靠 `?v=${APP_VERSION}` 破快取；不進版號的話已開過網站的人最多 4 小時看不到。
+   ═══════════════════════════════════════════════════════════════════ */
+
+@keyframes xx-array-spin { to { transform: rotate(360deg); } }
+
+/* ── ② 靈光：hover 時鎏金浮起 ──────────────────────────────────
+   ⚠️ 刻意**不用** `[class*="card"]` 這種屬性選擇器。全站掃描掃出 128 種相關
+      class，用屬性選擇器一次收完很省事，但它會連 `option-card-title`、
+      `stat-chip-val` 這種**子元素**一起命中——父子同時套 transform，
+      hover 起來是整塊在抖，不是浮起。所以這裡逐一列容器層的 class。
+
+   ⚠️ 分成兩組不是為了整齊：badge / chip 多半是 inline 元素，
+      `transform` 對 inline 元素**無效**，硬套要先改 `display`，
+      那會動到既有排版。所以它們只給光圈、不給位移。 */
+
+@media (hover: hover) {
+  /* 會浮起的：本來就是一塊有邊框的容器 */
+  .section-card, .discord-notify-card, .local-agent-card, .mt-phase-card,
+  .option-card, .osm-comp-ver-card, .osm-gt-card, .realm-card, .src-card,
+  .uat-asset-card, .ui-ss-metric-card, .uat-net-tile,
+  .cultivation-entry, .dashboard-panel {
+    transition: transform .22s cubic-bezier(.22,.7,.3,1),
+                box-shadow .22s ease, border-color .22s ease;
+  }
+  .section-card:hover, .discord-notify-card:hover, .local-agent-card:hover,
+  .mt-phase-card:hover, .option-card:hover, .osm-comp-ver-card:hover,
+  .osm-gt-card:hover, .realm-card:hover, .src-card:hover,
+  .uat-asset-card:hover, .ui-ss-metric-card:hover, .uat-net-tile:hover,
+  .cultivation-entry:hover, .dashboard-panel:hover {
+    transform: translateY(-2px);
+    border-color: var(--xx-line-gold) !important;
+    box-shadow:
+      0 0 0 1px rgba(214, 183, 112, .16),
+      0 10px 24px -10px rgba(0, 0, 0, .55),
+      0 0 26px -8px rgba(240, 216, 156, .38);
+  }
+
+  /* 只給光圈、不位移：inline 的徽章與籤條 */
+  .badge, .dashboard-page-badge, .dim-badge, .mt-phase-badge, .mt-worker-badge,
+  .mt-soon-badge, .osm-badge, .osm-channel-badge, .osm-type-badge,
+  .auth-login-last-badge, .issue-chip, .stat-chip, .dashboard-chip,
+  .member-chip, .scripted-chip, .uat-net-chip {
+    transition: box-shadow .22s ease, border-color .22s ease;
+  }
+  .badge:hover, .dashboard-page-badge:hover, .dim-badge:hover,
+  .mt-phase-badge:hover, .mt-worker-badge:hover, .mt-soon-badge:hover,
+  .osm-badge:hover, .osm-channel-badge:hover, .osm-type-badge:hover,
+  .auth-login-last-badge:hover, .issue-chip:hover, .stat-chip:hover,
+  .dashboard-chip:hover, .member-chip:hover, .scripted-chip:hover,
+  .uat-net-chip:hover {
+    box-shadow: 0 0 0 1px rgba(214, 183, 112, .3),
+                0 0 14px -4px rgba(240, 216, 156, .45);
+  }
+}
+
+/* ── ③ 陣法紋：Loading 與空狀態 ────────────────────────────────
+   素材 `public/themes/xianxia/array/loading-array*.webp`（CodeX 出的靜態圖，
+   旋轉由 CSS 做）。已驗過：alpha 重心做過次像素對齊，轉 90 度位移 0.001px，
+   所以繞中心轉不會漂。
+
+   ⚠️ 依顯示尺寸選檔，不要一律用母檔：母檔 512px / 126KB，
+      而 spinner 只顯示 36px。*/
+
+/* spinner：整顆換成法陣。`!important` 是因為 App.css 那條
+   `animation: spin .8s` 同為單一 class，不蓋掉會兩個動畫打架 */
+.loading-spinner {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: url("/themes/xianxia/array/loading-array-64.webp") center / contain no-repeat;
+  animation: xx-array-spin 9s linear infinite !important;
+}
+
+/* 大空狀態：極淡的法陣當背景。
+   ⚠️ `.loading-state` 刻意不在這組——它裡面已經有 spinner 了，
+      再加一顆大的會變成兩個法陣同時轉。
+   ⚠️ `.dashboard-empty` 這種單行提示條也不在——它高度只有 40 幾 px，
+      176px 的法陣塞不進去，只會被裁成一條弧線。 */
+.osm-empty, .dashboard-table-empty, .local-agent-empty, .auth-login-empty,
+.osm-dist-empty, .osm-detail-placeholder, .uat-list-empty, .uat-block-empty,
+.uat-net-empty, .uat-risk-empty, .uat-inspector-empty, .uat-backend-flow-empty,
+.uat-tc-blocks-empty, .uat-tc-inspector-empty, .uat-tc-steps-empty {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;       /* 讓底下的 z-index:-1 只退到這個盒子的底層，不會鑽到頁面背景 */
+}
+.osm-empty::before, .dashboard-table-empty::before, .local-agent-empty::before,
+.auth-login-empty::before, .osm-dist-empty::before, .osm-detail-placeholder::before,
+.uat-list-empty::before, .uat-block-empty::before, .uat-net-empty::before,
+.uat-risk-empty::before, .uat-inspector-empty::before, .uat-backend-flow-empty::before,
+.uat-tc-blocks-empty::before, .uat-tc-inspector-empty::before,
+.uat-tc-steps-empty::before {
+  content: "";
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 176px; height: 176px;
+  margin: -88px 0 0 -88px;
+  background: url("/themes/xianxia/array/loading-array-192.webp") center / contain no-repeat;
+  opacity: .085;
+  animation: xx-array-spin 26s linear infinite;
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* ── ① 文字浮現 ───────────────────────────────────────────────
+   逐字進場。⚠️ 延遲用 inline `--i` 算，不用 `:nth-child(n)` 寫死——
+   mockup 只寫到第 8 個字，而每日仙語是整句（20~30 字），
+   第 9 字之後會**永遠停在 opacity:0**，整句後半段直接看不見。 */
+@keyframes xx-rise {
+  from { opacity: 0; transform: translateY(.5em); filter: blur(6px); }
+  to   { opacity: 1; transform: none;             filter: blur(0); }
+}
+.xx-reveal > .xx-w {
+  display: inline-block;
+  white-space: pre;         /* 空白也要各自佔位，否則逐字拆完會全部黏在一起 */
+  opacity: 0;
+  animation: xx-rise .62s cubic-bezier(.22,.7,.3,1) forwards;
+  animation-delay: calc(var(--i, 0) * .055s);
+}
+
+/* ── ④ 卡片光暈 ───────────────────────────────────────────────
+   跟著滑鼠的版本只給每日仙語（有 JS 餵 --mx/--my）；
+   其餘重點卡用置中的靜態光暈，純 CSS、零 JS。 */
+.xx-glow { position: relative; isolation: isolate; }
+.xx-glow::after {
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(420px 120px at var(--mx, 50%) var(--my, 50%),
+              rgba(240, 216, 156, .14), transparent 70%);
+  opacity: 0;
+  transition: opacity .3s ease;
+  pointer-events: none;
+  z-index: -1;
+}
+@media (hover: hover) { .xx-glow:hover::after { opacity: 1; } }
+
+/* ── 無障礙：使用者要求減少動態時，全部收斂成靜態 ── */
+@media (prefers-reduced-motion: reduce) {
+  .loading-spinner { animation: none !important; }
+  .osm-empty::before, .dashboard-table-empty::before, .local-agent-empty::before,
+  .auth-login-empty::before, .osm-dist-empty::before, .osm-detail-placeholder::before,
+  .uat-list-empty::before, .uat-block-empty::before, .uat-net-empty::before,
+  .uat-risk-empty::before, .uat-inspector-empty::before, .uat-backend-flow-empty::before,
+  .uat-tc-blocks-empty::before, .uat-tc-inspector-empty::before,
+  .uat-tc-steps-empty::before { animation: none; }
+  .xx-reveal > .xx-w { animation: none; opacity: 1; filter: none; transform: none; }
+  .section-card, .discord-notify-card, .local-agent-card, .mt-phase-card,
+  .option-card, .osm-comp-ver-card, .osm-gt-card, .realm-card, .src-card,
+  .uat-asset-card, .ui-ss-metric-card, .uat-net-tile,
+  .cultivation-entry, .dashboard-panel { transition: none; }
+  .section-card:hover, .discord-notify-card:hover, .local-agent-card:hover,
+  .mt-phase-card:hover, .option-card:hover, .osm-comp-ver-card:hover,
+  .osm-gt-card:hover, .realm-card:hover, .src-card:hover,
+  .uat-asset-card:hover, .ui-ss-metric-card:hover, .uat-net-tile:hover,
+  .cultivation-entry:hover, .dashboard-panel:hover { transform: none; }
+}
