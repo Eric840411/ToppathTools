@@ -42,6 +42,9 @@ try {
   }))
   // 錄製維持「進行中」：停止要靠測試自己放行，才驗得到「錄製途中 Esc 不關」
   let recordDone = false
+  // 把 start／stop 的回應卡住，用來製造「busy=true 但 recId 是空的」那兩個瞬間。
+  // 沒有這個就驗不到 busy 這道防線——錄製中那條紅的其實是 recId 在擋（CodeX 指出）。
+  let holdStart = null, holdStop = null
 
   await page.route('**/api/**', async route => {
     const req = route.request(), url = new URL(req.url())
@@ -51,8 +54,13 @@ try {
     else if (url.pathname.endsWith('/recorded-scripts')) {
       if (req.method() === 'PUT') { saved = { ...req.postDataJSON(), id: 'script-1' }; data.script = saved }
       else data.scripts = saved ? [saved] : []
-    } else if (url.pathname.endsWith('/record/start')) data = { ok: true, sessionId: 'fixture-session', agentLabel: 'Fixture Agent' }
-    else if (url.pathname.includes('/record/status/') || url.pathname.includes('/record/stop/')) data = { ok: true, steps: [], done: recordDone }
+    } else if (url.pathname.endsWith('/record/start')) {
+      if (holdStart) await holdStart
+      data = { ok: true, sessionId: 'fixture-session', agentLabel: 'Fixture Agent' }
+    } else if (url.pathname.includes('/record/stop/')) {
+      if (holdStop) await holdStop
+      data = { ok: true, steps: [], done: recordDone }
+    } else if (url.pathname.includes('/record/status/')) data = { ok: true, steps: [], done: recordDone }
     else if (url.pathname.endsWith('/results')) data.runs = []
     await route.fulfill({ json: data })
   })
@@ -183,16 +191,45 @@ try {
   await page.getByLabel('腳本名稱').fill('錄製中按 Esc')
   await saveNow()
   dialogAnswer = 'accept'
+  // ⚠️ 每次各自取基準，不要共用同一個 before——共用的話第一條紅掉之後，
+  //    後面每一條都會跟著紅，看不出到底是哪一道防線失效（診斷會失真）。
+  const escNoClose = async name => {
+    const base0 = await closeCount()
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(200)
+    eq(name, await closeCount(), base0)
+  }
+
+  // ⚠️ 下面兩條專門驗 `busy` 這道防線，跟「錄製中」那條不是同一件事。
+  //    錄製中之所以不關，其實是 `recId` 在擋——把 busy 拿掉那條照樣綠。
+  //    要驗 busy，必須做出「busy=true 但 recId 是空的」那兩個瞬間：
+  //      啟動：act() 已 setBusy(true)，但 /record/start 還沒回來 → 還沒有 recId
+  //      收尾：stopRecording() 先 setRecId(null)，才去 await /record/stop
+  //    （CodeX review 指出原本四項注入沒有涵蓋這點。）
+  let releaseStart
+  holdStart = new Promise(r => { releaseStart = r })
   await page.getByRole('button', { name: '錄製並接在後面' }).click()
+  await page.waitForFunction(() => {
+    const b = [...document.querySelectorAll('button')].find(x => x.textContent === '關閉')
+    return !!b && b.disabled
+  })
+  eq('啟動中：還沒拿到 recId（停止錄製鈕尚未出現）',
+    await page.getByRole('button', { name: /^停止錄製/ }).count(), 0)
+  await escNoClose('啟動中（busy=true、recId 未取得）按 Esc 不會關')
+  releaseStart(); holdStart = null
   await page.getByRole('button', { name: /^停止錄製/ }).waitFor()
-  const before = await closeCount()
+
   eq('錄製中關閉鈕是 disabled', await page.getByRole('button', { name: '關閉' }).isDisabled(), true)
-  await page.keyboard.press('Escape')
-  await page.waitForTimeout(200)
-  eq('錄製中按 Esc 不會關（不然就沒有停止錄製的入口了）', await closeCount(), before)
+  await escNoClose('錄製中按 Esc 不會關（不然就沒有停止錄製的入口了）')
 
   recordDone = true
+  let releaseStop
+  holdStop = new Promise(r => { releaseStop = r })
   await page.getByRole('button', { name: /^停止錄製/ }).click()
+  await page.waitForFunction(() =>
+    ![...document.querySelectorAll('button')].some(x => x.textContent.startsWith('停止錄製')))
+  await escNoClose('停止收尾中（busy=true、recId 已清空）按 Esc 不會關')
+  releaseStop(); holdStop = null
   await page.getByRole('button', { name: '錄製並接在後面' }).waitFor()
 
   eq('過程中沒有 pageerror', errors, [])
