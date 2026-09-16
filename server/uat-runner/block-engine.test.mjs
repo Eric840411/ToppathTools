@@ -195,17 +195,41 @@ const BLUE = { 'Total Available EGM': '5', 'Total System Connected EGM': '2' };
   check('欄名打錯 → FAIL，不可以假通過', badCol.pass === false, badCol.notes);
   check('而且要講出目前有哪些欄位', /目前欄位：bet/.test(badCol.notes), badCol.notes);
 
-  const emptyTable = await runSteps([
+  // ⚠️ 判定要驗「外層會不會算成 PASS」，不是只看有沒有印「排序正確」。
+  //    runner 的規則是：`if (pass && manual) skipCount++; else if (pass) passCount++`
+  //    ——所以「算成 PASS」等於 `pass && !manual`。只檢查 notes 的話，
+  //    onNotComparable 用 warn（pass=true、manual=false）照樣會被算進 PASS，
+  //    測試卻是綠的（CodeX review 指出）。
+  const countsAsPass = r => r.pass === true && r.manual !== true;
+  const sortedCases = [
+    ['空表格', []],
+    ['整欄都不是數字', [{ bet: 'aaa' }, { bet: 'bbb' }]],
+    ['部分列不是數字（900/oops/100）', [{ bet: '900' }, { bet: 'oops' }, { bet: '100' }]],
+    ['部分列缺欄', [{ bet: '900' }, {}, { bet: '100' }]],
+  ];
+  for (const [name, table] of sortedCases) {
+    const r = await runSteps([
+      { action: 'read_table', selector: 'table', as: 't' },
+      { action: 'assert_sorted', from: 't', column: 'bet', direction: 'desc' },
+    ], makeCtx({ table }));
+    check(`${name} → 不計入 PASS`, !countsAsPass(r), `pass=${r.pass} manual=${r.manual} ${r.notes}`);
+    check(`${name} → 不印成「排序正確」`, !/✅.*排序正確/.test(r.notes), r.notes);
+  }
+
+  // 部分列比不了時，不可以拿剩下的列下結論——這組剩下的 [900, 100] 剛好有序，
+  // 舊版就是靠這個印出「✅ 2 列排序正確」把中間那列蓋掉的。
+  const partial = await runSteps([
     { action: 'read_table', selector: 'table', as: 't' },
     { action: 'assert_sorted', from: 't', column: 'bet', direction: 'desc' },
-  ], makeCtx({ table: [] }));
-  check('空表格不印成「排序正確」', !/排序正確/.test(emptyTable.notes), emptyTable.notes);
+  ], makeCtx({ table: [{ bet: '900' }, { bet: 'oops' }, { bet: '100' }] }));
+  check('要指出是第幾列比不了、以及佔幾列', /第 2 列.*1\/3 列/.test(partial.notes), partial.notes);
 
-  const textCol = await runSteps([
+  // 全部可解析時才真的比，行為不變
+  const allNum = await runSteps([
     { action: 'read_table', selector: 'table', as: 't' },
-    { action: 'assert_sorted', from: 't', column: 'name', direction: 'desc' },
-  ], makeCtx({ table: [{ name: 'bbb' }, { name: 'aaa' }] }));
-  check('整欄都不是數字 → 不印成通過（沒驗到就是沒驗到）', !/✅.*排序正確/.test(textCol.notes), textCol.notes);
+    { action: 'assert_sorted', from: 't', column: 'bet', direction: 'desc' },
+  ], makeCtx({ table: [{ bet: '900' }, { bet: '500' }, { bet: '100' }] }));
+  check('全部可解析且有序 → 仍然算 PASS', countsAsPass(allNum), allNum.notes);
 }
 
 // ── 13. builtin_verifier 相容層 ────────────────────────────────────────

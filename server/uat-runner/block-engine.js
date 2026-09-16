@@ -333,7 +333,7 @@ export const BLOCK_DEFS = {
       { key: 'from', label: '來源變數（表格）', type: 'text', required: true },
       { key: 'column', label: '欄位名稱', type: 'text', required: true },
       { key: 'direction', label: '方向', type: 'select', options: ['desc', 'asc'], default: 'desc' },
-      { key: 'onNoData', label: '沒有可比較的數值時', type: 'select', options: ['warn', 'continue', 'manual', 'stop'], default: 'warn', help: '空表格或整欄都不是數字：這是「沒驗到」不是「驗過了」，不會印成通過' },
+      { key: 'onNotComparable', label: '有列比不了時', type: 'select', options: ['manual', 'warn', 'continue', 'stop'], default: 'manual', help: '空表格、或任何一列的值不是數字（例如 2026-09-16 10:00:00）。這是「沒驗到」不是「驗過了」，預設標成需人工——用 warn 的話外層仍會把它算進 PASS' },
       { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
     ],
   },
@@ -1247,15 +1247,30 @@ export async function runSteps(steps, ctx, options = {}) {
           notes.push(`❌ ${tag}：表格裡沒有欄位「${sortCol}」（目前欄位：${knownCols.join('、') || '無'}）`);
           return finish();
         }
-        const vals = rows.map(r => toNumber(r[sortCol])).filter(v => v !== undefined);
-        if (vals.length === 0) {
-          // 欄位在、但一個可比的值都沒有（空表格，或整欄都不是數字）。
-          // 這是「沒驗到」不是「驗過了」，不可以印 ✅。
-          const mode = step.onNoData ?? 'warn';
-          if (fail({ ...step, onFail: mode },
-            `${tag}：「${sortCol}」沒有可比較的數值（${rows.length} 列），排序沒有驗到`) === 'stop') break;
+        // ⚠️ 不可以 filter 掉比不了的列。原本 `.filter(v => v !== undefined)` 會讓
+        //    [900, 'oops', 100] 變成 [900, 100] → 印「✅ 2 列排序正確」→ 通過，
+        //    **中間那列的違規被靜默跳過**，而且「2 列」跟表格有 3 列這件事沒人會去對。
+        //    默默縮小驗證範圍跟直接不驗一樣危險（CodeX review 指出）。
+        const parsed = rows.map((r, k) => ({ no: k + 1, n: toNumber(r?.[sortCol]) }));
+        const notComparable = parsed.filter(p => p.n === undefined);
+        // ⚠️ 預設 `manual` 不是 `warn`：warn 不影響 pass 判定，外層 runner 會把它
+        //    算進 passCount——「沒驗到」就又變成 PASS 了，等於這個修正白做。
+        //    manual 會讓 runner 走 skipCount 並回填「需人工」，語意才對得上。
+        const notComparableMode = step.onNotComparable ?? step.onNoData ?? 'manual';
+        if (parsed.length === 0) {
+          if (fail({ ...step, onFail: notComparableMode },
+            `${tag}：表格沒有資料，「${sortCol}」的排序沒有驗到`) === 'stop') break;
           continue;
         }
+        if (notComparable.length) {
+          const where = notComparable.slice(0, 8).map(p => `第 ${p.no} 列`).join('、')
+            + (notComparable.length > 8 ? ` 等 ${notComparable.length} 列` : '');
+          if (fail({ ...step, onFail: notComparableMode },
+            `${tag}：${where}的「${sortCol}」不是可比較的數值（${notComparable.length}/${rows.length} 列），`
+            + '排序沒有完整驗到') === 'stop') break;
+          continue;
+        }
+        const vals = parsed.map(p => p.n);
         const desc = (step.direction ?? 'desc') === 'desc';
         const bad = vals.findIndex((v, k) => k > 0 && (desc ? v > vals[k - 1] : v < vals[k - 1]));
         if (bad !== -1) { if (fail(step, `${tag}：第 ${bad + 1} 列開始排序不符（${sortCol}）`) === 'stop') break; continue }
