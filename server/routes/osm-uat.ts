@@ -60,7 +60,7 @@ import { getAuthAccount } from '../auth-session.js'
 import type { Request } from 'express'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { agentUpdateStatus } from './machine-test.js'
-import { registerRecordedScriptRoutes, getRecordedScript, captureRecordedScriptResult, tcBindingSchema } from '../uat-recorded-scripts.js'
+import { registerRecordedScriptRoutes, getRecordedScript, getRecordedScriptMeta, acquireScriptLock, releaseScriptLock, rememberRunContext, forgetRunContext, captureRecordedScriptResult, tcBindingSchema } from '../uat-recorded-scripts.js'
 import { validateMultiTcScript } from '../uat-runner/multi-tc.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -533,6 +533,10 @@ function finishSession(status: 'done' | 'error', tailLine: string, extra: Record
   session.finishedAt = Date.now()
   session.process = null
   finishHeavyTask(session.heavyTask)
+  // 同腳本互斥：一定要在這裡放，不是靠 agent 連線判斷——
+  // 斷線不代表已經停止（可能還在對方機器上跑、還在回寫 Lark）。
+  releaseScriptLock(session.id)
+  forgetRunContext(session.id)
   if (session.agentId) {
     const agent = agentConnections.get(session.agentId)
     if (agent && agent.sessionId === session.id) { agent.busy = false; agent.sessionId = null }
@@ -1252,8 +1256,9 @@ router.post('/api/osm-uat/run', (req, res) => {
   const { filter, dashGameType, dashClientVersion, agentId, dryRun, onlyRecordIds, stepsOverride, customTrial, recordedScriptId, stopAfter } = parsed.data
   const account = getAuthAccount(req)
   if (stopAfter !== undefined && (!dryRun || !recordedScriptId)) return res.status(400).json({ ok: false, error: '局部執行只適用於多 TC 試跑' })
-  const multiScript = recordedScriptId && account ? getRecordedScript(recordedScriptId, account.email) : null
-  if (recordedScriptId && !multiScript) return res.status(404).json({ ok: false, error: '找不到你的多 TC 腳本' })
+  // 錄製腳本改成團隊共用，不再依帳號過濾（2026-09-16）
+  const multiScript = recordedScriptId ? getRecordedScript(recordedScriptId) : null
+  if (recordedScriptId && !multiScript) return res.status(404).json({ ok: false, error: '找不到這份多 TC 腳本（可能已被刪除）' })
   if (multiScript) {
     if (stopAfter !== undefined && stopAfter >= multiScript.steps.length) return res.status(400).json({ ok: false, error: '試跑終點超出腳本步驟' })
     if (customTrial || stepsOverride || onlyRecordIds) return res.status(400).json({ ok: false, error: '多 TC 腳本不可混用單筆試跑或步驟覆寫' })
@@ -1338,6 +1343,23 @@ router.post('/api/osm-uat/run', (req, res) => {
     ...(multiScript ? { UAT_MULTI_SCRIPT: JSON.stringify(multiScript), UAT_TC_ONLY: `multi-script-${multiScript.id}` } : {}),
   }
   const sessionId = randomUUID()
+  // 同一份腳本同時只能一個人跑——共用之後兩個人同時跑會同時往同一批 Lark TC
+  // 回寫 PASS/FAIL 與附圖。搶鎖要在真的開始之前，失敗就直接回 409。
+  if (multiScript) {
+    const who = account?.email ?? '未登入'
+    const lock = acquireScriptLock(multiScript.id, sessionId, who)
+    if (lock.ok === false) {
+      finishHeavyTask(heavyTask.token)
+      res.status(409).json({ ok: false, error: `這份腳本正在由 ${lock.holder} 執行中（${new Date(lock.since).toLocaleString('zh-TW')} 開始），請等它跑完` })
+      return
+    }
+    // 每輪固定腳本快照與 revision，結果回來時才知道跑的是哪一版
+    rememberRunContext(sessionId, {
+      scriptId: multiScript.id,
+      revision: getRecordedScriptMeta(multiScript.id)?.revision ?? 0,
+      executedBy: who,
+    })
+  }
   // 這一輪專用的素材取用票。runner 可能跑在別台 agent 上，所以素材要用 HTTP 取；
   // 票跟 session 同生命週期，執行結束就失效（見 UatSession.assetToken 的說明）。
   const assetToken = randomUUID()

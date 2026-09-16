@@ -8,7 +8,9 @@ import type { BackendTc, Step } from './BackendTcEditor'
 import type { UatThemeMode } from './types'
 
 type Binding = { recordId: string; tableId: string; number: string; text: string; sub: string }
-type Script = { id?: string; title: string; larkUrl: string; tableId: string; bindings: Binding[]; steps: Step[] }
+type Script = { id?: string; title: string; larkUrl: string; tableId: string; bindings: Binding[]; steps: Step[]
+  /** 團隊共用之後用來擋並行覆蓋；建立者／最後修改者只做顯示 */
+  revision?: number; createdBy?: string | null; updatedBy?: string | null; running?: boolean }
 export type RecordedScript = Script
 type Param = { key: string; label: string; type: string; options?: string[]; default?: unknown; help?: string }
 type Def = { label: string; category: string; params?: Param[] }
@@ -24,7 +26,14 @@ const label = (b: Binding) => `${b.number || b.recordId}｜${b.text}`
 async function request(url: string, init?: RequestInit) {
   const response = await fetch(url, init)
   const data = await response.json()
-  if (!response.ok || !data.ok) throw new Error(data.message || data.error || '請求失敗')
+  if (!response.ok || !data.ok) {
+    // ⚠️ 版本衝突要跟一般錯誤分開：它不能只是「存檔失敗」，
+    //    呼叫端得知道「不要清掉使用者正在編輯的內容」。
+    const err = new Error(data.message || data.error || '請求失敗') as Error & { code?: string; revision?: number }
+    err.code = data.code
+    err.revision = data.revision
+    throw err
+  }
   return data
 }
 
@@ -169,8 +178,13 @@ export function MultiTcRecorder({ open, onClose, tcs, larkUrl, agentId, running,
   const dependencyIssues = stepDependencyIssues(script.steps)
   const save = async () => {
     if (saveErrors.length) { if (!script.title.trim()) titleInput.current?.focus(); throw new Error(saveErrors.join('；')) }
-    const data = await request('/api/osm-uat/recorded-scripts', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(script) })
-    setScript(data.script); setDirty(false); await loadLibrary(); return data.script as Script
+    // 帶上目前這份的版本號；別人在這期間存過的話後端會回 409。
+    const body = JSON.stringify({ ...script, expectedRevision: script.revision })
+    const data = await request('/api/osm-uat/recorded-scripts', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
+    // ⚠️ 只更新版本號，**不要用回來的 script 蓋掉畫面**——那等於把使用者
+    //    剛才編輯的內容換成伺服器那份，跟被別人覆蓋的感受一樣。
+    setScript(s => ({ ...s, id: data.script.id, revision: data.revision }))
+    setDirty(false); await loadLibrary(); return data.script as Script
   }
   const act = async (fn: () => Promise<void>) => {
     setBusy(true); setMessage(''); setActionError('')
