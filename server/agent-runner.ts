@@ -1626,7 +1626,27 @@ function connect() {
       //    只回報寫入結果的話，會出現「更新成功」但指紋照樣對不上，
       //    使用者只能反覆按更新——實際發生過。寫完立刻回報還差哪幾個。
       const stillDiff = after?.diff ?? []
-      ws.send(JSON.stringify({ type: 'sources_updated', ok: allOk, results, stillDiff, sourceHash: after?.all, sourceDiff: after?.diff, sourceVersion: readSourceVersion() }))
+      // ⚠️ 「寫完還是不一致」只講得出「有問題」，講不出是**哪一層**有問題。
+      //    重新抓一次那個檔，湊出三個數字就能直接切開：
+      //      磁碟 ≠ 重抓 ≠ 期望 → 伺服器每次送的內容都不一樣
+      //      磁碟 = 重抓 ≠ 期望 → 伺服器「算指紋」跟「送檔案」讀到的東西不同
+      //      磁碟 ≠ 重抓 = 期望 → 寫檔／讀檔這段把內容弄壞了
+      //    不這樣做的話只能靠猜，而使用者已經反覆按了很多次更新（實際發生）。
+      const probes: string[] = []
+      for (const rel of stillDiff.slice(0, 5)) {
+        try {
+          const baseUrl3 = CENTRAL_URL.replace(/^wss?/, (m) => m.includes('wss') ? 'https' : 'http')
+          const mf2 = await fetch(`${baseUrl3}/api/machine-test/agent/source-manifest`).then(r => r.json()) as { perFile?: Record<string, string> }
+          const fresh = await fetch(`${baseUrl3}/api/machine-test/agent/source/${rel}`).then(r => r.text())
+          let onDisk = ''
+          try { onDisk = readFileSync(join(process.cwd(), 'server', ...rel.split('/')), 'utf8') } catch { onDisk = '' }
+          probes.push(`${rel}｜磁碟 ${hashOne(onDisk).slice(0, 8)}｜重抓 ${hashOne(fresh).slice(0, 8)}｜期望 ${(mf2.perFile?.[rel] ?? '?').slice(0, 8)}｜長度 磁碟${onDisk.length}/重抓${fresh.length}`)
+        } catch (e) {
+          probes.push(`${rel}｜重抓失敗：${e instanceof Error ? e.message : String(e)}`)
+        }
+      }
+      if (probes.length) console.error('[Agent:' + AGENT_LABEL + '] 不一致診斷：\n  ' + probes.join('\n  '))
+      ws.send(JSON.stringify({ type: 'sources_updated', ok: allOk, results, stillDiff, probes, sourceHash: after?.all, sourceDiff: after?.diff, sourceVersion: readSourceVersion() }))
       const needRestart = after && bootRestartHash !== undefined && after.restartScoped !== bootRestartHash
       console.log(`[Agent:${AGENT_LABEL}] Source update ${allOk ? 'succeeded' : 'failed (partial)'}.`
         + (needRestart ? ' ⚠️ 有需要重啟才生效的檔案被更新，請重開 agent。' : ' 這批檔案下次執行就會生效，不用重啟。'))

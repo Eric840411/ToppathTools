@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.152.1'
+export const APP_VERSION = '4.152.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.152.2', date: '2026-09-16', changes: ['chore(agent): 更新完仍不一致時，自動重抓那個檔並回報三個指紋（磁碟／重抓／期望）與長度——只講「還是不一致」講不出是哪一層有問題，使用者只能反覆按更新；三個數字一比就能切開是伺服器送的內容不穩、還是算指紋與送檔案讀到不同東西、還是寫檔讀檔把內容弄壞了'] },
   { version: '4.152.1', date: '2026-09-16', changes: ['fix(agent): 更新完會回報「寫進去了、但內容跟伺服器還是不一致」的檔案——原本只回報寫入失敗，所以會出現「更新成功」但指紋照樣對不上，使用者只能反覆按更新（實際發生過）。兩種問題的下一步不同：寫入失敗是下載/寫檔壞了，寫完仍不一致是內容本身對不上', 'chore(uat): backend-recorder.js 的換行收齊成一致的 CRLF（先前逐位元組修補留下 472 CRLF + 274 單獨 LF 的混合狀態；不影響指紋比對，但沒有理由留著製造混淆）'] },
   { version: '4.152.0', date: '2026-09-16', changes: ['feat(agent): 指紋對不上時直接列出「是哪幾個檔案不一樣」——原本兩邊都只給一個總指紋，使用者除了反覆按更新之外沒事可做，按了也不知道為什麼還是不一致（實際卡住過）。agent 改成逐檔比對 manifest 的 perFile 並回報差異清單', 'fix(agent): 畫面把「沒有差異」跟「這台 agent 還不會回報」分開顯示——舊 agent 回報的是 undefined，混成同一種會讓人以為檔案都一致'] },
   { version: '4.151.1', date: '2026-09-16', changes: ['fix(uat): 錄製的標記選單會被視窗裁掉——位置原本是用寫死的高度去夾（min(clientY, innerHeight - 320)），選單一變長就從下面被切掉，最後兩個選項（含新加的「這裡是上傳欄位」）整個看不到，等於那個功能碰不到。沒有捲軸的頁面特別明顯', 'fix(uat): 改成掛上去量到真實尺寸後再擺位，並加 max-height + 內部捲動當最後一道；⚠️ 必須同時設 box-sizing: border-box，否則 max-height 只夾內容、padding 與 border 會再多戳出 14px'] },

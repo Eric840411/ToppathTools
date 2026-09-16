@@ -708,7 +708,7 @@ wss.on('connection', (ws, req) => {
       // agent 端不再送 luckylink_event，這段轉發已無來源。
 
       if (msg.type === 'sources_updated') {
-        const result = msg as { type: 'sources_updated'; ok: boolean; results?: { file: string; ok: boolean; error?: string }[] ; stillDiff?: string[] }
+        const result = msg as { type: 'sources_updated'; ok: boolean; results?: { file: string; ok: boolean; error?: string }[] ; stillDiff?: string[]; probes?: string[] }
         const pending = pendingSourceUpdates.get(agentId)
         if (pending) {
           const failedFiles = (result.results ?? []).filter(r => !r.ok).map(r => r.file)
@@ -719,6 +719,7 @@ wss.on('connection', (ws, req) => {
             ? `${failedFiles.join(', ')} 更新失敗`
             : stillDiff.length > 0
               ? `檔案都寫進去了，但這幾個跟伺服器還是不一致：${stillDiff.join('、')}`
+                + (Array.isArray(result.probes) && result.probes.length ? '\n' + result.probes.join('\n') : '')
               : undefined
           pending.resolve({ ok: result.ok && stillDiff.length === 0, error })
         }
