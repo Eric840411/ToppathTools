@@ -1195,6 +1195,11 @@
 .uat-multi-result.is-fail { border-left: 3px solid #d94a3a; }
 .uat-multi-result.is-blocked, .uat-multi-result.is-unverified { border-left: 3px solid #d8b45a; }
 .uat-multi-workbench .uat-multi-alert { color: #efc878; }
+/* 「解除綁定」按鈕靠右，跟卡片上方的統計文字分開——它是動作不是資訊。
+   ⚠️ 用 is-quiet 不是 is-danger：它只從這份腳本移除綁定，不會動到 Lark 上的 TC，
+   給紅色會讓人以為按下去會刪掉資料。 */
+.uat-multi-review-act { display: flex; justify-content: flex-end; margin-top: 2px; }
+.uat-multi-review-act .uat-btn { font-size: 12px; padding: 3px 10px; }
 /* ⚠️ 腳本名稱不需要撐滿整行——1440 下量到 1063px，會把「儲存」推到 1000px 之外，
    儲存鈕跟它儲存的對象在視覺上被拆開。給個上限讓它們留在同一個視覺群組裡。 */
 .uat-multi-workbench input[aria-label="腳本名稱"] { max-width: 460px; }

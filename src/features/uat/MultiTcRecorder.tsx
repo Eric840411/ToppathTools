@@ -55,6 +55,7 @@ export function MultiTcRecorder({ open, onClose, tcs, larkUrl, agentId, running,
   const [jsonOpen, setJsonOpen] = useState(false)
   const [confirmRun, setConfirmRun] = useState(false)
   const recordingInsert = useRef<number | null>(null)
+  const closeRef = useRef<() => void>(() => {})
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [insertHere, setInsertHere] = useState(false)
   const [liveNet, setLiveNet] = useState<{ urlPattern: string; method: string; status: number | null }[]>([])
@@ -202,14 +203,58 @@ export function MultiTcRecorder({ open, onClose, tcs, larkUrl, agentId, running,
     recordingInsert.current = null
   }
   const fresh = () => {
-    if (dirty && !window.confirm('目前有未儲存修改，確定另開新腳本？')) return
+    if (hasUnsaved && !window.confirm('目前有未儲存修改，確定另開新腳本？')) return
     resetEditor(empty(larkUrl))
   }
+
+  // 解除綁定：checkbox 與「各 TC 對照」的按鈕共用這一支。
+  // ⚠️ 兩邊各寫一份的話遲早漂移——症狀是「從 A 解除會清掉步驟歸屬，從 B 解除不會」，
+  //    而且兩邊都不會報錯。
+  const removeBinding = (recordId: string) => {
+    if (recId || busy) return
+    if (script.steps.some(s => s.tcId === recordId)
+      && !window.confirm('移除綁定後，相關步驟會變成待指定 TC；步驟仍會保留。')) return
+    edit({
+      ...script,
+      bindings: script.bindings.filter(b => b.recordId !== recordId),
+      steps: script.steps.map(s => s.tcId === recordId ? { ...s, tcId: null } : s),
+    })
+    // ⚠️ 「新增步驟歸屬」若還指著剛被解除的那筆，之後加的步驟會綁回一個已經不存在的
+    //    recordId——畫面上那個 <select> 會退回顯示「共用」，但值其實還在，看不出來。
+    setAddOwner(owner => owner === recordId ? '' : owner)
+  }
+
+  // ⚠️ JSON 編輯框打字時**不會**標記 dirty（只有按「套用 JSON」才會走 edit()），
+  //    所以未儲存判斷一定要把「還沒套用的 JSON 草稿」算進去，否則 Esc 會直接把草稿丟掉。
+  const jsonDraft = jsonOpen && json !== JSON.stringify(script.steps, null, 2)
+  const hasUnsaved = dirty || jsonDraft
+
+  // 關閉：Esc 與右上角「關閉」鈕共用。
+  // ⚠️ 錄製中（recId）與 busy 都不能關——關掉就失去「停止錄製」的入口，
+  //    而 agent 那端的瀏覽器還開著。busy 是為了蓋住「已按下開始、還沒拿到 recId」
+  //    與「已清掉 recId、還在收尾」這兩個 recId 為空但不該關的瞬間。
+  const closeWorkbench = () => {
+    if (recId || busy) return
+    if (hasUnsaved && !window.confirm('尚有未儲存修改，確定關閉？')) return
+    onClose()
+  }
+
+  // Esc 關閉：彈框沒有 Esc 會讓人覺得被困住（沿用 BackendTcEditor 那支的做法）。
+  // ⚠️ 用 ref 轉一手，effect 才能只在開關時重新訂閱、又永遠呼叫到最新的判斷；
+  //    直接把 closeWorkbench 放進 deps 會變成每次 render 都重掛一次監聽器。
+  closeRef.current = closeWorkbench
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeRef.current() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [open])
+
   if (!open) return null
   return createPortal(<div className={`uat-studio uat-multi-overlay ${themeMode === 'xianxia' ? 'is-xianxia' : ''}`} role="dialog" aria-modal="true" aria-label="錄製腳本工作台">
     <section className="uat-multi-workbench">
       <header className="uat-multi-header"><div><h2>錄製腳本工作台</h2><p>一份腳本，共用操作；每筆 TC 分別檢查、配圖與判定。</p></div>
-        <button className="uat-btn is-quiet" disabled={!!recId || busy} onClick={() => { if (!dirty || window.confirm('尚有未儲存修改，確定關閉？')) onClose() }}>關閉</button></header>
+        <button className="uat-btn is-quiet" disabled={!!recId || busy} onClick={closeWorkbench}>關閉</button></header>
       <div className="uat-multi-toolbar">
         <select aria-label="已儲存的錄製腳本" value={script.id || ''} disabled={!!recId || busy} onChange={e => {
           if (!e.target.value) { fresh(); return }
@@ -231,11 +276,16 @@ export function MultiTcRecorder({ open, onClose, tcs, larkUrl, agentId, running,
           <div className="uat-multi-candidates">{candidates.map(tc => <label key={tc.recordId}>
             <input type="checkbox" disabled={!!recId || busy || (script.bindings.length >= 20 && !script.bindings.some(b => b.recordId === tc.recordId))} checked={script.bindings.some(b => b.recordId === tc.recordId)} onChange={e => {
               if (e.target.checked) edit({ ...script, bindings: [...script.bindings, { recordId: tc.recordId, tableId: script.tableId, number: tc.number, text: tc.text, sub: tc.sub }] })
-              else if (!script.steps.some(s => s.tcId === tc.recordId) || window.confirm('移除綁定後，相關步驟會變成待指定 TC；步驟仍會保留。')) edit({ ...script, bindings: script.bindings.filter(b => b.recordId !== tc.recordId), steps: script.steps.map(s => s.tcId === tc.recordId ? { ...s, tcId: null } : s) })
+              else removeBinding(tc.recordId)
             }} /><span><b>{tc.number || tc.recordId}</b>{tc.text}<small>{tc.recordId}</small></span>
           </label>)}</div>
           {!candidates.length && !tcLoading && <p>{query ? '沒有符合搜尋條件的 TC，請調整搜尋文字。' : !script.tableId ? '請先在主畫面填入 Lark 表格網址。' : '尚無可選 TC，請按「重新載入 Lark TC」。'}</p>}
-          <h3>各 TC 對照</h3>{!rows.length && <p>勾選上方 TC 之後，這裡會列出每筆 TC 有幾個檢查、幾張預定截圖。</p>}{rows.map(({ binding, checks, shots, declared }) => <div className="uat-multi-review" key={binding.recordId}><strong>{label(binding)}</strong><span>{checks} 個檢查 · {shots} 張預定截圖</span>{declared ? <small>人工指定 {String(declared)}；實際執行失敗仍為 FAIL</small> : !checks && <small className="uat-multi-alert">没有檢查或指定判定，執行後將列為未驗證</small>}{!shots && <small>尚未指定截圖證據</small>}</div>)}
+          {/* ⚠️ 這裡是唯一「永遠列出全部綁定」的地方——它直接畫 script.bindings。
+                 上面那份候選清單會被搜尋字串過濾、也要 Lark TC 載入成功才有，
+                 所以搜尋框有字、或重開已存腳本還沒重新載入時，checkbox 根本不存在，
+                 已綁的 TC 就變成解不掉。解除入口一定要放在這裡才不會消失。
+              ⚠️ 用詞是「解除綁定」不是「刪除」——它不會動到 Lark 上的 TC。 */}
+          <h3>各 TC 對照</h3>{!rows.length && <p>勾選上方 TC 之後，這裡會列出每筆 TC 有幾個檢查、幾張預定截圖。</p>}{rows.map(({ binding, checks, shots, declared }) => <div className="uat-multi-review" key={binding.recordId}><strong>{label(binding)}</strong><span>{checks} 個檢查 · {shots} 張預定截圖</span>{declared ? <small>人工指定 {String(declared)}；實際執行失敗仍為 FAIL</small> : !checks && <small className="uat-multi-alert">没有檢查或指定判定，執行後將列為未驗證</small>}{!shots && <small>尚未指定截圖證據</small>}<div className="uat-multi-review-act"><button className="uat-btn is-quiet" disabled={!!recId || busy} title="只從這份腳本移除，不會動到 Lark 上的 TC" onClick={() => removeBinding(binding.recordId)}>解除綁定</button></div></div>)}
         </aside>
         <main className="uat-multi-editor">
           <h3>2. 錄製與調整步驟</h3><p>{agentId === 'server' ? '錄製位置：伺服器桌面。瀏覽器會開在伺服器這台電腦，請在該桌面操作。' : '錄製位置：Local Agent。瀏覽器會開在選取的 Agent 電腦。'}</p>
