@@ -1774,7 +1774,7 @@ router.post('/api/local-agent/agent/:agentId/update-sources', (req, res) => {
     resolve: (result) => {
       clearTimeout(timeoutId)
       pendingSourceUpdates.delete(agentId)
-      if (!res.headersSent) res.json({ ok: result.ok, message: result.ok ? '✅ Source files 已更新，請重啟 Agent 套用' : `❌ 部分檔案更新失敗${result.error ? `: ${result.error}` : ''}` })
+      if (!res.headersSent) res.json({ ok: result.ok, message: result.ok ? 'Source files 已更新，請重啟 Agent 套用' : `部分檔案更新失敗${result.error ? `: ${result.error}` : ''}` })
     },
   })
 })

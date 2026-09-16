@@ -24,8 +24,10 @@
   --xx-panel: rgba(7, 14, 23, .88);
   --xx-panel-high: rgba(10, 21, 32, .96);
   --xx-shadow: 0 20px 55px rgba(0, 0, 0, .34);
-  --xx-serif: "Noto Serif TC", "Songti TC", "PMingLiU", serif;
-  --xx-sans: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", sans-serif;
+  --xx-serif: "Noto Serif TC", "Songti TC", "PMingLiU",
+    "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", serif;
+  --xx-sans: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC",
+    "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
   --xx-icon-line: rgba(214, 183, 112, .7);
   --xx-icon-glow: rgba(117, 215, 207, .2);
 }

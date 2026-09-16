@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.150.0'
+export const APP_VERSION = '4.150.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.150.1', date: '2026-09-16', changes: ['fix(agent): 「Source files 已更新」訊息拿掉 emoji——修仙版是襯線字體，那個勾會顯示成缺字方塊；成功/失敗本來就用綠紅色表示，emoji 是多餘的', 'fix(xianxia): 字體串補上系統 emoji 字體。⚠️ 一定要排在 serif / sans-serif 這種通用家族**之前**——通用家族什麼字都吃，排在它後面的字體永遠輪不到（第一版就寫錯，看起來有加、實際沒作用）'] },
   { version: '4.150.0', date: '2026-09-16', changes: ['feat(uat): 新增「上傳檔案」積木——走 Playwright setInputFiles 直接把檔案塞進頁面的 input，作業系統的選檔視窗完全不會打開（所以錄製錄不到、重播也不會卡在那個視窗）', 'feat(uat): 上傳素材集中存在 server，步驟只記素材 id——換哪一台 Agent 執行都拿得到，解掉「腳本在不同裝置執行會不會衝突」的問題；單檔上限 20MB，runner 用每輪一張的取用票去 HTTP 取，不隨派工 payload 傳輸', 'feat(uat): 素材依副檔名與 MIME 分成影片／圖檔／CSV／文件／其他，清單可篩選；⚠️ 分類只用於顯示與篩選，刻意不擋上傳——擋了就測不了「上傳錯誤格式應該被拒絕」這種 TC'] },
   { version: '4.149.1', date: '2026-09-16', changes: ['fix(osm): 機種分布彈窗的搜尋框拿掉放大鏡圖示——那是 emoji，修仙版的襯線字體沒有對應字形，會顯示成缺字方塊；同時把為它保留的左內距收回來，避免 placeholder 憑空縮排'] },
   { version: '4.149.0', date: '2026-09-16', changes: ['fix(theme): 普通版會顯示修仙版素材（正式站回報）——兩個洞都在兩個模式共用的地方：`.main-content::before` 在 App.css 直接掛修仙版底圖（而壓淡它的 opacity:.18 只寫在 xianxia-complete.css，所以普通版看到的是全不透明版），側邊欄的 XianxiaIcon 完全沒有 themeMode 判斷', 'fix(theme): 側邊欄導覽圖示在普通版改回原本的 group.icon（emoji），修仙版維持 PNG 圖示；背景圖搬進 xianxia-complete.css，那支檔在普通版是整份被移除的', 'test(theme): 新增 scripts/ui-checks/xianxia-asset-leak.mjs——掃 build 產物裡有沒有未加防護的修仙版素材，並釘住未 gate 的 XianxiaIcon 呼叫點數量（目前 18 個，頁面內裝飾用，普通版要顯示什麼還沒決定）'] },
