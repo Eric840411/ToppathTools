@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.155.1'
+export const APP_VERSION = '4.155.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.155.2', date: '2026-09-16', changes: ['fix(uat): 同腳本鎖拿掉六小時自動過期——斷線保留鎖卻讓它六小時後自己消失，等於把同一個洞延後六小時打開；時間到不是停止的證明（CodeX review）。現在只有正常收尾或人工解除會放鎖', 'fix(uat): 人工解除執行鎖改成只限管理員、且必須帶上要解除的那一輪 sessionId——原本任何登入者都能解掉別人正在正常執行的鎖，也可能解到剛開始的新一輪而畫面上看不出來', 'test(uat): 補上真正的授權實測（隔離測試帳號走真 cookie）：未登入一律 401、另一位登入者讀得到共用腳本與結果、非建立者刪除 403、管理員可刪、軟刪除後歷史結果仍在'] },
   { version: '4.155.1', date: '2026-09-16', changes: ['fix(uat): P1——Agent 連線中斷其實仍然會放掉同腳本鎖，跟 v4.155.0 註解裡寫的相反（CodeX review 抓到）。斷線時 runner 可能還在對方機器上跑、還在逐筆回寫 Lark，另一個人卻能同時重跑同一份腳本', 'fix(uat): finishSession 加 confirmedStopped——只有 runner 回報 exit code／agent 回 backend_uat_done／本機 child 結束才放鎖；「連線中斷」與「agent 離線直接標記停止」一律保留鎖', 'feat(uat): 新增人工解除執行鎖的端點——斷線之後鎖是刻意保留的，而六小時自動過期不能當成停止證明，所以必須有一條讓人確認過再明確解除的路，否則會永遠卡住'] },
   { version: '4.155.0', date: '2026-09-16', changes: ['feat(uat): 錄製腳本改成團隊共用——原本列表／開啟／儲存／結果全部依帳號隔離，現在整個團隊看得到也改得到同一份', 'fix(uat): 加整數 revision 樂觀鎖擋並行覆蓋——儲存是整份 document 覆蓋，兩個人先後存檔後存的會靜默蓋掉前一個；衝突時回 409 但⚠️保留本地草稿，不會把使用者正在編輯的內容換掉', 'fix(uat): 同一份腳本同時只能一個人執行（會逐筆回寫 Lark 的 PASS/FAIL 與附圖）；⚠️ Agent 斷線不當作已停止，鎖在執行收尾時才釋放', 'fix(uat): 執行結果改記真正執行的人與腳本版本——原本是記「腳本建立者」，共用前兩者永遠相同所以看不出來，共用後會變成你跑的結果掛在別人名下', 'feat(uat): 新增軟刪除（建立者或管理員，執行中禁刪，保留歷史結果）——原本根本沒有刪除端點，存了就拿不掉'] },
   { version: '4.154.0', date: '2026-09-16', changes: ['feat(agent): 「更新程式碼」改成把檔案內容直接跟著 WebSocket 送給 agent，不再讓 agent 用 HTTP 回頭下載——正式站實測 HTTP 那條路會把大檔截斷（HTTP 200、寫檔成功，但內容少一截），而同一條 WS 連線傳同樣的內容一直是好的（錄製腳本就是這樣送的）', 'fix(agent): 保留 HTTP 下載當退路，舊版 server 才不會整個更新不動；驗證優先用推過來的指紋'] },

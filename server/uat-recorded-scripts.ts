@@ -87,13 +87,20 @@ db.exec(`
     script_id TEXT PRIMARY KEY, session_id TEXT NOT NULL, holder TEXT NOT NULL, acquired_at INTEGER NOT NULL
   )
 `)
-/** 保險上限：一輪多 TC 腳本可能跑很久，訂太短會在還在跑的時候被別人搶走 */
-const SCRIPT_LOCK_MAX_MS = 6 * 60 * 60 * 1000
+/*
+ * ⚠️ **刻意沒有自動過期。**
+ *
+ * 第一版設了六小時上限，但那等於「六小時之後就當作對方停了」——
+ * 而時間到了**不是停止的證明**（CodeX review）。斷線之後保留鎖，卻又讓它
+ * 六小時後自己消失，等於把同一個洞延後六小時再打開：那時仍然可以重跑、可以刪除。
+ *
+ * 現在只有兩條路會解鎖：**正常收尾**（確認真的停了），或**人工解除**。
+ * 卡住不會自己好，但那是刻意的——會卡住代表真的有人需要去確認那台機器。
+ */
 
 export function acquireScriptLock(scriptId: string, sessionId: string, holder: string):
   { ok: true } | { ok: false; holder: string; since: number } {
   const now = Date.now()
-  db.prepare('DELETE FROM uat_recorded_script_locks WHERE acquired_at < ?').run(now - SCRIPT_LOCK_MAX_MS)
   try {
     db.prepare('INSERT INTO uat_recorded_script_locks(script_id, session_id, holder, acquired_at) VALUES (?, ?, ?, ?)')
       .run(scriptId, sessionId, holder, now)
@@ -117,17 +124,23 @@ export function releaseScriptLock(sessionId: string) {
  *    在確認過對方機器上沒在跑之後明確解除的路徑，否則會永遠卡住。
  *    這是救援工具，不是正常流程——正常結束會自己放。
  */
-export function forceReleaseScriptLock(scriptId: string): { released: boolean; holder?: string } {
-  const cur = db.prepare('SELECT holder FROM uat_recorded_script_locks WHERE script_id = ?')
-    .get(scriptId) as { holder: string } | undefined
-  if (!cur) return { released: false }
+export function forceReleaseScriptLock(scriptId: string, expectedSessionId: string):
+  { released: true; holder: string } | { released: false; reason: 'none' | 'session_mismatch'; holder?: string; sessionId?: string } {
+  const cur = db.prepare('SELECT holder, session_id FROM uat_recorded_script_locks WHERE script_id = ?')
+    .get(scriptId) as { holder: string; session_id: string } | undefined
+  if (!cur) return { released: false, reason: 'none' }
+  // ⚠️ 一定要帶「你看到的是哪一輪」：不然使用者按下去到送出之間，
+  //    上一輪可能已經結束、新的一輪剛開始——那會解掉一個正在正常執行的鎖，
+  //    而畫面上完全看不出解錯了（CodeX review）。
+  if (cur.session_id !== expectedSessionId) {
+    return { released: false, reason: 'session_mismatch', holder: cur.holder, sessionId: cur.session_id }
+  }
   db.prepare('DELETE FROM uat_recorded_script_locks WHERE script_id = ?').run(scriptId)
   return { released: true, holder: cur.holder }
 }
 
 export function isScriptRunning(scriptId: string): boolean {
-  const r = db.prepare('SELECT 1 FROM uat_recorded_script_locks WHERE script_id = ? AND acquired_at >= ?')
-    .get(scriptId, Date.now() - SCRIPT_LOCK_MAX_MS)
+  const r = db.prepare('SELECT 1 FROM uat_recorded_script_locks WHERE script_id = ?').get(scriptId)
   return !!r
 }
 
@@ -267,8 +280,20 @@ export function registerRecordedScriptRoutes(router: Router) {
   router.post('/api/osm-uat/recorded-scripts/:id/force-unlock', writeLimiter, (req, res) => {
     const account = getAuthAccount(req)
     if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
-    const r = forceReleaseScriptLock(String(req.params.id))
-    if (!r.released) return res.status(404).json({ ok: false, message: '這份腳本目前沒有執行鎖' })
+    // ⚠️ 只有管理員能解——這是救援，不是一般操作。
+    //    開給所有登入者的話，任何人都能解掉別人**正在正常執行**的鎖，
+    //    那比卡住危險（CodeX review）。
+    if (account.role !== 'admin') return res.status(403).json({ ok: false, message: '只有管理員可以人工解除執行鎖' })
+    const expected = String((req.body as { sessionId?: unknown })?.sessionId ?? '')
+    if (!expected) return res.status(400).json({ ok: false, message: '請帶上要解除的那一輪 sessionId' })
+    const r = forceReleaseScriptLock(String(req.params.id), expected)
+    if (r.released === false) {
+      if (r.reason === 'none') return res.status(404).json({ ok: false, message: '這份腳本目前沒有執行鎖' })
+      return res.status(409).json({
+        ok: false, code: 'session_mismatch',
+        message: `你看到的那一輪已經結束了，現在鎖在另一輪（${r.holder}）手上——請重新整理再確認一次`,
+      })
+    }
     console.warn(`[UAT] ${account.email} 人工解除了腳本 ${req.params.id} 的執行鎖（原持有者 ${r.holder}）`)
     res.json({ ok: true, previousHolder: r.holder })
   })

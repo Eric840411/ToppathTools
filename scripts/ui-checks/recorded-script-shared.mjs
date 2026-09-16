@@ -80,8 +80,20 @@ try {
   }
   eq('鎖不會自己消失（斷線不等於停止，必須由人或正常收尾才放）', isScriptRunning(scriptId), true)
   eq('斷線後別人仍然搶不到', acquireScriptLock(scriptId, randomUUID(), 'c@x.com').ok, false)
-  ok('但有一條人工解除的路（否則會永遠卡住）',
-    forceReleaseScriptLock(scriptId).released === true)
+  // ⚠️ 六小時之後仍然要擋。第一版設了自動過期，等於「時間到就當作對方停了」——
+  //    而時間到**不是停止的證明**（CodeX review）。那只是把同一個洞延後六小時打開。
+  db.prepare('UPDATE uat_recorded_script_locks SET acquired_at = ? WHERE script_id = ?')
+    .run(Date.now() - 7 * 60 * 60 * 1000, scriptId)
+  eq('放了七小時之後，仍然算在跑（不會自己過期）', isScriptRunning(scriptId), true)
+  eq('放了七小時之後，別人仍然搶不到', acquireScriptLock(scriptId, randomUUID(), 'c@x.com').ok, false)
+
+  // ⚠️ 人工解除要帶「你看到的是哪一輪」——不帶的話會解到剛開始的新一輪，
+  //    而畫面上完全看不出解錯了。
+  const wrong = forceReleaseScriptLock(scriptId, randomUUID())
+  eq('帶錯 sessionId 不會解除', wrong.released, false)
+  ok('而且說得出是另一輪', wrong.released === false && wrong.reason === 'session_mismatch', wrong.reason)
+  eq('帶錯之後鎖還在', isScriptRunning(scriptId), true)
+  ok('帶對 sessionId 才解得掉', forceReleaseScriptLock(scriptId, s1).released === true)
   eq('人工解除後就搶得到', acquireScriptLock(scriptId, s1, 'a@x.com').ok, true)
 
   // ── 3. 起跑與刪除的競態 ──
