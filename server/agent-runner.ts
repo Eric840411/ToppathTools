@@ -1591,11 +1591,30 @@ function connect() {
       console.log(`[Agent:${AGENT_LABEL}] Updating ${files.length} source files from server`)
       const baseUrl = CENTRAL_URL.replace(/^wss?/, (s) => s.includes('wss') ? 'https' : 'http')
       const results: { file: string; ok: boolean; error?: string }[] = []
+      // ⚠️ 下載完一定要**先驗內容再寫檔**。
+      //    2026-09-16 實際踩到：Spug 那邊送過來的檔案在傳輸途中變短了
+      //    （run-lark-tc-backend.js 少 868 字、backend-recorder.js 少 4936 字），
+      //    而 HTTP 是 200、寫檔也成功，所以一路顯示「更新成功」。
+      //    **被寫進去的是一個被截斷的 runner**——那比更新失敗危險得多：
+      //    它會在之後某次執行時以看不懂的方式壞掉，而沒有人會聯想到是更新造成的。
+      let wantPerFile: Record<string, string> = {}
+      try {
+        const mf0 = await fetch(`${baseUrl}/api/machine-test/agent/source-manifest`).then(r => r.json()) as { perFile?: Record<string, string> }
+        wantPerFile = mf0.perFile ?? {}
+      } catch { wantPerFile = {} }
       for (const file of files) {
         try {
           const resp = await fetch(`${baseUrl}/api/machine-test/agent/source/${file}`)
           if (!resp.ok) { results.push({ file, ok: false, error: `HTTP ${resp.status}` }); continue }
           const content = await resp.text()
+          // 驗不過就不要寫。沒有期望值時（舊 server）才照舊寫進去——
+          // 不能因為拿不到期望值就整個更新不動。
+          const want = wantPerFile[file]
+          if (want && hashOne(content) !== want) {
+            results.push({ file, ok: false, error: `下載到的內容跟伺服器對不上（收到 ${content.length} 字，指紋 ${hashOne(content).slice(0, 8)}，期望 ${want.slice(0, 8)}）——沒有寫入，避免留下被截斷的檔案` })
+            console.error(`[Agent:${AGENT_LABEL}]   ✗ ${file}: 內容不完整，已略過寫入`)
+            continue
+          }
           const parts = file.split('/')
           const targetDir = join(process.cwd(), 'server', ...parts.slice(0, -1))
           const targetPath = join(process.cwd(), 'server', ...parts)
