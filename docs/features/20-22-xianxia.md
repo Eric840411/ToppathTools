@@ -86,3 +86,81 @@ Dashboard（修仙版）Hero 橫幅下方顯示一張每日語錄小卡片，語
 | AI 建議候選語錄 | 管理頁「AI 建議」按鈕，Gemini 生成候選草稿，需人工確認出處後才按「加入語錄庫」存入 |
 
 ---
+
+---
+
+## 修仙版視覺效果：靈光／陣法紋／文字浮現／卡片光暈（2026-09-16，v4.146.0）
+
+### 普通版的保護是架構性的，不是靠選擇器小心擋
+
+`public/xianxia-complete.css` 在普通版是被 `App.tsx` **整份 `<link>` 移除**的
+（`App.tsx:395` 附近）。所以這份檔裡 **0 個** `data-theme-mode` 前綴——不需要。
+
+| 改哪裡 | 普通版會不會被波及 |
+|---|---|
+| `public/xianxia-complete.css` | **不會**，結構性免疫 |
+| 任何 `.tsx` | **會**，一定要 gate 在 `themeMode === 'xianxia'` |
+
+⚠️ **改完一定要進版號**：這支檔在 `public/` 底下**沒有 content hash**，
+靠 `?v=${APP_VERSION}` 破快取。不進版號的話已開過網站的人最多 4 小時看不到新樣式，
+而且症狀很難聯想（JS 是新的、CSS 是舊的）。
+
+### 全站掃描：`scripts/ui-checks/xianxia-fx-scan.mjs`
+
+掃 78 個 tsx，把 class 依 token 分成三類落點。結果決定了實作方式：
+
+| 效果 | 掃出的落點 | 怎麼做 |
+|---|---:|---|
+| 陣法紋 | 24 種 loading/empty class | 一條 selector list，零 JSX |
+| 靈光 | **128 種** card/row/item/badge/chip/tile | 見下 |
+| 卡片光暈 | 39 種 | 只給單張重點卡，不進列表 |
+| 文字浮現 | 全站只有 **8 個**頁內 `<h1>` | 改頂欄那一個＝全站都有 |
+
+⚠️ **靈光刻意不用 `[class*="card"]` 這種屬性選擇器。**一次收完 128 種很省事，
+但它會連 `option-card-title`、`stat-chip-val` 這種**子元素**一起命中——
+父子同時套 `transform`，hover 起來是**整塊在抖**，不是浮起。所以逐一列容器層 class。
+
+⚠️ **badge / chip 只給光圈、不給位移。**它們多半是 inline 元素，
+`transform` 對 inline 元素**無效**；硬套要先改 `display`，那會動到既有排版。
+
+⚠️ **`[class*="row"]` 那 44 種還沒套**——裡面混了「可點的資料列」（`result-row`）
+跟「純排版的列」（`mt-summary-row` 只是把幾個數字橫排）。
+後者套上 hover 鎏金會讓一個不能點的東西看起來可以點，那不是變好看，是騙人。
+要套之前得先逐一分類。
+
+⚠️ **`.loading-state` 不在大法陣那組**（它裡面已經有 spinner，再加一顆會變成兩個法陣同時轉）；
+**`.dashboard-empty` 也不在**（單行提示條只有 40 幾 px 高，176px 的法陣只會被裁成一條弧線）。
+
+### 文字浮現：mockup 抄過來會壞掉的地方
+
+mockup 用 `:nth-child(n)` 寫死延遲，**只列到第 8 個字**。
+Hero 標題「萬法歸樞，諸事可觀」剛好 8 字看不出問題，但**每日仙語是整句**（20~30 字），
+第 9 字之後會**永遠停在 `opacity: 0`——整句後半段直接看不見，而且不會有任何錯誤訊息**。
+
+改成 inline `--i` 交給 CSS 算（`XianxiaReveal.tsx`）。
+
+⚠️ **呼叫端一定要給 `key`**：沒有它的話父元件每次 re-render 都會重跑進場動畫，
+而 Dashboard 每 30 秒輪詢一次 → 畫面一直在閃。
+
+### 素材
+
+`public/themes/xianxia/array/loading-array-{192,96,64}.webp`，旋轉由 CSS 做。
+母檔（512px／126KB）放 `docs/assets/xianxia/loading-array-src.webp`，**刻意不在 `public/`**
+——`public/` 整個會被複製進 `dist/`，母檔沒人引用卻會跟著出貨。
+
+⚠️ **依顯示尺寸選檔**：spinner 只顯示 36px，拿 512px 的圖去畫等於載一堆用不到的像素。
+實測 **24px 以下會糊成一團**，所以 spinner 不要低於 36px——再小不如用原本的 CSS 圈。
+
+素材已做過 **alpha 重心次像素對齊**（轉 90 度位移 0.001px），繞中心轉不會漂。
+驗收用 `check-asset.py --on-bg 0b1722 --rotatable --scale-to 36`。
+
+> 已驗證 24 項（`node scripts/ui-checks/xianxia-fx-modes.mjs`）。
+> 它載入 **build 產物**並重現「掛上／移除 `<link>`」的真實機制——
+> **不是切 `data-theme-mode` 屬性**，那樣驗不到真正的保護是否成立。
+> 涵蓋：普通版四種效果一個都不出現｜修仙版四種都在｜**切回普通版收得乾淨不留殘影**｜
+> 第 9 字之後仍有動畫｜素材路徑在 build 後解析得到（無 404）。
+> **已注入違規確認會變紅**：效果漏進共用 bundle → 4 項紅；
+> 逐字延遲退回 `nth-child` 寫法 → 2 項紅；還原後回到 0。
+
+⚠️ **尚未在真實畫面上逐頁看過**——上面那支驗的是「CSS 有沒有照模式分開套用」
+與「素材路徑可解析」，**不驗真實資料下的版面密度**，那仍然要人看。
