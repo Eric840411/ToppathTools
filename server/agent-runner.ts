@@ -1321,6 +1321,10 @@ function connect() {
       if (filter) args.push(filter)
 
       const runnerEnv = { ...(credEnv ?? {}) }
+      // 「上傳檔案」積木的素材存在 server，runner 用 id + 這一輪的票去 HTTP 取。
+      // ⚠️ 素材**不隨派工訊息一起送**：單檔上限 20MB，塞進 env/WS 會把它撐爆，
+      //    而且同一個素材被多個步驟引用時會被複製好幾份。
+      runnerEnv.UAT_ASSET_BASE = CENTRAL_URL.replace(/^wss?/, (m) => (m.includes('wss') ? 'https' : 'http'))
       const multiPayload = runnerEnv.UAT_MULTI_SCRIPT
       if (multiPayload) { delete runnerEnv.UAT_MULTI_SCRIPT; runnerEnv.UAT_MULTI_SCRIPT_STDIN = '1' }
       const child = spawn(process.execPath, args, {

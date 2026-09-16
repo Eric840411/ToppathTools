@@ -2437,6 +2437,92 @@ export function saveUatTcSteps(recordId: string, steps: unknown[], updatedBy: st
   `).run(recordId, JSON.stringify(steps), updatedBy, Date.now())
 }
 
+
+/* ── UAT 上傳素材 ──────────────────────────────────────────────────────────
+   「上傳檔案」積木要用的檔案。
+
+   ⚠️ 素材**存在 server、腳本只記 id**，不是記 agent 本機的路徑。
+      記路徑的話換一台 agent 執行就找不到檔——那正是使用者一開始擔心的
+      「不同裝置上執行會不會衝突」。
+
+   ⚠️ 也**不塞進派工 payload**。步驟目前是整包放進 env var 帶給 runner，
+      20MB 的檔案 base64 之後會把 env 撐爆（Windows 對環境區塊有上限），
+      而且同一個素材被三個步驟引用就會被複製三份。agent 改成用 id 去 HTTP 拿。
+
+   ⚠️ **不限副檔名**：擋死就測不了「上傳錯誤格式應該被拒絕」，而那本來就是
+      要測的 TC（CodeX review 指出）。只限大小。 */
+export const UAT_ASSET_MAX_BYTES = 20 * 1024 * 1024
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS uat_upload_assets (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    mime       TEXT NOT NULL,
+    size       INTEGER NOT NULL,
+    sha256     TEXT NOT NULL,
+    data       BLOB NOT NULL,
+    created_by TEXT,
+    created_at INTEGER NOT NULL
+  )
+`)
+
+export type UatUploadAsset = {
+  id: string; name: string; mime: string; size: number; sha256: string
+  createdBy: string | null; createdAt: number
+}
+
+/** 只回 metadata，不回 blob——列表不需要內容，回了只是把幾十 MB 灌進前端 */
+export function listUatUploadAssets(): UatUploadAsset[] {
+  const rows = db.prepare(
+    'SELECT id, name, mime, size, sha256, created_by, created_at FROM uat_upload_assets ORDER BY created_at DESC',
+  ).all() as Record<string, unknown>[]
+  return rows.map(r => ({
+    id: String(r.id), name: String(r.name), mime: String(r.mime), size: Number(r.size),
+    sha256: String(r.sha256), createdBy: r.created_by == null ? null : String(r.created_by),
+    createdAt: Number(r.created_at),
+  }))
+}
+
+export function getUatUploadAssetBytes(id: string): { asset: UatUploadAsset; data: Buffer } | null {
+  const r = db.prepare('SELECT * FROM uat_upload_assets WHERE id = ?').get(id) as Record<string, unknown> | undefined
+  if (!r) return null
+  return {
+    asset: {
+      id: String(r.id), name: String(r.name), mime: String(r.mime), size: Number(r.size),
+      sha256: String(r.sha256), createdBy: r.created_by == null ? null : String(r.created_by),
+      createdAt: Number(r.created_at),
+    },
+    data: r.data as Buffer,
+  }
+}
+
+/**
+ * 同一份內容重複上傳時回既有那筆（用 sha256 認）。
+ * ⚠️ 刻意用內容而不是檔名判斷重複：同名不同檔很常見（改完再上傳一次），
+ *    用檔名去重會讓腳本悄悄換成另一份內容。
+ */
+export function saveUatUploadAsset(
+  name: string, mime: string, data: Buffer, createdBy: string | null,
+): UatUploadAsset {
+  const sha256 = createHash('sha256').update(data).digest('hex')
+  const existing = db.prepare('SELECT id FROM uat_upload_assets WHERE sha256 = ? AND name = ?')
+    .get(sha256, name) as { id: string } | undefined
+  if (existing) return getUatUploadAssetBytes(existing.id)!.asset
+  const id = randomUUID()
+  const asset: UatUploadAsset = {
+    id, name, mime: mime || 'application/octet-stream', size: data.length, sha256,
+    createdBy, createdAt: Date.now(),
+  }
+  db.prepare(
+    'INSERT INTO uat_upload_assets (id, name, mime, size, sha256, data, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(asset.id, asset.name, asset.mime, asset.size, asset.sha256, data, asset.createdBy, asset.createdAt)
+  return asset
+}
+
+export function deleteUatUploadAsset(id: string): boolean {
+  return db.prepare('DELETE FROM uat_upload_assets WHERE id = ?').run(id).changes > 0
+}
+
 export type UatBackendProfile = 'cpBackend' | 'nchBackend'
 export const UAT_BACKEND_PROFILES: UatBackendProfile[] = ['cpBackend', 'nchBackend']
 

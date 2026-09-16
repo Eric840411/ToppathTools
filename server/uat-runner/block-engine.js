@@ -85,6 +85,15 @@ export const BLOCK_DEFS = {
       { key: 'selectorStrategy', label: '選擇器來源', type: 'text' },
     ],
   },
+  upload_file: {
+    label: '上傳檔案', category: 'nav', defaultOnFail: 'stop',
+    description: '把素材塞進頁面的檔案欄位。不會打開作業系統的選檔視窗',
+    params: [
+      { key: 'selector', label: '檔案欄位 selector', type: 'text', required: true, placeholder: 'input[type=file]' },
+      { key: 'assetId', label: '要上傳的素材', type: 'asset', required: true, help: '素材存在 server，換哪一台 agent 執行都拿得到' },
+      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
+    ],
+  },
   keypress: {
     label: '按下按鍵', category: 'nav', defaultOnFail: 'stop',
     description: '重播特殊鍵或數字鍵；一般文字仍使用輸入文字積木',
@@ -1250,6 +1259,30 @@ export async function runSteps(steps, ctx, options = {}) {
         if (!Number.isFinite(tol) || tol < 0 || !Number.isFinite(abs) || abs < 0) throw new Error('容差必須是大於等於 0 的數字');
         if (!numbersEqual(l, r, tol, abs)) { if (fail(step, `${tag}：${l} ≠ ${r}（容差 ${tol}%／${abs}）`) === 'stop') break; continue }
         notes.push(`✅ ${tag}：${l} ≈ ${r}`);
+
+      } else if (step.action === 'upload_file') {
+        // ⚠️ 走 Playwright 的 setInputFiles：它是**直接把檔案交給頁面的 input**，
+        //    作業系統那個選檔視窗根本不會打開。用「點一下再去視窗裡選」的做法
+        //    錄不起來、重播時也會卡在那個視窗等人。
+        //
+        // ⚠️ 取不到素材一律失敗，**不可以跳過**。跳過的話「檔案沒上傳」跟
+        //    「上傳成功」在後面那顆斷言之前長得一樣，而使用者會以為測過了。
+        if (typeof ctx.uploadFile !== 'function') {
+          if (fail(step, `${tag}：這個執行環境不支援上傳（runner 版本太舊，請到 Local Agent 頁按「更新程式碼」）`) === 'stop') break;
+          continue;
+        }
+        const assetId = String(step.assetId ?? '').trim();
+        if (!assetId) {
+          criticalFails.push(`${tag}：沒有指定要上傳的素材`);
+          notes.push(`❌ ${tag}：沒有指定要上傳的素材`);
+          return finish();
+        }
+        const up = await ctx.uploadFile(String(step.selector ?? ''), assetId);
+        if (!up || !up.ok) {
+          if (fail(step, `${tag}：${up?.error || '上傳失敗'}`) === 'stop') break;
+          continue;
+        }
+        notes.push(`${tag}：已送出 ${up.name}（${up.size} bytes）`);
 
       } else if (step.action === 'assert_sorted') {
         const rows = needVar(step, tag, step.from, def.inputKind);

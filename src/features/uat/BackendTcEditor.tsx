@@ -9,7 +9,8 @@
  * 積木定義（BLOCK_DEFS）由後端 /api/osm-uat/blocks 提供，**不在前端另抄一份**：
  * 抄兩份的下場是「畫面上有這顆積木、跑起來說不認得」。參數表單也是照定義自動長。
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { UatAssetPicker } from './UatAssetPicker'
 import { createPortal } from 'react-dom'
 import type { UatThemeMode } from './types'
 
@@ -31,7 +32,7 @@ export interface BackendTc {
 interface BlockParam {
   key: string
   label: string
-  type: 'text' | 'number' | 'textarea' | 'select' | 'boolean'
+  type: 'text' | 'number' | 'textarea' | 'select' | 'boolean' | 'asset'
   options?: string[]
   default?: unknown
   placeholder?: string
@@ -428,7 +429,12 @@ export function BackendTcEditor({ tc, allTcs, themeMode, onSaved, onClose, onRec
               {(currentDef.params ?? []).map(prm => (
                 <label className="uat-tc-field" key={prm.key}>
                   {prm.label}{prm.required && <b> *</b>}
-                  {prm.type === 'textarea' ? (
+                  {prm.type === 'asset' ? (
+                    <UatAssetPicker
+                      value={String(current[prm.key] ?? '')}
+                      onChange={id => patchStep(selected!, { [prm.key]: id })}
+                    />
+                  ) : prm.type === 'textarea' ? (
                     <textarea
                       className="uat-field uat-code-field"
                       value={toText(current[prm.key])}

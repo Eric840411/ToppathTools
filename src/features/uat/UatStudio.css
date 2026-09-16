@@ -1284,3 +1284,13 @@
 .uat-stat.is-zero strong { color: var(--uat-muted); }
 /* 「舊版 TC 模式」切換鈕原本直接貼著底下的 SCRIPT LIBRARY 標題 */
 .uat-backend-plan > .uat-btn:first-child { margin-bottom: 12px; }
+
+/* ── 上傳素材選擇器 ──────────────────────────────────────────────────────
+   兩排：上排挑既有素材（類型篩選 + 清單），下排上傳新的。
+   ⚠️ 檔案輸入刻意不限副檔名——限制了就測不了「上傳錯誤格式應該被拒絕」。 */
+.uat-asset-picker { display: grid; gap: 6px; margin-top: 4px; }
+.uat-asset-picker-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.uat-asset-picker-row select { flex: 1 1 140px; min-width: 0; }
+.uat-asset-picker-row input[type="file"] { flex: 1 1 180px; min-width: 0; font-size: 11.5px; }
+.uat-asset-picker small { color: var(--uat-muted); font-size: 11px; line-height: 1.6; }
+.uat-asset-picker-err { color: #d94a3a !important; }

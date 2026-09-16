@@ -42,6 +42,11 @@ import {
   listUatTcSteps,
   getUatTcSteps,
   saveUatTcSteps,
+  listUatUploadAssets,
+  getUatUploadAssetBytes,
+  saveUatUploadAsset,
+  deleteUatUploadAsset,
+  UAT_ASSET_MAX_BYTES,
   saveUatBackendCredential,
   UAT_BACKEND_PROFILES,
   type UatBackendProfile,
@@ -78,6 +83,14 @@ interface UatSession {
   logs: string[]
   process: ChildProcess | null
   heavyTask?: HeavyTaskToken
+  /**
+   * 這一輪執行專用的素材取用票。runner（可能跑在別台 agent 上）拿它去 HTTP
+   * 取「上傳檔案」積木要用的檔案。
+   *
+   * ⚠️ 刻意用「每輪一張、跟 session 同生命週期」而不是給 runner 一組長期憑證：
+   *    執行結束票就失效，外洩的影響面只有那一輪。
+   */
+  assetToken?: string
   /**
    * 這次執行用到的密碼，只留在記憶體裡供 log redaction 比對用。
    * 絕對不進 session.logs / SSE / 歷史紀錄——agent 端已經遮一次，這是第二層
@@ -934,6 +947,69 @@ function summarizeRecordNet(calls: RecordSession['netCalls']) {
   }
 }
 
+/* ── 上傳素材 ─────────────────────────────────────────────────────────────
+   「上傳檔案」積木要用的檔案。存在 server、腳本只記 id，
+   所以換哪一台 agent 執行都拿得到（見 shared.ts 那段的說明）。 */
+
+/** 清單只回 metadata，不回內容——回了只是把幾十 MB 灌進前端 */
+router.get('/api/osm-uat/upload-assets', (_req, res) => {
+  res.json({ ok: true, assets: listUatUploadAssets(), maxBytes: UAT_ASSET_MAX_BYTES })
+})
+
+/**
+ * 上傳。body 是 { name, mime, dataBase64 }。
+ *
+ * ⚠️ **刻意不擋副檔名／MIME**：擋了就測不了「上傳錯誤格式應該被拒絕」，
+ *    而那本來就是要測的 TC。該擋的是受測的後台，不是這個工具。
+ *    只限大小。
+ */
+router.post('/api/osm-uat/upload-assets', writeLimiter, (req, res) => {
+  const body = (req.body ?? {}) as { name?: unknown; mime?: unknown; dataBase64?: unknown }
+  const name = typeof body.name === 'string' ? body.name.trim() : ''
+  const mime = typeof body.mime === 'string' ? body.mime.trim() : ''
+  const b64 = typeof body.dataBase64 === 'string' ? body.dataBase64 : ''
+  if (!name) { res.status(400).json({ ok: false, error: '缺少檔名' }); return }
+  if (!b64) { res.status(400).json({ ok: false, error: '沒有收到檔案內容' }); return }
+  let data: Buffer
+  try { data = Buffer.from(b64, 'base64') } catch { res.status(400).json({ ok: false, error: '檔案內容不是合法的 base64' }); return }
+  if (!data.length) { res.status(400).json({ ok: false, error: '檔案是空的' }); return }
+  if (data.length > UAT_ASSET_MAX_BYTES) {
+    res.status(413).json({ ok: false, error: `檔案 ${(data.length / 1024 / 1024).toFixed(1)}MB 超過上限 ${UAT_ASSET_MAX_BYTES / 1024 / 1024}MB` })
+    return
+  }
+  const asset = saveUatUploadAsset(name, mime, data, getAuthAccount(req)?.email ?? null)
+  res.json({ ok: true, asset })
+})
+
+router.delete('/api/osm-uat/upload-assets/:id', writeLimiter, (req, res) => {
+  // ⚠️ 刻意不檢查「有沒有步驟還在用這個素材」：步驟散在 uat_tc_steps、
+  //    自訂 TC、錄製腳本三個地方，漏查一處就會給出「沒人在用」的假保證。
+  //    改成執行時取不到素材就明確失敗（見 upload_file 積木），不要靜默跳過。
+  const ok = deleteUatUploadAsset(String(req.params.id))
+  res.status(ok ? 200 : 404).json(ok ? { ok: true } : { ok: false, error: '找不到這個素材' })
+})
+
+/**
+ * runner 取檔案。**不是給前端用的**。
+ *
+ * ⚠️ 用每輪一張的 session 票（`?token=`），不是長期憑證：
+ *    執行結束就失效，外洩的影響面只有那一輪。
+ * ⚠️ 票不對一律回 403，不要因為「素材不存在」就先回 404——那會讓沒有票的人
+ *    可以拿來探測哪些 id 存在。
+ */
+router.get('/api/osm-uat/upload-assets/:id/raw', (req, res) => {
+  const token = typeof req.query.token === 'string' ? req.query.token : ''
+  if (!token || !session?.assetToken || token !== session.assetToken) {
+    res.status(403).json({ ok: false, error: '素材取用票無效或已過期' })
+    return
+  }
+  const found = getUatUploadAssetBytes(String(req.params.id))
+  if (!found) { res.status(404).json({ ok: false, error: '找不到這個素材' }); return }
+  res.setHeader('Content-Type', found.asset.mime || 'application/octet-stream')
+  res.setHeader('X-Asset-Name', encodeURIComponent(found.asset.name))
+  res.send(found.data)
+})
+
 /**
  * 匯出全部積木。積木存在各環境自己的 DB（本機一份、Spug 正式環境一份），
  * 拆好的成果不會自己跑過去——匯出成一個檔案帶過去匯入。
@@ -1262,6 +1338,10 @@ router.post('/api/osm-uat/run', (req, res) => {
     ...(multiScript ? { UAT_MULTI_SCRIPT: JSON.stringify(multiScript), UAT_TC_ONLY: `multi-script-${multiScript.id}` } : {}),
   }
   const sessionId = randomUUID()
+  // 這一輪專用的素材取用票。runner 可能跑在別台 agent 上，所以素材要用 HTTP 取；
+  // 票跟 session 同生命週期，執行結束就失效（見 UatSession.assetToken 的說明）。
+  const assetToken = randomUUID()
+  const assetEnv = { UAT_ASSET_TOKEN: assetToken }
   session = {
     id: sessionId,
     status: 'running',
@@ -1272,6 +1352,7 @@ router.post('/api/osm-uat/run', (req, res) => {
     logs: [],
     process: null,
     heavyTask: heavyTask.token,
+    assetToken,
     secrets: secretsFromCredEnv(credEnv),
   }
   broadcast('status', { status: 'running', mode: session.mode, agentId: session.agentId, agentHostname: session.agentHostname })
@@ -1290,7 +1371,7 @@ router.post('/api/osm-uat/run', (req, res) => {
         filter: filter || undefined,
         dashGameType: dashGameType || undefined,
         dashClientVersion: dashClientVersion || undefined,
-        credEnv: { ...credEnv, ...tcStepsEnv, ...runScopeEnv },
+        credEnv: { ...credEnv, ...tcStepsEnv, ...runScopeEnv, ...assetEnv },
       }))
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -1321,6 +1402,9 @@ router.post('/api/osm-uat/run', (req, res) => {
       ...(dashClientVersion ? { DASH_CLIENT_VERSION: dashClientVersion } : {}),
       ...tcStepsEnv,
       ...runScopeEnv,
+      ...assetEnv,
+      // fallback 模式下 runner 就跑在這台，直接指回本機的 port
+      UAT_ASSET_BASE: `http://127.0.0.1:${process.env.WORKER_PORT || process.env.PORT || 3000}`,
       // 帳密改成用「發動這次測試的人」自己設定的那份（存在 DB，設定頁填），
       // 腳本端優先吃這幾個環境變數、沒有才 fallback 到 config 檔（2026-08-21）
       ...credEnv,

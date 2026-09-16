@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { recordingSaveErrors } from '../../../shared/uat-recording-schema'
 import { stepDependencyIssues } from '../../../server/uat-runner/step-dependencies.js'
-import { MultiTcResults, type MultiResult } from './MultiTcResults'
+import { MultiTcResults, type MultiResult } from './MultiTcResults'
+import { UatAssetPicker } from './UatAssetPicker'
 import type { BackendTc, Step } from './BackendTcEditor'
 import type { UatThemeMode } from './types'
 
@@ -325,7 +326,8 @@ export function MultiTcRecorder({ open, onClose, tcs, larkUrl, agentId, running,
                 const steps = [...script.steps]; [steps[i], steps[i + delta]] = [steps[i + delta], steps[i]]; edit({ ...script, steps }); setSelected(i + delta)
               }}>{delta < 0 ? '上移' : '下移'}</button>)}<button onClick={() => { edit({ ...script, steps: script.steps.filter((_, j) => j !== i) }); setSelected(null) }}>刪除</button></div>
               {selected === i && <div className="uat-multi-params">{(defs[step.action]?.params || []).map(param => <label key={param.key}>{param.label}
-                {param.key === 'baselinePng' ? <div><input aria-label="上傳 PNG 基準圖" type="file" accept="image/png" onChange={e => { const f = e.target.files?.[0]; if (f) void loadBaseline(f, i) }} />{typeof step.baselinePng === 'string' && step.baselinePng.startsWith('data:image/png;base64,') && <img className="uat-baseline-preview" src={step.baselinePng} alt="目前基準圖" />}<small>上傳人工確認的區域 PNG；尺寸須與執行截圖相同，最多 2 MB。</small></div> : param.type === 'boolean' ? <input type="checkbox" checked={!!step[param.key]} onChange={e => patchStep(i, { [param.key]: e.target.checked })} />
+                {param.type === 'asset' ? <UatAssetPicker value={String(step[param.key] ?? '')} onChange={id => patchStep(i, { [param.key]: id })} />
+                  : param.key === 'baselinePng' ? <div><input aria-label="上傳 PNG 基準圖" type="file" accept="image/png" onChange={e => { const f = e.target.files?.[0]; if (f) void loadBaseline(f, i) }} />{typeof step.baselinePng === 'string' && step.baselinePng.startsWith('data:image/png;base64,') && <img className="uat-baseline-preview" src={step.baselinePng} alt="目前基準圖" />}<small>上傳人工確認的區域 PNG；尺寸須與執行截圖相同，最多 2 MB。</small></div> : param.type === 'boolean' ? <input type="checkbox" checked={!!step[param.key]} onChange={e => patchStep(i, { [param.key]: e.target.checked })} />
                   : param.type === 'select' ? <select aria-label={param.label} value={String(step[param.key] ?? param.default ?? '')} onChange={e => patchStep(i, { [param.key]: e.target.value })}>{param.options?.map(o => <option key={o} value={o}>{o || '請選擇判定'}</option>)}</select>
                     : <input type={param.type === 'number' ? 'number' : 'text'} value={String(step[param.key] ?? '')} onChange={e => patchStep(i, { [param.key]: param.type === 'number' ? e.target.value === '' ? undefined : Number(e.target.value) : e.target.value })} />}
                 {param.help && <small>{param.help}</small>}</label>)}{['read_block', 'read_table'].includes(step.action) && <small>此步驟在執行時讀取畫面並建立變數，後面的檢查會使用它；請保留在檢查之前。</small>}<small>刪除與調整只修改腳本，不會撤銷後台已執行的操作。</small></div>}

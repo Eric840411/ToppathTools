@@ -4548,6 +4548,43 @@ async function performSteps(p, steps, label, taskFull, multiBindings = null) {
       return clicked;
     },
 
+    /**
+     * 「上傳檔案」積木。
+     *
+     * ⚠️ 素材是跟 server 要的，不是讀本機路徑——腳本只記 id，所以換哪一台
+     *    agent 執行都拿得到。讀本機路徑的話換機器就找不到檔。
+     * ⚠️ `setInputFiles` 吃記憶體 buffer，**不需要先落地成暫存檔**，
+     *    也因此作業系統的選檔視窗完全不會出現。
+     */
+    async uploadFile(selector, assetId) {
+      const base = process.env.UAT_ASSET_BASE;
+      const token = process.env.UAT_ASSET_TOKEN;
+      if (!base || !token) {
+        return { ok: false, error: '這次執行沒有帶素材取用資訊（server 版本太舊或派工時沒帶）' };
+      }
+      let buf, name, mime;
+      try {
+        const url = `${base.replace(/\/$/, '')}/api/osm-uat/upload-assets/${encodeURIComponent(assetId)}/raw?token=${encodeURIComponent(token)}`;
+        const resp = await fetch(url);
+        if (!resp.ok) {
+          // 素材被刪掉是最可能的情況，訊息要講得出「去哪裡補」
+          return { ok: false, error: `取不到素材（HTTP ${resp.status}）。素材可能已被刪除，請到積木的「要上傳的素材」重新選一個` };
+        }
+        buf = Buffer.from(await resp.arrayBuffer());
+        mime = resp.headers.get('content-type') || 'application/octet-stream';
+        const raw = resp.headers.get('x-asset-name');
+        name = raw ? decodeURIComponent(raw) : 'upload.bin';
+      } catch (e) {
+        return { ok: false, error: `取素材失敗：${e instanceof Error ? e.message : String(e)}` };
+      }
+      try {
+        await p.locator(selector).first().setInputFiles({ name, mimeType: mime, buffer: buf });
+      } catch (e) {
+        return { ok: false, error: `找不到檔案欄位或塞不進去（${selector}）：${e instanceof Error ? e.message : String(e)}` };
+      }
+      return { ok: true, name, size: buf.length };
+    },
+
     async runExport() {
       const r = await doExport(p);
       // 一併把檔案內容解析出來給積木用。不這樣的話「匯出的內容要跟畫面一致」這種驗證
