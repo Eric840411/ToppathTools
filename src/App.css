@@ -52,9 +52,13 @@
   inset: 0;
   z-index: -2;
   pointer-events: none;
-  background:
-    linear-gradient(180deg, rgba(5, 7, 13, .55), rgba(5, 7, 13, .9) 55%, rgba(5, 7, 13, .97)),
-    url('/themes/xianxia/xianxia-dashboard-bg.png') center 15% / cover no-repeat;
+  /* ⚠️ 這裡刻意只留漸層，**不要放修仙版的背景圖**。
+     App.css 是兩個模式共用的（普通版只是不載 xianxia-complete.css，
+     這支照樣生效），所以把圖放這裡等於普通版也會看到修仙版底圖——
+     而且是全不透明的，因為那個 opacity:.18 只寫在 xianxia-complete.css 裡。
+     這個洞是切版面模式之前留下的：當時整個 app 就是修仙版，
+     「全站生效」是對的；有了切換之後就沒人把它搬走。（2026-09-16 正式站回報）*/
+  background: linear-gradient(180deg, rgba(5, 7, 13, .55), rgba(5, 7, 13, .9) 55%, rgba(5, 7, 13, .97));
 }
 .main-content::after {
   content: '';

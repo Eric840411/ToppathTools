@@ -397,7 +397,12 @@ body::after {
   max-width: 1800px !important;
 }
 
+/* 背景圖從 App.css 搬過來——放在共用的 App.css 裡會讓普通版也吃到（正式站回報）。
+   這支檔在普通版是整份被移除的，放這裡才是真的只給修仙版。 */
 .main-content::before {
+  background:
+    linear-gradient(180deg, rgba(5, 7, 13, .55), rgba(5, 7, 13, .9) 55%, rgba(5, 7, 13, .97)),
+    url('/themes/xianxia/xianxia-dashboard-bg.png') center 15% / cover no-repeat !important;
   opacity: .18 !important;
   filter: saturate(.78) contrast(1.05);
 }

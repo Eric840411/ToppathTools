@@ -635,7 +635,7 @@ function App() {
             className={`sidebar-nav-item${currentGroup?.id === dashboardGroup.id ? ' sidebar-nav-item--active' : ''}`}
             onClick={() => handleGroupClick(dashboardGroup)}
           >
-            <span className={`tab-icon ${dashboardGroup.iconClass}`}><XianxiaIcon name="overview" size={18} /></span>
+            <span className={`tab-icon ${dashboardGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="overview" size={18} /> : dashboardGroup.icon}</span>
             <NavLabel group={dashboardGroup} classic={themeMode === 'classic'} />
           </button>
           {visibleGroups.map((group) => (
@@ -645,7 +645,7 @@ function App() {
                 className={`sidebar-nav-item${currentGroup?.id === group.id ? ' sidebar-nav-item--active' : ''}`}
                 onClick={() => handleGroupClick(group)}
               >
-                <span className={`tab-icon ${group.iconClass}`}><XianxiaIcon name={navIconName(group.id, group.iconClass)} size={18} /></span>
+                <span className={`tab-icon ${group.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name={navIconName(group.id, group.iconClass)} size={18} /> : group.icon}</span>
                 <NavLabel group={group} classic={themeMode === 'classic'} />
                 {group.subtabs && (
                   <span className="sidebar-expand-arrow">
@@ -663,7 +663,7 @@ function App() {
                       className={`sidebar-subtab-item${effectiveTab === sub.id ? ' sidebar-subtab-item--active' : ''}`}
                       onClick={() => setActiveTab(sub.id)}
                     >
-                      <span className={`tab-icon sub-tab-icon ${sub.iconClass}`}><XianxiaIcon name={navIconName(sub.id, sub.iconClass)} size={16} /></span>
+                      <span className={`tab-icon sub-tab-icon ${sub.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name={navIconName(sub.id, sub.iconClass)} size={16} /> : sub.icon}</span>
                       {sub.themeLabel && themeMode === 'xianxia' ? (
                         <span className="sidebar-nav-label sidebar-nav-label--dual">
                           <span className="sidebar-nav-label-theme">{sub.themeLabel}</span>
@@ -686,7 +686,7 @@ function App() {
               className={`sidebar-nav-item${currentGroup?.id === settingsGroup.id ? ' sidebar-nav-item--active' : ''}`}
               onClick={() => handleGroupClick(settingsGroup)}
             >
-              <span className={`tab-icon ${settingsGroup.iconClass}`}><XianxiaIcon name="settings" size={18} /></span>
+              <span className={`tab-icon ${settingsGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="settings" size={18} /> : settingsGroup.icon}</span>
               <NavLabel group={settingsGroup} classic={themeMode === 'classic'} />
             </button>
           )}
@@ -697,7 +697,7 @@ function App() {
               className={`sidebar-nav-item${currentGroup?.id === historyGroup.id ? ' sidebar-nav-item--active' : ''}`}
               onClick={() => handleGroupClick(historyGroup)}
             >
-              <span className={`tab-icon ${historyGroup.iconClass}`}><XianxiaIcon name="history" size={18} /></span>
+              <span className={`tab-icon ${historyGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="history" size={18} /> : historyGroup.icon}</span>
               <NavLabel group={historyGroup} classic={themeMode === 'classic'} />
             </button>
           )}
@@ -708,7 +708,7 @@ function App() {
               className={`sidebar-nav-item${currentGroup?.id === knowledgeGroup.id ? ' sidebar-nav-item--active' : ''}`}
               onClick={() => handleGroupClick(knowledgeGroup)}
             >
-              <span className={`tab-icon ${knowledgeGroup.iconClass}`}><XianxiaIcon name="knowledge" size={18} /></span>
+              <span className={`tab-icon ${knowledgeGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="knowledge" size={18} /> : knowledgeGroup.icon}</span>
               <NavLabel group={knowledgeGroup} classic={themeMode === 'classic'} />
             </button>
           )}
@@ -719,7 +719,7 @@ function App() {
               className={`sidebar-nav-item${currentGroup?.id === discordNotifyGroup.id ? ' sidebar-nav-item--active' : ''}`}
               onClick={() => handleGroupClick(discordNotifyGroup)}
             >
-              <span className={`tab-icon ${discordNotifyGroup.iconClass}`}><XianxiaIcon name="notification" size={18} /></span>
+              <span className={`tab-icon ${discordNotifyGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="notification" size={18} /> : discordNotifyGroup.icon}</span>
               <NavLabel group={discordNotifyGroup} classic={themeMode === 'classic'} />
             </button>
           )}
@@ -730,7 +730,7 @@ function App() {
               className={`sidebar-nav-item${currentGroup?.id === cultivationBoardGroup.id ? ' sidebar-nav-item--active' : ''}`}
               onClick={() => handleGroupClick(cultivationBoardGroup)}
             >
-              <span className={`tab-icon ${cultivationBoardGroup.iconClass}`}><XianxiaIcon name="monitor" size={18} /></span>
+              <span className={`tab-icon ${cultivationBoardGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="monitor" size={18} /> : cultivationBoardGroup.icon}</span>
               <NavLabel group={cultivationBoardGroup} classic={themeMode === 'classic'} />
             </button>
           )}
@@ -741,7 +741,7 @@ function App() {
               className={`sidebar-nav-item${currentGroup?.id === xianxiaQuotesGroup.id ? ' sidebar-nav-item--active' : ''}`}
               onClick={() => handleGroupClick(xianxiaQuotesGroup)}
             >
-              <span className={`tab-icon ${xianxiaQuotesGroup.iconClass}`}><XianxiaIcon name="document" size={18} /></span>
+              <span className={`tab-icon ${xianxiaQuotesGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="document" size={18} /> : xianxiaQuotesGroup.icon}</span>
               <NavLabel group={xianxiaQuotesGroup} classic={themeMode === 'classic'} />
             </button>
           )}
@@ -752,7 +752,7 @@ function App() {
             onClick={() => visibleSysadmin && handleGroupClick(sysadminGroup)}
             title={visibleSysadmin ? '系統管理' : '僅管理員可使用'}
           >
-            <span className={`tab-icon ${sysadminGroup.iconClass}`}><XianxiaIcon name="settings" size={18} /></span>
+            <span className={`tab-icon ${sysadminGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="settings" size={18} /> : sysadminGroup.icon}</span>
             <NavLabel group={sysadminGroup} classic={themeMode === 'classic'} />
           </button>
 
