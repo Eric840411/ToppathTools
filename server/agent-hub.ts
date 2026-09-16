@@ -46,6 +46,9 @@ export interface AgentInfo {
   version?: string
   /** agent 手上白名單檔案「現在」的指紋。舊版 agent 不會回報，留 undefined 代表版本未知 */
   sourceHash?: string
+  /** agent 逐檔比對後，跟伺服器不一樣的那幾個檔。總指紋只說得出「有東西不同」，
+   *  說不出是哪個檔——那等於使用者除了反覆按更新之外沒事可做。 */
+  sourceDiff?: string[]
   /** agent 上次更新程式碼時，伺服器當下的版本。給人看的數字，判斷仍以指紋為準
    *  ——這是「宣稱」，指紋才是「事實」（檔案被手動改過的話版本會說謊） */
   sourceVersion?: string

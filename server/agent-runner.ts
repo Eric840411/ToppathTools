@@ -26,7 +26,7 @@ import { createInterface } from 'node:readline'
 // UAT 網路量測與 pinus 攔截：共用模組放在 server/uat-runner/ 底下，
 // 因為那是唯一一份 Backend runner（純 node）、agent（tsx）、server（編譯後）
 // 三邊都載得到的位置，詳見 net-capture.js 檔頭
-import { hashSources, RESTART_REQUIRED_SOURCES } from './agent-source-hash.js'
+import { hashSources, hashOne, RESTART_REQUIRED_SOURCES } from './agent-source-hash.js'
 import { attachNetworkCapture, DEFAULT_THRESHOLDS } from './uat-runner/net-capture.js'
 import { attachPinusProbe } from './uat-runner/pinus-probe.js'
 import { MachineTestRunner } from './machine-test/runner.js'
@@ -66,16 +66,17 @@ const AGENT_VERSION = '2026-05-agent-owner-v1'
  * ⚠️ 演算法用 `agent-source-hash.ts` 這支共用模組（它自己也在白名單裡），
  *    不在這邊另寫一份——兩邊各寫一份必然漂掉，而漂掉的症狀是「永遠顯示需要更新」。
  */
-async function computeSourceHashes(): Promise<{ all: string; restartScoped: string } | null> {
+async function computeSourceHashes(): Promise<{ all: string; restartScoped: string; diff: string[] } | null> {
   try {
     const baseUrl = CENTRAL_URL.replace(/^wss?/, (m) => m.includes('wss') ? 'https' : 'http')
     const resp = await fetch(`${baseUrl}/api/machine-test/agent/source-manifest`)
     if (!resp.ok) return null
-    const manifest = await resp.json() as { files?: string[]; serverVersion?: string | null }
+    const manifest = await resp.json() as { files?: string[]; serverVersion?: string | null; perFile?: Record<string, string> }
     const files = manifest.files ?? []
     if (!files.length) return null
     const all: Record<string, string> = {}
     const restart: Record<string, string> = {}
+    const diff: string[] = []
     for (const rel of files) {
       const target = join(process.cwd(), 'server', ...rel.split('/'))
       // 檔案不存在就當成空字串——那本身就是一種「跟 server 不一樣」，
@@ -84,8 +85,13 @@ async function computeSourceHashes(): Promise<{ all: string; restartScoped: stri
       try { content = readFileSync(target, 'utf8') } catch { content = '' }
       all[rel] = content
       if (RESTART_REQUIRED_SOURCES.has(rel)) restart[rel] = content
+      // 逐檔比對：總指紋只說得出「有東西不一樣」，說不出是哪個檔——
+      // 那等於使用者除了反覆按更新之外沒事可做。manifest 本來就有 perFile，
+      // 在這裡比一次，把差異清單一起回報上去。
+      const want = manifest.perFile?.[rel]
+      if (want && hashOne(content) !== want) diff.push(rel)
     }
-    return { all: hashSources(all), restartScoped: hashSources(restart) }
+    return { all: hashSources(all), restartScoped: hashSources(restart), diff }
   } catch {
     return null   // 算不出來就回報 undefined，server 會顯示「版本未知」而不是假裝最新
   }
@@ -1188,6 +1194,7 @@ function connect() {
       version: AGENT_VERSION,
       sourceHash: bootHashes?.all,
       bootRestartHash,
+      sourceDiff: bootHashes?.diff,
       sourceVersion: readSourceVersion(),
     }))
   })
@@ -1615,7 +1622,7 @@ function connect() {
           writeSourceVersion(mf.serverVersion)
         } catch { /* 拿不到版本不影響更新本身 */ }
       }
-      ws.send(JSON.stringify({ type: 'sources_updated', ok: allOk, results, sourceHash: after?.all, sourceVersion: readSourceVersion() }))
+      ws.send(JSON.stringify({ type: 'sources_updated', ok: allOk, results, sourceHash: after?.all, sourceDiff: after?.diff, sourceVersion: readSourceVersion() }))
       const needRestart = after && bootRestartHash !== undefined && after.restartScoped !== bootRestartHash
       console.log(`[Agent:${AGENT_LABEL}] Source update ${allOk ? 'succeeded' : 'failed (partial)'}.`
         + (needRestart ? ' ⚠️ 有需要重啟才生效的檔案被更新，請重開 agent。' : ' 這批檔案下次執行就會生效，不用重啟。'))

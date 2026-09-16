@@ -17,6 +17,8 @@ interface LocalAgent {
   sourceHash?: string | null
   /** 伺服器現在這份的指紋 */
   expectedHash?: string
+  /** 逐檔差異；舊 agent 不會回報，是 null（跟「沒有差異」要分得開）*/
+  sourceDiff?: string[] | null
   /** agent 上次更新到的版本（宣稱值，判斷仍以指紋為準） */
   sourceVersion?: string | null
   /** 伺服器現在的版本（目標版本） */
@@ -452,6 +454,21 @@ export function LocalAgentPage({ currentAccount }: Props) {
                                   background: tone.bg, border: `1px solid ${tone.bd}` }}>
                       <div style={{ fontSize: 12.5, fontWeight: 700, color: tone.fg }}>{tone.title}</div>
                       <div style={{ fontSize: 11.5, color: '#cbd5e1', lineHeight: 1.5, marginTop: 2 }}>{tone.hint}</div>
+                      {/* ⚠️ 總指紋只說得出「有東西不一樣」，說不出是哪個檔——
+                          使用者除了反覆按更新之外沒事可做，而反覆按也不會告訴他為什麼。
+                          undefined/null 是「這台 agent 還不會回報」，**不可以顯示成「沒有差異」**。 */}
+                      {agent.updateStatus === 'needs_update' && (
+                        agent.sourceDiff == null
+                          ? <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
+                              （這台 agent 還不會回報是哪幾個檔案不一樣——更新並重開一次之後就會顯示）
+                            </div>
+                          : agent.sourceDiff.length > 0 && (
+                            <div style={{ fontSize: 11, color: '#cbd5e1', marginTop: 4 }}>
+                              不一致的檔案（{agent.sourceDiff.length}）：
+                              <code style={{ wordBreak: 'break-all' }}>{agent.sourceDiff.join('、')}</code>
+                            </div>
+                          )
+                      )}
                     </div>
                   )
                 })()}

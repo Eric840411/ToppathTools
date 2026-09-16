@@ -544,6 +544,7 @@ wss.on('connection', (ws, req) => {
         version?: string
         /** 原始碼指紋。版本比對改用這個，不用手動維護的 version 字串 */
         sourceHash?: string
+        sourceDiff?: string[]
         bootRestartHash?: string
         sourceVersion?: string
         sessionId?: string
@@ -583,6 +584,7 @@ wss.on('connection', (ws, req) => {
           version: typeof msg.version === 'string' ? msg.version : undefined,
           // 版本比對改用原始碼指紋，不用手動維護的版本字串（那個從 5 月起就沒動過）
           sourceHash: typeof msg.sourceHash === 'string' ? msg.sourceHash : undefined,
+          sourceDiff: Array.isArray(msg.sourceDiff) ? msg.sourceDiff : undefined,
           bootRestartHash: typeof msg.bootRestartHash === 'string' ? msg.bootRestartHash : undefined,
           sourceVersion: typeof msg.sourceVersion === 'string' ? msg.sourceVersion : undefined,
           connectedAt: now,
@@ -606,6 +608,7 @@ wss.on('connection', (ws, req) => {
       if (msg.type === 'sources_updated' && agentId) {
         const info = agentConnections.get(agentId)
         if (info && typeof msg.sourceHash === 'string') info.sourceHash = msg.sourceHash
+        if (info && Array.isArray(msg.sourceDiff)) info.sourceDiff = msg.sourceDiff as string[]
         if (info && typeof msg.sourceVersion === 'string') info.sourceVersion = msg.sourceVersion
         // 不 return，讓它繼續往下走到既有的回覆邏輯
       }

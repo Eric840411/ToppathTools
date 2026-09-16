@@ -1693,6 +1693,11 @@ router.get('/api/local-agent/status', (_req, res) => {
       // 兩個都給，落後時人才看得出「差在哪」而不只是一句紅字。
       sourceHash: agent.sourceHash ?? null,
       expectedHash: fingerprints.all,
+      // ⚠️ 逐檔差異。總指紋只說得出「有東西不一樣」，說不出是哪個檔——
+      //    使用者除了反覆按更新之外沒事可做，而反覆按也不會告訴他為什麼。
+      //    舊 agent 不會回報這個（undefined），畫面要能分辨「沒有差異」和
+      //    「這個 agent 還不會回報」，不可以把 undefined 顯示成「沒有差異」。
+      sourceDiff: agent.sourceDiff ?? null,
       // 目前版本 / 目標版本（使用者要求看得到數字，不只是指紋）
       //
       // ⚠️ **指紋一樣就代表版本一樣，直接推出來。**
