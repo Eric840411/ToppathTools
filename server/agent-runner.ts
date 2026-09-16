@@ -1587,7 +1587,12 @@ function connect() {
     }
 
     if (msg.type === 'update_sources') {
-      const files = (msg as { type: 'update_sources'; files?: string[] }).files ?? []
+      const upd = msg as { type: 'update_sources'; files?: string[]; contents?: { file: string; content: string; hash: string }[] }
+      const files = upd.files ?? []
+      // 內容直接跟著這則 WS 訊息來，就不用再用 HTTP 回頭下載一次。
+      // HTTP 那條路在正式站會把大檔截斷（HTTP 200、寫檔成功，但內容少一截），
+      // 而這條 WS 連線傳同樣的內容一直是好的（錄製腳本就是這樣送的）。
+      const pushed = new Map((upd.contents ?? []).map(c => [c.file, c]))
       console.log(`[Agent:${AGENT_LABEL}] Updating ${files.length} source files from server`)
       const baseUrl = CENTRAL_URL.replace(/^wss?/, (s) => s.includes('wss') ? 'https' : 'http')
       const results: { file: string; ok: boolean; error?: string }[] = []
@@ -1604,12 +1609,18 @@ function connect() {
       } catch { wantPerFile = {} }
       for (const file of files) {
         try {
-          const resp = await fetch(`${baseUrl}/api/machine-test/agent/source/${file}`)
-          if (!resp.ok) { results.push({ file, ok: false, error: `HTTP ${resp.status}` }); continue }
-          const content = await resp.text()
-          // 驗不過就不要寫。沒有期望值時（舊 server）才照舊寫進去——
+          let content: string
+          const fromWs = pushed.get(file)
+          if (fromWs) {
+            content = fromWs.content
+          } else {
+            // 舊版 server 不會推內容，退回原本的 HTTP 下載
+            const resp = await fetch(`${baseUrl}/api/machine-test/agent/source/${file}`)
+            if (!resp.ok) { results.push({ file, ok: false, error: `HTTP ${resp.status}` }); continue }
+            content = await resp.text()
+          }          // 驗不過就不要寫。沒有期望值時（舊 server）才照舊寫進去——
           // 不能因為拿不到期望值就整個更新不動。
-          const want = wantPerFile[file]
+          const want = pushed.get(file)?.hash ?? wantPerFile[file]
           if (want && hashOne(content) !== want) {
             results.push({ file, ok: false, error: `下載到的內容跟伺服器對不上（收到 ${content.length} 字，指紋 ${hashOne(content).slice(0, 8)}，期望 ${want.slice(0, 8)}）——沒有寫入，避免留下被截斷的檔案` })
             console.error(`[Agent:${AGENT_LABEL}]   ✗ ${file}: 內容不完整，已略過寫入`)

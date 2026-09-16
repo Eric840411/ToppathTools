@@ -1768,7 +1768,21 @@ router.post('/api/local-agent/agent/:agentId/update-sources', (req, res) => {
   if (agent.ws.readyState !== agent.ws.OPEN) return res.status(503).json({ ok: false, message: 'Agent WebSocket 已斷線' })
 
   const files = Object.keys(AGENT_SOURCE_WHITELIST)
-  agent.ws.send(JSON.stringify({ type: 'update_sources', files }))
+  // ⚠️ 內容直接走 WebSocket 送，不要讓 agent 再用 HTTP 回頭下載一次。
+  //    2026-09-16 正式站實測：同一份檔案用 HTTP 下載會在途中被截斷
+  //    （run-lark-tc-backend.js 少 868 字、backend-recorder.js 少 4936 字），
+  //    而且 HTTP 回 200、寫檔也成功，所以一路顯示「更新成功」，
+  //    實際寫進去的是一個被截斷的 runner。
+  //
+  //    走 WS 是有根據的：錄製功能一直是把 backend-recorder.js 的整份原始碼
+  //    透過這條 WS 送給 agent 的，而它是好的——同一份內容、同一條連線。
+  //
+  //    `files` 仍然照舊送，舊版 agent 才不會整個更新不動。
+  const contents = files.map(file => {
+    const content = agentSourceContent(file)
+    return content === null ? null : { file, content, hash: hashOne(content) }
+  }).filter((x): x is { file: string; content: string; hash: string } => x !== null)
+  agent.ws.send(JSON.stringify({ type: 'update_sources', files, contents }))
 
   const timeoutId = setTimeout(() => {
     pendingSourceUpdates.delete(agentId)
