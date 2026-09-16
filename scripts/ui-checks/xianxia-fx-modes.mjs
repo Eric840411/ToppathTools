@@ -51,13 +51,16 @@ const HTML = [
   // v4.146.0 的法陣寫死 176px，在這種盒子裡會被切成一條橫帶。
   ' .uat-net-empty{display:flex;min-height:110px;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:16px;text-align:center;color:#8996a3}',
   '</style></head><body>',
-  '<div class="section-card" id="card">一張卡</div>',
+  // 2026-09-16 正式站回報：普通版看得到修仙版底圖。這個 fixture 原本沒有 .main-content，
+  // 所以那個洞完全掃不到——29 項全過，實際上普通版是壞的。
+  '<div class="main-content" id="main"><div class="section-card" id="card">一張卡</div>',
   '<div class="osm-empty" id="empty">目前沒有資料</div>',
   '<div class="loading-state"><div class="loading-spinner" id="spin"></div><span>讀取中…</span></div>',
   '<span class="badge" id="badge">徽章</span>',
   '<div class="uat-net-empty" id="short"><strong>尚未起測</strong><span>推演開始後此處即現每道法訊與靈影的往返耗時</span></div>',
   '<div class="xx-glow" id="glow" style="border:1px solid #7a6a3d;border-radius:8px;padding:14px 18px;margin-top:12px">',
   '<span class="xx-reveal" id="rev">' + WORDS + '</span>',
+  '</div>',
   '</div>',
   '<script>',
   'window.setXianxia = function (on) {',
@@ -102,6 +105,7 @@ const probe = () => page.evaluate(() => {
     emptyBg: g('#empty', '::before').backgroundImage,
     emptyOverflow: g('#empty').overflow,
     glowAfter: g('#glow', '::after').backgroundImage,
+    mainBg: g('#main', '::before').backgroundImage,
     shortBoxH: document.querySelector('#short').getBoundingClientRect().height,
     shortRuneH: parseFloat(g('#short', '::before').height) || 0,
     shortRuneW: parseFloat(g('#short', '::before').width) || 0,
@@ -152,6 +156,8 @@ eq('空狀態沒有法陣背景', classic.emptyBg, 'none')
 eq('卡片 hover 不位移', classicCardHover.transform, 'none')
 eq('徽章 hover 沒有鎏金光圈', classicBadgeHover.shadow, 'none')
 eq('卡片光暈的 ::after 不存在', classic.glowAfter, 'none')
+// 這一條就是正式站那個洞：背景圖放在兩個模式共用的 App.css 裡
+ok('主內容區沒有修仙版底圖', !/themes\/xianxia/.test(classic.mainBg), classic.mainBg.slice(0, 70))
 ok('逐字 span 仍然看得見（沒有那份 CSS 就不該被藏起來）', classic.lastOpacity === '1', 'opacity=' + classic.lastOpacity)
 
 console.log('\n── 修仙版：四種效果都要在 ──')
@@ -167,6 +173,7 @@ ok('③ 卡片 hover 會浮起', xxCardHover.transform !== 'none', xxCardHover.t
 ok('③ 徽章 hover 有鎏金光圈', xxBadgeHover.shadow !== 'none')
 ok('③ 徽章 hover 不位移（inline 元素套 transform 會壞版）', xxBadgeHover.transform === 'none', xxBadgeHover.transform)
 ok('④ 卡片光暈的 ::after 有漸層', xianxia.glowAfter.includes('gradient'))
+ok('修仙版才有的底圖，在修仙版要在', /themes\/xianxia/.test(xianxia.mainBg), xianxia.mainBg.slice(0, 70))
 
 // ── 使用者 2026-09-16 回報的裁切：min-height 只有 110px 的盒子放不下寫死的 176px 法陣 ──
 // 實測 110px 高的盒子裡，176px 的圓只露出 137px 寬的弦——上下被削平，看起來像素材壞了。
