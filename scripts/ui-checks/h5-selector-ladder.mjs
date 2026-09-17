@@ -107,11 +107,24 @@ for (const [label, src] of [['agent-runner', agentRunner], ['frontend-auto', fro
   check(`④b ${label} 載入完成會查 shadow 完整性`,
     /Page\.loadEventFired[\s\S]{0,400}flagShadowCompleteness\(send\)/.test(src),
     '沒查的話宣告式 closed shadow host 會被錯標成已驗證');
+  // ⚠️ load 跟「頁面可以點了」是不同階段。只等 load 的話，那個窗口裡的點擊
+  //    會停在「尚未確認」——不會錯標，但白白少掉驗證。
+  check(`④b ${label} DOMContentLoaded 就查一次`,
+    /Page\.domContentEventFired[\s\S]{0,200}flagShadowCompleteness\(send\)/.test(src),
+    'load 常常晚很久（一張慢圖就夠），窗口裡的步驟會全部沒驗證');
   // ⚠️ 直接用目標網址啟動 Chrome 的話，「注入早於頁面程式碼」不成立。
   check(`④b ${label} 先開 about:blank，注入完才導頁`,
     /'about:blank'/.test(src) && /Page\.navigate.*startUrl/.test(src),
     '直接開目標網址的話，注入前建立的 shadow root 永遠追蹤不到');
 }
+// ⚠️ 預設值的方向決定了「查完之前」怎麼算。預設放行 → 那個窗口會錯標成已驗證，
+//    而且事後查出問題也不會回頭修正那一筆。（CodeX 2026-09-18 第四輪指出）
+check('④b 每份新文件預設「尚未確認」，不是預設沒問題',
+  /__toppathShadowChecked = false/.test(h5Script) && /if \(!window\.__toppathShadowChecked\) return true;/.test(h5Script),
+  '反過來寫的話，host 查完之前的點擊全部會被標成已驗證');
+check('④b 確認結果綁 docId（導頁後回來的結果不能套到新文件）',
+  /__toppathDocId/.test(h5Script),
+  '不綁的話上一份文件的結論會被當成這一份的');
 check('④b 只導頁一次（CDP 斷線會重連）', /navigated = true/.test(agentRunner) && /navigated = true/.test(frontendAuto),
   '重連時再導一次就是無限重載');
 

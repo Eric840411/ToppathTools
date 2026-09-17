@@ -1185,6 +1185,13 @@ function connectUatRecorder(sess: UatRecSession, port: number, serverWs: WebSock
                   try { void handleAgentCrop(sess, JSON.parse(args[1].value as string), serverWs) } catch {}
                 }
               }
+              // ⚠️ 要在 DOMContentLoaded 就查一次，不能只等 load。
+              //    load 跟「頁面已經可以點」在規範上是不同階段；只等 load 的話，
+              //    使用者在那個窗口點下去的步驟會停在「尚未確認」（不會錯標，
+              //    但白白少掉驗證）。宣告式 root 在解析完就都在了，這時查得到。
+              if (msg.method === 'Page.domContentEventFired') {
+                void flagShadowCompleteness(send)
+              }
               if (msg.method === 'Page.loadEventFired') {
                 void syncUatViewport(sess)
                 // 宣告式 closed shadow root 只有 CDP 看得到，所以每次載入完成查一次。

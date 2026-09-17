@@ -18,6 +18,7 @@
  *   `/`             沒有任何 shadow DOM —— 驗正常情況「驗得過就標 ok」
  *   `/shadow-js`    載入時就用 attachShadow 建好 —— 給 ⑧ 的重播用
  *   `/shadow-decl`  `<template shadowrootmode="closed">` —— 頁面端偵測不到，靠 host 查
+ *   `/shadow-decl-slow`  同上再加一張 3 秒才回的圖 —— 測「可以點了但還沒 load」那個窗口
  *
  * 跑法：node server/uat-runner/frontend-recorder.browser-test.mjs
  */
@@ -67,10 +68,16 @@ const DECL = `<!doctype html><meta charset="utf-8"><title>declarative shadow fix
 <button id="plain" aria-label="普通按鈕">普通</button>
 <div id="host-decl"><template shadowrootmode="closed"><button id="d1" style="width:300px">宣告一</button><button id="d2" style="width:40px">二</button></template></div>`;
 
+const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 const server = http.createServer((req, res) => {
+  // 刻意很慢的圖：讓 load 晚很久才發生，才測得到「可以點了但還沒 load」那個窗口
+  if (req.url === '/slow.png') {
+    return setTimeout(() => { res.writeHead(200, { 'content-type': 'image/png' }); res.end(PNG_1PX); }, 3000);
+  }
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   if (req.url === '/shadow-js') return res.end(BODY + `<script>${MAKE_SHADOW}</script>`);
   if (req.url === '/shadow-decl') return res.end(DECL);
+  if (req.url === '/shadow-decl-slow') return res.end(DECL + '<img src="/slow.png">');
   res.end(BODY);
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
@@ -155,9 +162,9 @@ try {
   // ⚠️ 這條是整個功能的前提：host 端的保守檢查如果連普通頁面都設旗標，
   //    所有步驟都會變 unknown，驗證等於關掉。
   await flagShadowCompleteness(send);
-  check('⓿ 普通頁面（沒有 shadow root）不會被設成「無法確認」',
-    await evaluate('!window.__toppathShadowIncomplete') === true,
-    '這裡誤設的話下面每一條 ok 都會變 unknown，功能等於關掉');
+  check('⓿ 普通頁面（沒有 shadow root）查完之後可以宣稱驗過',
+    await evaluate('window.__toppathShadowChecked') === true,
+    '這裡沒設成 true 的話下面每一條 ok 都會變 unknown，功能等於關掉');
 
   // ── ① 有穩定屬性的元素 ───────────────────────────────────────────────
   await evaluate(`document.querySelector('[aria-label="設定"]').click()`);
@@ -290,8 +297,8 @@ try {
     && await evaluate(`document.getElementById('host-decl').getBoundingClientRect().width`) > 300,
     'template 沒被消化成 shadow root 的話這條測不到東西');
   await flagShadowCompleteness(send);
-  check('⑥c host 端查得出這一頁有追蹤不到的 shadow root',
-    await evaluate('window.__toppathShadowIncomplete') === true,
+  check('⑥c host 端查得出這一頁有追蹤不到的 shadow root（維持不可宣稱驗過）',
+    await evaluate('window.__toppathShadowChecked') === false,
     '頁面端三條路都試過都偵測不到（見 frontend-recorder.js 的說明），只有 CDP 看得到');
   const declSteps = steps.length;
   await evaluate(`document.getElementById('plain').click()`);
@@ -301,6 +308,39 @@ try {
     steps.length === declSteps + 1
     && declPlain?.selectorCheck === 'unknown' && declPlain?.selectorCheckReason === 'shadow',
     JSON.stringify(declPlain));
+
+  // ── ⑥d 查完之前不能宣稱驗過（load 前的那個窗口）────────────────────────
+  // ⚠️ 這是 CodeX 第四輪抓到的：host 是等 load 才查的，而「頁面可以點了」跟 load
+  //    在規範上是不同階段。原本的寫法是「查到問題才擋」，所以**查完之前一律放行**——
+  //    使用者在那個窗口點了宣告式 closed 元件就被標成已驗證，而且事後不會回頭修正。
+  //    現在反過來：每份新文件預設「尚未確認」。
+  {
+    const created = await send('Target.createTarget', { url: 'about:blank' });
+    const slowId = created.result?.targetId;
+    const list = await waitJson(`http://127.0.0.1:${cdpPort}/json/list`);
+    const fresh = list.find(t => t.id === slowId && t.webSocketDebuggerUrl);
+    if (!fresh) throw new Error('開不出慢速分頁');
+    const slow = await connect(fresh.webSocketDebuggerUrl);
+    await slow.send('Runtime.enable');
+    await slow.send('Page.enable');
+    await slow.send('Page.addScriptToEvaluateOnNewDocument', { source: frontendRecorderScript() });
+    await slow.send('Page.navigate', { url: `http://127.0.0.1:${sitePort}/shadow-decl-slow` });
+    // DOM 已經可以互動，但 3 秒的圖還沒載完 → load 還沒發生
+    await new Promise(r => setTimeout(r, 800));
+    check('⑥d fixture 真的停在「可以點了但還沒 load」',
+      await slow.evaluate('document.readyState') === 'loading'
+      || await slow.evaluate('document.readyState') === 'interactive',
+      `readyState 是 ${await slow.evaluate('document.readyState')}——已經 complete 的話這條測不到窗口`);
+    // ⚠️ 刻意**不先呼叫 flagShadowCompleteness**：要測的就是「還沒查」的狀態
+    await slow.evaluate(`document.getElementById('plain').click()`);
+    await new Promise(r => setTimeout(r, 300));
+    const early = slow.steps.at(-1);
+    check('⑥d ⚠️ host 還沒查完之前，一律不宣稱驗過',
+      early?.selectorCheck === 'unknown' && early?.selectorCheckReason === 'shadow',
+      JSON.stringify(early));
+    slow.ws.close();
+    if (slowId) await send('Target.closeTarget', { targetId: slowId });
+  }
 
   // ── ⑨ 追蹤不到 shadow 時要**退回 unknown**，不能當成沒有 shadow ───────────
   // ⚠️ 這條驗的是退路本身。注入的腳本不是嚴格模式，屬性被設成唯讀時指派會
@@ -323,6 +363,12 @@ try {
     await second.send('Page.addScriptToEvaluateOnNewDocument', { source: frontendRecorderScript() });
     await second.send('Page.navigate', { url: `http://127.0.0.1:${sitePort}/` });
     await new Promise(r => setTimeout(r, 1200));
+    // ⚠️ 一定要先讓 host 確認過（這一頁沒有作者建立的 shadow root），
+    //    否則下面那條會因為「還沒確認」而 unknown——**測到的是別的機制**，
+    //    把 attachShadow 的追蹤整段拿掉也照樣綠。（注入測試抓到過。）
+    await flagShadowCompleteness(second.send);
+    check('⑨ host 已經確認過這一頁乾淨（所以下面的 unknown 只能來自追蹤失敗）',
+      await second.evaluate('window.__toppathShadowChecked') === true);
     check('⑨ fixture 真的讓錄製器包不住 attachShadow',
       await second.evaluate("(() => { const d = Object.getOwnPropertyDescriptor(Element.prototype, 'attachShadow'); return !d.writable })()") === true,
       '前提不成立的話下面那條等於沒測');
@@ -352,6 +398,11 @@ try {
     check('⑨b fixture 真的是「載入完才注入」', await late.evaluate('document.readyState') === 'complete');
     // 沒有 init script，直接在已經載好的頁面上注入——舊的啟動順序就是這樣
     await late.evaluate(frontendRecorderScript());
+    // 同 ⑨：先讓 host 確認過，否則測到的是「還沒確認」而不是 readyState 守門
+    await late.send('Page.enable');
+    await flagShadowCompleteness(late.send);
+    check('⑨b host 已經確認過這一頁乾淨（所以下面的 unknown 只能來自 readyState 守門）',
+      await late.evaluate('window.__toppathShadowChecked') === true);
     await late.evaluate(`document.querySelector('[aria-label="設定"]').click()`);
     await new Promise(r => setTimeout(r, 300));
     const lateStep = late.steps.at(-1);

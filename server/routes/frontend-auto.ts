@@ -798,6 +798,10 @@ function connectRecorder(sess: RecSession, port: number) {
             try { void saveCropFromRecorder(sess, JSON.parse(args[1].value)) } catch {}
           }
         }
+        // ⚠️ DOMContentLoaded 就查一次——load 跟「可以點了」是不同階段。
+        if (msg.method === 'Page.domContentEventFired') {
+          void flagShadowCompleteness(send)
+        }
         if (msg.method === 'Page.loadEventFired') {
           // 宣告式 closed shadow root 只有 CDP 看得到，所以每次載入完成查一次。
           void flagShadowCompleteness(send)

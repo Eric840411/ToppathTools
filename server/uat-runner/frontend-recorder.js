@@ -38,49 +38,62 @@ import { selectorLadderSource, genericAdapterSource, nativeSelectorCheckSource }
 export const FRONTEND_RECORDER_MARKER = '__TOPPATH_RECORDER__';
 
 /**
- * host 端：查這份文件裡有沒有**我們追蹤不到的** shadow root，有就叫頁面停止宣稱驗過。
+ * host 端：查這份文件裡有沒有**我們追蹤不到的** shadow root。
+ * 查完而且乾淨才把這份文件標成「可以宣稱驗過」。
  *
  * 為什麼一定要 host 來查：宣告式的 closed root（`<template shadowrootmode="closed">`）
  * 在頁面裡完全偵測不到（三條路都試過，見 frontendRecorderScript 裡的說明），
  * **只有 CDP 看得到**。
  *
- * ⚠️ 這裡刻意**過度保守**：只要這一頁有任何 shadow root 就整頁不宣稱驗過，
- *    不去區分「是不是我們自己追蹤到的那些」。理由是區分需要把每個 host 節點
- *    resolve 回頁面物件再逐一註冊（每個兩次 CDP 呼叫），而換來的只是
- *    「在用 shadow DOM 的頁面上多一點 ok 標記」。少標 ok 只是少一點資訊，
+ * ⚠️ **預設是「尚未確認」，不是「沒問題」**（CodeX 2026-09-18 第四輪指出）。
+ *    原本的寫法是「查到問題才設旗標」，於是**查完之前**那段時間一律放行——
+ *    而 host 是等 `load` 才查的，`load` 跟「頁面可以點了」在規範上是不同階段。
+ *    使用者在那個窗口點了宣告式 closed 元件，那一步就被標成已驗證，**而且之後
+ *    查出問題也不會回頭改那一筆**。所以改成反向：確認過才允許驗證。
+ *
+ * ⚠️ 用 docId 綁定文件。導頁之後回來的檢查結果屬於**上一份文件**，
+ *    套到新文件上就是把別人的結論當自己的。
+ *
+ * ⚠️ 這裡刻意**過度保守**：只要這一頁有任何作者建立的 shadow root，整頁都不宣稱
+ *    驗過，不去區分「是不是我們自己追蹤到的那些」。少標 ok 只是少一點資訊，
  *    錯標 ok 會讓人相信一條會點錯的選擇器。
  *
- * ⚠️ 查不到（DOM domain 不通、逾時）也一律設旗標——**退路要往安全的方向倒**。
+ * ⚠️ 查詢失敗（DOM domain 不通、逾時）就維持「尚未確認」——**退路往安全的方向倒**。
  *
  * @param {(method: string, params?: object) => Promise<any>} send CDP 送訊息的函式
  */
 export async function flagShadowCompleteness(send) {
-  const markIncomplete = async () => {
-    try { await send('Runtime.evaluate', { expression: 'window.__toppathShadowIncomplete = true' }); }
-    catch (e) { /* 連這個都送不出去的話錄製本來就斷了 */ }
+  const value = async (expression) => {
+    const r = await send('Runtime.evaluate', { expression, returnByValue: true });
+    return r?.result?.result?.value;
   };
   try {
+    const docId = await value('window.__toppathDocId || ""');
+    if (!docId) return;   // 錄製器還沒裝好，這次不下結論（預設就是尚未確認）
     await send('DOM.enable');
     const doc = await send('DOM.getDocument', { depth: -1, pierce: true });
     const root = doc?.result?.root;
-    if (!root) return await markIncomplete();
+    if (!root) return;
     let found = false;
     const walk = (node) => {
       if (found || !node) return;
       // ⚠️ **一定要排除 user-agent shadow root。** `<input>`、`<video>` 這些元素
       //    瀏覽器自己就掛了一個；不排除的話**每一頁都會被判成「有 shadow root」**，
       //    於是所有步驟永遠是 unknown——驗證等於整個關掉，而且不會有人發現。
-      //    （第一版就是這樣，瀏覽器測試的 ⓿ 當場抓到。）
-      for (const root of node.shadowRoots ?? []) {
-        if (root?.shadowRootType && root.shadowRootType !== 'user-agent') { found = true; return; }
+      //    （第一版就是這樣，瀏覽器測試的第一條當場抓到。）
+      for (const sr of node.shadowRoots ?? []) {
+        if (sr?.shadowRootType && sr.shadowRootType !== 'user-agent') { found = true; return; }
       }
       for (const child of node.children ?? []) walk(child);
       if (node.contentDocument) walk(node.contentDocument);
     };
     walk(root);
-    if (found) await markIncomplete();
+    // 綁 docId 寫回去。found 為真時明確寫 false——同一份文件後來才多出
+    // 追蹤不到的 root（setHTMLUnsafe 那種）時要能把先前的確認收回。
+    await value('window.__toppathDocId === ' + JSON.stringify(docId)
+      + ' ? (window.__toppathShadowChecked = ' + (found ? 'false' : 'true') + ', true) : false');
   } catch (e) {
-    await markIncomplete();
+    /* 維持尚未確認 */
   }
 }
 
@@ -136,6 +149,14 @@ ${nativeSelectorCheckSource()}
    *    包不住（很舊的瀏覽器、或 attachShadow 被別人先換掉）就寧可回 unknown：
    *    少標一個 ok 只是少一點資訊，錯標一個 ok 會讓人相信一條會點錯的選擇器。
    */
+  // 這份文件的身分。host 端查完 shadow 完整性時用它綁定結果——
+  // 導頁之後回來的結果屬於上一份文件，不能套到這一份。
+  window.__toppathDocId = String(Date.now()) + '-' + String(Math.random()).slice(2, 10);
+  // ⚠️ **預設「尚未確認」。** host 端要等 CDP 查完才會把它設成 true；
+  //    在那之前一律不宣稱驗過。反過來寫（預設放行、查到問題才擋）的話，
+  //    查完之前那個窗口的點擊會被標成已驗證，而且事後不會回頭修正。
+  window.__toppathShadowChecked = false;
+
   const shadowHosts = new WeakSet();
   // ⚠️ 追蹤完整性的**前提**是「我們比這份文件的解析更早」。
   //    readyState 已經不是 loading，代表文件在我們進來之前就開始解析了——
@@ -178,8 +199,8 @@ ${nativeSelectorCheckSource()}
 
   /** 這一下點擊跟 shadow DOM 有沒有關係——有關係就不能宣稱驗過 */
   const fromShadow = (source, described) => {
-    // host 端用 CDP 查到這一頁有我們追蹤不到的 shadow root（宣告式的那種）
-    if (window.__toppathShadowIncomplete) return true;
+    // host 端還沒確認過這份文件、或確認的結果是「有追蹤不到的 shadow root」
+    if (!window.__toppathShadowChecked) return true;
     if (!shadowTrackable) return true;   // 追蹤不到 → 一律不下判斷
     for (const node of [source, described]) {
       if (!node) continue;
