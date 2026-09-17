@@ -87,6 +87,11 @@ check('③ ⚠️ 輸入錄成 type 不是 fill', h5Script.includes("action: 'ty
 for (const [label, src] of [['agent-runner', agentRunner], ['frontend-auto', frontendAuto]]) {
   check(`④ ${label} 建立共用定位器`, /createRecordedLocators\(page,\s*\{\s*requireUnique:\s*true/.test(src),
     'requireUnique：命中多筆要大聲失敗，不能安靜取第一個');
+  // ⚠️ 少了這個，接上共用解析反而比舊寫法**更早失敗**：命中 0 當下就拋，
+  //    Playwright 那 10 秒等待（在拿到 locator 之後才開始）根本走不到。
+  //    H5/PC 的按鈕與輸入框幾乎都是非同步渲染的。（CodeX 2026-09-18 指出）
+  check(`④ ${label} 解析要在期限內重試`, /resolveTimeoutMs:\s*\d+/.test(src),
+    '不重試等於把「等一下就會出現」變成「立刻失敗」');
   check(`④ ${label} 不再直接 page.locator(step.selector)`,
     !/page\.locator\(step\.selector/.test(src),
     'label= 會被 Playwright 當成未知引擎而拋錯，text= 的語意也跟重播不同');

@@ -60,10 +60,34 @@ ${nativeSelectorCheckSource()}
   /** canvas 裡沒有 DOM 可以指，只有座標是真的 */
   const canvasOf = (el) => (el && el.closest) ? el.closest('canvas') : null;
 
-  const describeStep = (el) => {
+  /**
+   * 事件真正的來源。
+   *
+   * ⚠️ event.target 在跨出 shadow 邊界時會被**重新指向 host**，所以 document 上的
+   *    監聽器看到的是 host、不是裡面那顆按鈕。只看 target 的話，我們會描述 host、
+   *    而且 host 通常真的唯一命中——於是這一步被標成 **ok（已驗證）**。
+   *    但 host 裡有兩顆以上按鈕時，重播點 host 的中心**不保證落在原本那一顆**，
+   *    等於把「不確定」包裝成「已驗證」，而且重播不會報錯。（CodeX 2026-09-18 指出）
+   *
+   *    composedPath()[0] 拿得到真正的來源；來源不在主 document 樹上就標 unknown。
+   */
+  const eventSource = (event) => {
+    try { return (event.composedPath && event.composedPath()[0]) || event.target; }
+    catch { return event.target; }
+  };
+  const fromShadow = (source) => {
+    try { return !!(source && source.getRootNode && source.getRootNode() !== document); }
+    catch { return true; }
+  };
+
+  const describeStep = (el, source) => {
     const target = actionableTarget(el);
     const d = describe(target);
-    const check = nativeSelectorCheck(d.selector, target);
+    // 來源在 shadow 裡 → 我們描述的是 host，那條 selector 指不到原本那一顆，
+    // 不能宣稱驗過。理由帶 shadow，讓人知道不是「壞了」而是「確認不了」。
+    const check = fromShadow(source)
+      ? { status: 'unknown', reason: 'shadow' }
+      : nativeSelectorCheck(d.selector, target);
     const step = { selector: d.selector, selectorStrategy: d.strategy, selectorCheck: check.status };
     if (check.reason) step.selectorCheckReason = check.reason;
     return step;
@@ -82,7 +106,7 @@ ${nativeSelectorCheckSource()}
       send({ name: '點擊畫面 (' + x + ', ' + y + ')', action: 'click_viewport', x, y });
       return;
     }
-    const d = describeStep(el);
+    const d = describeStep(el, eventSource(event));
     if (!d.selector) return;
     send({ name: '點擊 ' + d.selector, action: 'click', ...d });
   }, true);
@@ -91,7 +115,7 @@ ${nativeSelectorCheckSource()}
     const el = event.target;
     if (!el || !('value' in el)) return;
     if (el.closest && el.closest('[data-toppath-recorder-ui]')) return;
-    const d = describeStep(el);
+    const d = describeStep(el, eventSource(event));
     if (!d.selector) return;
     // ⚠️ 動作名一定要是 type。伺服器模式的執行引擎沒有 fill 這個動作，
     //    錄成 fill 的腳本在那邊會被當成「不支援的動作」**跳過**，而腳本照樣 PASS。

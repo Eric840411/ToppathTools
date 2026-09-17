@@ -582,18 +582,39 @@ export async function setCheckedRecorded(target, desired, { timeout = 10000 } = 
  * @param requireUnique  true 時命中數不是 1 就拋「定位必須唯一」
  * @param preview   選用：給 bounds 回一張預覽圖（純診斷用，不影響判定）
  */
-export function createRecordedLocators(page, { requireUnique = false, preview = null } = {}) {
+export function createRecordedLocators(page, { requireUnique = false, preview = null, resolveTimeoutMs = 0 } = {}) {
   // ⚠️ 這裡**只能**轉手給 locateRecorded()，不得自己再寫一份解析。
   //
   //    2026-09-17 就是因為這裡留了第三份拷貝（自己叫 getByLabel / resolveRecordedSelector），
   //    把 `label=` 的舊格式相容加進 locateRecorded 之後，**預檢與點擊這兩條路徑根本沒走到**，
   //    使用者那邊看到的還是一模一樣的「label=Jackpot ID（命中 0 個）」。
   //    誏刺的是舊版本的註解就寫著「只修一邊等於沒修」——而它本身就是那一邊。
+  /**
+   * ⚠️ `resolveTimeoutMs` 存在的理由（CodeX 2026-09-18 覆核指出）：
+   *
+   *    這一支是**當下解析一次**——命中 0 就立刻拋。Playwright 的 `.click({ timeout })`
+   *    會等元素出現，但那是**拿到 locator 之後**才開始等的；解析階段就拋掉的話，
+   *    後面那 10 秒根本走不到。H5/PC 的按鈕與輸入框幾乎都是非同步渲染出來的，
+   *    不重試等於把「等一下就會出現」變成「立刻失敗」。
+   *
+   *    重試的是**解析**，不是唯一性的標準：期限內每次照樣要求唯一命中，
+   *    期限到了就把最後一次的錯誤原封不動拋出去。
+   *
+   *    預設 0 = 不重試，維持既有呼叫端（Backend）的行為不變。
+   */
   const recordedLocator = async (selector) => {
-    const found = await locateRecorded(page, selector, { requireUnique });
-    if (found.failure) throw new Error(describeLocateFailure(found, selector));
-    if (!found.locator) throw new Error(ambiguityMessage(selector, found.count) + (found.hint ? '\n   ' + found.hint : ''));
-    return found.locator;
+    const deadline = Date.now() + Math.max(0, resolveTimeoutMs)
+    for (;;) {
+      try {
+        const found = await locateRecorded(page, selector, { requireUnique });
+        if (found.failure) throw new Error(describeLocateFailure(found, selector));
+        if (!found.locator) throw new Error(ambiguityMessage(selector, found.count) + (found.hint ? '\n   ' + found.hint : ''));
+        return found.locator;
+      } catch (error) {
+        if (Date.now() >= deadline) throw error;
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+    }
   };
 
   /** 預檢：不管工廠是不是 requireUnique，預檢本身永遠要求唯一。 */

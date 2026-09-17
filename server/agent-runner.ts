@@ -792,7 +792,7 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
     //    `:text-is()` 這些**不是原生 CSS**的寫法；直接 `page.locator(selector)` 的話
     //    `label=` 會被當成未知引擎而拋錯，`text=` 的語意也跟重播不一樣。
     //    requireUnique：命中多筆一律失敗，不要安靜取第一個——安靜點錯比找不到更糟。
-    const { recordedLocator } = createRecordedLocators(page, { requireUnique: true })
+    const { recordedLocator } = createRecordedLocators(page, { requireUnique: true, resolveTimeoutMs: 10000 })
 
     await log('✅ 執行頁面已準備完成')
 

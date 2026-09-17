@@ -1302,7 +1302,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
       // ⚠️ 選擇器解析要走跟 Backend、agent 模式同一支。錄製器會產出 `text=`／`label=`／
       //    `:text-is()` 這些不是原生 CSS 的寫法，直接 page.locator() 會拋未知引擎。
       //    requireUnique：命中多筆一律失敗，不要安靜取第一個。
-      const { recordedLocator } = createRecordedLocators(page, { requireUnique: true })
+      const { recordedLocator } = createRecordedLocators(page, { requireUnique: true, resolveTimeoutMs: 10000 })
 
       await log('✅ 執行頁面已準備完成')
 

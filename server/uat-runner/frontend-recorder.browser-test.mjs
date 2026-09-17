@@ -30,7 +30,7 @@ const check = (name, ok, detail = '') => {
 
 // ── 受測頁面：Vue 3 的樣子（scoped 雜湊屬性、編譯出來的 class）＋ canvas ＋ shadow DOM ──
 const PAGE = `<!doctype html><meta charset="utf-8"><title>h5 recorder fixture</title>
-<style>body{margin:0}#game{display:block}</style>
+<style>body{margin:0}#game{display:block}#host{display:inline-block}</style>
 <div id="app" data-v-7f3a91c>
   <button data-v-7f3a91c class="btn btn--primary is-1a2b">開始遊戲</button>
   <button data-v-7f3a91c class="btn btn--ghost is-9z8y" aria-label="設定">gear</button>
@@ -42,8 +42,13 @@ const PAGE = `<!doctype html><meta charset="utf-8"><title>h5 recorder fixture</t
 </div>
 <script>
   const root = document.getElementById('host').attachShadow({ mode: 'open' });
-  root.innerHTML = '<button id="inner">影子按鈕</button>';
+  // 兩顆按鈕，第一顆刻意很寬：host 的**中心**落在它身上。
+  // 「重播點 host」實際會點到誰，這裡就看得出來。
+  root.innerHTML = '<button id="inner" style="width:300px">影子按鈕一</button>'
+    + '<button id="inner2" style="width:40px">二</button>';
+  root.addEventListener('click', e => { window.__lastShadowClick = (e.target && e.target.id) || '' }, true);
   window.__shadowBtn = root.getElementById('inner');
+  window.__shadowBtn2 = root.getElementById('inner2');
 </script>`;
 
 const server = http.createServer((_req, res) => {
@@ -179,15 +184,19 @@ try {
   check('⑤ ⚠️ 隔一段時間真的再按一次**要錄到**（舊的伺服器模式會安靜丟掉）',
     steps.length === before + 2, `總共 ${steps.length - before} 筆`);
 
-  // ── ⑥ shadow DOM：事件跨出 shadow 邊界時 target 會被重新指向 host ────────
-  // 所以 document 上的監聽器**看不到裡面那顆按鈕**，錄到的是 host。
-  // 這不是缺陷——host 是真的存在、驗得到的元素；重播點它也會落在同一個地方。
-  // 真正要擋的是「拿 shadow 裡的元素去跟 querySelectorAll 比對」，那條在 ⑦ 驗。
-  await evaluate('window.__shadowBtn.click()');
+  // ── ⑥ shadow DOM：事件跨出邊界時 target 被重新指向 host ──────────────────
+  // document 上的監聽器**看不到裡面那顆按鈕**，只看得到 host。
+  // ⚠️ host 本身通常真的唯一命中，所以「只看 target」會把這一步標成 **ok（已驗證）**——
+  //    而 host 裡有兩顆按鈕時，重播點 host 的中心不保證落在原本那一顆。
+  //    下面 ⑧ 用真的重播證明它會點到**另一顆**。
+  await evaluate('window.__shadowBtn2.click()');
   await new Promise(r => setTimeout(r, 250));
   const shadow = steps.at(-1);
-  check('⑥ shadow 裡的點擊錄成 host（事件重新指向），而且驗得過',
-    shadow?.selector === '#host' && shadow?.selectorCheck === 'ok', JSON.stringify(shadow));
+  check('⑥ shadow 裡的點擊仍然描述 host（事件重新指向，拿不到裡面那顆）',
+    shadow?.selector === '#host', JSON.stringify(shadow));
+  check('⑥ ⚠️ 但**不能**標成已驗證——來源在 shadow 裡就標 unknown',
+    shadow?.selectorCheck === 'unknown' && shadow?.selectorCheckReason === 'shadow',
+    '標成 ok 等於把「不確定」包裝成「已驗證」，而重播點錯不會報錯');
 
   // ── ⑦ 驗證函式本身：把同一份原始碼單獨注入頁面直接叫 ────────────────────
   await evaluate(`(() => { ${nativeSelectorCheckSource()} ; window.__checkForTest = nativeSelectorCheck; })()`);
@@ -216,6 +225,26 @@ try {
   for (const sel of ['text=開始', 'label=暱稱', 'tr:has(:text-is("x"))', '.a:visible', 'div >> span']) {
     check(`⑦ 非原生 CSS 一律 unknown/unsupported：${sel}`,
       (await probe(sel, `document.getElementById('game')`)).reason === 'unsupported');
+  }
+
+  // ── ⑧ 用真的重播證明 ⑥ 為什麼不能標 ok ────────────────────────────────
+  // 錄的是「影子按鈕二」，重播只拿得到 #host。用 Playwright（重播端真正的技術）
+  // 點下去看落在誰身上——落在第一顆，就是**安靜點錯**。
+  {
+    const pwBrowser = await chromium.launch();
+    try {
+      const pwPage = await pwBrowser.newPage();
+      await pwPage.goto(`http://127.0.0.1:${sitePort}/`);
+      await pwPage.click('#host');
+      const landed = await pwPage.evaluate(() => window.__lastShadowClick);
+      check('⑧ ⚠️ 重播點 #host 落在**另一顆**按鈕上（錄的是 inner2）',
+        landed === 'inner',
+        `落在 ${JSON.stringify(landed)}——若這裡剛好等於 inner2，代表版面變了，要換 fixture 而不是放寬斷言`);
+      check('⑧ 所以那一步標 unknown 是對的，標 ok 會把安靜點錯包裝成已驗證',
+        landed !== 'inner2');
+    } finally {
+      await pwBrowser.close();
+    }
   }
 
   ws.close();

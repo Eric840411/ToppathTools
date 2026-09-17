@@ -1268,6 +1268,47 @@ try {
   const producedScript = stripSrc(backendRecorderScript());
   eq('錄製器不再產出 :nth-match', producedScript.includes(':nth-match('), false);
 
+  // ── 6.5 解析要在期限內重試（CodeX 2026-09-18 覆核指出）──────────────────
+  // ⚠️ recordedLocator() 是「當下解析一次」——命中 0 就立刻拋。
+  //    Playwright 的 .click({ timeout }) 的確會等，但那是**拿到 locator 之後**才開始等；
+  //    解析階段就拋掉的話後面那 10 秒根本走不到。H5/PC 的按鈕幾乎都是非同步渲染的，
+  //    所以接上共用解析之後，反而變成「比舊寫法更早失敗」。
+  console.log('\n── 解析重試 ──');
+  {
+    const pageLate = await ctx.newPage();
+    await pageLate.setContent('<div id="root"></div>');
+    // 800ms 後才出現的按鈕：真實情境就是這個
+    await pageLate.evaluate(() => setTimeout(() => {
+      document.getElementById('root').innerHTML = '<button id="late">晚點才出現</button>';
+    }, 800));
+
+    const waiting = createRecordedLocators(pageLate, { requireUnique: true, resolveTimeoutMs: 5000 });
+    const started = Date.now();
+    let waitedOk = false;
+    try { await waiting.recordedLocator('#late'); waitedOk = true; } catch { waitedOk = false; }
+    eq('期限內會等到非同步出現的元素', waitedOk, true);
+    eq('而且真的等了（不是一開始就在）', Date.now() - started > 300, true);
+
+    // 不給期限 = 既有呼叫端（Backend）的行為，一定要維持「立刻拋」
+    const immediate = createRecordedLocators(pageLate, { requireUnique: true });
+    await pageLate.evaluate(() => { document.getElementById('root').innerHTML = ''; });
+    let threwFast = false;
+    const t0 = Date.now();
+    try { await immediate.recordedLocator('#late'); } catch { threwFast = true; }
+    eq('沒給期限時維持原本的立刻失敗', threwFast, true);
+    eq('立刻失敗是真的立刻（沒有偷偷等）', Date.now() - t0 < 1000, true);
+
+    // ⚠️ 重試的是解析，不是唯一性的標準——等再久也不能放行命中多筆
+    await pageLate.evaluate(() => {
+      document.getElementById('root').innerHTML = '<p class="dup">A</p><p class="dup">B</p>';
+    });
+    const dup = createRecordedLocators(pageLate, { requireUnique: true, resolveTimeoutMs: 1000 });
+    let dupRejected = false;
+    try { await dup.recordedLocator('.dup'); } catch (e) { dupRejected = isAmbiguityError(e); }
+    eq('⚠️ 等待不會放寬唯一命中的要求', dupRejected, true);
+    await pageLate.close();
+  }
+
   // ── 7. 前後端措辭沒有漂掉 ─────────────────────────────────────────────────
   console.log('\n── 措辭一致 ──');
   const labelSrc = readFileSync(new URL('../../shared/uat-selector-check.ts', import.meta.url), 'utf8');
