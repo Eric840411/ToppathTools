@@ -18,8 +18,9 @@ import { readFileSync } from 'node:fs';
 import { backendRecorderScript, RECORDER_MARKER } from '../../server/uat-runner/backend-recorder.js';
 import {
   legacyTableAnchorVariant, resolveRecordedSelector, verifyRecordedSelectorLive,
-  applySelectorChecks, SELECTOR_CHECK_STATUSES,
+  applySelectorChecks, SELECTOR_CHECK_STATUSES, createRecordedLocators,
 } from '../../server/uat-runner/recorded-selector.js';
+import { runMultiTcSteps } from '../../server/uat-runner/multi-tc.js';
 
 let pass = 0;
 const fails = [];
@@ -206,6 +207,84 @@ try {
   eq('錄完後多出同錨點的列：明確拒絕（不是安靜指到別列）', dup.verdict, 'rejected');
   eq('拒絕的理由是命中多筆', dup.count > 1, true);
 
+  // ── (e) 走**產品的執行入口**確認重複列真的被擋下來 ─────────────
+  //
+  // ⚠️ 前面的 (d) 是拿命中數**測試自己判定**「rejected」，而 `resolveRecordedSelector()`
+  //    根本不負責拒絕——真正拒絕的是 `createRecordedLocators()` 的唯一性檢查。
+  //    這一條走產品的 `runMultiTcSteps()` + 產品的 `checkLocator`，斷言兩件事：
+  //    **拋出唯一性錯誤**，而且**沒有任何按鈕被按到**。（CodeX 2026-09-17）
+  console.log('\n── 走產品執行入口 ──');
+  {
+    const ctx3 = await browser.newContext();
+    await ctx3.addInitScript(backendRecorderScript());
+    const page3 = await ctx3.newPage();
+    const evts3 = [];
+    page3.on('console', m => {
+      const t = m.text();
+      if (t.startsWith(RECORDER_MARKER)) evts3.push(JSON.parse(t.slice(RECORDER_MARKER.length).trim()));
+    });
+    await page3.goto('data:text/html,' + encodeURIComponent(FIXTURE));
+    await page3.evaluate(() => window.__toppathArmRecorder?.());
+    await page3.waitForTimeout(150);
+    await page3.click('tr:nth-of-type(1) .b2');
+    await page3.waitForTimeout(150);
+    const recordedStep = { ...evts3.at(-1), tcId: 'rec-1' };
+
+    // 真的按下去會變成什麼：任何按鈕被按到就記一筆。
+    //
+    // ⚠️ 必須用 document 層的委派，不能逐顆 addEventListener——
+    //    下面用 cloneNode 造重複列，**複製出來的按鈕不會帶著監聽器**。
+    //    逐顆掛的話，退化成 .first() 按下複製列的按鈕時這條斷言看不到，
+    //    會在「防線已經拿掉」的情況下依然維持綠燈。（注入測試時拓到）
+    await page3.evaluate(() => {
+      window.__clicks = [];
+      document.addEventListener('click', e => {
+        const btn = e.target.closest?.('button');
+        if (btn) window.__clicks.push(btn.className);
+      }, true);
+    });
+    // 錄完之後又出現一列錨點文字相同的
+    await page3.evaluate(() => {
+      const tbody = document.querySelector('tbody');
+      const clone = tbody.children[0].cloneNode(true);
+      tbody.insertBefore(clone, tbody.firstChild);
+      clone.querySelectorAll('[data-toppath-rec-target]').forEach(n => n.removeAttribute('data-toppath-rec-target'));
+    });
+
+    const { recordedLocator, checkLocator } = createRecordedLocators(page3, { requireUnique: true });
+    const traces = await runMultiTcSteps([recordedStep], {
+      page: page3,
+      checkLocator,
+      async clickSelector(selector, waitMs) {
+        // 走產品的 recordedLocator；它該拋就拋，不要在測試裡接起來
+        const target = await recordedLocator(selector);
+        await target.click({ timeout: 3000 });
+        await page3.waitForTimeout(Number(waitMs) || 0);
+        return 'selector';
+      },
+    }, [{ recordId: 'rec-1', tableId: 'tbl', number: 'TC-1', text: '重複列', sub: '' }]);
+
+    const trace = traces?.traces?.[0] ?? traces?.[0] ?? null;
+    const message = JSON.stringify(trace ?? traces);
+    eq('產品入口：重複列會失敗', /定位必須唯一/.test(message), true);
+    eq('產品入口：沒有任何按鈕被按到', await page3.evaluate(() => window.__clicks), []);
+
+    // ⚠️ 這一條要說清楚：把唯一性檢查注入掉之後，「沒有按鈕被按到」**依然維持綠燈**，
+    //    因為 Playwright 自己的 strict mode 會先因為解到兩個元素而拋錯。
+    //    所以那條斷言驗的是「不管哪一層擋，總之不能點下去」，
+    //    **不能拿它當成「我的唯一性檢查有效」的證據**。真正驗到我那一層的是上面那條。
+
+    // 另一條路徑（requireUnique: false，即非 multi-TC）是明確的 .first()——
+    // strict mode 不會救它，歧義會被**安靜地取第一個**。釘住這個既有行為，
+    // 不是因為它對，是因為之後真要改的時候看得見差別在哪。
+    const loose = createRecordedLocators(page3, { requireUnique: false });
+    const first = await loose.recordedLocator(recordedStep.selector);
+    eq('非 multi-TC 路徑：歧義時取第一個、不拋錯（既有行為）', await first.count(), 1);
+    eq('而且取到的不是錄製的那一顆',
+      await first.evaluate(n => n.getAttribute('data-toppath-rec-target') ?? ''), '');
+    await ctx3.close();
+  }
+
   // ── 4. 錄製當下的驗證 ─────────────────────────────────────────────────────
   console.log('\n── 錄製當下驗證 ──');
   const good = await verifyRecordedSelectorLive(rec, step2);
@@ -237,14 +316,12 @@ try {
     // 剪掉註解再比，否則寫在註解裡的同名字也算數。
     // 行尾註解用 CR/LF 字元類別而不是 .*$，因為這份檔是 CRLF。
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
-  const bodyOf = (name) => {
-    const at = runnerSrc.indexOf(name);
-    return at < 0 ? '' : runnerSrc.slice(at, at + 1400);
-  };
-  eq('recordedLocator 呼叫共用解析', bodyOf('const recordedLocator').includes('resolveRecordedSelector'), true);
-  eq('checkLocator 呼叫共用解析', bodyOf('async checkLocator(step)').includes('resolveRecordedSelector'), true);
+  // 定位跟唯一性檢查已經抽到 recorded-selector.js，這裡釘的是「runner 真的用那一支」。
+  eq('runner 用共用的定位工廠', runnerSrc.includes('createRecordedLocators(p, {'), true);
+  // ⚠️ 「定位必須唯一」這句話只能存在於共用那一支。runner 裡又出現一份，
+  //    就代表有人把判斷再複製回去了——兩邊日後一定漂。
+  eq('runner 裡沒有自己再寫一份唯一性判斷', runnerSrc.includes('定位必須唯一'), false);
 
-  // 錄製器不得再產 :nth-match()——它是全域取第 N 個，會安靜指到別一列。
   const recorderSrc = readFileSync(new URL('../../server/uat-runner/backend-recorder.js', import.meta.url), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
   eq('錄製器不再產出 :nth-match', recorderSrc.includes(':nth-match('), false);

@@ -159,6 +159,72 @@ export async function verifyRecordedSelectorLive(page, step) {
  * 不放這裡——這一支要原封不動送到 agent，不能 import TS。
  * 兩邊有沒漂掉由 scripts/ui-checks/recorded-selector.mjs 驗。
  */
+/**
+ * 建立執行端的兩支定位函式。**runner 與測試 import 同一支**，不要各寫一份。
+ *
+ * ⚠️ 這支會被抽出來，是因為測試原本是**自己判定「這種情況應該被拒絕」**：
+ *    它只拿到命中數就自己說「rejected」，而 `resolveRecordedSelector()` 根本不負責拒絕。
+ *    真正拒絕的是這裡的唯一性檢查，所以測試必須走這一支才算驗到。（CodeX 2026-09-17）
+ *
+ * ⚠️ `requireUnique` 為 false 時，recordedLocator 會退到 `.first()`——
+ *    那條路徑上的歧義是**安靜取第一個**，不是大聲失敗。這是既有行為，
+ *    重錄腳本（multi-TC）走的是 requireUnique 那條，不受影響。
+ *
+ * @param page      Playwright page
+ * @param requireUnique  true 時命中數不是 1 就拋「定位必須唯一」
+ * @param preview   選用：給 bounds 回一張預覽圖（純診斷用，不影響判定）
+ */
+export function createRecordedLocators(page, { requireUnique = false, preview = null } = {}) {
+  const isPlain = (selector) => !selector.startsWith('text=') && !selector.startsWith('label=');
+  const exactOf = (selector) =>
+    selector.startsWith('text=') ? page.getByText(selector.slice(5), { exact: true })
+      : selector.startsWith('label=') ? page.getByLabel(selector.slice(6), { exact: true }) : null;
+
+  const recordedLocator = async (selector) => {
+    const exact = exactOf(selector);
+    // 舊格式相容跟 checkLocator 走同一支解析；只修一邊等於沒修。
+    const resolved = exact ? null : await resolveRecordedSelector(page, selector);
+    const effective = resolved ? resolved.selector : selector;
+    if (requireUnique) {
+      const target = exact || page.locator(effective);
+      const count = await target.count();
+      if (count !== 1) throw new Error(`定位必須唯一：${selector}（命中 ${count} 個）`);
+      return target;
+    }
+    if (!exact) return page.locator(effective).first();
+    const count = await exact.count();
+    for (let i = 0; i < count; i++) {
+      const candidate = exact.nth(i);
+      if (await candidate.isVisible().catch(() => false)) return candidate;
+    }
+    // 舊腳本可能依賴模糊 selector；完全沒有 exact 時才回退。
+    return count ? exact.first() : page.locator(selector).first();
+  };
+
+  const checkLocator = async (step) => {
+    if (!step.selector) return;
+    const resolved = isPlain(step.selector) ? await resolveRecordedSelector(page, step.selector) : null;
+    const effective = resolved ? resolved.selector : step.selector;
+    const target = exactOf(step.selector) || page.locator(effective);
+    const count = await target.count();
+    const info = { count, visible: false, bounds: null };
+    if (resolved?.repaired) { info.original = resolved.original; info.effective = effective; }
+    if (count !== 1) {
+      const error = new Error(`定位必須唯一：${step.selector}（命中 ${count} 個）`);
+      error.locator = info;
+      throw error;
+    }
+    info.visible = await target.isVisible();
+    info.bounds = await target.boundingBox();
+    if (preview && info.bounds) {
+      try { info.preview = await preview(info.bounds); } catch { /* diagnostics must not alter execution */ }
+    }
+    return info;
+  };
+
+  return { recordedLocator, checkLocator };
+}
+
 export const SELECTOR_CHECK_STATUSES = ['ok', 'none', 'many', 'mismatch', 'invalid', 'unknown'];
 
 /**

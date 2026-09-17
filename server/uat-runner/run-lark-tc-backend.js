@@ -14,7 +14,7 @@ import { attachNetworkCapture, DEFAULT_THRESHOLDS, formatStatsLine } from './net
 import { runSteps as runBlockSteps, countBucket } from './block-engine.js';
 import { runMultiTcSteps, validateMultiTcScript, publishMultiTcResults } from './multi-tc.js';
 import { resolveVerifierParams, verifierRanAssertion } from './verifier-params.js';
-import { resolveRecordedSelector } from './recorded-selector.js';
+import { createRecordedLocators } from './recorded-selector.js';
 
 // ─── Lark 設定 ───────────────────────────────────────────────────────
 const LARK_TOKEN_URL = 'https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal';
@@ -4353,29 +4353,12 @@ const BUILTIN_VERIFIERS = {
  * 少傳這個，builtin_verifier 積木會靜默通過（見 callBuiltin 的註解）。
  */
 async function performSteps(p, steps, label, taskFull, multiBindings = null) {
-  const recordedLocator = async (selector) => {
-    let exact = null;
-    if (selector.startsWith('text=')) exact = p.getByText(selector.slice(5), { exact: true });
-    else if (selector.startsWith('label=')) exact = p.getByLabel(selector.slice(6), { exact: true });
-    // ⚠️ 舊格式相容必須跟 checkLocator 走同一支 resolveRecordedSelector。
-    //    只修這邊的話，預檢那邊仍然會先用原式擋下來，等於沒修。
-    const resolved = exact ? null : await resolveRecordedSelector(p, selector);
-    const effective = resolved ? resolved.selector : selector;
-    if (multiBindings) {
-      const target = exact || p.locator(effective);
-      const count = await target.count();
-      if (count !== 1) throw new Error(`定位必須唯一：${selector}（命中 ${count} 個）`);
-      return target;
-    }
-    if (!exact) return p.locator(effective).first();
-    const count = await exact.count();
-    for (let i = 0; i < count; i++) {
-      const candidate = exact.nth(i);
-      if (await candidate.isVisible().catch(() => false)) return candidate;
-    }
-    // 舊腳本可能依賴模糊 selector；完全沒有 exact 時才回退。
-    return count ? exact.first() : p.locator(selector).first();
-  };
+  // 定位與唯一性檢查抽到 recorded-selector.js，**測試 import 同一支**。
+  // 不抽的話測試只能拿命中數自己判「這種應該被拒絕」，那是在驗自己。
+  const { recordedLocator, checkLocator } = createRecordedLocators(p, {
+    requireUnique: !!multiBindings,
+    preview: async (bounds) => pngPreview(await p.screenshot({ timeout: 5000 }), bounds),
+  });
   const coordinateViewportOk = async (recordedViewport) => {
     if (!recordedViewport || !Number(recordedViewport.width) || !Number(recordedViewport.height)) return false;
     const current = await p.evaluate(() => ({ width: innerWidth, height: innerHeight }));
@@ -4397,23 +4380,7 @@ async function performSteps(p, steps, label, taskFull, multiBindings = null) {
       if (compared.diffPng) { shots.push(stem + '_diff.png'); fs.writeFileSync(shots[1], compared.diffPng); }
       return { ...compared, diffPng: undefined, shots };
     },
-    async checkLocator(step) {
-      if (!step.selector) return;
-      const plain = !step.selector.startsWith('text=') && !step.selector.startsWith('label=');
-      // 跟 recordedLocator 共用同一支解析，否則預檢會先用原式擋下來。
-      const resolved = plain ? await resolveRecordedSelector(p, step.selector) : null;
-      const effective = resolved ? resolved.selector : step.selector;
-      const target = step.selector.startsWith('text=') ? p.getByText(step.selector.slice(5), { exact: true })
-        : step.selector.startsWith('label=') ? p.getByLabel(step.selector.slice(6), { exact: true }) : p.locator(effective);
-      const count = await target.count();
-      const info = { count, visible: false, bounds: null };
-      if (resolved?.repaired) { info.original = resolved.original; info.effective = effective; }
-      if (count !== 1) { const error = new Error(`定位必須唯一：${step.selector}（命中 ${count} 個）`); error.locator = info; throw error; }
-      info.visible = await target.isVisible();
-      info.bounds = await target.boundingBox();
-      try { if (info.bounds) info.preview = pngPreview(await p.screenshot({ timeout: 5000 }), info.bounds); } catch { /* diagnostics must not alter execution */ }
-      return info;
-    },
+    checkLocator,
     async openPath(targetPath, waitMs) {
       await p.goto(BACKEND_URL + targetPath, { waitUntil: 'networkidle', timeout: 20000 });
       await p.waitForTimeout(waitMs);
