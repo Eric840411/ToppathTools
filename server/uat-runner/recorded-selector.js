@@ -71,10 +71,23 @@ export function legacyTableAnchorVariant(selector) {
   return out;
 }
 
-/** locator(...).count()，選擇器語法壞掉時回 -1 而不是讓整個流程炸掉 */
+/**
+ * locator(...).count()，不讓例外把整個流程炸掉。
+ *
+ * ⚠️ 不能把所有例外都當成「選擇器語法錯誤」（第一版就是這樣，CodeX 指出）。
+ *    導頁到一半、frame 被拆掉、頁面關掉都會拋，那些是「這次量不到」，
+ *    不是「這條 selector 寫錯了」——報成語法錯誤會把人導去改一條根本沒問題的選擇器。
+ *
+ * 回 `{ count, failure }`：failure 為 null（成功）、'invalid'（語法）或 'error'（其他）。
+ */
 async function safeCount(page, selector) {
-  try { return await page.locator(selector).count(); }
-  catch { return -1; }
+  try { return { count: await page.locator(selector).count(), failure: null, message: '' }; }
+  catch (e) {
+    const message = String(e?.message ?? e).split('\n')[0].slice(0, 200);
+    // Playwright 對壞掉的選擇器會明確講「while parsing css selector」或「is not a valid selector」。
+    const invalid = /while parsing css selector|is not a valid selector|Unknown engine|SyntaxError/i.test(message);
+    return { count: null, failure: invalid ? 'invalid' : 'error', message };
+  }
 }
 
 /**
@@ -89,22 +102,25 @@ async function safeCount(page, selector) {
  * 執行路徑與預檢路徑對「幾個算合法」的標準本來就不同。
  */
 export async function resolveRecordedSelector(page, selector, log = console.log) {
-  const count = await safeCount(page, selector);
-  if (count === 1) return { selector, count, original: selector, repaired: false };
+  const first = await safeCount(page, selector);
+  const count = first.count;
+  const base = { selector, count, original: selector, repaired: false, failure: first.failure, message: first.message };
+  if (count === 1) return base;
 
   // 只有「原式命中 0」才考慮相容。命中多筆是另一種問題（錨點不夠獨特），
   // 換成修正式只會把多筆變成不同的多筆，不會變正確。
-  if (count !== 0) return { selector, count, original: selector, repaired: false };
+  // 拋例外的時候也不碰：連量都量不到，沒有依據說修正式比較好。
+  if (count !== 0) return base;
 
   const variant = legacyTableAnchorVariant(selector);
-  if (!variant) return { selector, count, original: selector, repaired: false };
+  if (!variant) return base;
 
-  const variantCount = await safeCount(page, variant);
+  const second = await safeCount(page, variant);
   // 歧義不套用。修正式命中多筆時猜哪一顆都可能點錯，寧可讓原本的錯誤照常出現。
-  if (variantCount !== 1) return { selector, count, original: selector, repaired: false };
+  if (second.count !== 1) return base;
 
   log(`ℹ️ 舊錄製器的表格錨點已在執行時相容處理（腳本內容未更動）\n   原始：${selector}\n   有效：${variant}`);
-  return { selector: variant, count: 1, original: selector, repaired: true };
+  return { selector: variant, count: 1, original: selector, repaired: true, failure: null, message: '' };
 }
 
 /**
@@ -136,8 +152,11 @@ export async function verifyRecordedSelectorLive(page, step) {
     const marked = await page.locator(`[data-toppath-rec-target="${verifyId}"]`).count();
     if (marked !== 1) return { verifyId, status: 'unknown', count: null };
 
-    const count = await safeCount(page, step.selector);
-    if (count < 0) return { verifyId, status: 'invalid', count: null };
+    const probe = await safeCount(page, step.selector);
+    // 語法錯誤才叫 invalid；其他例外（導頁、frame 被拆）是「量不到」，不是選擇器的錯。
+    if (probe.failure === 'invalid') return { verifyId, status: 'invalid', count: null };
+    if (probe.failure) return { verifyId, status: 'unknown', count: null };
+    const count = probe.count;
     if (count === 0) return { verifyId, status: 'none', count: 0 };
     if (count > 1) return { verifyId, status: 'many', count };
 

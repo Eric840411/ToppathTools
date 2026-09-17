@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.156.3'
+export const APP_VERSION = '4.156.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.156.4', date: '2026-09-17', changes: ['fix(uat): safeCount 把**所有**例外都當成「選擇器語法錯誤」（CodeX review）——導頁到一半、frame 被拆掉、頁面關掉都會拋，那些是「這次量不到」不是「selector 寫錯」；報成語法錯誤會把人導去改一條根本沒問題的選擇器', 'fix(uat): 非語法例外改回 unknown（無法確認），且量不到時不套舊格式相容——連量都量不到，沒有依據說修正式比較好', 'test(uat): 48 項；注入「所有例外都算語法錯誤」會轉紅'] },
   { version: '4.156.3', date: '2026-09-17', changes: ['refactor(uat): recordedLocator 與 checkLocator 抽到 recorded-selector.js 的 createRecordedLocators()，runner 與測試 import 同一支——原本測試只拿得到命中數，「這種情況應該被拒絕」是測試自己判的，而 resolveRecordedSelector() 根本不負責拒絕（CodeX review）', 'test(uat): 補上走產品執行入口（runMultiTcSteps + 產品的 checkLocator）的重複列測試，斷言「拋出定位必須唯一」且「沒有任何按鈕被按到」', 'test(uat): 點擊監聽改用 document 層委派——逐顆 addEventListener 看不到 cloneNode 複製出來的按鈕，防線拿掉時那條斷言會維持假的綠燈', '⚠️ 記錄一個注入測試拓到的事實：把唯一性檢查拿掉之後「沒有按鈕被按到」依然綠燈，因為 Playwright 的 strict mode 會先拋錯。那條斷言驗的是「總之不能點下去」，不能當成「我的唯一性檢查有效」的證據', '⚠️ 釘住一個既有風險：非 multi-TC 路徑（requireUnique: false）用的是 .first()，strict mode 不會救它——選擇器命中多筆時會**安靜地點第一個**，而且可能不是錄製的那一顆。重錄腳本（multi-TC）不走這條，但內建／自訂 TC 會。這次不改行為，先釘住並回報'] },
   { version: '4.156.2', date: '2026-09-17', changes: ['test(uat): 固定欄副本與巢狀表格兩組改成走**實際錄製 → 完整 selector → 重播結果**；原本是手寫 selector 只數列數，根本沒經過錄製器，也沒驗重播會不會被擋下來（CodeX review）', 'fix(docs): 修正 v4.156.1 文件與回報裡的錯誤描述——我寫「固定欄與巢狀表格都是真歧義、會命中多筆被擋下」，實測是兩種**都命中原目標**；固定欄是因為錄製器「錨點只能出現一次」的規則會跳過被複製的值，巢狀是因為內外兩條路徑指到同一顆按鈕', 'test(uat): 驗收標準明確寫成「要麼命中原目標、要麼明確拒絕」，命中 1 個卻是別的元素（WRONG）一律不允許；重複列案例會把 cloneNode 複製到的錄製標記拇掉，否則那條斷言會失去鑑別力（注入 :nth-match 時會從 WRONG 退化成假的 hit）', 'test(uat): 41 項；注入舊的 :nth-match 寫法時 4 項轉紅，其中重複列那案例回報 WRONG（命中 1 個但不是錄製的那一顆）'] },
   { version: '4.156.1', date: '2026-09-17', changes: ['fix(uat): P1——v4.156.0 用的 :nth-match() 是從**整個查詢結果**取第 N 個，不是在那一格裡取第 N 個。日後多出一列錨點文字相同、而且排在前面的列時，它會指到別一列的按鈕，**而且依然只命中 1 個**——「定位必須唯一」根本擋不住，會安靜地點錯東西（CodeX review）', 'fix(uat): 改成從儲存格往下的相對結構路徑，只在那一格裡展開；列不唯一時整條選擇器會命中多筆而被擋下來——大聲失敗比安靜點錯好。格子裡只有一顆時仍用後代寫法，最耐改版', 'fix(uat): P2——舊格式辨識原本是 `includes` + `split/join`，那是子字串全域替換，**連引號裡的使用者資料（機台名稱、備註）也會被改**。改成逐字掃、只改落在引號外的結構部分，引號沒收尾的一律不採信', 'test(uat): 補上 CodeX 點名的三種情境（v4.156.0 的 29 項沒費到）：錄完後新增同錨點的列、el-table 固定欄副本、巢狀表格；現在 40 項，兩種注入分別轉紅'] },

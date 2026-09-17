@@ -299,6 +299,44 @@ try {
     (await verifyRecordedSelectorLive(rec, { ...step2, recordedUrl: 'https://somewhere-else.example/' }))?.status, 'unknown');
   eq('沒有 verifyId 就不驗', await verifyRecordedSelectorLive(rec, { selector: 'button' }), null);
 
+  // ── 4b. 語法錯誤 vs 其他例外，不能混為一談 ───────────────────
+  //
+  // ⚠️ 第一版的 safeCount 把**所有**例外都當成「選擇器語法錯誤」（CodeX 指出）。
+  //    導頁到一半、frame 被拆掉都會拋，那是「這次量不到」不是「selector 寫錯」——
+  //    報成語法錯誤會把人導去改一條根本沒問題的選擇器。
+  console.log('\n── 語法錯誤與其他例外要分開 ──');
+  {
+    // 用 stub 是因為要驗的是「例外怎麼分類」，不是 DOM 行為；
+    // 真的去製造導頁競態反而不穩定。語法錯誤那一條在上面用真的頁面驗過了。
+    const boom = (message) => ({
+      url: () => 'https://example.test/',
+      locator: (sel) => ({
+        count: async () => {
+          if (sel.startsWith('[data-toppath-rec-target=')) return 1;   // 標記還在
+          throw new Error(message);
+        },
+        evaluate: async () => { throw new Error(message); },
+      }),
+    });
+
+    const closed = await verifyRecordedSelectorLive(
+      boom('Target page, context or browser has been closed'),
+      { verifyId: 'v1', selector: '.x', recordedUrl: 'https://example.test/' });
+    eq('頁面已關閉→ unknown（不是語法錯誤）', closed?.status, 'unknown');
+
+    const syntax = await verifyRecordedSelectorLive(
+      boom('Unexpected token "" while parsing css selector "tr:has("'),
+      { verifyId: 'v1', selector: 'tr:has(', recordedUrl: 'https://example.test/' });
+    eq('真的語法錯誤→ invalid', syntax?.status, 'invalid');
+
+    // resolveRecordedSelector 碰到非語法例外時不能套相容——連量都量不到，
+    // 沒有任何依據說修正式比較好。
+    const legacyOnBrokenPage = await resolveRecordedSelector(
+      boom('Target page, context or browser has been closed'),
+      'tr:has(td:text-is("M-1")) > td:nth-of-type(2) button', () => {});
+    eq('量不到的時候不套舊格式相容', legacyOnBrokenPage.repaired, false);
+  }
+
   // ── 5. 結果掛回步驟：用 verifyId 不用位置 ─────────────────────────────────
   console.log('\n── 結果掛回步驟 ──');
   const applied = applySelectorChecks(
