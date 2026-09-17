@@ -14,7 +14,7 @@ import { attachNetworkCapture, DEFAULT_THRESHOLDS, formatStatsLine } from './net
 import { runSteps as runBlockSteps, countBucket } from './block-engine.js';
 import { runMultiTcSteps, validateMultiTcScript, publishMultiTcResults } from './multi-tc.js';
 import { resolveVerifierParams, verifierRanAssertion } from './verifier-params.js';
-import { createRecordedLocators, locateRecorded, ambiguityMessage, isAmbiguityError } from './recorded-selector.js';
+import { createRecordedLocators, locateRecorded, ambiguityMessage, isAmbiguityError, clickRecorded } from './recorded-selector.js';
 
 // ─── Lark 設定 ───────────────────────────────────────────────────────
 const LARK_TOKEN_URL = 'https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal';
@@ -4406,47 +4406,19 @@ async function performSteps(p, steps, label, taskFull, multiBindings = null) {
       // 錄製是在登入完成後才開始，因此登入時出現的站台 Warning 不會成為錄製步驟。
       // 重播前先清掉已經可見的同一種 Warning，讓錄製與執行從相同畫面狀態開始。
       await dismissWarningDialog(p, 0);
-      // Playwright 的舊式 text= 是模糊比對；例如 text=Edit 也會命中
-      // Player Credit Log（Credit 包含 edit），導致錄製腳本點到側欄後整段走錯頁。
-      // 錄製器存下的是使用者實際點到的完整可見文字，所以重播時先做 exact；
-      // 舊資料若沒有完全相同的文字，再退回原本的模糊 selector 維持相容。
       const target = await recordedLocator(selector);
-      try {
-        await target.click({ timeout: 10000 });
-      } catch (e) {
-        if (multiBindings) throw e;
-        // ⚠️ 預檢過了、點下去前 DOM 才變成多筆時，Playwright 會在這裡拋 strict mode 錯誤。
-        //    那是「當下不確定要點哪一個」，**絕對不能掉進下面的 JS 觸發或座標備援**——
-        //    座標備援會真的在那個位置按下去，等於把歧義變成一個看不見的誤點。（CodeX 指出）
-        if (isAmbiguityError(e)) throw e;
-        // 後台登入後有一個站台層級的警告彈窗（「Currently N machines are abnormal」），
-        // 它的遮罩會把底下的按鈕蓋住，Playwright 的 click 會一直等到逾時。
-        //
-        // 既有的 verifier 全部是用 page.evaluate(() => btn.click()) 繞過去的——那不是
-        // 偶然，是這個後台的常態。所以攔截時改用 JS 直接觸發下層元素，跟 AutoSpin／
-        // 機台自動化測試處理選面額遮罩的做法同一套。
-        // 直接對 Playwright 已解析到的同一個節點觸發 click。舊版會另找 button/a，
-        // selector 若解析到選單內的 span（本次 Game Setting）便會漏掉。
-        // HTMLElement.click() 仍會冒泡到 Vue 綁在父層的 handler。
-        const clicked = await target.evaluate(el => {
-          el.click();
-          return true;
-        }).catch(() => false);
-        if (!clicked) {
-          const x = Number(viewport?.x), y = Number(viewport?.y);
-          const viewportOk = await coordinateViewportOk(recordedViewport);
-          if (!viewportOk || !Number.isFinite(x) || !Number.isFinite(y)) throw e;
-          const inside = await p.evaluate(({ x, y }) => x >= 0 && y >= 0 && x < innerWidth && y < innerHeight, { x, y });
-          if (!inside) throw e;
-          await p.mouse.click(x, y);
-          await p.waitForTimeout(waitMs);
-          console.log(`  ↳ selector 找不到，viewport 相符，使用錄製座標：(${x}, ${y})`);
-          return 'coordinate';
-        }
-        console.log(`  ↳ 點擊被遮罩攔截，改用 JS 直接觸發：${selector}`);
-      }
-      await p.waitForTimeout(waitMs);
-      return 'selector';
+      // 點擊流程（含兩層備援、以及「歧義不得進備援」）在 recorded-selector.js，
+      // 測試跑的是同一支——不抽出來的話測試只能自己設旗標，證明不了 runner 沒呼叫備援。
+      return clickRecorded({
+        page: p,
+        locator: target,
+        selector,
+        waitMs,
+        viewport,
+        allowFallback: !multiBindings,
+        viewportOk: () => coordinateViewportOk(recordedViewport),
+        log: console.log,
+      });
     },
     async typeInto(selector, value) {
       await (await recordedLocator(selector)).fill(value, { timeout: 10000 });

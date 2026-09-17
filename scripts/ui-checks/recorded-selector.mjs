@@ -18,7 +18,8 @@ import { readFileSync } from 'node:fs';
 import { backendRecorderScript, RECORDER_MARKER } from '../../server/uat-runner/backend-recorder.js';
 import {
   legacyTableAnchorVariant, resolveRecordedSelector, verifyRecordedSelectorLive,
-  applySelectorChecks, SELECTOR_CHECK_STATUSES, createRecordedLocators, isAmbiguityError,
+  applySelectorChecks, SELECTOR_CHECK_STATUSES, createRecordedLocators, isAmbiguityError, clickRecorded,
+  locateRecorded,
 } from '../../server/uat-runner/recorded-selector.js';
 import { runMultiTcSteps } from '../../server/uat-runner/multi-tc.js';
 import { runSteps } from '../../server/uat-runner/block-engine.js';
@@ -300,54 +301,126 @@ try {
     (await verifyRecordedSelectorLive(rec, { ...step2, recordedUrl: 'https://somewhere-else.example/' }))?.status, 'unknown');
   eq('沒有 verifyId 就不驗', await verifyRecordedSelectorLive(rec, { selector: 'button' }), null);
 
-  // ── (e2) 時序：預檢時只有一筆 → 插入重複 → 才執行 ──────────────
+  // ── (e2) 走**產品的點擊流程**，驗歧義不會掉進任何備援 ──────────
   //
-  // CodeX 點名的情境：預檢過了、點下去前 DOM 才變成多筆。
-  // 這時 Playwright 會在 click 拋 strict mode 錯誤，**絕對不能掉進 JS 觸發或座標備援**——
-  // 座標備援會真的在那個位置按下去，等於把歧義變成一個看不見的誤點。
-  //
-  // 斷言三件：明確失敗、零 click、JS 與座標備援都沒被呼叫。
-  console.log('\n── 預檢後 DOM 才變多筆 ──');
+  // ⚠️ 第一版這段是測試自己設「有沒掉進備援」的旗標，而且在重新定位時就被擋下來、
+  //    根本沒走到 click——證明不了 runner 沒呼叫備援。（CodeX 指出）
+  //    現在走產品的 clickRecorded()，並且**監聽 page.mouse.click**——座標備援真的按下去
+  //    就一定會經過它，這才是「沒有掉進座標備援」的客觀證據。
+  console.log('\n── 產品點擊流程：歧義不得進備援 ──');
   {
-    const page4 = await browser.newPage();
-    await page4.setContent(FIXTURE);
-    await page4.evaluate(() => {
+    const mkPage = async (html) => {
+      const pg = await browser.newPage();
+      await pg.setContent(html);
+      await pg.evaluate(() => {
+        window.__clicks = [];
+        document.addEventListener('click', e => {
+          const b = e.target.closest?.('button');
+          if (b) window.__clicks.push(b.className);
+        }, true);
+      });
+      // 監聽座標點擊（座標備援唯一的出口）
+      const mouseHits = [];
+      const realMouseClick = pg.mouse.click.bind(pg.mouse);
+      pg.mouse.click = async (...args) => { mouseHits.push(args); return realMouseClick(...args); };
+      return { pg, mouseHits };
+    };
+    const dup = () => {
+      const tbody = document.querySelector('tbody');
+      tbody.insertBefore(tbody.children[0].cloneNode(true), tbody.firstChild);
+    };
+    const selector = 'tr:has(:text-is("4186-DFDC-9999")) > td:nth-of-type(3) button.b2';
+
+    // ① 拿到 locator 之後才變多筆
+    {
+      const { pg, mouseHits } = await mkPage(FIXTURE);
+      const { recordedLocator } = createRecordedLocators(pg, { requireUnique: true });
+      const target = await recordedLocator(selector);   // 此刻唯一
+      await pg.evaluate(dup);                            // 之後才重複
+      let err = '';
+      try {
+        await clickRecorded({ page: pg, locator: target, selector, waitMs: 0,
+          viewport: { x: 10, y: 10 }, allowFallback: true, viewportOk: async () => true, timeout: 800 });
+      } catch (e) { err = String(e.message) }
+      eq('① 拿到 locator 後變多筆：拋歧義錯誤', isAmbiguityError(err), true);
+      eq('① 沒有任何按鈕被按到', await pg.evaluate(() => window.__clicks), []);
+      eq('① 沒有呼叫座標點擊', mouseHits.length, 0);
+      await pg.close();
+    }
+
+    // ② click 逾時之後、JS 備援之前才變多筆
+    //    用遮罩讓 click 逾時，並在頁面裡排一個定時器於逾時期間插入重複列。
+    {
+      const OVERLAY = FIXTURE + '<div id="mask" style="position:fixed;inset:0;z-index:9999"></div>';
+      const { pg, mouseHits } = await mkPage(OVERLAY);
+      const { recordedLocator } = createRecordedLocators(pg, { requireUnique: true });
+      const target = await recordedLocator(selector);
+      await pg.evaluate(() => { setTimeout(() => {
+        const tbody = document.querySelector('tbody');
+        tbody.insertBefore(tbody.children[0].cloneNode(true), tbody.firstChild);
+      }, 300) });
+      let err = '';
+      try {
+        await clickRecorded({ page: pg, locator: target, selector, waitMs: 0,
+          viewport: { x: 10, y: 10 }, allowFallback: true, viewportOk: async () => true, timeout: 900 });
+      } catch (e) { err = String(e.message) }
+      eq('② 逾時後變多筆：JS 備援不得吞歧義', isAmbiguityError(err), true);
+      eq('② 沒有任何按鈕被按到', await pg.evaluate(() => window.__clicks), []);
+      eq('② 沒有掉進座標備援', mouseHits.length, 0);
+      await pg.close();
+    }
+
+    // ③ 沒有歧義時，備援要照常可用——不能因為改嚴了就把正常備援也堵死
+    {
+      const OVERLAY = '<button class="only">go</button><div id="mask" style="position:fixed;inset:0;z-index:9999"></div>';
+      const { pg, mouseHits } = await mkPage(OVERLAY);
+      const { recordedLocator } = createRecordedLocators(pg, { requireUnique: true });
+      const target = await recordedLocator('button.only');
+      const mode = await clickRecorded({ page: pg, locator: target, selector: 'button.only', waitMs: 0,
+        viewport: { x: 10, y: 10 }, allowFallback: true, viewportOk: async () => true, timeout: 700 });
+      eq('③ 被遮罩擋住但不歧義：JS 備援成功', mode, 'selector');
+      eq('③ 而且按鈕真的被按到', await pg.evaluate(() => window.__clicks), ['only']);
+      eq('③ 沒有用到座標', mouseHits.length, 0);
+      await pg.close();
+    }
+  }
+
+  // ── (e3) 唯一模式必須回完整 locator，不能回 .first() ─────────────
+  //
+  // ⚠️ `.first()` 是「明言只要第一個」，Playwright 就不會在動作當下再做 strict 檢查。
+  //    於是「檢查完之後才新增的重複元素」永遠檢查不到，會安靜地動第一個。
+  //    這條路徑是 `locateRecorded()`（積木的單一目標、runner 的 pressKey 都走它）——
+  //    跟上面 ① 走的 `createRecordedLocators()` 是兩支，要分開驗。（CodeX 2026-09-17 P1）
+  console.log('\n── 唯一模式回完整 locator ──');
+  {
+    const pg = await browser.newPage();
+    await pg.setContent(FIXTURE);
+    await pg.evaluate(() => {
       window.__clicks = [];
       document.addEventListener('click', e => {
         const b = e.target.closest?.('button');
         if (b) window.__clicks.push(b.className);
       }, true);
     });
-
     const selector = 'tr:has(:text-is("4186-DFDC-9999")) > td:nth-of-type(3) button.b2';
-    const { recordedLocator, checkLocator } = createRecordedLocators(page4, { requireUnique: true });
 
-    // 1) 預檢：此刻只有一筆
-    const pre = await checkLocator({ selector });
-    eq('預檢當下是唯一的', pre.count, 1);
+    const found = await locateRecorded(pg, selector, { requireUnique: true });
+    eq('檢查當下是唯一的', found.count, 1);
 
-    // 2) 預檢之後才插入重複的列
-    await page4.evaluate(() => {
+    // 檢查完之後才出現重複
+    await pg.evaluate(() => {
       const tbody = document.querySelector('tbody');
       tbody.insertBefore(tbody.children[0].cloneNode(true), tbody.firstChild);
     });
 
-    // 3) 才執行——走產品的 recordedLocator
-    let jsFallback = false, coordFallback = false, failure = '';
-    try {
-      const target = await recordedLocator(selector);
-      await target.click({ timeout: 2000 });
-    } catch (e) {
-      failure = String(e.message);
-      // ⚠️ 走**產品的**判定，不要在測試裡再寫一遍那個正則——
-      //    第一版就是自己寫，結果把 runner 的防護拿掉也不會紅。
-      if (!isAmbiguityError(e)) { jsFallback = true; coordFallback = true; }
-    }
-    eq('明確失敗', isAmbiguityError(failure) || isAmbiguityError({ message: failure }), true);
-    eq('沒有任何按鈕被按到', await page4.evaluate(() => window.__clicks), []);
-    eq('沒有掉進 JS 觸發備援', jsFallback, false);
-    eq('沒有掉進座標備援', coordFallback, false);
-    await page4.close();
+    // 回的若是 `.first()`，這裡會回 1（看不見新增的那一個）
+    eq('唯一模式回的是完整 locator（重複出現後看得到 2）', await found.locator.count(), 2);
+
+    let err = '';
+    try { await found.locator.click({ timeout: 800 }) } catch (e) { err = String(e.message) }
+    eq('所以動作當下會被 strict 檢查擋下來', isAmbiguityError(err), true);
+    eq('沒有任何按鈕被按到', await pg.evaluate(() => window.__clicks), []);
+    await pg.close();
   }
 
   // ── (f) 真瀏覽器跑積木：錄製格式的選擇器在 read_block 上不再 SyntaxError ──
@@ -465,8 +538,10 @@ try {
 
   const recorderSrc = readFileSync(new URL('../../server/uat-runner/backend-recorder.js', import.meta.url), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
-  eq('runner 的點擊備援用共用的歧義判定', runnerSrc.includes('isAmbiguityError(e)'), true);
+  eq('runner 的點擊走共用流程', runnerSrc.includes('clickRecorded({'), true);
   eq('runner 沒有自己再寫一份 strict mode 正則', runnerSrc.includes('strict mode violation'), false);
+  // 座標備援只能存在於共用那一支；runner 裡又出現就是有人複製回去了
+  eq('runner 裡沒有自己的座標備援實作', /mouse\.click\(/.test(runnerSrc), false);
   eq('錄製器不再產出 :nth-match', recorderSrc.includes(':nth-match('), false);
 
   // ── 7. 前後端措辭沒有漂掉 ─────────────────────────────────────────────────

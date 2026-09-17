@@ -223,8 +223,12 @@ export async function locateRecorded(page, selector, { requireUnique = false } =
   if (exact) {
     try {
       const count = await exact.count();
+      // ⚠️ 唯一模式回**完整 locator**，不能回 `.first()`。
+      //    `.first()` 是「明言只要第一個」，Playwright 就不會再做 strict 檢查——
+      //    檢查完之後才新增的重複元素永遠檢查不到，會安靜地動第一個。
+      //    回完整 locator，動作當下 Playwright 會再驗一次。（CodeX 2026-09-17 P1）
+      if (requireUnique) return { locator: count === 1 ? exact : null, count, failure: null, message: '', selector };
       if (count <= 1) return { locator: exact.first(), count, failure: null, message: '', selector };
-      if (requireUnique) return { locator: null, count, failure: null, message: '', selector };
       for (let i = 0; i < count; i++) {
         const candidate = exact.nth(i);
         if (await candidate.isVisible().catch(() => false)) return { locator: candidate, count, failure: null, message: '', selector };
@@ -238,8 +242,10 @@ export async function locateRecorded(page, selector, { requireUnique = false } =
 
   const resolved = await resolveRecordedSelector(page, selector);
   if (resolved.failure) return fail(resolved.failure, resolved.message);
+  const full = page.locator(resolved.selector);
   return {
-    locator: page.locator(resolved.selector).first(),
+    // 同上：唯一模式不能 `.first()`，否則檢查後才出現的重複永遠擋不到。
+    locator: requireUnique ? (resolved.count === 1 ? full : null) : full.first(),
     count: resolved.count,
     failure: null,
     message: '',
@@ -276,6 +282,53 @@ export function describeLocateFailure(result, what) {
   if (result.failure === 'invalid') return `選擇器語法錯誤：${what}（${result.message}）`;
   if (result.failure === 'error') return `選擇器量不到（頁面可能正在導頁或已關閉）：${what}（${result.message}）`;
   return '';
+}
+
+/**
+ * 錄製步驟的點擊流程（含兩層備援）。**runner 與測試跑同一支**。
+ *
+ * 後台登入後有一個站台層級的警告彈窗，遮罩會把底下的按鈕蓋住，
+ * 所以 click 被擋時改用 JS 直接觸發；都不行才用錄製座標。
+ *
+ * ⚠️ **歧義錯誤在每一層都要直接拋出去，不得進入任何備援。**
+ *    座標備援會真的在那個位置按下去——把「不知道該點哪個」變成一個看不見的誤點。
+ *    JS 那一層的 `.catch(() => false)` 特別容易把它吞掉。（CodeX 2026-09-17 P1）
+ *
+ * 回 'selector'（正常或 JS 觸發）或 'coordinate'（用了錄製座標）。
+ */
+export async function clickRecorded({ page, locator, selector, waitMs = 0, viewport,
+  allowFallback = false, viewportOk = async () => false, log = () => {}, timeout = 10000 }) {
+  try {
+    await locator.click({ timeout });
+  } catch (e) {
+    if (isAmbiguityError(e)) throw e;
+    if (!allowFallback) throw e;
+    let clicked = false;
+    try {
+      // 直接對 Playwright 已解析到的同一個節點觸發 click；
+      // HTMLElement.click() 仍會冒泡到 Vue 綁在父層的 handler。
+      await locator.evaluate(el => { el.click(); });
+      clicked = true;
+    } catch (inner) {
+      // 這裡原本是 `.catch(() => false)`——會把 strict mode 錯誤吞成「點不到」，
+      // 然後掉進座標點擊。歧義必須在這一層也拋出去。
+      if (isAmbiguityError(inner)) throw inner;
+      clicked = false;
+    }
+    if (!clicked) {
+      const x = Number(viewport?.x), y = Number(viewport?.y);
+      if (!await viewportOk() || !Number.isFinite(x) || !Number.isFinite(y)) throw e;
+      const inside = await page.evaluate(({ x, y }) => x >= 0 && y >= 0 && x < innerWidth && y < innerHeight, { x, y });
+      if (!inside) throw e;
+      await page.mouse.click(x, y);
+      await page.waitForTimeout(waitMs);
+      log(`  ↳ selector 找不到，viewport 相符，使用錄製座標：(${x}, ${y})`);
+      return 'coordinate';
+    }
+    log(`  ↳ 點擊被遮罩攜截，改用 JS 直接觸發：${selector}`);
+  }
+  await page.waitForTimeout(waitMs);
+  return 'selector';
 }
 
 /**
