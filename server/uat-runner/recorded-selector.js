@@ -33,16 +33,42 @@
 
 /** 舊錄製器（v4.155.x 以前）產出的表格列錨點。只認這個固定形狀，不做泛用替換。 */
 const LEGACY_ROW_ANCHOR = 'tr:has(td:text-is(';
-const FIXED_ROW_ANCHOR = 'tr:has(:text-is(';
 
 /**
  * 舊錄製器的表格錨點 → 修正式。不是那個形狀就回 null（呼叫端據此判斷「不認得，不處理」）。
+ *
+ * ⚠️ 不能用 `includes` + `split/join`——那是子字串全域替換，**連引號裡的文字也會被改**。
+ *    機台名稱、備註那些值是使用者資料，裡面出現什麼都不意外。（CodeX 2026-09-17 指出）
+ *    所以這裡逐字掃，**只改落在引號外的結構部分**，引號內的內容原封不動。
+ *
  * 純字串函式，沒有 Playwright 依賴，所以測試可以直接驗它而不用開瀏覽器。
  */
 export function legacyTableAnchorVariant(selector) {
   if (typeof selector !== 'string' || !selector.includes(LEGACY_ROW_ANCHOR)) return null;
-  const fixed = selector.split(LEGACY_ROW_ANCHOR).join(FIXED_ROW_ANCHOR);
-  return fixed === selector ? null : fixed;
+  let out = '';
+  let quote = '';          // 目前在哪種引號裡（'' 代表不在引號裡）
+  let changed = false;
+  for (let i = 0; i < selector.length; i++) {
+    const ch = selector[i];
+    if (quote) {
+      // 引號內：一律原封不動，只跟著轉義與結束引號走
+      out += ch;
+      if (ch === '\\' && i + 1 < selector.length) { out += selector[++i]; continue; }
+      if (ch === quote) quote = '';
+      continue;
+    }
+    if (ch === '"' || ch === "'") { quote = ch; out += ch; continue; }
+    if (selector.startsWith(LEGACY_ROW_ANCHOR, i)) {
+      out += 'tr:has(:text-is(';
+      i += LEGACY_ROW_ANCHOR.length - 1;
+      changed = true;
+      continue;
+    }
+    out += ch;
+  }
+  // 引號沒收尾代表這條 selector 本身就不完整，不採信它、也不改它
+  if (quote || !changed) return null;
+  return out;
 }
 
 /** locator(...).count()，選擇器語法壞掉時回 -1 而不是讓整個流程炸掉 */

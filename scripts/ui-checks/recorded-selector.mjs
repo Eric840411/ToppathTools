@@ -60,6 +60,11 @@ try {
   eq('不是那個形狀就不碰', legacyTableAnchorVariant('button.save'), null);
   // ⚠️ 不做全域替換：使用者自己寫的 td:text-is 不在 tr:has 裡的，不能被動到
   eq('沒包在 tr:has 裡的 td:text-is 不動它', legacyTableAnchorVariant('td:text-is("X") button'), null);
+  // ⚠️ 引號內是使用者資料（機台名稱、備註…），子字串全域替換會連它一起改掉。
+  eq('引號內的同名字串不被動到',
+    legacyTableAnchorVariant('tr:has(td:text-is("tr:has(td:text-is(\\"x\\")")) > td:nth-of-type(2) button'),
+    'tr:has(:text-is("tr:has(td:text-is(\\"x\\")")) > td:nth-of-type(2) button');
+  eq('引號沒收尾就不採信', legacyTableAnchorVariant('tr:has(td:text-is("abc'), null);
 
   // 這一條的 tail 是舊的 nth-of-type：修好錨點後會命中 2 顆（兩顆按鈕各自在自己的 span 裡
   // 都是 first-of-type），所以**必須不套用**，讓原本的錯誤照常出現。
@@ -108,6 +113,53 @@ try {
   const row2 = await rec.locator(step2.selector).evaluate(n => n.closest('tr').textContent).catch(() => '(找不到元素)');
   eq('第二列的步驟指到第二列', row2.includes('4186-DFDC-1111'), true);
 
+  // ── 3b. CodeX 點名的三種情境 ──────────────────────────────
+  console.log('\n── 重複錨點／固定欄副本／巢狀表格 ──');
+
+  // (a) 錄完之後又多了一列錨點文字相同的，而且排在前面。
+  //     ⚠️ 舊的 :nth-match() 寫法在這裡會**命中 1 個、卻是別一列的按鈕**，
+  //     唯一性檢查根本擋不住。正確行為是命中多筆、大聲失敗。
+  await rec.evaluate(() => {
+    const tbody = document.querySelector('tbody');
+    const clone = tbody.children[0].cloneNode(true);
+    tbody.insertBefore(clone, tbody.firstChild);
+    // 先複製再標，標記才不會跟著被複製過去。
+    // 用身分比對而不是 rowIndex：fixture 有 thead，寫死的序號會驗到錯的東西。
+    tbody.children[1].setAttribute('data-recorded-row', '1');
+  });
+  eq('同錨點的列多一列時會命中多筆（而不是安靜指到別列）', await rec.locator(step.selector).count() > 1, true);
+  eq('舊的 :nth-match 寫法仍然只命中 1 個（唯一性檢查擋不住）',
+    await rec.locator(':nth-match(tr:has(:text-is("4186-DFDC-9999")) > td:nth-of-type(3) button, 2)').count(), 1);
+  eq('而且它指的不是錄製當下那一列（所以不能用）',
+    await rec.locator(':nth-match(tr:has(:text-is("4186-DFDC-9999")) > td:nth-of-type(3) button, 2)')
+      .evaluate(n => n.closest('tr').hasAttribute('data-recorded-row')).catch(() => null), false);
+  await rec.evaluate(() => {
+    document.querySelector('tbody').firstChild.remove();
+    document.querySelector('[data-recorded-row]')?.removeAttribute('data-recorded-row');
+  });
+  eq('重複列拿掉後恢復唯一', await rec.locator(step.selector).count(), 1);
+
+  // (b) el-table 的固定欄會把整列再複製一份到 .el-table__fixed 裡。
+  //     錨點文字在固定欄裡時，只看 tr 會命中兩列；帶上目標格子之後才收斂成一個。
+  const fixedPage = await browser.newPage();
+  await fixedPage.setContent(`<div class="el-table">
+    <div class="el-table__body-wrapper"><table><tbody><tr>${CELL('M-2')}${CELL('A')}<td><div class="cell"><button class="go">E</button></div></td></tr></tbody></table></div>
+    <div class="el-table__fixed"><table><tbody><tr>${CELL('M-2')}</tr></tbody></table></div>
+  </div>`);
+  eq('固定欄副本：只看列會命中兩列', await fixedPage.locator('tr:has(:text-is("M-2"))').count(), 2);
+  eq('固定欄副本：帶上目標格子後唯一',
+    await fixedPage.locator('tr:has(:text-is("M-2")) > td:nth-of-type(3) button').count(), 1);
+  await fixedPage.close();
+
+  // (c) 巢狀表格：內層表格的列也是 tr，錨點文字落在內層時外層也含它。
+  const nestedPage = await browser.newPage();
+  await nestedPage.setContent(`<table><tbody><tr>${CELL('M-3')}<td><table><tbody><tr>${CELL('inner')}<td><div class="cell"><button class="go">E</button></div></td></tr></tbody></table></td></tr></tbody></table>`);
+  eq('巢狀：外層錨點唯一', await nestedPage.locator('tr:has(:text-is("M-3")) > td:nth-of-type(2)').count(), 1);
+  // 內層的錨點文字會被外層 tr 一起命中——這是真的歧義，有命中多筆才是對的
+  eq('巢狀：內層錨點會命中內外兩層（歧義要看得見）',
+    await nestedPage.locator('tr:has(:text-is("inner"))').count(), 2);
+  await nestedPage.close();
+
   // ── 4. 錄製當下的驗證 ─────────────────────────────────────────────────────
   console.log('\n── 錄製當下驗證 ──');
   const good = await verifyRecordedSelectorLive(rec, step2);
@@ -145,6 +197,11 @@ try {
   };
   eq('recordedLocator 呼叫共用解析', bodyOf('const recordedLocator').includes('resolveRecordedSelector'), true);
   eq('checkLocator 呼叫共用解析', bodyOf('async checkLocator(step)').includes('resolveRecordedSelector'), true);
+
+  // 錄製器不得再產 :nth-match()——它是全域取第 N 個，會安靜指到別一列。
+  const recorderSrc = readFileSync(new URL('../../server/uat-runner/backend-recorder.js', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
+  eq('錄製器不再產出 :nth-match', recorderSrc.includes(':nth-match('), false);
 
   // ── 7. 前後端措辭沒有漂掉 ─────────────────────────────────────────────────
   console.log('\n── 措辭一致 ──');

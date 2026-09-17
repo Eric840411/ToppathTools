@@ -173,13 +173,31 @@ export function backendRecorderScript(options = {}) {
     if (target && target !== td) {
       const tag = target.tagName.toLowerCase();
       const same = Array.from(td.querySelectorAll(tag));
-      const targetIdx = same.indexOf(target);
-      // ⚠️ 這裡也不能用 nth-of-type：querySelectorAll 給的是「這格裡第幾個後代」，
-      //    nth-of-type 算的卻是「在自己父層裡同 tag 第幾個」。按鈕各自包在不同 wrapper
-      //    （el-table 很常見）時兩者不一致，會定位到別顆按鈕、或一次命中多顆。
-      //    要按後代順序取第 N 個就得用 Playwright 的 :nth-match()。（CodeX 2026-09-17 指出）
+      // 格子裡只有一顆就用後代寫法，最耐改版；有好幾顆才需要區分。
       selector = cellSelector + ' ' + tag;
-      if (same.length > 1 && targetIdx >= 0) selector = ':nth-match(' + selector + ', ' + (targetIdx + 1) + ')';
+      if (same.length > 1) {
+        // ⚠️ 不能用 nth-of-type（querySelectorAll 數的是「這格裡第幾個後代」，
+        //    nth-of-type 數的却是「在自己父層裡同 tag 第幾個」），
+        //    也不能用 :nth-match()。
+        //
+        //    :nth-match(sel, N) 是從**整個查詢結果**取第 N 個，不是在格子裡取第 N 個。
+        //    日後多出一列錨點文字相同、而且排在前面的列時，它會指到**別一列的
+        //    按鈕**，而且依然只命中 1 個——「定位必須唯一」根本擋不住，會安靜地點錯東西。
+        //    實測：錄製時 r1/b2，前面插一列 r0 之後變成 r0/b2，命中數還是 1。
+        //    （CodeX 2026-09-17 指出）
+        //
+        //    改成從 td 往下的**相對結構路徑**：它只在這一格裡展開，列不唯一時整條
+        //    選擇器會命中多筆而被擋下來——**大聲失敗比安靜點錯好**。
+        const parts = [];
+        let node = target;
+        while (node && node !== td && node.parentElement) {
+          const parent = node.parentElement;
+          const peers = Array.from(parent.children).filter(c => c.tagName === node.tagName);
+          parts.unshift(node.tagName.toLowerCase() + (peers.length > 1 ? ':nth-of-type(' + (peers.indexOf(node) + 1) + ')' : ''));
+          node = parent;
+        }
+        if (node === td && parts.length) selector = cellSelector + ' > ' + parts.join(' > ');
+      }
     }
     return { selector, strategy: 'tableCell', column: col, rowIndex: rowIdx, rowText };
   }
