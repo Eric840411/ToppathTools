@@ -281,6 +281,7 @@ export async function locateRecorded(page, selector, { requireUnique = false } =
   if (exact) {
     try {
       let count = await exact.count();
+      let hint = '';
       if (count !== 1) {
         // 舊腳本相容：下拉選項的 text= 常跟表格欄位撞名，收斂到打開著的面板裡。
         for (const variant of dropdownOptionVariants(selector)) {
@@ -288,6 +289,12 @@ export async function locateRecorded(page, selector, { requireUnique = false } =
           if (alt.count === 1) {
             const full = page.locator(variant);
             return { locator: requireUnique ? full : full.first(), count: 1, failure: null, message: '', selector: variant };
+          }
+          // ⚠️ 面板裡就有好幾個同名選項——這是資料本身的歧義，我們猜不出來。
+          //    但不能只丟一句「命中 11 個」讓人自己想，要把真正的原因跟出路講出來。
+          if (alt.count > 1 && !hint) {
+            hint = `打開著的下拉面板裡有 ${alt.count} 個同名選項，分不出要選哪一個。`
+              + `要指定的話，把這一步的選擇器改成：${variant} >> nth=0（第一個）或 >> nth=1（第二個）`;
           }
         }
       }
@@ -308,10 +315,10 @@ export async function locateRecorded(page, selector, { requireUnique = false } =
       //    檢查完之後才新增的重複元素永遠檢查不到，會安靜地動第一個。
       //    回完整 locator，動作當下 Playwright 會再驗一次。（CodeX 2026-09-17 P1）
       if (requireUnique) {
-        if (count === 1) return { locator: exact, count, failure: null, message: '', selector };
+        if (count === 1) return { locator: exact, count, failure: null, message: '', selector, hint };
         const onlyVisible = await narrowToVisible(page, exact, count);
-        if (onlyVisible) return { locator: onlyVisible, count: 1, failure: null, message: '', selector };
-        return { locator: null, count, failure: null, message: '', selector };
+        if (onlyVisible) return { locator: onlyVisible, count: 1, failure: null, message: '', selector, hint };
+        return { locator: null, count, failure: null, message: '', selector, hint };
       }
       if (count <= 1) return { locator: exact.first(), count, failure: null, message: '', selector };
       for (let i = 0; i < count; i++) {
@@ -542,7 +549,7 @@ export function createRecordedLocators(page, { requireUnique = false, preview = 
   const recordedLocator = async (selector) => {
     const found = await locateRecorded(page, selector, { requireUnique });
     if (found.failure) throw new Error(describeLocateFailure(found, selector));
-    if (!found.locator) throw new Error(ambiguityMessage(selector, found.count));
+    if (!found.locator) throw new Error(ambiguityMessage(selector, found.count) + (found.hint ? '\n   ' + found.hint : ''));
     return found.locator;
   };
 
@@ -559,7 +566,7 @@ export function createRecordedLocators(page, { requireUnique = false, preview = 
     // 相容有套用時把原文與有效的都留下來，不是靜默改掉
     if (found.selector !== step.selector) { info.original = step.selector; info.effective = found.selector; }
     if (found.count !== 1 || !found.locator) {
-      const error = new Error(ambiguityMessage(step.selector, found.count));
+      const error = new Error(ambiguityMessage(step.selector, found.count) + (found.hint ? '\n   ' + found.hint : ''));
       error.locator = info;
       throw error;
     }

@@ -888,6 +888,26 @@ try {
     eq('點到的是下拉選項，不是表格儲存格',
       picked ? (await picked.evaluate(n => n.className)).includes('el-select-dropdown__item') : false, true);
 
+    // 面板裡就有兩個同名選項（使用者實際遇到：Jackpot 清單里 4186-dfdc1 出現兩次）
+    // ——這是**資料本身的歧義**，猜哪一個都可能設錯。不猜，但要把原因跟出路講出來；
+    //    只丟一句「命中 11 個」等於讓人自己去猜。
+    {
+      const dupPage = await browser.newPage();
+      await dupPage.setContent(PAGE.replace(
+        '<li class="el-select-dropdown__item"><span>4186-dfdc2</span></li>',
+        '<li class="el-select-dropdown__item"><span>4186-dfdc2</span></li>'
+        + '<li class="el-select-dropdown__item"><span>4186-dfdc1</span></li>'));
+      const f = createRecordedLocators(dupPage, { requireUnique: true });
+      const dup = await f.checkLocator({ selector: 'text=4186-dfdc1' }).catch(e => ({ error: String(e.message) }));
+      eq('面板裡同名選項不止一個時不猜', /定位必須唯一/.test(dup?.error || ''), true);
+      eq('而且要說出是面板裡同名、並給出路',
+        /同名選項/.test(dup?.error || '') && /nth=0/.test(dup?.error || ''), true);
+      // 給的路要真的走得通
+      const nth0 = '.el-select-dropdown:visible .el-select-dropdown__item:has(:text-is("4186-dfdc1")) >> nth=0';
+      eq('給的 nth=0 真的可以用', await dupPage.locator(nth0).count(), 1);
+      await dupPage.close();
+    }
+
     // ⚠️ 面板全關著時絕對不能亂選——宁可報錯
     await pg.evaluate(() => document.querySelectorAll('.el-select-dropdown').forEach(d => { d.style.display = 'none' }));
     const closed = await checkLocator({ selector: 'text=4186-dfdc1' }).catch(e => ({ error: String(e.message) }));

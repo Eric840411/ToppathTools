@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.160.1'
+export const APP_VERSION = '4.160.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.160.2', date: '2026-09-17', changes: ['fix(uat): 下拉面板裡就有兩個同名選項時（使用者實際遇到：Jackpot 清單裡 4186-dfdc1 出現兩次），錯誤訊息只說「命中 11 個」，看不出真正的原因。現在會說明是面板內同名，並直接給可以貼的選擇器（>> nth=0 ／ nth=1）', '⚠️ 這種情況仍然**不自己猜**——兩個選項顯示名稱一樣但底層值可能不同，猜錯會設到別的 Jackpot，而且報告上看不出來', 'test(uat): 129 項；新增案例驗「不猜」與「給的那條路真的走得通」'] },
   { version: '4.160.1', date: '2026-09-17', changes: ['⚠️ fix(uat): 找不到 Sure 按鈕（使用者回報 `text=Sure` 命中 2 個）——Element UI 把**關著的彈窗留在 DOM 裡**，後台有好幾顆 Batch Set…每一顆都有自己的 Sure，所以畫面上只看得到一顆、DOM 裡卻有多顆', '⚠️ 這是我在 v4.157.0 改強制唯一時**弄壞的回歸**：舊的非唯一路徑本來就會在 text=/label= 多筆時優先取可見的那一個，我把那段一併拿掉了', 'fix(uat): 補回可見收斂，但規則收緊——**剛好一個可見才用它；可見的有兩個以上就是真歧義，照常報錯**。舊寫法是「取第一個可見的」，那又回到安靜點錯', '⚠️ 一個都不可見時**不收斂**，回原本的結果——Element UI 的勾選框本來就是隱藏的，收斂會把 v4.158.0 剛修好的勾選又弄壞', 'test(uat): 126 項；兩種注入分別轉紅。退回「取第一個可見的」時，重複列那組會看到**按鈕真的被按下去**'] },
   { version: '4.160.0', date: '2026-09-17', changes: ['fix(uat): 下拉選項的 `text=` 會跟表格欄位撞名（使用者回報第 21 步 `text=4186-dfdc1` **命中 8 個**）——選項面板是掛在 <body> 底下的獨立元素，而選項文字跟 Jackpot Model 欄一堆同名', 'fix(uat): 錄製端認得出下拉選項，改產限定在**打開著的那個面板**裡的選擇器；舊腳本的 `text=` 在執行時收斂，一樣是**唯一命中才套用**', '⚠️ 面板全關著時不收斂、照常報歧義——寧可報錯也不能亂選', '⚠️ 這一項在強制唯一（v4.157.0）之前會 `.first()` 點到**表格儲存格**——下拉完全沒選到、不報錯，最後按 Sure 送出一個空值。現在看得到紅字反而是進步', 'test(uat): 120 項；兩種注入（拿掉執行端收斂、錄製端退回 text=）分別轉紅，且斷言走產品入口'] },
   { version: '4.159.1', date: '2026-09-17', changes: ['⚠️ fix(uat): v4.159.0 的 label= 相容**根本沒生效**——我把它加進 locateRecorded()，但實際執行走的 createRecordedLocators() 里面還留著**第三份解析拷貝**（自己叫 getByLabel），預檢與點擊兩條路徑都沒走到新的相容，使用者看到的還是一模一樣的「命中 0 個」', 'fix(uat): createRecordedLocators() 改成**只轉手給 locateRecorded()**，定位只剩一條路徑；舊版本的註解寫著「只修一邊等於沒修」，而它本身就是那一邊', '⚠️ test(uat): 原本的 label 測試直接呼叫 locateRecorded()，**不是產品跑的路徑**，所以壞的時候也全綠。補上走 createRecordedLocators 預檢／點擊與 runSteps 的版本，注入回去會重現使用者那句錯誤', 'test(uat): 113 項'] },
