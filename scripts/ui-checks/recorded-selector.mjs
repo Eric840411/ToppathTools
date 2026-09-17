@@ -661,6 +661,53 @@ try {
     await play.close();
   }
 
+  // ── (i) 一次點擊不得錄成兩顆積木（v4.158.1）────────────────
+  //
+  // Element UI 的勾選框：使用者點看得見的 span，那一下會觸發藏起來那個 input 的
+  // change——於是同一個動作會被錄成 click + set_checked 兩顆。
+  //
+  // 使用者 2026-09-17 就是卡在那顆多餘的 click（舊錄製器的 span:nth-of-type(2)，命中 0），
+  // 而後面那顆 set_checked 其實就能完成工作。（CodeX 上一輪點名要查這件事）
+  //
+  // ⚠️ 只能排除「裝飾層」。label 裡的真按鈕、沒有勾選框的 label 都不能被誤殺——
+  //    所以這裡兩種正向案例跟去重案例一樣重要。
+  console.log('\n── 一次點擊只錄一顆 ──');
+  {
+    const CSS = '<style>.el-checkbox__original{opacity:0;position:absolute;width:0;height:0}'
+      + '.el-checkbox__inner{display:inline-block;width:14px;height:14px;border:1px solid #999}</style>';
+    const PAGE = CSS + '<table><tbody><tr>'
+      + '<td><div class="cell"><label class="el-checkbox"><span class="el-checkbox__input">'
+      + '<span class="el-checkbox__inner"></span><input type="checkbox" class="el-checkbox__original">'
+      + '</span></label></div></td>'
+      + '<td><div class="cell">4186-DFDC-9999</div></td></tr></tbody></table>'
+      + '<label class="el-checkbox" id="withbtn"><span class="deco"></span>'
+      + '<input type="checkbox" class="el-checkbox__original"><button id="inner-btn">按鈕</button></label>'
+      + '<label id="plainlabel"><span id="plainspan">沒有勾選框的 label</span></label>';
+
+    const recordOne = async (clickSel) => {
+      const c = await browser.newContext();
+      await c.addInitScript(backendRecorderScript());
+      const pg = await c.newPage();
+      const got = [];
+      pg.on('console', m => {
+        const t = m.text();
+        if (t.startsWith(RECORDER_MARKER)) got.push(JSON.parse(t.slice(RECORDER_MARKER.length).trim()));
+      });
+      await pg.goto('data:text/html,' + encodeURIComponent(PAGE));
+      await pg.evaluate(() => window.__toppathArmRecorder?.());
+      await pg.waitForTimeout(150);
+      await pg.click(clickSel);
+      await pg.waitForTimeout(250);
+      await c.close();
+      return got.map(e => e.action);
+    };
+
+    eq('點勾選框的可見方框 → 只有 set_checked', await recordOne('.el-checkbox__inner'), ['set_checked']);
+    // 正向案例：不能因為去重而把 label 裡的真按鈕一起吞掉
+    eq('label 裡的真按鈕 → 照常錄 click', await recordOne('#inner-btn'), ['click']);
+    eq('沒勾選框的 label → 照常錄 click', await recordOne('#plainspan'), ['click']);
+  }
+
   // ── 4b. 語法錯誤 vs 其他例外，不能混為一談 ───────────────────
   //
   // ⚠️ 第一版的 safeCount 把**所有**例外都當成「選擇器語法錯誤」（CodeX 指出）。

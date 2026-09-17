@@ -276,7 +276,20 @@ export function backendRecorderScript(options = {}) {
     if (!el || el.nodeType !== 1) return;
     flushInput(document.activeElement);
     if (/^(checkbox|radio)$/i.test(el.type || '') || /^(SELECT|OPTION)$/.test(el.tagName)) return;
-    if (el.tagName === 'LABEL' && el.querySelector('input[type="checkbox"],input[type="radio"]')) return;
+    if (el.tagName === 'LABEL' && el.querySelector('input[type=\"checkbox\"],input[type=\"radio\"]')) return;
+    // ⚠️ Element UI 的勾選框：使用者點的是看得見的 .el-checkbox__inner（一個 span），
+    //    真正的 input 藏在同一個 label 裡。那一下會觸發 input 的 change，
+    //    所以我們**已經會錄一顆 set_checked**——再錄一顆 click 就是同一件事錄兩次。
+    //
+    //    而且那顆 click 指向裝飾用的 span，重播時特別脆弱：使用者 2026-09-17 就是卡在
+    //    span:nth-of-type(2) 那一步（命中 0），而後面那顆 set_checked 其實就能完成工作。
+    //
+    //    只排除「裝飾層」：目標本身是真正的控件（button/a/input…）時不能跳過，
+    //    否則 label 裡的按鈕會被一起吞掉。（CodeX 2026-09-17 點名要查這件事）
+    if (!/^(BUTTON|A|INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) {
+      const toggleOwner = el.closest && el.closest('label, .el-checkbox, .el-radio');
+      if (toggleOwner && toggleOwner.querySelector('input[type=\"checkbox\"],input[type=\"radio\"]')) return;
+    }
     const d = describe(el);
     const verifyId = markForVerify(el);
     emit({
