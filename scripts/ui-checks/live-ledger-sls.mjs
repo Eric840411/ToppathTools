@@ -33,6 +33,8 @@ const mmlLines = [
 let s = countSignals('mml', mmlLines);
 check('MML 心跳認得出來', s.heartbeat === 1, JSON.stringify(s));
 check('MML JP 廣播認得出來', s.jpBroadcast === 2, JSON.stringify(s));
+// ⚠️ 登录完成 是判斷「該不該有廣播」的關鍵；抓不到它就只能一律放過
+check('心跳行裡的「登录完成」數字抓得出來', s.loggedIn === 12, JSON.stringify(s));
 
 const g2sLines = [
   '[State: onLine] machine 2065',
@@ -77,15 +79,36 @@ check('G2S 協議錯 → degraded', v.verdict === 'degraded', v.verdict);
 v = judge('g2s', 100, 0, { onLine: 0, offLine: 0, updateJp: 0, protocolError: 0 });
 check('G2S 有輸出但完全沒有協議訊號 → went_silent', v.verdict === 'went_silent', v.verdict);
 
-console.log('\n4) 正常情況要判 ok');
-v = judge('mml', 100, 0, { heartbeat: 3, jpBroadcast: 49 });
+/**
+ * 4) 🚨 有客戶端登入但完全沒有 JP 廣播
+ *
+ * 2026-09-17 實測真的抓到的形狀：`dfdcgrand-mml-v8` 心跳 3 筆、`登录完成:1`，
+ * JP 廣播 **0**；同一時間其他 8 台同樣「登录完成 ≥ 1」的全都是 48~50 次。
+ *
+ * ⚠️ 第一版判定是「心跳或廣播其一 > 0 就算 ok」，**這台被判成正常**——
+ *    連線層活著蓋過了「獎池根本沒下發」。機台連得上、看得到畫面，
+ *    但池值不會更新，而監控說一切正常。
+ */
+console.log('\n4) 🚨 連線正常但獎池沒下發（實測抓到的形狀）');
+v = judge('mml', 100, 0, { heartbeat: 3, jpBroadcast: 0, loggedIn: 1 });
+check('有登入、心跳正常、廣播 0 → degraded（不是 ok）', v.verdict === 'degraded', v.verdict);
+check('說明講得出是「沒有下發給機台」而不是只說「廣播 0」',
+  v.note.includes('沒有下發'), v.note.slice(0, 60));
+// ⚠️ 反面：沒有客戶端時 0 廣播是正常的，不看 loggedIn 會把所有閒置機台都報成異常
+v = judge('mml', 100, 0, { heartbeat: 3, jpBroadcast: 0, loggedIn: 0 });
+check('沒有客戶端登入時廣播 0 → ok（不可以誤報）', v.verdict === 'ok', v.verdict);
+check('ok 的說明要解釋為什麼沒廣播是正常的',
+  v.note.includes('沒有客戶端登入'), v.note.slice(0, 50));
+
+console.log('\n5) 正常情況要判 ok');
+v = judge('mml', 100, 0, { heartbeat: 3, jpBroadcast: 49, loggedIn: 1 });
 check('MML 心跳與廣播都有 → ok', v.verdict === 'ok', v.verdict);
 check('ok 也要把數字講出來（不是只說「正常」）',
   v.note.includes('3') && v.note.includes('49'), v.note);
 v = judge('g2s', 100, 0, { onLine: 9, offLine: 0, updateJp: 8, protocolError: 0 });
 check('G2S onLine + 彩金更新 → ok', v.verdict === 'ok', v.verdict);
 
-console.log('\n5) 🚨 degraded 的優先序高於「有訊號就算 ok」');
+console.log('\n6) 🚨 degraded 的優先序高於「有訊號就算 ok」');
 // 同時有正常訊號與 offLine 時，不可以因為 onLine 有值就判 ok
 v = judge('g2s', 100, 0, { onLine: 9, offLine: 1, updateJp: 8, protocolError: 0 });
 check('onLine 正常但出現 1 次 offLine → 仍判 degraded', v.verdict === 'degraded', v.verdict);

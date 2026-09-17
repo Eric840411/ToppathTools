@@ -88,9 +88,19 @@ async function sampleLines(project: string, logstore: string, fromSec: number, t
 /** 從一批日誌行數出訊號。⚠️ 純函式，測試不用連網路。 */
 export function countSignals(kind: 'mml' | 'g2s' | 'other', texts: string[]): Record<string, number> {
   if (kind === 'mml') {
+    const hb = texts.filter(t => t.includes('已连接上的客户端信息'))
+    /**
+     * 🚨 心跳行裡的 `登录完成:N` 是**判斷「該不該有 JP 廣播」的關鍵**。
+     *
+     * 沒有客戶端登入時 0 次廣播是正常的（沒有對象可以下發）；
+     * 有客戶端登入卻 0 次廣播就是異常。少了這個數字，兩種情況分不出來，
+     * 只能一律放過——而「一律放過」正是 2026-09-17 實測漏掉 `dfdcgrand-mml-v8` 的原因。
+     */
+    const loggedIn = Math.max(0, ...hb.map(t => Number((/登录完成:(\d+)/.exec(t) ?? [])[1] ?? 0)))
     return {
-      heartbeat: texts.filter(t => t.includes('已连接上的客户端信息')).length,
+      heartbeat: hb.length,
       jpBroadcast: texts.filter(t => t.includes('build cmd 4101')).length,
+      loggedIn,
     }
   }
   if (kind === 'g2s') {
@@ -159,7 +169,33 @@ export function judge(
           + '——連線層可能已經死了，程序還活著所以不會有錯誤訊息',
       }
     }
-    return { verdict: 'ok', note: `心跳 ${signals.heartbeat} · JP 廣播 ${signals.jpBroadcast}` }
+    /**
+     * 🚨 **有客戶端登入、心跳正常，但一次 JP 廣播都沒有。**
+     *
+     * 這是 2026-09-17 實測真的抓到的形狀：`dfdcgrand-mml-v8` 心跳 3 筆、
+     * `登录完成:1`，JP 廣播 **0**；而同一時間其他 8 台同樣「登录完成 ≥ 1」的
+     * logstore 全都是 **48~50** 次。
+     *
+     * ⚠️ 第一版的判定是 `heartbeat > 0 || jpBroadcast > 0` 就算 ok，
+     *    所以**這台被判成正常**——連線層活著就蓋過了「獎池根本沒下發」。
+     *    機台連得上、看得到畫面，但池值不會更新，而監控說一切正常。
+     *
+     * ⚠️ 一定要看 `登录完成`：沒有客戶端時 0 次廣播是正常的，
+     *    不看的話會把所有閒置機台都報成異常。
+     */
+    if (signals.loggedIn > 0 && signals.jpBroadcast === 0) {
+      return {
+        verdict: 'degraded',
+        note: `有 ${signals.loggedIn} 個客戶端登入完成、心跳 ${signals.heartbeat} 筆正常，`
+          + '但**一次 JP 廣播都沒有**（其他台同期間是 48~50 次）'
+          + '——連線層活著，但獎池值沒有下發給機台',
+      }
+    }
+    return {
+      verdict: 'ok',
+      note: `心跳 ${signals.heartbeat} · JP 廣播 ${signals.jpBroadcast}`
+        + (signals.loggedIn === 0 ? '（目前沒有客戶端登入，所以沒有廣播是正常的）' : ''),
+    }
   }
 
   return { verdict: 'ok', note: `${liveLines} 行` }
