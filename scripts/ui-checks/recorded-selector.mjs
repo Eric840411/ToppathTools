@@ -18,9 +18,10 @@ import { readFileSync } from 'node:fs';
 import { backendRecorderScript, RECORDER_MARKER } from '../../server/uat-runner/backend-recorder.js';
 import {
   legacyTableAnchorVariant, resolveRecordedSelector, verifyRecordedSelectorLive,
-  applySelectorChecks, SELECTOR_CHECK_STATUSES, createRecordedLocators,
+  applySelectorChecks, SELECTOR_CHECK_STATUSES, createRecordedLocators, isAmbiguityError,
 } from '../../server/uat-runner/recorded-selector.js';
 import { runMultiTcSteps } from '../../server/uat-runner/multi-tc.js';
+import { runSteps } from '../../server/uat-runner/block-engine.js';
 
 let pass = 0;
 const fails = [];
@@ -299,6 +300,108 @@ try {
     (await verifyRecordedSelectorLive(rec, { ...step2, recordedUrl: 'https://somewhere-else.example/' }))?.status, 'unknown');
   eq('沒有 verifyId 就不驗', await verifyRecordedSelectorLive(rec, { selector: 'button' }), null);
 
+  // ── (e2) 時序：預檢時只有一筆 → 插入重複 → 才執行 ──────────────
+  //
+  // CodeX 點名的情境：預檢過了、點下去前 DOM 才變成多筆。
+  // 這時 Playwright 會在 click 拋 strict mode 錯誤，**絕對不能掉進 JS 觸發或座標備援**——
+  // 座標備援會真的在那個位置按下去，等於把歧義變成一個看不見的誤點。
+  //
+  // 斷言三件：明確失敗、零 click、JS 與座標備援都沒被呼叫。
+  console.log('\n── 預檢後 DOM 才變多筆 ──');
+  {
+    const page4 = await browser.newPage();
+    await page4.setContent(FIXTURE);
+    await page4.evaluate(() => {
+      window.__clicks = [];
+      document.addEventListener('click', e => {
+        const b = e.target.closest?.('button');
+        if (b) window.__clicks.push(b.className);
+      }, true);
+    });
+
+    const selector = 'tr:has(:text-is("4186-DFDC-9999")) > td:nth-of-type(3) button.b2';
+    const { recordedLocator, checkLocator } = createRecordedLocators(page4, { requireUnique: true });
+
+    // 1) 預檢：此刻只有一筆
+    const pre = await checkLocator({ selector });
+    eq('預檢當下是唯一的', pre.count, 1);
+
+    // 2) 預檢之後才插入重複的列
+    await page4.evaluate(() => {
+      const tbody = document.querySelector('tbody');
+      tbody.insertBefore(tbody.children[0].cloneNode(true), tbody.firstChild);
+    });
+
+    // 3) 才執行——走產品的 recordedLocator
+    let jsFallback = false, coordFallback = false, failure = '';
+    try {
+      const target = await recordedLocator(selector);
+      await target.click({ timeout: 2000 });
+    } catch (e) {
+      failure = String(e.message);
+      // ⚠️ 走**產品的**判定，不要在測試裡再寫一遍那個正則——
+      //    第一版就是自己寫，結果把 runner 的防護拿掉也不會紅。
+      if (!isAmbiguityError(e)) { jsFallback = true; coordFallback = true; }
+    }
+    eq('明確失敗', isAmbiguityError(failure) || isAmbiguityError({ message: failure }), true);
+    eq('沒有任何按鈕被按到', await page4.evaluate(() => window.__clicks), []);
+    eq('沒有掉進 JS 觸發備援', jsFallback, false);
+    eq('沒有掉進座標備援', coordFallback, false);
+    await page4.close();
+  }
+
+  // ── (f) 真瀏覽器跑積木：錄製格式的選擇器在 read_block 上不再 SyntaxError ──
+  //
+  // 這一條直接重現使用者 2026-09-17 回報的那個失敗：
+  //   預檢寫「命中 1 個·可見」，執行卻 `SyntaxError: ... is not a valid selector`。
+  //
+  // ⚠️ 假的 page 驗不出這個——它不會像真瀏覽器一樣拒絕不合法的 CSS。
+  //    實測：把 read_block 注入回原生 querySelector 版本時，block-engine 的假 page
+  //    測試只有「沒回頭用 page.evaluate」那一條會紅，這一條才是真的拓到錯誤。
+  console.log('\n── 真瀏覽器跑積木 ──');
+  {
+    const realPage = await browser.newPage();
+    await realPage.setContent(FIXTURE);
+    const noop = async () => {};
+    const blockCtx = {
+      page: realPage,
+      openPath: noop,
+      resolveSubtypePath: () => null,
+      takeScreenshot: async () => null,
+      callBuiltin: async () => ({ notes: '', criticalFails: [], manual: false }),
+    };
+    // 錄製器今天產出來的形狀
+    const modern = 'tr:has(:text-is("4186-DFDC-9999")) > td:nth-of-type(2)';
+    const rModern = await runSteps([{ action: 'read_block', selector: modern, as: 'm' }], blockCtx);
+    eq('真瀏覽器：read_block 讀得到錄製格式的選擇器', rModern.pass, true);
+
+    // 舊格式（td:text-is）——靠執行時相容修正，也要讀得到
+    const legacyRead = 'tr:has(td:text-is("4186-DFDC-9999")) > td:nth-of-type(2)';
+    const rLegacy = await runSteps([{ action: 'read_block', selector: legacyRead, as: 'l' }], blockCtx);
+    eq('真瀏覽器：read_block 也讀得到舊格式（靠相容）', rLegacy.pass, true);
+
+    // 純 CSS 照常
+    const rCss = await runSteps([{ action: 'read_block', selector: 'table', as: 'c' }], blockCtx);
+    eq('真瀏覽器：純 CSS 照常可用', rCss.pass, true);
+
+    // 壞語法要講明是語法錯誤，而不是「找不到」
+    const rBad = await runSteps([{ action: 'read_block', selector: 'tr:has(', as: 'b' }], blockCtx);
+    eq('真瀏覽器：壞語法講清楚是語法錯誤',
+      rBad.pass === false && /語法錯誤/.test(rBad.criticalFails.join('')), true);
+
+    // 命中多筆要擋下來（單一目標）
+    const rMany = await runSteps([{ action: 'read_block', selector: 'button', as: 'x' }], blockCtx);
+    eq('真瀏覽器：命中多筆被擋下來',
+      rMany.pass === false && /定位必須唯一/.test(rMany.criticalFails.join('')), true);
+
+    // 零命中要跟「多筆」分開講
+    const rNone = await runSteps([{ action: 'read_block', selector: '.does-not-exist', as: 'n' }], blockCtx);
+    eq('真瀏覽器：零命中說的是「找不到」',
+      rNone.pass === false && /找不到/.test(rNone.criticalFails.join('')), true);
+
+    await realPage.close();
+  }
+
   // ── 4b. 語法錯誤 vs 其他例外，不能混為一談 ───────────────────
   //
   // ⚠️ 第一版的 safeCount 把**所有**例外都當成「選擇器語法錯誤」（CodeX 指出）。
@@ -362,6 +465,8 @@ try {
 
   const recorderSrc = readFileSync(new URL('../../server/uat-runner/backend-recorder.js', import.meta.url), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
+  eq('runner 的點擊備援用共用的歧義判定', runnerSrc.includes('isAmbiguityError(e)'), true);
+  eq('runner 沒有自己再寫一份 strict mode 正則', runnerSrc.includes('strict mode violation'), false);
   eq('錄製器不再產出 :nth-match', recorderSrc.includes(':nth-match('), false);
 
   // ── 7. 前後端措辭沒有漂掉 ─────────────────────────────────────────────────

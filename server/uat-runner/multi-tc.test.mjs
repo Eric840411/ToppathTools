@@ -8,9 +8,35 @@ let passed = 0;
 const test = async (name, fn) => { await fn(); passed++; console.log(`PASS ${name}`); };
 const eq = (tcId, left = '5', right = '5') => ({ action: 'assert_equals', tcId, left, right, tolerancePct: 0, absoluteTolerance: 0 });
 const shot = (tcId, name) => ({ action: 'screenshot', tcId, name });
+// ⚠️ 假的 page 要有 locator()。積木已經不再把選擇器丟進原生 querySelector，
+//    只留 evaluate 的假 page 會讓測試驗到一條產品已經不走的路徑。
+const stubLocator = (data = { amount: '5' }) => {
+  const self = {
+    async count() { return 1 },
+    first() { return self },
+    nth() { return self },
+    async isVisible() { return true },
+    async innerText() { return '' },
+    async focus() {},
+    async click() {},
+    async setChecked() {},
+    async selectOption() {},
+    async boundingBox() { return null },
+    async elementHandle() { return {} },
+    async evaluate() { return data },
+  };
+  return self;
+};
 const context = () => {
   const calls = [];
-  return { calls, page: { waitForTimeout: async ms => calls.push(['wait', ms]), evaluate: async () => ({ amount: '5' }) },
+  return { calls, page: {
+      url: () => 'https://stub.test/',
+      waitForTimeout: async ms => calls.push(['wait', ms]),
+      evaluate: async () => ({ amount: '5' }),
+      locator: () => stubLocator(),
+      getByText: () => stubLocator(),
+      getByLabel: () => stubLocator(),
+    },
     openPath: async path => calls.push(['open', path]),
     takeScreenshot: async (name, selector) => { calls.push(['shot', name, selector]); return `${name}.png`; } };
 };

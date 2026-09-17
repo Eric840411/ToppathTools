@@ -14,7 +14,7 @@ import { attachNetworkCapture, DEFAULT_THRESHOLDS, formatStatsLine } from './net
 import { runSteps as runBlockSteps, countBucket } from './block-engine.js';
 import { runMultiTcSteps, validateMultiTcScript, publishMultiTcResults } from './multi-tc.js';
 import { resolveVerifierParams, verifierRanAssertion } from './verifier-params.js';
-import { createRecordedLocators } from './recorded-selector.js';
+import { createRecordedLocators, locateRecorded, ambiguityMessage, isAmbiguityError } from './recorded-selector.js';
 
 // ─── Lark 設定 ───────────────────────────────────────────────────────
 const LARK_TOKEN_URL = 'https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal';
@@ -4355,8 +4355,11 @@ const BUILTIN_VERIFIERS = {
 async function performSteps(p, steps, label, taskFull, multiBindings = null) {
   // 定位與唯一性檢查抽到 recorded-selector.js，**測試 import 同一支**。
   // 不抽的話測試只能拿命中數自己判「這種應該被拒絕」，那是在驗自己。
+  // 單一目標操作（點擊、輸入、區域截圖）**一律強制唯一**。
+  // 以前只有 multi-TC 才擋，其他路徑退到 `.first()`——歧義時會**安靜地點第一個**，
+  // 而且可能不是錄製的那一顆。使用者 2026-09-17 拍板改成一律擋下來。
   const { recordedLocator, checkLocator } = createRecordedLocators(p, {
-    requireUnique: !!multiBindings,
+    requireUnique: true,
     preview: async (bounds) => pngPreview(await p.screenshot({ timeout: 5000 }), bounds),
   });
   const coordinateViewportOk = async (recordedViewport) => {
@@ -4412,6 +4415,10 @@ async function performSteps(p, steps, label, taskFull, multiBindings = null) {
         await target.click({ timeout: 10000 });
       } catch (e) {
         if (multiBindings) throw e;
+        // ⚠️ 預檢過了、點下去前 DOM 才變成多筆時，Playwright 會在這裡拋 strict mode 錯誤。
+        //    那是「當下不確定要點哪一個」，**絕對不能掉進下面的 JS 觸發或座標備援**——
+        //    座標備援會真的在那個位置按下去，等於把歧義變成一個看不見的誤點。（CodeX 指出）
+        if (isAmbiguityError(e)) throw e;
         // 後台登入後有一個站台層級的警告彈窗（「Currently N machines are abnormal」），
         // 它的遮罩會把底下的按鈕蓋住，Playwright 的 click 會一直等到逾時。
         //
@@ -4446,8 +4453,12 @@ async function performSteps(p, steps, label, taskFull, multiBindings = null) {
     },
     async pressKey(selector, key) {
       if (selector) {
-        const target = await recordedLocator(selector);
-        if (await target.count()) await target.focus({ timeout: 10000 });
+        // 這顆历來允許「找不到就只按鍵」（例如 Enter 送出時焦點本來就在輸入框），
+        // 這個寬容保留；但**歧義要擋**——不確定要焦到哪一個就不該猜。
+        const found = await locateRecorded(p, selector, { requireUnique: true });
+        if (found.failure) throw new Error(`定位失敗：${selector}（${found.message}）`);
+        if (found.count > 1) throw new Error(ambiguityMessage(selector, found.count));
+        if (found.count === 1) await found.locator.focus({ timeout: 10000 });
       }
       await p.keyboard.press(key);
     },

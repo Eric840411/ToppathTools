@@ -179,6 +179,106 @@ export async function verifyRecordedSelectorLive(page, step) {
  * 兩邊有沒漂掉由 scripts/ui-checks/recorded-selector.mjs 驗。
  */
 /**
+ * 這個錯誤是不是「不確定要動哪一個」？
+ *
+ * ⚠️ 歧義錯誤**絕對不能掉進任何備援**（JS 觸發、座標點擊）。
+ *    座標備援會真的在那個位置按下去，等於把「不知道該點哪個」變成一個看不見的誤點。
+ *
+ * runner 與測試 import 同一支；各寫一份的話，測試只是在驗自己那份正則。
+ * （預檢過了、點下去前 DOM 才變成多筆時，Playwright 會在 click 拋 strict mode。）
+ */
+export function isAmbiguityError(error) {
+  const message = String(error?.message ?? error ?? '');
+  return /strict mode violation|resolved to \d+ elements/i.test(message)
+    || message.includes('定位必須唯一');
+}
+
+/**
+ * 「命中不是一個」的訊息。**只能有這一份**——runner、積木引擎、預檢全部共用。
+ * 各寫各的話，日後改措辭只會改到其中一邊，而測試又只盯得住一邊。
+ */
+export function ambiguityMessage(selector, count) {
+  return `定位必須唯一：${selector}（命中 ${count} 個）`;
+}
+
+/**
+ * 把一條錄製選擇器解成「單一元素」的 locator，並把**怎麼失敗的**講清楚。
+ *
+ * 回 `{ locator, count, failure, message, selector }`：
+ *   failure: null 成功｜'invalid' 選擇器語法錯｜'error' 其他例外（量不到）
+ *   count:   0 沒找到｜1 唯一｜>1 多筆（呼叫端自己決定多筆算不算錯）
+ *
+ * ⚠️ 呼叫端要把這三種分開回報，不要全吞成 null。
+ *    「沒找到」要改頁面或等待、「語法錯」要改選擇器、「量不到」要重跑——下一步完全不同。
+ */
+export async function locateRecorded(page, selector, { requireUnique = false } = {}) {
+  const fail = (failure, message) => ({ locator: null, count: null, failure, message, selector });
+  if (typeof selector !== 'string' || !selector) return fail('invalid', '選擇器是空的');
+
+  // text=/label= 走 Playwright 的 exact 比對，並優先取可見的那一個。
+  // （舊式 text= 是模糊比對，text=Edit 會命中 Player Credit Log，這裡不能改成模糊。）
+  const exact = selector.startsWith('text=') ? page.getByText(selector.slice(5), { exact: true })
+    : selector.startsWith('label=') ? page.getByLabel(selector.slice(6), { exact: true }) : null;
+
+  if (exact) {
+    try {
+      const count = await exact.count();
+      if (count <= 1) return { locator: exact.first(), count, failure: null, message: '', selector };
+      if (requireUnique) return { locator: null, count, failure: null, message: '', selector };
+      for (let i = 0; i < count; i++) {
+        const candidate = exact.nth(i);
+        if (await candidate.isVisible().catch(() => false)) return { locator: candidate, count, failure: null, message: '', selector };
+      }
+      return { locator: exact.first(), count, failure: null, message: '', selector };
+    } catch (e) {
+      const message = String(e?.message ?? e).split('\n')[0].slice(0, 200);
+      return fail(/while parsing css selector|is not a valid selector|Unknown engine|SyntaxError/i.test(message) ? 'invalid' : 'error', message);
+    }
+  }
+
+  const resolved = await resolveRecordedSelector(page, selector);
+  if (resolved.failure) return fail(resolved.failure, resolved.message);
+  return {
+    locator: page.locator(resolved.selector).first(),
+    count: resolved.count,
+    failure: null,
+    message: '',
+    selector: resolved.selector,
+  };
+}
+
+/**
+ * 數「完整集合」有幾個。
+ *
+ * ⚠️ 計數積木絕對不能改用 locateRecorded()——它回的是 `.first()`，
+ *    接上去會**永遠最多算到 1**，把一個看得見的錯誤換成一個安靜的錯誤。
+ *    （CodeX 2026-09-17 指出；我原本就打算這樣接。）
+ *    它仍然走 Playwright locator，只是不套 `.first()`。
+ */
+export async function countRecorded(page, selector) {
+  if (typeof selector !== 'string' || !selector) return { count: null, failure: 'invalid', message: '選擇器是空的', selector };
+  const exact = selector.startsWith('text=') ? page.getByText(selector.slice(5), { exact: true })
+    : selector.startsWith('label=') ? page.getByLabel(selector.slice(6), { exact: true }) : null;
+  if (exact) {
+    try { return { count: await exact.count(), failure: null, message: '', selector }; }
+    catch (e) {
+      const message = String(e?.message ?? e).split('\n')[0].slice(0, 200);
+      return { count: null, failure: /while parsing css selector|is not a valid selector|Unknown engine|SyntaxError/i.test(message) ? 'invalid' : 'error', message, selector };
+    }
+  }
+  const resolved = await resolveRecordedSelector(page, selector);
+  if (resolved.failure) return { count: null, failure: resolved.failure, message: resolved.message, selector };
+  return { count: resolved.count, failure: null, message: '', selector: resolved.selector };
+}
+
+/** 失敗分類 → 給人看的一句話。積木失敗訊息共用這一份。 */
+export function describeLocateFailure(result, what) {
+  if (result.failure === 'invalid') return `選擇器語法錯誤：${what}（${result.message}）`;
+  if (result.failure === 'error') return `選擇器量不到（頁面可能正在導頁或已關閉）：${what}（${result.message}）`;
+  return '';
+}
+
+/**
  * 建立執行端的兩支定位函式。**runner 與測試 import 同一支**，不要各寫一份。
  *
  * ⚠️ 這支會被抽出來，是因為測試原本是**自己判定「這種情況應該被拒絕」**：
@@ -207,7 +307,7 @@ export function createRecordedLocators(page, { requireUnique = false, preview = 
     if (requireUnique) {
       const target = exact || page.locator(effective);
       const count = await target.count();
-      if (count !== 1) throw new Error(`定位必須唯一：${selector}（命中 ${count} 個）`);
+      if (count !== 1) throw new Error(ambiguityMessage(selector, count));
       return target;
     }
     if (!exact) return page.locator(effective).first();
@@ -229,7 +329,7 @@ export function createRecordedLocators(page, { requireUnique = false, preview = 
     const info = { count, visible: false, bounds: null };
     if (resolved?.repaired) { info.original = resolved.original; info.effective = effective; }
     if (count !== 1) {
-      const error = new Error(`定位必須唯一：${step.selector}（命中 ${count} 個）`);
+      const error = new Error(ambiguityMessage(step.selector, count));
       error.locator = info;
       throw error;
     }

@@ -25,6 +25,8 @@
  *
  * params 的 type：text | number | textarea | select | boolean
  */
+import { locateRecorded, countRecorded, describeLocateFailure, ambiguityMessage } from './recorded-selector.js';
+
 export const BLOCK_DEFS = {
   set_tc_result: {
     label: '回填 Lark PASS／FAIL', category: 'result', defaultOnFail: 'stop',
@@ -461,16 +463,27 @@ async function clickDialogTrigger(page, { trigger, scope, triggerKind }) {
  * 預設是模糊比對，text=Edit 會命中 Credit；統一在這裡改成 exact，並優先取可見元素。
  */
 async function recordedLocator(page, selector) {
-  let exact = null;
-  if (selector.startsWith('text=')) exact = page.getByText(selector.slice(5), { exact: true });
-  else if (selector.startsWith('label=')) exact = page.getByLabel(selector.slice(6), { exact: true });
-  if (!exact) return page.locator(selector).first();
-  const count = await exact.count();
-  for (let i = 0; i < count; i++) {
-    const candidate = exact.nth(i);
-    if (await candidate.isVisible().catch(() => false)) return candidate;
-  }
-  return count ? exact.first() : page.locator(selector).first();
+  // 委派給共用那一支，預檢與執行才會用同一套解析與舊格式相容。
+  // （這裡原本自己寫了一份，而且**沒有舊格式相容**，
+  //   所以 set_checked / select_option 遇到舊錄製的表格錨點會直接找不到。）
+  const found = await locateRecorded(page, selector);
+  if (found.locator) return found.locator;
+  // 語法錯或量不到時仍回一個 locator，讓呼叫端自己的錯誤路徑跑（行為跟以前一致）
+  return page.locator(selector).first();
+}
+
+/**
+ * 單一目標操作的定位：**命中多筆一律拒絕**，不再安靜取第一個。
+ *
+ * 回 `{ locator, problem }`；problem 有值就是該失敗的理由（已經是給人看的句子）。
+ * 零命中、語法錯誤、量不到、多筆 —— 四種分開講，因為下一步完全不同。
+ */
+async function singleTarget(page, selector, what) {
+  const found = await locateRecorded(page, selector, { requireUnique: true });
+  if (found.failure) return { locator: null, problem: describeLocateFailure(found, what) };
+  if (found.count === 0) return { locator: null, problem: `找不到 ${what}` };
+  if (found.count > 1) return { locator: null, problem: ambiguityMessage(what, found.count) };
+  return { locator: found.locator, problem: '' };
 }
 
 /** 開不起來時給人看的原因。兩顆積木共用，訊息才會一致。 */
@@ -677,14 +690,20 @@ export async function runSteps(steps, ctx, options = {}) {
         await ctx.page.waitForTimeout(ms);
         notes.push(`${tag}：${ms} ms`);
       } else if (step.action === 'set_checked') {
-        const target = await recordedLocator(ctx.page, step.selector);
-        await target.setChecked(Boolean(step.checked));
+        const one = await singleTarget(ctx.page, step.selector, step.selector);
+        if (one.problem) { if (fail(step, `${tag}：${one.problem}`) === 'stop') break; continue }
+        await one.locator.setChecked(Boolean(step.checked));
       } else if (step.action === 'select_option') {
-        const target = await recordedLocator(ctx.page, step.selector);
-        await target.selectOption(String(step.value));
+        const one = await singleTarget(ctx.page, step.selector, step.selector);
+        if (one.problem) { if (fail(step, `${tag}：${one.problem}`) === 'stop') break; continue }
+        await one.locator.selectOption(String(step.value));
       } else if (step.action === 'assert_text') {
-        const target = await recordedLocator(ctx.page, step.selector);
-        if (await target.count() !== 1) throw new Error('檢查目標必須唯一且存在');
+        // ⚠️ 這裡原本是 `recordedLocator()` 再 `count() !== 1`——而 recordedLocator 已經
+        //    `.first()` 過了，`.first().count()` 只會是 0 或 1。所以「必須唯一」那一半
+        //    **從寫下來就沒生效過**，只擋得住「不存在」。（CodeX 2026-09-17 指出）
+        const one = await singleTarget(ctx.page, step.selector, step.selector);
+        if (one.problem) { if (fail(step, `${tag}：${one.problem}`) === 'stop') break; continue }
+        const target = one.locator;
         const actual = await target.evaluate(el => 'value' in el ? String(el.value) : (el.innerText || ''));
         const expected = String(step.expect);
         diagnostics.push({ expected, actual });
@@ -829,9 +848,14 @@ export async function runSteps(steps, ctx, options = {}) {
         // 例：日期篩選查 .el-date-editor >= 2（From/To 兩個框）。頁面之後若改成
         // 單一 range picker，數量會從 2 變 1 但功能其實沒壞——那時要改的是這裡的
         // 期待值，不是把它當成「日期功能壞了」。失敗訊息也照這個講法寫。
-        const count = /^(?:text|label)=/.test(step.selector)
-          ? await (await recordedLocator(ctx.page, step.selector)).count()
-          : await ctx.page.evaluate((sel) => document.querySelectorAll(sel).length, step.selector);
+        // ⚠️ 這顆**不能**用 recordedLocator()——它回 `.first()`，接上去會永遠最多算到 1。
+        //    也不能丟進原生 querySelectorAll：`:text-is()` 不是合法 CSS，會直接 SyntaxError。
+        //    仍然走 Playwright locator，只是對**完整集合**呼叫 count()。
+        const counted = await countRecorded(ctx.page, step.selector);
+        if (counted.failure) {
+          if (fail(step, `${tag}：${describeLocateFailure(counted, step.label || step.selector)}`) === 'stop') break; continue;
+        }
+        const count = counted.count;
         const min = step.min === undefined ? 1 : Number(step.min);
         const max = step.max === undefined || step.max === '' ? null : Number(step.max);
         const what = step.label || step.selector;
@@ -1128,84 +1152,77 @@ export async function runSteps(steps, ctx, options = {}) {
           break;
         }
         let found = null;
-        // 錄製器會產生 Playwright 的 text=/label= 選擇器；這兩種不能交給原生
-        // document.querySelector。先用 locator 處理，CSS 才走原本的 DOM 快路徑。
-        if (step.selector && /^(?:text|label)=/.test(step.selector)) {
-          const loc = await recordedLocator(ctx.page, step.selector);
-          const visible = await loc.isVisible().catch(() => false);
-          if (visible) found = {
-            by: 'selector',
-            shown: await loc.innerText().then(t => t.slice(0, 80)).catch(() => String(step.selector)),
-          };
-        }
-        if (!found) found = await ctx.page.evaluate(({ selector, text }) => {
-          if (selector) {
-            const el = /^(?:text|label)=/.test(selector) ? null : document.querySelector(selector);
-            if (el && (el.offsetParent !== null || el.getClientRects().length)) return { by: 'selector', shown: (el.innerText || '').slice(0, 80) };
+        // ⚠️ 這裡原本分兩條：text=/label= 走 locator，CSS 走 `document.querySelector(selector)`。
+        //    原生那條遇到 `:text-is()` 會 SyntaxError；而且這是**否定斷言**——
+        //    萬一哪天變成被吞掉，就會變成「沒看到就算通過」，那比直接報錯危險得多。
+        //    現在兩種選擇器走同一條（countRecorded 本來就處理 text=/label=）。
+        if (step.selector) {
+          const seen = await countRecorded(ctx.page, step.selector);
+          if (seen.failure) {
+            if (fail(step, `${tag}：${describeLocateFailure(seen, step.selector)}`) === 'stop') break; continue;
           }
-          if (text && (document.body.innerText || '').includes(text)) return { by: 'text', shown: text };
-          return null;
-        }, { selector: step.selector ?? null, text: step.text ?? null });
+          for (let i = 0; i < seen.count; i++) {
+            const one = ctx.page.locator(seen.selector).nth(i);
+            if (await one.isVisible().catch(() => false)) {
+              found = { by: 'selector', shown: (await one.innerText().catch(() => '')).slice(0, 80) };
+              break;
+            }
+          }
+        }
+        if (!found && step.text) found = await ctx.page.evaluate((text) =>
+          (document.body.innerText || '').includes(text) ? { by: 'text', shown: text } : null, step.text);
         if (found) { if (fail(step, `${tag}：不該出現的${found.by === 'text' ? '文字' : '元素'}出現了（${found.shown}）`) === 'stop') break; continue }
         notes.push(`✅ ${tag}`);
 
       } else if (step.action === 'read_block') {
         const labels = toLines(step.labels);
-        const got = /^(?:text|label)=/.test(step.selector)
-          ? await (await recordedLocator(ctx.page, step.selector)).evaluate((el, labels) => {
-              const text = el.innerText || '';
-              const out = {};
-              if (!labels.length) {
-                const formValue = /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) ? String(el.value ?? '') : '';
-                // 純圖示按鈕沒有 innerText，但「必須有值」在這種元素上的合理語意是
-                // 元素存在；輸入元件則仍讀實際 value，空欄位不能因此假通過。
-                out.value = /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)
-                  ? formValue
-                  : (text.trim() || el.getAttribute('aria-label') || el.getAttribute('title') || '（元素存在）');
-              }
-              for (const label of labels) {
-                const idx = text.indexOf(label);
-                if (idx === -1) {
-                  const own = /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) ? String(el.value ?? '').trim() : text.trim();
-                  // 錄製時可能直接標在值元素（例如文字 OSM）上，label 則從外層 form-item
-                  // 推得 Machine Type。這不是「區塊內找不到標籤」，而是 selector 已經指到值本身。
-                  out[label] = labels.length === 1 && own && !own.includes('\n') ? own : null;
-                  continue
-                }
-                const tail = text.slice(idx + label.length, idx + label.length + 40).trim().split('\n')[0] || '';
-                out[label] = tail || (text.trim() === label ? text.trim() : '');
-              }
-              return out;
-            }, labels).catch(() => null)
-          : await ctx.page.evaluate(({ selector, labels }) => {
-              const el = document.querySelector(selector);
-              if (!el) return null;
-              const text = el.innerText || '';
-              const out = {};
-              if (!labels.length) {
-                const formValue = /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) ? String(el.value ?? '') : '';
-                out.value = /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)
-                  ? formValue
-                  : (text.trim() || el.getAttribute('aria-label') || el.getAttribute('title') || '（元素存在）');
-              }
-              for (const label of labels) {
-                const idx = text.indexOf(label);
-                if (idx === -1) {
-                  const own = /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) ? String(el.value ?? '').trim() : text.trim();
-                  out[label] = labels.length === 1 && own && !own.includes('\n') ? own : null;
-                  continue
-                }
-                const tail = text.slice(idx + label.length, idx + label.length + 40).trim().split('\n')[0] || '';
-                out[label] = tail || (text.trim() === label ? text.trim() : '');
-              }
-              return out;
-            }, { selector: step.selector, labels });
-        if (got === null) { if (fail(step, `${tag}：找不到區塊 ${step.selector}`) === 'stop') break; continue }
+        // ⚠️ 這裡原本分成兩條：text=/label= 走 Playwright，其他走
+        //    page.evaluate(sel => document.querySelector(sel))。**兩條的讀取邏輯是一模一樣的複製品**，
+        //    而原生 CSS 根本不認得 Playwright 的 `:text-is()`——使用者回報的
+        //    「預檢說命中 1 個、執行卻 SyntaxError」就是這樣來的（預檢與執行不同引擎）。
+        //    現在只留一條：用共用定位找到元素，再用 locator.evaluate() 讀原生 DOM。
+        //    （原生 DOM 讀取保留，原生 selector 解析不保留。）
+        const target = await singleTarget(ctx.page, step.selector, `區塊 ${step.selector}`);
+        if (target.problem) { if (fail(step, `${tag}：${target.problem}`) === 'stop') break; continue }
+        const got = await target.locator.evaluate((el, labels) => {
+          const text = el.innerText || '';
+          const out = {};
+          const isForm = /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
+          if (!labels.length) {
+            // 純圖示按鈕沒有 innerText，但「必須有值」在這種元素上的合理語意是
+            // 元素存在；輸入元件則仍讀實際 value，空欄位不能因此假通過。
+            out.value = isForm
+              ? String(el.value ?? '')
+              : (text.trim() || el.getAttribute('aria-label') || el.getAttribute('title') || '（元素存在）');
+          }
+          for (const label of labels) {
+            const idx = text.indexOf(label);
+            if (idx === -1) {
+              const own = isForm ? String(el.value ?? '').trim() : text.trim();
+              // 錄製時可能直接標在值元素（例如文字 OSM）上，label 則從外層 form-item
+              // 推得 Machine Type。這不是「區塊內找不到標籤」，而是 selector 已經指到值本身。
+              out[label] = labels.length === 1 && own && !own.includes('\n') ? own : null;
+              continue;
+            }
+            const tail = text.slice(idx + label.length, idx + label.length + 40).trim().split('\n')[0] || '';
+            out[label] = tail || (text.trim() === label ? text.trim() : '');
+          }
+          return out;
+        }, labels).catch(() => null);
+        if (got === null) { if (fail(step, `${tag}：讀不到區塊 ${step.selector}（元素找到了，但讀取過程失敗）`) === 'stop') break; continue }
         if (!setVar(step, tag, step.as, 'blockFields', got)) break;
         notes.push(`${tag}：${Object.entries(got).map(([k, v]) => `${k}=${v ?? '(缺)'}`).join(', ')}`);
 
       } else if (step.action === 'read_table') {
-        const rows = await ctx.page.evaluate(({ selector, maxRows }) => {
+        // 退路分支要用到這個 table 元素。先用共用定位解好（含舊格式相容），
+        // 再當成 handle 傳進 evaluate，而不是把字串丟給原生 querySelector。
+        const tableSel = step.selector || 'table';
+        const tableFound = await locateRecorded(ctx.page, tableSel);
+        if (tableFound.failure) {
+          if (fail(step, `${tag}：${describeLocateFailure(tableFound, tableSel)}`) === 'stop') break; continue;
+        }
+        const tableHandle = tableFound.count ? await tableFound.locator.elementHandle().catch(() => null) : null;
+        const rows = await ctx.page.evaluate(({ table, maxRows }) => {
           // Element UI 把表頭與表身拆成兩個 <table>（.el-table__header / .el-table__body），
           // 用單一 table 選擇器只會拿到其中一個——實測後台頁面 querySelector('table')
           // 抓到的是表頭那張，tbody tr 是 0 筆。所以表頭與表身要分開找。
@@ -1213,7 +1230,9 @@ export async function runSteps(steps, ctx, options = {}) {
             .map(th => (th.innerText || '').trim());
           let body = [...document.querySelectorAll('.el-table__body tr')];
           if (!body.length) {
-            const table = document.querySelector(selector);
+            // 退路：這裡只接受**已經由 Playwright 解過、確定是合法 CSS** 的選擇器。
+            // 錄製產的 `:text-is()` 不是合法 CSS，丟進來會 SyntaxError，
+            // 所以外面先用 locator 找好再把元素傳進來（table 參數）。
             if (!table) return null;
             body = [...table.querySelectorAll('tbody tr')];
           }
@@ -1224,7 +1243,7 @@ export async function runSteps(steps, ctx, options = {}) {
             cells.forEach((c, idx) => { row[headers[idx] || `col${idx}`] = c });
             return row;
           });
-        }, { selector: step.selector || 'table', maxRows: Number(step.maxRows) || 200 });
+        }, { table: tableHandle, selector: tableSel, maxRows: Number(step.maxRows) || 200 });
         if (rows === null) { if (fail(step, `${tag}：找不到表格 ${step.selector || 'table'}`) === 'stop') break; continue }
         if (!setVar(step, tag, step.as, 'tableRows', rows)) break;
         notes.push(`${tag}：讀到 ${rows.length} 列`);

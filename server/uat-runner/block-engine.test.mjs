@@ -16,18 +16,54 @@ function check(name, cond, extra) {
 }
 
 /** 假的 ctx：page.evaluate 直接回預先塞好的資料 */
+/**
+ * 假的 page。
+ *
+ * ⚠️ locator() 必須長得像真的 Playwright locator（count / nth / evaluate / elementHandle …）。
+ *    積木已經不再把選擇器丟進原生 querySelector，假的 page 若只有 evaluate，
+ *    測試驗的就是一個產品已經不走的路徑。
+ *
+ * 數量規則：`__counts[selector]` 有就用它，否則 pageData 裡有算 1、沒有算 0。
+ * 讓測試可以直接造「命中多筆」跟「一個都沒有」。
+ */
 function makeCtx(pageData = {}, builtin = null) {
   const calls = [];
+  const counts = {};
+  const texts = {};
+  const makeLocator = (sel) => {
+    const n = sel in counts ? counts[sel] : (sel in pageData ? 1 : 0);
+    const self = {
+      __sel: sel,
+      async count() { return n },
+      first() { return self },
+      nth() { return self },
+      async isVisible() { return n > 0 },
+      async innerText() { return String(texts[sel] ?? '') },
+      async focus() {},
+      async click() {},
+      async setChecked(v) { calls.push({ kind: 'setChecked', sel, v }) },
+      async selectOption(v) { calls.push({ kind: 'selectOption', sel, v }) },
+      async boundingBox() { return null },
+      async elementHandle() { return n ? { __sel: sel } : null },
+      async evaluate() { return sel in texts ? texts[sel] : (sel in pageData ? pageData[sel] : null) },
+    };
+    return self;
+  };
   return {
     calls,
     page: {
+      __counts: counts,
+      __texts: texts,
+      url: () => 'https://stub.test/',
       async evaluate(fn, args) {
         calls.push({ kind: 'evaluate', args });
         if (args?.selector in pageData) return pageData[args.selector];
         return null;
       },
       async waitForTimeout() {},
-      locator() { return { first: () => ({ click: async () => {} }) } },
+      locator(sel) { return makeLocator(sel) },
+      getByText(t) { return makeLocator('text=' + t) },
+      getByLabel(t) { return makeLocator('label=' + t) },
     },
     async openPath(p, w) { calls.push({ kind: 'open', p, w }); },
     resolveSubtypePath(sub) { return sub === 'Dashboard' ? '/dashboard' : null; },
@@ -312,13 +348,14 @@ const BLUE = { 'Total Available EGM': '5', 'Total System Connected EGM': '2' };
 {
   // 頁面上有錯誤提示 → 應該 FAIL
   const shown = makeCtx();
-  shown.page.evaluate = async () => ({ by: 'selector', shown: '查詢失敗' });
+  shown.page.__counts['.el-message--error'] = 1
+  shown.page.__texts['.el-message--error'] = '查詢失敗'
   const bad = await runSteps([{ action: 'assert_absent', selector: '.el-message--error' }], shown);
   check('不該出現的元素出現了 → FAIL', bad.pass === false && bad.criticalFails.length === 1, bad.criticalFails);
 
   // 沒出現 → pass
   const clean = makeCtx();
-  clean.page.evaluate = async () => null;
+  clean.page.__counts['.el-message--error'] = 0
   const ok = await runSteps([{ action: 'assert_absent', text: '查無資料' }], clean);
   check('沒出現 → pass', ok.pass === true, ok);
 
@@ -499,22 +536,81 @@ Machine No` }], m)
 
 // ── assert_element_count ──────────────────────────────────────────────
 {
-  const two = makeCtx(); two.page.evaluate = async () => 2
+  const two = makeCtx(); two.page.__counts['.el-date-editor'] = 2
   check('數量達標 → pass',
     (await runSteps([{ action: 'assert_element_count', selector: '.el-date-editor', min: 2 }], two)).pass === true)
 
-  const one = makeCtx(); one.page.evaluate = async () => 1
+  const one = makeCtx(); one.page.__counts['.el-date-editor'] = 1
   const r = await runSteps([{ action: 'assert_element_count', selector: '.el-date-editor', label: '日期篩選', min: 2 }], one)
   check('數量不足 → FAIL', r.pass === false)
   check('錯誤訊息用看得懂的名稱，不是丟選擇器', /日期篩選/.test(r.criticalFails.join('')), r.criticalFails)
   // 這顆驗的是 DOM 事實不是抽象功能——訊息要講清楚，不然頁面改版會被當成功能壞了
   check('錯誤訊息要說明這是 DOM 數量期待', /DOM|期待值/.test(r.criticalFails.join('')), r.criticalFails)
 
-  const many = makeCtx(); many.page.evaluate = async () => 9
+  const many = makeCtx(); many.page.__counts['x'] = 9
   check('超過上限 → FAIL',
     (await runSteps([{ action: 'assert_element_count', selector: 'x', min: 1, max: 3 }], many)).pass === false)
-  const zero = makeCtx(); zero.page.evaluate = async () => 0
+  const zero = makeCtx(); zero.page.__counts['x'] = 0
   check('一個都沒有 → FAIL', (await runSteps([{ action: 'assert_element_count', selector: 'x' }], zero)).pass === false)
+}
+
+// ── 單一目標強制唯一（v4.157.0）─────────────────────────
+//
+// 使用者 2026-09-17 拍板：選擇器命中多筆時不再安靜取第一個，一律失敗。
+// 這些積木以前完全沒有測試——assert_text 的「必須唯一」從寫下來就沒生效過，
+// 也是因為沒人驗過。
+{
+  const many = (sel) => { const c = makeCtx(); c.page.__counts[sel] = 3; return c };
+
+  for (const [action, extra] of [
+    ['set_checked', { checked: true }],
+    ['select_option', { value: 'A' }],
+    ['assert_text', { expect: 'x' }],
+  ]) {
+    const ctx = many('.dup');
+    const r = await runSteps([{ action, selector: '.dup', ...extra }], ctx);
+    check(`${action}：命中多筆 → FAIL`, r.pass === false, r.criticalFails);
+    check(`${action}：錯誤要說出命中幾個`, /命中 3 個/.test(r.criticalFails.join('')), r.criticalFails);
+    // ⚠️ 最要緊的一條：歧義時**不可以真的去動它**。
+    //    只報錯但還是按下去，跟沒改一樣壞。
+    check(`${action}：歧義時沒有真的去操作元素`,
+      !ctx.calls.some(c => c.kind === 'setChecked' || c.kind === 'selectOption'), ctx.calls);
+  }
+
+  // 一個都沒有也要失敗，而且要跟「多筆」分開講（下一步不同）
+  const none = makeCtx(); none.page.__counts['.gone'] = 0;
+  const r0 = await runSteps([{ action: 'set_checked', selector: '.gone', checked: true }], none);
+  check('單一目標：一個都沒有 → FAIL 且訊息是「找不到」',
+    r0.pass === false && /找不到/.test(r0.criticalFails.join('')), r0.criticalFails);
+
+  // 唯一命中時要照常做事，不能因為改嚴了就連正常情況都擋
+  const okCtx = makeCtx(); okCtx.page.__counts['.only'] = 1;
+  const r1 = await runSteps([{ action: 'set_checked', selector: '.only', checked: true }], okCtx);
+  check('單一目標：唯一命中 → 照常執行',
+    r1.pass === true && okCtx.calls.some(c => c.kind === 'setChecked'), { p: r1.pass, calls: okCtx.calls });
+}
+
+// ── 選擇器不再丟進瀏覽器原生 querySelector（v4.157.0）──────────
+//
+// 使用者回報：預檢寫「命中 1 個·可見」，執行卻 `SyntaxError: ... is not a valid selector`。
+// 原因是預檢走 Playwright、讀取走原生 CSS，而 `:text-is()` 不是合法 CSS。
+{
+  // 錄製器產的表格錨點長這樣：原生 querySelector 完全剖不開
+  const RECORDED = 'tr:has(:text-is("4186-DFDC-9999")) > td:nth-of-type(14) i';
+  const ctx = makeCtx({ [RECORDED]: { 'Machine': '4186-DFDC-9999' } });
+  const r = await runSteps([{ action: 'read_block', selector: RECORDED, as: 'blk' }], ctx);
+  check('read_block：Playwright 選擇器語法讀得到（不再 SyntaxError）',
+    r.pass === true, { p: r.pass, f: r.criticalFails });
+  // 並且確實是透過 locator 讀的，不是走那條 page.evaluate 快路徑
+  check('read_block：沒有回頭用 page.evaluate 解析選擇器',
+    !ctx.calls.some(c => c.kind === 'evaluate' && c.args?.selector === RECORDED), ctx.calls);
+
+  // 語法真的壞掉時要說是語法問題，不要跟「找不到」混在一起
+  const broken = makeCtx();
+  broken.page.locator = () => { throw new Error('Unexpected token "" while parsing css selector "tr:has("') };
+  const rb = await runSteps([{ action: 'read_block', selector: 'tr:has(', as: 'b' }], broken);
+  check('read_block：語法錯誤要講明是語法錯誤',
+    rb.pass === false && /語法錯誤/.test(rb.criticalFails.join('')), rb.criticalFails);
 }
 
 // ── assert_api_called ─────────────────────────────────────────────────
