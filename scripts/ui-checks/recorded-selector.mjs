@@ -139,26 +139,72 @@ try {
   });
   eq('重複列拿掉後恢復唯一', await rec.locator(step.selector).count(), 1);
 
-  // (b) el-table 的固定欄會把整列再複製一份到 .el-table__fixed 裡。
-  //     錨點文字在固定欄裡時，只看 tr 會命中兩列；帶上目標格子之後才收斂成一個。
-  const fixedPage = await browser.newPage();
-  await fixedPage.setContent(`<div class="el-table">
-    <div class="el-table__body-wrapper"><table><tbody><tr>${CELL('M-2')}${CELL('A')}<td><div class="cell"><button class="go">E</button></div></td></tr></tbody></table></div>
-    <div class="el-table__fixed"><table><tbody><tr>${CELL('M-2')}</tr></tbody></table></div>
-  </div>`);
-  eq('固定欄副本：只看列會命中兩列', await fixedPage.locator('tr:has(:text-is("M-2"))').count(), 2);
-  eq('固定欄副本：帶上目標格子後唯一',
-    await fixedPage.locator('tr:has(:text-is("M-2")) > td:nth-of-type(3) button').count(), 1);
-  await fixedPage.close();
+  // ── (b)(c) 固定欄副本與巢狀表格：走**實際錄製 → 完整 selector → 重播結果** ──
+  //
+  // ⚠️ 第一版這兩組是手寫 selector 只數列數，**根本沒經過錄製器**，也沒驗重播結果。
+  //    CodeX 還指出固定欄那組寫 `M-2` 是錯的——錄製器會因為錨點重複而改選 `A`。
+  //    實測確認他說對了，所以現在釘的是錄製器真正產出的那一條。
+  //
+  // 驗收標準：**要麼命中原目標，要麼明確拒絕**；命中 1 個卻是別的元素（WRONG）絕對不允許。
+  const recordAndReplay = async (html, clickSelector, mutate) => {
+    const ctx2 = await browser.newContext();
+    await ctx2.addInitScript(backendRecorderScript());
+    const page2 = await ctx2.newPage();
+    const evts = [];
+    page2.on('console', m => {
+      const t = m.text();
+      if (t.startsWith(RECORDER_MARKER)) evts.push(JSON.parse(t.slice(RECORDER_MARKER.length).trim()));
+    });
+    await page2.goto('data:text/html,' + encodeURIComponent(html));
+    await page2.evaluate(() => window.__toppathArmRecorder?.());
+    await page2.waitForTimeout(150);
+    await page2.click(clickSelector);
+    await page2.waitForTimeout(150);
+    const recorded = evts.at(-1);
+    if (mutate) { await page2.evaluate(mutate); await page2.waitForTimeout(50); }
+    // 走產品的解析，不是測試自己再寫一遍
+    const resolved = await resolveRecordedSelector(page2, recorded.selector, () => {});
+    let verdict = 'rejected';
+    if (resolved.count === 1) {
+      const id = await page2.locator(resolved.selector)
+        .evaluate(n => n.getAttribute('data-toppath-rec-target') ?? '').catch(() => null);
+      verdict = id === recorded.verifyId ? 'hit' : 'WRONG';
+    }
+    await ctx2.close();
+    return { verdict, selector: recorded.selector, count: resolved.count };
+  };
 
-  // (c) 巢狀表格：內層表格的列也是 tr，錨點文字落在內層時外層也含它。
-  const nestedPage = await browser.newPage();
-  await nestedPage.setContent(`<table><tbody><tr>${CELL('M-3')}<td><table><tbody><tr>${CELL('inner')}<td><div class="cell"><button class="go">E</button></div></td></tr></tbody></table></td></tr></tbody></table>`);
-  eq('巢狀：外層錨點唯一', await nestedPage.locator('tr:has(:text-is("M-3")) > td:nth-of-type(2)').count(), 1);
-  // 內層的錨點文字會被外層 tr 一起命中——這是真的歧義，有命中多筆才是對的
-  eq('巢狀：內層錨點會命中內外兩層（歧義要看得見）',
-    await nestedPage.locator('tr:has(:text-is("inner"))').count(), 2);
-  await nestedPage.close();
+  // (b) el-table 固定欄：主表有全部欄位，.el-table__fixed 再複製一份錨點欄。
+  const FIXED_TABLE = `<div class="el-table">
+    <div class="el-table__body-wrapper"><table><tbody>
+      <tr>${CELL('M-2')}${CELL('A')}<td><div class="cell"><button class="go">E</button></div></td></tr>
+    </tbody></table></div>
+    <div class="el-table__fixed"><table><tbody><tr>${CELL('M-2')}</tr></tbody></table></div>
+  </div>`;
+  const fixed = await recordAndReplay(FIXED_TABLE, '.el-table__body-wrapper .go');
+  // 錄製器的「錨點只能出現一次」規則本身就擋掉了固定欄副本：
+  // M-2 在主表與固定欄各一次→ 被跳過，改用只出現一次的 A。
+  eq('固定欄：錄製器不拿被複製的文字當錨點', fixed.selector.includes('"M-2"'), false);
+  eq('固定欄：重播命中原目標', fixed.verdict, 'hit');
+
+  // (c) 巢狀表格：內層表格的列也是 tr，外層 tr 同樣含有內層的文字。
+  const NESTED_TABLE = `<table><tbody><tr>${CELL('M-3')}<td><table><tbody>
+    <tr>${CELL('inner')}<td><div class="cell"><button class="go">E</button></div></td></tr>
+  </tbody></table></td></tr></tbody></table>`;
+  const nested = await recordAndReplay(NESTED_TABLE, '.go');
+  eq('巢狀：重播命中原目標', nested.verdict, 'hit');
+
+  // (d) 真的歧義：錄完之後又出現一列錨點文字相同的。這種必須被拒絕。
+  const dup = await recordAndReplay(FIXTURE, 'tr:nth-of-type(1) .b2', () => {
+    const tbody = document.querySelector('tbody');
+    const clone = tbody.children[0].cloneNode(true);
+    tbody.insertBefore(clone, tbody.firstChild);
+    // ⚠️ cloneNode 連錄製器的一次性標記一起複製走。不拇掉的話，「指到別列」
+    //    也會因為標記相同而被判成命中原目標，這條斷言就失去鑑別力。
+    clone.querySelectorAll('[data-toppath-rec-target]').forEach(n => n.removeAttribute('data-toppath-rec-target'));
+  });
+  eq('錄完後多出同錨點的列：明確拒絕（不是安靜指到別列）', dup.verdict, 'rejected');
+  eq('拒絕的理由是命中多筆', dup.count > 1, true);
 
   // ── 4. 錄製當下的驗證 ─────────────────────────────────────────────────────
   console.log('\n── 錄製當下驗證 ──');
