@@ -1145,6 +1145,48 @@ try {
     }
   }
 
+  // ── (q) CodeX 第四輪：相容不得吞掉原式的歧義、期限不得被延長 ──
+  console.log('\n── CodeX 第四輪 ──');
+  {
+    // ① [P1] 兩個**原生關聯**的 Min Bet（原式命中 2），另外還有一個舊式 Element UI 欄位。
+    //    相容不得跳過原本的歧義去選第三個。
+    {
+      const pg = await browser.newPage();
+      await pg.setContent(
+        '<label for="m1">Min Bet</label><input id="m1">'
+        + '<label for="m2">Min Bet</label><input id="m2">'
+        + '<div class="el-form-item"><label class="el-form-item__label">Min Bet</label>'
+        + '<div class="el-form-item__content"><input id="m3"></div></div>');
+      eq('① 原式（真關聯）本來就命中 2',
+        await pg.getByLabel('Min Bet', { exact: true }).count(), 2);
+      const f = createRecordedLocators(pg, { requireUnique: true });
+      const r = await f.checkLocator({ selector: 'label=Min Bet' }).catch(e => ({ error: String(e.message) }));
+      eq('① 相容不得吞掉原式的歧義', /定位必須唯一/.test(r?.error || ''), true);
+      const c = await countRecorded(pg, 'label=Min Bet');
+      eq('① countRecorded 也不得回 1', c.count, 2);
+      await pg.close();
+    }
+
+    // ② [P2] 代理接近期限才出現——不得再白給 500ms
+    {
+      const pg = await browser.newPage();
+      await pg.setContent('<style>.el-checkbox__original{opacity:0;position:absolute;width:0;height:0}'
+        + '.el-checkbox__inner{display:inline-block;width:14px;height:14px;border:1px solid #999}'
+        + '#mask{position:fixed;inset:0;z-index:9999}.late{display:none}</style>'
+        + '<label class="el-checkbox late" id="lb"><span class="el-checkbox__inner"></span>'
+        + '<input type="checkbox" class="el-checkbox__original"></label><div id="mask"></div>');
+      // 快到期限（900/1000）才出現，而且遮罩讓它點不到
+      await pg.evaluate(() => setTimeout(() => document.getElementById('lb').classList.remove('late'), 900));
+      const t0 = Date.now();
+      const r = await setCheckedRecorded(pg.locator('#lb input'), true, { timeout: 1000 });
+      const spent = Date.now() - t0;
+      eq('② 接近期限才出現：仍然失敗', r.ok, false);
+      // Math.max(500, …) 版本會變成 ~900 + 500 = 1400；正確版應該接近 1000
+      eq('② 且沒有白給額外的 500ms', spent < 1000 * 1.25, true);
+      await pg.close();
+    }
+  }
+
   // ── 4b. 語法錯誤 vs 其他例外，不能混為一談 ───────────────────
   //
   // ⚠️ 第一版的 safeCount 把**所有**例外都當成「選擇器語法錯誤」（CodeX 指出）。

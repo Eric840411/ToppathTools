@@ -323,7 +323,16 @@ async function resolveToSet(page, selector) {
   if (count === 1) return { locator: exact, count, failure: null, message: '', selector, hint: '' };
 
   // ── 相容候選：全部聯集起來一次算 ──────────────────────────────────
-  const candidates = [...dropdownOptionVariants(selector), ...legacyLabelVariant(selector)];
+  //
+  // ⚠️ 兩種相容的啟用條件**不一樣**，不能混在一起：
+  //   下拉選項：原式命中多筆時也要試——「收斂到打開著的面板」本來就是要把 11 個收成 1 個。
+  //   label：**只能在原式 0 筆時啟用**。否則兩個原生欄位都叫 Min Bet（原式命中 2）、
+  //   另外還有一個舊式 Element UI 欄位時，相容分支會直接選第三個，
+  //   **把原本的歧義吞掉了**。（CodeX 2026-09-17 P1）
+  const candidates = [
+    ...dropdownOptionVariants(selector),
+    ...(count === 0 ? legacyLabelVariant(selector) : []),
+  ];
   let hint = '';
   if (candidates.length) {
     const union = [...new Set(candidates)].join(', ');
@@ -528,7 +537,9 @@ export async function setCheckedRecorded(target, desired, { timeout = 10000 } = 
   while (!proxy.locator && Date.now() < deadline) {
     await new Promise(r => setTimeout(r, 150));
     if (await target.isVisible().catch(() => false)) {
-      try { await target.setChecked(want, { timeout: Math.max(500, deadline - Date.now()) }); }
+      const leftNow = deadline - Date.now();
+      if (leftNow <= 0) break;   // 期限到了就停，不再額外給時間
+      try { await target.setChecked(want, { timeout: leftNow }); }
       catch (e) { return { ok: false, problem: `設定勾選失敗：${String(e.message).split('\n')[0]}` }; }
       return { ok: true, note: want ? '已勾選' : '已取消勾選' };
     }
@@ -539,7 +550,12 @@ export async function setCheckedRecorded(target, desired, { timeout = 10000 } = 
   }
   // ⚠️ 等待跟點擊要**共用同一個期限**。前面等了多久就要扣掉，
   //    否則點擊又重新拿一整個 timeout，最差會拖到將近兩倍。（CodeX 2026-09-17 P2）
-  const left = Math.max(500, deadline - Date.now());
+  // ⚠️ 不能用 Math.max(500, …)——剩餘不足、甚至已經逾時時，那會再白給 500ms。
+  //    期限到了就是到了。（CodeX 2026-09-17 P2）
+  const left = deadline - Date.now();
+  if (left <= 0) {
+    return { ok: false, problem: `等到期限都沒能操作到可見的勾選框（${proxy.kind}）` };
+  }
   try { await proxy.locator.click({ timeout: left }) }
   catch (e) { return { ok: false, problem: `點不到可見的勾選框（${proxy.kind}）：${String(e.message).split('\n')[0]}` } }
 
