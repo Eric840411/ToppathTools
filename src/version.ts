@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.157.3'
+export const APP_VERSION = '4.158.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.158.0', date: '2026-09-17', changes: ['fix(uat): `勾選` 積木在 Element UI 的勾選框上會等到 30 秒逾時（使用者回報第 28 步）——真正的 `<input class="el-checkbox__original">` 被藏起來（0×0、移到畫面外），看得見的是 `.el-checkbox__inner`；Playwright 不操作不可見的元素。預檢其實已經寫出「不可見· 0×0」', 'fix(uat): 隱藏的勾選框改操作看得見的代理元素，但**有邊界**（CodeX：不可泛化成「往上找可見祖先就點」，會點到整列或別的控制項）：只認 `label[for]`、祖先 `label`、所屬 el-checkbox/el-radio 內**唯一**的 inner；找不到或有歧義就報錯不猜', 'fix(uat): 先讀 checked——**已經符合就不碰**（亂點會把它反向取消，重跑腳本時特別危險）；要改先確認沒 disabled；點完**回頭驗原 input 的狀態**，點得到不代表改得到', '⚠️ fix(uat): 不可見**不能**一律當成失敗（CodeX）——Playwright 本來就會等可操作條件，有些元素只是「即將可見」。認得出的隱藏 input 直接走代理不用等，其他情況保留有上限的等待', '⚠️ chore(uat): 錄製端**不改**——仍然錄原生 input 加目標狀態。改成錄「點可見 span」的話，重跑時會反向取消勾選（CodeX 指出）。修執行端新舊腳本都受益', 'test(uat): 91 項；覆蓋勾選／取消／已符合／disabled／找不到代理／代理歧義／延遲出現／點了但狀態沒變，以及**實際錄製→重播**（含「再跑一次不會反向取消」）；四種注入分別轉紅'] },
   { version: '4.157.3', date: '2026-09-17', changes: ['test(uat): P2——時序斷言只證明了「click 拋錯」，沒證明「逾時」（CodeX 指出）。包裝器在**任何**例外下都設旗標並插入重複，若先發生別的錯誤，最後仍會因為 JS 層的歧義而全綠——驗到的就不是指定的那個時序', 'test(uat): 改成只有 Playwright 的 TimeoutError 才設旗標並插入重複，其他錯誤直接重拋；並加一條斷言釘住「拋的確實是 TimeoutError」', 'test(uat): 76 項；注入非逾時錯誤時 4 項轉紅（含「按鈕真的被按下去」）。拿掉那道閘之後只剩 1 項紅——而那一項正是新加的斷言，泒有它就是全綠，這就是 P2 本人'] },
   { version: '4.157.2', date: '2026-09-17', changes: ['test(uat): 時序測試改成確定性——包裝真實的 click()，等它真的逾時了才插入重複、再把原錯誤重拋；原本的 300ms 定時器只是「大概會在那個區間」，可能因為錯的理由而綠（CodeX 指出）', 'test(uat): 定位的兩條分支（text=/label= 與純 CSS）分開驗——只驗一條的話，另一條退回 .first() 不會紅；實測確認兩種注入各自對應到不同的紅', 'docs(uat): 把驗收標準寫死——**產品入口、實際副作用、對應缺陷注入會紅（且每條分支分開注入）**。這一輪「看起來是防線、實際量的是一個不可能失敗的東西」出現五次，五種形狀都記在文件裡', 'test(uat): 75 項；三種注入（text= 分支、CSS 分支、JS 備援吞歧義）分別轉紅'] },
   { version: '4.157.1', date: '2026-09-17', changes: ['fix(uat): P1——唯一模式仍然回 （CodeX review）。 等於「明言只要第一個」，Playwright 就不會在動作當下再做 strict 檢查——檢查完才新增的重複元素永遠檢查不到，勾選／選項／讀取／pressKey 仍會安靜動第一個。改回完整 locator', 'fix(uat): P1——JS 備援的  會把 strict mode 錯誤吞成「點不到」，然後掉進**座標點擊**（CodeX review）。歧義在每一層都要拋出去', 'chore(uat): 點擊流程（含兩層備援）抽成 clickRecorded()，runner 與測試跑同一支——不抽的話測試只能自己設旗標，證明不了 runner 沒呼叫備援', 'test(uat): 70 項；新增三種時序情境（拿到 locator 後變多筆、click 逾時後 JS 備援前變多筆、遮罩但不歧義時備援要照常可用），並**監聽 page.mouse.click** 當作座標備援的客觀證據', '⚠️ test(uat): 第一版的時序測試驗的是 createRecordedLocators()，而 P1 在 locateRecorded()——注入  不會紅。兩支分開驗之後才拓得到（注入時會看到按鈕真的被按下去）'] },

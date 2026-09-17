@@ -25,7 +25,7 @@
  *
  * params 的 type：text | number | textarea | select | boolean
  */
-import { locateRecorded, countRecorded, describeLocateFailure, ambiguityMessage } from './recorded-selector.js';
+import { locateRecorded, countRecorded, describeLocateFailure, ambiguityMessage, setCheckedRecorded } from './recorded-selector.js';
 
 export const BLOCK_DEFS = {
   set_tc_result: {
@@ -692,7 +692,11 @@ export async function runSteps(steps, ctx, options = {}) {
       } else if (step.action === 'set_checked') {
         const one = await singleTarget(ctx.page, step.selector, step.selector);
         if (one.problem) { if (fail(step, `${tag}：${one.problem}`) === 'stop') break; continue }
-        await one.locator.setChecked(Boolean(step.checked));
+        // ⚠️ 不能直接 setChecked：Element UI 把真正的 input 藏起來（0×0、移出畫面），
+        //    Playwright 不操作不可見的元素，會一直等到 30 秒逾時。詳見 setCheckedRecorded。
+        const done = await setCheckedRecorded(one.locator, step.checked);
+        if (!done.ok) { if (fail(step, `${tag}：${done.problem}`) === 'stop') break; continue }
+        notes.push(`${tag}：${done.note}`);
       } else if (step.action === 'select_option') {
         const one = await singleTarget(ctx.page, step.selector, step.selector);
         if (one.problem) { if (fail(step, `${tag}：${one.problem}`) === 'stop') break; continue }

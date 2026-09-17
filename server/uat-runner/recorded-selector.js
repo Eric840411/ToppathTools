@@ -332,6 +332,92 @@ export async function clickRecorded({ page, locator, selector, waitMs = 0, viewp
 }
 
 /**
+ * 隱藏的原生 checkbox/radio → 看得見、點得到的代理元素。
+ *
+ * ## 為什麼需要
+ * Element UI 把真正的 `<input class="el-checkbox__original">` 藏起來（0×0、移到畫面外），
+ * 看得見的是它畫出來的 `.el-checkbox__inner`。錄製到的是真正的 input（那是對的），
+ * 但 Playwright 不操作不可見的元素，所以 `setChecked` 會一直等到逾時。
+ * （使用者 2026-09-17 回報：第 28 步 30 秒逾時，預檢寫「命中 1 個·不可見· 0×0」。）
+ *
+ * ## 為什麼不能「往上找可見祖先就點」（CodeX 2026-09-17）
+ * 那會點到整列或別的控制項。所以只認**明確關聯**的三種，而且每種都要唯一：
+ *   ① `label[for=<input id>]`　② 祖先 `<label>`　③ 所屬 el-checkbox/el-radio 內唯一的 inner
+ * 找不到或有歧義就回 problem，不猜。
+ */
+export async function hiddenToggleProxy(inputLocator) {
+  const uniqueOrNull = async (loc) => {
+    try { return await loc.count() === 1 && await loc.isVisible() ? loc : null } catch { return null }
+  };
+
+  // ③ 先試 Element UI 的 inner：它比整個 label 窄，不會碰到 label 裡的文字或其他控件
+  for (const kind of ['el-checkbox', 'el-radio']) {
+    const owner = inputLocator.locator(`xpath=ancestor::*[contains(concat(' ', normalize-space(@class), ' '), ' ${kind} ')][1]`);
+    const inner = await uniqueOrNull(owner.locator(`.${kind}__inner`));
+    if (inner) return { locator: inner, kind: `${kind}__inner`, problem: '' };
+  }
+
+  // ① 明確用 for= 關聯的 label
+  const id = await inputLocator.getAttribute('id').catch(() => null);
+  if (id) {
+    const page = inputLocator.page();
+    const byFor = await uniqueOrNull(page.locator(`label[for="${id.replace(/"/g, '\\"')}"]`));
+    if (byFor) return { locator: byFor, kind: 'label[for]', problem: '' };
+  }
+
+  // ② 直接包著它的 label
+  const wrapping = await uniqueOrNull(inputLocator.locator('xpath=ancestor::label[1]'));
+  if (wrapping) return { locator: wrapping, kind: 'label', problem: '' };
+
+  return { locator: null, kind: '', problem: '這個勾選框是隱藏的，而且找不到明確關聯的可點元素（label 或 el-checkbox 的方框）' };
+}
+
+/**
+ * 把一個錄製到的 checkbox 設成指定狀態。回 `{ ok, note, problem }`。
+ *
+ * 順序是 CodeX 定的：
+ *   1. 先讀現在的 checked——**已經符合就不碰**（乱點會把它反向取消）
+ *   2. 要改才確認沒 disabled
+ *   3. 可見就正常 setChecked；隱藏且找得到代理就**正常點擊代理**（不是 DOM click()）
+ *   4. 最後**回頭驗原 input 的狀態**——點了不代表真的改成功
+ *
+ * ⚠️ 不可見不能一律當成失敗：Playwright 本來就會等可操作條件，
+ *    有些元素只是「即將可見」。認得出來的隱藏 input 直接走代理（不用等），
+ *    其他情況保留有上限的等待，逾時再把原因講清楚。（CodeX 2026-09-17）
+ */
+export async function setCheckedRecorded(target, desired, { timeout = 10000 } = {}) {
+  const want = Boolean(desired);
+  let current;
+  try { current = await target.isChecked() } catch (e) { return { ok: false, problem: `讀不到勾選狀態：${String(e.message).split('\n')[0]}` } }
+  if (current === want) return { ok: true, note: `已經是${want ? '勾選' : '未勾選'}，不重複點` };
+
+  if (await target.isDisabled().catch(() => false)) {
+    return { ok: false, problem: `這個勾選框是 disabled，改不了（目前${current ? '已勾' : '未勾'}，預期${want ? '勾選' : '未勾選'}）` };
+  }
+
+  const visible = await target.isVisible().catch(() => false);
+  if (visible) {
+    try { await target.setChecked(want, { timeout }) }
+    catch (e) { return { ok: false, problem: `設定勾選失敗：${String(e.message).split('\n')[0]}` } }
+    return { ok: true, note: want ? '已勾選' : '已取消勾選' };
+  }
+
+  const proxy = await hiddenToggleProxy(target);
+  if (!proxy.locator) {
+    return { ok: false, problem: `${proxy.problem}。這種元素 Playwright 不會去點，會一直等到逾時` };
+  }
+  try { await proxy.locator.click({ timeout }) }
+  catch (e) { return { ok: false, problem: `點不到可見的勾選框（${proxy.kind}）：${String(e.message).split('\n')[0]}` } }
+
+  // 點了不代表成功——回頭驗原 input
+  const after = await target.isChecked().catch(() => null);
+  if (after !== want) {
+    return { ok: false, problem: `點了${proxy.kind}，但勾選狀態沒有變成預期（目前${after === null ? '讀不到' : after ? '已勾' : '未勾'}）` };
+  }
+  return { ok: true, note: `${want ? '已勾選' : '已取消勾選'}（原生框是隱藏的，改點 ${proxy.kind}）` };
+}
+
+/**
  * 建立執行端的兩支定位函式。**runner 與測試 import 同一支**，不要各寫一份。
  *
  * ⚠️ 這支會被抽出來，是因為測試原本是**自己判定「這種情況應該被拒絕」**：

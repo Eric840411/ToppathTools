@@ -30,6 +30,8 @@ function makeCtx(pageData = {}, builtin = null) {
   const calls = [];
   const counts = {};
   const texts = {};
+  const checked = {};
+  const disabled = {};
   const makeLocator = (sel) => {
     const n = sel in counts ? counts[sel] : (sel in pageData ? 1 : 0);
     const self = {
@@ -38,10 +40,14 @@ function makeCtx(pageData = {}, builtin = null) {
       first() { return self },
       nth() { return self },
       async isVisible() { return n > 0 },
+      // 勾選狀態：產品現在會先讀 isChecked（已符合就不點）再確認 isDisabled。
+      // 假 page 沒這兩個的話，測試驗的又會是一條產品已經不走的路徑。
+      async isChecked() { return Boolean(checked[sel]) },
+      async isDisabled() { return Boolean(disabled[sel]) },
+      async setChecked(v) { checked[sel] = v; calls.push({ kind: 'setChecked', sel, v }) },
       async innerText() { return String(texts[sel] ?? '') },
       async focus() {},
       async click() {},
-      async setChecked(v) { calls.push({ kind: 'setChecked', sel, v }) },
       async selectOption(v) { calls.push({ kind: 'selectOption', sel, v }) },
       async boundingBox() { return null },
       async elementHandle() { return n ? { __sel: sel } : null },
@@ -54,6 +60,8 @@ function makeCtx(pageData = {}, builtin = null) {
     page: {
       __counts: counts,
       __texts: texts,
+      __checked: checked,
+      __disabled: disabled,
       url: () => 'https://stub.test/',
       async evaluate(fn, args) {
         calls.push({ kind: 'evaluate', args });

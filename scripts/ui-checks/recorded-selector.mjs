@@ -29,7 +29,7 @@ import { backendRecorderScript, RECORDER_MARKER } from '../../server/uat-runner/
 import {
   legacyTableAnchorVariant, resolveRecordedSelector, verifyRecordedSelectorLive,
   applySelectorChecks, SELECTOR_CHECK_STATUSES, createRecordedLocators, isAmbiguityError, clickRecorded,
-  locateRecorded,
+  locateRecorded, setCheckedRecorded, hiddenToggleProxy,
 } from '../../server/uat-runner/recorded-selector.js';
 import { runMultiTcSteps } from '../../server/uat-runner/multi-tc.js';
 import { runSteps } from '../../server/uat-runner/block-engine.js';
@@ -524,6 +524,141 @@ try {
       rNone.pass === false && /找不到/.test(rNone.criticalFails.join('')), true);
 
     await realPage.close();
+  }
+
+  // ── (g) 隱藏的 Element UI 勾選框 ────────────────────────────
+  //
+  // 使用者 2026-09-17 回報：第 28 步 `setChecked` 等到 30 秒逾時，
+  // 預檢寫「命中 1 個·不可見·位置 (-214, 428)，0 × 0」。
+  // Element UI 把真正的 input 藏起來，看得見的是 `.el-checkbox__inner`。
+  console.log('\n── 隱藏的勾選框 ──');
+  {
+    const EL_CSS = `<style>
+      .el-checkbox__original{opacity:0;position:absolute;margin:0;width:0;height:0;z-index:-1}
+      .el-checkbox__inner{display:inline-block;width:14px;height:14px;border:1px solid #999}
+    </style>`;
+    const cb = (id, attrs = '') => `<label class="el-checkbox" data-k="${id}"><span class="el-checkbox__input">
+      <span class="el-checkbox__inner"></span><input type="checkbox" class="el-checkbox__original" ${attrs}>
+    </span></label>`;
+
+    const pg = await browser.newPage();
+    await pg.setContent(`${EL_CSS}
+      ${cb('plainoff')}
+      ${cb('plainon', 'checked')}
+      ${cb('dis', 'disabled')}
+      <div data-k="bare"><input type="checkbox" class="el-checkbox__original"></div>
+      <div data-k="naked"><input type="checkbox" id="n1"><label for="n1">看得見的</label></div>`);
+    const input = (k) => pg.locator(`[data-k="${k}"] input`);
+
+    // ① 勾選：原本會 30 秒逾時，現在要真的勾起來
+    const r1 = await setCheckedRecorded(input('plainoff'), true, { timeout: 1500 });
+    eq('隱藏框：勾選成功', r1.ok, true);
+    eq('隱藏框：原 input 真的被勾了', await input('plainoff').isChecked(), true);
+
+    // ② 取消勾選
+    const r2 = await setCheckedRecorded(input('plainon'), false, { timeout: 1500 });
+    eq('隱藏框：取消勾選成功', r2.ok, true);
+    eq('隱藏框：原 input 真的被取消了', await input('plainon').isChecked(), false);
+
+    // ③ 已經符合就不碰——亂點會把它反向取消
+    const before = await input('plainoff').isChecked();
+    const r3 = await setCheckedRecorded(input('plainoff'), true, { timeout: 1500 });
+    eq('已符合：不重複點', r3.ok && /不重複點/.test(r3.note || ''), true);
+    eq('已符合：狀態沒被反向改掉', await input('plainoff').isChecked(), before);
+
+    // ④ disabled 要明講，不要等到逾時
+    const r4 = await setCheckedRecorded(input('dis'), true, { timeout: 1500 });
+    eq('disabled：失敗且說得出是 disabled', r4.ok === false && /disabled/.test(r4.problem || ''), true);
+
+    // ⑤ 隱藏、但找不到明確關聯的可點元素 → 不猜，要說清楚
+    const r5 = await setCheckedRecorded(input('bare'), true, { timeout: 1200 });
+    eq('沒代理：不猜、說明原因', r5.ok === false && /找不到明確關聯/.test(r5.problem || ''), true);
+
+    // ⑥ 普通的 label[for] 也要能走
+    const r6 = await setCheckedRecorded(input('naked'), true, { timeout: 1500 });
+    eq('label[for]：也能勾到', r6.ok && await input('naked').isChecked(), true);
+
+    // ⑦ 代理歧義：同一個 el-checkbox 裡有兩個 inner → 不猜
+    await pg.setContent(`${EL_CSS}<label class="el-checkbox" data-k="amb"><span class="el-checkbox__input">
+      <span class="el-checkbox__inner"></span><span class="el-checkbox__inner"></span>
+      <input type="checkbox" class="el-checkbox__original">
+    </span></label>`);
+    const amb = await hiddenToggleProxy(pg.locator('[data-k="amb"] input'));
+    // 兩個 inner → inner 這條不成立；退到祖先 label 仍然是唯一的，那是合法的代理
+    eq('代理歧義：inner 不唯一時不拿它', amb.kind === 'el-checkbox__inner', false);
+
+    // ⑦b 點了代理、但狀態沒變——**不能當成成功**。
+    //     點得到不代表改得到；沒這條的話，畫面沒勾起來卻報經過。
+    await pg.setContent(`${EL_CSS}<label class="el-checkbox" data-k="dead" onclick="event.preventDefault()">
+      <span class="el-checkbox__input">
+        <span class="el-checkbox__inner"></span><input type="checkbox" class="el-checkbox__original">
+      </span></label>`);
+    const r7b = await setCheckedRecorded(pg.locator('[data-k="dead"] input'), true, { timeout: 1500 });
+    eq('點了代理但狀態沒變：要報錯不能當成功',
+      r7b.ok === false && /沒有變成預期/.test(r7b.problem || ''), true);
+
+    // ⑧ 延遲出現：不可見不能一律當成失敗，Playwright 本來就會等
+    await pg.setContent('<div id="late"></div>');
+    await pg.evaluate(() => setTimeout(() => {
+      document.getElementById('late').innerHTML = '<input type="checkbox" id="l1">';
+    }, 250));
+    const r8 = await setCheckedRecorded(pg.locator('#l1'), true, { timeout: 3000 });
+    eq('延遲出現：等到了就正常成功', r8.ok, true);
+
+    await pg.close();
+  }
+
+  // ── (h) 實際錄製 → 重播：隱藏勾選框走完整積木入口 ────────────
+  //
+  // 前面那一組是直接呼叫 setCheckedRecorded()；這一組走**錄製器實際產出的選擇器**
+  // 加上積木引擎的 set_checked，確認整條路徑都通。
+  console.log('\n── 錄製→重播：隱藏勾選框 ──');
+  {
+    const EL_CSS = '<style>.el-checkbox__original{opacity:0;position:absolute;margin:0;width:0;height:0;z-index:-1}'
+      + '.el-checkbox__inner{display:inline-block;width:14px;height:14px;border:1px solid #999}</style>';
+    const ROW = EL_CSS + `<table><tbody><tr>
+      <td><div class="cell"><label class="el-checkbox"><span class="el-checkbox__input">
+        <span class="el-checkbox__inner"></span><input type="checkbox" class="el-checkbox__original">
+      </span></label></div></td>
+      <td><div class="cell">4186-JJBX-0001</div></td>
+    </tr></tbody></table>`;
+
+    // 真的錄一次：點那個看得見的方框
+    const ctx4 = await browser.newContext();
+    await ctx4.addInitScript(backendRecorderScript());
+    const rec4 = await ctx4.newPage();
+    const evts4 = [];
+    rec4.on('console', m => {
+      const t = m.text();
+      if (t.startsWith(RECORDER_MARKER)) evts4.push(JSON.parse(t.slice(RECORDER_MARKER.length).trim()));
+    });
+    await rec4.goto('data:text/html,' + encodeURIComponent(ROW));
+    await rec4.evaluate(() => window.__toppathArmRecorder?.());
+    await rec4.waitForTimeout(150);
+    await rec4.click('.el-checkbox__inner');
+    await rec4.waitForTimeout(150);
+    await ctx4.close();
+
+    // 重播：用錄製產的選擇器指到原生 input（錄製端保留 input + 目標狀態，
+    // 不改成錄可見 span 的 click——否則重跑可能反向取消勾選）
+    const play = await browser.newPage();
+    await play.setContent(ROW);
+    const blockCtx4 = {
+      page: play,
+      openPath: async () => {},
+      resolveSubtypePath: () => null,
+      takeScreenshot: async () => null,
+      callBuiltin: async () => ({ notes: '', criticalFails: [], manual: false }),
+    };
+    const sel = 'tr:has(:text-is("4186-JJBX-0001")) > td:nth-of-type(1) input';
+    const r = await runSteps([{ action: 'set_checked', selector: sel, checked: true }], blockCtx4);
+    eq('重播：set_checked 積木通過', r.pass, true);
+    eq('重播：原 input 真的被勾了', await play.locator(sel).isChecked(), true);
+
+    // 再跑一次同樣的步驟：**不可以被反向取消**
+    const again = await runSteps([{ action: 'set_checked', selector: sel, checked: true }], blockCtx4);
+    eq('重播：再跑一次不會反向取消', again.pass && await play.locator(sel).isChecked(), true);
+    await play.close();
   }
 
   // ── 4b. 語法錯誤 vs 其他例外，不能混為一談 ───────────────────
