@@ -29,6 +29,14 @@ export interface AutoStep {
   failureMode?: StepFailureMode
   collapsed?: boolean
   children?: AutoStep[]
+  /** assert_api_called：要打到的 API 網址樣式（`*` 當萬用字元） */
+  urlPattern?: string
+  /** assert_api_called：狀態碼要求 */
+  expectStatus?: '2xx' | 'any' | 'exact'
+  /** assert_api_called：expectStatus 為 exact 時要比對的狀態碼 */
+  statusCode?: number
+  /** assert_api_called：至少要被打到幾次 */
+  minCount?: number
 }
 
 export interface AutoScript {

@@ -72,6 +72,8 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   // 錄製時的 console／network／pinus 攔截。agent-runner.ts **靜態 import** 它——
   // 漏了的話 agent 會在 import 當下整支炸掉，而錯誤只出現在 agent 的 stderr。
   'uat-runner/cdp-capture.js':         join(SERVER_ROOT, 'uat-runner', 'cdp-capture.js'),
+  // assert_api_called 的判定規則。block-engine 與 agent-runner 都靜態 import 它。
+  'uat-runner/api-assert.js':          join(SERVER_ROOT, 'uat-runner', 'api-assert.js'),
   // 後台積木執行器：run-lark-tc-backend.js 會 import 它，少送 agent 端會在 import 當下炸掉
   'uat-runner/block-engine.js':        join(SERVER_ROOT, 'uat-runner', 'block-engine.js'),
   'uat-runner/recorder-visual.js': join(SERVER_ROOT, 'uat-runner', 'recorder-visual.js'),

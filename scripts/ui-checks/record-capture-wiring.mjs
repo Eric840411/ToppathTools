@@ -36,11 +36,15 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { stripComments } from './lib/strip-comments.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
 // 註解裡寫著「我有做喔」不算做了。行註解要用 [^\r\n]，不能用 .*$（沒有 m 旗標時行為不同）
-const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
+// ⚠️ 剝註解**不能用純正則**。XPath 字串 "//*[...]" 裡的 /* 會被當成區塊註解開頭，
+//    一路吃到下一個 */——實測在 agent-runner.ts 上刪掉了 31% 的真實程式碼，
+//    而被刪掉的部分會讓斷言誤報、更糟的是讓「不得出現某模式」那類斷言假通過。
+const strip = stripComments;
 
 const capture = strip(read('server/uat-runner/cdp-capture.js'));
 const agentRunner = strip(read('server/agent-runner.ts'));

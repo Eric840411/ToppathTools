@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto'
 import { attachNetworkCapture, DEFAULT_THRESHOLDS } from '../uat-runner/net-capture.js'
 import { attachPinusProbe } from '../uat-runner/pinus-probe.js'
 import { attachCdpCapture } from '../uat-runner/cdp-capture.js'
+import { evaluateApiAssertion } from '../uat-runner/api-assert.js'
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 import { extname, join } from 'path'
 import { tmpdir } from 'os'
@@ -1099,6 +1100,13 @@ type StepObj = {
   threshold?: number
   scrollStep?: number
   maxScrolls?: number
+  /** assert_api_called：要打到的 API 網址樣式（`*` 當萬用字元）。
+   *  ⚠️ 前端的 AutoStep 加新欄位時，**這裡也要加**——這兩個型別各自宣告
+   *  同一個東西，漏了的話 server 端讀得到值但 TS 說欄位不存在。 */
+  urlPattern?: string
+  expectStatus?: '2xx' | 'any' | 'exact'
+  statusCode?: number
+  minCount?: number
   failureMode?: 'inherit' | 'continue' | 'stop' | 'retry'
   retryCount?: number
 }
@@ -1201,6 +1209,10 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
     let browser: import('playwright').Browser | null = null
     let chromeProc: ChildProcess | null = null
     let netCapture: ReturnType<typeof attachNetworkCapture> | null = null
+    // assert_api_called 只看「這一步之後」打的 API。每次 goto 之後往前推——
+    // 問的是「開了這頁、做了這些操作之後有沒有打到它」，不是整輪跑下來有沒有出現過。
+    // ⚠️ 不推的話，第一次 goto 之前的請求會永遠留在集合裡，斷言變成幾乎不可能失敗。
+    let netMark = Date.now()
     let pinusProbe: Awaited<ReturnType<typeof attachPinusProbe>> | null = null
     let pinusDrainTimer: ReturnType<typeof setInterval> | null = null
     let statsTimer: ReturnType<typeof setInterval> | null = null
@@ -1291,6 +1303,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
             await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 })
             await page.waitForTimeout(3000)
             await log(`✅ ${idx} ${label}`)
+            netMark = Date.now()
             passed++
           } else if (step.action === 'click') {
             await log(`⏳ ${idx} ${label}`)
@@ -1350,6 +1363,19 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
             }
             if (!found) throw new Error(`baseline "${baseline.name}" not found before page bottom`)
             await log(`✅ ${idx} ${label} → (${found.x}, ${found.y}), diff ${found.diff.toFixed(3)}`)
+            passed++
+          } else if (step.action === 'assert_api_called') {
+            await log(`⏳ ${idx} ${label}`)
+            // ⚠️ 拿不到網路紀錄一定要**失敗**，不能落到下面那個 skip 分支。
+            //    斷言被安靜跳過而腳本照樣 PASS，比直接報錯糟得多。
+            if (!netCapture) throw new Error('這個執行環境沒有網路紀錄可查（量測沒有掛上）')
+            if (!step.urlPattern) throw new Error('沒有填 API 網址樣式')
+            const verdict = evaluateApiAssertion(
+              netCapture.records().filter(r => Number(r.ts) >= netMark),
+              { urlPattern: step.urlPattern, expectStatus: step.expectStatus, statusCode: step.statusCode, minCount: step.minCount },
+            )
+            if (!verdict.ok) throw new Error(`${step.urlPattern} —— ${verdict.why}`)
+            await log(`✅ ${idx} ${label}（${verdict.why}）`)
             passed++
           } else if (step.action === 'assert_visible') {
             await log(`⏳ ${idx} ${label}`)

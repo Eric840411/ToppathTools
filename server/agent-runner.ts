@@ -30,6 +30,7 @@ import { hashSources, hashOne, RESTART_REQUIRED_SOURCES } from './agent-source-h
 import { attachNetworkCapture, DEFAULT_THRESHOLDS } from './uat-runner/net-capture.js'
 import { attachPinusProbe } from './uat-runner/pinus-probe.js'
 import { attachCdpCapture } from './uat-runner/cdp-capture.js'
+import { evaluateApiAssertion } from './uat-runner/api-assert.js'
 import { verifyRecordedSelectorLive } from './uat-runner/recorded-selector.js'
 import { MachineTestRunner } from './machine-test/runner.js'
 import type { MachineTestSession, MachineProfile, TestEvent } from './machine-test/types.js'
@@ -687,7 +688,7 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
   }
   const log = (line: string) => sendEvent({ kind: 'log', line })
 
-  type StepObj = { name?: string; action: string; value?: string; selector?: string; x?: number; y?: number; baselineId?: string; threshold?: number; scrollStep?: number; maxScrolls?: number; failureMode?: 'inherit' | 'continue' | 'stop' | 'retry'; retryCount?: number }
+  type StepObj = { name?: string; action: string; value?: string; selector?: string; x?: number; y?: number; baselineId?: string; threshold?: number; scrollStep?: number; maxScrolls?: number; failureMode?: 'inherit' | 'continue' | 'stop' | 'retry'; retryCount?: number; urlPattern?: string; expectStatus?: '2xx' | 'any' | 'exact'; statusCode?: number; minCount?: number }
   let steps: StepObj[]
   try { steps = JSON.parse(stepsRaw) as StepObj[] } catch {
     await log('❌ 步驟 JSON 解析失敗')
@@ -704,6 +705,10 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
   const pw = await import('playwright')
   let browser: import('playwright').Browser | null = null
   let netCapture: ReturnType<typeof attachNetworkCapture> | null = null
+  // assert_api_called 只看「這一步之後」打的 API。每次 goto 之後往前推——
+  // 問的是「開了這頁、做了這些操作之後有沒有打到它」，不是整輪跑下來有沒有出現過。
+  // ⚠️ 不推的話，第一次 goto 之前的請求會永遠留在集合裡，斷言變成幾乎不可能失敗。
+  let netMark = Date.now()
   let pinusProbe: Awaited<ReturnType<typeof attachPinusProbe>> | null = null
   let pinusDrainTimer: ReturnType<typeof setInterval> | null = null
   let statsTimer: ReturnType<typeof setInterval> | null = null
@@ -794,6 +799,7 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
           await page.waitForTimeout(3000)
           await log(`✅ ${idx} ${label}`)
           sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
+          netMark = Date.now()
           passed++
         } else if (step.action === 'click') {
           await log(`⏳ ${idx} ${label}`)
@@ -830,6 +836,20 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
           await log(`⏳ ${idx} ${label}`)
           await page.screenshot()
           await log(`✅ ${idx} ${label}`)
+          sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
+          passed++
+        } else if (step.action === 'assert_api_called') {
+          await log(`⏳ ${idx} ${label}`)
+          // ⚠️ 拿不到網路紀錄一定要**失敗**，不能落到下面那個 skip 分支。
+          //    斷言被安靜跳過而腳本照樣 PASS，比直接報錯糟得多。
+          if (!netCapture) throw new Error('這個執行環境沒有網路紀錄可查（量測沒有掛上）')
+          if (!step.urlPattern) throw new Error('沒有填 API 網址樣式')
+          const verdict = evaluateApiAssertion(
+            netCapture.records().filter(r => Number(r.ts) >= netMark),
+            { urlPattern: step.urlPattern, expectStatus: step.expectStatus, statusCode: step.statusCode, minCount: step.minCount },
+          )
+          if (!verdict.ok) throw new Error(`${step.urlPattern} —— ${verdict.why}`)
+          await log(`✅ ${idx} ${label}（${verdict.why}）`)
           sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
           passed++
         } else if (step.action === 'assert_visible') {

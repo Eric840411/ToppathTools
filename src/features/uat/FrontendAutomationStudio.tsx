@@ -62,6 +62,8 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
   const [recConsoleDropped, setRecConsoleDropped] = useState(0)
   /** pinus 補丁打在哪。null 代表這頁沒有 pinus（後台站就會是這樣），不是攔截壞了 */
   const [pinusPatched, setPinusPatched] = useState<string | null>(null)
+  /** 錄製時抓到的 API，用來一鍵變成 assert_api_called */
+  const [recApiCalls, setRecApiCalls] = useState<{ method?: string; url: string; urlPattern?: string; status?: number | null }[]>([])
   const [running, setRunning] = useState(false)
   const [notice, setNotice] = useState('')
   const [runConfig, setRunConfig] = useState({
@@ -199,7 +201,11 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
       }
       // 錄製時的 network／pinus 走跟執行時同一個面板——資料形狀本來就一樣，
       // 沒有理由做第二套 UI。
-      if (status.stats) { setNetStats(status.stats); setStatsAt(Date.now()) }
+      if (status.stats) {
+        setNetStats(status.stats); setStatsAt(Date.now())
+        // ⚠️ 兩條路（輪詢與停止）都要更新。少一邊的話「停止之後才想加斷言」會拿到舊清單。
+        if (status.stats.net?.apiCalls) setRecApiCalls(status.stats.net.apiCalls)
+      }
       // console 整包覆蓋而不是 append：server 端已經裁到上限了，
       // 這裡再 append 會跟它重複，變成同一行出現很多次。
       if (status.consoleLogs) setRecConsole(status.consoleLogs)
@@ -231,7 +237,10 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
     if (data.steps?.length) setSteps(parseSteps(JSON.stringify(data.steps)))
     // ⚠️ 停止之後 session 就被移除了，再打 /record/status 只會拿到 found:false。
     //    最後一份量測只有這個回應帶得回來，不接的話畫面會在停止當下**突然清空**。
-    if (data.stats) { setNetStats(data.stats); setStatsAt(Date.now()) }
+    if (data.stats) {
+      setNetStats(data.stats); setStatsAt(Date.now())
+      if (data.stats.net?.apiCalls) setRecApiCalls(data.stats.net.apiCalls)
+    }
     if (data.consoleLogs) setRecConsole(data.consoleLogs)
     if (typeof data.consoleDropped === 'number') setRecConsoleDropped(data.consoleDropped)
     if (data.pinusPatched !== undefined) setPinusPatched(data.pinusPatched ?? null)
@@ -346,6 +355,42 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
             <NetworkPanel stats={netStats} themeMode={themeMode} updatedAt={statsAt} />
             {/* 錄製時攔到的 console／pageerror。沒有錄過就整塊不顯示——
                 空面板會讓人以為「攔到了但沒東西」，而實際上是還沒錄。 */}
+            {/* 錄製時抓到的 API，可以直接變成一顆「這支 API 必須被呼叫」。
+                存的是 urlPattern 不是原始網址——原始網址裡的 id／token／時間戳
+                直接當條件的話，換一筆資料或隔一天重跑就全紅。 */}
+            {!!recApiCalls.length && (
+              <section className="uat-panel uat-inscribed-panel">
+                <div className="uat-section-title">
+                  <span>{xianxia ? 'TRACED CALLS' : 'RECORDED API'}</span>
+                  <h3>{xianxia ? '錄製時的往來符訊' : '錄製時的 API'}</h3>
+                </div>
+                <p className="uat-hint">
+                  {xianxia ? '點「加入檢查」可把該符訊化為驗證術式，並自行移到對應步驟之後。'
+                    : '點「加入檢查」會在步驟最後加一顆斷言，請自行拖到對應操作之後——它只檢查「那一步之後」有沒有打到。'}
+                </p>
+                {recApiCalls.map((call, i) => (
+                  <div className="uat-multi-api" key={`${call.url}-${i}`}>
+                    <code>{call.method ?? 'GET'} {call.urlPattern || call.url} — {call.status ?? '—'}</code>
+                    <button
+                      type="button"
+                      className="uat-btn is-quiet"
+                      disabled={call.status === null || call.status === undefined}
+                      title={call.status === null || call.status === undefined
+                        ? '這筆沒有狀態碼（可能還沒完成或失敗了），不能當成斷言'
+                        : call.url}
+                      onClick={() => {
+                        const step = createStep('assert_api_called')
+                        step.name = `API：${call.urlPattern || call.url}`
+                        step.urlPattern = call.urlPattern || call.url
+                        setSteps(prev => [...prev, step])
+                        setDirty(true)
+                        setNotice(`已加入斷言：${step.urlPattern}（請拖到對應操作之後）`)
+                      }}
+                    >{xianxia ? '化為術式' : '加入檢查'}</button>
+                  </div>
+                ))}
+              </section>
+            )}
             {(recConsole.length > 0 || pinusPatched !== null) && (
               <section className="uat-panel uat-log-panel uat-inscribed-panel">
                 <div className="uat-section-title">

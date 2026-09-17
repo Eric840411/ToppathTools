@@ -204,6 +204,10 @@ export function attachNetworkCapture(page, options = {}) {
       collector.add({
         url: request.url(),
         method: request.method(),
+        // 錄製端（cdp-capture.js）也存這個。兩邊都存，assert_api_called 才能
+        // 「錄製時存 pattern、執行時比真實網址」兩邊都比得到——只有一邊存的話，
+        // 症狀是「錄的時候明明有，跑起來永遠對不上」。
+        urlPattern: toUrlPattern(request.url()),
         kind,
         resourceType: request.resourceType(),
         status: response ? response.status() : null,

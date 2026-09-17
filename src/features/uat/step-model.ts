@@ -10,6 +10,7 @@ export const STEP_LIBRARY = [
   { action: 'screenshot', label: '截圖', category: 'evidence', description: '擷取目前畫面' },
   { action: 'assert_visible', label: '驗證可見', category: 'assertion', description: '確認元素出現在畫面' },
   { action: 'find_baseline_scroll', label: '尋找基準圖', category: 'assertion', description: '捲動並比對基準圖' },
+  { action: 'assert_api_called', label: '這支 API 必須被呼叫', category: 'assertion', description: '這一步要打到指定的後端 API，而且狀態碼要符合' },
   { action: 'group', label: '步驟群組', category: 'flow', description: '整理一組可收合步驟' },
   { action: 'repeat', label: '重複區塊', category: 'flow', description: '依次數重複子步驟' },
 ] as const
@@ -34,6 +35,7 @@ export function createStep(action = 'goto'): AutoStep {
     step.children = []
   }
   if (action === 'group') step.children = []
+  if (action === 'assert_api_called') { step.expectStatus = '2xx'; step.minCount = 1 }
   return step
 }
 
@@ -54,6 +56,10 @@ function normalizeOne(item: unknown, index: number): AutoStep {
   if (typeof row.threshold === 'number') step.threshold = row.threshold
   if (typeof row.scrollStep === 'number') step.scrollStep = row.scrollStep
   if (typeof row.maxScrolls === 'number') step.maxScrolls = row.maxScrolls
+  if (typeof row.urlPattern === 'string') step.urlPattern = row.urlPattern
+  if (row.expectStatus === '2xx' || row.expectStatus === 'any' || row.expectStatus === 'exact') step.expectStatus = row.expectStatus
+  if (typeof row.statusCode === 'number') step.statusCode = row.statusCode
+  if (typeof row.minCount === 'number') step.minCount = row.minCount
   if (typeof row.retryCount === 'number') step.retryCount = row.retryCount
   if (row.failureMode === 'continue' || row.failureMode === 'stop' || row.failureMode === 'retry') step.failureMode = row.failureMode
   if (Array.isArray(row.children)) step.children = row.children.map(normalizeOne)
@@ -75,8 +81,11 @@ export function serializeSteps(steps: AutoStep[]) {
 
 function cleanStep(step: AutoStep): Record<string, unknown> {
   const row: Record<string, unknown> = { id: step.id, name: step.name.trim() || actionLabel(step.action), action: step.action }
-  for (const key of ['value', 'selector', 'baselineId'] as const) if (step[key]?.trim()) row[key] = step[key]?.trim()
-  for (const key of ['x', 'y', 'threshold', 'scrollStep', 'maxScrolls', 'retryCount'] as const) if (typeof step[key] === 'number') row[key] = step[key]
+  // ⚠️ 新增參數欄位時**這兩行一定要一起加**。漏了的話步驟在畫面上編得好好的，
+  //    存檔（serialize）之後參數就消失了，而且不會有任何錯誤——重新載入才發現變空的。
+  for (const key of ['value', 'selector', 'baselineId', 'urlPattern'] as const) if (step[key]?.trim()) row[key] = step[key]?.trim()
+  for (const key of ['x', 'y', 'threshold', 'scrollStep', 'maxScrolls', 'retryCount', 'statusCode', 'minCount'] as const) if (typeof step[key] === 'number') row[key] = step[key]
+  if (step.expectStatus) row.expectStatus = step.expectStatus
   if (step.failureMode && step.failureMode !== 'inherit') row.failureMode = step.failureMode
   if (CONTAINER_ACTIONS.has(step.action)) row.children = (step.children ?? []).map(cleanStep)
   return row

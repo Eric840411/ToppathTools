@@ -25,6 +25,7 @@
  *
  * params 的 type：text | number | textarea | select | boolean
  */
+import { evaluateApiAssertion } from './api-assert.js';
 import { locateRecorded, countRecorded, describeLocateFailure, ambiguityMessage, setCheckedRecorded } from './recorded-selector.js';
 
 export const BLOCK_DEFS = {
@@ -910,24 +911,13 @@ export async function runSteps(steps, ctx, options = {}) {
         if (typeof ctx.netCallsSince !== 'function') {
           if (fail(step, `${tag}：這個執行環境沒有網路紀錄可查（runner 版本太舊）`) === 'stop') break; continue;
         }
-        const calls = ctx.netCallsSince(netMark) ?? [];
-        const rx = wildcardToRegExp(step.urlPattern);
-        const matched = calls.filter(c => rx.test(String(c.url ?? '')) || rx.test(String(c.urlPattern ?? '')));
-        const mode = step.expectStatus ?? '2xx';
-        const statusOk = (c) => {
-          if (mode === 'any') return true;
-          if (mode === 'exact') return Number(c.status) === Number(step.statusCode);
-          return Number(c.status) >= 200 && Number(c.status) < 300;
-        };
-        const good = matched.filter(statusOk);
-        const need = step.minCount === undefined ? 1 : Number(step.minCount);
-        if (good.length < need) {
-          const why = matched.length
-            ? `打到了 ${matched.length} 次但狀態碼不符（實際：${[...new Set(matched.map(c => c.status))].join('、')}）`
-            : `完全沒有打到這支 API（這一步總共打了 ${calls.length} 支）`;
-          if (fail(step, `${tag}：${step.urlPattern} —— ${why}`) === 'stop') break; continue;
+        // ⚠️ 判定規則在 api-assert.js，**三個引擎共用同一份**（Backend 與 H5/PC 的
+        //    兩個引擎）。搬回來自己算的話會變成「同一條斷言，Backend 判過、H5 判不過」。
+        const verdict = evaluateApiAssertion(ctx.netCallsSince(netMark) ?? [], step);
+        if (!verdict.ok) {
+          if (fail(step, `${tag}：${step.urlPattern} —— ${verdict.why}`) === 'stop') break; continue;
         }
-        notes.push(`✅ ${tag}：${step.urlPattern}（${good.length} 次，狀態 ${[...new Set(good.map(c => c.status))].join('、')}）`);
+        notes.push(`✅ ${tag}：${step.urlPattern}（${verdict.why}）`);
 
       } else if (step.action === 'submit_search') {
         // 報表頁要先送出查詢才會有資料與匯出按鈕。View／Search 兩種字都要試——
