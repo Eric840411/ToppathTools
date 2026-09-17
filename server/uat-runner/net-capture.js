@@ -53,12 +53,24 @@ const MAX_RECORDS = 4000;
 const API_LIST_MAX = 60;
 const SLOWEST_N = 10;
 
-/** Playwright resourceType → 我們的分類 */
-function classify(resourceType) {
-  if (resourceType === 'xhr' || resourceType === 'fetch') return 'api';
-  if (resourceType === 'image') return 'image';
+/**
+ * resourceType → 我們的分類。
+ *
+ * ⚠️ **一定要先轉小寫。** Playwright 給的是 `xhr`／`fetch`／`image`，
+ *    CDP（`Network.requestWillBeSent.type`）給的是 `XHR`／`Fetch`／`Image`——
+ *    大寫的那組如果不正規化，會**全部掉進 `other`**：畫面上 API 永遠 0 筆、
+ *    圖檔永遠 0 筆，但不會有任何錯誤，看起來就像「這頁沒打 API」。
+ *    錄製走的是 CDP、執行走的是 Playwright，兩邊共用這支，所以這裡一定要吃兩種。
+ */
+export function classifyResourceType(resourceType) {
+  const t = String(resourceType ?? '').toLowerCase();
+  if (t === 'xhr' || t === 'fetch') return 'api';
+  if (t === 'image') return 'image';
   return 'other';
 }
+
+/** 舊名字，內部沿用 */
+const classify = classifyResourceType;
 
 /**
  * timing 的單位是相對於 startTime 的毫秒；-1 代表「這個階段沒有發生」。
@@ -102,15 +114,20 @@ function statsOf(records) {
 }
 
 /**
- * 把量測掛到一個 page 上。
+ * 累積、門檻判定、統計——**不碰任何 transport**。
  *
- * @param {import('playwright').Page} page
- * @param {{ thresholds?: Partial<typeof DEFAULT_THRESHOLDS>, onSlow?: (record: object) => void }} [options]
- *        onSlow 只有超過門檻的那幾筆會呼叫——逐筆回報會直接洗版執行日誌
- *        （一個遊戲頁動輒幾百張圖），比照 AutoSpin track_button_health() 的做法，
- *        平常只累積、結束時出 summary，只有異常才即時吐出來。
+ * 為什麼要抽出來：量測有兩條完全不同的來源——
+ *   - 執行（run）走 Playwright 的 `page.on('requestfinished')`
+ *   - **錄製（record）走原始 CDP WebSocket**，那裡根本沒有 Playwright page 物件
+ * 兩邊各寫一份分類／門檻／統計的話一定會漂，而漂掉的症狀是
+ * 「同一個請求，執行時算慢、錄製時算不慢」——兩邊都不會報錯。
+ * 所以**規則只有這一份**，上面各包一層薄薄的 adapter 負責把事件正規化。
+ *
+ * 進來的 record 必須已經正規化好（url/method/kind/resourceType/status/
+ * durationMs/likelyCached/isRedirect/isPreflight）——時間怎麼算得出來是
+ * transport 的事，那部分兩邊本來就不同，不該硬湊成一份。
  */
-export function attachNetworkCapture(page, options = {}) {
+export function createNetCollector(options = {}) {
   const thresholds = { ...DEFAULT_THRESHOLDS, ...(options.thresholds || {}) };
   const onSlow = typeof options.onSlow === 'function' ? options.onSlow : null;
 
@@ -125,6 +142,58 @@ export function attachNetworkCapture(page, options = {}) {
     list.push(item);
   };
 
+  return {
+    thresholds,
+
+    /** 收一筆完成的請求。回傳這筆 record（超標時已經帶上 overThresholdMs）*/
+    add(record) {
+      record.ts = record.ts ?? Date.now();
+      push(records, record);
+      // 快取命中、redirect 跳轉、preflight 都不參與超標判定：
+      // 快取本來就快（判不出問題），另外兩個不是使用者等待的實際內容
+      if (record.durationMs !== null && record.durationMs !== undefined
+          && !record.likelyCached && !record.isRedirect && !record.isPreflight) {
+        const limit = thresholds[record.kind] ?? thresholds.other;
+        if (record.durationMs > limit) {
+          record.overThresholdMs = Math.round(record.durationMs - limit);
+          record.thresholdMs = limit;
+          if (onSlow) { try { onSlow(record); } catch { /* 回報失敗不能拖垮量測 */ } }
+        }
+      }
+      return record;
+    },
+
+    /** 收一筆失敗的請求 */
+    addFailure(failure) {
+      failure.ts = failure.ts ?? Date.now();
+      push(failures, failure);
+      return failure;
+    },
+
+    /** 目前累積的原始明細（給需要自己算的呼叫端用） */
+    records() { return records.slice(); },
+
+    summary() { return buildSummary(records, failures, thresholds, dropped); },
+
+    formatSummary() { return formatSummaryText(this.summary()); },
+  };
+}
+
+/**
+ * 把量測掛到一個 Playwright page 上（**執行**走這條）。
+ *
+ * 只是 createNetCollector 上面的一層薄 adapter：把 Playwright 的事件正規化之後
+ * 丟給它。規則本身一行都不在這裡——錄製那條（cdp-capture.js）用的是同一份規則。
+ *
+ * @param {import('playwright').Page} page
+ * @param {{ thresholds?: Partial<typeof DEFAULT_THRESHOLDS>, onSlow?: (record: object) => void }} [options]
+ *        onSlow 只有超過門檻的那幾筆會呼叫——逐筆回報會直接洗版執行日誌
+ *        （一個遊戲頁動輒幾百張圖），比照 AutoSpin track_button_health() 的做法，
+ *        平常只累積、結束時出 summary，只有異常才即時吐出來。
+ */
+export function attachNetworkCapture(page, options = {}) {
+  const collector = createNetCollector(options);
+
   const onFinished = async (request) => {
     try {
       const timing = request.timing();
@@ -132,7 +201,7 @@ export function attachNetworkCapture(page, options = {}) {
       const response = await request.response().catch(() => null);
       const kind = classify(request.resourceType());
       const cached = likelyCached(timing, duration);
-      const record = {
+      collector.add({
         url: request.url(),
         method: request.method(),
         kind,
@@ -144,32 +213,18 @@ export function attachNetworkCapture(page, options = {}) {
         // 兩者都算進統計會讓「API 平均耗時」失真，所以標起來、統計時排除。
         isRedirect: request.redirectedFrom() !== null,
         isPreflight: request.method() === 'OPTIONS',
-        ts: Date.now(),
-      };
-      push(records, record);
-
-      // 快取命中、redirect 跳轉、preflight 都不參與超標判定：
-      // 快取本來就快（判不出問題），另外兩個不是使用者等待的實際內容
-      if (duration !== null && !cached && !record.isRedirect && !record.isPreflight) {
-        const limit = thresholds[kind] ?? thresholds.other;
-        if (duration > limit) {
-          record.overThresholdMs = Math.round(duration - limit);
-          record.thresholdMs = limit;
-          if (onSlow) { try { onSlow(record); } catch { /* 回報失敗不能拖垮量測 */ } }
-        }
-      }
+      });
     } catch { /* 單筆抓不到就跳過，不影響整體 */ }
   };
 
   const onFailed = (request) => {
     try {
-      push(failures, {
+      collector.addFailure({
         url: request.url(),
         method: request.method(),
         kind: classify(request.resourceType()),
         resourceType: request.resourceType(),
         failure: request.failure()?.errorText ?? 'unknown',
-        ts: Date.now(),
       });
     } catch { /* 同上 */ }
   };
@@ -183,15 +238,17 @@ export function attachNetworkCapture(page, options = {}) {
       try { page.off('requestfinished', onFinished); } catch { /* page 已關 */ }
       try { page.off('requestfailed', onFailed); } catch { /* page 已關 */ }
     },
+    records() { return collector.records(); },
+    summary() { return collector.summary(); },
+    formatSummary() { return collector.formatSummary(); },
+  };
+}
 
-    /** 目前累積的原始明細（給需要自己算的呼叫端用） */
-    records() { return records.slice(); },
-
-    /**
-     * 收工報告。刻意不回傳全部明細——只回統計數字、超標清單、最慢前 N 筆，
-     * 這是「這次有沒有異常」要看的東西，不是效能分析平台。
-     */
-    summary() {
+/**
+ * 收工報告。刻意不回傳全部明細——只回統計數字、超標清單、最慢前 N 筆，
+ * 這是「這次有沒有異常」要看的東西，不是效能分析平台。
+ */
+function buildSummary(records, failures, thresholds, dropped) {
       // 統計只算「使用者實際等到的內容」：排除快取命中、redirect 跳轉、preflight
       const real = records.filter(r => !r.likelyCached && !r.isRedirect && !r.isPreflight);
       const api = real.filter(r => r.kind === 'api');
@@ -239,11 +296,10 @@ export function attachNetworkCapture(page, options = {}) {
         })),
         apiCallsTruncated: Math.max(0, api.length - API_LIST_MAX),
       };
-    },
+}
 
-    /** 把 summary 轉成可以直接印進執行日誌的多行文字 */
-    formatSummary() {
-      const s = this.summary();
+/** 把 summary 轉成可以直接印進執行日誌的多行文字 */
+function formatSummaryText(s) {
       // 中文標籤是全形字，String.padEnd 以「字數」計算會讓中英標籤對不齊，
       // 要按顯示寬度補（CJK 算 2 欄）
       const padDisplay = (text, width) => {
@@ -277,8 +333,6 @@ export function attachNetworkCapture(page, options = {}) {
         for (const f of s.failures) out.push(`     ${f.failure} ${f.url.slice(0, 110)}`);
       }
       return out.join('\n');
-    },
-  };
 }
 
 /**

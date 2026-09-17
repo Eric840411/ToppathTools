@@ -124,6 +124,42 @@ export function pinusProbeSource(bufferMax = PAGE_BUFFER_MAX) {
  * 把 probe 掛到 page 上。要在 goto 之前呼叫。
  * @param {import('playwright').Page} page
  */
+/**
+ * 把收集到的訊息彙總成 route 統計。
+ *
+ * ⚠️ **兩條路共用這一支**：執行走 Playwright（`attachPinusProbe`）、
+ *    錄製走原始 CDP（`cdp-capture.js`）。各寫一份的話「同一批訊息、
+ *    兩邊算出不同的平均」，而且兩邊都不會報錯。
+ */
+export function pinusSummaryOf(messages, pageDropped = 0) {
+  const byRoute = new Map();
+  for (const m of messages) {
+    const key = `${m.direction} ${m.route}`;
+    const cur = byRoute.get(key) ?? { key, count: 0, totalMs: 0, timed: 0, maxMs: 0 };
+    cur.count++;
+    if (typeof m.elapsedMs === 'number') {
+      cur.totalMs += m.elapsedMs; cur.timed++;
+      if (m.elapsedMs > cur.maxMs) cur.maxMs = m.elapsedMs;
+    }
+    byRoute.set(key, cur);
+  }
+  const routes = [...byRoute.values()]
+    .map(r => ({ key: r.key, count: r.count, avgMs: r.timed ? Math.round(r.totalMs / r.timed) : null, maxMs: r.timed ? r.maxMs : null }))
+    .sort((a, b) => b.count - a.count);
+  return { total: messages.length, pageDropped, routes };
+}
+
+/**
+ * 頁面端 buffer 搬回來用的表達式（`Runtime.evaluate` 與 `page.evaluate` 共用同一份）。
+ * 搬完就清空頁面 buffer——不清的話會一直長到上限然後開始丟訊息。
+ */
+export const PINUS_DRAIN_EXPRESSION = `(() => {
+  const p = window.__uatPinusProbe;
+  if (!p) return { items: [], dropped: 0, patched: null };
+  const items = p.buf.splice(0, p.buf.length);
+  return { items, dropped: p.dropped(), patched: p.patched };
+})()`;
+
 export async function attachPinusProbe(page, options = {}) {
   const bufferMax = options.bufferMax ?? PAGE_BUFFER_MAX;
   const source = pinusProbeSource(bufferMax);
@@ -163,23 +199,7 @@ export async function attachPinusProbe(page, options = {}) {
       }).catch(() => ({ present: false, probe: false, patched: null }));
     },
 
-    summary() {
-      const byRoute = new Map();
-      for (const m of collected) {
-        const key = `${m.direction} ${m.route}`;
-        const cur = byRoute.get(key) ?? { key, count: 0, totalMs: 0, timed: 0, maxMs: 0 };
-        cur.count++;
-        if (typeof m.elapsedMs === 'number') {
-          cur.totalMs += m.elapsedMs; cur.timed++;
-          if (m.elapsedMs > cur.maxMs) cur.maxMs = m.elapsedMs;
-        }
-        byRoute.set(key, cur);
-      }
-      const routes = [...byRoute.values()]
-        .map(r => ({ key: r.key, count: r.count, avgMs: r.timed ? Math.round(r.totalMs / r.timed) : null, maxMs: r.timed ? r.maxMs : null }))
-        .sort((a, b) => b.count - a.count);
-      return { total: collected.length, pageDropped, routes };
-    },
+    summary() { return pinusSummaryOf(collected, pageDropped); },
 
     formatSummary() {
       const s = this.summary();

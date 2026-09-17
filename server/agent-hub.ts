@@ -192,13 +192,37 @@ export interface UatCropResult {
   threshold: number
 }
 
+/** 錄製時攔到的一行 console／pageerror */
+export interface UatConsoleEntry {
+  type: string
+  text: string
+  location?: string
+  ts: number
+}
+
 export interface UatAgentSession {
   agentId: string
   steps: object[]
   lastCrop?: UatCropResult
   cropPending: boolean
   done: boolean
+  /**
+   * 錄製時的 network／pinus 統計快照（形狀跟執行時的 stats event 一樣，
+   * 前端 NetworkPanel 直接吃）。agent 每 3 秒覆蓋一次。
+   */
+  stats?: unknown
+  /**
+   * 攔到的 console。⚠️ **一定要有上限**——遊戲會自己洗版，而這整包每 2 秒
+   * 會被 /record/status 回傳給前端。沒有上限就是同時吃掉記憶體跟頻寬。
+   */
+  consoleLogs?: UatConsoleEntry[]
+  consoleDropped?: number
+  /** pinus 補丁打在哪（prototype／instance／null）。null 多半代表這頁根本沒有 pinus */
+  pinusPatched?: string | null
 }
+
+/** server 端保留的 console 上限。agent 端也有一份（CONSOLE_MAX），兩邊都要擋。 */
+export const UAT_CONSOLE_KEEP = 500
 
 /** Active UAT recording sessions initiated via remote agent */
 export const uatAgentSessions = new Map<string, UatAgentSession>()

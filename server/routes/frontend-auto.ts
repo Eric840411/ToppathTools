@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto'
 // 跟 agent-runner.ts 用同一份共用模組（見 net-capture.js 檔頭說明為什麼放 uat-runner/）
 import { attachNetworkCapture, DEFAULT_THRESHOLDS } from '../uat-runner/net-capture.js'
 import { attachPinusProbe } from '../uat-runner/pinus-probe.js'
+import { attachCdpCapture } from '../uat-runner/cdp-capture.js'
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 import { extname, join } from 'path'
 import { tmpdir } from 'os'
@@ -13,7 +14,7 @@ import http from 'http'
 import WebSocket from 'ws'
 import { PNG } from 'pngjs'
 import { db } from '../shared.js'
-import { agentConnections, uatAgentSessions, uatRunSessions, getAvailableAgents } from '../agent-hub.js'
+import { agentConnections, uatAgentSessions, uatRunSessions, getAvailableAgents, UAT_CONSOLE_KEEP, type UatConsoleEntry } from '../agent-hub.js'
 import { agentUpdateStatus } from './machine-test.js'
 
 export const router = express.Router()
@@ -441,10 +442,20 @@ interface RecSession {
   cdpSend?: CdpSend
   cropRequest?: CropRequest
   lastCrop?: CropResult
+  /** console／network／pinus 攔截（本機模式；agent 模式那份在 agent-runner） */
+  capture?: Awaited<ReturnType<typeof attachCdpCapture>>
+  captureTimer?: ReturnType<typeof setInterval>
+  stats?: unknown
+  consoleLogs?: UatConsoleEntry[]
+  consoleDropped?: number
+  pinusPatched?: string | null
 }
 const recSessions = new Map<string, RecSession>()
 
 function killRecSession(sess: RecSession) {
+  // ⚠️ 先收計時器。不收的話錄製結束後它每 3 秒還會對著關掉的 CDP 連線送訊息，
+  //    而且 session 被移除後沒人再持有它——這個 interval 會永遠跑下去。
+  if (sess.captureTimer) { clearInterval(sess.captureTimer); sess.captureTimer = undefined }
   try {
     sess.ws?.close()
   } catch {}
@@ -759,6 +770,24 @@ async function saveCropFromRecorder(sess: RecSession, crop: { x: number; y: numb
   sess.cropRequest = undefined
 }
 
+/**
+ * 本機模式的量測回報。跟 agent 模式不同的是這裡是同一個 process，
+ * 不用經過 WS——直接寫進 session 就好。
+ *
+ * console 一樣要裁到上限：/record/status 每 2 秒把整包回給前端。
+ */
+async function flushLocalCapture(sess: RecSession) {
+  const capture = sess.capture
+  if (!capture || sess.done) return
+  try {
+    await capture.drainPinus()
+    sess.stats = capture.snapshot()
+    sess.consoleLogs = capture.consoleLogs().slice(-UAT_CONSOLE_KEEP)
+    sess.consoleDropped = capture.consoleDropped()
+    sess.pinusPatched = capture.pinusPatched()
+  } catch { /* 量測失敗不能影響錄製 */ }
+}
+
 function connectRecorder(sess: RecSession, port: number) {
   void (async () => {
     const targets = await waitForJson<Array<{ type: string; url: string; webSocketDebuggerUrl?: string }>>(`http://127.0.0.1:${port}/json/list`)
@@ -793,7 +822,11 @@ function connectRecorder(sess: RecSession, port: number) {
         }
         if (msg.method === 'Page.loadEventFired') {
           void send('Runtime.evaluate', { expression: recorderScript() })
+          void sess.capture?.reinject()
         }
+        // ⚠️ 一定要在上面那些之後：錄製器自己的標記由這裡處理，
+        //    capture 只負責使用者的 console 與 network／pinus。
+        sess.capture?.handle(msg as Record<string, unknown>)
       } catch {}
     })
     ws.on('open', async () => {
@@ -802,6 +835,14 @@ function connectRecorder(sess: RecSession, port: number) {
       await syncRecorderViewport(sess)
       await send('Page.addScriptToEvaluateOnNewDocument', { source: recorderScript() })
       await send('Runtime.evaluate', { expression: recorderScript() })
+      // console／network／pinus 攔截。跟 agent 模式共用 cdp-capture.js 的同一份規則。
+      // ⚠️ 掛不起來不能讓錄製失敗——使用者要的是錄操作，量測是附加價值。
+      try {
+        sess.capture = await attachCdpCapture(send, {
+          consoleMarkers: ['__TOPPATH_RECORDER__', '__TOPPATH_CROP__'],
+        })
+        sess.captureTimer = setInterval(() => { void flushLocalCapture(sess) }, 3000)
+      } catch { /* 錄製照常 */ }
     })
     ws.on('close', () => { sess.done = true })
   })().catch(() => { sess.done = true })
@@ -901,11 +942,15 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
 router.get('/api/frontend-auto/record/status/:sessionId', (req, res) => {
   const agentSess = uatAgentSessions.get(req.params.sessionId)
   if (agentSess) {
-    return res.json({ found: true, done: agentSess.done, steps: agentSess.steps, lastCrop: agentSess.lastCrop, cropPending: agentSess.cropPending, cdpWarning: (agentSess as unknown as Record<string, unknown>).cdpWarning ?? null })
+    return res.json({ found: true, done: agentSess.done, steps: agentSess.steps, lastCrop: agentSess.lastCrop, cropPending: agentSess.cropPending, cdpWarning: (agentSess as unknown as Record<string, unknown>).cdpWarning ?? null,
+      stats: agentSess.stats ?? null, consoleLogs: agentSess.consoleLogs ?? [], consoleDropped: agentSess.consoleDropped ?? 0, pinusPatched: agentSess.pinusPatched ?? null })
   }
   const sess = recSessions.get(req.params.sessionId)
   if (!sess) return res.json({ found: false, done: true, steps: [] })
-  res.json({ found: true, done: sess.done, steps: sess.steps, lastCrop: sess.lastCrop, cropPending: !!sess.cropRequest })
+  // ⚠️ 兩個分支要回同一組欄位。少一邊的話那個模式的面板會永遠空白，
+  //    而且不會有錯誤——看起來就像「這頁沒有網路活動」。
+  res.json({ found: true, done: sess.done, steps: sess.steps, lastCrop: sess.lastCrop, cropPending: !!sess.cropRequest,
+    stats: sess.stats ?? null, consoleLogs: sess.consoleLogs ?? [], consoleDropped: sess.consoleDropped ?? 0, pinusPatched: sess.pinusPatched ?? null })
 })
 
 router.post('/api/frontend-auto/record/crop/:sessionId', async (req, res) => {
@@ -998,25 +1043,44 @@ router.post('/api/frontend-auto/record/screenshot/:sessionId', async (req, res) 
   res.json({ ok: true, baseline })
 })
 
-router.post('/api/frontend-auto/record/stop/:sessionId', (req, res) => {
+router.post('/api/frontend-auto/record/stop/:sessionId', async (req, res) => {
+  // ⚠️ 量測資料一定要跟著 stop 的回應一起回去。
+  //    session 在這支裡就被移除了，之後前端再打 /record/status 只會拿到
+  //    `found: false`——不回的話，**錄製最後那一份統計就永遠看不到了**，
+  //    而畫面上只會是一片空白，不像出錯。
   const agentSess = uatAgentSessions.get(req.params.sessionId)
   if (agentSess) {
     const agent = agentConnections.get(agentSess.agentId)
     if (agent) agent.ws.send(JSON.stringify({ type: 'uat_record_stop', sessionId: req.params.sessionId }))
     agentSess.done = true
     const steps = agentSess.steps
+    const captured = {
+      stats: agentSess.stats ?? null,
+      consoleLogs: agentSess.consoleLogs ?? [],
+      consoleDropped: agentSess.consoleDropped ?? 0,
+      pinusPatched: agentSess.pinusPatched ?? null,
+    }
     uatAgentSessions.delete(req.params.sessionId)
-    return res.json({ ok: true, steps })
+    return res.json({ ok: true, steps, ...captured })
   }
 
   const sess = recSessions.get(req.params.sessionId)
   if (!sess) return res.status(404).json({ ok: false, message: '找不到錄製 session' })
+  // 最後一次 flush 要在 kill 之前——kill 之後 CDP 連線就沒了，
+  // 最後那幾秒（往往正是使用者關心的那段）會整段消失。
+  await flushLocalCapture(sess)
+  const captured = {
+    stats: sess.stats ?? null,
+    consoleLogs: sess.consoleLogs ?? [],
+    consoleDropped: sess.consoleDropped ?? 0,
+    pinusPatched: sess.pinusPatched ?? null,
+  }
   killRecSession(sess)
   setTimeout(() => {
     sess.done = true
     const steps = sess.steps
     recSessions.delete(req.params.sessionId)
-    res.json({ ok: true, steps })
+    res.json({ ok: true, steps, ...captured })
   }, 1200)
 })
 

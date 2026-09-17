@@ -55,6 +55,8 @@ import {
   cancelDistSession,
   broadcastToViewers,
   uatAgentSessions,
+  UAT_CONSOLE_KEEP,
+  type UatConsoleEntry,
   uatRunSessions,
   type AgentInfo,
 } from './agent-hub.js'
@@ -735,6 +737,20 @@ wss.on('connection', (ws, req) => {
         const ev = (msg as { type: string; sessionId: string; event: Record<string, unknown> }).event
         const sess = uatAgentSessions.get(msg.sessionId)
         if (!sess || !ev) return
+        if (ev.kind === 'capture') {
+          // 錄製時的 console／network／pinus。stats 是統計過的固定大小，整包覆蓋；
+          // console 是 agent 端只送新增的那幾筆，這裡接上去再裁到上限。
+          sess.stats = ev.stats
+          if (typeof ev.consoleDropped === 'number') sess.consoleDropped = ev.consoleDropped
+          if (ev.pinusPatched !== undefined) sess.pinusPatched = ev.pinusPatched as string | null
+          const append = Array.isArray(ev.consoleAppend) ? ev.consoleAppend as UatConsoleEntry[] : []
+          if (append.length) {
+            const merged = [...(sess.consoleLogs ?? []), ...append]
+            // ⚠️ 留「最後」那幾筆不是「最前」——錄製的最後一段才是使用者在看的地方。
+            sess.consoleLogs = merged.slice(-UAT_CONSOLE_KEEP)
+          }
+          return
+        }
         if (ev.kind === 'step' && ev.step) {
           sess.steps.push(ev.step as object)
         } else if (ev.kind === 'crop_image') {

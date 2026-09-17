@@ -71,6 +71,28 @@ export interface NetCollector {
 
 export declare const DEFAULT_THRESHOLDS: NetCaptureThresholds
 
+/**
+ * 累積／門檻／統計，不碰 transport。執行（Playwright）與錄製（原始 CDP）共用同一份。
+ * 進來的 record 必須已經正規化好——時間怎麼算得出來是 transport 的事。
+ */
+export declare function createNetCollector(options?: {
+  thresholds?: Partial<NetCaptureThresholds>
+  onSlow?: (record: NetRecord) => void
+}): {
+  thresholds: NetCaptureThresholds
+  add(record: Omit<NetRecord, 'ts'> & { ts?: number; urlPattern?: string }): NetRecord
+  addFailure(failure: Omit<NetFailure, 'ts'> & { ts?: number }): NetFailure
+  records(): NetRecord[]
+  summary(): NetSummary
+  formatSummary(): string
+}
+
+/**
+ * resourceType → api/image/other。
+ * ⚠️ 會先轉小寫：Playwright 給 `xhr`，CDP 給 `XHR`，兩種都要吃。
+ */
+export declare function classifyResourceType(resourceType: string): 'api' | 'image' | 'other'
+
 export declare function attachNetworkCapture(
   page: Page,
   options?: {

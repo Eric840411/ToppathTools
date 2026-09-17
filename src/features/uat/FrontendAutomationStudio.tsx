@@ -57,6 +57,11 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
   // 網路量測快照：跟 log 走同一條 SSE，不同 event 名稱
   const [netStats, setNetStats] = useState<UatStatsPayload | null>(null)
   const [statsAt, setStatsAt] = useState<number | null>(null)
+  /** 錄製時攔到的 console／pageerror。跟執行日誌分開——兩者來源與生命週期都不同 */
+  const [recConsole, setRecConsole] = useState<{ type: string; text: string; location?: string; ts: number }[]>([])
+  const [recConsoleDropped, setRecConsoleDropped] = useState(0)
+  /** pinus 補丁打在哪。null 代表這頁沒有 pinus（後台站就會是這樣），不是攔截壞了 */
+  const [pinusPatched, setPinusPatched] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
   const [notice, setNotice] = useState('')
   const [runConfig, setRunConfig] = useState({
@@ -181,11 +186,25 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
     setNotice('錄製中；請在新開啟的 Chrome 視窗操作')
     pollRecorder.current = setInterval(async () => {
       const poll = await fetch(`/api/frontend-auto/record/status/${data.sessionId}`)
-      const status = await poll.json() as { done?: boolean; steps?: unknown[]; cdpWarning?: string }
+      const status = await poll.json() as {
+        done?: boolean; steps?: unknown[]; cdpWarning?: string
+        stats?: UatStatsPayload | null
+        consoleLogs?: { type: string; text: string; location?: string; ts: number }[]
+        consoleDropped?: number
+        pinusPatched?: string | null
+      }
       if (status.steps?.length) {
         setSteps(status.steps.map((step, index) => parseSteps(JSON.stringify([step]))[0] ?? { ...createStep('wait'), name: `錄製步驟 ${index + 1}` }))
         setDirty(true)
       }
+      // 錄製時的 network／pinus 走跟執行時同一個面板——資料形狀本來就一樣，
+      // 沒有理由做第二套 UI。
+      if (status.stats) { setNetStats(status.stats); setStatsAt(Date.now()) }
+      // console 整包覆蓋而不是 append：server 端已經裁到上限了，
+      // 這裡再 append 會跟它重複，變成同一行出現很多次。
+      if (status.consoleLogs) setRecConsole(status.consoleLogs)
+      if (typeof status.consoleDropped === 'number') setRecConsoleDropped(status.consoleDropped)
+      if (status.pinusPatched !== undefined) setPinusPatched(status.pinusPatched ?? null)
       if (status.cdpWarning) setNotice(status.cdpWarning)
       if (status.done) {
         if (pollRecorder.current) clearInterval(pollRecorder.current)
@@ -202,8 +221,20 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
     if (pollRecorder.current) clearInterval(pollRecorder.current)
     pollRecorder.current = null
     const response = await fetch(`/api/frontend-auto/record/stop/${recordSessionId}`, { method: 'POST' })
-    const data = await response.json() as { steps?: unknown[] }
+    const data = await response.json() as {
+      steps?: unknown[]
+      stats?: UatStatsPayload | null
+      consoleLogs?: { type: string; text: string; location?: string; ts: number }[]
+      consoleDropped?: number
+      pinusPatched?: string | null
+    }
     if (data.steps?.length) setSteps(parseSteps(JSON.stringify(data.steps)))
+    // ⚠️ 停止之後 session 就被移除了，再打 /record/status 只會拿到 found:false。
+    //    最後一份量測只有這個回應帶得回來，不接的話畫面會在停止當下**突然清空**。
+    if (data.stats) { setNetStats(data.stats); setStatsAt(Date.now()) }
+    if (data.consoleLogs) setRecConsole(data.consoleLogs)
+    if (typeof data.consoleDropped === 'number') setRecConsoleDropped(data.consoleDropped)
+    if (data.pinusPatched !== undefined) setPinusPatched(data.pinusPatched ?? null)
     setDirty(true)
     setRecordSessionId(null)
     setRecordLabel('')
@@ -313,6 +344,25 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
               <div className="uat-run-actions">{running ? <button type="button" className="uat-btn is-danger" onClick={stopRun}>{xianxia ? '收陣' : '停止執行'}</button> : <button type="button" className="uat-btn is-primary" onClick={runScript}>{xianxia ? '啟陣推演' : '執行所選腳本'}</button>}<button type="button" className="uat-btn is-quiet" onClick={deleteScript} disabled={!selectedId}>{xianxia ? '焚毀玉簡' : '刪除腳本'}</button></div>
             </section>
             <NetworkPanel stats={netStats} themeMode={themeMode} updatedAt={statsAt} />
+            {/* 錄製時攔到的 console／pageerror。沒有錄過就整塊不顯示——
+                空面板會讓人以為「攔到了但沒東西」，而實際上是還沒錄。 */}
+            {(recConsole.length > 0 || pinusPatched !== null) && (
+              <section className="uat-panel uat-log-panel uat-inscribed-panel">
+                <div className="uat-section-title">
+                  <span>{xianxia ? 'ECHO OF FAULTS' : 'RECORDED CONSOLE'}</span>
+                  <h3>{xianxia ? '錄製雜訊' : '錄製時的 Console'}</h3>
+                </div>
+                <p className="uat-hint">
+                  {pinusPatched
+                    ? `pinus 已攔截（補在 ${pinusPatched}）`
+                    : ' 這一頁沒有偵測到 pinus——多半是它本來就沒有，不是攔截失敗'}
+                  {recConsoleDropped > 0 && `；因超過上限未保留 ${recConsoleDropped} 筆`}
+                </p>
+                <pre>{recConsole.length
+                  ? recConsole.map(e => `[${e.type}] ${e.text}${e.location ? `  (${e.location})` : ''}`).join('\n')
+                  : (xianxia ? '此番觀照未聞雜訊。' : '這次錄製沒有攔到 console 訊息。')}</pre>
+              </section>
+            )}
             <section className="uat-panel uat-log-panel uat-inscribed-panel"><div className="uat-section-title"><span>{xianxia ? 'SPIRIT FLOW' : 'LIVE LOG'}</span><h3>{xianxia ? '靈流行跡' : '即時日誌'}</h3></div><pre>{logs.length ? logs.join('\n') : (xianxia ? '玉簡未啟，靈息未至。' : '尚未執行。設定完成後啟動腳本，日誌會顯示在這裡。')}</pre></section>
           </div>
         )}

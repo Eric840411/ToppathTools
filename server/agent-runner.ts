@@ -29,6 +29,7 @@ import { createInterface } from 'node:readline'
 import { hashSources, hashOne, RESTART_REQUIRED_SOURCES } from './agent-source-hash.js'
 import { attachNetworkCapture, DEFAULT_THRESHOLDS } from './uat-runner/net-capture.js'
 import { attachPinusProbe } from './uat-runner/pinus-probe.js'
+import { attachCdpCapture } from './uat-runner/cdp-capture.js'
 import { verifyRecordedSelectorLive } from './uat-runner/recorded-selector.js'
 import { MachineTestRunner } from './machine-test/runner.js'
 import type { MachineTestSession, MachineProfile, TestEvent } from './machine-test/types.js'
@@ -335,6 +336,11 @@ interface UatRecSession {
   ws?: WebSocket
   cdpSend?: CdpSend
   cropRequest?: { scriptId: string; platform: string; name: string; threshold: number; createdBy: string }
+  /** console／network／pinus 攔截。錄製時掛上，停止時一起收掉 */
+  capture?: Awaited<ReturnType<typeof attachCdpCapture>>
+  captureTimer?: ReturnType<typeof setInterval>
+  /** 已經回報給 server 的 console 筆數——只送新增的那幾筆，不每次整包重送 */
+  consoleSent?: number
 }
 
 const uatRecSessions = new Map<string, UatRecSession>()
@@ -1051,6 +1057,10 @@ async function syncUatViewport(sess: UatRecSession) {
 }
 
 function killUatSession(sess: UatRecSession) {
+  // ⚠️ 計時器一定要先收。不收的話錄製結束後它每 3 秒還會醒來一次，
+  //    對著已經關掉的 CDP 連線送 Runtime.evaluate——而且 session 被 delete 之後
+  //    沒有人再持有它，這個 interval 會**永遠跑下去**（agent 不重啟就不會停）。
+  if (sess.captureTimer) { clearInterval(sess.captureTimer); sess.captureTimer = undefined }
   try { sess.ws?.close() } catch {}
   try {
     if (process.platform === 'win32' && sess.proc.pid) {
@@ -1060,6 +1070,37 @@ function killUatSession(sess: UatRecSession) {
     }
   } catch {}
   try { rmSync(sess.profileDir, { recursive: true, force: true }) } catch {}
+}
+
+/**
+ * 把攔截到的東西回報給 server。
+ *
+ * ⚠️ console **只送新增的那幾筆**（靠 consoleSent 記位置），不要每次整包重送——
+ *    上限 500 筆、每 3 秒一次，整包重送等於每 3 秒把同一批資料再傳一遍。
+ *    net／pinus 走 snapshot（本來就是統計過的固定大小），整包送沒問題。
+ */
+async function flushUatCapture(sess: UatRecSession, serverWs: WebSocket) {
+  const capture = sess.capture
+  if (!capture || sess.done) return
+  try {
+    await capture.drainPinus()
+    const logs = capture.consoleLogs()
+    const sentCount = sess.consoleSent ?? 0
+    const appended = logs.slice(sentCount)
+    sess.consoleSent = logs.length
+    if (serverWs.readyState !== serverWs.OPEN) return
+    serverWs.send(JSON.stringify({
+      type: 'uat_record_event',
+      sessionId: sess.sessionId,
+      event: {
+        kind: 'capture',
+        stats: capture.snapshot(),
+        consoleAppend: appended,
+        consoleDropped: capture.consoleDropped(),
+        pinusPatched: capture.pinusPatched(),
+      },
+    }))
+  } catch { /* 量測回報失敗絕對不能影響錄製本身 */ }
 }
 
 function connectUatRecorder(sess: UatRecSession, port: number, serverWs: WebSocket) {
@@ -1096,6 +1137,16 @@ function connectUatRecorder(sess: UatRecSession, port: number, serverWs: WebSock
               await syncUatViewport(sess)
               await send('Page.addScriptToEvaluateOnNewDocument', { source: recorderScript() + '\n' + cropScript() })
               await send('Runtime.evaluate', { expression: recorderScript() + '\n' + cropScript() })
+              // console／network／pinus 攔截。⚠️ 掛不起來不能讓錄製失敗——
+              // 使用者要的是錄操作，量測是附加價值，為了它整場錄不成是本末倒置。
+              try {
+                sess.capture = await attachCdpCapture(send, {
+                  consoleMarkers: ['__TOPPATH_RECORDER__', '__TOPPATH_CROP__'],
+                })
+                sess.captureTimer = setInterval(() => { void flushUatCapture(sess, serverWs) }, 3000)
+              } catch (err) {
+                console.error(`[Agent:${AGENT_LABEL}] CDP 攔截掛載失敗（錄製照常）:`, err instanceof Error ? err.message : err)
+              }
               resolveConn()
             } catch (e) { rejectConn(e) }
           })
@@ -1130,7 +1181,15 @@ function connectUatRecorder(sess: UatRecSession, port: number, serverWs: WebSock
                 void syncUatViewport(sess)
                 void send('Runtime.evaluate', { expression: recorderScript() })
                 void send('Runtime.evaluate', { expression: cropScript() })
+                // 換頁之後頁面端的 pinus 探針跟著新 document 重來，補打一次。
+                // addScriptToEvaluateOnNewDocument 理論上已經涵蓋，但遊戲的
+                // 熱更新不一定換 document，多打一次是冪等的（探針自己會擋重複）。
+                void sess.capture?.reinject()
               }
+              // ⚠️ 一定要放在上面那些之後：錄製器自己的標記訊息由 host 處理，
+              //    capture 只負責「使用者的 console」與 network／pinus。
+              //    順序反過來的話標記會先被當成一般 console 收走。
+              sess.capture?.handle(msg as Record<string, unknown>)
             } catch {}
           })
         })
@@ -1788,6 +1847,9 @@ function connect() {
       }
       uatRecSessions.set(sessionId, sess)
       proc.on('close', () => {
+        // 使用者直接把錄製視窗關掉也走這裡。CDP 已經斷了，最後一次 flush 沒有意義，
+        // 但計時器一定要收——否則它會對著死掉的連線永遠跑下去。
+        if (sess.captureTimer) { clearInterval(sess.captureTimer); sess.captureTimer = undefined }
         sess.done = true
         if (ws.readyState === ws.OPEN) {
           ws.send(JSON.stringify({ type: 'uat_record_event', sessionId, event: { kind: 'done', steps: sess.steps } }))
@@ -1813,6 +1875,9 @@ function connect() {
       const sess = uatRecSessions.get(sessionId)
       if (!sess) return
       const steps = sess.steps
+      // 最後一次回報要在 done 之前——flushUatCapture 看到 done 就直接 return，
+      // 順序顛倒的話最後那幾秒（往往正是使用者關心的那段）會整段消失。
+      await flushUatCapture(sess, ws)
       sess.done = true  // Set before kill so CDP WS-close handler won't trigger reconnect
       killUatSession(sess)
       uatRecSessions.delete(sessionId)
