@@ -23,6 +23,7 @@
  *   3. **對應缺陷注入回去要真的轉紅**——而且**每一條分支要分開注入**，
  *      否則只驗到其中一條（實際發生過：只注入 CSS 分支時 text= 分支的洞沒被拓到）。
  */
+import { stripComments as stripSrc } from './lib/strip-comments.mjs';
 import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
 import { backendRecorderScript, RECORDER_MARKER } from '../../server/uat-runner/backend-recorder.js';
@@ -804,8 +805,7 @@ try {
     await probe.close();
 
     // 所以注入腳本裡不得再出現原生對話框
-    const injected = backendRecorderScript()
-      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
+    const injected = stripSrc(backendRecorderScript());
     eq('注入腳本裡沒有 prompt/alert/confirm',
       /(^|[^.\w])(alert|prompt|confirm)\s*\(/.test(injected), false);
 
@@ -1137,8 +1137,7 @@ try {
 
     // ③ 解析只能一支：共用模組裡不得有第二處自己 parse text=/label=
     {
-      const selSrc = readFileSync(new URL('../../server/uat-runner/recorded-selector.js', import.meta.url), 'utf8')
-        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
+      const selSrc = stripSrc(readFileSync(new URL('../../server/uat-runner/recorded-selector.js', import.meta.url), 'utf8'));
       const parses = (selSrc.match(/getByText\(|getByLabel\(/g) || []).length;
       // resolveToSet 裡各一次，就是全部
       eq('③ 全檔只在一處認 text=/label=', parses, 2);
@@ -1238,31 +1237,36 @@ try {
   //    沒辦法在這裡真的叫它的 recordedLocator()。直接讀原始碼確認兩條路徑都呼叫了
   //    resolveRecordedSelector——只修執行那邊的話，預檢仍會先用原式擋下來，等於沒修。
   console.log('\n── 接線（讀原始碼，不是行為驗證）──');
-  const runnerSrc = readFileSync(new URL('../../server/uat-runner/run-lark-tc-backend.js', import.meta.url), 'utf8')
-    // 剪掉註解再比，否則寫在註解裡的同名字也算數。
-    // 行尾註解用 CR/LF 字元類別而不是 .*$，因為這份檔是 CRLF。
-    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
+  // 剪掉註解再比，否則寫在註解裡的同名字也算數。
+  // ⚠️ 用共用的 stripSrc，不要自己寫正則——純正則會把字串裡的 `/*` 當註解開頭
+  //    （見 lib/strip-comments.mjs），而那會讓下面這些**負面斷言假通過**。
+  const runnerSrc = stripSrc(readFileSync(new URL('../../server/uat-runner/run-lark-tc-backend.js', import.meta.url), 'utf8'));
   // 定位跟唯一性檢查已經抽到 recorded-selector.js，這裡釘的是「runner 真的用那一支」。
   eq('runner 用共用的定位工廠', runnerSrc.includes('createRecordedLocators(p, {'), true);
   // ⚠️ 「定位必須唯一」這句話只能存在於共用那一支。runner 裡又出現一份，
   //    就代表有人把判斷再複製回去了——兩邊日後一定漂。
   eq('runner 裡沒有自己再寫一份唯一性判斷', runnerSrc.includes('定位必須唯一'), false);
 
-  const recorderSrc = readFileSync(new URL('../../server/uat-runner/backend-recorder.js', import.meta.url), 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
   eq('runner 的點擊走共用流程', runnerSrc.includes('clickRecorded({'), true);
   eq('runner 沒有自己再寫一份 strict mode 正則', runnerSrc.includes('strict mode violation'), false);
   // 座標備援只能存在於共用那一支；runner 裡又出現就是有人複製回去了
   eq('runner 裡沒有自己的座標備援實作', /mouse\.click\(/.test(runnerSrc), false);
   // ⚠️ 定位只能有一條路徑。今天有兩次是「修在沒人走的那一支」，
   //    其中一次是因為 block-engine 自己還留著一份。釘住：不得再出現分身。
-  const blockSrc = readFileSync(new URL('../../server/uat-runner/block-engine.js', import.meta.url), 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
+  const blockSrc = stripSrc(readFileSync(new URL('../../server/uat-runner/block-engine.js', import.meta.url), 'utf8'));
   eq('block-engine 不得自己解析 text=/label=',
     /getByText|getByLabel|startsWith\('text=|startsWith\('label=/.test(blockSrc), false);
   eq('block-engine 也不得留自己的 recordedLocator',
     /function recordedLocator/.test(blockSrc), false);
-  eq('錄製器不再產出 :nth-match', recorderSrc.includes(':nth-match('), false);
+  // ⚠️ 這條要驗**產出的腳本**，不是 backend-recorder.js 這個檔案本身。
+  //    那支檔案整份是一個 template literal，裡面的 `//` 註解有兩層：
+  //    檔案層的註解，與**樣板字串裡、會變成產出腳本一部分**的註解。
+  //    原本讀檔案 + 舊的純正則剝註解時，兩層剛好都被抹掉所以是綠的；
+  //    換成正確的剝註解（不動字串內容）之後才發現：它比的對象一直是錯的，
+  //    而且正是 CodeX 說的「負面斷言在假通過」那一類。
+  //    驗產出的腳本同時解決兩件事——比對的是真正的產物，註解也只剩一層。
+  const producedScript = stripSrc(backendRecorderScript());
+  eq('錄製器不再產出 :nth-match', producedScript.includes(':nth-match('), false);
 
   // ── 7. 前後端措辭沒有漂掉 ─────────────────────────────────────────────────
   console.log('\n── 措辭一致 ──');

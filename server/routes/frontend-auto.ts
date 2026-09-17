@@ -1300,10 +1300,15 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
           if (step.action === 'goto') {
             const target = step.value || startUrl
             await log(`⏳ ${idx} ${label} → ${target}`)
+            // ⚠️ **netMark 要設在導頁之前，不是之後。**
+            // 「開這頁時打了哪些後端」正是最常要驗的東西——設在 goto 完成
+            // 又等三秒之後的話，載入期間那批 API 全部落在界線之前，
+            // assert_api_called 會永遠看到 0 支。Backend 的 block-engine 早就
+            // 踩過這個坑（見 :711 的註解，也是實測才發現），這裡照它的位置放。
+            netMark = Date.now()
             await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 })
             await page.waitForTimeout(3000)
             await log(`✅ ${idx} ${label}`)
-            netMark = Date.now()
             passed++
           } else if (step.action === 'click') {
             await log(`⏳ ${idx} ${label}`)

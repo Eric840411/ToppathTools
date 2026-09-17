@@ -77,6 +77,29 @@ for (const [label, src] of [['agent-runner', agentRunner], ['frontend-auto', fro
     '至少兩處：宣告與 goto 之後');
 }
 
+// ── ④b netMark 要在導頁「之前」──────────────────────────────────────────────
+// ⚠️ 設在 goto 完成之後的話，**載入期間打的 API 全部落在界線之前**，
+//    assert_api_called 會永遠看到 0 支——而「開這頁時打了哪些後端」正是最常
+//    要驗的東西。Backend 的 block-engine 早就踩過（:711 的註解寫著「實測才發現」），
+//    我在 H5/PC 兩個引擎上原封不動重現了一次，CodeX review 抓到。
+for (const [label, src] of [['agent-runner', agentRunner], ['frontend-auto', frontendAuto]]) {
+  const gotoAt = src.indexOf("step.action === 'goto'");
+  const body = gotoAt >= 0 ? src.slice(gotoAt, gotoAt + 900) : '';
+  const markAt = body.indexOf('netMark = Date.now()');
+  const navAt = body.indexOf('await page.goto(');
+  check(`④b ${label} netMark 設在 page.goto 之前`,
+    markAt >= 0 && navAt >= 0 && markAt < navAt,
+    `netMark@${markAt} 必須小於 goto@${navAt}——設在後面的話載入期間的 API 全看不到`);
+}
+// Backend 也要維持同一個順序，三個引擎的時間範圍才一致
+{
+  const at = blockEngine.indexOf('netMark = Date.now()');
+  const body = at >= 0 ? blockEngine.slice(at, at + 300) : '';
+  check('④b block-engine netMark 設在 openPath 之前',
+    at >= 0 && body.indexOf('ctx.openPath(') > 0,
+    '三個引擎的查詢起點要一致，否則同一條斷言在不同平台的結果會不同');
+}
+
 // ── ⑤ 新欄位要進 serialize ────────────────────────────────────────────────
 check('⑤ cleanStep 會存 urlPattern', /'baselineId', 'urlPattern'/.test(stepModel),
   '漏了的話存檔後參數消失，而且不報錯');

@@ -31,6 +31,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { stripComments as sharedStrip } from './lib/strip-comments.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
@@ -64,10 +65,11 @@ const handler = handlerStart >= 0 && handlerEnd > handlerStart
 check('②③ 找得到停止按鈕的 handler', handler.length > 0, `區段長度 ${handler.length}`);
 
 // 剝掉註解再判，否則註解裡寫著「刻意不走 emit()」會讓 ② 永遠綠。
-// ⚠️ 行註解要用 [^\r\n] 不能用 .*$ ——後者在沒有 m 旗標時行為不同。
-const stripComments = (src) => src
-  .replace(/\/\*[\s\S]*?\*\//g, '')
-  .replace(/\/\/[^\r\n]*/g, '');
+// ⚠️ **不要自己用正則剝。** 純正則版本會把 XPath 字串 "//*[...]" 裡的 /*
+//    當成區塊註解開頭，一路吃到下一個 */——實測在 agent-runner.ts 上一次
+//    刪掉全檔 31% 的真實程式碼，而被刪掉的部分會讓「不得出現某模式」那類
+//    斷言**假通過**（CodeX review 點名這裡還沒接上）。
+const stripComments = sharedStrip;
 const handlerCode = stripComments(handler);
 
 check('② 停止不走 emit()', !/\bemit\s*\(/.test(handlerCode),

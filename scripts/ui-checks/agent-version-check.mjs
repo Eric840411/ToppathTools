@@ -111,6 +111,14 @@ console.log('\n6) 需重啟清單不能手寫了就放著——從程式碼推�
   walk('agent-runner.ts');
 
   // 只比對白名單內的——非白名單的檔案 agent 根本不會拿到
+  //
+  // ⚠️ **但「拿不到」正是最糟的情況，不是可以忽略的情況。**
+  //    這個過濾造成一個盲點：被 agent-runner.ts 靜態 import、卻**沒進白名單**的檔案
+  //    會從 `derived` 裡消失，於是這支檢查看不見它、`agent-source-closure.mjs` 也
+  //    看不見它（那支只走 spawn 進入點）。兩個檢查同時盲掉，而後果是
+  //    **agent 在 import 當下整支炸掉**，錯誤只出現在 agent 的 stderr。
+  //    2026-09-18 實際發生：`uat-runner/chrome-debug-port.js` 加了 import 卻忘了加白名單，
+  //    兩支檢查都是綠的。所以下面另外補一條「import 了就必須在白名單裡」。
   const mt = fs.readFileSync(path.join(root, 'server/routes/machine-test.ts'), 'utf8');
   const block = mt.slice(mt.indexOf('AGENT_SOURCE_WHITELIST'));
   const whitelist = new Set(
@@ -129,6 +137,19 @@ console.log('\n6) 需重啟清單不能手寫了就放著——從程式碼推�
   check('被靜態 import 卻沒列進需重啟的：無', missing.length === 0, missing.join(', '));
   check('列了卻其實沒被 import 的：無', extra.length === 0, extra.join(', '));
   console.log(`     （從 agent-runner.ts 推導出 ${derived.size} 個白名單內的相依）`);
+
+  // ⚠️ 上面那兩條只看得到「白名單內」的檔案。這一條補的是盲點本身：
+  //    **agent-runner.ts import 了，但根本不在白名單裡**——agent 拿不到那個檔案，
+  //    會在 import 當下整支炸掉，而且錯誤只在 agent 的 stderr。
+  //    只有 server 自己才有的東西（node 內建、外部套件、server-only 模組）不算，
+  //    所以只檢查 `uat-runner/`、`machine-test/`、`scripted-bet/` 這幾個
+  //    「本來就是要送去 agent」的目錄。
+  const AGENT_DIRS = ['uat-runner/', 'machine-test/', 'scripted-bet/'];
+  const notWhitelisted = [...seen].filter(f =>
+    AGENT_DIRS.some(d => f.startsWith(d)) && toWhitelistKey(f) === null);
+  check('agent-runner import 了、卻不在白名單裡的：無',
+    notWhitelisted.length === 0,
+    notWhitelisted.join(', ') + '（agent 會在 import 當下炸掉，錯誤只在它自己的 stderr）');
 }
 
 console.log(`\n${fail === 0 ? '全部通過' : fail + ' 項未過'}（pass ${pass} / fail ${fail}）`);

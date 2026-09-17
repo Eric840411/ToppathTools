@@ -31,6 +31,7 @@ import { attachNetworkCapture, DEFAULT_THRESHOLDS } from './uat-runner/net-captu
 import { attachPinusProbe } from './uat-runner/pinus-probe.js'
 import { attachCdpCapture } from './uat-runner/cdp-capture.js'
 import { evaluateApiAssertion } from './uat-runner/api-assert.js'
+import { waitForDebugPort, clearStaleDebugPort, DEBUG_PORT_ARG } from './uat-runner/chrome-debug-port.js'
 import { verifyRecordedSelectorLive } from './uat-runner/recorded-selector.js'
 import { MachineTestRunner } from './machine-test/runner.js'
 import type { MachineTestSession, MachineProfile, TestEvent } from './machine-test/types.js'
@@ -724,17 +725,20 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
 
   try {
     if (headed) {
-      const port = 9400 + Math.floor(Math.random() * 400)
       const profileDir = join(tmpdir(), `toppath-run-${runId}`)
       chromeProfileDir = profileDir
+      // ⚠️ port 讓 Chrome 自己挑（見 chrome-debug-port.js）。用亂數挑的話撞號時
+      //    不會失敗，而是**接到別人的瀏覽器**——兩個 session 交叉污染且無錯誤訊息。
+      clearStaleDebugPort(profileDir)
       const args = [
-        `--remote-debugging-port=${port}`,
+        DEBUG_PORT_ARG,
         `--user-data-dir=${profileDir}`,
         '--no-first-run', '--no-default-browser-check', '--new-window',
         `--window-size=${w + 20},${h + 140}`,
         'about:blank',
       ]
       chromeProc = spawn(chromeExecutable(), args, { stdio: 'ignore', shell: false, windowsHide: false })
+      const port = await waitForDebugPort(profileDir, { isAlive: () => chromeProc?.exitCode === null })
       await waitForJson(`http://127.0.0.1:${port}/json/version`)
       browser = await pw.chromium.connectOverCDP(`http://127.0.0.1:${port}`)
     } else {
@@ -795,11 +799,16 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
         if (step.action === 'goto') {
           const target = step.value || startUrl
           await log(`⏳ ${idx} ${label} → ${target}`)
+          // ⚠️ **netMark 要設在導頁之前，不是之後。**
+          // 「開這頁時打了哪些後端」正是最常要驗的東西——設在 goto 完成
+          // 又等三秒之後的話，載入期間那批 API 全部落在界線之前，
+          // assert_api_called 會永遠看到 0 支。Backend 的 block-engine 早就
+          // 踩過這個坑（見 :711 的註解，也是實測才發現），這裡照它的位置放。
+          netMark = Date.now()
           await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 })
           await page.waitForTimeout(3000)
           await log(`✅ ${idx} ${label}`)
           sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
-          netMark = Date.now()
           passed++
         } else if (step.action === 'click') {
           await log(`⏳ ${idx} ${label}`)
@@ -1850,10 +1859,10 @@ function connect() {
       const width = Number(w) || 390
       const height = Number(h) || 844
       const initialWindow = recordableWindowSize(width, height)
-      const port = 9300 + Math.floor(Math.random() * 400)
       const profileDir = join(tmpdir(), `toppath-uat-${sessionId}`)
+      clearStaleDebugPort(profileDir)
       const args = [
-        `--remote-debugging-port=${port}`,
+        DEBUG_PORT_ARG,
         `--user-data-dir=${profileDir}`,
         '--no-first-run', '--no-default-browser-check', '--new-window',
         `--window-size=${initialWindow.width},${initialWindow.height}`,
@@ -1866,6 +1875,8 @@ function connect() {
         steps: [{ name: '前往頁面', action: 'goto', value: url }],
       }
       uatRecSessions.set(sessionId, sess)
+      // Chrome 自己挑的 port，從它的 profile 目錄讀回來——保證是這一顆
+      const port = await waitForDebugPort(profileDir, { isAlive: () => proc.exitCode === null })
       proc.on('close', () => {
         // 使用者直接把錄製視窗關掉也走這裡。CDP 已經斷了，最後一次 flush 沒有意義，
         // 但計時器一定要收——否則它會對著死掉的連線永遠跑下去。
