@@ -2525,6 +2525,18 @@ router.get('/api/autospin/live-ledger/rows', (req, res) => {
   }
 })
 
+/**
+ * 跨環境稽核的觀察窗。
+ *
+ * 7 天而不是 24 小時：機台掛錯獎池是**設定問題**，不會只在最近一天出現——
+ * 壓測停了幾天之後，24 小時的窗會讓整份稽核永遠是空的（實測：窗 1 天 0 筆、窗 30 天 3 筆）。
+ *
+ * ⚠️ 窗越大，「搬過環境」被誤判成「同時掛兩邊」的機會越大。那個風險由
+ *    `machineEnvAudit()` 自己處理——兩邊最後變動相隔超過 6 小時就降成 warn
+ *    並改寫文案，不是靠把窗縮小來迴避。
+ */
+const ENV_AUDIT_WINDOW_MS = 7 * 24 * 3600_000
+
 // 門檻設定：讀／寫 recon_settings。
 // ⚠️ 每個參數都要能在畫面上看到「預設值」與「這個值影響什麼」——
 //    90 秒這種門檻寫死在腦子裡的話，之後沒有人敢動它，也沒有人知道動了會怎樣。
@@ -2558,11 +2570,11 @@ router.get('/api/autospin/live-ledger/jp', async (req, res) => {
     const since = Date.now() - minutes * 60_000
     // ⚠️ 稽核**刻意不吃 env**——它要看的就是跨環境，按 env 篩等於又把兩個世界隔開。
     //    窗也拉長到 24 小時：機台掛錯是設定問題，不會只在最近 30 分鐘出現。
-    const audit = machineEnvAudit(Date.now() - 24 * 3600_000)
+    const audit = machineEnvAudit(Date.now() - ENV_AUDIT_WINDOW_MS)
     res.json({
       ok: true, env, minutes,
       summary: jpSummary(env, since), matrix: jpMatrix(env, since),
-      audit, auditWindowHours: 24,
+      audit, auditWindowHours: ENV_AUDIT_WINDOW_MS / 3600000,
     })
   } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
 })
@@ -2602,7 +2614,7 @@ router.get('/api/autospin/live-ledger/pools', async (req, res) => {
        * 按 env 篩等於又把兩個世界隔開，那正是「QAT 機台掛在 UAT 池上會直接
        * 從矩陣上消失」的成因。窗固定 24 小時：掛錯是設定問題，不會只在近 30 分鐘出現。
        */
-      envAudit: machineEnvAudit(Date.now() - 24 * 3600_000),
+      envAudit: machineEnvAudit(Date.now() - ENV_AUDIT_WINDOW_MS),
     })
   } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
 })

@@ -118,8 +118,33 @@ try {
     `lastCrit=${lastCritIdx} firstWarn=${firstWarnIdx}`);
   check('注入的問題都在結果裡（正常與搬過環境那兩台除外）', mine.length === 3, `${mine.length} 筆`);
 
-  console.log('3) 稽核不吃 env 參數——它要看的就是跨環境');
-  check('machineEnvAudit 只接一個時間參數', machineEnvAudit.length === 1, `arity=${machineEnvAudit.length}`);
+  /**
+   * 3) 「真的同時掛兩邊」vs「搬過環境」
+   *
+   * ⚠️ 搬機台是**正常操作**。兩者都只看 `poolEnvs=['qat','uat']` 的話長得一模一樣，
+   *    全報成 critical 就會製造穩定的假警報——而假警報一多，真的同時掛兩邊那次
+   *    也會被一起忽略掉。判準是兩邊最後一次變動的間隔（門檻 6 小時）。
+   */
+  console.log('3) 同時掛兩邊 vs 搬過環境');
+  check('兩邊都在動（間隔很短）→ critical', both?.severity === 'critical', both?.severity);
+  check('critical 的說明講「同時都在動」', String(both?.note).includes('同時都在動'), String(both?.note).slice(0, 40));
+  check('兩邊各自的最後時間都有給（不然讀者分不出是哪一種）',
+    Boolean(both?.lastPoolByEnv?.qat) && Boolean(both?.lastPoolByEnv?.uat), JSON.stringify(both?.lastPoolByEnv));
+
+  const movedRows = machineEnvAudit(now - 30 * 24 * 3600_000, now);
+  const moved = movedRows.find(r => r.machineName === `${TAG}MOVED-0006`);
+  check('窗拉大到看得到舊資料時，搬過環境的那台會被降成 warn 不是 critical',
+    moved?.issue === 'both_envs' && moved?.severity === 'warn',
+    `${moved?.issue}/${moved?.severity}`);
+  check('搬過環境的說明講得出相隔多久、且指向「舊環境要解除掛載」',
+    String(moved?.note).includes('搬過環境') && String(moved?.note).includes('解除掛載'),
+    String(moved?.note).slice(0, 50));
+
+  console.log('4) 稽核不吃 env 參數——它要看的就是跨環境');
+  // ⚠️ `Function.length` 只數「第一個有預設值之前」的參數，所以 (sinceMs, now = Date.now())
+  //    的 arity 是 1 不是 2。這條斷言第一次就是寫成 2 而轉紅——留著當提醒。
+  check('machineEnvAudit 的參數只有時間，沒有 env',
+    machineEnvAudit.length === 1, `arity=${machineEnvAudit.length}（只有 sinceMs 必填）`);
 } finally {
   console.log(`\n(已清除 ${cleanup()} 筆測試資料)`);
 }

@@ -146,6 +146,8 @@ interface EnvAuditRow {
   spinEnvs: string[]
   lastPoolAt: number | null
   lastSpinAt: number | null
+  /** ⚠️ 每個環境各自的最後池變動時間——沒有它，「同時掛兩邊」跟「搬過環境」讀起來一樣 */
+  lastPoolByEnv?: Partial<Record<string, number>>
   issue: 'both_envs' | 'env_mismatch' | 'no_pool' | 'blank_name'
   severity: 'critical' | 'warn' | 'info'
   note: string
@@ -432,7 +434,7 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
             <div style={{ borderLeft: `2px solid ${tone}`, background: crit.length ? 'rgba(248,113,113,.07)' : 'rgba(251,191,36,.07)',
               padding: '8px 11px', borderRadius: '0 7px 7px 0', fontSize: 12, color: C.ink2, marginBottom: 9 }}>
               <b style={{ color: C.ink }}>跨環境機台稽核</b>
-              <span style={{ color: C.ink3, fontSize: 11 }}>　近 24 小時 · 不受上方環境切換影響</span>
+              <span style={{ color: C.ink3, fontSize: 11 }}>　近 7 天 · 不受上方環境切換影響</span>
               {crit.length > 0 && <b style={{ color: C.bad }}>　{crit.length} 台異常</b>}
               {warn.length > 0 && <b style={{ color: C.pending }}>　{warn.length} 台待確認</b>}
               <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -443,7 +445,14 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
                     </b>
                     <span style={{ color: C.ink3 }}>
                       　spin: {a.spinEnvs.map(e => e.toUpperCase()).join('／') || '—'}
-                      　池: {a.poolEnvs.map(e => e.toUpperCase()).join('／') || '—'}
+                      {/* ⚠️ 池要連「各自最後一次變動是多久以前」一起給——只列環境名稱的話，
+                          「真的同時掛兩邊」跟「三天前搬過來」在畫面上完全一樣 */}
+                      　池: {a.poolEnvs.length
+                        ? a.poolEnvs.map(e => {
+                          const at = a.lastPoolByEnv?.[e]
+                          return `${e.toUpperCase()}${at ? `(${new Date(at).toLocaleString()})` : ''}`
+                        }).join('／')
+                        : '—'}
                     </span>
                     <div style={{ color: C.ink2, paddingLeft: 2 }}>{a.note}</div>
                   </div>

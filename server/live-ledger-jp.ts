@@ -582,10 +582,38 @@ export interface MachineEnvRow {
   spinEnvs: ReconEnv[]
   lastPoolAt: number | null
   lastSpinAt: number | null
+  /**
+   * 每個環境**各自**的最後池變動時間。
+   *
+   * ⚠️ 這是 `both_envs` 能不能被讀懂的關鍵。只給一個 `poolEnvs: ['qat','uat']`
+   *    的話，「真的同時掛兩邊」跟「三天前從 UAT 搬到 QAT」長得一模一樣，
+   *    而後者是完全正常的操作。兩邊各自的時間擺出來，這件事自己會說話：
+   *      qat 2 分鐘前 / uat 1 分鐘前  → 真的同時掛著
+   *      qat 2 分鐘前 / uat 3 天前    → 搬過來的
+   */
+  lastPoolByEnv: Partial<Record<ReconEnv, number>>
   issue: MachineEnvIssue
   severity: 'critical' | 'warn' | 'info'
   note: string
 }
+
+/**
+ * 人看得懂的時間長度。給告警文案用，不做在地化。
+ *
+ * ⚠️ **時間點與時間長度要分開。**「10 天前」（時間點）跟「相隔 10 天」（長度）
+ *    是兩件事，共用同一個函式就會寫出「相隔 10.0 天前」這種讀不通的句子——
+ *    這是實際發生過的，測試的輸出欄把它顯示出來才看到。
+ */
+function durationText(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000))
+  if (s < 90) return `${s} 秒`
+  if (s < 5400) return `${Math.round(s / 60)} 分鐘`
+  if (s < 48 * 3600) return `${(s / 3600).toFixed(1)} 小時`
+  return `${(s / 86400).toFixed(1)} 天`
+}
+
+/** 相對於現在的時間點。 */
+function agoText(ms: number): string { return `${durationText(ms)}前` }
 
 /**
  * 跨環境機台稽核。**不吃 env 參數**——它要看的就是「跨環境」，
@@ -595,7 +623,7 @@ export interface MachineEnvRow {
  *    （`sasversion` 是 `sas` 不是 `g2s`），把它報成 critical 會讓真正的錯誤被埋掉。
  *    要分辨是「SAS 本來就沒有」還是「該掛卻沒掛上」，得靠 SLS 那條線（見 L6）。
  */
-export function machineEnvAudit(sinceMs: number): MachineEnvRow[] {
+export function machineEnvAudit(sinceMs: number, now = Date.now()): MachineEnvRow[] {
   const pool = db.prepare(`
     SELECT machineName, env, MAX(ts) lastAt FROM recon_pool_change
     WHERE ts >= ? GROUP BY machineName, env
@@ -610,7 +638,7 @@ export function machineEnvAudit(sinceMs: number): MachineEnvRow[] {
     let r = by.get(name)
     if (!r) {
       r = { machineName: name, poolEnvs: [], spinEnvs: [], lastPoolAt: null, lastSpinAt: null,
-        issue: 'no_pool', severity: 'info', note: '' }
+        lastPoolByEnv: {}, issue: 'no_pool', severity: 'info', note: '' }
       by.set(name, r)
     }
     return r
@@ -619,6 +647,7 @@ export function machineEnvAudit(sinceMs: number): MachineEnvRow[] {
     const r = touch(p.machineName)
     if (!r.poolEnvs.includes(p.env)) r.poolEnvs.push(p.env)
     r.lastPoolAt = Math.max(r.lastPoolAt ?? 0, p.lastAt)
+    r.lastPoolByEnv[p.env] = Math.max(r.lastPoolByEnv[p.env] ?? 0, p.lastAt)
   }
   for (const s of spin) {
     const r = touch(s.machineName)
@@ -636,9 +665,26 @@ export function machineEnvAudit(sinceMs: number): MachineEnvRow[] {
       continue
     }
     if (r.poolEnvs.length > 1) {
-      out.push({ ...r, issue: 'both_envs', severity: 'critical',
-        note: `同一台機台在 ${r.poolEnvs.join(' 與 ').toUpperCase()} 都有池變動`
-          + '——一台實體機台只會連一個獎池伺服器，兩邊都有代表環境設定有問題' })
+      const seen = r.poolEnvs
+        .map(e => `${e.toUpperCase()} ${agoText(now - (r.lastPoolByEnv[e] ?? 0))}`)
+        .join('、')
+      /**
+       * ⚠️ **兩邊最後一次變動差很久 = 搬過環境，不是同時掛著。**
+       *    搬機台是正常操作；報成 critical 會製造穩定的假警報，而假警報一多，
+       *    真的「同時掛兩邊」就會被一起忽略掉。
+       *    門檻用 6 小時：兩邊都還在動的機台不可能差這麼久。
+       */
+      const stamps = r.poolEnvs.map(e => r.lastPoolByEnv[e] ?? 0)
+      const spread = Math.max(...stamps) - Math.min(...stamps)
+      const moved = spread > 6 * 3600_000
+      out.push({ ...r,
+        issue: 'both_envs',
+        severity: moved ? 'warn' : 'critical',
+        note: moved
+          ? `兩個環境都有池變動，但相隔 ${durationText(spread)}（${seen}）`
+            + '——比較像是機台搬過環境，不是同時掛著。要確認的是舊環境那邊已經解除掛載'
+          : `同一台機台在 ${seen} 都有池變動`
+            + '——一台實體機台只會連一個獎池伺服器，兩邊同時都在動代表環境設定有問題' })
       continue
     }
     if (r.spinEnvs.length && r.poolEnvs.length
