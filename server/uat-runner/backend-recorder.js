@@ -28,12 +28,25 @@
 /** 錄製器把積木用這個前綴印到 console，外面透過 CDP 收 */
 export const RECORDER_MARKER = '__TOPPATH_BACKEND_REC__';
 
+/**
+ * 頁面裡那顆「停止錄製」按下去時印的前綴，兩個 host（agent-runner／uat-server-recorder）
+ * 收到就走各自既有的收尾路徑。
+ *
+ * ⚠️ **這兩個前綴不能互為前綴。** host 端是用 `text.startsWith(marker)` 判斷的，
+ *    若停止前綴長成 `RECORDER_MARKER + '_STOP'`，那 `startsWith(RECORDER_MARKER)`
+ *    會先命中，停止訊號會被當成一顆**內容解析不了的積木**——症狀是按了沒反應，
+ *    而且 JSON.parse 失敗被 catch 吃掉，兩邊都不會報錯。
+ *    `scripts/ui-checks/recorder-stop-marker.mjs` 釘住這條。
+ */
+export const RECORDER_STOP_MARKER = '__TOPPATH_REC_STOP__';
+
 export function backendRecorderScript(options = {}) {
   return `(() => {
   if (window.__toppathBackendRecorder) return;
   window.__toppathBackendRecorder = true;
 
   const MARK = ${JSON.stringify(RECORDER_MARKER)};
+  const STOP_MARK = ${JSON.stringify(RECORDER_STOP_MARKER)};
   const CONFIG = ${JSON.stringify(options)};
   const storageKey = 'toppath-recorder-' + (CONFIG.sessionId || 'single');
   let owner = '';
@@ -501,11 +514,60 @@ export function backendRecorderScript(options = {}) {
   ownerSelect.value = owner;
   ownerSelect.onchange = () => { flushInput(document.activeElement); owner = ownerSelect.value; saveSelection(); };
   PANEL.appendChild(ownerSelect);
+  // 暫停與停止並排。停止刻意做得比暫停搶眼——它是終止整段錄製的動作，
+  // 跟「暫停一下」不是同一個量級，長得一樣會被誤按。
+  const BUTTON_ROW = document.createElement('div');
+  BUTTON_ROW.style.cssText = 'display:flex;gap:8px;margin:2px 0 0';
   const pauseButton = document.createElement('button');
+  pauseButton.type = 'button';
+  pauseButton.style.cssText = 'flex:1;padding:9px 10px;border:1px solid #42566f;border-radius:6px;' +
+    'background:#18312f;color:#cbd5e1;font:600 12px/1.2 system-ui,-apple-system,sans-serif;cursor:pointer';
   const paintPause = () => { pauseButton.textContent = paused ? '繼續錄製' : '暫停錄製'; };
   paintPause();
   pauseButton.onclick = () => { flushInput(document.activeElement); paused = !paused; saveSelection(); paintPause(); };
-  PANEL.appendChild(pauseButton);
+  BUTTON_ROW.appendChild(pauseButton);
+
+  const stopButton = document.createElement('button');
+  stopButton.type = 'button';
+  stopButton.style.cssText = 'flex:1;padding:9px 10px;border:0;border-radius:6px;background:#c0392f;' +
+    'color:#fff;font:700 12px/1.2 system-ui,-apple-system,sans-serif;cursor:pointer;' +
+    'box-shadow:0 2px 10px rgba(192,57,47,.5)';
+  // 提前宣告，免得下面的 handler 讀起來像用在宣告之前（跟 hover 那邊同一個理由）
+  const paintStop = () => { stopButton.textContent = '■ 停止錄製'; };
+  paintStop();
+  let stopping = false;
+  stopButton.addEventListener('click', (event) => {
+    event.preventDefault(); event.stopPropagation();
+    if (stopping) return;
+    stopping = true;
+    stopButton.disabled = true;
+    stopButton.style.opacity = '.65';
+    stopButton.style.cursor = 'default';
+    stopButton.textContent = '停止中…';
+    // ⚠️ 先 flush 再送停止訊號。還停在輸入框、沒離開焦點的內容要先變成積木，
+    //    否則「打完字立刻按停止」那一步會直接消失，而且沒有任何徵兆。
+    //    host 端收到停止後也會再 flush 一次，flushInput 本身是冪等的（比對
+    //    recordedValues），重複呼叫不會產生第二顆 type_text。
+    try { flushInput(document.activeElement); } catch (e) { /* flush 失敗不能擋住停止 */ }
+    // ⚠️ **刻意不走 emit()。** 它第一行就是 if (paused || !armed) return——
+    //    而「暫停中想停止」正是最常見的情境（暫停去做別的事，回來決定不錄了）。
+    //    走 emit 的話那個情境會按了完全沒反應。
+    try { console.info(STOP_MARK, '1'); } catch (e) { /* 送不出去下面的逾時會提示 */ }
+    // 停止成功的話整個瀏覽器會被關掉，這個計時器根本活不到觸發。
+    // 會觸發就代表 host 沒收到——最可能是這台 Local Agent 的 agent-runner 還沒更新。
+    // 沒有這段的話，舊版 agent 上按下去是**完全的靜默失敗**。
+    setTimeout(() => {
+      stopping = false;
+      stopButton.disabled = false;
+      stopButton.style.opacity = '';
+      stopButton.style.cursor = 'pointer';
+      paintStop();
+      toast('停止指令沒有被接受，錄製還在繼續。這台 Local Agent 可能還沒更新程式碼——' +
+        '請回主畫面按「停止錄製」，並到 Local Agent 頁面按「更新程式碼」後重新啟動 Agent。');
+    }, 5000);
+  }, true);
+  BUTTON_ROW.appendChild(stopButton);
+  PANEL.appendChild(BUTTON_ROW);
   const info = document.createElement('div');
   info.style.cssText = 'margin-top:8px;color:#a9b8b3';
   info.textContent = '用標記模式點選欄位。截圖可重複加入；錄製後可逐步修改歸屬。';

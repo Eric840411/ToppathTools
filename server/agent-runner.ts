@@ -119,6 +119,31 @@ let currentRunner: { stop: () => void } | null = null
 let backendRecordBrowser: import('playwright').Browser | null = null
 let backendRecordSessionId: string | null = null
 
+/**
+ * 收掉這一輪 Backend 錄製：先把還停在輸入框、沒離開焦點的內容 flush 成積木，
+ * 再關瀏覽器並回報 `backend_record_done`。
+ *
+ * ⚠️ **這是主畫面的「停止錄製」（`backend_record_stop`）與頁面裡那顆停止按鈕
+ *    共用的唯一實作。** 兩邊各寫一份的話遲早漂移，而最先漂掉的一定是那個 flush
+ *    ——症狀是「從其中一邊停，最後打的那個欄位不見了」，兩邊都不會報錯。
+ */
+async function stopBackendRecording(ws: WebSocket, sessionId: string) {
+  if (backendRecordSessionId && backendRecordSessionId !== sessionId) return
+  // 先把狀態清掉再 await，免得 flush 還沒跑完就有第二條路徑進來重跑一次
+  const browser = backendRecordBrowser
+  backendRecordBrowser = null
+  backendRecordSessionId = null
+  for (const context of browser?.contexts() ?? []) {
+    for (const page of context.pages()) {
+      await page.evaluate(() => (window as unknown as { __toppathFlushRecorder?: () => void }).__toppathFlushRecorder?.()).catch(() => {})
+    }
+  }
+  try { await browser?.close() } catch { /* ignore */ }
+  if (ws.readyState === ws.OPEN) {
+    ws.send(JSON.stringify({ type: 'backend_record_done', sessionId, error: null }))
+  }
+}
+
 function backendRecordKind(resourceType: string) {
   if (resourceType === 'xhr' || resourceType === 'fetch') return 'api'
   if (resourceType === 'image') return 'image'
@@ -230,6 +255,14 @@ interface BackendRecordStartMessage {
   recorderScript: string
   /** 頁面把錄到的積木用 console.log 印出來時的前綴 */
   marker: string
+  /**
+   * 頁面裡那顆「停止錄製」按下去時印的前綴。
+   *
+   * ⚠️ 舊版 server 不會送這個欄位，收到 undefined 時**不能**退回用 `marker` 比對
+   *    ——那會讓每一顆正常的積木都被當成停止訊號，錄一步就關掉瀏覽器。
+   *    沒有值就是「這個 server 還沒有這個功能」，不掛監聽即可。
+   */
+  stopMarker?: string
   /** 自動登入用。只留在記憶體，不寫檔 */
   username: string
   password: string
@@ -1396,6 +1429,14 @@ function connect() {
         page.on('console', message => {
           const text = message.text()
           if (ws.readyState !== ws.OPEN) return
+          // 頁面裡那顆「停止錄製」。要比 marker 先判：兩個前綴刻意設計成互不為前綴
+          // （見 backend-recorder.js 的說明），但順序放前面才不會依賴那個約定。
+          // ⚠️ m.stopMarker 沒有值時什麼都不做——絕不能退回用 m.marker 比對，
+          //    那會讓每一顆正常積木都被當成停止訊號。
+          if (m.stopMarker && text.startsWith(m.stopMarker)) {
+            void stopBackendRecording(ws, m.sessionId)
+            return
+          }
           if (text.startsWith(m.marker)) {
             const payload = text.slice(m.marker.length).trim()
             ws.send(JSON.stringify({ type: 'backend_record_event', sessionId: m.sessionId, payload }))
@@ -1559,18 +1600,7 @@ function connect() {
 
     if (msg.type === 'backend_record_stop') {
       const { sessionId } = msg as { type: 'backend_record_stop'; sessionId: string }
-      if (backendRecordSessionId && backendRecordSessionId !== sessionId) return
-      for (const context of backendRecordBrowser?.contexts() ?? []) {
-        for (const page of context.pages()) {
-          await page.evaluate(() => (window as unknown as { __toppathFlushRecorder?: () => void }).__toppathFlushRecorder?.()).catch(() => {})
-        }
-      }
-      try { await backendRecordBrowser?.close() } catch { /* ignore */ }
-      backendRecordBrowser = null
-      backendRecordSessionId = null
-      if (ws.readyState === ws.OPEN) {
-        ws.send(JSON.stringify({ type: 'backend_record_done', sessionId, error: null }))
-      }
+      await stopBackendRecording(ws, sessionId)
       return
     }
 

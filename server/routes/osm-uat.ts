@@ -29,7 +29,7 @@ import { db } from '../shared.js'
 import { parseStatsLine } from '../uat-runner/net-capture.js'
 import { BLOCK_DEFS } from '../uat-runner/block-engine.js'
 import { VERIFIER_PARAM_SCHEMAS } from '../uat-runner/verifier-params.js'
-import { backendRecorderScript, RECORDER_MARKER, eventsToSteps, hasAssertion } from '../uat-runner/backend-recorder.js'
+import { backendRecorderScript, RECORDER_MARKER, RECORDER_STOP_MARKER, eventsToSteps, hasAssertion } from '../uat-runner/backend-recorder.js'
 import { applySelectorChecks } from '../uat-runner/recorded-selector.js'
 // detectManual 跟 runner 共用同一份——各寫一份的話，畫面上算出來的「需人工」筆數
 // 會跟實際跑出來的對不起來，而且那種不一致沒有任何錯誤訊息
@@ -747,6 +747,7 @@ router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) =>
       try {
         const controller = await startServerRecorder({ backendUrl: BACKEND_URL_FOR_RECORD, username: creds.cpBackend.username,
           password: creds.cpBackend.password, script: backendRecorderScript({ sessionId, bindings }), marker: RECORDER_MARKER,
+          stopMarker: RECORDER_STOP_MARKER,
           event: payload => handleBackendRecordEvent(sessionId, payload), net: call => handleBackendRecordNet(sessionId, call),
           console: entry => handleBackendRecordConsole(sessionId, entry), ws: frame => handleBackendRecordWs(sessionId, frame),
           selectorCheck: check => handleBackendRecordVerify(sessionId, check),
@@ -791,6 +792,7 @@ router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) =>
       backendUrl: BACKEND_URL_FOR_RECORD,
       recorderScript: backendRecorderScript({ sessionId, bindings }),
       marker: RECORDER_MARKER,
+      stopMarker: RECORDER_STOP_MARKER,
       username: creds.cpBackend.username,
       password: creds.cpBackend.password,
     }))

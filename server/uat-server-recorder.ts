@@ -4,6 +4,12 @@ import { verifyRecordedSelectorLive } from './uat-runner/recorded-selector.js'
 
 type Options = {
   backendUrl: string; username: string; password: string; script: string; marker: string;
+  /**
+   * 頁面裡那顆「停止錄製」按下去時印的前綴。
+   * ⚠️ 沒有值時不掛監聽，**絕不能退回用 `marker` 比對**——那會讓每一顆正常積木
+   *    都被當成停止訊號，錄一步就關掉瀏覽器。
+   */
+  stopMarker?: string;
   event: (payload: string) => void; net: (call: unknown) => void;
   console: (entry: unknown) => void; ws: (frame: unknown) => void;
   selectorCheck?: (check: unknown) => void;
@@ -27,8 +33,25 @@ export async function startServerRecorder(options: Options, launch = () => chrom
     const context = await browser.newContext({ viewport: null })
     await context.addInitScript(options.script)
     const page = await context.newPage()
+    /**
+     * 收尾：先 flush 還停在輸入框的內容，再關瀏覽器。
+     * ⚠️ 回傳的 `stop`（主畫面按的）與頁面裡那顆停止按鈕**共用這一支**，
+     *    不要各寫一份——最先漂掉的一定是 flush，而它漂掉是靜默的。
+     */
+    const stopNow = async () => {
+      if (finished) return
+      await page.evaluate(() => (window as unknown as { __toppathFlushRecorder?: () => void }).__toppathFlushRecorder?.()).catch(() => {})
+      await page.waitForTimeout(100).catch(() => {})
+      await finish()
+    }
     page.on('console', message => {
       const text = message.text()
+      // 停止要比下面那道 armed 閘門先判：登入還沒完成時使用者一樣可能想中止，
+      // 擋在 armed 後面的話那段時間按了會完全沒反應。
+      if (!finished && options.stopMarker && text.startsWith(options.stopMarker)) {
+        void stopNow()
+        return
+      }
       if (finished || !armed) return
       if (text.startsWith(options.marker)) {
         const payload = text.slice(options.marker.length).trim()
@@ -91,12 +114,7 @@ export async function startServerRecorder(options: Options, launch = () => chrom
     armed = true
     await page.evaluate(() => (window as unknown as { __toppathArmRecorder?: () => void }).__toppathArmRecorder?.())
     if (finished) throw new Error('錄製視窗已關閉')
-    return { stop: async () => {
-      if (finished) return
-      await page.evaluate(() => (window as unknown as { __toppathFlushRecorder?: () => void }).__toppathFlushRecorder?.()).catch(() => {})
-      await page.waitForTimeout(100).catch(() => {})
-      await finish()
-    } }
+    return { stop: stopNow }
   } catch (error) {
     await finish(error instanceof Error ? error.message : String(error))
     throw error
