@@ -145,16 +145,22 @@ export function backendRecorderScript(options = {}) {
     if (!text) {
       const item = el.closest('.el-form-item');
       const lab = item && item.querySelector('.el-form-item__label');
-      const labText = lab ? cleanText(lab.innerText || '').replace(/[:：*]\s*$/, '') : '';
-      if (labText) {
+      // ⚠️ :text-is() 比的是**頁面上的原文**。把「Min Bet:」的冒號拿掉再拿去比，
+      //    永遠對不上——錄製當下就是 0 個。（CodeX 2026-09-17 指出）
+      //    冒號只用在「同名欄位唯不唯一」的比對上，選擇器裡用原文。
+      const labRaw = lab ? cleanText(lab.innerText || '') : '';
+      const labKey = labRaw.replace(/[:：*]\s*$/, '');
+      if (labRaw) {
         const sameLabel = [...document.querySelectorAll('.el-form-item')].filter(it => {
           const l = it.querySelector('.el-form-item__label');
-          return l && cleanText(l.innerText || '').replace(/[:：*]\s*$/, '') === labText;
+          return l && cleanText(l.innerText || '').replace(/[:：*]\s*$/, '') === labKey;
         });
         const fields = [...item.querySelectorAll('input, textarea, select')];
         if (sameLabel.length === 1 && fields.length === 1 && fields[0] === el) {
+          // ⚠️ 前面允許 label 在任何層，選擇器卻寫成直接子層會對不上。
+          const direct = lab.parentElement === item ? '> ' : '';
           return {
-            selector: '.el-form-item:has(> .el-form-item__label:text-is(' + JSON.stringify(labText) + ')) '
+            selector: '.el-form-item:has(' + direct + '.el-form-item__label:text-is(' + JSON.stringify(labRaw) + ')) '
               + el.tagName.toLowerCase(),
             strategy: 'formItem',
           };

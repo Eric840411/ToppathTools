@@ -152,8 +152,10 @@ export async function verifyRecordedSelectorLive(page, step) {
     const marked = await page.locator(`[data-toppath-rec-target="${verifyId}"]`).count();
     if (marked !== 1) return { verifyId, status: 'unknown', count: null };
 
-    const probe = await safeCount(page, step.selector);
-    // 語法錯誤才叫 invalid；其他例外（導頁、frame 被拆）是「量不到」，不是選擇器的錯。
+    // ⚠️ 這裡不能自己 `page.locator(step.selector)`——`label=` 不是 Playwright 的引擎，
+    //    會拋 Unknown engine而被誤判成語法錯誤；`text=` 也不是重播的 exact 語意。
+    //    走跟重播同一支解析。（CodeX 2026-09-17 指出的「分身」）
+    const probe = await countRecorded(page, step.selector);
     if (probe.failure === 'invalid') return { verifyId, status: 'invalid', count: null };
     if (probe.failure) return { verifyId, status: 'unknown', count: null };
     const count = probe.count;
@@ -162,7 +164,7 @@ export async function verifyRecordedSelectorLive(page, step) {
 
     // 沒有那個屬性回 ''（這就是 mismatch），evaluate 本身挂掉才回 null（無法確認）。
     // 兩者不能用同一個值表示，否則「點到別顆」會被當成「不確定」静静放過。
-    const hit = await page.locator(step.selector)
+    const hit = await probe.locator
       .evaluate(node => node.getAttribute('data-toppath-rec-target') ?? '')
       .catch(() => null);
     if (hit === null) return { verifyId, status: 'unknown', count: 1 };
@@ -202,10 +204,20 @@ export function isAmbiguityError(error) {
  *    （使用者 2026-09-17：二級彈窗的 Jackpot ID 下拉選單。）
  */
 export function legacyLabelVariant(selector) {
-  if (typeof selector !== 'string' || !selector.startsWith('label=')) return null;
+  if (typeof selector !== 'string' || !selector.startsWith('label=')) return [];
   const text = selector.slice(6).trim();
-  if (!text) return null;
-  return '.el-form-item:has(> .el-form-item__label:text-is(' + JSON.stringify(text) + ')) input';
+  if (!text) return [];
+  // ⚠️ 錄製端產 `label=` 時把尾端的冒號、星號拿掉了，但頁面上的 label
+  //    可能真的就是「Min Bet:」。`:text-is()` 比的是原文，所以要把幾種寫法都試。
+  //    （CodeX 2026-09-17 指出；使用者的 Min Bet 就是卡在這裡。）
+  const texts = [text, text + ':', text + '：'];
+  const out = [];
+  for (const t of texts) {
+    // 先試直接子層（常見），再試後代（label 又包了一層的版型）
+    out.push('.el-form-item:has(> .el-form-item__label:text-is(' + JSON.stringify(t) + ')) input');
+    out.push('.el-form-item:has(.el-form-item__label:text-is(' + JSON.stringify(t) + ')) input');
+  }
+  return out;
 }
 
 /**
@@ -251,13 +263,30 @@ export function ambiguityMessage(selector, count) {
  */
 async function narrowToVisible(page, locator, count) {
   if (count <= 1 || count > 20) return null;
-  const visible = [];
+  const infos = [];
   for (let i = 0; i < count; i++) {
-    if (await locator.nth(i).isVisible().catch(() => false)) visible.push(i);
-    if (visible.length > 1) return null;   // 兩個以上可見：真歧義，不猜
+    const one = locator.nth(i);
+    const visible = await one.isVisible().catch(() => false);
+    const inPanel = await one
+      .evaluate(el => !!(el.closest && el.closest('.el-select-dropdown, .el-dropdown-menu')))
+      .catch(() => false);
+    infos.push({ visible, inPanel });
   }
-  return visible.length === 1 ? locator.nth(visible[0]) : null;
+  const visible = infos.filter(x => x.visible);
+  if (visible.length !== 1) return null;
+
+  // ⚠️ 跨「下拉選項」與「一般元素」的收斂一律不做（CodeX 2026-09-17 P1）。
+  //    例：一個**隱藏的下拉選項** + 一個**可見的表格儲存格**同名——
+  //    只看可不可見會收斂到儲存格，然後靜静地點下去，
+  //    下拉完全沒選到。使用者要的是選項，不是表格里那個字。
+  if (infos.some(x => !x.visible && x.inPanel) && !visible[0].inPanel) return null;
+
+  // ⚠️ 回 `.nth()` 等於又回到「明言只要這一個」，Playwright 就不再 strict 檢查，
+  //    定位完之後第二顆才變可見的話仍然會點下去。（CodeX 2026-09-17 P1）
+  //    `filter({ visible: true })` 回的是**可見集合**，動作當下仍然會 strict 檢查。
+  return locator.filter({ visible: true });
 }
+
 
 /**
  * 把一條錄製選擇器解成「單一元素」的 locator，並把**怎麼失敗的**講清楚。
@@ -301,8 +330,7 @@ export async function locateRecorded(page, selector, { requireUnique = false } =
       if (count === 0) {
         // 舊腳本相容：`label=X` 在 Element UI 表單上永遠是 0，改試 form item 範圍。
         // 跟表格錨點同一個規矩：**唯一命中才套用**，歧義就不碰。
-        const variant = legacyLabelVariant(selector);
-        if (variant) {
+        for (const variant of legacyLabelVariant(selector)) {
           const alt = await safeCount(page, variant);
           if (alt.count === 1) {
             const full = page.locator(variant);
@@ -366,13 +394,12 @@ export async function countRecorded(page, selector) {
     try {
       const n = await exact.count();
       if (n === 0) {
-        const variant = legacyLabelVariant(selector);
-        if (variant) {
+        for (const variant of legacyLabelVariant(selector)) {
           const alt = await safeCount(page, variant);
-          if (alt.count === 1) return { count: 1, failure: null, message: '', selector: variant };
+          if (alt.count === 1) return { count: 1, failure: null, message: '', selector: variant, locator: page.locator(variant) };
         }
       }
-      return { count: n, failure: null, message: '', selector };
+      return { count: n, failure: null, message: '', selector, locator: exact };
     }
     catch (e) {
       const message = String(e?.message ?? e).split('\n')[0].slice(0, 200);
@@ -380,8 +407,8 @@ export async function countRecorded(page, selector) {
     }
   }
   const resolved = await resolveRecordedSelector(page, selector);
-  if (resolved.failure) return { count: null, failure: resolved.failure, message: resolved.message, selector };
-  return { count: resolved.count, failure: null, message: '', selector: resolved.selector };
+  if (resolved.failure) return { count: null, failure: resolved.failure, message: resolved.message, selector, locator: null };
+  return { count: resolved.count, failure: null, message: '', selector: resolved.selector, locator: page.locator(resolved.selector) };
 }
 
 /** 失敗分類 → 給人看的一句話。積木失敗訊息共用這一份。 */
@@ -509,7 +536,20 @@ export async function setCheckedRecorded(target, desired, { timeout = 10000 } = 
     return { ok: true, note: want ? '已勾選' : '已取消勾選' };
   }
 
-  const proxy = await hiddenToggleProxy(target);
+  // ⚠️ 不可見不等於永遠不可見——元素可能已經在 DOM 裡、稍後才顯示。
+  //    找不到代理就立刻失敗會誤殺這種。（CodeX 2026-09-17 P2）
+  //    在同一個期限內重試，逐次重新讀可見性與代理。
+  let proxy = await hiddenToggleProxy(target);
+  const deadline = Date.now() + timeout;
+  while (!proxy.locator && Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 150));
+    if (await target.isVisible().catch(() => false)) {
+      try { await target.setChecked(want, { timeout: Math.max(500, deadline - Date.now()) }); }
+      catch (e) { return { ok: false, problem: `設定勾選失敗：${String(e.message).split('\n')[0]}` }; }
+      return { ok: true, note: want ? '已勾選' : '已取消勾選' };
+    }
+    proxy = await hiddenToggleProxy(target);
+  }
   if (!proxy.locator) {
     return { ok: false, problem: `${proxy.problem}。這種元素 Playwright 不會去點，會一直等到逾時` };
   }

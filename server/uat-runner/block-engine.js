@@ -459,20 +459,6 @@ async function clickDialogTrigger(page, { trigger, scope, triggerKind }) {
 }
 
 /**
- * 錄製器的 text=/label= 代表使用者當時看到的完整名稱。Playwright 舊 selector
- * 預設是模糊比對，text=Edit 會命中 Credit；統一在這裡改成 exact，並優先取可見元素。
- */
-async function recordedLocator(page, selector) {
-  // 委派給共用那一支，預檢與執行才會用同一套解析與舊格式相容。
-  // （這裡原本自己寫了一份，而且**沒有舊格式相容**，
-  //   所以 set_checked / select_option 遇到舊錄製的表格錨點會直接找不到。）
-  const found = await locateRecorded(page, selector);
-  if (found.locator) return found.locator;
-  // 語法錯或量不到時仍回一個 locator，讓呼叫端自己的錯誤路徑跑（行為跟以前一致）
-  return page.locator(selector).first();
-}
-
-/**
  * 單一目標操作的定位：**命中多筆一律拒絕**，不再安靜取第一個。
  *
  * 回 `{ locator, problem }`；problem 有值就是該失敗的理由（已經是給人看的句子）。

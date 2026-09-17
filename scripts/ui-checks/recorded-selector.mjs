@@ -766,7 +766,7 @@ try {
     await pg.close();
 
     // 純字串層：只認 label=，別的不碰
-    eq('只處理 label= 開頭的', legacyLabelVariant('text=X'), null);
+    eq('只處理 label= 開頭的', legacyLabelVariant('text=X'), []);
 
     // 錄製端：現在不再產 label=，而是範圍選擇器
     const c = await browser.newContext();
@@ -979,6 +979,95 @@ try {
     await hidden.close();
   }
 
+  // ── (n) CodeX 2026-09-17 第二輪 review 點名的五項（v4.161.0）───────
+  console.log('\n── CodeX 第二輪點名的五項 ──');
+  {
+    // ① [P1] 收斂後不能回 .nth()——定位完第二顆才變可見也要被擋
+    {
+      const pg = await browser.newPage();
+      await pg.setContent('<button class="s" style="display:none">Sure</button><button class="s">Sure</button>');
+      const { recordedLocator } = createRecordedLocators(pg, { requireUnique: true });
+      const btn = await recordedLocator('text=Sure');
+      eq('① 收斂當下是唯一的', await btn.count(), 1);
+      // 定位之後第二顆才變可見
+      await pg.evaluate(() => { document.querySelector('.s').style.display = '' });
+      eq('① 第二顆變可見後，回的集合跟著變成 2', await btn.count(), 2);
+      let err = '';
+      try { await btn.click({ timeout: 800 }) } catch (e) { err = String(e.message) }
+      eq('① 所以動作當下被 strict 擋下來', isAmbiguityError(err), true);
+      await pg.close();
+    }
+
+    // ② [P1] 一個隱藏的下拉選項 + 一個可見的同名儲存格 → 不得收斂到儲存格
+    {
+      const pg = await browser.newPage();
+      await pg.setContent('<table><tbody><tr><td><div class="cell">4186-dfdc1</div></td></tr></tbody></table>'
+        + '<div class="el-select-dropdown" style="display:none"><ul class="el-select-dropdown__list">'
+        + '<li class="el-select-dropdown__item"><span>4186-dfdc1</span></li></ul></div>');
+      const f = createRecordedLocators(pg, { requireUnique: true });
+      const r = await f.checkLocator({ selector: 'text=4186-dfdc1' }).catch(e => ({ error: String(e.message) }));
+      eq('② 下拉關著時不得收斂到表格儲存格',
+        /定位必須唯一/.test(r?.error || ''), true);
+      await pg.close();
+    }
+
+    // ③ [P2] label 帶冒號時，錄製當下不得產出零命中
+    {
+      const FORM = '<div class="el-form-item"><label class="el-form-item__label">Min Bet:</label>'
+        + '<div class="el-form-item__content"><input class="a"></div></div>';
+      const c = await browser.newContext();
+      await c.addInitScript(backendRecorderScript());
+      const rec = await c.newPage();
+      const got = [];
+      rec.on('console', m => {
+        const t = m.text();
+        if (t.startsWith(RECORDER_MARKER)) got.push(JSON.parse(t.slice(RECORDER_MARKER.length).trim()));
+      });
+      await rec.goto('data:text/html,' + encodeURIComponent(FORM));
+      await rec.evaluate(() => window.__toppathArmRecorder?.());
+      await rec.waitForTimeout(150);
+      await rec.click('.a');
+      await rec.waitForTimeout(150);
+      const st = got.at(-1);
+      eq('③ label 帶冒號時錄製當下就命中 1', await rec.locator(st.selector).count(), 1);
+      await c.close();
+
+      // 舊腳本的 label=Min Bet（沒冒號）也要相容到
+      const play = await browser.newPage();
+      await play.setContent(FORM);
+      const f = createRecordedLocators(play, { requireUnique: true });
+      const r = await f.checkLocator({ selector: 'label=Min Bet' }).catch(e => ({ error: String(e.message) }));
+      eq('③ 舊腳本 label=Min Bet 也相容得到', r?.count, 1);
+      await play.close();
+    }
+
+    // ④ [P2] 已在 DOM 裡、稍後才顯示的勾選框要等
+    {
+      const pg = await browser.newPage();
+      await pg.setContent('<style>.hide{display:none}</style>'
+        + '<label class="el-checkbox hide" id="lb"><span class="el-checkbox__inner"></span>'
+        + '<input type="checkbox" class="el-checkbox__original"></label>');
+      await pg.evaluate(() => setTimeout(() => document.getElementById('lb').classList.remove('hide'), 300));
+      const r = await setCheckedRecorded(pg.locator('#lb input'), true, { timeout: 3000 });
+      eq('④ 暫時隱藏的勾選框會等到它出現', r.ok, true);
+      eq('④ 而且真的勾上了', await pg.locator('#lb input').isChecked(), true);
+      await pg.close();
+    }
+
+    // ⑤ 即時驗證不得自己 page.locator()——label= 會拋 Unknown engine
+    {
+      const pg = await browser.newPage();
+      await pg.setContent('<div class="el-form-item"><label class="el-form-item__label">Min Bet</label>'
+        + '<div class="el-form-item__content"><input id="mb" data-toppath-rec-target="v1"></div></div>');
+      const r = await verifyRecordedSelectorLive(pg, {
+        verifyId: 'v1', selector: 'label=Min Bet', recordedUrl: pg.url(),
+      });
+      eq('⑤ label= 的即時驗證不會變成語法錯誤', r?.status === 'invalid', false);
+      eq('⑤ 而且認得出就是剛才那一個', r?.status, 'ok');
+      await pg.close();
+    }
+  }
+
   // ── 4b. 語法錯誤 vs 其他例外，不能混為一談 ───────────────────
   //
   // ⚠️ 第一版的 safeCount 把**所有**例外都當成「選擇器語法錯誤」（CodeX 指出）。
@@ -1046,6 +1135,14 @@ try {
   eq('runner 沒有自己再寫一份 strict mode 正則', runnerSrc.includes('strict mode violation'), false);
   // 座標備援只能存在於共用那一支；runner 裡又出現就是有人複製回去了
   eq('runner 裡沒有自己的座標備援實作', /mouse\.click\(/.test(runnerSrc), false);
+  // ⚠️ 定位只能有一條路徑。今天有兩次是「修在沒人走的那一支」，
+  //    其中一次是因為 block-engine 自己還留著一份。釘住：不得再出現分身。
+  const blockSrc = readFileSync(new URL('../../server/uat-runner/block-engine.js', import.meta.url), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
+  eq('block-engine 不得自己解析 text=/label=',
+    /getByText|getByLabel|startsWith\('text=|startsWith\('label=/.test(blockSrc), false);
+  eq('block-engine 也不得留自己的 recordedLocator',
+    /function recordedLocator/.test(blockSrc), false);
   eq('錄製器不再產出 :nth-match', recorderSrc.includes(':nth-match('), false);
 
   // ── 7. 前後端措辭沒有漂掉 ─────────────────────────────────────────────────
