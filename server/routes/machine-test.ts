@@ -75,6 +75,9 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'uat-runner/multi-tc.js':            join(SERVER_ROOT, 'uat-runner', 'multi-tc.js'),
   'uat-runner/step-dependencies.js': join(SERVER_ROOT, 'uat-runner', 'step-dependencies.js'),
   'uat-runner/backend-recorder.js':    join(SERVER_ROOT, 'uat-runner', 'backend-recorder.js'),
+  // 錄製選擇器的共用解析：run-lark-tc-backend.js 與 agent-runner.ts 兩邊都 import，
+  // 少送這一份 agent 端會在 import 當下炸掉
+  'uat-runner/recorded-selector.js':   join(SERVER_ROOT, 'uat-runner', 'recorded-selector.js'),
   // 內建驗證器的參數宣告：同上，run-lark-tc-backend.js import 它，少送就 import 當下炸
   'uat-runner/verifier-params.js':     join(SERVER_ROOT, 'uat-runner', 'verifier-params.js'),
   // 人工判讀的判定規則（v4.52.0 新增，但當時漏了加進這份白名單）：

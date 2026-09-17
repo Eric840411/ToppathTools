@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.155.2'
+export const APP_VERSION = '4.156.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.156.0', date: '2026-09-17', changes: ['fix(uat): 錄製的表格步驟在後台任何一張 el-table 上都不可能命中——錨點產成 tr:has(td:text-is("…"))，而 Playwright 的 :text-is() 只配「最小的那個元素」，el-table 每一格的文字都包在 <div class="cell"> 裡，所以它配到那個 div、td 永遠 0 個。使用者回報的「命中 0 個」加延遲永遠沒用，因為這不是等待問題', 'fix(uat): 同一支函式的第二個洞（CodeX 指出）——按鈕的序號用 querySelectorAll 算「第幾個後代」卻產出按兄弟排序的 nth-of-type，按鈕各自包在不同 wrapper 時會定位到別顆或一次命中多顆；改用 :nth-match()', 'fix(uat): 舊腳本不用重錄也不改 DB——執行時相容：只有「原式命中 0」且「修正式唯一命中」才套用，歧義或多筆一律不碰並讓原本的錯誤照常出現；套用時在 log 記下原始與有效的 selector。recordedLocator 與 checkLocator 共用同一支解析，否則預檢會先擋下來等於沒修', 'feat(uat): 錄製當下就驗每一條選擇器（不擋錄製），分成找不到／命中多筆／語法錯誤／命中的不是剛才點的那一顆，工作台直接列出來；⚠️ 頁面已換掉或元素已消失回 unknown、不判成失敗，否則會叫人去修根本沒壞的步驟', 'test(uat): 新增 scripts/ui-checks/recorded-selector.mjs（27 項，開真的 Chromium）；⚠️ 既有的 backend-recorder.browser-test.mjs 本來就有「表格 selector 可執行且唯一」這條斷言，它沒拓到是因為 fixture 寫成 <td>文字</td>——斷言是對的，fixture 讓它驗不到；已改成 el-table 的真實長相'] },
   { version: '4.155.2', date: '2026-09-16', changes: ['fix(uat): 同腳本鎖拿掉六小時自動過期——斷線保留鎖卻讓它六小時後自己消失，等於把同一個洞延後六小時打開；時間到不是停止的證明（CodeX review）。現在只有正常收尾或人工解除會放鎖', 'fix(uat): 人工解除執行鎖改成只限管理員、且必須帶上要解除的那一輪 sessionId——原本任何登入者都能解掉別人正在正常執行的鎖，也可能解到剛開始的新一輪而畫面上看不出來', 'test(uat): 補上真正的授權實測（隔離測試帳號走真 cookie）：未登入一律 401、另一位登入者讀得到共用腳本與結果、非建立者刪除 403、管理員可刪、軟刪除後歷史結果仍在'] },
   { version: '4.155.1', date: '2026-09-16', changes: ['fix(uat): P1——Agent 連線中斷其實仍然會放掉同腳本鎖，跟 v4.155.0 註解裡寫的相反（CodeX review 抓到）。斷線時 runner 可能還在對方機器上跑、還在逐筆回寫 Lark，另一個人卻能同時重跑同一份腳本', 'fix(uat): finishSession 加 confirmedStopped——只有 runner 回報 exit code／agent 回 backend_uat_done／本機 child 結束才放鎖；「連線中斷」與「agent 離線直接標記停止」一律保留鎖', 'feat(uat): 新增人工解除執行鎖的端點——斷線之後鎖是刻意保留的，而六小時自動過期不能當成停止證明，所以必須有一條讓人確認過再明確解除的路，否則會永遠卡住'] },
   { version: '4.155.0', date: '2026-09-16', changes: ['feat(uat): 錄製腳本改成團隊共用——原本列表／開啟／儲存／結果全部依帳號隔離，現在整個團隊看得到也改得到同一份', 'fix(uat): 加整數 revision 樂觀鎖擋並行覆蓋——儲存是整份 document 覆蓋，兩個人先後存檔後存的會靜默蓋掉前一個；衝突時回 409 但⚠️保留本地草稿，不會把使用者正在編輯的內容換掉', 'fix(uat): 同一份腳本同時只能一個人執行（會逐筆回寫 Lark 的 PASS/FAIL 與附圖）；⚠️ Agent 斷線不當作已停止，鎖在執行收尾時才釋放', 'fix(uat): 執行結果改記真正執行的人與腳本版本——原本是記「腳本建立者」，共用前兩者永遠相同所以看不出來，共用後會變成你跑的結果掛在別人名下', 'feat(uat): 新增軟刪除（建立者或管理員，執行中禁刪，保留歷史結果）——原本根本沒有刪除端點，存了就拿不掉'] },

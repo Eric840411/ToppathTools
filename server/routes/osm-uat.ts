@@ -30,6 +30,7 @@ import { parseStatsLine } from '../uat-runner/net-capture.js'
 import { BLOCK_DEFS } from '../uat-runner/block-engine.js'
 import { VERIFIER_PARAM_SCHEMAS } from '../uat-runner/verifier-params.js'
 import { backendRecorderScript, RECORDER_MARKER, eventsToSteps, hasAssertion } from '../uat-runner/backend-recorder.js'
+import { applySelectorChecks } from '../uat-runner/recorded-selector.js'
 // detectManual 跟 runner 共用同一份——各寫一份的話，畫面上算出來的「需人工」筆數
 // 會跟實際跑出來的對不起來，而且那種不一致沒有任何錯誤訊息
 import { detectManual } from '../uat-runner/detect-manual.js'
@@ -695,6 +696,11 @@ interface RecordSession {
   consoleLogs: { type: string; text: string; location?: string; ts: number }[]
   wsFrames: { direction: 'sent' | 'received' | 'open' | 'close'; url: string; payload: string; ts: number }[]
   events: unknown[]
+  /**
+   * 錄製當下就驗過的 selector 結果，key 是步驟的 verifyId。
+   * 用 verifyId 而不用陣列位置——驗證是非同步回來的，順序不保證跟步驟一樣。
+   */
+  selectorChecks: Record<string, { status: string; count: number | null }>
   done: boolean
   error: string | null
   startedAt: number
@@ -736,13 +742,14 @@ router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) =>
       if ([...recordSessions.values()].some(s => s.agentId === 'server' && !s.done)) return res.status(409).json({ ok: false, message: '伺服器已有錄製視窗，請先停止或關閉該視窗' })
       const sessionId = randomUUID()
       const recording: RecordSession = { id: sessionId, recordId, agentId: 'server', agentLabel: `伺服器 ${hostname()}`,
-        events: [], netCalls: [], consoleLogs: [], wsFrames: [], done: false, error: null, ready: false, startedAt: Date.now() }
+        events: [], netCalls: [], consoleLogs: [], wsFrames: [], selectorChecks: {}, done: false, error: null, ready: false, startedAt: Date.now() }
       recordSessions.set(sessionId, recording)
       try {
         const controller = await startServerRecorder({ backendUrl: BACKEND_URL_FOR_RECORD, username: creds.cpBackend.username,
           password: creds.cpBackend.password, script: backendRecorderScript({ sessionId, bindings }), marker: RECORDER_MARKER,
           event: payload => handleBackendRecordEvent(sessionId, payload), net: call => handleBackendRecordNet(sessionId, call),
           console: entry => handleBackendRecordConsole(sessionId, entry), ws: frame => handleBackendRecordWs(sessionId, frame),
+          selectorCheck: check => handleBackendRecordVerify(sessionId, check),
           done: error => { handleBackendRecordDone(sessionId, error); setTimeout(() => recordSessions.delete(sessionId), 5 * 60_000).unref?.() },
         })
         recording.serverStop = controller.stop
@@ -773,7 +780,7 @@ router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) =>
     const sessionId = randomUUID()
     const session: RecordSession = {
       id: sessionId, recordId, agentId: agent.agentId, agentLabel: agent.hostname || agent.agentId,
-      events: [], netCalls: [], consoleLogs: [], wsFrames: [], done: false, error: null, ready: false, startedAt: Date.now(),
+      events: [], netCalls: [], consoleLogs: [], wsFrames: [], selectorChecks: {}, done: false, error: null, ready: false, startedAt: Date.now(),
     }
     recordSessions.set(sessionId, session)
 
@@ -868,6 +875,18 @@ export function handleBackendRecordEvent(sessionId: string, payload: string) {
   try { session.events.push(JSON.parse(payload)) } catch { /* 壞掉的一筆跳過，不要整段中斷 */ }
 }
 
+/**
+ * agent／伺服器錄製端回報「剛錄到的這條 selector 當場驗過的結果」。
+ * 只存下來，不影響錄製；取回步驟時才掛回對應的那一步。
+ */
+export function handleBackendRecordVerify(sessionId: string, check: unknown) {
+  const session = recordSessions.get(sessionId)
+  if (!session || session.done) return
+  const row = check as { verifyId?: unknown; status?: unknown; count?: unknown } | null
+  if (!row || typeof row.verifyId !== 'string' || typeof row.status !== 'string') return
+  session.selectorChecks[row.verifyId] = { status: row.status, count: typeof row.count === 'number' ? row.count : null }
+}
+
 /** agent 那邊結束了（使用者關掉視窗、或啟動就失敗） */
 export function handleBackendRecordDone(sessionId: string, error?: string | null) {
   const session = recordSessions.get(sessionId)
@@ -888,7 +907,7 @@ export function handleBackendRecordAgentDisconnect(agentId: string) {
 router.get('/api/osm-uat/record/status/:sessionId', (req, res) => {
   const session = recordSessions.get(String(req.params.sessionId))
   if (!session) return res.status(404).json({ ok: false, message: '找不到錄製 session' })
-  const steps = eventsToSteps(session.events)
+  const steps = applySelectorChecks(eventsToSteps(session.events), session.selectorChecks)
   res.json({
     ok: true,
     done: session.done,
@@ -927,7 +946,7 @@ async function stopRecordSession(sessionId: string) {
     while (!session.done && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 50))
   }
   session.done = true
-  const steps = eventsToSteps(session.events)
+  const steps = applySelectorChecks(eventsToSteps(session.events), session.selectorChecks)
   // 保留一小段時間讓前端來拿結果，之後才清掉
   setTimeout(() => recordSessions.delete(sessionId), 5 * 60_000).unref?.()
   return {

@@ -29,6 +29,7 @@ import { createInterface } from 'node:readline'
 import { hashSources, hashOne, RESTART_REQUIRED_SOURCES } from './agent-source-hash.js'
 import { attachNetworkCapture, DEFAULT_THRESHOLDS } from './uat-runner/net-capture.js'
 import { attachPinusProbe } from './uat-runner/pinus-probe.js'
+import { verifyRecordedSelectorLive } from './uat-runner/recorded-selector.js'
 import { MachineTestRunner } from './machine-test/runner.js'
 import type { MachineTestSession, MachineProfile, TestEvent } from './machine-test/types.js'
 import { ScriptedBetRunner } from './scripted-bet/runner.js'
@@ -1396,7 +1397,18 @@ function connect() {
           const text = message.text()
           if (ws.readyState !== ws.OPEN) return
           if (text.startsWith(m.marker)) {
-            ws.send(JSON.stringify({ type: 'backend_record_event', sessionId: m.sessionId, payload: text.slice(m.marker.length).trim() }))
+            const payload = text.slice(m.marker.length).trim()
+            ws.send(JSON.stringify({ type: 'backend_record_event', sessionId: m.sessionId, payload }))
+            // 錄製當下就驗一次這條 selector 能不能命中（不擋錄製）。
+            // 拿到結果的時間點可能已經換頁，那種情況會回 unknown、不下判斷。
+            void (async () => {
+              try {
+                const check = await verifyRecordedSelectorLive(page, JSON.parse(payload))
+                if (check && ws.readyState === ws.OPEN) {
+                  ws.send(JSON.stringify({ type: 'backend_record_verify', sessionId: m.sessionId, check }))
+                }
+              } catch { /* 驗證失敗絕對不能影響錄製 */ }
+            })()
             return
           }
           const loc = message.location()

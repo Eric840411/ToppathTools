@@ -37,7 +37,7 @@ await page.goto('data:text/html,' + encodeURIComponent(
   + '<input id="amount" type="text">'
   + '<div id="slider" style="width:180px;height:24px;background:#ccc"></div>'
   + '<table><thead><tr><th>Name</th><th>Action</th></tr></thead>'
-  + '<tbody><tr><td>ChannelRankID</td><td><button class="icon-action"><i style="display:block;width:12px;height:12px"></i></button></td></tr></tbody></table>'));
+  + '<tbody><tr><td><div class="cell">ChannelRankID</div></td><td><div class="cell"><button class="icon-action"><i style="display:block;width:12px;height:12px"></i></button></div></td></tr></tbody></table>'));
 await page.evaluate(() => window.__toppathArmRecorder?.());
 await page.waitForTimeout(200);
 

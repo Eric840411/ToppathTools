@@ -30,6 +30,7 @@ import {
   handleBackendRecordConsole,
   handleBackendRecordWs,
   handleBackendRecordEvent,
+  handleBackendRecordVerify,
   handleBackendRecordDone,
   handleBackendRecordAgentDisconnect,
 } from './routes/osm-uat.js'
@@ -662,6 +663,10 @@ wss.on('connection', (ws, req) => {
       if (msg.type === 'backend_record_event' && msg.sessionId) {
         const m = msg as { sessionId: string; payload?: string }
         handleBackendRecordEvent(m.sessionId, String(m.payload ?? ''))
+        return
+      }
+      if (msg.type === 'backend_record_verify' && msg.sessionId) {
+        handleBackendRecordVerify(String(msg.sessionId), (msg as { check?: unknown }).check)
         return
       }
       if (msg.type === 'backend_record_done' && msg.sessionId) {

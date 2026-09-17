@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { recordingSaveErrors } from '../../../shared/uat-recording-schema'
+import { SELECTOR_CHECK_LABEL } from '../../../shared/uat-selector-check'
 import { stepDependencyIssues } from '../../../server/uat-runner/step-dependencies.js'
 import { MultiTcResults, type MultiResult } from './MultiTcResults'
 import { UatAssetPicker } from './UatAssetPicker'
@@ -152,6 +153,10 @@ export function MultiTcRecorder({ open, onClose, tcs, larkUrl, agentId, running,
   }), [script, defs])
   const unassignedSteps = script.steps.flatMap((s, i) => s.disabled !== true && !s.tcId && ['read', 'assert', 'compare', 'evidence', 'result'].includes(defs[s.action]?.category) ? [i + 1] : [])
   const weakSteps = script.steps.flatMap((s, i) => s.disabled !== true && s.selectorStrategy === 'cssPath' ? [i + 1] : [])
+  // 錄製當下就驗過選擇器的結果。unknown（頁面已換、元素已消失）不算失敗，
+  // 把它當成問題會讓使用者去修根本沒壞的步驟。
+  const badSelectorSteps = script.steps.flatMap((s, i) => s.disabled !== true && SELECTOR_CHECK_LABEL[String(s.selectorCheck)]
+    ? [{ index: i + 1, why: SELECTOR_CHECK_LABEL[String(s.selectorCheck)] }] : [])
   const unassigned = unassignedSteps.length
   const candidates = (tcScan?.url === script.larkUrl ? tcScan.tcs : tcs).filter(tc => tc.source === 'live' && tc.storageKey.startsWith(`${script.tableId}:`)
     && `${tc.number} ${tc.text}`.toLowerCase().includes(query.toLowerCase()))
@@ -325,6 +330,10 @@ export function MultiTcRecorder({ open, onClose, tcs, larkUrl, agentId, running,
             </div>
             {!!unassigned && <p className="uat-multi-alert">共 {unassigned} 個步驟尚未指定 TC（第 {unassignedSteps.join('、')} 步）。檢查、讀值、截圖與回填判定都需指定 TC，才能試跑或正式執行。</p>}
             {!!weakSteps.length && <p className="uat-multi-alert">共 {weakSteps.length} 個步驟使用結構路徑定位（第 {weakSteps.join('、')} 步），請試跑確認能找到正確元素。</p>}
+            {!!badSelectorSteps.length && <div className="uat-multi-alert" role="alert">
+              <p>⚠️ 這些步驟的定位在<strong>錄製當下就已經不對</strong>，直接執行會失敗：</p>
+              {badSelectorSteps.map(bad => <div key={bad.index}>第 {bad.index} 步——{bad.why}<button className="uat-btn is-quiet" onClick={() => setSelected(bad.index - 1)}>定位</button></div>)}
+            </div>}
             {jsonOpen && <div><textarea aria-label="多 TC 步驟 JSON" className="uat-multi-json" value={json} onChange={e => setJson(e.target.value)} /><button className="uat-btn is-primary" onClick={() => {
               try { const steps: unknown = JSON.parse(json); if (!Array.isArray(steps) || steps.some(s => !s || typeof s.action !== 'string')) throw new Error('必須是積木陣列'); edit({ ...script, steps }); setJsonOpen(false) }
               catch (e) { setMessage(`JSON 錯誤：${String(e)}`) }

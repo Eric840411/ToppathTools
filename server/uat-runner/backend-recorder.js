@@ -58,6 +58,20 @@ export function backendRecorderScript(options = {}) {
     try { console.info(MARK, JSON.stringify(step)); return true; } catch { return false; }
   };
 
+  /**
+   * 在剛被操作的元素上留一個一次性標記，Node 那邊拿它確認「錄出來的
+   * selector 是不是真的指到剛才那一顆」。只留最新一個，不讓它堆在頁面上。
+   * data-* 屬性對頁面行為是惰性的；Vue 重繪把它抹掉也無妨，那邊會回報 unknown。
+   */
+  const markForVerify = (el) => {
+    try {
+      document.querySelectorAll('[data-toppath-rec-target]').forEach(n => n.removeAttribute('data-toppath-rec-target'));
+      const id = 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+      el.setAttribute('data-toppath-rec-target', id);
+      return id;
+    } catch { return ''; }
+  };
+
   // ── 選擇器策略階梯 ───────────────────────────────────────────────────
   const esc = (v) => String(v).replace(/"/g, '\\\\"');
 
@@ -146,19 +160,28 @@ export function backendRecorderScript(options = {}) {
       const occurrences = rows.filter(r => Array.from(r.children).some(c => cleanText(c.innerText || '') === candidate)).length;
       if (occurrences === 1) { rowText = candidate; break; }
     }
+    // ⚠️ 錨點絕對不能寫成 td:text-is(...)。Playwright 的 :text-is() 只配「最小的那個元素」，
+    //    而後台是 el-table，每一格的文字都包在 <td><div class="cell">…</div></td> 裡，
+    //    它會配到那個 div——td:text-is() 在任何 el-table 上都是 0 個，重播必定失敗。
+    //    去掉 td 限定之後，純文字格與包了一層的格子都命中 1。（2026-09-17）
     const rowSelector = rowText
-      ? 'tr:has(td:text-is(' + JSON.stringify(rowText) + '))'
+      ? 'tr:has(:text-is(' + JSON.stringify(rowText) + '))'
       : cssPath(table).selector + ' tbody > tr:nth-of-type(' + rowIdx + ')';
     const cellSelector = rowSelector + ' > td:nth-of-type(' + (idx + 1) + ')';
-    let tail = '';
+    let selector = cellSelector;
     const target = actionableTarget(el);
     if (target && target !== td) {
       const tag = target.tagName.toLowerCase();
       const same = Array.from(td.querySelectorAll(tag));
       const targetIdx = same.indexOf(target);
-      if (targetIdx >= 0) tail = ' ' + tag + ':nth-of-type(' + (targetIdx + 1) + ')';
+      // ⚠️ 這裡也不能用 nth-of-type：querySelectorAll 給的是「這格裡第幾個後代」，
+      //    nth-of-type 算的卻是「在自己父層裡同 tag 第幾個」。按鈕各自包在不同 wrapper
+      //    （el-table 很常見）時兩者不一致，會定位到別顆按鈕、或一次命中多顆。
+      //    要按後代順序取第 N 個就得用 Playwright 的 :nth-match()。（CodeX 2026-09-17 指出）
+      selector = cellSelector + ' ' + tag;
+      if (same.length > 1 && targetIdx >= 0) selector = ':nth-match(' + selector + ', ' + (targetIdx + 1) + ')';
     }
-    return { selector: cellSelector + tail, strategy: 'tableCell', column: col, rowIndex: rowIdx, rowText };
+    return { selector, strategy: 'tableCell', column: col, rowIndex: rowIdx, rowText };
   }
 
   function cssPath(el) {
@@ -237,10 +260,15 @@ export function backendRecorderScript(options = {}) {
     if (/^(checkbox|radio)$/i.test(el.type || '') || /^(SELECT|OPTION)$/.test(el.tagName)) return;
     if (el.tagName === 'LABEL' && el.querySelector('input[type="checkbox"],input[type="radio"]')) return;
     const d = describe(el);
+    const verifyId = markForVerify(el);
     emit({
       action: 'click',
       selector: d.selector,
       selectorStrategy: d.strategy,
+      // 錄製當下就驗一次這條 selector 能不能命中（不擋錄製）。
+      // 沒有這兩個欄位，Node 那邊分不出「選擇器壞了」跟「頁面已經換掉了」。
+      verifyId,
+      recordedUrl: location.href,
       // selector 找不到時才作備援；runner 會先確認錄製與執行 viewport 相符。
       viewport: { x: Math.round(event.clientX), y: Math.round(event.clientY) },
       x: Math.round(event.clientX), y: Math.round(event.clientY),

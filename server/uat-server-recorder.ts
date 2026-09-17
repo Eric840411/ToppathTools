@@ -1,10 +1,12 @@
 import { chromium, type Browser } from 'playwright'
 import { toUrlPattern } from './uat-runner/net-capture.js'
+import { verifyRecordedSelectorLive } from './uat-runner/recorded-selector.js'
 
 type Options = {
   backendUrl: string; username: string; password: string; script: string; marker: string;
   event: (payload: string) => void; net: (call: unknown) => void;
   console: (entry: unknown) => void; ws: (frame: unknown) => void;
+  selectorCheck?: (check: unknown) => void;
   done: (error?: string) => void;
 }
 
@@ -28,8 +30,23 @@ export async function startServerRecorder(options: Options, launch = () => chrom
     page.on('console', message => {
       const text = message.text()
       if (finished || !armed) return
-      if (text.startsWith(options.marker)) options.event(text.slice(options.marker.length).trim())
-      else options.console({ type: message.type(), text: redact(text), ts: Date.now() })
+      if (text.startsWith(options.marker)) {
+        const payload = text.slice(options.marker.length).trim()
+        options.event(payload)
+        // 錄製當下就驗這條 selector。不擋錄製，也不能讓它拋錯——
+        // 使用者正在操作，這裡任何 throw 都會變成他的問題。
+        if (options.selectorCheck) {
+          void (async () => {
+            try {
+              const step = JSON.parse(payload)
+              const check = await verifyRecordedSelectorLive(page, step)
+              if (check) options.selectorCheck!(check)
+            } catch { /* 驗證失敗不影響錄製 */ }
+          })()
+        }
+        return
+      }
+      options.console({ type: message.type(), text: redact(text), ts: Date.now() })
     })
     page.on('pageerror', error => { if (armed && !finished) options.console({ type: 'pageerror', text: redact(error.message), ts: Date.now() }) })
     page.on('close', () => { void finish() })

@@ -14,6 +14,7 @@ import { attachNetworkCapture, DEFAULT_THRESHOLDS, formatStatsLine } from './net
 import { runSteps as runBlockSteps, countBucket } from './block-engine.js';
 import { runMultiTcSteps, validateMultiTcScript, publishMultiTcResults } from './multi-tc.js';
 import { resolveVerifierParams, verifierRanAssertion } from './verifier-params.js';
+import { resolveRecordedSelector } from './recorded-selector.js';
 
 // ─── Lark 設定 ───────────────────────────────────────────────────────
 const LARK_TOKEN_URL = 'https://open.larksuite.com/open-apis/auth/v3/tenant_access_token/internal';
@@ -4356,12 +4357,17 @@ async function performSteps(p, steps, label, taskFull, multiBindings = null) {
     let exact = null;
     if (selector.startsWith('text=')) exact = p.getByText(selector.slice(5), { exact: true });
     else if (selector.startsWith('label=')) exact = p.getByLabel(selector.slice(6), { exact: true });
+    // ⚠️ 舊格式相容必須跟 checkLocator 走同一支 resolveRecordedSelector。
+    //    只修這邊的話，預檢那邊仍然會先用原式擋下來，等於沒修。
+    const resolved = exact ? null : await resolveRecordedSelector(p, selector);
+    const effective = resolved ? resolved.selector : selector;
     if (multiBindings) {
-      const target = exact || p.locator(selector);
-      if (await target.count() !== 1) throw new Error(`定位必須唯一：${selector}（命中 ${await target.count()} 個）`);
+      const target = exact || p.locator(effective);
+      const count = await target.count();
+      if (count !== 1) throw new Error(`定位必須唯一：${selector}（命中 ${count} 個）`);
       return target;
     }
-    if (!exact) return p.locator(selector).first();
+    if (!exact) return p.locator(effective).first();
     const count = await exact.count();
     for (let i = 0; i < count; i++) {
       const candidate = exact.nth(i);
@@ -4393,10 +4399,15 @@ async function performSteps(p, steps, label, taskFull, multiBindings = null) {
     },
     async checkLocator(step) {
       if (!step.selector) return;
+      const plain = !step.selector.startsWith('text=') && !step.selector.startsWith('label=');
+      // 跟 recordedLocator 共用同一支解析，否則預檢會先用原式擋下來。
+      const resolved = plain ? await resolveRecordedSelector(p, step.selector) : null;
+      const effective = resolved ? resolved.selector : step.selector;
       const target = step.selector.startsWith('text=') ? p.getByText(step.selector.slice(5), { exact: true })
-        : step.selector.startsWith('label=') ? p.getByLabel(step.selector.slice(6), { exact: true }) : p.locator(step.selector);
+        : step.selector.startsWith('label=') ? p.getByLabel(step.selector.slice(6), { exact: true }) : p.locator(effective);
       const count = await target.count();
       const info = { count, visible: false, bounds: null };
+      if (resolved?.repaired) { info.original = resolved.original; info.effective = effective; }
       if (count !== 1) { const error = new Error(`定位必須唯一：${step.selector}（命中 ${count} 個）`); error.locator = info; throw error; }
       info.visible = await target.isVisible();
       info.bounds = await target.boundingBox();
