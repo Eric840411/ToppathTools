@@ -333,7 +333,22 @@ export async function runLiveLedgerCycle(now = Date.now()): Promise<{
   if (now - lastJpCycle >= JP_CYCLE_INTERVAL_MS) {
     lastJpCycle = now
     const { runJpCycle } = await import('./live-ledger-jp.js')
-    for (const env of ['qat'] as const) {
+    /**
+     * 🚨 **UAT 也要拉（v4.170.1 起）。**
+     *
+     * ⚠️ 之前這裡寫死 `['qat']`，所以 UAT 的 LuckyLink **一筆資料都沒有**——
+     *    machine_map 184 筆、pool_change 69,891 筆、award 17 筆全部是 qat。
+     *    而畫面上「UAT 沒有資料」跟「UAT 沒有異常」長得一模一樣。
+     *
+     * ⚠️ 不要照抄 `PROFILE_OF[env]` 那個 null 判斷——那是 **OSM 後台**的設定
+     *    （UAT 確實沒有），**LuckyLink 是另一條線**，兩個環境都有 base URL
+     *    （`lib/luckylink-recon.ts` 的 `BASE`）。2026-09-17 實測兩邊都登得進去、
+     *    `fetchLevels` 各回得了資料。把兩者混為一談就會繼續把 UAT 關在門外。
+     *
+     * 這一步同時是「機台掛錯獎池」偵測的前置：兩個環境都有資料，
+     * 才看得出「QAT 的機台其實掛在 UAT 的池上」——見 `machineEnvAudit()`。
+     */
+    for (const env of ['qat', 'uat'] as const) {
       try {
         const j = await runJpCycle(env, now)
         if (j.poolStored || j.awardStored || j.errors.length) {

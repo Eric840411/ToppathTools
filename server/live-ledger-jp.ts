@@ -552,3 +552,125 @@ export function poolMismatches(env: ReconEnv, sinceMs: number, limit = 50): Pool
     }
   })
 }
+
+// ─── 跨環境稽核：機台掛錯獎池 ────────────────────────────────────────────
+//
+// 🚨 **這是「會消失」而不是「會標紅」的一類問題。**
+//
+// 機台↔獎池的對應是**從 `poolChangeReport` 反推**的（見 `upsertMachineMap`，
+// 因為 `egmList` 兩個環境都回 0 筆）。所以一台 QAT 機台若實際掛在 UAT 的池上：
+//   · 它的池變動只會出現在 **UAT 後台**的報表裡
+//   · QAT 這邊的 `recon_machine_map` 根本不會生出它那一列
+//   · 結果是**整台機器從 QAT 的獎池矩陣上消失**，不是被標成異常
+// 反向同理，UAT 那邊會多出一台「不認識的機台」。
+//
+// ⚠️ 原本的設計是靠 `resolvedBy='config'`（設定說掛著、報表卻沒出現）來抓，
+//    但**沒有任何資料源可以當「設定」**：`egmList` 回 0 筆，`jp_groups` 只到環境層級
+//    （3 筆：PROD/QAT/UAT），沒有機台↔獎池的對應。實測 184 筆 `resolvedBy` 全是
+//    `observed`，一筆 `config` 都沒有——那條路等於不存在。
+//
+//    所以改用**不需要設定檔的推論**：兩個環境都拉之後，「在哪個環境看得到它的池變動」
+//    本身就是事實，拿它跟「在哪個環境按過 spin」對照即可。
+
+export type MachineEnvIssue = 'both_envs' | 'env_mismatch' | 'no_pool' | 'blank_name'
+
+export interface MachineEnvRow {
+  machineName: string
+  /** 這台在哪些環境有觀測到池變動 */
+  poolEnvs: ReconEnv[]
+  /** 這台在哪些環境有 spin 觀測（我們實際在打的環境） */
+  spinEnvs: ReconEnv[]
+  lastPoolAt: number | null
+  lastSpinAt: number | null
+  issue: MachineEnvIssue
+  severity: 'critical' | 'warn' | 'info'
+  note: string
+}
+
+/**
+ * 跨環境機台稽核。**不吃 env 參數**——它要看的就是「跨環境」，
+ * 傳 env 進來等於又把兩個世界隔開，那正是問題本身。
+ *
+ * ⚠️ `no_pool` 是 **warn 不是 critical**：SAS 機台本來就沒有 LuckyLink 連線
+ *    （`sasversion` 是 `sas` 不是 `g2s`），把它報成 critical 會讓真正的錯誤被埋掉。
+ *    要分辨是「SAS 本來就沒有」還是「該掛卻沒掛上」，得靠 SLS 那條線（見 L6）。
+ */
+export function machineEnvAudit(sinceMs: number): MachineEnvRow[] {
+  const pool = db.prepare(`
+    SELECT machineName, env, MAX(ts) lastAt FROM recon_pool_change
+    WHERE ts >= ? GROUP BY machineName, env
+  `).all(sinceMs) as { machineName: string; env: ReconEnv; lastAt: number }[]
+  const spin = db.prepare(`
+    SELECT gmid AS machineName, env, MAX(observedAt) lastAt FROM recon_spin
+    WHERE observedAt >= ? AND gmid IS NOT NULL AND gmid != '' GROUP BY gmid, env
+  `).all(sinceMs) as { machineName: string; env: ReconEnv; lastAt: number }[]
+
+  const by = new Map<string, MachineEnvRow>()
+  const touch = (name: string): MachineEnvRow => {
+    let r = by.get(name)
+    if (!r) {
+      r = { machineName: name, poolEnvs: [], spinEnvs: [], lastPoolAt: null, lastSpinAt: null,
+        issue: 'no_pool', severity: 'info', note: '' }
+      by.set(name, r)
+    }
+    return r
+  }
+  for (const p of pool) {
+    const r = touch(p.machineName)
+    if (!r.poolEnvs.includes(p.env)) r.poolEnvs.push(p.env)
+    r.lastPoolAt = Math.max(r.lastPoolAt ?? 0, p.lastAt)
+  }
+  for (const s of spin) {
+    const r = touch(s.machineName)
+    if (!r.spinEnvs.includes(s.env)) r.spinEnvs.push(s.env)
+    r.lastSpinAt = Math.max(r.lastSpinAt ?? 0, s.lastAt)
+  }
+
+  const out: MachineEnvRow[] = []
+  for (const r of by.values()) {
+    // ⚠️ 空字串的 machineName 是資料問題，不是機台。實測 recon_machine_map 裡真的有一筆。
+    //    不報出來的話它會一直混在統計裡，讓每一個分母都多算一台。
+    if (!r.machineName.trim()) {
+      out.push({ ...r, issue: 'blank_name', severity: 'warn',
+        note: '池變動報表回了空的 machineName——資料問題，會讓每個分母多算一台' })
+      continue
+    }
+    if (r.poolEnvs.length > 1) {
+      out.push({ ...r, issue: 'both_envs', severity: 'critical',
+        note: `同一台機台在 ${r.poolEnvs.join(' 與 ').toUpperCase()} 都有池變動`
+          + '——一台實體機台只會連一個獎池伺服器，兩邊都有代表環境設定有問題' })
+      continue
+    }
+    if (r.spinEnvs.length && r.poolEnvs.length
+      && !r.spinEnvs.some(e => r.poolEnvs.includes(e))) {
+      out.push({ ...r, issue: 'env_mismatch', severity: 'critical',
+        note: `在 ${r.spinEnvs.join('／').toUpperCase()} 打局，但池變動出現在 `
+          + `${r.poolEnvs.join('／').toUpperCase()}——機台掛到另一個環境的獎池` })
+      continue
+    }
+    if (r.spinEnvs.length && !r.poolEnvs.length) {
+      out.push({ ...r, issue: 'no_pool', severity: 'warn',
+        note: '有在打局，但兩個環境都查不到它的池變動'
+          + '——可能是 SAS 機台（本來就沒有 LuckyLink），也可能是該掛卻沒掛上' })
+    }
+  }
+  // critical 在前，同級照最後活動時間新的在前
+  const rank = { critical: 0, warn: 1, info: 2 }
+  return out.sort((a, b) => rank[a.severity] - rank[b.severity]
+    || (b.lastSpinAt ?? b.lastPoolAt ?? 0) - (a.lastSpinAt ?? a.lastPoolAt ?? 0))
+}
+
+/**
+ * 兩個環境的獎池矩陣合在一起，每一列自己帶 env 標籤。
+ *
+ * ⚠️ 這就是「把 env 從全域過濾器降級成每列標籤」那一步。原本每一支查詢都是
+ *    `WHERE env=?`，兩個環境是兩個平行世界，畫面一次只看得到一邊——
+ *    而跨環境掛錯**只有把兩邊擺在一起才看得出來**。
+ */
+export function jpMatrixAllEnvs(sinceMs: number): (JpPoolRow & { env: ReconEnv })[] {
+  const out: (JpPoolRow & { env: ReconEnv })[] = []
+  for (const env of ['qat', 'uat'] as const) {
+    for (const row of jpMatrix(env, sinceMs)) out.push({ ...row, env })
+  }
+  return out
+}

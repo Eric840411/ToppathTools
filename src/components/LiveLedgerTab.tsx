@@ -136,6 +136,19 @@ interface PoolsPayload {
   atCapCount: number
   machines: MachineRow[]
   myGmids: string[]
+  envAudit?: EnvAuditRow[]
+}
+
+/** 跨環境機台稽核。⚠️ 這一塊是唯一不跟著上方 env 切換的資料——它要看的就是跨環境。 */
+interface EnvAuditRow {
+  machineName: string
+  poolEnvs: string[]
+  spinEnvs: string[]
+  lastPoolAt: number | null
+  lastSpinAt: number | null
+  issue: 'both_envs' | 'env_mismatch' | 'no_pool' | 'blank_name'
+  severity: 'critical' | 'warn' | 'info'
+  note: string
 }
 
 const lampColor = (s: string) =>
@@ -402,6 +415,43 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
                   <b style={{ color: C.ink }}>這不代表獎池真的被多加了錢</b>。</>
                 : <>，其中 {neg} 筆是投入額倒退。</>}
               <span style={{ color: C.ink3 }}>　分佈：{machines.join('、')}</span>
+            </div>
+          )
+        })()}
+
+        {/* ── 跨環境機台稽核 ─────────────────────────────────────────────
+            🚨 這一塊**不跟著上方的 env 切換**，因為它要看的就是跨環境。
+               機台↔獎池是從 poolChangeReport 反推的，所以一台 QAT 機台若掛在
+               UAT 的池上，它會**整台從 QAT 的矩陣上消失**而不是被標紅——
+               兩個環境擺在一起才看得出來。 */}
+        {pools?.envAudit && pools.envAudit.length > 0 && (() => {
+          const crit = pools.envAudit.filter(a => a.severity === 'critical')
+          const warn = pools.envAudit.filter(a => a.severity === 'warn')
+          const tone = crit.length ? C.bad : C.pending
+          return (
+            <div style={{ borderLeft: `2px solid ${tone}`, background: crit.length ? 'rgba(248,113,113,.07)' : 'rgba(251,191,36,.07)',
+              padding: '8px 11px', borderRadius: '0 7px 7px 0', fontSize: 12, color: C.ink2, marginBottom: 9 }}>
+              <b style={{ color: C.ink }}>跨環境機台稽核</b>
+              <span style={{ color: C.ink3, fontSize: 11 }}>　近 24 小時 · 不受上方環境切換影響</span>
+              {crit.length > 0 && <b style={{ color: C.bad }}>　{crit.length} 台異常</b>}
+              {warn.length > 0 && <b style={{ color: C.pending }}>　{warn.length} 台待確認</b>}
+              <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {pools.envAudit.slice(0, 8).map(a => (
+                  <div key={`${a.machineName}|${a.issue}`} style={{ fontSize: 11.5, lineHeight: 1.6 }}>
+                    <b style={{ color: a.severity === 'critical' ? C.bad : C.pending }}>
+                      {a.machineName || '(空白名稱)'}
+                    </b>
+                    <span style={{ color: C.ink3 }}>
+                      　spin: {a.spinEnvs.map(e => e.toUpperCase()).join('／') || '—'}
+                      　池: {a.poolEnvs.map(e => e.toUpperCase()).join('／') || '—'}
+                    </span>
+                    <div style={{ color: C.ink2, paddingLeft: 2 }}>{a.note}</div>
+                  </div>
+                ))}
+                {pools.envAudit.length > 8 && (
+                  <div style={{ fontSize: 11, color: C.ink3 }}>…另外 {pools.envAudit.length - 8} 台</div>
+                )}
+              </div>
             </div>
           )
         })()}

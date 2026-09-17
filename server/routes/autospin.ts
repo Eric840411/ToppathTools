@@ -2552,11 +2552,18 @@ const SETTING_META: Record<string, { label: string; unit: string; dflt: number; 
 
 router.get('/api/autospin/live-ledger/jp', async (req, res) => {
   try {
-    const { jpMatrix, jpSummary } = await import('../live-ledger-jp.js')
+    const { jpMatrix, jpSummary, machineEnvAudit } = await import('../live-ledger-jp.js')
     const env = reconEnvOf(req as never)
     const minutes = Math.min(Math.max(Number(req.query.minutes) || 30, 1), 24 * 60)
     const since = Date.now() - minutes * 60_000
-    res.json({ ok: true, env, minutes, summary: jpSummary(env, since), matrix: jpMatrix(env, since) })
+    // ⚠️ 稽核**刻意不吃 env**——它要看的就是跨環境，按 env 篩等於又把兩個世界隔開。
+    //    窗也拉長到 24 小時：機台掛錯是設定問題，不會只在最近 30 分鐘出現。
+    const audit = machineEnvAudit(Date.now() - 24 * 3600_000)
+    res.json({
+      ok: true, env, minutes,
+      summary: jpSummary(env, since), matrix: jpMatrix(env, since),
+      audit, auditWindowHours: 24,
+    })
   } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
 })
 
@@ -2569,7 +2576,7 @@ router.get('/api/autospin/live-ledger/jp', async (req, res) => {
  */
 router.get('/api/autospin/live-ledger/pools', async (req, res) => {
   try {
-    const { jpPoolLevels, poolMismatches, jpSummary } = await import('../live-ledger-jp.js')
+    const { jpPoolLevels, poolMismatches, jpSummary, machineEnvAudit } = await import('../live-ledger-jp.js')
     const { machineOverview } = await import('../live-ledger-query.js')
     const env = reconEnvOf(req as never)
     const minutes = Math.min(Math.max(Number(req.query.minutes) || 360, 1), 7 * 24 * 60)
@@ -2590,6 +2597,12 @@ router.get('/api/autospin/live-ledger/pools', async (req, res) => {
       machines,
       /** 這一輪判定為「使用者正在跑」的機台，前端標色時用同一份，不要各算一次 */
       myGmids: [...myGmids],
+      /**
+       * 跨環境機台稽核。⚠️ **刻意不吃 `env`**——它要看的就是跨環境，
+       * 按 env 篩等於又把兩個世界隔開，那正是「QAT 機台掛在 UAT 池上會直接
+       * 從矩陣上消失」的成因。窗固定 24 小時：掛錯是設定問題，不會只在近 30 分鐘出現。
+       */
+      envAudit: machineEnvAudit(Date.now() - 24 * 3600_000),
     })
   } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
 })
