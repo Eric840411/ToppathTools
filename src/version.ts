@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.159.1'
+export const APP_VERSION = '4.160.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.160.0', date: '2026-09-17', changes: ['fix(uat): 下拉選項的 `text=` 會跟表格欄位撞名（使用者回報第 21 步 `text=4186-dfdc1` **命中 8 個**）——選項面板是掛在 <body> 底下的獨立元素，而選項文字跟 Jackpot Model 欄一堆同名', 'fix(uat): 錄製端認得出下拉選項，改產限定在**打開著的那個面板**裡的選擇器；舊腳本的 `text=` 在執行時收斂，一樣是**唯一命中才套用**', '⚠️ 面板全關著時不收斂、照常報歧義——寧可報錯也不能亂選', '⚠️ 這一項在強制唯一（v4.157.0）之前會 `.first()` 點到**表格儲存格**——下拉完全沒選到、不報錯，最後按 Sure 送出一個空值。現在看得到紅字反而是進步', 'test(uat): 120 項；兩種注入（拿掉執行端收斂、錄製端退回 text=）分別轉紅，且斷言走產品入口'] },
   { version: '4.159.1', date: '2026-09-17', changes: ['⚠️ fix(uat): v4.159.0 的 label= 相容**根本沒生效**——我把它加進 locateRecorded()，但實際執行走的 createRecordedLocators() 里面還留著**第三份解析拷貝**（自己叫 getByLabel），預檢與點擊兩條路徑都沒走到新的相容，使用者看到的還是一模一樣的「命中 0 個」', 'fix(uat): createRecordedLocators() 改成**只轉手給 locateRecorded()**，定位只剩一條路徑；舊版本的註解寫著「只修一邊等於沒修」，而它本身就是那一邊', '⚠️ test(uat): 原本的 label 測試直接呼叫 locateRecorded()，**不是產品跑的路徑**，所以壞的時候也全綠。補上走 createRecordedLocators 預檢／點擊與 runSteps 的版本，注入回去會重現使用者那句錯誤', 'test(uat): 113 項'] },
   { version: '4.159.0', date: '2026-09-17', changes: ['⚠️ fix(uat): 標記功能裡**會跳輸入框的四個選項一直是無效的**（使用者回報「只有第一個有用」）——錄製的瀏覽器是 Playwright 控制的，沒註冊 dialog handler 時 alert/prompt 會被**自動關掉**，prompt() 立刻回 null，使用者連那個框都看不到', 'fix(uat): 那三個 prompt() 改成**畫在選單裡的輸入欄**（等於某個數字／文字必須相等／這裡要人工看）；上傳欄位找不到的 alert() 改成選單內訊息', 'fix(uat): 「請先選擇所屬 TC」的 alert() 改成自己畫的提示條——同一個原因，那句提醒從來沒人看過，使用者只看到「標了但沒寫入」', 'fix(uat): Element UI 表單的 `label=欄位名` 永遠找不到（使用者回報二級彈窗的 Jackpot ID）——`.el-form-item__label` 沒 for、也沒包住 input，而 Playwright 的 getByLabel 靠的是真正的關聯；錄製器從結構推得出文字，不代表它找得到（跟 td:text-is 同一種病）', 'fix(uat): 錄製端改產 form item 範圍選擇器，並在當場確認它只指到這一個欄位；舊腳本的 label= 在執行時相容（**唯一命中才套用**，歧義不碰）', 'test(uat): 109 項；三種注入分別轉紅。斷言包含「沒 dialog handler 時 prompt() 直接回 null」這個根因本身，以及「注入腳本裡不得出現 alert/prompt/confirm」', '⚠️ chore(uat): backend-recorder.js 整份是 template literal，**註解裡不能出現反引號**，會讓注入腳本提前結束。這一輪踩到兩次，兩次都是語法檢查當場抓到'] },
   { version: '4.158.1', date: '2026-09-17', changes: ['fix(uat): 點一下 Element UI 的勾選框會被錄成**兩顆積木**（click + set_checked）——點的是看得見的 span，而那一下會觸發藏起來那個 input 的 change。兩顆做的是同一件事（CodeX 上一輪點名要查，實測確認）', 'fix(uat): 那顆多餘的 click 還特別脆弱——它指向裝飾用的 span，舊錄製器的序號錯誤又讓它寫成 span:nth-of-type(2)（命中 0）。使用者 2026-09-17 的第 15 步就是卡在這裡，而第 16 步的 set_checked 其實就能完成工作', '⚠️ fix(uat): 去重只排除「裝飾層」——目標本身是真正的控件（button/a/input…）時不跳過，否則 label 裡的按鈕會被一起吞掉；沒有勾選框的 label 也照常錄', '⚠️ 舊腳本裡那顆壞掉的 click **不會被自動修復**（相容只修錨點，不碰序號）——停用或刪掉那一步即可，後面的 set_checked 會完成勾選', 'test(uat): 94 項；去重與兩種正向案例（label 裡的真按鈕、沒勾選框的 label）都釘住，不足與過度排除各自轉紅'] },

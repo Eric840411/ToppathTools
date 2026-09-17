@@ -169,6 +169,36 @@ export function backendRecorderScript(options = {}) {
     return { selector: 'label=' + text.replace(/[:：*]\\s*$/, ''), strategy: 'label' };
   }
 
+  /**
+   * Element UI 的下拉選項。
+   *
+   * ⚠️ 選項面板是掛在 <body> 底下的獨立元素，**不在彈窗裡**，
+   *    而且選項文字很常跟表格里的欄位重複。只寫 text=4186-dfdc1 的話，
+   *    表格裡那一堆同名儲存格會一起被命中——使用者 2026-09-17 實測命中 8 個。
+   *    （強制唯一之前這種情況會點到表格儲存格，下拉完全沒選到，而且不會報錯。）
+   *
+   *    所以限定在「目前打開著的那個面板」裡找。面板全關著時這條會是 0，不會亂選。
+   */
+  function byDropdownOption(el) {
+    if (!el.closest) return null;
+    const panel = el.closest('.el-select-dropdown, .el-dropdown-menu');
+    if (!panel) return null;
+    const panelClass = panel.classList.contains('el-dropdown-menu') ? 'el-dropdown-menu' : 'el-select-dropdown';
+    const itemClass = panelClass + '__item';
+    const item = el.closest('.' + itemClass);
+    if (!item) return null;
+    const text = cleanText(item.innerText || '');
+    if (!text || text.length > 60) return null;
+    // 同一個面板裡同名選項不唯一就不用這條，不猜
+    const same = [...panel.querySelectorAll('.' + itemClass)]
+      .filter(n => cleanText(n.innerText || '') === text);
+    if (same.length !== 1) return null;
+    return {
+      selector: '.' + panelClass + ':visible .' + itemClass + ':has(:text-is(' + JSON.stringify(text) + '))',
+      strategy: 'dropdownOption',
+    };
+  }
+
   function byText(el) {
     if (!/^(button|a|span|li|div)$/i.test(el.tagName) && !el.matches('[role="button"], [role="menuitem"], [role="option"]')) return null;
     const raw = String(el.innerText || '').trim();
@@ -276,7 +306,8 @@ export function backendRecorderScript(options = {}) {
   }
 
   function describe(el) {
-    return stableAttr(el) || byLabel(el) || byTableCell(el) || byStableRegion(el) || byText(el) || cssPath(el);
+    // 下拉選項排最前：它在獨立面板裡，別的策略都會產出跟表格撞名的 text=
+    return byDropdownOption(el) || stableAttr(el) || byLabel(el) || byTableCell(el) || byStableRegion(el) || byText(el) || cssPath(el);
   }
 
   const viewportInfo = () => ({ width: innerWidth, height: innerHeight });

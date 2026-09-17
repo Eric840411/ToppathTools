@@ -855,6 +855,66 @@ try {
     await c.close();
   }
 
+  // ── (l) 下拉選項跟表格欄位撞名（v4.160.0）─────────────────
+  //
+  // 使用者 2026-09-17：第 21 步 `text=4186-dfdc1` **命中 8 個**——因為表格的
+  // Jackpot Model 欄也一堆同名。選項面板是掛在 <body> 底下的獨立元素，不在彈窗裡。
+  //
+  // ⚠️ 強制唯一之前，這種情況會 `.first()` 點到**表格儲存格**——下拉完全沒選到，
+  //    而且不會報錯，最後按 Sure 送出一個空的值。這次能看到紅字就是進步。
+  console.log('\n── 下拉選項與表格撞名 ──');
+  {
+    const CELL = (t) => '<td><div class="cell">' + t + '</div></td>';
+    const rows = ['4186-dfdc1', '4186-dfdc1', '4186-dfdc2', '4186-dfdc1']
+      .map((m, i) => '<tr>' + CELL('M-' + i) + CELL(m) + '</tr>').join('');
+    const PAGE = '<table><tbody>' + rows + '</tbody></table>'
+      + '<div class="el-select-dropdown el-popper"><ul class="el-select-dropdown__list">'
+      + '<li class="el-select-dropdown__item selected"><span>4186-dfdc1</span></li>'
+      + '<li class="el-select-dropdown__item"><span>4186-dfdc2</span></li>'
+      + '</ul></div>';
+
+    const pg = await browser.newPage();
+    await pg.setContent(PAGE);
+
+    // 先釘住根因
+    eq('根因：text= 會跟表格欄位撞名',
+      await pg.getByText('4186-dfdc1', { exact: true }).count() > 1, true);
+
+    // 走產品入口：預檢與點擊都要收斂到打開著的面板
+    const { recordedLocator, checkLocator } = createRecordedLocators(pg, { requireUnique: true });
+    const pre = await checkLocator({ selector: 'text=4186-dfdc1' }).catch(e => ({ error: String(e.message) }));
+    eq('預檢（產品入口）收斂到唯一', pre?.count, 1);
+    const picked = await recordedLocator('text=4186-dfdc1').catch(() => null);
+    eq('點到的是下拉選項，不是表格儲存格',
+      picked ? (await picked.evaluate(n => n.className)).includes('el-select-dropdown__item') : false, true);
+
+    // ⚠️ 面板全關著時絕對不能亂選——宁可報錯
+    await pg.evaluate(() => document.querySelectorAll('.el-select-dropdown').forEach(d => { d.style.display = 'none' }));
+    const closed = await checkLocator({ selector: 'text=4186-dfdc1' }).catch(e => ({ error: String(e.message) }));
+    eq('下拉沒開著時不收斂、照常報歧義', /定位必須唯一/.test(closed?.error || ''), true);
+    await pg.close();
+
+    // 錄製端：現在直接產限定面板的選擇器
+    const c = await browser.newContext();
+    await c.addInitScript(backendRecorderScript());
+    const rec = await c.newPage();
+    const got = [];
+    rec.on('console', m => {
+      const t = m.text();
+      if (t.startsWith(RECORDER_MARKER)) got.push(JSON.parse(t.slice(RECORDER_MARKER.length).trim()));
+    });
+    await rec.goto('data:text/html,' + encodeURIComponent(PAGE));
+    await rec.evaluate(() => window.__toppathArmRecorder?.());
+    await rec.waitForTimeout(150);
+    await rec.click('.el-select-dropdown__item.selected');
+    await rec.waitForTimeout(150);
+    const st = got.at(-1);
+    eq('錄製端認得出是下拉選項', st.selectorStrategy, 'dropdownOption');
+    eq('而且當場就唯一命中', await rec.locator(st.selector).count(), 1);
+    eq('不再產跟表格撞名的 text=', String(st.selector).startsWith('text='), false);
+    await c.close();
+  }
+
   // ── 4b. 語法錯誤 vs 其他例外，不能混為一談 ───────────────────
   //
   // ⚠️ 第一版的 safeCount 把**所有**例外都當成「選擇器語法錯誤」（CodeX 指出）。

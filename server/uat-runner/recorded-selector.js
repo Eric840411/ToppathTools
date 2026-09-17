@@ -209,6 +209,21 @@ export function legacyLabelVariant(selector) {
 }
 
 /**
+ * 舊錄製器對「下拉選項」產的 `text=選項文字`。
+ *
+ * ⚠️ 選項文字常跟表格里的欄位重複（使用者 2026-09-17：`text=4186-dfdc1` 命中 8 個）。
+ *    收斂到「目前打開著的下拉面板」裡找；面板全關著時這條是 0，不會亂選。
+ *    跟其他相容一樣：**唯一命中才套用**。
+ */
+export function dropdownOptionVariants(selector) {
+  if (typeof selector !== 'string' || !selector.startsWith('text=')) return [];
+  const text = selector.slice(5).trim();
+  if (!text) return [];
+  return ['el-select-dropdown', 'el-dropdown-menu'].map(panel =>
+    '.' + panel + ':visible .' + panel + '__item:has(:text-is(' + JSON.stringify(text) + '))');
+}
+
+/**
  * 「命中不是一個」的訊息。**只能有這一份**——runner、積木引擎、預檢全部共用。
  * 各寫各的話，日後改措辭只會改到其中一邊，而測試又只盯得住一邊。
  */
@@ -238,6 +253,16 @@ export async function locateRecorded(page, selector, { requireUnique = false } =
   if (exact) {
     try {
       let count = await exact.count();
+      if (count !== 1) {
+        // 舊腳本相容：下拉選項的 text= 常跟表格欄位撞名，收斂到打開著的面板裡。
+        for (const variant of dropdownOptionVariants(selector)) {
+          const alt = await safeCount(page, variant);
+          if (alt.count === 1) {
+            const full = page.locator(variant);
+            return { locator: requireUnique ? full : full.first(), count: 1, failure: null, message: '', selector: variant };
+          }
+        }
+      }
       if (count === 0) {
         // 舊腳本相容：`label=X` 在 Element UI 表單上永遠是 0，改試 form item 範圍。
         // 跟表格錨點同一個規矩：**唯一命中才套用**，歧義就不碰。
