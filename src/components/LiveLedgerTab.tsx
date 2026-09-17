@@ -188,9 +188,32 @@ interface BetPoolRow {
   expectedChange: number | null
   actualChange: number | null
   delta: number | null
+  /**
+   * ⚠️ 這個 union 必須跟後端 `live-ledger-betpool.ts` 的 `verdict` 保持同步。
+   *
+   * 🚨 它**不是** import 來的，是這裡自己抄的——所以後端加了新值時 `tsc` 不會吭聲。
+   *    實際發生過：v4.179.0 後端新增 `denom_unknown`／`denom_changed`，這裡沒跟上，
+   *    於是 `denom_changed`（= 比值跟釘住的係數不符，是**異常**）在畫面上
+   *    既不算 `bad`、也不是 `match`，被畫成中性灰字——後端抓到了，畫面不說。
+   *    下面的 `KNOWN_VERDICTS` 就是為了讓「又漏掉一個」變成畫面上的紅字而不是沉默。
+   */
   verdict: 'match' | 'mismatch' | 'no_pool' | 'no_bet' | 'too_few' | 'ratio_not_clean'
+    | 'denom_unknown' | 'denom_changed'
+  /** `denom_unknown` 時給的建議係數——只是建議，要人確認過才算釘住 */
+  suggestedFactor?: number | null
   note: string
 }
+
+/**
+ * 畫面認得的所有判定。**不在這裡面的值一律當成異常顯示，不可以靜靜地畫成灰字。**
+ * 「畫面不認得」跟「沒問題」在使用者眼裡長得一樣，那正是這次要修掉的東西。
+ */
+const KNOWN_VERDICTS = ['match', 'mismatch', 'no_pool', 'no_bet', 'too_few',
+  'ratio_not_clean', 'denom_unknown', 'denom_changed'] as const
+/** 確定是異常的。⚠️ `denom_changed` 一定要在裡面——它就是 v4.179.0 拿來取代假 match 的那個判定。 */
+const BAD_VERDICTS = ['mismatch', 'denom_changed', 'ratio_not_clean'] as const
+/** 「沒有結論」——既不是相符也不是異常。要**單獨報出比例**，不能混進「相符」裡。 */
+const UNDECIDED_VERDICTS = ['denom_unknown', 'no_pool', 'no_bet', 'too_few'] as const
 
 /** 跨環境機台稽核。⚠️ 這一塊是唯一不跟著上方 env 切換的資料——它要看的就是跨環境。 */
 interface EnvAuditRow {
@@ -566,22 +589,58 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
             🚨 這一塊是唯一能證明「玩家真的下了這些注」的線。上面那些數字
                都是 LuckyLink 自己跟自己對，少收了它也不會知道。 */}
         {pools?.betPool && pools.betPool.length > 0 && (() => {
-          const bad = pools.betPool.filter(b => b.verdict === 'mismatch' || b.verdict === 'ratio_not_clean')
+          const has = (list: readonly string[], v: string) => list.includes(v)
+          const bad = pools.betPool.filter(b => has(BAD_VERDICTS, b.verdict))
           const matched = pools.betPool.filter(b => b.verdict === 'match')
-          const tone = bad.length ? C.bad : matched.length ? C.match : C.ink3
+          const undecided = pools.betPool.filter(b => has(UNDECIDED_VERDICTS, b.verdict))
+          const unpinned = pools.betPool.filter(b => b.verdict === 'denom_unknown')
+          // 後端加了新判定而這裡沒跟上時，要在畫面上炸開，不是安靜地畫成灰字
+          const unknown = pools.betPool.filter(b => !has(KNOWN_VERDICTS, b.verdict))
+          // ⚠️ 全部都「沒有結論」時**不可以**顯示成綠色。那不是沒問題，是沒在比。
+          const tone = (bad.length || unknown.length) ? C.bad
+            : matched.length ? C.match
+            : C.pending
           return (
             <div style={{ borderLeft: `2px solid ${tone}`,
               background: bad.length ? 'rgba(248,113,113,.07)' : 'transparent',
               padding: '8px 11px', borderRadius: '0 7px 7px 0', fontSize: 12, color: C.ink2, marginBottom: 9 }}>
               <b style={{ color: C.ink }}>跨源對帳 · 後台下注 ↔ 獎池增量</b>
-              {bad.length > 0
-                ? <b style={{ color: C.bad }}>{'　'}{bad.length} 台不符</b>
-                : <b style={{ color: C.match }}>{'　'}{matched.length} 台相符</b>}
+              {bad.length > 0 && <b style={{ color: C.bad }}>{'　'}{bad.length} 台不符</b>}
+              {/* ⚠️ 文案是「沒看到矛盾」不是「相符」——沒有獨立的占用證據時，
+                  污染有可能剛好湊出乾淨比值，結論只能到這裡為止（CodeX review） */}
+              {matched.length > 0 && <b style={{ color: C.match }}>{'　'}{matched.length} 台沒看到矛盾</b>}
+              {/* 🚨 未判定的比例一定要露出來。全部未判定卻只顯示「0 台不符」，
+                  就是把「功能沒在運作」畫成「一切正常」——這正是 v4.179.0 修完
+                  面額 bug 之後的實際狀態（一台都沒釘係數，全台 denom_unknown）。 */}
+              {undecided.length > 0 && (
+                <b style={{ color: C.pending }}>
+                  {'　'}{undecided.length}/{pools.betPool.length} 台無法判定
+                </b>
+              )}
+              {unknown.length > 0 && (
+                <b style={{ color: C.bad }}>{'　'}⚠️ {unknown.length} 台的判定畫面不認得（前端要更新）</b>
+              )}
               <span style={{ color: C.ink3, fontSize: 11 }}>{'　'}按 session 切窗</span>
+              {unpinned.length > 0 && (
+                <div style={{ color: C.pending, fontSize: 11, marginTop: 4, lineHeight: 1.5 }}>
+                  {unpinned.length} 台還沒釘住面額係數，<b>在釘住之前不做判定</b>
+                  （係數若從待檢查的資料現推，真實落差剛好 10 倍時會被整個吃掉）。
+                  {unpinned.some(b => b.suggestedFactor != null) && <>
+                    {' '}建議值：{unpinned.filter(b => b.suggestedFactor != null).slice(0, 3)
+                      .map(b => `${b.machineName} ×${b.suggestedFactor}`).join('、')}
+                    ——要人確認過才算數。
+                  </>}
+                </div>
+              )}
               <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 5 }}>
-                {[...bad, ...pools.betPool.filter(b => !bad.includes(b))].slice(0, 6).map(b => (
+                {/* 排序：異常 → 未判定 → 其餘。未判定排在相符前面，因為它才是要人處理的 */}
+                {[...bad, ...undecided, ...pools.betPool.filter(b => !bad.includes(b) && !undecided.includes(b))]
+                  .slice(0, 6).map(b => (
                   <div key={`${b.machineName}-${b.spins}-${b.betSum}`} style={{ fontSize: 11.5, lineHeight: 1.6 }}>
-                    <b style={{ color: b.verdict === 'match' ? C.match : bad.includes(b) ? C.bad : C.ink3 }}>
+                    <b style={{ color: b.verdict === 'match' ? C.match
+                      : bad.includes(b) ? C.bad
+                      : undecided.includes(b) ? C.pending
+                      : C.ink3 }}>
                       {b.machineName}
                     </b>
                     <span style={{ color: C.ink3 }}>

@@ -113,6 +113,10 @@ export function healthLamps(env: ReconEnv, now = Date.now()): Lamp[] {
       // 時鐘偏移燈。⚠️ 這盞只反映「本機 vs 後台 web」，**不是**配對用的偏移——
       //    兩者實測差 64.5 秒。它的用途是：偏移大到離譜時要看得見（那 94 秒
       //    如果早就顯示出來，就不用查到最後）。
+      //
+      // ⚠️ 2026-09-17 起這個值**會實際參與拉取窗的計算**（`planFetchWindow()`
+      //    用它把上界換到後台時間軸）。所以它不再只是觀測值——量不到或量錯，
+      //    拉取窗就會跟著偏。配對校正仍然自己算自己的，那部分沒變。
       const c = bySource.get('clock')
       const off = c?.clockOffsetMs ?? null
       const bad = off !== null && Math.abs(off) > 5000
@@ -120,9 +124,9 @@ export function healthLamps(env: ReconEnv, now = Date.now()): Lamp[] {
         key: 'clock', label: '時鐘偏移',
         state: (off === null ? 'warn' : bad ? 'warn' : 'ok') as LampState,
         agoSec: ago(c?.clockCheckedAt),
-        note: off === null ? '尚未量測'
+        note: off === null ? '尚未量測——拉取窗會退回「本機時鐘 +60 秒」，最新的局可能查不到'
           : `本機比後台 web ${off > 0 ? '慢' : '快'} ${Math.abs(Math.round(off / 1000))} 秒`
-            + '（僅供觀測，不參與配對校正）',
+            + '（已用於拉取窗上界換軸；配對校正另外自己算）',
         detail: off === null ? '—' : `${off > 0 ? '+' : ''}${(off / 1000).toFixed(1)}s`,
       }
     })(),

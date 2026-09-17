@@ -15,12 +15,22 @@
  *
  * 3. **中途某一頁失敗一律整批放棄，不把「已抓到的幾頁」當結果。**
  *    那又是一份看不出殘缺的資料（v4.99.0 Jira 分頁那次同一個結論）。
+ *
+ * 4. 🚨 **「撞上限就不推水位」單獨存在的話是一個單向閥門。**（2026-09-17 實測到的死鎖）
+ *    這支 API 是新到舊排序，截斷截掉的是較舊的那段，所以不推水位是對的。
+ *    但舊版到此為止——下一輪仍然查 `[水位, now]`，窗只會**更大**，於是再度截斷。
+ *    一旦停機夠久（實測 9/8 卡到 9/17，整整 9 天）就永遠出不來，而且
+ *    `failCount` 只有 3、其他來源都正常更新，看起來完全不像壞掉。
+ *    正解是**分段續抓**：把大窗切成段、從最舊的一段開始，每段完整抓完才推水位。
+ *    提高 `MAX_PAGES` 或把水位跳到 now 都不行——前者只是把閥門推遠，
+ *    後者會把中間那段永久跳過（同第 3 點的結論）。
  */
 import { db } from './shared.js'
 import { loadMeterConfig, meterPost } from './routes/meter-reconcile.js'
 import {
   type ReconEnv, guardFetchedRows, noteSourceHealth,
   readWatermark, writeWatermark, upsertBackendRecords, reconSetting,
+  nowOnObservedAxis,
 } from './live-ledger.js'
 
 /** 後台設定的 profile。⚠️ qat/uat 跟 osm/gcp 是兩個不同的軸，不能混用。 */
@@ -38,6 +48,36 @@ const OVERLAP_SEC = 90
 const COLD_START_SEC = 600
 const PAGE_SIZE = 200
 const MAX_PAGES = 20
+
+/**
+ * 一段最多涵蓋多久（見檔頭第 4 點）。
+ *
+ * 實測：查 7 天回 4000 筆／20 頁，只涵蓋**最新 8 小時**——也就是繁忙時段
+ * 8 小時約略就會吃滿 4000 筆。取 4 小時是留一半餘裕；真的塞不下時
+ * `fetchSegmented()` 會自己對半切，所以這個值保守一點不會有損失。
+ */
+export const SEGMENT_MS = 4 * 60 * 60_000
+/**
+ * 對半切的下限。切到比這還小仍然截斷，就**不是**「窗開太大」了——
+ * 單一帳號 5 分鐘內不可能有 4000 局，那是過濾條件沒生效之類的真問題，
+ * 要當異常報出來，不能無限切下去。
+ */
+export const MIN_SEGMENT_MS = 5 * 60_000
+/**
+ * 一輪最多補幾段，避免補歷史缺口時把單輪撐到好幾分鐘
+ * （迴圈耗時監控會因此誤報，而且會擋住其他 scope 的拉取）。
+ * 剩下的段下一輪接著補——水位已經前進，不會重來。
+ */
+export const MAX_SEGMENTS_PER_CYCLE = 12
+/**
+ * 「最新那一段」的寬限：上界比這個還新的段，即使抓到 0 筆也**不推水位**。
+ *
+ * ⚠️ 這是檔頭第 2 點的另一面。後台 `bet_time_precise` 不保證即時可見，
+ *    剛成的局可能還沒吐出來；這時把水位推過去，那幾筆就被永久跳過了。
+ *    而補歷史段（上界早於這個寬限）就必須推——否則 0 筆的空檔會讓游標
+ *    永遠停在原地，正是 9/8 那次卡死的成因之一。
+ */
+export const SETTLE_MS = 2 * 60_000
 
 export interface FetchOutcome {
   ok: boolean
@@ -115,10 +155,50 @@ export async function fetchBackendForScope(
   }
 
   const wm = readWatermark(env, source, username)
-  const fromMs = wm > 0 ? wm - OVERLAP_SEC * 1000 : now - COLD_START_SEC * 1000
-  // 上界刻意用 now + 1 分鐘：後台的時間戳可能比我們的時鐘快一點，卡死在 now 會漏掉最新那幾筆
-  const toMs = now + 60_000
+  const { fromMs, toMs, nowSrv } = planFetchWindow(env, wm, now)
 
+  return await fetchSegmented(env, source, username, wm, fromMs, toMs, nowSrv,
+    (a, b) => fetchOneWindow(env, source, username, gmid, profile, cfg, a, b))
+}
+
+/**
+ * 算出這一輪要涵蓋的時間窗。
+ *
+ * 🚨 **兩個時間軸不能混用。**`wm` 來自後台的 `betTimePrecise`，在**後台軸**上；
+ * `now` 是本機的 `Date.now()`。實測 `recon_source_health.clockOffsetMs = 120100`
+ * ——本機比後台**慢** 2 分鐘。
+ *
+ * 舊版上界寫死 `now + 60_000`，那個 `+60s` 原本是想補「後台時間戳可能比我們快一點」，
+ * 但它是**猜的常數、不是量到的偏移**：實際偏移 120 秒時，上界等於「後台時間 − 60 秒」，
+ * **最新一分鐘的局根本查不到**，接著被老化判定當成 MISSING。
+ * 這正是「用推導出來的常數去檢查現實」那類錯誤——偏移已經每 5 分鐘量一次了，用量到的。
+ *
+ * ⚠️ 只換上界，**不動 `wm`**（它已經在後台軸上）——兩邊都加就是重複補償，
+ * 窗會整個往未來平移，反而漏掉舊的那頭。
+ */
+export function planFetchWindow(env: ReconEnv, wm: number, now: number): {
+  fromMs: number; toMs: number; nowSrv: number
+} {
+  const nowSrv = nowOnObservedAxis(env, now)
+  return {
+    nowSrv,
+    fromMs: wm > 0 ? wm - OVERLAP_SEC * 1000 : nowSrv - COLD_START_SEC * 1000,
+    // 換軸之後仍留 1 分鐘安全邊界：偏移是每 5 分鐘量一次的，兩次之間還會漂一點
+    toMs: nowSrv + 60_000,
+  }
+}
+
+/**
+ * 抓**單一個窗**：分頁、守門、落庫。
+ *
+ * 刻意不碰 watermark、也不寫「成功」的健康紀錄——那要看整輪分段的結果才算數，
+ * 是 `fetchSegmented()` 的責任。失敗原因仍然當場寫，否則錯誤會被上層吃掉。
+ */
+async function fetchOneWindow(
+  env: ReconEnv, source: string, username: string, gmid: string,
+  profile: 'osm' | 'gcp', cfg: ReturnType<typeof loadMeterConfig>,
+  fromMs: number, toMs: number,
+): Promise<FetchOutcome & { maxTs?: number }> {
   const collected: Record<string, unknown>[] = []
   let pages = 0
   let reachedLimit = false
@@ -211,25 +291,113 @@ export async function fetchBackendForScope(
       })), { field: 'playerName', value: username })
     : 0
 
-  // watermark 前進到「這一輪看到的最大時間戳」，不是 now——後台還沒吐出來的那段
-  // 下一輪要重新涵蓋到。沒有資料時維持原游標，不要往前跳。
-  //
-  // ⚠️ **撞到分頁上限時一律不前進 watermark。**這支 API 是「新到舊」排序，
-  //    截斷截掉的是**較舊**的那段（實測：查 7 天回 4000 筆／20 頁，只涵蓋最新 8 小時）。
-  //    這時把游標推到最大時間戳，等於把中間沒抓到的那段**永久跳過**，
-  //    而且之後完全查不出來少了什麼——跟 v4.99.0 Jira 分頁那次同一個坑。
-  if (rows.length && !reachedLimit) {
-    const maxTs = Math.max(...rows.map(r => r.betTimePrecise))
-    if (maxTs > wm) writeWatermark(env, source, maxTs, username)
+  // ⚠️ **撞到分頁上限時這個窗的結果是不完整的**，`maxTs` 不可以拿去推水位。
+  //    這支 API 是「新到舊」排序，截斷截掉的是**較舊**的那段（實測：查 7 天回
+  //    4000 筆／20 頁，只涵蓋最新 8 小時）。把游標推到最大時間戳等於把中間沒抓到
+  //    的那段**永久跳過**，而且之後完全查不出來少了什麼——跟 v4.99.0 Jira 分頁那次
+  //    同一個坑。要怎麼處置交給 `fetchSegmented()`（它會把窗切小再試）。
+  return {
+    ok: !reachedLimit, fetched: collected.length, upserted, pages, reachedLimit, fromMs, toMs,
+    maxTs: rows.length ? Math.max(...rows.map(r => r.betTimePrecise)) : undefined,
   }
-  if (reachedLimit) {
-    noteSourceHealth(env, source, false, 'truncated',
-      `這一輪撞到分頁上限（${MAX_PAGES} 頁／${collected.length} 筆），結果不完整；` +
-      '游標未前進，下一輪會重拉同一段。查詢範圍過大時才會發生，穩態下不應出現。')
-  } else {
-    noteSourceHealth(env, source, true)
+}
+
+/**
+ * 把 `[fromMs, toMs]` 切成段逐段抓，**從最舊的一段開始**，每段完整抓完才推水位。
+ *
+ * 🚨 這支存在的理由就是檔頭第 4 點那個死鎖。關鍵不變量：
+ *
+ *   **水位只會前進到「已經確認完整抓完」的位置。**
+ *
+ * 所以任何一段只要截斷，就對半切重試；切到 `MIN_SEGMENT_MS` 還截斷，
+ * 就停在那裡把剩下的留給下一輪，**不跳過、不硬推**。
+ * 水位前進到哪裡，就代表那之前的資料是完整的——這條性質是後面所有對帳的地基，
+ * 一旦為了「補快一點」而破例，`recon_backend_record` 就會多出一段沒人知道的空洞。
+ */
+export async function fetchSegmented(
+  env: ReconEnv, source: string, username: string,
+  wm: number, fromMs: number, toMs: number, nowSrv: number,
+  fetchWindow: (fromMs: number, toMs: number) => Promise<FetchOutcome & { maxTs?: number }>,
+): Promise<FetchOutcome> {
+  let cursor = fromMs
+  let segments = 0
+  let fetched = 0
+  let upserted = 0
+  let pages = 0
+  let stalled: FetchOutcome | null = null
+  // ⚠️ 記住「這一輪切到多小才塞得下」，下一段直接從那個大小開始。
+  //    每段都重新從 SEGMENT_MS 試，補 9 天就要多打幾百次註定截斷的請求
+  //    ——那是實打實的後台負擔，而且每次都要等完 20 頁才知道失敗。
+  //    刻意**不在輪內放大回去**：同一輪的時段密度通常差不多，
+  //    而下一輪本來就會重新從 SEGMENT_MS 開始探，不會永久困在小窗。
+  let effSpan = SEGMENT_MS
+
+  while (cursor < toMs && segments < MAX_SEGMENTS_PER_CYCLE) {
+    let span = Math.min(effSpan, toMs - cursor)
+    let out: FetchOutcome & { maxTs?: number } | null = null
+
+    // 這一段塞不下就對半切，直到放得下或觸到下限
+    for (;;) {
+      const segTo = Math.min(cursor + span, toMs)
+      out = await fetchWindow(cursor, segTo)
+      if (!out.ok && !out.reachedLimit) {
+        // 網路／權限／守門失敗：`fetchOneWindow` 已經寫過健康紀錄，直接把原因帶回去
+        return { ...out, fetched: fetched + out.fetched, upserted: upserted + out.upserted,
+          pages: pages + out.pages, fromMs, toMs }
+      }
+      if (!out.reachedLimit) break
+      if (span <= MIN_SEGMENT_MS) break
+      span = Math.max(MIN_SEGMENT_MS, Math.floor(span / 2))
+      effSpan = span
+    }
+
+    fetched += out.fetched; upserted += out.upserted; pages += out.pages
+    const segTo = Math.min(cursor + span, toMs)
+
+    if (out.reachedLimit) {
+      // 切到下限還是滿的——這不是「窗開太大」，是這段時間內真的有異常多的資料
+      // （或過濾條件沒生效）。停在這裡，水位不動，把它報成異常。
+      stalled = {
+        ok: false, fetched, upserted, pages, reachedLimit: true, errKind: 'truncated',
+        message:
+          `補抓卡在 ${isoOf(cursor)} ~ ${isoOf(segTo)}：窗已切到 ${Math.round(span / 60_000)} 分鐘`
+          + `仍撞到分頁上限（${MAX_PAGES} 頁／${out.fetched} 筆）。`
+          + '單一帳號這麼短時間內不該有這麼多局，比較像過濾條件沒生效——'
+          + '水位停在此處不前進，這段之後的資料都還沒補。',
+        fromMs, toMs,
+      }
+      break
+    }
+
+    // ⚠️ 推水位的兩種情況，差別在「0 筆」怎麼解讀（見 SETTLE_MS）：
+    //    · 歷史段（上界早於寬限）完整抓完 → 即使 0 筆也推，那段是真的沒有局
+    //    · 最新段 → 只有抓到東西才推，後台可能還沒把剛成的局吐出來
+    const isHistorical = segTo < nowSrv - SETTLE_MS
+    const advanceTo = isHistorical ? segTo : (out.maxTs ?? 0)
+    if (advanceTo > wm) writeWatermark(env, source, advanceTo, username)
+
+    cursor = segTo
+    segments++
   }
-  return { ok: !reachedLimit, fetched: collected.length, upserted, pages, reachedLimit, fromMs, toMs }
+
+  if (stalled) {
+    noteSourceHealth(env, source, false, stalled.errKind!, stalled.message!)
+    return stalled
+  }
+
+  const remaining = Math.max(0, toMs - cursor)
+  if (remaining > 0) {
+    // 還沒補完但這一輪的額度用完了。這**不是錯誤**——水位已經前進，下一輪接著補。
+    // 仍然寫進健康紀錄，因為「畫面顯示正常但其實落後 3 天」正是要避免的那種安靜。
+    noteSourceHealth(env, source, false, 'backfilling',
+      `補抓進行中：這一輪補了 ${segments} 段到 ${isoOf(cursor)}，`
+      + `還差 ${Math.round(remaining / 3600_000)} 小時才追上現在。下一輪繼續。`)
+    return { ok: false, fetched, upserted, pages, errKind: 'backfilling',
+      message: '補抓進行中，尚未追上現在', fromMs, toMs }
+  }
+
+  noteSourceHealth(env, source, true)
+  return { ok: true, fetched, upserted, pages, fromMs, toMs }
 }
 
 /**
