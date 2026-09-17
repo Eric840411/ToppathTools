@@ -322,6 +322,8 @@ export async function runLiveLedgerCycle(now = Date.now()): Promise<{
   scopes: number; fetched: number; upserted: number; failures: number
   bind: Record<string, { scanned: number; resolved: number; ambiguous: number; missing: number }>
 }> {
+  const t0 = Date.now()
+  let jpMs = 0, fetchMs = 0, bindMs = 0, notifyMs = 0
   const { runBindCycle } = await import('./live-ledger.js')
   // 時鐘量測獨立於有沒有 scope——每 5 分鐘一次
   if (now - lastClockProbe >= CLOCK_PROBE_INTERVAL_MS) {
@@ -332,6 +334,7 @@ export async function runLiveLedgerCycle(now = Date.now()): Promise<{
   // L4/L5：JP 池與中獎。跟 scope 無關——池是整個群組共用的，不是我們的 spin 才有。
   if (now - lastJpCycle >= JP_CYCLE_INTERVAL_MS) {
     lastJpCycle = now
+    const tJp = Date.now()
     const { runJpCycle } = await import('./live-ledger-jp.js')
     /**
      * 🚨 **UAT 也要拉（v4.170.1 起）。**
@@ -358,9 +361,11 @@ export async function runLiveLedgerCycle(now = Date.now()): Promise<{
         }
       } catch (e) { console.warn('[live-ledger] JP 迴圈失敗:', e) }
     }
+    jpMs = Date.now() - tJp
   }
 
   const scopes = activeScopes(now)
+  const tFetch = Date.now()
   let fetched = 0, upserted = 0, failures = 0
   const envs = new Set<ReconEnv>()
   for (const s of scopes) {
@@ -369,6 +374,7 @@ export async function runLiveLedgerCycle(now = Date.now()): Promise<{
     if (!r.ok) failures++
     envs.add(s.env)
   }
+  fetchMs = Date.now() - tFetch
   /**
    * ⚠️ **綁定／撤銷／未觀測掃描不能只在「有壓測在跑」時執行。**
    *
@@ -388,6 +394,7 @@ export async function runLiveLedgerCycle(now = Date.now()): Promise<{
   }
 
   const bind: Record<string, { scanned: number; resolved: number; ambiguous: number; missing: number }> = {}
+  const tBind = Date.now()
   for (const env of envsToProcess) {
     // ⚠️ **一定要在 runBindCycle 之前**：那 1 筆「一局沒起卻綁到後台單」的錯誤綁定
     //    要先解開，正主才有機會在這一輪配到那張單。放後面的話正主要多等一輪。
@@ -432,6 +439,9 @@ export async function runLiveLedgerCycle(now = Date.now()): Promise<{
    * 比不發還糟。真正擋假警報的是通知端自己的靜置期（`notifyGraceSec`）——
    * 實測 missing 2,936 筆有 2,807 筆後來自己解決了，不等就送 96% 是假的。
    */
+  bindMs = Date.now() - tBind
+
+  const tNotify = Date.now()
   for (const env of ['qat', 'uat'] as const) {
     try {
       const { runNotifyCycle } = await import('./live-ledger-notify.js')
@@ -439,6 +449,12 @@ export async function runLiveLedgerCycle(now = Date.now()): Promise<{
       if (n.failed) console.warn(`[live-ledger] ${env} 告警送出失敗：${n.failed}`)
     } catch (e) { console.warn('[live-ledger] 告警迴圈失敗:', e) }
   }
+  notifyMs = Date.now() - tNotify
+
+  recordCycleStat({
+    at: t0, totalMs: Date.now() - t0, fetchMs, bindMs, jpMs, notifyMs,
+    scopes: scopes.length, fetched, failures,
+  })
   return { scopes: scopes.length, fetched, upserted, failures, bind }
 }
 
@@ -516,4 +532,109 @@ export async function probeServerClock(env: ReconEnv): Promise<number | null> {
     `).run(env, offset, Date.now())
     return offset
   } catch { return null }
+}
+
+// ─── 迴圈自身的可觀測性 ──────────────────────────────────────────────────
+//
+// 🚨 **拉取是 serial 的**（`for (const s of scopes) await fetchBackendForScope(...)`），
+//    所以單輪耗時 ≈ 帳號數 × RTT。30 台約 9~15 秒就吃滿 15 秒的間隔。
+//
+//    真正危險的是它跟 `pendingTimeoutSec`（90 秒）的交互：單輪耗時一旦拉長，
+//    **晚到的後台紀錄還沒被拉回來，spin 就先被判 MISSING** → 假掉單暴增。
+//    而這種失效長得跟「真的掉單」一模一樣，沒有這些數字就沒有任何徵兆。
+
+/** 保留的樣本數。這是診斷用的環形紀錄，不是歷史檔案。 */
+const CYCLE_STAT_KEEP = 500
+/**
+ * 單輪耗時超過 `pendingTimeoutSec` 的幾分之一就示警。
+ *
+ * ⚠️ 用比例不用固定秒數——門檻本來就可調，寫死一個秒數的話，
+ *    使用者把 pendingTimeout 調小之後這盞燈就再也不會亮。
+ */
+const CYCLE_WARN_RATIO = 1 / 3
+
+/**
+ * 示警門檻。**只有這一個地方算**。
+ *
+ * ⚠️ 第一版在 `recordCycleStat()` 與 `cycleStats()` 各算了一次同一件事——
+ *    突變測試當場抓到：把其中一邊改成固定 60 秒，「告警門檻」那條斷言照樣綠，
+ *    因為它讀的是另一邊。兩份會各自漂移，而畫面上顯示的門檻跟實際示警用的
+ *    門檻不同步，是最難查的一種 bug（看板說 30 秒、實際 60 秒才亮）。
+ */
+export function cycleWarnLimitMs(): number {
+  return reconSetting('qat', 'pendingTimeoutSec') * 1000 * CYCLE_WARN_RATIO
+}
+
+export function recordCycleStat(s: {
+  at: number; totalMs: number; fetchMs: number; bindMs: number; jpMs: number
+  notifyMs: number; scopes: number; fetched: number; failures: number
+}): void {
+  try {
+    db.prepare(`
+      INSERT INTO recon_cycle_stat (at, totalMs, fetchMs, bindMs, jpMs, notifyMs, scopes, fetched, failures)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(s.at, s.totalMs, s.fetchMs, s.bindMs, s.jpMs, s.notifyMs, s.scopes, s.fetched, s.failures)
+    db.prepare(`
+      DELETE FROM recon_cycle_stat WHERE id NOT IN (
+        SELECT id FROM recon_cycle_stat ORDER BY at DESC LIMIT ?
+      )
+    `).run(CYCLE_STAT_KEEP)
+
+    // ⚠️ 只在**真的有東西要拉**的輪次示警。沒有 scope 的輪次本來就很快，
+    //    把它們算進來會讓平均數永遠漂亮，剛好蓋掉壓測時的那幾輪。
+    if (s.scopes > 0) {
+      const limitMs = cycleWarnLimitMs()
+      if (s.totalMs > limitMs) {
+        noteSourceHealth('qat', 'cycle', false, 'slow_cycle',
+          `單輪耗時 ${(s.totalMs / 1000).toFixed(1)} 秒（${s.scopes} 個帳號，拉取 ${(s.fetchMs / 1000).toFixed(1)} 秒）`
+          + `——超過掉單門檻的 1/3，再長下去晚到的紀錄會來不及回綁，**會開始出現假掉單**`)
+      } else {
+        noteSourceHealth('qat', 'cycle', true)
+      }
+    }
+  } catch (e) {
+    // ⚠️ 觀測失敗不能拖垮被觀測的東西
+    console.warn('[live-ledger] 迴圈統計寫入失敗:', e)
+  }
+}
+
+export interface CycleStats {
+  samples: number
+  lastMs: number | null
+  p50Ms: number | null
+  p95Ms: number | null
+  maxMs: number | null
+  lastScopes: number | null
+  /** 拉取占單輪的比例——接近 1 就代表瓶頸在 serial 拉取，該做合併查詢 */
+  fetchShare: number | null
+  warnAtMs: number
+}
+
+/** 近期迴圈耗時。⚠️ 只看有 scope 的輪次，見 `recordCycleStat` 的說明。 */
+export function cycleStats(limit = 200): CycleStats {
+  const warnAtMs = cycleWarnLimitMs()
+  try {
+    const rows = db.prepare(`
+      SELECT totalMs, fetchMs, scopes FROM recon_cycle_stat
+      WHERE scopes > 0 ORDER BY at DESC LIMIT ?
+    `).all(limit) as { totalMs: number; fetchMs: number; scopes: number }[]
+    if (!rows.length) {
+      return { samples: 0, lastMs: null, p50Ms: null, p95Ms: null, maxMs: null, lastScopes: null, fetchShare: null, warnAtMs }
+    }
+    const sorted = [...rows].sort((a, b) => a.totalMs - b.totalMs)
+    const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))].totalMs
+    const totalAll = rows.reduce((n, r) => n + r.totalMs, 0)
+    const fetchAll = rows.reduce((n, r) => n + r.fetchMs, 0)
+    return {
+      samples: rows.length,
+      lastMs: rows[0].totalMs,
+      p50Ms: at(0.5), p95Ms: at(0.95),
+      maxMs: sorted[sorted.length - 1].totalMs,
+      lastScopes: rows[0].scopes,
+      fetchShare: totalAll > 0 ? fetchAll / totalAll : null,
+      warnAtMs,
+    }
+  } catch {
+    return { samples: 0, lastMs: null, p50Ms: null, p95Ms: null, maxMs: null, lastScopes: null, fetchShare: null, warnAtMs }
+  }
 }

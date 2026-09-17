@@ -15,6 +15,7 @@
  */
 import { db } from './shared.js'
 import { creditSummary } from './live-ledger-credit.js'
+import { cycleStats } from './live-ledger-fetch.js'
 import { recentFindings, nowOnObservedAxis, findUnobservedRounds, type FindingRow } from './live-ledger.js'
 import { jpSummary } from './live-ledger-jp.js'
 import type { ReconEnv } from './live-ledger.js'
@@ -150,6 +151,34 @@ export function healthLamps(env: ReconEnv, now = Date.now()): Lamp[] {
           : n.failCount > 0 ? (n.message || n.errKind || '送出失敗')
             : (n.lastOkAt ? '距上次送出檢查' : '尚未送出過')
       return { key: 'notify', label: '告警送出', state, agoSec: ago(n?.lastOkAt), note }
+    })(),
+    (() => {
+      /**
+       * 🚨 迴圈耗時燈（v4.175.0 新增）。
+       *
+       * ⚠️ 這盞燈要防的是一種**會偽裝成「掉單變多」的失效**：拉取是 serial 的，
+       *    帳號一多單輪耗時就線性成長；一旦逼近 `pendingTimeoutSec`，晚到的紀錄
+       *    還沒被拉回來 spin 就先被判 MISSING——看起來像後台掉單，其實是我們太慢。
+       *
+       * ⚠️ 沒有樣本時是 warn 不是綠：那代表從來沒有在「有帳號要拉」的情況下跑過。
+       */
+      const c = bySource.get('cycle')
+      const st = cycleStats(200)
+      const state: LampState = !st.samples ? 'warn'
+        : c?.failCount ? 'bad'
+          : (st.p95Ms !== null && st.p95Ms > st.warnAtMs) ? 'warn' : 'ok'
+      const note = !st.samples
+        ? '尚未在有帳號要拉的情況下跑過，耗時未知'
+        : c?.failCount ? (c.message || '單輪耗時過長')
+          : `${st.lastScopes} 個帳號 · p50 ${(st.p50Ms! / 1000).toFixed(1)}s / p95 ${(st.p95Ms! / 1000).toFixed(1)}s`
+            + `（告警門檻 ${(st.warnAtMs / 1000).toFixed(0)}s）`
+            + (st.fetchShare !== null && st.fetchShare > 0.7
+              // 拉取占比高 = 瓶頸在 serial 拉取，那是合併查詢要解的
+              ? `；拉取占 ${(st.fetchShare * 100).toFixed(0)}%，瓶頸在逐帳號查詢` : '')
+      return {
+        key: 'cycle', label: '迴圈耗時', state, agoSec: ago(c?.lastOkAt), note,
+        detail: st.lastMs !== null ? `${(st.lastMs / 1000).toFixed(1)}s` : '—',
+      }
     })(),
   ]
 }

@@ -1279,6 +1279,36 @@ db.exec(`
     PRIMARY KEY (env, key)
   )
 `)
+
+/**
+ * recon_cycle_stat — 對帳迴圈自己的可觀測性（v8 規格明訂「需要工具自身可觀測性」）。
+ *
+ * 🚨 **為什麼一定要有**：拉取是 serial 的（`for (const s of scopes) await fetch...`），
+ *    所以單輪耗時 ≈ 帳號數 × RTT。30 台約 9~15 秒就吃滿 15 秒的間隔。
+ *
+ *    真正危險的是它跟 `pendingTimeoutSec`（90 秒）的交互：**單輪耗時一旦拉長，
+ *    晚到的後台紀錄還沒被拉回來，spin 就先被判 MISSING** → 假掉單暴增，
+ *    而這種失效長得跟「真的掉單」一模一樣。後台慢到 2 秒/請求時約 45 台就會撞到。
+ *
+ *    沒有這張表的話，上面那件事發生時**沒有任何徵兆**——只會看到掉單變多。
+ *
+ * ⚠️ 只留最近 N 筆（`gcCycleStats()`），這是診斷用的環形紀錄不是歷史檔案。
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS recon_cycle_stat (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    at        INTEGER NOT NULL,
+    totalMs   INTEGER NOT NULL,
+    fetchMs   INTEGER NOT NULL DEFAULT 0,
+    bindMs    INTEGER NOT NULL DEFAULT 0,
+    jpMs      INTEGER NOT NULL DEFAULT 0,
+    notifyMs  INTEGER NOT NULL DEFAULT 0,
+    scopes    INTEGER NOT NULL DEFAULT 0,
+    fetched   INTEGER NOT NULL DEFAULT 0,
+    failures  INTEGER NOT NULL DEFAULT 0
+  )
+`)
+db.exec(`CREATE INDEX IF NOT EXISTS idx_recon_cycle_at ON recon_cycle_stat (at)`)
 {
   const ins = db.prepare(`INSERT OR IGNORE INTO recon_settings (env, key, value) VALUES (?, ?, ?)`)
   for (const env of ['qat', 'uat']) {
