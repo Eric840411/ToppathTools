@@ -470,47 +470,38 @@ export async function setCheckedRecorded(target, desired, { timeout = 10000 } = 
  * @param preview   選用：給 bounds 回一張預覽圖（純診斷用，不影響判定）
  */
 export function createRecordedLocators(page, { requireUnique = false, preview = null } = {}) {
-  const isPlain = (selector) => !selector.startsWith('text=') && !selector.startsWith('label=');
-  const exactOf = (selector) =>
-    selector.startsWith('text=') ? page.getByText(selector.slice(5), { exact: true })
-      : selector.startsWith('label=') ? page.getByLabel(selector.slice(6), { exact: true }) : null;
-
+  // ⚠️ 這裡**只能**轉手給 locateRecorded()，不得自己再寫一份解析。
+  //
+  //    2026-09-17 就是因為這裡留了第三份拷貝（自己叫 getByLabel / resolveRecordedSelector），
+  //    把 `label=` 的舊格式相容加進 locateRecorded 之後，**預檢與點擊這兩條路徑根本沒走到**，
+  //    使用者那邊看到的還是一模一樣的「label=Jackpot ID（命中 0 個）」。
+  //    誏刺的是舊版本的註解就寫著「只修一邊等於沒修」——而它本身就是那一邊。
   const recordedLocator = async (selector) => {
-    const exact = exactOf(selector);
-    // 舊格式相容跟 checkLocator 走同一支解析；只修一邊等於沒修。
-    const resolved = exact ? null : await resolveRecordedSelector(page, selector);
-    const effective = resolved ? resolved.selector : selector;
-    if (requireUnique) {
-      const target = exact || page.locator(effective);
-      const count = await target.count();
-      if (count !== 1) throw new Error(ambiguityMessage(selector, count));
-      return target;
-    }
-    if (!exact) return page.locator(effective).first();
-    const count = await exact.count();
-    for (let i = 0; i < count; i++) {
-      const candidate = exact.nth(i);
-      if (await candidate.isVisible().catch(() => false)) return candidate;
-    }
-    // 舊腳本可能依賴模糊 selector；完全沒有 exact 時才回退。
-    return count ? exact.first() : page.locator(selector).first();
+    const found = await locateRecorded(page, selector, { requireUnique });
+    if (found.failure) throw new Error(describeLocateFailure(found, selector));
+    if (!found.locator) throw new Error(ambiguityMessage(selector, found.count));
+    return found.locator;
   };
 
+  /** 預檢：不管工廠是不是 requireUnique，預檢本身永遠要求唯一。 */
   const checkLocator = async (step) => {
     if (!step.selector) return;
-    const resolved = isPlain(step.selector) ? await resolveRecordedSelector(page, step.selector) : null;
-    const effective = resolved ? resolved.selector : step.selector;
-    const target = exactOf(step.selector) || page.locator(effective);
-    const count = await target.count();
-    const info = { count, visible: false, bounds: null };
-    if (resolved?.repaired) { info.original = resolved.original; info.effective = effective; }
-    if (count !== 1) {
-      const error = new Error(ambiguityMessage(step.selector, count));
+    const found = await locateRecorded(page, step.selector, { requireUnique: true });
+    const info = { count: found.count, visible: false, bounds: null };
+    if (found.failure) {
+      const error = new Error(describeLocateFailure(found, step.selector));
       error.locator = info;
       throw error;
     }
-    info.visible = await target.isVisible();
-    info.bounds = await target.boundingBox();
+    // 相容有套用時把原文與有效的都留下來，不是靜默改掉
+    if (found.selector !== step.selector) { info.original = step.selector; info.effective = found.selector; }
+    if (found.count !== 1 || !found.locator) {
+      const error = new Error(ambiguityMessage(step.selector, found.count));
+      error.locator = info;
+      throw error;
+    }
+    info.visible = await found.locator.isVisible();
+    info.bounds = await found.locator.boundingBox();
     if (preview && info.bounds) {
       try { info.preview = await preview(info.bounds); } catch { /* diagnostics must not alter execution */ }
     }
@@ -520,6 +511,11 @@ export function createRecordedLocators(page, { requireUnique = false, preview = 
   return { recordedLocator, checkLocator };
 }
 
+/**
+ * 這支可能回的 status。措辭（給人看的那一句）在 shared/uat-selector-check.ts，
+ * 不放這裡——這一支要原封不動送到 agent，不能 import TS。
+ * 兩邊有沒漂掉由 scripts/ui-checks/recorded-selector.mjs 驗。
+ */
 export const SELECTOR_CHECK_STATUSES = ['ok', 'none', 'many', 'mismatch', 'invalid', 'unknown'];
 
 /**

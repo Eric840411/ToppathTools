@@ -737,6 +737,32 @@ try {
     // 找不到的欄位不能亂猜
     const nope = await locateRecorded(pg, 'label=根本沒這個欄位', { requireUnique: true });
     eq('沒這個欄位就是 0，不亂猜', nope.count, 0);
+
+    // ⚠️ 上面那幾條直接呼叫 locateRecorded()——**那不是產品跑的路徑**。
+    //    實際執行是走 createRecordedLocators() 的預檢與點擊，而它曾經自己留了
+    //    一份解析拷貝，所以 label= 的相容加進去也沒用——使用者那邊依然命中 0。
+    //    （而這些直接呼叫的斷言全程是綠的。這是今天第八次同型問題。）
+    //    所以這裡必須額外走一次**產品入口**。
+    const viaFactory = createRecordedLocators(pg, { requireUnique: true });
+    // 沒相容到時這裡會拋「定位必須唯一（命中 0 個）」——接住它，
+    // 讓它變成一條紅的斷言而不是整支中斷，否則後面的項目都不會跑到。
+    const pre = await viaFactory.checkLocator({ selector: 'label=Jackpot ID' }).catch(e => ({ error: String(e.message) }));
+    eq('預檢（產品入口）也要相容到', pre?.count, 1);
+    eq('預檢會把原文與有效的都留下來', pre?.original, 'label=Jackpot ID');
+    const viaClick = await viaFactory.recordedLocator('label=Jackpot ID').catch(() => null);
+    eq('點擊（產品入口）拿到的也是對的那一格',
+      viaClick ? await viaClick.inputValue() : '(定位失敗)', '4186-dfdc1');
+
+    // 再走一次積木引擎，確認整條路徑都通
+    const blockCtx5 = {
+      page: pg,
+      openPath: async () => {},
+      resolveSubtypePath: () => null,
+      takeScreenshot: async () => null,
+      callBuiltin: async () => ({ notes: '', criticalFails: [], manual: false }),
+    };
+    const rb = await runSteps([{ action: 'read_block', selector: 'label=Jackpot ID', as: 'jp' }], blockCtx5);
+    eq('積木引擎走 label= 也通', rb.pass, true);
     await pg.close();
 
     // 純字串層：只認 label=，別的不碰
