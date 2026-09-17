@@ -48,11 +48,32 @@ export function backendRecorderScript(options = {}) {
     window.__toppathRecArmed = true;
     if (CONFIG.bindings?.length) emit({ action: 'open_page', path: location.pathname + location.search + location.hash });
   };
+  /**
+   * 自己畫的提示條。
+   *
+   * ⚠️ **不能用 alert()**：錄製的瀏覽器是 Playwright 控制的，沒註冊 dialog handler
+   *    時所有 alert/prompt 會被**自動關掉**——使用者從來沒看過這些提醒。
+   *    （「請先選擇所屬 TC」這句就是這樣陰了很久：斷言沒錄到，也沒人知道為什麼。）
+   */
+  const toast = (text) => {
+    try {
+      const box = document.createElement('div');
+      box.setAttribute('data-toppath-recorder-ui', '1');
+      box.textContent = text;
+      box.style.cssText = 'position:fixed;z-index:2147483647;left:50%;top:18px;transform:translateX(-50%);' +
+        'max-width:min(560px,90vw);padding:10px 16px;border-radius:9px;border:1px solid #d99e22;' +
+        'background:#3a2a08;color:#ffe9b8;font-family:system-ui,sans-serif;font-size:13px;line-height:1.6;' +
+        'box-shadow:0 12px 32px rgba(0,0,0,.5)';
+      document.documentElement.appendChild(box);
+      setTimeout(() => box.remove(), 4000);
+    } catch (e) { /* 提示失敗不能影響錄製 */ }
+  };
+
   const emit = (step) => {
     if (paused || !window.__toppathRecArmed) return;
     const scoped = step.assertion || step.action === 'screenshot';
     if (CONFIG.bindings?.length && scoped) {
-      if (!owner) { alert('請先選擇檢查與截圖所屬的 Lark TC'); return; }
+      if (!owner) { toast('請先選擇檢查與截圖所屬的 Lark TC，這一項沒有被錄下來'); return; }
       step.tcId = owner;
     }
     try { console.info(MARK, JSON.stringify(step)); return true; } catch { return false; }
@@ -116,11 +137,29 @@ export function backendRecorderScript(options = {}) {
       const wrap = el.closest('label');
       if (wrap) text = (wrap.innerText || '').trim();
     }
-    // Element UI 的 form item：label 在同一個 .el-form-item 裡
+    // ⚠️ Element UI 的 form item：label 跟 input **沒有任何關聯**（沒 for、也沒包住）。
+    //    這裡推得出文字，不代表 Playwright 的 getByLabel 找得到——實測命中 0。
+    //    （使用者 2026-09-17：label=Jackpot ID 在二級彈窗裡永遠找不到。）
+    //    所以這一條不再產 label=，改產「按 form item 範圍」的選擇器，
+    //    而且**當場確認它真的只指到這一個欄位**，不唯一就不用。
     if (!text) {
       const item = el.closest('.el-form-item');
       const lab = item && item.querySelector('.el-form-item__label');
-      if (lab) text = (lab.innerText || '').trim();
+      const labText = lab ? cleanText(lab.innerText || '').replace(/[:：*]\s*$/, '') : '';
+      if (labText) {
+        const sameLabel = [...document.querySelectorAll('.el-form-item')].filter(it => {
+          const l = it.querySelector('.el-form-item__label');
+          return l && cleanText(l.innerText || '').replace(/[:：*]\s*$/, '') === labText;
+        });
+        const fields = [...item.querySelectorAll('input, textarea, select')];
+        if (sameLabel.length === 1 && fields.length === 1 && fields[0] === el) {
+          return {
+            selector: '.el-form-item:has(> .el-form-item__label:text-is(' + JSON.stringify(labText) + ')) '
+              + el.tagName.toLowerCase(),
+            strategy: 'formItem',
+          };
+        }
+      }
     }
     if (!text) {
       const ph = el.getAttribute('placeholder');
@@ -576,21 +615,21 @@ export function backendRecorderScript(options = {}) {
 
     const options = [
       ['必須有值', '非空就通過。最常用', '#3fbe8b', () => ({ kind: 'filled' })],
-      ['等於某個數字', '已帶入目前的值，可以改', '#9a6ac7', () => {
-        const want = prompt('期望值（已帶入目前的值）', value);
-        return want === null ? null : { kind: 'equals', expect: want };
-      }],
-      ['文字必須相等', '自行確認期望文字', '#3fbe8b', () => {
-        const expect = prompt('期望文字（請依規格確認，當下畫面不一定正確）', value);
-        return expect === null ? null : { kind: 'text', expect };
-      }],
+      ['等於某個數字', '已帶入目前的值，可以改', '#9a6ac7', () => ({
+        ask: { title: '期望值（已帶入目前的值）', value: value },
+        build: (v) => ({ kind: 'equals', expect: v }),
+      })],
+      ['文字必須相等', '自行確認期望文字', '#3fbe8b', () => ({
+        ask: { title: '期望文字（請依規格確認，當下畫面不一定正確）', value: value },
+        build: (v) => ({ kind: 'text', expect: v }),
+      })],
       ['截取這個區域', '保存到目前所屬 TC 的附圖', '#3fbe8b', () => ({ kind: 'screenshot' })],
       ['這個表格要排序正確', '依這一欄遞減', '#3fbe8b', () => ({ kind: 'sorted' })],
       ['不能出現／不能是這個值', '出現就算 FAIL', '#f87171', () => ({ kind: 'absent' })],
-      ['這裡要人工看', '機器判不了，不算失敗', '#d99e22', () => {
-        const why = prompt('為什麼要人工看？', '需人工確認');
-        return why === null ? null : { kind: 'manual', reason: why };
-      }],
+      ['這裡要人工看', '機器判不了，不算失敗', '#d99e22', () => ({
+        ask: { title: '為什麼要人工看？', value: '需人工確認' },
+        build: (v) => ({ kind: 'manual', reason: v }),
+      })],
       ['只記下來，不檢查', '存成變數給後面的積木用', '#64748b', () => ({ kind: 'capture' })],
       // 標記上傳欄位。使用者看得到的是按鈕或 + 方塊，真正收檔案的是藏起來的 input，
       // 所以這裡不是記「點到的那個元素」，是從它找出那個 input（findUploadTarget）。
@@ -598,26 +637,91 @@ export function backendRecorderScript(options = {}) {
         const r = findUploadTarget(el);
         // 找不到就當場說清楚並要求重新標記——**不退回結構路徑、不取第一個**，
         // 那會讓圖靜靜傳到別的欄位，報告上完全看不出來。
-        if (r.error) { alert(r.error); return null; }
+        if (r.error) return { note: r.error };
         return { kind: 'upload', selector: r.selector, fieldLabel: r.fieldLabel };
       }],
     ];
+
+    /**
+     * 把選單內容換成一個輸入面板。
+     *
+     * ⚠️ 這裡**絕對不能用 prompt()**。錄製的瀏覽器是 Playwright 控制的，
+     *    而 Playwright 在沒有註冊 dialog handler 時會**自動關掉所有 alert/prompt**——
+     *    prompt() 立刻回 null，使用者連那個框都看不到。
+     *    實際後果：「等於某個數字」「文字必須相等」「這裡要人工看」三個選項
+     *    **點下去什麼都不會發生**，使用者 2026-09-17 回報的就是這個。
+     *    錄製器本來就自己畫選單，輸入框也自己畫就沒有這個依賴。
+     */
+    const askInMenu = (title, initial, onOk) => {
+      while (menu.firstChild) menu.removeChild(menu.firstChild);
+      const h = document.createElement('h5');
+      h.textContent = title;
+      h.style.cssText = 'margin:5px 8px 7px;color:#cbd5e1;font-size:12px;font-weight:700;line-height:1.5';
+      const box = document.createElement('input');
+      box.type = 'text';
+      box.value = initial == null ? '' : String(initial);
+      box.style.cssText = 'width:calc(100% - 16px);margin:0 8px;padding:6px 8px;border-radius:6px;' +
+        'border:1px solid #42566f;background:#0f2038;color:#e2e8f0;font-size:12px;box-sizing:border-box';
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:6px;justify-content:flex-end;padding:8px';
+      const mk = (text, bg) => {
+        const btn = document.createElement('button');
+        btn.textContent = text;
+        btn.style.cssText = 'padding:5px 12px;border-radius:6px;border:0;cursor:pointer;font-size:12px;background:' + bg + ';color:#06281c';
+        return btn;
+      };
+      const ok = mk('確定', '#3fbe8b');
+      const no = mk('取消', '#42566f');
+      no.style.color = '#e2e8f0';
+      ok.onclick = (e) => { e.preventDefault(); e.stopPropagation(); onOk(box.value); };
+      no.onclick = (e) => { e.preventDefault(); e.stopPropagation(); close(); };
+      box.onkeydown = (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') { e.preventDefault(); onOk(box.value); }
+        if (e.key === 'Escape') { e.preventDefault(); close(); }
+      };
+      row.appendChild(no); row.appendChild(ok);
+      menu.appendChild(h); menu.appendChild(box); menu.appendChild(row);
+      setTimeout(() => { try { box.focus(); box.select(); } catch (err) {} }, 0);
+    };
+
+    /** 找不到上傳欄位這種訊息也不能用 alert()，同樣會被自動關掉 */
+    const noteInMenu = (text) => {
+      while (menu.firstChild) menu.removeChild(menu.firstChild);
+      const h = document.createElement('h5');
+      h.textContent = text;
+      h.style.cssText = 'margin:8px;color:#f8b4b4;font-size:12px;font-weight:600;line-height:1.6';
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;justify-content:flex-end;padding:0 8px 8px';
+      const btn = document.createElement('button');
+      btn.textContent = '知道了';
+      btn.style.cssText = 'padding:5px 12px;border-radius:6px;border:0;cursor:pointer;font-size:12px;background:#42566f;color:#e2e8f0';
+      btn.onclick = (e) => { e.preventDefault(); e.stopPropagation(); close(); };
+      row.appendChild(btn);
+      menu.appendChild(h); menu.appendChild(row);
+    };
+
+    const submit = (picked) => {
+      if (picked && picked.kind === 'upload') {
+        // 上傳不是斷言，是一顆操作積木——selector 指的是找到的那個 input，
+        // 不是使用者點到的那顆按鈕
+        emit({ action: 'upload_file', selector: picked.selector,
+               selectorStrategy: 'uploadField', fieldLabel: picked.fieldLabel });
+      } else if (picked) {
+        emit({ assertion: picked, selector: d.selector, selectorStrategy: d.strategy,
+               currentValue: value, label: labelOf(el), column: d.column ?? null });
+      }
+      close();
+    };
 
     for (const [label, hint, color, make] of options) {
       const b = menuItem(label, hint, color);
       b.onclick = (e) => {
         e.preventDefault(); e.stopPropagation();
         const picked = make();
-        if (picked && picked.kind === 'upload') {
-          // 上傳不是斷言，是一顆操作積木——selector 指的是找到的那個 input，
-          // 不是使用者點到的那顆按鈕
-          emit({ action: 'upload_file', selector: picked.selector,
-                 selectorStrategy: 'uploadField', fieldLabel: picked.fieldLabel });
-        } else if (picked) {
-          emit({ assertion: picked, selector: d.selector, selectorStrategy: d.strategy,
-                 currentValue: value, label: labelOf(el), column: d.column ?? null });
-        }
-        close();
+        if (picked && picked.note) { noteInMenu(picked.note); return; }
+        if (picked && picked.ask) { askInMenu(picked.ask.title, picked.ask.value, (v) => submit(picked.build(v))); return; }
+        submit(picked);
       };
       menu.appendChild(b);
     }

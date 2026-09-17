@@ -194,6 +194,21 @@ export function isAmbiguityError(error) {
 }
 
 /**
+ * 舊錄製器對 Element UI 表單產的 `label=欄位名`。
+ *
+ * ⚠️ 那種 label 跟 input 沒有任何關聯，**Playwright 的 getByLabel 永遠找不到**。
+ *    錄製器是從 `.el-form-item` 的結構推出文字再寫成 label= 的——
+ *    推得出來不代表找得到。跟 `td:text-is` 那個是同一種病。
+ *    （使用者 2026-09-17：二級彈窗的 Jackpot ID 下拉選單。）
+ */
+export function legacyLabelVariant(selector) {
+  if (typeof selector !== 'string' || !selector.startsWith('label=')) return null;
+  const text = selector.slice(6).trim();
+  if (!text) return null;
+  return '.el-form-item:has(> .el-form-item__label:text-is(' + JSON.stringify(text) + ')) input';
+}
+
+/**
  * 「命中不是一個」的訊息。**只能有這一份**——runner、積木引擎、預檢全部共用。
  * 各寫各的話，日後改措辭只會改到其中一邊，而測試又只盯得住一邊。
  */
@@ -222,7 +237,19 @@ export async function locateRecorded(page, selector, { requireUnique = false } =
 
   if (exact) {
     try {
-      const count = await exact.count();
+      let count = await exact.count();
+      if (count === 0) {
+        // 舊腳本相容：`label=X` 在 Element UI 表單上永遠是 0，改試 form item 範圍。
+        // 跟表格錨點同一個規矩：**唯一命中才套用**，歧義就不碰。
+        const variant = legacyLabelVariant(selector);
+        if (variant) {
+          const alt = await safeCount(page, variant);
+          if (alt.count === 1) {
+            const full = page.locator(variant);
+            return { locator: requireUnique ? full : full.first(), count: 1, failure: null, message: '', selector: variant };
+          }
+        }
+      }
       // ⚠️ 唯一模式回**完整 locator**，不能回 `.first()`。
       //    `.first()` 是「明言只要第一個」，Playwright 就不會再做 strict 檢查——
       //    檢查完之後才新增的重複元素永遠檢查不到，會安靜地動第一個。
@@ -266,7 +293,17 @@ export async function countRecorded(page, selector) {
   const exact = selector.startsWith('text=') ? page.getByText(selector.slice(5), { exact: true })
     : selector.startsWith('label=') ? page.getByLabel(selector.slice(6), { exact: true }) : null;
   if (exact) {
-    try { return { count: await exact.count(), failure: null, message: '', selector }; }
+    try {
+      const n = await exact.count();
+      if (n === 0) {
+        const variant = legacyLabelVariant(selector);
+        if (variant) {
+          const alt = await safeCount(page, variant);
+          if (alt.count === 1) return { count: 1, failure: null, message: '', selector: variant };
+        }
+      }
+      return { count: n, failure: null, message: '', selector };
+    }
     catch (e) {
       const message = String(e?.message ?? e).split('\n')[0].slice(0, 200);
       return { count: null, failure: /while parsing css selector|is not a valid selector|Unknown engine|SyntaxError/i.test(message) ? 'invalid' : 'error', message, selector };

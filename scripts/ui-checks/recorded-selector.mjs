@@ -29,7 +29,7 @@ import { backendRecorderScript, RECORDER_MARKER } from '../../server/uat-runner/
 import {
   legacyTableAnchorVariant, resolveRecordedSelector, verifyRecordedSelectorLive,
   applySelectorChecks, SELECTOR_CHECK_STATUSES, createRecordedLocators, isAmbiguityError, clickRecorded,
-  locateRecorded, setCheckedRecorded, hiddenToggleProxy,
+  locateRecorded, setCheckedRecorded, hiddenToggleProxy, legacyLabelVariant,
 } from '../../server/uat-runner/recorded-selector.js';
 import { runMultiTcSteps } from '../../server/uat-runner/multi-tc.js';
 import { runSteps } from '../../server/uat-runner/block-engine.js';
@@ -706,6 +706,127 @@ try {
     // 正向案例：不能因為去重而把 label 裡的真按鈕一起吞掉
     eq('label 裡的真按鈕 → 照常錄 click', await recordOne('#inner-btn'), ['click']);
     eq('沒勾選框的 label → 照常錄 click', await recordOne('#plainspan'), ['click']);
+  }
+
+  // ── (j) Element UI 表單：label 跟 input 沒有關聯（v4.159.0）────────
+  //
+  // 使用者 2026-09-17：二級彈窗的 Jackpot ID 下拉選單，第 20 步 `label=Jackpot ID`
+  // 命中 0。Element UI 的 .el-form-item__label **沒 for、也沒包住 input**，
+  // 而 Playwright 的 getByLabel 靠的是真正的關聯——錄製器推得出文字，不代表它找得到。
+  console.log('\n── Element UI 表單的 label ──');
+  {
+    const FORM = '<div class="el-form-item"><label class="el-form-item__label">Jackpot ID</label>'
+      + '<div class="el-form-item__content"><input class="a" value="4186-dfdc1"></div></div>'
+      + '<div class="el-form-item"><label class="el-form-item__label">Min Bet</label>'
+      + '<div class="el-form-item__content"><input class="b" value="100"></div></div>';
+
+    const pg = await browser.newPage();
+    await pg.setContent(FORM);
+
+    // 先釘住根因：舊式的 label= 在這種表單上本來就是 0
+    eq('根因：getByLabel 在 el-form-item 上命中 0',
+      await pg.getByLabel('Jackpot ID', { exact: true }).count(), 0);
+
+    // 執行時相容：舊腳本的 label= 要被接住
+    const legacy = await locateRecorded(pg, 'label=Jackpot ID', { requireUnique: true });
+    eq('舊腳本的 label= 要被相容到', legacy.count, 1);
+    eq('而且拿到的是對的那一格', await legacy.locator.inputValue(), '4186-dfdc1');
+    const legacy2 = await locateRecorded(pg, 'label=Min Bet', { requireUnique: true });
+    eq('另一格也各自對得上', await legacy2.locator.inputValue(), '100');
+
+    // 找不到的欄位不能亂猜
+    const nope = await locateRecorded(pg, 'label=根本沒這個欄位', { requireUnique: true });
+    eq('沒這個欄位就是 0，不亂猜', nope.count, 0);
+    await pg.close();
+
+    // 純字串層：只認 label=，別的不碰
+    eq('只處理 label= 開頭的', legacyLabelVariant('text=X'), null);
+
+    // 錄製端：現在不再產 label=，而是範圍選擇器
+    const c = await browser.newContext();
+    await c.addInitScript(backendRecorderScript());
+    const rec = await c.newPage();
+    const got = [];
+    rec.on('console', m => {
+      const t = m.text();
+      if (t.startsWith(RECORDER_MARKER)) got.push(JSON.parse(t.slice(RECORDER_MARKER.length).trim()));
+    });
+    await rec.goto('data:text/html,' + encodeURIComponent(FORM));
+    await rec.evaluate(() => window.__toppathArmRecorder?.());
+    await rec.waitForTimeout(150);
+    await rec.click('.a');
+    await rec.waitForTimeout(150);
+    const step = got.at(-1);
+    eq('錄製端不再產 label=', String(step.selector).startsWith('label='), false);
+    eq('改產 form item 範圍選擇器', step.selectorStrategy, 'formItem');
+    eq('而且當場就唯一命中', await rec.locator(step.selector).count(), 1);
+    await c.close();
+  }
+
+  // ── (k) 錄製器不得使用瀏覽器原生對話框（v4.159.0）──────────
+  //
+  // 使用者 2026-09-17：「標記功能只有第一個有用」。實測發現壞掉的四個選項
+  // 剛好就是會跳輸入框的那四個——錄製的瀏覽器是 Playwright 控制的，
+  // 沒註冊 dialog handler 時 alert/prompt 會被**自動關掉**，prompt() 立刻回 null。
+  console.log('\n── 不得使用原生對話框 ──');
+  {
+    // 先釘住「為什麼不能用」：沒有 handler 時 prompt 就是 null
+    const probe = await browser.newPage();
+    await probe.setContent('<div>x</div>');
+    eq('根因：沒 dialog handler 時 prompt() 直接回 null',
+      await probe.evaluate(() => prompt('x', 'y')), null);
+    await probe.close();
+
+    // 所以注入腳本裡不得再出現原生對話框
+    const injected = backendRecorderScript()
+      .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
+    eq('注入腳本裡沒有 prompt/alert/confirm',
+      /(^|[^.\w])(alert|prompt|confirm)\s*\(/.test(injected), false);
+
+    // 行為：需要輸入的選項現在真的會寫入
+    const c = await browser.newContext();
+    await c.addInitScript(backendRecorderScript());
+    const rec = await c.newPage();
+    const got = [];
+    rec.on('console', m => {
+      const t = m.text();
+      if (t.startsWith(RECORDER_MARKER)) got.push(JSON.parse(t.slice(RECORDER_MARKER.length).trim()));
+    });
+    // ⚠️ 刻意不註冊 dialog handler，跟真實的錄製環境一致
+    await rec.goto('data:text/html,' + encodeURIComponent('<input class="a" value="123">'));
+    await rec.evaluate(() => window.__toppathArmRecorder?.());
+    await rec.waitForTimeout(150);
+
+    const pickOption = async (idx) => {
+      const before = got.length;
+      await rec.click('.a', { modifiers: ['Alt'] });
+      await rec.waitForTimeout(180);
+      await rec.evaluate((i) => {
+        const m = [...document.querySelectorAll('[data-toppath-recorder-ui]')]
+          .find(el => (el.textContent || '').includes('要檢查這個元素的什麼'));
+        m?.querySelectorAll('button')[i]?.click();
+      }, idx);
+      await rec.waitForTimeout(150);
+      // 要輸入的選項會換成輸入面板，填完按確定
+      const hasInput = await rec.evaluate(() => {
+        const m = [...document.querySelectorAll('[data-toppath-recorder-ui]')].find(el => el.querySelector('input'));
+        if (!m) return false;
+        m.querySelector('input').value = '我填的值';
+        [...m.querySelectorAll('button')].find(b => b.textContent === '確定')?.click();
+        return true;
+      });
+      await rec.waitForTimeout(200);
+      return { added: got.slice(before), hasInput };
+    };
+
+    const r2 = await pickOption(1);   // 等於某個數字
+    eq('「等於某個數字」改成選單內輸入', r2.hasInput, true);
+    eq('「等於某個數字」真的寫入了', r2.added.map(e => e.assertion?.kind), ['equals']);
+    eq('而且用的是我填的值', r2.added[0]?.assertion?.expect, '我填的值');
+
+    const r7 = await pickOption(6);   // 這裡要人工看
+    eq('「這裡要人工看」也寫得入', r7.added.map(e => e.assertion?.kind), ['manual']);
+    await c.close();
   }
 
   // ── 4b. 語法錯誤 vs 其他例外，不能混為一談 ───────────────────
