@@ -915,6 +915,50 @@ try {
     await c.close();
   }
 
+  // ── (m) 關著的彈窗還在 DOM 裡，同名按鈕是常態（v4.160.1）─────
+  //
+  // 使用者 2026-09-17：第 24 步 `text=Sure` **命中 2 個**。後台有好幾顆
+  // Batch Set…，每一顆都有自己的彈窗，而 Element UI 把關著的彈窗留在 DOM 裡。
+  //
+  // ⚠️ 這是我在 v4.157.0 改強制唯一時弄壞的：舊的非唯一路徑會優先取可見的那一個，
+  //    我把那段一併拿掉。補回來但收緊：**剛好一個可見才用**。
+  console.log('\n── 關著的彈窗造成的同名按鈕 ──');
+  {
+    const dialog = (hidden) => '<div class="el-dialog__wrapper"' + (hidden ? ' style="display:none"' : '') + '>'
+      + '<div class="el-dialog"><button class="el-button"><span>Cancel</span></button>'
+      + '<button class="el-button el-button--primary"><span>Sure</span></button></div></div>';
+
+    // ① 兩顆同名、只有一顆看得見 → 用看得見的那一顆
+    const pg = await browser.newPage();
+    await pg.setContent(dialog(true) + dialog(false));
+    eq('根因：text=Sure 本來就命中多筆', await pg.getByText('Sure', { exact: true }).count(), 2);
+    const { recordedLocator, checkLocator } = createRecordedLocators(pg, { requireUnique: true });
+    const pre = await checkLocator({ selector: 'text=Sure' }).catch(e => ({ error: String(e.message) }));
+    eq('預檢（產品入口）收斂到看得見的那一個', pre?.count, 1);
+    eq('而且它真的是可見的', pre?.visible, true);
+    const btn = await recordedLocator('text=Sure').catch(() => null);
+    eq('點擊拿到的也是可見的那一顆', btn ? await btn.isVisible() : false, true);
+    await pg.close();
+
+    // ② 兩顆都看得見 → 真歧義，照常報錯（不能因為收斂而變成亂猜）
+    const both = await browser.newPage();
+    await both.setContent(dialog(false) + dialog(false));
+    const f2 = createRecordedLocators(both, { requireUnique: true });
+    const amb = await f2.checkLocator({ selector: 'text=Sure' }).catch(e => ({ error: String(e.message) }));
+    eq('兩顆都看得見時照常報歧義', /定位必須唯一/.test(amb?.error || ''), true);
+    await both.close();
+
+    // ③ 一個都不可見時**不能收斂**——Element UI 的勾選框本來就是隱藏的，
+    //    收斂會把它變成 0 個，把已經修好的勾選又弄壞。
+    const hidden = await browser.newPage();
+    await hidden.setContent('<style>.el-checkbox__original{opacity:0;position:absolute;width:0;height:0}</style>'
+      + '<label class="el-checkbox"><input type="checkbox" class="el-checkbox__original"></label>');
+    const f3 = createRecordedLocators(hidden, { requireUnique: true });
+    const one = await f3.recordedLocator('input.el-checkbox__original').catch(() => null);
+    eq('隱藏的勾選框不受影響（仍然拿得到）', one !== null, true);
+    await hidden.close();
+  }
+
   // ── 4b. 語法錯誤 vs 其他例外，不能混為一談 ───────────────────
   //
   // ⚠️ 第一版的 safeCount 把**所有**例外都當成「選擇器語法錯誤」（CodeX 指出）。

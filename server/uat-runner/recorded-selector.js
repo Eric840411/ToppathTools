@@ -232,6 +232,34 @@ export function ambiguityMessage(selector, count) {
 }
 
 /**
+ * 命中多筆時，用「看不看得見」收斂。
+ *
+ * ## 為什麼需要
+ * Element UI 把**關著的彈窗留在 DOM 裡**（display:none）。後台有好幾顆
+ * Batch Set…，每一顆都有自己的彈窗，所以畫面上只看得到一顆 Sure，
+ * DOM 裡卻有好幾顆。使用者 2026-09-17：`text=Sure` 命中 2 個。
+ *
+ * ⚠️ 這是我自己在 v4.157.0 改成強制唯一時**弄壞的**——
+ *    舊的非唯一路徑本來就會在 text=/label= 多筆時優先取可見的那一個，
+ *    我把那段一併拿掉了。這裡把它補回來，但規則收緊：
+ *
+ *    **剛好一個可見才用它；可見的有兩個以上就是真歧義，照常報錯。**
+ *    （舊的寫法是「取第一個可見的」，那又回到安靜點錯。）
+ *
+ * ⚠️ 一個都不可見時**不收斂**，回原本的結果——
+ *    Element UI 的勾選框本來就是隱藏的，收斂會把它變成 0 個。
+ */
+async function narrowToVisible(page, locator, count) {
+  if (count <= 1 || count > 20) return null;
+  const visible = [];
+  for (let i = 0; i < count; i++) {
+    if (await locator.nth(i).isVisible().catch(() => false)) visible.push(i);
+    if (visible.length > 1) return null;   // 兩個以上可見：真歧義，不猜
+  }
+  return visible.length === 1 ? locator.nth(visible[0]) : null;
+}
+
+/**
  * 把一條錄製選擇器解成「單一元素」的 locator，並把**怎麼失敗的**講清楚。
  *
  * 回 `{ locator, count, failure, message, selector }`：
@@ -279,7 +307,12 @@ export async function locateRecorded(page, selector, { requireUnique = false } =
       //    `.first()` 是「明言只要第一個」，Playwright 就不會再做 strict 檢查——
       //    檢查完之後才新增的重複元素永遠檢查不到，會安靜地動第一個。
       //    回完整 locator，動作當下 Playwright 會再驗一次。（CodeX 2026-09-17 P1）
-      if (requireUnique) return { locator: count === 1 ? exact : null, count, failure: null, message: '', selector };
+      if (requireUnique) {
+        if (count === 1) return { locator: exact, count, failure: null, message: '', selector };
+        const onlyVisible = await narrowToVisible(page, exact, count);
+        if (onlyVisible) return { locator: onlyVisible, count: 1, failure: null, message: '', selector };
+        return { locator: null, count, failure: null, message: '', selector };
+      }
       if (count <= 1) return { locator: exact.first(), count, failure: null, message: '', selector };
       for (let i = 0; i < count; i++) {
         const candidate = exact.nth(i);
@@ -295,6 +328,11 @@ export async function locateRecorded(page, selector, { requireUnique = false } =
   const resolved = await resolveRecordedSelector(page, selector);
   if (resolved.failure) return fail(resolved.failure, resolved.message);
   const full = page.locator(resolved.selector);
+  if (requireUnique && resolved.count !== 1) {
+    // 跟 text= 同一個規則：只有一個看得見就用它，否則照常報歧義。
+    const onlyVisible = await narrowToVisible(page, full, resolved.count);
+    if (onlyVisible) return { locator: onlyVisible, count: 1, failure: null, message: '', selector: resolved.selector };
+  }
   return {
     // 同上：唯一模式不能 `.first()`，否則檢查後才出現的重複永遠擋不到。
     locator: requireUnique ? (resolved.count === 1 ? full : null) : full.first(),
