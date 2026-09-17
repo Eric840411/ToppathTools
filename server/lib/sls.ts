@@ -15,8 +15,19 @@ interface SlsClientInstance {
 }
 
 const SLS_ENDPOINT = process.env.SLS_ENDPOINT || 'ap-southeast-1.log.aliyuncs.com'
-const SLS_KEY_ID = process.env.SLS_KEY_ID || ''
-const SLS_KEY_SECRET = process.env.SLS_KEY_SECRET || ''
+/**
+ * ⚠️ **憑證要在呼叫當下才讀，不能在 module 載入時就抓成 const。**
+ *
+ * 原本是 `const SLS_KEY_ID = process.env.SLS_KEY_ID || ''`，那會讓它變成
+ * **取決於 import 順序**：`dotenv.config()` 在 `shared.ts` 裡跑，如果哪條 import
+ * 路徑先載入了這支，key 就是空字串。
+ *
+ * 症狀非常難查——送出去的 header 是 `Authorization: LOG :簽章`（帳號是空的），
+ * 後端回 400 `ParameterInvalid`，**看起來像簽章算錯或權限問題**，
+ * 而不是「環境變數沒讀到」。2026-09-17 接 L6 時就是這樣卡住的。
+ */
+const slsKeyId = (): string => process.env.SLS_KEY_ID || ''
+const slsKeySecret = (): string => process.env.SLS_KEY_SECRET || ''
 
 // 4 SLS projects to search
 export const SLS_PROJECTS: string[] = (process.env.SLS_PROJECTS || [
@@ -41,20 +52,41 @@ function signRequest(
     .join('\n')
 
   const stringToSign = [method, '', '', date, canonicalHeaders, resourcePath].join('\n')
-  return crypto.createHmac('sha1', SLS_KEY_SECRET).update(stringToSign).digest('base64')
+  return crypto.createHmac('sha1', slsKeySecret()).update(stringToSign).digest('base64')
 }
 
-async function slsGet(project: string, resourcePath: string, query: Record<string, string> = {}): Promise<unknown> {
+/**
+ * SLS 簽章要用的 CanonicalizedResource：**路徑 + 依 key 排序的 query**。
+ *
+ * ⚠️ 原本 `signRequest()` 只簽了路徑、沒簽 query，所以**任何帶參數的呼叫都會
+ *    401 SignatureNotMatch**——也就是說 `fetchSlsErrors()` 從來沒成功過
+ *    （它每次都帶 type/query/from/to/line/offset）。而它的錯誤處理是
+ *    `catch { /* skip failed logstores silently *​/ }`，**失敗完全不會顯示**，
+ *    所以外面看到的一直是「查無資料」。
+ *
+ *    這正是這個專案反覆記錄的同一種壞法：**失敗與「真的沒有」長得一模一樣。**
+ */
+function canonicalResource(resourcePath: string, query: Record<string, string>): string {
+  const keys = Object.keys(query).sort()
+  if (!keys.length) return resourcePath
+  return `${resourcePath}?${keys.map(k => `${k}=${query[k]}`).join('&')}`
+}
+
+/**
+ * ⚠️ export 出去給 `live-ledger-sls.ts`（L6 服務健康）用——**不要再抄一份簽章邏輯**。
+ *    SLS 的 HMAC 簽章很容易抄錯，而抄錯的症狀是 403，看起來像權限問題。
+ */
+export async function slsGet(project: string, resourcePath: string, query: Record<string, string> = {}): Promise<unknown> {
   const date = new Date().toUTCString()
   const xLogHeaders: Record<string, string> = {
     'x-log-apiversion': '0.6.0',
     'x-log-signaturemethod': 'hmac-sha1',
   }
-  const signature = signRequest('GET', date, xLogHeaders, resourcePath)
+  const signature = signRequest('GET', date, xLogHeaders, canonicalResource(resourcePath, query))
   const headers: Record<string, string> = {
     ...xLogHeaders,
     Date: date,
-    Authorization: `LOG ${SLS_KEY_ID}:${signature}`,
+    Authorization: `LOG ${slsKeyId()}:${signature}`,
   }
 
   const qs = new URLSearchParams(query).toString()
@@ -69,7 +101,7 @@ async function slsGet(project: string, resourcePath: string, query: Record<strin
 }
 
 /** List all logstores in a project (cached 5 min) */
-async function listLogstores(project: string): Promise<string[]> {
+export async function listLogstores(project: string): Promise<string[]> {
   const now = Date.now()
   const cached = logstoreCache.get(project)
   if (cached && cached.expiry > now) return cached.stores
@@ -95,7 +127,7 @@ export interface SlsLogEntry {
  * Returns up to `limit` entries sorted newest-first.
  */
 export async function fetchSlsErrors(machineNo: string, limit = 20): Promise<SlsLogEntry[]> {
-  if (!SLS_KEY_ID || !SLS_KEY_SECRET) {
+  if (!slsKeyId() || !slsKeySecret()) {
     throw new Error('SLS credentials not configured (SLS_KEY_ID / SLS_KEY_SECRET missing in .env)')
   }
 

@@ -2677,6 +2677,21 @@ router.get('/api/autospin/live-ledger/notify', async (req, res) => {
   } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
 })
 
+/**
+ * L6 G2S／MML 服務健康。
+ *
+ * ⚠️ **獨立端點、不併進 `/pools`。**它要打 30+ 個 SLS logstore，一輪要好幾秒——
+ *    併進 5 秒輪詢的主畫面查詢會把整頁拖慢。這裡是使用者按下去才查。
+ */
+router.get('/api/autospin/live-ledger/sls-health', async (req, res) => {
+  try {
+    const { slsServiceHealth, slsSummary } = await import('../live-ledger-sls.js')
+    const maxLogstores = Number(req.query.max) > 0 ? Number(req.query.max) : undefined
+    const rows = await slsServiceHealth({ maxLogstores })
+    res.json({ ok: true, summary: slsSummary(rows), rows })
+  } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
+})
+
 /** 試發一則，確認 webhook 通不通。不受開關與節流限制，也不會標記 notifiedAt。 */
 router.post('/api/autospin/live-ledger/notify-test', async (req, res) => {
   try {
