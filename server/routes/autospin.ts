@@ -2756,6 +2756,19 @@ router.delete('/api/autospin/history', (req, res) => {
 })
 
 // ─── Reconciliation (後台對帳) endpoints ─────────────────────────────────────
+//
+// ⚠️ **這一整組已經退役（v4.173.0），不要在它上面加東西。**
+//
+// 前端入口早就被 Live Ledger 取代拿掉了，grep 整個 `src/` 沒有任何一行在打這組 API。
+// 實測它從來沒成功跑過一次雙向比對：`reconcile_reports` 30 份報告裡
+// `frontCount > 0` 的有 **0 份**、`matchedCount > 0` 的有 **0 份**（2026-09-05 與
+// 09-17 兩次體檢數字一模一樣）。
+//
+// 路由保留、不回 410：它是手動觸發的，沒有排程在背景寫東西，留著不會製造噪音，
+// 而拔掉反而可能弄壞我們不知道的呼叫者。`reconcile_*` 兩張表也保留——刪掉之後
+// 「以前到底有沒有抓到過東西」就再也查不到了。
+//
+// 要對帳請用 Live Ledger（`/api/autospin/live-ledger/*`）。
 
 // GET /api/autospin/reconcile/config
 router.get('/api/autospin/reconcile/config', (_req, res) => {
@@ -3682,7 +3695,31 @@ async function runCompareCycle(): Promise<void> {
     }
   }
 }
-setInterval(() => { runCompareCycle().catch(() => {}) }, 20_000)
+/**
+ * 🚨 **三路對帳的 20 秒排程已下架（v4.173.0）。**
+ *
+ * 前端的「後台對帳」與「三路對帳」兩個分頁**早就被 Live Ledger 取代、入口拿掉了**
+ * （見 `AutoSpinPage.tsx` 對帳台那段的註解），grep 整個 `src/` 也沒有任何一行在打
+ * 這兩組 API——但這個排程還在跑。
+ *
+ * ⚠️ 精確地說：它每 20 秒醒來一次，但**只有 AutoSpin 在跑時才會真的寫**
+ *    （`runningSessions.length === 0` 就 return）。所以它不是全天候在寫垃圾，
+ *    而是**每次壓測都順便產一批沒人看的資料**：`autospin_compare_results`
+ *    從 2026-09-05 的 1,860 筆長到 5,743 筆（最後一筆 9/8，就是最後一次壓測），
+ *    unmatched 從 52% 惡化到 **71%**，而 **mismatch 自始至終是 0**。
+ *
+ *    真正的代價不是磁碟，是**它每次壓測都在對同一批 SLS／Pinus 資料做一次
+ *    證明不了任何事的比對**，還占著「我們有在對帳」的位置。
+ *
+ * ⚠️ **不刪 `runCompareCycle()` 本體，也不刪那四張歷史表。**
+ *    SLS 這個來源要留著改作**G2S／MML 服務健康偵測**（使用者 2026-09-17 定案：
+ *    「SLS保留，但是是偵測G2S MML服務有沒有異常」）——那是 L6，跟對帳是兩回事。
+ *    程式碼留在這裡當作接線的起點；歷史表留著，否則「以前到底有沒有抓到過東西」
+ *    就再也查不到了。
+ *
+ * 手動觸發的 `/compare/run-now` 仍然可用，要重現舊行為時還跑得起來。
+ */
+void runCompareCycle
 
 // POST /api/autospin/compare/run-now — 手動觸發一次比對（不用等下一次 20 秒排程），
 // 對應前端「試算目前資料」按鈕
