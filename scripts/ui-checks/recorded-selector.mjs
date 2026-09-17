@@ -12,6 +12,16 @@
  * ⚠️ 表格 fixture 一律用 el-table 的真實長相 `<td><div class="cell">…</div></td>`。
  *    這次的 bug 之所以躲過既有的 backend-recorder.browser-test.mjs，就是因為那支的
  *    fixture 寫成 `<td>文字</td>`——**斷言是對的，fixture 讓它驗不到**。
+ *
+ * ## 驗收標準（跟 CodeX 定下，2026-09-17）
+ *
+ * 這一輪「測試驗錯對象／驗到一個不可能失敗的東西」出現了**五次**。三條硬規定：
+ *
+ *   1. **走產品入口**——不是測 helper，也不是測試自己再寫一份同樣的邏輯。
+ *   2. **驗實際副作用**——「有沒有按下去」要看真的按鈕事件與 `page.mouse.click`，
+ *      不是看測試自己設的旗標。
+ *   3. **對應缺陷注入回去要真的轉紅**——而且**每一條分支要分開注入**，
+ *      否則只驗到其中一條（實際發生過：只注入 CSS 分支時 text= 分支的洞沒被拓到）。
  */
 import { chromium } from 'playwright';
 import { readFileSync } from 'node:fs';
@@ -349,21 +359,39 @@ try {
     }
 
     // ② click 逾時之後、JS 備援之前才變多筆
-    //    用遮罩讓 click 逾時，並在頁面裡排一個定時器於逾時期間插入重複列。
+    //
+    // ⚠️ 第一版是在頁面裡排 300ms 定時器，**不保證「逾時之後」才插入**——
+    //    定時器晚一點或早一點，驗到的就是不同的時序，可能因為錯的理由而綠。（CodeX 指出）
+    //    改成包裝真實的 click()：等它真的逾時了才插入重複，再把原錯誤重拋。
+    //    這樣 JS 備援跑到的時候，DOM 一定已經是多筆。
     {
       const OVERLAY = FIXTURE + '<div id="mask" style="position:fixed;inset:0;z-index:9999"></div>';
       const { pg, mouseHits } = await mkPage(OVERLAY);
       const { recordedLocator } = createRecordedLocators(pg, { requireUnique: true });
       const target = await recordedLocator(selector);
-      await pg.evaluate(() => { setTimeout(() => {
-        const tbody = document.querySelector('tbody');
-        tbody.insertBefore(tbody.children[0].cloneNode(true), tbody.firstChild);
-      }, 300) });
+      let timedOut = false;
+      const sequenced = new Proxy(target, {
+        get(obj, prop) {
+          if (prop !== 'click') return typeof obj[prop] === 'function' ? obj[prop].bind(obj) : obj[prop];
+          return async (...args) => {
+            try { return await obj.click(...args) }
+            catch (e) {
+              timedOut = true;
+              await pg.evaluate(() => {
+                const tbody = document.querySelector('tbody');
+                tbody.insertBefore(tbody.children[0].cloneNode(true), tbody.firstChild);
+              });
+              throw e;   // 原錯誤原封不動丟回去，讓產品走它原本的備援流程
+            }
+          };
+        },
+      });
       let err = '';
       try {
-        await clickRecorded({ page: pg, locator: target, selector, waitMs: 0,
-          viewport: { x: 10, y: 10 }, allowFallback: true, viewportOk: async () => true, timeout: 900 });
+        await clickRecorded({ page: pg, locator: sequenced, selector, waitMs: 0,
+          viewport: { x: 10, y: 10 }, allowFallback: true, viewportOk: async () => true, timeout: 700 });
       } catch (e) { err = String(e.message) }
+      eq('② click 確實先逾時了（時序成立）', timedOut, true);
       eq('② 逾時後變多筆：JS 備援不得吞歧義', isAmbiguityError(err), true);
       eq('② 沒有任何按鈕被按到', await pg.evaluate(() => window.__clicks), []);
       eq('② 沒有掉進座標備援', mouseHits.length, 0);
@@ -404,22 +432,37 @@ try {
     });
     const selector = 'tr:has(:text-is("4186-DFDC-9999")) > td:nth-of-type(3) button.b2';
 
-    const found = await locateRecorded(pg, selector, { requireUnique: true });
-    eq('檢查當下是唯一的', found.count, 1);
+    // ⚠️ 定位有**兩條分支**：text=/label= 走 getByText/getByLabel，其他走 page.locator。
+    //    只驗一條的話，另一條退回 `.first()` 也不會紅。兩條分開驗。（CodeX 指出）
+    for (const [branch, sel] of [['CSS', selector], ['text=', 'text=4186-DFDC-9999']]) {
+      const page5 = await browser.newPage();
+      await page5.setContent(FIXTURE);
+      await page5.evaluate(() => {
+        window.__clicks = [];
+        document.addEventListener('click', e => {
+          const b = e.target.closest?.('button');
+          if (b) window.__clicks.push(b.className);
+        }, true);
+      });
 
-    // 檢查完之後才出現重複
-    await pg.evaluate(() => {
-      const tbody = document.querySelector('tbody');
-      tbody.insertBefore(tbody.children[0].cloneNode(true), tbody.firstChild);
-    });
+      const found = await locateRecorded(page5, sel, { requireUnique: true });
+      eq(`${branch}：檢查當下是唯一的`, found.count, 1);
 
-    // 回的若是 `.first()`，這裡會回 1（看不見新增的那一個）
-    eq('唯一模式回的是完整 locator（重複出現後看得到 2）', await found.locator.count(), 2);
+      // 檢查完之後才出現重複
+      await page5.evaluate(() => {
+        const tbody = document.querySelector('tbody');
+        tbody.insertBefore(tbody.children[0].cloneNode(true), tbody.firstChild);
+      });
 
-    let err = '';
-    try { await found.locator.click({ timeout: 800 }) } catch (e) { err = String(e.message) }
-    eq('所以動作當下會被 strict 檢查擋下來', isAmbiguityError(err), true);
-    eq('沒有任何按鈕被按到', await pg.evaluate(() => window.__clicks), []);
+      // 回的若是 `.first()`，這裡會回 1（看不見新增的那一個）
+      eq(`${branch}：唯一模式回完整 locator（重複後看得到 2）`, await found.locator.count(), 2);
+
+      let err = '';
+      try { await found.locator.click({ timeout: 700 }) } catch (e) { err = String(e.message) }
+      eq(`${branch}：動作當下被 strict 檢查擋下來`, isAmbiguityError(err), true);
+      eq(`${branch}：沒有任何按鈕被按到`, await page5.evaluate(() => window.__clicks), []);
+      await page5.close();
+    }
     await pg.close();
   }
 
