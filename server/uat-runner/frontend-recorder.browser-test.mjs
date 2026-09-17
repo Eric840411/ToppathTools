@@ -38,6 +38,7 @@ const PAGE = `<!doctype html><meta charset="utf-8"><title>h5 recorder fixture</t
   <div class="row is-x1"><span class="cell">同名</span></div>
   <div class="row is-x2"><span class="cell">同名</span></div>
   <div id="host"></div>
+  <div id="host-closed"></div>
   <canvas id="game" width="200" height="150"></canvas>
 </div>
 <script>
@@ -49,6 +50,12 @@ const PAGE = `<!doctype html><meta charset="utf-8"><title>h5 recorder fixture</t
   root.addEventListener('click', e => { window.__lastShadowClick = (e.target && e.target.id) || '' }, true);
   window.__shadowBtn = root.getElementById('inner');
   window.__shadowBtn2 = root.getElementById('inner2');
+  // closed：從 document 這一側取 composedPath() 看不到裡面，第一項仍是 host。
+  // 只靠 composedPath 判斷的話，這個情況會走回「host 唯一命中 → ok」的老路。
+  const closedRoot = document.getElementById('host-closed').attachShadow({ mode: 'closed' });
+  closedRoot.innerHTML = '<button id="c1" style="width:300px">閉合一</button>'
+    + '<button id="c2" style="width:40px">二</button>';
+  window.__closedBtn2 = closedRoot.getElementById('c2');
 </script>`;
 
 const server = http.createServer((_req, res) => {
@@ -198,6 +205,15 @@ try {
     shadow?.selectorCheck === 'unknown' && shadow?.selectorCheckReason === 'shadow',
     '標成 ok 等於把「不確定」包裝成「已驗證」，而重播點錯不會報錯');
 
+  // ── ⑥b closed shadow：composedPath() 也看不到，要靠 attachShadow 追蹤 ────────
+  await evaluate('window.__closedBtn2.click()');
+  await new Promise(r => setTimeout(r, 250));
+  const closed = steps.at(-1);
+  check('⑥b closed shadow 的點擊描述到 host', closed?.selector === '#host-closed', JSON.stringify(closed));
+  check('⑥b ⚠️ closed 也不能標成已驗證（composedPath 看不到裡面）',
+    closed?.selectorCheck === 'unknown' && closed?.selectorCheckReason === 'shadow',
+    'closed 樹的內部節點不會出現在 document 端的 composedPath()，只靠它判斷會走回老路');
+
   // ── ⑦ 驗證函式本身：把同一份原始碼單獨注入頁面直接叫 ────────────────────
   await evaluate(`(() => { ${nativeSelectorCheckSource()} ; window.__checkForTest = nativeSelectorCheck; })()`);
   const probe = async (selector, elExpr) =>
@@ -245,6 +261,64 @@ try {
     } finally {
       await pwBrowser.close();
     }
+  }
+
+  // ── ⑨ 追蹤不到 shadow 時要**退回 unknown**，不能當成沒有 shadow ───────────
+  // ⚠️ 這條驗的是退路本身。注入的腳本不是嚴格模式，屬性被設成唯讀時指派會
+  //    **安靜失敗**——如果只是「指派完就當成功」，我們會以為在追蹤、其實沒有，
+  //    然後把每一步都標成已驗證。退路壞掉比沒有退路更危險。
+  {
+    const created = await send('Target.createTarget', { url: 'about:blank' });
+    const newTargetId = created.result?.targetId;
+    const list = await waitJson(`http://127.0.0.1:${cdpPort}/json/list`);
+    const fresh = list.find(t => t.id === newTargetId && t.webSocketDebuggerUrl);
+    if (!fresh) throw new Error('開不出第二個分頁');
+    const ws2 = new WebSocket(fresh.webSocketDebuggerUrl);
+    let id2 = 0;
+    const pending2 = new Map();
+    const send2 = (method, params) => new Promise(resolve => {
+      const id = ++id2;
+      pending2.set(id, resolve);
+      ws2.send(JSON.stringify({ id, method, params }));
+    });
+    const steps2 = [];
+    await new Promise((resolve, reject) => {
+      ws2.on('error', reject);
+      ws2.on('message', raw => {
+        try {
+          const msg = JSON.parse(String(raw));
+          if (msg.id && pending2.has(msg.id)) { pending2.get(msg.id)({ result: msg.result }); pending2.delete(msg.id); return; }
+          if (msg.method === 'Runtime.consoleAPICalled' && msg.params?.args?.[0]?.value === FRONTEND_RECORDER_MARKER) {
+            try { steps2.push(JSON.parse(msg.params.args[1]?.value)); } catch { /* ignore */ }
+          }
+        } catch { /* ignore */ }
+      });
+      ws2.on('open', resolve);
+    });
+    await send2('Runtime.enable');
+    await send2('Page.enable');
+    // 先把 attachShadow 鎖成唯讀，錄製器就包不住它了（init script 依註冊順序執行）
+    await send2('Page.addScriptToEvaluateOnNewDocument', {
+      source: "Object.defineProperty(Element.prototype, 'attachShadow', "
+        + "{ value: Element.prototype.attachShadow, writable: false, configurable: false });",
+    });
+    await send2('Page.addScriptToEvaluateOnNewDocument', { source: frontendRecorderScript() });
+    await send2('Page.navigate', { url: `http://127.0.0.1:${sitePort}/` });
+    await new Promise(r => setTimeout(r, 1200));
+    const locked = await send2('Runtime.evaluate', {
+      expression: "(() => { const d = Object.getOwnPropertyDescriptor(Element.prototype, 'attachShadow'); return !d.writable })()",
+      returnByValue: true,
+    });
+    check('⑨ fixture 真的讓錄製器包不住 attachShadow', locked.result?.result?.value === true,
+      '前提不成立的話下面那條等於沒測');
+    await send2('Runtime.evaluate', { expression: `document.querySelector('[aria-label="設定"]').click()` });
+    await new Promise(r => setTimeout(r, 300));
+    const blind = steps2.at(-1);
+    check('⑨ ⚠️ 追蹤不到 shadow 時一律 unknown（連普通元素也不宣稱驗過）',
+      blind?.selectorCheck === 'unknown' && blind?.selectorCheckReason === 'shadow',
+      JSON.stringify(blind));
+    ws2.close();
+    if (newTargetId) await send('Target.closeTarget', { targetId: newTargetId });
   }
 
   ws.close();

@@ -75,9 +75,51 @@ ${nativeSelectorCheckSource()}
     try { return (event.composedPath && event.composedPath()[0]) || event.target; }
     catch { return event.target; }
   };
-  const fromShadow = (source) => {
-    try { return !!(source && source.getRootNode && source.getRootNode() !== document); }
-    catch { return true; }
+
+  /**
+   * ⚠️ **closed shadow 連 composedPath() 都看不到**（CodeX 2026-09-18 複驗指出）：
+   *    從 document 這一側取路徑時，closed 樹的內部節點不會出現，第一項仍然是 host。
+   *    也就是說單靠 composedPath 判斷的話，closed 的情況會走回「host 唯一命中 → ok」
+   *    那條老路——跟修之前一模一樣。
+   *
+   *    可靠的做法是**記下誰有 shadow root**。錄製器是用
+   *    Page.addScriptToEvaluateOnNewDocument 注入的，跑在頁面自己的程式碼之前，
+   *    所以包得住 attachShadow——open 與 closed 都記得到。
+   *
+   *    包不住（很舊的瀏覽器、或 attachShadow 被別人先換掉）就寧可回 unknown：
+   *    少標一個 ok 只是少一點資訊，錯標一個 ok 會讓人相信一條會點錯的選擇器。
+   */
+  const shadowHosts = new WeakSet();
+  let shadowTrackable = false;
+  try {
+    const nativeAttachShadow = Element.prototype.attachShadow;
+    if (typeof nativeAttachShadow === 'function') {
+      const patched = function (init) {
+        try { shadowHosts.add(this); } catch (e) { /* 追蹤失敗不能影響頁面 */ }
+        return nativeAttachShadow.call(this, init);
+      };
+      Element.prototype.attachShadow = patched;
+      // ⚠️ 一定要**確認真的換上去了**，不能指派完就當成成功。
+      //    這段注入的腳本不是嚴格模式：屬性被設成唯讀時，指派會**安靜失敗**、
+      //    不拋例外——於是我們會以為在追蹤，其實沒有，而那正是會錯標 ok 的情況。
+      shadowTrackable = Element.prototype.attachShadow === patched;
+    }
+  } catch (e) { shadowTrackable = false; }
+
+  /** 這一下點擊跟 shadow DOM 有沒有關係——有關係就不能宣稱驗過 */
+  const fromShadow = (source, described) => {
+    if (!shadowTrackable) return true;   // 追蹤不到 → 一律不下判斷
+    for (const node of [source, described]) {
+      if (!node) continue;
+      try {
+        // open：來源真的在 shadow 樹裡
+        if (node.getRootNode && node.getRootNode() !== document) return true;
+        // open／closed：這個元素自己就是 host（closed 時 shadowRoot 是 null，靠 WeakSet）
+        if (node.shadowRoot) return true;
+        if (shadowHosts.has(node)) return true;
+      } catch (e) { return true; }
+    }
+    return false;
   };
 
   const describeStep = (el, source) => {
@@ -85,7 +127,7 @@ ${nativeSelectorCheckSource()}
     const d = describe(target);
     // 來源在 shadow 裡 → 我們描述的是 host，那條 selector 指不到原本那一顆，
     // 不能宣稱驗過。理由帶 shadow，讓人知道不是「壞了」而是「確認不了」。
-    const check = fromShadow(source)
+    const check = fromShadow(source, target)
       ? { status: 'unknown', reason: 'shadow' }
       : nativeSelectorCheck(d.selector, target);
     const step = { selector: d.selector, selectorStrategy: d.strategy, selectorCheck: check.status };
