@@ -20,7 +20,7 @@ import { pathToFileURL, fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const { betPoolAudit, snapToPowerOfTen } = await import(
+const { betPoolAudit, snapToPowerOfTen, pinDenom, unpinDenom } = await import(
   pathToFileURL(path.join(root, 'dist-server/server/live-ledger-betpool.js')).href);
 const db = new Database(path.join(root, 'server/data.db'));
 
@@ -88,6 +88,7 @@ const cleanup = () => {
   n += db.prepare(`DELETE FROM recon_backend_record WHERE orderId LIKE '${TAG}%'`).run().changes;
   n += db.prepare(`DELETE FROM recon_pool_change WHERE reqmd5 LIKE '${TAG}%'`).run().changes;
   n += db.prepare(`DELETE FROM recon_machine_map WHERE groupName LIKE '${TAG}%'`).run().changes;
+  n += db.prepare(`DELETE FROM recon_machine_denom WHERE machineName LIKE '${TAG}%'`).run().changes;
   return n;
 };
 cleanup();
@@ -107,19 +108,51 @@ try {
   makeMachine(`${TAG}SHORT-0003`, { factor: 1, changeScale: 0.5 });
   makeMachine(`${TAG}DIRTY-0004`, { factor: 1, coinInScale: 0.5 });
   makeMachine(`${TAG}FEW-0005`, { factor: 1, spins: 5 });
+  // 🚨 CodeX 2026-09-18 指出的洞：真實落差剛好是 10 倍。
+  //    面額其實是 1，但 LuckyLink 只收到 1/10 —— 這是真的少收 90%，不是面額差異。
+  makeMachine(`${TAG}SHORT10X-0007`, { factor: 1, coinInScale: 0.1 });
 
-  const rows = betPoolAudit(ENV, T0 - 3600_000, now + 3600_000);
-  const get = n => rows.find(r => r.machineName === n);
+  /**
+   * 🚨 **沒釘住係數的機台一律不判定。**
+   *
+   * 舊版是「從這批資料算比值 → 貼 10 次方 → 當係數用」，那是循環論證：
+   * 實測 SHORT10X 那台（真的少收 90%）會被算出係數 10、然後判 **match 差額 0**。
+   * 所以現在要先由人釘住，才有判定可言。
+   */
+  let rows = betPoolAudit(ENV, T0 - 3600_000, now + 3600_000);
+  let get = n => rows.find(r => r.machineName === n);
 
-  console.log('\n1) 正確的資料要判 match（兩種面額都要）');
+  console.log('\n1) 🚨 沒釘係數 → 不判定（不可以自己推一個來用）');
+  for (const name of ['OK1-0001', 'SHORT10X-0007']) {
+    const r = get(`${TAG}${name}`);
+    check(`${name} 未釘係數 → denom_unknown`, r?.verdict === 'denom_unknown', r?.verdict);
+  }
+  const unk = get(`${TAG}SHORT10X-0007`);
+  check('未釘時不給 factor（只給「建議值」讓人確認）', unk?.factor === null, String(unk?.factor));
+  check('建議值算得出來（貼得上 10）', unk?.suggestedFactor === 10, String(unk?.suggestedFactor));
+  check('說明要警告「真實落差也可能剛好是 10 倍」',
+    String(unk?.note).includes('10 倍'), String(unk?.note).slice(0, 60));
+
+  // 人確認面額後釘住
+  pinDenom(ENV, `${TAG}OK1-0001`, 1, { pinnedBy: 'check' });
+  pinDenom(ENV, `${TAG}OK100-0002`, 100, { pinnedBy: 'check' });
+  pinDenom(ENV, `${TAG}SHORT-0003`, 1, { pinnedBy: 'check' });
+  pinDenom(ENV, `${TAG}DIRTY-0004`, 1, { pinnedBy: 'check' });
+  pinDenom(ENV, `${TAG}SHORT10X-0007`, 1, { pinnedBy: 'check' });
+  rows = betPoolAudit(ENV, T0 - 3600_000, now + 3600_000);
+  get = n => rows.find(r => r.machineName === n);
+
+  console.log('\n2) 釘住之後，正確的資料要判 match（兩種面額都要）');
   const ok1 = get(`${TAG}OK1-0001`);
   check('面額 1：判 match', ok1?.verdict === 'match', `${ok1?.verdict} 差=${ok1?.delta}`);
-  check('面額 1：係數推成 1', ok1?.factor === 1, String(ok1?.factor));
+  check('用的是釘住的係數 1', ok1?.factor === 1, String(ok1?.factor));
   const ok100 = get(`${TAG}OK100-0002`);
   check('面額 100：判 match', ok100?.verdict === 'match', `${ok100?.verdict} 差=${ok100?.delta}`);
-  check('面額 100：係數推成 100', ok100?.factor === 100, String(ok100?.factor));
+  // ⚠️ 用詞要是「沒看到矛盾」——係數是人釘的、混打排除不了，結論只能到這裡
+  check('match 的說明只敢說「沒看到矛盾」', String(ok1?.note).includes('沒看到矛盾'),
+    String(ok1?.note).slice(0, 60));
 
-  console.log('\n2) 🚨 注入差異——抓不到的話這條線等於沒有');
+  console.log('\n3) 🚨 注入差異——抓不到的話這條線等於沒有');
   const short = get(`${TAG}SHORT-0003`);
   // 獎池只收到該收的一半：投入額對得上，但池增額少一半
   check('獎池只收一半 → 判 mismatch（不是 match）', short?.verdict === 'mismatch', short?.verdict);
@@ -130,13 +163,22 @@ try {
     `delta=${short?.delta} expected=${short?.expectedChange}`);
 
   const dirty = get(`${TAG}DIRTY-0004`);
-  // 投入額只收到一半 → 比值變成 2，不是 10 的次方 → 必須拒絕比對而不是校準掉
-  check('投入額只收一半 → 判 ratio_not_clean（不是默默校準成係數 2）',
-    dirty?.verdict === 'ratio_not_clean', dirty?.verdict);
-  check('ratio_not_clean 時不給係數', dirty?.factor === null, String(dirty?.factor));
-  check('ratio_not_clean 時把實際比值講出來給人判斷',
+  check('投入額只收一半（比值 2）→ denom_changed', dirty?.verdict === 'denom_changed', dirty?.verdict);
+  check('denom_changed 時把實際比值講出來給人判斷',
     typeof dirty?.observedRatio === 'number' && Math.abs(dirty.observedRatio - 2) < 0.01,
     String(dirty?.observedRatio));
+
+  /**
+   * 🚨 這條是 CodeX 抓到的回歸，**最重要的一條**。
+   *
+   * 少收 90% ＝ 比值剛好 10 ＝ 一個「乾淨的 10 次方」。
+   * 舊版會把它當面額吃掉並判 match 差額 0；釘住係數之後必須判成異常。
+   */
+  const s10 = get(`${TAG}SHORT10X-0007`);
+  check('真的少收 90%（比值剛好 10）→ denom_changed，不是 match',
+    s10?.verdict === 'denom_changed', s10?.verdict);
+  check('說明要指出「係數不會自己變」', String(s10?.note).includes('係數不會自己變'),
+    String(s10?.note).slice(0, 50));
 
   console.log('\n3) 樣本不足與排序');
   const few = get(`${TAG}FEW-0005`);
@@ -166,8 +208,10 @@ try {
     addPool(gm, at, '9001', coin, coin + BET, BET * INC);
     coin += BET;
   }
+  // 面額 1（bet 與投入額 1:1）。⚠️ 要先釘住才會判定——沒釘的話一律 denom_unknown
+  pinDenom(ENV, gm, 1, { pinnedBy: 'check' });
   const nima = betPoolAudit(ENV, T0 - 3600_000, now + 3600_000).find(r => r.machineName === gm);
-  check('bet 含泥碼時仍判 match（加了 bet_nima 會變 ratio_not_clean）',
+  check('bet 含泥碼時仍判 match（若程式加了 bet_nima，比值會變 1.4 → denom_changed）',
     nima?.verdict === 'match', `${nima?.verdict} 比值=${nima?.observedRatio}`);
   check('比值仍是 1（不是 1.4）', nima?.observedRatio !== undefined && Math.abs(nima.observedRatio - 1) < 0.001,
     String(nima?.observedRatio));

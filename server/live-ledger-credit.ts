@@ -151,7 +151,12 @@ export function creditChainAudit(env: ReconEnv, sinceMs: number, untilMs = Date.
     if (withoutStamps) noteParts.push(`${withoutStamps} 局沒有分數戳記、未納入檢查`)
     if (base.stampAnomalies) {
       noteParts.push(`另有 ${base.stampAnomalies} 筆戳記前後不一致（淨額 ${base.stampNet.toFixed(2)}）`
-        + (Math.abs(base.stampNet) <= EPS ? '，成對抵銷、屬戳記時間邊界問題，不是金流異常' : '，**淨額不為 0，要查**'))
+        + (Math.abs(base.stampNet) <= EPS
+        // ⚠️ CodeX 2026-09-18：「真實的重複扣款後補回也會長成相鄰成對、淨額 0」。
+        //    淨額零不代表過程正確——只能說**疑似**邊界問題，不能宣告它不是金流異常。
+        //    要排除得靠獨立的扣款／派彩流水與整段首尾餘額，這裡沒有那個依據。
+        ? '，成對抵銷，**疑似**戳記時間邊界問題；但淨額 0 不代表過程正確（重複扣款後補回也長這樣），要排除需另外比對扣款／派彩流水'
+        : '，**淨額不為 0，要查**'))
     }
 
     if (!base.transfers.length) {

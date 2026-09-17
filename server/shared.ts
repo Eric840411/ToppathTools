@@ -1341,6 +1341,39 @@ db.exec(`
   )
 `)
 db.exec(`CREATE INDEX IF NOT EXISTS idx_sls_group ON recon_sls_logstore_group (groupId)`)
+
+/**
+ * recon_machine_denom — 每台機台的**面額係數**（後台 bet ÷ LuckyLink 投入額）。
+ *
+ * 🚨 **這張表存在的理由是一個真的 bug（CodeX 2026-09-18 指出，已實測重現）。**
+ *
+ *    原本的做法是「從這一輪的資料算出比值，貼到最近的 10 次方，就當係數用」。
+ *    問題是**真實落差也可能剛好是 10 倍**——我造了一台後台下注 40,000、
+ *    LuckyLink 只收到 4,000（真的少收 90%）的機台，程式算出比值 10、
+ *    貼成係數 10，然後判 **match、差額 0**。落差被自己推導出來的係數整個吃掉。
+ *
+ *    「乾淨的 10 次方」只篩掉部分問題，**不能證明係數是對的**——因為它是
+ *    拿正在被檢查的那批資料推導出來的，循環論證。
+ *
+ * ✅ 正解（CodeX 原話）：「係數應由獨立面額設定或已驗證資料確立、固定，
+ *    再拿來對帳。未知面額標『無法判定』。」
+ *
+ * ⚠️ 所以：沒有釘住係數的機台**一律不判定**（`denom_unknown`），不是猜一個來用。
+ *    釘住之後，比值跟係數不符就是異常（`denom_changed`），不是重新校準。
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS recon_machine_denom (
+    env           TEXT NOT NULL,
+    machineName   TEXT NOT NULL,
+    factor        REAL NOT NULL,
+    observedRatio REAL,
+    samples       INTEGER NOT NULL DEFAULT 0,
+    pinnedAt      INTEGER NOT NULL,
+    pinnedBy      TEXT NOT NULL DEFAULT '',
+    note          TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (env, machineName)
+  )
+`)
 {
   const ins = db.prepare(`INSERT OR IGNORE INTO recon_settings (env, key, value) VALUES (?, ?, ?)`)
   for (const env of ['qat', 'uat']) {
