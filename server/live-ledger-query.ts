@@ -14,6 +14,7 @@
  * 是完全不同的意思，混用等於主動誤導。
  */
 import { db } from './shared.js'
+import { creditSummary } from './live-ledger-credit.js'
 import { recentFindings, nowOnObservedAxis, findUnobservedRounds, type FindingRow } from './live-ledger.js'
 import { jpSummary } from './live-ledger-jp.js'
 import type { ReconEnv } from './live-ledger.js'
@@ -301,11 +302,25 @@ export function overview(env: ReconEnv, windowMinutes = 30, now = Date.now(), vi
       counts: { match: amt.checked - amt.l2Bad, pending: 0, missing: 0, ambiguous: amt.l2Bad },
       amountChecked: amt.checked, amountBad: amt.l2Bad,
     },
-    {
-      id: 'L3', name: '上下分', desc: '入離機事件 ↔ EGM Transfer',
-      implemented: false, delta: null,
-      reason: '尚未拉取 EGM Transfer 報表。',
-    },
+    (() => {
+      /**
+       * L3 上下分（v4.174.0 上線）。
+       *
+       * ⚠️ 原本卡在「agent 沒有觀測入離機事件」，所以掛了很久的 `implemented: false`。
+       *    其實不需要 agent——後台 `gameRecordList` 每一局都帶
+       *    `begin_machine_coin`／`end_machine_coin`，分數在「不是打這一局」的時候
+       *    變動就是上下分。等於用既有資料補完了這條線，沒有新的 API 依賴。
+       *
+       * ⚠️ `no_stamps`（機台沒有分數戳記，實測 `897-BIGFULINK-2065` 2,110 局全部沒有）
+       *    要算進 `pending` **不能算進 match**——那是「查不了」不是「沒問題」。
+       */
+      const c = creditSummary(env, since)
+      return {
+        id: 'L3', name: '上下分', desc: '後台每局分數戳記 · 帳外異動即上下分',
+        implemented: true, delta: null,
+        counts: { match: c.clean, pending: c.noStamps + c.tooFew, missing: 0, ambiguous: c.withTransfers },
+      }
+    })(),
     {
       id: 'L4', name: 'JP 中獎', desc: 'awardsReport 三條等式 · 自洽／basevalue／跨報表',
       implemented: true, delta: null,

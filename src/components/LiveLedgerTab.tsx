@@ -138,6 +138,21 @@ interface PoolsPayload {
   myGmids: string[]
   envAudit?: EnvAuditRow[]
   betPool?: BetPoolRow[]
+  credit?: CreditRow[]
+}
+
+/** L3 上下分：後台每局分數戳記推出的帳外異動。只回「有異動」與「查不了」的。 */
+interface CreditRow {
+  machineName: string
+  rounds: number
+  pairs: number
+  transfersIn: number
+  transfersOut: number
+  transfers: { spinIndex: number; amount: number; at: number | null }[]
+  stampAnomalies: number
+  stampNet: number
+  verdict: 'clean' | 'transfers' | 'no_stamps' | 'too_few'
+  note: string
 }
 
 /**
@@ -447,6 +462,37 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
                   <b style={{ color: C.ink }}>這不代表獎池真的被多加了錢</b>。</>
                 : <>，其中 {neg} 筆是投入額倒退。</>}
               <span style={{ color: C.ink3 }}>{'　'}分佈：{machines.join('、')}</span>
+            </div>
+          )
+        })()}
+
+        {/* ── L3 上下分 ─────────────────────────────────────────────────
+            分數在「不是打這一局」的時候變動就是上下分。⚠️ `no_stamps` 一定要
+            顯示——那是「這台查不了」不是「這台沒問題」。 */}
+        {pools?.credit && pools.credit.length > 0 && (() => {
+          const xfer = pools.credit.filter(c => c.verdict === 'transfers')
+          const blind = pools.credit.filter(c => c.verdict === 'no_stamps')
+          return (
+            <div style={{ borderLeft: `2px solid ${xfer.length ? C.pending : C.ink3}`,
+              background: xfer.length ? 'rgba(251,191,36,.07)' : 'transparent',
+              padding: '8px 11px', borderRadius: '0 7px 7px 0', fontSize: 12, color: C.ink2, marginBottom: 9 }}>
+              <b style={{ color: C.ink }}>L3 上下分 · 帳外分數異動</b>
+              {xfer.length > 0 && <b style={{ color: C.pending }}>{'　'}{xfer.length} 台有異動</b>}
+              {blind.length > 0 && <b style={{ color: C.ink3 }}>{'　'}{blind.length} 台查不了</b>}
+              <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {pools.credit.slice(0, 6).map(c => (
+                  <div key={c.machineName} style={{ fontSize: 11.5, lineHeight: 1.6 }}>
+                    <b style={{ color: c.verdict === 'transfers' ? C.pending : C.ink3 }}>{c.machineName}</b>
+                    <span style={{ color: C.ink3 }}>
+                      {'　'}{c.rounds} 局 / {c.pairs} 對可比
+                      {c.verdict === 'transfers' && <>
+                        {'　'}上分 {c.transfersIn.toLocaleString()} · 下分 {c.transfersOut.toLocaleString()}
+                      </>}
+                    </span>
+                    <div style={{ color: C.ink2, paddingLeft: 2 }}>{c.note}</div>
+                  </div>
+                ))}
+              </div>
             </div>
           )
         })()}

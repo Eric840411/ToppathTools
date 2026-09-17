@@ -2590,6 +2590,7 @@ router.get('/api/autospin/live-ledger/pools', async (req, res) => {
   try {
     const { jpPoolLevels, poolMismatches, jpSummary, machineEnvAudit } = await import('../live-ledger-jp.js')
     const { betPoolAudit } = await import('../live-ledger-betpool.js')
+    const { creditChainAudit } = await import('../live-ledger-credit.js')
     const { machineOverview } = await import('../live-ledger-query.js')
     const env = reconEnvOf(req as never)
     const minutes = Math.min(Math.max(Number(req.query.minutes) || 360, 1), 7 * 24 * 60)
@@ -2625,6 +2626,11 @@ router.get('/api/autospin/live-ledger/pools', async (req, res) => {
        *    0.0014，看起來像單位亂掉；按 session 切窗同樣三台是 1／100／1）。
        */
       betPool: betPoolAudit(env, since),
+      /**
+       * L3 上下分。⚠️ 只列「有異動」與「查不了」的——全部乾淨時不佔畫面，
+       * 但 `no_stamps` 一定要列出來，那是缺口不是健康。
+       */
+      credit: creditChainAudit(env, since).filter(r => r.verdict !== 'clean'),
     })
   } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
 })
