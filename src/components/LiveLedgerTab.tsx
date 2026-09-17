@@ -139,6 +139,21 @@ interface PoolsPayload {
   envAudit?: EnvAuditRow[]
   betPool?: BetPoolRow[]
   credit?: CreditRow[]
+  machineSls?: MachineSlsRow[]
+}
+
+/**
+ * L6 SLS 服務健康 —— **只有使用者正在跑的那幾台**。
+ *
+ * ⚠️ `unmapped` 是「查不了」不是「沒問題」：logstore 索引是觀測來的，
+ *    這台的群組最近沒流量就不會有紀錄。畫面上必須跟「服務正常」分得出來。
+ */
+interface MachineSlsRow {
+  machineName: string
+  groupIds: string[]
+  unmapped: boolean
+  note: string
+  events: { kind: string; label: string; times: number[]; count: number; logstore: string }[]
 }
 
 /** L3 上下分：後台每局分數戳記推出的帳外異動。只回「有異動」與「查不了」的。 */
@@ -462,6 +477,56 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
                   <b style={{ color: C.ink }}>這不代表獎池真的被多加了錢</b>。</>
                 : <>，其中 {neg} 筆是投入額倒退。</>}
               <span style={{ color: C.ink3 }}>{'　'}分佈：{machines.join('、')}</span>
+            </div>
+          )
+        })()}
+
+        {/* ── L6 SLS 服務健康（只看正在跑的機台）─────────────────────────
+            🚨 使用者要求：「操作 A 獎池就只監控 A 的 LOG，其餘不管」。
+               所以這裡只列 `myGmids`，不是全部 46 個 logstore。
+            ⚠️ 「查不了」與「服務正常」用不同顏色與文案分開 —— 索引是觀測來的，
+               沒流量就沒紀錄，那時候我們是不知道，不是沒事。 */}
+        {pools?.machineSls && pools.machineSls.length > 0 && (() => {
+          const bad = pools.machineSls.filter(m => m.events.length > 0)
+          const blind = pools.machineSls.filter(m => m.unmapped)
+          const tone = bad.length ? C.bad : blind.length ? C.pending : C.match
+          return (
+            <div style={{ borderLeft: `2px solid ${tone}`,
+              background: bad.length ? 'rgba(248,113,113,.07)' : 'transparent',
+              padding: '8px 11px', borderRadius: '0 7px 7px 0', fontSize: 12, color: C.ink2, marginBottom: 9 }}>
+              <b style={{ color: C.ink }}>SLS 服務健康</b>
+              <span style={{ color: C.ink3, fontSize: 11 }}>{'　'}只看你正在跑的 {pools.machineSls.length} 台</span>
+              {bad.length > 0 && <b style={{ color: C.bad }}>{'　'}{bad.length} 台有異常</b>}
+              {blind.length > 0 && <b style={{ color: C.pending }}>{'　'}{blind.length} 台查不了</b>}
+              <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                {pools.machineSls.map(m => (
+                  <div key={m.machineName} style={{ fontSize: 11.5, lineHeight: 1.6 }}>
+                    <b style={{ color: m.events.length ? C.bad : m.unmapped ? C.pending : C.match }}>
+                      {m.machineName}
+                    </b>
+                    <span style={{ color: C.ink3 }}>
+                      {m.groupIds.length ? `${'　'}groupId ${m.groupIds.join('、')}` : ''}
+                    </span>
+                    {m.unmapped && <div style={{ color: C.pending, paddingLeft: 2 }}>⚠️ {m.note}</div>}
+                    {!m.unmapped && !m.events.length && (
+                      <span style={{ color: C.match }}>{'　'}服務正常</span>
+                    )}
+                    {m.events.map(ev => (
+                      <div key={`${m.machineName}-${ev.kind}-${ev.logstore}`} style={{ color: C.ink2, paddingLeft: 2 }}>
+                        {ev.label} × {ev.count}
+                        <span style={{ color: C.ink3 }}>
+                          {'　'}<code style={{ fontSize: 10.5 }}>
+                            {ev.logstore.replace(/^test-liveslots-luckylink(mml|g2s)-/, '').replace(/-logs$/, '')}
+                          </code>
+                          {ev.times.length > 0 && <>
+                            {'　'}最近 {ev.times.map(t => new Date(t).toLocaleTimeString('zh-TW', { hour12: false })).join('、')}
+                          </>}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
             </div>
           )
         })()}

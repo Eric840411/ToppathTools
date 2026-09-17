@@ -44,8 +44,8 @@ const DEFAULT_FIELDS: Record<FieldKey, boolean> = {
 }
 const DEFAULT_TITLE_TEMPLATE = 'AutoSpin — {machineType}'
 
-type ReportFieldKey = 'spins' | 'winRate' | 'errcodes' | 'recover' | 'kickouts' | 'crChecks' | 'uptime'
-const REPORT_FIELD_META: { key: ReportFieldKey; label: string }[] = [
+type ReportFieldKey = 'spins' | 'winRate' | 'errcodes' | 'recover' | 'kickouts' | 'crChecks' | 'uptime' | 'sls'
+const REPORT_FIELD_META: { key: ReportFieldKey; label: string; hint?: string }[] = [
   { key: 'spins', label: 'Spin 數 / OK 率' },
   { key: 'winRate', label: '中獎次數 / 總贏分' },
   { key: 'errcodes', label: 'errcode 明細' },
@@ -53,9 +53,15 @@ const REPORT_FIELD_META: { key: ReportFieldKey; label: string }[] = [
   { key: 'kickouts', label: 'kickouts（低餘額離機重進）' },
   { key: 'crChecks', label: 'CR checks / 無回應' },
   { key: 'uptime', label: '已跑時間' },
+  // ⚠️ 只查「這台機台」的 log（用 groupId 定位，不是用名稱比對——名稱會配到別的遊戲去）。
+  //    它回答的是「這段時間掉單是不是因為服務掛了」，那是看 errcode 看不出來的。
+  {
+    key: 'sls', label: 'SLS 服務健康（G2S／MML）',
+    hint: '只查這台機台對應的 log：JP 廣播中斷、MML 心跳消失、G2S 斷線／協議錯，附發生時間點。查不到對應時會標「查不了」，不會寫成「正常」。',
+  },
 ]
 const DEFAULT_REPORT_FIELDS: Record<ReportFieldKey, boolean> = {
-  spins: true, winRate: true, errcodes: true, recover: true, kickouts: true, crChecks: true, uptime: true,
+  spins: true, winRate: true, errcodes: true, recover: true, kickouts: true, crChecks: true, uptime: true, sls: true,
 }
 
 const STATE_META: { key: string; label: string; color: string; desc: string }[] = [
@@ -433,6 +439,14 @@ export function DiscordNotifySettingsPage() {
                       style={{ cursor: 'pointer', accentColor: '#5865f2' }}
                     />
                     {f.label}
+                    {/* ⚠️ 有 hint 的欄位要把「它會查什麼、查不到時怎麼顯示」講出來——
+                        看不出差別的開關，使用者只會憑感覺關掉 */}
+                    {f.hint && (
+                      <span
+                        title={f.hint}
+                        style={{ color: '#64748b', fontSize: 11, cursor: 'help', borderBottom: '1px dotted #475569' }}
+                      >ⓘ</span>
+                    )}
                   </label>
                 ))}
               </div>

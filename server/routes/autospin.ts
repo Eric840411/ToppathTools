@@ -543,9 +543,12 @@ function getStatusReportIntervalMin(userLabel: string): number {
   return Number.isFinite(n) && n > 0 ? n : 20
 }
 
-type StatusReportFieldKey = 'spins' | 'winRate' | 'errcodes' | 'recover' | 'kickouts' | 'crChecks' | 'uptime'
+type StatusReportFieldKey = 'spins' | 'winRate' | 'errcodes' | 'recover' | 'kickouts' | 'crChecks' | 'uptime' | 'sls'
 const DEFAULT_STATUS_REPORT_FIELDS: Record<StatusReportFieldKey, boolean> = {
   spins: true, winRate: true, errcodes: true, recover: true, kickouts: true, crChecks: true, uptime: true,
+  // SLS 服務健康（G2S／MML）。⚠️ 預設開——它回答的是「這段時間掉單是不是因為服務掛了」，
+  // 那是看 errcode 看不出來的東西。沒有異常時只會顯示一行「服務正常」，不佔版面。
+  sls: true,
 }
 function getStatusReportFields(userLabel: string): Record<StatusReportFieldKey, boolean> {
   const row = getNotifyPrefsRow(userLabel)
@@ -668,8 +671,10 @@ function buildStatusReportEmbed(opts: {
   customNote: string
   isTest?: boolean
   aiAnalysis?: string | null
+  /** 這台機台在本期間的 SLS 服務狀況。null＝沒查（功能關閉、或查詢失敗） */
+  sls?: import('../live-ledger-sls-machine.js').MachineSlsStatus | null
 }) {
-  const { machineType, gameTitleCode, periodMinutes, cumulative, period, uptimeMinutes, fields, customNote, isTest, aiAnalysis } = opts
+  const { machineType, gameTitleCode, periodMinutes, cumulative, period, uptimeMinutes, fields, customNote, isTest, aiAnalysis, sls } = opts
   const fmtPct = (ok: number, total: number) => total > 0 ? `${((ok / total) * 100).toFixed(1)}%` : '—'
   /** 每個 errcode 一行（Discord 引用格式），有時間點的話換行縮排列在下面，避免一長串塞成一行看不清楚。 */
   /**
@@ -764,6 +769,33 @@ function buildStatusReportEmbed(opts: {
     lines.push(aiAnalysis.trim())
   }
 
+  /**
+   * SLS 服務健康（G2S／MML）。排版刻意跟 errcode 那塊一致：
+   * 「什麼錯 × 幾次」＋縮排一行「最近 <時間點>」。
+   *
+   * ⚠️ **只放這台機台的 log。**同一個 logstore 底下可能有別台機器，
+   *    而這張卡是一台一張——混進來就會把別台的問題算到這台頭上。
+   *    定位靠 groupId（見 `live-ledger-sls-machine.ts`），不是靠名稱比對。
+   *
+   * ⚠️ **查不到對應時要明講「查不了」。**索引是觀測來的，這個群組最近沒流量
+   *    就不會有紀錄——那時候我們是不知道，不是沒事。寫成「服務正常」就是說謊。
+   */
+  if (fields.sls && sls) {
+    lines.push('')
+    lines.push(`**SLS 服務**${sls.groupIds.length ? `（groupId ${sls.groupIds.join('、')}）` : ''}:`)
+    if (sls.unmapped) {
+      lines.push(`> ⚠️ ${sls.note}`)
+    } else if (!sls.events.length) {
+      lines.push('> 服務正常')
+    } else {
+      for (const ev of sls.events) {
+        const store = ev.logstore.replace(/^test-liveslots-luckylink(mml|g2s)-/, '').replace(/-logs$/, '')
+        lines.push(`> ${ev.label} × ${ev.count}　\`${store}\``)
+        if (ev.times.length) lines.push(`> 　↳ 最近 ${ev.times.map(fmtErrTime).join('、')}`)
+      }
+    }
+  }
+
   return {
     title: `📊 AutoSpin 定時彙總報告${isTest ? '（測試）' : ''} — ${machineType}${gameTitleCode ? `（${gameTitleCode}）` : ''}`,
     description: lines.join('\n'),
@@ -849,6 +881,28 @@ router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
     ? await generateStatusReportAiAnalysis(req, machineType, periodMinutes ?? 0, cumulative, period, uptimeMinutes)
     : null
 
+  const reportFields = getStatusReportFields(userLabel)
+  /**
+   * 這台機台在本期間的 SLS 服務狀況。
+   *
+   * ⚠️ **best-effort，查不動就回 null，絕不擋報告送出。**這是附加資訊，
+   *    不能因為 SLS 掛了就讓整份彙總報告發不出去（跟 AI 分析那段同一個原則）。
+   *
+   * ⚠️ 用 `gameTitleCode` 當機台識別 —— 它就是卡片標題括號裡那個 gmid
+   *    （例如 `897-TCJL-2036`），也是 `recon_pool_change.machineName` 的值。
+   */
+  let slsStatus: import('../live-ledger-sls-machine.js').MachineSlsStatus | null = null
+  if (reportFields.sls && gameTitleCode) {
+    try {
+      const { machineSlsStatus } = await import('../live-ledger-sls-machine.js')
+      const until = Date.now()
+      const from = until - Math.max(periodMinutes ?? 10, 1) * 60_000
+      slsStatus = await machineSlsStatus(reconEnvOf(req as never), gameTitleCode, from, until)
+    } catch (e) {
+      console.warn('[autospin] 彙總報告的 SLS 查詢失敗（報告照送）:', e)
+    }
+  }
+
   const embed = buildStatusReportEmbed({
     machineType,
     gameTitleCode,
@@ -856,9 +910,10 @@ router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
     cumulative,
     period,
     uptimeMinutes,
-    fields: getStatusReportFields(userLabel),
+    fields: reportFields,
     customNote: getStatusReportCustomNote(userLabel),
     aiAnalysis,
+    sls: slsStatus,
   })
 
   const mention = mentionForUserLabel(userLabel)
@@ -922,6 +977,24 @@ router.post('/api/autospin/status-report-test', async (req, res) => {
     customNote: getStatusReportCustomNote(userLabel),
     isTest: true,
     aiAnalysis,
+    /**
+     * 試發也要看得到 SLS 區塊長什麼樣，但 `873-TEST-0001` 是假機台、查不到 groupId。
+     *
+     * ⚠️ 這裡用**假的異常樣本**而不是真的去查——試發的目的是看排版，
+     *    而真實環境大多數時候是正常的，真查只會看到「服務正常」一行，
+     *    等於沒示範到。⚠️ 但也不能讓它看起來像真的告警，所以 logstore 名稱
+     *    用 `__demo__` 開頭，一眼看得出是示範。
+     */
+    sls: {
+      machineName: '873-TEST-0001', groupIds: ['999'],
+      logstores: [], unmapped: false, note: '',
+      events: [
+        { kind: 'broadcast_stopped', label: 'JP 廣播中斷（有客戶端登入卻沒下發獎池）',
+          times: [Date.now() - 8 * 60_000, Date.now() - 3 * 60_000], count: 2, logstore: '__demo__-mml-example-logs' },
+        { kind: 'offline', label: 'G2S 斷線（offLine）',
+          times: [Date.now() - 5 * 60_000], count: 1, logstore: '__demo__-g2s-example-logs' },
+      ],
+    },
   })
 
   try {
@@ -2591,6 +2664,7 @@ router.get('/api/autospin/live-ledger/pools', async (req, res) => {
     const { jpPoolLevels, poolMismatches, jpSummary, machineEnvAudit } = await import('../live-ledger-jp.js')
     const { betPoolAudit } = await import('../live-ledger-betpool.js')
     const { creditChainAudit } = await import('../live-ledger-credit.js')
+    const { machinesSlsStatus } = await import('../live-ledger-sls-machine.js')
     const { machineOverview } = await import('../live-ledger-query.js')
     const env = reconEnvOf(req as never)
     const minutes = Math.min(Math.max(Number(req.query.minutes) || 360, 1), 7 * 24 * 60)
@@ -2631,6 +2705,17 @@ router.get('/api/autospin/live-ledger/pools', async (req, res) => {
        * 但 `no_stamps` 一定要列出來，那是缺口不是健康。
        */
       credit: creditChainAudit(env, since).filter(r => r.verdict !== 'clean'),
+      /**
+       * L6 SLS 服務健康——**只查使用者正在跑的那幾台**。
+       *
+       * 🚨 使用者要求：「假設操作 A 獎池，那就監控 A 獎池的 LOG 就好，其餘不管」。
+       *    所以這裡餵的是 `myGmids`（這一輪判定為使用者正在跑的機台），
+       *    不是全部 46 個 logstore。
+       *
+       * ⚠️ 走快取版（60 秒 TTL）——這支端點前端每 5 秒輪詢一次，
+       *    不快取的話開著畫面就等於每 5 秒對每台各打一次 SLS。
+       */
+      machineSls: await machinesSlsStatus(env, [...myGmids], minutes * 60_000),
     })
   } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
 })

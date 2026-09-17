@@ -1309,6 +1309,38 @@ db.exec(`
   )
 `)
 db.exec(`CREATE INDEX IF NOT EXISTS idx_recon_cycle_at ON recon_cycle_stat (at)`)
+
+/**
+ * recon_sls_logstore_group — logstore ↔ groupId 的索引（2026-09-17）。
+ *
+ * 🚨 **為什麼一定要有這張表：名稱比對會配錯，而且錯得看不出來。**
+ *    實測 23 種機台遊戲代號只有 12 種配得上 logstore 名稱，而且：
+ *      · `873-DFDC-*`（8 台）會被前綴配到 `dfdcgrand-*` 的 7 個 logstore（不同遊戲）
+ *      · `897-BIGFULINK-2065` 對應的其實是 `bigfucash`——名稱完全不像
+ *      · `tcjl` ↔ `tiancijinlu`、`mightycashlink` ↔ `mightycash` 也都配不上
+ *    配錯的後果是畫面顯示「這台機器的服務正常」，但看的是**別台的 log**。
+ *
+ * ✅ 正解是用 `groupId`，**兩種協議都有**（實測）：
+ *      MML：`已连接上的客户端信息: ... groupId: 132`
+ *      G2S：`[HTTP UpdateJP] 收到服务器彩金更新: groupId=138`
+ *    而它就是 `recon_pool_change.groupid` / `recon_machine_map.groupid`，
+ *    對得回 machineName。
+ *
+ * ⚠️ 索引是「觀測到的」不是「設定的」——某個 logstore 最近沒流量就不會有它的紀錄。
+ *    所以查不到對應時要回報「查不到」，不可以當成「這台沒問題」。
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS recon_sls_logstore_group (
+    project   TEXT NOT NULL,
+    logstore  TEXT NOT NULL,
+    groupId   TEXT NOT NULL,
+    kind      TEXT NOT NULL DEFAULT '',
+    firstSeen INTEGER NOT NULL,
+    lastSeen  INTEGER NOT NULL,
+    PRIMARY KEY (project, logstore, groupId)
+  )
+`)
+db.exec(`CREATE INDEX IF NOT EXISTS idx_sls_group ON recon_sls_logstore_group (groupId)`)
 {
   const ins = db.prepare(`INSERT OR IGNORE INTO recon_settings (env, key, value) VALUES (?, ?, ?)`)
   for (const env of ['qat', 'uat']) {
