@@ -54,6 +54,11 @@ export const FRONTEND_RECORDER_MARKER = '__TOPPATH_RECORDER__';
  * ⚠️ 用 docId 綁定文件。導頁之後回來的檢查結果屬於**上一份文件**，
  *    套到新文件上就是把別人的結論當自己的。
  *
+ * ⚠️ 光比 docId 還不夠，**還要確認那份文件已經離開 `loading`**：
+ *    讀 docId 時可能已經導到新頁而新頁還在解析，掃一份半成品 DOM 當然找不到
+ *    shadow root，於是把它標成「已確認乾淨」——而它後面才解析出來的宣告式
+ *    closed root 就會被錯標成已驗證。兩邊讀到的 docId 都一樣，比對擋不到。
+ *
  * ⚠️ 這裡刻意**過度保守**：只要這一頁有任何作者建立的 shadow root，整頁都不宣稱
  *    驗過，不去區分「是不是我們自己追蹤到的那些」。少標 ok 只是少一點資訊，
  *    錯標 ok 會讓人相信一條會點錯的選擇器。
@@ -68,8 +73,16 @@ export async function flagShadowCompleteness(send) {
     return r?.result?.result?.value;
   };
   try {
-    const docId = await value('window.__toppathDocId || ""');
-    if (!docId) return;   // 錄製器還沒裝好，這次不下結論（預設就是尚未確認）
+    // ⚠️ **要一併確認這份文件已經解析完**（CodeX 2026-09-18 第五輪指出）。
+    //    載入事件是 A 頁的，但這行 evaluate 執行時可能已經導到 B 頁了——
+    //    那時讀到的是 B 的 docId，而 B 還在解析中。掃一份**半成品 DOM**
+    //    當然找不到 shadow root，於是把 B 標成「已確認乾淨」，
+    //    B 後面才解析出來的宣告式 closed root 就會被錯標成已驗證。
+    //    docId 比對擋不到這個——兩邊讀到的都是 B。
+    const state = await value('JSON.stringify({ id: window.__toppathDocId || "", rs: document.readyState })');
+    const before = state ? JSON.parse(state) : null;
+    if (!before?.id) return;              // 錄製器還沒裝好，不下結論
+    if (before.rs === 'loading') return;  // 還在解析，等下一次（load 那次）再查
     await send('DOM.enable');
     const doc = await send('DOM.getDocument', { depth: -1, pierce: true });
     const root = doc?.result?.root;
@@ -88,9 +101,10 @@ export async function flagShadowCompleteness(send) {
       if (node.contentDocument) walk(node.contentDocument);
     };
     walk(root);
-    // 綁 docId 寫回去。found 為真時明確寫 false——同一份文件後來才多出
-    // 追蹤不到的 root（setHTMLUnsafe 那種）時要能把先前的確認收回。
-    await value('window.__toppathDocId === ' + JSON.stringify(docId)
+    // 寫回去要同時比 docId **與** readyState：掃描期間又導頁的話，這份結論
+    // 不屬於現在這份文件；文件退回 loading 代表我們掃的是半成品。
+    await value('(window.__toppathDocId === ' + JSON.stringify(before.id)
+      + ' && document.readyState !== "loading")'
       + ' ? (window.__toppathShadowChecked = ' + (found ? 'false' : 'true') + ', true) : false');
   } catch (e) {
     /* 維持尚未確認 */

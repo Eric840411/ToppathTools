@@ -78,6 +78,17 @@ const server = http.createServer((req, res) => {
   if (req.url === '/shadow-js') return res.end(BODY + `<script>${MAKE_SHADOW}</script>`);
   if (req.url === '/shadow-decl') return res.end(DECL);
   if (req.url === '/shadow-decl-slow') return res.end(DECL + '<img src="/slow.png">');
+  // 分段輸出：前半段先到（此時 readyState 還是 loading、而且還沒有任何 shadow root），
+  // 1.5 秒後才送出含宣告式 closed root 的後半段。
+  // 用來重現「掃到半份 DOM 就宣告乾淨」那個時序。
+  if (req.url === '/shadow-decl-streamed') {
+    res.write('<!doctype html><meta charset="utf-8"><title>streamed</title>'
+      + '<button id="plain" aria-label="普通按鈕">普通</button>');
+    return setTimeout(() => {
+      res.end('<div id="host-decl" style="display:inline-block">'
+        + '<template shadowrootmode="closed"><button id="d1">宣告一</button></template></div>');
+    }, 1500);
+  }
   res.end(BODY);
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
@@ -327,19 +338,119 @@ try {
     await slow.send('Page.navigate', { url: `http://127.0.0.1:${sitePort}/shadow-decl-slow` });
     // DOM 已經可以互動，但 3 秒的圖還沒載完 → load 還沒發生
     await new Promise(r => setTimeout(r, 800));
-    check('⑥d fixture 真的停在「可以點了但還沒 load」',
-      await slow.evaluate('document.readyState') === 'loading'
-      || await slow.evaluate('document.readyState') === 'interactive',
-      `readyState 是 ${await slow.evaluate('document.readyState')}——已經 complete 的話這條測不到窗口`);
-    // ⚠️ 刻意**不先呼叫 flagShadowCompleteness**：要測的就是「還沒查」的狀態
+    // ⚠️ 要精確是 interactive：HTML 解析完了（所以宣告式 root 已經在）、
+    //    但 3 秒的圖還沒回來所以 load 沒發生。這正是那個窗口。
+    //    接受 loading 的話就分不出「窗口」跟「還在解析」——CodeX 指出過。
+    const slowState = await slow.evaluate('document.readyState');
+    check('⑥d fixture 精確停在 interactive（解析完、load 未發生）',
+      slowState === 'interactive',
+      `readyState 是 ${slowState}——complete 或 loading 都測不到這個窗口`);
+    // ⚠️ 刻意**不先呼叫 flagShadowCompleteness**：要測的就是「還沒查」的狀態。
+    //    兩種元素都點：宣告式 host（真正危險的那個）與普通按鈕（證明是整頁不宣稱）。
+    const declRect = JSON.parse(await slow.evaluate(
+      `JSON.stringify(document.getElementById('host-decl').getBoundingClientRect())`));
+    for (const type of ['mousePressed', 'mouseReleased']) {
+      await slow.send('Input.dispatchMouseEvent', {
+        type, button: 'left', clickCount: 1,
+        x: Math.round(declRect.left + declRect.width - 10),
+        y: Math.round(declRect.top + declRect.height / 2),
+      });
+    }
+    await new Promise(r => setTimeout(r, 300));
+    const earlyDecl = slow.steps.at(-1);
+    check('⑥d ⚠️ 窗口裡點宣告式 closed 元件 → 不宣稱驗過',
+      earlyDecl?.selector === '#host-decl'
+      && earlyDecl?.selectorCheck === 'unknown' && earlyDecl?.selectorCheckReason === 'shadow',
+      JSON.stringify(earlyDecl));
     await slow.evaluate(`document.getElementById('plain').click()`);
     await new Promise(r => setTimeout(r, 300));
     const early = slow.steps.at(-1);
-    check('⑥d ⚠️ host 還沒查完之前，一律不宣稱驗過',
-      early?.selectorCheck === 'unknown' && early?.selectorCheckReason === 'shadow',
+    check('⑥d ⚠️ 窗口裡連普通元素也不宣稱驗過',
+      early?.selector === '[aria-label="普通按鈕"]'
+      && early?.selectorCheck === 'unknown' && early?.selectorCheckReason === 'shadow',
       JSON.stringify(early));
     slow.ws.close();
     if (slowId) await send('Target.closeTarget', { targetId: slowId });
+  }
+
+  // ── ⑥e 解析中（loading）查到的結果不能當結論 ─────────────────────────────
+  // ⚠️ CodeX 第五輪指出的時序：載入事件是上一頁的，但 evaluate 執行時已經導到新頁、
+  //    而新頁還在解析。掃一份**半成品 DOM** 當然找不到 shadow root，
+  //    於是把它標成「已確認乾淨」——它後面才解析出來的宣告式 closed root
+  //    就會被錯標成已驗證。docId 比對擋不到（兩邊讀到的都是新頁）。
+  {
+    const created = await send('Target.createTarget', { url: 'about:blank' });
+    const streamId = created.result?.targetId;
+    const list = await waitJson(`http://127.0.0.1:${cdpPort}/json/list`);
+    const fresh = list.find(t => t.id === streamId && t.webSocketDebuggerUrl);
+    if (!fresh) throw new Error('開不出分段輸出的分頁');
+    const stream = await connect(fresh.webSocketDebuggerUrl);
+    await stream.send('Runtime.enable');
+    await stream.send('Page.enable');
+    await stream.send('Page.addScriptToEvaluateOnNewDocument', { source: frontendRecorderScript() });
+    await stream.send('Page.navigate', { url: `http://127.0.0.1:${sitePort}/shadow-decl-streamed` });
+    await new Promise(r => setTimeout(r, 500));   // 前半段到了，後半段還沒
+    check('⑥e fixture 真的還在解析中（而且此刻沒有任何 shadow root）',
+      await stream.evaluate('document.readyState') === 'loading'
+      && await stream.evaluate('!document.getElementById("host-decl")') === true,
+      `readyState 是 ${await stream.evaluate('document.readyState')}`);
+    await flagShadowCompleteness(stream.send);
+    check('⑥e ⚠️ 解析中查詢**不得**把文件標成已確認',
+      await stream.evaluate('window.__toppathShadowChecked') === false,
+      '掃半份 DOM 找不到 shadow root 是理所當然的，不能當成「這頁乾淨」');
+    // 等後半段送完，再查一次——這時才看得到宣告式 root，而結論必須是「不乾淨」
+    await new Promise(r => setTimeout(r, 1600));
+    check('⑥e 解析完成後才有結論的依據', await stream.evaluate('document.readyState') !== 'loading');
+    await flagShadowCompleteness(stream.send);
+    check('⑥e 解析完後查得出這一頁有追蹤不到的 shadow root',
+      await stream.evaluate('window.__toppathShadowChecked') === false
+      && await stream.evaluate('!!document.getElementById("host-decl")') === true);
+    stream.ws.close();
+    if (streamId) await send('Target.closeTarget', { targetId: streamId });
+  }
+
+  // ── ⑥f 用 CDP stub 釘住「解析中不查、不寫」的契約 ────────────────────────
+  // ⚠️ 為什麼用 stub 不用真瀏覽器：要驗的是「**解析完成前不去掃、也不寫回**」。
+  //    真實時序裡「掃描中途解析剛好完成」那一瞬間造不出來（也不該用睡眠去賭），
+  //    但契約本身是確定的：readyState 還是 loading 就連 DOM.getDocument 都不該送。
+  //    這一段也順便說明了為什麼兩道關卡都要有——只留寫回那一道的話，
+  //    「掃到半份 DOM、寫回前剛好解析完」就會寫出一個基於半成品的「已確認」。
+  {
+    const calls = [];
+    const stub = (rs, roots) => async (method, params) => {
+      calls.push({ method, params });
+      if (method === 'Runtime.evaluate' && String(params?.expression).includes('readyState')) {
+        return { result: { result: { value: JSON.stringify({ id: 'doc-1', rs }) } } };
+      }
+      if (method === 'DOM.getDocument') return { result: { root: roots } };
+      return { result: { result: { value: true } } };
+    };
+    const clean = { children: [] };
+    const dirty = { children: [{ shadowRoots: [{ shadowRootType: 'closed' }], children: [] }] };
+
+    calls.length = 0;
+    await flagShadowCompleteness(stub('loading', dirty));
+    check('⑥f 解析中：連 DOM.getDocument 都不送',
+      !calls.some(c => c.method === 'DOM.getDocument'),
+      '掃半份 DOM 得到的「沒有 shadow root」沒有任何意義');
+    check('⑥f 解析中：也不寫回任何結論',
+      !calls.some(c => c.method === 'Runtime.evaluate' && String(c.params?.expression).includes('__toppathShadowChecked')));
+
+    calls.length = 0;
+    await flagShadowCompleteness(stub('interactive', clean));
+    const writeClean = calls.find(c => String(c.params?.expression).includes('__toppathShadowChecked'));
+    check('⑥f 解析完＋乾淨 → 寫入已確認', String(writeClean?.params?.expression).includes('= true'));
+    check('⑥f 寫回時同時比 docId 與 readyState',
+      String(writeClean?.params?.expression).includes('__toppathDocId === "doc-1"')
+      && String(writeClean?.params?.expression).includes('readyState !== "loading"'),
+      '掃描期間又導頁、或文件退回 loading 的話，這份結論不屬於現在這份文件');
+
+    calls.length = 0;
+    await flagShadowCompleteness(stub('complete', dirty));
+    const writeDirty = calls.find(c => String(c.params?.expression).includes('__toppathShadowChecked'));
+    check('⑥f 解析完＋有作者 root → 明確寫入「不可宣稱」',
+      String(writeDirty?.params?.expression).includes('= false'),
+      '同一份文件後來才多出追蹤不到的 root 時，要能把先前的確認收回');
   }
 
   // ── ⑨ 追蹤不到 shadow 時要**退回 unknown**，不能當成沒有 shadow ───────────
