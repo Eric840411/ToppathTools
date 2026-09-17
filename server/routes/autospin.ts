@@ -2589,6 +2589,7 @@ router.get('/api/autospin/live-ledger/jp', async (req, res) => {
 router.get('/api/autospin/live-ledger/pools', async (req, res) => {
   try {
     const { jpPoolLevels, poolMismatches, jpSummary, machineEnvAudit } = await import('../live-ledger-jp.js')
+    const { betPoolAudit } = await import('../live-ledger-betpool.js')
     const { machineOverview } = await import('../live-ledger-query.js')
     const env = reconEnvOf(req as never)
     const minutes = Math.min(Math.max(Number(req.query.minutes) || 360, 1), 7 * 24 * 60)
@@ -2615,6 +2616,15 @@ router.get('/api/autospin/live-ledger/pools', async (req, res) => {
        * 從矩陣上消失」的成因。窗固定 24 小時：掛錯是設定問題，不會只在近 30 分鐘出現。
        */
       envAudit: machineEnvAudit(Date.now() - ENV_AUDIT_WINDOW_MS),
+      /**
+       * 跨源對帳：後台 bet ↔ 獎池增量。
+       *
+       * ⚠️ 窗跟著畫面上選的範圍走就好——這支自己會按 **session 的實際時間範圍**
+       *    重新切窗。池的投入額是「機台的」（誰打都算），後台紀錄只有我們這個帳號，
+       *    窗一拉大兩邊就不是同一個量了（實測 30 天窗算出來的比值是 0.114／0.043／
+       *    0.0014，看起來像單位亂掉；按 session 切窗同樣三台是 1／100／1）。
+       */
+      betPool: betPoolAudit(env, since),
     })
   } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
 })

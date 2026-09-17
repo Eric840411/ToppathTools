@@ -137,6 +137,29 @@ interface PoolsPayload {
   machines: MachineRow[]
   myGmids: string[]
   envAudit?: EnvAuditRow[]
+  betPool?: BetPoolRow[]
+}
+
+/**
+ * 跨源對帳：後台 bet ↔ 獎池增量。
+ *
+ * ⚠️ 這是**唯一**能證明「玩家真的下了這些注」的線。現有的 L5 驗的是
+ *    LuckyLink 自己前後一致——它就算整段少收了投注，自己的算式仍然成立、仍然判 ok。
+ */
+interface BetPoolRow {
+  machineName: string
+  spins: number
+  betSum: number
+  coinInDelta: number
+  coinInGap: number
+  /** 面額係數，只接受 10 的次方；拒絕採用時為 null */
+  factor: number | null
+  observedRatio: number | null
+  expectedChange: number | null
+  actualChange: number | null
+  delta: number | null
+  verdict: 'match' | 'mismatch' | 'no_pool' | 'no_bet' | 'too_few' | 'ratio_not_clean'
+  note: string
 }
 
 /** 跨環境機台稽核。⚠️ 這一塊是唯一不跟著上方 env 切換的資料——它要看的就是跨環境。 */
@@ -192,6 +215,21 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
     } catch (e) { setErr(String(e)) }
   }, [env, minutes, h, showAll])
 
+  /**
+   * 告警送出的現況。
+   *
+   * ⚠️ 宣告位置要在下面那個 5 秒輪詢的 effect **之前**——雖然 effect 的內容是
+   *    掛載後才跑、執行期不會踩到 TDZ，但 lint 會擋（Cannot access variable
+   *    before it is declared），而這個檔案的 lint 已經夠亂了。
+   */
+  const loadNotify = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/autospin/live-ledger/notify?env=${env}`, { headers: h() })
+      const d = await r.json()
+      if (d.ok) setNotifySt(d)
+    } catch { /* 下次再試 */ }
+  }, [env, h])
+
   const loadPools = useCallback(async () => {
     try {
       const r = await fetch(`/api/autospin/live-ledger/pools?env=${env}&minutes=${minutes}${showAll ? '&scope=all' : ''}`, { headers: h() })
@@ -238,14 +276,6 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
       const r = await fetch(`/api/autospin/live-ledger/settings?env=${env}`, { headers: h() })
       const d = await r.json()
       if (d.ok) setSettings(d.settings)
-    } catch { /* 下次再試 */ }
-  }, [env, h])
-
-  const loadNotify = useCallback(async () => {
-    try {
-      const r = await fetch(`/api/autospin/live-ledger/notify?env=${env}`, { headers: h() })
-      const d = await r.json()
-      if (d.ok) setNotifySt(d)
     } catch { /* 下次再試 */ }
   }, [env, h])
 
@@ -416,7 +446,51 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
                   投入額變成負值時公式會推出負的預期增額，差額因此很大——
                   <b style={{ color: C.ink }}>這不代表獎池真的被多加了錢</b>。</>
                 : <>，其中 {neg} 筆是投入額倒退。</>}
-              <span style={{ color: C.ink3 }}>　分佈：{machines.join('、')}</span>
+              <span style={{ color: C.ink3 }}>{'　'}分佈：{machines.join('、')}</span>
+            </div>
+          )
+        })()}
+
+        {/* ── 跨源對帳：後台 bet ↔ 獎池增量 ──────────────────────────────
+            🚨 這一塊是唯一能證明「玩家真的下了這些注」的線。上面那些數字
+               都是 LuckyLink 自己跟自己對，少收了它也不會知道。 */}
+        {pools?.betPool && pools.betPool.length > 0 && (() => {
+          const bad = pools.betPool.filter(b => b.verdict === 'mismatch' || b.verdict === 'ratio_not_clean')
+          const matched = pools.betPool.filter(b => b.verdict === 'match')
+          const tone = bad.length ? C.bad : matched.length ? C.match : C.ink3
+          return (
+            <div style={{ borderLeft: `2px solid ${tone}`,
+              background: bad.length ? 'rgba(248,113,113,.07)' : 'transparent',
+              padding: '8px 11px', borderRadius: '0 7px 7px 0', fontSize: 12, color: C.ink2, marginBottom: 9 }}>
+              <b style={{ color: C.ink }}>跨源對帳 · 後台下注 ↔ 獎池增量</b>
+              {bad.length > 0
+                ? <b style={{ color: C.bad }}>{'　'}{bad.length} 台不符</b>
+                : <b style={{ color: C.match }}>{'　'}{matched.length} 台相符</b>}
+              <span style={{ color: C.ink3, fontSize: 11 }}>{'　'}按 session 切窗</span>
+              <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                {[...bad, ...pools.betPool.filter(b => !bad.includes(b))].slice(0, 6).map(b => (
+                  <div key={`${b.machineName}-${b.spins}-${b.betSum}`} style={{ fontSize: 11.5, lineHeight: 1.6 }}>
+                    <b style={{ color: b.verdict === 'match' ? C.match : bad.includes(b) ? C.bad : C.ink3 }}>
+                      {b.machineName}
+                    </b>
+                    <span style={{ color: C.ink3 }}>
+                      {'　'}{b.spins} 局 · 下注 {b.betSum.toLocaleString()}
+                      {/* ⚠️ 面額係數一定要顯示。看不到它的話，「×100 的機台對上了」
+                          跟「係數被拿來吸收落差」在畫面上完全一樣 */}
+                      {b.factor !== null && b.factor !== 1 && <> · 面額 ×{b.factor}</>}
+                      {b.expectedChange !== null && b.actualChange !== null && <>
+                        {'　'}預期增額 {b.expectedChange.toFixed(3)} / 實際 {b.actualChange.toFixed(3)}
+                      </>}
+                    </span>
+                    {b.verdict !== 'match' && <div style={{ color: C.ink2, paddingLeft: 2 }}>{b.note}</div>}
+                    {b.coinInGap > 0 && (
+                      <div style={{ color: C.pending, paddingLeft: 2 }}>
+                        ⚠️ 另有 {b.coinInGap.toLocaleString()} 的投入額是我們漏抓的（端點差 vs 逐筆加總）
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )
         })()}
@@ -434,9 +508,9 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
             <div style={{ borderLeft: `2px solid ${tone}`, background: crit.length ? 'rgba(248,113,113,.07)' : 'rgba(251,191,36,.07)',
               padding: '8px 11px', borderRadius: '0 7px 7px 0', fontSize: 12, color: C.ink2, marginBottom: 9 }}>
               <b style={{ color: C.ink }}>跨環境機台稽核</b>
-              <span style={{ color: C.ink3, fontSize: 11 }}>　近 7 天 · 不受上方環境切換影響</span>
-              {crit.length > 0 && <b style={{ color: C.bad }}>　{crit.length} 台異常</b>}
-              {warn.length > 0 && <b style={{ color: C.pending }}>　{warn.length} 台待確認</b>}
+              <span style={{ color: C.ink3, fontSize: 11 }}>{'　'}近 7 天 · 不受上方環境切換影響</span>
+              {crit.length > 0 && <b style={{ color: C.bad }}>{'　'}{crit.length} 台異常</b>}
+              {warn.length > 0 && <b style={{ color: C.pending }}>{'　'}{warn.length} 台待確認</b>}
               <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {pools.envAudit.slice(0, 8).map(a => (
                   <div key={`${a.machineName}|${a.issue}`} style={{ fontSize: 11.5, lineHeight: 1.6 }}>
@@ -444,10 +518,10 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
                       {a.machineName || '(空白名稱)'}
                     </b>
                     <span style={{ color: C.ink3 }}>
-                      　spin: {a.spinEnvs.map(e => e.toUpperCase()).join('／') || '—'}
+                      {'　'}spin: {a.spinEnvs.map(e => e.toUpperCase()).join('／') || '—'}
                       {/* ⚠️ 池要連「各自最後一次變動是多久以前」一起給——只列環境名稱的話，
                           「真的同時掛兩邊」跟「三天前搬過來」在畫面上完全一樣 */}
-                      　池: {a.poolEnvs.length
+                      {'　'}池: {a.poolEnvs.length
                         ? a.poolEnvs.map(e => {
                           const at = a.lastPoolByEnv?.[e]
                           return `${e.toUpperCase()}${at ? `(${new Date(at).toLocaleString()})` : ''}`
