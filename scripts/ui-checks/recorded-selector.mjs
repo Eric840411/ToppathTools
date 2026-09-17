@@ -369,13 +369,20 @@ try {
       const { pg, mouseHits } = await mkPage(OVERLAY);
       const { recordedLocator } = createRecordedLocators(pg, { requireUnique: true });
       const target = await recordedLocator(selector);
+      // ⚠️ 旗標只能在**真的逾時**時才設。第一版是「任何例外都算逾時」，
+      //    萬一先發生別的錯誤，測試照樣插入重複、最後因為 JS 層的歧義而全綠——
+      //    驗到的就不是「click 逾時後、JS 備援前」這個指定時序了。（CodeX 2026-09-17 P2）
+      //    其他錯誤直接重拋，不插入、不設旗標，讓那條斷言自己紅掉。
       let timedOut = false;
+      let firstErrorName = '';
       const sequenced = new Proxy(target, {
         get(obj, prop) {
           if (prop !== 'click') return typeof obj[prop] === 'function' ? obj[prop].bind(obj) : obj[prop];
           return async (...args) => {
             try { return await obj.click(...args) }
             catch (e) {
+              firstErrorName = e?.name || '';
+              if (firstErrorName !== 'TimeoutError') throw e;   // 不是逾時就不是我要驗的時序
               timedOut = true;
               await pg.evaluate(() => {
                 const tbody = document.querySelector('tbody');
@@ -391,7 +398,8 @@ try {
         await clickRecorded({ page: pg, locator: sequenced, selector, waitMs: 0,
           viewport: { x: 10, y: 10 }, allowFallback: true, viewportOk: async () => true, timeout: 700 });
       } catch (e) { err = String(e.message) }
-      eq('② click 確實先逾時了（時序成立）', timedOut, true);
+      eq('② click 拋的確實是 TimeoutError（不是別的錯）', firstErrorName, 'TimeoutError');
+      eq('② 所以重複是在逾時之後才插入的（時序成立）', timedOut, true);
       eq('② 逾時後變多筆：JS 備援不得吞歧義', isAmbiguityError(err), true);
       eq('② 沒有任何按鈕被按到', await pg.evaluate(() => window.__clicks), []);
       eq('② 沒有掉進座標備援', mouseHits.length, 0);

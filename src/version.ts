@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.157.2'
+export const APP_VERSION = '4.157.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.157.3', date: '2026-09-17', changes: ['test(uat): P2——時序斷言只證明了「click 拋錯」，沒證明「逾時」（CodeX 指出）。包裝器在**任何**例外下都設旗標並插入重複，若先發生別的錯誤，最後仍會因為 JS 層的歧義而全綠——驗到的就不是指定的那個時序', 'test(uat): 改成只有 Playwright 的 TimeoutError 才設旗標並插入重複，其他錯誤直接重拋；並加一條斷言釘住「拋的確實是 TimeoutError」', 'test(uat): 76 項；注入非逾時錯誤時 4 項轉紅（含「按鈕真的被按下去」）。拿掉那道閘之後只剩 1 項紅——而那一項正是新加的斷言，泒有它就是全綠，這就是 P2 本人'] },
   { version: '4.157.2', date: '2026-09-17', changes: ['test(uat): 時序測試改成確定性——包裝真實的 click()，等它真的逾時了才插入重複、再把原錯誤重拋；原本的 300ms 定時器只是「大概會在那個區間」，可能因為錯的理由而綠（CodeX 指出）', 'test(uat): 定位的兩條分支（text=/label= 與純 CSS）分開驗——只驗一條的話，另一條退回 .first() 不會紅；實測確認兩種注入各自對應到不同的紅', 'docs(uat): 把驗收標準寫死——**產品入口、實際副作用、對應缺陷注入會紅（且每條分支分開注入）**。這一輪「看起來是防線、實際量的是一個不可能失敗的東西」出現五次，五種形狀都記在文件裡', 'test(uat): 75 項；三種注入（text= 分支、CSS 分支、JS 備援吞歧義）分別轉紅'] },
   { version: '4.157.1', date: '2026-09-17', changes: ['fix(uat): P1——唯一模式仍然回 （CodeX review）。 等於「明言只要第一個」，Playwright 就不會在動作當下再做 strict 檢查——檢查完才新增的重複元素永遠檢查不到，勾選／選項／讀取／pressKey 仍會安靜動第一個。改回完整 locator', 'fix(uat): P1——JS 備援的  會把 strict mode 錯誤吞成「點不到」，然後掉進**座標點擊**（CodeX review）。歧義在每一層都要拋出去', 'chore(uat): 點擊流程（含兩層備援）抽成 clickRecorded()，runner 與測試跑同一支——不抽的話測試只能自己設旗標，證明不了 runner 沒呼叫備援', 'test(uat): 70 項；新增三種時序情境（拿到 locator 後變多筆、click 逾時後 JS 備援前變多筆、遮罩但不歧義時備援要照常可用），並**監聽 page.mouse.click** 當作座標備援的客觀證據', '⚠️ test(uat): 第一版的時序測試驗的是 createRecordedLocators()，而 P1 在 locateRecorded()——注入  不會紅。兩支分開驗之後才拓得到（注入時會看到按鈕真的被按下去）'] },
   { version: '4.157.0', date: '2026-09-17', changes: ['fix(uat): 選擇器不再丟進瀏覽器原生 querySelector——`讀取色塊`、`元素數量`、`不該出現`、`讀取表格`（退路那條）全部改走 Playwright。使用者回報的「預檢寫命中 1 個可見、執行卻 SyntaxError」就是預檢走 Playwright、讀取走原生 CSS 造成的，而 `:text-is()` 不是合法 CSS', 'feat(uat): **單一目標操作一律強制唯一**（使用者拍板）——點擊、輸入、`勾選`、`選擇選項`、`檢查文字`命中多筆時直接失敗，不再安靜取第一個。⚠️ 靠歧義碰巧跑過的舊步驟會開始失敗——那些紅的不是新問題，是本來就可能點錯、只是現在才看得見', 'fix(uat): ⚠️ `檢查文字` 的「必須唯一」**從寫下來就沒生效過**（CodeX 指出）——先 `.first()` 再 `count() !== 1`，`.first().count()` 只會是 0 或 1，所以它只擋得住「不存在」', 'fix(uat): 歧義錯誤不得掉進 JS 觸發或座標備援——預檢過了、點下去前 DOM 才變多筆時，座標備援會真的在那個位置按下去，等於把歧義變成一個看不見的誤點', 'chore(uat): 定位、計數、唯一性訊息、歧義判定全部收到 recorded-selector.js，runner、積木引擎與測試 import 同一支；`讀取色塊`原本兩條分支的讀取邏輯是一模一樣的複製品，已合併成一條', 'test(uat): 173 項積木 + 61 項選擇器；新增真瀏覽器跑積木（重現使用者那個 SyntaxError）、預檢後 DOM 才變多筆的時序測試（斷言明確失敗、零 click、兩種備援都沒被呼叫）；四種注入分別轉紅', '⚠️ test(uat): 兩支測試的假 page 原本只有 evaluate，積木改走 locator 後它們驗的會是一條產品已經不走的路徑；已補成 count/nth/evaluate/elementHandle 的完整 locator'] },
