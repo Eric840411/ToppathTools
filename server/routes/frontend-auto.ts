@@ -856,6 +856,50 @@ function getUatAgents() {
     .map(a => ({ agentId: a.agentId, hostname: a.hostname, busy: a.busy, updateStatus: agentUpdateStatus(a) }))
 }
 
+/**
+ * agent 斷線：瀏覽器跟著那台機器走了，這一輪 H5/PC 錄製不可能再收到任何事件。
+ *
+ * ⚠️ 兩件事都要做，少一件都會出問題：
+ *  - **標成中斷、不是完成**。前端在 `done` 時就停止輪詢並顯示結果，只設 `done`
+ *    的話畫面會寫「錄製完成」，斷在半路看起來像順利結束。
+ *  - **不要刪掉 session**。已經錄到的積木還在裡面，使用者下一次輪詢要靠它取回。
+ *    （`docs/decisions.md`：斷線不代表停止。）
+ *
+ * 不設 `done` 的話這筆會帶著 `done:false` 永遠留著——今天無害，但只要哪天有人
+ * 拿它當「這台正在錄製」的鎖讀，一次斷線就會讓那台 agent 永遠錄不了，
+ * 而且症狀是「Agent 都在忙碌中」，看起來像使用者自己的問題、不像 bug。
+ */
+export function handleUatRecordAgentDisconnect(agentId: string, hostname?: string) {
+  for (const session of uatAgentSessions.values()) {
+    if (session.agentId !== agentId || session.done) continue
+    session.done = true
+    session.cropPending = false
+    session.error = `Local Agent${hostname ? ` ${hostname}` : ''} 連線中斷，錄製已結束（已錄到的步驟仍會帶回）`
+  }
+}
+
+/**
+ * agent 斷線：那台機器上跑的 H5/PC 腳本也結束了。
+ *
+ * 不收的話那筆 run 會**永遠停在「執行中」**——DB 的 `result` 留在 `running`、
+ * `activeRuns` 留著那個 runId，而使用者看到的是一條再也不會前進的執行紀錄，
+ * 沒有任何錯誤訊息。收尾的三個地方（done／error／stop）都有做這件事，
+ * 只有斷線這條路沒有。
+ */
+export function handleUatRunAgentDisconnect(agentId: string, hostname?: string) {
+  for (const [runId, session] of uatRunSessions) {
+    if (session.agentId !== agentId || session.done) continue
+    session.done = true
+    uatRunSessions.delete(runId)
+    activeRuns.delete(runId)
+    void pushLog(runId, `❌ Local Agent${hostname ? ` ${hostname}` : ''} 連線中斷，執行已結束`)
+    try {
+      db.prepare("UPDATE frontend_auto_runs SET result='fail',finished_at=? WHERE id=? AND result='running'")
+        .run(Date.now(), runId)
+    } catch {}
+  }
+}
+
 router.get('/api/frontend-auto/record/available', (req, res) => {
   res.json({ available: isLocalRecordRequest(req), agents: getUatAgents() })
 })
@@ -943,14 +987,14 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
 router.get('/api/frontend-auto/record/status/:sessionId', (req, res) => {
   const agentSess = uatAgentSessions.get(req.params.sessionId)
   if (agentSess) {
-    return res.json({ found: true, done: agentSess.done, steps: agentSess.steps, lastCrop: agentSess.lastCrop, cropPending: agentSess.cropPending, cdpWarning: (agentSess as unknown as Record<string, unknown>).cdpWarning ?? null,
+    return res.json({ found: true, done: agentSess.done, error: agentSess.error ?? null, steps: agentSess.steps, lastCrop: agentSess.lastCrop, cropPending: agentSess.cropPending, cdpWarning: (agentSess as unknown as Record<string, unknown>).cdpWarning ?? null,
       stats: agentSess.stats ?? null, consoleLogs: agentSess.consoleLogs ?? [], consoleDropped: agentSess.consoleDropped ?? 0, pinusPatched: agentSess.pinusPatched ?? null })
   }
   const sess = recSessions.get(req.params.sessionId)
   if (!sess) return res.json({ found: false, done: true, steps: [] })
   // ⚠️ 兩個分支要回同一組欄位。少一邊的話那個模式的面板會永遠空白，
   //    而且不會有錯誤——看起來就像「這頁沒有網路活動」。
-  res.json({ found: true, done: sess.done, steps: sess.steps, lastCrop: sess.lastCrop, cropPending: !!sess.cropRequest,
+  res.json({ found: true, done: sess.done, error: null, steps: sess.steps, lastCrop: sess.lastCrop, cropPending: !!sess.cropRequest,
     stats: sess.stats ?? null, consoleLogs: sess.consoleLogs ?? [], consoleDropped: sess.consoleDropped ?? 0, pinusPatched: sess.pinusPatched ?? null })
 })
 

@@ -207,6 +207,12 @@ export interface UatAgentSession {
   cropPending: boolean
   done: boolean
   /**
+   * 這一輪錄製是「被中斷」而不是「正常結束」的原因（agent 斷線等）。
+   * ⚠️ 只設 `done` 不設這個的話，畫面會顯示「錄製完成」——使用者會以為
+   * 東西都錄到了，實際上是斷在半路。已錄到的步驟仍然留著讓他取回。
+   */
+  error?: string
+  /**
    * 錄製時的 network／pinus 統計快照（形狀跟執行時的 stats event 一樣，
    * 前端 NetworkPanel 直接吃）。agent 每 3 秒覆蓋一次。
    */

@@ -34,7 +34,16 @@ import {
   handleBackendRecordDone,
   handleBackendRecordAgentDisconnect,
 } from './routes/osm-uat.js'
-import { router as frontendAutoRouter, logBuffers, logClients, pushLog, pushStats, activeRuns } from './routes/frontend-auto.js'
+import {
+  router as frontendAutoRouter,
+  logBuffers,
+  logClients,
+  pushLog,
+  pushStats,
+  activeRuns,
+  handleUatRecordAgentDisconnect,
+  handleUatRunAgentDisconnect,
+} from './routes/frontend-auto.js'
 import uiScreenshotRouter from './routes/ui-screenshot.js'
 import { activeRunners, pendingSourceUpdates, router as machineTestRouter } from './routes/machine-test.js'
 import {
@@ -869,6 +878,10 @@ wss.on('connection', (ws, req) => {
         // 錄製 session 也要跟著收——瀏覽器在那台 agent 上，它斷了就不可能再錄到東西。
         // 已經錄到的積木仍然留著讓使用者取回，不要一起丟掉。
         handleBackendRecordAgentDisconnect(agentId)
+        // H5/PC 這條之前完全沒收：錄製 session 會帶著 done:false 永遠留著，
+        // 執行中的 run 則永遠停在「執行中」。兩個都是安靜的殘骸。
+        handleUatRecordAgentDisconnect(agentId, info?.hostname)
+        handleUatRunAgentDisconnect(agentId, info?.hostname)
         const handledByBackendUat = handleBackendUatAgentDisconnect(agentId)
         if (info?.sessionId && !handledByBackendUat) {
           if (info.sessionId.startsWith('sb_')) {

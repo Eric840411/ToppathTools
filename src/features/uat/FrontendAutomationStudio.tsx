@@ -189,7 +189,7 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
     pollRecorder.current = setInterval(async () => {
       const poll = await fetch(`/api/frontend-auto/record/status/${data.sessionId}`)
       const status = await poll.json() as {
-        done?: boolean; steps?: unknown[]; cdpWarning?: string
+        done?: boolean; error?: string | null; steps?: unknown[]; cdpWarning?: string
         stats?: UatStatsPayload | null
         consoleLogs?: { type: string; text: string; location?: string; ts: number }[]
         consoleDropped?: number
@@ -217,7 +217,11 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
         pollRecorder.current = null
         setRecordSessionId(null)
         setRecordLabel('')
-        setNotice(`錄製完成，共 ${status.steps?.length ?? 0} 個步驟`)
+        // ⚠️ 中斷跟完成要分得開。步驟一樣會帶回來（上面已經併進腳本），
+        //    但「錄製完成」會讓人以為東西都錄到了，實際上是斷在半路。
+        setNotice(status.error
+          ? `⚠️ ${status.error}；已取回 ${status.steps?.length ?? 0} 個步驟`
+          : `錄製完成，共 ${status.steps?.length ?? 0} 個步驟`)
       }
     }, 2000)
   }
