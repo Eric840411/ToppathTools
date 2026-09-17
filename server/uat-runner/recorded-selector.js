@@ -289,127 +289,111 @@ async function narrowToVisible(page, locator, count) {
 
 
 /**
- * 把一條錄製選擇器解成「單一元素」的 locator，並把**怎麼失敗的**講清楚。
+ * **完整集合解析**：把一條錄製選擇器解成「Playwright locator ＋ 命中數」，含舊格式相容。
  *
- * 回 `{ locator, count, failure, message, selector }`：
- *   failure: null 成功｜'invalid' 選擇器語法錯｜'error' 其他例外（量不到）
- *   count:   0 沒找到｜1 唯一｜>1 多筆（呼叫端自己決定多筆算不算錯）
+ * ⚠️ 這一支**只負責解析**。唯一性、可見收斂、計數規則一律由呼叫端各自套用——
+ *    所以定位、計數、即時驗證三個用途可以共用它，不必各自再認一次 text=/label=。
+ *    （CodeX 2026-09-17：先前每個用途都自己 parse，補相容時就會漏掉其中幾支。）
  *
- * ⚠️ 呼叫端要把這三種分開回報，不要全吞成 null。
- *    「沒找到」要改頁面或等待、「語法錯」要改選擇器、「量不到」要重跑——下一步完全不同。
+ * ⚠️ 相容候選一律**聯集後再判唯一**，不可以「第一條命中 1 就回傳」——
+ *    同時存在 `Min Bet:` 與 `Min Bet：` 兩個欄位時，那會直接選前者而把歧義吃掉。
+ *    CSS 選擇器清單（逗號）本來就會去重，所以聯集的命中數就是實際的元素數。
+ *    （CodeX 2026-09-17 P1）
  */
-export async function locateRecorded(page, selector, { requireUnique = false } = {}) {
-  const fail = (failure, message) => ({ locator: null, count: null, failure, message, selector });
+async function resolveToSet(page, selector) {
+  const fail = (failure, message) => ({ locator: null, count: null, failure, message, selector, hint: '' });
   if (typeof selector !== 'string' || !selector) return fail('invalid', '選擇器是空的');
 
-  // text=/label= 走 Playwright 的 exact 比對，並優先取可見的那一個。
-  // （舊式 text= 是模糊比對，text=Edit 會命中 Player Credit Log，這裡不能改成模糊。）
   const exact = selector.startsWith('text=') ? page.getByText(selector.slice(5), { exact: true })
     : selector.startsWith('label=') ? page.getByLabel(selector.slice(6), { exact: true }) : null;
 
-  if (exact) {
-    try {
-      let count = await exact.count();
-      let hint = '';
-      if (count !== 1) {
-        // 舊腳本相容：下拉選項的 text= 常跟表格欄位撞名，收斂到打開著的面板裡。
-        for (const variant of dropdownOptionVariants(selector)) {
-          const alt = await safeCount(page, variant);
-          if (alt.count === 1) {
-            const full = page.locator(variant);
-            return { locator: requireUnique ? full : full.first(), count: 1, failure: null, message: '', selector: variant };
-          }
-          // ⚠️ 面板裡就有好幾個同名選項——這是資料本身的歧義，我們猜不出來。
-          //    但不能只丟一句「命中 11 個」讓人自己想，要把真正的原因跟出路講出來。
-          if (alt.count > 1 && !hint) {
-            hint = `打開著的下拉面板裡有 ${alt.count} 個同名選項，分不出要選哪一個。`
-              + `要指定的話，把這一步的選擇器改成：${variant} >> nth=0（第一個）或 >> nth=1（第二個）`;
-          }
-        }
-      }
-      if (count === 0) {
-        // 舊腳本相容：`label=X` 在 Element UI 表單上永遠是 0，改試 form item 範圍。
-        // 跟表格錨點同一個規矩：**唯一命中才套用**，歧義就不碰。
-        for (const variant of legacyLabelVariant(selector)) {
-          const alt = await safeCount(page, variant);
-          if (alt.count === 1) {
-            const full = page.locator(variant);
-            return { locator: requireUnique ? full : full.first(), count: 1, failure: null, message: '', selector: variant };
-          }
-        }
-      }
-      // ⚠️ 唯一模式回**完整 locator**，不能回 `.first()`。
-      //    `.first()` 是「明言只要第一個」，Playwright 就不會再做 strict 檢查——
-      //    檢查完之後才新增的重複元素永遠檢查不到，會安靜地動第一個。
-      //    回完整 locator，動作當下 Playwright 會再驗一次。（CodeX 2026-09-17 P1）
-      if (requireUnique) {
-        if (count === 1) return { locator: exact, count, failure: null, message: '', selector, hint };
-        const onlyVisible = await narrowToVisible(page, exact, count);
-        if (onlyVisible) return { locator: onlyVisible, count: 1, failure: null, message: '', selector, hint };
-        return { locator: null, count, failure: null, message: '', selector, hint };
-      }
-      if (count <= 1) return { locator: exact.first(), count, failure: null, message: '', selector };
-      for (let i = 0; i < count; i++) {
-        const candidate = exact.nth(i);
-        if (await candidate.isVisible().catch(() => false)) return { locator: candidate, count, failure: null, message: '', selector };
-      }
-      return { locator: exact.first(), count, failure: null, message: '', selector };
-    } catch (e) {
-      const message = String(e?.message ?? e).split('\n')[0].slice(0, 200);
-      return fail(/while parsing css selector|is not a valid selector|Unknown engine|SyntaxError/i.test(message) ? 'invalid' : 'error', message);
-    }
+  if (!exact) {
+    // 純 CSS：交給表格錨點相容
+    const resolved = await resolveRecordedSelector(page, selector);
+    if (resolved.failure) return fail(resolved.failure, resolved.message);
+    return { locator: page.locator(resolved.selector), count: resolved.count, failure: null, message: '', selector: resolved.selector, hint: '' };
   }
 
-  const resolved = await resolveRecordedSelector(page, selector);
-  if (resolved.failure) return fail(resolved.failure, resolved.message);
-  const full = page.locator(resolved.selector);
-  if (requireUnique && resolved.count !== 1) {
-    // 跟 text= 同一個規則：只有一個看得見就用它，否則照常報歧義。
-    const onlyVisible = await narrowToVisible(page, full, resolved.count);
-    if (onlyVisible) return { locator: onlyVisible, count: 1, failure: null, message: '', selector: resolved.selector };
+  let count;
+  try { count = await exact.count(); }
+  catch (e) {
+    const message = String(e?.message ?? e).split('\n')[0].slice(0, 200);
+    return fail(/while parsing css selector|is not a valid selector|Unknown engine|SyntaxError/i.test(message) ? 'invalid' : 'error', message);
   }
-  return {
-    // 同上：唯一模式不能 `.first()`，否則檢查後才出現的重複永遠擋不到。
-    locator: requireUnique ? (resolved.count === 1 ? full : null) : full.first(),
-    count: resolved.count,
-    failure: null,
-    message: '',
-    selector: resolved.selector,
-  };
+  if (count === 1) return { locator: exact, count, failure: null, message: '', selector, hint: '' };
+
+  // ── 相容候選：全部聯集起來一次算 ──────────────────────────────────
+  const candidates = [...dropdownOptionVariants(selector), ...legacyLabelVariant(selector)];
+  let hint = '';
+  if (candidates.length) {
+    const union = [...new Set(candidates)].join(', ');
+    const alt = await safeCount(page, union);
+    if (alt.count === 1) {
+      return { locator: page.locator(union), count: 1, failure: null, message: '', selector: union, hint: '' };
+    }
+    // ⚠️ 原式一個都沒找到、相容候選卻找到好幾個時，要報**相容那邊的數字**。
+    //    否則訊息會寫「命中 0 個」，而真正的問題是「有兩個欄位同名」——
+    //    那兩句話的下一步完全不同。（例：`Min Bet:` 與 `Min Bet：` 各一個）
+    if (alt.count > 1 && count === 0) {
+      return { locator: page.locator(union), count: alt.count, failure: null, message: '', selector: union, hint: '' };
+    }
+    // 面板裡就有好幾個同名選項——是資料本身的歧義，猜不出來，但要把出路講清楚
+    if (alt.count > 1) {
+      const dd = dropdownOptionVariants(selector)[0];
+      if (dd) {
+        hint = `打開著的下拉面板裡有同名選項，分不出要選哪一個。`
+          + `要指定的話，把這一步的選擇器改成：${dd} >> nth=0（第一個）或 >> nth=1（第二個）`;
+      }
+    }
+  }
+  return { locator: exact, count, failure: null, message: '', selector, hint };
+}
+
+/**
+ * 把一條錄製選擇器解成「單一元素」的 locator，並把**怎麼失敗的**講清楚。
+ *
+ * 回 `{ locator, count, failure, message, selector, hint }`：
+ *   failure: null 成功｜'invalid' 語法錯｜'error' 其他例外（量不到）
+ *   count:   0 沒找到｜1 唯一｜>1 多筆
+ *
+ * ⚠️ requireUnique 時回**完整 locator**（或可見集合），不能回 `.first()`／`.nth()`——
+ *    那是「明言只要這一個」，Playwright 就不會在動作當下再做 strict 檢查，
+ *    檢查完之後才出現的重複永遠擋不到。（CodeX 2026-09-17 P1，踩過兩次）
+ */
+export async function locateRecorded(page, selector, { requireUnique = false } = {}) {
+  const set = await resolveToSet(page, selector);
+  if (set.failure) return set;
+
+  if (set.count === 1) return { ...set, locator: set.locator };
+
+  if (requireUnique) {
+    const onlyVisible = await narrowToVisible(page, set.locator, set.count);
+    if (onlyVisible) return { ...set, locator: onlyVisible, count: 1 };
+    return { ...set, locator: null };
+  }
+
+  // 非唯一模式：沿用舊行為——優先取看得見的那一個，都看不見才退第一個。
+  if (set.count > 1 && set.count <= 20) {
+    for (let i = 0; i < set.count; i++) {
+      const candidate = set.locator.nth(i);
+      if (await candidate.isVisible().catch(() => false)) return { ...set, locator: candidate };
+    }
+  }
+  return { ...set, locator: set.locator.first() };
 }
 
 /**
  * 數「完整集合」有幾個。
  *
- * ⚠️ 計數積木絕對不能改用 locateRecorded()——它回的是 `.first()`，
+ * ⚠️ 計數積木絕對不能改用 locateRecorded()——它在非唯一模式回的是單一元素，
  *    接上去會**永遠最多算到 1**，把一個看得見的錯誤換成一個安靜的錯誤。
  *    （CodeX 2026-09-17 指出；我原本就打算這樣接。）
- *    它仍然走 Playwright locator，只是不套 `.first()`。
  */
 export async function countRecorded(page, selector) {
-  if (typeof selector !== 'string' || !selector) return { count: null, failure: 'invalid', message: '選擇器是空的', selector };
-  const exact = selector.startsWith('text=') ? page.getByText(selector.slice(5), { exact: true })
-    : selector.startsWith('label=') ? page.getByLabel(selector.slice(6), { exact: true }) : null;
-  if (exact) {
-    try {
-      const n = await exact.count();
-      if (n === 0) {
-        for (const variant of legacyLabelVariant(selector)) {
-          const alt = await safeCount(page, variant);
-          if (alt.count === 1) return { count: 1, failure: null, message: '', selector: variant, locator: page.locator(variant) };
-        }
-      }
-      return { count: n, failure: null, message: '', selector, locator: exact };
-    }
-    catch (e) {
-      const message = String(e?.message ?? e).split('\n')[0].slice(0, 200);
-      return { count: null, failure: /while parsing css selector|is not a valid selector|Unknown engine|SyntaxError/i.test(message) ? 'invalid' : 'error', message, selector };
-    }
-  }
-  const resolved = await resolveRecordedSelector(page, selector);
-  if (resolved.failure) return { count: null, failure: resolved.failure, message: resolved.message, selector, locator: null };
-  return { count: resolved.count, failure: null, message: '', selector: resolved.selector, locator: page.locator(resolved.selector) };
+  const set = await resolveToSet(page, selector);
+  return { count: set.count, failure: set.failure, message: set.message, selector: set.selector, locator: set.locator };
 }
+
 
 /** 失敗分類 → 給人看的一句話。積木失敗訊息共用這一份。 */
 export function describeLocateFailure(result, what) {
@@ -553,7 +537,10 @@ export async function setCheckedRecorded(target, desired, { timeout = 10000 } = 
   if (!proxy.locator) {
     return { ok: false, problem: `${proxy.problem}。這種元素 Playwright 不會去點，會一直等到逾時` };
   }
-  try { await proxy.locator.click({ timeout }) }
+  // ⚠️ 等待跟點擊要**共用同一個期限**。前面等了多久就要扣掉，
+  //    否則點擊又重新拿一整個 timeout，最差會拖到將近兩倍。（CodeX 2026-09-17 P2）
+  const left = Math.max(500, deadline - Date.now());
+  try { await proxy.locator.click({ timeout: left }) }
   catch (e) { return { ok: false, problem: `點不到可見的勾選框（${proxy.kind}）：${String(e.message).split('\n')[0]}` } }
 
   // 點了不代表成功——回頭驗原 input

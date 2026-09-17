@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.161.0'
+export const APP_VERSION = '4.161.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.161.1', date: '2026-09-17', changes: ['fix(uat): [P1] 冒號相容會把歧義吞掉——遇到第一條命中 1 就回傳，同時存在 `Min Bet:` 與 `Min Bet：` 兩個欄位時會直接選前者。改成**候選全部聯集、去重後再判唯一**（CodeX review）', 'fix(uat): [P2] 代理點擊重新拿完整 timeout，前面的等待沒扣掉，最差接近兩倍逐時。改成共用同一個期限（實測 2175ms → 1528ms）', '⚠️ chore(uat): 抽出 `resolveToSet()` 作為**唯一的完整集合解析**，定位／計數／即時驗證全部建在它上面。之前各自 parse `text=`／`label=`，補相容時就會漏掉其中幾支（CodeX 連續點名三次）', 'test(uat): 149 項；新增斷言釘住「全檔只在一處認 text=/label=」', '⚠️ test(uat): 共用期限第一版測試根本沒走到 click（那個案例永遠沒代理），所以注入不會紅。補了「等一段才出現代理、接著被遮罩擋住」的案例，並依實測數字把門檻收到 1.25 倍'] },
   { version: '4.161.0', date: '2026-09-17', changes: ['fix(uat): [P1] 可見收斂回的是 `.nth()`，等於又回到「明言只要這一個」——定位完之後第二顆才變可見仍然會點下去。改回 `filter({ visible: true })`，動作當下仍保留 strict 檢查（CodeX review）', 'fix(uat): [P1] 一個**隱藏的下拉選項** + 一個**可見的同名表格儲存格**時，只看可不可見會收斂到儲存格並靜静誤點。現在跨「下拉選項」與「一般元素」一律不收斂（CodeX review）', 'fix(uat): [P2] 錄製端把 `Min Bet:` 的冒號拿掉再放進 `:text-is()`，而它比的是頁面原文——**錄製當下就是 0 個**。選擇器改用原文，冒號只用在唯一性比對；並修正「允許巢狀 label 卻寫直接子層」的不一致。舊腳本的 `label=X` 一併試 `X:`／`X：`（CodeX review；使用者的 Min Bet 就卡在這）', 'fix(uat): [P2] 已在 DOM 裡、稍後才顯示的勾選框不再立刻失敗，在同一個期限內重試可見性與代理（CodeX review）', '⚠️ fix(uat): 即時驗證還是自己 `page.locator()`——`label=` 不是 Playwright 引擎會拋 Unknown engine 而被誤判成語法錯誤。改走 countRecorded，完整集合解析**只剩一支**（CodeX 點名的分身）', 'chore(uat): 拆掉 block-engine 裡已經沒人呼叫的 recordedLocator，並加一條檢查釘住「不得再出現分身」', 'test(uat): 141 項；五種注入分別轉紅'] },
   { version: '4.160.2', date: '2026-09-17', changes: ['fix(uat): 下拉面板裡就有兩個同名選項時（使用者實際遇到：Jackpot 清單裡 4186-dfdc1 出現兩次），錯誤訊息只說「命中 11 個」，看不出真正的原因。現在會說明是面板內同名，並直接給可以貼的選擇器（>> nth=0 ／ nth=1）', '⚠️ 這種情況仍然**不自己猜**——兩個選項顯示名稱一樣但底層值可能不同，猜錯會設到別的 Jackpot，而且報告上看不出來', 'test(uat): 129 項；新增案例驗「不猜」與「給的那條路真的走得通」'] },
   { version: '4.160.1', date: '2026-09-17', changes: ['⚠️ fix(uat): 找不到 Sure 按鈕（使用者回報 `text=Sure` 命中 2 個）——Element UI 把**關著的彈窗留在 DOM 裡**，後台有好幾顆 Batch Set…每一顆都有自己的 Sure，所以畫面上只看得到一顆、DOM 裡卻有多顆', '⚠️ 這是我在 v4.157.0 改強制唯一時**弄壞的回歸**：舊的非唯一路徑本來就會在 text=/label= 多筆時優先取可見的那一個，我把那段一併拿掉了', 'fix(uat): 補回可見收斂，但規則收緊——**剛好一個可見才用它；可見的有兩個以上就是真歧義，照常報錯**。舊寫法是「取第一個可見的」，那又回到安靜點錯', '⚠️ 一個都不可見時**不收斂**，回原本的結果——Element UI 的勾選框本來就是隱藏的，收斂會把 v4.158.0 剛修好的勾選又弄壞', 'test(uat): 126 項；兩種注入分別轉紅。退回「取第一個可見的」時，重複列那組會看到**按鈕真的被按下去**'] },

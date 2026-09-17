@@ -29,7 +29,7 @@ import { backendRecorderScript, RECORDER_MARKER } from '../../server/uat-runner/
 import {
   legacyTableAnchorVariant, resolveRecordedSelector, verifyRecordedSelectorLive,
   applySelectorChecks, SELECTOR_CHECK_STATUSES, createRecordedLocators, isAmbiguityError, clickRecorded,
-  locateRecorded, setCheckedRecorded, hiddenToggleProxy, legacyLabelVariant,
+  locateRecorded, setCheckedRecorded, hiddenToggleProxy, legacyLabelVariant, countRecorded,
 } from '../../server/uat-runner/recorded-selector.js';
 import { runMultiTcSteps } from '../../server/uat-runner/multi-tc.js';
 import { runSteps } from '../../server/uat-runner/block-engine.js';
@@ -1065,6 +1065,83 @@ try {
       eq('⑤ label= 的即時驗證不會變成語法錯誤', r?.status === 'invalid', false);
       eq('⑤ 而且認得出就是剛才那一個', r?.status, 'ok');
       await pg.close();
+    }
+  }
+
+  // ── (o) CodeX 第三輪：相容候選要聯集、期限要共用、解析只能一支 ──
+  console.log('\n── CodeX 第三輪 ──');
+  {
+    // ① [P1] 兩個欄位分別是 `Min Bet:` 與 `Min Bet：` → 是歧義，不能選第一個
+    {
+      const pg = await browser.newPage();
+      await pg.setContent(
+        '<div class="el-form-item"><label class="el-form-item__label">Min Bet:</label>'
+        + '<div class="el-form-item__content"><input class="a"></div></div>'
+        + '<div class="el-form-item"><label class="el-form-item__label">Min Bet：</label>'
+        + '<div class="el-form-item__content"><input class="b"></div></div>');
+      const f = createRecordedLocators(pg, { requireUnique: true });
+      const r = await f.checkLocator({ selector: 'label=Min Bet' }).catch(e => ({ error: String(e.message) }));
+      eq('① 半形、全形冒號各一個欄位 → 算歧義，不選第一個',
+        /定位必須唯一/.test(r?.error || ''), true);
+      // 計數那一支也不能把歧義吞掉
+      const c = await countRecorded(pg, 'label=Min Bet');
+      eq('① countRecorded 也要看到 2', c.count, 2);
+      await pg.close();
+    }
+
+    // ①b 只有一個時照常相容（不能因為改聯集就把正常情況弄壞）
+    {
+      const pg = await browser.newPage();
+      await pg.setContent('<div class="el-form-item"><label class="el-form-item__label">Min Bet:</label>'
+        + '<div class="el-form-item__content"><input class="a"></div></div>');
+      const f = createRecordedLocators(pg, { requireUnique: true });
+      const r = await f.checkLocator({ selector: 'label=Min Bet' }).catch(e => ({ error: String(e.message) }));
+      eq('①b 只有一個時仍然相容得到', r?.count, 1);
+      await pg.close();
+    }
+
+    // ② [P2] 等待與點擊共用期限：永遠不會出現的代理不得拖到兩個 timeout
+    {
+      const pg = await browser.newPage();
+      await pg.setContent('<style>.el-checkbox__original{opacity:0;position:absolute;width:0;height:0}</style>'
+        + '<div><input type="checkbox" class="el-checkbox__original"></div>');   // 沒有任何代理
+      const t0 = Date.now();
+      const r = await setCheckedRecorded(pg.locator('input'), true, { timeout: 1200 });
+      const spent = Date.now() - t0;
+      eq('② 找不到代理最後仍然失敗', r.ok, false);
+      eq('② 而且沒有拖到兩個期限（<1.8 倍）', spent < 1200 * 1.8, true);
+      await pg.close();
+    }
+
+    // ②b 真正會加倍的情境：**等了一段才出現代理，而且接著點不到**。
+    //    上面那一組根本沒走到 click（永遠沒代理），所以注入「點擊重拿完整 timeout」
+    //    不會轉紅——這是我第一版漏掉的那一半。
+    {
+      const pg = await browser.newPage();
+      await pg.setContent('<style>.el-checkbox__original{opacity:0;position:absolute;width:0;height:0}'
+        + '.el-checkbox__inner{display:inline-block;width:14px;height:14px;border:1px solid #999}'
+        + '#mask{position:fixed;inset:0;z-index:9999}.late{display:none}</style>'
+        + '<label class="el-checkbox late" id="lb"><span class="el-checkbox__inner"></span>'
+        + '<input type="checkbox" class="el-checkbox__original"></label>'
+        + '<div id="mask"></div>');
+      // 600ms 後代理才出現；但遮罩一直在，所以接著的 click 一定逾時
+      await pg.evaluate(() => setTimeout(() => document.getElementById('lb').classList.remove('late'), 600));
+      const t0 = Date.now();
+      const r = await setCheckedRecorded(pg.locator('#lb input'), true, { timeout: 1500 });
+      const spent = Date.now() - t0;
+      eq('②b 遮罩擋住時仍然失敗', r.ok, false);
+      // 實測：共用期限 ~1528ms，點擊重拿完整 timeout ~2175ms。門檻拉到兩者中間。
+      eq('②b 等待與點擊共用期限（不得接近兩倍）', spent < 1500 * 1.25, true);
+      await pg.close();
+    }
+
+    // ③ 解析只能一支：共用模組裡不得有第二處自己 parse text=/label=
+    {
+      const selSrc = readFileSync(new URL('../../server/uat-runner/recorded-selector.js', import.meta.url), 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\r\n]*/g, '');
+      const parses = (selSrc.match(/getByText\(|getByLabel\(/g) || []).length;
+      // resolveToSet 裡各一次，就是全部
+      eq('③ 全檔只在一處認 text=/label=', parses, 2);
     }
   }
 
