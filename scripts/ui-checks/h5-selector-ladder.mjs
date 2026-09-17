@@ -99,6 +99,22 @@ for (const [label, src] of [['agent-runner', agentRunner], ['frontend-auto', fro
 check('④ 伺服器模式認得舊腳本的 fill', /step\.action === 'type' \|\| step\.action === 'fill'/.test(frontendAuto),
   '沒有的話舊腳本會落到 skipped，而 skipped 不算失敗');
 
+// ── ④b shadow DOM 的完整性（CodeX 2026-09-18 兩輪複驗）───────────────────
+// ⚠️ 宣告式 closed root（<template shadowrootmode="closed">）在頁面裡**偵測不到**，
+//    只有 CDP 看得到。所以兩個 host 都要在載入完成時查一次；沒查的話那些元素
+//    會被錯標成「已驗證」，而重播點 host 中心不保證落在原本那一顆。
+for (const [label, src] of [['agent-runner', agentRunner], ['frontend-auto', frontendAuto]]) {
+  check(`④b ${label} 載入完成會查 shadow 完整性`,
+    /Page\.loadEventFired[\s\S]{0,400}flagShadowCompleteness\(send\)/.test(src),
+    '沒查的話宣告式 closed shadow host 會被錯標成已驗證');
+  // ⚠️ 直接用目標網址啟動 Chrome 的話，「注入早於頁面程式碼」不成立。
+  check(`④b ${label} 先開 about:blank，注入完才導頁`,
+    /'about:blank'/.test(src) && /Page\.navigate.*startUrl/.test(src),
+    '直接開目標網址的話，注入前建立的 shadow root 永遠追蹤不到');
+}
+check('④b 只導頁一次（CDP 斷線會重連）', /navigated = true/.test(agentRunner) && /navigated = true/.test(frontendAuto),
+  '重連時再導一次就是無限重載');
+
 // ── ⑤ agent 白名單與重啟清單 ─────────────────────────────────────────────
 for (const file of ['selector-ladder.js', 'frontend-recorder.js']) {
   check(`⑤ ${file} 在 AGENT_SOURCE_WHITELIST 裡`,

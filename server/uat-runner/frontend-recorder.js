@@ -37,6 +37,53 @@ import { selectorLadderSource, genericAdapterSource, nativeSelectorCheckSource }
  */
 export const FRONTEND_RECORDER_MARKER = '__TOPPATH_RECORDER__';
 
+/**
+ * host 端：查這份文件裡有沒有**我們追蹤不到的** shadow root，有就叫頁面停止宣稱驗過。
+ *
+ * 為什麼一定要 host 來查：宣告式的 closed root（`<template shadowrootmode="closed">`）
+ * 在頁面裡完全偵測不到（三條路都試過，見 frontendRecorderScript 裡的說明），
+ * **只有 CDP 看得到**。
+ *
+ * ⚠️ 這裡刻意**過度保守**：只要這一頁有任何 shadow root 就整頁不宣稱驗過，
+ *    不去區分「是不是我們自己追蹤到的那些」。理由是區分需要把每個 host 節點
+ *    resolve 回頁面物件再逐一註冊（每個兩次 CDP 呼叫），而換來的只是
+ *    「在用 shadow DOM 的頁面上多一點 ok 標記」。少標 ok 只是少一點資訊，
+ *    錯標 ok 會讓人相信一條會點錯的選擇器。
+ *
+ * ⚠️ 查不到（DOM domain 不通、逾時）也一律設旗標——**退路要往安全的方向倒**。
+ *
+ * @param {(method: string, params?: object) => Promise<any>} send CDP 送訊息的函式
+ */
+export async function flagShadowCompleteness(send) {
+  const markIncomplete = async () => {
+    try { await send('Runtime.evaluate', { expression: 'window.__toppathShadowIncomplete = true' }); }
+    catch (e) { /* 連這個都送不出去的話錄製本來就斷了 */ }
+  };
+  try {
+    await send('DOM.enable');
+    const doc = await send('DOM.getDocument', { depth: -1, pierce: true });
+    const root = doc?.result?.root;
+    if (!root) return await markIncomplete();
+    let found = false;
+    const walk = (node) => {
+      if (found || !node) return;
+      // ⚠️ **一定要排除 user-agent shadow root。** `<input>`、`<video>` 這些元素
+      //    瀏覽器自己就掛了一個；不排除的話**每一頁都會被判成「有 shadow root」**，
+      //    於是所有步驟永遠是 unknown——驗證等於整個關掉，而且不會有人發現。
+      //    （第一版就是這樣，瀏覽器測試的 ⓿ 當場抓到。）
+      for (const root of node.shadowRoots ?? []) {
+        if (root?.shadowRootType && root.shadowRootType !== 'user-agent') { found = true; return; }
+      }
+      for (const child of node.children ?? []) walk(child);
+      if (node.contentDocument) walk(node.contentDocument);
+    };
+    walk(root);
+    if (found) await markIncomplete();
+  } catch (e) {
+    await markIncomplete();
+  }
+}
+
 export function frontendRecorderScript() {
   return `
 (() => {
@@ -90,7 +137,12 @@ ${nativeSelectorCheckSource()}
    *    少標一個 ok 只是少一點資訊，錯標一個 ok 會讓人相信一條會點錯的選擇器。
    */
   const shadowHosts = new WeakSet();
-  let shadowTrackable = false;
+  // ⚠️ 追蹤完整性的**前提**是「我們比這份文件的解析更早」。
+  //    readyState 已經不是 loading，代表文件在我們進來之前就開始解析了——
+  //    之前建立的 shadow root 我們沒看到，不能宣稱追蹤完整。
+  //    （產品端已改成先開 about:blank、注入完才導頁；這裡是那個前提的守門，
+  //      哪天有人把啟動順序改回去，症狀會是「全部 unknown」而不是「錯標 ok」。）
+  let shadowTrackable = document.readyState === 'loading';
   try {
     const nativeAttachShadow = Element.prototype.attachShadow;
     if (typeof nativeAttachShadow === 'function') {
@@ -102,12 +154,32 @@ ${nativeSelectorCheckSource()}
       // ⚠️ 一定要**確認真的換上去了**，不能指派完就當成成功。
       //    這段注入的腳本不是嚴格模式：屬性被設成唯讀時，指派會**安靜失敗**、
       //    不拋例外——於是我們會以為在追蹤，其實沒有，而那正是會錯標 ok 的情況。
-      shadowTrackable = Element.prototype.attachShadow === patched;
+      shadowTrackable = shadowTrackable && Element.prototype.attachShadow === patched;
+    } else {
+      shadowTrackable = false;
     }
   } catch (e) { shadowTrackable = false; }
 
+  /**
+   * ⚠️ **宣告式 shadow root 從頁面裡根本偵測不到**（CodeX 2026-09-18 指出）：
+   *    <template shadowrootmode="closed"> 由 HTML parser 建立，不經過 attachShadow。
+   *
+   *    我試過三條頁面端的路，全部不行，實測結論記在這裡免得有人再試一遍：
+   *      ① MutationObserver 攔 template —— **parser 根本不會把它插進 DOM**
+   *         （實測：整份文件的 addedNodes 裡沒有那個 TEMPLATE）
+   *      ② el.shadowRoot —— closed 一律 null，跟「沒有 shadow」分不開
+   *      ③ el.attachShadow() 探測 —— 已經有 root 時會丟 NotSupportedError（可靠），
+   *         **但沒有 root 時它會真的建一個**，等於在受測頁面上動手腳。不能用。
+   *
+   *    只有 CDP 看得到（DevTools 就是這樣檢視 closed root 的）。所以由 **host 端**
+   *    在每次載入完成時查一次，發現這份文件有 shadow root 就設下面這個旗標，
+   *    之後這一頁一律不宣稱驗過——見 flagShadowCompleteness()。
+   */
+
   /** 這一下點擊跟 shadow DOM 有沒有關係——有關係就不能宣稱驗過 */
   const fromShadow = (source, described) => {
+    // host 端用 CDP 查到這一頁有我們追蹤不到的 shadow root（宣告式的那種）
+    if (window.__toppathShadowIncomplete) return true;
     if (!shadowTrackable) return true;   // 追蹤不到 → 一律不下判斷
     for (const node of [source, described]) {
       if (!node) continue;

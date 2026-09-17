@@ -7,7 +7,7 @@ import { attachPinusProbe } from '../uat-runner/pinus-probe.js'
 import { attachCdpCapture } from '../uat-runner/cdp-capture.js'
 import { createRecordedLocators } from '../uat-runner/recorded-selector.js'
 import { waitForDebugPort, clearStaleDebugPort, DEBUG_PORT_ARG } from '../uat-runner/chrome-debug-port.js'
-import { frontendRecorderScript } from '../uat-runner/frontend-recorder.js'
+import { frontendRecorderScript, flagShadowCompleteness } from '../uat-runner/frontend-recorder.js'
 import { evaluateApiAssertion } from '../uat-runner/api-assert.js'
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 import { extname, join } from 'path'
@@ -437,6 +437,10 @@ interface RecSession {
   proc: ChildProcess
   profileDir: string
   originalUrl: string
+  /** 要錄的目標網址（已跟過一次轉址）。Chrome 先開 about:blank，注入完才導頁 */
+  startUrl: string
+  /** 只導頁一次——CDP 斷線重連時再導一次就是無限重載 */
+  navigated?: boolean
   platform: Platform
   viewportWidth: number
   viewportHeight: number
@@ -639,6 +643,12 @@ function recordableWindowSize(width: number, height: number) {
 }
 
 /**
+ * ⚠️ **傳進來的 url 應該是 about:blank。** 直接用目標網址啟動的話，Chrome 會一邊
+ *    載入頁面、我們一邊才連 CDP 注入錄製器——「注入早於頁面程式碼」這個前提
+ *    不成立，頁面在注入前建立的 **closed shadow root** 永遠追蹤不到，
+ *    那些元素會被錯標成「已驗證」。（CodeX 2026-09-18 複驗指出。）
+ *    導頁改在 connectRecorder 的 open handler 裡、掛完攔截之後做。
+ *
  * ⚠️ port 讓 Chrome 自己挑，不要用亂數（見 `chrome-debug-port.js`）。
  *    亂數撞號時**不會失敗，會安靜地接到別人的瀏覽器**——兩個 session 都跑完、
  *    結果交叉污染。v4.165.0 改掉了 agent 端的三處，**漏了這一處**。
@@ -789,6 +799,8 @@ function connectRecorder(sess: RecSession, port: number) {
           }
         }
         if (msg.method === 'Page.loadEventFired') {
+          // 宣告式 closed shadow root 只有 CDP 看得到，所以每次載入完成查一次。
+          void flagShadowCompleteness(send)
           void send('Runtime.evaluate', { expression: recorderScript() })
           void sess.capture?.reinject()
         }
@@ -811,6 +823,11 @@ function connectRecorder(sess: RecSession, port: number) {
         })
         sess.captureTimer = setInterval(() => { void flushLocalCapture(sess) }, 3000)
       } catch { /* 錄製照常 */ }
+      // 錄製器與攔截都掛好了才導頁。⚠️ 只導一次。
+      if (!sess.navigated && sess.startUrl && sess.startUrl !== 'about:blank') {
+        sess.navigated = true
+        await send('Page.navigate', { url: sess.startUrl })
+      }
     })
     ws.on('close', () => { sess.done = true })
   })().catch(() => { sess.done = true })
@@ -934,11 +951,13 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
   const [w, h] = resolution.split('x')
   const viewportWidth = Number(w) || 390
   const viewportHeight = Number(h) || 844
-  const { proc, profileDir, port } = await launchRecorderChrome(sessionId, displayUrl, viewportWidth, viewportHeight)
+  // ⚠️ 先開 about:blank，注入完才導頁——理由見 launchRecorderChrome 的說明。
+  const { proc, profileDir, port } = await launchRecorderChrome(sessionId, 'about:blank', viewportWidth, viewportHeight)
   const sess: RecSession = {
     proc,
     profileDir,
     originalUrl: url,
+    startUrl: displayUrl,
     platform,
     viewportWidth,
     viewportHeight,

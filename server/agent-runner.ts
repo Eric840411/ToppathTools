@@ -33,7 +33,7 @@ import { attachCdpCapture } from './uat-runner/cdp-capture.js'
 import { evaluateApiAssertion } from './uat-runner/api-assert.js'
 import { waitForDebugPort, clearStaleDebugPort, DEBUG_PORT_ARG } from './uat-runner/chrome-debug-port.js'
 import { verifyRecordedSelectorLive, createRecordedLocators } from './uat-runner/recorded-selector.js'
-import { frontendRecorderScript } from './uat-runner/frontend-recorder.js'
+import { frontendRecorderScript, flagShadowCompleteness } from './uat-runner/frontend-recorder.js'
 import { MachineTestRunner } from './machine-test/runner.js'
 import type { MachineTestSession, MachineProfile, TestEvent } from './machine-test/types.js'
 import { ScriptedBetRunner } from './scripted-bet/runner.js'
@@ -336,6 +336,10 @@ interface UatRecSession {
   width: number
   height: number
   platform: 'h5' | 'pc'
+  /** 要錄的目標網址。Chrome 先開 about:blank，注入完才導頁（見下面的說明） */
+  startUrl: string
+  /** 只導頁一次——CDP 斷線會重連，重連時再導一次就是無限重載 */
+  navigated?: boolean
   ws?: WebSocket
   cdpSend?: CdpSend
   cropRequest?: { scriptId: string; platform: string; name: string; threshold: number; createdBy: string }
@@ -1145,6 +1149,12 @@ function connectUatRecorder(sess: UatRecSession, port: number, serverWs: WebSock
               } catch (err) {
                 console.error(`[Agent:${AGENT_LABEL}] CDP 攔截掛載失敗（錄製照常）:`, err instanceof Error ? err.message : err)
               }
+              // 錄製器與攔截都掛好了才導頁。⚠️ 只導一次——下面的 close handler 會
+              // 重連，重連時再導一次就變成無限重載。
+              if (!sess.navigated && sess.startUrl) {
+                sess.navigated = true
+                await send('Page.navigate', { url: sess.startUrl })
+              }
               resolveConn()
             } catch (e) { rejectConn(e) }
           })
@@ -1177,6 +1187,9 @@ function connectUatRecorder(sess: UatRecSession, port: number, serverWs: WebSock
               }
               if (msg.method === 'Page.loadEventFired') {
                 void syncUatViewport(sess)
+                // 宣告式 closed shadow root 只有 CDP 看得到，所以每次載入完成查一次。
+                // 查到就叫頁面停止宣稱「選擇器驗過」——理由見 frontend-recorder.js。
+                void flagShadowCompleteness(send)
                 void send('Runtime.evaluate', { expression: recorderScript() })
                 void send('Runtime.evaluate', { expression: cropScript() })
                 // 換頁之後頁面端的 pinus 探針跟著新 document 重來，補打一次。
@@ -1835,12 +1848,17 @@ function connect() {
         `--user-data-dir=${profileDir}`,
         '--no-first-run', '--no-default-browser-check', '--new-window',
         `--window-size=${initialWindow.width},${initialWindow.height}`,
-        url,
+        // ⚠️ **先開 about:blank，不要直接開目標網址。** 直接開的話 Chrome 會一邊
+        //    載入頁面、我們一邊才去連 CDP 注入錄製器——「注入一定早於頁面程式碼」
+        //    這個前提不成立。後果不只漏錄早期事件：頁面在注入前建立的
+        //    **closed shadow root** 我們永遠追蹤不到，那些元素會被錯標成「已驗證」。
+        //    （CodeX 2026-09-18 複驗指出。）注入與攔截都掛好之後才 Page.navigate。
+        'about:blank',
       ]
       const proc = spawn(chromeExecutable(), args, { stdio: 'ignore', shell: false, windowsHide: false })
       const sess: UatRecSession = {
         sessionId, proc, profileDir, done: false,
-        width, height, platform,
+        width, height, platform, startUrl: url,
         steps: [{ name: '前往頁面', action: 'goto', value: url }],
       }
       uatRecSessions.set(sessionId, sess)

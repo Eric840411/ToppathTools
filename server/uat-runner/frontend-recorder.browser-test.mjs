@@ -3,14 +3,21 @@
  * 真的在頁面上點下去，然後看收到什麼積木。
  *
  * ## 為什麼一定要真的跑
- * 這支東西是**注入頁面的字串**。字串裡的轉義、事件順序、`closest()` 在 shadow root
- * 的行為、canvas 的 hit target——猜錯的話單元測試照樣全綠，而錄製時只會安靜地
- * 錄出垃圾選擇器。
+ * 這支東西是**注入頁面的字串**。字串裡的轉義、事件順序、shadow DOM 的重新指向、
+ * canvas 的 hit target——猜錯的話單元測試照樣全綠，而錄製時只會安靜地錄出垃圾選擇器。
+ * 這次就靠它抓到三件事：引擎前綴用 `includes` 誤判 `[aria-label=…]`、
+ * shadow 來源被標成已驗證、以及**宣告式 shadow root 在頁面裡根本偵測不到**。
  *
- * ## 刻意用原始 CDP，不用 Playwright
+ * ## 刻意用原始 CDP 當錄製端，不用 Playwright
  * 產品就是這樣連的（`agent-runner.ts` 的 connectUatRecorder、
  * `frontend-auto.ts` 的 connectRecorder 都自己開 WebSocket）。用 Playwright 測
  * 等於測了一條產品不會走的路——而這次的整個設計前提正是「錄製端沒有 page 物件」。
+ * **重播端**才是 Playwright，所以 ⑧ 那段刻意用 Playwright。
+ *
+ * ## 三個 fixture 各有用途
+ *   `/`             沒有任何 shadow DOM —— 驗正常情況「驗得過就標 ok」
+ *   `/shadow-js`    載入時就用 attachShadow 建好 —— 給 ⑧ 的重播用
+ *   `/shadow-decl`  `<template shadowrootmode="closed">` —— 頁面端偵測不到，靠 host 查
  *
  * 跑法：node server/uat-runner/frontend-recorder.browser-test.mjs
  */
@@ -19,7 +26,7 @@ import net from 'net';
 import { spawn } from 'child_process';
 import { chromium } from 'playwright';
 import WebSocket from 'ws';
-import { frontendRecorderScript, FRONTEND_RECORDER_MARKER } from './frontend-recorder.js';
+import { frontendRecorderScript, FRONTEND_RECORDER_MARKER, flagShadowCompleteness } from './frontend-recorder.js';
 import { nativeSelectorCheckSource } from './selector-ladder.js';
 
 const results = [];
@@ -28,9 +35,22 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok || !detail ? '' : `\n        ${detail}`}`);
 };
 
-// ── 受測頁面：Vue 3 的樣子（scoped 雜湊屬性、編譯出來的 class）＋ canvas ＋ shadow DOM ──
-const PAGE = `<!doctype html><meta charset="utf-8"><title>h5 recorder fixture</title>
-<style>body{margin:0}#game{display:block}#host{display:inline-block}</style>
+// 兩顆按鈕，第一顆刻意很寬：host 的**中心**落在它身上。
+// 「重播只能點 host」實際會點到誰，⑧ 就看得出來。
+const MAKE_SHADOW = `
+  const root = document.getElementById('host').attachShadow({ mode: 'open' });
+  root.innerHTML = '<button id="inner" style="width:300px">影子按鈕一</button>'
+    + '<button id="inner2" style="width:40px">二</button>';
+  root.addEventListener('click', e => { window.__lastShadowClick = (e.target && e.target.id) || '' }, true);
+  window.__shadowBtn2 = root.getElementById('inner2');
+  const closedRoot = document.getElementById('host-closed').attachShadow({ mode: 'closed' });
+  closedRoot.innerHTML = '<button id="c2">閉合二</button>';
+  window.__closedBtn2 = closedRoot.getElementById('c2');
+`;
+
+// Vue 3 的樣子：scoped 雜湊屬性、編譯出來的 class；外加 canvas 與兩個空的 host 容器
+const BODY = `<!doctype html><meta charset="utf-8"><title>h5 recorder fixture</title>
+<style>body{margin:0}#game{display:block}#host,#host-closed{display:inline-block}</style>
 <div id="app" data-v-7f3a91c>
   <button data-v-7f3a91c class="btn btn--primary is-1a2b">開始遊戲</button>
   <button data-v-7f3a91c class="btn btn--ghost is-9z8y" aria-label="設定">gear</button>
@@ -40,27 +60,18 @@ const PAGE = `<!doctype html><meta charset="utf-8"><title>h5 recorder fixture</t
   <div id="host"></div>
   <div id="host-closed"></div>
   <canvas id="game" width="200" height="150"></canvas>
-</div>
-<script>
-  const root = document.getElementById('host').attachShadow({ mode: 'open' });
-  // 兩顆按鈕，第一顆刻意很寬：host 的**中心**落在它身上。
-  // 「重播點 host」實際會點到誰，這裡就看得出來。
-  root.innerHTML = '<button id="inner" style="width:300px">影子按鈕一</button>'
-    + '<button id="inner2" style="width:40px">二</button>';
-  root.addEventListener('click', e => { window.__lastShadowClick = (e.target && e.target.id) || '' }, true);
-  window.__shadowBtn = root.getElementById('inner');
-  window.__shadowBtn2 = root.getElementById('inner2');
-  // closed：從 document 這一側取 composedPath() 看不到裡面，第一項仍是 host。
-  // 只靠 composedPath 判斷的話，這個情況會走回「host 唯一命中 → ok」的老路。
-  const closedRoot = document.getElementById('host-closed').attachShadow({ mode: 'closed' });
-  closedRoot.innerHTML = '<button id="c1" style="width:300px">閉合一</button>'
-    + '<button id="c2" style="width:40px">二</button>';
-  window.__closedBtn2 = closedRoot.getElementById('c2');
-</script>`;
+</div>`;
 
-const server = http.createServer((_req, res) => {
+const DECL = `<!doctype html><meta charset="utf-8"><title>declarative shadow fixture</title>
+<style>body{margin:0}#host-decl{display:inline-block}</style>
+<button id="plain" aria-label="普通按鈕">普通</button>
+<div id="host-decl"><template shadowrootmode="closed"><button id="d1" style="width:300px">宣告一</button><button id="d2" style="width:40px">二</button></template></div>`;
+
+const server = http.createServer((req, res) => {
   res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-  res.end(PAGE);
+  if (req.url === '/shadow-js') return res.end(BODY + `<script>${MAKE_SHADOW}</script>`);
+  if (req.url === '/shadow-decl') return res.end(DECL);
+  res.end(BODY);
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
 const sitePort = server.address().port;
@@ -92,22 +103,17 @@ const waitJson = async (url, timeoutMs = 20000) => {
   throw new Error(`CDP 沒起來：${last?.message ?? 'timeout'}`);
 };
 
-try {
-  const targets = await waitJson(`http://127.0.0.1:${cdpPort}/json/list`);
-  const target = targets.find(t => t.type === 'page' && t.webSocketDebuggerUrl);
-  if (!target) throw new Error('找不到 page target');
-
-  const ws = new WebSocket(target.webSocketDebuggerUrl);
+/** 開一條 CDP 連線，收步驟的方式跟產品端的 host 一樣（比對 marker 前綴） */
+const connect = async (wsUrl) => {
+  const ws = new WebSocket(wsUrl);
   let msgId = 0;
   const pending = new Map();
+  const steps = [];
   const send = (method, params) => new Promise(resolve => {
     const id = ++msgId;
     pending.set(id, resolve);
     ws.send(JSON.stringify({ id, method, params }));
   });
-
-  /** 收到的積木，跟 host 端一樣用 startsWith(marker) 攔 */
-  const steps = [];
   await new Promise((resolve, reject) => {
     ws.on('error', reject);
     ws.on('message', raw => {
@@ -121,19 +127,37 @@ try {
     });
     ws.on('open', resolve);
   });
-
-  await send('Runtime.enable');
-  await send('Page.enable');
-  await send('Page.addScriptToEvaluateOnNewDocument', { source: frontendRecorderScript() });
-  await send('Page.navigate', { url: `http://127.0.0.1:${sitePort}/` });
-  await new Promise(r => setTimeout(r, 1200));
-
   const evaluate = async (expression) => {
     const r = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
     return r.result?.result?.value;
   };
+  return { ws, send, steps, evaluate };
+};
+
+try {
+  const targets = await waitJson(`http://127.0.0.1:${cdpPort}/json/list`);
+  const target = targets.find(t => t.type === 'page' && t.webSocketDebuggerUrl);
+  if (!target) throw new Error('找不到 page target');
+  const { ws, send, steps, evaluate } = await connect(target.webSocketDebuggerUrl);
+
+  await send('Runtime.enable');
+  await send('Page.enable');
+  // ⚠️ 產品端也是這個順序：先註冊 init script，再導頁。
+  //    反過來（Chrome 直接開目標網址）的話「注入早於頁面程式碼」不成立，
+  //    注入前建立的 shadow root 永遠追蹤不到。
+  await send('Page.addScriptToEvaluateOnNewDocument', { source: frontendRecorderScript() });
+  await send('Page.navigate', { url: `http://127.0.0.1:${sitePort}/` });
+  await new Promise(r => setTimeout(r, 1200));
 
   check('錄製器真的注入了', await evaluate('!!window.__toppathRecorderInstalled'));
+
+  // ── ⓿ 沒有 shadow DOM 的頁面不能被誤判成「無法確認」───────────────────────
+  // ⚠️ 這條是整個功能的前提：host 端的保守檢查如果連普通頁面都設旗標，
+  //    所有步驟都會變 unknown，驗證等於關掉。
+  await flagShadowCompleteness(send);
+  check('⓿ 普通頁面（沒有 shadow root）不會被設成「無法確認」',
+    await evaluate('!window.__toppathShadowIncomplete') === true,
+    '這裡誤設的話下面每一條 ok 都會變 unknown，功能等於關掉');
 
   // ── ① 有穩定屬性的元素 ───────────────────────────────────────────────
   await evaluate(`document.querySelector('[aria-label="設定"]').click()`);
@@ -165,8 +189,7 @@ try {
   check('③ 用 name 定位並驗過', typed?.selector === '[name="nickname"]' && typed?.selectorCheck === 'ok', JSON.stringify(typed));
 
   // ── ④ canvas 上的點擊 → 座標，因為 canvas 裡沒有 DOM 可以指 ─────────────
-  const box = await evaluate(`JSON.stringify(document.getElementById('game').getBoundingClientRect())`);
-  const rect = JSON.parse(box);
+  const rect = JSON.parse(await evaluate(`JSON.stringify(document.getElementById('game').getBoundingClientRect())`));
   const cx = Math.round(rect.left + 40);
   const cy = Math.round(rect.top + 30);
   for (const type of ['mousePressed', 'mouseReleased']) {
@@ -191,28 +214,25 @@ try {
   check('⑤ ⚠️ 隔一段時間真的再按一次**要錄到**（舊的伺服器模式會安靜丟掉）',
     steps.length === before + 2, `總共 ${steps.length - before} 筆`);
 
-  // ── ⑥ shadow DOM：事件跨出邊界時 target 被重新指向 host ──────────────────
-  // document 上的監聽器**看不到裡面那顆按鈕**，只看得到 host。
-  // ⚠️ host 本身通常真的唯一命中，所以「只看 target」會把這一步標成 **ok（已驗證）**——
-  //    而 host 裡有兩顆按鈕時，重播點 host 的中心不保證落在原本那一顆。
-  //    下面 ⑧ 用真的重播證明它會點到**另一顆**。
+  // ── ⑥ 載入後才建的 shadow root（SPA 常態）靠頁面端追蹤 ────────────────────
+  // host 端只在載入完成查一次，查不到「之後才建的」；這一段正是它涵蓋不到的範圍。
+  await evaluate(`(() => { ${MAKE_SHADOW} })()`);
   await evaluate('window.__shadowBtn2.click()');
   await new Promise(r => setTimeout(r, 250));
-  const shadow = steps.at(-1);
-  check('⑥ shadow 裡的點擊仍然描述 host（事件重新指向，拿不到裡面那顆）',
-    shadow?.selector === '#host', JSON.stringify(shadow));
-  check('⑥ ⚠️ 但**不能**標成已驗證——來源在 shadow 裡就標 unknown',
-    shadow?.selectorCheck === 'unknown' && shadow?.selectorCheckReason === 'shadow',
+  const shadowOpen = steps.at(-1);
+  check('⑥ open shadow 裡的點擊仍然描述 host（事件重新指向，拿不到裡面那顆）',
+    shadowOpen?.selector === '#host', JSON.stringify(shadowOpen));
+  check('⑥ ⚠️ 但**不能**標成已驗證',
+    shadowOpen?.selectorCheck === 'unknown' && shadowOpen?.selectorCheckReason === 'shadow',
     '標成 ok 等於把「不確定」包裝成「已驗證」，而重播點錯不會報錯');
 
-  // ── ⑥b closed shadow：composedPath() 也看不到，要靠 attachShadow 追蹤 ────────
   await evaluate('window.__closedBtn2.click()');
   await new Promise(r => setTimeout(r, 250));
-  const closed = steps.at(-1);
-  check('⑥b closed shadow 的點擊描述到 host', closed?.selector === '#host-closed', JSON.stringify(closed));
-  check('⑥b ⚠️ closed 也不能標成已驗證（composedPath 看不到裡面）',
-    closed?.selectorCheck === 'unknown' && closed?.selectorCheckReason === 'shadow',
-    'closed 樹的內部節點不會出現在 document 端的 composedPath()，只靠它判斷會走回老路');
+  const shadowClosed = steps.at(-1);
+  check('⑥b closed shadow 也標 unknown（composedPath 看不到裡面，靠包住 attachShadow）',
+    shadowClosed?.selector === '#host-closed'
+    && shadowClosed?.selectorCheck === 'unknown' && shadowClosed?.selectorCheckReason === 'shadow',
+    JSON.stringify(shadowClosed));
 
   // ── ⑦ 驗證函式本身：把同一份原始碼單獨注入頁面直接叫 ────────────────────
   await evaluate(`(() => { ${nativeSelectorCheckSource()} ; window.__checkForTest = nativeSelectorCheck; })()`);
@@ -230,10 +250,8 @@ try {
     (await probe('#game', `document.querySelector('[name="nickname"]')`)).status === 'mismatch');
   check('⑦ 語法錯誤 → invalid',
     (await probe('div:::bad', `document.getElementById('game')`)).status === 'invalid');
-  // ⚠️ Playwright 的 CSS 會穿透 open shadow DOM、原生 querySelectorAll 不會。
-  //    拿原生查不到當成「選擇器壞了」就是用錯的尺去量。
   check('⑦ shadow 裡的元素 → unknown/shadow（兩端範圍本來就不等價）',
-    (await probe('#inner', 'window.__shadowBtn')).reason === 'shadow');
+    (await probe('#inner2', 'window.__shadowBtn2')).reason === 'shadow');
   check('⑦ ⚠️ 屬性裡出現 label= 不算引擎前綴（[aria-label=…] 必須驗得到）',
     (await probe('[aria-label="設定"]', `document.querySelector('[aria-label="設定"]')`)).status === 'ok');
   check('⑦ 元素已從畫面移除 → unknown/gone，不是失敗',
@@ -250,7 +268,7 @@ try {
     const pwBrowser = await chromium.launch();
     try {
       const pwPage = await pwBrowser.newPage();
-      await pwPage.goto(`http://127.0.0.1:${sitePort}/`);
+      await pwPage.goto(`http://127.0.0.1:${sitePort}/shadow-js`);
       await pwPage.click('#host');
       const landed = await pwPage.evaluate(() => window.__lastShadowClick);
       check('⑧ ⚠️ 重播點 #host 落在**另一顆**按鈕上（錄的是 inner2）',
@@ -263,6 +281,27 @@ try {
     }
   }
 
+  // ── ⑥c 宣告式 closed root：頁面端偵測不到，只有 host 端的 CDP 看得到 ──────
+  await send('Page.navigate', { url: `http://127.0.0.1:${sitePort}/shadow-decl` });
+  await new Promise(r => setTimeout(r, 900));
+  check('⑥c fixture 的宣告式 root 真的存在，而且從頁面裡看不到',
+    await evaluate(`document.getElementById('host-decl').shadowRoot === null`) === true
+    && await evaluate(`document.getElementById('host-decl').childNodes.length`) === 0
+    && await evaluate(`document.getElementById('host-decl').getBoundingClientRect().width`) > 300,
+    'template 沒被消化成 shadow root 的話這條測不到東西');
+  await flagShadowCompleteness(send);
+  check('⑥c host 端查得出這一頁有追蹤不到的 shadow root',
+    await evaluate('window.__toppathShadowIncomplete') === true,
+    '頁面端三條路都試過都偵測不到（見 frontend-recorder.js 的說明），只有 CDP 看得到');
+  const declSteps = steps.length;
+  await evaluate(`document.getElementById('plain').click()`);
+  await new Promise(r => setTimeout(r, 300));
+  const declPlain = steps.at(-1);
+  check('⑥c ⚠️ 這一頁連普通元素都不宣稱驗過（無法證明追蹤完整就一律 unknown）',
+    steps.length === declSteps + 1
+    && declPlain?.selectorCheck === 'unknown' && declPlain?.selectorCheckReason === 'shadow',
+    JSON.stringify(declPlain));
+
   // ── ⑨ 追蹤不到 shadow 時要**退回 unknown**，不能當成沒有 shadow ───────────
   // ⚠️ 這條驗的是退路本身。注入的腳本不是嚴格模式，屬性被設成唯讀時指派會
   //    **安靜失敗**——如果只是「指派完就當成功」，我們會以為在追蹤、其實沒有，
@@ -273,52 +312,54 @@ try {
     const list = await waitJson(`http://127.0.0.1:${cdpPort}/json/list`);
     const fresh = list.find(t => t.id === newTargetId && t.webSocketDebuggerUrl);
     if (!fresh) throw new Error('開不出第二個分頁');
-    const ws2 = new WebSocket(fresh.webSocketDebuggerUrl);
-    let id2 = 0;
-    const pending2 = new Map();
-    const send2 = (method, params) => new Promise(resolve => {
-      const id = ++id2;
-      pending2.set(id, resolve);
-      ws2.send(JSON.stringify({ id, method, params }));
-    });
-    const steps2 = [];
-    await new Promise((resolve, reject) => {
-      ws2.on('error', reject);
-      ws2.on('message', raw => {
-        try {
-          const msg = JSON.parse(String(raw));
-          if (msg.id && pending2.has(msg.id)) { pending2.get(msg.id)({ result: msg.result }); pending2.delete(msg.id); return; }
-          if (msg.method === 'Runtime.consoleAPICalled' && msg.params?.args?.[0]?.value === FRONTEND_RECORDER_MARKER) {
-            try { steps2.push(JSON.parse(msg.params.args[1]?.value)); } catch { /* ignore */ }
-          }
-        } catch { /* ignore */ }
-      });
-      ws2.on('open', resolve);
-    });
-    await send2('Runtime.enable');
-    await send2('Page.enable');
+    const second = await connect(fresh.webSocketDebuggerUrl);
+    await second.send('Runtime.enable');
+    await second.send('Page.enable');
     // 先把 attachShadow 鎖成唯讀，錄製器就包不住它了（init script 依註冊順序執行）
-    await send2('Page.addScriptToEvaluateOnNewDocument', {
+    await second.send('Page.addScriptToEvaluateOnNewDocument', {
       source: "Object.defineProperty(Element.prototype, 'attachShadow', "
         + "{ value: Element.prototype.attachShadow, writable: false, configurable: false });",
     });
-    await send2('Page.addScriptToEvaluateOnNewDocument', { source: frontendRecorderScript() });
-    await send2('Page.navigate', { url: `http://127.0.0.1:${sitePort}/` });
+    await second.send('Page.addScriptToEvaluateOnNewDocument', { source: frontendRecorderScript() });
+    await second.send('Page.navigate', { url: `http://127.0.0.1:${sitePort}/` });
     await new Promise(r => setTimeout(r, 1200));
-    const locked = await send2('Runtime.evaluate', {
-      expression: "(() => { const d = Object.getOwnPropertyDescriptor(Element.prototype, 'attachShadow'); return !d.writable })()",
-      returnByValue: true,
-    });
-    check('⑨ fixture 真的讓錄製器包不住 attachShadow', locked.result?.result?.value === true,
+    check('⑨ fixture 真的讓錄製器包不住 attachShadow',
+      await second.evaluate("(() => { const d = Object.getOwnPropertyDescriptor(Element.prototype, 'attachShadow'); return !d.writable })()") === true,
       '前提不成立的話下面那條等於沒測');
-    await send2('Runtime.evaluate', { expression: `document.querySelector('[aria-label="設定"]').click()` });
+    await second.evaluate(`document.querySelector('[aria-label="設定"]').click()`);
     await new Promise(r => setTimeout(r, 300));
-    const blind = steps2.at(-1);
+    const blind = second.steps.at(-1);
     check('⑨ ⚠️ 追蹤不到 shadow 時一律 unknown（連普通元素也不宣稱驗過）',
       blind?.selectorCheck === 'unknown' && blind?.selectorCheckReason === 'shadow',
       JSON.stringify(blind));
-    ws2.close();
+    second.ws.close();
     if (newTargetId) await send('Target.closeTarget', { targetId: newTargetId });
+  }
+
+  // ── ⑨b 注入晚於解析（就是「Chrome 直接開目標網址」那種順序）─────────────
+  // ⚠️ 這條守的是**別人把啟動順序改回去**的情況：那時我們比頁面晚進場，
+  //    之前建立的 shadow root 全部沒看到。症狀必須是「全部 unknown」，
+  //    **不能**是「照樣宣稱驗過」——後者才是安靜錯標。
+  {
+    const created = await send('Target.createTarget', { url: `http://127.0.0.1:${sitePort}/` });
+    const lateId = created.result?.targetId;
+    const list = await waitJson(`http://127.0.0.1:${cdpPort}/json/list`);
+    const fresh = list.find(t => t.id === lateId && t.webSocketDebuggerUrl);
+    if (!fresh) throw new Error('開不出第三個分頁');
+    const late = await connect(fresh.webSocketDebuggerUrl);
+    await late.send('Runtime.enable');
+    await new Promise(r => setTimeout(r, 800));
+    check('⑨b fixture 真的是「載入完才注入」', await late.evaluate('document.readyState') === 'complete');
+    // 沒有 init script，直接在已經載好的頁面上注入——舊的啟動順序就是這樣
+    await late.evaluate(frontendRecorderScript());
+    await late.evaluate(`document.querySelector('[aria-label="設定"]').click()`);
+    await new Promise(r => setTimeout(r, 300));
+    const lateStep = late.steps.at(-1);
+    check('⑨b ⚠️ 注入晚於解析時一律 unknown（追蹤不完整就不宣稱驗過）',
+      lateStep?.selectorCheck === 'unknown' && lateStep?.selectorCheckReason === 'shadow',
+      JSON.stringify(lateStep));
+    late.ws.close();
+    if (lateId) await send('Target.closeTarget', { targetId: lateId });
   }
 
   ws.close();
