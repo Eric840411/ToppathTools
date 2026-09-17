@@ -59,7 +59,15 @@ interface Finding {
   id: number; line: string; severity: string; refId: string; detectedAt: number
   note: string; machineType?: string; spinSeq?: number; resolvedAt: number | null
 }
-interface Setting { key: string; label: string; unit: string; dflt: number; value: number; isDefault: boolean; effect: string }
+interface Setting { key: string; label: string; unit: string; dflt: number; value: number; isDefault: boolean; effect: string
+  /** 開關類（0/1）。⚠️ 數字輸入框的 `min={1}` 會讓「關閉」連打都打不進去 */
+  bool?: boolean }
+/** 告警送出的現況。⚠️ `neverNotified` 要顯示——水位線之前那些永遠不補送的歷史告警
+ *  有幾千筆，只看到「已送出 0」會被讀成「系統沒在動」。 */
+interface NotifyStatus {
+  enabled: boolean; configured: boolean; queued: number; held: number
+  lastSentAt: number | null; watermarkTs: number | null; neverNotified: number
+}
 interface Line {
   id: string; name: string; desc: string; implemented: boolean; reason?: string
   counts?: { match: number; pending: number; missing: number; ambiguous: number }
@@ -149,6 +157,8 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
   const [settings, setSettings] = useState<Setting[]>([])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [settingMsg, setSettingMsg] = useState('')
+  const [notifySt, setNotifySt] = useState<NotifyStatus | null>(null)
+  const [notifyMsg, setNotifyMsg] = useState('')
   /** 跨使用者檢視。⚠️ 這是除錯用的，不是權限——過濾值本來就是 client 送的 header */
   const [showAll, setShowAll] = useState(false)
   /** 獎池與機台總覽。⚠️ 跟 overview 共用同一個 minutes——分開帶會讓上下兩塊用不同分母。 */
@@ -203,7 +213,7 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
   // 機台篩選只影響逐筆明細——上面的獎池與機台總覽不跟著變（那兩塊是全域的）
   useEffect(() => { loadRows(true) /* eslint-disable-next-line */ }, [machineFilter])
   useEffect(() => {
-    const t = setInterval(() => { loadOverview(); loadRows(true) }, 5000)
+    const t = setInterval(() => { loadOverview(); loadRows(true); loadNotify() }, 5000)
     return () => clearInterval(t)
     // eslint-disable-next-line
   }, [env, minutes, filter, rows, showAll])
@@ -215,7 +225,29 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
       if (d.ok) setSettings(d.settings)
     } catch { /* 下次再試 */ }
   }, [env, h])
-  useEffect(() => { loadSettings() }, [loadSettings])
+
+  const loadNotify = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/autospin/live-ledger/notify?env=${env}`, { headers: h() })
+      const d = await r.json()
+      if (d.ok) setNotifySt(d)
+    } catch { /* 下次再試 */ }
+  }, [env, h])
+
+  // ⚠️ 刻意不另開一個 useEffect——這個檔案已經有三個「在 effect 裡 setState」的
+  //    lint 錯誤，再加一個只是讓它更難清。掛在既有的設定載入與 5 秒輪詢上就夠了。
+  useEffect(() => { loadSettings(); loadNotify() }, [loadSettings, loadNotify])
+
+  /** 試發一則確認 webhook 通不通。不受開關與節流限制，也不會把告警標成已通知。 */
+  const testNotify = async () => {
+    setNotifyMsg('送出中…')
+    try {
+      const r = await fetch(`/api/autospin/live-ledger/notify-test?env=${env}`, { method: 'POST', headers: h() })
+      const d = await r.json()
+      setNotifyMsg(d.ok ? `✅ ${d.message}` : `❌ ${d.message ?? '送出失敗'}`)
+      loadOverview()
+    } catch (e) { setNotifyMsg(`❌ ${e}`) }
+  }
 
   const saveSetting = async (key: string, value: number) => {
     setSettingMsg('')
@@ -681,10 +713,22 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
                 <div key={s.key} style={{ padding: '10px 13px', borderBottom: `1px solid ${C.line}` }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <b style={{ fontSize: 12.5, color: C.ink }}>{s.label}</b>
-                    <input type="number" defaultValue={s.value} min={1}
-                      onBlur={e => { const v = Number(e.target.value); if (v !== s.value) saveSetting(s.key, v) }}
-                      style={{ width: 78, marginLeft: 'auto', background: C.panel2, color: C.ink, border: `1px solid ${C.line}`, borderRadius: 5, padding: '3px 7px', fontSize: 12, textAlign: 'right' }} />
-                    <span style={{ fontSize: 11, color: C.ink3, width: 18 }}>{s.unit}</span>
+                    {s.bool ? (
+                      /* ⚠️ 開關不能用數字輸入框：那個 min={1} 會讓「關閉」連打都打不進去，
+                         使用者以為關掉了，其實值從來沒被寫進去 */
+                      <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: C.ink2, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={s.value === 1}
+                          onChange={e => saveSetting(s.key, e.target.checked ? 1 : 0)} />
+                        {s.value === 1 ? '開啟' : '關閉'}
+                      </label>
+                    ) : (
+                      <>
+                        <input type="number" defaultValue={s.value} min={1}
+                          onBlur={e => { const v = Number(e.target.value); if (v !== s.value) saveSetting(s.key, v) }}
+                          style={{ width: 78, marginLeft: 'auto', background: C.panel2, color: C.ink, border: `1px solid ${C.line}`, borderRadius: 5, padding: '3px 7px', fontSize: 12, textAlign: 'right' }} />
+                        <span style={{ fontSize: 11, color: C.ink3, width: 18 }}>{s.unit}</span>
+                      </>
+                    )}
                   </div>
                   {/* ⚠️ 每個參數都要寫「預設值」與「這個值影響什麼」——
                       不寫的話沒有人敢動它，也沒有人知道動了會怎樣 */}
@@ -694,11 +738,46 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
                 </div>
               ))}
               {settingMsg && <div style={{ padding: '8px 13px', fontSize: 11.5, color: settingMsg.includes('失敗') ? C.bad : C.match }}>{settingMsg}</div>}
+
+              {/* ── 告警送出現況 ────────────────────────────────────────
+                  ⚠️ 這一塊存在的理由：在它之前，「沒有告警」與「告警根本沒接」
+                     在畫面上長得一模一樣。數字要把三種狀態分開講：
+                     等著送的、被靜置期擋著的、水位線之前永遠不補送的。 */}
+              <div style={{ padding: '10px 13px', borderTop: `1px solid ${C.line}` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <b style={{ fontSize: 12.5, color: C.ink }}>告警送出現況</b>
+                  <button onClick={testNotify} style={{
+                    marginLeft: 'auto', padding: '2px 9px', fontSize: 11, borderRadius: 5, cursor: 'pointer',
+                    background: 'transparent', color: C.ink2, border: `1px solid ${C.line}`,
+                  }}>試發一則</button>
+                </div>
+                {notifySt ? (
+                  <div style={{ fontSize: 11, color: C.ink3, lineHeight: 1.75 }}>
+                    {!notifySt.configured && <div style={{ color: C.bad }}>⚠️ 尚未設定 Discord Webhook URL，告警無處可送</div>}
+                    {notifySt.configured && !notifySt.enabled && <div style={{ color: C.pending }}>⚠️ 告警已關閉——findings 仍在累積，只是不送出</div>}
+                    <div>
+                      等著送 <b style={{ color: notifySt.queued ? C.pending : C.ink2 }}>{notifySt.queued}</b> 筆
+                      {' · '}靜置期內 <b style={{ color: C.ink2 }}>{notifySt.held}</b> 筆
+                      {' · '}上次送出 {notifySt.lastSentAt ? new Date(notifySt.lastSentAt).toLocaleString() : '從未'}
+                    </div>
+                    {notifySt.neverNotified > notifySt.queued && (
+                      <div>
+                        另有 <b style={{ color: C.ink2 }}>{notifySt.neverNotified - notifySt.queued}</b> 筆在水位線
+                        （{notifySt.watermarkTs ? new Date(notifySt.watermarkTs).toLocaleString() : '尚未建立'}）之前，
+                        <b>不會補送</b>——避免歷史告警一次灌進頻道。
+                      </div>
+                    )}
+                  </div>
+                ) : <div style={{ fontSize: 11, color: C.ink3 }}>讀取中…</div>}
+                {notifyMsg && <div style={{ fontSize: 11.5, marginTop: 6, color: notifyMsg.startsWith('❌') ? C.bad : C.match }}>{notifyMsg}</div>}
+              </div>
             </div>
           ) : (
             <div style={{ padding: '12px 13px', fontSize: 11.5, color: C.ink3 }}>
-              {settings.length} 個可調參數（掉單門檻、時間窗、拉取間隔、收尾窗）。
+              {settings.length} 個可調參數（掉單門檻、時間窗、拉取間隔、收尾窗、告警送出）。
               {settings.some(s => !s.isDefault) && <b style={{ color: C.pending }}> 有參數已被調整過。</b>}
+              {notifySt && !notifySt.configured && <b style={{ color: C.bad }}> 告警無處可送（未設 webhook）。</b>}
+              {notifySt && notifySt.configured && !notifySt.enabled && <b style={{ color: C.pending }}> 告警已關閉。</b>}
             </div>
           )}
         </Panel>

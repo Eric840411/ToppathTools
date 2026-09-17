@@ -130,6 +130,26 @@ export function healthLamps(env: ReconEnv, now = Date.now()): Lamp[] {
       agoSec: ago(writer?.lastOkAt) ?? agentAgo,
       note: writer?.failCount ? `觀測落庫連續失敗：${writer.message || ''}` : '15 秒週期',
     },
+    (() => {
+      /**
+       * 🚨 告警送出燈（v4.170.0 新增）。
+       *
+       * ⚠️ 這盞燈存在的唯一理由：在它之前，「沒有告警」與「告警根本沒接」
+       *    在畫面上長得一模一樣——`notifiedAt` 從建表以來沒有任何程式寫過，
+       *    3,491 筆 findings 一則都沒送出去，而畫面看起來完全正常。
+       *
+       * ⚠️ **沒量測過一律 warn，不給綠燈。**綠燈要留給「真的送成功過」。
+       */
+      const n = bySource.get('notify')
+      const state: LampState = !n ? 'warn'
+        : n.failCount > 0 ? (n.errKind === 'disabled' ? 'warn' : 'bad')
+          : 'ok'
+      const note = !n ? '尚未跑過告警迴圈'
+        : n.errKind === 'disabled' ? '已在設定中關閉——findings 仍在累積，只是不送出'
+          : n.failCount > 0 ? (n.message || n.errKind || '送出失敗')
+            : (n.lastOkAt ? '距上次送出檢查' : '尚未送出過')
+      return { key: 'notify', label: '告警送出', state, agoSec: ago(n?.lastOkAt), note }
+    })(),
   ]
 }
 

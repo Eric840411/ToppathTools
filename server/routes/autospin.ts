@@ -4,6 +4,10 @@
  */
 import { recordSpinObservation, noteSourceHealth } from '../live-ledger.js'
 import { overview as ledgerOverview, ledgerRows, ledgerDetail } from '../live-ledger-query.js'
+// ⚠️ webhook URL 與帳號↔Discord ID 對照**只有一份**，在 discord-webhook.ts。
+//    這裡原本各留了一份 private getter，Live Ledger 的告警要用同一組設定時
+//    複製第三份出去就會開始各發各的——見該檔檔頭。
+import { getDiscordWebhookUrl, getDiscordUserMap, mentionForUserLabel } from '../discord-webhook.js'
 
 /**
  * 連續幾筆觀測落庫失敗。⚠️ fire-and-forget 不代表不留痕——
@@ -936,35 +940,13 @@ router.post('/api/autospin/status-report-test', async (req, res) => {
   }
 })
 
-function getDiscordWebhookUrl(): string {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_webhook_url') as { value: string } | undefined
-  return row?.value ?? ''
-}
-
 // ─── 帳號 → Discord User ID 對照（通知 tag 發起人用）───────────────────────────
 // 使用者自己維護「哪個帳號對應哪個 Discord User ID」，AutoSpin 通知（即時彙報 + 定時
 // 彙總報告）依 session 是哪個帳號派工啟動的，找得到對照就在訊息 content（不是塞在
 // embed 裡，那樣不會真的觸發 Discord 通知/ping）開頭 tag 那個人。
-
-interface DiscordUserMapEntry { userLabel: string; discordUserId: string }
-
-function getDiscordUserMap(): DiscordUserMapEntry[] {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('autospin_discord_user_map') as { value: string } | undefined
-  if (!row?.value) return []
-  try {
-    const parsed = JSON.parse(row.value)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
-/** 依 userLabel（session 派工時的帳號）找出對應的 Discord mention 字串（含結尾空白），找不到回傳空字串。 */
-function mentionForUserLabel(userLabel: string | undefined): string {
-  if (!userLabel) return ''
-  const entry = getDiscordUserMap().find(e => e.userLabel === userLabel)
-  return entry?.discordUserId ? `<@${entry.discordUserId}> ` : ''
-}
+//
+// ⚠️ getter 本體搬到 `server/discord-webhook.ts`（見檔頭 import）——Live Ledger 的
+//    告警要用同一組設定，留在這裡就得被複製第二份。下面的路由仍然是這份設定的入口。
 
 // GET /api/autospin/discord-user-map
 router.get('/api/autospin/discord-user-map', (_req, res) => {
@@ -2546,7 +2528,7 @@ router.get('/api/autospin/live-ledger/rows', (req, res) => {
 // 門檻設定：讀／寫 recon_settings。
 // ⚠️ 每個參數都要能在畫面上看到「預設值」與「這個值影響什麼」——
 //    90 秒這種門檻寫死在腦子裡的話，之後沒有人敢動它，也沒有人知道動了會怎樣。
-const SETTING_META: Record<string, { label: string; unit: string; dflt: number; effect: string }> = {
+const SETTING_META: Record<string, { label: string; unit: string; dflt: number; effect: string; bool?: boolean }> = {
   pendingTimeoutSec: { label: '掉單判定門檻', unit: '秒', dflt: 90,
     effect: '等待入帳超過這個時間就判成掉單。訂太緊會把「只是晚到」誤報成掉單（可回綁但會先發告警）；訂太鬆則真的掉單要很久才看得到。' },
   bindWindowBeforeSec: { label: '時間窗下界', unit: '秒', dflt: 2,
@@ -2557,6 +2539,15 @@ const SETTING_META: Record<string, { label: string; unit: string; dflt: number; 
     effect: '多久去後台拉一次增量。調小會更快發現掉單，但對後台壓力較大。' },
   sessionGraceSec: { label: 'session 收尾窗', unit: '秒', dflt: 300,
     effect: 'session 結束後還要繼續拉取多久，把最後那批 PENDING 收乾淨。' },
+  // ─── 告警送出（v4.170.0 新增）───────────────────────────────────────────
+  // ⚠️ 這三個是「會不會有人被通知」的參數，不是門檻。靜置期尤其關鍵：
+  //    實測 missing 2,936 筆有 2,807 筆後來自己解決了，靜置期設 0 就是 96% 假警報。
+  notifyEnabled: { label: '送出 Discord 告警', unit: '0/1', dflt: 1, bool: true,
+    effect: '關閉後 findings 仍然照常累積與顯示，只是不送 Discord。關閉狀態會顯示在健康列上，不會假裝成正常。' },
+  notifyGraceSec: { label: '告警靜置期', unit: '秒', dflt: 120,
+    effect: 'finding 要活過這段時間、期間沒有自行解決才送出。訂太短會把「只是晚到」的掉單當成告警發出去（實測 96% 的掉單會自己收斂）；訂太長則真的出事時晚知道。' },
+  notifyIntervalSec: { label: '告警最小間隔', unit: '秒', dflt: 180,
+    effect: '兩則告警之間至少隔多久，避免刷頻道。這段時間內新增的 finding 會累積到下一則一起送，不會被丟掉。' },
 }
 
 router.get('/api/autospin/live-ledger/jp', async (req, res) => {
@@ -2620,11 +2611,38 @@ router.put('/api/autospin/live-ledger/settings', (req, res) => {
     const b = z.object({ key: z.string(), value: z.number() }).parse(req.body)
     // ⚠️ 不認得的 key 回 400，**不要靜默忽略**——靜默忽略會讓使用者以為改成功了。
     if (!SETTING_META[b.key]) return res.status(400).json({ ok: false, reason: `不認得的設定項：${b.key}` })
-    if (!Number.isFinite(b.value) || b.value <= 0) return res.status(400).json({ ok: false, reason: '必須是正數' })
+    // ⚠️ 開關類的 0 是合法值。原本一律擋 `<= 0`，關閉開關會被回「必須是正數」——
+    //    使用者會以為存成功了（畫面上開關已經撥掉），實際上沒寫進去。
+    if (!Number.isFinite(b.value)) return res.status(400).json({ ok: false, reason: '必須是數字' })
+    if (SETTING_META[b.key].bool) {
+      if (b.value !== 0 && b.value !== 1) return res.status(400).json({ ok: false, reason: '開關只接受 0 或 1' })
+    } else if (b.value <= 0) {
+      return res.status(400).json({ ok: false, reason: '必須是正數' })
+    }
     db.prepare(`INSERT INTO recon_settings (env, key, value) VALUES (?, ?, ?)
       ON CONFLICT(env, key) DO UPDATE SET value=excluded.value`).run(env, b.key, String(b.value))
     res.json({ ok: true })
   } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
+})
+
+/**
+ * 告警現況。⚠️ `neverNotified` 要一起給——水位線之前那些永遠不會被補送的歷史 finding
+ * 有 3,491 筆，只顯示「已送出 0」會被讀成「系統沒在動」。
+ */
+router.get('/api/autospin/live-ledger/notify', async (req, res) => {
+  try {
+    const { notifyStatus } = await import('../live-ledger-notify.js')
+    res.json({ ok: true, ...notifyStatus(reconEnvOf(req as never)) })
+  } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
+})
+
+/** 試發一則，確認 webhook 通不通。不受開關與節流限制，也不會標記 notifiedAt。 */
+router.post('/api/autospin/live-ledger/notify-test', async (req, res) => {
+  try {
+    const { sendNotifyTest } = await import('../live-ledger-notify.js')
+    const r = await sendNotifyTest(reconEnvOf(req as never))
+    res.status(r.ok ? 200 : 400).json(r)
+  } catch (e) { res.status(500).json({ ok: false, message: String(e) }) }
 })
 
 router.get('/api/autospin/live-ledger/row/:id', (req, res) => {

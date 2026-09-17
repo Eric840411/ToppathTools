@@ -400,6 +400,29 @@ export async function runLiveLedgerCycle(now = Date.now()): Promise<{
     bind[env] = { scanned: b.scanned, resolved: b.resolved, ambiguous: b.ambiguous, missing: b.missing }
     const diag = diagnoseAllMissing(env, now - 3600_000)
     if (diag.level === 'alert') noteSourceHealth(env, 'bind', false, 'all_missing', diag.message)
+
+  }
+
+  /**
+   * 🚨 **告警送出：兩個環境都跑，而且不掛在 `envsToProcess` 底下。**
+   *
+   * ⚠️ 第一版寫在上面那個迴圈裡面，那是這個檔案已經踩過兩次的同一個坑
+   *    （時鐘量測、綁定撤銷，檔案裡都留著當時的註解）：
+   *    **把維護性的工作掛在「最近有活動」的條件下，活動一停就再也不會收斂。**
+   *    `envsToProcess` 只認最近 12 小時有觀測的 env——壓測結束超過 12 小時後，
+   *    還沒送出去的告警會永遠卡在佇列裡，而且畫面上看不出來。
+   *
+   * 順序上一定要在所有撤銷邏輯（`cleanupNonRoundFindings` / `resolveBoundUnobserved`）
+   * 之後：放前面會把這一輪正要被撤銷的誤報先發出去，人跑去查卻發現畫面上沒有那筆，
+   * 比不發還糟。真正擋假警報的是通知端自己的靜置期（`notifyGraceSec`）——
+   * 實測 missing 2,936 筆有 2,807 筆後來自己解決了，不等就送 96% 是假的。
+   */
+  for (const env of ['qat', 'uat'] as const) {
+    try {
+      const { runNotifyCycle } = await import('./live-ledger-notify.js')
+      const n = await runNotifyCycle(env, now)
+      if (n.failed) console.warn(`[live-ledger] ${env} 告警送出失敗：${n.failed}`)
+    } catch (e) { console.warn('[live-ledger] 告警迴圈失敗:', e) }
   }
   return { scopes: scopes.length, fetched, upserted, failures, bind }
 }
