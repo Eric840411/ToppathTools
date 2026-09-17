@@ -60,6 +60,9 @@ function normalizeOne(item: unknown, index: number): AutoStep {
   if (row.expectStatus === '2xx' || row.expectStatus === 'any' || row.expectStatus === 'exact') step.expectStatus = row.expectStatus
   if (typeof row.statusCode === 'number') step.statusCode = row.statusCode
   if (typeof row.minCount === 'number') step.minCount = row.minCount
+  if (typeof row.selectorStrategy === 'string') step.selectorStrategy = row.selectorStrategy
+  if (typeof row.selectorCheck === 'string') step.selectorCheck = row.selectorCheck
+  if (typeof row.selectorCheckReason === 'string') step.selectorCheckReason = row.selectorCheckReason
   if (typeof row.retryCount === 'number') step.retryCount = row.retryCount
   if (row.failureMode === 'continue' || row.failureMode === 'stop' || row.failureMode === 'retry') step.failureMode = row.failureMode
   if (Array.isArray(row.children)) step.children = row.children.map(normalizeOne)
@@ -83,7 +86,7 @@ function cleanStep(step: AutoStep): Record<string, unknown> {
   const row: Record<string, unknown> = { id: step.id, name: step.name.trim() || actionLabel(step.action), action: step.action }
   // ⚠️ 新增參數欄位時**這兩行一定要一起加**。漏了的話步驟在畫面上編得好好的，
   //    存檔（serialize）之後參數就消失了，而且不會有任何錯誤——重新載入才發現變空的。
-  for (const key of ['value', 'selector', 'baselineId', 'urlPattern'] as const) if (step[key]?.trim()) row[key] = step[key]?.trim()
+  for (const key of ['value', 'selector', 'baselineId', 'urlPattern', 'selectorStrategy', 'selectorCheck', 'selectorCheckReason'] as const) if (step[key]?.trim()) row[key] = step[key]?.trim()
   for (const key of ['x', 'y', 'threshold', 'scrollStep', 'maxScrolls', 'retryCount', 'statusCode', 'minCount'] as const) if (typeof step[key] === 'number') row[key] = step[key]
   if (step.expectStatus) row.expectStatus = step.expectStatus
   if (step.failureMode && step.failureMode !== 'inherit') row.failureMode = step.failureMode

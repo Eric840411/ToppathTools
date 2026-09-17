@@ -32,7 +32,8 @@ import { attachPinusProbe } from './uat-runner/pinus-probe.js'
 import { attachCdpCapture } from './uat-runner/cdp-capture.js'
 import { evaluateApiAssertion } from './uat-runner/api-assert.js'
 import { waitForDebugPort, clearStaleDebugPort, DEBUG_PORT_ARG } from './uat-runner/chrome-debug-port.js'
-import { verifyRecordedSelectorLive } from './uat-runner/recorded-selector.js'
+import { verifyRecordedSelectorLive, createRecordedLocators } from './uat-runner/recorded-selector.js'
+import { frontendRecorderScript } from './uat-runner/frontend-recorder.js'
 import { MachineTestRunner } from './machine-test/runner.js'
 import type { MachineTestSession, MachineProfile, TestEvent } from './machine-test/types.js'
 import { ScriptedBetRunner } from './scripted-bet/runner.js'
@@ -787,6 +788,12 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
       await log(`⚠️ pinus 攔截掛載失敗（不影響其他步驟）：${err instanceof Error ? err.message : String(err)}`)
     }
 
+    // ⚠️ 選擇器解析要走跟 Backend 同一支。錄製器現在會產出 `text=`／`label=`／
+    //    `:text-is()` 這些**不是原生 CSS**的寫法；直接 `page.locator(selector)` 的話
+    //    `label=` 會被當成未知引擎而拋錯，`text=` 的語意也跟重播不一樣。
+    //    requireUnique：命中多筆一律失敗，不要安靜取第一個——安靜點錯比找不到更糟。
+    const { recordedLocator } = createRecordedLocators(page, { requireUnique: true })
+
     await log('✅ 執行頁面已準備完成')
 
     for (const [i, step] of steps.entries()) {
@@ -812,7 +819,7 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
           passed++
         } else if (step.action === 'click') {
           await log(`⏳ ${idx} ${label}`)
-          await page.locator(step.selector ?? '').click({ timeout: 10000 })
+          await (await recordedLocator(step.selector ?? '')).click({ timeout: 10000 })
           await log(`✅ ${idx} ${label}`)
           sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
           passed++
@@ -831,7 +838,7 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
           passed++
         } else if (step.action === 'type' || step.action === 'fill') {
           await log(`⏳ ${idx} ${label}`)
-          await page.locator(step.selector ?? '').fill(step.value ?? '', { timeout: 10000 })
+          await (await recordedLocator(step.selector ?? '')).fill(step.value ?? '', { timeout: 10000 })
           await log(`✅ ${idx} ${label}`)
           sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
           passed++
@@ -863,7 +870,7 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
           passed++
         } else if (step.action === 'assert_visible') {
           await log(`⏳ ${idx} ${label}`)
-          await page.locator(step.selector ?? '').waitFor({ state: 'visible', timeout: 10000 })
+          await (await recordedLocator(step.selector ?? '')).waitFor({ state: 'visible', timeout: 10000 })
           await log(`✅ ${idx} ${label}`)
           sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
           passed++
@@ -973,51 +980,13 @@ async function waitForJson<T>(url: string, timeoutMs = 20_000): Promise<T> {
   throw new Error(`Chrome DevTools not ready after ${timeoutMs}ms: ${lastError instanceof Error ? lastError.message : String(lastError ?? '')}`)
 }
 
+/**
+ * H5/PC 錄製器。**跟伺服器模式共用同一份**（`uat-runner/frontend-recorder.js`）——
+ * 兩邊各帶一份的時候已經漂掉了：這邊錄 `click`/`fill`、那邊錄 `click_viewport`/`type`，
+ * 而 `fill` 在伺服器模式的執行引擎裡是「不支援的動作」，會被**跳過**而不是失敗。
+ */
 function recorderScript() {
-  return `
-(() => {
-  if (window.__toppathRecorderInstalled) return;
-  window.__toppathRecorderInstalled = true;
-  const sent = new Set();
-  const cssPath = (el) => {
-    if (!el || el === document || el === window) return '';
-    if (el.id) return '#' + CSS.escape(el.id);
-    const testId = el.getAttribute && (el.getAttribute('data-testid') || el.getAttribute('data-test'));
-    if (testId) return '[data-testid="' + testId.replace(/"/g, '\\\\"') + '"]';
-    const name = el.getAttribute && el.getAttribute('name');
-    if (name) return el.tagName.toLowerCase() + '[name="' + name.replace(/"/g, '\\\\"') + '"]';
-    const text = (el.innerText || el.textContent || '').trim();
-    if (text && text.length <= 40) return 'text=' + text;
-    const parts = [];
-    let node = el;
-    while (node && node.nodeType === 1 && parts.length < 4) {
-      let part = node.tagName.toLowerCase();
-      if (node.id) { parts.unshift('#' + CSS.escape(node.id)); break; }
-      const siblings = node.parentNode ? [...node.parentNode.children] : [];
-      const idx = siblings.indexOf(node);
-      if (siblings.length > 1) part += ':nth-child(' + (idx + 1) + ')';
-      parts.unshift(part);
-      node = node.parentNode;
-    }
-    return parts.join(' > ');
-  };
-  document.addEventListener('click', (e) => {
-    const el = e.target;
-    const key = Date.now() + ':' + (el && el.tagName);
-    if (sent.has(key)) return;
-    sent.add(key);
-    setTimeout(() => sent.delete(key), 200);
-    const step = { name: 'Click ' + cssPath(el), action: 'click', selector: cssPath(el) };
-    console.info('__TOPPATH_RECORDER__', JSON.stringify(step));
-  }, true);
-  document.addEventListener('change', (e) => {
-    const el = e.target;
-    if (!el || !el.value) return;
-    const step = { name: 'Input ' + cssPath(el), action: 'fill', selector: cssPath(el), value: el.value };
-    console.info('__TOPPATH_RECORDER__', JSON.stringify(step));
-  }, true);
-})();
-`
+  return frontendRecorderScript()
 }
 
 function cropScript() {

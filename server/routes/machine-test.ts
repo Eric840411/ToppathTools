@@ -82,6 +82,10 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'uat-runner/multi-tc.js':            join(SERVER_ROOT, 'uat-runner', 'multi-tc.js'),
   'uat-runner/step-dependencies.js': join(SERVER_ROOT, 'uat-runner', 'step-dependencies.js'),
   'uat-runner/backend-recorder.js':    join(SERVER_ROOT, 'uat-runner', 'backend-recorder.js'),
+  // 選擇器產生階梯：backend-recorder.js 與 frontend-recorder.js 都 import 它
+  'uat-runner/selector-ladder.js':     join(SERVER_ROOT, 'uat-runner', 'selector-ladder.js'),
+  // H5/PC 的錄製器注入腳本：agent-runner.ts 靜態 import 它
+  'uat-runner/frontend-recorder.js':   join(SERVER_ROOT, 'uat-runner', 'frontend-recorder.js'),
   // 錄製選擇器的共用解析：run-lark-tc-backend.js 與 agent-runner.ts 兩邊都 import，
   // 少送這一份 agent 端會在 import 當下炸掉
   'uat-runner/recorded-selector.js':   join(SERVER_ROOT, 'uat-runner', 'recorded-selector.js'),

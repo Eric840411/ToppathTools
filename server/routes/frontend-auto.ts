@@ -5,6 +5,9 @@ import { randomUUID } from 'crypto'
 import { attachNetworkCapture, DEFAULT_THRESHOLDS } from '../uat-runner/net-capture.js'
 import { attachPinusProbe } from '../uat-runner/pinus-probe.js'
 import { attachCdpCapture } from '../uat-runner/cdp-capture.js'
+import { createRecordedLocators } from '../uat-runner/recorded-selector.js'
+import { waitForDebugPort, clearStaleDebugPort, DEBUG_PORT_ARG } from '../uat-runner/chrome-debug-port.js'
+import { frontendRecorderScript } from '../uat-runner/frontend-recorder.js'
 import { evaluateApiAssertion } from '../uat-runner/api-assert.js'
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 import { extname, join } from 'path'
@@ -505,53 +508,15 @@ async function waitForJson<T>(url: string, timeoutMs = 10_000): Promise<T> {
   throw new Error(`Chrome DevTools endpoint not ready: ${lastError instanceof Error ? lastError.message : String(lastError ?? '')}`)
 }
 
+/**
+ * 注入頁面的錄製器。**動作錄製走共用的 frontendRecorderScript()**（跟 agent 模式同一份，
+ * 兩邊各寫一份已經漂過一次），這裡只再加上「框選截圖」那層——它是本機模式專屬的 UI。
+ */
 function recorderScript() {
-  return `
+  return frontendRecorderScript() + `
 (() => {
-  if (window.__toppathRecorderInstalled) return;
-  window.__toppathRecorderInstalled = true;
-  const sent = new Set();
-  const cssPath = (el) => {
-    if (!el || el === document || el === window) return '';
-    if (el.id) return '#' + CSS.escape(el.id);
-    const testId = el.getAttribute && (el.getAttribute('data-testid') || el.getAttribute('data-test'));
-    if (testId) return '[data-testid="' + testId.replace(/"/g, '\\\\"') + '"]';
-    const name = el.getAttribute && el.getAttribute('name');
-    if (name) return el.tagName.toLowerCase() + '[name="' + name.replace(/"/g, '\\\\"') + '"]';
-    const text = (el.innerText || el.textContent || '').trim();
-    if (text && text.length <= 40) return 'text=' + text;
-    const parts = [];
-    let node = el;
-    while (node && node.nodeType === 1 && parts.length < 4) {
-      let part = node.tagName.toLowerCase();
-      const parent = node.parentElement;
-      if (parent) {
-        const same = Array.from(parent.children).filter(child => child.tagName === node.tagName);
-        if (same.length > 1) part += ':nth-of-type(' + (same.indexOf(node) + 1) + ')';
-      }
-      parts.unshift(part);
-      node = parent;
-    }
-    return parts.join(' > ');
-  };
-  const send = (step) => {
-    const key = JSON.stringify(step);
-    if (sent.has(key)) return;
-    sent.add(key);
-    console.info('__TOPPATH_RECORDER__', key);
-  };
-  document.addEventListener('click', event => {
-    if (window.__toppathCropping) return;
-    const vx = Math.round(event.clientX);
-    const vy = Math.round(event.clientY);
-    send({ name: '點擊畫面 (' + vx + ', ' + vy + ')', action: 'click_viewport', x: vx, y: vy });
-  }, true);
-  document.addEventListener('change', event => {
-    const target = event.target;
-    if (!target || !('value' in target)) return;
-    const selector = cssPath(target);
-    if (selector) send({ name: '輸入 ' + selector, action: 'type', selector, value: String(target.value || '') });
-  }, true);
+  if (window.__toppathCropInstalled) return;
+  window.__toppathCropInstalled = true;
   window.__toppathStartCropMode = () => {
     if (document.getElementById('__toppath_crop_layer')) return;
     window.__toppathCropping = true;
@@ -673,16 +638,17 @@ function recordableWindowSize(width: number, height: number) {
   }
 }
 
-function chromeDebugPort() {
-  return 9300 + Math.floor(Math.random() * 400)
-}
-
-function launchRecorderChrome(sessionId: string, url: string, width: number, height: number) {
+/**
+ * ⚠️ port 讓 Chrome 自己挑，不要用亂數（見 `chrome-debug-port.js`）。
+ *    亂數撞號時**不會失敗，會安靜地接到別人的瀏覽器**——兩個 session 都跑完、
+ *    結果交叉污染。v4.165.0 改掉了 agent 端的三處，**漏了這一處**。
+ */
+async function launchRecorderChrome(sessionId: string, url: string, width: number, height: number) {
   const profileDir = join(tmpdir(), `toppath-rec-${sessionId}`)
   const initialWindow = recordableWindowSize(width, height)
-  const port = chromeDebugPort()
+  clearStaleDebugPort(profileDir)
   const args = [
-    `--remote-debugging-port=${port}`,
+    DEBUG_PORT_ARG,
     `--user-data-dir=${profileDir}`,
     '--no-first-run',
     '--no-default-browser-check',
@@ -691,6 +657,7 @@ function launchRecorderChrome(sessionId: string, url: string, width: number, hei
     url,
   ]
   const proc = spawn(chromeExecutable(), args, { stdio: 'ignore', shell: false, windowsHide: false })
+  const port = await waitForDebugPort(profileDir, { isAlive: () => proc.exitCode === null })
   return { proc, profileDir, port }
 }
 
@@ -967,7 +934,7 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
   const [w, h] = resolution.split('x')
   const viewportWidth = Number(w) || 390
   const viewportHeight = Number(h) || 844
-  const { proc, profileDir, port } = launchRecorderChrome(sessionId, displayUrl, viewportWidth, viewportHeight)
+  const { proc, profileDir, port } = await launchRecorderChrome(sessionId, displayUrl, viewportWidth, viewportHeight)
   const sess: RecSession = {
     proc,
     profileDir,
@@ -1283,7 +1250,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
       await log(`🔧 準備啟動瀏覽器：${headed ? 'Headed' : 'Headless'}，viewport ${w}x${h}`)
       const pw = await import('playwright')
       if (headed) {
-        const launched = launchRecorderChrome(`run-${runId}`, 'about:blank', w, h)
+        const launched = await launchRecorderChrome(`run-${runId}`, 'about:blank', w, h)
         chromeProc = launched.proc
         chromeProfileDir = launched.profileDir
         await waitForJson(`http://127.0.0.1:${launched.port}/json/version`)
@@ -1332,6 +1299,11 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
         await log(`⚠️ pinus 攔截掛載失敗（不影響其他步驟）：${err instanceof Error ? err.message : String(err)}`)
       }
 
+      // ⚠️ 選擇器解析要走跟 Backend、agent 模式同一支。錄製器會產出 `text=`／`label=`／
+      //    `:text-is()` 這些不是原生 CSS 的寫法，直接 page.locator() 會拋未知引擎。
+      //    requireUnique：命中多筆一律失敗，不要安靜取第一個。
+      const { recordedLocator } = createRecordedLocators(page, { requireUnique: true })
+
       await log('✅ 執行頁面已準備完成')
 
       for (const [i, step] of steps.entries()) {
@@ -1356,7 +1328,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
             passed++
           } else if (step.action === 'click') {
             await log(`⏳ ${idx} ${label}`)
-            await page.locator(step.selector ?? '').click({ timeout: 10000 })
+            await (await recordedLocator(step.selector ?? '')).click({ timeout: 10000 })
             await log(`✅ ${idx} ${label}`)
             passed++
           } else if (step.action === 'click_xy') {
@@ -1370,9 +1342,11 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
             await page.waitForTimeout(500)
             await log(`✅ ${idx} ${label}`)
             passed++
-          } else if (step.action === 'type') {
+          } else if (step.action === 'type' || step.action === 'fill') {
+            // ⚠️ fill 是 agent 模式舊錄製器的動作名。這邊沒有它的話，那些腳本會落到
+            //    「不支援的動作 → skipped」，**腳本照樣 PASS**。新錄的一律是 type。
             await log(`⏳ ${idx} ${label}`)
-            await page.locator(step.selector ?? '').fill(step.value ?? '', { timeout: 10000 })
+            await (await recordedLocator(step.selector ?? '')).fill(step.value ?? '', { timeout: 10000 })
             await log(`✅ ${idx} ${label}`)
             passed++
           } else if (step.action === 'wait') {
@@ -1428,7 +1402,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
             passed++
           } else if (step.action === 'assert_visible') {
             await log(`⏳ ${idx} ${label}`)
-            await page.locator(step.selector ?? '').waitFor({ state: 'visible', timeout: 10000 })
+            await (await recordedLocator(step.selector ?? '')).waitFor({ state: 'visible', timeout: 10000 })
             await log(`✅ ${idx} ${label}`)
             passed++
           } else {

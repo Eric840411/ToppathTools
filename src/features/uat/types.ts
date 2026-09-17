@@ -37,6 +37,13 @@ export interface AutoStep {
   statusCode?: number
   /** assert_api_called：至少要被打到幾次 */
   minCount?: number
+  /** 這條 selector 是階梯的哪一階產的。`cssPath` 是最脆的一階，編輯器會標出來 */
+  selectorStrategy?: string
+  /** 錄製當下驗過的結果（ok／none／many／mismatch／invalid／unknown）。
+   *  ⚠️ `unknown` 不是失敗——措辭表 `SELECTOR_CHECK_LABEL` 刻意不收它 */
+  selectorCheck?: string
+  /** selectorCheck 為 unknown 時的理由（unsupported／gone／shadow），純診斷用 */
+  selectorCheckReason?: string
 }
 
 export interface AutoScript {

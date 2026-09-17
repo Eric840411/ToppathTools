@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { XianxiaIcon } from '../../components/XianxiaIcon'
 import { BlockEditor } from './BlockEditor'
 import { NetworkPanel, type UatStatsPayload } from './NetworkPanel'
+import { SELECTOR_CHECK_LABEL } from '../../../shared/uat-selector-check'
 import { compileExecutableSteps, countExecutableSteps, createStep, parseSteps, serializeSteps } from './step-model'
 import type { AgentOption, AutoBaseline, AutoFilter, AutoPlatform, AutoRun, AutoScript, AutoStep, AutoTemplate, OcrRegion, UatThemeMode } from './types'
 
@@ -172,6 +173,20 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
     await loadScripts()
   }
 
+  // 錄製當下驗過的結果。跟 Backend 錄製共用同一張措辭表，不要各寫一份。
+  // ⚠️ `unknown`（非原生 CSS 驗不了、元素已消失、shadow DOM）刻意不算問題——
+  //    把它標紅會讓人去修根本沒壞的步驟。
+  const selectorWarnings = useMemo(() => {
+    const flat: AutoStep[] = []
+    const walk = (list: AutoStep[]) => list.forEach(step => { flat.push(step); if (step.children?.length) walk(step.children) })
+    walk(steps)
+    return {
+      bad: flat.flatMap((step, i) => SELECTOR_CHECK_LABEL[String(step.selectorCheck)]
+        ? [{ index: i + 1, why: SELECTOR_CHECK_LABEL[String(step.selectorCheck)] }] : []),
+      weak: flat.flatMap((step, i) => step.selectorStrategy === 'cssPath' ? [i + 1] : []),
+    }
+  }, [steps])
+
   const startRecording = async () => {
     if (!(recorderAvailable || agents.length)) return setNotice('沒有可用錄製器；請從 localhost 開啟，或連接具備 uat-record 的 Local Agent。')
     const target = runConfig.url || window.prompt('請輸入要錄製的目標 URL')?.trim() || ''
@@ -341,6 +356,11 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
         </header>
         {(notice || recordLabel) && <div className="uat-notice"><XianxiaIcon name="notification" size={16} /><span>{recordLabel ? `${recordLabel} ${xianxia ? '觀照錄術中' : '錄製中'}` : notice}</span><button type="button" onClick={() => setNotice('')}>{xianxia ? '收起符訊' : '關閉'}</button></div>}
 
+        {view === 'editor' && !!selectorWarnings.bad.length && <div className="uat-multi-alert" role="alert">
+          <p>⚠️ 這些步驟的定位在<strong>錄製當下就已經不對</strong>，直接執行會失敗：</p>
+          {selectorWarnings.bad.map(bad => <div key={bad.index}>第 {bad.index} 步——{bad.why}</div>)}
+        </div>}
+        {view === 'editor' && !!selectorWarnings.weak.length && <p className="uat-multi-alert">共 {selectorWarnings.weak.length} 個步驟用結構路徑定位（第 {selectorWarnings.weak.join('、')} 步），這是最脆的一階，請試跑確認找得到正確元素。</p>}
         {view === 'editor' && <BlockEditor steps={steps} baselines={baselines} selectedId={selectedStepId} onSelectedIdChange={setSelectedStepId} onChange={next => { setSteps(next); setDirty(true) }} themeMode={themeMode} />}
         {view === 'run' && (
           <div className="uat-run-layout">
