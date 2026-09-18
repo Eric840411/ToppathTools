@@ -114,9 +114,9 @@ export function healthLamps(env: ReconEnv, now = Date.now()): Lamp[] {
       //    兩者實測差 64.5 秒。它的用途是：偏移大到離譜時要看得見（那 94 秒
       //    如果早就顯示出來，就不用查到最後）。
       //
-      // ⚠️ 2026-09-17 起這個值**會實際參與拉取窗的計算**（`planFetchWindow()`
-      //    用它把上界換到後台時間軸）。所以它不再只是觀測值——量不到或量錯，
-      //    拉取窗就會跟著偏。配對校正仍然自己算自己的，那部分沒變。
+      // ⚠️ 它**只是觀測值，不參與拉取窗的計算**。曾經短暫改成參與（用它把查詢窗
+      //    上界換到後台時間軸），2026-09-18 撤回：那是拿正式邏輯遷就開發機的時差，
+      //    正式環境跑在 Spug 上沒有這個偏移。本機時鐘不準要校正機器，不是改程式。
       const c = bySource.get('clock')
       const off = c?.clockOffsetMs ?? null
       const bad = off !== null && Math.abs(off) > 5000
@@ -124,9 +124,9 @@ export function healthLamps(env: ReconEnv, now = Date.now()): Lamp[] {
         key: 'clock', label: '時鐘偏移',
         state: (off === null ? 'warn' : bad ? 'warn' : 'ok') as LampState,
         agoSec: ago(c?.clockCheckedAt),
-        note: off === null ? '尚未量測——拉取窗會退回「本機時鐘 +60 秒」，最新的局可能查不到'
+        note: off === null ? '尚未量測'
           : `本機比後台 web ${off > 0 ? '慢' : '快'} ${Math.abs(Math.round(off / 1000))} 秒`
-            + '（已用於拉取窗上界換軸；配對校正另外自己算）',
+            + '（僅供觀測，不參與配對校正，也不參與拉取窗計算）',
         detail: off === null ? '—' : `${off > 0 ? '+' : ''}${(off / 1000).toFixed(1)}s`,
       }
     })(),

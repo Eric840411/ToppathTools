@@ -30,7 +30,6 @@ import { loadMeterConfig, meterPost } from './routes/meter-reconcile.js'
 import {
   type ReconEnv, guardFetchedRows, noteSourceHealth,
   readWatermark, writeWatermark, upsertBackendRecords, reconSetting,
-  nowOnObservedAxis,
 } from './live-ledger.js'
 
 /** 後台設定的 profile。⚠️ qat/uat 跟 osm/gcp 是兩個不同的軸，不能混用。 */
@@ -164,27 +163,25 @@ export async function fetchBackendForScope(
 /**
  * 算出這一輪要涵蓋的時間窗。
  *
- * 🚨 **兩個時間軸不能混用。**`wm` 來自後台的 `betTimePrecise`，在**後台軸**上；
- * `now` 是本機的 `Date.now()`。實測 `recon_source_health.clockOffsetMs = 120100`
- * ——本機比後台**慢** 2 分鐘。
+ * ⚠️ **時鐘偏移刻意不在這裡補償。**（2026-09-18 決定，推翻了同日稍早的做法）
  *
- * 舊版上界寫死 `now + 60_000`，那個 `+60s` 原本是想補「後台時間戳可能比我們快一點」，
- * 但它是**猜的常數、不是量到的偏移**：實際偏移 120 秒時，上界等於「後台時間 − 60 秒」，
- * **最新一分鐘的局根本查不到**，接著被老化判定當成 MISSING。
- * 這正是「用推導出來的常數去檢查現實」那類錯誤——偏移已經每 5 分鐘量一次了，用量到的。
+ * 開發機實測 `recon_source_health.clockOffsetMs = 120100`（本機比後台慢 2 分鐘），
+ * 我一度把上界改成「`now` + 量到的偏移」來補它。**那是拿正式邏輯去遷就開發機的環境問題。**
+ * 正式環境跑在公網主機（Spug）上，時鐘與後台同步、偏移趨近 0，這段補償永遠是 no-op；
+ * 而它的代價是真的：上界從一個固定常數，變成依賴一個**每 5 分鐘量一次的量測值**——
+ * 量測若受網路延遲或後台 `Date` header 異常干擾，正式環境的查詢窗就會跟著偏。
  *
- * ⚠️ 只換上界，**不動 `wm`**（它已經在後台軸上）——兩邊都加就是重複補償，
- * 窗會整個往未來平移，反而漏掉舊的那頭。
+ * 本機時鐘不準就校正本機時鐘，或把東西放到 Spug 上跑。不要寫進程式裡。
+ *
+ * 上界的 `+60s` 是保守的安全邊界（後台時間戳可能比我們快一點），與時差補償無關。
  */
-export function planFetchWindow(env: ReconEnv, wm: number, now: number): {
+export function planFetchWindow(_env: ReconEnv, wm: number, now: number): {
   fromMs: number; toMs: number; nowSrv: number
 } {
-  const nowSrv = nowOnObservedAxis(env, now)
   return {
-    nowSrv,
-    fromMs: wm > 0 ? wm - OVERLAP_SEC * 1000 : nowSrv - COLD_START_SEC * 1000,
-    // 換軸之後仍留 1 分鐘安全邊界：偏移是每 5 分鐘量一次的，兩次之間還會漂一點
-    toMs: nowSrv + 60_000,
+    nowSrv: now,
+    fromMs: wm > 0 ? wm - OVERLAP_SEC * 1000 : now - COLD_START_SEC * 1000,
+    toMs: now + 60_000,
   }
 }
 

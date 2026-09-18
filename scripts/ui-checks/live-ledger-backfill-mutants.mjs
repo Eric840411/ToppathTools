@@ -64,18 +64,6 @@ const MUTANTS = [
     find: '            effSpan = span;',
     repl: '            effSpan = SEGMENT_MS;',
   },
-  {
-    id: 'M7', kills: '上界換到後台軸（用量到的 120100ms，不是寫死的 60s）',
-    desc: '上界回到本機時鐘 → 偏移 120s 時最新一分鐘的局查不到（修好前的行為）',
-    find: '    const nowSrv = nowOnObservedAxis(env, now);',
-    repl: '    const nowSrv = now;',
-  },
-  {
-    id: 'M8', kills: '下界不重複補償（wm 已經在後台軸上）',
-    desc: '下界也加偏移 → 兩邊都補償，窗整個往未來平移、漏掉舊的那頭',
-    find: '        fromMs: wm > 0 ? wm - OVERLAP_SEC * 1000 : nowSrv - COLD_START_SEC * 1000,',
-    repl: '        fromMs: wm > 0 ? (wm + (nowSrv - now)) - OVERLAP_SEC * 1000 : nowSrv - COLD_START_SEC * 1000,',
-  },
 ];
 
 const original = fs.readFileSync(SRC, 'utf8');

@@ -1,7 +1,7 @@
 /**
  * scripts/ui-checks/live-ledger-backfill.mjs
  *
- * 驗**分段補抓**（`fetchSegmented`）與**時間窗換軸**（`planFetchWindow`）。
+ * 驗**分段補抓**（`fetchSegmented`）。
  *
  * 🚨 **為什麼需要這個檢查**：2026-09-17 實測到 `recon_spin` 從 9/8 卡了整整 9 天。
  * 根因不是「沒開壓測」，是採集進了一個**單向閥門**：
@@ -31,7 +31,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const target = process.env.LL_BACKFILL_TARGET || 'dist-server/server/live-ledger-fetch.js';
 const distUrl = pathToFileURL(path.join(root, target)).href;
 const mod = await import(distUrl);
-const { fetchSegmented, planFetchWindow, SEGMENT_MS, MIN_SEGMENT_MS, MAX_SEGMENTS_PER_CYCLE, SETTLE_MS } = mod;
+const { fetchSegmented, SEGMENT_MS, MIN_SEGMENT_MS, MAX_SEGMENTS_PER_CYCLE, SETTLE_MS } = mod;
 const db = new Database(path.join(root, 'server/data.db'));
 
 const TAG = '__backfill_';
@@ -219,32 +219,6 @@ console.log('\n── 分段補抓：死鎖與不變量 ──');
   const gap2 = findGap([...segsA, ...segsB]);
   check('兩段跑合起來沒有空洞', gap2 === null, gapText(gap2));
   check('重跑後追上現在', readWm() >= toMs - 2000);
-}
-
-console.log('\n── 時間窗換軸（clockOffsetMs）──');
-
-// ⑦ 上界要用**量到的**偏移，不是寫死的 60 秒
-{
-  db.prepare(`
-    INSERT INTO recon_source_health (env, source, failCount, clockOffsetMs, clockCheckedAt)
-    VALUES (?, 'clock', 0, ?, ?)
-    ON CONFLICT(env, source) DO UPDATE SET clockOffsetMs=excluded.clockOffsetMs
-  `).run(ENV, 120100, Date.now());
-
-  const now = Date.now();
-  const wm = now - 5 * HOUR;
-  const w = planFetchWindow(ENV, wm, now);
-  check('上界換到後台軸（用量到的 120100ms，不是寫死的 60s）',
-    w.toMs === now + 120100 + 60_000, `toMs−now=${w.toMs - now}ms`);
-  check('下界不重複補償（wm 已經在後台軸上）',
-    w.fromMs === wm - 90_000, `fromMs−wm=${w.fromMs - wm}ms`);
-  check('偏移 120s 時上界確實涵蓋「後台的現在」', w.toMs > now + 120100,
-    '舊版 now+60s 會少 60 秒，最新一分鐘的局查不到');
-
-  // 偏移為 0（或量不到）時要退回原本行為，不能因此漏掉窗
-  db.prepare(`UPDATE recon_source_health SET clockOffsetMs=NULL WHERE env=? AND source='clock'`).run(ENV);
-  const w0 = planFetchWindow(ENV, wm, now);
-  check('量不到偏移時退回 now+60s（不是爆掉或變 NaN）', w0.toMs === now + 60_000, `toMs−now=${w0.toMs - now}ms`);
 }
 
 cleanup();
