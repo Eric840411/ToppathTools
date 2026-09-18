@@ -67,7 +67,19 @@ export function BackendUatPanel({ themeMode, agentId }: { themeMode: UatThemeMod
   const xianxia = themeMode === 'xianxia'
   const [config, setConfig] = useState(loadConfig)
   const [multiRecorderOpen, setMultiRecorderOpen] = useState(false)
-  const [legacyMode, setLegacyMode] = useState(false)
+  /**
+   * 舊版 TC 模式（內建 TC 清冊 + 內建驗證器）。
+   *
+   * ⚠️ **入口已經拿掉了（2026-09-18 使用者要求「以現在這個版本為主」），但底層沒有砍。**
+   *    原因：`/api/osm-uat/run` 與 `run-lark-tc-backend.js` 是**新版錄製腳本也在用的**，
+   *    砍過頭會讓新版整個不能跑。而內建驗證器（`builtin_verifier`）有沒有被存進
+   *    正式環境的錄製腳本裡，本機看不到——在確認之前不動底層。
+   *
+   *    所以這裡固定 false：使用者進不去，程式碼原封不動留著。要真的清除時，
+   *    先確認正式環境沒有腳本用到 `builtin_verifier`，再一起移除這一段 JSX 與
+   *    `tc-registry.json` 那條路徑。
+   */
+  const legacyMode = false
   const [recordedScripts, setRecordedScripts] = useState<RecordedScript[]>([])
   const [selectedScriptIds, setSelectedScriptIds] = useState<string[]>([])
   const [batchBusy, setBatchBusy] = useState(false)
@@ -672,7 +684,7 @@ export function BackendUatPanel({ themeMode, agentId }: { themeMode: UatThemeMod
       </section>
 
       <aside className="uat-backend-plan">
-        <button type="button" className="uat-btn is-quiet" disabled={batchBusy || !!recSession || status === 'running'} onClick={() => setLegacyMode(value => !value)}>{legacyMode ? '返回錄製腳本' : '舊版 TC 模式'}</button>
+        {/* ⚠️ 「舊版 TC 模式」的切換鈕已移除——見上面 legacyMode 的說明。 */}
         {!legacyMode ? <RecordedScriptLibrary revision={libraryRevision} disabled={batchBusy || !!recSession || status === 'running'} onOpen={openScript} selectedIds={selectedScriptIds} onSelection={setSelectedScriptIds} onScripts={setRecordedScripts} /> : <>
         <p>舊版模式：逐筆 TC、內建驗證器及積木檔案。此處的批次執行不會執行錄製腳本。</p>
         <div className="uat-backend-flow-head">
