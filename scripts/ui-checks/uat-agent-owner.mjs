@@ -373,6 +373,38 @@ try {
     }
   }
 
+  // ── ⑪b 共用狀態列的資料來源（v4.187.0）──────────────────────────────────
+  console.log('⑪b /agents/overview：三種能力各自的可用性');
+  {
+    reset();
+    addAgent({ agentId: 'ALL-PC', ownerKey: ME, capabilities: ['uat-record', 'uat-run', 'backend-uat'] });
+    addAgent({ agentId: 'REC-ONLY', ownerKey: ME, capabilities: ['uat-record'] });
+    addAgent({ agentId: 'THEIR-PC', ownerKey: OTHER, capabilities: ['uat-record', 'uat-run', 'backend-uat'] });
+
+    const ov = await call('GET', '/api/frontend-auto/agents/overview', { as: ME });
+    const rows = new Map((ov.json?.agents ?? []).map(a => [a.agentId, a]));
+    check('⑪b ⚠️ 只列自己的 Agent', rows.size === 2 && !rows.has('THEIR-PC'), JSON.stringify(ov.json?.agents));
+    check('⑪b 三種能力都回', Object.keys(rows.get('ALL-PC')?.capability ?? {}).length === 3,
+      JSON.stringify(rows.get('ALL-PC')?.capability));
+    check('⑪b ⚠️ 只有錄製能力的那台，執行與 Backend 要標成不可用',
+      rows.get('REC-ONLY')?.capability['uat-record'].usable === true
+      && rows.get('REC-ONLY')?.capability['uat-run'].usable === false
+      && rows.get('REC-ONLY')?.capability['backend-uat'].usable === false,
+      JSON.stringify(rows.get('REC-ONLY')?.capability));
+    check('⑪b 不可用要講得出原因', /更新程式碼/.test(String(rows.get('REC-ONLY')?.capability['uat-run'].reason ?? '')),
+      rows.get('REC-ONLY')?.capability['uat-run'].reason);
+
+    // ⚠️ 這條對照的是「共用列顯示的可用性」與「派工結果」——兩邊不一致就是這次要修的病
+    const start = await call('POST', '/api/frontend-auto/runs/run-cap2/execute', {
+      as: ME, body: { steps: '[]', url: 'https://game.example/', platform: 'h5', agentId: 'REC-ONLY' },
+    });
+    check('⑪b ⚠️ 共用列說執行不可用，派工也要拒絕（同一套判斷）', start.status === 409, `HTTP ${start.status}`);
+
+    const anon = await call('GET', '/api/frontend-auto/agents/overview', { spoof: ME });
+    check('⑪b ⚠️ 查不到身分時回 authed:false 而且清單是空的（跟「沒有 Agent」要分得開）',
+      anon.json?.authed === false && (anon.json?.agents ?? []).length === 0, JSON.stringify(anon.json));
+  }
+
   // ── ⑫ 身分簽章本身 ────────────────────────────────────────────────────
   console.log('⑫ 跨 process 的身分簽章');
   {

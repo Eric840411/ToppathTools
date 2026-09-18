@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { BackendUatPanel } from '../features/uat/BackendUatPanel'
 import { FrontendAutomationStudio } from '../features/uat/FrontendAutomationStudio'
+import { UatAgentBar } from '../features/uat/UatAgentBar'
 import type { UatMainTab, UatThemeMode } from '../features/uat/types'
 import '../features/uat/UatStudio.css'
 
@@ -21,8 +22,11 @@ export function OsmUatPage({ themeMode }: { themeMode: UatThemeMode }) {
           <h1>{xianxia ? '總綱試煉陣盤' : 'UAT 整合測試工作台'}</h1>
           <p>{xianxia ? '統御後端、H5 與 PC 試煉玉簡；觀照錄術後可拆解術式、重排陣眼並反覆推演。' : '集中管理 Backend、H5 與 PC 測試流程；錄製後可直接拆成積木、拖曳調整並重複使用。'}</p>
         </div>
-        <div className="uat-health"><i /><span><strong>{xianxia ? '靈脈穩定' : 'Runner Ready'}</strong><small>{xianxia ? '本命傀儡／外派傀儡自動調度' : 'Local / Agent 自動路由'}</small></span></div>
       </header>
+      {/* ⚠️ 這裡原本是一顆**寫死**的「Runner Ready／靈脈穩定」——一台 Agent 都沒有
+          也照樣顯示。問題不是缺資訊，是在報一個假的綠燈，所以直接換掉而不是並存。
+          擺在分頁列**上方**：切 tab 不會消失，而且可用性跟著當前分頁算。 */}
+      <UatAgentBar tab={activeTab} themeMode={themeMode} />
       <nav className="uat-main-tabs" aria-label="UAT 測試類型">
         {TABS.map(tab => <button type="button" className={activeTab === tab.id ? 'is-active' : ''} onClick={() => setActiveTab(tab.id)} key={tab.id}><strong>{tab.label}</strong><small>{xianxia ? (tab.id === 'backend' ? '後端試煉' : tab.id === 'h5' ? '掌中幻境' : '桌面幻境') : tab.description}</small></button>)}
       </nav>

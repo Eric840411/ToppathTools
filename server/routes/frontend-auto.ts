@@ -945,8 +945,16 @@ function authedKey(): string {
   return getAuthEmailFromContext() ?? ''
 }
 
-/** H5/PC 這條線會用到的兩種能力：錄製與執行。兩者是分開授予的 */
-export type UatCapability = 'uat-record' | 'uat-run'
+/**
+ * UAT 工作台會用到的三種能力，**分開授予**：
+ *   - `uat-record`  H5/PC 錄製
+ *   - `uat-run`     H5/PC 執行
+ *   - `backend-uat` Backend 的 Lark TC Runner
+ *
+ * ⚠️ 共用的 Agent 狀態列要同時照顧三個分頁，所以這裡也要認得 `backend-uat`
+ *    （判斷仍然走同一支 `agentUsability()`——**不能為了那個分頁再寫一套**）。
+ */
+export type UatCapability = 'uat-record' | 'uat-run' | 'backend-uat'
 
 /**
  * 這個登入者**自己的** agent。
@@ -971,7 +979,8 @@ export type UatCapability = 'uat-record' | 'uat-run'
  */
 function agentUsability(agent: AgentInfo, capability: UatCapability): { usable: boolean; reason?: string } {
   if (!agent.capabilities.includes(capability)) {
-    return { usable: false, reason: capability === 'uat-record' ? '不支援錄製（請更新程式碼）' : '不支援執行（請更新程式碼）' }
+    const what = capability === 'uat-record' ? '錄製' : capability === 'uat-run' ? '執行' : 'Backend 測試'
+    return { usable: false, reason: `不支援${what}（請更新程式碼）` }
   }
   if (agent.ws.readyState !== agent.ws.OPEN) return { usable: false, reason: '連線不正常' }
   if (agent.busy) return { usable: false, reason: '忙碌中' }
@@ -1099,6 +1108,46 @@ export function handleUatRunAgentDisconnect(agentId: string, hostname?: string) 
     } catch {}
   }
 }
+
+/**
+ * GET /api/frontend-auto/agents/overview — **共用 Agent 狀態列**的資料來源。
+ *
+ * 三個分頁（Backend／H5／PC）要的能力不同，但 Agent 是同一批。所以這支一次回
+ * 「我自己的每一台，對三種能力各自可不可用」，讓共用列可以跟著當前分頁變。
+ *
+ * ⚠️ **可用性是 server 算的，不是前端自己猜的**——跟派工走同一支 `agentUsability()`。
+ *    前端自己判斷的話遲早會出現「畫面說可以派、按下去被擋」（CodeX 實測過斷線那一種）。
+ *
+ * ⚠️ `localRecord` 要另外回：**零台 Agent 不代表完全不能操作**——從 localhost 開的話
+ *    H5/PC 可以用本機 Chrome 錄製。不講的話畫面會把「可以做事」說成「什麼都不能做」。
+ *
+ * ⚠️ 查不到登入身分時回 `authed: false`，**而且 agents 是空的**。前端要把它顯示成
+ *    「查不到身分」而不是「沒有 Agent」——那是兩件事，處理方式也不同。
+ */
+router.get('/api/frontend-auto/agents/overview', (req, res) => {
+  const me = authedKey()
+  const caps: UatCapability[] = ['uat-record', 'uat-run', 'backend-uat']
+  if (!me) {
+    return res.json({ ok: true, authed: false, localRecord: isLocalRecordRequest(req), agents: [], connected: 0 })
+  }
+  const mine = [...agentConnections.values()].filter(a => a.ownerKey === me)
+  const agents = mine.map(a => {
+    const capability: Record<string, { usable: boolean; reason: string | null }> = {}
+    for (const cap of caps) {
+      const state = agentUsability(a, cap)
+      capability[cap] = { usable: state.usable, reason: state.reason ?? null }
+    }
+    return {
+      agentId: a.agentId,
+      hostname: a.hostname || a.agentId,
+      busy: a.busy,
+      online: a.ws.readyState === a.ws.OPEN,
+      updateStatus: agentUpdateStatus(a),
+      capability,
+    }
+  })
+  res.json({ ok: true, authed: true, localRecord: isLocalRecordRequest(req), agents, connected: mine.length })
+})
 
 router.get('/api/frontend-auto/record/available', (req, res) => {
   const { agents, outdated } = getUatAgents('uat-record')
