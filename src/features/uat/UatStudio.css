@@ -1331,3 +1331,14 @@
   .uat-agent-chips, .uat-agent-empty { flex-basis: 100%; }
   .uat-agent-actions { border-left: 0; padding-left: 0; margin-left: auto; }
 }
+
+/* 共用狀態列裡的派工選擇（v4.188.0：把三個分頁各自的下拉整合上來） */
+.uat-agent-pick { display: flex; flex-direction: column; gap: 4px; flex: none; min-width: 210px; max-width: 280px; padding-left: 12px; border-left: 1px solid var(--uat-border); }
+.uat-agent-pick label { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.uat-agent-pick label > span { flex: none; color: var(--uat-muted); font-size: 12px; }
+.uat-agent-pick select { min-width: 0; flex: 1; }
+.uat-agent-warn { margin: 0; color: var(--cr-amber, #f0b86e); font-size: 11.5px; line-height: 1.45; white-space: normal; }
+.uat-agent-chip.is-picked { outline: 2px solid color-mix(in srgb, var(--uat-primary) 55%, transparent); outline-offset: 1px; }
+@media (max-width: 1100px) {
+  .uat-agent-pick { flex-basis: 100%; max-width: none; border-left: 0; padding-left: 0; }
+}

@@ -12,7 +12,7 @@
  * 跑法：npx tsx scripts/ui-checks/uat-agent-bar.test.ts
  */
 import assert from 'node:assert/strict'
-import { deriveAgentBarView } from '../../src/features/uat/agent-bar-state'
+import { allowsServerFallback, deriveAgentBarView, derivePickedState } from '../../src/features/uat/agent-bar-state'
 
 const results: Array<{ name: string; ok: boolean }> = []
 const check = (name: string, fn: () => void) => {
@@ -23,7 +23,8 @@ const check = (name: string, fn: () => void) => {
   }
 }
 
-const agent = (caps: string[]) => ({
+const agent = (caps: string[], agentId = 'A1') => ({
+  agentId,
   capability: Object.fromEntries(['uat-record', 'uat-run', 'backend-uat'].map(c => [c, { usable: caps.includes(c) }])),
 })
 
@@ -91,6 +92,55 @@ check('⑨ 本機錄製只救 H5/PC', () => {
 check('⑩ 不是從本機開的就沒有這條退路', () => {
   const data = { authed: true, localRecord: false, agents: [] }
   assert.equal(deriveAgentBarView({ phase: 'ready', tab: 'h5', data }).localFallback, false)
+})
+
+// ── 派工選擇（v4.188.0：三個分頁的下拉整合到共用列）────────────────────────
+
+check('⑪ ⚠️ 「伺服器端 fallback」只有 Backend 有', () => {
+  assert.equal(allowsServerFallback('backend'), true)
+  assert.equal(allowsServerFallback('h5'), false, 'H5 沒有這條路，放上去等於做一個按了不會怎樣的選項')
+  assert.equal(allowsServerFallback('pc'), false)
+})
+
+check('⑫ 沒選＝自動，選 server 就是 server', () => {
+  const input = { phase: 'ready' as const, tab: 'backend' as const, data: { authed: true, agents: [] } }
+  assert.equal(derivePickedState('', input), 'none')
+  assert.equal(derivePickedState('server', input), 'server')
+})
+
+check('⑬ 選到的還在而且可用 → ok', () => {
+  assert.equal(derivePickedState('A1', {
+    phase: 'ready', tab: 'h5', data: { authed: true, agents: [agent(['uat-record'], 'A1')] },
+  }), 'ok')
+})
+
+check('⑭ ⚠️ 選到的變成不可用時要講出來（而不是當作沒選）', () => {
+  assert.equal(derivePickedState('A1', {
+    phase: 'ready', tab: 'h5', data: { authed: true, agents: [agent(['uat-run'], 'A1')] },
+  }), 'unusable', '不講的話使用者會以為照樣派得出去')
+})
+
+check('⑮ ⚠️ 選到的離線了要說「不在線上」', () => {
+  assert.equal(derivePickedState('A1', {
+    phase: 'ready', tab: 'h5', data: { authed: true, agents: [agent(['uat-record'], 'A2')] },
+  }), 'gone')
+})
+
+check('⑯ ⚠️ 還在查／查失敗時不得說「不在線上」（那時清單本來就是空的）', () => {
+  assert.equal(derivePickedState('A1', { phase: 'loading', tab: 'h5', data: null }), 'none',
+    '把「我不知道」講成「我知道它不在」')
+  assert.equal(derivePickedState('A1', { phase: 'error', tab: 'h5', data: null }), 'none')
+})
+
+check('⑰ ⚠️ 選到的不可用時，不會被悄悄換成別台（狀態只描述，不改值）', () => {
+  // derivePickedState 是純函式、不回傳「換成哪一台」——這條釘住的是「沒有自動改選」
+  // 這個設計本身：安靜地把工作送去別的地方，比擋下來糟得多。
+  const input = {
+    phase: 'ready' as const, tab: 'h5' as const,
+    data: { authed: true, agents: [agent(['uat-run'], 'A1'), agent(['uat-record'], 'A2')] },
+  }
+  assert.equal(derivePickedState('A1', input), 'unusable')
+  assert.equal(derivePickedState('A2', input), 'ok', '另一台可用不代表可以幫使用者改選')
 })
 
 const failed = results.filter(r => !r.ok).length

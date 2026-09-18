@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { UatMainTab, UatThemeMode } from './types'
-import { CAP_FOR_TAB, deriveAgentBarView } from './agent-bar-state'
+import { CAP_FOR_TAB, allowsServerFallback, deriveAgentBarView, derivePickedState } from './agent-bar-state'
 
 /**
  * 共用的 Local Agent 狀態列（v4.187.0）。
@@ -40,13 +40,31 @@ interface Overview {
 
 type Phase = 'loading' | 'ready' | 'error'
 
-export function UatAgentBar({ tab, themeMode }: { tab: UatMainTab; themeMode: UatThemeMode }) {
+/**
+ * `value` 是**這個分頁**選定的執行位置：`''` 自動、agent id、或 `'server'`（只有 Backend 有）。
+ *
+ * ⚠️ **選擇是每個分頁各一份，不是全域共用。** 三個分頁要的能力不同，而且「沒有 Agent 時
+ *    的退路」也不同（Backend 是伺服器端 fallback、H5/PC 是本機 Chrome）——共用一份的話
+ *    同一個選擇在不同分頁**意思會不一樣**。
+ */
+interface Props {
+  tab: UatMainTab
+  themeMode: UatThemeMode
+  value: string
+  onChange: (value: string) => void
+  /** 執行中不讓人改派工目標 */
+  disabled?: boolean
+}
+
+export function UatAgentBar({ tab, themeMode, value, onChange, disabled }: Props) {
   const xianxia = themeMode === 'xianxia'
   const copy = xianxia
     ? { title: '外派傀儡', unit: '尊', usable: '可差遣', busy: '閉關中', loading: '感應中…', reload: '重新感應',
-        none: '尚無外派傀儡聽令', anon: '查不到你的身分，請重新登入', fail: '感應失敗' }
+        none: '尚無外派傀儡聽令', anon: '查不到你的身分，請重新登入', fail: '感應失敗',
+        where: '差遣何處', auto: '自動調度', server: '本陣自理（伺服器端）' }
     : { title: 'Local Agent', unit: '台', usable: '可派工', busy: '忙碌中', loading: '查詢中…', reload: '重新整理',
-        none: '沒有連線中的 Local Agent', anon: '查不到你的登入身分，請重新登入', fail: '查詢失敗' }
+        none: '沒有連線中的 Local Agent', anon: '查不到你的登入身分，請重新登入', fail: '查詢失敗',
+        where: '執行位置', auto: '自動挑一台', server: '伺服器端（fallback）' }
 
   const [phase, setPhase] = useState<Phase>('loading')
   const [data, setData] = useState<Overview | null>(null)
@@ -94,6 +112,35 @@ export function UatAgentBar({ tab, themeMode }: { tab: UatMainTab; themeMode: Ua
           : state === 'error' ? '狀態未知——不代表沒問題'
             : ''
 
+  /**
+   * 選定那台的提醒。兩種都**不擋**，只講清楚：
+   *   - 版本落後：不一定影響這次要跑的東西，寫「可能吃不到」不是「會失敗」
+   *   - 選完之後才變忙／斷線：⚠️ **不自動換一台**——安靜地把工作送去別的地方比擋下來糟。
+   *     送出時 server 會擋並講原因。
+   */
+  const picked = value && value !== 'server' ? agents.find(a => a.agentId === value) : undefined
+  const pickedState = derivePickedState(value, { phase, data, tab })
+  const pickedWarning = (() => {
+    if (pickedState === 'gone') {
+      // 選了一個已經不在清單上的（離線了）——這種**一定要講**，否則畫面看起來像沒選
+      return `你選的 Agent 已經不在線上了。送出時會被擋下來——請改選一台，或按「${copy.reload}」。`
+    }
+    if (!picked) return ''
+    if (pickedState === 'unusable') {
+      return `你選的「${picked.hostname}」現在${picked.capability?.[cap]?.reason ?? '不可用'}。不會自動換一台，送出時會被擋下來。`
+    }
+    if (picked.updateStatus === 'needs_restart') {
+      return '這台 agent 的檔案已是最新，但跑著的程式是更新前載入的——重開 agent 才會生效。可以照樣派工，只是可能吃不到新功能。'
+    }
+    if (picked.updateStatus === 'unknown') {
+      return '這台 agent 沒有回報版本（多半是舊版）。建議到 Local Agent 頁更新一次並重開。可以照樣派工。'
+    }
+    if (picked.updateStatus === 'needs_update') {
+      return '這台 agent 的程式碼落後於伺服器，可能吃不到新功能。到 Local Agent 頁按「更新程式碼」即可。可以照樣派工。'
+    }
+    return ''
+  })()
+
   return (
     <div className={`uat-agent-bar is-${state}`} role="region" aria-label={copy.title}>
       <div className="uat-agent-lead">
@@ -106,7 +153,12 @@ export function UatAgentBar({ tab, themeMode }: { tab: UatMainTab; themeMode: Ua
           {agents.map(agent => {
             const capState = agent.capability?.[cap]
             return (
-              <span key={agent.agentId} className={capState?.usable ? 'uat-agent-chip is-usable' : 'uat-agent-chip'}>
+              <span key={agent.agentId}
+                className={[
+                  'uat-agent-chip',
+                  capState?.usable ? 'is-usable' : '',
+                  value === agent.agentId ? 'is-picked' : '',
+                ].filter(Boolean).join(' ')}>
                 <b>{agent.hostname}</b>
                 <i className={capState?.usable ? 'is-ok' : agent.busy ? 'is-busy' : 'is-no'}>
                   {capState?.usable ? copy.usable : capState?.reason ?? copy.busy}
@@ -128,6 +180,27 @@ export function UatAgentBar({ tab, themeMode }: { tab: UatMainTab; themeMode: Ua
                   </span>}
         </div>
       )}
+
+      <div className="uat-agent-pick">
+        <label>
+          <span>{copy.where}</span>
+          <select className="uat-field" value={value} disabled={disabled}
+            onChange={event => onChange(event.target.value)}>
+            {/* ⚠️ 這裡刻意**不寫「目前 N 台可用」**——那個數字左邊那格已經在講了，
+                兩個地方各講一次就會有一天對不起來。 */}
+            <option value="">{copy.auto}</option>
+            {agents.map(agent => (
+              <option value={agent.agentId} key={agent.agentId}>
+                {agent.hostname}{agent.capability?.[cap]?.usable ? '' : `（${agent.capability?.[cap]?.reason ?? '不可用'}）`}
+              </option>
+            ))}
+            {/* ⚠️ 「伺服器端」**只有 Backend 有**。H5/PC 的非 Agent 路徑是本機 Chrome，
+                而且只有從 localhost 開才有——三個分頁都放，等於做一個按了不會怎樣的選項。 */}
+            {allowsServerFallback(tab) ? <option value="server">{copy.server}</option> : null}
+          </select>
+        </label>
+        {pickedWarning ? <p className="uat-agent-warn">{pickedWarning}</p> : null}
+      </div>
 
       <div className="uat-agent-actions">
         <button type="button" className="uat-btn is-quiet" onClick={() => { setPhase('loading'); void load() }}>{copy.reload}</button>

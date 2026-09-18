@@ -63,7 +63,7 @@ interface BackendUatAgent {
   updateStatus?: string
 }
 
-export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
+export function BackendUatPanel({ themeMode, agentId }: { themeMode: UatThemeMode; agentId: string }) {
   const xianxia = themeMode === 'xianxia'
   const [config, setConfig] = useState(loadConfig)
   const [multiRecorderOpen, setMultiRecorderOpen] = useState(false)
@@ -157,7 +157,11 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   const [adoptBusy, setAdoptBusy] = useState(false)
   /** 補填 Lark 編號用的暫存（key = 自訂 TC id） */
   const [numberDraft, setNumberDraft] = useState<Record<string, string>>({})
-  const [selectedAgentId, setSelectedAgentId] = useState('')
+  /**
+   * 派工目標由**共用的 Agent 狀態列**選（`OsmUatPage` 持有）。
+   * ⚠️ 這裡不再自己存一份——兩個地方各存一份就會出現「列上顯示 A、實際派給 B」。
+   */
+  const selectedAgentId = agentId
 
   const openAdopt = useCallback(async (item: { id: string; title: string; linkNumber: string }) => {
     setAdoptFor(item.id); setAdoptCands([]); setAdoptReason('')
@@ -261,8 +265,8 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
   // 執行位置：Playwright 跑在哪台機器上。'' = 自動挑一台線上的 agent，
   // 'server' = 明確要求跑在伺服器本機（fallback，公網環境不一定裝得動瀏覽器）
   const [agents, setAgents] = useState<BackendUatAgent[]>([])
-  /** 有連線、屬於自己、但缺 backend-uat capability 的 agent 數（多半是還沒更新程式碼） */
-  const [outdatedAgents, setOutdatedAgents] = useState(0)
+  // ⚠️ 「有連線但缺 backend-uat 能力」的提示搬到共用 Agent 狀態列了（v4.188.0）——
+  //    那條列本來就會顯示「N 台連線，但這個分頁都用不了」。這裡不再自己留一份。
   const [runMode, setRunMode] = useState<{ mode: 'agent' | 'server'; agentHostname?: string } | null>(null)
   const loadAgents = useCallback(async () => {
     try {
@@ -270,13 +274,11 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
       const data = await response.json() as { ok: boolean; agents?: BackendUatAgent[]; outdated?: number }
       if (!data.ok) return null
       const online = data.agents ?? []
-      const outdated = data.outdated ?? 0
       setAgents(online)
-      setOutdatedAgents(outdated)
-      // agentId 內含 PID，Agent 每次重啟都會換 ID。保留舊選擇會讓錄製送出一個
-      // 已離線的 ID，即使同一台機器已重新連線，後端仍只能回 409。
-      setSelectedAgentId(current => current && !online.some(agent => agent.agentId === current) ? '' : current)
-      return { online, outdated }
+      // ⚠️ agentId 內含 PID，Agent 每次重啟都會換 ID——舊選擇會變成一個已離線的 ID。
+      //    選擇現在由共用 Agent 狀態列持有，那條列會把「你選的已經不在線上了」講出來，
+      //    **而且刻意不自動清掉**：自動換一台等於安靜地把工作送去別的地方。
+      return { online, outdated: data.outdated ?? 0 }
     } catch {
       // 清單抓不到與「確定沒有 Agent」是兩件事；開始錄製時要分開提示。
       return null
@@ -849,38 +851,10 @@ export function BackendUatPanel({ themeMode }: { themeMode: UatThemeMode }) {
           <div className="uat-backend-settings-form">
             <div className="uat-backend-cred-box">
               <b>執行位置</b>
-              <small>Playwright 實際跑在哪台機器。派工給 Local Agent 時，伺服器只負責建 session、轉日誌。</small>
-              <select className="uat-field" value={selectedAgentId} disabled={batchBusy || status === 'running'}
-                onChange={event => setSelectedAgentId(event.target.value)}>
-                <option value="">自動挑一台線上 Agent{agents.length ? `（目前 ${agents.filter(a => !a.busy).length} 台可用）` : '（目前沒有）'}</option>
-                {agents.map(agent => (
-                  <option value={agent.agentId} key={agent.agentId}>
-                    {agent.hostname}{agent.busy ? '（忙碌中）' : ''}
-                    {agent.updateStatus === 'needs_update' ? '　⚠ 程式碼落後'
-                      : agent.updateStatus === 'needs_restart' ? '　⚠ 需重開 agent'
-                      : agent.updateStatus === 'unknown' ? '　⚠ 版本未知' : ''}
-                  </option>
-                ))}
-                <option value="server">伺服器端（fallback）</option>
-              </select>
-              {/* 選到落後的 agent 時說清楚，但**不擋**——落後不一定影響這次要跑的東西。
-                  訊息刻意寫「可能吃不到」不是「會失敗」，避免使用者以為一定跑不動。 */}
-              {(() => {
-                const picked = agents.find(a => a.agentId === selectedAgentId)
-                if (!picked || !picked.updateStatus || picked.updateStatus === 'current') return null
-                const msg = picked.updateStatus === 'needs_restart'
-                  ? '這台 agent 的檔案已是最新，但跑著的程式是更新前載入的——重開 agent 才會生效。可以照樣派工，只是可能吃不到新功能。'
-                  : picked.updateStatus === 'unknown'
-                    ? '這台 agent 沒有回報版本（多半是舊版）。建議到 Local Agent 頁更新一次並重開。可以照樣派工。'
-                    : '這台 agent 的程式碼落後於伺服器，可能吃不到新功能。到 Local Agent 頁按「更新程式碼」即可。可以照樣派工。'
-                return <p className="uat-hint" style={{ color: 'var(--cr-amber)' }}>{msg}</p>
-              })()}
-              {!agents.length && outdatedAgents > 0 && (
-                <span className="uat-backend-cred-msg is-error">
-                  有 {outdatedAgents} 台 Agent 連線中，但版本太舊（沒有 backend-uat 能力）。
-                  請到「Local Agent」頁面按「更新程式碼」，然後重新啟動 Agent。
-                </span>
-              )}
+              {/* ⚠️ 下拉搬到**頁面最上面的共用 Agent 狀態列**了（v4.188.0）——
+                  它同時服務三個分頁，而狀態與選擇放在兩個地方各一份，遲早會出現
+                  「列上顯示 A、實際派給 B」。這裡只留「這次跑去哪」的結果。 */}
+              <small>Playwright 實際跑在哪台機器。在上方的 Agent 狀態列選擇；派工給 Local Agent 時，伺服器只負責建 session、轉日誌。</small>
               {runMode && (
                 <span className="uat-backend-cred-msg">
                   {runMode.mode === 'agent' ? `本次派工給 ${runMode.agentHostname ?? 'Agent'}` : '本次跑在伺服器端'}

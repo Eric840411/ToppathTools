@@ -9,7 +9,7 @@ import type { AgentOption, AutoBaseline, AutoFilter, AutoPlatform, AutoRun, Auto
 
 type StudioView = 'editor' | 'run' | 'assets' | 'history'
 
-interface Props { platform: AutoPlatform; themeMode: UatThemeMode }
+interface Props { platform: AutoPlatform; themeMode: UatThemeMode; agentId: string }
 
 function currentActor() {
   const saved = localStorage.getItem('frontend_auto_user')
@@ -22,7 +22,7 @@ function isLocalHost() {
   return ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname.toLowerCase())
 }
 
-export function FrontendAutomationStudio({ platform, themeMode }: Props) {
+export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props) {
   const xianxia = themeMode === 'xianxia'
   const copy = xianxia ? {
     cases: '玉簡卷宗', addScript: '新立試煉玉簡', editor: '陣圖編排', run: '啟陣控制', assets: '靈影素材', history: '試煉錄',
@@ -54,7 +54,6 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
    * 只說「目前沒有」的話，使用者看著明明連上的機器完全無從判斷。
    */
   const [agentsOutdated, setAgentsOutdated] = useState(0)
-  const [agentId, setAgentId] = useState('')
   const [recorderAvailable, setRecorderAvailable] = useState(isLocalHost())
   const [recordSessionId, setRecordSessionId] = useState<string | null>(null)
   const [recordLabel, setRecordLabel] = useState('')
@@ -453,7 +452,8 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
                 <label>{xianxia ? '幻境入口' : '目標網址'}<input className="uat-field" value={runConfig.url} onChange={event => setRunConfig(value => ({ ...value, url: event.target.value }))} placeholder="https://..." /></label>
                 <label>{xianxia ? '觀照尺寸' : '解析度'}<select className="uat-field" value={runConfig.resolution} onChange={event => setRunConfig(value => ({ ...value, resolution: event.target.value }))}>{(platform === 'h5' ? ['390x844', '500x877'] : ['1366x768', '1440x900', '1920x1080']).map(value => <option key={value}>{value}</option>)}</select></label>
                 <label>{xianxia ? '陣眼失守時' : '失敗處理'}<select className="uat-field" value={runConfig.failureMode} onChange={event => setRunConfig(value => ({ ...value, failureMode: event.target.value }))}><option value="continue">{xianxia ? '續行推演' : '繼續執行'}</option><option value="stop">{xianxia ? '立即收陣' : '立即停止'}</option></select></label>
-                <label>{xianxia ? '傀儡節點' : '執行節點'}<select className="uat-field" value={agentId} onChange={event => setAgentId(event.target.value)}><option value="">{xianxia ? '自動調度' : '自動選擇'}</option>{agents.map(agent => <option key={agent.agentId} value={agent.agentId}>{agent.label ?? agent.hostname ?? agent.agentId}</option>)}</select></label>
+                {/* ⚠️ 執行節點的下拉搬到**頁面最上面的共用 Agent 狀態列**了（v4.188.0）。
+                    狀態與選擇放兩個地方各一份，遲早出現「列上顯示 A、實際派給 B」。 */}
               </div>
               <label className="uat-check"><input type="checkbox" checked={runConfig.headed} onChange={event => setRunConfig(value => ({ ...value, headed: event.target.checked }))} />{xianxia ? '顯現幻境視窗' : '顯示瀏覽器視窗'}</label>
               <label className="uat-check"><input type="checkbox" checked={isPublic} onChange={event => { setIsPublic(event.target.checked); setDirty(true) }} />{xianxia ? '允許同門啟用此玉簡' : '允許其他使用者執行此腳本'}</label>

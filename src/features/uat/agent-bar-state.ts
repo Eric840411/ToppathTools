@@ -22,7 +22,7 @@ export interface AgentBarInput {
    * ⚠️ **查詢失敗時必須是 null。** 留著上一次的資料等於拿過期狀態宣稱「現在沒問題」，
    *    那正是這條列要解的病（CodeX 2026-09-18 指定：失敗不能沿用綠燈）。
    */
-  data: { authed?: boolean; localRecord?: boolean; agents?: Array<{ capability?: Record<string, { usable: boolean }> }> } | null
+  data: { authed?: boolean; localRecord?: boolean; agents?: Array<{ agentId?: string; capability?: Record<string, { usable: boolean }> }> } | null
   tab: UatMainTab
 }
 
@@ -44,6 +44,37 @@ export interface AgentBarView {
    * ⚠️ 本機 Chrome 只救得了 H5/PC 的錄製，**救不了 Backend**——不能一概說「還可以用」。
    */
   localFallback: boolean
+}
+
+/**
+ * 「伺服器端（fallback）」這個選項該不該出現。
+ *
+ * ⚠️ **只有 Backend 有。** H5/PC 的非 Agent 路徑是本機 Chrome，而且只有從 localhost
+ *    開才有——三個分頁都放，等於做一個在兩個分頁按了不會怎樣的選項。
+ */
+export function allowsServerFallback(tab: UatMainTab): boolean {
+  return tab === 'backend'
+}
+
+/**
+ * 選定的那台現在怎麼樣。回傳給畫面顯示用。
+ *
+ * ⚠️ **不自動換一台。** 選完之後才變忙／斷線時，安靜地把工作送去別的地方，
+ *    比擋下來糟得多——使用者會對著「成功」的畫面找不到自己指名那台在跑什麼。
+ */
+export type PickedState = 'none' | 'server' | 'ok' | 'unusable' | 'gone'
+
+export function derivePickedState(
+  value: string,
+  input: AgentBarInput,
+): PickedState {
+  if (!value) return 'none'
+  if (value === 'server') return 'server'
+  // 還在查／查失敗時不下結論——那時 agents 是空的，說「不在線上」是把不知道講成知道
+  if (input.phase !== 'ready') return 'none'
+  const found = (input.data?.agents ?? []).find(a => (a as { agentId?: string }).agentId === value)
+  if (!found) return 'gone'
+  return found.capability?.[CAP_FOR_TAB[input.tab]]?.usable ? 'ok' : 'unusable'
 }
 
 export function deriveAgentBarView(input: AgentBarInput): AgentBarView {
