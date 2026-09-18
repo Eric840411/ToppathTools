@@ -31,7 +31,9 @@ import { attachNetworkCapture, DEFAULT_THRESHOLDS } from './uat-runner/net-captu
 import { attachPinusProbe } from './uat-runner/pinus-probe.js'
 import { attachCdpCapture } from './uat-runner/cdp-capture.js'
 import { evaluateApiAssertion } from './uat-runner/api-assert.js'
-import { runBackendOps } from './uat-runner/backend-ops.js'
+import { compileFrontendSteps, runFrontendStep } from './uat-runner/frontend-engine.js'
+// 基準圖比對：跟伺服器端同一份。以前只有伺服器端有，這顆積木在 agent 上被靜默跳過。
+import { decodePng, findTemplateInPng } from './uat-runner/template-match.js'
 import { waitForDebugPort, clearStaleDebugPort, DEBUG_PORT_ARG } from './uat-runner/chrome-debug-port.js'
 import { verifyRecordedSelectorLive, createRecordedLocators } from './uat-runner/recorded-selector.js'
 import { frontendRecorderScript, flagShadowCompleteness, syncRecorderPanel, setRecorderPanelVisible, FRONTEND_RECORDER_CONTROL_MARKER } from './uat-runner/frontend-recorder.js'
@@ -412,7 +414,11 @@ function machineTextHasExactCode(text: string | null | undefined, machineCode: s
 }
 
 /** 大廳上的一張機台卡片。`occupied` 直接讀 DOM，不用點進去才知道。 */
-interface LobbyCard { gmid: string; game: string; model: string; occupied: boolean }
+interface LobbyCard {
+  gmid: string; game: string; model: string; occupied: boolean
+  /** 卡片上有「預約資訊」。實測 3 張有、而且同時都是 occupied——留著當獨立訊號，不混進 occupied */
+  reserved: boolean
+}
 
 /**
  * 掃大廳所有機台卡片。
@@ -427,16 +433,50 @@ async function scanUiScreenshotLobby(page: Page): Promise<LobbyCard[]> {
     return items.map(el => {
       const gmid = (el.getAttribute('title') || '').trim()
       const m = /^\d+-([A-Z0-9]+)-/.exec(gmid.toUpperCase())
+      // ⚠️ 名稱只讀 `.grid-item-name`，**不要用整張卡的 innerText**：
+      //    有些卡片多一格「預約資訊」（`.grid-item-reserved-info-static`，內容是遮罩過的號碼
+      //    像 `10*****48`），用 innerText 會把它一起吃進來，model 變成「10*****48 Emperor」。
+      //    實測 697 張卡片**全部**都有 `.grid-item-name`，這個選擇器是可靠的。
+      const nameEl = el.querySelector('.grid-item-name')
       return {
         gmid,
         game: m ? m[1] : '',
-        text: (el as HTMLElement).innerText.replace(/\s+/g, ' ').trim(),
+        text: ((nameEl?.textContent ?? '') || (el as HTMLElement).innerText).replace(/\s+/g, ' ').trim(),
+        reserved: !!el.querySelector('.grid-item-reserved-info-static'),
         occupied: /\boccupied\b/.test(el.innerHTML),
       }
     }).filter(c => c.gmid)
   })
   // model 的解析放在 node 這端做，跟掃描用同一份規則（瀏覽器端再寫一份遲早會漂掉）
-  return raw.map(c => ({ gmid: c.gmid, game: c.game, model: parseUiScreenshotModel(c.text), occupied: c.occupied }))
+  return raw.map(c => ({
+    gmid: c.gmid, game: c.game, model: parseUiScreenshotModel(c.text),
+    occupied: c.occupied, reserved: c.reserved,
+  }))
+}
+
+/**
+ * 確保現在人在大廳（而且卡片真的讀得到）。
+ *
+ * ⚠️ 實測（使用者 2026-09-18 回報）：重新載入之後**不一定會落在大廳**——
+ *    可能自動回到剛才那台機台裡，也可能面額彈窗直接蓋在畫面上。這兩種情況下掃卡片都會掃到 0 張，
+ *    症狀是「`Lobby has no machine matching: COINCOMBO / Hyper Horse`」——
+ *    **看起來像那個 model 不存在，其實是根本沒站在大廳**。
+ *
+ * ⚠️ 這裡的「退出機台」跟截圖後不再做的那個 Quit 是兩回事：這是**為了回到大廳**，不是收尾。
+ */
+async function ensureUiScreenshotLobby(page: Page, label: string): Promise<void> {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    // 彈窗可能蓋在大廳上，先關掉再判斷在不在大廳
+    await dismissUiScreenshotPopups(page, label)
+    const count = await page.locator('#grid_gm_item').count().catch(() => 0)
+    if (count > 0) return
+    console.log(`[UI-SS] ${label} — 沒看到大廳卡片（第 ${attempt} 次），嘗試退出機台再回大廳`)
+    await exitUiScreenshotMachine(page, label).catch(() => {})
+    await page.waitForSelector('#grid_gm_item', { timeout: 20_000 }).catch(() => null)
+    await page.waitForTimeout(1500)
+  }
+  const count = await page.locator('#grid_gm_item').count().catch(() => 0)
+  if (count === 0) throw new Error(`回不到大廳（可能仍在機台內或頁面沒載完）: ${label}`)
 }
 
 /**
@@ -449,10 +489,19 @@ async function scanUiScreenshotLobby(page: Page): Promise<LobbyCard[]> {
 async function pickUiScreenshotMachine(
   page: Page, target: string, preferred?: string, exclude: Set<string> = new Set(),
 ): Promise<{ gmid: string; totalOfTarget: number; freeOfTarget: number }> {
-  const cards = await scanUiScreenshotLobby(page)
-  const matches = cards.filter(c => uiScreenshotTargetMatches(target, c))
+  let cards = await scanUiScreenshotLobby(page)
+  let matches = cards.filter(c => uiScreenshotTargetMatches(target, c))
+  // ⚠️ 卡片元素出現不代表名稱已經渲染好（`.grid-item-name` 會晚一點）。
+  //    掃到 0 筆先等一下重掃一次，不要馬上下「查無此 model」的結論
+  if (matches.length === 0) {
+    await page.waitForTimeout(2500)
+    cards = await scanUiScreenshotLobby(page)
+    matches = cards.filter(c => uiScreenshotTargetMatches(target, c))
+  }
   const free = matches.filter(c => !c.occupied && !exclude.has(c.gmid))
-  if (matches.length === 0) throw new Error(`Lobby has no machine matching: ${target}`)
+  if (matches.length === 0) {
+    throw new Error(`Lobby has no machine matching: ${target}（大廳共 ${cards.length} 張卡片、其中 ${cards.filter(c => c.model).length} 張讀得到名稱）`)
+  }
   if (free.length === 0) throw new Error(`No free machine for: ${target} (${matches.length} total, all occupied or already tried)`)
   const chosen = (preferred && free.find(c => c.gmid === preferred)) ? preferred : free[0].gmid
   return { gmid: chosen, totalOfTarget: matches.length, freeOfTarget: free.length }
@@ -497,11 +546,15 @@ function parseUiScreenshotModel(cardText: string): string {
 async function scanUiScreenshotModels(page: Page) {
   const cards = await page.evaluate(() => {
     const items = Array.from(document.querySelectorAll('#grid_gm_item'))
-    return items.map(el => ({
-      gmid: (el.getAttribute('title') || '').trim(),
-      text: (el as HTMLElement).innerText.replace(/\s+/g, ' ').trim(),
-      occupied: /occupied/.test(el.innerHTML),
-    })).filter(c => c.gmid)
+    return items.map(el => {
+      const nameEl = el.querySelector('.grid-item-name')
+      return {
+        gmid: (el.getAttribute('title') || '').trim(),
+        // 同上：只取名稱那一格，避免把「預約資訊」的遮罩號碼當成 model 的一部分
+        text: ((nameEl?.textContent ?? '') || (el as HTMLElement).innerText).replace(/\s+/g, ' ').trim(),
+        occupied: /\boccupied\b/.test(el.innerHTML),
+      }
+    }).filter(c => c.gmid)
   })
   const groups = new Map<string, { game: string; model: string; total: number; free: number; sample: string }>()
   const unparsed: Array<{ gmid: string; text: string }> = []
@@ -619,6 +672,67 @@ async function isUiScreenshotPopupVisible(page: Page): Promise<boolean> {
       }),
     )
   }).catch(() => false)
+}
+
+/**
+ * 關掉進場後的彈窗，**關到偵測不到為止**（最多 4 輪）。
+ *
+ * ⚠️ 實測不只一層：第一層是面額選單（`.select-bg` → 點第一個面額），
+ *    關掉之後有些機台還會再跳一層「SELECT A DENOMINATION → YES / NO」。
+ *    只處理第一層的話，第二層會留在畫面上把下半部蓋住——**截圖照樣拍得到，只是拍到的是被蓋住的畫面**。
+ *
+ * ⚠️ YES / NO 按 **YES**（使用者 2026-09-18 指定，跟第一層一樣走「選下去」而不是「取消」）。
+ *
+ * ⚠️ 只在「看起來是彈窗」的容器裡找按鈕（class 帶 select/popup/overlay/dialog/confirm），
+ *    不要在整頁找文字 YES——遊戲畫面裡到處都是英文字，在全頁亂點是會出事的。
+ */
+async function dismissUiScreenshotPopups(page: Page, label: string): Promise<number> {
+  let dismissed = 0
+  for (let round = 1; round <= 4; round++) {
+    // 第一層：面額選單
+    const denom = await page.$('.select-bg')
+    if (denom) {
+      const firstBtn = await page.$('.select-row .van-col')
+      if (firstBtn) {
+        await firstBtn.click().catch(() => {})
+        await page.waitForTimeout(800)
+        dismissed++
+        console.log(`[UI-SS] ${label} — 關掉面額選單（第 ${round} 輪）`)
+        continue
+      }
+    }
+    // 第二層（含之後可能再冒出來的確認框）：在彈窗容器裡找 YES / 確定
+    const clicked = await page.evaluate(() => {
+      const boxes = Array.from(document.querySelectorAll(
+        '[class*="select"], [class*="popup"], [class*="overlay"], [class*="dialog"], [class*="confirm"]',
+      ))
+      const visible = (el: Element) => {
+        const r = el.getBoundingClientRect()
+        const s = getComputedStyle(el)
+        return r.width > 10 && r.height > 10 && s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0'
+      }
+      for (const box of boxes) {
+        if (!visible(box)) continue
+        const btns = Array.from(box.querySelectorAll('button, .van-button, [class*="btn"], div, span'))
+        for (const b of btns) {
+          const t = (b.textContent || '').trim().toUpperCase()
+          if ((t === 'YES' || t === '確定' || t === 'OK' || t === '确定') && visible(b)) {
+            ;(b as HTMLElement).click()
+            return t
+          }
+        }
+      }
+      return ''
+    }).catch(() => '')
+    if (clicked) {
+      await page.waitForTimeout(800)
+      dismissed++
+      console.log(`[UI-SS] ${label} — 關掉第二層彈窗（按 ${clicked}，第 ${round} 輪）`)
+      continue
+    }
+    break
+  }
+  return dismissed
 }
 
 async function clickFirstVisible(page: Page, selectors: string[]): Promise<boolean> {
@@ -798,12 +912,16 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
     const prepare = async (page: Page): Promise<string> => {
       await page.goto(url, { timeout: 30000 })
 
-      // 大廳本身就是拍攝目標：不進任何機台
+      // 大廳本身就是拍攝目標：不進任何機台（一樣要先把蓋住畫面的彈窗關掉）
       if (isLobbyTarget) {
-        await page.waitForSelector('#grid_gm_item', { timeout: 20000 })
+        await ensureUiScreenshotLobby(page, '__LOBBY__')
         if (screenshotDelaySeconds > 0) await page.waitForTimeout(screenshotDelaySeconds * 1000)
         return '__LOBBY__'
       }
+
+      // ⚠️ 先確定真的站在大廳再掃卡片：重新載入後可能自動回到機台裡，或被彈窗蓋住，
+      //    那時候掃到 0 張卡片，錯誤訊息會變成「查無此 model」——那是誤導
+      await ensureUiScreenshotLobby(page, gmid)
 
       let target = gmid
       if (autoPick) {
@@ -818,15 +936,7 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
       if (!ready) throw new Error(`Game surface not ready after entering machine: ${gmid}`)
       console.log(`[UI-SS] ${gmid} — stream ready`)
       if (options.dismissPopup !== false) {
-        const popupEl = await page.$('.select-bg')
-        if (popupEl) {
-          const firstBtn = await page.$('.select-row .van-col')
-          if (firstBtn) {
-            await firstBtn.click()
-            await page.waitForTimeout(800)
-            console.log(`[UI-SS] ${gmid} — denom popup dismissed`)
-          }
-        }
+        await dismissUiScreenshotPopups(page, target)
       }
       if (screenshotDelaySeconds > 0) {
         console.log(`[UI-SS] ${gmid} waiting ${screenshotDelaySeconds}s before screenshot`)
@@ -878,7 +988,10 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
             await postStatus(task.id, 'running')
             const actual = await prepare(page)
             await shootAndUpload(page, task, actual)
-            if (!isLobbyTarget) await exitUiScreenshotMachine(page, actual).catch(() => {})
+            // ⚠️ 重新載入模式**不走離開機台的流程**（使用者 2026-09-18 指定）：
+            //    反正下一張會關掉整個 context 重開，走一次 Quit 只是多花時間、多一個會卡住的地方。
+            //    副作用：機台釋放如果有延遲，下一張可能會被迫換台——那時會自動挑同 model 的另一台，
+            //    每張圖都有記錄實際機台號，所以看得出來。
           } catch (err) {
             // ⚠️ 單一解析度失敗**只標這一張**。整批一起標失敗的話，
             //    畫面看起來像「這台機器完全拍不到」，但其實只是某個尺寸進不去
@@ -940,7 +1053,12 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
 
   type StepObj = { name?: string; action: string; value?: string; selector?: string; x?: number; y?: number; baselineId?: string; threshold?: number; scrollStep?: number; maxScrolls?: number; failureMode?: 'inherit' | 'continue' | 'stop' | 'retry'; retryCount?: number; urlPattern?: string; expectStatus?: '2xx' | 'any' | 'exact'; statusCode?: number; minCount?: number }
   let steps: StepObj[]
-  try { steps = JSON.parse(stepsRaw) as StepObj[] } catch {
+  try {
+    // ⚠️ 步驟整理走共用那支（丟掉座標點擊後面重複的 selector 點擊）。
+    //    原本**只有伺服器端做**，所以同一份腳本在 agent 上會多點一次——
+    //    這是合併引擎時發現的第二處漂移。
+    steps = compileFrontendSteps(JSON.parse(stepsRaw) as StepObj[]).steps as StepObj[]
+  } catch {
     await log('❌ 步驟 JSON 解析失敗')
     sendEvent({ kind: 'error', message: '步驟 JSON 解析失敗' })
     uatScriptRuns.delete(runId)
@@ -958,7 +1076,7 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
   // assert_api_called 只看「這一步之後」打的 API。每次 goto 之後往前推——
   // 問的是「開了這頁、做了這些操作之後有沒有打到它」，不是整輪跑下來有沒有出現過。
   // ⚠️ 不推的話，第一次 goto 之前的請求會永遠留在集合裡，斷言變成幾乎不可能失敗。
-  let netMark = Date.now()
+  const netState = { netMark: Date.now() }
   let pinusProbe: Awaited<ReturnType<typeof attachPinusProbe>> | null = null
   let pinusDrainTimer: ReturnType<typeof setInterval> | null = null
   let statsTimer: ReturnType<typeof setInterval> | null = null
@@ -1051,108 +1169,40 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
       let stepAttempt = 0
       while (true) {
       try {
-        if (step.action === 'goto') {
-          const target = step.value || startUrl
-          await log(`⏳ ${idx} ${label} → ${target}`)
-          // ⚠️ **netMark 要設在導頁之前，不是之後。**
-          // 「開這頁時打了哪些後端」正是最常要驗的東西——設在 goto 完成
-          // 又等三秒之後的話，載入期間那批 API 全部落在界線之前，
-          // assert_api_called 會永遠看到 0 支。Backend 的 block-engine 早就
-          // 踩過這個坑（見 :711 的註解，也是實測才發現），這裡照它的位置放。
-          netMark = Date.now()
-          await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 })
-          await page.waitForTimeout(3000)
-          await log(`✅ ${idx} ${label}`)
-          sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
-          passed++
-        } else if (step.action === 'click') {
-          await log(`⏳ ${idx} ${label}`)
-          await (await recordedLocator(step.selector ?? '')).click({ timeout: 10000 })
-          await log(`✅ ${idx} ${label}`)
-          sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
-          passed++
-        } else if (step.action === 'click_xy') {
-          await log(`⏳ ${idx} ${label}`)
-          await page.locator('canvas').first().click({ position: { x: step.x ?? 0, y: step.y ?? 0 }, timeout: 10000 })
-          await log(`✅ ${idx} ${label}`)
-          sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
-          passed++
-        } else if (step.action === 'click_viewport') {
-          await log(`⏳ ${idx} ${label}`)
-          await page.mouse.click(step.x ?? 0, step.y ?? 0)
-          await page.waitForTimeout(500)
-          await log(`✅ ${idx} ${label}`)
-          sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
-          passed++
-        } else if (step.action === 'type' || step.action === 'fill') {
-          await log(`⏳ ${idx} ${label}`)
-          await (await recordedLocator(step.selector ?? '')).fill(step.value ?? '', { timeout: 10000 })
-          await log(`✅ ${idx} ${label}`)
-          sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
-          passed++
-        } else if (step.action === 'wait') {
-          await log(`⏳ ${idx} ${label}`)
-          await page.waitForTimeout(Number(step.value) || 1000)
-          await log(`✅ ${idx} ${label}`)
-          sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
-          passed++
-        } else if (step.action === 'screenshot') {
-          await log(`⏳ ${idx} ${label}`)
-          await page.screenshot()
-          await log(`✅ ${idx} ${label}`)
-          sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
-          passed++
-        } else if (step.action === 'assert_api_called') {
-          await log(`⏳ ${idx} ${label}`)
-          // ⚠️ 拿不到網路紀錄一定要**失敗**，不能落到下面那個 skip 分支。
-          //    斷言被安靜跳過而腳本照樣 PASS，比直接報錯糟得多。
-          if (!netCapture) throw new Error('這個執行環境沒有網路紀錄可查（量測沒有掛上）')
-          if (!step.urlPattern) throw new Error('沒有填 API 網址樣式')
-          const verdict = evaluateApiAssertion(
-            netCapture.records().filter(r => Number(r.ts) >= netMark),
-            { urlPattern: step.urlPattern, expectStatus: step.expectStatus, statusCode: step.statusCode, minCount: step.minCount },
-          )
-          if (!verdict.ok) throw new Error(`${step.urlPattern} —— ${verdict.why}`)
-          await log(`✅ ${idx} ${label}（${verdict.why}）`)
-          sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
-          passed++
-        } else if (step.action === 'assert_visible') {
-          await log(`⏳ ${idx} ${label}`)
-          await (await recordedLocator(step.selector ?? '')).waitFor({ state: 'visible', timeout: 10000 })
-          await log(`✅ ${idx} ${label}`)
-          sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
-          passed++
-        } else if (step.action === 'backend_snippet') {
-          // ⚠️ 這一段**一定要在 agent 端也實作**。只做 server 端的話，
-          //    agent 模式會掉到下面的「不支援的動作 → 跳過」——腳本照樣 PASS，
-          //    而後台的設定根本沒做。（v4.167.0 的 `fill` 就是這樣咬過一次。）
-          const snippetSteps = (step as unknown as { snippetSteps?: object[] }).snippetSteps ?? []
-          const snippetTitle = (step as unknown as { snippetTitle?: string }).snippetTitle ?? '後台設定'
-          if (!browser) throw new Error('瀏覽器尚未就緒，無法執行後台設定')
-          if (!msg.backend) throw new Error('沒有後台帳密，無法執行後台設定（請確認伺服器端有帶）')
-          await log(`⏳ ${idx} ${label}：${snippetTitle}`)
-          const opResult = await runBackendOps(browser, {
-            ...msg.backend, steps: snippetSteps, title: snippetTitle,
-            onNote: (line) => { void log(line) },
-          })
-          if (!opResult.ok) throw new Error(opResult.fails.join('；'))
-          await log(`✅ ${idx} ${label}：${snippetTitle} 完成`)
-          sendEvent({ kind: 'step_result', index: i, status: 'pass', message: `${label}：${snippetTitle}` })
-          passed++
-        } else {
-          // 🚨 **不認得的動作一律失敗，不能跳過。**
-          //
-          // 原本是「⏭ 跳過」，而那讓一個既有 bug 隱形了很久：`find_baseline_scroll`
-          // （尋找基準圖）**只有伺服器端實作**，派工給 agent 時就掉進這裡被跳過——
-          // 腳本照樣 PASS，而視覺比對根本沒跑。更糟的是**框選截圖自動產生的就是那顆積木**。
-          //
-          // 少驗是誠實的，假裝驗過不是。改成失敗之後，症狀會從「安靜的綠燈」
-          // 變成「這一步紅了，而且說得出是哪個動作」。
-          //
-          // ⚠️ 這會讓既有腳本開始紅——但它們**本來就沒在驗那一步**，只是沒人知道。
-          throw new Error(`這個執行環境不支援「${step.action}」這個動作。`
-            + '請到 Local Agent 頁面按「更新程式碼」並重啟 Agent；若更新後仍然如此，代表這顆積木還沒有在 Agent 端實作。')
-        }
+        // ⚠️ **積木的行為只有一份**（`uat-runner/frontend-engine.js`），伺服器端跑同一支。
+        //    以前這裡跟伺服器各有一份對照表，然後就漂了——`find_baseline_scroll`
+        //    只有伺服器端有，在這裡被靜默跳過，腳本照樣 PASS。
+        await runFrontendStep(step, {
+          idx, label, log, page, browser,
+          recordedLocator, netCapture,
+          state: netState,
+          startUrl,
+          viewportHeight: h,
+          backend: msg.backend ?? null,
+          /**
+           * 基準圖：**server 派工時已經把圖的網址與門檻附在積木上**（跟後台設定片段同一個
+           * 做法——agent 拿不到 DB，不能讓它自己查）。這裡只負責把圖抓下來。
+           *
+           * ⚠️ 抓不到要**明確失敗**。以前這顆積木在 agent 上是被跳過的，
+           *    腳本照樣 PASS 而比對根本沒跑——那是這次要修掉的東西，不能換個形式回來。
+           */
+          loadBaseline: async (target: Record<string, unknown>) => {
+            const url = String(target.baselineUrl ?? '')
+            if (!url) throw new Error('這顆基準圖積木沒有附帶圖片網址（伺服器端可能還沒更新）')
+            const response = await fetch(url)
+            if (!response.ok) throw new Error(`取不到基準圖（HTTP ${response.status}）：${url}`)
+            const bytes = Buffer.from(await response.arrayBuffer())
+            return {
+              name: String(target.baselineName ?? '基準圖'),
+              template: decodePng(bytes),
+              threshold: Number(target.baselineThreshold) || 0.08,
+            }
+          },
+          compareTemplate: (shot, template, threshold) => findTemplateInPng(shot, template, threshold),
+          decodePng: (buffer: Buffer) => decodePng(buffer),
+        })
+        sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
+        passed++
         break
       } catch (err) {
         const errMsg = err instanceof Error ? err.message.split('\n')[0] : String(err)

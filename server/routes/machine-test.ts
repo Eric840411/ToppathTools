@@ -81,6 +81,10 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   // 後台設定片段的執行器（H5/PC 腳本中間跑一段後台操作）。
   // ⚠️ 漏了的話 agent 會在 import 當下整支炸掉，錯誤只出現在 agent 的 stderr。
   'uat-runner/backend-ops.js':         join(SERVER_ROOT, 'uat-runner', 'backend-ops.js'),
+  // H5/PC 積木的執行引擎（只有這一份，伺服器與 agent 共用）。
+  'uat-runner/frontend-engine.js':     join(SERVER_ROOT, 'uat-runner', 'frontend-engine.js'),
+  // 基準圖比對。⚠️ 漏了的話 agent 會在 import 當下整支炸掉。
+  'uat-runner/template-match.js':      join(SERVER_ROOT, 'uat-runner', 'template-match.js'),
   'uat-runner/recorder-visual.js': join(SERVER_ROOT, 'uat-runner', 'recorder-visual.js'),
   'uat-runner/multi-tc.js':            join(SERVER_ROOT, 'uat-runner', 'multi-tc.js'),
   'uat-runner/step-dependencies.js': join(SERVER_ROOT, 'uat-runner', 'step-dependencies.js'),

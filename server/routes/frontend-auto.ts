@@ -21,7 +21,10 @@ import { db, getUatBackendCredentials } from '../shared.js'
 import { agentConnections, uatAgentSessions, uatRunSessions, UAT_CONSOLE_KEEP, type AgentInfo, type UatConsoleEntry } from '../agent-hub.js'
 import { getAuthEmailFromContext } from '../request-context.js'
 import { getBackendSnippet } from '../uat-backend-snippets.js'
-import { runBackendOps } from '../uat-runner/backend-ops.js'
+import { compileFrontendSteps, runFrontendStep } from '../uat-runner/frontend-engine.js'
+// ⚠️ 基準圖比對抽成共用的一份——原本只活在這個檔案裡，所以只有伺服器端跑得了，
+//    agent 上那顆積木被靜默跳過。
+import { decodePng as loadPng, findTemplateInPng } from '../uat-runner/template-match.js'
 import { agentUpdateStatus } from './machine-test.js'
 
 export const router = express.Router()
@@ -1551,37 +1554,7 @@ type StepObj = {
   retryCount?: number
 }
 
-function loadPng(buffer: Buffer) {
-  return PNG.sync.read(buffer)
-}
 
-function findTemplateInPng(screen: PNG, template: PNG, threshold: number) {
-  if (template.width > screen.width || template.height > screen.height) return null
-  const stride = Math.max(1, Math.floor(Math.min(template.width, template.height) / 24))
-  const step = Math.max(1, Math.floor(Math.min(template.width, template.height) / 12))
-  let best = { x: 0, y: 0, diff: Number.POSITIVE_INFINITY }
-
-  for (let y = 0; y <= screen.height - template.height; y += step) {
-    for (let x = 0; x <= screen.width - template.width; x += step) {
-      let diff = 0
-      let samples = 0
-      for (let ty = 0; ty < template.height; ty += stride) {
-        for (let tx = 0; tx < template.width; tx += stride) {
-          const si = ((y + ty) * screen.width + (x + tx)) * 4
-          const ti = (ty * template.width + tx) * 4
-          diff += Math.abs(screen.data[si] - template.data[ti])
-          diff += Math.abs(screen.data[si + 1] - template.data[ti + 1])
-          diff += Math.abs(screen.data[si + 2] - template.data[ti + 2])
-          samples += 3
-        }
-      }
-      const normalized = diff / (samples * 255)
-      if (normalized < best.diff) best = { x, y, diff: normalized }
-      if (normalized <= threshold) return { x, y, diff: normalized }
-    }
-  }
-  return best.diff <= threshold ? best : null
-}
 
 /**
  * 每個 run 的最後一份量測快照。SSE 是「接上之後才收得到」，中途才開面板的人
@@ -1617,6 +1590,33 @@ export async function pushLog(runId: string, line: string) {
  *    或腳本是從別的環境搬過來的，都會走到這裡——而「設定沒做但測試綠燈」
  *    正是這個功能最怕的結果。
  */
+/**
+ * 基準圖：把 `baselineId` 換成 agent 拿得到的東西（圖片網址、名稱、門檻）。
+ *
+ * ⚠️ **在 server 這一側解析**，跟後台設定片段同一個做法——agent 拿不到 DB。
+ *    以前 agent 端根本沒有實作這顆積木，所以它被靜默跳過、腳本照樣 PASS。
+ *
+ * ⚠️ 解析不到**不在這裡擋**：伺服器端執行時是直接讀 DB 的（不需要這些欄位），
+ *    而且基準圖不存在時引擎本來就會失敗並講原因。在這裡擋反而會讓
+ *    「伺服器端跑得起來的腳本」因為派工給 agent 而被提前拒絕。
+ */
+function attachBaselineInfo(steps: StepObj[], origin: string): StepObj[] {
+  return steps.map(step => {
+    if (step.action !== 'find_baseline_scroll') return step
+    const id = String((step as Record<string, unknown>).baselineId ?? '')
+    if (!id) return step
+    const row = db.prepare('SELECT name, image_path, threshold FROM frontend_auto_baselines WHERE id = ?')
+      .get(id) as { name: string; image_path: string; threshold: number } | undefined
+    if (!row) return step
+    return {
+      ...step,
+      baselineName: row.name,
+      baselineThreshold: row.threshold,
+      baselineUrl: `${origin}${row.image_path}`,
+    } as StepObj
+  })
+}
+
 function resolveBackendSnippets(steps: StepObj[]): { steps: StepObj[]; used: boolean; errors: string[] } {
   const errors: string[] = []
   let used = false
@@ -1680,6 +1680,10 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
   }
   // ⚠️ 解析後的步驟才是要送出去執行的那一份
   const stepsForRun = JSON.stringify(resolved.steps)
+  // 派工給 agent 時再補上基準圖的網址——agent 拿不到 DB 也讀不到伺服器的檔案。
+  // ⚠️ 用請求本身的來源組網址，不要寫死：agent 連得到的位址跟伺服器自己看到的不一定一樣。
+  const agentOrigin = `${req.headers['x-forwarded-proto'] ?? req.protocol}://${req.headers['x-forwarded-host'] ?? req.headers.host}`
+  const stepsForAgent = JSON.stringify(attachBaselineInfo(resolved.steps, agentOrigin))
 
   // ── Route to agent if agentId provided or agent available ──────────────────
   //
@@ -1709,7 +1713,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
     agentToUse.ws.send(JSON.stringify({
       type: 'uat_script_run',
       runId,
-      steps: stepsForRun,
+      steps: stepsForAgent,
       // ⚠️ **只有真的用到後台積木時才帶帳密**。沒用到的腳本不該帶著憑證跑，
       //    尤其這是送到另一台機器上。
       ...(backendCreds ? { backend: backendCreds } : {}),
@@ -1734,7 +1738,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
     // assert_api_called 只看「這一步之後」打的 API。每次 goto 之後往前推——
     // 問的是「開了這頁、做了這些操作之後有沒有打到它」，不是整輪跑下來有沒有出現過。
     // ⚠️ 不推的話，第一次 goto 之前的請求會永遠留在集合裡，斷言變成幾乎不可能失敗。
-    let netMark = Date.now()
+    const netState = { netMark: Date.now() }
     let pinusProbe: Awaited<ReturnType<typeof attachPinusProbe>> | null = null
     let pinusDrainTimer: ReturnType<typeof setInterval> | null = null
     let statsTimer: ReturnType<typeof setInterval> | null = null
@@ -1745,12 +1749,11 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
     let steps: StepObj[]
     try {
       try { steps = JSON.parse(stepsForRun) } catch { await log('❌ 步驟 JSON 解析失敗'); return }
-      const rawStepCount = steps.length
-      steps = steps.filter((step, index, list) => {
-        const prev = list[index - 1]
-        return !(prev?.action === 'click_viewport' && step.action === 'click')
-      })
-      const skippedDuplicateClicks = rawStepCount - steps.length
+      // ⚠️ 步驟整理也走共用那支——原本只有這邊有，agent 端沒有，
+      //    所以同一份腳本在兩邊會點不一樣多次。
+      const compiled = compileFrontendSteps(steps)
+      steps = compiled.steps as StepObj[]
+      const skippedDuplicateClicks = compiled.dropped
       if (skippedDuplicateClicks > 0) {
         await log(`ℹ 已略過 ${skippedDuplicateClicks} 個座標點擊後的重複 selector 點擊`)
       }
@@ -1824,127 +1827,31 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
         let stepAttempt = 0
         while (true) {
         try {
-          if (step.action === 'goto') {
-            const target = step.value || startUrl
-            await log(`⏳ ${idx} ${label} → ${target}`)
-            // ⚠️ **netMark 要設在導頁之前，不是之後。**
-            // 「開這頁時打了哪些後端」正是最常要驗的東西——設在 goto 完成
-            // 又等三秒之後的話，載入期間那批 API 全部落在界線之前，
-            // assert_api_called 會永遠看到 0 支。Backend 的 block-engine 早就
-            // 踩過這個坑（見 :711 的註解，也是實測才發現），這裡照它的位置放。
-            netMark = Date.now()
-            await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 })
-            await page.waitForTimeout(3000)
-            await log(`✅ ${idx} ${label}`)
-            passed++
-          } else if (step.action === 'click') {
-            await log(`⏳ ${idx} ${label}`)
-            await (await recordedLocator(step.selector ?? '')).click({ timeout: 10000 })
-            await log(`✅ ${idx} ${label}`)
-            passed++
-          } else if (step.action === 'click_xy') {
-            await log(`⏳ ${idx} ${label}`)
-            await page.locator('canvas').first().click({ position: { x: step.x ?? 0, y: step.y ?? 0 }, timeout: 10000 })
-            await log(`✅ ${idx} ${label}`)
-            passed++
-          } else if (step.action === 'click_viewport') {
-            await log(`⏳ ${idx} ${label}`)
-            await page.mouse.click(step.x ?? 0, step.y ?? 0)
-            await page.waitForTimeout(500)
-            await log(`✅ ${idx} ${label}`)
-            passed++
-          } else if (step.action === 'type' || step.action === 'fill') {
-            // ⚠️ fill 是 agent 模式舊錄製器的動作名。這邊沒有它的話，那些腳本會落到
-            //    「不支援的動作 → skipped」，**腳本照樣 PASS**。新錄的一律是 type。
-            await log(`⏳ ${idx} ${label}`)
-            await (await recordedLocator(step.selector ?? '')).fill(step.value ?? '', { timeout: 10000 })
-            await log(`✅ ${idx} ${label}`)
-            passed++
-          } else if (step.action === 'wait') {
-            await log(`⏳ ${idx} ${label}`)
-            await page.waitForTimeout(Number(step.value) || 1000)
-            await log(`✅ ${idx} ${label}`)
-            passed++
-          } else if (step.action === 'screenshot') {
-            await log(`⏳ ${idx} ${label}`)
-            await page.screenshot()
-            await log(`✅ ${idx} ${label}`)
-            passed++
-          } else if (step.action === 'find_baseline_scroll') {
-            await log(`⏳ ${idx} ${label}`)
-            const baseline = step.baselineId
-              ? db.prepare('SELECT id, name, image_path, threshold FROM frontend_auto_baselines WHERE id = ?').get(step.baselineId) as BaselineRow | undefined
-              : undefined
-            if (!baseline) throw new Error('baseline not found')
-            const templateFile = imagePathToFile(baseline.image_path)
-            if (!templateFile || !existsSync(templateFile)) throw new Error('baseline image file not found')
-            const template = loadPng(readFileSync(templateFile))
-            const threshold = typeof step.threshold === 'number' ? step.threshold : baseline.threshold || 0.08
-            const scrollStep = Math.max(50, Number(step.scrollStep) || Math.floor((h || 844) * 0.7))
-            const maxScrolls = Math.max(1, Number(step.maxScrolls) || 20)
-            let found: { x: number; y: number; diff: number } | null = null
-            for (let attempt = 0; attempt <= maxScrolls; attempt++) {
-              const shot = await page.screenshot({ fullPage: false })
-              found = findTemplateInPng(loadPng(shot), template, threshold)
-              if (found) break
-              const before = await page.evaluate(() => window.scrollY)
-              const atBottom = await page.evaluate(() => window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2)
-              if (atBottom) break
-              await page.mouse.wheel(0, scrollStep)
-              await page.waitForTimeout(700)
-              const after = await page.evaluate(() => window.scrollY)
-              if (after === before) break
-            }
-            if (!found) throw new Error(`baseline "${baseline.name}" not found before page bottom`)
-            await log(`✅ ${idx} ${label} → (${found.x}, ${found.y}), diff ${found.diff.toFixed(3)}`)
-            passed++
-          } else if (step.action === 'assert_api_called') {
-            await log(`⏳ ${idx} ${label}`)
-            // ⚠️ 拿不到網路紀錄一定要**失敗**，不能落到下面那個 skip 分支。
-            //    斷言被安靜跳過而腳本照樣 PASS，比直接報錯糟得多。
-            if (!netCapture) throw new Error('這個執行環境沒有網路紀錄可查（量測沒有掛上）')
-            if (!step.urlPattern) throw new Error('沒有填 API 網址樣式')
-            const verdict = evaluateApiAssertion(
-              netCapture.records().filter(r => Number(r.ts) >= netMark),
-              { urlPattern: step.urlPattern, expectStatus: step.expectStatus, statusCode: step.statusCode, minCount: step.minCount },
-            )
-            if (!verdict.ok) throw new Error(`${step.urlPattern} —— ${verdict.why}`)
-            await log(`✅ ${idx} ${label}（${verdict.why}）`)
-            passed++
-          } else if (step.action === 'assert_visible') {
-            await log(`⏳ ${idx} ${label}`)
-            await (await recordedLocator(step.selector ?? '')).waitFor({ state: 'visible', timeout: 10000 })
-            await log(`✅ ${idx} ${label}`)
-            passed++
-          } else if (step.action === 'backend_snippet') {
-            // 後台設定：另開一顆 context 登入後台跑一段設定，跑完回來繼續前端腳本。
-            // ⚠️ 失敗一律 throw，讓它走下面那段 failureMode——**不能當成跳過**。
-            const snippetSteps = (step as unknown as { snippetSteps?: object[] }).snippetSteps ?? []
-            const snippetTitle = (step as unknown as { snippetTitle?: string }).snippetTitle ?? '後台設定'
-            if (!browser) throw new Error('瀏覽器尚未就緒，無法執行後台設定')
-            if (!backendCreds) throw new Error('沒有後台帳密，無法執行後台設定')
-            await log(`⏳ ${idx} ${label}：${snippetTitle}`)
-            const opResult = await runBackendOps(browser, {
-              ...backendCreds, steps: snippetSteps, title: snippetTitle,
-              onNote: (line) => { void log(line) },
-            })
-            if (!opResult.ok) throw new Error(opResult.fails.join('；'))
-            await log(`✅ ${idx} ${label}：${snippetTitle} 完成`)
-            passed++
-          } else {
-            // 🚨 **不認得的動作一律失敗，不能跳過。**
-            //
-            // 原本是「⏭ 跳過」，而那讓一個既有 bug 隱形了很久：`find_baseline_scroll`
-            // （尋找基準圖）**只有伺服器端實作**，派工給 agent 時就掉進這裡被跳過——
-            // 腳本照樣 PASS，而視覺比對根本沒跑。更糟的是**框選截圖自動產生的就是那顆積木**。
-            //
-            // 少驗是誠實的，假裝驗過不是。改成失敗之後，症狀會從「安靜的綠燈」
-            // 變成「這一步紅了，而且說得出是哪個動作」。
-            //
-            // ⚠️ 這會讓既有腳本開始紅——但它們**本來就沒在驗那一步**，只是沒人知道。
-            throw new Error(`這個執行環境不支援「${step.action}」這個動作。`
-              + '請確認伺服器端已更新到含這顆積木的版本。')
-          }
+          // ⚠️ **積木的行為只有一份**（`uat-runner/frontend-engine.js`），agent 端跑同一支。
+          //    以前這裡跟 agent 各有一份對照表，然後就漂了——`find_baseline_scroll`
+          //    只有這邊有，agent 上被靜默跳過，腳本照樣 PASS。
+          await runFrontendStep(step, {
+            idx, label, log, page, browser,
+            recordedLocator, netCapture,
+            state: netState,
+            startUrl,
+            viewportHeight: h,
+            backend: backendCreds,
+            // 基準圖：伺服器端讀 DB ＋ 本機檔案
+            loadBaseline: async (target: StepObj) => {
+              const row = target.baselineId
+                ? db.prepare('SELECT id, name, image_path, threshold FROM frontend_auto_baselines WHERE id = ?').get(target.baselineId) as BaselineRow | undefined
+                : undefined
+              if (!row) throw new Error('baseline not found')
+              const file = imagePathToFile(row.image_path)
+              if (!file || !existsSync(file)) throw new Error('baseline image file not found')
+              return { name: row.name, template: loadPng(readFileSync(file)), threshold: row.threshold }
+            },
+            compareTemplate: (shot: ReturnType<typeof loadPng>, template: ReturnType<typeof loadPng>, threshold: number) =>
+              findTemplateInPng(shot, template, threshold),
+            decodePng: (buffer: Buffer) => loadPng(buffer),
+          })
+          passed++
           break
         } catch (err) {
           const msg = err instanceof Error ? err.message.split('\n')[0] : String(err)

@@ -33,27 +33,34 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${ok || !detail ? '' : `\n        ${detail}`}`);
 };
 
-// ── ① 兩個執行器都要認得這顆積木（⚠️ 只是原始碼比對）──────────────────────
-console.log('① 兩個執行器都要實作（只做一邊的話另一邊會靜默跳過）');
-for (const [label, file] of [
-  ['伺服器模式', 'server/routes/frontend-auto.ts'],
-  ['agent 模式', 'server/agent-runner.ts'],
-]) {
-  const src = stripComments(read(file));
-  check(`① ${label}：認得 backend_snippet`,
-    /step\.action === 'backend_snippet'/.test(src),
-    '沒有的話會掉到「不支援的動作 → 跳過」，腳本照樣 PASS 但設定沒做');
-  check(`① ${label}：失敗要 throw（走 failureMode），不是記一筆就過`,
-    /if \(!opResult\.ok\) throw new Error/.test(src));
-  check(`① ${label}：沒有帳密時要明確失敗`,
-    /沒有後台帳密/.test(src));
-  // 🚨 不認得的動作**一律失敗，不能跳過**。原本的「跳過」讓一個既有 bug 隱形很久：
-  //    `find_baseline_scroll` 只有伺服器端實作，派工給 agent 時被跳過——腳本照樣 PASS，
-  //    而視覺比對根本沒跑（而框選截圖自動產生的就是那顆積木）。
-  //    ⚠️ 這裡是**接線檢查**，證明不了行為；真正的行為驗證要等端到端那支。
-  check(`① ${label}：⚠️ 不認得的動作要失敗，不是跳過`,
-    /不支援「\$\{step\.action\}」這個動作/.test(src) && !/status: 'skip'/.test(src),
+// ── ① 積木的行為只有一份（v4.195.0 合併之後）────────────────────────────
+//
+// 原本這裡是「兩個執行器都要認得 backend_snippet」——因為當時**真的有兩份**對照表，
+// 只做一邊的話另一邊會把這顆積木靜默跳過。合併之後要守的不變量變了：
+//   **兩個 host 都不准有自己的對照表，行為只在共用引擎裡。**
+// ⚠️ 這一段是原始碼比對，證明不了行為；行為由端到端那支驗。
+console.log('① 積木的行為只有一份（合併之後）');
+{
+  const engine = stripComments(read('server/uat-runner/frontend-engine.js'));
+  check('① 共用引擎認得 backend_snippet',
+    /step\.action === 'backend_snippet'/.test(engine));
+  check('① 失敗要 throw（走 host 的 failureMode），不是記一筆就過',
+    /if \(!opResult\.ok\) throw new Error/.test(engine));
+  check('① 沒有帳密時要明確失敗', /沒有後台帳密/.test(engine));
+  check('① ⚠️ 不認得的動作要失敗，不是跳過',
+    /不支援「\$\{step\.action\}」這個動作/.test(engine) && !/status: 'skip'/.test(engine),
     '跳過的話會拿到「綠燈但那一步沒跑」——最糟的失敗方式');
+
+  for (const [label, file] of [
+    ['伺服器模式', 'server/routes/frontend-auto.ts'],
+    ['agent 模式', 'server/agent-runner.ts'],
+  ]) {
+    const src = stripComments(read(file));
+    check(`① ${label}：沒有自己的對照表（不然就是第二份引擎）`,
+      !/step\.action === '[a-z_]+'/.test(src),
+      '兩份對照表已經漂過兩次了：find_baseline_scroll 只有一邊有、重複點擊只有一邊會濾');
+    check(`① ${label}：真的在用共用引擎`, /runFrontendStep\(/.test(src));
+  }
 }
 
 // ── ②③ 真的打 execute ────────────────────────────────────────────────────

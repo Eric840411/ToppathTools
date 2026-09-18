@@ -159,39 +159,42 @@ try {
   site.close();
 }
 
-// ── ④ 兩份引擎的動作集合必須一致 ──────────────────────────────────────────
-// ⚠️ 這一項是**原始碼比對**（agent 端的 runner 在 import 當下就會去連線，跑不起來）。
-//    但它正對著已經發生過的失效方式：`find_baseline_scroll` 只有一邊有。
-//    合併成一份引擎之後，這一項會自然成立。
-console.log('④ 兩份引擎的動作集合（⚠️ 原始碼比對，證明不了行為）');
+// ── ④ 積木的行為只有一份 ───────────────────────────────────────────────────
+// ⚠️ 這一項是**原始碼比對**，但它守的是已經發生過兩次的失效方式：
+//    兩個 host 各有一份對照表 → 漂掉 → 其中一邊的積木被靜默跳過。
+//    合併之後要守的不變量變成「**兩邊都沒有自己的對照表**」。
+console.log('④ 積木的行為只有一份（⚠️ 原始碼比對，證明不了行為）');
 {
-  const actionsOf = (file) => new Set(
-    [...stripComments(read(file)).matchAll(/step\.action === '([a-z_]+)'/g)].map(m => m[1]));
-  const serverActions = actionsOf('server/routes/frontend-auto.ts');
-  const agentActions = actionsOf('server/agent-runner.ts');
-  const onlyServer = [...serverActions].filter(a => !agentActions.has(a)).sort();
-  const onlyAgent = [...agentActions].filter(a => !serverActions.has(a)).sort();
-
-  /**
-   * 🚨 **已知的落差，尚未修**（v4.193.0 發現）。
-   *
-   * `find_baseline_scroll`（尋找基準圖）只有伺服器端實作。修法要讓 agent 拿得到
-   * 基準圖檔，而那排在「合併引擎」之後（合併後只要做一次）。
-   *
-   * ⚠️ 這裡刻意用「**完全等於**」而不是「至少包含」——所以：
-   *   - 多出**新的**落差 → 紅（擋住再漂一次）
-   *   - 這個落差**被修好了** → 也會紅，提醒把這個例外拿掉（免得它永遠留著）
-   *
-   * 在它被擋住之前，agent 端遇到這顆積木會**明確失敗**（v4.193.0 起），不會再靜默跳過。
-   */
-  const KNOWN_SERVER_ONLY = ['find_baseline_scroll'];
-  check('④ 🚨 伺服器端有、agent 端沒有的動作，只能是已知的那一個',
-    JSON.stringify(onlyServer) === JSON.stringify(KNOWN_SERVER_ONLY),
-    `目前只有伺服器端有：${onlyServer.join('、') || '（無）'}；`
-    + `已知例外：${KNOWN_SERVER_ONLY.join('、')}。`
-    + `${onlyServer.length < KNOWN_SERVER_ONLY.length ? '少了——是不是修好了？修好了就把例外拿掉。' : '多了——有新的落差，agent 上跑到那顆會失敗。'}`);
-  check('④ agent 端有、伺服器端沒有的動作',
-    onlyAgent.length === 0, `只有 agent 端有：${onlyAgent.join('、') || '（無）'}`);
+  const own = (file) =>
+    [...new Set([...stripComments(read(file)).matchAll(/step\.action === '([a-z_]+)'/g)].map(m => m[1]))].sort();
+  for (const [labelName, file] of [
+    ['伺服器端', 'server/routes/frontend-auto.ts'],
+    ['agent 端', 'server/agent-runner.ts'],
+  ]) {
+    check(`④ ${labelName}：沒有自己的積木對照表`,
+      own(file).length === 0,
+      `還自己認得這些動作：${own(file).join('、')}——那就是第二份引擎，遲早會漂`);
+    check(`④ ${labelName}：真的在用共用引擎`,
+      /runFrontendStep\(/.test(stripComments(read(file))));
+  }
+  const engine = stripComments(read('server/uat-runner/frontend-engine.js'));
+  for (const action of ['goto', 'click', 'click_xy', 'click_viewport', 'type', 'fill', 'wait',
+    'screenshot', 'find_baseline_scroll', 'assert_api_called', 'assert_visible', 'backend_snippet']) {
+    check(`④ 共用引擎認得 ${action}`, engine.includes(`'${action}'`));
+  }
+  // 🚨 這一條是那個 bug 的直接防線：agent 端必須自己有辦法取得基準圖。
+  check('④ 🚨 agent 端有提供「怎麼拿到基準圖」（以前它根本沒有，所以那顆積木被跳過）',
+    /loadBaseline:/.test(stripComments(read('server/agent-runner.ts'))),
+    '沒有的話引擎會明確失敗——比跳過好，但那顆積木在 agent 上就永遠不能用');
+  check('④ 伺服器端也有提供',
+    /loadBaseline:/.test(stripComments(read('server/routes/frontend-auto.ts'))));
+  check('④ 🚨 派工給 agent 時會附上基準圖的網址（agent 拿不到 DB）',
+    /baselineUrl:/.test(stripComments(read('server/routes/frontend-auto.ts'))));
+  const mt = stripComments(read('server/routes/machine-test.ts'));
+  check('④ ⚠️ 共用引擎在 agent 白名單裡（漏了 agent 會在 import 當下整支炸掉）',
+    /'uat-runner\/frontend-engine\.js'/.test(mt));
+  check('④ ⚠️ 基準圖比對也在白名單裡',
+    /'uat-runner\/template-match\.js'/.test(mt));
 }
 
 const failed = results.filter(r => !r.ok).length;
