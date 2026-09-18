@@ -244,6 +244,13 @@ interface UiScreenshotStartMessage {
   }
 }
 
+/** 掃大廳：把目前有哪些 model、各有幾台可用回報給伺服器，給前端勾選 */
+interface UiScreenshotScanMessage {
+  type: 'ui_screenshot_scan'
+  scanId: string
+  gameUrlTemplate: string
+}
+
 interface BackendUatStartMessage {
   type: 'backend_uat_start'
   sessionId: string
@@ -402,6 +409,119 @@ function machineTextHasExactCode(text: string | null | undefined, machineCode: s
   const normalized = normalizeMachineCode(text)
   const escaped = expected.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return new RegExp(`(^|[^A-Z0-9])${escaped}([^A-Z0-9]|$)`).test(normalized)
+}
+
+/** 大廳上的一張機台卡片。`occupied` 直接讀 DOM，不用點進去才知道。 */
+interface LobbyCard { gmid: string; game: string; model: string; occupied: boolean }
+
+/**
+ * 掃大廳所有機台卡片。
+ *
+ * ⚠️ `occupied` 只能當**候選**，不能當「一定進得去」：等我們點下去可能已經被別人搶先。
+ *    所以挑完仍然要用「真的進到機台＋推流就緒」來確認（CodeX review）。
+ */
+async function scanUiScreenshotLobby(page: Page): Promise<LobbyCard[]> {
+  await page.waitForSelector('#grid_gm_item', { timeout: 15000 }).catch(() => null)
+  const raw = await page.evaluate(() => {
+    const items = Array.from(document.querySelectorAll('#grid_gm_item'))
+    return items.map(el => {
+      const gmid = (el.getAttribute('title') || '').trim()
+      const m = /^\d+-([A-Z0-9]+)-/.exec(gmid.toUpperCase())
+      return {
+        gmid,
+        game: m ? m[1] : '',
+        text: (el as HTMLElement).innerText.replace(/\s+/g, ' ').trim(),
+        occupied: /\boccupied\b/.test(el.innerHTML),
+      }
+    }).filter(c => c.gmid)
+  })
+  // model 的解析放在 node 這端做，跟掃描用同一份規則（瀏覽器端再寫一份遲早會漂掉）
+  return raw.map(c => ({ gmid: c.gmid, game: c.game, model: parseUiScreenshotModel(c.text), occupied: c.occupied }))
+}
+
+/**
+ * 從大廳挑一台這款遊戲、目前沒被佔用的機台。
+ *
+ * @param preferred 上一張截圖用的那台——優先回同一台，被佔走才換（使用者 2026-09-18 選「可以換台」，
+ *                  但每張圖都要記錄實際用的是哪一台）
+ * @param exclude   這一輪已經試過且失敗的機台
+ */
+async function pickUiScreenshotMachine(
+  page: Page, target: string, preferred?: string, exclude: Set<string> = new Set(),
+): Promise<{ gmid: string; totalOfTarget: number; freeOfTarget: number }> {
+  const cards = await scanUiScreenshotLobby(page)
+  const matches = cards.filter(c => uiScreenshotTargetMatches(target, c))
+  const free = matches.filter(c => !c.occupied && !exclude.has(c.gmid))
+  if (matches.length === 0) throw new Error(`Lobby has no machine matching: ${target}`)
+  if (free.length === 0) throw new Error(`No free machine for: ${target} (${matches.length} total, all occupied or already tried)`)
+  const chosen = (preferred && free.find(c => c.gmid === preferred)) ? preferred : free[0].gmid
+  return { gmid: chosen, totalOfTarget: matches.length, freeOfTarget: free.length }
+}
+
+/**
+ * 一個「目標」怎麼對到大廳的機台卡片。同一個輸入框吃三種精度：
+ *   `JJBX / Endless Treasure`  → 該遊戲的那個 model（**預設用這個**，因為一個遊戲代號底下有多個 model）
+ *   `4182-WLZBHELIX`           → 前綴比對（某場館的某款）
+ *   `4175-BULLBLITZ-0056`      → 就是那一台
+ */
+function uiScreenshotTargetMatches(target: string, card: LobbyCard): boolean {
+  const t = target.trim()
+  if (t.includes('/')) {
+    const [g, m] = t.split('/').map(x => x.trim())
+    return card.game === g.toUpperCase() && card.model === m
+  }
+  return card.gmid.toUpperCase().startsWith(t.toUpperCase())
+}
+
+/**
+ * 卡片顯示名稱 → model。
+ *
+ * ⚠️ **同一個遊戲代號底下有多個 model**（實測 WLZBHELIX 39 台有 14 種、WLZBLINK 95 台有 5 種）。
+ *    只用遊戲代號分組的話，一款只會拍到其中一個 model，其餘的**永遠不會被拍到，而畫面上看起來有拍**。
+ *
+ * ⚠️ 名稱格式大致是 `<Model>-<場館><編號>`，但實測有解析不乾淨的案例
+ *    （`10*****48 Emperor` 這種帶遮罩數字的、`Fortune-0289`）。解析不出來的**不要硬塞進某一組**，
+ *    回空字串讓上層單獨列出。
+ */
+function parseUiScreenshotModel(cardText: string): string {
+  const t = (cardText || '').replace(/\s+/g, ' ').trim()
+  if (!t) return ''
+  // 尾巴有兩種寫法：`-<場館><編號>`（Leprechaun-NCH1505）與 `-<編號>`（Fortune-0289）
+  // ⚠️ 只認這兩種；第一版漏了後者，結果 39 台被判成「無法判斷 model」而整批消失在清單外
+  const stripped = t.replace(/-(?:[A-Za-z]{2,5})?\d+$/, '').trim()
+  if (!stripped || /\d{3,}$/.test(stripped)) return ''
+  return stripped
+}
+
+/** 掃大廳並依 model 分組（給前端勾選用） */
+async function scanUiScreenshotModels(page: Page) {
+  const cards = await page.evaluate(() => {
+    const items = Array.from(document.querySelectorAll('#grid_gm_item'))
+    return items.map(el => ({
+      gmid: (el.getAttribute('title') || '').trim(),
+      text: (el as HTMLElement).innerText.replace(/\s+/g, ' ').trim(),
+      occupied: /occupied/.test(el.innerHTML),
+    })).filter(c => c.gmid)
+  })
+  const groups = new Map<string, { game: string; model: string; total: number; free: number; sample: string }>()
+  const unparsed: Array<{ gmid: string; text: string }> = []
+  for (const c of cards) {
+    const m = /^\d+-([A-Z0-9]+)-/.exec(c.gmid.toUpperCase())
+    const game = m ? m[1] : ''
+    const model = parseUiScreenshotModel(c.text)
+    if (!game || !model) { unparsed.push({ gmid: c.gmid, text: c.text }); continue }
+    const key = `${game} / ${model}`
+    const g = groups.get(key) ?? { game, model, total: 0, free: 0, sample: '' }
+    g.total++
+    if (!c.occupied) { g.free++; if (!g.sample) g.sample = c.gmid }
+    groups.set(key, g)
+  }
+  return {
+    scannedAt: Date.now(),
+    cardCount: cards.length,
+    models: [...groups.entries()].map(([key, g]) => ({ key, ...g })).sort((a, b) => b.total - a.total),
+    unparsed,
+  }
 }
 
 async function enterUiScreenshotMachine(page: Page, machineCode: string): Promise<'entered' | 'already-in-game'> {
@@ -593,6 +713,38 @@ async function exitUiScreenshotMachine(page: Page, machineCode: string): Promise
   throw new Error(`Exit machine failed before closing page: ${machineCode} (cashout=${cashoutClicked}, exit=${exitClicked}, confirm=${confirmClicked})`)
 }
 
+/**
+ * 掃一次大廳、把 model 清單回報給伺服器（給前端勾選要拍哪些）。
+ *
+ * ⚠️ **只看不點**：不進任何機台。掃描本身不該佔用任何機器。
+ */
+async function runUiScreenshotScan(msg: UiScreenshotScanMessage, serverBaseUrl: string) {
+  const { chromium } = await import('playwright')
+  const url = msg.gameUrlTemplate.replace('{gmid}', '')
+  let browser: import('playwright').Browser | null = null
+  const post = (body: object) =>
+    fetch(`${serverBaseUrl}/api/ui-screenshot/scan-result/${msg.scanId}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }).catch(() => {})
+  try {
+    browser = await chromium.launch({ headless: true })
+    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
+    const page = await ctx.newPage()
+    await page.goto(url, { timeout: 40000 })
+    await page.waitForSelector('#grid_gm_item', { timeout: 30000 })
+    await page.waitForTimeout(2000)
+    const result = await scanUiScreenshotModels(page)
+    console.log(`[UI-SS] 掃描完成：${result.cardCount} 台、${result.models.length} 個 model、無法解析 ${result.unparsed.length}`)
+    await post({ ok: true, ...result })
+  } catch (err) {
+    const m = err instanceof Error ? err.message.split('\n')[0] : String(err)
+    console.error(`[UI-SS] 掃描失敗：${m}`)
+    await post({ ok: false, message: m })
+  } finally {
+    await browser?.close().catch(() => {})
+  }
+}
+
 async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: string) {
   const { id: runId, gameUrlTemplate, tasks, options } = runConfig
   uiScreenshotRuns.set(runId, { stopped: false })
@@ -633,11 +785,35 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
       ? Math.max(0, Math.min(60, options.screenshotDelaySeconds))
       : 5
 
-    /** 進場：導頁 → 進機台 → 等推流 → 關面額彈窗 → 等指定秒數 */
-    const prepare = async (page: Page) => {
+    /**
+     * 自動選機：`gmid` 這一欄放的是**遊戲代號**，實際要進哪一台由大廳當下的狀態決定。
+     * ⚠️ 每張截圖都要重新載入，所以**每一張都可能被別人搶台**——優先回原台，被佔走才換，
+     *    而且每張圖都會回報實際用的機台號（使用者 2026-09-18 選「可以換台」）。
+     */
+    const autoPick = options.autoPickByGame === true
+    const isLobbyTarget = gmid === '__LOBBY__'
+    let lastUsedMachine: string | undefined
+
+    /** 進場：導頁 → （自動選機）→ 進機台 → 等推流 → 關面額彈窗 → 等指定秒數。回傳實際機台號 */
+    const prepare = async (page: Page): Promise<string> => {
       await page.goto(url, { timeout: 30000 })
-      const entryState = await enterUiScreenshotMachine(page, gmid)
-      console.log(`[UI-SS] ${gmid} entry=${entryState}`)
+
+      // 大廳本身就是拍攝目標：不進任何機台
+      if (isLobbyTarget) {
+        await page.waitForSelector('#grid_gm_item', { timeout: 20000 })
+        if (screenshotDelaySeconds > 0) await page.waitForTimeout(screenshotDelaySeconds * 1000)
+        return '__LOBBY__'
+      }
+
+      let target = gmid
+      if (autoPick) {
+        const picked = await pickUiScreenshotMachine(page, gmid, lastUsedMachine)
+        target = picked.gmid
+        console.log(`[UI-SS] ${gmid} auto-picked ${target} (${picked.freeOfTarget}/${picked.totalOfTarget} free)`)
+      }
+      const entryState = await enterUiScreenshotMachine(page, target)
+      lastUsedMachine = target
+      console.log(`[UI-SS] ${target} entry=${entryState}`)
       const ready = await waitForUiScreenshotReady(page)
       if (!ready) throw new Error(`Game surface not ready after entering machine: ${gmid}`)
       console.log(`[UI-SS] ${gmid} — stream ready`)
@@ -656,20 +832,23 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
         console.log(`[UI-SS] ${gmid} waiting ${screenshotDelaySeconds}s before screenshot`)
         await page.waitForTimeout(screenshotDelaySeconds * 1000)
       }
+      return target
     }
 
-    /** 拍一張 + 上傳。回傳 false 代表上傳失敗（狀態已回報） */
-    const shootAndUpload = async (page: Page, task: { id: string; resolution: string }) => {
-      if (await isUiScreenshotLobbyVisible(page)) {
+    /** 拍一張 + 上傳。`actualGmid` 是這張圖實際用的機台（自動選機時每張可能不同） */
+    const shootAndUpload = async (page: Page, task: { id: string; resolution: string }, actualGmid: string) => {
+      // 大廳本來就該看得到卡片；只有「要進機台卻還停在大廳」才是錯
+      if (!isLobbyTarget && await isUiScreenshotLobbyVisible(page)) {
         throw new Error(`Still in lobby before screenshot: ${gmid}`)
       }
       const screenshotBuf = await page.screenshot({ type: 'png', fullPage: false })
-      const taskStatus = await isUiScreenshotPopupVisible(page) ? 'popup' : 'ok'
-      console.log(`[UI-SS] ${gmid} ${task.resolution} → ${taskStatus}`)
+      const taskStatus = !isLobbyTarget && await isUiScreenshotPopupVisible(page) ? 'popup' : 'ok'
+      console.log(`[UI-SS] ${gmid} ${task.resolution} → ${taskStatus} (machine=${actualGmid})`)
 
       const form = new FormData()
       form.append('screenshot', new Blob([new Uint8Array(screenshotBuf)], { type: 'image/png' }), `${task.resolution}.png`)
       form.append('status', taskStatus)
+      form.append('actualGmid', actualGmid)
       const uploadRes = await fetch(`${serverBaseUrl}/api/ui-screenshot/task/${task.id}/upload`, {
         method: 'POST', body: form,
       })
@@ -697,9 +876,9 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
             ctx = await browser.newContext({ viewport: { width: w || 390, height: h || 844 } })
             const page = await ctx.newPage()
             await postStatus(task.id, 'running')
-            await prepare(page)
-            await shootAndUpload(page, task)
-            await exitUiScreenshotMachine(page, gmid).catch(() => {})
+            const actual = await prepare(page)
+            await shootAndUpload(page, task, actual)
+            if (!isLobbyTarget) await exitUiScreenshotMachine(page, actual).catch(() => {})
           } catch (err) {
             // ⚠️ 單一解析度失敗**只標這一張**。整批一起標失敗的話，
             //    畫面看起來像「這台機器完全拍不到」，但其實只是某個尺寸進不去
@@ -719,7 +898,7 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
         const page = await ctx.newPage()
 
         await postStatus(firstTask.id, 'running')
-        await prepare(page)
+        const actual = await prepare(page)
 
         for (const task of gmidTasks) {
           if (uiScreenshotRuns.get(runId)?.stopped) break
@@ -727,10 +906,10 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
           const [w, h] = task.resolution.split('x').map(Number)
           await page.setViewportSize({ width: w || 390, height: h || 844 })
           await page.waitForTimeout(400) // let layout settle after resize
-          await shootAndUpload(page, task)
+          await shootAndUpload(page, task, actual)
         }
 
-        await exitUiScreenshotMachine(page, gmid)
+        if (!isLobbyTarget) await exitUiScreenshotMachine(page, actual)
         console.log(`[UI-SS] ${gmid} — done (fast mode), closing browser`)
       }
 
@@ -961,9 +1140,18 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
           sendEvent({ kind: 'step_result', index: i, status: 'pass', message: `${label}：${snippetTitle}` })
           passed++
         } else {
-          await log(`⏭ ${idx} ${label}（不支援的動作：${step.action}）`)
-          sendEvent({ kind: 'step_result', index: i, status: 'skip', message: `不支援: ${step.action}` })
-          skipped++
+          // 🚨 **不認得的動作一律失敗，不能跳過。**
+          //
+          // 原本是「⏭ 跳過」，而那讓一個既有 bug 隱形了很久：`find_baseline_scroll`
+          // （尋找基準圖）**只有伺服器端實作**，派工給 agent 時就掉進這裡被跳過——
+          // 腳本照樣 PASS，而視覺比對根本沒跑。更糟的是**框選截圖自動產生的就是那顆積木**。
+          //
+          // 少驗是誠實的，假裝驗過不是。改成失敗之後，症狀會從「安靜的綠燈」
+          // 變成「這一步紅了，而且說得出是哪個動作」。
+          //
+          // ⚠️ 這會讓既有腳本開始紅——但它們**本來就沒在驗那一步**，只是沒人知道。
+          throw new Error(`這個執行環境不支援「${step.action}」這個動作。`
+            + '請到 Local Agent 頁面按「更新程式碼」並重啟 Agent；若更新後仍然如此，代表這顆積木還沒有在 Agent 端實作。')
         }
         break
       } catch (err) {
@@ -2105,6 +2293,13 @@ function connect() {
       const { runId } = msg as { type: string; runId: string }
       const run = uatScriptRuns.get(runId)
       if (run) run.active = false
+      return
+    }
+
+    if (msg.type === 'ui_screenshot_scan') {
+      const scanMsg = msg as UiScreenshotScanMessage
+      console.log(`[Agent:${AGENT_LABEL}] UI Screenshot 掃大廳 ${scanMsg.scanId}`)
+      void runUiScreenshotScan(scanMsg, CENTRAL_URL.replace(/^ws/, 'http'))
       return
     }
 

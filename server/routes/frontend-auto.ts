@@ -1932,8 +1932,18 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
             await log(`✅ ${idx} ${label}：${snippetTitle} 完成`)
             passed++
           } else {
-            await log(`⏭ ${idx} ${label}（不支援的動作：${step.action}）`)
-            skipped++
+            // 🚨 **不認得的動作一律失敗，不能跳過。**
+            //
+            // 原本是「⏭ 跳過」，而那讓一個既有 bug 隱形了很久：`find_baseline_scroll`
+            // （尋找基準圖）**只有伺服器端實作**，派工給 agent 時就掉進這裡被跳過——
+            // 腳本照樣 PASS，而視覺比對根本沒跑。更糟的是**框選截圖自動產生的就是那顆積木**。
+            //
+            // 少驗是誠實的，假裝驗過不是。改成失敗之後，症狀會從「安靜的綠燈」
+            // 變成「這一步紅了，而且說得出是哪個動作」。
+            //
+            // ⚠️ 這會讓既有腳本開始紅——但它們**本來就沒在驗那一步**，只是沒人知道。
+            throw new Error(`這個執行環境不支援「${step.action}」這個動作。`
+              + '請確認伺服器端已更新到含這顆積木的版本。')
           }
           break
         } catch (err) {
