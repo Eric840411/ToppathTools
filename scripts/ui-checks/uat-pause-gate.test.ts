@@ -57,6 +57,26 @@ await (async () => {
   check('① 逾時之後不再有人在等', () => assert.equal(h.gate.wanted(), null))
 })()
 
+// ── ①b 逾時之後「沒有」送出下一筆，遲到的回應照樣不得動作 ───────────────
+// ⚠️ CodeX 2026-09-18 第三輪複驗指出：②「先送出 B」剛好把這個缺口遮住了——
+//    逾時本身若不推進序號，`isCurrent(A)` 在沒有 B 的情況下仍然是 true，
+//    於是 A 遲到的成功回應會再把畫面改成已暫停、遲到的錯誤會覆蓋提示。
+//    這一條刻意**不送 B**，直接驗逾時有沒有讓那一筆自己失效。
+await (async () => {
+  const h = harness()
+  const a = h.gate.begin(true)
+  await sleep(90)                       // A 逾時，而且沒有下一筆
+  check('①b A 逾時了', () => assert.equal(h.timedOut(), 1))
+  check('①b ⚠️ 逾時本身就要讓那一筆失效（沒有下一筆也一樣）', () =>
+    assert.equal(h.gate.isCurrent(a), false,
+      'isCurrent 還是 true——A 遲到的回應會再改一次畫面'))
+  const pendingAfterTimeout = h.pending.length
+  check('①b ⚠️ 逾時之後遲到的回應 settle 不掉', () => {
+    assert.equal(h.gate.settle(a), false)
+    assert.equal(h.pending.length, pendingAfterTimeout, '遲到的回應動到了畫面狀態')
+  })
+})()
+
 // ── ② 逾時之後送出下一筆，遲到的回應不得清掉它 ──────────────────────────
 // ⚠️ 這條就是 CodeX 複驗抓到的。少了它，畫面會在 B 還沒回來時就解除等待，
 //    然後 B 真的回來時又動一次——使用者看到按鈕閃一下、狀態卻沒變。

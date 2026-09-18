@@ -70,8 +70,11 @@ export function createPauseGate(options: PauseGateOptions): PauseGate {
         // 這顆計時器屬於哪一筆要認清楚：舊的那筆逾時了，不能去動現在這一筆。
         if (token !== seq) return
         timer = null
-        want = null
-        options.setPending(false)
+        // ⚠️ **逾時本身也要讓這個 token 失效**（CodeX 2026-09-18 第三輪複驗指出）。
+        //    只清 timer/want、不推進序號的話，「逾時之後**沒有**送出下一筆」那個情況
+        //    `isCurrent(A)` 仍然是 true——A 遲到的成功回應會再把畫面改成已暫停，
+        //    遲到的錯誤也會覆蓋提示。原本的測試先送了 B，剛好把這個缺口遮住。
+        invalidate()
         options.onTimeout()
       }, options.timeoutMs)
       options.setPending(true)
