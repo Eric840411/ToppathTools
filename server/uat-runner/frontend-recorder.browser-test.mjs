@@ -451,6 +451,38 @@ try {
     check('⑥f 解析完＋有作者 root → 明確寫入「不可宣稱」',
       String(writeDirty?.params?.expression).includes('= false'),
       '同一份文件後來才多出追蹤不到的 root 時，要能把先前的確認收回');
+
+    // ── ⑥g 上面那幾條是**字串斷言**，這裡把同一段運算式真的跑起來 ────────────
+    // ⚠️ CodeX 2026-09-18 的提醒：比對字串只證明「我寫了那個條件」，
+    //    證明不了「那個條件在瀏覽器裡真的擋得住」。運算式拼錯一個括號、
+    //    或 docId 的引號轉義錯了，字串斷言照樣綠。
+    const writeBack = String(writeClean?.params?.expression);
+    const runWrite = async (page, docId) => {
+      await page.evaluate(`window.__toppathDocId = ${JSON.stringify(docId)}; window.__toppathShadowChecked = false;`);
+      await page.evaluate(writeBack);
+      return await page.evaluate('window.__toppathShadowChecked');
+    };
+    check('⑥g 真的跑：docId 相符＋解析完 → 寫入成功',
+      await runWrite({ evaluate }, 'doc-1') === true, writeBack);
+    check('⑥g 真的跑：⚠️ docId 不符 → 不寫（那份結論屬於上一份文件）',
+      await runWrite({ evaluate }, 'another-doc') === false);
+
+    // readyState 那道要在真的還在解析的文件上跑才算數
+    const createdLoading = await send('Target.createTarget', { url: 'about:blank' });
+    const loadingId = createdLoading.result?.targetId;
+    const list2 = await waitJson(`http://127.0.0.1:${cdpPort}/json/list`);
+    const freshLoading = list2.find(t => t.id === loadingId && t.webSocketDebuggerUrl);
+    if (!freshLoading) throw new Error('開不出解析中的分頁');
+    const loadingPage = await connect(freshLoading.webSocketDebuggerUrl);
+    await loadingPage.send('Runtime.enable');
+    await loadingPage.send('Page.enable');
+    await loadingPage.send('Page.navigate', { url: `http://127.0.0.1:${sitePort}/shadow-decl-streamed` });
+    await new Promise(r => setTimeout(r, 500));
+    check('⑥g fixture 真的還在解析中', await loadingPage.evaluate('document.readyState') === 'loading');
+    check('⑥g 真的跑：⚠️ 文件還在解析 → 不寫（掃到的是半成品）',
+      await runWrite(loadingPage, 'doc-1') === false);
+    loadingPage.ws.close();
+    if (loadingId) await send('Target.closeTarget', { targetId: loadingId });
   }
 
   // ── ⑨ 追蹤不到 shadow 時要**退回 unknown**，不能當成沒有 shadow ───────────
