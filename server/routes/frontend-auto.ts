@@ -373,6 +373,18 @@ router.get('/api/frontend-auto/runs', (req, res) => {
   res.json({ ok: true, runs: rows })
 })
 
+/**
+ * 一筆執行的現況。**佇列靠它判斷「這一支跑完了沒」。**
+ *
+ * ⚠️ 不要用日誌文字判斷完成。前端原本是看日誌行裡有沒有「完成」——而「後台設定：
+ * ○○ 完成」也含那兩個字，於是腳本跑到一半就被當成結束了。狀態要有一個明確的來源。
+ */
+router.get('/api/frontend-auto/runs/:id', (req, res) => {
+  const run = db.prepare('SELECT * FROM frontend_auto_runs WHERE id = ?').get(req.params.id)
+  if (!run) return res.status(404).json({ ok: false, message: 'run not found' })
+  res.json({ ok: true, run, running: activeRuns.has(req.params.id) })
+})
+
 router.post('/api/frontend-auto/runs', (req, res) => {
   const body = req.body as Record<string, unknown>
   const platform = asPlatform(body.platform)

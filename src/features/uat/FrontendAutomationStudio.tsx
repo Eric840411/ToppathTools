@@ -6,9 +6,12 @@ import { NetworkPanel, type UatStatsPayload } from './NetworkPanel'
 import { SELECTOR_CHECK_LABEL } from '../../../shared/uat-selector-check'
 import { compileExecutableSteps, countExecutableSteps, createStep, parseSteps, serializeSteps } from './step-model'
 import { createPauseGate } from './pause-gate'
+// ⚠️ 排隊的規則跟 Backend 共用同一支——各寫一份的話，「session 對不上要停」
+//    「取不到結果不能當通過」這些安靜出錯的規則一定會有一邊漏掉。
+import { runScriptQueue, type QueueItem } from './script-queue'
 import type { AgentOption, AutoBaseline, AutoFilter, AutoPlatform, AutoRun, AutoScript, AutoStep, AutoTemplate, OcrRegion, UatThemeMode } from './types'
 
-type StudioView = 'editor' | 'run' | 'assets' | 'history'
+/* 分頁已移除：版面照 Backend 的模板改成單一畫面（視覺資產與執行紀錄走彈框）。 */
 
 interface Props { platform: AutoPlatform; themeMode: UatThemeMode; agentId: string }
 
@@ -67,11 +70,19 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
   const [tcError, setTcError] = useState('')
   /** 編輯器改成彈框（使用者 2026-09-18 定案，跟 Backend 一致） */
   const [editorOpen, setEditorOpen] = useState(false)
+  /** 視覺資產／執行紀錄改成彈框（版面照 Backend 的模板，單一畫面不再分頁） */
+  const [panel, setPanel] = useState<'' | 'assets' | 'history'>('')
+  /** 佇列：勾選哪幾份腳本、目前跑到哪 */
+  const [queueIds, setQueueIds] = useState<string[]>([])
+  const [queue, setQueue] = useState<QueueItem<never>[]>([])
+  const [queueBusy, setQueueBusy] = useState(false)
+  const queueCancelled = useRef(false)
+  const [autoScroll, setAutoScroll] = useState(true)
+  const logEnd = useRef<HTMLSpanElement | null>(null)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [filter, setFilter] = useState<AutoFilter>('all')
   const [search, setSearch] = useState('')
-  const [view, setView] = useState<StudioView>('editor')
   const [baselines, setBaselines] = useState<AutoBaseline[]>([])
   const [templates, setTemplates] = useState<AutoTemplate[]>([])
   const [ocrRegions, setOcrRegions] = useState<OcrRegion[]>([])
@@ -219,7 +230,6 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
     setTcPool([])
     setSelectedStepId(null)
     setDirty(true)
-    setView('editor')
   }
 
   /**
@@ -449,18 +459,21 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
     setNotice(`錄製已停止，共 ${data.steps?.length ?? 0} 個步驟`)
   }
 
-  const runScript = async () => {
-    if (!selectedId) return setNotice('請先儲存腳本再執行')
-    if (dirty) await saveScript()
-    const executable = compileExecutableSteps(steps)
-    if (!executable.length) return setNotice('腳本沒有可執行步驟')
-    setLogs([`準備執行 ${name}`, `已將 ${steps.length} 個區塊編譯為 ${executable.length} 個步驟`])
+  /**
+   * 派一支腳本去跑，回傳 runId。**單支執行與佇列都走這一支。**
+   *
+   * ⚠️ 失敗一律 `throw`（帶著伺服器的訊息）。回 null 讓呼叫端自己判斷的話，
+   *    佇列會把「派工被拒」當成「跑完了」繼續派下一支。
+   */
+  const startRun = useCallback(async (script: { id: string; name: string; steps: AutoStep[] }) => {
+    const executable = compileExecutableSteps(script.steps)
+    if (!executable.length) throw new Error(`「${script.name}」沒有可執行步驟`)
     const createResponse = await fetch('/api/frontend-auto/runs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scriptId: selectedId, scriptName: name, platform, ranBy: actor, totalSteps: executable.length, result: 'running', startedAt: Date.now() }),
+      body: JSON.stringify({ scriptId: script.id, scriptName: script.name, platform, ranBy: actor, totalSteps: executable.length, result: 'running', startedAt: Date.now() }),
     })
-    const createData = await createResponse.json() as { run?: { id: string } }
-    if (!createData.run?.id) return setNotice('建立執行紀錄失敗')
+    const createData = await createResponse.json().catch(() => ({})) as { run?: { id: string } }
+    if (!createData.run?.id) throw new Error('建立執行紀錄失敗')
     const runId = createData.run.id
     activeRunId.current = runId
     setRunning(true)
@@ -471,7 +484,9 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
     stream.addEventListener('log', event => {
       const payload = JSON.parse(event.data) as { line: string }
       setLogs(lines => [...lines, payload.line])
-      if (payload.line.includes('完成')) { setRunning(false); void loadRuns() }
+      // 🚨 **不要再用日誌文字判斷跑完了沒。** 原本是看行裡有沒有「完成」，
+      //    而「後台設定：○○ 完成」也含那兩個字——腳本跑到一半就被當成結束。
+      //    收尾改由下面的輪詢（讀 run 的 finished_at）負責。
     })
     stream.addEventListener('stats', event => {
       try { setNetStats(JSON.parse(event.data) as UatStatsPayload); setStatsAt(Date.now()) } catch { /* 壞掉的一筆跳過就好，不要讓面板整個掛掉 */ }
@@ -483,10 +498,91 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
       body: JSON.stringify({ steps: JSON.stringify(executable), url: runConfig.url, platform, resolution: runConfig.resolution, failureMode: runConfig.failureMode, headed: runConfig.headed, ...(agentId ? { agentId } : {}) }),
     })
     const data = await response.json().catch(() => ({})) as { ok?: boolean; via?: string; agentId?: string; message?: string }
-    if (!response.ok) { setRunWhere(''); return setNotice(data.message ?? '執行啟動失敗') }
+    if (!response.ok) { setRunWhere(''); setRunning(false); throw new Error(data.message ?? '執行啟動失敗') }
     setRunWhere(data.via === 'agent'
       ? `本次派工給 ${agents.find(a => a.agentId === data.agentId)?.hostname ?? data.agentId ?? 'Agent'}`
       : '本次跑在伺服器端')
+    return runId
+  }, [platform, actor, runConfig, agentId, agents])
+
+  /** 這一次跑完了沒。**唯一的判斷來源**（不是日誌文字）。 */
+  const runStatus = useCallback(async (runId: string) => {
+    const response = await fetch(`/api/frontend-auto/runs/${runId}`)
+    const data = await response.json().catch(() => ({})) as { run?: { id: string; result?: string; finished_at?: number | null }; running?: boolean }
+    if (!data.run) throw new Error('查不到這一次的執行紀錄')
+    return { sessionId: data.run.id, running: !!data.running || !data.run.finished_at, result: data.run.result ?? 'unknown' }
+  }, [])
+
+  /** 單支執行：跑完要把「執行中」關掉，靠輪詢不靠日誌文字 */
+  const runScript = async () => {
+    if (!selectedId) return setNotice('請先儲存腳本再執行')
+    if (dirty) await saveScript()
+    setLogs([`準備執行 ${name}`])
+    try {
+      const runId = await startRun({ id: selectedId, name, steps })
+      while (true) {
+        await new Promise(resolve => setTimeout(resolve, 1500))
+        if (activeRunId.current !== runId) return   // 被停掉或換了一支
+        const status = await runStatus(runId).catch(() => null)
+        if (!status || status.running) continue
+        setRunning(false)
+        void loadRuns()
+        return
+      }
+    } catch (error) {
+      setRunning(false)
+      setNotice(error instanceof Error ? error.message : String(error))
+    }
+  }
+
+  /**
+   * 佇列：勾選的腳本依序跑完。
+   *
+   * ⚠️ **同時只能有一支在跑**由後端擋（`/execute` 會回 409 `already running`），
+   *    這裡不去輪詢猜——查到閒置、派工、對方也派了，那是競態。
+   */
+  const runQueue = async () => {
+    const picked = queueIds
+      .map(id => scripts.find(script => script.id === id))
+      .filter((script): script is AutoScript => !!script)
+    if (!picked.length) return setNotice(xianxia ? '請先勾選要推演的玉簡' : '請先勾選要執行的腳本')
+    if (dirty && !window.confirm('目前這一份有尚未儲存的調整，佇列會跑已存檔的版本。仍要開始嗎？')) return
+    queueCancelled.current = false
+    setQueueBusy(true)
+    const entries: QueueItem<never>[] = picked.map(script => ({ id: script.id, title: script.name, state: 'waiting', results: [] }))
+    setQueue(entries)
+    setLogs([`佇列開始：共 ${entries.length} 份腳本`])
+    await runScriptQueue<never>(entries, {
+      start: async item => {
+        const script = picked.find(row => row.id === item.id)!
+        setLogs(lines => [...lines, `▶ ${script.name}`])
+        return { sessionId: await startRun({ id: script.id, name: script.name, steps: parseSteps(script.steps) }) }
+      },
+      status: async sessionId => {
+        const status = await runStatus(sessionId)
+        return { sessionId: status.sessionId, running: status.running }
+      },
+      stop: async sessionId => { await fetch(`/api/frontend-auto/runs/${sessionId}/stop`, { method: 'POST' }) },
+      // 這一層要的只是「有沒有結束」，判定明細在執行紀錄與日誌裡。
+      // ⚠️ 仍然要回一個物件——回 undefined 會被當成「取不到結果」而中止整個佇列。
+      results: async (_item, sessionId) => {
+        const status = await runStatus(sessionId)
+        return { results: [] as never[], stopped: status.result === 'stopped' }
+      },
+    }, {
+      cancelled: () => queueCancelled.current,
+      update: (index, patch) => setQueue(prev => prev.map((row, i) => i === index ? { ...row, ...patch } : row)),
+      started: () => {},
+    })
+    setQueueBusy(false)
+    setRunning(false)
+    void loadRuns()
+  }
+
+  const cancelQueue = async () => {
+    queueCancelled.current = true
+    setLogs(lines => [...lines, '已要求取消佇列——目前這一支跑完（或被停止）之後不再往下派'])
+    if (activeRunId.current) await fetch(`/api/frontend-auto/runs/${activeRunId.current}/stop`, { method: 'POST' })
   }
 
   const stopRun = async () => {
@@ -520,223 +616,345 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
     void loadAssets()
   }
 
+  // ── 第一屏的三步引導（照 Backend 的模板）──────────────────────────────
+  // ⚠️ 這裡拿到的 agent 清單**沒有忙碌狀態**（那在最上面那條共用狀態列才有）。
+  //    不要在這裡寫「N 台可用」——會變成一個看起來精確、實際是猜的數字。
+  const targetAgent = agentId === 'server'
+    ? '伺服器端'
+    : agentId
+      ? agents.find(agent => agent.agentId === agentId)?.hostname ?? agentId
+      : agents.length
+        ? `自動挑一台（共 ${agents.length} 台連線中）`
+        : null
+  const startSteps = [
+    { label: xianxia ? '選定玉簡' : '選擇或錄製腳本', done: !!selectedId },
+    { label: xianxia ? '選在哪具傀儡上跑' : '選在哪台機器跑', done: !!targetAgent },
+    { label: xianxia ? '歸屬試煉（可略）' : '綁 Lark TC（可略過）', done: !!bindings.length },
+  ]
+  // ⚠️ 「不能跑」的理由要講得出來。只把按鈕反灰的話，使用者只會看到一顆沒反應的按鈕。
+  const blockedReason = !selectedId
+    ? (xianxia ? '尚未選定玉簡（左側清單）' : '還沒選腳本（左邊清單）')
+    : !runConfig.url.trim()
+      ? (xianxia ? '幻境入口還沒填（右側「啟陣設定」）' : '目標網址還沒填（右邊「執行設定」）')
+      : unassignedSteps.length
+        ? (xianxia ? `有 ${unassignedSteps.length} 道校驗尚未歸屬試煉` : `有 ${unassignedSteps.length} 個檢查還沒指定所屬 TC`)
+        : null
+  const queueDone = queue.filter(item => item.state === 'done').length
+  const queueFailed = queue.filter(item => item.state === 'error').length
+
   return (
-    <div className="uat-automation-shell">
-      <aside className="uat-script-sidebar">
-        <div className="uat-pane-heading"><div><span>{xianxia ? 'JADE ARCHIVE' : 'TEST CASES'}</span><h3>{platform.toUpperCase()} {copy.cases}</h3></div><button type="button" className="uat-icon-btn" onClick={newScript} aria-label={xianxia ? '新立玉簡' : '新增腳本'}>＋</button></div>
+    <div className="uat-backend-workbench">
+      {/* ── 第一屏行動列 ─────────────────────────────────────────────── */}
+      <div className="uat-backend-launch">
+        <div className="uat-backend-launch-steps">
+          {startSteps.map((step, index) => (
+            <span className={`uat-launch-step${step.done ? ' is-done' : ''}`} key={step.label}>
+              <i>{index + 1}</i>{step.label}
+            </span>
+          ))}
+          {blockedReason
+            ? <span className="uat-launch-block">{blockedReason}</span>
+            : <span className="uat-launch-ready">{xianxia ? '可啟陣推演' : '可以開始執行'}</span>}
+        </div>
+        <div className="uat-backend-launch-cta">
+          <div className="uat-backend-launch-meta">
+            {bindings.length ? <>已綁 <b>{bindings.length}</b> 筆 TC</> : <>未綁 Lark TC（不回寫）</>}
+            {targetAgent && <> · 跑在 <b>{targetAgent}</b></>}
+          </div>
+          {recordSessionId ? <>
+            <button type="button" className="uat-btn is-quiet" onClick={togglePause} disabled={pausePending}>{pausePending ? '同步中…' : recPaused ? copy.resumeRecord : copy.pauseRecord}</button>
+            <button type="button" className="uat-btn is-danger" onClick={stopRecording}>{copy.stopRecord}</button>
+          </> : running || queueBusy
+            ? <button type="button" className="uat-btn is-danger is-wide" onClick={queueBusy ? cancelQueue : stopRun}>{queueBusy ? (xianxia ? '中止佇列' : '取消佇列') : (xianxia ? '收陣' : '停止執行')}</button>
+            : <button type="button" className="uat-btn is-primary is-wide" disabled={!!blockedReason} onClick={runScript}>{xianxia ? '啟陣推演' : '執行所選腳本'}</button>}
+        </div>
+      </div>
+
+      {(notice || recordLabel) && <div className="uat-notice"><XianxiaIcon name="notification" size={16} /><span>{recordLabel ? `${recordLabel} ${recPaused ? (xianxia ? '已暫歇' : '已暫停') : (xianxia ? '觀照錄術中' : '錄製中')}` : notice}</span>{runWhere ? <em className="uat-run-where">{runWhere}</em> : null}<button type="button" onClick={() => setNotice('')}>{xianxia ? '收起符訊' : '關閉'}</button></div>}
+
+      {/* ── 網路監測 ＋ 即時日誌（刻意排在三欄之前，跑測試時最需要盯）── */}
+      <section className="uat-backend-bottom">
+        <NetworkPanel stats={netStats} themeMode={themeMode} updatedAt={statsAt} />
+        <section className="uat-panel uat-backend-log">
+          <div className="uat-log-toolbar">
+            <div className="uat-section-title"><span>{xianxia ? 'SPIRIT FLOW' : 'PROCESS OUTPUT'}</span><h3>{xianxia ? '靈流行跡' : '即時執行日誌'}</h3></div>
+            <label className="uat-check"><input type="checkbox" checked={autoScroll} onChange={event => setAutoScroll(event.target.checked)} />{xianxia ? '追隨靈流' : '自動捲動'}</label>
+            <button type="button" className="uat-btn is-quiet" onClick={() => setLogs([])}>{xianxia ? '拂去殘痕' : '清除'}</button>
+          </div>
+          <pre onScroll={event => { const el = event.currentTarget; setAutoScroll(el.scrollHeight - el.scrollTop - el.clientHeight < 40) }}>
+            {logs.length ? logs.join('\n') : (xianxia ? '玉簡未啟，靈息未至。' : '等待執行...')}
+            <span ref={logEnd} />
+          </pre>
+        </section>
+      </section>
+
+      {/* ── 左：腳本庫 ──────────────────────────────────────────────── */}
+      <aside className="uat-backend-plan">
+        <div className="uat-backend-flow-head">
+          <div className="uat-section-title">
+            <span>{xianxia ? 'JADE ARCHIVE' : 'SCRIPT LIBRARY'}</span>
+            <h3>{platform.toUpperCase()} {copy.cases} <small>{visibleScripts.length}</small></h3>
+            <p>{xianxia ? '點選玉簡可編排、推演與查閱結果。勾選可排入佇列。' : '點一下開啟編輯；勾選可排進佇列一起跑。'}</p>
+          </div>
+        </div>
+        <div className="uat-tc-record-actions">
+          <button type="button" className="uat-btn" onClick={newScript}>{copy.addScript}</button>
+          <button type="button" className="uat-btn is-quiet" disabled={!!recordSessionId} onClick={startRecording}>{copy.record}</button>
+        </div>
         <input className="uat-field" value={search} onChange={event => setSearch(event.target.value)} placeholder={xianxia ? '尋找玉簡' : '搜尋腳本'} />
         <div className="uat-filter-row">{(['all', 'mine', 'public'] as const).map(value => <button type="button" className={filter === value ? 'is-active' : ''} onClick={() => setFilter(value)} key={value}>{value === 'all' ? '全部' : value === 'mine' ? (xianxia ? '本門' : '我的') : (xianxia ? '公傳' : '公開')}</button>)}</div>
         <div className="uat-script-list">
-          {visibleScripts.map(script => <button type="button" className={`uat-script-item${selectedId === script.id ? ' is-active' : ''}`} key={script.id} onClick={() => selectScript(script.id)}><span className={`uat-result-dot is-${latestResult.get(script.id) ?? 'idle'}`} /><span><strong>{script.name}</strong><small>{script.created_by} · {parseSteps(script.steps).length} {xianxia ? '陣眼' : '區塊'}</small></span></button>)}
+          {visibleScripts.map(script => (
+            <div className={`uat-script-item${selectedId === script.id ? ' is-active' : ''}`} key={script.id}>
+              {/* ⚠️ 勾選跟「開啟編輯」要分開：兩件事綁在一起的話，想排隊就會被迫換掉手上編的那一份 */}
+              <input
+                type="checkbox"
+                aria-label={`${xianxia ? '排入佇列' : '排入佇列'}：${script.name}`}
+                checked={queueIds.includes(script.id)}
+                disabled={queueBusy}
+                onChange={() => setQueueIds(prev => prev.includes(script.id) ? prev.filter(id => id !== script.id) : [...prev, script.id])}
+              />
+              <button type="button" onClick={() => selectScript(script.id)}>
+                <span className={`uat-result-dot is-${latestResult.get(script.id) ?? 'idle'}`} />
+                <span><strong>{script.name}</strong><small>{script.created_by} · {parseSteps(script.steps).length} {xianxia ? '陣眼' : '區塊'}</small></span>
+              </button>
+            </div>
+          ))}
           {!visibleScripts.length && <div className="uat-list-empty">{xianxia ? '藏經閣中尚無相符玉簡' : '尚無符合條件的腳本'}</div>}
         </div>
-        <button type="button" className="uat-btn is-primary is-wide" onClick={newScript}>{copy.addScript}</button>
+        <div className="uat-backend-flow-foot">
+          <button type="button" className="uat-btn is-quiet" disabled={queueBusy || !visibleScripts.length} onClick={() => setQueueIds(visibleScripts.map(script => script.id))}>{xianxia ? '全選所列' : '全選搜尋結果'}</button>
+          <button type="button" className="uat-btn is-quiet" disabled={queueBusy || !queueIds.length} onClick={() => setQueueIds([])}>{xianxia ? '清除勾選' : '清除勾選'}</button>
+          <span>已勾 {queueIds.length} 份。</span>
+        </div>
       </aside>
 
-      <div className="uat-studio-main">
-        <header className="uat-studio-toolbar">
-          <div className="uat-script-title"><input value={name} onChange={event => { setName(event.target.value); setDirty(true) }} placeholder={copy.scriptName} /><span>{dirty ? copy.unsaved : selectedId ? copy.synced : copy.newScript} · {countExecutableSteps(steps)} {xianxia ? '道可執行術式' : '個執行步驟'}</span></div>
-          <nav>{(['editor', 'run', 'assets', 'history'] as const).map(item => <button type="button" className={view === item ? 'is-active' : ''} onClick={() => setView(item)} key={item}>{item === 'editor' ? copy.editor : item === 'run' ? copy.run : item === 'assets' ? copy.assets : copy.history}</button>)}</nav>
-          <div className="uat-toolbar-actions">
-            {recordSessionId ? <>
-              <button type="button" className="uat-btn is-quiet" onClick={togglePause} disabled={pausePending}>{pausePending ? '同步中…' : recPaused ? copy.resumeRecord : copy.pauseRecord}</button>
-              <button type="button" className="uat-btn is-danger" onClick={stopRecording}>{copy.stopRecord}</button>
-            </> : <button type="button" className="uat-btn is-quiet" onClick={startRecording}>{copy.record}</button>}
-            <button type="button" className="uat-btn is-primary" onClick={saveScript} disabled={saving}>{saving ? copy.saving : copy.save}</button>
-          </div>
-        </header>
-        {(notice || recordLabel) && <div className="uat-notice"><XianxiaIcon name="notification" size={16} /><span>{recordLabel ? `${recordLabel} ${recPaused ? (xianxia ? '已暫歇' : '已暫停') : (xianxia ? '觀照錄術中' : '錄製中')}` : notice}</span>{runWhere ? <em className="uat-run-where">{runWhere}</em> : null}<button type="button" onClick={() => setNotice('')}>{xianxia ? '收起符訊' : '關閉'}</button></div>}
+      {/* ── 中：統計卡 ＋ 佇列 ＋ 這一份的流程 ────────────────────────── */}
+      <main className="uat-backend-center">
+        <div className="uat-stat-grid">
+          <article className="uat-stat is-pass"><span>{xianxia ? '試煉通過' : '通過'}</span><strong>{queueDone}</strong></article>
+          <article className="uat-stat is-fail"><span>{xianxia ? '陣眼失守' : '失敗'}</span><strong>{queueFailed}</strong></article>
+          <article className="uat-stat"><span>{xianxia ? '歸屬試煉' : '綁定 TC'}</span><strong>{bindings.length}</strong></article>
+          <article className="uat-stat"><span>{xianxia ? '陣眼數' : '執行步驟'}</span><strong>{countExecutableSteps(steps)}</strong></article>
+          <article className="uat-stat is-time"><span>{xianxia ? '佇列進度' : '佇列進度'}</span><strong>{queue.length ? `${queueDone + queueFailed} / ${queue.length}` : '—'}</strong></article>
+        </div>
 
-        {view === 'editor' && !!selectorWarnings.bad.length && <div className="uat-multi-alert" role="alert">
-          <p>⚠️ 這些步驟的定位在<strong>錄製當下就已經不對</strong>，直接執行會失敗：</p>
-          {selectorWarnings.bad.map(bad => <div key={bad.index}>第 {bad.index} 步——{bad.why}</div>)}
-        </div>}
-        {view === 'editor' && !!selectorWarnings.weak.length && <p className="uat-multi-alert">共 {selectorWarnings.weak.length} 個步驟用結構路徑定位（第 {selectorWarnings.weak.join('、')} 步），這是最脆的一階，請試跑確認找得到正確元素。</p>}
-        {view === 'editor' && (
-          <div className="uat-editor-overview">
-            {/* ── 綁定哪幾筆 Lark TC ───────────────────────────────────── */}
-            <section className="uat-panel uat-inscribed-panel">
-              <div className="uat-section-title">
-                <span>{xianxia ? 'TRIAL BINDING' : 'LARK TC'}</span>
-                <h3>{xianxia ? '試煉歸屬' : '綁定的 Lark TC'} <small>{bindings.length}</small></h3>
-              </div>
-              <p className="uat-hint">
-                {xianxia ? '綁定之後，啟陣完畢會依試煉分別判定並回填玉牒；不綁亦可推演，只是不回填。'
-                  : '綁了之後，跑完會依 TC 分別判定、上傳截圖、回寫 Lark。不綁也能跑，只是不回寫。'}
-              </p>
-              <label>{xianxia ? '玉牒路徑' : 'Lark 表格網址'}
-                <input
-                  className="uat-field"
-                  value={larkUrl}
-                  onChange={event => { setLarkUrl(event.target.value); setDirty(true) }}
-                  onBlur={event => void loadTcPool(event.target.value)}
-                  placeholder="https://....larksuite.com/base/XXXX?table=tblYYYY"
-                />
-              </label>
-              {/* ⚠️ 拆不出 table= 要當場講。不講的話存得下去、跑起來才被擋 */}
-              {larkUrl.trim() && !tableIdFromUrl(larkUrl) && (
-                <p className="uat-hint" style={{ color: 'var(--uat-danger)' }}>
-                  這個網址看不出是哪一張表（少了 <code>?table=tblXXXX</code>），存了也回寫不了。
-                </p>
-              )}
-              <div className="uat-run-actions">
-                <button type="button" className="uat-btn is-quiet" disabled={tcLoading || !larkUrl.trim()} onClick={() => void loadTcPool(larkUrl)}>
-                  {tcLoading ? (xianxia ? '參閱玉牒中…' : '載入 TC 中…') : (xianxia ? '重新參閱玉牒' : '重新載入 Lark TC')}
-                </button>
-              </div>
-              {tcError && <p className="uat-hint" style={{ color: 'var(--uat-danger)' }}>
-                {xianxia ? '參閱玉牒失敗' : '讀不到這張表的 TC'}：{tcError}
-              </p>}
-              {!!tcPool.length && (
-                <div className="uat-tc-pool">
-                  {tcPool.map(tc => {
-                    const picked = bindings.some(item => item.recordId === tc.recordId)
-                    return (
-                      <label className={`uat-tc-row${picked ? ' is-picked' : ''}`} key={tc.recordId}>
-                        <input type="checkbox" checked={picked} onChange={() => toggleBinding(tc)} />
-                        <strong>{tc.number || tc.recordId}</strong><span>{tc.text}</span>
-                      </label>
-                    )
-                  })}
-                </div>
-              )}
-              {/* 綁著、但這次載入的清單裡沒有的：多半是那筆 TC 被刪了或換了表 */}
-              {bindings.filter(b => tcPool.length && !tcPool.some(tc => tc.recordId === b.recordId)).map(b => (
-                <p className="uat-hint" style={{ color: 'var(--uat-danger)' }} key={b.recordId}>
-                  綁著「{b.number || b.recordId}」，但這張表現在找不到它——可能被刪了，或網址換過。
-                </p>
-              ))}
-            </section>
-
-            {/* ── 流程摘要 ＋ 開編輯器 ─────────────────────────────────── */}
-            <section className="uat-panel uat-inscribed-panel">
-              <div className="uat-section-title">
-                <span>{xianxia ? 'TRIAL ARRAY' : 'WORKFLOW'}</span>
-                <h3>{xianxia ? '試煉陣圖' : '測試流程'} <small>{countExecutableSteps(steps)}</small></h3>
-              </div>
-              {!!unassignedSteps.length && (
-                <div className="uat-multi-alert" role="alert">
-                  <p>⚠️ 這些檢查／截圖<strong>還沒指定所屬 TC</strong>，直接執行會被擋下來（結果不知道要回寫到哪一筆）：</p>
-                  {unassignedSteps.map(line => <div key={line}>{line}</div>)}
-                </div>
-              )}
-              <div className="uat-step-summary">
-                {steps.slice(0, 8).map((step, i) => (
-                  <div key={step.id}>
-                    <span className="uat-step-index">{String(i + 1).padStart(2, '0')}</span>
-                    <strong>{step.name || step.action}</strong>
-                    {step.tcId && <em>{bindings.find(b => b.recordId === step.tcId)?.number ?? step.tcId.slice(0, 8)}</em>}
-                  </div>
-                ))}
-                {steps.length > 8 && <div><span className="uat-step-index">⋯</span><strong>還有 {steps.length - 8} 步</strong></div>}
-                {/* ⚠️ 空狀態也要照同一個格線放（index／內容／標籤），不然整句會被擠進
-                    26px 的序號欄裡變成「還…」——實際畫面上就發生過。 */}
-                {!steps.length && <div className="is-empty"><span className="uat-step-index">—</span><strong>{xianxia ? '尚無術式，先錄一段或手動新增' : '還沒有步驟，先錄一段或手動新增'}</strong></div>}
-              </div>
-              <div className="uat-run-actions">
-                <button type="button" className="uat-btn is-primary" onClick={() => setEditorOpen(true)}>
-                  {xianxia ? '開啟陣圖編排' : '編輯流程'}
-                </button>
-              </div>
-            </section>
+        {/* ── 腳本佇列 ─────────────────────────────────────────────── */}
+        <section className="uat-panel uat-inscribed-panel">
+          <div className="uat-section-title">
+            <span>SCRIPT QUEUE</span>
+            <h3>{xianxia ? '推演順序' : '腳本執行順序'} <small>{queueIds.length}</small></h3>
+            <p>{xianxia ? '由上往下逐份推演；上下移動可調整先後。' : '由上往下逐份執行；上下移動可調整順序。'}</p>
           </div>
-        )}
-        {/* ⚠️ 彈框一律走 createPortal 掛 document.body：這個版面的祖先有 backdrop-filter／
-            transform，position: fixed 會被困在容器裡裁掉（這個 repo 踩過好幾次）。 */}
-        {editorOpen && createPortal(
-          <div className="modal-overlay" onClick={() => setEditorOpen(false)}>
-            <div className="modal uat-editor-modal" onClick={event => event.stopPropagation()}>
-              <div className="uat-section-title">
-                <span>{xianxia ? 'ARRAY COMPOSER' : 'WORKFLOW EDITOR'}</span>
-                <h3>{name || (xianxia ? '未題名玉簡' : '未命名腳本')}</h3>
-                <button type="button" className="uat-btn is-quiet" onClick={() => setEditorOpen(false)}>{xianxia ? '收起' : '關閉'}</button>
+          {!queueIds.length
+            ? <p className="uat-hint">{xianxia ? '請先於左側勾選要推演的玉簡。' : '請從左側勾選要執行的腳本。'}</p>
+            : <div className="uat-step-summary">
+                {queueIds.map((id, index) => {
+                  const script = scripts.find(row => row.id === id)
+                  const state = queue.find(row => row.id === id)
+                  return (
+                    <div key={id}>
+                      <span className="uat-step-index">{String(index + 1).padStart(2, '0')}</span>
+                      <strong>{script?.name ?? id}</strong>
+                      {state && <em className={`is-${state.state}`} title={state.error ?? ''}>
+                        {state.state === 'waiting' ? '等待' : state.state === 'running' ? '執行中' : state.state === 'done' ? '完成' : state.state === 'error' ? '失敗' : '取消'}
+                      </em>}
+                      {!queueBusy && <span className="uat-step-move">
+                        <button type="button" aria-label="往上移" disabled={index === 0} onClick={() => setQueueIds(prev => { const next = [...prev]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next })}>▲</button>
+                        <button type="button" aria-label="往下移" disabled={index === queueIds.length - 1} onClick={() => setQueueIds(prev => { const next = [...prev]; [next[index], next[index + 1]] = [next[index + 1], next[index]]; return next })}>▼</button>
+                      </span>}
+                    </div>
+                  )
+                })}
+              </div>}
+          <div className="uat-run-actions">
+            {queueBusy
+              ? <button type="button" className="uat-btn is-danger" onClick={cancelQueue}>{xianxia ? '中止佇列' : '取消佇列'}</button>
+              : <button type="button" className="uat-btn is-primary" disabled={!queueIds.length || running} onClick={runQueue}>{xianxia ? '依序推演' : '依序執行勾選的腳本'}</button>}
+          </div>
+          <p className="uat-hint">
+            {xianxia ? '⚠️ 一次只推演一份；中途失敗或中止，後面的一律標為取消，不會偷偷續行。'
+              : '⚠️ 一次只跑一份。中途失敗或取消，後面的會全部標成「取消」而不是留在等待中——留著的話你會以為它還會跑。'}
+          </p>
+        </section>
+
+        {/* ── 這一份腳本 ───────────────────────────────────────────── */}
+        <section className="uat-panel uat-inscribed-panel">
+          <div className="uat-section-title">
+            <span>{xianxia ? 'TRIAL ARRAY' : 'WORKFLOW'}</span>
+            <h3>{name || (xianxia ? '未題名玉簡' : '未命名腳本')} <small>{countExecutableSteps(steps)}</small></h3>
+            <p>{dirty ? copy.unsaved : selectedId ? copy.synced : copy.newScript}</p>
+          </div>
+          <label>{copy.scriptName}<input className="uat-field" value={name} onChange={event => { setName(event.target.value); setDirty(true) }} placeholder={copy.scriptName} /></label>
+          {!!selectorWarnings.bad.length && <div className="uat-multi-alert" role="alert">
+            <p>⚠️ 這些步驟的定位在<strong>錄製當下就已經不對</strong>，直接執行會失敗：</p>
+            {selectorWarnings.bad.map(bad => <div key={bad.index}>第 {bad.index} 步——{bad.why}</div>)}
+          </div>}
+          {!!selectorWarnings.weak.length && <p className="uat-multi-alert">共 {selectorWarnings.weak.length} 個步驟用結構路徑定位（第 {selectorWarnings.weak.join('、')} 步），這是最脆的一階，請試跑確認找得到正確元素。</p>}
+          {!!unassignedSteps.length && <div className="uat-multi-alert" role="alert">
+            <p>⚠️ 這些檢查／截圖<strong>還沒指定所屬 TC</strong>，直接執行會被擋下來（結果不知道要回寫到哪一筆）：</p>
+            {unassignedSteps.map(line => <div key={line}>{line}</div>)}
+          </div>}
+          <div className="uat-step-summary">
+            {steps.slice(0, 8).map((step, i) => (
+              <div key={step.id}>
+                <span className="uat-step-index">{String(i + 1).padStart(2, '0')}</span>
+                <strong>{step.name || step.action}</strong>
+                {step.tcId && <em>{bindings.find(b => b.recordId === step.tcId)?.number ?? step.tcId.slice(0, 8)}</em>}
               </div>
-              <BlockEditor
-                steps={steps} snippets={snippets} baselines={baselines} bindings={bindings}
-                selectedId={selectedStepId} onSelectedIdChange={setSelectedStepId}
-                onChange={next => { setSteps(next); setDirty(true) }} themeMode={themeMode}
-              />
+            ))}
+            {steps.length > 8 && <div><span className="uat-step-index">⋯</span><strong>還有 {steps.length - 8} 步</strong></div>}
+            {!steps.length && <div className="is-empty"><span className="uat-step-index">—</span><strong>{xianxia ? '尚無術式，先錄一段或手動新增' : '還沒有步驟，先錄一段或手動新增'}</strong></div>}
+          </div>
+          <div className="uat-run-actions">
+            <button type="button" className="uat-btn is-primary" onClick={() => setEditorOpen(true)}>{xianxia ? '開啟陣圖編排' : '編輯流程'}</button>
+            <button type="button" className="uat-btn is-quiet" onClick={saveScript} disabled={saving}>{saving ? copy.saving : copy.save}</button>
+            <button type="button" className="uat-btn is-quiet" onClick={deleteScript} disabled={!selectedId}>{xianxia ? '焚毀玉簡' : '刪除腳本'}</button>
+          </div>
+        </section>
+
+        {/* 錄製時抓到的 API：可以直接變成一顆「這支 API 必須被呼叫」 */}
+        {!!recApiCalls.length && (
+          <section className="uat-panel uat-inscribed-panel">
+            <div className="uat-section-title"><span>{xianxia ? 'TRACED CALLS' : 'RECORDED API'}</span><h3>{xianxia ? '錄製時的往來符訊' : '錄製時的 API'} <small>{recApiCalls.length}</small></h3>
+              <p>{xianxia ? '點「化為術式」可把該符訊化為驗證術式，並自行移到對應步驟之後。' : '點「加入檢查」會在步驟最後加一顆斷言，請自行移到對應操作之後——它只檢查「那一步之後」有沒有打到。'}</p>
             </div>
-          </div>,
-          document.body,
-        )}
-        {view === 'run' && (
-          <div className="uat-run-layout">
-            <section className="uat-panel uat-inscribed-panel">
-              <div className="uat-section-title"><span>{xianxia ? 'ARRAY CONTROL' : 'RUN CONFIG'}</span><h3>{xianxia ? '啟陣設定' : '執行設定'}</h3></div>
-              <div className="uat-form-grid">
-                <label>{xianxia ? '幻境入口' : '目標網址'}<input className="uat-field" value={runConfig.url} onChange={event => setRunConfig(value => ({ ...value, url: event.target.value }))} placeholder="https://..." /></label>
-                <label>{xianxia ? '觀照尺寸' : '解析度'}<select className="uat-field" value={runConfig.resolution} onChange={event => setRunConfig(value => ({ ...value, resolution: event.target.value }))}>{(platform === 'h5' ? ['390x844', '500x877'] : ['1366x768', '1440x900', '1920x1080']).map(value => <option key={value}>{value}</option>)}</select></label>
-                <label>{xianxia ? '陣眼失守時' : '失敗處理'}<select className="uat-field" value={runConfig.failureMode} onChange={event => setRunConfig(value => ({ ...value, failureMode: event.target.value }))}><option value="continue">{xianxia ? '續行推演' : '繼續執行'}</option><option value="stop">{xianxia ? '立即收陣' : '立即停止'}</option></select></label>
-                {/* ⚠️ 執行節點的下拉搬到**頁面最上面的共用 Agent 狀態列**了（v4.188.0）。
-                    狀態與選擇放兩個地方各一份，遲早出現「列上顯示 A、實際派給 B」。 */}
+            {recApiCalls.map((call, i) => (
+              <div className="uat-multi-api" key={`${call.url}-${i}`}>
+                <code>{call.method ?? 'GET'} {call.urlPattern || call.url} — {call.status ?? '—'}</code>
+                <button
+                  type="button"
+                  className="uat-btn is-quiet"
+                  disabled={call.status === null || call.status === undefined}
+                  title={call.status === null || call.status === undefined ? '這筆沒有狀態碼（可能還沒完成或失敗了），不能當成斷言' : call.url}
+                  onClick={() => {
+                    const step = createStep('assert_api_called')
+                    step.name = `API：${call.urlPattern || call.url}`
+                    step.urlPattern = call.urlPattern || call.url
+                    setSteps(prev => [...prev, step])
+                    setDirty(true)
+                    setNotice(`已加入斷言：${step.urlPattern}（請移到對應操作之後）`)
+                  }}
+                >{xianxia ? '化為術式' : '加入檢查'}</button>
               </div>
-              <label className="uat-check"><input type="checkbox" checked={runConfig.headed} onChange={event => setRunConfig(value => ({ ...value, headed: event.target.checked }))} />{xianxia ? '顯現幻境視窗' : '顯示瀏覽器視窗'}</label>
-              <label className="uat-check"><input type="checkbox" checked={isPublic} onChange={event => { setIsPublic(event.target.checked); setDirty(true) }} />{xianxia ? '允許同門啟用此玉簡' : '允許其他使用者執行此腳本'}</label>
-              <div className="uat-run-actions">{running ? <button type="button" className="uat-btn is-danger" onClick={stopRun}>{xianxia ? '收陣' : '停止執行'}</button> : <button type="button" className="uat-btn is-primary" onClick={runScript}>{xianxia ? '啟陣推演' : '執行所選腳本'}</button>}<button type="button" className="uat-btn is-quiet" onClick={deleteScript} disabled={!selectedId}>{xianxia ? '焚毀玉簡' : '刪除腳本'}</button></div>
-            </section>
-            <NetworkPanel stats={netStats} themeMode={themeMode} updatedAt={statsAt} />
-            {/* 錄製時攔到的 console／pageerror。沒有錄過就整塊不顯示——
-                空面板會讓人以為「攔到了但沒東西」，而實際上是還沒錄。 */}
-            {/* 錄製時抓到的 API，可以直接變成一顆「這支 API 必須被呼叫」。
-                存的是 urlPattern 不是原始網址——原始網址裡的 id／token／時間戳
-                直接當條件的話，換一筆資料或隔一天重跑就全紅。 */}
-            {!!recApiCalls.length && (
-              <section className="uat-panel uat-inscribed-panel">
-                <div className="uat-section-title">
-                  <span>{xianxia ? 'TRACED CALLS' : 'RECORDED API'}</span>
-                  <h3>{xianxia ? '錄製時的往來符訊' : '錄製時的 API'}</h3>
-                </div>
-                <p className="uat-hint">
-                  {xianxia ? '點「加入檢查」可把該符訊化為驗證術式，並自行移到對應步驟之後。'
-                    : '點「加入檢查」會在步驟最後加一顆斷言，請自行拖到對應操作之後——它只檢查「那一步之後」有沒有打到。'}
-                </p>
-                {recApiCalls.map((call, i) => (
-                  <div className="uat-multi-api" key={`${call.url}-${i}`}>
-                    <code>{call.method ?? 'GET'} {call.urlPattern || call.url} — {call.status ?? '—'}</code>
-                    <button
-                      type="button"
-                      className="uat-btn is-quiet"
-                      disabled={call.status === null || call.status === undefined}
-                      title={call.status === null || call.status === undefined
-                        ? '這筆沒有狀態碼（可能還沒完成或失敗了），不能當成斷言'
-                        : call.url}
-                      onClick={() => {
-                        const step = createStep('assert_api_called')
-                        step.name = `API：${call.urlPattern || call.url}`
-                        step.urlPattern = call.urlPattern || call.url
-                        setSteps(prev => [...prev, step])
-                        setDirty(true)
-                        setNotice(`已加入斷言：${step.urlPattern}（請拖到對應操作之後）`)
-                      }}
-                    >{xianxia ? '化為術式' : '加入檢查'}</button>
-                  </div>
-                ))}
-              </section>
-            )}
-            {(recConsole.length > 0 || pinusPatched !== null) && (
-              <section className="uat-panel uat-log-panel uat-inscribed-panel">
-                <div className="uat-section-title">
-                  <span>{xianxia ? 'ECHO OF FAULTS' : 'RECORDED CONSOLE'}</span>
-                  <h3>{xianxia ? '錄製雜訊' : '錄製時的 Console'}</h3>
-                </div>
-                <p className="uat-hint">
-                  {pinusPatched
-                    ? `pinus 已攔截（補在 ${pinusPatched}）`
-                    : ' 這一頁沒有偵測到 pinus——多半是它本來就沒有，不是攔截失敗'}
-                  {recConsoleDropped > 0 && `；因超過上限未保留 ${recConsoleDropped} 筆`}
-                </p>
-                <pre>{recConsole.length
-                  ? recConsole.map(e => `[${e.type}] ${e.text}${e.location ? `  (${e.location})` : ''}`).join('\n')
-                  : (xianxia ? '此番觀照未聞雜訊。' : '這次錄製沒有攔到 console 訊息。')}</pre>
-              </section>
-            )}
-            <section className="uat-panel uat-log-panel uat-inscribed-panel"><div className="uat-section-title"><span>{xianxia ? 'SPIRIT FLOW' : 'LIVE LOG'}</span><h3>{xianxia ? '靈流行跡' : '即時日誌'}</h3></div><pre>{logs.length ? logs.join('\n') : (xianxia ? '玉簡未啟，靈息未至。' : '尚未執行。設定完成後啟動腳本，日誌會顯示在這裡。')}</pre></section>
-          </div>
+            ))}
+          </section>
         )}
-        {view === 'assets' && <div className="uat-assets-grid"><AssetSection title={xianxia ? '玉簡基準靈影' : '腳本基準圖'} count={baselines.length} uploadLabel={xianxia ? '納入基準靈影' : '上傳基準圖'} onUpload={uploadBaseline} xianxia={xianxia}>{baselines.map(item => <AssetCard key={item.id} name={item.name} image={item.image_path} meta={`${xianxia ? '偏移界線' : '門檻'} ${item.threshold ?? 0.08}`} onDelete={() => removeAsset('baselines', item.id)} deleteLabel={xianxia ? '撤去' : '刪除'} />)}</AssetSection><AssetSection title={xianxia ? 'PC 靈影藏庫' : 'PC 模板圖庫'} count={templates.length} uploadLabel={xianxia ? '納入靈影' : '上傳模板'} onUpload={uploadTemplate} xianxia={xianxia}>{templates.map(item => <AssetCard key={item.id} name={item.name} image={item.image_path} meta={item.last_confidence == null ? (xianxia ? '尚未照驗' : '尚未比對') : `${xianxia ? '靈契' : '信心'} ${Math.round(item.last_confidence * 100)}%`} onDelete={() => removeAsset('templates', item.id)} deleteLabel={xianxia ? '撤去' : '刪除'} />)}</AssetSection><section className="uat-panel uat-asset-section uat-inscribed-panel"><div className="uat-section-title"><span>OCR SPIRIT SCRIPT</span><h3>{xianxia ? '靈文辨識區' : '辨識區域'} <small>{ocrRegions.length}</small></h3></div><button type="button" className="uat-btn is-quiet" onClick={addOcr}>{xianxia ? '新立靈文區' : '新增 OCR 區域'}</button><div className="uat-ocr-list">{ocrRegions.map(item => <div key={item.id}><span><strong>{item.name}</strong><small>{item.crop_x}, {item.crop_y} · {item.crop_w} × {item.crop_h}</small></span><button type="button" onClick={() => removeAsset('ocr-regions', item.id)}>{xianxia ? '撤去' : '刪除'}</button></div>)}</div></section></div>}
-        {view === 'history' && <section className="uat-panel uat-history uat-inscribed-panel"><div className="uat-section-title"><span>{xianxia ? 'TRIAL CHRONICLE' : 'RUN HISTORY'}</span><h3>{xianxia ? '近五十卷試煉錄' : '最近 50 次執行'}</h3></div><div className="uat-history-table"><div className="is-head"><span>{xianxia ? '命燈' : '結果'}</span><span>{xianxia ? '玉簡' : '腳本'}</span><span>{xianxia ? '推演統計' : '統計'}</span><span>{xianxia ? '天時' : '時間'}</span></div>{runs.map(run => <div key={run.id}><span><i className={`uat-result-dot is-${run.result}`} />{run.result}</span><span>{scripts.find(script => script.id === run.script_id)?.name ?? run.script_id}</span><span>{run.passed ?? 0} / {run.failed ?? 0} / {run.skipped ?? 0}</span><span>{run.started_at ? new Date(run.started_at).toLocaleString('zh-TW') : '—'}</span></div>)}</div></section>}
-      </div>
+        {(recConsole.length > 0 || pinusPatched !== null) && (
+          <section className="uat-panel uat-log-panel uat-inscribed-panel">
+            <div className="uat-section-title"><span>{xianxia ? 'ECHO OF FAULTS' : 'RECORDED CONSOLE'}</span><h3>{xianxia ? '錄製雜訊' : '錄製時的 Console'}</h3></div>
+            <p className="uat-hint">
+              {pinusPatched ? `pinus 已攔截（補在 ${pinusPatched}）` : ' 這一頁沒有偵測到 pinus——多半是它本來就沒有，不是攔截失敗'}
+              {recConsoleDropped > 0 && `；因超過上限未保留 ${recConsoleDropped} 筆`}
+            </p>
+            <pre>{recConsole.length ? recConsole.map(e => `[${e.type}] ${e.text}${e.location ? `  (${e.location})` : ''}`).join('\n') : (xianxia ? '此番觀照未聞雜訊。' : '這次錄製沒有攔到 console 訊息。')}</pre>
+          </section>
+        )}
+      </main>
+
+      {/* ── 右：執行設定 ────────────────────────────────────────────── */}
+      <aside className="uat-backend-settings">
+        <div className="uat-pane-heading"><div><span>{xianxia ? 'ARRAY SETTINGS' : 'RUN SETTINGS'}</span><h3>{xianxia ? '啟陣設定' : '執行設定'}</h3><small>{xianxia ? '套用至本次推演' : '套用至本次執行'}</small></div></div>
+        <div className="uat-backend-settings-form">
+          <label>{xianxia ? '幻境入口' : '目標網址'}<input className="uat-field" value={runConfig.url} onChange={event => setRunConfig(value => ({ ...value, url: event.target.value }))} placeholder="https://..." /></label>
+          <label>{xianxia ? '觀照尺寸' : '解析度'}<select className="uat-field" value={runConfig.resolution} onChange={event => setRunConfig(value => ({ ...value, resolution: event.target.value }))}>{(platform === 'h5' ? ['390x844', '500x877'] : ['1366x768', '1440x900', '1920x1080']).map(value => <option key={value}>{value}</option>)}</select></label>
+          <label>{xianxia ? '陣眼失守時' : '失敗處理'}<select className="uat-field" value={runConfig.failureMode} onChange={event => setRunConfig(value => ({ ...value, failureMode: event.target.value }))}><option value="continue">{xianxia ? '續行推演' : '繼續執行'}</option><option value="stop">{xianxia ? '立即收陣' : '立即停止'}</option></select></label>
+          <label className="uat-check"><input type="checkbox" checked={runConfig.headed} onChange={event => setRunConfig(value => ({ ...value, headed: event.target.checked }))} />{xianxia ? '顯現幻境視窗' : '顯示瀏覽器視窗'}</label>
+          <label className="uat-check"><input type="checkbox" checked={isPublic} onChange={event => { setIsPublic(event.target.checked); setDirty(true) }} />{xianxia ? '允許同門啟用此玉簡' : '允許其他使用者執行此腳本'}</label>
+
+          {/* ── Lark TC 綁定 ─────────────────────────────────────── */}
+          <label>{xianxia ? '玉牒路徑' : 'Lark TC 路徑'}
+            <small>{xianxia ? '綁定後推演完會依試煉分判並回填；不綁亦可推演，只是不回填。' : '綁了之後跑完會依 TC 分別判定、上傳截圖、回寫 Lark。不綁也能跑，只是不回寫。'}</small>
+            <textarea className="uat-field" rows={2} value={larkUrl}
+              onChange={event => { setLarkUrl(event.target.value); setDirty(true) }}
+              onBlur={event => void loadTcPool(event.target.value)}
+              placeholder="https://xxx.larksuite.com/base/...?table=..." />
+          </label>
+          {/* ⚠️ 拆不出 table= 要當場講。不講的話存得下去、跑起來才被擋 */}
+          {larkUrl.trim() && !tableIdFromUrl(larkUrl) && (
+            <p className="uat-hint" style={{ color: 'var(--uat-danger)' }}>這個網址看不出是哪一張表（少了 <code>?table=tblXXXX</code>），存了也回寫不了。</p>
+          )}
+          <button type="button" className="uat-btn is-quiet" disabled={tcLoading || !larkUrl.trim()} onClick={() => void loadTcPool(larkUrl)}>
+            {tcLoading ? (xianxia ? '參閱玉牒中…' : '載入中…') : (xianxia ? '掃描玉牒' : '掃描 Lark TC')}
+          </button>
+          {tcError && <p className="uat-hint" style={{ color: 'var(--uat-danger)' }}>{xianxia ? '參閱玉牒失敗' : '讀不到這張表的 TC'}：{tcError}</p>}
+          {!!tcPool.length && (
+            <div className="uat-tc-pool">
+              {tcPool.map(tc => {
+                const picked = bindings.some(item => item.recordId === tc.recordId)
+                return (
+                  <label className={`uat-tc-row${picked ? ' is-picked' : ''}`} key={tc.recordId}>
+                    <input type="checkbox" checked={picked} onChange={() => toggleBinding(tc)} />
+                    <strong>{tc.number || tc.recordId}</strong><span>{tc.text}</span>
+                  </label>
+                )
+              })}
+            </div>
+          )}
+          {bindings.filter(b => tcPool.length && !tcPool.some(tc => tc.recordId === b.recordId)).map(b => (
+            <p className="uat-hint" style={{ color: 'var(--uat-danger)' }} key={b.recordId}>綁著「{b.number || b.recordId}」，但這張表現在找不到它——可能被刪了，或網址換過。</p>
+          ))}
+          <div className="uat-tc-summary"><strong>{bindings.length}</strong> {xianxia ? '道歸屬試煉' : '個 Lark TC'}</div>
+          <button type="button" className="uat-btn is-quiet" onClick={() => setPanel('assets')}>{copy.assets}（{baselines.length + templates.length + ocrRegions.length}）</button>
+          <button type="button" className="uat-btn is-quiet" onClick={() => setPanel('history')}>{copy.history}（{runs.length}）</button>
+        </div>
+        <div className={`uat-run-status${running || queueBusy ? ' is-running' : ''}`}><i />{running || queueBusy ? (xianxia ? '推演中' : '執行中') : (xianxia ? '玉簡未啟' : '待機')}</div>
+      </aside>
+
+      {/* ⚠️ 彈框一律走 createPortal 掛 document.body：這個版面的祖先有 backdrop-filter／
+          transform，position: fixed 會被困在容器裡裁掉（這個 repo 踩過好幾次）。 */}
+      {editorOpen && createPortal(
+        <div className="modal-overlay" onClick={() => setEditorOpen(false)}>
+          <div className="modal uat-editor-modal" onClick={event => event.stopPropagation()}>
+            <div className="uat-section-title">
+              <span>{xianxia ? 'ARRAY COMPOSER' : 'WORKFLOW EDITOR'}</span>
+              <h3>{name || (xianxia ? '未題名玉簡' : '未命名腳本')}</h3>
+              <button type="button" className="uat-btn is-quiet" onClick={() => setEditorOpen(false)}>{xianxia ? '收起' : '關閉'}</button>
+            </div>
+            <BlockEditor
+              steps={steps} snippets={snippets} baselines={baselines} bindings={bindings}
+              selectedId={selectedStepId} onSelectedIdChange={setSelectedStepId}
+              onChange={next => { setSteps(next); setDirty(true) }} themeMode={themeMode}
+            />
+          </div>
+        </div>,
+        document.body,
+      )}
+
+      {panel && createPortal(
+        <div className="modal-overlay" onClick={() => setPanel('')}>
+          <div className="modal uat-editor-modal" onClick={event => event.stopPropagation()}>
+            <div className="uat-section-title">
+              <span>{panel === 'assets' ? 'VISUAL ASSETS' : 'RUN HISTORY'}</span>
+              <h3>{panel === 'assets' ? copy.assets : copy.history}</h3>
+              <button type="button" className="uat-btn is-quiet" onClick={() => setPanel('')}>{xianxia ? '收起' : '關閉'}</button>
+            </div>
+            <div className="uat-modal-body">
+              {panel === 'assets' ? (
+                <div className="uat-assets-grid">
+                  <AssetSection title={xianxia ? '玉簡基準靈影' : '腳本基準圖'} count={baselines.length} uploadLabel={xianxia ? '納入基準靈影' : '上傳基準圖'} onUpload={uploadBaseline} xianxia={xianxia}>
+                    {baselines.map(item => <AssetCard key={item.id} name={item.name} image={item.image_path} meta={`${xianxia ? '偏移界線' : '門檻'} ${item.threshold ?? 0.08}`} onDelete={() => removeAsset('baselines', item.id)} deleteLabel={xianxia ? '撤去' : '刪除'} />)}
+                  </AssetSection>
+                  <AssetSection title={xianxia ? 'PC 靈影藏庫' : 'PC 模板圖庫'} count={templates.length} uploadLabel={xianxia ? '納入靈影' : '上傳模板'} onUpload={uploadTemplate} xianxia={xianxia}>
+                    {templates.map(item => <AssetCard key={item.id} name={item.name} image={item.image_path} meta={item.last_confidence == null ? (xianxia ? '尚未照驗' : '尚未比對') : `${xianxia ? '靈契' : '信心'} ${Math.round(item.last_confidence * 100)}%`} onDelete={() => removeAsset('templates', item.id)} deleteLabel={xianxia ? '撤去' : '刪除'} />)}
+                  </AssetSection>
+                  <section className="uat-panel uat-asset-section uat-inscribed-panel">
+                    <div className="uat-section-title"><span>OCR SPIRIT SCRIPT</span><h3>{xianxia ? '靈文辨識區' : '辨識區域'} <small>{ocrRegions.length}</small></h3></div>
+                    <button type="button" className="uat-btn is-quiet" onClick={addOcr}>{xianxia ? '新立靈文區' : '新增 OCR 區域'}</button>
+                    <div className="uat-ocr-list">{ocrRegions.map(item => <div key={item.id}><span><strong>{item.name}</strong><small>{item.crop_x}, {item.crop_y} · {item.crop_w} × {item.crop_h}</small></span><button type="button" onClick={() => removeAsset('ocr-regions', item.id)}>{xianxia ? '撤去' : '刪除'}</button></div>)}</div>
+                  </section>
+                </div>
+              ) : (
+                <div className="uat-history-table">
+                  <div className="is-head"><span>{xianxia ? '命燈' : '結果'}</span><span>{xianxia ? '玉簡' : '腳本'}</span><span>{xianxia ? '推演統計' : '統計'}</span><span>{xianxia ? '天時' : '時間'}</span></div>
+                  {runs.map(run => <div key={run.id}><span><i className={`uat-result-dot is-${run.result}`} />{run.result}</span><span>{scripts.find(script => script.id === run.script_id)?.name ?? run.script_id}</span><span>{run.passed ?? 0} / {run.failed ?? 0} / {run.skipped ?? 0}</span><span>{run.started_at ? new Date(run.started_at).toLocaleString('zh-TW') : '—'}</span></div>)}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   )
 }
