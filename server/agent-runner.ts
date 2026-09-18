@@ -32,6 +32,10 @@ import { attachPinusProbe } from './uat-runner/pinus-probe.js'
 import { attachCdpCapture } from './uat-runner/cdp-capture.js'
 import { evaluateApiAssertion } from './uat-runner/api-assert.js'
 import { compileFrontendSteps, runFrontendStep } from './uat-runner/frontend-engine.js'
+// 綁了 TC 的腳本：聚合判定走**跟伺服器端同一支**（`multi-tc.js`）。
+// ⚠️ 回寫不在這裡——Lark 憑證不下放到 agent，結果送回 server 由它寫。
+import { runMultiTcSteps } from './uat-runner/multi-tc.js'
+import { createFrontendTcEngine, toMultiTcSteps } from './uat-runner/frontend-tc-engine.js'
 // 基準圖比對：跟伺服器端同一份。以前只有伺服器端有，這顆積木在 agent 上被靜默跳過。
 import { decodePng, findTemplateInPng } from './uat-runner/template-match.js'
 import { waitForDebugPort, clearStaleDebugPort, DEBUG_PORT_ARG } from './uat-runner/chrome-debug-port.js'
@@ -52,7 +56,7 @@ const AGENT_ID = `${AGENT_LABEL}_${process.pid}`
 const AGENT_OWNER_KEY = (process.env.AGENT_OWNER_KEY ?? '').trim()
 const AGENT_OWNER_NAME = (process.env.AGENT_OWNER_NAME ?? AGENT_OWNER_KEY).trim()
 const AGENT_TOKEN = (process.env.AGENT_TOKEN ?? '').trim()
-const AGENT_CAPABILITIES = (process.env.AGENT_CAPABILITIES ?? 'machine-test,scripted-bet,uat-record,uat-run,autospin,backend-uat')
+const AGENT_CAPABILITIES = (process.env.AGENT_CAPABILITIES ?? 'machine-test,scripted-bet,uat-record,uat-run,uat-run-tc,autospin,backend-uat')
   .split(',')
   .map(value => value.trim())
   .filter(Boolean)
@@ -218,6 +222,11 @@ interface UatRecordPauseMessage {
 
 interface UatScriptRunMessage {
   type: 'uat_script_run'
+  /** 綁了 Lark TC 時才有：要判定／回寫哪幾筆 */
+  tcBindings?: { recordId: string; number?: string; text?: string }[]
+  /** 截圖往哪送（伺服器的取證端點）。⚠️ agent 不直接碰 Lark */
+  evidenceUrl?: string
+  evidenceToken?: string
   /**
    * 後台設定片段要用的登入資訊。
    * ⚠️ **只有腳本真的有後台積木時 server 才會帶**——沒用到的腳本不該帶著憑證跑。
@@ -1162,6 +1171,95 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
 
     await log('✅ 執行頁面已準備完成')
 
+    /**
+     * 引擎要的那一包。兩條路徑（有綁 TC／沒綁）共用，不然會變成兩份設定。
+     */
+    const engineHost = {
+      log, page, browser,
+      recordedLocator, netCapture,
+      startUrl,
+      viewportHeight: h,
+      backend: msg.backend ?? null,
+      /**
+       * 基準圖：**server 派工時已經把圖的網址與門檻附在積木上**（跟後台設定片段同一個
+       * 做法——agent 拿不到 DB，不能讓它自己查）。這裡只負責把圖抓下來。
+       *
+       * ⚠️ 抓不到要**明確失敗**。以前這顆積木在 agent 上是被跳過的，
+       *    腳本照樣 PASS 而比對根本沒跑——那是修掉的東西，不能換個形式回來。
+       */
+      loadBaseline: async (target: Record<string, unknown>) => {
+        const url = String(target.baselineUrl ?? '')
+        if (!url) throw new Error('這顆基準圖積木沒有附帶圖片網址（伺服器端可能還沒更新）')
+        const response = await fetch(url)
+        if (!response.ok) throw new Error(`取不到基準圖（HTTP ${response.status}）：${url}`)
+        const bytes = Buffer.from(await response.arrayBuffer())
+        return {
+          name: String(target.baselineName ?? '基準圖'),
+          template: decodePng(bytes),
+          threshold: Number(target.baselineThreshold) || 0.08,
+        }
+      },
+      compareTemplate: (shot: ReturnType<typeof decodePng>, template: ReturnType<typeof decodePng>, threshold: number) =>
+        findTemplateInPng(shot, template, threshold),
+      decodePng: (buffer: Buffer) => decodePng(buffer),
+    }
+
+    if (Array.isArray(msg.tcBindings) && msg.tcBindings.length) {
+      // ── 綁了 TC：判定走共用聚合器，結果送回 server 回寫 ──────────────────
+      //
+      // ⚠️ **這條路徑沒有自己的迴圈**：重試、failureMode、失敗隔離全在共用的
+      //    聚合器與 adapter 裡。外層再做一次的話同一顆積木會被跑兩次。
+      const progress = { idx: '' }
+      const tcCtx = {
+        ...engineHost,
+        progress,
+        engine: createFrontendTcEngine({ ...engineHost, progress }),
+        onStep: ({ index }: { index: number }) => { progress.idx = `[${index + 1}/${steps.length}]` },
+        /**
+         * 截圖：送回 server 存檔，拿回**伺服器本機的路徑**。
+         *
+         * ⚠️ 存在 agent 本機是沒用的——回寫是 server 做的，它讀不到那台機器的硬碟。
+         * ⚠️ 送不回去回 null 不 throw（截圖是證據不是斷言），但**要講出來**：
+         *    安靜掉一張圖的話，那一筆 TC 看起來只是「沒截圖」。
+         */
+        takeScreenshot: async (name: string) => {
+          if (!msg.evidenceUrl || !msg.evidenceToken) return null
+          try {
+            const png = await page.screenshot({ fullPage: false })
+            const response = await fetch(msg.evidenceUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ token: msg.evidenceToken, name, data: png.toString('base64') }),
+            })
+            const data = await response.json().catch(() => ({})) as { ok?: boolean; path?: string; message?: string }
+            if (!response.ok || !data.path) throw new Error(data.message ?? `HTTP ${response.status}`)
+            return data.path
+          } catch (err) {
+            await log(`⚠️ 截圖「${name}」沒能送回伺服器（這一筆 TC 會少一張證據）：${err instanceof Error ? err.message : String(err)}`)
+            return null
+          }
+        },
+      }
+      const tcSteps = toMultiTcSteps(steps, failureMode === 'continue' ? 'continue' : 'stop')
+      const { results, sharedFailure } = await runMultiTcSteps(tcSteps, tcCtx, msg.tcBindings)
+      if (sharedFailure) await log(`🛑 共用步驟失敗：${sharedFailure}`)
+      for (const row of results) {
+        const mark = row.outcome === 'pass' ? '✅' : row.outcome === 'fail' ? '❌' : '⚠️'
+        await log(`${mark} TC ${row.task}：${row.outcome}${row.error ? ` —— ${row.error}` : ''}`)
+      }
+      passed = results.filter((r: { outcome: string }) => r.outcome === 'pass').length
+      failed = results.filter((r: { outcome: string }) => r.outcome === 'fail' || r.outcome === 'blocked').length
+      skipped = results.filter((r: { outcome: string }) => r.outcome === 'unverified').length
+      // ⚠️ **只送回寫用得到的欄位。** 完整的 results 帶著每一步的 trace 與
+      //    base64 預覽，整包塞進 ws 訊息會大到離譜（而且沒有人要用）。
+      sendEvent({
+        kind: 'tc_results',
+        results: results.map((row: Record<string, unknown>) => ({
+          recordId: row.recordId, task: row.task, outcome: row.outcome,
+          error: row.error, allShotPaths: row.allShotPaths,
+        })),
+      })
+    } else {
     for (const [i, step] of steps.entries()) {
       if (!uatScriptRuns.get(runId)?.active) { await log('🛑 執行已中止'); break }
       const label = step.name ?? `步驟 ${i + 1}`
@@ -1172,35 +1270,7 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
         // ⚠️ **積木的行為只有一份**（`uat-runner/frontend-engine.js`），伺服器端跑同一支。
         //    以前這裡跟伺服器各有一份對照表，然後就漂了——`find_baseline_scroll`
         //    只有伺服器端有，在這裡被靜默跳過，腳本照樣 PASS。
-        await runFrontendStep(step, {
-          idx, label, log, page, browser,
-          recordedLocator, netCapture,
-          state: netState,
-          startUrl,
-          viewportHeight: h,
-          backend: msg.backend ?? null,
-          /**
-           * 基準圖：**server 派工時已經把圖的網址與門檻附在積木上**（跟後台設定片段同一個
-           * 做法——agent 拿不到 DB，不能讓它自己查）。這裡只負責把圖抓下來。
-           *
-           * ⚠️ 抓不到要**明確失敗**。以前這顆積木在 agent 上是被跳過的，
-           *    腳本照樣 PASS 而比對根本沒跑——那是這次要修掉的東西，不能換個形式回來。
-           */
-          loadBaseline: async (target: Record<string, unknown>) => {
-            const url = String(target.baselineUrl ?? '')
-            if (!url) throw new Error('這顆基準圖積木沒有附帶圖片網址（伺服器端可能還沒更新）')
-            const response = await fetch(url)
-            if (!response.ok) throw new Error(`取不到基準圖（HTTP ${response.status}）：${url}`)
-            const bytes = Buffer.from(await response.arrayBuffer())
-            return {
-              name: String(target.baselineName ?? '基準圖'),
-              template: decodePng(bytes),
-              threshold: Number(target.baselineThreshold) || 0.08,
-            }
-          },
-          compareTemplate: (shot, template, threshold) => findTemplateInPng(shot, template, threshold),
-          decodePng: (buffer: Buffer) => decodePng(buffer),
-        })
+        await runFrontendStep(step, { ...engineHost, idx, label, state: netState })
         sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
         passed++
         break
@@ -1226,6 +1296,7 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
       }
       }
       if (!uatScriptRuns.get(runId)?.active) break
+    }
     }
 
     const result = failed > 0 ? 'fail' : 'pass'

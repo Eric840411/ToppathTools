@@ -24,7 +24,10 @@
  * ⚠️ 需要先 `npm run build`。
  */
 import http from 'http';
+import fsSync from 'fs';
 import path from 'path';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { fileURLToPath, pathToFileURL } from 'url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -116,6 +119,8 @@ const waitForRun = async (runId, timeoutMs = 120_000) => {
 
 const LARK_URL = 'https://fake.larksuite.com/base/appFAKE123?table=tblFAKE456';
 const made = [];
+const evidenceFiles = [];
+const tmpdirPath = tmpdir();
 const runIds = [];
 
 /** 建一份綁了 TC 的腳本 ＋ 一筆 run 紀錄，回 runId */
@@ -248,16 +253,22 @@ try {
     failRow?.result === 'fail', JSON.stringify(failRow));
   check('⑤ 那一筆確實沒有被寫進去', larkPuts.length === 0, JSON.stringify(larkPuts));
   uploadShouldFail = false;
-  // ── 🚨 綁了 TC 的腳本不能被默默派給 agent ──────────────────────────────
-  //    agent 端還沒接上回寫。派出去的話會「跑完、顯示通過、Lark 一個字都沒寫」。
-  {
-    const fakeWs = { readyState: 1, OPEN: 1, send() {} };
+  // ── ⑥ 派工給 agent ────────────────────────────────────────────────────
+  const fakeAgent = (capabilities) => {
+    const sent = [];
+    const ws = { readyState: 1, OPEN: 1, send(raw) { sent.push(JSON.parse(raw)) } };
     hub.agentConnections.set('fake-agent', {
-      agentId: 'fake-agent', hostname: 'fake', ws: fakeWs,
+      agentId: 'fake-agent', hostname: 'fake', ws,
       // ⚠️ `ownerKey` 才是派工用的擁有者欄位（不是 owner／ownerEmail）——
       //    填錯的話這台根本不會被挑中，測試會安靜地變成「沒有 agent」的情境。
-      capabilities: ['uat-run'], ownerKey: ME, owner: ME, busy: false, lastSeen: Date.now(),
+      capabilities, ownerKey: ME, owner: ME, busy: false, lastSeen: Date.now(),
     });
+    return sent;
+  };
+
+  // 🚨 舊版 agent（沒有 uat-run-tc）跑不了回寫，要擋下來——不然會「跑完、顯示通過、Lark 沒寫」
+  {
+    fakeAgent(['uat-run']);
     try {
       const runId = setup(BINDINGS);
       const res = await execute(runId, [
@@ -265,21 +276,135 @@ try {
         { action: 'assert_visible', name: '大廳可見', selector: '#lobby', tcId: 'recPASS' },
       ]);
       const body = await res.json().catch(() => ({}));
-      check('⑥ 🚨 綁了 TC 的腳本派不出去 agent（會變成跑完但沒回寫）',
+      check('⑥ 🚨 舊版 agent 派不出去（它會跑完、顯示通過，但 Lark 一個字都沒寫）',
         res.status === 409, `HTTP ${res.status} ${JSON.stringify(body)}`);
-      check('⑥ 而且講得出要改選伺服器端', /伺服器端/.test(body.message ?? ''), body.message);
+      check('⑥ 而且講得出怎麼辦（更新 Agent 或改選伺服器端）',
+        /更新程式碼/.test(body.message ?? '') && /伺服器端/.test(body.message ?? ''), body.message);
       check('⑥ ⚠️ 不能偷偷退回伺服器端跑（那是給一個看起來成功的錯誤答案）',
         !fa.activeRuns.has(runId), '被擋了卻還是跑起來了');
-    } finally {
-      hub.agentConnections.clear();
-    }
+    } finally { hub.agentConnections.clear() }
   }
+
+  // 新版 agent：派得出去，而且派工訊息要帶齊「回寫需要的東西」
+  let dispatched = null;
+  {
+    const sent = fakeAgent(['uat-run', 'uat-run-tc']);
+    try {
+      const runId = setup(BINDINGS);
+      const res = await execute(runId, [
+        { action: 'goto', name: '前往', value: siteUrl },
+        { action: 'assert_visible', name: '大廳可見', selector: '#lobby', tcId: 'recPASS' },
+      ]);
+      const body = await res.json().catch(() => ({}));
+      check('⑥ 支援 TC 的 agent 派得出去', res.ok && body.via === 'agent', `HTTP ${res.status} ${JSON.stringify(body)}`);
+      dispatched = sent.find(m => m.type === 'uat_script_run');
+      check('⑥ 派工訊息帶著 TC 綁定（不帶的話 agent 只能跑舊路徑）',
+        (dispatched?.tcBindings ?? []).length === 3, JSON.stringify(dispatched?.tcBindings));
+      check('⑥ 帶著截圖要送回哪（agent 存本機是沒用的，回寫是伺服器做的）',
+        /\/runs\/.*\/evidence$/.test(dispatched?.evidenceUrl ?? ''), dispatched?.evidenceUrl);
+      check('⑥ 🚨 **沒有**把 Lark 憑證下放給 agent',
+        !JSON.stringify(dispatched).toLowerCase().includes('lark_app_secret')
+        && !JSON.stringify(dispatched).includes('tenant_access_token'),
+        '派工訊息裡出現了 Lark 憑證');
+      fa.activeRuns.delete(runId);
+    } finally { hub.agentConnections.clear() }
+  }
+
+  // ⑦ 取證端點：票要對，而且真的把圖寫成檔案
+  {
+    const runId = dispatched?.runId;
+    const token = dispatched?.evidenceToken;
+    const url = `${base}/api/frontend-auto/runs/${runId}/evidence`;
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64');
+    const post = (body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+    const noToken = await post({ name: 'x', data: png.toString('base64') });
+    check('⑦ 🚨 沒有票不給寫（worker 綁 0.0.0.0，這支不擋等於誰都能寫檔）',
+      noToken.status === 403, `HTTP ${noToken.status}`);
+    const wrongToken = await post({ token: 'not-the-token', name: 'x', data: png.toString('base64') });
+    check('⑦ 票不對也不給寫', wrongToken.status === 403, `HTTP ${wrongToken.status}`);
+    const ghost = await fetch(`${base}/api/frontend-auto/runs/never-existed/evidence`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: 'x' }),
+    });
+    check('⑦ ⚠️ 不存在的 runId 也回 403（回 404 等於讓人探測哪些 runId 存在）',
+      ghost.status === 403, `HTTP ${ghost.status}`);
+
+    const ok = await post({ token, name: '證據', data: png.toString('base64') });
+    const okBody = await ok.json().catch(() => ({}));
+    check('⑦ 票對了寫得進去，而且回的是伺服器本機路徑', ok.ok && !!okBody.path, JSON.stringify(okBody));
+    check('⑦ 而且真的產生了檔案（不是只回一個路徑字串）',
+      !!okBody.path && fsSync.existsSync(okBody.path) && fsSync.statSync(okBody.path).size > 0, okBody.path);
+    if (okBody.path) evidenceFiles.push(okBody.path);
+  }
+
+  // ⑧ agent 回報的結果：由伺服器回寫
+  {
+    larkPuts.length = 0; larkUploads.length = 0;
+    const runId = setup([{ recordId: 'recAGENT', number: 'TC-100', text: 'agent 跑的' }]);
+    const shot = join(tmpdirPath, `agent-evidence-${Date.now()}.png`);
+    fsSync.writeFileSync(shot, Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64'));
+    evidenceFiles.push(shot);
+    const failures = await fa.publishAgentTcResults(runId, [
+      { recordId: 'recAGENT', task: 'agent 跑的', outcome: 'pass', error: null, allShotPaths: [shot] },
+    ]);
+    check('⑧ agent 的結果由伺服器回寫成功', failures === 0, `回寫失敗 ${failures} 筆`);
+    check('⑧ 真的打到 Lark 了', larkPuts.length === 1 && larkPuts[0].recordId === 'recAGENT', JSON.stringify(larkPuts));
+    check('⑧ 判定與截圖都寫進去了',
+      larkPuts[0]?.fields.PASS === true && (larkPuts[0]?.fields['附圖'] ?? []).length === 1,
+      JSON.stringify(larkPuts[0]?.fields));
+    check('⑧ ⚠️ 判定**不重算**（agent 跑的是同一支聚合器，重算等於又一份規則）',
+      larkPuts[0]?.fields.FAIL === false, JSON.stringify(larkPuts[0]?.fields));
+
+    // 查不到綁定時要回報失敗，不能默默成功
+    const orphan = await fa.publishAgentTcResults('run-that-has-no-script', [
+      { recordId: 'recX', outcome: 'pass', allShotPaths: [] },
+    ]);
+    check('⑧ 🚨 查不到綁定時回報失敗（默默成功＝以為寫進去了）', orphan > 0, `回了 ${orphan}`);
+  }
+  // ── ⑨ 三個程序之間的欄位名要對得上 ────────────────────────────────────
+  //
+  // ⚠️ **這一段只是原始碼比對，證明不了行為。** agent 是獨立程序（import 當下就會
+  //    去連線），沒辦法在測試裡直接跑；worker 的 ws 處理也一樣。
+  //    所以上面 ①～⑧ 驗的是伺服器端與共用邏輯，這裡只擋住「有人改了欄位名
+  //    但只改一邊」——那種壞法的症狀是**跑完什麼都沒發生，而且沒有錯誤訊息**。
+  {
+    const src = (rel) => fsSync.readFileSync(path.join(root, rel), 'utf8');
+    const routeSrc = src('server/routes/frontend-auto.ts');
+    const agentSrc = src('server/agent-runner.ts');
+    const workerSrc = src('server/worker.ts');
+    for (const field of ['tcBindings', 'evidenceUrl', 'evidenceToken']) {
+      check(`⑨ \`${field}\`：伺服器送、agent 收，兩邊名字一樣`,
+        routeSrc.includes(`${field}:`) && agentSrc.includes(`msg.${field}`),
+        `route=${routeSrc.includes(field)} agent=${agentSrc.includes('msg.' + field)}`);
+    }
+    check("⑨ agent 送 `tc_results`、worker 收 `tc_results`",
+      /kind: 'tc_results'/.test(agentSrc) && /ev\.kind === 'tc_results'/.test(workerSrc));
+    check('⑨ worker 真的呼叫回寫（不是收下就丟）',
+      /publishAgentTcResults\(runId/.test(workerSrc));
+    check('⑨ 🚨 回寫失敗要進到整輪的失敗數（不然「畫面全綠、Lark 沒東西」）',
+      /pendingTcPublishFailures/.test(workerSrc) && /\+ publishFailures/.test(workerSrc));
+    check('⑨ agent 宣告得出 `uat-run-tc` 能力（沒宣告就永遠派不到它）',
+      /uat-run-tc/.test(agentSrc) && /uat-run-tc/.test(routeSrc));
+    // ⚠️ 要抓的是**「判定」**不是「數數」。agent 當然可以數有幾筆 pass 拿來顯示；
+    //    不能做的是自己指派 outcome、自己算 assertion——那就是第二套規則。
+    const verdictLogic = [/\.outcome = '(?:fail|blocked|unverified|pass)'/, /\.assertions\+\+/, /sharedFailure =/];
+    check('⑨ ⚠️ agent 端沒有自己指派判定（判定只能有一份）',
+      verdictLogic.every(re => !re.test(agentSrc)),
+      `agent 端出現了自己的判定邏輯：${verdictLogic.filter(re => re.test(agentSrc)).map(String).join(', ')}`);
+  }
+
 } finally {
   for (const id of made) {
     try { db.prepare('DELETE FROM frontend_auto_scripts WHERE id = ?').run(id) } catch { /* 清不掉就算了 */ }
   }
   for (const id of runIds) {
     try { db.prepare('DELETE FROM frontend_auto_runs WHERE id = ?').run(id) } catch { /* 同上 */ }
+  }
+  for (const file of evidenceFiles) {
+    try { fsSync.unlinkSync(file) } catch { /* 清不掉就算了 */ }
   }
   server.close(); site.close(); lark.close();
 }

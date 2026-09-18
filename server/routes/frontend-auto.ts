@@ -1013,7 +1013,9 @@ function authedKey(): string {
  * ⚠️ 共用的 Agent 狀態列要同時照顧三個分頁，所以這裡也要認得 `backend-uat`
  *    （判斷仍然走同一支 `agentUsability()`——**不能為了那個分頁再寫一套**）。
  */
-export type UatCapability = 'uat-record' | 'uat-run' | 'backend-uat'
+// ⚠️ `uat-run-tc` 是**另一個能力**，不是 `uat-run` 的一部分：舊版 agent 有 uat-run
+//    但跑不了 TC 回寫，而它失敗的方式是「跑完、顯示通過、Lark 沒寫」——看不出來。
+export type UatCapability = 'uat-record' | 'uat-run' | 'uat-run-tc' | 'backend-uat'
 
 /**
  * 這個登入者**自己的** agent。
@@ -1729,6 +1731,91 @@ function tcScriptForValidation(plan: { tableId: string; bindings: TcBinding[] },
   }
 }
 
+/**
+ * agent 上傳截圖用的一次性憑證。
+ *
+ * ⚠️ **不能開一個誰都能寫的端點。** worker 綁 `0.0.0.0`，而 agent 送不出使用者的
+ * cookie——所以派工時發一張只對這個 runId 有效的票，跑完就作廢。
+ */
+const evidenceTokens = new Map<string, string>()
+function issueEvidenceToken(runId: string) {
+  const token = randomUUID()
+  evidenceTokens.set(runId, token)
+  return token
+}
+
+/**
+ * agent 把截圖送回來（base64）。回傳**伺服器本機的檔案路徑**，
+ * agent 把它放進結果裡，之後由伺服器拿去上傳 Lark。
+ *
+ * ⚠️ 為什麼不讓 agent 直接傳 Lark：憑證不下放（見派工那段）。
+ */
+router.post('/api/frontend-auto/runs/:runId/evidence', express.json({ limit: '25mb' }), (req, res) => {
+  const runId = req.params.runId
+  const body = req.body as { token?: string; name?: string; data?: string }
+  const expected = evidenceTokens.get(runId)
+  // ⚠️ 票不對就 403，**不存在的 runId 也回 403**——回 404 等於讓人拿來探測哪些 runId 存在。
+  if (!expected || body.token !== expected) return res.status(403).json({ ok: false, message: 'forbidden' })
+  try {
+    const safe = String(body.name ?? 'shot').replace(/[^\w.-]+/g, '_').slice(0, 60) || 'shot'
+    const filename = `run-${runId}-${Date.now()}-${safe}.png`
+    writeFileSync(join(imageDir, filename), Buffer.from(String(body.data ?? ''), 'base64'))
+    res.json({ ok: true, path: join(imageDir, filename) })
+  } catch (error) {
+    res.status(500).json({ ok: false, message: error instanceof Error ? error.message : String(error) })
+  }
+})
+
+/** agent 回報的一筆 TC 結果（只取回寫用得到的欄位）。 */
+interface AgentTcResult {
+  recordId: string
+  task?: string
+  outcome?: string
+  error?: string | null
+  allShotPaths?: string[]
+  published?: boolean
+  publishError?: string
+}
+
+/**
+ * agent 跑完之後，**由伺服器回寫 Lark**。
+ *
+ * ⚠️ 判定不重算：agent 跑的是同一支聚合器（`multi-tc.js`），這裡重算一次等於
+ * 又多一份「什麼算通過」的規則。這裡只負責把結果送出去。
+ *
+ * @returns 回寫失敗的筆數（呼叫端要把它算進整輪的失敗數——安靜帶過就是
+ *          「畫面全綠、Lark 上什麼都沒寫」）
+ */
+export async function publishAgentTcResults(runId: string, rows: AgentTcResult[]): Promise<number> {
+  evidenceTokens.delete(runId)
+  const plan = tcPlanForRun(runId)
+  if (!plan) {
+    await pushLog(runId, '⚠️ Agent 回報了 TC 結果，但這份腳本查不到 Lark 綁定——沒有回寫')
+    return 1
+  }
+  try {
+    const { appToken, tableId } = parseLarkBaseUrl(plan.larkUrl)
+    const table = plan.tableId || tableId
+    if (!table) throw new Error('看不出要寫到哪一張表（網址少了 ?table=tblXXXX）')
+    const auth = { base: process.env.LARK_BASE_URL ?? 'https://open.larksuite.com', token: await getLarkToken(), appToken }
+    await pushLog(runId, `📤 回寫 Lark（${rows.length} 筆 TC）...`)
+    const failures = await publishMultiTcResults(rows, {
+      upload: async (shotPath: string) => uploadLarkAttachment(auth, basename(shotPath), readFileSync(shotPath)),
+      update: (recordId: string, tokens: string[], outcome: string) => updateLarkRecord(auth, table, recordId, tokens, outcome),
+      onError: (message: string) => { void pushLog(runId, `❌ 回寫失敗：${message}`) },
+    })
+    if (failures.length) {
+      await pushLog(runId, `❌ 有 ${failures.length} 筆沒有寫進 Lark——畫面上的判定不代表表格已更新`)
+      return failures.length
+    }
+    await pushLog(runId, `✅ 已回寫 ${rows.length} 筆 TC`)
+    return 0
+  } catch (error) {
+    await pushLog(runId, `❌ 回寫 Lark 失敗（判定結果沒有寫進表裡）：${error instanceof Error ? error.message : String(error)}`)
+    return 1
+  }
+}
+
 router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
   const runId = req.params.id
   const body = req.body as Record<string, unknown>
@@ -1801,19 +1888,19 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
   //    所以同一顆按鈕可能跑在你的機器上、也可能跑在伺服器上，畫面完全一樣。
   const agentToUse = picked.ok ? picked.agent : undefined
 
-  // 🚨 **綁了 TC 的腳本暫時不派給 agent。**
+  // 🚨 **舊版 agent 跑不了綁 TC 的腳本，要擋下來。**
   //
-  // agent 端還沒接上 TC 聚合與回寫（下一個 commit）。現在讓它派出去的話，agent 會跑
-  // 舊的那條「一顆一顆跑、算通過幾步」路徑——**腳本會順利跑完、畫面顯示通過，
-  // 而 Lark 上一個字都沒寫**。那是這個功能最糟的失敗方式，而且完全沒有徵兆。
+  // 沒有 `uat-run-tc` 能力的 agent 會跑舊的那條「一顆一顆跑、算通過幾步」路徑——
+  // **腳本順利跑完、畫面顯示通過，而 Lark 上一個字都沒寫**。那是這個功能最糟的
+  // 失敗方式，而且完全沒有徵兆。
   //
   // ⚠️ 擋下來要講原因，不要退回伺服器端偷偷跑：使用者指名 agent 通常是因為
   //    只有那台連得到測試環境，默默換地方跑等於給一個看起來成功的錯誤答案。
-  if (agentToUse && tcPlan) {
+  if (agentToUse && tcPlan && !agentToUse.capabilities.includes('uat-run-tc')) {
     return res.status(409).json({
       ok: false,
-      message: '這份腳本綁了 Lark TC，目前只能跑在伺服器端（Agent 端的 TC 回寫還沒上線）。'
-        + '請在派工目標選「伺服器端」再執行一次。',
+      message: '這份腳本綁了 Lark TC，但這台 Agent 的版本還不支援 TC 回寫。'
+        + '請到 Local Agent 頁面按「更新程式碼」並重啟 Agent，或改選「伺服器端」執行。',
     })
   }
 
@@ -1833,6 +1920,14 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
       resolution,
       failureMode,
       headed,
+      // 綁了 TC：把綁定與「截圖往哪送」一起帶過去。
+      // ⚠️ **Lark 的憑證不下放到 agent。** agent 只把結果與截圖送回來，回寫由伺服器做——
+      //    agent 可能是任何一台開發機，租戶 token 送出去就收不回來了。
+      ...(tcPlan ? {
+        tcBindings: tcPlan.bindings,
+        evidenceUrl: `${agentOrigin}/api/frontend-auto/runs/${runId}/evidence`,
+        evidenceToken: issueEvidenceToken(runId),
+      } : {}),
     }))
     return res.json({ ok: true, via: 'agent', agentId: agentToUse.agentId })
   }

@@ -43,7 +43,16 @@ import {
   activeRuns,
   handleUatRecordAgentDisconnect,
   handleUatRunAgentDisconnect,
+  publishAgentTcResults,
 } from './routes/frontend-auto.js'
+
+/**
+ * agent 模式下「回寫 Lark 失敗了幾筆」。
+ *
+ * ⚠️ `tc_results` 與 `done` 是兩則獨立訊息，回寫又是非同步的——不暫存的話
+ * `done` 會先把 result 寫成 pass，而 Lark 上一個字都沒有。
+ */
+const pendingTcPublishFailures = new Map<string, number>()
 import uiScreenshotRouter from './routes/ui-screenshot.js'
 import { activeRunners, pendingSourceUpdates, router as machineTestRouter } from './routes/machine-test.js'
 import {
@@ -856,11 +865,24 @@ wss.on('connection', (ws, req) => {
         } else if (ev.kind === 'stats') {
           // agent 端每 2 秒送一次的量測快照，轉進 log-stream 的 stats event 給面板
           pushStats(runId, ev)
+        } else if (ev.kind === 'tc_results') {
+          // agent 跑完綁了 TC 的腳本：判定它算好了（同一支聚合器），**回寫由伺服器做**
+          // ——Lark 憑證不下放到 agent。
+          //
+          // ⚠️ 回寫失敗要算進整輪的失敗數。`done` 會在這之後到，所以把筆數記下來，
+          //    讓 `done` 加上去——安靜帶過就是「畫面全綠、Lark 上什麼都沒寫」。
+          const rows = Array.isArray(ev.results) ? ev.results as Parameters<typeof publishAgentTcResults>[1] : []
+          void publishAgentTcResults(runId, rows).then(failures => {
+            if (failures) pendingTcPublishFailures.set(runId, failures)
+          })
         } else if (ev.kind === 'done') {
           const passed = Number(ev.passed ?? 0)
-          const failed = Number(ev.failed ?? 0)
+          // ⚠️ 回寫失敗算失敗。判定是綠的但沒寫進 Lark，等於這一輪沒有產出。
+          const publishFailures = pendingTcPublishFailures.get(runId) ?? 0
+          pendingTcPublishFailures.delete(runId)
+          const failed = Number(ev.failed ?? 0) + publishFailures
           const skipped = Number(ev.skipped ?? 0)
-          const result = String(ev.result ?? 'fail')
+          const result = failed > 0 ? 'fail' : String(ev.result ?? 'fail')
           try {
             db.prepare('UPDATE frontend_auto_runs SET passed=?,failed=?,skipped=?,result=?,finished_at=? WHERE id=?')
               .run(passed, failed, skipped, result, Date.now(), runId)

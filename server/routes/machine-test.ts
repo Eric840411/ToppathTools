@@ -83,6 +83,11 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'uat-runner/backend-ops.js':         join(SERVER_ROOT, 'uat-runner', 'backend-ops.js'),
   // H5/PC 積木的執行引擎（只有這一份，伺服器與 agent 共用）。
   'uat-runner/frontend-engine.js':     join(SERVER_ROOT, 'uat-runner', 'frontend-engine.js'),
+  // H5/PC 積木接上 TC 聚合的 adapter。agent 端跑綁了 TC 的腳本時會 import 它。
+  'uat-runner/frontend-tc-engine.js': join(SERVER_ROOT, 'uat-runner', 'frontend-tc-engine.js'),
+  // 回寫 Lark 的欄位組裝。⚠️ `run-lark-tc-backend.js` 靜態 import 它——
+  //    漏了的話 Backend UAT 會在 agent 上 import 當下整支炸掉（錯誤只在 agent 的 stderr）。
+  'uat-runner/lark-writeback.js':      join(SERVER_ROOT, 'uat-runner', 'lark-writeback.js'),
   // 基準圖比對。⚠️ 漏了的話 agent 會在 import 當下整支炸掉。
   'uat-runner/template-match.js':      join(SERVER_ROOT, 'uat-runner', 'template-match.js'),
   'uat-runner/recorder-visual.js': join(SERVER_ROOT, 'uat-runner', 'recorder-visual.js'),
