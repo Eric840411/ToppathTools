@@ -708,6 +708,9 @@ async function syncPlaywrightViewport(page: import('playwright').Page, width: nu
 async function saveCropFromRecorder(sess: RecSession, crop: { x: number; y: number; w: number; h: number }) {
   const request = sess.cropRequest
   if (!request || !sess.cdpSend) return
+  // ⚠️ **入口擋過還不夠**：使用者可能在框選途中才按暫停。不在這裡再看一次的話，
+  //    那張圖仍然會變成一顆積木——而暫停的定義是「不新增積木，截圖也算」。
+  if (sess.paused) { sess.cropRequest = undefined; return }
   const cropX = Math.max(0, Math.round(crop.x))
   const cropY = Math.max(0, Math.round(crop.y))
   const cropW = Math.max(1, Math.round(crop.w))
@@ -761,6 +764,9 @@ async function saveCropFromRecorder(sess: RecSession, crop: { x: number; y: numb
     scrollStep: 600,
     maxScrolls: 20,
   })
+  // 截圖也是一顆積木，**加完之後**要把步數推給面板——推早了數字會少一顆，
+  // 而使用者看到的是「我加了截圖但步數沒動」。
+  syncLocalPanel(sess)
   sess.cropRequest = undefined
 }
 
@@ -1069,9 +1075,14 @@ router.get('/api/frontend-auto/record/status/:sessionId', (req, res) => {
     stats: sess.stats ?? null, consoleLogs: sess.consoleLogs ?? [], consoleDropped: sess.consoleDropped ?? 0, pinusPatched: sess.pinusPatched ?? null })
 })
 
+const PAUSED_CROP_MESSAGE = '錄製目前暫停中，請先繼續錄製再框選截圖'
+
 router.post('/api/frontend-auto/record/crop/:sessionId', async (req, res) => {
   const agentSess = uatAgentSessions.get(req.params.sessionId)
   if (agentSess) {
+    // ⚠️ 暫停 = 不新增積木，**截圖積木也算**。而且要**明確回 409**，
+    //    不能靜默 ok——靜默的話畫面會進入框選模式，框完卻什麼都沒發生。
+    if (agentSess.paused) return res.status(409).json({ ok: false, message: PAUSED_CROP_MESSAGE })
     const body = req.body as Record<string, unknown>
     const platform = asPlatform(body.platform)
     if (!platform) return res.status(400).json({ ok: false, message: 'platform must be h5 or pc' })
@@ -1094,6 +1105,7 @@ router.post('/api/frontend-auto/record/crop/:sessionId', async (req, res) => {
 
   const sess = recSessions.get(req.params.sessionId)
   if (!sess) return res.status(404).json({ ok: false, message: '找不到錄製 session' })
+  if (sess.paused) return res.status(409).json({ ok: false, message: PAUSED_CROP_MESSAGE })
   if (!sess.cdpSend) return res.status(409).json({ ok: false, message: '錄製器尚未連線完成，請稍後再框選' })
   const body = req.body as Record<string, unknown>
   const platform = asPlatform(body.platform)
@@ -1125,6 +1137,7 @@ router.post('/api/frontend-auto/record/screenshot/:sessionId', async (req, res) 
   const cropY = Math.max(0, numberValue(body.cropY))
   const cropW = Math.max(1, numberValue(body.cropW, 120))
   const cropH = Math.max(1, numberValue(body.cropH, 80))
+  if (sess.paused) return res.status(409).json({ ok: false, message: PAUSED_CROP_MESSAGE })
   await setRecorderPanelVisible(sess.cdpSend, false)
   let shot
   try {

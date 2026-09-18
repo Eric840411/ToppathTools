@@ -589,7 +589,8 @@ try {
   // 而且要核對「實際步驟」與「面板顯示」一致。
   const STATUS_SEL = '[data-toppath-recorder-ui] [role="status"]';
   const HINT_SEL = '[data-toppath-recorder-ui] [role="alert"]';
-  const STOP_SEL = '[data-toppath-recorder-ui] button[aria-label="停止錄製"]';
+  // 用 data 屬性抓按鈕：文字會隨狀態改變（停止→停止中…），靠文字抓會在按下去之後失聯
+  const STOP_SEL = '[data-toppath-recorder-ui] [data-toppath-rec-btn="bar-stop"]';
   {
     const created = await send('Target.createTarget', { url: 'about:blank' });
     const panelId = created.result?.targetId;
@@ -626,6 +627,68 @@ try {
     check('⑩b ⚠️ 步數用 host 的清單（含 goto），不是頁面自己數的',
       counted.includes(`${panel.steps.length + 1} 步`),
       `面板顯示「${counted}」，host 清單是 ${panel.steps.length + 1} 步（頁面自己數會是 ${panel.steps.length}）`);
+
+    // ⑩b2 走**真正的按鈕**：按面板上的暫停 → host 收到指令 → host 改狀態並推回來。
+    // ⚠️ 下面 ⑩c 是直接改 host 狀態的（它要測的是跨導頁），所以它**驗不到按鈕接線**；
+    //    少了這一段，按鈕根本沒接上去也照樣全綠。（CodeX 2026-09-18 覆核指出。）
+    {
+      const ctlAt = panel.controls.length;
+      const PAUSE_SEL = '[data-toppath-recorder-ui] [data-toppath-rec-btn="pause"]';
+      check('⑩b2 面板上有暫停鈕',
+        await panel.evaluate(`!!document.querySelector(${JSON.stringify(PAUSE_SEL)})`) === true);
+      await panel.evaluate(`document.querySelector(${JSON.stringify(PAUSE_SEL)}).click()`);
+      await new Promise(r => setTimeout(r, 300));
+      check('⑩b2 按下去真的送出 pause 指令',
+        panel.controls.slice(ctlAt).some(c => c.cmd === 'pause'),
+        JSON.stringify(panel.controls.slice(ctlAt)));
+      check('⑩b2 ⚠️ host 還沒確認之前不顯示成已暫停',
+        !(await status()).includes('已暫停'), await status());
+      // host 照產品的做法回應：改狀態 + 推回去
+      await panel.setPaused(true);
+      await new Promise(r => setTimeout(r, 250));
+      check('⑩b2 host 確認之後才變成已暫停', (await status()).includes('已暫停'), await status());
+      check('⑩b2 暫停後那顆按鈕變成「繼續錄製」',
+        await panel.evaluate(`document.querySelector(${JSON.stringify(PAUSE_SEL)}).getAttribute('aria-label')`) === '繼續錄製');
+      await panel.evaluate(`document.querySelector(${JSON.stringify(PAUSE_SEL)}).click()`);
+      await new Promise(r => setTimeout(r, 300));
+      check('⑩b2 再按一次送出的是 resume 不是 pause',
+        panel.controls.at(-1)?.cmd === 'resume', JSON.stringify(panel.controls.at(-1)));
+      await panel.setPaused(false);
+      await new Promise(r => setTimeout(r, 250));
+    }
+
+    // ⑩b3 拖到視窗底部再展開，面板不能有一截跑到畫面外——CodeX 2026-09-18 覆核指出
+    // ⚠️ 展開時收合列那顆停止是藏起來的，所以跑出去就等於**停止鈕整個按不到**。
+    {
+      const WRAP_SEL = '[data-toppath-recorder-ui]';
+      await panel.evaluate(`document.querySelector('${WRAP_SEL} [data-toppath-rec-btn="toggle"]').click()`);
+      await new Promise(r => setTimeout(r, 200));
+      check('⑩b3 fixture：先收合',
+        await panel.evaluate(`document.querySelector('${WRAP_SEL} [data-toppath-rec-btn="toggle"]').getAttribute('aria-label')`) === '展開');
+      // 直接把面板放到最底下（模擬拖曳的結果）
+      await panel.evaluate(`(() => { const w = document.querySelector('${WRAP_SEL}');
+        w.style.right = 'auto'; w.style.left = '40px';
+        w.style.top = (window.innerHeight - w.getBoundingClientRect().height - 8) + 'px'; })()`);
+      await new Promise(r => setTimeout(r, 150));
+      check('⑩b3 fixture：收合狀態下面板貼在視窗底部',
+        await panel.evaluate(`(() => { const r = document.querySelector('${WRAP_SEL}').getBoundingClientRect();
+          return r.bottom > window.innerHeight - 20 })()`) === true);
+      await panel.evaluate(`document.querySelector('${WRAP_SEL} [data-toppath-rec-btn="toggle"]').click()`);
+      await new Promise(r => setTimeout(r, 300));
+      check('⑩b3 ⚠️ 展開之後整塊仍然在畫面內（否則停止鈕按不到）',
+        await panel.evaluate(`(() => { const r = document.querySelector('${WRAP_SEL}').getBoundingClientRect();
+          return r.bottom <= window.innerHeight && r.top >= 0 })()`) === true,
+        '展開會變高，沒有重新夾回可視範圍的話下半截會跑到畫面外');
+      check('⑩b3 ⚠️ 而且展開區那顆停止看得到、按得到',
+        await panel.evaluate(`(() => {
+          const b = document.querySelector('${WRAP_SEL} [data-toppath-rec-btn="stop"]');
+          const r = b.getBoundingClientRect();
+          return r.height > 0 && r.bottom <= window.innerHeight && r.top >= 0 })()`) === true);
+      // 收回去，後面的測試從展開狀態開始（⑩c 只看狀態文字，不受影響）
+      await panel.evaluate(`(() => { const w = document.querySelector('${WRAP_SEL}');
+        w.style.left = '40px'; w.style.top = '12px'; })()`);
+      await new Promise(r => setTimeout(r, 150));
+    }
 
     // ⑩c 暫停後導頁／重整——CodeX 指定
     // ⚠️ 這條是第一版的重點：狀態放頁面的話，導頁之後面板重建、預設回「在錄」，

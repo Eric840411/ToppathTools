@@ -367,6 +367,14 @@ ${nativeSelectorCheckSource()}
   let hint = '';
   let WRAP = null, BAR = null, STATUS = null, BAR_STOP = null, TOGGLE = null,
       BODY = null, PAUSE = null, STOP = null, HINT = null;
+  /**
+   * 把面板夾回可視範圍。mount() 裡才裝得起來（要拿得到 WRAP 的尺寸）。
+   *
+   * ⚠️ **面板變高之後一定要重算**（CodeX 2026-09-18 覆核指出）：拖到視窗底部再展開，
+   *    或逾時提示跳出來讓面板長高，下半截就會跑到畫面外——而展開時收合列那顆停止
+   *    是藏起來的，**等於停止鈕整個按不到**。
+   */
+  let reposition = () => {};
 
   const stateText = () => {
     if (awaiting === 'stop') return T.stopping;
@@ -390,6 +398,7 @@ ${nativeSelectorCheckSource()}
     BAR_STOP.style.display = expanded ? 'none' : 'inline-flex';
     PAUSE.innerHTML = (paused ? ICON.play : ICON.pause) + '<span style="margin-left:7px">'
       + (paused ? T.resume : T.pause) + '</span>';
+    PAUSE.setAttribute('aria-label', paused ? T.resume : T.pause);
     // 暫停要等狀態同步才按得動（不知道現在是暫停還是在錄，就不知道該送哪個指令）。
     // **停止不等**——同步不到本來就是想離開的理由之一，那時把唯一的出口鎖上最糟。
     for (const [button, dead] of [[PAUSE, !synced || !!awaiting], [STOP, !!awaiting], [BAR_STOP, !!awaiting]]) {
@@ -399,6 +408,8 @@ ${nativeSelectorCheckSource()}
     }
     HINT.textContent = hint;
     HINT.style.display = hint ? 'block' : 'none';
+    // 展開／收合與提示的出現都會改變高度，所以每次重畫完都夾一次。
+    reposition();
   };
 
   const clearAwait = () => {
@@ -505,13 +516,22 @@ ${nativeSelectorCheckSource()}
     BAR_STOP.innerHTML = ICON.stop;
     BAR_STOP.setAttribute('aria-label', T.stop);
     BAR_STOP.title = T.stop;
+    // ⚠️ 用 data 屬性標識別，不要讓測試靠文字抓——這幾顆按鈕的文字會隨狀態改變，
+    //    靠文字抓的測試會在**自己按下去之後突然找不到那顆按鈕**
+    //    （Backend 那支踩過，見 docs/features/24-27-uat.md）。
+    //    ⚠️ 這段註解也會被嵌進頁面，所以裡面不要寫出任一主題的實際字面，
+    //    否則主題隔離的檢查會紅——它比對的是整份腳本的內容。
+    BAR_STOP.setAttribute('data-toppath-rec-btn', 'bar-stop');
     TOGGLE = button('ghost');
+    TOGGLE.setAttribute('data-toppath-rec-btn', 'toggle');
     BAR.appendChild(GRIP); BAR.appendChild(STATUS); BAR.appendChild(BAR_STOP); BAR.appendChild(TOGGLE);
 
     BODY = document.createElement('div');
     BODY.style.cssText = 'display:none;padding:0 10px 10px;box-sizing:border-box';
     PAUSE = button('quiet');
+    PAUSE.setAttribute('data-toppath-rec-btn', 'pause');
     STOP = button('danger');
+    STOP.setAttribute('data-toppath-rec-btn', 'stop');
     STOP.innerHTML = ICON.stop + '<span style="margin-left:7px">' + T.stop + '</span>';
     const gap = document.createElement('div');
     gap.style.cssText = 'height:8px';
@@ -592,6 +612,17 @@ ${nativeSelectorCheckSource()}
     GRIP.addEventListener('pointerup', endDrag);
     GRIP.addEventListener('pointercancel', endDrag);
     window.addEventListener('resize', () => clampAndSnap(false));
+    // 面板變高（展開、或逾時提示跳出來）之後也要夾一次，理由見 reposition 的宣告。
+    // ⚠️ 拖曳途中不要夾——那會在手指還按著的時候把面板拉走。
+    // ⚠️ 只有**真的出界**才動。無條件夾的話，還沒被拖過的面板會在第一次重畫時
+    //    從「貼右邊」變成固定的 left 座標，之後把視窗拉寬它就不跟著右邊走了。
+    reposition = () => {
+      if (dragging) return;
+      const rect = WRAP.getBoundingClientRect();
+      const outside = rect.left < 6 || rect.top < 6
+        || rect.right > window.innerWidth - 6 || rect.bottom > window.innerHeight - 6;
+      if (outside) clampAndSnap(false);
+    };
 
     // ⚠️ 面板上的操作不能傳給遊戲。
     //

@@ -130,6 +130,19 @@ console.log('④ 主畫面的暫停端點：真的打，看 agent 收到什麼')
   const statusAfter = await (await fetch(`${base}/api/frontend-auto/record/status/rec-panel`)).json();
   check('④ agent 回報之後 /record/status 帶得回暫停狀態', statusAfter.paused === true, JSON.stringify(statusAfter.paused));
 
+  // ⚠️ 暫停 = 不新增積木，**截圖積木也算**（CodeX 2026-09-18 覆核指出）。
+  //    而且要明確回 409——靜默 ok 的話畫面會進入框選模式，框完卻什麼都沒發生。
+  const rCrop = await fetch(`${base}/api/frontend-auto/record/crop/rec-panel`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ platform: 'h5', scriptId: 's1', name: 'x', threshold: 0.08, createdBy: 'me' }),
+  });
+  check('④ ⚠️ 暫停中框選截圖要被擋（409），不是靜默 ok', rCrop.status === 409, `HTTP ${rCrop.status}`);
+  const cropBody = await rCrop.json();
+  check('④ 而且要講得出原因（不是空的錯誤）', typeof cropBody.message === 'string' && cropBody.message.includes('暫停'),
+    JSON.stringify(cropBody));
+  check('④ 被擋下來時不會送 crop 指令給 agent',
+    !outbox.some(m => m.type === 'uat_record_crop'), JSON.stringify(outbox));
+
   const r2 = await fetch(`${base}/api/frontend-auto/record/pause/rec-unknown`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: true }),
   });
@@ -151,11 +164,20 @@ console.log('⑤ 兩個 host 的接線（⚠️ 只是原始碼比對，證明�
     //    而那會讓「不得出現某模式」那類斷言假通過。
     const src = stripComments(read(file));
 
-    // 重注入之後一定要再推一次狀態，否則導頁後面板卡在「同步中」而且一步都不收
-    const afterReinject = new RegExp(
-      `Runtime\\.evaluate['"\\s,{]*[^\\n]*recorderScript\\(sess\\)[^]{0,400}?${fn}\\(sess\\)`);
-    check(`⑤ ${label}：重注入錄製器之後有再同步一次`, afterReinject.test(src),
+    // 換頁重注入之後一定要再推一次狀態，否則導頁後面板卡在「同步中」而且一步都不收。
+    // ⚠️ **一定要限定在 loadEventFired 那一段裡找。** 整份檔案搜的話，初始注入那一處
+    //    （它也是 recorderScript(sess) 後面接同步）會頂上來，於是把換頁那一處整個拿掉
+    //    也照樣綠——注入測試抓到過。
+    const loadAt = src.indexOf('Page.loadEventFired');
+    const loadBlock = loadAt < 0 ? '' : src.slice(loadAt, loadAt + 900);
+    check(`⑤ ${label}：換頁重注入錄製器之後有再同步一次`,
+      loadBlock.includes('recorderScript(sess)') && loadBlock.includes(`${fn}(sess)`),
       '少了這一行，導頁之後面板會停在「同步中」而且完全不收錄');
+
+    // 初始注入那一處也要有——否則要等到 DOMContentLoaded 才會離開「同步中」
+    const openAt = src.indexOf('addScriptToEvaluateOnNewDocument');
+    const openBlock = openAt < 0 ? '' : src.slice(openAt, openAt + 700);
+    check(`⑤ ${label}：初始注入之後也有同步一次`, openBlock.includes(`${fn}(sess)`));
 
     // 收事件的入口也要擋暫停——頁面在收到狀態之前不知道自己是暫停的
     check(`⑤ ${label}：收步驟的入口有擋 paused`,
@@ -171,6 +193,44 @@ console.log('⑤ 兩個 host 的接線（⚠️ 只是原始碼比對，證明�
       /consoleMarkers:[^\n]*FRONTEND_RECORDER_CONTROL_MARKER/.test(src),
       '不排除的話每按一次暫停都會多一行「使用者的 console」');
   }
+
+  // ⚠️ 主題漏傳 sess 的話，注入的是預設主題，而且 __toppathRecorderInstalled 那道
+  //    防重複會讓後面帶 sess 的重注入變成 no-op——修仙版的面板永遠不會出現，
+  //    而且不會有任何錯誤。（CodeX 2026-09-18 覆核指出，agent 端當時就是這樣。）
+  for (const [label, file] of [['agent 模式', 'server/agent-runner.ts'], ['伺服器模式', 'server/routes/frontend-auto.ts']]) {
+    const src = stripComments(read(file));
+    const bare = src.match(/recorderScript\(\)/g) ?? [];
+    check(`⑤ ${label}：沒有任何一處 recorderScript() 漏傳 sess`,
+      bare.length === 0, `還有 ${bare.length} 處——那些會注入預設主題，而且會把後面的重注入擋掉`);
+  }
+
+  // crop 的完成回呼也要看 paused：框選是一段持續的操作，使用者可能框到一半才暫停
+  for (const [label, file, fn] of [
+    ['agent 模式', 'server/agent-runner.ts', 'handleAgentCrop'],
+    ['伺服器模式', 'server/routes/frontend-auto.ts', 'saveCropFromRecorder'],
+  ]) {
+    const src = stripComments(read(file));
+    const body = src.slice(src.indexOf(`function ${fn}`), src.indexOf(`function ${fn}`) + 700);
+    check(`⑤ ${label}：截圖的完成回呼也擋 paused（框選途中才暫停的情況）`,
+      /if \(sess\.paused\)/.test(body),
+      '入口擋過還不夠——框到一半才按暫停的話，那張圖仍然會變成一顆積木');
+  }
+
+  const studio = stripComments(read('src/features/uat/FrontendAutomationStudio.tsx'));
+  check('⑤ 主畫面：agent 模式的暫停有「等待確認」狀態（禁用＋顯示同步中）',
+    /pausePending/.test(studio) && /disabled=\{pausePending\}/.test(studio),
+    '沒有的話按鈕看起來像沒反應');
+  check('⑤ 主畫面：等待確認有逾時，不會永遠卡在同步中',
+    /pauseTimer\.current = setTimeout/.test(studio));
+  check('⑤ 主畫面：只有收到「我們要求的那個狀態」才算確認',
+    /status\.paused === pauseWait\.current/.test(studio),
+    '收到相反的狀態就清掉等待，等於把「agent 還沒處理」誤報成已完成');
+
+  check('⑤ worker：加完截圖積木要通知 agent，面板的步數才跟得上',
+    /'uat_record_extra_step'/.test(stripComments(read('server/worker.ts'))),
+    '截圖積木是 server 那側加的，agent 自己的清單看不到');
+  check('⑤ agent：步數有把 server 那側加的積木算進去',
+    /steps: sess\.steps\.length \+ \(sess\.extraSteps/.test(stripComments(read('server/agent-runner.ts'))));
 
   const worker = stripComments(read('server/worker.ts'));
   check('⑤ worker 有處理 agent 回報的 paused 事件',

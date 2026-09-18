@@ -56,6 +56,10 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
    * 主畫面自己記一份的話會出現「面板顯示已暫停、主畫面顯示錄製中」。
    */
   const [recPaused, setRecPaused] = useState(false)
+  /** 暫停指令送出去、還沒被 agent 確認。⚠️ 確認之前不能顯示成已完成，也不能重複送 */
+  const [pausePending, setPausePending] = useState(false)
+  const pauseWait = useRef<boolean | null>(null)
+  const pauseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pollRecorder = useRef<ReturnType<typeof setInterval> | null>(null)
   const runStream = useRef<EventSource | null>(null)
   const activeRunId = useRef<string | null>(null)
@@ -128,7 +132,11 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
     setDirty(false)
     void loadAssets(selected.id)
   }, [selectedId, scripts, loadAssets])
-  useEffect(() => () => { if (pollRecorder.current) clearInterval(pollRecorder.current); runStream.current?.close() }, [])
+  useEffect(() => () => {
+    if (pollRecorder.current) clearInterval(pollRecorder.current)
+    if (pauseTimer.current) clearTimeout(pauseTimer.current)
+    runStream.current?.close()
+  }, [])
 
   const visibleScripts = useMemo(() => scripts.filter(script => {
     const matchFilter = filter === 'all' || filter === 'mine' && script.created_by === actor || filter === 'public' && !!script.is_public
@@ -192,6 +200,12 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
     }
   }, [steps])
 
+  const clearPauseWait = () => {
+    pauseWait.current = null
+    if (pauseTimer.current) { clearTimeout(pauseTimer.current); pauseTimer.current = null }
+    setPausePending(false)
+  }
+
   const startRecording = async () => {
     if (!(recorderAvailable || agents.length)) return setNotice('沒有可用錄製器；請從 localhost 開啟，或連接具備 uat-record 的 Local Agent。')
     const target = runConfig.url || window.prompt('請輸入要錄製的目標 URL')?.trim() || ''
@@ -236,7 +250,16 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
       if (status.pinusPatched !== undefined) setPinusPatched(status.pinusPatched ?? null)
       // ⚠️ 暫停狀態一律以輪詢回來的為準。按下去就樂觀改畫面的話，agent 沒收到
       //    指令時主畫面會顯示已暫停，而錄製其實還在繼續。
-      if (typeof status.paused === 'boolean') setRecPaused(status.paused)
+      if (typeof status.paused === 'boolean') {
+        setRecPaused(status.paused)
+        // 等到的是我們要求的那個狀態才算確認。收到相反的不清掉等待——
+        // 那代表 agent 還沒處理完，交給逾時去收，不要把它誤報成已完成。
+        if (pauseWait.current !== null && status.paused === pauseWait.current) {
+          pauseWait.current = null
+          if (pauseTimer.current) { clearTimeout(pauseTimer.current); pauseTimer.current = null }
+          setPausePending(false)
+        }
+      }
       if (status.cdpWarning) setNotice(status.cdpWarning)
       if (status.done) {
         if (pollRecorder.current) clearInterval(pollRecorder.current)
@@ -244,6 +267,7 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
         setRecordSessionId(null)
         setRecordLabel('')
         setRecPaused(false)
+        clearPauseWait()
         // ⚠️ 中斷跟完成要分得開。步驟一樣會帶回來（上面已經併進腳本），
         //    但「錄製完成」會讓人以為東西都錄到了，實際上是斷在半路。
         setNotice(status.error
@@ -259,14 +283,26 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
    * 狀態一律由輪詢帶回來（本機模式是同步的，回應就帶了結果）。
    */
   const togglePause = async () => {
-    if (!recordSessionId) return
+    if (!recordSessionId || pausePending) return
     const next = !recPaused
+    setPausePending(true)
     const response = await fetch(`/api/frontend-auto/record/pause/${recordSessionId}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: next }),
     })
     const data = await response.json() as { ok?: boolean; paused?: boolean; pending?: boolean; message?: string }
-    if (!response.ok) return setNotice(data.message ?? '切換暫停失敗')
-    if (typeof data.paused === 'boolean') setRecPaused(data.paused)
+    if (!response.ok) { setPausePending(false); return setNotice(data.message ?? '切換暫停失敗') }
+    // 本機模式是同步的，回應就帶了結果，不必等輪詢
+    if (typeof data.paused === 'boolean') { setRecPaused(data.paused); setPausePending(false); return }
+    // agent 模式只是把指令丟過去。⚠️ 這段等待要顯示出來、而且要有逾時——
+    // 不顯示的話按鈕看起來沒反應；沒逾時的話 agent 沒收到就永遠卡在「同步中」。
+    pauseWait.current = next
+    if (pauseTimer.current) clearTimeout(pauseTimer.current)
+    pauseTimer.current = setTimeout(() => {
+      pauseTimer.current = null
+      pauseWait.current = null
+      setPausePending(false)
+      setNotice('暫停指令沒有得到 Local Agent 確認，狀態未變更——請確認 Agent 仍在線並已更新程式碼。')
+    }, 8000)
   }
 
   const stopRecording = async () => {
@@ -295,6 +331,7 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
     setRecordSessionId(null)
     setRecordLabel('')
     setRecPaused(false)
+    clearPauseWait()
     setNotice(`錄製已停止，共 ${data.steps?.length ?? 0} 個步驟`)
   }
 
@@ -380,7 +417,7 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
           <nav>{(['editor', 'run', 'assets', 'history'] as const).map(item => <button type="button" className={view === item ? 'is-active' : ''} onClick={() => setView(item)} key={item}>{item === 'editor' ? copy.editor : item === 'run' ? copy.run : item === 'assets' ? copy.assets : copy.history}</button>)}</nav>
           <div className="uat-toolbar-actions">
             {recordSessionId ? <>
-              <button type="button" className="uat-btn is-quiet" onClick={togglePause}>{recPaused ? copy.resumeRecord : copy.pauseRecord}</button>
+              <button type="button" className="uat-btn is-quiet" onClick={togglePause} disabled={pausePending}>{pausePending ? '同步中…' : recPaused ? copy.resumeRecord : copy.pauseRecord}</button>
               <button type="button" className="uat-btn is-danger" onClick={stopRecording}>{copy.stopRecord}</button>
             </> : <button type="button" className="uat-btn is-quiet" onClick={startRecording}>{copy.record}</button>}
             <button type="button" className="uat-btn is-primary" onClick={saveScript} disabled={saving}>{saving ? copy.saving : copy.save}</button>

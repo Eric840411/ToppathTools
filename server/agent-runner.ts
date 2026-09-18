@@ -363,6 +363,11 @@ interface UatRecSession {
   paused?: boolean
   /** 控制面板的配色。跟著開始錄製時的畫面模式走 */
   theme?: 'normal' | 'xianxia'
+  /**
+   * server 那一側自己加進清單的積木數（目前只有框選截圖）。
+   * agent 的 `steps` 看不到它們，面板的步數要把這個加回去才跟主畫面一致。
+   */
+  extraSteps?: number
 }
 
 const uatRecSessions = new Map<string, UatRecSession>()
@@ -1017,7 +1022,11 @@ function recorderScript(sess?: UatRecSession) {
  */
 function syncUatPanel(sess: UatRecSession) {
   if (!sess.cdpSend) return
-  void syncRecorderPanel(sess.cdpSend, { paused: !!sess.paused, steps: sess.steps.length })
+  void syncRecorderPanel(sess.cdpSend, {
+    paused: !!sess.paused,
+    // ⚠️ 要加上 server 那側自己加的積木（截圖），否則面板的數字會比主畫面少
+    steps: sess.steps.length + (sess.extraSteps ?? 0),
+  })
 }
 
 /**
@@ -1199,8 +1208,12 @@ function connectUatRecorder(sess: UatRecSession, port: number, serverWs: WebSock
               await send('Runtime.enable')
               await send('Page.enable')
               await syncUatViewport(sess)
-              await send('Page.addScriptToEvaluateOnNewDocument', { source: recorderScript() + '\n' + cropScript() })
-              await send('Runtime.evaluate', { expression: recorderScript() + '\n' + cropScript() })
+              // ⚠️ **這兩行一定要帶 sess**（CodeX 2026-09-18 覆核指出）。漏傳的話注入的是
+              //    預設主題，而且 `__toppathRecorderInstalled` 那道防重複會讓後面帶 sess 的
+              //    重注入變成 no-op——修仙版的面板**永遠不會出現**，也不會有任何錯誤。
+              await send('Page.addScriptToEvaluateOnNewDocument', { source: recorderScript(sess) + '\n' + cropScript() })
+              await send('Runtime.evaluate', { expression: recorderScript(sess) + '\n' + cropScript() })
+              syncUatPanel(sess)
               // console／network／pinus 攔截。⚠️ 掛不起來不能讓錄製失敗——
               // 使用者要的是錄操作，量測是附加價值，為了它整場錄不成是本末倒置。
               try {
@@ -1316,6 +1329,9 @@ function connectUatRecorder(sess: UatRecSession, port: number, serverWs: WebSock
 async function handleAgentCrop(sess: UatRecSession, crop: { x: number; y: number; w: number; h: number }, serverWs: WebSocket) {
   const request = sess.cropRequest
   if (!request || !sess.cdpSend) return
+  // ⚠️ **入口擋過還不夠**：使用者可能在框選途中才按暫停（框選是一段持續的操作）。
+  //    完成回呼這裡再看一次，否則那張圖仍然會變成一顆積木。
+  if (sess.paused) { sess.cropRequest = undefined; return }
   const cropX = Math.max(0, Math.round(crop.x))
   const cropY = Math.max(0, Math.round(crop.y))
   const cropW = Math.max(1, Math.round(crop.w))
@@ -1978,6 +1994,9 @@ function connect() {
       const { sessionId, scriptId, platform, name, threshold, createdBy } = msg as UatRecordCropMessage
       const sess = uatRecSessions.get(sessionId)
       if (!sess || !sess.cdpSend) return
+      // ⚠️ 暫停的定義是「不新增積木」，**截圖積木也算**（CodeX 定的語意）。
+      //    不擋的話暫停中框一張圖照樣長出一顆 find_baseline_scroll。
+      if (sess.paused) return
       sess.cropRequest = { scriptId, platform, name, threshold, createdBy }
       void sess.cdpSend('Runtime.evaluate', { expression: 'window.__toppathStartCropMode && window.__toppathStartCropMode()' })
       return
@@ -1989,6 +2008,15 @@ function connect() {
       if (!sess) return
       await stopUatRecording(sess, ws)
       console.log(`[Agent:${AGENT_LABEL}] UAT record stopped: ${sessionId}`)
+      return
+    }
+
+    if (msg.type === 'uat_record_extra_step') {
+      const { sessionId } = msg as { type: string; sessionId: string }
+      const sess = uatRecSessions.get(sessionId)
+      if (!sess) return
+      sess.extraSteps = (sess.extraSteps ?? 0) + 1
+      syncUatPanel(sess)
       return
     }
 

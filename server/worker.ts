@@ -801,6 +801,12 @@ wss.on('connection', (ws, req) => {
                 scrollStep: 600,
                 maxScrolls: 20,
               })
+              // ⚠️ 截圖積木是**在 server 這一側**加的，agent 自己的清單看不到它。
+              //    不告訴 agent 的話，錄製視窗面板上的步數會少掉所有截圖積木——
+              //    使用者看到的是「我加了截圖但數字沒動」。
+              if (ws.readyState === ws.OPEN) {
+                ws.send(JSON.stringify({ type: 'uat_record_extra_step', sessionId: msg.sessionId }))
+              }
             } catch (err) {
               log('error', '-', '-', `UAT agent crop save error: ${String(err)}`)
             }
