@@ -61,6 +61,7 @@ import { getAuthAccount } from '../auth-session.js'
 import type { Request } from 'express'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { agentUpdateStatus } from './machine-test.js'
+import { registerBackendSnippetRoutes } from '../uat-backend-snippets.js'
 import { registerRecordedScriptRoutes, getRecordedScript, getRecordedScriptMeta, acquireScriptLock, releaseScriptLock, rememberRunContext, forgetRunContext, captureRecordedScriptResult, tcBindingSchema } from '../uat-recorded-scripts.js'
 import { validateMultiTcScript } from '../uat-runner/multi-tc.js'
 
@@ -69,6 +70,8 @@ const __dirname = dirname(__filename)
 
 export const router = Router()
 registerRecordedScriptRoutes(router)
+// 後台設定片段（給 H5/PC 腳本在中間引用；沒有 TC 綁定、不回寫 Lark、不佔測試鎖）
+registerBackendSnippetRoutes(router)
 
 // ─── Session State ─────────────────────────────────────────────────────────────
 
