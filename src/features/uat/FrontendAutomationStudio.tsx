@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { XianxiaIcon } from '../../components/XianxiaIcon'
 import { createPortal } from 'react-dom'
-import { BlockEditor, needsTc, type BackendSnippetOption, type TcBindingOption } from './BlockEditor'
+import { BlockEditor, needsTc, tcShortLabel, type BackendSnippetOption, type TcBindingOption } from './BlockEditor'
 import { NetworkPanel, type UatStatsPayload } from './NetworkPanel'
 import { SELECTOR_CHECK_LABEL } from '../../../shared/uat-selector-check'
 import { compileExecutableSteps, countExecutableSteps, createStep, parseSteps, serializeSteps } from './step-model'
@@ -247,7 +247,9 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
       if (!response.ok || !data.tcs) throw new Error(data.message ?? `HTTP ${response.status}`)
       setTcPool(data.tcs
         .filter(tc => tc.source === 'live' && tc.recordId)
-        .map(tc => ({ recordId: String(tc.recordId), number: String(tc.number ?? ''), text: String(tc.task ?? tc.text ?? '') })))
+        // ⚠️ 欄位名以**實際回應**為準（2026-09-18 拉真表確認）：敘述欄位是 `text`，沒有 `task`。
+        //    原本寫 `tc.task ?? tc.text` 是照別處的印象抄的——`tc.task` 永遠 undefined。
+        .map(tc => ({ recordId: String(tc.recordId), number: String(tc.number ?? ''), text: String(tc.text ?? '') })))
     } catch (error) {
       setTcPool([])
       setTcError(error instanceof Error ? error.message : String(error))
@@ -802,7 +804,7 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
               <div key={step.id}>
                 <span className="uat-step-index">{String(i + 1).padStart(2, '0')}</span>
                 <strong>{step.name || step.action}</strong>
-                {step.tcId && <em>{bindings.find(b => b.recordId === step.tcId)?.number ?? step.tcId.slice(0, 8)}</em>}
+                {step.tcId && <em>{tcShortLabel(bindings.find(b => b.recordId === step.tcId), step.tcId)}</em>}
               </div>
             ))}
             {steps.length > 8 && <div><span className="uat-step-index">⋯</span><strong>還有 {steps.length - 8} 步</strong></div>}

@@ -14,6 +14,21 @@ export interface BackendSnippetOption {
 /** 腳本綁定的一筆 Lark TC（只留畫面用得到的欄位） */
 export interface TcBindingOption { recordId: string; number: string; text: string }
 
+/**
+ * TC 在畫面上的短標籤。
+ *
+ * 🚨 **實際資料裡編號既不唯一也不一定有**（2026-09-18 拉真表確認：100 筆裡
+ * 有 16 個編號重複、14 筆根本沒編號）。所以沒編號時退回敘述的前幾個字，
+ * 再沒有才用 recordId。
+ *
+ * ⚠️ **不要用 `??` 去接編號**：空字串不是 null，`??` 不會觸發，結果是渲染出一個
+ * **空的標籤**——看起來像「這一步沒歸屬」，但它其實有。這就是原本的寫法。
+ */
+export function tcShortLabel(tc: TcBindingOption | undefined, recordId: string) {
+  if (!tc) return `已失效的 TC（${recordId.slice(0, 8)}…）`
+  return tc.number || (tc.text ? tc.text.slice(0, 12) : '') || tc.recordId.slice(0, 8)
+}
+
 interface Props {
   steps: AutoStep[]
   baselines: AutoBaseline[]
@@ -133,12 +148,9 @@ export function BlockEditor({ steps, baselines, snippets, bindings, selectedId, 
   const labelFor = (action: string) => xianxia ? (xianxiaActionLabels[action] ?? actionLabel(action)) : actionLabel(action)
   const categoryFor = (category: string) => xianxia ? ({ browser: '幻境門', interaction: '御物術', assertion: '校驗術', evidence: '留影術', flow: '陣法控制' }[category] ?? CATEGORY_LABELS[category]) : CATEGORY_LABELS[category]
   const selected = useMemo(() => selectedId ? findStep(steps, selectedId) : null, [steps, selectedId])
+  // ⚠️ 找不到不要顯示成空白：那看起來像「沒綁」，但它其實綁了一個已經不在清單裡的 TC
   const tcLabel = bindings.length
-    ? (recordId: string) => {
-        const hit = bindings.find(item => item.recordId === recordId)
-        // ⚠️ 找不到不要顯示成空白：那看起來像「沒綁」，但它其實綁了一個已經不在清單裡的 TC
-        return hit ? (hit.number || hit.text || hit.recordId) : `已失效的 TC（${recordId.slice(0, 8)}…）`
-      }
+    ? (recordId: string) => tcShortLabel(bindings.find(item => item.recordId === recordId), recordId)
     : null
   const updateSelected = (patch: Partial<AutoStep>) => {
     if (selected) onChange(updateStepTree(steps, selected.id, patch))
