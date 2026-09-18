@@ -96,7 +96,10 @@
 .uat-studio-toolbar nav { display: flex; gap: 2px; padding: 3px; border: 1px solid var(--uat-border); border-radius: 7px; background: var(--uat-panel-soft); }.uat-studio-toolbar nav button { padding: 6px 9px; border: 0; border-radius: 5px; background: transparent; color: var(--uat-muted); font-size: 12px; cursor: pointer; }.uat-studio-toolbar nav button.is-active { color: var(--uat-primary); background: var(--uat-panel); box-shadow: 0 1px 5px rgba(20, 38, 65, .08); font-weight: 800; }.uat-toolbar-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .uat-notice { display: flex; align-items: center; gap: 7px; padding: 7px 13px; color: var(--uat-primary); border-bottom: 1px solid color-mix(in srgb, var(--uat-primary) 22%, var(--uat-border)); background: var(--uat-primary-soft); font-size: 12px; }.uat-notice span { flex: 1; }.uat-notice button { border: 0; background: transparent; color: inherit; font-size: 12px; cursor: pointer; }
 
+/* ⚠️ 積木庫與拖曳畫布已移除（使用者 2026-09-18 定案）。編輯器改成彈框裡的兩欄：
+   左邊步驟清單、右邊步驟設定。`.uat-block-library` 的規則留著沒有害處，但不再有元素套用。 */
 .uat-editor-grid { display: grid; grid-template-columns: 180px minmax(330px, 1fr) 232px; min-height: 625px; }
+.uat-editor-grid.is-modal { grid-template-columns: minmax(0, 1fr) 260px; min-height: 0; }
 .uat-block-library, .uat-inspector { min-width: 0; padding: 13px; background: var(--uat-panel); }.uat-block-library { border-right: 1px solid var(--uat-border); }.uat-inspector { border-left: 1px solid var(--uat-border); }
 .uat-block-library > .uat-field { margin-top: 11px; }.uat-library-group { margin-top: 15px; }.uat-library-group h4 { margin: 0 0 6px; color: var(--uat-muted); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
 .uat-library-block { display: grid; grid-template-columns: 5px minmax(0, 1fr); gap: 8px; width: 100%; margin-bottom: 5px; padding: 8px; text-align: left; border: 1px solid var(--uat-border); border-radius: 6px; background: var(--uat-panel-soft); cursor: grab; }.uat-library-block:hover { border-color: var(--uat-primary); transform: translateY(-1px); }.uat-library-mark { border-radius: 4px; background: #7b8aa1; }.uat-library-block.is-click .uat-library-mark, .uat-library-block.is-click_viewport .uat-library-mark, .uat-library-block.is-click_xy .uat-library-mark, .uat-library-block.is-type .uat-library-mark { background: #4178d4; }.uat-library-block.is-assert_visible .uat-library-mark, .uat-library-block.is-find_baseline_scroll .uat-library-mark { background: #9a6ac7; }.uat-library-block.is-group .uat-library-mark, .uat-library-block.is-repeat .uat-library-mark { background: #d39b32; }.uat-library-block span:last-child { display: flex; min-width: 0; flex-direction: column; gap: 2px; }.uat-library-block strong { font-size: 13px; }.uat-library-block small { color: var(--uat-muted); font-size: 11px; }
@@ -104,7 +107,10 @@
 .uat-canvas { min-width: 0; padding: 13px 16px 24px; background-color: var(--uat-bg); background-image: radial-gradient(circle, color-mix(in srgb, var(--uat-border-strong) 48%, transparent) 1px, transparent 1px); background-size: 17px 17px; }.uat-canvas > .uat-pane-heading { margin-bottom: 12px; }
 .uat-block-list { display: flex; flex-direction: column; gap: 7px; min-height: 480px; }.uat-block-list.is-nested { min-height: 56px; margin-top: 9px; padding: 8px; border: 1px dashed var(--uat-border-strong); border-radius: 7px; background: color-mix(in srgb, var(--uat-panel-soft) 80%, transparent); }
 .uat-block-empty { display: flex; min-height: 130px; flex-direction: column; align-items: center; justify-content: center; gap: 5px; color: var(--uat-muted); border: 1px dashed var(--uat-border-strong); border-radius: 8px; background: color-mix(in srgb, var(--uat-panel) 55%, transparent); }.uat-block-list.is-nested > .uat-block-empty { min-height: 54px; }.uat-block-empty strong { font-size: 13px; }.uat-block-empty span { font-size: 12px; }
-.uat-step-block { position: relative; display: grid; grid-template-columns: 16px 26px minmax(0, 1fr) auto; align-items: center; gap: 7px; min-height: 54px; padding: 8px 9px; border: 1px solid var(--uat-border); border-left: 4px solid #7b8aa1; border-radius: 7px; background: var(--uat-panel); box-shadow: 0 3px 10px rgba(27, 46, 72, .05); cursor: pointer; }.uat-step-block:hover { border-color: var(--uat-border-strong); }.uat-step-block.is-selected { border-color: var(--uat-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--uat-primary) 12%, transparent); }.uat-step-block.is-click, .uat-step-block.is-click_viewport, .uat-step-block.is-click_xy, .uat-step-block.is-type { border-left-color: #4178d4; }.uat-step-block.is-assert_visible, .uat-step-block.is-find_baseline_scroll { border-left-color: #9a6ac7; }.uat-step-block.is-group, .uat-step-block.is-repeat { grid-template-rows: auto auto; border-left-color: #d39b32; }.uat-step-grip { display: flex; flex-direction: column; gap: 2px; cursor: grab; }.uat-step-grip i { display: block; width: 11px; height: 2px; border-radius: 2px; background: var(--uat-border-strong); }.uat-step-index { color: var(--uat-muted); font: 700 11px Consolas, monospace; }.uat-step-copy { display: flex; min-width: 0; flex-direction: column; gap: 3px; }.uat-step-copy strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }.uat-step-copy span { overflow: hidden; color: var(--uat-muted); font: 12px Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }.uat-step-tag, .uat-step-count { padding: 3px 6px; border-radius: 9px; color: #f6c860; background: rgba(217, 158, 34, .13); font-size: 11px; white-space: nowrap; }.uat-step-children { grid-column: 2 / -1; width: 100%; }.uat-step-count { grid-column: 4; }
+.uat-step-block { position: relative; display: grid; grid-template-columns: 16px 26px minmax(0, 1fr) auto; align-items: center; gap: 7px; min-height: 54px; padding: 8px 9px; border: 1px solid var(--uat-border); border-left: 4px solid #7b8aa1; border-radius: 7px; background: var(--uat-panel); box-shadow: 0 3px 10px rgba(27, 46, 72, .05); cursor: pointer; }.uat-step-block:hover { border-color: var(--uat-border-strong); }.uat-step-block.is-selected { border-color: var(--uat-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--uat-primary) 12%, transparent); }.uat-step-block.is-click, .uat-step-block.is-click_viewport, .uat-step-block.is-click_xy, .uat-step-block.is-type { border-left-color: #4178d4; }.uat-step-block.is-assert_visible, .uat-step-block.is-find_baseline_scroll { border-left-color: #9a6ac7; }.uat-step-block.is-group, .uat-step-block.is-repeat { grid-template-rows: auto auto; border-left-color: #d39b32; }.uat-step-move { display: flex; flex-direction: column; gap: 2px; }
+.uat-step-move button { width: 16px; height: 13px; padding: 0; border: 1px solid var(--uat-border); border-radius: 3px; background: var(--uat-panel-soft); color: var(--uat-muted); font-size: 8px; line-height: 1; cursor: pointer; }
+.uat-step-move button:hover:not(:disabled) { border-color: var(--uat-primary); color: var(--uat-primary); }
+.uat-step-move button:disabled { opacity: .3; cursor: default; }.uat-step-index { color: var(--uat-muted); font: 700 11px Consolas, monospace; }.uat-step-copy { display: flex; min-width: 0; flex-direction: column; gap: 3px; }.uat-step-copy strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }.uat-step-copy span { overflow: hidden; color: var(--uat-muted); font: 12px Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }.uat-step-tag, .uat-step-count { padding: 3px 6px; border-radius: 9px; color: #f6c860; background: rgba(217, 158, 34, .13); font-size: 11px; white-space: nowrap; }.uat-step-children { grid-column: 2 / -1; width: 100%; }.uat-step-count { grid-column: 4; }
 [data-theme-mode="xianxia"] .uat-step-tag, [data-theme-mode="xianxia"] .uat-step-count { color: var(--xx-gold-bright, #f0d89c); background: var(--xx-gold-soft, rgba(205, 166, 87, .12)); }
 
 .uat-inspector-form { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }.uat-inspector-form label, .uat-form-grid label { display: flex; flex-direction: column; gap: 5px; color: var(--uat-muted); font-size: 11px; font-weight: 700; }.uat-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }.uat-inspector-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--uat-border); }.uat-inspector-empty { display: flex; min-height: 260px; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--uat-muted); text-align: center; }.uat-inspector-empty strong { font-size: 13px; }.uat-inspector-empty span { font-size: 12px; }
@@ -1344,3 +1350,50 @@
 }
 .uat-agent-note { margin: 0; color: var(--uat-muted); font-size: 11.5px; line-height: 1.45; white-space: normal; }
 .uat-run-where { margin-left: 10px; color: var(--uat-muted); font-size: 12px; font-style: normal; }
+
+
+/* ── TC 綁定與清單式編輯（v4.215.0）───────────────────────────────────────
+   拖曳畫布拿掉之後新增的幾塊。⚠️ 顏色一律走既有變數：寫死顏色在修仙版會變成補丁。 */
+.uat-editor-overview { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(320px, 1fr); gap: 12px; padding: 14px; align-items: start; }
+.uat-editor-overview > .uat-panel { padding: 16px; }
+.uat-editor-overview label { display: flex; flex-direction: column; gap: 5px; margin-top: 12px; color: var(--uat-muted); font-size: 11px; font-weight: 700; }
+
+.uat-tc-pool { display: flex; flex-direction: column; gap: 4px; max-height: 280px; margin-top: 12px; overflow-y: auto; padding-right: 4px; }
+.uat-tc-row { display: grid; grid-template-columns: 16px auto minmax(0, 1fr); align-items: center; gap: 8px; margin: 0; padding: 7px 8px; border: 1px solid var(--uat-border); border-radius: 6px; background: var(--uat-panel-soft); cursor: pointer; font-weight: 400; }
+.uat-tc-row:hover { border-color: var(--uat-border-strong); }
+.uat-tc-row.is-picked { border-color: var(--uat-primary); background: var(--uat-primary-soft); }
+.uat-tc-row strong { font: 700 12px Consolas, monospace; white-space: nowrap; }
+.uat-tc-row span { overflow: hidden; color: var(--uat-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+
+.uat-step-summary { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
+.uat-step-summary > div { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--uat-border); border-radius: 6px; background: var(--uat-panel-soft); }
+.uat-step-summary strong { overflow: hidden; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.uat-step-summary > div.is-empty { color: var(--uat-muted); }
+.uat-step-summary > div.is-empty strong { font-weight: 400; }
+.uat-step-summary em { padding: 2px 6px; border-radius: 9px; background: var(--uat-primary-soft); color: var(--uat-primary); font: 700 11px Consolas, monospace; font-style: normal; white-space: nowrap; }
+
+.uat-add-step { width: auto; min-width: 128px; margin-left: auto; }
+
+/* 步驟列上的 TC 標籤。⚠️ 「未指定」必須是危險色——那一步會讓整輪跑不起來 */
+.uat-step-tag.is-tc { color: var(--uat-primary); background: var(--uat-primary-soft); font-family: Consolas, monospace; }
+.uat-step-tag.is-danger { color: var(--uat-danger); background: color-mix(in srgb, var(--uat-danger) 14%, transparent); }
+
+/* 編輯器彈框。⚠️ 走既有的 .modal-overlay / .modal（修仙版的金框、模糊底掛在那兩個 class 上），
+   這裡只調尺寸——自己刻一套的話修仙版會變回普通樣式。 */
+.uat-editor-modal { width: min(1180px, 94vw); max-height: 88vh; display: flex; flex-direction: column; overflow: hidden; }
+/* ⚠️ `.uat-section-title` 預設是直排（小標在上、標題在下），關閉鈕直接塞進去會掉到第三行。
+   在彈框裡改成橫排：左邊小標＋標題，關閉鈕靠右。 */
+.uat-editor-modal > .uat-section-title { flex: 0 0 auto; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--uat-border); }
+.uat-editor-modal > .uat-section-title > span { grid-column: 1; }
+.uat-editor-modal > .uat-section-title > h3 { grid-column: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uat-editor-modal > .uat-section-title > .uat-btn { grid-column: 2; grid-row: 1 / span 2; }
+/* 彈框裡的流程欄已經有自己的標題，格點背景在這裡只是雜訊 */
+.uat-editor-modal .uat-canvas { background-image: none; }
+.uat-editor-modal > .uat-editor-grid { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.uat-editor-modal .uat-canvas, .uat-editor-modal .uat-inspector { overflow-y: auto; }
+.uat-editor-modal .uat-block-list { min-height: 0; }
+
+@media (max-width: 1180px) {
+  .uat-editor-overview { grid-template-columns: 1fr; }
+  .uat-editor-grid.is-modal { grid-template-columns: 1fr; }
+}

@@ -70,6 +70,11 @@ export interface AutoScript {
   is_public: number
   created_at?: number
   updated_at?: number
+  /** Lark TC 綁定。⚠️ 舊腳本沒有這些欄位，一律當成「沒綁」處理，不要當成壞掉 */
+  lark_url?: string
+  table_id?: string
+  /** JSON 字串（後端存的形狀），前端讀的時候要 parse */
+  bindings?: string
 }
 
 export interface AutoBaseline {

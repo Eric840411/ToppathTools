@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { XianxiaIcon } from '../../components/XianxiaIcon'
-import { BlockEditor, type BackendSnippetOption } from './BlockEditor'
+import { createPortal } from 'react-dom'
+import { BlockEditor, needsTc, type BackendSnippetOption, type TcBindingOption } from './BlockEditor'
 import { NetworkPanel, type UatStatsPayload } from './NetworkPanel'
 import { SELECTOR_CHECK_LABEL } from '../../../shared/uat-selector-check'
 import { compileExecutableSteps, countExecutableSteps, createStep, parseSteps, serializeSteps } from './step-model'
@@ -10,6 +11,22 @@ import type { AgentOption, AutoBaseline, AutoFilter, AutoPlatform, AutoRun, Auto
 type StudioView = 'editor' | 'run' | 'assets' | 'history'
 
 interface Props { platform: AutoPlatform; themeMode: UatThemeMode; agentId: string }
+
+/** 後端存的是 JSON 字串。⚠️ 壞掉的一律當成「沒綁」，不要整頁掛掉 */
+function parseBindings(raw?: string): TcBindingOption[] {
+  try {
+    const parsed = JSON.parse(raw ?? '[]') as TcBindingOption[]
+    return Array.isArray(parsed) ? parsed.filter(item => item?.recordId) : []
+  } catch { return [] }
+}
+
+/**
+ * 從 Lark 表格網址拆出 tableId。
+ * ⚠️ 拆不出來回空字串讓後端擋，**不要猜**——猜錯的結果是「回寫到另一張表」。
+ */
+function tableIdFromUrl(url: string) {
+  try { return new URL(url).searchParams.get('table') ?? '' } catch { return '' }
+}
 
 function currentActor() {
   const saved = localStorage.getItem('frontend_auto_user')
@@ -38,6 +55,18 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
   const [steps, setSteps] = useState<AutoStep[]>([])
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null)
   const [isPublic, setIsPublic] = useState(true)
+  /**
+   * Lark TC 綁定。**跟 Backend 同一個模式**：一份腳本綁多筆 TC，每顆積木標所屬。
+   * ⚠️ 沒綁的腳本照舊能跑，只是不回寫——空的不代表壞掉。
+   */
+  const [larkUrl, setLarkUrl] = useState('')
+  const [bindings, setBindings] = useState<TcBindingOption[]>([])
+  /** Lark 上這張表現有的 TC（給勾選用）。載入失敗要講，不要留一個空清單讓人以為沒 TC */
+  const [tcPool, setTcPool] = useState<{ recordId: string; number: string; text: string }[]>([])
+  const [tcLoading, setTcLoading] = useState(false)
+  const [tcError, setTcError] = useState('')
+  /** 編輯器改成彈框（使用者 2026-09-18 定案，跟 Backend 一致） */
+  const [editorOpen, setEditorOpen] = useState(false)
   const [dirty, setDirty] = useState(false)
   const [saving, setSaving] = useState(false)
   const [filter, setFilter] = useState<AutoFilter>('all')
@@ -159,6 +188,8 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
     setName(selected.name)
     setSteps(parseSteps(selected.steps))
     setIsPublic(!!selected.is_public)
+    setLarkUrl(selected.lark_url ?? '')
+    setBindings(parseBindings(selected.bindings))
     setSelectedStepId(null)
     setDirty(false)
     void loadAssets(selected.id)
@@ -181,10 +212,55 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
     setName(`新的 ${platform.toUpperCase()} 測試`)
     setSteps([createStep('goto')])
     setIsPublic(true)
+    // ⚠️ 綁定一定要清掉。不清的話新腳本會**繼承上一份的 TC**，而畫面上看起來完全正常——
+    //    跑完就把結果寫到別人的那幾筆去了。
+    setLarkUrl('')
+    setBindings([])
+    setTcPool([])
     setSelectedStepId(null)
     setDirty(true)
     setView('editor')
   }
+
+  /**
+   * 去 Lark 讀這張表現有的 TC。走 Backend 已經在用的那支 `/api/osm-uat/scan`——
+   * 再寫一支等於兩份對 Lark 的解讀。
+   *
+   * ⚠️ **失敗一定要講出來**。回一個空清單的話，畫面看起來像「這張表沒有 TC」，
+   *    而實際上可能是網址打錯或沒權限。
+   */
+  const loadTcPool = useCallback(async (url: string) => {
+    if (!url.trim()) { setTcPool([]); setTcError(''); return }
+    setTcLoading(true); setTcError('')
+    try {
+      const response = await fetch(`/api/osm-uat/scan?larkUrl=${encodeURIComponent(url.trim())}`)
+      const data = await response.json().catch(() => ({})) as { ok?: boolean; tcs?: Record<string, unknown>[]; message?: string }
+      if (!response.ok || !data.tcs) throw new Error(data.message ?? `HTTP ${response.status}`)
+      setTcPool(data.tcs
+        .filter(tc => tc.source === 'live' && tc.recordId)
+        .map(tc => ({ recordId: String(tc.recordId), number: String(tc.number ?? ''), text: String(tc.task ?? tc.text ?? '') })))
+    } catch (error) {
+      setTcPool([])
+      setTcError(error instanceof Error ? error.message : String(error))
+    } finally { setTcLoading(false) }
+  }, [])
+
+  const toggleBinding = (tc: TcBindingOption) => {
+    setBindings(prev => prev.some(item => item.recordId === tc.recordId)
+      ? prev.filter(item => item.recordId !== tc.recordId)
+      : [...prev, tc])
+    setDirty(true)
+  }
+
+  /** 綁了 TC 但還沒指定所屬的檢查／截圖——這些會讓執行**直接被擋**，要先講 */
+  const unassignedSteps = useMemo(() => {
+    if (!bindings.length) return []
+    const walk = (list: AutoStep[], path: number[] = []): string[] => list.flatMap((step, i) => [
+      ...(needsTc(step.action) && !step.tcId ? [`第 ${[...path, i + 1].join('-')} 步「${step.name || step.action}」`] : []),
+      ...walk(step.children ?? [], [...path, i + 1]),
+    ])
+    return walk(steps)
+  }, [steps, bindings.length])
 
   const selectScript = (id: string) => {
     if (id === selectedId) return
@@ -195,7 +271,14 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
   const saveScript = async () => {
     if (!name.trim()) return setNotice(xianxia ? '請為玉簡題名' : '請輸入腳本名稱')
     setSaving(true)
-    const payload = { name: name.trim(), platform, steps: serializeSteps(steps), createdBy: actor, isPublic }
+    const payload = {
+      name: name.trim(), platform, steps: serializeSteps(steps), createdBy: actor, isPublic,
+      // ⚠️ 三個欄位要**一起送**。少送一個後端會保留舊值（那是刻意的），
+      //    但在這裡漏掉會讓畫面上的「已解除綁定」存不進去。
+      larkUrl: larkUrl.trim(),
+      tableId: tableIdFromUrl(larkUrl),
+      bindings,
+    }
     const response = await fetch(selectedId ? `/api/frontend-auto/scripts/${selectedId}` : '/api/frontend-auto/scripts', {
       method: selectedId ? 'PUT' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
     })
@@ -469,7 +552,114 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
           {selectorWarnings.bad.map(bad => <div key={bad.index}>第 {bad.index} 步——{bad.why}</div>)}
         </div>}
         {view === 'editor' && !!selectorWarnings.weak.length && <p className="uat-multi-alert">共 {selectorWarnings.weak.length} 個步驟用結構路徑定位（第 {selectorWarnings.weak.join('、')} 步），這是最脆的一階，請試跑確認找得到正確元素。</p>}
-        {view === 'editor' && <BlockEditor steps={steps} snippets={snippets} baselines={baselines} selectedId={selectedStepId} onSelectedIdChange={setSelectedStepId} onChange={next => { setSteps(next); setDirty(true) }} themeMode={themeMode} />}
+        {view === 'editor' && (
+          <div className="uat-editor-overview">
+            {/* ── 綁定哪幾筆 Lark TC ───────────────────────────────────── */}
+            <section className="uat-panel uat-inscribed-panel">
+              <div className="uat-section-title">
+                <span>{xianxia ? 'TRIAL BINDING' : 'LARK TC'}</span>
+                <h3>{xianxia ? '試煉歸屬' : '綁定的 Lark TC'} <small>{bindings.length}</small></h3>
+              </div>
+              <p className="uat-hint">
+                {xianxia ? '綁定之後，啟陣完畢會依試煉分別判定並回填玉牒；不綁亦可推演，只是不回填。'
+                  : '綁了之後，跑完會依 TC 分別判定、上傳截圖、回寫 Lark。不綁也能跑，只是不回寫。'}
+              </p>
+              <label>{xianxia ? '玉牒路徑' : 'Lark 表格網址'}
+                <input
+                  className="uat-field"
+                  value={larkUrl}
+                  onChange={event => { setLarkUrl(event.target.value); setDirty(true) }}
+                  onBlur={event => void loadTcPool(event.target.value)}
+                  placeholder="https://....larksuite.com/base/XXXX?table=tblYYYY"
+                />
+              </label>
+              {/* ⚠️ 拆不出 table= 要當場講。不講的話存得下去、跑起來才被擋 */}
+              {larkUrl.trim() && !tableIdFromUrl(larkUrl) && (
+                <p className="uat-hint" style={{ color: 'var(--uat-danger)' }}>
+                  這個網址看不出是哪一張表（少了 <code>?table=tblXXXX</code>），存了也回寫不了。
+                </p>
+              )}
+              <div className="uat-run-actions">
+                <button type="button" className="uat-btn is-quiet" disabled={tcLoading || !larkUrl.trim()} onClick={() => void loadTcPool(larkUrl)}>
+                  {tcLoading ? (xianxia ? '參閱玉牒中…' : '載入 TC 中…') : (xianxia ? '重新參閱玉牒' : '重新載入 Lark TC')}
+                </button>
+              </div>
+              {tcError && <p className="uat-hint" style={{ color: 'var(--uat-danger)' }}>
+                {xianxia ? '參閱玉牒失敗' : '讀不到這張表的 TC'}：{tcError}
+              </p>}
+              {!!tcPool.length && (
+                <div className="uat-tc-pool">
+                  {tcPool.map(tc => {
+                    const picked = bindings.some(item => item.recordId === tc.recordId)
+                    return (
+                      <label className={`uat-tc-row${picked ? ' is-picked' : ''}`} key={tc.recordId}>
+                        <input type="checkbox" checked={picked} onChange={() => toggleBinding(tc)} />
+                        <strong>{tc.number || tc.recordId}</strong><span>{tc.text}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+              {/* 綁著、但這次載入的清單裡沒有的：多半是那筆 TC 被刪了或換了表 */}
+              {bindings.filter(b => tcPool.length && !tcPool.some(tc => tc.recordId === b.recordId)).map(b => (
+                <p className="uat-hint" style={{ color: 'var(--uat-danger)' }} key={b.recordId}>
+                  綁著「{b.number || b.recordId}」，但這張表現在找不到它——可能被刪了，或網址換過。
+                </p>
+              ))}
+            </section>
+
+            {/* ── 流程摘要 ＋ 開編輯器 ─────────────────────────────────── */}
+            <section className="uat-panel uat-inscribed-panel">
+              <div className="uat-section-title">
+                <span>{xianxia ? 'TRIAL ARRAY' : 'WORKFLOW'}</span>
+                <h3>{xianxia ? '試煉陣圖' : '測試流程'} <small>{countExecutableSteps(steps)}</small></h3>
+              </div>
+              {!!unassignedSteps.length && (
+                <div className="uat-multi-alert" role="alert">
+                  <p>⚠️ 這些檢查／截圖<strong>還沒指定所屬 TC</strong>，直接執行會被擋下來（結果不知道要回寫到哪一筆）：</p>
+                  {unassignedSteps.map(line => <div key={line}>{line}</div>)}
+                </div>
+              )}
+              <div className="uat-step-summary">
+                {steps.slice(0, 8).map((step, i) => (
+                  <div key={step.id}>
+                    <span className="uat-step-index">{String(i + 1).padStart(2, '0')}</span>
+                    <strong>{step.name || step.action}</strong>
+                    {step.tcId && <em>{bindings.find(b => b.recordId === step.tcId)?.number ?? step.tcId.slice(0, 8)}</em>}
+                  </div>
+                ))}
+                {steps.length > 8 && <div><span className="uat-step-index">⋯</span><strong>還有 {steps.length - 8} 步</strong></div>}
+                {/* ⚠️ 空狀態也要照同一個格線放（index／內容／標籤），不然整句會被擠進
+                    26px 的序號欄裡變成「還…」——實際畫面上就發生過。 */}
+                {!steps.length && <div className="is-empty"><span className="uat-step-index">—</span><strong>{xianxia ? '尚無術式，先錄一段或手動新增' : '還沒有步驟，先錄一段或手動新增'}</strong></div>}
+              </div>
+              <div className="uat-run-actions">
+                <button type="button" className="uat-btn is-primary" onClick={() => setEditorOpen(true)}>
+                  {xianxia ? '開啟陣圖編排' : '編輯流程'}
+                </button>
+              </div>
+            </section>
+          </div>
+        )}
+        {/* ⚠️ 彈框一律走 createPortal 掛 document.body：這個版面的祖先有 backdrop-filter／
+            transform，position: fixed 會被困在容器裡裁掉（這個 repo 踩過好幾次）。 */}
+        {editorOpen && createPortal(
+          <div className="modal-overlay" onClick={() => setEditorOpen(false)}>
+            <div className="modal uat-editor-modal" onClick={event => event.stopPropagation()}>
+              <div className="uat-section-title">
+                <span>{xianxia ? 'ARRAY COMPOSER' : 'WORKFLOW EDITOR'}</span>
+                <h3>{name || (xianxia ? '未題名玉簡' : '未命名腳本')}</h3>
+                <button type="button" className="uat-btn is-quiet" onClick={() => setEditorOpen(false)}>{xianxia ? '收起' : '關閉'}</button>
+              </div>
+              <BlockEditor
+                steps={steps} snippets={snippets} baselines={baselines} bindings={bindings}
+                selectedId={selectedStepId} onSelectedIdChange={setSelectedStepId}
+                onChange={next => { setSteps(next); setDirty(true) }} themeMode={themeMode}
+              />
+            </div>
+          </div>,
+          document.body,
+        )}
         {view === 'run' && (
           <div className="uat-run-layout">
             <section className="uat-panel uat-inscribed-panel">
