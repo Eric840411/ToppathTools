@@ -18,7 +18,8 @@ import http from 'http'
 import WebSocket from 'ws'
 import { PNG } from 'pngjs'
 import { db } from '../shared.js'
-import { agentConnections, uatAgentSessions, uatRunSessions, getAvailableAgents, UAT_CONSOLE_KEEP, type UatConsoleEntry } from '../agent-hub.js'
+import { agentConnections, uatAgentSessions, uatRunSessions, UAT_CONSOLE_KEEP, type AgentInfo, type UatConsoleEntry } from '../agent-hub.js'
+import { getOperatorFromContext } from '../request-context.js'
 import { agentUpdateStatus } from './machine-test.js'
 
 export const router = express.Router()
@@ -464,8 +465,13 @@ interface RecSession {
   paused?: boolean
   /** 控制面板的配色。跟著開始錄製時的畫面模式走 */
   theme?: 'normal' | 'xianxia'
+  /** 誰開的。⚠️ 之後每一支操作這個 session 的端點都要比對 */
+  ownerKey?: string
 }
 const recSessions = new Map<string, RecSession>()
+
+/** 測試收尾用：目前還在的本機錄製 session id。產品端不使用 */
+export function recorderSessionIds() { return [...recSessions.keys()] }
 
 function killRecSession(sess: RecSession) {
   // ⚠️ 先收計時器。不收的話錄製結束後它每 3 秒還會對著關掉的 CDP 連線送訊息，
@@ -925,11 +931,92 @@ function connectRecorder(sess: RecSession, port: number, sessionId: string) {
   })().catch(() => { sess.done = true })
 }
 
-function getUatAgents() {
-  return [...agentConnections.values()]
-    .filter(a => a.capabilities.includes('uat-record'))
+/** H5/PC 這條線會用到的兩種能力：錄製與執行。兩者是分開授予的 */
+export type UatCapability = 'uat-record' | 'uat-run'
+
+/**
+ * 這個登入者**自己的** agent。
+ *
+ * ⚠️ **一定要濾 `ownerKey`。** 原本這支掃的是全部 `agentConnections`，
+ *    於是清單會列出別人的機器，`/record/start` 的自動挑選也會派工過去——
+ *    錄製的瀏覽器會開在**別人的桌面上**。Backend 那支（`/api/osm-uat/agents`）
+ *    一直有這層過濾，只有 H5/PC 這條漏掉。（CodeX 2026-09-18 列 P1。）
+ *
+ * ⚠️ 沒有登入者就回空清單，**不是回全部**。退路要往安全的方向倒。
+ *
+ * `outdated` 是「自己的、有連線、但缺這個能力」的數量——最常見的情況是 agent
+ * 還跑著舊程式碼。前端要講得出這件事，不然畫面只顯示「目前沒有」，
+ * 使用者看著明明連上的機器完全無從判斷。
+ */
+function getUatAgents(capability: UatCapability = 'uat-record') {
+  const operator = getOperatorFromContext()
+  if (!operator?.key) return { agents: [], outdated: 0 }
+  const mine = [...agentConnections.values()].filter(a => a.ownerKey === operator.key)
+  const outdated = mine.filter(a => !a.capabilities.includes(capability)).length
+  const agents = mine
+    .filter(a => a.capabilities.includes(capability))
     // updateStatus：派工前讓人看得出這台是不是落後（顯示不擋）
-    .map(a => ({ agentId: a.agentId, hostname: a.hostname, busy: a.busy, updateStatus: agentUpdateStatus(a) }))
+    .map(a => ({
+      agentId: a.agentId, hostname: a.hostname, busy: a.busy,
+      capabilities: a.capabilities, updateStatus: agentUpdateStatus(a),
+    }))
+  return { agents, outdated }
+}
+
+/**
+ * 派工挑選的結果。失敗一律帶明確狀態碼與原因——**不可以默默轉本機**。
+ *
+ * ⚠️ 刻意**不用**可辨識聯集（`{ok:true,...} | {ok:false,...}`）：這個專案的
+ * `tsconfig.server.json` 關掉了 `strict`，那種寫法在這裡收斂不出來，
+ * 每個使用點都會變成型別錯誤。
+ */
+interface AgentPick {
+  ok: boolean
+  agent?: AgentInfo
+  status?: number
+  message?: string
+}
+
+/**
+ * 挑一台可以派工的 agent。
+ *
+ * ⚠️ **清單與派工要走同一套判斷**（CodeX 2026-09-18）。兩邊各寫一份的結果是
+ *    「畫面說可以派、送出卻被拒」或更糟的「畫面說不行、送出卻真的派出去了」。
+ *
+ * ⚠️ **指名一台無效的 agent 一律報錯，不能退回本機執行。** 使用者指名就是要那台，
+ *    默默換成別的地方跑，他會對著一個「成功了」的畫面找不到自己的瀏覽器。
+ */
+function pickUatAgent(capability: UatCapability, wantAgentId: string): AgentPick {
+  const operator = getOperatorFromContext()
+  if (!operator?.key) {
+    return { ok: false, status: 401, message: '請先登入才能派工給 Local Agent。' }
+  }
+  const mine = [...agentConnections.values()].filter(a => a.ownerKey === operator.key)
+  const usable = (a: AgentInfo) =>
+    a.capabilities.includes(capability) && !a.busy && a.ws.readyState === a.ws.OPEN
+
+  if (wantAgentId) {
+    const named = mine.find(a => a.agentId === wantAgentId)
+    // ⚠️ 「不是你的」與「不存在」要回同一句：講出「那台是別人的」等於確認它存在。
+    if (!named) return { ok: false, status: 403, message: `找不到你自己的 Agent「${wantAgentId}」（可能已離線，或它不屬於你）。` }
+    if (!named.capabilities.includes(capability)) {
+      return { ok: false, status: 409, message: `Agent「${named.hostname || wantAgentId}」不支援這項工作（${capability}）。請到 Local Agent 頁面按「更新程式碼」再重啟。` }
+    }
+    if (named.busy) return { ok: false, status: 409, message: `Agent「${named.hostname || wantAgentId}」忙碌中，請等它結束或換一台。` }
+    if (named.ws.readyState !== named.ws.OPEN) return { ok: false, status: 409, message: `Agent「${named.hostname || wantAgentId}」連線不正常，請重啟它。` }
+    return { ok: true, agent: named }
+  }
+
+  const free = mine.filter(usable)
+  if (!free.length) {
+    const why = mine.length === 0
+      ? '目前沒有連線中的 Local Agent。請先在「Local Agent」頁面啟動它。'
+      : mine.some(a => a.capabilities.includes(capability))
+        ? '你的 Local Agent 都在忙碌中。'
+        : '有連線的 Local Agent，但都缺少這項能力（到 Local Agent 頁面按「更新程式碼」再重啟）。'
+    return { ok: false, status: 409, message: why }
+  }
+  return { ok: true, agent: free[0] }
 }
 
 /**
@@ -977,11 +1064,13 @@ export function handleUatRunAgentDisconnect(agentId: string, hostname?: string) 
 }
 
 router.get('/api/frontend-auto/record/available', (req, res) => {
-  res.json({ available: isLocalRecordRequest(req), agents: getUatAgents() })
+  const { agents, outdated } = getUatAgents('uat-record')
+  res.json({ available: isLocalRecordRequest(req), agents, outdated })
 })
 
 router.get('/api/frontend-auto/record/agents', (_req, res) => {
-  res.json({ ok: true, agents: getUatAgents() })
+  const { agents, outdated } = getUatAgents('uat-record')
+  res.json({ ok: true, agents, outdated })
 })
 
 router.post('/api/frontend-auto/record/start', async (req, res) => {
@@ -1001,18 +1090,32 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
   // 先前只有「指名」這一條路，但前端的執行節點預設是「自動選擇」（agentId 是
   // 空字串），所以從 LAN／公網開啟時永遠掉到下面的 403——就算 agent 已經連上、
   // 前端自己的檢查也認為「有 agent 就能錄」，畫面上看起來就是按了沒反應。
-  let agent = agentId ? agentConnections.get(agentId) : undefined
-  if (agentId && (!agent || !agent.capabilities.includes('uat-record'))) {
-    return res.status(400).json({ ok: false, message: `Agent ${agentId} 不支援 UAT 錄製或已離線` })
-  }
-  if (!agent && !isLocalRecordRequest(req)) {
-    agent = [...agentConnections.values()].find(a =>
-      a.capabilities.includes('uat-record') && !a.busy && a.ws.readyState === a.ws.OPEN)
+  //
+  // ⚠️ **挑選一律走 `pickUatAgent()`**，它會濾掉別人的 agent（CodeX 2026-09-18 列 P1）。
+  //    原本這裡直接掃 `agentConnections`，所以自動挑選會把錄製瀏覽器開在**別人的桌面上**。
+  let agent: AgentInfo | undefined
+  if (agentId) {
+    // ⚠️ 指名失敗一律報錯，**不能默默退回本機**——使用者指名就是要那台。
+    const picked = pickUatAgent('uat-record', agentId)
+    if (!picked.ok) return res.status(picked.status ?? 409).json({ ok: false, message: picked.message })
+    agent = picked.agent
+  } else if (!isLocalRecordRequest(req)) {
+    const picked = pickUatAgent('uat-record', '')
+    if (!picked.ok) {
+      return res.status(picked.status ?? 409).json({
+        ok: false,
+        message: `無法開始錄製：${picked.message}錄製的瀏覽器必須開在你自己的機器上，所以不會退回伺服器端執行。`,
+      })
+    }
+    agent = picked.agent
   }
   if (agent) {
     const sessionId = `rec-agent-${Date.now()}-${randomUUID().slice(0, 8)}`
     uatAgentSessions.set(sessionId, {
       agentId: agent.agentId,
+      // ⚠️ 記下擁有者，之後的 status／stop／pause／crop 都要比對——
+      //    否則知道 sessionId 的人就能操作別人的錄製。
+      ownerKey: getOperatorFromContext()?.key ?? '',
       steps: [{ name: '前往頁面', action: 'goto', value: url }],
       cropPending: false,
       done: false,
@@ -1059,6 +1162,7 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
     done: false,
     paused: false,
     theme,
+    ownerKey: getOperatorFromContext()?.key ?? '',
     steps: [{ name: '前往頁面', action: 'goto', value: url }],
   }
   recSessions.set(sessionId, sess)
@@ -1067,15 +1171,35 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
   res.json({ ok: true, sessionId, displayUrl })
 })
 
+/**
+ * 這個 session 是不是我的。
+ *
+ * ⚠️ 光擋清單與派工還不夠：sessionId 是可以被拿到的（它會出現在前端的網址列與
+ *    請求裡），知道它的人就能停別人的錄製、拿走別人的步驟。**每一支操作 session
+ *    的端點都要比對。**
+ *
+ * ⚠️ 舊 session 沒有 `ownerKey`（這一版之前開的），一律**放行**——不放行的話，
+ *    升版當下正在錄的人會突然停不掉自己的錄製，而且訊息會說「不是你的」。
+ *    這是刻意的過渡，等在跑的 session 都結束就自然消失。
+ */
+function sessionIsMine(ownerKey: string | undefined) {
+  if (!ownerKey) return true
+  return ownerKey === (getOperatorFromContext()?.key ?? '')
+}
+
+const NOT_MINE = { ok: false, message: '這個錄製不是你開的。' }
+
 router.get('/api/frontend-auto/record/status/:sessionId', (req, res) => {
   const agentSess = uatAgentSessions.get(req.params.sessionId)
   if (agentSess) {
+    if (!sessionIsMine(agentSess.ownerKey)) return res.status(403).json(NOT_MINE)
     return res.json({ found: true, done: agentSess.done, error: agentSess.error ?? null, steps: agentSess.steps, lastCrop: agentSess.lastCrop, cropPending: agentSess.cropPending, cdpWarning: (agentSess as unknown as Record<string, unknown>).cdpWarning ?? null,
       paused: !!agentSess.paused,
       stats: agentSess.stats ?? null, consoleLogs: agentSess.consoleLogs ?? [], consoleDropped: agentSess.consoleDropped ?? 0, pinusPatched: agentSess.pinusPatched ?? null })
   }
   const sess = recSessions.get(req.params.sessionId)
   if (!sess) return res.json({ found: false, done: true, steps: [] })
+  if (!sessionIsMine(sess.ownerKey)) return res.status(403).json(NOT_MINE)
   // ⚠️ 兩個分支要回同一組欄位。少一邊的話那個模式的面板會永遠空白，
   //    而且不會有錯誤——看起來就像「這頁沒有網路活動」。
   res.json({ found: true, done: sess.done, error: null, steps: sess.steps, lastCrop: sess.lastCrop, cropPending: !!sess.cropRequest,
@@ -1088,6 +1212,7 @@ const PAUSED_CROP_MESSAGE = '錄製目前暫停中，請先繼續錄製再框選
 router.post('/api/frontend-auto/record/crop/:sessionId', async (req, res) => {
   const agentSess = uatAgentSessions.get(req.params.sessionId)
   if (agentSess) {
+    if (!sessionIsMine(agentSess.ownerKey)) return res.status(403).json(NOT_MINE)
     // ⚠️ 暫停 = 不新增積木，**截圖積木也算**。而且要**明確回 409**，
     //    不能靜默 ok——靜默的話畫面會進入框選模式，框完卻什麼都沒發生。
     if (agentSess.paused) return res.status(409).json({ ok: false, message: PAUSED_CROP_MESSAGE })
@@ -1113,6 +1238,7 @@ router.post('/api/frontend-auto/record/crop/:sessionId', async (req, res) => {
 
   const sess = recSessions.get(req.params.sessionId)
   if (!sess) return res.status(404).json({ ok: false, message: '找不到錄製 session' })
+  if (!sessionIsMine(sess.ownerKey)) return res.status(403).json(NOT_MINE)
   if (sess.paused) return res.status(409).json({ ok: false, message: PAUSED_CROP_MESSAGE })
   if (!sess.cdpSend) return res.status(409).json({ ok: false, message: '錄製器尚未連線完成，請稍後再框選' })
   const body = req.body as Record<string, unknown>
@@ -1137,6 +1263,7 @@ router.post('/api/frontend-auto/record/crop/:sessionId', async (req, res) => {
 router.post('/api/frontend-auto/record/screenshot/:sessionId', async (req, res) => {
   const sess = recSessions.get(req.params.sessionId)
   if (!sess) return res.status(404).json({ ok: false, message: '找不到錄製 session' })
+  if (!sessionIsMine(sess.ownerKey)) return res.status(403).json(NOT_MINE)
   if (!sess.cdpSend) return res.status(409).json({ ok: false, message: '錄製器尚未連線完成，請稍後再截圖' })
   const body = req.body as Record<string, unknown>
   const platform = asPlatform(body.platform)
@@ -1194,6 +1321,7 @@ router.post('/api/frontend-auto/record/pause/:sessionId', (req, res) => {
   const paused = !!(req.body as Record<string, unknown>)?.paused
   const agentSess = uatAgentSessions.get(req.params.sessionId)
   if (agentSess) {
+    if (!sessionIsMine(agentSess.ownerKey)) return res.status(403).json(NOT_MINE)
     const agent = agentConnections.get(agentSess.agentId)
     if (!agent) return res.status(409).json({ ok: false, message: 'Local Agent 已離線，無法切換暫停' })
     // ⚠️ 這裡**不要**先樂觀地把 agentSess.paused 設好。權威狀態在 agent 那一側
@@ -1204,6 +1332,7 @@ router.post('/api/frontend-auto/record/pause/:sessionId', (req, res) => {
   }
   const sess = recSessions.get(req.params.sessionId)
   if (!sess) return res.status(404).json({ ok: false, message: '找不到錄製 session' })
+  if (!sessionIsMine(sess.ownerKey)) return res.status(403).json(NOT_MINE)
   setLocalPaused(sess, paused)
   return res.json({ ok: true, paused: !!sess.paused })
 })
@@ -1215,6 +1344,7 @@ router.post('/api/frontend-auto/record/stop/:sessionId', async (req, res) => {
   //    而畫面上只會是一片空白，不像出錯。
   const agentSess = uatAgentSessions.get(req.params.sessionId)
   if (agentSess) {
+    if (!sessionIsMine(agentSess.ownerKey)) return res.status(403).json(NOT_MINE)
     const agent = agentConnections.get(agentSess.agentId)
     if (agent) agent.ws.send(JSON.stringify({ type: 'uat_record_stop', sessionId: req.params.sessionId }))
     agentSess.done = true
@@ -1231,6 +1361,7 @@ router.post('/api/frontend-auto/record/stop/:sessionId', async (req, res) => {
 
   const sess = recSessions.get(req.params.sessionId)
   if (!sess) return res.status(404).json({ ok: false, message: '找不到錄製 session' })
+  if (!sessionIsMine(sess.ownerKey)) return res.status(403).json(NOT_MINE)
   // 頁面上那顆停止已經收過尾（session 留著讓輪詢取回）。這時不能再 flush／kill
   // 一次——CDP 連線早就沒了，只會把回應拖到逾時。直接把手上的東西回去。
   if (sess.done) {
@@ -1353,9 +1484,19 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
   if (activeRuns.has(runId)) return res.status(409).json({ ok: false, message: 'already running' })
 
   // ── Route to agent if agentId provided or agent available ──────────────────
-  const agentToUse = requestedAgentId
-    ? agentConnections.get(requestedAgentId)
-    : getAvailableAgents({ capability: 'uat-run' })[0]
+  //
+  // ⚠️ 這裡原本有兩個洞（CodeX 2026-09-18 指出，跟錄製那支同源）：
+  //    ① 自動挑選沒帶 owner —— 會把腳本派到**別人的機器**上跑
+  //    ② 指名只用 `agentConnections.get()` —— 沒驗擁有者、沒驗能力、沒驗忙碌，
+  //       而且拿不到時會**默默掉到下面的本機執行**，使用者對著「成功」的畫面
+  //       卻找不到自己指名那台在跑什麼
+  const picked = pickUatAgent('uat-run', requestedAgentId)
+  // 指名的情況：失敗一律報錯，不退回本機。
+  if (requestedAgentId && !picked.ok) {
+    return res.status(picked.status ?? 409).json({ ok: false, message: picked.message })
+  }
+  // 沒指名：挑不到就照舊退回伺服器端執行（那是這條路既有且刻意的行為）。
+  const agentToUse = picked.ok ? picked.agent : undefined
 
   if (agentToUse && agentToUse.ws.readyState === agentToUse.ws.OPEN) {
     uatRunSessions.set(runId, { agentId: agentToUse.agentId, runId, done: false })

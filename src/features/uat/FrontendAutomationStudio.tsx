@@ -48,6 +48,12 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
   const [ocrRegions, setOcrRegions] = useState<OcrRegion[]>([])
   const [runs, setRuns] = useState<AutoRun[]>([])
   const [agents, setAgents] = useState<AgentOption[]>([])
+  /**
+   * 自己的 agent 裡「有連線但缺 uat-record 能力」的數量。
+   * ⚠️ 要跟「一台都沒有」分開講——多半是 agent 還跑著舊程式碼，
+   * 只說「目前沒有」的話，使用者看著明明連上的機器完全無從判斷。
+   */
+  const [agentsOutdated, setAgentsOutdated] = useState(0)
   const [agentId, setAgentId] = useState('')
   const [recorderAvailable, setRecorderAvailable] = useState(isLocalHost())
   const [recordSessionId, setRecordSessionId] = useState<string | null>(null)
@@ -124,9 +130,10 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
     void loadRuns()
   }, [loadScripts, loadRuns])
   useEffect(() => {
-    fetch('/api/frontend-auto/record/available').then(response => response.json()).then((data: { available?: boolean; agents?: AgentOption[] }) => {
+    fetch('/api/frontend-auto/record/available').then(response => response.json()).then((data: { available?: boolean; agents?: AgentOption[]; outdated?: number }) => {
       setRecorderAvailable(!!data.available)
       setAgents(data.agents ?? [])
+      setAgentsOutdated(Number(data.outdated) || 0)
     }).catch(() => {})
   }, [])
   useEffect(() => {
@@ -210,7 +217,12 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
   }, [steps])
 
   const startRecording = async () => {
-    if (!(recorderAvailable || agents.length)) return setNotice('沒有可用錄製器；請從 localhost 開啟，或連接具備 uat-record 的 Local Agent。')
+    if (!(recorderAvailable || agents.length)) {
+      // 「有連線但缺能力」跟「一台都沒有」要分開講——前者按「更新程式碼」就好。
+      return setNotice(agentsOutdated
+        ? `你有 ${agentsOutdated} 台 Local Agent 在線，但都缺少錄製能力——請到 Local Agent 頁面按「更新程式碼」再重啟。`
+        : '沒有可用錄製器；請從 localhost 開啟，或連接具備 uat-record 的 Local Agent（它必須是你自己的）。')
+    }
     const target = runConfig.url || window.prompt('請輸入要錄製的目標 URL')?.trim() || ''
     if (!target) return
     setRunConfig(value => ({ ...value, url: target }))

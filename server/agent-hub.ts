@@ -202,6 +202,11 @@ export interface UatConsoleEntry {
 
 export interface UatAgentSession {
   agentId: string
+  /**
+   * 誰開的這一輪錄製。⚠️ 操作這個 session 的每一支端點都要比對——
+   * 否則知道 sessionId 的人就能停別人的錄製、拿別人的步驟。
+   */
+  ownerKey?: string
   steps: object[]
   lastCrop?: UatCropResult
   cropPending: boolean
