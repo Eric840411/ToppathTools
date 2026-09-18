@@ -1404,13 +1404,15 @@
    這裡只補 H5 特有的幾塊。⚠️ 不要另外刻一套：修仙版的配色掛在那些 class 上。 */
 
 /* 腳本清單多了一顆「排入佇列」的勾選框，所以從 button 改成「勾選框＋按鈕」兩欄 */
-.uat-backend-plan .uat-script-item { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 10px; padding: 0; border: 1px solid transparent; border-radius: 7px; }
+.uat-backend-plan .uat-script-item { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 12px; padding: 0 6px 0 0; border: 1px solid transparent; border-radius: 7px; }
 .uat-backend-plan .uat-script-item.is-active { border-color: var(--uat-primary); background: var(--uat-primary-soft); }
 /* 勾選框放大（使用者回報「太小了」）。原生 checkbox 預設 13px，點擊區也小得難按。
    ⚠️ 用 width/height 而不是 transform: scale——scale 不會改變佔位，
    旁邊的文字會壓上來，看起來反而更擠。 */
 .uat-backend-plan .uat-script-item > input { width: 18px; height: 18px; margin: 0 0 0 10px; accent-color: var(--uat-primary); cursor: pointer; }
-.uat-backend-plan .uat-script-item > button { display: block; width: 100%; padding: 9px 10px 9px 2px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+/* ⚠️ 勾選框與名稱之間要留得出空白（使用者回報「要有空格」）。
+   grid 的 gap 只管格與格之間，按鈕自己的 padding-left 也要留，不然文字會貼著框。 */
+.uat-backend-plan .uat-script-item > button { display: block; width: 100%; padding: 9px 4px 9px 4px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
 .uat-backend-plan .uat-script-item > button > span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .uat-backend-plan .uat-script-item strong { overflow: hidden; font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
 .uat-backend-plan .uat-script-item small { color: var(--uat-muted); font-size: 11px; }
