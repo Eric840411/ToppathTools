@@ -19,7 +19,7 @@ import WebSocket from 'ws'
 import { PNG } from 'pngjs'
 import { db } from '../shared.js'
 import { agentConnections, uatAgentSessions, uatRunSessions, UAT_CONSOLE_KEEP, type AgentInfo, type UatConsoleEntry } from '../agent-hub.js'
-import { getOperatorFromContext } from '../request-context.js'
+import { getAuthEmailFromContext } from '../request-context.js'
 import { agentUpdateStatus } from './machine-test.js'
 
 export const router = express.Router()
@@ -931,6 +931,20 @@ function connectRecorder(sess: RecSession, port: number, sessionId: string) {
   })().catch(() => { sess.done = true })
 }
 
+/**
+ * 這個請求**經過驗證**的身分。授權一律只認它。
+ *
+ * ⚠️ **不要用 `getOperatorFromContext()` 做授權**——那個值在 worker 裡來自
+ *    `x-auth-user`／`x-jira-email` header，而 worker 綁在 `0.0.0.0`，任何連得到
+ *    這個 port 的人都能自己塞一個。`authEmail` 是前端 server 用 cookie 驗過之後
+ *    **簽名**轉進來的，驗不過就是空的。（CodeX 2026-09-18 列 P1。）
+ *
+ * ⚠️ 回空字串代表「查不到身分」，呼叫端一律當成不得授權——**不要退回 operator.key**。
+ */
+function authedKey(): string {
+  return getAuthEmailFromContext() ?? ''
+}
+
 /** H5/PC 這條線會用到的兩種能力：錄製與執行。兩者是分開授予的 */
 export type UatCapability = 'uat-record' | 'uat-run'
 
@@ -948,18 +962,41 @@ export type UatCapability = 'uat-record' | 'uat-run'
  * 還跑著舊程式碼。前端要講得出這件事，不然畫面只顯示「目前沒有」，
  * 使用者看著明明連上的機器完全無從判斷。
  */
+/**
+ * 這台現在能不能接這種工作。
+ *
+ * ⚠️ **清單與派工一定要問同一支。** 各寫一份的結果 CodeX 2026-09-18 實測到了：
+ *    **斷線的 agent 仍然列在清單上，派工卻拒絕**——畫面說可以派、按下去被擋。
+ *    反過來（畫面說不行、卻真的派出去）更糟。
+ */
+function agentUsability(agent: AgentInfo, capability: UatCapability): { usable: boolean; reason?: string } {
+  if (!agent.capabilities.includes(capability)) {
+    return { usable: false, reason: capability === 'uat-record' ? '不支援錄製（請更新程式碼）' : '不支援執行（請更新程式碼）' }
+  }
+  if (agent.ws.readyState !== agent.ws.OPEN) return { usable: false, reason: '連線不正常' }
+  if (agent.busy) return { usable: false, reason: '忙碌中' }
+  return { usable: true }
+}
+
 function getUatAgents(capability: UatCapability = 'uat-record') {
-  const operator = getOperatorFromContext()
-  if (!operator?.key) return { agents: [], outdated: 0 }
-  const mine = [...agentConnections.values()].filter(a => a.ownerKey === operator.key)
+  const me = authedKey()
+  if (!me) return { agents: [], outdated: 0 }
+  const mine = [...agentConnections.values()].filter(a => a.ownerKey === me)
   const outdated = mine.filter(a => !a.capabilities.includes(capability)).length
   const agents = mine
     .filter(a => a.capabilities.includes(capability))
-    // updateStatus：派工前讓人看得出這台是不是落後（顯示不擋）
-    .map(a => ({
-      agentId: a.agentId, hostname: a.hostname, busy: a.busy,
-      capabilities: a.capabilities, updateStatus: agentUpdateStatus(a),
-    }))
+    .map(a => {
+      const state = agentUsability(a, capability)
+      return {
+        agentId: a.agentId, hostname: a.hostname, busy: a.busy,
+        capabilities: a.capabilities,
+        // updateStatus：派工前讓人看得出這台是不是落後（顯示不擋）
+        updateStatus: agentUpdateStatus(a),
+        // ⚠️ 跟派工同一套判斷算出來的，不是前端自己猜的
+        usable: state.usable,
+        unusableReason: state.reason ?? null,
+      }
+    })
   return { agents, outdated }
 }
 
@@ -987,27 +1024,27 @@ interface AgentPick {
  *    默默換成別的地方跑，他會對著一個「成功了」的畫面找不到自己的瀏覽器。
  */
 function pickUatAgent(capability: UatCapability, wantAgentId: string): AgentPick {
-  const operator = getOperatorFromContext()
-  if (!operator?.key) {
-    return { ok: false, status: 401, message: '請先登入才能派工給 Local Agent。' }
+  const me = authedKey()
+  if (!me) {
+    return { ok: false, status: 401, message: '查不到你的登入身分，請重新登入後再派工給 Local Agent。' }
   }
-  const mine = [...agentConnections.values()].filter(a => a.ownerKey === operator.key)
-  const usable = (a: AgentInfo) =>
-    a.capabilities.includes(capability) && !a.busy && a.ws.readyState === a.ws.OPEN
+  const mine = [...agentConnections.values()].filter(a => a.ownerKey === me)
 
   if (wantAgentId) {
     const named = mine.find(a => a.agentId === wantAgentId)
     // ⚠️ 「不是你的」與「不存在」要回同一句：講出「那台是別人的」等於確認它存在。
     if (!named) return { ok: false, status: 403, message: `找不到你自己的 Agent「${wantAgentId}」（可能已離線，或它不屬於你）。` }
-    if (!named.capabilities.includes(capability)) {
-      return { ok: false, status: 409, message: `Agent「${named.hostname || wantAgentId}」不支援這項工作（${capability}）。請到 Local Agent 頁面按「更新程式碼」再重啟。` }
+    const state = agentUsability(named, capability)
+    if (!state.usable) {
+      const hint = state.reason?.includes('更新程式碼')
+        ? '請到 Local Agent 頁面按「更新程式碼」再重啟。'
+        : state.reason?.includes('忙碌') ? '請等它結束或換一台。' : '請重啟它。'
+      return { ok: false, status: 409, message: `Agent「${named.hostname || wantAgentId}」${state.reason}。${hint}` }
     }
-    if (named.busy) return { ok: false, status: 409, message: `Agent「${named.hostname || wantAgentId}」忙碌中，請等它結束或換一台。` }
-    if (named.ws.readyState !== named.ws.OPEN) return { ok: false, status: 409, message: `Agent「${named.hostname || wantAgentId}」連線不正常，請重啟它。` }
     return { ok: true, agent: named }
   }
 
-  const free = mine.filter(usable)
+  const free = mine.filter(a => agentUsability(a, capability).usable)
   if (!free.length) {
     const why = mine.length === 0
       ? '目前沒有連線中的 Local Agent。請先在「Local Agent」頁面啟動它。'
@@ -1115,7 +1152,7 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
       agentId: agent.agentId,
       // ⚠️ 記下擁有者，之後的 status／stop／pause／crop 都要比對——
       //    否則知道 sessionId 的人就能操作別人的錄製。
-      ownerKey: getOperatorFromContext()?.key ?? '',
+      ownerKey: authedKey(),
       steps: [{ name: '前往頁面', action: 'goto', value: url }],
       cropPending: false,
       done: false,
@@ -1162,7 +1199,7 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
     done: false,
     paused: false,
     theme,
-    ownerKey: getOperatorFromContext()?.key ?? '',
+    ownerKey: authedKey(),
     steps: [{ name: '前往頁面', action: 'goto', value: url }],
   }
   recSessions.set(sessionId, sess)
@@ -1184,7 +1221,7 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
  */
 function sessionIsMine(ownerKey: string | undefined) {
   if (!ownerKey) return true
-  return ownerKey === (getOperatorFromContext()?.key ?? '')
+  return ownerKey === authedKey()
 }
 
 const NOT_MINE = { ok: false, message: '這個錄製不是你開的。' }
@@ -1392,6 +1429,21 @@ router.post('/api/frontend-auto/record/stop/:sessionId', async (req, res) => {
 
 export const activeRuns = new Set<string>() // runIds currently executing
 
+/**
+ * runId → 誰按下執行的。
+ *
+ * ⚠️ **不能用 `frontend_auto_runs.ran_by`**：那一欄是前端自己帶上來的字串
+ * （`localStorage` 的 `frontend_auto_user`，預設 'local-user'），使用者想填什麼就填什麼，
+ * 拿它當授權依據等於沒有授權。
+ *
+ * ⚠️ 這一版之前開始的 run 不在這張表裡，一律放行——否則升版當下正在跑的人
+ * 會突然停不掉自己的執行。
+ */
+const runOwners = new Map<string, string>()
+
+/** 測試收尾用；產品端不使用 */
+export function runOwnerOf(runId: string) { return runOwners.get(runId) }
+
 type StepObj = {
   name?: string
   action: string
@@ -1500,6 +1552,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
 
   if (agentToUse && agentToUse.ws.readyState === agentToUse.ws.OPEN) {
     uatRunSessions.set(runId, { agentId: agentToUse.agentId, runId, done: false })
+    runOwners.set(runId, authedKey())
     activeRuns.add(runId)
     agentToUse.ws.send(JSON.stringify({
       type: 'uat_script_run',
@@ -1514,6 +1567,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
     return res.json({ ok: true, via: 'agent', agentId: agentToUse.agentId })
   }
 
+  runOwners.set(runId, authedKey())
   activeRuns.add(runId)
   res.json({ ok: true })
 
@@ -1783,7 +1837,12 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
 
 router.post('/api/frontend-auto/runs/:id/stop', (req, res) => {
   const runId = req.params.id
+  // ⚠️ **檢查一定要在任何動作之前**（CodeX 2026-09-18 指出這支完全沒檢查）。
+  //    原本第一行就是 `activeRuns.delete(runId)`——就算之後才擋，那一下已經
+  //    把別人的執行停掉了。「被拒」與「沒有副作用」要同時成立。
+  if (!sessionIsMine(runOwners.get(runId))) return res.status(403).json({ ok: false, message: '這個執行不是你開的。' })
   activeRuns.delete(runId)
+  runOwners.delete(runId)
   // If run is agent-based, notify agent to stop
   const agentSess = uatRunSessions.get(runId)
   if (agentSess) {

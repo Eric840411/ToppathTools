@@ -3,7 +3,7 @@
  * Shared utilities, DB instance, helpers, and types used across all route files.
  */
 import Bottleneck from 'bottleneck'
-import { createHash, createSign, randomBytes, timingSafeEqual, randomUUID } from 'crypto'
+import { createHash, createHmac, createSign, randomBytes, timingSafeEqual, randomUUID } from 'crypto'
 import Database from 'better-sqlite3'
 import dotenv from 'dotenv'
 import express from 'express'
@@ -1938,6 +1938,62 @@ Spec 與 JIRA 同時存在 → 同時使用兩者
     'TestCase 生成（Jira 整合版）',
     jiraPromptTemplate,
 )
+}
+
+/**
+ * 跨 process 傳身分用的簽章。
+ *
+ * ## 為什麼需要
+ * worker 判斷「你是誰」原本是直接讀 `x-auth-user`／`x-jira-email` header，
+ * 而 **worker 綁在 `0.0.0.0`**（`worker.ts` 的 `server.listen`）——也就是任何連得到
+ * 那個 port 的人，自己組一個帶 header 的請求就能被當成別人。
+ * 前端 server 那一側也幫不上忙：`index.ts` 的 `ctx.user` 是 **header 優先於 cookie session**。
+ *
+ * ## 做法
+ * 前端 server 用 **cookie 驗過的** `authEmail` 簽一份短效簽章轉給 worker，
+ * worker 驗過才認。secret 放在 `settings` 表——兩支 process 共用同一個 `data.db`，
+ * 所以不必再多一個環境變數（少一個「兩邊設不一樣」的失敗方式）。
+ *
+ * ⚠️ 帶時間戳並限制有效期：只簽 email 的話，**簽章一旦被看到就可以永久重放**。
+ * ⚠️ 驗證失敗一律當成「沒有身分」，不要退回讀 header——那等於白做。
+ */
+const IDENTITY_SIGNATURE_TTL_MS = 60_000
+
+function internalIdentitySecret(): string {
+  const row = db.prepare("SELECT value FROM settings WHERE key = 'internal_identity_secret'").get() as { value?: string } | undefined
+  if (row?.value) return row.value
+  const secret = randomBytes(32).toString('base64url')
+  // 兩支 process 可能同時啟動：用 INSERT OR IGNORE 再讀一次，以先寫進去的那份為準
+  db.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('internal_identity_secret', ?)").run(secret)
+  const after = db.prepare("SELECT value FROM settings WHERE key = 'internal_identity_secret'").get() as { value?: string } | undefined
+  return after?.value ?? secret
+}
+
+/**
+ * 前端 server → worker：簽一份「這個請求的登入者是誰」。
+ *
+ * ⚠️ `issuedAt` 只給測試用。**沒有它就驗不到有效期那一道**——用「改掉時間戳但不重簽」
+ *    去測的話，被擋下來的其實是簽章不符，有效期整段拿掉照樣綠（注入測試抓到過）。
+ */
+export function signInternalIdentity(authEmail: string, issuedAtOverride?: number) {
+  const issuedAt = issuedAtOverride ?? Date.now()
+  const payload = `${authEmail}|${issuedAt}`
+  const sig = createHmac('sha256', internalIdentitySecret()).update(payload).digest('base64url')
+  return { email: authEmail, issuedAt, signature: sig }
+}
+
+/** worker：驗這份身分是不是前端 server 簽的、而且還沒過期 */
+export function verifyInternalIdentity(email: string, issuedAt: string, signature: string): string | undefined {
+  if (!email || !issuedAt || !signature) return undefined
+  const ts = Number(issuedAt)
+  if (!Number.isFinite(ts)) return undefined
+  // 時間窗兩邊都要擋：未來的戳記同樣是偽造的徵兆
+  if (Math.abs(Date.now() - ts) > IDENTITY_SIGNATURE_TTL_MS) return undefined
+  const expected = createHmac('sha256', internalIdentitySecret()).update(`${email}|${ts}`).digest('base64url')
+  const a = Buffer.from(expected)
+  const b = Buffer.from(signature)
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return undefined
+  return email
 }
 
 function hashLocalAgentToken(token: string) {

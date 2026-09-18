@@ -15,7 +15,7 @@ import { createServer } from 'http'
 import { cpus, hostname, totalmem, freemem } from 'os'
 import { WebSocketServer } from 'ws'
 import { z } from 'zod'
-import { larkGenerateSchema, log, verifyLocalAgentToken, getClientIP, getUser, db } from './shared.js'
+import { larkGenerateSchema, log, verifyLocalAgentToken, verifyInternalIdentity, getClientIP, getUser, db } from './shared.js'
 import { runGenerateTestcasesFileJob, runLarkGenerateTestcasesJob, resumeGenerationJob, type WorkerUploadFile } from './routes/integrations.js'
 import { router as jiraRouter } from './routes/jira.js'
 import { router as gameshowRouter } from './routes/gameshow.js'
@@ -110,8 +110,17 @@ app.use((req, _res, next) => {
   const user = String(req.headers['x-auth-user'] ?? req.headers['x-jira-email'] ?? '—')
   const userDisplay = String(req.headers['x-user-label'] ?? req.headers['x-auth-user'] ?? req.headers['x-jira-email'] ?? '未登入使用者')
   const ip = String(req.headers['x-forwarded-for'] ?? req.socket.remoteAddress ?? '')
+  // ⚠️ **`user` 只能拿來顯示與寫 log，不能拿來授權。** 它來自 header，而這支
+  //    process 綁在 0.0.0.0——任何連得到這個 port 的人都能自己塞一個。
+  //    授權要用下面這個 `authEmail`：它是前端 server 用 **cookie 驗過的**身分簽出來的，
+  //    驗不過就是 undefined（不退回讀 header——那等於白做）。
+  const authEmail = verifyInternalIdentity(
+    String(req.headers['x-auth-email'] ?? ''),
+    String(req.headers['x-auth-issued'] ?? ''),
+    String(req.headers['x-auth-sig'] ?? ''),
+  )
   runWithRequestContext(
-    { ip, user, userDisplay, path: req.path, method: req.method, operation: `${req.method} ${req.path}` },
+    { ip, user, userDisplay, authEmail, path: req.path, method: req.method, operation: `${req.method} ${req.path}` },
     () => next(),
   )
 })

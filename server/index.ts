@@ -34,7 +34,7 @@ import { getRequestContext, runWithRequestContext } from './request-context.js'
 import { getAuthAccount } from './auth-session.js'
 
 // Shared logger
-import { db, getClientIP, getUser, log, recordLoginDay } from './shared.js'
+import { db, getClientIP, getUser, log, recordLoginDay, signInternalIdentity } from './shared.js'
 
 dotenv.config()
 
@@ -281,6 +281,19 @@ async function proxyToWorker(req: express.Request, res: express.Response, next: 
     const ctx = getRequestContext()
     if (ctx?.user && ctx.user !== '—') headers.set('x-auth-user', ctx.user)
     if (ctx?.userDisplay && ctx.userDisplay !== '未登入使用者') headers.set('x-user-label', ctx.userDisplay)
+    // ⚠️ **一定要先刪掉客戶端帶來的那三個**。上面是把 req.headers 整包複製過來的，
+    //    不刪的話呼叫端自己塞一組就直接穿到 worker，這段簽章等於沒做。
+    headers.delete('x-auth-email')
+    headers.delete('x-auth-issued')
+    headers.delete('x-auth-sig')
+    // ⚠️ 只簽 **cookie 驗過的** authEmail。`ctx.user` 是 header 優先的顯示用身分，
+    //    拿它來簽就是把冒名原封不動蓋個章送過去。
+    if (ctx?.authEmail) {
+      const signed = signInternalIdentity(ctx.authEmail)
+      headers.set('x-auth-email', signed.email)
+      headers.set('x-auth-issued', String(signed.issuedAt))
+      headers.set('x-auth-sig', signed.signature)
+    }
     headers.delete('x-personal-gemini-key')
     if (req.path === '/api/machine-test/ocr-proxy') {
       const ownerEmail = req.header('x-agent-owner')?.trim() ?? ''

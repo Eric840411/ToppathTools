@@ -24,7 +24,7 @@ import { fileURLToPath } from 'url'
 import { randomUUID } from 'crypto'
 import { z } from 'zod'
 import { agentConnections, type AgentInfo } from '../agent-hub.js'
-import { getOperatorFromContext } from '../request-context.js'
+import { getAuthEmailFromContext } from '../request-context.js'
 import { db } from '../shared.js'
 import { parseStatsLine } from '../uat-runner/net-capture.js'
 import { BLOCK_DEFS } from '../uat-runner/block-engine.js'
@@ -345,9 +345,12 @@ router.get('/api/osm-uat/status', (_req, res) => {
 // 只列出「這個操作者自己的」agent，跟 scripted-bet / autospin 同一套規則：
 // agent 是誰安裝的就只有誰能派工，不共用。
 router.get('/api/osm-uat/agents', (_req, res) => {
-  const operator = getOperatorFromContext()
-  if (!operator?.key) return res.json({ ok: true, agents: [], outdated: 0 })
-  const mine = [...agentConnections.values()].filter(agent => agent.ownerKey === operator.key)
+  // ⚠️ **授權要用驗過的身分**（CodeX 2026-09-18 列 P1，跟 H5/PC 那條同源）。
+  //    `getOperatorFromContext()` 在 worker 裡來自 header，而 worker 綁 0.0.0.0——
+  //    任何連得到這個 port 的人都能自己塞一個，等於看得到別人的 agent。
+  const me = getAuthEmailFromContext() ?? ''
+  if (!me) return res.json({ ok: true, agents: [], outdated: 0 })
+  const mine = [...agentConnections.values()].filter(agent => agent.ownerKey === me)
   // 有連線但缺 capability 是最常見的情況（agent 還跑著舊版 agent-runner.ts，
   // 或舊版 start.command 把 capability 清單寫死了）。前端要能講出這件事，
   // 不然畫面只顯示「目前沒有」，使用者看著明明連上的 agent 完全無從判斷。
@@ -763,8 +766,9 @@ router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) =>
       }
     }
     // Automatic/Agent mode never silently opens a browser on the server.
-    const operator = getOperatorFromContext()
-    const mine = [...agentConnections.values()].filter(a => a.ownerKey === operator?.key)
+    // ⚠️ 授權用驗過的身分，不用 header 來的 operator（理由見 /api/osm-uat/agents）
+    const meRecord = getAuthEmailFromContext() ?? ''
+    const mine = meRecord ? [...agentConnections.values()].filter(a => a.ownerKey === meRecord) : []
     const usable = mine.filter(a => a.capabilities.includes(RECORD_CAPABILITY) && a.ws.readyState === a.ws.OPEN)
     const agent = wantAgentId
       ? usable.find(a => a.agentId === wantAgentId)
@@ -1321,12 +1325,13 @@ router.post('/api/osm-uat/run', (req, res) => {
   // 一台可用 agent 都沒有。指名了卻挑不到一定回 409——默默改跑在 server 上
   // 等於在公網環境偷偷開一顆 Chromium，使用者還以為跑在自己機器上。
   const wantServerMode = agentId === SERVER_MODE_SENTINEL
-  const operator = getOperatorFromContext()
+  // ⚠️ 授權用驗過的身分（理由見 /api/osm-uat/agents）
+  const meRun = getAuthEmailFromContext() ?? ''
   let agent: AgentInfo | undefined
   if (!wantServerMode) {
-    const mine = operator?.key
+    const mine = meRun
       ? [...agentConnections.values()].filter(a =>
-          a.ownerKey === operator.key
+          a.ownerKey === meRun
           && a.capabilities.includes(BACKEND_UAT_CAPABILITY)
           && a.ws.readyState === a.ws.OPEN)
       : []
