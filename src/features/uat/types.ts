@@ -30,6 +30,14 @@ export interface AutoStep {
   collapsed?: boolean
   children?: AutoStep[]
   /**
+   * 這顆積木屬於哪一筆 TC（Lark 的 recordId）。空＝共用步驟。
+   *
+   * ⚠️ **檢查／截圖類的積木一定要指定**，沒指定不給跑——沒有歸屬的檢查結果
+   * 不知道要回寫到哪一筆，而「跑了但沒人收」跟「沒跑」在畫面上看起來一樣。
+   * （跟 Backend 同一條規則。）
+   */
+  tcId?: string
+  /**
    * `backend_snippet`：要跑哪一份後台設定片段。
    *
    * ⚠️ 只存 id，不存步驟——片段被改過之後這顆積木要**跟著改**，

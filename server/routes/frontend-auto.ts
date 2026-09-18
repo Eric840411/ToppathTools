@@ -129,6 +129,40 @@ function canMutateScript(req: express.Request, script: ScriptRow | undefined, ac
 
 router.use('/api/frontend-auto/images', express.static(imageDir))
 
+/**
+ * H5／PC 腳本的 Lark TC 綁定。
+ *
+ * 使用者要求「模式跟 Backend 一樣，只是執行位置不同」——一份腳本綁多筆 TC，
+ * 每個積木屬於其中一筆（或不屬於任何一筆＝共用前置步驟），跑完把判定與截圖回寫。
+ *
+ * ⚠️ **沒綁 TC 的腳本要照舊能跑**，只是不回寫。加了這個欄位就讓現有腳本不能用的話，
+ *    等於用一個新功能把舊功能弄壞。
+ */
+/** 讀回目前存著的綁定欄位，給「沒帶就保留」用。 */
+function existingBinding(id: string): { larkUrl: string; tableId: string; bindings: string } {
+  const row = db.prepare('SELECT lark_url, table_id, bindings FROM frontend_auto_scripts WHERE id = ?').get(id) as
+    { lark_url?: string; table_id?: string; bindings?: string } | undefined
+  return { larkUrl: row?.lark_url ?? '', tableId: row?.table_id ?? '', bindings: row?.bindings ?? '[]' }
+}
+
+function parseBindings(value: unknown): { recordId: string; number: string; text: string }[] {
+  const raw = typeof value === 'string' ? (() => { try { return JSON.parse(value) } catch { return [] } })() : value
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map(item => {
+      const row = item as Record<string, unknown>
+      return {
+        recordId: String(row.recordId ?? '').trim(),
+        number: String(row.number ?? '').trim(),
+        text: String(row.text ?? '').trim(),
+      }
+    })
+    // ⚠️ 沒有 recordId 的綁不到任何一筆 TC——留著只會在回寫時變成「寫不進去」，
+    //    而那個錯誤要到跑完才看得到。這裡就丟掉。
+    .filter(item => item.recordId)
+    .slice(0, 50)
+}
+
 router.get('/api/frontend-auto/scripts', (req, res) => {
   const platform = asPlatform(req.query.platform)
   const rows = platform
@@ -148,9 +182,11 @@ router.post('/api/frontend-auto/scripts', (req, res) => {
     const ts = now()
     const id = randomUUID()
     db.prepare(`
-      INSERT INTO frontend_auto_scripts (id, name, platform, steps, created_by, is_public, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(id, name, platform, jsonSteps(body.steps), createdBy, body.isPublic === false ? 0 : 1, ts, ts)
+      INSERT INTO frontend_auto_scripts
+        (id, name, platform, steps, created_by, is_public, created_at, updated_at, lark_url, table_id, bindings)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(id, name, platform, jsonSteps(body.steps), createdBy, body.isPublic === false ? 0 : 1, ts, ts,
+      text(body.larkUrl), text(body.tableId), JSON.stringify(parseBindings(body.bindings)))
     const script = db.prepare('SELECT * FROM frontend_auto_scripts WHERE id = ?').get(id)
     res.json({ ok: true, script })
   } catch (error) {
@@ -167,9 +203,20 @@ router.put('/api/frontend-auto/scripts/:id', (req, res) => {
     const name = text(body.name)
     const platform = asPlatform(body.platform)
     if (!name || !platform) return res.status(400).json({ ok: false, message: 'name and platform are required' })
+    // ⚠️ **沒帶到的綁定欄位要保留原值，不是清空。**
+    //    存檔的呼叫端不只一個（錄完自動存、改名、改公開與否），只要有一個忘了把
+    //    `larkUrl`/`bindings` 一起帶上，就會在使用者完全沒察覺的情況下把綁定洗掉——
+    //    而那要等到跑完不回寫才會發現。要清空請明確傳空字串／空陣列。
+    const binding = existingBinding(req.params.id)
     db.prepare(`
-      UPDATE frontend_auto_scripts SET name = ?, platform = ?, steps = ?, is_public = ?, updated_at = ? WHERE id = ?
-    `).run(name, platform, jsonSteps(body.steps), body.isPublic === false ? 0 : 1, now(), req.params.id)
+      UPDATE frontend_auto_scripts
+      SET name = ?, platform = ?, steps = ?, is_public = ?, updated_at = ?, lark_url = ?, table_id = ?, bindings = ?
+      WHERE id = ?
+    `).run(name, platform, jsonSteps(body.steps), body.isPublic === false ? 0 : 1, now(),
+      body.larkUrl === undefined ? binding.larkUrl : text(body.larkUrl),
+      body.tableId === undefined ? binding.tableId : text(body.tableId),
+      body.bindings === undefined ? binding.bindings : JSON.stringify(parseBindings(body.bindings)),
+      req.params.id)
     const script = db.prepare('SELECT * FROM frontend_auto_scripts WHERE id = ?').get(req.params.id)
     res.json({ ok: true, script })
   } catch (error) {

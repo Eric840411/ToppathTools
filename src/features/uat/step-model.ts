@@ -58,6 +58,8 @@ function normalizeOne(item: unknown, index: number): AutoStep {
   if (typeof row.scrollStep === 'number') step.scrollStep = row.scrollStep
   if (typeof row.maxScrolls === 'number') step.maxScrolls = row.maxScrolls
   if (typeof row.urlPattern === 'string') step.urlPattern = row.urlPattern
+  if (typeof row.snippetId === 'string') step.snippetId = row.snippetId
+  if (typeof row.tcId === 'string') step.tcId = row.tcId
   if (row.expectStatus === '2xx' || row.expectStatus === 'any' || row.expectStatus === 'exact') step.expectStatus = row.expectStatus
   if (typeof row.statusCode === 'number') step.statusCode = row.statusCode
   if (typeof row.minCount === 'number') step.minCount = row.minCount
@@ -87,7 +89,11 @@ function cleanStep(step: AutoStep): Record<string, unknown> {
   const row: Record<string, unknown> = { id: step.id, name: step.name.trim() || actionLabel(step.action), action: step.action }
   // ⚠️ 新增參數欄位時**這兩行一定要一起加**。漏了的話步驟在畫面上編得好好的，
   //    存檔（serialize）之後參數就消失了，而且不會有任何錯誤——重新載入才發現變空的。
-  for (const key of ['value', 'selector', 'baselineId', 'urlPattern', 'snippetId', 'selectorStrategy', 'selectorCheck', 'selectorCheckReason'] as const) if (step[key]?.trim()) row[key] = step[key]?.trim()
+  //
+  // 🚨 **上面 `normalizeOne()` 那一長串也要一起加。** 白名單有兩份——寫出去一份、
+  //    讀回來一份——只補這裡的話欄位存得進去卻讀不回來，症狀一模一樣（重載後變空的），
+  //    但查起來更難，因為資料庫裡明明看得到。`snippetId` 就這樣漏過一次。
+  for (const key of ['value', 'selector', 'baselineId', 'urlPattern', 'snippetId', 'tcId', 'selectorStrategy', 'selectorCheck', 'selectorCheckReason'] as const) if (step[key]?.trim()) row[key] = step[key]?.trim()
   for (const key of ['x', 'y', 'threshold', 'scrollStep', 'maxScrolls', 'retryCount', 'statusCode', 'minCount'] as const) if (typeof step[key] === 'number') row[key] = step[key]
   if (step.expectStatus) row.expectStatus = step.expectStatus
   if (step.failureMode && step.failureMode !== 'inherit') row.failureMode = step.failureMode
