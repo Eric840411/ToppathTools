@@ -1180,12 +1180,15 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
   // ⚠️ **挑選一律走 `pickUatAgent()`**，它會濾掉別人的 agent（CodeX 2026-09-18 列 P1）。
   //    原本這裡直接掃 `agentConnections`，所以自動挑選會把錄製瀏覽器開在**別人的桌面上**。
   let agent: AgentInfo | undefined
-  if (agentId) {
+  // ⚠️ `server` 是明確要求「開在伺服器本機」，**不是 agent id**——
+  //    丟給 pickUatAgent 會變成「找不到你自己的 Agent『server』」。
+  const wantServerMode = agentId === SERVER_MODE
+  if (agentId && !wantServerMode) {
     // ⚠️ 指名失敗一律報錯，**不能默默退回本機**——使用者指名就是要那台。
     const picked = pickUatAgent('uat-record', agentId)
     if (!picked.ok) return res.status(picked.status ?? 409).json({ ok: false, message: picked.message })
     agent = picked.agent
-  } else if (!isLocalRecordRequest(req)) {
+  } else if (!wantServerMode && !isLocalRecordRequest(req)) {
     const picked = pickUatAgent('uat-record', '')
     if (!picked.ok) {
       return res.status(picked.status ?? 409).json({
@@ -1211,8 +1214,11 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
     return res.json({ ok: true, sessionId, displayUrl: url, via: 'agent', agentHostname: agent.hostname })
   }
 
-  // ── Local recording (requires localhost/LAN access) ──────────────────────────
-  if (!isLocalRecordRequest(req)) {
+  // ── Local recording（伺服器本機開瀏覽器）──────────────────────────────────
+  // ⚠️ 明確選了「伺服器端」就放行，不再看請求是不是從 localhost 來的——
+  //    那個判斷原本是在猜「伺服器是不是就是你的機器」，猜不到就整條路關掉。
+  //    改成讓人自己選，並且把前提（伺服器要有可互動桌面）講在選項旁邊。
+  if (!wantServerMode && !isLocalRecordRequest(req)) {
     // 走到這裡代表「不是本機、而且一台可用的 uat-record agent 都挑不到」。
     // 有 agent 連著卻缺 capability 是最容易誤會的情況（舊版 start.command 會把
     // capability 清單寫死），訊息要講清楚是哪一種，不然使用者只會看到「不支援」。
@@ -1236,7 +1242,20 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
   const viewportWidth = Number(w) || 390
   const viewportHeight = Number(h) || 844
   // ⚠️ 先開 about:blank，注入完才導頁——理由見 launchRecorderChrome 的說明。
-  const { proc, profileDir, port } = await launchRecorderChrome(sessionId, 'about:blank', viewportWidth, viewportHeight)
+  // ⚠️ **一定要 try/catch。** 這支是 async handler，`launchRecorderChrome` 丟出來的話
+  //    沒有人接，請求會**掛在那裡直到逾時**——畫面上是按了完全沒反應。
+  //    伺服器沒有可互動桌面（純 headless 的機器）就是會走到這裡。
+  let launched
+  try {
+    launched = await launchRecorderChrome(sessionId, 'about:blank', viewportWidth, viewportHeight)
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      message: `伺服器端錄製啟動失敗：${error instanceof Error ? error.message : String(error)}。`
+        + '請確認伺服器有可互動桌面與 Chrome；沒有的話請改用 Local Agent。',
+    })
+  }
+  const { proc, profileDir, port } = launched
   const sess: RecSession = {
     proc,
     profileDir,
@@ -1254,7 +1273,9 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
   recSessions.set(sessionId, sess)
   proc.on('close', () => { sess.done = true })
   connectRecorder(sess, port, sessionId)
-  res.json({ ok: true, sessionId, displayUrl })
+  // ⚠️ `via` 要回。前端原本完全不知道這一輪錄在哪台機器上——
+  //    派給 Agent 跟開在伺服器上，畫面長得一模一樣。
+  res.json({ ok: true, sessionId, displayUrl, via: 'server' })
 })
 
 /**
@@ -1294,6 +1315,16 @@ router.get('/api/frontend-auto/record/status/:sessionId', (req, res) => {
 })
 
 const PAUSED_CROP_MESSAGE = '錄製目前暫停中，請先繼續錄製再框選截圖'
+
+/**
+ * 明確指定「跑在伺服器本機」。跟 Backend 的 `SERVER_MODE_SENTINEL` 是同一個字。
+ *
+ * ⚠️ **前提是伺服器那台有可互動桌面**（錄製會開一顆有畫面的 Chrome，要有人點得到）。
+ *    這個前提 Backend 早就有了，它的做法是**把選項開出來並講清楚前提**，不是藏起來。
+ *    H5/PC 原本把同樣的能力藏在「你從哪個網址開的」後面（`isLocalRecordRequest`），
+ *    所以使用者看不到、也選不到。
+ */
+const SERVER_MODE = 'server'
 
 router.post('/api/frontend-auto/record/crop/:sessionId', async (req, res) => {
   const agentSess = uatAgentSessions.get(req.params.sessionId)
@@ -1591,12 +1622,18 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
   //    ② 指名只用 `agentConnections.get()` —— 沒驗擁有者、沒驗能力、沒驗忙碌，
   //       而且拿不到時會**默默掉到下面的本機執行**，使用者對著「成功」的畫面
   //       卻找不到自己指名那台在跑什麼
-  const picked = pickUatAgent('uat-run', requestedAgentId)
-  // 指名的情況：失敗一律報錯，不退回本機。
-  if (requestedAgentId && !picked.ok) {
+  // ⚠️ `server` 是明確要求「跑在伺服器本機」，不是 agent id——不能丟給 pickUatAgent。
+  const wantServerMode = requestedAgentId === SERVER_MODE
+  const picked = wantServerMode
+    ? { ok: false } as AgentPick
+    : pickUatAgent('uat-run', requestedAgentId)
+  // 指名一台 agent 的情況：失敗一律報錯，不退回本機。
+  if (requestedAgentId && !wantServerMode && !picked.ok) {
     return res.status(picked.status ?? 409).json({ ok: false, message: picked.message })
   }
   // 沒指名：挑不到就照舊退回伺服器端執行（那是這條路既有且刻意的行為）。
+  // ⚠️ 但**一定要回報跑在哪**——這個 fallback 原本是隱形的：前端連回應都沒讀，
+  //    所以同一顆按鈕可能跑在你的機器上、也可能跑在伺服器上，畫面完全一樣。
   const agentToUse = picked.ok ? picked.agent : undefined
 
   if (agentToUse && agentToUse.ws.readyState === agentToUse.ws.OPEN) {
@@ -1618,7 +1655,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
 
   runOwners.set(runId, authedKey())
   activeRuns.add(runId)
-  res.json({ ok: true })
+  res.json({ ok: true, via: 'server' })
 
   void (async () => {
     const log = (line: string) => pushLog(runId, line)

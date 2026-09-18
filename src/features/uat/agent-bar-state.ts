@@ -47,13 +47,18 @@ export interface AgentBarView {
 }
 
 /**
- * 「伺服器端（fallback）」這個選項該不該出現。
+ * 「伺服器端」這個選項該不該出現。
  *
- * ⚠️ **只有 Backend 有。** H5/PC 的非 Agent 路徑是本機 Chrome，而且只有從 localhost
- *    開才有——三個分頁都放，等於做一個在兩個分頁按了不會怎樣的選項。
+ * ⚠️ **三個分頁都有**（v4.189.0 起）。我一開始判斷成「只有 Backend 有」是錯的：
+ *    H5/PC 的伺服器端能力**本來就存在**（`launchRecorderChrome` 開的是有畫面的 Chrome，
+ *    跟 Backend 的 `startServerRecorder` 同一回事），只是被藏在「你從哪個網址開的」
+ *    這個判斷後面，使用者看不到也選不到。
+ *
+ * 真正的前提只有一個：**伺服器那台要有可互動桌面**——而這條對 Backend 一樣成立，
+ * 它的做法是把選項開出來並講清楚前提，不是藏起來。
  */
-export function allowsServerFallback(tab: UatMainTab): boolean {
-  return tab === 'backend'
+export function allowsServerFallback(_tab: UatMainTab): boolean {
+  return true
 }
 
 /**

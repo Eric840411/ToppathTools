@@ -405,6 +405,33 @@ try {
       anon.json?.authed === false && (anon.json?.agents ?? []).length === 0, JSON.stringify(anon.json));
   }
 
+  // ── ⑪c 明確選「伺服器端」（v4.189.0）────────────────────────────────────
+  // ⚠️ `server` 是一個**明確的選擇**，不是 agent id。丟給挑選器會變成
+  //    「找不到你自己的 Agent『server』」——那是把使用者的選擇講成他選錯了。
+  console.log('⑪c 明確選伺服器端');
+  {
+    reset();
+    addAgent({ agentId: 'MY-PC', ownerKey: ME, capabilities: ['uat-record', 'uat-run'] });
+
+    const run = await call('POST', '/api/frontend-auto/runs/run-srv/execute', {
+      as: ME, body: { steps: '[]', url: 'https://game.example/', platform: 'h5', agentId: 'server' },
+    });
+    check('⑪c 選伺服器端時不會被當成找不到 Agent', run.ok, `HTTP ${run.status} ${JSON.stringify(run.json)}`);
+    check('⑪c ⚠️ 而且**不會派給任何 Agent**（就算有一台可用）',
+      !(outbox.get('MY-PC') ?? []).some(m => m.type === 'uat_script_run'), JSON.stringify(outbox.get('MY-PC')));
+    check('⑪c ⚠️ 回應要講得出跑在哪（原本這個 fallback 是隱形的）',
+      run.json?.via === 'server', JSON.stringify(run.json));
+    fa.activeRuns.delete('run-srv');
+
+    // 對照組：沒指名而且有可用 Agent → 要派工，而且回應也要講得出來
+    const auto = await call('POST', '/api/frontend-auto/runs/run-auto/execute', {
+      as: ME, body: { steps: '[]', url: 'https://game.example/', platform: 'h5' },
+    });
+    check('⑪c 沒指名時照樣派給自己的 Agent', auto.json?.via === 'agent', JSON.stringify(auto.json));
+    check('⑪c 而且回得出是哪一台', auto.json?.agentId === 'MY-PC', JSON.stringify(auto.json));
+    fa.activeRuns.delete('run-auto');
+  }
+
   // ── ⑫ 身分簽章本身 ────────────────────────────────────────────────────
   console.log('⑫ 跨 process 的身分簽章');
   {

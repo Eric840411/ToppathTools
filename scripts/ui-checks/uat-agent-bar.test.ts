@@ -96,10 +96,12 @@ check('⑩ 不是從本機開的就沒有這條退路', () => {
 
 // ── 派工選擇（v4.188.0：三個分頁的下拉整合到共用列）────────────────────────
 
-check('⑪ ⚠️ 「伺服器端 fallback」只有 Backend 有', () => {
+// ⚠️ v4.189.0 改：我原本判斷成「只有 Backend 有」，那是錯的。
+//    H5/PC 的伺服器端能力本來就存在，只是被藏在「你從哪個網址開的」判斷後面。
+check('⑪ 三個分頁都有「伺服器端」選項', () => {
   assert.equal(allowsServerFallback('backend'), true)
-  assert.equal(allowsServerFallback('h5'), false, 'H5 沒有這條路，放上去等於做一個按了不會怎樣的選項')
-  assert.equal(allowsServerFallback('pc'), false)
+  assert.equal(allowsServerFallback('h5'), true, 'H5 的伺服器端錄製本來就有，只是原本選不到')
+  assert.equal(allowsServerFallback('pc'), true)
 })
 
 check('⑫ 沒選＝自動，選 server 就是 server', () => {

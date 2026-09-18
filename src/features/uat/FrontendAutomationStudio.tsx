@@ -58,6 +58,14 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
   const [recordSessionId, setRecordSessionId] = useState<string | null>(null)
   const [recordLabel, setRecordLabel] = useState('')
   /**
+   * 這一輪**實際**跑在哪。
+   *
+   * ⚠️ 原本前端根本沒讀執行的回應——所以同一顆按鈕可能跑在你的機器上、也可能
+   *    在挑不到 Agent 時**安靜地跑在伺服器上**，而畫面長得一模一樣。
+   *    Backend 早就有這個顯示（`runMode`），只有 H5/PC 這條沒有。
+   */
+  const [runWhere, setRunWhere] = useState('')
+  /**
    * 這一輪錄製暫停中。**跟錄製視窗裡的浮動面板共用同一個狀態**（來源都是 host），
    * 主畫面自己記一份的話會出現「面板顯示已暫停、主畫面顯示錄製中」。
    */
@@ -234,7 +242,9 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
     if (!response.ok || !data.sessionId) return setNotice(data.message ?? '錄製啟動失敗')
     setRecordSessionId(data.sessionId)
     setRecPaused(false)
-    setRecordLabel(data.via === 'agent' ? `Local Agent · ${data.agentHostname ?? agentId}` : '本機 Chrome')
+    setRecordLabel(data.via === 'agent'
+      ? `Local Agent · ${data.agentHostname ?? agentId}`
+      : agentId === 'server' ? '伺服器端 Chrome' : '本機 Chrome')
     setNotice('錄製中；請在新開啟的 Chrome 視窗操作')
     pollRecorder.current = setInterval(async () => {
       const poll = await fetch(`/api/frontend-auto/record/status/${data.sessionId}`)
@@ -375,13 +385,21 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
     stream.addEventListener('stats', event => {
       try { setNetStats(JSON.parse(event.data) as UatStatsPayload); setStatsAt(Date.now()) } catch { /* 壞掉的一筆跳過就好，不要讓面板整個掛掉 */ }
     })
-    await fetch(`/api/frontend-auto/runs/${runId}/execute`, {
+    // ⚠️ **一定要讀回應。** 原本這裡整包丟掉，所以「挑不到 Agent 就跑在伺服器上」
+    //    這個 fallback 是隱形的——使用者以為跑在自己機器上。
+    const response = await fetch(`/api/frontend-auto/runs/${runId}/execute`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ steps: JSON.stringify(executable), url: runConfig.url, platform, resolution: runConfig.resolution, failureMode: runConfig.failureMode, headed: runConfig.headed, ...(agentId ? { agentId } : {}) }),
     })
+    const data = await response.json().catch(() => ({})) as { ok?: boolean; via?: string; agentId?: string; message?: string }
+    if (!response.ok) { setRunWhere(''); return setNotice(data.message ?? '執行啟動失敗') }
+    setRunWhere(data.via === 'agent'
+      ? `本次派工給 ${agents.find(a => a.agentId === data.agentId)?.hostname ?? data.agentId ?? 'Agent'}`
+      : '本次跑在伺服器端')
   }
 
   const stopRun = async () => {
+    setRunWhere('')
     if (!activeRunId.current) return
     await fetch(`/api/frontend-auto/runs/${activeRunId.current}/stop`, { method: 'POST' })
     setRunning(false)
@@ -436,7 +454,7 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
             <button type="button" className="uat-btn is-primary" onClick={saveScript} disabled={saving}>{saving ? copy.saving : copy.save}</button>
           </div>
         </header>
-        {(notice || recordLabel) && <div className="uat-notice"><XianxiaIcon name="notification" size={16} /><span>{recordLabel ? `${recordLabel} ${recPaused ? (xianxia ? '已暫歇' : '已暫停') : (xianxia ? '觀照錄術中' : '錄製中')}` : notice}</span><button type="button" onClick={() => setNotice('')}>{xianxia ? '收起符訊' : '關閉'}</button></div>}
+        {(notice || recordLabel) && <div className="uat-notice"><XianxiaIcon name="notification" size={16} /><span>{recordLabel ? `${recordLabel} ${recPaused ? (xianxia ? '已暫歇' : '已暫停') : (xianxia ? '觀照錄術中' : '錄製中')}` : notice}</span>{runWhere ? <em className="uat-run-where">{runWhere}</em> : null}<button type="button" onClick={() => setNotice('')}>{xianxia ? '收起符訊' : '關閉'}</button></div>}
 
         {view === 'editor' && !!selectorWarnings.bad.length && <div className="uat-multi-alert" role="alert">
           <p>⚠️ 這些步驟的定位在<strong>錄製當下就已經不對</strong>，直接執行會失敗：</p>
