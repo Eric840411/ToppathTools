@@ -27,7 +27,7 @@ import net from 'net';
 import { spawn } from 'child_process';
 import { chromium } from 'playwright';
 import WebSocket from 'ws';
-import { frontendRecorderScript, FRONTEND_RECORDER_MARKER, flagShadowCompleteness } from './frontend-recorder.js';
+import { frontendRecorderScript, FRONTEND_RECORDER_MARKER, FRONTEND_RECORDER_CONTROL_MARKER, flagShadowCompleteness, syncRecorderPanel } from './frontend-recorder.js';
 import { nativeSelectorCheckSource } from './selector-ladder.js';
 
 const results = [];
@@ -121,17 +121,33 @@ const waitJson = async (url, timeoutMs = 20000) => {
   throw new Error(`CDP 沒起來：${last?.message ?? 'timeout'}`);
 };
 
-/** 開一條 CDP 連線，收步驟的方式跟產品端的 host 一樣（比對 marker 前綴） */
-const connect = async (wsUrl) => {
+/**
+ * 開一條 CDP 連線，**行為比照產品端的 host**：
+ *   - 收步驟時比對 marker 前綴
+ *   - 暫停中不收（host 端那一道閘門）
+ *   - 每次載入事件與每收到一步都把狀態推回面板
+ *
+ * ⚠️ 最後那一項不是測試的方便措施，是**產品的必要條件**：頁面端的新文件一律
+ *    從「尚未同步」開始、在同步之前什麼都不收。不推狀態的話整個錄製是死的——
+ *    所以這裡必須跟產品做同一件事，否則測到的是一條產品不會走的路。
+ *    （`autoSync: false` 是給「還沒同步」那條測試用的。）
+ */
+const connect = async (wsUrl, options = {}) => {
+  const autoSync = options.autoSync !== false;
   const ws = new WebSocket(wsUrl);
   let msgId = 0;
   const pending = new Map();
   const steps = [];
+  const controls = [];
+  let hostPaused = false;
   const send = (method, params) => new Promise(resolve => {
     const id = ++msgId;
     pending.set(id, resolve);
     ws.send(JSON.stringify({ id, method, params }));
   });
+  // host 的清單開頭永遠有一顆 goto，所以步數是 steps.length + 1。
+  // 面板顯示的數字必須是這個，不是頁面自己數的。
+  const sync = () => syncRecorderPanel(send, { paused: hostPaused, steps: steps.length + 1 });
   await new Promise((resolve, reject) => {
     ws.on('error', reject);
     ws.on('message', raw => {
@@ -139,8 +155,16 @@ const connect = async (wsUrl) => {
         const msg = JSON.parse(String(raw));
         if (msg.id && pending.has(msg.id)) { pending.get(msg.id)({ result: msg.result }); pending.delete(msg.id); return; }
         if (msg.method === 'Runtime.consoleAPICalled' && msg.params?.args?.[0]?.value === FRONTEND_RECORDER_MARKER) {
+          if (hostPaused) return;   // host 端的閘門，跟產品一樣
           try { steps.push(JSON.parse(msg.params.args[1]?.value)); } catch { steps.push({ action: '<parse failed>' }); }
+          if (autoSync) void sync();
+          return;
         }
+        if (msg.method === 'Runtime.consoleAPICalled' && msg.params?.args?.[0]?.value === FRONTEND_RECORDER_CONTROL_MARKER) {
+          try { controls.push(JSON.parse(msg.params.args[1]?.value)); } catch { controls.push({ cmd: '<parse failed>' }); }
+          return;
+        }
+        if (autoSync && (msg.method === 'Page.domContentEventFired' || msg.method === 'Page.loadEventFired')) void sync();
       } catch { /* ignore */ }
     });
     ws.on('open', resolve);
@@ -149,7 +173,8 @@ const connect = async (wsUrl) => {
     const r = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
     return r.result?.result?.value;
   };
-  return { ws, send, steps, evaluate };
+  const setPaused = async (value) => { hostPaused = value; await sync(); };
+  return { ws, send, steps, controls, evaluate, sync, setPaused };
 };
 
 try {
@@ -543,6 +568,9 @@ try {
     await late.evaluate(frontendRecorderScript());
     // 同 ⑨：先讓 host 確認過，否則測到的是「還沒確認」而不是 readyState 守門
     await late.send('Page.enable');
+    // 這條沒有新的載入事件，所以自動同步不會觸發——手動推一次。
+    // 不推的話錄製器會停在「尚未同步」而**什麼都不收**，下面那條會變成無步驟可驗。
+    await late.sync();
     await flagShadowCompleteness(late.send);
     check('⑨b host 已經確認過這一頁乾淨（所以下面的 unknown 只能來自 readyState 守門）',
       await late.evaluate('window.__toppathShadowChecked') === true);
@@ -554,6 +582,172 @@ try {
       JSON.stringify(lateStep));
     late.ws.close();
     if (lateId) await send('Target.closeTarget', { targetId: lateId });
+  }
+
+  // ── ⑩ 控制面板（v4.183.0）──────────────────────────────────────────────
+  // CodeX 指定的三條驗收：**暫停後導頁／重整**、**恢復後錄一步**、**停止確認逾時**，
+  // 而且要核對「實際步驟」與「面板顯示」一致。
+  const STATUS_SEL = '[data-toppath-recorder-ui] [role="status"]';
+  const HINT_SEL = '[data-toppath-recorder-ui] [role="alert"]';
+  const STOP_SEL = '[data-toppath-recorder-ui] button[aria-label="停止錄製"]';
+  {
+    const created = await send('Target.createTarget', { url: 'about:blank' });
+    const panelId = created.result?.targetId;
+    const list = await waitJson(`http://127.0.0.1:${cdpPort}/json/list`);
+    const fresh = list.find(t => t.id === panelId && t.webSocketDebuggerUrl);
+    if (!fresh) throw new Error('開不出面板分頁');
+    const panel = await connect(fresh.webSocketDebuggerUrl);
+    await panel.send('Runtime.enable');
+    await panel.send('Page.enable');
+    await panel.send('Page.addScriptToEvaluateOnNewDocument', { source: frontendRecorderScript() });
+    await panel.send('Page.navigate', { url: `http://127.0.0.1:${sitePort}/` });
+    await new Promise(r => setTimeout(r, 1200));
+    const status = () => panel.evaluate(`(document.querySelector(${JSON.stringify(STATUS_SEL)})||{}).textContent || ''`);
+
+    // ⑩a 面板本身
+    check('⑩a 面板掛上去了',
+      await panel.evaluate(`!!document.querySelector('[data-toppath-recorder-ui]')`) === true);
+    const beforeUi = panel.steps.length;
+    await panel.evaluate(`document.querySelector('[data-toppath-recorder-ui] button[aria-label="展開"]').click()`);
+    await new Promise(r => setTimeout(r, 250));
+    check('⑩a ⚠️ 點面板不會被錄成步驟', panel.steps.length === beforeUi,
+      `多錄了 ${panel.steps.length - beforeUi} 步——面板自己的操作混進腳本裡`);
+    // ⚠️ 上面那條單獨看會**假通過**：按鈕壞掉（完全收不到事件）時它一樣綠。
+    //    所以一定要同時證明那一下真的生效了——第一版把隔離掛在捕獲階段，
+    //    面板自己的按鈕全部收不到事件，就是靠這條抓到的。
+    check('⑩a 而且那一下真的生效了（展開區打開）',
+      await panel.evaluate(`getComputedStyle(document.querySelector('[data-toppath-recorder-ui] [role="alert"]').parentElement).display`) === 'block',
+      '按鈕沒反應的話上面那條會假通過');
+
+    // ⑩b 步數用 host 的清單（含 goto），不是頁面自己數的
+    await panel.evaluate(`document.querySelector('[aria-label="設定"]').click()`);
+    await new Promise(r => setTimeout(r, 400));
+    const counted = await status();
+    check('⑩b ⚠️ 步數用 host 的清單（含 goto），不是頁面自己數的',
+      counted.includes(`${panel.steps.length + 1} 步`),
+      `面板顯示「${counted}」，host 清單是 ${panel.steps.length + 1} 步（頁面自己數會是 ${panel.steps.length}）`);
+
+    // ⑩c 暫停後導頁／重整——CodeX 指定
+    // ⚠️ 這條是第一版的重點：狀態放頁面的話，導頁之後面板重建、預設回「在錄」，
+    //    於是**以為還暫停、其實在錄**，而畫面上完全看不出來。
+    await panel.setPaused(true);
+    await new Promise(r => setTimeout(r, 250));
+    check('⑩c 暫停後面板顯示已暫停', (await status()).includes('已暫停'), await status());
+    const pausedAt = panel.steps.length;
+    await panel.evaluate(`document.querySelector('[name="nickname"]').click()`);
+    await new Promise(r => setTimeout(r, 350));
+    check('⑩c 暫停中不錄', panel.steps.length === pausedAt);
+    await panel.send('Page.navigate', { url: `http://127.0.0.1:${sitePort}/` });
+    await new Promise(r => setTimeout(r, 1200));
+    const afterNav = await status();
+    check('⑩c ⚠️ 導頁之後仍然是暫停（不是安靜恢復錄製）',
+      afterNav.includes('已暫停'), `面板顯示「${afterNav}」`);
+    const navAt = panel.steps.length;
+    await panel.evaluate(`document.querySelector('[aria-label="設定"]').click()`);
+    await new Promise(r => setTimeout(r, 350));
+    check('⑩c ⚠️ 導頁之後暫停仍然生效（沒有錄到新步驟）',
+      panel.steps.length === navAt,
+      `導頁後又錄到 ${panel.steps.length - navAt} 步——暫停在導頁時失效了`);
+
+    // ⑩d 恢復後錄一步——CodeX 指定
+    await panel.setPaused(false);
+    await new Promise(r => setTimeout(r, 250));
+    check('⑩d 恢復後面板顯示錄製中', (await status()).includes('錄製中'), await status());
+    const resumeAt = panel.steps.length;
+    await panel.evaluate(`document.querySelector('[aria-label="設定"]').click()`);
+    await new Promise(r => setTimeout(r, 400));
+    check('⑩d 恢復後錄得到一步', panel.steps.length === resumeAt + 1,
+      `錄到 ${panel.steps.length - resumeAt} 步`);
+    check('⑩d 恢復後的步數也對得上',
+      (await status()).includes(`${panel.steps.length + 1} 步`), await status());
+
+    // ⑩e 面板藏得起來（截圖不能把面板拍進 baseline）
+    check('⑩e 面板藏得起來',
+      await panel.evaluate('window.__toppathRecPanelVisible(false)') === true
+      && await panel.evaluate(`getComputedStyle(document.querySelector('[data-toppath-recorder-ui]')).visibility`) === 'hidden');
+    await panel.evaluate('window.__toppathRecPanelVisible(true)');
+    check('⑩e 藏完放得回來',
+      await panel.evaluate(`getComputedStyle(document.querySelector('[data-toppath-recorder-ui]')).visibility`) === 'visible');
+
+    // ⑩f 停止確認逾時——CodeX 指定
+    // 這裡刻意**不讓 host 回應**：停止指令沒人接的時候，面板必須說「沒有得到確認」，
+    // 不能顯示成已停止——否則使用者以為停了就走人，留下一顆還在錄的瀏覽器。
+    // ⚠️ 先收合。展開著的話「逾時會自己展開」那條是**假通過**——提示本來就看得到。
+    //    （注入測試抓到的：把 expanded = true 那行拿掉，測試照樣全綠。）
+    await panel.evaluate(`document.querySelector('[data-toppath-recorder-ui] button[aria-label="收合"]').click()`);
+    await new Promise(r => setTimeout(r, 250));
+    check('⑩f fixture 先收合起來（不然下面那條會假通過）',
+      await panel.evaluate(`getComputedStyle(document.querySelector(${JSON.stringify(HINT_SEL)}).parentElement).display`) === 'none',
+      '沒收合的話「逾時會自己展開」驗不到東西');
+    const ctlBefore = panel.controls.length;
+    await panel.evaluate(`document.querySelector(${JSON.stringify(STOP_SEL)}).click()`);
+    await new Promise(r => setTimeout(r, 350));
+    check('⑩f 停止會送出控制指令',
+      panel.controls.length === ctlBefore + 1 && panel.controls.at(-1)?.cmd === 'stop',
+      JSON.stringify(panel.controls.slice(ctlBefore)));
+    const during = await status();
+    check('⑩f 送出後顯示「停止中」，還沒確認就不宣稱完成', during.includes('停止中'), during);
+    await new Promise(r => setTimeout(r, 5400));
+    const hintText = await panel.evaluate(`(document.querySelector(${JSON.stringify(HINT_SEL)})||{}).textContent || ''`);
+    check('⑩f ⚠️ 逾時要顯示「沒有得到確認」，不能顯示成已停止',
+      hintText.includes('沒有得到確認'), `提示是「${hintText}」`);
+    // ⚠️ 要問「真的看得到嗎」，不能問元素自己的 display。
+    //    getComputedStyle 回的是該元素**自己**算出來的 display——祖先是 display:none
+    //    時它照樣回 block，於是這條永遠通過。getClientRects() 才會因為祖先隱藏而變 0。
+    //    （注入測試抓到的：把自動展開那行拿掉，原本的寫法照樣綠。）
+    check('⑩f ⚠️ 逾時的提示要自己展開才看得到（收合著等於沒提示）',
+      await panel.evaluate(`document.querySelector(${JSON.stringify(HINT_SEL)}).getClientRects().length > 0`) === true,
+      '提示在收合區裡，使用者看不到——等於停止失敗完全沒有徵兆');
+    check('⑩f 逾時之後停止鈕要放回去（不能永遠卡在停止中）',
+      await panel.evaluate(`document.querySelector(${JSON.stringify(STOP_SEL)}).disabled`) === false);
+
+    panel.ws.close();
+    if (panelId) await send('Target.closeTarget', { targetId: panelId });
+  }
+
+  // ── ⑩g 還沒同步就**什麼都不收**（暫停跨導頁成立的前提）───────────────────
+  // ⚠️ 這條驗的是預設值的方向。頁面端預設成「在錄」的話，⑩c 就永遠過不了——
+  //    新文件會在收到狀態之前先錄下幾步。刻意不讓 host 同步，看它是不是真的閉嘴。
+  {
+    const created = await send('Target.createTarget', { url: 'about:blank' });
+    const quietId = created.result?.targetId;
+    const list = await waitJson(`http://127.0.0.1:${cdpPort}/json/list`);
+    const fresh = list.find(t => t.id === quietId && t.webSocketDebuggerUrl);
+    if (!fresh) throw new Error('開不出未同步分頁');
+    const quiet = await connect(fresh.webSocketDebuggerUrl, { autoSync: false });
+    await quiet.send('Runtime.enable');
+    await quiet.send('Page.enable');
+    await quiet.send('Page.addScriptToEvaluateOnNewDocument', { source: frontendRecorderScript() });
+    await quiet.send('Page.navigate', { url: `http://127.0.0.1:${sitePort}/` });
+    await new Promise(r => setTimeout(r, 1200));
+    const quietStatus = await quiet.evaluate(`(document.querySelector(${JSON.stringify(STATUS_SEL)})||{}).textContent || ''`);
+    check('⑩g 未同步時面板顯示「同步中」，不假裝在錄', quietStatus.includes('同步中'), quietStatus);
+    check('⑩g 未同步時步數顯示「—」，不假裝是 0', quietStatus.includes('—'), quietStatus);
+    await quiet.evaluate(`document.querySelector('[aria-label="設定"]').click()`);
+    await new Promise(r => setTimeout(r, 350));
+    check('⑩g ⚠️ 未同步時一步都不收', quiet.steps.length === 0,
+      `收到 ${quiet.steps.length} 步——預設值寫反了，暫停跨導頁會失效`);
+    // 同步之後同一個頁面就錄得到——證明擋住的是「還沒同步」，不是別的東西壞了
+    await quiet.sync();
+    await new Promise(r => setTimeout(r, 200));
+    await quiet.evaluate(`document.querySelector('[name="nickname"]').click()`);
+    await new Promise(r => setTimeout(r, 350));
+    check('⑩g 同步之後同一個頁面就錄得到（證明擋住的是未同步這件事）',
+      quiet.steps.length === 1, `錄到 ${quiet.steps.length} 步`);
+    // ⚠️ **單獨驗頁面端那道閘門。** 上面 ⑩c 的「暫停中不錄」其實是 host 那道擋下來的
+    //    （harness 跟產品一樣會擋），所以它證明不了頁面端有沒有擋。這裡刻意讓 host
+    //    **不擋**（hostPaused 維持 false），只把 paused:true 推給頁面——錄不到才代表
+    //    頁面端那道是真的存在。兩道都要有：host 擋得住「頁面還沒收到狀態」，
+    //    頁面擋得住「已經知道自己暫停」。
+    await syncRecorderPanel(quiet.send, { paused: true, steps: 2 });
+    await new Promise(r => setTimeout(r, 200));
+    await quiet.evaluate(`document.querySelector('[aria-label="設定"]').click()`);
+    await new Promise(r => setTimeout(r, 350));
+    check('⑩g ⚠️ 頁面端自己也擋（host 不擋時，暫停中仍然錄不到）',
+      quiet.steps.length === 1,
+      `又錄到 ${quiet.steps.length - 1} 步——頁面端那道閘門沒有生效`);
+    quiet.ws.close();
+    if (quietId) await send('Target.closeTarget', { targetId: quietId });
   }
 
   ws.close();

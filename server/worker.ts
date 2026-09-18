@@ -805,6 +805,10 @@ wss.on('connection', (ws, req) => {
               log('error', '-', '-', `UAT agent crop save error: ${String(err)}`)
             }
           })()
+        } else if (ev.kind === 'paused') {
+          // agent 是暫停狀態的權威來源（擋事件的是它）。這裡只存它回報的結果，
+          // 讓 /record/status 把同一個狀態帶給主畫面。
+          sess.paused = !!ev.paused
         } else if (ev.kind === 'done') {
           if (Array.isArray(ev.steps)) sess.steps = ev.steps
           sess.done = true

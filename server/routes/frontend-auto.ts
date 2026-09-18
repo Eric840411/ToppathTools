@@ -7,7 +7,7 @@ import { attachPinusProbe } from '../uat-runner/pinus-probe.js'
 import { attachCdpCapture } from '../uat-runner/cdp-capture.js'
 import { createRecordedLocators } from '../uat-runner/recorded-selector.js'
 import { waitForDebugPort, clearStaleDebugPort, DEBUG_PORT_ARG } from '../uat-runner/chrome-debug-port.js'
-import { frontendRecorderScript, flagShadowCompleteness } from '../uat-runner/frontend-recorder.js'
+import { frontendRecorderScript, flagShadowCompleteness, syncRecorderPanel, setRecorderPanelVisible, FRONTEND_RECORDER_CONTROL_MARKER } from '../uat-runner/frontend-recorder.js'
 import { evaluateApiAssertion } from '../uat-runner/api-assert.js'
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 import { extname, join } from 'path'
@@ -457,6 +457,13 @@ interface RecSession {
   consoleLogs?: UatConsoleEntry[]
   consoleDropped?: number
   pinusPatched?: string | null
+  /**
+   * 暫停中。**權威狀態在這裡，不在頁面。** 錄製器每次導頁都重新注入、
+   * 面板整個重建，狀態放頁面就會在導頁後安靜消失（回到「在錄」）。
+   */
+  paused?: boolean
+  /** 控制面板的配色。跟著開始錄製時的畫面模式走 */
+  theme?: 'normal' | 'xianxia'
 }
 const recSessions = new Map<string, RecSession>()
 
@@ -516,8 +523,8 @@ async function waitForJson<T>(url: string, timeoutMs = 10_000): Promise<T> {
  * 注入頁面的錄製器。**動作錄製走共用的 frontendRecorderScript()**（跟 agent 模式同一份，
  * 兩邊各寫一份已經漂過一次），這裡只再加上「框選截圖」那層——它是本機模式專屬的 UI。
  */
-function recorderScript() {
-  return frontendRecorderScript() + `
+function recorderScript(sess?: RecSession) {
+  return frontendRecorderScript({ theme: sess?.theme }) + `
 (() => {
   if (window.__toppathCropInstalled) return;
   window.__toppathCropInstalled = true;
@@ -705,11 +712,20 @@ async function saveCropFromRecorder(sess: RecSession, crop: { x: number; y: numb
   const cropY = Math.max(0, Math.round(crop.y))
   const cropW = Math.max(1, Math.round(crop.w))
   const cropH = Math.max(1, Math.round(crop.h))
-  const shot = await sess.cdpSend('Page.captureScreenshot', {
-    format: 'png',
-    fromSurface: true,
-    clip: { x: cropX, y: cropY, width: cropW, height: cropH, scale: 1 },
-  })
+  // ⚠️ 截圖前把面板藏起來，`finally` 一定要放回來。框選範圍蓋到面板的話，面板會被
+  //    拍進 baseline，而 baseline 是之後每次執行的比對基準——等於把一個只有錄製時
+  //    才存在的東西寫進基準；失敗時沒放回來，使用者會看到一個沒有停止鈕的視窗。
+  await setRecorderPanelVisible(sess.cdpSend, false)
+  let shot
+  try {
+    shot = await sess.cdpSend('Page.captureScreenshot', {
+      format: 'png',
+      fromSurface: true,
+      clip: { x: cropX, y: cropY, width: cropW, height: cropH, scale: 1 },
+    })
+  } finally {
+    await setRecorderPanelVisible(sess.cdpSend, true)
+  }
   const data = shot.result?.data
   if (typeof data !== 'string') return
   const filename = `${Date.now()}-${randomUUID()}.png`
@@ -766,7 +782,48 @@ async function flushLocalCapture(sess: RecSession) {
   } catch { /* 量測失敗不能影響錄製 */ }
 }
 
-function connectRecorder(sess: RecSession, port: number) {
+/**
+ * 把 host 的權威狀態推給頁面內的控制面板。
+ *
+ * ⚠️ **每次注入之後都要呼叫一次。** 頁面端的新文件一律從「尚未同步」開始，
+ *    不推的話面板停在「同步中」而且**完全不收錄**——那是刻意的：預設成
+ *    「在錄」的話，暫停之後導頁就會安靜地恢復錄製。
+ */
+function syncLocalPanel(sess: RecSession) {
+  if (!sess.cdpSend) return
+  void syncRecorderPanel(sess.cdpSend, { paused: !!sess.paused, steps: sess.steps.length })
+}
+
+/** 設暫停狀態，並立刻把結果推回面板當回執（面板要收到才顯示完成） */
+function setLocalPaused(sess: RecSession, paused: boolean) {
+  sess.paused = paused
+  syncLocalPanel(sess)
+}
+
+/**
+ * 結束本機模式的這一輪錄製。
+ *
+ * ⚠️ **不要在這裡就把 session 從 map 拿掉。** 前端是靠 /record/status 輪詢拿步驟的，
+ *    立刻刪掉的話下一次輪詢會拿到 `found:false` → 畫面顯示「錄製完成，共 0 個步驟」，
+ *    而且看起來完全像正常結束。留一段寬限期讓輪詢收得到，之後再清。
+ */
+async function finishLocalRecording(sess: RecSession, sessionId: string) {
+  if (sess.done) return
+  // 最後一次 flush 要在 kill 之前——kill 之後 CDP 連線就沒了，
+  // 最後那幾秒（往往正是使用者關心的那段）會整段消失。
+  await flushLocalCapture(sess)
+  killRecSession(sess)
+  sess.done = true
+  setTimeout(() => recSessions.delete(sessionId), 5 * 60_000).unref?.()
+}
+
+/** 頁面內控制面板送上來的指令 */
+function handleLocalPanelControl(sess: RecSession, sessionId: string, msg: { cmd?: string }) {
+  if (msg?.cmd === 'stop') { void finishLocalRecording(sess, sessionId); return }
+  if (msg?.cmd === 'pause' || msg?.cmd === 'resume') setLocalPaused(sess, msg.cmd === 'pause')
+}
+
+function connectRecorder(sess: RecSession, port: number, sessionId: string) {
   void (async () => {
     const targets = await waitForJson<Array<{ type: string; url: string; webSocketDebuggerUrl?: string }>>(`http://127.0.0.1:${port}/json/list`)
     const target = targets.find(t => t.type === 'page' && t.webSocketDebuggerUrl)
@@ -791,8 +848,18 @@ function connectRecorder(sess: RecSession, port: number) {
         }
         if (msg.method === 'Runtime.consoleAPICalled') {
           const args = msg.params?.args ?? []
-          if (args[0]?.value === '__TOPPATH_RECORDER__' && typeof args[1]?.value === 'string') {
-            try { sess.steps.push(JSON.parse(args[1].value)) } catch {}
+          // ⚠️ **暫停要在收事件的入口擋，不能只靠頁面自己不送。** 頁面每次導頁都
+          //    重新注入，新文件要等我們推狀態過去才知道自己是暫停的——那段空窗期
+          //    的操作只有這裡擋得住。兩道都要有。
+          if (args[0]?.value === '__TOPPATH_RECORDER__' && typeof args[1]?.value === 'string' && !sess.paused) {
+            try {
+              sess.steps.push(JSON.parse(args[1].value))
+              // 面板上的步數以 host 的清單為準（清單開頭有一顆 goto）
+              syncLocalPanel(sess)
+            } catch {}
+          }
+          if (args[0]?.value === FRONTEND_RECORDER_CONTROL_MARKER && typeof args[1]?.value === 'string') {
+            try { handleLocalPanelControl(sess, sessionId, JSON.parse(args[1].value)) } catch {}
           }
           if (args[0]?.value === '__TOPPATH_CROP__' && typeof args[1]?.value === 'string') {
             try { void saveCropFromRecorder(sess, JSON.parse(args[1].value)) } catch {}
@@ -801,11 +868,17 @@ function connectRecorder(sess: RecSession, port: number) {
         // ⚠️ DOMContentLoaded 就查一次——load 跟「可以點了」是不同階段。
         if (msg.method === 'Page.domContentEventFired') {
           void flagShadowCompleteness(send)
+          // 面板要等 DOMContentLoaded 才掛得上去（注入時 document.body 還是 null），
+          // 所以這裡也推一次，不然要等 load，慢圖的頁面會空等好幾秒。
+          syncLocalPanel(sess)
         }
         if (msg.method === 'Page.loadEventFired') {
           // 宣告式 closed shadow root 只有 CDP 看得到，所以每次載入完成查一次。
           void flagShadowCompleteness(send)
-          void send('Runtime.evaluate', { expression: recorderScript() })
+          void send('Runtime.evaluate', { expression: recorderScript(sess) })
+          // ⚠️ 重注入之後一定要再推一次狀態，否則導頁後面板停在「同步中」而且
+          //    什麼都不收——暫停跨導頁就是靠這一行才成立的。
+          syncLocalPanel(sess)
           void sess.capture?.reinject()
         }
         // ⚠️ 一定要在上面那些之後：錄製器自己的標記由這裡處理，
@@ -817,13 +890,14 @@ function connectRecorder(sess: RecSession, port: number) {
       await send('Runtime.enable')
       await send('Page.enable')
       await syncRecorderViewport(sess)
-      await send('Page.addScriptToEvaluateOnNewDocument', { source: recorderScript() })
-      await send('Runtime.evaluate', { expression: recorderScript() })
+      await send('Page.addScriptToEvaluateOnNewDocument', { source: recorderScript(sess) })
+      await send('Runtime.evaluate', { expression: recorderScript(sess) })
+      syncLocalPanel(sess)
       // console／network／pinus 攔截。跟 agent 模式共用 cdp-capture.js 的同一份規則。
       // ⚠️ 掛不起來不能讓錄製失敗——使用者要的是錄操作，量測是附加價值。
       try {
         sess.capture = await attachCdpCapture(send, {
-          consoleMarkers: ['__TOPPATH_RECORDER__', '__TOPPATH_CROP__'],
+          consoleMarkers: ['__TOPPATH_RECORDER__', '__TOPPATH_CROP__', FRONTEND_RECORDER_CONTROL_MARKER],
         })
         sess.captureTimer = setInterval(() => { void flushLocalCapture(sess) }, 3000)
       } catch { /* 錄製照常 */ }
@@ -902,6 +976,8 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
   const platform = asPlatform(body.platform)
   const resolution = text(body.resolution, platform === 'h5' ? '500x877' : '1366x768')
   const agentId = text(body.agentId)
+  // 只決定頁面內控制面板的配色與用詞。腳本錄到什麼跟這個無關。
+  const theme = text(body.theme) === 'xianxia' ? 'xianxia' as const : 'normal' as const
 
   if (!url) return res.status(400).json({ ok: false, message: 'url 為必填' })
   if (!platform) return res.status(400).json({ ok: false, message: 'platform must be h5 or pc' })
@@ -926,8 +1002,9 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
       steps: [{ name: '前往頁面', action: 'goto', value: url }],
       cropPending: false,
       done: false,
+      paused: false,
     })
-    agent.ws.send(JSON.stringify({ type: 'uat_record_start', sessionId, url, resolution, platform }))
+    agent.ws.send(JSON.stringify({ type: 'uat_record_start', sessionId, url, resolution, platform, theme }))
     return res.json({ ok: true, sessionId, displayUrl: url, via: 'agent', agentHostname: agent.hostname })
   }
 
@@ -966,11 +1043,13 @@ router.post('/api/frontend-auto/record/start', async (req, res) => {
     viewportWidth,
     viewportHeight,
     done: false,
+    paused: false,
+    theme,
     steps: [{ name: '前往頁面', action: 'goto', value: url }],
   }
   recSessions.set(sessionId, sess)
   proc.on('close', () => { sess.done = true })
-  connectRecorder(sess, port)
+  connectRecorder(sess, port, sessionId)
   res.json({ ok: true, sessionId, displayUrl })
 })
 
@@ -978,6 +1057,7 @@ router.get('/api/frontend-auto/record/status/:sessionId', (req, res) => {
   const agentSess = uatAgentSessions.get(req.params.sessionId)
   if (agentSess) {
     return res.json({ found: true, done: agentSess.done, error: agentSess.error ?? null, steps: agentSess.steps, lastCrop: agentSess.lastCrop, cropPending: agentSess.cropPending, cdpWarning: (agentSess as unknown as Record<string, unknown>).cdpWarning ?? null,
+      paused: !!agentSess.paused,
       stats: agentSess.stats ?? null, consoleLogs: agentSess.consoleLogs ?? [], consoleDropped: agentSess.consoleDropped ?? 0, pinusPatched: agentSess.pinusPatched ?? null })
   }
   const sess = recSessions.get(req.params.sessionId)
@@ -985,6 +1065,7 @@ router.get('/api/frontend-auto/record/status/:sessionId', (req, res) => {
   // ⚠️ 兩個分支要回同一組欄位。少一邊的話那個模式的面板會永遠空白，
   //    而且不會有錯誤——看起來就像「這頁沒有網路活動」。
   res.json({ found: true, done: sess.done, error: null, steps: sess.steps, lastCrop: sess.lastCrop, cropPending: !!sess.cropRequest,
+    paused: !!sess.paused,
     stats: sess.stats ?? null, consoleLogs: sess.consoleLogs ?? [], consoleDropped: sess.consoleDropped ?? 0, pinusPatched: sess.pinusPatched ?? null })
 })
 
@@ -1044,11 +1125,17 @@ router.post('/api/frontend-auto/record/screenshot/:sessionId', async (req, res) 
   const cropY = Math.max(0, numberValue(body.cropY))
   const cropW = Math.max(1, numberValue(body.cropW, 120))
   const cropH = Math.max(1, numberValue(body.cropH, 80))
-  const shot = await sess.cdpSend('Page.captureScreenshot', {
-    format: 'png',
-    fromSurface: true,
-    clip: { x: cropX, y: cropY, width: cropW, height: cropH, scale: 1 },
-  })
+  await setRecorderPanelVisible(sess.cdpSend, false)
+  let shot
+  try {
+    shot = await sess.cdpSend('Page.captureScreenshot', {
+      format: 'png',
+      fromSurface: true,
+      clip: { x: cropX, y: cropY, width: cropW, height: cropH, scale: 1 },
+    })
+  } finally {
+    await setRecorderPanelVisible(sess.cdpSend, true)
+  }
   const data = shot.result?.data
   if (typeof data !== 'string') return res.status(500).json({ ok: false, message: shot.error?.message ?? '截圖失敗' })
   const filename = `${Date.now()}-${randomUUID()}.png`
@@ -1078,6 +1165,28 @@ router.post('/api/frontend-auto/record/screenshot/:sessionId', async (req, res) 
   res.json({ ok: true, baseline })
 })
 
+/**
+ * 主畫面切暫停。**跟浮動面板走同一個狀態**——兩邊各記一份的話，
+ * 「面板上暫停、主畫面顯示錄製中」這種畫面會讓人以為其中一邊壞了。
+ */
+router.post('/api/frontend-auto/record/pause/:sessionId', (req, res) => {
+  const paused = !!(req.body as Record<string, unknown>)?.paused
+  const agentSess = uatAgentSessions.get(req.params.sessionId)
+  if (agentSess) {
+    const agent = agentConnections.get(agentSess.agentId)
+    if (!agent) return res.status(409).json({ ok: false, message: 'Local Agent 已離線，無法切換暫停' })
+    // ⚠️ 這裡**不要**先樂觀地把 agentSess.paused 設好。權威狀態在 agent 那一側
+    //    （擋事件的也是它），這邊先改的話畫面會顯示已暫停、而 agent 其實沒收到。
+    //    等 agent 回 `paused` 事件再更新。
+    agent.ws.send(JSON.stringify({ type: 'uat_record_pause', sessionId: req.params.sessionId, paused }))
+    return res.json({ ok: true, pending: true })
+  }
+  const sess = recSessions.get(req.params.sessionId)
+  if (!sess) return res.status(404).json({ ok: false, message: '找不到錄製 session' })
+  setLocalPaused(sess, paused)
+  return res.json({ ok: true, paused: !!sess.paused })
+})
+
 router.post('/api/frontend-auto/record/stop/:sessionId', async (req, res) => {
   // ⚠️ 量測資料一定要跟著 stop 的回應一起回去。
   //    session 在這支裡就被移除了，之後前端再打 /record/status 只會拿到
@@ -1101,6 +1210,14 @@ router.post('/api/frontend-auto/record/stop/:sessionId', async (req, res) => {
 
   const sess = recSessions.get(req.params.sessionId)
   if (!sess) return res.status(404).json({ ok: false, message: '找不到錄製 session' })
+  // 頁面上那顆停止已經收過尾（session 留著讓輪詢取回）。這時不能再 flush／kill
+  // 一次——CDP 連線早就沒了，只會把回應拖到逾時。直接把手上的東西回去。
+  if (sess.done) {
+    const steps = sess.steps
+    recSessions.delete(req.params.sessionId)
+    return res.json({ ok: true, steps, stats: sess.stats ?? null, consoleLogs: sess.consoleLogs ?? [],
+      consoleDropped: sess.consoleDropped ?? 0, pinusPatched: sess.pinusPatched ?? null })
+  }
   // 最後一次 flush 要在 kill 之前——kill 之後 CDP 連線就沒了，
   // 最後那幾秒（往往正是使用者關心的那段）會整段消失。
   await flushLocalCapture(sess)

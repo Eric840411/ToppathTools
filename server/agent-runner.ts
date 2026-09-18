@@ -33,7 +33,7 @@ import { attachCdpCapture } from './uat-runner/cdp-capture.js'
 import { evaluateApiAssertion } from './uat-runner/api-assert.js'
 import { waitForDebugPort, clearStaleDebugPort, DEBUG_PORT_ARG } from './uat-runner/chrome-debug-port.js'
 import { verifyRecordedSelectorLive, createRecordedLocators } from './uat-runner/recorded-selector.js'
-import { frontendRecorderScript, flagShadowCompleteness } from './uat-runner/frontend-recorder.js'
+import { frontendRecorderScript, flagShadowCompleteness, syncRecorderPanel, setRecorderPanelVisible, FRONTEND_RECORDER_CONTROL_MARKER } from './uat-runner/frontend-recorder.js'
 import { MachineTestRunner } from './machine-test/runner.js'
 import type { MachineTestSession, MachineProfile, TestEvent } from './machine-test/types.js'
 import { ScriptedBetRunner } from './scripted-bet/runner.js'
@@ -188,6 +188,8 @@ interface UatRecordStartMessage {
   url: string
   resolution: string
   platform?: 'h5' | 'pc'
+  /** 只決定頁面內控制面板的配色與用詞，不影響錄到什麼 */
+  theme?: 'normal' | 'xianxia'
 }
 
 interface UatRecordCropMessage {
@@ -203,6 +205,12 @@ interface UatRecordCropMessage {
 interface UatRecordStopMessage {
   type: 'uat_record_stop'
   sessionId: string
+}
+
+interface UatRecordPauseMessage {
+  type: 'uat_record_pause'
+  sessionId: string
+  paused: boolean
 }
 
 interface UatScriptRunMessage {
@@ -348,6 +356,13 @@ interface UatRecSession {
   captureTimer?: ReturnType<typeof setInterval>
   /** 已經回報給 server 的 console 筆數——只送新增的那幾筆，不每次整包重送 */
   consoleSent?: number
+  /**
+   * 暫停中。**這裡是這一輪錄製的權威狀態**——頁面每次導頁都會重新注入、
+   * 面板整個重建，狀態放頁面就會在導頁後安靜消失。
+   */
+  paused?: boolean
+  /** 控制面板的配色。跟著開始錄製時的畫面模式走 */
+  theme?: 'normal' | 'xianxia'
 }
 
 const uatRecSessions = new Map<string, UatRecSession>()
@@ -989,8 +1004,55 @@ async function waitForJson<T>(url: string, timeoutMs = 20_000): Promise<T> {
  * 兩邊各帶一份的時候已經漂掉了：這邊錄 `click`/`fill`、那邊錄 `click_viewport`/`type`，
  * 而 `fill` 在伺服器模式的執行引擎裡是「不支援的動作」，會被**跳過**而不是失敗。
  */
-function recorderScript() {
-  return frontendRecorderScript()
+function recorderScript(sess?: UatRecSession) {
+  return frontendRecorderScript({ theme: sess?.theme })
+}
+
+/**
+ * 把 host 的權威狀態推給頁面內的控制面板。
+ *
+ * ⚠️ **每次注入之後都要呼叫一次。** 頁面端的新文件一律從「尚未同步」開始，
+ *    不推的話面板會停在「同步中」而且**完全不收錄**——那是刻意的：
+ *    預設成「在錄」的話，暫停之後導頁就會安靜地恢復錄製。
+ */
+function syncUatPanel(sess: UatRecSession) {
+  if (!sess.cdpSend) return
+  void syncRecorderPanel(sess.cdpSend, { paused: !!sess.paused, steps: sess.steps.length })
+}
+
+/**
+ * 結束這一輪錄製。**主畫面那顆停止與面板上那顆走同一支**——兩份實作一定會漂，
+ * 而漂掉的症狀是「其中一邊停了但 session 沒收乾淨」。
+ */
+async function stopUatRecording(sess: UatRecSession, serverWs: WebSocket) {
+  if (sess.done) return
+  const steps = sess.steps
+  // 最後一次回報要在 done 之前——flushUatCapture 看到 done 就直接 return，
+  // 順序顛倒的話最後那幾秒（往往正是使用者關心的那段）會整段消失。
+  await flushUatCapture(sess, serverWs)
+  sess.done = true  // Set before kill so CDP WS-close handler won't trigger reconnect
+  killUatSession(sess)
+  uatRecSessions.delete(sess.sessionId)
+  if (serverWs.readyState === serverWs.OPEN) {
+    serverWs.send(JSON.stringify({ type: 'uat_record_event', sessionId: sess.sessionId, event: { kind: 'done', steps } }))
+  }
+}
+
+/** 設暫停狀態，並把結果同時推給面板（回執）與 server（讓主畫面看到同一個狀態） */
+function setUatPaused(sess: UatRecSession, paused: boolean, serverWs: WebSocket) {
+  sess.paused = paused
+  // ⚠️ 面板要收到這個回執才會顯示完成。先推回執再通知 server——
+  //    按下去的人在瀏覽器那邊，他等的是這一則。
+  syncUatPanel(sess)
+  if (serverWs.readyState === serverWs.OPEN) {
+    serverWs.send(JSON.stringify({ type: 'uat_record_event', sessionId: sess.sessionId, event: { kind: 'paused', paused } }))
+  }
+}
+
+/** 頁面內控制面板送上來的指令 */
+function handleUatPanelControl(sess: UatRecSession, msg: { cmd?: string }, serverWs: WebSocket) {
+  if (msg?.cmd === 'stop') { void stopUatRecording(sess, serverWs); return }
+  if (msg?.cmd === 'pause' || msg?.cmd === 'resume') setUatPaused(sess, msg.cmd === 'pause', serverWs)
 }
 
 function cropScript() {
@@ -1143,7 +1205,7 @@ function connectUatRecorder(sess: UatRecSession, port: number, serverWs: WebSock
               // 使用者要的是錄操作，量測是附加價值，為了它整場錄不成是本末倒置。
               try {
                 sess.capture = await attachCdpCapture(send, {
-                  consoleMarkers: ['__TOPPATH_RECORDER__', '__TOPPATH_CROP__'],
+                  consoleMarkers: ['__TOPPATH_RECORDER__', '__TOPPATH_CROP__', FRONTEND_RECORDER_CONTROL_MARKER],
                 })
                 sess.captureTimer = setInterval(() => { void flushUatCapture(sess, serverWs) }, 3000)
               } catch (err) {
@@ -1172,14 +1234,23 @@ function connectUatRecorder(sess: UatRecSession, port: number, serverWs: WebSock
               if (msg.id && pending.has(msg.id)) { pending.get(msg.id)?.({ id: msg.id, result: (msg as Record<string, unknown>).result as Record<string, unknown> }); pending.delete(msg.id); return }
               if (msg.method === 'Runtime.consoleAPICalled') {
                 const args = msg.params?.args ?? []
-                if (args[0]?.value === '__TOPPATH_RECORDER__' && typeof args[1]?.value === 'string') {
+                // ⚠️ **暫停要在收事件的入口擋，不能只靠頁面自己不送。**
+                //    頁面每次導頁都重新注入、而且新文件要等我們推狀態過去才知道自己
+                //    是暫停的——那段空窗期的操作只有這裡擋得住。兩道都要有。
+                if (args[0]?.value === '__TOPPATH_RECORDER__' && typeof args[1]?.value === 'string' && !sess.paused) {
                   try {
                     const step = JSON.parse(args[1].value as string)
                     sess.steps.push(step)
+                    // 面板上的步數要跟 host 的清單一致（清單開頭有一顆 goto，
+                    // 頁面自己數的話一定少一步）。
+                    syncUatPanel(sess)
                     if (serverWs.readyState === serverWs.OPEN) {
                       serverWs.send(JSON.stringify({ type: 'uat_record_event', sessionId: sess.sessionId, event: { kind: 'step', step } }))
                     }
                   } catch {}
+                }
+                if (args[0]?.value === FRONTEND_RECORDER_CONTROL_MARKER && typeof args[1]?.value === 'string') {
+                  try { handleUatPanelControl(sess, JSON.parse(args[1].value as string), serverWs) } catch {}
                 }
                 if (args[0]?.value === '__TOPPATH_CROP__' && typeof args[1]?.value === 'string') {
                   try { void handleAgentCrop(sess, JSON.parse(args[1].value as string), serverWs) } catch {}
@@ -1191,14 +1262,20 @@ function connectUatRecorder(sess: UatRecSession, port: number, serverWs: WebSock
               //    但白白少掉驗證）。宣告式 root 在解析完就都在了，這時查得到。
               if (msg.method === 'Page.domContentEventFired') {
                 void flagShadowCompleteness(send)
+                // 面板是在 DOMContentLoaded 才掛得上去的（注入時 document.body 還是 null），
+                // 所以這裡也推一次——不然要等 load，慢圖的頁面會空等好幾秒。
+                syncUatPanel(sess)
               }
               if (msg.method === 'Page.loadEventFired') {
                 void syncUatViewport(sess)
                 // 宣告式 closed shadow root 只有 CDP 看得到，所以每次載入完成查一次。
                 // 查到就叫頁面停止宣稱「選擇器驗過」——理由見 frontend-recorder.js。
                 void flagShadowCompleteness(send)
-                void send('Runtime.evaluate', { expression: recorderScript() })
+                void send('Runtime.evaluate', { expression: recorderScript(sess) })
                 void send('Runtime.evaluate', { expression: cropScript() })
+                // ⚠️ 重注入之後一定要再推一次狀態，否則導頁後面板永遠停在「同步中」
+                //    而且什麼都不收——暫停跨導頁就是靠這一行才成立的。
+                syncUatPanel(sess)
                 // 換頁之後頁面端的 pinus 探針跟著新 document 重來，補打一次。
                 // addScriptToEvaluateOnNewDocument 理論上已經涵蓋，但遊戲的
                 // 熱更新不一定換 document，多打一次是冪等的（探針自己會擋重複）。
@@ -1244,11 +1321,22 @@ async function handleAgentCrop(sess: UatRecSession, crop: { x: number; y: number
   const cropW = Math.max(1, Math.round(crop.w))
   const cropH = Math.max(1, Math.round(crop.h))
   try {
-    const shot = await sess.cdpSend('Page.captureScreenshot', {
-      format: 'png',
-      fromSurface: true,
-      clip: { x: cropX, y: cropY, width: cropW, height: cropH, scale: 1 },
-    })
+    // ⚠️ 截圖前把面板藏起來。框選範圍剛好蓋到面板的話，面板會被拍進 baseline，
+    //    而 baseline 是之後每次執行的比對基準——等於把一個只有錄製時才存在的
+    //    東西寫進基準，之後永遠對不上，而且看起來像「畫面真的變了」。
+    await setRecorderPanelVisible(sess.cdpSend, false)
+    let shot
+    // ⚠️ 一定要 finally 放回來。截圖失敗就把面板留在隱藏狀態的話，
+    //    使用者會看到一個「沒有停止鈕」的錄製視窗——而且沒有任何錯誤訊息。
+    try {
+      shot = await sess.cdpSend('Page.captureScreenshot', {
+        format: 'png',
+        fromSurface: true,
+        clip: { x: cropX, y: cropY, width: cropW, height: cropH, scale: 1 },
+      })
+    } finally {
+      await setRecorderPanelVisible(sess.cdpSend, true)
+    }
     const imageBase64 = shot.result?.data
     if (typeof imageBase64 !== 'string') return
     const id = randomUUID()
@@ -1843,7 +1931,7 @@ function connect() {
 
     // ── UAT Recording ────────────────────────────────────────────────────────────
     if (msg.type === 'uat_record_start') {
-      const { sessionId, url, resolution, platform = 'h5' } = msg as UatRecordStartMessage
+      const { sessionId, url, resolution, platform = 'h5', theme } = msg as UatRecordStartMessage
       const [w, h] = resolution.split('x')
       const width = Number(w) || 390
       const height = Number(h) || 844
@@ -1865,7 +1953,7 @@ function connect() {
       const proc = spawn(chromeExecutable(), args, { stdio: 'ignore', shell: false, windowsHide: false })
       const sess: UatRecSession = {
         sessionId, proc, profileDir, done: false,
-        width, height, platform, startUrl: url,
+        width, height, platform, startUrl: url, paused: false, theme,
         steps: [{ name: '前往頁面', action: 'goto', value: url }],
       }
       uatRecSessions.set(sessionId, sess)
@@ -1899,17 +1987,16 @@ function connect() {
       const { sessionId } = msg as UatRecordStopMessage
       const sess = uatRecSessions.get(sessionId)
       if (!sess) return
-      const steps = sess.steps
-      // 最後一次回報要在 done 之前——flushUatCapture 看到 done 就直接 return，
-      // 順序顛倒的話最後那幾秒（往往正是使用者關心的那段）會整段消失。
-      await flushUatCapture(sess, ws)
-      sess.done = true  // Set before kill so CDP WS-close handler won't trigger reconnect
-      killUatSession(sess)
-      uatRecSessions.delete(sessionId)
-      if (ws.readyState === ws.OPEN) {
-        ws.send(JSON.stringify({ type: 'uat_record_event', sessionId, event: { kind: 'done', steps } }))
-      }
+      await stopUatRecording(sess, ws)
       console.log(`[Agent:${AGENT_LABEL}] UAT record stopped: ${sessionId}`)
+      return
+    }
+
+    if (msg.type === 'uat_record_pause') {
+      const { sessionId, paused } = msg as UatRecordPauseMessage
+      const sess = uatRecSessions.get(sessionId)
+      if (!sess) return
+      setUatPaused(sess, !!paused, ws)
       return
     }
 

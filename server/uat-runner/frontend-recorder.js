@@ -38,6 +38,55 @@ import { selectorLadderSource, genericAdapterSource, nativeSelectorCheckSource }
 export const FRONTEND_RECORDER_MARKER = '__TOPPATH_RECORDER__';
 
 /**
+ * 頁面內控制面板送回 host 的指令（暫停／繼續／停止）用這個前綴。
+ *
+ * ⚠️ **刻意跟步驟用不同的 marker。** 共用一個的話，host 要先解析 JSON 才知道
+ *    這是不是步驟——而解析失敗的那條路目前是 `catch {}`，一個拼錯的指令會
+ *    安靜地變成「什麼都沒發生」。分開之後，收不到指令是收不到，不會被誤當成步驟。
+ *
+ * ⚠️ 兩個 host 的 `attachCdpCapture({ consoleMarkers })` 都要**加上這個值**，
+ *    否則控制指令會被當成「使用者的 console」收進錄製日誌裡洗版。
+ */
+export const FRONTEND_RECORDER_CONTROL_MARKER = '__TOPPATH_REC_CTL__';
+
+/**
+ * host → 頁面：把**權威狀態**推給控制面板。
+ *
+ * ⚠️ 狀態的唯一真實來源是 host，不是頁面。錄製器每次導頁都會重新注入，
+ *    面板整個重建——頁面端自己記的話，「暫停後導頁」會變成
+ *    **以為還暫停、其實在錄**，而且畫面上完全看不出來（CodeX 2026-09-18 指定第一版必做）。
+ *    所以新文件一律從「尚未同步」開始，收到這支推過來的狀態才允許收錄。
+ *
+ * @param {(method: string, params?: object) => Promise<any>} send CDP 送訊息的函式
+ * @param {{ paused: boolean, steps: number }} state host 端的實際狀態（步數是 host 的清單長度，含 goto）
+ */
+export async function syncRecorderPanel(send, state) {
+  const payload = JSON.stringify({ paused: !!state?.paused, steps: Number(state?.steps) || 0 });
+  try {
+    await send('Runtime.evaluate', {
+      expression: 'window.__toppathRecSync && window.__toppathRecSync(' + JSON.stringify(payload) + ')',
+    });
+  } catch (e) {
+    // 同步不到就讓面板留在「同步中」——**不能退回「錄製中」**。
+    // 那個方向的退路等於在不確定的時候宣稱正在錄。
+  }
+}
+
+/**
+ * host → 頁面：截圖前把面板藏起來，截完再放回來。
+ *
+ * 不藏的話面板會被拍進 baseline 圖片裡，而 baseline 是拿來比對的——
+ * 等於把一個只有錄製時才存在的東西寫進比對基準，之後每次執行都對不上。
+ */
+export async function setRecorderPanelVisible(send, visible) {
+  try {
+    await send('Runtime.evaluate', {
+      expression: 'window.__toppathRecPanelVisible && window.__toppathRecPanelVisible(' + (visible ? 'true' : 'false') + ')',
+    });
+  } catch (e) { /* 藏不起來不能擋住截圖本身 */ }
+}
+
+/**
  * host 端：查這份文件裡有沒有**我們追蹤不到的** shadow root。
  * 查完而且乾淨才把這份文件標成「可以宣稱驗過」。
  *
@@ -111,7 +160,34 @@ export async function flagShadowCompleteness(send) {
   }
 }
 
-export function frontendRecorderScript() {
+/**
+ * 面板的配色與用詞。**在 Node 這一側就挑好再嵌進腳本**，不要把兩套都寫進去用
+ * 三元運算子在頁面裡選——那樣普通版的頁面裡照樣找得到修仙版的字串，
+ * 「修仙版不能漏到普通版」就變成只有肉眼看得出來、檢查腳本驗不到的規則。
+ */
+const RECORDER_PANEL_THEMES = {
+  normal: {
+    bg: '#101716', line: '#42566f', text: '#e2e8f0', dim: '#a9b8b3', quiet: '#18312f',
+    accent: '#3fbe8b', danger: '#c0392f', dangerInk: '#ffffff',
+    recording: '錄製中', paused: '已暫停', syncing: '同步中',
+    pause: '暫停錄製', resume: '繼續錄製', stop: '停止錄製', stopping: '停止中…',
+  },
+  // 墨黑底、青玉主色、細金線（CodeX 2026-09-18 指定）。停止的字面也由他定。
+  xianxia: {
+    bg: '#0b0a07', line: '#c8a24a', text: '#e8f6f2', dim: '#9aa8a4', quiet: '#141210',
+    accent: '#4fd6c9', danger: '#8c2f2a', dangerInk: '#f8e7df',
+    recording: '觀照中', paused: '已暫歇', syncing: '同步中',
+    pause: '暫歇觀照', resume: '續行觀照', stop: '收陣（停止）', stopping: '收陣中…',
+  },
+};
+
+/**
+ * @param {{ theme?: 'normal' | 'xianxia' }} [options]
+ *        `theme` 只影響**面板自己的配色與用詞**，不影響錄到什麼。
+ *        ⚠️ 修仙版的視覺不能漏到普通版：這裡是整份腳本唯一讀 theme 的地方。
+ */
+export function frontendRecorderScript(options = {}) {
+  const theme = options.theme === 'xianxia' ? 'xianxia' : 'normal';
   return `
 (() => {
   if (window.__toppathRecorderInstalled) return;
@@ -120,10 +196,25 @@ ${selectorLadderSource(genericAdapterSource())}
 ${nativeSelectorCheckSource()}
 
   const MARK = ${JSON.stringify(FRONTEND_RECORDER_MARKER)};
+  const CTL = ${JSON.stringify(FRONTEND_RECORDER_CONTROL_MARKER)};
+
+  // ── 控制面板的狀態 ────────────────────────────────────────────────────
+  //
+  // ⚠️ **權威狀態在 host，不在這裡。** 每份新文件都從「尚未同步」開始，
+  //    host 推過來才允許收錄。反過來（預設在錄）的話，「暫停後導頁」會變成
+  //    以為還暫停、其實在錄——安靜出錯，畫面上看不出來。
+  let synced = false;
+  let paused = false;
+  /** null＝還不知道。**不要顯示 0**，那是在假裝「一步都沒錄到」 */
+  let stepCount = null;
+
   // ⚠️ 去重只擋「同一下操作被瀏覽器送兩次」，不能擋「使用者真的按了兩次」。
   //    舊的伺服器模式用整段錄製共用的 Set 去重，同一顆按鈕按第二次就**安靜消失**。
   const recent = new Map();
   const send = (step) => {
+    // 尚未同步或暫停中一律不送。host 端**也**會擋一次——兩道都要有：
+    // 這一道擋得住「頁面知道自己暫停」，host 那道擋得住「頁面還沒收到狀態」。
+    if (!synced || paused) return;
     const key = step.action + '|' + (step.selector || '') + '|' + (step.x ?? '') + ',' + (step.y ?? '') + '|' + (step.value ?? '');
     const now = Date.now();
     if (now - (recent.get(key) || 0) < 200) return;
@@ -241,6 +332,289 @@ ${nativeSelectorCheckSource()}
     if (check.reason) step.selectorCheckReason = check.reason;
     return step;
   };
+
+  // ── 控制面板 ────────────────────────────────────────────────────────────
+  //
+  // 版面由 CodeX 定（2026-09-18）：H5／PC 共用一個窄浮動面板，右上、預設收合、
+  // **停止永遠露出**（收合狀態也按得到，不必先展開）。
+  //
+  // 第一版刻意**沒有**兩樣東西：
+  //   - 「TC 歸屬」——那是 Backend 的 Lark TC 綁定，H5/PC 錄的是腳本，這個概念不存在
+  //   - 「加入截圖」——存 baseline 需要 scriptId，主畫面現在不會下發；
+  //     為了填版面先塞一個預設值，等於做一顆按了會靜默失敗的按鈕
+  const T = ${JSON.stringify(RECORDER_PANEL_THEMES[theme])};
+  const FONT = '600 12px/1.25 system-ui,-apple-system,"Segoe UI",sans-serif';
+  const svg = (paths, size) => '<svg viewBox="0 0 16 16" width="' + (size || 13) + '" height="' + (size || 13)
+    + '" fill="currentColor" aria-hidden="true" focusable="false">' + paths + '</svg>';
+  const ICON = {
+    // 刻意用 SVG 不用 emoji：emoji 在不同平台會變成完全不同的圖，而且遊戲頁的
+    // 字型不一定含那些碼位，會掉成豆腐方塊。
+    grip: svg('<circle cx="6" cy="4" r="1.3"/><circle cx="10" cy="4" r="1.3"/><circle cx="6" cy="8" r="1.3"/><circle cx="10" cy="8" r="1.3"/><circle cx="6" cy="12" r="1.3"/><circle cx="10" cy="12" r="1.3"/>'),
+    stop: svg('<rect x="4" y="4" width="8" height="8" rx="1"/>'),
+    pause: svg('<rect x="4" y="3" width="3" height="10" rx="1"/><rect x="9" y="3" width="3" height="10" rx="1"/>'),
+    play: svg('<path d="M5 3.5l7 4.5-7 4.5z"/>'),
+    down: svg('<path d="M4 6l4 4 4-4z"/>', 12),
+    up: svg('<path d="M4 10l4-4 4 4z"/>', 12),
+  };
+
+  /** 送指令回 host。console.info 是這條線唯一的上行通道（錄製端沒有 page 物件） */
+  const control = (cmd) => { try { console.info(CTL, JSON.stringify({ cmd: cmd })); } catch (e) { /* 下面的逾時會提示 */ } };
+
+  let expanded = false;
+  /** 送出後還沒被 host 確認的指令。⚠️ 確認之前不能顯示成已完成，也不能重複送 */
+  let awaiting = null;
+  let awaitTimer = null;
+  let hint = '';
+  let WRAP = null, BAR = null, STATUS = null, BAR_STOP = null, TOGGLE = null,
+      BODY = null, PAUSE = null, STOP = null, HINT = null;
+
+  const stateText = () => {
+    if (awaiting === 'stop') return T.stopping;
+    if (!synced) return T.syncing;
+    return paused ? T.paused : T.recording;
+  };
+  const countText = () => (stepCount === null ? '—' : String(stepCount) + ' 步');
+  const dotColor = () => (!synced ? T.dim : paused ? '#d9a441' : T.accent);
+
+  const paint = () => {
+    if (!WRAP) return;
+    STATUS.innerHTML = '<i style="display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;'
+      + 'vertical-align:middle;background:' + dotColor() + '"></i>'
+      + '<span style="vertical-align:middle">' + stateText() + ' · ' + countText() + '</span>';
+    TOGGLE.innerHTML = expanded ? ICON.up : ICON.down;
+    TOGGLE.setAttribute('aria-label', expanded ? '收合' : '展開');
+    TOGGLE.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    BODY.style.display = expanded ? 'block' : 'none';
+    // 收合時列上那顆停止才露出——展開時下面已經有一顆完整的，
+    // 同時出現兩顆一模一樣的停止只會讓人猶豫該按哪個。
+    BAR_STOP.style.display = expanded ? 'none' : 'inline-flex';
+    PAUSE.innerHTML = (paused ? ICON.play : ICON.pause) + '<span style="margin-left:7px">'
+      + (paused ? T.resume : T.pause) + '</span>';
+    // 暫停要等狀態同步才按得動（不知道現在是暫停還是在錄，就不知道該送哪個指令）。
+    // **停止不等**——同步不到本來就是想離開的理由之一，那時把唯一的出口鎖上最糟。
+    for (const [button, dead] of [[PAUSE, !synced || !!awaiting], [STOP, !!awaiting], [BAR_STOP, !!awaiting]]) {
+      button.disabled = dead;
+      button.style.opacity = dead ? '.55' : '1';
+      button.style.cursor = dead ? 'default' : 'pointer';
+    }
+    HINT.textContent = hint;
+    HINT.style.display = hint ? 'block' : 'none';
+  };
+
+  const clearAwait = () => {
+    if (awaitTimer) { clearTimeout(awaitTimer); awaitTimer = null; }
+    awaiting = null;
+  };
+
+  const startAwait = (cmd) => {
+    awaiting = cmd;
+    hint = '';
+    if (awaitTimer) clearTimeout(awaitTimer);
+    // ⚠️ 逾時要顯示「未確認」，不能顯示「已完成」。停止沒被接受時錄製其實還在跑，
+    //    而畫面若寫「已停止」，使用者會直接走人，留下一顆開著的瀏覽器跟一段還在錄的 session。
+    awaitTimer = setTimeout(() => {
+      awaitTimer = null;
+      awaiting = null;
+      hint = cmd === 'stop'
+        ? '停止沒有得到確認，錄製可能還在繼續——請回主畫面停止這一輪。'
+        : '這個指令沒有得到確認，狀態以主畫面為準。';
+      // ⚠️ 提示放在展開區裡，收合著就看不到。**出事的時候要自己打開**——
+      //    否則「停止沒生效」這件事會完全沒有徵兆，使用者以為停了就走人。
+      expanded = true;
+      paint();
+    }, 5000);
+    paint();
+  };
+
+  /**
+   * host 推狀態進來。**這是面板唯一能離開「同步中」的路。**
+   * 回傳 true／false 讓 host 端的測試看得出來有沒有被接住。
+   */
+  window.__toppathRecSync = (raw) => {
+    let next = null;
+    try { next = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { return false; }
+    if (!next || typeof next !== 'object') return false;
+    synced = true;
+    paused = !!next.paused;
+    if (typeof next.steps === 'number') stepCount = next.steps;
+    // 送出的指令被實現了才算確認。收到的狀態跟要求的相反時**不清掉 awaiting**，
+    // 讓逾時那條去處理——否則會把「host 還沒處理」誤報成「已完成」。
+    if (awaiting === 'pause' && paused) { clearAwait(); hint = ''; }
+    if (awaiting === 'resume' && !paused) { clearAwait(); hint = ''; }
+    paint();
+    return true;
+  };
+
+  /** host 截圖前後呼叫：面板不能被拍進 baseline 圖片裡 */
+  window.__toppathRecPanelVisible = (visible) => {
+    if (!WRAP) return false;
+    WRAP.style.visibility = visible ? 'visible' : 'hidden';
+    return true;
+  };
+
+  const POS_KEY = '__toppath_rec_panel_pos';
+  const readPos = () => {
+    try { return JSON.parse(sessionStorage.getItem(POS_KEY) || 'null'); } catch (e) { return null; }
+  };
+  const writePos = (pos) => {
+    try { sessionStorage.setItem(POS_KEY, JSON.stringify(pos)); } catch (e) { /* 換網域就沒了，純裝飾 */ }
+  };
+
+  const button = (kind) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    const base = 'display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;'
+      + 'min-height:44px;border-radius:7px;font:' + FONT + ';padding:0 12px;';
+    if (kind === 'danger') {
+      b.style.cssText = base + 'width:100%;border:0;background:' + T.danger + ';color:' + T.dangerInk + ';'
+        + 'box-shadow:0 2px 10px rgba(0,0,0,.35)';
+    } else if (kind === 'bar') {
+      b.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;'
+        + 'width:34px;height:34px;padding:0;border:0;border-radius:6px;background:' + T.danger + ';color:' + T.dangerInk;
+    } else if (kind === 'ghost') {
+      b.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;'
+        + 'width:34px;height:34px;padding:0;border:0;border-radius:6px;background:transparent;color:' + T.dim;
+    } else {
+      b.style.cssText = base + 'width:100%;border:1px solid ' + T.line + ';background:' + T.quiet + ';color:' + T.text;
+    }
+    return b;
+  };
+
+  const mount = () => {
+    if (WRAP || !document.body) return;
+    WRAP = document.createElement('div');
+    WRAP.setAttribute('data-toppath-recorder-ui', '1');
+    WRAP.setAttribute('role', 'region');
+    WRAP.setAttribute('aria-label', '錄製控制');
+    WRAP.style.cssText = 'position:fixed;top:12px;right:12px;left:auto;z-index:2147483644;width:240px;'
+      + 'max-width:calc(100vw - 24px);box-sizing:border-box;border:1px solid ' + T.line + ';border-radius:10px;'
+      + 'background:' + T.bg + ';color:' + T.text + ';font:' + FONT + ';box-shadow:0 8px 26px rgba(0,0,0,.45);'
+      + 'user-select:none;-webkit-user-select:none;touch-action:none';
+
+    BAR = document.createElement('div');
+    BAR.style.cssText = 'display:flex;align-items:center;gap:6px;height:44px;padding:0 6px 0 4px;box-sizing:border-box';
+    const GRIP = document.createElement('div');
+    GRIP.innerHTML = ICON.grip;
+    GRIP.setAttribute('aria-hidden', 'true');
+    GRIP.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;width:22px;height:34px;'
+      + 'color:' + T.dim + ';cursor:grab;flex:none';
+    STATUS = document.createElement('div');
+    STATUS.setAttribute('role', 'status');
+    STATUS.style.cssText = 'flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:' + T.text;
+    BAR_STOP = button('bar');
+    BAR_STOP.innerHTML = ICON.stop;
+    BAR_STOP.setAttribute('aria-label', T.stop);
+    BAR_STOP.title = T.stop;
+    TOGGLE = button('ghost');
+    BAR.appendChild(GRIP); BAR.appendChild(STATUS); BAR.appendChild(BAR_STOP); BAR.appendChild(TOGGLE);
+
+    BODY = document.createElement('div');
+    BODY.style.cssText = 'display:none;padding:0 10px 10px;box-sizing:border-box';
+    PAUSE = button('quiet');
+    STOP = button('danger');
+    STOP.innerHTML = ICON.stop + '<span style="margin-left:7px">' + T.stop + '</span>';
+    const gap = document.createElement('div');
+    gap.style.cssText = 'height:8px';
+    HINT = document.createElement('div');
+    HINT.setAttribute('role', 'alert');
+    HINT.style.cssText = 'display:none;margin-top:8px;color:#f3c98b;font:500 11px/1.5 system-ui,-apple-system,sans-serif;white-space:normal';
+    BODY.appendChild(PAUSE); BODY.appendChild(gap); BODY.appendChild(STOP); BODY.appendChild(HINT);
+
+    WRAP.appendChild(BAR); WRAP.appendChild(BODY);
+    document.body.appendChild(WRAP);
+
+    const pos = readPos();
+    if (pos && typeof pos.left === 'number' && typeof pos.top === 'number') {
+      WRAP.style.left = pos.left + 'px';
+      WRAP.style.top = pos.top + 'px';
+      WRAP.style.right = 'auto';
+    }
+    if (pos && pos.expanded) expanded = true;
+
+    TOGGLE.addEventListener('click', () => {
+      expanded = !expanded;
+      const current = readPos() || {};
+      current.expanded = expanded;
+      writePos(current);
+      paint();
+    });
+    PAUSE.addEventListener('click', () => {
+      if (!synced || awaiting) return;
+      const cmd = paused ? 'resume' : 'pause';
+      startAwait(cmd);
+      control(cmd);
+    });
+    const doStop = () => {
+      if (awaiting) return;
+      startAwait('stop');
+      control('stop');
+    };
+    STOP.addEventListener('click', doStop);
+    BAR_STOP.addEventListener('click', doStop);
+
+    // ── 拖曳 ───────────────────────────────────────────────────────────
+    // 放開時貼最近的左右邊，並夾回可視範圍——縮放或轉向之後面板會跑到畫面外，
+    // 那時停止鈕就按不到了。
+    let dragging = false, dx = 0, dy = 0;
+    const clampAndSnap = (snap) => {
+      const rect = WRAP.getBoundingClientRect();
+      let left = rect.left, top = rect.top;
+      if (snap) left = (rect.left + rect.width / 2) < window.innerWidth / 2 ? 12 : window.innerWidth - rect.width - 12;
+      left = Math.max(6, Math.min(left, window.innerWidth - rect.width - 6));
+      top = Math.max(6, Math.min(top, window.innerHeight - rect.height - 6));
+      WRAP.style.left = left + 'px';
+      WRAP.style.top = top + 'px';
+      WRAP.style.right = 'auto';
+      if (snap) writePos({ left: left, top: top, expanded: expanded });
+    };
+    GRIP.addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      dragging = true;
+      const rect = WRAP.getBoundingClientRect();
+      dx = event.clientX - rect.left;
+      dy = event.clientY - rect.top;
+      GRIP.style.cursor = 'grabbing';
+      try { GRIP.setPointerCapture(event.pointerId); } catch (e) { /* 舊瀏覽器沒有也無妨 */ }
+    });
+    GRIP.addEventListener('pointermove', (event) => {
+      if (!dragging) return;
+      event.preventDefault();
+      WRAP.style.left = (event.clientX - dx) + 'px';
+      WRAP.style.top = (event.clientY - dy) + 'px';
+      WRAP.style.right = 'auto';
+    });
+    const endDrag = () => {
+      if (!dragging) return;
+      dragging = false;
+      GRIP.style.cursor = 'grab';
+      clampAndSnap(true);
+    };
+    GRIP.addEventListener('pointerup', endDrag);
+    GRIP.addEventListener('pointercancel', endDrag);
+    window.addEventListener('resize', () => clampAndSnap(false));
+
+    // ⚠️ 面板上的操作不能傳給遊戲。
+    //
+    // **一定要掛在冒泡階段（第三個參數 false），不能掛捕獲。** 捕獲階段的
+    // stopPropagation 發生在事件抵達目標之前——連面板自己的按鈕都收不到事件，
+    // 症狀是「按了完全沒反應、也不報錯」（第一版就是這樣，⑩f 當場抓到）。
+    //
+    // 擋得住的：掛在面板底下的元素、以及所有冒泡階段的監聽器。
+    // 擋不住的：掛在 document／window **捕獲階段**的監聽器——它們在事件抵達面板
+    // 之前就跑完了，從面板內部攔不到。所以這不是完整隔離，只是把最常見的擋掉。
+    // （我們自己的錄製監聽器就是 document 捕獲階段，靠 data-toppath-recorder-ui 排除。）
+    for (const type of ['click', 'dblclick', 'pointerdown', 'pointerup', 'mousedown', 'mouseup',
+                        'touchstart', 'touchend', 'keydown', 'keyup', 'wheel', 'contextmenu']) {
+      WRAP.addEventListener(type, (event) => { event.stopPropagation(); }, false);
+    }
+    paint();
+  };
+
+  if (document.body) mount();
+  // ⚠️ 注入跑在頁面程式碼之前，那個當下 document.body 還是 null。
+  //    直接 appendChild 會在最外層拋例外，**後面所有程式碼都不會執行**——
+  //    症狀是「面板沒出現，而且連錄製也停了」。Backend 那支踩過同一個坑。
+  else document.addEventListener('DOMContentLoaded', mount, { once: true });
 
   document.addEventListener('click', (event) => {
     if (window.__toppathCropping) return;

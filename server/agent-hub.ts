@@ -225,6 +225,11 @@ export interface UatAgentSession {
   consoleDropped?: number
   /** pinus 補丁打在哪（prototype／instance／null）。null 多半代表這頁根本沒有 pinus */
   pinusPatched?: string | null
+  /**
+   * 這一輪錄製暫停中。**權威狀態在 agent**（擋事件的是它），這裡只是它回報過來的
+   * 一份副本，讓主畫面跟浮動面板看到同一個狀態。
+   */
+  paused?: boolean
 }
 
 /** server 端保留的 console 上限。agent 端也有一份（CONSOLE_MAX），兩邊都要擋。 */

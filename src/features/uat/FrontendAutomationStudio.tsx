@@ -25,10 +25,10 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
   const xianxia = themeMode === 'xianxia'
   const copy = xianxia ? {
     cases: '玉簡卷宗', addScript: '新立試煉玉簡', editor: '陣圖編排', run: '啟陣控制', assets: '靈影素材', history: '試煉錄',
-    record: '觀照錄術', stopRecord: '停止觀照', save: '封存玉簡', saving: '封存中', scriptName: '玉簡名號', unsaved: '尚未封存', synced: '已入藏經閣', newScript: '新玉簡',
+    record: '觀照錄術', stopRecord: '停止觀照', pauseRecord: '暫歇觀照', resumeRecord: '續行觀照', save: '封存玉簡', saving: '封存中', scriptName: '玉簡名號', unsaved: '尚未封存', synced: '已入藏經閣', newScript: '新玉簡',
   } : {
     cases: '腳本', addScript: '新增測試腳本', editor: '流程編輯', run: '執行控制', assets: '視覺資產', history: '執行紀錄',
-    record: 'Playwright 錄製', stopRecord: '停止錄製', save: '儲存腳本', saving: '儲存中', scriptName: '腳本名稱', unsaved: '尚未儲存', synced: '已同步', newScript: '新腳本',
+    record: 'Playwright 錄製', stopRecord: '停止錄製', pauseRecord: '暫停錄製', resumeRecord: '繼續錄製', save: '儲存腳本', saving: '儲存中', scriptName: '腳本名稱', unsaved: '尚未儲存', synced: '已同步', newScript: '新腳本',
   }
   const actor = currentActor()
   const [scripts, setScripts] = useState<AutoScript[]>([])
@@ -51,6 +51,11 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
   const [recorderAvailable, setRecorderAvailable] = useState(isLocalHost())
   const [recordSessionId, setRecordSessionId] = useState<string | null>(null)
   const [recordLabel, setRecordLabel] = useState('')
+  /**
+   * 這一輪錄製暫停中。**跟錄製視窗裡的浮動面板共用同一個狀態**（來源都是 host），
+   * 主畫面自己記一份的話會出現「面板顯示已暫停、主畫面顯示錄製中」。
+   */
+  const [recPaused, setRecPaused] = useState(false)
   const pollRecorder = useRef<ReturnType<typeof setInterval> | null>(null)
   const runStream = useRef<EventSource | null>(null)
   const activeRunId = useRef<string | null>(null)
@@ -194,17 +199,20 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
     setRunConfig(value => ({ ...value, url: target }))
     const response = await fetch('/api/frontend-auto/record/start', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: target, platform, resolution: runConfig.resolution, ...(agentId ? { agentId } : {}) }),
+      // theme 只決定錄製視窗裡那個浮動面板的配色與用詞，不影響錄到什麼
+      body: JSON.stringify({ url: target, platform, resolution: runConfig.resolution, theme: xianxia ? 'xianxia' : 'normal', ...(agentId ? { agentId } : {}) }),
     })
     const data = await response.json() as { ok?: boolean; sessionId?: string; displayUrl?: string; via?: string; agentHostname?: string; message?: string }
     if (!response.ok || !data.sessionId) return setNotice(data.message ?? '錄製啟動失敗')
     setRecordSessionId(data.sessionId)
+    setRecPaused(false)
     setRecordLabel(data.via === 'agent' ? `Local Agent · ${data.agentHostname ?? agentId}` : '本機 Chrome')
     setNotice('錄製中；請在新開啟的 Chrome 視窗操作')
     pollRecorder.current = setInterval(async () => {
       const poll = await fetch(`/api/frontend-auto/record/status/${data.sessionId}`)
       const status = await poll.json() as {
         done?: boolean; error?: string | null; steps?: unknown[]; cdpWarning?: string
+        paused?: boolean
         stats?: UatStatsPayload | null
         consoleLogs?: { type: string; text: string; location?: string; ts: number }[]
         consoleDropped?: number
@@ -226,12 +234,16 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
       if (status.consoleLogs) setRecConsole(status.consoleLogs)
       if (typeof status.consoleDropped === 'number') setRecConsoleDropped(status.consoleDropped)
       if (status.pinusPatched !== undefined) setPinusPatched(status.pinusPatched ?? null)
+      // ⚠️ 暫停狀態一律以輪詢回來的為準。按下去就樂觀改畫面的話，agent 沒收到
+      //    指令時主畫面會顯示已暫停，而錄製其實還在繼續。
+      if (typeof status.paused === 'boolean') setRecPaused(status.paused)
       if (status.cdpWarning) setNotice(status.cdpWarning)
       if (status.done) {
         if (pollRecorder.current) clearInterval(pollRecorder.current)
         pollRecorder.current = null
         setRecordSessionId(null)
         setRecordLabel('')
+        setRecPaused(false)
         // ⚠️ 中斷跟完成要分得開。步驟一樣會帶回來（上面已經併進腳本），
         //    但「錄製完成」會讓人以為東西都錄到了，實際上是斷在半路。
         setNotice(status.error
@@ -239,6 +251,22 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
           : `錄製完成，共 ${status.steps?.length ?? 0} 個步驟`)
       }
     }, 2000)
+  }
+
+  /**
+   * 切換暫停。⚠️ **不要樂觀更新畫面**——agent 模式是把指令丟過去、等它回報，
+   * 先把畫面改成「已暫停」的話，agent 沒收到時會顯示暫停而錄製其實還在繼續。
+   * 狀態一律由輪詢帶回來（本機模式是同步的，回應就帶了結果）。
+   */
+  const togglePause = async () => {
+    if (!recordSessionId) return
+    const next = !recPaused
+    const response = await fetch(`/api/frontend-auto/record/pause/${recordSessionId}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: next }),
+    })
+    const data = await response.json() as { ok?: boolean; paused?: boolean; pending?: boolean; message?: string }
+    if (!response.ok) return setNotice(data.message ?? '切換暫停失敗')
+    if (typeof data.paused === 'boolean') setRecPaused(data.paused)
   }
 
   const stopRecording = async () => {
@@ -266,6 +294,7 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
     setDirty(true)
     setRecordSessionId(null)
     setRecordLabel('')
+    setRecPaused(false)
     setNotice(`錄製已停止，共 ${data.steps?.length ?? 0} 個步驟`)
   }
 
@@ -350,11 +379,14 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
           <div className="uat-script-title"><input value={name} onChange={event => { setName(event.target.value); setDirty(true) }} placeholder={copy.scriptName} /><span>{dirty ? copy.unsaved : selectedId ? copy.synced : copy.newScript} · {countExecutableSteps(steps)} {xianxia ? '道可執行術式' : '個執行步驟'}</span></div>
           <nav>{(['editor', 'run', 'assets', 'history'] as const).map(item => <button type="button" className={view === item ? 'is-active' : ''} onClick={() => setView(item)} key={item}>{item === 'editor' ? copy.editor : item === 'run' ? copy.run : item === 'assets' ? copy.assets : copy.history}</button>)}</nav>
           <div className="uat-toolbar-actions">
-            {recordSessionId ? <button type="button" className="uat-btn is-danger" onClick={stopRecording}>{copy.stopRecord}</button> : <button type="button" className="uat-btn is-quiet" onClick={startRecording}>{copy.record}</button>}
+            {recordSessionId ? <>
+              <button type="button" className="uat-btn is-quiet" onClick={togglePause}>{recPaused ? copy.resumeRecord : copy.pauseRecord}</button>
+              <button type="button" className="uat-btn is-danger" onClick={stopRecording}>{copy.stopRecord}</button>
+            </> : <button type="button" className="uat-btn is-quiet" onClick={startRecording}>{copy.record}</button>}
             <button type="button" className="uat-btn is-primary" onClick={saveScript} disabled={saving}>{saving ? copy.saving : copy.save}</button>
           </div>
         </header>
-        {(notice || recordLabel) && <div className="uat-notice"><XianxiaIcon name="notification" size={16} /><span>{recordLabel ? `${recordLabel} ${xianxia ? '觀照錄術中' : '錄製中'}` : notice}</span><button type="button" onClick={() => setNotice('')}>{xianxia ? '收起符訊' : '關閉'}</button></div>}
+        {(notice || recordLabel) && <div className="uat-notice"><XianxiaIcon name="notification" size={16} /><span>{recordLabel ? `${recordLabel} ${recPaused ? (xianxia ? '已暫歇' : '已暫停') : (xianxia ? '觀照錄術中' : '錄製中')}` : notice}</span><button type="button" onClick={() => setNotice('')}>{xianxia ? '收起符訊' : '關閉'}</button></div>}
 
         {view === 'editor' && !!selectorWarnings.bad.length && <div className="uat-multi-alert" role="alert">
           <p>⚠️ 這些步驟的定位在<strong>錄製當下就已經不對</strong>，直接執行會失敗：</p>
