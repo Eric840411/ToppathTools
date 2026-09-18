@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { XianxiaIcon } from '../../components/XianxiaIcon'
-import { BlockEditor } from './BlockEditor'
+import { BlockEditor, type BackendSnippetOption } from './BlockEditor'
 import { NetworkPanel, type UatStatsPayload } from './NetworkPanel'
 import { SELECTOR_CHECK_LABEL } from '../../../shared/uat-selector-check'
 import { compileExecutableSteps, countExecutableSteps, createStep, parseSteps, serializeSteps } from './step-model'
@@ -46,6 +46,8 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
   const [baselines, setBaselines] = useState<AutoBaseline[]>([])
   const [templates, setTemplates] = useState<AutoTemplate[]>([])
   const [ocrRegions, setOcrRegions] = useState<OcrRegion[]>([])
+  /** 後台設定片段清單（給「後台設定」積木選）。⚠️ 只存清單，內容留在 server */
+  const [snippets, setSnippets] = useState<BackendSnippetOption[]>([])
   const [runs, setRuns] = useState<AutoRun[]>([])
   const [agents, setAgents] = useState<AgentOption[]>([])
   /**
@@ -136,6 +138,12 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
     void loadScripts()
     void loadRuns()
   }, [loadScripts, loadRuns])
+  useEffect(() => {
+    fetch('/api/osm-uat/backend-snippets')
+      .then(response => response.json())
+      .then((data: { snippets?: BackendSnippetOption[] }) => setSnippets(data.snippets ?? []))
+      .catch(() => { /* 拿不到就當沒有片段——積木會顯示「目前沒有片段」 */ })
+  }, [])
   useEffect(() => {
     fetch('/api/frontend-auto/record/available').then(response => response.json()).then((data: { available?: boolean; agents?: AgentOption[]; outdated?: number }) => {
       setRecorderAvailable(!!data.available)
@@ -461,7 +469,7 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
           {selectorWarnings.bad.map(bad => <div key={bad.index}>第 {bad.index} 步——{bad.why}</div>)}
         </div>}
         {view === 'editor' && !!selectorWarnings.weak.length && <p className="uat-multi-alert">共 {selectorWarnings.weak.length} 個步驟用結構路徑定位（第 {selectorWarnings.weak.join('、')} 步），這是最脆的一階，請試跑確認找得到正確元素。</p>}
-        {view === 'editor' && <BlockEditor steps={steps} baselines={baselines} selectedId={selectedStepId} onSelectedIdChange={setSelectedStepId} onChange={next => { setSteps(next); setDirty(true) }} themeMode={themeMode} />}
+        {view === 'editor' && <BlockEditor steps={steps} snippets={snippets} baselines={baselines} selectedId={selectedStepId} onSelectedIdChange={setSelectedStepId} onChange={next => { setSteps(next); setDirty(true) }} themeMode={themeMode} />}
         {view === 'run' && (
           <div className="uat-run-layout">
             <section className="uat-panel uat-inscribed-panel">

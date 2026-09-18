@@ -17,9 +17,11 @@ import https from 'https'
 import http from 'http'
 import WebSocket from 'ws'
 import { PNG } from 'pngjs'
-import { db } from '../shared.js'
+import { db, getUatBackendCredentials } from '../shared.js'
 import { agentConnections, uatAgentSessions, uatRunSessions, UAT_CONSOLE_KEEP, type AgentInfo, type UatConsoleEntry } from '../agent-hub.js'
 import { getAuthEmailFromContext } from '../request-context.js'
+import { getBackendSnippet } from '../uat-backend-snippets.js'
+import { runBackendOps } from '../uat-runner/backend-ops.js'
 import { agentUpdateStatus } from './machine-test.js'
 
 export const router = express.Router()
@@ -1326,6 +1328,9 @@ const PAUSED_CROP_MESSAGE = '錄製目前暫停中，請先繼續錄製再框選
  */
 const SERVER_MODE = 'server'
 
+/** 後台設定片段要連的後台。跟 Backend UAT 錄製同一個環境變數，不另外設一個 */
+const BACKEND_URL_FOR_SNIPPETS = process.env.UAT_BACKEND_URL ?? 'http://uat-cp.osmslot.org'
+
 router.post('/api/frontend-auto/record/crop/:sessionId', async (req, res) => {
   const agentSess = uatAgentSessions.get(req.params.sessionId)
   if (agentSess) {
@@ -1602,6 +1607,46 @@ export async function pushLog(runId: string, line: string) {
   }
 }
 
+/**
+ * 後台設定片段：把 `backend_snippet` 積木的 `snippetId` 換成真正的步驟。
+ *
+ * ⚠️ **在 server 這一側解析**，不要讓 agent 自己去查——agent 拿不到 DB，
+ *    而且片段的權限判斷（誰看得到、有沒有被刪）也在這邊。
+ *
+ * ⚠️ 解析不到要**明確失敗**，不能讓那一步變成空的照樣跑過去。片段被刪掉、
+ *    或腳本是從別的環境搬過來的，都會走到這裡——而「設定沒做但測試綠燈」
+ *    正是這個功能最怕的結果。
+ */
+function resolveBackendSnippets(steps: StepObj[]): { steps: StepObj[]; used: boolean; errors: string[] } {
+  const errors: string[] = []
+  let used = false
+  const out = steps.map(step => {
+    if (step.action !== 'backend_snippet') return step
+    used = true
+    const id = String((step as Record<string, unknown>).snippetId ?? '')
+    if (!id) { errors.push(`「${step.name ?? '後台設定'}」還沒選要跑哪一份設定片段`); return step }
+    const snippet = getBackendSnippet(id)
+    if (!snippet) { errors.push(`「${step.name ?? '後台設定'}」引用的設定片段已經不存在（可能被刪了）`); return step }
+    return { ...step, snippetTitle: snippet.title, snippetSteps: snippet.steps } as StepObj
+  })
+  return { steps: out, used, errors }
+}
+
+/**
+ * 這一輪要不要把後台帳密送出去。
+ *
+ * ⚠️ **只有腳本真的用到後台積木時才送。** 沒用到的腳本不該帶著憑證跑——
+ *    尤其 agent 模式是把它送到另一台機器上。
+ */
+function backendCredentialsForRun() {
+  const me = authedKey()
+  if (!me) return null
+  const creds = getUatBackendCredentials(me)
+  const cp = creds.cpBackend
+  if (!cp?.username || !cp?.password) return null
+  return { backendUrl: BACKEND_URL_FOR_SNIPPETS, username: cp.username, password: cp.password }
+}
+
 router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
   const runId = req.params.id
   const body = req.body as Record<string, unknown>
@@ -1614,6 +1659,27 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
   const requestedAgentId = text(body.agentId)
 
   if (activeRuns.has(runId)) return res.status(409).json({ ok: false, message: 'already running' })
+
+  // 後台設定片段：id → 真正的步驟。⚠️ 解析不到一律擋下來，
+  // 不能讓那一步變成空的照樣跑過去（「設定沒做但測試綠燈」是最糟的結果）。
+  let parsedSteps: StepObj[] = []
+  try { parsedSteps = JSON.parse(stepsRaw) as StepObj[] } catch { parsedSteps = [] }
+  const resolved = resolveBackendSnippets(Array.isArray(parsedSteps) ? parsedSteps : [])
+  if (resolved.errors.length) {
+    return res.status(400).json({ ok: false, message: resolved.errors.join('；') })
+  }
+  let backendCreds: ReturnType<typeof backendCredentialsForRun> = null
+  if (resolved.used) {
+    backendCreds = backendCredentialsForRun()
+    if (!backendCreds) {
+      return res.status(400).json({
+        ok: false,
+        message: '這份腳本有「後台設定」積木，但找不到你的後台登入帳密。請先到 UAT 的執行設定填好 CP 後台帳密。',
+      })
+    }
+  }
+  // ⚠️ 解析後的步驟才是要送出去執行的那一份
+  const stepsForRun = JSON.stringify(resolved.steps)
 
   // ── Route to agent if agentId provided or agent available ──────────────────
   //
@@ -1643,7 +1709,10 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
     agentToUse.ws.send(JSON.stringify({
       type: 'uat_script_run',
       runId,
-      steps: stepsRaw,
+      steps: stepsForRun,
+      // ⚠️ **只有真的用到後台積木時才帶帳密**。沒用到的腳本不該帶著憑證跑，
+      //    尤其這是送到另一台機器上。
+      ...(backendCreds ? { backend: backendCreds } : {}),
       url: startUrl,
       platform,
       resolution,
@@ -1675,7 +1744,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
     let skipped = 0
     let steps: StepObj[]
     try {
-      try { steps = JSON.parse(stepsRaw) } catch { await log('❌ 步驟 JSON 解析失敗'); return }
+      try { steps = JSON.parse(stepsForRun) } catch { await log('❌ 步驟 JSON 解析失敗'); return }
       const rawStepCount = steps.length
       steps = steps.filter((step, index, list) => {
         const prev = list[index - 1]
@@ -1846,6 +1915,21 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
             await log(`⏳ ${idx} ${label}`)
             await (await recordedLocator(step.selector ?? '')).waitFor({ state: 'visible', timeout: 10000 })
             await log(`✅ ${idx} ${label}`)
+            passed++
+          } else if (step.action === 'backend_snippet') {
+            // 後台設定：另開一顆 context 登入後台跑一段設定，跑完回來繼續前端腳本。
+            // ⚠️ 失敗一律 throw，讓它走下面那段 failureMode——**不能當成跳過**。
+            const snippetSteps = (step as unknown as { snippetSteps?: object[] }).snippetSteps ?? []
+            const snippetTitle = (step as unknown as { snippetTitle?: string }).snippetTitle ?? '後台設定'
+            if (!browser) throw new Error('瀏覽器尚未就緒，無法執行後台設定')
+            if (!backendCreds) throw new Error('沒有後台帳密，無法執行後台設定')
+            await log(`⏳ ${idx} ${label}：${snippetTitle}`)
+            const opResult = await runBackendOps(browser, {
+              ...backendCreds, steps: snippetSteps, title: snippetTitle,
+              onNote: (line) => { void log(line) },
+            })
+            if (!opResult.ok) throw new Error(opResult.fails.join('；'))
+            await log(`✅ ${idx} ${label}：${snippetTitle} 完成`)
             passed++
           } else {
             await log(`⏭ ${idx} ${label}（不支援的動作：${step.action}）`)

@@ -31,6 +31,7 @@ import { attachNetworkCapture, DEFAULT_THRESHOLDS } from './uat-runner/net-captu
 import { attachPinusProbe } from './uat-runner/pinus-probe.js'
 import { attachCdpCapture } from './uat-runner/cdp-capture.js'
 import { evaluateApiAssertion } from './uat-runner/api-assert.js'
+import { runBackendOps } from './uat-runner/backend-ops.js'
 import { waitForDebugPort, clearStaleDebugPort, DEBUG_PORT_ARG } from './uat-runner/chrome-debug-port.js'
 import { verifyRecordedSelectorLive, createRecordedLocators } from './uat-runner/recorded-selector.js'
 import { frontendRecorderScript, flagShadowCompleteness, syncRecorderPanel, setRecorderPanelVisible, FRONTEND_RECORDER_CONTROL_MARKER } from './uat-runner/frontend-recorder.js'
@@ -215,6 +216,11 @@ interface UatRecordPauseMessage {
 
 interface UatScriptRunMessage {
   type: 'uat_script_run'
+  /**
+   * 後台設定片段要用的登入資訊。
+   * ⚠️ **只有腳本真的有後台積木時 server 才會帶**——沒用到的腳本不該帶著憑證跑。
+   */
+  backend?: { backendUrl: string; username: string; password: string }
   runId: string
   steps: string
   url: string
@@ -615,26 +621,26 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
     console.log(`[UI-SS] gmid=${gmid} url=${url} resolutions=${gmidTasks.map(t => t.resolution).join(',')}`)
 
     let browser: import('playwright').Browser | null = null
-    try {
-      // ── 進入機器 ──────────────────────────────────────────────────────────
-      const firstTask = gmidTasks[0]
-      const [w0, h0] = firstTask.resolution.split('x').map(Number)
-      browser = await chromium.launch({ headless: !options.headedMode })
-      const ctx = await browser.newContext({ viewport: { width: w0 || 390, height: h0 || 844 } })
-      const page = await ctx.newPage()
+    /**
+     * ⚠️ **每個解析度重新載入**（預設開）。使用者 2026-09-18 確認：
+     * 這些遊戲的版型是**載入當下**依視窗大小決定的。只改 viewport 再截圖，拍到的是
+     * 「用 A 尺寸載入、硬撐成 B 尺寸」的畫面——看起來有拍到，但那不是該解析度真正會長的樣子，
+     * 而且**正是這個功能要抓的那種 bug 永遠不會出現**。
+     * 舊的快速模式（一次進場、只改 viewport）保留成選項，代價是每個解析度都要重進一次機台。
+     */
+    const reloadPerResolution = options.reloadPerResolution !== false
+    const screenshotDelaySeconds = typeof options.screenshotDelaySeconds === 'number'
+      ? Math.max(0, Math.min(60, options.screenshotDelaySeconds))
+      : 5
 
-      await postStatus(firstTask.id, 'running')
+    /** 進場：導頁 → 進機台 → 等推流 → 關面額彈窗 → 等指定秒數 */
+    const prepare = async (page: Page) => {
       await page.goto(url, { timeout: 30000 })
       const entryState = await enterUiScreenshotMachine(page, gmid)
       console.log(`[UI-SS] ${gmid} entry=${entryState}`)
-      console.log(`[UI-SS] ${gmid} — page loaded`)
-
-      // ── 檢測推流 ──────────────────────────────────────────────────────────
       const ready = await waitForUiScreenshotReady(page)
       if (!ready) throw new Error(`Game surface not ready after entering machine: ${gmid}`)
       console.log(`[UI-SS] ${gmid} — stream ready`)
-
-      // ── 機器內操作：點選面額 ───────────────────────────────────────────────
       if (options.dismissPopup !== false) {
         const popupEl = await page.$('.select-bg')
         if (popupEl) {
@@ -646,48 +652,87 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
           }
         }
       }
-      const screenshotDelaySeconds = typeof options.screenshotDelaySeconds === 'number'
-        ? Math.max(0, Math.min(60, options.screenshotDelaySeconds))
-        : 5
       if (screenshotDelaySeconds > 0) {
-        console.log(`[UI-SS] ${gmid} waiting ${screenshotDelaySeconds}s before screenshots`)
+        console.log(`[UI-SS] ${gmid} waiting ${screenshotDelaySeconds}s before screenshot`)
         await page.waitForTimeout(screenshotDelaySeconds * 1000)
       }
+    }
 
-      // ── 截圖（調整 viewport，不重新導航）────────────────────────────────
-      for (const task of gmidTasks) {
-        const ctrl2 = uiScreenshotRuns.get(runId)
-        if (ctrl2?.stopped) break
-
-        if (task.id !== firstTask.id) await postStatus(task.id, 'running')
-
-        const [w, h] = task.resolution.split('x').map(Number)
-        await page.setViewportSize({ width: w || 390, height: h || 844 })
-        await page.waitForTimeout(400) // let layout settle after resize
-        if (await isUiScreenshotLobbyVisible(page)) {
-          throw new Error(`Still in lobby before screenshot: ${gmid}`)
-        }
-
-        const screenshotBuf = await page.screenshot({ type: 'png', fullPage: false })
-        const taskStatus = await isUiScreenshotPopupVisible(page) ? 'popup' : 'ok'
-        console.log(`[UI-SS] ${gmid} ${task.resolution} → ${taskStatus}`)
-
-        const form = new FormData()
-        form.append('screenshot', new Blob([new Uint8Array(screenshotBuf)], { type: 'image/png' }), `${task.resolution}.png`)
-        form.append('status', taskStatus)
-        const uploadRes = await fetch(`${serverBaseUrl}/api/ui-screenshot/task/${task.id}/upload`, {
-          method: 'POST', body: form,
-        })
-        if (!uploadRes.ok) {
-          const uploadError = `upload failed: HTTP ${uploadRes.status}`
-          console.warn(`[UI-SS] ${gmid} ${task.resolution} ${uploadError}`)
-          await postStatus(task.id, 'err', uploadError)
-        }
+    /** 拍一張 + 上傳。回傳 false 代表上傳失敗（狀態已回報） */
+    const shootAndUpload = async (page: Page, task: { id: string; resolution: string }) => {
+      if (await isUiScreenshotLobbyVisible(page)) {
+        throw new Error(`Still in lobby before screenshot: ${gmid}`)
       }
+      const screenshotBuf = await page.screenshot({ type: 'png', fullPage: false })
+      const taskStatus = await isUiScreenshotPopupVisible(page) ? 'popup' : 'ok'
+      console.log(`[UI-SS] ${gmid} ${task.resolution} → ${taskStatus}`)
 
-      // ── 離開機器 ──────────────────────────────────────────────────────────
-      await exitUiScreenshotMachine(page, gmid)
-      console.log(`[UI-SS] ${gmid} — done, closing browser`)
+      const form = new FormData()
+      form.append('screenshot', new Blob([new Uint8Array(screenshotBuf)], { type: 'image/png' }), `${task.resolution}.png`)
+      form.append('status', taskStatus)
+      const uploadRes = await fetch(`${serverBaseUrl}/api/ui-screenshot/task/${task.id}/upload`, {
+        method: 'POST', body: form,
+      })
+      if (!uploadRes.ok) {
+        const uploadError = `upload failed: HTTP ${uploadRes.status}`
+        console.warn(`[UI-SS] ${gmid} ${task.resolution} ${uploadError}`)
+        await postStatus(task.id, 'err', uploadError)
+        return false
+      }
+      return true
+    }
+
+    try {
+      browser = await chromium.launch({ headless: !options.headedMode })
+
+      if (reloadPerResolution) {
+        // ── 每個解析度各自開一個 context、以該尺寸重新載入 ──────────────────
+        for (const task of gmidTasks) {
+          if (uiScreenshotRuns.get(runId)?.stopped) break
+          const [w, h] = task.resolution.split('x').map(Number)
+          // ⚠️ context 也要建在 try 裡。建在外面的話它一失敗就會掉進外層 catch，
+          //    而外層 catch 會把**這台機器的每一張**都標成失敗——包含前面已經拍好的那幾張
+          let ctx: import('playwright').BrowserContext | null = null
+          try {
+            ctx = await browser.newContext({ viewport: { width: w || 390, height: h || 844 } })
+            const page = await ctx.newPage()
+            await postStatus(task.id, 'running')
+            await prepare(page)
+            await shootAndUpload(page, task)
+            await exitUiScreenshotMachine(page, gmid).catch(() => {})
+          } catch (err) {
+            // ⚠️ 單一解析度失敗**只標這一張**。整批一起標失敗的話，
+            //    畫面看起來像「這台機器完全拍不到」，但其實只是某個尺寸進不去
+            const m = err instanceof Error ? err.message.split('\n')[0] : String(err)
+            console.error(`[UI-SS] ${gmid} ${task.resolution} error: ${m}`)
+            await postStatus(task.id, /timeout/i.test(m) ? 'timeout' : 'err', m)
+          } finally {
+            await ctx?.close().catch(() => {})
+          }
+        }
+        console.log(`[UI-SS] ${gmid} — done (reload per resolution), closing browser`)
+      } else {
+        // ── 快速模式：進場一次，之後只改 viewport（不重新載入）──────────────
+        const firstTask = gmidTasks[0]
+        const [w0, h0] = firstTask.resolution.split('x').map(Number)
+        const ctx = await browser.newContext({ viewport: { width: w0 || 390, height: h0 || 844 } })
+        const page = await ctx.newPage()
+
+        await postStatus(firstTask.id, 'running')
+        await prepare(page)
+
+        for (const task of gmidTasks) {
+          if (uiScreenshotRuns.get(runId)?.stopped) break
+          if (task.id !== firstTask.id) await postStatus(task.id, 'running')
+          const [w, h] = task.resolution.split('x').map(Number)
+          await page.setViewportSize({ width: w || 390, height: h || 844 })
+          await page.waitForTimeout(400) // let layout settle after resize
+          await shootAndUpload(page, task)
+        }
+
+        await exitUiScreenshotMachine(page, gmid)
+        console.log(`[UI-SS] ${gmid} — done (fast mode), closing browser`)
+      }
 
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message.split('\n')[0] : String(err)
@@ -897,6 +942,23 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
           await (await recordedLocator(step.selector ?? '')).waitFor({ state: 'visible', timeout: 10000 })
           await log(`✅ ${idx} ${label}`)
           sendEvent({ kind: 'step_result', index: i, status: 'pass', message: label })
+          passed++
+        } else if (step.action === 'backend_snippet') {
+          // ⚠️ 這一段**一定要在 agent 端也實作**。只做 server 端的話，
+          //    agent 模式會掉到下面的「不支援的動作 → 跳過」——腳本照樣 PASS，
+          //    而後台的設定根本沒做。（v4.167.0 的 `fill` 就是這樣咬過一次。）
+          const snippetSteps = (step as unknown as { snippetSteps?: object[] }).snippetSteps ?? []
+          const snippetTitle = (step as unknown as { snippetTitle?: string }).snippetTitle ?? '後台設定'
+          if (!browser) throw new Error('瀏覽器尚未就緒，無法執行後台設定')
+          if (!msg.backend) throw new Error('沒有後台帳密，無法執行後台設定（請確認伺服器端有帶）')
+          await log(`⏳ ${idx} ${label}：${snippetTitle}`)
+          const opResult = await runBackendOps(browser, {
+            ...msg.backend, steps: snippetSteps, title: snippetTitle,
+            onNote: (line) => { void log(line) },
+          })
+          if (!opResult.ok) throw new Error(opResult.fails.join('；'))
+          await log(`✅ ${idx} ${label}：${snippetTitle} 完成`)
+          sendEvent({ kind: 'step_result', index: i, status: 'pass', message: `${label}：${snippetTitle}` })
           passed++
         } else {
           await log(`⏭ ${idx} ${label}（不支援的動作：${step.action}）`)

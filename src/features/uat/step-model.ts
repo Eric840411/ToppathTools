@@ -11,12 +11,13 @@ export const STEP_LIBRARY = [
   { action: 'assert_visible', label: '驗證可見', category: 'assertion', description: '確認元素出現在畫面' },
   { action: 'find_baseline_scroll', label: '尋找基準圖', category: 'assertion', description: '捲動並比對基準圖' },
   { action: 'assert_api_called', label: '這支 API 必須被呼叫', category: 'assertion', description: '這一步要打到指定的後端 API，而且狀態碼要符合' },
+  { action: 'backend_snippet', label: '後台設定', category: 'backend', description: '跑一份後台設定片段（例如把某個開關打開），完成後回到前端繼續' },
   { action: 'group', label: '步驟群組', category: 'flow', description: '整理一組可收合步驟' },
   { action: 'repeat', label: '重複區塊', category: 'flow', description: '依次數重複子步驟' },
 ] as const
 
 export const CATEGORY_LABELS: Record<string, string> = {
-  browser: '瀏覽器', interaction: '互動', assertion: '驗證', evidence: '證據', flow: '流程控制',
+  browser: '瀏覽器', interaction: '互動', assertion: '驗證', evidence: '證據', flow: '流程控制', backend: '後台連動',
 }
 
 export const CONTAINER_ACTIONS = new Set(['group', 'repeat'])
@@ -86,7 +87,7 @@ function cleanStep(step: AutoStep): Record<string, unknown> {
   const row: Record<string, unknown> = { id: step.id, name: step.name.trim() || actionLabel(step.action), action: step.action }
   // ⚠️ 新增參數欄位時**這兩行一定要一起加**。漏了的話步驟在畫面上編得好好的，
   //    存檔（serialize）之後參數就消失了，而且不會有任何錯誤——重新載入才發現變空的。
-  for (const key of ['value', 'selector', 'baselineId', 'urlPattern', 'selectorStrategy', 'selectorCheck', 'selectorCheckReason'] as const) if (step[key]?.trim()) row[key] = step[key]?.trim()
+  for (const key of ['value', 'selector', 'baselineId', 'urlPattern', 'snippetId', 'selectorStrategy', 'selectorCheck', 'selectorCheckReason'] as const) if (step[key]?.trim()) row[key] = step[key]?.trim()
   for (const key of ['x', 'y', 'threshold', 'scrollStep', 'maxScrolls', 'retryCount', 'statusCode', 'minCount'] as const) if (typeof step[key] === 'number') row[key] = step[key]
   if (step.expectStatus) row.expectStatus = step.expectStatus
   if (step.failureMode && step.failureMode !== 'inherit') row.failureMode = step.failureMode

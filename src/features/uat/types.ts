@@ -29,6 +29,13 @@ export interface AutoStep {
   failureMode?: StepFailureMode
   collapsed?: boolean
   children?: AutoStep[]
+  /**
+   * `backend_snippet`：要跑哪一份後台設定片段。
+   *
+   * ⚠️ 只存 id，不存步驟——片段被改過之後這顆積木要**跟著改**，
+   *    存一份快照的話會出現「你以為改好了、腳本還在跑舊的」。
+   */
+  snippetId?: string
   /** assert_api_called：要打到的 API 網址樣式（`*` 當萬用字元） */
   urlPattern?: string
   /** assert_api_called：狀態碼要求 */

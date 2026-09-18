@@ -3,9 +3,18 @@ import { XianxiaIcon } from '../../components/XianxiaIcon'
 import type { AutoBaseline, AutoStep, UatThemeMode } from './types'
 import { actionLabel, CATEGORY_LABELS, CONTAINER_ACTIONS, createStep, duplicateStep, findStep, removeStep, STEP_LIBRARY, updateStepTree } from './step-model'
 
+/** 後台設定片段（只要清單需要的欄位——完整內容在 server 那邊，前端不需要也不該存一份） */
+export interface BackendSnippetOption {
+  id: string
+  title: string
+  note?: string
+  stepCount: number
+}
+
 interface Props {
   steps: AutoStep[]
   baselines: AutoBaseline[]
+  snippets: BackendSnippetOption[]
   selectedId: string | null
   onSelectedIdChange: (id: string | null) => void
   onChange: (steps: AutoStep[]) => void
@@ -120,11 +129,12 @@ function StepList({ items, parentId, selectedId, onSelect, onChange, tree, xianx
   )
 }
 
-export function BlockEditor({ steps, baselines, selectedId, onSelectedIdChange, onChange, themeMode }: Props) {
+export function BlockEditor({ steps, baselines, snippets, selectedId, onSelectedIdChange, onChange, themeMode }: Props) {
   const xianxia = themeMode === 'xianxia'
   const xianxiaActionLabels: Record<string, string> = {
     goto: '開啟幻境', click: '點化元件', click_viewport: '點定畫面', click_xy: '點化幻境座標', type: '注入靈文',
     wait: '靜候靈息', screenshot: '留存靈影', assert_visible: '驗證顯形', find_baseline_scroll: '尋影校驗', group: '術式陣組', repeat: '周天循環',
+    backend_snippet: '調動後樞',
   }
   const labelFor = (action: string) => xianxia ? (xianxiaActionLabels[action] ?? actionLabel(action)) : actionLabel(action)
   const categoryFor = (category: string) => xianxia ? ({ browser: '幻境門', interaction: '御物術', assertion: '校驗術', evidence: '留影術', flow: '陣法控制' }[category] ?? CATEGORY_LABELS[category]) : CATEGORY_LABELS[category]
@@ -202,6 +212,34 @@ export function BlockEditor({ steps, baselines, selectedId, onSelectedIdChange, 
             {selected.action === 'goto' && <label>網址<input className="uat-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder="https://..." /></label>}
             {['click', 'type', 'assert_visible'].includes(selected.action) && <label>Selector<input className="uat-field uat-code-field" value={selected.selector ?? ''} onChange={event => updateSelected({ selector: event.target.value })} placeholder="#submit 或 [data-testid=...]" /></label>}
             {selected.action === 'type' && <label>輸入內容<input className="uat-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} /></label>}
+            {selected.action === 'backend_snippet' && (
+              <>
+                <label>{xianxia ? '後樞術式' : '後台設定片段'}
+                  <select className="uat-field" value={selected.snippetId ?? ''}
+                    onChange={event => updateSelected({ snippetId: event.target.value })}>
+                    <option value="">{snippets.length ? '請選擇' : '目前沒有片段'}</option>
+                    {snippets.map(item => (
+                      <option value={item.id} key={item.id}>{item.title}（{item.stepCount} 步）</option>
+                    ))}
+                  </select>
+                </label>
+                {/* ⚠️ 選了一份已經被刪掉的片段時**一定要講**——執行時會被擋下來，
+                    但在編輯器裡看起來只是「沒選」，使用者會以為自己漏選了。 */}
+                {selected.snippetId && !snippets.some(item => item.id === selected.snippetId) && (
+                  <p className="uat-hint" style={{ color: 'var(--uat-danger)' }}>
+                    這顆積木引用的片段已經不存在（可能被刪了）。請重新選一份，否則執行時會被擋下來。
+                  </p>
+                )}
+                {(() => {
+                  const picked = snippets.find(item => item.id === selected.snippetId)
+                  return picked?.note ? <p className="uat-hint">{picked.note}</p> : null
+                })()}
+                <p className="uat-hint">
+                  這一步會另開一顆瀏覽器登入後台、跑完這份設定再回來繼續。
+                  ⚠️ <b>不會自動還原</b>——要還原請在腳本最後再放一顆，選還原用的那份片段。
+                </p>
+              </>
+            )}
             {['click_viewport', 'click_xy'].includes(selected.action) && <div className="uat-field-row"><label>X<input className="uat-field" type="number" value={selected.x ?? 0} onChange={event => updateSelected({ x: Number(event.target.value) })} /></label><label>Y<input className="uat-field" type="number" value={selected.y ?? 0} onChange={event => updateSelected({ y: Number(event.target.value) })} /></label></div>}
             {selected.action === 'wait' && <label>{xianxia ? '靜候毫秒' : '等待毫秒'}<input className="uat-field" type="number" min="0" value={selected.value ?? '1000'} onChange={event => updateSelected({ value: event.target.value })} /></label>}
             {selected.action === 'repeat' && <label>{xianxia ? '周天次數' : '重複次數'}<input className="uat-field" type="number" min="1" max="50" value={selected.value ?? '2'} onChange={event => updateSelected({ value: event.target.value })} /></label>}
