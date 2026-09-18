@@ -28,6 +28,9 @@ import { stripComments } from './lib/strip-comments.mjs';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
 
+/** 1x1 PNG（base64）。給截圖 stub 用——只要是合法的 PNG 就好 */
+const PNG_1PX_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
 const results = [];
 const check = (name, ok, detail = '') => {
   results.push({ name, ok });
@@ -153,6 +156,35 @@ console.log('④ 主畫面的暫停端點：真的打，看 agent 收到什麼')
   hub.uatAgentSessions.delete('rec-panel');
 }
 
+console.log('④b 競態：等截圖那段 await 之間才按暫停');
+{
+  // ⚠️ **真的跑 saveCropFromRecorder**，不是讀原始碼。要測的正是「入口擋過、
+  //    但 await 期間狀態變了」——這種只有把時序造出來才看得到。
+  const fa = await import(pathToFileURL(path.join(root, 'dist-server/server/routes/frontend-auto.js')).href);
+  const inserted = [];
+  const sess = {
+    paused: false,
+    steps: [{ action: 'goto' }],
+    cropRequest: { scriptId: 's1', platform: 'h5', name: '截圖', threshold: 0.08, createdBy: 'me' },
+    cdpSend: async (method) => {
+      if (method === 'Page.captureScreenshot') {
+        // 截圖進行中，使用者按下暫停——這正是 CodeX 指出的窗口
+        sess.paused = true;
+        return { result: { data: PNG_1PX_B64 } };
+      }
+      return { result: {} };
+    },
+  };
+  const before = sess.steps.length;
+  await fa.saveCropFromRecorder(sess, { x: 0, y: 0, w: 10, h: 10 });
+  check('④b ⚠️ 等截圖期間才暫停 → 不得新增截圖積木',
+    sess.steps.length === before,
+    `多了 ${sess.steps.length - before} 顆——判斷貼在入口而不是貼在副作用前面`);
+  check('④b 而且要把 cropRequest 收掉（不然下一次框選會沿用這一份）',
+    sess.cropRequest === undefined);
+  void inserted;
+}
+
 console.log('⑤ 兩個 host 的接線（⚠️ 只是原始碼比對，證明不了行為）');
 {
   const hosts = [
@@ -210,10 +242,17 @@ console.log('⑤ 兩個 host 的接線（⚠️ 只是原始碼比對，證明�
     ['伺服器模式', 'server/routes/frontend-auto.ts', 'saveCropFromRecorder'],
   ]) {
     const src = stripComments(read(file));
-    const body = src.slice(src.indexOf(`function ${fn}`), src.indexOf(`function ${fn}`) + 700);
-    check(`⑤ ${label}：截圖的完成回呼也擋 paused（框選途中才暫停的情況）`,
-      /if \(sess\.paused\)/.test(body),
-      '入口擋過還不夠——框到一半才按暫停的話，那張圖仍然會變成一顆積木');
+    const start = src.indexOf(`function ${fn}`);
+    const body = src.slice(start, start + 1800);
+    check(`⑤ ${label}：截圖入口有擋 paused`, /if \(sess\.paused\)/.test(body));
+    // ⚠️ **重點在「截圖那段 await 之後」那一道。**只看整個函式裡有沒有
+    //    `if (sess.paused)` 的話，入口那一道會頂上來——把競態那一道拿掉也照樣綠。
+    //    （注入測試抳到的：第一版就是這樣。）
+    const shotAt = body.indexOf('captureScreenshot');
+    const afterShot = shotAt < 0 ? '' : body.slice(shotAt);
+    check(`⑤ ${label}：**截圖完成之後、寫入之前**再擋一次 paused`,
+      /if \(sess\.paused\)/.test(afterShot),
+      '只擋入口的話，等截圖那幾百毫秒之間按暫停，積木照樣會長出來');
   }
 
   const studio = stripComments(read('src/features/uat/FrontendAutomationStudio.tsx'));
@@ -222,6 +261,21 @@ console.log('⑤ 兩個 host 的接線（⚠️ 只是原始碼比對，證明�
     '沒有的話按鈕看起來像沒反應');
   check('⑤ 主畫面：等待確認有逾時，不會永遠卡在同步中',
     /pauseTimer\.current = setTimeout/.test(studio));
+  // ⚠️ 逾時要**在送出之前**就起跑。起在回應之後的話，fetch 被拒絕／回的不是 JSON／
+  //    請求根本沒回來時，pausePending 已經是 true 而計時器從來沒開始——按鈕永久卡住。
+  //    （CodeX 2026-09-18 複驗指出，記憶體實測三種情境都卡。）
+  const toggle = studio.slice(studio.indexOf('const togglePause'), studio.indexOf('const stopRecording'));
+  const timerAt = toggle.indexOf('pauseTimer.current = setTimeout');
+  const fetchAt = toggle.indexOf('await fetch');
+  check('⑤ 主畫面：逾時計時器在送出請求**之前**就起跑',
+    timerAt >= 0 && fetchAt >= 0 && timerAt < fetchAt,
+    '起在回應之後的話，連線失敗時按鈕會永久卡在「同步中…」');
+  check('⑤ 主畫面：送出失敗有 catch 收尾（不是只靠逾時）',
+    /catch\s*\{[^}]*clearPauseWait\(\)/.test(toggle),
+    '沒有的話連線中斷要等滿 8 秒才會有反應，而且沒有錯誤訊息');
+  check('⑤ 主畫面：回應不是 JSON 也要有結論',
+    /response\.json\(\)\.catch\(/.test(toggle),
+    '502 那種 HTML 錯誤頁會讓 .json() 直接拋');
   check('⑤ 主畫面：只有收到「我們要求的那個狀態」才算確認',
     /status\.paused === pauseWait\.current/.test(studio),
     '收到相反的狀態就清掉等待，等於把「agent 還沒處理」誤報成已完成');

@@ -286,23 +286,33 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
     if (!recordSessionId || pausePending) return
     const next = !recPaused
     setPausePending(true)
-    const response = await fetch(`/api/frontend-auto/record/pause/${recordSessionId}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: next }),
-    })
-    const data = await response.json() as { ok?: boolean; paused?: boolean; pending?: boolean; message?: string }
-    if (!response.ok) { setPausePending(false); return setNotice(data.message ?? '切換暫停失敗') }
-    // 本機模式是同步的，回應就帶了結果，不必等輪詢
-    if (typeof data.paused === 'boolean') { setRecPaused(data.paused); setPausePending(false); return }
-    // agent 模式只是把指令丟過去。⚠️ 這段等待要顯示出來、而且要有逾時——
-    // 不顯示的話按鈕看起來沒反應；沒逾時的話 agent 沒收到就永遠卡在「同步中」。
-    pauseWait.current = next
+    // ⚠️ **計時器要在送出之前就起跑**（CodeX 2026-09-18 複驗指出）。起在回應之後的話，
+    //    `fetch` 被拒絕、回的不是 JSON、或請求根本沒回來，`pausePending` 已經是 true
+    //    而計時器從來沒開始——按鈕就**永久卡在「同步中…」**，而且沒有任何錯誤。
+    //    這裡的 pauseWait 先不設：還沒確定是 agent 模式，本機模式會在下面自己收掉。
     if (pauseTimer.current) clearTimeout(pauseTimer.current)
     pauseTimer.current = setTimeout(() => {
       pauseTimer.current = null
       pauseWait.current = null
       setPausePending(false)
-      setNotice('暫停指令沒有得到 Local Agent 確認，狀態未變更——請確認 Agent 仍在線並已更新程式碼。')
+      setNotice('暫停指令沒有得到確認，狀態未變更——請確認 Local Agent 仍在線並已更新程式碼。')
     }, 8000)
+    try {
+      const response = await fetch(`/api/frontend-auto/record/pause/${recordSessionId}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: next }),
+      })
+      // ⚠️ 回應不是 JSON 也要有結論（Nginx 的 502 頁面就是這種）。
+      const data = await response.json().catch(() => ({})) as { ok?: boolean; paused?: boolean; pending?: boolean; message?: string }
+      if (!response.ok) { clearPauseWait(); return setNotice(data.message ?? '切換暫停失敗') }
+      // 本機模式是同步的，回應就帶了結果，不必等輪詢
+      if (typeof data.paused === 'boolean') { setRecPaused(data.paused); clearPauseWait(); return }
+      // agent 模式只是把指令丟過去——等輪詢帶回 agent 真的回報的狀態，
+      // 等不到就由上面那個計時器收尾。
+      pauseWait.current = next
+    } catch {
+      clearPauseWait()
+      setNotice('切換暫停失敗：連線中斷，狀態未變更。')
+    }
   }
 
   const stopRecording = async () => {

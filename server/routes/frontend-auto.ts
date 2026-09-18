@@ -705,7 +705,11 @@ async function syncPlaywrightViewport(page: import('playwright').Page, width: nu
   await page.setViewportSize({ width, height }).catch(() => {})
 }
 
-async function saveCropFromRecorder(sess: RecSession, crop: { x: number; y: number; w: number; h: number }) {
+/**
+ * ⚠️ export 是給 `scripts/ui-checks/uat-panel-control.mjs` 真的跑一次用的。
+ * 「等截圖那段 await 之間才按暫停」這種時序只有把它造出來才驗得到，讀原始碼看不出來。
+ */
+export async function saveCropFromRecorder(sess: RecSession, crop: { x: number; y: number; w: number; h: number }) {
   const request = sess.cropRequest
   if (!request || !sess.cdpSend) return
   // ⚠️ **入口擋過還不夠**：使用者可能在框選途中才按暫停。不在這裡再看一次的話，
@@ -729,6 +733,10 @@ async function saveCropFromRecorder(sess: RecSession, crop: { x: number; y: numb
   } finally {
     await setRecorderPanelVisible(sess.cdpSend, true)
   }
+  // ⚠️ **截圖是一段 await，中途可能才被按暫停**（CodeX 2026-09-18 複驗指出）。
+  //    前面那道只擋得住「按下去時已經是暫停」，擋不住「等截圖的這幾百毫秒之間才暫停」。
+  //    所以寫入之前要再看一次——判斷要貼著副作用，不是貼著入口。
+  if (sess.paused) { sess.cropRequest = undefined; return }
   const data = shot.result?.data
   if (typeof data !== 'string') return
   const filename = `${Date.now()}-${randomUUID()}.png`

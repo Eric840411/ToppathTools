@@ -1353,6 +1353,10 @@ async function handleAgentCrop(sess: UatRecSession, crop: { x: number; y: number
     } finally {
       await setRecorderPanelVisible(sess.cdpSend, true)
     }
+    // ⚠️ **截圖是一段 await，中途可能才被按暫停**（CodeX 2026-09-18 複驗指出）。
+    //    前面那道只擋得住「按下去時已經是暫停」。判斷要貼著副作用（送出 crop_image），
+    //    不是貼著入口——否則等截圖那幾百毫秒之間按暫停，積木照樣會長出來。
+    if (sess.paused) { sess.cropRequest = undefined; return }
     const imageBase64 = shot.result?.data
     if (typeof imageBase64 !== 'string') return
     const id = randomUUID()
