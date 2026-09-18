@@ -10,18 +10,23 @@ import { waitForDebugPort, clearStaleDebugPort, DEBUG_PORT_ARG } from '../uat-ru
 import { frontendRecorderScript, flagShadowCompleteness, syncRecorderPanel, setRecorderPanelVisible, FRONTEND_RECORDER_CONTROL_MARKER } from '../uat-runner/frontend-recorder.js'
 import { evaluateApiAssertion } from '../uat-runner/api-assert.js'
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs'
-import { extname, join } from 'path'
+import { basename, extname, join } from 'path'
 import { tmpdir } from 'os'
 import { spawn, type ChildProcess } from 'child_process'
 import https from 'https'
 import http from 'http'
 import WebSocket from 'ws'
 import { PNG } from 'pngjs'
-import { db, getUatBackendCredentials } from '../shared.js'
+import { db, getLarkToken, getUatBackendCredentials } from '../shared.js'
 import { agentConnections, uatAgentSessions, uatRunSessions, UAT_CONSOLE_KEEP, type AgentInfo, type UatConsoleEntry } from '../agent-hub.js'
 import { getAuthEmailFromContext } from '../request-context.js'
 import { getBackendSnippet } from '../uat-backend-snippets.js'
 import { compileFrontendSteps, runFrontendStep } from '../uat-runner/frontend-engine.js'
+// ⚠️ TC 聚合與回寫**跟 Backend 共用同一份**（`multi-tc.js`／`lark-writeback.js`）。
+//    「什麼算通過」「那一列要寫什麼」各寫一份的話一定會漂，而症狀是安靜的。
+import { runMultiTcSteps, publishMultiTcResults, validateMultiTcScript } from '../uat-runner/multi-tc.js'
+import { createFrontendTcEngine, toMultiTcSteps, FRONTEND_BLOCK_DEFS } from '../uat-runner/frontend-tc-engine.js'
+import { uploadLarkAttachment, updateLarkRecord, parseLarkBaseUrl } from '../uat-runner/lark-writeback.js'
 // ⚠️ 基準圖比對抽成共用的一份——原本只活在這個檔案裡，所以只有伺服器端跑得了，
 //    agent 上那顆積木被靜默跳過。
 import { decodePng as loadPng, findTemplateInPng } from '../uat-runner/template-match.js'
@@ -145,7 +150,9 @@ function existingBinding(id: string): { larkUrl: string; tableId: string; bindin
   return { larkUrl: row?.lark_url ?? '', tableId: row?.table_id ?? '', bindings: row?.bindings ?? '[]' }
 }
 
-function parseBindings(value: unknown): { recordId: string; number: string; text: string }[] {
+interface TcBinding { recordId: string; number: string; text: string }
+
+function parseBindings(value: unknown): TcBinding[] {
   const raw = typeof value === 'string' ? (() => { try { return JSON.parse(value) } catch { return [] } })() : value
   if (!Array.isArray(raw)) return []
   return raw
@@ -1694,6 +1701,34 @@ function backendCredentialsForRun() {
   return { backendUrl: BACKEND_URL_FOR_SNIPPETS, username: cp.username, password: cp.password }
 }
 
+/**
+ * 這次執行綁了哪些 TC。
+ *
+ * ⚠️ **綁定從 DB 讀，不從請求讀。** 前端只送步驟；「要回寫到 Lark 哪幾列」
+ * 如果讓呼叫端自己指定，等於任何人都能拿這支端點去改別張表的資料。
+ *
+ * 回 `null` ＝ 這份腳本沒綁 TC，照舊跑（不聚合、不回寫）。
+ */
+function tcPlanForRun(runId: string): { larkUrl: string; tableId: string; bindings: TcBinding[] } | null {
+  const run = db.prepare('SELECT script_id FROM frontend_auto_runs WHERE id = ?').get(runId) as { script_id?: string } | undefined
+  if (!run?.script_id) return null
+  const script = db.prepare('SELECT lark_url, table_id, bindings FROM frontend_auto_scripts WHERE id = ?').get(run.script_id) as
+    { lark_url?: string; table_id?: string; bindings?: string } | undefined
+  if (!script) return null
+  const bindings = parseBindings(script.bindings)
+  if (!bindings.length) return null
+  return { larkUrl: script.lark_url ?? '', tableId: script.table_id ?? '', bindings }
+}
+
+/** `validateMultiTcScript` 要求每筆綁定帶 tableId（防止一份腳本混到兩張表）。 */
+function tcScriptForValidation(plan: { tableId: string; bindings: TcBinding[] }, steps: StepObj[]) {
+  return {
+    tableId: plan.tableId,
+    bindings: plan.bindings.map(b => ({ ...b, tableId: plan.tableId })),
+    steps,
+  }
+}
+
 router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
   const runId = req.params.id
   const body = req.body as Record<string, unknown>
@@ -1725,6 +1760,19 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
       })
     }
   }
+  // ── 綁了 TC 的腳本：**開瀏覽器之前先驗**（CodeX：未知動作必須明確拒絕）──
+  //
+  // ⚠️ 跑到一半才發現的話，前面已經點下去的操作留在系統裡，而結果看起來像
+  //    「這一步沒做」。驗證用的是 H5／PC 自己的分類表——拿 Backend 那張去驗，
+  //    每一顆 H5 積木都會被當成「不支援」。
+  const tcPlan = tcPlanForRun(runId)
+  if (tcPlan) {
+    const tcEngine = { defs: FRONTEND_BLOCK_DEFS, runSteps: async () => ({}) }
+    const errors = validateMultiTcScript(tcScriptForValidation(tcPlan, resolved.steps), true, tcEngine)
+    if (errors.length) return res.status(400).json({ ok: false, message: errors.join('；') })
+    if (!tcPlan.larkUrl) return res.status(400).json({ ok: false, message: '這份腳本綁了 TC，但沒有填 Lark 表格網址，跑完沒有地方可以回寫。' })
+  }
+
   // ⚠️ 解析後的步驟才是要送出去執行的那一份
   const stepsForRun = JSON.stringify(resolved.steps)
   // 派工給 agent 時再補上基準圖的網址——agent 拿不到 DB 也讀不到伺服器的檔案。
@@ -1752,6 +1800,22 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
   // ⚠️ 但**一定要回報跑在哪**——這個 fallback 原本是隱形的：前端連回應都沒讀，
   //    所以同一顆按鈕可能跑在你的機器上、也可能跑在伺服器上，畫面完全一樣。
   const agentToUse = picked.ok ? picked.agent : undefined
+
+  // 🚨 **綁了 TC 的腳本暫時不派給 agent。**
+  //
+  // agent 端還沒接上 TC 聚合與回寫（下一個 commit）。現在讓它派出去的話，agent 會跑
+  // 舊的那條「一顆一顆跑、算通過幾步」路徑——**腳本會順利跑完、畫面顯示通過，
+  // 而 Lark 上一個字都沒寫**。那是這個功能最糟的失敗方式，而且完全沒有徵兆。
+  //
+  // ⚠️ 擋下來要講原因，不要退回伺服器端偷偷跑：使用者指名 agent 通常是因為
+  //    只有那台連得到測試環境，默默換地方跑等於給一個看起來成功的錯誤答案。
+  if (agentToUse && tcPlan) {
+    return res.status(409).json({
+      ok: false,
+      message: '這份腳本綁了 Lark TC，目前只能跑在伺服器端（Agent 端的 TC 回寫還沒上線）。'
+        + '請在派工目標選「伺服器端」再執行一次。',
+    })
+  }
 
   if (agentToUse && agentToUse.ws.readyState === agentToUse.ws.OPEN) {
     uatRunSessions.set(runId, { agentId: agentToUse.agentId, runId, done: false })
@@ -1867,6 +1931,99 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
 
       await log('✅ 執行頁面已準備完成')
 
+      /**
+       * 引擎要的那一包。**兩條路徑（有綁 TC／沒綁）共用同一份**——分開寫的話
+       * 「基準圖怎麼拿」「後台帳密哪來」會變成兩份設定，然後其中一份會忘了更新。
+       */
+      const engineHost = {
+        log, page, browser,
+        recordedLocator, netCapture,
+        startUrl,
+        viewportHeight: h,
+        backend: backendCreds,
+        // 基準圖：伺服器端讀 DB ＋ 本機檔案
+        loadBaseline: async (target: StepObj) => {
+          const row = target.baselineId
+            ? db.prepare('SELECT id, name, image_path, threshold FROM frontend_auto_baselines WHERE id = ?').get(target.baselineId) as BaselineRow | undefined
+            : undefined
+          if (!row) throw new Error('baseline not found')
+          const file = imagePathToFile(row.image_path)
+          if (!file || !existsSync(file)) throw new Error('baseline image file not found')
+          return { name: row.name, template: loadPng(readFileSync(file)), threshold: row.threshold }
+        },
+        compareTemplate: (shot: ReturnType<typeof loadPng>, template: ReturnType<typeof loadPng>, threshold: number) =>
+          findTemplateInPng(shot, template, threshold),
+        decodePng: (buffer: Buffer) => loadPng(buffer),
+      }
+
+      if (tcPlan) {
+        // ── 綁了 TC：聚合判定 ＋ 回寫 Lark ─────────────────────────────────
+        //
+        // ⚠️ **這條路徑沒有自己的迴圈。** 重試、failureMode、失敗隔離全部在
+        //    共用的聚合器與 adapter 裡（CodeX：執行責任只能一份）。外層再做一次
+        //    的話同一顆積木會被跑兩次，而日誌上看起來只跑了一次。
+        const progress = { idx: '' }
+        const shotDir = imageDir
+        const tcCtx = {
+          ...engineHost,
+          progress,
+          engine: createFrontendTcEngine({ ...engineHost, progress }),
+          onStep: ({ index }: { index: number }) => { progress.idx = `[${index + 1}/${steps.length}]` },
+          /**
+           * 截圖存檔。回傳**檔案路徑**——聚合器要拿它去上傳。
+           *
+           * ⚠️ 失敗回 null 不要 throw：截圖是證據不是斷言，拍不到不該把
+           *    一個本來會通過的檢查變成失敗。
+           */
+          takeScreenshot: async (name: string) => {
+            try {
+              const safe = String(name).replace(/[^\w.-]+/g, '_').slice(0, 60) || 'shot'
+              const filename = `run-${runId}-${Date.now()}-${safe}.png`
+              const full = join(shotDir, filename)
+              writeFileSync(full, await page.screenshot({ fullPage: false }))
+              return full
+            } catch { return null }
+          },
+        }
+        const tcSteps = toMultiTcSteps(steps, failureMode === 'continue' ? 'continue' : 'stop')
+        const { results, sharedFailure } = await runMultiTcSteps(tcSteps, tcCtx, tcPlan.bindings)
+        if (sharedFailure) await log(`🛑 共用步驟失敗：${sharedFailure}`)
+
+        for (const row of results) {
+          const mark = row.outcome === 'pass' ? '✅' : row.outcome === 'fail' ? '❌' : '⚠️'
+          await log(`${mark} TC ${row.task}：${row.outcome}${row.error ? ` —— ${row.error}` : ''}`)
+        }
+        passed = results.filter(r => r.outcome === 'pass').length
+        failed = results.filter(r => r.outcome === 'fail' || r.outcome === 'blocked').length
+        skipped = results.filter(r => r.outcome === 'unverified').length
+
+        // ── 回寫 Lark ────────────────────────────────────────────────────
+        // ⚠️ 回寫失敗是**實質失敗**，不是警告。安靜帶過的話畫面全綠、表上什麼都沒寫，
+        //    而那正是最容易發生也最難發現的一種。
+        try {
+          const { appToken, tableId } = parseLarkBaseUrl(tcPlan.larkUrl)
+          const table = tcPlan.tableId || tableId
+          if (!table) throw new Error('看不出要寫到哪一張表（網址少了 ?table=tblXXXX）')
+          const auth = { base: process.env.LARK_BASE_URL ?? 'https://open.larksuite.com', token: await getLarkToken(), appToken }
+          await log(`📤 回寫 Lark（${results.length} 筆 TC）...`)
+          const publishFailures = await publishMultiTcResults(results, {
+            upload: async (shotPath: string) =>
+              uploadLarkAttachment(auth, basename(shotPath), readFileSync(shotPath)),
+            update: (recordId: string, tokens: string[], outcome: string) =>
+              updateLarkRecord(auth, table, recordId, tokens, outcome),
+            onError: (message: string) => { void log(`❌ 回寫失敗：${message}`) },
+          })
+          if (publishFailures.length) {
+            failed += publishFailures.length
+            await log(`❌ 有 ${publishFailures.length} 筆沒有寫進 Lark——畫面上的判定不代表表格已更新`)
+          } else {
+            await log(`✅ 已回寫 ${results.length} 筆 TC`)
+          }
+        } catch (err) {
+          failed++
+          await log(`❌ 回寫 Lark 失敗（判定結果沒有寫進表裡）：${err instanceof Error ? err.message : String(err)}`)
+        }
+      } else {
       for (const [i, step] of steps.entries()) {
         if (!activeRuns.has(runId)) { await log('🛑 執行已中止'); break }
         const label = step.name ?? `步驟 ${i + 1}`
@@ -1877,27 +2034,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
           // ⚠️ **積木的行為只有一份**（`uat-runner/frontend-engine.js`），agent 端跑同一支。
           //    以前這裡跟 agent 各有一份對照表，然後就漂了——`find_baseline_scroll`
           //    只有這邊有，agent 上被靜默跳過，腳本照樣 PASS。
-          await runFrontendStep(step, {
-            idx, label, log, page, browser,
-            recordedLocator, netCapture,
-            state: netState,
-            startUrl,
-            viewportHeight: h,
-            backend: backendCreds,
-            // 基準圖：伺服器端讀 DB ＋ 本機檔案
-            loadBaseline: async (target: StepObj) => {
-              const row = target.baselineId
-                ? db.prepare('SELECT id, name, image_path, threshold FROM frontend_auto_baselines WHERE id = ?').get(target.baselineId) as BaselineRow | undefined
-                : undefined
-              if (!row) throw new Error('baseline not found')
-              const file = imagePathToFile(row.image_path)
-              if (!file || !existsSync(file)) throw new Error('baseline image file not found')
-              return { name: row.name, template: loadPng(readFileSync(file)), threshold: row.threshold }
-            },
-            compareTemplate: (shot: ReturnType<typeof loadPng>, template: ReturnType<typeof loadPng>, threshold: number) =>
-              findTemplateInPng(shot, template, threshold),
-            decodePng: (buffer: Buffer) => loadPng(buffer),
-          })
+          await runFrontendStep(step, { ...engineHost, idx, label, state: netState })
           passed++
           break
         } catch (err) {
@@ -1922,6 +2059,7 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
         }
         }
         if (!activeRuns.has(runId)) break
+      }
       }
 
       const result = failed > 0 ? 'fail' : 'pass'

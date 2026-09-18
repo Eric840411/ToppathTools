@@ -1,12 +1,27 @@
 import { BLOCK_DEFS, runSteps } from './block-engine.js';
 import { stepDependencyIssues } from './step-dependencies.js';
 
+/**
+ * 這份聚合規則**不綁哪一套積木**。
+ *
+ * Backend（`block-engine`）與 H5／PC（`frontend-tc-engine`）是兩套積木，但
+ * 「什麼算通過」只能有一份——各寫一份的話，同一種情況兩個分頁會給出不同結論，
+ * 而且沒人會發現，因為兩邊各自看起來都合理。所以引擎用參數換，規則留在這裡。
+ *
+ * ⚠️ 引擎要提供兩樣東西：
+ *   - `defs[action].category` —— 分類（`assert`／`compare`／`evidence`／`read`／`result`／`nav`）
+ *   - `runSteps(steps, ctx, options)` —— 回 `{ pass, manual, criticalFails, warnings, allShotPaths, ... }`
+ *
+ * 預設是 Backend，既有呼叫端一律不用改。
+ */
+export const BACKEND_TC_ENGINE = Object.freeze({ defs: BLOCK_DEFS, runSteps });
+
 /** A script preserves one chronological flow. tcId owns evidence/results, never a display number. */
-export function isCheck(step) {
-  return ['assert', 'compare'].includes(BLOCK_DEFS[step.action]?.category);
+export function isCheck(step, engine = BACKEND_TC_ENGINE) {
+  return ['assert', 'compare'].includes(engine.defs[step.action]?.category);
 }
 
-export function validateMultiTcScript(script, forRun = false) {
+export function validateMultiTcScript(script, forRun = false, engine = BACKEND_TC_ENGINE) {
   const errors = [];
   if (!script || !Array.isArray(script.bindings) || !Array.isArray(script.steps)) return ['腳本格式不正確'];
   if (forRun) errors.push(...stepDependencyIssues(script.steps).map(issue => issue.message));
@@ -16,20 +31,20 @@ export function validateMultiTcScript(script, forRun = false) {
   if (forRun && !script.steps.some(s => s && s.disabled !== true)) errors.push('腳本沒有步驟');
   script.steps.forEach((step, i) => {
     if (!step || typeof step.action !== 'string') { errors.push(`第 ${i + 1} 步：格式不正確`); return; }
-    const def = BLOCK_DEFS[step.action];
+    const def = engine.defs[step.action];
     if (!def || step.action === 'builtin_verifier') errors.push(`第 ${i + 1} 步：多 TC 腳本不支援 ${step.action}`);
     if (step.tcId && !ids.has(step.tcId)) errors.push(`第 ${i + 1} 步：找不到綁定的 TC`);
-    if (forRun && step.disabled !== true && !step.tcId && (isCheck(step) || ['read', 'evidence', 'result'].includes(def?.category))) errors.push(`第 ${i + 1} 步：請指定檢查、讀值或截圖的所屬 TC`);
+    if (forRun && step.disabled !== true && !step.tcId && (isCheck(step, engine) || ['read', 'evidence', 'result'].includes(def?.category))) errors.push(`第 ${i + 1} 步：請指定檢查、讀值或截圖的所屬 TC`);
     if (forRun && step.disabled !== true && step.secret) errors.push(`第 ${i + 1} 步：密碼欄位需移至登入設定，不可直接重播空密碼`);
   });
   for (const id of ids) if (script.steps.filter(s => s?.action === 'set_tc_result' && s.tcId === id && s.disabled !== true).length > 1) errors.push(`TC ${id} 只能有一個啟用的回填判定積木`);
   return errors;
 }
 
-export function reviewMultiTcScript(script) {
+export function reviewMultiTcScript(script, engine = BACKEND_TC_ENGINE) {
   return script.bindings.map(binding => {
     const steps = script.steps.filter(s => s.tcId === binding.recordId && s.disabled !== true);
-    return { ...binding, stepCount: steps.length, checks: steps.filter(isCheck).length,
+    return { ...binding, stepCount: steps.length, checks: steps.filter(step => isCheck(step, engine)).length,
       screenshots: steps.filter(s => s.action === 'screenshot').length,
       weakSelectors: steps.filter(s => s.selectorStrategy === 'cssPath').length };
   });
@@ -37,6 +52,9 @@ export function reviewMultiTcScript(script) {
 
 /** Per-TC failure isolation, one shared page, persistent read variables and explicit evidence. */
 export async function runMultiTcSteps(steps, ctx, bindings) {
+  // ⚠️ 引擎從 ctx 來，預設 Backend。換引擎就等於換「這顆積木做什麼」，
+  //    但**下面這整套判定一個字都不換**——那正是共用的意義。
+  const engine = ctx.engine ?? BACKEND_TC_ENGINE;
   const results = bindings.map(b => ({ recordId: b.recordId, task: b.text || b.title || b.number,
     subtype: b.sub || '多 TC 錄製', pass: false, manual: false, skip: false, outcome: 'unverified',
     steps: [], evidence: [], assertions: 0, durationMs: 0, criticalFails: [], warnings: [], allShotPaths: [], notes: '', error: null }));
@@ -58,7 +76,7 @@ export async function runMultiTcSteps(steps, ctx, bindings) {
     (row ? row.steps : sharedSteps).push(trace);
     if (step.disabled === true) { trace.status = 'disabled'; continue; }
     if (row && stopped.has(row.recordId)) { trace.status = 'blocked'; continue; }
-    if (!row && (isCheck(step) || ['read', 'evidence', 'result'].includes(BLOCK_DEFS[step.action]?.category))) {
+    if (!row && (isCheck(step, engine) || ['read', 'evidence', 'result'].includes(engine.defs[step.action]?.category))) {
       sharedFailure = `第 ${index + 1} 步尚未指定所屬 TC`; break;
     }
     ctx.onStep?.({ index, step, recordId: row?.recordId ?? null });
@@ -71,7 +89,7 @@ export async function runMultiTcSteps(steps, ctx, bindings) {
         if (locator.preview) { if (previewBytes + locator.preview.length <= 4_000_000) previewBytes += locator.preview.length; else delete locator.preview; }
         trace.locator = locator;
       }
-      result = await runSteps([step], { ...ctx, multiTc: true }, { state, autoScreenshot: false });
+      result = await engine.runSteps([step], { ...ctx, multiTc: true }, { state, autoScreenshot: false });
     } catch (error) {
       if (error.locator) trace.locator = error.locator;
       result = { pass: false, manual: false, error: error.message, notes: error.message, criticalFails: [error.message], warnings: [], allShotPaths: [] };
@@ -100,7 +118,7 @@ export async function runMultiTcSteps(steps, ctx, bindings) {
     row.criticalFails.push(...result.criticalFails);
     row.warnings.push(...result.warnings);
     append(row, `[步驟 ${index + 1}] ${result.notes}`);
-    if (isCheck(step) && result.pass && !result.manual && !result.warnings.length) row.assertions++;
+    if (isCheck(step, engine) && result.pass && !result.manual && !result.warnings.length) row.assertions++;
     if (result.manual) row.manual = true;
     if (!result.pass || result.manual) {
       if (step.onFail !== 'continue' || result.manual) stopped.add(row.recordId);

@@ -82,6 +82,13 @@ export function compileFrontendSteps(steps) {
  */
 export async function runFrontendStep(step, ctx) {
   const { idx, label, log, page } = ctx;
+  /**
+   * 這一步產出的證據檔（目前只有截圖積木會放東西進來）。
+   *
+   * ⚠️ 回傳值是**後加的**，舊的兩個 host 都沒在收——所以一律回一個物件，
+   * 不能改成「有東西才回」，不然接收端得多判一次 undefined。
+   */
+  const shots = [];
 
   if (step.action === 'goto') {
     const target = step.value || ctx.startUrl;
@@ -94,21 +101,21 @@ export async function runFrontendStep(step, ctx) {
     await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 });
     await page.waitForTimeout(3000);
     await log(`✅ ${idx} ${label}`);
-    return;
+    return { shots };
   }
 
   if (step.action === 'click') {
     await log(`⏳ ${idx} ${label}`);
     await (await ctx.recordedLocator(step.selector ?? '')).click({ timeout: 10000 });
     await log(`✅ ${idx} ${label}`);
-    return;
+    return { shots };
   }
 
   if (step.action === 'click_xy') {
     await log(`⏳ ${idx} ${label}`);
     await page.locator('canvas').first().click({ position: { x: step.x ?? 0, y: step.y ?? 0 }, timeout: 10000 });
     await log(`✅ ${idx} ${label}`);
-    return;
+    return { shots };
   }
 
   if (step.action === 'click_viewport') {
@@ -116,7 +123,7 @@ export async function runFrontendStep(step, ctx) {
     await page.mouse.click(step.x ?? 0, step.y ?? 0);
     await page.waitForTimeout(500);
     await log(`✅ ${idx} ${label}`);
-    return;
+    return { shots };
   }
 
   if (step.action === 'type' || step.action === 'fill') {
@@ -125,21 +132,30 @@ export async function runFrontendStep(step, ctx) {
     await log(`⏳ ${idx} ${label}`);
     await (await ctx.recordedLocator(step.selector ?? '')).fill(step.value ?? '', { timeout: 10000 });
     await log(`✅ ${idx} ${label}`);
-    return;
+    return { shots };
   }
 
   if (step.action === 'wait') {
     await log(`⏳ ${idx} ${label}`);
     await page.waitForTimeout(Number(step.value) || 1000);
     await log(`✅ ${idx} ${label}`);
-    return;
+    return { shots };
   }
 
   if (step.action === 'screenshot') {
     await log(`⏳ ${idx} ${label}`);
-    await page.screenshot();
+    // ⚠️ **拍了就要留得下來。** 這顆積木原本是 `await page.screenshot()` 然後把 Buffer
+    //    丟掉——畫面上那個 ✅ 看起來拍好了，但**沒有任何地方存得到那張圖**。
+    //    綁了 TC 的腳本要把截圖當證據回寫 Lark，所以由 host 提供「存到哪」。
+    //    host 沒提供時維持舊行為（只是把畫面拍一次確認頁面還活著）。
+    if (ctx.takeScreenshot) {
+      const shot = await ctx.takeScreenshot(step.name || label || 'screenshot');
+      if (shot) shots.push(shot);
+    } else {
+      await page.screenshot();
+    }
     await log(`✅ ${idx} ${label}`);
-    return;
+    return { shots };
   }
 
   if (step.action === 'find_baseline_scroll') {
@@ -168,7 +184,7 @@ export async function runFrontendStep(step, ctx) {
     }
     if (!found) throw new Error(`baseline "${baseline.name}" not found before page bottom`);
     await log(`✅ ${idx} ${label} → (${found.x}, ${found.y}), diff ${found.diff.toFixed(3)}`);
-    return;
+    return { shots };
   }
 
   if (step.action === 'assert_api_called') {
@@ -182,14 +198,14 @@ export async function runFrontendStep(step, ctx) {
     );
     if (!verdict.ok) throw new Error(`${step.urlPattern} —— ${verdict.why}`);
     await log(`✅ ${idx} ${label}（${verdict.why}）`);
-    return;
+    return { shots };
   }
 
   if (step.action === 'assert_visible') {
     await log(`⏳ ${idx} ${label}`);
     await (await ctx.recordedLocator(step.selector ?? '')).waitFor({ state: 'visible', timeout: 10000 });
     await log(`✅ ${idx} ${label}`);
-    return;
+    return { shots };
   }
 
   if (step.action === 'backend_snippet') {
@@ -205,7 +221,7 @@ export async function runFrontendStep(step, ctx) {
     });
     if (!opResult.ok) throw new Error(opResult.fails.join('；'));
     await log(`✅ ${idx} ${label}：${snippetTitle} 完成`);
-    return;
+    return { shots };
   }
 
   // 🚨 **不認得的動作一律失敗，不能跳過。**

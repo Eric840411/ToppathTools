@@ -13,6 +13,8 @@ import { pngPreview, compareRegionPng } from './recorder-visual.js';
 import { attachNetworkCapture, DEFAULT_THRESHOLDS, formatStatsLine } from './net-capture.js';
 import { runSteps as runBlockSteps, countBucket } from './block-engine.js';
 import { runMultiTcSteps, validateMultiTcScript, publishMultiTcResults } from './multi-tc.js';
+// ⚠️ 回寫時「那一列要寫什麼」只有一份（H5／PC 也要用同一套判定與欄位）。
+import { larkRecordFields } from './lark-writeback.js';
 import { resolveVerifierParams, verifierRanAssertion } from './verifier-params.js';
 import { createRecordedLocators, locateRecorded, ambiguityMessage, isAmbiguityError, clickRecorded } from './recorded-selector.js';
 
@@ -368,33 +370,16 @@ async function updateRecord(token, recordId, fileTokens, outcome, atomic = false
   // 「只在有新圖時才清」邏輯，這裡就完全不會執行，導致MANUAL/SKIP列上殘留舊版本
   // (改成不上傳截圖之前)留下的舊截圖，重跑再多次也清不掉。一律先清空可同時涵蓋
   // 「有新圖要換」跟「MANUAL/SKIP要清掉舊圖」兩種情境。
-  if (!atomic) await putRecord({ '附圖': [] });
+  // （原本這裡對非 atomic 路徑先單獨 PUT 一次清空附圖。`larkRecordFields()` 已經
+  //   一律把 `附圖` 設成 []，有新圖再蓋上去，所以那一支多餘的請求拿掉了。）
 
   // Step 2: set remaining fields
-  const fields = {};
-  if (atomic) fields['附圖'] = [];
-  // PASS / FAIL 是兩個獨立的勾選欄位（使用者 2026-08-24 加的），互斥要自己維護。
-  // 原本的 UAT測試 欄位保留在表上但這裡不再寫入——使用者指定改寫這兩欄。
-  if (outcome === 'pass') {
-    fields['PASS'] = true;
-    fields['FAIL'] = false;
-    // Multi-TC tables only require PASS, FAIL and 附圖; the legacy timestamp column is optional there.
-    if (!atomic) fields['UAT測試通過時間'] = Date.now();
-  } else if (outcome === 'fail') {
-    fields['PASS'] = false;
-    fields['FAIL'] = true;
-  } else if (outcome === 'manual') {
-    // 機器判不了：兩個都清掉。留著上一輪的結果會讓人以為這次有驗過
-    fields['PASS'] = false;
-    fields['FAIL'] = false;
-  }
-  if (tokens.length > 0) {
-    fields['附圖'] = tokens.map((ft, i) => ({
-      file_token: ft,
-      name: `screenshot_${i + 1}.png`,
-    }));
-  }
-  if (Object.keys(fields).length === 0) return;
+  // ⚠️ 「要寫哪些欄位」在 `lark-writeback.js`，**H5／PC 用的是同一份**。
+  //    寫兩份的話症狀是安靜的：欄位名或互斥規則漂掉，畫面照樣全綠。
+  //
+  //    `atomic`（多 TC 表）的差別只有一個：**沒有「UAT測試通過時間」那一欄**，
+  //    寫進去會被 Lark 退回整筆失敗。清空附圖兩種情況都要做。
+  const fields = larkRecordFields(outcome, tokens, { includePassTimestamp: !atomic });
   return putRecord(fields);
 }
 
