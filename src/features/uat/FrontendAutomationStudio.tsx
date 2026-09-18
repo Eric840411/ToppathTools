@@ -4,6 +4,7 @@ import { BlockEditor } from './BlockEditor'
 import { NetworkPanel, type UatStatsPayload } from './NetworkPanel'
 import { SELECTOR_CHECK_LABEL } from '../../../shared/uat-selector-check'
 import { compileExecutableSteps, countExecutableSteps, createStep, parseSteps, serializeSteps } from './step-model'
+import { createPauseGate } from './pause-gate'
 import type { AgentOption, AutoBaseline, AutoFilter, AutoPlatform, AutoRun, AutoScript, AutoStep, AutoTemplate, OcrRegion, UatThemeMode } from './types'
 
 type StudioView = 'editor' | 'run' | 'assets' | 'history'
@@ -58,8 +59,16 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
   const [recPaused, setRecPaused] = useState(false)
   /** 暫停指令送出去、還沒被 agent 確認。⚠️ 確認之前不能顯示成已完成，也不能重複送 */
   const [pausePending, setPausePending] = useState(false)
-  const pauseWait = useRef<boolean | null>(null)
-  const pauseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  /**
+   * 等待狀態機。**時序邏輯全在 `pause-gate.ts`**，這裡只負責呼叫——
+   * 那支有自己的行為測試（送出前起跑的逾時、遲到的回應不得清掉新的那一筆）。
+   * ⚠️ 不要在這裡再寫一份判斷，兩份一定會漂。
+   */
+  const pauseGate = useRef(createPauseGate({
+    timeoutMs: 8000,
+    setPending: setPausePending,
+    onTimeout: () => setNotice('暫停指令沒有得到確認，狀態未變更——請確認 Local Agent 仍在線並已更新程式碼。'),
+  })).current
   const pollRecorder = useRef<ReturnType<typeof setInterval> | null>(null)
   const runStream = useRef<EventSource | null>(null)
   const activeRunId = useRef<string | null>(null)
@@ -134,9 +143,9 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
   }, [selectedId, scripts, loadAssets])
   useEffect(() => () => {
     if (pollRecorder.current) clearInterval(pollRecorder.current)
-    if (pauseTimer.current) clearTimeout(pauseTimer.current)
+    pauseGate.cancel()
     runStream.current?.close()
-  }, [])
+  }, [pauseGate])
 
   const visibleScripts = useMemo(() => scripts.filter(script => {
     const matchFilter = filter === 'all' || filter === 'mine' && script.created_by === actor || filter === 'public' && !!script.is_public
@@ -200,12 +209,6 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
     }
   }, [steps])
 
-  const clearPauseWait = () => {
-    pauseWait.current = null
-    if (pauseTimer.current) { clearTimeout(pauseTimer.current); pauseTimer.current = null }
-    setPausePending(false)
-  }
-
   const startRecording = async () => {
     if (!(recorderAvailable || agents.length)) return setNotice('沒有可用錄製器；請從 localhost 開啟，或連接具備 uat-record 的 Local Agent。')
     const target = runConfig.url || window.prompt('請輸入要錄製的目標 URL')?.trim() || ''
@@ -254,11 +257,7 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
         setRecPaused(status.paused)
         // 等到的是我們要求的那個狀態才算確認。收到相反的不清掉等待——
         // 那代表 agent 還沒處理完，交給逾時去收，不要把它誤報成已完成。
-        if (pauseWait.current !== null && status.paused === pauseWait.current) {
-          pauseWait.current = null
-          if (pauseTimer.current) { clearTimeout(pauseTimer.current); pauseTimer.current = null }
-          setPausePending(false)
-        }
+        pauseGate.confirm(status.paused)
       }
       if (status.cdpWarning) setNotice(status.cdpWarning)
       if (status.done) {
@@ -267,7 +266,7 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
         setRecordSessionId(null)
         setRecordLabel('')
         setRecPaused(false)
-        clearPauseWait()
+        pauseGate.cancel()
         // ⚠️ 中斷跟完成要分得開。步驟一樣會帶回來（上面已經併進腳本），
         //    但「錄製完成」會讓人以為東西都錄到了，實際上是斷在半路。
         setNotice(status.error
@@ -285,32 +284,25 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
   const togglePause = async () => {
     if (!recordSessionId || pausePending) return
     const next = !recPaused
-    setPausePending(true)
-    // ⚠️ **計時器要在送出之前就起跑**（CodeX 2026-09-18 複驗指出）。起在回應之後的話，
-    //    `fetch` 被拒絕、回的不是 JSON、或請求根本沒回來，`pausePending` 已經是 true
-    //    而計時器從來沒開始——按鈕就**永久卡在「同步中…」**，而且沒有任何錯誤。
-    //    這裡的 pauseWait 先不設：還沒確定是 agent 模式，本機模式會在下面自己收掉。
-    if (pauseTimer.current) clearTimeout(pauseTimer.current)
-    pauseTimer.current = setTimeout(() => {
-      pauseTimer.current = null
-      pauseWait.current = null
-      setPausePending(false)
-      setNotice('暫停指令沒有得到確認，狀態未變更——請確認 Local Agent 仍在線並已更新程式碼。')
-    }, 8000)
+    // gate 會在這一行**先起跑逾時計時器**再回來，所以「請求永遠不回來」也一定會結束等待。
+    const token = pauseGate.begin(next)
     try {
       const response = await fetch(`/api/frontend-auto/record/pause/${recordSessionId}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paused: next }),
       })
       // ⚠️ 回應不是 JSON 也要有結論（Nginx 的 502 頁面就是這種）。
       const data = await response.json().catch(() => ({})) as { ok?: boolean; paused?: boolean; pending?: boolean; message?: string }
-      if (!response.ok) { clearPauseWait(); return setNotice(data.message ?? '切換暫停失敗') }
+      // ⚠️ **遲到的回應什麼都不能做**（CodeX 2026-09-18 複驗指出）：A 逾時之後使用者
+      //    又按了一次送出 B，A 的回應這時才回來——它不可以把 B 的等待一起清掉。
+      if (!pauseGate.isCurrent(token)) return
+      if (!response.ok) { pauseGate.settle(token); return setNotice(data.message ?? '切換暫停失敗') }
       // 本機模式是同步的，回應就帶了結果，不必等輪詢
-      if (typeof data.paused === 'boolean') { setRecPaused(data.paused); clearPauseWait(); return }
+      if (typeof data.paused === 'boolean') { setRecPaused(data.paused); pauseGate.settle(token); return }
       // agent 模式只是把指令丟過去——等輪詢帶回 agent 真的回報的狀態，
-      // 等不到就由上面那個計時器收尾。
-      pauseWait.current = next
+      // 等不到就由 gate 裡那個計時器收尾。
     } catch {
-      clearPauseWait()
+      if (!pauseGate.isCurrent(token)) return
+      pauseGate.settle(token)
       setNotice('切換暫停失敗：連線中斷，狀態未變更。')
     }
   }
@@ -341,7 +333,7 @@ export function FrontendAutomationStudio({ platform, themeMode }: Props) {
     setRecordSessionId(null)
     setRecordLabel('')
     setRecPaused(false)
-    clearPauseWait()
+    pauseGate.cancel()
     setNotice(`錄製已停止，共 ${data.steps?.length ?? 0} 個步驟`)
   }
 

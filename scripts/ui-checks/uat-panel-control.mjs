@@ -259,26 +259,32 @@ console.log('⑤ 兩個 host 的接線（⚠️ 只是原始碼比對，證明�
   check('⑤ 主畫面：agent 模式的暫停有「等待確認」狀態（禁用＋顯示同步中）',
     /pausePending/.test(studio) && /disabled=\{pausePending\}/.test(studio),
     '沒有的話按鈕看起來像沒反應');
-  check('⑤ 主畫面：等待確認有逾時，不會永遠卡在同步中',
-    /pauseTimer\.current = setTimeout/.test(studio));
-  // ⚠️ 逾時要**在送出之前**就起跑。起在回應之後的話，fetch 被拒絕／回的不是 JSON／
-  //    請求根本沒回來時，pausePending 已經是 true 而計時器從來沒開始——按鈕永久卡住。
-  //    （CodeX 2026-09-18 複驗指出，記憶體實測三種情境都卡。）
-  const toggle = studio.slice(studio.indexOf('const togglePause'), studio.indexOf('const stopRecording'));
-  const timerAt = toggle.indexOf('pauseTimer.current = setTimeout');
-  const fetchAt = toggle.indexOf('await fetch');
-  check('⑤ 主畫面：逾時計時器在送出請求**之前**就起跑',
-    timerAt >= 0 && fetchAt >= 0 && timerAt < fetchAt,
+  // ⚠️ 等待狀態的**時序邏輯已經抽到 `src/features/uat/pause-gate.ts`**，
+  //    由 `npx tsx scripts/ui-checks/uat-pause-gate.test.ts` 直接跑行為驗證（逾時、
+  //    遲到的回應、舊計時器、輪詢確認）。這裡只管一件事：
+  //    **元件真的用那支，沒有自己再寫一份。**兩份規則一定會漂。
+  check('⑤ 主畫面：等待狀態走共用的 pause-gate（不在元件裡再寫一份）',
+    /from '\.\/pause-gate'/.test(studio) && /createPauseGate\(/.test(studio),
+    '抽出去才跑得了交錯時序的行為測試');
+  const toggle = studio.slice(studio.indexOf('const togglePause'), studio.indexOf('const runScript'));
+  check('⑤ 主畫面：送出前先向 gate 取 token（逾時計時器隨之起跑）',
+    toggle.indexOf('pauseGate.begin(') >= 0
+    && toggle.indexOf('pauseGate.begin(') < toggle.indexOf('await fetch'),
     '起在回應之後的話，連線失敗時按鈕會永久卡在「同步中…」');
+  check('⑤ 主畫面：⚠️ 遲到的回應要先檢查 isCurrent 才能動作',
+    (toggle.match(/pauseGate\.isCurrent\(token\)/g) ?? []).length >= 2,
+    '回應路徑與 catch 路徑都要擋——少一邊就會把新的那一筆清掉');
   check('⑤ 主畫面：送出失敗有 catch 收尾（不是只靠逾時）',
-    /catch\s*\{[^}]*clearPauseWait\(\)/.test(toggle),
+    /catch\s*\{[^}]*pauseGate\.settle\(token\)/.test(toggle),
     '沒有的話連線中斷要等滿 8 秒才會有反應，而且沒有錯誤訊息');
   check('⑤ 主畫面：回應不是 JSON 也要有結論',
     /response\.json\(\)\.catch\(/.test(toggle),
     '502 那種 HTML 錯誤頁會讓 .json() 直接拋');
-  check('⑤ 主畫面：只有收到「我們要求的那個狀態」才算確認',
-    /status\.paused === pauseWait\.current/.test(studio),
-    '收到相反的狀態就清掉等待，等於把「agent 還沒處理」誤報成已完成');
+  check('⑤ 主畫面：輪詢用 gate.confirm 判定（只有等到要求的值才算確認）',
+    /pauseGate\.confirm\(status\.paused\)/.test(studio));
+  check('⑤ 主畫面：錄製結束時把等待作廢',
+    (studio.match(/pauseGate\.cancel\(\)/g) ?? []).length >= 3,
+    '停止、輪詢到 done、元件卸載三處都要收');
 
   check('⑤ worker：加完截圖積木要通知 agent，面板的步數才跟得上',
     /'uat_record_extra_step'/.test(stripComments(read('server/worker.ts'))),
