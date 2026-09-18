@@ -66,8 +66,15 @@ console.log('\n5) 要重啟的清單');
 for (const f of ['agent-runner.ts', 'machine-test/runner.ts', 'uat-runner/net-capture.js', 'uat-runner/pinus-probe.js'])
   check(`${f} 列為需重啟`, RESTART_REQUIRED_SOURCES.has(f));
 // 這幾支每次執行才 spawn，寫完就生效
-for (const f of ['uat-runner/run-lark-tc-backend.js', 'python/toppath-agent.py', 'uat-runner/block-engine.js'])
+for (const f of ['uat-runner/run-lark-tc-backend.js', 'python/toppath-agent.py'])
   check(`${f} 不需重啟`, !RESTART_REQUIRED_SOURCES.has(f));
+// ⚠️ `block-engine.js` **從「不需重啟」改成「需重啟」**（2026-09-18）。
+//    以前它只透過 spawn 出去的 run-lark-tc-backend.js 到 agent，寫完檔案下次跑就生效。
+//    現在 `agent-runner.ts` 靜態 import 了 `multi-tc.js`（綁 TC 的 H5/PC 腳本要用），
+//    而 multi-tc 又 import 它——**agent 進程自己把它載進記憶體了**。
+//    這不是把測試改綠，是事實變了；判斷依據仍然是下面第 6 項那個從程式碼推導的守門。
+check('uat-runner/block-engine.js 改列為需重啟（agent-runner 現在會靜態 import 它）',
+  RESTART_REQUIRED_SOURCES.has('uat-runner/block-engine.js'));
 
 console.log('\n6) 需重啟清單不能手寫了就放著——從程式碼推導出來對答案');
 // ⚠️ RESTART_REQUIRED_SOURCES 是手寫的 Set，跟「手動版號會漂」是同一個病：

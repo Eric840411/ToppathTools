@@ -215,7 +215,6 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
     const matchFilter = filter === 'all' || filter === 'mine' && script.created_by === actor || filter === 'public' && !!script.is_public
     return matchFilter && script.name.toLowerCase().includes(search.toLowerCase())
   }), [actor, filter, scripts, search])
-  const latestResult = useMemo(() => new Map(runs.map(run => [run.script_id, run.result])), [runs])
 
   const newScript = () => {
     if (dirty && !window.confirm('目前有尚未儲存的調整，仍要建立新腳本嗎？')) return
@@ -714,18 +713,21 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
                 disabled={queueBusy}
                 onChange={() => setQueueIds(prev => prev.includes(script.id) ? prev.filter(id => id !== script.id) : [...prev, script.id])}
               />
+              {/* ⚠️ 上次執行結果的小圓點已移除（使用者 2026-09-18 指定）。
+                  那個資訊改看右欄的「執行紀錄」——這裡不再顯示。 */}
               <button type="button" onClick={() => selectScript(script.id)}>
-                <span className={`uat-result-dot is-${latestResult.get(script.id) ?? 'idle'}`} />
                 <span><strong>{script.name}</strong><small>{script.created_by} · {parseSteps(script.steps).length} {xianxia ? '陣眼' : '區塊'}</small></span>
               </button>
             </div>
           ))}
           {!visibleScripts.length && <div className="uat-list-empty">{xianxia ? '藏經閣中尚無相符玉簡' : '尚無符合條件的腳本'}</div>}
         </div>
-        <div className="uat-backend-flow-foot">
-          <button type="button" className="uat-btn is-quiet" disabled={queueBusy || !visibleScripts.length} onClick={() => setQueueIds(visibleScripts.map(script => script.id))}>{xianxia ? '全選所列' : '全選搜尋結果'}</button>
-          <button type="button" className="uat-btn is-quiet" disabled={queueBusy || !queueIds.length} onClick={() => setQueueIds([])}>{xianxia ? '清除勾選' : '清除勾選'}</button>
-          <span>已勾 {queueIds.length} 份。</span>
+        {/* 全選／清除／已勾幾份擺同一列（使用者 2026-09-18 指定）——
+            三樣都是「這次要跑哪幾份」，拆三行只是把一件事佔掉三倍高度。 */}
+        <div className="uat-script-select-bar">
+          <button type="button" className="uat-btn is-quiet" disabled={queueBusy || !visibleScripts.length} onClick={() => setQueueIds(visibleScripts.map(script => script.id))}>{xianxia ? '全選所列' : '全選'}</button>
+          <button type="button" className="uat-btn is-quiet" disabled={queueBusy || !queueIds.length} onClick={() => setQueueIds([])}>{xianxia ? '清除' : '清除勾選'}</button>
+          <span>{xianxia ? `已擇 ${queueIds.length} 卷` : `已勾 ${queueIds.length} 份`}</span>
         </div>
       </aside>
 

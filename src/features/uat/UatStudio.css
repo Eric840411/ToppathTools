@@ -1404,11 +1404,14 @@
    這裡只補 H5 特有的幾塊。⚠️ 不要另外刻一套：修仙版的配色掛在那些 class 上。 */
 
 /* 腳本清單多了一顆「排入佇列」的勾選框，所以從 button 改成「勾選框＋按鈕」兩欄 */
-.uat-backend-plan .uat-script-item { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: center; gap: 8px; padding: 0; border: 1px solid transparent; border-radius: 7px; }
+.uat-backend-plan .uat-script-item { display: grid; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 10px; padding: 0; border: 1px solid transparent; border-radius: 7px; }
 .uat-backend-plan .uat-script-item.is-active { border-color: var(--uat-primary); background: var(--uat-primary-soft); }
-.uat-backend-plan .uat-script-item > input { margin-left: 8px; }
-.uat-backend-plan .uat-script-item > button { display: grid; grid-template-columns: 10px minmax(0, 1fr); align-items: center; gap: 8px; width: 100%; padding: 8px 8px 8px 0; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
-.uat-backend-plan .uat-script-item > button > span:last-child { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+/* 勾選框放大（使用者回報「太小了」）。原生 checkbox 預設 13px，點擊區也小得難按。
+   ⚠️ 用 width/height 而不是 transform: scale——scale 不會改變佔位，
+   旁邊的文字會壓上來，看起來反而更擠。 */
+.uat-backend-plan .uat-script-item > input { width: 18px; height: 18px; margin: 0 0 0 10px; accent-color: var(--uat-primary); cursor: pointer; }
+.uat-backend-plan .uat-script-item > button { display: block; width: 100%; padding: 9px 10px 9px 2px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.uat-backend-plan .uat-script-item > button > span { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .uat-backend-plan .uat-script-item strong { overflow: hidden; font-size: 12.5px; text-overflow: ellipsis; white-space: nowrap; }
 .uat-backend-plan .uat-script-item small { color: var(--uat-muted); font-size: 11px; }
 .uat-backend-plan .uat-script-list { display: flex; flex-direction: column; gap: 3px; max-height: 320px; margin-top: 10px; overflow-y: auto; }
@@ -1448,3 +1451,9 @@
 
 /* 右欄的最後一顆按鈕與面板底部之間也要有空間 */
 .uat-backend-settings-form > .uat-btn:last-child { margin-bottom: 4px; }
+
+/* 全選／清除／已勾幾份：同一列。⚠️ 數字靠右且用等寬數字，
+   勾選數量變動時左邊兩顆按鈕不會跟著跳。 */
+.uat-script-select-bar { display: flex; align-items: center; gap: 6px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--uat-border); }
+.uat-script-select-bar .uat-btn { padding: 6px 10px; font-size: 12px; white-space: nowrap; }
+.uat-script-select-bar > span { margin-left: auto; color: var(--uat-muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
