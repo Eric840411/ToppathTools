@@ -1,4 +1,6 @@
 import { APP_VERSION, CHANGELOG } from '../version'
+// ⚠️ 一行日誌怎麼解讀／怎麼渲染只有一份——這裡跟 ChangelogPage 共用
+import { ChangeLine } from '../features/changelog/ChangeLine'
 import Portal from './Portal'
 import { DungeonIcon } from './DungeonIcon'
 import { useIsGameMode } from './GameModeContext'
@@ -57,36 +59,7 @@ export default function ChangelogModal({ onClose }: Props) {
                   <span style={{ fontSize: 12, color: '#475569' }}>{entry.date}</span>
                 </div>
                 <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {entry.changes.map((c, j) => {
-                    const match = c.match(/^(feat|fix|chore|docs|refactor|perf|style|test)(\([^)]+\))?:\s*(.*)/)
-                    if (match) {
-                      const type = match[1]
-                      const scope = match[2] ?? ''
-                      const msg = match[3]
-                      const colors: Record<string, string> = {
-                        feat: '#34d399', fix: '#f87171', chore: '#64748b',
-                        docs: '#60a5fa', refactor: '#a78bfa', perf: '#fbbf24',
-                        style: '#f0abfc', test: '#fbbf24',
-                      }
-                      const color = colors[type] ?? '#94a3b8'
-                      return (
-                        <li key={j} style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.55, listStyle: 'none', marginLeft: -18 }}>
-                          <span style={{
-                            fontSize: 11, fontWeight: 700, color,
-                            background: `${color}18`, border: `1px solid ${color}30`,
-                            borderRadius: 4, padding: '1px 6px',
-                            marginRight: 7, fontFamily: 'monospace', letterSpacing: '.3px',
-                          }}>
-                            {type}{scope}
-                          </span>
-                          {msg}
-                        </li>
-                      )
-                    }
-                    return (
-                      <li key={j} style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.55 }}>{c}</li>
-                    )
-                  })}
+                {entry.changes.map((c, j) => <ChangeLine key={j} line={c} />)}
                 </ul>
               </div>
             </div>

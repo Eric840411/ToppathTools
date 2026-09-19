@@ -1,4 +1,6 @@
 import { APP_VERSION, CHANGELOG } from '../version'
+// ⚠️ 跟 ChangelogModal 共用同一個渲染——原本兩邊各有一份一樣的 regex
+import { ChangeLine } from '../features/changelog/ChangeLine'
 
 export function ChangelogPage() {
   return (
@@ -54,35 +56,7 @@ export function ChangelogPage() {
                 <span style={{ fontSize: 12, color: '#475569', marginLeft: 'auto' }}>{entry.date}</span>
               </div>
               <ul style={{ margin: 0, paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {entry.changes.map((c, j) => {
-                  // Colorize conventional commit prefixes
-                  const match = c.match(/^(feat|fix|chore|docs|refactor|perf|style|test)(\([^)]+\))?:\s*(.*)/)
-                  if (match) {
-                    const type = match[1]
-                    const scope = match[2] ?? ''
-                    const msg = match[3]
-                    const colors: Record<string, string> = {
-                      feat: '#34d399', fix: '#f87171', chore: '#64748b',
-                      docs: '#60a5fa', refactor: '#a78bfa', perf: '#fbbf24',
-                    }
-                    const color = colors[type] ?? '#94a3b8'
-                    return (
-                      <li key={j} style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.6, listStyle: 'none', marginLeft: -16 }}>
-                        <span style={{
-                          fontSize: 11, fontWeight: 700, color, background: `${color}18`,
-                          border: `1px solid ${color}30`, borderRadius: 4, padding: '1px 6px',
-                          marginRight: 7, fontFamily: 'monospace', letterSpacing: '.3px',
-                        }}>
-                          {type}{scope}
-                        </span>
-                        {msg}
-                      </li>
-                    )
-                  }
-                  return (
-                    <li key={j} style={{ fontSize: 13, color: '#cbd5e1', lineHeight: 1.6 }}>{c}</li>
-                  )
-                })}
+                {entry.changes.map((c, j) => <ChangeLine key={j} line={c} />)}
               </ul>
             </div>
           </div>
