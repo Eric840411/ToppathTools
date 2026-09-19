@@ -6,17 +6,34 @@
 import express from 'express'
 import multer from 'multer'
 import { randomUUID } from 'crypto'
-import { existsSync, mkdirSync, createReadStream } from 'fs'
+import { existsSync, mkdirSync, createReadStream, readdirSync, statSync, rmSync } from 'fs'
 import { writeFile, readFile } from 'fs/promises'
-import { join, dirname } from 'path'
+import { join, dirname, resolve } from 'path'
 import { fileURLToPath } from 'url'
 import { addHistory, db, getLarkToken, parseLarkSheetUrl } from '../shared.js'
 import { agentConnections } from '../agent-hub.js'
 import { getOperatorFromContext } from '../request-context.js'
+import { buildReportModel, renderReportHtml, type ReportTask } from '../lib/ui-screenshot-report.js'
+import { createStoreZip } from '../lib/zip-store.js'
+import { uploadFileToLarkFolder, parseLarkFolderToken } from '../lib/lark-drive.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
-const SAVES_DIR = join(__dirname, '..', '..', 'server', 'ui-screenshot-saves')
+/**
+ * 截圖存放位置。
+ *
+ * 🚨 **絕對不能放在 `dist-server` 底下。**原本是 `join(__dirname, '..', '..', 'server', …)`，
+ *    在正式執行時（跑的是 `dist-server/server/routes/ui-screenshot.js`）會解析成
+ *    `dist-server/server/ui-screenshot-saves`——而 `scripts/build-server.cjs` 的第一件事就是
+ *    `rmSync(dist-server)`。**每次重建後端都會把所有截圖一起刪掉**，而資料庫紀錄還留著，
+ *    症狀是「狀態 ok、路徑也在，但圖片 404」。2026-09-18 實測踩到，整批原圖消失。
+ *
+ * 改成以**工作目錄**為基準（PM2 的 cwd 就是專案根目錄，dev 的 `tsx server/index.ts` 也是），
+ * 需要搬去別的磁碟時用 `UI_SS_SAVES_DIR` 覆寫。
+ */
+const SAVES_DIR = process.env.UI_SS_SAVES_DIR
+  ? resolve(process.env.UI_SS_SAVES_DIR)
+  : join(process.cwd(), 'server', 'ui-screenshot-saves')
 
 // ─── DB Schema ────────────────────────────────────────────────────────────────
 
@@ -44,6 +61,7 @@ export const UI_SCREENSHOT_SCHEMA = `
     gmid        TEXT NOT NULL,
     resolution  TEXT NOT NULL,
     status      TEXT NOT NULL DEFAULT 'pending',
+    actual_gmid TEXT,
     server_path TEXT,
     error_msg   TEXT,
     started_at  INTEGER,
@@ -55,6 +73,10 @@ export const UI_SCREENSHOT_SCHEMA = `
 // Run schema migration on module load
 db.exec(UI_SCREENSHOT_SCHEMA)
 {
+  const taskCols = db.prepare('PRAGMA table_info(ui_screenshot_tasks)').all() as { name: string }[]
+  if (!taskCols.find(c => c.name === 'actual_gmid')) {
+    db.exec('ALTER TABLE ui_screenshot_tasks ADD COLUMN actual_gmid TEXT')
+  }
   const cols = db.prepare('PRAGMA table_info(ui_screenshot_runs)').all() as { name: string }[]
   if (!cols.find(c => c.name === 'history_saved')) {
     db.exec('ALTER TABLE ui_screenshot_runs ADD COLUMN history_saved INTEGER NOT NULL DEFAULT 0')
@@ -83,16 +105,27 @@ function emitToRun(runId: string, data: object) {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+/**
+ * gmid 會被當成資料夾名稱，但自動選機模式下它是 **`遊戲 / model`**（含空白與斜線）。
+ *
+ * ⚠️ 不處理的話：`JJBX / Endless Treasure` 會被 `join()` 當成**兩層目錄**，
+ *    檔案散在 `JJBX/ Endless Treasure/`，而讀圖的路由用同一個字串組不回來 → 圖片 404。
+ *    斜線與 `..` 還有路徑穿越的風險。
+ */
+function safeSegment(value: string) {
+  return (value || '').replace(/[\\/:*?"<>|]+/g, '_').replace(/\s+/g, '_').replace(/^\.+/, '_').slice(0, 120) || '_'
+}
+
 function taskDir(runId: string, gmid: string) {
-  return join(SAVES_DIR, runId, gmid)
+  return join(SAVES_DIR, safeSegment(runId), safeSegment(gmid))
 }
 
 function screenshotPath(runId: string, gmid: string, resolution: string) {
-  return join(taskDir(runId, gmid), `${resolution}.png`)
+  return join(taskDir(runId, gmid), `${safeSegment(resolution)}.png`)
 }
 
 function serverRelPath(runId: string, gmid: string, resolution: string) {
-  return `ui-screenshot-saves/${runId}/${gmid}/${resolution}.png`
+  return `ui-screenshot-saves/${safeSegment(runId)}/${safeSegment(gmid)}/${safeSegment(resolution)}.png`
 }
 
 function uiScreenshotCounts(runId: string) {
@@ -203,6 +236,208 @@ router.get('/agents', (_req, res) => {
 })
 
 // POST /start — create run + tasks, dispatch to agent
+// ─── 報告：產生 HTML、打包原圖、上傳 Lark ─────────────────────────────────────
+
+/** 一次 run 的資料夾大小（位元組）與檔案數 */
+function dirStats(dir: string): { files: number; bytes: number } {
+  let files = 0, bytes = 0
+  if (!existsSync(dir)) return { files, bytes }
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      const sub = dirStats(p)
+      files += sub.files; bytes += sub.bytes
+    } else {
+      files++; bytes += statSync(p).size
+    }
+  }
+  return { files, bytes }
+}
+
+function collectRunFiles(runDir: string, prefix = ''): Array<{ name: string; path: string }> {
+  const out: Array<{ name: string; path: string }> = []
+  if (!existsSync(runDir)) return out
+  for (const entry of readdirSync(runDir, { withFileTypes: true })) {
+    const p = join(runDir, entry.name)
+    const name = prefix ? `${prefix}/${entry.name}` : entry.name
+    if (entry.isDirectory()) out.push(...collectRunFiles(p, name))
+    else out.push({ name, path: p })
+  }
+  return out
+}
+
+/**
+ * POST /run/:runId/report  { upload?: boolean; folderUrl?: string }
+ * 產生報告 HTML（寫進 run 資料夾），可選擇連同**原圖 zip** 一起上傳到 Lark 雲端資料夾。
+ *
+ * ⚠️ 原圖走 zip 不是逐張上傳（使用者 2026-09-18 定案）：一次 run 可能上千張，
+ *    逐張上傳等於上千次 API 呼叫，會跑十幾分鐘。
+ */
+router.post('/run/:runId/report', async (req, res, next) => {
+  try {
+    const { runId } = req.params
+    const { upload, folderUrl } = req.body as { upload?: boolean; folderUrl?: string }
+    const run = db.prepare(`SELECT * FROM ui_screenshot_runs WHERE id = ?`).get(runId) as {
+      id: string; agent_id?: string | null; options: string; resolutions: string
+      started_at?: number | null; finished_at?: number | null
+    } | undefined
+    if (!run) return res.status(404).json({ ok: false, message: 'Run not found' })
+
+    const tasks = db.prepare(
+      `SELECT gmid, resolution, status, actual_gmid, error_msg FROM ui_screenshot_tasks WHERE run_id = ?`,
+    ).all(runId) as ReportTask[]
+    const resolutions = JSON.parse(run.resolutions || '[]') as string[]
+
+    const model = buildReportModel(
+      {
+        id: run.id,
+        agent_id: run.agent_id ?? null,
+        started_at: run.started_at ?? null,
+        finished_at: run.finished_at ?? null,
+        options: JSON.parse(run.options || '{}') as Record<string, unknown>,
+      },
+      tasks,
+      resolutions,
+    )
+
+    // 報告放在 run 資料夾裡，圖用相對路徑——這樣連同 zip 一起解開後仍然看得到圖
+    const html = renderReportHtml(model, {
+      generatedAt: Date.now(),
+      imgUrl: t => `${encodeURIComponent(safeSegment(t.gmid))}/${encodeURIComponent(safeSegment(t.resolution))}.png`,
+    })
+    const runDir = join(SAVES_DIR, safeSegment(runId))
+    if (!existsSync(runDir)) mkdirSync(runDir, { recursive: true })
+    const reportPath = join(runDir, 'report.html')
+    await writeFile(reportPath, html, 'utf8')
+
+    const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+    const baseName = `解析度報告_${stamp}_${runId.slice(0, 8)}`
+    const result: Record<string, unknown> = { ok: true, reportPath, groups: model.groups.length, totals: model.totals }
+
+    if (upload) {
+      const folderToken = parseLarkFolderToken(folderUrl || process.env.LARK_UI_SS_FOLDER_URL || '')
+      if (!folderToken) {
+        result.upload = { ok: false, message: '沒有可用的 Lark 資料夾連結（請在畫面上填，或設 LARK_UI_SS_FOLDER_URL）' }
+      } else {
+        // 報告單獨上傳一份（可以直接點開），原圖＋報告再打包一份
+        const htmlUp = await uploadFileToLarkFolder(folderToken, `${baseName}.html`, Buffer.from(html, 'utf8'))
+        const files = collectRunFiles(runDir)
+        const entries = await Promise.all(files.map(async f => ({ name: f.name, data: await readFile(f.path) })))
+        let zipUp: { ok: boolean; message?: string; fileToken?: string }
+        try {
+          zipUp = await uploadFileToLarkFolder(folderToken, `${baseName}.zip`, createStoreZip(entries))
+        } catch (err) {
+          zipUp = { ok: false, message: err instanceof Error ? err.message : String(err) }
+        }
+        result.upload = { folderToken, html: htmlUp, zip: zipUp, files: files.length }
+      }
+    }
+
+    res.json(result)
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** GET /storage — 截圖佔用多少空間、有幾次 run（前端顯示用） */
+router.get('/storage', (_req, res) => {
+  const runs = existsSync(SAVES_DIR)
+    ? readdirSync(SAVES_DIR, { withFileTypes: true }).filter(d => d.isDirectory()).map(d => {
+        const s = dirStats(join(SAVES_DIR, d.name))
+        return { runId: d.name, files: s.files, bytes: s.bytes, mtime: statSync(join(SAVES_DIR, d.name)).mtimeMs }
+      })
+    : []
+  runs.sort((a, b) => b.mtime - a.mtime)
+  res.json({
+    ok: true,
+    dir: SAVES_DIR,
+    runs: runs.length,
+    files: runs.reduce((n, r) => n + r.files, 0),
+    bytes: runs.reduce((n, r) => n + r.bytes, 0),
+    detail: runs.slice(0, 50),
+  })
+})
+
+/**
+ * POST /storage/prune  { keepRuns?: number; keepDays?: number }
+ * 清掉舊的截圖資料夾。⚠️ 只刪檔案，不動資料庫紀錄——歷史仍然查得到「當時拍了什麼、結果如何」，
+ * 只是圖沒了。把紀錄一起刪掉的話，事後連「這批到底跑過沒」都查不出來。
+ */
+router.post('/storage/prune', (req, res) => {
+  const { keepRuns = 10, keepDays = 14 } = req.body as { keepRuns?: number; keepDays?: number }
+  if (!existsSync(SAVES_DIR)) return res.json({ ok: true, removed: [], freedBytes: 0 })
+
+  const dirs = readdirSync(SAVES_DIR, { withFileTypes: true })
+    .filter(d => d.isDirectory())
+    .map(d => ({ name: d.name, path: join(SAVES_DIR, d.name), mtime: statSync(join(SAVES_DIR, d.name)).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime)
+
+  const cutoff = Date.now() - keepDays * 86_400_000
+  const removed: string[] = []
+  let freed = 0
+  dirs.forEach((d, i) => {
+    const tooOld = d.mtime < cutoff
+    const tooMany = i >= keepRuns
+    if (!tooOld && !tooMany) return
+    freed += dirStats(d.path).bytes
+    rmSync(d.path, { recursive: true, force: true })
+    removed.push(d.name)
+  })
+  res.json({ ok: true, removed, freedBytes: freed, keepRuns, keepDays })
+})
+
+// ─── 掃大廳（給前端列出 model 勾選）────────────────────────────────────────────
+
+interface ScanResult {
+  ok: boolean
+  message?: string
+  scannedAt?: number
+  cardCount?: number
+  models?: Array<{ key: string; game: string; model: string; total: number; free: number; sample: string }>
+  unparsed?: Array<{ gmid: string; text: string }>
+}
+
+/** scanId → 等著結果的 resolver。⚠️ 一定要設逾時，否則 Agent 掛掉時這個請求會永遠掛著 */
+const pendingScans = new Map<string, (r: ScanResult) => void>()
+
+/**
+ * POST /scan-lobby  { agentId, gameUrlTemplate }
+ * 叫 Agent 掃一次大廳，回傳「有哪些 model、各幾台、現在幾台可用」。
+ *
+ * ⚠️ 回報的「可用」是**掃描當下**的狀態，不是保證——真正要跑的時候可能已經被別人佔走。
+ */
+router.post('/scan-lobby', async (req, res, next) => {
+  try {
+    const { agentId, gameUrlTemplate, headed } = req.body as { agentId?: string; gameUrlTemplate?: string; headed?: boolean }
+    if (!agentId || !gameUrlTemplate) return res.status(400).json({ ok: false, message: '缺少 agentId 或 gameUrlTemplate' })
+    const agent = agentConnections.get(agentId)
+    if (!agent) return res.status(409).json({ ok: false, message: '指定 Agent 不在線' })
+
+    const scanId = randomUUID()
+    const result = await new Promise<ScanResult>(resolve => {
+      const timer = setTimeout(() => {
+        pendingScans.delete(scanId)
+        resolve({ ok: false, message: '掃描逾時（120 秒）——Agent 可能沒收到或大廳載不出來' })
+      }, 120_000)
+      pendingScans.set(scanId, r => { clearTimeout(timer); pendingScans.delete(scanId); resolve(r) })
+      // headed 要一路傳到 agent：PC 版在 headless 下可能沒有 WebGL，
+      // 而掃描原本寫死 headless，導致畫面上的開關對掃描完全沒作用
+      agent.ws.send(JSON.stringify({ type: 'ui_screenshot_scan', scanId, gameUrlTemplate, headed: !!headed }))
+    })
+    res.json(result)
+  } catch (err) {
+    next(err)
+  }
+})
+
+/** Agent 掃完之後回報結果 */
+router.post('/scan-result/:scanId', (req, res) => {
+  const resolve = pendingScans.get(req.params.scanId)
+  if (!resolve) return res.status(404).json({ ok: false, message: 'scan not pending' })
+  resolve(req.body as ScanResult)
+  res.json({ ok: true })
+})
+
 router.post('/start', (req, res) => {
   const { wikiUrl, gameUrlTemplate, gmids, resolutions, concurrency, options, agentId } = req.body as {
     wikiUrl: string
@@ -344,8 +579,11 @@ router.post('/task/:taskId/upload', upload.single('screenshot'), async (req, res
   if (!task) return res.status(404).json({ ok: false, message: 'Task not found' })
   if (!req.file) return res.status(400).json({ ok: false, message: '缺少截圖檔案' })
 
-  const { status, errorMsg } = req.body as { status?: string; errorMsg?: string }
+  const { status, errorMsg, actualGmid } = req.body as { status?: string; errorMsg?: string; actualGmid?: string }
   const taskStatus = status ?? 'ok'
+  // ⚠️ 自動選機時 `gmid` 欄位放的是**遊戲代號**，實際進的是哪一台由大廳當下狀態決定，
+  //    而且每個解析度都可能換台——不記下來的話，事後看到版型問題不知道是哪一台拍的
+  const actual = (actualGmid ?? '').trim() || null
   const now = Date.now()
 
   // Save file
@@ -356,9 +594,9 @@ router.post('/task/:taskId/upload', upload.single('screenshot'), async (req, res
 
   const relPath = serverRelPath(task.run_id, task.gmid, task.resolution)
   db.prepare(`
-    UPDATE ui_screenshot_tasks SET status = ?, server_path = ?, error_msg = ?, finished_at = ?
+    UPDATE ui_screenshot_tasks SET status = ?, server_path = ?, error_msg = ?, actual_gmid = ?, finished_at = ?
     WHERE id = ?
-  `).run(taskStatus, relPath, errorMsg ?? null, now, taskId)
+  `).run(taskStatus, relPath, errorMsg ?? null, actual, now, taskId)
 
   emitToRun(task.run_id, {
     type: 'task_update',
@@ -366,6 +604,7 @@ router.post('/task/:taskId/upload', upload.single('screenshot'), async (req, res
     taskId,
     gmid: task.gmid,
     resolution: task.resolution,
+    actualGmid: actual,
     status: taskStatus,
     serverPath: relPath,
     errorMsg: errorMsg ?? null,

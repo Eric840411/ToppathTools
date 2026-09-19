@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import Portal from '../components/Portal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -24,6 +25,8 @@ interface ScreenshotTask {
   status: TaskStatus
   server_path: string | null
   error_msg: string | null
+  /** 自動選機時，這張圖實際用的機台（可能跟同一組的其他張不同台） */
+  actual_gmid?: string | null
   started_at: number | null
   finished_at: number | null
 }
@@ -56,6 +59,8 @@ interface SseTaskUpdate {
   status: TaskStatus
   serverPath: string | null
   errorMsg: string | null
+  /** 自動選機時實際用的機台號 */
+  actualGmid?: string | null
 }
 
 interface SseRunComplete {
@@ -110,6 +115,14 @@ interface Settings {
   selectedResolutions: string[]
   dismissPopup: boolean
   waitForVideo: boolean
+  /** 每個解析度都用該尺寸重新載入（慢但準）；關掉就只改視窗大小 */
+  reloadPerResolution: boolean
+  /** 自動選機：清單裡放的是「遊戲 / model」，實際進哪一台由大廳當下狀態決定 */
+  autoPickByGame: boolean
+  /** 也拍大廳本身 */
+  captureLobby: boolean
+  /** 報告要上傳到哪個 Lark 雲端資料夾 */
+  larkFolderUrl: string
   headedMode: boolean
   screenshotDelaySeconds: number
   selectedAgentId: string
@@ -122,6 +135,10 @@ const DEFAULT_SETTINGS: Settings = {
   selectedResolutions: DEFAULT_RESOLUTIONS,
   dismissPopup: true,
   waitForVideo: true,
+  reloadPerResolution: true,
+  autoPickByGame: true,
+  captureLobby: false,
+  larkFolderUrl: '',
   headedMode: false,
   screenshotDelaySeconds: 5,
   selectedAgentId: '',
@@ -197,6 +214,21 @@ export function UiScreenshotPage() {
   const [selectedResolutions, setSelectedResolutions] = useState<string[]>(init.selectedResolutions)
   const [dismissPopup, setDismissPopup] = useState(init.dismissPopup)
   const [waitForVideo, setWaitForVideo] = useState(init.waitForVideo)
+  const [reloadPerResolution, setReloadPerResolution] = useState(init.reloadPerResolution)
+  const [autoPickByGame, setAutoPickByGame] = useState(init.autoPickByGame)
+  const [captureLobby, setCaptureLobby] = useState(init.captureLobby)
+  const [scanning, setScanning] = useState(false)
+  const [scanMsg, setScanMsg] = useState<string | null>(null)
+  const [models, setModels] = useState<Array<{ key: string; game: string; model: string; total: number; free: number; sample: string }>>([])
+  const [unparsed, setUnparsed] = useState<Array<{ gmid: string; text: string }>>([])
+  const [selectedModels, setSelectedModels] = useState<string[]>([])
+  const [showModelPicker, setShowModelPicker] = useState(false)
+  const [larkFolderUrl, setLarkFolderUrl] = useState(init.larkFolderUrl)
+  const [reporting, setReporting] = useState(false)
+  const [reportMsg, setReportMsg] = useState<string | null>(null)
+  const [storage, setStorage] = useState<{ runs: number; files: number; bytes: number } | null>(null)
+  const [storageMsg, setStorageMsg] = useState<string | null>(null)
+  const [modelFilter, setModelFilter] = useState('')
   const [headedMode, setHeadedMode] = useState(init.headedMode)
   const [screenshotDelaySeconds, setScreenshotDelaySeconds] = useState(init.screenshotDelaySeconds)
 
@@ -223,12 +255,19 @@ export function UiScreenshotPage() {
 
   // ── Persist settings ────────────────────────────────────────────────────────
 
+  // 進頁面就算一次佔用空間——不主動顯示的話沒人會去按「重新計算」，
+  // 而「容量什麼時候會爆」正是最需要被看見的數字
+  useEffect(() => { void loadStorage() }, [])
+
   useEffect(() => { saveSettings({ wikiUrl }) }, [wikiUrl])
   useEffect(() => { saveSettings({ gmidText }) }, [gmidText])
   useEffect(() => { saveSettings({ gameUrlTemplate }) }, [gameUrlTemplate])
   useEffect(() => { saveSettings({ selectedResolutions }) }, [selectedResolutions])
   useEffect(() => { saveSettings({ dismissPopup }) }, [dismissPopup])
   useEffect(() => { saveSettings({ waitForVideo }) }, [waitForVideo])
+  useEffect(() => { saveSettings({ reloadPerResolution }) }, [reloadPerResolution])
+  useEffect(() => { saveSettings({ autoPickByGame }) }, [autoPickByGame])
+  useEffect(() => { saveSettings({ captureLobby }) }, [captureLobby])
   useEffect(() => { saveSettings({ headedMode }) }, [headedMode])
   useEffect(() => { saveSettings({ screenshotDelaySeconds }) }, [screenshotDelaySeconds])
   useEffect(() => { saveSettings({ selectedAgentId }) }, [selectedAgentId])
@@ -284,11 +323,13 @@ export function UiScreenshotPage() {
                 status: u.status,
                 server_path: u.serverPath,
                 error_msg: u.errorMsg,
+                actual_gmid: u.actualGmid ?? existing.actual_gmid ?? null,
               })
             }
             return next
           })
-          const msg = `[${u.gmid}] ${u.resolution} → ${u.status}${u.errorMsg ? ` (${u.errorMsg})` : ''}`
+          const machine = u.actualGmid && u.actualGmid !== u.gmid ? ` @${u.actualGmid}` : ''
+          const msg = `[${u.gmid}${machine}] ${u.resolution} → ${u.status}${u.errorMsg ? ` (${u.errorMsg})` : ''}`
           setLogs(prev => [...prev.slice(-200), msg])
         } else if (data.type === 'run_complete') {
           setRunStatus('done')
@@ -323,6 +364,97 @@ export function UiScreenshotPage() {
   useEffect(() => () => { esRef.current?.close() }, [])
 
   // ── Actions ─────────────────────────────────────────────────────────────────
+
+  const visibleModels = models.filter(m => {
+    const q = modelFilter.trim().toLowerCase()
+    return !q || m.key.toLowerCase().includes(q)
+  })
+
+  /**
+   * 產生驗收報告；`upload` 為 true 時連同原圖 zip 一起送到 Lark 雲端資料夾。
+   * ⚠️ 上傳結果要逐項回報（報告、zip 各自成敗）——只說「完成」的話，
+   *    zip 太大被擋下來時畫面上看不出來，人會以為原圖也上去了。
+   */
+  async function generateReport(upload: boolean) {
+    if (!runId) return
+    setReporting(true)
+    setReportMsg(null)
+    try {
+      const r = await fetch(`/api/ui-screenshot/run/${runId}/report`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ upload, folderUrl: larkFolderUrl.trim() }),
+      })
+      const data = await r.json() as {
+        ok: boolean; message?: string; groups?: number
+        upload?: { folderToken?: string; message?: string; files?: number
+          html?: { ok: boolean; message?: string }; zip?: { ok: boolean; message?: string } }
+      }
+      if (!data.ok) { setReportMsg(`產生失敗：${data.message ?? '未知錯誤'}`); return }
+      if (!upload) { setReportMsg(`報告已產生（${data.groups ?? 0} 組）`); return }
+      const u = data.upload
+      if (!u) { setReportMsg('報告已產生，但沒有上傳資訊'); return }
+      if (u.message) { setReportMsg(`報告已產生，上傳失敗：${u.message}`); return }
+      const htmlOk = u.html?.ok ? '報告 ✓' : `報告 ✗（${u.html?.message ?? '失敗'}）`
+      const zipOk = u.zip?.ok ? `原圖 zip ✓（${u.files ?? 0} 檔）` : `原圖 zip ✗（${u.zip?.message ?? '失敗'}）`
+      setReportMsg(`${htmlOk}｜${zipOk}`)
+    } catch {
+      setReportMsg('產生失敗（網路錯誤）')
+    } finally {
+      setReporting(false)
+    }
+  }
+
+  async function loadStorage() {
+    try {
+      const r = await fetch('/api/ui-screenshot/storage')
+      const d = await r.json() as { ok: boolean; runs: number; files: number; bytes: number }
+      if (d.ok) setStorage({ runs: d.runs, files: d.files, bytes: d.bytes })
+    } catch { /* 顯示成「—」就好 */ }
+  }
+
+  async function pruneStorage() {
+    setStorageMsg(null)
+    try {
+      const r = await fetch('/api/ui-screenshot/storage/prune', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keepRuns: 10, keepDays: 14 }),
+      })
+      const d = await r.json() as { ok: boolean; removed: string[]; freedBytes: number }
+      if (d.ok) {
+        setStorageMsg(`已清掉 ${d.removed.length} 次 run，釋放 ${(d.freedBytes / 1048576).toFixed(1)} MB`)
+        loadStorage()
+      }
+    } catch { setStorageMsg('清理失敗') }
+  }
+
+  /** 叫 Agent 掃一次大廳，列出有哪些 model 可以拍 */
+  async function scanLobby() {
+    setScanning(true)
+    setScanMsg(null)
+    try {
+      const r = await fetch('/api/ui-screenshot/scan-lobby', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // ⚠️ 掃描也要吃 Headed 開關：PC 版在無頭瀏覽器下可能沒有 WebGL，
+        //    開關對掃描沒作用的話，使用者打開了也不會有任何改變
+        body: JSON.stringify({ agentId: selectedAgentId, gameUrlTemplate: gameUrlTemplate.trim(), headed: headedMode }),
+      })
+      const data = await r.json() as {
+        ok: boolean; message?: string; cardCount?: number
+        models?: Array<{ key: string; game: string; model: string; total: number; free: number; sample: string }>
+        unparsed?: Array<{ gmid: string; text: string }>
+      }
+      if (!data.ok) { setScanMsg(data.message ?? '掃描失敗'); return }
+      setModels(data.models ?? [])
+      setUnparsed(data.unparsed ?? [])
+      setScanMsg(`掃描完成：${data.cardCount ?? 0} 台、${(data.models ?? []).length} 個 model`)
+    } catch {
+      setScanMsg('掃描失敗（網路錯誤）')
+    } finally {
+      setScanning(false)
+    }
+  }
 
   async function fetchGmidsFromLark() {
     if (!wikiUrl.trim()) { setFetchGmidMsg('請先填入 Lark Sheet URL'); return }
@@ -360,7 +492,13 @@ export function UiScreenshotPage() {
       .map(s => s.trim())
       .filter(s => s.length > 0)
 
-    if (parsedGmids.length === 0) { setError('請輸入至少一個 gmid'); return }
+    // 自動選機模式：清單放「遊戲 / model」，實際機台由 Agent 在大廳當下決定
+    const targets = autoPickByGame ? [...selectedModels] : parsedGmids
+    if (captureLobby) targets.unshift('__LOBBY__')
+    if (targets.length === 0) {
+      setError(autoPickByGame ? '請先掃描大廳並勾選要拍的 model（或勾「也拍大廳」）' : '請輸入至少一個 gmid')
+      return
+    }
 
     setLogs([])
     setTasks(new Map())
@@ -370,10 +508,10 @@ export function UiScreenshotPage() {
       const body: Record<string, unknown> = {
         wikiUrl: wikiUrl.trim(),
         gameUrlTemplate: gameUrlTemplate.trim(),
-        gmids: parsedGmids,
+        gmids: targets,
         resolutions: selectedResolutions,
         concurrency: 1,
-        options: { dismissPopup, waitForVideo, headedMode, screenshotDelaySeconds },
+        options: { dismissPopup, waitForVideo, headedMode, screenshotDelaySeconds, reloadPerResolution, autoPickByGame },
         agentId: selectedAgentId,
       }
       const r = await fetch('/api/ui-screenshot/start', {
@@ -573,8 +711,65 @@ export function UiScreenshotPage() {
               )}
             </div>
 
+            {/* ⚠️ 自動選機以 **model** 為單位，不是遊戲代號：實測一個遊戲代號底下常有多個 model
+                （WLZBHELIX 39 台有 14 種），只用遊戲代號分組的話其餘 model 永遠不會被拍到，
+                而畫面上看起來「這款有拍」。 */}
+            <div className="ui-ss-toggle-row" style={{ marginBottom: 10 }}>
+              <div>
+                <div className="ui-ss-tgl-label">自動選機（依 model）</div>
+                <div className="ui-ss-tgl-sub">
+                  掃大廳 → 勾選要拍的 model → 每個 model 自動挑一台沒被佔用的機台。關掉則使用下面的 gmid 清單
+                </div>
+              </div>
+              <div
+                className={`ui-ss-toggle${autoPickByGame ? ' on' : ''}`}
+                onClick={() => !running && setAutoPickByGame(v => !v)}
+                role="switch"
+                aria-checked={autoPickByGame}
+                tabIndex={0}
+                onKeyDown={e => e.key === 'Enter' && !running && setAutoPickByGame(v => !v)}
+              />
+            </div>
+
+            {autoPickByGame && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+                  <button
+                    className="submit-btn submit-btn--sm" type="button"
+                    disabled={running || scanning || !selectedAgentId || !gameUrlTemplate.trim()}
+                    onClick={scanLobby}
+                    style={{ fontSize: 12, padding: '6px 14px' }}
+                  >{scanning ? '掃描中…（最多 2 分鐘）' : '掃描大廳'}</button>
+                  {models.length > 0 && (
+                    <button className="submit-btn submit-btn--sm" type="button" disabled={running}
+                      onClick={() => setShowModelPicker(true)} style={{ fontSize: 12, padding: '6px 14px' }}>
+                      選擇 model（已選 {selectedModels.length}）
+                    </button>
+                  )}
+                  {scanMsg && <span style={{ fontSize: 12, color: scanMsg.startsWith('掃描完成') ? '#34d399' : '#f87171' }}>{scanMsg}</span>}
+                </div>
+
+                {models.length > 0 && (
+                  <div style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.9 }}>
+                    已選 <b style={{ color: '#e2e8f0' }}>{selectedModels.length}</b> / {models.length} 個 model
+                    ｜預估約 <b style={{ color: '#e2e8f0' }}>
+                      {Math.round(selectedModels.length * selectedResolutions.length * (reloadPerResolution ? 25 : 3) / 60)}
+                    </b> 分鐘（粗估，不含找台與失敗重試）
+                    {unparsed.length > 0 && (
+                      <span style={{ color: '#eab308' }}>｜{unparsed.length} 台無法判斷 model（未列入）</span>
+                    )}
+                  </div>
+                )}
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, marginTop: 8, color: '#cbd5e1' }}>
+                  <input type="checkbox" disabled={running} checked={captureLobby} onChange={e => setCaptureLobby(e.target.checked)} />
+                  也拍大廳本身（不進機台）
+                </label>
+              </div>
+            )}
+
             {/* Manual gmid textarea */}
-            <label className="field">
+            <label className="field" style={{ display: autoPickByGame ? 'none' : undefined }}>
               <span>
                 gmid 清單
                 <span className="badge badge--blue" style={{ marginLeft: 8, fontSize: 10 }}>
@@ -672,6 +867,26 @@ export function UiScreenshotPage() {
                 aria-checked={waitForVideo}
                 tabIndex={0}
                 onKeyDown={e => e.key === 'Enter' && !running && setWaitForVideo(v => !v)}
+              />
+            </div>
+            {/* ⚠️ 預設開。這些遊戲的版型是載入當下依視窗大小決定的——只改視窗大小再截圖，
+                拍到的是「用 A 尺寸載入、硬撐成 B 尺寸」，那種畫面看起來有拍到，
+                但正是這個工具要抓的版型問題永遠不會出現。 */}
+            <div className="ui-ss-toggle-row">
+              <div>
+                <div className="ui-ss-tgl-label">每個解析度重新載入</div>
+                <div className="ui-ss-tgl-sub">
+                  關掉會改成「只改視窗大小」：快很多，但版型在載入時決定的遊戲會拍不到真實版型。
+                  開著時每張都要重進一次機台，**每台機台約需「解析度數 × 20～30 秒」**
+                </div>
+              </div>
+              <div
+                className={`ui-ss-toggle${reloadPerResolution ? ' on' : ''}`}
+                onClick={() => !running && setReloadPerResolution(v => !v)}
+                role="switch"
+                aria-checked={reloadPerResolution}
+                tabIndex={0}
+                onKeyDown={e => e.key === 'Enter' && !running && setReloadPerResolution(v => !v)}
               />
             </div>
             <div className="ui-ss-toggle-row">
@@ -792,7 +1007,7 @@ export function UiScreenshotPage() {
                             >
                               {t.server_path
                                 ? <img
-                                    src={`/api/ui-screenshot/screenshot/${t.run_id}/${t.gmid}/${t.resolution}`}
+                                    src={`/api/ui-screenshot/screenshot/${encodeURIComponent(t.run_id)}/${encodeURIComponent(t.gmid)}/${encodeURIComponent(t.resolution)}`}
                                     alt={`${gmid} ${res}`}
                                     className="ui-ss-thumb"
                                   />
@@ -823,7 +1038,13 @@ export function UiScreenshotPage() {
                   <tbody>
                     {taskList.sort((a, b) => a.gmid.localeCompare(b.gmid) || a.resolution.localeCompare(b.resolution)).map(t => (
                       <tr key={t.id}>
-                        <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{t.gmid}</td>
+                        <td style={{ fontFamily: 'monospace', fontSize: 12 }}>
+                          {t.gmid}
+                          {/* 自動選機時實際進的是哪一台——同一組的每張可能不同台 */}
+                          {t.actual_gmid && t.actual_gmid !== t.gmid && (
+                            <div style={{ fontSize: 10, color: '#94a3b8' }}>@{t.actual_gmid}</div>
+                          )}
+                        </td>
                         <td style={{ fontSize: 11 }}>{t.resolution}</td>
                         <td><span className={taskBadgeClass(t.status)}>{taskStatusLabel(t.status)}</span></td>
                         <td style={{ fontSize: 11, color: '#64748b', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -879,13 +1100,153 @@ export function UiScreenshotPage() {
                   </span>
                 )}
               </div>
+
+              {/* ── 驗收報告：產生 HTML，可連同原圖 zip 一起上傳 Lark 雲端資料夾 ── */}
+              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--rule, #2d3f55)' }}>
+                <label className="field" style={{ marginBottom: 8 }}>
+                  <span>Lark 雲端資料夾（報告要傳去哪）</span>
+                  <input
+                    value={larkFolderUrl}
+                    onChange={e => { setLarkFolderUrl(e.target.value); saveSettings({ larkFolderUrl: e.target.value }) }}
+                    placeholder="https://xxx.larksuite.com/drive/folder/…"
+                    style={{ fontFamily: 'monospace', fontSize: 12 }}
+                  />
+                  {/* ⚠️ 這是雲端資料夾（Drive），跟 Wiki／Sheets 是三套不同的 API——貼錯會失敗 */}
+                  <span className="field-hint">貼資料夾網址即可；留空則不上傳，只在本機產生報告</span>
+                </label>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <button
+                    className="submit-btn submit-btn--sm" type="button" disabled={reporting}
+                    onClick={() => generateReport(false)}
+                  >{reporting ? '產生中…' : '產生報告'}</button>
+                  <button
+                    className="submit-btn submit-btn--sm" type="button" disabled={reporting || !larkFolderUrl.trim()}
+                    onClick={() => generateReport(true)}
+                    style={{ background: '#2563eb' }}
+                  >{reporting ? '處理中…' : '產生並上傳 Lark（含原圖 zip）'}</button>
+                  {reportMsg && (
+                    <span style={{ fontSize: 12, color: reportMsg.includes('失敗') ? '#f87171' : '#34d399' }}>{reportMsg}</span>
+                  )}
+                </div>
+              </div>
+
+              {/* ── 儲存空間：截圖不會自己消失，要看得到也要清得掉 ── */}
+              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--rule, #2d3f55)' }}>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', fontSize: 12.5 }}>
+                  <span style={{ color: '#94a3b8' }}>
+                    截圖佔用：
+                    {storage
+                      ? <b style={{ color: '#e2e8f0' }}> {(storage.bytes / 1048576).toFixed(1)} MB</b>
+                      : ' —'}
+                    {storage && <span style={{ color: '#64748b' }}>（{storage.runs} 次 run、{storage.files} 個檔案）</span>}
+                  </span>
+                  <button className="btn-ghost" type="button" style={{ fontSize: 12 }} onClick={loadStorage}>重新計算</button>
+                  <button
+                    className="btn-ghost" type="button" style={{ fontSize: 12 }}
+                    onClick={pruneStorage}
+                  >清理舊資料（保留最近 10 次 / 14 天）</button>
+                  {storageMsg && <span style={{ fontSize: 12, color: '#34d399' }}>{storageMsg}</span>}
+                </div>
+              </div>
             </div>
           )}
         </div>
       </div>
 
+      {/* ── Model 選取彈窗 ──
+          ⚠️ 走 Portal：修仙版的 `.osm-page` 帶 transform，會讓裡面的 `position: fixed`
+             以它為基準而不是視窗——遮罩會縮成一小塊、內容被切掉（Jackpot 那邊踩過同一個坑）。 */}
+      {showModelPicker && (
+        <Portal>
+        <div className="ui-ss-modal-backdrop" onClick={() => setShowModelPicker(false)}>
+          {/* 高度用 maxHeight 不用 height：model 少的時候不要撐出一大片空白 */}
+          <div className="ui-ss-modal" style={{ width: 860, maxWidth: '92vw', maxHeight: '80vh' }} onClick={e => e.stopPropagation()}>
+            <div className="ui-ss-modal-head">
+              <span style={{ fontWeight: 700, color: '#f1f5f9' }}>
+                選擇要拍的 model
+                <span style={{ fontWeight: 400, fontSize: 12, color: '#94a3b8', marginLeft: 10 }}>
+                  已選 {selectedModels.length} / {models.length}
+                </span>
+              </span>
+              <button className="btn-ghost" style={{ padding: '4px 10px', fontSize: 11 }} onClick={() => setShowModelPicker(false)}>關閉</button>
+            </div>
+
+            <div style={{ padding: '10px 16px', borderBottom: '1px solid #2d3f55', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                value={modelFilter}
+                onChange={e => setModelFilter(e.target.value)}
+                placeholder="搜尋遊戲或 model…"
+                style={{ flex: '1 1 220px', fontSize: 12, padding: '5px 10px', borderRadius: 6 }}
+              />
+              <button className="btn-ghost" type="button" style={{ fontSize: 12 }}
+                onClick={() => setSelectedModels(visibleModels.map(m => m.key))}>全選（{visibleModels.length}）</button>
+              <button className="btn-ghost" type="button" style={{ fontSize: 12 }}
+                onClick={() => setSelectedModels(visibleModels.filter(m => m.free > 0).map(m => m.key))}>
+                只選有空機（{visibleModels.filter(m => m.free > 0).length}）
+              </button>
+              <button className="btn-ghost" type="button" style={{ fontSize: 12 }} onClick={() => setSelectedModels([])}>清除</button>
+            </div>
+
+            {/* 清單本身：兩欄、名稱完整顯示不截斷 */}
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '10px 16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '2px 16px' }}>
+                {visibleModels.map(m => {
+                  const checked = selectedModels.includes(m.key)
+                  return (
+                    <label key={m.key} style={{
+                      display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, padding: '6px 8px',
+                      borderRadius: 6, cursor: 'pointer',
+                      background: checked ? 'rgba(59,130,246,.10)' : 'transparent',
+                      opacity: m.free === 0 ? 0.6 : 1,
+                    }}>
+                      <input
+                        type="checkbox" checked={checked}
+                        onChange={e => setSelectedModels(prev => e.target.checked ? [...prev, m.key] : prev.filter(k => k !== m.key))}
+                        style={{ flexShrink: 0 }}
+                      />
+                      <span style={{ color: '#64748b', fontFamily: 'monospace', fontSize: 11, flexShrink: 0, width: 130 }}>{m.game}</span>
+                      <span style={{ color: '#e2e8f0', flex: 1 }}>{m.model}</span>
+                      <span style={{ color: m.free === 0 ? '#f87171' : '#94a3b8', fontSize: 11, whiteSpace: 'nowrap' }}>
+                        {m.total} 台・可用 {m.free}
+                      </span>
+                    </label>
+                  )
+                })}
+                {visibleModels.length === 0 && (
+                  <div style={{ color: '#64748b', fontSize: 12, padding: 12 }}>沒有符合搜尋的 model</div>
+                )}
+              </div>
+
+              {/* ⚠️ 解析不出 model 的機台要看得見，不可以默默消失 */}
+              {unparsed.length > 0 && (
+                <div style={{ marginTop: 14, fontSize: 11.5, color: '#eab308', lineHeight: 1.8 }}>
+                  <b>{unparsed.length} 台無法判斷 model，沒有列在上面</b>（名稱格式不符，需要時請用「自動選機」關閉後手填 gmid）：
+                  <div style={{ color: '#a1a1aa', fontFamily: 'monospace', fontSize: 11 }}>
+                    {unparsed.slice(0, 12).map(u => u.gmid).join('、')}{unparsed.length > 12 ? ` …共 ${unparsed.length} 台` : ''}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: '10px 16px', borderTop: '1px solid #2d3f55', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: 11.5, color: '#94a3b8' }}>
+                已選 {selectedModels.length} 個 × {selectedResolutions.length} 個解析度
+                ｜預估約 <b style={{ color: '#e2e8f0' }}>
+                  {Math.round(selectedModels.length * selectedResolutions.length * (reloadPerResolution ? 25 : 3) / 60)}
+                </b> 分鐘
+              </span>
+              <span style={{ fontSize: 11, color: '#64748b' }}>「可用」是掃描當下的狀態，實際跑時可能已被佔走（會自動換同 model 的另一台）</span>
+              <button className="submit-btn submit-btn--sm" style={{ marginLeft: 'auto', fontSize: 12, padding: '6px 16px' }}
+                onClick={() => setShowModelPicker(false)}>完成</button>
+            </div>
+          </div>
+        </div>
+        </Portal>
+      )}
+
       {/* ── Image Preview Modal ── */}
       {previewTask && (
+        <Portal>
         <div
           className="ui-ss-modal-backdrop"
           onClick={() => setPreviewTask(null)}
@@ -897,13 +1258,14 @@ export function UiScreenshotPage() {
             </div>
             <div className="ui-ss-modal-body">
               <img
-                src={`/api/ui-screenshot/screenshot/${previewTask.run_id}/${previewTask.gmid}/${previewTask.resolution}`}
+                src={`/api/ui-screenshot/screenshot/${encodeURIComponent(previewTask.run_id)}/${encodeURIComponent(previewTask.gmid)}/${encodeURIComponent(previewTask.resolution)}`}
                 alt={`${previewTask.gmid} ${previewTask.resolution}`}
                 style={{ maxWidth: '100%', maxHeight: '70vh', borderRadius: 6 }}
               />
             </div>
           </div>
         </div>
+        </Portal>
       )}
     </div>
   )

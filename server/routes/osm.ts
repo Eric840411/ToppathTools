@@ -9,6 +9,8 @@ import { z } from 'zod'
 import vm from 'vm'
 import { chromium } from 'playwright'
 import { fetchAllGMList } from '../lib/pinus-client.js'
+import { refreshWatchIndex, watchState, watchAgeMs, lookupWatchEntry } from '../lib/osm-watch.js'
+import { resolveJpThreshold, describeThreshold, summarizeCoverage, type CoverageRow, type ResolvedThreshold, type WatchRole } from '../lib/jp-threshold.js'
 import {
   db,
   addHistory,
@@ -1224,7 +1226,13 @@ const JP_MIN_DEFAULT: Record<JpLevel, number> = { grand: 1_000_000, major: 1_000
 const JP_MAX_DEFAULT: Record<JpLevel, number> = { grand: 999_999_999, major: 999_999_999, minor: 99_999_999, mini: 9_999_999, fortunate: 999_999_999 }
 
 interface JpGame { gameid: string; grand?: number; major?: number; minor?: number; mini?: number; fortunate?: number }
-interface JpAnomalyRecord { gameId: string; level: JpLevel; value: number; prevValue?: number; reason: string; time: string }
+interface JpAnomalyRecord { gameId: string; level: JpLevel; value: number; prevValue?: number; reason: string; time: string; thresholdNote?: string }
+/** 一格門檻在畫面／告警上要講的全部東西（兩邊共用同一份，講不一樣是最難查的 bug） */
+interface JpThresholdView {
+  min: number; max: number
+  minSource: ResolvedThreshold['minSource']; maxSource: ResolvedThreshold['maxSource']
+  flags: ResolvedThreshold['flags']; servers: string[]; note: string
+}
 interface JpPrevEntry { value: number; time: number }
 
 // Cloudflare __cf_bm cookie jar — updated from every response, included in every request
@@ -1272,6 +1280,13 @@ const jpState = {
   lastRequestBody: null as string | null,
   prevValues: new Map<string, JpPrevEntry>(),
   notified:   new Set<string>(),
+  /** key = `${gameid}:${level}`，每一格門檻的值與來歷 */
+  thresholds: {} as Record<string, JpThresholdView>,
+  coverage:   null as ReturnType<typeof summarizeCoverage> | null,
+  watch:      null as {
+    fetchedAt: number | null; ageSec: number | null; lastError: string | null
+    stale: boolean; never: boolean; stats: Record<string, number> | null
+  } | null,
 }
 
 function detectJpAnomaly(level: JpLevel, value: number, prev: JpPrevEntry | undefined, min: number, max: number): string | null {
@@ -1292,6 +1307,32 @@ function detectJpAnomaly(level: JpLevel, value: number, prev: JpPrevEntry | unde
   return null
 }
 
+/**
+ * 每款遊戲把哪個等級當「最大獎池」「第二獎池」。
+ *
+ * ⚠️ **不可以寫死 Grand／Major**（使用者 2026-09-18）：有些遊戲最大的是 Fortunate，
+ *    有些根本沒有 Fortunate。list.json 只說得出「最大」與「第二大」，
+ *    對到哪個等級是每款遊戲各自的事。沒設過的用預設 grand／major（等同舊行為）。
+ */
+const JP_DEFAULT_TOP: JpLevel = 'grand'
+const JP_DEFAULT_SECOND: JpLevel = 'major'
+
+function jpLevelMap(gameid: string): { top: JpLevel | null; second: JpLevel | null } {
+  const row = db.prepare('SELECT top_level, second_level FROM jackpot_level_map WHERE gameid = ?')
+    .get(gameid) as { top_level: string; second_level: string | null } | undefined
+  if (!row) return { top: JP_DEFAULT_TOP, second: JP_DEFAULT_SECOND }
+  const norm = (v: string | null | undefined): JpLevel | null =>
+    v && (JP_LEVELS as string[]).includes(v) ? v as JpLevel : null
+  return { top: norm(row.top_level), second: norm(row.second_level) }
+}
+
+function jpRoleOf(gameid: string, level: JpLevel): WatchRole {
+  const m = jpLevelMap(gameid)
+  if (m.top === level) return 'top'
+  if (m.second === level) return 'second'
+  return null
+}
+
 let jpPolling = false
 
 async function runJackpotPoll() {
@@ -1301,6 +1342,24 @@ async function runJackpotPoll() {
   const timeStr = now.toLocaleTimeString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })
   jpState.lastAttemptAt = timeStr
   try {
+    // ⚠️ list.json 的狀態要**先**更新，而且獨立於獎池資料。
+    //    放在後面的話，獎池上游一掛掉（實測就會），畫面上的「門檻來源」會停在「尚未載入」——
+    //    兩件不相干的事被綁在一起，看起來像門檻功能壞了。
+    await refreshWatchIndex().catch(() => { /* 失敗狀態記在 watchState() 裡 */ })
+    const ws = watchState()
+    const watchNever = ws.index === null
+    const age = watchAgeMs()
+    // 超過兩個 TTL 還沒更新成功就算「沿用上次讀取值」，不再當成當下的設定
+    const watchStale = !watchNever && (ws.lastError !== null || (age !== null && age > 10 * 60_000))
+    jpState.watch = {
+      fetchedAt: ws.fetchedAt,
+      ageSec: age === null ? null : Math.round(age / 1000),
+      lastError: ws.lastError,
+      stale: watchStale,
+      never: watchNever,
+      stats: ws.index?.stats ?? null,
+    }
+
     let data = await fetchJpData()
     // error 101 on first attempt — we may have just received a fresh __cf_bm cookie;
     // retry once immediately with that cookie
@@ -1317,7 +1376,11 @@ async function runJackpotPoll() {
     jpState.lastUpdated = timeStr
     jpState.lastError = null
 
+    // list.json 抓不到**不會**中斷這一輪：門檻退回手動／預設，但每一列都標得出來
+    // 自己是哪種狀態——靜默回落的話，畫面會長得跟一切正常一模一樣。
     const newAnomalies: JpAnomalyRecord[] = []
+    const thresholds: Record<string, JpThresholdView> = {}
+    const coverageRows: CoverageRow[] = []
     for (const g of data.games) {
       for (const level of JP_LEVELS) {
         const val = g[level]
@@ -1326,14 +1389,31 @@ async function runJackpotPoll() {
         const prev = jpState.prevValues.get(key)
         const row = db.prepare('SELECT min_val, max_val, enabled FROM jackpot_settings WHERE gameid = ? AND level = ?')
           .get(g.gameid, level) as { min_val: number; max_val: number; enabled: number } | undefined
-        const min = row?.min_val ?? JP_MIN_DEFAULT[level]
-        const max = row?.max_val ?? JP_MAX_DEFAULT[level]
+
+        const role = jpRoleOf(g.gameid, level)
+        const resolved: ResolvedThreshold = resolveJpThreshold({
+          level,
+          role,
+          entry: lookupWatchEntry(ws.index, g.gameid),
+          manual: row ? { min: row.min_val, max: row.max_val } : null,
+          defaults: { min: JP_MIN_DEFAULT[level], max: JP_MAX_DEFAULT[level] },
+          watchStale,
+          watchNever,
+        })
+        const min = resolved.min
+        const max = resolved.max
         const enabled = (row?.enabled ?? 1) !== 0
+        const note = describeThreshold(resolved)
+        thresholds[key] = {
+          min, max, minSource: resolved.minSource, maxSource: resolved.maxSource,
+          flags: resolved.flags, servers: resolved.servers, note,
+        }
+        coverageRows.push({ gameid: g.gameid, role, source: resolved.minSource, flags: resolved.flags })
 
         const reason = detectJpAnomaly(level, val, prev, min, max)
         if (reason && !jpState.notified.has(key)) {
           jpState.notified.add(key)
-          const record: JpAnomalyRecord = { gameId: g.gameid, level, value: val, prevValue: prev?.value, reason, time: jpState.lastUpdated! }
+          const record: JpAnomalyRecord = { gameId: g.gameid, level, value: val, prevValue: prev?.value, reason, time: jpState.lastUpdated!, thresholdNote: note }
           jpState.anomalyLog = [record, ...jpState.anomalyLog].slice(0, 50)
           if (enabled) newAnomalies.push(record)
         } else if (!reason) {
@@ -1342,6 +1422,11 @@ async function runJackpotPoll() {
         jpState.prevValues.set(key, { value: val, time: now.getTime() })
       }
     }
+
+    jpState.thresholds = thresholds
+    // 覆蓋率以目前監控對象為分母——用 list.json 自己的統計會讓「它裡面根本沒有的機種」
+    // 從分母消失，看起來覆蓋得比實際好（CodeX review）
+    jpState.coverage = summarizeCoverage(coverageRows)
 
     if (newAnomalies.length > 0) {
       const webhookUrl = process.env.LARK_WEBHOOK_URL
@@ -1355,7 +1440,10 @@ async function runJackpotPoll() {
           const change = a.prevValue !== undefined
             ? `（前次：${a.prevValue.toLocaleString()} → 現在：${a.value.toLocaleString()}）`
             : `（現在：${a.value.toLocaleString()}）`
-          return `⚠️ ${a.gameId} [${a.level}] ${change}\n   原因：${a.reason}`
+          // ⚠️ 門檻來歷一定要寫進告警：使用者的痛點正是「第一時間調不動」——
+          //    看到告警卻不知道現在生效的範圍是哪來的，就得再回頭查一次
+          const from = a.thresholdNote ? `\n   門檻來源：${a.thresholdNote}` : ''
+          return `⚠️ ${a.gameId} [${a.level}] ${change}\n   原因：${a.reason}${from}`
         }),
       ]
       const lac = new AbortController()
@@ -1417,7 +1505,129 @@ router.get('/api/osm/jackpot/state', (_req, res) => {
     larkSentAt:      jpState.larkSentAt,
     lastError:       jpState.lastError,
     lastRequestBody: jpState.lastRequestBody,
+    thresholds:      jpState.thresholds,
+    coverage:        jpState.coverage,
+    watch:           jpState.watch,
   })
+})
+
+/**
+ * GET /api/osm/jackpot/level-map
+ * 每款遊戲的「最大獎池／第二獎池」對到哪個等級。沒設過的不會出現在回應裡（前端用預設）。
+ */
+router.get('/api/osm/jackpot/level-map', (_req, res) => {
+  const rows = db.prepare('SELECT gameid, top_level, second_level FROM jackpot_level_map').all() as
+    { gameid: string; top_level: string; second_level: string | null }[]
+  const map: Record<string, { top: string | null; second: string | null }> = {}
+  for (const r of rows) map[r.gameid] = { top: r.top_level || null, second: r.second_level || null }
+  res.json({ ok: true, map, defaults: { top: JP_DEFAULT_TOP, second: JP_DEFAULT_SECOND } })
+})
+
+/**
+ * POST /api/osm/jackpot/level-map
+ * 存等級對應。`top`／`second` 可以是 null（這款沒有第二大獎池，或最大的那層不在監控清單裡）。
+ *
+ * ⚠️ 同一個等級不可以同時當 top 與 second——那會讓同一格門檻有兩種解釋。
+ */
+router.post('/api/osm/jackpot/level-map', (req, res) => {
+  const pin = process.env.ADMIN_PIN ?? ''
+  const provided = String(req.headers['x-admin-pin'] ?? '')
+  if (pin && provided !== pin) return res.status(403).json({ ok: false, message: '需要管理員 PIN' })
+
+  const { map } = req.body as { map?: Record<string, { top: string | null; second: string | null }> }
+  if (!map || typeof map !== 'object') return res.status(400).json({ ok: false, message: 'map required' })
+
+  const valid = (v: unknown): v is JpLevel => typeof v === 'string' && (JP_LEVELS as string[]).includes(v)
+  for (const [gameid, m] of Object.entries(map)) {
+    if (m.top && !valid(m.top)) return res.status(400).json({ ok: false, message: `${gameid}: top 不是合法等級` })
+    if (m.second && !valid(m.second)) return res.status(400).json({ ok: false, message: `${gameid}: second 不是合法等級` })
+    if (m.top && m.second && m.top === m.second) {
+      return res.status(400).json({ ok: false, message: `${gameid}: 最大與第二大不能是同一個等級` })
+    }
+  }
+
+  const upsert = db.prepare('INSERT OR REPLACE INTO jackpot_level_map (gameid, top_level, second_level) VALUES (?, ?, ?)')
+  const del = db.prepare('DELETE FROM jackpot_level_map WHERE gameid = ?')
+  const tx = db.transaction(() => {
+    for (const [gameid, m] of Object.entries(map)) {
+      // 跟預設一樣就不要留資料列——留著只會讓「有沒有被改過」看不出來
+      if (m.top === JP_DEFAULT_TOP && m.second === JP_DEFAULT_SECOND) { del.run(gameid); continue }
+      upsert.run(gameid, m.top ?? '', m.second ?? null)
+    }
+  })
+  tx()
+  // 門檻的解釋變了，之前壓下的告警要重新評估
+  jpState.notified.clear()
+  res.json({ ok: true })
+})
+
+/**
+ * POST /api/osm/jackpot/watch-thresholds
+ * 給告警設定視窗用：查一批 gameid 的 list.json 門檻。
+ *
+ * ⚠️ **不看 channel**（使用者 2026-09-18 定案）。兩邊的 channel 不是同一個維度，
+ *    綁上去的話 37 款只對得到 4 款。
+ *
+ * ⚠️ **刻意不從 `/state` 拿。**`/state` 的 thresholds 只有在獎池上游（getjpinfos）
+ *    抓成功時才會產生，那支掛掉時設定視窗就會變成一片空白——但 list.json 是另一條線，
+ *    它還活著。兩件事不該綁在一起。
+ *
+ * ⚠️ gameid → 機種代號的對應**只在後端做**（`gameCodeOf`）。前端再實作一次的話，
+ *    兩邊遲早會漂掉，而漂掉的症狀是「設定視窗顯示的門檻跟實際判定用的不同」。
+ */
+router.post('/api/osm/jackpot/watch-thresholds', async (req, res, next) => {
+  try {
+    const { gameids } = req.body as { gameids?: string[] }
+    if (!Array.isArray(gameids)) return res.status(400).json({ ok: false, message: 'gameids required' })
+    await refreshWatchIndex().catch(() => { /* 失敗就用上一次成功的索引 */ })
+    const ws = watchState()
+    const out: Record<string, {
+      grand: { min?: number; max?: number } | null
+      major: { min?: number; max?: number } | null
+      grandConflict: boolean; majorConflict: boolean
+      matched: boolean; servers: string[]; channels: string[]
+    }> = {}
+    for (const gid of gameids.slice(0, 500)) {
+      const e = lookupWatchEntry(ws.index, gid)
+      out[gid] = e
+        ? {
+            grand: e.grand, major: e.major,
+            grandConflict: e.grandConflict, majorConflict: e.majorConflict,
+            matched: true, servers: [...new Set(e.sources.map(s => s.server))], channels: e.channels,
+          }
+        : { grand: null, major: null, grandConflict: false, majorConflict: false, matched: false, servers: [], channels: [] }
+    }
+    const levelMap: Record<string, { top: string | null; second: string | null }> = {}
+    for (const gid of gameids.slice(0, 500)) levelMap[gid] = jpLevelMap(gid)
+
+    res.json({
+      ok: true,
+      thresholds: out,
+      levelMap,
+      levelDefaults: { top: JP_DEFAULT_TOP, second: JP_DEFAULT_SECOND },
+      watch: {
+        fetchedAt: ws.fetchedAt,
+        lastError: ws.lastError,
+        never: ws.index === null,
+      },
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
+/**
+ * POST /api/osm/jackpot/watch-refresh
+ * 手動重抓 list.json（平常是 5 分鐘 TTL，改完設定想立刻看到結果時用）。
+ */
+router.post('/api/osm/jackpot/watch-refresh', async (_req, res, next) => {
+  try {
+    await refreshWatchIndex(true)
+    const ws = watchState()
+    res.json({ ok: ws.lastError === null, fetchedAt: ws.fetchedAt, lastError: ws.lastError, stats: ws.index?.stats ?? null })
+  } catch (err) {
+    next(err)
+  }
 })
 
 /**

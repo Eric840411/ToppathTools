@@ -2938,3 +2938,12 @@ h3 {
   .uat-asset-card:hover, .ui-ss-metric-card:hover, .uat-net-tile:hover,
   .cultivation-entry:hover, .dashboard-panel:hover { transform: none; }
 }
+
+/* ── Modal 內的 sticky 標題列／底部按鈕 ─────────────────────────────
+   Jackpot 告警設定那種很長的清單會把標題與儲存鈕捲走，所以它們是 sticky 的。
+   sticky 元素必須有自己的底色（不然底下的內容會透出來），而那個底色在兩套主題
+   不一樣——元件端用 var() 讀，這裡覆寫成修仙版的值。寫死顏色的話這裡會是一塊補丁。 */
+.modal {
+  --modal-sticky-bg: rgba(7, 17, 26, .995);
+  --modal-sticky-line: var(--xx-line-gold);
+}

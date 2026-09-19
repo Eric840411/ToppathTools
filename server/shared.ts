@@ -1600,23 +1600,13 @@ db.exec(`
   }
 }
 
-/**
- * H5／PC 腳本的 Lark TC 綁定（2026-09-18）。
- *
- * 使用者要求「模式跟 Backend 一樣，只是執行位置不同」——H5 也有 TC，跑完也要回寫。
- *
- * ⚠️ **既有腳本補欄位時一律給預設值**，不能讓舊列變成 NULL 再到處判空
- * （`uat_recorded_scripts` 那邊就是這個慣例）。沒綁 TC 的腳本照舊能跑，
- * 只是不回寫——**不能因為加了這個欄位就讓現有腳本不能用**。
- */
-for (const [col, ddl] of [
-  ['lark_url', "ALTER TABLE frontend_auto_scripts ADD COLUMN lark_url TEXT NOT NULL DEFAULT ''"],
-  ['table_id', "ALTER TABLE frontend_auto_scripts ADD COLUMN table_id TEXT NOT NULL DEFAULT ''"],
-  ['bindings', "ALTER TABLE frontend_auto_scripts ADD COLUMN bindings TEXT NOT NULL DEFAULT '[]'"],
-] as const) {
-  const cols = db.prepare('PRAGMA table_info(frontend_auto_scripts)').all() as { name: string }[]
-  if (!cols.some(c => c.name === col)) db.exec(ddl)
-}
+db.exec(`
+  CREATE TABLE IF NOT EXISTS jackpot_level_map (
+    gameid       TEXT PRIMARY KEY,
+    top_level    TEXT NOT NULL,
+    second_level TEXT
+  )
+`)
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS jackpot_alert_settings (
@@ -1639,6 +1629,24 @@ db.exec(`
     updated_at  INTEGER NOT NULL
   )
 `)
+
+/**
+ * H5／PC 腳本的 Lark TC 綁定（2026-09-18）。
+ *
+ * 使用者要求「模式跟 Backend 一樣，只是執行位置不同」——H5 也有 TC，跑完也要回寫。
+ *
+ * ⚠️ **既有腳本補欄位時一律給預設值**，不能讓舊列變成 NULL 再到處判空
+ * （`uat_recorded_scripts` 那邊就是這個慣例）。沒綁 TC 的腳本照舊能跑，
+ * 只是不回寫——**不能因為加了這個欄位就讓現有腳本不能用**。
+ */
+for (const [col, ddl] of [
+  ['lark_url', "ALTER TABLE frontend_auto_scripts ADD COLUMN lark_url TEXT NOT NULL DEFAULT ''"],
+  ['table_id', "ALTER TABLE frontend_auto_scripts ADD COLUMN table_id TEXT NOT NULL DEFAULT ''"],
+  ['bindings', "ALTER TABLE frontend_auto_scripts ADD COLUMN bindings TEXT NOT NULL DEFAULT '[]'"],
+] as const) {
+  const cols = db.prepare('PRAGMA table_info(frontend_auto_scripts)').all() as { name: string }[]
+  if (!cols.some(c => c.name === col)) db.exec(ddl)
+}
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS frontend_auto_baselines (

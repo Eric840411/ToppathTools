@@ -39,6 +39,9 @@ import { createFrontendTcEngine, toMultiTcSteps } from './uat-runner/frontend-tc
 // 基準圖比對：跟伺服器端同一份。以前只有伺服器端有，這顆積木在 agent 上被靜默跳過。
 import { decodePng, findTemplateInPng } from './uat-runner/template-match.js'
 import { waitForDebugPort, clearStaleDebugPort, DEBUG_PORT_ARG } from './uat-runner/chrome-debug-port.js'
+import { pcWaitLobby, pcClosePopups, pcScanLobby, pcCollectMachines, pcSeekMachine, pcEnterMachine, pcSceneName, describePcLobby, pcInstallEvalShim, pcBackToLobby } from './lib/pc-cocos.js'
+import type { PcMachine } from './lib/pc-cocos.js'
+import { LOBBY_CLOSE_IN_PAGE, LOBBY_CLOSE_ALLOW, startLobbyPopupWatcher } from './uat-runner/lobby-popup.js'
 import { verifyRecordedSelectorLive, createRecordedLocators } from './uat-runner/recorded-selector.js'
 import { frontendRecorderScript, flagShadowCompleteness, syncRecorderPanel, setRecorderPanelVisible, FRONTEND_RECORDER_CONTROL_MARKER } from './uat-runner/frontend-recorder.js'
 import { MachineTestRunner } from './machine-test/runner.js'
@@ -260,6 +263,8 @@ interface UiScreenshotScanMessage {
   type: 'ui_screenshot_scan'
   scanId: string
   gameUrlTemplate: string
+  /** 掃描也要能用有視窗的模式跑——PC 版在 headless 下可能沒有 WebGL */
+  headed?: boolean
 }
 
 interface BackendUatStartMessage {
@@ -422,6 +427,29 @@ function machineTextHasExactCode(text: string | null | undefined, machineCode: s
   return new RegExp(`(^|[^A-Z0-9])${escaped}([^A-Z0-9]|$)`).test(normalized)
 }
 
+/**
+ * PC 版（Cocos）要 WebGL 才畫得出來。
+ *
+ * ⚠️ **headless 在某些機器拿不到 GPU，WebGL 直接不存在，Cocos 就不會初始化**
+ *    （症狀是 `window.cc` 永遠不存在，看起來像「頁面沒載完」）。實測回報來自 macOS 的 agent。
+ *    所以 PC 版一律補上軟體渲染的啟動參數；H5 不需要，不要順手加給它增加變數。
+ */
+const PC_BROWSER_ARGS = [
+  // ⚠️ 只加最保守的兩個。`--use-gl=angle --use-angle=swiftshader` 在某些機器會讓
+  //    GPU process 直接掛掉，症狀是「連 evaluate 都問不到」——比沒有 WebGL 還難查
+  '--enable-unsafe-swiftshader',
+  '--ignore-gpu-blocklist',
+]
+
+/**
+ * 這個網址是 PC 版嗎？
+ * ⚠️ 用網址判斷，不用「DOM 找不到卡片」來推——找不到卡片的原因很多（還沒載完、在機台裡、被彈窗蓋住），
+ *    用那個來判平台會在該報錯的時候安靜走錯分支。
+ */
+function isPcClientUrl(url: string): boolean {
+  return /osm-pc|[?&]platform=pc\b/i.test(url)
+}
+
 /** 大廳上的一張機台卡片。`occupied` 直接讀 DOM，不用點進去才知道。 */
 interface LobbyCard {
   gmid: string; game: string; model: string; occupied: boolean
@@ -461,6 +489,29 @@ async function scanUiScreenshotLobby(page: Page): Promise<LobbyCard[]> {
     gmid: c.gmid, game: c.game, model: parseUiScreenshotModel(c.text),
     occupied: c.occupied, reserved: c.reserved,
   }))
+}
+
+/**
+ * 讀「機台內」畫面上的機台名稱（例如 `Hyper Horse-TBR2052`）。
+ *
+ * 用途：重新載入後常常會**自動回到剛才那台機台**——這時候不需要再繞一次大廳，
+ * 但要先確認「回到的是同一款」，不然會拿別台的畫面當這個 model 的截圖。
+ * 讀不到就回空字串，由呼叫端決定要不要保守地走大廳流程。
+ */
+async function readInGameMachineName(page: Page): Promise<string> {
+  return page.evaluate(() => {
+    const pattern = /^[A-Za-z0-9'’&. ]{2,40}-[A-Za-z]{2,5}\d{2,6}$/
+    const nodes = Array.from(document.querySelectorAll('div, span, p, h1, h2, h3'))
+    for (const el of nodes) {
+      if (el.children.length) continue
+      const t = (el.textContent || '').replace(/\s+/g, ' ').trim()
+      if (!pattern.test(t)) continue
+      const r = el.getBoundingClientRect()
+      if (r.width < 20 || r.height < 6) continue
+      return t
+    }
+    return ''
+  }).catch(() => '')
 }
 
 /**
@@ -695,8 +746,9 @@ async function isUiScreenshotPopupVisible(page: Page): Promise<boolean> {
  * ⚠️ 只在「看起來是彈窗」的容器裡找按鈕（class 帶 select/popup/overlay/dialog/confirm），
  *    不要在整頁找文字 YES——遊戲畫面裡到處都是英文字，在全頁亂點是會出事的。
  */
-async function dismissUiScreenshotPopups(page: Page, label: string): Promise<number> {
+async function dismissUiScreenshotPopups(page: Page, label: string): Promise<{ dismissed: number; errors: string[] }> {
   let dismissed = 0
+  const errors: string[] = []
   for (let round = 1; round <= 4; round++) {
     // 第一層：面額選單
     const denom = await page.$('.select-bg')
@@ -710,38 +762,97 @@ async function dismissUiScreenshotPopups(page: Page, label: string): Promise<num
         continue
       }
     }
-    // 第二層（含之後可能再冒出來的確認框）：在彈窗容器裡找 YES / 確定
+    /**
+     * 🚨 **H5 大廳的整頁 JACKPOT 彈窗：只能點 ✕，不能點 PLAY NOW。**（2026-09-19 實測新增）
+     *
+     * 下面那段找的是「文字剛好等於 YES/CONFIRM/確定」的按鈕——那是**機台內**的面額選單與
+     * Tips 錯誤框。大廳這張中獎彈窗上一個那種字都沒有，只有一顆 `.closeBtn`（24x24 的 ✕）
+     * 跟一顆大大的「PLAY NOW」。所以舊邏輯對它完全無效：
+     * 彈窗留在畫面上 → **之後每一個 click 都 timeout**，而訊息只寫
+     * `locator.click: Timeout 10000ms exceeded`，看起來像選擇器錯或網站慢。
+     *
+     * ⚠️ **絕對不能點 PLAY NOW／JOIN／START 這類**——那會直接進機台，
+     *    把「關掉彈窗」變成一個有副作用的動作，而且測試會從一個沒人預期的狀態開始。
+     *    所以這裡**只認關閉鍵**（class 含 close），而且再擋一次文字。
+     */
+    // ⚠️ 實作放在 `uat-runner/lobby-popup.js`，**驗證腳本跟這裡跑同一份**。
+    //    抄一份到這裡的話，驗的是抄的那份、上線跑的是另一份——這個專案被咬過好幾次。
+    const closeResult = await page.evaluate(LOBBY_CLOSE_IN_PAGE, LOBBY_CLOSE_ALLOW)
+      .catch(() => ({ closed: '', skipped: [] })) as { closed: string; skipped: string[] }
+    const closed = closeResult.closed
+    if (closed) {
+      await page.waitForTimeout(800)
+      dismissed++
+      console.log(`[UI-SS] ${label} — 關掉彈窗（✕ .${closed}，第 ${round} 輪）`)
+      continue
+    }
+
+    // 第二層／錯誤提示（`Tips: CODE: ERR_NETWORK`、`Tips: Game exception, please contact customer service.(39)`）
+    //
+    // ⚠️ **從按鈕往上找彈窗，不要從容器往下找按鈕。** 第一版只掃 class 含 select/popup/overlay/dialog/confirm
+    //    的容器，結果實際卡住流程的那個彈窗長這樣（2026-09-18 使用者回報的 error 39）：
+    //      <div class="bg-img"><div class="box-title">Tips</div>
+    //        <div class="box-content"><div class="text-msg">Game exception, please contact customer service.(39)</div></div>
+    //        <div class="box-end"><button class="van-button box-btn"><div class="box-btn_text2">Confirm</div></button></div>
+    //    容器叫 `bg-img`、按鈕叫 `box-btn`——一個關鍵字都沒中，所以整晚都關不掉。
+    //    改成先找「整個文字剛好就是 Confirm/YES/確定」的可見小元素，再往上爬確認它真的在彈窗裡。
+    // ⚠️ 錯誤提示**要點掉，但不能當沒發生**：它代表這一張是在出過錯誤的狀態下拍的
     const clicked = await page.evaluate(() => {
-      const boxes = Array.from(document.querySelectorAll(
-        '[class*="select"], [class*="popup"], [class*="overlay"], [class*="dialog"], [class*="confirm"]',
-      ))
+      const CONFIRM = new Set(['YES', 'CONFIRM', '確定', '确定', 'OK', '確認', '确认', '我知道了', 'GOT IT'])
+      const POPUPISH = /select|popup|overlay|dialog|confirm|modal|mask|alert|toast|tips|bg-img|box-/i
+      const TITLEISH = /^(tips|提示|notice|warning|error|錯誤|错误|系統提示|系统提示)$/i
       const visible = (el: Element) => {
         const r = el.getBoundingClientRect()
-        const s = getComputedStyle(el)
-        return r.width > 10 && r.height > 10 && s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0'
+        const st = getComputedStyle(el)
+        return r.width > 10 && r.height > 10 && st.display !== 'none' && st.visibility !== 'hidden' && st.opacity !== '0'
       }
-      for (const box of boxes) {
-        if (!visible(box)) continue
-        const btns = Array.from(box.querySelectorAll('button, .van-button, [class*="btn"], div, span'))
-        for (const b of btns) {
-          const t = (b.textContent || '').trim().toUpperCase()
-          if ((t === 'YES' || t === '確定' || t === 'OK' || t === '确定') && visible(b)) {
-            ;(b as HTMLElement).click()
-            return t
-          }
+      // 彈窗的根：往上最多爬 8 層，取「最外層」有彈窗特徵的那個（這樣記到的文字才含標題與內文）
+      const dialogRootOf = (el: Element): Element | null => {
+        let cur: Element | null = el.parentElement
+        let root: Element | null = null
+        for (let i = 0; i < 8 && cur; i++, cur = cur.parentElement) {
+          const cls = cur.getAttribute('class') || ''
+          const hasTitle = Array.from(cur.children).some(c => TITLEISH.test((c.textContent || '').trim()))
+          if (POPUPISH.test(cls) || hasTitle) root = cur
         }
+        return root
+      }
+      // ⚠️ **先找真的按鈕，找不到才退而求其次掃 div/span。**
+      //    不分層的話會踩到這個坑：彈窗的標題或內文剛好也是「Confirm」，而它在 DOM 順序上排在按鈕前面，
+      //    結果每一輪都點在那段文字上（點了等於沒點），彈窗一直在，流程照樣卡住。
+      const TIERS = ['button, .van-button, [role="button"], [class*="btn"], [class*="Btn"]', 'div, span']
+      const cands = TIERS.flatMap(sel => Array.from(document.querySelectorAll(sel)))
+      for (const b of cands) {
+        const t = (b.textContent || '').replace(/\s+/g, ' ').trim().toUpperCase()
+        if (!CONFIRM.has(t) || !visible(b)) continue
+        const r = b.getBoundingClientRect()
+        // 版面上剛好只有這串字的大區塊不算按鈕——點下去會誤觸背後的東西
+        if (r.width > 520 || r.height > 200) continue
+        const root = dialogRootOf(b)
+        if (!root) continue
+        const boxText = (root.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200)
+        ;(b as HTMLElement).click()
+        return JSON.stringify({ btn: t, boxText })
       }
       return ''
     }).catch(() => '')
     if (clicked) {
       await page.waitForTimeout(800)
       dismissed++
-      console.log(`[UI-SS] ${label} — 關掉第二層彈窗（按 ${clicked}，第 ${round} 輪）`)
+      let btn = clicked, boxText = ''
+      try { const o = JSON.parse(clicked) as { btn: string; boxText: string }; btn = o.btn; boxText = o.boxText } catch { /* 舊格式 */ }
+      // 內容看起來是錯誤提示就記下來——關掉它不代表那張圖是乾淨的
+      if (/ERR_|error|錯誤|错误|失败|失敗|exception|異常|异常|customer service/i.test(boxText)) {
+        errors.push(boxText)
+        console.log(`[UI-SS] ${label} — 關掉錯誤提示（${btn}）：${boxText}`)
+      } else {
+        console.log(`[UI-SS] ${label} — 關掉彈窗（按 ${btn}，第 ${round} 輪）`)
+      }
       continue
     }
     break
   }
-  return dismissed
+  return { dismissed, errors }
 }
 
 async function clickFirstVisible(page: Page, selectors: string[]): Promise<boolean> {
@@ -850,13 +961,50 @@ async function runUiScreenshotScan(msg: UiScreenshotScanMessage, serverBaseUrl: 
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     }).catch(() => {})
   try {
-    browser = await chromium.launch({ headless: true })
-    const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
+    const pc = isPcClientUrl(url)
+    // ⚠️ PC 版掃描也要能用 Headed：headless 拿不到 GPU 時 Cocos 根本不會初始化，
+    //    而掃描原本寫死 headless，導致使用者把畫面上的「Headed 模式」打開也沒有任何效果
+    const headless = !msg.headed
+    browser = await chromium.launch({ headless, args: pc ? PC_BROWSER_ARGS : [] })
+    // PC 版是 canvas，視窗開小會讓大廳只渲染很少的東西，掃描用桌面尺寸
+    const ctx = await browser.newContext({ viewport: pc ? { width: 1440, height: 900 } : { width: 390, height: 844 } })
     const page = await ctx.newPage()
+    // ⚠️ 要在 goto 之前補：addInitScript 只對「之後載入的文件」生效
+    if (pc) await pcInstallEvalShim(page)
     await page.goto(url, { timeout: 40000 })
-    await page.waitForSelector('#grid_gm_item', { timeout: 30000 })
-    await page.waitForTimeout(2000)
-    const result = await scanUiScreenshotModels(page)
+    let result
+    if (pc) {
+      const diag = await pcWaitLobby(page)
+      if (!diag.ready) throw new Error(`PC 版大廳沒載出來：${describePcLobby(diag)}`)
+      console.log(`[UI-SS] PC 大廳診斷：${describePcLobby(diag)}`)
+      await pcClosePopups(page)
+      // 用 ScrollView 位移一格一格捲：一開始只讀得到幾台，捲過之後文字標籤才會生出來
+      const collected = await pcCollectMachines(page)
+      const machines = collected.machines
+      console.log(`[UI-SS] PC 掃描：捲了 ${collected.scrolls} 次、收到 ${machines.length} 台${collected.partial ? '（未掃完）' : ''}`)
+      // ⚠️ 不是每台都讀得到名稱（實測 695/699）。數字照實回報，不要說成「PC 版就這麼多台」
+      const groups = new Map<string, { game: string; model: string; total: number; free: number; sample: string }>()
+      for (const m of machines) {
+        const model = parseUiScreenshotModel(m.name) || m.name
+        const key = `PC / ${model}`
+        const g = groups.get(key) ?? { game: 'PC', model, total: 0, free: 0, sample: '' }
+        g.total++
+        if (!m.occupied) { g.free++; if (!g.sample) g.sample = m.name }
+        groups.set(key, g)
+      }
+      result = {
+        scannedAt: Date.now(),
+        cardCount: machines.length,
+        models: [...groups.entries()].map(([key, g]) => ({ key, ...g })).sort((a, b) => b.total - a.total),
+        unparsed: [] as Array<{ gmid: string; text: string }>,
+        partial: true,
+        partialNote: `PC 版的機台名稱是捲到才生出來的，這次捲了 ${collected.scrolls} 次收到 ${machines.length} 台；橫向排列的部分還沒捲，清單可能仍不完整`,
+      }
+    } else {
+      await page.waitForSelector('#grid_gm_item', { timeout: 30000 })
+      await page.waitForTimeout(2000)
+      result = await scanUiScreenshotModels(page)
+    }
     console.log(`[UI-SS] 掃描完成：${result.cardCount} 台、${result.models.length} 個 model、無法解析 ${result.unparsed.length}`)
     await post({ ok: true, ...result })
   } catch (err) {
@@ -916,10 +1064,138 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
     const autoPick = options.autoPickByGame === true
     const isLobbyTarget = gmid === '__LOBBY__'
     let lastUsedMachine: string | undefined
+    /**
+     * 這一張截圖在準備過程中被關掉的錯誤提示（例如 `CODE: ERR_NETWORK`）。
+     * ⚠️ 關掉彈窗**不等於**那張圖是乾淨的——錯誤發生過就要跟著這張圖一起回報，
+     *    否則畫面上看起來只是一張普通截圖，沒人知道它是在出過網路錯誤的狀態下拍的。
+     */
+    let popupErrorNote = ''
+    /**
+     * 出過「遊戲異常 / error 39」這種錯誤提示的機台。
+     * ⚠️ 不記起來的話，下一個解析度會因為 `lastUsedMachine` 又挑同一台，然後同樣的錯再來一次——
+     *    一整批解析度全毀，而且每一張的錯誤訊息看起來都像新問題。
+     */
+    const brokenMachines = new Set<string>()
 
     /** 進場：導頁 → （自動選機）→ 進機台 → 等推流 → 關面額彈窗 → 等指定秒數。回傳實際機台號 */
     const prepare = async (page: Page): Promise<string> => {
+      popupErrorNote = ''
+      const noteErrors = (r: { errors: string[] }, machine?: string) => {
+        if (!r.errors.length) return
+        popupErrorNote = `進場時出現提示：${r.errors[0]}`
+        // 遊戲本身壞掉（不是網路瞬斷）就把這台排除，下一張換一台試
+        if (machine && /exception|異常|异常|customer service|\(\d{1,3}\)/i.test(r.errors[0])) {
+          brokenMachines.add(machine)
+          if (lastUsedMachine === machine) lastUsedMachine = undefined
+        }
+      }
       await page.goto(url, { timeout: 30000 })
+
+      // ── PC 版（Cocos canvas）：DOM 裡沒有任何機台元素，改讀場景樹 ──────────
+      if (isPcClientUrl(url)) {
+        // 🚨 **上一個 task 的位子還佔著的話，重新載入會直接掉回那台機台。**
+        //    這時候大廳清單不會建出來，掃到 0 台，錯誤訊息看起來像解析度問題。
+        //    所以先確認在不在大廳，不在就退回去。
+        await pcInstallEvalShim(page)
+        // ⚠️ **不能在 goto 之後馬上判斷場景。**剛載入時場景還是 `lobby`，客戶端要再過幾秒
+        //    才會自動把你送回上一輪還佔著位子的那台機台。太早判斷永遠是 false，
+        //    然後就在那邊空等 60 秒直到 timeout（實測：退回大廳那行 log 一次都沒印出來）。
+        //    所以改成「先短等一次 → 沒好就看是不是被送進機台了 → 退回大廳 → 再等一次」。
+        let diag = await pcWaitLobby(page, 25_000)
+        if (!diag.ready) {
+          let scene = await pcSceneName(page)
+          // ⚠️ **中斷後還有第二種壞狀態：場景是 lobby，但機台清單就是建不出來。**
+          //    （上一輪被 `/stop` 砍掉之後實測到的：`ScrollView-gms` 沒有、機台卡片只有 2 個。）
+          //    只處理 `scene === 'game'` 的話這種情況不會重試、直接失敗。reload 一次通常就好。
+          if (scene !== 'game') {
+            console.log(`[UI-SS] PC 大廳建不出來（場景=${scene || '未知'}、機台卡片 ${diag.machineItems}）→ 重新載入再等一次`)
+            await page.goto(url, { timeout: 30000 }).catch(() => {})
+            diag = await pcWaitLobby(page, 40_000)
+            scene = await pcSceneName(page)
+          }
+          if (!diag.ready && scene === 'game') {
+            // ⚠️ **退出確認框（`box_sure`）是對齊畫布中心的，窄視窗下那一點在視窗外，點不到。**
+            //    實測 log：`menu_back@19,43 → box_sure:找不到或在視窗外` 重複八次然後放棄。
+            //    所以退出這段**暫時把視窗放大到 1024x768** 再做，做完改回目標尺寸——
+            //    截圖是後面才拍的，這裡臨時改大小不影響最後的圖。
+            const want = page.viewportSize()
+            const needResize = !want || want.width < 1024 || want.height < 768
+            // ⚠️ 改完視窗要等 Cocos 重新排版。不等的話第一下會用舊座標點下去——
+            //    實測 log 裡第一步是 `menu_back@19,43`（放大前的位置），等於白點一下。
+            if (needResize) {
+              await page.setViewportSize({ width: 1024, height: 768 }).catch(() => {})
+              await page.waitForTimeout(2000)
+            }
+            const back = await pcBackToLobby(page)
+            if (needResize && want) await page.setViewportSize(want).catch(() => {})
+            console.log(`[UI-SS] PC 一載入就被送回機台（上一輪的位子還佔著）→ 退回大廳${back.ok ? '成功' : '失敗'}`
+              + `${needResize ? '（退出時暫時放大到 1024x768，確認鈕在窄視窗點不到）' : ''}：${back.steps.join(' → ') || '(沒點到任何按鈕)'}`)
+            diag = await pcWaitLobby(page, 45_000)
+          }
+        }
+        if (!diag.ready) throw new Error(`PC 版大廳沒載出來：${describePcLobby(diag)}（場景=${await pcSceneName(page) || '未知'}）`)
+        // JACKPOT／廣告彈窗是畫在 canvas 上的節點，DOM 關不掉，要把節點 active 設成 false
+        const closed = await pcClosePopups(page)
+        const machines = await pcScanLobby(page)
+        console.log(`[UI-SS] PC 大廳就緒：可視 ${machines.length} 台（空機 ${machines.filter(m => !m.occupied).length}）、關掉 ${closed} 個彈窗節點`)
+        if (!isLobbyTarget) {
+          // ⚠️ 目標可能還沒捲到（名稱還沒生出來），所以邊捲邊找——**找到就停**，
+          //    不要為了進一台機台把 695 台全掃完（掃完要 40 秒，找到通常只要幾秒）
+          const want = gmid.includes('/') ? gmid.split('/')[1].trim() : gmid
+
+          // 🚨 **一台不夠，要能換下一台。**同款機台通常有好幾台空的，而「挑的時候空著、
+          //    捲回去已經有人」是常態（實測 Dancing Drums 12 台空機，仍然連續失敗 12 次，
+          //    因為每次都挑同一台、失敗就直接放棄）。所以失敗要記起來、換一台再試。
+          const tried = new Set<string>()
+          let res: Awaited<ReturnType<typeof pcEnterMachine>> | null = null
+          let picked: PcMachine | undefined
+          let lastErr = ''
+          let seekCensus = { total: 0, free: 0 }
+          // ⚠️ 3 次不夠。正式站同款機台被別人（以及我們自己上一個解析度）搶走是常態，
+          //    「挑的時候空著、點下去已經有人」每次都可能發生——實測 3 次還是會漏掉一個解析度。
+          for (let attempt = 0; attempt < 5; attempt++) {
+            picked = machines.find(m => (m.name === want || m.name.startsWith(want)) && !m.occupied && !tried.has(m.name))
+            if (!picked) {
+              const seek = await pcSeekMachine(page, want, { skip: tried })
+              if (seek.picked) console.log(`[UI-SS] PC 找到 ${seek.picked.name}（捲 ${seek.steps} 格、途中看過 ${seek.scanned} 台）`)
+              if (seek.matched.total > seekCensus.total) seekCensus = seek.matched
+              picked = seek.picked ?? undefined
+            }
+            if (!picked) break
+            tried.add(picked.name)
+            res = await pcEnterMachine(page, picked.name)
+            if (res.entered) break
+            lastErr = `${picked.name}——${res.reason ?? `場景=${res.scene || '未知'}`}`
+            console.warn(`[UI-SS] PC 進機台失敗（第 ${attempt + 1} 次）：${lastErr}`)
+          }
+          if (!picked) {
+            // ⚠️ 「找不到」有三種完全不同的原因，訊息裡要分得出來，否則一律被當成程式壞掉：
+            //    (a) 這款機台全被佔用 (b) 有空機但在視窗外點不到（窄解析度）(c) 根本沒掃到這款
+            // ⚠️ 這個數字要用 **seek 途中**累積的，不能事後再掃一次——那時候清單已經捲到最底，
+            //    目標機型早就不在畫面上，事後掃一律回 0 台，訊息會變成「掃到 0 台」誤導人。
+            const reachable = (await pcScanLobby(page, { onScreenOnly: true })).length
+            const vp = page.viewportSize()
+            const census = `捲的途中看清楚 ${seekCensus.total} 台／其中空機 ${seekCensus.free} 台；`
+              + `這個視窗（${vp?.width}x${vp?.height}）一次只看得到 ${reachable} 張卡片`
+            throw new Error(`PC 大廳找不到可用的目標：${want}——${census}${tried.size ? `（已試過 ${tried.size} 台：${[...tried].join('、')}）` : ''}`)
+          }
+          if (!res?.entered) {
+            // 錯誤訊息要講得出卡在哪一步：捲不到、點了沒進、還是進了但讀不到名稱
+            throw new Error(`PC 進機台失敗（試過 ${tried.size} 台）：${lastErr}`)
+          }
+          // 🚨 **實測會點到隔壁台**（目標 Ingot-NWR2017、實際進到 Ingot-NWR2024），
+          //    所以這裡照實回報「實際進到的那一台」，不要拿目標名稱充數
+          if (res.actual !== picked.name) {
+            console.warn(`[UI-SS] PC 點到的不是目標：想進 ${picked.name}、實際是 ${res.actual}——照實記錄`)
+          }
+          lastUsedMachine = res.actual || picked.name
+          if (options.dismissPopup !== false) await pcClosePopups(page)
+          if (screenshotDelaySeconds > 0) await page.waitForTimeout(screenshotDelaySeconds * 1000)
+          return lastUsedMachine
+        }
+        if (screenshotDelaySeconds > 0) await page.waitForTimeout(screenshotDelaySeconds * 1000)
+        return '__LOBBY__'
+      }
 
       // 大廳本身就是拍攝目標：不進任何機台（一樣要先把蓋住畫面的彈窗關掉）
       if (isLobbyTarget) {
@@ -928,13 +1204,38 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
         return '__LOBBY__'
       }
 
-      // ⚠️ 先確定真的站在大廳再掃卡片：重新載入後可能自動回到機台裡，或被彈窗蓋住，
-      //    那時候掃到 0 張卡片，錯誤訊息會變成「查無此 model」——那是誤導
+      // ⚠️ 彈窗可能蓋在大廳、也可能蓋在機台畫面上，所以先關掉再判斷自己在哪
+      if (options.dismissPopup !== false) noteErrors(await dismissUiScreenshotPopups(page, gmid), lastUsedMachine)
+
+      /**
+       * **重新載入之後常常會自動回到剛才那台機台**——這時候不必再繞一次大廳
+       * （使用者 2026-09-18：「沒辦法直接重新刷新截圖對吧？」——可以，就是這條路徑）。
+       *
+       * ⚠️ 但要先確認回到的是**同一款**：讀機台內的名稱跟目標 model 比對。
+       *    比不上（或讀不到而且我們根本還沒選過機台）就保守地走大廳流程，
+       *    不然會拿別台的畫面當這個 model 的截圖，而畫面上完全看不出來。
+       */
+      const inLobby = (await page.locator('#grid_gm_item').count().catch(() => 0)) > 0
+      if (!inLobby && lastUsedMachine) {
+        const ready = await waitForUiScreenshotReady(page)
+        const wantModel = gmid.includes('/') ? gmid.split('/')[1].trim().toUpperCase() : ''
+        const seen = (await readInGameMachineName(page)).toUpperCase()
+        const sameModel = !wantModel || !seen || seen.startsWith(wantModel)
+        if (ready && sameModel) {
+          console.log(`[UI-SS] ${gmid} — 重新載入後已在機台內（${seen || '名稱讀不到'}），直接截圖，不繞大廳`)
+          if (options.dismissPopup !== false) noteErrors(await dismissUiScreenshotPopups(page, lastUsedMachine), lastUsedMachine)
+          if (screenshotDelaySeconds > 0) await page.waitForTimeout(screenshotDelaySeconds * 1000)
+          return lastUsedMachine
+        }
+        console.log(`[UI-SS] ${gmid} — 載入後在機台內但不是要的那款（看到「${seen || '讀不到'}」），退回大廳重選`)
+      }
+
+      // 走到這裡表示要從大廳挑機台：先確定真的站得到大廳
       await ensureUiScreenshotLobby(page, gmid)
 
       let target = gmid
       if (autoPick) {
-        const picked = await pickUiScreenshotMachine(page, gmid, lastUsedMachine)
+        const picked = await pickUiScreenshotMachine(page, gmid, lastUsedMachine, brokenMachines)
         target = picked.gmid
         console.log(`[UI-SS] ${gmid} auto-picked ${target} (${picked.freeOfTarget}/${picked.totalOfTarget} free)`)
       }
@@ -945,7 +1246,7 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
       if (!ready) throw new Error(`Game surface not ready after entering machine: ${gmid}`)
       console.log(`[UI-SS] ${gmid} — stream ready`)
       if (options.dismissPopup !== false) {
-        await dismissUiScreenshotPopups(page, target)
+        noteErrors(await dismissUiScreenshotPopups(page, target), target)
       }
       if (screenshotDelaySeconds > 0) {
         console.log(`[UI-SS] ${gmid} waiting ${screenshotDelaySeconds}s before screenshot`)
@@ -968,6 +1269,7 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
       form.append('screenshot', new Blob([new Uint8Array(screenshotBuf)], { type: 'image/png' }), `${task.resolution}.png`)
       form.append('status', taskStatus)
       form.append('actualGmid', actualGmid)
+      if (popupErrorNote) form.append('errorMsg', popupErrorNote)
       const uploadRes = await fetch(`${serverBaseUrl}/api/ui-screenshot/task/${task.id}/upload`, {
         method: 'POST', body: form,
       })
@@ -977,11 +1279,28 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
         await postStatus(task.id, 'err', uploadError)
         return false
       }
+
+      // 🚨 **拍完就要把位子讓出來。**帳號同時只能坐一台機台——還佔著上一台的話，
+      //    下一個解析度在大廳點任何一張卡片都會被伺服器擋掉，而畫面上完全看不出被擋，
+      //    錯誤訊息只會寫「點了 (x, y) 但還停在大廳」，看起來像座標算錯。
+      //    實測：連續試 5 台全部失敗，其實 5 台都是空的，problem 在我們自己還坐在別台上。
+      //    ⚠️ 退出是三步：`menu_back` →「Exit To Lobby」→ 下分框的 `Confirm`。
+      if (!isLobbyTarget && isPcClientUrl(page.url()) && await pcSceneName(page) === 'game') {
+        const vp = page.viewportSize()
+        const needResize = !vp || vp.width < 1024 || vp.height < 768
+        if (needResize) { await page.setViewportSize({ width: 1024, height: 768 }).catch(() => {}); await page.waitForTimeout(2000) }
+        const left = await pcBackToLobby(page)
+        if (needResize && vp) await page.setViewportSize(vp).catch(() => {})
+        console.log(`[UI-SS] ${gmid} ${task.resolution} 拍完退出機台：${left.ok ? '成功' : `失敗（場景=${left.scene}）`}`)
+      }
       return true
     }
 
     try {
-      browser = await chromium.launch({ headless: !options.headedMode })
+      browser = await chromium.launch({
+        headless: !options.headedMode,
+        args: isPcClientUrl(url) ? PC_BROWSER_ARGS : [],
+      })
 
       if (reloadPerResolution) {
         // ── 每個解析度各自開一個 context、以該尺寸重新載入 ──────────────────
@@ -1089,6 +1408,8 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
   let pinusProbe: Awaited<ReturnType<typeof attachPinusProbe>> | null = null
   let pinusDrainTimer: ReturnType<typeof setInterval> | null = null
   let statsTimer: ReturnType<typeof setInterval> | null = null
+  // 彈窗看門狗的停止函式——在 try 裡面建立、finally 要停掉，所以宣告在外面
+  let stopPopupWatcher: (() => string[]) | null = null
   // 門檻走 server 派工時帶下來的值，沒帶就用共用預設
   const netThresholds = {
     api: msg.netThresholds?.api ?? DEFAULT_THRESHOLDS.api,
@@ -1203,6 +1524,40 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
         findTemplateInPng(shot, template, threshold),
       decodePng: (buffer: Buffer) => decodePng(buffer),
     }
+
+    /**
+     * 🚨 **跑第一顆積木之前先把彈窗關掉。**
+     *
+     * H5 大廳一進去就可能蓋一張整頁的 JACKPOT 中獎彈窗（2026-09-19 實測 osmel002 就中了），
+     * 蓋住之後**每一個 click 都會 timeout**，而錯誤訊息只寫
+     * `locator.click: Timeout 10000ms exceeded`——看起來像選擇器寫錯或網站很慢，
+     * 完全看不出是被一張圖蓋住。實測就是這樣連三次判斷錯方向。
+     *
+     * ⚠️ 這段原本**只有 UI 截圖那條路有**（`dismissUiScreenshotPopups`），
+     *    H5/PC 的 UAT 執行路徑完全沒有——同一支 agent、同一個瀏覽器，兩條路行為不一致。
+     *
+     * ⚠️ 彈窗是隨機出現的（別人中獎就會跳），所以**不能靠錄製時錄到的關閉動作**——
+     *    錄的時候有、重播的時候沒有，那一步就會失敗；反過來更慘。
+     *
+     * ⚠️ 關掉的數量一定要 log。默默關掉的話，萬一哪天有 TC 就是要驗「彈窗會出現」，
+     *    症狀會變成「這個 TC 永遠失敗而且看不出為什麼」。
+     */
+    const popupResult = await dismissUiScreenshotPopups(page, `UAT ${platform}`)
+    if (popupResult.dismissed > 0 || popupResult.errors.length) {
+      await log(`🧹 執行前關掉 ${popupResult.dismissed} 個彈窗${popupResult.errors.length ? `（訊息：${popupResult.errors.join('；')}）` : ''}`)
+    }
+    /**
+     * 🚨 **關一次不夠——大廳的中獎彈窗整段測試期間都會冒出來。**
+     *
+     * 只要有人中獎就播一張整頁的，實測十幾秒就來一次。蓋著的時候每個 click 都 timeout，
+     * 而且是**隨機時間點**——這種 flaky 最難查（同一份腳本這次過、下次掛，看起來像網站不穩）。
+     * 所以整段執行期間掛一個看門狗盯著關，關掉的每一張都寫進 log。
+     *
+     * ⚠️ 只關白名單內的關閉鍵（見 `uat-runner/lobby-popup.js`），不碰任何會進機台的按鈕。
+     */
+    stopPopupWatcher = startLobbyPopupWatcher(page, {
+      onClose: (cls: string) => { void log(`🧹 測試進行中關掉彈窗（.${cls}）`) },
+    })
 
     if (Array.isArray(msg.tcBindings) && msg.tcBindings.length) {
       // ── 綁了 TC：判定走共用聚合器，結果送回 server 回寫 ──────────────────
@@ -1328,6 +1683,8 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
   } finally {
     if (pinusDrainTimer) clearInterval(pinusDrainTimer)
     if (statsTimer) clearInterval(statsTimer)
+    // 看門狗要停掉——它抓著 page，不停的話瀏覽器關了還在戳一個死掉的 page
+    try { stopPopupWatcher?.() } catch { /* 停不掉也不能影響收尾 */ }
     netCapture?.detach()
     await browser?.close().catch(() => {})
     if (chromeProc) {

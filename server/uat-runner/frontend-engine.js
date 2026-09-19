@@ -32,6 +32,7 @@
  */
 import { evaluateApiAssertion } from './api-assert.js';
 import { runBackendOps } from './backend-ops.js';
+import { clickRecorded, countRecorded, describeLocateFailure, locateRecorded } from './recorded-selector.js';
 
 /** 這份引擎實作了哪些積木。⚠️ 加新積木時這裡也要加——測試會比對 */
 export const FRONTEND_ACTIONS = Object.freeze([
@@ -106,7 +107,29 @@ export async function runFrontendStep(step, ctx) {
 
   if (step.action === 'click') {
     await log(`⏳ ${idx} ${label}`);
-    await (await ctx.recordedLocator(step.selector ?? '')).click({ timeout: 10000 });
+    /**
+     * 🚨 **被蓋住的按鈕要有退路，否則只會看到一句 `Timeout 10000ms exceeded`。**
+     *
+     * 2026-09-19 實測（H5 機台內選面額）：`.btn_bet >> nth=1` 唯一命中、畫面上看得到、
+     * 也沒有彈窗，但 `locator.click()` 一直 timeout——「SELECT A DENOMINATION」那圈
+     * 發光的托盤蓋在按鈕上，攔截了 pointer events。Playwright 會一直等它變成可點，
+     * 等到逾時為止，而錯誤訊息完全看不出「是被蓋住」。
+     *
+     * Backend 早就有 `clickRecorded`：先正常點，被擋就對**同一個已解析節點**呼叫
+     * `el.click()`（事件照樣冒泡到 Vue 的 handler）。H5 這邊沒跟上，所以一樣的頁面
+     * Backend 點得動、H5 點不動。
+     *
+     * ⚠️ `allowFallback` 只開到 JS 那一層——**不給座標退路**。
+     *    座標會真的在那個位置按下去，把「不知道該點哪」變成一個看不見的誤點
+     *    （`clickRecorded` 內部已經擋掉歧義錯誤，不會進退路）。
+     */
+    const target = await ctx.recordedLocator(step.selector ?? '');
+    await clickRecorded({
+      page: ctx.page, locator: target, selector: step.selector ?? '',
+      allowFallback: true,
+      viewportOk: async () => false,   // 不允許座標退路
+      log,
+    });
     await log(`✅ ${idx} ${label}`);
     return { shots };
   }
@@ -203,8 +226,44 @@ export async function runFrontendStep(step, ctx) {
 
   if (step.action === 'assert_visible') {
     await log(`⏳ ${idx} ${label}`);
-    await (await ctx.recordedLocator(step.selector ?? '')).waitFor({ state: 'visible', timeout: 10000 });
-    await log(`✅ ${idx} ${label}`);
+    /**
+     * 🚨 **這顆不能用 `ctx.recordedLocator()`。**
+     *
+     * host 建出來的那支帶 `requireUnique: true`，命中多筆就直接拋
+     * 「定位必須唯一（命中 N 個）」。對 `click` 來說那是對的——不知道該點哪個就不該亂點；
+     * 但這顆問的是「**畫面上看得到這東西嗎**」，`.grid-item-name` 這種一頁 30 個是常態。
+     *
+     * 2026-09-19 實測（H5 大廳，真站台）：
+     * ```
+     * .grid-item-name  → 定位必須唯一（命中 30 個）  ← 東西明明就在，卻判失敗
+     * .section-title   → 定位必須唯一（命中 39 個）
+     * .jackpot-number  → 定位必須唯一（命中 21 個）
+     * ```
+     * Backend 的 `assert_count` 早就踩過同一個坑並留了註解（`block-engine.js`：
+     * 「這顆**不能**用 recordedLocator()」）——H5 這邊沒跟上，所以**任何會命中多個元素的
+     * 選擇器都永遠通不過**，而錯誤訊息講的是「定位必須唯一」，看起來像選擇器寫錯，
+     * 不像引擎限制。
+     *
+     * ⚠️ 仍然要走 Playwright locator，不能丟進 `querySelectorAll`：
+     *    錄製器產出的 `:text-is()` / `text=` / `label=` 都不是合法 CSS。
+     */
+    const counted = await countRecorded(ctx.page, step.selector ?? '');
+    if (counted.failure) {
+      throw new Error(describeLocateFailure(counted, step.selector ?? label));
+    }
+    if (counted.count < 1) {
+      throw new Error(`找不到元素：${step.selector ?? label}（命中 0 個）`);
+    }
+    // 命中多個時只要求「有一個看得見」——這顆的語意是存在且可見，不是數量檢查。
+    // 要驗數量請用 Backend 的 assert_count；H5 目前沒有對應積木。
+    // ⚠️ `locateRecorded` 在非唯一模式**已經挑好單一個**（優先挑看得見的），
+    //    所以這裡不要再 `.first()`——那會把「它挑的那個」換回第一個，白挑一次。
+    const located = await locateRecorded(ctx.page, step.selector ?? '', { requireUnique: false });
+    if (located.failure || !located.locator) {
+      throw new Error(describeLocateFailure(located, step.selector ?? label) || `找不到可用的元素：${step.selector ?? label}`);
+    }
+    await located.locator.waitFor({ state: 'visible', timeout: 10000 });
+    await log(`✅ ${idx} ${label}（命中 ${counted.count} 個）`);
     return { shots };
   }
 

@@ -2007,6 +2007,10 @@
 }
 
 .modal {
+  /* modal 內若有 sticky 的標題列／底部按鈕，底色要用這兩個變數，不要寫死顏色——
+     修仙版會覆寫它們（見 public/xianxia-complete.css 檔尾），寫死的話那邊會出現一塊補丁 */
+  --modal-sticky-bg: #1e293b;
+  --modal-sticky-line: #2d3f55;
   background: #1e293b;
   border: 1px solid #2d3f55;
   border-radius: 12px;

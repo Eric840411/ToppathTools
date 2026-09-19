@@ -71,10 +71,18 @@ const backendWorld = () => {
   };
 };
 
-/** H5／PC：假 page ＋ frontend-engine 的動作名 */
+/**
+ * H5／PC：假 page ＋ frontend-engine 的動作名。
+ *
+ * ⚠️ **檢查類用 `assert_api_called`，不用 `assert_visible`。**
+ *    `assert_visible` 現在直接對 `ctx.page` 呼叫 `countRecorded()`／`locateRecorded()`
+ *    （2026-09-19 為了處理「命中多個」改的），假 page 餵不動它——結果是
+ *    **每一條檢查都會通過**，這支測試整個變成空的（實測：該紅的 7 條全變綠）。
+ *    DOM 那一層由真瀏覽器那支 E2E 負責；這裡要驗的是**聚合規則**，
+ *    所以改用一個不碰 DOM、但真的會判成功／失敗的檢查動作。
+ */
 const frontendWorld = () => {
   const shots = [];
-  const visible = { '#ok': true, '#missing': false };
   const host = {
     idx: '[1/1]', label: 'step', log: async () => {},
     page: {
@@ -83,17 +91,19 @@ const frontendWorld = () => {
       locator: () => stubLocator(true),
     },
     browser: null,
-    recordedLocator: async selector => stubLocator(visible[selector] !== false),
-    netCapture: null, startUrl: 'https://stub.test/', viewportHeight: 844, backend: null,
+    recordedLocator: async () => stubLocator(true),
+    // 這一輪「打到過」的 API：okCheck 配得上、badCheck 配不上
+    netCapture: { records: () => [{ url: 'https://stub.test/api/ok', status: 200, ts: Date.now() + 1000 }] },
+    startUrl: 'https://stub.test/', viewportHeight: 844, backend: null,
     takeScreenshot: async name => { shots.push(name); return `${name}.png` },
   };
   const ctx = { ...host, engine: createFrontendTcEngine(host) };
   return {
     name: 'H5／PC', ctx, shots, engine: ctx.engine,
     nav: () => ({ action: 'goto', value: 'https://stub.test/' }),
-    okCheck: tcId => ({ action: 'assert_visible', tcId, selector: '#ok' }),
-    badCheck: tcId => ({ action: 'assert_visible', tcId, selector: '#missing' }),
-    badNav: () => ({ action: 'assert_visible', selector: '#missing', tcId: undefined }),
+    okCheck: tcId => ({ action: 'assert_api_called', tcId, urlPattern: '*/api/ok', expectStatus: '2xx' }),
+    badCheck: tcId => ({ action: 'assert_api_called', tcId, urlPattern: '*/api/never-called', expectStatus: '2xx' }),
+    badNav: () => ({ action: 'assert_api_called', urlPattern: '*/api/never-called', expectStatus: '2xx', tcId: undefined }),
     shot: (tcId, name) => ({ action: 'screenshot', tcId, name }),
     prepare: steps => toMultiTcSteps(steps),
   };
@@ -253,23 +263,27 @@ await test('⚠️ H5 的 failureMode 要翻成 onFail，否則 continue 會安�
 await test('⚠️ H5 的 retry 由 adapter 處理，而且真的重試到成功', async () => {
   const w = frontendWorld();
   let tries = 0;
-  w.ctx.recordedLocator = async () => ({
-    async waitFor() { tries++; if (tries < 3) throw new Error('還沒出現') },
-    async click() {}, async fill() {},
-  });
+  // ⚠️ 用 `click`——它仍然走 `ctx.recordedLocator`，所以假的定位器餵得動。
+  //    （`assert_visible` 已改成直接查 page，那條路徑歸真瀏覽器那支測。）
+  w.ctx.recordedLocator = async () => { tries++; if (tries < 3) throw new Error('還沒出現'); return stubLocator(true) };
   w.ctx.engine = createFrontendTcEngine(w.ctx);
-  const steps = toMultiTcSteps([{ action: 'assert_visible', tcId: 'blue', selector: '#slow', failureMode: 'retry', retryCount: 5 }]);
+  // ⚠️ 後面要接一顆**檢查**：`click` 是操作不是檢查，只有它的話這筆 TC 是
+  //    「零斷言 → 待確認」（那是對的聚合行為，不是 retry 失敗）。
+  const steps = toMultiTcSteps([
+    { action: 'click', tcId: 'blue', selector: '#slow', failureMode: 'retry', retryCount: 5 },
+    w.okCheck('blue'),
+  ]);
   const { results } = await runMultiTcSteps(steps, w.ctx, bindings);
   assert.equal(tries, 3, `應該試三次，實際 ${tries}`);
-  assert.equal(results[0].outcome, 'pass');
+  assert.equal(results[0].outcome, 'pass', '重試成功之後後面的步驟要照跑')
 });
 
 await test('⚠️ 瀏覽器關掉不重試（重試只會拿到同一個錯誤，還把中止拖慢）', async () => {
   const w = frontendWorld();
   let tries = 0;
-  w.ctx.recordedLocator = async () => ({ async waitFor() { tries++; throw new Error('Target page, context or browser has been closed') } });
+  w.ctx.recordedLocator = async () => { tries++; throw new Error('Target page, context or browser has been closed') };
   w.ctx.engine = createFrontendTcEngine(w.ctx);
-  const steps = toMultiTcSteps([{ action: 'assert_visible', tcId: 'blue', selector: '#x', failureMode: 'retry', retryCount: 5 }]);
+  const steps = toMultiTcSteps([{ action: 'click', tcId: 'blue', selector: '#x', failureMode: 'retry', retryCount: 5 }]);
   await runMultiTcSteps(steps, w.ctx, bindings);
   assert.equal(tries, 1, `不該重試，實際試了 ${tries} 次`);
 });

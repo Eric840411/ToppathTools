@@ -49,6 +49,10 @@ const AUDIO_REFS_DIR = join(SERVER_ROOT, 'machine-test', 'audio-refs')
 // Source files the agent package is allowed to download
 const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'agent-runner.ts':               join(SERVER_ROOT, 'agent-runner.ts'),
+  // PC 版（Cocos canvas）大廳操作：agent-runner.ts **靜態 import** 它。
+  // ⚠️ 2026-09-18 就是漏了這一個——agent 更新完直接 `ERR_MODULE_NOT_FOUND` 起不來，
+  //    而錯誤只出現在 agent 那台的 stderr，伺服器這邊完全看不到。
+  'lib/pc-cocos.ts':               join(SERVER_ROOT, 'lib', 'pc-cocos.ts'),
   'machine-test/runner.ts':        join(SERVER_ROOT, 'machine-test', 'runner.ts'),
   'machine-test/types.ts':         join(SERVER_ROOT, 'machine-test', 'types.ts'),
   'machine-test/gemini-agent.ts':  join(SERVER_ROOT, 'machine-test', 'gemini-agent.ts'),
@@ -81,6 +85,10 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   // 後台設定片段的執行器（H5/PC 腳本中間跑一段後台操作）。
   // ⚠️ 漏了的話 agent 會在 import 當下整支炸掉，錯誤只出現在 agent 的 stderr。
   'uat-runner/backend-ops.js':         join(SERVER_ROOT, 'uat-runner', 'backend-ops.js'),
+  // H5/PC 大廳彈窗的關閉規則。⚠️ `agent-runner.ts` **靜態 import** 它——
+  //    漏了的話 agent 更新完會在 import 當下 `ERR_MODULE_NOT_FOUND` 起不來，
+  //    而錯誤只出現在那台的 stderr（跟 pc-cocos.ts 同一個坑，由推導式守門抓到）。
+  'uat-runner/lobby-popup.js':         join(SERVER_ROOT, 'uat-runner', 'lobby-popup.js'),
   // H5/PC 積木的執行引擎（只有這一份，伺服器與 agent 共用）。
   'uat-runner/frontend-engine.js':     join(SERVER_ROOT, 'uat-runner', 'frontend-engine.js'),
   // H5/PC 積木接上 TC 聚合的 adapter。agent 端跑綁了 TC 的腳本時會 import 它。

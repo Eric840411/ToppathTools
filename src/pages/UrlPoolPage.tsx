@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { AccountInfo } from '../components/JiraAccountModal'
 import { type UrlPoolEntry } from '../data/urlPoolData'
 import { POOL_SOURCE, POOL_LABEL, type PoolEnv } from '../data/urlPoolEnv'
+import { ProdSimPanel } from '../components/ProdSimPanel'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -30,7 +31,14 @@ export function UrlPoolPage({ currentAccount }: Props) {
   const [editingRow, setEditingRow] = useState<string | null>(null)
   const [editUrl, setEditUrl] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
-  const [poolEnv, setPoolEnv] = useState<PoolEnv>('qat')
+  /**
+   * ⚠️ 「模擬正式」不是第三個帳號池，是一個**轉換器分頁**（貼正式 token URL → 換網域），
+   *    所以它只活在這個頁面的本地 state，`PoolEnv` 型別不動。
+   *    把它塞進 `PoolEnv` 的話，AutoSpin／機台測試的帳號池選取彈窗會跟著多出
+   *    一個永遠是空的分頁——那正是 [urlPoolEnv.ts] 開頭那段警語在講的漂移。
+   */
+  const [tab, setTab] = useState<PoolEnv | 'prodsim'>('qat')
+  const poolEnv: PoolEnv = tab === 'prodsim' ? 'qat' : tab
   const [overrides, setOverrides] = useState<Record<string, string>>({})
   /**
    * 被我們自己的工具「綁在設定裡」的帳號（key 是 username）。
@@ -185,24 +193,29 @@ export function UrlPoolPage({ currentAccount }: Props) {
         {/* ⚠️ 兩個環境是**完全獨立的帳號池**（網域不同、號段不同），不是同一批資料的篩選。
             所以做成分頁而不是篩選鈕——放在篩選鈕旁邊會讓人以為可以「同時看兩邊」。 */}
         <div style={{ display: 'flex', gap: 4, padding: 3, background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 8 }}>
-          {(['qat', 'uat'] as const).map(e => (
+          {(['qat', 'uat', 'prodsim'] as const).map(e => (
             <button
-              key={e} type="button" onClick={() => setPoolEnv(e)}
+              key={e} type="button" onClick={() => setTab(e)}
               /* ⚠️ 給穩定識別：側邊欄有「總網試煉 UAT 整合測試」，
                  只靠文字找 UAT 會抓到那一個（驗證腳本第一版就是這樣點錯的）*/
               data-testid={`url-pool-env-${e}`}
               style={{
                 padding: '5px 16px', borderRadius: 6, fontSize: 12.5, fontWeight: 700, cursor: 'pointer',
-                border: 'none', background: poolEnv === e ? '#2563eb' : 'transparent',
-                color: poolEnv === e ? '#fff' : '#94a3b8',
+                border: 'none', background: tab === e ? '#2563eb' : 'transparent',
+                color: tab === e ? '#fff' : '#94a3b8',
               }}
             >
-              {POOL_LABEL[e]}
-              <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 400, opacity: .75 }}>{POOL_SOURCE[e].length}</span>
+              {e === 'prodsim' ? '模擬正式' : POOL_LABEL[e]}
+              {/* 模擬正式沒有帳號數可以顯示（它不是帳號池），所以只有兩個環境有數字 */}
+              {e !== 'prodsim' && (
+                <span style={{ marginLeft: 6, fontSize: 11, fontWeight: 400, opacity: .75 }}>{POOL_SOURCE[e].length}</span>
+              )}
             </button>
           ))}
         </div>
 
+        {/* 統計與篩選只屬於帳號池；模擬正式分頁沒有清單可以統計／篩選 */}
+        {tab !== 'prodsim' && (<>
         <div style={{ display: 'flex', gap: 8 }}>
           <StatBadge label="總計" value={localData.length} color="#6b7280" />
           <StatBadge label="可用" value={totalAvail} color="#16a34a" />
@@ -238,7 +251,10 @@ export function UrlPoolPage({ currentAccount }: Props) {
             style={{ padding: '4px 8px', borderRadius: 6, border: '1px solid #2d3f55', fontSize: 12, width: 160 }}
           />
         </div>
+        </>)}
       </div>
+
+      {tab === 'prodsim' ? <ProdSimPanel /> : (<>
 
       {!currentAccount && (
         <div style={{ padding: '10px 14px', background: 'rgba(251,191,36,0.08)', border: '1px solid rgba(251,191,36,0.25)', borderRadius: 8, marginBottom: 12, fontSize: 13, color: '#fbbf24' }}>
@@ -406,6 +422,8 @@ export function UrlPoolPage({ currentAccount }: Props) {
           </div>
         </div>
       )}
+
+      </>)}
     </div>
   )
 }
