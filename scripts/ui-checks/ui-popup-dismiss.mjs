@@ -136,6 +136,43 @@ try {
   check('反例：大廳中獎彈窗用 ✕ 關掉', jackpot.dismissed, 1)
   check('反例：**沒有**點到 PLAY NOW（沒被帶進機台）', await page.evaluate(() => window.__ENTERED__ === true), false)
 
+  // ── ⑧ 前面的種類不可以把後面的輪數吃光 ────────────────────────────────────
+  //    🚨 2026-09-21 使用者給網址實測到的**真實現場**：大廳同時有 1 個 closeBtn
+  //    ＋ 3 個 notification-close ＋ 1 個 `Tips: Game exception...(39)` 的 Confirm 框。
+  //    上限原本是 4 輪，**四輪全花在 ✕ 上，Confirm 那一步一次都沒跑到**——
+  //    而回報寫的是「關掉 4 個彈窗」，看起來完全正常。這就是使用者說的
+  //    「不會自動點掉 Confirm」的真正原因。
+  await load(`
+    ${[0, 1, 2, 3].map(i => `<div class="layer" id="N${i}" style="inset:${i * 5}px">
+      <button class="notification-close" style="width:24px;height:24px">X</button></div>`).join('')}
+    ${TIPS_ERROR}
+    <script>
+      for (const b of document.querySelectorAll('.notification-close'))
+        b.addEventListener('click', () => b.parentElement.remove())
+      document.querySelector('#L1 button').addEventListener('click', () => document.getElementById('L1').remove())
+    </script>`)
+  {
+    const starve = await dismissUiPopups(page, 'starve', { strict: true, log: quiet })
+    check('⑧ 4 個 ✕ ＋ 1 個 Confirm：全部關掉（5 個）', starve.dismissed, 5)
+    check('⑧ **Confirm 框真的被點到了**（沒被 ✕ 吃光輪數）', await page.locator('#L1').count(), 0)
+    check('⑧ 而且錯誤內容有記下來', starve.errors.length, 1)
+  }
+
+  // ── ⑧b 真的關不完時要講出來，不能安靜收工 ──────────────────────────────────
+  await load(`
+    ${[0, 1, 2].map(i => `<div class="layer" id="N${i}" style="inset:${i * 5}px">
+      <button class="notification-close" style="width:24px;height:24px">X</button></div>`).join('')}
+    <script>
+      for (const b of document.querySelectorAll('.notification-close'))
+        b.addEventListener('click', () => b.parentElement.remove())
+    </script>`)
+  {
+    // 故意把上限壓到 2：三個彈窗關不完
+    const capped = await dismissUiPopups(page, 'cap', { strict: true, rounds: 2, log: quiet })
+    check('⑧b 上限用完仍有彈窗：要回報出來', capped.blocked.length, 1)
+    check('⑧b 畫面上確實還有沒關掉的', await page.locator('.notification-close').count() > 0, true)
+  }
+
   // ── ⑤ 看門狗在跑的時候，主流程**另外**呼叫關窗也不能點掉未知彈窗 ──────────
   //    CodeX 2026-09-21 [P1]：原本主流程在 guard 運作中另呼叫了一次非 strict 的關窗，
   //    於是 guard 刻意不點的未知彈窗被主流程點掉了，strict 等於白設。

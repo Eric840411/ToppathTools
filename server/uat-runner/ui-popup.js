@@ -103,6 +103,15 @@ export const UI_POPUP_CONFIRM_IN_PAGE = ({ isStrict, known }) => {
  * ⚠️ 實測不只一層：面額選單關掉之後有些機台還會再跳「SELECT A DENOMINATION → YES / NO」。
  *    只處理第一層的話，第二層會留在畫面上把下半部蓋住——**截圖照樣拍得到，只是拍到被蓋住的畫面**。
  *
+ * 🚨 **上限不能設得跟「畫面上有幾個彈窗」一樣小——會被前面的種類吃光。**
+ *    2026-09-21 使用者給網址實測：大廳同時有 1 個 `closeBtn` ＋ 3 個 `notification-close`
+ *    ＋ 1 個 `Tips: Game exception...(39)` 的 Confirm 框。上限原本是 4，
+ *    **四輪全部花在 ✕ 上，③ 一次都沒跑到**——於是那個 Confirm 框留在畫面上，
+ *    而回報寫的是「關掉 4 個彈窗」，看起來完全正常。這就是使用者回報的
+ *    「不會自動點掉 Confirm」的真正原因。
+ *    現在上限是安全網（預設 12），真正的結束條件是「這一輪什麼都沒關到」。
+ *    ⚠️ 撞到上限時**一定要 log**，否則又會變成無聲地少做事。
+ *
  * @param {import('playwright').Page} page
  * @param {string} label 只用在 log
  * @param {{ strict?: boolean, rounds?: number, settleMs?: number, log?: (msg: string) => void }} [opts]
@@ -123,7 +132,7 @@ export async function dismissUiPopups(page, label, opts = {}) {
   if (guard && !opts.__fromGuard) return guard.runOnce()
 
   const strict = opts.strict === true || !!opts.__fromGuard
-  const rounds = opts.rounds ?? 4
+  const rounds = opts.rounds ?? 12
   const settleMs = opts.settleMs ?? 800
   const log = opts.log ?? (msg => console.log(msg))
 
@@ -131,6 +140,8 @@ export async function dismissUiPopups(page, label, opts = {}) {
   const errors = []
   /** 看到了但**沒有點**的彈窗（strict 模式下的未知彈窗）。要回報出去，不能默默略過 */
   const blocked = []
+  /** 用光輪數時還在關——代表沒關完，一定要講出來 */
+  let hitCap = false
 
   for (let round = 1; round <= rounds; round++) {
     // ── ① 面額選單 ──────────────────────────────────────────────────────────
@@ -142,6 +153,7 @@ export async function dismissUiPopups(page, label, opts = {}) {
         await page.waitForTimeout(settleMs)
         dismissed++
         log(`[UI-SS] ${label} — 關掉面額選單（第 ${round} 輪）`)
+        if (round === rounds) hitCap = true
         continue
       }
     }
@@ -155,6 +167,7 @@ export async function dismissUiPopups(page, label, opts = {}) {
       await page.waitForTimeout(settleMs)
       dismissed++
       log(`[UI-SS] ${label} — 關掉彈窗（✕ .${closeResult.closed}，第 ${round} 輪）`)
+      if (round === rounds) hitCap = true
       continue
     }
 
@@ -190,6 +203,14 @@ export async function dismissUiPopups(page, label, opts = {}) {
     } else {
       log(`[UI-SS] ${label} — 關掉彈窗（按 ${btn}，第 ${round} 輪）`)
     }
+    if (round === rounds) hitCap = true
+  }
+
+  // ⚠️ 撞到上限代表「還在關但被喊停」——畫面上很可能還有東西蓋著。
+  //    不講的話，回報看起來就只是「關掉了 N 個」，跟正常收工長得一模一樣。
+  if (hitCap) {
+    blocked.push(`關到第 ${rounds} 輪仍有彈窗（上限用完，畫面可能還被蓋著）`)
+    log(`[UI-SS] ${label} — ⚠️ 關到上限 ${rounds} 輪還沒關完，畫面可能還有彈窗`)
   }
 
   return { dismissed, errors, blocked }
