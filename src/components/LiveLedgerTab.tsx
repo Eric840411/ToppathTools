@@ -392,7 +392,21 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
   // 機台篩選只影響逐筆明細——上面的獎池與機台總覽不跟著變（那兩塊是全域的）
   useEffect(() => { loadRows(true) /* eslint-disable-next-line */ }, [machineFilter])
   useEffect(() => {
-    const t = setInterval(() => { loadOverview(); loadRows(true); loadNotify() }, 5000)
+    /**
+     * 🚨 **獎池那一塊原本不在輪詢裡**（2026-09-21 使用者回報：「停留在對帳表上，
+     *    LuckyLink 的獎池不會跟著刷新，必須重新整理頁面」）。
+     *    它只在掛載與切換 env／時間窗時載入一次，所以池值、水位、逐筆明細
+     *    全部停在進頁面那一刻——而畫面上**完全看不出資料是舊的**。
+     *
+     * ⚠️ 不跟其他幾支一樣每 5 秒打：`/pools` 一次要算水位、不符明細、
+     *    跨源比對、上下分、機台總覽（SLS 那段自己有 60 秒快取），
+     *    比 overview 重得多。**每兩拍打一次（10 秒）**，足夠即時又不會加倍負載。
+     */
+    let tick = 0
+    const t = setInterval(() => {
+      loadOverview(); loadRows(true); loadNotify()
+      if (++tick % 2 === 0) loadPools()
+    }, 5000)
     return () => clearInterval(t)
     // eslint-disable-next-line
   }, [env, minutes, filter, rows, showAll])
@@ -899,7 +913,7 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
                 <b style={{ color: C.ink, fontSize: 12.5 }}>{poolDetailLevel}</b>
                 <span style={{ color: C.ink3, fontSize: 11 }}>
                   逐筆明細 · {fmtWindow(minutes)}
-                  {d && <> · 共 {d.total.toLocaleString()} 筆{d.total > d.rows.length && `（只列最近 ${d.rows.length} 筆）`}</>}
+                  {d && <> · 共 {d.total.toLocaleString()} 筆{d.total > d.rows.length && `（只列最近 ${d.rows.length} 筆）`} · 新的在上</>}
                 </span>
                 {/* ⚠️ 這個切換會改變分母，一定要看得到現在是哪一種 */}
                 <button type="button" onClick={() => setPoolDetailMineOnly(v => !v)}
@@ -975,11 +989,15 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
               <div style={{ maxHeight: 300, overflow: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5, minWidth: 640 }}>
                   <thead style={{ position: 'sticky', top: 0, background: C.panel2 }}><tr>
-                    {['時間', '局號', '機台', '投入額變化', '本筆增加', '累積增加', '池值', '驗證'].map(t => (
+                    {['時間 ↓', '局號', '機台', '投入額變化', '本筆增加', '累積增加', '池值', '驗證'].map(t => (
                       <th key={t} style={th}>{t}</th>))}
                   </tr></thead>
                   <tbody>
-                    {(d?.rows ?? []).map((r, i) => (
+                    {/* ⚠️ **最新的排最上面**（使用者要求）。`rows` 從後端來是由舊到新
+                        （`cumulative` 要照那個順序才算得出來），這裡只反轉顯示——
+                        每一列的「累積增加」仍然是**從這個窗的第一筆算到它為止**的值，
+                        所以往下看會遞減，那是對的，不是算錯。 */}
+                    {(d?.rows ?? []).slice().reverse().map((r, i) => (
                       <tr key={`${r.ts}-${r.machineName}-${i}`}>
                         <td style={{ ...td, color: C.ink3 }}>{fmtClock(r.ts)}</td>
                         {/* ⚠️ 局號是**配上去的**，不是池變動報表自己帶的。

@@ -624,6 +624,8 @@ export interface PoolDetail {
   joinAmbiguous: number
   /** 合理性檢查窗（ms）。⚠️ **這不是配對鍵**——鍵是投入額計數器，見 buildRoundJoin */
   joinSanityMs: number
+  /** 每一段的配對診斷。配不出局號時，原因在這裡（遠端環境也查得到） */
+  segments: SegmentDiag[]
 }
 
 /**
@@ -662,6 +664,15 @@ export interface PoolDetail {
 const SEGMENT_MARGIN_MS = 120_000
 /** 一個 offset 至少要被幾筆支持才採用，避免拿雜訊當段落 */
 
+/** 一段的配對診斷（不參與判定，只為了查得出「為什麼沒有局號」） */
+export interface SegmentDiag {
+  gmid: string; from: number; to: number
+  rounds: number; poolRows: number
+  offset: number | null; hits: number
+  /** ok / no_overlap / ambiguous_offset:a/b / low_hits:h/n / unresolved */
+  reason: string
+}
+
 interface JoinedRound { orderId: string; spinIndex: number | null; betTimePrecise: number; totalBet: number }
 
 /**
@@ -673,12 +684,16 @@ interface MeterSegment {
   from: number; to: number        // betTimePrecise 範圍
   offset: number | null           // newcoinin − total_bet；推不出來就 null（整段不配）
   byTotalBet: Map<number, JoinedRound[]>
+  /** 這一段涵蓋到幾筆池變動、offset 對上幾筆、推不出來的原因——診斷用，不參與判定 */
+  poolCount: number
+  hits: number
+  reason: string
 }
 
 function buildRoundJoin(env: ReconEnv, poolRows: Record<string, number | string | null>[], sinceMs: number) {
   const empty = () => ({ orderId: null, spinIndex: null, delta: null, note: 'no_round' as const })
   const gmids = [...new Set(poolRows.map(r => String(r.machineName)).filter(Boolean))]
-  if (!gmids.length) return empty
+  if (!gmids.length) return { lookup: empty, segments: [] as SegmentDiag[] }
 
   const raw = db.prepare(`
     SELECT orderId, gmid, spinIndex, betTimePrecise, raw FROM recon_backend_record
@@ -702,7 +717,7 @@ function buildRoundJoin(env: ReconEnv, poolRows: Record<string, number | string 
     // total_bet 沒有往上走 ＝ 換了一段（重新進機台後從頭累計）
     if (!cur || totalBet <= cur.rounds[cur.rounds.length - 1].totalBet) {
       list.push({ rounds: [round], from: round.betTimePrecise, to: round.betTimePrecise,
-        offset: null, byTotalBet: new Map() })
+        offset: null, byTotalBet: new Map(), poolCount: 0, hits: 0, reason: '' })
     } else {
       cur.rounds.push(round); cur.to = round.betTimePrecise
     }
@@ -725,19 +740,85 @@ function buildRoundJoin(env: ReconEnv, poolRows: Record<string, number | string 
       .map(r => ({ ts: Number(r.ts), newcoinin: Number(r.newcoinin ?? 0) }))
       .sort((a, b) => a.ts - b.ts)
     for (const seg of segs) {
-      const mine = rows.filter(r => r.ts >= seg.from - SEGMENT_MARGIN_MS && r.ts <= seg.to + SEGMENT_MARGIN_MS)
-      if (mine.length === seg.rounds.length && mine.length > 0) {
-        const offs = new Set(mine.map((r, i) => r.newcoinin - seg.rounds[i].totalBet))
-        if (offs.size === 1) seg.offset = [...offs][0]
-      }
       for (const r of seg.rounds) {
         const l = seg.byTotalBet.get(r.totalBet); if (l) l.push(r); else seg.byTotalBet.set(r.totalBet, [r])
       }
+      const mine = rows.filter(r => r.ts >= seg.from - SEGMENT_MARGIN_MS && r.ts <= seg.to + SEGMENT_MARGIN_MS)
+      seg.poolCount = mine.length
+      if (!mine.length || !seg.rounds.length) { seg.reason = 'no_overlap'; continue }
+
+      /**
+       * 🚨 **第一版要求「池列數 == 局數」才推 offset，那太脆了。**（2026-09-21 實測）
+       *    後台紀錄是每 15 秒增量拉的，**跑測當下一定會有幾局還沒拉到**——
+       *    只要差一筆，整段就推不出 offset，畫面上變成**一筆局號都沒有**
+       *    （使用者回報：16 筆配到 0 筆，而同一台的回填率顯示 90%）。
+       *    「少幾筆」跟「對不起來」被混成同一種結果，而它們完全不同。
+       *
+       * ✅ 改用**兩端錨點**：段內第一筆與最後一筆各推一次 offset。
+       *      candMin = 最小 newcoinin − 最小 total_bet
+       *      candMax = 最大 newcoinin − 最大 total_bet
+       *    兩端一致 → 兩邊都對得齊，採用。
+       *    不一致 → 有一端缺資料（多半是尾端的局還沒拉到），改用「命中比較多」的那個；
+       *    還是分不出來就留 null，**不猜**。
+       *
+       * ⚠️ 為什麼不能只用一端：`total_bet` 是等差的，offset 偏一個注額之後
+       *    **每一筆照樣查得到值**，只有在序列的端點才露餡。只看一端就等於沒驗。
+       */
+      /**
+       * ⚠️ **只看頭尾兩個錨點不夠。**（2026-09-21 第二次修）
+       *    池記的是**整台機台**的投注，後台紀錄只有我們這個帳號的局——
+       *    所以段內常常是「池 18 筆、局 10 筆」。這時頭尾錨點兩邊都落空
+       *    （實測那幾段 hits 都是 0），只好整段留白，而那些段其實是配得出來的。
+       *
+       * ✅ 改成**掃候選再取最高命中**：候選 = 頭尾各取幾筆池列與局兩兩相減。
+       *    真正的 offset 會讓「我們的局」全部對上，錯的 offset 只會零星命中——
+       *    因為混進來的別人那幾筆會把等差數列打亂，這反而讓鑑別力變強。
+       *    ⚠️ 仍然要求**最高的那個要比第二高的多**：並列就代表分不出來，不猜。
+       */
+      const hits = (off: number) => mine.filter(r => seg.byTotalBet.has(r.newcoinin - off)).length
+      const SAMPLE = 6
+      const coins = [...mine.slice(0, SAMPLE), ...mine.slice(-SAMPLE)].map(r => r.newcoinin)
+      const bets = [...seg.rounds.slice(0, SAMPLE), ...seg.rounds.slice(-SAMPLE)].map(r => r.totalBet)
+      const cands = [...new Set(coins.flatMap(c => bets.map(b => c - b)))]
+
+      let best = 0, bestOff: number | null = null, second = 0
+      for (const off of cands) {
+        const h = hits(off)
+        if (h > best) { second = best; best = h; bestOff = off }
+        else if (h > second) second = h
+      }
+      if (bestOff === null || best === second) {
+        seg.reason = best === second && best > 0 ? `ambiguous_offset:${best}==${second}` : 'no_candidate'
+        continue
+      }
+      // 至少要有一定比例對得上，否則這個 offset 根本不成立。
+      // ⚠️ 分母用「池列數與局數的較小者」——池多出來的那幾筆本來就不是我們的局，
+      //    拿池的總數當分母會把「其實全中」誤判成「命中太少」。
+      const need = Math.max(3, Math.ceil(Math.min(mine.length, seg.rounds.length) * 0.5))
+      if (best >= need) { seg.offset = bestOff; seg.hits = best }
+      else seg.reason = `low_hits:${best}/${Math.min(mine.length, seg.rounds.length)}`
     }
   }
 
   // ── ③ 查表：鍵是計數器，時間只用來挑「這一筆屬於哪一段」 ──────────────
-  return (gmid: string, ts: number, newcoinin: number) => {
+  /**
+   * 🚨 **每一段都要交代「offset 推出來了沒、為什麼」。**
+   *    沒有這個的話，畫面上「一筆局號都沒有」有三種完全不同的原因
+   *    （後台還沒拉到／兩端對不齊／根本沒有這台的局）長得一模一樣，
+   *    而且**遠端環境查不了**——使用者回報時只能靠猜。
+   */
+  const segments: SegmentDiag[] = []
+  for (const [gmid, segs] of segsByGmid) {
+    for (const seg of segs) {
+      segments.push({
+        gmid, from: seg.from, to: seg.to, rounds: seg.rounds.length,
+        poolRows: seg.poolCount, offset: seg.offset, hits: seg.hits,
+        reason: seg.offset === null ? (seg.reason || 'unresolved') : 'ok',
+      })
+    }
+  }
+
+  const lookup = (gmid: string, ts: number, newcoinin: number) => {
     const segs = segsByGmid.get(gmid)
     if (!segs?.length) return empty()
     const inRange = segs.filter(s => ts >= s.from - SEGMENT_MARGIN_MS && ts <= s.to + SEGMENT_MARGIN_MS)
@@ -755,6 +836,8 @@ function buildRoundJoin(env: ReconEnv, poolRows: Record<string, number | string 
     return { orderId: null, spinIndex: null, delta: null,
       note: (hits.length ? 'ambiguous' : 'no_round') as 'ambiguous' | 'no_round' }
   }
+
+  return { lookup, segments }
 }
 
 export function poolChangeDetail(
@@ -774,7 +857,7 @@ export function poolChangeDetail(
     ORDER BY p.ts ASC, p.id ASC
   `).all(env, levelName, sinceMs, ...machines) as Record<string, number | string | null>[]
 
-  const join = buildRoundJoin(env, all, sinceMs)
+  const { lookup: join, segments } = buildRoundJoin(env, all, sinceMs)
 
   let running = 0
   const rows: PoolChangeRow[] = all.map(r => {
@@ -813,6 +896,7 @@ export function poolChangeDetail(
     joined: rows.filter(r => r.joinNote === 'matched').length,
     joinAmbiguous: rows.filter(r => r.joinNote === 'ambiguous').length,
     joinSanityMs: SEGMENT_MARGIN_MS,
+    segments,
   }
 }
 
