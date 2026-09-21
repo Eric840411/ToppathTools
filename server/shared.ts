@@ -1203,6 +1203,9 @@ for (const [col, decl] of [
   //    歸屬要在寫入當下就決定，事後推不回來。
   ['userLabel', `TEXT NOT NULL DEFAULT ''`],
   ['bindMethod', `TEXT NOT NULL DEFAULT ''`],
+  // 注額怎麼來的：moneylog_adjacent（逐局實算）／history_uniform（同質推定）／''（沒有）
+  // ⚠️ 兩者可信度不同，報表一定要分開統計，不能合併成一個「有注額的比率」。
+  ['betSource', `TEXT NOT NULL DEFAULT ''`],
   ['lateArrival', 'INTEGER NOT NULL DEFAULT 0'],
 ] as const) {
   try { db.exec(`ALTER TABLE recon_spin ADD COLUMN ${col} ${decl}`) } catch { /* 已存在 */ }

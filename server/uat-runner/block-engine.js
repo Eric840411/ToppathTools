@@ -25,6 +25,8 @@
  *
  * params 的 type：text | number | textarea | select | boolean
  */
+import { evaluateExpr } from './expr.js';
+import { guardDangerousStep } from './dangerous-actions.js';
 import { evaluateApiAssertion } from './api-assert.js';
 import { locateRecorded, countRecorded, describeLocateFailure, ambiguityMessage, setCheckedRecorded } from './recorded-selector.js';
 
@@ -47,6 +49,26 @@ export const BLOCK_DEFS = {
     label: '等待更新', category: 'nav', defaultOnFail: 'stop',
     description: '共用等待只執行一次；等待結束後仍需加入檢查條件',
     params: [{ key: 'waitMs', label: '等待毫秒', type: 'number', default: 1000, required: true }],
+  },
+  /**
+   * 「等到某件事成立」。
+   *
+   * 🚨 **固定秒數是 flaky 的最大來源。** 填太短偶爾紅（而且紅在下一顆積木，看起來像選擇器壞了）、
+   *    填太長每支腳本白等十幾秒。這顆會每 300ms 看一次，條件一成立就往下走。
+   * ⚠️ **等不到要明確失敗**，不能等完就當作過了——那等於把「頁面沒反應」偽裝成「跑完了」。
+   */
+  wait_for: {
+    label: '等到…出現／消失', category: 'nav', defaultOnFail: 'stop',
+    description: '等某個元素出現或消失、某段文字出現、或表格終於有資料；條件成立就立刻往下走',
+    params: [
+      { key: 'until', label: '等什麼', type: 'select', options: ['visible', 'hidden', 'text', 'rows'], default: 'visible',
+        help: 'visible＝元素出現｜hidden＝元素消失（例如 loading 轉圈結束）｜text＝畫面出現這段文字｜rows＝表格至少有幾列' },
+      { key: 'selector', label: '元素 selector', type: 'text', placeholder: '.el-table__body tr', help: 'until=text 時可留空（找整頁）' },
+      { key: 'text', label: '要出現的文字', type: 'text', placeholder: 'Success' },
+      { key: 'minRows', label: '至少幾列（until=rows）', type: 'number', default: 1 },
+      { key: 'timeoutMs', label: '最多等幾毫秒', type: 'number', default: 15000 },
+      { key: 'onFail', label: '等不到時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
+    ],
   },
   set_checked: {
     label: '設定勾選狀態', category: 'nav', defaultOnFail: 'stop',
@@ -77,6 +99,12 @@ export const BLOCK_DEFS = {
       // 錄製時記下是用哪一階策略抓到的。退到 cssPath 的最脆，編輯器會標黃底提醒
       { key: 'selectorStrategy', label: '選擇器來源', type: 'text', help: 'dataAttr / label / text / tableCell / cssPath；錄製時自動填' },
       { key: 'waitMs', label: '點完等待（毫秒）', type: 'number', default: 800 },
+      /**
+       * 🚨 後台的破壞性操作（補發／Hand Pay／刪除／停用機台）沒有明確放行就跑不下去。
+       *    放行**只對這一顆積木有效**——一次放行整輪的話，之後新加的危險步驟會自動被放行。
+       */
+      { key: 'allowDangerous', label: '允許這個危險操作', type: 'select', options: ['no', 'yes'], default: 'no',
+        help: '補發／Hand Pay／刪除／停用機台這類按鈕，沒設成 yes 會被擋下來' },
     ],
   },
   type_text: {
@@ -219,6 +247,51 @@ export const BLOCK_DEFS = {
       { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
     ],
   },
+  /**
+   * 捲動。後台的長表格與延後載入的清單需要它——**錄製器以前不錄捲動**，
+   * 所以「錄的時候捲過才點到」這件事完全不會出現在腳本裡，重播就點不到。
+   */
+  scroll: {
+    label: '捲動畫面', category: 'nav', defaultOnFail: 'stop',
+    description: '捲到最上／最下／指定位置，或把某個元素捲進畫面',
+    params: [
+      { key: 'value', label: '捲到哪', type: 'text', placeholder: 'top／bottom／800', help: '填 top、bottom 或像素數字；只填 selector 就是把那個元素捲進畫面' },
+      { key: 'selector', label: '要捲動的容器／元素', type: 'text', placeholder: '.el-table__body-wrapper' },
+    ],
+  },
+  right_click: {
+    label: '按右鍵', category: 'nav', defaultOnFail: 'stop',
+    description: '在元素上按右鍵（叫出右鍵選單）',
+    params: [
+      { key: 'selector', label: '選擇器', type: 'text', required: true },
+      { key: 'waitMs', label: '點完等待（毫秒）', type: 'number', default: 800 },
+    ],
+  },
+  hover: {
+    label: '移到元素上', category: 'nav', defaultOnFail: 'stop',
+    description: '滑鼠移過去（叫出 tooltip 或下拉選單）。⚠️ 錄製錄不到 hover，這顆要自己加',
+    params: [
+      { key: 'selector', label: '選擇器', type: 'text', required: true },
+      { key: 'waitMs', label: '移過去之後等待（毫秒）', type: 'number', default: 600 },
+    ],
+  },
+  /**
+   * 「這一下會開新分頁」。
+   *
+   * ⚠️ **刻意不做「切換到新分頁繼續操作」**：host 的點擊／輸入那幾支是綁在**原本那個分頁**上的，
+   *    只換 `ctx.page` 的話，有些積木會在新分頁做、有些還在舊分頁做——
+   *    而且兩邊都不會報錯。那種「一半一半」比不支援更難查。
+   *    所以這顆只驗「有開起來、網址對不對」，驗完就把它關掉。
+   */
+  expect_new_tab: {
+    label: '應該要開新分頁', category: 'assert', defaultOnFail: 'stop',
+    description: '確認剛剛那一下真的開了新分頁（可指定網址要包含什麼），驗完關掉它',
+    params: [
+      { key: 'urlContains', label: '網址要包含', type: 'text', placeholder: '/report' },
+      { key: 'timeoutMs', label: '最多等幾毫秒', type: 'number', default: 8000 },
+      { key: 'onFail', label: '沒開新分頁時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
+    ],
+  },
   submit_search: {
     label: '送出查詢', category: 'nav', defaultOnFail: 'stop',
     description: '按報表頁的 View／Search 送出查詢。很多頁面要查過之後才會出現資料與匯出按鈕',
@@ -235,6 +308,29 @@ export const BLOCK_DEFS = {
       { key: 'onNoDownload', label: '等不到下載時', type: 'select', options: ['warn', 'continue', 'stop', 'manual'], default: 'warn',
         help: '原本的驗證器把「等不到下載」記成成功。它不是失敗條件，但確實是可觀測的異常——預設用 warn 記下來，判定不受影響' },
       { key: 'timeoutMs', label: '等下載幾毫秒', type: 'number', default: 10000 },
+    ],
+  },
+  /**
+   * 匯出檔**讀成變數**，而不是當場比完就丟。
+   *
+   * 🚨 為什麼需要：`assert_export_matches_screen` 只能「一個鍵欄對一個值欄、而且對的是
+   *    同一頁畫面」。但原本 Daily Dashboard 那支驗證器做的是**三方比對**——
+   *    Dashboard 的色塊 ↔ 另一頁 EGM DayCount 的表格 ↔ 匯出的 xlsx，六個欄位一起對。
+   *    那種比對在積木裡拼不出來，因為匯出的數字沒有地方可以放。
+   *    讀成變數之後，就能用既有的「兩值必須相等」任意組合（含跨頁面、含容差）。
+   */
+  read_export: {
+    label: '讀取匯出檔', category: 'read', outputKind: 'tableRows', defaultOnFail: 'stop',
+    description: '按匯出鈕、下載並解析檔案存成變數；指定「用哪一欄挑列」時存成單列（可直接寫 變數.欄位名）',
+    params: [
+      { key: 'as', label: '存成變數名', type: 'text', required: true, placeholder: 'exported' },
+      { key: 'keyColumn', label: '用哪一欄挑列（可留空）', type: 'text', placeholder: 'Date', help: '留空＝整份存成表格（之後用 變數.0.欄位名 取）' },
+      { key: 'keyValue', label: '那一欄要等於什麼', type: 'text', placeholder: '2026-09-20', help: '允許「開頭相符」——日期欄常常帶時間' },
+      { key: 'timeoutMs', label: '等下載幾毫秒', type: 'number', default: 10000 },
+      // ⚠️ 這顆是 read：沒拿到檔案就是**沒有資料**，後面的比對全部會引用到不存在的變數。
+      //    預設 stop 才講得清楚是哪一步斷的；要放寬請自己改成 warn。
+      { key: 'onNoDownload', label: '等不到下載時', type: 'select', options: ['stop', 'warn', 'continue', 'manual'], default: 'stop' },
+      { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
     ],
   },
   assert_dialog_fields: {
@@ -316,6 +412,13 @@ export const BLOCK_DEFS = {
       { key: 'selector', label: '表格 selector', type: 'text', placeholder: 'table', default: 'table' },
       { key: 'as', label: '存成變數名', type: 'text', required: true },
       { key: 'maxRows', label: '最多讀幾列', type: 'number', default: 200 },
+      /**
+       * 🚨 **兩張報表對同一列，不能靠列序。** 兩邊的排序、日期範圍、分頁都可能不一樣，
+       *    用 `a.0` 對 `b.0` 等於賭它們剛好同一列——比錯了通常會紅，但**也可能剛好都一樣**
+       *    而你以為驗過了。填了挑列欄位就會用鍵去找那一列，存成單列（可寫 `變數.欄位名`）。
+       */
+      { key: 'keyColumn', label: '用哪一欄挑列（可留空）', type: 'text', placeholder: 'Date', help: '留空＝整張表存成列陣列（用 變數.0.欄位名 取）' },
+      { key: 'keyValue', label: '那一欄要等於什麼', type: 'text', placeholder: '2026-09-18', help: '允許「開頭相符」——日期欄常常帶時間' },
     ],
   },
   assert_filled: {
@@ -336,6 +439,60 @@ export const BLOCK_DEFS = {
       { key: 'tolerancePct', label: '容差（%）', type: 'number', default: 1, help: '相對誤差；精確相等時兩種容差都設為 0' },
       { key: 'absoluteTolerance', label: '絕對容差', type: 'number', default: 1, help: '舊腳本預設 1；精確相等填 0' },
       { key: 'onFail', label: '失敗時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
+    ],
+  },
+  /**
+   * 算式檢查。「兩值必須相等」只驗得了 A = B，但金流 TC 幾乎都是
+   * 「扣款後 = 扣款前 − 下注」「各列加總 = 總計」這種形狀。
+   * ⚠️ 只支援數字、變數、`+ - * /` 與括號——認不得的東西會明確報錯，不會偷偷跑別的。
+   */
+  assert_expr: {
+    label: '算式必須相等', category: 'compare', defaultOnFail: 'stop',
+    description: '例：左邊填 before.Balance - bet.Amount，右邊填 after.Balance',
+    params: [
+      { key: 'left', label: '左邊算式', type: 'text', required: true, placeholder: 'before.Balance - bet.Amount' },
+      { key: 'right', label: '右邊算式', type: 'text', required: true, placeholder: 'after.Balance' },
+      { key: 'tolerancePct', label: '容差（%）', type: 'number', default: 0 },
+      { key: 'absoluteTolerance', label: '絕對容差', type: 'number', default: 0 },
+      { key: 'onFail', label: '對不上時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
+    ],
+  },
+  /**
+   * 重複接下來幾顆積木。
+   *
+   * 🚨 **實作方式是「執行前展開」**，不是真的巢狀迴圈：`重複 3 次、接下來 2 顆`
+   *    會在跑之前把那 2 顆複製成 6 顆。這樣做的好處是**日誌與判定完全不用改**——
+   *    每一輪都是獨立的步驟，哪一輪失敗、失敗在第幾顆，看日誌就知道。
+   *    真的巢狀迴圈會讓「第幾步」這件事變得沒有意義，而那是目前整套判定的基礎。
+   * ⚠️ 展開會**放大步數**（上限 300 步），所以次數與跨度都有上限。
+   */
+  repeat: {
+    label: '重複接下來幾步', category: 'nav', defaultOnFail: 'stop',
+    description: '把接下來 N 顆積木重複做 M 次（執行前展開，日誌上會看到每一輪）',
+    params: [
+      { key: 'count', label: '重複幾次', type: 'number', default: 2, required: true },
+      { key: 'span', label: '接下來幾顆算一輪', type: 'number', default: 1, required: true },
+    ],
+  },
+  /**
+   * 逐列檢查。「每一列的投注額都要大於 0」「每一列的日期都要在區間內」這種，
+   * 用「兩值必須相等」得一列寫一顆，列數還會變。
+   */
+  assert_each_row: {
+    label: '每一列都要符合', category: 'assert', inputKind: 'tableRows', defaultOnFail: 'stop',
+    description: '對「讀取表格」存下來的每一列做同一個檢查（算式或非空）',
+    params: [
+      { key: 'from', label: '來源變數（表格）', type: 'text', required: true, placeholder: 'rows' },
+      { key: 'mode', label: '檢查什麼', type: 'select', options: ['notEmpty', 'expr'], default: 'notEmpty',
+        help: 'notEmpty＝這一欄每列都要有值｜expr＝每一列都要滿足算式（用 row.欄位名）' },
+      { key: 'column', label: '欄位名稱（notEmpty 用）', type: 'text', placeholder: 'Date' },
+      { key: 'left', label: '左邊算式（expr 用）', type: 'text', placeholder: 'row.TotalIn - row.TotalOut' },
+      { key: 'right', label: '右邊算式（expr 用）', type: 'text', placeholder: 'row.Net' },
+      { key: 'tolerancePct', label: '容差（%）', type: 'number', default: 0 },
+      { key: 'absoluteTolerance', label: '絕對容差', type: 'number', default: 0 },
+      { key: 'onEmpty', label: '一列都沒有時', type: 'select', options: ['warn', 'stop', 'continue', 'manual'], default: 'warn',
+        help: '沒有資料就沒得驗——預設記成警告，不要當成通過' },
+      { key: 'onFail', label: '有列不符時', type: 'select', options: ['stop', 'continue', 'warn', 'manual'], default: 'stop' },
     ],
   },
   assert_sorted: {
@@ -545,6 +702,60 @@ export function wildcardToRegExp(pattern) {
   return new RegExp(`^${escaped}$`);
 }
 
+/**
+ * 欄名／標籤常常有空格（`Bet User`、`Total bet player`），而「兩值必須相等」的引用語法
+ * 只吃得下識別字——寫 `dash.Total bet player` 會被當成**字面字串**，訊息變成「取不到值」，
+ * 看起來像資料沒讀到。所以每個鍵**額外**存一份去掉空格與符號的別名。
+ *
+ * ⚠️ 只在別名跟原名不同、而且不會蓋掉既有鍵時才加——硬蓋的話兩個不同欄位會變成同一個值，
+ *    而且完全看不出來。
+ */
+function aliasKey(name) { return String(name ?? '').replace(/[^\w$]/g, ''); }
+function withAliases(obj) {
+  if (!obj || typeof obj !== 'object') return obj;
+  const out = { ...obj };
+  for (const [k, v] of Object.entries(obj)) {
+    const a = aliasKey(k);
+    if (a && a !== k && !(a in out)) out[a] = v;
+  }
+  return out;
+}
+
+/**
+ * 執行前把「重複接下來幾步」展開成一般步驟。
+ *
+ * 🚨 為什麼用展開而不是真的迴圈：整套判定（第幾步、哪一步失敗、步驟 trace、
+ *    截圖歸屬）都建立在「步驟是一條直線」上。做成巢狀迴圈的話，
+ *    「第 5 步失敗」會變成一句沒有意義的話。展開之後每一輪都是獨立步驟，
+ *    日誌直接看得出是第幾輪掛的。
+ * ⚠️ 展開會放大步數，所以次數（≤20）、跨度（≤20）、展開後總步數（≤300）都有上限；
+ *    超過就**明確報錯**，不要偷偷截斷——截斷等於少跑了而沒有人知道。
+ */
+export function expandRepeats(steps) {
+  const out = [];
+  const list = steps ?? [];
+  for (let i = 0; i < list.length; i++) {
+    const step = list[i];
+    if (!step || step.action !== 'repeat') { out.push(step); continue }
+    if (step.disabled === true) continue;
+    const count = Math.trunc(Number(step.count));
+    const span = Math.trunc(Number(step.span));
+    if (!Number.isFinite(count) || count < 1 || count > 20) throw new Error(`第 ${i + 1} 步「重複」：次數要介於 1～20`);
+    if (!Number.isFinite(span) || span < 1 || span > 20) throw new Error(`第 ${i + 1} 步「重複」：跨度要介於 1～20`);
+    const body = list.slice(i + 1, i + 1 + span);
+    if (body.length < span) throw new Error(`第 ${i + 1} 步「重複」：後面只剩 ${body.length} 顆積木，不足 ${span} 顆`);
+    for (let round = 1; round <= count; round++) {
+      for (const inner of body) {
+        // 名稱加上輪次，日誌才看得出是第幾輪
+        out.push({ ...inner, name: `${inner.name || inner.action}（第 ${round}/${count} 輪）` });
+      }
+    }
+    i += span;
+  }
+  if (out.length > 300) throw new Error(`「重複」展開後有 ${out.length} 步，超過 300 步上限——請減少次數或跨度`);
+  return out;
+}
+
 export async function runSteps(steps, ctx, options = {}) {
   const notes = [];
   const diagnostics = [];
@@ -644,7 +855,16 @@ export async function runSteps(steps, ctx, options = {}) {
     return false;
   };
 
-  for (const [i, step] of (steps ?? []).entries()) {
+  let plannedSteps;
+  try {
+    plannedSteps = expandRepeats(steps);
+  } catch (error) {
+    // 展開失敗＝腳本寫錯，要當場講清楚，不能跑一半
+    criticalFails.push(error.message);
+    notes.push(`❌ ${error.message}`);
+    return finish();
+  }
+  for (const [i, step] of plannedSteps.entries()) {
     if (step.disabled === true) continue;
     const def = BLOCK_DEFS[step.action];
     const tag = `[${i + 1}/${steps.length}] ${def?.label ?? step.action}`;
@@ -676,6 +896,47 @@ export async function runSteps(steps, ctx, options = {}) {
         if (!Number.isFinite(ms) || ms < 0 || ms > 600000) throw new Error('等待時間必須介於 0～600000 毫秒');
         await ctx.page.waitForTimeout(ms);
         notes.push(`${tag}：${ms} ms`);
+      } else if (step.action === 'wait_for') {
+        const until = String(step.until || 'visible');
+        const sel = String(step.selector ?? '').trim();
+        const wantText = String(step.text ?? '').trim();
+        const minRows = Number(step.minRows) || 1;
+        const timeoutMs = Math.min(Math.max(Number(step.timeoutMs) || 15000, 500), 600000);
+        if ((until === 'visible' || until === 'hidden' || until === 'rows') && !sel) {
+          if (fail(step, `${tag}：這個等待條件需要填 selector`) === 'stop') break; continue;
+        }
+        if (until === 'text' && !wantText) {
+          if (fail(step, `${tag}：等文字出現就要填那段文字`) === 'stop') break; continue;
+        }
+        const started = Date.now();
+        let met = false;
+        let seen = '';
+        while (Date.now() - started < timeoutMs) {
+          const state = await ctx.page.evaluate(({ until, sel, wantText, minRows }) => {
+            const vis = (el) => !!el && !!(el.offsetParent || el.getClientRects().length);
+            try {
+              if (until === 'text') return { ok: (document.body?.innerText || '').includes(wantText) };
+              const els = sel ? [...document.querySelectorAll(sel)] : [];
+              if (until === 'visible') return { ok: els.some(vis), count: els.length };
+              if (until === 'hidden') return { ok: !els.some(vis), count: els.length };
+              return { ok: els.filter(vis).length >= minRows, count: els.length };
+            } catch (e) {
+              // 選擇器不合法要講清楚，不要無聲地等到逾時——那看起來像「頁面沒反應」
+              return { bad: String(e && e.message || e).slice(0, 120) };
+            }
+          }, { until, sel, wantText, minRows }).catch(() => ({ ok: false }));
+          if (state?.bad) { if (fail(step, `${tag}：選擇器不合法（${state.bad}）`) === 'stop') break; met = true; break }
+          seen = state?.count === undefined ? '' : `目前命中 ${state.count} 個`;
+          if (state?.ok) { met = true; break }
+          await ctx.page.waitForTimeout(300);
+        }
+        if (!met) {
+          // ⚠️ 等不到就是沒等到，不可以當成過了——否則「頁面根本沒反應」會被寫成「跑完了」
+          const what = until === 'text' ? `文字「${wantText}」出現` : until === 'hidden' ? `${sel} 消失` : until === 'rows' ? `${sel} 至少 ${minRows} 列` : `${sel} 出現`;
+          if (fail(step, `${tag}：等了 ${timeoutMs}ms，${what}還是沒發生${seen ? `（${seen}）` : ''}`) === 'stop') break; continue;
+        }
+        notes.push(`✅ ${tag}：${Math.round((Date.now() - started) / 100) / 10}s 後條件成立`);
+
       } else if (step.action === 'set_checked') {
         const one = await singleTarget(ctx.page, step.selector, step.selector);
         if (one.problem) { if (fail(step, `${tag}：${one.problem}`) === 'stop') break; continue }
@@ -713,9 +974,77 @@ export async function runSteps(steps, ctx, options = {}) {
         notes.push(`${tag}：${target}`);
 
       } else if (step.action === 'click') {
+        /**
+         * 🚨 守衛要在**點下去之前**。後台的破壞性操作（補發、Hand Pay、刪除、停用機台）
+         *    點完才提醒就來不及了——而且後台不會有任何「你剛剛改了什麼」的提示。
+         * ⚠️ 依副作用辨識（選擇器為主、文字只當弱訊號），規則跟 H5／PC 共用同一份。
+         */
+        try {
+          guardDangerousStep({ step, what: { selector: step.selector, text: step.name }, startUrl: ctx.backendUrl ?? '' });
+        } catch (error) {
+          if (fail(step, `${tag}：${error.message}`) === 'stop') break; continue;
+        }
         const mode = await ctx.clickSelector(step.selector, Number(step.waitMs) || 800,
           step.viewport ?? { x: step.x, y: step.y }, step.recordedViewport);
         notes.push(`${tag}：${step.selector}${mode === 'coordinate' ? '（selector 失效，使用座標備援）' : ''}`);
+
+      } else if (step.action === 'scroll') {
+        const value = String(step.value ?? '').trim();
+        const sel = String(step.selector ?? '').trim();
+        const moved = await ctx.page.evaluate(({ value, sel }) => {
+          const target = sel ? document.querySelector(sel) : null;
+          if (sel && !target) return { missing: true };
+          if (sel && !value) { target.scrollIntoView({ block: 'center' }); return { into: true } }
+          // 捲動容器：指定了就捲那個，否則捲整頁
+          const box = target && target.scrollHeight - target.clientHeight > 40 ? target : (document.scrollingElement || document.documentElement);
+          const before = box.scrollTop;
+          if (value === 'top') box.scrollTop = 0;
+          else if (value === 'bottom') box.scrollTop = box.scrollHeight;
+          else {
+            const px = Number(value);
+            if (!Number.isFinite(px)) return { badValue: true };
+            box.scrollTop = px;
+          }
+          return { before, after: box.scrollTop };
+        }, { value, sel }).catch(() => null);
+        if (!moved) { if (fail(step, `${tag}：捲動失敗`) === 'stop') break; continue }
+        if (moved.missing) { if (fail(step, `${tag}：找不到 ${sel}`) === 'stop') break; continue }
+        if (moved.badValue) { if (fail(step, `${tag}：「${value}」不是 top／bottom 也不是數字`) === 'stop') break; continue }
+        await ctx.page.waitForTimeout(500);
+        // ⚠️ 把前後位置寫出來：捲動「回報成功但畫面沒動」是最常見的假象
+        notes.push(`${tag}：${moved.into ? '已捲進畫面' : `${moved.before} → ${moved.after}`}`);
+
+      } else if (step.action === 'right_click' || step.action === 'hover') {
+        const one = await singleTarget(ctx.page, step.selector, step.selector);
+        if (one.problem) { if (fail(step, `${tag}：${one.problem}`) === 'stop') break; continue }
+        if (step.action === 'right_click') await one.locator.click({ button: 'right', timeout: 10000 });
+        else await one.locator.hover({ timeout: 10000 });
+        await ctx.page.waitForTimeout(Number(step.waitMs) || (step.action === 'hover' ? 600 : 800));
+        notes.push(`${tag}：${step.selector}`);
+
+      } else if (step.action === 'expect_new_tab') {
+        const want = String(step.urlContains ?? '').trim();
+        const timeoutMs = Math.min(Math.max(Number(step.timeoutMs) || 8000, 500), 60000);
+        const context = ctx.page.context?.();
+        if (!context) { if (fail(step, `${tag}：這個執行環境拿不到瀏覽器分頁清單`) === 'stop') break; continue }
+        const before = context.pages().length;
+        const started = Date.now();
+        let opened = null;
+        while (Date.now() - started < timeoutMs) {
+          const pages = context.pages();
+          if (pages.length > before) { opened = pages[pages.length - 1]; break }
+          await ctx.page.waitForTimeout(250);
+        }
+        if (!opened) { if (fail(step, `${tag}：等了 ${timeoutMs}ms，沒有新分頁被打開`) === 'stop') break; continue }
+        await opened.waitForLoadState('domcontentloaded').catch(() => {});
+        const url = opened.url();
+        // ⚠️ 驗完一定要關掉：留著的話後面每一顆積木都還在原本的分頁做事，
+        //    而畫面上多一個分頁看起來像「它跑到別的地方去了」
+        await opened.close().catch(() => {});
+        if (want && !url.includes(want)) {
+          if (fail(step, `${tag}：新分頁的網址是 ${url}，不包含「${want}」`) === 'stop') break; continue;
+        }
+        notes.push(`✅ ${tag}：新分頁 ${url.slice(0, 80)}（已關閉）`);
 
       } else if (step.action === 'type_text') {
         await ctx.typeInto(step.selector, String(step.value ?? ''));
@@ -947,6 +1276,50 @@ export async function runSteps(steps, ctx, options = {}) {
           if (fail(noDl, `${tag}：按鈕有、也點下去了，但在 ${Number(step.timeoutMs) || 10000}ms 內沒等到下載`) === 'stop') break; continue;
         }
         notes.push(`✅ ${tag}：已下載 ${ex.file}`);
+
+      } else if (step.action === 'read_export') {
+        if (typeof ctx.runExport !== 'function') {
+          if (fail(step, `${tag}：這個執行環境沒有匯出能力（runner 版本太舊）`) === 'stop') break; continue;
+        }
+        const ex = await ctx.runExport(Number(step.timeoutMs) || 10000);
+        if (!ex.hasButton) {
+          if (fail(step, `${tag}：找不到 Export／CSV／Excel 按鈕`) === 'stop') break; continue;
+        }
+        if (!ex.rows || !ex.headers) {
+          // ⚠️ 沒拿到檔案 ≠ 內容不符。這裡是「沒讀到資料」，要明確講出來——
+          //    否則後面每一顆比對都會變成「引用了不存在的變數」，查起來像是變數名打錯。
+          const noDl = { ...step, onFail: step.onNoDownload ?? 'stop' };
+          if (fail(noDl, `${tag}：按鈕有、也點下去了，但沒有拿到可解析的檔案`) === 'stop') break; continue;
+        }
+        const heads = ex.headers.map(h => String(h ?? '').trim());
+        // 欄名有空格時要能用別名引用，見 withAliases 的說明
+        const alias = aliasKey;
+        const rowObj = (r) => withAliases(Object.fromEntries(heads.map((h, i) => [h, r[i]])));
+        const keyCol = String(step.keyColumn ?? '').trim();
+        if (!keyCol) {
+          if (!setVar(step, tag, String(step.as ?? '').trim(), 'tableRows', ex.rows.map(rowObj))) break;
+          notes.push(`✅ ${tag}：讀到 ${ex.rows.length} 列（欄位：${heads.slice(0, 8).join('、')}${heads.length > 8 ? '…' : ''}）`);
+        } else {
+          const ki = heads.findIndex(h => h.toLowerCase().includes(keyCol.toLowerCase()));
+          if (ki < 0) {
+            if (fail(step, `${tag}：匯出檔裡找不到欄位「${keyCol}」（檔案欄位：${heads.join('、')}）`) === 'stop') break; continue;
+          }
+          const want = String(step.keyValue ?? '').trim();
+          // ⚠️ 允許「開頭相符」：日期欄常常是 2026-09-20 00:00:00，完全相等會找不到——
+          //    原本那支驗證器就是用 startsWith 處理的。
+          const hit = ex.rows.find(r => {
+            const v = String(r[ki] ?? '').trim();
+            return v === want || (want !== '' && v.startsWith(want));
+          });
+          if (!hit) {
+            if (fail(step, `${tag}：匯出檔裡找不到「${keyCol}=${want}」這一列`) === 'stop') break; continue;
+          }
+          if (!setVar(step, tag, String(step.as ?? '').trim(), 'blockFields', rowObj(hit))) break;
+          const varName = String(step.as ?? '').trim();
+          // 把可用的寫法直接印出來——欄名有空格時要用別名，不講的話只能猜
+          const usable = heads.map(h => `${varName}.${alias(h) && alias(h) !== h ? alias(h) : h}`).slice(0, 6);
+          notes.push(`✅ ${tag}：取到「${keyCol}=${want}」那一列（可用：${usable.join('、')}${heads.length > 6 ? '…' : ''}）`);
+        }
 
       } else if (step.action === 'assert_export_matches_screen') {
         if (typeof ctx.runExport !== 'function') {
@@ -1190,7 +1563,8 @@ export async function runSteps(steps, ctx, options = {}) {
           return out;
         }, labels).catch(() => null);
         if (got === null) { if (fail(step, `${tag}：讀不到區塊 ${step.selector}（元素找到了，但讀取過程失敗）`) === 'stop') break; continue }
-        if (!setVar(step, tag, step.as, 'blockFields', got)) break;
+        // 標籤有空格時（`Total bet player`）要能用別名引用——見 withAliases
+        if (!setVar(step, tag, step.as, 'blockFields', withAliases(got))) break;
         notes.push(`${tag}：${Object.entries(got).map(([k, v]) => `${k}=${v ?? '(缺)'}`).join(', ')}`);
 
       } else if (step.action === 'read_table') {
@@ -1225,8 +1599,28 @@ export async function runSteps(steps, ctx, options = {}) {
           });
         }, { table: tableHandle, selector: tableSel, maxRows: Number(step.maxRows) || 200 });
         if (rows === null) { if (fail(step, `${tag}：找不到表格 ${step.selector || 'table'}`) === 'stop') break; continue }
-        if (!setVar(step, tag, step.as, 'tableRows', rows)) break;
-        notes.push(`${tag}：讀到 ${rows.length} 列`);
+        const tableKeyCol = String(step.keyColumn ?? '').trim();
+        if (!tableKeyCol) {
+          if (!setVar(step, tag, step.as, 'tableRows', rows.map(withAliases))) break;
+          notes.push(`${tag}：讀到 ${rows.length} 列`);
+        } else {
+          // 用鍵挑一列。欄名比對跟匯出檔那邊同一套（包含比對、去空格別名）
+          const cols = rows.length ? Object.keys(rows[0]) : [];
+          const col = cols.find(c => c.toLowerCase().includes(tableKeyCol.toLowerCase()));
+          if (!col) {
+            if (fail(step, `${tag}：表格裡找不到欄位「${tableKeyCol}」（目前欄位：${cols.join('、') || '無'}）`) === 'stop') break; continue;
+          }
+          const want = String(step.keyValue ?? '').trim();
+          const hit = rows.find(r => {
+            const v = String(r[col] ?? '').trim();
+            return v === want || (want !== '' && v.startsWith(want));
+          });
+          if (!hit) {
+            if (fail(step, `${tag}：表格裡找不到「${tableKeyCol}=${want}」這一列（共 ${rows.length} 列）`) === 'stop') break; continue;
+          }
+          if (!setVar(step, tag, step.as, 'blockFields', withAliases(hit))) break;
+          notes.push(`${tag}：取到「${tableKeyCol}=${want}」那一列（共 ${rows.length} 列）`);
+        }
 
       } else if (step.action === 'assert_filled') {
         const src = needVar(step, tag, step.from, def.inputKind);
@@ -1247,8 +1641,16 @@ export async function runSteps(steps, ctx, options = {}) {
           }
         }
         const flat = Object.fromEntries(Object.entries(vars).map(([k, v]) => [k, v.value]));
-        const l = toNumber(resolveRef(flat, step.left));
-        const r = toNumber(resolveRef(flat, step.right));
+        const scaleOf = (raw) => {
+          const n = raw === undefined || raw === null || raw === '' ? 1 : Number(raw);
+          if (!Number.isFinite(n) || n === 0) throw new Error('倍率必須是不為 0 的數字');
+          return n;
+        };
+        const lScale = scaleOf(step.leftScale), rScale = scaleOf(step.rightScale);
+        const lRaw = toNumber(resolveRef(flat, step.left));
+        const rRaw = toNumber(resolveRef(flat, step.right));
+        const l = lRaw === undefined ? undefined : lRaw * lScale;
+        const r = rRaw === undefined ? undefined : rRaw * rScale;
         diagnostics.push({ expected: String(r ?? '?'), actual: String(l ?? '?') });
         if (l === undefined || r === undefined) {
           if (fail(step, `${tag}：取不到值（${step.left}=${l ?? '?'}, ${step.right}=${r ?? '?'}）`) === 'stop') break; continue;
@@ -1256,8 +1658,79 @@ export async function runSteps(steps, ctx, options = {}) {
         const tol = step.tolerancePct === undefined ? 1 : Number(step.tolerancePct);
         const abs = step.absoluteTolerance === undefined ? 1 : Number(step.absoluteTolerance);
         if (!Number.isFinite(tol) || tol < 0 || !Number.isFinite(abs) || abs < 0) throw new Error('容差必須是大於等於 0 的數字');
-        if (!numbersEqual(l, r, tol, abs)) { if (fail(step, `${tag}：${l} ≠ ${r}（容差 ${tol}%／${abs}）`) === 'stop') break; continue }
-        notes.push(`✅ ${tag}：${l} ≈ ${r}`);
+        if (!numbersEqual(l, r, tol, abs)) {
+          const why = `${tag}：${l} ≠ ${r}（容差 ${tol}%／${abs}）`
+            + (lScale !== 1 || rScale !== 1 ? `｜換算前 ${lRaw}／${rRaw}，倍率 ${lScale}／${rScale}` : '');
+          if (fail(step, why) === 'stop') break; continue;
+        }
+        // 有換算就把換算前後都寫出來——只印換算後的數字，看報告的人無從判斷倍率填對了沒
+        const shown = (raw, scaled, scale) => (scale === 1 ? String(scaled) : `${raw}×${scale}=${scaled}`);
+        notes.push(`✅ ${tag}：${shown(lRaw, l, lScale)} ≈ ${shown(rRaw, r, rScale)}`);
+
+      } else if (step.action === 'assert_each_row') {
+        const rows = needVar(step, tag, step.from, def.inputKind);
+        if (rows === undefined) break;
+        const list = Array.isArray(rows) ? rows : [];
+        if (!list.length) {
+          // ⚠️ 沒有資料就是沒驗到，不可以當成通過
+          if (fail({ ...step, onFail: step.onEmpty ?? 'warn' }, `${tag}：「${step.from}」一列都沒有，沒得驗`) === 'stop') break;
+          continue;
+        }
+        const mode = String(step.mode || 'notEmpty');
+        const bad = [];
+        if (mode === 'notEmpty') {
+          const col = String(step.column ?? '').trim();
+          if (!col) { if (fail(step, `${tag}：notEmpty 模式要填欄位名稱`) === 'stop') break; continue }
+          list.forEach((row, idx) => {
+            const v = row?.[col] ?? row?.[aliasKey(col)];
+            if (v === undefined) bad.push(`第 ${idx + 1} 列沒有「${col}」這一欄`);
+            else if (String(v).trim() === '') bad.push(`第 ${idx + 1} 列的「${col}」是空的`);
+          });
+        } else {
+          const tolR = Number(step.tolerancePct ?? 0), absR = Number(step.absoluteTolerance ?? 0);
+          for (const [idx, row] of list.entries()) {
+            // 算式裡用 `row.欄位名` 指這一列
+            const lookupRow = (name) => String(name).split('.').reduce((cur, part) => (cur == null ? cur : cur[part]), { row });
+            try {
+              const lv = evaluateExpr(step.left, lookupRow, toNumber);
+              const rv = evaluateExpr(step.right, lookupRow, toNumber);
+              if (!numbersEqual(lv, rv, tolR, absR)) bad.push(`第 ${idx + 1} 列：${lv} ≠ ${rv}`);
+            } catch (error) {
+              bad.push(`第 ${idx + 1} 列算不出來（${error.message}）`);
+            }
+          }
+        }
+        if (bad.length) {
+          // ⚠️ 只報前三筆＋總數。全部列出來會把日誌淹掉，而看的人其實只需要知道「哪幾列、共幾列」
+          if (fail(step, `${tag}：${list.length} 列裡有 ${bad.length} 列不符——${bad.slice(0, 3).join('；')}${bad.length > 3 ? '…' : ''}`) === 'stop') break;
+          continue;
+        }
+        notes.push(`✅ ${tag}：${list.length} 列全部符合`);
+
+      } else if (step.action === 'assert_expr') {
+        const flatVars = Object.fromEntries(Object.entries(vars).map(([k, v]) => [k, v.value]));
+        const lookup = (name) => {
+          const parts = String(name).split('.');
+          let cur = flatVars;
+          for (const part of parts) { if (cur === undefined || cur === null) return undefined; cur = cur[part] }
+          return cur;
+        };
+        let lv, rv;
+        try {
+          lv = evaluateExpr(step.left, lookup, toNumber);
+          rv = evaluateExpr(step.right, lookup, toNumber);
+        } catch (error) {
+          // ⚠️ 算式寫錯／取不到值，跟「算出來不相等」是兩回事，訊息要分得出來
+          if (fail(step, `${tag}：算式沒辦法求值——${error.message}`) === 'stop') break; continue;
+        }
+        diagnostics.push({ expected: String(rv), actual: String(lv) });
+        const tolE = step.tolerancePct === undefined ? 0 : Number(step.tolerancePct);
+        const absE = step.absoluteTolerance === undefined ? 0 : Number(step.absoluteTolerance);
+        if (!Number.isFinite(tolE) || tolE < 0 || !Number.isFinite(absE) || absE < 0) throw new Error('容差必須是大於等於 0 的數字');
+        if (!numbersEqual(lv, rv, tolE, absE)) {
+          if (fail(step, `${tag}：${step.left} = ${lv}，但 ${step.right} = ${rv}（容差 ${tolE}%／${absE}）`) === 'stop') break; continue;
+        }
+        notes.push(`✅ ${tag}：${step.left} = ${lv} ≈ ${step.right} = ${rv}`);
 
       } else if (step.action === 'upload_file') {
         // ⚠️ 走 Playwright 的 setInputFiles：它是**直接把檔案交給頁面的 input**，

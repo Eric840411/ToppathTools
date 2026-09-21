@@ -11,7 +11,7 @@
  *   4. 顏色只承載狀態，不承載品牌：綠＝相符、黃＝等待、紅＝不符或掉單、
  *      紫＝無法判定、灰＝工具問題。
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 const C = {
   match: '#22c55e', pending: '#eab308', bad: '#ef4444',
@@ -53,6 +53,12 @@ const fmtAgo = (s: number | null) => {
   return `${Math.floor(s / 3600)}h${Math.floor((s % 3600) / 60)}m 前`
 }
 const fmtClock = (ms: number) => new Date(ms).toLocaleTimeString('zh-TW', { hour12: false })
+/** 局號太長（`897-BIGFULINK-2065|6AB02E83089`），表格只顯示 `|` 後面那段，完整的放 title */
+const shortOrderId = (id: string | null) => (id ? (id.includes('|') ? id.split('|').pop() ?? id : id) : '—')
+/** 時間窗的說法要跟選單一致——畫面上選「近 24 小時」，明細標題就不該寫「近 1440 分鐘」 */
+const fmtWindow = (min: number) =>
+  min >= 2880 && min % 1440 === 0 ? `近 ${min / 1440} 天`
+    : min % 60 === 0 ? `近 ${min / 60} 小時` : `近 ${min} 分鐘`
 
 interface Lamp { key: string; label: string; state: string; agoSec: number | null; note: string; detail?: string }
 interface Finding {
@@ -114,6 +120,36 @@ interface PoolLevel {
   /** 這個池底下有沒有「我現在正在跑」的機台。有的話排最上面並標色。 */
   mine: boolean
   myMachines: string[]
+}
+/** 獎池逐筆明細的一列——一次投注對這個 Level 的貢獻 */
+interface PoolChangeRow {
+  ts: number; machineName: string; levelName: string
+  /** 投入額變化（新 coinIn − 舊 coinIn）。負值＝meter 倒退 */
+  coinIn: number
+  change: number; before: number; after: number
+  /** 從這個窗的第一筆算到這一筆為止的累積增額 */
+  cumulative: number
+  verify: string; verifyDelta: number | null; reason: string
+  /** ⚠️ 池變動報表**沒有局號**，這是配上去的；配不出來就是 null，不猜 */
+  orderId: string | null
+  spinIndex: number | null
+  joinDelta: number | null
+  joinNote: 'matched' | 'no_round' | 'ambiguous'
+  /** 同一筆投注在各 Level 共用同一個 reqmd5——配不到局號時仍分得出是同一筆 */
+  reqmd5: string
+}
+interface PoolDetailPayload {
+  ok: boolean; env: string; minutes: number
+  detail: {
+    levelName: string; machines: string[]; total: number; rows: PoolChangeRow[]
+    /** 每一筆 change 的加總 */
+    sumChange: number
+    /** 最後一筆 after − 第一筆 before。⚠️ 跟 sumChange 不一樣時代表中間有中獎歸零／溢流 */
+    netMove: number | null
+    negativeCoinIn: number; mismatch: number
+    incrementPercent: number | null; firstTs: number | null; lastTs: number | null
+    joined: number; joinAmbiguous: number; joinSanityMs: number
+  }
 }
 interface PoolMismatch {
   ts: number; machineName: string; levelName: string
@@ -256,6 +292,12 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
   const [pools, setPools] = useState<PoolsPayload | null>(null)
   /** 點機台那一列會把逐筆明細篩成那台；再點一次取消。 */
   const [machineFilter, setMachineFilter] = useState<string>('')
+  /** 展開中的獎池明細（Level 名稱）；null＝沒展開 */
+  const [poolDetailLevel, setPoolDetailLevel] = useState<string | null>(null)
+  /** 明細要不要只看自己的機台。⚠️ 池是整個 Level 共用的，這個切換會改變分母 */
+  const [poolDetailMineOnly, setPoolDetailMineOnly] = useState(true)
+  const [poolDetail, setPoolDetail] = useState<PoolDetailPayload | null>(null)
+  const [poolDetailBusy, setPoolDetailBusy] = useState(false)
 
   const h = useCallback((): Record<string, string> =>
     userLabel ? { 'x-user-label': userLabel } : {}, [userLabel])
@@ -290,6 +332,37 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
       if (d.ok) setPools(d)
     } catch { /* 獎池讀不到不該讓整頁掛掉——下面的區塊自己會顯示「讀取中」 */ }
   }, [env, minutes, h, showAll])
+
+  /**
+   * 單一獎池 Level 的逐筆明細。
+   *
+   * ⚠️ 只在「有展開」時才打——這支要掃整個窗的 pool change 才算得出累積值，
+   *    跟著 5 秒輪詢一起無條件打會變成白費的重負載。
+   */
+  /** 明細要帶哪幾台（逗號串）。空字串＝整個 Level（池是共用的） */
+  const detailMachines = useMemo(() => {
+    if (!poolDetailLevel || !poolDetailMineOnly) return ''
+    const lv = pools?.levels.find(l => l.levelName === poolDetailLevel)
+    return (lv?.myMachines ?? []).join(',')
+  }, [poolDetailLevel, poolDetailMineOnly, pools])
+
+  const loadPoolDetail = useCallback(async () => {
+    if (!poolDetailLevel) { setPoolDetail(null); return }
+    setPoolDetailBusy(true)
+    try {
+      const q = new URLSearchParams({ env, minutes: String(minutes), level: poolDetailLevel, limit: '200' })
+      // 只看自己的機台時才帶 machines；沒有自己的機台就退回整個 Level（並在畫面上講明）
+      if (detailMachines) q.set('machines', detailMachines)
+      const r = await fetch(`/api/autospin/live-ledger/pool-detail?${q}`, { headers: h() })
+      const d = await r.json() as PoolDetailPayload
+      if (d.ok) setPoolDetail(d)
+    } catch { /* 明細讀不到不影響上面的總覽 */ }
+    finally { setPoolDetailBusy(false) }
+    // ⚠️ 相依只到 `detailMachines`（字串），不是整個 `pools` 物件——
+    //    後者每 5 秒輪詢都會換一個新的物件身分，會讓這支跟著重打。
+  }, [poolDetailLevel, detailMachines, env, minutes, h])
+
+  useEffect(() => { void loadPoolDetail() }, [loadPoolDetail])
 
   const loadRows = useCallback(async (reset: boolean) => {
     try {
@@ -414,7 +487,8 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
 
       {showAll && (ov?.unattributed ?? 0) > 0 && (
         <div style={{ padding: '8px 12px', background: '#2a2418', border: `1px solid ${C.pending}55`, borderRadius: 6, fontSize: 12, color: C.pending }}>
-          其中 {ov!.unattributed} 筆**無法歸屬到任何帳號**（早於歸屬欄位上線）。
+          {/* ⚠️ JSX 不渲染 markdown——這裡原本寫 `**…**`，畫面上是字面上的星號 */}
+          其中 {ov!.unattributed} 筆<b>無法歸屬到任何帳號</b>（早於歸屬欄位上線）。
           這些不會出現在任何人的個人檢視裡——刻意不預設歸給檢視者，保留期到了會自然淘汰。
         </div>
       )}
@@ -743,8 +817,8 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, minWidth: 620 }}>
             <thead><tr>
-              {['獎池 Level', '水位（占上限）', '目前池值', '設定上限', '增額%', '不符', '狀態'].map(t => (
-                <th key={t} style={th}>{t}</th>))}
+              {['獎池 Level', '水位（占上限）', '目前池值', '設定上限', '增額%', '不符', '狀態', ''].map((t, i) => (
+                <th key={t || `sp${i}`} style={th}>{t}</th>))}
             </tr></thead>
             <tbody>
               {/* ⚠️ 上限要含「我的池」全部——我的池被截掉的話，這整個優先顯示就白做了。
@@ -789,14 +863,171 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
                       background: l.atCap ? C.bad : l.mismatch > 0 ? C.pending : C.match }} />
                     {l.atCap ? '已滿頂 · 走溢流' : l.mismatch > 0 ? '有不符' : '正常'}
                   </td>
+                  <td style={{ ...td, textAlign: 'right' }}>
+                    <button type="button"
+                      onClick={() => setPoolDetailLevel(poolDetailLevel === l.levelName ? null : l.levelName)}
+                      style={{ background: poolDetailLevel === l.levelName ? C.tool : 'transparent',
+                        color: poolDetailLevel === l.levelName ? '#06121f' : C.tool,
+                        border: `1px solid ${C.tool}`, borderRadius: 5, padding: '2px 9px',
+                        fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>
+                      {poolDetailLevel === l.levelName ? '收合' : '明細'}
+                    </button>
+                  </td>
                 </tr>
               ))}
               {pools && pools.levels.length === 0 && (
-                <tr><td colSpan={7} style={{ ...td, color: C.ink3 }}>這個時間窗內沒有獎池資料</td></tr>
+                <tr><td colSpan={8} style={{ ...td, color: C.ink3 }}>這個時間窗內沒有獎池資料</td></tr>
               )}
             </tbody>
           </table>
         </div>
+
+        {/* ── 單一獎池的逐筆明細 ────────────────────────────────────────────
+            🚨 **「累積增額」跟「池淨變化」一定要並排放。**
+               前者是「投注推上去多少」，後者是「池實際移動多少」。
+               只給一個數字的話，中間發生過**中獎歸零或溢流**這件事會被藏起來——
+               而那正是看明細的人最需要知道的事。 */}
+        {poolDetailLevel && (() => {
+          const lv = pools?.levels.find(l => l.levelName === poolDetailLevel)
+          const d = poolDetail?.detail
+          const scoped = detailMachines.length > 0
+          const gap = d && d.netMove !== null ? d.netMove - d.sumChange : null
+          return (
+            <div style={{ marginTop: 12, border: `1px solid ${C.tool}44`, borderRadius: 8, overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+                padding: '8px 11px', background: 'rgba(56,189,248,.07)' }}>
+                <b style={{ color: C.ink, fontSize: 12.5 }}>{poolDetailLevel}</b>
+                <span style={{ color: C.ink3, fontSize: 11 }}>
+                  逐筆明細 · {fmtWindow(minutes)}
+                  {d && <> · 共 {d.total.toLocaleString()} 筆{d.total > d.rows.length && `（只列最近 ${d.rows.length} 筆）`}</>}
+                </span>
+                {/* ⚠️ 這個切換會改變分母，一定要看得到現在是哪一種 */}
+                <button type="button" onClick={() => setPoolDetailMineOnly(v => !v)}
+                  disabled={!lv?.myMachines.length}
+                  title={lv?.myMachines.length ? '' : '這個池底下沒有你正在跑的機台，只能看整個 Level'}
+                  style={{ marginLeft: 'auto', background: 'transparent', color: C.tool,
+                    border: `1px solid ${C.tool}`, borderRadius: 5, padding: '2px 9px',
+                    fontSize: 11, cursor: lv?.myMachines.length ? 'pointer' : 'not-allowed',
+                    opacity: lv?.myMachines.length ? 1 : .45 }}>
+                  {scoped ? `只看我的 ${lv?.myMachines.length} 台` : `整個 Level（${lv?.machineCount ?? '?'} 台）`}
+                </button>
+                <button type="button" onClick={() => setPoolDetailLevel(null)}
+                  style={{ background: 'transparent', color: C.ink3, border: 'none', fontSize: 14, cursor: 'pointer' }}>✕</button>
+              </div>
+
+              {/* 摘要：累積 vs 淨變化擺在一起，差額自己說話 */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(132px,1fr))',
+                gap: 1, background: '#22304322' }}>
+                {[
+                  { k: '累積增額（窗內）', v: d ? d.sumChange.toFixed(3) : '—',
+                    t: '這個時間窗內，每一筆投注推高的金額加總' },
+                  { k: '池淨變化', v: d && d.netMove !== null ? d.netMove.toFixed(3) : '—',
+                    t: '最後一筆的池值 − 第一筆之前的池值' },
+                  { k: '兩者差額', v: gap === null ? '—' : (gap > 0 ? '+' : '') + gap.toFixed(3),
+                    tone: gap !== null && Math.abs(gap) > 0.01 ? C.pending : undefined,
+                    t: '差不多是 0 才代表「只有投注、沒發生別的事」。差很多通常是中獎歸零或溢流' },
+                  { k: '增額%', v: d?.incrementPercent ?? lv?.incrementPercent ?? '—',
+                    t: '每一單位投入額提撥到這個池的比率' },
+                  { k: '驗證不符', v: d ? d.mismatch : '—', tone: d && d.mismatch > 0 ? C.bad : undefined,
+                    t: 'change ≈ 投入額差 × 增額%，誤差 > 0.01 就算不符' },
+                  { k: '投入額倒退', v: d ? d.negativeCoinIn : '—', tone: d && d.negativeCoinIn > 0 ? C.pending : undefined,
+                    t: 'meter 重置會讓投入額變負；這種筆數多時，累積增額不可信' },
+                  // ⚠️ 分母是**整個窗**（d.total），不是畫面上列的那幾筆——
+                  //    `rows` 只是最近 200 筆，拿它當分母會把比率灌高
+                  { k: '配到局號', v: d ? `${d.joined}/${d.total}` : '—',
+                    t: '池變動報表沒有局號，是用投入額計數器（newcoinin ↔ total_bet）配上去的，不是用時間' },
+                ].map(c => (
+                  <div key={c.k} title={c.t} style={{ background: C.panel, padding: '7px 11px' }}>
+                    <div style={{ fontSize: 10, color: C.ink3 }}>{c.k}</div>
+                    <div style={{ fontSize: 13.5, fontWeight: 700, color: c.tone ?? C.ink,
+                      fontVariantNumeric: 'tabular-nums' }}>{c.v}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* 🚨 局號的**來源**一定要寫在畫面上。它不是報表帶的，是我們用時間配的；
+                  不講清楚的話，看的人會以為那是池變動報表自己的欄位。 */}
+              {d && d.rows.length > 0 && (
+                <div style={{ fontSize: 11, color: C.ink3, padding: '6px 11px' }}>
+                  局號是<b style={{ color: C.ink2 }}>配上去的</b>——池變動報表沒有局號。
+                  配對鍵是<b style={{ color: C.ink2 }}>投入額計數器</b>（池的 <code>newcoinin</code> ↔ 後台該局的
+                  {/* ⚠️ JSX 不會渲染 markdown，強調一律用 <b>，不要寫 ** ** */}
+                  <code> total_bet</code>，同一段期間只差一個常數），<b style={{ color: C.ink2 }}>不是時間</b>——
+                  實測兩邊時間差中位 −11.6 秒，用時間配會整段偏移一格。
+                  時間只用來決定「這一筆屬於哪一段」（重新進機台會讓計數器歸零重算）。
+                  這個窗內 {d.total} 筆裡配到 <b style={{ color: C.ink2 }}>{d.joined}</b> 筆
+                  {d.joinAmbiguous > 0 && <>、<b style={{ color: C.pending }}>{d.joinAmbiguous}</b> 筆因為不只一局而不配</>}。
+                  配不到多半是<b style={{ color: C.ink2 }}>別人打的那幾局</b>——池記的是整台機台的投注，
+                  後台紀錄只有我們這個帳號的。
+                </div>
+              )}
+
+              {/* ⚠️ 這段只在「真的有別台也在推同一個池」時才講。這個池只掛我這一台時
+                  講「本來就會小於」是錯的——那時兩個數字本來就該相等。 */}
+              {scoped && (lv?.machineCount ?? 0) > (lv?.myMachines.length ?? 0) && (
+                <div style={{ fontSize: 11, color: C.ink3, padding: '6px 11px' }}>
+                  ⚠️ 現在只算 <b style={{ color: C.tool }}>{lv?.myMachines.join('、')}</b>。
+                  這個池整個 Level 共掛 {lv?.machineCount} 台，別台打的也會推高它，
+                  所以<b style={{ color: C.ink2 }}>累積增額本來就會小於池淨變化</b>——那不是對不起來。
+                </div>
+              )}
+
+              <div style={{ maxHeight: 300, overflow: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11.5, minWidth: 640 }}>
+                  <thead style={{ position: 'sticky', top: 0, background: C.panel2 }}><tr>
+                    {['時間', '局號', '機台', '投入額變化', '本筆增加', '累積增加', '池值', '驗證'].map(t => (
+                      <th key={t} style={th}>{t}</th>))}
+                  </tr></thead>
+                  <tbody>
+                    {(d?.rows ?? []).map((r, i) => (
+                      <tr key={`${r.ts}-${r.machineName}-${i}`}>
+                        <td style={{ ...td, color: C.ink3 }}>{fmtClock(r.ts)}</td>
+                        {/* ⚠️ 局號是**配上去的**，不是池變動報表自己帶的。
+                            配不出來就寫「—」並在 title 說明原因，不要挑最近的那一局充數。 */}
+                        <td style={td} title={r.joinNote === 'matched'
+                          ? `${r.orderId}｜spin_index ${r.spinIndex ?? '—'}｜與後台記錄時間差 ${r.joinDelta}ms（僅供診斷，配對用的是投入額計數器）`
+                          : r.joinNote === 'ambiguous'
+                            ? '同一個投入額計數值對到不只一局，配不出唯一對應 → 不猜'
+                            : '找不到計數值對得上的局——可能是別人打的那幾筆（池記的是整台機台的投注），也可能是這一段的後台紀錄我們沒拉到'}>
+                          {r.joinNote === 'matched'
+                            ? <span style={{ color: C.ink }}>{shortOrderId(r.orderId)}</span>
+                            : <span style={{ color: r.joinNote === 'ambiguous' ? C.pending : C.ink3 }}>
+                              {r.joinNote === 'ambiguous' ? '多筆' : '—'}</span>}
+                        </td>
+                        <td style={td}>{r.machineName}</td>
+                        <td style={{ ...td, fontVariantNumeric: 'tabular-nums',
+                          color: r.coinIn < 0 ? C.bad : C.ink2, fontWeight: r.coinIn < 0 ? 700 : 400 }}>
+                          {r.coinIn.toLocaleString()}</td>
+                        <td style={{ ...td, fontVariantNumeric: 'tabular-nums', color: C.ink }}>
+                          +{r.change.toFixed(3)}</td>
+                        <td style={{ ...td, fontVariantNumeric: 'tabular-nums', color: C.tool, fontWeight: 600 }}>
+                          {r.cumulative.toFixed(3)}</td>
+                        <td style={{ ...td, fontVariantNumeric: 'tabular-nums', color: C.ink3 }}>
+                          {r.before.toFixed(3)} → {r.after.toFixed(3)}</td>
+                        <td style={td}>
+                          {r.verify === 'mismatch'
+                            ? <span style={{ color: C.bad, fontWeight: 700 }}>
+                              不符{r.verifyDelta !== null && ` ${(r.verifyDelta > 0 ? '+' : '') + r.verifyDelta.toFixed(2)}`}</span>
+                            : r.verify === 'ok' ? <span style={{ color: C.match }}>✓</span>
+                              /* ⚠️ skipped_overflow 的字面意思是「這筆沒驗」，不是「池滿了」 */
+                              : <span style={{ color: C.ink3 }}>{r.verify === 'skipped_overflow' ? '未驗（溢流）' : r.verify || '—'}</span>}
+                        </td>
+                      </tr>
+                    ))}
+                    {d && d.rows.length === 0 && (
+                      <tr><td colSpan={8} style={{ ...td, color: C.ink3 }}>
+                        這個時間窗內{scoped ? '、這幾台機台' : ''}沒有池變動</td></tr>
+                    )}
+                    {!poolDetail && (
+                      <tr><td colSpan={8} style={{ ...td, color: C.ink3 }}>
+                        {poolDetailBusy ? '讀取中…' : '讀不到明細'}</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )
+        })()}
 
         {/* ⚠️ 「可能原因」欄不是裝飾：只寫「加太多 10,409」會讓人去追一筆不存在的超發 */}
         {pools && pools.mismatches.length > 0 && (<>

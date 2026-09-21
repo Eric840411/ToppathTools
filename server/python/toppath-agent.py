@@ -260,7 +260,24 @@ def _throttled_warn(key: str, msg: str, every_sec: float = 60.0) -> None:
 
 
 def post_recon_spin(machine_type: str, cfg: dict, spin_seq: int, balance_before, balance_after,
-                    observed_at_ms: int, outcome: str = '', bet=None, win=None):
+                    observed_at_ms: int, outcome: str = '', bet=None, win=None,
+                    bet_source: str = ''):
+    # ⚠️ 見下方 docstring；這一行是 2026-09-20 加的守門：
+    #    推導出來的注額只要不是遊戲戰績裡出現過的值，就**降級成未知**。
+    #    寧可少一筆樣本，也不要送一個會讓對帳判成 MISSING 的假數字。
+    # ⚠️ **守門前的原始值一定要留著。**（CodeX 2026-09-21）
+    #    只看「擋掉幾筆」沒辦法分辨兩件事：擋掉的是真的錯值，還是**戰績延遲**
+    #    造成的誤擋（正確的新注額還沒出現在戰績裡）。兩者的下一步完全不同，
+    #    所以把原始值一起送上去，下一輪才逐筆核對得了。
+    bet_raw = bet
+    bet_blocked = False
+    if bet is not None and not bet_is_plausible(machine_type, bet):
+        _throttled_warn(f'bet-implausible-{machine_type}',
+                        f"[{machine_type}] 推導注額 {bet} 不在戰績出現過的注額裡"
+                        f"（{sorted(known_bets_by_machine.get(machine_type, []))[:5]}）→ 當成未知",
+                        every_sec=30.0)
+        bet = None
+        bet_blocked = True
     """Live Ledger 觀測落庫——三段式綁定的第 ① 段。
 
     ⚠️ 一定要走 async_call 丟背景執行緒。這支每次 spin 都會呼叫，
@@ -291,6 +308,14 @@ def post_recon_spin(machine_type: str, cfg: dict, spin_seq: int, balance_before,
                 #    算不出來時送 None（畫面顯示「—」），**不要送 0**——
                 #    0 會被讀成「這局下注 0 元」，那是假資料不是缺資料。
                 'betAmount': bet,
+                # 守門前的推導值與是否被擋——純診斷欄位，不參與判定
+                'betRaw': bet_raw,
+                'betBlocked': bet_blocked,
+                # 這個注額是**怎麼來的**——沒有它就分不出「相鄰性算出來的」跟
+                # 「靠戰績同質推定的」，兩者的可信度不一樣，不能混成同一個覆蓋率。
+                #   moneylog_adjacent —— 完整流水裡 begin 正前方那一則 end（逐局實算）
+                #   history_uniform   —— 涵蓋已確認的戰績窗內 bet 全同值，推定為該值
+                'betSource': ('' if bet is None else (bet_source or 'moneylog_adjacent')),
                 'winObserved': win,
                 'balanceBefore': balance_before,
                 'balanceAfter': balance_after,
@@ -1522,16 +1547,45 @@ def get_balance(page, selector: str):
         return None
 
 
-def read_money_seq(page) -> int:
-    """目前 moneyNtc 流水的序號。按下 spin 前記一次，之後只看「比它新」的那幾則。"""
+def _money_log_frame(page):
+    """挑出**流水最新**的那個 frame 的 `__moneyLog`。
+
+    🚨 **不能用「第一個有值的 frame」。**（2026-09-20 實測）
+       頁面裡不只一個 frame 有 `__moneyLog`，而 `page.frames` 的順序不保證是遊戲那個。
+       抓到舊的那份時，流水**不會前進**——症狀是連續好幾次 spin 讀到**一模一樣**的
+       `balanceBefore`（實測 seq 5 與 seq 10 都是 1999992、seq 8 與 15 都是 1999954），
+       於是注額被算成「跨好幾局的餘額差」：126／254／380／430／523，
+       而後台每一局都是 88。這種值不是 0、不是負、也沒超過餘額，
+       **所有合理性檢查都擋不住**，對帳的配對鍵因此永遠對不上。
+
+    回傳 (log, seq)；都讀不到時回 ([], 0)。
+    """
+    best_log, best_rank = [], None
     for frame in page.frames:
         try:
-            v = frame.evaluate("window.__moneySeq ?? null")
-            if v is not None:
-                return int(v)
+            data = frame.evaluate(
+                "(() => ({ log: window.__moneyLog || [], seq: window.__moneySeq ?? 0 }))()")
         except Exception:
             continue
-    return 0
+        if not data:
+            continue
+        log = data.get('log') or []
+        # ⚠️ **有流水的 frame 一律優先。**只比 `__moneySeq` 的話會挑到一個
+        #    「seq 很大但 log 是空的」frame——實測那樣會讓**每一局的注額都變成未知**
+        #    （45 筆全是 unknown、MATCH 掉到 0）。錯值要避免，但也不能把資料全丟掉。
+        last_seq = int(log[-1].get('seq') or 0) if log else -1
+        rank = (1 if log else 0, last_seq if log else int(data.get('seq') or 0))
+        if best_rank is None or rank > best_rank:
+            best_log, best_rank = log, rank
+    return best_log, (best_rank[1] if best_rank and best_rank[1] > 0 else 0)
+
+
+def read_money_seq(page) -> int:
+    """目前 moneyNtc 流水的序號。按下 spin 前記一次，之後只看「比它新」的那幾則。
+
+    ⚠️ 走 `_money_log_frame()` 挑最新的那個 frame——見那支的說明。
+    """
+    return _money_log_frame(page)[1]
 
 
 def read_last_end_coin(page):
@@ -1545,33 +1599,80 @@ def read_last_end_coin(page):
        `-5040` **不是 0、也不是 null，是一個「看起來有效」的數字**——它會穿過
        「跳過 null」那道防線，讓 L1 產出一筆「金額差 5,400」的假不符。
        **錯誤值比缺值危險。**
+
+    ⚠️ **只有在「上一局已經結算完」時才回值。**（2026-09-20 實測修）
+
+       `bet = 上一則 end 的 coin − 這一局 begin 的 coin` 只有在那個 end 真的是
+       **上一局**的結算時才成立。Spin 間隔 1 秒、而結算常常晚 1~2 秒到，於是
+       按下這一次 spin 時 `__moneyLog` 的最後一則 end 可能是**兩局前**的——
+       算出來就變成「兩局的注額減掉中間那局的派彩」。
+
+       實測（NWR2065，2026-09-20）：
+           bet 176 / 156 / 164 …   後台每一局都是 **88**
+           而且自己就矛盾：bet 176 但餘額只掉 156
+
+       **這種值會穿過所有合理性檢查**（不是 0、不是負、也沒超過餘額），
+       於是對帳的配對鍵（注額相等）永遠對不上，被記成 MISSING——
+       看起來像掉單，其實是觀測算錯。**寧可回 None（未知），不要回一個錯的數字。**
+
+       判斷方式：最後一則 `end` 之後如果還有 `begin`，代表上一局還沒結算 → 回 None。
     """
-    for frame in page.frames:
-        try:
-            v = frame.evaluate(
-                "(() => { const l = (window.__moneyLog || []).filter(x => x.reason === 'end');"
-                " return l.length ? l[l.length - 1].coin : null })()")
-            if v is not None:
-                return v
-        except Exception:
-            continue
-    return None
+    log, _seq = _money_log_frame(page)
+    last_end = last_begin = -1
+    for i, row in enumerate(log):
+        reason = row.get('reason')
+        if reason == 'end':
+            last_end = i
+        elif reason == 'begin':
+            last_begin = i
+    if last_end < 0:
+        return None
+    # 最後一則 end 之後還有 begin ＝ 上一局還沒結算，這個 end 不是「上一局」的
+    if last_begin > last_end:
+        return None
+    return log[last_end].get('coin')
 
 
 def read_money_since(page, seq: int) -> list:
-    """取序號大於 seq 的 moneyNtc 流水。"""
-    for frame in page.frames:
-        try:
-            v = frame.evaluate("(window.__moneyLog || []).filter(x => x.seq > %d)" % seq)
-            if v:
-                return v
-        except Exception:
-            continue
-    return []
+    """取序號大於 seq 的 moneyNtc 流水。
+
+    ⚠️ 一樣要挑**流水最新**的那個 frame（見 `_money_log_frame`）——
+       取「第一個有值的 frame」會讀到舊的那份，算出跨局的假注額。
+    """
+    log, _seq = _money_log_frame(page)
+    return [row for row in log if (row.get('seq') or 0) > seq]
 
 
-def derive_round_amounts(entries: list, prev_end_coin):
+def read_money_log(page) -> list:
+    """**完整**的 moneyNtc 流水（不過濾）。
+
+    🚨 相鄰性判斷一定要看完整流水，**不能先過濾成 begin/end 再找前一則**
+       （CodeX 2026-09-20 指出）。過濾之後「前一則」就變成「前一則同類」，
+       中間插進來的東西會被跳過——那正是跨局相減的來源。
+    """
+    return _money_log_frame(page)[0]
+
+
+def derive_round_amounts(full_log: list, money_seq_before: int):
     """從 moneyNtc 流水算出這一局的 bet / win / 前後餘額。
+
+    🚨 **注額改用「相鄰性」算，不再用「按下 spin 當下的最後一則 end」。**
+       （2026-09-21）舊做法在 spin 間隔 1 秒時，按下去的當下上一局往往還沒結算，
+       讀到的 end 是**兩局前**的，算出 176／156／164 而後台每一局都是 88——
+       那種值不是 0、不是負、也沒超過餘額，所有合理性檢查都擋不住。
+
+       新規則（只看完整流水的**相鄰位置**，不做索引對位）：
+
+           找出這一局的 begin（seq 必須大於按下之前記的 money_seq_before，
+           才能確定它屬於這一次 spin 而不是上一局的）
+           取它在**完整流水裡正前方那一則**
+             ├ reason == 'end' → 那就是上一局的結算 → bet = 它的 coin − begin.coin
+             └ 其他（begin／流水被截斷／沒有前一則）→ **未知**，不猜
+
+       ⚠️ 為什麼不做「ends[idx-1]」那種索引對位：實測（2026-09-20）推出
+          176／264／692／1477，比舊值更糟。只要中間多一筆不屬於這串的 end，
+          整串就錯開，而錯開後算出來的仍是「看起來有效」的數字。
+          相鄰性是**自我驗證**的——前一則不是 end 就自己承認不知道。
 
     ⚠️ **這是 L1 與 L2 唯一的資料來源，而它一直都在。**`moneyNtc` 帶 `reason`：
        `begin` = 扣完注的餘額、`end` = 派彩後的餘額。CLAUDE.md 早就註記過
@@ -1590,16 +1691,23 @@ def derive_round_amounts(entries: list, prev_end_coin):
     回傳 (bet, win, balance_before, balance_after)，算不出來的項目回 None
     （**不是 0**——0 會被讀成「這局下注 0 元」，那是假資料不是缺資料）。
     """
-    begin = next((e for e in entries if e.get('reason') == 'begin'), None)
-    end = None
-    if begin is not None:
-        end = next((e for e in entries
-                    if e.get('reason') == 'end' and e.get('seq', 0) > begin.get('seq', 0)), None)
-    if begin is None:
+    # ① 這一局的 begin：seq 必須比「按下之前」記的序號新，否則那是上一局的
+    idx_begin = next((i for i, e in enumerate(full_log)
+                      if (e.get('seq') or 0) > money_seq_before and e.get('reason') == 'begin'), None)
+    if idx_begin is None:
         # 沒有 begin 代表這一下沒有起局（被拒絕／逾時），不要硬算
-        return (None, None, prev_end_coin, None)
+        return (None, None, None, None)
+    begin = full_log[idx_begin]
     begin_coin = begin.get('coin')
+
+    # ② 正前方那一則——**完整流水的相鄰位置**，不是「前一則 end」
+    prev = full_log[idx_begin - 1] if idx_begin > 0 else None
+    prev_end_coin = prev.get('coin') if (prev is not None and prev.get('reason') == 'end') else None
+
+    # ③ 這一局的 end：begin 之後第一則 end
+    end = next((e for e in full_log[idx_begin + 1:] if e.get('reason') == 'end'), None)
     end_coin = end.get('coin') if end is not None else None
+
     bet = (prev_end_coin - begin_coin) if (prev_end_coin is not None and begin_coin is not None) else None
     win = (end_coin - begin_coin) if (end_coin is not None and begin_coin is not None) else None
 
@@ -1759,8 +1867,201 @@ def poll_monitor_logs(page, mt: str):
             log(f"[{mt}][console:{level}] {text}")
 
 
-def fetch_and_post_pinus_records(page, machine_type: str):
-    """透過 window.pinus.request 取得歷史戰績並上傳到伺服器"""
+# 每台機台在**遊戲自己的戰績紀錄**裡出現過的注額。
+# 🚨 這是用來擋掉「推導出來的假注額」的唯一外部依據。
+#    注額本來是從餘額差推的，而 1 秒 spin 間隔下餘額流水追不上，
+#    漏一局就會跨局相減——實測推出 126／254／2080，而遊戲戰績每一筆都是 88。
+#    那種值不是 0、不是負、也沒超過餘額，**所有合理性檢查都擋不住**。
+# ⚠️ 用「出現過的集合」而不是「最常見的那個」：有些設定會隨機換注額，
+#    只認單一值會把合法的注額也擋掉（那會從「錯值」變成「大量缺值」）。
+known_bets_by_machine: dict = {}
+
+
+def bet_is_plausible(machine_type: str, bet) -> bool:
+    """推導出來的注額，必須是遊戲戰績裡真的出現過的值。
+
+    🚨 **還沒收到戰績時一律當「未知」，不放行**（2026-09-21 改）。
+
+       原本是放行的，理由是「沒有依據可以否定它，擋下來只會讓 session 開頭
+       那段全變未知」。那個理由在**當時**成立——因為未知就是永久未知。
+       現在不一樣了：未知的局會排進佇列，第一批戰績回來就由同質推定補上
+       （見 `apply_history_coverage`）。所以「先當未知」不再是損失，
+       而放行的代價很實在——
+
+         實測（BIGFULINK/NWR2065，2026-09-21）這個遊戲一局會送**三則**
+         moneyNtc：begin(B)、end(B)、end(B+x)，而下一局的 begin 是 B−88。
+         也就是說「begin 正前方那一則 end」根本不是上一局的結算餘額，
+         相鄰性在這個遊戲上**算不出正確注額**（實測 551／493／2369）。
+         session 開頭那幾局沒有戰績可以否定它們，就會原封不動送出去。
+    """
+    if bet is None:
+        return False
+    known = known_bets_by_machine.get(machine_type)
+    if not known:
+        return False
+    return any(abs(float(bet) - k) < 0.001 for k in known)
+
+
+# ─── 戰績涵蓋狀態（注額的第二來源）──────────────────────────────────────────
+#
+# 🚨 **「整批 bet 相同」只證明這批同值，不能證明還沒入榜的局也同值**（CodeX 2026-09-20）。
+#    所以推定注額之前，必須先證明「目標 spin 的局都已經在我們看過的戰績裡」。
+#    這份狀態就是那個證明：
+#      seen     —— 到目前為止看過的所有戰績（去重後）
+#      last     —— 上一次抓到的那批，用來證明這一次跟上一次**有重疊**（中間沒斷）
+#      newAccum —— 自從上次成功推定以來，新出現的戰績筆數
+#    涵蓋成立 = 有重疊 且 newAccum >= 這段期間實際起注的局數。
+history_state_by_machine: dict = {}
+
+# ⚠️ 每次抓的筆數要**明顯大於**抓取間隔的局數，否則結構上就會漏：
+#    原本是「每 20 局抓 15 筆」——每一輪必定有 5 局從來沒被看過。
+HISTORY_PAGE_COUNT = 30
+HISTORY_EVERY_SPINS = 10
+# 等待涵蓋確認的 spin 佇列上限。超過就丟最舊的——它們會永遠維持未知，
+# 那是誠實的結果（寧可少一筆樣本，不要多一個錯值）。
+BET_PENDING_MAX = 120
+
+
+def enqueue_bet_pending(mp: dict, spin_seq: int, balance_before, balance_after,
+                        observed_at_ms: int, outcome: str, win):
+    """把「注額算不出來、但已經結算完」的那一局排進佇列，等戰績涵蓋確認後再推定。
+
+    ⚠️ 只收**已經結算**的局。還在等結算的局會被 `try_backfill_settlement` 再送一次，
+       那時 win／餘額後才有值；先排進來的話，之後的推定會拿舊的 win 覆蓋掉新的。
+    """
+    q = mp.get('bet_pending') or []
+    q.append({'spinSeq': spin_seq, 'balanceBefore': balance_before, 'balanceAfter': balance_after,
+              'observedAt': observed_at_ms, 'outcome': outcome, 'win': win})
+    mp['bet_pending'] = q[-BET_PENDING_MAX:]
+
+
+def apply_history_coverage(machine_type: str, records: list, mp: dict, cfg: dict):
+    """用這一批戰績判斷涵蓋，成立且全同值就把等著的那幾局補上注額。
+
+    🚨 **三個條件缺一不可**（跟 CodeX 2026-09-20 定案）：
+
+      ① **有重疊** —— 這一批跟上一批至少有一筆相同。`historyListReq` 只回「最近 N 筆」，
+         沒有局號可以證明連續；重疊是唯一能證明「中間沒有整段沒看到」的方式。
+         每 10 局抓 30 筆只是**增加重疊的餘裕**，本身不構成證明。
+
+      ② **筆數夠** —— 自上次推定以來新出現的戰績筆數 ≥ 這段期間實際起注的局數。
+         少於局數代表有些局還沒入榜，那些局就不在「已涵蓋」的集合裡。
+
+      ③ **全同值** —— 看過的所有戰績 bet 只有一個值。有兩種以上就**不猜**。
+
+    ⚠️ 還沒入榜的尾端局維持未知，留在佇列裡等下一批（CodeX 明確要求）。
+    ⚠️ 隨機注額（betRandom）開著時整個推定停用——那時「目前為止全同值」
+       完全不能推論到下一局。
+
+    去重的鍵是 (時間, bet, win, gmid)。**戰績沒有局號**（實測欄位只有
+    time/gameid/gmid/bet/win/gmname），只能用這個組合當識別；同一秒內兩局
+    金額又完全相同時會被併成一筆，那會讓 ② 不成立 → 維持未知，方向是安全的。
+    """
+    if mp is None:
+        return
+    st = history_state_by_machine.setdefault(machine_type, {'seen': set(), 'last': set(), 'newAccum': 0})
+
+    # ⚠️ **只看這台機台的局**（CodeX 2026-09-21）。戰績是「這個玩家」的，不是
+    #    「這台機台」的；別台的局混進來會**把筆數湊滿**，讓涵蓋條件假性成立。
+    gmid = str((cfg or {}).get('gameTitleCode') or '')
+    if gmid:
+        records = [r for r in records if str(r.get('gmid') or '') == gmid]
+    elif len({str(r.get('gmid') or '') for r in records}) > 1:
+        # 不知道自己是哪一台、而戰績又混著多台 → 涵蓋證明不了，不要推定
+        mp['bet_pending'] = []
+        st['newAccum'] = 0
+        mp['rounds_since_history'] = 0
+        return
+
+    tuples = {(r['recordTime'], r['bet'], r['win'], r['gmid']) for r in records}
+    prev = st['last']
+    # 🚨 **「有交集」不等於「沒漏」**（CodeX 2026-09-21 更正）。舊局或別的局也可能
+    #    湊出交集。真正能證明沒缺口的是：**上一批裡最新的那幾筆，這一批還看得到**。
+    #    `historyListReq` 回的是「最近 N 筆」，所以上一批的最新筆還在名單裡
+    #    ⇒ 它到這一批最新筆之間的每一局都在這份名單裡 ⇒ 中間沒有整段漏掉。
+    #    ⚠️ **這條仍有一個前提**（CodeX 2026-09-21 補）：「最近 N 筆」必須是依可靠
+    #       局序排列、而且不會**事後補插中間的局**。如果後端會延遲入榜再插回中間，
+    #       就算上一批最新那幾筆還在，中間也未必已經齊了。
+    #       目前沒有局號可以驗這件事（戰績沒有 order id），所以這是**已知的殘留假設**，
+    #       不要當成已經證明。真要證死，需要後端提供逐局遞增的序號。
+    prev_newest = set()
+    if prev:
+        _max_t = max(t[0] for t in prev)
+        prev_newest = {t for t in prev if t[0] == _max_t}
+    overlap = bool(prev_newest) and prev_newest <= tuples
+    new_count = len(tuples - st['seen'])
+    st['seen'].update(tuples)
+    st['last'] = tuples
+
+    queue = mp.get('bet_pending') or []
+    rounds_since = int(mp.get('rounds_since_history') or 0)
+
+    # 第一次抓：沒有上一批可以比對重疊，只能先建立基準
+    if not prev:
+        st['newAccum'] = 0
+        mp['rounds_since_history'] = 0
+        mp['bet_pending'] = []
+        return
+
+    if not overlap:
+        # 斷鏈：中間有整段沒看到。已經在等的那幾局永遠證明不了涵蓋 → 維持未知。
+        if queue:
+            log(f"[{machine_type}] 戰績斷鏈（上一批最新的那幾筆已經不在這一批裡，"
+                f"中間可能整段沒看到），{len(queue)} 局的注額維持未知")
+        st['newAccum'] = 0
+        mp['rounds_since_history'] = 0
+        mp['bet_pending'] = []
+        return
+
+    st['newAccum'] = st.get('newAccum', 0) + new_count
+    if not queue:
+        # 沒有要補的，但計數照樣歸零——下一個窗口重新算
+        st['newAccum'] = 0
+        mp['rounds_since_history'] = 0
+        return
+
+    if (cfg or {}).get('betRandomEnabled'):
+        mp['bet_pending'] = []
+        st['newAccum'] = 0
+        mp['rounds_since_history'] = 0
+        return
+
+    bets_all = {t[1] for t in st['seen'] if t[1]}
+    if st['newAccum'] < rounds_since:
+        # 還沒全部入榜 —— 留著等下一批（計數繼續累積，不歸零）
+        _throttled_warn(f'history-cover-{machine_type}',
+                        f"[{machine_type}] 戰績還沒涵蓋這段：新增 {st['newAccum']} 筆 < 起注 "
+                        f"{rounds_since} 局，{len(queue)} 局先維持未知", every_sec=60.0)
+        return
+    if len(bets_all) != 1:
+        log(f"[{machine_type}] 戰績出現 {len(bets_all)} 種注額 {sorted(bets_all)[:5]}，"
+            f"不做同質推定，{len(queue)} 局維持未知")
+        mp['bet_pending'] = []
+        st['newAccum'] = 0
+        mp['rounds_since_history'] = 0
+        return
+
+    bet_value = next(iter(bets_all))
+    for p in queue:
+        async_call(post_recon_spin, machine_type, cfg, p['spinSeq'],
+                   p['balanceBefore'], p['balanceAfter'], p['observedAt'],
+                   p['outcome'], bet_value, p['win'], 'history_uniform')
+    # 把**窗口依據**一起印出來：到哪一筆為止是證明過的（CodeX 要求保留依據）
+    _newest = max((t[0] for t in tuples), default='?')
+    log(f"[{machine_type}] 戰績涵蓋成立（新增 {st['newAccum']} 筆 >= 起注 {rounds_since} 局、"
+        f"上一批最新筆仍在名單內、bet 全為 {bet_value}，窗口到 {_newest}）"
+        f"→ 補上 {len(queue)} 局的注額")
+    mp['bet_pending'] = []
+    st['newAccum'] = 0
+    mp['rounds_since_history'] = 0
+
+
+def fetch_and_post_pinus_records(page, machine_type: str, mp: dict = None, cfg: dict = None):
+    """透過 window.pinus.request 取得歷史戰績並上傳到伺服器。
+
+    2026-09-21 起這支同時是**注額的第二來源**：涵蓋確認 + 全同值時，
+    把等在 `mp['bet_pending']` 的那幾局補上注額（`betSource=history_uniform`）。
+    """
     try:
         # ⚠️ uid 原本取自 `window._uid || window.pinus.uid`——**這個遊戲兩個都沒有**，
         #    所以永遠是空字串，送出去每次都被伺服器回 errcode 15「參數錯誤」。
@@ -1778,14 +2079,14 @@ def fetch_and_post_pinus_records(page, machine_type: str):
             if mp_skip == 1 or mp_skip % 10 == 0:
                 log(f"[{machine_type}] 略過戰績紀錄：還沒取得 uid（第 {mp_skip} 次；uid 由登入回應提供，重連後才會再出現）")
             return
-        result = page.evaluate("""(uid) => new Promise((resolve) => {
+        result = page.evaluate("""(args) => new Promise((resolve) => {
             var p = window.pinus;
             if (!p || typeof p.request !== 'function') { resolve({err: 'no_pinus'}); return; }
             p.request('status.statusHandler.historyListReq',
-                {uid: uid, pageindex: 0, pagecount: 15},
+                {uid: args.uid, pageindex: 0, pagecount: args.pagecount},
                 function(res) { resolve({res: res}); }
             );
-        })""", uid)
+        })""", {'uid': uid, 'pagecount': HISTORY_PAGE_COUNT})
         if result.get('err') == 'no_pinus':
             return
         res = result.get('res') or {}
@@ -1810,6 +2111,12 @@ def fetch_and_post_pinus_records(page, machine_type: str):
                 'win': float(r.get('win', 0) or 0),
                 'recordTime': str(r.get('time', '') or ''),
             })
+        # 這台實際出現過哪些注額——推導值的守門依據（見 bet_is_plausible）
+        bets = {r['bet'] for r in normalized if r.get('bet')}
+        if bets:
+            known_bets_by_machine.setdefault(machine_type, set()).update(bets)
+
+        apply_history_coverage(machine_type, normalized, mp, cfg)
         requests.post(
             f"{server_url}/api/autospin/agent/{session_id}/game-record",
             json={'machineType': machine_type, 'records': normalized},
@@ -2055,7 +2362,10 @@ def do_spin(page, cfg: dict):
     #    「coin 有沒有更新」，而 begin 也會更新 coin——所以退出等待時 end 常常還沒到。
     #    實測後果（2026-09-06）：bet 推得出 46%，**win 是 0%**（win 需要 end）。
     #    這裡補一段短寬限，只等 end，不影響主迴圈節奏（上限 1.5 秒）。
-    money_entries = read_money_since(page, money_seq_before)
+    # ⚠️ 讀**完整**流水（不是只讀比 money_seq_before 新的那幾則）——相鄰性判斷要看
+    #    begin 正前方那一則，而它的 seq 必然 <= money_seq_before，過濾掉就永遠看不到。
+    money_log = read_money_log(page)
+    money_entries = [e for e in money_log if (e.get('seq') or 0) > money_seq_before]
     if not rejected:
         _wait_end = time.time() + 1.5
         while time.time() < _wait_end:
@@ -2063,9 +2373,28 @@ def do_spin(page, cfg: dict):
             if has_begin and any(e.get('reason') == 'end' for e in money_entries):
                 break
             time.sleep(0.15)
-            money_entries = read_money_since(page, money_seq_before)
+            money_log = read_money_log(page)
+            money_entries = [e for e in money_log if (e.get('seq') or 0) > money_seq_before]
     round_bet, round_win, round_bal_before, round_bal_after = derive_round_amounts(
-        money_entries, prev_end_coin)
+        money_log, money_seq_before)
+    # 相鄰性算不出「開打前餘額」時，退回按下 spin 當下讀到的那個值——
+    # 它只當顯示用，**不參與注額計算**（注額只認相鄰性，見 derive_round_amounts）。
+    if round_bal_before is None:
+        round_bal_before = prev_end_coin
+
+    # 🚨 **守門要在這裡做，不能只留在 post_recon_spin 裡。**（2026-09-21 實測）
+    #    那支是在送出前才把不合理的注額降成未知，但「要不要排進戰績推定佇列」
+    #    是在這裡判斷的——結果每一筆可疑值都因為「bet 不是 None」而沒排進去，
+    #    推定完全沒被觸發（實測整輪 0 次）。守門與後續判斷必須在同一個地方。
+    if round_bet is not None and not bet_is_plausible(mt, round_bet):
+        # ⚠️ 擋掉的時候把**現場**留下來：seq 記號、流水尾端的 (seq, reason, coin)。
+        #    沒有這個就只知道「值不對」，不知道是相鄰性沒成立、流水漏了、
+        #    還是這個遊戲一局會送不只一組 begin/end——三者的修法完全不同。
+        _tail = [(e.get('seq'), e.get('reason'), e.get('coin')) for e in money_log[-8:]]
+        _throttled_warn(f'bet-context-{mt}',
+                        f"[{mt}] 注額 {round_bet} 可疑（seq_before={money_seq_before}）流水尾端 {_tail}",
+                        every_sec=15.0)
+        round_bet = None
     duration = time.time() - click_start
     if rejected:
         log(f"[{mt}] ⚠️ Spin 被伺服器拒絕，耗時 {duration:.1f}s（{exit_reason}）")
@@ -2245,8 +2574,19 @@ def try_backfill_settlement(page, mp: dict, cfg: dict, mt: str) -> int:
         # 沿用 derive_round_amounts 的合理性檢查：派彩不可能是負的
         if win is not None and win < 0:
             win = None
+        # ⚠️ **這裡曾經試過「用 ends[idx-1] 回推注額」，實測反而更糟，已移除。**
+        #    （2026-09-20：推出 176／264／692／1477…，後台每局都是 88。）
+        #    原因：`ends` 是「最舊那筆待補局的 begin 之後的所有 end」，裡面混著
+        #    **不在待補佇列裡**的局；用索引一一對應時只要中間多一筆就整串錯開，
+        #    而錯開後算出來的仍然是「看起來有效」的數字，一樣穿過所有合理性檢查。
+        #    注額未知就讓它未知——對帳那邊本來就會跳過未知的 bet 比對。
         async_call(post_recon_spin, mt, cfg, p['spinSeq'],
                    p['balanceBefore'], end_coin, p['observedAt'], p['outcome'], p['bet'], win)
+        # 補登完才排進「等戰績推定注額」的佇列——這時 win／餘額後已經定案，
+        # 之後的推定重送不會把它們洗回 None。
+        if p.get('bet') is None:
+            enqueue_bet_pending(mp, p['spinSeq'], p['balanceBefore'], end_coin,
+                                p['observedAt'], p['outcome'], win)
         filled += 1
     mp['pending_settlements'] = remaining
     # ⚠️ **這段原本完全靜默**，補成功或補不到都不留痕跡——於是
@@ -2938,9 +3278,21 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
                     # Live Ledger：每次 spin 即時落庫（fire-and-forget，不擋主迴圈）
                     # ⚠️ 對帳用 round_* 那四個（這一局自己的），不是 balance_before/after
                     #    ——後者讀的是 __lastCoin，無路由過濾，會抓到別局的值。
+                    _observed_at = int(time.time() * 1000)
                     async_call(post_recon_spin, mt, cfg, mp['spin_count'],
-                               round_bal_before, round_bal_after, int(time.time() * 1000),
+                               round_bal_before, round_bal_after, _observed_at,
                                spin_outcome, round_bet, round_win)
+                    # 這一段期間實際起注的局數——戰績涵蓋判斷的分母
+                    # （沒起注的不算：它本來就不會出現在戰績裡）
+                    if spin_outcome not in ('not_started', 'no_bet'):
+                        mp['rounds_since_history'] = int(mp.get('rounds_since_history') or 0) + 1
+                    # 注額算不出來、但已經結算完 → 排隊等戰績涵蓋確認後推定。
+                    # 還在等結算的那些由 try_backfill_settlement 補送完再排隊，
+                    # 否則推定會拿舊的 win 覆蓋掉補登的值。
+                    if (round_bet is None and round_bal_after is not None
+                            and spin_outcome not in ('not_started', 'no_bet')):
+                        enqueue_bet_pending(mp, mp['spin_count'], round_bal_before, round_bal_after,
+                                            _observed_at, spin_outcome, round_win)
                     if not spin_rejected:
                         mp['ok_spin_count'] = mp.get('ok_spin_count', 0) + 1
                         mark_spin_recovered(mp)
@@ -3049,6 +3401,14 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
                             time.sleep(2.0)
                             mp['spin_count'] = 0
 
+                    # ── 戰績（注額的第二來源）──────────────────────────────
+                    # ⚠️ 自己的節奏，不跟截圖共用。要抓得比「一次回幾筆」密，
+                    #    才有重疊可以證明沒斷（見 apply_history_coverage）。
+                    # ⚠️ 內部會 page.evaluate()，Playwright sync API 不能跨執行緒，
+                    #    所以不能丟背景執行緒。
+                    if mp['spin_count'] % HISTORY_EVERY_SPINS == 0:
+                        fetch_and_post_pinus_records(page, mt, mp, cfg)
+
                     if mp['spin_count'] % 10 == 0:
                         log(f"[{mt}] Spin #{mp['spin_count']} (間隔 {spin_interval}s)")
                     if mp['spin_count'] % screenshot_interval == 0:
@@ -3062,9 +3422,10 @@ def machine_worker(session_id_: str, server_url_: str, user_label_: str, cfg: di
                             # ── 戰績紀錄 + 對帳資料 ───────────────────────────
                             bal_for_history = mp.get('last_balance')
                             async_call(post_history, mt, bal_for_history, mp['spin_count'])
-                            # 注意：fetch_and_post_pinus_records 內部會呼叫 page.evaluate()，
-                            # Playwright sync API 不能跨執行緒操作 page，這個不能丟進背景執行緒。
-                            fetch_and_post_pinus_records(page, mt)
+                            # ⚠️ 戰績抓取**已經搬出這個區塊**，改用自己的節奏
+                            #    （每 HISTORY_EVERY_SPINS 局一次）。原因：截圖間隔是 20 局，
+                            #    而戰績一次只回 15 筆——每一輪結構上必定有 5 局從沒被看過，
+                            #    那讓「涵蓋」永遠證明不了。見 apply_history_coverage()。
 
                             # ── 模板比對 ──────────────────────────────────────
                             lark_hook = cfg.get('larkWebhook') or ''

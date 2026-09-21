@@ -21,7 +21,7 @@
  * 兩邊都做的話同一顆積木會被跑兩次（而且日誌上看起來只跑了一次）。
  * 外層只負責「還要不要繼續跑下一顆」。
  */
-import { runFrontendStep } from './frontend-engine.js';
+import { PRECONDITION_PREFIX, runFrontendStep } from './frontend-engine.js';
 
 /**
  * H5／PC 積木的分類表。**欄位名跟 Backend 的 `BLOCK_DEFS` 一致**，聚合器才認得。
@@ -49,6 +49,26 @@ export const FRONTEND_BLOCK_DEFS = Object.freeze({
   assert_api_called: { category: 'assert' },
   // 視覺基準比對：跟 Backend 的圖片比對同一個分類
   find_baseline_scroll: { category: 'compare' },
+  // PC（Cocos）：進機台是操作，斷言場景／機台身分才是判定。
+  // ⚠️ 兩顆分開就是為了這件事——`pcSeekMachine` 沒丟錯不等於「進對了機台」。
+  pc_enter_machine: { category: 'nav' },
+  assert_pc_scene: { category: 'assert' },
+  pc_click_node: { category: 'nav' },
+  scroll: { category: 'nav' },
+  pc_scroll: { category: 'nav' },
+  press_key: { category: 'nav' },
+  assert_ws_called: { category: 'assert' },
+  assert_pc_node: { category: 'assert' },
+  // 前置條件：它**不是檢查**（不算 assertion），不成立時整筆判「受阻」
+  require_precondition: { category: 'nav' },
+  // 驗文字／數字：這才是檢查
+  assert_text: { category: 'assert' },
+  // 等待條件成立：是操作不是檢查（等到了不代表內容對）
+  wait_for: { category: 'nav' },
+  // 讀成變數：是讀取不是檢查
+  read_value: { category: 'read' },
+  // 比對兩個算式：這才是檢查
+  assert_compare: { category: 'assert' },
 });
 
 /**
@@ -97,6 +117,13 @@ async function runOneFrontendStep(steps, ctx, options) {
   const criticalFails = [];
   const warnings = [];
   const allShotPaths = [];
+  /**
+   * 前置條件不成立的原因（`require_precondition` 丟出來的）。
+   *
+   * ⚠️ **跟 criticalFails 分開收**：混在一起的話「環境沒備好」會變成 FAIL，
+   *    也就是對著 Lark 謊報一個不存在的 bug。判定在 multi-tc.js 的聚合段。
+   */
+  const blockedReasons = [];
   // 聚合器用同一個 state 物件跨步驟保存網路界線；`goto` 會改它。
   const state = options.state ?? { netMark: Date.now() };
   if (typeof state.netMark !== 'number') state.netMark = Date.now();
@@ -138,6 +165,13 @@ async function runOneFrontendStep(steps, ctx, options) {
           notes.push(`↻ 第 ${attempt}/${retryLimit} 次重試：${message}`);
           continue;
         }
+        // 「前置條件不成立」不是失敗，是沒得測 → 收到另一條線
+        if (message.startsWith(PRECONDITION_PREFIX)) {
+          const why = message.slice(PRECONDITION_PREFIX.length);
+          notes.push(`⛔ ${step.name || step.action}：${why}`);
+          blockedReasons.push(why);
+          break;
+        }
         notes.push(`❌ ${step.name || step.action}：${message}`);
         criticalFails.push(message);
         break;
@@ -149,7 +183,9 @@ async function runOneFrontendStep(steps, ctx, options) {
   return {
     diagnostics: [],
     declaredOutcome: null,
-    pass: criticalFails.length === 0,
+    // ⚠️ 受阻時 pass 也是 false——不能讓它一路綠到底；由聚合器分辨兩者。
+    pass: criticalFails.length === 0 && blockedReasons.length === 0,
+    blockedReasons,
     // H5 積木沒有「標成需人工」這種動作（Backend 的 `mark_manual`），
     // 所以這裡永遠是 false——不是漏做，是這套積木裡不存在那個概念。
     manual: false,

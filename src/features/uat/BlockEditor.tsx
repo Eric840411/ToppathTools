@@ -74,7 +74,7 @@ function nudge(tree: AutoStep[], parentId: string | null, id: string, delta: num
  * 一致——不一致的症狀是「畫面沒標紅、按執行才被擋」，或更糟的反過來。
  * 後端才是說了算的那一份；這裡只是提早顯示。
  */
-const TC_REQUIRED_ACTIONS = new Set(['assert_visible', 'assert_api_called', 'find_baseline_scroll', 'screenshot'])
+const TC_REQUIRED_ACTIONS = new Set(['assert_visible', 'assert_api_called', 'find_baseline_scroll', 'screenshot', 'assert_pc_scene', 'assert_pc_node', 'assert_ws_called', 'assert_text', 'assert_compare'])
 export function needsTc(action: string) { return TC_REQUIRED_ACTIONS.has(action) }
 
 function StepList({ items, parentId, selectedId, onSelect, onChange, tree, xianxia, labelFor, tcLabel }: {
@@ -225,8 +225,170 @@ export function BlockEditor({ steps, baselines, snippets, bindings, selectedId, 
             )}
             <label>{xianxia ? '術式類別' : '動作類型'}<select className="uat-field" value={selected.action} onChange={event => updateSelected({ ...createStep(event.target.value), id: selected.id, name: selected.name })}>{STEP_LIBRARY.map(item => <option value={item.action} key={item.action}>{labelFor(item.action)}</option>)}</select></label>
             {selected.action === 'goto' && <label>網址<input className="uat-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder="https://..." /></label>}
-            {['click', 'type', 'assert_visible'].includes(selected.action) && <label>Selector<input className="uat-field uat-code-field" value={selected.selector ?? ''} onChange={event => updateSelected({ selector: event.target.value })} placeholder="#submit 或 [data-testid=...]" /></label>}
+            {['click', 'type', 'assert_visible', 'scroll'].includes(selected.action) && <label>Selector<input className="uat-field uat-code-field" value={selected.selector ?? ''} onChange={event => updateSelected({ selector: event.target.value })} placeholder="#submit 或 [data-testid=...]" /></label>}
+            {selected.action === 'assert_ws_called' && (
+              <>
+                <label>WS route
+                  <input className="uat-field uat-code-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder="dealGMActionReq" />
+                </label>
+                <label>payload 要含（可留空）
+                  <input className="uat-field uat-code-field" value={selected.selector ?? ''} onChange={event => updateSelected({ selector: event.target.value })} placeholder="isspin:1" />
+                  <span className="uat-hint">比對時會去掉引號與空白，所以寫 isspin:1 就好</span>
+                </label>
+                <label>至少幾筆<input className="uat-field" type="number" min="1" value={selected.minCount ?? 1} onChange={event => updateSelected({ minCount: Number(event.target.value) })} /></label>
+              </>
+            )}
+            {['click', 'click_viewport', 'click_xy', 'pc_click_node'].includes(selected.action) && (
+              <label className="uat-checkline">
+                <input type="checkbox" checked={selected.allowDangerous === true} onChange={event => updateSelected({ allowDangerous: event.target.checked })} />
+                允許這個危險操作（預約／帶入額度／充值…）
+                <span className="uat-hint">沒勾的話，腳本跑到會真的預約機台或動到餘額的按鈕時會停下來。放行只對這一顆有效；正式環境一律不放行</span>
+              </label>
+            )}
+            {selected.action === 'read_value' && (
+              <>
+                <label>DOM 選擇器（H5，二選一）
+                  <input className="uat-field uat-code-field" value={selected.selector ?? ''} onChange={event => updateSelected({ selector: event.target.value })} placeholder=".balance-value" />
+                </label>
+                <label>Cocos 節點名／路徑（PC，二選一）
+                  <input className="uat-field uat-code-field" value={selected.nodeName ?? ''} onChange={event => updateSelected({ nodeName: event.target.value })} placeholder="lb_coin" />
+                </label>
+                <label>存成變數名
+                  <input className="uat-field uat-code-field" value={selected.as ?? ''} onChange={event => updateSelected({ as: event.target.value })} placeholder="beforeBalance" />
+                </label>
+                <label className="uat-checkline">
+                  <input type="checkbox" checked={selected.overwrite === true} onChange={event => updateSelected({ overwrite: event.target.checked })} />
+                  允許覆寫同名變數
+                  <span className="uat-hint">預設不允許——同名靜默覆寫會讓後面引用到哪一次讀的值完全看不出來</span>
+                </label>
+              </>
+            )}
+            {selected.action === 'assert_compare' && (
+              <>
+                <label>左邊算式
+                  <input className="uat-field uat-code-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder="beforeBalance - betAmount" />
+                </label>
+                <label>右邊算式
+                  <input className="uat-field uat-code-field" value={selected.expect ?? ''} onChange={event => updateSelected({ expect: event.target.value })} placeholder="afterBalance" />
+                  <span className="uat-hint">支援 + - * / 與括號；變數就是上面「讀成變數」存的名字</span>
+                </label>
+                <label>容差（%）<input className="uat-field" type="number" value={selected.tolerancePct ?? 0} onChange={event => updateSelected({ tolerancePct: Number(event.target.value) })} /></label>
+                <label>絕對容差<input className="uat-field" type="number" value={selected.absoluteTolerance ?? 0} onChange={event => updateSelected({ absoluteTolerance: Number(event.target.value) })} /></label>
+              </>
+            )}
+            {selected.action === 'wait_for' && (
+              <>
+                <label>等什麼
+                  <select className="uat-field" value={selected.until ?? 'visible'} onChange={event => updateSelected({ until: event.target.value as 'visible' | 'hidden' | 'text' | 'node' })}>
+                    <option value="visible">元素出現</option>
+                    <option value="hidden">元素消失（例如 loading 結束）</option>
+                    <option value="text">畫面出現這段文字</option>
+                    <option value="node">PC：場景節點出現</option>
+                  </select>
+                </label>
+                {(selected.until ?? 'visible') !== 'node' && (selected.until ?? 'visible') !== 'text' && (
+                  <label>DOM 選擇器<input className="uat-field uat-code-field" value={selected.selector ?? ''} onChange={event => updateSelected({ selector: event.target.value })} placeholder=".el-table__body tr" /></label>
+                )}
+                {selected.until === 'text' && (
+                  <label>要出現的文字<input className="uat-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder="Success" /></label>
+                )}
+                {selected.until === 'node' && (
+                  <label>Cocos 節點名／路徑<input className="uat-field uat-code-field" value={selected.nodeName ?? ''} onChange={event => updateSelected({ nodeName: event.target.value })} placeholder="btn_spin" /></label>
+                )}
+                <label>最多等幾毫秒
+                  <input className="uat-field" type="number" value={selected.timeoutMs ?? 15000} onChange={event => updateSelected({ timeoutMs: Number(event.target.value) })} />
+                  <span className="uat-hint">等不到就是失敗——不會默默往下跑</span>
+                </label>
+              </>
+            )}
+            {selected.action === 'assert_text' && (
+              <>
+                <label>DOM 選擇器（H5，二選一）
+                  <input className="uat-field uat-code-field" value={selected.selector ?? ''} onChange={event => updateSelected({ selector: event.target.value })} placeholder=".balance-value" />
+                </label>
+                <label>Cocos 節點名／路徑（PC，二選一）
+                  <input className="uat-field uat-code-field" value={selected.nodeName ?? ''} onChange={event => updateSelected({ nodeName: event.target.value })} placeholder="lb_coin" />
+                  <span className="uat-hint">PC 的文字是 label，直接讀得到——不需要 OCR</span>
+                </label>
+                <label>比對方式
+                  <select className="uat-field" value={selected.matchMode ?? 'contains'} onChange={event => updateSelected({ matchMode: event.target.value as 'contains' | 'equals' | 'regex' | 'number' })}>
+                    <option value="contains">包含</option>
+                    <option value="equals">完全相等</option>
+                    <option value="regex">正則</option>
+                    <option value="number">數值比較</option>
+                  </select>
+                </label>
+                <label>期望值
+                  <input className="uat-field uat-code-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder={selected.matchMode === 'number' ? '>=100' : 'Good Fortune'} />
+                  <span className="uat-hint">數值模式可帶比較符號：{'>='}100、{'<'}50、=0；比對前會去掉千分位與貨幣符號</span>
+                </label>
+              </>
+            )}
+            {selected.action === 'require_precondition' && (
+              <>
+                <label>DOM 選擇器（H5，二選一）
+                  <input className="uat-field uat-code-field" value={selected.selector ?? ''} onChange={event => updateSelected({ selector: event.target.value })} placeholder=".lucky-bonus-entry" />
+                </label>
+                <label>Cocos 節點名（PC，二選一）
+                  <input className="uat-field uat-code-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder="btn-activity" />
+                </label>
+                <label>不成立時的說明（必填）
+                  <input className="uat-field" value={selected.reason ?? ''} onChange={event => updateSelected({ reason: event.target.value })} placeholder="Lucky Hour Bonus 活動時段沒開，這條 TC 沒東西可測" />
+                  <span className="uat-hint">⚠️ 若「那個條件」本身就是這條 TC 要驗的東西，就不該用這顆——那是 FAIL 不是受阻</span>
+                </label>
+              </>
+            )}
+            {selected.action === 'press_key' && (
+              <label>按鍵
+                <input className="uat-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder="Space / Enter / ArrowDown" />
+                <span className="uat-hint">會先點一下畫布中央偏上讓焦點回到頁面，再按鍵（Cocos 是掛在 document 上聽鍵盤的）</span>
+              </label>
+            )}
+            {selected.action === 'scroll' && (
+              <label>捲動量
+                <input className="uat-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder="top / bottom / 600（px，負數往上）" />
+                <span className="uat-hint">填了 Selector 又不填這欄＝把那個元素捲進畫面。沒填 Selector 時會自己找真的捲得動的容器（行動版常常不是 window 在捲）</span>
+              </label>
+            )}
+            {selected.action === 'pc_scroll' && (
+              <>
+                <label>捲到哪
+                  <input className="uat-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder="top / bottom / 0.3，或 find:節點名" />
+                </label>
+                <label>清單節點（可留空）
+                  <input className="uat-field uat-code-field" value={selected.selector ?? ''} onChange={event => updateSelected({ selector: event.target.value })} placeholder="ScrollView-jp（排行榜）；留空＝大廳清單" />
+                  <span className="uat-hint">🚨 開著別的頁面時**一定要指定**：不指定會去捲被蓋在底下的大廳清單，然後回報成功——畫面卻沒動</span>
+                </label>
+              </>
+            )}
             {selected.action === 'type' && <label>輸入內容<input className="uat-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} /></label>}
+            {/* PC（Cocos）：沒有 DOM 可選，所以欄位問的是機台與場景，不是 selector */}
+            {['pc_click_node', 'assert_pc_node'].includes(selected.action) && (
+              <label>節點
+                <input className="uat-field uat-code-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder="btn-road（節點名）或 Road（畫面上的字）" />
+                <span className="uat-hint">先比節點名稱、再比標籤文字，**都要完全相等**——模糊比對會點到隔壁那顆按鈕，而畫面上看起來只是「沒反應」</span>
+              </label>
+            )}
+            {selected.action === 'pc_enter_machine' && (
+              <label>機台
+                <input className="uat-field" value={selected.value ?? ''} onChange={event => updateSelected({ value: event.target.value })} placeholder="Rising Rockets（同款挑空的）或 Rising Rockets Emperor-141（指定）" />
+                <span className="uat-hint">只填遊戲名＝讓系統挑一台空的；填完整機台名＝指定那一台（進去後會核對實際進到哪一台）</span>
+              </label>
+            )}
+            {selected.action === 'assert_pc_scene' && (
+              <>
+                <label>預期場景
+                  <select className="uat-field" value={selected.value ?? 'lobby'} onChange={event => updateSelected({ value: event.target.value })}>
+                    <option value="lobby">大廳（lobby）</option>
+                    <option value="game">機台內（game）</option>
+                  </select>
+                </label>
+                <label>機台名稱（可留空）
+                  <input className="uat-field" value={selected.selector ?? ''} onChange={event => updateSelected({ selector: event.target.value })} placeholder="Rising Rockets Emperor-141" />
+                  <span className="uat-hint">填了就會當場從場景樹讀「現在人在哪一台」來核對——實測點座標會點到隔壁機台，不核對看不出來</span>
+                </label>
+              </>
+            )}
             {selected.action === 'backend_snippet' && (
               <>
                 <label>{xianxia ? '後樞術式' : '後台設定片段'}

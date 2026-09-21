@@ -1,0 +1,463 @@
+<title>UAT 積木工作台操作手冊</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+
+<style>
+  /* ── 色票 ───────────────────────────────────────────────────────────
+     取自工具本身的介面：石板綠底、#3fbe8b 主色。中性色刻意帶一點綠偏，
+     純灰看起來會像沒選過。淺色是預設，深色只換 token。 */
+  :root {
+    --ground: #f5f8f6;
+    --surface: #ffffff;
+    --surface-sunk: #eef3f0;
+    --line: #d3e0d9;
+    --line-strong: #b4c8bd;
+    --ink: #16211d;
+    --ink-soft: #4a5b53;
+    --ink-faint: #71857a;
+    --accent: #14795a;
+    --accent-soft: #e2f1ea;
+    --warn: #9a5a12;
+    --warn-soft: #f9eedc;
+    --danger: #a93226;
+    --danger-soft: #fae9e6;
+    --code-bg: #eef3f0;
+    --shadow: 0 1px 2px rgba(22, 33, 29, .06), 0 8px 24px rgba(22, 33, 29, .05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0d1412;
+      --surface: #141d1a;
+      --surface-sunk: #101917;
+      --line: #27352f;
+      --line-strong: #3a4e45;
+      --ink: #e6efea;
+      --ink-soft: #a9bcb3;
+      --ink-faint: #7d9188;
+      --accent: #4fd6a0;
+      --accent-soft: #14312a;
+      --warn: #e0a962;
+      --warn-soft: #2e2519;
+      --danger: #e98b7f;
+      --danger-soft: #2f1b18;
+      --code-bg: #101917;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px rgba(0, 0, 0, .35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0d1412;
+    --surface: #141d1a;
+    --surface-sunk: #101917;
+    --line: #27352f;
+    --line-strong: #3a4e45;
+    --ink: #e6efea;
+    --ink-soft: #a9bcb3;
+    --ink-faint: #7d9188;
+    --accent: #4fd6a0;
+    --accent-soft: #14312a;
+    --warn: #e0a962;
+    --warn-soft: #2e2519;
+    --danger: #e98b7f;
+    --danger-soft: #2f1b18;
+    --code-bg: #101917;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 30px rgba(0, 0, 0, .35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font: 400 16px/1.85 "Noto Sans TC", system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 56px 24px 96px;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+  @media (min-width: 980px) {
+    .wrap { grid-template-columns: 196px minmax(0, 1fr); align-items: start; gap: 56px; }
+    .toc { position: sticky; top: 40px; }
+  }
+
+  /* ── 目錄 ─────────────────────────────────────────────────────── */
+  .toc { font-size: 13px; line-height: 2.1; }
+  .toc h2 {
+    margin: 0 0 10px;
+    font: 600 11px/1.6 "JetBrains Mono", ui-monospace, monospace;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .toc a { display: block; color: var(--ink-soft); text-decoration: none; border-left: 2px solid var(--line); padding-left: 12px; }
+  .toc a:hover, .toc a:focus-visible { color: var(--accent); border-left-color: var(--accent); }
+
+  /* ── 標頭 ─────────────────────────────────────────────────────── */
+  header { margin-bottom: 44px; }
+  .eyebrow {
+    font: 600 11px/1.6 "JetBrains Mono", ui-monospace, monospace;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  h1 {
+    margin: 10px 0 12px;
+    font: 700 clamp(30px, 4.4vw, 42px)/1.25 "Noto Serif TC", Georgia, serif;
+    letter-spacing: -.01em;
+    text-wrap: balance;
+  }
+  .lede { margin: 0; max-width: 62ch; color: var(--ink-soft); font-size: 17px; }
+
+  section { margin-bottom: 52px; scroll-margin-top: 28px; }
+  h2 {
+    margin: 0 0 6px;
+    font: 700 24px/1.4 "Noto Serif TC", Georgia, serif;
+    text-wrap: balance;
+  }
+  h2 .num {
+    font: 600 12px/1 "JetBrains Mono", ui-monospace, monospace;
+    color: var(--accent);
+    letter-spacing: .1em;
+    display: block;
+    margin-bottom: 8px;
+  }
+  h3 { margin: 28px 0 8px; font: 700 16px/1.6 "Noto Sans TC", sans-serif; }
+  p { margin: 0 0 14px; max-width: 68ch; }
+  .sub { color: var(--ink-soft); }
+
+  /* ── 步驟（只有真的有先後順序的地方才編號） ────────────────────── */
+  ol.steps { margin: 18px 0 0; padding: 0; list-style: none; counter-reset: s; }
+  ol.steps > li {
+    counter-increment: s;
+    position: relative;
+    padding: 0 0 22px 46px;
+    border-left: 1px solid var(--line);
+    margin-left: 13px;
+  }
+  ol.steps > li:last-child { border-left-color: transparent; padding-bottom: 0; }
+  ol.steps > li::before {
+    content: counter(s);
+    position: absolute;
+    left: -14px;
+    top: 0;
+    width: 27px; height: 27px;
+    border-radius: 50%;
+    background: var(--surface);
+    border: 1px solid var(--line-strong);
+    color: var(--accent);
+    font: 600 12px/25px "JetBrains Mono", ui-monospace, monospace;
+    text-align: center;
+  }
+  ol.steps strong { display: block; font-weight: 700; }
+  ol.steps p { margin: 2px 0 0; color: var(--ink-soft); font-size: 15px; }
+
+  /* ── 卡片與表格 ──────────────────────────────────────────────── */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 18px 20px;
+    box-shadow: var(--shadow);
+  }
+  .scroll { overflow-x: auto; margin: 18px 0 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 14.5px; min-width: 560px; }
+  th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th {
+    font: 600 11px/1.6 "JetBrains Mono", ui-monospace, monospace;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    background: var(--surface-sunk);
+    white-space: nowrap;
+  }
+  tr:last-child td { border-bottom: none; }
+  td.name { white-space: nowrap; font-weight: 500; }
+
+  code, .mono {
+    font: 400 13.5px/1.7 "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 1px 6px;
+  }
+  td code { white-space: nowrap; }
+
+  /* 判定狀態：用形狀＋顏色一起編碼，只靠顏色的話單色列印就分不出來 */
+  .chip {
+    display: inline-block;
+    font: 600 12px/1 "JetBrains Mono", ui-monospace, monospace;
+    letter-spacing: .04em;
+    padding: 5px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  .chip.pass { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  .chip.fail { background: var(--danger-soft); color: var(--danger); border-color: var(--danger); }
+  .chip.block { background: var(--warn-soft); color: var(--warn); border-color: var(--warn); }
+  .chip.todo { background: var(--surface-sunk); color: var(--ink-faint); border-color: var(--line-strong); }
+
+  .note {
+    border-left: 3px solid var(--warn);
+    background: var(--warn-soft);
+    padding: 14px 18px;
+    border-radius: 0 8px 8px 0;
+    margin: 18px 0 0;
+    font-size: 15px;
+  }
+  .note strong { color: var(--warn); }
+  .note.danger { border-left-color: var(--danger); background: var(--danger-soft); }
+  .note.danger strong { color: var(--danger); }
+
+  ul.plain { margin: 12px 0 0; padding-left: 20px; }
+  ul.plain li { margin-bottom: 8px; }
+
+  /* 疑難排解：症狀用等寬字，跟解法分開 */
+  .qa { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 16px; }
+  .qa:first-of-type { border-top: none; padding-top: 0; margin-top: 18px; }
+  .qa .symptom {
+    font: 600 14px/1.7 "JetBrains Mono", ui-monospace, monospace;
+    color: var(--ink);
+    margin: 0 0 6px;
+  }
+  .qa p { margin: 0; color: var(--ink-soft); font-size: 15px; }
+
+  footer {
+    margin-top: 64px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    color: var(--ink-faint);
+    font-size: 13.5px;
+  }
+  a { color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 3px; }
+</style>
+
+<div class="wrap">
+  <nav class="toc" aria-label="章節">
+    <h2>Contents</h2>
+    <a href="#what">這是什麼</a>
+    <a href="#run">跑一支現成腳本</a>
+    <a href="#record">錄一支新腳本</a>
+    <a href="#blocks">積木速查</a>
+    <a href="#danger">危險操作</a>
+    <a href="#verdict">判定規則</a>
+    <a href="#trouble">卡住了</a>
+  </nav>
+
+  <main>
+    <header>
+      <span class="eyebrow">Toppath Tools · OSM</span>
+      <h1>UAT 積木工作台操作手冊</h1>
+      <p class="lede">把一次手動測試錄成積木，之後每次都用同一組步驟重跑，跑完依 Lark 上的 TC 逐筆判定並回寫。這頁只回答四件事：怎麼跑、怎麼錄、結果為什麼是那個顏色、卡住怎麼辦。</p>
+    </header>
+
+    <section id="what">
+      <h2><span class="num">01</span>這是什麼</h2>
+      <p>工具在 <code>OSM Tools → UAT 整合測試</code>。上方三個分頁是三條互不相干的線，腳本不能互換：</p>
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr><th>分頁</th><th>測什麼</th><th>怎麼指東西</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="name">Backend</td><td>CP／NC 後台管理站</td><td>DOM 選擇器</td></tr>
+            <tr><td class="name">H5</td><td>手機版遊戲大廳（Vue 網頁）</td><td>DOM 選擇器</td></tr>
+            <tr><td class="name">PC</td><td>桌機版（Cocos 畫布）</td><td>場景樹節點名稱或路徑</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note">
+        <strong>PC 沒有 DOM。</strong>整個畫面是一張 <code>&lt;canvas&gt;</code>，所以「驗證可見」這類選擇器積木在 PC 上永遠命中 0——不是選擇器寫錯。PC 要用場景／節點類的積木。
+      </div>
+    </section>
+
+    <section id="run">
+      <h2><span class="num">02</span>跑一支現成腳本</h2>
+      <p class="sub">頁面上方的 ①②③ 導引會顯示還缺什麼，<strong>點它就會跳到該填的地方</strong>。</p>
+      <ol class="steps">
+        <li><strong>左邊清單點一支腳本</strong>
+          <p>卡片上寫著誰建的、幾顆積木、綁了幾筆 TC、上次跑的結果與時間。</p></li>
+        <li><strong>右邊「執行設定」填目標網址</strong>
+          <p>就是那支腳本要跑的站台網址（含 token 的完整網址）。解析度照預設即可，PC 用 1366×768 以上。</p></li>
+        <li><strong>確認跑在哪台機器</strong>
+          <p>最上面那條狀態列。Local Agent 會實際開瀏覽器；沒有可派工的機器時按鈕會是灰的。</p></li>
+        <li><strong>按「執行所選腳本」</strong>
+          <p>下方「即時執行日誌」會逐步顯示。要一次跑多支就勾選多份，再按「依序執行勾選的腳本」。</p></li>
+      </ol>
+      <div class="note">
+        <strong>佇列一次只跑一份。</strong>中途失敗或取消時，後面的會全部標成「取消」，不是留在等待中——看到一排取消不代表它們待會兒還會跑。
+      </div>
+    </section>
+
+    <section id="record">
+      <h2><span class="num">03</span>錄一支新腳本</h2>
+      <ol class="steps">
+        <li><strong>按「錄製新腳本」</strong>
+          <p>（旁邊的「手動新增腳本」是另一件事：從空白自己拉積木，不會開瀏覽器。）</p></li>
+        <li><strong>在開起來的瀏覽器裡照平常操作一次</strong>
+          <p>點擊、輸入、捲動都會被錄成積木。右上角那個小面板是錄製控制，可以暫停／停止。</p></li>
+        <li><strong>要驗什麼，就開「加檢查」點它</strong>
+          <p>檢查模式下點畫面上的東西＝加一顆斷言，<strong>而且不會觸發原本的操作</strong>（點「Reserve Now」只會加一顆「這顆在」的檢查，不會真的去預約）。</p></li>
+        <li><strong>停止錄製，回工作台綁 Lark TC</strong>
+          <p>在「執行設定」貼上 Lark 表格網址 → 掃描 → 勾選這支要對應的 TC。每一顆檢查積木都要指定屬於哪一筆 TC。</p></li>
+        <li><strong>先試跑一次再交出去</strong>
+          <p>錄得起來不等於重播跑得過：畫面可能捲到不同位置、彈窗可能沒出現。</p></li>
+      </ol>
+      <div class="note">
+        <strong>沒綁 TC 也能跑</strong>，只是不會回寫 Lark。清單上顯示「綁 0 TC」不代表腳本壞了。
+      </div>
+    </section>
+
+    <section id="blocks">
+      <h2><span class="num">04</span>積木速查</h2>
+      <p>積木分三種用途。<strong>只有「檢查類」會算成判定依據</strong>——一支腳本若一顆檢查都沒有，結果不會是 PASS。</p>
+
+      <h3>操作類</h3>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>積木</th><th>做什麼</th><th>適用</th></tr></thead>
+          <tbody>
+            <tr><td class="name">前往頁面</td><td>開網址（留空＝用執行設定那一欄）</td><td>全部</td></tr>
+            <tr><td class="name">點擊元素</td><td>用選擇器點</td><td>Backend／H5</td></tr>
+            <tr><td class="name">輸入文字</td><td>填欄位</td><td>Backend／H5</td></tr>
+            <tr><td class="name">捲動畫面</td><td><code>top</code>／<code>bottom</code>／px，或把某個元素捲進畫面</td><td>Backend／H5</td></tr>
+            <tr><td class="name">按鍵盤</td><td><code>Space</code>／<code>Enter</code>／方向鍵（PC 的 SPIN 就靠這個）</td><td>全部</td></tr>
+            <tr><td class="name">PC 進機台</td><td>等大廳就緒、挑一台可用的機台進去</td><td>PC</td></tr>
+            <tr><td class="name">PC 點節點</td><td>點場景樹裡的節點；在清單裡會自動先捲進畫面</td><td>PC</td></tr>
+            <tr><td class="name">PC 捲動清單</td><td>把指定的清單捲到某個位置</td><td>PC</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>檢查類</h3>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>積木</th><th>驗什麼</th><th>適用</th></tr></thead>
+          <tbody>
+            <tr><td class="name">驗證可見</td><td>元素有出現在畫面上</td><td>Backend／H5</td></tr>
+            <tr><td class="name">驗文字／數字</td><td>畫面上的字或數值。PC 讀 Cocos label，<strong>不是 OCR</strong>；數值模式可寫 <code>&gt;=100</code>、<code>&lt;50</code></td><td>全部</td></tr>
+            <tr><td class="name">這個 WS 訊息必須送出</td><td>下注這類動作真的送到 server（OSM 業務走 WS，HTTP 驗不到）</td><td>H5／PC</td></tr>
+            <tr><td class="name">這支 API 必須被呼叫</td><td>後端 API 有被打到、狀態碼符合</td><td>Backend／H5</td></tr>
+            <tr><td class="name">PC 場景／PC 節點</td><td>現在在哪個場景、某個節點在不在</td><td>PC</td></tr>
+            <tr><td class="name">尋找基準圖</td><td>框選的圖在畫面上找得到（像素比對）</td><td>全部</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>流程類</h3>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>積木</th><th>做什麼</th></tr></thead>
+          <tbody>
+            <tr><td class="name">等待</td><td>停幾毫秒</td></tr>
+            <tr><td class="name">截圖</td><td>存證據，回寫時一起上傳到 Lark</td></tr>
+            <tr><td class="name">前置條件</td><td>環境沒備好就把這筆 TC 判「受阻」，見下一節</td></tr>
+            <tr><td class="name">後台設定</td><td>中途跑一段後台設定（例如把某個開關打開）再回前台</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note">
+        <strong>WS 斷言要注意方向。</strong><code>send:</code> 只證明「送出去了」，不代表 server 接受；要驗成功請再加一顆 <code>recv:</code> 或驗畫面狀態。
+      </div>
+    </section>
+
+    <section id="danger">
+      <h2><span class="num">05</span>會造成真實副作用的操作</h2>
+      <p>這套工具跑在共用的 QA 環境上。下面這些按鈕按下去不是「畫面變一下」：</p>
+      <ul class="plain">
+        <li><strong>Reserve Now</strong>──把機台鎖 24 小時，別人進不去</li>
+        <li><strong>帶入額度／Join／PLAY NOW</strong>──動到餘額，而且佔住位子</li>
+        <li><strong>充值面板的 Confirm</strong>──真的轉錢</li>
+        <li><strong>Cash Out</strong>──把機台裡的錢收回，結束那一輪</li>
+      </ul>
+      <p style="margin-top:14px">所以有一道守衛，<strong>擋在動作發生之前</strong>：</p>
+      <ul class="plain">
+        <li><strong>錄製時</strong>：第一下會被擋下來問你。按確定後 15 秒內<strong>再按一次</strong>才會真的執行（不會幫你補按，因為「以為按下去了其實沒有」更糟）。</li>
+        <li><strong>執行時</strong>：積木上沒有勾「允許這個危險操作」就會停下來並說明原因。放行<strong>只對那一顆積木有效</strong>，不是整輪的開關。</li>
+      </ul>
+      <div class="note danger">
+        <strong>正式環境一律不放行。</strong>網址看起來是正式（或模擬正式）站台時，連勾了「允許」也會被擋。判斷寧可從嚴——認不出來的網址一律當成正式。
+      </div>
+    </section>
+
+    <section id="verdict">
+      <h2><span class="num">06</span>結果為什麼是這個</h2>
+      <p>每一筆 TC 各自判定，同一支腳本裡一筆失敗不會拖累其他筆。</p>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>判定</th><th>什麼情況</th><th>Lark 上會變成</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="name"><span class="chip pass">PASS</span></td>
+              <td>這筆 TC 底下的檢查<strong>至少有一顆</strong>，而且全部通過</td>
+              <td>勾 PASS，填通過時間，附截圖</td>
+            </tr>
+            <tr>
+              <td class="name"><span class="chip fail">FAIL</span></td>
+              <td>有檢查失敗，或有步驟執行不下去</td>
+              <td>勾 FAIL，附截圖</td>
+            </tr>
+            <tr>
+              <td class="name"><span class="chip block">受阻</span></td>
+              <td>「前置條件」積木判定環境不具備（活動沒開、沒有第二台空機…）——<strong>沒測到，不是壞掉</strong></td>
+              <td>兩個框都不勾，報告寫明缺什麼</td>
+            </tr>
+            <tr>
+              <td class="name"><span class="chip todo">待確認</span></td>
+              <td>一顆有效檢查都沒有（例如只截圖），或有警告級項目</td>
+              <td>兩個框都不勾</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note">
+        <strong>「受阻」和「待確認」在 Lark 上長得一樣</strong>（兩個框都不打勾），差別在報告裡的說明文字。要分辨請看執行結果那段敘述。
+      </div>
+      <p style="margin-top:16px">兩條容易被誤解的規則：<strong>只截圖不算檢查</strong>（會是待確認，不是 PASS）；<strong>同一筆 TC 裡真失敗與受阻同時發生時報 FAIL</strong>——受阻是「沒測到」，硬失敗是「測到了而且壞了」。</p>
+    </section>
+
+    <section id="trouble">
+      <h2><span class="num">07</span>卡住了</h2>
+
+      <div class="qa">
+        <p class="symptom">錄的時候好好的，重播說找不到元素</p>
+        <p>多半是捲動：錄的時候你往下捲過，重播時畫面停在最上面，那顆按鈕在視窗外（有些元素甚至是捲下去才生出來的）。加一顆捲動積木，或用「把元素捲進畫面」。</p>
+      </div>
+
+      <div class="qa">
+        <p class="symptom">PC：點了沒反應／說位置在視窗外</p>
+        <p>先確認解析度夠大（1366×768 以上）。清單裡的節點會自動先捲進畫面再點；若仍在畫面外，通常是該頁根本沒開，或節點名打錯。</p>
+      </div>
+
+      <div class="qa">
+        <p class="symptom">PC：點擊被中獎彈窗吃掉</p>
+        <p>大廳的 WIN THE JACKPOT 之類是畫在畫布上的節點，會攔截整個畫面的點擊。執行引擎全程會盯著關掉它們，日誌會寫「關掉 N 個彈窗節點」。</p>
+      </div>
+
+      <div class="qa">
+        <p class="symptom">跑完了，Lark 沒有任何變化</p>
+        <p>三種可能：沒綁 TC（不回寫）；那筆 TC 底下沒有任何檢查（判待確認，兩個框都不勾，看起來像沒動）；回寫失敗——日誌會明寫，不會默默跳過。</p>
+      </div>
+
+      <div class="qa">
+        <p class="symptom">執行時說「不支援的動作」</p>
+        <p>伺服器或 Local Agent 還在跑舊版。腳本用了新積木、執行端不認得，就會明確失敗（不會假裝跑過）。請重啟服務或更新 Agent。</p>
+      </div>
+
+      <div class="qa">
+        <p class="symptom">腳本存起來卻顯示 0 區塊</p>
+        <p>舊版在用區網 IP（<code>http://192.168.x.x</code>）開啟時會發生，因為瀏覽器只在安全情境提供產生識別碼的 API。現已修正；若還遇到，改用 <code>localhost</code> 或 https 開，並回報。</p>
+      </div>
+    </section>
+
+    <footer>
+      Toppath Tools · UAT 積木工作台 ｜ 本頁描述的是目前線上版本的行為；介面或規則有變動時請一併更新這份手冊。
+    </footer>
+  </main>
+</div>

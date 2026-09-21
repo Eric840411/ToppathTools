@@ -22,6 +22,10 @@ import { agentConnections, uatAgentSessions, uatRunSessions, UAT_CONSOLE_KEEP, t
 import { getAuthEmailFromContext } from '../request-context.js'
 import { getBackendSnippet } from '../uat-backend-snippets.js'
 import { compileFrontendSteps, runFrontendStep } from '../uat-runner/frontend-engine.js'
+// H5 跑完要退出機台、把位子放掉（agent 端跑的是同一支）
+import { h5BackToLobby, h5InGame } from '../uat-runner/h5-seat.js'
+// PC（Cocos）積木要的那包能力。⚠️ 只有一份，agent 端注入的是同一個物件
+import { pcEngineCapabilities, pcSceneName, pcBackToLobby } from '../lib/pc-cocos.js'
 // ⚠️ TC 聚合與回寫**跟 Backend 共用同一份**（`multi-tc.js`／`lark-writeback.js`）。
 //    「什麼算通過」「那一列要寫什麼」各寫一份的話一定會漂，而症狀是安靜的。
 import { runMultiTcSteps, publishMultiTcResults, validateMultiTcScript } from '../uat-runner/multi-tc.js'
@@ -1990,7 +1994,19 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
       } else {
         browser = await pw.chromium.launch({
           headless: true,
-          args: ['--force-device-scale-factor=1'],
+          /**
+           * ⚠️ **PC（Cocos）要多帶兩個顯示卡參數**，跟 `agent-runner.ts` 的 `PC_BROWSER_ARGS` 一樣。
+           *    PC 版整個畫面是 WebGL 畫的；少了它們在沒有 GPU 的環境下會退到一條
+           *    「大廳看起來載出來了、卡片卻是黑的」的路——**點下去完全沒反應**，
+           *    而錯誤訊息只會寫「點了 (x, y) 但還停在大廳」，看起來像座標算錯或機台被佔用。
+           *    實測：同一份腳本在有帶參數的瀏覽器裡進得了機台，這裡（沒帶）一直進不去。
+           *
+           * ⚠️ 只加最保守的兩個。`--use-gl=angle --use-angle=swiftshader` 在某些機器會讓
+           *    GPU process 直接掛掉，症狀是「連 evaluate 都問不到」——比沒有 WebGL 更難查。
+           */
+          args: platform === 'pc'
+            ? ['--force-device-scale-factor=1', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist']
+            : ['--force-device-scale-factor=1'],
         })
       }
       await log('✅ 瀏覽器已啟動')
@@ -2048,6 +2064,11 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
         startUrl,
         viewportHeight: h,
         backend: backendCreds,
+        // PC（Cocos）積木的能力。⚠️ 跟 agent 端注入的是同一個物件（只有一份）
+        pc: pcEngineCapabilities,
+        // WS(pinus)斷言要用的擷取器。⚠️ OSM 的業務幾乎全走 WS，HTTP 那邊只有遙測——
+        //    沒帶這個的話 `assert_ws_called` 會明確失敗（不會靜默跳過）
+        pinus: pinusProbe,
         // 基準圖：伺服器端讀 DB ＋ 本機檔案
         loadBaseline: async (target: StepObj) => {
           const row = target.baselineId
@@ -2167,6 +2188,26 @@ router.post('/api/frontend-auto/runs/:id/execute', async (req, res) => {
         }
         if (!activeRuns.has(runId)) break
       }
+      }
+
+      /**
+       * 🚨 **跑完要把位子讓出來**——跟 agent 端同一段，理由見 `uat-runner/h5-seat.js`。
+       *    ⚠️ 兩邊都要有。只修一邊的話會變成「派給 agent 跑會收尾、伺服器端跑不會」，
+       *    而這種差異只有在下一輪莫名其妙失敗時才會浮出來。
+       */
+      if (h5InGame(page)) {
+        const back = await h5BackToLobby(page, { log })
+        await log(`${back.ok ? '🚪' : '⚠️'} 收尾：${back.ok ? '已退出機台、位子放掉' : '退出失敗，位子可能還佔著（下一輪可能會直接掉回機台）'}：${back.steps.join(' → ') || '(沒點到任何按鈕)'}`)
+      }
+      /**
+       * 🚨 **PC 也要收尾**，而且是 2026-09-19 實測踩到才補的：
+       *    前一輪 `pc_enter_machine` 進了機台沒退出 → 下一輪一載入就直接在 `game` 場景 →
+       *    「驗大廳」當場 FAIL，而那筆 TC 被寫成失敗（Lark 上的「載入圖」就這樣被誤判一次）。
+       *    跟 H5 完全同一類問題，只是 `h5InGame()` 只認 H5 的網址，管不到 PC。
+       */
+      if (platform === 'pc' && await pcSceneName(page).catch(() => '') === 'game') {
+        const back = await pcBackToLobby(page)
+        await log(`${back.ok ? '🚪' : '⚠️'} PC 收尾：${back.ok ? '已退出機台、位子放掉' : `退出失敗（場景=${back.scene}）`}：${back.steps.join(' → ') || '(沒點到任何按鈕)'}`)
       }
 
       const result = failed > 0 ? 'fail' : 'pass'

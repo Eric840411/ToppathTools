@@ -19,6 +19,8 @@ export async function queueRequest(url: string, body?: unknown) {
 
 export async function runRecordedQueue(entries: QueueEntry[], options: {
   agentId: string; dryRun: boolean; cancelled: () => boolean;
+  /** 後台站台（cp／nc）。⚠️ 要跟錄製時選的同一個 */
+  site?: 'cp' | 'nc';
   update: (index: number, patch: Partial<QueueEntry>) => void;
   started: () => void;
   request?: typeof queueRequest; pause?: () => Promise<void>
@@ -26,7 +28,7 @@ export async function runRecordedQueue(entries: QueueEntry[], options: {
   const request = options.request || queueRequest
   await runScriptQueue<MultiResult>(entries, {
     start: async entry => {
-      const started = await request('/api/osm-uat/run', { recordedScriptId: entry.id, agentId: options.agentId || undefined, dryRun: options.dryRun })
+      const started = await request('/api/osm-uat/run', { recordedScriptId: entry.id, agentId: options.agentId || undefined, dryRun: options.dryRun, site: options.site ?? 'cp' })
       return { sessionId: started.sessionId }
     },
     status: async () => {

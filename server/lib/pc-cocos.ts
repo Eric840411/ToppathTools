@@ -25,6 +25,7 @@
  * ⚠️ 這裡的函式都跑在瀏覽器 context（`page.evaluate`），所以不能引用外面的變數。
  */
 import type { Page } from 'playwright'
+import { pcResolveNodeId, pcScrollNodeIntoView } from '../uat-runner/pc-node-hittest.js'
 
 export interface PcMachine {
   /** 畫面上的名稱，例如 `Leprechaun-NCH1505`（跟 H5 的 `.grid-item-name` 同格式） */
@@ -203,7 +204,14 @@ export async function pcClosePopups(page: Page): Promise<number> {
     for (const n of all) {
       const name = String(n.name ?? '')
       // ⚠️ 只關「整塊蓋住畫面」的那幾類。`btn_jackpot` 這種是大廳常駐按鈕，關掉會讓畫面缺東西
-      if (!/^(jackpot|winner|advert|advertview|ad_bg|ad-sp|notice_view|notice_bg|jackpotboard|eff_jackpot)/i.test(name)) continue
+      //
+      // 🚨 `handpay_reward` 是 2026-09-19 補的：那張「WIN THE JACKPOT ₱13.50」中獎彈窗
+      //    就是它，而它**不在原本的名單裡**——於是 `pcClosePopups` 回報「關掉 0 個」、
+      //    畫面上那張卻一直在，大廳的點擊被它底下的 `eff_zhongjiang`（979×1626，比畫布還大）
+      //    整個吃掉。症狀是進機台「點了 (x, y) 但還停在大廳」，看起來像座標算錯。
+      //    找它的方法：**不要猜名字**，用「面積大 + 位置在畫面中央 + activeInHierarchy」去撈
+      //    （`luck_box` 這種名字看起來很像卻是右下角的寶箱按鈕，145×141，關掉會弄壞大廳）。
+      if (!/^(jackpot|winner|advert|advertview|ad_bg|ad-sp|notice_view|notice_bg|jackpotboard|eff_jackpot|handpay_reward)/i.test(name)) continue
       if (n.active) { n.active = false; closed++ }
     }
     return closed
@@ -229,11 +237,23 @@ export async function pcClosePopups(page: Page): Promise<number> {
  *    實測：0 秒瞬跳整輪只撈到 29 台；改成 0.25 秒動畫，同樣的捲法撈到 695 台。
  *    看起來像「這個做法沒用」，其實只差這個參數。
  */
-async function pcScrollToFraction(page: Page, frac: number): Promise<string> {
-  return page.evaluate((f: number) => {
+/**
+ * 把某個 ScrollView 捲到整份清單的某個比例位置。
+ *
+ * @param target 指定要捲哪一個 ScrollView（節點名，例如排行榜頁的 `ScrollView-jp`）。
+ *   不給就照舊找大廳的 `ScrollView-gms`。
+ *
+ * 🚨 **一定要回報「捲動前後的位置」。**
+ *    實測 2026-09-19：排行榜頁開著時呼叫這支，它照樣去捲**被蓋在底下的大廳清單**，
+ *    然後回報成功——畫面上什麼都沒變，積木卻綠燈。那是最糟的一種假通過。
+ *    呼叫端拿 before/after 一比就知道有沒有真的捲到東西。
+ */
+export async function pcScrollToFraction(page: Page, frac: number, target?: string): Promise<{ status: string; sv: string; before: number; after: number }> {
+  return page.evaluate(({ f, target }: { f: number; target?: string }) => {
     interface N { name?: string; children?: N[]; components?: Array<Record<string, unknown>> }
+    const fail = (status: string) => ({ status, sv: '', before: 0, after: 0 })
     const cc = (window as unknown as { cc?: { director: { getScene: () => N } } }).cc
-    if (!cc) return 'no-cc'
+    if (!cc) return fail('no-cc')
     const all: N[] = []
     const walk = (n: N | null | undefined, d: number) => { if (!n || d > 16) return; all.push(n); for (const c of (n.children ?? [])) walk(c, d + 1) }
     walk(cc.director.getScene(), 0)
@@ -245,8 +265,13 @@ async function pcScrollToFraction(page: Page, frac: number): Promise<string> {
     }
     // 先照名字找；找不到才退而求其次找「捲得動的直向 ScrollView」——名字是會改的
     let sv = null as ReturnType<typeof svOf>
-    const named = all.find(n => String(n.name ?? '') === 'ScrollView-gms')
-    if (named) sv = svOf(named)
+    let svName = ''
+    // ⚠️ 指定了就**只找那一個**，找不到要明確失敗——不要默默去捲大廳那個，
+    //    那正是「回報成功但畫面沒動」的來源
+    const wantName = target || 'ScrollView-gms'
+    const named = all.find(n => String(n.name ?? '') === wantName)
+    if (named) { sv = svOf(named); svName = wantName }
+    if (target && !sv) return fail('no-target')
     if (!sv) {
       for (const n of all) {
         const c = svOf(n)
@@ -255,11 +280,12 @@ async function pcScrollToFraction(page: Page, frac: number): Promise<string> {
         if (max && max.y > 1000) { sv = c; break }
       }
     }
-    if (!sv) return 'no-sv'
+    if (!sv) return fail('no-sv')
     const max = (sv.getMaxScrollOffset as () => { x: number; y: number })()
+    const offBefore = (sv.getScrollOffset as () => { x: number; y: number })?.() ?? { x: 0, y: 0 }
     ;(sv.scrollToOffset as (p: { x: number; y: number }, t: number) => void)({ x: 0, y: max.y * f }, 0.25)
-    return 'ok'
-  }, frac).catch(() => 'err')
+    return { status: 'ok', sv: svName || '(自動挑的)', before: Math.round(offBefore.y), after: Math.round(max.y * f) }
+  }, { f: frac, target }).catch(() => ({ status: 'err', sv: '', before: 0, after: 0 }))
 }
 
 export async function pcCollectMachines(
@@ -282,7 +308,7 @@ export async function pcCollectMachines(
    *    實測：0 秒瞬跳整輪只撈到 29 台；改成 0.25 秒動畫，同樣的捲法撈到 695 台。
    *    看起來像「這個做法沒用」，其實只差這個參數。
    */
-  const scrollTo = (frac: number) => pcScrollToFraction(page, frac)
+  const scrollTo = (frac: number) => pcScrollToFraction(page, frac).then(r => r.status)
 
   await collect()
   let scrolls = 0
@@ -612,6 +638,199 @@ export async function pcEnterMachine(
  * ⚠️ **點 `menu_back` 不會直接離開**，會先跳一個 `confirm` 視窗，要再點 `box_sure`。
  *    只點第一下的話畫面完全沒變化，很容易誤判成「這顆按鈕沒作用」。
  */
+/**
+ * 場景樹裡找一個節點：**先比節點名稱，再比標籤文字**，兩者都要求完全相等。
+ *
+ * ⚠️ **不做模糊比對。** 機台內同時有 `btn-road`／`btn-rank`／`btn-favorite`…，
+ *    模糊比對會點到隔壁那顆，而畫面上看起來「就是沒反應」，完全查不出來。
+ *    （大廳退出那段也是同樣的理由用完全相等——`Reserve Now` 絕對不能誤點。）
+ *
+ * 回傳的是**畫面座標**（已換算好），呼叫端可以直接點；不在畫面上時回 `null`。
+ */
+export async function pcFindNode(
+  page: Page, want: string,
+): Promise<{ found: boolean; name: string; label: string; x: number; y: number; inViewport: boolean } | null> {
+  /**
+   * 路徑形式（`ScrollView-gms>view>content>bwjl>game-name`）交給反查器解析。
+   *
+   * 🚨 **為什麼要有路徑**：實測大廳裡叫 `content` 的可見節點有 **22 顆**、
+   *    每張遊戲卡的標題都叫 `game-name`。只比名字的話會拿到第一顆——
+   *    點下去畫面會有反應（真的進了某一款遊戲），只是**不是你要的那一款**。
+   *    錄製器對重名節點錄的就是這種路徑。
+   */
+  if (want.includes('>')) {
+    const viaPath = await pcResolveNodeId(page, want)
+    if (!viaPath) return null
+    return { found: true, name: viaPath.name, label: viaPath.label, x: viaPath.x, y: viaPath.y, inViewport: viaPath.inViewport }
+  }
+  return page.evaluate((target: string) => {
+    interface N {
+      name?: string; activeInHierarchy?: boolean; children?: N[]
+      worldPosition?: { x: number; y: number }
+      components?: Array<{ string?: string }>
+    }
+    const cc = (window as unknown as { cc?: { director: { getScene: () => N }; view: { getVisibleSize?: () => { width: number; height: number } } } }).cc
+    if (!cc) return null
+    const all: N[] = []
+    const walk = (n: N | null | undefined, d: number) => { if (!n || d > 18) return; all.push(n); for (const c of (n.children ?? [])) walk(c, d + 1) }
+    walk(cc.director.getScene(), 0)
+    const labelOf = (n: N) => {
+      for (const c of (n.components ?? [])) if (typeof c.string === 'string' && c.string.trim()) return c.string.trim()
+      return ''
+    }
+    const visible = (n: N) => n.activeInHierarchy !== false && !!n.worldPosition
+    // ① 節點名稱完全相等（最穩：`btn-road` 這種是程式寫死的）
+    let hit = all.find(n => visible(n) && String(n.name ?? '') === target)
+    // ② 退而求其次：標籤文字完全相等（`Road`／`Favorite` 這種畫面上看得到的字）
+    //    ⚠️ 標籤常常掛在按鈕的**子節點**上（`tip` 之類），所以座標要取它的父節點
+    let viaLabel = false
+    if (!hit) {
+      hit = all.find(n => visible(n) && labelOf(n) === target)
+      viaLabel = !!hit
+    }
+    if (!hit?.worldPosition) return null
+    const canvas = document.querySelector('canvas')
+    if (!canvas) return null
+    const rect = canvas.getBoundingClientRect()
+    const vis = cc.view.getVisibleSize?.() ?? { width: rect.width, height: rect.height }
+    const x = Math.round(rect.left + (hit.worldPosition.x / vis.width) * rect.width)
+    const y = Math.round(rect.top + rect.height - (hit.worldPosition.y / vis.height) * rect.height)
+    return {
+      found: true,
+      name: String(hit.name ?? ''),
+      label: labelOf(hit) || (viaLabel ? target : ''),
+      x, y,
+      inViewport: x >= 0 && x <= window.innerWidth && y >= 0 && y <= window.innerHeight,
+    }
+  }, want).catch(() => null)
+}
+
+/**
+ * 點場景樹裡的某個節點（依名稱或標籤）。
+ *
+ * ⚠️ 找不到、或算出來的點在視窗外，都要**明確失敗**——不要退而求其次點別的地方。
+ *    座標誤點在 Cocos 上完全看不出來（畫面沒有任何變化），是最難查的那種錯。
+ */
+export async function pcClickNode(page: Page, want: string): Promise<{ ok: boolean; reason?: string; at?: { x: number; y: number }; name?: string; scrolled?: boolean }> {
+  let node = await pcFindNode(page, want)
+  if (!node) return { ok: false, reason: `場景樹裡找不到「${want}」（名稱與標籤都比過了）` }
+  /**
+   * 在視窗外時**先試著捲過去**再說。
+   *
+   * 🚨 實測 2026-09-20：同一個識別字，錄製當下在畫面上、重播時清單停在別的位置，
+   *    算出來是 y = -93。這不是找錯節點，是**清單裡的東西位置本來就會動**——
+   *    直接判失敗的話，清單裡的任何東西都不能重播。
+   * ⚠️ 捲完要**重新解析座標**：捲動改變的正是位置，沿用捲之前那組數字會點在空白處。
+   */
+  let scrolled = false
+  if (!node.inViewport) {
+    const moved = await pcScrollNodeIntoView(page, want)
+    if (moved?.ok) {
+      scrolled = true
+      node = await pcFindNode(page, want)
+      if (!node) return { ok: false, reason: `捲動之後反而找不到「${want}」了` }
+    }
+  }
+  if (!node.inViewport) {
+    return { ok: false, reason: `「${want}」算出來的位置 (${node.x}, ${node.y}) 在視窗外，點不到`
+      + `${scrolled ? '（已經試過把清單捲過去，還是在畫面外）' : '——它不在任何清單裡，多半是視窗太小'}` }
+  }
+  await page.mouse.click(node.x, node.y)
+  return { ok: true, at: { x: node.x, y: node.y }, name: node.name, scrolled }
+}
+
+/**
+ * 積木引擎（`uat-runner/frontend-engine.js`）要的那一包 PC 能力。
+ *
+ * ⚠️ **只有這一份，兩個 host 都用它。** 引擎是純 JS、會被 node 直接跑（測試與 agent），
+ *    所以它**不能** `import` 這支 TypeScript——會在載入當下 `ERR_MODULE_NOT_FOUND`
+ *    把整支引擎（含 H5 那條線）一起拖垮（實際踩過）。因此走 `ctx.pc` 由 host 注入。
+ *
+ * ⚠️ 兩個 host 各自組一份的話遲早會漂——這個檔案開頭那三段「兩份就會漂」的教訓
+ *    就是這樣來的。要加能力請加在這裡。
+ */
+/**
+ * 整段期間盯著關彈窗（PC 版）。
+ *
+ * 🚨 **關一次不夠。** 實測 2026-09-19：進機台前關過一輪、點下去卻還是停在大廳——
+ *    截圖顯示點擊當下畫面中央又有一張「WIN THE JACKPOT」。它是畫在 canvas 上的節點，
+ *    **會把整個畫面的點擊吃掉**，而錯誤訊息只寫「點了 (x, y) 但還停在大廳」，
+ *    看起來像座標算錯或機台被佔用。只要有人中獎就會再播一張，所以要全程盯著。
+ *    （H5 那邊同樣的問題已經有 `startLobbyPopupWatcher`，PC 一直沒有。）
+ *
+ * ⚠️ 關掉幾個要能報出來。默默關掉的話，萬一哪天有 TC 就是要驗「彈窗會出現」，
+ *    症狀會變成「那個 TC 永遠失敗而且看不出為什麼」。
+ *
+ * @returns 停止函式（一定要在 finally 裡呼叫，否則頁面關掉後還在戳它）
+ */
+export function startPcPopupWatcher(
+  page: Page, opts: { intervalMs?: number; onClose?: (closed: number) => void } = {},
+): () => void {
+  let stopped = false
+  const timer = setInterval(() => {
+    if (stopped) return
+    // ⚠️ 進機台的瞬間頁面在換場景，evaluate 可能整個失敗——吞掉就好，不要讓看門狗把執行弄掛
+    void pcClosePopups(page).then(n => { if (n > 0) opts.onClose?.(n) }).catch(() => { /* 換場景中 */ })
+  }, opts.intervalMs ?? 1500)
+  return () => { stopped = true; clearInterval(timer) }
+}
+
+export const pcEngineCapabilities = {
+  installEvalShim: pcInstallEvalShim,
+  waitLobby: pcWaitLobby,
+  describeLobby: describePcLobby,
+  closePopups: pcClosePopups,
+  startPopupWatcher: startPcPopupWatcher,
+  seekMachine: pcSeekMachine,
+  collectMachines: pcCollectMachines,
+  enterMachine: pcEnterMachine,
+  sceneName: pcSceneName,
+  inGameMachineName: pcInGameMachineName,
+  scanLobby: pcScanLobby,
+  findNode: pcFindNode,
+  clickNode: pcClickNode,
+  scrollToFraction: pcScrollToFraction,
+  backToLobby: pcBackToLobby,
+}
+
+/** 大廳沒就緒時，下一步該做什麼。 */
+export type PcLobbyAction = 'ready' | 'reload' | 'leave-machine' | 'give-up'
+
+/**
+ * 「PC 大廳沒建出來」的**決策**（只有決策，不碰瀏覽器）。
+ *
+ * 🚨 **為什麼要把它拆出來**：這段原本是 `agent-runner.ts` 裡一串 inline 的 if。
+ *    其中「場景是 lobby 但清單就是建不出來 → reload 一次再等」那條分支，
+ *    **從來沒有被實際觸發過**——它是照著一次現場觀察補上的防禦性程式碼，
+ *    在那之後沒有任何一次執行走進去過，所以「它會不會做對的事」其實沒人知道。
+ *    拆成純函式之後這些組合就能被逐一驗（`scripts/ui-checks/pc-lobby-recovery.test.ts`），
+ *    不必等它在現場再壞一次。
+ *
+ *    ⚠️ 但要講清楚這證明了什麼：**證明的是「在這些狀態下會選 reload」**，
+ *    不是「reload 一定能把卡住的大廳救回來」。後者只能在現場量（見同名的 .mjs 驗收腳本）。
+ *
+ * 兩種壞狀態要分開處理，這是重點：
+ *   - `scene === 'game'`：上一輪的位子還佔著，被送回機台了 → **退出**（reload 沒有用，
+ *     重載一樣會被送回去）
+ *   - 其他：場景是大廳但清單沒建出來（上一輪被 `/stop` 砍掉之後實測到：
+ *     `ScrollView-gms` 沒有、機台卡片只有 2 個）→ **reload 一次**
+ *
+ * ⚠️ 每種補救只做一次。做不好就 `give-up`（由呼叫端拋錯），不要無限重試——
+ *    真的壞掉時無限重試只會把一個清楚的錯誤變成一次 30 分鐘的假執行。
+ */
+export function pcLobbyRecoveryPlan(input: {
+  ready: boolean
+  /** `pcSceneName` 的結果；讀不到時是空字串 */
+  scene: string
+  reloadTried: boolean
+  leaveTried: boolean
+}): PcLobbyAction {
+  if (input.ready) return 'ready'
+  // ⚠️ 順序不能反。被送回機台時 scene 就是 'game'，這時候 reload 是白做的
+  if (input.scene === 'game') return input.leaveTried ? 'give-up' : 'leave-machine'
+  return input.reloadTried ? 'give-up' : 'reload'
+}
+
 export async function pcBackToLobby(page: Page, timeoutMs = 20_000): Promise<{ ok: boolean; scene: string; steps: string[] }> {
   const steps: string[] = []
   const clickNode = async (nodeName: string) => {

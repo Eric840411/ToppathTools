@@ -62,6 +62,7 @@ import type { Request } from 'express'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { agentUpdateStatus } from './machine-test.js'
 import { registerBackendSnippetRoutes } from '../uat-backend-snippets.js'
+import { registerUatScheduleRoutes, startScheduleTicker } from '../uat-schedules.js'
 import { registerRecordedScriptRoutes, getRecordedScript, getRecordedScriptMeta, acquireScriptLock, releaseScriptLock, rememberRunContext, forgetRunContext, captureRecordedScriptResult, tcBindingSchema } from '../uat-recorded-scripts.js'
 import { validateMultiTcScript } from '../uat-runner/multi-tc.js'
 
@@ -70,6 +71,9 @@ const __dirname = dirname(__filename)
 
 export const router = Router()
 registerRecordedScriptRoutes(router)
+// 每日排程：路由＋每分鐘的 ticker（詳見 uat-schedules.ts 的說明）
+registerUatScheduleRoutes(router)
+startScheduleTicker()
 // 後台設定片段（給 H5/PC 腳本在中間引用；沒有 TC 綁定、不回寫 Lark、不佔測試鎖）
 registerBackendSnippetRoutes(router)
 
@@ -441,6 +445,22 @@ const SCRIPT_PATH = process.env.OSM_QA_AGENT_SCRIPT
  *  兩邊各有一份是因為 runner 是獨立 spawn 的程序，共用不了模組層級的常數。 */
 const BACKEND_URL_FOR_RECORD = process.env.UAT_BACKEND_URL ?? 'http://uat-cp.osmslot.org'
 
+/**
+ * 後台站台。**錄製與執行共用這一份對照**——各寫一份的話會出現
+ * 「錄的是 NP、跑的是 CP」，而畫面上兩邊都說成功。
+ *
+ * ⚠️ 帳密是**分站台存**的（cpBackend／nchBackend），選了站台就要配對應的帳密；
+ *    配錯的話會停在登入頁，而症狀是後面每一步都說「找不到元素」。
+ */
+export const UAT_BACKEND_SITES = {
+  cp: { label: 'CP', url: process.env.UAT_BACKEND_URL ?? 'http://uat-cp.osmslot.org', profile: 'cpBackend' as const },
+  nc: { label: 'NC', url: process.env.UAT_NC_BACKEND_URL ?? 'http://uat-nc.osmslot.org', profile: 'nchBackend' as const },
+}
+export type UatBackendSite = keyof typeof UAT_BACKEND_SITES
+export function pickSite(raw: unknown): UatBackendSite {
+  return String(raw ?? '').toLowerCase() === 'nc' ? 'nc' : 'cp'
+}
+
 export const BACKEND_UAT_CAPABILITY = 'backend-uat'
 /** 前端用這個值明確要求走舊的伺服器端 spawn */
 const SERVER_MODE_SENTINEL = 'server'
@@ -751,8 +771,14 @@ router.post('/api/osm-uat/record/start', writeLimiter, async (req, res, next) =>
         events: [], netCalls: [], consoleLogs: [], wsFrames: [], selectorChecks: {}, done: false, error: null, ready: false, startedAt: Date.now() }
       recordSessions.set(sessionId, recording)
       try {
-        const controller = await startServerRecorder({ backendUrl: BACKEND_URL_FOR_RECORD, username: creds.cpBackend.username,
-          password: creds.cpBackend.password, script: backendRecorderScript({ sessionId, bindings }), marker: RECORDER_MARKER,
+        const site = UAT_BACKEND_SITES[pickSite((req.body as { site?: string })?.site)]
+        const siteCred = creds[site.profile]
+        if (!siteCred?.username || !siteCred?.password) {
+          recording.done = true
+          return res.status(400).json({ ok: false, message: `尚未設定 ${site.label} 後台登入帳密——請先到「執行設定」填那個站台的帳密` })
+        }
+        const controller = await startServerRecorder({ backendUrl: site.url, username: siteCred.username,
+          password: siteCred.password, script: backendRecorderScript({ sessionId, bindings }), marker: RECORDER_MARKER,
           stopMarker: RECORDER_STOP_MARKER,
           event: payload => handleBackendRecordEvent(sessionId, payload), net: call => handleBackendRecordNet(sessionId, call),
           console: entry => handleBackendRecordConsole(sessionId, entry), ws: frame => handleBackendRecordWs(sessionId, frame),
@@ -1370,11 +1396,16 @@ router.post('/api/osm-uat/run', (req, res) => {
   }
 
   const credEnv = uatCredEnv(req)
+  // 站台（CP／NP）。runner 讀 UAT_BACKEND_SITE 決定網址與要用哪一組帳密，
+  // 沒帶就是 CP——跟這個參數出現以前的行為一樣。
+  const site = UAT_BACKEND_SITES[pickSite((req.body as { site?: string })?.site)]
+  const siteEnv = { UAT_BACKEND_SITE: pickSite((req.body as { site?: string })?.site), UAT_BACKEND_URL: site.url }
   // 積木存在 DB，runner 讀不到，所以執行時整包帶下去。
   // agent 派工也走這條，agent 端不需要有任何積木檔案。
   const tcSteps = { ...listUatTcSteps(), ...(stepsOverride ?? {}) }
   const tcStepsEnv = Object.keys(tcSteps).length ? { UAT_TC_STEPS: JSON.stringify(tcSteps) } : {}
   const runScopeEnv = {
+    ...siteEnv,
     ...(dryRun || customTrial ? { UAT_DRY_RUN: '1' } : {}),
     // 相容性保險：新版 runner 看到 CUSTOM_TRIAL 會直接跑暫時 TC；舊版 runner
     // 雖然不認得這個參數，仍會被不存在於 Lark 的 custom id 篩成 0 筆，絕不全跑。

@@ -481,11 +481,20 @@ export function recordSpinObservation(row: {
    *    而且這是**顯示分流不是權限隔離**——過濾用的 header 任何人都能偽造。
    */
   userLabel?: string
+  /**
+   * 注額**是怎麼來的**。空字串 = 沒有注額。
+   *
+   * 🚨 兩種來源的可信度不一樣，**不可以混成同一個覆蓋率**：
+   *      `moneylog_adjacent` 逐局實算（begin 正前方那一則 end，自我驗證）
+   *      `history_uniform`   涵蓋已確認的戰績窗內 bet 全同值 → 推定
+   *    後者是推定不是量測；報表要分開講，否則又變成「把寬鬆撿到的當成嚴格對上的」。
+   */
+  betSource?: string
 }): void {
   db.prepare(`
     INSERT INTO recon_spin (env, sessionId, machineType, gmid, spinSeq, betAmount,
-      balanceBefore, balanceAfter, winObserved, status, observedAt, outcome, userLabel)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)
+      balanceBefore, balanceAfter, winObserved, status, observedAt, outcome, userLabel, betSource)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?, ?)
     ON CONFLICT(env, sessionId, machineType, spinSeq) DO UPDATE SET
       -- ⚠️ **已知值不准被 null 覆蓋。**agent 會用同一個 spinSeq 重送來補
       --    「餘額後 / win」（那兩個要等結算才算得出來，見下方說明）。
@@ -493,7 +502,12 @@ export function recordSpinObservation(row: {
       --    而且完全沒有徵兆，只會看到欄位又變回空的。
       --    代價是無法再把某個值改回 null；那是刻意的取捨：這裡的 null 一律代表
       --    「還算不出來」，不是一個有意義的值。
-      betAmount=COALESCE(excluded.betAmount, recon_spin.betAmount),
+      -- ⚠️ 注額的「未知」在資料庫裡是 **0**（欄位 NOT NULL DEFAULT 0），不是 null，
+      --    所以只用 COALESCE 擋不住：一次帶著未知（0）的重送照樣會把補好的值洗成 0。
+      betAmount=CASE WHEN COALESCE(excluded.betAmount, 0)=0
+                     THEN recon_spin.betAmount ELSE excluded.betAmount END,
+      betSource=CASE WHEN COALESCE(excluded.betSource,'')=''
+                     THEN recon_spin.betSource ELSE excluded.betSource END,
       balanceBefore=COALESCE(excluded.balanceBefore, recon_spin.balanceBefore),
       balanceAfter=COALESCE(excluded.balanceAfter, recon_spin.balanceAfter),
       winObserved=COALESCE(excluded.winObserved, recon_spin.winObserved),
@@ -504,7 +518,7 @@ export function recordSpinObservation(row: {
       userLabel=CASE WHEN recon_spin.userLabel='' THEN excluded.userLabel ELSE recon_spin.userLabel END
   `).run(row.env, row.sessionId, row.machineType, row.gmid, row.spinSeq, row.betAmount,
     row.balanceBefore ?? null, row.balanceAfter ?? null, row.winObserved ?? null, row.observedAt,
-    row.outcome ?? '', row.userLabel ?? '')
+    row.outcome ?? '', row.userLabel ?? '', row.betSource ?? '')
 }
 
 /** 後台增量落庫。⚠️ upsert：重啟後重疊拉取不能產生重複，也不能覆蓋成舊值。 */

@@ -1459,3 +1459,206 @@
 .uat-script-select-bar { display: flex; align-items: center; gap: 6px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--uat-border); }
 .uat-script-select-bar .uat-btn { padding: 6px 10px; font-size: 12px; white-space: nowrap; }
 .uat-script-select-bar > span { margin-left: auto; color: var(--uat-muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* 危險操作放行的勾選列：勾選框跟說明排在一起，說明另起一行 */
+.uat-checkline { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.uat-checkline input[type="checkbox"] { width: auto; margin: 0; }
+.uat-checkline > .uat-hint { flex-basis: 100%; margin: 2px 0 0; }
+
+/* ── ①②③ 導引：現在是按鈕（點了會捲到對應面板並高亮） ─────────────── */
+button.uat-launch-step,
+button.uat-launch-block {
+  font: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+button.uat-launch-step:hover,
+button.uat-launch-block:hover { text-decoration: underline; }
+button.uat-launch-block { text-align: left; }
+
+/* 捲到目標之後高亮一下——只捲不標的話，使用者不知道該看哪一塊 */
+.is-uat-focus {
+  animation: uat-focus-pulse 1.8s ease-out 1;
+  border-radius: 8px;
+}
+@keyframes uat-focus-pulse {
+  0%, 60% { box-shadow: 0 0 0 2px rgba(63, 190, 139, .9), 0 0 18px rgba(63, 190, 139, .45); }
+  100% { box-shadow: 0 0 0 0 rgba(63, 190, 139, 0); }
+}
+
+/* 兩顆按鈕差在哪的說明 */
+.uat-inline-hint {
+  margin: 6px 0 0;
+  font: 500 11px/1.6 system-ui, -apple-system, sans-serif;
+  opacity: .72;
+}
+
+/* 勾選項的說明：換行排在勾選框底下，不要跟文字擠成一行。
+   ⚠️ `.uat-check` 是 flex，小字若不強制換行會變成**旁邊那一欄**，
+   把原本的標籤擠成兩三個字寬（實測「顯示瀏覽 器視窗」斷成兩行）。 */
+.uat-check { flex-wrap: wrap; }
+.uat-check > small {
+  flex-basis: 100%;
+  display: block;
+  margin: 3px 0 0 22px;
+  font: 500 11px/1.55 system-ui, -apple-system, sans-serif;
+  opacity: .68;
+}
+
+/* ── 新手指引 ─────────────────────────────────────────────────────
+   刻意做成**角落的小卡而不是置中彈框**：每一步講的都是畫面上某一塊，
+   置中的大框會把要講的東西整個蓋住（見 OnboardingGuide.tsx 的說明）。 */
+ /* ⚠️ 頁首本來就是 flex + space-between，這顆當 flex 子元素放就好。
+   用絕對定位會疊在右邊那塊健康狀態上（實測會蓋住）。 */
+.uat-guide-open {
+  align-self: flex-start;
+  flex: none;
+  font: 600 12px/1 system-ui, -apple-system, sans-serif;
+  padding: 9px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--uat-line, #42566f);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: .85;
+}
+.uat-guide-open:hover { opacity: 1; border-color: #3fbe8b; color: #3fbe8b; }
+
+.uat-guide {
+  position: fixed;
+  right: 22px;
+  /* ⚠️ 右下角**已經有**「AI Agent 監控」浮窗（fixed、right:18 bottom:18、z-index 9999）。
+     疊在它下面的話，指引的「下一步」會被它吃掉點擊——畫面看起來有按到、其實沒有
+     （實測：按五次都還停在第一頁）。所以往上讓開它的高度。 */
+  bottom: 80px;
+  z-index: 9998;
+  width: min(360px, calc(100vw - 32px));
+  padding: 16px 18px 14px;
+  border-radius: 12px;
+  border: 1px solid #3fbe8b;
+  background: #101716;
+  color: #e2e8f0;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, .5);
+  font: 400 13.5px/1.75 system-ui, -apple-system, sans-serif;
+}
+.uat-guide-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font: 600 10.5px/1.6 ui-monospace, "SFMono-Regular", monospace;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: #3fbe8b;
+}
+.uat-guide-x {
+  background: none;
+  border: none;
+  color: #a9b8b3;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+}
+.uat-guide-x:hover { color: #e2e8f0; }
+.uat-guide h4 { margin: 8px 0 4px; font: 700 15.5px/1.5 system-ui, sans-serif; }
+.uat-guide p { margin: 0; color: #c3d0cb; }
+.uat-guide-dots { display: flex; gap: 5px; margin: 12px 0 10px; }
+.uat-guide-dots i { width: 16px; height: 3px; border-radius: 2px; background: #2c3b38; }
+.uat-guide-dots i.is-on { background: #3fbe8b; }
+.uat-guide-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.uat-guide-foot > div { display: flex; gap: 8px; }
+.uat-guide-foot a { color: #a9b8b3; font-size: 12px; }
+.uat-guide-foot a:hover { color: #3fbe8b; }
+.uat-guide-foot .uat-btn { padding: 7px 12px; font-size: 12px; }
+
+/* 視窗矮的時候小卡不要蓋住整個右下角的操作區 */
+@media (max-height: 640px) {
+  .uat-guide { bottom: 74px; right: 12px; padding: 12px 14px 10px; }
+  .uat-guide p { font-size: 12.5px; }
+}
+
+/* ── 每日排程 ───────────────────────────────────────────────────── */
+.uat-schedule { margin-bottom: 16px; }
+.uat-schedule-form { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; margin: 10px 0 6px; }
+.uat-schedule-form .uat-field { margin: 0; }
+.uat-schedule-msg { margin: 8px 0 0; font-size: 12px; color: #3fbe8b; }
+.uat-schedule-list { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.uat-schedule-row {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+  padding: 8px 10px; border: 1px solid var(--uat-line, #2b3b4e); border-radius: 8px;
+}
+.uat-schedule-row.is-off { opacity: .55; }
+.uat-schedule-row > div:first-child { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.uat-schedule-row strong { font: 700 13px/1.3 ui-monospace, monospace; }
+.uat-schedule-row span { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uat-schedule-row small { font-size: 11px; opacity: .7; }
+/* 上次的狀態用另一個顏色：它是「為什麼沒跑」最常見的答案 */
+.uat-schedule-row em { font-style: normal; font-size: 11px; color: #e0a962; }
+.uat-schedule-actions { display: flex; gap: 6px; flex: none; }
+.uat-schedule-actions .uat-btn { padding: 5px 9px; font-size: 11.5px; }
+.uat-schedule-readonly { font-size: 11px; opacity: .6; flex: none; }
+@media (max-width: 720px) { .uat-schedule-form { grid-template-columns: 1fr; } }
+
+/* 組合式排程：挑到的腳本清單（順序就是執行順序） */
+.uat-schedule-picked { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.uat-schedule-picked li {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 5px 8px; border: 1px solid var(--uat-line, #2b3b4e); border-radius: 6px; font-size: 12px;
+}
+.uat-schedule-picked li > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uat-schedule-picked li > div { display: flex; gap: 4px; flex: none; }
+.uat-schedule-picked .uat-btn { padding: 2px 7px; font-size: 11px; line-height: 1.6; }
+
+/* 星期選擇：七顆小方塊，選起來的高亮 */
+.uat-schedule-days { display: flex; align-items: center; gap: 4px; margin: 10px 0 8px; flex-wrap: wrap; }
+.uat-schedule-days button {
+  width: 30px; height: 28px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--uat-line, #2b3b4e); background: transparent; color: inherit;
+  font: 600 12px/1 system-ui, sans-serif;
+}
+.uat-schedule-days button.is-on { border-color: #3fbe8b; color: #3fbe8b; }
+.uat-schedule-days small { font-size: 11px; opacity: .65; margin-left: 4px; }
+.uat-schedule-form { grid-template-columns: auto auto auto; justify-content: start; }
+
+/* ── 每日排程：彈框版 ─────────────────────────────────────────────
+   ⚠️ 邊距要夠：小視窗時 overlay 自己留 24px，面板內部 26px，
+   內容不會貼著邊；面板本身高度有上限、內部自己捲。 */
+.uat-schedule-overlay {
+  position: fixed; inset: 0; z-index: 11000;
+  padding: 24px;
+  background: #08131bcc;
+  display: grid; place-items: center;
+}
+.uat-schedule-overlay > .uat-schedule {
+  position: relative;
+  /* 底色與文字色寫死一份：portal 出去之後不能只靠外層 scope（實測會整個透明） */
+  background: #111e2c;
+  border: 1px solid #394b61;
+  color: #e2e8f0;
+  width: min(720px, 100%);
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
+  margin: 0;
+  padding: 26px 28px 24px;
+  border-radius: 14px;
+  box-shadow: 0 24px 90px #0009;
+}
+/* 關閉鈕不要壓在標題上：標題區右側留出位置 */
+.uat-schedule-overlay > .uat-schedule .uat-section-title { padding-right: 44px; }
+.uat-schedule-close {
+  position: absolute; top: 14px; right: 14px;
+  width: 30px; height: 30px; border-radius: 8px;
+  border: 1px solid var(--uat-line, #2b3b4e); background: transparent; color: inherit;
+  cursor: pointer; font-size: 13px; line-height: 1;
+}
+.uat-schedule-close:hover { border-color: #3fbe8b; color: #3fbe8b; }
+/* 彈框裡各區塊之間留白，不要擠成一團 */
+.uat-schedule-overlay > .uat-schedule > .uat-field { margin-top: 14px; }
+.uat-schedule-overlay > .uat-schedule .uat-schedule-list { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--uat-line, #2b3b4e); }
+.uat-schedule-overlay > .uat-schedule .uat-schedule-row { padding: 10px 12px; }
+.uat-schedule-overlay > .uat-schedule .uat-hint { display: block; margin-top: 10px; }
+@media (max-width: 640px) {
+  .uat-schedule-overlay { padding: 12px; }
+  .uat-schedule-overlay > .uat-schedule { padding: 22px 18px 18px; max-height: calc(100dvh - 24px); }
+}

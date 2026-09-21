@@ -553,7 +553,9 @@ export function AutoSpinPage(_props: { themeMode?: 'classic' | 'xianxia' } = {})
 
   const handleStart = async () => {
     setStartError(''); setLogs([])
-    const r = await fetch('/api/autospin/start', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+    // ⚠️ 一定要帶 x-user-label：機台設定是分帳號存的，沒帶的話後端查到 0 筆、
+    //    啟動 0 個執行緒，而畫面上看起來像成功（2026-09-20 修）
+    const r = await fetch('/api/autospin/start', { method: 'POST', headers: userHeaders, body: '{}' })
     const d = await r.json() as { ok: boolean; sessionId?: string; message?: string }
     if (!d.ok) { setStartError(d.message ?? '啟動失敗'); return }
     setRunning(true)

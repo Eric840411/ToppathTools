@@ -553,6 +553,269 @@ export function poolMismatches(env: ReconEnv, sinceMs: number, limit = 50): Pool
   })
 }
 
+// ─── 逐筆明細：每一次投注把池推高了多少 ──────────────────────────────────
+//
+// 🚨 **「累積增額」跟「池淨變化」是兩個數，一定要分開列。**
+//    累積增額 = 這個窗內每一筆 change_ 加總（投注推上去的量）
+//    池淨變化 = 最後一筆的 after − 第一筆的 before（池實際移動了多少）
+//    兩者相等時才是「只有投注、沒有別的事」；**差很多代表中間發生過中獎歸零
+//    或溢流**，而那是使用者最需要知道的事。只給一個數字會把這件事藏起來。
+//
+// ⚠️ 池是**整個 Level 共用**的：同一個池上可能掛 43 台，別人打的也會推高它。
+//    所以這裡一定要標明「這份明細涵蓋哪幾台」——只看自己的機台時，
+//    累積增額**本來就會小於池淨變化**，那不是誤差。
+
+export interface PoolChangeRow {
+  ts: number
+  machineName: string
+  levelName: string
+  /** 這一筆的投入額變化（newcoinin − oldcoinin）。負值＝meter 倒退（重置） */
+  coinIn: number
+  /** 這一筆池增加了多少 */
+  change: number
+  before: number
+  after: number
+  /** 從這個窗的第一筆算到這一筆為止的累積增額 */
+  cumulative: number
+  /** ok / mismatch / skipped_overflow / unknown_reason */
+  verify: string
+  verifyDelta: number | null
+  reason: string
+  /**
+   * 這一筆是哪一局推的。
+   *
+   * 🚨 **池變動報表裡沒有局號**（欄位只有 levelid/machineid/coinin/before/change/
+   *    after/reqmd5/reason…），所以這是**我們配上去的**，不是報表自己帶的。
+   *    配不出來時一律 null，**不猜**——見 `joinNote`。
+   */
+  orderId: string | null
+  spinIndex: number | null
+  /** 配到的那一局的 `bet_time_precise` 與池變動時間差（ms），留著給事後校準用 */
+  joinDelta: number | null
+  /** matched / no_round（窗內沒有我們拉到的局）/ ambiguous（不只一局，不猜） */
+  joinNote: 'matched' | 'no_round' | 'ambiguous'
+  /**
+   * 池變動報表自己的請求雜湊。**一次投注對每個 Level 各寫一筆、共用同一個 reqmd5**，
+   * 所以即使配不到局號，靠它仍然分得出「這幾列是同一筆投注」。
+   */
+  reqmd5: string
+}
+
+export interface PoolDetail {
+  levelName: string
+  /** 這份明細實際涵蓋的機台 */
+  machines: string[]
+  /** 窗內總筆數（`rows` 可能只給最近幾筆） */
+  total: number
+  rows: PoolChangeRow[]
+  /** 每一筆 change 的加總 */
+  sumChange: number
+  /** 最後一筆 after − 第一筆 before */
+  netMove: number | null
+  /** 有幾筆投入額是倒退的（meter 重置），這種筆數多時 sumChange 不可信 */
+  negativeCoinIn: number
+  mismatch: number
+  incrementPercent: number | null
+  firstTs: number | null
+  lastTs: number | null
+  /** 配到局號的筆數 */
+  joined: number
+  /** 窗內有 >1 局可選、因此不配的筆數 */
+  joinAmbiguous: number
+  /** 合理性檢查窗（ms）。⚠️ **這不是配對鍵**——鍵是投入額計數器，見 buildRoundJoin */
+  joinSanityMs: number
+}
+
+/**
+ * 池變動 ↔ 後台局號的配對。
+ *
+ * 🚨 **不要用時間配。**（2026-09-21 實測推翻了第一版）
+ *
+ *    第一版用「同機台 ± 750ms 內恰好一局」，而且我還「量」過：命中的時間差
+ *    中位 10ms、p99 398ms，看起來非常漂亮。**那是選擇效應**——我只量了
+ *    「已經配上的那些」的時間差，配不上的根本沒進統計。
+ *
+ *    把同一段用**順序**配對（233 筆池變動 ↔ 233 局，兩邊筆數完全相等、
+ *    每一對的 coinIn 差都等於該局的 bet）再看時間差，真相是：
+ *        中位 **−11,628ms**、min −18,761ms、p95 +17ms
+ *        233 對裡有 **195 對**根本不在 ±750ms 內
+ *    也就是說池變動的時間戳比 `bet_time_precise` **早約 12 秒**（兩個後台的
+ *    時鐘／記錄時點不同）。結果第一版時間法「唯一命中 198 對，其中只有 37 對
+ *    跟順序配對一致」——**其餘整段偏移一格**，而且每一筆看起來都正常。
+ *    這正是這個專案一再踩到的那種錯：配錯的結果長得跟配對的一樣。
+ *
+ * ✅ **真正的鍵是投入額計數器**，不是時間：
+ *      池變動的 `newcoinin`（機台累計投入額）
+ *      後台該局的 `total_bet`（累計下注）
+ *    兩者在同一段期間內**只差一個常數**（實測同一台一小時內只有 3 個值，
+ *    換值的時點就是 `total_bet` 歸零重算的時候）。
+ *    用它查表是**精確**的：對得上就是對得上，對不上就老實說對不上。
+ *
+ * ⚠️ 時間只留作**合理性檢查**（±SANITY_MS），不當鍵——它的作用只是擋掉
+ *    「不同段剛好撞到同一個 total_bet」，不是用來挑最近的那一局。
+ */
+/**
+ * 段的時間邊界往外放寬多少。
+ * ⚠️ 這**不是配對鍵**，只用來決定「這一筆池變動屬於哪一段」——
+ *    段長是分鐘等級，而兩邊時間戳差約 12 秒，這個粒度很安全。
+ */
+const SEGMENT_MARGIN_MS = 120_000
+/** 一個 offset 至少要被幾筆支持才採用，避免拿雜訊當段落 */
+
+interface JoinedRound { orderId: string; spinIndex: number | null; betTimePrecise: number; totalBet: number }
+
+/**
+ * 一「段」＝ `total_bet` 從頭累計的一次連續期間（重新進機台就會歸零重算）。
+ * offset 只在段內是常數，所以所有推導都要先分段。
+ */
+interface MeterSegment {
+  rounds: JoinedRound[]           // 依時間排序
+  from: number; to: number        // betTimePrecise 範圍
+  offset: number | null           // newcoinin − total_bet；推不出來就 null（整段不配）
+  byTotalBet: Map<number, JoinedRound[]>
+}
+
+function buildRoundJoin(env: ReconEnv, poolRows: Record<string, number | string | null>[], sinceMs: number) {
+  const empty = () => ({ orderId: null, spinIndex: null, delta: null, note: 'no_round' as const })
+  const gmids = [...new Set(poolRows.map(r => String(r.machineName)).filter(Boolean))]
+  if (!gmids.length) return empty
+
+  const raw = db.prepare(`
+    SELECT orderId, gmid, spinIndex, betTimePrecise, raw FROM recon_backend_record
+    WHERE env=? AND betTimePrecise IS NOT NULL AND betTimePrecise >= ?
+      AND gmid IN (${gmids.map(() => '?').join(',')})
+    ORDER BY betTimePrecise ASC
+  `).all(env, sinceMs - SEGMENT_MARGIN_MS, ...gmids) as
+    { orderId: string; gmid: string; spinIndex: number | null; betTimePrecise: number; raw: string }[]
+
+  // ── ① 依 total_bet 歸零切段 ────────────────────────────────────────────
+  const segsByGmid = new Map<string, MeterSegment[]>()
+  for (const r of raw) {
+    let totalBet = NaN
+    try { totalBet = Number(JSON.parse(r.raw)?.total_bet) } catch { /* 壞掉的 raw 當沒有 */ }
+    if (!Number.isFinite(totalBet)) continue
+    const round: JoinedRound = {
+      orderId: r.orderId, spinIndex: r.spinIndex, betTimePrecise: r.betTimePrecise, totalBet,
+    }
+    const list = segsByGmid.get(r.gmid) ?? []
+    const cur = list[list.length - 1]
+    // total_bet 沒有往上走 ＝ 換了一段（重新進機台後從頭累計）
+    if (!cur || totalBet <= cur.rounds[cur.rounds.length - 1].totalBet) {
+      list.push({ rounds: [round], from: round.betTimePrecise, to: round.betTimePrecise,
+        offset: null, byTotalBet: new Map() })
+    } else {
+      cur.rounds.push(round); cur.to = round.betTimePrecise
+    }
+    segsByGmid.set(r.gmid, list)
+  }
+
+  // ── ② 每一段推 offset ─────────────────────────────────────────────────
+  //
+  // 🚨 **offset 不可以用「時間最近的那一局」去推。**（2026-09-21 實測，這是第二次踩到）
+  //    池的時間戳比 `bet_time_precise` 早約 12 秒，用時間找到的「最近一局」
+  //    系統性地是**前一局**，推出來的 offset 就整段偏一個注額，
+  //    而偏掉之後每一筆**照樣查得到值**（total_bet 是等差的），所以看起來完全正常。
+  //
+  // ✅ 改用**名次配對**推：段內的池列與局若筆數相同、且兩邊都依各自的計數器單調遞增，
+  //    第 i 筆就對第 i 局。再要求「每一對算出來的 offset 都是同一個值」——
+  //    這一條是**自我驗證**：配錯的話 offset 會散掉，不會剛好全部相同。
+  //    不相同就整段不配（寧可留白，不要給一個看起來正常的錯局號）。
+  for (const [gmid, segs] of segsByGmid) {
+    const rows = poolRows.filter(r => String(r.machineName) === gmid)
+      .map(r => ({ ts: Number(r.ts), newcoinin: Number(r.newcoinin ?? 0) }))
+      .sort((a, b) => a.ts - b.ts)
+    for (const seg of segs) {
+      const mine = rows.filter(r => r.ts >= seg.from - SEGMENT_MARGIN_MS && r.ts <= seg.to + SEGMENT_MARGIN_MS)
+      if (mine.length === seg.rounds.length && mine.length > 0) {
+        const offs = new Set(mine.map((r, i) => r.newcoinin - seg.rounds[i].totalBet))
+        if (offs.size === 1) seg.offset = [...offs][0]
+      }
+      for (const r of seg.rounds) {
+        const l = seg.byTotalBet.get(r.totalBet); if (l) l.push(r); else seg.byTotalBet.set(r.totalBet, [r])
+      }
+    }
+  }
+
+  // ── ③ 查表：鍵是計數器，時間只用來挑「這一筆屬於哪一段」 ──────────────
+  return (gmid: string, ts: number, newcoinin: number) => {
+    const segs = segsByGmid.get(gmid)
+    if (!segs?.length) return empty()
+    const inRange = segs.filter(s => ts >= s.from - SEGMENT_MARGIN_MS && ts <= s.to + SEGMENT_MARGIN_MS)
+    const hits: JoinedRound[] = []
+    for (const seg of inRange) {
+      if (seg.offset === null) continue
+      for (const r of seg.byTotalBet.get(newcoinin - seg.offset) ?? []) {
+        if (!hits.some(h => h.orderId === r.orderId)) hits.push(r)
+      }
+    }
+    if (hits.length === 1) {
+      return { orderId: hits[0].orderId, spinIndex: hits[0].spinIndex,
+        delta: ts - hits[0].betTimePrecise, note: 'matched' as const }
+    }
+    return { orderId: null, spinIndex: null, delta: null,
+      note: (hits.length ? 'ambiguous' : 'no_round') as 'ambiguous' | 'no_round' }
+  }
+}
+
+export function poolChangeDetail(
+  env: ReconEnv, sinceMs: number, levelName: string,
+  opts: { machines?: string[]; limit?: number } = {},
+): PoolDetail {
+  const limit = Math.min(Math.max(opts.limit ?? 200, 1), 2000)
+  const machines = (opts.machines ?? []).filter(Boolean)
+  // ⚠️ 機台清單走參數化展開，不要拼字串——machineName 來自外部查詢字串
+  const machineClause = machines.length
+    ? ` AND p.machineName IN (${machines.map(() => '?').join(',')})` : ''
+  const all = db.prepare(`
+    SELECT p.ts, p.machineName, p.levelName, p.oldcoinin, p.newcoinin,
+           p.before_, p.change_, p.after_, p.verify, p.verifyDelta, p.reason, p.reqmd5
+    FROM recon_pool_change p
+    WHERE p.env=? AND p.levelName=? AND p.ts >= ?${machineClause}
+    ORDER BY p.ts ASC, p.id ASC
+  `).all(env, levelName, sinceMs, ...machines) as Record<string, number | string | null>[]
+
+  const join = buildRoundJoin(env, all, sinceMs)
+
+  let running = 0
+  const rows: PoolChangeRow[] = all.map(r => {
+    const change = Number(r.change_ ?? 0)
+    running += change
+    const hit = join(String(r.machineName), Number(r.ts), Number(r.newcoinin ?? 0))
+    return {
+      ts: Number(r.ts), machineName: String(r.machineName), levelName: String(r.levelName),
+      coinIn: Number(r.newcoinin ?? 0) - Number(r.oldcoinin ?? 0),
+      change, before: Number(r.before_ ?? 0), after: Number(r.after_ ?? 0),
+      cumulative: running,
+      verify: String(r.verify ?? ''), verifyDelta: r.verifyDelta as number | null,
+      reason: String(r.reason ?? ''),
+      orderId: hit.orderId, spinIndex: hit.spinIndex, joinDelta: hit.delta, joinNote: hit.note,
+      reqmd5: String(r.reqmd5 ?? ''),
+    }
+  })
+
+  const incr = db.prepare(
+    'SELECT incrementPercent FROM recon_machine_map WHERE env=? AND levelName=? AND incrementPercent IS NOT NULL LIMIT 1'
+  ).get(env, levelName) as { incrementPercent: number } | undefined
+
+  return {
+    levelName,
+    machines: [...new Set(rows.map(r => r.machineName))],
+    total: rows.length,
+    // 只回最近 limit 筆，但 `cumulative` 是從窗的第一筆算起的**真值**，不是這幾筆的小計
+    rows: rows.slice(-limit),
+    sumChange: running,
+    netMove: rows.length ? rows[rows.length - 1].after - rows[0].before : null,
+    negativeCoinIn: rows.filter(r => r.coinIn < 0).length,
+    mismatch: rows.filter(r => r.verify === 'mismatch').length,
+    incrementPercent: incr?.incrementPercent ?? null,
+    firstTs: rows.length ? rows[0].ts : null,
+    lastTs: rows.length ? rows[rows.length - 1].ts : null,
+    joined: rows.filter(r => r.joinNote === 'matched').length,
+    joinAmbiguous: rows.filter(r => r.joinNote === 'ambiguous').length,
+    joinSanityMs: SEGMENT_MARGIN_MS,
+  }
+}
+
 // ─── 跨環境稽核：機台掛錯獎池 ────────────────────────────────────────────
 //
 // 🚨 **這是「會消失」而不是「會標紅」的一類問題。**

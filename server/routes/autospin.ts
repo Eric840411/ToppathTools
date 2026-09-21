@@ -1096,8 +1096,26 @@ router.post('/api/autospin/start', (req, res) => {
     }
   }
 
-  // Generate game_config.json from DB
-  const configs = readConfigs().filter(c => c.enabled)
+  /**
+   * 🚨 **這裡原本是 `readConfigs()`——沒帶 userLabel。**
+   *    `readConfigs` 是 `WHERE userLabel = ?`，傳 undefined 等於一條都不符合，
+   *    於是 `game_config.json` 永遠被寫成 `[]`、Python 端印「準備啟動 0 個執行緒」後就結束，
+   *    **而這支 API 照樣回 `ok: true`**，畫面上看起來像啟動成功。
+   *    （2026-09-20 實測：按下去什麼都沒發生，log 只有那一行。）
+   *
+   * ⚠️ 取不到 userLabel 時**明確擋下來**，不要用空字串去查然後啟動 0 台——
+   *    那正是原本那個「成功但什麼都沒跑」的狀態。
+   */
+  const startUserLabel = (req.headers['x-user-label'] as string) || getOperatorFromContext()?.name || ''
+  if (!startUserLabel) {
+    finishHeavyTask(heavyTask.token)
+    return res.status(400).json({ ok: false, message: '不知道要啟動誰的設定（缺少 x-user-label）' })
+  }
+  const configs = readConfigs(startUserLabel).filter(c => c.enabled)
+  if (!configs.length) {
+    finishHeavyTask(heavyTask.token)
+    return res.status(400).json({ ok: false, message: `「${startUserLabel}」沒有啟用中的機台設定，啟動了也不會有任何執行緒` })
+  }
   const gameConfig = configs.map(c => ({
     url: c.gameUrl,
     rtmp: c.rtmpName,
@@ -2501,6 +2519,15 @@ router.post('/api/autospin/agent/:id/recon-spin', (req, res) => {
       username: z.string().default(''),
       spinSeq: z.number(),
       betAmount: z.number().nullable().optional(),
+      /**
+       * 守門前的推導注額與是否被擋（純診斷，不參與判定）。
+       * ⚠️ 沒有這兩個欄位就分不出「擋掉的是真錯值」還是「戰績延遲造成的誤擋」——
+       *    兩者的下一步完全不同（CodeX 2026-09-21）。存進 note，不另開欄位。
+       */
+      betRaw: z.number().nullable().optional(),
+      betBlocked: z.boolean().optional(),
+      /** 注額來源：moneylog_adjacent（逐局實算）／history_uniform（同質推定）／''（沒有） */
+      betSource: z.string().default(''),
       balanceBefore: z.number().nullable().optional(),
       balanceAfter: z.number().nullable().optional(),
       winObserved: z.number().nullable().optional(),
@@ -2512,16 +2539,22 @@ router.post('/api/autospin/agent/:id/recon-spin', (req, res) => {
       spinSeq: b.spinSeq, betAmount: b.betAmount ?? 0,
       balanceBefore: b.balanceBefore ?? null, balanceAfter: b.balanceAfter ?? null,
       winObserved: b.winObserved ?? null, observedAt: b.observedAt,
-      outcome: b.outcome,
+      outcome: b.outcome, betSource: b.betSource,
       // ⚠️ **歸屬由 server 從 session 蓋章，不採用 agent 送上來的值。**
       //    而且不能事後靠 join autospin_agent_sessions 反查——那張表會被 GC，
       //    實測 6 個 sessionId 只有最新一個查得到，3,122 筆有 322 筆永久歸不了戶。
       userLabel: s.userLabel || '',
     })
     // username 存在 recon_spin 的 note 欄（P0 還沒有專屬欄位），worker 拉取時要用它當過濾值
-    if (b.username) {
+    // username 存在 recon_spin 的 note 欄（P0 還沒有專屬欄位），worker 拉取時要用它當過濾值；
+    // 守門前的推導值接在後面，供事後逐筆核對守門的判斷對不對
+    const noteParts: string[] = []
+    if (b.username) noteParts.push(`username=${b.username}`)
+    if (b.betRaw !== undefined && b.betRaw !== null) noteParts.push(`betRaw=${b.betRaw}`)
+    if (b.betBlocked) noteParts.push('betBlocked=1')
+    if (noteParts.length) {
       db.prepare(`UPDATE recon_spin SET note=? WHERE env=? AND sessionId=? AND machineType=? AND spinSeq=?`)
-        .run(`username=${b.username}`, b.env, req.params.id, b.machineType, b.spinSeq)
+        .run(noteParts.join(' '), b.env, req.params.id, b.machineType, b.spinSeq)
     }
     reconSpinFailStreak = 0
     res.json({ ok: true })
@@ -2716,6 +2749,29 @@ router.get('/api/autospin/live-ledger/pools', async (req, res) => {
        *    不快取的話開著畫面就等於每 5 秒對每台各打一次 SLS。
        */
       machineSls: await machinesSlsStatus(env, [...myGmids], minutes * 60_000),
+    })
+  } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
+})
+
+/**
+ * 單一獎池 Level 的逐筆明細：每一次投注把池推高了多少、累積到現在多少。
+ *
+ * ⚠️ `machines` 不給就是**整個 Level**（池是共用的，同一個池可能掛幾十台）。
+ *    只想看自己那幾台就帶 `machines=A,B`——但那時累積增額本來就會小於池淨變化，
+ *    畫面要講清楚，不要讓人以為是對不起來。
+ */
+router.get('/api/autospin/live-ledger/pool-detail', async (req, res) => {
+  try {
+    const { poolChangeDetail } = await import('../live-ledger-jp.js')
+    const env = reconEnvOf(req as never)
+    const level = String(req.query.level ?? '').trim()
+    if (!level) return res.status(400).json({ ok: false, reason: 'level_required' })
+    const minutes = Math.min(Math.max(Number(req.query.minutes) || 360, 1), 7 * 24 * 60)
+    const machines = String(req.query.machines ?? '').split(',').map(s => s.trim()).filter(Boolean)
+    const limit = Number(req.query.limit) || 200
+    res.json({
+      ok: true, env, minutes,
+      detail: poolChangeDetail(env, Date.now() - minutes * 60_000, level, { machines, limit }),
     })
   } catch (e) { res.status(500).json({ ok: false, reason: String(e) }) }
 })

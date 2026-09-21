@@ -39,9 +39,10 @@ import { createFrontendTcEngine, toMultiTcSteps } from './uat-runner/frontend-tc
 // 基準圖比對：跟伺服器端同一份。以前只有伺服器端有，這顆積木在 agent 上被靜默跳過。
 import { decodePng, findTemplateInPng } from './uat-runner/template-match.js'
 import { waitForDebugPort, clearStaleDebugPort, DEBUG_PORT_ARG } from './uat-runner/chrome-debug-port.js'
-import { pcWaitLobby, pcClosePopups, pcScanLobby, pcCollectMachines, pcSeekMachine, pcEnterMachine, pcSceneName, describePcLobby, pcInstallEvalShim, pcBackToLobby } from './lib/pc-cocos.js'
+import { pcWaitLobby, pcClosePopups, pcScanLobby, pcCollectMachines, pcSeekMachine, pcEnterMachine, pcSceneName, describePcLobby, pcInstallEvalShim, pcBackToLobby, pcLobbyRecoveryPlan, pcEngineCapabilities } from './lib/pc-cocos.js'
 import type { PcMachine } from './lib/pc-cocos.js'
 import { LOBBY_CLOSE_IN_PAGE, LOBBY_CLOSE_ALLOW, startLobbyPopupWatcher } from './uat-runner/lobby-popup.js'
+import { h5BackToLobby, h5InGame } from './uat-runner/h5-seat.js'
 import { verifyRecordedSelectorLive, createRecordedLocators } from './uat-runner/recorded-selector.js'
 import { frontendRecorderScript, flagShadowCompleteness, syncRecorderPanel, setRecorderPanelVisible, FRONTEND_RECORDER_CONTROL_MARKER } from './uat-runner/frontend-recorder.js'
 import { MachineTestRunner } from './machine-test/runner.js'
@@ -1102,36 +1103,45 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
         //    然後就在那邊空等 60 秒直到 timeout（實測：退回大廳那行 log 一次都沒印出來）。
         //    所以改成「先短等一次 → 沒好就看是不是被送進機台了 → 退回大廳 → 再等一次」。
         let diag = await pcWaitLobby(page, 25_000)
-        if (!diag.ready) {
-          let scene = await pcSceneName(page)
-          // ⚠️ **中斷後還有第二種壞狀態：場景是 lobby，但機台清單就是建不出來。**
-          //    （上一輪被 `/stop` 砍掉之後實測到的：`ScrollView-gms` 沒有、機台卡片只有 2 個。）
-          //    只處理 `scene === 'game'` 的話這種情況不會重試、直接失敗。reload 一次通常就好。
-          if (scene !== 'game') {
+        /**
+         * ⚠️ **決策拆在 `pcLobbyRecoveryPlan`**（純函式、有測試）。
+         *    這裡只負責「照著做」——原本整串 if 寫在這裡，其中 reload 那條
+         *    **從來沒被實際觸發過**，等於沒人知道它會不會做對的事。
+         */
+        let reloadTried = false, leaveTried = false
+        while (!diag.ready) {
+          const scene = await pcSceneName(page)
+          const plan = pcLobbyRecoveryPlan({ ready: diag.ready, scene, reloadTried, leaveTried })
+          if (plan === 'give-up' || plan === 'ready') break
+
+          if (plan === 'reload') {
+            // 場景是大廳但清單建不出來（上一輪被 /stop 砍掉之後實測到的狀態）
+            reloadTried = true
             console.log(`[UI-SS] PC 大廳建不出來（場景=${scene || '未知'}、機台卡片 ${diag.machineItems}）→ 重新載入再等一次`)
             await page.goto(url, { timeout: 30000 }).catch(() => {})
             diag = await pcWaitLobby(page, 40_000)
-            scene = await pcSceneName(page)
+            continue
           }
-          if (!diag.ready && scene === 'game') {
-            // ⚠️ **退出確認框（`box_sure`）是對齊畫布中心的，窄視窗下那一點在視窗外，點不到。**
-            //    實測 log：`menu_back@19,43 → box_sure:找不到或在視窗外` 重複八次然後放棄。
-            //    所以退出這段**暫時把視窗放大到 1024x768** 再做，做完改回目標尺寸——
-            //    截圖是後面才拍的，這裡臨時改大小不影響最後的圖。
-            const want = page.viewportSize()
-            const needResize = !want || want.width < 1024 || want.height < 768
-            // ⚠️ 改完視窗要等 Cocos 重新排版。不等的話第一下會用舊座標點下去——
-            //    實測 log 裡第一步是 `menu_back@19,43`（放大前的位置），等於白點一下。
-            if (needResize) {
-              await page.setViewportSize({ width: 1024, height: 768 }).catch(() => {})
-              await page.waitForTimeout(2000)
-            }
-            const back = await pcBackToLobby(page)
-            if (needResize && want) await page.setViewportSize(want).catch(() => {})
-            console.log(`[UI-SS] PC 一載入就被送回機台（上一輪的位子還佔著）→ 退回大廳${back.ok ? '成功' : '失敗'}`
-              + `${needResize ? '（退出時暫時放大到 1024x768，確認鈕在窄視窗點不到）' : ''}：${back.steps.join(' → ') || '(沒點到任何按鈕)'}`)
-            diag = await pcWaitLobby(page, 45_000)
+
+          // plan === 'leave-machine'：被送回上一輪還佔著位子的那台
+          leaveTried = true
+          // ⚠️ **退出確認框（`box_sure`）是對齊畫布中心的，窄視窗下那一點在視窗外，點不到。**
+          //    實測 log：`menu_back@19,43 → box_sure:找不到或在視窗外` 重複八次然後放棄。
+          //    所以退出這段**暫時把視窗放大到 1024x768** 再做，做完改回目標尺寸——
+          //    截圖是後面才拍的，這裡臨時改大小不影響最後的圖。
+          const want = page.viewportSize()
+          const needResize = !want || want.width < 1024 || want.height < 768
+          // ⚠️ 改完視窗要等 Cocos 重新排版。不等的話第一下會用舊座標點下去——
+          //    實測 log 裡第一步是 `menu_back@19,43`（放大前的位置），等於白點一下。
+          if (needResize) {
+            await page.setViewportSize({ width: 1024, height: 768 }).catch(() => {})
+            await page.waitForTimeout(2000)
           }
+          const back = await pcBackToLobby(page)
+          if (needResize && want) await page.setViewportSize(want).catch(() => {})
+          console.log(`[UI-SS] PC 一載入就被送回機台（上一輪的位子還佔著）→ 退回大廳${back.ok ? '成功' : '失敗'}`
+            + `${needResize ? '（退出時暫時放大到 1024x768，確認鈕在窄視窗點不到）' : ''}：${back.steps.join(' → ') || '(沒點到任何按鈕)'}`)
+          diag = await pcWaitLobby(page, 45_000)
         }
         if (!diag.ready) throw new Error(`PC 版大廳沒載出來：${describePcLobby(diag)}（場景=${await pcSceneName(page) || '未知'}）`)
         // JACKPOT／廣告彈窗是畫在 canvas 上的節點，DOM 關不掉，要把節點 active 設成 false
@@ -1501,6 +1511,11 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
       startUrl,
       viewportHeight: h,
       backend: msg.backend ?? null,
+      // PC（Cocos）積木的能力。⚠️ 引擎是純 JS，不能自己 import 這支 TS——見 pc-cocos.ts 的說明
+      pc: pcEngineCapabilities,
+      // WS(pinus)斷言要用的擷取器。⚠️ OSM 的業務幾乎全走 WS，HTTP 那邊只有遙測——
+      //    沒帶這個的話 `assert_ws_called` 會明確失敗（不會靜默跳過）
+      pinus: pinusProbe,
       /**
        * 基準圖：**server 派工時已經把圖的網址與門檻附在積木上**（跟後台設定片段同一個
        * 做法——agent 拿不到 DB，不能讓它自己查）。這裡只負責把圖抓下來。
@@ -1652,6 +1667,28 @@ async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
       }
       if (!uatScriptRuns.get(runId)?.active) break
     }
+    }
+
+    /**
+     * 🚨 **跑完要把位子讓出來**（跟 PC 的 `pcBackToLobby` 同一件事，H5 一直沒做）。
+     *
+     * 一個帳號同時只能坐一台機台。停在 /game 就結束的話，下一輪重新載入會**直接掉回機台**，
+     * 大廳積木全部命中 0——症狀長得像選擇器壞了，查起來完全不會想到是上一輪沒退出。
+     * `goto` 積木那邊也有一道同樣的防線（給「上一輪直接被殺掉」的情況兜底），
+     * 但**正常跑完就該自己收乾淨**，不要依賴下一輪來補。
+     *
+     * ⚠️ 退出失敗不改判定：這是收尾，不是被測的行為。但**一定要寫進 log**——
+     *    默默失敗的話，下一輪那串莫名其妙的失敗就沒有線索可查。
+     */
+    if (h5InGame(page)) {
+      const back = await h5BackToLobby(page, { log })
+      await log(`${back.ok ? '🚪' : '⚠️'} 收尾：${back.ok ? '已退出機台、位子放掉' : '退出失敗，位子可能還佔著（下一輪可能會直接掉回機台）'}：${back.steps.join(' → ') || '(沒點到任何按鈕)'}`)
+    }
+    // 🚨 PC 同理（`h5InGame()` 只認 H5 的網址）——沒退出的話下一輪一載入就在 game 場景，
+    //    「驗大廳」會當場 FAIL 並把那筆 TC 寫成失敗。實測踩過一次。
+    if (platform === 'pc' && await pcSceneName(page).catch(() => '') === 'game') {
+      const back = await pcBackToLobby(page)
+      await log(`${back.ok ? '🚪' : '⚠️'} PC 收尾：${back.ok ? '已退出機台、位子放掉' : `退出失敗（場景=${back.scene}）`}：${back.steps.join(' → ') || '(沒點到任何按鈕)'}`)
     }
 
     const result = failed > 0 ? 'fail' : 'pass'

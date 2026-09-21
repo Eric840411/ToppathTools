@@ -9,6 +9,13 @@ export interface UatConfig {
   filter: string
   dashGameType: string
   dashClientVersion: string
+  /**
+   * 要測哪一個後台站台：`cp`（預設）或 `nc`（NC）。
+   *
+   * ⚠️ 兩個站台的登入帳密**分開存**，選了站台就要有那個站台的帳密；
+   *    配錯會停在登入頁，而症狀是後面每一步都說「找不到元素」。
+   */
+  site?: 'cp' | 'nc'
 }
 
 export interface TcGroup { name: string; count: number }
@@ -50,8 +57,41 @@ export interface AutoStep {
   expectStatus?: '2xx' | 'any' | 'exact'
   /** assert_api_called：expectStatus 為 exact 時要比對的狀態碼 */
   statusCode?: number
-  /** assert_api_called：至少要被打到幾次 */
+  /** assert_api_called／assert_ws_called：至少要被打到幾次 */
   minCount?: number
+  /** `read_value`：要存成哪個變數名 */
+  as?: string
+  /** `read_value`：同名變數是否允許覆寫（預設不允許，避免後面引用到哪一次讀的看不出來） */
+  overwrite?: boolean
+  /** `assert_compare`：右邊的算式（左邊用 `value`） */
+  expect?: string
+  /** `assert_compare`：容差 */
+  tolerancePct?: number
+  /** `assert_compare`：絕對容差 */
+  absoluteTolerance?: number
+  /** `wait_for`：等什麼（visible／hidden／text／node） */
+  until?: 'visible' | 'hidden' | 'text' | 'node'
+  /** `wait_for`：最多等幾毫秒 */
+  timeoutMs?: number
+  /** `assert_text`：要讀的 Cocos 節點名或路徑（PC 用；H5 走 `selector`） */
+  nodeName?: string
+  /** `assert_text`：比對方式。預設 contains */
+  matchMode?: 'contains' | 'equals' | 'regex' | 'number'
+  /**
+   * 放行這一顆的危險操作（預約／帶入額度／充值…）。
+   *
+   * ⚠️ **只對這一顆有效**，不是整輪的開關——一次放行整輪的話，
+   *    之後新加的危險步驟會自動被放行，而沒有人會注意到。
+   * ⚠️ 正式環境**連這個也擋**（見 `dangerous-actions.js` 的 `isProdLike`）。
+   */
+  allowDangerous?: boolean
+  /**
+   * `require_precondition`：前置條件不成立時要寫進報告的說明（必填）。
+   *
+   * ⚠️ 這段字會直接出現在 Lark 的結果欄——寫「環境沒開」是沒用的，
+   *    要寫清楚**缺的是什麼、誰能備好**，否則下一個看報告的人只知道它沒測到。
+   */
+  reason?: string
   /** 這條 selector 是階梯的哪一階產的。`cssPath` 是最脆的一階，編輯器會標出來 */
   selectorStrategy?: string
   /** 錄製當下驗過的結果（ok／none／many／mismatch／invalid／unknown）。

@@ -57,7 +57,7 @@ export async function runMultiTcSteps(steps, ctx, bindings) {
   const engine = ctx.engine ?? BACKEND_TC_ENGINE;
   const results = bindings.map(b => ({ recordId: b.recordId, task: b.text || b.title || b.number,
     subtype: b.sub || '多 TC 錄製', pass: false, manual: false, skip: false, outcome: 'unverified',
-    steps: [], evidence: [], assertions: 0, durationMs: 0, criticalFails: [], warnings: [], allShotPaths: [], notes: '', error: null }));
+    steps: [], evidence: [], assertions: 0, durationMs: 0, criticalFails: [], warnings: [], blockedReasons: [], allShotPaths: [], notes: '', error: null }));
   const byId = new Map(results.map(r => [r.recordId, r]));
   const state = { vars: {}, netMark: Date.now() };
   const stopped = new Set();
@@ -117,6 +117,8 @@ export async function runMultiTcSteps(steps, ctx, bindings) {
     row.allShotPaths.push(...result.allShotPaths);
     row.criticalFails.push(...result.criticalFails);
     row.warnings.push(...result.warnings);
+    // 前置條件不成立：這筆 TC 後面不用再跑了（環境本來就不具備）
+    if (result.blockedReasons?.length) { row.blockedReasons.push(...result.blockedReasons); stopped.add(row.recordId); }
     append(row, `[步驟 ${index + 1}] ${result.notes}`);
     if (isCheck(step, engine) && result.pass && !result.manual && !result.warnings.length) row.assertions++;
     if (result.manual) row.manual = true;
@@ -129,6 +131,16 @@ export async function runMultiTcSteps(steps, ctx, bindings) {
     if (row.declaredOutcome === 'fail') { row.outcome = 'fail'; row.manual = false; row.error = row.criticalFails[0] || '人工指定 FAIL';
     } else if (row.criticalFails.length) {
       row.outcome = 'fail'; row.manual = false; row.error = row.criticalFails[0];
+    /**
+     * 前置條件不成立 → **受阻**，排在硬失敗之後。
+     *
+     * ⚠️ **順序不能顛倒**：同一輪裡如果既有真的失敗又有前置不成立，要報 FAIL。
+     *    受阻的意思是「沒測到」，硬失敗的意思是「測到了而且壞了」——
+     *    後者優先，否則一個真 bug 會被環境問題蓋掉。
+     */
+    } else if (row.blockedReasons.length) {
+      row.outcome = 'blocked'; row.manual = true; row.error = row.blockedReasons[0];
+      append(row, `前置條件不成立：${row.blockedReasons[0]}`);
     } else if (sharedFailure) {
       row.outcome = 'blocked'; row.manual = true; append(row, sharedFailure);
     } else if (row.manual || (!row.assertions && row.declaredOutcome !== 'pass') || row.warnings.length) {

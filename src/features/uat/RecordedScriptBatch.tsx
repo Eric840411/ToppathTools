@@ -5,9 +5,11 @@ import { queueRequest, runRecordedQueue, type QueueEntry } from './recorded-queu
 import { recordingSaveErrors } from '../../../shared/uat-recording-schema'
 import { stepDependencyIssues } from '../../../server/uat-runner/step-dependencies.js'
 
-export function RecordedScriptBatch({ scripts, selectedIds, onOrder, agentId, running, busy, onBusy, onRun }: {
+export function RecordedScriptBatch({ scripts, selectedIds, onOrder, agentId, running, busy, onBusy, onRun, site }: {
   scripts: RecordedScript[]; selectedIds: string[]; onOrder: (ids: string[]) => void; agentId: string;
   running: boolean; busy: boolean; onBusy: (busy: boolean) => void; onRun: () => void
+  /** 後台站台（cp／nc）。⚠️ 要跟錄製時選的同一個，不然錄的跟跑的不是同一個站台 */
+  site?: 'cp' | 'nc'
 }) {
   const [entries, setEntries] = useState<QueueEntry[]>([])
   const [dryRun, setDryRun] = useState(true)
@@ -46,7 +48,7 @@ export function RecordedScriptBatch({ scripts, selectedIds, onOrder, agentId, ru
     active.current = true; cancelled.current = false; onBusy(true); setDryRun(trial); setConfirm(false); setMessage('')
     const queue: QueueEntry[] = selected.map(s => ({ id: s!.id!, title: s!.title, state: 'waiting', results: [] }))
     current.current = queue; setEntries(queue)
-    try { await runRecordedQueue(queue, { agentId, dryRun: trial, cancelled: () => cancelled.current, update, started: onRun }) }
+    try { await runRecordedQueue(queue, { agentId, site, dryRun: trial, cancelled: () => cancelled.current, update, started: onRun }) }
     finally { active.current = false; onBusy(false) }
   }
   const stop = async () => {

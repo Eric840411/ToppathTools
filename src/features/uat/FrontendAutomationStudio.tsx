@@ -4,11 +4,12 @@ import { createPortal } from 'react-dom'
 import { BlockEditor, needsTc, tcShortLabel, type BackendSnippetOption, type TcBindingOption } from './BlockEditor'
 import { NetworkPanel, type UatStatsPayload } from './NetworkPanel'
 import { SELECTOR_CHECK_LABEL } from '../../../shared/uat-selector-check'
-import { compileExecutableSteps, countExecutableSteps, createStep, parseSteps, serializeSteps } from './step-model'
+import { compileExecutableSteps, countExecutableSteps, createStep, newStepId, parseSteps, serializeSteps } from './step-model'
 import { createPauseGate } from './pause-gate'
 // ⚠️ 排隊的規則跟 Backend 共用同一支——各寫一份的話，「session 對不上要停」
 //    「取不到結果不能當通過」這些安靜出錯的規則一定會有一邊漏掉。
 import { runScriptQueue, type QueueItem } from './script-queue'
+import { focusPanel } from './focusPanel'
 import type { AgentOption, AutoBaseline, AutoFilter, AutoPlatform, AutoRun, AutoScript, AutoStep, AutoTemplate, OcrRegion, UatThemeMode } from './types'
 
 /* 分頁已移除：版面照 Backend 的模板改成單一畫面（視覺資產與執行紀錄走彈框）。 */
@@ -48,8 +49,8 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
     cases: '玉簡卷宗', addScript: '新立試煉玉簡', editor: '陣圖編排', run: '啟陣控制', assets: '靈影素材', history: '試煉錄',
     record: '觀照錄術', stopRecord: '停止觀照', pauseRecord: '暫歇觀照', resumeRecord: '續行觀照', save: '封存玉簡', saving: '封存中', scriptName: '玉簡名號', unsaved: '尚未封存', synced: '已入藏經閣', newScript: '新玉簡',
   } : {
-    cases: '腳本', addScript: '新增測試腳本', editor: '流程編輯', run: '執行控制', assets: '視覺資產', history: '執行紀錄',
-    record: 'Playwright 錄製', stopRecord: '停止錄製', pauseRecord: '暫停錄製', resumeRecord: '繼續錄製', save: '儲存腳本', saving: '儲存中', scriptName: '腳本名稱', unsaved: '尚未儲存', synced: '已同步', newScript: '新腳本',
+    cases: '腳本', addScript: '手動新增腳本', editor: '流程編輯', run: '執行控制', assets: '視覺資產', history: '執行紀錄',
+    record: '錄製新腳本', stopRecord: '停止錄製', pauseRecord: '暫停錄製', resumeRecord: '繼續錄製', save: '儲存腳本', saving: '儲存中', scriptName: '腳本名稱', unsaved: '尚未儲存', synced: '已同步', newScript: '新腳本',
   }
   const actor = currentActor()
   const [scripts, setScripts] = useState<AutoScript[]>([])
@@ -599,7 +600,7 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
   const uploadBaseline = async (file?: File) => {
     if (!file || !selectedId) return setNotice('請先儲存或選擇腳本')
     const form = new FormData()
-    form.append('image', file); form.append('scriptId', selectedId); form.append('cropId', crypto.randomUUID()); form.append('name', file.name); form.append('platform', platform); form.append('createdBy', actor)
+    form.append('image', file); form.append('scriptId', selectedId); form.append('cropId', newStepId());   // ⚠️ 不能用 crypto.randomUUID()——區網 HTTP 下不存在，見 step-model.ts form.append('name', file.name); form.append('platform', platform); form.append('createdBy', actor)
     if ((await fetch('/api/frontend-auto/baselines', { method: 'POST', body: form })).ok) void loadAssets()
   }
   const uploadTemplate = async (file?: File) => {
@@ -627,19 +628,45 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
       : agents.length
         ? `自動挑一台（共 ${agents.length} 台連線中）`
         : null
+  /**
+   * ①②③ 每一步都要**點得下去**並帶人到對應的面板（見 focusPanel.ts）。
+   * ⚠️ `focus` 指的是「缺的東西在哪」，不是「這一步的說明在哪」——
+   *    使用者點它的時機就是不知道該去哪填。
+   */
   const startSteps = [
-    { label: xianxia ? '選定玉簡' : '選擇或錄製腳本', done: !!selectedId },
-    { label: xianxia ? '選在哪具傀儡上跑' : '選在哪台機器跑', done: !!targetAgent },
-    { label: xianxia ? '歸屬試煉（可略）' : '綁 Lark TC（可略過）', done: !!bindings.length },
+    { label: xianxia ? '選定玉簡' : '選擇或錄製腳本', done: !!selectedId, focus: 'uat-focus-scripts' },
+    { label: xianxia ? '選在哪具傀儡上跑' : '選在哪台機器跑', done: !!targetAgent, focus: 'uat-focus-agent' },
+    { label: xianxia ? '歸屬試煉（可略）' : '綁 Lark TC（可略過）', done: !!bindings.length, focus: 'uat-focus-lark' },
   ]
   // ⚠️ 「不能跑」的理由要講得出來。只把按鈕反灰的話，使用者只會看到一顆沒反應的按鈕。
-  const blockedReason = !selectedId
-    ? (xianxia ? '尚未選定玉簡（左側清單）' : '還沒選腳本（左邊清單）')
+  const blocked = !selectedId
+    ? { why: xianxia ? '尚未選定玉簡——點此前往' : '還沒選腳本——點這裡前往清單', focus: 'uat-focus-scripts' }
     : !runConfig.url.trim()
-      ? (xianxia ? '幻境入口還沒填（右側「啟陣設定」）' : '目標網址還沒填（右邊「執行設定」）')
+      ? { why: xianxia ? '幻境入口還沒填——點此前往' : '目標網址還沒填——點這裡前往', focus: 'uat-focus-url' }
       : unassignedSteps.length
-        ? (xianxia ? `有 ${unassignedSteps.length} 道校驗尚未歸屬試煉` : `有 ${unassignedSteps.length} 個檢查還沒指定所屬 TC`)
+        ? { why: xianxia ? `有 ${unassignedSteps.length} 道校驗尚未歸屬試煉` : `有 ${unassignedSteps.length} 個檢查還沒指定所屬 TC`, focus: 'uat-focus-flow' }
         : null
+  const blockedReason = blocked?.why ?? null
+  /**
+   * 卡片上的「綁幾筆 TC」與「上次跑的結果」。
+   *
+   * ⚠️ `bindings` 是後端存的 JSON 字串，舊腳本沒有這個欄位——parse 失敗一律當成 0，
+   *    不要讓一份舊腳本把整個清單炸掉。
+   */
+  const bindingCount = (script: AutoScript) => {
+    try { return JSON.parse(script.bindings ?? '[]').length as number } catch { return 0 }
+  }
+  /** runs 本來就已經抓進來了（右欄「執行紀錄」用的同一份），直接取最近一筆 */
+  const lastRunOf = (scriptId: string) => runs.find(run => run.script_id === scriptId)
+  const lastRunText = (run: AutoRun) => {
+    const when = run.finished_at ?? run.started_at
+    const stamp = when ? new Date(when).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }) : ''
+    // ⚠️ 只認得 pass／fail 兩種就好。其他狀態（執行中、取消）寫「—」而不是猜一個圖示，
+    //    猜錯的話畫面會說「上次成功」而其實是被取消的。
+    const mark = run.result === 'pass' ? '✅' : run.result === 'fail' ? '❌' : '—'
+    return `${xianxia ? '前次' : '上次'} ${mark} ${stamp}`
+  }
+
   const queueDone = queue.filter(item => item.state === 'done').length
   const queueFailed = queue.filter(item => item.state === 'error').length
 
@@ -649,12 +676,14 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
       <div className="uat-backend-launch">
         <div className="uat-backend-launch-steps">
           {startSteps.map((step, index) => (
-            <span className={`uat-launch-step${step.done ? ' is-done' : ''}`} key={step.label}>
+            <button type="button" className={`uat-launch-step${step.done ? ' is-done' : ''}`} key={step.label}
+              title={xianxia ? '點一下前往此步驟' : '點一下跳到這一步要填的地方'}
+              onClick={() => focusPanel(step.focus)}>
               <i>{index + 1}</i>{step.label}
-            </span>
+            </button>
           ))}
-          {blockedReason
-            ? <span className="uat-launch-block">{blockedReason}</span>
+          {blocked
+            ? <button type="button" className="uat-launch-block" onClick={() => focusPanel(blocked.focus)}>{blocked.why}</button>
             : <span className="uat-launch-ready">{xianxia ? '可啟陣推演' : '可以開始執行'}</span>}
         </div>
         <div className="uat-backend-launch-cta">
@@ -698,10 +727,16 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
             <p>{xianxia ? '點選玉簡可編排、推演與查閱結果。勾選可排入佇列。' : '點一下開啟編輯；勾選可排進佇列一起跑。'}</p>
           </div>
         </div>
-        <div className="uat-tc-record-actions">
-          <button type="button" className="uat-btn" onClick={newScript}>{copy.addScript}</button>
-          <button type="button" className="uat-btn is-quiet" disabled={!!recordSessionId} onClick={startRecording}>{copy.record}</button>
+        <div className="uat-tc-record-actions" id="uat-focus-scripts">
+          <button type="button" className="uat-btn is-quiet" onClick={newScript}>{copy.addScript}</button>
+          <button type="button" className="uat-btn" disabled={!!recordSessionId} onClick={startRecording}>{copy.record}</button>
         </div>
+        {/* ⚠️ 兩顆按鈕長得像但做的事完全不同，不寫清楚的話只能靠試。
+            （原本一顆叫「新增測試腳本」、一顆叫「Playwright 錄製」——
+            一個講結果、一個講技術，看不出是同一組選擇。） */}
+        <p className="uat-inline-hint">{xianxia
+          ? '錄術＝開幻境側錄你的操作；新立＝自空白編排陣圖。'
+          : '錄製＝開瀏覽器把你的操作錄成積木；手動＝從空白自己拉積木。'}</p>
         <input className="uat-field" value={search} onChange={event => setSearch(event.target.value)} placeholder={xianxia ? '尋找玉簡' : '搜尋腳本'} />
         <div className="uat-filter-row">{(['all', 'mine', 'public'] as const).map(value => <button type="button" className={filter === value ? 'is-active' : ''} onClick={() => setFilter(value)} key={value}>{value === 'all' ? '全部' : value === 'mine' ? (xianxia ? '本門' : '我的') : (xianxia ? '公傳' : '公開')}</button>)}</div>
         <div className="uat-script-list">
@@ -715,10 +750,16 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
                 disabled={queueBusy}
                 onChange={() => setQueueIds(prev => prev.includes(script.id) ? prev.filter(id => id !== script.id) : [...prev, script.id])}
               />
-              {/* ⚠️ 上次執行結果的小圓點已移除（使用者 2026-09-18 指定）。
-                  那個資訊改看右欄的「執行紀錄」——這裡不再顯示。 */}
+              {/* ⚠️ 上次執行結果的**小圓點**已移除（使用者 2026-09-18 指定）——
+                  這裡是 2026-09-20 依使用者要求改回**文字**：一個色點只說得出
+                  「紅或綠」，說不出什麼時候跑的；而「這支上次跑成功了嗎」正是
+                  決定要不要點開的依據。要再拿掉的話拿掉文字就好，別把圓點加回來。 */}
               <button type="button" onClick={() => selectScript(script.id)}>
-                <span><strong>{script.name}</strong><small>{script.created_by} · {parseSteps(script.steps).length} {xianxia ? '陣眼' : '區塊'}</small></span>
+                <span><strong>{script.name}</strong><small>
+                  {script.created_by} · {parseSteps(script.steps).length} {xianxia ? '陣眼' : '區塊'}
+                  {bindingCount(script) > 0 && <> · {xianxia ? `繫 ${bindingCount(script)} 試煉` : `綁 ${bindingCount(script)} TC`}</>}
+                  {lastRunOf(script.id) && <> · {lastRunText(lastRunOf(script.id)!)}</>}
+                </small></span>
               </button>
             </div>
           ))}
@@ -860,14 +901,18 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
       <aside className="uat-backend-settings">
         <div className="uat-pane-heading"><div><span>{xianxia ? 'ARRAY SETTINGS' : 'RUN SETTINGS'}</span><h3>{xianxia ? '啟陣設定' : '執行設定'}</h3><small>{xianxia ? '套用至本次推演' : '套用至本次執行'}</small></div></div>
         <div className="uat-backend-settings-form">
-          <label>{xianxia ? '幻境入口' : '目標網址'}<input className="uat-field" value={runConfig.url} onChange={event => setRunConfig(value => ({ ...value, url: event.target.value }))} placeholder="https://..." /></label>
-          <label>{xianxia ? '觀照尺寸' : '解析度'}<select className="uat-field" value={runConfig.resolution} onChange={event => setRunConfig(value => ({ ...value, resolution: event.target.value }))}>{(platform === 'h5' ? ['390x844', '500x877'] : ['1366x768', '1440x900', '1920x1080']).map(value => <option key={value}>{value}</option>)}</select></label>
-          <label>{xianxia ? '陣眼失守時' : '失敗處理'}<select className="uat-field" value={runConfig.failureMode} onChange={event => setRunConfig(value => ({ ...value, failureMode: event.target.value }))}><option value="continue">{xianxia ? '續行推演' : '繼續執行'}</option><option value="stop">{xianxia ? '立即收陣' : '立即停止'}</option></select></label>
-          <label className="uat-check"><input type="checkbox" checked={runConfig.headed} onChange={event => setRunConfig(value => ({ ...value, headed: event.target.checked }))} />{xianxia ? '顯現幻境視窗' : '顯示瀏覽器視窗'}</label>
-          <label className="uat-check"><input type="checkbox" checked={isPublic} onChange={event => { setIsPublic(event.target.checked); setDirty(true) }} />{xianxia ? '允許同門啟用此玉簡' : '允許其他使用者執行此腳本'}</label>
+          <label id="uat-focus-url">{xianxia ? '幻境入口' : '目標網址'}<input className="uat-field" value={runConfig.url} onChange={event => setRunConfig(value => ({ ...value, url: event.target.value }))} placeholder="https://..." /></label>
+          <label>{xianxia ? '觀照尺寸' : '解析度'}<select className="uat-field" value={runConfig.resolution} onChange={event => setRunConfig(value => ({ ...value, resolution: event.target.value }))}>{(platform === 'h5' ? ['390x844', '500x877'] : ['1366x768', '1440x900', '1920x1080']).map(value => <option key={value}>{value}</option>)}</select>
+            <small>{xianxia ? '幻境視窗大小。太小會讓術式點不到畫面外之物。' : '瀏覽器視窗大小。太小的話畫面外的東西點不到，PC 版尤其明顯。'}</small></label>
+          <label>{xianxia ? '陣眼失守時' : '失敗處理'}<select className="uat-field" value={runConfig.failureMode} onChange={event => setRunConfig(value => ({ ...value, failureMode: event.target.value }))}><option value="continue">{xianxia ? '續行推演' : '繼續執行'}</option><option value="stop">{xianxia ? '立即收陣' : '立即停止'}</option></select>
+            <small>{xianxia ? '某一術式失守時，是續行其餘、還是當下收陣。' : '某一步失敗時：「繼續執行」會把剩下的步驟跑完（看得到後面還有沒有問題），「立即停止」則當場中斷。'}</small></label>
+          <label className="uat-check"><input type="checkbox" checked={runConfig.headed} onChange={event => setRunConfig(value => ({ ...value, headed: event.target.checked }))} />{xianxia ? '顯現幻境視窗' : '顯示瀏覽器視窗'}
+            <small>{xianxia ? '看得到幻境推演過程；不開則在背景推演，較快。' : '看得到瀏覽器實際在做什麼（查問題用）；不開就在背景跑，比較快。'}</small></label>
+          <label className="uat-check"><input type="checkbox" checked={isPublic} onChange={event => { setIsPublic(event.target.checked); setDirty(true) }} />{xianxia ? '允許同門啟用此玉簡' : '允許其他使用者執行此腳本'}
+            <small>{xianxia ? '關閉後僅你自己看得到、跑得動。' : '關掉之後只有你看得到這份腳本（清單的「我的／公開」就是在分這個）。'}</small></label>
 
           {/* ── Lark TC 綁定 ─────────────────────────────────────── */}
-          <label>{xianxia ? '玉牒路徑' : 'Lark TC 路徑'}
+          <label id="uat-focus-lark">{xianxia ? '玉牒路徑' : 'Lark TC 路徑'}
             <small>{xianxia ? '綁定後推演完會依試煉分判並回填；不綁亦可推演，只是不回填。' : '綁了之後跑完會依 TC 分別判定、上傳截圖、回寫 Lark。不綁也能跑，只是不回寫。'}</small>
             <textarea className="uat-field" rows={2} value={larkUrl}
               onChange={event => { setLarkUrl(event.target.value); setDirty(true) }}

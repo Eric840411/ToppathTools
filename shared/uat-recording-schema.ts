@@ -8,6 +8,14 @@ export const scriptSchema = z.object({
   id: z.string().min(1).max(80).optional(), title: z.string().trim().min(1).max(200),
   larkUrl: z.string().url().max(2000), tableId: z.string().min(1).max(80),
   bindings: z.array(tcBindingSchema).min(1).max(20),
+  /**
+   * 這份腳本是在哪個後台站台錄的（cp／nc）。
+   *
+   * ⚠️ **只記錄，不強制**：路徑是相對的，同一份腳本在兩個站台都跑得動，
+   *    有時就是要拿 CP 錄的腳本去 NC 驗一次。但「跑的不是你錄的那個站台」
+   *    必須看得見——執行時對不上會在日誌明講。
+   */
+  recordedSite: z.enum(['cp', 'nc']).optional(),
   steps: z.array(z.object({ action: z.string().min(1).max(60), tcId: z.string().max(80).nullable().optional(), disabled: z.boolean().optional(), baselinePng: z.string().max(2800000).optional() }).passthrough()).max(300),
 })
 

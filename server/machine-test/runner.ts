@@ -16,7 +16,7 @@ import { readFileSync, existsSync, unlinkSync, writeFileSync, mkdirSync } from '
 import { join, basename } from 'path'
 import { chromium, type Browser, type Page, type ElementHandle } from 'playwright'
 import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEvent, MachineProfile } from './types.js'
-import { callGeminiVision, callGeminiVisionMulti } from '../routes/gemini.js'
+import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
 
 // ─── OS-level audio capture via VB-Cable ─────────────────────────────────────
 

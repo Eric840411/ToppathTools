@@ -25,6 +25,7 @@
  * 展開仍可能讓座標漂移，因此正常路徑永遠先使用 selector，並在結果裡標明是否曾回退。
  */
 
+import { dangerousRulesSource } from './dangerous-actions.js';
 import { selectorLadderSource, elementUiAdapterSource } from './selector-ladder.js';
 
 /** 錄製器把積木用這個前綴印到 console，外面透過 CDP 收 */
@@ -44,6 +45,7 @@ export const RECORDER_STOP_MARKER = '__TOPPATH_REC_STOP__';
 
 export function backendRecorderScript(options = {}) {
   return `(() => {
+${dangerousRulesSource()}
   if (window.__toppathBackendRecorder) return;
   window.__toppathBackendRecorder = true;
 
@@ -134,6 +136,40 @@ ${selectorLadderSource(elementUiAdapterSource())}
   document.addEventListener('focusout', event => flushInput(event.target), true);
   window.__toppathFlushRecorder = () => flushInput(document.activeElement);
 
+  /**
+   * 危險操作守衛（後台錄製端）。
+   *
+   * 🚨 後台能做的破壞比前台大：補發彩金、處理 Hand Pay、刪設定、停用機台。
+   *    錄製時手滑點下去就**真的執行了**，而且後台不會提示你剛剛改了什麼。
+   * ⚠️ 要在事件抵達頁面**之前**攔（capture），而且用 stopImmediatePropagation——
+   *    只用 stopPropagation 的話，錄製器自己的 click 監聽器還是會把它錄進腳本，
+   *    於是「擋得住人、擋不住腳本」，重播時照樣發生。
+   * ⚠️ preventDefault 只對 click 下：取消 pointerdown 會讓瀏覽器連 click 都不發。
+   */
+  const dangerArmed = { key: '', until: 0 };
+  const dangerGuard = (event) => {
+    if (!window.__toppathRecArmed || !window.__uatDanger) return;
+    if (window.__toppathPicking || isMarking(event)) return;
+    const el = event.target;
+    if (!el || !el.closest || el.closest('[data-toppath-recorder-ui]')) return;
+    const node = actionableTarget(el);
+    if (!node || node.nodeType !== 1) return;
+    const selector = node.className && typeof node.className === 'string' ? '.' + node.className.trim().split(/\s+/).join('.') : '';
+    const verdict = window.__uatDanger.classify({ selector: selector, text: (node.innerText || '').trim().slice(0, 40) });
+    if (!verdict || verdict.strength !== 'strong') return;
+    const key = selector + '|' + (node.innerText || '').trim().slice(0, 20);
+    if (dangerArmed.key === key && Date.now() < dangerArmed.until) return;
+    if (event.type === 'click' || event.type === 'dblclick') event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.type !== 'click' && event.type !== 'pointerdown') return;
+    const NL = String.fromCharCode(10);
+    const yes = window.confirm(verdict.why + NL + NL + '要繼續的話按「確定」，然後再按一次那顆按鈕（15 秒內有效）。' + NL + '按「取消」就什麼都不會發生。');
+    if (yes) { dangerArmed.key = key; dangerArmed.until = Date.now() + 15000; }
+  };
+  for (const type of ['pointerdown', 'mousedown', 'mouseup', 'pointerup', 'click', 'dblclick']) {
+    document.addEventListener(type, dangerGuard, true);
+  }
+
   // ── 錄動作 ───────────────────────────────────────────────────────────
   document.addEventListener('click', (event) => {
     if (!window.__toppathRecArmed) return;   // 登入階段不錄
@@ -220,6 +256,49 @@ ${selectorLadderSource(elementUiAdapterSource())}
       fromX: current.from.x, fromY: current.from.y,
       toX: Math.round(event.clientX), toY: Math.round(event.clientY),
       recordedViewport: viewportInfo() });
+  }, true);
+
+  /**
+   * 捲動也要錄。
+   *
+   * 🚨 **為什麼需要**：錄製器以前只錄點擊／輸入／拖曳，所以「錄的時候往下捲了一段才點到」
+   *    這件事完全不會被錄下來。重播時畫面停在最上面，那顆按鈕在視窗外——
+   *    症狀是「錄的時候好好的，跑起來說找不到元素」，看腳本也看不出少了什麼。
+   * ⚠️ **停下來才錄一顆**（300ms 沒有新事件），而且小幅度（40px 內）不錄——
+   *    每個 scroll 事件都錄的話，捲一下會產生幾十顆積木。
+   * ⚠️ 錄**絕對位置**不錄位移：重播時內容長度不見得一樣。
+   */
+  let scrollTimer = null;
+  let scrollPending = null;
+  document.addEventListener('scroll', (event) => {
+    if (!window.__toppathRecArmed || window.__toppathPicking) return;
+    const node = event.target;
+    if (node && node.closest && node.closest('[data-toppath-recorder-ui]')) return;
+    const isDoc = !node || node === document || node === document.documentElement || node === document.body;
+    const el = isDoc ? (document.scrollingElement || document.documentElement) : node;
+    if (!el) return;
+    scrollPending = { el: el, top: Math.round(el.scrollTop || 0), isDoc: isDoc };
+    if (scrollTimer) clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(() => {
+      scrollTimer = null;
+      const info = scrollPending;
+      scrollPending = null;
+      if (!info || info.top < 40) return;
+      // 容器捲動才需要 selector；整頁捲動留空（執行端會捲整頁）
+      const sel = info.isDoc ? '' : (describe(info.el).selector || '');
+      emit({ action: 'scroll', value: String(info.top), selector: sel, recordedUrl: location.href });
+    }, 300);
+  }, true);
+
+  document.addEventListener('contextmenu', (event) => {
+    if (!window.__toppathRecArmed || window.__toppathPicking) return;
+    if (isMarking(event)) return;
+    const el = actionableTarget(event.target);
+    if (!el || el.nodeType !== 1) return;
+    if (el.closest && el.closest('[data-toppath-recorder-ui]')) return;
+    const d = describe(el);
+    if (!d || !d.selector) return;
+    emit({ action: 'right_click', selector: d.selector, selectorStrategy: d.strategy, recordedUrl: location.href });
   }, true);
 
   document.addEventListener('change', (event) => {

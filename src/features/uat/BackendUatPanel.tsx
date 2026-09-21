@@ -4,12 +4,14 @@ import type { RunStatus, TcGroup, UatConfig, UatThemeMode } from './types'
 import { NetworkPanel, type UatStatsPayload } from './NetworkPanel'
 import { BackendTcEditor, type BackendTc, type Step } from './BackendTcEditor'
 import { MultiTcRecorder, type RecordedScript } from './MultiTcRecorder'
+import { focusPanel } from './focusPanel'
 import { RecordedScriptLibrary } from './RecordedScriptLibrary'
 import { RecordedScriptBatch } from './RecordedScriptBatch'
+import { SchedulePanel } from './SchedulePanel'
 
 const STORAGE_KEY = 'osm_uat_config'
 function loadConfig(): UatConfig {
-  const defaults: UatConfig = { larkUrl: '', filter: '', dashGameType: '', dashClientVersion: '' }
+  const defaults: UatConfig = { larkUrl: '', filter: '', dashGameType: '', dashClientVersion: '', site: 'cp' }
   try {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}') as Partial<UatConfig>
     return { ...defaults, ...stored }
@@ -82,6 +84,8 @@ export function BackendUatPanel({ themeMode, agentId }: { themeMode: UatThemeMod
   const legacyMode = false
   const [recordedScripts, setRecordedScripts] = useState<RecordedScript[]>([])
   const [selectedScriptIds, setSelectedScriptIds] = useState<string[]>([])
+  /** 每日排程改成最上面的按鈕＋彈框（使用者 2026-09-20 指定） */
+  const [scheduleOpen, setScheduleOpen] = useState(false)
   const [batchBusy, setBatchBusy] = useState(false)
   const [initialScript, setInitialScript] = useState<RecordedScript>()
   const [libraryRevision, setLibraryRevision] = useState(0)
@@ -638,13 +642,14 @@ export function BackendUatPanel({ themeMode, agentId }: { themeMode: UatThemeMod
     : agents.some(agent => !agent.busy)
       ? `自動挑一台（${agents.filter(agent => !agent.busy).length} 台可用）`
       : null
+  /** ①②③ 要點得下去並帶人到該去的地方（見 focusPanel.ts） */
   const startSteps = [
-    { label: xianxia ? '載入玉簡' : '設定 Lark TC', done: !!config.larkUrl.trim() },
-    { label: xianxia ? '選在哪具傀儡上跑' : '選在哪台機器跑', done: !!targetAgent },
-    { label: legacyMode ? '執行舊版 TC' : '選擇或錄製腳本', done: false },
+    { label: xianxia ? '載入玉簡' : '設定 Lark TC', done: !!config.larkUrl.trim(), focus: 'uat-focus-lark' },
+    { label: xianxia ? '選在哪具傀儡上跑' : '選在哪台機器跑', done: !!targetAgent, focus: 'uat-focus-agent' },
+    { label: legacyMode ? '執行舊版 TC' : '選擇或錄製腳本', done: false, focus: 'uat-focus-scripts' },
   ]
   const blockedReason = !config.larkUrl
-    ? 'Lark TC 路徑還沒填（在右邊「執行設定」）'
+    ? 'Lark TC 路徑還沒填（點這裡前往）'
     : null
 
   return (
@@ -655,12 +660,13 @@ export function BackendUatPanel({ themeMode, agentId }: { themeMode: UatThemeMod
       <div className="uat-backend-launch">
         <div className="uat-backend-launch-steps">
           {startSteps.map((step, index) => (
-            <span className={`uat-launch-step${step.done ? ' is-done' : ''}`} key={step.label}>
+            <button type="button" className={`uat-launch-step${step.done ? ' is-done' : ''}`} key={step.label}
+              title="點一下跳到這一步要填的地方" onClick={() => focusPanel(step.focus)}>
               <i>{index + 1}</i>{step.label}
-            </span>
+            </button>
           ))}
           {blockedReason
-            ? <span className="uat-launch-block">{blockedReason}</span>
+            ? <button type="button" className="uat-launch-block" onClick={() => focusPanel('uat-focus-lark')}>{blockedReason}</button>
             : <span className="uat-launch-ready">{legacyMode ? '可執行舊版 TC 批次測試' : '選擇已儲存腳本，或新增腳本開始錄製'}</span>}
         </div>
         <div className="uat-backend-launch-cta">
@@ -668,9 +674,12 @@ export function BackendUatPanel({ themeMode, agentId }: { themeMode: UatThemeMod
             {groups ? <>已讀取 <b>{total}</b> 筆 TC</> : <>尚未讀取 Lark TC</>}
             {targetAgent && <> · 跑在 <b>{targetAgent}</b></>}
           </div>
+          {!legacyMode && (
+            <button type="button" className="uat-btn is-quiet" onClick={() => setScheduleOpen(true)}>每日排程</button>
+          )}
           {status === 'running' && !batchBusy
             ? <button type="button" className="uat-btn is-danger is-wide" onClick={() => fetch('/api/osm-uat/stop', { method: 'POST' })}>{xianxia ? '收陣' : '停止執行'}</button>
-            : <button type="button" className="uat-btn is-primary is-wide" disabled={batchBusy || !config.larkUrl} onClick={legacyMode ? run : () => openScript()}>{legacyMode ? '執行舊版 TC' : '錄製腳本'}</button>}
+            : <button type="button" className="uat-btn is-primary is-wide" disabled={batchBusy || !config.larkUrl} onClick={legacyMode ? run : () => openScript()}>{legacyMode ? '執行舊版 TC' : '錄製新腳本'}</button>}
         </div>
       </div>
 
@@ -854,7 +863,7 @@ export function BackendUatPanel({ themeMode, agentId }: { themeMode: UatThemeMod
             </div>
           )}
         </section>
-        </> : <RecordedScriptBatch scripts={recordedScripts} selectedIds={selectedScriptIds} onOrder={setSelectedScriptIds} agentId={selectedAgentId} running={status === 'running'} busy={batchBusy} onBusy={setBatchBusy} onRun={() => { statusRef.current = 'running'; setStatus('running'); connect() }} />}
+        </> : <RecordedScriptBatch site={config.site ?? 'cp'} scripts={recordedScripts} selectedIds={selectedScriptIds} onOrder={setSelectedScriptIds} agentId={selectedAgentId} running={status === 'running'} busy={batchBusy} onBusy={setBatchBusy} onRun={() => { statusRef.current = 'running'; setStatus('running'); connect() }} />}
 
       </main>
 
@@ -896,7 +905,15 @@ export function BackendUatPanel({ themeMode, agentId }: { themeMode: UatThemeMod
               })}
               {credMsg && <span className={`uat-backend-cred-msg${credMsg.tone === 'error' ? ' is-error' : ''}`}>{credMsg.tone === 'ok' ? '✓ ' : ''}{credMsg.text}</span>}
             </div>
-            <label>{xianxia ? 'Lark 玉簡路徑' : 'Lark TC 路徑'}<textarea className="uat-field uat-backend-url" value={config.larkUrl} onChange={event => update({ larkUrl: event.target.value })} placeholder="https://xxx.larksuite.com/base/...?table=..." /></label>
+            {/* 站台要排在帳密上面：先決定測哪一個後台，才知道要填哪一組帳密 */}
+            <label id="uat-focus-site">{xianxia ? '試煉道場' : '後台站台'}
+              <select className="uat-field" value={config.site ?? 'cp'} onChange={event => update({ site: event.target.value as 'cp' | 'nc' })}>
+                <option value="cp">CP（uat-cp.osmslot.org）</option>
+                <option value="nc">NC（uat-nc.osmslot.org）</option>
+              </select>
+              <small>錄製與執行都會用這個站台。⚠️ 兩個站台的登入帳密是分開存的，換站台要確認上面那組帳密也是那個站台的，否則會停在登入頁（症狀是每一步都說找不到元素）。</small>
+            </label>
+            <label id="uat-focus-lark">{xianxia ? 'Lark 玉簡路徑' : 'Lark TC 路徑'}<textarea className="uat-field uat-backend-url" value={config.larkUrl} onChange={event => update({ larkUrl: event.target.value })} placeholder="https://xxx.larksuite.com/base/...?table=..." /></label>
             <button type="button" className="uat-btn is-quiet is-wide" disabled={!config.larkUrl || scanning} onClick={scan}>{scanning ? '掃描中' : (xianxia ? '重整玉簡索引' : '掃描 Lark TC')}</button>
             {legacyMode && <><label>{xianxia ? '玉簡篩選' : 'Subtype 追加篩選'}
               <button type="button" className="uat-field uat-subtype-trigger" onClick={() => setSubtypeModal(true)}>
@@ -1053,7 +1070,13 @@ export function BackendUatPanel({ themeMode, agentId }: { themeMode: UatThemeMod
       {/* 一定要 portal 出去：外層有 backdrop-filter 的祖先，position: fixed 會被困在
           那個容器裡畫不出來。積木編輯器踩過同一個坑，這裡是第二次——這個 studio 版面
           只要是彈框就得 portal，不要再用一般的絕對定位試 */}
-      {multiRecorderOpen && <MultiTcRecorder initialScript={initialScript} open={multiRecorderOpen} onClose={() => { setMultiRecorderOpen(false); setLibraryRevision(n => n + 1) }} tcs={tcs}
+      {scheduleOpen && (
+        <SchedulePanel
+          scripts={recordedScripts.map(item => ({ id: item.id ?? '', title: item.title }))}
+          site={config.site ?? 'cp'} agentId={selectedAgentId}
+          onClose={() => setScheduleOpen(false)} />
+      )}
+      {multiRecorderOpen && <MultiTcRecorder site={config.site ?? 'cp'} initialScript={initialScript} open={multiRecorderOpen} onClose={() => { setMultiRecorderOpen(false); setLibraryRevision(n => n + 1) }} tcs={tcs}
         larkUrl={config.larkUrl} agentId={selectedAgentId} running={status === 'running'} themeMode={themeMode}
         onRun={() => { statusRef.current = 'running'; setStatus('running'); connect() }} />}
       {pendingSteps && pickerOpen && createPortal((

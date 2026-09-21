@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { AccountInfo } from '../components/JiraAccountModal'
 import { type UrlPoolEntry } from '../data/urlPoolData'
 import { POOL_SOURCE, POOL_LABEL, type PoolEnv } from '../data/urlPoolEnv'
+import { POOL_DEVICES, POOL_DEVICE_LABEL, toDeviceUrl, type PoolDevice } from '../data/urlPoolDevice'
 import { ProdSimPanel } from '../components/ProdSimPanel'
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -16,12 +17,17 @@ interface Props {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
-function buildProxyUrl(row: UrlPoolEntry, userLabel: string): string {
+/**
+ * ⚠️ `targetUrl` 要傳**已經套過版本（H5／PC）的那條**，不是 `row.url`。
+ *    中轉端（`/api/url-pool/go/:account`）只認 `to`，原封不動 302 過去——
+ *    這裡傳錯的話按鈕顯示 PC、開起來卻是 H5，而且完全不會報錯。
+ */
+function buildProxyUrl(account: string, targetUrl: string, userLabel: string): string {
   const serverOrigin = window.location.port === '5173'
     ? `${window.location.protocol}//${window.location.hostname}:3000`
     : window.location.origin
-  const encoded = btoa(row.url)
-  return `${serverOrigin}/api/url-pool/go/${row.account}?user=${encodeURIComponent(userLabel)}&to=${encoded}`
+  const encoded = btoa(targetUrl)
+  return `${serverOrigin}/api/url-pool/go/${account}?user=${encodeURIComponent(userLabel)}&to=${encoded}`
 }
 
 // ─── Component ─────────────────────────────────────────────────────────────────
@@ -55,6 +61,16 @@ export function UrlPoolPage({ currentAccount }: Props) {
    *    切回來也不會重抓（那支 fetch 只跑一次）。改成「原始資料 + override」在 render 時合併。
    */
   const localData = POOL_SOURCE[poolEnv].map(r => ({ ...r, url: overrides[r.account] ?? r.url }))
+  /**
+   * 版本（H5／PC）。**不是第三個帳號池，也不是第三個環境**——同一個帳號、同一個 token，
+   * 只是把 URL 的 `platform`／`device` 換掉，決定進 H5 還是 PC（Cocos）版。
+   *
+   * 兩層：`device` 是整頁的預設（使用者要求預設 H5），`rowDevice` 是單列覆寫（每列那顆切換鈕）。
+   * 切整頁預設時會清掉所有單列覆寫，否則畫面上會出現「明明切成 PC，卻有幾列還是 H5」
+   * 這種說不清楚的狀態。
+   */
+  const [device, setDevice] = useState<PoolDevice>('h5')
+  const [rowDevice, setRowDevice] = useState<Record<string, PoolDevice>>({})
   const [filter, setFilter] = useState<'all' | 'available' | 'in-use' | 'mine'>('all')
   const [searchText, setSearchText] = useState('')
   const [loadingAccount, setLoadingAccount] = useState<string | null>(null)
@@ -105,9 +121,24 @@ export function UrlPoolPage({ currentAccount }: Props) {
 
   // ── Actions ─────────────────────────────────────────────────────────────────
 
-  async function handleCopyProxyUrl(row: UrlPoolEntry) {
+  // ── 版本（H5／PC）──────────────────────────────────────────────────────────
+  const deviceOf = (account: string): PoolDevice => rowDevice[account] ?? device
+
+  function switchAllDevices(d: PoolDevice) {
+    setDevice(d)
+    setRowDevice({})   // 見 state 宣告處：不清的話會留下解釋不了的混合狀態
+  }
+
+  function toggleRowDevice(account: string) {
+    const next: PoolDevice = deviceOf(account) === 'h5' ? 'pc' : 'h5'
+    setRowDevice(prev => ({ ...prev, [account]: next }))
+    // 換了版本，已複製／查看中的提示就不再指向同一條 URL，清掉免得誤會
+    setCopiedAccount(a => a === account ? null : a)
+  }
+
+  async function handleCopyProxyUrl(row: UrlPoolEntry, targetUrl: string) {
     if (!currentAccount) return
-    const proxyUrl = buildProxyUrl(row, currentAccount.label)
+    const proxyUrl = buildProxyUrl(row.account, targetUrl, currentAccount.label)
     try {
       await navigator.clipboard.writeText(proxyUrl)
       setCopiedAccount(row.account)
@@ -216,6 +247,28 @@ export function UrlPoolPage({ currentAccount }: Props) {
 
         {/* 統計與篩選只屬於帳號池；模擬正式分頁沒有清單可以統計／篩選 */}
         {tab !== 'prodsim' && (<>
+        {/* ⚠️ 版本跟環境是**不同維度**：環境換的是「哪一批帳號」，版本換的是「同一個帳號進哪一版」。
+            所以樣式刻意跟 QAT/UAT 那組分頁不同（這是開關不是分頁），避免被當成第三個帳號池。 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 12, color: '#64748b' }}>版本</span>
+          <div style={{ display: 'flex', gap: 2, padding: 2, background: '#0f172a', border: '1px solid #2d3f55', borderRadius: 7 }}>
+            {POOL_DEVICES.map(d => (
+              <button
+                key={d} type="button" onClick={() => switchAllDevices(d)}
+                data-testid={`url-pool-device-${d}`}
+                title={d === 'h5'
+                  ? 'H5（手機版）：帳號池原始的 Token URL'
+                  : 'PC（Cocos 版）：同一個 token，只把 platform 換成 50、device 換成 pc'}
+                style={{
+                  padding: '4px 12px', borderRadius: 5, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  border: 'none', background: device === d ? '#0891b2' : 'transparent',
+                  color: device === d ? '#fff' : '#94a3b8',
+                }}
+              >{POOL_DEVICE_LABEL[d]}</button>
+            ))}
+          </div>
+        </div>
+
         <div style={{ display: 'flex', gap: 8 }}>
           <StatBadge label="總計" value={localData.length} color="#6b7280" />
           <StatBadge label="可用" value={totalAvail} color="#16a34a" />
@@ -272,6 +325,10 @@ export function UrlPoolPage({ currentAccount }: Props) {
 
       <div style={{ padding: '8px 12px', background: 'rgba(59,130,246,0.08)', border: '1px solid rgba(59,130,246,0.25)', borderRadius: 8, marginBottom: 12, fontSize: 12, color: '#60a5fa' }}>
         悟 「複製使用 URL」會產生一個中轉連結，貼到 AutoSpin Game URL 或機台測試 Game URL 使用。開啟時自動認領，8 小時後自動釋放。
+        <div style={{ marginTop: 4, color: '#94a3b8' }}>
+          「版本」切 PC 只是把同一條 URL 的 <code>platform</code> 換成 <code>50</code>、<code>device</code> 換成 <code>pc</code>——
+          帳號、token、遊戲都不變，所以 H5 / PC 共用同一份認領狀態（同一個帳號同時只能在一邊玩）。
+        </div>
       </div>
 
       {/* ── Table ─────────────────────────────────────────────────────────────── */}
@@ -282,6 +339,7 @@ export function UrlPoolPage({ currentAccount }: Props) {
               <th style={th}>帳號</th>
               <th style={th}>用戶名稱</th>
               <th style={th}>Token URL</th>
+              <th style={th}>版本</th>
               <th style={th}>狀態</th>
               <th style={th}>操作</th>
             </tr>
@@ -293,6 +351,9 @@ export function UrlPoolPage({ currentAccount }: Props) {
               const isEditing = editingRow === row.account
               const isLoading = loadingAccount === row.account
               const isCopied = copiedAccount === row.account
+              const rowDev = deviceOf(row.account)
+              /** 這一列實際要用的 URL。⚠️ 永遠從 `row.url`（原始 H5）算，不要接著上一次的結果轉。 */
+              const effUrl = toDeviceUrl(row.url, rowDev)
 
               return (
                 <tr key={row.account} style={{ borderBottom: '1px solid #f1f5f9', background: isClaimedByMe ? '#eff6ff' : claim ? '#fef2f2' : undefined }}>
@@ -311,13 +372,44 @@ export function UrlPoolPage({ currentAccount }: Props) {
                       </div>
                     ) : (
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <span style={{ fontSize: 11, color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }} title={row.url}>
-                          {row.url}
+                        <span style={{ fontSize: 11, color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 260 }} title={effUrl}>
+                          {effUrl}
                         </span>
-                        <button type="button" onClick={() => setViewingUrl(row.url)} style={btnSm('#6b7280', true)}>查看</button>
-                        {isAdmin && <button type="button" onClick={() => startEdit(row)} style={btnSm('#6b7280', true)}>編輯</button>}
+                        <button type="button" onClick={() => setViewingUrl(effUrl)} style={btnSm('#6b7280', true)}>查看</button>
+                        {/* ⚠️ 「編輯」動的一律是**原始（H5）URL**，不是畫面上那條轉換後的。
+                            PC 版是算出來的，存回去會把轉換結果變成資料本身，下次再轉就疊上去了。 */}
+                        {isAdmin && (
+                          <button
+                            type="button" onClick={() => startEdit(row)} style={btnSm('#6b7280', true)}
+                            title={rowDev === 'pc' ? '編輯原始（H5）Token URL——PC 版是由它換算出來的，不另外儲存' : undefined}
+                          >編輯</button>
+                        )}
                       </div>
                     )}
+                  </td>
+                  {/* ── 版本切換（單列覆寫整頁預設）───────────────────────────── */}
+                  <td style={{ ...td, whiteSpace: 'nowrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => toggleRowDevice(row.account)}
+                      disabled={!row.url}
+                      data-testid={`url-pool-row-device-${row.account}`}
+                      title={row.url
+                        ? (rowDev === 'h5' ? '目前是 H5，點一下改用 PC（Cocos）版' : '目前是 PC（Cocos），點一下改回 H5')
+                        : '這個帳號沒有 URL，沒有東西可以切換'}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 8px',
+                        borderRadius: 999, fontSize: 11, fontWeight: 700, flexShrink: 0,
+                        cursor: row.url ? 'pointer' : 'not-allowed',
+                        opacity: row.url ? 1 : .45,
+                        border: `1px solid ${rowDev === 'pc' ? '#0891b2' : '#2d3f55'}`,
+                        background: rowDev === 'pc' ? 'rgba(8,145,178,.15)' : '#1e293b',
+                        color: rowDev === 'pc' ? '#22d3ee' : '#94a3b8',
+                      }}
+                    >
+                      {POOL_DEVICE_LABEL[rowDev]}
+                      <span style={{ fontSize: 10, fontWeight: 400, opacity: .7 }}>⇄</span>
+                    </button>
                   </td>
                   <td style={td}>
                     {claim ? (
@@ -345,13 +437,13 @@ export function UrlPoolPage({ currentAccount }: Props) {
                       <button
                         type="button"
                         disabled={!currentAccount || isLoading || !row.url}
-                        onClick={() => handleCopyProxyUrl(row)}
+                        onClick={() => handleCopyProxyUrl(row, effUrl)}
                         style={btnSm(isCopied ? '#16a34a' : '#2563eb')}
                         title={row.url
-                          ? '複製中轉 URL，貼到 AutoSpin / 機台測試 Game URL，開啟時自動認領'
+                          ? `複製中轉 URL（${POOL_DEVICE_LABEL[rowDev]} 版），貼到 AutoSpin / 機台測試 Game URL，開啟時自動認領`
                           : '這個帳號沒有 URL，請先用「編輯」補上'}
                       >
-                        {isCopied ? '已複製！' : '複製使用 URL'}
+                        {isCopied ? '已複製！' : `複製使用 URL${rowDev === 'pc' ? '（PC）' : ''}`}
                       </button>
                       {/* 釋放 — only for rows claimed by me */}
                       {isClaimedByMe && (

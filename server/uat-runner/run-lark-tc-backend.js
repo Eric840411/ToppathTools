@@ -52,7 +52,17 @@ const CUSTOM_TRIAL = (() => {
 })();
 
 // ─── 後台設定 ─────────────────────────────────────────────────────────
-const BACKEND_URL = 'http://uat-cp.osmslot.org';
+/**
+ * 要測哪一個站台。**以前寫死 CP**，所以錄製與執行都只能對 CP——想測 NC
+ * （`uat-nc.osmslot.org`）只能改程式，而唯一碰得到它的是一支寫死的
+ * 驗證器（`testNCHPointsSetting`），積木那條線完全到不了。
+ *
+ * 現在由 host 用環境變數指定；沒帶就是 CP（跟以前一樣）。
+ * ⚠️ **登入帳密要跟著站台換**：兩個站台的帳號分開存（cpBackend／nchBackend），
+ *    拿 CP 的帳密去登 NP 會停在登入頁，症狀是後面每一步都說「找不到元素」。
+ */
+const BACKEND_SITE = (process.env.UAT_BACKEND_SITE || 'cp').toLowerCase() === 'nc' ? 'nc' : 'cp';
+const BACKEND_URL = process.env.UAT_BACKEND_URL || (BACKEND_SITE === 'nc' ? 'http://uat-nc.osmslot.org' : 'http://uat-cp.osmslot.org');
 const SCREENSHOT_DIR = './data/raw/screenshots/lark_tc';
 
 // ─── 可調整參數（config/backend-test-params.json）──────────────────────
@@ -423,7 +433,10 @@ async function doExport(page) {
   let exportedXlsxPath = null;
 
   const hasExportEl = await page.evaluate(() => {
+    // 同 submitSearch：彈窗裡的按鈕不算（見那邊的說明）
+    const inDialog = (el) => !!el.closest('.el-dialog, .el-message-box, .el-drawer, .el-notification');
     return !![...document.querySelectorAll('.img-btn, [class*="img-btn"], .export-btn, button')]
+      .filter(el => !inDialog(el))
       .find(el => /export|csv|excel/i.test(el.innerText?.trim()));
   }).catch(() => false);
 
@@ -431,7 +444,9 @@ async function doExport(page) {
     try {
       const downloadPromise = page.waitForEvent('download', { timeout: 10000 }).catch(() => null);
       await page.evaluate(() => {
+        const inDialog = (el) => !!el.closest('.el-dialog, .el-message-box, .el-drawer, .el-notification');
         const el = [...document.querySelectorAll('.img-btn, [class*="img-btn"], .export-btn, button')]
+          .filter(e => !inDialog(e))
           .find(e => /export|csv|excel/i.test(e.innerText?.trim()));
         if (el) el.click();
       });
@@ -4484,7 +4499,16 @@ async function performSteps(p, steps, label, taskFull, multiBindings = null) {
      */
     async submitSearch(waitMs) {
       const clicked = await p.evaluate(() => {
+        /**
+         * 🚨 **不能點到彈窗裡的按鈕。** 後台登入後長駐一個「Currently N machines are
+         *    abnormal」的警告框，裡面也有一顆 View；它在 DOM 順序上排在報表的 View
+         *    之前，所以原本的寫法會點到它——**回報「已送出」，但查詢根本沒送出去**。
+         *    症狀是表格 0 列、匯出檔只有表頭沒有資料，看起來像「今天沒有資料」。
+         *    （2026-09-20 實測：手動先關掉警告框再點就有 1 筆。）
+         */
+        const inDialog = (el) => !!el.closest('.el-dialog, .el-message-box, .el-drawer, .el-notification');
         const btn = [...document.querySelectorAll('button')]
+          .filter(b => !inDialog(b))
           .find(b => { const t = (b.innerText || '').trim(); return t === 'View' || t === 'Search' });
         if (!btn) return false;
         btn.click();
@@ -4550,6 +4574,9 @@ async function performSteps(p, steps, label, taskFull, multiBindings = null) {
       }
       return { ok: true, name, size: buf.length };
     },
+
+    // ⚠️ 守衛要靠這個判斷「是不是正式環境」。沒帶的話它會保守地當成正式 → 全擋。
+    backendUrl: BACKEND_URL,
 
     async runExport() {
       const r = await doExport(p);
@@ -5033,8 +5060,19 @@ async function runRecordedMultiScript() {
     const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true });
     const page = await context.newPage();
     netCapture = attachNetworkCapture(page, { thresholds: NET_THRESHOLDS }); startStatsBroadcast();
-    const creds = TEST_PARAMS.credentials.cpBackend;
-    if (!creds.username || !creds.password) throw new Error('尚未設定 CP 後台登入帳密');
+    const creds = BACKEND_SITE === 'nc' ? TEST_PARAMS.credentials.nchBackend : TEST_PARAMS.credentials.cpBackend;
+    if (!creds.username || !creds.password) {
+      throw new Error(`尚未設定 ${BACKEND_SITE === 'nc' ? 'NC（uat-nc）' : 'CP'} 後台登入帳密——請到「執行設定」填那個站台的帳密`);
+    }
+    console.log(`後台站台：${BACKEND_SITE.toUpperCase()}（${BACKEND_URL}）`);
+    /**
+     * ⚠️ 「錄的站台」與「現在跑的站台」不一樣時**要講出來**。
+     *    兩個站台的路徑一樣，所以腳本照樣跑得動、也可能照樣全綠——
+     *    但你驗的不是你以為的那個環境。這裡不擋，只把它寫進日誌。
+     */
+    if (script.recordedSite && script.recordedSite !== BACKEND_SITE) {
+      console.log(`⚠️ 這份腳本是在 ${String(script.recordedSite).toUpperCase()} 錄的，現在跑在 ${BACKEND_SITE.toUpperCase()}——步驟照樣會跑，但驗的是另一個站台`);
+    }
     await page.goto(`${BACKEND_URL}/login`, { waitUntil: 'networkidle', timeout: 30000 });
     await page.fill('input[type="text"], input[name*="user"], input[id*="user"]', creds.username);
     await page.fill('input[type="password"]', creds.password);

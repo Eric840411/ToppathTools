@@ -3,13 +3,14 @@ import { createPortal } from 'react-dom'
 import { recordingSaveErrors } from '../../../shared/uat-recording-schema'
 import { SELECTOR_CHECK_LABEL } from '../../../shared/uat-selector-check'
 import { stepDependencyIssues } from '../../../server/uat-runner/step-dependencies.js'
-import { MultiTcResults, type MultiResult } from './MultiTcResults'
+import { MultiTcResults, type MultiResult } from './MultiTcResults'
+
 import { UatAssetPicker } from './UatAssetPicker'
 import type { BackendTc, Step } from './BackendTcEditor'
 import type { UatThemeMode } from './types'
 
 type Binding = { recordId: string; tableId: string; number: string; text: string; sub: string }
-type Script = { id?: string; title: string; larkUrl: string; tableId: string; bindings: Binding[]; steps: Step[]
+type Script = { id?: string; title: string; larkUrl: string; tableId: string; bindings: Binding[]; recordedSite?: 'cp' | 'nc'; steps: Step[]
   /** 團隊共用之後用來擋並行覆蓋；建立者／最後修改者只做顯示 */
   revision?: number; createdBy?: string | null; updatedBy?: string | null; running?: boolean }
 export type RecordedScript = Script
@@ -38,10 +39,12 @@ async function request(url: string, init?: RequestInit) {
   return data
 }
 
-export function MultiTcRecorder({ open, onClose, tcs, larkUrl, agentId, running, themeMode, onRun, initialScript }: {
+export function MultiTcRecorder({ open, onClose, tcs, larkUrl, agentId, running, themeMode, onRun, initialScript, site }: {
   initialScript?: Script;
   open: boolean; onClose: () => void; tcs: BackendTc[]; larkUrl: string; agentId: string;
   running: boolean; themeMode: UatThemeMode; onRun: () => void;
+  /** 要錄哪一個後台站台（cp／nc）。⚠️ 錄製與執行要選同一個，不然錄的跟跑的不是同一個站台 */
+  site?: 'cp' | 'nc';
 }) {
   const [script, setScript] = useState<Script>(() => initialScript || empty(larkUrl))
   const [scripts, setScripts] = useState<Script[]>([])
@@ -184,7 +187,13 @@ export function MultiTcRecorder({ open, onClose, tcs, larkUrl, agentId, running,
   const save = async () => {
     if (saveErrors.length) { if (!script.title.trim()) titleInput.current?.focus(); throw new Error(saveErrors.join('；')) }
     // 帶上目前這份的版本號；別人在這期間存過的話後端會回 409。
-    const body = JSON.stringify({ ...script, expectedRevision: script.revision })
+    /**
+     * ⚠️ 記下這份是在哪個站台錄的（只記錄、不強制）。
+     *    腳本本身沒有這個資訊的話，「錄 CP、跑 NC」不會有任何跡象——
+     *    兩邊路徑一樣所以都跑得動，只是跑的不是你錄的那個站台。
+     *    已經有值的就不覆寫：那是它原本錄製時的來源。
+     */
+    const body = JSON.stringify({ ...script, recordedSite: script.recordedSite ?? site ?? 'cp', expectedRevision: script.revision })
     const data = await request('/api/osm-uat/recorded-scripts', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
     // ⚠️ 只更新版本號，**不要用回來的 script 蓋掉畫面**——那等於把使用者
     //    剛才編輯的內容換成伺服器那份，跟被別人覆蓋的感受一樣。
@@ -198,9 +207,9 @@ export function MultiTcRecorder({ open, onClose, tcs, larkUrl, agentId, running,
   const startRecording = (at: number | null = null) => act(async () => {
     recordingInsert.current = at
     const data = await request('/api/osm-uat/record/start', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ agentId: agentId || undefined, bindings: script.bindings }) })
+      body: JSON.stringify({ agentId: agentId || undefined, bindings: script.bindings, site: site ?? 'cp' }) })
     setRecId(data.sessionId); setLiveSteps([]); setLiveNet([])
-    setMessage(`正在 ${data.agentLabel} 錄製。到瀏覽器右下角選擇檢查與截圖歸屬；一般操作預設共用。`)
+    setMessage(`正在 ${data.agentLabel} 錄製 ${site === 'nc' ? 'NC' : 'CP'} 後台。到瀏覽器右下角選擇檢查與截圖歸屬；一般操作預設共用。`)
   })
   const stopRecording = () => act(async () => {
     const id = recId

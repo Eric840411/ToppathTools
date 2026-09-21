@@ -29,6 +29,8 @@
  * 只驗語意對得齊的原生 CSS，其他回 `unknown` + `unsupported`。
  * 理由寫在 `selector-ladder.js` 的 `nativeSelectorCheckSource()`。
  */
+import { PC_HITTEST_SOURCE } from './pc-node-hittest.js';
+import { dangerousRulesSource } from './dangerous-actions.js';
 import { selectorLadderSource, genericAdapterSource, nativeSelectorCheckSource } from './selector-ladder.js';
 
 /**
@@ -171,6 +173,7 @@ const RECORDER_PANEL_THEMES = {
     accent: '#3fbe8b', danger: '#c0392f', dangerInk: '#ffffff',
     recording: '錄製中', paused: '已暫停', syncing: '同步中',
     pause: '暫停錄製', resume: '繼續錄製', stop: '停止錄製', stopping: '停止中…',
+    check: '加檢查', checkOn: '檢查模式：點一下畫面上的東西＝加一顆檢查（不會觸發原本的操作）',
   },
   // 墨黑底、青玉主色、細金線（CodeX 2026-09-18 指定）。停止的字面也由他定。
   xianxia: {
@@ -178,6 +181,7 @@ const RECORDER_PANEL_THEMES = {
     accent: '#4fd6c9', danger: '#8c2f2a', dangerInk: '#f8e7df',
     recording: '觀照中', paused: '已暫歇', syncing: '同步中',
     pause: '暫歇觀照', resume: '續行觀照', stop: '收陣（停止）', stopping: '收陣中…',
+    check: '立驗印', checkOn: '立印之時：點一物即結一印（不觸動原本之法）',
   },
 };
 
@@ -185,6 +189,11 @@ const RECORDER_PANEL_THEMES = {
  * @param {{ theme?: 'normal' | 'xianxia' }} [options]
  *        `theme` 只影響**面板自己的配色與用詞**，不影響錄到什麼。
  *        ⚠️ 修仙版的視覺不能漏到普通版：這裡是整份腳本唯一讀 theme 的地方。
+ */
+/**
+ * ⚠️ 這支回傳的是**要注入頁面的整段程式碼字串**，而它包在 template literal 裡——
+ *    所以裡面（含註解）**一個反引號都不能有**，否則字串會被提前結束，
+ *    錯誤訊息長得像「Unexpected identifier」，完全指不到真正的位置。2026-09-19 踩過一次。
  */
 export function frontendRecorderScript(options = {}) {
   const theme = options.theme === 'xianxia' ? 'xianxia' : 'normal';
@@ -194,6 +203,8 @@ export function frontendRecorderScript(options = {}) {
   window.__toppathRecorderInstalled = true;
 ${selectorLadderSource(genericAdapterSource())}
 ${nativeSelectorCheckSource()}
+${PC_HITTEST_SOURCE}
+${dangerousRulesSource()}
 
   const MARK = ${JSON.stringify(FRONTEND_RECORDER_MARKER)};
   const CTL = ${JSON.stringify(FRONTEND_RECORDER_CONTROL_MARKER)};
@@ -205,6 +216,13 @@ ${nativeSelectorCheckSource()}
   //    以為還暫停、其實在錄——安靜出錯，畫面上看不出來。
   let synced = false;
   let paused = false;
+  /**
+   * 檢查模式：點畫面上的東西＝**加一顆斷言**，而且**不觸發原本的操作**。
+   *
+   * 🚨 CodeX 2026-09-20 的要求：檢查模式的點選不可以把原本的操作也做出去——
+   *    不然「想加一顆『Reserve Now 在不在』的檢查」會變成真的去預約機台。
+   */
+  let checkMode = false;
   /** null＝還不知道。**不要顯示 0**，那是在假裝「一步都沒錄到」 */
   let stepCount = null;
 
@@ -366,7 +384,7 @@ ${nativeSelectorCheckSource()}
   let awaitTimer = null;
   let hint = '';
   let WRAP = null, BAR = null, STATUS = null, BAR_STOP = null, TOGGLE = null,
-      BODY = null, PAUSE = null, STOP = null, HINT = null;
+      BODY = null, PAUSE = null, CHECK = null, STOP = null, HINT = null;
   /**
    * 把面板夾回可視範圍。mount() 裡才裝得起來（要拿得到 WRAP 的尺寸）。
    *
@@ -406,6 +424,9 @@ ${nativeSelectorCheckSource()}
       button.style.opacity = dead ? '.55' : '1';
       button.style.cursor = dead ? 'default' : 'pointer';
     }
+    CHECK.innerHTML = '<span>' + (checkMode ? '● ' : '') + T.check + '</span>';
+    CHECK.setAttribute('aria-pressed', checkMode ? 'true' : 'false');
+    CHECK.style.borderColor = checkMode ? T.accent : T.line;
     HINT.textContent = hint;
     HINT.style.display = hint ? 'block' : 'none';
     // 展開／收合與提示的出現都會改變高度，所以每次重畫完都夾一次。
@@ -441,6 +462,19 @@ ${nativeSelectorCheckSource()}
    * host 推狀態進來。**這是面板唯一能離開「同步中」的路。**
    * 回傳 true／false 讓 host 端的測試看得出來有沒有被接住。
    */
+  /**
+   * 檢查模式的程式介面（測試用；面板上的按鈕走的是同一條路）。
+   * 回傳切換後的狀態，讓呼叫端**看得出來有沒有真的切到**——
+   * 測試若只是「按下去然後假設有效」，模式沒開時會表現成「斷言一顆都沒錄到」，
+   * 看起來像功能壞了，其實是測試自己沒開。
+   */
+  window.__toppathRecSetCheck = (on) => {
+    checkMode = !!on;
+    hint = checkMode ? T.checkOn : '';
+    paint();
+    return checkMode;
+  };
+
   window.__toppathRecSync = (raw) => {
     let next = null;
     try { next = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) { return false; }
@@ -530,6 +564,13 @@ ${nativeSelectorCheckSource()}
     BODY.style.cssText = 'display:none;padding:0 10px 10px;box-sizing:border-box';
     PAUSE = button('quiet');
     PAUSE.setAttribute('data-toppath-rec-btn', 'pause');
+    CHECK = button('quiet');
+    CHECK.setAttribute('data-toppath-rec-btn', 'check');
+    CHECK.addEventListener('click', () => {
+      checkMode = !checkMode;
+      hint = checkMode ? T.checkOn : '';
+      paint();
+    });
     STOP = button('danger');
     STOP.setAttribute('data-toppath-rec-btn', 'stop');
     STOP.innerHTML = ICON.stop + '<span style="margin-left:7px">' + T.stop + '</span>';
@@ -538,7 +579,10 @@ ${nativeSelectorCheckSource()}
     HINT = document.createElement('div');
     HINT.setAttribute('role', 'alert');
     HINT.style.cssText = 'display:none;margin-top:8px;color:#f3c98b;font:500 11px/1.5 system-ui,-apple-system,sans-serif;white-space:normal';
-    BODY.appendChild(PAUSE); BODY.appendChild(gap); BODY.appendChild(STOP); BODY.appendChild(HINT);
+    const gap2 = document.createElement('div');
+    gap2.style.cssText = 'height:8px';
+    BODY.appendChild(PAUSE); BODY.appendChild(gap2); BODY.appendChild(CHECK);
+    BODY.appendChild(gap); BODY.appendChild(STOP); BODY.appendChild(HINT);
 
     WRAP.appendChild(BAR); WRAP.appendChild(BODY);
     document.body.appendChild(WRAP);
@@ -647,22 +691,213 @@ ${nativeSelectorCheckSource()}
   //    症狀是「面板沒出現，而且連錄製也停了」。Backend 那支踩過同一個坑。
   else document.addEventListener('DOMContentLoaded', mount, { once: true });
 
+  /**
+   * 危險操作守衛（錄製端）。
+   *
+   * 🚨 **要在動作發生之前攔**（CodeX 2026-09-20）。錄製的時候手滑按到 Reserve Now，
+   *    機台就真的被鎖 24 小時了——事後在腳本裡把那一步刪掉也救不回來，
+   *    而且畫面上看不出剛剛發生過什麼。所以第一下**擋下來**問清楚。
+   *
+   * ⚠️ 要攔的不只 click：Vue 的 handler 可能掛在 mousedown、Cocos 聽的是 pointer 事件。
+   *    只擋 click 的話，畫面上「按鈕有反應但沒錄到」——比沒擋更難查。
+   * ⚠️ 確認之後**不幫使用者補一下點擊**：合成事件 Cocos 不見得吃，
+   *    而「以為按下去了其實沒有」比多按一次糟。改成開一個 15 秒的放行窗，請他再按一次。
+   */
+  const dangerArmed = { key: '', until: 0 };
+  const dangerKeyOf = (event) => {
+    const el = event.target;
+    if (!el || !el.closest) return null;
+    if (el.closest('[data-toppath-recorder-ui]')) return null;
+    const canvas = canvasOf(el);
+    if (canvas) {
+      let node = null;
+      try { node = window.__uatPcHit ? window.__uatPcHit.at(Math.round(event.clientX), Math.round(event.clientY)) : null; } catch (e) { node = null; }
+      if (!node) return null;
+      return { key: node.id || node.name, what: { node: node.id || node.name, text: node.label } };
+    }
+    const d = describeStep(el, eventSource(event));
+    if (!d.selector) return null;
+    return { key: d.selector, what: { selector: d.selector, text: (el.textContent || '').trim().slice(0, 40) } };
+  };
+  /**
+   * 檢查模式的攔截。**擋在所有事件之前**：DOM 那邊 Vue 可能掛在 mousedown、
+   * Cocos 聽的是 pointer 事件，只擋 click 的話畫面照樣有反應。
+   */
+  const checkGuard = (event) => {
+    if (!checkMode || !synced || paused || window.__toppathCropping) return;
+    const el = event.target;
+    if (el && el.closest && el.closest('[data-toppath-recorder-ui]')) return;   /* 面板自己不算 */
+    /**
+     * 🚨 **preventDefault 只能對 click 下**，不能對 pointerdown／mousedown 下。
+     *    取消 pointerdown 會讓瀏覽器**連後面的 click 都不發**——實測症狀是
+     *    「原本的操作確實沒發生（看起來對了），但斷言也一顆都沒錄到」，
+     *    而且畫面上完全看不出差別。擋住頁面用 stopImmediatePropagation 就夠了。
+     * 🚨 一定要用 stopImmediatePropagation：一般的 stopPropagation **擋不住同一個
+     *    節點上的其他監聽器**，而錄製器自己的 click 監聽器就掛在 document 上。
+     *    只用 stopPropagation 的話，檢查模式會同時錄下一顆「點擊」——
+     *    那顆點擊重播時會真的點下去，而錄的當下畫面根本沒反應，完全對不起來。
+     */
+    if (event.type === 'click' || event.type === 'dblclick') event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.type !== 'click') return;   /* 一次操作只加一顆 */
+    const canvas = canvasOf(el);
+    if (canvas) {
+      let node = null;
+      try { node = window.__uatPcHit ? window.__uatPcHit.at(Math.round(event.clientX), Math.round(event.clientY)) : null; } catch (e) { node = null; }
+      if (!node || !node.id) { hint = '這個位置反查不到節點，改點按鈕本體試試'; paint(); return; }
+      send({ name: '檢查：' + (node.label || node.name) + ' 在', action: 'assert_pc_node', value: node.id });
+      hint = '已加一顆檢查：' + (node.label || node.name);
+      paint();
+      return;
+    }
+    const d = describeStep(el, eventSource(event));
+    if (!d.selector) { hint = '這個元素給不出可靠的選擇器，換一個更明確的目標'; paint(); return; }
+    const assertion = { name: '檢查：' + d.selector + ' 可見', action: 'assert_visible' };
+    for (const k in d) assertion[k] = d[k];
+    send(assertion);
+    hint = '已加一顆檢查：' + d.selector;
+    paint();
+  };
+  for (const type of ['pointerdown', 'mousedown', 'mouseup', 'pointerup', 'click', 'touchstart', 'touchend', 'dblclick']) {
+    document.addEventListener(type, checkGuard, true);
+  }
+
+  const dangerGuard = (event) => {
+    if (checkMode) return;   /* 檢查模式下沒有任何操作會發生，不用再問危不危險 */
+    if (!synced || paused || window.__toppathCropping) return;
+    if (!window.__uatDanger) return;
+    const info = dangerKeyOf(event);
+    if (!info) return;
+    const verdict = window.__uatDanger.classify(info.what);
+    /* 只有文字命中（weak）不擋——字會翻譯也會改版，拿它當唯一依據會擋到無害的東西 */
+    if (!verdict || verdict.strength !== 'strong') return;
+    if (dangerArmed.key === info.key && Date.now() < dangerArmed.until) return;
+    /* 同檢查模式：preventDefault 只對 click 下（取消 pointerdown 會連 click 都不發），
+       而且一定要 stopImmediatePropagation——否則被擋下來的危險操作**還是會被錄進腳本**，
+       重播時它就真的發生了，擋得住人擋不住腳本，等於沒擋。 */
+    if (event.type === 'click' || event.type === 'dblclick') event.preventDefault();
+    event.stopImmediatePropagation();
+    if (event.type !== 'click' && event.type !== 'pointerdown') return;   /* 一次操作只問一次 */
+    /* ⚠️ 這段字串在**樣板字串裡**，不能寫 
+ 之類的跳脫——會被外層先解釋掉，
+       把字串切斷（症狀是整個注入腳本語法錯）。要換行請用 String.fromCharCode(10)。 */
+    const NL = String.fromCharCode(10);
+    const yes = window.confirm(verdict.why + NL + NL + '要繼續的話按「確定」，然後再按一次那顆按鈕（15 秒內有效）。' + NL + '按「取消」就什麼都不會發生。');
+    if (yes) { dangerArmed.key = info.key; dangerArmed.until = Date.now() + 15000; hint = '已放行 15 秒，請再按一次'; }
+    else { hint = '已擋下一個危險操作'; }
+    paint();
+  };
+  for (const type of ['pointerdown', 'mousedown', 'mouseup', 'pointerup', 'click', 'touchstart', 'touchend']) {
+    document.addEventListener(type, dangerGuard, true);
+  }
+
   document.addEventListener('click', (event) => {
     if (window.__toppathCropping) return;
     const el = event.target;
     if (el && el.closest && el.closest('[data-toppath-recorder-ui]')) return;
     const canvas = canvasOf(el);
     if (canvas) {
-      // ⚠️ 用 viewport 座標，因為兩個執行引擎的 click_viewport 都是 page.mouse.click(x, y)。
-      //    改成 canvas 相對座標的話，canvas 不在左上角時會整個偏掉。
       const x = Math.round(event.clientX);
       const y = Math.round(event.clientY);
+      /**
+       * PC(Cocos)：先試著反查成**節點**，查得到就錄節點而不是座標。
+       *
+       * 🚨 座標腳本的問題不是跑不動，是**跑起來不會錯**：視窗一改尺寸、清單捲過、
+       *    有彈窗擋住，點擊照樣送出去，只是點在別的東西上，畫面沒有異狀、報告全綠。
+       * ⚠️ 反查不到、或反查得到但**給不出唯一識別字**時，**照舊錄座標**——
+       *    硬給一個會點到隔壁那顆的名字，比座標更糟。
+       */
+      let node = null;
+      try { node = window.__uatPcHit ? window.__uatPcHit.at(x, y) : null; } catch (e) { node = null; }
+      if (node && node.id) {
+        const step = {
+          name: '點 ' + (node.label || node.name) + (node.nameUnique ? '' : '（同名節點多顆，用路徑）'),
+          action: 'pc_click_node', value: node.id,
+          // 座標留著純粹當診斷：執行時用的是節點，不是這組數字
+          x: x, y: y,
+        };
+        // 剛剛在守衛那裡明確同意過，就把同意記在積木上——不然每次重播都會停下來問
+        if (dangerArmed.key === (node.id || node.name) && Date.now() < dangerArmed.until) step.allowDangerous = true;
+        send(step);
+        return;
+      }
+      // ⚠️ 用 viewport 座標，因為兩個執行引擎的 click_viewport 都是 page.mouse.click(x, y)。
+      //    改成 canvas 相對座標的話，canvas 不在左上角時會整個偏掉。
       send({ name: '點擊畫面 (' + x + ', ' + y + ')', action: 'click_viewport', x, y });
       return;
     }
     const d = describeStep(el, eventSource(event));
     if (!d.selector) return;
-    send({ name: '點擊 ' + d.selector, action: 'click', ...d });
+    const domStep = { name: '點擊 ' + d.selector, action: 'click' };
+    for (const k in d) domStep[k] = d[k];
+    if (dangerArmed.key === d.selector && Date.now() < dangerArmed.until) domStep.allowDangerous = true;
+    send(domStep);
+  }, true);
+
+  /**
+   * 捲動也要錄。
+   *
+   * 🚨 **為什麼需要**：錄製器原本只聽 click 與 change，所以「錄的時候往下捲了一段才點到」
+   *    這件事**完全不會被錄下來**。重播時畫面停在最上面，那顆按鈕在視窗外——
+   *    症狀是「錄的時候好好的，跑起來說找不到元素」，而且看腳本完全看不出少了什麼。
+   *    （.footer-top 這種更狠：它**捲下去才存在**，沒捲的話連元素都沒有。）
+   *
+   * ⚠️ **停下來才錄一顆**（300ms 沒有新的 scroll 事件）。每個 scroll 事件都錄的話，
+   *    捲一下會產生幾十顆積木，腳本直接不能看。
+   * ⚠️ **錄絕對位置**（to:N）不錄位移：重播時內容長度不見得一樣，相對位移會落在別的地方。
+   * ⚠️ 小幅度（40px 以內）不錄——那多半是慣性回彈或點擊造成的微調，不是使用者真的在捲。
+   */
+  let scrollTimer = null;
+  const lastScroll = new WeakMap();
+  /** 這一輪捲動期間，哪些容器動過（元素 → 當下的 scrollTop） */
+  let pending = new Map();
+  document.addEventListener('scroll', (event) => {
+    if (window.__toppathCropping) return;
+    const node = event.target;
+    // 錄製器自己的面板在捲不算
+    if (node && node.closest && node.closest('[data-toppath-recorder-ui]')) return;
+    const isDoc = !node || node === document || node === document.documentElement || node === document.body;
+    const el = isDoc ? (document.scrollingElement || document.documentElement) : node;
+    if (!el) return;
+    pending.set(el, Math.round(el.scrollTop || 0));
+    if (scrollTimer) clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(() => {
+      /**
+       * 🚨 **不能「最後一個發事件的就是它」。**
+       *    一次滑動會有好幾個容器跟著發 scroll 事件（巢狀的、回彈的），
+       *    只取最後一個的話會錄到一個根本沒動的容器——實測第一版就錄成
+       *    to:0 ＋ 一長串 nth-of-type 的選擇器，重播當然什麼也不會發生。
+       *    改成：這一輪裡**位移最大**的那個才是使用者真的在捲的東西。
+       */
+      let best = null; let bestDelta = 0; let bestTop = 0;
+      pending.forEach((top, node2) => {
+        const prev = lastScroll.get(node2);
+        const delta = Math.abs(top - (prev === undefined ? 0 : prev));
+        if (delta > bestDelta) { best = node2; bestDelta = delta; bestTop = top; }
+      });
+      pending.forEach((top, node2) => lastScroll.set(node2, top));
+      pending = new Map();
+      // 小幅度不錄——那多半是慣性回彈或點擊造成的微調，不是使用者真的在捲
+      if (!best || bestDelta < 40) return;
+      /**
+       * ⚠️ **沒有 class 的容器不要寫選擇器。**
+       *    describeStep 會退回 div:nth-of-type(3) > div … 這種位置式選擇器，
+       *    那個東西換個版本就指到別的地方。寧可不寫——執行時 scroll 積木
+       *    會自己找「真的捲得動」的那個容器，反而穩。
+       */
+      var cls = (best.className && best.className.toString) ? best.className.toString().trim() : '';
+      var sel = '';
+      if (cls) {
+        var first = cls.split(/\s+/)[0];
+        if (first && document.querySelectorAll('.' + first).length === 1) sel = '.' + first;
+      }
+      send({
+        name: '捲動 ' + (sel || '頁面') + ' 到 ' + bestTop,
+        action: 'scroll',
+        value: 'to:' + bestTop,
+        ...(sel ? { selector: sel } : {}),
+      });
+    }, 300);
   }, true);
 
   document.addEventListener('change', (event) => {
