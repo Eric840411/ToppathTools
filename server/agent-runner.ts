@@ -476,7 +476,15 @@ function resolveIsPc(clientType: 'h5' | 'pc' | undefined, url: string, where: st
   if (clientType === 'pc') return true
   if (clientType === 'h5') return false
   const guessed = isPcClientUrl(url)
-  console.warn(`[UI-SS] ${where}：中控沒傳 clientType（舊版 server？），退回看主機名判定 → ${guessed ? 'PC' : 'H5'}`)
+  let host = ''
+  try { host = new URL(url).hostname } catch { host = '(網址解析不了)' }
+  // ⚠️ 未知主機在這條退路下會被當成 H5——**這是相容限制，不是判斷出來的結論**（CodeX 指出）。
+  //    所以訊息要說「當成」而不是「判定為」，並且把主機名印出來，讓人看得出是猜的。
+  const known = /^osm-(pc|h5)[-.]/i.test(host)
+  console.warn(
+    `[UI-SS] ${where}：中控沒傳 clientType（舊版 server？），退回看主機名 ${host} → ` +
+    (known ? `${guessed ? 'PC' : 'H5'}` : 'H5（主機不在已知清單內，這是退路的預設值，不是判斷結果——請在畫面上直接指定客戶端）')
+  )
   return guessed
 }
 
