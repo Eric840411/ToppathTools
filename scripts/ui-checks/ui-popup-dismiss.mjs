@@ -190,6 +190,20 @@ try {
   check('⑦ 沒就緒且重驗仍失敗：也是 fail',
     evaluateReadyGate({ ready: false, sawErrorPopup: false, recheckedReady: false }).action, 'fail')
 
+  // ── ⑦c 關卡失敗之後會被回報成哪一種狀態 ────────────────────────────────────
+  //    上層是 `/timeout/i.test(m) ? 'timeout' : 'err'`——所以 gate 的失敗訊息
+  //    **不能含 timeout 字樣**，否則這種「畫面沒就緒」會被標成逾時，查的人會去查網路。
+  //    ⚠️ 原因字串要**從產品那支拿**，不是在這裡再打一次——打一次就變成在驗我自己打的字。
+  const failWhys = [
+    evaluateReadyGate({ ready: false, sawErrorPopup: false, recheckedReady: false }).why,
+    evaluateReadyGate({ ready: true, sawErrorPopup: true, recheckedReady: false }).why,
+  ]
+  check('⑦c 兩種失敗原因都講得出話（不是空字串）', failWhys.every(w => w.length > 0), true)
+  for (const why of failWhys) {
+    check(`⑦c 失敗原因「${why}」不含 timeout 字樣（不然會被誤標成逾時）`,
+      /timeout/i.test(why), false)
+  }
+
   // ── ⑦b 兩條路都要真的用這道關卡（結構檢查）──────────────────────────────────
   {
     const src = readFileSync('server/agent-runner.ts', 'utf8')
@@ -199,6 +213,9 @@ try {
       /verdict\.action === 'fail'[\s\S]{0,120}throw new Error/.test(src), true)
     check('⑦b 快速路徑有把期間的錯誤記下來',
       /fastSawError = fg\.errors\.length > 0/.test(src), true)
+    // 丟出去之後真的會變成 err／timeout，不是被吞掉
+    check('⑦b prepare 丟錯會落到 postStatus(err|timeout)',
+      /const actual = await prepare\(page\)[\s\S]{0,600}?postStatus\(task\.id, \/timeout\/i\.test\(m\) \? 'timeout' : 'err', m\)/.test(src), true)
   }
 
   // ── ⑥b 上層真的有用那個訊號重驗（結構檢查）────────────────────────────────
