@@ -1,0 +1,329 @@
+{
+  "scripts": [
+    {
+      "id": "667eec49-b156-4ff6-9790-00340392640b",
+      "owner": "lusa@toppath.tw",
+      "title": "範本：匯出檔與畫面數據比對（Egm DayCount）",
+      "document": {
+        "id": "667eec49-b156-4ff6-9790-00340392640b",
+        "title": "範本：匯出檔與畫面數據比對（Egm DayCount）",
+        "larkUrl": "https://casinoplus.sg.larksuite.com/base/KRv8bF5C4aaIacsN5L6le9Rugre?table=tbl2DZXAMxWdNen0",
+        "tableId": "tbl2DZXAMxWdNen0",
+        "bindings": [
+          {
+            "recordId": "recvuBTwMT4h9g",
+            "tableId": "tbl2DZXAMxWdNen0",
+            "number": "T-A-005",
+            "text": "確認日期可以選擇(當日)，Game Type搜尋機型正確，Player Channel篩選正確，選擇All會顯示所有平台的數據，可導出Excel表",
+            "sub": "Egm DayCount"
+          }
+        ],
+        "steps": [
+          {
+            "action": "open_page",
+            "tcId": "recvuBTwMT4h9g",
+            "path": "/egm/reports/gameCount",
+            "waitMs": 4000
+          },
+          {
+            "action": "type_text",
+            "tcId": "recvuBTwMT4h9g",
+            "selector": ".el-date-editor:not(.dd) input",
+            "value": "2026-09-01"
+          },
+          {
+            "action": "keypress",
+            "tcId": "recvuBTwMT4h9g",
+            "selector": ".el-date-editor:not(.dd) input",
+            "key": "Enter"
+          },
+          {
+            "action": "type_text",
+            "tcId": "recvuBTwMT4h9g",
+            "selector": ".el-date-editor.dd input",
+            "value": "2026-09-20"
+          },
+          {
+            "action": "keypress",
+            "tcId": "recvuBTwMT4h9g",
+            "selector": ".el-date-editor.dd input",
+            "key": "Enter"
+          },
+          {
+            "action": "keypress",
+            "tcId": "recvuBTwMT4h9g",
+            "key": "Escape"
+          },
+          {
+            "action": "submit_search",
+            "tcId": "recvuBTwMT4h9g",
+            "waitMs": 9000
+          },
+          {
+            "action": "read_table",
+            "tcId": "recvuBTwMT4h9g",
+            "selector": ".el-table",
+            "as": "screen",
+            "maxRows": 5
+          },
+          {
+            "action": "read_export",
+            "tcId": "recvuBTwMT4h9g",
+            "as": "xls",
+            "timeoutMs": 20000
+          },
+          {
+            "action": "assert_equals",
+            "tcId": "recvuBTwMT4h9g",
+            "left": "xls.0.TotalOnlineTransferInAmount",
+            "right": "screen.0.TotalOnlineTransferInAmount",
+            "tolerancePct": 0,
+            "absoluteTolerance": 0
+          },
+          {
+            "action": "assert_equals",
+            "tcId": "recvuBTwMT4h9g",
+            "left": "xls.0.TotalOnlineTransferOutAmount",
+            "right": "screen.0.TotalOnlineTransferOutAmount",
+            "tolerancePct": 0,
+            "absoluteTolerance": 0
+          },
+          {
+            "action": "assert_equals",
+            "tcId": "recvuBTwMT4h9g",
+            "left": "xls.0.TotalBetUser",
+            "right": "screen.0.TotalBetUser",
+            "tolerancePct": 0,
+            "absoluteTolerance": 0
+          },
+          {
+            "action": "assert_equals",
+            "tcId": "recvuBTwMT4h9g",
+            "left": "xls.0.TotalBetAmount",
+            "right": "screen.0.TotalBetAmount",
+            "tolerancePct": 0,
+            "absoluteTolerance": 0
+          },
+          {
+            "action": "assert_equals",
+            "tcId": "recvuBTwMT4h9g",
+            "left": "xls.0.TotalWinOrLoseAmount",
+            "right": "screen.0.TotalWinOrLoseAmount",
+            "tolerancePct": 0,
+            "absoluteTolerance": 0
+          },
+          {
+            "action": "screenshot",
+            "tcId": "recvuBTwMT4h9g",
+            "name": "daycount_export_vs_screen"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ccdfab04-15e5-4744-8540-534d6f05a454",
+      "owner": "lusa@toppath.tw",
+      "title": "範本：跨頁面三方比對（Daily Dashboard ↔ Egm DayCount ↔ 匯出檔）",
+      "document": {
+        "id": "ccdfab04-15e5-4744-8540-534d6f05a454",
+        "title": "範本：跨頁面三方比對（Daily Dashboard ↔ Egm DayCount ↔ 匯出檔）",
+        "larkUrl": "https://casinoplus.sg.larksuite.com/base/KRv8bF5C4aaIacsN5L6le9Rugre?table=tbl2DZXAMxWdNen0",
+        "tableId": "tbl2DZXAMxWdNen0",
+        "bindings": [
+          {
+            "recordId": "recvuBTwMT4h9g",
+            "tableId": "tbl2DZXAMxWdNen0",
+            "number": "T-A-005",
+            "text": "確認日期可以選擇(當日)，Game Type搜尋機型正確，Player Channel篩選正確，選擇All會顯示所有平台的數據，可導出Excel表",
+            "sub": "Egm DayCount"
+          }
+        ],
+        "steps": [
+          {
+            "action": "open_page",
+            "tcId": "recvuBTwMT4h9g",
+            "path": "/daily_dashboard",
+            "waitMs": 6000
+          },
+          {
+            "action": "type_text",
+            "tcId": "recvuBTwMT4h9g",
+            "selector": ".el-date-editor input",
+            "value": "2026-09-18"
+          },
+          {
+            "action": "keypress",
+            "tcId": "recvuBTwMT4h9g",
+            "selector": ".el-date-editor input",
+            "key": "Enter"
+          },
+          {
+            "action": "keypress",
+            "tcId": "recvuBTwMT4h9g",
+            "key": "Escape"
+          },
+          {
+            "action": "submit_search",
+            "tcId": "recvuBTwMT4h9g",
+            "waitMs": 8000
+          },
+          {
+            "action": "read_block",
+            "tcId": "recvuBTwMT4h9g",
+            "selector": ".meter-content",
+            "as": "dash",
+            "labels": "Total in\nTotal out\nTotal bet\nTotal Actual Win\nTotal win lose ratio"
+          },
+          {
+            "action": "open_page",
+            "tcId": "recvuBTwMT4h9g",
+            "path": "/egm/reports/gameCount",
+            "waitMs": 5000
+          },
+          {
+            "action": "type_text",
+            "tcId": "recvuBTwMT4h9g",
+            "selector": ".el-date-editor:not(.dd) input",
+            "value": "2026-09-18"
+          },
+          {
+            "action": "keypress",
+            "tcId": "recvuBTwMT4h9g",
+            "selector": ".el-date-editor:not(.dd) input",
+            "key": "Enter"
+          },
+          {
+            "action": "type_text",
+            "tcId": "recvuBTwMT4h9g",
+            "selector": ".el-date-editor.dd input",
+            "value": "2026-09-18"
+          },
+          {
+            "action": "keypress",
+            "tcId": "recvuBTwMT4h9g",
+            "selector": ".el-date-editor.dd input",
+            "key": "Enter"
+          },
+          {
+            "action": "keypress",
+            "tcId": "recvuBTwMT4h9g",
+            "key": "Escape"
+          },
+          {
+            "action": "submit_search",
+            "tcId": "recvuBTwMT4h9g",
+            "waitMs": 9000
+          },
+          {
+            "action": "read_table",
+            "tcId": "recvuBTwMT4h9g",
+            "selector": ".el-table",
+            "as": "count",
+            "maxRows": 50,
+            "keyColumn": "Date",
+            "keyValue": "2026-09-18"
+          },
+          {
+            "action": "read_export",
+            "tcId": "recvuBTwMT4h9g",
+            "as": "xls",
+            "keyColumn": "Date",
+            "keyValue": "2026-09-18",
+            "timeoutMs": 20000
+          },
+          {
+            "action": "assert_equals",
+            "tcId": "recvuBTwMT4h9g",
+            "left": "dash.Totalin",
+            "right": "count.TotalOnlineTransferInAmount",
+            "leftScale": 1,
+            "tolerancePct": 0,
+            "absoluteTolerance": 0
+          },
+          {
+            "action": "assert_equals",
+            "tcId": "recvuBTwMT4h9g",
+            "left": "xls.TotalOnlineTransferInAmount",
+            "right": "count.TotalOnlineTransferInAmount",
+            "tolerancePct": 0,
+            "absoluteTolerance": 0
+          },
+          {
+            "action": "assert_equals",
+            "tcId": "recvuBTwMT4h9g",
+            "left": "dash.Totalout",
+            "right": "count.TotalOnlineTransferOutAmount",
+            "leftScale": 1,
+            "tolerancePct": 0,
+            "absoluteTolerance": 0
+          },
+          {
+            "action": "assert_equals",
+            "tcId": "recvuBTwMT4h9g",
+            "left": "xls.TotalOnlineTransferOutAmount",
+            "right": "count.TotalOnlineTransferOutAmount",
+            "tolerancePct": 0,
+            "absoluteTolerance": 0
+          },
+          {
+            "action": "assert_equals",
+            "tcId": "recvuBTwMT4h9g",
+            "left": "dash.Totalbet",
+            "right": "count.TotalBetAmount",
+            "leftScale": 1,
+            "tolerancePct": 0,
+            "absoluteTolerance": 0
+          },
+          {
+            "action": "assert_equals",
+            "tcId": "recvuBTwMT4h9g",
+            "left": "xls.TotalBetAmount",
+            "right": "count.TotalBetAmount",
+            "tolerancePct": 0,
+            "absoluteTolerance": 0
+          },
+          {
+            "action": "assert_equals",
+            "tcId": "recvuBTwMT4h9g",
+            "left": "dash.TotalActualWin",
+            "right": "count.TotalWinOrLoseAmount",
+            "leftScale": 1,
+            "tolerancePct": 0,
+            "absoluteTolerance": 0
+          },
+          {
+            "action": "assert_equals",
+            "tcId": "recvuBTwMT4h9g",
+            "left": "xls.TotalWinOrLoseAmount",
+            "right": "count.TotalWinOrLoseAmount",
+            "tolerancePct": 0,
+            "absoluteTolerance": 0
+          },
+          {
+            "action": "assert_equals",
+            "tcId": "recvuBTwMT4h9g",
+            "left": "dash.Totalwinloseratio",
+            "right": "count.TotalWinLoseRatio",
+            "leftScale": 1,
+            "tolerancePct": 0,
+            "absoluteTolerance": 0
+          },
+          {
+            "action": "assert_equals",
+            "tcId": "recvuBTwMT4h9g",
+            "left": "xls.TotalWinLoseRatio",
+            "right": "count.TotalWinLoseRatio",
+            "tolerancePct": 0,
+            "absoluteTolerance": 0,
+            "leftScale": 100
+          },
+          {
+            "action": "screenshot",
+            "tcId": "recvuBTwMT4h9g",
+            "name": "dashboard_vs_daycount_vs_export"
+          }
+        ]
+      }
+    }
+  ]
+}

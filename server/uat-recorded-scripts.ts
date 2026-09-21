@@ -1,5 +1,7 @@
 import type { Router } from 'express'
 import { randomUUID } from 'crypto'
+import { existsSync, readFileSync } from 'fs'
+import { join } from 'path'
 import { z } from 'zod'
 import { db, writeLimiter } from './shared.js'
 import { getAuthAccount } from './auth-session.js'
@@ -52,6 +54,40 @@ for (const [table, col, ddl] of [
 ] as const) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]
   if (!cols.some(c => c.name === col)) db.exec(ddl)
+}
+
+/* ── 範本腳本的種子（2026-09-21）─────────────────────────────────────────────
+   🚨 **錄好的腳本存在各環境自己的 DB，不會跟著 git 走。**`server/data.db` 在
+      `.gitignore` 裡（本來就該如此——那裡面有執行紀錄與帳號資料），所以
+      「在這台錄好的腳本」對其他環境來說根本不存在。使用者回報的就是這件事。
+
+   做法跟 `uat-tc-steps-seed.json` 同一套：把**範本**匯出成種子檔進版控，
+   開機時用 `INSERT OR IGNORE` 補齊「這個環境還沒有的那幾筆」。
+   ⚠️ 用 `INSERT OR IGNORE` 而不是 upsert：**已經在這個環境裡的一律不動**，
+      否則會把別人在那台改過的內容蓋掉（而且悄無聲息）。
+
+   ⚠️ 種子只收**範本**（標題以「範本：」開頭），不是全部錄製腳本。
+      個人的錄製屬於那台機器的工作現場，整包同步過去只是噪音。
+      要改範圍請用 `node scripts/export-uat-recorded-seed.mjs --all`。 */
+{
+  // ⚠️ 路徑基準跟 shared.ts 一致：`process.cwd()/server`，不是這支檔案的位置
+  //    （編譯後會跑在 dist-server/ 底下，用 __dirname 會指到沒有種子檔的地方）
+  const seedPath = join(process.cwd(), 'server', 'uat-recorded-scripts-seed.json')
+  if (existsSync(seedPath)) {
+    try {
+      const seed = JSON.parse(readFileSync(seedPath, 'utf-8')) as {
+        scripts?: { id: string; owner: string; title: string; document: unknown }[]
+      }
+      const ins = db.prepare(`INSERT OR IGNORE INTO uat_recorded_scripts
+        (id, owner, title, document, updated_at, revision, updated_by) VALUES (?, ?, ?, ?, ?, 1, 'seed')`)
+      let added = 0
+      for (const s of seed.scripts ?? []) {
+        if (!s?.id || !s?.title || !s?.document) continue
+        added += ins.run(s.id, s.owner || 'seed', s.title, JSON.stringify(s.document), Date.now()).changes
+      }
+      if (added > 0) console.log(`[DB] 已從 uat-recorded-scripts-seed.json 補上 ${added} 份範本腳本`)
+    } catch (e) { console.error('[DB] 範本腳本種子讀取失敗：', e) }
+  }
 }
 
 export type RecordedScriptMeta = {
