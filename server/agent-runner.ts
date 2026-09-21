@@ -41,7 +41,8 @@ import { decodePng, findTemplateInPng } from './uat-runner/template-match.js'
 import { waitForDebugPort, clearStaleDebugPort, DEBUG_PORT_ARG } from './uat-runner/chrome-debug-port.js'
 import { pcWaitLobby, pcClosePopups, pcScanLobby, pcCollectMachines, pcSeekMachine, pcEnterMachine, pcSceneName, describePcLobby, pcInstallEvalShim, pcBackToLobby, pcLobbyRecoveryPlan, pcEngineCapabilities } from './lib/pc-cocos.js'
 import type { PcMachine } from './lib/pc-cocos.js'
-import { LOBBY_CLOSE_IN_PAGE, LOBBY_CLOSE_ALLOW, startLobbyPopupWatcher } from './uat-runner/lobby-popup.js'
+import { startLobbyPopupWatcher } from './uat-runner/lobby-popup.js'
+import { dismissUiPopups } from './uat-runner/ui-popup.js'
 import { h5BackToLobby, h5InGame } from './uat-runner/h5-seat.js'
 import { verifyRecordedSelectorLive, createRecordedLocators } from './uat-runner/recorded-selector.js'
 import { frontendRecorderScript, flagShadowCompleteness, syncRecorderPanel, setRecorderPanelVisible, FRONTEND_RECORDER_CONTROL_MARKER } from './uat-runner/frontend-recorder.js'
@@ -562,10 +563,12 @@ async function readInGameMachineName(page: Page): Promise<string> {
  *
  * ⚠️ 這裡的「退出機台」跟截圖後不再做的那個 Quit 是兩回事：這是**為了回到大廳**，不是收尾。
  */
-async function ensureUiScreenshotLobby(page: Page, label: string): Promise<void> {
+async function ensureUiScreenshotLobby(page: Page, label: string, dismissPopup: boolean): Promise<void> {
   for (let attempt = 1; attempt <= 3; attempt++) {
     // 彈窗可能蓋在大廳上，先關掉再判斷在不在大廳
-    await dismissUiScreenshotPopups(page, label)
+    // ⚠️ 這裡原本**無條件**呼叫，等於繞過畫面上的「自動關閉面額彈窗」開關（CodeX 2026-09-21 指出）。
+    //    使用者把開關關掉是想看到彈窗長什麼樣，結果這條路照樣幫他關掉——關的人還不知道自己關了。
+    if (dismissPopup) await dismissUiScreenshotPopups(page, label)
     const count = await page.locator('#grid_gm_item').count().catch(() => 0)
     if (count > 0) return
     console.log(`[UI-SS] ${label} — 沒看到大廳卡片（第 ${attempt} 次），嘗試退出機台再回大廳`)
@@ -773,124 +776,69 @@ async function isUiScreenshotPopupVisible(page: Page): Promise<boolean> {
 }
 
 /**
- * 關掉進場後的彈窗，**關到偵測不到為止**（最多 4 輪）。
+ * 關掉進場後的彈窗。**實作在 `uat-runner/ui-popup.js`**——驗證腳本跟這裡跑同一份。
  *
- * ⚠️ 實測不只一層：第一層是面額選單（`.select-bg` → 點第一個面額），
- *    關掉之後有些機台還會再跳一層「SELECT A DENOMINATION → YES / NO」。
- *    只處理第一層的話，第二層會留在畫面上把下半部蓋住——**截圖照樣拍得到，只是拍到的是被蓋住的畫面**。
+ * ⚠️ 原本整段寫在這個檔案裡，驗證腳本碰不到，要驗就只能在測試裡再寫一份同樣的判斷，
+ *    那等於**測試在驗自己**。抽出去之後兩邊 import 同一支。
  *
- * ⚠️ YES / NO 按 **YES**（使用者 2026-09-18 指定，跟第一層一樣走「選下去」而不是「取消」）。
- *
- * ⚠️ 只在「看起來是彈窗」的容器裡找按鈕（class 帶 select/popup/overlay/dialog/confirm），
- *    不要在整頁找文字 YES——遊戲畫面裡到處都是英文字，在全頁亂點是會出事的。
+ * @param opts.strict 只點**已確認用途**的彈窗，沒見過的不點、只回報（給「一直盯著」的看門狗用）
  */
-async function dismissUiScreenshotPopups(page: Page, label: string): Promise<{ dismissed: number; errors: string[] }> {
-  let dismissed = 0
-  const errors: string[] = []
-  for (let round = 1; round <= 4; round++) {
-    // 第一層：面額選單
-    const denom = await page.$('.select-bg')
-    if (denom) {
-      const firstBtn = await page.$('.select-row .van-col')
-      if (firstBtn) {
-        await firstBtn.click().catch(() => {})
-        await page.waitForTimeout(800)
-        dismissed++
-        console.log(`[UI-SS] ${label} — 關掉面額選單（第 ${round} 輪）`)
-        continue
-      }
-    }
-    /**
-     * 🚨 **H5 大廳的整頁 JACKPOT 彈窗：只能點 ✕，不能點 PLAY NOW。**（2026-09-19 實測新增）
-     *
-     * 下面那段找的是「文字剛好等於 YES/CONFIRM/確定」的按鈕——那是**機台內**的面額選單與
-     * Tips 錯誤框。大廳這張中獎彈窗上一個那種字都沒有，只有一顆 `.closeBtn`（24x24 的 ✕）
-     * 跟一顆大大的「PLAY NOW」。所以舊邏輯對它完全無效：
-     * 彈窗留在畫面上 → **之後每一個 click 都 timeout**，而訊息只寫
-     * `locator.click: Timeout 10000ms exceeded`，看起來像選擇器錯或網站慢。
-     *
-     * ⚠️ **絕對不能點 PLAY NOW／JOIN／START 這類**——那會直接進機台，
-     *    把「關掉彈窗」變成一個有副作用的動作，而且測試會從一個沒人預期的狀態開始。
-     *    所以這裡**只認關閉鍵**（class 含 close），而且再擋一次文字。
-     */
-    // ⚠️ 實作放在 `uat-runner/lobby-popup.js`，**驗證腳本跟這裡跑同一份**。
-    //    抄一份到這裡的話，驗的是抄的那份、上線跑的是另一份——這個專案被咬過好幾次。
-    const closeResult = await page.evaluate(LOBBY_CLOSE_IN_PAGE, LOBBY_CLOSE_ALLOW)
-      .catch(() => ({ closed: '', skipped: [] })) as { closed: string; skipped: string[] }
-    const closed = closeResult.closed
-    if (closed) {
-      await page.waitForTimeout(800)
-      dismissed++
-      console.log(`[UI-SS] ${label} — 關掉彈窗（✕ .${closed}，第 ${round} 輪）`)
-      continue
-    }
+async function dismissUiScreenshotPopups(
+  page: Page,
+  label: string,
+  opts: { strict?: boolean } = {},
+): Promise<{ dismissed: number; errors: string[]; blocked: string[] }> {
+  return dismissUiPopups(page, label, { strict: opts.strict === true })
+}
 
-    // 第二層／錯誤提示（`Tips: CODE: ERR_NETWORK`、`Tips: Game exception, please contact customer service.(39)`）
-    //
-    // ⚠️ **從按鈕往上找彈窗，不要從容器往下找按鈕。** 第一版只掃 class 含 select/popup/overlay/dialog/confirm
-    //    的容器，結果實際卡住流程的那個彈窗長這樣（2026-09-18 使用者回報的 error 39）：
-    //      <div class="bg-img"><div class="box-title">Tips</div>
-    //        <div class="box-content"><div class="text-msg">Game exception, please contact customer service.(39)</div></div>
-    //        <div class="box-end"><button class="van-button box-btn"><div class="box-btn_text2">Confirm</div></button></div>
-    //    容器叫 `bg-img`、按鈕叫 `box-btn`——一個關鍵字都沒中，所以整晚都關不掉。
-    //    改成先找「整個文字剛好就是 Confirm/YES/確定」的可見小元素，再往上爬確認它真的在彈窗裡。
-    // ⚠️ 錯誤提示**要點掉，但不能當沒發生**：它代表這一張是在出過錯誤的狀態下拍的
-    const clicked = await page.evaluate(() => {
-      const CONFIRM = new Set(['YES', 'CONFIRM', '確定', '确定', 'OK', '確認', '确认', '我知道了', 'GOT IT'])
-      const POPUPISH = /select|popup|overlay|dialog|confirm|modal|mask|alert|toast|tips|bg-img|box-/i
-      const TITLEISH = /^(tips|提示|notice|warning|error|錯誤|错误|系統提示|系统提示)$/i
-      const visible = (el: Element) => {
-        const r = el.getBoundingClientRect()
-        const st = getComputedStyle(el)
-        return r.width > 10 && r.height > 10 && st.display !== 'none' && st.visibility !== 'hidden' && st.opacity !== '0'
-      }
-      // 彈窗的根：往上最多爬 8 層，取「最外層」有彈窗特徵的那個（這樣記到的文字才含標題與內文）
-      const dialogRootOf = (el: Element): Element | null => {
-        let cur: Element | null = el.parentElement
-        let root: Element | null = null
-        for (let i = 0; i < 8 && cur; i++, cur = cur.parentElement) {
-          const cls = cur.getAttribute('class') || ''
-          const hasTitle = Array.from(cur.children).some(c => TITLEISH.test((c.textContent || '').trim()))
-          if (POPUPISH.test(cls) || hasTitle) root = cur
-        }
-        return root
-      }
-      // ⚠️ **先找真的按鈕，找不到才退而求其次掃 div/span。**
-      //    不分層的話會踩到這個坑：彈窗的標題或內文剛好也是「Confirm」，而它在 DOM 順序上排在按鈕前面，
-      //    結果每一輪都點在那段文字上（點了等於沒點），彈窗一直在，流程照樣卡住。
-      const TIERS = ['button, .van-button, [role="button"], [class*="btn"], [class*="Btn"]', 'div, span']
-      const cands = TIERS.flatMap(sel => Array.from(document.querySelectorAll(sel)))
-      for (const b of cands) {
-        const t = (b.textContent || '').replace(/\s+/g, ' ').trim().toUpperCase()
-        if (!CONFIRM.has(t) || !visible(b)) continue
-        const r = b.getBoundingClientRect()
-        // 版面上剛好只有這串字的大區塊不算按鈕——點下去會誤觸背後的東西
-        if (r.width > 520 || r.height > 200) continue
-        const root = dialogRootOf(b)
-        if (!root) continue
-        const boxText = (root.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200)
-        ;(b as HTMLElement).click()
-        return JSON.stringify({ btn: t, boxText })
-      }
-      return ''
-    }).catch(() => '')
-    if (clicked) {
-      await page.waitForTimeout(800)
-      dismissed++
-      let btn = clicked, boxText = ''
-      try { const o = JSON.parse(clicked) as { btn: string; boxText: string }; btn = o.btn; boxText = o.boxText } catch { /* 舊格式 */ }
-      // 內容看起來是錯誤提示就記下來——關掉它不代表那張圖是乾淨的
-      if (/ERR_|error|錯誤|错误|失败|失敗|exception|異常|异常|customer service/i.test(boxText)) {
-        errors.push(boxText)
-        console.log(`[UI-SS] ${label} — 關掉錯誤提示（${btn}）：${boxText}`)
-      } else {
-        console.log(`[UI-SS] ${label} — 關掉彈窗（按 ${btn}，第 ${round} 輪）`)
-      }
-      continue
+/**
+ * **在一段等待期間一直盯著彈窗。**
+ *
+ * 為什麼需要：原本只在「進機台前」「推流就緒後」各關一次——中間那幾段完全沒人看：
+ * 點卡片進場的那一下、等推流的迴圈、截圖前等的那幾秒。彈窗在這三段冒出來的話，
+ * 症狀分別是「點了但還停在大廳」「Game surface not ready」「拍到被蓋住的畫面」，
+ * **三種訊息都不會提到彈窗**（使用者 2026-09-21 回報）。
+ *
+ * ⚠️ **只處理已確認用途的彈窗**（`strict`）。理由見 `dismissUiScreenshotPopups` 裡的 KNOWN。
+ * ⚠️ **一次只跑一輪、輪與輪之間序列化**，而且 `stop()` 會等進行中的那輪跑完——
+ *    不這樣的話會跟主流程同時點，變成「兩隻手搶同一顆按鈕」。
+ * ⚠️ 有次數上限。沒有上限的話，遇到關不掉的彈窗會變成無聲的無限點擊。
+ */
+function startUiScreenshotPopupGuard(page: Page, label: string, enabled: boolean) {
+  const result = { dismissed: 0, errors: [] as string[], blocked: [] as string[] }
+  if (!enabled) return { stop: async () => result }
+
+  let active = true
+  let passes = 0
+  const MAX_PASSES = 40
+  let inFlight: Promise<void> = Promise.resolve()
+
+  const loop = (async () => {
+    while (active && passes < MAX_PASSES) {
+      await new Promise(r => setTimeout(r, 700))
+      if (!active) break
+      passes++
+      inFlight = (async () => {
+        const r = await dismissUiScreenshotPopups(page, label, { strict: true }).catch(() => null)
+        if (!r) return
+        result.dismissed += r.dismissed
+        result.errors.push(...r.errors)
+        // 同一個關不掉的彈窗每輪都會回報一次，去重之後才看得出到底有幾種
+        for (const b of r.blocked) if (!result.blocked.includes(b)) result.blocked.push(b)
+      })()
+      await inFlight
     }
-    break
+  })()
+
+  return {
+    /** 停止並等進行中的那一輪跑完。⚠️ 截圖前一定要先 stop，否則會拍到「正在被點掉」的畫面 */
+    async stop() {
+      active = false
+      await loop.catch(() => {})
+      await inFlight.catch(() => {})
+      return result
+    },
   }
-  return { dismissed, errors }
 }
 
 async function clickFirstVisible(page: Page, selectors: string[]): Promise<boolean> {
@@ -1126,7 +1074,16 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
     /** 進場：導頁 → （自動選機）→ 進機台 → 等推流 → 關面額彈窗 → 等指定秒數。回傳實際機台號 */
     const prepare = async (page: Page): Promise<string> => {
       popupErrorNote = ''
-      const noteErrors = (r: { errors: string[] }, machine?: string) => {
+      const noteBlocked = (blocked: string[]) => {
+        if (!blocked.length) return
+        // ⚠️ 這是**擋住流程但我們不敢點**的彈窗。一定要跟著這張圖回報——
+        //    不講的話，畫面上只會看到一張被蓋住的截圖，沒人知道是彈窗造成的
+        const note = `有彈窗未處理（不在已確認清單內，沒有自動點）：${blocked.join('；').slice(0, 300)}`
+        popupErrorNote = popupErrorNote ? `${popupErrorNote}｜${note}` : note
+        console.warn(`[UI-SS] ${gmid} — ${note}`)
+      }
+      const noteErrors = (r: { errors: string[]; blocked?: string[] }, machine?: string) => {
+        if (r.blocked?.length) noteBlocked(r.blocked)
         if (!r.errors.length) return
         popupErrorNote = `進場時出現提示：${r.errors[0]}`
         // 遊戲本身壞掉（不是網路瞬斷）就把這台排除，下一張換一台試
@@ -1254,7 +1211,7 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
 
       // 大廳本身就是拍攝目標：不進任何機台（一樣要先把蓋住畫面的彈窗關掉）
       if (isLobbyTarget) {
-        await ensureUiScreenshotLobby(page, '__LOBBY__')
+        await ensureUiScreenshotLobby(page, '__LOBBY__', options.dismissPopup !== false)
         if (screenshotDelaySeconds > 0) await page.waitForTimeout(screenshotDelaySeconds * 1000)
         return '__LOBBY__'
       }
@@ -1286,7 +1243,7 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
       }
 
       // 走到這裡表示要從大廳挑機台：先確定真的站得到大廳
-      await ensureUiScreenshotLobby(page, gmid)
+      await ensureUiScreenshotLobby(page, gmid, options.dismissPopup !== false)
 
       let target = gmid
       if (autoPick) {
@@ -1294,18 +1251,45 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
         target = picked.gmid
         console.log(`[UI-SS] ${gmid} auto-picked ${target} (${picked.freeOfTarget}/${picked.totalOfTarget} free)`)
       }
-      const entryState = await enterUiScreenshotMachine(page, target)
-      lastUsedMachine = target
-      console.log(`[UI-SS] ${target} entry=${entryState}`)
-      const ready = await waitForUiScreenshotReady(page)
-      if (!ready) throw new Error(`Game surface not ready after entering machine: ${gmid}`)
-      console.log(`[UI-SS] ${gmid} — stream ready`)
-      if (options.dismissPopup !== false) {
-        noteErrors(await dismissUiScreenshotPopups(page, target), target)
+      /**
+       * 🚨 **從這裡開始到截圖前，全程盯著彈窗**（使用者 2026-09-21 回報：進機台時跳 Confirm
+       * 沒被點掉，整個流程卡住）。原本只在「進機台前」「推流就緒後」各關一次，
+       * 中間這三段沒人看——而彈窗正是在這三段冒出來的：
+       *   ① 點卡片進場的那一下 → 被蓋住的話 click 直接 timeout，訊息只寫「點了但還停在大廳」
+       *   ② 等推流的迴圈       → 變成 `Game surface not ready`
+       *   ③ 截圖前等的那幾秒   → 直接拍到被蓋住的畫面
+       * ⚠️ 看門狗只點**已確認用途**的彈窗；沒見過的不點、只記下來回報（CodeX 2026-09-21）。
+       */
+      const guard = startUiScreenshotPopupGuard(page, target, options.dismissPopup !== false)
+      let ready = false
+      try {
+        const entryState = await enterUiScreenshotMachine(page, target)
+        lastUsedMachine = target
+        console.log(`[UI-SS] ${target} entry=${entryState}`)
+        ready = await waitForUiScreenshotReady(page)
+        if (ready) console.log(`[UI-SS] ${gmid} — stream ready`)
+        if (options.dismissPopup !== false) {
+          noteErrors(await dismissUiScreenshotPopups(page, target), target)
+        }
+        if (screenshotDelaySeconds > 0) {
+          console.log(`[UI-SS] ${gmid} waiting ${screenshotDelaySeconds}s before screenshot`)
+          await page.waitForTimeout(screenshotDelaySeconds * 1000)
+        }
+      } finally {
+        // ⚠️ **一定要在截圖之前 stop 並等它跑完**，否則會拍到「正在被點掉」的那一瞬間
+        const g = await guard.stop()
+        if (g.dismissed) console.log(`[UI-SS] ${gmid} — 等待期間自動關掉 ${g.dismissed} 個彈窗`)
+        noteErrors({ errors: g.errors, blocked: g.blocked }, target)
       }
-      if (screenshotDelaySeconds > 0) {
-        console.log(`[UI-SS] ${gmid} waiting ${screenshotDelaySeconds}s before screenshot`)
-        await page.waitForTimeout(screenshotDelaySeconds * 1000)
+      /**
+       * ⚠️ **關掉錯誤框不等於這一台是好的**（CodeX 2026-09-21）。等待期間關過錯誤框、
+       *    或推流本來就沒就緒的話，要重新確認一次再往下走——直接算成功會拍到黑畫面，
+       *    而狀態欄寫的是 ok。
+       */
+      if (!ready) {
+        ready = await waitForUiScreenshotReady(page)
+        if (!ready) throw new Error(`Game surface not ready after entering machine: ${gmid}`)
+        console.log(`[UI-SS] ${gmid} — 關掉彈窗後推流才就緒`)
       }
       return target
     }

@@ -99,6 +99,7 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   //    漏了的話 agent 更新完會在 import 當下 `ERR_MODULE_NOT_FOUND` 起不來，
   //    而錯誤只出現在那台的 stderr（跟 pc-cocos.ts 同一個坑，由推導式守門抓到）。
   'uat-runner/lobby-popup.js':         join(SERVER_ROOT, 'uat-runner', 'lobby-popup.js'),
+  'uat-runner/ui-popup.js':            join(SERVER_ROOT, 'uat-runner', 'ui-popup.js'),
   // H5 退出機台／放掉位子。⚠️ `agent-runner.ts` 與 `frontend-engine.js` 都**靜態 import**
   //    它——漏了的話 agent 更新完會在 import 當下 `ERR_MODULE_NOT_FOUND` 起不來，
   //    而錯誤只出現在那台的 stderr（跟 lobby-popup.js 同一個坑）。
