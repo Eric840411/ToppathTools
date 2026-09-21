@@ -71,13 +71,20 @@ PC 判定是 `0972ec7`（2026-09-19）才加的——加 PC 支援的當下就�
 
 | 層 | 驗的東西 | 怎麼驗 | 狀態 |
 |---|---|---|---|
-| ① 畫面 → request | 點的那個客戶端有沒有進到 request body | `scripts/ui-checks/ui-screenshot-clienttype-ui.mjs` | ✅ 6 條 |
+| ① 畫面 → request | 點的那個客戶端有沒有進到 request body | `scripts/ui-checks/ui-screenshot-clienttype-ui.mjs` | ✅ 8 條（`/scan-lobby` 與 `/start` 兩個入口） |
 | ② request → agent | 中控有沒有原樣轉給 agent | `scripts/ui-checks/ui-screenshot-clienttype-dispatch.mjs` | ✅ 7 條 |
 | ③ agent → 執行分支 | agent 收到之後有沒有真的走 DOM／Cocos | 要真大廳，只能實機跑 | ❌ **沒驗到** |
 
-**① `ui-screenshot-clienttype-ui.mjs`**——真瀏覽器開真產品頁，點真的「客戶端」與「掃描大廳」按鈕，
-攔截送出去的 `POST /scan-lobby` 看 body。含「再點回 H5」與「reload 後仍是 PC」（設定有存起來）。
-`/agents` 與 `/scan-lobby` 的回應都是假的——那兩個不是這支在驗的東西，當腳手架用。
+**① `ui-screenshot-clienttype-ui.mjs`**——真瀏覽器開真產品頁，點真的「客戶端」按鈕，
+再分別點「掃描大廳」與「開始截圖」，攔截送出去的 `POST /scan-lobby` 與 `POST /start` 看 body。
+含「再點回 H5」與「reload 後仍是 PC」（設定有存起來）。
+
+> ⚠️ **兩個入口都要驗**（CodeX 2026-09-21 指出）。最早只攔了 `/scan-lobby`——但「開始截圖」
+> 是**另一段自己組 body 的程式碼**，只驗掃描等於放掉一半。突變證實了這件事：
+> 只把 `/start` 那段的 `clientType` 拿掉，**前 6 條全綠、只有 `/start` 那兩條紅**。
+
+`/agents`、`/scan-lobby`、`/start` 的回應都是假的（`/start` 刻意回 `ok:false`，
+免得前端進入「執行中」狀態、按鈕變成「停止」讓後面幾條點不到）——那些不是這支在驗的東西，當腳手架用。
 
 **② `ui-screenshot-clienttype-dispatch.mjs`**——冒充一個 agent 接上真的 `ws://<host>/ws/agent`，
 打真的 `/scan-lobby` 與 `/start`，斷言 **agent 收到的派工訊息裡的 `clientType` 就是送進去那個**。
@@ -88,7 +95,8 @@ PC 判定是 `0972ec7`（2026-09-19）才加的——加 PC 支援的當下就�
 | 注入 | 結果 |
 |---|---|
 | 中控改回「網址有 `platform=pc` 就強制 pc」 | ② 的第 1、4、5 條紅（第 1 條正是這個 bug 原本的形狀），2、3、6、7 維持綠 |
-| 前端送出時拿掉 `clientType` | ① 的 4 條 request 斷言紅，**但兩條「畫面上選中的是 X」維持綠** |
+| 前端 `/scan-lobby` 送出時拿掉 `clientType` | ① 的 4 條 request 斷言紅，**但兩條「畫面上選中的是 X」維持綠** |
+| 前端**只有** `/start` 送出時拿掉 `clientType` | ① 的 **只有 `/start` 那兩條紅**，前 6 條全綠 |
 
 > ⚠️ 第二個注入就是這件事的重點：**畫面渲染正確，跟送出去的值正確，是兩回事。**
 > v4.251.0 當下我只截了兩張畫面圖就說驗過了——那個注入證明那樣驗根本抓不到。

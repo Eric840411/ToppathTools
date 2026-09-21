@@ -6,8 +6,11 @@
  * CodeX 2026-09-21 指出這個界線：那支不能叫端到端，因為
  * 「畫面操作 → request」這一段還沒有人驗。這支補的就是那一段。
  *
- * 做法：用真的瀏覽器開真的產品頁，點真的「客戶端」按鈕與「掃描大廳」按鈕，
- * 攔截送出去的 `POST /api/ui-screenshot/scan-lobby`，看 body 裡的 `clientType`。
+ * 做法：用真的瀏覽器開真的產品頁，點真的「客戶端」按鈕，再分別點「掃描大廳」與「開始截圖」，
+ * 攔截送出去的 `POST /scan-lobby` 與 `POST /start`，看 body 裡的 `clientType`。
+ *
+ * ⚠️ **兩個入口都要驗**（CodeX 2026-09-21 指出）：最早只攔了 `/scan-lobby`，
+ *    但「開始截圖」是另一段自己組 body 的程式碼——只驗掃描等於放掉一半。
  *
  * ⚠️ 攔截之後直接回一個假的成功回應——**這支不該真的去掃大廳**，
  *    它要驗的是「送出去的東西對不對」，不是掃描結果。
@@ -44,6 +47,12 @@ await page.route('**/api/ui-screenshot/scan-lobby', route => {
   // 回一個空結果就好——這支不驗掃描本身
   route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, cardCount: 0, models: [], unparsed: [] }) })
 })
+await page.route('**/api/ui-screenshot/start', route => {
+  try { lastBody = JSON.parse(route.request().postData() ?? '{}') } catch { lastBody = null }
+  // ⚠️ 回 ok:false，讓前端停在原地不要進入「執行中」狀態——
+  //    進去了之後按鈕會變成「停止」，後面幾條就點不到「開始截圖」了
+  route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: false, message: '(ui-check) 不實際執行' }) })
+})
 
 /**
  * 側欄導到「UI 解析度截圖」。
@@ -57,14 +66,16 @@ async function gotoUiScreenshotTab() {
   await page.waitForTimeout(2500)
 }
 
-/** 點「掃描大廳」並等到 request 被攔到 */
-async function scanAndCapture(label) {
+/** 點某顆按鈕並等到它送出的 request 被攔到 */
+async function clickAndCapture(buttonName, label) {
   lastBody = null
-  await page.getByRole('button', { name: '掃描大廳' }).click()
+  await page.getByRole('button', { name: buttonName }).click()
   for (let i = 0; i < 60 && lastBody === null; i++) await page.waitForTimeout(100)
-  if (lastBody === null) throw new Error(`${label}：按了掃描大廳但沒攔到 request`)
+  if (lastBody === null) throw new Error(`${label}：按了「${buttonName}」但沒攔到 request`)
   return lastBody
 }
+const scanAndCapture = label => clickAndCapture('掃描大廳', label)
+const startAndCapture = label => clickAndCapture('開始截圖', label)
 
 try {
   await page.goto(`${BASE}/`, { waitUntil: 'networkidle', timeout: 45000 })
@@ -110,6 +121,25 @@ try {
   await page.waitForTimeout(400)
   check('重新載入後｜畫面上仍選中 PC', await page.locator('.ui-ss-client-opt').nth(1).getAttribute('aria-pressed'), 'true')
   check('重新載入後｜送出去的仍是 pc', (await scanAndCapture('after reload')).clientType, 'pc')
+
+  // ── 5~6. 「開始截圖」是另一段自己組 body 的程式碼，也要驗 ──────────────────
+  //    關掉自動選機、手打一個 gmid，才不需要先真的掃一次大廳
+  const autoPick = page.locator('.ui-ss-toggle').first()
+  if ((await autoPick.getAttribute('class'))?.includes('on')) {
+    await autoPick.click()
+    await page.waitForTimeout(500)
+  }
+  await page.locator('textarea').first().fill('CHECK-GMID')
+  await page.waitForTimeout(400)
+
+  const opts2 = page.locator('.ui-ss-client-opt')
+  await opts2.nth(1).click()   // PC
+  await page.waitForTimeout(400)
+  check('畫面→request｜開始截圖 + 選 PC', (await startAndCapture('start PC')).clientType, 'pc')
+
+  await opts2.nth(0).click()   // H5
+  await page.waitForTimeout(400)
+  check('畫面→request｜開始截圖 + 選 H5', (await startAndCapture('start H5')).clientType, 'h5')
 } catch (err) {
   console.log(`FAIL  執行中斷：${err.message}`)
   failures.push(`執行中斷：${err.message}`)
@@ -123,5 +153,5 @@ if (failures.length) {
   for (const f of failures) console.log(`  · ${f}`)
   process.exit(1)
 }
-console.log('通過——畫面上點的客戶端，就是 request body 裡送出去的那個（6 條）')
+console.log('通過——畫面上點的客戶端，就是 request body 裡送出去的那個（8 條，掃大廳與開始截圖兩個入口都驗）')
 console.log('⚠️ 這支只驗「畫面 → request」；request 之後的路由由 ui-screenshot-clienttype-dispatch.mjs 顧')

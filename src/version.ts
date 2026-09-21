@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.251.2'
+export const APP_VERSION = '4.251.3'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.251.3', date: '2026-09-21', changes: ['🧪 **補上「開始截圖」那個入口的畫面→request 驗證**（CodeX 指出：上一版只攔 `/scan-lobby`，但「開始截圖」是另一段自己組 body 的程式碼，只驗掃描等於放掉一半）。`ui-screenshot-clienttype-ui.mjs` 從 6 條變 8 條，兩個入口都驗', '⚠️ **突變證實了這個缺口是真的**：只把 `/start` 那段的 `clientType` 拿掉——**前 6 條全綠、只有 `/start` 那兩條紅**。也就是說上一版的 6 條確實抓不到這半邊', '🔧 `/start` 的攔截刻意回 `ok:false`，免得前端進入「執行中」狀態讓按鈕變成「停止」，後面的斷言就點不到「開始截圖」了', '⚠️ 第三層（agent 收到之後有沒有真的走 DOM／Cocos、有沒有取得機台清單）仍然只能實機跑；`browser has been closed` 也仍是另案'] },
   { version: '4.251.2', date: '2026-09-21', changes: ['🧪 **補上「畫面 → request」那一層**（CodeX 指出上一支驗的是 API→中控→agent，沒碰到畫面，不能叫端到端）：`scripts/ui-checks/ui-screenshot-clienttype-ui.mjs`——真瀏覽器開真產品頁，點真的「客戶端」與「掃描大廳」，攔截送出去的 request 看 body。6 條全過', '⚠️ **突變的結果正好證明 CodeX 的論點**：把前端送出時的 `clientType` 拿掉，4 條 request 斷言全紅，**但兩條「畫面上選中的是 X」維持綠**——畫面渲染正確跟送出去的值正確是兩回事，只截圖根本抓不到', '📝 文件改成三層對照表（畫面→request ✅ / request→agent ✅ / agent→執行分支 ❌），把沒驗到的那層明白標出來，不含糊帶過', '⚠️ 第三層（agent 收到之後有沒有真的走 DOM／Cocos）仍然只能實機跑；`browser has been closed` 也仍是另案'] },
   { version: '4.251.1', date: '2026-09-21', changes: ['🧪 **補上真正的派工驗證**（CodeX 指出上一版驗得不夠）：上一版我只截了兩張「畫面上長對了」的圖就說驗過了——**那只證明控制項畫得出來，沒證明派工照著選的走**', '`scripts/ui-checks/ui-screenshot-clienttype-dispatch.mjs`：冒充 agent 接上真的 `ws://<host>/ws/agent`，打真的 `/scan-lobby` 與 `/start`，斷言 agent 收到的訊息裡 `clientType` 就是送進去那個。7 條全過', '⚠️ **突變驗過**：把中控改回「網址有 `platform=pc` 就強制 pc」，第 1、4、5 條變紅——第 1 條正是這個 bug 原本的形狀。紅在斷言上，不是 runner 自己壞掉', '📝 修正說法：**不能說「已經完全沒有網址判定」**。正確範圍是「有帶 `clientType` 時才完全不看網址」；舊版 server 沒帶的那條退路仍會看主機名，未知主機還是當成 H5——這是相容限制，不是判斷結果', '🔧 退路的 warn 改成印出主機名，且未知主機會明說「這是退路的預設值，不是判斷結果」', '⚠️ 仍然沒驗到的：agent 拿到之後有沒有真的走對分支（Cocos 場景樹 vs DOM 卡片）——那要實機跑真大廳。`browser has been closed` 也仍是另案'] },
   { version: '4.251.0', date: '2026-09-21', changes: ['🚨 **UI 解析度截圖：H5 一直被當成 PC 跑。**判平台的那行是 `/osm-pc|[?&]platform=pc/` 打整條網址，但 H5 的正式網址本身就帶 `&platform=pc&device=mobile`——於是每一次 H5 都命中 PC 分支，跑去讀根本不存在的 Cocos 場景樹，在 `pcWaitLobby` 空等 60 秒，畫面上只看到 `page.waitForTimeout: Target page, context or browser has been closed`，完全看不出是走錯分支', '✨ **改成使用者自己選（使用者拍板）**：資料來源卡片最上面新增「客戶端」H5 / PC 兩選一，掃大廳與截圖兩段共用同一個值，**不再從網址推**。預設 H5', '⚠️ 選的跟網址主機對不上時（例如選 PC 但網址是 `osm-h5-prod`）會在欄位下方黃字提醒，但**不會自動幫你改**——自動修正就等於又回到猜', '⚠️ 舊版 server 沒帶 `clientType` 時的退路改成**只看 hostname 不看 query**（CodeX 建議），而且會 `console.warn` 印出來；不默默當成 H5 或 PC', '🔧 截圖流程原本三處各自呼叫 `isPcClientUrl()`，其中一處還是拿導頁後的 `page.url()` 去判——同一個 run 可能有三個答案。改成整個 run 只判定一次', '📝 `ui_screenshot_runs.options` 會一併記下這次用的 `clientType`，之後查歷史才知道當時跑的是哪一套'] },
