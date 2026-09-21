@@ -256,6 +256,8 @@ interface UiScreenshotStartMessage {
     tasks: Array<{ id: string; gmid: string; resolution: string }>
     options: Record<string, boolean | number>
     concurrency: number
+    /** 使用者在畫面上選的客戶端 */
+    clientType?: 'h5' | 'pc'
   }
 }
 
@@ -266,6 +268,8 @@ interface UiScreenshotScanMessage {
   gameUrlTemplate: string
   /** 掃描也要能用有視窗的模式跑——PC 版在 headless 下可能沒有 WebGL */
   headed?: boolean
+  /** 使用者在畫面上選的客戶端。舊版 server 不會帶，那時才退回 `isPcClientUrl` */
+  clientType?: 'h5' | 'pc'
 }
 
 interface BackendUatStartMessage {
@@ -414,6 +418,8 @@ interface UiScreenshotRunConfig {
   tasks: Array<{ id: string; gmid: string; resolution: string }>
   options: Record<string, boolean | number>
   concurrency: number
+  /** 使用者在畫面上選的客戶端。舊版 server 不會帶，那時才退回 `isPcClientUrl` */
+  clientType?: 'h5' | 'pc'
 }
 
 function normalizeMachineCode(value: string): string {
@@ -443,12 +449,35 @@ const PC_BROWSER_ARGS = [
 ]
 
 /**
- * 這個網址是 PC 版嗎？
- * ⚠️ 用網址判斷，不用「DOM 找不到卡片」來推——找不到卡片的原因很多（還沒載完、在機台裡、被彈窗蓋住），
+ * **舊版相容用的退路**：只有中控沒傳 `clientType` 時才會走到（舊版 server 配新版 agent）。
+ * 正常情況下客戶端是使用者在畫面上選的，這支不會被呼叫。
+ *
+ * ⚠️ **只看 hostname，不看 query。**原本是拿 `osm-pc` 或 `platform=pc` 打整條網址，
+ *    但 H5 的正式網址本身就帶 `&platform=pc&device=mobile`——於是每一次 H5 都被判成 PC，
+ *    跑去讀根本不存在的 Cocos 場景樹，然後在 `pcWaitLobby` 空等 60 秒，
+ *    錯誤訊息卻長得像「大廳載不出來 / 瀏覽器被關掉」，看不出是判錯分支。
+ * ⚠️ 同樣不用「DOM 找不到卡片」來推——找不到卡片的原因很多（還沒載完、在機台裡、被彈窗蓋住），
  *    用那個來判平台會在該報錯的時候安靜走錯分支。
  */
 function isPcClientUrl(url: string): boolean {
-  return /osm-pc|[?&]platform=pc\b/i.test(url)
+  try {
+    return /^osm-pc[-.]/i.test(new URL(url).hostname)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 這一輪要跑哪一套客戶端。
+ * 中控有給就用中控給的（使用者在畫面上選的）；沒給才退回看主機名，而且會印出來。
+ * ⚠️ 不要把「沒給」默默當成 H5 或 PC——那就是這個 bug 原本的樣子：安靜地跑錯分支。
+ */
+function resolveIsPc(clientType: 'h5' | 'pc' | undefined, url: string, where: string): boolean {
+  if (clientType === 'pc') return true
+  if (clientType === 'h5') return false
+  const guessed = isPcClientUrl(url)
+  console.warn(`[UI-SS] ${where}：中控沒傳 clientType（舊版 server？），退回看主機名判定 → ${guessed ? 'PC' : 'H5'}`)
+  return guessed
 }
 
 /** 大廳上的一張機台卡片。`occupied` 直接讀 DOM，不用點進去才知道。 */
@@ -962,7 +991,8 @@ async function runUiScreenshotScan(msg: UiScreenshotScanMessage, serverBaseUrl: 
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     }).catch(() => {})
   try {
-    const pc = isPcClientUrl(url)
+    const pc = resolveIsPc(msg.clientType, url, '掃大廳')
+    console.log(`[UI-SS] 掃大廳客戶端＝${pc ? 'PC' : 'H5'}（${msg.clientType ? '使用者指定' : '主機名推定'}）`)
     // ⚠️ PC 版掃描也要能用 Headed：headless 拿不到 GPU 時 Cocos 根本不會初始化，
     //    而掃描原本寫死 headless，導致使用者把畫面上的「Headed 模式」打開也沒有任何效果
     const headless = !msg.headed
@@ -1019,6 +1049,13 @@ async function runUiScreenshotScan(msg: UiScreenshotScanMessage, serverBaseUrl: 
 
 async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: string) {
   const { id: runId, gameUrlTemplate, tasks, options } = runConfig
+  /**
+   * ⚠️ **整個 run 只判定一次**，下面三個地方共用。
+   *    原本三處各自呼叫 `isPcClientUrl()`，其中一處還是拿 `page.url()`（導頁後的網址）去判，
+   *    等於同一個 run 可能有三個不同答案。
+   */
+  const isPc = resolveIsPc(runConfig.clientType, gameUrlTemplate, `run ${runId}`)
+  console.log(`[UI-SS] run ${runId} 客戶端＝${isPc ? 'PC' : 'H5'}（${runConfig.clientType ? '使用者指定' : '主機名推定'}）`)
   uiScreenshotRuns.set(runId, { stopped: false })
 
   const { chromium } = await import('playwright')
@@ -1093,7 +1130,7 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
       await page.goto(url, { timeout: 30000 })
 
       // ── PC 版（Cocos canvas）：DOM 裡沒有任何機台元素，改讀場景樹 ──────────
-      if (isPcClientUrl(url)) {
+      if (isPc) {
         // 🚨 **上一個 task 的位子還佔著的話，重新載入會直接掉回那台機台。**
         //    這時候大廳清單不會建出來，掃到 0 台，錯誤訊息看起來像解析度問題。
         //    所以先確認在不在大廳，不在就退回去。
@@ -1295,7 +1332,7 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
       //    錯誤訊息只會寫「點了 (x, y) 但還停在大廳」，看起來像座標算錯。
       //    實測：連續試 5 台全部失敗，其實 5 台都是空的，problem 在我們自己還坐在別台上。
       //    ⚠️ 退出是三步：`menu_back` →「Exit To Lobby」→ 下分框的 `Confirm`。
-      if (!isLobbyTarget && isPcClientUrl(page.url()) && await pcSceneName(page) === 'game') {
+      if (!isLobbyTarget && isPc && await pcSceneName(page) === 'game') {
         const vp = page.viewportSize()
         const needResize = !vp || vp.width < 1024 || vp.height < 768
         if (needResize) { await page.setViewportSize({ width: 1024, height: 768 }).catch(() => {}); await page.waitForTimeout(2000) }
@@ -1309,7 +1346,7 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
     try {
       browser = await chromium.launch({
         headless: !options.headedMode,
-        args: isPcClientUrl(url) ? PC_BROWSER_ARGS : [],
+        args: isPc ? PC_BROWSER_ARGS : [],
       })
 
       if (reloadPerResolution) {

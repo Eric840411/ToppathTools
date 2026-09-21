@@ -17,6 +17,35 @@ interface LocalAgentInfo {
 type TaskStatus = 'pending' | 'running' | 'ok' | 'popup' | 'err' | 'timeout' | 'skipped'
 type RunStatus = 'pending' | 'running' | 'done' | 'stopped'
 
+/**
+ * 要跑哪一套客戶端。掃大廳與截圖兩段共用同一個值。
+ *
+ * ⚠️ **不從網址推。**原本是 `/osm-pc|[?&]platform=pc/` 打整條網址，但 H5 的正式網址
+ *    本身就帶 `&platform=pc&device=mobile`，於是 H5 永遠命中 PC 分支、去讀根本不存在的
+ *    Cocos 場景樹，錯誤訊息卻長得像「大廳載不出來」。改成使用者明確指定。
+ */
+type ClientType = 'h5' | 'pc'
+
+const CLIENT_OPTIONS: Array<{ key: ClientType; label: string; sub: string }> = [
+  { key: 'h5', label: 'H5', sub: '讀 DOM 卡片' },
+  { key: 'pc', label: 'PC', sub: '讀 Cocos 場景樹' },
+]
+
+/**
+ * 從主機名猜客戶端。**只用來提示「你選的跟網址對不上」，不用來決定走哪條流程。**
+ * 只看 hostname 不看 query——正是 query 裡的 `platform=pc` 造成原本那個誤判。
+ */
+function guessClientFromHost(url: string): ClientType | null {
+  try {
+    const host = new URL(url).hostname.toLowerCase()
+    if (/^osm-pc[-.]/.test(host)) return 'pc'
+    if (/^osm-h5[-.]/.test(host)) return 'h5'
+  } catch {
+    // 網址還在打、還不是合法 URL——沒得猜就不猜，不要亂提示
+  }
+  return null
+}
+
 interface ScreenshotTask {
   id: string
   run_id: string
@@ -112,6 +141,12 @@ interface Settings {
   wikiUrl: string
   gmidText: string
   gameUrlTemplate: string
+  /**
+   * 要跑哪一種客戶端。**由使用者明確指定，不從網址猜。**
+   * ⚠️ 原本是用網址判（`platform=pc` 命中就當 PC），但 H5 的正式網址本身就帶
+   *    `&platform=pc&device=mobile`，於是 H5 一直被判成 PC、走 Cocos 場景樹分支掃不到東西。
+   */
+  clientType: ClientType
   selectedResolutions: string[]
   dismissPopup: boolean
   waitForVideo: boolean
@@ -131,6 +166,7 @@ interface Settings {
 const DEFAULT_SETTINGS: Settings = {
   wikiUrl: '',
   gmidText: '',
+  clientType: 'h5',
   gameUrlTemplate: 'https://osm-h5-prod.osmslot.org/?token=ec8942c14e4b88ea2f223e7b2901058e-111716868&platform=pc&mode=live&language=en_us&studioid=cp&gameid={gmid}&lang=zh_cn&username=cposmtest3&device=mobile&isPwaClaimed=1',
   selectedResolutions: DEFAULT_RESOLUTIONS,
   dismissPopup: true,
@@ -211,6 +247,8 @@ export function UiScreenshotPage() {
   const [wikiUrl, setWikiUrl] = useState(init.wikiUrl)
   const [gmidText, setGmidText] = useState(init.gmidText)
   const [gameUrlTemplate, setGameUrlTemplate] = useState(init.gameUrlTemplate)
+  const [clientType, setClientType] = useState<ClientType>(init.clientType)
+  const hostGuess = guessClientFromHost(gameUrlTemplate)
   const [selectedResolutions, setSelectedResolutions] = useState<string[]>(init.selectedResolutions)
   const [dismissPopup, setDismissPopup] = useState(init.dismissPopup)
   const [waitForVideo, setWaitForVideo] = useState(init.waitForVideo)
@@ -262,6 +300,7 @@ export function UiScreenshotPage() {
   useEffect(() => { saveSettings({ wikiUrl }) }, [wikiUrl])
   useEffect(() => { saveSettings({ gmidText }) }, [gmidText])
   useEffect(() => { saveSettings({ gameUrlTemplate }) }, [gameUrlTemplate])
+  useEffect(() => { saveSettings({ clientType }) }, [clientType])
   useEffect(() => { saveSettings({ selectedResolutions }) }, [selectedResolutions])
   useEffect(() => { saveSettings({ dismissPopup }) }, [dismissPopup])
   useEffect(() => { saveSettings({ waitForVideo }) }, [waitForVideo])
@@ -438,7 +477,7 @@ export function UiScreenshotPage() {
         headers: { 'Content-Type': 'application/json' },
         // ⚠️ 掃描也要吃 Headed 開關：PC 版在無頭瀏覽器下可能沒有 WebGL，
         //    開關對掃描沒作用的話，使用者打開了也不會有任何改變
-        body: JSON.stringify({ agentId: selectedAgentId, gameUrlTemplate: gameUrlTemplate.trim(), headed: headedMode }),
+        body: JSON.stringify({ agentId: selectedAgentId, gameUrlTemplate: gameUrlTemplate.trim(), headed: headedMode, clientType }),
       })
       const data = await r.json() as {
         ok: boolean; message?: string; cardCount?: number
@@ -508,6 +547,7 @@ export function UiScreenshotPage() {
       const body: Record<string, unknown> = {
         wikiUrl: wikiUrl.trim(),
         gameUrlTemplate: gameUrlTemplate.trim(),
+        clientType,
         gmids: targets,
         resolutions: selectedResolutions,
         concurrency: 1,
@@ -682,6 +722,32 @@ export function UiScreenshotPage() {
           {/* Source */}
           <section className="section-card">
             <h2 className="section-title">資料來源</h2>
+
+            {/* 客戶端：**使用者自己選**，不從網址猜（H5 的正式網址就帶 platform=pc，猜必錯） */}
+            <div className="field" style={{ marginBottom: 12 }}>
+              <span>客戶端</span>
+              <div className="ui-ss-client-seg">
+                {CLIENT_OPTIONS.map(opt => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    disabled={running}
+                    className={`ui-ss-client-opt${clientType === opt.key ? ' on' : ''}`}
+                    onClick={() => setClientType(opt.key)}
+                    aria-pressed={clientType === opt.key}
+                  >
+                    <span className="ui-ss-client-nm">{opt.label}</span>
+                    <span className="ui-ss-client-sub">{opt.sub}</span>
+                  </button>
+                ))}
+              </div>
+              <span className="field-hint">掃大廳與截圖都用這個值決定流程，<b>不會從網址自動判斷</b></span>
+              {hostGuess && hostGuess !== clientType && (
+                <span style={{ fontSize: 11.5, color: '#eab308', lineHeight: 1.7 }}>
+                  ⚠️ 下面網址的主機看起來是 <b>{hostGuess.toUpperCase()}</b>，跟這裡選的 <b>{clientType.toUpperCase()}</b> 不一致——確認一下是不是選錯了
+                </span>
+              )}
+            </div>
 
             {/* Lark Sheet URL + fetch button */}
             <label className="field">

@@ -408,8 +408,13 @@ const pendingScans = new Map<string, (r: ScanResult) => void>()
  */
 router.post('/scan-lobby', async (req, res, next) => {
   try {
-    const { agentId, gameUrlTemplate, headed } = req.body as { agentId?: string; gameUrlTemplate?: string; headed?: boolean }
+    const { agentId, gameUrlTemplate, headed, clientType } = req.body as {
+      agentId?: string; gameUrlTemplate?: string; headed?: boolean; clientType?: 'h5' | 'pc'
+    }
     if (!agentId || !gameUrlTemplate) return res.status(400).json({ ok: false, message: '缺少 agentId 或 gameUrlTemplate' })
+    // ⚠️ 只收 'h5' / 'pc'，別的值一律當沒給——讓 agent 自己決定怎麼處理沒給的情況，
+    //    不要在這裡默默補一個預設值，否則前端傳錯時會安靜地跑成另一種客戶端
+    const client = clientType === 'pc' || clientType === 'h5' ? clientType : undefined
     const agent = agentConnections.get(agentId)
     if (!agent) return res.status(409).json({ ok: false, message: '指定 Agent 不在線' })
 
@@ -422,7 +427,7 @@ router.post('/scan-lobby', async (req, res, next) => {
       pendingScans.set(scanId, r => { clearTimeout(timer); pendingScans.delete(scanId); resolve(r) })
       // headed 要一路傳到 agent：PC 版在 headless 下可能沒有 WebGL，
       // 而掃描原本寫死 headless，導致畫面上的開關對掃描完全沒作用
-      agent.ws.send(JSON.stringify({ type: 'ui_screenshot_scan', scanId, gameUrlTemplate, headed: !!headed }))
+      agent.ws.send(JSON.stringify({ type: 'ui_screenshot_scan', scanId, gameUrlTemplate, headed: !!headed, clientType: client }))
     })
     res.json(result)
   } catch (err) {
@@ -439,7 +444,7 @@ router.post('/scan-result/:scanId', (req, res) => {
 })
 
 router.post('/start', (req, res) => {
-  const { wikiUrl, gameUrlTemplate, gmids, resolutions, concurrency, options, agentId } = req.body as {
+  const { wikiUrl, gameUrlTemplate, gmids, resolutions, concurrency, options, agentId, clientType } = req.body as {
     wikiUrl: string
     gameUrlTemplate: string
     gmids: string[]
@@ -447,7 +452,10 @@ router.post('/start', (req, res) => {
     concurrency?: number
     options?: Record<string, boolean | number>
     agentId: string
+    /** 使用者在畫面上選的客戶端。不給就讓 agent 自己判，不要在這裡補預設 */
+    clientType?: 'h5' | 'pc'
   }
+  const client = clientType === 'pc' || clientType === 'h5' ? clientType : undefined
 
   if (!gameUrlTemplate || !gmids?.length || !resolutions?.length || !agentId) {
     return res.status(400).json({ ok: false, message: '缺少必要欄位' })
@@ -468,7 +476,7 @@ router.post('/start', (req, res) => {
   db.prepare(`
     INSERT INTO ui_screenshot_runs (id, status, wiki_url, game_url_template, gmids, resolutions, concurrency, options, agent_id, operator_key, operator_name, created_at)
     VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(runId, wikiUrl ?? '', gameUrlTemplate, JSON.stringify(gmids), JSON.stringify(resolutions), conc, JSON.stringify(opts), agentId, runOperator?.key ?? '', runOperator?.name ?? '', now)
+  `).run(runId, wikiUrl ?? '', gameUrlTemplate, JSON.stringify(gmids), JSON.stringify(resolutions), conc, JSON.stringify({ ...opts, clientType: client ?? null }), agentId, runOperator?.key ?? '', runOperator?.name ?? '', now)
 
   // Create tasks
   const insertTask = db.prepare(`
@@ -499,6 +507,7 @@ router.post('/start', (req, res) => {
       tasks,
       options: opts,
       concurrency: conc,
+      clientType: client,
     },
   }))
 
