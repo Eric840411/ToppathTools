@@ -268,3 +268,30 @@ export function startUiPopupGuard(page, label, opts = {}) {
   ACTIVE_GUARDS.set(page, guard)
   return guard
 }
+
+/**
+ * **關掉彈窗之後，這一台到底算不算就緒？**
+ *
+ * 🚨 為什麼抽成純函式：這個判斷原本直接寫在 `agent-runner.ts` 的流程裡，而且
+ *    **寫了兩次**（主路徑一次、「重新載入後已在機台內」的快速路徑一次）——
+ *    結果主路徑修好了、快速路徑照樣拍黑畫面（CodeX 2026-09-21 連續抓到兩次）。
+ *    兩份規則一定會漂移，所以收斂成一支，兩邊 import 同一個。
+ *    也因為是純函式，**測試驗得到「重驗失敗不報 ok」本身**，不必只做結構檢查。
+ *
+ * 用法（兩階段）：
+ *   1. `evaluateReadyGate({ ready, sawErrorPopup })` → `recheck` 就再驗一次推流
+ *   2. `evaluateReadyGate({ ready, sawErrorPopup, recheckedReady })` → `fail` 就不准回報成功
+ *
+ * ⚠️ **`ready === true` 不代表可以直接過。**「推流先就緒、等截圖的那幾秒才跳錯誤框」
+ *    這種也要重驗——不然關掉錯誤框就往下拍，拍到黑畫面而狀態欄寫 `ok`。
+ *
+ * @param {{ ready: boolean, sawErrorPopup: boolean, recheckedReady?: boolean }} input
+ * @returns {{ action: 'pass' | 'recheck' | 'fail', why: string }}
+ */
+export function evaluateReadyGate({ ready, sawErrorPopup, recheckedReady }) {
+  const why = !ready ? '推流一直沒就緒' : (sawErrorPopup ? '等待期間出現過錯誤提示' : '')
+  if (!why) return { action: 'pass', why: '' }
+  // 還沒重驗 → 先去重驗
+  if (recheckedReady === undefined) return { action: 'recheck', why }
+  return recheckedReady ? { action: 'pass', why } : { action: 'fail', why }
+}

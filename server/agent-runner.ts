@@ -42,7 +42,7 @@ import { waitForDebugPort, clearStaleDebugPort, DEBUG_PORT_ARG } from './uat-run
 import { pcWaitLobby, pcClosePopups, pcScanLobby, pcCollectMachines, pcSeekMachine, pcEnterMachine, pcSceneName, describePcLobby, pcInstallEvalShim, pcBackToLobby, pcLobbyRecoveryPlan, pcEngineCapabilities } from './lib/pc-cocos.js'
 import type { PcMachine } from './lib/pc-cocos.js'
 import { startLobbyPopupWatcher } from './uat-runner/lobby-popup.js'
-import { dismissUiPopups, startUiPopupGuard } from './uat-runner/ui-popup.js'
+import { dismissUiPopups, startUiPopupGuard, evaluateReadyGate } from './uat-runner/ui-popup.js'
 import { h5BackToLobby, h5InGame } from './uat-runner/h5-seat.js'
 import { verifyRecordedSelectorLive, createRecordedLocators } from './uat-runner/recorded-selector.js'
 import { frontendRecorderScript, flagShadowCompleteness, syncRecorderPanel, setRecorderPanelVisible, FRONTEND_RECORDER_CONTROL_MARKER } from './uat-runner/frontend-recorder.js'
@@ -1022,6 +1022,22 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
      */
     const brokenMachines = new Set<string>()
 
+    /**
+     * 關掉彈窗之後的「這一台算不算就緒」關卡。**主路徑與快速路徑共用**。
+     * 決策在 `uat-runner/ui-popup.js` 的 `evaluateReadyGate`（純函式、有測試）——
+     * 這裡只負責照著做：要重驗就再打一次，判定 fail 就丟出去，不准回報成功。
+     */
+    const applyReadyGate = async (page: Page, label: string, ready: boolean, sawErrorPopup: boolean) => {
+      const plan = evaluateReadyGate({ ready, sawErrorPopup })
+      if (plan.action === 'pass') return
+      const recheckedReady = await waitForUiScreenshotReady(page)
+      const verdict = evaluateReadyGate({ ready, sawErrorPopup, recheckedReady })
+      if (verdict.action === 'fail') {
+        throw new Error(`Game surface not ready after entering machine: ${label}（${verdict.why}）`)
+      }
+      console.log(`[UI-SS] ${label} — ${verdict.why}，重新確認後推流就緒`)
+    }
+
     /** 進場：導頁 → （自動選機）→ 進機台 → 等推流 → 關面額彈窗 → 等指定秒數。回傳實際機台號 */
     const prepare = async (page: Page): Promise<string> => {
       popupErrorNote = ''
@@ -1192,12 +1208,18 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
             enabled: options.dismissPopup !== false,
             log: (m: string) => console.log(m),
           })
+          let fastSawError = false
           try {
             if (screenshotDelaySeconds > 0) await page.waitForTimeout(screenshotDelaySeconds * 1000)
           } finally {
             const fg = await fastGuard.stop()
+            fastSawError = fg.errors.length > 0
             noteErrors({ errors: fg.errors, blocked: fg.blocked }, lastUsedMachine)
           }
+          // 🚨 **這條路原本沒有這道關卡**（CodeX 2026-09-21）：重新載入時推流是好的、
+          //    延遲期間才出錯的話，關掉錯誤框就直接 return——拍到黑畫面而狀態欄寫 `ok`。
+          //    判斷跟主路徑共用同一支純函式，不要再寫第二份。
+          await applyReadyGate(page, gmid, true, fastSawError)
           return lastUsedMachine
         }
         console.log(`[UI-SS] ${gmid} — 載入後在機台內但不是要的那款（看到「${seen || '讀不到'}」），退回大廳重選`)
@@ -1255,12 +1277,7 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
        *    `ready` 已經是 true，錯誤框在等的那幾秒才跳出來被關掉，然後就直接往下拍，
        *    拍到黑畫面而狀態欄寫 `ok`。所以只要期間關過錯誤框就一律重驗。
        */
-      if (!ready || sawErrorPopup) {
-        const why = !ready ? '推流一直沒就緒' : '等待期間出現過錯誤提示'
-        ready = await waitForUiScreenshotReady(page)
-        if (!ready) throw new Error(`Game surface not ready after entering machine: ${gmid}（${why}）`)
-        console.log(`[UI-SS] ${gmid} — ${why}，重新確認後推流就緒`)
-      }
+      await applyReadyGate(page, gmid, ready, sawErrorPopup)
       return target
     }
 

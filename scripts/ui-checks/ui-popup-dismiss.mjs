@@ -14,7 +14,7 @@
  */
 import { chromium } from 'playwright'
 import { readFileSync } from 'node:fs'
-import { dismissUiPopups, startUiPopupGuard } from '../../server/uat-runner/ui-popup.js'
+import { dismissUiPopups, startUiPopupGuard, evaluateReadyGate } from '../../server/uat-runner/ui-popup.js'
 
 const failures = []
 function check(name, actual, expected) {
@@ -171,11 +171,40 @@ try {
     check('⑥ 而且有記成 error（上層要據此重驗推流）', g.errors.length, 1)
   }
 
+  // ── ⑦ 「錯誤後確實重驗、重驗失敗不報 ok」——這是行為，不是結構 ──────────────
+  //    CodeX 2026-09-21：⑥ 只驗到 guard 有回報錯誤、⑥b 只是讀原始碼，
+  //    都沒有驗到「重驗這件事本身」。決策抽成純函式之後才驗得到。
+  check('⑦ 一切正常：直接過，不必重驗',
+    evaluateReadyGate({ ready: true, sawErrorPopup: false }), { action: 'pass', why: '' })
+  check('⑦ 推流一直沒就緒：要重驗',
+    evaluateReadyGate({ ready: false, sawErrorPopup: false }).action, 'recheck')
+  check('⑦ **先就緒、期間才出錯：也要重驗**（P2 原本漏的就是這格）',
+    evaluateReadyGate({ ready: true, sawErrorPopup: true }).action, 'recheck')
+  check('⑦ 重驗成功：過',
+    evaluateReadyGate({ ready: true, sawErrorPopup: true, recheckedReady: true }).action, 'pass')
+  check('⑦ **重驗失敗：不准報 ok**',
+    evaluateReadyGate({ ready: true, sawErrorPopup: true, recheckedReady: false }).action, 'fail')
+  check('⑦ 重驗失敗時要講得出原因',
+    evaluateReadyGate({ ready: true, sawErrorPopup: true, recheckedReady: false }).why,
+    '等待期間出現過錯誤提示')
+  check('⑦ 沒就緒且重驗仍失敗：也是 fail',
+    evaluateReadyGate({ ready: false, sawErrorPopup: false, recheckedReady: false }).action, 'fail')
+
+  // ── ⑦b 兩條路都要真的用這道關卡（結構檢查）──────────────────────────────────
+  {
+    const src = readFileSync('server/agent-runner.ts', 'utf8')
+    const calls = (src.match(/await applyReadyGate\(/g) || []).length
+    check('⑦b 主路徑與快速路徑都套了同一道關卡（2 處）', calls, 2)
+    check('⑦b 關卡判定 fail 時會丟錯（不會默默回報成功）',
+      /verdict\.action === 'fail'[\s\S]{0,120}throw new Error/.test(src), true)
+    check('⑦b 快速路徑有把期間的錯誤記下來',
+      /fastSawError = fg\.errors\.length > 0/.test(src), true)
+  }
+
   // ── ⑥b 上層真的有用那個訊號重驗（結構檢查）────────────────────────────────
   {
     const src = readFileSync('server/agent-runner.ts', 'utf8')
     check('⑥b 有把「期間關過錯誤框」記下來', /sawErrorPopup = g\.errors\.length > 0/.test(src), true)
-    check('⑥b 重驗條件不是只看 !ready', /if \(!ready \|\| sawErrorPopup\)/.test(src), true)
     check('⑥b guard 運作中沒有殘留另一條非 strict 呼叫',
       /ready = await waitForUiScreenshotReady\(page\)[\s\S]{0,400}?await dismissUiScreenshotPopups/.test(src), false)
   }
