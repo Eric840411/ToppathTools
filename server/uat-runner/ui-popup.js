@@ -209,8 +209,11 @@ export async function dismissUiPopups(page, label, opts = {}) {
   // ⚠️ 撞到上限代表「還在關但被喊停」——畫面上很可能還有東西蓋著。
   //    不講的話，回報看起來就只是「關掉了 N 個」，跟正常收工長得一模一樣。
   if (hitCap) {
-    blocked.push(`關到第 ${rounds} 輪仍有彈窗（上限用完，畫面可能還被蓋著）`)
-    log(`[UI-SS] ${label} — ⚠️ 關到上限 ${rounds} 輪還沒關完，畫面可能還有彈窗`)
+    // ⚠️ **措辭只能說「尚未確認」，不能說「仍有彈窗」**（CodeX 2026-09-21）。
+    //    最後一輪剛好把最後一個關掉時，畫面其實是乾淨的——只是我們沒有多跑一輪去確認。
+    //    正常收工是「跑了一輪什麼都沒關到」才 break，那一輪就是確認；撞上限少的正是那一輪。
+    blocked.push(`關到上限 ${rounds} 輪（尚未確認畫面是否清空）`)
+    log(`[UI-SS] ${label} — ⚠️ 關到上限 ${rounds} 輪就停了，沒有多跑一輪確認畫面是否清空`)
   }
 
   return { dismissed, errors, blocked }

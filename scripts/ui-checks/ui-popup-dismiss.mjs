@@ -137,8 +137,12 @@ try {
   check('反例：**沒有**點到 PLAY NOW（沒被帶進機台）', await page.evaluate(() => window.__ENTERED__ === true), false)
 
   // ── ⑧ 前面的種類不可以把後面的輪數吃光 ────────────────────────────────────
-  //    🚨 2026-09-21 使用者給網址實測到的**真實現場**：大廳同時有 1 個 closeBtn
-  //    ＋ 3 個 notification-close ＋ 1 個 `Tips: Game exception...(39)` 的 Confirm 框。
+  //    🚨 來源是 2026-09-21 使用者給網址實測到的**真實現場**：大廳同時有 1 個 closeBtn
+  //    ＋ 4 個 notification-close ＋ 1 個 `Tips: Game exception...(39)` 的 Confirm 框（共 6 個）。
+  //    ⚠️ **下面是縮減重現（4 個 ✕ ＋ 1 個 Confirm），不是現場的原樣。**
+  //    縮減版一樣能重現（上限 4 → 紅），現場的原始紀錄在 docs/features/17-ui-screenshot.md。
+  //    ⚠️ 也就是說**這題不是「只有真環境才驗得到」，是我原本的 fixture 沒涵蓋到**
+  //    （CodeX 指正過我這個說法）——差別在於有沒有「同時擺多個、多到吃光輪數」。
   //    上限原本是 4 輪，**四輪全花在 ✕ 上，Confirm 那一步一次都沒跑到**——
   //    而回報寫的是「關掉 4 個彈窗」，看起來完全正常。這就是使用者說的
   //    「不會自動點掉 Confirm」的真正原因。
@@ -171,6 +175,38 @@ try {
     const capped = await dismissUiPopups(page, 'cap', { strict: true, rounds: 2, log: quiet })
     check('⑧b 上限用完仍有彈窗：要回報出來', capped.blocked.length, 1)
     check('⑧b 畫面上確實還有沒關掉的', await page.locator('.notification-close').count() > 0, true)
+    check('⑧b 回報措辭是「尚未確認」而不是斷定', /尚未確認/.test(capped.blocked[0]), true)
+  }
+
+  // ── ⑧c 撞到上限時，措辭只能說「尚未確認」，不能說「仍有彈窗」──────────────
+  //    CodeX 2026-09-21：最後一輪剛好關掉最後一個的話，畫面其實是乾淨的——
+  //    我們只是少跑了那一輪確認。回報講成「仍有彈窗」就是講了自己不知道的事。
+  const nCloses = n => `
+    ${Array.from({ length: n }, (_, i) => `<div class="layer" id="N${i}" style="inset:${i * 5}px">
+      <button class="notification-close" style="width:24px;height:24px">X</button></div>`).join('')}
+    <script>
+      for (const b of document.querySelectorAll('.notification-close'))
+        b.addEventListener('click', () => b.parentElement.remove())
+    </script>`
+
+  await load(nCloses(3))
+  {
+    // 剛好 3 個、上限 3：最後一輪把最後一個關掉了，畫面其實是乾淨的
+    const exact = await dismissUiPopups(page, 'exact', { strict: true, rounds: 3, log: quiet })
+    check('⑧c 剛好用完上限：三個都關掉了', exact.dismissed, 3)
+    check('⑧c 而且畫面**其實是乾淨的**', await page.locator('.notification-close').count(), 0)
+    check('⑧c 仍然要回報（我們沒確認過）', exact.blocked.length, 1)
+    check('⑧c **但不可以說「仍有彈窗」**', /仍有彈窗/.test(exact.blocked[0]), false)
+    check('⑧c 要說的是「尚未確認」', /尚未確認/.test(exact.blocked[0]), true)
+  }
+
+  await load(nCloses(4))
+  {
+    // 4 個、上限 3：這次是真的還有剩
+    const over = await dismissUiPopups(page, 'over', { strict: true, rounds: 3, log: quiet })
+    check('⑧c 超過上限：只關掉 3 個', over.dismissed, 3)
+    check('⑧c 這次畫面**真的還有剩**', await page.locator('.notification-close').count(), 1)
+    check('⑧c 同樣回報一筆', over.blocked.length, 1)
   }
 
   // ── ⑤ 看門狗在跑的時候，主流程**另外**呼叫關窗也不能點掉未知彈窗 ──────────
