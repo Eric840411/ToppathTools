@@ -781,14 +781,39 @@ function buildRoundJoin(env: ReconEnv, poolRows: Record<string, number | string 
       const bets = [...seg.rounds.slice(0, SAMPLE), ...seg.rounds.slice(-SAMPLE)].map(r => r.totalBet)
       const cands = [...new Set(coins.flatMap(c => bets.map(b => c - b)))]
 
+      /**
+       * 🚨 **命中數常常會打平，而那代表「真的分不出來」，不是缺一個聰明的規則。**
+       *
+       *    實測（2026-09-21，本機與使用者現場都一樣）：池裡混進**不是我們的注**時
+       *    （池 81 筆 / 我們的局 75 筆），`newcoinin − total_bet` **根本不是常數**——
+       *    每來一筆別人的注，offset 就 +一個注額。所以「找一個常數 offset」這個模型
+       *    在那種段落上本來就不成立，命中數打平只是這件事的表徵。
+       *
+       *    ⚠️ 我試過用時間的一致性當平手裁判（取離散度最小的候選），**實測沒有鑑別力**：
+       *       兩個候選的離散度是 15,844ms vs 15,971ms、12,000ms vs 16,359ms——都是雜訊。
+       *       也試過用時間投票估每段偏移再做單調配對，票數 6:6、5:4，而且已知正確的那幾段
+       *       反而只配到 58/66。**兩種都不寫進來**：看起來聰明但分不出來的規則，
+       *       只會把「不知道」包裝成「知道」。
+       *
+       *    所以這裡就停在誠實的位置：打平就留白，並把原因寫清楚讓人看得懂
+       *    （下面的 reason 會帶出池列數與局數，那個差額本身就是有用的訊息）。
+       */
       let best = 0, bestOff: number | null = null, second = 0
       for (const off of cands) {
         const h = hits(off)
         if (h > best) { second = best; best = h; bestOff = off }
         else if (h > second) second = h
       }
-      if (bestOff === null || best === second) {
-        seg.reason = best === second && best > 0 ? `ambiguous_offset:${best}==${second}` : 'no_candidate'
+      if (bestOff === null || best === 0) { seg.reason = 'no_candidate'; continue }
+      if (best === second) {
+        // ⚠️ 兩個方向的成因完全不同，不要混成同一句：
+        //    池多 → 有別人的注（offset 會被推著走，常數模型不成立）
+        //    池少 → 池變動還沒拉齊（等一下可能就好了，不是資料錯）
+        seg.reason = mine.length > seg.rounds.length
+          ? `mixed_bets:池 ${mine.length} 筆 / 我們的局 ${seg.rounds.length} 筆`
+          : mine.length < seg.rounds.length
+            ? `pool_behind:池 ${mine.length} 筆 / 我們的局 ${seg.rounds.length} 筆`
+            : 'ambiguous_offset'
         continue
       }
       // 至少要有一定比例對得上，否則這個 offset 根本不成立。

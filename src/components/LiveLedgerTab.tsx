@@ -149,6 +149,8 @@ interface PoolDetailPayload {
     negativeCoinIn: number; mismatch: number
     incrementPercent: number | null; firstTs: number | null; lastTs: number | null
     joined: number; joinAmbiguous: number; joinSanityMs: number
+    segments: Array<{ gmid: string; from: number; to: number; rounds: number; poolRows: number
+      offset: number | null; hits: number; reason: string }>
   }
 }
 interface PoolMismatch {
@@ -392,24 +394,30 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
   // 機台篩選只影響逐筆明細——上面的獎池與機台總覽不跟著變（那兩塊是全域的）
   useEffect(() => { loadRows(true) /* eslint-disable-next-line */ }, [machineFilter])
   useEffect(() => {
-    /**
-     * 🚨 **獎池那一塊原本不在輪詢裡**（2026-09-21 使用者回報：「停留在對帳表上，
-     *    LuckyLink 的獎池不會跟著刷新，必須重新整理頁面」）。
-     *    它只在掛載與切換 env／時間窗時載入一次，所以池值、水位、逐筆明細
-     *    全部停在進頁面那一刻——而畫面上**完全看不出資料是舊的**。
-     *
-     * ⚠️ 不跟其他幾支一樣每 5 秒打：`/pools` 一次要算水位、不符明細、
-     *    跨源比對、上下分、機台總覽（SLS 那段自己有 60 秒快取），
-     *    比 overview 重得多。**每兩拍打一次（10 秒）**，足夠即時又不會加倍負載。
-     */
-    let tick = 0
-    const t = setInterval(() => {
-      loadOverview(); loadRows(true); loadNotify()
-      if (++tick % 2 === 0) loadPools()
-    }, 5000)
+    const t = setInterval(() => { loadOverview(); loadRows(true); loadNotify() }, 5000)
     return () => clearInterval(t)
     // eslint-disable-next-line
   }, [env, minutes, filter, rows, showAll])
+
+  /**
+   * 獎池那一塊的輪詢。
+   *
+   * 🚨 **這一支一定要自己一個 effect，不能掛在上面那個 5 秒輪詢裡。**
+   *    上面那個的相依含 `rows`，而 `rows` 每次輪詢都會換新的——effect 因此
+   *    **每 5 秒被拆掉重建一次**。我第一版把「每兩拍打一次」寫成 effect 內的
+   *    區域變數 `tick`，重建時它就歸零，於是 `tick % 2 === 0` **永遠不成立**，
+   *    獎池等於還是沒在刷新（使用者回報「兩個問題還在」，這是其中一個）。
+   *    ⚠️ 教訓：**在會被頻繁重建的 effect 裡放計數器，等於沒有計數器。**
+   *
+   * ⚠️ 用 10 秒而不是 5 秒：`/pools` 一次要算水位、不符明細、跨源比對、
+   *    上下分、機台總覽（SLS 那段自己有 60 秒快取），比 overview 重得多。
+   *    相依只有 env／時間窗／範圍，不含任何每輪都變的狀態。
+   */
+  useEffect(() => {
+    const t = setInterval(() => { loadPools() }, 10000)
+    return () => clearInterval(t)
+    // eslint-disable-next-line
+  }, [env, minutes, showAll])
 
   const loadSettings = useCallback(async () => {
     try {
@@ -973,6 +981,28 @@ export default function LiveLedgerTab({ userLabel }: { userLabel?: string }) {
                   {d.joinAmbiguous > 0 && <>、<b style={{ color: C.pending }}>{d.joinAmbiguous}</b> 筆因為不只一局而不配</>}。
                   配不到多半是<b style={{ color: C.ink2 }}>別人打的那幾局</b>——池記的是整台機台的投注，
                   後台紀錄只有我們這個帳號的。
+                </div>
+              )}
+
+              {/* 🚨 **配不出來時要講得出原因。**空白的局號欄有好幾種成因
+                  （後台還沒拉到／這一段混進別人的注／根本沒有這台的局），
+                  不講的話看的人只會覺得「壞了」——而其中一種其實是有用的訊息。 */}
+              {d && d.joined < d.total && d.segments?.some(g => g.offset === null) && (
+                <div style={{ fontSize: 11, color: C.pending, padding: '2px 11px 6px' }}>
+                  有 {d.segments.filter(g => g.offset === null).length} 段配不出局號：
+                  {d.segments.filter(g => g.offset === null).slice(0, 3).map((g, i) => (
+                    <span key={`${g.from}-${i}`}>
+                      {i ? '；' : ' '}
+                      {new Date(g.from).toLocaleTimeString('zh-TW', { hour12: false })} 起
+                      {g.reason.startsWith('mixed_bets')
+                        ? <>（{g.reason.replace('mixed_bets:', '')}——<b style={{ color: C.ink2 }}>這一段有別人的注混進來</b>，
+                          計數器對不出唯一答案）</>
+                        : g.reason.startsWith('pool_behind')
+                          ? <>（{g.reason.replace('pool_behind:', '')}——<b style={{ color: C.ink2 }}>池變動還沒拉齊</b>，
+                            等下一輪可能就好了）</>
+                          : `（${g.reason}）`}
+                    </span>
+                  ))}
                 </div>
               )}
 
