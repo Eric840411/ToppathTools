@@ -41,28 +41,38 @@ try {
   db.exec(`
     CREATE TABLE recon_finding (id INTEGER PRIMARY KEY, env TEXT, line TEXT, severity TEXT,
       refType TEXT, refId TEXT, amountDelta REAL, detectedAt INTEGER, resolvedAt INTEGER,
-      notifiedAt INTEGER, note TEXT, userLabel TEXT);
-    CREATE TABLE recon_spin (id INTEGER PRIMARY KEY, env TEXT, machineType TEXT, gmid TEXT, spinSeq INTEGER);
-    CREATE TABLE recon_backend_record (env TEXT, orderId TEXT, gmid TEXT, spinIndex INTEGER);
+      notifiedAt INTEGER, note TEXT, userLabel TEXT, orderId TEXT NOT NULL DEFAULT '');
+    CREATE TABLE recon_spin (id INTEGER PRIMARY KEY, env TEXT, machineType TEXT, gmid TEXT,
+      spinSeq INTEGER, orderId TEXT, observedAt INTEGER);
+    CREATE TABLE recon_backend_record (env TEXT, orderId TEXT, gmid TEXT, spinIndex INTEGER,
+      dateTime INTEGER, betTimePrecise INTEGER);
   `)
   // 陷阱本身：id=897 是「別台」的 spin，而局號開頭剛好也是 897
-  db.prepare('INSERT INTO recon_spin (id, env, machineType, gmid, spinSeq) VALUES (897, ?, ?, ?, ?)')
-    .run('qat', 'JJBXGOLD', '873-JJBXGOLD-1001', 78)
-  db.prepare('INSERT INTO recon_spin (id, env, machineType, gmid, spinSeq) VALUES (12, ?, ?, ?, ?)')
-    .run('qat', 'BIGFULINK', '897-BIGFULINK-2065', 41)
+  db.prepare('INSERT INTO recon_spin (id, env, machineType, gmid, spinSeq, orderId, observedAt) VALUES (897, ?, ?, ?, ?, ?, ?)')
+    .run('qat', 'JJBXGOLD', '873-JJBXGOLD-1001', 78, '873-JJBXGOLD-1001|ZZZ', 500)
+  db.prepare('INSERT INTO recon_spin (id, env, machineType, gmid, spinSeq, orderId, observedAt) VALUES (12, ?, ?, ?, ?, ?, ?)')
+    .run('qat', 'BIGFULINK', '897-BIGFULINK-2065', 41, '897-BIGFULINK-2065|CCC', 900)
+  // 掉單：判成沒起注，所以 spin 自己沒有局號——但 finding 知道是哪一局
+  db.prepare('INSERT INTO recon_spin (id, env, machineType, gmid, spinSeq, orderId, observedAt) VALUES (13, ?, ?, ?, ?, NULL, ?)')
+    .run('qat', 'BIGFULINK', '897-BIGFULINK-2065', 99, 950)
 
   const ins = db.prepare(`INSERT INTO recon_finding
     (env, line, severity, refType, refId, amountDelta, detectedAt, resolvedAt, notifiedAt, note, userLabel)
     VALUES ('qat', ?, 'warn', ?, ?, ?, 1000, NULL, NULL, '', '')`)
   for (const [i, oid] of ['897-BIGFULINK-2065|AAA', '897-BIGFULINK-2065|BBB'].entries()) {
     ins.run('unobserved', 'round', oid, 88)
-    db.prepare('INSERT INTO recon_backend_record (env, orderId, gmid, spinIndex) VALUES (?, ?, ?, ?)')
-      .run('qat', oid, '897-BIGFULINK-2065', 352 + i)
+    db.prepare('INSERT INTO recon_backend_record (env, orderId, gmid, spinIndex, dateTime, betTimePrecise) VALUES (?, ?, ?, ?, ?, ?)')
+      .run('qat', oid, '897-BIGFULINK-2065', 352 + i, 700 + i, 700 + i)
   }
   ins.run('l2_balance', 'spin', '12', -43)
+  // begin_signal_suspect：spin 沒綁局號，但 finding 自己記了
+  db.prepare(`INSERT INTO recon_finding
+    (env, line, severity, refType, refId, amountDelta, detectedAt, resolvedAt, notifiedAt, note, userLabel, orderId)
+    VALUES ('qat', 'begin_signal_suspect', 'warn', 'spin', '13', NULL, 1000, NULL, NULL, '', '', ?)`)
+    .run('897-BIGFULINK-2065|DDD')
 
   const rows = db.prepare(sql).all('qat', 0, 9_999_999_999, 50)
-  check('三筆都查得到', rows.length === 3, `${rows.length}`)
+  check('四筆都查得到', rows.length === 4, `${rows.length}`)
 
   const round = rows.filter(r => r.refType === 'round')
   // 🚨 名稱要跟 spin 那側**統一**：後台給的是 gmid（897-BIGFULINK-2065），
@@ -78,10 +88,24 @@ try {
     round.map(r => r.spinSeq).sort().join(',') === '352,353',
     round.map(r => r.spinSeq).join(','))
 
-  const spin = rows.find(r => r.refType === 'spin')
+  const spin = rows.find(r => r.line === 'l2_balance')
   check('spin 型的 finding 仍然正常 join（BIGFULINK 第 41 局）',
     spin?.machineType === 'BIGFULINK' && spin?.spinSeq === 41,
     `${spin?.machineType}/${spin?.spinSeq}`)
+
+  // ── 完整局號與事件時間（2026-09-21 使用者要求「不要第幾局，給完整局號＋完整時間」）──
+  check('局號型：完整局號就是 refId 本身',
+    round.every(r => r.refId.startsWith('897-BIGFULINK-2065|')))
+  check('局號型：事件時間取自後台，不是「我們什麼時候發現的」',
+    round.every(r => r.eventAt === 700 || r.eventAt === 701),
+    round.map(r => r.eventAt).join('、'))
+  check('spin 型：帶得出該 spin 綁到的完整局號',
+    spin?.spinOrderId === '897-BIGFULINK-2065|CCC', String(spin?.spinOrderId))
+  // 🚨 這一條守的是「假的不知道」：spin 沒綁局號，但 finding 自己記了，
+  //    印成「尚無局號」會讓人以為查不到，其實查得到。
+  const suspect = rows.find(r => r.line === 'begin_signal_suspect')
+  check('finding 自己記的局號優先（spin 沒綁也要印得出來）',
+    suspect?.spinOrderId === '897-BIGFULINK-2065|DDD', String(suspect?.spinOrderId))
 
   // 🚨 反例：舊查詢（無條件 CAST）在同一份資料上會怎樣
   const oldSql = sql

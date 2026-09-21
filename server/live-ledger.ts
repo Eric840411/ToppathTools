@@ -795,6 +795,8 @@ export function runBindCycle(env: ReconEnv, now = Date.now()): {
             if (d.result !== 'resolved' || !d.orderId) continue
             if (recordFinding(env, 'begin_signal_suspect', d.spinId, {
               severity: 'warn',
+              // 就是靠這一局才判定 suspect 的——告警要印得出來（不然變成「假的不知道」）
+              orderId: d.orderId,
               note: `判成「沒起注」的 spin 在後台找得到對應的局（${d.orderId}）`
                 + '——begin 訊號可能已失效，這一局被漏記了。請檢查 pinus 攔截是否還有效。',
             })) beginSuspect++
@@ -876,6 +878,8 @@ const NON_ROUND_OUTCOMES = new Set(['not_started', 'no_bet'])
  */
 export function recordFinding(env: ReconEnv, kind: FindingKind, spinId: number, opts: {
   severity?: 'info' | 'warn' | 'critical'; note?: string; amountDelta?: number | null
+  /** 已經知道是哪一局的話帶進來——告警要印完整局號，不然只能印「尚無局號」 */
+  orderId?: string
 } = {}): boolean {
   // 由 spin 衍生的 finding 沿用該 spin 的歸屬——不然異常清單還是全公開。
   // 查不到就留空字串（系統級），**不要**歸給當下的檢視者。
@@ -886,10 +890,10 @@ export function recordFinding(env: ReconEnv, kind: FindingKind, spinId: number, 
   ).get(env, kind, String(spinId))
   if (exists) return false
   db.prepare(`
-    INSERT INTO recon_finding (env, line, severity, refType, refId, amountDelta, detectedAt, note, userLabel)
-    VALUES (?, ?, ?, 'spin', ?, ?, ?, ?, ?)
+    INSERT INTO recon_finding (env, line, severity, refType, refId, amountDelta, detectedAt, note, userLabel, orderId)
+    VALUES (?, ?, ?, 'spin', ?, ?, ?, ?, ?, ?)
   `).run(env, kind, opts.severity ?? (kind === 'missing' ? 'critical' : 'warn'),
-    String(spinId), opts.amountDelta ?? null, Date.now(), opts.note ?? '', owner)
+    String(spinId), opts.amountDelta ?? null, Date.now(), opts.note ?? '', owner, opts.orderId ?? '')
   return true
 }
 

@@ -40,6 +40,10 @@ interface PendingFinding {
   refType: string
   amountDelta: number | null; detectedAt: number; note: string; userLabel: string
   machineType: string | null; spinSeq: number | null
+  /** spin 型 finding 綁到的後台局號；還沒綁上（例如掉單）時是 null */
+  spinOrderId: string | null
+  /** 這一局實際發生的時間（後台下注時間優先，沒有才退回觀測時間） */
+  eventAt: number | null
 }
 
 const LINE_LABEL: Record<string, string> = {
@@ -123,7 +127,12 @@ export function pendingFindings(env: ReconEnv, now = Date.now()): PendingFinding
                     (SELECT x.machineType FROM recon_spin x
                       WHERE x.env = f.env AND x.gmid = b.gmid AND x.machineType <> '' LIMIT 1),
                     b.gmid) AS machineType,
-           COALESCE(s.spinSeq, b.spinIndex) AS spinSeq
+           COALESCE(s.spinSeq, b.spinIndex) AS spinSeq,
+           -- finding 自己記的局號優先；沒有才退回該 spin 綁到的局號
+           NULLIF(COALESCE(NULLIF(f.orderId, ''), s.orderId, ''), '') AS spinOrderId,
+           -- 事件本身的時間（後台下注時間優先）。⚠️ 不要拿 detectedAt 當事件時間——
+           --    那是「我們什麼時候發現的」，跟這一局什麼時候打的可以差很多。
+           COALESCE(b.betTimePrecise, b.dateTime, s.observedAt) AS eventAt
     FROM recon_finding f
     LEFT JOIN recon_spin s
       ON f.refType = 'spin' AND s.id = CAST(f.refId AS INTEGER) AND s.env = f.env
@@ -157,25 +166,33 @@ function ageText(ms: number): string {
   return `${(s / 3600).toFixed(1)} 小時`
 }
 
-function describe(f: PendingFinding, now: number): string {
-  // ⚠️ 機台名稱取不到時**不要留空**——空著會讓人以為是同一台。
-  //    refType='round' 卻連後台紀錄都 join 不到，就直接把局號印出來（那是唯一能追的線索）。
-  const who = f.machineType
-    ? `\`${f.machineType}\``
-    : (f.refType === 'round' ? `局號 \`${shortRef(f.refId)}\`` : `spin #${f.refId}`)
-  const seq = f.spinSeq !== null && f.spinSeq !== undefined
-    // `unobserved` 的序號來自後台（spin_index），跟前端的「第幾次 spin」不是同一個計數，
-    // 不標清楚的話兩邊對不上還以為是資料錯
-    ? (f.refType === 'round' ? ` 後台第 ${f.spinSeq} 局` : ` 第 ${f.spinSeq} 局`)
-    : ''
-  const delta = f.amountDelta !== null && f.amountDelta !== undefined
-    ? ` · ${f.line === 'unobserved' ? '下注' : '差額'} ${f.amountDelta > 0 && f.line !== 'unobserved' ? '+' : ''}${f.amountDelta}` : ''
-  return `${who}${seq}${delta} · ${ageText(now - f.detectedAt)}前`
+/**
+ * 絕對時間。⚠️ **時區釘死 Asia/Taipei**，跟 `shared.ts` 的日結同一個約定——
+ *    這則訊息是伺服器產的，跟著機器的時區走的話，換一台部署就整批偏 8 小時，
+ *    而畫面上完全看不出來。
+ */
+function clockText(ms: number): string {
+  return new Date(ms).toLocaleString('sv-SE', { timeZone: 'Asia/Taipei' }).replace('T', ' ')
 }
 
-/** 局號太長，只留 `|` 後面那段（前面是機台代碼，已經另外顯示了） */
-function shortRef(refId: string): string {
-  return refId.includes('|') ? refId.split('|').pop() ?? refId : refId
+/**
+ * 一筆 finding 怎麼寫成一行。
+ *
+ * 🚨 **給「完整局號 + 完整時間」，不給「第幾局」**（2026-09-21 使用者要求）。
+ *    理由很實際：局號可以直接貼進後台查那一局，而「第 N 局」既不能查、
+ *    兩邊的計數又不是同一個（前端數的是第幾次 spin，後台數的是 spin_index）。
+ *    時間同理——「9 小時前」看不出是哪一局，絕對時間才對得上後台報表。
+ */
+function describe(f: PendingFinding, now: number): string {
+  // ⚠️ 機台名稱取不到時**不要留空**——空著會讓人以為是同一台
+  const who = f.machineType ? `\`${f.machineType}\`` : `spin #${f.refId}`
+  const orderId = f.refType === 'round' ? f.refId : f.spinOrderId
+  // 掉單的 finding 本來就還沒有局號——**要明講**，不要留一個空位讓人以為漏印了
+  const oid = orderId ? ` · \`${orderId}\`` : ' · （尚無局號）'
+  const when = f.eventAt ?? f.detectedAt
+  const delta = f.amountDelta !== null && f.amountDelta !== undefined
+    ? ` · ${f.line === 'unobserved' ? '下注' : '差額'} ${f.amountDelta > 0 && f.line !== 'unobserved' ? '+' : ''}${f.amountDelta}` : ''
+  return `${who}${oid}${delta} · ${clockText(when)}（${ageText(now - f.detectedAt)}前）`
 }
 
 export interface NotifyBatch {
@@ -363,7 +380,12 @@ export async function sendNotifyTest(env: ReconEnv, now = Date.now()): Promise<{
                     (SELECT x.machineType FROM recon_spin x
                       WHERE x.env = f.env AND x.gmid = b.gmid AND x.machineType <> '' LIMIT 1),
                     b.gmid) AS machineType,
-           COALESCE(s.spinSeq, b.spinIndex) AS spinSeq
+           COALESCE(s.spinSeq, b.spinIndex) AS spinSeq,
+           -- finding 自己記的局號優先；沒有才退回該 spin 綁到的局號
+           NULLIF(COALESCE(NULLIF(f.orderId, ''), s.orderId, ''), '') AS spinOrderId,
+           -- 事件本身的時間（後台下注時間優先）。⚠️ 不要拿 detectedAt 當事件時間——
+           --    那是「我們什麼時候發現的」，跟這一局什麼時候打的可以差很多。
+           COALESCE(b.betTimePrecise, b.dateTime, s.observedAt) AS eventAt
     FROM recon_finding f
     LEFT JOIN recon_spin s
       ON f.refType = 'spin' AND s.id = CAST(f.refId AS INTEGER) AND s.env = f.env

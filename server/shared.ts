@@ -1069,6 +1069,15 @@ db.exec(`CREATE INDEX IF NOT EXISTS idx_recon_backend_seq ON recon_backend_recor
 // 留空字串當系統級，兩者在畫面上要分得出來。
 for (const [col, decl] of [
   ['userLabel', `TEXT NOT NULL DEFAULT ''`],
+  /**
+   * 這筆 finding 對應的後台局號。
+   *
+   * 🚨 **不是所有 finding 都能從 refId 推出局號。**`begin_signal_suspect` 的 refId 是
+   *    spin id，而那筆 spin 因為被判成「沒起注」所以 `recon_spin.orderId` 是空的——
+   *    但我們**其實知道**是哪一局（就是靠它才判定 suspect 的）。
+   *    沒有這一欄的話，告警只能印「尚無局號」，而那是**假的不知道**。
+   */
+  ['orderId', `TEXT NOT NULL DEFAULT ''`],
 ] as const) {
   try { db.exec(`ALTER TABLE recon_finding ADD COLUMN ${col} ${decl}`) } catch { /* 已存在 */ }
 }
