@@ -27,23 +27,23 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const ENTRY_POINTS = [
   'uat-runner/run-lark-tc-backend.js',
   'uat-runner/backend-recorder.js',
+  // 2026-09-21 補上（見下方註解）：H5/PC 那條路徑終於納入檢查
+  'agent-runner.ts',
 ];
 
-/* ⚠️ **已知盲點：`agent-runner.ts` 不在上面。**
+/* ── `agent-runner.ts` 的盲點已補上（2026-09-21）────────────────────────────
  *
- * 它是 agent 端的主程式（H5/PC 派工是它在跑，用 tsx 執行），所以它的相依也必須在
- * agent 上存在——也就是這支檢查**從來沒有涵蓋整條 H5/PC 路徑**，
- * 而那正是「漏一個檔案 agent 就在 import 當下整支炸掉」最常發生的地方。
+ * 它是 agent 端的主程式（H5/PC 派工是它在跑），所以它的相依也必須在 agent 上存在。
+ * 2026-09-18 試著加進來時，閉包會走到 `machine-test/runner.ts → routes/gemini.ts →
+ * shared.ts／auth-session.ts／request-context.ts`，那四個都不在白名單，
+ * 當時的判斷是「在查清楚之前不加，免得這支長期紅著、訓練大家忽略它」。
  *
- * 2026-09-18 試著把它加進來，結果閉包會走到
- * `machine-test/runner.ts → routes/gemini.ts → shared.ts／auth-session.ts／request-context.ts`，
- * 這四個都**不在白名單**。它們是 runtime import（不是 type-only），但 agent 端的
- * 機台測試目前是會動的——所以要嘛 agent 另有取得這些檔案的途徑，要嘛那條路在
- * agent 上根本走不到。**在查清楚之前不把它加進來**：讓這支檢查長期紅著，
- * 等於訓練大家忽略它，比暫時少檢查一條路更糟。
+ * 2026-09-21 重跑：**那條路徑已經不會走到了**，加進來是綠的（檢查 44 個節點）。
+ * 所以正式納入——而這次漏掉的 `pc-node-hittest.js` 正是被 `frontend-engine.js`
+ * import 的，也就是**只有涵蓋這條路徑才抓得到**。
  *
- * 要接這件事的人：先確認 agent 實際拿到哪些檔案（不是只看白名單），再決定是
- * 補白名單還是把那條 import 從 agent 路徑上拆掉。 */
+ * ⚠️ 如果哪天它又紅了而且紅在 `shared.ts` 那條，**不要直接把 agent-runner 拿掉**——
+ *    先確認是不是有人把 server 專用的東西 import 進 agent 路徑了，那才是真問題。 */
 
 // 從原始碼直接抓白名單的 key，不另外維護一份（維護兩份必然漂移）
 const mtSrc = fs.readFileSync(path.join(root, 'server/routes/machine-test.ts'), 'utf8');

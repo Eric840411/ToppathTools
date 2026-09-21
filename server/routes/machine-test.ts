@@ -82,6 +82,16 @@ const AGENT_SOURCE_WHITELIST: Record<string, string> = {
   'uat-runner/chrome-debug-port.js':   join(SERVER_ROOT, 'uat-runner', 'chrome-debug-port.js'),
   // 後台積木執行器：run-lark-tc-backend.js 會 import 它，少送 agent 端會在 import 當下炸掉
   'uat-runner/block-engine.js':        join(SERVER_ROOT, 'uat-runner', 'block-engine.js'),
+  // 🚨 下面這三個是 2026-09-21 漏掉的那一批，使用者在 Mac 上裝 agent 時炸出來：
+  //      Cannot find module '.../uat-runner/expr.js' imported from block-engine.js
+  //    `expr.js`（算式求值）與 `dangerous-actions.js`（危險操作守衛）被
+  //    `block-engine.js` 與 `backend-recorder.js` 靜態 import，
+  //    `pc-node-hittest.js` 被 `frontend-engine.js` 靜態 import。
+  //    ⚠️ `scripts/ui-checks/agent-source-closure.mjs` **早就抓得到這個**，
+  //       問題是沒人跑它——所以順手把它接進 `build:server`，漏加就建置不過去。
+  'uat-runner/expr.js':                join(SERVER_ROOT, 'uat-runner', 'expr.js'),
+  'uat-runner/dangerous-actions.js':   join(SERVER_ROOT, 'uat-runner', 'dangerous-actions.js'),
+  'uat-runner/pc-node-hittest.js':     join(SERVER_ROOT, 'uat-runner', 'pc-node-hittest.js'),
   // 後台設定片段的執行器（H5/PC 腳本中間跑一段後台操作）。
   // ⚠️ 漏了的話 agent 會在 import 當下整支炸掉，錯誤只出現在 agent 的 stderr。
   'uat-runner/backend-ops.js':         join(SERVER_ROOT, 'uat-runner', 'backend-ops.js'),
