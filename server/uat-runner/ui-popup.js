@@ -109,7 +109,20 @@ export const UI_POPUP_CONFIRM_IN_PAGE = ({ isStrict, known }) => {
  * @returns {Promise<{ dismissed: number, errors: string[], blocked: string[] }>}
  */
 export async function dismissUiPopups(page, label, opts = {}) {
-  const strict = opts.strict === true
+  /**
+   * 🚨 **有看門狗在跑的時候，所有呼叫都得走它的佇列，而且一律降級成 strict。**
+   *
+   * CodeX 2026-09-21 [P1]：主流程原本在看門狗運作中另外呼叫了一次「非 strict」的關窗，
+   * 造成兩件事——① 看門狗刻意**不點**的未知彈窗，被主流程點掉了，strict 等於白設；
+   * ② 兩條路同時點同一顆按鈕。
+   *
+   * ⚠️ 修法不是「記得不要那樣呼叫」，而是**讓它做不到**：呼叫端不必知道有沒有看門狗，
+   *    這裡自己查。靠紀律維持的不變量，遲早會有人（包括我）在別的地方再寫一次。
+   */
+  const guard = ACTIVE_GUARDS.get(page)
+  if (guard && !opts.__fromGuard) return guard.runOnce()
+
+  const strict = opts.strict === true || !!opts.__fromGuard
   const rounds = opts.rounds ?? 4
   const settleMs = opts.settleMs ?? 800
   const log = opts.log ?? (msg => console.log(msg))
@@ -180,4 +193,78 @@ export async function dismissUiPopups(page, label, opts = {}) {
   }
 
   return { dismissed, errors, blocked }
+}
+
+/** page → 正在跑的看門狗。用 WeakMap，頁面關掉就跟著回收 */
+const ACTIVE_GUARDS = new WeakMap()
+
+/**
+ * **在一段等待期間一直盯著彈窗。**
+ *
+ * 為什麼需要：原本只在「進機台前」「推流就緒後」各關一次——中間那幾段完全沒人看：
+ * 點卡片進場的那一下、等推流的迴圈、截圖前等的那幾秒。彈窗在這三段冒出來的話，
+ * 症狀分別是「點了但還停在大廳」「Game surface not ready」「拍到被蓋住的畫面」，
+ * **三種訊息都不會提到彈窗**（使用者 2026-09-21 回報）。
+ *
+ * ⚠️ **只處理已確認用途的彈窗**（`strict`）。理由見 `UI_POPUP_KNOWN`。
+ * ⚠️ **所有動作都排在同一條佇列上**——包含外面直接呼叫 `dismissUiPopups` 的那些，
+ *    它們會被導進 `runOnce()`。不這樣的話會變成「兩隻手搶同一顆按鈕」。
+ * ⚠️ 有次數上限。沒有上限的話，遇到關不掉的彈窗會變成無聲的無限點擊。
+ *
+ * @param {import('playwright').Page} page
+ * @param {string} label
+ * @param {{ enabled?: boolean, intervalMs?: number, maxPasses?: number, log?: (m: string) => void }} [opts]
+ */
+export function startUiPopupGuard(page, label, opts = {}) {
+  const result = { dismissed: 0, errors: [], blocked: [] }
+  if (opts.enabled === false) return { stop: async () => result, runOnce: async () => result }
+
+  const intervalMs = opts.intervalMs ?? 700
+  const maxPasses = opts.maxPasses ?? 40
+  let active = true
+  let passes = 0
+  /** 序列化用的尾巴：每個動作都接在前一個後面 */
+  let tail = Promise.resolve()
+
+  const enqueue = (fn) => {
+    tail = tail.then(fn, fn)
+    return tail
+  }
+
+  const onePass = async () => {
+    const r = await dismissUiPopups(page, label, { __fromGuard: true, log: opts.log }).catch(() => null)
+    if (!r) return
+    result.dismissed += r.dismissed
+    result.errors.push(...r.errors)
+    // 同一個關不掉的彈窗每輪都會回報一次，去重之後才看得出到底有幾種
+    for (const b of r.blocked) if (!result.blocked.includes(b)) result.blocked.push(b)
+  }
+
+  const guard = {
+    /** 外面在看門狗運作中呼叫 `dismissUiPopups` 時會被導到這裡——同一條佇列、同一套規則 */
+    async runOnce() {
+      await enqueue(onePass)
+      return result
+    },
+    /** 停止並等佇列排空。⚠️ 截圖前一定要先 stop，否則會拍到「正在被點掉」的畫面 */
+    async stop() {
+      active = false
+      await loop.catch(() => {})
+      await tail.catch(() => {})
+      ACTIVE_GUARDS.delete(page)
+      return result
+    },
+  }
+
+  const loop = (async () => {
+    while (active && passes < maxPasses) {
+      await new Promise(r => setTimeout(r, intervalMs))
+      if (!active) break
+      passes++
+      await enqueue(onePass)
+    }
+  })()
+
+  ACTIVE_GUARDS.set(page, guard)
+  return guard
 }

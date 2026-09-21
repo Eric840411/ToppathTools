@@ -42,7 +42,7 @@ import { waitForDebugPort, clearStaleDebugPort, DEBUG_PORT_ARG } from './uat-run
 import { pcWaitLobby, pcClosePopups, pcScanLobby, pcCollectMachines, pcSeekMachine, pcEnterMachine, pcSceneName, describePcLobby, pcInstallEvalShim, pcBackToLobby, pcLobbyRecoveryPlan, pcEngineCapabilities } from './lib/pc-cocos.js'
 import type { PcMachine } from './lib/pc-cocos.js'
 import { startLobbyPopupWatcher } from './uat-runner/lobby-popup.js'
-import { dismissUiPopups } from './uat-runner/ui-popup.js'
+import { dismissUiPopups, startUiPopupGuard } from './uat-runner/ui-popup.js'
 import { h5BackToLobby, h5InGame } from './uat-runner/h5-seat.js'
 import { verifyRecordedSelectorLive, createRecordedLocators } from './uat-runner/recorded-selector.js'
 import { frontendRecorderScript, flagShadowCompleteness, syncRecorderPanel, setRecorderPanelVisible, FRONTEND_RECORDER_CONTROL_MARKER } from './uat-runner/frontend-recorder.js'
@@ -791,55 +791,6 @@ async function dismissUiScreenshotPopups(
   return dismissUiPopups(page, label, { strict: opts.strict === true })
 }
 
-/**
- * **在一段等待期間一直盯著彈窗。**
- *
- * 為什麼需要：原本只在「進機台前」「推流就緒後」各關一次——中間那幾段完全沒人看：
- * 點卡片進場的那一下、等推流的迴圈、截圖前等的那幾秒。彈窗在這三段冒出來的話，
- * 症狀分別是「點了但還停在大廳」「Game surface not ready」「拍到被蓋住的畫面」，
- * **三種訊息都不會提到彈窗**（使用者 2026-09-21 回報）。
- *
- * ⚠️ **只處理已確認用途的彈窗**（`strict`）。理由見 `dismissUiScreenshotPopups` 裡的 KNOWN。
- * ⚠️ **一次只跑一輪、輪與輪之間序列化**，而且 `stop()` 會等進行中的那輪跑完——
- *    不這樣的話會跟主流程同時點，變成「兩隻手搶同一顆按鈕」。
- * ⚠️ 有次數上限。沒有上限的話，遇到關不掉的彈窗會變成無聲的無限點擊。
- */
-function startUiScreenshotPopupGuard(page: Page, label: string, enabled: boolean) {
-  const result = { dismissed: 0, errors: [] as string[], blocked: [] as string[] }
-  if (!enabled) return { stop: async () => result }
-
-  let active = true
-  let passes = 0
-  const MAX_PASSES = 40
-  let inFlight: Promise<void> = Promise.resolve()
-
-  const loop = (async () => {
-    while (active && passes < MAX_PASSES) {
-      await new Promise(r => setTimeout(r, 700))
-      if (!active) break
-      passes++
-      inFlight = (async () => {
-        const r = await dismissUiScreenshotPopups(page, label, { strict: true }).catch(() => null)
-        if (!r) return
-        result.dismissed += r.dismissed
-        result.errors.push(...r.errors)
-        // 同一個關不掉的彈窗每輪都會回報一次，去重之後才看得出到底有幾種
-        for (const b of r.blocked) if (!result.blocked.includes(b)) result.blocked.push(b)
-      })()
-      await inFlight
-    }
-  })()
-
-  return {
-    /** 停止並等進行中的那一輪跑完。⚠️ 截圖前一定要先 stop，否則會拍到「正在被點掉」的畫面 */
-    async stop() {
-      active = false
-      await loop.catch(() => {})
-      await inFlight.catch(() => {})
-      return result
-    },
-  }
-}
 
 async function clickFirstVisible(page: Page, selectors: string[]): Promise<boolean> {
   for (const selector of selectors) {
@@ -1235,8 +1186,18 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
         const sameModel = !wantModel || !seen || seen.startsWith(wantModel)
         if (ready && sameModel) {
           console.log(`[UI-SS] ${gmid} — 重新載入後已在機台內（${seen || '名稱讀不到'}），直接截圖，不繞大廳`)
-          if (options.dismissPopup !== false) noteErrors(await dismissUiScreenshotPopups(page, lastUsedMachine), lastUsedMachine)
-          if (screenshotDelaySeconds > 0) await page.waitForTimeout(screenshotDelaySeconds * 1000)
+          // ⚠️ 這條快速路徑底下也有一段等待——一樣要有看門狗盯著，不然彈窗在這幾秒冒出來
+          //    就直接拍進去了（跟主路徑同一個坑，只是少有人走到）
+          const fastGuard = startUiPopupGuard(page, lastUsedMachine, {
+            enabled: options.dismissPopup !== false,
+            log: (m: string) => console.log(m),
+          })
+          try {
+            if (screenshotDelaySeconds > 0) await page.waitForTimeout(screenshotDelaySeconds * 1000)
+          } finally {
+            const fg = await fastGuard.stop()
+            noteErrors({ errors: fg.errors, blocked: fg.blocked }, lastUsedMachine)
+          }
           return lastUsedMachine
         }
         console.log(`[UI-SS] ${gmid} — 載入後在機台內但不是要的那款（看到「${seen || '讀不到'}」），退回大廳重選`)
@@ -1260,17 +1221,22 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
        *   ③ 截圖前等的那幾秒   → 直接拍到被蓋住的畫面
        * ⚠️ 看門狗只點**已確認用途**的彈窗；沒見過的不點、只記下來回報（CodeX 2026-09-21）。
        */
-      const guard = startUiScreenshotPopupGuard(page, target, options.dismissPopup !== false)
+      const guard = startUiPopupGuard(page, target, {
+        enabled: options.dismissPopup !== false,
+        log: (m: string) => console.log(m),
+      })
       let ready = false
+      /** 這段期間有沒有關掉過「錯誤框」——決定下面要不要重驗推流 */
+      let sawErrorPopup = false
       try {
         const entryState = await enterUiScreenshotMachine(page, target)
         lastUsedMachine = target
         console.log(`[UI-SS] ${target} entry=${entryState}`)
         ready = await waitForUiScreenshotReady(page)
         if (ready) console.log(`[UI-SS] ${gmid} — stream ready`)
-        if (options.dismissPopup !== false) {
-          noteErrors(await dismissUiScreenshotPopups(page, target), target)
-        }
+        // ⚠️ **這裡不要再自己呼叫一次關窗**（CodeX 2026-09-21 [P1]）。看門狗已經在跑，
+        //    每 0.7 秒就掃一次；另外開一條路只會：① 繞過 strict 去點未知彈窗、
+        //    ② 跟看門狗同時點同一顆按鈕。真的要提早掃一次就走 `guard.runOnce()`。
         if (screenshotDelaySeconds > 0) {
           console.log(`[UI-SS] ${gmid} waiting ${screenshotDelaySeconds}s before screenshot`)
           await page.waitForTimeout(screenshotDelaySeconds * 1000)
@@ -1279,17 +1245,21 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
         // ⚠️ **一定要在截圖之前 stop 並等它跑完**，否則會拍到「正在被點掉」的那一瞬間
         const g = await guard.stop()
         if (g.dismissed) console.log(`[UI-SS] ${gmid} — 等待期間自動關掉 ${g.dismissed} 個彈窗`)
+        sawErrorPopup = g.errors.length > 0
         noteErrors({ errors: g.errors, blocked: g.blocked }, target)
       }
       /**
-       * ⚠️ **關掉錯誤框不等於這一台是好的**（CodeX 2026-09-21）。等待期間關過錯誤框、
-       *    或推流本來就沒就緒的話，要重新確認一次再往下走——直接算成功會拍到黑畫面，
-       *    而狀態欄寫的是 ok。
+       * ⚠️ **關掉錯誤框不等於這一台是好的**（CodeX 2026-09-21 [P2]）。
+       *
+       * 🚨 這裡原本只判斷 `!ready`——**漏掉「先就緒、延遲期間才出錯」那種**：
+       *    `ready` 已經是 true，錯誤框在等的那幾秒才跳出來被關掉，然後就直接往下拍，
+       *    拍到黑畫面而狀態欄寫 `ok`。所以只要期間關過錯誤框就一律重驗。
        */
-      if (!ready) {
+      if (!ready || sawErrorPopup) {
+        const why = !ready ? '推流一直沒就緒' : '等待期間出現過錯誤提示'
         ready = await waitForUiScreenshotReady(page)
-        if (!ready) throw new Error(`Game surface not ready after entering machine: ${gmid}`)
-        console.log(`[UI-SS] ${gmid} — 關掉彈窗後推流才就緒`)
+        if (!ready) throw new Error(`Game surface not ready after entering machine: ${gmid}（${why}）`)
+        console.log(`[UI-SS] ${gmid} — ${why}，重新確認後推流就緒`)
       }
       return target
     }

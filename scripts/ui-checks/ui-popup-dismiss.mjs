@@ -14,7 +14,7 @@
  */
 import { chromium } from 'playwright'
 import { readFileSync } from 'node:fs'
-import { dismissUiPopups } from '../../server/uat-runner/ui-popup.js'
+import { dismissUiPopups, startUiPopupGuard } from '../../server/uat-runner/ui-popup.js'
 
 const failures = []
 function check(name, actual, expected) {
@@ -136,6 +136,50 @@ try {
   check('反例：大廳中獎彈窗用 ✕ 關掉', jackpot.dismissed, 1)
   check('反例：**沒有**點到 PLAY NOW（沒被帶進機台）', await page.evaluate(() => window.__ENTERED__ === true), false)
 
+  // ── ⑤ 看門狗在跑的時候，主流程**另外**呼叫關窗也不能點掉未知彈窗 ──────────
+  //    CodeX 2026-09-21 [P1]：原本主流程在 guard 運作中另呼叫了一次非 strict 的關窗，
+  //    於是 guard 刻意不點的未知彈窗被主流程點掉了，strict 等於白設。
+  //    ⚠️ 修法是「讓它做不到」——所以這條驗的是：**用最容易犯錯的寫法去呼叫，也點不掉**。
+  await load(UNKNOWN_CONFIRM)
+  {
+    const guard = startUiPopupGuard(page, 'p1', { intervalMs: 200, log: quiet })
+    // 故意用非 strict 呼叫（就是原本那個 bug 的寫法）
+    const sneaky = await dismissUiPopups(page, 'p1', { strict: false, log: quiet })
+    const g = await guard.stop()
+    check('⑤ 看門狗運作中的非 strict 呼叫：未知彈窗**還是沒被點**', await page.locator('#U1').count(), 1)
+    check('⑤ 那次呼叫也不該回報成「關掉了」', sneaky.dismissed, 0)
+    check('⑤ 看門狗有把它記成 blocked', g.blocked.length >= 1, true)
+  }
+
+  // ── ⑥ 已經 ready 之後才冒出來的錯誤框，也要被記成 error ────────────────────
+  //    CodeX 2026-09-21 [P2]：原本只在「一直沒 ready」時重驗推流，
+  //    「先就緒、延遲期間才出錯」那種會直接往下拍——拍到黑畫面而狀態寫 ok。
+  //    這條驗的是**看門狗有沒有把延遲期間的錯誤回報出來**（上層才有東西可以據以重驗）。
+  await load(`<script>
+    setTimeout(() => {
+      const d = document.createElement('div')
+      d.innerHTML = ${JSON.stringify(TIPS_ERROR)}
+      d.querySelector('button').addEventListener('click', () => d.remove())
+      document.body.appendChild(d)
+    }, 600)
+  </script>`)
+  {
+    const guard = startUiPopupGuard(page, 'p2', { intervalMs: 200, log: quiet })
+    await page.waitForTimeout(1600)   // 模擬「已經 ready、正在等截圖延遲」
+    const g = await guard.stop()
+    check('⑥ ready 之後才出現的錯誤框：有被關掉', g.dismissed, 1)
+    check('⑥ 而且有記成 error（上層要據此重驗推流）', g.errors.length, 1)
+  }
+
+  // ── ⑥b 上層真的有用那個訊號重驗（結構檢查）────────────────────────────────
+  {
+    const src = readFileSync('server/agent-runner.ts', 'utf8')
+    check('⑥b 有把「期間關過錯誤框」記下來', /sawErrorPopup = g\.errors\.length > 0/.test(src), true)
+    check('⑥b 重驗條件不是只看 !ready', /if \(!ready \|\| sawErrorPopup\)/.test(src), true)
+    check('⑥b guard 運作中沒有殘留另一條非 strict 呼叫',
+      /ready = await waitForUiScreenshotReady\(page\)[\s\S]{0,400}?await dismissUiScreenshotPopups/.test(src), false)
+  }
+
   // ── ④ 「自動關閉面額彈窗」關掉時，ensureUiScreenshotLobby 不可以偷關 ───────
   //    這條在 agent-runner 那一層，沒有真環境驗不到行為，改成守「呼叫點有帶條件」。
   //    ⚠️ 這是**結構檢查不是行為檢查**，所以特別標出來，不要當成行為驗過。
@@ -159,5 +203,5 @@ if (failures.length) {
   for (const f of failures) console.log(`  · ${f}`)
   process.exit(1)
 }
-console.log('通過——彈窗處理的四類情況都照規則走')
+console.log('通過——彈窗處理的各類情況都照規則走')
 console.log('⚠️ 第 ④ 條是讀原始碼的結構檢查，不是行為檢查；真環境的行為仍需實機跑')
