@@ -67,13 +67,30 @@ PC 判定是 `0972ec7`（2026-09-19）才加的——加 PC 支援的當下就�
 
 ### 驗到哪一層
 
-`scripts/ui-checks/ui-screenshot-clienttype-dispatch.mjs`——冒充一個 agent 接上真的
-`ws://<host>/ws/agent`，打真的 `/scan-lobby` 與 `/start`，斷言 **agent 收到的派工訊息裡的
-`clientType` 就是送進去那個**。7 條，含「H5 網址選 PC 中控不得擅自更正」「沒給不得補預設」。
+這條路徑有三層，**每一層要分開驗，而且要講清楚哪一層沒驗到**：
 
-突變驗過：把中控改回「網址有 `platform=pc` 就強制 pc」，第 1、4、5 條會紅（第 1 條正是這個 bug 原本的形狀）。
+| 層 | 驗的東西 | 怎麼驗 | 狀態 |
+|---|---|---|---|
+| ① 畫面 → request | 點的那個客戶端有沒有進到 request body | `scripts/ui-checks/ui-screenshot-clienttype-ui.mjs` | ✅ 6 條 |
+| ② request → agent | 中控有沒有原樣轉給 agent | `scripts/ui-checks/ui-screenshot-clienttype-dispatch.mjs` | ✅ 7 條 |
+| ③ agent → 執行分支 | agent 收到之後有沒有真的走 DOM／Cocos | 要真大廳，只能實機跑 | ❌ **沒驗到** |
 
-> ⚠️ **這支驗不到 agent 拿到之後有沒有走對分支**（Cocos 場景樹 vs DOM 卡片）。
-> 那要有真的大廳才驗得了，只能實機跑。**畫面上兩個選項都畫得出來，不等於執行分支驗過。**
+**① `ui-screenshot-clienttype-ui.mjs`**——真瀏覽器開真產品頁，點真的「客戶端」與「掃描大廳」按鈕，
+攔截送出去的 `POST /scan-lobby` 看 body。含「再點回 H5」與「reload 後仍是 PC」（設定有存起來）。
+`/agents` 與 `/scan-lobby` 的回應都是假的——那兩個不是這支在驗的東西，當腳手架用。
+
+**② `ui-screenshot-clienttype-dispatch.mjs`**——冒充一個 agent 接上真的 `ws://<host>/ws/agent`，
+打真的 `/scan-lobby` 與 `/start`，斷言 **agent 收到的派工訊息裡的 `clientType` 就是送進去那個**。
+含「H5 網址選 PC 中控不得擅自更正」「沒給不得補預設」。
+
+**突變都驗過，而且紅的是對的那幾條：**
+
+| 注入 | 結果 |
+|---|---|
+| 中控改回「網址有 `platform=pc` 就強制 pc」 | ② 的第 1、4、5 條紅（第 1 條正是這個 bug 原本的形狀），2、3、6、7 維持綠 |
+| 前端送出時拿掉 `clientType` | ① 的 4 條 request 斷言紅，**但兩條「畫面上選中的是 X」維持綠** |
+
+> ⚠️ 第二個注入就是這件事的重點：**畫面渲染正確，跟送出去的值正確，是兩回事。**
+> v4.251.0 當下我只截了兩張畫面圖就說驗過了——那個注入證明那樣驗根本抓不到。
 
 ---
