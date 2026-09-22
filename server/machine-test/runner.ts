@@ -25,6 +25,9 @@ const MACHINE_TEST_ROOT = join(process.cwd(), 'server', 'machine-test')
 const RECORD_SCRIPT = join(MACHINE_TEST_ROOT, 'record-spin.ps1')
 const CABLE_DEVICE  = 'CABLE Input (VB-Audio Virtual Cable)'
 const CCTV_SAVE_DIR  = join(MACHINE_TEST_ROOT, 'cctv-saves')
+// 推流截圖：2026-09-21 加。原本推流只數「幾個 video 在播」，完全沒留畫面，
+// 於是「影像上下顛倒」這種問題查不到也證明不了。留圖才有辦法回報與比對。
+const STREAM_SAVE_DIR = join(MACHINE_TEST_ROOT, 'stream-saves')
 const AUDIO_SAVE_DIR = join(MACHINE_TEST_ROOT, 'audio-saves')
 const CCTV_REFS_DIR  = join(MACHINE_TEST_ROOT, 'cctv-refs')
 const AUDIO_REFS_DIR = join(MACHINE_TEST_ROOT, 'audio-refs')
@@ -228,6 +231,45 @@ async function callGeminiVisionMultiViaProxy(prompt: string, images: Array<{ bas
 /** Serial queue: ensures only one VB-Cable recording runs at a time.
  *  Multiple workers share the same CABLE device, so concurrent recordings mix signals. */
 let audioRecordingQueue: Promise<unknown> = Promise.resolve()
+
+// ─── 整段錄音（進機台 → 退出）────────────────────────────────────────────────
+// 為什麼要：原本只在 Spin 前後錄 5 秒，**Spin 沒真的轉時那 5 秒等於錄空氣**，
+// 於是「沒錄到音效」會被讀成「機台沒聲音」。整段錄的話，進場音效、iDeck、觸屏
+// 這些事件都會落在錄音裡，判斷才有東西可看。
+// ⚠️ 錄的是整台電腦的輸出（VB-Cable），**多 Worker 會把各機台的聲音混在一起**，
+//    所以只在單 Worker 時啟用。
+const SESSION_RECORD_SCRIPT = join(MACHINE_TEST_ROOT, 'record-session.ps1')
+
+interface SessionRecording {
+  outFile: string
+  stopFile: string
+  done: Promise<string>
+}
+
+function startSessionRecording(tag: string): SessionRecording | null {
+  if (!existsSync(SESSION_RECORD_SCRIPT)) return null
+  const base = `C:\\Users\\user\\AppData\\Local\\Temp\\session_${tag}_${Date.now()}`
+  const outFile = `${base}.wav`
+  const stopFile = `${base}.stop`
+  const done = new Promise<string>((resolve) => {
+    const p = spawn('powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', SESSION_RECORD_SCRIPT,
+        '-OutFile', outFile, '-StopFile', stopFile, '-MaxMs', '900000'],
+      { windowsHide: true })
+    let out = ''
+    p.stdout.on('data', d => { out += d.toString() })
+    p.on('close', () => resolve(out.trim()))
+    p.on('error', () => resolve('FAIL:spawn'))
+  })
+  return { outFile, stopFile, done }
+}
+
+async function stopSessionRecording(rec: SessionRecording | null): Promise<string | null> {
+  if (!rec) return null
+  try { writeFileSync(rec.stopFile, 'stop') } catch { /* 停不下來就讓它撞 MaxMs */ }
+  const result = await rec.done
+  return result.startsWith('OK:') ? rec.outFile : null
+}
 
 function recordVBCableSerial(durationMs: number, keepWav = false, savePath?: string): Promise<ReturnType<typeof recordVBCable>> {
   const task = audioRecordingQueue.then(() => recordVBCable(durationMs, keepWav, savePath))
@@ -795,9 +837,14 @@ function extractGameId(url: string): string | null {
 
 async function isInGame(page: Page): Promise<boolean> {
   try {
+    // 最強的訊號：有 frame 的網址進到 /game。
+    // ⚠️ 2026-09-22：原本只靠下面那幾個 class，結果 Dragon's Law 的 spin 鈕 class 只有 `btn_spin`
+    //    （不是 `my-button btn_spin`），於是「人在機台裡」被判成 false，
+    //    工具回報「大廳載入超時」而不是「已在遊戲內」，連帶沒辦法自動把位子放掉。
+    if (page.frames().some(f => /\/game\b/.test(f.url()))) return true
     const lobbySel = await page.$('#grid_gm_item')
     if (lobbySel && await lobbySel.isVisible()) return false
-    for (const sel of ['.my-button.btn_spin', '.balance-bg.hand_balance', '.h-balance.hand_balance']) {
+    for (const sel of ['[class*="btn_spin"]', '[class*="hand_balance"]', '.balance-bg', '.h-balance']) {
       const els = await page.$$(sel)
       for (const el of els) {
         if (await el.isVisible()) return true
@@ -1076,8 +1123,18 @@ async function stepEntry(page: Page, machineCode: string, emit: (msg: string) =>
       await page.waitForSelector('#grid_gm_item', { timeout: 15000 })
     } catch {
       // Maybe already in game, or page hasn't fully loaded — check
+      // ⚠️ 2026-09-21：這條路**不能算正常通過**。它代表我們沒有從大廳點進這一台，
+      //    而是「載入後就已經在某個機台裡」——最常見的成因是**上一台沒退乾淨**。
+      //    實測：0033 退出 WARN（errcode=0 但 DOM 還在遊戲內）之後，0034 走了這條路，
+      //    結果整輪其實跑在 0033 裡：iDeck 0/5、CCTV 讀到上一台的編號。
+      //    判成 PASS 會讓髒結果一路傳下去，所以改成 WARN 並講清楚。
       if (await isInGame(page)) {
-        return { step: '進入機台', status: 'pass', message: '已在遊戲內', durationMs: Date.now() - t0 }
+        return {
+          step: '進入機台',
+          status: 'warn',
+          message: '載入後已在遊戲內（未從大廳點進本台）— 可能是上一台沒退乾淨，本輪結果不可信',
+          durationMs: Date.now() - t0,
+        }
       }
       return { step: '進入機台', status: 'fail', message: '大廳載入超時（15s），找不到機台列表', durationMs: Date.now() - t0 }
     }
@@ -1085,6 +1142,7 @@ async function stepEntry(page: Page, machineCode: string, emit: (msg: string) =>
     emit(`在大廳尋找機台: ${machineCode}`)
     const items = await page.$$('#grid_gm_item')
     let found = false
+    let joinClicked = false
     for (const item of items) {
       const title = await item.getAttribute('title')
       if (title && title.includes(machineCode)) {
@@ -1095,16 +1153,56 @@ async function stepEntry(page: Page, machineCode: string, emit: (msg: string) =>
         found = true
 
         // Try Join button
+        // ⚠️ 2026-09-21：Join 沒點到會停在 Game Preview 面板，而 `enterGMNtc errcode=0`
+        //    照樣會送出來 → 進入機台判 PASS，後面每一步都對著 Preview 亂點。
+        //    所以這裡要記下「到底有沒有按到 Join」，給下面的判定用。
         try {
-          const joinEls = await page.$$("//div[contains(@class,'gm-info-box')]//span[normalize-space(text())='Join']")
-          for (const j of joinEls) {
-            if (await j.isVisible()) {
-              await page.evaluate((el: Element) => (el as HTMLElement).click(), j)
-              emit(`點擊 Join 按鈕`)
-              await sleep(3000)
-              break
+          const clickJoin = async (): Promise<boolean> => {
+            const joinEls = await page.$$("//div[contains(@class,'gm-info-box')]//span[normalize-space(text())='Join']")
+            for (const j of joinEls) {
+              if (await j.isVisible()) {
+                await page.evaluate((el: Element) => (el as HTMLElement).click(), j)
+                emit(`點擊 Join 按鈕`)
+                await sleep(3000)
+                return true
+              }
+            }
+            return false
+          }
+
+          joinClicked = await clickJoin()
+
+          // 2026-09-21 實測：**全站中獎通知彈窗會蓋住 Join**
+          //（畫面中央跳出別人中了 JACKPOT 的卡片＋PLAY NOW，Join 被壓在底下）。
+          // 關掉再找一次，不要直接放棄——放棄的話會停在 Preview，而 enterGMNtc 照樣回 0。
+          // ⚠️ 兩個絕對不能點的東西：
+          //   1. `btn-close`（33×33，在 Preview 右上角）——那是**關掉 Preview 面板本身**
+          //   2. 任何 `PLAY NOW`——那會把我們帶去**別台機台**
+          if (!joinClicked) {
+            emit(`⚠️ 找不到可見的 Join，嘗試關閉蓋住它的彈窗...`)
+            const closed = await page.evaluate(() => {
+              const panel = document.querySelector('[class*="gm-info-box"]')
+              const SAFE = ['closeBtn', 'notification-close', 'icon_close', 'close-btn']
+              let n = 0
+              for (const el of Array.from(document.querySelectorAll('div,span,img,button'))) {
+                const cls = typeof el.className === 'string' ? el.className : ''
+                if (!SAFE.some(s => cls.includes(s))) continue
+                if (panel && panel.contains(el)) continue        // Preview 自己的關閉鈕，跳過
+                const r = el.getBoundingClientRect()
+                if (r.width < 8 || r.height < 8) continue
+                ;(el as HTMLElement).click()
+                n++
+              }
+              return n
+            })
+            if (closed > 0) {
+              emit(`已關閉 ${closed} 個彈窗，重新尋找 Join...`)
+              await sleep(1500)
+              joinClicked = await clickJoin()
             }
           }
+
+          if (!joinClicked) emit(`⚠️ 仍找不到可見的 Join 按鈕（可能停在 Game Preview 面板，或此台不可加入）`)
         } catch { /* Join may not exist */ }
         break
       }
@@ -1160,6 +1258,37 @@ async function stepEntry(page: Page, machineCode: string, emit: (msg: string) =>
       emit(`enterGMNtc errcode=${enterEv.errcode}: ${enterEv.errcodedes}${enterEv.machineType ? ` machineType=${enterEv.machineType}` : ''}`)
       const extraData = enterEv.machineType ? { machineType: enterEv.machineType } : undefined
       if (enterEv.errcode === 0) {
+        // 協議說「進去了」還不夠——還要畫面真的離開大廳。
+        // 2026-09-21 實測：停在 Game Preview 面板時 errcode 一樣是 0，
+        // 於是判 PASS，後面每一步都對著 Preview 亂點，跑出一堆看不懂的失敗。
+        //
+        // ⚠️ 不能只用 isInGame()：它要看到 `.btn_spin` 或餘額元素，但**進場當下**
+        //    `.btn_spin` 還不存在（要帶入額度才出現），而且「SELECT A DENOMINATION」
+        //    面板會蓋住畫面 → 剛進去時它必然是 false，直接拿來判會**誤殺正常流程**
+        //    （第一次這樣寫就把確定進得去的 0033 判成 FAIL）。
+        //    真正穩定的訊號是**網址離開 /lobby 進到 /game**，再給它幾秒渲染時間。
+        // ⚠️ 第二次修：**頂層網址不會變**，它一直是 /lobby——遊戲是跑在 iframe 裡的，
+        //    所以要看的是「**有沒有某個 frame 的網址進到 /game**」。
+        //    （第一版只看 page.url()，照樣把進得去的 0033 判成 FAIL。）
+        const enteredGamePage = await (async () => {
+          for (let i = 0; i < 16; i++) {
+            if (page.frames().some(f => /\/game\b/.test(f.url()))) return true
+            if (await isInGame(page)) return true
+            await sleep(500)
+          }
+          return false
+        })()
+        if (!enteredGamePage) {
+          const hint = joinClicked ? '' : '（整輪沒按到 Join，可能停在 Game Preview 面板）'
+          return {
+            step: '進入機台',
+            status: 'fail',
+            message: `協議回報進入成功（enterGMNtc errcode=0），但 8 秒後沒有任何 frame 進到 /game${hint}`
+              + `｜frames=${page.frames().map(f => f.url().slice(0, 60)).join(' | ').slice(0, 200)}`,
+            durationMs: Date.now() - t0,
+            ...(extraData ? { extraData } : {}),
+          }
+        }
         return { step: '進入機台', status: 'pass', message: '成功進入遊戲（enterGMNtc errcode=0）', durationMs: Date.now() - t0, extraData }
       }
       return { step: '進入機台', status: 'fail', message: `進入失敗：enterGMNtc errcode=${enterEv.errcode} — ${enterEv.errcodedes}`, durationMs: Date.now() - t0, extraData }
@@ -1180,7 +1309,13 @@ async function stepEntry(page: Page, machineCode: string, emit: (msg: string) =>
   }
 }
 
-async function stepStream(page: Page, emit: (msg: string) => void, profile?: MachineProfile): Promise<StepResult> {
+async function stepStream(
+  page: Page,
+  emit: (msg: string) => void,
+  profile?: MachineProfile,
+  machineCode = '',
+  sessionPrefix = '',
+): Promise<StepResult> {
   const t0 = Date.now()
   try {
     emit(`檢測推流（video / canvas）`)
@@ -1206,6 +1341,20 @@ async function stepStream(page: Page, emit: (msg: string) => void, profile?: Mac
 
     const hasStream = result.playingVideos > 0 || result.activeCanvases > 0
     const msg = `video: ${result.totalVideos}個（播放中: ${result.playingVideos}）/ canvas: ${result.totalCanvases}個（活躍: ${result.activeCanvases}）`
+
+    // 留一張推流畫面當證據。判定不依賴它（截圖失敗不能影響結果），但少了它，
+    // 「畫面顛倒 / 黑畫面 / 雪花」這類問題就只能用嘴巴講。
+    if (machineCode) {
+      try {
+        const buf = await page.screenshot({ type: 'png' })
+        mkdirSync(STREAM_SAVE_DIR, { recursive: true })
+        const filename = `${sessionPrefix}${machineCode}.png`
+        writeFileSync(join(STREAM_SAVE_DIR, filename), buf)
+        emit(`推流截圖已儲存：${join(STREAM_SAVE_DIR, filename)}`)
+      } catch (e) {
+        emit(`推流截圖失敗（不影響判定）：${String(e).slice(0, 120)}`)
+      }
+    }
 
     // ── Expected screen count check ───────────────────────────────────────────
     const expectedScreens = profile?.expectedScreens ?? null
@@ -1932,6 +2081,22 @@ async function stepIdeck(
     type BtnEntry = { label: string; xpath: string; frameIdx: number }
     let buttons: BtnEntry[] = []
 
+    // 自動偵測一律先跑一次，只印結果不改行為——用有手寫 XPath 的機種當對照組，
+    // 累積「自動偵測抓到的跟手寫的是不是同一組」的證據。夠有把握之後才談拿掉手動設定。
+    try {
+      let autoCount = 0
+      for (const f of page.frames()) {
+        try {
+          const els = await f.$$('[class*="btn_bet"]')
+          for (const el of els) if (await el.isVisible()) autoCount++
+          if (autoCount > 0) break
+        } catch { /* frame detached */ }
+      }
+      const configured = (betRandomXpaths?.length ?? 0) || (profile?.ideckRowClass ? -1 : 0)
+      emit(`🔍 iDeck 自動偵測對照：[class*="btn_bet"] 可見 ${autoCount} 顆`
+        + (configured > 0 ? `／設定檔 XPath ${configured} 條 → ${autoCount === configured ? '數量一致 ✅' : '數量不一致 ⚠️'}` : ''))
+    } catch { /* 對照失敗不影響測試 */ }
+
     if (betRandomXpaths && betRandomXpaths.length > 0) {
       emit(`使用隨機下注 XPath 列表（${betRandomXpaths.length} 個）...`)
       const frames = page.frames()
@@ -1950,11 +2115,40 @@ async function stepIdeck(
         }
         if (!found) emit(`xpath[${i + 1}] ⚠️ 找不到元素，跳過`)
       }
-    } else {
-      const rowClass = profile?.ideckRowClass
-      if (!rowClass) {
-        return { step: 'iDeck 測試', status: 'skip', message: '此機種未設定 ideckRowClass 且無隨機下注 XPath，跳過', durationMs: 0 }
+    } else if (!profile?.ideckRowClass) {
+      // ── 自動偵測 iDeck 按鈕（2026-09-22 加）─────────────────────────────────
+      // 為什麼：原本每個機種都要手動寫 XPath，新遊戲上線就得先有人去量一次，
+      // 沒設定就直接 SKIP——而 SKIP 看起來像「測過了」，其實是完全沒測。
+      //
+      // 實測依據（892-DRAGONLAW-0070 / Dragon's Law，2026-09-22）：
+      //   `[class*="btn_bet"]` 可見元素 → 剛好 5 顆（1x/2x/3x/5x/10x TOTAL BET 50/100/150/250/500），
+      //   與手寫 XPath 指到的是同一組；`van-play-col` 容器同樣也是 5 個。
+      // ⚠️ **不要用文字規則**：LuckyLooter 的標籤是「BETx1 80 Credits」、
+      //    Dragon's Law 是「1x TOTAL BET 50」，文字格式各遊戲不同，class 才穩定。
+      emit(`未設定 iDeck XPath／rowClass → 自動偵測（[class*="btn_bet"] 可見元素）...`)
+      const frames = page.frames()
+      for (let fi = 0; fi < frames.length; fi++) {
+        try {
+          const els = await frames[fi].$$('[class*="btn_bet"]')
+          let idx = 0
+          for (const el of els) {
+            if (!await el.isVisible()) continue
+            idx++
+            // 用 nth 形式的 XPath 回查，避免存 ElementHandle 造成 stale
+            buttons.push({
+              label: `auto[${idx}]`,
+              xpath: `(//*[contains(@class,'btn_bet')])[${idx}]`,
+              frameIdx: fi,
+            })
+          }
+          if (buttons.length > 0) { emit(`自動偵測到 ${buttons.length} 顆 iDeck 按鈕（frame[${fi}]）`); break }
+        } catch { /* frame detached */ }
       }
+      if (buttons.length === 0) {
+        return { step: 'iDeck 測試', status: 'fail', message: '自動偵測找不到 iDeck 按鈕（沒有可見的 [class*="btn_bet"]），且此機種未設定 XPath／rowClass', durationMs: Date.now() - t0 }
+      }
+    } else {
+      const rowClass = profile.ideckRowClass
       emit(`掃描 iDeck 按鈕（${rowClass}）...`)
       const rowXpath = `//div[@class='${rowClass}']//div[contains(@class,'btn_bet')]`
       const frames = page.frames()
@@ -2120,9 +2314,53 @@ async function stepTouchscreen(
 ): Promise<StepResult> {
   const t0 = Date.now()
   try {
-    const touchPoints = profile?.touchPoints?.filter(p => p.trim())
+    let touchPoints = profile?.touchPoints?.filter(p => p.trim())
+    let autoPicked = false
     if (!touchPoints || touchPoints.length === 0) {
-      return { step: '觸屏測試', status: 'skip', message: '此機種未設定 touchPoints，跳過', durationMs: 0 }
+      // ── 自動挑觸屏點位（2026-09-22 加）──────────────────────────────────────
+      // 原本沒設定就 SKIP，而 SKIP 看起來像「測過了」，實際上觸屏完全沒測。
+      // 觸屏格子是 `.screen-touch` 覆蓋層裡的透明 span，文字就是「列,行」（例 "5,4"、"11,7"）,
+      // 所以可以直接掃出來隨機挑幾個。
+      // ⚠️ 刻意**避開畫面上下緣**：下緣是機台自己的按鈕列（Cash Out 之類），
+      //    隨機點到那裡會變成「測試把機台操作掉了」。只取中間帶。
+      // ⚠️ 2026-09-22 第一版寫錯：只用 page.evaluate 掃**頂層 document**，
+      //    但遊戲跑在 iframe 裡 → 永遠找不到，四台全部誤判成「沒有觸屏格子」。
+      //    證據：同一輪的**進場步驟**用 frames 迴圈找 `11,7` 是找得到的。
+      //    → 一定要逐個 frame 掃。
+      const scan = async () => {
+        for (const frame of page.frames()) {
+          try {
+            const out = await frame.evaluate(() => {
+              const list: { label: string; y: number }[] = []
+              for (const sp of Array.from(document.querySelectorAll('span'))) {
+                const t = (sp.textContent || '').trim()
+                if (!/^\d+,\d+$/.test(t)) continue
+                const r = sp.getBoundingClientRect()
+                if (r.width < 2 || r.height < 2) continue
+                list.push({ label: t, y: r.top })
+              }
+              if (list.length === 0) return []
+              const ys = list.map(o => o.y)
+              const lo = Math.min(...ys), hi = Math.max(...ys)
+              const spanH = Math.max(1, hi - lo)
+              // 只留中間 65%（丟掉最上 10%、最下 25%）——避開機台自己的按鈕列
+              return list.filter(o => (o.y - lo) / spanH > 0.10 && (o.y - lo) / spanH < 0.75).map(o => o.label)
+            })
+            if (out.length > 0) return out
+          } catch { /* frame detached */ }
+        }
+        return [] as string[]
+      }
+      const found = await scan()
+      const uniq = [...new Set(found)]
+      if (uniq.length === 0) {
+        return { step: '觸屏測試', status: 'fail', message: '未設定 touchPoints，且自動偵測找不到觸屏格子（沒有文字符合「列,行」的 span）', durationMs: Date.now() - t0 }
+      }
+      const pick = Math.min(3, uniq.length)
+      const shuffled = uniq.sort(() => Math.random() - 0.5).slice(0, pick)
+      touchPoints = shuffled
+      autoPicked = true
+      emit(`未設定 touchPoints → 自動挑 ${pick} 個觸屏格子（可選 ${uniq.length} 個，已避開上下緣）：${shuffled.join('、')}`)
     }
 
     // Build element list: find span by text content for each touchPoint label.
@@ -2222,7 +2460,8 @@ async function stepTouchscreen(
 
     const passed = touchEntries.length
     const total = buttons.length
-    const message = `${total} 個觸屏點位，API 確認 ${passed}/${total} 有觸屏回應`
+    const message = `${autoPicked ? '【自動挑點】' : ''}${total} 個觸屏點位，API 確認 ${passed}/${total} 有觸屏回應`
+      + (autoPicked ? `（${touchPoints.join('、')}）` : '')
 
     if (passed === 0) {
       return { step: '觸屏測試', status: 'fail', message, durationMs: Date.now() - t0 }
@@ -2270,6 +2509,36 @@ async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '
     // Wait for cctv_video container + video element (5s for stream to stabilize)
     emit(`等待 CCTV 畫面載入...`)
     await sleep(5000)
+
+    // 先關掉「Lucky hour bonus has been transferred to the machine」這個 Tips 框。
+    // 2026-09-22 實測（892-DRAGONLAW-0070）：它整片蓋住 CCTV 畫面，導致 OCR 讀不到編號、
+    // 還被判成「畫面模糊／偵測到異常文字」——看起來像攝影機有問題，其實只是前景有彈窗。
+    // ⚠️ 故意**只認這一句**，不做通用的「點掉所有 Confirm」——
+    //    Cash Out／退出確認框上的 Confirm 按下去會直接把機台退掉。
+    try {
+      const dismissed = await page.evaluate(() => {
+        const visible = (el: Element) => {
+          const r = el.getBoundingClientRect()
+          const s = getComputedStyle(el)
+          return r.width > 40 && r.height > 40 && s.display !== 'none' && s.visibility !== 'hidden'
+        }
+        for (const box of Array.from(document.querySelectorAll('div'))) {
+          if (!visible(box)) continue
+          const txt = (box.textContent || '')
+          if (!/bonus has been transferred to the machine/i.test(txt)) continue
+          if (/cash\s*out|exit|quit/i.test(txt)) continue   // 保險：帶退出字樣的一律不碰
+          const btns = Array.from(box.querySelectorAll('div,span,button')).filter(b => {
+            const c = typeof b.className === 'string' ? b.className : ''
+            const t = (b.textContent || '').trim()
+            return (c.includes('box-btn_text2') || t === 'Confirm') && visible(b)
+          })
+          const deepest = btns.filter(b => !btns.some(o => o !== b && b.contains(o)))
+          if (deepest.length) { (deepest[0] as HTMLElement).click(); return true }
+        }
+        return false
+      })
+      if (dismissed) { emit(`已關閉「Lucky hour bonus 已轉入機台」提示框`); await sleep(1200) }
+    } catch { /* 關不掉就照原本流程走 */ }
 
     // Dismiss any animation overlays / floating popups that may cover the CCTV view.
     // Uses narrow selectors to avoid accidentally clicking game UI (no generic popup/dialog).
@@ -2358,7 +2627,69 @@ async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '
       return { step: 'CCTV 號碼比對', status: 'warn', message: 'CCTV 容器存在但找不到 video 元素', durationMs: Date.now() - t0 }
     }
 
+    // ── 等 CCTV 真的開始播再往下（2026-09-22 加）──────────────────────────────
+    // 原本是「找到 video 元素就截圖」，但元素存在不代表畫面出來了。
+    // 實測（892-DRAGONLAW-0071／0075）：截到的是**遊戲的載入動畫**，
+    // 訊息卻寫「CCTV 未播放（黑畫面）」，看起來像攝影機壞掉——其實只是截太早。
+    if (!videoPlaying) {
+      emit(`CCTV video 尚未播放，等待最多 10 秒...`)
+      for (let i = 0; i < 20 && !videoPlaying; i++) {
+        await sleep(500)
+        for (const frame of page.frames()) {
+          try {
+            const playing = await frame.evaluate(() => {
+              const vs = Array.from(document.querySelectorAll('div.cctv_video video, video'))
+              return vs.some(v => {
+                const el = v as HTMLVideoElement
+                return !el.paused && el.readyState >= 2 && el.videoWidth > 0
+              })
+            })
+            if (playing) { videoPlaying = true; break }
+          } catch { /* frame detached */ }
+        }
+      }
+      emit(videoPlaying ? `CCTV 已開始播放` : `⚠️ 等了 10 秒 CCTV 仍未播放`)
+    }
+
     emit(`CCTV video 元素已找到，播放中：${videoPlaying}`)
+
+    // ── 截圖前確認畫面真的乾淨（2026-09-22 加）──────────────────────────────
+    // 關彈窗只是「試著關」，不等於關成功。這裡直接量：**有沒有可見元素壓在 CCTV 範圍上**。
+    // 為什麼非做不可：上面剛加了「影像編號不符 → FAIL」。
+    // 如果畫面被彈窗蓋住、OCR 讀到殘缺數字，就會生出一個**假的「編號不符」FAIL**，
+    // 然後被寫進 Lark 叫現場去查攝影機——那比漏報更糟。
+    // 所以遮擋時要走「**未驗證**」，而不是給一個看起來很確定的錯答案。
+    let cctvObstructed = false
+    let obstructionDesc = ''
+    try {
+      const ob = await page.evaluate(() => {
+        const cont = document.querySelector('div.cctv_video')
+        if (!cont) return null
+        const c = cont.getBoundingClientRect()
+        if (c.width < 10 || c.height < 10) return null
+        const area = c.width * c.height
+        let worst: { cls: string; cover: number } | null = null
+        for (const el of Array.from(document.querySelectorAll('div,img,section'))) {
+          if (el === cont || cont.contains(el) || el.contains(cont)) continue
+          const s = getComputedStyle(el)
+          if (s.display === 'none' || s.visibility === 'hidden' || Number(s.opacity) < 0.3) continue
+          if (s.pointerEvents === 'none') continue
+          const r = el.getBoundingClientRect()
+          const w = Math.max(0, Math.min(c.right, r.right) - Math.max(c.left, r.left))
+          const h = Math.max(0, Math.min(c.bottom, r.bottom) - Math.max(c.top, r.top))
+          const cover = (w * h) / area
+          if (cover < 0.25) continue                       // 蓋不到四分之一就不算遮擋
+          const cls = typeof el.className === 'string' ? el.className : ''
+          if (!worst || cover > worst.cover) worst = { cls: cls.slice(0, 40) || el.tagName, cover }
+        }
+        return worst
+      })
+      if (ob) {
+        cctvObstructed = true
+        obstructionDesc = `${ob.cls}（覆蓋 ${Math.round(ob.cover * 100)}%）`
+        emit(`⚠️ CCTV 畫面仍被遮擋：${obstructionDesc} → 這一輪不做編號比對，記為未驗證`)
+      }
+    } catch { /* 量不到就當作沒遮擋，照原流程走 */ }
 
     // Step 3: get bounding box of cctv_video container for accurate page-level screenshot
     // elementHandle.screenshot() doesn't respect CSS absolute positioning — use page.screenshot({ clip }) instead
@@ -2500,8 +2831,39 @@ async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '
     const blurLabel = blurStatus === 'blurry' ? '，畫面模糊' : blurStatus === 'clear' ? '，畫面清晰' : ''
     const timeLabel = ocrTime ? `，時間：${ocrTime}` : ''
     const unexpectedLabel = hasUnexpected ? '，偵測到異常文字' : ''
-    const message = `CCTV ${playStatus}，識別碼：${ocrText}${timeLabel}${blurLabel}${unexpectedLabel}${alignLabel}`
 
+    // ── 身分比對：影像內的編號，是不是我們這次進的這一台？────────────────────────
+    // 2026-09-21 實測：892-LUCKYLOOTER-0035 的影像浮水印寫 DYB0034、-0036 寫 DYB0035，
+    // 各少一號，而當時這一步照樣 PASS——因為它只驗「有在播／清晰／讀得出來」。
+    // 使用者定案：**編號對不上要判 FAIL，不能算 PASS**（看錯機台比畫面模糊嚴重得多）。
+    //
+    // 只比「尾端數字」，不比字母：OCR 對 B/D/8 這類字形常誤讀（實測 DYB0034 被讀成 DYD0034），
+    // 拿字母去比會製造假 FAIL；數字誤讀的機率低得多，而且數字才是區分機台的那一段。
+    // 兩邊都取得出數字才下判斷——讀不到就是「未驗證」，不是「不一致」。
+    //
+    // ⚠️ 不要只取「最後一串數字」：OCR 有時會把時間一起吐回來（`DYB0035 2026-09-21`），
+    // 那樣會抓到 21 然後判成不一致——假 FAIL。改成：把影像裡**長度 ≥3 的數字串全部列出來**，
+    // 只要有一串等於機台編號就算相符；一串都對不上才算不符。
+    const codeDigits = machineCode.match(/(\d+)\s*$/)?.[1] ?? ''
+    const ocrRuns = (ocrFailed || cctvObstructed) ? [] : (ocrText.match(/\d{3,}/g) ?? [])
+    // 被遮擋時一律走「未驗證」——讀到的數字不可信，不能拿來判不符
+    const identityUnverified = cctvObstructed || !codeDigits || ocrRuns.length === 0
+    const identityMismatch = !identityUnverified && !ocrRuns.some(r => Number(r) === Number(codeDigits))
+    const identityLabel = identityMismatch
+      ? `，🚨 影像編號不符：影像 ${ocrText} ↔ 機台 ${machineCode}`
+      : cctvObstructed
+        ? `，⚠️ 編號未驗證：畫面被遮擋（${obstructionDesc}）`
+        : identityUnverified
+          ? '，編號未驗證（影像或機台代碼取不到數字）'
+          : '，編號相符'
+    if (identityMismatch) emit(`🚨 影像編號不符：影像內編號「${ocrText}」與本次機台「${machineCode}」對不上（只比數字，不比字母）`)
+
+    const message = `CCTV ${playStatus}，識別碼：${ocrText}${timeLabel}${blurLabel}${unexpectedLabel}${alignLabel}${identityLabel}`
+
+    // 身分不符優先於其他判定——畫面再清楚，拍的不是這一台就沒有意義
+    if (identityMismatch) {
+      return { step: 'CCTV 號碼比對', status: 'fail', message, durationMs: Date.now() - t0 }
+    }
     if (!videoPlaying || blurStatus === 'blurry' || hasUnexpected || ocrFailed || alignFail) {
       return { step: 'CCTV 號碼比對', status: 'warn', message, durationMs: Date.now() - t0 }
     }
@@ -2688,6 +3050,8 @@ export class MachineTestRunner extends EventEmitter {
   private debugGmid: string | null = null
   /** Session ID prefix for cctv-saves / audio-saves filenames */
   private sessionPrefix: string = ''
+  /** 整段錄音：只有單 Worker 時才開（多 Worker 會把各機台的聲音混在一起） */
+  private sessionAudioEnabled = false
 
   constructor(osmStatus?: Map<string, number>, profiles?: Map<string, MachineProfile>, betRandomConfig?: Record<string, string[]>) {
     super()
@@ -2835,9 +3199,18 @@ export class MachineTestRunner extends EventEmitter {
             }
           }
 
+          // 進機台就開錄，退出前才停——這樣即使 Spin 沒觸發，進場/iDeck/觸屏的音效都還在錄音裡。
+          // 這一份只負責「留下整段素材＋印出量測值」，**不參與 PASS/FAIL 判定**：
+          // 合格門檻還沒校準（只有正常樣本、沒有已知異常樣本，訂了也不知道抓不抓得到異常）。
+          let sessionRec: SessionRecording | null = null
+          if (this.sessionAudioEnabled) {
+            sessionRec = startSessionRecording(machineCode)
+            if (sessionRec) emit(`🎙 整段錄音已開始（進機台 → 退出）`)
+          }
+
           if (steps.stream) {
             await checkOsm()
-            const r2 = await stepStream(page, emit, profile)
+            const r2 = await stepStream(page, emit, profile, machineCode, this.sessionPrefix)
             stepResults.push(r2)
             this.log(`${workerTag} [${r2.status.toUpperCase()}] 推流: ${r2.message}`, machineCode)
           }
@@ -2877,6 +3250,28 @@ export class MachineTestRunner extends EventEmitter {
             const r8 = await stepCctv(page, emit, machineCode, this.sessionPrefix)
             stepResults.push(r8)
             this.log(`${workerTag} [${r8.status.toUpperCase()}] CCTV: ${r8.message}`, machineCode)
+          }
+
+          // 停整段錄音——要在退出**之前**停，退出之後的聲音跟這台機台無關
+          if (sessionRec) {
+            const wav = await stopSessionRecording(sessionRec)
+            sessionRec = null
+            if (wav && existsSync(wav)) {
+              try {
+                mkdirSync(AUDIO_SAVE_DIR, { recursive: true })
+                const name = `${this.sessionPrefix}${machineCode}-session.wav`
+                writeFileSync(join(AUDIO_SAVE_DIR, name), readFileSync(wav))
+                const a = analyzeWav(wav)
+                emit(`🎙 整段錄音：${name}（RMS ${a.rmsDb.toFixed(1)} dB／峰值 ${a.peakDb.toFixed(1)} dB／`
+                  + `Clip ${(a.clipRatio * 100).toFixed(2)}%／重心 ${Math.round(a.spectralCentroid)} Hz）`)
+                emit(`（整段錄音只做記錄，不參與判定——合格門檻尚未校準）`)
+                unlinkSync(wav)
+              } catch (e) {
+                emit(`整段錄音存檔失敗（不影響判定）：${String(e).slice(0, 120)}`)
+              }
+            } else {
+              emit(`整段錄音沒有產出檔案（不影響判定）`)
+            }
           }
 
           if (steps.exit) {
@@ -2965,6 +3360,7 @@ export class MachineTestRunner extends EventEmitter {
     let browser: Browser | null = null
     let originalAudioDevice = ''
     const useVBCable = existsSync(NIRCMD) && session.steps.audio
+    this.sessionAudioEnabled = useVBCable && session.lobbyUrls.length === 1
     // Reset serial audio queue for this run
     audioRecordingQueue = Promise.resolve()
     try {
@@ -2975,6 +3371,15 @@ export class MachineTestRunner extends EventEmitter {
       const osmCount = this.osmStatus.size
       if (osmCount > 0) {
         this.log(`✅ 圖像識別服務已連線（OSMWatcher 監控中 ${osmCount} 台機台）— 特殊遊戲偵測已啟用`)
+        // ⚠️ 2026-09-21：「服務有連線」跟「**這幾台**有被監控」是兩件事。
+        //    checkOsm() 對「查不到這台」和「狀態正常」的處理一模一樣——都直接放行、不留訊息，
+        //    於是機台真的進了 FG/JP 也偵測不到，卡在裡面退不出來，再連鎖污染下一台。
+        //    這裡把「要測但沒被監控」的機台明白列出來，不要讓上面那行綠字造成錯覺。
+        const unmonitored = session.machineCodes.filter(c => !this.osmStatus.has(c))
+        if (unmonitored.length > 0) {
+          this.log(`⚠️ 下列 ${unmonitored.length} 台**不在影像辨識監控範圍**，FG／JP 無法偵測，`
+            + `若機台進入特殊遊戲會退不出來並污染下一台：${unmonitored.join(', ')}`)
+        }
       } else {
         this.log(`⚠️ 圖像識別服務未連線（OSMWatcher 未回報任何機台）— Spin 後不會等待特殊遊戲結束`)
       }

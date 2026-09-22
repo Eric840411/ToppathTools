@@ -277,6 +277,22 @@ export function listRunningAutospinLocks() {
     .all() as HeavyTaskRow[]
 }
 
+/**
+ * 目前還 running 的**所有**鎖（不限 type）。
+ *
+ * ⚠️ 2026-09-22 補這支的原因：強制清除那條路原本只查 `type='autospin-agent'`，
+ * 所以**機台測試的鎖卡住時，前端的「卡住的重任務鎖／強制清除」看不到、也清不掉**。
+ * 實際發生過：agent 在測試中途被重啟 → session 沒了但鎖留著 →
+ * 之後每次派工都回 429，而唯一的出路是**等 6 小時**自癒。
+ * 症狀（「你目前已有重任務正在執行」）看起來像使用者自己的問題，不像 bug——
+ * 這正是 v4.x 當初修 AutoSpin 那條線時寫在註解裡的教訓，只是當時沒有推廣到其他 type。
+ */
+export function listRunningHeavyLocks(type?: string) {
+  return type
+    ? db.prepare("SELECT * FROM heavy_tasks WHERE status = 'running' AND type = ?").all(type) as HeavyTaskRow[]
+    : db.prepare("SELECT * FROM heavy_tasks WHERE status = 'running'").all() as HeavyTaskRow[]
+}
+
 export function finishHeavyTask(token: HeavyTaskToken | null | undefined) {
   if (!token) return
   const current = activeTasks.get(token.userKey)
