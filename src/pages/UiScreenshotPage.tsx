@@ -909,8 +909,15 @@ export function UiScreenshotPage() {
             <h2 className="section-title">執行選項</h2>
             <div className="ui-ss-toggle-row">
               <div>
-                <div className="ui-ss-tgl-label">自動關閉面額彈窗</div>
-                <div className="ui-ss-tgl-sub">偵測到 .select-bg 時自動點擊第一個選項</div>
+                <div className="ui-ss-tgl-label">自動關閉彈窗</div>
+                {/* ⚠️ 這個開關管的**不只是面額選單**：面額選單、大廳中獎彈窗的 ✕、
+                    以及 `Tips: Game exception...(39)` 這類 Confirm 框都歸它管。
+                    標題原本寫「自動關閉面額彈窗」、說明只提 `.select-bg`——
+                    照字面讀會以為關掉它只是不選面額，實際上是**整套都不關**。 */}
+                <div className="ui-ss-tgl-sub">
+                  面額選單、大廳中獎彈窗的 ✕、Tips／錯誤提示的 Confirm 都會自動關掉。
+                  <b style={{ color: '#eab308' }}>關掉這個開關＝以上全部都不關</b>
+                </div>
               </div>
               <div
                 className={`ui-ss-toggle${dismissPopup ? ' on' : ''}`}
