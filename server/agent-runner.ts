@@ -1176,99 +1176,85 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
         return '__LOBBY__'
       }
 
-      // 大廳本身就是拍攝目標：不進任何機台（一樣要先把蓋住畫面的彈窗關掉）
-      if (isLobbyTarget) {
-        await ensureUiScreenshotLobby(page, '__LOBBY__', options.dismissPopup !== false)
-        if (screenshotDelaySeconds > 0) await page.waitForTimeout(screenshotDelaySeconds * 1000)
-        return '__LOBBY__'
-      }
-
-      // ⚠️ 彈窗可能蓋在大廳、也可能蓋在機台畫面上，所以先關掉再判斷自己在哪
-      if (options.dismissPopup !== false) noteErrors(await dismissUiScreenshotPopups(page, gmid), lastUsedMachine)
-
       /**
-       * **重新載入之後常常會自動回到剛才那台機台**——這時候不必再繞一次大廳
-       * （使用者 2026-09-18：「沒辦法直接重新刷新截圖對吧？」——可以，就是這條路徑）。
+       * 🚨 **從頁面載入那一刻起就盯著彈窗，一路盯到截圖前。**
        *
-       * ⚠️ 但要先確認回到的是**同一款**：讀機台內的名稱跟目標 model 比對。
-       *    比不上（或讀不到而且我們根本還沒選過機台）就保守地走大廳流程，
-       *    不然會拿別台的畫面當這個 model 的截圖，而畫面上完全看不出來。
-       */
-      const inLobby = (await page.locator('#grid_gm_item').count().catch(() => 0)) > 0
-      if (!inLobby && lastUsedMachine) {
-        const ready = await waitForUiScreenshotReady(page)
-        const wantModel = gmid.includes('/') ? gmid.split('/')[1].trim().toUpperCase() : ''
-        const seen = (await readInGameMachineName(page)).toUpperCase()
-        const sameModel = !wantModel || !seen || seen.startsWith(wantModel)
-        if (ready && sameModel) {
-          console.log(`[UI-SS] ${gmid} — 重新載入後已在機台內（${seen || '名稱讀不到'}），直接截圖，不繞大廳`)
-          // ⚠️ 這條快速路徑底下也有一段等待——一樣要有看門狗盯著，不然彈窗在這幾秒冒出來
-          //    就直接拍進去了（跟主路徑同一個坑，只是少有人走到）
-          const fastGuard = startUiPopupGuard(page, lastUsedMachine, {
-            enabled: options.dismissPopup !== false,
-            log: (m: string) => console.log(m),
-          })
-          let fastSawError = false
-          try {
-            if (screenshotDelaySeconds > 0) await page.waitForTimeout(screenshotDelaySeconds * 1000)
-          } finally {
-            const fg = await fastGuard.stop()
-            fastSawError = fg.errors.length > 0
-            noteErrors({ errors: fg.errors, blocked: fg.blocked }, lastUsedMachine)
-          }
-          // 🚨 **這條路原本沒有這道關卡**（CodeX 2026-09-21）：重新載入時推流是好的、
-          //    延遲期間才出錯的話，關掉錯誤框就直接 return——拍到黑畫面而狀態欄寫 `ok`。
-          //    判斷跟主路徑共用同一支純函式，不要再寫第二份。
-          await applyReadyGate(page, gmid, true, fastSawError)
-          return lastUsedMachine
-        }
-        console.log(`[UI-SS] ${gmid} — 載入後在機台內但不是要的那款（看到「${seen || '讀不到'}」），退回大廳重選`)
-      }
-
-      // 走到這裡表示要從大廳挑機台：先確定真的站得到大廳
-      await ensureUiScreenshotLobby(page, gmid, options.dismissPopup !== false)
-
-      let target = gmid
-      if (autoPick) {
-        const picked = await pickUiScreenshotMachine(page, gmid, lastUsedMachine, brokenMachines)
-        target = picked.gmid
-        console.log(`[UI-SS] ${gmid} auto-picked ${target} (${picked.freeOfTarget}/${picked.totalOfTarget} free)`)
-      }
-      /**
-       * 🚨 **從這裡開始到截圖前，全程盯著彈窗**（使用者 2026-09-21 回報：進機台時跳 Confirm
-       * 沒被點掉，整個流程卡住）。原本只在「進機台前」「推流就緒後」各關一次，
-       * 中間這三段沒人看——而彈窗正是在這三段冒出來的：
-       *   ① 點卡片進場的那一下 → 被蓋住的話 click 直接 timeout，訊息只寫「點了但還停在大廳」
-       *   ② 等推流的迴圈       → 變成 `Game surface not ready`
-       *   ③ 截圖前等的那幾秒   → 直接拍到被蓋住的畫面
+       * 使用者 2026-09-22 回報：「判斷時機點少了，**進入機器時**和**每次重新加載新頁面時**
+       * 都需要判斷。」——前一版的看門狗是從「挑好機台之後」才開始，所以這兩段沒人看：
+       *   ① `goto` 之後大廳還在初始化的那幾秒（`Tips(39)` 正是這時候冒出來的）
+       *   ② 掃大廳卡片、挑機台的整段
+       * 原本那裡只有「載入完立刻關一次」——彈窗晚幾秒才出現就完全錯過。
+       *
+       * ⚠️ **一個 page 只能有一個看門狗。**`ACTIVE_GUARDS` 是 page → guard 的對照，
+       *    在裡面再開一個會把外面那個蓋掉，變成兩隻手搶同一顆按鈕。所以快速路徑與
+       *    進機台那段都不再自己開，一律靠這一個。
        * ⚠️ 看門狗只點**已確認用途**的彈窗；沒見過的不點、只記下來回報（CodeX 2026-09-21）。
        */
-      const guard = startUiPopupGuard(page, target, {
+      const guard = startUiPopupGuard(page, gmid, {
         enabled: options.dismissPopup !== false,
         log: (m: string) => console.log(m),
       })
-      let ready = false
-      /** 這段期間有沒有關掉過「錯誤框」——決定下面要不要重驗推流 */
-      let sawErrorPopup = false
-      try {
+      // 先立刻掃一次，不要等第一個輪詢間隔——載入當下就蓋著的話沒必要白等 0.7 秒
+      await guard.runOnce()
+
+      /** H5 的進場流程。**整段都在看門狗涵蓋範圍內**，所以裡面不要再自己關彈窗 */
+      const prepareH5 = async (): Promise<{ target: string; ready: boolean }> => {
+        // 大廳本身就是拍攝目標：不進任何機台
+        if (isLobbyTarget) {
+          await ensureUiScreenshotLobby(page, '__LOBBY__', options.dismissPopup !== false)
+          if (screenshotDelaySeconds > 0) await page.waitForTimeout(screenshotDelaySeconds * 1000)
+          return { target: '__LOBBY__', ready: true }
+        }
+
+        const inLobby = (await page.locator('#grid_gm_item').count().catch(() => 0)) > 0
+        if (!inLobby && lastUsedMachine) {
+          const ready = await waitForUiScreenshotReady(page)
+          const wantModel = gmid.includes('/') ? gmid.split('/')[1].trim().toUpperCase() : ''
+          const seen = (await readInGameMachineName(page)).toUpperCase()
+          const sameModel = !wantModel || !seen || seen.startsWith(wantModel)
+          if (ready && sameModel) {
+            console.log(`[UI-SS] ${gmid} — 重新載入後已在機台內（${seen || '名稱讀不到'}），直接截圖，不繞大廳`)
+            // ⚠️ 這段等待一樣在**外層那個唯一的看門狗**涵蓋範圍內，不要在這裡再開一個——
+            //    同一個 page 開兩個看門狗會互相蓋掉註冊、變成兩隻手搶同一顆按鈕。
+            if (screenshotDelaySeconds > 0) await page.waitForTimeout(screenshotDelaySeconds * 1000)
+            // 推流就緒與否的關卡在外層統一套（`applyReadyGate`），這裡只回報結果
+            return { target: lastUsedMachine, ready: true }
+          }
+          console.log(`[UI-SS] ${gmid} — 載入後在機台內但不是要的那款（看到「${seen || '讀不到'}」），退回大廳重選`)
+        }
+        // 走到這裡表示要從大廳挑機台：先確定真的站得到大廳
+        await ensureUiScreenshotLobby(page, gmid, options.dismissPopup !== false)
+
+        let target = gmid
+        if (autoPick) {
+          const picked = await pickUiScreenshotMachine(page, gmid, lastUsedMachine, brokenMachines)
+          target = picked.gmid
+          console.log(`[UI-SS] ${gmid} auto-picked ${target} (${picked.freeOfTarget}/${picked.totalOfTarget} free)`)
+        }
+
         const entryState = await enterUiScreenshotMachine(page, target)
         lastUsedMachine = target
         console.log(`[UI-SS] ${target} entry=${entryState}`)
-        ready = await waitForUiScreenshotReady(page)
+        const ready = await waitForUiScreenshotReady(page)
         if (ready) console.log(`[UI-SS] ${gmid} — stream ready`)
-        // ⚠️ **這裡不要再自己呼叫一次關窗**（CodeX 2026-09-21 [P1]）。看門狗已經在跑，
-        //    每 0.7 秒就掃一次；另外開一條路只會：① 繞過 strict 去點未知彈窗、
-        //    ② 跟看門狗同時點同一顆按鈕。真的要提早掃一次就走 `guard.runOnce()`。
         if (screenshotDelaySeconds > 0) {
           console.log(`[UI-SS] ${gmid} waiting ${screenshotDelaySeconds}s before screenshot`)
           await page.waitForTimeout(screenshotDelaySeconds * 1000)
         }
+        return { target, ready }
+      }
+
+      let outcome: { target: string; ready: boolean } | null = null
+      /** 這段期間有沒有關掉過「錯誤框」——決定下面要不要重驗推流 */
+      let sawErrorPopup = false
+      try {
+        outcome = await prepareH5()
       } finally {
         // ⚠️ **一定要在截圖之前 stop 並等它跑完**，否則會拍到「正在被點掉」的那一瞬間
         const g = await guard.stop()
-        if (g.dismissed) console.log(`[UI-SS] ${gmid} — 等待期間自動關掉 ${g.dismissed} 個彈窗`)
+        if (g.dismissed) console.log(`[UI-SS] ${gmid} — 進場期間自動關掉 ${g.dismissed} 個彈窗`)
         sawErrorPopup = g.errors.length > 0
-        noteErrors({ errors: g.errors, blocked: g.blocked }, target)
+        noteErrors({ errors: g.errors, blocked: g.blocked }, lastUsedMachine)
       }
       /**
        * ⚠️ **關掉錯誤框不等於這一台是好的**（CodeX 2026-09-21 [P2]）。
@@ -1277,8 +1263,8 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
        *    `ready` 已經是 true，錯誤框在等的那幾秒才跳出來被關掉，然後就直接往下拍，
        *    拍到黑畫面而狀態欄寫 `ok`。所以只要期間關過錯誤框就一律重驗。
        */
-      await applyReadyGate(page, gmid, ready, sawErrorPopup)
-      return target
+      await applyReadyGate(page, gmid, outcome.ready, sawErrorPopup)
+      return outcome.target
     }
 
     /** 拍一張 + 上傳。`actualGmid` 是這張圖實際用的機台（自動選機時每張可能不同） */

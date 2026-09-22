@@ -243,6 +243,19 @@ export function startUiPopupGuard(page, label, opts = {}) {
   const result = { dismissed: 0, errors: [], blocked: [] }
   if (opts.enabled === false) return { stop: async () => result, runOnce: async () => result }
 
+  /**
+   * 🚨 **同一個 page 只能有一個看門狗。**再開一個會把 `ACTIVE_GUARDS` 裡的註冊蓋掉，
+   *    變成兩隻手搶同一顆按鈕——而且外層那個從此再也收不到回報。
+   *    所以巢狀呼叫回傳一個**共用結果、但 `stop()` 不做事**的把手：
+   *    生命週期永遠由最外層那個擁有，內層提早 stop 不會把外層關掉。
+   *    ⚠️ 用結構擋，不要靠「記得不要巢狀呼叫」——這個專案已經證明過紀律守不住。
+   */
+  const existing = ACTIVE_GUARDS.get(page)
+  if (existing) {
+    ;(opts.log ?? (m => console.log(m)))(`[UI-SS] ${label} — 已經有看門狗在跑了，沿用同一個（不另開）`)
+    return { stop: async () => existing.result, runOnce: () => existing.runOnce() }
+  }
+
   const intervalMs = opts.intervalMs ?? 700
   const maxPasses = opts.maxPasses ?? 40
   let active = true
@@ -265,6 +278,8 @@ export function startUiPopupGuard(page, label, opts = {}) {
   }
 
   const guard = {
+    /** 讓巢狀呼叫看得到同一份累計結果 */
+    result,
     /** 外面在看門狗運作中呼叫 `dismissUiPopups` 時會被導到這裡——同一條佇列、同一套規則 */
     async runOnce() {
       await enqueue(onePass)

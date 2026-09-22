@@ -77,6 +77,15 @@ const UNKNOWN_CONFIRM = `
 /** 遊戲畫面裡剛好有「Confirm」字樣，但**不在彈窗裡**——不能點 */
 const BARE_CONFIRM = `<div style="padding:40px"><span>Confirm</span></div>`
 
+/** n 個只有 ✕ 的中獎通知——用來塞滿輪數上限 */
+const nCloses = n => `
+  ${Array.from({ length: n }, (_, i) => `<div class="layer" id="N${i}" style="inset:${i * 5}px">
+    <button class="notification-close" style="width:24px;height:24px">X</button></div>`).join('')}
+  <script>
+    for (const b of document.querySelectorAll('.notification-close'))
+      b.addEventListener('click', () => b.parentElement.remove())
+  </script>`
+
 const browser = await chromium.launch({ headless: true })
 const ctx = await browser.newContext({ viewport: { width: 800, height: 600 } })
 const page = await ctx.newPage()
@@ -178,17 +187,43 @@ try {
     check('⑧b 回報措辭是「尚未確認」而不是斷定', /尚未確認/.test(capped.blocked[0]), true)
   }
 
+  // ── ⑨ 巢狀開看門狗不可以變成「兩隻手搶同一顆按鈕」──────────────────────────
+  //    使用者 2026-09-22 要求把看門狗涵蓋範圍拉到「整段 prepare」之後，
+  //    裡面原本那兩個小看門狗就得拿掉。⚠️ 但**不能只靠「記得不要巢狀呼叫」**——
+  //    這個專案已經證明紀律守不住（同一條規則寫兩處，三次都只修好一處）。
+  //    所以改成：巢狀呼叫回傳一個共用結果、`stop()` 不做事的把手。
+  await load(nCloses(2))
+  {
+    const outer = startUiPopupGuard(page, 'outer', { intervalMs: 200, log: quiet })
+    const inner = startUiPopupGuard(page, 'inner', { intervalMs: 200, log: quiet })
+    const innerStopped = await inner.stop()
+    // 內層 stop 之後外層必須還活著——不然覆蓋範圍會被提早砍掉
+    await page.waitForTimeout(900)
+    const outerResult = await outer.stop()
+    check('⑨ 內層 stop 不會把外層關掉（外層仍關完了彈窗）', outerResult.dismissed, 2)
+    check('⑨ 內外層看到的是同一份結果', innerStopped === outerResult, true)
+    check('⑨ 畫面上確實關乾淨了', await page.locator('.notification-close').count(), 0)
+  }
+
+  // ── ⑨b 看門狗必須從「頁面載入之後」就開始，不是挑完機台才開始 ────────────────
+  //    這是使用者 2026-09-22 指的兩個時機點：進入機器時、每次重新載入新頁面時。
+  //    ⚠️ 結構檢查——真流程要有大廳才跑得起來。
+  {
+    const src = readFileSync('server/agent-runner.ts', 'utf8')
+    const prep = src.slice(src.indexOf('const prepare = async (page: Page)'))
+      .slice(0, src.slice(src.indexOf('const prepare = async (page: Page)')).indexOf('const shootAndUpload'))
+    check('⑨b prepare 裡只開一個看門狗', (prep.match(/startUiPopupGuard\(/g) || []).length, 1)
+    check('⑨b 而且是在 goto 之後、挑機台之前就開',
+      prep.indexOf('startUiPopupGuard(') > prep.indexOf('await page.goto(')
+      && prep.indexOf('startUiPopupGuard(') < prep.indexOf('pickUiScreenshotMachine('), true)
+    check('⑨b 開完立刻掃一次，不等第一個輪詢間隔', /await guard\.runOnce\(\)/.test(prep), true)
+    check('⑨b 進場流程整段包在 try 裡、finally 才 stop',
+      /try \{\s*outcome = await prepareH5\(\)\s*\} finally \{[\s\S]{0,200}?await guard\.stop\(\)/.test(prep), true)
+  }
+
   // ── ⑧c 撞到上限時，措辭只能說「尚未確認」，不能說「仍有彈窗」──────────────
   //    CodeX 2026-09-21：最後一輪剛好關掉最後一個的話，畫面其實是乾淨的——
   //    我們只是少跑了那一輪確認。回報講成「仍有彈窗」就是講了自己不知道的事。
-  const nCloses = n => `
-    ${Array.from({ length: n }, (_, i) => `<div class="layer" id="N${i}" style="inset:${i * 5}px">
-      <button class="notification-close" style="width:24px;height:24px">X</button></div>`).join('')}
-    <script>
-      for (const b of document.querySelectorAll('.notification-close'))
-        b.addEventListener('click', () => b.parentElement.remove())
-    </script>`
-
   await load(nCloses(3))
   {
     // 剛好 3 個、上限 3：最後一輪把最後一個關掉了，畫面其實是乾淨的
@@ -280,12 +315,19 @@ try {
   // ── ⑦b 兩條路都要真的用這道關卡（結構檢查）──────────────────────────────────
   {
     const src = readFileSync('server/agent-runner.ts', 'utf8')
-    const calls = (src.match(/await applyReadyGate\(/g) || []).length
-    check('⑦b 主路徑與快速路徑都套了同一道關卡（2 處）', calls, 2)
+    // ⚠️ 這條 2026-09-22 改過。原本是「兩條路各套一次」（count === 2）——
+    //    現在整段進場流程包進 `prepareH5()`，關卡改成**在 try/finally 之後套一次**，
+    //    所有 return 路徑共用。這比兩處各套一次更嚴：**新增一條路也躲不掉**。
+    const prepBody = src.slice(src.indexOf('const prepare = async (page: Page)'))
+    const prepOnly = prepBody.slice(0, prepBody.indexOf('const shootAndUpload'))
+    const calls = (prepOnly.match(/await applyReadyGate\(/g) || []).length
+    check('⑦b prepare 只套一次關卡（所有 return 路徑共用）', calls, 1)
+    check('⑦b 而且套在 finally 之後（不是某一條路自己套）',
+      prepOnly.indexOf('await applyReadyGate(') > prepOnly.indexOf('} finally {'), true)
     check('⑦b 關卡判定 fail 時會丟錯（不會默默回報成功）',
       /verdict\.action === 'fail'[\s\S]{0,120}throw new Error/.test(src), true)
-    check('⑦b 快速路徑有把期間的錯誤記下來',
-      /fastSawError = fg\.errors\.length > 0/.test(src), true)
+    check('⑦b 快速路徑不再自己記錯誤（改由外層那個唯一的看門狗記）',
+      /fastSawError/.test(src), false)
     // 丟出去之後真的會變成 err／timeout，不是被吞掉
     check('⑦b prepare 丟錯會落到 postStatus(err|timeout)',
       /const actual = await prepare\(page\)[\s\S]{0,600}?postStatus\(task\.id, \/timeout\/i\.test\(m\) \? 'timeout' : 'err', m\)/.test(src), true)
