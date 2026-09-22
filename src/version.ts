@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.254.0'
+export const APP_VERSION = '4.255.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.255.0', date: '2026-09-22', changes: ['fix(UI 截圖)：**找到真正的死結了——而且是用真的跑一次找到的，不是猜的。**起一個真 agent、派一次真任務，log 當場顯示：`關掉面額選單（第 1 輪）…（第 5 輪）`，而選單一直都在', 'fix(UI 截圖)：**面額選單點不下去，卻算成「關掉了」。**`.select-bg` 在底下、`Tips(39)` 蓋在上面，Playwright 點不下去；而程式碼是 `click().catch(() => {})` 然後無條件 `dismissed++; continue`——**點失敗被吞掉還算成進度**。每輪都從①開始又每次 continue，於是 **③ Confirm 一次都輪不到**，兩層互相卡死到輪數用光。這就是使用者看到的症狀', 'fix(UI 截圖)：改成點完**確認 `.select-bg` 真的不見了**才算數；沒消失就不算進度也不 continue，讓 ✕ 與 Confirm 有機會先處理上層', 'fix(UI 截圖)：**第二個死結**——面額確認框整段文字只有 `YESNO`，`UI_POPUP_KNOWN` 比對 `denomination|面額` 認不出來，strict 判成未知就不點。它的容器是 `.select-main`，跟第一層的 `.select-bg` 同一家族，所以改成**文字或容器 class 命中都算**', 'fix(UI 截圖)：未知彈窗的回報改成**帶容器 class**——只回報「`YESNO`」六個字看不出那是什麼，也就無從判斷能不能加白名單，等於白回報', 'test(UI 截圖)：60 → 68 條。⑩ 兩層疊在一起、⑩b 沒有文字線索的確認框、⑩c 回報要帶 class。**為什麼先前 60 條全綠卻沒抓到：這兩個都需要兩層彈窗疊著，而我的 fixture 每次只擺一層**', 'chore(UI 截圖)：端到端工具留成 `scripts/ui-checks/ui-screenshot-e2e.mjs`（起真 agent、派真任務、等真狀態）。它也順便驗到先前留白的那一格——任務狀態確實會變 `err`／`popup` 並帶錯誤訊息'] },
   { version: '4.254.0', date: '2026-09-22', changes: ['fix(UI 截圖)：**看門狗的涵蓋範圍從「挑好機台之後」拉到「頁面載入之後」**（使用者回報：判斷時機點少了，進入機器時和每次重新加載新頁面時都需要判斷）。前一版還漏兩段——① `goto` 之後大廳初始化的那幾秒（`Tips(39)` 正是這時候冒出來的，而那裡原本只有「載入完立刻關一次」，晚幾秒出現就完全錯過）；② 掃大廳卡片、挑機台的整段', 'fix(UI 截圖)：進場流程整段包進 `prepareH5()`，看門狗在 `goto` 之後就啟動、`finally` 才停，**中間沒有任何一段沒人看**。開完立刻 `runOnce()` 掃一次，不白等第一個輪詢間隔', 'refactor(UI 截圖)：**一個 page 只能有一個看門狗**——巢狀呼叫改成回傳「共用結果、`stop()` 不做事」的把手，內層提早 stop 不會把外層關掉。用結構擋，不要靠「記得不要巢狀呼叫」', 'refactor(UI 截圖)：`applyReadyGate` 從「兩條路各套一次」改成**在 try/finally 之後套一次**，所有 return 路徑共用——比兩處各套一次更嚴，**新增一條路也躲不掉**', 'test(UI 截圖)：52 → 60 條。⑨ 驗巢狀不會互相蓋掉、⑨b 驗涵蓋範圍（只開一個、在 goto 之後挑機台之前、整段包在 try 裡）。突變：把看門狗搬回「挑完機台之後」→ ⑨b 轉紅；巢狀覆蓋外層 → ⑨ 轉紅'] },
   { version: '4.253.3', date: '2026-09-22', changes: ['fix(UI 截圖)：**「自動關閉面額彈窗」這個開關的名字會騙人。**它管的不只是面額選單——大廳中獎彈窗的 ✕、`Tips: Game exception...(39)` 這類 Confirm 框**全部歸它管**。照字面讀會以為關掉它只是不選面額，實際上是**整套都不關**', 'fix(UI 截圖)：改名成「自動關閉彈窗」，說明列出實際涵蓋的三種，並標明**關掉＝以上全部都不關**', 'chore(UI 截圖)：⚠️ 這件事在 v4.252.0 之後變得更要緊——那一版把 `ensureUiScreenshotLobby()` 繞過開關的漏洞修掉了，所以**開關關著的人，從那版起大廳彈窗也不會再被關掉**（先前那條路徑是無條件關的）'] },
   { version: '4.253.2', date: '2026-09-22', changes: ['docs(UI 截圖)：**近期 11 個版本的更新日誌全部改回標籤版**（使用者要求）。4.251.0 ～ 4.253.1 原本每行都以 emoji 開頭、而且沒有 `type(scope)：` 標籤，所以畫面上**左邊那顆色塊全部不見**——那正是 4.243.0 修過的同一個症狀，只是這次是我寫的時候沒照格式', 'docs(UI 截圖)：改完用**產品那支 `parseChangeLine()`** 逐行確認——11 個版本 43 行全部認得出標籤、開頭都不是 emoji；`changelog-render-all.mjs` 861 行照樣全過（拆接一字不差、沒有露出 `**`）', 'docs(UI 截圖)：類型照內容分——根因與修正 `fix`、新行為 `feat`、抽共用 `refactor`、驗證 `test`、說法更正與留白 `docs`、純紀錄 `chore`；scope 統一用 `UI 截圖`'] },

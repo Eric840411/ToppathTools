@@ -24,8 +24,16 @@ import { LOBBY_CLOSE_IN_PAGE, LOBBY_CLOSE_ALLOW } from './lobby-popup.js'
  * ⚠️ 要新增一種，條件是「實際在環境上看過，而且知道按下去的後果」，不是「看起來應該沒差」。
  */
 export const UI_POPUP_KNOWN = [
-  // 面額選單第二層：「SELECT A DENOMINATION → YES / NO」（2026-09-18 實測）
-  { kind: 'denom', re: 'denomination|面額|面额' },
+  /**
+   * 面額選單第二層：「SELECT A DENOMINATION → YES / NO」（2026-09-18 實測）
+   *
+   * 🚨 **只比對文字會漏掉它。**2026-09-22 端到端實測：那個框的 DOM 裡
+   *    **一個字都沒有 DENOMINATION**，整段文字就是 `YESNO`（兩顆按鈕而已），
+   *    所以 strict 模式判成「沒見過」→ 不點 → 卡死在那裡。
+   *    它的容器是 `.select-main`，跟第一層面額選單的 `.select-bg` 同一家族——
+   *    這是產品自己一直在用的錨點，所以改成**文字或容器 class 命中都算**。
+   */
+  { kind: 'denom', re: 'denomination|面額|面额', cls: 'select-main|select-bg' },
   // Tips 錯誤框：`CODE: ERR_NETWORK`、`Game exception, please contact customer service.(39)`
   { kind: 'tips-error', re: 'ERR_|exception|異常|异常|customer service|錯誤|错误|失敗|失败|\\(\\d{1,3}\\)' },
   // 純提示框（標題就是 Tips／提示／Notice），內容不是錯誤
@@ -50,7 +58,11 @@ export const UI_POPUP_ERROR_RE = /ERR_|error|錯誤|错误|失败|失敗|excepti
  */
 export const UI_POPUP_CONFIRM_IN_PAGE = ({ isStrict, known }) => {
   const CONFIRM = new Set(['YES', 'CONFIRM', '確定', '确定', 'OK', '確認', '确认', '我知道了', 'GOT IT'])
-  const KNOWN = known.map(k => ({ kind: k.kind, re: new RegExp(k.re, 'i') }))
+  const KNOWN = known.map(k => ({
+    kind: k.kind,
+    re: new RegExp(k.re, 'i'),
+    cls: k.cls ? new RegExp(k.cls, 'i') : null,
+  }))
   const POPUPISH = /select|popup|overlay|dialog|confirm|modal|mask|alert|toast|tips|bg-img|box-/i
   const TITLEISH = /^(tips|提示|notice|warning|error|錯誤|错误|系統提示|系统提示)$/i
   const visible = (el) => {
@@ -83,9 +95,15 @@ export const UI_POPUP_CONFIRM_IN_PAGE = ({ isStrict, known }) => {
     const root = dialogRootOf(b)
     if (!root) continue
     const boxText = (root.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 200)
-    const hit = KNOWN.find(k => k.re.test(boxText))
+    const rootCls = root.getAttribute('class') || ''
+    // 文字或容器 class 命中都算——有些彈窗的 DOM 裡根本沒有可辨識的字
+    const hit = KNOWN.find(k => k.re.test(boxText) || (k.cls && k.cls.test(rootCls)))
     // strict 模式：對不上已知類別就**不要點**，把它回報出去
-    if (isStrict && !hit) return JSON.stringify({ btn: t, boxText, skipped: true })
+    // ⚠️ 回報要帶**容器的 class**。2026-09-22 實測回報過一筆內容只有 `YESNO` 的——
+    //    六個字看不出那是什麼彈窗，也就無從判斷能不能加進白名單，等於白回報。
+    if (isStrict && !hit) {
+      return JSON.stringify({ btn: t, boxText, cls: rootCls.slice(0, 60), skipped: true })
+    }
     b.click()
     return JSON.stringify({ btn: t, boxText, kind: hit ? hit.kind : 'loose' })
   }
@@ -145,16 +163,32 @@ export async function dismissUiPopups(page, label, opts = {}) {
 
   for (let round = 1; round <= rounds; round++) {
     // ── ① 面額選單 ──────────────────────────────────────────────────────────
+    //
+    // 🚨 **點完一定要確認它真的不見了。**（2026-09-22 端到端實測抓到）
+    //    原本寫成 `await firstBtn.click().catch(() => {})` 然後無條件 `dismissed++; continue`——
+    //    **點失敗被吞掉，還算成「關掉了」**。實測 log 長這樣：
+    //      關掉面額選單（第 1 輪）… 第 2 輪 … 第 3 輪 … 第 4 輪 … 第 5 輪
+    //    面額選單一直都在，因為它**被上面那層 `Tips(39)` 蓋住**，Playwright 的
+    //    actionability 檢查點不下去。而每一輪都從 ① 開始、又每次都 `continue`，
+    //    於是 ② ✕ 跟 ③ Confirm **一次都輪不到**——上面那層永遠不會被處理，
+    //    兩邊互相卡死，輪數用光為止。
+    //    ⚠️ 這就是使用者回報「還是不會自動點掉 Confirm」的真正原因。
+    //
+    // 所以：點了但沒消失就**不算進度、也不 continue**，讓 ② ③ 有機會先處理上層。
     const denom = await page.$('.select-bg')
     if (denom) {
       const firstBtn = await page.$('.select-row .van-col')
       if (firstBtn) {
-        await firstBtn.click().catch(() => {})
+        const clicked = await firstBtn.click({ timeout: 2000 }).then(() => true).catch(() => false)
         await page.waitForTimeout(settleMs)
-        dismissed++
-        log(`[UI-SS] ${label} — 關掉面額選單（第 ${round} 輪）`)
-        if (round === rounds) hitCap = true
-        continue
+        const gone = (await page.$('.select-bg')) === null
+        if (gone) {
+          dismissed++
+          log(`[UI-SS] ${label} — 關掉面額選單（第 ${round} 輪）`)
+          if (round === rounds) hitCap = true
+          continue
+        }
+        log(`[UI-SS] ${label} — 面額選單${clicked ? '點了但沒關掉' : '點不下去（多半被別的彈窗蓋住）'}，改先處理上層`)
       }
     }
 
@@ -183,7 +217,7 @@ export async function dismissUiPopups(page, label, opts = {}) {
     try {
       const o = JSON.parse(clicked)
       btn = o.btn
-      boxText = o.boxText
+      boxText = o.cls ? `${o.boxText}（容器 .${o.cls}）` : o.boxText
       skipped = o.skipped === true
     } catch { /* 理論上不會走到，保守處理 */ }
 

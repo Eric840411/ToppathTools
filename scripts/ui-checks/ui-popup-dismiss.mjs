@@ -187,6 +187,60 @@ try {
     check('⑧b 回報措辭是「尚未確認」而不是斷定', /尚未確認/.test(capped.blocked[0]), true)
   }
 
+  // ── ⑩ 面額選單被上層蓋住時，不可以「點失敗還算成關掉」而卡死 ─────────────────
+  //    🚨 2026-09-22 端到端實測抓到的真正死結：`.select-bg` 在最底下、`Tips(39)` 蓋在上面。
+  //    原本 ① 的寫法是 `click().catch(() => {})` 然後無條件 `dismissed++; continue`——
+  //    點不下去被吞掉、還算成進度，而且每一輪都從 ① 開始又每次 continue，
+  //    於是 ③ Confirm **一次都輪不到**，兩層互相卡死到輪數用光。
+  //    實測 log：「關掉面額選單（第 1 輪）…（第 5 輪）」而選單一直都在。
+  await load(`
+    <div class="select-bg" id="denom" style="position:fixed;inset:0;background:#222">
+      <div class="select-row"><div class="van-col">0.01</div></div>
+    </div>
+    <div class="layer" id="TOP" style="z-index:99"><div class="bg-img">
+      <div class="box-title">Tips</div>
+      <div class="box-content"><div class="text-msg">Game exception, please contact customer service.(39)</div></div>
+      <div class="box-end"><button class="van-button box-btn"><div>Confirm</div></button></div>
+    </div></div>
+    <script>
+      // 面額只有在上層關掉之後才點得到（就是真實環境的樣子）
+      document.querySelector('.van-col').addEventListener('click', () => document.getElementById('denom').remove())
+      document.querySelector('#TOP button').addEventListener('click', () => document.getElementById('TOP').remove())
+    </script>`)
+  {
+    const stuck = await dismissUiPopups(page, 'stuck', { strict: true, log: quiet })
+    check('⑩ 上層的 Tips 有被點掉', await page.locator('#TOP').count(), 0)
+    check('⑩ 底下的面額選單也跟著關掉', await page.locator('#denom').count(), 0)
+    check('⑩ 兩個都算數（不多不少）', stuck.dismissed, 2)
+    check('⑩ 錯誤提示有被記下來', stuck.errors.length, 1)
+  }
+
+  // ── ⑩b 面額確認框整段文字只有「YESNO」，要靠容器 class 認出來 ────────────────
+  //    實測回報：`YESNO（容器 .select-main）`。只比對文字的話 strict 會判成「沒見過」
+  //    → 不點 → 卡在那裡。容器 `.select-main` 跟第一層面額選單同一家族。
+  await load(`
+    <div class="layer"><div class="select-main">
+      <button class="van-button"><div>YES</div></button>
+      <button class="van-button"><div>NO</div></button>
+    </div></div>
+    <script>
+      document.querySelector('.select-main button').addEventListener('click',
+        () => document.querySelector('.select-main').remove())
+    </script>`)
+  {
+    const yesno = await dismissUiPopups(page, 'yesno', { strict: true, log: quiet })
+    check('⑩b 沒有文字線索的面額確認框：strict 也認得出來', yesno.dismissed, 1)
+    check('⑩b 不該被當成未知彈窗擋下來', yesno.blocked.length, 0)
+    check('⑩b 畫面上已經關掉了', await page.locator('.select-main').count(), 0)
+  }
+
+  // ── ⑩c 未知彈窗的回報要帶容器 class，否則看不出那是什麼 ─────────────────────
+  await load(UNKNOWN_CONFIRM)
+  {
+    const unknown = await dismissUiPopups(page, 'unknown-cls', { strict: true, log: quiet })
+    check('⑩c 未知彈窗的回報有帶容器 class', /容器 \./.test(unknown.blocked[0] ?? ''), true)
+  }
+
   // ── ⑨ 巢狀開看門狗不可以變成「兩隻手搶同一顆按鈕」──────────────────────────
   //    使用者 2026-09-22 要求把看門狗涵蓋範圍拉到「整段 prepare」之後，
   //    裡面原本那兩個小看門狗就得拿掉。⚠️ 但**不能只靠「記得不要巢狀呼叫」**——
