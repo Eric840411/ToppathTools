@@ -55,6 +55,7 @@ import {
 const pendingTcPublishFailures = new Map<string, number>()
 import uiScreenshotRouter from './routes/ui-screenshot.js'
 import { activeRunners, pendingSourceUpdates, router as machineTestRouter } from './routes/machine-test.js'
+import { dropActiveHeavyTask } from './heavy-task-guard.js'
 import {
   handleScriptedBetAgentDisconnect,
   handleScriptedBetAgentDone,
@@ -234,6 +235,12 @@ app.post('/internal/worker/tasks/finish', (req, res) => {
   if (!task?.id) return res.status(400).json({ ok: false, message: 'missing task id' })
   queuedTasks.delete(task.id)
   runningTasks.delete(task.id)
+  // ⚠️ 不只是「看板上劃掉」——**真正擋派工的那份 activeTasks 也在這個 process 裡**。
+  //    `/api/machine-test/start` 跑在 worker，而 force-clear 跑在 server，
+  //    只清 server 那份的話，查詢會說已清除、派工卻照樣 429（同一個 task id）。
+  if (task.userKey && dropActiveHeavyTask(task.userKey, task.id)) {
+    console.log(`[Worker][task:finish] 同步移除 worker 端的重任務鎖 id=${task.id} user=${task.userKey}`)
+  }
   const elapsedMs = (task.finishedAt ?? Date.now()) - task.startedAt
   console.log(`[Worker][task:finish] ${task.label} (${task.type}) user=${task.userLabel} id=${task.id} elapsedMs=${elapsedMs}`)
   res.json({ ok: true })

@@ -293,6 +293,23 @@ export function listRunningHeavyLocks(type?: string) {
     : db.prepare("SELECT * FROM heavy_tasks WHERE status = 'running'").all() as HeavyTaskRow[]
 }
 
+/**
+ * 把某筆鎖從**這個 process 的記憶體**移除（不動 DB、不再通知別人）。
+ *
+ * ⚠️ 2026-09-22 補這支的原因：`activeTasks` 是**每個 process 各一份**，
+ * 而 server 與 worker 是兩支 process——`/api/heavy-tasks/:id/force-clear` 跑在 server，
+ * `/api/machine-test/start` 卻跑在 **worker**。
+ * 只清 server 那份的話：查 `/heavy-tasks/active` 會說清掉了，
+ * **但下一次派工照樣 429**，而且回的是同一個 task id——看起來像「清除根本沒作用」。
+ * 所以 server 釋放鎖之後，要透過 `/internal/worker/tasks/finish` 叫 worker 也丟掉它。
+ */
+export function dropActiveHeavyTask(userKey: string, id: string): boolean {
+  const current = activeTasks.get(userKey)
+  if (!current || current.id !== id) return false
+  activeTasks.delete(userKey)
+  return true
+}
+
 export function finishHeavyTask(token: HeavyTaskToken | null | undefined) {
   if (!token) return
   const current = activeTasks.get(token.userKey)
