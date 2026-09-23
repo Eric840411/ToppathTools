@@ -30,6 +30,7 @@ import { router as knowledgeRouter } from './routes/knowledge.js'
 import { router as dashboardRouter, dashboardMetricsMiddleware } from './routes/dashboard.js'
 import { router as xianxiaQuotesRouter } from './routes/xianxia-quotes.js'
 import { router as weeklyReportRouter } from './routes/weekly-report.js'
+import { router as larkScheduleRouter } from './routes/lark-schedule.js'
 import { getRequestContext, runWithRequestContext } from './request-context.js'
 import { getAuthAccount } from './auth-session.js'
 
@@ -121,7 +122,17 @@ function shouldProxyPathToWorker(p: string): boolean {
 }
 
 app.use(cors())
-const jsonParser = express.json({ limit: '20mb' })
+const jsonParser = express.json({
+  limit: '20mb',
+  // Lark 卡片回調要對「未經 parse 的 body bytes」驗簽——parse 完再 JSON.stringify 回去，
+  // 鍵順序與空白都可能不同，簽章一定對不上。只對回調那條路徑留原始 bytes，
+  // 其他請求不留（20mb 上限下全留會白白多一份記憶體）。
+  verify: (req, _res, buf) => {
+    if (req.url?.startsWith('/api/lark-schedule/callback')) {
+      (req as unknown as { rawBody?: Buffer }).rawBody = Buffer.from(buf)
+    }
+  },
+})
 app.use((req, res, next) => {
   if (shouldProxyPathToWorker(req.path)) return next()
   return jsonParser(req, res, next)
@@ -342,6 +353,7 @@ app.use(scriptedBetRouter)
 app.use(knowledgeRouter)
 app.use(xianxiaQuotesRouter)
 app.use(weeklyReportRouter)
+app.use(larkScheduleRouter)
 
 // ─── Static Files (production build) ──────────────────────────────────────────
 
@@ -467,6 +479,12 @@ server.listen(port, '0.0.0.0', () => {
 
   // 啟動定時告警
   restartCron()
+
+  // 啟動 Lark 排程提醒的 tick。只有在配置頁把 enabled 打開之後才會真的做事，
+  // 所以這裡無條件啟動沒有副作用（runTick 第一件事就是看 enabled）。
+  import('./lib/lark-schedule-runner.js')
+    .then(({ startScheduleTick }) => startScheduleTick())
+    .catch((error) => console.error('[lark-schedule] tick 啟動失敗:', error))
 
   // 啟動 Discord Bot
   if (process.env.DISCORD_BOT_TOKEN) {

@@ -30,6 +30,7 @@ import { BREAKTHROUGH_REALMS, CultivationBreakthroughOverlay } from './component
 const MeterReconcilePage = lazy(() => import('./pages/MeterReconcilePage').then(m => ({ default: m.MeterReconcilePage })))
 const EgmDayCountPage = lazy(() => import('./pages/EgmDayCountPage').then(m => ({ default: m.EgmDayCountPage })))
 const WeeklyReportPage = lazy(() => import('./pages/WeeklyReportPage').then(m => ({ default: m.WeeklyReportPage })))
+const LarkSchedulePage = lazy(() => import('./pages/LarkSchedulePage').then(m => ({ default: m.LarkSchedulePage })))
 import ChangelogModal from './components/ChangelogModal'
 import GeminiSettingsModal from './components/GeminiSettingsModal'
 import AiAgentMonitorWidget from './components/AiAgentMonitorWidget'
@@ -46,8 +47,8 @@ import './App.css'
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
   | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
-  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'meter-reconcile' | 'egm-daycount' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report'
-type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge' | 'discord-notify' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report'
+  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'meter-reconcile' | 'egm-daycount' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report' | 'lark-schedule'
+type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge' | 'discord-notify' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report' | 'lark-schedule'
 
 type SubTab = {
   id: TabId
@@ -98,6 +99,15 @@ const groups: Group[] = [
     iconClass: 'tab-icon--lark',
     tab: 'weekly-report',
     description: '貼上本週 Lark Base 網址，選擇成員與主要專案，混寫 Jira 摘要與手記後送出一列紀錄',
+  },
+  {
+    id: 'lark-schedule',
+    label: '排程提醒',
+    themeLabel: '時辰法旨',
+    icon: 'S',
+    iconClass: 'tab-icon--lark',
+    tab: 'lark-schedule',
+    description: '多維表格當行程表，到點把提醒卡片推進 Lark 群，點卡片上的「完成」直接回寫狀態',
   },
   {
     id: 'osm-tools',
@@ -928,6 +938,7 @@ function App() {
             {currentGroup?.id === 'jira' && <JiraPage account={globalAccount} isAdmin={globalAccount?.role === 'admin'} permissions={permissions} />}
             {currentGroup?.id === 'lark' && <LarkPage themeMode={themeMode} />}
             {currentGroup?.id === 'weekly-report' && <WeeklyReportPage themeMode={themeMode} />}
+            {currentGroup?.id === 'lark-schedule' && <LarkSchedulePage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'osm' && <OsmPage />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'machinetest' && <MachineTestPage account={globalAccount} />}
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'imagecheck' && <ImageCheckPage />}
