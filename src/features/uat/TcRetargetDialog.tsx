@@ -13,6 +13,11 @@ import type { RetargetPlanRow, RetargetTc, RetargetBinding } from '../../../shar
  *    配不上的留白，**不能保留舊的回寫目標**（舊 recordId 指向舊表，回寫會寫錯地方且不報錯）。
  * ⚠️ **彈窗一定走 `createPortal` 掛 `document.body`**——這個版面的祖先有 `backdrop-filter`，
  *    `position: fixed` 會被困在容器裡然後被裁掉。
+ * 🚨 **而且要自己的 z-index。**這個彈窗是**從錄製工作台裡面**打開的，而那個工作台
+ *    （`.uat-multi-overlay`）是 `z-index: 11000`。沿用 `.uat-tc-modal` 的 10050 的話，
+ *    彈窗會開在**叫它出來的那個視窗底下**——節點在、`isVisible()` 也回 true，
+ *    但畫面上完全看不到，點下去打到的是後面那層的 `<select>`。
+ *    ⚠️ 使用者的症狀就是「按了沒反應／我要在哪改綁？」。
  */
 
 type Kind = 'backend' | 'frontend'
@@ -127,7 +132,7 @@ export function TcRetargetDialog({ kind, scriptId, scriptName, currentTableId, o
   const unmatchedCount = (plan?.rows ?? []).filter(r => !decisions[r.old.recordId]).length
 
   return createPortal(
-    <div className="uat-studio uat-tc-modal" role="dialog" aria-modal="true" aria-label="改綁 TC 表格"
+    <div className="uat-studio uat-tc-modal uat-retarget-overlay" role="dialog" aria-modal="true" aria-label="改綁 TC 表格"
       onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="uat-tc-picker uat-retarget">
         <div className="uat-tc-picker-head">

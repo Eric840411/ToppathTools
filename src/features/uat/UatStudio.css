@@ -1677,6 +1677,10 @@ button.uat-launch-block { text-align: left; }
 /* ─── 改綁 TC 表格 ─────────────────────────────────────────────────────────── */
 /* 沿用 uat-tc-picker 的框，只補這個流程自己的排版。
    ⚠️ 配色不自己發明，走既有變數／同色系，不然兩個彈窗看起來像不同產品。 */
+/* 🚨 這個彈窗是從錄製工作台（`.uat-multi-overlay`，z-index 11000）裡面打開的。
+   沿用 `.uat-tc-modal` 的 10050 會**開在叫它出來的視窗底下**——看不到、也點不到。
+   ⚠️ 不要改 `.uat-tc-modal` 本身的 z-index：那會連帶動到其他從面板開的彈窗。 */
+.uat-retarget-overlay { z-index: 11100; }
 .uat-retarget { width: min(960px, 94vw); max-height: 88vh; display: flex; flex-direction: column; }
 .uat-retarget-body { overflow: auto; padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 12px; }
 .uat-retarget-url { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: #94a3b8; }
