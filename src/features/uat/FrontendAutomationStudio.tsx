@@ -693,7 +693,7 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
             {bindings.length ? <>已綁 <b>{bindings.length}</b> 筆 TC</> : <>未綁 Lark TC（不回寫）</>}
             {targetAgent && <> · 跑在 <b>{targetAgent}</b></>}
             {/* ⚠️ 只有**已存檔**的腳本能改綁：改綁是伺服器端動作（要備份、要驗目標表） */}
-            {selectedId && <> · <button type="button" className="uat-linkish" onClick={() => setRetargetOpen(true)}>改綁 TC 表格</button></>}
+            {selectedId && <> · <button type="button" className="uat-btn is-quiet is-mini" onClick={() => setRetargetOpen(true)}>改綁 TC 表格</button></>}
           </div>
           {selectedId && <TcRetargetDialog kind="frontend" scriptId={selectedId}
             scriptName={name || selectedId} currentTableId={tableIdFromUrl(larkUrl)}
