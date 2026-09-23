@@ -179,9 +179,15 @@ export function ensureClaimTable(): void {
   `)
 }
 
-export type ClaimResult =
-  | { ok: true; claimed: true }
-  | { ok: false; claimed: false; reason: 'taken'; existing: { status: string; action: string; actorName: string | null; updatedAt: number } }
+export type ClaimExisting = { status: string; action: string; actorName: string | null; updatedAt: number }
+
+/**
+ * ⚠️ 刻意**不**寫成可辨識聯合（`{claimed:true} | {claimed:false, existing:...}`）。
+ * server 端走的是 `tsconfig.server.json`，那份 `strict: false` → 沒有 strictNullChecks
+ * → 字面量 boolean 不會被當成判別式，`if (!r.claimed)` 收窄不了，存取 `existing` 會報
+ * TS2339。用「一個形狀 + optional 欄位」在兩種設定下都成立。
+ */
+export type ClaimResult = { claimed: boolean; existing?: ClaimExisting }
 
 /**
  * 原子認領。搶到回 claimed:true；已經有人搶走（且不是失敗狀態）回 taken。
@@ -201,7 +207,7 @@ export function claimOccurrence(args: {
 
     if (existing && existing.status !== 'failed') {
       return {
-        ok: false, claimed: false, reason: 'taken',
+        claimed: false,
         existing: {
           status: existing.status, action: existing.action,
           actorName: existing.actor_name, updatedAt: existing.updated_at,
@@ -217,7 +223,7 @@ export function claimOccurrence(args: {
       args.tableId, args.occurrenceKey, args.recordId, args.action,
       args.actor, args.actorName, args.messageId ?? null, now, now,
     )
-    return { ok: true, claimed: true }
+    return { claimed: true }
   })
   return tx()
 }

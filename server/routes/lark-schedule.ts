@@ -168,13 +168,16 @@ router.post('/api/lark-schedule/callback', async (req, res) => {
   const result = await applyCardAction({ recordId, action, openId, messageId })
   if (!result.ok) {
     return res.json({
-      toast: { type: result.card ? 'info' : 'error', content: result.toast },
+      toast: { type: result.card ? 'info' : 'error', content: result.toast ?? '處理失敗，請再試一次' },
       ...(result.card ? { card: { type: 'raw', data: result.card } } : {}),
     })
   }
   return res.json({
-    toast: { type: 'success', content: `已記錄：${result.status}` },
-    card: { type: 'raw', data: resultCard(result.name, result.status, result.who, result.at) },
+    toast: { type: 'success', content: `已記錄：${result.status ?? ''}` },
+    card: {
+      type: 'raw',
+      data: resultCard(result.name ?? '(未命名)', result.status ?? '已完成', result.who ?? '(未知)', result.at ?? Date.now()),
+    },
   })
 })
 

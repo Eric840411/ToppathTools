@@ -101,15 +101,6 @@ const groups: Group[] = [
     description: '貼上本週 Lark Base 網址，選擇成員與主要專案，混寫 Jira 摘要與手記後送出一列紀錄',
   },
   {
-    id: 'lark-schedule',
-    label: '排程提醒',
-    themeLabel: '時辰法旨',
-    icon: 'S',
-    iconClass: 'tab-icon--lark',
-    tab: 'lark-schedule',
-    description: '多維表格當行程表，到點把提醒卡片推進 Lark 群，點卡片上的「完成」直接回寫狀態',
-  },
-  {
     id: 'osm-tools',
     label: 'OSM Tools',
     themeLabel: '靈機巡檢',
@@ -297,6 +288,16 @@ const discordNotifyGroup: Group = {
   iconClass: 'tab-icon--history',
   tab: 'discord-notify',
   description: '設定 AutoSpin 執行狀態即時彙報用的 Discord Webhook',
+}
+
+const larkScheduleGroup: Group = {
+  id: 'lark-schedule',
+  label: '排程提醒',
+  themeLabel: '時辰法旨',
+  icon: 'S',
+  iconClass: 'tab-icon--history',
+  tab: 'lark-schedule',
+  description: '多維表格當行程表，到點把提醒卡片推進 Lark 群，點卡片上的「完成」直接回寫狀態',
 }
 
 const cultivationBoardGroup: Group = {
@@ -558,10 +559,11 @@ function App() {
   const visibleHistory = filterGroup(historyGroup)
   const visibleKnowledge = filterGroup(knowledgeGroup)
   const visibleDiscordNotify = filterGroup(discordNotifyGroup)
+  const visibleLarkSchedule = filterGroup(larkScheduleGroup)
   const visibleCultivationBoard = themeMode === 'xianxia' ? filterGroup(cultivationBoardGroup) : null
   const visibleXianxiaQuotes = themeMode === 'xianxia' ? filterGroup(xianxiaQuotesGroup) : null
   const visibleSysadmin = canAccess('sysadmin') ? sysadminGroup : null
-  const allVisible = [dashboardGroup, ...visibleGroups, ...(visibleSettings ? [visibleSettings] : []), ...(visibleHistory ? [visibleHistory] : []), ...(visibleKnowledge ? [visibleKnowledge] : []), ...(visibleDiscordNotify ? [visibleDiscordNotify] : []), ...(visibleCultivationBoard ? [visibleCultivationBoard] : []), ...(visibleXianxiaQuotes ? [visibleXianxiaQuotes] : []), ...(visibleSysadmin ? [visibleSysadmin] : [])]
+  const allVisible = [dashboardGroup, ...visibleGroups, ...(visibleSettings ? [visibleSettings] : []), ...(visibleHistory ? [visibleHistory] : []), ...(visibleKnowledge ? [visibleKnowledge] : []), ...(visibleDiscordNotify ? [visibleDiscordNotify] : []), ...(visibleLarkSchedule ? [visibleLarkSchedule] : []), ...(visibleCultivationBoard ? [visibleCultivationBoard] : []), ...(visibleXianxiaQuotes ? [visibleXianxiaQuotes] : []), ...(visibleSysadmin ? [visibleSysadmin] : [])]
 
   // Redirect activeGroup/activeTab if current selection is no longer accessible
   const currentGroup = allVisible.find(g => g.id === activeGroup) ?? allVisible[0]
@@ -731,6 +733,17 @@ function App() {
             >
               <span className={`tab-icon ${discordNotifyGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="notification" size={18} /> : discordNotifyGroup.icon}</span>
               <NavLabel group={discordNotifyGroup} classic={themeMode === 'classic'} />
+            </button>
+          )}
+
+          {visibleLarkSchedule && (
+            <button
+              type="button"
+              className={`sidebar-nav-item${currentGroup?.id === larkScheduleGroup.id ? ' sidebar-nav-item--active' : ''}`}
+              onClick={() => handleGroupClick(larkScheduleGroup)}
+            >
+              <span className={`tab-icon ${larkScheduleGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="notification" size={18} /> : larkScheduleGroup.icon}</span>
+              <NavLabel group={larkScheduleGroup} classic={themeMode === 'classic'} />
             </button>
           )}
 

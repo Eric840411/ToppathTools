@@ -94,6 +94,29 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
 const fmt = (ms: number | null) =>
   ms == null ? '—' : new Date(ms).toLocaleString('zh-TW', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
 
+/**
+ * ⚠️ 不能直接 `.then(r => r.json())`。後端還沒重啟、路由不存在時，回來的是 SPA 的
+ * index.html，`json()` 會丟 SyntaxError 變成 unhandled rejection——畫面永遠停在
+ * 「載入中…」，只有 console 有一行看不懂的 JSON.parse 錯誤。要回可讀的訊息。
+ */
+async function api<T>(url: string, init?: RequestInit): Promise<{ ok: true; data: T } | { ok: false; message: string }> {
+  let res: Response
+  try {
+    res = await fetch(url, init)
+  } catch (e) {
+    return { ok: false, message: `連不上伺服器：${e instanceof Error ? e.message : String(e)}` }
+  }
+  const text = await res.text()
+  if (text.trimStart().startsWith('<')) {
+    return { ok: false, message: `後端沒有這個路由（${res.status}）——server 可能還沒重啟到有排程提醒的版本` }
+  }
+  try {
+    return { ok: true, data: JSON.parse(text) as T }
+  } catch {
+    return { ok: false, message: `回應不是 JSON（${res.status}）：${text.slice(0, 80)}` }
+  }
+}
+
 export function LarkSchedulePage() {
   const [s, setS] = useState<Settings | null>(null)
   const [saved, setSaved] = useState<Settings | null>(null)
@@ -105,19 +128,22 @@ export function LarkSchedulePage() {
   const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null)
 
   const load = useCallback(async () => {
-    const r = await fetch('/api/lark-schedule/settings').then(x => x.json())
-    if (r.ok) {
-      setS(r.settings)
-      setSaved(r.settings)
-      setTick(r.lastTick)
-      setCallbackConfigured(r.callbackConfigured)
+    const r = await api<{ ok: boolean; settings: Settings; lastTick: TickInfo | null; callbackConfigured: boolean }>(
+      '/api/lark-schedule/settings')
+    if (r.ok && r.data.ok) {
+      setS(r.data.settings)
+      setSaved(r.data.settings)
+      setTick(r.data.lastTick)
+      setCallbackConfigured(r.data.callbackConfigured)
+    } else if (!r.ok) {
+      setMsg({ text: r.message, ok: false })
     }
     setLoading(false)
   }, [])
 
   const loadRows = useCallback(async () => {
-    const r = await fetch('/api/lark-schedule/records').then(x => x.json()).catch(() => null)
-    if (r?.ok) setRows(r.items)
+    const r = await api<{ ok: boolean; items: RecordRow[] }>('/api/lark-schedule/records')
+    if (r.ok && r.data.ok) setRows(r.data.items)
   }, [])
 
   useEffect(() => { void load(); void loadRows() }, [load, loadRows])
@@ -130,32 +156,38 @@ export function LarkSchedulePage() {
     if (!s) return
     setBusy('save')
     try {
-      const r = await fetch('/api/lark-schedule/settings', {
+      const r = await api<{ ok: boolean; settings: Settings; message?: string }>('/api/lark-schedule/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(s),
-      }).then(x => x.json())
-      if (r.ok) { setS(r.settings); setSaved(r.settings); setMsg({ text: '已儲存', ok: true }) }
-      else setMsg({ text: r.message ?? '儲存失敗', ok: false })
+      })
+      if (!r.ok) { setMsg({ text: r.message, ok: false }); return }
+      if (r.data.ok) { setS(r.data.settings); setSaved(r.data.settings); setMsg({ text: '已儲存', ok: true }) }
+      else setMsg({ text: r.data.message ?? '儲存失敗', ok: false })
     } finally { setBusy(null) }
+  }
+
+  type ActResult = {
+    ok: boolean; message?: string; created?: number; messageId?: string
+    summary?: { pushed: number; announced: number; stale: number; expanded: number; error?: string }
   }
 
   const act = async (path: string, label: string) => {
     setBusy(path)
     try {
-      const r = await fetch(`/api/lark-schedule/${path}`, { method: 'POST' }).then(x => x.json())
-      if (r.ok) {
-        const detail = r.summary
-          ? `推播 ${r.summary.pushed}、回報 ${r.summary.announced}、逾期 ${r.summary.stale}、展開 ${r.summary.expanded}`
-          : r.created != null ? `新建 ${r.created} 筆`
-          : r.messageId ? `已送出（${r.messageId}）` : ''
+      const r = await api<ActResult>(`/api/lark-schedule/${path}`, { method: 'POST' })
+      if (!r.ok) { setMsg({ text: r.message, ok: false }); return }
+      const d = r.data
+      if (d.ok) {
+        const detail = d.summary
+          ? `推播 ${d.summary.pushed}、回報 ${d.summary.announced}、逾期 ${d.summary.stale}、展開 ${d.summary.expanded}`
+          : d.created != null ? `新建 ${d.created} 筆`
+          : d.messageId ? `已送出（${d.messageId}）` : ''
         setMsg({ text: `${label}完成${detail ? ` — ${detail}` : ''}`, ok: true })
         void load(); void loadRows()
       } else {
-        setMsg({ text: r.message ?? r.summary?.error ?? `${label}失敗`, ok: false })
+        setMsg({ text: d.message ?? d.summary?.error ?? `${label}失敗`, ok: false })
       }
-    } catch (e) {
-      setMsg({ text: `${label}失敗：${e instanceof Error ? e.message : String(e)}`, ok: false })
     } finally { setBusy(null) }
   }
 

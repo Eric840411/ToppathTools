@@ -45,6 +45,7 @@ const PAGE_META: { key: string; label: string; group: string }[] = [
   { key: 'knowledge',   label: '知識庫',               group: '系統' },
   { key: 'local-agent', label: 'Local Agent',          group: '系統' },
   { key: 'discord-notify', label: 'Discord 通知設定',   group: '系統' },
+  { key: 'lark-schedule', label: '排程提醒',           group: '系統' },
   { key: 'cultivation-board', label: '境界排行榜',      group: '系統' },
   { key: 'xianxia-quotes',    label: '每日仙語管理',    group: '系統' },
   { key: 'jira-ai-format', label: 'AI 排版評論（批量評論）', group: '功能開關' },

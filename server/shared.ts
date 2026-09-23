@@ -2333,6 +2333,7 @@ export const ALL_PAGE_KEYS = [
   'autospin','url-pool','jackpot','osm-uat',
   'gs-imgcompare','gs-logchecker','gs-bonusv2','history','knowledge','local-agent',
   'ui-screenshot','discord-notify','meter-reconcile','egm-daycount','cultivation-board','xianxia-quotes','weekly-report',
+  'lark-schedule',
   // 功能開關（不是頁面）：沿用同一套權限 key 機制，讓後台權限頁不用另外長出第二套 UI。
   // canAccess() 只查 tabId，多出來的 key 不會影響側邊欄。
   'jira-ai-format','jira-ai-review',

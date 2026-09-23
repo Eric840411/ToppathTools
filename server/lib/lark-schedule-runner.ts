@@ -87,9 +87,18 @@ async function announceOne(rec: BitableRecord): Promise<boolean> {
 
 // ─── 互動按鈕的回寫（由回調端點呼叫） ───────────────────────────────────────
 
-export type ApplyResult =
-  | { ok: true; name: string; status: string; who: string; at: number }
-  | { ok: false; toast: string; card?: Record<string, unknown> }
+/**
+ * ⚠️ 同 ClaimResult：不用可辨識聯合。`tsconfig.server.json` 是 `strict: false`，
+ * 沒有 strictNullChecks 就不會用字面量 boolean 收窄，`if (!r.ok)` 之後存取
+ * `r.toast` 會報 TS2339。改成單一形狀 + optional 欄位。
+ */
+export type ApplyResult = {
+  ok: boolean
+  /** ok:true 時有 */
+  name?: string; status?: string; who?: string; at?: number
+  /** ok:false 時有 */
+  toast?: string; card?: Record<string, unknown>
+}
 
 /**
  * ⚠️ 卡片回調是同步的，沒有補推機制——這裡失敗就是失敗，
@@ -114,11 +123,12 @@ export async function applyCardAction(args: {
 
   if (!claim.claimed) {
     const prev = claim.existing
-    const prevStatus = prev.action === 'cancel' ? '已取消' : '已完成'
+    const prevStatus = prev?.action === 'cancel' ? '已取消' : '已完成'
+    const prevWho = prev?.actorName ?? '(未知)'
     return {
       ok: false,
-      toast: `已經由 ${prev.actorName ?? '其他人'} 回報過了`,
-      card: resultCard(name, prevStatus, prev.actorName ?? '(未知)', prev.updatedAt),
+      toast: `已經由 ${prevWho} 回報過了`,
+      card: resultCard(name, prevStatus, prevWho, prev?.updatedAt ?? Date.now()),
     }
   }
 
