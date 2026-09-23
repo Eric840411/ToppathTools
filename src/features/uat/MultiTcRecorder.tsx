@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { recordingSaveErrors } from '../../../shared/uat-recording-schema'
+import { TcRetargetDialog } from './TcRetargetDialog'
 import { SELECTOR_CHECK_LABEL } from '../../../shared/uat-selector-check'
 import { stepDependencyIssues } from '../../../server/uat-runner/step-dependencies.js'
 import { MultiTcResults, type MultiResult } from './MultiTcResults'
@@ -61,6 +62,7 @@ export function MultiTcRecorder({ open, onClose, tcs, larkUrl, agentId, running,
   const [tcLoading, setTcLoading] = useState(false)
   const [tcError, setTcError] = useState('')
   const [tcRefresh, setTcRefresh] = useState(0)
+  const [retargetOpen, setRetargetOpen] = useState(false)
   const [selected, setSelected] = useState<number | null>(null)
   const [addAction, setAddAction] = useState('screenshot')
   const [addOwner, setAddOwner] = useState('')
@@ -299,7 +301,23 @@ export function MultiTcRecorder({ open, onClose, tcs, larkUrl, agentId, running,
         <aside className="uat-multi-bindings">
           <h3>1. 綁定 Lark TC</h3><p>最多 20 筆。勾選下方 TC 即可加入目前腳本。</p>
           <small>表格：{script.tableId || '尚未選擇'}</small>
-          <button className="uat-btn is-quiet" disabled={tcLoading || !script.tableId || !!recId || busy} onClick={() => setTcRefresh(n => n + 1)}>{tcLoading ? '載入 TC 中…' : '重新載入 Lark TC'}</button>
+          <div className="uat-multi-tablebar">
+            <button className="uat-btn is-quiet" disabled={tcLoading || !script.tableId || !!recId || busy} onClick={() => setTcRefresh(n => n + 1)}>{tcLoading ? '載入 TC 中…' : '重新載入 Lark TC'}</button>
+            {/* ⚠️ 只有**已存檔**的腳本能改綁：改綁是伺服器端動作（要備份、要驗目標表），
+                   沒有 id 就沒有東西可以改。新腳本直接在主畫面填新網址即可。 */}
+            <button className="uat-btn is-quiet" disabled={!script.id || !!recId || busy} title={script.id ? '把這份腳本改綁到另一張 Lark TC 表' : '先儲存腳本才能改綁表格'}
+              onClick={() => setRetargetOpen(true)}>改綁 TC 表格</button>
+          </div>
+          {script.id && <TcRetargetDialog kind="backend" scriptId={script.id} scriptName={script.title}
+            currentTableId={script.tableId} open={retargetOpen} onClose={() => setRetargetOpen(false)}
+            onApplied={() => {
+              setRetargetOpen(false)
+              // ⚠️ 改綁是**伺服器端**改的（表格／綁定／步驟歸屬三樣一起換）。
+              //    不重新載入的話畫面還是舊的，再按一次儲存就會把伺服器的結果蓋回去。
+              void loadLibrary().then(() => request(`/api/osm-uat/recorded-scripts`)
+                .then(d => { const fresh = (d.scripts as Script[]).find(x => x.id === script.id); if (fresh) setScript(fresh) })
+                .catch(() => {}))
+            }} />}
           {tcError && <p role="alert">{tcError}。可重新載入；已綁定 TC 與步驟仍保留。</p>}
           <input aria-label="搜尋可綁定 TC" placeholder="搜尋編號或描述" value={query} onChange={e => setQuery(e.target.value)} />
           <div className="uat-multi-candidates">{candidates.map(tc => <label key={tc.recordId}>

@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { BlockEditor, needsTc, tcShortLabel, type BackendSnippetOption, type TcBindingOption } from './BlockEditor'
 import { NetworkPanel, type UatStatsPayload } from './NetworkPanel'
 import { SELECTOR_CHECK_LABEL } from '../../../shared/uat-selector-check'
+import { TcRetargetDialog } from './TcRetargetDialog'
 import { compileExecutableSteps, countExecutableSteps, createStep, newStepId, parseSteps, serializeSteps } from './step-model'
 import { createPauseGate } from './pause-gate'
 // ⚠️ 排隊的規則跟 Backend 共用同一支——各寫一份的話，「session 對不上要停」
@@ -64,6 +65,7 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
    * ⚠️ 沒綁的腳本照舊能跑，只是不回寫——空的不代表壞掉。
    */
   const [larkUrl, setLarkUrl] = useState('')
+  const [retargetOpen, setRetargetOpen] = useState(false)
   const [bindings, setBindings] = useState<TcBindingOption[]>([])
   /** Lark 上這張表現有的 TC（給勾選用）。載入失敗要講，不要留一個空清單讓人以為沒 TC */
   const [tcPool, setTcPool] = useState<{ recordId: string; number: string; text: string }[]>([])
@@ -690,7 +692,18 @@ export function FrontendAutomationStudio({ platform, themeMode, agentId }: Props
           <div className="uat-backend-launch-meta">
             {bindings.length ? <>已綁 <b>{bindings.length}</b> 筆 TC</> : <>未綁 Lark TC（不回寫）</>}
             {targetAgent && <> · 跑在 <b>{targetAgent}</b></>}
+            {/* ⚠️ 只有**已存檔**的腳本能改綁：改綁是伺服器端動作（要備份、要驗目標表） */}
+            {selectedId && <> · <button type="button" className="uat-linkish" onClick={() => setRetargetOpen(true)}>改綁 TC 表格</button></>}
           </div>
+          {selectedId && <TcRetargetDialog kind="frontend" scriptId={selectedId}
+            scriptName={name || selectedId} currentTableId={tableIdFromUrl(larkUrl)}
+            open={retargetOpen} onClose={() => setRetargetOpen(false)}
+            onApplied={() => {
+              setRetargetOpen(false)
+              // ⚠️ 表格／綁定／步驟歸屬三樣都是**伺服器端**改的，一定要重新載入；
+              //    不重載的話畫面還是舊的，下一次存檔會把伺服器的結果蓋回去。
+              void loadScripts(selectedId)
+            }} />}
           {recordSessionId ? <>
             <button type="button" className="uat-btn is-quiet" onClick={togglePause} disabled={pausePending}>{pausePending ? '同步中…' : recPaused ? copy.resumeRecord : copy.pauseRecord}</button>
             <button type="button" className="uat-btn is-danger" onClick={stopRecording}>{copy.stopRecord}</button>

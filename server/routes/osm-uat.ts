@@ -63,7 +63,12 @@ import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskTo
 import { agentUpdateStatus } from './machine-test.js'
 import { registerBackendSnippetRoutes } from '../uat-backend-snippets.js'
 import { registerUatScheduleRoutes, startScheduleTicker } from '../uat-schedules.js'
-import { registerRecordedScriptRoutes, getRecordedScript, getRecordedScriptMeta, acquireScriptLock, releaseScriptLock, rememberRunContext, forgetRunContext, captureRecordedScriptResult, tcBindingSchema } from '../uat-recorded-scripts.js'
+import {
+  performRetarget, listRetargetBackups, getRetargetBackup, restoreFromSnapshot,
+  type RetargetKind,
+} from '../uat-tc-retarget.js'
+import { planTcRetarget, type RetargetBinding } from '../../shared/uat-tc-retarget.js'
+import { registerRecordedScriptRoutes, saveRecordedScriptDoc, getRecordedScript, getRecordedScriptMeta, acquireScriptLock, releaseScriptLock, rememberRunContext, forgetRunContext, captureRecordedScriptResult, tcBindingSchema } from '../uat-recorded-scripts.js'
 import { validateMultiTcScript } from '../uat-runner/multi-tc.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -433,6 +438,223 @@ router.get('/api/osm-uat/scan', async (req, res, next) => {
   } catch (err) {
     next(err)
   }
+})
+
+/**
+ * 撈某張 Lark 表的 TC 清單，只取改綁 TC 表格需要的欄位。
+ *
+ * ⚠️ **改綁流程一定要在伺服器端重撈一次**，不能只信前端傳來的 recordId。
+ *    前端傳錯（或表格根本換掉了）的話，回寫會寫到別張表的記錄上——**而且不會報錯**。
+ * ⚠️ 欄位名沿用 `/scan` 那一套（`編號` / `任務`），兩邊必須一致；
+ *    各寫一份的話會出現「掃描看得到、改綁看不到」這種對不起來的狀況。
+ */
+export interface LarkTcListResult {
+  ok: boolean
+  /** ok:true 時有 */
+  tableId?: string
+  tcs?: Array<{ recordId: string; number: string; text: string; sub: string }>
+  /** ok:false 時有 */
+  message?: string
+}
+
+/**
+ * ⚠️ **不要寫成可辨識聯合**（`{ok:true,…} | {ok:false,…}`）。`tsconfig.server.json` 是
+ *    `strict: false`，沒有 strictNullChecks 就不會用字面量 boolean 收窄，
+ *    `if (!r.ok)` 之後存取 `r.message` 會報 TS2339。
+ *    這個坑今天已經在排程提醒那邊踩過一次（見 `docs/features/28-lark-schedule.md`），
+ *    我寫完那份文件之後**自己又踩了一次**——所以再寫一遍在這裡。
+ */
+export async function fetchLarkTcList(larkUrl: string): Promise<LarkTcListResult> {
+  const parsed = parseLarkBitableUrl(larkUrl)
+  if (!parsed) return { ok: false, message: 'Lark 網址解析不出 app token 或 table id' }
+  try {
+    const records = await fetchLarkTableRecords(parsed.appToken, parsed.tableId)
+    const tcs = records.map(f => ({
+      recordId: String(f.__recordId ?? ''),
+      number: String(f['編號'] ?? '').trim(),
+      text: String(f['任務'] ?? f['測試項目'] ?? f['任務描述'] ?? f['描述'] ?? f['內容'] ?? '').slice(0, 300),
+      sub: String(f['任務子類型'] ?? ''),
+    })).filter(t => t.recordId)
+    return { ok: true, tableId: parsed.tableId, tcs }
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+
+// ─── 改綁 TC 表格（Backend 與 H5／PC 共用同一組端點）────────────────────────────
+//
+// 🚨 **為什麼兩種腳本的端點都放在這個檔案**：改綁要在伺服器端重撈目標表的 TC
+//    （`fetchLarkTcList` 在這裡），而 `osm-uat.ts` 已經 import 了 `uat-recorded-scripts.ts`。
+//    反過來讓那邊 import 這裡會成環；各抄一份 Lark 讀取又會漂移（欄位名一改就
+//    變成「掃描看得到、改綁看不到」）。所以兩種腳本都從這裡進，用 `kind` 分流。
+//
+// ⚠️ H5／PC 的腳本直接走 SQL 讀寫 `frontend_auto_scripts`，不經過 `frontend-auto.ts`——
+//    只是為了不製造第二個 import 方向。欄位語義跟那邊的 PUT 一致。
+
+type RetargetScript = {
+  kind: RetargetKind
+  id: string
+  name: string
+  larkUrl: string
+  tableId: string
+  bindings: RetargetBinding[]
+  steps: Array<{ tcId?: string | null }>
+  revision?: number
+}
+
+function loadRetargetScript(kind: RetargetKind, id: string): RetargetScript | null {
+  if (kind === 'backend') {
+    const meta = getRecordedScriptMeta(id)
+    const doc = getRecordedScript(id)
+    if (!doc || !meta) return null
+    return {
+      kind, id, name: doc.title, larkUrl: doc.larkUrl, tableId: doc.tableId,
+      bindings: (doc.bindings ?? []) as RetargetBinding[],
+      steps: (doc.steps ?? []) as Array<{ tcId?: string | null }>,
+      revision: meta.revision,
+    }
+  }
+  const row = db.prepare('SELECT id, name, lark_url, table_id, bindings, steps FROM frontend_auto_scripts WHERE id = ?')
+    .get(id) as { id: string; name: string; lark_url: string; table_id: string; bindings: string; steps: string } | undefined
+  if (!row) return null
+  const parse = <T>(raw: string, fallback: T): T => { try { return JSON.parse(raw) as T } catch { return fallback } }
+  return {
+    kind, id: row.id, name: row.name, larkUrl: row.lark_url, tableId: row.table_id,
+    bindings: parse<RetargetBinding[]>(row.bindings, []),
+    steps: parse<Array<{ tcId?: string | null }>>(row.steps, []),
+  }
+}
+
+function saveRetargetScript(script: RetargetScript, next: {
+  larkUrl: string; tableId: string; bindings: RetargetBinding[]; steps: Array<{ tcId?: string | null }>
+}, actor: string): { ok: boolean; message?: string } {
+  if (script.kind === 'backend') {
+    const doc = getRecordedScript(script.id)
+    if (!doc) return { ok: false, message: '腳本不存在' }
+    const updated = { ...doc, larkUrl: next.larkUrl, tableId: next.tableId, bindings: next.bindings, steps: next.steps }
+    // ⚠️ 樂觀鎖照走。改綁期間別人也在編同一份的話，這裡要失敗而不是覆蓋掉對方
+    const saved = saveRecordedScriptDoc(updated as never, actor, script.revision ?? 1)
+    return saved.ok ? { ok: true } : { ok: false, message: '腳本已被其他人修改（版本不符），請重新載入再試' }
+  }
+  db.prepare('UPDATE frontend_auto_scripts SET lark_url = ?, table_id = ?, bindings = ?, steps = ?, updated_at = ? WHERE id = ?')
+    .run(next.larkUrl, next.tableId, JSON.stringify(next.bindings), JSON.stringify(next.steps), Date.now(), script.id)
+  return { ok: true }
+}
+
+function retargetKind(raw: unknown): RetargetKind | null {
+  return raw === 'backend' || raw === 'frontend' ? raw : null
+}
+
+/**
+ * 預覽：撈目標表的 TC，產生「舊綁定 → 新 TC」的**建議**配對。
+ * ⚠️ 這支**不會改任何東西**。套用要另外呼叫 `/retarget/apply`。
+ */
+router.post('/api/osm-uat/retarget/plan', writeLimiter, async (req, res, next) => {
+  try {
+    const account = getAuthAccount(req)
+    if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+    const body = req.body as { kind?: unknown; scriptId?: unknown; newLarkUrl?: unknown }
+    const kind = retargetKind(body.kind)
+    const scriptId = String(body.scriptId ?? '')
+    const newLarkUrl = String(body.newLarkUrl ?? '').trim()
+    if (!kind || !scriptId || !newLarkUrl) return res.status(400).json({ ok: false, message: '缺少 kind／scriptId／newLarkUrl' })
+
+    const script = loadRetargetScript(kind, scriptId)
+    if (!script) return res.status(404).json({ ok: false, message: '找不到腳本' })
+
+    const list = await fetchLarkTcList(newLarkUrl)
+    if (!list.ok) return res.status(400).json({ ok: false, message: `讀不到目標表：${list.message ?? '未知錯誤'}` })
+    const newTcs = list.tcs ?? []
+    const newTableId = list.tableId ?? ''
+    if (newTableId === script.tableId) {
+      return res.status(400).json({ ok: false, message: '目標表格跟目前這張是同一張，不需要改綁' })
+    }
+
+    res.json({
+      ok: true,
+      newTableId,
+      newTcCount: newTcs.length,
+      rows: planTcRetarget(script.bindings, newTcs),
+      newTcs,
+      current: { tableId: script.tableId, larkUrl: script.larkUrl, bindingCount: script.bindings.length },
+    })
+  } catch (err) { next(err) }
+})
+
+/** 套用。**先備份再改**，而且每個選中的 recordId 都用目標表重新驗過 */
+router.post('/api/osm-uat/retarget/apply', writeLimiter, async (req, res, next) => {
+  try {
+    const account = getAuthAccount(req)
+    if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+    const body = req.body as { kind?: unknown; scriptId?: unknown; newLarkUrl?: unknown; decisions?: unknown }
+    const kind = retargetKind(body.kind)
+    const scriptId = String(body.scriptId ?? '')
+    const newLarkUrl = String(body.newLarkUrl ?? '').trim()
+    const decisions = (body.decisions && typeof body.decisions === 'object')
+      ? Object.fromEntries(Object.entries(body.decisions as Record<string, unknown>).map(([k, v]) => [k, String(v ?? '')]))
+      : {}
+    if (!kind || !scriptId || !newLarkUrl) return res.status(400).json({ ok: false, message: '缺少 kind／scriptId／newLarkUrl' })
+
+    const script = loadRetargetScript(kind, scriptId)
+    if (!script) return res.status(404).json({ ok: false, message: '找不到腳本' })
+
+    // 🚨 **不要信前端傳來的 recordId。**重撈一次目標表，`performRetarget` 只會接上
+    //    真的存在於這張表的記錄；其餘落到 invalidDecisions 回報出去。
+    const list = await fetchLarkTcList(newLarkUrl)
+    if (!list.ok) return res.status(400).json({ ok: false, message: `讀不到目標表：${list.message ?? '未知錯誤'}` })
+    const newTcs = list.tcs ?? []
+    const newTableId = list.tableId ?? ''
+
+    const result = performRetarget({
+      kind, scriptId, scriptName: script.name, actor: account.email,
+      newLarkUrl, newTableId, newTcs,
+      oldLarkUrl: script.larkUrl, oldTableId: script.tableId, oldBindings: script.bindings,
+    }, script.steps, decisions)
+
+    const saved = saveRetargetScript(script, {
+      larkUrl: newLarkUrl, tableId: newTableId, bindings: result.bindings, steps: result.steps,
+    }, account.email)
+    if (!saved.ok) return res.status(409).json({ ok: false, message: saved.message })
+
+    res.json({
+      ok: true,
+      backupId: result.backupId,
+      bound: result.bindings.length,
+      unresolved: result.unresolved,
+      invalidDecisions: result.invalidDecisions,
+      blockers: result.blockers,
+    })
+  } catch (err) { next(err) }
+})
+
+/** 這份腳本改綁過幾次、可以還原到哪一版 */
+router.get('/api/osm-uat/retarget/backups', (req, res) => {
+  const account = getAuthAccount(req)
+  if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+  const kind = retargetKind(req.query.kind)
+  const scriptId = String(req.query.scriptId ?? '')
+  if (!kind || !scriptId) return res.status(400).json({ ok: false, message: '缺少 kind／scriptId' })
+  res.json({ ok: true, backups: listRetargetBackups(kind, scriptId) })
+})
+
+/** 還原到某一次改綁之前 */
+router.post('/api/osm-uat/retarget/restore', writeLimiter, (req, res, next) => {
+  try {
+    const account = getAuthAccount(req)
+    if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
+    const backupId = String((req.body as { backupId?: unknown }).backupId ?? '')
+    const backup = backupId ? getRetargetBackup(backupId) : null
+    if (!backup) return res.status(404).json({ ok: false, message: '找不到這筆備份' })
+
+    const script = loadRetargetScript(backup.kind, backup.scriptId)
+    if (!script) return res.status(404).json({ ok: false, message: '找不到腳本' })
+
+    const restored = restoreFromSnapshot(backup.snapshot, script.steps)
+    const saved = saveRetargetScript(script, restored, account.email)
+    if (!saved.ok) return res.status(409).json({ ok: false, message: saved.message })
+    res.json({ ok: true, tableId: restored.tableId, bindings: restored.bindings.length })
+  } catch (err) { next(err) }
 })
 
 // ─── 啟動測試 ──────────────────────────────────────────────────────────────────
