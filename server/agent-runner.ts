@@ -42,7 +42,7 @@ import { waitForDebugPort, clearStaleDebugPort, DEBUG_PORT_ARG } from './uat-run
 import { pcWaitLobby, pcClosePopups, pcScanLobby, pcCollectMachines, pcSeekMachine, pcEnterMachine, pcSceneName, describePcLobby, pcInstallEvalShim, pcBackToLobby, pcLobbyRecoveryPlan, pcEngineCapabilities } from './lib/pc-cocos.js'
 import type { PcMachine } from './lib/pc-cocos.js'
 import { startLobbyPopupWatcher } from './uat-runner/lobby-popup.js'
-import { dismissUiPopups, startUiPopupGuard, evaluateReadyGate } from './uat-runner/ui-popup.js'
+import { dismissUiPopups, startUiPopupGuard, evaluateReadyGate, nextSeatState } from './uat-runner/ui-popup.js'
 import { h5BackToLobby, h5InGame } from './uat-runner/h5-seat.js'
 import { verifyRecordedSelectorLive, createRecordedLocators } from './uat-runner/recorded-selector.js'
 import { frontendRecorderScript, flagShadowCompleteness, syncRecorderPanel, setRecorderPanelVisible, FRONTEND_RECORDER_CONTROL_MARKER } from './uat-runner/frontend-recorder.js'
@@ -818,13 +818,15 @@ async function waitForUiScreenshotLobby(page: Page, timeoutMs: number): Promise<
 }
 
 /**
- * H5：是不是坐在某台機台裡。
+ * H5：座位狀態，三態：坐著／在大廳／看不出來。
  * ⚠️「不在大廳」不等於「坐在機台裡」——頁面根本沒載起來時也看不到大廳，
- *    那時硬去退出只會白等十幾秒再報錯。所以要有在機台裡的**正面證據**。
+ *    那時硬去退出只會白等十幾秒再報錯。所以要有在機台裡的**正面證據**才算坐著。
+ * ⚠️ 反過來「看不出來」也不等於「沒坐著」——見 `nextSeatState`
  */
-async function uiScreenshotSeated(page: Page): Promise<boolean> {
-  if (await isUiScreenshotLobbyVisible(page).catch(() => true)) return false
-  return h5InGame(page) || !!(await readInGameMachineName(page).catch(() => ''))
+async function uiScreenshotSeatSeen(page: Page): Promise<'seated' | 'lobby' | 'unknown'> {
+  if (await isUiScreenshotLobbyVisible(page).catch(() => false)) return 'lobby'
+  if (h5InGame(page) || !!(await readInGameMachineName(page).catch(() => ''))) return 'seated'
+  return 'unknown'
 }
 
 async function exitUiScreenshotMachine(page: Page, machineCode: string): Promise<void> {
@@ -1323,7 +1325,7 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
      * 這個 gmid 是不是還佔著一台機台的座位（H5）。退出成功才清掉。
      * ⚠️ 要追蹤到 gmid 層級，不能只在「最後一張」那一刻判斷——見下面收尾兜底的說明。
      */
-    let seatHeld = false
+    let seat: 'none' | 'held' = 'none'
     /** 退出失敗不改圖片的狀態，但**一定要讓網頁執行日誌看得到**（只印在 agent 視窗等於沒講） */
     const agentWarn = async (message: string) => {
       console.warn(`[UI-SS] ${message}`)
@@ -1336,7 +1338,7 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
       const who = lastUsedMachine ?? gmid
       try {
         await exitUiScreenshotMachine(page, who)
-        seatHeld = false
+        seat = 'none'
         console.log(`[UI-SS] ${gmid} — ${why}，已退出機台 ${who}`)
       } catch (e) {
         await agentWarn(`${gmid} — ⚠️ ${why}，但退出機台 ${who} 失敗（不影響已上傳的圖）：${e instanceof Error ? e.message.split('\n')[0] : String(e)}`)
@@ -1385,8 +1387,9 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
              */
             const lastOfGmid = ti === gmidTasks.length - 1 || !!uiScreenshotRuns.get(runId)?.stopped
             if (page && !isLobbyTarget && !isPc) {
-              seatHeld = await uiScreenshotSeated(page)
-              if (seatHeld && lastOfGmid) await leaveSeat(page, '這個測試項拍完')
+              const seen = await uiScreenshotSeatSeen(page)
+              seat = nextSeatState(seat, seen)
+              if (seen === 'seated' && lastOfGmid) await leaveSeat(page, '這個測試項拍完')
             }
             await ctx?.close().catch(() => {})
           }
@@ -1398,15 +1401,18 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
          *    **最後一個 gmid 或按停止時沒有下一輪可以接手**，所以不能只靠下一台的「不是要的那款」。
          *    做法：重開一頁（載入時通常會被送回還佔著的那台），確認坐在裡面才退，整段有時限。
          */
-        if (seatHeld && !isLobbyTarget && !isPc) {
+        if (seat === 'held' && !isLobbyTarget && !isPc) {
           let ctx: import('playwright').BrowserContext | null = null
           try {
             ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
             const page = await ctx.newPage()
             await page.goto(url, { timeout: 30000 })
             await page.waitForTimeout(8000)
-            if (await uiScreenshotSeated(page)) await leaveSeat(page, '收尾時還佔著座位，重開一頁')
-            else seatHeld = false
+            const seen = await uiScreenshotSeatSeen(page)
+            if (seen === 'seated') await leaveSeat(page, '收尾時還佔著座位，重開一頁')
+            else seat = nextSeatState(seat, seen)
+            // ⚠️ 重開一頁還是看不出來：**不能當成已釋放**，一定要讓人知道
+            if (seat === 'held') await agentWarn(`${gmid} — ⚠️ 收尾時無法確認座位是否已釋放（${lastUsedMachine ?? '機台不明'}），可能仍佔著`)
           } catch (e) {
             await agentWarn(`${gmid} — ⚠️ 收尾時要釋放座位但重開頁面失敗：${e instanceof Error ? e.message.split('\n')[0] : String(e)}`)
           } finally {

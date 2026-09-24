@@ -656,7 +656,7 @@ export function UiScreenshotPage() {
     await fetch(`/api/ui-screenshot/stop/${runId}`, { method: 'POST' }).catch(() => {})
     setRunStatus('stopped')
     setLogs(prev => [...prev, '⏹ 已送出停止指令'])
-    esRef.current?.close()
+    // ⚠️ 不關連線：按停止之後 agent 還要退出機台，退出失敗的警告要收得到
   }
 
   async function writeback() {

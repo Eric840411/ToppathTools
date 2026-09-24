@@ -14,7 +14,7 @@
  */
 import { chromium } from 'playwright'
 import { readFileSync } from 'node:fs'
-import { dismissUiPopups, startUiPopupGuard, evaluateReadyGate } from '../../server/uat-runner/ui-popup.js'
+import { dismissUiPopups, startUiPopupGuard, evaluateReadyGate, nextSeatState } from '../../server/uat-runner/ui-popup.js'
 
 const failures = []
 function check(name, actual, expected) {
@@ -456,6 +456,20 @@ try {
     check('⑬ 紀錄帶輪數與耗時', /3 輪/.test(rec) && /秒/.test(rec), true)
     check('⑬ 措辭是「尚未確認」，不是斷定仍有彈窗', /尚未確認/.test(rec) && !/仍有彈窗/.test(rec), true)
     check('⑬ 當下就有印 log', logs.some(m => /提前結束/.test(m)), true)
+  }
+
+  // ── ⑭ 座位追蹤：只有正面證據才能改狀態（CodeX 2026-09-24）─────────────────
+  //    前一個尺寸已入座、下一頁載入失敗（看不出來）時，原本會被清成「沒坐著」，收尾兜底就跳過了
+  check('⑭ 已入座＋下一頁看不出來 → 仍算佔著', nextSeatState('held', 'unknown'), 'held')
+  check('⑭ 已入座＋看到大廳 → 才算釋放', nextSeatState('held', 'lobby'), 'none')
+  check('⑭ 沒坐＋看到坐在機台裡 → 佔著', nextSeatState('none', 'seated'), 'held')
+  check('⑭ 沒坐＋看不出來 → 維持沒坐', nextSeatState('none', 'unknown'), 'none')
+  // 呼叫端要用三態、不能再用布林覆寫（原本 `seatHeld = await uiScreenshotSeated(page)`）
+  // ⚠️ 這條是**結構檢查**：agent-runner 那段沒有真環境跑不到失敗分支
+  {
+    const rs = readFileSync('server/agent-runner.ts', 'utf8')
+    check('⑭b 收尾都經過 nextSeatState，沒有布林覆寫', /seat = nextSeatState\(seat, seen\)/.test(rs) && !/seatHeld = await/.test(rs), true)
+    check('⑭b 兜底重開頁還是看不出來時要發警告', /if \(seat === 'held'\) await agentWarn/.test(rs), true)
   }
 
   // ── ④ 「自動關閉面額彈窗」關掉時，ensureUiScreenshotLobby 不可以偷關 ───────

@@ -607,7 +607,11 @@ router.get('/events/:runId', (req, res) => {
   const tasks = db.prepare(`SELECT id, run_id, gmid, resolution, status, server_path, error_msg FROM ui_screenshot_tasks WHERE run_id = ?`).all(runId)
   res.write(`data: ${JSON.stringify({ type: 'snapshot', run, tasks })}\n\n`)
 
-  req.on('close', () => sseSubscribers.get(runId)?.delete(res))
+  req.on('close', () => {
+    const subs = sseSubscribers.get(runId)
+    subs?.delete(res)
+    if (subs && subs.size === 0) sseSubscribers.delete(runId)
+  })
 })
 
 // POST /task/:taskId/upload — agent uploads screenshot
@@ -674,7 +678,9 @@ router.post('/task/:taskId/upload', upload.single('screenshot'), async (req, res
     }
 
     emitToRun(task.run_id, { type: 'run_complete', runId: task.run_id, ...counts })
-    sseSubscribers.delete(task.run_id)
+    // ⚠️ 不在這裡清訂閱：完成事件是最後一張回報時發的，agent 之後還要退出機台，
+    //    退出失敗的警告（agent_log）會在這之後才來。清掉就沒人收了（CodeX 2026-09-24）。
+    //    訂閱在瀏覽器斷線時自己清（見 /events 的 close handler）
   }
 
   res.json({ ok: true })
@@ -737,7 +743,9 @@ router.post('/task/:taskId/status', (req, res) => {
       if (agent) { agent.busy = false; agent.sessionId = null }
     }
     emitToRun(task.run_id, { type: 'run_complete', runId: task.run_id, ...counts })
-    sseSubscribers.delete(task.run_id)
+    // ⚠️ 不在這裡清訂閱：完成事件是最後一張回報時發的，agent 之後還要退出機台，
+    //    退出失敗的警告（agent_log）會在這之後才來。清掉就沒人收了（CodeX 2026-09-24）。
+    //    訂閱在瀏覽器斷線時自己清（見 /events 的 close handler）
   }
 
   res.json({ ok: true })

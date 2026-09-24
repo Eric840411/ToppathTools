@@ -401,3 +401,28 @@ export function evaluateReadyGate({ ready, sawErrorPopup, recheckedReady }) {
   if (recheckedReady === undefined) return { action: 'recheck', why }
   return recheckedReady ? { action: 'pass', why } : { action: 'fail', why }
 }
+
+// ─── 座位追蹤（一個 gmid 拍完要退出機台）──────────────────────────────────────
+//
+// ⚠️ 放在這支而不是 agent-runner：決策要能單獨測（`scripts/ui-checks/ui-popup-dismiss.mjs` ⑭），
+//    寫在 agent-runner 裡測試碰不到，要驗只能再抄一份。
+
+/**
+ * 這一頁看完之後，這個 gmid 的座位狀態。
+ *
+ * 🚨 **只有正面證據才能改狀態**（CodeX 2026-09-24）：
+ *    - 看到坐在機台裡 → `held`
+ *    - 看到大廳 → `none`（確認沒坐著）
+ *    - 其他（頁面載入失敗、看不出來、連頁面都沒建起來）→ **維持原狀**
+ *    原本直接用「這頁有沒有坐著」覆寫——前一個尺寸已經入座、下一頁載入失敗時，
+ *    會被清成「沒坐著」，收尾兜底就跳過了，位子一直佔著。
+ *
+ * @param {'none'|'held'} prev
+ * @param {'seated'|'lobby'|'unknown'} seen
+ * @returns {'none'|'held'}
+ */
+export function nextSeatState(prev, seen) {
+  if (seen === 'seated') return 'held'
+  if (seen === 'lobby') return 'none'
+  return prev
+}
