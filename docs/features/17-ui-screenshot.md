@@ -421,4 +421,12 @@ CodeX 2026-09-21 指出的界線，寫在這裡免得日後誤以為驗過了：
 > ⚠️ 已知限制：agent 卡死（不斷線、也不回報）就會一直忙碌，要重啟 agent 才解。
 > ⚠️ **還沒驗**：真的 agent 跑完有沒有真的送出 `agent-done`（2026-09-24 測試帳號有人在用，沒跑）。
 >    驗證腳本是假 agent 手動送的。第一次真跑要看 agent 視窗有「收尾完成，已回報釋放」、之後能馬上開下一個 run。
-> ⚠️ 突變只驗了 `/status` 那條完成路徑；`/upload` 那條（最後一張是上傳完成）改法相同但測試沒走到。
+>
+> **v4.259.3（CodeX 再補兩點）**：
+> - **座位不明就不解鎖**：`agent-done` 帶 `seatUnresolved` 時把 agent 鎖著，寫進 `ui_screenshot_runs.agent_hold`
+>   （重連時 worker 查 DB 維持忙碌）。畫面在執行日誌上方顯示原因與「我已確認座位釋放，解除 agent 鎖定」
+>   → `POST /run/:runId/release-agent`（一樣只在 runId 對得上時才動鎖）
+> - **回報送不出去不印成功**：`reportAgentDone`／`describeAgentDone`（在 `ui-popup.js`，有測試）分成送達／解鎖／被鎖住；
+>   五次都送不出去就留著 `uiScreenshotRuns`（重連時會回報仍在收尾）、背景每 30 秒重送
+> - 測試補上 `/upload` 完成路徑（G）
+> - ⚠️ agent **重啟**（不是重連）後 agentId 會換，DB 的 hold 就對不上了——重啟本身是人為處置，但帳號座位仍可能沒放掉

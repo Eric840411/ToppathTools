@@ -10,6 +10,8 @@
  *   C 舊 run 延遲／重複的回報，不能解鎖正在跑的新 run
  *   D 停止之後一樣要等收尾
  *   E 斷線重連時 agent 說自己還在收尾 → 維持忙碌
+ *   F 收尾回報「座位不明」→ **不解鎖**，重連也維持；人按解除才放行（CodeX [P1]）
+ *   G 最後一張是 `/upload` 完成（不是 `/status`）的那條路也一樣要等收尾
  *
  * ⚠️ 需要本機 server 在跑、worker 已吃到新代碼（pm2 restart）。
  * 用法：node scripts/ui-checks/ui-screenshot-agent-release.mjs
@@ -17,6 +19,8 @@
 import Database from 'better-sqlite3'
 import WebSocket from 'ws'
 import { createHash, randomBytes } from 'node:crypto'
+import { rmSync } from 'node:fs'
+import { join } from 'node:path'
 
 const BASE = 'http://localhost:3000'
 const db = new Database('server/data.db')
@@ -69,7 +73,19 @@ async function completeAll(runId) {
   }
   await new Promise(r => setTimeout(r, 200))
 }
-const done = runId => post(`/run/${runId}/agent-done`, { agentId, seatUnresolved: [] })
+const done = (runId, seatUnresolved = []) => post(`/run/${runId}/agent-done`, { agentId, seatUnresolved })
+/** 用 /upload 把每一張回報完成（帶一張 1x1 png）——另一條完成路徑 */
+async function completeAllByUpload(runId) {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
+  for (const t of db.prepare('SELECT id FROM ui_screenshot_tasks WHERE run_id = ?').all(runId)) {
+    const form = new FormData()
+    form.append('screenshot', new Blob([png], { type: 'image/png' }), '412x915.png')
+    form.append('status', 'ok')
+    form.append('actualGmid', 'X-0001')
+    await fetch(`${BASE}/api/ui-screenshot/task/${t.id}/upload`, { method: 'POST', body: form })
+  }
+  await new Promise(r => setTimeout(r, 200))
+}
 
 try {
   await connectAgent()
@@ -106,13 +122,38 @@ try {
   check('E 收尾回報對得上 → 釋放', (await done(c.runId)).released, true)
   const d = await start()
   check('E 之後放行', d.status, 200)
-  await done(d.runId)
+
+  // ── F：座位不明 → 不解鎖、重連也維持、人按解除才放行 ─────────────────────
+  await completeAll(d.runId)
+  const hold = await done(d.runId, ['X（X-0001）'])
+  check('F 座位不明 → 不釋放', hold.released, false)
+  check('F 座位不明 → 標成 held', hold.held, true)
+  check('F 座位不明 → 新 run 仍被擋', (await start()).status, 409)
+  ws.close()
+  await new Promise(r => setTimeout(r, 800))
+  await connectAgent(null)   // agent 已經把 run 放掉了，但伺服器記著 hold
+  check('F 重連（agent 自己沒在收尾）→ 伺服器記的 hold 仍維持忙碌', (await start()).status, 409)
+  const rel = await post(`/run/${d.runId}/release-agent`)
+  check('F 人按解除 → 釋放', rel.released, true)
+  const e = await start()
+  check('F 解除之後放行', e.status, 200)
+
+  // ── G：/upload 完成路徑 ──────────────────────────────────────────────────
+  await completeAllByUpload(e.runId)
+  const statusE = db.prepare('SELECT status FROM ui_screenshot_runs WHERE id = ?').get(e.runId)?.status
+  check('G 前置：用 /upload 完成', statusE, 'done')
+  check('G /upload 完成但還沒收尾 → 擋', (await start()).status, 409)
+  check('G 收尾 → 釋放', (await done(e.runId)).released, true)
+  const g = await start()
+  check('G 之後放行', g.status, 200)
+  await done(g.runId)
 } catch (err) {
   console.log(`FAIL  執行中斷：${err.message}`)
   failures.push(err.message)
 } finally {
   try { ws?.close() } catch {}
   for (const id of runs) {
+    try { rmSync(join('server', 'ui-screenshot-saves', id), { recursive: true, force: true }) } catch {}
     db.prepare('DELETE FROM ui_screenshot_tasks WHERE run_id = ?').run(id)
     db.prepare('DELETE FROM ui_screenshot_runs WHERE id = ?').run(id)
     db.prepare(`DELETE FROM operation_history WHERE feature = 'ui-screenshot' AND detail LIKE ?`).run(`%${id}%`)

@@ -108,6 +108,7 @@ interface SseSnapshot {
 
 type SseEvent = SseTaskUpdate | SseRunComplete | SseSnapshot | { type: 'run_stopped'; runId: string }
   | { type: 'agent_log'; level?: 'warn' | 'info'; message?: string }
+  | { type: 'agent_hold'; runId: string; message: string }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -280,6 +281,8 @@ export function UiScreenshotPage() {
   const [reportMsg, setReportMsg] = useState<string | null>(null)
   const [sheetExport, setSheetExport] = useState<SheetExportSummary | null>(null)
   const [sheetBusy, setSheetBusy] = useState(false)
+  /** agent 收尾後座位不明 → 伺服器把 agent 鎖著，等人確認後手動解除 */
+  const [agentHold, setAgentHold] = useState('')
   const [sheetMsg, setSheetMsg] = useState<string | null>(null)
   const [storage, setStorage] = useState<{ runs: number; files: number; bytes: number } | null>(null)
   const [storageMsg, setStorageMsg] = useState<string | null>(null)
@@ -391,6 +394,8 @@ export function UiScreenshotPage() {
           // agent 端不屬於任何一張圖的警告（例如拍完退出機台失敗）
           const m = data
           setLogs(prev => [...prev.slice(-200), `${m.level === 'warn' ? '⚠️ ' : ''}${m.message ?? ''}`])
+        } else if (data.type === 'agent_hold') {
+          setAgentHold(data.message)
         } else if (data.type === 'run_complete') {
           setRunStatus('done')
           const c = data as SseRunComplete
@@ -422,6 +427,22 @@ export function UiScreenshotPage() {
   // ── Cleanup ─────────────────────────────────────────────────────────────────
 
   useEffect(() => () => { esRef.current?.close() }, [])
+
+  // ── agent 鎖定狀態：重新整理頁面後也要看得到（SSE 只推即時的）──────────────
+  useEffect(() => {
+    setAgentHold('')
+    if (!runId) return
+    fetch(`/api/ui-screenshot/run/${runId}`)
+      .then(r => r.json())
+      .then((d: { ok: boolean; run?: { agent_hold?: string } }) => { if (d.ok) setAgentHold(d.run?.agent_hold ?? '') })
+      .catch(() => { /* 看不到就不顯示 */ })
+  }, [runId, runStatus])
+
+  async function releaseAgent() {
+    if (!runId) return
+    const r = await fetch(`/api/ui-screenshot/run/${runId}/release-agent`, { method: 'POST' }).catch(() => null)
+    if (r?.ok) setAgentHold('')
+  }
 
   // ── Lark Sheet 進度：換 run 時接回上次建的表；背景寫入中就每 2 秒問一次 ──────
   useEffect(() => {
@@ -1224,6 +1245,16 @@ export function UiScreenshotPage() {
           {/* Logs */}
           <div className="section-card" style={{ marginBottom: 14 }}>
             <h2 className="section-title">執行日誌</h2>
+            {/* 座位不明時 agent 被鎖著：不處理的話下一輪開不了，而且畫面上看不出為什麼 */}
+            {agentHold && (
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', margin: '0 0 10px',
+                padding: '8px 12px', border: '1px solid #b45309', borderRadius: 6, background: 'rgba(180,83,9,.12)', fontSize: 12.5, color: '#fbbf24' }}>
+                <span>⚠️ {agentHold}。agent 已鎖住，請先到該機台確認座位已釋放。</span>
+                <button className="btn-ghost" type="button" style={{ fontSize: 12 }} onClick={releaseAgent}>
+                  我已確認座位釋放，解除 agent 鎖定
+                </button>
+              </div>
+            )}
             <div className="ui-ss-log-panel" ref={logPanelRef}>
               {logs.length === 0
                 ? <span style={{ color: '#334155' }}>（等待任務開始）</span>

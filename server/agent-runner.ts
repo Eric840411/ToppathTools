@@ -42,7 +42,7 @@ import { waitForDebugPort, clearStaleDebugPort, DEBUG_PORT_ARG } from './uat-run
 import { pcWaitLobby, pcClosePopups, pcScanLobby, pcCollectMachines, pcSeekMachine, pcEnterMachine, pcSceneName, describePcLobby, pcInstallEvalShim, pcBackToLobby, pcLobbyRecoveryPlan, pcEngineCapabilities } from './lib/pc-cocos.js'
 import type { PcMachine } from './lib/pc-cocos.js'
 import { startLobbyPopupWatcher } from './uat-runner/lobby-popup.js'
-import { dismissUiPopups, startUiPopupGuard, evaluateReadyGate, nextSeatState } from './uat-runner/ui-popup.js'
+import { dismissUiPopups, startUiPopupGuard, evaluateReadyGate, nextSeatState, reportAgentDone, describeAgentDone } from './uat-runner/ui-popup.js'
 import { h5BackToLobby, h5InGame } from './uat-runner/h5-seat.js'
 import { verifyRecordedSelectorLive, createRecordedLocators } from './uat-runner/recorded-selector.js'
 import { frontendRecorderScript, flagShadowCompleteness, syncRecorderPanel, setRecorderPanelVisible, FRONTEND_RECORDER_CONTROL_MARKER } from './uat-runner/frontend-recorder.js'
@@ -983,17 +983,26 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
   } catch (err) {
     console.error(`[UI-SS] run ${runId} 中斷：${err instanceof Error ? err.message : String(err)}`)
   } finally {
-    // ⚠️ 回報失敗要重試：沒送到的話伺服器會一直當這台忙碌，而 agent 自己不會知道
-    for (let attempt = 1; attempt <= 5; attempt++) {
-      const ok = await fetch(`${serverBaseUrl}/api/ui-screenshot/run/${runId}/agent-done`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: AGENT_ID, seatUnresolved }),
-      }).then(r => r.ok).catch(() => false)
-      if (ok) break
-      await new Promise(r => setTimeout(r, 2000 * attempt))
+    const send = () => fetch(`${serverBaseUrl}/api/ui-screenshot/run/${runId}/agent-done`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId: AGENT_ID, seatUnresolved }),
+    }).then(async r => (r.ok ? await r.json() : { ok: false }) as { ok: boolean; released?: boolean; held?: boolean })
+    const r = await reportAgentDone({ send })
+    console.log(`[UI-SS] run ${runId} ${describeAgentDone(r)}${seatUnresolved.length ? `（座位不明：${seatUnresolved.join('、')}）` : ''}`)
+    if (r.reported) {
+      uiScreenshotRuns.delete(runId)
+    } else {
+      // ⚠️ 送不出去就**繼續掛著**：重連時 `agent_ready.uiScreenshotActive` 會帶著它，伺服器維持忙碌；
+      //    背景每 30 秒再送一次，送到才放掉
+      const retry = async () => {
+        const again = await reportAgentDone({ send, maxAttempts: 1 })
+        if (again.reported) {
+          uiScreenshotRuns.delete(runId)
+          console.log(`[UI-SS] run ${runId} 補送成功：${describeAgentDone(again)}`)
+        } else setTimeout(retry, 30_000)
+      }
+      setTimeout(retry, 30_000)
     }
-    uiScreenshotRuns.delete(runId)
-    console.log(`[UI-SS] run ${runId} 收尾完成，已回報釋放${seatUnresolved.length ? `（座位不明：${seatUnresolved.join('、')}）` : ''}`)
   }
 }
 

@@ -14,7 +14,7 @@
  */
 import { chromium } from 'playwright'
 import { readFileSync } from 'node:fs'
-import { dismissUiPopups, startUiPopupGuard, evaluateReadyGate, nextSeatState } from '../../server/uat-runner/ui-popup.js'
+import { dismissUiPopups, startUiPopupGuard, evaluateReadyGate, nextSeatState, reportAgentDone, describeAgentDone } from '../../server/uat-runner/ui-popup.js'
 
 const failures = []
 function check(name, actual, expected) {
@@ -470,6 +470,23 @@ try {
     const rs = readFileSync('server/agent-runner.ts', 'utf8')
     check('⑭b 收尾都經過 nextSeatState，沒有布林覆寫', /seat = nextSeatState\(seat, seen\)/.test(rs) && !/seatHeld = await/.test(rs), true)
     check('⑭b 兜底重開頁還是看不出來時要發警告', /if \(seat === 'held'\) await agentWarn/.test(rs), true)
+  }
+
+  // ── ⑮ 收尾回報：送不出去不能印成功（CodeX 2026-09-24 [P2]）─────────────────
+  {
+    const noSleep = async () => {}
+    let calls = 0
+    const allFail = await reportAgentDone({ send: async () => { calls++; throw new Error('ECONNREFUSED') }, sleep: noSleep })
+    check('⑮ 全部失敗 → reported=false', allFail.reported, false)
+    check('⑮ 全部失敗 → 有試滿 5 次', calls, 5)
+    check('⑮ 全部失敗 → 那行字**不能**說已釋放／已回報', /已釋放|已回報/.test(describeAgentDone(allFail)), false)
+    let n = 0
+    const later = await reportAgentDone({ send: async () => (++n < 3 ? { ok: false } : { ok: true, released: true }), sleep: noSleep })
+    check('⑮ 第三次才成功 → reported、released', [later.reported, later.released, later.attempts], [true, true, 3])
+    const held = await reportAgentDone({ send: async () => ({ ok: true, released: false, held: true }), sleep: noSleep })
+    check('⑮ 送達但被鎖住 → 不能說已釋放', /已釋放/.test(describeAgentDone(held)), false)
+    const stale = await reportAgentDone({ send: async () => ({ ok: true, released: false }), sleep: noSleep })
+    check('⑮ 送達但沒解鎖（別的 run）→ 不能說已釋放', /已釋放/.test(describeAgentDone(stale)), false)
   }
 
   // ── ④ 「自動關閉面額彈窗」關掉時，ensureUiScreenshotLobby 不可以偷關 ───────

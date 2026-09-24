@@ -426,3 +426,38 @@ export function nextSeatState(prev, seen) {
   if (seen === 'lobby') return 'none'
   return prev
 }
+
+/**
+ * 把「收尾完成」回報給伺服器，重試到收下為止（或次數用完）。
+ *
+ * 🚨 **回報失敗不能印成功**（CodeX 2026-09-24 [P2]）：原本五次全失敗後照樣印「已回報釋放」，
+ *    agent 視窗那行字就不能當驗收證據了。所以回傳要分三件事：
+ *    - `reported`：伺服器有沒有收到（HTTP 成功）
+ *    - `released`：伺服器有沒有真的解鎖（runId 對得上、座位也確定）
+ *    - `held`：伺服器是不是把 agent 鎖著等人確認座位
+ *
+ * @param {{ send: () => Promise<{ ok: boolean, released?: boolean, held?: boolean }>,
+ *           sleep?: (ms: number) => Promise<void>, maxAttempts?: number }} opts
+ */
+export async function reportAgentDone({ send, sleep = ms => new Promise(r => setTimeout(r, ms)), maxAttempts = 5 }) {
+  let lastError = ''
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const r = await send()
+      if (r && r.ok) return { reported: true, released: !!r.released, held: !!r.held, attempts: attempt, error: '' }
+      lastError = 'server 回應不是 ok'
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : String(e)
+    }
+    if (attempt < maxAttempts) await sleep(2000 * attempt)
+  }
+  return { reported: false, released: false, held: false, attempts: maxAttempts, error: lastError }
+}
+
+/** 回報結果 → agent 視窗要印的那一行。**只有真的解鎖才能說「已釋放」** */
+export function describeAgentDone(r) {
+  if (!r.reported) return `⚠️ 收尾回報送不出去（試了 ${r.attempts} 次：${r.error}）——伺服器仍當這台忙碌，會在背景繼續重送`
+  if (r.held) return '⚠️ 收尾回報已送達，但座位不明，伺服器把 agent 鎖著等人確認'
+  if (r.released) return '收尾完成，伺服器已釋放'
+  return '收尾回報已送達，但伺服器沒有解鎖（它記的已經是別的 run）'
+}

@@ -612,6 +612,19 @@ wss.on('connection', (ws, req) => {
         }
         const ownerName = verifiedToken.ownerName || (typeof msg.operatorName === 'string' ? msg.operatorName.trim() : ownerKey)
         const now = Date.now()
+        /**
+         * UI 截圖還沒結束的那一輪：① agent 自己說還在收尾 ② 或伺服器記著「座位不明、等人確認」。
+         * 兩種都要維持忙碌——**斷線重連不能當成收尾成功**（CodeX 2026-09-24）。
+         */
+        let uiSsHoldRun: string | null = typeof msg.uiScreenshotActive === 'string' && msg.uiScreenshotActive.length > 0
+          ? msg.uiScreenshotActive : null
+        if (!uiSsHoldRun) {
+          try {
+            const held = db.prepare(`SELECT id FROM ui_screenshot_runs WHERE agent_id = ? AND agent_hold != '' ORDER BY created_at DESC LIMIT 1`)
+              .get(agentId) as { id: string } | undefined
+            uiSsHoldRun = held?.id ?? null
+          } catch { /* 欄位還沒建（ui-screenshot 路由尚未載入）就當沒有 */ }
+        }
         const info: AgentInfo = {
           ws,
           agentId,
@@ -630,8 +643,8 @@ wss.on('connection', (ws, req) => {
           lastSeenAt: now,
           // ⚠️ UI 截圖斷線重連時可能還在退出機台：agent 自己回報的話就維持忙碌，
           //    等它送 `agent-done` 才釋放（斷線不能當成收尾成功，CodeX 2026-09-24）
-          busy: typeof msg.uiScreenshotActive === 'string' && msg.uiScreenshotActive.length > 0,
-          sessionId: typeof msg.uiScreenshotActive === 'string' && msg.uiScreenshotActive.length > 0 ? msg.uiScreenshotActive : null,
+          busy: !!uiSsHoldRun,
+          sessionId: uiSsHoldRun,
         }
         agentConnections.set(agentId, info)
         log('info', '-', '-', `Agent connected: ${agentId} (${info.hostname}) owner=${info.ownerName || 'unowned'} capabilities=${info.capabilities.join(',')}`)

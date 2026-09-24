@@ -115,6 +115,10 @@ db.exec(UI_SCREENSHOT_SCHEMA)
   if (!cols.find(c => c.name === 'operator_name')) {
     db.exec("ALTER TABLE ui_screenshot_runs ADD COLUMN operator_name TEXT NOT NULL DEFAULT ''")
   }
+  // agent 收尾後座位仍不明 → 鎖住這台 agent，等人確認（見 /agent-done、/release-agent）
+  if (!cols.find(c => c.name === 'agent_hold')) {
+    db.exec("ALTER TABLE ui_screenshot_runs ADD COLUMN agent_hold TEXT NOT NULL DEFAULT ''")
+  }
   // 背景塞圖的工作活在這個 process 裡；process 重啟後還寫著 running 的一定是被打斷的，
   // 不改掉的話畫面會一直轉圈、補傳按鈕也按不了
   db.exec(`UPDATE ui_screenshot_sheet_exports SET status = 'interrupted' WHERE status = 'running'`)
@@ -695,12 +699,43 @@ router.post('/run/:runId/agent-done', (req, res) => {
   const run = db.prepare(`SELECT agent_id FROM ui_screenshot_runs WHERE id = ?`).get(runId) as { agent_id?: string } | undefined
   const id = run?.agent_id ?? agentId
   const agent = id ? agentConnections.get(id) : undefined
+  const current = !!agent && agent.sessionId === runId
+  const unresolved = Array.isArray(seatUnresolved) ? seatUnresolved.filter(x => typeof x === 'string').slice(0, 10) : []
+
+  /**
+   * 🚨 **座位不明就不解鎖**（CodeX 2026-09-24 [P1]）。只發警告的話下一輪照樣派得出去，
+   *    然後撞上那個沒放掉的座位。改成把這台 agent 鎖著、記進 DB，
+   *    等人確認座位已經放掉之後按「解除」（`/release-agent`）才放行。
+   */
+  if (unresolved.length) {
+    const hold = `收尾後仍無法確認已離開座位：${unresolved.join('、')}`
+    db.prepare(`UPDATE ui_screenshot_runs SET agent_hold = ? WHERE id = ?`).run(hold, runId)
+    emitToRun(runId, { type: 'agent_hold', runId, message: hold })
+    emitToRun(runId, { type: 'agent_log', level: 'warn', message: `${hold}——agent 先鎖住，確認座位已釋放後按「解除 agent 鎖定」` })
+    return res.json({ ok: true, released: false, held: true })
+  }
+
+  if (current) { agent!.busy = false; agent!.sessionId = null }
+  emitToRun(runId, { type: 'agent_log', level: 'info', message: current ? 'agent 收尾完成，已釋放' : 'agent 回報收尾完成（它已在跑別的工作，不動它的鎖）' })
+  res.json({ ok: true, released: current, held: false })
+})
+
+/**
+ * POST /run/:runId/release-agent — 人確認座位已經放掉之後，手動解除 agent 鎖定。
+ * ⚠️ 一樣只在 runId 對得上時才動 agent 的鎖，不能順手清掉別的 run
+ */
+router.post('/run/:runId/release-agent', (req, res) => {
+  const { runId } = req.params
+  const run = db.prepare(`SELECT agent_id, agent_hold FROM ui_screenshot_runs WHERE id = ?`).get(runId) as
+    { agent_id?: string; agent_hold?: string } | undefined
+  if (!run) return res.status(404).json({ ok: false, message: 'Run not found' })
+  db.prepare(`UPDATE ui_screenshot_runs SET agent_hold = '' WHERE id = ?`).run(runId)
+  const agent = run.agent_id ? agentConnections.get(run.agent_id) : undefined
   const released = !!agent && agent.sessionId === runId
   if (released) { agent!.busy = false; agent!.sessionId = null }
-  if (Array.isArray(seatUnresolved) && seatUnresolved.length) {
-    emitToRun(runId, { type: 'agent_log', level: 'warn', message: `收尾後仍無法確認已離開座位：${seatUnresolved.slice(0, 10).join('、')}` })
-  }
-  emitToRun(runId, { type: 'agent_log', level: 'info', message: released ? 'agent 收尾完成，已釋放' : 'agent 回報收尾完成（它已在跑別的工作，不動它的鎖）' })
+  const who = getOperatorFromContext()
+  emitToRun(runId, { type: 'agent_hold', runId, message: '' })
+  emitToRun(runId, { type: 'agent_log', level: 'info', message: `已手動解除 agent 鎖定${who?.name ? `（${who.name}）` : ''}` })
   res.json({ ok: true, released })
 })
 
