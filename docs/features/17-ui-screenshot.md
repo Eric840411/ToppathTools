@@ -412,5 +412,13 @@ CodeX 2026-09-21 指出的界線，寫在這裡免得日後誤以為驗過了：
 > 現在訂閱只在瀏覽器斷線時清（`scripts/ui-checks/ui-screenshot-agent-log.mjs` 打真 server 驗）。
 > 座位追蹤也改成三態（`nextSeatState`）：**看不出來不等於沒坐著**，只有看到大廳或退出成功才清。
 >
-> ⚠️ 還沒處理：伺服器在 `run_complete`／停止時就把 agent 標成不忙（`busy = false`），而 agent 這時還在退出機台。
-> 這段期間若立刻派下一個 run，兩邊會搶同一個帳號的座位。
+> **v4.259.2**：上一版記的「伺服器在 `run_complete`／停止時就把 agent 標成不忙」已處理（CodeX 要求一起修）。
+> 「結果完成」與「agent 收尾完成」分開——agent 全部收尾完才送 `POST /run/:runId/agent-done`，
+> 伺服器**只在 `agent.sessionId === runId` 時才解鎖**（舊 run 的延遲／重複回報解不了新 run 的鎖）；
+> 斷線重連時 agent 在 `agent_ready` 帶 `uiScreenshotActive`，伺服器維持忙碌。
+> 驗證：`scripts/ui-checks/ui-screenshot-agent-release.mjs`（假 agent 打真 server）。
+>
+> ⚠️ 已知限制：agent 卡死（不斷線、也不回報）就會一直忙碌，要重啟 agent 才解。
+> ⚠️ **還沒驗**：真的 agent 跑完有沒有真的送出 `agent-done`（2026-09-24 測試帳號有人在用，沒跑）。
+>    驗證腳本是假 agent 手動送的。第一次真跑要看 agent 視窗有「收尾完成，已回報釋放」、之後能馬上開下一個 run。
+> ⚠️ 突變只驗了 `/status` 那條完成路徑；`/upload` 那條（最後一張是上傳完成）改法相同但測試沒走到。

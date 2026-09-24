@@ -584,6 +584,8 @@ wss.on('connection', (ws, req) => {
         sourceDiff?: string[]
         bootRestartHash?: string
         sourceVersion?: string
+        /** agent 斷線重連時還在收尾的 UI 截圖 run（有的話維持忙碌） */
+        uiScreenshotActive?: string | null
         sessionId?: string
         event?: unknown
         machineCode?: string
@@ -626,8 +628,10 @@ wss.on('connection', (ws, req) => {
           sourceVersion: typeof msg.sourceVersion === 'string' ? msg.sourceVersion : undefined,
           connectedAt: now,
           lastSeenAt: now,
-          busy: false,
-          sessionId: null,
+          // ⚠️ UI 截圖斷線重連時可能還在退出機台：agent 自己回報的話就維持忙碌，
+          //    等它送 `agent-done` 才釋放（斷線不能當成收尾成功，CodeX 2026-09-24）
+          busy: typeof msg.uiScreenshotActive === 'string' && msg.uiScreenshotActive.length > 0,
+          sessionId: typeof msg.uiScreenshotActive === 'string' && msg.uiScreenshotActive.length > 0 ? msg.uiScreenshotActive : null,
         }
         agentConnections.set(agentId, info)
         log('info', '-', '-', `Agent connected: ${agentId} (${info.hostname}) owner=${info.ownerName || 'unowned'} capabilities=${info.capabilities.join(',')}`)

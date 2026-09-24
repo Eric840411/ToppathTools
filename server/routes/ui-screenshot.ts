@@ -561,7 +561,7 @@ router.post('/stop/:runId', (req, res) => {
     if (agent?.ws.readyState === 1 /* OPEN */) {
       agent.ws.send(JSON.stringify({ type: 'ui_screenshot_stop', sessionId: runId }))
     }
-    if (agent) { agent.busy = false; agent.sessionId = null }
+    // ⚠️ 不在這裡釋放：按停止之後 agent 還要退出機台，等它送 `agent-done`
   }
 
   emitToRun(runId, { type: 'run_stopped', runId })
@@ -671,11 +671,7 @@ router.post('/task/:taskId/upload', upload.single('screenshot'), async (req, res
     saveUiScreenshotHistory(task.run_id, 'done')
 
     // Release agent
-    const run = db.prepare(`SELECT agent_id FROM ui_screenshot_runs WHERE id = ?`).get(task.run_id) as { agent_id?: string } | undefined
-    if (run?.agent_id) {
-      const agent = agentConnections.get(run.agent_id)
-      if (agent) { agent.busy = false; agent.sessionId = null }
-    }
+    // ⚠️ 這裡**不釋放 agent**：結果完成了，但 agent 還要退出機台。等它送 `agent-done`（CodeX 2026-09-24）
 
     emitToRun(task.run_id, { type: 'run_complete', runId: task.run_id, ...counts })
     // ⚠️ 不在這裡清訂閱：完成事件是最後一張回報時發的，agent 之後還要退出機台，
@@ -687,6 +683,27 @@ router.post('/task/:taskId/upload', upload.single('screenshot'), async (req, res
 })
 
 // POST /task/:taskId/status — agent reports task status without file (err/timeout)
+/**
+ * POST /run/:runId/agent-done  { agentId, seatUnresolved? } — agent 全部收尾完（含退出機台）才送這個。
+ *
+ * 🚨 **只有 runId 對得上目前派給它的那一輪才解鎖**：舊 run 延遲或重複送來的回報，
+ *    不可以把正在跑的新 run 的鎖清掉。
+ */
+router.post('/run/:runId/agent-done', (req, res) => {
+  const { runId } = req.params
+  const { agentId, seatUnresolved } = (req.body ?? {}) as { agentId?: string; seatUnresolved?: string[] }
+  const run = db.prepare(`SELECT agent_id FROM ui_screenshot_runs WHERE id = ?`).get(runId) as { agent_id?: string } | undefined
+  const id = run?.agent_id ?? agentId
+  const agent = id ? agentConnections.get(id) : undefined
+  const released = !!agent && agent.sessionId === runId
+  if (released) { agent!.busy = false; agent!.sessionId = null }
+  if (Array.isArray(seatUnresolved) && seatUnresolved.length) {
+    emitToRun(runId, { type: 'agent_log', level: 'warn', message: `收尾後仍無法確認已離開座位：${seatUnresolved.slice(0, 10).join('、')}` })
+  }
+  emitToRun(runId, { type: 'agent_log', level: 'info', message: released ? 'agent 收尾完成，已釋放' : 'agent 回報收尾完成（它已在跑別的工作，不動它的鎖）' })
+  res.json({ ok: true, released })
+})
+
 /**
  * POST /run/:runId/log  { level, message } — agent 把**不屬於任何一張圖**的警告送到網頁執行日誌
  * （例如拍完退出機台失敗）。⚠️ 只印在 agent 視窗的話，使用者根本看不到（2026-09-24 就是這樣查不到問題）。
@@ -737,11 +754,7 @@ router.post('/task/:taskId/status', (req, res) => {
 
     db.prepare(`UPDATE ui_screenshot_runs SET status = 'done', finished_at = ? WHERE id = ?`).run(now, task.run_id)
     saveUiScreenshotHistory(task.run_id, 'done')
-    const run = db.prepare(`SELECT agent_id FROM ui_screenshot_runs WHERE id = ?`).get(task.run_id) as { agent_id?: string } | undefined
-    if (run?.agent_id) {
-      const agent = agentConnections.get(run.agent_id)
-      if (agent) { agent.busy = false; agent.sessionId = null }
-    }
+    // ⚠️ 這裡**不釋放 agent**：結果完成了，但 agent 還要退出機台。等它送 `agent-done`（CodeX 2026-09-24）
     emitToRun(task.run_id, { type: 'run_complete', runId: task.run_id, ...counts })
     // ⚠️ 不在這裡清訂閱：完成事件是最後一張回報時發的，agent 之後還要退出機台，
     //    退出失敗的警告（agent_log）會在這之後才來。清掉就沒人收了（CodeX 2026-09-24）。

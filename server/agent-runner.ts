@@ -966,7 +966,38 @@ async function runUiScreenshotScan(msg: UiScreenshotScanMessage, serverBaseUrl: 
   }
 }
 
+/**
+ * 跑一次 UI 截圖 run，**全部收尾完才向伺服器回報「可以釋放」**。
+ *
+ * 🚨 「結果完成」跟「agent 收尾完成」是兩件事（CodeX 2026-09-24）。最後一張圖回報時伺服器就會發
+ *    `run_complete`，但 agent 之後還要退出機台；原本伺服器在那一刻就把 agent 標成空閒，
+ *    這時候馬上派下一個 run，**前一輪的退出動作會跟下一輪搶同一個帳號的座位**。
+ *    所以伺服器改成只認這裡的 `agent-done`，而且只在 runId 對得上時才解鎖。
+ */
 async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: string) {
+  const runId = runConfig.id
+  const seatUnresolved: string[] = []
+  uiScreenshotRuns.set(runId, { stopped: false })
+  try {
+    await runUiScreenshotInner(runConfig, serverBaseUrl, seatUnresolved)
+  } catch (err) {
+    console.error(`[UI-SS] run ${runId} 中斷：${err instanceof Error ? err.message : String(err)}`)
+  } finally {
+    // ⚠️ 回報失敗要重試：沒送到的話伺服器會一直當這台忙碌，而 agent 自己不會知道
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const ok = await fetch(`${serverBaseUrl}/api/ui-screenshot/run/${runId}/agent-done`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId: AGENT_ID, seatUnresolved }),
+      }).then(r => r.ok).catch(() => false)
+      if (ok) break
+      await new Promise(r => setTimeout(r, 2000 * attempt))
+    }
+    uiScreenshotRuns.delete(runId)
+    console.log(`[UI-SS] run ${runId} 收尾完成，已回報釋放${seatUnresolved.length ? `（座位不明：${seatUnresolved.join('、')}）` : ''}`)
+  }
+}
+
+async function runUiScreenshotInner(runConfig: UiScreenshotRunConfig, serverBaseUrl: string, seatUnresolved: string[]) {
   const { id: runId, gameUrlTemplate, tasks, options } = runConfig
   /**
    * ⚠️ **整個 run 只判定一次**，下面三個地方共用。
@@ -975,8 +1006,6 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
    */
   const isPc = resolveIsPc(runConfig.clientType, gameUrlTemplate, `run ${runId}`)
   console.log(`[UI-SS] run ${runId} 客戶端＝${isPc ? 'PC' : 'H5'}（${runConfig.clientType ? '使用者指定' : '主機名推定'}）`)
-  uiScreenshotRuns.set(runId, { stopped: false })
-
   const { chromium } = await import('playwright')
 
   // Group tasks by gmid — one browser session per gmid
@@ -1419,6 +1448,8 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
             await ctx?.close().catch(() => {})
           }
         }
+        // 收尾之後還是不確定有沒有離開座位：記下來一起回報，伺服器那邊要讓人看得到
+        if (seat === 'held' && !isLobbyTarget && !isPc) seatUnresolved.push(`${gmid}（${lastUsedMachine ?? '機台不明'}）`)
         console.log(`[UI-SS] ${gmid} — done (reload per resolution), closing browser`)
       } else {
         // ── 快速模式：進場一次，之後只改 viewport（不重新載入）──────────────
@@ -1455,8 +1486,6 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
       await browser?.close().catch(() => {})
     }
   }
-
-  uiScreenshotRuns.delete(runId)
 }
 
 async function runUatScript(msg: UatScriptRunMessage, serverWs: WebSocket) {
@@ -2259,6 +2288,8 @@ function connect() {
       bootRestartHash,
       sourceDiff: bootHashes?.diff,
       sourceVersion: readSourceVersion(),
+      // 斷線重連時 UI 截圖可能還在收尾——告訴伺服器，否則新連線會被當成空閒而被派新工作
+      uiScreenshotActive: [...uiScreenshotRuns.keys()][0] ?? null,
     }))
   })
 
