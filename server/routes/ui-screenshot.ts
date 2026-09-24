@@ -14,6 +14,7 @@ import { addHistory, db, getLarkToken, parseLarkSheetUrl } from '../shared.js'
 import { agentConnections } from '../agent-hub.js'
 import { getOperatorFromContext } from '../request-context.js'
 import { buildReportModel, renderReportHtml, type ReportTask } from '../lib/ui-screenshot-report.js'
+import { buildSheetLayout, type SheetTask } from '../lib/ui-screenshot-sheet.js'
 import { createStoreZip } from '../lib/zip-store.js'
 import { uploadFileToLarkFolder, parseLarkFolderToken } from '../lib/lark-drive.js'
 
@@ -68,6 +69,33 @@ export const UI_SCREENSHOT_SCHEMA = `
     finished_at INTEGER
   );
   CREATE INDEX IF NOT EXISTS idx_ui_ss_tasks_run ON ui_screenshot_tasks (run_id, status);
+  CREATE TABLE IF NOT EXISTS ui_screenshot_sheet_exports (
+    id                TEXT PRIMARY KEY,
+    run_id            TEXT NOT NULL,
+    status            TEXT NOT NULL DEFAULT 'running',
+    spreadsheet_token TEXT NOT NULL,
+    sheet_id          TEXT NOT NULL,
+    url               TEXT NOT NULL DEFAULT '',
+    no_machine        INTEGER NOT NULL DEFAULT 0,
+    message           TEXT NOT NULL DEFAULT '',
+    created_at        INTEGER NOT NULL,
+    finished_at       INTEGER
+  );
+  CREATE TABLE IF NOT EXISTS ui_screenshot_sheet_cells (
+    export_id  TEXT NOT NULL,
+    row_num    INTEGER NOT NULL,
+    col_num    INTEGER NOT NULL,
+    kind       TEXT NOT NULL,
+    text       TEXT,
+    task_id    TEXT,
+    src_path   TEXT,
+    src_size   INTEGER,
+    src_mtime  INTEGER,
+    state      TEXT NOT NULL DEFAULT 'pending',
+    attempts   INTEGER NOT NULL DEFAULT 0,
+    error      TEXT,
+    PRIMARY KEY (export_id, row_num, col_num)
+  );
 `
 
 // Run schema migration on module load
@@ -87,6 +115,9 @@ db.exec(UI_SCREENSHOT_SCHEMA)
   if (!cols.find(c => c.name === 'operator_name')) {
     db.exec("ALTER TABLE ui_screenshot_runs ADD COLUMN operator_name TEXT NOT NULL DEFAULT ''")
   }
+  // 背景塞圖的工作活在這個 process 裡；process 重啟後還寫著 running 的一定是被打斷的，
+  // 不改掉的話畫面會一直轉圈、補傳按鈕也按不了
+  db.exec(`UPDATE ui_screenshot_sheet_exports SET status = 'interrupted' WHERE status = 'running'`)
 }
 
 // ─── SSE subscribers ──────────────────────────────────────────────────────────
@@ -920,6 +951,270 @@ router.post('/run/:runId/writeback', async (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, message: String(err) })
   }
+})
+
+// ─── 自動建 Lark Sheet（gmid × 尺寸，格子放截圖）────────────────────────────────
+//
+// 使用者 2026-09-24 要求，版面規則在 `server/lib/ui-screenshot-sheet.ts`。
+//
+// ⚠️ Lark 只能**一格一格**塞圖（`values_image`），一千多張就是一千多次呼叫——
+//    所以建表當下就把**每一格的位置跟來源圖**全部落 DB，背景慢慢塞，逐格記成敗。
+//    補傳只重送沒成功的格子、寫回**同一張表的同一格**，不重建、不重排（CodeX 2026-09-24）。
+
+const SHEET_IMG_COL_WIDTH = 160
+const SHEET_LABEL_COL_WIDTH = 200
+const SHEET_ROW_HEIGHT = 260
+const SHEET_MAX_ATTEMPTS_PER_PASS = 3
+const activeSheetExports = new Set<string>()
+
+type SheetCellRow = {
+  export_id: string; row_num: number; col_num: number; kind: 'image' | 'text'
+  text: string | null; task_id: string | null; src_path: string | null
+  src_size: number | null; src_mtime: number | null
+  state: 'pending' | 'ok' | 'fail'; attempts: number; error: string | null
+}
+
+/** Lark 回應一律先拿文字再 parse——失敗時可能不是 JSON，直接 .json() 會把真正的原因蓋掉 */
+async function larkCall(method: string, path: string, body?: unknown): Promise<{ ok: boolean; status: number; data?: Record<string, any>; message: string }> {
+  const token = await getLarkToken()
+  const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
+  const resp = await fetch(`${base}${path}`, {
+    method,
+    headers: { Authorization: `Bearer ${token}`, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal: AbortSignal.timeout(60_000),
+  })
+  const text = await resp.text()
+  let json: { code?: number; msg?: string; data?: Record<string, any> }
+  try { json = JSON.parse(text) } catch {
+    return { ok: false, status: resp.status, message: `Lark 回應不是 JSON（HTTP ${resp.status}）：${text.slice(0, 120)}` }
+  }
+  if (!resp.ok || json.code !== 0) {
+    return { ok: false, status: resp.status, message: `code=${json.code ?? resp.status} ${json.msg ?? ''}`.trim() }
+  }
+  return { ok: true, status: resp.status, data: json.data, message: '' }
+}
+
+function sheetCell(sheetId: string, row: number, col: number) {
+  const a1 = `${colIndexToLetter(col)}${row + 1}`
+  return `${sheetId}!${a1}:${a1}`
+}
+
+function sheetExportSummary(exportId: string) {
+  const exp = db.prepare(`SELECT * FROM ui_screenshot_sheet_exports WHERE id = ?`).get(exportId) as {
+    id: string; run_id: string; status: string; url: string; no_machine: number; message: string
+    created_at: number; finished_at: number | null
+  } | undefined
+  if (!exp) return null
+  const counts = db.prepare(`
+    SELECT kind, state, COUNT(*) AS n FROM ui_screenshot_sheet_cells WHERE export_id = ? GROUP BY kind, state
+  `).all(exportId) as Array<{ kind: string; state: string; n: number }>
+  const images = { ok: 0, fail: 0, pending: 0 }
+  const texts = { ok: 0, fail: 0, pending: 0 }
+  for (const c of counts) (c.kind === 'image' ? images : texts)[c.state as 'ok' | 'fail' | 'pending'] += c.n
+  const failures = db.prepare(`
+    SELECT row_num, col_num, kind, error FROM ui_screenshot_sheet_cells
+    WHERE export_id = ? AND state = 'fail' ORDER BY row_num, col_num LIMIT 20
+  `).all(exportId)
+  return { ...exp, running: activeSheetExports.has(exportId), images, texts, failures }
+}
+
+/**
+ * 背景把還沒成功的格子寫進去。建表後第一次跑、補傳都走這支——它只看每一格的狀態，
+ * 所以跑到一半被打斷，下次從沒成功的那格接著寫，不會把寫好的再寫一次。
+ */
+async function runSheetExport(exportId: string) {
+  if (activeSheetExports.has(exportId)) return
+  activeSheetExports.add(exportId)
+  const exp = db.prepare(`SELECT * FROM ui_screenshot_sheet_exports WHERE id = ?`).get(exportId) as {
+    spreadsheet_token: string; sheet_id: string
+  }
+  const tok = exp.spreadsheet_token
+  const sid = exp.sheet_id
+  const setCell = db.prepare(`
+    UPDATE ui_screenshot_sheet_cells SET state = ?, attempts = attempts + 1, error = ?
+    WHERE export_id = ? AND row_num = ? AND col_num = ?
+  `)
+  db.prepare(`UPDATE ui_screenshot_sheet_exports SET status = 'running', message = '', finished_at = NULL WHERE id = ?`).run(exportId)
+  const notes: string[] = []
+  try {
+    // ── 1. 表格大小與列高欄寬（重跑也無害）──────────────────────────────────
+    const dims = db.prepare(`SELECT MAX(row_num) AS r, MAX(col_num) AS c FROM ui_screenshot_sheet_cells WHERE export_id = ?`)
+      .get(exportId) as { r: number; c: number }
+    const needRows = dims.r + 1
+    const needCols = dims.c + 1
+    const q = await larkCall('GET', `/open-apis/sheets/v3/spreadsheets/${tok}/sheets/query`)
+    const grid = (q.data?.sheets as Array<{ sheet_id: string; grid_properties?: { row_count?: number; column_count?: number } }> | undefined)
+      ?.find(s => s.sheet_id === sid)?.grid_properties
+    // 新表預設只有幾百列、二十欄；寫到格子外面會失敗，先補足
+    for (const [major, have, need] of [['ROWS', grid?.row_count ?? 0, needRows], ['COLUMNS', grid?.column_count ?? 0, needCols]] as const) {
+      let missing = need - have
+      while (missing > 0) {
+        const length = Math.min(missing, 5000)
+        const r = await larkCall('POST', `/open-apis/sheets/v2/spreadsheets/${tok}/dimension_range`,
+          { dimension: { sheetId: sid, majorDimension: major, length } })
+        if (!r.ok) { notes.push(`擴充${major === 'ROWS' ? '列' : '欄'}失敗：${r.message}`); break }
+        missing -= length
+      }
+    }
+    const sizes: Array<[string, number, number, number]> = [
+      ['COLUMNS', 1, 1, SHEET_LABEL_COL_WIDTH],
+      ['COLUMNS', 2, needCols, SHEET_IMG_COL_WIDTH],
+      ['ROWS', 2, needRows, SHEET_ROW_HEIGHT],
+    ]
+    for (const [major, start, end, size] of sizes) {
+      if (end < start) continue
+      const r = await larkCall('PUT', `/open-apis/sheets/v2/spreadsheets/${tok}/dimension_range`, {
+        dimension: { sheetId: sid, majorDimension: major, startIndex: start, endIndex: end },
+        dimensionProperties: { fixedSize: size },
+      })
+      if (!r.ok) notes.push(`調整${major === 'ROWS' ? '列高' : '欄寬'}失敗：${r.message}`)
+    }
+
+    // ── 2. 文字格（表頭、gmid、失敗／未拍）批次寫 ─────────────────────────────
+    const texts = db.prepare(`
+      SELECT * FROM ui_screenshot_sheet_cells WHERE export_id = ? AND kind = 'text' AND state != 'ok' ORDER BY row_num, col_num
+    `).all(exportId) as SheetCellRow[]
+    for (let i = 0; i < texts.length; i += 400) {
+      const chunk = texts.slice(i, i + 400)
+      let r = await larkCall('POST', `/open-apis/sheets/v2/spreadsheets/${tok}/values_batch_update`, {
+        valueRanges: chunk.map(c => ({ range: sheetCell(sid, c.row_num, c.col_num), values: [[c.text ?? '']] })),
+      })
+      for (let attempt = 1; !r.ok && attempt < SHEET_MAX_ATTEMPTS_PER_PASS; attempt++) {
+        await new Promise(res => setTimeout(res, 1000 * 2 ** attempt))
+        r = await larkCall('POST', `/open-apis/sheets/v2/spreadsheets/${tok}/values_batch_update`, {
+          valueRanges: chunk.map(c => ({ range: sheetCell(sid, c.row_num, c.col_num), values: [[c.text ?? '']] })),
+        })
+      }
+      db.transaction(() => {
+        for (const c of chunk) setCell.run(r.ok ? 'ok' : 'fail', r.ok ? null : r.message, exportId, c.row_num, c.col_num)
+      })()
+    }
+
+    // ── 3. 圖片一格一格塞 ──────────────────────────────────────────────────────
+    const images = db.prepare(`
+      SELECT * FROM ui_screenshot_sheet_cells WHERE export_id = ? AND kind = 'image' AND state != 'ok' ORDER BY row_num, col_num
+    `).all(exportId) as SheetCellRow[]
+    for (const c of images) {
+      let error: string | null = null
+      const path = c.src_path ?? ''
+      if (!path || !existsSync(path)) {
+        error = '原圖不存在（可能已被清理）'
+      } else {
+        // ⚠️ 固定格位也要固定來源：建表時記下的那張圖若被換掉（重拍），不能補傳成另一張
+        const st = statSync(path)
+        if (st.size !== c.src_size || Math.round(st.mtimeMs) !== c.src_mtime) {
+          error = '原圖在建表後被換過，不補傳（請重新建表）'
+        } else {
+          const image = [...new Uint8Array(await readFile(path))]
+          for (let attempt = 1; attempt <= SHEET_MAX_ATTEMPTS_PER_PASS; attempt++) {
+            const r = await larkCall('POST', `/open-apis/sheets/v2/spreadsheets/${tok}/values_image`, {
+              range: sheetCell(sid, c.row_num, c.col_num), image, name: `r${c.row_num}c${c.col_num}.png`,
+            }).catch(err => ({ ok: false, status: 0, message: err instanceof Error ? err.message : String(err) }))
+            if (r.ok) { error = null; break }
+            error = r.message
+            if (attempt < SHEET_MAX_ATTEMPTS_PER_PASS) await new Promise(res => setTimeout(res, 1000 * 2 ** attempt))
+          }
+        }
+      }
+      setCell.run(error ? 'fail' : 'ok', error, exportId, c.row_num, c.col_num)
+    }
+  } catch (err) {
+    notes.push(err instanceof Error ? err.message : String(err))
+  } finally {
+    const left = db.prepare(`SELECT COUNT(*) AS n FROM ui_screenshot_sheet_cells WHERE export_id = ? AND state != 'ok'`)
+      .get(exportId) as { n: number }
+    db.prepare(`UPDATE ui_screenshot_sheet_exports SET status = ?, message = ?, finished_at = ? WHERE id = ?`)
+      .run(left.n === 0 && notes.length === 0 ? 'done' : 'partial', notes.join('；'), Date.now(), exportId)
+    activeSheetExports.delete(exportId)
+  }
+}
+
+/** POST /run/:runId/sheet-export  { folderUrl } — 在資料夾建新 Sheet，背景開始塞圖 */
+router.post('/run/:runId/sheet-export', async (req, res) => {
+  try {
+    const { runId } = req.params
+    const run = db.prepare(`SELECT id, resolutions FROM ui_screenshot_runs WHERE id = ?`).get(runId) as
+      { id: string; resolutions: string } | undefined
+    if (!run) return res.status(404).json({ ok: false, message: 'Run not found' })
+    const folderToken = parseLarkFolderToken(String(req.body?.folderUrl ?? '') || process.env.LARK_UI_SS_FOLDER_URL || '')
+    if (!folderToken) return res.status(400).json({ ok: false, message: '沒有可用的 Lark 資料夾連結' })
+
+    const tasks = db.prepare(
+      `SELECT id, gmid, resolution, status, actual_gmid, error_msg FROM ui_screenshot_tasks WHERE run_id = ?`,
+    ).all(runId) as SheetTask[]
+    if (tasks.length === 0) return res.status(400).json({ ok: false, message: '這次 run 沒有任何任務' })
+    const layout = buildSheetLayout(tasks, JSON.parse(run.resolutions || '[]') as string[])
+    const taskById = new Map(tasks.map(t => [t.id, t]))
+
+    const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+    const created = await larkCall('POST', '/open-apis/sheets/v3/spreadsheets',
+      { title: `解析度截圖_${stamp}_${runId.slice(0, 8)}`, folder_token: folderToken })
+    const spreadsheet = created.data?.spreadsheet as { spreadsheet_token?: string; url?: string } | undefined
+    if (!created.ok || !spreadsheet?.spreadsheet_token) {
+      return res.status(502).json({ ok: false, message: `建立 Sheet 失敗：${created.message || '沒有回傳 token'}` })
+    }
+    const tok = spreadsheet.spreadsheet_token
+    const q = await larkCall('GET', `/open-apis/sheets/v3/spreadsheets/${tok}/sheets/query`)
+    const sheetId = (q.data?.sheets as Array<{ sheet_id: string }> | undefined)?.[0]?.sheet_id
+    if (!sheetId) {
+      return res.status(502).json({ ok: false, message: `Sheet 已建立但讀不到分頁：${q.message}`, url: spreadsheet.url })
+    }
+
+    const exportId = randomUUID()
+    const insertCell = db.prepare(`
+      INSERT INTO ui_screenshot_sheet_cells (export_id, row_num, col_num, kind, text, task_id, src_path, src_size, src_mtime)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+    db.transaction(() => {
+      db.prepare(`
+        INSERT INTO ui_screenshot_sheet_exports (id, run_id, status, spreadsheet_token, sheet_id, url, no_machine, created_at)
+        VALUES (?, ?, 'running', ?, ?, ?, ?, ?)
+      `).run(exportId, runId, tok, sheetId, spreadsheet.url ?? '', layout.noMachine, Date.now())
+      layout.header.forEach((h, col) => insertCell.run(exportId, 0, col, 'text', h, null, null, null, null))
+      layout.rows.forEach((row, i) => {
+        const r = i + 1
+        insertCell.run(exportId, r, 0, 'text', row.label, null, null, null, null)
+        row.cells.forEach((cell, ci) => {
+          if (cell.kind === 'text') {
+            insertCell.run(exportId, r, ci + 1, 'text', cell.text, cell.taskId, null, null, null)
+            return
+          }
+          const t = taskById.get(cell.taskId)!
+          const path = screenshotPath(runId, t.gmid, t.resolution)
+          const st = existsSync(path) ? statSync(path) : null
+          insertCell.run(exportId, r, ci + 1, 'image', null, cell.taskId, path, st?.size ?? null, st ? Math.round(st.mtimeMs) : null)
+        })
+      })
+    })()
+
+    void runSheetExport(exportId)
+    res.json({ ok: true, exportId, url: spreadsheet.url ?? '', summary: sheetExportSummary(exportId) })
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err instanceof Error ? err.message : String(err) })
+  }
+})
+
+/** GET /run/:runId/sheet-export — 這次 run 最近一次建的表（重新整理頁面後接得回進度） */
+router.get('/run/:runId/sheet-export', (req, res) => {
+  const last = db.prepare(`SELECT id FROM ui_screenshot_sheet_exports WHERE run_id = ? ORDER BY created_at DESC LIMIT 1`)
+    .get(req.params.runId) as { id: string } | undefined
+  res.json({ ok: true, summary: last ? sheetExportSummary(last.id) : null })
+})
+
+router.get('/sheet-export/:id', (req, res) => {
+  const summary = sheetExportSummary(req.params.id)
+  if (!summary) return res.status(404).json({ ok: false, message: 'Export not found' })
+  res.json({ ok: true, summary })
+})
+
+/** POST /sheet-export/:id/resume — 只重送沒成功的格子，寫回同一張表的同一格 */
+router.post('/sheet-export/:id/resume', (req, res) => {
+  const summary = sheetExportSummary(req.params.id)
+  if (!summary) return res.status(404).json({ ok: false, message: 'Export not found' })
+  if (activeSheetExports.has(req.params.id)) return res.status(409).json({ ok: false, message: '這張表正在寫入中' })
+  void runSheetExport(req.params.id)
+  res.json({ ok: true, summary: sheetExportSummary(req.params.id) })
 })
 
 export default router

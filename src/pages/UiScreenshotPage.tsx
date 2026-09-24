@@ -163,6 +163,19 @@ interface Settings {
   selectedAgentId: string
 }
 
+/** 自動建 Lark Sheet 的進度（後端 `sheetExportSummary`） */
+interface SheetExportSummary {
+  id: string
+  status: 'running' | 'done' | 'partial' | 'interrupted'
+  running: boolean
+  url: string
+  no_machine: number
+  message: string
+  images: { ok: number; fail: number; pending: number }
+  texts: { ok: number; fail: number; pending: number }
+  failures: Array<{ row_num: number; col_num: number; kind: string; error: string | null }>
+}
+
 const DEFAULT_SETTINGS: Settings = {
   wikiUrl: '',
   gmidText: '',
@@ -264,6 +277,9 @@ export function UiScreenshotPage() {
   const [larkFolderUrl, setLarkFolderUrl] = useState(init.larkFolderUrl)
   const [reporting, setReporting] = useState(false)
   const [reportMsg, setReportMsg] = useState<string | null>(null)
+  const [sheetExport, setSheetExport] = useState<SheetExportSummary | null>(null)
+  const [sheetBusy, setSheetBusy] = useState(false)
+  const [sheetMsg, setSheetMsg] = useState<string | null>(null)
   const [storage, setStorage] = useState<{ runs: number; files: number; bytes: number } | null>(null)
   const [storageMsg, setStorageMsg] = useState<string | null>(null)
   const [modelFilter, setModelFilter] = useState('')
@@ -402,7 +418,65 @@ export function UiScreenshotPage() {
 
   useEffect(() => () => { esRef.current?.close() }, [])
 
+  // ── Lark Sheet 進度：換 run 時接回上次建的表；背景寫入中就每 2 秒問一次 ──────
+  useEffect(() => {
+    setSheetExport(null)
+    setSheetMsg(null)
+    if (!runId || runStatus !== 'done') return
+    fetch(`/api/ui-screenshot/run/${runId}/sheet-export`)
+      .then(r => r.json())
+      .then((d: { ok: boolean; summary: SheetExportSummary | null }) => { if (d.ok) setSheetExport(d.summary) })
+      .catch(() => { /* 沒有就當成還沒建過 */ })
+  }, [runId, runStatus])
+
+  const sheetRunning = !!sheetExport?.running
+  const sheetExportId = sheetExport?.id
+  useEffect(() => {
+    if (!sheetRunning || !sheetExportId) return
+    const timer = setInterval(() => {
+      fetch(`/api/ui-screenshot/sheet-export/${sheetExportId}`)
+        .then(r => r.json())
+        .then((d: { ok: boolean; summary?: SheetExportSummary }) => { if (d.ok && d.summary) setSheetExport(d.summary) })
+        .catch(() => { /* 下一輪再問 */ })
+    }, 2000)
+    return () => clearInterval(timer)
+  }, [sheetRunning, sheetExportId])
+
   // ── Actions ─────────────────────────────────────────────────────────────────
+
+  /** 在 Lark 資料夾建一份新 Sheet（gmid × 尺寸，格子放截圖），圖在背景一格一格塞 */
+  async function createLarkSheet() {
+    if (!runId) return
+    setSheetBusy(true)
+    setSheetMsg(null)
+    try {
+      const r = await fetch(`/api/ui-screenshot/run/${runId}/sheet-export`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderUrl: larkFolderUrl.trim() }),
+      })
+      const d = await r.json() as { ok: boolean; message?: string; summary?: SheetExportSummary }
+      if (!d.ok) { setSheetMsg(`建立失敗：${d.message ?? '未知錯誤'}`); return }
+      setSheetExport(d.summary ?? null)
+    } catch {
+      setSheetMsg('建立失敗（網路錯誤）')
+    } finally {
+      setSheetBusy(false)
+    }
+  }
+
+  /** 只重送沒成功的格子，寫回同一張表 */
+  async function resumeLarkSheet() {
+    if (!sheetExport) return
+    setSheetMsg(null)
+    try {
+      const r = await fetch(`/api/ui-screenshot/sheet-export/${sheetExport.id}/resume`, { method: 'POST' })
+      const d = await r.json() as { ok: boolean; message?: string; summary?: SheetExportSummary }
+      if (!d.ok) { setSheetMsg(`補傳失敗：${d.message ?? '未知錯誤'}`); return }
+      setSheetExport(d.summary ?? null)
+    } catch {
+      setSheetMsg('補傳失敗（網路錯誤）')
+    }
+  }
 
   const visibleModels = models.filter(m => {
     const q = modelFilter.trim().toLowerCase()
@@ -1201,6 +1275,48 @@ export function UiScreenshotPage() {
                     <span style={{ fontSize: 12, color: reportMsg.includes('失敗') ? '#f87171' : '#34d399' }}>{reportMsg}</span>
                   )}
                 </div>
+
+                {/* ── 自動建 Lark Sheet：只放 gmid＋各尺寸截圖（使用者 2026-09-24 定的版面） ── */}
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
+                  <button
+                    className="submit-btn submit-btn--sm" type="button"
+                    disabled={sheetBusy || sheetRunning || !larkFolderUrl.trim()}
+                    onClick={createLarkSheet}
+                    style={{ background: '#2563eb' }}
+                  >{sheetBusy ? '建立中…' : '建立 Lark Sheet（gmid＋截圖）'}</button>
+                  {sheetExport && (() => {
+                    const im = sheetExport.images
+                    const total = im.ok + im.fail + im.pending
+                    const textFail = sheetExport.texts.fail + (sheetExport.running ? 0 : sheetExport.texts.pending)
+                    const bad = im.fail + textFail
+                    const label = sheetExport.running ? '寫入中'
+                      : sheetExport.status === 'done' ? '完成'
+                      : sheetExport.status === 'interrupted' ? '中斷（伺服器重啟）' : '部分失敗'
+                    return (
+                      <span style={{ fontSize: 12, color: bad > 0 || sheetExport.status === 'interrupted' ? '#fbbf24' : '#34d399' }}>
+                        {label}｜圖片 {im.ok}/{total}
+                        {im.fail > 0 && `，失敗 ${im.fail}`}
+                        {textFail > 0 && `｜文字格失敗 ${textFail}`}
+                        {sheetExport.no_machine > 0 && `｜${sheetExport.no_machine} 張未取得機台號（列名有標示）`}
+                        {sheetExport.message && `｜${sheetExport.message}`}
+                        {sheetExport.url && <> ｜<a href={sheetExport.url} target="_blank" rel="noreferrer" style={{ color: '#60a5fa' }}>開啟 Sheet</a></>}
+                      </span>
+                    )
+                  })()}
+                  {sheetExport && !sheetExport.running && sheetExport.status !== 'done' && (
+                    <button className="btn-ghost" type="button" style={{ fontSize: 12 }} onClick={resumeLarkSheet}>
+                      補傳沒成功的格子
+                    </button>
+                  )}
+                  {sheetMsg && <span style={{ fontSize: 12, color: '#f87171' }}>{sheetMsg}</span>}
+                </div>
+                {sheetExport && sheetExport.failures.length > 0 && !sheetExport.running && (
+                  <div style={{ fontSize: 11.5, color: '#94a3b8', marginTop: 6, fontFamily: 'monospace' }}>
+                    {sheetExport.failures.slice(0, 5).map(f => (
+                      <div key={`${f.row_num}-${f.col_num}`}>第 {f.row_num + 1} 列第 {f.col_num + 1} 欄：{f.error ?? '失敗'}</div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* ── 儲存空間：截圖不會自己消失，要看得到也要清得掉 ── */}
