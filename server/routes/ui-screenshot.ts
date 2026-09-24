@@ -681,6 +681,18 @@ router.post('/task/:taskId/upload', upload.single('screenshot'), async (req, res
 })
 
 // POST /task/:taskId/status — agent reports task status without file (err/timeout)
+/**
+ * POST /run/:runId/log  { level, message } — agent 把**不屬於任何一張圖**的警告送到網頁執行日誌
+ * （例如拍完退出機台失敗）。⚠️ 只印在 agent 視窗的話，使用者根本看不到（2026-09-24 就是這樣查不到問題）。
+ * 只做即時推送，不落 DB。
+ */
+router.post('/run/:runId/log', (req, res) => {
+  const { level, message } = (req.body ?? {}) as { level?: string; message?: string }
+  if (!message) return res.status(400).json({ ok: false, message: 'message required' })
+  emitToRun(req.params.runId, { type: 'agent_log', level: level === 'warn' ? 'warn' : 'info', message: String(message).slice(0, 500) })
+  res.json({ ok: true })
+})
+
 router.post('/task/:taskId/status', (req, res) => {
   const { taskId } = req.params
   const task = db.prepare(`SELECT * FROM ui_screenshot_tasks WHERE id = ?`).get(taskId) as {

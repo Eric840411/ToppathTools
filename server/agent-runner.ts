@@ -817,6 +817,16 @@ async function waitForUiScreenshotLobby(page: Page, timeoutMs: number): Promise<
   return false
 }
 
+/**
+ * H5：是不是坐在某台機台裡。
+ * ⚠️「不在大廳」不等於「坐在機台裡」——頁面根本沒載起來時也看不到大廳，
+ *    那時硬去退出只會白等十幾秒再報錯。所以要有在機台裡的**正面證據**。
+ */
+async function uiScreenshotSeated(page: Page): Promise<boolean> {
+  if (await isUiScreenshotLobbyVisible(page).catch(() => true)) return false
+  return h5InGame(page) || !!(await readInGameMachineName(page).catch(() => ''))
+}
+
 async function exitUiScreenshotMachine(page: Page, machineCode: string): Promise<void> {
   const cashoutSelectors = [
     '.handle-main .my-button.btn_cashout',
@@ -1045,7 +1055,8 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
         if (!blocked.length) return
         // ⚠️ 這是**擋住流程但我們不敢點**的彈窗。一定要跟著這張圖回報——
         //    不講的話，畫面上只會看到一張被蓋住的截圖，沒人知道是彈窗造成的
-        const note = `有彈窗未處理（不在已確認清單內，沒有自動點）：${blocked.join('；').slice(0, 300)}`
+        // 內容分三種（未知彈窗／找不到按鈕／巡檢達上限），各自帶說明，這裡不再一律說成「不在清單」
+        const note = `有彈窗未處理：${blocked.join('；').slice(0, 300)}`
         popupErrorNote = popupErrorNote ? `${popupErrorNote}｜${note}` : note
         console.warn(`[UI-SS] ${gmid} — ${note}`)
       }
@@ -1308,6 +1319,30 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
       return true
     }
 
+    /**
+     * 這個 gmid 是不是還佔著一台機台的座位（H5）。退出成功才清掉。
+     * ⚠️ 要追蹤到 gmid 層級，不能只在「最後一張」那一刻判斷——見下面收尾兜底的說明。
+     */
+    let seatHeld = false
+    /** 退出失敗不改圖片的狀態，但**一定要讓網頁執行日誌看得到**（只印在 agent 視窗等於沒講） */
+    const agentWarn = async (message: string) => {
+      console.warn(`[UI-SS] ${message}`)
+      await fetch(`${serverBaseUrl}/api/ui-screenshot/run/${runId}/log`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ level: 'warn', message }),
+      }).catch(() => {})
+    }
+    const leaveSeat = async (page: Page, why: string) => {
+      const who = lastUsedMachine ?? gmid
+      try {
+        await exitUiScreenshotMachine(page, who)
+        seatHeld = false
+        console.log(`[UI-SS] ${gmid} — ${why}，已退出機台 ${who}`)
+      } catch (e) {
+        await agentWarn(`${gmid} — ⚠️ ${why}，但退出機台 ${who} 失敗（不影響已上傳的圖）：${e instanceof Error ? e.message.split('\n')[0] : String(e)}`)
+      }
+    }
+
     try {
       browser = await chromium.launch({
         headless: !options.headedMode,
@@ -1316,20 +1351,21 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
 
       if (reloadPerResolution) {
         // ── 每個解析度各自開一個 context、以該尺寸重新載入 ──────────────────
-        for (const task of gmidTasks) {
+        for (const [ti, task] of gmidTasks.entries()) {
           if (uiScreenshotRuns.get(runId)?.stopped) break
           const [w, h] = task.resolution.split('x').map(Number)
           // ⚠️ context 也要建在 try 裡。建在外面的話它一失敗就會掉進外層 catch，
           //    而外層 catch 會把**這台機器的每一張**都標成失敗——包含前面已經拍好的那幾張
           let ctx: import('playwright').BrowserContext | null = null
+          let page: Page | null = null
           try {
             ctx = await browser.newContext({ viewport: { width: w || 390, height: h || 844 } })
-            const page = await ctx.newPage()
+            page = await ctx.newPage()
             await postStatus(task.id, 'running')
             const actual = await prepare(page)
             await shootAndUpload(page, task, actual)
-            // ⚠️ 重新載入模式**不走離開機台的流程**（使用者 2026-09-18 指定）：
-            //    反正下一張會關掉整個 context 重開，走一次 Quit 只是多花時間、多一個會卡住的地方。
+            // ⚠️ **換尺寸不退出**（使用者 2026-09-18 指定）：下一張會關掉整個 context 重開，
+            //    走一次 Quit 只是多花時間、多一個會卡住的地方。
             //    副作用：機台釋放如果有延遲，下一張可能會被迫換台——那時會自動挑同 model 的另一台，
             //    每張圖都有記錄實際機台號，所以看得出來。
           } catch (err) {
@@ -1338,6 +1374,41 @@ async function runUiScreenshot(runConfig: UiScreenshotRunConfig, serverBaseUrl: 
             const m = err instanceof Error ? err.message.split('\n')[0] : String(err)
             console.error(`[UI-SS] ${gmid} ${task.resolution} error: ${m}`)
             await postStatus(task.id, /timeout/i.test(m) ? 'timeout' : 'err', m)
+          } finally {
+            /**
+             * 🚨 **這個 gmid 的最後一張拍完（或被按停止）就要退出機台**（使用者 2026-09-24 指定）。
+             *    不退的話位子一直佔著，下一個測試項載入時會被送回這台，還得靠「不是要的那款」再退一次。
+             * ⚠️ 最後一張**拍失敗也照退**——進去了但推流沒起來，人一樣坐在裡面。
+             * ⚠️ 退出失敗**不改這張圖的狀態**（圖已經傳上去了），但會寫進網頁執行日誌。
+             * ⚠️ 這裡退不到的情況（尺寸交界按停止、最後一張連頁面都沒建起來）由迴圈後的兜底處理。
+             * PC 每張拍完就退了（`shootAndUpload` 裡），這裡只管 H5。
+             */
+            const lastOfGmid = ti === gmidTasks.length - 1 || !!uiScreenshotRuns.get(runId)?.stopped
+            if (page && !isLobbyTarget && !isPc) {
+              seatHeld = await uiScreenshotSeated(page)
+              if (seatHeld && lastOfGmid) await leaveSeat(page, '這個測試項拍完')
+            }
+            await ctx?.close().catch(() => {})
+          }
+        }
+        /**
+         * 🚨 **gmid 層級的兜底**（CodeX 2026-09-24）。上面那段只在「最後一張有頁面」時退得到，
+         *    漏兩種：① 在尺寸交界按停止——停止旗標是 `ctx.close()` 期間才進來的，下一輪直接 break；
+         *    ② 最後一張連頁面都沒建起來，前一張留下的座位就沒人收。
+         *    **最後一個 gmid 或按停止時沒有下一輪可以接手**，所以不能只靠下一台的「不是要的那款」。
+         *    做法：重開一頁（載入時通常會被送回還佔著的那台），確認坐在裡面才退，整段有時限。
+         */
+        if (seatHeld && !isLobbyTarget && !isPc) {
+          let ctx: import('playwright').BrowserContext | null = null
+          try {
+            ctx = await browser.newContext({ viewport: { width: 390, height: 844 } })
+            const page = await ctx.newPage()
+            await page.goto(url, { timeout: 30000 })
+            await page.waitForTimeout(8000)
+            if (await uiScreenshotSeated(page)) await leaveSeat(page, '收尾時還佔著座位，重開一頁')
+            else seatHeld = false
+          } catch (e) {
+            await agentWarn(`${gmid} — ⚠️ 收尾時要釋放座位但重開頁面失敗：${e instanceof Error ? e.message.split('\n')[0] : String(e)}`)
           } finally {
             await ctx?.close().catch(() => {})
           }

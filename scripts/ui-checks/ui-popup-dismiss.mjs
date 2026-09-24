@@ -395,6 +395,69 @@ try {
       /ready = await waitForUiScreenshotReady\(page\)[\s\S]{0,400}?await dismissUiScreenshotPopups/.test(src), false)
   }
 
+  // ── ⑪ 繞路很久之後才出現的面額選單，看門狗還要在（2026-09-24 使用者 agent log）──
+  //    第二台之後要先退出上一台再回大廳，原本上限 40 輪用完就無聲停巡，
+  //    進新機台時面額選單沒人關，留在截圖上。這裡用**預設上限**，先空巡超過 40 輪再放選單。
+  await load('<div id="host"></div>')
+  {
+    const guard = startUiPopupGuard(page, 'p11', { intervalMs: 15, log: quiet })
+    await page.waitForTimeout(1500)   // 空巡 > 40 輪（模擬繞路退出上一台）
+    await page.evaluate(() => {
+      const d = document.createElement('div')
+      d.className = 'select-bg'
+      d.innerHTML = '<div class="select-row"><div class="van-col">1.00</div></div>'
+      d.querySelector('.van-col').addEventListener('click', () => d.remove())
+      document.body.appendChild(d)
+    })
+    await page.waitForTimeout(2500)
+    const g = await guard.stop()
+    check('⑪ 空巡超過 40 輪後才出現的面額選單，還是被關掉', await page.locator('.select-bg').count(), 0)
+    check('⑪ 正常收工不該有「提前結束」紀錄', g.blocked.some(b => /提前結束/.test(b)), false)
+  }
+
+  // ── ⑫ 面額選單先出現、按鈕晚一點才渲染 ─────────────────────────────────────
+  //    CodeX 2026-09-24：這是**暫時**的阻塞，後來關掉了就不能留在 blocked 裡，
+  //    否則乾淨的截圖會被標成「有彈窗未處理」
+  await load(`<div class="select-bg" id="denom"><div class="select-row" id="row"></div></div>
+  <script>
+    setTimeout(() => {
+      const b = document.createElement('div'); b.className = 'van-col'; b.textContent = '1.00'
+      b.addEventListener('click', () => document.getElementById('denom').remove())
+      document.getElementById('row').appendChild(b)
+    }, 700)
+  </script>`)
+  {
+    const logs = []
+    const guard = startUiPopupGuard(page, 'p12', { intervalMs: 150, log: m => logs.push(m) })
+    await page.waitForTimeout(2500)
+    const g = await guard.stop()
+    check('⑫ 按鈕晚出現：最後還是關掉了', await page.locator('.select-bg').count(), 0)
+    check('⑫ 找不到按鈕的那幾輪有留 log（不再靜默）', logs.some(m => /找不到可點的面額按鈕/.test(m)), true)
+    check('⑫ 後來關掉了，暫時阻塞要解除', g.blocked.some(b => /找不到可點的面額按鈕/.test(b)), false)
+  }
+  await load('<div class="select-bg"><div class="select-row"></div></div>')
+  {
+    const guard = startUiPopupGuard(page, 'p12b', { intervalMs: 150, log: quiet })
+    await page.waitForTimeout(800)
+    const g = await guard.stop()
+    check('⑫b 按鈕一直沒出現：要回報，而且說得出是「找不到按鈕」不是「未知彈窗」',
+      g.blocked.some(b => /找不到可點的面額按鈕/.test(b)) && !g.blocked.some(b => /未知彈窗/.test(b)), true)
+  }
+
+  // ── ⑬ 撞到安全上限：一定要留紀錄，而且措辭是「尚未確認」 ─────────────────
+  await load('<div id="host"></div>')
+  {
+    const logs = []
+    const guard = startUiPopupGuard(page, 'p13', { intervalMs: 30, maxPasses: 3, log: m => logs.push(m) })
+    await page.waitForTimeout(600)
+    const g = await guard.stop()
+    const rec = g.blocked.find(b => /提前結束/.test(b)) ?? ''
+    check('⑬ 撞上限有記進 blocked', !!rec, true)
+    check('⑬ 紀錄帶輪數與耗時', /3 輪/.test(rec) && /秒/.test(rec), true)
+    check('⑬ 措辭是「尚未確認」，不是斷定仍有彈窗', /尚未確認/.test(rec) && !/仍有彈窗/.test(rec), true)
+    check('⑬ 當下就有印 log', logs.some(m => /提前結束/.test(m)), true)
+  }
+
   // ── ④ 「自動關閉面額彈窗」關掉時，ensureUiScreenshotLobby 不可以偷關 ───────
   //    這條在 agent-runner 那一層，沒有真環境驗不到行為，改成守「呼叫點有帶條件」。
   //    ⚠️ 這是**結構檢查不是行為檢查**，所以特別標出來，不要當成行為驗過。

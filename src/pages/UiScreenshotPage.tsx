@@ -107,6 +107,7 @@ interface SseSnapshot {
 }
 
 type SseEvent = SseTaskUpdate | SseRunComplete | SseSnapshot | { type: 'run_stopped'; runId: string }
+  | { type: 'agent_log'; level?: 'warn' | 'info'; message?: string }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -386,16 +387,20 @@ export function UiScreenshotPage() {
           const machine = u.actualGmid && u.actualGmid !== u.gmid ? ` @${u.actualGmid}` : ''
           const msg = `[${u.gmid}${machine}] ${u.resolution} → ${u.status}${u.errorMsg ? ` (${u.errorMsg})` : ''}`
           setLogs(prev => [...prev.slice(-200), msg])
+        } else if (data.type === 'agent_log') {
+          // agent 端不屬於任何一張圖的警告（例如拍完退出機台失敗）
+          const m = data
+          setLogs(prev => [...prev.slice(-200), `${m.level === 'warn' ? '⚠️ ' : ''}${m.message ?? ''}`])
         } else if (data.type === 'run_complete') {
           setRunStatus('done')
           const c = data as SseRunComplete
           const msg = `通過 Run 完成｜OK:${c.ok_count ?? '?'} POPUP:${c.popup_count ?? '?'} ERR:${c.err_count ?? '?'}`
           setLogs(prev => [...prev, msg])
-          es.close()
+          // ⚠️ 不在這裡關連線：完成事件是**最後一張圖回報時**就發了，agent 之後還要退出機台，
+          //    退出失敗的警告（agent_log）會在這之後才來。關掉就收不到了（CodeX 2026-09-24）
         } else if (data.type === 'run_stopped') {
           setRunStatus('stopped')
           setLogs(prev => [...prev, '⏹ Run 已停止'])
-          es.close()
         }
       } catch { /* ignore */ }
     }

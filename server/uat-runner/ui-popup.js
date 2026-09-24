@@ -158,6 +158,13 @@ export async function dismissUiPopups(page, label, opts = {}) {
   const errors = []
   /** 看到了但**沒有點**的彈窗（strict 模式下的未知彈窗）。要回報出去，不能默默略過 */
   const blocked = []
+  /**
+   * **暫時性**的阻塞：面額選單在、但裡面的按鈕還沒渲染出來。
+   * ⚠️ 跟 `blocked` 分開放（CodeX 2026-09-24）：按鈕可能只是晚一點才出現，下一輪就關掉了。
+   *    混進 `blocked` 的話，它只累積不清除，**乾淨的截圖也會被標成有彈窗沒處理**。
+   *    看門狗只保留「最後一輪」的暫時阻塞——後來關掉了就自然消失。
+   */
+  const transient = []
   /** 用光輪數時還在關——代表沒關完，一定要講出來 */
   let hitCap = false
 
@@ -189,6 +196,11 @@ export async function dismissUiPopups(page, label, opts = {}) {
           continue
         }
         log(`[UI-SS] ${label} — 面額選單${clicked ? '點了但沒關掉' : '點不下去（多半被別的彈窗蓋住）'}，改先處理上層`)
+      } else {
+        // 🚨 原本這個分支**什麼都不印**——面額選單明明在，卻一點紀錄都沒有（2026-09-24 查 log 時卡在這裡）
+        const note = '面額選單在，但找不到可點的面額按鈕（.select-row .van-col）'
+        if (!transient.includes(note)) transient.push(note)
+        log(`[UI-SS] ${label} — ${note}，下一輪再試`)
       }
     }
 
@@ -223,7 +235,7 @@ export async function dismissUiPopups(page, label, opts = {}) {
 
     // 看到但沒點：記下來就停手，不要再轉下一輪（畫面沒變，轉下去只是原地打轉）
     if (skipped) {
-      blocked.push(boxText || btn)
+      blocked.push(`未知彈窗（不在已確認清單，沒有自動點）：${boxText || btn}`)
       log(`[UI-SS] ${label} — ⚠️ 有彈窗但不在已確認清單裡，**沒有點**：${boxText || btn}`)
       break
     }
@@ -250,7 +262,7 @@ export async function dismissUiPopups(page, label, opts = {}) {
     log(`[UI-SS] ${label} — ⚠️ 關到上限 ${rounds} 輪就停了，沒有多跑一輪確認畫面是否清空`)
   }
 
-  return { dismissed, errors, blocked }
+  return { dismissed, errors, blocked, transient }
 }
 
 /** page → 正在跑的看門狗。用 WeakMap，頁面關掉就跟著回收 */
@@ -275,6 +287,8 @@ const ACTIVE_GUARDS = new WeakMap()
  */
 export function startUiPopupGuard(page, label, opts = {}) {
   const result = { dismissed: 0, errors: [], blocked: [] }
+  /** 最後一輪看到的暫時阻塞；stop() 時才併進 blocked（見 `transient` 的說明） */
+  let lastTransient = []
   if (opts.enabled === false) return { stop: async () => result, runOnce: async () => result }
 
   /**
@@ -291,7 +305,15 @@ export function startUiPopupGuard(page, label, opts = {}) {
   }
 
   const intervalMs = opts.intervalMs ?? 700
-  const maxPasses = opts.maxPasses ?? 40
+  /**
+   * 🚨 **原本是 40，而且用完就無聲停巡。**（2026-09-24 使用者給的 agent log 抓到）
+   *    40 × 0.7 秒＋每輪處理時間，大約半分鐘就停了。第二台之後要先繞回大廳、退出上一台，
+   *    進新機台時看門狗已經不在了——面額選單留在截圖上，log 一行都沒有。
+   *    現在上限只當**安全網**：正常情況下是 `stop()` 叫停的，撞到上限一定留紀錄。
+   */
+  const maxPasses = opts.maxPasses ?? 600
+  const startedAt = Date.now()
+  let stopReason = ''
   let active = true
   let passes = 0
   /** 序列化用的尾巴：每個動作都接在前一個後面 */
@@ -307,6 +329,7 @@ export function startUiPopupGuard(page, label, opts = {}) {
     if (!r) return
     result.dismissed += r.dismissed
     result.errors.push(...r.errors)
+    lastTransient = r.transient ?? []
     // 同一個關不掉的彈窗每輪都會回報一次，去重之後才看得出到底有幾種
     for (const b of r.blocked) if (!result.blocked.includes(b)) result.blocked.push(b)
   }
@@ -325,6 +348,9 @@ export function startUiPopupGuard(page, label, opts = {}) {
       await loop.catch(() => {})
       await tail.catch(() => {})
       ACTIVE_GUARDS.delete(page)
+      for (const t of lastTransient) if (!result.blocked.includes(t)) result.blocked.push(t)
+      lastTransient = []
+      if (stopReason && !result.blocked.includes(stopReason)) result.blocked.push(stopReason)
       return result
     },
   }
@@ -335,6 +361,13 @@ export function startUiPopupGuard(page, label, opts = {}) {
       if (!active) break
       passes++
       await enqueue(onePass)
+    }
+    // ⚠️ 撞到上限＝**巡檢提前結束**，之後冒出來的彈窗沒人管。措辭只能說「尚未確認」，
+    //    不能說「仍有彈窗」——停巡當下畫面可能是乾淨的（CodeX 2026-09-24）
+    if (active && passes >= maxPasses) {
+      const secs = ((Date.now() - startedAt) / 1000).toFixed(1)
+      stopReason = `彈窗巡檢提前結束（達安全上限 ${maxPasses} 輪、已巡 ${secs} 秒），之後的畫面尚未確認`
+      ;(opts.log ?? (m => console.log(m)))(`[UI-SS] ${label} — ⚠️ ${stopReason}`)
     }
   })()
 

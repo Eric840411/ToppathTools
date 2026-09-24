@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.258.0'
+export const APP_VERSION = '4.259.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.259.0', date: '2026-09-24', changes: ['feat(UI 截圖)：**一個 gmid 的所有尺寸拍完才退出機台**，換尺寸不退（使用者要求）。最後一張拍失敗也照退；退出失敗不改圖片狀態，但會寫進網頁執行日誌', 'fix(UI 截圖)：**第二台之後面額選單沒被關掉**（使用者回報＋agent log）。上一個 gmid 沒退出 → 下一個載入時被送回舊機台、繞一趟退出，把看門狗的 40 輪耗光；看門狗**用完就無聲停巡**，進新機台時沒人管', 'fix(UI 截圖)：看門狗巡到截圖前才停，上限只當安全網（600），撞到一定留紀錄，措辭是「尚未確認」', 'fix(UI 截圖)：面額選單在但找不到按鈕，原本**一行 log 都沒有**——改成記下來並重試；後來關掉了就解除，不會把乾淨的圖標成有問題', 'feat(UI 截圖)：gmid 層級兜底——尺寸交界按停止、或最後一張連頁面都沒開起來時，重開一頁確認還坐著才退出（CodeX）', 'test(UI 截圖)：彈窗測試加 ⑪⑫⑫b⑬ 共 10 條，突變四個都紅在對應那幾條；`ui-screenshot-e2e.mjs` 可以一次跑多個 gmid'] },
   { version: '4.258.0', date: '2026-09-24', changes: ['feat(UI 截圖)：**產出報告可以自動建一份 Lark Sheet**（使用者要求）——建在畫面上填的雲端資料夾，只放 gmid＋各尺寸截圖：一台實際機台一列、一個尺寸一欄', 'feat(UI 截圖)：列用**實際拍到的機台號**，不用「遊戲 / model」——同一 model 換台時兩台各一列，gmid 才對得上圖（CodeX 指出）', 'feat(UI 截圖)：格子三種字意思不同：`失敗`＝排了沒拍成、`未拍`＝這台沒排這個尺寸、沒拿到機台號的列名標`（未取得機台號）`——不猜機台號也不默默漏掉', 'feat(UI 截圖)：Lark 只能一格一格塞圖，所以**每一格的位置與來源圖先落 DB**、背景逐格寫；「補傳沒成功的格子」只重送失敗的、寫回同一格。背景與補傳互斥，重啟後標成中斷可接著寫', 'test(UI 截圖)：`scripts/ui-checks/ui-screenshot-sheet.mjs` 14 條，突變四個（不用 actual_gmid／失敗蓋成功／未拍寫成失敗／丟掉無機台號）都紅在對應那幾條', 'test(UI 截圖)：真 Lark 實測——讀回內容正確、同格重送是覆寫不疊圖、隔壁格不動、重啟後續傳。⚠️ 上千張的速度與限流還沒跑過'] },
   { version: '4.257.2', date: '2026-09-23', changes: ['fix(UAT)：**改綁彈窗開在叫它出來的視窗底下，所以根本看不到**（使用者回報「我要在哪改綁？」）。它沿用 `.uat-tc-modal` 的 `z-index: 10050`，但它是**從錄製工作台裡面**打開的，而那個工作台 `.uat-multi-overlay` 是 **11000**', '🚨 **我上一版的驗證是假的。**當時寫「`.uat-retarget` 出現數量 = 1」而且 `isVisible()` 回 true——**兩個都是真的，而且兩個都沒用**：Playwright 的 `isVisible()` 不看遮擋。節點在、可見、但被整片蓋住', '✨ 驗遮擋只有一個辦法：`document.elementFromPoint(彈窗中心)` 回傳的必須是彈窗自己。修正前命中的是後面那層的 `<select>`，修正後命中 `.uat-tc-picker.uat-retarget`', '🔧 修法是給它自己的層 `.uat-retarget-overlay { z-index: 11100 }`。⚠️ 不去動 `.uat-tc-modal` 本身——那會連帶改到其他從面板開的彈窗的疊法'] },
   { version: '4.257.1', date: '2026-09-23', changes: ['fix(UAT)：**整個 UAT 工作台的按鈕原本一個 hover／active 都沒有**（使用者回報「改綁按鈕怎麼沒有互動效果」才發現）。不是只有新按鈕的問題——`.uat-btn` 從頭到尾就沒有任何 `:hover` 規則', '⚠️ 後果不只是不好看：`is-quiet` 的底色本來就很暗，跟 `:disabled` 的半透明看起來幾乎一樣——**使用者分不出「這顆能按」還是「這顆是灰的」**，會以為功能壞了。實際畫面上「改綁 TC 表格」就跟旁邊載入中的灰按鈕長得一樣', '✨ 補在 `.uat-btn` 這一層（hover 換邊框色＋提亮、active 下沉 1px、focus-visible 有外框），整個工作台一起受惠。⚠️ 一律用 `:not(:disabled)` 限定，否則停用中的按鈕也會亮起來，比沒有 hover 更誤導', 'fix(UAT)：H5／PC 那顆「改綁 TC 表格」原本做成底線文字連結，跟旁邊所有控制項都不一樣反而更像壞掉——改回標準按鈕（`is-mini` 縮小版）', 'test(UAT)：用瀏覽器**實際量** hover 前後的樣式差異（邊框 `rgb(45,63,85)` → `rgb(59,130,246)`、filter `none` → `brightness(1.18)`），並確認**停用中的按鈕 hover 沒有變化**；點下去 `.uat-retarget` 彈窗確實出現'] },

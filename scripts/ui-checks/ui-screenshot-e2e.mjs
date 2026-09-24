@@ -86,7 +86,8 @@ try {
     agentId,
     wikiUrl: '',
     gameUrlTemplate: URL_TEMPLATE,
-    gmids: [GMID],
+    // 多個 gmid 用 `|` 分隔（model 名稱有空白與斜線，不能用逗號）——驗「一個 gmid 拍完才退出」要至少兩個
+    gmids: GMID.split('|').map(s => s.trim()).filter(Boolean),
     resolutions: RES.split(','),
     clientType: 'h5',
     options: {
@@ -100,15 +101,22 @@ try {
   console.log('start:', JSON.stringify(started), '\n')
   if (!started.ok) throw new Error(started.message)
 
-  // 等任務結束
-  for (let i = 0; i < 180; i++) {
+  // 等**全部**任務結束，而且 agent 把每個 gmid 都收完尾（退出機台在最後一張回報之後才做）
+  const nGmid = body.gmids.length
+  for (let i = 0; i < 900; i++) {
     await new Promise(r => setTimeout(r, 1000))
-    const row = db.prepare('SELECT status, error_msg FROM ui_screenshot_tasks WHERE run_id = ?').get(started.runId)
-    if (row && !['pending', 'running'].includes(row.status)) {
-      console.log(`\n>>> 任務結束：status=${row.status}  error=${row.error_msg ?? '(無)'}`)
-      break
-    }
+    const rows = db.prepare('SELECT status FROM ui_screenshot_tasks WHERE run_id = ?').all(started.runId)
+    const done = rows.length > 0 && rows.every(r => !['pending', 'running'].includes(r.status))
+    const closed = lines.filter(l => /— done \(/.test(l)).length
+    if (done && closed >= nGmid) break
   }
+  console.log('\n>>> 任務結果：')
+  for (const r of db.prepare('SELECT gmid, resolution, status, actual_gmid, error_msg FROM ui_screenshot_tasks WHERE run_id = ?').all(started.runId)) {
+    console.log(`   ${r.gmid} ${r.resolution} → ${r.status} @${r.actual_gmid ?? '-'} ${r.error_msg ?? ''}`)
+  }
+  const flow = lines.filter(l => /gmid=|退出|returned to lobby|沒看到大廳|auto-picked|entry=|面額|提前結束|重新載入後|done \(/.test(l))
+  console.log(`\n>>> 進出機台流程 ${flow.length} 行：`)
+  for (const l of flow) console.log('   ' + l.trim().slice(0, 200))
   const popupLines = lines.filter(l => /關掉|彈窗|Confirm/.test(l))
   console.log(`\n>>> 關窗相關的 log ${popupLines.length} 行：`)
   for (const l of popupLines) console.log('   ' + l.trim().slice(0, 200))
