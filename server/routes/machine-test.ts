@@ -25,7 +25,7 @@ import {
   hashOne, hashSources, RESTART_REQUIRED_SOURCES,
   compareAgentSources, type AgentUpdateStatus,
 } from '../agent-source-hash.js'
-import { MachineTestRunner } from '../machine-test/runner.js'
+import { MachineTestRunner, noteOsmObservation } from '../machine-test/runner.js'
 import type { MachineTestSession, MachineProfile } from '../machine-test/types.js'
 import {
   broadcastToViewers,
@@ -942,6 +942,7 @@ router.post('/api/machine-test/osm-status', (req, res) => {
         if (typeof gm.id === 'string' && typeof gm.status === 'number') {
           osmMachineStatus.set(gm.id, gm.status)
           osmMachineUpdatedAt.set(gm.id, lastOsmWebhookAt)
+          noteOsmObservation(gm.id, lastOsmWebhookAt)
           persistOsmMachineStatus(gm.id, gm.status)
           updates.push({ machineId: gm.id, status: gm.status })
         }

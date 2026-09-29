@@ -52,6 +52,12 @@ export interface MachineResult {
   consoleLogs: string[]
   startedAt: string
   finishedAt: string
+  /**
+   * 產生這筆結果的 session。伺服器轉播 agent 事件時不帶 sessionId（broadcastToViewers(ev)），
+   * 外部腳本（machine-test-batch.mjs）靠這個欄位確認結果屬於自己發動的那一輪，
+   * 不會混進試跑或別人的批次（2026-09-24）。
+   */
+  sessionId?: string
 }
 
 export type BonusAction = 'auto_wait' | 'spin' | 'takewin' | 'touchscreen'

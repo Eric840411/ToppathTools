@@ -1,0 +1,14 @@
+{
+  "BZZF": {
+    "point": "18,9",
+    "expect": "選面額選單（CHOOSE A DENOMINATION）",
+    "close": "none",
+    "refRegion": [
+      0.25,
+      0.26,
+      0.76,
+      0.34
+    ],
+    "closeIfOpen": true
+  }
+}

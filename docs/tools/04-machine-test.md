@@ -53,8 +53,8 @@
 → [checkOsm] 推流檢測（video/canvas）
 → [checkOsm] Spin 測試（3 次點擊，比對餘額變化）
 → [checkOsm] 音頻檢測（5s VB-Cable 錄音 + dB 分析 + 可選 AI）
-→ [checkOsm] iDeck 測試（XPath 按鈕點擊 + daily-analysis API 確認）
-→ [checkOsm] 觸屏測試（span 文字點位 + daily-analysis API 確認）
+→ [checkOsm] iDeck 測試（XPath 或自動偵測 btn_bet＋btn_play 按鈕點擊 + daily-analysis API 確認；API 查不到機台 → SKIP 未驗）
+→ [checkOsm] 觸屏測試（span 文字點位 + daily-analysis API 確認；API 查不到機台 → SKIP 未驗）
 → [checkOsm] CCTV 號碼比對（截圖 + Gemini Vision OCR）
 → [checkOsm] 退出測試（btn_cashout → leaveGMNtc，errcode=10002 時自動重試最多 3 次）
 ```
@@ -90,7 +90,7 @@ Server (JobQueue)
 | `balanceSelector` | 自訂餘額元素 CSS selector |
 | `exitSelector` | 自訂退出按鈕 CSS selector |
 | `ideckRowClass` | iDeck 按鈕所在 row 的 class（如 row4） |
-| `ideckXpaths` | iDeck 按鈕 XPath 列表 |
+| `ideckXpaths` | iDeck 按鈕 XPath 列表（都沒設 → 自動偵測 btn_bet＋btn_play，詳見 features/04-machine-test.md） |
 | `entryTouchPoints` | 進入機台第一階段觸屏（選擇面額等） |
 | `entryTouchPoints2` | 進入機台第二階段觸屏（YES/NO 確認） |
 | `gmid` | gameid URL 參數，用於設定檔 fallback 比對 |

@@ -46,7 +46,7 @@ import { dismissUiPopups, startUiPopupGuard, evaluateReadyGate, nextSeatState, r
 import { h5BackToLobby, h5InGame } from './uat-runner/h5-seat.js'
 import { verifyRecordedSelectorLive, createRecordedLocators } from './uat-runner/recorded-selector.js'
 import { frontendRecorderScript, flagShadowCompleteness, syncRecorderPanel, setRecorderPanelVisible, FRONTEND_RECORDER_CONTROL_MARKER } from './uat-runner/frontend-recorder.js'
-import { MachineTestRunner } from './machine-test/runner.js'
+import { MachineTestRunner, noteOsmObservation } from './machine-test/runner.js'
 import type { MachineTestSession, MachineProfile, TestEvent } from './machine-test/types.js'
 import { ScriptedBetRunner } from './scripted-bet/runner.js'
 import type { ScriptedBetAccount, ScriptedBetConfig, ScriptedBetEvent } from './scripted-bet/types.js'
@@ -2311,8 +2311,10 @@ function connect() {
     if (msg.type === 'osm_status_update') {
       const updates = (msg as { type: 'osm_status_update'; updates: { machineId: string; status: number }[] }).updates
       if (Array.isArray(updates)) {
+        const at = Date.now()
         for (const { machineId, status } of updates) {
           currentOsmMap.set(machineId, status)
+          noteOsmObservation(machineId, at)
         }
       }
       return
@@ -2969,6 +2971,9 @@ function connect() {
       console.log(`[Agent:${AGENT_LABEL}] Joined session ${sessionId} — starting claim-loop`)
 
       const runClaimLoop = async () => {
+        // 某台機台回報「必須人工處理」（退出 AFT 錯誤、Handpay、退出超時）後，後面的機台不再實際測試，
+        // 但仍要逐台領走並回報 job_done，session 才會正常結束、釋放重任務鎖與 agent busy。
+        let haltReason: string | null = null
         while (true) {
           // Request the next available machine from the central queue
           const code = await new Promise<string | null>((resolve) => {
@@ -2984,6 +2989,19 @@ function connect() {
 
           console.log(`[Agent:${AGENT_LABEL}] Claimed machine: ${code}`)
           let failed = false
+
+          if (haltReason) {
+            const skipped = {
+              machineCode: code, overall: 'fail' as const,
+              steps: [{ step: '測試流程', status: 'skip' as const, message: `未執行：前一台需人工處理（${haltReason}）`, durationMs: 0 }],
+              consoleLogs: [], startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
+            }
+            if (ws.readyState === ws.OPEN) {
+              ws.send(JSON.stringify({ type: 'event', sessionId, event: { type: 'machine_done', machineCode: code, status: 'fail', message: `${code} 未執行（批次已因前一台異常中止）`, result: skipped, ts: new Date().toISOString() } }))
+              ws.send(JSON.stringify({ type: 'job_done', sessionId, machineCode: code, failed: true }))
+            }
+            continue
+          }
 
           try {
             // Create a fresh runner for each machine (avoids stale state)
@@ -3001,6 +3019,10 @@ function connect() {
 
             // Agent always runs headless — ignore headedMode from main UI
             await runner.run({ ...session, sessionId, machineCodes: [code], headedMode: session.headedMode === true })
+            if (runner.haltReason) {
+              haltReason = runner.haltReason
+              console.log(`[Agent:${AGENT_LABEL}] Halting batch: ${haltReason}`)
+            }
           } catch (err) {
             console.error(`[Agent:${AGENT_LABEL}] Machine ${code} error:`, err)
             failed = true

@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.259.3'
+export const APP_VERSION = '4.260.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.260.0', date: '2026-09-29', changes: ['feat(機台測試)：**iDeck 改兩段式**——每顆驗前端 SEND/ON 的 seq＋actionid（不靠盒子 log，CMDB 查不到也能驗），開局看 moneyNtc begin→end 等局結束再點下一顆（逾時中止、不補點），最後按回 BetMultiple1；盒子 log 降為選配診斷', 'feat(機台測試)：**觸屏畫面判定**（touch-visual.json）——點會讓畫面變化的格子看 main 推流，含雜訊重拍、逐次凍結、穩定窗、參考圖比對（touch-refs/），BZZF＝18,9 開選面額選單', 'feat(機台測試)：**推流 main/pool 分開判**（machine-layout.json 設畫面數，BZZF＝2），缺哪塊判得出來', 'feat(機台測試)：**Game Preview 顯示 Occupied 直接判定**，AUDIT MODE（Aristocrat 維修選單）自動辨識並截圖', 'fix(機台測試)：退出被擋推進 feature 時，先關前端選面額遮罩與「cannot be quit」提示框再按 SPIN（原本 SPIN 全按在遮罩上）', 'fix(機台測試)：推流步驟 page.evaluate 內具名函式被 tsx 包 __name 導致整步炸掉；CCTV 沒畫面也截圖留證', 'refactor(機台測試)：iDeck／觸屏／推流判定抽成 server/machine-test/verdicts.ts 純函式，探針 scripts/verdicts-probe.ts（62 案例，含點擊次數流程探針）'] },
   { version: '4.259.3', date: '2026-09-24', changes: ['fix(UI 截圖)：**座位不明就不解鎖**（CodeX [P1]）——上一版只發警告就放行，下一輪照樣派得出去然後撞上沒放掉的座位。現在把 agent 鎖著、記進 DB（重連也維持），網頁執行日誌上方出現「我已確認座位釋放，解除 agent 鎖定」按鈕（`POST /run/:runId/release-agent`）', 'fix(UI 截圖)：**收尾回報送不出去不能印成功**（CodeX [P2]）——原本五次全失敗後照樣印「已回報釋放」，那行字就不能當驗收證據。現在分「送達／解鎖／被鎖住」三件事印，送不出去就繼續掛著、背景每 30 秒重送', 'test(UI 截圖)：agent 釋放測試 13 → 23 條，補「座位不明不能重跑」「重連仍維持 hold」「`/upload` 完成路徑」；彈窗測試加 ⑮ 回報全失敗'] },
   { version: '4.259.2', date: '2026-09-24', changes: ['fix(UI 截圖)：**agent 收尾完才釋放**（CodeX 要求這次一起修）。原本 run 完成／按停止的當下就把 agent 標成空閒，但 agent 之後還要退出機台——這時馬上開下一個 run，前一輪的退出會跟下一輪搶同一個帳號的座位', 'fix(UI 截圖)：「結果完成」與「agent 收尾完成」分開：agent 全部收尾完才送 `POST /run/:runId/agent-done`，伺服器**只在 runId 對得上目前那一輪時才解鎖**——舊 run 延遲或重複的回報解不了新 run 的鎖', 'fix(UI 截圖)：斷線重連時 agent 會回報自己還在收尾（`agent_ready.uiScreenshotActive`），伺服器維持忙碌；收尾後仍無法確認已離座會發警告到網頁日誌', 'test(UI 截圖)：`ui-screenshot-agent-release.mjs` 用假 agent 打真 server，13 條：完成／停止後立即重跑被擋、收尾後放行、舊回報不解鎖、重連維持忙碌。突變三個都紅在對應那幾條', '⚠️ **還沒驗**：真 agent 跑完有沒有真的送出收尾回報（測試帳號有人在用沒跑）；第一次真跑要確認之後能馬上開下一個 run'] },
   { version: '4.259.1', date: '2026-09-24', changes: ['fix(UI 截圖)：**v4.259.0 說「退出失敗會寫進網頁執行日誌」其實不成立**（CodeX 抓到）——伺服器在 `run_complete` 那一刻就清掉 SSE 訂閱，按停止時前端也自己關連線，而 agent 是在那之後才退出機台，警告送出去沒人收。我只改了前端一處、沒查伺服器那端', 'fix(UI 截圖)：訂閱改成瀏覽器斷線時才清；完成、停止都不關連線', 'fix(UI 截圖)：**座位狀態被「看不出來」清掉**——前一個尺寸已入座、下一頁載入失敗時，原本會被當成沒坐著，收尾就不退了。改成三態，只有看到大廳（或退出成功）才清；兜底重開頁還看不出來就發警告', 'test(UI 截圖)：`ui-screenshot-agent-log.mjs` 打真的 server，驗完成／停止之後才送的警告收得到；彈窗測試加 ⑭ 座位狀態。突變：完成時清訂閱 → A 紅；看不出來當成沒坐 → ⑭ 紅'] },

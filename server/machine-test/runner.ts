@@ -17,6 +17,9 @@ import { join, basename } from 'path'
 import { chromium, type Browser, type Page, type ElementHandle } from 'playwright'
 import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEvent, MachineProfile } from './types.js'
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
+import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, type IdeckResult } from './verdicts.js'
+import pngjs from 'pngjs'
+const { PNG } = pngjs
 
 // ─── OS-level audio capture via VB-Cable ─────────────────────────────────────
 
@@ -318,6 +321,9 @@ async function recordVBCable(durationMs: number, keepWav = false, savePath?: str
 }
 
 // ─── Machine Log API (daily-analysis) ────────────────────────────────────────
+
+// learn 模式交給 batch 端的結構化資料版本；batch 對不上版本就整台不寫 profile
+export const LEARN_VER = 1
 
 const DAILY_ANALYSIS_URLS: Record<string, string> = {
   qat:  'https://qat-osmtrace.osmslot.org/api/machine/daily-analysis',
@@ -692,21 +698,82 @@ function extractMachineType(machineCode: string): string {
 }
 
 /**
- * Handle bonus round: execute the configured bonus action ONCE, then keep spinning
- * until OSMWatcher status returns to 0 (or 3-minute timeout).
+ * OSMWatcher 回報「非 Normal」要連續維持多久才算特殊遊戲真的結束。
+ * ⚠️ 2026-09-24（892-DRAGONLAW-0070／0073）：OSMWatcher 在兩次免費轉之間會短暫回 Normal，
+ *    舊版一看到就判「特殊狀態結束」→ 跑去退出 → 人還坐在機台上 → 下一台一載入就回到這台的遊戲，
+ *    連續汙染了 0071／0074／0075／0076 四台的結果。
+ */
+const NORMAL_STABLE_MS = 8000
+
+/**
+ * 每台機台最後一次收到 OSMWatcher 觀測的時間。OSMWatcher 每次推送都帶全部機台（不只變化的），
+ * 所以「有沒有新觀測」可以拿來判斷資料是不是舊的——map 裡的值不會自己過期，
+ * 不看時間的話，「連續正常 8 秒」可能只是同一筆舊資料放了 8 秒。
+ * agent 收到 osm_status_update、伺服器收到 webhook 時呼叫 noteOsmObservation。
+ */
+const OSM_SEEN_AT = new Map<string, number>()
+export function noteOsmObservation(machineId: string, at = Date.now()) { OSM_SEEN_AT.set(machineId, at) }
+/** 觀測超過這麼久沒更新就當「現在狀態不明」，不依它點擊 */
+const OSM_FRESH_MS = 15_000
+/** 點了這麼多次、OSMWatcher 狀態都沒變，就停止補點改被動等（避免一直點、點到付費局） */
+const MAX_ACTS_WITHOUT_CHANGE = 10
+
+/**
+ * 追蹤「特殊狀態是否真的結束」與「點擊有沒有效果」。
+ * - 結束：非特殊狀態持續 NORMAL_STABLE_MS，且期間收到至少 2 筆**新的**觀測
+ *   （來源沒有觀測時間可查時才退回純計時）。
+ * - 可以點：最新觀測仍是特殊狀態、觀測是新鮮的、且沒有連續 MAX_ACTS_WITHOUT_CHANGE 次點了狀態沒變。
+ */
+export class OsmBonusTracker {
+  private normalSince = 0
+  private normalObs = 0
+  private lastSeen = 0
+  private lastStatus: number | undefined
+  private actsSinceChange = 0
+  gaveUpClicking = false
+  constructor(private osmStatus: Map<string, number>, private machineCode: string, private seenAt: Map<string, number> = OSM_SEEN_AT) {}
+  /** 每秒呼叫一次；回傳目前狀態與是否已確認結束 */
+  tick(now = Date.now()): { status: number; inBonus: boolean; ended: boolean; fresh: boolean } {
+    const status = this.osmStatus.get(this.machineCode) ?? 0
+    const seen = this.seenAt.get(this.machineCode)
+    const newObs = seen !== undefined && seen > this.lastSeen
+    if (newObs) this.lastSeen = seen!
+    const fresh = seen === undefined ? true : now - seen <= OSM_FRESH_MS
+    if (status !== this.lastStatus) { this.lastStatus = status; this.actsSinceChange = 0; this.gaveUpClicking = false }
+    const inBonus = BONUS_STATUSES.has(status)
+    if (inBonus) { this.normalSince = 0; this.normalObs = 0; return { status, inBonus, ended: false, fresh } }
+    if (!this.normalSince) { this.normalSince = now; this.normalObs = 0 }
+    else if (newObs) this.normalObs++
+    const obsOk = seen === undefined ? true : this.normalObs >= 2
+    return { status, inBonus, ended: now - this.normalSince >= NORMAL_STABLE_MS && obsOk, fresh }
+  }
+  /** 現在可以做一次 bonus 動作嗎（呼叫端另外管 3 秒間隔） */
+  mayAct(t: { inBonus: boolean; fresh: boolean }): boolean {
+    if (!t.inBonus || !t.fresh) return false
+    if (this.actsSinceChange >= MAX_ACTS_WITHOUT_CHANGE) { this.gaveUpClicking = true; return false }
+    return true
+  }
+  noteAct() { this.actsSinceChange++ }
+}
+
+/**
+ * Handle bonus round: execute the configured bonus action ONCE, then keep acting
+ * until OSMWatcher status stays non-bonus for NORMAL_STABLE_MS (or 15-minute timeout).
  * Returns { waited, label } or null if OSMWatcher not connected / already normal.
  *
  * Flow:
- *  1. Execute the profile's bonusAction one time (spin / takewin / touchscreen).
- *  2. Then spin every ~3s until status=0 (bonuses typically require continued spins to complete).
- *  3. auto_wait: skip step 1 and 2 — just passively wait for status=0.
+ *  1. Execute the profile's bonusAction one time (spin / takewin / touchscreen) — see doBonusAction.
+ *  2. Then repeat it every ~3s while status is still a bonus status.
+ *  3. auto_wait: skip step 1 and 2 — just passively wait.
+ *  Every loop also dismisses the game's own Tips dialog, which otherwise swallows all clicks.
  */
 async function waitForNormalStatus(
   osmStatus: Map<string, number>,
   machineCode: string,
   page: Page,
   profile: MachineProfile | undefined,
-  emit: (msg: string) => void
+  emit: (msg: string) => void,
+  shouldStop: () => boolean = () => false,
 ): Promise<{ waited: number; label: string } | null> {
   const current = osmStatus.get(machineCode)
   if (current === undefined) {
@@ -723,74 +790,45 @@ async function waitForNormalStatus(
 
   const label = OSM_STATUS_LABELS[current] ?? `狀態 ${current}`
   const bonusAction = profile?.bonusAction ?? 'auto_wait'
-  const spinSel = profile?.spinSelector || '.my-button.btn_spin, .btn_spin .my-button, .btn_spin, [class*="btn_spin"] .my-button, [class*="btn_spin"]'
-  emit(`偵測到特殊狀態：${label}，動作：${bonusAction}`)
+  emit(`偵測到特殊狀態：${label}，動作：${bonusAction}（依機台設定檔 ${profile?.machineType ?? '無'}）`)
 
   const start = Date.now()
   // Wait up to 15 min — no forced-continue WARN; real issues are caught by exit step
   const maxWait = 15 * 60 * 1000
 
   // ── Step 1: Execute the specified bonus action ONCE ──────────────────────
+  await dismissGameTips(page, emit)
   if (bonusAction !== 'auto_wait') {
-    try {
-      if (bonusAction === 'spin') {
-        await safeClick(page, spinSel)
-        emit(`（執行特殊流程：Spin）`)
-      } else if (bonusAction === 'takewin') {
-        await safeClick(page, '.btn_takewin, [class*="takewin"], [class*="take-win"], [class*="take_win"]')
-        emit(`（執行特殊流程：TakeWin）`)
-      } else if (bonusAction === 'touchscreen') {
-        const pts = profile?.touchPoints?.length ? profile.touchPoints : []
-        for (const pt of pts) {
-          try {
-            const els = await page.$$(`//span[normalize-space(text())='${pt}']`)
-            if (els.length > 0) {
-              await page.evaluate((el: Element) => (el as HTMLElement).click(), els[0])
-              emit(`（觸屏點擊: "${pt}"）`)
-            } else {
-              emit(`（找不到觸屏元素: "${pt}"，略過）`)
-            }
-          } catch { /* ignore */ }
-          await sleep(800)
-        }
-        if (profile?.clickTake) {
-          try { await safeClick(page, '.my-button.btn_take, .btn_take'); emit(`（點擊 Take）`) } catch { /* ignore */ }
-        }
-        if (pts.length > 0) emit(`（特殊流程觸屏完成: ${pts.join(' → ')}）`)
-      }
-    } catch { /* ignore click errors */ }
+    await doBonusAction(page, profile, emit)
     await sleep(1000)
   }
 
-  // ── Step 2: Spin continuously until OSM status=0 ─────────────────────────
-  let lastSpinAt = 0
+  // ── Step 2: keep acting while in bonus; end after NORMAL_STABLE_MS of non-bonus (with fresh observations) ──
+  const tracker = new OsmBonusTracker(osmStatus, machineCode)
+  if (bonusAction !== 'auto_wait') tracker.noteAct()  // step 1 那一下
+  let lastActAt = Date.now()
+  let acts = bonusAction !== 'auto_wait' ? 1 : 0
+  let warnedGiveUp = false
   while (Date.now() - start < maxWait) {
+    if (shouldStop()) { emit(`⏹ 已停止，放棄等待特殊遊戲`); return { waited: Date.now() - start, label } }
     await sleep(1000)
-    const s = osmStatus.get(machineCode) ?? 0
-    if (!BONUS_STATUSES.has(s)) {
+    await dismissGameTips(page, emit)
+    const t = tracker.tick()
+    if (t.ended) {
       const waited = Date.now() - start
-      emit(`特殊狀態結束，耗時 ${(waited / 1000).toFixed(0)}s，繼續 Spin 10 秒 cooldown...`)
-
-      // ── Step 3: Spin 10s cooldown after status=0 ────────────────────────
-      const cooldownEnd = Date.now() + 10_000
-      while (Date.now() < cooldownEnd) {
-        await sleep(1000)
-        if (bonusAction !== 'auto_wait') {
-          await safeClick(page, spinSel)
-          emit(`（Cooldown Spin...）`)
-          await sleep(2000)
-        } else {
-          await sleep(1000)
-        }
-      }
-      emit(`Cooldown 完成，繼續下一步驟`)
-      return { waited: Date.now() - start, label }
+      emit(`特殊狀態結束（連續 ${NORMAL_STABLE_MS / 1000}s 正常且有新觀測），耗時 ${(waited / 1000).toFixed(0)}s，共操作 ${acts} 次`)
+      return { waited, label }
     }
-
-    if (bonusAction !== 'auto_wait' && Date.now() - lastSpinAt > 3000) {
-      lastSpinAt = Date.now()
-      await safeClick(page, spinSel)
-      emit(`（Spin 中，等待特殊遊戲結束...）`)
+    if (bonusAction === 'auto_wait' || Date.now() - lastActAt <= 3000) continue
+    if (tracker.mayAct(t)) {
+      lastActAt = Date.now()
+      await doBonusAction(page, profile, emit)
+      tracker.noteAct()
+      acts++
+      if (acts % 10 === 0) emit(`（特殊遊戲進行中，已操作 ${acts} 次，${((Date.now() - start) / 1000).toFixed(0)}s）`)
+    } else if (tracker.gaveUpClicking && !warnedGiveUp) {
+      warnedGiveUp = true
+      emit(`⚠️ 已操作 ${MAX_ACTS_WITHOUT_CHANGE} 次 OSMWatcher 狀態都沒變化，停止補點、改被動等待（請看畫面確認）`)
     }
   }
 
@@ -823,6 +861,144 @@ async function safeClickXPath(page: Page, xpath: string): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+/** Spin 按鈕候選，順序同 stepSpin（先內層可點的 .my-button，再外層）。 */
+const SPIN_SELECTORS = [
+  '.my-button.btn_spin',
+  '.btn_spin .my-button',
+  '.btn_spin',
+  '[class*="btn_spin"] .my-button',
+  '[class*="btn_spin"]',
+]
+
+/**
+ * 真正的指標點擊：Playwright 原生 click → force click → 滑鼠點在元素中心。
+ * ⚠️ 2026-09-24（892-DRAGONLAW-0070／0073）：FG 裡用 safeClick（DOM element.click()，
+ *    不帶 pointer 事件）按 Spin 完全沒反應，畫面停在「PRESS SPIN BUTTON」空等 15 分鐘；
+ *    同一顆鈕用真滑鼠按一下就開始轉。stepSpin 一直用原生 click，所以一般 Spin 沒這問題。
+ * 回傳用了哪一種方式；找不到可見元素回 null。
+ */
+export async function nativeClick(page: Page, selectors: string[]): Promise<'native' | 'force' | 'mouse' | null> {
+  for (const sel of selectors) {
+    let els: import('playwright').ElementHandle[] = []
+    try { els = await page.$$(sel) } catch { continue }
+    for (const el of els) {
+      try { if (!await el.isVisible()) continue } catch { continue }
+      try { await el.click({ timeout: 3000 }); return 'native' } catch { /* try next */ }
+      try { await el.click({ force: true, timeout: 3000 }); return 'force' } catch { /* try next */ }
+      try {
+        const box = await el.boundingBox()
+        if (box) { await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2); return 'mouse' }
+      } catch { /* give up on this element */ }
+    }
+  }
+  return null
+}
+
+/**
+ * 遊戲自己跳的「Tips」確認框，會蓋住 Spin／Exit，讓後面所有點擊都落空。
+ * 只處理已知、按 Confirm 無副作用的兩種：
+ *   - 「Complete the bonus game within 15 minutes…」：FG 開頭提示（0924 DragonLaw 實測）
+ *   - 「Game is running and cannot be quit」：遊戲進行中按了 Quit
+ * 回傳命中的訊息（呼叫端用它判斷「遊戲是否進行中」），沒有就回 null。
+ */
+const GAME_TIP_PATTERNS = [/complete the bonus game/i, /cannot be quit/i]
+export async function dismissGameTips(page: Page, emit: (msg: string) => void): Promise<string | null> {
+  let text = ''
+  try { text = await page.evaluate(() => document.body?.innerText ?? '') } catch { return null }
+  const hit = GAME_TIP_PATTERNS.map(p => text.match(p)?.[0]).find(Boolean)
+  if (!hit) return null
+  try {
+    const btns = page.getByText('Confirm', { exact: true })
+    const n = await btns.count()
+    for (let i = 0; i < n; i++) {
+      const b = btns.nth(i)
+      if (await b.isVisible()) { await b.click({ timeout: 3000 }); emit(`關閉遊戲提示框：「${hit}」`); break }
+    }
+  } catch { /* 關不掉就算了，呼叫端仍拿得到 hit */ }
+  return hit
+}
+
+/**
+ * 依機台設定檔的 bonusAction 做「一次」啟動動作（FG／JP 需要玩家操作才會往下走）。
+ * 設定檔是 Toppath Tools「機台配置」（machine_test_profiles）：spin／takewin／touchscreen／auto_wait。
+ * 回傳是否真的有點到東西（auto_wait 固定 false）。
+ */
+async function doBonusAction(page: Page, profile: MachineProfile | undefined, emit: (msg: string) => void): Promise<boolean> {
+  const action = profile?.bonusAction ?? 'auto_wait'
+  if (action === 'spin') {
+    // 0929 0263 實況：iDeck 中了 DOUBLE feature 要按 SPIN 開始，但前端蓋著「SELECT A DENOMINATION」選單擋住 SPIN，
+    // 退出重試按了 32 次 SPIN 都按在選單上、feature 從沒開始。Spin 步驟／iDeck 每次點之前都會先關這個選單，這裡原本漏了。
+    await dismissDenomOverlay(page, emit, '特殊流程')
+    const how = await nativeClick(page, [...(profile?.spinSelector ? [profile.spinSelector] : []), ...SPIN_SELECTORS])
+    if (!how) emit(`（特殊流程：找不到可見的 Spin 按鈕）`)
+    return how !== null
+  }
+  if (action === 'takewin') {
+    const how = await nativeClick(page, ['.btn_takewin', '[class*="takewin"]', '[class*="take-win"]', '[class*="take_win"]'])
+    if (how) emit(`（執行特殊流程：TakeWin）`)
+    return how !== null
+  }
+  if (action === 'touchscreen') {
+    const pts = profile?.touchPoints?.length ? profile.touchPoints : []
+    let any = false
+    for (const pt of pts) {
+      try {
+        const els = await page.$$(`//span[normalize-space(text())='${pt}']`)
+        if (els.length > 0) {
+          await page.evaluate((el: Element) => (el as HTMLElement).click(), els[0])
+          emit(`（觸屏點擊: "${pt}"）`)
+          any = true
+        } else {
+          emit(`（找不到觸屏元素: "${pt}"，略過）`)
+        }
+      } catch { /* ignore */ }
+      await sleep(800)
+    }
+    if (profile?.clickTake) {
+      if (await nativeClick(page, ['.my-button.btn_take', '.btn_take'])) { emit(`（點擊 Take）`); any = true }
+    }
+    if (pts.length > 0) emit(`（特殊流程觸屏完成: ${pts.join(' → ')}）`)
+    return any
+  }
+  return false
+}
+
+export type ExitDecision =
+  | { kind: 'done'; note: string }
+  | { kind: 'unconfirmed'; note: string }
+  | { kind: 'halt'; reason: string }
+  | { kind: 'advance'; why: string }
+  | { kind: 'retry' }
+
+/**
+ * 退出後下一步怎麼做（純函式，方便單獨測）。規則見 runMachine 裡 exitUntilLobby 的註解。
+ * passed：stepExit 回 pass；inGame：此刻是否仍在遊戲內；code：leaveGMNtc errcode；
+ * osm：OSMWatcher 狀態；tip：遊戲自己跳的提示（dismissGameTips 的回傳）。
+ */
+export function decideExit(i: { passed: boolean; inGame: boolean; code: number | null; osm: number | undefined; tip: string | null }): ExitDecision {
+  // 成功要有「本次」leaveGMNtc errcode=0 ＋ 大廳可見；只有大廳畫面、沒收到回覆 → 不算成功（未確認）
+  // （stepExit 在點退出前才掛 leaveGMNtc 監聽、不留緩衝，所以拿到的一定是這次退出的回覆）
+  if (!i.inGame && i.code === 0) return { kind: 'done', note: '' }
+  if (!i.inGame && i.code === 25) return { kind: 'done', note: 'leaveGMNtc errcode=25：玩家已不在機台上' }
+  if (i.osm === 9 || i.code === 1026) {
+    return { kind: 'halt', reason: `Handpay（${i.code === 1026 ? 'leaveGMNtc errcode=1026' : 'OSMWatcher 狀態 9'}），需人工處理` }
+  }
+  if (i.code !== null && i.code !== 0 && i.code !== 10002 && i.code !== 25) {
+    return { kind: 'halt', reason: `leaveGMNtc errcode=${i.code}——可能是 AFT 轉出失敗，帳號額度可能還在機台上，需人工處理` }
+  }
+  if (i.code === 10002) return { kind: 'advance', why: 'leaveGMNtc errcode 10002' }
+  if (i.osm !== undefined && BONUS_STATUSES.has(i.osm)) return { kind: 'advance', why: `OSMWatcher：${OSM_STATUS_LABELS[i.osm] ?? i.osm}` }
+  if (i.tip && /cannot be quit/i.test(i.tip)) return { kind: 'advance', why: `遊戲提示「${i.tip}」` }
+  if (!i.inGame && i.code === null) return { kind: 'unconfirmed', note: '已回到大廳但沒收到 leaveGMNtc，無法確認已轉出／離機' }
+  return { kind: 'retry' }
+}
+
+/** 從 stepExit 的訊息取出 leaveGMNtc errcode（沒有就回 null） */
+export function parseLeaveErrcode(message: string): number | null {
+  const m = message.match(/errcode[ =](\d+)/)
+  return m ? Number(m[1]) : null
 }
 
 /** Extract gameid from URL query string, e.g. "...&gameid=osmbwjl&..." → "osmbwjl" */
@@ -1114,6 +1290,46 @@ async function waitForSpanText(page: Page, text: string, timeoutMs = 10000): Pro
 
 // ─── Test Steps ───────────────────────────────────────────────────────────────
 
+/** Game Preview 顯示 Occupied 時：截圖留證，並判斷是不是 AUDIT MODE（Aristocrat 維修選單：預覽上半全黑、下半淺灰表格）。
+ *  0929 用 7 張實拍校準：audit 上半黑 100%、下半灰 53~65%；一般佔用 黑 26~28%、灰 0~2%。沒看到 Occupied 回 null。 */
+async function detectOccupied(page: Page, machineCode: string, emit: (msg: string) => void): Promise<{ audit: boolean; shot: string | null } | null> {
+  const occ = await page.getByText('Occupied', { exact: true }).first().isVisible().catch(() => false)
+  if (!occ) return null
+  // 預覽畫面是**上下兩個 video**（上＝主畫面、下＝副畫面），取「Game Preview 標題」到「Occupied 按鈕」之間所有大 video 的聯集
+  //（0249 第一次只取到其中一個 video，上下半比例整個錯位，audit 沒判出來）
+  const tBox = await page.getByText('Game Preview', { exact: true }).first().boundingBox().catch(() => null)
+  const oBox = await page.getByText('Occupied', { exact: true }).first().boundingBox().catch(() => null)
+  const box = await page.evaluate(([top, bottom]) => {
+    let u: { x0: number; y0: number; x1: number; y1: number } | null = null
+    for (const el of Array.from(document.querySelectorAll('video,canvas,img'))) {
+      const r = el.getBoundingClientRect()
+      if (r.width < 250 || r.height < 100 || r.top < top || r.bottom > bottom) continue
+      u = u ? { x0: Math.min(u.x0, r.left), y0: Math.min(u.y0, r.top), x1: Math.max(u.x1, r.right), y1: Math.max(u.y1, r.bottom) } : { x0: r.left, y0: r.top, x1: r.right, y1: r.bottom }
+    }
+    return u ? { x: u.x0, y: u.y0, w: u.x1 - u.x0, h: u.y1 - u.y0 } : null
+  }, [tBox ? tBox.y + tBox.height : 0, oBox ? oBox.y : 99999] as [number, number]).catch(() => null)
+  const buf = await page.screenshot({ type: 'png' }).catch(() => null)
+  let shot: string | null = null
+  if (buf) { try { mkdirSync(STREAM_SAVE_DIR, { recursive: true }); shot = join(STREAM_SAVE_DIR, `occupied-${machineCode}-${Date.now()}.png`); writeFileSync(shot, buf) } catch { shot = null } }
+  let audit = false
+  if (buf) {
+    const A = PNG.sync.read(buf)
+    const bx = box ?? { x: A.width * 0.06, y: A.height * 0.18, w: A.width * 0.88, h: A.height * 0.46 }
+    const reg = (f0: number, f1: number, fn: (r: number, g: number, b: number) => boolean) => {
+      let n = 0, c = 0
+      for (let y = Math.floor(bx.y + bx.h * f0); y < bx.y + bx.h * f1 && y < A.height; y += 3) for (let x = Math.floor(bx.x + 4); x < bx.x + bx.w - 4 && x < A.width; x += 3) {
+        const i = (y * A.width + x) * 4; n++; if (fn(A.data[i], A.data[i + 1], A.data[i + 2])) c++
+      }
+      return n ? c / n : 0
+    }
+    const black = reg(0.02, 0.48, (r, g, b) => r < 30 && g < 30 && b < 30)
+    const grey = reg(0.52, 0.98, (r, g, b) => r > 170 && g > 170 && b > 170 && Math.abs(r - b) < 25)
+    audit = black > 0.9 && grey > 0.4
+    emit(`Game Preview 顯示 Occupied${audit ? '（AUDIT MODE）' : ''}：預覽上半黑 ${(black * 100).toFixed(0)}%、下半灰 ${(grey * 100).toFixed(0)}%${shot ? '，截圖 ' + shot : ''}`)
+  }
+  return { audit, shot }
+}
+
 async function stepEntry(page: Page, machineCode: string, emit: (msg: string) => void, profile?: MachineProfile, waitForEnterGM?: GMWaitFn): Promise<StepResult> {
   const t0 = Date.now()
   try {
@@ -1143,6 +1359,7 @@ async function stepEntry(page: Page, machineCode: string, emit: (msg: string) =>
     const items = await page.$$('#grid_gm_item')
     let found = false
     let joinClicked = false
+    let occupied: { audit: boolean; shot: string | null } | null = null
     for (const item of items) {
       const title = await item.getAttribute('title')
       if (title && title.includes(machineCode)) {
@@ -1203,6 +1420,8 @@ async function stepEntry(page: Page, machineCode: string, emit: (msg: string) =>
           }
 
           if (!joinClicked) emit(`⚠️ 仍找不到可見的 Join 按鈕（可能停在 Game Preview 面板，或此台不可加入）`)
+          // 0929：Preview 顯示 Occupied＝機台被佔用／維修中（0249/0254/0262/0266~0269 實況），不是工具沒按到 → 直接判定、留證據
+          if (!joinClicked) occupied = await detectOccupied(page, machineCode, emit)
         } catch { /* Join may not exist */ }
         break
       }
@@ -1210,6 +1429,9 @@ async function stepEntry(page: Page, machineCode: string, emit: (msg: string) =>
 
     if (!found) {
       return { step: '進入機台', status: 'fail', message: `大廳找不到機台代碼: ${machineCode}`, durationMs: Date.now() - t0 }
+    }
+    if (occupied) {
+      return { step: '進入機台', status: 'fail', message: occupied.audit ? `機台 Occupied（AUDIT MODE：Preview 畫面停在維修選單）${occupied.shot ? '｜截圖 ' + occupied.shot : ''}` : `機台 Occupied（Game Preview 顯示 Occupied，沒有 Join）${occupied.shot ? '｜截圖 ' + occupied.shot : ''}`, durationMs: Date.now() - t0 }
     }
 
     // Wait for game to load (baseline)
@@ -1319,6 +1541,8 @@ async function stepStream(
   const t0 = Date.now()
   try {
     emit(`檢測推流（video / canvas）`)
+    // tsx(esbuild keepNames) 會把下面的 rectOf 包成 __name()，瀏覽器端沒有這個 helper（0929 加方向檢查後推流步驟整個炸掉）
+    await page.evaluate('window.__name = window.__name || (fn => fn)')
     const result = await page.evaluate(() => {
       const videos = Array.from(document.querySelectorAll('video'))
       const canvases = Array.from(document.querySelectorAll('canvas'))
@@ -1326,7 +1550,15 @@ async function stepStream(
       const playingVideos = videos.filter(v => !v.paused && v.readyState >= 2 && v.videoWidth > 0)
       const activeCanvases = canvases.filter(c => c.width > 100 && c.height > 100)
 
+      // 2026-09-29 畫面方向檢查用：每塊在播的畫面在截圖上的位置（CSS px，截圖是 viewport，batch 端用 innerWidth 換算比例）
+      const rectOf = (el: Element, kind: string) => { const r = el.getBoundingClientRect(); return { kind, x: r.left, y: r.top, w: r.width, h: r.height } }
+      const screens = [...playingVideos.map(v => rectOf(v, 'video')), ...activeCanvases.map(c => rectOf(c, 'canvas'))].filter(r => r.w > 50 && r.h > 50)
+
+      // 2026-09-29 main/pool 推流分開判：每個看得到的 video 位置＋有沒有在播（共通規則見 knowledge/h5-client-interaction.md）
+      const videoRects = videos.map(v => ({ ...rectOf(v, 'video'), playing: !v.paused && v.readyState >= 2 && v.videoWidth > 0 })).filter(r => r.w > 50 && r.h > 50)
+
       return {
+        screens, videoRects, viewportW: window.innerWidth, viewportH: window.innerHeight,
         totalVideos: videos.length,
         playingVideos: playingVideos.length,
         totalCanvases: canvases.length,
@@ -1340,7 +1572,12 @@ async function stepStream(
     })
 
     const hasStream = result.playingVideos > 0 || result.activeCanvases > 0
-    const msg = `video: ${result.totalVideos}個（播放中: ${result.playingVideos}）/ canvas: ${result.totalCanvases}個（活躍: ${result.activeCanvases}）`
+    // main/pool（使用者 0929 確認，共通規則）：看得到的 video 依上下排，最上面＝pool（獎池畫面）、其餘＝main（滾輪）；只有一個＝main
+    const { roles: videoRoles, noShow } = streamRoles(result.videoRects, { expected: machineLayout(machineCode)?.screens, viewportH: result.viewportH })
+    // learn 模式（2026-09-29）：把觀察值結構化交給 batch 端，只當紀錄，不當規格（當下亮幾個≠應該有幾個）
+    const learnX = { extraData: { learn: JSON.stringify({ v: LEARN_VER, totalVideos: result.totalVideos, playingVideos: result.playingVideos, totalCanvases: result.totalCanvases, activeCanvases: result.activeCanvases, screens: result.screens, viewportW: result.viewportW, viewportH: result.viewportH, videoRoles, noShow }) } }
+    const msg = `video:${result.totalVideos}個（播放中: ${result.playingVideos}）/ canvas: ${result.totalCanvases}個（活躍: ${result.activeCanvases}）`
+      + (videoRoles.length ? `｜${videoRoles.map(v => `${v.role}${v.playing ? '✓' : '✗'}`).join(' ')}` : '')
 
     // 留一張推流畫面當證據。判定不依賴它（截圖失敗不能影響結果），但少了它，
     // 「畫面顛倒 / 黑畫面 / 雪花」這類問題就只能用嘴巴講。
@@ -1356,6 +1593,12 @@ async function stepStream(
       }
     }
 
+    // 有畫面位置的 video 其中一塊沒在播 → 那一塊推流沒畫面
+    // CodeX 0929：只要有一塊沒播就 FAIL，不能讓 canvas 把「全部停播」蓋成 WARN
+    if (noShow.length) {
+      return { step: '推流檢測', status: 'fail', message: `${noShow.join(', ')}：${msg}`, durationMs: Date.now() - t0, ...learnX }
+    }
+
     // ── Expected screen count check ───────────────────────────────────────────
     const expectedScreens = profile?.expectedScreens ?? null
     if (expectedScreens !== null && expectedScreens > 0) {
@@ -1366,27 +1609,27 @@ async function stepStream(
           step: '推流檢測',
           status: 'fail',
           message: `螢幕數量不符：預期 ${expectedScreens} 個，實際播放 ${actualPlaying} 個。${msg}${detail ? ` — ${detail}` : ''}`,
-          durationMs: Date.now() - t0,
+          durationMs: Date.now() - t0, ...learnX,
         }
       }
       // Count matches expected
       if (result.playingVideos > 0) {
-        return { step: '推流檢測', status: 'pass', message: `${msg} — ${detail}（螢幕數 ✓ ${expectedScreens}）`, durationMs: Date.now() - t0 }
+        return { step: '推流檢測', status: 'pass', message: `${msg} — ${detail}（螢幕數 ✓ ${expectedScreens}）`, durationMs: Date.now() - t0, ...learnX }
       }
     }
     // ─────────────────────────────────────────────────────────────────────────
 
     if (result.playingVideos > 0) {
       const detail = result.videoDetails.map(v => `${v.w}×${v.h}`).join(', ')
-      return { step: '推流檢測', status: 'pass', message: `${msg} — ${detail}`, durationMs: Date.now() - t0 }
+      return { step: '推流檢測', status: 'pass', message: `${msg} — ${detail}`, durationMs: Date.now() - t0, ...learnX }
     } else if (result.activeCanvases > 0) {
-      return { step: '推流檢測', status: 'warn', message: `無 <video> 播放，但有 canvas 畫面，可能為 WebGL 推流。${msg}`, durationMs: Date.now() - t0 }
+      return { step: '推流檢測', status: 'warn', message: `無 <video> 播放，但有 canvas 畫面，可能為 WebGL 推流。${msg}`, durationMs: Date.now() - t0, ...learnX }
     } else if (result.totalVideos > 0) {
-      return { step: '推流檢測', status: 'fail', message: `有 ${result.totalVideos} 個 video 但均未播放（paused / buffering）`, durationMs: Date.now() - t0 }
+      return { step: '推流檢測', status: 'fail', message: `有 ${result.totalVideos} 個 video 但均未播放（paused / buffering）`, durationMs: Date.now() - t0, ...learnX }
     } else if (!hasStream) {
-      return { step: '推流檢測', status: 'warn', message: `找不到 <video> 元素，可能此機型不使用影片推流`, durationMs: Date.now() - t0 }
+      return { step: '推流檢測', status: 'warn', message: `找不到 <video> 元素，可能此機型不使用影片推流`, durationMs: Date.now() - t0, ...learnX }
     }
-    return { step: '推流檢測', status: 'pass', message: msg, durationMs: Date.now() - t0 }
+    return { step: '推流檢測', status: 'pass', message: msg, durationMs: Date.now() - t0, ...learnX }
   } catch (e) {
     return { step: '推流檢測', status: 'fail', message: `例外: ${e}`, durationMs: Date.now() - t0 }
   }
@@ -2073,6 +2316,7 @@ async function stepIdeck(
   betRandomXpaths?: string[],
   shouldStop?: () => boolean,
   debugGmid?: string,
+  sessionPrefix = '',
 ): Promise<StepResult> {
   const t0 = Date.now()
   try {
@@ -2087,15 +2331,48 @@ async function stepIdeck(
       let autoCount = 0
       for (const f of page.frames()) {
         try {
-          const els = await f.$$('[class*="btn_bet"]')
+          const els = await f.$$('[class*="btn_bet"], [class*="btn_play"]')
           for (const el of els) if (await el.isVisible()) autoCount++
           if (autoCount > 0) break
         } catch { /* frame detached */ }
       }
       const configured = (betRandomXpaths?.length ?? 0) || (profile?.ideckRowClass ? -1 : 0)
-      emit(`🔍 iDeck 自動偵測對照：[class*="btn_bet"] 可見 ${autoCount} 顆`
+      emit(`🔍 iDeck 自動偵測對照：btn_bet＋btn_play 可見 ${autoCount} 顆`
         + (configured > 0 ? `／設定檔 XPath ${configured} 條 → ${autoCount === configured ? '數量一致 ✅' : '數量不一致 ⚠️'}` : ''))
     } catch { /* 對照失敗不影響測試 */ }
+
+    // 診斷用：把 iDeck 區塊的結構印出來（只讀不點）。SQUIDGAME 實際 9 顆但 btn_bet 只看得到 4 顆，
+    // 要知道另外 5 顆是別的 class、被隱藏、還是在畫面外，才能決定自動偵測怎麼改。
+    try {
+      for (const f of page.frames()) {
+        let dump: string | null = null
+        try {
+          // tsx(esbuild keepNames) 會在內部箭頭函式包 __name()，瀏覽器端沒有這個 helper
+          await f.evaluate('window.__name = window.__name || (fn => fn)')
+          dump = await f.evaluate(() => {
+            const bets = Array.from(document.querySelectorAll('[class*="btn_bet"], [class*="btn_play"]')) as HTMLElement[]
+            if (bets.length === 0) return null
+            const vis = (el: HTMLElement) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.display !== 'none' && cs.visibility !== 'hidden' && Number(cs.opacity) > 0 }
+            const onScreen = (el: HTMLElement) => { const r = el.getBoundingClientRect(); return r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight }
+            const betInfo = bets.map(b => { const r = b.getBoundingClientRect(); return `${/btn_play/.test(String(b.className)) ? 'P' : 'B'}${vis(b) ? (onScreen(b) ? 'V' : 'OFF') : 'H'}@${Math.round(r.x)},${Math.round(r.y)}"${(b.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 14)}"` })
+            // 往上找涵蓋所有 btn_bet 的最小容器，最多爬 8 層
+            let box: HTMLElement | null = bets[0]
+            for (let i = 0; i < 8 && box && !bets.every(b => box!.contains(b)); i++) box = box.parentElement
+            if (box && box.parentElement) box = box.parentElement
+            const cls: Record<string, [number, number]> = {}
+            box?.querySelectorAll('*').forEach(n => {
+              const c = String((n as HTMLElement).className || '')
+              if (!/btn|bet|play|col|chip|denom/i.test(c)) return
+              const k = c.split(/\s+/).filter(x => /btn|bet|play|col|chip|denom/i.test(x)).join('.')
+              cls[k] ??= [0, 0]; cls[k][0]++; if (vis(n as HTMLElement)) cls[k][1]++
+            })
+            const clsLine = Object.entries(cls).map(([k, [a, v]]) => `${k}:${v}/${a}`).join(' ')
+            return `btn_bet ${bets.length} 個 [${betInfo.join(' ')}] ｜容器 ${box?.tagName}.${String(box?.className || '').slice(0, 40)} 內 class(可見/總數)：${clsLine.slice(0, 700)}`
+          })
+        } catch { /* frame detached */ }
+        if (dump) { emit(`🔍 iDeck DOM：${dump}`); break }
+      }
+    } catch { /* 診斷失敗不影響測試 */ }
 
     if (betRandomXpaths && betRandomXpaths.length > 0) {
       emit(`使用隨機下注 XPath 列表（${betRandomXpaths.length} 個）...`)
@@ -2125,19 +2402,22 @@ async function stepIdeck(
       //   與手寫 XPath 指到的是同一組；`van-play-col` 容器同樣也是 5 個。
       // ⚠️ **不要用文字規則**：LuckyLooter 的標籤是「BETx1 80 Credits」、
       //    Dragon's Law 是「1x TOTAL BET 50」，文字格式各遊戲不同，class 才穩定。
-      emit(`未設定 iDeck XPath／rowClass → 自動偵測（[class*="btn_bet"] 可見元素）...`)
+      // 2026-09-24 加 btn_play：SQUIDGAME（4186-SQUIDGAME-0312）iDeck 有兩排——
+      //   btn_bet ×4 是面額（₱1/2/5/10），btn_play ×6 是注額（30~450 Credits），只抓 btn_bet 會漏掉 6 顆。
+      emit(`未設定 iDeck XPath／rowClass → 自動偵測（[class*="btn_bet"]、[class*="btn_play"] 可見元素）...`)
       const frames = page.frames()
       for (let fi = 0; fi < frames.length; fi++) {
         try {
-          const els = await frames[fi].$$('[class*="btn_bet"]')
-          let idx = 0
-          for (const el of els) {
-            if (!await el.isVisible()) continue
-            idx++
-            // 用 nth 形式的 XPath 回查，避免存 ElementHandle 造成 stale
+          const els = await frames[fi].$$('[class*="btn_bet"], [class*="btn_play"]')
+          let n = 0
+          for (let i = 0; i < els.length; i++) {
+            if (!await els[i].isVisible()) continue
+            n++
+            // 用 nth 形式的 XPath 回查，避免存 ElementHandle 造成 stale。
+            // 索引要用「全部元素」裡的位置（含隱藏的），不能用可見的序號，否則前面有隱藏元素時會點錯顆
             buttons.push({
-              label: `auto[${idx}]`,
-              xpath: `(//*[contains(@class,'btn_bet')])[${idx}]`,
+              label: `auto[${n}]`,
+              xpath: `(//*[contains(@class,'btn_bet') or contains(@class,'btn_play')])[${i + 1}]`,
               frameIdx: fi,
             })
           }
@@ -2174,134 +2454,345 @@ async function stepIdeck(
       return { step: 'iDeck 測試', status: 'fail', message: '所有 XPath 均找不到可見元素', durationMs: Date.now() - t0 }
     }
 
-    // Step 1: fetch baseline BEFORE clicking — record all existing iDeck entry times
-    const today = toLocalDateStr(new Date())
-    // debugGmid replaces only the channel prefix (first segment), e.g. "873-BULLBLITZ-0135" → "873-BZZF-0136"
-    const effectiveGmid = debugGmid
-      ? machineCode.replace(/^[^-]+/, debugGmid)
-      : machineCode
-    if (debugGmid) emit(`[調適模式] iDeck 日誌渠道號替換為 ${debugGmid}，gmid：${effectiveGmid}`)
-    const apiUrl = `${DAILY_ANALYSIS_BASE}?gmid=${encodeURIComponent(effectiveGmid)}&date=${encodeURIComponent(today)}`
-
-    const getIdeckTimes = async (): Promise<Set<string>> => {
-      try {
-        const res = await fetch(apiUrl)
-        if (!res.ok) return new Set()
-        const json = await res.json() as { data?: { timeline?: LogEntry[] } }
-        const tl = json.data?.timeline ?? []
-        return new Set(
-          tl.filter(e => {
-            if (e.type !== 'success_json') return false
-            const d = typeof e.data === 'string' ? JSON.parse(e.data) as Record<string, unknown> : e.data
-            return d?.is_ideck === true || d?.is_ideck === 1
-          }).map(e => `${e.time}|${JSON.stringify(e.data)}`)
-        )
-      } catch { return new Set() }
+    // ── 2026-09-29 兩段式驗證（console 約定由使用者提供，規則跟 CodeX 對過）─────────────
+    // ① 共用：點擊後前端印 `SEND: <seq> hall.hallHandler.dealGMActionReq {actionid, isspin}`，
+    //    server 收下回 `ON: <seq> hall.hallHandler.dealGMActionReq {actionid}`；seq＋actionid 都對上才算點擊成功。
+    //    這只證明 server 收到，還不能證明機台效果。
+    // ② 畫面：每顆點完截推流畫面（BZZF 切 bet/play 畫面會立即變），batch 端交給人判讀 BET 值，先當影子模式。
+    // 盒子 log（daily-analysis）降成選配診斷：查不到不影響結果；查得到且跟 ① 矛盾才標 WARN，不能把 FAIL 降成 WARN。
+    // ⚠️ isspin:1（play 鍵＝下注開轉，會扣錢）逾時也**不補點**，避免重複扣款；等 moneyNtc end 才點下一顆。
+    // ⚠️ 最後要按回 BetMultiple1（倍數留在 x10，下一輪 Spin 會用高注額，0929 實際多扣過一次），還原也要驗 ON。
+    type SendRec = { seq: number; actionid: number | null; isspin: number | null; ts: number }
+    const sends: SendRec[] = []
+    const acks: Array<{ seq: number; actionid: number | null; ts: number }> = []
+    const names: Array<{ name: string; actionid: number; ts: number }> = []
+    let moneyEndTs = 0, moneyBeginTs = 0
+    const num = (v: unknown) => (v === undefined || v === null || v === '' || isNaN(Number(v))) ? null : Number(v)
+    const argObj = async (m: import('playwright').ConsoleMessage) => {
+      for (const a of m.args().slice(1)) {
+        try { const v = await a.jsonValue(); if (v && typeof v === 'object') return v as Record<string, unknown> } catch { /* handle 已失效 */ }
+      }
+      return null
+    }
+    const onIdeckConsole = (m: import('playwright').ConsoleMessage) => {
+      const t = m.text()
+      const inline = (k: string) => num(t.match(new RegExp(`${k}['"]?\\s*:\\s*(\\d+)`))?.[1])
+      const w = t.match(/dealGMActionReq:\s*\d+\s+(\S+)\s+(\d+)/)
+      if (w) { names.push({ name: w[1], actionid: Number(w[2]), ts: Date.now() }); return }
+      const s = t.match(/^(SEND|ON):\s*(\d+)\s+hall\.hallHandler\.dealGMActionReq/)
+      if (s) {
+        const ts = Date.now(), seq = Number(s[2])
+        void argObj(m).then(o => {
+          const actionid = num(o?.actionid) ?? inline('actionid')
+          if (s[1] === 'SEND') sends.push({ seq, actionid, isspin: num(o?.isspin) ?? inline('isspin'), ts })
+          else acks.push({ seq, actionid, ts })
+        })
+        return
+      }
+      // 0929 實機第一次跑：45 秒內沒抓到 end → 放寬比對（不要求開頭），並把每一筆 moneyNtc 印出來當診斷
+      if (/moneyNtc/.test(t)) {
+        const ts = Date.now()
+        void argObj(m).then(o => {
+          const reason = typeof o?.reason === 'string' ? o.reason : (t.match(/reason['"]?\s*:\s*['"](\w+)/)?.[1] ?? '?')
+          emit(`iDeck 診斷 moneyNtc：reason=${reason} coin=${o?.coin ?? '?'}｜text="${t.slice(0, 80)}"｜args=${m.args().length}`)
+          if (reason === 'end') moneyEndTs = ts
+          if (reason === 'begin') moneyBeginTs = ts
+        })
+      }
+    }
+    const until = async (cond: () => boolean, ms: number) => {
+      const end = Date.now() + ms
+      while (Date.now() < end) { if (cond()) return true; if (shouldStop?.()) return false; await sleep(200) }
+      return cond()
     }
 
-    const baselineKeys = await getIdeckTimes()
-    emit(`基準線：點擊前已有 ${baselineKeys.size} 筆 iDeck 記錄`)
+    type Outcome = { label: string; text: string; name: string | null; seq: number | null; actionid: number | null; isspin: number | null; result: IdeckResult; shot: string | null; note: string }
+    const outcomes: Outcome[] = []
+    const btnTexts: Record<string, string> = {}
+    const shotDir = join(MACHINE_TEST_ROOT, 'ideck-saves')
+    const shoot = async (tag: string) => {
+      if (!machineCode) return null
+      try {
+        mkdirSync(shotDir, { recursive: true })
+        const p = join(shotDir, `${sessionPrefix}${machineCode}-${tag}.png`)
+        writeFileSync(p, await page.screenshot({ type: 'png' }))
+        return p
+      } catch { return null }
+    }
 
-    // Step 2: click all buttons — re-query fresh at click time to avoid stale ElementHandle
-    emit(`共 ${buttons.length} 個按鈕，逐一點擊...`)
-    const allFrames = page.frames()
-    for (const { label, xpath, frameIdx } of buttons) {
-      if (shouldStop?.()) return { step: 'iDeck 測試', status: 'skip', message: '已停止', durationMs: Date.now() - t0 }
-
-      // Re-query fresh (stale ElementHandles cause 30s Playwright timeout)
+    const clickOne = async (label: string, xpath: string, frameIdx: number, idx: string): Promise<Outcome> => {
+      const o: Outcome = { label, text: '', name: null, seq: null, actionid: null, isspin: null, result: 'noElement', shot: null, note: '' }
+      const allFrames = page.frames()
       const frame = allFrames[frameIdx] ?? allFrames[0]
       let el: ElementHandle | null = null
-      try {
-        const fresh = await frame.$$(xpath)
-        el = fresh[0] ?? null
-      } catch (eq) {
-        emit(`${label} ✗ 重新查詢例外（${eq instanceof Error ? eq.message.split('\n')[0] : String(eq)}），跳過`)
-        await sleepOrStop(5000, shouldStop ?? (() => false))
-        continue
-      }
-      if (!el) {
-        emit(`${label} ⚠️ 重新查詢找不到元素，跳過`)
-        await sleepOrStop(5000, shouldStop ?? (() => false))
-        continue
-      }
+      try { el = (await frame.$$(xpath))[0] ?? null } catch (eq) { o.note = `重新查詢例外（${eq instanceof Error ? eq.message.split('\n')[0] : String(eq)}）` }
+      if (!el) { o.note ||= '重新查詢找不到元素'; return o }
+      try { o.text = ((await el.textContent()) ?? '').replace(/\s+/g, ' ').trim().slice(0, 40) } catch { /* 讀不到字就留空 */ }
+      btnTexts[label] = o.text
 
+      const tClick = Date.now()
       try {
         // evaluate click bypasses overlay/actionability checks
         await el.evaluate((node: Element) => (node as HTMLElement).click())
-        emit(`${label} 已點擊`)
       } catch (e1) {
         // Fallback: coordinate click via mouse
-        emit(`${label} evaluate 失敗（${e1 instanceof Error ? e1.message.split('\n')[0] : String(e1)}），嘗試座標點擊...`)
+        emit(`${label} evaluate 失敗（${e1 instanceof Error ? e1.message.split('\n')[0] : String(e1)}），改座標點擊`)
         try {
           const box = await el.boundingBox()
-          if (box) {
-            await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
-            emit(`${label} 座標點擊完成 (${Math.round(box.x + box.width/2)}, ${Math.round(box.y + box.height/2)})`)
-          } else {
-            emit(`${label} ✗ 無法取得元素座標`)
-          }
-        } catch (e2) {
-          emit(`${label} ✗ 座標點擊也失敗（${e2 instanceof Error ? e2.message.split('\n')[0] : String(e2)}）`)
-        }
+          if (box) await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+          else o.note = '無法取得元素座標'
+        } catch (e2) { o.note = `座標點擊也失敗（${e2 instanceof Error ? e2.message.split('\n')[0] : String(e2)}）` }
       }
 
-      // After clicking btn_bet, game may show denomination overlay — dismiss it to complete the iDeck interaction
-      await sleep(500)
-      await dismissDenomOverlay(page, emit, label)
+      await until(() => sends.some(s => s.ts >= tClick), 5000)
+      const s = sends.find(x => x.ts >= tClick)
+      o.name = names.find(n => n.ts >= tClick)?.name ?? null
+      if (!s) {
+        o.result = 'notSent'
+      } else {
+        o.seq = s.seq; o.actionid = s.actionid; o.isspin = s.isspin
+        await until(() => acks.some(a => a.seq === s.seq), 5000)
+        const a = acks.find(x => x.seq === s.seq)
+        if (!a) o.result = 'noAck'
+        else if (s.actionid === null || a.actionid === null || s.actionid !== a.actionid) { o.result = 'mismatch'; o.note = `SEND actionid=${s.actionid ?? '?'}／ON actionid=${a.actionid ?? '?'}` }
+        else o.result = 'ack'
+        // 有沒有開局**不看 isspin**，看 moneyNtc begin（0929 實測 BZZF 0235）：
+        //   上方 18/38 Credits 是 isspin:1 卻不開局（0 筆 moneyNtc）；下方 BET x1~x10 是 isspin:0，按下去 2~3 秒後反而有 begin→end（真的開局扣錢）。
+        // 所以每一顆點完都等 6 秒看有沒有 begin：有＝開局 → 等 end 才點下一顆（逾時中止、不補點，避免局中連點）；沒有＝沒開局 → 照常往下。
+        const started = await until(() => moneyBeginTs >= tClick, 6000)
+        if (started) {
+          const done = await until(() => moneyEndTs >= moneyBeginTs && moneyEndTs >= tClick, 45000)
+          if (!done) { o.result = 'spinTimeout'; o.note = `${o.note ? o.note + '；' : ''}開局後 45 秒內沒等到 moneyNtc end（不補點）` }
+          else o.note = `${o.note ? o.note + '；' : ''}有開局（moneyNtc begin→end）`
+        } else o.note = `${o.note ? o.note + '；' : ''}沒開局`
+      }
 
-      await sleepOrStop(4500, shouldStop ?? (() => false))
+      return o
     }
+    const shotAndReport = async (o: Outcome, idx: string) => {
+      o.shot = await shoot(`ideck-${idx}${o.name ? '-' + o.name.replace(/[^\w-]/g, '') : ''}`)
+      const tag = { ack: '✅ server 已回應', mismatch: '❌ actionid 對不上', noAck: '❌ 有送出但 server 沒回應', notSent: '❌ 前端沒送出 dealGMActionReq', noElement: '⚠️ 找不到元素', spinTimeout: '❌ 開轉後沒等到結束' }[o.result]
+      emit(`iDeck 按鈕 ${o.label}「${o.text}」${o.name ? `(${o.name})` : ''} → ${tag}${o.seq !== null ? `（seq ${o.seq}, actionid ${o.actionid ?? '?'}, isspin ${o.isspin ?? '?'}）` : ''}${o.note ? '｜' + o.note : ''}`)
+    }
+    // 一般收尾：可能會再點（關面額選單）
+    const settle = async (o: Outcome, idx: string) => {
+      if (o.result !== 'noElement') {
+        // After clicking btn_bet, game may show denomination overlay — dismiss it to complete the iDeck interaction
+        await sleep(500)
+        await dismissDenomOverlay(page, emit, o.label)
+      }
+      // 推流有延遲，等 2.5 秒再截畫面證據
+      await sleepOrStop(2500, shouldStop ?? (() => false))
+      await shotAndReport(o, idx)
+    }
+    // 開轉逾時的收尾：機台狀態不明，**不可再點任何東西**（CodeX 0929），只截圖留證據
+    const afterTimeout = async (o: Outcome, idx: string) => { await shotAndReport(o, idx) }
 
+    // 盒子 log 基準（選配診斷）
+    const today = toLocalDateStr(new Date())
+    // debugGmid replaces only the channel prefix (first segment), e.g. "873-BULLBLITZ-0135" → "873-BZZF-0136"
+    const effectiveGmid = debugGmid ? machineCode.replace(/^[^-]+/, debugGmid) : machineCode
+    if (debugGmid) emit(`[調適模式] iDeck 日誌渠道號替換為 ${debugGmid}，gmid：${effectiveGmid}`)
+    const apiUrl = `${DAILY_ANALYSIS_BASE}?gmid=${encodeURIComponent(effectiveGmid)}&date=${encodeURIComponent(today)}`
+    const isIdeck = (e: LogEntry) => {
+      if (e.type !== 'success_json') return false
+      const d = typeof e.data === 'string' ? JSON.parse(e.data) as Record<string, unknown> : e.data
+      return d?.is_ideck === true || d?.is_ideck === 1
+    }
+    const fetchBox = async (): Promise<{ entries: LogEntry[]; err: string | null }> => {
+      try {
+        const res = await fetch(apiUrl)
+        if (!res.ok) return { entries: [], err: `HTTP ${res.status}` }
+        const json = await res.json() as { success?: boolean; message?: string; data?: { timeline?: LogEntry[] } }
+        if (json.success === false) return { entries: [], err: json.message ?? 'success:false' }
+        return { entries: (json.data?.timeline ?? []).filter(isIdeck), err: null }
+      } catch (err) { return { entries: [], err: `例外 ${err}` } }
+    }
+    const keyOf = (e: LogEntry) => `${e.time}|${JSON.stringify(e.data)}`
+    const baseline = await fetchBox()
+    const baselineKeys = new Set(baseline.entries.map(keyOf))
+
+    page.on('console', onIdeckConsole)
+    let restore: Outcome | null = null
+    let aborted = false
+    try {
+      const before = await shoot('ideck-0-before')
+      if (before) emit(`iDeck 點擊前畫面：${before}`)
+      emit(`共 ${buttons.length} 個按鈕，逐一點擊（每顆驗 SEND/ON 配對）...`)
+      // 順序與中止規則在 verdicts.ts runIdeckSequence（有流程探針）：開轉逾時 → 後面零點擊（含面額選單、還原）；
+      // 最後按回 BetMultiple1；有倍數鍵卻找不到這顆 → ideckVerdict 判失敗
+      const seq = await runIdeckSequence({
+        buttons,
+        press: (b, idx) => { if (idx === 'restore') emit(`還原倍數：再按一次 ${b.label}（BetMultiple1）`); return clickOne(b.label, b.xpath, b.frameIdx, idx) },
+        settle, afterTimeout,
+        shouldStop: () => shouldStop?.() ?? false,
+      })
+      outcomes.push(...seq.outcomes)
+      restore = seq.restore
+      aborted = seq.aborted
+      if (aborted) emit(`🛑 iDeck：開轉後 45 秒沒結束，中止後面的點擊（不補點、不還原）`)
+    } finally {
+      page.off('console', onIdeckConsole)
+    }
     if (shouldStop?.()) return { step: 'iDeck 測試', status: 'skip', message: '已停止', durationMs: Date.now() - t0 }
 
-    // Step 3: wait for API to sync, then find NEW entries (not in baseline)
-    emit(`全部點擊完畢，等待 API 同步（15s）...`)
+    // 盒子 log（選配）：等同步後比對新增筆數
+    emit(`等待盒子 log 同步（15s，選配診斷）...`)
     await sleepOrStop(15000, shouldStop ?? (() => false))
+    const after = baseline.err ? baseline : await fetchBox()
+    const apiErr = after.err
+    const ideckEntries = apiErr ? [] : after.entries.filter(e => !baselineKeys.has(keyOf(e)))
+    const boxCmds = ideckEntries.map(e => { const d = typeof e.data === 'string' ? JSON.parse(e.data) as Record<string, unknown> : e.data; return String(d?.cmd ?? '') })
+    emit(apiErr ? `盒子 log 查不到（${apiErr}）→ 只記錄，不影響判定` : `盒子 log：新增 ${ideckEntries.length} 筆 iDeck（${boxCmds.join(', ')}）`)
 
-    let ideckEntries: LogEntry[] = []
-    try {
-      const res = await fetch(apiUrl)
-      if (res.ok) {
-        const json = await res.json() as { data?: { timeline?: LogEntry[] } }
-        const tl = json.data?.timeline ?? []
-        ideckEntries = tl.filter(e => {
-          if (e.type !== 'success_json') return false
-          const d = typeof e.data === 'string' ? JSON.parse(e.data) as Record<string, unknown> : e.data
-          if (d?.is_ideck !== true && d?.is_ideck !== 1) return false
-          // Only count entries NOT in the baseline
-          return !baselineKeys.has(`${e.time}|${JSON.stringify(e.data)}`)
-        })
-        emit(`API 回傳：新增 ${ideckEntries.length} 筆 iDeck success_json（點擊前基準 ${baselineKeys.size} 筆）`)
-        ideckEntries.forEach(e => {
-          const d = typeof e.data === 'string' ? JSON.parse(e.data) as Record<string, unknown> : e.data
-          emit(`  ${e.time} cmd=${d.cmd} error=${d.error}`)
-        })
-      } else {
-        emit(`API 請求失敗 status=${res.status}`)
-      }
-    } catch (err) {
-      emit(`API 請求例外: ${err}`)
-    }
+    const acked = outcomes.filter(o => o.result === 'ack').length
+    const shots = [...outcomes, ...(restore ? [restore] : [])].filter(o => o.shot).map(o => ({ label: o.label, name: o.name, text: o.text, path: o.shot! }))
+    const learnI = { extraData: {
+      learn: JSON.stringify({ v: LEARN_VER, source: (profile?.ideckXpaths ?? []).length > 0 ? 'profileXpaths' : (betRandomXpaths?.length ? 'betRandom' : 'auto'), buttons: buttons.map(b => ({ label: b.label, xpath: b.xpath, text: btnTexts[b.label] ?? '' })), serverAcked: acked, actions: outcomes.map(o => ({ label: o.label, name: o.name, actionid: o.actionid, isspin: o.isspin, result: o.result })), boxAccepted: apiErr ? null : ideckEntries.length, boxCmds, apiErr }),
+      ideckShots: JSON.stringify(shots),
+    } }
 
-    const passed = ideckEntries.length
-    const total = buttons.length
-
-    const source = betRandomXpaths && betRandomXpaths.length > 0 ? `隨機下注XPath` : `ideckRowClass(${profile?.ideckRowClass})`
-    const cmdList = ideckEntries.map(e => {
-      const d = typeof e.data === 'string' ? JSON.parse(e.data) as Record<string, unknown> : e.data
-      return `${d.cmd}`
-    }).join(', ')
-    const message = `${source}，${total} 個按鈕，API 確認 ${passed}/${total} 有 iDeck 回應${cmdList ? `（${cmdList}）` : ''}`
-
-    if (passed === 0) {
-      return { step: 'iDeck 測試', status: 'fail', message, durationMs: Date.now() - t0 }
-    } else if (passed < total) {
-      return { step: 'iDeck 測試', status: 'warn', message, durationMs: Date.now() - t0 }
-    }
-    return { step: 'iDeck 測試', status: 'pass', message, durationMs: Date.now() - t0 }
+    const v = ideckVerdict({ outcomes, restore, aborted, apiErr, boxCount: ideckEntries.length })
+    return { step: 'iDeck 測試', status: v.status, message: v.message, durationMs: Date.now() - t0, ...learnI }
   } catch (e) {
     return { step: 'iDeck 測試', status: 'fail', message: `例外: ${e}`, durationMs: Date.now() - t0 }
   }
+}
+
+// ── 觸屏畫面判定（2026-09-29）────────────────────────────────────────────────
+// 機種在 touch-visual.json 有設定就走這條：點一格會讓機台畫面變化的位置（BZZF：18,9 開賠率表），
+// 看 main 推流有沒有打開、再點一次有沒有關回來。不靠盒子 log，CMDB 查不到的台也能驗。
+// 判定規則在 verdicts.ts touchVisualVerdict（有探針）；這裡只負責截圖、算變動比例、點擊。
+const TOUCH_VISUAL_FILE = join(MACHINE_TEST_ROOT, 'touch-visual.json')
+const TOUCH_SAVE_DIR = join(MACHINE_TEST_ROOT, 'touch-saves')
+// refRegion：預期畫面參考圖（touch-refs/<機種>.png）要比對的區域（相對座標 x0,y0,x1,y1），BZZF＝選面額選單的橫幅
+type TouchVisualCfg = { point: string; expect: string; close: string; refRegion?: [number, number, number, number]; closeIfOpen?: boolean }
+const TOUCH_REFS_DIR = join(MACHINE_TEST_ROOT, 'touch-refs')
+/** 指定區域的差異比例（像素 RGB 平均差 > 40 算不同；兩張尺寸不同時用相對座標對應） */
+function regionDiff(a: Buffer, ref: InstanceType<typeof PNG>, region: [number, number, number, number]): number {
+  const A = PNG.sync.read(a)
+  let ch = 0, n = 0
+  for (let y = Math.floor(region[1] * A.height); y < region[3] * A.height; y += 2) {
+    for (let x = Math.floor(region[0] * A.width); x < region[2] * A.width; x += 2) {
+      const bx = Math.min(ref.width - 1, Math.round(x * ref.width / A.width)), by = Math.min(ref.height - 1, Math.round(y * ref.height / A.height))
+      const i = (y * A.width + x) * 4, j = (by * ref.width + bx) * 4
+      const d = (Math.abs(A.data[i] - ref.data[j]) + Math.abs(A.data[i + 1] - ref.data[j + 1]) + Math.abs(A.data[i + 2] - ref.data[j + 2])) / 3
+      n++
+      if (d > 40) ch++
+    }
+  }
+  return n ? ch / n : 1
+}
+function touchVisualConfig(machineCode: string): TouchVisualCfg | null {
+  try {
+    const cfg = JSON.parse(readFileSync(TOUCH_VISUAL_FILE, 'utf8')) as Record<string, TouchVisualCfg>
+    const type = machineCode.split('-').slice(1, -1).join('-').toUpperCase()
+    return cfg[type] ?? null
+  } catch { return null }
+}
+/** 兩張同尺寸 PNG 的變動像素比例（RGB 平均差 > 20/255 算變動；每 4 個像素取 1 個） */
+function diffRatio(a: Buffer, b: Buffer): number {
+  const A = PNG.sync.read(a), B = PNG.sync.read(b)
+  if (A.width !== B.width || A.height !== B.height) return 1
+  let changed = 0, n = 0
+  for (let i = 0; i < A.data.length; i += 16) {
+    const d = (Math.abs(A.data[i] - B.data[i]) + Math.abs(A.data[i + 1] - B.data[i + 1]) + Math.abs(A.data[i + 2] - B.data[i + 2])) / 3
+    n++
+    if (d > 20) changed++
+  }
+  return n ? changed / n : 0
+}
+// 各機種畫面配置（0929）：screens＝應該有幾個推流畫面；少畫面時 streamRoles 才能判出缺的是 main 還是 pool
+const MACHINE_LAYOUT_FILE = join(MACHINE_TEST_ROOT, 'machine-layout.json')
+function machineLayout(machineCode: string): { screens?: number } | null {
+  try {
+    const cfg = JSON.parse(readFileSync(MACHINE_LAYOUT_FILE, 'utf8')) as Record<string, { screens?: number }>
+    return cfg[machineCode.split('-').slice(1, -1).join('-').toUpperCase()] ?? null
+  } catch { return null }
+}
+/** main 推流的位置：角色判定跟 streamRoles 同一套（0243：只剩上方獎池時不能把它當 main）；找不到 main 回 null */
+async function mainVideoBox(page: Page, machineCode = '') {
+  const boxes: Array<{ x: number; y: number; width: number; height: number; playing: boolean; time: number }> = []
+  for (const f of page.frames()) {
+    try {
+      for (const v of await f.$$('video')) {
+        const b = await v.boundingBox()
+        if (!b || b.width < 50 || b.height < 50) continue
+        const st = await v.evaluate((e: Element) => { const x = e as HTMLVideoElement; return { playing: !x.paused && x.readyState >= 2 && x.videoWidth > 0, time: x.currentTime } })
+        boxes.push({ ...b, ...st })
+      }
+    } catch { /* frame detached */ }
+  }
+  boxes.sort((a, b) => a.y - b.y)
+  const viewportH = page.viewportSize()?.height ?? await page.evaluate(() => window.innerHeight).catch(() => 0)
+  const { roles } = streamRoles(boxes.map(b => ({ y: b.y, h: b.height, playing: b.playing })), { expected: machineLayout(machineCode)?.screens, viewportH })
+  const i = roles.findIndex(r => r.role === 'main')
+  return i >= 0 ? boxes[i] : null
+}
+
+async function stepTouchVisual(page: Page, emit: (msg: string) => void, machineCode: string, cfg: TouchVisualCfg, shouldStop?: () => boolean, sessionPrefix = ''): Promise<StepResult> {
+  const t0 = Date.now()
+  const stop = shouldStop ?? (() => false)
+  const shots: Record<string, string> = {}
+  const save = (tag: string, buf: Buffer | null) => {
+    if (!buf) return
+    try { mkdirSync(TOUCH_SAVE_DIR, { recursive: true }); const p = join(TOUCH_SAVE_DIR, `${sessionPrefix}${machineCode}-touch-${tag}.png`); writeFileSync(p, buf); shots[tag] = p } catch { /* 證據存不了不影響判定 */ }
+  }
+  const learnOf = (extra: Record<string, unknown>) => ({ extraData: {
+    learn: JSON.stringify({ v: LEARN_VER, autoPicked: false, candidates: null, clicked: [cfg.point], boxAccepted: null, reacted: null, visual: extra }),
+    touchShots: JSON.stringify(shots),
+  } })
+  const done = (status: StepStatus, message: string, extra: Record<string, unknown> = {}) => {
+    emit(`觸屏（畫面判定）${cfg.point}：${status.toUpperCase()} ${message}`)
+    return { step: '觸屏測試', status, message: `【畫面判定】${cfg.point}→${cfg.expect}：${message}`, durationMs: Date.now() - t0, ...learnOf(extra) }
+  }
+  emit(`觸屏（畫面判定）：點 ${cfg.point} 應出現「${cfg.expect}」，關閉方式：${cfg.close === 'same' ? '再點一次' : cfg.close === 'none' ? '不關閉（留給退出帶走）' : cfg.close}`)
+
+  const box = await mainVideoBox(page, machineCode)
+  if (!box) return done('skip', `未驗：找不到 main 推流畫面（沒點）`)
+  const clip = { x: Math.max(0, box.x), y: Math.max(0, box.y), width: box.width, height: box.height }
+
+  // 找格子：「列,行」span 往外找第一個有尺寸的容器（DRAGONLAW 的 span 是 0x0，同 stepTouchscreen）；先找好，找不到就不必拍雜訊
+  let target: ElementHandle | null = null
+  for (const frame of page.frames()) {
+    try {
+      const els = await frame.$$(`//span[normalize-space(text())='${cfg.point}']`)
+      if (!els.length) continue
+      const h = await els[0].evaluateHandle((e: Element) => {
+        let p: Element | null = e
+        for (let k = 0; p && k < 5; p = p.parentElement, k++) { const r = p.getBoundingClientRect(); if (r.width >= 2 && r.height >= 2) return p }
+        return e
+      })
+      target = h.asElement()
+      if (target) break
+    } catch { /* frame detached */ }
+  }
+  if (!target) return done('skip', `未驗：畫面上找不到觸屏格子 ${cfg.point}（沒點）`)
+
+  // 流程（雜訊→閘門→點→開→點→關、逐次凍結、穩定窗）在 verdicts.ts runTouchVisualFlow，有點擊計數探針；這裡只提供截圖／點擊
+  let base = await page.screenshot({ type: 'png', clip })
+  save('0-base', base)
+  let last: Buffer | null = null
+  // 預期畫面參考圖（有才比）：點之前已經是預期畫面 → 不點；點之後確認打開的是不是它
+  const refPath = join(TOUCH_REFS_DIR, `${machineCode.split('-').slice(1, -1).join('-').toUpperCase()}.png`)
+  const ref = cfg.refRegion && existsSync(refPath) ? PNG.sync.read(readFileSync(refPath)) : null
+  const r = await runTouchVisualFlow({
+    sample: async () => {
+      last = await page.screenshot({ type: 'png', clip })
+      const v = await mainVideoBox(page, machineCode)
+      return { ratio: diffRatio(base, last), time: v?.time ?? 0, playing: v?.playing ?? false, refDiff: ref ? regionDiff(last, ref, cfg.refRegion!) : undefined }
+    },
+    // 用真的滑鼠點——0924 實測滑鼠點可以走到 game=onTouchScreen；每次只點一次（再點會把畫面關掉）
+    click: async () => { await target!.click({ force: true, timeout: 5000 }) },
+    wait: async ms => { await sleep(ms) },
+    stop,
+    save: tag => save(tag, last),
+    rebase: async () => { base = await page.screenshot({ type: 'png', clip }); save('0-base', base) },
+    expect: cfg.expect,
+    noClose: cfg.close === 'none',
+    closeIfOpen: !!cfg.closeIfOpen,
+  }).catch(e => ({ status: 'fail' as const, message: `點擊／截圖例外：${String(e).slice(0, 120)}｜判定：flow fail`, clicks: -1, noise: 0, opened: [] as number[], closed: null }))
+  return done(r.status, r.message, { noise: r.noise, opened: r.opened, closed: r.closed, clicks: r.clicks })
 }
 
 async function stepTouchscreen(
@@ -2311,11 +2802,17 @@ async function stepTouchscreen(
   profile: MachineProfile | undefined,
   shouldStop?: () => boolean,
   debugGmid?: string,
+  sessionPrefix = '',
 ): Promise<StepResult> {
+  // 機種有設定畫面判定（touch-visual.json）就改走畫面判定，不靠盒子 log（2026-09-29，使用者提供 BZZF 18,9→賠率表→再點一次）
+  const visualCfg = touchVisualConfig(machineCode)
+  if (visualCfg) return stepTouchVisual(page, emit, machineCode, visualCfg, shouldStop, sessionPrefix)
   const t0 = Date.now()
   try {
     let touchPoints = profile?.touchPoints?.filter(p => p.trim())
     let autoPicked = false
+    let scanNote = ''
+    let candidateCount: number | null = null  // 自動挑點時的可選格數（learn 紀錄用）
     if (!touchPoints || touchPoints.length === 0) {
       // ── 自動挑觸屏點位（2026-09-22 加）──────────────────────────────────────
       // 原本沒設定就 SKIP，而 SKIP 看起來像「測過了」，實際上觸屏完全沒測。
@@ -2327,35 +2824,51 @@ async function stepTouchscreen(
       //    但遊戲跑在 iframe 裡 → 永遠找不到，四台全部誤判成「沒有觸屏格子」。
       //    證據：同一輪的**進場步驟**用 frames 迴圈找 `11,7` 是找得到的。
       //    → 一定要逐個 frame 掃。
+      // ⚠️ 2026-09-24：原本直接丟掉寬高 < 2px 的 span，但透明覆蓋層的 span 可能量不到尺寸
+      //    （進場步驟點 `11,7` 不檢查尺寸所以點得到）→ DRAGONLAW 0077/0078 全被濾掉。
+      //    改成往外層找第一個有尺寸的容器拿 y；真的都量不到才丟，並把各階段數量寫進診斷。
+      const diag: string[] = []
       const scan = async () => {
-        for (const frame of page.frames()) {
+        for (const [i, frame] of page.frames().entries()) {
           try {
-            const out = await frame.evaluate(() => {
+            const res = await frame.evaluate(() => {
               const list: { label: string; y: number }[] = []
+              let raw = 0, viaParent = 0, noRect = 0
               for (const sp of Array.from(document.querySelectorAll('span'))) {
                 const t = (sp.textContent || '').trim()
                 if (!/^\d+,\d+$/.test(t)) continue
-                const r = sp.getBoundingClientRect()
-                if (r.width < 2 || r.height < 2) continue
-                list.push({ label: t, y: r.top })
+                raw++
+                let el: Element | null = sp, r = sp.getBoundingClientRect(), hops = 0
+                while ((r.width < 2 || r.height < 2) && el?.parentElement && hops < 4) {
+                  el = el.parentElement; r = el.getBoundingClientRect(); hops++
+                }
+                if (r.width < 2 || r.height < 2) { noRect++; continue }
+                if (hops > 0) viaParent++
+                list.push({ label: t, y: r.top + r.height / 2 })
               }
-              if (list.length === 0) return []
+              if (list.length === 0) return { labels: [] as string[], raw, viaParent, noRect, distinctY: 0 }
               const ys = list.map(o => o.y)
               const lo = Math.min(...ys), hi = Math.max(...ys)
               const spanH = Math.max(1, hi - lo)
               // 只留中間 65%（丟掉最上 10%、最下 25%）——避開機台自己的按鈕列
-              return list.filter(o => (o.y - lo) / spanH > 0.10 && (o.y - lo) / spanH < 0.75).map(o => o.label)
+              const labels = list.filter(o => (o.y - lo) / spanH > 0.10 && (o.y - lo) / spanH < 0.75).map(o => o.label)
+              return { labels, raw, viaParent, noRect, distinctY: new Set(ys.map(Math.round)).size }
             })
-            if (out.length > 0) return out
+            if (res.raw > 0) diag.push(`frame${i}: 文字符合 ${res.raw}、用外層定位 ${res.viaParent}、量不到尺寸 ${res.noRect}、不同高度 ${res.distinctY}、中間帶 ${res.labels.length}`)
+            if (res.labels.length > 0) return res.labels
           } catch { /* frame detached */ }
         }
         return [] as string[]
       }
       const found = await scan()
       const uniq = [...new Set(found)]
+      if (diag.length) emit(`觸屏格子掃描：${diag.join('；')}`)
+      scanNote = diag.join('；')
       if (uniq.length === 0) {
-        return { step: '觸屏測試', status: 'fail', message: '未設定 touchPoints，且自動偵測找不到觸屏格子（沒有文字符合「列,行」的 span）', durationMs: Date.now() - t0 }
+        const why = diag.length ? `（${diag.join('；')}）` : `（${page.frames().length} 個 frame 都沒有文字符合「列,行」的 span）`
+        return { step: '觸屏測試', status: 'fail', message: `未設定 touchPoints，且自動偵測找不到觸屏格子${why}`, durationMs: Date.now() - t0 }
       }
+      candidateCount = uniq.length
       const pick = Math.min(3, uniq.length)
       const shuffled = uniq.sort(() => Math.random() - 0.5).slice(0, pick)
       touchPoints = shuffled
@@ -2368,20 +2881,36 @@ async function stepTouchscreen(
     // just take els[0] and click via evaluate (same as waitForNormalStatus).
     type TpEntry = { label: string; el: ElementHandle }
     const buttons: TpEntry[] = []
+    // 2026-09-24 診斷：DRAGONLAW 0069 點了三格機台 log 完全沒事件（進場點 11,7 卻有效），
+    // 記下每格「幾個 frame 有、各幾份、點的那份在哪一層、樣式」，寫進結果訊息方便事後判讀。
+    const clickDiag: string[] = []
     for (const pt of touchPoints) {
       let found = false
-      for (const frame of page.frames()) {
+      const perFrame: string[] = []
+      for (const [fi, frame] of page.frames().entries()) {
         try {
           const els = await frame.$$(`//span[normalize-space(text())='${pt}']`)
           if (els.length > 0) {
-            buttons.push({ label: pt, el: els[0] })
-            found = true
-            break
+            perFrame.push(`f${fi}×${els.length}`)
+            if (!found) {
+              buttons.push({ label: pt, el: els[0] })
+              found = true
+              const info = await els[0].evaluate((e: Element) => {
+                const cs = getComputedStyle(e), r = e.getBoundingClientRect()
+                const chain: string[] = []
+                for (let p: Element | null = e.parentElement, k = 0; p && k < 3; p = p.parentElement, k++) chain.push((p.className && typeof p.className === 'string' ? '.' + p.className.trim().split(/\s+/).join('.') : p.tagName.toLowerCase()).slice(0, 40))
+                const pp = e.parentElement ? getComputedStyle(e.parentElement) : null
+                return `${Math.round(r.width)}x${Math.round(r.height)}@${Math.round(r.left)},${Math.round(r.top)} disp=${cs.display} pe=${cs.pointerEvents} vis=${cs.visibility} parentDisp=${pp?.display} parentPe=${pp?.pointerEvents} ${chain.join('<')}`
+              }).catch(() => '?')
+              clickDiag.push(`${pt}[${info}]`)
+            }
           }
         } catch { /* frame detached */ }
       }
-      if (!found) emit(`touchPoint "${pt}" ⚠️ 找不到元素，跳過`)
+      if (found) clickDiag[clickDiag.length - 1] += ` 分布:${perFrame.join(',')}`
+      else emit(`touchPoint "${pt}" ⚠️ 找不到元素，跳過`)
     }
+    if (clickDiag.length) emit(`觸屏點擊目標：${clickDiag.join('；')}`)
 
     if (buttons.length === 0) {
       return { step: '觸屏測試', status: 'fail', message: '所有 touchPoints 均找不到元素（確認 profile 座標格式正確）', durationMs: Date.now() - t0 }
@@ -2416,17 +2945,167 @@ async function stepTouchscreen(
     emit(`基準線：點擊前已有 ${baselineKeys.size} 筆觸屏記錄`)
 
     // Step 2: click all touchPoints
+    // 2026-09-24：先確認「前端有沒有真的送出」再看盒子。真人觸屏時前端 console 會印
+    //   `touchAction 1514` → `dealGMActionReq->actionId: 1514` → SEND hall.hallHandler.dealGMActionReq
+    // 所以每格點完看 console 有沒有這組訊息：沒有＝工具沒點到（前端沒送）；有但盒子 log 沒有＝後段問題。
+    const sentIds: string[] = []
+    // H5 真人點擊的 console 鏈（使用者 0924 提供）：
+    //   ScreenJJBX touch (x,y)= 12 2 → ScreenJJBX touchId: 2212 → artcvideo:clickscreen= 2212 → game=onTouchScreen 2212
+    //   → touchAction 2212 → dealGMActionReq->actionId: 2212 → SEND hall.hallHandler.dealGMActionReq
+    // 每一段都記下來，才知道點擊卡在哪一段。
+    const stages: string[] = []
+    const onTouchConsole = (m: import('playwright').ConsoleMessage) => {
+      const t = m.text()
+      const x = t.match(/dealGMActionReq->actionId:\s*(\d+)/) ?? t.match(/^touchAction\s+(\d+)/)
+      if (x) sentIds.push(x[1])
+      const st = t.match(/ScreenJJBX touch \(x,y\)=\s*(\d+)\s+(\d+)/) ? '①touch'
+        : /ScreenJJBX touchId:/.test(t) ? '②touchId'
+        : /artcvideo:clickscreen=/.test(t) ? '③clickscreen'
+        : /game=onTouchScreen/.test(t) ? '④onTouchScreen'
+        : /^touchAction\s+\d+/.test(t) ? '⑤touchAction'
+        : /dealGMActionReq->actionId/.test(t) ? '⑥dealGMActionReq' : ''
+      if (st) stages.push(`${st}(${t.replace(/\s+/g, ' ').slice(0, 40)})`)
+    }
+    page.on('console', onTouchConsole)
+    const sentPer: string[] = []
+    let sentCount = 0
+    let handledCount = 0
+    const waitSent = async (before: number, ms: number) => {
+      const end = Date.now() + ms
+      while (Date.now() < end) { if (sentIds.length > before) return true; await sleep(200) }
+      return sentIds.length > before
+    }
+    // 2026-09-24 診斷：直接問 Chrome 哪些元素掛了哪些事件（DOMDebugger.getEventListeners），
+    // 以及第一格中心點最上層是誰（elementFromPoint），找出真正收觸屏的元素。
+    let listenerDiag = ''
+    try {
+      const cdp = await page.context().newCDPSession(page)
+      try {
+        const parts: string[] = []
+        const firstBox = buttons[0] ? await buttons[0].el.evaluate((e: Element) => {
+          let p: Element | null = e
+          for (let k = 0; p && k < 5; p = p.parentElement, k++) { const r = p.getBoundingClientRect(); if (r.width >= 2 && r.height >= 2) return { x: r.left + r.width / 2, y: r.top + r.height / 2 } }
+          return null
+        }).catch(() => null) : null
+        const exprs: Array<[string, string]> = [
+          ['div_main', `document.getElementById('div_main')`],
+          ['screen_touch', `document.getElementById('screen_touch')`],
+          ['screen-touch1', `document.querySelector('.screen-touch1')`],
+          ['child', `document.querySelector('.screen-touch1 .child')`],
+          ['document', `document`],
+          ['window', `window`],
+        ]
+        if (firstBox) exprs.push(['點擊點最上層', `document.elementFromPoint(${firstBox.x}, ${firstBox.y})`])
+        for (const [name, expr] of exprs) {
+          const r = await cdp.send('Runtime.evaluate', { expression: expr }) as { result: { objectId?: string; description?: string } }
+          if (!r.result.objectId) { parts.push(`${name}:無`); continue }
+          const ls = await cdp.send('DOMDebugger.getEventListeners', { objectId: r.result.objectId }) as { listeners: Array<{ type: string }> }
+          const types = [...new Set(ls.listeners.map(l => l.type))].filter(t => /touch|pointer|mouse|click/.test(t))
+          parts.push(`${name}${name === '點擊點最上層' ? `=${(r.result.description ?? '').slice(0, 50)}` : ''}:[${types.join(',')}]`)
+        }
+        // 被點那格的祖先鏈（對照真人畫面 #div_main > #screen_touch > .screen-touch1）＋ click handler 原始碼片段
+        try {
+          const h = await buttons[0].el.evaluateHandle((e: Element) => {
+            let p: Element | null = e
+            for (let k = 0; p && k < 5; p = p.parentElement, k++) { const r = p.getBoundingClientRect(); if (r.width >= 2 && r.height >= 2) return p }
+            return e
+          })
+          const chain = await h.evaluate((e: Element) => {
+            const out: string[] = []
+            for (let p: Element | null = e, k = 0; p && k < 9; p = p.parentElement, k++) {
+              const cs = getComputedStyle(p)
+              out.push(`${p.tagName.toLowerCase()}${p.id ? '#' + p.id : ''}${typeof p.className === 'string' && p.className ? '.' + p.className.trim().split(/\s+/).slice(0, 2).join('.') : ''}${cs.display === 'none' ? '(hidden)' : ''}`)
+            }
+            return out.join(' < ')
+          })
+          parts.push(`祖先:${chain}`)
+          parts.push(`div_main數=${await page.evaluate(() => document.querySelectorAll('#div_main').length)} screen-touch1數=${await page.evaluate(() => document.querySelectorAll('.screen-touch1').length)}`)
+          // 取 handler 位置 → 原始碼（先打標記再用 selector 拿 CDP objectId）
+          await h.evaluate((e: Element) => e.setAttribute('data-qa-tp', '1'))
+          const { result } = await cdp.send('Runtime.evaluate', { expression: `document.querySelector('[data-qa-tp]')` }) as { result: { objectId?: string } }
+          await h.evaluate((e: Element) => e.removeAttribute('data-qa-tp'))
+          if (result.objectId) {
+            await cdp.send('Debugger.enable')
+            const ls = await cdp.send('DOMDebugger.getEventListeners', { objectId: result.objectId }) as { listeners: Array<{ type: string; scriptId: string; lineNumber: number; columnNumber: number }> }
+            const c = ls.listeners.find(l => l.type === 'click')
+            if (c) {
+              const src = (await cdp.send('Debugger.getScriptSource', { scriptId: c.scriptId }) as { scriptSource: string }).scriptSource
+              const lines = src.split('\n'); const line = lines[c.lineNumber] ?? ''
+              parts.push(`clickHandler@L${c.lineNumber}:${c.columnNumber}: ${line.slice(Math.max(0, c.columnNumber - 100), c.columnNumber + 500).replace(/\s+/g, ' ')}`)
+            }
+            await cdp.send('Debugger.disable').catch(() => {})
+          }
+        } catch (e) { parts.push(`祖先/handler診斷失敗 ${String(e).slice(0, 80)}`) }
+        listenerDiag = parts.join(' ')
+        emit(`觸屏事件監聽：${listenerDiag}`)
+      } finally { await cdp.detach().catch(() => {}) }
+    } catch (e) { listenerDiag = `監聽診斷失敗 ${String(e).slice(0, 60)}` }
+
     emit(`共 ${buttons.length} 個觸屏點位，逐一點擊...`)
     for (const { label, el } of buttons) {
-      if (shouldStop?.()) return { step: '觸屏測試', status: 'skip', message: '已停止', durationMs: Date.now() - t0 }
+      if (shouldStop?.()) { page.off('console', onTouchConsole); return { step: '觸屏測試', status: 'skip', message: '已停止', durationMs: Date.now() - t0 } }
+      const before = sentIds.length
+      const stBefore = stages.length
       try {
-        await page.evaluate((e: Element) => (e as HTMLElement).click(), el)
-        emit(`"${label}" 已點擊`)
+        // 2026-09-24：DRAGONLAW 的「列,行」span 是 display:none（0x0），真正的格子是外層 `.child`。
+        // 對隱藏 span 做 JS click 機台 log 完全沒事件 → 改成找第一個有尺寸的外層，用真的滑鼠點它中心。
+        // span 本身有尺寸（其他機種）就直接點 span；真的點不到才退回舊的 JS click。
+        const target = await el.evaluateHandle((e: Element) => {
+          let p: Element | null = e
+          for (let k = 0; p && k < 5; p = p.parentElement, k++) {
+            const r = p.getBoundingClientRect()
+            if (r.width >= 2 && r.height >= 2) return p
+          }
+          return e
+        })
+        const tEl = target.asElement()
+        // 依序試幾種點法，前端一送出 dealGMActionReq 就停。
+        // 2026-09-24 實測 DRAGONLAW：滑鼠點與 JS click 前端都沒送 → 格子是 Vant 元件，多半只聽 touch 事件。
+        const tried: string[] = []
+        const box = tEl ? await tEl.boundingBox().catch(() => null) : null
+        const methods: Array<[string, () => Promise<unknown>]> = [
+          ['滑鼠', async () => { if (!tEl) throw new Error('no el'); await tEl.click({ force: true, timeout: 5000 }) }],
+          ['CDP觸控', async () => {
+            if (!box) throw new Error('no box')
+            const x = box.x + box.width / 2, y = box.y + box.height / 2
+            const cdp = await page.context().newCDPSession(page)
+            try {
+              await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] })
+              await sleep(80)
+              await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+            } finally { await cdp.detach().catch(() => {}) }
+          }],
+          ['JS觸控事件', async () => {
+            await (tEl ?? el).evaluate((e: Element) => {
+              const r = e.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2
+              const t = new Touch({ identifier: Date.now(), target: e, clientX: x, clientY: y })
+              e.dispatchEvent(new TouchEvent('touchstart', { bubbles: true, cancelable: true, touches: [t], targetTouches: [t], changedTouches: [t] }))
+              e.dispatchEvent(new TouchEvent('touchend', { bubbles: true, cancelable: true, touches: [], targetTouches: [], changedTouches: [t] }))
+            })
+          }],
+          ['JS click', async () => { await page.evaluate((e: Element) => (e as HTMLElement).click(), el) }],
+        ]
+        let ok = false, handled = false
+        for (const [name, fn] of methods) {
+          try { await fn() } catch { tried.push(`${name}✗`); continue }
+          tried.push(name)
+          if (await waitSent(before, 1500)) { ok = true; break }
+          // H5 走到 game=onTouchScreen 就代表遊戲已經收下這次點擊（H5 不一定走 dealGMActionReq）→ 不要再換點法重點
+          if (stages.slice(stBefore).some(s => s.startsWith('④'))) { handled = true; break }
+        }
+        const how = tried.join('→')
+        if (ok) sentCount++
+        if (ok || handled) handledCount++
+        const reached = stages.slice(stBefore)
+        sentPer.push(`${label}@${new Date().toTimeString().slice(0, 8)}:${ok ?`送出 actionid=${sentIds.slice(before).join('/')}` : '前端沒送'}(${how})${reached.length ? ` 到達:${reached.join('→')}` : ' console鏈:無'}`)
+        emit(`"${label}" 已點擊（${how}）→ ${ok ? `前端已送出 dealGMActionReq actionid=${sentIds.slice(before).join('/')}` : '⚠️ 前端沒有送出 dealGMActionReq'}`)
       } catch {
         emit(`"${label}" ✗ 點擊例外`)
+        sentPer.push(`${label}:點擊例外`)
       }
       await sleepOrStop(5000, shouldStop ?? (() => false))
     }
+    page.off('console', onTouchConsole)
 
     if (shouldStop?.()) return { step: '觸屏測試', status: 'skip', message: '已停止', durationMs: Date.now() - t0 }
 
@@ -2435,11 +3114,16 @@ async function stepTouchscreen(
     await sleepOrStop(15000, shouldStop ?? (() => false))
 
     let touchEntries: LogEntry[] = []
+    let tlAll: LogEntry[] = []
+    // 同 iDeck：API 查不到機台時沒有盒子端證據，只能判未驗
+    let apiErr: string | null = null
     try {
       const res = await fetch(apiUrl)
       if (res.ok) {
-        const json = await res.json() as { data?: { timeline?: LogEntry[] } }
+        const json = await res.json() as { success?: boolean; message?: string; data?: { timeline?: LogEntry[] } }
+        if (json.success === false) apiErr = json.message ?? 'success:false'
         const tl = json.data?.timeline ?? []
+        tlAll = tl
         touchEntries = tl.filter(e => {
           if (e.type !== 'success_json') return false
           const d = typeof e.data === 'string' ? JSON.parse(e.data) as Record<string, unknown> : e.data
@@ -2452,29 +3136,80 @@ async function stepTouchscreen(
           emit(`  ${e.time} cmd=${d.cmd} error=${d.error}`)
         })
       } else {
+        apiErr = `HTTP ${res.status}`
         emit(`API 請求失敗 status=${res.status}`)
       }
     } catch (err) {
+      apiErr = `例外 ${err}`
       emit(`API 請求例外: ${err}`)
     }
 
-    const passed = touchEntries.length
+    // 盒子端一次觸屏是一組：NoticeClientNtc(action_type 2) → success_json{cmd:"列,行",is_touch} →
+    // DoactionResultReq/Res(action_type 2) → usb_coordinate{coord}。座標在 success_json.cmd，
+    // 所以要比對 cmd 是不是我們點的那格，不能只數筆數（退出後盒子會自己送 18,9、進場會有 Denom5）。
+    const clickedLabels = new Set(buttons.map(b => b.label))
+    const matched = touchEntries.filter(e => {
+      const d = typeof e.data === 'string' ? JSON.parse(e.data) as Record<string, unknown> : e.data
+      return clickedLabels.has(String(d?.cmd ?? ''))
+    })
+    const passed = matched.length
     const total = buttons.length
-    const message = `${autoPicked ? '【自動挑點】' : ''}${total} 個觸屏點位，API 確認 ${passed}/${total} 有觸屏回應`
-      + (autoPicked ? `（${touchPoints.join('、')}）` : '')
-
-    if (passed === 0) {
-      return { step: '觸屏測試', status: 'fail', message, durationMs: Date.now() - t0 }
-    } else if (passed < total) {
-      return { step: '觸屏測試', status: 'warn', message, durationMs: Date.now() - t0 }
+    // learn 模式：「盒子收到指令」不算數，要後面 10 秒內跟著 usb_coordinate（盒子真的動作了）才算這格學得到
+    const secs = (t: string) => { const [h, m, s] = t.split(':').map(Number); return h * 3600 + m * 60 + s }
+    // 對應要綁在「這一筆」之後：usb_coordinate 必須出現在它後面、下一筆觸屏 success_json 之前（CodeX 0929：
+    // 不能只是 10 秒內剛好有別的事件）。timeline 是依時間排序的原始順序。
+    const isTouchJson = (e: LogEntry) => { if (e.type !== 'success_json') return false; const d = typeof e.data === 'string' ? JSON.parse(e.data) as Record<string, unknown> : e.data; return d?.is_touch === true || d?.is_touch === 1 }
+    // API 的排序方向沒保證，頭尾比一下，統一成由舊到新
+    const ordered = tlAll.length > 1 && secs(tlAll[0].time) > secs(tlAll[tlAll.length - 1].time) ? [...tlAll].reverse() : tlAll
+    const followedByUsb = (m: LogEntry) => {
+      const i = ordered.indexOf(m)
+      if (i < 0) return false
+      for (let k = i + 1; k < ordered.length; k++) {
+        const u = ordered[k]
+        if (secs(u.time) - secs(m.time) > 10) return false
+        if (isTouchJson(u)) return false
+        if (u.type === 'usb_coordinate') return true
+      }
+      return false
     }
-    return { step: '觸屏測試', status: 'pass', message, durationMs: Date.now() - t0 }
+    const reacted = [...new Set(matched.filter(followedByUsb).map(m => {
+      const d = typeof m.data === 'string' ? JSON.parse(m.data) as Record<string, unknown> : m.data
+      return String(d?.cmd ?? '')
+    }))]
+    const learnT = { extraData: { learn: JSON.stringify({ v: LEARN_VER, autoPicked, candidates: candidateCount, clicked: buttons.map(b => b.label), boxAccepted: apiErr ? null : [...new Set(matched.map(m => { const d = typeof m.data === 'string' ? JSON.parse(m.data) as Record<string, unknown> : m.data; return String(d?.cmd ?? '') }))], reacted: apiErr ? null : reacted, frontendHandled: handledCount, wsSent: sentCount, apiErr }) } }
+    const message = `${autoPicked ? '【自動挑點】' : ''}${total} 個觸屏點位，遊戲收下(onTouchScreen) ${handledCount}/${total}、送出 dealGMActionReq ${sentCount}/${total}、API 確認 ${passed}/${total} 有觸屏回應`
+      + `（${touchPoints.join('、')}）`
+      + (sentPer.length ? ` ｜WS: ${sentPer.join('；')}` : '')
+      + (sentCount < total && listenerDiag ? ` ｜監聽: ${listenerDiag}` : '')
+      + (passed < total ? ` ｜診斷 ${[scanNote, ...clickDiag].filter(Boolean).join('；')}` : '')
+
+    if (apiErr) {
+      emit(`⚠️ 機台 log API 查不到資料（${apiErr}）→ 觸屏未驗`)
+      return { step: '觸屏測試', status: 'skip', message: `未驗：機台 log API 查不到 ${effectiveGmid}（${apiErr}）｜${message}`, durationMs: Date.now() - t0, ...learnT }
+    }
+    if (passed === 0) {
+      return { step: '觸屏測試', status: 'fail', message, durationMs: Date.now() - t0, ...learnT }
+    } else if (passed < total) {
+      return { step: '觸屏測試', status: 'warn', message, durationMs: Date.now() - t0, ...learnT }
+    }
+    return { step: '觸屏測試', status: 'pass', message, durationMs: Date.now() - t0, ...learnT }
   } catch (e) {
     return { step: '觸屏測試', status: 'fail', message: `例外: ${e}`, durationMs: Date.now() - t0 }
   }
 }
 
 async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '', sessionPrefix = ''): Promise<StepResult> {
+  // 失敗路徑的證據：整個畫面存成跟正常 CCTV 截圖同一個檔名（batch 的 evidence.cctv 會讀到並貼 H 欄）
+  const saveCctvEvidence = async () => {
+    if (!machineCode) return ''
+    try {
+      mkdirSync(CCTV_SAVE_DIR, { recursive: true })
+      const p = join(CCTV_SAVE_DIR, `${sessionPrefix}${machineCode}.png`)
+      writeFileSync(p, await page.screenshot({ type: 'png', fullPage: false }))
+      emit(`CCTV 沒畫面，已存當下畫面當證據：${p}`)
+      return '（已截圖留證）'
+    } catch { return '' }
+  }
   const t0 = Date.now()
   try {
     // Step 1: click the first header_btn_item to switch to CCTV view
@@ -2495,7 +3230,7 @@ async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '
       } catch { /* frame detached */ }
     }
     if (!clicked) {
-      return { step: 'CCTV 號碼比對', status: 'fail', message: '找不到 .header_btn_item 按鈕', durationMs: Date.now() - t0 }
+      return { step: 'CCTV 號碼比對', status: 'fail', message: `找不到 .header_btn_item 按鈕${await saveCctvEvidence()}`, durationMs: Date.now() - t0 }
     }
 
     // Step 2: save a full-page debug screenshot immediately after click, to confirm what opened
@@ -2621,10 +3356,12 @@ async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '
     if (!videoEl) {
       // fallback: check div.cctv_video appeared
       const hasCctvDiv = await page.$('div.cctv_video')
+      // 沒有 CCTV 畫面也要留證據（使用者 0929）：存當下整個畫面到 cctv-saves，batch 照樣會貼進 Lark H 欄
+      const ev = await saveCctvEvidence()
       if (!hasCctvDiv) {
-        return { step: 'CCTV 號碼比對', status: 'fail', message: '切換後找不到 CCTV 影片元素', durationMs: Date.now() - t0 }
+        return { step: 'CCTV 號碼比對', status: 'fail', message: `切換後找不到 CCTV 影片元素${ev}`, durationMs: Date.now() - t0 }
       }
-      return { step: 'CCTV 號碼比對', status: 'warn', message: 'CCTV 容器存在但找不到 video 元素', durationMs: Date.now() - t0 }
+      return { step: 'CCTV 號碼比對', status: 'warn', message: `CCTV 容器存在但找不到 video 元素${ev}`, durationMs: Date.now() - t0 }
     }
 
     // ── 等 CCTV 真的開始播再往下（2026-09-22 加）──────────────────────────────
@@ -3052,6 +3789,14 @@ export class MachineTestRunner extends EventEmitter {
   private sessionPrefix: string = ''
   /** 整段錄音：只有單 Worker 時才開（多 Worker 會把各機台的聲音混在一起） */
   private sessionAudioEnabled = false
+  /** 目前這一輪的瀏覽器——stop() 要能直接關掉它，不然在跑的步驟會繼續操作機台 */
+  private browser: Browser | null = null
+  /**
+   * 無法自動收尾、必須人工處理的狀況（例如退出回 AFT 錯誤碼、Handpay、退出超時）。
+   * 一旦設了就不再測下一台：帳號可能還坐在機台上，繼續跑只會汙染後面的結果。
+   */
+  private _haltReason: string | null = null
+  get haltReason(): string | null { return this._haltReason }
 
   constructor(osmStatus?: Map<string, number>, profiles?: Map<string, MachineProfile>, betRandomConfig?: Record<string, string[]>) {
     super()
@@ -3060,7 +3805,20 @@ export class MachineTestRunner extends EventEmitter {
     this.betRandomConfig = betRandomConfig ?? {}
   }
 
-  stop() { this.stopped = true }
+  /**
+   * 停止：先讓所有迴圈（特殊遊戲等待、退出重試）看到 stopped 不再 Spin，再關瀏覽器。
+   * ⚠️ 2026-09-24：舊版只設旗標，正在跑的機台會繼續把 15 分鐘的 FG 等待跑完，
+   *    瀏覽器一直開著、佔著帳號登入（再開一個會被「logged in from another device」踢掉），
+   *    agent 也要等它跑完才回 agent_done → busy 卡住，只能重啟 agent。
+   * ⚠️ 關瀏覽器 ≠ 伺服器端已離機——被中止的那台會在結果裡標「未確認離機」。
+   */
+  stop() {
+    if (this.stopped) return
+    this.stopped = true
+    this.log('⏹ 收到停止指令：取消 Spin／退出重試，關閉瀏覽器')
+    const b = this.browser
+    if (b) void b.close().catch(() => { /* already closed */ })
+  }
 
   /** Return a snapshot of all events emitted so far (for SSE replay) */
   getBufferedEvents(): TestEvent[] { return [...this.eventBuffer] }
@@ -3192,10 +3950,89 @@ export class MachineTestRunner extends EventEmitter {
             if (this.stopped) return
             const s = this.osmStatus.get(machineCode)
             if (s === undefined || s === 0) return  // normal — no log, proceed immediately
-            const bonusWait = await waitForNormalStatus(this.osmStatus, machineCode, page, profile, emit)
+            const bonusWait = await waitForNormalStatus(this.osmStatus, machineCode, page, profile, emit, () => this.stopped)
             if (bonusWait) {
               stepResults.push({ step: '特殊遊戲等待', status: 'pass', message: `偵測到「${bonusWait.label}」，等待 ${(bonusWait.waited / 1000).toFixed(0)}s 後完成`, durationMs: bonusWait.waited })
               this.log(`${workerTag} [PASS] 特殊遊戲等待完成: ${bonusWait.label}`, machineCode)
+            }
+          }
+
+          // ── 退出：一定要確認回到大廳才換下一台 ──────────────────────────────
+          // ⚠️ 2026-09-24（DragonLaw）：舊版退出只重試 fail，「leaveGMNtc errcode=0 但 DOM 仍在遊戲內」
+          //    是 WARN → 直接關掉換下一台 → 帳號其實還坐在 FG 裡 → 下一台一載入就回到這台，連鎖汙染。
+          // 規則（使用者 2026-09-24 定案）：
+          //   - 依 leaveGMNtc 的 errcode 分流，不能一律 Spin：
+          //       0 且回到大廳 → 成功；25（玩家已不在機台上）且回到大廳 → 成功
+          //       10002（遊戲進行中）或沒回到大廳且判定遊戲進行中 → 依設定檔動作推進遊戲，再試退出
+          //       其他非 0（例如 AFT 轉出失敗）、Handpay → 不 Spin，停整批、人工處理
+          //   - 「遊戲進行中」的證據要有一個：errcode 10002／OSMWatcher 特殊狀態／遊戲跳「cannot be quit」。
+          //     沒有證據就只重試退出、不 Spin（一般狀態下 Spin 是真的付費下注）。
+          //   - 上限從**第一次退出失敗**起算、重試不重置：20 分鐘或 150 次操作，到了就停整批告警。
+          const EXIT_MAX_MS = 20 * 60 * 1000
+          const EXIT_MAX_ACTS = 150
+          const exitUntilLobby = async (): Promise<StepResult> => {
+            const t0 = Date.now()
+            let firstFailAt = 0
+            let acts = 0
+            for (let attempt = 1; ; attempt++) {
+              const r = await stepExit(page, emit, profile?.exitSelector ?? null, waitForLeaveGM)
+              const code = parseLeaveErrcode(r.message)
+              const inGame = await isInGame(page)
+              if (this.stopped && inGame) {
+                return { step: '退出測試', status: 'fail', message: `使用者中止：未確認已離機 — ${r.message}`, durationMs: Date.now() - t0 }
+              }
+              const tip = inGame ? await dismissGameTips(page, emit) : null
+              const d = decideExit({ passed: r.status === 'pass', inGame, code, osm: this.osmStatus.get(machineCode), tip })
+              if (d.kind === 'done') {
+                const extra = [d.note, attempt > 1 ? `第 ${attempt} 次退出成功，期間推進遊戲 ${acts} 次` : ''].filter(Boolean).join('；')
+                return extra ? { ...r, status: 'pass', message: `${r.message}（${extra}）`, durationMs: Date.now() - t0 } : { ...r, status: 'pass' }
+              }
+              if (d.kind === 'unconfirmed') {
+                return { step: '退出測試', status: 'warn', message: `${d.note}（${r.message.slice(0, 60)}）——請人工確認這台已離機、額度已轉出`, durationMs: Date.now() - t0 }
+              }
+              if (d.kind === 'halt') {
+                this._haltReason = `${machineCode} 退出受阻：${d.reason}`
+                return { step: '退出測試', status: 'fail', message: `🛑 ${this._haltReason}；未做任何 Spin（${r.message.slice(0, 80)}）`, durationMs: Date.now() - t0 }
+              }
+
+              if (!firstFailAt) firstFailAt = Date.now()
+              if (Date.now() - firstFailAt > EXIT_MAX_MS || acts >= EXIT_MAX_ACTS) {
+                this._haltReason = `${machineCode} 退出超過上限（${((Date.now() - firstFailAt) / 60000).toFixed(1)} 分鐘／推進 ${acts} 次）仍未回到大廳`
+                return { step: '退出測試', status: 'fail', message: `🛑 ${this._haltReason}，最後一次：${r.message}`, durationMs: Date.now() - t0 }
+              }
+
+              if (d.kind === 'retry') {
+                emit(`退出未完成（第 ${attempt} 次，${r.message.slice(0, 60)}）：沒有遊戲進行中的證據 → 不 Spin，5 秒後重試退出`)
+                await sleep(5000)
+                continue
+              }
+
+              emit(`退出未完成（第 ${attempt} 次）：遊戲進行中（${d.why}）→ 依設定檔推進遊戲後再試退出`)
+              if ((profile?.bonusAction ?? 'auto_wait') === 'auto_wait') {
+                await sleep(10000)  // 設定檔要求被動等待
+              } else {
+                // 推進到特殊狀態確認結束（tracker：連續 8 秒正常且有新觀測），最多 90 秒一段，然後回去試退出。
+                // 每一下點擊都算進 EXIT_MAX_ACTS（含補點）。
+                // 證據只來自 10002／提示框、OSMWatcher 沒顯示特殊狀態時：只推第一下，之後交給退出重試判斷。
+                const tracker = new OsmBonusTracker(this.osmStatus, machineCode)
+                const chunkEnd = Date.now() + 90_000
+                let lastAct = 0
+                while (Date.now() < chunkEnd && !this.stopped && acts < EXIT_MAX_ACTS) {
+                  const t = tracker.tick()
+                  if (lastAct && t.ended) break
+                  if (Date.now() - lastAct > 3000 && (lastAct === 0 || tracker.mayAct(t))) {
+                    // 0929 0278 實況：試退出會跳「cannot be quit」提示框，原本先按 SPIN 才關提示框 → SPIN 全按在提示框上、feature 一直沒開始。先關再按。
+                    await dismissGameTips(page, emit)
+                    await doBonusAction(page, profile, emit)
+                    tracker.noteAct()
+                    acts++
+                    lastAct = Date.now()
+                  }
+                  if (tracker.gaveUpClicking) { emit(`⚠️ 推進 ${MAX_ACTS_WITHOUT_CHANGE} 次 OSMWatcher 狀態都沒變化，停止補點`); break }
+                  await sleep(1000)
+                  await dismissGameTips(page, emit)
+                }
+              }
             }
           }
 
@@ -3233,14 +4070,14 @@ export class MachineTestRunner extends EventEmitter {
           if (steps.ideck) {
             await checkOsm()
             const ideckXpaths = (profile?.ideckXpaths ?? []).length > 0 ? profile!.ideckXpaths! : this.betRandomConfig[machineCode]
-            const r6 = await stepIdeck(page, emit, machineCode, profile, waitForIdeckCmd, ideckXpaths, () => this.stopped, this.debugGmid ?? undefined)
+            const r6 = await stepIdeck(page, emit, machineCode, profile, waitForIdeckCmd, ideckXpaths, () => this.stopped, this.debugGmid ?? undefined, this.sessionPrefix)
             stepResults.push(r6)
             this.log(`${workerTag} [${r6.status.toUpperCase()}] iDeck: ${r6.message}`, machineCode)
           }
 
           if (steps.touchscreen) {
             await checkOsm()
-            const r7 = await stepTouchscreen(page, emit, machineCode, profile, () => this.stopped, this.debugGmid ?? undefined)
+            const r7 = await stepTouchscreen(page, emit, machineCode, profile, () => this.stopped, this.debugGmid ?? undefined, this.sessionPrefix)
             stepResults.push(r7)
             this.log(`${workerTag} [${r7.status.toUpperCase()}] 觸屏: ${r7.message}`, machineCode)
           }
@@ -3276,56 +4113,22 @@ export class MachineTestRunner extends EventEmitter {
 
           if (steps.exit) {
             await checkOsm()
-
-            // Exit with retry when leaveGMNtc errcode=10002 (Game is running):
-            // check OSMWatcher — if still in bonus wait for it, then retry exit.
-            let r5: StepResult | null = null
-            const MAX_EXIT_ATTEMPTS = 3
-            for (let attempt = 1; attempt <= MAX_EXIT_ATTEMPTS; attempt++) {
-              r5 = await stepExit(page, emit, profile?.exitSelector ?? null, waitForLeaveGM)
-              if (r5.status !== 'fail') break  // pass or warn → done
-
-              // Any exit failure: check OSMWatcher — Jackpot/FG may have prevented exit
-              // without returning errcode 10002 (game just silently refuses exit)
-              const osmCurrent = this.osmStatus.get(machineCode)
-              const osmInBonus = osmCurrent !== undefined && (BONUS_STATUSES.has(osmCurrent) || osmCurrent === 9)
-              emit(`⚠️ 退出失敗（第 ${attempt}/${MAX_EXIT_ATTEMPTS} 次），檢查 OSMWatcher 狀態...`)
-              if (osmInBonus) {
-                emit(`OSMWatcher：${OSM_STATUS_LABELS[osmCurrent!] ?? osmCurrent}，等待特殊遊戲結束後重試退出...`)
-                await checkOsm()
-              } else {
-                emit(`OSMWatcher 狀態正常（${osmCurrent ?? '未連線'}），3s 後重試退出...`)
-                await sleep(3000)
-              }
-            }
-
-            if (r5!.status === 'fail') {
-              const hasSpecialGameStep = stepResults.some(s => s.step === '特殊遊戲等待')
-              const osmCurrent = this.osmStatus.get(machineCode) ?? -1
-              const osmInBonus = BONUS_STATUSES.has(osmCurrent) || osmCurrent === 9
-              const gameKeywords = /game[_\s]|bonus|jackpot|special|grand|major|minor|mini|free.?spin/i
-              const consoleLogs_snapshot = consoleLogs.join('\n')
-              const hasGameLog = gameKeywords.test(consoleLogs_snapshot) || gameKeywords.test(r5!.message)
-              const hasErrcode10002 = r5!.message.includes('errcode 10002')
-              if (hasSpecialGameStep || osmInBonus || hasGameLog || hasErrcode10002) {
-                const reason = hasErrcode10002 ? 'leaveGMNtc errcode 10002（遊戲正在運行中）'
-                  : hasSpecialGameStep ? '特殊遊戲等待步驟'
-                  : osmInBonus ? 'OSM 狀態碼異常'
-                  : '日誌含 game 關鍵字'
-                emit(`⚠️ 退出失敗原因分析：偵測到特殊遊戲狀態（${reason}），降級為 WARN`)
-                r5 = { ...r5!, status: 'warn', message: `退出失敗（疑似卡在特殊遊戲/Bonus 中，請人工確認）— 原始: ${r5!.message}` }
-              }
-            }
-            stepResults.push(r5!)
-            this.log(`${workerTag} [${r5!.status.toUpperCase()}] 退出: ${r5!.message}`, machineCode)
+            const r5 = await exitUntilLobby()
+            stepResults.push(r5)
+            this.log(`${workerTag} [${r5.status.toUpperCase()}] 退出: ${r5.message}`, machineCode)
           }
         }
       }
     } catch (e) {
-      emit(`測試例外: ${e}`)
-      stepResults.push({ step: '測試流程', status: 'fail', message: String(e), durationMs: 0 })
+      if (this.stopped) {
+        emit(`測試已被中止（${String(e).slice(0, 80)}）`)
+        stepResults.push({ step: '測試流程', status: 'fail', message: '使用者中止：瀏覽器已關閉，未確認已離機（位子可能仍被佔用，請到大廳確認）', durationMs: 0 })
+      } else {
+        emit(`測試例外: ${e}`)
+        stepResults.push({ step: '測試流程', status: 'fail', message: String(e), durationMs: 0 })
+      }
     } finally {
-      await ctx.close()
+      await ctx.close().catch(() => { /* browser already closed by stop() */ })
     }
 
     const overall: StepStatus =
@@ -3333,7 +4136,7 @@ export class MachineTestRunner extends EventEmitter {
       : stepResults.some(r => r.status === 'warn') ? 'warn'
       : 'pass'
 
-    const result: MachineResult = { machineCode, overall, steps: stepResults, consoleLogs, startedAt, finishedAt: new Date().toISOString() }
+    const result: MachineResult = { machineCode, overall, steps: stepResults, consoleLogs, startedAt, finishedAt: new Date().toISOString(), sessionId: this.sessionPrefix.replace(/-$/, '') || undefined }
     this.send({ type: 'machine_done', machineCode, status: overall, message: `${workerTag} ${machineCode} 測試完成：${overall.toUpperCase()}`, result, ts: new Date().toISOString() })
   }
 
@@ -3344,6 +4147,10 @@ export class MachineTestRunner extends EventEmitter {
       const machineCode = queue.next()
       if (!machineCode) break
       await this.runMachine(browser, machineCode, lobbyUrl, workerId, steps, aiAudio)
+      if (this._haltReason) {
+        this.send({ type: 'error', message: `🛑 ${this._haltReason}——本批次後面的機台不再測試`, ts: new Date().toISOString() })
+        break
+      }
       if (!this.stopped) await sleep(800)
     }
     this.log(`[Worker-${workerId}] 完成，離開`)
@@ -3407,6 +4214,7 @@ export class MachineTestRunner extends EventEmitter {
         this.log('👀 Headed 模式已啟用：瀏覽器視窗將顯示在螢幕上')
       }
       browser = await chromium.launch({ headless: false, args: launchArgs })
+      this.browser = browser
 
       const queue = new MachineQueue(session.machineCodes)
       const workerPromises = session.lobbyUrls.map((url, i) =>

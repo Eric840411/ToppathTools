@@ -52,14 +52,51 @@
 → [checkOsm] 推流檢測（video/canvas）
 → [checkOsm] Spin 測試（3 次點擊，比對餘額變化）
 → [checkOsm] 音頻檢測（5s VB-Cable 錄音 + dB 分析 + 可選 AI）
-→ [checkOsm] iDeck 測試（XPath 按鈕點擊 + daily-analysis API 確認）
-→ [checkOsm] 觸屏測試（span 文字點位 + daily-analysis API 確認）
+→ [checkOsm] iDeck 測試（XPath 或自動偵測按鈕點擊 + daily-analysis API 確認；API 查不到機台 → SKIP 未驗）
+→ [checkOsm] 觸屏測試（span 文字點位 + daily-analysis API 確認；API 查不到機台 → SKIP 未驗）
 → [checkOsm] CCTV 號碼比對（截圖 + Gemini Vision OCR）
 → [checkOsm] 退出測試（btn_cashout → leaveGMNtc，errcode=10002 時自動重試最多 3 次）
 ```
 > `[checkOsm]`：每步驟前檢查 OSMWatcher 狀態，若偵測到特殊遊戲（FG/JP/Handpay），執行指定 bonusAction 一次後持續 Spin 直到 status=0。
 
 **Spin 測試面額選擇遮罩處理（2026-07-31 修復）**：`.select-main` 面額選擇遮罩蓋住 Spin 按鈕時點擊不會拋 Playwright 的「intercepts pointer events」例外——遊戲只是完全收不到 Spin 動作，`stepSpin()` 原本只在例外處理（catch）裡才 force click 的邏輯完全不會被觸發，會固定卡滿 8 秒判定逾時、餘額沒變化。跟 AutoSpin.py 早就修過的同一個問題（見上方 AutoSpin 章節「選面額遮罩攔截 Spin 點擊」），但 Machine Test 這邊當時沒有同步移植。修法：把 `stepIdeck()` 裡原本局部（closure）的關閉遮罩邏輯抽成模組層級共用函式 `dismissDenomOverlay(page, emit, source)`，`stepSpin()` 每次點擊 Spin 按鈕前都先呼叫一次主動關閉遮罩，不再只依賴例外處理；`stepIdeck()` 呼叫點同步改用共用版本。
+
+### iDeck／觸屏判定與 iDeck 自動偵測（2026-09-24）
+
+> ⚠️ 以下三項目前只改在本機 agent `C:\machine-test-agent-claude` 的 `server/machine-test/runner.ts`，**尚未同步進本 repo**；同步時請一併參照這段。
+
+**1. 日誌 API 查不到機台 → 判 SKIP（未驗），不判 FAIL**
+- iDeck／觸屏都是點完後查 `daily-analysis` timeline 裡新增的 `success_json`（`is_ideck`／`is_touch`）來確認。
+- 原本 API 回錯時（`success:false`、HTTP 錯誤、例外）會被當成「0 筆回應」判 **FAIL**。實測 UAT `4186-SQUIDGAME-0312`：prod／qat 的 daily-analysis 都回 `CMDB未找到机器 4186-SQUIDGAME-0312 的IP`，連同一輪確定成功的 Spin 都查不到，這時的 FAIL 沒有任何證據。
+- 改成：API 查不到 → `status: 'skip'`，訊息開頭 `未驗：機台 log API 查不到 <gmid>（<原因>）`。觸屏的前端觀察（`onTouchScreen` 收下幾次、`dealGMActionReq` 送出幾次）照樣附在訊息裡。
+- 批次工具（`machine-test-batch.mjs` 的 `judge()`）把 skip 當「未驗」，QA 確認狀態（J 欄）不填。
+- 要真正驗到盒子端，該渠道的機台必須先在 CMDB 登記（4186 渠道目前沒有）。
+
+**2. iDeck 自動偵測改抓 `btn_bet` ＋ `btn_play`**
+- 觸發條件：機種設定檔沒有 `ideckXpaths` 也沒有 `ideckRowClass`。
+- 原本只抓 `[class*="btn_bet"]` 的可見元素。SQUIDGAME 的 iDeck 有兩排：
+  - `btn_bet` ×4：面額 ₱1／₱2／₱5／₱10
+  - `btn_play` ×6：注額 30／60／90／150／300／450 Credits
+  
+  只抓 `btn_bet` 會漏掉整排 `btn_play`，只點到 4 顆。現在兩種都抓，照畫面（DOM）順序點，SQUIDGAME 10 顆都點得到（使用者確認總數是 10）。
+- ⚠️ `btn_play` 會**真的下注、扣餘額**。其他機種只要畫面上有 `btn_play`，iDeck 步驟也會點到。
+- 回查用的 XPath 索引改成「所有候選元素中的位置（含隱藏的）」。原本用「可見元素的序號」，前面只要有隱藏的按鈕就會點錯顆。
+- 對照紀錄改成：`🔍 iDeck 自動偵測對照：btn_bet＋btn_play 可見 N 顆`。
+
+**3. 新增 iDeck 結構診斷紀錄（只讀不點）**
+- 每次 iDeck 步驟都會多印一行 `🔍 iDeck DOM：…`，內容包含：
+  - 每顆候選按鈕的類型（B＝btn_bet、P＝btn_play）
+  - 狀態：V＝可見、OFF＝在畫面外、H＝隱藏
+  - 座標與文字
+  - 所在容器內各 class 的可見數／總數
+- 用途：之後遇到「點到的顆數跟實際不符」可以直接從 log 判斷原因，不用再進遊戲量一次。
+- 實作注意：tsx（esbuild keepNames）會把 `page.evaluate` 內部的箭頭函式包上 `__name()`，瀏覽器端沒有這個 helper。所以要先執行 `evaluate('window.__name = window.__name || (fn => fn)')` 補上。
+
+**SQUIDGAME 設定檔**：原本的 `ideckXpaths` 有兩個問題，已清空改走自動偵測：
+- 10 條裡第 7 條開頭多了一個字母 `b`，寫成 `b//div…`
+- `[n]` 位置寫法在按鈕分散在不同容器時抓不到，實際只命中 3 條
+
+另外中控上還有一份內容相同的 `SQUID GAME`（有空格）設定檔，機台代碼解析用不到它，未處理。
 
 ### 機種設定檔欄位
 | 欄位 | 說明 |
@@ -72,7 +109,7 @@
 | `balanceSelector` | 自訂餘額元素 CSS selector |
 | `exitSelector` | 自訂退出按鈕 CSS selector |
 | `ideckRowClass` | iDeck 按鈕所在 row 的 class（如 row4）|
-| `ideckXpaths` | iDeck 按鈕 XPath 列表（優先於 ideckRowClass）|
+| `ideckXpaths` | iDeck 按鈕 XPath 列表（優先於 ideckRowClass；兩者都沒設 → 自動偵測可見的 `btn_bet`＋`btn_play`）|
 | `entryTouchPoints` | 進入機台第一階段觸屏（選擇面額等）|
 | `entryTouchPoints2` | 進入機台第二階段觸屏（YES/NO 確認）|
 | `gmid` | gameid URL 參數，用於設定檔 fallback 比對 |
