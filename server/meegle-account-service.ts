@@ -12,6 +12,9 @@
  *    所以「換 token 途中另一個分頁解除」→ 舊請求回來寫不進去，憑證不會復活。
  * 3. **暫時性錯誤（連不上、逾時、看不懂）只記錄這次嘗試，不寫 status 欄**——
  *    不能拿讀取當下的舊狀態寫回去，那會蓋掉另一個請求剛寫的「已失效」。
+ * 4. **較舊的驗證不能蓋掉較新的驗證**（CodeX review 495a0e0）：兩次重新驗證共用同一個 rev，
+ *    A 在 token 重置前驗證成功但回應延遲、B 在重置後先回「被拒」→ A 回來會把狀態改回有效。
+ *    所以每次重新驗證開始時拿一個遞增序號（check_seq），寫入時必須比已寫入的（applied_seq）新。
  */
 import { randomUUID } from 'crypto'
 import type Database from 'better-sqlite3'
@@ -30,6 +33,8 @@ export function initMeegleSchema(db: DB) {
       meegle_name       TEXT NOT NULL DEFAULT '',
       status            TEXT NOT NULL,      -- valid | invalid
       rev               TEXT,               -- 這筆綁定的修訂號（隨機 UUID）
+      check_seq         INTEGER NOT NULL DEFAULT 0,  -- 重新驗證開始時 +1，每個請求拿到自己的序號
+      applied_seq       INTEGER NOT NULL DEFAULT 0,  -- 已寫入的最新驗證序號；較舊的結果不能蓋較新的
       bound_at          INTEGER NOT NULL,
       last_verified_at  INTEGER,            -- 最後一次「驗證成功」
       last_checked_at   INTEGER,            -- 最後一次「嘗試驗證」（含失敗）
@@ -53,6 +58,8 @@ export function initMeegleSchema(db: DB) {
   // v4.262.0 的表用遞增 token_version，改成 rev（CodeX [P2]：版本號會在解除後重用）
   const cols = (db.prepare('PRAGMA table_info(meegle_accounts)').all() as { name: string }[]).map(c => c.name)
   if (!cols.includes('rev')) db.exec('ALTER TABLE meegle_accounts ADD COLUMN rev TEXT')
+  if (!cols.includes('check_seq')) db.exec('ALTER TABLE meegle_accounts ADD COLUMN check_seq INTEGER NOT NULL DEFAULT 0')
+  if (!cols.includes('applied_seq')) db.exec('ALTER TABLE meegle_accounts ADD COLUMN applied_seq INTEGER NOT NULL DEFAULT 0')
   if (cols.includes('token_version')) db.exec('ALTER TABLE meegle_accounts DROP COLUMN token_version')
   for (const r of db.prepare('SELECT email FROM meegle_accounts WHERE rev IS NULL').all() as { email: string }[]) {
     const rev = randomUUID()
@@ -63,7 +70,7 @@ export function initMeegleSchema(db: DB) {
 
 export type AccountRow = {
   email: string; token_enc: string; meegle_user_key: string; meegle_email: string; meegle_name: string
-  status: BindingStatus; rev: string; bound_at: number
+  status: BindingStatus; rev: string; check_seq: number; applied_seq: number; bound_at: number
   last_verified_at: number | null; last_checked_at: number | null; last_check_code: string | null; last_check_reason: string | null
 }
 
@@ -137,8 +144,16 @@ export type VerifyDeps = {
  */
 export async function verifyAccount(db: DB, loginEmail: string, deps: VerifyDeps): Promise<{ ok: true; row: AccountRow | undefined } | ServiceFail> {
   const email = normEmail(loginEmail)
-  const row = getAccountRow(db, email)
-  if (!row) return { ok: false, code: 'NOT_BOUND', message: '尚未綁定 Meegle' }
+  // 讀綁定＋拿序號放同一個 transaction：序號一定屬於讀到的那一版綁定
+  const start = db.transaction(() => {
+    const r = getAccountRow(db, email)
+    if (!r) return null
+    db.prepare('UPDATE meegle_accounts SET check_seq = check_seq + 1 WHERE email = ? AND rev = ?').run(email, r.rev)
+    const seq = (db.prepare('SELECT check_seq FROM meegle_accounts WHERE email = ?').get(email) as { check_seq: number }).check_seq
+    return { row: r, seq }
+  })()
+  if (!start) return { ok: false, code: 'NOT_BOUND', message: '尚未綁定 Meegle' }
+  const { row, seq: mySeq } = start
   const revAtStart = row.rev
 
   let status: BindingStatus | null   // null ＝ 這次結果不足以改狀態
@@ -165,16 +180,19 @@ export async function verifyAccount(db: DB, loginEmail: string, deps: VerifyDeps
 
   const now = (deps.now ?? Date.now)()
   // WHERE rev = ?：等待期間綁定被換掉或解除（rev 變了／列不見了），這次的結果屬於舊綁定，不寫
+  // AND applied_seq < ?：比這次晚開始的驗證已經寫過結果了，這次的較舊，不能蓋掉它
   if (status !== null) {
     db.prepare(`
       UPDATE meegle_accounts SET status = ?, last_checked_at = ?, last_check_code = ?, last_check_reason = ?,
-        last_verified_at = CASE WHEN ? IS NULL THEN ? ELSE last_verified_at END
-      WHERE email = ? AND rev = ?
-    `).run(status, now, code, reason, code, now, email, revAtStart)
+        last_verified_at = CASE WHEN ? IS NULL THEN ? ELSE last_verified_at END, applied_seq = ?
+      WHERE email = ? AND rev = ? AND applied_seq < ?
+    `).run(status, now, code, reason, code, now, mySeq, email, revAtStart, mySeq)
   } else {
-    // 已經是失效的綁定不寫暫時性錯誤：不然「已失效」的原因會被換成「驗證逾時」，看不出為什麼失效
-    db.prepare(`UPDATE meegle_accounts SET last_checked_at = ?, last_check_code = ?, last_check_reason = ? WHERE email = ? AND rev = ? AND status = 'valid'`)
-      .run(now, code, reason, email, revAtStart)
+    // 暫時性錯誤不推進 applied_seq（它不是狀態結果），但一樣不能蓋掉較新的結果。
+    // 已經是失效的綁定也不寫：不然「已失效」的原因會被換成「驗證逾時」，看不出為什麼失效
+    db.prepare(`UPDATE meegle_accounts SET last_checked_at = ?, last_check_code = ?, last_check_reason = ?
+      WHERE email = ? AND rev = ? AND status = 'valid' AND applied_seq < ?`)
+      .run(now, code, reason, email, revAtStart, mySeq)
   }
   return { ok: true, row: getAccountRow(db, email) }
 }

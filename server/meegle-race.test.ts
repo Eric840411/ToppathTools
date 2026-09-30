@@ -97,6 +97,47 @@ const freshDb = () => { const db = new Database(':memory:'); initMeegleSchema(db
   eq('③ 失效原因不能被「逾時」蓋掉', row.last_check_code, 'TOKEN_INVALID')
 }
 
+// ── ④ 較舊的成功不能蓋掉較新的失效（CodeX review 495a0e0 重現的案例）──
+{
+  const db = freshDb()
+  await bindAccount(db, EMAIL, 'token-A', { ...instant(ok()), encrypt: enc })
+  const g = gatedVerifier()
+  const vA = verifyAccount(db, EMAIL, { verify: g.verify, decrypt: dec })   // A：token 重置前開始
+  await tick()
+  const vB = verifyAccount(db, EMAIL, { verify: g.verify, decrypt: dec })   // B：重置後開始
+  await tick()
+  g.release(1, invalid); await vB                                            // B 先回：被拒
+  g.release(0, ok());    await vA                                            // A 延遲回來：成功
+  const row = getAccountRow(db, EMAIL)!
+  eq('④ 較舊的成功不能把失效改回有效', row.status, 'invalid')
+  eq('④ 失效原因不能被清掉', row.last_check_code, 'TOKEN_INVALID')
+}
+{
+  const db = freshDb()
+  await bindAccount(db, EMAIL, 'token-A', { ...instant(ok()), encrypt: enc })
+  const g = gatedVerifier()
+  const vA = verifyAccount(db, EMAIL, { verify: g.verify, decrypt: dec })
+  await tick()
+  const vB = verifyAccount(db, EMAIL, { verify: g.verify, decrypt: dec })
+  await tick()
+  g.release(0, ok());    await vA                                            // 照順序回來
+  g.release(1, invalid); await vB
+  eq('④b 照順序回來時，較新的「被拒」照常生效', getAccountRow(db, EMAIL)!.status, 'invalid')
+}
+{
+  const db = freshDb()
+  await bindAccount(db, EMAIL, 'token-A', { ...instant(ok()), encrypt: enc })
+  const g = gatedVerifier()
+  const vA = verifyAccount(db, EMAIL, { verify: g.verify, decrypt: dec })
+  await tick()
+  const vB = verifyAccount(db, EMAIL, { verify: g.verify, decrypt: dec })
+  await tick()
+  g.release(1, ok());          await vB                                      // 較新的：成功
+  g.release(0, unavailable);   await vA                                      // 較舊的：連不上
+  const row = getAccountRow(db, EMAIL)!
+  eq('④c 較舊的暫時錯誤不能蓋掉較新的成功紀錄', [row.status, row.last_check_code], ['valid', null])
+}
+
 // ── 基本行為（確認重構沒有弄壞）──
 {
   const db = freshDb()

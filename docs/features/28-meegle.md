@@ -36,6 +36,9 @@
   - **暫時性錯誤只記錄這次嘗試、不寫 status**，而且綁定已經失效時連錯誤碼也不寫——原本拿讀取當下的舊狀態寫回，
     會把另一個請求剛寫的「已失效」蓋回 valid
   - 重新驗證只在 rev 沒變時寫結果
+  - **較舊的驗證不能蓋掉較新的**（v4.262.2，CodeX review `495a0e0`）：兩次重新驗證共用同一個 rev——A 在 token 重置前驗證成功但回應延遲、
+    B 重置後先回「被拒」，A 回來會把狀態改回有效並清掉原因。每次重新驗證開始時拿遞增序號 `check_seq`，
+    寫入條件 `applied_seq < 自己的序號`；暫時錯誤不推進 `applied_seq`，但一樣不能蓋較新的紀錄
 - **資料表**：`meegle_accounts`（email 為鍵，存密文、Meegle 身分、狀態、`rev`、最後成功驗證／最後嘗試時間與錯誤）、`meegle_account_revs`、`meegle_identity_overrides`。
   啟動時自動把 v4.262.0 的表遷移成 `rev`（`ALTER ADD rev`、`DROP COLUMN token_version`、既有列補 rev）
 
@@ -56,8 +59,9 @@
 ### 驗證
 - `npx tsx server/meegle.test.ts`：36 條（分類、身分判斷、加密、空 token、**真 CLI**：假 token 被拒且沒有沿用主機登入、斷網判成 UNAVAILABLE、執行檔不存在）
 - 突變三個都紅在對應那幾條：token 沒帶進子程序／連不上判成失效／拿掉空 token 檢查
-- `npx tsx server/meegle-race.test.ts`：19 條，記憶體 DB＋手動放行的假驗證控制回應順序，重現 CodeX 的三個競態＋舊表遷移。
-  突變四個都紅在對應那幾條：驗證不檢查 rev（①）、綁定不檢查 rev（②②b）、解除不換 rev（②）、暫時錯誤拿舊狀態寫回（③）
+- `npx tsx server/meegle-race.test.ts`：23 條，記憶體 DB＋手動放行的假驗證控制回應順序，重現 CodeX 抓的四個競態＋舊表遷移。
+  突變六個都紅在對應那幾條：驗證不檢查 rev（①）、綁定不檢查 rev（②②b）、解除不換 rev（②）、暫時錯誤拿舊狀態寫回（③）、
+  狀態寫入不看序號（④）、暫時錯誤寫入不看序號（④c）
 - ⚠️ 教訓：36 條測試全綠，但**一條都沒有測到路由層的競態**——單元測試只驗「每一步對不對」，驗不到「兩個請求交錯時對不對」
 - 打本機真 server：未登入 401、假 token 400、未綁定驗證 404、非管理員打對照 403、表單式 POST 被擋、綁定失敗舊綁定不動（`token_version` 不變）、已存 token 失效後重新驗證變 invalid 且最後成功時間保留、解不開標 `DECRYPT_FAILED`、DB 只有密文、log 裡搜不到 token
 - ⚠️ **還沒驗的**：**真的 `X-Mcp-Token` 綁定成功**這條（需要使用者本人的 token），以及 CodeX 要求的首輪四情境（本人／他人／重置後／斷網）要用真 token 跑
