@@ -28,8 +28,16 @@
   ⚠️ 換金鑰＝所有綁定解不開，重新驗證會標成失效（`DECRYPT_FAILED`）並提示重綁
 - **錯誤分類**：`TOKEN_INVALID`（伺服器明確拒絕）／`IDENTITY_MISMATCH`／`ALREADY_BOUND_ELSEWHERE`／`UNAVAILABLE`（連不上、逾時）／`KEY_NOT_CONFIGURED`／`CLI_MISSING`。
   只有 `TOKEN_INVALID` 和「身分變了」會把綁定標成失效
-- **併發**：每次換 token `token_version` +1；重新驗證的結果只在版本沒變時才寫回——驗證途中換了 token，舊結果寫不進新 token
-- **資料表**：`meegle_accounts`（email 為鍵，存密文、Meegle 身分、狀態、最後成功驗證／最後嘗試時間與錯誤）、`meegle_identity_overrides`
+- **併發**（v4.262.1，CodeX review `ff1fb71` 抓到三個 [P2]，流程抽到 `server/meegle-account-service.ts` 才測得到）：
+  - **修訂號用隨機 UUID（`rev`），每次綁定或解除都換新**，而且解除後仍留在 `meegle_account_revs`。v4.262.0 用遞增的 `token_version`，
+    「解除再重綁」會從 1 重來，舊驗證結果剛好對得上，就把新綁定標失效
+  - **綁定在等 CLI 前先記下 rev、提交時必須沒變**，否則回 `CONFLICT`（409）不寫入。解除也會換 rev——「換 token 途中另一個分頁解除」
+    舊請求回來寫不進去，**憑證不會復活**
+  - **暫時性錯誤只記錄這次嘗試、不寫 status**，而且綁定已經失效時連錯誤碼也不寫——原本拿讀取當下的舊狀態寫回，
+    會把另一個請求剛寫的「已失效」蓋回 valid
+  - 重新驗證只在 rev 沒變時寫結果
+- **資料表**：`meegle_accounts`（email 為鍵，存密文、Meegle 身分、狀態、`rev`、最後成功驗證／最後嘗試時間與錯誤）、`meegle_account_revs`、`meegle_identity_overrides`。
+  啟動時自動把 v4.262.0 的表遷移成 `rev`（`ALTER ADD rev`、`DROP COLUMN token_version`、既有列補 rev）
 
 ### ⚠️ 踩坑（2026-09-30 實測，都有測試守著）
 1. **沒帶 token 時，CLI 會自己沿用主機上的登入。**CLI 會去作業系統憑證庫（Windows 憑證管理員／macOS keychain）找 `meegle auth login` 留下的登入——
@@ -48,6 +56,9 @@
 ### 驗證
 - `npx tsx server/meegle.test.ts`：36 條（分類、身分判斷、加密、空 token、**真 CLI**：假 token 被拒且沒有沿用主機登入、斷網判成 UNAVAILABLE、執行檔不存在）
 - 突變三個都紅在對應那幾條：token 沒帶進子程序／連不上判成失效／拿掉空 token 檢查
+- `npx tsx server/meegle-race.test.ts`：19 條，記憶體 DB＋手動放行的假驗證控制回應順序，重現 CodeX 的三個競態＋舊表遷移。
+  突變四個都紅在對應那幾條：驗證不檢查 rev（①）、綁定不檢查 rev（②②b）、解除不換 rev（②）、暫時錯誤拿舊狀態寫回（③）
+- ⚠️ 教訓：36 條測試全綠，但**一條都沒有測到路由層的競態**——單元測試只驗「每一步對不對」，驗不到「兩個請求交錯時對不對」
 - 打本機真 server：未登入 401、假 token 400、未綁定驗證 404、非管理員打對照 403、表單式 POST 被擋、綁定失敗舊綁定不動（`token_version` 不變）、已存 token 失效後重新驗證變 invalid 且最後成功時間保留、解不開標 `DECRYPT_FAILED`、DB 只有密文、log 裡搜不到 token
 - ⚠️ **還沒驗的**：**真的 `X-Mcp-Token` 綁定成功**這條（需要使用者本人的 token），以及 CodeX 要求的首輪四情境（本人／他人／重置後／斷網）要用真 token 跑
 

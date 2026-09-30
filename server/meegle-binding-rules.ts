@@ -63,6 +63,7 @@ export function httpStatusFor(code: string): number {
     case 'TOKEN_INVALID': return 400
     case 'IDENTITY_MISMATCH': return 403
     case 'ALREADY_BOUND_ELSEWHERE': return 409
+    case 'CONFLICT': return 409
     case 'NOT_BOUND': return 404
     case 'KEY_NOT_CONFIGURED': return 503
     case 'CLI_MISSING': return 503
