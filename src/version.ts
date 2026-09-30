@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.259.4'
+export const APP_VERSION = '4.259.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.259.5', date: '2026-09-30', changes: ['docs(Jira)：**更正 4.259.4 的說法**——那版寫「批量更新狀態會把 P5MA 抓成 `MA-xxxx` 拿錯的單去流轉」，**是錯的**。會截成 `MA-` 的是後端 `update-read-bitable`，但它自 2026-06-24 起就沒有任何畫面呼叫（批量更新狀態早已改走前端讀取），是死碼', 'docs(Jira)：實際影響是**批量評論、批量修改、批量更新狀態三個分頁共用同一個前端擷取函式**，症狀都是漏抓 P5MA、不會抓錯；4.259.4 的修正三個一起修好（同一份 Sheet 58 → 69 張）', 'docs(Jira)：錯在驗那支端點之前沒先查它還有沒有人呼叫。`docs/features/01-jira.md` 同步改正'] },
   { version: '4.259.4', date: '2026-09-30', changes: ['fix(Jira)：**批量評論讀不到 `P5MA-xxxx` 這類單號**（使用者回報「127 列之後查不到」）。不是列數上限，是單號規則寫成 `[A-Z]{2,}[0-9]*-\\d+`——開頭要連續兩個字母，第二碼是數字的專案代號整批被當成不是單號，而且畫面沒有任何提示。實測那份 Sheet 136 列只抓到 58 張、P5MA 全漏', 'fix(Jira)：**批量更新狀態讀 Sheet 更糟——不是漏掉，是抓錯**：在文字任意位置找單號的那幾處會把 `P5MA-9570` 截成 `MA-9570`。同一份 Sheet 實測 **22 張全部被抓成 `MA-xxxx`**，會拿錯的單號去流轉', 'refactor(Jira)：前端 2 處、後端 6 處原本各寫一份（所以才會一起錯），抽成 `shared/jira-key.ts` 共用；格式改成字母開頭＋大寫字母／數字／底線（Jira Data Center 文件列的可設定格式）', 'fix(Jira)：放寬之後「任意位置搜尋」加開頭邊界（前面緊貼字母／數字／底線／連字號不算）——真 Sheet 的 URL 欄讀回公式原文 `REGEXEXTRACT(Q2, "[A-Z0-9]+-[0-9]+")`，沒有邊界會挖出 `Z0-9`。結尾刻意不設邊界：真資料有 `CGFB-1Free Bet 製作主單` 這種連結文字黏標題的格式', 'note(Jira)：各路徑保留原本的擷取位置（開頭／browse 網址／任意位置），不順手改成全文搜尋（CodeX review）——`H5-1` 符合格式，在任意位置搜尋的路徑會被當成單號，這是 regex 判斷不了的已知限制', 'test(Jira)：`shared/jira-key.test.ts` 27 條；突變——換回舊規則 8 條紅、拿掉開頭邊界 2 條紅。真 Sheet 打真 route 前後對照：批量更新狀態 115 → 115（只差 22 張 `MA-` → `P5MA-`，其餘完全相同）；批量評論 58 → 69（多 11 張 P5MA，沒有任何一張消失）', 'docs(Jira)：⚠️ **這次只修代號辨識，不是漏單全部解決**——同一份 Sheet 還有 48 列是 `[]:[CGFB-2]…` 這種單號寫在文字中間、沒有超連結的格式（第 57～93、116～126 列），批量評論仍然抓不到，另案處理'] },
   { version: '4.259.3', date: '2026-09-24', changes: ['fix(UI 截圖)：**座位不明就不解鎖**（CodeX [P1]）——上一版只發警告就放行，下一輪照樣派得出去然後撞上沒放掉的座位。現在把 agent 鎖著、記進 DB（重連也維持），網頁執行日誌上方出現「我已確認座位釋放，解除 agent 鎖定」按鈕（`POST /run/:runId/release-agent`）', 'fix(UI 截圖)：**收尾回報送不出去不能印成功**（CodeX [P2]）——原本五次全失敗後照樣印「已回報釋放」，那行字就不能當驗收證據。現在分「送達／解鎖／被鎖住」三件事印，送不出去就繼續掛著、背景每 30 秒重送', 'test(UI 截圖)：agent 釋放測試 13 → 23 條，補「座位不明不能重跑」「重連仍維持 hold」「`/upload` 完成路徑」；彈窗測試加 ⑮ 回報全失敗'] },
   { version: '4.259.2', date: '2026-09-24', changes: ['fix(UI 截圖)：**agent 收尾完才釋放**（CodeX 要求這次一起修）。原本 run 完成／按停止的當下就把 agent 標成空閒，但 agent 之後還要退出機台——這時馬上開下一個 run，前一輪的退出會跟下一輪搶同一個帳號的座位', 'fix(UI 截圖)：「結果完成」與「agent 收尾完成」分開：agent 全部收尾完才送 `POST /run/:runId/agent-done`，伺服器**只在 runId 對得上目前那一輪時才解鎖**——舊 run 延遲或重複的回報解不了新 run 的鎖', 'fix(UI 截圖)：斷線重連時 agent 會回報自己還在收尾（`agent_ready.uiScreenshotActive`），伺服器維持忙碌；收尾後仍無法確認已離座會發警告到網頁日誌', 'test(UI 截圖)：`ui-screenshot-agent-release.mjs` 用假 agent 打真 server，13 條：完成／停止後立即重跑被擋、收尾後放行、舊回報不解鎖、重連維持忙碌。突變三個都紅在對應那幾條', '⚠️ **還沒驗**：真 agent 跑完有沒有真的送出收尾回報（測試帳號有人在用沒跑）；第一次真跑要確認之後能馬上開下一個 run'] },
