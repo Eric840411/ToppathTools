@@ -63,7 +63,7 @@
 
 ### iDeck／觸屏判定與 iDeck 自動偵測（2026-09-24）
 
-> ⚠️ 以下三項目前只改在本機 agent `C:\machine-test-agent-claude` 的 `server/machine-test/runner.ts`，**尚未同步進本 repo**；同步時請一併參照這段。
+> 以下三項原本只改在本機 agent `C:\machine-test-agent-claude`，已於 v4.260.0（2026-09-29）同步進本 repo。
 
 **1. 日誌 API 查不到機台 → 判 SKIP（未驗），不判 FAIL**
 - iDeck／觸屏都是點完後查 `daily-analysis` timeline 裡新增的 `success_json`（`is_ideck`／`is_touch`）來確認。
@@ -97,6 +97,34 @@
 - `[n]` 位置寫法在按鈕分散在不同容器時抓不到，實際只命中 3 條
 
 另外中控上還有一份內容相同的 `SQUID GAME`（有空格）設定檔，機台代碼解析用不到它，未處理。
+
+### BZZF 整批實戰後的修正（2026-09-30，v4.261.0）
+
+判定規則由使用者（QA）定案、每條都跟 CodeX 對過；流程都抽在 `verdicts.ts` 並有模擬探針。
+
+**1. 不在 OSMWatcher 監控的機台：退出被 feature 擋住時「盲推」**（`runBlindBurst`，探針 `scripts/blind-burst-probe.ts` 12 案例）
+- 原本 tracker 沒有觀測可看，按一下就判「結束」→ 回去試退出 → 約 35 秒才推一下，feature 推不完，期間 agent 斷線整批停擺（BZZF 0254／0243）。
+- 改成連續按 SPIN 60 秒（每 5 秒）再試退出。整台上限：96 下／淨扣款 100,000（每下之前先確認剩餘額度夠再付一把，餘額讀不到就停）／20 分鐘；Handpay、停止也停。**任一觸發都停整批、不換台**。
+- 定位是**有條件的暫解**：扣款上限成立的前提是單把 ≤ 10,000 且讀到的餘額已反映上一把；算的是淨扣款（中途派彩會抵掉）。
+
+**2. Spin 前的選面額選單閘門**（`runMenuGate`＋runner `spinMenuGate`，探針 `scripts/menu-gate-probe.ts` 10 案例）
+- BZZF 停在機台的 CHOOSE A DENOMINATION 時按 SPIN 本來就無效（使用者確認），原本會被誤判成 spin no response。
+- 用 `touch-refs/<機種>.png` 參考圖判斷選單是否開著 → 前端選面額、等 10 秒（使用者：約 5 秒內會自己關）→ 還開著就點 18,9 與設定檔觸屏點位（各等 8 秒）→ 都沒關＝觸屏 no response，Spin 不按（skip）。
+- 每次判斷都要看到推流 currentTime 前進（停格不算）；操作途中判斷不了 → 整個閘門改判「選單狀態未知」，不判觸屏，照原流程按 SPIN 並在 Spin 結果附註記。
+- Spin 期間另外聽 console 的 `moneyNtc begin`，結果附「開局訊號 moneyNtc begin N 次」；批次工具要「餘額沒變＋begin 0 次＋沒有選單未知註記」才判 spin no response。
+
+**3. 會擋操作／汙染截圖的彈窗**
+- 預約面板「Want to reserve this machine?」（退出被擋時 Exit 會留下）→ `closeReservePanel()` 點 X `.btn-close`，**絕不點 Reserve Now**。
+- 全站 JACKPOT 廣播卡（前端元件 `JackpotNotification`）→ `closeJackpotNotification()` 點 X `.notification-close`，**絕不點 View**（`.view` 會 emit `watchMachine` 跳去中獎那台）；掛在每張截圖前（推流／iDeck／觸屏／CCTV／Preview）。
+- 兩者都掛在 `dismissGameTips()` 開頭。
+
+以上都**未在實機觸發過上限／彈窗**（盲推本身有 0259 實測推完退出、閘門有 0266 實測放行後正常開局）。
+
+**4. 重任務鎖綁 session（給批次工具的斷線自動續跑用）**
+- `/api/machine-test/start` 建立 session 時呼叫 `bindHeavyTaskOwner(token, sessionId)` 寫進 `heavy_tasks.lock_key`；`/api/heavy-tasks/me` 回傳 `lockKey`。
+- 用途：osm-qa-agent 的 `machine-test-batch.mjs` 在 agent 斷線後要清殘留鎖才能續跑，**只有 `lockKey` 等於舊 session 才清**，沒有就停下交人工（不靠時間戳猜）。
+- 只是紀錄：孤兒鎖判定（`autospinLockHasLiveOwner`）只對 `autospin-agent` 生效，機台測試鎖的釋放行為不變。
+- 續跑流程本身在 osm-qa-agent（不在本 repo），狀態是**模擬驗證完成、待實機驗收**；需要中控部署本版才會真的清鎖。
 
 ### 機種設定檔欄位
 | 欄位 | 說明 |

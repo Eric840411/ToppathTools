@@ -17,7 +17,7 @@ import { join, basename } from 'path'
 import { chromium, type Browser, type Page, type ElementHandle } from 'playwright'
 import type { MachineTestSession, MachineResult, StepResult, StepStatus, TestEvent, MachineProfile } from './types.js'
 import { callGeminiVision, callGeminiVisionMulti } from './gemini-agent.js'
-import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, type IdeckResult } from './verdicts.js'
+import { ideckVerdict, streamRoles, runIdeckSequence, runTouchVisualFlow, runBlindBurst, runMenuGate, REF_MATCH, type IdeckResult, type BlindBurstState, type MenuGateResult } from './verdicts.js'
 import pngjs from 'pngjs'
 const { PNG } = pngjs
 
@@ -904,7 +904,52 @@ export async function nativeClick(page: Page, selectors: string[]): Promise<'nat
  * 回傳命中的訊息（呼叫端用它判斷「遊戲是否進行中」），沒有就回 null。
  */
 const GAME_TIP_PATTERNS = [/complete the bonus game/i, /cannot be quit/i]
+/**
+ * 0930 使用者回報（BZZF）：退出被擋時，按過的 Exit（.reserve-btn-gray）會留下「Want to reserve this machine?」預約面板，
+ * 我們只關了 cannot be quit 提示框、沒關這個面板 → 之後的 SPIN 全按在面板上（手動推 0254 時也中過）。
+ * 只點右上角 X（.btn-close；Escape 無效，見 docs/reserve-and-troubleshooting.md）；**絕不點 Reserve Now**（會真的預約 24 小時）。
+ */
+export async function closeReservePanel(page: Page, emit: (msg: string) => void): Promise<boolean> {
+  let open = false
+  try { open = await page.evaluate(() => /Want to reserve this machine|Number of reservations remaining/i.test(document.body?.innerText ?? '')) } catch { return false }
+  if (!open) return false
+  try {
+    const xs = page.locator('.btn-close')
+    const n = await xs.count()
+    for (let i = 0; i < n; i++) {
+      const x = xs.nth(i)
+      if (await x.isVisible()) { await x.click({ timeout: 3000 }); emit('關閉預約面板（點 X，不預約）'); await sleep(500); return true }
+    }
+  } catch { /* 關不掉就讓呼叫端照原流程走 */ }
+  emit('⚠️ 預約面板開著但找不到可見的 X（.btn-close）')
+  return false
+}
+
+/**
+ * 0930 使用者回報：別人中 JACKPOT 的全站廣播卡（前端元件 JackpotNotification，data-v-0bc5eb87）會蓋在機台畫面上，
+ * 推流／CCTV／觸屏／iDeck 截圖都會拍到它（觸屏畫面比對也會被它干擾）。
+ * 只點卡片右上角 X（`.notification-close`，emit clickClose）；**絕不點 `.view`（View）**——那會 emit watchMachine 跳去中獎那台。
+ * 只在同一張卡片裡同時有 `.view` 時才點，避免誤點其他同名 class。
+ */
+export async function closeJackpotNotification(page: Page, emit?: (msg: string) => void): Promise<boolean> {
+  const n = await page.evaluate(() => {
+    let c = 0
+    for (const x of Array.from(document.querySelectorAll('.notification-close'))) {
+      const card = x.closest('.content')
+      if (!card || !card.querySelector('.view')) continue
+      const r = (x as HTMLElement).getBoundingClientRect()
+      if (r.width < 4 || r.height < 4) continue
+      ;(x as HTMLElement).click(); c++
+    }
+    return c
+  }).catch(() => 0)
+  if (n > 0) { emit?.(`關閉全站 JACKPOT 廣播卡 ${n} 張（點 X，不點 View）`); await sleep(600) }
+  return n > 0
+}
+
 export async function dismissGameTips(page: Page, emit: (msg: string) => void): Promise<string | null> {
+  await closeJackpotNotification(page, emit)
+  await closeReservePanel(page, emit)
   let text = ''
   try { text = await page.evaluate(() => document.body?.innerText ?? '') } catch { return null }
   const hit = GAME_TIP_PATTERNS.map(p => text.match(p)?.[0]).find(Boolean)
@@ -1308,6 +1353,7 @@ async function detectOccupied(page: Page, machineCode: string, emit: (msg: strin
     }
     return u ? { x: u.x0, y: u.y0, w: u.x1 - u.x0, h: u.y1 - u.y0 } : null
   }, [tBox ? tBox.y + tBox.height : 0, oBox ? oBox.y : 99999] as [number, number]).catch(() => null)
+  await closeJackpotNotification(page)
   const buf = await page.screenshot({ type: 'png' }).catch(() => null)
   let shot: string | null = null
   if (buf) { try { mkdirSync(STREAM_SAVE_DIR, { recursive: true }); shot = join(STREAM_SAVE_DIR, `occupied-${machineCode}-${Date.now()}.png`); writeFileSync(shot, buf) } catch { shot = null } }
@@ -1583,6 +1629,7 @@ async function stepStream(
     // 「畫面顛倒 / 黑畫面 / 雪花」這類問題就只能用嘴巴講。
     if (machineCode) {
       try {
+        await closeJackpotNotification(page, emit)
         const buf = await page.screenshot({ type: 'png' })
         mkdirSync(STREAM_SAVE_DIR, { recursive: true })
         const filename = `${sessionPrefix}${machineCode}.png`
@@ -1834,7 +1881,28 @@ async function sampleSpinAudio(page: Page, durationMs = 1500): Promise<{ peakDb:
 type SpinAudioData = { peakDb: number; method: string; detail: string; rmsDb?: number; clipRatio?: number; crestFactor?: number; spectralCentroid?: number; baselineRmsDb?: number; wavBase64?: string }
 type SpinAudioRef = { data: SpinAudioData | null }
 
+/**
+ * 0930 CodeX：「沒開局」不能只靠餘額不變（餘額可能延遲更新）。Spin 期間另外聽 console 的 moneyNtc begin（iDeck 用同一個訊號判開局），
+ * 結果訊息尾巴附「開局訊號 moneyNtc begin N 次」；batch 只有「餘額沒變＋begin 0 次」才判 spin no response，
+ * 餘額沒變但有 begin → 當作餘額延遲、Spin 未驗；舊訊息沒有這段 → 維持原判（相容 0930 之前的結果）。
+ */
 async function stepSpin(page: Page, emit: (msg: string) => void, customSpinSel?: string | null, customBalanceSel?: string | null, spinAudioRef?: SpinAudioRef, aiAudio = false): Promise<StepResult> {
+  let begins = 0
+  const onConsole = (m: import('playwright').ConsoleMessage) => {
+    const t = m.text()
+    if (/moneyNtc/.test(t) && /reason['"]?\s*:\s*['"]?begin/.test(t)) begins++
+  }
+  page.on('console', onConsole)
+  try {
+    const r = await stepSpinCore(page, emit, customSpinSel, customBalanceSel, spinAudioRef, aiAudio)
+    await sleep(1500)   // begin 可能比餘額讀取晚一點印出來
+    return { ...r, message: `${r.message}｜開局訊號 moneyNtc begin ${begins} 次` }
+  } finally {
+    page.off('console', onConsole)
+  }
+}
+
+async function stepSpinCore(page: Page, emit: (msg: string) => void, customSpinSel?: string | null, customBalanceSel?: string | null, spinAudioRef?: SpinAudioRef, aiAudio = false): Promise<StepResult> {
   const t0 = Date.now()
   try {
     // Diagnostic: run first, before anything else
@@ -2515,6 +2583,7 @@ async function stepIdeck(
       try {
         mkdirSync(shotDir, { recursive: true })
         const p = join(shotDir, `${sessionPrefix}${machineCode}-${tag}.png`)
+        await closeJackpotNotification(page)
         writeFileSync(p, await page.screenshot({ type: 'png' }))
         return p
       } catch { return null }
@@ -2730,6 +2799,60 @@ async function mainVideoBox(page: Page, machineCode = '') {
   return i >= 0 ? boxes[i] : null
 }
 
+/** 觸屏格子「列,行」→ 可點的元素（span 往外找第一個有尺寸的容器；DRAGONLAW 的 span 是 0x0） */
+async function findTouchTarget(page: Page, point: string): Promise<ElementHandle | null> {
+  for (const frame of page.frames()) {
+    try {
+      const els = await frame.$$(`//span[normalize-space(text())='${point}']`)
+      if (!els.length) continue
+      const h = await els[0].evaluateHandle((e: Element) => {
+        let p: Element | null = e
+        for (let k = 0; p && k < 5; p = p.parentElement, k++) { const r = p.getBoundingClientRect(); if (r.width >= 2 && r.height >= 2) return p }
+        return e
+      })
+      const t = h.asElement()
+      if (t) return t
+    } catch { /* frame detached */ }
+  }
+  return null
+}
+
+/**
+ * Spin 前的選面額選單閘門（0930）：流程在 verdicts.ts runMenuGate，這裡只提供「選單開著嗎／前端選面額／點觸屏」。
+ * 選單開著＝main 推流畫面跟參考圖（touch-refs/<機種>.png 的 refRegion＝CHOOSE A DENOMINATION 橫幅）差異 < REF_MATCH。
+ * 使用者：前端選完面額機台會自己關，約 5 秒內 → 等 10 秒（留一倍餘裕）；還開著就點 18,9 與設定檔的觸屏點位。
+ */
+async function spinMenuGate(page: Page, emit: (msg: string) => void, machineCode: string, profile: MachineProfile | undefined, stop: () => boolean): Promise<MenuGateResult> {
+  const cfg = touchVisualConfig(machineCode)
+  const refPath = join(TOUCH_REFS_DIR, `${machineCode.split('-').slice(1, -1).join('-').toUpperCase()}.png`)
+  if (!cfg?.refRegion || !existsSync(refPath)) return { state: 'unknown', note: '這個機種沒有選單參考圖，照原流程', taps: 0 }
+  const ref = PNG.sync.read(readFileSync(refPath))
+  const points = [...new Set([cfg.point, ...(profile?.touchPoints ?? [])])]
+  // CodeX 0930：推流「有播」不代表畫面是新的——每次判斷都要看到 currentTime 比上次前進，否則算判斷不了（null）
+  let lastTime = -1
+  return runMenuGate({
+    isOpen: async () => {
+      let box = await mainVideoBox(page, machineCode)
+      if (!box || !box.playing) return null
+      if (lastTime >= 0 && box.time <= lastTime) {
+        await sleep(1000)
+        box = await mainVideoBox(page, machineCode)
+        if (!box || !box.playing || box.time <= lastTime) return null
+      }
+      lastTime = box.time
+      await closeJackpotNotification(page, emit)
+      const shot = await page.screenshot({ type: 'png', clip: { x: Math.max(0, box.x), y: Math.max(0, box.y), width: box.width, height: box.height } }).catch(() => null)
+      return shot ? regionDiff(shot, ref, cfg.refRegion!) < REF_MATCH : null
+    },
+    selectFrontDenom: async () => { emit('Spin 前：機台停在選面額選單 → 前端選面額，等機台關選單'); await dismissDenomOverlay(page, emit, 'Spin 前選單閘門') },
+    taps: points.map(p => ({ label: p, tap: async () => { const t = await findTouchTarget(page, p); if (t) { emit(`Spin 前：選單沒關，點觸屏 ${p}`); await t.click({ force: true, timeout: 5000 }).catch(() => {}) } else emit(`Spin 前：找不到觸屏格子 ${p}`) } })),
+    wait: async ms => { await sleep(ms) },
+    stop,
+    loadingMs: 10_000,
+    afterTapMs: 8_000,
+  })
+}
+
 async function stepTouchVisual(page: Page, emit: (msg: string) => void, machineCode: string, cfg: TouchVisualCfg, shouldStop?: () => boolean, sessionPrefix = ''): Promise<StepResult> {
   const t0 = Date.now()
   const stop = shouldStop ?? (() => false)
@@ -2770,6 +2893,7 @@ async function stepTouchVisual(page: Page, emit: (msg: string) => void, machineC
   if (!target) return done('skip', `未驗：畫面上找不到觸屏格子 ${cfg.point}（沒點）`)
 
   // 流程（雜訊→閘門→點→開→點→關、逐次凍結、穩定窗）在 verdicts.ts runTouchVisualFlow，有點擊計數探針；這裡只提供截圖／點擊
+  await closeJackpotNotification(page, emit)
   let base = await page.screenshot({ type: 'png', clip })
   save('0-base', base)
   let last: Buffer | null = null
@@ -2778,6 +2902,7 @@ async function stepTouchVisual(page: Page, emit: (msg: string) => void, machineC
   const ref = cfg.refRegion && existsSync(refPath) ? PNG.sync.read(readFileSync(refPath)) : null
   const r = await runTouchVisualFlow({
     sample: async () => {
+      await closeJackpotNotification(page, emit)
       last = await page.screenshot({ type: 'png', clip })
       const v = await mainVideoBox(page, machineCode)
       return { ratio: diffRatio(base, last), time: v?.time ?? 0, playing: v?.playing ?? false, refDiff: ref ? regionDiff(last, ref, cfg.refRegion!) : undefined }
@@ -3205,6 +3330,7 @@ async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '
     try {
       mkdirSync(CCTV_SAVE_DIR, { recursive: true })
       const p = join(CCTV_SAVE_DIR, `${sessionPrefix}${machineCode}.png`)
+      await closeJackpotNotification(page, emit)
       writeFileSync(p, await page.screenshot({ type: 'png', fullPage: false }))
       emit(`CCTV 沒畫面，已存當下畫面當證據：${p}`)
       return '（已截圖留證）'
@@ -3494,6 +3620,7 @@ async function stepCctv(page: Page, emit: (msg: string) => void, machineCode = '
 
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
+        await closeJackpotNotification(page, emit)
         const buf = clipBox
           ? await page.screenshot({ type: 'png', clip: clipBox })
           : await page.screenshot({ type: 'png', fullPage: false })
@@ -3970,10 +4097,17 @@ export class MachineTestRunner extends EventEmitter {
           //   - 上限從**第一次退出失敗**起算、重試不重置：20 分鐘或 150 次操作，到了就停整批告警。
           const EXIT_MAX_MS = 20 * 60 * 1000
           const EXIT_MAX_ACTS = 150
+          // 盲推（機台不在影像辨識監控時連續按 SPIN 推 feature）的整台上限：0259 實測 5 輪約 60 下推完，留 1.6 倍餘裕。
+          // 扣款上限：BZZF 一般 Spin 約 7,000/下（0234 三下 -21,200），100,000 ≈ 14 下付費 Spin。
+          // 單把估價 10,000 → 剩餘額度不到一把就不按（硬上限，最後一把也不會超過 BLIND_MAX_SPEND）。
+          const BLIND_MAX_PRESSES = 96
+          const BLIND_MAX_SPEND = 100_000
+          const BLIND_SPIN_COST = 10_000
           const exitUntilLobby = async (): Promise<StepResult> => {
             const t0 = Date.now()
             let firstFailAt = 0
             let acts = 0
+            const blind: BlindBurstState = { presses: 0, bal0: undefined }
             for (let attempt = 1; ; attempt++) {
               const r = await stepExit(page, emit, profile?.exitSelector ?? null, waitForLeaveGM)
               const code = parseLeaveErrcode(r.message)
@@ -4010,6 +4144,29 @@ export class MachineTestRunner extends EventEmitter {
               emit(`退出未完成（第 ${attempt} 次）：遊戲進行中（${d.why}）→ 依設定檔推進遊戲後再試退出`)
               if ((profile?.bonusAction ?? 'auto_wait') === 'auto_wait') {
                 await sleep(10000)  // 設定檔要求被動等待
+              } else if (!OSM_SEEN_AT.has(machineCode)) {
+                // 0930 BZZF 0254/0243 實況：不在影像辨識監控的機台，tracker 沒有觀測 → 按一下就判「已結束」→ 回去試退出（~30 秒）
+                // → 等於 35 秒才推一下，feature 要推好幾分鐘，期間 agent 斷線整批停擺。使用者：「直接 SPIN 到結束」。
+                // 改成：有遊戲進行中證據（10002／cannot be quit）時連續推 60 秒（每 5 秒一下）再試退出；推完仍被擋就再來一輪。
+                // 代價：feature 在這 60 秒中途結束的話，剩下的幾下是一般付費 Spin（最多約 11 下）。
+                // CodeX 0930：成本要有界——付費 Spin 可能再中 feature、跨輪累積。整台另外設盲推總次數與扣款上限，
+                // 每一下都看停止／Handpay；任一條觸發就停整批（不換台，帳號可能還坐在這台）。
+                // 整台總時限沿用 EXIT_MAX_MS（20 分）。扣款用前端餘額（readBalance，Spin 步驟同一個來源）；讀不到就停批（CodeX：無法確認就不按）。
+                // 流程在 verdicts.ts runBlindBurst（探針 scripts/blind-burst-probe.ts 模擬各停止條件）
+                emit(`不在影像辨識監控：連續推進 60 秒（每 5 秒一下）再試退出｜本台盲推累計 ${blind.presses}/${BLIND_MAX_PRESSES} 下`)
+                const b = await runBlindBurst({
+                  state: blind, maxPresses: BLIND_MAX_PRESSES, maxSpend: BLIND_MAX_SPEND, spinCost: BLIND_SPIN_COST,
+                  burstMs: 60_000, intervalMs: 5000, now: Date.now, sleep: async ms => { await sleep(ms) },
+                  isStopped: () => this.stopped,
+                  deadlineExceeded: () => Date.now() - firstFailAt > EXIT_MAX_MS || acts >= EXIT_MAX_ACTS,
+                  bodyText: () => page.evaluate(() => document.body?.innerText ?? '').catch(() => ''),
+                  readBalance: () => readBalance(page, profile?.balanceSelector ?? null),
+                  press: async () => { await dismissGameTips(page, emit); await doBonusAction(page, profile, emit); acts++ },
+                })
+                if (b.halt) {
+                  this._haltReason = `${machineCode} 盲推 feature 中止：${b.halt}`
+                  return { step: '退出測試', status: 'fail', message: `🛑 ${this._haltReason}（本台已推 ${blind.presses} 下）`, durationMs: Date.now() - t0 }
+                }
               } else {
                 // 推進到特殊狀態確認結束（tracker：連續 8 秒正常且有新觀測），最多 90 秒一段，然後回去試退出。
                 // 每一下點擊都算進 EXIT_MAX_ACTS（含補點）。
@@ -4053,11 +4210,24 @@ export class MachineTestRunner extends EventEmitter {
           }
 
           const spinAudioRef: SpinAudioRef = { data: null }
+          // 0930 使用者：機台停在選面額選單時 SPIN 本來就無效 → Spin 前先過選單閘門（verdicts.ts runMenuGate，探針 scripts/menu-gate-probe.ts）
+          let menuGateTouchFail: string | null = null
           if (steps.spin) {
             await checkOsm()
-            const r3 = await stepSpin(page, emit, profile?.spinSelector ?? null, profile?.balanceSelector ?? null, steps.audio ? spinAudioRef : undefined, aiAudio)
-            stepResults.push(r3)
-            this.log(`${workerTag} [${r3.status.toUpperCase()}] Spin: ${r3.message}`, machineCode)
+            const gate = await spinMenuGate(page, emit, machineCode, profile, () => this.stopped)
+            if (gate.state === 'touchNoResponse') {
+              menuGateTouchFail = gate.note
+              const r3: StepResult = { step: 'Spin 測試', status: 'skip', message: `未驗：${gate.note}，沒按 SPIN（選單開著時 SPIN 無效）`, durationMs: 0 }
+              stepResults.push(r3)
+              this.log(`${workerTag} [SKIP] Spin: ${r3.message}`, machineCode)
+            } else {
+              if (gate.state === 'closed' && gate.taps + (gate.note.includes('自己關') ? 1 : 0) > 0) emit(`Spin 前選單閘門：${gate.note}`)
+              let r3 = await stepSpin(page, emit, profile?.spinSelector ?? null, profile?.balanceSelector ?? null, steps.audio ? spinAudioRef : undefined, aiAudio)
+              // CodeX 0930：判斷不了選單時照原流程按，但要留註記——不能當成已排除選單干擾（batch 看到這段就不判 spin no response）
+              if (gate.state === 'unknown' && /選單狀態未知/.test(gate.note)) r3 = { ...r3, message: `${r3.message}｜${gate.note}` }
+              stepResults.push(r3)
+              this.log(`${workerTag} [${r3.status.toUpperCase()}] Spin: ${r3.message}`, machineCode)
+            }
           }
 
           if (steps.audio) {
@@ -4075,7 +4245,12 @@ export class MachineTestRunner extends EventEmitter {
             this.log(`${workerTag} [${r6.status.toUpperCase()}] iDeck: ${r6.message}`, machineCode)
           }
 
-          if (steps.touchscreen) {
+          if (steps.touchscreen && menuGateTouchFail) {
+            // Spin 前的閘門已經點過觸屏、選單都沒關 → 使用者定義就是 touchscreen no response，不再重點一次
+            const r7: StepResult = { step: '觸屏測試', status: 'fail', message: `【Spin 前選單閘門】${menuGateTouchFail}｜判定：no response`, durationMs: 0 }
+            stepResults.push(r7)
+            this.log(`${workerTag} [FAIL] 觸屏: ${r7.message}`, machineCode)
+          } else if (steps.touchscreen) {
             await checkOsm()
             const r7 = await stepTouchscreen(page, emit, machineCode, profile, () => this.stopped, this.debugGmid ?? undefined, this.sessionPrefix)
             stepResults.push(r7)

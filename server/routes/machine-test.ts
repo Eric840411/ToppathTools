@@ -36,7 +36,7 @@ import {
   getJobStatuses,
   agentConnections,
 } from '../agent-hub.js'
-import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
+import { bindHeavyTaskOwner, finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { getOperatorFromContext, type OperatorInfo } from '../request-context.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -1042,6 +1042,9 @@ router.post('/api/machine-test/start', async (req, res, next) => {
     if (!heavyTask.ok) return res.status(429).json(heavyTaskConflict(heavyTask.task))
 
     const sessionId = `mt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+    // 2026-09-30：把鎖綁到 session（lock_key），批次工具 agent 斷線自動續跑時才能確認「這把殘留鎖是舊 session 的」再清；
+    // 只是紀錄用途，孤兒判定目前只對 autospin-agent 生效，不影響機台測試鎖的釋放
+    bindHeavyTaskOwner(heavyTask.token, sessionId)
     if (operator) sessionOperators.set(sessionId, operator)
     const rawProfiles = db.prepare('SELECT * FROM machine_test_profiles').all() as (MachineTestProfile & { touchPoints: string | null; clickTake: number; ideck_xpaths?: string })[]
     const profiles = rawProfiles.map(r => ({

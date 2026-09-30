@@ -241,3 +241,96 @@ export async function runTouchVisualFlow(d: {
   }
   return { status: v.status, message: (noiseRounds.length > 1 ? `${v.message}｜基準量測 ${noiseRounds.length} 輪／重拍 ${noiseRounds.length - 1} 次（${roundsTxt}）` : v.message) + note, clicks, noise, opened: open.rs, closed: close?.rs ?? null }
 }
+
+// ── 盲推 feature（2026-09-30）────────────────────────────────────────────────
+// 機台不在影像辨識監控、退出被 feature 擋住（cannot be quit／10002）時，連續按 SPIN 推一段再回去試退出。
+// CodeX 0930 要求成本有界、可模擬驗證：每一下「按之前」都要過完所有關卡，任一條不過就回 halt（呼叫端停整批、不換台）：
+//   停止指令／整台時限到期／單台次數上限／畫面 Handpay／餘額讀不到／剩餘額度不夠再付一把。
+// 「剩餘額度不夠再付一把」是硬上限：要求 maxSpend − 已花 ≥ spinCost 才按，所以最後一把也不會超過 maxSpend。
+export type BlindBurstState = { presses: number; bal0: number | null | undefined }
+export async function runBlindBurst(d: {
+  state: BlindBurstState
+  maxPresses: number
+  maxSpend: number
+  spinCost: number
+  burstMs: number
+  intervalMs: number
+  now: () => number
+  sleep: (ms: number) => Promise<void>
+  isStopped: () => boolean
+  deadlineExceeded: () => boolean
+  bodyText: () => Promise<string>
+  readBalance: () => Promise<number | null>
+  press: () => Promise<void>
+}): Promise<{ halt: string | null; pressed: number }> {
+  const s = d.state
+  let pressed = 0
+  if (s.bal0 === undefined) s.bal0 = await d.readBalance()
+  if (s.bal0 == null) return { halt: '讀不到前端餘額，無法確認扣款上限', pressed }
+  const end = d.now() + d.burstMs
+  while (d.now() < end) {
+    if (d.isStopped()) return { halt: '收到停止指令', pressed }
+    if (d.deadlineExceeded()) return { halt: '整台退出時限到期', pressed }
+    if (s.presses >= d.maxPresses) return { halt: `超過單台上限 ${d.maxPresses} 下`, pressed }
+    if (/hand\s*-?\s*pay/i.test(await d.bodyText())) return { halt: '畫面出現 Handpay，需人工處理', pressed }
+    const bal = await d.readBalance()
+    if (bal == null) return { halt: '讀不到前端餘額，無法確認扣款上限', pressed }
+    const spent = Math.max(0, s.bal0 - bal)
+    if (d.maxSpend - spent < d.spinCost) return { halt: `剩餘額度不夠再付一把（已少 ${spent}，上限 ${d.maxSpend}，單把估 ${d.spinCost}）`, pressed }
+    await d.press()
+    s.presses++; pressed++
+    await d.sleep(d.intervalMs)
+  }
+  return { halt: null, pressed }
+}
+
+// ── Spin 前的選面額選單閘門（2026-09-30，使用者 hhenghheng 定案）─────────────
+// BZZF 機台停在 CHOOSE A DENOMINATION（選單開著）時按 SPIN 本來就無效——0266 因此被誤判 spin no response。
+// 規則：Spin 前先看選單（參考圖比對）→ 開著就先在前端選面額、等機台 LOADING 跑完自己關（最多 loadingMs）
+//   → 還開著就點觸屏（18,9 等點位）看會不會關 → 都沒反應＝touchscreen no response，Spin 不驗（spin not verified）。
+// 只有「選單已關、按了 SPIN 還是沒開局」才算 spin no response（那段在 batch 的 classify）。
+// isOpen 回 null＝判斷不了（沒參考圖／推流沒在播）→ 照原流程按 SPIN，不擋。
+export type MenuGateResult =
+  | { state: 'closed'; note: string; taps: number }
+  | { state: 'unknown'; note: string; taps: number }
+  | { state: 'touchNoResponse'; note: string; taps: number }
+export async function runMenuGate(d: {
+  isOpen: () => Promise<boolean | null>
+  selectFrontDenom: () => Promise<void>
+  taps: Array<{ label: string; tap: () => Promise<void> }>
+  wait: (ms: number) => Promise<void>
+  stop: () => boolean
+  loadingMs?: number
+  afterTapMs?: number
+  pollMs?: number
+}): Promise<MenuGateResult> {
+  const loadingMs = d.loadingMs ?? 30_000, afterTapMs = d.afterTapMs ?? 8_000, pollMs = d.pollMs ?? 2_000
+  let taps = 0
+  const first = await d.isOpen()
+  if (first === null) return { state: 'unknown', note: '選單狀態未知：推流畫面判斷不了（停格或沒在播），照原流程', taps }
+  if (!first) return { state: 'closed', note: '選單本來就關著', taps }
+  // CodeX 0930：中途畫面判斷不了（推流停格／沒在播）→ 不能拿「沒看到關」當「沒關」，整個閘門改回 unknown，不判觸屏
+  let blind = false
+  const pollClosed = async (ms: number) => {
+    for (let t = 0; t < ms && !d.stop(); t += pollMs) {
+      await d.wait(pollMs)
+      const o = await d.isOpen()
+      if (o === false) return true
+      if (o === null) { blind = true; return false }
+    }
+    return false
+  }
+  const blindResult = (): MenuGateResult => ({ state: 'unknown', note: '選單狀態未知：操作後推流畫面判斷不了（停格或沒在播），不判觸屏', taps })
+  await d.selectFrontDenom()
+  const afterFront = await pollClosed(loadingMs)
+  if (blind) return blindResult()
+  if (afterFront) return { state: 'closed', note: `選單開著 → 前端選面額後 ${Math.round(loadingMs / 1000)} 秒內自己關了`, taps }
+  for (const t of d.taps) {
+    if (d.stop()) break
+    await t.tap(); taps++
+    const closedNow = await pollClosed(afterTapMs)
+    if (blind) return blindResult()
+    if (closedNow) return { state: 'closed', note: `選單開著、選面額後沒關 → 點 ${t.label} 後關了`, taps }
+  }
+  return { state: 'touchNoResponse', note: `機台停在選面額選單：前端選面額等 ${Math.round(loadingMs / 1000)} 秒沒關、點 ${d.taps.map(t => t.label).join('／') || '（沒有可點的點位）'} 也沒關`, taps }
+}
