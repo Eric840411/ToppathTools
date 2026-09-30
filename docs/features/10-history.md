@@ -28,6 +28,7 @@
 | `osm-config-compare` | Config 比對 |
 | `meter-reconcile` | Performance Meter 對帳查詢 |
 | `egm-daycount` | Egm DayCount 對帳查詢 |
+| `meegle-account` | Meegle 個人綁定／解除綁定、管理員設定／刪除身分對照 |
 | `machine-test` | 機台自動化測試結果 / 設定檔儲存 |
 | `autospin` | AutoSpin session 結束 |
 | `gs-stats` | Game Show 500x 機率統計 |

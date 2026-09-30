@@ -30,6 +30,7 @@ import { BREAKTHROUGH_REALMS, CultivationBreakthroughOverlay } from './component
 const MeterReconcilePage = lazy(() => import('./pages/MeterReconcilePage').then(m => ({ default: m.MeterReconcilePage })))
 const EgmDayCountPage = lazy(() => import('./pages/EgmDayCountPage').then(m => ({ default: m.EgmDayCountPage })))
 const WeeklyReportPage = lazy(() => import('./pages/WeeklyReportPage').then(m => ({ default: m.WeeklyReportPage })))
+const MeegleAccountPage = lazy(() => import('./pages/MeegleAccountPage').then(m => ({ default: m.MeegleAccountPage })))
 import ChangelogModal from './components/ChangelogModal'
 import GeminiSettingsModal from './components/GeminiSettingsModal'
 import AiAgentMonitorWidget from './components/AiAgentMonitorWidget'
@@ -46,8 +47,8 @@ import './App.css'
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
   | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
-  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'meter-reconcile' | 'egm-daycount' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report'
-type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge' | 'discord-notify' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report'
+  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'meter-reconcile' | 'egm-daycount' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report' | 'account'
+type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge' | 'discord-notify' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report' | 'account'
 
 type SubTab = {
   id: TabId
@@ -309,6 +310,17 @@ const xianxiaQuotesGroup: Group = {
   description: '管理 Dashboard 每日顯示的仙語語錄庫，可手動新增或用 AI 建議候選句子',
 }
 
+/** 個人帳號（目前只有 Meegle 綁定）。每個登入者都要能綁自己的 token，所以不做權限開關。 */
+const accountGroup: Group = {
+  id: 'account',
+  label: '個人帳號',
+  themeLabel: '本命道籍',
+  icon: 'P',
+  iconClass: 'tab-icon--history',
+  tab: 'account',
+  description: '綁定你自己的 Meegle 個人 token，工具會用你的身分操作 Meegle',
+}
+
 const sysadminGroup: Group = {
   id: 'sysadmin',
   label: '系統管理',
@@ -526,6 +538,7 @@ function App() {
   function canAccess(tabId: TabId): boolean {
     if (!globalAccount) return false
     if (tabId === 'dashboard') return true
+    if (tabId === 'account') return true   // 個人設定，每個登入者都要能進
     if (globalAccount.role === 'admin') return true
     // Jira 頁的特例整條移除：canonical key 改成 'jira' 之後剛好等於 tabId，
     // 直接走下面那行通用判斷就好。原本那條是三個 key 的 OR，是「看起來三個開關
@@ -551,7 +564,7 @@ function App() {
   const visibleCultivationBoard = themeMode === 'xianxia' ? filterGroup(cultivationBoardGroup) : null
   const visibleXianxiaQuotes = themeMode === 'xianxia' ? filterGroup(xianxiaQuotesGroup) : null
   const visibleSysadmin = canAccess('sysadmin') ? sysadminGroup : null
-  const allVisible = [dashboardGroup, ...visibleGroups, ...(visibleSettings ? [visibleSettings] : []), ...(visibleHistory ? [visibleHistory] : []), ...(visibleKnowledge ? [visibleKnowledge] : []), ...(visibleDiscordNotify ? [visibleDiscordNotify] : []), ...(visibleCultivationBoard ? [visibleCultivationBoard] : []), ...(visibleXianxiaQuotes ? [visibleXianxiaQuotes] : []), ...(visibleSysadmin ? [visibleSysadmin] : [])]
+  const allVisible = [dashboardGroup, ...visibleGroups, ...(visibleSettings ? [visibleSettings] : []), ...(visibleHistory ? [visibleHistory] : []), ...(visibleKnowledge ? [visibleKnowledge] : []), ...(visibleDiscordNotify ? [visibleDiscordNotify] : []), ...(visibleCultivationBoard ? [visibleCultivationBoard] : []), ...(visibleXianxiaQuotes ? [visibleXianxiaQuotes] : []), accountGroup, ...(visibleSysadmin ? [visibleSysadmin] : [])]
 
   // Redirect activeGroup/activeTab if current selection is no longer accessible
   const currentGroup = allVisible.find(g => g.id === activeGroup) ?? allVisible[0]
@@ -745,6 +758,15 @@ function App() {
               <NavLabel group={xianxiaQuotesGroup} classic={themeMode === 'classic'} />
             </button>
           )}
+
+          <button
+            type="button"
+            className={`sidebar-nav-item${currentGroup?.id === accountGroup.id ? ' sidebar-nav-item--active' : ''}`}
+            onClick={() => handleGroupClick(accountGroup)}
+          >
+            <span className={`tab-icon ${accountGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="account" size={18} /> : accountGroup.icon}</span>
+            <NavLabel group={accountGroup} classic={themeMode === 'classic'} />
+          </button>
 
           <button
             type="button"
@@ -946,6 +968,7 @@ function App() {
             {currentGroup?.id === 'xianxia-quotes' && <XianxiaQuotesPage />}
             {currentGroup?.id === 'history' && <HistoryPage />}
             {currentGroup?.id === 'color-game' && effectiveTab === 'gs-logchecker' && <GsLogCheckerPage />}
+            {currentGroup?.id === 'account' && <MeegleAccountPage themeMode={themeMode} />}
             {currentGroup?.id === 'sysadmin' && <SystemAdminPage />}
             {currentGroup?.id === 'knowledge' && <KnowledgePage />}
           </main>

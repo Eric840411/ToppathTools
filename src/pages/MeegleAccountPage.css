@@ -1,0 +1,114 @@
+/* Meegle 個人綁定（設定 → 個人帳號）
+   版面由 CodeX 設計：桌面左綁定卡、右說明；窄螢幕上下排。
+   普通版沿用站內深底操作型配色；修仙版只換配色與裝飾，結構不變。 */
+
+.mg-page {
+  --mg-bg: #0f172a;
+  --mg-card: #111c2e;
+  --mg-border: #2d3f55;
+  --mg-text: #e2e8f0;
+  --mg-muted: #94a3b8;
+  --mg-primary: #3b82f6;
+  --mg-primary-hover: #2563eb;
+  --mg-ok: #4ade80;
+  --mg-bad: #f87171;
+  --mg-warn: #fbbf24;
+  /* 依內容區實際寬度換行（不看視窗寬度）——側欄會吃掉 200 多 px，看視窗寬度會判斷錯 */
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: flex-start;
+  color: var(--mg-text);
+}
+.mg-page > .mg-card:first-child { flex: 1.4 1 420px; min-width: 0; }
+.mg-page > .mg-help { flex: 1 1 280px; min-width: 0; }
+
+.mg-card {
+  background: var(--mg-card);
+  border: 1px solid var(--mg-border);
+  border-radius: 12px;
+  padding: 20px 22px;
+}
+
+.mg-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
+.mg-title { font-size: 16px; font-weight: 700; margin: 0; }
+.mg-subtitle { display: none; font-size: 12px; color: var(--mg-muted); margin-top: 2px; }
+
+.mg-pill {
+  display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
+  font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px;
+  border: 1px solid currentColor;
+}
+.mg-pill::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.mg-pill--unbound { color: var(--mg-muted); }
+.mg-pill--valid { color: var(--mg-ok); }
+.mg-pill--invalid { color: var(--mg-bad); }
+
+.mg-rows { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 16px; font-size: 13px; margin-bottom: 16px; }
+.mg-rows dt { color: var(--mg-muted); }
+.mg-rows dd { margin: 0; overflow-wrap: anywhere; }
+.mg-mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; color: var(--mg-muted); }
+
+.mg-alert { border-radius: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.6; margin-bottom: 14px; border: 1px solid; }
+.mg-alert--bad { color: #fecaca; background: rgba(248, 113, 113, .08); border-color: rgba(248, 113, 113, .4); }
+.mg-alert--warn { color: #fde68a; background: rgba(251, 191, 36, .08); border-color: rgba(251, 191, 36, .35); }
+.mg-alert--ok { color: #bbf7d0; background: rgba(74, 222, 128, .08); border-color: rgba(74, 222, 128, .35); }
+.mg-alert strong { color: inherit; }
+
+.mg-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.mg-field label { font-size: 12px; color: var(--mg-muted); }
+.mg-input-row { display: flex; gap: 8px; }
+.mg-input {
+  flex: 1; min-width: 0; background: var(--mg-bg); color: var(--mg-text);
+  border: 1px solid var(--mg-border); border-radius: 8px; padding: 9px 12px; font-size: 13px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.mg-input:focus { outline: none; border-color: var(--mg-primary); }
+
+.mg-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.mg-btn {
+  border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--mg-border); background: transparent; color: var(--mg-text);
+  transition: background .15s, border-color .15s, transform .1s;
+}
+.mg-btn:not(:disabled):hover { border-color: var(--mg-primary); background: rgba(59, 130, 246, .1); }
+.mg-btn:not(:disabled):active { transform: translateY(1px); }
+.mg-btn:focus-visible { outline: 2px solid var(--mg-primary); outline-offset: 2px; }
+.mg-btn:disabled { opacity: .5; cursor: not-allowed; }
+.mg-btn--primary { background: var(--mg-primary); border-color: var(--mg-primary); color: #fff; }
+.mg-btn--primary:not(:disabled):hover { background: var(--mg-primary-hover); border-color: var(--mg-primary-hover); }
+.mg-btn--danger { color: var(--mg-bad); border-color: rgba(248, 113, 113, .45); }
+.mg-btn--danger:not(:disabled):hover { background: rgba(248, 113, 113, .1); border-color: var(--mg-bad); }
+.mg-btn--small { padding: 4px 10px; font-size: 12px; }
+
+.mg-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--mg-muted); margin-top: 10px; }
+
+.mg-help h3 { font-size: 14px; margin: 0 0 12px; }
+.mg-steps { margin: 0 0 16px; padding-left: 20px; font-size: 13px; line-height: 1.9; }
+.mg-steps code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; background: var(--mg-bg); padding: 1px 6px; border-radius: 4px; }
+.mg-notes { margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.8; color: var(--mg-muted); }
+.mg-notes strong { color: var(--mg-text); }
+
+/* ── 修仙版：只換配色與裝飾（墨黑底、青玉主按鈕、細金線、靈石狀態點）── */
+:root[data-theme-mode="xianxia"] .mg-page {
+  --mg-bg: #0b1110;
+  --mg-card: #101716;
+  --mg-border: rgba(163, 130, 63, .45);
+  --mg-text: #e8e1cf;
+  --mg-muted: #a39a86;
+  --mg-primary: #62C6A5;
+  --mg-primary-hover: #4fb592;
+  --mg-ok: #62C6A5;
+}
+:root[data-theme-mode="xianxia"] .mg-card {
+  box-shadow: inset 0 1px 0 rgba(163, 130, 63, .35), 0 0 0 1px rgba(0, 0, 0, .4);
+}
+:root[data-theme-mode="xianxia"] .mg-subtitle { display: block; }
+:root[data-theme-mode="xianxia"] .mg-title { letter-spacing: .08em; }
+:root[data-theme-mode="xianxia"] .mg-btn--primary { color: #0b1110; }
+:root[data-theme-mode="xianxia"] .mg-btn:not(:disabled):hover { background: rgba(98, 198, 165, .1); }
+:root[data-theme-mode="xianxia"] .mg-btn--primary:not(:disabled):hover { background: var(--mg-primary-hover); }
+:root[data-theme-mode="xianxia"] .mg-pill::before {
+  /* 靈石：菱形，帶一點光暈 */
+  border-radius: 1px; transform: rotate(45deg); box-shadow: 0 0 6px currentColor;
+}

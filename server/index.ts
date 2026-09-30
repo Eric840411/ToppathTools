@@ -30,6 +30,7 @@ import { router as knowledgeRouter } from './routes/knowledge.js'
 import { router as dashboardRouter, dashboardMetricsMiddleware } from './routes/dashboard.js'
 import { router as xianxiaQuotesRouter } from './routes/xianxia-quotes.js'
 import { router as weeklyReportRouter } from './routes/weekly-report.js'
+import { router as meegleRouter } from './routes/meegle.js'
 import { getRequestContext, runWithRequestContext } from './request-context.js'
 import { getAuthAccount } from './auth-session.js'
 
@@ -342,6 +343,7 @@ app.use(scriptedBetRouter)
 app.use(knowledgeRouter)
 app.use(xianxiaQuotesRouter)
 app.use(weeklyReportRouter)
+app.use(meegleRouter)
 
 // ─── Static Files (production build) ──────────────────────────────────────────
 

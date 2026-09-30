@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { MeegleIdentityOverridesPanel } from '../components/MeegleIdentityOverridesPanel'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -801,6 +802,8 @@ export function SystemAdminPage() {
               </tbody>
             </table>
           </div>
+
+          <MeegleIdentityOverridesPanel />
         </div>
       )}
     </div>
