@@ -11,6 +11,7 @@ import { JiraBatchEditTab } from './JiraBatchEditTab'
 import { JiraCreateStep12 } from './JiraCreateStep12'
 import { JiraCreateStep3 } from './JiraCreateStep3'
 import { isJiraFieldRequired } from '../../shared/jira-required-fields.js'
+import { JIRA_KEY_AT_START_RE, JIRA_KEY_IN_BROWSE_URL_RE } from '../../shared/jira-key.js'
 import { JiraCreateStep4 } from './JiraCreateStep4'
 
 export interface Member {
@@ -2562,8 +2563,9 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
 
   // Smarter Jira key extraction: checks __url fields for browse URLs + text starting with key
   const extractJiraIssuesFromRecords = (records: SheetRecord[], headers: string[]) => {
-    const BROWSE_RE = /\/browse\/([A-Z]{2,}[0-9]*-\d+)/
-    const START_RE = /^([A-Z]{2,}[0-9]*-\d+)/
+    // 單號格式共用 shared/jira-key（原本這裡自己寫一份，P5MA 這種第二碼是數字的代號整批漏掉）
+    const BROWSE_RE = JIRA_KEY_IN_BROWSE_URL_RE
+    const START_RE = JIRA_KEY_AT_START_RE
     const issues: { rowIndex: number; issueKey: string; stage: string }[] = []
     const seenKeys = new Set<string>()
     for (const rec of records) {

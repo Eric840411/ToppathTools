@@ -295,3 +295,23 @@ Step 3 動態欄位模式的必填驗證（`validateDynamicFields()`，`JiraPage
 **Jira 目前狀態篩選是完全獨立的第二層篩選，不是同一組**：預覽表格顯示的「狀態」欄（批量更新狀態）/「狀態 (Jira)」欄（批量修改，`jiraCols = ['summary','assignee','status']` 本來就有）是即時從 Jira API 抓回的資料（`updateJiraData`/`editTabJiraData`），跟上面 Sheet 欄位篩選的資料來源完全不同，混在同一排篩選容易誤導使用者以為 Sheet 欄位篩選也能篩到這欄。新增 `updateJiraStatusFilter`/`editJiraStatusFilter`（單一字串，不是 per-column，因為只有一個狀態欄可篩）獨立一排並標明「Jira 目前狀態篩選」；可選清單（`updateJiraStatusOptions`/`editJiraStatusOptions`）從目前已載入的 Jira 資料動態收集 unique 值，不寫死 workflow 狀態，且用整包 Jira data state 當 `useMemo` dep，資料非同步陸續載入時選項會自動補齊，不用等全部載完才能篩。**篩選啟用時，還沒抓到 Jira 狀態的列直接排除**（不是模糊顯示成「符合」或「不確定」），避免筆數隨著資料陸續到位而跳動、語意不準確。批量修改的「預覽變更」（Step 3）沿用 Step 2 篩選後的 `editTabSelectedKeys`，不需要另外接篩選邏輯。
 
 ---
+
+### Jira 單號辨識規則共用 `shared/jira-key.ts`（2026-09-30，v4.259.4）
+
+**症狀**：批量評論讀 CGFB/P5MA 那份 Sheet，使用者看到「127 列之後查不到」。實際是 136 列只抓到 58 張，**P5MA 的單全部漏掉**——127 列以後剛好幾乎都是 P5MA，看起來像列數上限，其實不是。
+
+**原因**：單號規則寫成 `[A-Z]{2,}[0-9]*-\d+`（開頭至少兩個字母），`P5MA` 第二碼是數字直接不符。前端（批量評論 `extractJiraIssuesFromRecords`）2 處、後端（批量更新狀態 `update-read-bitable`）6 處**各寫一份**，所以一起錯。
+後端在文字任意位置找單號的那幾處更糟：`P5MA-9570` 會被截成 **`MA-9570`**——不是漏掉，是抓成一張錯的單。那份 Sheet 實測 **22 張全部變成 `MA-xxxx`**。
+
+**修法**（跟 CodeX 討論定案）：
+- 規則抽成 `shared/jira-key.ts`，前後端 import 同一份：字母開頭＋大寫字母／數字／底線＋`-數字`（Jira Data Center 文件列的可設定格式，不是每個版本的預設）
+- 各路徑**保留原本的擷取位置**（開頭／browse 網址／任意位置），不順手把只看開頭的前端改成全文搜尋
+- **任意位置搜尋加開頭邊界**（前面緊貼字母／數字／底線／連字號不算）：真 Sheet 的 URL 欄讀回的是公式原文 `REGEXEXTRACT(Q2, "[A-Z0-9]+-[0-9]+")`，放寬之後沒邊界會挖出 `Z0-9`
+- **結尾刻意不設邊界**：原本照 CodeX 建議加了「後面不能接字母」，打真 route 就漏掉第 50 列 `CGFB-1Free Bet 製作主單`（連結文字黏著標題）。數字那端不用擋——`\d+` 貪婪、後面沒東西要它退讓，`CGFB-12` 不會變 `CGFB-1`
+- ⚠️ 已知限制：`H5-1` 符合格式，在任意位置搜尋的路徑會被當成單號，regex 判斷不了
+
+**沒修的（另案）**：`[]:[CGFB-2][前端]…` 這種單號寫在文字中間、沒有超連結的列，批量評論仍然抓不到（那份 Sheet 有 48 列）。這次只修代號辨識。
+
+> 驗證：`npx tsx shared/jira-key.test.ts` 27 條；換回舊規則 8 條紅、拿掉開頭邊界 2 條紅。
+> **真 Sheet 打真 route 前後對照**（`jira` router 掛在最小 Express app 上，舊版＝main 原樣 build）：批量更新狀態 115 → 115，差別只有 22 張 `MA-` → `P5MA-`；批量評論 58 → 69，多 11 張 P5MA、沒有任何一張消失。
+> ⚠️ 教訓：只跑單元測試會把「結尾邊界漏掉 CGFB-1」和「公式挖出 Z0-9」兩個都放過去——兩個都是打真資料才看到。

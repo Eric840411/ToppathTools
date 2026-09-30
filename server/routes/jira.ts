@@ -36,6 +36,7 @@ import { getAuthAccount } from '../auth-session.js'
 import { withRequestOperation } from '../request-context.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { missingForcedRequiredFields } from '../../shared/jira-required-fields.js'
+import { JIRA_KEY_EXACT_RE, JIRA_KEY_IN_TEXT_RE, JIRA_KEY_BRACKET_PREFIX_RE } from '../../shared/jira-key.js'
 
 export const router = Router()
 
@@ -2801,7 +2802,8 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
     const token = await getLarkToken()
     const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
 
-    const JIRA_KEY_RE = /^[A-Z]{2,}[0-9]*-\d+$/
+    // 單號格式共用 shared/jira-key（原本 [A-Z]{2,} 讓 P5MA 這種第二碼是數字的代號整批漏掉）
+    const JIRA_KEY_RE = JIRA_KEY_EXACT_RE
     const extractCell = (cell: unknown): string => {
       if (cell === null || cell === undefined) return ''
       if (typeof cell === 'string') return cell
@@ -2885,11 +2887,11 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
       // If still not found or formula wasn't resolved, scan all columns for direct Jira keys
       if (urlColIdx < 0 || (() => {
         const v = extractCell((rows[1] as unknown[])?.[urlColIdx])
-        return !JIRA_KEY_RE.test(v.trim()) && !/[A-Z]{2,}[0-9]*-\d+/.test(v)
+        return !JIRA_KEY_RE.test(v.trim()) && !JIRA_KEY_IN_TEXT_RE.test(v)
       })()) {
         for (let colIdx = 0; colIdx < headers.length; colIdx++) {
           const firstVal = extractCell((rows[1] as unknown[])?.[colIdx])
-          if (JIRA_KEY_RE.test(firstVal.trim()) || /[A-Z]{2,}[0-9]*-\d+/.test(firstVal)) {
+          if (JIRA_KEY_RE.test(firstVal.trim()) || JIRA_KEY_IN_TEXT_RE.test(firstVal)) {
             urlColIdx = colIdx; break
           }
         }
@@ -2912,10 +2914,10 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
         if (!rawKey) { skippedEmpty++; continue }
         // N column format may be "[CGLD3-1]Title" or "CGLD3-1 Title" or just "CGLD3-1"
         // Try bracket format first, then extract key from anywhere and take the rest as title
-        const bracketMatch = rawKey.match(/^\[([A-Z]{2,}[0-9]*-\d+)\](.*)$/)
+        const bracketMatch = rawKey.match(JIRA_KEY_BRACKET_PREFIX_RE)
         const issueKey = bracketMatch
           ? bracketMatch[1].trim()
-          : (rawKey.match(/([A-Z]{2,}[0-9]*-\d+)/) ?? [])[1]?.trim() ?? rawKey.trim()
+          : (rawKey.match(JIRA_KEY_IN_TEXT_RE) ?? [])[1]?.trim() ?? rawKey.trim()
         const title = bracketMatch
           ? bracketMatch[2].trim()
           : (() => {
@@ -2983,7 +2985,7 @@ router.post('/api/jira/update-read-bitable', async (req, res, next) => {
       rowIndex++
       const raw = item.fields[urlColumn]
       const rawStr = extractCell(raw)
-      const issueKey = (rawStr.match(/([A-Z]{2,}[0-9]*-\d+)/) ?? [])[1]?.trim() ?? rawStr.trim()
+      const issueKey = (rawStr.match(JIRA_KEY_IN_TEXT_RE) ?? [])[1]?.trim() ?? rawStr.trim()
       if (!issueKey || !JIRA_KEY_RE.test(issueKey)) continue
       const fillPerson = fillPersonColumn ? larkTextField(item.fields[fillPersonColumn]).trim() : ''
       records.push({ issueKey, fillPerson, rowIndex })
