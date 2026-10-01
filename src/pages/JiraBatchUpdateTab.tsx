@@ -3,6 +3,7 @@ import { StepGuide, ReloadSheetButton } from '../components/JiraStepWidgets'
 import { SheetUrlEntryStep } from '../components/SheetUrlEntryStep'
 import type { AccountInfo } from '../components/JiraAccountModal'
 import type { JiraTransitionOption, SheetSource } from './JiraPage'
+import { targetStatusOptions } from '../../shared/jira-transition'
 
 type UpdateStep = 1 | 2 | 3
 type UpdateRecord = { issueKey: string; rowIndex: number }
@@ -36,8 +37,8 @@ export function JiraBatchUpdateTab(props: {
   updateJiraStatusOptions: string[]
   currentAccount: AccountInfo | null
   updateTransitions: JiraTransitionOption[]
-  updateTransitionId: string
-  setUpdateTransitionId: (v: string) => void
+  updateTargetStatusId: string
+  setUpdateTargetStatusId: (v: string) => void
   updateJiraError: string
   fetchUpdateJiraData: (issueKeys: string[]) => void
   rdFieldDetecting: boolean
@@ -64,7 +65,7 @@ export function JiraBatchUpdateTab(props: {
     updateError, setUpdateError, handleUpdateFetchBitable, updateLoading, updateReloadMsg, handleReloadUpdateSheet,
     updateRecords, updateFilterableColumns, updateTabColFilters, setUpdateTabColFilters, updateColumnUniqueValues,
     updateFilteredRecords, updateJiraStatusFilter, setUpdateJiraStatusFilter, updateJiraStatusOptions,
-    currentAccount, updateTransitions, updateTransitionId, setUpdateTransitionId, updateJiraError,
+    currentAccount, updateTransitions, updateTargetStatusId, setUpdateTargetStatusId, updateJiraError,
     fetchUpdateJiraData, rdFieldDetecting, setRdFieldDetecting, rdFieldCandidates, setRdFieldCandidates,
     emailHeader, updateJiraData, updateSelectedKeys, setUpdateSelectedKeys, updateJiraLoading,
     updateValidationErrors, updateSubmitting, updateProgress, updateTitleWritebackLoading,
@@ -117,20 +118,23 @@ export function JiraBatchUpdateTab(props: {
             <span style={{ fontSize: 12, color: '#94a3b8' }}>切換狀態：</span>
             {updateTransitions.length > 0 ? (
               <select
-                value={updateTransitionId}
-                onChange={e => setUpdateTransitionId(e.target.value)}
+                value={updateTargetStatusId}
+                onChange={e => setUpdateTargetStatusId(e.target.value)}
                 style={{ fontSize: 12, background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 4, padding: '4px 8px' }}
               >
                 <option value="">（不切換）</option>
-                {updateTransitions.map(t => (
-                  <option key={t.id} value={t.id}>
-                    {t.toName ?? t.name}{t.toName && t.toName !== t.name ? `（${t.name}）` : ''}
-                  </option>
+                {targetStatusOptions(updateTransitions.map(t => ({ id: t.id, name: t.name, to: { id: t.toId, name: t.toName } }))).map(o => (
+                  <option key={o.toId} value={o.toId}>{o.toName}</option>
                 ))}
               </select>
             ) : (
               <span style={{ fontSize: 12, color: '#64748b' }}>
                 {currentAccount ? '讀取轉換選項失敗，可跳過' : '請先選擇帳號（右上角）'}
+              </span>
+            )}
+            {updateTransitions.length > 0 && (
+              <span style={{ fontSize: 11, color: '#64748b' }}>
+                選項依第一張單讀取；送出時每張單會各自確認能不能切到這個狀態，不能的會列出來、不會送
               </span>
             )}
           </div>

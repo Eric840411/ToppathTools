@@ -378,3 +378,23 @@ Step 3 動態欄位模式的必填驗證（`validateDynamicFields()`，`JiraPage
   改成假 Jira 跑子 process，量到的只剩送出端：串流 **8～10MB**、整檔讀取 **170～285MB**，門檻收緊到「峰值 < 檔案的 1/4」
 
 > 驗證：測試 30 → 33 條（列舉失敗不刪、回報 uncertain、ENOENT 不算 uncertain），連跑三次穩定。突變：列舉失敗當成沒有租約 → 兩條紅；上傳改回整檔讀取 → 記憶體那條紅（2/2）。
+
+### 批量更新狀態：用「目標狀態」逐張對出 transition，不再共用 transitionId（2026-10-01，v4.262.7）
+
+**症狀**：選「本機測試完成」，P5MA-9675～9684 十張單卻被切成「完成」，沒有任何錯誤。
+
+**原因**：下拉選單用**清單第一張單**的 `/transitions` 建，選到的 `transitionId` 原封送給每一張單。但 **transition ID 是 workflow 專屬的**——
+清單第一張是 CGFB-98，CGFB 的 `4` 是「本機測試完成」，P5MA 的 `4` 卻是「Done」。Jira 照 P5MA 的定義執行，所以切成完成。
+
+**修法**（跟 CodeX 討論定案，規則在 `shared/jira-transition.ts`）：
+- 前端只送**目標狀態 ID**（`toStatusId`），後端 `transitionIssueToStatus()` 每張單**用實際執行帳號**查它自己的 `/transitions`，以 `to.id` 對出它的 transition
+- **只比 `to.id`，不比名稱、也不用名稱 fallback**；對不到 → 這張不送、逐筆回報「這張單目前不能切到 X」；同一目標多條路徑 → 也不送（不同路徑可能有不同副作用）
+- 後端**拒絕舊版頁面送的 `transitionId`**（400 請重新整理），不能當成「不切換」放行，也不能照送
+- 下拉預設「不切換」，不自動選第一項；選項標明「依第一張單讀取，送出時每張單各自確認」
+- 開單流程 Step 6（畫面目前隱藏）的 `/api/jira/batch-transition` 一起改，並**移除「沒指定就退回 `JIRA_TRANSITION_ID`（預設 41）」**——41 在 CGFB 是 Done，等於沒選就幫你結單
+
+**⚠️ 實測發現：CGFB 的狀態是專案層級的**（team-managed）——CGFB「本機測試完成」是 `15896`，P5MA 是 `10252`，**同名不同 ID**。
+所以**同一份清單混了 CGFB 與 P5MA 時，一次只能切其中一個專案**：選了 CGFB 的狀態，P5MA 的單會被擋下列出（不會被切錯）。要一次切兩個專案需要「每個專案各選一次目標」，是第 3 點（選項取所有已選單子的聯集、標示可用張數）的範圍，尚未做。
+
+> 驗證：`npx tsx shared/jira-transition.test.ts` 13 條（用 2026-10-01 真實 CGFB／P5MA transitions：同一 transitionId 不同目標、transition 名稱不同但目標相同、無路徑、多路徑、不做名稱 fallback、選單去重）。突變：改回比 transition ID → 5 條紅；多路徑挑第一條 → 1 條紅；加名稱 fallback → 1 條紅。
+> 本機真 server（**沒有切任何真單**）：真的 P5MA-9684 對「本機測試完成」→ 7；舊版 transitionId 打兩支端點都回 400；不存在的目標狀態 → 該張回「不能切到」、沒送出；不選目標 → skipped。

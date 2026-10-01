@@ -36,6 +36,7 @@ import { withRequestOperation } from '../request-context.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { missingForcedRequiredFields } from '../../shared/jira-required-fields.js'
 import { JIRA_KEY_EXACT_RE, JIRA_KEY_IN_TEXT_RE, JIRA_KEY_BRACKET_PREFIX_RE } from '../../shared/jira-key.js'
+import { pickTransitionForTarget, type JiraTransitionLike } from '../../shared/jira-transition.js'
 import {
   ATTACH_CACHE_DIR, AttachmentTooLargeError, cleanAttachmentCache, createAttachmentUploadHandler, createLease, holdLease,
   releaseLease, renewLease, safeUnlink, saveResponseToCache, startAttachmentCacheSweeper, touchCacheFile, uploadFileToJira, type CachedFile,
@@ -282,9 +283,45 @@ const batchTransitionSchema = z.object({
   issues: z.array(z.object({
     issueKey: z.string(),
     rowIndex: z.number(),
-    transitionId: z.string().optional(),
+    // 目標狀態 ID（不是 transitionId）——每張單由後端各自對出自己的 transition，見 shared/jira-transition.ts
+    toStatusId: z.string().min(1),
+    toStatusName: z.string().optional(),
   })),
 })
+
+/** 舊版頁面還在送 transitionId 的話直接拒絕：沿用它就會重演「不同專案同一個 ID」的誤切 */
+const LEGACY_TRANSITION_MESSAGE = '頁面版本過舊（還在用 transitionId），為避免切錯狀態已拒絕。請重新整理頁面後再試'
+function hasLegacyTransitionId(items: unknown): boolean {
+  return Array.isArray(items) && items.some(i => i && typeof i === 'object' && 'transitionId' in (i as Record<string, unknown>))
+}
+
+/**
+ * 用「這張單自己的」transitions 切到目標狀態。查詢用的帳號＝實際執行的帳號（權限不同可見的 transition 也可能不同）。
+ * 查詢失敗、對不到、或同一目標有多條路徑，都不送出，逐張回報原因。
+ */
+async function transitionIssueToStatus(baseUrl: string, auth: string, issueKey: string, toStatusId: string, toStatusName?: string):
+  Promise<{ ok: true; transitionId: string } | { ok: false; error: string }> {
+  const listResp = await fetch(`${baseUrl}/rest/api/3/issue/${encodeURIComponent(issueKey)}/transitions`, {
+    headers: { Authorization: auth, Accept: 'application/json' },
+  })
+  if (!listResp.ok) {
+    const txt = await listResp.text().catch(() => '')
+    return { ok: false, error: `查不到這張單的可切換狀態（HTTP ${listResp.status}）${txt ? '：' + txt.slice(0, 120) : ''}` }
+  }
+  const data = await listResp.json() as { transitions?: JiraTransitionLike[] }
+  const picked = pickTransitionForTarget(data.transitions ?? [], toStatusId, toStatusName)
+  if ('code' in picked) return { ok: false, error: picked.message }
+  const resp = await fetch(`${baseUrl}/rest/api/3/issue/${encodeURIComponent(issueKey)}/transitions`, {
+    method: 'POST',
+    headers: { Authorization: auth, Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ transition: { id: picked.transitionId } }),
+  })
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => '')
+    return { ok: false, error: `HTTP ${resp.status}: ${txt.slice(0, 120)}` }
+  }
+  return { ok: true, transitionId: picked.transitionId }
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -2712,20 +2749,19 @@ router.post('/api/jira/batch-transition', async (req, res, next) => {
       heavyTaskToken = heavyTask.token
     }
 
+    if (hasLegacyTransitionId((req.body as { issues?: unknown })?.issues)) return res.status(400).json({ ok: false, message: LEGACY_TRANSITION_MESSAGE })
     const body = batchTransitionSchema.parse(req.body)
     const baseUrl = mustEnv('JIRA_BASE_URL')
-    const defaultTransitionId = process.env.JIRA_TRANSITION_ID ?? '41'
+    // ⚠️ 原本沒指定時會退回 JIRA_TRANSITION_ID（預設 '41'）——41 在 CGFB 是 Done，等於「沒選就幫你結單」。已移除，必須明確指定目標狀態
 
     const results: { rowIndex: number; issueKey: string; ok: boolean; error?: string }[] = []
 
     for (const item of body.issues) {
       try {
-        const resp = await fetch(`${baseUrl}/rest/api/3/issue/${item.issueKey}/transitions`, {
-          method: 'POST',
-          headers: { Authorization: userAuth.auth, Accept: 'application/json', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transition: { id: item.transitionId ?? defaultTransitionId } }),
-        })
-        results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: resp.ok })
+        const r = await transitionIssueToStatus(baseUrl, userAuth.auth, item.issueKey, item.toStatusId, item.toStatusName)
+        results.push('error' in r
+          ? { rowIndex: item.rowIndex, issueKey: item.issueKey, ok: false, error: r.error }
+          : { rowIndex: item.rowIndex, issueKey: item.issueKey, ok: true })
       } catch (e) {
         results.push({ rowIndex: item.rowIndex, issueKey: item.issueKey, ok: false, error: String(e) })
       }
@@ -2969,7 +3005,7 @@ router.get('/api/jira/transitions', async (req, res, next) => {
     const resp = await fetch(`${baseUrl}/rest/api/3/issue/${issueKey}/transitions`, {
       headers: { Authorization: userAuth.auth, Accept: 'application/json' },
     })
-    const data = await resp.json() as { transitions?: Array<{ id: string; name: string; to?: { name?: string } }>; errorMessages?: string[]; errors?: unknown }
+    const data = await resp.json() as { transitions?: Array<{ id: string; name: string; to?: { id?: string; name?: string } }>; errorMessages?: string[]; errors?: unknown }
     if (!resp.ok || !data.transitions) {
       const errMsg = (data.errorMessages ?? []).join('; ') || `Jira HTTP ${resp.status}`
       return res.status(400).json({ ok: false, message: errMsg })
@@ -2979,6 +3015,7 @@ router.get('/api/jira/transitions', async (req, res, next) => {
       transitions: data.transitions.map(t => ({
         id: t.id,
         name: t.name,
+        toId: t.to?.id ?? '',
         toName: t.to?.name ?? t.name,
       })),
     })
@@ -2991,12 +3028,15 @@ router.get('/api/jira/transitions', async (req, res, next) => {
  */
 router.post('/api/jira/bulk-update', async (req, res, next) => {
   try {
+    // 舊版頁面送 transitionId：不能當成「不切換」默默放行，也不能照送（會重演跨專案誤切）
+    if (hasLegacyTransitionId((req.body as { items?: unknown })?.items)) return res.status(400).json({ ok: false, message: LEGACY_TRANSITION_MESSAGE })
     const body = z.object({
       items: z.array(z.object({
         issueKey: z.string(),
         email: z.string(),
-        transitionId: z.string().optional(),
-        transitionName: z.string().optional(),
+        // 目標狀態 ID；沒給＝不切換。不收 transitionId（見 shared/jira-transition.ts）
+        toStatusId: z.string().optional(),
+        toStatusName: z.string().optional(),
       })),
     }).parse(req.body)
 
@@ -3012,18 +3052,10 @@ router.post('/api/jira/bulk-update', async (req, res, next) => {
       }
       const auth = `Basic ${Buffer.from(`${account.email}:${account.token}`).toString('base64')}`
       try {
-        if (item.transitionId) {
-          const resp = await fetch(`${baseUrl}/rest/api/3/issue/${item.issueKey}/transitions`, {
-            method: 'POST',
-            headers: { Authorization: auth, Accept: 'application/json', 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transition: { id: item.transitionId } }),
-          })
-          if (!resp.ok) {
-            const txt = await resp.text()
-            results.push({ issueKey: item.issueKey, ok: false, error: `HTTP ${resp.status}: ${txt.slice(0, 120)}` })
-          } else {
-            results.push({ issueKey: item.issueKey, ok: true })
-          }
+        if (item.toStatusId) {
+          // 用執行帳號查這張單自己的 transitions，再對出要走哪一條
+          const r = await transitionIssueToStatus(baseUrl, auth, item.issueKey, item.toStatusId, item.toStatusName)
+          results.push('error' in r ? { issueKey: item.issueKey, ok: false, error: r.error } : { issueKey: item.issueKey, ok: true })
         } else {
           // 使用者選的是「不切換」（或忘了選）——不呼叫 Jira，明確標記 skipped 讓前端/歷史紀錄
           // 跟真的切換成功區分開，避免誤寫回「已切換狀態」到 Sheet 卻其實什麼都沒做
@@ -3039,10 +3071,10 @@ router.post('/api/jira/bulk-update', async (req, res, next) => {
     const ok = results.filter(r => r.ok && !r.skipped).length
     const skipped = results.filter(r => r.skipped).length
     const fail = results.filter(r => !r.ok).length
-    const transitionLabel = body.items.find(i => i.transitionName)?.transitionName ?? '（未選擇目標狀態）'
+    const transitionLabel = body.items.find(i => i.toStatusName)?.toStatusName ?? '（未選擇目標狀態）'
     log(fail > 0 ? 'warn' : 'ok', getClientIP(req), '', 'Jira 批次更新', `成功 ${ok} 筆${skipped > 0 ? `，跳過 ${skipped} 筆` : ''}${fail > 0 ? `，失敗 ${fail} 筆` : ''}`)
     addHistory('jira-update', 'Jira 批次更新狀態', `切換至「${transitionLabel}」：成功 ${ok} 筆${skipped > 0 ? `，跳過 ${skipped} 筆` : ''}${fail > 0 ? `，失敗 ${fail} 筆` : ''}`,
-      { results, transitionId: body.items.find(i => i.transitionId)?.transitionId, transitionName: transitionLabel })
+      { results, toStatusId: body.items.find(i => i.toStatusId)?.toStatusId, toStatusName: transitionLabel })
     res.json({ ok: true, results })
   } catch (error) { next(error) }
 })

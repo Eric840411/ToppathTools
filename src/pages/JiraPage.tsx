@@ -14,6 +14,7 @@ import { isJiraFieldRequired } from '../../shared/jira-required-fields.js'
 import { JIRA_KEY_AT_START_RE, JIRA_KEY_IN_BROWSE_URL_RE } from '../../shared/jira-key.js'
 import { JiraCreateStep4 } from './JiraCreateStep4'
 import { acquireAttachmentLease, uploadJiraAttachment } from '../lib/jiraAttachmentUpload'
+import { targetStatusOptions } from '../../shared/jira-transition.js'
 
 export interface Member {
   accountId: string
@@ -73,6 +74,8 @@ export interface NormalizedJiraField {
 export interface JiraTransitionOption {
   id: string
   name: string
+  /** 目標狀態 ID——跨專案只有這個能比，transition id 不行（見 shared/jira-transition.ts） */
+  toId?: string
   toName?: string
 }
 
@@ -680,7 +683,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
   const [transitionProgress, setTransitionProgress] = useState<{ done: number; total: number } | null>(null)
   const [transitionResults, setTransitionResults] = useState<StageOpResult[]>([])
   const [transitionOptions, setTransitionOptions] = useState<JiraTransitionOption[]>([])
-  const [selectedTransitionId, setSelectedTransitionId] = useState('')
+  const [selectedTargetStatusId, setSelectedTargetStatusId] = useState('')
   const [transitionOptionsLoading, setTransitionOptionsLoading] = useState(false)
   const [transitionOptionsError, setTransitionOptionsError] = useState('')
 
@@ -699,7 +702,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
   const [updateJiraStatusFilter, setUpdateJiraStatusFilter] = useState('')
   // Transitions
   const [updateTransitions, setUpdateTransitions] = useState<JiraTransitionOption[]>([])
-  const [updateTransitionId, setUpdateTransitionId] = useState('')
+  const [updateTargetStatusId, setUpdateTargetStatusId] = useState('')
   const [updateSubmitting, setUpdateSubmitting] = useState(false)
   const [updateProgress, setUpdateProgress] = useState<{ done: number; total: number } | null>(null)
   const [updateResults, setUpdateResults] = useState<{ issueKey: string; ok: boolean; skipped?: boolean; error?: string }[]>([])
@@ -1033,7 +1036,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
       setPendingCommentRequestId(''); setCommentProgress(null)
     prevCommentKeysRef.current = new Set()
       setSubmitting(false); setCommentSubmitting(false); setTransitionSubmitting(false)
-      setTransitionOptions([]); setSelectedTransitionId(''); setTransitionOptionsError(''); setTransitionOptionsLoading(false)
+      setTransitionOptions([]); setSelectedTargetStatusId(''); setTransitionOptionsError(''); setTransitionOptionsLoading(false)
       setGeneratedSummaries({}); setSummaryProgress(null); setSummaryGenerating(false)
     }
 
@@ -1256,7 +1259,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
   useEffect(() => {
     if (step !== 6 || !currentAccount || toTransition.length === 0) {
       setTransitionOptions([])
-      setSelectedTransitionId('')
+      setSelectedTargetStatusId('')
       setTransitionOptionsError('')
       return
     }
@@ -1275,17 +1278,17 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
         const transitions = data.transitions ?? []
         if (data.ok && transitions.length > 0) {
           setTransitionOptions(transitions)
-          setSelectedTransitionId(prev => transitions.some(t => t.id === prev) ? prev : transitions[0].id)
+          setSelectedTargetStatusId(prev => transitions.some(t => t.toId === prev) ? prev : '')
         } else {
           setTransitionOptions([])
-          setSelectedTransitionId('')
+          setSelectedTargetStatusId('')
           setTransitionOptionsError(data.message ?? '無法取得可切換狀態')
         }
       })
       .catch((error) => {
         if (!alive) return
         setTransitionOptions([])
-        setSelectedTransitionId('')
+        setSelectedTargetStatusId('')
         setTransitionOptionsError(String(error))
       })
       .finally(() => {
@@ -2465,13 +2468,15 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
 
   // ── Step 6: 切換狀態 ──
   const handleTransition = async () => {
-    if (!currentAccount || toTransition.length === 0 || !selectedTransitionId) return
+    if (!currentAccount || toTransition.length === 0 || !selectedTargetStatusId) return
     setTransitionSubmitting(true); setTransitionProgress({ done: 0, total: toTransition.length })
 
+    const targetName = transitionOptions.find(t => t.toId === selectedTargetStatusId)?.toName
     const issues = toTransition.map(t => ({
       issueKey: t.issueKey,
       rowIndex: t.rowIndex,
-      transitionId: selectedTransitionId,
+      toStatusId: selectedTargetStatusId,
+      toStatusName: targetName,
     }))
 
     let batchToken: string | undefined
@@ -2550,7 +2555,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
     setMembers([]); setMembersError(''); setMembersLoading(false)
     setPendingCommentRequestId(''); setCommentProgress(null)
     setSubmitting(false); setCommentSubmitting(false); setTransitionSubmitting(false)
-    setTransitionOptions([]); setSelectedTransitionId(''); setTransitionOptionsError(''); setTransitionOptionsLoading(false)
+    setTransitionOptions([]); setSelectedTargetStatusId(''); setTransitionOptionsError(''); setTransitionOptionsLoading(false)
     localStorage.removeItem(COMMENT_PENDING_KEY)
   }, [])
 
@@ -3014,7 +3019,8 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
           const transData = await transResp.json() as { ok: boolean; transitions?: JiraTransitionOption[] }
           if (transData.ok && (transData.transitions ?? []).length > 0) {
             setUpdateTransitions(transData.transitions ?? [])
-            setUpdateTransitionId(transData.transitions![0].id)
+            // 預設「不切換」，不自動選第一項（CodeX）——自動選等於幫使用者決定要切到哪
+            setUpdateTargetStatusId('')
             break
           }
         } catch { /* try next */ }
@@ -3108,13 +3114,15 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
 
     setUpdateSubmitting(true); setUpdateResults([])
     const execEmail = currentAccount?.email ?? ''
-    const selectedTransitionName = updateTransitions.find(t => t.id === updateTransitionId)
-    const transitionLabel = selectedTransitionName ? (selectedTransitionName.toName ?? selectedTransitionName.name) : undefined
+    const selectedTarget = targetStatusOptions(updateTransitions.map(t => ({ id: t.id, name: t.name, to: { id: t.toId, name: t.toName } })))
+      .find(o => o.toId === updateTargetStatusId)
+    const transitionLabel = selectedTarget?.toName
     const items = filtered.map(r => ({
       issueKey: r.issueKey,
       email: execEmail,
-      transitionId: updateTransitionId || undefined,
-      transitionName: updateTransitionId ? transitionLabel : undefined,
+      // 送「目標狀態」，每張單由後端各自查出自己該走哪條 transition
+      toStatusId: updateTargetStatusId || undefined,
+      toStatusName: updateTargetStatusId ? transitionLabel : undefined,
     }))
     setUpdateProgress({ done: 0, total: items.length })
     try {
@@ -3165,7 +3173,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
 
   const handleUpdateReset = () => {
     setUpdateStep(1); setUpdateBitableUrl(''); setUpdateRecords([]); setUpdateError('')
-    setUpdateTransitions([]); setUpdateTransitionId(''); setUpdateResults([])
+    setUpdateTransitions([]); setUpdateTargetStatusId(''); setUpdateResults([])
     setUpdateJiraData({}); setUpdateJiraError(''); setUpdateSelectedKeys(new Set())
     setUpdateValidationErrors([])
   }
@@ -3333,8 +3341,8 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
           updateJiraStatusOptions={updateJiraStatusOptions}
           currentAccount={currentAccount}
           updateTransitions={updateTransitions}
-          updateTransitionId={updateTransitionId}
-          setUpdateTransitionId={setUpdateTransitionId}
+          updateTargetStatusId={updateTargetStatusId}
+          setUpdateTargetStatusId={setUpdateTargetStatusId}
           updateJiraError={updateJiraError}
           fetchUpdateJiraData={fetchUpdateJiraData}
           rdFieldDetecting={rdFieldDetecting}
@@ -3608,21 +3616,20 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
                 <label className="field" style={{ maxWidth: 360 }}>
                   <span>要切換成的狀態 <em className="req">*</em></span>
                   <select
-                    value={selectedTransitionId}
-                    onChange={e => setSelectedTransitionId(e.target.value)}
+                    value={selectedTargetStatusId}
+                    onChange={e => setSelectedTargetStatusId(e.target.value)}
                     disabled={transitionOptionsLoading || transitionOptions.length === 0}
                   >
                     {transitionOptionsLoading
                       ? <option value="">載入狀態中...</option>
                       : transitionOptions.length === 0
                         ? <option value="">無可用狀態</option>
-                        : transitionOptions.map(t => (
-                          <option key={t.id} value={t.id}>
-                            {t.toName ?? t.name}{t.toName && t.toName !== t.name ? `（${t.name}）` : ''}
-                          </option>
-                        ))}
+                        : [<option key="" value="">（請選擇）</option>,
+                          ...targetStatusOptions(transitionOptions.map(t => ({ id: t.id, name: t.name, to: { id: t.toId, name: t.toName } }))).map(o => (
+                            <option key={o.toId} value={o.toId}>{o.toName}</option>
+                          ))]}
                   </select>
-                  <span className="field-hint">依第一張待切換 Issue 動態讀取 Jira 可用 transition。</span>
+                  <span className="field-hint">選項依第一張單讀取；送出時每張單會各自確認能不能切到這個狀態，不能的會列出來、不會送。</span>
                 </label>
                 {transitionOptionsError && <div className="alert-error">{transitionOptionsError}</div>}
               </div>
@@ -3672,7 +3679,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
             <button type="button" className="btn-ghost btn-ghost--step" onClick={() => setStep(5)}>上一步</button>
             {toTransition.length > 0 && (
               <button type="button" className={`submit-btn submit-btn--step${transitionSubmitting ? ' loading' : ''}`}
-                style={{ whiteSpace: 'nowrap', flexShrink: 0 }} disabled={transitionSubmitting || !selectedTransitionId} onClick={handleTransition}>
+                style={{ whiteSpace: 'nowrap', flexShrink: 0 }} disabled={transitionSubmitting || !selectedTargetStatusId} onClick={handleTransition}>
                 {transitionSubmitting ? '更新中...' : `批次切換狀態（${toTransition.length} 筆）`}
               </button>
             )}
@@ -4116,7 +4123,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
             setMembers([]); setSelectedAssignee(''); setBatchAssigneeIds([]); setBatchRdOwnerIds([]); setBatchVerifierIds([]); setSheetUrl('')
             setSheetRecords([]); setSheetHeaders([]); setSelectedRows(new Set())
             setCreateResults([]); setCommentResults([]); setTransitionResults([])
-            setTransitionOptions([]); setSelectedTransitionId(''); setTransitionOptionsError(''); setTransitionOptionsLoading(false)
+            setTransitionOptions([]); setSelectedTargetStatusId(''); setTransitionOptionsError(''); setTransitionOptionsLoading(false)
             setTrackedIssues([])
             setStep(1)
           }}
