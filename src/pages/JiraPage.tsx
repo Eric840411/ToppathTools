@@ -15,7 +15,7 @@ import { JIRA_KEY_AT_START_RE, JIRA_KEY_IN_BROWSE_URL_RE } from '../../shared/ji
 import { JiraCreateStep4 } from './JiraCreateStep4'
 import { acquireAttachmentLease, uploadJiraAttachment } from '../lib/jiraAttachmentUpload'
 import { targetStatusOptions } from '../../shared/jira-transition.js'
-import { submitBlockReason, targetAfterReload } from '../../shared/transition-selection'
+import { startTransitionReload, submitBlockReason } from '../../shared/transition-selection'
 
 export interface Member {
   accountId: string
@@ -969,34 +969,12 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
     () => updateRecords.find(r => updateSelectedKeys.has(r.issueKey))?.issueKey ?? '',
     [updateRecords, updateSelectedKeys],
   )
-  useEffect(() => {
-    if (!updateFirstSelectedKey || !currentAccount?.email) {
-      setUpdateTransitions([]); setUpdateTransitionSourceKey(''); setUpdateTargetStatusId('')
-      return
-    }
-    if (updateFirstSelectedKey === updateTransitionSourceKey) return
-    let alive = true
-    // 重讀期間不准送出已選的目標（submitBlockReason 會擋），讀完才知道它在新首張上還算不算數
-    setUpdateTransitionsLoading(true)
-    fetch(`/api/jira/transitions?issueKey=${encodeURIComponent(updateFirstSelectedKey)}`, { headers: { 'x-jira-email': currentAccount.email } })
-      .then(r => r.json())
-      .then((d: { ok: boolean; transitions?: JiraTransitionOption[] }) => {
-        if (!alive) return
-        const list = d.ok ? (d.transitions ?? []) : []
-        setUpdateTransitions(list)
-        setUpdateTransitionSourceKey(d.ok ? updateFirstSelectedKey : '')
-        // 換了來源單，原本選的目標在新選項裡不一定還在——不在（或讀取失敗）就回到「不切換」，不留畫面看不到的值
-        setUpdateTargetStatusId(prev => targetAfterReload(prev, d.ok ? { ok: true, transitions: list } : { ok: false }))
-      })
-      .catch(() => {
-        if (!alive) return
-        // ⚠️ 失敗時目標也要清（CodeX review a9d923c）：原本只清選項，畫面寫「讀取失敗，可跳過」，執行卻送出舊目標
-        setUpdateTransitions([]); setUpdateTransitionSourceKey('')
-        setUpdateTargetStatusId(prev => targetAfterReload(prev, { ok: false }))
-      })
-      .finally(() => { if (alive) setUpdateTransitionsLoading(false) })
-    return () => { alive = false }
-  }, [updateFirstSelectedKey, currentAccount?.email, updateTransitionSourceKey])
+  // effect 本體在 shared/transition-selection.ts（startTransitionReload），抽出去才測得到 A→B→A 這種生命週期
+  useEffect(() => startTransitionReload(
+    { firstKey: updateFirstSelectedKey, email: currentAccount?.email, sourceKey: updateTransitionSourceKey },
+    (key, email) => fetch(`/api/jira/transitions?issueKey=${encodeURIComponent(key)}`, { headers: { 'x-jira-email': email } }).then(r => r.json()),
+    { transitions: setUpdateTransitions, sourceKey: setUpdateTransitionSourceKey, target: setUpdateTargetStatusId, loading: setUpdateTransitionsLoading },
+  ), [updateFirstSelectedKey, currentAccount?.email, updateTransitionSourceKey])
 
   const updateFilteredRecords = useMemo(() =>
     updateRecords.filter(rec => {

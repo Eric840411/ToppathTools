@@ -418,3 +418,10 @@ Step 3 動態欄位模式的必填驗證（`validateDynamicFields()`，`JiraPage
 
 > 驗證：`npx tsx shared/transition-selection.test.ts` 9 條；突變：失敗時保留目標 → 1 條紅、不檢查來源單 → 2 條紅、不檢查讀取中 → 1 條紅。
 > 瀏覽器實測（Playwright，**所有會改 Jira 的請求都被攔下、回假結果**）：只勾 P5MA-9684 選「本機測試完成」→ 讓重讀全部失敗 → 加勾 P5MA-9675（首張換了）→ 選單消失、顯示「讀取轉換選項失敗，可跳過（不會切換狀態）」→ 按執行，送出的兩筆**都沒有目標狀態**（會被當成不切換）。
+
+#### 補強：A→B→A 切換時讀取狀態不卡住（v4.262.10，CodeX review `8ec8730`）
+- A 讀好並選了目標 → 切到 B（開始讀、loading=true）→ B 回來前切回 A：B 的 cleanup 讓它的回應作廢，A 因為「來源相同」直接 return，
+  **沒人把 loading 改回 false**，之後永遠被「還在讀取中」擋住。每一條提前 return 與 cleanup 都重設 loading
+- effect 本體抽到 `shared/transition-selection.ts` 的 `startTransitionReload()`，測試用迷你版 React（依賴變動就先跑 cleanup 再跑新的）重現 A→B→A
+
+> 驗證：測試 9 → 14 條（A 讀好、切 B 讀取中且擋送出、A→B→A 後 loading 為 false、B 遲到的回應被丟掉、回到 A 可送出）；突變：拿掉 loading 重設 → 2 條紅。瀏覽器重跑：選項仍跟著勾選切換。

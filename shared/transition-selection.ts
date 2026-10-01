@@ -15,6 +15,53 @@ export function targetAfterReload(prevTarget: string, outcome: ReloadOutcome): s
   return outcome.transitions.some(t => t.toId === prevTarget) ? prevTarget : ''
 }
 
+export type TransitionOpt = { id: string; name: string; toId?: string; toName?: string }
+
+/**
+ * 「依目前勾選的第一張重讀選項」的 effect 本體，抽出來是為了能測生命週期（CodeX review 8ec8730）。
+ * 回傳 cleanup——呼叫端（React useEffect）在依賴變動時先呼叫它、再跑下一次。
+ *
+ * ⚠️ 每一條提前 return 都要重設 loading：A 讀好 → 切到 B（開始讀、loading=true）→ B 回來前又切回 A：
+ *    B 的 cleanup 讓它的回應作廢，A 因為「來源相同」直接 return——原本沒人把 loading 改回 false，之後永遠被擋。
+ */
+export function startTransitionReload(
+  input: { firstKey: string; email: string | undefined; sourceKey: string },
+  fetchTransitions: (key: string, email: string) => Promise<{ ok: boolean; transitions?: TransitionOpt[] }>,
+  set: {
+    transitions: (list: TransitionOpt[]) => void
+    sourceKey: (key: string) => void
+    target: (update: (prev: string) => string) => void
+    loading: (on: boolean) => void
+  },
+): () => void {
+  const { firstKey, email, sourceKey } = input
+  if (!firstKey || !email) {
+    set.transitions([]); set.sourceKey(''); set.target(() => ''); set.loading(false)
+    return () => {}
+  }
+  if (firstKey === sourceKey) {
+    set.loading(false)   // 選項本來就是這張讀的，不用重讀——但上一輪可能留下 loading=true
+    return () => {}
+  }
+  let alive = true
+  set.loading(true)
+  fetchTransitions(firstKey, email)
+    .then(d => {
+      if (!alive) return
+      const list = d.ok ? (d.transitions ?? []) : []
+      set.transitions(list)
+      set.sourceKey(d.ok ? firstKey : '')
+      set.target(prev => targetAfterReload(prev, d.ok ? { ok: true, transitions: list } : { ok: false }))
+    })
+    .catch(() => {
+      if (!alive) return
+      set.transitions([]); set.sourceKey('')
+      set.target(prev => targetAfterReload(prev, { ok: false }))
+    })
+    .finally(() => { if (alive) set.loading(false) })
+  return () => { alive = false; set.loading(false) }
+}
+
 /**
  * 能不能送出目前選的目標。不切換（空字串）永遠可以；選了目標的話，選項必須是**依目前勾選的第一張讀完的**——
  * 還在重讀、或選項是從別張單讀的，都代表這個目標還沒被確認過。
