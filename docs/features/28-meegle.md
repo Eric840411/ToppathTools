@@ -70,3 +70,72 @@
 - 用綁定的 token 真的去開單／評論／流轉（批量工具改接 Meegle），這次只做身分綁定
 - 代理授權（用別人的 Meegle 身分操作）
 - Jira 退場：登入帳號、PIN、角色目前都存在 `jira_accounts`，停用 Jira 時登入系統要一起搬（CodeX 提醒，另案）
+
+---
+
+## 28b. Meegle 批量開單（Jira 頁「Meegle 開單」分頁，v4.263.0）
+
+**入口**：Jira 批量工具 →「Meegle 開單」分頁｜**路由**：`/api/meegle/batch/*`（`server/routes/meegle-batch.ts`）｜
+**歷史紀錄 feature key**：`meegle-batch-create`｜**權限**：跟 Jira 批量工具同一個 page key `jira`（伺服器也檢查）｜
+**前提**：使用者已在「個人帳號」綁定 Meegle（用本人 token 開單，前端沒有參數能指定用誰的 token）
+
+**目標空間／類型**：預設「TP-項目管理-測試」的「任務項」。正式上線改環境變數
+`MEEGLE_PROJECT_KEY`／`MEEGLE_TASK_TYPE_KEY`（還有 `MEEGLE_REQUIREMENT_TYPE_KEY`、`MEEGLE_REQUIREMENT_FIELD_KEY`）。⚠️ Master 是正式空間，**不要拿來測**。
+
+### 使用者操作
+| 操作 | 說明 |
+|------|------|
+| 讀取 Sheet | 貼 Lark Sheet 網址（會帶入其他 Jira 分頁最後用的網址）。只支援 Lark |
+| 關聯需求預設 | Meegle「任務項」的關聯需求是**必填**。整批選一個；Sheet 有「關聯需求」欄（填名稱或需求 ID）就以那欄為準 |
+| 受托人／Code Review | Sheet 沒有這兩欄，整批選一個（下拉只列已對照過的人），可逐列改 |
+| 開單後推到 | 整批選一個狀態；不選就停在初始狀態。**「進度」欄不使用**（使用者：進度不等於 Meegle 狀態） |
+| 編輯（逐列） | 改這列的關聯需求、五個角色（填 Sheet 上的人名） |
+| 人員對照 | 列出 Sheet 出現過的人名，填 email →「驗證」→ 記住，下次自動帶入；已對照的可「修改」 |
+| 送出 | 逐列開單；被擋下的列不送 |
+| 重推狀態 | 已開單但推狀態失敗的列，只重推狀態，不重開 |
+| 查詢結果 | 結果待確認的列，去 Meegle 查到底有沒有開出來 |
+| 修正後重送 | 開單失敗（伺服器明確拒絕、沒開出任何東西）的列 |
+| 匯出結果 | 前端產 CSV |
+
+### 規則（跟使用者、CodeX 討論定案）
+- **列規則只有一份**：`shared/meegle-batch-rules.ts` 的 `planRow()`，前端預覽與伺服器都用它（CLAUDE.md 跨功能踩坑 #3）
+- **任務名稱**：「摘要」→「標題」；都空就擋
+- **關聯需求**：逐列指定 → Sheet「關聯需求」欄 → 整批預設。**有填但對不到（找不到、同名多筆）就擋，不退回預設**——退回等於掛到使用者沒選的需求底下。送出前伺服器再確認需求還在允許的空間
+- **人員**：Sheet 存的是暱稱，靠 `meegle_person_map`（Sheet 寫法正規化後 → Meegle user_key）換。用 Sheet 的**完整寫法**當鍵：「Jenny Hsu」「Jenny Lin」是兩筆。
+  **對不上的名字，那個角色留空、不擋整列**（使用者決定，CodeX 原建議是擋；為了不靜默丟資料，預覽標黃、寫明哪個角色留空）。前端送人名，**伺服器自己查對照表**，不收前端給的 user_key
+- **驗證 email**：先 `user search`；查不到再從空間既有單子的參與人找（MQL `all_participate_persons()` 用顯示名稱精確比對）。**兩條路都要 email 完全相同才算**，名稱只用來縮小範圍
+- **推狀態**：比對 **state_key**，不比名稱；每張單即時查 transition（Jira 那次 transition id 套錯的教訓，見 `01-jira.md`）
+
+### 防重複開單（`server/meegle-batch-store.ts`，CodeX review）
+前端逐列呼叫，斷線／逾時／重整後再按一次送出，伺服器不記得就會開第二張。表 `meegle_batch_rows`（batch_id＋列號）：
+
+| 狀態 | 再送一次會怎樣 |
+|---|---|
+| `creating`（開單中） | 不開，回目前狀態 |
+| `created` | 不重開，只補推狀態 |
+| `unknown`（逾時／看不懂回應／開單途中重啟） | 不開，要先「查詢結果」 |
+| `failed`（伺服器明確拒絕，`retriable=false`） | 可以重送 |
+
+- 認領用 `BEGIN IMMEDIATE` 交易，兩個請求同時進來只有一個拿得到；結果只能從 `creating` 寫出去，晚到的舊結果蓋不掉
+- `creating` 超過 5 分鐘（伺服器在開單途中重啟）→ 轉 `unknown`，不會被當成可重送
+- **查詢結果**：用名稱＋關聯需求＋建立日期（MQL 只到「日」）找，排除已記在別列的單號；唯一一張才收，零張改 `failed`，多張維持待確認請人判斷
+- **跨批次**：記下來源 Sheet 網址，下次讀同一份 Sheet，同列號＋同名稱開過的標「已在 Meegle 開過」、預設不勾；Sheet 已有「Jira issue key」的也預設不勾
+
+### ⚠️ 踩坑（2026-10-01 用 CLI 1.0.23 實測）
+1. **`workitem create --fields` 的值一律要字串**，數字會被擋（`MCPGatewayRequestMismatch`）；`role_owners` 要先 `JSON.stringify`
+2. **5 個角色可以在建單時一次設好；任一人員無效整張單不會建立**（`ErrnoCannotFindUserInfo`）——沒有「單開了角色沒補上」的半成品，所以不需要「只補角色」的流程
+3. **CLI 外層的 `error.retryable` 不可信**：同一個錯誤 server 寫 `retriable=false`，外層卻是 `true`。分類看 server 訊息；看不出來一律當 `unknown`（寧可擋重送）
+4. **狀態流的 transition id 隨目前狀態改變**（待辦→可本機測試是 3238341，從可本機測試出發是另一組）
+5. **MQL 一頁 50 筆，第 2 頁之後 `session_id`／`list` 是 null**——要記第一頁的，每頁重讀會停在第 2 頁
+6. **`user search` 不是完整名錄**：Tim 掛在既有單子的角色上，但用名字、email、user_key 都查不到
+7. **MQL 的人名比對大小寫有別**（`'Tim'` 查得到、`'tim'` 回 3011）
+8. 「任務項」是狀態流、10 個狀態全連通；目前每個狀態都沒有必填欄位（`list-state-required` 回 `{}`）
+
+### 驗證
+- `npx tsx server/meegle-workitem.test.ts`（47）、`npx tsx server/meegle-batch-store.test.ts`（20）、`npx tsx shared/meegle-batch-rules.test.ts`（24）
+- 突變都紅在對應那幾條：相信外層 retryable、翻頁每頁重讀 session、沒單號當失敗、逾時列可重新認領、晚到結果蓋掉 created
+
+### 還沒做
+- 開單後回寫 Lark Sheet（Meegle 單號、處理階段）——要先跟使用者確認欄位
+- 附件（Sheet 的圖、測試附件）沒有帶進 Meegle
+- Google Sheets 來源

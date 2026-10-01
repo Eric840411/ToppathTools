@@ -1,0 +1,138 @@
+/* Meegle 批量開單（Jira 頁「Meegle 開單」分頁）
+   版面由 CodeX 設計：01 預覽表／02 人員對照／03 送出結果，滿版由上往下。
+   普通版沿用站內深底操作型配色（跟 MeegleAccountPage 同一組色票）；修仙版只換配色與裝飾，結構不變。 */
+
+.mb-page {
+  --mb-bg: #0f172a;
+  --mb-card: #111c2e;
+  --mb-border: #2d3f55;
+  --mb-text: #e2e8f0;
+  --mb-muted: #94a3b8;
+  --mb-primary: #3b82f6;
+  --mb-primary-hover: #2563eb;
+  --mb-ok: #4ade80;
+  --mb-bad: #f87171;
+  --mb-warn: #fbbf24;
+  --mb-pending: #c084fc;
+  --mb-info: #60a5fa;
+  display: flex; flex-direction: column; gap: 16px;
+  color: var(--mb-text);
+  min-width: 0;
+}
+
+.mb-card { background: var(--mb-card); border: 1px solid var(--mb-border); border-radius: 12px; padding: 18px 20px; min-width: 0; }
+.mb-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.mb-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; font-size: 17px; font-weight: 700; margin: 0; }
+.mb-no { font-size: 20px; color: var(--mb-primary); font-variant-numeric: tabular-nums; }
+.mb-sub { font-size: 12px; font-weight: 400; color: var(--mb-muted); }
+.mb-muted { color: var(--mb-muted); }
+.mb-hint { font-size: 12px; color: var(--mb-muted); line-height: 1.7; margin: 8px 0 0; flex-basis: 100%; }
+
+.mb-sheet { display: flex; gap: 8px; flex: 1 1 380px; max-width: 640px; }
+.mb-input, .mb-select {
+  min-width: 0; background: var(--mb-bg); color: var(--mb-text);
+  border: 1px solid var(--mb-border); border-radius: 8px; padding: 7px 10px; font-size: 13px;
+}
+.mb-sheet .mb-input { flex: 1; }
+.mb-input:focus, .mb-select:focus { outline: none; border-color: var(--mb-primary); }
+
+.mb-defaults { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: flex-end; padding: 12px 14px; border: 1px solid var(--mb-border); border-radius: 10px; margin-bottom: 12px; }
+.mb-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--mb-muted); min-width: 0; }
+.mb-defaults .mb-field { flex: 1 1 180px; }
+.mb-field .mb-select, .mb-field .mb-input { width: 100%; }
+
+.mb-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
+.mb-search { flex: 0 1 260px; }
+.mb-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.mb-chip {
+  border-radius: 999px; padding: 4px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--mb-border); background: transparent; color: var(--mb-muted);
+}
+.mb-chip.is-on { color: var(--mb-text); }
+.mb-chip--all.is-on { border-color: var(--mb-muted); background: rgba(148, 163, 184, .12); }
+.mb-chip--ok.is-on { border-color: var(--mb-ok); background: rgba(74, 222, 128, .12); color: var(--mb-ok); }
+.mb-chip--blocked.is-on { border-color: var(--mb-bad); background: rgba(248, 113, 113, .12); color: var(--mb-bad); }
+.mb-chip--warn.is-on { border-color: var(--mb-warn); background: rgba(251, 191, 36, .12); color: var(--mb-warn); }
+.mb-chip--pending.is-on { border-color: var(--mb-pending); background: rgba(192, 132, 252, .12); color: var(--mb-pending); }
+.mb-tally .mb-chip { cursor: default; }
+
+.mb-table-wrap { overflow-x: auto; border: 1px solid var(--mb-border); border-radius: 10px; }
+.mb-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.mb-table th { text-align: left; font-weight: 600; color: var(--mb-muted); background: rgba(148, 163, 184, .06); padding: 8px 10px; white-space: nowrap; border-bottom: 1px solid var(--mb-border); }
+.mb-table td { padding: 8px 10px; border-bottom: 1px solid rgba(45, 63, 85, .6); vertical-align: top; }
+.mb-table tr:last-child td { border-bottom: 0; }
+.mb-table tr.is-blocked td { background: rgba(248, 113, 113, .04); }
+.mb-table tr.is-warn td { background: rgba(251, 191, 36, .04); }
+.mb-table a { color: var(--mb-info); }
+.mb-num { font-variant-numeric: tabular-nums; color: var(--mb-muted); white-space: nowrap; }
+.mb-name { min-width: 180px; max-width: 360px; overflow-wrap: anywhere; }
+.mb-msg { max-width: 320px; overflow-wrap: anywhere; color: var(--mb-muted); font-size: 12px; }
+.mb-empty { text-align: center; padding: 18px; }
+.mb-people { min-width: 220px; font-size: 12px; line-height: 1.7; }
+.mb-role { display: inline-block; margin-right: 10px; white-space: nowrap; }
+.mb-unmapped { color: var(--mb-warn); text-decoration: underline dotted; }
+.mb-check { min-width: 160px; }
+
+.mb-tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 4px; margin-left: 4px; border: 1px solid; }
+.mb-tag--default { color: var(--mb-info); border-color: rgba(96, 165, 250, .45); }
+.mb-tag--override { color: var(--mb-pending); border-color: rgba(192, 132, 252, .45); }
+
+.mb-badge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 6px; border: 1px solid; margin: 1px 0; line-height: 1.5; }
+.mb-badge + .mb-badge { margin-left: 4px; }
+.mb-badge--ok { color: var(--mb-ok); border-color: rgba(74, 222, 128, .4); background: rgba(74, 222, 128, .08); }
+.mb-badge--warn { color: var(--mb-warn); border-color: rgba(251, 191, 36, .4); background: rgba(251, 191, 36, .08); }
+.mb-badge--bad { color: var(--mb-bad); border-color: rgba(248, 113, 113, .4); background: rgba(248, 113, 113, .08); }
+.mb-badge--pending { color: var(--mb-pending); border-color: rgba(192, 132, 252, .4); background: rgba(192, 132, 252, .08); }
+.mb-badge--info { color: var(--mb-info); border-color: rgba(96, 165, 250, .4); background: rgba(96, 165, 250, .08); }
+
+.mb-edit-row td { background: rgba(59, 130, 246, .05); }
+.mb-edit { display: flex; flex-wrap: wrap; gap: 10px 14px; }
+.mb-edit .mb-field { flex: 1 1 160px; }
+
+.mb-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; font-size: 13px; }
+.mb-pager { display: flex; align-items: center; gap: 8px; color: var(--mb-muted); font-variant-numeric: tabular-nums; }
+
+.mb-btn {
+  display: inline-flex; align-items: center; justify-content: center; text-decoration: none;
+  border-radius: 8px; padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  border: 1px solid var(--mb-border); background: transparent; color: var(--mb-text);
+  transition: background .15s, border-color .15s;
+}
+.mb-btn:not(:disabled):hover { border-color: var(--mb-primary); background: rgba(59, 130, 246, .1); }
+.mb-btn:focus-visible { outline: 2px solid var(--mb-primary); outline-offset: 2px; }
+.mb-btn:disabled { opacity: .5; cursor: not-allowed; }
+.mb-btn--primary { background: var(--mb-primary); border-color: var(--mb-primary); color: #fff; }
+.mb-btn--primary:not(:disabled):hover { background: var(--mb-primary-hover); border-color: var(--mb-primary-hover); }
+.mb-btn--small { padding: 3px 10px; font-size: 12px; }
+.mb-foot .mb-btn--primary { padding: 9px 26px; font-size: 14px; }
+
+.mb-alert { border-radius: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.6; margin-bottom: 12px; border: 1px solid; }
+.mb-alert--bad { color: #fecaca; background: rgba(248, 113, 113, .08); border-color: rgba(248, 113, 113, .4); }
+.mb-alert--warn { color: #fde68a; background: rgba(251, 191, 36, .08); border-color: rgba(251, 191, 36, .35); }
+
+.mb-progress { height: 6px; border-radius: 999px; background: rgba(148, 163, 184, .15); overflow: hidden; margin-bottom: 12px; }
+.mb-progress > div { height: 100%; background: var(--mb-ok); transition: width .3s; }
+.mb-tally { margin-bottom: 12px; }
+
+/* ── 修仙版：只換配色與裝飾（墨黑底、青玉主按鈕、細金線）── */
+:root[data-theme-mode="xianxia"] .mb-page {
+  --mb-bg: #0b1110;
+  --mb-card: #101716;
+  --mb-border: rgba(163, 130, 63, .45);
+  --mb-text: #e8e1cf;
+  --mb-muted: #a39a86;
+  --mb-primary: #62C6A5;
+  --mb-primary-hover: #4fb592;
+  --mb-ok: #62C6A5;
+  --mb-info: #d9b56a;
+}
+:root[data-theme-mode="xianxia"] .mb-card {
+  box-shadow: inset 0 1px 0 rgba(163, 130, 63, .35), 0 0 0 1px rgba(0, 0, 0, .4);
+}
+:root[data-theme-mode="xianxia"] .mb-title { letter-spacing: .06em; }
+:root[data-theme-mode="xianxia"] .mb-btn--primary { color: #0b1110; }
+:root[data-theme-mode="xianxia"] .mb-btn:not(:disabled):hover { background: rgba(98, 198, 165, .1); }
+:root[data-theme-mode="xianxia"] .mb-btn--primary:not(:disabled):hover { background: var(--mb-primary-hover); }
+:root[data-theme-mode="xianxia"] .mb-table th { background: rgba(163, 130, 63, .08); }
+:root[data-theme-mode="xianxia"] .mb-edit-row td { background: rgba(98, 198, 165, .05); }
+.mb-gap { margin-left: 8px; }

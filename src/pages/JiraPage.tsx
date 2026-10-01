@@ -8,6 +8,7 @@ import { JiraBatchCommentTab } from './JiraBatchCommentTab'
 import { JiraBatchCommentStep3 } from './JiraBatchCommentStep3'
 import { JiraBatchUpdateTab } from './JiraBatchUpdateTab'
 import { JiraBatchEditTab } from './JiraBatchEditTab'
+import { MeegleBatchCreateTab } from './MeegleBatchCreateTab'
 import { JiraCreateStep12 } from './JiraCreateStep12'
 import { JiraCreateStep3 } from './JiraCreateStep3'
 import { isJiraFieldRequired } from '../../shared/jira-required-fields.js'
@@ -477,7 +478,7 @@ export function EditUserPicker({ members, loading, value, label, onChange }: {
 
 export function JiraPage({ account = null, isAdmin = false, permissions = [] }: JiraPageProps) {
   const isGame = useIsGameMode()
-  const [qaSubMode, setQaSubMode] = useState<'create' | 'comment' | 'update' | 'edit'>('create')
+  const [qaSubMode, setQaSubMode] = useState<'create' | 'comment' | 'update' | 'edit' | 'meegle'>('create')
   const [step, setStep] = useState<Step>(1)
   const [showAccountModal, setShowAccountModal] = useState(false)
   const [currentAccount, setCurrentAccount] = useState<AccountInfo | null>(account)
@@ -3253,7 +3254,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
     <div className="page-layout">
       {/* QA sub-tabs */}
       <div style={{ display: 'flex', gap: 8, padding: '6px 0 2px', flexWrap: 'wrap' }}>
-        {(['create', 'comment', 'update', 'edit'] as const).map(sub => (
+        {(['create', 'comment', 'update', 'edit', 'meegle'] as const).map(sub => (
           <button
             key={sub}
             type="button"
@@ -3265,13 +3266,13 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
               color: qaSubMode === sub ? '#93c5fd' : '#64748b',
             }}
           >
-            {sub === 'create' ? '批量開單' : sub === 'comment' ? '批量評論' : sub === 'update' ? '批量更新狀態' : '批量修改'}
+            {sub === 'create' ? '批量開單' : sub === 'comment' ? '批量評論' : sub === 'update' ? '批量更新狀態' : sub === 'edit' ? '批量修改' : 'Meegle 開單'}
           </button>
         ))}
       </div>
 
-      {/* Top bar */}
-      <div className="page-topbar">
+      {/* Top bar（Meegle 開單分頁自己有 01/02/03 三塊，不用步驟列）*/}
+      {qaSubMode !== 'meegle' && <div className="page-topbar">
         <div className="step-indicator">
           {qaSubMode === 'create'
             ? ([1, 2, 3, 4] as Step[]).map(s => <StepDot key={s} s={s} />)
@@ -3311,7 +3312,9 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
             <XianxiaIcon name="account" size={17} /> {currentAccount ? currentAccount.label : '選擇帳號'}
           </button>
         </div>
-      </div>
+      </div>}
+
+      {qaSubMode === 'meegle' && <MeegleBatchCreateTab initialSheetUrl={lastSheetUrl} />}
 
       {/* ── Update Mode (inside QA) ── */}
       {qaSubMode === 'update' && (

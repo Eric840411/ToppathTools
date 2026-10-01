@@ -31,6 +31,7 @@ import { router as dashboardRouter, dashboardMetricsMiddleware } from './routes/
 import { router as xianxiaQuotesRouter } from './routes/xianxia-quotes.js'
 import { router as weeklyReportRouter } from './routes/weekly-report.js'
 import { router as meegleRouter } from './routes/meegle.js'
+import { router as meegleBatchRouter } from './routes/meegle-batch.js'
 import { getRequestContext, runWithRequestContext } from './request-context.js'
 import { getAuthAccount } from './auth-session.js'
 
@@ -344,6 +345,7 @@ app.use(knowledgeRouter)
 app.use(xianxiaQuotesRouter)
 app.use(weeklyReportRouter)
 app.use(meegleRouter)
+app.use(meegleBatchRouter)
 
 // ─── Static Files (production build) ──────────────────────────────────────────
 
