@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.263.5'
+export const APP_VERSION = '4.263.6'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.263.6', date: '2026-10-01', changes: ['fix(Meegle)：**從區網 IP（http://192.168.x.x）開，按送出就報錯** `crypto.randomUUID is not a function`（使用者實測）——它只在 HTTPS／localhost 存在，跟 v4.235.0 UAT 那次同一個坑。改用既有的 `newStepId()`（退到 getRandomValues）；用區網 IP 實測 isSecureContext=false 下可以送出、批次編號是合法 UUID'] },
   { version: '4.263.5', date: '2026-10-01', changes: ['feat(Meegle)：**人員欄認常見欄名**（使用者決定，不用改 Sheet）——回報者／回報人／填寫人、RD負責人／RD、QA驗證人員；依序找第一個存在的欄位，該欄這列空白就是沒人、不會跳去抓下一個欄名', 'fix(Meegle)：**Sheet 中間重複出現的標題列被當成資料**——實測第二份 Sheet 第 10、15 列是「日期／填寫人／摘要／RD…」，原本會開出一張叫「摘要」的單，「填寫人」「RD」也被當成人名。至少 2 格等於自己欄名的列一律擋下', 'test(Meegle)：rules 30 → 38 條，用使用者的真 Sheet 驗過人名清單不再出現欄名；拿掉標題列判斷會紅'] },
   { version: '4.263.4', date: '2026-10-01', changes: ['fix(Meegle)：「還沒綁定」的提示寫明修仙版側欄叫「本命道籍」（使用者在修仙版找不到「個人帳號」）'] },
   { version: '4.262.10', date: '2026-10-01', changes: ['fix(Jira)：**切換勾選時「狀態選項讀取中」可能卡住、之後一直無法執行**（CodeX review）——勾選從 A 換到 B、B 還沒讀完又換回 A，讀取中的標記沒有被清掉。現在每種情況都會正確結束讀取狀態', 'test(Jira)：讀取流程抽成可測的函式，補上 A→B→A 切換的測試（突變會紅）；瀏覽器重跑確認選項仍跟著勾選切換'] },

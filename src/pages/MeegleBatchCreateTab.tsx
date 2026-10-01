@@ -3,6 +3,7 @@ import {
   MEEGLE_ROLE_DEFS, collectAliases, isRestorablePrevious, normAlias, planRow,
   type BatchDefaults, type MappedPerson, type MeegleRoleKey, type Requirement, type RowPlan,
 } from '../../shared/meegle-batch-rules'
+import { newStepId } from '../features/uat/step-model'
 import './MeegleBatchCreateTab.css'
 
 /**
@@ -187,7 +188,8 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
   }
 
   function ensureBatch() {
-    const id = batchId || crypto.randomUUID()
+    // ⚠️ 不能直接用 crypto.randomUUID()：從區網 IP（http://192.168.x.x）開時不存在（2026-10-01 使用者實測送出就報錯）
+    const id = batchId || newStepId()
     if (!batchId) setBatchId(id)
     return id
   }
