@@ -5,6 +5,7 @@ import type {
   SheetSource, SheetRecord, CachedAttachment, Member, NormalizedJiraField,
 } from './JiraPage'
 import { MultiEditUserPicker, EditUserPicker } from './JiraPage'
+import { uploadJiraAttachment } from '../lib/jiraAttachmentUpload'
 
 type EditFieldMapping = {
   jiraField: string
@@ -569,23 +570,19 @@ export function JiraBatchEditTab(props: {
                                       onChange={async e => {
                                         const files = Array.from(e.target.files ?? [])
                                         for (const file of files) {
-                                          const formData = new FormData()
-                                          formData.append('file', file)
-                                          try {
-                                            const resp = await fetch('/api/jira/attachment-upload', { method: 'POST', headers: { ...emailHeader }, body: formData })
-                                            const data = await resp.json() as CachedAttachment & { ok: boolean; message?: string }
-                                            if (data.ok) {
-                                              setEditDescAttachMap(prev => ({
-                                                ...prev,
-                                                [issue.issueKey]: [
-                                                  ...(prev[issue.issueKey] ?? []).filter(a => !!a.cacheId),
-                                                  data,
-                                                ],
-                                              }))
-                                            } else {
-                                              setEditDescUploadErrors(prev => ({ ...prev, [issue.issueKey]: data.message ?? '上傳失敗' }))
-                                            }
-                                          } catch { setEditDescUploadErrors(prev => ({ ...prev, [issue.issueKey]: '網路錯誤' })) }
+                                          const r = await uploadJiraAttachment(file, { ...emailHeader })
+                                          if (r.ok) {
+                                            const data = r.data
+                                            setEditDescAttachMap(prev => ({
+                                              ...prev,
+                                              [issue.issueKey]: [
+                                                ...(prev[issue.issueKey] ?? []).filter(a => !!a.cacheId),
+                                                data,
+                                              ],
+                                            }))
+                                          } else {
+                                            setEditDescUploadErrors(prev => ({ ...prev, [issue.issueKey]: `${file.name}：${r.message}` }))
+                                          }
                                         }
                                         e.target.value = ''
                                       }} />

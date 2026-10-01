@@ -3,6 +3,7 @@ import { XianxiaIcon } from '../components/XianxiaIcon'
 import { StepGuide, ReloadSheetButton } from '../components/JiraStepWidgets'
 import { ModelSelector } from '../components/ModelSelector'
 import type { SheetRecord, TrackedIssue, StageOpResult, PreviewItem, PersonResolveResult } from './JiraPage'
+import { MAX_ATTACHMENT_LABEL } from '../../shared/attachment-limits'
 
 /**
  * 批量評論分頁 Step 3（設定評論內容 + 預覽送出）。純畫面元件，狀態留在 JiraPage.tsx 以 props 傳入
@@ -529,7 +530,7 @@ export function JiraBatchCommentStep3(props: {
                               />
                               {uploadingRows.has(item.rowIndex) ? '上傳中...' : '＋ 上傳圖片/影片'}
                             </label>
-                            <span style={{ fontSize: 10, color: '#475569' }}>單檔上限 10MB</span>
+                            <span style={{ fontSize: 10, color: '#475569' }}>單檔上限 {MAX_ATTACHMENT_LABEL}</span>
                           </div>
                           {uploadErrors[item.rowIndex] && (
                             <div style={{ marginTop: 5, fontSize: 11, color: '#f85149', display: 'flex', alignItems: 'center', gap: 4 }}>

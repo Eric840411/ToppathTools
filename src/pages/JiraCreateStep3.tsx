@@ -5,6 +5,7 @@ import {
   UserFieldSearch, getField, needsCreate, stageBadgeClass, stageLabel, SHEET_FIELD,
 } from './JiraPage'
 import type { SheetRecord, NormalizedJiraField, CachedAttachment } from './JiraPage'
+import { uploadJiraAttachment } from '../lib/jiraAttachmentUpload'
 
 /**
  * 批量開單 Step 3（動態欄位開單）——這個流程最大最複雜的一段：欄位選擇器、
@@ -672,17 +673,13 @@ export function JiraCreateStep3(props: {
                                   onChange={async e => {
                                     const files = Array.from(e.target.files ?? [])
                                     for (const file of files) {
-                                      const formData = new FormData()
-                                      formData.append('file', file)
-                                      try {
-                                        const resp = await fetch('/api/jira/attachment-upload', { method: 'POST', headers: { ...emailHeader }, body: formData })
-                                        const data = await resp.json() as CachedAttachment & { ok: boolean; message?: string }
-                                        if (data.ok) {
-                                          setDescAttachMap(prev => ({ ...prev, [rowIdx]: [...(prev[rowIdx] ?? []), data] }))
-                                        } else {
-                                          setDescUploadErrors(prev => ({ ...prev, [rowIdx]: data.message ?? '上傳失敗' }))
-                                        }
-                                      } catch { setDescUploadErrors(prev => ({ ...prev, [rowIdx]: '網路錯誤' })) }
+                                      const r = await uploadJiraAttachment(file, { ...emailHeader })
+                                      if (r.ok) {
+                                        const data = r.data
+                                        setDescAttachMap(prev => ({ ...prev, [rowIdx]: [...(prev[rowIdx] ?? []), data] }))
+                                      } else {
+                                        setDescUploadErrors(prev => ({ ...prev, [rowIdx]: `${file.name}：${r.message}` }))
+                                      }
                                     }
                                     e.target.value = ''
                                   }} />

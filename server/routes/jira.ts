@@ -2,7 +2,7 @@
  * server/routes/jira.ts
  * All /api/jira/*, /api/admin/*, /api/lark/sheets/* routes.
  */
-import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync, unlinkSync } from 'fs'
+import { existsSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { Router } from 'express'
@@ -37,44 +37,62 @@ import { withRequestOperation } from '../request-context.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { missingForcedRequiredFields } from '../../shared/jira-required-fields.js'
 import { JIRA_KEY_EXACT_RE, JIRA_KEY_IN_TEXT_RE, JIRA_KEY_BRACKET_PREFIX_RE } from '../../shared/jira-key.js'
+import { MAX_ATTACHMENT_BYTES, attachmentTooLargeMessage } from '../../shared/attachment-limits.js'
+import {
+  ATTACH_CACHE_DIR, AttachmentTooLargeError, cachePath, cleanAttachmentCache,
+  safeUnlink, saveResponseToCache, startAttachmentCacheSweeper, touchCacheFile, uploadFileToJira, type CachedFile,
+} from '../jira-attachment-files.js'
 
 export const router = Router()
 
 // ─── Attachment cache ──────────────────────────────────────────────────────────
-const ATTACH_CACHE_DIR = join(process.cwd(), 'server', 'attachment-cache')
-if (!existsSync(ATTACH_CACHE_DIR)) mkdirSync(ATTACH_CACHE_DIR, { recursive: true })
-const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024 // 10 MB (Jira Cloud default limit)
-
-function cleanAttachmentCache() {
-  try {
-    const now = Date.now()
-    for (const f of readdirSync(ATTACH_CACHE_DIR)) {
-      const fp = join(ATTACH_CACHE_DIR, f)
-      try { if (now - statSync(fp).mtimeMs > 2 * 60 * 60 * 1000) unlinkSync(fp) } catch { /* ignore */ }
-    }
-  } catch { /* ignore */ }
-}
+// 快取目錄、上限、串流上傳下載都在 jira-attachment-files.ts（上限本身在 shared/attachment-limits.ts）
+startAttachmentCacheSweeper()
 
 // ─── Multer for manual attachment upload ──────────────────────────────────────
+// diskStorage：直接寫進快取目錄，不把整個檔案放進記憶體。
+// ⚠️ multer 只在「它自己的錯誤」（例如超過上限）時刪半成品；**用戶端中途斷線它不刪**（實測留下半個檔）——
+//    所以 filename 回呼裡先把路徑記在 req 上，下面在連線提早關閉時自己刪
 const multerUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_ATTACHMENT_BYTES },
+  storage: multer.diskStorage({
+    destination: ATTACH_CACHE_DIR,
+    filename: (req, _file, cb) => {
+      const name = randomUUID()
+      ;((req as unknown as { _uploadPaths?: string[] })._uploadPaths ??= []).push(cachePath(name))
+      cb(null, name)
+    },
+  }),
+  // ⚠️ +1：multer（busboy）是「到達」上限就判定超過，傳 MAX 的話剛好 100MiB 的檔會被擋（實測）
+  limits: { fileSize: MAX_ATTACHMENT_BYTES + 1, files: 1 },
 })
+
+/** 刪半成品。Windows 上檔案還被寫入串流開著時刪不掉，稍等重試幾次 */
+function removePartialUploads(paths: string[], attempt = 0) {
+  const left = paths.filter(p => { safeUnlink(p); return existsSync(p) })
+  if (left.length && attempt < 5) setTimeout(() => removePartialUploads(left, attempt + 1), 500).unref()
+}
 
 /** POST /api/jira/attachment-upload — manual file upload from browser, saved to cache */
 router.post('/api/jira/attachment-upload', (req, res) => {
+  // 要登入：原本完全不擋，上限拉到 100MB 後等於任何人都能往伺服器硬碟灌檔案
+  if (!getAuthAccount(req)) return res.status(401).json({ ok: false, message: '請先登入' })
+  // 回應還沒送出就關閉＝用戶端中途斷線，這次寫到一半的檔要刪掉
+  res.on('close', () => {
+    if (res.writableFinished) return
+    const paths = (req as unknown as { _uploadPaths?: string[] })._uploadPaths ?? []
+    if (paths.length) removePartialUploads(paths)
+  })
   multerUpload.single('file')(req, res, (err: unknown) => {
     if (err) {
       const isLimit = (err as { code?: string }).code === 'LIMIT_FILE_SIZE'
-      return res.status(400).json({
+      return res.status(isLimit ? 413 : 400).json({
         ok: false,
-        message: isLimit ? `檔案超過 10MB 限制（Jira Cloud 預設上限）` : `上傳失敗：${String(err)}`,
+        message: isLimit ? attachmentTooLargeMessage() : `上傳失敗：${String(err)}`,
       })
     }
     const file = req.file
     if (!file) return res.status(400).json({ ok: false, message: '未收到檔案' })
-    const cacheId = randomUUID()
-    writeFileSync(join(ATTACH_CACHE_DIR, cacheId), file.buffer)
+    const cacheId = file.filename
     const mimeType = file.mimetype || 'application/octet-stream'
     return res.json({
       ok: true,
@@ -354,40 +372,26 @@ function parseLarkFileToken(url: string): string | null {
   return m ? m[1] : null
 }
 
-/** 透過 Lark Drive API 下載檔案，回傳 buffer、filename、mimeType */
-async function downloadLarkFile(fileToken: string, larkToken: string): Promise<{ buffer: Buffer; filename: string; mimeType: string }> {
+type DownloadedFile = CachedFile & { filename: string; mimeType: string }
+
+/** 下載到快取（串流、邊下載邊算大小，超過上限中止）。檔名與型別從回應標頭取 */
+async function downloadToCache(resp: Response, fallbackName: string, fallbackType: string): Promise<DownloadedFile> {
+  const cd = resp.headers.get('content-disposition') ?? ''
+  const fnMatch = cd.match(/filename\*=UTF-8''(.+)/i) ?? cd.match(/filename="?([^";\r\n]+)"?/i)
+  const filename = fnMatch ? decodeURIComponent(fnMatch[1].trim()) : fallbackName
+  const mimeType = resp.headers.get('content-type')?.split(';')[0] ?? fallbackType
+  const saved = await saveResponseToCache(resp)
+  return { ...saved, filename, mimeType }
+}
+
+/** 透過 Lark Drive API 下載檔案到快取 */
+async function downloadLarkFile(fileToken: string, larkToken: string): Promise<DownloadedFile> {
   const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
   const resp = await fetch(`${base}/open-apis/drive/v1/files/${fileToken}/download`, {
     headers: { Authorization: `Bearer ${larkToken}` },
   })
   if (!resp.ok) throw new Error(`Lark Drive download failed: HTTP ${resp.status}`)
-  const cd = resp.headers.get('content-disposition') ?? ''
-  const filenameMatch = cd.match(/filename\*=UTF-8''(.+)/i) ?? cd.match(/filename="?([^";\r\n]+)"?/i)
-  const filename = filenameMatch ? decodeURIComponent(filenameMatch[1].trim()) : `file_${fileToken}`
-  const mimeType = resp.headers.get('content-type')?.split(';')[0] ?? 'application/octet-stream'
-  const arrayBuffer = await resp.arrayBuffer()
-  return { buffer: Buffer.from(arrayBuffer), filename, mimeType }
-}
-
-/** 上傳附件到 Jira Issue */
-async function uploadAttachmentToJira(issueKey: string, filename: string, buffer: Buffer, mimeType: string, auth: string, baseUrl: string): Promise<string> {
-  const form = new FormData()
-  form.append('file', new Blob([buffer], { type: mimeType }), filename)
-  const resp = await fetch(`${baseUrl}/rest/api/3/issue/${issueKey}/attachments`, {
-    method: 'POST',
-    headers: { Authorization: auth, 'X-Atlassian-Token': 'no-check', Accept: 'application/json' },
-    body: form,
-  })
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => '')
-    throw new Error(`Jira 附件上傳失敗 HTTP ${resp.status}: ${text.slice(0, 200)}`)
-  }
-  const data = await resp.json().catch(() => []) as Array<{ filename?: string }>
-  const storedFilename = data[0]?.filename ?? filename
-  if (storedFilename !== filename) {
-    console.log(`[upload-attachment] filename changed: "${filename}" → "${storedFilename}"`)
-  }
-  return storedFilename
+  return downloadToCache(resp, `file_${fileToken}`, 'application/octet-stream')
 }
 
 /** 判斷 URL 是否為 Lark embed-image 內嵌圖片 URL（非 Drive 下載路徑） */
@@ -396,7 +400,7 @@ function isLarkEmbedImageUrl(url: string): boolean {
 }
 
 /** 下載 Lark Sheet embed-image（使用 Lark media download API） */
-async function downloadLarkEmbedImage(link: string, larkToken: string): Promise<{ buffer: Buffer; filename: string; mimeType: string }> {
+async function downloadLarkEmbedImage(link: string, larkToken: string): Promise<DownloadedFile> {
   const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
   // Extract fileToken from URL path: .../cover/{fileToken}/...
   const fileTokenMatch = link.match(/\/cover\/([A-Za-z0-9_-]+)\//)
@@ -410,12 +414,7 @@ async function downloadLarkEmbedImage(link: string, larkToken: string): Promise<
     headers: { Authorization: `Bearer ${larkToken}` },
   })
   if (!resp.ok) throw new Error(`Lark media download failed: HTTP ${resp.status}`)
-  const buffer = Buffer.from(await resp.arrayBuffer())
-  const cd = resp.headers.get('content-disposition') ?? ''
-  const fnMatch = cd.match(/filename\*=UTF-8''(.+)/i) ?? cd.match(/filename="?([^";\r\n]+)"?/i)
-  const filename = fnMatch ? decodeURIComponent(fnMatch[1].trim()) : `image_${fileToken}.jpg`
-  const mimeType = resp.headers.get('content-type')?.split(';')[0] ?? 'image/jpeg'
-  return { buffer, filename, mimeType }
+  return downloadToCache(resp, `image_${fileToken}.jpg`, 'image/jpeg')
 }
 
 /** 判斷 URL 是否為 Google Drive */
@@ -449,15 +448,11 @@ async function detectGoogleDriveFileType(fileId: string): Promise<'image' | 'vid
 }
 
 /** 下載公開的 Google Drive 檔案 */
-async function downloadGoogleDriveFile(fileId: string): Promise<{ buffer: Buffer; filename: string; mimeType: string }> {
+async function downloadGoogleDriveFile(fileId: string): Promise<DownloadedFile> {
   const url = `https://drive.usercontent.google.com/download?id=${fileId}&export=download&authuser=0`
   const resp = await fetch(url, { redirect: 'follow' })
   if (!resp.ok) throw new Error(`Google Drive download failed: HTTP ${resp.status}`)
-  const cd = resp.headers.get('content-disposition') ?? ''
-  const fnMatch = cd.match(/filename\*=UTF-8''(.+)/i) ?? cd.match(/filename="?([^";\r\n]+)"?/i)
-  const filename = fnMatch ? decodeURIComponent(fnMatch[1].trim()) : `gdrive_${fileId}`
-  const mimeType = resp.headers.get('content-type')?.split(';')[0] ?? 'application/octet-stream'
-  return { buffer: Buffer.from(await resp.arrayBuffer()), filename, mimeType }
+  return downloadToCache(resp, `gdrive_${fileId}`, 'application/octet-stream')
 }
 
 const formatCommentWithGemini = async (ctx: CommentContext): Promise<string> => {
@@ -1008,7 +1003,7 @@ router.get('/api/jira/field-users', async (req, res, next) => {
  * Download attachment files from Lark/Google Drive and cache locally.
  * Frontend uses the returned cacheIds to display thumbnails in the preview table.
  * Files are served via GET /api/jira/attachment-cache/:cacheId.
- * Each file must be ≤ 10 MB (Jira Cloud default).
+ * 單檔上限見 shared/attachment-limits.ts；下載途中超過就中止，不會先下載完才判斷。
  */
 router.post('/api/jira/attachment-prefetch', async (req, res, next) => {
   try {
@@ -1061,17 +1056,17 @@ router.post('/api/jira/attachment-prefetch', async (req, res, next) => {
         const trimmed = url.trim()
         if (!trimmed) continue
         try {
-          let buffer: Buffer, filename: string, mimeType: string
+          let file: DownloadedFile
           if (isGoogleDriveUrl(trimmed)) {
             const fileId = parseGoogleDriveFileId(trimmed)
             if (!fileId) {
               attachments.push({ cacheId: '', filename: trimmed, mimeType: '', isImage: false, isVideo: false, size: 0, error: '無法解析 Google Drive 連結' })
               continue
             }
-            ;({ buffer, filename, mimeType } = await downloadGoogleDriveFile(fileId))
+            file = await downloadGoogleDriveFile(fileId)
           } else if (isLarkEmbedImageUrl(trimmed)) {
             if (!larkToken) larkToken = await getLarkToken()
-            ;({ buffer, filename, mimeType } = await downloadLarkEmbedImage(trimmed, larkToken))
+            file = await downloadLarkEmbedImage(trimmed, larkToken)
           } else {
             const fileToken = parseLarkFileToken(trimmed)
             if (!fileToken) {
@@ -1081,18 +1076,14 @@ router.post('/api/jira/attachment-prefetch', async (req, res, next) => {
               continue
             }
             if (!larkToken) larkToken = await getLarkToken()
-            ;({ buffer, filename, mimeType } = await downloadLarkFile(fileToken, larkToken))
+            file = await downloadLarkFile(fileToken, larkToken)
           }
-          if (buffer.length > MAX_ATTACHMENT_BYTES) {
-            attachments.push({ cacheId: '', filename, mimeType, isImage: false, isVideo: false, size: buffer.length, error: `超過 10MB 限制（${(buffer.length / 1024 / 1024).toFixed(1)}MB）` })
-            continue
-          }
-          const cacheId = randomUUID()
-          writeFileSync(join(ATTACH_CACHE_DIR, cacheId), buffer)
-          attachments.push({ cacheId, filename, mimeType, isImage: mimeType.startsWith('image/'), isVideo: mimeType.startsWith('video/'), size: buffer.length })
+          // 大小在下載途中就檢查了（超過會丟 AttachmentTooLargeError、半成品已刪），這裡拿到的一定在上限內
+          attachments.push({ cacheId: file.cacheId, filename: file.filename, mimeType: file.mimeType, isImage: file.mimeType.startsWith('image/'), isVideo: file.mimeType.startsWith('video/'), size: file.size })
         } catch (err) {
           console.warn('[attachment-prefetch] download failed:', trimmed, err)
-          attachments.push({ cacheId: '', filename: trimmed, mimeType: '', isImage: false, isVideo: false, size: 0, error: String(err) })
+          const tooLarge = err instanceof AttachmentTooLargeError
+          attachments.push({ cacheId: '', filename: trimmed, mimeType: '', isImage: false, isVideo: false, size: tooLarge ? (err.sizeBytes ?? 0) : 0, error: tooLarge ? err.message : String(err) })
         }
       }
 
@@ -1107,16 +1098,14 @@ router.post('/api/jira/attachment-prefetch', async (req, res, next) => {
             const fileTokens = await getLarkCellImageTokens(spreadsheetToken, sheetId, cellId, larkToken)
             for (const fileToken of fileTokens) {
               try {
-                const { buffer, filename, mimeType } = await downloadLarkFile(fileToken, larkToken)
-                if (buffer.length > MAX_ATTACHMENT_BYTES) {
-                  attachments.push({ cacheId: '', filename, mimeType, isImage: false, isVideo: false, size: buffer.length, error: `超過 10MB 限制` })
-                  continue
-                }
-                const cacheId = randomUUID()
-                writeFileSync(join(ATTACH_CACHE_DIR, cacheId), buffer)
-                attachments.push({ cacheId, filename, mimeType, isImage: mimeType.startsWith('image/'), isVideo: mimeType.startsWith('video/'), size: buffer.length })
+                const f = await downloadLarkFile(fileToken, larkToken)
+                attachments.push({ cacheId: f.cacheId, filename: f.filename, mimeType: f.mimeType, isImage: f.mimeType.startsWith('image/'), isVideo: f.mimeType.startsWith('video/'), size: f.size })
               } catch (err) {
                 console.warn('[attachment-prefetch] cell_image download failed:', fileToken, err)
+                // 原本這裡只印 log、畫面上什麼都不顯示——超過上限的圖會無聲消失
+                if (err instanceof AttachmentTooLargeError) {
+                  attachments.push({ cacheId: '', filename: `儲存格圖片 ${fileToken.slice(0, 8)}`, mimeType: '', isImage: false, isVideo: false, size: err.sizeBytes ?? 0, error: err.message })
+                }
               }
             }
           }
@@ -1611,9 +1600,8 @@ router.post('/api/jira/batch-create', async (req, res, next) => {
                 continue
               }
               try {
-                const buffer = readFileSync(fp)
-                console.log(`[batch-create] ${issueKey} 上傳附件 ${ca.filename} (${buffer.length}bytes)`)
-                const storedFilename = await uploadAttachmentToJira(issueKey, ca.filename, buffer, ca.mimeType, userAuth.auth, baseUrl)
+                console.log(`[batch-create] ${issueKey} 上傳附件 ${ca.filename}`)
+                const storedFilename = await uploadFileToJira(issueKey, ca.filename, fp, ca.mimeType, userAuth.auth, baseUrl)
                 console.log(`[batch-create] ${issueKey} 附件上傳成功: ${ca.filename} → ${storedFilename}`)
                 if (ca.isVideo) uploadedVideos.push(storedFilename)
                 else uploadedImages.push(storedFilename)
@@ -2377,7 +2365,8 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
         const videoLinks: string[] = []
         const imageAttachUrls: { type: 'lark' | 'gdrive'; url: string; fileId?: string }[] = []
         // Pre-downloaded cached files ready to upload (images AND videos with real cache files)
-        const cachedImageFiles: { buffer: Buffer; filename: string; mimeType: string; isVideo: boolean }[] = []
+        // 只記路徑，上傳時才從檔案串流——原本這裡先把整批附件讀成 Buffer，幾支影片就是幾份完整檔案在記憶體裡
+        const cachedImageFiles: { path: string; filename: string; mimeType: string; isVideo: boolean }[] = []
 
         if (cachedAtts.length > 0) {
           // Use cached files (from prefetch endpoint)
@@ -2388,10 +2377,8 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
             } else if (ca.cacheId) {
               const fp = join(ATTACH_CACHE_DIR, ca.cacheId)
               if (existsSync(fp)) {
-                try {
-                  const buffer = readFileSync(fp)
-                  cachedImageFiles.push({ buffer, filename: ca.filename, mimeType: ca.mimeType, isVideo: ca.isVideo })
-                } catch { /* ignore missing cache */ }
+                touchCacheFile(fp)   // 標記使用中，排隊等上傳期間不會被清理刪掉
+                cachedImageFiles.push({ path: fp, filename: ca.filename, mimeType: ca.mimeType, isVideo: ca.isVideo })
               }
             }
           }
@@ -2418,7 +2405,7 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
           // Process cached files (already downloaded by prefetch)
           for (const cf of cachedImageFiles) {
             try {
-              const storedFilename = await uploadAttachmentToJira(item.issueKey, cf.filename, cf.buffer, cf.mimeType, itemAuth.auth, baseUrl)
+              const storedFilename = await uploadFileToJira(item.issueKey, cf.filename, cf.path, cf.mimeType, itemAuth.auth, baseUrl)
               uploadedFiles.push({ filename: storedFilename, isVideo: cf.isVideo })
               attachOk++
             } catch (attErr) {
@@ -2431,25 +2418,27 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
           if (imageAttachUrls.length > 0) {
             let larkToken: string | null = null
             for (const att of imageAttachUrls) {
+              let file: DownloadedFile | null = null
               try {
-                let buffer: Buffer, filename: string, mimeType: string
                 if (att.type === 'gdrive' && att.fileId) {
-                  ;({ buffer, filename, mimeType } = await downloadGoogleDriveFile(att.fileId))
+                  file = await downloadGoogleDriveFile(att.fileId)
                 } else if (isLarkEmbedImageUrl(att.url)) {
                   if (!larkToken) larkToken = await getLarkToken()
-                  ;({ buffer, filename, mimeType } = await downloadLarkEmbedImage(att.url, larkToken))
+                  file = await downloadLarkEmbedImage(att.url, larkToken)
                 } else {
                   const fileToken = parseLarkFileToken(att.url)
                   if (!fileToken) { attachFail++; continue }
                   if (!larkToken) larkToken = await getLarkToken()
-                  ;({ buffer, filename, mimeType } = await downloadLarkFile(fileToken, larkToken))
+                  file = await downloadLarkFile(fileToken, larkToken)
                 }
-                const storedFilename = await uploadAttachmentToJira(item.issueKey, filename, buffer, mimeType, itemAuth.auth, baseUrl)
-                uploadedFiles.push({ filename: storedFilename, isVideo: mimeType.startsWith('video/') })
+                const storedFilename = await uploadFileToJira(item.issueKey, file.filename, file.path, file.mimeType, itemAuth.auth, baseUrl)
+                uploadedFiles.push({ filename: storedFilename, isVideo: file.mimeType.startsWith('video/') })
                 attachOk++
               } catch (attErr) {
                 attachFail++
                 console.warn(`[batch-comment] ${item.issueKey} 附件上傳失敗 (${att.url}):`, attErr)
+              } finally {
+                if (file) safeUnlink(file.path)   // 這條路徑的下載只是過路，用完就刪
               }
             }
           }
@@ -3315,8 +3304,7 @@ router.post('/api/jira/batch-edit', async (req, res, next) => {
             const fp = join(ATTACH_CACHE_DIR, ca.cacheId)
             if (!existsSync(fp)) { console.warn(`[batch-edit] ${item.issueKey} 快取檔不存在: ${fp}`); continue }
             try {
-              const buffer = readFileSync(fp)
-              const storedFilename = await uploadAttachmentToJira(item.issueKey, ca.filename, buffer, ca.mimeType, userAuth.auth, baseUrl)
+              const storedFilename = await uploadFileToJira(item.issueKey, ca.filename, fp, ca.mimeType, userAuth.auth, baseUrl)
               if (ca.isVideo) uploadedVideos.push(storedFilename)
               else uploadedImages.push(storedFilename)
               try { unlinkSync(fp) } catch { /* ignore */ }

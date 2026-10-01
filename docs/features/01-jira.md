@@ -319,3 +319,26 @@ Step 3 動態欄位模式的必填驗證（`validateDynamicFields()`，`JiraPage
 > **真 Sheet 打真 route 前後對照**（`jira` router 掛在最小 Express app 上，舊版＝main 原樣 build）：前端擷取（三個分頁共用）58 → 69，多 11 張 P5MA、沒有任何一張消失；後端 `update-read-bitable`（死碼）115 → 115，差別只有 22 張 `MA-` → `P5MA-`。
 > ⚠️ 教訓二：驗一支 API 之前先 grep 它的呼叫端——我拿一支沒人用的端點當成「批量更新狀態」的行為對使用者講，把問題講得比實際嚴重。
 > ⚠️ 教訓：只跑單元測試會把「結尾邊界漏掉 CGFB-1」和「公式挖出 Z0-9」兩個都放過去——兩個都是打真資料才看到。
+
+### 附件上限 10MB → 100MB，而且全程不把檔案放進記憶體（2026-10-01，v4.262.3）
+
+**症狀**：使用者要上傳 57MB 的影片，被「檔案超過 10MB 限制（Jira Cloud 預設上限）」擋下。
+
+**原因**：10MB 是**我們自己設的**，理由寫「Jira Cloud 預設」——**是錯的**。實際打 `GET /rest/api/3/attachment/meta` 得到 `uploadLimit: 1073741824`（1 GiB）。
+
+**修法**（跟 CodeX 討論定案）：
+- 上限改 **100MB（100 MiB）**，抽成 `shared/attachment-limits.ts`，前後端、錯誤訊息、畫面「單檔上限」文字都從這裡來。定位是**工具自己的限制**，不動態讀 Jira
+- **全程串流**（`server/jira-attachment-files.ts`）：手動上傳用 multer **diskStorage** 直接落盤；從 Sheet 抓附件**邊下載邊累計 bytes，超過就中止並刪半成品**（原本是下載完整個檔才判斷）；送 Jira 用 `fs.openAsBlob()` 從檔案串流。原本 57MB 會在記憶體裡出現好幾份（memoryStorage、`readFileSync`、`new Blob([buffer])`），批量評論還會先把整批附件讀成 Buffer 陣列
+- **上傳 API 要登入**：原本完全不擋，上限加大後等於任何人能往硬碟灌檔
+- **快取清理**：原本只在 prefetch 被呼叫時才清 → 改成每 15 分鐘定期清；**用檔案前先 touch（更新 mtime）**，清理不會刪到使用中的——server 與 worker 兩支 process 共用目錄，in-memory 名單互看不到，mtime 兩邊都看得到
+- 前端三個上傳點（開單／評論／修改）改用同一支 `src/lib/jiraAttachmentUpload.ts`：送出前先檢查大小；**被反向代理擋下（HTTP 413、回 HTML 不是 JSON）時講清楚是代理的限制**，原本會直接變成「上傳失敗」
+
+**⚠️ 兩個實測才抓到的坑**
+1. **剛好 100MiB 的檔被擋**：multer（busboy）是「到達」上限就判超過，`limits.fileSize` 要傳 `MAX + 1`
+2. **用戶端中途斷線，multer 不刪半成品**（只在它自己的錯誤時刪）——在 filename 回呼記下路徑，`res.on('close')` 時若還沒回應就自己刪；Windows 上檔案還開著刪不掉，稍等重試
+
+**⚠️ Spug 前面若有反向代理**（nginx `client_max_body_size` 之類），上限要**比 100MB 再大一點**（multipart 有邊界與標頭）。工具改好後若 57MB 仍失敗、畫面說「伺服器前端擋下」，就是那一層。
+
+> 驗證：`npx tsx server/jira-attachment-files.test.ts` 14 條（剛好上限收下、+1 拒絕、超過時途中中止且刪半成品、Content-Length 超過直接拒、清理不刪 touch 過的、上傳到假 Jira 內容雜湊一致、送出端記憶體不長出整份——串流峰值 65MB vs 整檔讀取 171MB）。突變：上傳改回整檔讀取 → 記憶體那條紅；拿掉途中中止 → 四條紅；拿掉 touch → 清理那條紅。
+> 打本機真 server：未登入 401、57MB 落盤大小一致、剛好 100MiB 收下、+1 回 413 且沒留檔、三個 57MB 同時上傳全過、中途斷線三次都沒留半成品。
+> ⚠️ 沒驗：**真的送到 Jira 的 57MB**（會在真 issue 上留附件），送出端是用假 Jira 驗的。

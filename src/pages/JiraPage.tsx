@@ -13,6 +13,7 @@ import { JiraCreateStep3 } from './JiraCreateStep3'
 import { isJiraFieldRequired } from '../../shared/jira-required-fields.js'
 import { JIRA_KEY_AT_START_RE, JIRA_KEY_IN_BROWSE_URL_RE } from '../../shared/jira-key.js'
 import { JiraCreateStep4 } from './JiraCreateStep4'
+import { uploadJiraAttachment } from '../lib/jiraAttachmentUpload'
 
 export interface Member {
   accountId: string
@@ -2237,14 +2238,8 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
     setUploadErrors(prev => { const n = { ...prev }; delete n[rowIndex]; return n })
     for (const file of Array.from(files)) {
       try {
-        const formData = new FormData()
-        formData.append('file', file)
-        const resp = await fetch('/api/jira/attachment-upload', {
-          method: 'POST',
-          headers: { ...emailHeader },
-          body: formData,
-        })
-        const data = await resp.json() as CachedAttachment & { ok: boolean; message?: string }
+        const r = await uploadJiraAttachment(file, { ...emailHeader })
+        const data = r.ok ? { ...r.data, ok: true as const } : { ok: false as const, message: r.message }
         if (data.ok) {
           setPreviewItems(prev => prev.map(item => {
             if (item.rowIndex !== rowIndex) return item
