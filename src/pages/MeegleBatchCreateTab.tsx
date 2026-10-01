@@ -307,7 +307,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
               </select>
             </label>
             <p className="mb-hint">
-              Sheet 只有 RD負責人／回報者／QA驗證人員；受托人和 Code Review 由這裡整批帶入（下拉只列已對照過的人），可逐列修改。
+              人員欄認這些欄名：回報者／回報人／填寫人、RD負責人／RD、QA驗證人員；受托人和 Code Review 由這裡整批帶入（下拉只列已對照過的人），可逐列修改。
               Sheet 若有「關聯需求」欄，填了就以該欄為準，對不到會擋下，不會改用預設。
               {meta.statesError && <><br />⚠️ 讀不到狀態清單：{meta.statesError}</>}
             </p>
@@ -374,7 +374,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
                               </label>
                               {MEEGLE_ROLE_DEFS.map(d => (
                                 <label key={d.key} className="mb-field"><span>{d.label}</span>
-                                  <input className="mb-input" placeholder={d.sheetColumn ? `跟隨 Sheet（${d.sheetColumn}）` : '跟隨整批預設'}
+                                  <input className="mb-input" placeholder={d.sheetColumns.length ? `跟隨 Sheet（${d.sheetColumns.join('／')}）` : '跟隨整批預設'}
                                     value={ov.roles?.[d.key]?.join(', ') ?? ''}
                                     onChange={e => {
                                       const v = e.target.value

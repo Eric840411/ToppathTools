@@ -13,13 +13,27 @@
  * - 「進度」欄不使用（不等於 Meegle 狀態）。開單後要不要推狀態，由整批的「開單後推到」決定。
  */
 
+/**
+ * 每個角色讀 Sheet 的哪一欄：依序找，**第一個存在的欄位**就用它（欄位存在但這列空白 → 這列這個角色沒人，不會跳去下一個欄名）。
+ * 各份 Sheet 欄名不一樣（2026-10-01：一份叫「回報者／RD負責人」，另一份叫「填寫人／RD」），使用者決定由工具認常見欄名，不改 Sheet。
+ */
 export const MEEGLE_ROLE_DEFS = [
-  { key: 'assignee', label: '受托人', sheetColumn: null },
-  { key: 'rdOwner', label: 'RD 負責人', sheetColumn: 'RD負責人' },
-  { key: 'reporter', label: '回報者', sheetColumn: '回報者' },
-  { key: 'codeReview', label: 'Code Review', sheetColumn: null },
-  { key: 'qaVerifier', label: 'QA 驗證', sheetColumn: 'QA驗證人員' },
+  { key: 'assignee', label: '受托人', sheetColumns: [] },
+  { key: 'rdOwner', label: 'RD 負責人', sheetColumns: ['RD負責人', 'RD'] },
+  { key: 'reporter', label: '回報者', sheetColumns: ['回報者', '回報人', '填寫人'] },
+  { key: 'codeReview', label: 'Code Review', sheetColumns: [] },
+  { key: 'qaVerifier', label: 'QA 驗證', sheetColumns: ['QA驗證人員'] },
 ] as const
+
+/** 這份 Sheet 裡某個角色實際對到的欄名（標題去頭尾空白比對）；沒有就是 null。 */
+export function roleColumn(def: typeof MEEGLE_ROLE_DEFS[number], record: Record<string, unknown>): string | null {
+  const keys = Object.keys(record)
+  for (const want of def.sheetColumns) {
+    const hit = keys.find(k => k.trim() === want)
+    if (hit !== undefined) return hit
+  }
+  return null
+}
 export type MeegleRoleKey = typeof MEEGLE_ROLE_DEFS[number]['key']
 
 export const SHEET_REQUIREMENT_COLUMN = '關聯需求'
@@ -80,13 +94,33 @@ export type RowPlan = {
 
 const str = (v: unknown) => (v == null ? '' : String(v))
 
+/**
+ * Sheet 中間又出現一次標題列（實測：分段的表每段開頭重複一列「日期／填寫人／摘要／RD…」）。
+ * 不擋的話會開出一張叫「摘要」的單，人員欄的「填寫人」「RD」也會被當成人名。
+ * 判斷：至少 2 格的值剛好等於自己的欄名。
+ */
+export function isRepeatedHeaderRow(rec: Record<string, unknown>): boolean {
+  let hits = 0
+  for (const [k, v] of Object.entries(rec)) {
+    if (k.startsWith('_') || !k.trim()) continue
+    if (str(v).trim() && str(v).trim() === k.trim()) hits++
+  }
+  return hits >= 2
+}
+
+function sheetPeople(def: typeof MEEGLE_ROLE_DEFS[number], rec: Record<string, unknown>): string[] {
+  const col = roleColumn(def, rec)
+  return col ? splitPeople(str(rec[col])) : []
+}
+
 export function planRow(input: RowInput, defaults: BatchDefaults, requirements: Requirement[], personMap: Record<string, MappedPerson>): RowPlan {
   const rec = input.record
   const blocks: string[] = []
   const warnings: string[] = []
 
   const name = (str(rec['摘要']).trim() || str(rec['標題']).trim()).replace(/[\r\n]+/g, ' ').trim()
-  if (!name) blocks.push('沒有摘要／標題，無法當任務名稱')
+  if (isRepeatedHeaderRow(rec)) blocks.push('這列是重複的標題列，不是資料')
+  else if (!name) blocks.push('沒有摘要／標題，無法當任務名稱')
   const description = str(rec['描述'])
 
   let requirement: Requirement | null = null
@@ -113,7 +147,7 @@ export function planRow(input: RowInput, defaults: BatchDefaults, requirements: 
     const rowOverride = input.roleOverrides?.[def.key]
     const aliases = rowOverride !== undefined
       ? rowOverride.map(s => s.trim()).filter(Boolean)
-      : def.sheetColumn ? splitPeople(str(rec[def.sheetColumn])) : (defaults.roles[def.key] ?? []).map(s => s.trim()).filter(Boolean)
+      : def.sheetColumns.length ? sheetPeople(def, rec) : (defaults.roles[def.key] ?? []).map(s => s.trim()).filter(Boolean)
     const people: MappedPerson[] = []
     const unmapped: string[] = []
     for (const a of aliases) {
@@ -133,10 +167,11 @@ export function collectAliases(rows: RowInput[], defaults: BatchDefaults): strin
   const seen = new Map<string, string>()
   const add = (a: string) => { const k = normAlias(a); if (k && !seen.has(k)) seen.set(k, a.trim()) }
   for (const r of rows) {
+    if (isRepeatedHeaderRow(r.record)) continue
     for (const def of MEEGLE_ROLE_DEFS) {
       const o = r.roleOverrides?.[def.key]
       if (o !== undefined) o.forEach(add)
-      else if (def.sheetColumn) splitPeople(str(r.record[def.sheetColumn])).forEach(add)
+      else if (def.sheetColumns.length) sheetPeople(def, r.record).forEach(add)
     }
   }
   for (const list of Object.values(defaults.roles)) (list ?? []).forEach(add)

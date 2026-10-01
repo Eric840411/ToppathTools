@@ -84,5 +84,26 @@ eq('已開單、推狀態失敗 → 接回', isRestorablePrevious({ createPhase:
 eq('已開單、推完了 → 不接回（只標已開過）', isRestorablePrevious({ createPhase: 'created', statePhase: 'done', targetStateKey: 'K', workItemId: '1' }), false)
 eq('已開單、沒有目標狀態 → 不接回', isRestorablePrevious({ createPhase: 'created', statePhase: 'none', targetStateKey: '', workItemId: '1' }), false)
 
+// ── 欄名別名（第二份 Sheet 叫「填寫人」「RD」）──
+{
+  const rec2 = { 摘要: 'x', 填寫人: 'felix', RD: 'zen', 進度: '' }
+  const p = planRow({ record: rec2 }, defaults, reqs, map)
+  eq('「填寫人」當回報者、「RD」當 RD 負責人', [p.roles.reporter.people.map(x => x.userKey), p.roles.rdOwner.people.map(x => x.userKey)], [['uf'], ['uz']])
+  eq('沒有 QA 欄 → 空，不報錯', p.roles.qaVerifier.aliases, [])
+  const both = planRow({ record: { 摘要: 'x', 回報者: '', 填寫人: 'felix' } }, defaults, reqs, map)
+  eq('「回報者」欄存在但這列空白 → 不會改抓「填寫人」', both.roles.reporter.aliases, [])
+  eq('欄名前後有空白也認得', planRow({ record: { 摘要: 'x', ' RD ': 'zen' } }, defaults, reqs, map).roles.rdOwner.aliases, ['zen'])
+  eq('收集人名也認別名', collectAliases([{ record: rec2 }], { requirementId: '', roles: {} }), ['zen', 'felix'])
+}
+
+// ── 重複的標題列（實測第二份 Sheet 第 10、15 列）──
+{
+  const hdr = { 日期: '日期', 填寫人: '填寫人', 摘要: '摘要', RD: 'RD', 描述: '描述' }
+  const p = planRow({ record: hdr }, defaults, reqs, map)
+  eq('重複標題列 → 擋，不會開一張叫「摘要」的單', p.blocks, ['這列是重複的標題列，不是資料'])
+  eq('重複標題列的欄名不會被當成人名', collectAliases([{ record: hdr }], { requirementId: '', roles: {} }), [])
+  eq('只有一格剛好等於欄名（例如類別欄填「類別」）不算', planRow({ record: { ...rec, 類別: '類別' } }, defaults, reqs, map).blocks, [])
+}
+
 console.log(`\n${pass} 通過，${fails.length} 失敗`)
 if (fails.length) { console.log(fails.join('\n')); process.exit(1) }

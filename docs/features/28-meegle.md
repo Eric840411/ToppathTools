@@ -100,6 +100,8 @@
 ### 規則（跟使用者、CodeX 討論定案）
 - **列規則只有一份**：`shared/meegle-batch-rules.ts` 的 `planRow()`，前端預覽與伺服器都用它（CLAUDE.md 跨功能踩坑 #3）
 - **任務名稱**：「摘要」→「標題」；都空就擋
+- **人員欄名**（v4.263.5，使用者決定不改 Sheet）：回報者／回報人／填寫人、RD負責人／RD、QA驗證人員。依序找**第一個存在的欄位**；該欄這列空白就是沒人，不會跳去下一個欄名（`roleColumn()`）
+- **重複的標題列**（v4.263.5）：分段的 Sheet 每段開頭會再出現一次標題列。至少 2 格等於自己欄名 → 擋下，人名清單也略過它。不擋的話會開出一張叫「摘要」的單（`isRepeatedHeaderRow()`）
 - **關聯需求**：逐列指定 → Sheet「關聯需求」欄 → 整批預設。**有填但對不到（找不到、同名多筆）就擋，不退回預設**——退回等於掛到使用者沒選的需求底下。送出前伺服器再確認需求還在允許的空間
 - **人員**：Sheet 存的是暱稱，靠 `meegle_person_map`（Sheet 寫法正規化後 → Meegle user_key）換。用 Sheet 的**完整寫法**當鍵：「Jenny Hsu」「Jenny Lin」是兩筆。
   **對不上的名字，那個角色留空、不擋整列**（使用者決定，CodeX 原建議是擋；為了不靜默丟資料，預覽標黃、寫明哪個角色留空）。前端送人名，**伺服器自己查對照表**，不收前端給的 user_key
@@ -142,7 +144,7 @@
 8. 「任務項」是狀態流、10 個狀態全連通；目前每個狀態都沒有必填欄位（`list-state-required` 回 `{}`）
 
 ### 驗證
-- `npx tsx server/meegle-workitem.test.ts`（48）、`npx tsx server/meegle-batch-store.test.ts`（40）、`npx tsx shared/meegle-batch-rules.test.ts`（30）
+- `npx tsx server/meegle-workitem.test.ts`（48）、`npx tsx server/meegle-batch-store.test.ts`（40）、`npx tsx shared/meegle-batch-rules.test.ts`（38）
 - 突變都紅在對應那幾條：相信外層 retryable、翻頁每頁重讀 session、沒單號當失敗、逾時列可重新認領、晚到結果蓋掉 created
 
 ### 還沒做
