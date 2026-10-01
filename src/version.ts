@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.263.6'
+export const APP_VERSION = '4.264.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.264.0', date: '2026-10-01', changes: ['feat(Meegle)：**批量填寫**——勾幾列 →「批量設定已勾選的 N 列」→ 一次設關聯需求與 5 個角色；留空的欄位不動，人名會取代 Sheet 上的值；也能一鍵清掉這些列的手動設定。被擋下的列（例如還沒關聯需求）現在也能勾，才補得了設定，但仍要通過檢查才會送出', 'feat(Meegle)：**固定在畫面下方的進度列**——頁面很長、結果區在最下面，送出時看不到進度（使用者回報）。送出中顯示「送出中 3/10・已開單／推狀態失敗／待確認／失敗」，按「看結果」捲到結果區，完成後可關閉', 'test(Meegle)：用區網 IP 瀏覽器實測：不選預設需求時全部被擋，批量補需求＋Code Review 後 3 列可送、送出內容帶對；送出中進度列固定在視窗下方'] },
   { version: '4.263.6', date: '2026-10-01', changes: ['fix(Meegle)：**從區網 IP（http://192.168.x.x）開，按送出就報錯** `crypto.randomUUID is not a function`（使用者實測）——它只在 HTTPS／localhost 存在，跟 v4.235.0 UAT 那次同一個坑。改用既有的 `newStepId()`（退到 getRandomValues）；用區網 IP 實測 isSecureContext=false 下可以送出、批次編號是合法 UUID'] },
   { version: '4.263.5', date: '2026-10-01', changes: ['feat(Meegle)：**人員欄認常見欄名**（使用者決定，不用改 Sheet）——回報者／回報人／填寫人、RD負責人／RD、QA驗證人員；依序找第一個存在的欄位，該欄這列空白就是沒人、不會跳去抓下一個欄名', 'fix(Meegle)：**Sheet 中間重複出現的標題列被當成資料**——實測第二份 Sheet 第 10、15 列是「日期／填寫人／摘要／RD…」，原本會開出一張叫「摘要」的單，「填寫人」「RD」也被當成人名。至少 2 格等於自己欄名的列一律擋下', 'test(Meegle)：rules 30 → 38 條，用使用者的真 Sheet 驗過人名清單不再出現欄名；拿掉標題列判斷會紅'] },
   { version: '4.263.4', date: '2026-10-01', changes: ['fix(Meegle)：「還沒綁定」的提示寫明修仙版側欄叫「本命道籍」（使用者在修仙版找不到「個人帳號」）'] },

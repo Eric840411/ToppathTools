@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   MEEGLE_ROLE_DEFS, collectAliases, isRestorablePrevious, normAlias, planRow,
   type BatchDefaults, type MappedPerson, type MeegleRoleKey, type Requirement, type RowPlan,
@@ -71,6 +71,13 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
   const [batchId, setBatchId] = useState('')
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState({ done: 0, total: 0 })
+  const [progressDismissed, setProgressDismissed] = useState(false)
+  const resultsRef = useRef<HTMLElement | null>(null)
+
+  // 批量填寫：對已勾選的列一次寫入逐列覆寫（留空的欄位不動）
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const [bulk, setBulk] = useState<{ requirementId: string; roles: Partial<Record<MeegleRoleKey, string>> }>({ requirementId: '', roles: {} })
+  const [bulkMsg, setBulkMsg] = useState('')
   const [results, setResults] = useState<Record<number, RowResult>>({})
   const [rowBusy, setRowBusy] = useState<Record<number, boolean>>({})
   const [rowNote, setRowNote] = useState<Record<number, string>>({})
@@ -156,6 +163,8 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
   const pageRows = visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const okCount = rows.filter(r => !r.plan.blocks.length).length
   // 已在 Meegle 開過（同列同名）的不送，伺服器也會擋並回傳原本那張
+  // 被擋下的列也能勾（批量填寫要能補它們的設定），但送出只取通過檢查的；已開過／待確認的不能勾
+  const isSelectable = (r: typeof rows[number]) => !r.pendingPrev && r.prev.length === 0
   const sendable = rows.filter(r => selected.has(r.rec._rowIndex) && !r.plan.blocks.length && !r.pendingPrev && !r.prev.length)
 
   // ── 人員對照 ──
@@ -198,7 +207,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
     const list = sendable
     if (!list.length) return
     const id = ensureBatch()
-    setRunning(true); setProgress({ done: 0, total: list.length })
+    setRunning(true); setProgress({ done: 0, total: list.length }); setProgressDismissed(false)
     for (const r of list) {
       try {
         const j = await api<{ row: RowResult }>('/api/meegle/batch/row', { batchId: id, ...rowPayload(r) })
@@ -327,12 +336,64 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
               <input className="mb-input mb-search" placeholder="搜尋任務或人名" value={query} onChange={e => { setQuery(e.target.value); setPage(1) }} />
             </div>
 
+            <div className={`mb-bulk${bulkOpen ? ' is-open' : ''}`}>
+              <button type="button" className="mb-btn mb-btn--small" disabled={!selected.size} onClick={() => { setBulkOpen(o => !o); setBulkMsg('') }}>
+                {bulkOpen ? '▾' : '▸'} 批量設定已勾選的 {selected.size} 列
+              </button>
+              {bulkOpen && (
+                <>
+                  <div className="mb-edit">
+                    <label className="mb-field"><span>關聯需求</span>
+                      <select className="mb-select" value={bulk.requirementId} onChange={e => setBulk(b => ({ ...b, requirementId: e.target.value }))}>
+                        <option value="">— 不改 —</option>
+                        {requirements.map(q => <option key={q.id} value={q.id}>{q.name}（#{q.id}）</option>)}
+                      </select>
+                    </label>
+                    {MEEGLE_ROLE_DEFS.map(d => (
+                      <label key={d.key} className="mb-field"><span>{d.label}</span>
+                        <input className="mb-input" list="mb-people-options" placeholder="— 不改 —" value={bulk.roles[d.key] ?? ''}
+                          onChange={e => setBulk(b => ({ ...b, roles: { ...b.roles, [d.key]: e.target.value } }))} />
+                      </label>
+                    ))}
+                    <datalist id="mb-people-options">{people.map(p => <option key={p.alias} value={p.alias}>{p.name || p.email}</option>)}</datalist>
+                  </div>
+                  <div className="mb-bulk-actions">
+                    <button type="button" className="mb-btn mb-btn--small mb-btn--primary"
+                      disabled={!selected.size || (!bulk.requirementId && !Object.values(bulk.roles).some(v => v?.trim()))}
+                      onClick={() => {
+                        // 只寫有填的欄位；人名欄跟逐列編輯同一個規則（逗號分隔、覆寫 Sheet 值）
+                        setOverrides(o => {
+                          const next = { ...o }
+                          for (const idx of selected) {
+                            const cur = next[idx] ?? {}
+                            const roles = { ...(cur.roles ?? {}) }
+                            for (const [k, v] of Object.entries(bulk.roles) as [MeegleRoleKey, string | undefined][]) {
+                              if (v?.trim()) roles[k] = v.split(/[,，、]/).map(s => s.trim()).filter(Boolean)
+                            }
+                            next[idx] = { ...cur, requirementId: bulk.requirementId || cur.requirementId, roles }
+                          }
+                          return next
+                        })
+                        setBulkMsg(`已套用到 ${selected.size} 列`)
+                      }}>套用到已勾選的列</button>
+                    <button type="button" className="mb-btn mb-btn--small" disabled={!selected.size}
+                      onClick={() => {
+                        setOverrides(o => { const next = { ...o }; for (const idx of selected) delete next[idx]; return next })
+                        setBulkMsg(`已清除 ${selected.size} 列的手動設定，回到 Sheet／整批預設`)
+                      }}>清除這些列的手動設定</button>
+                    {bulkMsg && <span className="mb-muted">{bulkMsg}</span>}
+                  </div>
+                  <p className="mb-hint">留空＝不改。人名可填多位（逗號分隔），會<b>取代</b> Sheet 上的值；新名字要先在「人員對照」填 email。被擋下的列也能勾來補設定（例如補關聯需求），但仍要通過檢查才會送出。</p>
+                </>
+              )}
+            </div>
+
             <div className="mb-table-wrap">
               <table className="mb-table">
                 <thead><tr>
-                  <th><input type="checkbox" aria-label="全選這一頁可送出的列"
-                    checked={pageRows.some(r => !r.plan.blocks.length) && pageRows.filter(r => !r.plan.blocks.length).every(r => selected.has(r.rec._rowIndex))}
-                    onChange={e => setSelected(s => { const n = new Set(s); for (const r of pageRows) if (!r.plan.blocks.length) { if (e.target.checked) n.add(r.rec._rowIndex); else n.delete(r.rec._rowIndex) } return n })} /></th>
+                  <th><input type="checkbox" aria-label="全選這一頁"
+                    checked={pageRows.some(isSelectable) && pageRows.filter(isSelectable).every(r => selected.has(r.rec._rowIndex))}
+                    onChange={e => setSelected(s => { const n = new Set(s); for (const r of pageRows) if (isSelectable(r)) { if (e.target.checked) n.add(r.rec._rowIndex); else n.delete(r.rec._rowIndex) } return n })} /></th>
                   <th>列</th><th>任務名稱</th><th>關聯需求</th><th>人員（5 角色）</th><th>檢查</th><th></th>
                 </tr></thead>
                 <tbody>
@@ -342,7 +403,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
                     return (
                       <Fragment key={idx}>
                         <tr className={r.plan.blocks.length ? 'is-blocked' : r.plan.warnings.length ? 'is-warn' : ''}>
-                          <td><input type="checkbox" disabled={!!r.plan.blocks.length || r.pendingPrev || r.prev.length > 0} checked={selected.has(idx)} aria-label={`選取第 ${idx} 列`}
+                          <td><input type="checkbox" disabled={!isSelectable(r)} checked={selected.has(idx)} aria-label={`選取第 ${idx} 列`}
                             onChange={e => setSelected(s => { const n = new Set(s); if (e.target.checked) n.add(idx); else n.delete(idx); return n })} /></td>
                           <td className="mb-num">{idx}</td>
                           <td className="mb-name">{r.plan.name || <span className="mb-muted">（空白）</span>}</td>
@@ -463,7 +524,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
 
       {/* ── 03 送出結果 ── */}
       {resultEntries.length > 0 && (
-        <section className="mb-card">
+        <section className="mb-card" ref={resultsRef}>
           <header className="mb-head">
             <h2 className="mb-title"><span className="mb-no">03</span>送出結果<span className="mb-sub">逾時的列先查明結果，不會自動重送；重推狀態只更新既有的單</span></h2>
             <button type="button" className="mb-btn mb-btn--small" disabled={!resultEntries.length} onClick={exportCsv}>匯出結果</button>
@@ -503,6 +564,23 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
             </table>
           </div>
         </section>
+      )}
+      {/* 固定在畫面下方的進度條：頁面很長，結果區在最下面，送出時看不到（使用者回報）*/}
+      {progress.total > 0 && !progressDismissed && (
+        <div className="mb-dock" role="status" aria-live="polite">
+          <div className="mb-dock-text">
+            <b>{running ? `送出中 ${progress.done} / ${progress.total}` : `送出完成 ${progress.done} / ${progress.total}`}</b>
+            <span className="mb-dock-ok">已開單 {tally.ok}</span>
+            {tally.warn > 0 && <span className="mb-dock-warn">推狀態失敗 {tally.warn}</span>}
+            {tally.pending > 0 && <span className="mb-dock-pending">待確認 {tally.pending}</span>}
+            {tally.bad > 0 && <span className="mb-dock-bad">失敗 {tally.bad}</span>}
+          </div>
+          <div className="mb-progress mb-dock-bar"><div style={{ width: `${(progress.done / progress.total) * 100}%` }} /></div>
+          <div className="mb-dock-actions">
+            <button type="button" className="mb-btn mb-btn--small" onClick={() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>看結果</button>
+            {!running && <button type="button" className="mb-btn mb-btn--small" aria-label="關閉進度列" onClick={() => setProgressDismissed(true)}>✕</button>}
+          </div>
+        </div>
       )}
     </div>
   )

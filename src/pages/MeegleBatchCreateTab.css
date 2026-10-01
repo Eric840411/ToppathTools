@@ -136,3 +136,25 @@
 :root[data-theme-mode="xianxia"] .mb-table th { background: rgba(163, 130, 63, .08); }
 :root[data-theme-mode="xianxia"] .mb-edit-row td { background: rgba(98, 198, 165, .05); }
 .mb-gap { margin-left: 8px; }
+
+/* 批量填寫 */
+.mb-bulk { margin-bottom: 10px; }
+.mb-bulk.is-open { padding: 10px 12px; border: 1px dashed var(--mb-border); border-radius: 10px; }
+.mb-bulk .mb-edit { margin-top: 10px; }
+.mb-bulk-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; }
+
+/* 固定在畫面下方的進度條 */
+.mb-dock {
+  position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 50;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
+  width: min(720px, calc(100vw - 32px)); padding: 10px 14px; border-radius: 12px;
+  background: var(--mb-card); border: 1px solid var(--mb-border); box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+  font-size: 13px;
+}
+.mb-dock-text { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; flex: 1 1 auto; }
+.mb-dock-ok { color: var(--mb-ok); }
+.mb-dock-warn { color: var(--mb-warn); }
+.mb-dock-pending { color: var(--mb-pending); }
+.mb-dock-bad { color: var(--mb-bad); }
+.mb-dock-bar { flex: 1 1 100%; order: 3; margin: 0; }
+.mb-dock-actions { display: flex; gap: 6px; }
