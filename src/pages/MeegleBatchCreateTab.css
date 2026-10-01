@@ -156,5 +156,8 @@
 .mb-dock-warn { color: var(--mb-warn); }
 .mb-dock-pending { color: var(--mb-pending); }
 .mb-dock-bad { color: var(--mb-bad); }
-.mb-dock-bar { flex: 1 1 100%; order: 3; margin: 0; }
+.mb-dock-bar { flex: 1 1 100%; order: 3; }
+/* 進度條本體沿用 Dashboard 的 .dashboard-bar-track／-fill（修仙版靈脈素材一起套上）；這裡只管間距 */
+.mb-progress-track { margin: 4px 0 12px; }
+.mb-dock .mb-progress-track { margin: 2px 0 8px; }
 .mb-dock-actions { display: flex; gap: 6px; }

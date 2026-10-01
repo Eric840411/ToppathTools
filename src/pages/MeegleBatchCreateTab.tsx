@@ -529,7 +529,8 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
             <h2 className="mb-title"><span className="mb-no">03</span>送出結果<span className="mb-sub">逾時的列先查明結果，不會自動重送；重推狀態只更新既有的單</span></h2>
             <button type="button" className="mb-btn mb-btn--small" disabled={!resultEntries.length} onClick={exportCsv}>匯出結果</button>
           </header>
-          <div className="mb-progress"><div style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} /></div>
+          {/* 用 Dashboard 的進度條 class：修仙版會套上同一組「靈脈」動態素材（public/xianxia-complete.css 的 qi-tiles），普通版是站內同一款漸層條 */}
+          <div className="dashboard-bar-track mb-progress-track"><span className="dashboard-bar-fill" style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} /></div>
           <div className="mb-chips mb-tally">
             <span className="mb-chip mb-chip--ok is-on">已開單 {tally.ok}</span>
             <span className="mb-chip mb-chip--warn is-on">已開單但推狀態失敗 {tally.warn}</span>
@@ -575,7 +576,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
             {tally.pending > 0 && <span className="mb-dock-pending">待確認 {tally.pending}</span>}
             {tally.bad > 0 && <span className="mb-dock-bad">失敗 {tally.bad}</span>}
           </div>
-          <div className="mb-progress mb-dock-bar"><div style={{ width: `${(progress.done / progress.total) * 100}%` }} /></div>
+          <div className="dashboard-bar-track mb-progress-track mb-dock-bar"><span className="dashboard-bar-fill" style={{ width: `${(progress.done / progress.total) * 100}%` }} /></div>
           <div className="mb-dock-actions">
             <button type="button" className="mb-btn mb-btn--small" onClick={() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>看結果</button>
             {!running && <button type="button" className="mb-btn mb-btn--small" aria-label="關閉進度列" onClick={() => setProgressDismissed(true)}>✕</button>}
