@@ -12,6 +12,7 @@ import { Router, type Request, type Response } from 'express'
 import { z } from 'zod'
 import { getAuthAccount } from '../auth-session.js'
 import { accountHasPermission, addHistory, db, getClientIP, log, writeLimiter } from '../shared.js'
+import { sheetSourceKey } from '../../shared/lark-sheet-url.js'
 import { getAccountRow } from '../meegle-account-service.js'
 import { decryptMeegleToken } from '../meegle-token-crypto.js'
 import {
@@ -26,6 +27,13 @@ import { MEEGLE_ROLE_DEFS, normAlias, type MeegleRoleKey } from '../../shared/me
 
 export const router = Router()
 initMeegleBatchSchema(db)
+
+// 舊紀錄存的是完整網址，啟動時換成識別值（只動還不是 lark: 開頭的）
+{
+  const urls = db.prepare(`SELECT DISTINCT sheet_url FROM meegle_batch_rows WHERE sheet_url != '' AND sheet_url NOT LIKE 'lark:%'`).all() as { sheet_url: string }[]
+  const upd = db.prepare('UPDATE meegle_batch_rows SET sheet_url = ? WHERE sheet_url = ?')
+  for (const { sheet_url } of urls) upd.run(sheetSourceKey(sheet_url), sheet_url)
+}
 
 /** 開單途中伺服器重啟會留下 creating；超過這個時間就轉成「結果待確認」。CLI 單次逾時 45 秒，留足餘裕。 */
 const STALE_CREATING_MS = 5 * 60_000
@@ -87,7 +95,7 @@ router.post('/api/meegle/batch/previous', (req, res) => {
   if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
   const { sheetUrl } = z.object({ sheetUrl: z.string().max(2000) }).parse(req.body)
   // 含開單中／待確認的列與它們的 batchId：重整頁面後前端靠這個把原批次接回來（CodeX review 999f895 [P1]）
-  res.json({ ok: true, rows: listRowsFromSheet(db, sheetUrl).map(r => ({ ...publicRow(r), name: r.name, owner: r.owner_email, createdAt: r.created_at })) })
+  res.json({ ok: true, rows: listRowsFromSheet(db, sheetSourceKey(sheetUrl)).map(r => ({ ...publicRow(r), name: r.name, owner: r.owner_email, createdAt: r.created_at })) })
 })
 
 // POST /api/meegle/batch/people/verify —— 填 email → 查 Meegle 帳號 → 記住對照
@@ -142,18 +150,15 @@ router.post('/api/meegle/batch/row', writeLimiter, async (req, res, next) => {
     const body = rowSchema.parse(req.body)
     expireStaleCreating(db, STALE_CREATING_MS)
 
-    const claim = claimRow(db, { batchId: body.batchId, rowKey: body.rowKey, ownerEmail: ctx.email, sheetUrl: body.sheetUrl, name: body.name, requirementId: body.requirementId, targetState: body.targetStateKey })
+    const claim = claimRow(db, { batchId: body.batchId, rowKey: body.rowKey, ownerEmail: ctx.email, sheetUrl: sheetSourceKey(body.sheetUrl), name: body.name, requirementId: body.requirementId, targetState: body.targetStateKey })
     if (claim.kind === 'source-mismatch') return res.status(409).json({ ok: false, code: 'SOURCE_MISMATCH', message: '這個批次是另一份 Sheet 的，請重新讀取 Sheet 後再送' })
     if (claim.kind === 'not-owner') return res.status(403).json({ ok: false, message: '這一列是別人送出的' })
     if (claim.kind === 'busy') return res.json({ ok: true, row: publicRow(claim.row) })
     if (claim.kind === 'already-created') {
-      // 已經開過：只補推狀態，不重開
-      // 目標以紀錄為準；這次請求帶的目標只在紀錄沒有目標時才採用
-      const target = adoptTarget(db, claim.row.batch_id, claim.row.row_key, body.targetStateKey)
-      if (claim.row.state_phase !== 'done' && target && claim.row.work_item_id) {
-        await pushState(ctx, claim.row.batch_id, claim.row.row_key, claim.row.work_item_id, target)
-      }
-      return res.json({ ok: true, row: publicRow(getBatchRow(db, claim.row.batch_id, claim.row.row_key)) })
+      // 已經開過：不重開，**也不在這裡推狀態**（CodeX review 0c30dde [P2]×2）——
+      // 這筆可能是別人開的（用我的 token 推別人的單＝繞過 retry-state 的本人限制），
+      // 或原本刻意「不推狀態」（另一個分頁帶來的目標不能把它改掉）。要補推一律走明確的「重推狀態」。
+      return res.json({ ok: true, row: publicRow(claim.row), message: claim.row.owner_email === ctx.email ? '這一列已經開過，沒有重開' : '這一列別人已經開過，沒有重開' })
     }
 
     // 認領成功後的任何提早結束，都要把 creating 收掉（否則這列會卡成「結果待確認」）

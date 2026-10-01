@@ -3,6 +3,7 @@
  * 守的是「同一列不會開出兩張單」：重送、併發、逾時、伺服器重啟。
  */
 import Database from 'better-sqlite3'
+import { sheetSourceKey } from '../shared/lark-sheet-url.js'
 import {
   adoptTarget, claimRow, expireStaleCreating, needsStatePush, listRowsFromSheet, finishCreate, finishState, getBatchRow, getPersonMap, initMeegleBatchSchema,
   resolveUnknown, upsertPersonMap,
@@ -137,6 +138,30 @@ const row = (over: Partial<{ batchId: string; rowKey: string; ownerEmail: string
   eq('紀錄沒有目標 → 採用請求帶的並寫回', adoptTarget(db, 'B', '3', 'Finished'), 'Finished')
   eq('寫回之後再帶別的也不會改', adoptTarget(db, 'B', '3', 'BAOjDk8Pv'), 'Finished')
   eq('紀錄沒目標、請求也沒帶 → 空', (claimRow(db, { ...row({ rowKey: '4' }), targetState: '' }), adoptTarget(db, 'B', '4', '')), '')
+}
+
+// ── CodeX review 0c30dde [P2]：同一份 Sheet 不同網址不能繞過防重複 ──
+{
+  const db = fresh()
+  const u1 = 'https://x.larksuite.com/sheets/TOK123?sheet=S1'
+  const u2 = 'https://x.larksuite.com/sheets/TOK123?from=share&sheet=S1'
+  eq('兩種網址得到同一個識別值', sheetSourceKey(u1) === sheetSourceKey(u2), true)
+  eq('不同分頁（sheet）是不同來源', sheetSourceKey(u1) === sheetSourceKey('https://x.larksuite.com/sheets/TOK123?sheet=S2'), false)
+  claimRow(db, { ...row({ batchId: 'A' }), sheetUrl: sheetSourceKey(u1) }); finishCreate(db, 'A', '3', { phase: 'created', workItemId: '9', url: 'u' })
+  eq('換個網址尾巴再送同一列 → 已開過，不重開', claimRow(db, { ...row({ batchId: 'B' }), sheetUrl: sheetSourceKey(u2) }).kind, 'already-created')
+}
+
+// ── 接線檢查（CodeX review 0c30dde [P2]×2）：/row 撞到「已開過」時不能在路由裡推狀態 ──
+// 路由一 import 就會開 DB，所以這裡讀原始碼檢查那個分支。⚠️ 只證明「那段沒有呼叫」，不是行為測試。
+{
+  const { readFileSync } = await import('fs')
+  const src = readFileSync(new URL('./routes/meegle-batch.ts', import.meta.url), 'utf8')
+  const start = src.indexOf("if (claim.kind === 'already-created')")
+  const branch = start >= 0 ? src.slice(start, src.indexOf('\n    }', start)) : ''
+  eq('找得到「已開過」分支', start >= 0, true)
+  eq('「已開過」分支不推狀態（不能用我的 token 推別人的單）', /pushState\(/.test(branch), false)
+  eq('「已開過」分支不採用請求帶來的目標', /adoptTarget\(/.test(branch), false)
+  eq('/previous 與 /row 都用正規化的來源識別值', (src.match(/sheetSourceKey\(/g) ?? []).length >= 3, true)
 }
 
 console.log(`\n${pass} 通過，${fails.length} 失敗`)

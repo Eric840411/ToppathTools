@@ -105,5 +105,13 @@ eq('已開單、沒有目標狀態 → 不接回', isRestorablePrevious({ create
   eq('只有一格剛好等於欄名（例如類別欄填「類別」）不算', planRow({ record: { ...rec, 類別: '類別' } }, defaults, reqs, map).blocks, [])
 }
 
+// ── CodeX review 0c30dde [P2]：值剛好等於欄名的真資料不能被當成標題列 ──
+{
+  const real = { 摘要: '修正登入驗證失敗', RD: 'RD', QA: 'QA', 填寫人: 'felix' }
+  eq('兩格剛好等於欄名、但摘要是真的 → 不擋', planRow({ record: real }, defaults, reqs, map).blocks, [])
+  eq('這種列的人名照樣收', collectAliases([{ record: real }], { requirementId: '', roles: {} }).includes('felix'), true)
+  eq('摘要欄＝「摘要」→ 一定是標題列', planRow({ record: { 摘要: '摘要', RD: 'RD', 描述: '真的內容', 填寫人: 'felix', 類別: '前端' } }, defaults, reqs, map).blocks, ['這列是重複的標題列，不是資料'])
+}
+
 console.log(`\n${pass} 通過，${fails.length} 失敗`)
 if (fails.length) { console.log(fails.join('\n')); process.exit(1) }

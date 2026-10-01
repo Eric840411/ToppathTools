@@ -1,154 +1,227 @@
 /* Meegle 批量開單（Jira 頁「Meegle 開單」分頁）
-   版面由 CodeX 設計：01 預覽表／02 人員對照／03 送出結果，滿版由上往下。
-   普通版沿用站內深底操作型配色（跟 MeegleAccountPage 同一組色票）；修仙版只換配色與裝飾，結構不變。 */
+   版面：CodeX 2026-10-01 分步驟稿（使用者要求 1:1 還原）——
+   一個外框卡片＋步驟列，一次只顯示一步：① 讀取與預設 ② 人員對照 ③ 預覽與勾選 ④ 送出結果。
+   普通版：深藍底、藍色主按鈕。修仙版：墨綠底、金線外框與角飾、青玉主按鈕——只換配色與裝飾，結構不變。 */
 
 .mb-page {
-  --mb-bg: #0f172a;
-  --mb-card: #111c2e;
-  --mb-border: #2d3f55;
-  --mb-text: #e2e8f0;
-  --mb-muted: #94a3b8;
-  --mb-primary: #3b82f6;
-  --mb-primary-hover: #2563eb;
-  --mb-ok: #4ade80;
-  --mb-bad: #f87171;
-  --mb-warn: #fbbf24;
-  --mb-pending: #c084fc;
-  --mb-info: #60a5fa;
+  --mb-bg: #0a1424;
+  --mb-card: #0d1a2e;
+  --mb-card2: #0f1f37;
+  --mb-border: #1e3556;
+  --mb-border-strong: #2b4d7a;
+  --mb-text: #e6edf7;
+  --mb-muted: #8ea0b8;
+  --mb-primary: #2f7ff0;
+  --mb-primary-2: #1f63d1;
+  --mb-primary-glow: rgba(47, 127, 240, .45);
+  --mb-ok: #3fd07f;
+  --mb-bad: #f26b6b;
+  --mb-warn: #f5b73b;
+  --mb-pending: #b48cff;
+  --mb-info: #5aa7ff;
+  --mb-orange: #f59a3b;
   display: flex; flex-direction: column; gap: 16px;
   color: var(--mb-text);
   min-width: 0;
 }
 
-.mb-card { background: var(--mb-card); border: 1px solid var(--mb-border); border-radius: 12px; padding: 18px 20px; min-width: 0; }
-.mb-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
-.mb-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; font-size: 17px; font-weight: 700; margin: 0; }
-.mb-no { font-size: 20px; color: var(--mb-primary); font-variant-numeric: tabular-nums; }
-.mb-sub { font-size: 12px; font-weight: 400; color: var(--mb-muted); }
-.mb-muted { color: var(--mb-muted); }
-.mb-hint { font-size: 12px; color: var(--mb-muted); line-height: 1.7; margin: 8px 0 0; flex-basis: 100%; }
+/* ── 外框 ── */
+.mb-card { background: var(--mb-card); border: 1px solid var(--mb-border); border-radius: 14px; padding: 18px 22px 22px; min-width: 0; }
+.mb-shell { position: relative; box-shadow: 0 0 0 1px rgba(47, 127, 240, .08), 0 12px 40px rgba(0, 0, 0, .35); }
+.mb-shell-head { display: flex; align-items: baseline; gap: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--mb-border); }
+.mb-shell-title { margin: 0; font-size: 19px; font-weight: 800; letter-spacing: .02em; }
+.mb-shell-sub { font-size: 13px; color: var(--mb-muted); padding-left: 14px; border-left: 1px solid var(--mb-border-strong); }
 
-.mb-sheet { display: flex; gap: 8px; flex: 1 1 380px; max-width: 640px; }
-.mb-input, .mb-select {
-  min-width: 0; background: var(--mb-bg); color: var(--mb-text);
-  border: 1px solid var(--mb-border); border-radius: 8px; padding: 7px 10px; font-size: 13px;
+/* ── 步驟列 ── */
+.mb-stepper { display: flex; align-items: center; gap: 10px; padding: 16px 2px 6px; flex-wrap: wrap; }
+.mb-step { display: inline-flex; align-items: center; gap: 10px; background: none; border: 0; padding: 0; color: var(--mb-muted); font-size: 14px; cursor: pointer; }
+.mb-step:disabled { cursor: not-allowed; }
+.mb-step-dot {
+  display: inline-grid; place-items: center; flex-shrink: 0;
+  width: 30px; height: 30px; border-radius: 50%; font-size: 13px; font-weight: 800;
+  border: 2px solid currentColor;
 }
-.mb-sheet .mb-input { flex: 1; }
-.mb-input:focus, .mb-select:focus { outline: none; border-color: var(--mb-primary); }
+.mb-step--done { color: var(--mb-text); }
+.mb-step--done .mb-step-dot { background: var(--mb-primary); border-color: var(--mb-primary); color: #fff; }
+.mb-step--current { color: var(--mb-text); font-weight: 800; font-size: 15px; }
+.mb-step--current .mb-step-dot {
+  width: 36px; height: 36px; font-size: 15px;
+  background: var(--mb-primary); border-color: #8dbcff; color: #fff;
+  box-shadow: 0 0 0 4px rgba(47, 127, 240, .22), 0 0 16px var(--mb-primary-glow);
+}
+.mb-step--todo { color: #5b6d86; }
+.mb-step--todo .mb-step-dot { font-size: 12px; }
+.mb-step-label { white-space: pre; }
+.mb-step-line { flex: 1 1 40px; max-width: 90px; height: 3px; border-radius: 3px; background: #2a3b55; }
+.mb-step-line.is-done { background: var(--mb-primary); box-shadow: 0 0 8px var(--mb-primary-glow); }
 
-.mb-defaults { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: flex-end; padding: 12px 14px; border: 1px solid var(--mb-border); border-radius: 10px; margin-bottom: 12px; }
-.mb-field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--mb-muted); min-width: 0; }
-.mb-defaults .mb-field { flex: 1 1 180px; }
-.mb-field .mb-select, .mb-field .mb-input { width: 100%; }
+/* ── 每一步的內容 ── */
+.mb-pane { padding-top: 10px; }
+.mb-pane--narrow { max-width: 560px; }
+.mb-pane-title { margin: 6px 0 14px; font-size: 22px; font-weight: 800; letter-spacing: .02em; }
+.mb-pane-actions { display: flex; gap: 12px; margin-top: 16px; }
+.mb-pane-actions .mb-btn { flex: 1; }
+.mb-muted { color: var(--mb-muted); }
+.mb-hint { font-size: 12px; color: var(--mb-muted); line-height: 1.7; margin: 10px 0 0; }
+.mb-loaded { font-size: 12px; margin: 8px 0 2px; }
+.mb-empty { text-align: center; padding: 18px; }
 
-.mb-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 10px; }
-.mb-search { flex: 0 1 260px; }
+.mb-field { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--mb-muted); min-width: 0; margin-bottom: 10px; }
+.mb-input, .mb-select {
+  min-width: 0; width: 100%; background: var(--mb-bg); color: var(--mb-text);
+  border: 1px solid var(--mb-border-strong); border-radius: 8px; padding: 9px 12px; font-size: 13px;
+}
+.mb-input:focus, .mb-select:focus { outline: none; border-color: var(--mb-primary); box-shadow: 0 0 0 3px rgba(47, 127, 240, .18); }
+.mb-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; margin-top: 14px; }
+
+/* ── 按鈕 ── */
+.mb-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; text-decoration: none;
+  border-radius: 9px; padding: 9px 16px; font-size: 13.5px; font-weight: 700; cursor: pointer; white-space: nowrap;
+  border: 1px solid var(--mb-border-strong); background: transparent; color: var(--mb-text);
+  transition: background .15s, border-color .15s, box-shadow .15s, transform .1s;
+}
+.mb-btn:not(:disabled):hover { border-color: var(--mb-primary); background: rgba(47, 127, 240, .1); }
+.mb-btn:not(:disabled):active { transform: translateY(1px); }
+.mb-btn:focus-visible { outline: 2px solid var(--mb-primary); outline-offset: 2px; }
+.mb-btn:disabled { opacity: .45; cursor: not-allowed; }
+.mb-btn--primary {
+  background: linear-gradient(180deg, var(--mb-primary), var(--mb-primary-2)); border-color: var(--mb-primary); color: #fff;
+  box-shadow: 0 4px 14px var(--mb-primary-glow);
+}
+.mb-btn--primary:not(:disabled):hover { background: linear-gradient(180deg, #4790f5, var(--mb-primary)); border-color: #4790f5; }
+.mb-btn--outline { border-color: var(--mb-border-strong); color: #cfe0f5; background: rgba(13, 26, 46, .6); }
+.mb-btn--outline.is-on { border-color: var(--mb-primary); background: rgba(47, 127, 240, .14); }
+.mb-btn--small { padding: 5px 12px; font-size: 12.5px; border-radius: 7px; }
+.mb-btn--block { width: 100%; margin: 4px 0 6px; padding: 11px 16px; }
+.mb-btn--wide { min-width: 120px; }
+.mb-btn--big { padding: 12px 34px; font-size: 16px; }
+
+/* ── ② 人員對照 ── */
+.mb-tabs { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--mb-border); border-radius: 9px; margin-bottom: 12px; background: var(--mb-bg); }
+.mb-tab { background: none; border: 0; color: var(--mb-muted); padding: 6px 22px; border-radius: 7px; font-size: 13px; cursor: pointer; }
+.mb-tab b { margin-left: 4px; font-weight: 800; }
+.mb-tab.is-on { background: var(--mb-card2); color: var(--mb-text); box-shadow: inset 0 0 0 1px var(--mb-border-strong); }
+.mb-tab--warn.is-on { color: var(--mb-warn); box-shadow: inset 0 0 0 1px rgba(245, 183, 59, .5); }
+.mb-people-list { display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow-y: auto; }
+.mb-person { border: 1px solid var(--mb-border); border-radius: 10px; padding: 10px 12px; background: var(--mb-card2); }
+.mb-person-row { display: flex; align-items: center; gap: 10px; }
+.mb-person-name { font-weight: 700; min-width: 90px; }
+.mb-person-email { flex: 1; }
+.mb-person-meta { font-size: 12px; color: var(--mb-orange); margin-top: 6px; font-weight: 700; }
+
+/* ── ③ 預覽與勾選 ── */
+.mb-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 12px; }
+.mb-search-wrap { position: relative; flex: 1 1 280px; max-width: 420px; }
+.mb-search-wrap > span { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--mb-muted); font-size: 15px; pointer-events: none; }
+.mb-search-wrap .mb-input { padding-left: 32px; }
 .mb-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .mb-chip {
-  border-radius: 999px; padding: 4px 14px; font-size: 13px; font-weight: 600; cursor: pointer;
-  border: 1px solid var(--mb-border); background: transparent; color: var(--mb-muted);
+  border-radius: 999px; padding: 6px 16px; font-size: 13px; font-weight: 700; cursor: pointer;
+  border: 1px solid var(--mb-border-strong); background: rgba(13, 26, 46, .7); color: var(--mb-text);
 }
-.mb-chip.is-on { color: var(--mb-text); }
-.mb-chip--all.is-on { border-color: var(--mb-muted); background: rgba(148, 163, 184, .12); }
-.mb-chip--ok.is-on { border-color: var(--mb-ok); background: rgba(74, 222, 128, .12); color: var(--mb-ok); }
-.mb-chip--blocked.is-on { border-color: var(--mb-bad); background: rgba(248, 113, 113, .12); color: var(--mb-bad); }
-.mb-chip--warn.is-on { border-color: var(--mb-warn); background: rgba(251, 191, 36, .12); color: var(--mb-warn); }
-.mb-chip--pending.is-on { border-color: var(--mb-pending); background: rgba(192, 132, 252, .12); color: var(--mb-pending); }
-.mb-tally .mb-chip { cursor: default; }
+.mb-chip b { margin-left: 6px; font-weight: 800; }
+.mb-chip--ok { border-color: rgba(63, 208, 127, .45); color: var(--mb-ok); background: rgba(63, 208, 127, .08); }
+.mb-chip--blocked { border-color: rgba(242, 107, 107, .5); color: var(--mb-bad); background: rgba(242, 107, 107, .08); }
+.mb-chip--prev { border-color: rgba(90, 167, 255, .5); color: var(--mb-info); background: rgba(90, 167, 255, .08); }
+.mb-chip--pending { border-color: rgba(180, 140, 255, .5); color: var(--mb-pending); background: rgba(180, 140, 255, .08); }
+.mb-chip.is-on { box-shadow: 0 0 0 2px currentColor inset; }
+.mb-chip--all.is-on { background: rgba(142, 160, 184, .14); }
+.mb-tally .mb-chip { cursor: default; box-shadow: none; }
+
+.mb-selbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 10px 14px; margin-bottom: 10px;
+  border: 1px solid var(--mb-border); border-radius: 10px; background: var(--mb-card2);
+}
+.mb-selbar-all { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; }
+.mb-selbar-all b { color: var(--mb-info); font-size: 16px; }
+.mb-selbar-hint { font-size: 12px; color: var(--mb-muted); padding-left: 14px; border-left: 1px solid var(--mb-border-strong); }
+
+.mb-bulk { padding: 12px 14px; margin-bottom: 10px; border: 1px dashed var(--mb-border-strong); border-radius: 10px; }
+.mb-edit { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.mb-edit .mb-field { flex: 1 1 150px; }
+.mb-bulk-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; }
 
 .mb-table-wrap { overflow-x: auto; border: 1px solid var(--mb-border); border-radius: 10px; }
-.mb-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.mb-table th { text-align: left; font-weight: 600; color: var(--mb-muted); background: rgba(148, 163, 184, .06); padding: 8px 10px; white-space: nowrap; border-bottom: 1px solid var(--mb-border); }
-.mb-table td { padding: 8px 10px; border-bottom: 1px solid rgba(45, 63, 85, .6); vertical-align: top; }
+.mb-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.mb-table th { text-align: left; font-weight: 700; color: var(--mb-muted); background: rgba(47, 127, 240, .06); padding: 10px 12px; white-space: nowrap; border-bottom: 1px solid var(--mb-border); font-size: 12.5px; }
+.mb-table td { padding: 11px 12px; border-bottom: 1px solid rgba(30, 53, 86, .7); vertical-align: top; }
 .mb-table tr:last-child td { border-bottom: 0; }
-.mb-table tr.is-blocked td { background: rgba(248, 113, 113, .04); }
-.mb-table tr.is-warn td { background: rgba(251, 191, 36, .04); }
+.mb-table tbody tr:hover td { background: rgba(47, 127, 240, .04); }
 .mb-table a { color: var(--mb-info); }
+.mb-col-check { width: 36px; }
 .mb-num { font-variant-numeric: tabular-nums; color: var(--mb-muted); white-space: nowrap; }
-.mb-name { min-width: 180px; max-width: 360px; overflow-wrap: anywhere; }
-.mb-msg { max-width: 320px; overflow-wrap: anywhere; color: var(--mb-muted); font-size: 12px; }
-.mb-empty { text-align: center; padding: 18px; }
-.mb-people { min-width: 220px; font-size: 12px; line-height: 1.7; }
-.mb-role { display: inline-block; margin-right: 10px; white-space: nowrap; }
+.mb-name { min-width: 180px; max-width: 360px; overflow-wrap: anywhere; font-weight: 600; }
+.mb-req { white-space: nowrap; }
+.mb-people { min-width: 200px; font-size: 13px; color: #cfdbea; }
 .mb-unmapped { color: var(--mb-warn); text-decoration: underline dotted; }
-.mb-check { min-width: 160px; }
+.mb-check { min-width: 200px; }
+.mb-msg { overflow-wrap: anywhere; color: var(--mb-muted); font-size: 12px; }
 
-.mb-tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 4px; margin-left: 4px; border: 1px solid; }
-.mb-tag--default { color: var(--mb-info); border-color: rgba(96, 165, 250, .45); }
-.mb-tag--override { color: var(--mb-pending); border-color: rgba(192, 132, 252, .45); }
-
-.mb-badge { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 6px; border: 1px solid; margin: 1px 0; line-height: 1.5; }
-.mb-badge + .mb-badge { margin-left: 4px; }
-.mb-badge--ok { color: var(--mb-ok); border-color: rgba(74, 222, 128, .4); background: rgba(74, 222, 128, .08); }
-.mb-badge--warn { color: var(--mb-warn); border-color: rgba(251, 191, 36, .4); background: rgba(251, 191, 36, .08); }
-.mb-badge--bad { color: var(--mb-bad); border-color: rgba(248, 113, 113, .4); background: rgba(248, 113, 113, .08); }
-.mb-badge--pending { color: var(--mb-pending); border-color: rgba(192, 132, 252, .4); background: rgba(192, 132, 252, .08); }
-.mb-badge--info { color: var(--mb-info); border-color: rgba(96, 165, 250, .4); background: rgba(96, 165, 250, .08); }
-
-.mb-edit-row td { background: rgba(59, 130, 246, .05); }
-.mb-edit { display: flex; flex-wrap: wrap; gap: 10px 14px; }
-.mb-edit .mb-field { flex: 1 1 160px; }
-
-.mb-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; font-size: 13px; }
-.mb-pager { display: flex; align-items: center; gap: 8px; color: var(--mb-muted); font-variant-numeric: tabular-nums; }
-
-.mb-btn {
-  display: inline-flex; align-items: center; justify-content: center; text-decoration: none;
-  border-radius: 8px; padding: 7px 14px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
-  border: 1px solid var(--mb-border); background: transparent; color: var(--mb-text);
-  transition: background .15s, border-color .15s;
+/* 檢查欄的狀態：綠點＝可送出、黃三角＝警告、紅驚嘆＝被擋、藍 i＝已開過 */
+.mb-status { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600; line-height: 1.6; }
+.mb-status i {
+  display: inline-grid; place-items: center; flex-shrink: 0; width: 15px; height: 15px; border-radius: 50%;
+  font-style: normal; font-size: 10px; font-weight: 900; color: #0a1424; background: currentColor;
 }
-.mb-btn:not(:disabled):hover { border-color: var(--mb-primary); background: rgba(59, 130, 246, .1); }
-.mb-btn:focus-visible { outline: 2px solid var(--mb-primary); outline-offset: 2px; }
-.mb-btn:disabled { opacity: .5; cursor: not-allowed; }
-.mb-btn--primary { background: var(--mb-primary); border-color: var(--mb-primary); color: #fff; }
-.mb-btn--primary:not(:disabled):hover { background: var(--mb-primary-hover); border-color: var(--mb-primary-hover); }
-.mb-btn--small { padding: 3px 10px; font-size: 12px; }
-.mb-foot .mb-btn--primary { padding: 9px 26px; font-size: 14px; }
+.mb-status--ok { color: var(--mb-ok); }
+.mb-status--ok i { width: 10px; height: 10px; box-shadow: 0 0 6px currentColor; }
+.mb-status--warn { color: var(--mb-warn); }
+/* 三角形用 SVG 背景畫，驚嘆號是文字疊在上面——用 clip-path 的話文字會被一起裁掉 */
+.mb-status--warn i {
+  border-radius: 0; width: 16px; height: 14px; padding-top: 3px; font-size: 9px; color: #1a1205;
+  background: no-repeat center / 100% 100% url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 14'%3E%3Cpath d='M8 0.6 15.4 13.4H0.6Z' fill='%23f5b73b' stroke='%23f5b73b' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+.mb-status--bad { color: var(--mb-bad); }
+.mb-status--info { color: var(--mb-info); }
+.mb-status--pending { color: var(--mb-pending); }
+.mb-status--muted { color: var(--mb-muted); font-weight: 400; font-size: 12px; }
 
-.mb-alert { border-radius: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.6; margin-bottom: 12px; border: 1px solid; }
-.mb-alert--bad { color: #fecaca; background: rgba(248, 113, 113, .08); border-color: rgba(248, 113, 113, .4); }
-.mb-alert--warn { color: #fde68a; background: rgba(251, 191, 36, .08); border-color: rgba(251, 191, 36, .35); }
+.mb-pager { display: flex; align-items: center; gap: 8px; color: var(--mb-muted); font-size: 13px; padding: 10px 2px; font-variant-numeric: tabular-nums; }
 
-.mb-progress { height: 6px; border-radius: 999px; background: rgba(148, 163, 184, .15); overflow: hidden; margin-bottom: 12px; }
-.mb-progress > div { height: 100%; background: var(--mb-ok); transition: width .3s; }
+.mb-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 6px; padding-top: 14px; border-top: 1px solid var(--mb-border); }
+.mb-foot-sum { font-size: 15px; color: var(--mb-muted); }
+.mb-foot-sum b { font-size: 17px; margin: 0 2px; }
+.mb-c-sel { color: var(--mb-info); }
+.mb-c-ok { color: var(--mb-ok); }
+.mb-c-bad { color: var(--mb-bad); }
+
+/* ── ④ 送出結果 ── */
 .mb-tally { margin-bottom: 12px; }
+.mb-results { display: flex; flex-direction: column; border: 1px solid var(--mb-border); border-radius: 10px; overflow: hidden; }
+.mb-result { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid rgba(30, 53, 86, .7); }
+.mb-result:last-child { border-bottom: 0; }
+.mb-result-main { flex: 1; min-width: 0; }
+.mb-result-name { font-weight: 700; overflow-wrap: anywhere; }
+.mb-result-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12.5px; color: var(--mb-muted); margin-top: 3px; }
+.mb-result-sub a { color: var(--mb-info); }
+.mb-result-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.mb-export { margin-top: 14px; }
+.mb-export small { font-size: 10.5px; font-weight: 400; opacity: .7; margin-left: 6px; }
+.mb-done-line { display: flex; justify-content: space-between; font-size: 13.5px; margin: 14px 0 6px; }
+.mb-done-line b { font-size: 15px; }
+.mb-done-note { text-align: right; font-size: 11.5px; color: var(--mb-muted); margin-top: -4px; }
 
-/* ── 修仙版：只換配色與裝飾（墨黑底、青玉主按鈕、細金線）── */
-:root[data-theme-mode="xianxia"] .mb-page {
-  --mb-bg: #0b1110;
-  --mb-card: #101716;
-  --mb-border: rgba(163, 130, 63, .45);
-  --mb-text: #e8e1cf;
-  --mb-muted: #a39a86;
-  --mb-primary: #62C6A5;
-  --mb-primary-hover: #4fb592;
-  --mb-ok: #62C6A5;
-  --mb-info: #d9b56a;
-}
-:root[data-theme-mode="xianxia"] .mb-card {
-  box-shadow: inset 0 1px 0 rgba(163, 130, 63, .35), 0 0 0 1px rgba(0, 0, 0, .4);
-}
-:root[data-theme-mode="xianxia"] .mb-title { letter-spacing: .06em; }
-:root[data-theme-mode="xianxia"] .mb-btn--primary { color: #0b1110; }
-:root[data-theme-mode="xianxia"] .mb-btn:not(:disabled):hover { background: rgba(98, 198, 165, .1); }
-:root[data-theme-mode="xianxia"] .mb-btn--primary:not(:disabled):hover { background: var(--mb-primary-hover); }
-:root[data-theme-mode="xianxia"] .mb-table th { background: rgba(163, 130, 63, .08); }
-:root[data-theme-mode="xianxia"] .mb-edit-row td { background: rgba(98, 198, 165, .05); }
-.mb-gap { margin-left: 8px; }
+.mb-badge { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 6px; border: 1px solid; line-height: 1.6; }
+.mb-badge--ok { color: var(--mb-ok); border-color: rgba(63, 208, 127, .4); background: rgba(63, 208, 127, .08); }
+.mb-badge--warn { color: var(--mb-warn); border-color: rgba(245, 183, 59, .4); background: rgba(245, 183, 59, .08); }
+.mb-badge--bad { color: var(--mb-bad); border-color: rgba(242, 107, 107, .4); background: rgba(242, 107, 107, .08); }
+.mb-badge--pending { color: var(--mb-pending); border-color: rgba(180, 140, 255, .4); background: rgba(180, 140, 255, .08); }
 
-/* 批量填寫 */
-.mb-bulk { margin-bottom: 10px; }
-.mb-bulk.is-open { padding: 10px 12px; border: 1px dashed var(--mb-border); border-radius: 10px; }
-.mb-bulk .mb-edit { margin-top: 10px; }
-.mb-bulk-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; }
+.mb-alert { border-radius: 9px; padding: 10px 12px; font-size: 13px; line-height: 1.6; margin: 10px 0; border: 1px solid; }
+.mb-alert--bad { color: #fecaca; background: rgba(242, 107, 107, .08); border-color: rgba(242, 107, 107, .4); }
+.mb-alert--warn { color: #fde68a; background: rgba(245, 183, 59, .08); border-color: rgba(245, 183, 59, .35); }
+.mb-alert--row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
 
-/* 固定在畫面下方的進度條 */
+/* 進度條本體沿用 Dashboard 的 .dashboard-bar-track／-fill（修仙版靈脈素材一起套上）；這裡只管間距 */
+.mb-progress-track { margin: 4px 0 12px; }
+
+/* ── 固定在畫面下方的進度列（跨步驟保留）── */
 .mb-dock {
   position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 50;
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
   width: min(720px, calc(100vw - 32px)); padding: 10px 14px; border-radius: 12px;
-  background: var(--mb-card); border: 1px solid var(--mb-border); box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+  background: var(--mb-card); border: 1px solid var(--mb-border-strong); box-shadow: 0 10px 30px rgba(0, 0, 0, .45);
   font-size: 13px;
 }
 .mb-dock-text { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; flex: 1 1 auto; }
@@ -157,7 +230,62 @@
 .mb-dock-pending { color: var(--mb-pending); }
 .mb-dock-bad { color: var(--mb-bad); }
 .mb-dock-bar { flex: 1 1 100%; order: 3; }
-/* 進度條本體沿用 Dashboard 的 .dashboard-bar-track／-fill（修仙版靈脈素材一起套上）；這裡只管間距 */
-.mb-progress-track { margin: 4px 0 12px; }
 .mb-dock .mb-progress-track { margin: 2px 0 8px; }
 .mb-dock-actions { display: flex; gap: 6px; }
+
+@media (max-width: 720px) {
+  .mb-grid2 { grid-template-columns: 1fr; }
+  .mb-step-label { display: none; }
+  .mb-step--current .mb-step-label { display: inline; }
+}
+
+/* ══════════ 修仙版：墨綠底、金線外框＋角飾、青玉主按鈕（只換配色與裝飾，結構不變）══════════ */
+:root[data-theme-mode="xianxia"] .mb-page {
+  --mb-bg: #0a1412;
+  --mb-card: #0d1a17;
+  --mb-card2: #10201c;
+  --mb-border: rgba(201, 168, 92, .32);
+  --mb-border-strong: rgba(201, 168, 92, .6);
+  --mb-text: #ece4cc;
+  --mb-muted: #a59c83;
+  --mb-primary: #1fb08c;
+  --mb-primary-2: #128a6c;
+  --mb-primary-glow: rgba(31, 176, 140, .45);
+  --mb-ok: #3fd59a;
+  --mb-info: #7fb8ff;
+  --mb-pending: #b78cff;
+}
+:root[data-theme-mode="xianxia"] .mb-shell {
+  border: 1px solid rgba(201, 168, 92, .7);
+  box-shadow: inset 0 0 0 4px #0d1a17, inset 0 0 0 5px rgba(201, 168, 92, .35), 0 12px 40px rgba(0, 0, 0, .45);
+  background: radial-gradient(120% 60% at 50% 0%, rgba(31, 176, 140, .08), transparent 60%), var(--mb-card);
+}
+/* 左上、右下的金色角飾（偽元素畫 L 形，不加 DOM） */
+:root[data-theme-mode="xianxia"] .mb-shell::before,
+:root[data-theme-mode="xianxia"] .mb-shell::after {
+  content: ""; position: absolute; width: 26px; height: 26px; pointer-events: none;
+  border-color: #d9b56a; border-style: solid;
+}
+:root[data-theme-mode="xianxia"] .mb-shell::before { top: -1px; left: -1px; border-width: 3px 0 0 3px; border-top-left-radius: 12px; }
+:root[data-theme-mode="xianxia"] .mb-shell::after { bottom: -1px; right: -1px; border-width: 0 3px 3px 0; border-bottom-right-radius: 12px; }
+:root[data-theme-mode="xianxia"] .mb-shell-title,
+:root[data-theme-mode="xianxia"] .mb-pane-title { letter-spacing: .08em; }
+:root[data-theme-mode="xianxia"] .mb-step--done .mb-step-dot { background: var(--mb-primary); border-color: #6fe3c3; color: #06110e; }
+:root[data-theme-mode="xianxia"] .mb-step--current .mb-step-dot { background: #0d1a17; border-color: var(--mb-primary); color: #6fe3c3; box-shadow: 0 0 0 4px rgba(31, 176, 140, .2), 0 0 18px var(--mb-primary-glow); }
+:root[data-theme-mode="xianxia"] .mb-step--current .mb-step-label { color: #6fe3c3; }
+:root[data-theme-mode="xianxia"] .mb-step-line { background: rgba(201, 168, 92, .25); }
+:root[data-theme-mode="xianxia"] .mb-step-line.is-done { background: var(--mb-primary); }
+:root[data-theme-mode="xianxia"] .mb-btn--primary { background: linear-gradient(180deg, #2bc59f, #12896b); border-color: #6fe3c3; color: #06110e; }
+:root[data-theme-mode="xianxia"] .mb-btn--primary:not(:disabled):hover { background: linear-gradient(180deg, #3ad6af, #1fb08c); }
+:root[data-theme-mode="xianxia"] .mb-btn:not(.mb-btn--primary) { border-color: rgba(217, 181, 106, .75); color: #ecd9a5; background: rgba(13, 26, 23, .6); }
+:root[data-theme-mode="xianxia"] .mb-btn:not(:disabled):not(.mb-btn--primary):hover { border-color: #e6c77f; background: rgba(217, 181, 106, .1); }
+:root[data-theme-mode="xianxia"] .mb-btn--outline.is-on { background: rgba(217, 181, 106, .16); }
+:root[data-theme-mode="xianxia"] .mb-input:focus,
+:root[data-theme-mode="xianxia"] .mb-select:focus { box-shadow: 0 0 0 3px rgba(31, 176, 140, .2); }
+:root[data-theme-mode="xianxia"] .mb-chip--prev { border-color: rgba(183, 140, 255, .5); color: var(--mb-pending); background: rgba(183, 140, 255, .08); }
+:root[data-theme-mode="xianxia"] .mb-selbar-all b,
+:root[data-theme-mode="xianxia"] .mb-c-sel { color: #6fe3c3; }
+:root[data-theme-mode="xianxia"] .mb-table th { background: rgba(201, 168, 92, .07); }
+:root[data-theme-mode="xianxia"] .mb-table tbody tr:hover td { background: rgba(31, 176, 140, .05); }
+:root[data-theme-mode="xianxia"] .mb-tab--warn.is-on { color: #ecd9a5; box-shadow: inset 0 0 0 1px rgba(217, 181, 106, .7); background: rgba(217, 181, 106, .12); }
+:root[data-theme-mode="xianxia"] .mb-dock { box-shadow: inset 0 1px 0 rgba(201, 168, 92, .35), 0 10px 30px rgba(0, 0, 0, .5); }

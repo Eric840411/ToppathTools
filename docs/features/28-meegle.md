@@ -82,6 +82,9 @@
 **目標空間／類型**：預設「TP-項目管理-測試」的「任務項」。正式上線改環境變數
 `MEEGLE_PROJECT_KEY`／`MEEGLE_TASK_TYPE_KEY`（還有 `MEEGLE_REQUIREMENT_TYPE_KEY`、`MEEGLE_REQUIREMENT_FIELD_KEY`）。⚠️ Master 是正式空間，**不要拿來測**。
 
+### 畫面：分步驟（v4.265.0，CodeX 設計、使用者要求 1:1 還原）
+① 讀取與預設 → ② 人員對照 → ③ 預覽與勾選 → ④ 送出結果，一次只顯示一步。全員已對照會自動跳過 ②（仍可點回）；上一步保留設定、勾選與驗證；③ 有未對照名字會提示回 ②；送出後自動切到 ④；底部進度列跨步驟保留（沿用 Dashboard 靈脈素材）。逐列編輯已併入批量設定（只勾一列＝單列修改）。
+
 ### 使用者操作
 | 操作 | 說明 |
 |------|------|
@@ -123,7 +126,7 @@
 - 認領用 `BEGIN IMMEDIATE` 交易，兩個請求同時進來只有一個拿得到；結果只能從 `creating` 寫出去，晚到的舊結果蓋不掉
 - `creating` 超過 5 分鐘（伺服器在開單途中重啟）→ 轉 `unknown`，不會被當成可重送
 - **查詢結果**：用名稱＋關聯需求＋建立日期（MQL 只到「日」）找，排除已記在別列的單號；唯一一張才收，零張改 `failed`，多張維持待確認請人判斷
-- **跨批次**：記下來源 Sheet 網址，下次讀同一份 Sheet，同列號＋同名稱開過的標「已在 Meegle 開過」、預設不勾；Sheet 已有「Jira issue key」的也預設不勾
+- **跨批次**：記下來源 Sheet（v4.265.0 起存 token＋sheet id 的識別值，不存完整網址——CodeX review `0c30dde` [P2]：`&from=share` 這種尾巴會讓比完整網址的防重複被繞過），下次讀同一份 Sheet，同列號＋同名稱開過的標「已在 Meegle 開過」、預設不勾；Sheet 已有「Jira issue key」的也預設不勾
 - **批次綁定來源 Sheet**（v4.263.1，CodeX review `999f895` [P1]）：同一個 batchId 已有別份 Sheet 的列 → 拒絕（`SOURCE_MISMATCH`）。
   否則換 Sheet 沿用舊批次時，B 表第 3 列會撞到 A 表第 3 列，回傳 A 的單號、B 沒開，還可能推 A 的狀態。前端每次讀 Sheet 都換新批次
 - **同一份 Sheet 同一列，任何批次還在 creating／unknown → 擋**（v4.263.1，CodeX [P1]）：batchId 只活在前端記憶體，重整後換新，
@@ -131,6 +134,7 @@
 - **查回收成 created 後要補推狀態**（v4.263.1，CodeX [P2]）：`needsStatePush()`——已開單、有目標狀態、還沒推成功就補推
 - **重整後也要接回「已開單但狀態未推完」的列**（v4.263.2，CodeX review `df9b538` [P2]）：只接回待確認的話，推狀態前中斷／推失敗的列只剩「已開過」、沒有重推入口。
   判斷用 `shared/meegle-batch-rules.ts` 的 `isRestorablePrevious()`，伺服器的 `needsStatePush()` 也呼叫它。**重推一律用該列送出時的目標狀態與批次**，不用畫面上目前選的
+- **送出撞到「已開過」一律不推狀態**（v4.265.0，CodeX review `0c30dde` [P2]×2）：那筆可能是別人開的（用我的 token 推別人的單），或原本刻意不推；補推只走「重推狀態」
 - **目標狀態只有一個來源：伺服器紀錄**（v4.263.3，CodeX review `4bc4fa9` [P2]）：`adoptTarget()`——紀錄有目標就用紀錄的，請求帶的只在紀錄沒有時採用並寫回。
   雙分頁情境：A 目標「可本機測試」、B 選「完成」送同一列 → B 接回 A 的紀錄，重推仍推「可本機測試」。`publicRow()` 回傳 `targetStateKey`，前端不自己記
 - **跨批次同列同名已開成功 → 也擋**（v4.263.3）：B 分頁在 A 送出前就讀了 Sheet，預覽看不到「已開過」，只擋 pending 的話 B 會開第二張。名稱改過視為新的一筆

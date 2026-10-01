@@ -2879,15 +2879,8 @@ export const userJiraAuth = (
 }
 
 /** 解析 Lark Sheet URL（支援 /sheets/{token} 和 /wiki/{token} 兩種格式） */
-export const parseLarkSheetUrl = (url: string) => {
-  const tokenMatch = url.match(/\/sheets\/([A-Za-z0-9]+)/)
-    ?? url.match(/\/wiki\/([A-Za-z0-9]+)/)
-  const sheetMatch = url.match(/[?&]sheet=([A-Za-z0-9]+)/)
-  return {
-    spreadsheetToken: tokenMatch?.[1] ?? '',
-    sheetId: sheetMatch?.[1] ?? '',
-  }
-}
+// 本體搬到 shared/lark-sheet-url.ts（純函式，測試與 Meegle 防重複共用同一份）
+export { parseLarkSheetUrl } from '../shared/lark-sheet-url.js'
 
 /** 取得 Lark tenant_access_token */
 export const getLarkToken = async (): Promise<string> => {

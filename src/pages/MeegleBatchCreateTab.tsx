@@ -21,6 +21,18 @@ type RowResult = { batchId: string; rowKey: string; targetStateKey?: string; cre
 type Previous = RowResult & { name: string; owner: string }
 type Override = { requirementId?: string; roles?: Partial<Record<MeegleRoleKey, string[]>> }
 
+/** 目前是普通版還是修仙版：App 切換時會改 <html data-theme-mode>，這裡跟著它（只換文字，樣式交給 CSS） */
+function useThemeMode(): string {
+  const read = () => document.documentElement.dataset.themeMode ?? ''
+  const [mode, setMode] = useState(read)
+  useEffect(() => {
+    const ob = new MutationObserver(() => setMode(read()))
+    ob.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme-mode'] })
+    return () => ob.disconnect()
+  }, [])
+  return mode
+}
+
 const PAGE_SIZE = 25
 const ROLE_SHORT: Record<MeegleRoleKey, string> = { assignee: '受托', rdOwner: 'RD', reporter: '回報', codeReview: 'CR', qaVerifier: 'QA' }
 
@@ -56,10 +68,13 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
   const [defaults, setDefaults] = useState<BatchDefaults>({ requirementId: '', roles: {} })
   const [targetStateKey, setTargetStateKey] = useState('')
   const [overrides, setOverrides] = useState<Record<number, Override>>({})
-  const [editingRow, setEditingRow] = useState<number | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [needsPreselect, setNeedsPreselect] = useState(false)
-  const [filter, setFilter] = useState<'all' | 'ok' | 'blocked'>('all')
+  const [filter, setFilter] = useState<'all' | 'ok' | 'blocked' | 'prev'>('all')
+  // 分步驟版面（CodeX 設計，使用者選 A）：① 讀取與預設 → ② 人員對照 → ③ 預覽與勾選 → ④ 送出結果
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
+  const [peopleTab, setPeopleTab] = useState<'unmapped' | 'mapped'>('unmapped')
+  const xianxia = useThemeMode() === 'xianxia'
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
 
@@ -72,7 +87,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [progressDismissed, setProgressDismissed] = useState(false)
-  const resultsRef = useRef<HTMLElement | null>(null)
+  const resultsRef = useRef<HTMLDivElement | null>(null)
 
   // 批量填寫：對已勾選的列一次寫入逐列覆寫（留空的欄位不動）
   const [bulkOpen, setBulkOpen] = useState(false)
@@ -110,7 +125,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
       // 上次送出還沒收尾的列（待確認、或已開單但狀態沒推完）：接回原批次與原目標，才有「查詢結果」「重推狀態」可按
       const pending: Record<number, RowResult> = {}
       for (const p of prev.rows) if (isRestorablePrevious(p)) pending[Number(p.rowKey)] = p
-      setOverrides({}); setResults(pending); setRowNote({}); setPage(1); setEditingRow(null)
+      setOverrides({}); setResults(pending); setRowNote({}); setPage(1)
       setSelected(new Set())  // 下面的 effect 依規則重新預選
       setNeedsPreselect(true)
     } catch (e) { setSheetError((e as Error).message) } finally { setSheetLoading(false) }
@@ -153,15 +168,18 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
   }, [needsPreselect, records, meta, rows])
 
   const visible = rows.filter(r => {
-    if (filter === 'ok' && r.plan.blocks.length) return false
+    if (filter === 'ok' && (r.plan.blocks.length || r.prev.length || r.pendingPrev)) return false
     if (filter === 'blocked' && !r.plan.blocks.length) return false
+    if (filter === 'prev' && !r.prev.length) return false
     const q = query.trim().toLowerCase()
     if (!q) return true
     return r.plan.name.toLowerCase().includes(q) || MEEGLE_ROLE_DEFS.some(d => r.plan.roles[d.key].aliases.some(a => a.toLowerCase().includes(q)))
   })
   const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE))
   const pageRows = visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-  const okCount = rows.filter(r => !r.plan.blocks.length).length
+  const okCount = rows.filter(r => !r.plan.blocks.length && !r.prev.length && !r.pendingPrev).length
+  const blockedCount = rows.filter(r => r.plan.blocks.length).length
+  const prevCount = rows.filter(r => r.prev.length).length
   // 已在 Meegle 開過（同列同名）的不送，伺服器也會擋並回傳原本那張
   // 被擋下的列也能勾（批量填寫要能補它們的設定），但送出只取通過檢查的；已開過／待確認的不能勾
   const isSelectable = (r: typeof rows[number]) => !r.pendingPrev && r.prev.length === 0
@@ -265,6 +283,19 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
 
   const personOptions = people.map(p => ({ value: p.alias, label: `${p.alias}（${p.name || p.email}）` }))
 
+  const unmappedAliases = aliasRows.filter(a => !a.person)
+  const mappedAliases = aliasRows.filter(a => a.person)
+
+  /** ① → 下一步：全員已對照就直接進 ③（CodeX 建議），② 仍可從步驟列點回去看 */
+  function goNextFromLoad() {
+    setStep(unmappedAliases.length ? 2 : 3)
+  }
+
+  async function submitAndShow() {
+    setStep(4)
+    await submit()
+  }
+
   // ── 畫面 ──
   if (metaError) {
     const bindIssue = metaError.code === 'NOT_BOUND' || metaError.code === 'BINDING_INVALID' || metaError.code === 'DECRYPT_FAILED'
@@ -278,296 +309,314 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
     )
   }
 
+  const STEPS = [
+    { n: 1, label: '讀取與預設' },
+    { n: 2, label: '人員對照' },
+    { n: 3, label: '預覽與勾選' },
+    { n: 4, label: '送出結果' },
+  ] as const
+  // 能不能點到某一步：② ③ 要先讀好 Sheet；④ 要有結果
+  const canGo = (n: number) => n === 1 || (n <= 3 ? !!records && !!meta : resultEntries.length > 0)
+
   return (
     <div className="mb-page">
-      {/* ── 01 預覽表 ── */}
-      <section className="mb-card">
-        <header className="mb-head">
-          <h2 className="mb-title"><span className="mb-no">01</span>預覽表<span className="mb-sub">檢視資料與設定對應規則，確認後送出</span></h2>
-          <div className="mb-sheet">
-            <input className="mb-input" placeholder="貼上 Lark Sheet 網址" value={sheetUrl} onChange={e => setSheetUrl(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') void loadSheet() }} />
-            <button type="button" className="mb-btn" disabled={sheetLoading || !sheetUrl.trim()} onClick={() => void loadSheet()}>
-              {sheetLoading ? '讀取中…' : records ? '重新讀取' : '讀取'}
-            </button>
-          </div>
+      <section className="mb-card mb-shell">
+        <header className="mb-shell-head">
+          <h2 className="mb-shell-title">Meegle 批量開單</h2>
+          <span className="mb-shell-sub">{records ? `Lark Sheet ・ ${rows.length} 列` : '尚未讀取 Sheet'}</span>
         </header>
-        {sheetError && <div className="mb-alert mb-alert--bad">{sheetError}</div>}
-        {!meta && <div className="mb-muted">正在讀取 Meegle 需求清單…</div>}
 
-        {meta && (
-          <div className="mb-defaults">
-            <label className="mb-field"><span>關聯需求預設</span>
-              <select className="mb-select" value={defaults.requirementId} onChange={e => setDefaults(d => ({ ...d, requirementId: e.target.value }))}>
-                <option value="">— 選擇需求 —</option>
-                {requirements.map(r => <option key={r.id} value={r.id}>{r.name}（#{r.id}）</option>)}
-              </select>
+        {/* 步驟列：完成＝勾、目前＝實心數字、還沒到＝空心 ✕ */}
+        <nav className="mb-stepper" aria-label="步驟">
+          {STEPS.map((s, i) => {
+            const state = s.n === step ? 'current' : s.n < step ? 'done' : 'todo'
+            return (
+              <Fragment key={s.n}>
+                {i > 0 && <span className={`mb-step-line${s.n <= step ? ' is-done' : ''}`} />}
+                <button type="button" className={`mb-step mb-step--${state}`} disabled={!canGo(s.n) || running} onClick={() => setStep(s.n)}
+                  aria-current={state === 'current' ? 'step' : undefined}>
+                  <span className="mb-step-dot">{state === 'done' ? '✓' : state === 'current' ? String(s.n).padStart(2, '0') : '✕'}</span>
+                  <span className="mb-step-label">{state === 'current' ? s.label : `${String(s.n).padStart(2, '0')}  ${s.label}`}</span>
+                </button>
+              </Fragment>
+            )
+          })}
+        </nav>
+
+        {/* ── ① 讀取與預設 ── */}
+        {step === 1 && (
+          <div className="mb-pane mb-pane--narrow">
+            <h3 className="mb-pane-title">讀取與整批預設</h3>
+            <label className="mb-field"><span>Sheet URL</span>
+              <input className="mb-input" placeholder="https://xxx.larksuite.com/wiki/…?sheet=…" value={sheetUrl}
+                onChange={e => setSheetUrl(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void loadSheet() }} />
             </label>
-            {(['assignee', 'codeReview'] as const).map(k => (
-              <label key={k} className="mb-field"><span>{k === 'assignee' ? '受托人' : 'Code Review'}</span>
-                <select className="mb-select" value={defaults.roles[k]?.[0] ?? ''} onChange={e => setDefaults(d => ({ ...d, roles: { ...d.roles, [k]: e.target.value ? [e.target.value] : [] } }))}>
-                  <option value="">— 留空 —</option>
-                  {personOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              </label>
-            ))}
-            <label className="mb-field"><span>開單後推到</span>
-              <select className="mb-select" value={targetStateKey} onChange={e => setTargetStateKey(e.target.value)} disabled={!meta.states.length}>
-                <option value="">— 不推（停在初始狀態）—</option>
-                {meta.states.map(s => <option key={s.key} value={s.key}>{s.name}</option>)}
-              </select>
-            </label>
-            <p className="mb-hint">
-              人員欄認這些欄名：回報者／回報人／填寫人、RD負責人／RD、QA驗證人員；受托人和 Code Review 由這裡整批帶入（下拉只列已對照過的人），可逐列修改。
-              Sheet 若有「關聯需求」欄，填了就以該欄為準，對不到會擋下，不會改用預設。
-              {meta.statesError && <><br />⚠️ 讀不到狀態清單：{meta.statesError}</>}
-            </p>
+            <button type="button" className="mb-btn mb-btn--primary mb-btn--block" disabled={sheetLoading || !sheetUrl.trim()} onClick={() => void loadSheet()}>
+              🔗 {sheetLoading ? '讀取中…' : records ? '重新讀取 Sheet' : '讀取 Sheet'}
+            </button>
+            {sheetError && <div className="mb-alert mb-alert--bad">{sheetError}</div>}
+            {records && <div className="mb-muted mb-loaded">已讀取 {rows.length} 列{unmappedAliases.length ? `・${unmappedAliases.length} 個名字未對照` : '・人員都已對照'}</div>}
+            {!meta && <div className="mb-muted">正在讀取 Meegle 需求清單…</div>}
+            {meta && (
+              <div className="mb-grid2">
+                <label className="mb-field"><span>關聯需求</span>
+                  <select className="mb-select" value={defaults.requirementId} onChange={e => setDefaults(d => ({ ...d, requirementId: e.target.value }))}>
+                    <option value="">選擇需求</option>
+                    {requirements.map(r => <option key={r.id} value={r.id}>{r.name}（#{r.id}）</option>)}
+                  </select>
+                </label>
+                <label className="mb-field"><span>受托人</span>
+                  <select className="mb-select" value={defaults.roles.assignee?.[0] ?? ''} onChange={e => setDefaults(d => ({ ...d, roles: { ...d.roles, assignee: e.target.value ? [e.target.value] : [] } }))}>
+                    <option value="">選擇人員</option>
+                    {personOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </label>
+                <label className="mb-field"><span>CR</span>
+                  <select className="mb-select" value={defaults.roles.codeReview?.[0] ?? ''} onChange={e => setDefaults(d => ({ ...d, roles: { ...d.roles, codeReview: e.target.value ? [e.target.value] : [] } }))}>
+                    <option value="">選擇人員</option>
+                    {personOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </label>
+                <label className="mb-field"><span>開單後推到</span>
+                  <select className="mb-select" value={targetStateKey} onChange={e => setTargetStateKey(e.target.value)} disabled={!meta.states.length}>
+                    <option value="">選擇狀態（不選＝不推）</option>
+                    {meta.states.map(s => <option key={s.key} value={s.key}>{s.name}</option>)}
+                  </select>
+                </label>
+              </div>
+            )}
+            {meta?.statesError && <div className="mb-hint">⚠️ 讀不到狀態清單：{meta.statesError}</div>}
+            <p className="mb-hint">人員欄認：回報者／回報人／填寫人、RD負責人／RD、QA驗證人員。Sheet 有「關聯需求」欄就以該欄為準，對不到會擋下、不會改用預設。</p>
+            <button type="button" className="mb-btn mb-btn--primary mb-btn--block" disabled={!records || !meta} onClick={goNextFromLoad}>下一步</button>
           </div>
         )}
 
-        {records && meta && (
-          <>
+        {/* ── ② 人員對照 ── */}
+        {step === 2 && records && (
+          <div className="mb-pane mb-pane--narrow">
+            <h3 className="mb-pane-title">人員對照</h3>
+            <div className="mb-tabs" role="tablist">
+              <button type="button" role="tab" className={`mb-tab${peopleTab === 'unmapped' ? ' is-on mb-tab--warn' : ''}`} aria-selected={peopleTab === 'unmapped'} onClick={() => setPeopleTab('unmapped')}>未對照 <b>{unmappedAliases.length}</b></button>
+              <button type="button" role="tab" className={`mb-tab${peopleTab === 'mapped' ? ' is-on' : ''}`} aria-selected={peopleTab === 'mapped'} onClick={() => setPeopleTab('mapped')}>已對照 <b>{mappedAliases.length}</b></button>
+            </div>
+            <div className="mb-people-list">
+              {(peopleTab === 'unmapped' ? unmappedAliases : mappedAliases).map(({ alias, person, affected }) => {
+                const editing = !person || editingAlias.has(alias)
+                return (
+                  <div key={alias} className="mb-person">
+                    <div className="mb-person-row">
+                      <span className="mb-person-name">{alias}</span>
+                      {editing ? (
+                        <input className="mb-input mb-person-email" type="email" placeholder="輸入 email" value={emailDraft[alias] ?? person?.email ?? ''}
+                          onChange={e => setEmailDraft(d => ({ ...d, [alias]: e.target.value }))}
+                          onKeyDown={e => { if (e.key === 'Enter') void verifyAlias(alias) }} />
+                      ) : <span className="mb-person-email mb-muted">{person!.name} ・ {person!.email}</span>}
+                      {editing
+                        ? <button type="button" className="mb-btn mb-btn--small mb-btn--primary" disabled={verifying[alias] || !(emailDraft[alias] ?? '').trim()} onClick={() => void verifyAlias(alias)}>{verifying[alias] ? '驗證中…' : '驗證'}</button>
+                        : <button type="button" className="mb-btn mb-btn--small" onClick={() => { setEditingAlias(s => new Set(s).add(alias)); setEmailDraft(d => ({ ...d, [alias]: person!.email })) }}>修改</button>}
+                    </div>
+                    <div className="mb-person-meta">影響 {affected} 列</div>
+                    {verifyError[alias] && <div className="mb-badge mb-badge--bad">{verifyError[alias]}</div>}
+                  </div>
+                )
+              })}
+              {peopleTab === 'unmapped' && !unmappedAliases.length && <div className="mb-muted mb-empty">全部都已對照 ✓</div>}
+              {peopleTab === 'mapped' && !mappedAliases.length && <div className="mb-muted mb-empty">還沒有對照過的人</div>}
+            </div>
+            <p className="mb-hint">ⓘ 未對照角色留空，預覽保留警告。對照用 Sheet 上的完整寫法；email 必須完全相同才算數。</p>
+            <div className="mb-pane-actions">
+              <button type="button" className="mb-btn mb-btn--outline" onClick={() => setStep(1)}>上一步</button>
+              <button type="button" className="mb-btn mb-btn--primary" onClick={() => setStep(3)}>前往預覽</button>
+            </div>
+          </div>
+        )}
+
+        {/* ── ③ 預覽與勾選 ── */}
+        {step === 3 && records && meta && (
+          <div className="mb-pane">
+            <h3 className="mb-pane-title">預覽與勾選</h3>
+            {unmappedAliases.length > 0 && (
+              <div className="mb-alert mb-alert--warn mb-alert--row">
+                有 {unmappedAliases.length} 個名字未對照（{unmappedAliases.slice(0, 4).map(a => a.alias).join('、')}{unmappedAliases.length > 4 ? '…' : ''}），那些角色會留空。
+                <button type="button" className="mb-btn mb-btn--small" onClick={() => { setPeopleTab('unmapped'); setStep(2) }}>回 ② 驗證</button>
+              </div>
+            )}
             <div className="mb-toolbar">
+              <div className="mb-search-wrap"><span aria-hidden>⌕</span><input className="mb-input mb-search" placeholder="搜尋任務或人名" value={query} onChange={e => { setQuery(e.target.value); setPage(1) }} /></div>
               <div className="mb-chips">
-                {([['all', `全部 ${rows.length}`], ['ok', `可送出 ${okCount}`], ['blocked', `被擋下 ${rows.length - okCount}`]] as const).map(([k, label]) => (
-                  <button key={k} type="button" className={`mb-chip mb-chip--${k}${filter === k ? ' is-on' : ''}`} onClick={() => { setFilter(k); setPage(1) }}>{label}</button>
+                {([['all', '全部', rows.length], ['ok', '可送出', okCount], ['blocked', '被擋下', blockedCount], ['prev', '已開過', prevCount]] as const).map(([k, label, n]) => (
+                  <button key={k} type="button" className={`mb-chip mb-chip--${k}${filter === k ? ' is-on' : ''}`} onClick={() => { setFilter(k); setPage(1) }}>{label} <b>{n}</b></button>
                 ))}
               </div>
-              <input className="mb-input mb-search" placeholder="搜尋任務或人名" value={query} onChange={e => { setQuery(e.target.value); setPage(1) }} />
             </div>
 
-            <div className={`mb-bulk${bulkOpen ? ' is-open' : ''}`}>
-              <button type="button" className="mb-btn mb-btn--small" disabled={!selected.size} onClick={() => { setBulkOpen(o => !o); setBulkMsg('') }}>
-                {bulkOpen ? '▾' : '▸'} 批量設定已勾選的 {selected.size} 列
-              </button>
-              {bulkOpen && (
-                <>
-                  <div className="mb-edit">
-                    <label className="mb-field"><span>關聯需求</span>
-                      <select className="mb-select" value={bulk.requirementId} onChange={e => setBulk(b => ({ ...b, requirementId: e.target.value }))}>
-                        <option value="">— 不改 —</option>
-                        {requirements.map(q => <option key={q.id} value={q.id}>{q.name}（#{q.id}）</option>)}
-                      </select>
-                    </label>
-                    {MEEGLE_ROLE_DEFS.map(d => (
-                      <label key={d.key} className="mb-field"><span>{d.label}</span>
-                        <input className="mb-input" list="mb-people-options" placeholder="— 不改 —" value={bulk.roles[d.key] ?? ''}
-                          onChange={e => setBulk(b => ({ ...b, roles: { ...b.roles, [d.key]: e.target.value } }))} />
-                      </label>
-                    ))}
-                    <datalist id="mb-people-options">{people.map(p => <option key={p.alias} value={p.alias}>{p.name || p.email}</option>)}</datalist>
-                  </div>
-                  <div className="mb-bulk-actions">
-                    <button type="button" className="mb-btn mb-btn--small mb-btn--primary"
-                      disabled={!selected.size || (!bulk.requirementId && !Object.values(bulk.roles).some(v => v?.trim()))}
-                      onClick={() => {
-                        // 只寫有填的欄位；人名欄跟逐列編輯同一個規則（逗號分隔、覆寫 Sheet 值）
-                        setOverrides(o => {
-                          const next = { ...o }
-                          for (const idx of selected) {
-                            const cur = next[idx] ?? {}
-                            const roles = { ...(cur.roles ?? {}) }
-                            for (const [k, v] of Object.entries(bulk.roles) as [MeegleRoleKey, string | undefined][]) {
-                              if (v?.trim()) roles[k] = v.split(/[,，、]/).map(s => s.trim()).filter(Boolean)
-                            }
-                            next[idx] = { ...cur, requirementId: bulk.requirementId || cur.requirementId, roles }
-                          }
-                          return next
-                        })
-                        setBulkMsg(`已套用到 ${selected.size} 列`)
-                      }}>套用到已勾選的列</button>
-                    <button type="button" className="mb-btn mb-btn--small" disabled={!selected.size}
-                      onClick={() => {
-                        setOverrides(o => { const next = { ...o }; for (const idx of selected) delete next[idx]; return next })
-                        setBulkMsg(`已清除 ${selected.size} 列的手動設定，回到 Sheet／整批預設`)
-                      }}>清除這些列的手動設定</button>
-                    {bulkMsg && <span className="mb-muted">{bulkMsg}</span>}
-                  </div>
-                  <p className="mb-hint">留空＝不改。人名可填多位（逗號分隔），會<b>取代</b> Sheet 上的值；新名字要先在「人員對照」填 email。被擋下的列也能勾來補設定（例如補關聯需求），但仍要通過檢查才會送出。</p>
-                </>
-              )}
+            <div className="mb-selbar">
+              <label className="mb-selbar-all">
+                <input type="checkbox" checked={selected.size > 0 && rows.filter(isSelectable).every(r => selected.has(r.rec._rowIndex))}
+                  onChange={e => setSelected(e.target.checked ? new Set(rows.filter(isSelectable).map(r => r.rec._rowIndex)) : new Set())} />
+                已勾選 <b>{selected.size}</b> 列
+              </label>
+              <button type="button" className={`mb-btn mb-btn--small mb-btn--outline${bulkOpen ? ' is-on' : ''}`} disabled={!selected.size} onClick={() => { setBulkOpen(o => !o); setBulkMsg('') }}>⚙ 批量設定</button>
+              <span className="mb-selbar-hint">留空不改・僅套用勾選列</span>
             </div>
+
+            {bulkOpen && (
+              <div className="mb-bulk">
+                <div className="mb-edit">
+                  <label className="mb-field"><span>關聯需求</span>
+                    <select className="mb-select" value={bulk.requirementId} onChange={e => setBulk(b => ({ ...b, requirementId: e.target.value }))}>
+                      <option value="">— 不改 —</option>
+                      {requirements.map(q => <option key={q.id} value={q.id}>{q.name}（#{q.id}）</option>)}
+                    </select>
+                  </label>
+                  {MEEGLE_ROLE_DEFS.map(d => (
+                    <label key={d.key} className="mb-field"><span>{d.label}</span>
+                      <input className="mb-input" list="mb-people-options" placeholder="— 不改 —" value={bulk.roles[d.key] ?? ''}
+                        onChange={e => setBulk(b => ({ ...b, roles: { ...b.roles, [d.key]: e.target.value } }))} />
+                    </label>
+                  ))}
+                  <datalist id="mb-people-options">{people.map(p => <option key={p.alias} value={p.alias}>{p.name || p.email}</option>)}</datalist>
+                </div>
+                <div className="mb-bulk-actions">
+                  <button type="button" className="mb-btn mb-btn--small mb-btn--primary"
+                    disabled={!selected.size || (!bulk.requirementId && !Object.values(bulk.roles).some(v => v?.trim()))}
+                    onClick={() => {
+                      // 只寫有填的欄位；人名逗號分隔、取代 Sheet 值
+                      setOverrides(o => {
+                        const next = { ...o }
+                        for (const idx of selected) {
+                          const cur = next[idx] ?? {}
+                          const roles = { ...(cur.roles ?? {}) }
+                          for (const [k, v] of Object.entries(bulk.roles) as [MeegleRoleKey, string | undefined][]) {
+                            if (v?.trim()) roles[k] = v.split(/[,，、]/).map(s => s.trim()).filter(Boolean)
+                          }
+                          next[idx] = { ...cur, requirementId: bulk.requirementId || cur.requirementId, roles }
+                        }
+                        return next
+                      })
+                      setBulkMsg(`已套用到 ${selected.size} 列`)
+                    }}>套用到已勾選的列</button>
+                  <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={!selected.size}
+                    onClick={() => {
+                      setOverrides(o => { const next = { ...o }; for (const idx of selected) delete next[idx]; return next })
+                      setBulkMsg(`已清除 ${selected.size} 列的手動設定，回到 Sheet／整批預設`)
+                    }}>清除這些列的手動設定</button>
+                  {bulkMsg && <span className="mb-muted">{bulkMsg}</span>}
+                </div>
+                <p className="mb-hint">只勾一列就等於單列修改。被擋下的列也能勾來補設定，仍要通過檢查才會送出。新名字要先到 ② 驗證。</p>
+              </div>
+            )}
 
             <div className="mb-table-wrap">
               <table className="mb-table">
                 <thead><tr>
-                  <th><input type="checkbox" aria-label="全選這一頁"
+                  <th className="mb-col-check"><input type="checkbox" aria-label="全選這一頁"
                     checked={pageRows.some(isSelectable) && pageRows.filter(isSelectable).every(r => selected.has(r.rec._rowIndex))}
                     onChange={e => setSelected(s => { const n = new Set(s); for (const r of pageRows) if (isSelectable(r)) { if (e.target.checked) n.add(r.rec._rowIndex); else n.delete(r.rec._rowIndex) } return n })} /></th>
-                  <th>列</th><th>任務名稱</th><th>關聯需求</th><th>人員（5 角色）</th><th>檢查</th><th></th>
+                  <th>列</th><th>任務名稱</th><th>關聯需求</th><th>人員</th><th>檢查</th>
                 </tr></thead>
                 <tbody>
                   {pageRows.map(r => {
                     const idx = r.rec._rowIndex
-                    const ov = overrides[idx] ?? {}
+                    const filled = MEEGLE_ROLE_DEFS.filter(d => r.plan.roles[d.key].aliases.length)
                     return (
-                      <Fragment key={idx}>
-                        <tr className={r.plan.blocks.length ? 'is-blocked' : r.plan.warnings.length ? 'is-warn' : ''}>
-                          <td><input type="checkbox" disabled={!isSelectable(r)} checked={selected.has(idx)} aria-label={`選取第 ${idx} 列`}
-                            onChange={e => setSelected(s => { const n = new Set(s); if (e.target.checked) n.add(idx); else n.delete(idx); return n })} /></td>
-                          <td className="mb-num">{idx}</td>
-                          <td className="mb-name">{r.plan.name || <span className="mb-muted">（空白）</span>}</td>
-                          <td>{r.plan.requirement ? <>{r.plan.requirement.name} <span className={`mb-tag mb-tag--${r.source === '預設' ? 'default' : 'override'}`}>{r.source}</span></> : <span className="mb-muted">—</span>}</td>
-                          <td className="mb-people">
-                            {MEEGLE_ROLE_DEFS.map(d => {
-                              const role = r.plan.roles[d.key]
-                              if (!role.aliases.length) return <span key={d.key} className="mb-role mb-muted">{ROLE_SHORT[d.key]} —</span>
-                              return <span key={d.key} className="mb-role">{ROLE_SHORT[d.key]} {role.aliases.map((a, i) => (
-                                <span key={i} className={role.unmapped.includes(a) ? 'mb-unmapped' : ''}>{i ? '、' : ''}{a}</span>))}</span>
-                            })}
-                          </td>
-                          <td className="mb-check">
-                            {r.plan.blocks.map((b, i) => <div key={i} className="mb-badge mb-badge--bad">{b}</div>)}
-                            {!r.plan.blocks.length && r.plan.warnings.map((w, i) => <div key={i} className="mb-badge mb-badge--warn">{w}</div>)}
-                            {r.prev.map(p => <div key={p.workItemId} className="mb-badge mb-badge--info">已在 Meegle 開過 {p.url ? <a href={p.url} target="_blank" rel="noreferrer">#{p.workItemId}</a> : `#${p.workItemId}`}</div>)}
-                            {r.pendingPrev && <div className="mb-badge mb-badge--pending">上次送出結果待確認，請在「送出結果」按查詢結果</div>}
-                            {r.jiraKey && <div className="mb-badge mb-badge--info">Jira 已開 {r.jiraKey}</div>}
-                            {!r.plan.blocks.length && !r.plan.warnings.length && !r.prev.length && !r.pendingPrev && !r.jiraKey && <div className="mb-badge mb-badge--ok">可送出</div>}
-                          </td>
-                          <td><button type="button" className="mb-btn mb-btn--small" onClick={() => setEditingRow(editingRow === idx ? null : idx)}>{editingRow === idx ? '收起' : '編輯'}</button></td>
-                        </tr>
-                        {editingRow === idx && (
-                          <tr className="mb-edit-row"><td colSpan={7}>
-                            <div className="mb-edit">
-                              <label className="mb-field"><span>關聯需求（這列）</span>
-                                <select className="mb-select" value={ov.requirementId ?? ''} onChange={e => setOverrides(o => ({ ...o, [idx]: { ...o[idx], requirementId: e.target.value || undefined } }))}>
-                                  <option value="">— 跟隨 Sheet／預設 —</option>
-                                  {requirements.map(q => <option key={q.id} value={q.id}>{q.name}（#{q.id}）</option>)}
-                                </select>
-                              </label>
-                              {MEEGLE_ROLE_DEFS.map(d => (
-                                <label key={d.key} className="mb-field"><span>{d.label}</span>
-                                  <input className="mb-input" placeholder={d.sheetColumns.length ? `跟隨 Sheet（${d.sheetColumns.join('／')}）` : '跟隨整批預設'}
-                                    value={ov.roles?.[d.key]?.join(', ') ?? ''}
-                                    onChange={e => {
-                                      const v = e.target.value
-                                      setOverrides(o => {
-                                        const roles = { ...(o[idx]?.roles ?? {}) }
-                                        if (v.trim()) roles[d.key] = v.split(/[,，、]/).map(s => s.trim()).filter(Boolean); else delete roles[d.key]
-                                        return { ...o, [idx]: { ...o[idx], roles } }
-                                      })
-                                    }} />
-                                </label>
-                              ))}
-                            </div>
-                            <p className="mb-hint">人名欄留空＝沿用 Sheet 或整批預設；要清空某個角色，請到 Meegle 開單後再改。新名字要先在下方「人員對照」填 email。</p>
-                          </td></tr>
-                        )}
-                      </Fragment>
-                    )
-                  })}
-                  {!pageRows.length && <tr><td colSpan={7} className="mb-muted mb-empty">沒有符合條件的列</td></tr>}
-                </tbody>
-              </table>
-            </div>
-
-            <footer className="mb-foot">
-              <div className="mb-pager">
-                <button type="button" className="mb-btn mb-btn--small" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>‹</button>
-                <span>{visible.length ? `${(page - 1) * PAGE_SIZE + 1}–${Math.min(page * PAGE_SIZE, visible.length)} / ${visible.length}` : '0 / 0'}</span>
-                <button type="button" className="mb-btn mb-btn--small" disabled={page >= pageCount} onClick={() => setPage(p => p + 1)}>›</button>
-              </div>
-              <span className="mb-muted">
-                已勾 {selected.size} 列{blockedSelected ? `（其中 ${blockedSelected} 列被擋下，不會送出）` : ''}
-                <button type="button" className="mb-btn mb-btn--small mb-gap" onClick={() => setSelected(new Set(visible.filter(r => !r.plan.blocks.length).map(r => r.rec._rowIndex)))}>勾選篩選結果中可送出的</button>
-                <button type="button" className="mb-btn mb-btn--small mb-gap" disabled={!selected.size} onClick={() => setSelected(new Set())}>清除勾選</button>
-              </span>
-              <button type="button" className="mb-btn mb-btn--primary" disabled={running || !sendable.length} onClick={() => void submit()}>
-                {running ? `送出中 ${progress.done}/${progress.total}` : `送出 ${sendable.length} 列`}
-              </button>
-            </footer>
-          </>
-        )}
-      </section>
-
-      {/* ── 02 人員對照 ── */}
-      {records && meta && (
-        <section className="mb-card">
-          <header className="mb-head">
-            <h2 className="mb-title"><span className="mb-no">02</span>人員對照<span className="mb-sub">Sheet 上的名字對到 Meegle 帳號；驗證過會記住，下次自動帶入</span></h2>
-          </header>
-          {!aliasRows.length ? <div className="mb-muted">這份 Sheet 沒有人員欄位的資料</div> : (
-            <div className="mb-table-wrap">
-              <table className="mb-table mb-people-table">
-                <thead><tr><th>Sheet 名字</th><th>Meegle 帳號</th><th>狀態</th><th>影響列</th><th></th></tr></thead>
-                <tbody>
-                  {aliasRows.map(({ alias, person, affected }) => {
-                    const editing = !person || editingAlias.has(alias)
-                    return (
-                      <tr key={alias}>
-                        <td>{alias}</td>
-                        <td>
-                          {editing ? (
-                            <input className="mb-input" type="email" placeholder="輸入 email" value={emailDraft[alias] ?? person?.email ?? ''}
-                              onChange={e => setEmailDraft(d => ({ ...d, [alias]: e.target.value }))}
-                              onKeyDown={e => { if (e.key === 'Enter') void verifyAlias(alias) }} />
-                          ) : <>{person!.name} <span className="mb-muted">{person!.email}</span></>}
-                          {verifyError[alias] && <div className="mb-badge mb-badge--bad">{verifyError[alias]}</div>}
+                      <tr key={idx}>
+                        <td className="mb-col-check"><input type="checkbox" disabled={!isSelectable(r)} checked={selected.has(idx)} aria-label={`選取第 ${idx} 列`}
+                          onChange={e => setSelected(s => { const n = new Set(s); if (e.target.checked) n.add(idx); else n.delete(idx); return n })} /></td>
+                        <td className="mb-num">{idx}</td>
+                        <td className="mb-name">{r.plan.name || <span className="mb-muted">（空白）</span>}</td>
+                        <td className="mb-req">{r.plan.requirement ? r.plan.requirement.name : <span className="mb-muted">—</span>}</td>
+                        <td className="mb-people">
+                          {filled.length ? filled.map((d, i) => (
+                            <span key={d.key}>{i ? ' ・ ' : ''}{ROLE_SHORT[d.key]} {r.plan.roles[d.key].aliases.map((a, j) => (
+                              <span key={j} className={r.plan.roles[d.key].unmapped.includes(a) ? 'mb-unmapped' : ''}>{j ? '、' : ''}{a}</span>))}</span>
+                          )) : <span className="mb-muted">—</span>}
                         </td>
-                        <td>{person && !editingAlias.has(alias) ? <span className="mb-badge mb-badge--ok">已對照</span> : <span className="mb-badge mb-badge--warn">未對照（角色留空）</span>}</td>
-                        <td className="mb-num">{affected}</td>
-                        <td>
-                          {editing
-                            ? <button type="button" className="mb-btn mb-btn--small mb-btn--primary" disabled={verifying[alias] || !(emailDraft[alias] ?? '').trim()} onClick={() => void verifyAlias(alias)}>{verifying[alias] ? '驗證中…' : '驗證'}</button>
-                            : <button type="button" className="mb-btn mb-btn--small" onClick={() => { setEditingAlias(s => new Set(s).add(alias)); setEmailDraft(d => ({ ...d, [alias]: person!.email })) }}>修改</button>}
+                        <td className="mb-check">
+                          {r.plan.blocks.length > 0 ? r.plan.blocks.map((b, i) => <div key={i} className="mb-status mb-status--bad"><i>!</i>被擋：{b}</div>)
+                            : r.pendingPrev ? <div className="mb-status mb-status--pending"><i>…</i>上次送出待確認</div>
+                            : r.prev.length ? r.prev.map(p => <div key={p.workItemId} className="mb-status mb-status--info"><i>i</i>已在 Meegle 開過 {p.url ? <a href={p.url} target="_blank" rel="noreferrer">#{p.workItemId}</a> : `#${p.workItemId}`}</div>)
+                            : r.plan.warnings.length ? <div className="mb-status mb-status--warn" title={r.plan.warnings.join(String.fromCharCode(10))}><i>!</i>警告：{[...new Set(MEEGLE_ROLE_DEFS.flatMap(d => r.plan.roles[d.key].unmapped))].join('、')} 未對照</div>
+                            : <div className="mb-status mb-status--ok"><i /> 可送出</div>}
+                          {r.jiraKey && <div className="mb-status mb-status--muted">Jira 已開 {r.jiraKey}</div>}
                         </td>
                       </tr>
                     )
                   })}
+                  {!pageRows.length && <tr><td colSpan={6} className="mb-muted mb-empty">沒有符合條件的列</td></tr>}
                 </tbody>
               </table>
             </div>
-          )}
-          <p className="mb-hint">未對照的名字不會擋下整列，但那個角色會留空。對照是用 Sheet 上的完整寫法：「Jenny Hsu」和「Jenny Lin」是兩筆。驗證時一定要 email 完全相同才算數，不會用名字猜人。</p>
-        </section>
-      )}
+            <div className="mb-pager">
+              <span>{visible.length ? `${(page - 1) * PAGE_SIZE + 1} – ${Math.min(page * PAGE_SIZE, visible.length)} / ${visible.length}` : '0 / 0'}</span>
+              {pageCount > 1 && <>
+                <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={page <= 1} onClick={() => setPage(p => p - 1)}>‹</button>
+                <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={page >= pageCount} onClick={() => setPage(p => p + 1)}>›</button>
+              </>}
+            </div>
+            <footer className="mb-foot">
+              <button type="button" className="mb-btn mb-btn--outline mb-btn--wide" onClick={() => setStep(unmappedAliases.length || aliasRows.length ? 2 : 1)}>上一步</button>
+              <div className="mb-foot-sum">勾選 <b className="mb-c-sel">{selected.size}</b> ・ 可送 <b className="mb-c-ok">{sendable.length}</b> ・ 被擋 <b className="mb-c-bad">{blockedSelected}</b></div>
+              <button type="button" className="mb-btn mb-btn--primary mb-btn--wide mb-btn--big" disabled={running || !sendable.length} onClick={() => void submitAndShow()}>
+                {running ? `送出中 ${progress.done}/${progress.total}` : `送出 ${sendable.length} 列`}
+              </button>
+            </footer>
+          </div>
+        )}
 
-      {/* ── 03 送出結果 ── */}
-      {resultEntries.length > 0 && (
-        <section className="mb-card" ref={resultsRef}>
-          <header className="mb-head">
-            <h2 className="mb-title"><span className="mb-no">03</span>送出結果<span className="mb-sub">逾時的列先查明結果，不會自動重送；重推狀態只更新既有的單</span></h2>
-            <button type="button" className="mb-btn mb-btn--small" disabled={!resultEntries.length} onClick={exportCsv}>匯出結果</button>
-          </header>
-          {/* 用 Dashboard 的進度條 class：修仙版會套上同一組「靈脈」動態素材（public/xianxia-complete.css 的 qi-tiles），普通版是站內同一款漸層條 */}
-          <div className="dashboard-bar-track mb-progress-track"><span className="dashboard-bar-fill" style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : 0}%` }} /></div>
-          <div className="mb-chips mb-tally">
-            <span className="mb-chip mb-chip--ok is-on">已開單 {tally.ok}</span>
-            <span className="mb-chip mb-chip--warn is-on">已開單但推狀態失敗 {tally.warn}</span>
-            <span className="mb-chip mb-chip--pending is-on">結果待確認 {tally.pending}</span>
-            <span className="mb-chip mb-chip--blocked is-on">開單失敗 {tally.bad}</span>
+        {/* ── ④ 送出結果 ── */}
+        {step === 4 && (
+          <div className="mb-pane" ref={resultsRef}>
+            <h3 className="mb-pane-title">送出結果</h3>
+            <div className="mb-chips mb-tally">
+              <span className="mb-chip mb-chip--ok is-on">已開單 <b>{tally.ok}</b></span>
+              <span className="mb-chip mb-chip--blocked is-on">推狀態失敗 <b>{tally.warn}</b></span>
+              <span className="mb-chip mb-chip--pending is-on">待確認 <b>{tally.pending}</b></span>
+              {tally.bad > 0 && <span className="mb-chip mb-chip--blocked is-on">開單失敗 <b>{tally.bad}</b></span>}
+            </div>
+            <div className="mb-results">
+              {resultEntries.map(r => {
+                const idx = r.rec._rowIndex
+                const res = results[idx]
+                const label = resultLabel(res)
+                return (
+                  <div key={idx} className="mb-result">
+                    <div className="mb-result-main">
+                      <div className="mb-result-name">{r.plan.name}</div>
+                      <div className="mb-result-sub">
+                        {res.workItemId ? (res.url ? <a href={res.url} target="_blank" rel="noreferrer">#{res.workItemId}</a> : `#${res.workItemId}`) : `第 ${idx} 列`}
+                        <span className={`mb-badge mb-badge--${label.tone}`}>{label.text}</span>
+                        {(rowNote[idx] || res.message) && <span className="mb-msg">{rowNote[idx] || res.message}</span>}
+                      </div>
+                    </div>
+                    <div className="mb-result-actions">
+                      {label.tone === 'warn' && <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={rowBusy[idx] || !(res.targetStateKey || targetStateKey)} onClick={() => void rowAction(idx, 'retry-state')}>重推狀態</button>}
+                      {label.tone === 'pending' && <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={rowBusy[idx]} onClick={() => void rowAction(idx, 'confirm')}>查詢結果</button>}
+                      {label.tone === 'bad' && <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={rowBusy[idx] || !!r.plan.blocks.length} onClick={() => void resendFailed(idx)}>修正後重送</button>}
+                      {res.url && label.tone === 'ok' && <a className="mb-btn mb-btn--small mb-btn--outline" href={res.url} target="_blank" rel="noreferrer">開啟</a>}
+                    </div>
+                  </div>
+                )
+              })}
+              {!resultEntries.length && <div className="mb-muted mb-empty">還沒有送出結果</div>}
+            </div>
+            <button type="button" className="mb-btn mb-btn--outline mb-btn--block mb-export" disabled={!resultEntries.length} onClick={exportCsv}>
+              ⤓ {xianxia ? <>封存玉簡<small>匯出結果</small></> : '匯出結果'}
+            </button>
+            <div className="mb-done-line">
+              <span>處理完成 <b>{progress.done}</b> / {progress.total || resultEntries.length}</span>
+            </div>
+            <div className="dashboard-bar-track mb-progress-track"><span className="dashboard-bar-fill" style={{ width: `${progress.total ? (progress.done / progress.total) * 100 : (resultEntries.length ? 100 : 0)}%` }} /></div>
+            <div className="mb-done-note">完成不代表全數成功，請看上方各列結果</div>
+            <div className="mb-pane-actions">
+              <button type="button" className="mb-btn mb-btn--outline" disabled={running} onClick={() => setStep(3)}>上一步</button>
+            </div>
           </div>
-          <div className="mb-table-wrap">
-            <table className="mb-table">
-              <thead><tr><th>列</th><th>任務名稱</th><th>Meegle 單號</th><th>結果</th><th>說明</th><th></th></tr></thead>
-              <tbody>
-                {resultEntries.map(r => {
-                  const idx = r.rec._rowIndex
-                  const res = results[idx]
-                  const label = resultLabel(res)
-                  return (
-                    <tr key={idx}>
-                      <td className="mb-num">{idx}</td>
-                      <td className="mb-name">{r.plan.name}</td>
-                      <td>{res.workItemId ? (res.url ? <a href={res.url} target="_blank" rel="noreferrer">#{res.workItemId}</a> : `#${res.workItemId}`) : '—'}</td>
-                      <td><span className={`mb-badge mb-badge--${label.tone === 'pending' ? 'pending' : label.tone}`}>{label.text}</span></td>
-                      <td className="mb-msg">{rowNote[idx] || res.message || ''}</td>
-                      <td>
-                        {label.tone === 'warn' && <button type="button" className="mb-btn mb-btn--small" disabled={rowBusy[idx] || !(res.targetStateKey || targetStateKey)} onClick={() => void rowAction(idx, 'retry-state')}>重推狀態</button>}
-                        {label.tone === 'pending' && <button type="button" className="mb-btn mb-btn--small" disabled={rowBusy[idx]} onClick={() => void rowAction(idx, 'confirm')}>查詢結果</button>}
-                        {label.tone === 'bad' && <button type="button" className="mb-btn mb-btn--small" disabled={rowBusy[idx] || !!r.plan.blocks.length} onClick={() => void resendFailed(idx)}>修正後重送</button>}
-                        {res.url && label.tone === 'ok' && <a className="mb-btn mb-btn--small" href={res.url} target="_blank" rel="noreferrer">開啟</a>}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-      {/* 固定在畫面下方的進度條：頁面很長，結果區在最下面，送出時看不到（使用者回報）*/}
-      {progress.total > 0 && !progressDismissed && (
+        )}
+      </section>
+
+      {/* 固定在畫面下方的進度列：跨步驟保留（CodeX 設計）；在 ④ 本身已有進度條，就不重複顯示 */}
+      {progress.total > 0 && !progressDismissed && step !== 4 && (
         <div className="mb-dock" role="status" aria-live="polite">
           <div className="mb-dock-text">
             <b>{running ? `送出中 ${progress.done} / ${progress.total}` : `送出完成 ${progress.done} / ${progress.total}`}</b>
@@ -578,7 +627,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
           </div>
           <div className="dashboard-bar-track mb-progress-track mb-dock-bar"><span className="dashboard-bar-fill" style={{ width: `${(progress.done / progress.total) * 100}%` }} /></div>
           <div className="mb-dock-actions">
-            <button type="button" className="mb-btn mb-btn--small" onClick={() => resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>看結果</button>
+            <button type="button" className="mb-btn mb-btn--small" onClick={() => setStep(4)}>看結果</button>
             {!running && <button type="button" className="mb-btn mb-btn--small" aria-label="關閉進度列" onClick={() => setProgressDismissed(true)}>✕</button>}
           </div>
         </div>

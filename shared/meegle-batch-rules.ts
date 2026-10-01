@@ -100,12 +100,19 @@ const str = (v: unknown) => (v == null ? '' : String(v))
  * 判斷：至少 2 格的值剛好等於自己的欄名。
  */
 export function isRepeatedHeaderRow(rec: Record<string, unknown>): boolean {
-  let hits = 0
+  let hits = 0, nonEmpty = 0
   for (const [k, v] of Object.entries(rec)) {
     if (k.startsWith('_') || !k.trim()) continue
-    if (str(v).trim() && str(v).trim() === k.trim()) hits++
+    const val = str(v).trim()
+    if (!val) continue
+    nonEmpty++
+    if (val === k.trim()) hits++
   }
-  return hits >= 2
+  if (hits < 2) return false
+  // 任務名稱那格也是欄名 → 一定是標題列（不然會開出一張叫「摘要」的單）
+  if (str(rec['摘要']).trim() === '摘要' || str(rec['標題']).trim() === '標題') return true
+  // 否則要「過半」才算：部門欄填「RD」「QA」這種剛好等於欄名的值很常見，只憑兩格就擋會誤殺真資料（CodeX review 0c30dde [P2]）
+  return hits * 2 > nonEmpty
 }
 
 function sheetPeople(def: typeof MEEGLE_ROLE_DEFS[number], rec: Record<string, unknown>): string[] {
