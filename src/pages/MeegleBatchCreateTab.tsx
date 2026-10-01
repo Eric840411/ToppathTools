@@ -15,7 +15,7 @@ import './MeegleBatchCreateTab.css'
 type SheetRecord = Record<string, unknown> & { _rowIndex: number }
 type Person = MappedPerson & { alias: string }
 type Meta = { requirements: Requirement[]; states: Array<{ key: string; name: string }>; statesError: string | null }
-// targetStateKey：這列送出時的目標狀態。重推一律用它，不用畫面上目前選的（可能已經改過、或重整後是空的）
+// targetStateKey：伺服器紀錄裡這列的目標狀態（伺服器回什麼就是什麼，前端不自己記——CodeX review 4bc4fa9 [P2]）
 type RowResult = { batchId: string; rowKey: string; targetStateKey?: string; createPhase: 'creating' | 'created' | 'failed' | 'unknown'; workItemId: string | null; url: string | null; statePhase: 'none' | 'done' | 'failed' | 'unknown'; message: string | null }
 type Previous = RowResult & { name: string; owner: string }
 type Override = { requirementId?: string; roles?: Partial<Record<MeegleRoleKey, string[]>> }
@@ -154,7 +154,8 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
   const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE))
   const pageRows = visible.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const okCount = rows.filter(r => !r.plan.blocks.length).length
-  const sendable = rows.filter(r => selected.has(r.rec._rowIndex) && !r.plan.blocks.length && !r.pendingPrev)
+  // 已在 Meegle 開過（同列同名）的不送，伺服器也會擋並回傳原本那張
+  const sendable = rows.filter(r => selected.has(r.rec._rowIndex) && !r.plan.blocks.length && !r.pendingPrev && !r.prev.length)
 
   // ── 人員對照 ──
   const aliasRows = useMemo(() => {
@@ -199,10 +200,10 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
     for (const r of list) {
       try {
         const j = await api<{ row: RowResult }>('/api/meegle/batch/row', { batchId: id, ...rowPayload(r) })
-        setResults(m => ({ ...m, [r.rec._rowIndex]: { ...j.row, targetStateKey } }))
+        setResults(m => ({ ...m, [r.rec._rowIndex]: j.row }))
       } catch (e) {
         // 請求本身失敗（斷線、伺服器錯誤）：伺服器那邊可能已經開了，標成待確認，用「查詢結果」去釐清
-        setResults(m => ({ ...m, [r.rec._rowIndex]: { batchId: id, targetStateKey, rowKey: String(r.rec._rowIndex), createPhase: 'unknown', workItemId: null, url: null, statePhase: 'none', message: (e as Error).message } }))
+        setResults(m => ({ ...m, [r.rec._rowIndex]: { batchId: id, rowKey: String(r.rec._rowIndex), createPhase: 'unknown', workItemId: null, url: null, statePhase: 'none', message: (e as Error).message } }))
       }
       setProgress(p => ({ ...p, done: p.done + 1 }))
     }
@@ -216,9 +217,9 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
       // 用這一列自己的批次（可能是重整前的舊批次）
       const prevResult = results[rowIndex]
       const rowBatch = prevResult?.batchId || batchId
-      const rowTarget = prevResult?.targetStateKey || targetStateKey
-      const j = await api<{ row: RowResult | null; message?: string }>(`/api/meegle/batch/row/${kind}`, { batchId: rowBatch, rowKey: String(rowIndex), ...(kind === 'retry-state' ? { targetStateKey: rowTarget } : {}) })
-      if (j.row) setResults(m => ({ ...m, [rowIndex]: { ...j.row!, targetStateKey: rowTarget } }))
+      // 畫面上選的目標只是「紀錄沒有目標時」的備案，伺服器以紀錄為準
+      const j = await api<{ row: RowResult | null; message?: string }>(`/api/meegle/batch/row/${kind}`, { batchId: rowBatch, rowKey: String(rowIndex), ...(kind === 'retry-state' ? { targetStateKey } : {}) })
+      if (j.row) setResults(m => ({ ...m, [rowIndex]: j.row! }))
       if (j.message) setRowNote(n => ({ ...n, [rowIndex]: j.message! }))
     } catch (e) { setRowNote(n => ({ ...n, [rowIndex]: (e as Error).message })) } finally { setRowBusy(b => ({ ...b, [rowIndex]: false })) }
   }
@@ -229,7 +230,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
     setRowBusy(b => ({ ...b, [rowIndex]: true }))
     try {
       const j = await api<{ row: RowResult }>('/api/meegle/batch/row', { batchId: ensureBatch(), ...rowPayload(r) })
-      setResults(m => ({ ...m, [rowIndex]: { ...j.row, targetStateKey } }))
+      setResults(m => ({ ...m, [rowIndex]: j.row }))
     } catch (e) { setRowNote(n => ({ ...n, [rowIndex]: (e as Error).message })) } finally { setRowBusy(b => ({ ...b, [rowIndex]: false })) }
   }
 
@@ -339,7 +340,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
                     return (
                       <Fragment key={idx}>
                         <tr className={r.plan.blocks.length ? 'is-blocked' : r.plan.warnings.length ? 'is-warn' : ''}>
-                          <td><input type="checkbox" disabled={!!r.plan.blocks.length || r.pendingPrev} checked={selected.has(idx)} aria-label={`選取第 ${idx} 列`}
+                          <td><input type="checkbox" disabled={!!r.plan.blocks.length || r.pendingPrev || r.prev.length > 0} checked={selected.has(idx)} aria-label={`選取第 ${idx} 列`}
                             onChange={e => setSelected(s => { const n = new Set(s); if (e.target.checked) n.add(idx); else n.delete(idx); return n })} /></td>
                           <td className="mb-num">{idx}</td>
                           <td className="mb-name">{r.plan.name || <span className="mb-muted">（空白）</span>}</td>

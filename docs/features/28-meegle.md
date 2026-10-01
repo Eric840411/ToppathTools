@@ -127,6 +127,9 @@
 - **查回收成 created 後要補推狀態**（v4.263.1，CodeX [P2]）：`needsStatePush()`——已開單、有目標狀態、還沒推成功就補推
 - **重整後也要接回「已開單但狀態未推完」的列**（v4.263.2，CodeX review `df9b538` [P2]）：只接回待確認的話，推狀態前中斷／推失敗的列只剩「已開過」、沒有重推入口。
   判斷用 `shared/meegle-batch-rules.ts` 的 `isRestorablePrevious()`，伺服器的 `needsStatePush()` 也呼叫它。**重推一律用該列送出時的目標狀態與批次**，不用畫面上目前選的
+- **目標狀態只有一個來源：伺服器紀錄**（v4.263.3，CodeX review `4bc4fa9` [P2]）：`adoptTarget()`——紀錄有目標就用紀錄的，請求帶的只在紀錄沒有時採用並寫回。
+  雙分頁情境：A 目標「可本機測試」、B 選「完成」送同一列 → B 接回 A 的紀錄，重推仍推「可本機測試」。`publicRow()` 回傳 `targetStateKey`，前端不自己記
+- **跨批次同列同名已開成功 → 也擋**（v4.263.3）：B 分頁在 A 送出前就讀了 Sheet，預覽看不到「已開過」，只擋 pending 的話 B 會開第二張。名稱改過視為新的一筆
 
 ### ⚠️ 踩坑（2026-10-01 用 CLI 1.0.23 實測）
 1. **`workitem create --fields` 的值一律要字串**，數字會被擋（`MCPGatewayRequestMismatch`）；`role_owners` 要先 `JSON.stringify`
@@ -139,7 +142,7 @@
 8. 「任務項」是狀態流、10 個狀態全連通；目前每個狀態都沒有必填欄位（`list-state-required` 回 `{}`）
 
 ### 驗證
-- `npx tsx server/meegle-workitem.test.ts`（48）、`npx tsx server/meegle-batch-store.test.ts`（31）、`npx tsx shared/meegle-batch-rules.test.ts`（30）
+- `npx tsx server/meegle-workitem.test.ts`（48）、`npx tsx server/meegle-batch-store.test.ts`（40）、`npx tsx shared/meegle-batch-rules.test.ts`（30）
 - 突變都紅在對應那幾條：相信外層 retryable、翻頁每頁重讀 session、沒單號當失敗、逾時列可重新認領、晚到結果蓋掉 created
 
 ### 還沒做

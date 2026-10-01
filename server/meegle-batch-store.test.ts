@@ -4,7 +4,7 @@
  */
 import Database from 'better-sqlite3'
 import {
-  claimRow, expireStaleCreating, needsStatePush, listRowsFromSheet, finishCreate, finishState, getBatchRow, getPersonMap, initMeegleBatchSchema,
+  adoptTarget, claimRow, expireStaleCreating, needsStatePush, listRowsFromSheet, finishCreate, finishState, getBatchRow, getPersonMap, initMeegleBatchSchema,
   resolveUnknown, upsertPersonMap,
 } from './meegle-batch-store.js'
 
@@ -112,6 +112,31 @@ const row = (over: Partial<{ batchId: string; rowKey: string; ownerEmail: string
   eq('推完就不再推', needsStatePush(getBatchRow(db, 'B', '3')!), false)
   eq('沒有目標狀態 → 不推', needsStatePush({ create_phase: 'created', work_item_id: '1', target_state: '', state_phase: 'none' }), false)
   eq('推失敗的也要補推', needsStatePush({ create_phase: 'created', work_item_id: '1', target_state: 'K', state_phase: 'failed' }), true)
+}
+
+// ── CodeX review 4bc4fa9 [P2]：雙分頁，B 收到 busy 後重推不能用 B 的目標 ──
+{
+  const db = fresh()
+  // 分頁 A：目標「可本機測試」送出，開單成功、推狀態失敗
+  claimRow(db, { ...row({ batchId: 'A' }), sheetUrl: 'S', targetState: 'BAOjDk8Pv' })
+  finishCreate(db, 'A', '3', { phase: 'created', workItemId: '9', url: 'u' })
+  finishState(db, 'A', '3', 'failed', 'x')
+  // 分頁 B：選「完成」送同一列 → 撞到 A 的紀錄
+  const b = claimRow(db, { ...row({ batchId: 'B' }), sheetUrl: 'S', targetState: 'Finished' })
+  eq('B 送同一列（A 已開單）→ already-created，不會開第二張', b.kind, 'already-created')
+  eq('回傳的是 A 的紀錄（帶 A 的目標）', b.kind === 'already-created' && [b.row.batch_id, b.row.target_state], ['A', 'BAOjDk8Pv'])
+  eq('B 沒有寫任何紀錄', db.prepare("SELECT COUNT(*) c FROM meegle_batch_rows WHERE batch_id = 'B'").get(), { c: 0 })
+  eq('同一列但名稱改了 → 視為新的一筆，可以開', claimRow(db, { ...row({ batchId: 'B' }), name: '改過的名稱', sheetUrl: 'S', targetState: 'Finished' }).kind, 'claimed')
+  eq('重推 A 那列：用紀錄的目標，不用請求帶的「完成」', adoptTarget(db, 'A', '3', 'Finished'), 'BAOjDk8Pv')
+  eq('紀錄的目標沒有被請求改掉', getBatchRow(db, 'A', '3')?.target_state, 'BAOjDk8Pv')
+}
+{
+  const db = fresh()
+  claimRow(db, { ...row(), targetState: '' })
+  finishCreate(db, 'B', '3', { phase: 'created', workItemId: '9', url: 'u' })
+  eq('紀錄沒有目標 → 採用請求帶的並寫回', adoptTarget(db, 'B', '3', 'Finished'), 'Finished')
+  eq('寫回之後再帶別的也不會改', adoptTarget(db, 'B', '3', 'BAOjDk8Pv'), 'Finished')
+  eq('紀錄沒目標、請求也沒帶 → 空', (claimRow(db, { ...row({ rowKey: '4' }), targetState: '' }), adoptTarget(db, 'B', '4', '')), '')
 }
 
 console.log(`\n${pass} 通過，${fails.length} 失敗`)

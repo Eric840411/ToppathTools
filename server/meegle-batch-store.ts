@@ -94,6 +94,7 @@ export type ClaimResult =
  * 另外兩道（CodeX review 999f895 [P1]×2）：
  * - **批次綁定來源 Sheet**：同一個 batchId 已經有別份 Sheet 的列 → 拒絕。否則換 Sheet 沿用舊批次時，
  *   B 表第 3 列會撞到 A 表第 3 列的紀錄，回傳 A 的單號、B 沒建立，還可能去推 A 的狀態。
+ * - **同一份 Sheet 同一列、同名稱，別的批次已開成功 → already-created**（回傳那筆，不重開）。
  * - **同一份 Sheet 同一列，任何批次還在開單中／待確認 → busy**。batchId 只活在前端記憶體，重整後換新，
  *   只看 (batchId, 列號) 擋不住「重整後再按一次送出」。
  */
@@ -107,6 +108,10 @@ export function claimRow(db: DB, input: { batchId: string; rowKey: string; owner
       const pending = db.prepare(`SELECT * FROM meegle_batch_rows WHERE sheet_url = ? AND row_key = ? AND batch_id != ?
         AND create_phase IN ('creating', 'unknown') LIMIT 1`).get(sheetUrl, input.rowKey, input.batchId) as BatchRow | undefined
       if (pending) return { kind: 'busy', row: pending }
+      // 別的批次已經從同一列、同一個名稱開成功 → 不再開（雙分頁：B 在 A 送出前就讀了 Sheet，預覽看不到「已開過」）
+      const done = db.prepare(`SELECT * FROM meegle_batch_rows WHERE sheet_url = ? AND row_key = ? AND batch_id != ?
+        AND create_phase = 'created' AND name = ? ORDER BY created_at LIMIT 1`).get(sheetUrl, input.rowKey, input.batchId, input.name) as BatchRow | undefined
+      if (done) return { kind: 'already-created', row: done }
     }
     const existing = getBatchRow(db, input.batchId, input.rowKey)
     if (existing) {
@@ -145,6 +150,21 @@ export function finishCreate(db: DB, batchId: string, rowKey: string,
 export function needsStatePush(row: Pick<BatchRow, 'create_phase' | 'work_item_id' | 'target_state' | 'state_phase'>): boolean {
   // 判斷本體跟前端「讀 Sheet 時接回哪些列」共用同一份（shared），兩邊不會一個要補推、一個沒給入口
   return row.create_phase === 'created' && isRestorablePrevious({ createPhase: row.create_phase, statePhase: row.state_phase, targetStateKey: row.target_state, workItemId: row.work_item_id })
+}
+
+/**
+ * 這一列該推到哪個狀態：**以紀錄裡的 target_state 為準**，請求帶來的只在紀錄沒有目標時才採用（並寫回紀錄）。
+ * 為什麼（CodeX review 4bc4fa9 [P2]）：同帳號兩個分頁，A 送出目標「可本機測試」、B 選「完成」送同一列收到 busy，
+ * B 的結果接回 A 的批次卻帶著 B 的目標，之後按重推就把 A 開的單推到「完成」。目標只能有一個來源。
+ */
+export function adoptTarget(db: DB, batchId: string, rowKey: string, requested: string, now = Date.now()): string {
+  const row = getBatchRow(db, batchId, rowKey)
+  if (!row) return ''
+  if (row.target_state) return row.target_state
+  if (!requested) return ''
+  db.prepare(`UPDATE meegle_batch_rows SET target_state = ?, updated_at = ? WHERE batch_id = ? AND row_key = ? AND target_state = ''`)
+    .run(requested, now, batchId, rowKey)
+  return getBatchRow(db, batchId, rowKey)?.target_state ?? ''
 }
 
 export function finishState(db: DB, batchId: string, rowKey: string, phase: StatePhase, message: string | null, now = Date.now()) {
