@@ -52,12 +52,28 @@ export const isCacheId = (s: string) => CACHE_ID_RE.test(s)
 
 function leaseFile(leaseId: string, dir: string) { return join(dir, `${leaseId}.json`) }
 
+/**
+ * 原子寫入租約：同目錄暫存檔寫完再 rename 蓋過去（CodeX review 5056b6c）。
+ * 直接 writeFileSync 覆寫的話，另一支 process 可能剛好讀到空檔或半份 JSON；
+ * rename 在同一個磁碟上是原子的，讀的人只會看到「舊的完整版」或「新的完整版」。
+ */
+function writeLeaseAtomic(fp: string, lease: { ids: string[]; until: number }) {
+  const tmp = `${fp}.tmp-${randomUUID()}`
+  fs.writeFileSync(tmp, JSON.stringify(lease))
+  try {
+    fs.renameSync(tmp, fp)
+  } catch (e) {
+    safeUnlink(tmp)
+    throw e
+  }
+}
+
 export function createLease(cacheIds: string[], opts: { ttlMs?: number; now?: number; leaseDir?: string; cacheDir?: string } = {}): string {
   const dir = opts.leaseDir ?? LEASE_DIR
   mkdirSync(dir, { recursive: true })
   const ids = [...new Set(cacheIds.filter(isCacheId))]
   const leaseId = randomUUID()
-  fs.writeFileSync(leaseFile(leaseId, dir), JSON.stringify({ ids, until: (opts.now ?? Date.now()) + (opts.ttlMs ?? LEASE_TTL_MS) }))
+  writeLeaseAtomic(leaseFile(leaseId, dir), { ids, until: (opts.now ?? Date.now()) + (opts.ttlMs ?? LEASE_TTL_MS) })
   for (const id of ids) touchCacheFile(join(opts.cacheDir ?? ATTACH_CACHE_DIR, id))
   return leaseId
 }
@@ -68,7 +84,7 @@ export function renewLease(leaseId: string, opts: { ttlMs?: number; now?: number
   try {
     const lease = JSON.parse(fs.readFileSync(fp, 'utf8')) as { ids: string[]; until: number }
     lease.until = (opts.now ?? Date.now()) + (opts.ttlMs ?? LEASE_TTL_MS)
-    fs.writeFileSync(fp, JSON.stringify(lease))
+    writeLeaseAtomic(fp, lease)
     return true
   } catch { return false }
 }
@@ -77,20 +93,46 @@ export function releaseLease(leaseId: string, leaseDir = LEASE_DIR) {
   if (isCacheId(leaseId)) safeUnlink(leaseFile(leaseId, leaseDir))
 }
 
-/** 目前有效租約保護的所有 cacheId；過期的租約順手刪掉 */
-export function leasedCacheIds(now = Date.now(), leaseDir = LEASE_DIR): Set<string> {
-  const out = new Set<string>()
+/**
+ * 讀一個租約檔。實測（2026-10-01，Windows）：就算寫入端用 rename 原子替換，讀的人在替換那一瞬間
+ * 仍可能拿到 EPERM／EBUSY——所以短暫重試幾次；ENOENT＝租約剛好被放掉，不算「讀不懂」。
+ */
+function readLeaseWithRetry(fp: string): { ids: string[]; until: number } | 'gone' | 'unreadable' {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      return JSON.parse(fs.readFileSync(fp, 'utf8')) as { ids: string[]; until: number }
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return 'gone'
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5)   // 同步等 5ms 再讀
+    }
+  }
+  return 'unreadable'
+}
+
+/**
+ * 目前有效租約保護的所有 cacheId；過期的租約順手刪掉。
+ * `uncertain`＝有租約檔讀不懂（理論上原子寫入後不會發生，但磁碟壞掉、手動改壞都有可能）——
+ * 這時**不知道它保護了哪些檔**，呼叫端必須當成「全部都可能被保護」，不能照刪（CodeX review 5056b6c）。
+ */
+export function leasedCacheIds(now = Date.now(), leaseDir = LEASE_DIR): { ids: Set<string>; uncertain: boolean } {
+  const ids = new Set<string>()
+  let uncertain = false
   let names: string[] = []
-  try { names = readdirSync(leaseDir) } catch { return out }
+  try { names = readdirSync(leaseDir) } catch { return { ids, uncertain } }
   for (const n of names) {
     const fp = join(leaseDir, n)
-    try {
-      const lease = JSON.parse(fs.readFileSync(fp, 'utf8')) as { ids: string[]; until: number }
-      if (lease.until > now) lease.ids.forEach(id => out.add(id))
-      else safeUnlink(fp)
-    } catch { /* 寫到一半的租約檔，下一輪再看 */ }
+    if (!n.endsWith('.json')) {
+      // 原子寫入留下的暫存檔：寫入或 rename 中途當掉才會殘留，放久了就清
+      try { if (now - statSync(fp).mtimeMs > 10 * 60 * 1000) safeUnlink(fp) } catch { /* 已經不在 */ }
+      continue
+    }
+    const lease = readLeaseWithRetry(fp)
+    if (lease === 'gone') continue                // 剛好被放掉，沒有保護任何東西
+    if (lease === 'unreadable') { uncertain = true; continue }
+    if (lease.until > now) lease.ids.forEach(id => ids.add(id))
+    else safeUnlink(fp)
   }
-  return out
+  return { ids, uncertain }
 }
 
 /** 程式裡用：拿租約並定期續約，結束時 release()。worker 的批量評論用這個 */
@@ -111,8 +153,10 @@ export function cleanAttachmentCache(now = Date.now(), dir = ATTACH_CACHE_DIR, l
     if (!expired.length) return 0
     // 租約在決定要刪之後才讀：縮小「剛建立租約、清理還拿著舊名單」的空窗
     const leased = leasedCacheIds(now, leaseDir)
+    // 有租約讀不懂＝不知道哪些檔被保護，這一輪寧可一個都不刪（漏刪只是多佔一點空間，誤刪是附件漏傳）
+    if (leased.uncertain) return 0
     for (const f of expired) {
-      if (leased.has(f)) continue
+      if (leased.ids.has(f)) continue
       try { unlinkSync(join(dir, f)); removed++ } catch { /* 被別人刪了 */ }
     }
   } catch { /* 目錄不在 */ }
@@ -179,7 +223,16 @@ function trackedDiskStorage(dir: string, createStream: (path: string) => fs.Writ
       ;((req as unknown as ReqWithPaths)._uploadPaths ??= []).push(path)
       const out = createStream(path)
       let done = false
-      const fail = (err: Error) => { if (done) return; done = true; file.stream.unpipe(out); file.stream.resume(); cb(err) }
+      // 失敗時一定要 destroy 寫入串流：只 unpipe 的話檔案描述符還開著——Windows 上刪不掉，
+      // Linux 上檔名刪了空間也不會釋放（CodeX review 5056b6c）
+      const fail = (err: Error) => {
+        if (done) return
+        done = true
+        file.stream.unpipe(out)
+        file.stream.resume()
+        out.destroy()
+        cb(err)
+      }
       out.on('error', fail)
       file.stream.on('error', fail)
       out.on('finish', () => {

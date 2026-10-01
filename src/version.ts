@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.262.4'
+export const APP_VERSION = '4.262.5'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.262.5', date: '2026-10-01', changes: ['fix(Jira)：**附件租約檔可能被讀到一半**（CodeX [P2]）——續約直接覆寫檔案，另一支 process 剛好讀到空檔或半份時，清理會把該保護的附件刪掉。改成先寫暫存檔再整個替換；讀不懂任何租約時這一輪一個都不刪', 'fix(Jira)：**上傳中斷時寫入中的檔案沒有關閉**（CodeX [P2]）——Windows 上刪不掉、Linux 上空間不會釋放。失敗時一律關閉寫入串流', 'fix(Jira)：實測 Windows 上就算整個替換，讀的人在替換瞬間仍可能拿到錯誤，所以讀租約會短暫重試', 'test(Jira)：附件測試 24 → 30 條，含跨 process 同時續約與讀取；突變三個都紅（非原子寫入 3/3 抓到）'] },
   { version: '4.262.4', date: '2026-10-01', changes: ['fix(Jira)：**上傳出錯時（例如磁碟寫滿）會留下半個檔**（CodeX [P2]）——原本只在連線提早關閉時刪，但出錯時我們先回了錯誤，清理就被跳過。改用自己寫的落盤引擎，路徑一建立就記下，任何錯誤都刪', 'fix(Jira)：**很長的批次裡，排在後面的附件可能在輪到之前被快取清理刪掉**（CodeX [P2]），最後只留一行 log、附件漏傳。批次開始時把整批附件登記成「租約」，清理一律跳過，批次結束才放；租約存成檔案讓 server／worker 兩邊都看得到，30 分鐘到期、會續約，當掉也不會永久佔著', 'feat(Jira)：批量開單／修改由前端在迴圈前登記租約、送出途中續約；批量評論在背景 job 開始時登記、結束時放掉', 'test(Jira)：附件測試 14 → 24 條（租約跨過有效期、模擬磁碟寫滿、中途斷線）；突變三組都紅在對應那幾條'] },
   { version: '4.262.3', date: '2026-10-01', changes: ['fix(Jira)：**附件上限 10MB → 100MB**（使用者有 57MB 影片被擋）。原本 10MB 的理由寫「Jira Cloud 預設」，**是錯的**——實際打 `/rest/api/3/attachment/meta` 回 1 GiB。上限抽到 `shared/attachment-limits.ts`，錯誤訊息與畫面文字都從這裡來；批量開單／評論／修改與從 Sheet 抓附件一起生效', 'fix(Jira)：**全程不把檔案放進記憶體**（CodeX）——手動上傳直接落盤；從 Sheet 抓附件邊下載邊算大小、超過就中止並刪半成品（原本下載完才判斷）；送 Jira 從檔案串流。原本 57MB 會在記憶體裡出現好幾份，批量評論還會先把整批附件讀成 Buffer', 'fix(Jira)：附件上傳 API 要登入（原本完全不擋）；快取改成每 15 分鐘定期清，用檔前先更新時間戳，不會刪到使用中的', 'fix(Jira)：實測抓到兩個坑——剛好 100MiB 的檔會被 multer 擋（它是「到達」就判超過）；用戶端中途斷線 multer 不刪半成品，改成自己刪', 'feat(Jira)：三個上傳點共用 `src/lib/jiraAttachmentUpload.ts`，送出前先檢查大小；被反向代理擋下（HTTP 413）時講明是代理的限制，不再只顯示「上傳失敗」', 'test(Jira)：`server/jira-attachment-files.test.ts` 14 條含假 Jira 串流上傳（記憶體峰值 65MB vs 整檔讀取 171MB），突變三個都紅；本機真 server 驗過 401／57MB／邊界／三檔並行／中途斷線。⚠️ Spug 前若有反向代理，它的上傳上限要比 100MB 再大一點'] },
   { version: '4.262.2', date: '2026-09-30', changes: ['fix(Meegle)：**較舊的「驗證成功」會蓋掉較新的「已失效」**（CodeX [P2]，4.262.1 漏掉的相鄰案例）——兩次重新驗證共用同一個修訂號：A 在 token 重置前驗證成功但回應延遲、B 在重置後先回「被拒」，A 回來會把狀態改回有效、清掉失效原因', 'fix(Meegle)：每次重新驗證開始時拿一個遞增序號，只有比已寫入的結果新才能寫；暫時錯誤不算結果，但一樣不能蓋掉較新的紀錄', 'test(Meegle)：競態測試 19 → 23 條（④ 舊成功晚回、④b 照順序、④c 舊暫時錯誤晚回）；突變兩個都紅在對應那幾條'] },

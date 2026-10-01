@@ -158,8 +158,66 @@ dl.close()
   createLease([id1], { now: t0, ttlMs: 30 * 60_000, leaseDir, cacheDir: '/nonexistent' })
   cleanAttachmentCache(t0 + 31 * 60_000, dir, leaseDir)
   eq('租約：到期（沒人放）後不再保護', files().includes(id1), false)
-  eq('租約：過期的租約檔被清掉', leasedCacheIds(t0 + 31 * 60_000, leaseDir).size === 0 && readdirSync(leaseDir).length === 0, true)
-  eq('租約：不是 UUID 的 cacheId 不收', leasedCacheIds(t0, leaseDir).size === 0 && JSON.parse(readFileSync(join(leaseDir, createLease(['../etc/passwd'], { now: t0, leaseDir, cacheDir: '/nonexistent' }) + '.json'), 'utf8')).ids.length, 0)
+  eq('租約：過期的租約檔被清掉', leasedCacheIds(t0 + 31 * 60_000, leaseDir).ids.size === 0 && readdirSync(leaseDir).length === 0, true)
+  eq('租約：不是 UUID 的 cacheId 不收', leasedCacheIds(t0, leaseDir).ids.size === 0 && JSON.parse(readFileSync(join(leaseDir, createLease(['../etc/passwd'], { now: t0, leaseDir, cacheDir: '/nonexistent' }) + '.json'), 'utf8')).ids.length, 0)
+}
+
+// ── 租約檔讀不懂 → 這一輪一個都不刪；跨 process 續約與讀取交錯不能讀到半份（CodeX review 5056b6c）──
+{
+  const leaseDir = mkdtempSync(join(tmpdir(), 'att-lease2-'))
+  const { createLease, renewLease, leasedCacheIds } = await import('./jira-attachment-files.js')
+  const id = '33333333-3333-4333-8333-333333333333'
+  writeFileSync(join(dir, id), 'x')
+  utimesSync(join(dir, id), new Date(Date.now() - CACHE_TTL_MS - 60_000), new Date(Date.now() - CACHE_TTL_MS - 60_000))
+  writeFileSync(join(leaseDir, '44444444-4444-4444-8444-444444444444.json'), '{"ids":["3333')   // 半份 JSON
+  const removed = cleanAttachmentCache(Date.now(), dir, leaseDir)
+  eq('租約檔讀不懂 → 這一輪不刪（不知道它保護了誰）', [removed, files().includes(id)], [0, true])
+  eq('租約檔讀不懂 → 回報 uncertain', leasedCacheIds(Date.now(), leaseDir).uncertain, true)
+
+  // 跨 process：子 process 狂續約，這邊狂讀，一次都不能讀到空檔／半份
+  const leaseDir3 = mkdtempSync(join(tmpdir(), 'att-lease3-'))
+  const many = Array.from({ length: 300 }, (_, i) => `${String(i).padStart(8, '0')}-0000-4000-8000-000000000000`)
+  const leaseId = createLease(many, { leaseDir: leaseDir3, cacheDir: '/nonexistent' })
+  const childFile = join(leaseDir3, '..', `renew-child-${process.pid}.ts`)
+  writeFileSync(childFile, `import { renewLease } from ${JSON.stringify(new URL('./jira-attachment-files.ts', import.meta.url).href)}
+const end = Date.now() + 2500
+let n = 0
+while (Date.now() < end) { renewLease(${JSON.stringify(leaseId)}, { leaseDir: ${JSON.stringify(leaseDir3)} }); n++ }
+console.log(n)`)
+  const { spawn } = await import('child_process')
+  const child = spawn(process.execPath, ['--import', 'tsx', childFile], { stdio: ['ignore', 'pipe', 'inherit'] })
+  let childOut = ''
+  child.stdout.on('data', d => { childOut += d })
+  const childDone = new Promise(r => child.on('close', r))
+  await new Promise(r => setTimeout(r, 400))   // 等子 process 開始寫
+  // 兩種讀法分開算：
+  // ① 原始讀（不重試）：讀到「內容不完整」（空檔、JSON 解析失敗）＝寫入不是原子的。Windows 上 rename 替換那一瞬間
+  //    可能拿到 EPERM／EBUSY，那是作業系統層的鎖，不是內容壞掉，另外計數、不算失敗
+  // ② 正式路徑 leasedCacheIds（會重試）：不能回報 uncertain、也不能少 id
+  // 分開是因為重試會把「讀到半份」蓋掉——只看 ② 的話，非原子寫入有一半機率測不出來（突變實測）
+  const leaseFp = join(leaseDir3, `${leaseId}.json`)
+  let reads = 0, partial = 0, osLocked = 0, prodBad = 0
+  const until = Date.now() + 1800
+  while (Date.now() < until) {
+    reads++
+    try {
+      const raw = readFileSync(leaseFp, 'utf8')
+      try { if ((JSON.parse(raw) as { ids: string[] }).ids.length !== many.length) partial++ } catch { partial++ }
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code
+      if (code === 'EPERM' || code === 'EBUSY' || code === 'ENOENT') osLocked++
+      else partial++
+    }
+    const r = leasedCacheIds(Date.now(), leaseDir3)
+    if (r.uncertain || r.ids.size !== many.length) prodBad++
+    await new Promise(r => setImmediate(r))
+  }
+  await childDone
+  console.log(`   （子 process 續約 ${childOut.trim()} 次，這邊讀 ${reads} 次；作業系統鎖 ${osLocked} 次）`)
+  eq('跨 process：原始讀一次都沒讀到不完整的內容（寫入是原子的）', partial, 0)
+  eq('跨 process：正式讀取路徑一次都沒回報 uncertain／少 id', prodBad, 0)
+  eq('跨 process：子 process 真的有在續約（不然上一條是空測）', Number(childOut.trim()) > 100, true)
+  void renewLease
 }
 
 // ── 上傳 handler：錯誤回應／中途斷線都不留半成品 ──
@@ -187,7 +245,8 @@ dl.close()
   }
   let streamFactory: ((p: string) => import('stream').Writable) | undefined
   const app = express()
-  const okHandler = await createAttachmentUploadHandler({ dir: upDir })
+  const okStreams: import('stream').Writable[] = []
+  const okHandler = await createAttachmentUploadHandler({ dir: upDir, createStream: p => { const w = createWriteStream(p); okStreams.push(w); return w } })
   const failHandler = await createAttachmentUploadHandler({ dir: upDir, createStream: p => (streamFactory ?? enospcStream)(p) })
   app.post('/ok', okHandler)
   app.post('/fail', failHandler)
@@ -224,6 +283,7 @@ dl.close()
   })
   await settle()
   eq('中途斷線：半成品刪掉', upFiles().length, before2)
+  eq('中途斷線：寫入串流已經關閉（不能留著開啟的檔案描述符）', okStreams[okStreams.length - 1]?.destroyed, true)
   srv.close()
 }
 
