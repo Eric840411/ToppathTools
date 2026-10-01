@@ -11,7 +11,7 @@
  * db 從外面傳進來，測試用記憶體 DB。
  */
 import type Database from 'better-sqlite3'
-import { normAlias } from '../shared/meegle-batch-rules.js'
+import { isRestorablePrevious, normAlias } from '../shared/meegle-batch-rules.js'
 
 type DB = Database.Database
 
@@ -143,7 +143,8 @@ export function finishCreate(db: DB, batchId: string, rowKey: string,
  * 「結果待確認」查明後收成 created 時 state_phase 還是 none，不補推的話畫面顯示成功、單卻停在初始狀態（CodeX review 999f895 [P2]）。
  */
 export function needsStatePush(row: Pick<BatchRow, 'create_phase' | 'work_item_id' | 'target_state' | 'state_phase'>): boolean {
-  return row.create_phase === 'created' && !!row.work_item_id && !!row.target_state && row.state_phase !== 'done'
+  // 判斷本體跟前端「讀 Sheet 時接回哪些列」共用同一份（shared），兩邊不會一個要補推、一個沒給入口
+  return row.create_phase === 'created' && isRestorablePrevious({ createPhase: row.create_phase, statePhase: row.state_phase, targetStateKey: row.target_state, workItemId: row.work_item_id })
 }
 
 export function finishState(db: DB, batchId: string, rowKey: string, phase: StatePhase, message: string | null, now = Date.now()) {

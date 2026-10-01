@@ -2,7 +2,7 @@
  * Meegle 批量開單列規則的測試。跑法：npx tsx shared/meegle-batch-rules.test.ts
  * 資料取自使用者實際的 Sheet（2026-10-01，136 列）：人員是暱稱、一格多人、CPMS 是團隊名。
  */
-import { collectAliases, normAlias, planRow, splitPeople, type MappedPerson } from './meegle-batch-rules.js'
+import { collectAliases, isRestorablePrevious, normAlias, planRow, splitPeople, type MappedPerson } from './meegle-batch-rules.js'
 
 let pass = 0
 const fails: string[] = []
@@ -75,6 +75,14 @@ eq('人名正規化', normAlias('  James   Chang '), 'james chang')
 }
 eq('「進度」欄不影響任何結果', JSON.stringify(planRow({ record: { ...rec, 進度: '未過退回' } }, defaults, reqs, map)) === JSON.stringify(planRow({ record: rec }, defaults, reqs, map)), true)
 eq('收集人名：去重、保留原寫法、含整批預設', collectAliases([{ record: rec }, { record: { ...rec, 回報者: 'FELIX' } }], defaults), ['zen', 'James Chang', 'felix', 'Dean'])
+
+// ── 讀 Sheet 時要接回原批次的歷史列（CodeX review df9b538 [P2]）──
+eq('待確認 → 接回', isRestorablePrevious({ createPhase: 'unknown', statePhase: 'none' }), true)
+eq('開單中 → 接回', isRestorablePrevious({ createPhase: 'creating', statePhase: 'none' }), true)
+eq('已開單、有目標、推狀態前中斷（none）→ 接回，才有重推入口', isRestorablePrevious({ createPhase: 'created', statePhase: 'none', targetStateKey: 'K', workItemId: '1' }), true)
+eq('已開單、推狀態失敗 → 接回', isRestorablePrevious({ createPhase: 'created', statePhase: 'failed', targetStateKey: 'K', workItemId: '1' }), true)
+eq('已開單、推完了 → 不接回（只標已開過）', isRestorablePrevious({ createPhase: 'created', statePhase: 'done', targetStateKey: 'K', workItemId: '1' }), false)
+eq('已開單、沒有目標狀態 → 不接回', isRestorablePrevious({ createPhase: 'created', statePhase: 'none', targetStateKey: '', workItemId: '1' }), false)
 
 console.log(`\n${pass} 通過，${fails.length} 失敗`)
 if (fails.length) { console.log(fails.join('\n')); process.exit(1) }

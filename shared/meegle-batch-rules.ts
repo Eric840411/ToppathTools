@@ -142,3 +142,16 @@ export function collectAliases(rows: RowInput[], defaults: BatchDefaults): strin
   for (const list of Object.values(defaults.roles)) (list ?? []).forEach(add)
   return [...seen.values()]
 }
+
+export type PreviousRowLike = { createPhase: string; statePhase: string; targetStateKey?: string | null; workItemId?: string | null }
+
+/**
+ * 讀 Sheet 時，哪些歷史列要接回「送出結果」區、保留原批次與原目標狀態（前端用；跟 needsStatePush 同一個判斷）：
+ * - 開單中／待確認 → 要能「查詢結果」（CodeX review 999f895 [P1]）
+ * - 已開單、有目標狀態、但狀態還沒推成功 → 要能「重推狀態」。只恢復待確認的話，推狀態前中斷或推失敗的列
+ *   重整後只剩「已開過」、沒有任何補推入口（CodeX review df9b538 [P2]）
+ */
+export function isRestorablePrevious(p: PreviousRowLike): boolean {
+  if (p.createPhase === 'creating' || p.createPhase === 'unknown') return true
+  return p.createPhase === 'created' && !!p.workItemId && !!p.targetStateKey && p.statePhase !== 'done'
+}
