@@ -120,6 +120,11 @@
 - `creating` 超過 5 分鐘（伺服器在開單途中重啟）→ 轉 `unknown`，不會被當成可重送
 - **查詢結果**：用名稱＋關聯需求＋建立日期（MQL 只到「日」）找，排除已記在別列的單號；唯一一張才收，零張改 `failed`，多張維持待確認請人判斷
 - **跨批次**：記下來源 Sheet 網址，下次讀同一份 Sheet，同列號＋同名稱開過的標「已在 Meegle 開過」、預設不勾；Sheet 已有「Jira issue key」的也預設不勾
+- **批次綁定來源 Sheet**（v4.263.1，CodeX review `999f895` [P1]）：同一個 batchId 已有別份 Sheet 的列 → 拒絕（`SOURCE_MISMATCH`）。
+  否則換 Sheet 沿用舊批次時，B 表第 3 列會撞到 A 表第 3 列，回傳 A 的單號、B 沒開，還可能推 A 的狀態。前端每次讀 Sheet 都換新批次
+- **同一份 Sheet 同一列，任何批次還在 creating／unknown → 擋**（v4.263.1，CodeX [P1]）：batchId 只活在前端記憶體，重整後換新，
+  只看 (batchId, 列號) 擋不住「重整後再按一次送出」。讀 Sheet 時把這些列接回**原批次**顯示在送出結果，按「查詢結果」用的是舊 batchId
+- **查回收成 created 後要補推狀態**（v4.263.1，CodeX [P2]）：`needsStatePush()`——已開單、有目標狀態、還沒推成功就補推
 
 ### ⚠️ 踩坑（2026-10-01 用 CLI 1.0.23 實測）
 1. **`workitem create --fields` 的值一律要字串**，數字會被擋（`MCPGatewayRequestMismatch`）；`role_owners` 要先 `JSON.stringify`
@@ -132,7 +137,7 @@
 8. 「任務項」是狀態流、10 個狀態全連通；目前每個狀態都沒有必填欄位（`list-state-required` 回 `{}`）
 
 ### 驗證
-- `npx tsx server/meegle-workitem.test.ts`（47）、`npx tsx server/meegle-batch-store.test.ts`（20）、`npx tsx shared/meegle-batch-rules.test.ts`（24）
+- `npx tsx server/meegle-workitem.test.ts`（48）、`npx tsx server/meegle-batch-store.test.ts`（31）、`npx tsx shared/meegle-batch-rules.test.ts`（24）
 - 突變都紅在對應那幾條：相信外層 retryable、翻頁每頁重讀 session、沒單號當失敗、逾時列可重新認領、晚到結果蓋掉 created
 
 ### 還沒做

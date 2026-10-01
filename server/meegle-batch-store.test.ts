@@ -4,7 +4,7 @@
  */
 import Database from 'better-sqlite3'
 import {
-  claimRow, expireStaleCreating, listCreatedFromSheet, finishCreate, finishState, getBatchRow, getPersonMap, initMeegleBatchSchema,
+  claimRow, expireStaleCreating, needsStatePush, listRowsFromSheet, finishCreate, finishState, getBatchRow, getPersonMap, initMeegleBatchSchema,
   resolveUnknown, upsertPersonMap,
 } from './meegle-batch-store.js'
 
@@ -80,7 +80,38 @@ const row = (over: Partial<{ batchId: string; rowKey: string; ownerEmail: string
   claimRow(db, { ...row(), sheetUrl: 'S1' }); finishCreate(db, 'B', '3', { phase: 'created', workItemId: '11', url: 'u' })
   claimRow(db, { ...row({ rowKey: '4' }), sheetUrl: 'S1' }); finishCreate(db, 'B', '4', { phase: 'failed', message: 'x' })
   claimRow(db, { ...row({ batchId: 'C' }), sheetUrl: 'S2' }); finishCreate(db, 'C', '3', { phase: 'created', workItemId: '12', url: 'u' })
-  eq('同一份 Sheet 開過的單（跨批次）只列成功的、不混別份 Sheet', listCreatedFromSheet(db, 'S1').map(r => r.work_item_id), ['11'])
+  eq('同一份 Sheet 送過的列（跨批次）不含 failed、不混別份 Sheet', listRowsFromSheet(db, 'S1').map(r => r.work_item_id), ['11'])
+}
+// ── CodeX review 999f895 [P1]：重整後 batchId 換新，不能繞過防重複 ──
+{
+  const db = fresh()
+  claimRow(db, { ...row(), sheetUrl: 'S1' })
+  finishCreate(db, 'B', '3', { phase: 'unknown', message: '逾時' })
+  eq('重整後新批次送同一份 Sheet 同一列 → busy（原批次待確認）', claimRow(db, { ...row({ batchId: 'NEW' }), sheetUrl: 'S1' }).kind, 'busy')
+  eq('回傳的是原批次那筆，前端才接得回去', (claimRow(db, { ...row({ batchId: 'NEW' }), sheetUrl: 'S1' }) as { row: { batch_id: string } }).row.batch_id, 'B')
+  eq('新批次沒有被寫進任何紀錄', db.prepare("SELECT COUNT(*) c FROM meegle_batch_rows WHERE batch_id = 'NEW'").get(), { c: 0 })
+  eq('別份 Sheet 的同列號不受影響', claimRow(db, { ...row({ batchId: 'X' }), sheetUrl: 'S2' }).kind, 'claimed')
+  eq('待確認的列會出現在 Sheet 歷史裡（前端要接回原批次）', listRowsFromSheet(db, 'S1').map(r => [r.batch_id, r.create_phase]), [['B', 'unknown']])
+}
+// ── CodeX review 999f895 [P1]：換 Sheet 不能沿用舊批次 ──
+{
+  const db = fresh()
+  claimRow(db, { ...row(), sheetUrl: 'A' }); finishCreate(db, 'B', '3', { phase: 'created', workItemId: '11', url: 'u' })
+  eq('同一批次換成別份 Sheet → 拒絕（不能回傳 A 的單號）', claimRow(db, { ...row(), sheetUrl: 'B-sheet' }).kind, 'source-mismatch')
+  eq('同一批次同一份 Sheet 照常', claimRow(db, { ...row(), sheetUrl: 'A' }).kind, 'already-created')
+}
+
+// ── CodeX review 999f895 [P2]：查回成功後要補推狀態 ──
+{
+  const db = fresh()
+  claimRow(db, row())   // targetState = 可本機測試
+  finishCreate(db, 'B', '3', { phase: 'unknown', message: '逾時' })
+  resolveUnknown(db, 'B', '3', { workItemId: '9', url: 'u' })
+  eq('查回收成 created 後，有目標狀態 → 需要補推', needsStatePush(getBatchRow(db, 'B', '3')!), true)
+  finishState(db, 'B', '3', 'done', null)
+  eq('推完就不再推', needsStatePush(getBatchRow(db, 'B', '3')!), false)
+  eq('沒有目標狀態 → 不推', needsStatePush({ create_phase: 'created', work_item_id: '1', target_state: '', state_phase: 'none' }), false)
+  eq('推失敗的也要補推', needsStatePush({ create_phase: 'created', work_item_id: '1', target_state: 'K', state_phase: 'failed' }), true)
 }
 
 console.log(`\n${pass} 通過，${fails.length} 失敗`)

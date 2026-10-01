@@ -16,7 +16,7 @@ import { getAccountRow } from '../meegle-account-service.js'
 import { decryptMeegleToken } from '../meegle-token-crypto.js'
 import {
   claimRow, expireStaleCreating, finishCreate, finishState, getBatchRow, getPersonMap, initMeegleBatchSchema,
-  listCreatedFromSheet, listPersonMap, resolveUnknown, upsertPersonMap, type BatchRow,
+  listPersonMap, listRowsFromSheet, needsStatePush, resolveUnknown, upsertPersonMap, type BatchRow,
 } from '../meegle-batch-store.js'
 import {
   confirmRequirement, createTask, findTasksByName, findUserViaParticipants, listRequirements, listTaskStates,
@@ -51,7 +51,7 @@ function requireCtx(req: Request, res: Response): Ctx | null {
 
 function publicRow(r: BatchRow | undefined) {
   if (!r) return null
-  return { rowKey: r.row_key, createPhase: r.create_phase, workItemId: r.work_item_id, url: r.url, statePhase: r.state_phase, message: r.message }
+  return { batchId: r.batch_id, rowKey: r.row_key, createPhase: r.create_phase, workItemId: r.work_item_id, url: r.url, statePhase: r.state_phase, message: r.message }
 }
 
 // GET /api/meegle/batch/meta —— 需求清單、可推到的狀態、目標空間
@@ -85,7 +85,8 @@ router.post('/api/meegle/batch/previous', (req, res) => {
   const account = getAuthAccount(req)
   if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
   const { sheetUrl } = z.object({ sheetUrl: z.string().max(2000) }).parse(req.body)
-  res.json({ ok: true, rows: listCreatedFromSheet(db, sheetUrl).map(r => ({ rowKey: r.row_key, name: r.name, workItemId: r.work_item_id, url: r.url, createdAt: r.created_at })) })
+  // 含開單中／待確認的列與它們的 batchId：重整頁面後前端靠這個把原批次接回來（CodeX review 999f895 [P1]）
+  res.json({ ok: true, rows: listRowsFromSheet(db, sheetUrl).map(r => ({ ...publicRow(r), name: r.name, targetStateKey: r.target_state, owner: r.owner_email, createdAt: r.created_at })) })
 })
 
 // POST /api/meegle/batch/people/verify —— 填 email → 查 Meegle 帳號 → 記住對照
@@ -141,12 +142,13 @@ router.post('/api/meegle/batch/row', writeLimiter, async (req, res, next) => {
     expireStaleCreating(db, STALE_CREATING_MS)
 
     const claim = claimRow(db, { batchId: body.batchId, rowKey: body.rowKey, ownerEmail: ctx.email, sheetUrl: body.sheetUrl, name: body.name, requirementId: body.requirementId, targetState: body.targetStateKey })
+    if (claim.kind === 'source-mismatch') return res.status(409).json({ ok: false, code: 'SOURCE_MISMATCH', message: '這個批次是另一份 Sheet 的，請重新讀取 Sheet 後再送' })
     if (claim.kind === 'not-owner') return res.status(403).json({ ok: false, message: '這一列是別人送出的' })
     if (claim.kind === 'busy') return res.json({ ok: true, row: publicRow(claim.row) })
     if (claim.kind === 'already-created') {
       // 已經開過：只補推狀態，不重開
       if (claim.row.state_phase !== 'done' && body.targetStateKey && claim.row.work_item_id) {
-        await pushState(ctx, body.batchId, body.rowKey, claim.row.work_item_id, body.targetStateKey)
+        await pushState(ctx, claim.row.batch_id, claim.row.row_key, claim.row.work_item_id, body.targetStateKey)
       }
       return res.json({ ok: true, row: publicRow(getBatchRow(db, body.batchId, body.rowKey)) })
     }
@@ -211,7 +213,10 @@ router.post('/api/meegle/batch/row/confirm', writeLimiter, async (req, res, next
     expireStaleCreating(db, STALE_CREATING_MS)
     const row = getBatchRow(db, body.batchId, body.rowKey)
     if (!row || row.owner_email !== ctx.email) return res.status(404).json({ ok: false, message: '找不到這一列' })
-    if (row.create_phase !== 'unknown') return res.json({ ok: true, row: publicRow(row) })
+    if (row.create_phase !== 'unknown') {
+      if (needsStatePush(row)) await pushState(ctx, row.batch_id, row.row_key, row.work_item_id!, row.target_state)
+      return res.json({ ok: true, row: publicRow(getBatchRow(db, body.batchId, body.rowKey)) })
+    }
 
     // 建立日期只到「日」，往前多抓一天避免跨日／時區
     const since = new Date(row.created_at - 24 * 3600_000).toISOString().slice(0, 10)
@@ -224,6 +229,9 @@ router.post('/api/meegle/batch/row/confirm', writeLimiter, async (req, res, next
       const id = candidates[0].workItemId
       const t = meegleTarget()
       resolveUnknown(db, body.batchId, body.rowKey, { workItemId: id, url: `https://project.larksuite.com/${t.projectKey}/${t.taskTypeKey}/detail/${id}` })
+      // 查回來的單還沒推過狀態，照原本送出時的目標補推（CodeX review 999f895 [P2]）
+      const after = getBatchRow(db, body.batchId, body.rowKey)
+      if (after && needsStatePush(after)) await pushState(ctx, after.batch_id, after.row_key, after.work_item_id!, after.target_state)
     } else if (candidates.length === 0) {
       resolveUnknown(db, body.batchId, body.rowKey, null)
     } else {

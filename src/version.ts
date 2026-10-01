@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.263.0'
+export const APP_VERSION = '4.263.1'
 
 export interface ChangelogEntry {
   version: string

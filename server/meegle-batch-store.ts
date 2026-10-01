@@ -66,11 +66,14 @@ export function initMeegleBatchSchema(db: DB) {
   `)
 }
 
-/** 從這份 Sheet 開出去的單（跨批次），給預覽標「已開過」。同一列號可能被開過多次，全部回傳。 */
-export function listCreatedFromSheet(db: DB, sheetUrl: string): Array<{ row_key: string; name: string; work_item_id: string; url: string | null; created_at: number }> {
+/**
+ * 這份 Sheet 送過的列（跨批次、所有狀態，failed 除外——failed 沒開出任何東西）。
+ * 前端用來：已開過的標「已開過」、**開單中／待確認的把原批次接回來**（重整頁面後 batchId 會換新，CodeX [P1]），
+ * 才能對它按「查詢結果」，而不是被當成沒送過重新勾選。
+ */
+export function listRowsFromSheet(db: DB, sheetUrl: string): BatchRow[] {
   if (!sheetUrl) return []
-  return db.prepare(`SELECT row_key, name, work_item_id, url, created_at FROM meegle_batch_rows
-    WHERE sheet_url = ? AND create_phase = 'created' AND work_item_id IS NOT NULL ORDER BY created_at`).all(sheetUrl) as Array<{ row_key: string; name: string; work_item_id: string; url: string | null; created_at: number }>
+  return db.prepare(`SELECT * FROM meegle_batch_rows WHERE sheet_url = ? AND create_phase != 'failed' ORDER BY created_at`).all(sheetUrl) as BatchRow[]
 }
 
 export function getBatchRow(db: DB, batchId: string, rowKey: string): BatchRow | undefined {
@@ -82,14 +85,29 @@ export type ClaimResult =
   | { kind: 'already-created'; row: BatchRow } // 已經開過，只能補推狀態
   | { kind: 'busy'; row: BatchRow }           // 另一個請求正在開，或結果待確認
   | { kind: 'not-owner'; row: BatchRow }
+  | { kind: 'source-mismatch' }               // 這個批次是別份 Sheet 的
 
 /**
  * 認領一列準備開單。單一 SQL 交易內完成「讀現況＋寫 creating」，兩個請求同時進來只有一個拿得到。
  * failed 的列可以重新認領（伺服器明確拒絕過，沒有開出任何東西）。
+ *
+ * 另外兩道（CodeX review 999f895 [P1]×2）：
+ * - **批次綁定來源 Sheet**：同一個 batchId 已經有別份 Sheet 的列 → 拒絕。否則換 Sheet 沿用舊批次時，
+ *   B 表第 3 列會撞到 A 表第 3 列的紀錄，回傳 A 的單號、B 沒建立，還可能去推 A 的狀態。
+ * - **同一份 Sheet 同一列，任何批次還在開單中／待確認 → busy**。batchId 只活在前端記憶體，重整後換新，
+ *   只看 (batchId, 列號) 擋不住「重整後再按一次送出」。
  */
 export function claimRow(db: DB, input: { batchId: string; rowKey: string; ownerEmail: string; sheetUrl?: string; name: string; requirementId: string; targetState: string }, now = Date.now()): ClaimResult {
   const owner = input.ownerEmail.trim().toLowerCase()
   return db.transaction((): ClaimResult => {
+    const sheetUrl = input.sheetUrl ?? ''
+    const other = db.prepare('SELECT sheet_url FROM meegle_batch_rows WHERE batch_id = ? AND sheet_url != ? LIMIT 1').get(input.batchId, sheetUrl)
+    if (other) return { kind: 'source-mismatch' }
+    if (sheetUrl) {
+      const pending = db.prepare(`SELECT * FROM meegle_batch_rows WHERE sheet_url = ? AND row_key = ? AND batch_id != ?
+        AND create_phase IN ('creating', 'unknown') LIMIT 1`).get(sheetUrl, input.rowKey, input.batchId) as BatchRow | undefined
+      if (pending) return { kind: 'busy', row: pending }
+    }
     const existing = getBatchRow(db, input.batchId, input.rowKey)
     if (existing) {
       if (existing.owner_email !== owner) return { kind: 'not-owner', row: existing }
@@ -103,7 +121,7 @@ export function claimRow(db: DB, input: { batchId: string; rowKey: string; owner
     }
     db.prepare(`INSERT INTO meegle_batch_rows (batch_id, row_key, owner_email, sheet_url, name, requirement_id, target_state, create_phase, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, 'creating', ?, ?)`)
-      .run(input.batchId, input.rowKey, owner, input.sheetUrl ?? '', input.name, input.requirementId, input.targetState, now, now)
+      .run(input.batchId, input.rowKey, owner, sheetUrl, input.name, input.requirementId, input.targetState, now, now)
     return { kind: 'claimed' }
   }).immediate()
 }
@@ -118,6 +136,14 @@ export function finishCreate(db: DB, batchId: string, rowKey: string,
     db.prepare(`UPDATE meegle_batch_rows SET create_phase = ?, message = ?, updated_at = ?
       WHERE batch_id = ? AND row_key = ? AND create_phase = 'creating'`).run(result.phase, result.message, now, batchId, rowKey)
   }
+}
+
+/**
+ * 已開單、有目標狀態、但狀態還沒推成功 → 要補推。
+ * 「結果待確認」查明後收成 created 時 state_phase 還是 none，不補推的話畫面顯示成功、單卻停在初始狀態（CodeX review 999f895 [P2]）。
+ */
+export function needsStatePush(row: Pick<BatchRow, 'create_phase' | 'work_item_id' | 'target_state' | 'state_phase'>): boolean {
+  return row.create_phase === 'created' && !!row.work_item_id && !!row.target_state && row.state_phase !== 'done'
 }
 
 export function finishState(db: DB, batchId: string, rowKey: string, phase: StatePhase, message: string | null, now = Date.now()) {
