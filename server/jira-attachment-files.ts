@@ -118,7 +118,12 @@ export function leasedCacheIds(now = Date.now(), leaseDir = LEASE_DIR): { ids: S
   const ids = new Set<string>()
   let uncertain = false
   let names: string[] = []
-  try { names = readdirSync(leaseDir) } catch { return { ids, uncertain } }
+  try {
+    names = readdirSync(leaseDir)
+  } catch (e) {
+    // 只有「目錄不存在」才代表沒有任何租約；權限、I/O 錯誤時不知道裡面有什麼，當成讀不懂（CodeX review 50afde8）
+    return { ids, uncertain: (e as NodeJS.ErrnoException).code !== 'ENOENT' }
+  }
   for (const n of names) {
     const fp = join(leaseDir, n)
     if (!n.endsWith('.json')) {

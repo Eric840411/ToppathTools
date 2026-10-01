@@ -92,42 +92,56 @@ dl.close()
 }
 
 // ── 上傳到假 Jira：內容一致、記憶體不長出整份檔案 ──
+// 假 Jira 跑在**子 process**：它為了驗內容要把整份收進記憶體，放在同一個 process 會把那 57MB 算進來，
+// 量測就會跟著 GC 時機飄（實測偶發誤報）。拆開之後量到的只有送出端自己
 {
   const size = 57 * 1024 * 1024
   const src = join(dir, 'upload-src')
   writeFileSync(src, randomBytes(size))
   const srcHash = createHash('sha256').update(readFileSync(src)).digest('hex')
-  let receivedHash = '', receivedBytes = 0, sawAuth = ''
-  const jira = createServer(async (req, res) => {
-    sawAuth = String(req.headers['x-atlassian-token'] ?? '')
-    // 從 multipart 裡取檔案內容：找第一個空行之後到結尾邊界之前
-    const chunks: Buffer[] = []
-    for await (const c of req) chunks.push(c as Buffer)
-    const body = Buffer.concat(chunks)
-    const boundary = '--' + String(req.headers['content-type']).split('boundary=')[1]
-    const start = body.indexOf('\r\n\r\n') + 4
-    const end = body.lastIndexOf('\r\n' + boundary)
-    const file = body.subarray(start, end)
-    receivedBytes = file.length
-    receivedHash = createHash('sha256').update(file).digest('hex')
-    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify([{ filename: 'vid.mp4' }]))
-  })
-  await new Promise<void>(r => jira.listen(0, r))
-  const port = (jira.address() as { port: number }).port
+  const jiraScript = join(dir, 'fake-jira.mjs')
+  writeFileSync(jiraScript, `
+import { createServer } from 'http'
+import { createHash } from 'crypto'
+const srv = createServer(async (req, res) => {
+  const chunks = []
+  for await (const c of req) chunks.push(c)
+  const body = Buffer.concat(chunks)
+  const boundary = '--' + String(req.headers['content-type']).split('boundary=')[1]
+  const start = body.indexOf('\\r\\n\\r\\n') + 4
+  const end = body.lastIndexOf('\\r\\n' + boundary)
+  const file = body.subarray(start, end)
+  process.stdout.write(JSON.stringify({ bytes: file.length, hash: createHash('sha256').update(file).digest('hex'), token: req.headers['x-atlassian-token'] }) + '\\n')
+  res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify([{ filename: 'vid.mp4' }]))
+})
+srv.listen(0, () => process.stdout.write('PORT ' + srv.address().port + '\\n'))
+`)
+  const { spawn } = await import('child_process')
+  const jira = spawn(process.execPath, [jiraScript], { stdio: ['ignore', 'pipe', 'inherit'] })
+  let out = ''
+  jira.stdout.on('data', d => { out += d })
+  const portDeadline = Date.now() + 10_000
+  while (!/PORT (\d+)/.test(out)) {
+    if (Date.now() > portDeadline) throw new Error('假 Jira 子 process 沒有啟動')
+    await new Promise(r => setTimeout(r, 20))
+  }
+  const port = Number(out.match(/PORT (\d+)/)![1])
   global.gc?.()
+  await new Promise(r => setTimeout(r, 50))
   const base = process.memoryUsage()
   let peak = 0
   const sampler = setInterval(() => { const m = process.memoryUsage(); peak = Math.max(peak, m.heapUsed + m.arrayBuffers - base.heapUsed - base.arrayBuffers) }, 5)
   const stored = await uploadFileToJira('TEST-1', 'vid.mp4', src, 'video/mp4', 'Basic x', `http://127.0.0.1:${port}`)
   clearInterval(sampler)
-  jira.close()
-  eq('上傳：Jira 收到的內容一模一樣', [receivedBytes, receivedHash === srcHash], [size, true])
-  eq('上傳：帶 X-Atlassian-Token: no-check', sawAuth, 'no-check')
+  const hashDeadline = Date.now() + 10_000
+  while (!out.includes('"hash"') && Date.now() < hashDeadline) await new Promise(r => setTimeout(r, 20))
+  jira.kill()
+  const got = JSON.parse(out.split('\n').find(l => l.includes('"hash"')) ?? '{}') as { bytes: number; hash: string; token: string }
+  eq('上傳：Jira 收到的內容一模一樣', [got.bytes, got.hash === srcHash], [size, true])
+  eq('上傳：帶 X-Atlassian-Token: no-check', got.token, 'no-check')
   eq('上傳：回傳 Jira 存的檔名', stored, 'vid.mp4')
-  // 註：假 Jira 跟測試在同一個 process，它自己為了驗內容會把整份收進記憶體——那是接收端，不算在上傳端。
-  // 所以只看「送出那段時間」上傳端是否另外長出一整份：把接收端那份（size）扣掉後要明顯小於 size
-  console.log(`   （送出期間記憶體峰值增量 ${(peak / 1024 / 1024).toFixed(1)}MB，其中約 ${(size / 1024 / 1024).toFixed(0)}MB 是假 Jira 收下的那份）`)
-  eq('上傳：送出端沒有另外把整份檔案讀進記憶體', peak - size < size / 2, true)
+  console.log(`   （送出端記憶體峰值增量 ${(peak / 1024 / 1024).toFixed(1)}MB，檔案 ${(size / 1024 / 1024).toFixed(0)}MB）`)
+  eq('上傳：送出端沒有把整份檔案讀進記憶體（峰值 < 檔案的 1/4）', peak < size / 4, true)
 }
 
 // ── 租約：排隊中的附件跨過 TTL 也不能被清掉（CodeX review 05145a3）──
@@ -173,6 +187,14 @@ dl.close()
   const removed = cleanAttachmentCache(Date.now(), dir, leaseDir)
   eq('租約檔讀不懂 → 這一輪不刪（不知道它保護了誰）', [removed, files().includes(id)], [0, true])
   eq('租約檔讀不懂 → 回報 uncertain', leasedCacheIds(Date.now(), leaseDir).uncertain, true)
+
+  // 租約目錄本身列不出來（權限／I/O 錯誤）：拿一個「檔案」當目錄，readdir 會丟 ENOTDIR
+  const notADir = join(leaseDir, '..', `lease-not-a-dir-${process.pid}`)
+  writeFileSync(notADir, 'x')
+  const removed2 = cleanAttachmentCache(Date.now(), dir, notADir)
+  eq('租約目錄列舉失敗 → 這一輪不刪', [removed2, files().includes(id)], [0, true])
+  eq('租約目錄列舉失敗 → 回報 uncertain', leasedCacheIds(Date.now(), notADir).uncertain, true)
+  eq('租約目錄不存在（ENOENT）→ 視為沒有租約、不是 uncertain', leasedCacheIds(Date.now(), join(leaseDir, 'does-not-exist')).uncertain, false)
 
   // 跨 process：子 process 狂續約，這邊狂讀，一次都不能讀到空檔／半份
   const leaseDir3 = mkdtempSync(join(tmpdir(), 'att-lease3-'))
