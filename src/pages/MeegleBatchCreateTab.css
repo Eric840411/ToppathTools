@@ -215,6 +215,10 @@
 
 /* 進度條本體沿用 Dashboard 的 .dashboard-bar-track／-fill（修仙版靈脈素材一起套上）；這裡只管間距 */
 .mb-progress-track { margin: 4px 0 12px; }
+/* ⚠️ 修仙版的靈脈條右端有「靈氣發散」素材，會從填滿處再往右凸出約 30px（xianxia-complete.css 的 ::after，41.25px 寬、重疊 11.25px）。
+   Dashboard 的條旁邊有留白所以看不出來；這裡條子拉滿整張卡，100% 時就會凸出卡片邊框（使用者回報「爆版」）。
+   右邊預留凸出的寬度，讓 100% 的發散也落在卡片內。 */
+:root[data-theme-mode="xianxia"] .mb-progress-track { margin-right: 32px; }
 
 /* ── 固定在畫面下方的進度列（跨步驟保留）── */
 .mb-dock {
@@ -289,3 +293,10 @@
 :root[data-theme-mode="xianxia"] .mb-table tbody tr:hover td { background: rgba(31, 176, 140, .05); }
 :root[data-theme-mode="xianxia"] .mb-tab--warn.is-on { color: #ecd9a5; box-shadow: inset 0 0 0 1px rgba(217, 181, 106, .7); background: rgba(217, 181, 106, .12); }
 :root[data-theme-mode="xianxia"] .mb-dock { box-shadow: inset 0 1px 0 rgba(201, 168, 92, .35), 0 10px 30px rgba(0, 0, 0, .5); }
+
+/* 線條圖示（取代原生 emoji） */
+.mb-icon { display: inline-block; vertical-align: -2px; flex-shrink: 0; }
+.mb-search-wrap > span { display: inline-flex; }
+.mb-hint--warn { color: var(--mb-warn); }
+/* ④ 底部固定進度列會蓋住最後幾列，結果區底部留出空間 */
+.mb-pane:has(.mb-results) { padding-bottom: 96px; }

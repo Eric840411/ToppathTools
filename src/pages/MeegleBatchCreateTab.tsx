@@ -33,6 +33,18 @@ function useThemeMode(): string {
   return mode
 }
 
+/** 小圖示：線條 SVG、跟著文字顏色（視覺規範不用原生 emoji——各平台長得不一樣，修仙版也換不了色） */
+const ICON_PATHS = {
+  link: 'M6.5 9.5l3-3M7 4.5l1-1a2.5 2.5 0 013.5 3.5l-1 1M9 11.5l-1 1A2.5 2.5 0 014.5 9l1-1',
+  gear: 'M8 5.5a2.5 2.5 0 100 5 2.5 2.5 0 000-5zM8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4',
+  search: 'M7 2.5a4.5 4.5 0 110 9 4.5 4.5 0 010-9zM10.3 10.3l3.2 3.2',
+  download: 'M8 2v8M4.5 7L8 10.5 11.5 7M3 13.5h10',
+  warn: 'M8 2l6.5 11.5h-13zM8 6.5v3.5M8 11.8v.2',
+} as const
+function Icon({ name }: { name: keyof typeof ICON_PATHS }) {
+  return <svg className="mb-icon" viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d={ICON_PATHS[name]} /></svg>
+}
+
 const PAGE_SIZE = 25
 const ROLE_SHORT: Record<MeegleRoleKey, string> = { assignee: '受托', rdOwner: 'RD', reporter: '回報', codeReview: 'CR', qaVerifier: 'QA' }
 
@@ -352,7 +364,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
                 onChange={e => setSheetUrl(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') void loadSheet() }} />
             </label>
             <button type="button" className="mb-btn mb-btn--primary mb-btn--block" disabled={sheetLoading || !sheetUrl.trim()} onClick={() => void loadSheet()}>
-              🔗 {sheetLoading ? '讀取中…' : records ? '重新讀取 Sheet' : '讀取 Sheet'}
+              <Icon name="link" /> {sheetLoading ? '讀取中…' : records ? '重新讀取 Sheet' : '讀取 Sheet'}
             </button>
             {sheetError && <div className="mb-alert mb-alert--bad">{sheetError}</div>}
             {records && <div className="mb-muted mb-loaded">已讀取 {rows.length} 列{unmappedAliases.length ? `・${unmappedAliases.length} 個名字未對照` : '・人員都已對照'}</div>}
@@ -385,7 +397,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
                 </label>
               </div>
             )}
-            {meta?.statesError && <div className="mb-hint">⚠️ 讀不到狀態清單：{meta.statesError}</div>}
+            {meta?.statesError && <div className="mb-hint mb-hint--warn"><Icon name="warn" /> 讀不到狀態清單：{meta.statesError}</div>}
             <p className="mb-hint">人員欄認：回報者／回報人／填寫人、RD負責人／RD、QA驗證人員。Sheet 有「關聯需求」欄就以該欄為準，對不到會擋下、不會改用預設。</p>
             <button type="button" className="mb-btn mb-btn--primary mb-btn--block" disabled={!records || !meta} onClick={goNextFromLoad}>下一步</button>
           </div>
@@ -442,7 +454,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
               </div>
             )}
             <div className="mb-toolbar">
-              <div className="mb-search-wrap"><span aria-hidden>⌕</span><input className="mb-input mb-search" placeholder="搜尋任務或人名" value={query} onChange={e => { setQuery(e.target.value); setPage(1) }} /></div>
+              <div className="mb-search-wrap"><span aria-hidden><Icon name="search" /></span><input className="mb-input mb-search" placeholder="搜尋任務或人名" value={query} onChange={e => { setQuery(e.target.value); setPage(1) }} /></div>
               <div className="mb-chips">
                 {([['all', '全部', rows.length], ['ok', '可送出', okCount], ['blocked', '被擋下', blockedCount], ['prev', '已開過', prevCount]] as const).map(([k, label, n]) => (
                   <button key={k} type="button" className={`mb-chip mb-chip--${k}${filter === k ? ' is-on' : ''}`} onClick={() => { setFilter(k); setPage(1) }}>{label} <b>{n}</b></button>
@@ -456,7 +468,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
                   onChange={e => setSelected(e.target.checked ? new Set(rows.filter(isSelectable).map(r => r.rec._rowIndex)) : new Set())} />
                 已勾選 <b>{selected.size}</b> 列
               </label>
-              <button type="button" className={`mb-btn mb-btn--small mb-btn--outline${bulkOpen ? ' is-on' : ''}`} disabled={!selected.size} onClick={() => { setBulkOpen(o => !o); setBulkMsg('') }}>⚙ 批量設定</button>
+              <button type="button" className={`mb-btn mb-btn--small mb-btn--outline${bulkOpen ? ' is-on' : ''}`} disabled={!selected.size} onClick={() => { setBulkOpen(o => !o); setBulkMsg('') }}><Icon name="gear" /> 批量設定</button>
               <span className="mb-selbar-hint">留空不改・僅套用勾選列</span>
             </div>
 
@@ -601,7 +613,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
               {!resultEntries.length && <div className="mb-muted mb-empty">還沒有送出結果</div>}
             </div>
             <button type="button" className="mb-btn mb-btn--outline mb-btn--block mb-export" disabled={!resultEntries.length} onClick={exportCsv}>
-              ⤓ {xianxia ? <>封存玉簡<small>匯出結果</small></> : '匯出結果'}
+              <Icon name="download" /> {xianxia ? <>封存玉簡<small>匯出結果</small></> : '匯出結果'}
             </button>
             <div className="mb-done-line">
               <span>處理完成 <b>{progress.done}</b> / {progress.total || resultEntries.length}</span>
@@ -615,8 +627,9 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
         )}
       </section>
 
-      {/* 固定在畫面下方的進度列：跨步驟保留（CodeX 設計）；在 ④ 本身已有進度條，就不重複顯示 */}
-      {progress.total > 0 && !progressDismissed && step !== 4 && (
+      {/* 固定在畫面下方的進度列：跨步驟保留（CodeX 設計） */}
+      {/* ④ 也要保留：結果列多時，④ 自己那條進度在最下面看不到（CodeX review 34e4e1e [P2]） */}
+      {progress.total > 0 && !progressDismissed && (
         <div className="mb-dock" role="status" aria-live="polite">
           <div className="mb-dock-text">
             <b>{running ? `送出中 ${progress.done} / ${progress.total}` : `送出完成 ${progress.done} / ${progress.total}`}</b>
@@ -627,7 +640,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
           </div>
           <div className="dashboard-bar-track mb-progress-track mb-dock-bar"><span className="dashboard-bar-fill" style={{ width: `${(progress.done / progress.total) * 100}%` }} /></div>
           <div className="mb-dock-actions">
-            <button type="button" className="mb-btn mb-btn--small" onClick={() => setStep(4)}>看結果</button>
+            <button type="button" className="mb-btn mb-btn--small" onClick={() => { if (step === 4) resultsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); else setStep(4) }}>看結果</button>
             {!running && <button type="button" className="mb-btn mb-btn--small" aria-label="關閉進度列" onClick={() => setProgressDismissed(true)}>✕</button>}
           </div>
         </div>
