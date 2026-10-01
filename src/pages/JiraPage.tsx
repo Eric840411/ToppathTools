@@ -15,6 +15,7 @@ import { JIRA_KEY_AT_START_RE, JIRA_KEY_IN_BROWSE_URL_RE } from '../../shared/ji
 import { JiraCreateStep4 } from './JiraCreateStep4'
 import { acquireAttachmentLease, uploadJiraAttachment } from '../lib/jiraAttachmentUpload'
 import { targetStatusOptions } from '../../shared/jira-transition.js'
+import { submitBlockReason, targetAfterReload } from '../../shared/transition-selection'
 
 export interface Member {
   accountId: string
@@ -712,6 +713,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
   const [updateSelectedKeys, setUpdateSelectedKeys] = useState<Set<string>>(new Set())
   /** 狀態選項是依哪一張單讀的（畫面要顯示，免得使用者以為選項適用每一張） */
   const [updateTransitionSourceKey, setUpdateTransitionSourceKey] = useState('')
+  const [updateTransitionsLoading, setUpdateTransitionsLoading] = useState(false)
   const [updateValidationErrors, setUpdateValidationErrors] = useState<{ issueKey: string; missing: string[] }[]>([])
   const [updateTitleWritebackLoading, setUpdateTitleWritebackLoading] = useState(false)
   const [updateTitleWritebackMsg, setUpdateTitleWritebackMsg] = useState('')
@@ -974,17 +976,25 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
     }
     if (updateFirstSelectedKey === updateTransitionSourceKey) return
     let alive = true
+    // 重讀期間不准送出已選的目標（submitBlockReason 會擋），讀完才知道它在新首張上還算不算數
+    setUpdateTransitionsLoading(true)
     fetch(`/api/jira/transitions?issueKey=${encodeURIComponent(updateFirstSelectedKey)}`, { headers: { 'x-jira-email': currentAccount.email } })
       .then(r => r.json())
       .then((d: { ok: boolean; transitions?: JiraTransitionOption[] }) => {
         if (!alive) return
         const list = d.ok ? (d.transitions ?? []) : []
         setUpdateTransitions(list)
-        setUpdateTransitionSourceKey(updateFirstSelectedKey)
-        // 換了來源單，原本選的目標在新選項裡不一定還在——不在就回到「不切換」，不要留著一個看不到的值
-        setUpdateTargetStatusId(prev => (prev && list.some(t => t.toId === prev) ? prev : ''))
+        setUpdateTransitionSourceKey(d.ok ? updateFirstSelectedKey : '')
+        // 換了來源單，原本選的目標在新選項裡不一定還在——不在（或讀取失敗）就回到「不切換」，不留畫面看不到的值
+        setUpdateTargetStatusId(prev => targetAfterReload(prev, d.ok ? { ok: true, transitions: list } : { ok: false }))
       })
-      .catch(() => { if (alive) { setUpdateTransitions([]); setUpdateTransitionSourceKey('') } })
+      .catch(() => {
+        if (!alive) return
+        // ⚠️ 失敗時目標也要清（CodeX review a9d923c）：原本只清選項，畫面寫「讀取失敗，可跳過」，執行卻送出舊目標
+        setUpdateTransitions([]); setUpdateTransitionSourceKey('')
+        setUpdateTargetStatusId(prev => targetAfterReload(prev, { ok: false }))
+      })
+      .finally(() => { if (alive) setUpdateTransitionsLoading(false) })
     return () => { alive = false }
   }, [updateFirstSelectedKey, currentAccount?.email, updateTransitionSourceKey])
 
@@ -3075,6 +3085,9 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
 
   const handleUpdateExecute = async () => {
     if (updateSubmitting) return
+    // 畫面上看不到、或還沒依目前勾選確認過的目標，一律不送
+    const blocked = submitBlockReason({ target: updateTargetStatusId, firstSelectedKey: updateFirstSelectedKey, sourceKey: updateTransitionSourceKey, loading: updateTransitionsLoading })
+    if (blocked) { setUpdateJiraError(blocked); return }
 
     // ── 送出前重新從 Jira fetch 最新資料，再做必填欄位驗證 ──
     const filtered = updateRecords.filter(r => updateSelectedKeys.has(r.issueKey))
@@ -3349,6 +3362,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
           currentAccount={currentAccount}
           updateTransitions={updateTransitions}
           updateTransitionSourceKey={updateTransitionSourceKey}
+          updateTransitionsLoading={updateTransitionsLoading}
           updateTargetStatusId={updateTargetStatusId}
           setUpdateTargetStatusId={setUpdateTargetStatusId}
           updateJiraError={updateJiraError}

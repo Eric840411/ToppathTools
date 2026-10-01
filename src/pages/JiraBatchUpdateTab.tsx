@@ -38,6 +38,7 @@ export function JiraBatchUpdateTab(props: {
   currentAccount: AccountInfo | null
   updateTransitions: JiraTransitionOption[]
   updateTransitionSourceKey: string
+  updateTransitionsLoading: boolean
   updateTargetStatusId: string
   setUpdateTargetStatusId: (v: string) => void
   updateJiraError: string
@@ -66,7 +67,7 @@ export function JiraBatchUpdateTab(props: {
     updateError, setUpdateError, handleUpdateFetchBitable, updateLoading, updateReloadMsg, handleReloadUpdateSheet,
     updateRecords, updateFilterableColumns, updateTabColFilters, setUpdateTabColFilters, updateColumnUniqueValues,
     updateFilteredRecords, updateJiraStatusFilter, setUpdateJiraStatusFilter, updateJiraStatusOptions,
-    currentAccount, updateTransitions, updateTransitionSourceKey, updateTargetStatusId, setUpdateTargetStatusId, updateJiraError,
+    currentAccount, updateTransitions, updateTransitionSourceKey, updateTransitionsLoading, updateTargetStatusId, setUpdateTargetStatusId, updateJiraError,
     fetchUpdateJiraData, rdFieldDetecting, setRdFieldDetecting, rdFieldCandidates, setRdFieldCandidates,
     emailHeader, updateJiraData, updateSelectedKeys, setUpdateSelectedKeys, updateJiraLoading,
     updateValidationErrors, updateSubmitting, updateProgress, updateTitleWritebackLoading,
@@ -108,7 +109,7 @@ export function JiraBatchUpdateTab(props: {
           </p>
 
           <StepGuide title="操作說明 — 狀態切換與驗證">
-            <li>系統會依序用「目前帳號」與「所有已儲存帳號」嘗試讀取該 Issue 可用的 Transition 選項（不同帳號權限可能不同）</li>
+            <li>「切換狀態」的選項依<b>目前勾選的第一張單</b>、用<b>你自己的帳號</b>讀取；改勾選會重新讀取。不同專案的狀態可能同名不同，送出時每張單會各自確認，切不過去的會列出來、不會送</li>
             <li>執行前會重新從 Jira 抓最新資料，驗證 <b>摘要 / 描述 / 受託人 / RD負責人</b> 是否都有值，缺漏會擋下並列出問題單號（可點擊捲動定位）</li>
             <li>「察 偵測 RD 欄位」：掃描該 Issue 所有 custom user field，列出欄位 ID / 名稱 / 目前值，方便確認 RD負責人抓的是哪個欄位</li>
             <li>「文 回填單子標題」：把 Jira Key 超連結 + 摘要寫回 Sheet 的「單子標題貼這」欄，與正式執行分開，可單獨先跑</li>
@@ -130,7 +131,7 @@ export function JiraBatchUpdateTab(props: {
               </select>
             ) : (
               <span style={{ fontSize: 12, color: '#64748b' }}>
-                {currentAccount ? '讀取轉換選項失敗，可跳過' : '請先選擇帳號（右上角）'}
+                {!currentAccount ? '請先選擇帳號（右上角）' : updateTransitionsLoading ? '讀取狀態選項中…' : '讀取轉換選項失敗，可跳過（不會切換狀態）'}
               </span>
             )}
             {updateTransitions.length > 0 && (
