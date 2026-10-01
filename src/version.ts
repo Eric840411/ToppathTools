@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.262.3'
+export const APP_VERSION = '4.262.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.262.4', date: '2026-10-01', changes: ['fix(Jira)：**上傳出錯時（例如磁碟寫滿）會留下半個檔**（CodeX [P2]）——原本只在連線提早關閉時刪，但出錯時我們先回了錯誤，清理就被跳過。改用自己寫的落盤引擎，路徑一建立就記下，任何錯誤都刪', 'fix(Jira)：**很長的批次裡，排在後面的附件可能在輪到之前被快取清理刪掉**（CodeX [P2]），最後只留一行 log、附件漏傳。批次開始時把整批附件登記成「租約」，清理一律跳過，批次結束才放；租約存成檔案讓 server／worker 兩邊都看得到，30 分鐘到期、會續約，當掉也不會永久佔著', 'feat(Jira)：批量開單／修改由前端在迴圈前登記租約、送出途中續約；批量評論在背景 job 開始時登記、結束時放掉', 'test(Jira)：附件測試 14 → 24 條（租約跨過有效期、模擬磁碟寫滿、中途斷線）；突變三組都紅在對應那幾條'] },
   { version: '4.262.3', date: '2026-10-01', changes: ['fix(Jira)：**附件上限 10MB → 100MB**（使用者有 57MB 影片被擋）。原本 10MB 的理由寫「Jira Cloud 預設」，**是錯的**——實際打 `/rest/api/3/attachment/meta` 回 1 GiB。上限抽到 `shared/attachment-limits.ts`，錯誤訊息與畫面文字都從這裡來；批量開單／評論／修改與從 Sheet 抓附件一起生效', 'fix(Jira)：**全程不把檔案放進記憶體**（CodeX）——手動上傳直接落盤；從 Sheet 抓附件邊下載邊算大小、超過就中止並刪半成品（原本下載完才判斷）；送 Jira 從檔案串流。原本 57MB 會在記憶體裡出現好幾份，批量評論還會先把整批附件讀成 Buffer', 'fix(Jira)：附件上傳 API 要登入（原本完全不擋）；快取改成每 15 分鐘定期清，用檔前先更新時間戳，不會刪到使用中的', 'fix(Jira)：實測抓到兩個坑——剛好 100MiB 的檔會被 multer 擋（它是「到達」就判超過）；用戶端中途斷線 multer 不刪半成品，改成自己刪', 'feat(Jira)：三個上傳點共用 `src/lib/jiraAttachmentUpload.ts`，送出前先檢查大小；被反向代理擋下（HTTP 413）時講明是代理的限制，不再只顯示「上傳失敗」', 'test(Jira)：`server/jira-attachment-files.test.ts` 14 條含假 Jira 串流上傳（記憶體峰值 65MB vs 整檔讀取 171MB），突變三個都紅；本機真 server 驗過 401／57MB／邊界／三檔並行／中途斷線。⚠️ Spug 前若有反向代理，它的上傳上限要比 100MB 再大一點'] },
   { version: '4.262.2', date: '2026-09-30', changes: ['fix(Meegle)：**較舊的「驗證成功」會蓋掉較新的「已失效」**（CodeX [P2]，4.262.1 漏掉的相鄰案例）——兩次重新驗證共用同一個修訂號：A 在 token 重置前驗證成功但回應延遲、B 在重置後先回「被拒」，A 回來會把狀態改回有效、清掉失效原因', 'fix(Meegle)：每次重新驗證開始時拿一個遞增序號，只有比已寫入的結果新才能寫；暫時錯誤不算結果，但一樣不能蓋掉較新的紀錄', 'test(Meegle)：競態測試 19 → 23 條（④ 舊成功晚回、④b 照順序、④c 舊暫時錯誤晚回）；突變兩個都紅在對應那幾條'] },
   { version: '4.262.1', date: '2026-09-30', changes: ['fix(Meegle)：**解除再重綁後，舊的驗證結果會把新綁定標成失效**（CodeX [P2]）——版本號用遞增的 `token_version`，解除後重綁又從 1 開始，舊結果剛好對得上。改成每次綁定／解除都換一個隨機修訂號，解除後仍保留', 'fix(Meegle)：**換 token 途中另一個分頁解除綁定，憑證會復活**（CodeX [P2]）——舊請求回來照樣寫入。綁定前先記下修訂號，提交時變了就回「綁定狀態被其他操作改過」、不寫入', 'fix(Meegle)：**暫時錯誤蓋掉「已失效」**（CodeX [P2]）——兩次驗證同時讀到有效，先回的「被拒」標失效，後回的「連不上」卻拿舊狀態寫回有效。暫時錯誤改成只記錄這次嘗試、不動狀態', 'refactor(Meegle)：流程抽到 `server/meegle-account-service.ts`（db 與驗證從外面傳入），才測得到競態；舊表啟動時自動遷移', 'test(Meegle)：`server/meegle-race.test.ts` 19 條，用手動放行的假驗證控制回應順序重現三個競態；突變四個都紅在對應那幾條。原本 36 條全綠卻一條都沒測到路由層的競態'] },

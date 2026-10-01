@@ -130,5 +130,102 @@ dl.close()
   eq('上傳：送出端沒有另外把整份檔案讀進記憶體', peak - size < size / 2, true)
 }
 
+// ── 租約：排隊中的附件跨過 TTL 也不能被清掉（CodeX review 05145a3）──
+{
+  const leaseDir = mkdtempSync(join(tmpdir(), 'att-lease-'))
+  const t0 = Date.now()
+  const id1 = '11111111-1111-4111-8111-111111111111', id2 = '22222222-2222-4222-8222-222222222222'
+  for (const id of [id1, id2]) {
+    writeFileSync(join(dir, id), 'x')
+    const nearExpiry = new Date(t0 - CACHE_TTL_MS + 10 * 60_000)   // 再 10 分鐘就過期
+    utimesSync(join(dir, id), nearExpiry, nearExpiry)
+  }
+  const { createLease, renewLease, releaseLease, leasedCacheIds } = await import('./jira-attachment-files.js')
+  const lease = createLease([id1, id2], { now: t0, ttlMs: 30 * 60_000, leaseDir, cacheDir: '/nonexistent' })   // 不 touch，只靠租約
+  // 批次跑了 25 分鐘：檔案已超過 TTL，但租約還有效
+  cleanAttachmentCache(t0 + 25 * 60_000, dir, leaseDir)
+  eq('租約：檔案超過 TTL 但租約有效 → 不清', [files().includes(id1), files().includes(id2)], [true, true])
+  // 續約後再過 25 分鐘（原本的租約早該到期）
+  renewLease(lease, { now: t0 + 25 * 60_000, ttlMs: 30 * 60_000, leaseDir })
+  cleanAttachmentCache(t0 + 50 * 60_000, dir, leaseDir)
+  eq('租約：續約後跨過原本到期時間仍受保護', files().includes(id1), true)
+  // 批次結束放掉租約 → 下一輪清理就刪
+  releaseLease(lease, leaseDir)
+  cleanAttachmentCache(t0 + 51 * 60_000, dir, leaseDir)
+  eq('租約：放掉後過期檔照常清掉', [files().includes(id1), files().includes(id2)], [false, false])
+  // worker 當掉沒放租約：到期後不再保護，租約檔本身也被清掉
+  writeFileSync(join(dir, id1), 'x'); utimesSync(join(dir, id1), new Date(t0 - CACHE_TTL_MS - 60_000), new Date(t0 - CACHE_TTL_MS - 60_000))
+  createLease([id1], { now: t0, ttlMs: 30 * 60_000, leaseDir, cacheDir: '/nonexistent' })
+  cleanAttachmentCache(t0 + 31 * 60_000, dir, leaseDir)
+  eq('租約：到期（沒人放）後不再保護', files().includes(id1), false)
+  eq('租約：過期的租約檔被清掉', leasedCacheIds(t0 + 31 * 60_000, leaseDir).size === 0 && readdirSync(leaseDir).length === 0, true)
+  eq('租約：不是 UUID 的 cacheId 不收', leasedCacheIds(t0, leaseDir).size === 0 && JSON.parse(readFileSync(join(leaseDir, createLease(['../etc/passwd'], { now: t0, leaseDir, cacheDir: '/nonexistent' }) + '.json'), 'utf8')).ids.length, 0)
+}
+
+// ── 上傳 handler：錯誤回應／中途斷線都不留半成品 ──
+{
+  const express = (await import('express')).default
+  const { Writable } = await import('stream')
+  const { createWriteStream } = await import('fs')
+  const { createAttachmentUploadHandler } = await import('./jira-attachment-files.js')
+  const upDir = mkdtempSync(join(tmpdir(), 'att-up-'))
+  const upFiles = () => readdirSync(upDir)
+  const settle = () => new Promise(r => setTimeout(r, 1500))   // removeUploadPaths 在 Windows 上可能要重試
+
+  /** 模擬磁碟寫滿：真的建立檔案、寫一點之後丟 ENOSPC */
+  const enospcStream = (path: string) => {
+    const real = createWriteStream(path)
+    let written = 0
+    return new Writable({
+      write(chunk, _enc, cb) {
+        written += chunk.length
+        if (written > 256 * 1024) { real.end(); cb(Object.assign(new Error('ENOSPC: no space left on device'), { code: 'ENOSPC' })); return }
+        real.write(chunk, cb)
+      },
+      final(cb) { real.end(cb) },
+    })
+  }
+  let streamFactory: ((p: string) => import('stream').Writable) | undefined
+  const app = express()
+  const okHandler = await createAttachmentUploadHandler({ dir: upDir })
+  const failHandler = await createAttachmentUploadHandler({ dir: upDir, createStream: p => (streamFactory ?? enospcStream)(p) })
+  app.post('/ok', okHandler)
+  app.post('/fail', failHandler)
+  const srv = app.listen(0)
+  await new Promise(r => srv.once('listening', r))
+  const port = (srv.address() as { port: number }).port
+  const post = (path: string, size: number) => {
+    const fd = new FormData()
+    fd.append('file', new Blob([Buffer.alloc(size, 1)], { type: 'video/mp4' }), 'v.mp4')
+    return fetch(`http://127.0.0.1:${port}${path}`, { method: 'POST', body: fd })
+  }
+
+  const r1 = await post('/ok', 2 * 1024 * 1024)
+  const d1 = await r1.json() as { ok: boolean; cacheId: string; size: number }
+  eq('上傳 handler：正常上傳落盤、大小正確', [d1.ok, d1.size, upFiles().includes(d1.cacheId)], [true, 2 * 1024 * 1024, true])
+
+  const before = upFiles().length
+  const r2 = await post('/fail', 2 * 1024 * 1024)
+  const d2 = await r2.json() as { ok: boolean; message: string }
+  await settle()
+  eq('磁碟寫滿：回錯誤', [r2.status, d2.ok, /ENOSPC/.test(d2.message)], [500, false, true])
+  eq('磁碟寫滿：半成品刪掉（回了錯誤之後也要刪）', upFiles().length, before)
+
+  // 中途斷線：送一半就把連線切掉
+  const { request } = await import('http')
+  const before2 = upFiles().length
+  await new Promise<void>(resolve => {
+    const boundary = 'xBOUNDARYx'
+    const req = request({ host: '127.0.0.1', port, path: '/ok', method: 'POST', headers: { 'content-type': `multipart/form-data; boundary=${boundary}` } })
+    req.on('error', () => resolve())
+    req.write(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="v.mp4"\r\nContent-Type: video/mp4\r\n\r\n`)
+    req.write(Buffer.alloc(1024 * 1024, 2))
+    setTimeout(() => { req.destroy(); resolve() }, 300)
+  })
+  await settle()
+  eq('中途斷線：半成品刪掉', upFiles().length, before2)
+  srv.close()
+}
+
 console.log(`\n${pass} passed, ${fails.length} failed`)
 if (fails.length) { console.log(fails.join('\n')); process.exit(1) }

@@ -34,3 +34,37 @@ export async function uploadJiraAttachment(file: File, headers: Record<string, s
   if (!data.ok) return { ok: false, message: data.message ?? `上傳失敗（HTTP ${resp.status}）` }
   return { ok: true, data }
 }
+
+/**
+ * 批量開單／修改是前端逐列送，伺服器看不到「整批」——所以由前端在迴圈前把整批附件登記成租約，
+ * 迴圈中定期續約、結束後放掉。沒有租約的話，批次跑很久時排在後面的附件可能先被快取清理刪掉，
+ * 送出時只剩一行 log、附件漏傳（CodeX review）。
+ * 租約失敗不擋送出：最壞情況等於沒有這層保護（跟原本一樣），不該因此讓整批開單失敗。
+ */
+export async function acquireAttachmentLease(cacheIds: string[], headers: Record<string, string> = {}) {
+  const ids = [...new Set(cacheIds.filter(Boolean))]
+  let leaseId: string | null = null
+  let lastRenew = Date.now()
+  if (ids.length) {
+    try {
+      const r = await fetch('/api/jira/attachment-cache/lease', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify({ cacheIds: ids }),
+      })
+      const d = await r.json() as { ok?: boolean; leaseId?: string }
+      if (d.ok && d.leaseId) leaseId = d.leaseId
+    } catch { /* 沒租約就照舊 */ }
+  }
+  return {
+    /** 每送一列呼叫一次；5 分鐘內只真的續一次（租約 30 分鐘到期） */
+    renew() {
+      if (!leaseId || Date.now() - lastRenew < 5 * 60 * 1000) return
+      lastRenew = Date.now()
+      fetch(`/api/jira/attachment-cache/lease/${leaseId}/renew`, { method: 'POST', headers }).catch(() => {})
+    },
+    release() {
+      if (!leaseId) return
+      fetch(`/api/jira/attachment-cache/lease/${leaseId}`, { method: 'DELETE', headers }).catch(() => {})
+      leaseId = null
+    },
+  }
+}

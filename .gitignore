@@ -11,6 +11,7 @@ server/machine-test/cctv-saves/
 server/machine-test/audio-saves/
 server/machine-test/cctv-refs/
 server/attachment-cache/
+server/attachment-cache-leases/
 .tmp-cfg2.mjs
 server/python/__pycache__/
 server/python/game_config.json

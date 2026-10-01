@@ -6,7 +6,6 @@ import { existsSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
 import { Router } from 'express'
-import multer from 'multer'
 import { z } from 'zod'
 import {
   db,
@@ -37,10 +36,9 @@ import { withRequestOperation } from '../request-context.js'
 import { finishHeavyTask, heavyTaskConflict, tryStartHeavyTask, type HeavyTaskToken } from '../heavy-task-guard.js'
 import { missingForcedRequiredFields } from '../../shared/jira-required-fields.js'
 import { JIRA_KEY_EXACT_RE, JIRA_KEY_IN_TEXT_RE, JIRA_KEY_BRACKET_PREFIX_RE } from '../../shared/jira-key.js'
-import { MAX_ATTACHMENT_BYTES, attachmentTooLargeMessage } from '../../shared/attachment-limits.js'
 import {
-  ATTACH_CACHE_DIR, AttachmentTooLargeError, cachePath, cleanAttachmentCache,
-  safeUnlink, saveResponseToCache, startAttachmentCacheSweeper, touchCacheFile, uploadFileToJira, type CachedFile,
+  ATTACH_CACHE_DIR, AttachmentTooLargeError, cleanAttachmentCache, createAttachmentUploadHandler, createLease, holdLease,
+  releaseLease, renewLease, safeUnlink, saveResponseToCache, startAttachmentCacheSweeper, touchCacheFile, uploadFileToJira, type CachedFile,
 } from '../jira-attachment-files.js'
 
 export const router = Router()
@@ -49,61 +47,32 @@ export const router = Router()
 // 快取目錄、上限、串流上傳下載都在 jira-attachment-files.ts（上限本身在 shared/attachment-limits.ts）
 startAttachmentCacheSweeper()
 
-// ─── Multer for manual attachment upload ──────────────────────────────────────
-// diskStorage：直接寫進快取目錄，不把整個檔案放進記憶體。
-// ⚠️ multer 只在「它自己的錯誤」（例如超過上限）時刪半成品；**用戶端中途斷線它不刪**（實測留下半個檔）——
-//    所以 filename 回呼裡先把路徑記在 req 上，下面在連線提早關閉時自己刪
-const multerUpload = multer({
-  storage: multer.diskStorage({
-    destination: ATTACH_CACHE_DIR,
-    filename: (req, _file, cb) => {
-      const name = randomUUID()
-      ;((req as unknown as { _uploadPaths?: string[] })._uploadPaths ??= []).push(cachePath(name))
-      cb(null, name)
-    },
-  }),
-  // ⚠️ +1：multer（busboy）是「到達」上限就判定超過，傳 MAX 的話剛好 100MiB 的檔會被擋（實測）
-  limits: { fileSize: MAX_ATTACHMENT_BYTES + 1, files: 1 },
-})
-
-/** 刪半成品。Windows 上檔案還被寫入串流開著時刪不掉，稍等重試幾次 */
-function removePartialUploads(paths: string[], attempt = 0) {
-  const left = paths.filter(p => { safeUnlink(p); return existsSync(p) })
-  if (left.length && attempt < 5) setTimeout(() => removePartialUploads(left, attempt + 1), 500).unref()
-}
+// ─── 手動上傳附件 ──────────────────────────────────────────────────────────────
+// 落盤、上限、半成品清理都在 jira-attachment-files.ts 的 createAttachmentUploadHandler（測試也打那支）
+const attachmentUploadHandler = createAttachmentUploadHandler()
 
 /** POST /api/jira/attachment-upload — manual file upload from browser, saved to cache */
-router.post('/api/jira/attachment-upload', (req, res) => {
+router.post('/api/jira/attachment-upload', async (req, res) => {
   // 要登入：原本完全不擋，上限拉到 100MB 後等於任何人都能往伺服器硬碟灌檔案
   if (!getAuthAccount(req)) return res.status(401).json({ ok: false, message: '請先登入' })
-  // 回應還沒送出就關閉＝用戶端中途斷線，這次寫到一半的檔要刪掉
-  res.on('close', () => {
-    if (res.writableFinished) return
-    const paths = (req as unknown as { _uploadPaths?: string[] })._uploadPaths ?? []
-    if (paths.length) removePartialUploads(paths)
-  })
-  multerUpload.single('file')(req, res, (err: unknown) => {
-    if (err) {
-      const isLimit = (err as { code?: string }).code === 'LIMIT_FILE_SIZE'
-      return res.status(isLimit ? 413 : 400).json({
-        ok: false,
-        message: isLimit ? attachmentTooLargeMessage() : `上傳失敗：${String(err)}`,
-      })
-    }
-    const file = req.file
-    if (!file) return res.status(400).json({ ok: false, message: '未收到檔案' })
-    const cacheId = file.filename
-    const mimeType = file.mimetype || 'application/octet-stream'
-    return res.json({
-      ok: true,
-      cacheId,
-      filename: file.originalname,
-      mimeType,
-      size: file.size,
-      isImage: mimeType.startsWith('image/'),
-      isVideo: mimeType.startsWith('video/'),
-    })
-  })
+  ;(await attachmentUploadHandler)(req, res)
+})
+
+// ─── 附件租約：批次開始時保護整批 cacheId，結束才放（見 jira-attachment-files.ts）────
+// 批量開單／修改是前端逐列送，伺服器看不到「整批」，所以由前端在迴圈前登記、迴圈中續約、結束後放掉
+router.post('/api/jira/attachment-cache/lease', (req, res) => {
+  if (!getAuthAccount(req)) return res.status(401).json({ ok: false, message: '請先登入' })
+  const { cacheIds } = z.object({ cacheIds: z.array(z.string()).max(2000) }).parse(req.body)
+  res.json({ ok: true, leaseId: createLease(cacheIds) })
+})
+router.post('/api/jira/attachment-cache/lease/:leaseId/renew', (req, res) => {
+  if (!getAuthAccount(req)) return res.status(401).json({ ok: false, message: '請先登入' })
+  res.json({ ok: renewLease(String(req.params.leaseId)) })
+})
+router.delete('/api/jira/attachment-cache/lease/:leaseId', (req, res) => {
+  if (!getAuthAccount(req)) return res.status(401).json({ ok: false, message: '請先登入' })
+  releaseLease(String(req.params.leaseId))
+  res.json({ ok: true })
 })
 
 // ─── Batch-comment job store (SSE background processing) ──────────────────────
@@ -2273,6 +2242,9 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
     // Return immediately so client doesn't time out
     res.json({ ok: true, requestId })
 
+    // 整批附件先登記租約：job 可能跑很久，排在後面的附件不能在輪到之前被快取清理刪掉（CodeX review）
+    const attachmentLease = holdLease(body.comments.flatMap(c => (c.cachedAttachments ?? []).map(att => att.cacheId).filter(Boolean)))
+
     // Run the batch in background
     ;(async () => {
       const results: { rowIndex: number; issueKey: string; ok: boolean; usedAi?: boolean; error?: string; commentAs?: string }[] = []
@@ -2573,7 +2545,7 @@ ${commentText}
     })().catch(err => {
       console.error('[batch-comment] background error:', err)
       finishCommentJob(requestId, { ok: false, results: [{ rowIndex: 0, issueKey: '', ok: false, error: String(err) }] })
-    })
+    }).finally(() => attachmentLease.release())
   } catch (error) {
     next(error)
   }

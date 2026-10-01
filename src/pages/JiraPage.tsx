@@ -13,7 +13,7 @@ import { JiraCreateStep3 } from './JiraCreateStep3'
 import { isJiraFieldRequired } from '../../shared/jira-required-fields.js'
 import { JIRA_KEY_AT_START_RE, JIRA_KEY_IN_BROWSE_URL_RE } from '../../shared/jira-key.js'
 import { JiraCreateStep4 } from './JiraCreateStep4'
-import { uploadJiraAttachment } from '../lib/jiraAttachmentUpload'
+import { acquireAttachmentLease, uploadJiraAttachment } from '../lib/jiraAttachmentUpload'
 
 export interface Member {
   accountId: string
@@ -1964,6 +1964,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
 
     setCreateProgress({ done: 0, total: rows.length })
     let batchToken: string | undefined
+    let attLease: Awaited<ReturnType<typeof acquireAttachmentLease>> | null = null
     try {
       // 先拿整批鎖（batchToken），逐筆請求都帶著它——避免鎖只在「每一筆」的 HTTP round-trip
       // 之間才有效，兩個分頁同時跑同一個帳號的批次開單有機會交錯執行、重複開單
@@ -1977,6 +1978,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
         return
       }
       batchToken = beginData.batchToken
+      attLease = await acquireAttachmentLease(rows.flatMap(r => (r.cachedAttachments ?? []).map(a => a.cacheId)), { ...emailHeader })
 
       console.log('[batch-create] sending rows:', rows.length, 'rows[0]:', rows[0])
       const project = projects.find(p => p.id === selectedProjectId)
@@ -1995,6 +1997,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
           results.push({ rowIndex: rows[i].rowIndex, error: String(e) })
         }
         setCreateProgress({ done: i + 1, total: rows.length })
+        attLease?.renew()
       }
 
       console.log('[batch-create] results:', results)
@@ -2077,6 +2080,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
       setCreateResults([{ rowIndex: 0, error: '網路錯誤' }])
       setStep(4)
     } finally {
+      attLease?.release()
       setSubmitting(false); setCreateProgress(null)
       if (batchToken) {
         fetch('/api/jira/batch-create/end', {
@@ -2832,6 +2836,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
 
     setEditTabSubmitting(true); setEditTabError('')
     setEditProgress({ done: 0, total: editTabIssues.filter(i => effectiveSelectedKeys.has(i.issueKey)).length })
+    let editLease: Awaited<ReturnType<typeof acquireAttachmentLease>> | null = null
     try {
       const items = editTabIssues.filter(issue => effectiveSelectedKeys.has(issue.issueKey)).map(issue => {
         const rec = editTabRecords.find(r => Number(r._rowIndex) === issue.rowIndex)
@@ -2906,6 +2911,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
 
       // Send one item at a time for real-time progress updates
       const allEditResults: { issueKey: string; ok: boolean; error?: string }[] = []
+      editLease = await acquireAttachmentLease(items.flatMap(it => it.cachedAttachments.map(a => a.cacheId)), { ...emailHeader })
       for (let i = 0; i < items.length; i++) {
         try {
           const resp = await fetch('/api/jira/batch-edit', {
@@ -2920,6 +2926,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
           allEditResults.push({ issueKey: items[i].issueKey, ok: false, error: String(e) })
         }
         setEditProgress({ done: i + 1, total: items.length })
+        editLease?.renew()
       }
       setEditTabResults(allEditResults); setEditTabStep(4)
 
@@ -2941,7 +2948,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
         }).catch(() => {})
       }
     } catch { setEditTabError('網路錯誤') }
-    finally { setEditTabSubmitting(false); setEditProgress(null) }
+    finally { editLease?.release(); setEditTabSubmitting(false); setEditProgress(null) }
   }
 
   // ── Update Mode handlers ──

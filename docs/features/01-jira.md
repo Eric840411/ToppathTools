@@ -342,3 +342,20 @@ Step 3 動態欄位模式的必填驗證（`validateDynamicFields()`，`JiraPage
 > 驗證：`npx tsx server/jira-attachment-files.test.ts` 14 條（剛好上限收下、+1 拒絕、超過時途中中止且刪半成品、Content-Length 超過直接拒、清理不刪 touch 過的、上傳到假 Jira 內容雜湊一致、送出端記憶體不長出整份——串流峰值 65MB vs 整檔讀取 171MB）。突變：上傳改回整檔讀取 → 記憶體那條紅；拿掉途中中止 → 四條紅；拿掉 touch → 清理那條紅。
 > 打本機真 server：未登入 401、57MB 落盤大小一致、剛好 100MiB 收下、+1 回 413 且沒留檔、三個 57MB 同時上傳全過、中途斷線三次都沒留半成品。
 > ⚠️ 沒驗：**真的送到 Jira 的 57MB**（會在真 issue 上留附件），送出端是用假 Jira 驗的。
+
+#### 補強：錯誤回應不留半成品、排隊附件用租約保護（v4.262.4，CodeX review `05145a3`）
+- **錯誤回應也要刪半成品**：原本只在「連線提早關閉」時刪，但 multer 出錯（例如磁碟寫滿 ENOSPC）時我們會先回錯誤，
+  之後 `writableFinished` 為真、清理被跳過。改成**自己寫的 storage engine**（`trackedDiskStorage`）：路徑一建立就記在 req 上，
+  錯誤分支一律刪；寫入串流可注入，測試才能模擬磁碟寫滿。上傳 handler 整支搬到 `createAttachmentUploadHandler()`，測試直接掛它
+- 實測：用戶端中途斷線時，自己的 storage engine 會從檔案串流收到錯誤 → 走到錯誤分支被刪；`res.on('close')` 那條變成備援
+  （突變：只拿掉 close 測試不會紅，兩條都拿掉才紅——寫清楚，免得以為 close 那條有被獨立驗到）
+- **排隊附件用租約保護**：原本只在「輪到那一列」才 touch，批次跑很久時後面的檔可能先過期被清掉、最後只剩一行 log。
+  現在批次開始時把整批 cacheId 登記成租約（`server/attachment-cache-leases/*.json`，**存檔案**是因為清理跑在 server 與 worker 兩支 process），
+  清理一律跳過租約內的檔，批次結束放掉；租約 30 分鐘到期（續約延長），worker 當掉沒放也不會永久佔著
+  - 批量評論（worker 端整個 job）：`holdLease()` 在 job 開始拿、`finally` 放，每 10 分鐘自動續約
+  - 批量開單／修改（前端逐列送，伺服器看不到整批）：前端 `acquireAttachmentLease()` 在迴圈前登記、每列 `renew()`（5 分鐘內只續一次）、結束 `release()`。租約失敗不擋送出
+  - API：`POST /api/jira/attachment-cache/lease`、`/lease/:id/renew`、`DELETE /lease/:id`（都要登入；cacheId 只收 UUID）
+
+> 驗證：測試 14 → 24 條（租約跨過 TTL 仍保護、續約後跨過原到期時間、放掉後照常清、沒人放到期後不保護且租約檔被清、非 UUID 不收；上傳 handler 正常落盤、模擬 ENOSPC 回 500 且刪半成品、中途斷線刪半成品）。
+> 突變：錯誤分支不清 → ENOSPC 那條紅；清理不看租約 → 租約兩條紅；錯誤分支＋close 都拿掉 → 斷線那條也紅。
+> 本機真 server 重跑：57MB、剛好 100MiB、+1 回 413 不留檔、中途斷線不留檔、租約建立／續約／放掉、未登入 401。
