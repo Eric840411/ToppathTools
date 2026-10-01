@@ -40,8 +40,8 @@ function requireCtx(req: Request, res: Response): Ctx | null {
     res.status(403).json({ ok: false, code: 'FORBIDDEN', message: '沒有批量開單的權限' }); return null
   }
   const row = getAccountRow(db, account.email)
-  if (!row) { res.status(409).json({ ok: false, code: 'NOT_BOUND', message: '還沒綁定 Meegle，請先到「個人帳號」綁定' }); return null }
-  if (row.status !== 'valid') { res.status(409).json({ ok: false, code: 'BINDING_INVALID', message: 'Meegle 綁定已失效，請到「個人帳號」重新綁定' }); return null }
+  if (!row) { res.status(409).json({ ok: false, code: 'NOT_BOUND', message: '還沒綁定 Meegle，請先到側欄「個人帳號」（修仙版叫「本命道籍」）綁定' }); return null }
+  if (row.status !== 'valid') { res.status(409).json({ ok: false, code: 'BINDING_INVALID', message: 'Meegle 綁定已失效，請到側欄「個人帳號」（修仙版叫「本命道籍」）重新綁定' }); return null }
   let token: string
   try { token = decryptMeegleToken(row.token_enc) } catch {
     res.status(409).json({ ok: false, code: 'DECRYPT_FAILED', message: 'Meegle token 解不開（伺服器金鑰可能換過），請重新綁定' }); return null

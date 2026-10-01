@@ -260,7 +260,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
     return (
       <div className="mb-page">
         <div className={`mb-alert ${bindIssue ? 'mb-alert--warn' : 'mb-alert--bad'}`}>
-          {metaError.message}{bindIssue && <>（側欄「個人帳號」）</>}
+          {metaError.message}
           {!bindIssue && <button type="button" className="mb-btn mb-btn--small" style={{ marginLeft: 10 }} onClick={() => void loadMeta()}>重試</button>}
         </div>
       </div>
