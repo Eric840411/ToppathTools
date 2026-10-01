@@ -710,6 +710,8 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
   const [updateJiraLoading, setUpdateJiraLoading] = useState(false)
   const [updateJiraError, setUpdateJiraError] = useState('')
   const [updateSelectedKeys, setUpdateSelectedKeys] = useState<Set<string>>(new Set())
+  /** 狀態選項是依哪一張單讀的（畫面要顯示，免得使用者以為選項適用每一張） */
+  const [updateTransitionSourceKey, setUpdateTransitionSourceKey] = useState('')
   const [updateValidationErrors, setUpdateValidationErrors] = useState<{ issueKey: string; missing: string[] }[]>([])
   const [updateTitleWritebackLoading, setUpdateTitleWritebackLoading] = useState(false)
   const [updateTitleWritebackMsg, setUpdateTitleWritebackMsg] = useState('')
@@ -957,6 +959,34 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
   const updateJiraStatusOptions = useMemo(() =>
     [...new Set(Object.values(updateJiraData).map(d => (d.status ?? '').trim()).filter(Boolean))].sort()
   , [updateJiraData])
+
+  // 批量更新狀態的選項：跟著「目前勾選的第一張單」讀（CodeX review b969e77）。
+  // 原本只在載入清單時讀 records[0]，之後篩選／改勾選都不重讀——清單首張是 CGFB 的話，只勾 P5MA 也還是 CGFB 的狀態。
+  // 只用登入者自己的帳號讀（原本會輪流試所有帳號的 token，那不是本人）。
+  const updateFirstSelectedKey = useMemo(
+    () => updateRecords.find(r => updateSelectedKeys.has(r.issueKey))?.issueKey ?? '',
+    [updateRecords, updateSelectedKeys],
+  )
+  useEffect(() => {
+    if (!updateFirstSelectedKey || !currentAccount?.email) {
+      setUpdateTransitions([]); setUpdateTransitionSourceKey(''); setUpdateTargetStatusId('')
+      return
+    }
+    if (updateFirstSelectedKey === updateTransitionSourceKey) return
+    let alive = true
+    fetch(`/api/jira/transitions?issueKey=${encodeURIComponent(updateFirstSelectedKey)}`, { headers: { 'x-jira-email': currentAccount.email } })
+      .then(r => r.json())
+      .then((d: { ok: boolean; transitions?: JiraTransitionOption[] }) => {
+        if (!alive) return
+        const list = d.ok ? (d.transitions ?? []) : []
+        setUpdateTransitions(list)
+        setUpdateTransitionSourceKey(updateFirstSelectedKey)
+        // 換了來源單，原本選的目標在新選項裡不一定還在——不在就回到「不切換」，不要留著一個看不到的值
+        setUpdateTargetStatusId(prev => (prev && list.some(t => t.toId === prev) ? prev : ''))
+      })
+      .catch(() => { if (alive) { setUpdateTransitions([]); setUpdateTransitionSourceKey('') } })
+    return () => { alive = false }
+  }, [updateFirstSelectedKey, currentAccount?.email, updateTransitionSourceKey])
 
   const updateFilteredRecords = useMemo(() =>
     updateRecords.filter(rec => {
@@ -3000,31 +3030,8 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
       // Load Jira data (summary, status, assignee)
       fetchUpdateJiraData(records.map(r => r.issueKey))
 
-      // Fetch transitions — try currentAccount first, then all stored accounts
-      const emailsToTry: string[] = []
-      if (currentAccount?.email) emailsToTry.push(currentAccount.email)
-      try {
-        const accResp = await fetch('/api/jira/accounts')
-        const accData = await accResp.json() as { accounts?: { email: string }[] }
-        for (const a of accData.accounts ?? []) {
-          if (!emailsToTry.includes(a.email)) emailsToTry.push(a.email)
-        }
-      } catch { /* ignore */ }
-      const firstKey = records[0].issueKey
-      for (const email of emailsToTry) {
-        try {
-          const transResp = await fetch(`/api/jira/transitions?issueKey=${firstKey}`, {
-            headers: { 'x-jira-email': email },
-          })
-          const transData = await transResp.json() as { ok: boolean; transitions?: JiraTransitionOption[] }
-          if (transData.ok && (transData.transitions ?? []).length > 0) {
-            setUpdateTransitions(transData.transitions ?? [])
-            // 預設「不切換」，不自動選第一項（CodeX）——自動選等於幫使用者決定要切到哪
-            setUpdateTargetStatusId('')
-            break
-          }
-        } catch { /* try next */ }
-      }
+      // 狀態選項由下面的 effect 依「目前勾選的第一張單」讀取（不是載入清單的第一張），這裡只重設成「不切換」
+      setUpdateTargetStatusId('')
 
       setUpdateStep(2)
       setLastSheetUrl(url.trim()); setLastSheetSource(source)
@@ -3173,7 +3180,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
 
   const handleUpdateReset = () => {
     setUpdateStep(1); setUpdateBitableUrl(''); setUpdateRecords([]); setUpdateError('')
-    setUpdateTransitions([]); setUpdateTargetStatusId(''); setUpdateResults([])
+    setUpdateTransitions([]); setUpdateTransitionSourceKey(''); setUpdateTargetStatusId(''); setUpdateResults([])
     setUpdateJiraData({}); setUpdateJiraError(''); setUpdateSelectedKeys(new Set())
     setUpdateValidationErrors([])
   }
@@ -3341,6 +3348,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
           updateJiraStatusOptions={updateJiraStatusOptions}
           currentAccount={currentAccount}
           updateTransitions={updateTransitions}
+          updateTransitionSourceKey={updateTransitionSourceKey}
           updateTargetStatusId={updateTargetStatusId}
           setUpdateTargetStatusId={setUpdateTargetStatusId}
           updateJiraError={updateJiraError}

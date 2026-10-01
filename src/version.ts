@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.262.7'
+export const APP_VERSION = '4.262.8'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.262.8', date: '2026-10-01', changes: ['fix(Jira)：**批量更新狀態的選項改成跟著「目前勾選的第一張單」重新讀取**（CodeX review）——原本只在載入清單時讀第一張，之後篩選、改勾選都不重讀；清單首張是 CGFB 時，只勾 P5MA 也還是 CGFB 的狀態、永遠切不了。現在畫面會標明選項是依哪一張單讀的', 'fix(Jira)：讀選項只用登入者自己的帳號；換了來源單、原本選的目標不在新選項裡就自動回到「不切換」', 'test(Jira)：測試資料改用實測的 CGFB 狀態 ID（原本我假設跟 P5MA 一樣，跟實測不符），補「選 CGFB 的同名狀態送給 P5MA 必須拒絕」；瀏覽器實測過只勾 P5MA 時選項會換成 P5MA 的'] },
   { version: '4.262.7', date: '2026-10-01', changes: ['fix(Jira)：**批量更新狀態選「本機測試完成」，P5MA 的單卻被切成「完成」**（使用者回報 P5MA-9675～9684 共 10 張）。原因是下拉選單用清單第一張單（CGFB）的狀態切換編號，原封套到每一張——CGFB 的 4 是「本機測試完成」，P5MA 的 4 卻是「Done」，Jira 照 P5MA 的定義執行、沒有任何錯誤', 'fix(Jira)：改成送「目標狀態」，每張單送出前各自查自己能走的路徑、用目標狀態 ID 對出要走哪一條；對不到或有多條路徑都**不送**，逐筆列出原因。舊版頁面還送舊參數的會被拒絕、請重新整理', 'fix(Jira)：下拉預設「不切換」，不再自動選第一項；開單流程的轉換狀態端點一起改，並移除「沒選就退回編號 41」（41 在 CGFB 是完成）', 'note(Jira)：⚠️ 實測 CGFB 的狀態是專案專屬的（同名「本機測試完成」，CGFB 和 P5MA 的 ID 不同），所以混了兩個專案的清單一次只能切其中一個專案，另一個會被擋下列出、不會切錯', 'test(Jira)：`shared/jira-transition.test.ts` 13 條用真實 CGFB／P5MA 資料，突變三個都紅；本機真 server 驗過，沒有切任何真單'] },
   { version: '4.262.6', date: '2026-10-01', changes: ['fix(Jira)：**附件租約資料夾讀不到時，受保護的附件仍會被清掉**（CodeX [P2]）——列舉資料夾失敗原本一律當成「沒有租約」。現在只有資料夾不存在才算沒有，權限或讀取錯誤時這一輪一個都不刪', 'test(Jira)：記憶體測試把假 Jira 移到另一個 process，不再把接收端那份算進來（原本偶發誤報）；串流 8～10MB vs 整檔讀取 170～285MB。測試 30 → 33 條'] },
   { version: '4.262.5', date: '2026-10-01', changes: ['fix(Jira)：**附件租約檔可能被讀到一半**（CodeX [P2]）——續約直接覆寫檔案，另一支 process 剛好讀到空檔或半份時，清理會把該保護的附件刪掉。改成先寫暫存檔再整個替換；讀不懂任何租約時這一輪一個都不刪', 'fix(Jira)：**上傳中斷時寫入中的檔案沒有關閉**（CodeX [P2]）——Windows 上刪不掉、Linux 上空間不會釋放。失敗時一律關閉寫入串流', 'fix(Jira)：實測 Windows 上就算整個替換，讀的人在替換瞬間仍可能拿到錯誤，所以讀租約會短暫重試', 'test(Jira)：附件測試 24 → 30 條，含跨 process 同時續約與讀取；突變三個都紅（非原子寫入 3/3 抓到）'] },

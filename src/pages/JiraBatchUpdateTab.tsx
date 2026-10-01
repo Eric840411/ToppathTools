@@ -37,6 +37,7 @@ export function JiraBatchUpdateTab(props: {
   updateJiraStatusOptions: string[]
   currentAccount: AccountInfo | null
   updateTransitions: JiraTransitionOption[]
+  updateTransitionSourceKey: string
   updateTargetStatusId: string
   setUpdateTargetStatusId: (v: string) => void
   updateJiraError: string
@@ -65,7 +66,7 @@ export function JiraBatchUpdateTab(props: {
     updateError, setUpdateError, handleUpdateFetchBitable, updateLoading, updateReloadMsg, handleReloadUpdateSheet,
     updateRecords, updateFilterableColumns, updateTabColFilters, setUpdateTabColFilters, updateColumnUniqueValues,
     updateFilteredRecords, updateJiraStatusFilter, setUpdateJiraStatusFilter, updateJiraStatusOptions,
-    currentAccount, updateTransitions, updateTargetStatusId, setUpdateTargetStatusId, updateJiraError,
+    currentAccount, updateTransitions, updateTransitionSourceKey, updateTargetStatusId, setUpdateTargetStatusId, updateJiraError,
     fetchUpdateJiraData, rdFieldDetecting, setRdFieldDetecting, rdFieldCandidates, setRdFieldCandidates,
     emailHeader, updateJiraData, updateSelectedKeys, setUpdateSelectedKeys, updateJiraLoading,
     updateValidationErrors, updateSubmitting, updateProgress, updateTitleWritebackLoading,
@@ -134,7 +135,7 @@ export function JiraBatchUpdateTab(props: {
             )}
             {updateTransitions.length > 0 && (
               <span style={{ fontSize: 11, color: '#64748b' }}>
-                選項依第一張單讀取；送出時每張單會各自確認能不能切到這個狀態，不能的會列出來、不會送
+                選項依目前勾選的第一張「{updateTransitionSourceKey || '—'}」讀取；不同專案的狀態可能不同，送出時每張單會各自確認，切不過去的會列出來、不會送
               </span>
             )}
           </div>
