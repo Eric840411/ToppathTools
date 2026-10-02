@@ -33,6 +33,7 @@ import { router as weeklyReportRouter } from './routes/weekly-report.js'
 import { router as meegleRouter } from './routes/meegle.js'
 import { router as meegleBatchRouter } from './routes/meegle-batch.js'
 import { router as meegleCommentRouter } from './routes/meegle-comment.js'
+import { router as meegleStatusRouter } from './routes/meegle-status.js'
 import { getRequestContext, runWithRequestContext } from './request-context.js'
 import { getAuthAccount } from './auth-session.js'
 
@@ -348,6 +349,7 @@ app.use(weeklyReportRouter)
 app.use(meegleRouter)
 app.use(meegleBatchRouter)
 app.use(meegleCommentRouter)
+app.use(meegleStatusRouter)
 
 // ─── Static Files (production build) ──────────────────────────────────────────
 
