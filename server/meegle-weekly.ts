@@ -70,7 +70,9 @@ export function resolveCronActor(
   deps: { findAccount: (email: string) => { email: string; status?: string | null; role?: string | null } | undefined; hasPermission: (email: string, role: string) => boolean; tokenOf: (email: string) => { token: string } | { reason: string } },
 ): { token: string } | { reason: string } {
   const acc = deps.findAccount(actor)
-  const problem = cronActorProblem(acc, !!acc && deps.hasPermission(acc.email, acc.role ?? 'qa'))
+  // 嚴格逐關短路：帳號不在或停權就不查權限（CodeX）
+  const active = !!acc && (acc.status ?? 'active') === 'active'
+  const problem = cronActorProblem(acc, active && deps.hasPermission(acc!.email, acc!.role ?? 'qa'))
   if (problem) return { reason: `${problem}（${actor}）` }
   const t = deps.tokenOf(actor)
   return 'reason' in t ? { reason: `授權人 ${actor} ${t.reason}` } : t

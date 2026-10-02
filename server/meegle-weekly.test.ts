@@ -38,6 +38,10 @@ const gate = (acc: { email: string; status?: string; role?: string } | undefined
 })
 calls.length = 0; eq('關卡：停權 → 原因、沒有讀 token', [gate({ email: 'a@t', status: 'disabled' }, true), calls.length], [{ reason: '授權人帳號已停權（a@t）' }, 0])
 calls.length = 0; eq('關卡：沒權限 → 沒有讀 token', [('reason' in gate({ email: 'a@t', status: 'active' }, false)), calls.length], [true, 0])
+calls.length = 0; eq('關卡：帳號不存在 → 沒有讀 token', [gate(undefined, true), calls.length], [{ reason: '授權人帳號不存在（可能已刪除）（a@t）' }, 0])
+{ let permAsked = 0
+  resolveCronActor('a@t', { findAccount: () => ({ email: 'a@t', status: 'disabled' }), hasPermission: () => { permAsked++; return true }, tokenOf: () => ({ token: 'T' }) })
+  eq('關卡：停權時連權限都不查（逐關短路）', permAsked, 0) }
 calls.length = 0; eq('關卡：都正常 → 只讀授權人自己的 token', [gate({ email: 'a@t', status: 'active' }, true), calls], [{ token: 'T' }, ['a@t']])
 eq('關卡：綁定失效 → 原因', resolveCronActor('a@t', { findAccount: () => ({ email: 'a@t', status: 'active' }), hasPermission: () => true, tokenOf: () => ({ reason: '的 Meegle 綁定已失效' }) }), { reason: '授權人 a@t 的 Meegle 綁定已失效' })
 

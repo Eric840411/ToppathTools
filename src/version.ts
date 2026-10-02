@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.0.1'
+export const APP_VERSION = '5.0.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.0.2', date: '2026-10-02', changes: ['refactor(週報定時提醒)：授權人關卡嚴格逐關短路——帳號不存在或停權時連權限都不查（CodeX 建議）；補「帳號不存在時不讀 token」測試'] },
   { version: '5.0.1', date: '2026-10-02', changes: ['fix(週報定時提醒)：授權人**停權或被拿掉週報權限後，只要 Meegle token 還有效，背景仍會撈單**（CodeX review [P1]）→ 每次執行依序重查帳號存在、未停權、有週報權限、綁定有效，任何一項不過就整段跳過、不呼叫 Meegle、不換人', 'fix(週報撈 Meegle)：週期邊界的單讀得到卻沒有建立時間時會被**默默排除**（CodeX review [P2]）→ 整批報錯並指出單號'] },
   { version: '5.0.0', date: '2026-10-02', changes: ['**移除 Jira**（Jira 已停用）：Jira 四個批量分頁、補回填／對帳、Jira API 全部刪除。側邊欄「Jira 批量開單」改名「**Meegle 批量工具**」，裡面是 Meegle 開單／評論／狀態／修改／補回填五個分頁。帳號、讀 Sheet、附件已在 v4.281.0 搬出；資料表保留。權限設定不變（只改顯示名）'] },
   { version: '4.283.0', date: '2026-10-02', changes: ['change(週報彙整)：「依時間範圍撈單」與定時提醒草稿從 Jira 改撈 **Meegle**（移除 Jira 第 2 步）。用你自己的 Meegle 綁定查「回報者／受托人／QA 驗證是這個人、且週期內建立或更新」的任務項，不再借別人的帳號；專案取標題第一個中括號。定時提醒固定授權人、綁定失效就跳過並寫明。補查舊週會提醒「更新只看最後一次」。台北時區邊界精準過濾（測試 15 條、真 Meegle 實測）'] },
