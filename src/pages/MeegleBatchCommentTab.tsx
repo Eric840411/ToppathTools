@@ -20,16 +20,19 @@ import './MeegleBatchCommentTab.css'
 
 type Rec = Record<string, string> & { _rowIndex: number }
 type Phase = 'none' | 'creating' | 'done' | 'failed' | 'unknown' | 'skipped'
-type StepInfo = { step: string; phase: Phase; message: string | null; attemptAt: number | null }
+type StepInfo = { step: string; phase: Phase; message: string | null; attemptAt: number | null; name?: string }
 type Att = UploadedAttachment & { error?: string }
 type RemoteState = 'empty' | 'same' | 'changed' | 'has-content'
 type Identity = { name: string; status: string; email?: string; label?: string; message?: string; candidates?: string[] }
-type Previous = { batchId: string; workItemId: string; sheetRow: number; mine: boolean; steps: StepInfo[] }
+type Previous = { batchId: string; workItemId: string; sheetRow: number; summary?: string; mine: boolean; hasPayload?: boolean; steps: StepInfo[] }
 
 type Item = {
   rowIndex: number; workItemId: string; summary: string; person: string; asEmail: string
   text: string; commentText: string; images: Att[]; videos: Att[]; attError: string
-  ai: 'idle' | 'running' | 'done' | 'error'; aiError: string; aiFormatted: boolean
+  /** 附件有沒載到的，使用者明確勾「不帶這些附件送出」才放行（CodeX review 64f53aa [P1]：原本失敗的附件直接消失、照樣送） */
+  skipMissingAtt: boolean
+  /** queued＝開了 AI 但還沒輪到：跟 running 一樣不能送（CodeX review 64f53aa [P2]：原本排隊中的列會直接送原文） */
+  ai: 'idle' | 'queued' | 'running' | 'done' | 'error'; aiError: string; aiFormatted: boolean
   review: string | null; reviewStale: boolean
   remote: { status: 'idle' | 'loading' | 'ok' | 'error'; state?: RemoteState; hash?: string; current?: string; error?: string }
   confirmHash: string | null
@@ -64,7 +67,7 @@ async function api<T>(url: string, body?: unknown): Promise<T> {
 
 const JIRA_KEY_RE = /\b[A-Z][A-Z0-9]+-\d+\b/
 const STEP_LABEL: Record<string, string> = { desc: '覆寫測試說明', comment: '評論', review: 'AI 分析', writeback: 'Sheet 回填' }
-const stepLabel = (s: string) => STEP_LABEL[s] ?? (s.startsWith('video:') ? `影片 ${Number(s.slice(6)) + 1}` : s)
+const stepLabel = (s: string, name?: string) => STEP_LABEL[s] ?? (s.startsWith('video:') ? `影片${name ? ` ${name}` : ''}` : s)
 const PHASE_TEXT: Record<Phase, string> = { none: '未執行', creating: '處理中', done: '完成', failed: '失敗', unknown: '待確認', skipped: '略過' }
 
 /** 評論預設內容：一行說明＋【驗證結果】那段（使用者要 Comments 也留一則） */
@@ -164,8 +167,8 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
       setAttachmentColumn(c => c && hs.includes(c) ? c : (hs.find(h => /附件|截圖/.test(h)) ?? ''))
       setPersonColumn(c => c && hs.includes(c) ? c : (hs.find(h => /填寫人|回報者|回報人/.test(h)) ?? ''))
       // 上次沒收尾的（待確認、只剩回填）接回 ④
-      setResults(prev.rows.filter(p => p.mine && p.steps.some(s => s.phase === 'unknown' || (s.step === 'writeback' && s.phase === 'failed')))
-        .map(p => ({ rowIndex: p.sheetRow, workItemId: p.workItemId, summary: '', batchId: p.batchId, steps: p.steps })))
+      setResults(prev.rows.filter(p => p.mine && !rowDone(p.steps) && !p.steps.some(s => s.phase === 'creating'))
+        .map(p => ({ rowIndex: p.sheetRow, workItemId: p.workItemId, summary: p.summary ?? '', batchId: p.batchId, steps: p.steps })))
       setNeedsPreselect(true)
     } catch (e) { setLoadError((e as Error).message) } finally { setLoading(false) }
   }
@@ -201,8 +204,23 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
   }
   const blockedPeople = [...new Set(chosen.map(r => personOf(r.rec)))].filter(n => !rowIdentity(n).ok)
 
+  /**
+   * 不要每次進 ③ 都重跑 AI（使用者 10/02：按上一步再回來又燒一次 AI）：
+   * - 設定（選的列、欄位、AI 開關、Prompt、模型）沒變 → 直接回到 ③，不重建（手改的內容也保留）
+   * - 設定變了要重建 → AI 結果按「輸入」快取：同一列、同樣原文與設定就沿用上次結果，不打 API
+   * - 只有按「重試」「重新分析」或原文變了才會真的再跑
+   */
+  const previewKeyRef = useRef('')
+  const aiCacheRef = useRef(new Map<string, { text: string; review: string | null }>())
+  const previewKey = JSON.stringify({ rows: chosen.map(r => r.rowIndex), commentColumn, attachmentColumn, personColumn, useAiFormat, useAiReview, promptId, model, loadedUrl })
+  function goPreview() {
+    if (items.length && previewKeyRef.current === previewKey) { setStep(3); return }
+    void buildPreview()
+  }
+
   // ── ③ 建預覽：附件預載 → 逐列讀遠端 → 逐列跑 AI ──
   async function buildPreview() {
+    previewKeyRef.current = previewKey
     setPreparing(true); setPrepError('')
     const recs = chosen
     const base: Item[] = recs.map(r => {
@@ -210,8 +228,8 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
       const id = rowIdentity(personOf(r.rec))
       return {
         rowIndex: r.rowIndex, workItemId: r.workItemId!, summary: r.summary, person: personOf(r.rec), asEmail: id.email,
-        text, commentText: defaultComment(text), images: [], videos: [], attError: '',
-        ai: 'idle', aiError: '', aiFormatted: false, review: null, reviewStale: false,
+        text, commentText: defaultComment(text), images: [], videos: [], attError: '', skipMissingAtt: false,
+        ai: useAiFormat || useAiReview ? 'queued' : 'idle', aiError: '', aiFormatted: false, review: null, reviewStale: false,
         remote: { status: 'idle' }, confirmHash: null, rev: 0,
       }
     })
@@ -233,7 +251,12 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
           const bad = atts.filter(a => a.error || !a.cacheId)
           return { ...it, images: ok.filter(a => a.isImage), videos: ok.filter(a => !a.isImage), attError: bad.length ? `${bad.length} 個附件沒載到：${bad.map(b => b.error || b.filename).join('、').slice(0, 200)}` : '' }
         }))
-      } catch (e) { setPrepError(`附件載入失敗：${(e as Error).message}`) }
+      } catch (e) {
+        // 整批預載失敗：每一列都可能少了附件，全部標出來，要使用者明確略過才能送
+        const msg = `附件載入失敗：${(e as Error).message}`
+        setPrepError(msg)
+        setItems(prev => prev.map(it => ({ ...it, attError: msg })))
+      }
     }
     setPreparing(false)
     // 讀 Meegle 現況：同時最多 3 張（一張一個 CLI 呼叫，24 列一張一張讀要一分多鐘）
@@ -256,7 +279,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
     }
   }
 
-  async function runAi(rowIndex: number, format: boolean, review: boolean) {
+  async function runAi(rowIndex: number, format: boolean, review: boolean, force = false) {
     const it = itemsRef.current.find(x => x.rowIndex === rowIndex)
     const rec = records?.find(r => r._rowIndex === rowIndex)
     if (!it || !rec || (!format && !review)) return
@@ -264,9 +287,12 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
     setItems(prev => prev.map(x => x.rowIndex === rowIndex ? { ...x, ai: 'running', aiError: '' } : x))
     try {
       const raw = format ? buildAiCommentRawText(rec, commentColumn) : it.text
-      const j = await api<{ text: string; review: string | null }>('/api/meegle/comment/ai', {
+      const cacheKey = JSON.stringify({ rowIndex, raw, format, review, promptId, model })
+      const cached = force ? undefined : aiCacheRef.current.get(cacheKey)
+      const j = cached ?? await api<{ text: string; review: string | null }>('/api/meegle/comment/ai', {
         rawText: raw, summary: it.summary, format, review, promptId, modelSpec: model, ...aiContextFor(rec, it.text),
       })
+      aiCacheRef.current.set(cacheKey, { text: j.text, review: j.review })
       setItems(prev => prev.map(x => {
         if (x.rowIndex !== rowIndex) return x
         // 這段期間使用者手改過 → AI 結果不套用（不蓋新稿），只把狀態收掉
@@ -294,7 +320,8 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
     if (!rowIdentity(it.person).ok) return '身分不能用'
     if (it.remote.status !== 'ok') return it.remote.status === 'error' ? '讀不到 Meegle 現況' : '讀取 Meegle 中'
     if (it.remote.state === 'changed' && it.confirmHash !== it.remote.hash) return '遠端已被修改，需確認'
-    if (it.ai === 'running') return 'AI 處理中'
+    if (it.ai === 'running' || it.ai === 'queued') return it.ai === 'queued' ? 'AI 排隊中' : 'AI 處理中'
+    if (it.attError && !it.skipMissingAtt) return '有附件沒載到'
     if (!it.text.trim()) return '測試說明是空的'
     if (!it.commentText.trim()) return '評論是空的'
     return ''
@@ -362,6 +389,17 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
     } catch (e) { setCandidates(c => c && c.workItemId === r.workItemId ? { ...c, error: (e as Error).message, list: [] } : c) }
   }
 
+  /** 接著做還沒做的步驟：後端用上次存的內容跑，不需要前端草稿 */
+  async function continueRow(r: Result) {
+    setRowBusy(b => ({ ...b, [`${r.workItemId}:continue`]: true }))
+    try {
+      const j = await api<{ claim: { kind: string }; steps: StepInfo[] }>('/api/meegle/comment/row/continue', { batchId: r.batchId, rowKey: r.workItemId })
+      setResults(prev => prev.map(x => x.workItemId === r.workItemId ? { ...x, steps: j.steps, claim: j.claim.kind, error: undefined } : x))
+    } catch (e) {
+      setResults(prev => prev.map(x => x.workItemId === r.workItemId ? { ...x, error: (e as Error).message } : x))
+    } finally { setRowBusy(b => ({ ...b, [`${r.workItemId}:continue`]: false })) }
+  }
+
   async function resend(r: Result) {
     const it = items.find(x => x.workItemId === r.workItemId)
     if (!it) return
@@ -399,7 +437,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
 
   const statusOf = (it: Item): { cls: string; text: string } => {
     if (it.remote.status === 'ok' && it.remote.state === 'changed' && it.confirmHash !== it.remote.hash) return { cls: 'bad', text: '遠端變更' }
-    if (it.ai === 'running' || it.remote.status === 'loading' || it.remote.status === 'idle') return { cls: 'info', text: it.ai === 'running' ? 'AI 處理中' : '讀取中' }
+    if (it.ai === 'running' || it.ai === 'queued' || it.remote.status === 'loading' || it.remote.status === 'idle') return { cls: 'info', text: it.ai === 'running' ? 'AI 處理中' : it.ai === 'queued' ? 'AI 排隊中' : '讀取中' }
     if (itemIssue(it)) return { cls: 'warn', text: '待處理' }
     if (validateCommentSections(it.text).length) return { cls: 'pending', text: '待補資料' }
     return { cls: 'ok', text: '可送出' }
@@ -540,7 +578,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
             )}
             <div className="mb-pane-actions">
               <button type="button" className="mb-btn mb-btn--outline" onClick={() => setStep(1)}>上一步</button>
-              <button type="button" className="mb-btn mb-btn--primary" disabled={!commentColumn || preparing} onClick={() => void buildPreview()}>{preparing ? '準備中…' : '產生預覽'}</button>
+              <button type="button" className="mb-btn mb-btn--primary" disabled={!commentColumn || preparing} onClick={goPreview}>{preparing ? '準備中…' : '產生預覽'}</button>
             </div>
           </div>
         )}
@@ -581,7 +619,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
                       {cur.aiFormatted && cur.ai !== 'running' && <span className="mb-badge mb-badge--ok">AI 已整理</span>}
                     </div>
                     {cur.ai === 'error' && <div className="mb-alert mb-alert--bad">AI 失敗：{cur.aiError}（內容維持原文，可重試）
-                      <button type="button" className="mb-btn mb-btn--small mb-btn--outline" onClick={() => void runAi(cur.rowIndex, useAiFormat, useAiReview)}>重試</button></div>}
+                      <button type="button" className="mb-btn mb-btn--small mb-btn--outline" onClick={() => void runAi(cur.rowIndex, useAiFormat, useAiReview, true)}>重試</button></div>}
                     <textarea className="mc-text" value={cur.text} onChange={e => editItem(cur.rowIndex, { text: e.target.value }, true)} rows={14} aria-label="測試說明內容" />
                     {missing.length > 0 && <div className="mc-missing"><Icon name="warn" /> 格式不完整（仍可送出）：{missing.join('、')}</div>}
                     {cur.images.length > 0 && (
@@ -610,11 +648,16 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
                       <div key={a.cacheId} className="mc-video"><Icon name="play" /><span className="mc-video-name">{a.filename}<small>{(a.size / 1048576).toFixed(1)} MB ・ 已載入</small></span>
                         <button type="button" className="mc-x" aria-label={`移除 ${a.filename}`} onClick={() => editItem(cur.rowIndex, { videos: cur.videos.filter(x => x.cacheId !== a.cacheId) })}><Icon name="close" /></button></div>
                     ))}
-                    {cur.attError && <div className="mc-missing"><Icon name="warn" /> {cur.attError}</div>}
+                    {cur.attError && (
+                      <div className="mc-missing mc-att-error">
+                        <span><Icon name="warn" /> {cur.attError}</span>
+                        <label className="mc-switch"><input type="checkbox" checked={cur.skipMissingAtt} onChange={e => editItem(cur.rowIndex, { skipMissingAtt: e.target.checked })} /> 不帶這些附件送出</label>
+                      </div>
+                    )}
                     {useAiReview && (
                       <div className="mc-review">
                         <div className="mc-sub-head">AI 完整性分析
-                          <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={cur.ai === 'running'} onClick={() => void runAi(cur.rowIndex, false, true)}>{cur.review ? '重新分析' : '分析'}</button>
+                          <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={cur.ai === 'running'} onClick={() => void runAi(cur.rowIndex, false, true, true)}>{cur.review ? '重新分析' : '分析'}</button>
                         </div>
                         {cur.reviewStale && <div className="mc-missing"><Icon name="warn" /> 內容已變更，需重新分析</div>}
                         {cur.review ? <div className="mc-review-text">{cur.review}</div> : <div className="mb-muted mc-empty">{cur.ai === 'running' ? '分析中…' : '還沒分析（沒有分析就不會留這則）'}</div>}
@@ -660,6 +703,10 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
                 const unknownSteps = r.steps.filter(s => s.phase === 'unknown')
                 const failed = r.steps.some(s => s.phase === 'failed' && s.step !== 'writeback')
                 const wbFailed = r.steps.find(s => s.step === 'writeback')?.phase === 'failed'
+                const descNotDone = r.steps.find(s => s.step === 'desc')?.phase !== 'done'
+                // 測試說明已完成、沒有待確認／處理中，但還有沒做完的步驟（不含只剩回填）→ 可以接著送
+                const canContinue = !descNotDone && !unknownSteps.length && !r.steps.some(s => s.phase === 'creating')
+                  && r.steps.some(s => s.step !== 'writeback' && s.step !== 'desc' && (s.phase === 'none' || s.phase === 'failed'))
                 return (
                   <div key={`${r.batchId}:${r.workItemId}`} className="mb-result">
                     <div className="mb-result-main">
@@ -667,16 +714,16 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
                       <div className="mb-result-sub">
                         <span>#{r.workItemId}</span>
                         {r.steps.map(s => (
-                          <span key={s.step} className={`mc-step mc-step--${s.phase}`} title={s.message ?? ''}>{stepLabel(s.step)}：{PHASE_TEXT[s.phase]}</span>
+                          <span key={s.step} className={`mc-step mc-step--${s.phase}`} title={s.message ?? ''}>{stepLabel(s.step, s.name)}：{PHASE_TEXT[s.phase]}</span>
                         ))}
                         {r.claim && r.claim !== 'claimed' && <span className="mb-badge mb-badge--warn">{({ busy: '另一個分頁正在送這張單', unknown: '有步驟待確認，先處理', 'already-commented': '這張單已評論過', 'not-owner': '別人送出的列', 'source-mismatch': '批次的 Sheet 不同' } as Record<string, string>)[r.claim] ?? r.claim}</span>}
                         {r.error && <span className="mb-msg">{r.error}</span>}
-                        {r.steps.filter(s => s.message && (s.phase === 'failed' || s.phase === 'unknown')).map(s => <span key={`m-${s.step}`} className="mb-msg">{stepLabel(s.step)}：{s.message}</span>)}
+                        {r.steps.filter(s => s.message && (s.phase === 'failed' || s.phase === 'unknown')).map(s => <span key={`m-${s.step}`} className="mb-msg">{stepLabel(s.step, s.name)}：{s.message}</span>)}
                       </div>
                     </div>
                     <div className="mb-result-actions">
                       {unknownSteps.filter(s => s.step !== 'desc').map(s => (
-                        <button key={s.step} type="button" className="mb-btn mb-btn--small mb-btn--outline" onClick={() => void showCandidates(r, s.step)}>查詢候選（{stepLabel(s.step)}）</button>
+                        <button key={s.step} type="button" className="mb-btn mb-btn--small mb-btn--outline" onClick={() => void showCandidates(r, s.step)}>查詢候選（{stepLabel(s.step, s.name)}）</button>
                       ))}
                       {unknownSteps.some(s => s.step === 'desc') && (
                         <>
@@ -684,7 +731,9 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
                           <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={rowBusy[`${r.workItemId}:resolve-failed`]} onClick={() => void rowAction(r, 'resolve-failed', 'desc')}>沒有寫入</button>
                         </>
                       )}
-                      {failed && !unknownSteps.length && items.some(x => x.workItemId === r.workItemId) && <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={rowBusy[`${r.workItemId}:resend`]} onClick={() => void resend(r)}>修正後重送</button>}
+                      {canContinue && <button type="button" className="mb-btn mb-btn--small mb-btn--primary" disabled={rowBusy[`${r.workItemId}:continue`]} onClick={() => void continueRow(r)}>{rowBusy[`${r.workItemId}:continue`] ? '送出中…' : '繼續送出'}</button>}
+                      {failed && descNotDone && !unknownSteps.length && items.some(x => x.workItemId === r.workItemId) && <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={rowBusy[`${r.workItemId}:resend`]} onClick={() => void resend(r)}>修正後重送</button>}
+                      {failed && descNotDone && !unknownSteps.length && !items.some(x => x.workItemId === r.workItemId) && <span className="mb-msg">測試說明還沒成功：回 ③ 重新預覽這一列再送</span>}
                       {wbFailed && !failed && !unknownSteps.length && <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={rowBusy[`${r.workItemId}:writeback`]} onClick={() => void rowAction(r, 'writeback')}>補寫回</button>}
                       {detailBase && <a className="mb-btn mb-btn--small mb-btn--outline" href={`${detailBase}${r.workItemId}`} target="_blank" rel="noreferrer">開啟</a>}
                     </div>

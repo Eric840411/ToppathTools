@@ -4,7 +4,7 @@
 import Database from 'better-sqlite3'
 import {
   beginStep, claimCommentRow, expireStaleSteps, finishStep, getSnapshot, getSteps, initMeegleCommentSchema,
-  listPreviousForSource, readyForWriteback, resolveUnknownStep, setSnapshot, type ClaimInput,
+  listPreviousForSource, readyForWriteback, resolveUnknownStep, setSnapshot, stepData, type ClaimInput,
 } from './meegle-comment-store.js'
 
 let pass = 0, fail = 0
@@ -16,15 +16,15 @@ function eq(name: string, got: unknown, want: unknown) {
 const fresh = () => { const db = new Database(':memory:'); initMeegleCommentSchema(db); return db }
 const base = (o: Partial<ClaimInput> = {}): ClaimInput => ({
   batchId: 'b1', workItemId: '100', sourceKey: 'lark:T:S', sheetUrl: 'https://x/sheets/T?sheet=S', sheetRow: 5, summary: '登入',
-  ownerEmail: 'Eric@x.com', asEmail: '', videoCount: 2, withReview: true, ...o,
+  ownerEmail: 'Eric@x.com', asEmail: '', videos: [{ key: 'k0', name: 'v0.mp4' }, { key: 'k1', name: 'v1.mp4' }], withReview: true, ...o,
 })
 const phases = (db: Database.Database, b = 'b1', r = '100') => Object.fromEntries(getSteps(db, b, r).map(s => [s.step, s.phase]))
 
 {
   const db = fresh()
   eq('第一次認領', claimCommentRow(db, base()), { kind: 'claimed' })
-  eq('步驟：desc／comment／兩支影片／review／writeback', phases(db), { desc: 'none', comment: 'none', 'video:0': 'none', 'video:1': 'none', review: 'none', writeback: 'none' })
-  eq('沒開 AI 分析 → review skipped', (() => { const d = fresh(); claimCommentRow(d, base({ withReview: false, videoCount: 0 })); return phases(d) })(),
+  eq('步驟：desc／comment／兩支影片／review／writeback', phases(db), { desc: 'none', comment: 'none', 'video:k0': 'none', 'video:k1': 'none', review: 'none', writeback: 'none' })
+  eq('沒開 AI 分析 → review skipped', (() => { const d = fresh(); claimCommentRow(d, base({ withReview: false, videos: [] })); return phases(d) })(),
     { desc: 'none', comment: 'none', review: 'skipped', writeback: 'none' })
 }
 
@@ -60,8 +60,8 @@ const phases = (db: Database.Database, b = 'b1', r = '100') => Object.fromEntrie
 
 {
   const db = fresh()
-  claimCommentRow(db, base({ videoCount: 0 }))
-  eq('重送時多一支影片 → 補上步驟', (() => { claimCommentRow(db, base({ videoCount: 1 })); return Object.keys(phases(db)) })(), ['desc', 'comment', 'review', 'writeback', 'video:0'])
+  claimCommentRow(db, base({ videos: [] }))
+  eq('重送時多一支影片 → 補上步驟', (() => { claimCommentRow(db, base({ videos: [{ key: 'k0', name: 'v0.mp4' }] })); return Object.keys(phases(db)) })(), ['desc', 'comment', 'review', 'writeback', 'video:k0'])
 }
 
 {
@@ -72,10 +72,37 @@ const phases = (db: Database.Database, b = 'b1', r = '100') => Object.fromEntrie
   eq('expire 後是 unknown', phases(db).comment, 'unknown')
 }
 
+// ── 影片用內容 key，移除的影片（還沒貼）要標 skipped 才不會卡住回填（CodeX review 64f53aa [P1]）──
+{
+  const db = fresh()
+  claimCommentRow(db, base())
+  beginStep(db, 'b1', '100', 'video:k0'); finishStep(db, 'b1', '100', 'video:k0', 'done')
+  beginStep(db, 'b1', '100', 'video:k1'); finishStep(db, 'b1', '100', 'video:k1', 'failed', '上傳失敗')
+  claimCommentRow(db, base({ videos: [{ key: 'k0', name: 'v0.mp4' }] }))
+  eq('這次沒帶的失敗影片 → skipped；已貼的保留 done', [phases(db)['video:k0'], phases(db)['video:k1']], ['done', 'skipped'])
+  claimCommentRow(db, base())
+  eq('又帶回來 → 從 skipped 回到 none，會再送', phases(db)['video:k1'], 'none')
+}
+{
+  const db = fresh()
+  claimCommentRow(db, base())
+  beginStep(db, 'b1', '100', 'writeback', 1000)
+  beginStep(db, 'b1', '100', 'comment', 1000)
+  expireStaleSteps(db, 5000, 10_000)
+  eq('中斷的回填 → failed（可補寫回）；中斷的評論 → unknown（CodeX review 64f53aa [P2]）', [phases(db).writeback, phases(db).comment], ['failed', 'unknown'])
+}
+{
+  const db = fresh()
+  claimCommentRow(db, base())
+  beginStep(db, 'b1', '100', 'comment', 1000, { content: '評論正文' })
+  eq('送出內容存在步驟裡（查候選用，不靠前端草稿）', stepData(getSteps(db, 'b1', '100').find(x => x.step === 'comment')).content, '評論正文')
+  claimCommentRow(db, base({ batchId: 'b9', payload: '{"x":1}' }))
+}
+
 // ── 回填前提 ──
 eq('全部 done／skipped → 可回填', readyForWriteback([{ step: 'desc', phase: 'done' }, { step: 'comment', phase: 'done' }, { step: 'review', phase: 'skipped' }, { step: 'writeback', phase: 'none' }]), true)
-eq('有一支影片 unknown → 不回填', readyForWriteback([{ step: 'desc', phase: 'done' }, { step: 'comment', phase: 'done' }, { step: 'video:0', phase: 'unknown' }, { step: 'writeback', phase: 'none' }]), false)
-eq('文字成功、影片失敗 → 不回填（文字成功不代表附件成功）', readyForWriteback([{ step: 'desc', phase: 'done' }, { step: 'comment', phase: 'done' }, { step: 'video:0', phase: 'failed' }, { step: 'writeback', phase: 'none' }]), false)
+eq('有一支影片 unknown → 不回填', readyForWriteback([{ step: 'desc', phase: 'done' }, { step: 'comment', phase: 'done' }, { step: 'video:k0', phase: 'unknown' }, { step: 'writeback', phase: 'none' }]), false)
+eq('文字成功、影片失敗 → 不回填（文字成功不代表附件成功）', readyForWriteback([{ step: 'desc', phase: 'done' }, { step: 'comment', phase: 'done' }, { step: 'video:k0', phase: 'failed' }, { step: 'writeback', phase: 'none' }]), false)
 eq('只有 writeback 一步 → 不回填', readyForWriteback([{ step: 'writeback', phase: 'none' }]), false)
 
 // ── 基準 ──

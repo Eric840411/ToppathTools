@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.271.2'
+export const APP_VERSION = '4.272.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,13 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.272.0', date: '2026-10-02', changes: [
+    'fix(Meegle 評論)：**寫入測試說明後被誤判「待確認」**（使用者真送兩張全中）——Meegle 存檔會把 Markdown 解析後重排（清單重新編號、* 變 -、縮排改 4 格、換行合併）。讀回比對改成只比看得到的文字（textFingerprint），格式差異不算；字有改動仍判不一致。實測送出／讀回存成 server/__fixtures__/meegle-md-*',
+    'feat(Meegle 評論)：④ 新增「繼續送出」——測試說明已完成、剩下評論／影片／回填沒做的列，用後端存的送出內容接著做（重整頁面後也能按）；人工確認「測試說明已寫入」時順便記下基準',
+    'fix(Meegle 評論)：影片步驟改用檔案內容 hash 識別（CodeX review [P1]：原本用排序位置，A 成功 B 失敗後改成 [B,A] 重送會 A 重貼、B 漏送）；這次沒帶的未送影片標 skipped，不會卡住回填',
+    'fix(Meegle 評論)：附件沒載到的列要勾「不帶這些附件送出」才能送（CodeX [P1]）；開了 AI 但還沒輪到的列標「AI 排隊中」不能送（CodeX [P2]）；查候選評論改用後端存的正文（CodeX [P2]：重整後草稿沒了就查不到）；回填中斷改標失敗可補寫回（CodeX [P2]）',
+    'perf(Meegle 評論)：③ 上一步再回來不重跑 AI（使用者：白燒）——設定沒變直接回到預覽、保留手改內容；設定變了也只重跑原文有變的列，按「重試」「重新分析」才強制重跑',
+  ] },
   { version: '4.271.2', date: '2026-10-02', changes: ['style(UI 截圖)：分類卡裡遊戲名稱那列拿掉「N 台・可用 N」（需求方：跟底下 Machine Model 那列重複）；分類總數與每個 Machine Model 的台數照舊'] },
   { version: '4.271.1', date: '2026-10-02', changes: ['style(UI 截圖)：選 model 視窗的分類（遊戲代碼）改白字、遊戲名稱改灰字（需求方要求，原本相反）'] },
   { version: '4.271.0', date: '2026-10-02', changes: ['feat(Meegle)：**「Meegle 評論」分頁上線**（Jira 頁，CodeX 設計圖 1:1）——① 讀取與選列（用「Meegle 單號」認單、缺單號／重複單號擋下、處理階段已有值預設不勾）② 欄位與身分（評論內容／附件／填寫人欄、代理綁定檢查、AI 兩個開關）③ 逐列預覽（常駐「將整格覆寫測試說明」、測試說明＋圖片、Comments＋影片附件＋AI 分析，遠端被改過要確認，底部「可送出 N 列」）④ 送出結果（每步驟狀態、待確認候選評論、補寫回）', 'refactor(Jira)：批量評論的 Sheet 文字規則（AI 原文、環境／版本推導、五區塊檢查）抽到 src/features/batch-comment/comment-text.ts，Jira 與 Meegle 共用一份', 'feat(歷史)：操作歷史紀錄新增「Meegle 評論」，明細顯示每列單號、代理身分、各步驟結果', '實測：測試單 #15190441 真送一輪（測試說明含圖、評論、影片、AI 分析都成功；回填因 Sheet 那列不是這張單而正確拒寫；同單第二批擋成已評論）'] },

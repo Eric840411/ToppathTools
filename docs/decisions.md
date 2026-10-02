@@ -417,3 +417,10 @@ runner 回報 exit code、agent 回 `backend_uat_done`、本機 child 結束、�
 **限制（記錄在案，不是已解決）**：Meegle 的 `workitem update` 沒有條件式更新（沒有 if-match／版本號）。
 我們做了：預覽時讀、送出前再讀一次比 hash、寫完讀回比對（不一致標待確認、不更新基準）——
 但**送出前那次讀完、到 update 送達之間**別人改的內容仍會被蓋掉。這個空窗在 Meegle API 提供條件式更新前無法關閉。
+
+## 2026-10-02 Meegle 批量評論：讀回比對從「只處理已知改寫」改成「只比文字」
+
+**原本跟 CodeX 定的**：讀回值與送出值「只做 Meegle 已知改寫的正規化」後一致，才算寫入成功。
+**為什麼改**：使用者真送兩張全被判待確認。實測 Meegle 會把 Markdown 解析後重新輸出，改寫種類多到列不完（見 28-meegle.md v4.272.0）。
+**現在**：`textFingerprint` 拿掉 Markdown 標記與空白後比對。放寬的只有「格式」；文字的任何增刪改仍判不一致，所以「同時被人改內容」照樣擋得住。
+真實送出／讀回 fixture：`server/__fixtures__/meegle-md-*`。

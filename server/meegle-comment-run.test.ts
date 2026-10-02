@@ -3,6 +3,7 @@
  * Meegle／Sheet 全部用假的；重點是順序、遇錯停在哪、何時不能重送、何時才回填。
  */
 import Database from 'better-sqlite3'
+import { readFileSync } from 'fs'
 import { runCommentRow, writebackComment, type RowPayload, type RunDeps } from './meegle-comment-run.js'
 import { descHash } from './meegle-comment-ops.js'
 import { getSnapshot, initMeegleCommentSchema, resolveUnknownStep, setSnapshot } from './meegle-comment-store.js'
@@ -55,9 +56,9 @@ function makeDeps(f: Fake): RunDeps {
 const TEMPLATE = '【功能目的】\n1. 目的\n【驗證結果】'
 const payload = (o: Partial<RowPayload> = {}): RowPayload => ({
   batchId: 'b1', workItemId: '15194994', sourceKey: 'lark:T:S', sheetUrl: 'u', sheetRow: 5, summary: '登入', ownerEmail: 'me@x', asEmail: '',
-  videoCount: 0, withReview: false,
+  withReview: false,
   description: '【驗證結果】\n- 通過', images: [{ name: 'a.png', path: 'p/a' }], commentText: 'QA 已填寫測試頁',
-  videos: [{ name: 'v1.mp4', path: 'p/v1' }, { name: 'v2.mp4', path: 'p/v2' }], reviewText: '涵蓋完整',
+  videos: [{ name: 'v1.mp4', path: 'p/v1', key: 'a1' }, { name: 'v2.mp4', path: 'p/v2', key: 'b2' }], reviewText: '涵蓋完整',
   expectedRemoteHash: descHash(TEMPLATE), confirmedRemoteHash: null, ...o,
 })
 const ph = (steps: Array<{ step: string; phase: string }>) => Object.fromEntries(steps.map(s => [s.step, s.phase]))
@@ -67,7 +68,7 @@ const ph = (steps: Array<{ step: string; phase: string }>) => Object.fromEntries
   const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' } }
   const d = makeDeps(f)
   const r = await runCommentRow(d, payload())
-  eq('全部成功：每一步 done', ph(r.steps), { desc: 'done', comment: 'done', 'video:0': 'done', 'video:1': 'done', review: 'done', writeback: 'done' })
+  eq('全部成功：每一步 done', ph(r.steps), { desc: 'done', comment: 'done', 'video:a1': 'done', 'video:b2': 'done', review: 'done', writeback: 'done' })
   eq('順序：讀→傳圖→寫→讀回→評論→影片×2→分析→核對 Sheet→回填', f.calls, [
     'get', 'up:image:a.png', 'set', 'get', 'comment:QA 已填寫測試頁', 'up:comment:v1.mp4', 'comment+tok-v1.mp4', 'up:comment:v2.mp4', 'comment+tok-v2.mp4', 'comment:AI 完整性分析\n\n涵蓋', 'read-sheet', 'write:添加評論|T'])
   eq('寫入的測試說明帶圖片', f.remote, '【驗證結果】\n- 通過\n\n![a.png](https://m/a.png)')
@@ -146,7 +147,7 @@ const ph = (steps: Array<{ step: string; phase: string }>) => Object.fromEntries
   const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' }, failOn: { comment: 'unknown' } }
   const d = makeDeps(f)
   const r = await runCommentRow(d, payload())
-  eq('評論逾時 → unknown、影片與分析不做、不回填', ph(r.steps), { desc: 'done', comment: 'unknown', 'video:0': 'none', 'video:1': 'none', review: 'none', writeback: 'none' })
+  eq('評論逾時 → unknown、影片與分析不做、不回填', ph(r.steps), { desc: 'done', comment: 'unknown', 'video:a1': 'none', 'video:b2': 'none', review: 'none', writeback: 'none' })
   eq('使用者確認「有送出」後再送 → 只做剩下的', (() => { resolveUnknownStep(d.db, 'b1', '15194994', 'comment', 'done', '確認'); f.failOn = {}; return true })(), true)
   const r2 = await runCommentRow(d, payload())
   eq('接著做影片、分析、回填；測試說明不重寫', [ph(r2.steps).writeback, f.calls.filter(c => c === 'set').length], ['done', 1])
@@ -154,13 +155,13 @@ const ph = (steps: Array<{ step: string; phase: string }>) => Object.fromEntries
 {
   const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' }, failOn: { 'comment+tok-v2.mp4': 'unknown' } }
   const r = await runCommentRow(makeDeps(f), payload())
-  eq('第二支影片逾時 → 只有它 unknown，文字與第一支成功不代表全成功、不回填', ph(r.steps), { desc: 'done', comment: 'done', 'video:0': 'done', 'video:1': 'unknown', review: 'none', writeback: 'none' })
+  eq('第二支影片逾時 → 只有它 unknown，文字與第一支成功不代表全成功、不回填', ph(r.steps), { desc: 'done', comment: 'done', 'video:a1': 'done', 'video:b2': 'unknown', review: 'none', writeback: 'none' })
 }
 {
   // 「補寫回」按鈕直接打 writebackComment——不能因為走的是另一個入口就跳過「全部成功才回填」
   const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' }, failOn: { 'comment+tok-v1.mp4': 'unknown' } }
   const d = makeDeps(f)
-  await runCommentRow(d, payload({ reviewText: null, videos: [{ name: 'v1.mp4', path: 'p/v1' }] }))
+  await runCommentRow(d, payload({ reviewText: null, videos: [{ name: 'v1.mp4', path: 'p/v1', key: 'a1' }] }))
   const before = f.calls.length
   const steps = await writebackComment(d, 'b1', '15194994')
   eq('影片還是 unknown 時按補寫回 → 不回填、不讀 Sheet', [ph(steps).writeback, f.calls.slice(before)], ['none', []])
@@ -168,12 +169,39 @@ const ph = (steps: Array<{ step: string; phase: string }>) => Object.fromEntries
 {
   const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' }, failOn: { 'up:v1.mp4': 'rejected' } }
   const r = await runCommentRow(makeDeps(f), payload())
-  eq('影片上傳失敗 → failed（沒貼出去，可重送）', ph(r.steps)['video:0'], 'failed')
+  eq('影片上傳失敗 → failed（沒貼出去，可重送）', ph(r.steps)['video:a1'], 'failed')
 }
 {
   const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' }, failOn: { comment: 'rejected' } }
   const r = await runCommentRow(makeDeps(f), payload())
   eq('評論被拒 → failed（確定沒貼，可重送）', ph(r.steps).comment, 'failed')
+}
+
+// ── CodeX review 64f53aa [P1]：A 成功、B 失敗後改成 [B, A] 重送 → A 不重貼、B 補送、之後才回填 ──
+{
+  const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' }, failOn: { 'comment+tok-v2.mp4': 'rejected' } }
+  const d = makeDeps(f)
+  await runCommentRow(d, payload({ reviewText: null }))
+  f.failOn = {}
+  const before = f.calls.length
+  const r = await runCommentRow(d, payload({ reviewText: null, videos: [{ name: 'v2.mp4', path: 'p/v2', key: 'b2' }, { name: 'v1.mp4', path: 'p/v1', key: 'a1' }] }))
+  const after = f.calls.slice(before)
+  eq('重排後 A 沒有重貼、B 補送', [after.filter(c => c === 'comment+tok-v1.mp4').length, after.filter(c => c === 'comment+tok-v2.mp4').length], [0, 1])
+  eq('兩支都 done 才回填', [ph(r.steps)['video:a1'], ph(r.steps)['video:b2'], ph(r.steps).writeback], ['done', 'done', 'done'])
+}
+{
+  const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' } }
+  const r = await runCommentRow(makeDeps(f), payload({ reviewText: null, videos: [{ name: 'v1.mp4', path: 'p/v1', key: 'a1' }, { name: 'v1 複本.mp4', path: 'p/v1b', key: 'a1' }] }))
+  eq('同一支影片放兩次（內容相同）只貼一次', f.calls.filter(c => c.startsWith('comment+')).length, 1)
+  eq('…而且仍會回填', ph(r.steps).writeback, 'done')
+}
+// ── Meegle 重排 Markdown（真實 fixture）不能被當成讀回不一致 ──
+{
+  const sent = readFileSync('server/__fixtures__/meegle-md-sent.txt', 'utf8')
+  const back = readFileSync('server/__fixtures__/meegle-md-back.txt', 'utf8')
+  const f: Fake = { remote: TEMPLATE, calls: [], sheet: { id: '#15194994' }, rewrite: () => back }
+  const r = await runCommentRow(makeDeps(f), payload({ description: sent, images: [], videos: [], reviewText: null }))
+  eq('實測：清單重編號／縮排／符號被 Meegle 改寫 → 仍判定寫入成功', ph(r.steps).desc, 'done')
 }
 
 // ── 回填 ──

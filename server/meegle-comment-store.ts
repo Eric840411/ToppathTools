@@ -2,7 +2,8 @@
  * Meegle 批量評論的送出紀錄（防重送）與「上次寫入的測試說明」基準。設計跟 CodeX 對過（2026-10-02）：
  *
  * - 一列＝一張 Meegle 單（row_key＝單號）。來源用 sheetSourceKey，不靠列號——排序、插列後列號會認錯
- * - 每列拆成幾個**步驟**各自記狀態：desc（覆寫測試說明）、comment（評論）、video:N（每支影片一則）、review（AI 完整性分析）、writeback（Sheet 回填）
+ * - 每列拆成幾個**步驟**各自記狀態：desc（覆寫測試說明）、comment（評論）、video:<內容 hash>（每支影片一則）、review（AI 完整性分析）、writeback（Sheet 回填）
+ *   影片用**檔案內容 hash** 當步驟名，不用排序位置（CodeX review 64f53aa [P1]：A 成功 B 失敗後改成 [B,A] 重送，用索引會 A 重貼、B 漏送）
  *   none → creating → done / failed / unknown；review 沒開記 skipped
  * - creating／unknown 一律擋重送（含跨批次），**unknown 只能由人確認收尾**——評論不回 comment_id，查不到不代表沒送出
  * - 跨批次已經 comment=done → 視為已評論；要再送一輪必須明確 allowRepeat
@@ -16,6 +17,8 @@ export type StepPhase = 'none' | 'creating' | 'done' | 'failed' | 'unknown' | 's
 export type CommentRow = {
   batch_id: string; row_key: string; source_key: string; sheet_url: string; sheet_row: number; summary: string
   work_item_id: string; owner_email: string; as_email: string; created_at: number; updated_at: number
+  /** 這次送出的內容（測試說明、評論、附件快取 id、分析）。「繼續送出」從這裡拿，不靠前端草稿——重整頁面後草稿就沒了 */
+  payload: string | null
 }
 export type StepRow = { batch_id: string; row_key: string; step: string; phase: StepPhase; message: string | null; attempt_at: number | null; updated_at: number; data: string | null }
 
@@ -38,13 +41,17 @@ export function initMeegleCommentSchema(db: DB) {
       work_item_id TEXT PRIMARY KEY, hash TEXT NOT NULL, written_at INTEGER NOT NULL, written_by TEXT NOT NULL DEFAULT ''
     );
   `)
+  const cols = (db.prepare('PRAGMA table_info(meegle_comment_rows)').all() as Array<{ name: string }>).map(c => c.name)
+  if (!cols.includes('payload')) db.exec('ALTER TABLE meegle_comment_rows ADD COLUMN payload TEXT')
 }
 
-export function stepNames(videoCount: number, withReview: boolean): Array<{ step: string; phase: StepPhase }> {
+export type VideoKey = { key: string; name: string }
+
+export function stepNames(videos: VideoKey[], withReview: boolean): Array<{ step: string; phase: StepPhase; data?: string }> {
   return [
     { step: 'desc', phase: 'none' },
     { step: 'comment', phase: 'none' },
-    ...Array.from({ length: videoCount }, (_, i) => ({ step: `video:${i}`, phase: 'none' as StepPhase })),
+    ...videos.map(v => ({ step: `video:${v.key}`, phase: 'none' as StepPhase, data: JSON.stringify({ name: v.name }) })),
     { step: 'review', phase: withReview ? 'none' : 'skipped' },
     { step: 'writeback', phase: 'none' },
   ]
@@ -59,7 +66,8 @@ export function getSteps(db: DB, batchId: string, rowKey: string): StepRow[] {
 
 export type ClaimInput = {
   batchId: string; workItemId: string; sourceKey: string; sheetUrl: string; sheetRow: number; summary: string
-  ownerEmail: string; asEmail: string; videoCount: number; withReview: boolean; allowRepeat?: boolean
+  ownerEmail: string; asEmail: string; videos: VideoKey[]; withReview: boolean; allowRepeat?: boolean
+  payload?: string
 }
 export type ClaimResult =
   | { kind: 'claimed' }
@@ -100,29 +108,49 @@ export function claimCommentRow(db: DB, input: ClaimInput, now = Date.now()): Cl
       if (live) return { kind: 'busy', batchId: input.batchId, step: live.step }
       const unk = steps.find(s => s.phase === 'unknown')
       if (unk) return { kind: 'unknown', batchId: input.batchId, step: unk.step }
-      db.prepare('UPDATE meegle_comment_rows SET sheet_url = ?, sheet_row = ?, summary = ?, as_email = ?, updated_at = ? WHERE batch_id = ? AND row_key = ?')
-        .run(input.sheetUrl, input.sheetRow, input.summary, input.asEmail.trim().toLowerCase(), now, input.batchId, rowKey)
+      db.prepare('UPDATE meegle_comment_rows SET sheet_url = ?, sheet_row = ?, summary = ?, as_email = ?, payload = COALESCE(?, payload), updated_at = ? WHERE batch_id = ? AND row_key = ?')
+        .run(input.sheetUrl, input.sheetRow, input.summary, input.asEmail.trim().toLowerCase(), input.payload ?? null, now, input.batchId, rowKey)
       // 這次的步驟清單：缺的補上（例如多了一支影片）；review 開關以這次為準（沒做過的才改）
-      const ins = db.prepare('INSERT OR IGNORE INTO meegle_comment_steps (batch_id, row_key, step, phase, updated_at) VALUES (?, ?, ?, ?, ?)')
-      for (const s of stepNames(input.videoCount, input.withReview)) ins.run(input.batchId, rowKey, s.step, s.phase, now)
+      const wanted = stepNames(input.videos, input.withReview)
+      const ins = db.prepare('INSERT OR IGNORE INTO meegle_comment_steps (batch_id, row_key, step, phase, updated_at, data) VALUES (?, ?, ?, ?, ?, ?)')
+      for (const s of wanted) ins.run(input.batchId, rowKey, s.step, s.phase, now, s.data ?? null)
+      // 這次沒帶的影片：還沒貼出去的（none／failed）標 skipped——使用者在預覽移除了，不能卡住回填；
+      // 已經 done 的保留（貼出去了就是貼出去了）；creating／unknown 上面已經擋掉
+      const keep = new Set(wanted.map(w => w.step))
+      for (const st of steps) {
+        if (st.step.startsWith('video:') && !keep.has(st.step) && (st.phase === 'none' || st.phase === 'failed')) {
+          db.prepare(`UPDATE meegle_comment_steps SET phase = 'skipped', message = '這次送出沒有帶這支影片', updated_at = ? WHERE batch_id = ? AND row_key = ? AND step = ?`)
+            .run(now, input.batchId, rowKey, st.step)
+        } else if (st.step.startsWith('video:') && keep.has(st.step) && st.phase === 'skipped') {
+          db.prepare(`UPDATE meegle_comment_steps SET phase = 'none', message = NULL, updated_at = ? WHERE batch_id = ? AND row_key = ? AND step = ?`)
+            .run(now, input.batchId, rowKey, st.step)
+        }
+      }
       db.prepare(`UPDATE meegle_comment_steps SET phase = ?, updated_at = ? WHERE batch_id = ? AND row_key = ? AND step = 'review' AND phase IN ('none', 'skipped', 'failed')`)
         .run(input.withReview ? 'none' : 'skipped', now, input.batchId, rowKey)
       return { kind: 'claimed' }
     }
 
-    db.prepare(`INSERT INTO meegle_comment_rows (batch_id, row_key, source_key, sheet_url, sheet_row, summary, work_item_id, owner_email, as_email, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(input.batchId, rowKey, input.sourceKey, input.sheetUrl, input.sheetRow, input.summary, input.workItemId, owner, input.asEmail.trim().toLowerCase(), now, now)
-    const ins = db.prepare('INSERT INTO meegle_comment_steps (batch_id, row_key, step, phase, updated_at) VALUES (?, ?, ?, ?, ?)')
-    for (const s of stepNames(input.videoCount, input.withReview)) ins.run(input.batchId, rowKey, s.step, s.phase, now)
+    db.prepare(`INSERT INTO meegle_comment_rows (batch_id, row_key, source_key, sheet_url, sheet_row, summary, work_item_id, owner_email, as_email, payload, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(input.batchId, rowKey, input.sourceKey, input.sheetUrl, input.sheetRow, input.summary, input.workItemId, owner, input.asEmail.trim().toLowerCase(), input.payload ?? null, now, now)
+    const ins = db.prepare('INSERT INTO meegle_comment_steps (batch_id, row_key, step, phase, updated_at, data) VALUES (?, ?, ?, ?, ?, ?)')
+    for (const s of stepNames(input.videos, input.withReview)) ins.run(input.batchId, rowKey, s.step, s.phase, now, s.data ?? null)
     return { kind: 'claimed' }
   }).immediate()
 }
 
-/** 開始一個步驟：只能從 none／failed 進 creating（原子，搶不到回 false）。 */
-export function beginStep(db: DB, batchId: string, rowKey: string, step: string, now = Date.now()): boolean {
-  return db.prepare(`UPDATE meegle_comment_steps SET phase = 'creating', message = NULL, attempt_at = ?, updated_at = ?
-    WHERE batch_id = ? AND row_key = ? AND step = ? AND phase IN ('none', 'failed')`).run(now, now, batchId, rowKey, step).changes === 1
+/**
+ * 開始一個步驟：只能從 none／failed 進 creating（原子，搶不到回 false）。
+ * data＝這一步要送出的內容（評論正文等）——結果不明時查候選要用；存在後端，不靠前端草稿（CodeX review 64f53aa [P2]：重整後草稿沒了就查不到）
+ */
+export function beginStep(db: DB, batchId: string, rowKey: string, step: string, now = Date.now(), data?: unknown): boolean {
+  return db.prepare(`UPDATE meegle_comment_steps SET phase = 'creating', message = NULL, attempt_at = ?, updated_at = ?, data = COALESCE(?, data)
+    WHERE batch_id = ? AND row_key = ? AND step = ? AND phase IN ('none', 'failed')`).run(now, now, data === undefined ? null : JSON.stringify(data), batchId, rowKey, step).changes === 1
+}
+
+export function stepData(step: Pick<StepRow, 'data'> | undefined): Record<string, unknown> {
+  try { return step?.data ? JSON.parse(step.data) as Record<string, unknown> : {} } catch { return {} }
 }
 
 /** 步驟結果。只從 creating 轉出去——較晚回來的舊請求不會蓋掉別的結果。 */
@@ -138,9 +166,15 @@ export function resolveUnknownStep(db: DB, batchId: string, rowKey: string, step
     WHERE batch_id = ? AND row_key = ? AND step = ? AND phase = 'unknown'`).run(phase, message, now, batchId, rowKey, step).changes === 1
 }
 
-/** 程序中途掛掉留下的 creating：超過時限改成 unknown（不能當沒送過）。 */
+/**
+ * 程序中途掛掉留下的 creating：超過時限改成 unknown（不能當沒送過）。
+ * 例外是 Sheet 回填：寫的是固定值（添加評論＋時間），重寫一次不會造成重複 → 標 failed 讓「補寫回」可以按
+ * （CodeX review 64f53aa [P2]：標 unknown 的話既不能補寫、也沒有人工收尾的入口）
+ */
 export function expireStaleSteps(db: DB, olderThanMs: number, now = Date.now()): number {
-  return db.prepare(`UPDATE meegle_comment_steps SET phase = 'unknown', message = '處理中斷，結果不明', updated_at = ?
+  const wb = db.prepare(`UPDATE meegle_comment_steps SET phase = 'failed', message = '回填中斷，可按「補寫回」重試', updated_at = ?
+    WHERE phase = 'creating' AND step = 'writeback' AND COALESCE(attempt_at, updated_at) < ?`).run(now, now - olderThanMs).changes
+  return wb + db.prepare(`UPDATE meegle_comment_steps SET phase = 'unknown', message = '處理中斷，結果不明', updated_at = ?
     WHERE phase = 'creating' AND COALESCE(attempt_at, updated_at) < ?`).run(now, now - olderThanMs).changes
 }
 

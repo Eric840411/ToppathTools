@@ -4,9 +4,10 @@
  */
 import {
   addComment, buildDescription, classifyRemote, commentCandidates, descHash, getDescription, isTemplateOnly,
-  listComments, normalizeDesc, setDescription, uploadFile,
+  listComments, normalizeDesc, setDescription, textFingerprint, uploadFile,
 } from './meegle-comment-ops.js'
 import type { Runner } from './meegle-workitem.js'
+import { readFileSync } from 'fs'
 import type { CliResult } from './meegle-cli.js'
 
 let pass = 0, fail = 0
@@ -30,6 +31,18 @@ eq('實測：送出值與讀回值正規化後相同', normalizeDesc(sent), norm
 eq('有語意的差異不會被抹掉（文字不同）', normalizeDesc('通過') === normalizeDesc('不通過'), false)
 eq('粗體符號不被抹掉', normalizeDesc('**通過**') === normalizeDesc('通過'), false)
 eq('不同圖片網址不相同', normalizeDesc('![](https://x/a)') === normalizeDesc('![](https://x/b)'), false)
+
+// ── textFingerprint：只比看得到的文字（真實送出／讀回 fixture）──
+{
+  const sentMd = readFileSync('server/__fixtures__/meegle-md-sent.txt', 'utf8')
+  const backMd = readFileSync('server/__fixtures__/meegle-md-back.txt', 'utf8')
+  eq('實測：Meegle 重排 Markdown 後文字內容相同', textFingerprint(sentMd) === textFingerprint(backMd), true)
+  eq('圖片替代文字被拿掉也算相同', textFingerprint('![a.png](https://x/1)') === textFingerprint('![](https://x/1)<!-- image:{"uuid":"U"} -->'), true)
+  eq('字被改 → 不同', textFingerprint(backMd) === textFingerprint(backMd.replace('最後一行', '最後二行')), false)
+  eq('多一行字 → 不同', textFingerprint(backMd) === textFingerprint(backMd + '\n有人補了一句'), false)
+  eq('通過 vs 不通過 → 不同', textFingerprint('- 通過') === textFingerprint('- 不通過'), false)
+  eq('不同圖片 → 不同', textFingerprint('![](https://x/a)') === textFingerprint('![](https://x/b)'), false)
+}
 
 // ── 範本判斷 ──
 eq('Meegle 預設範本＝純範本', isTemplateOnly(TEMPLATE), true)

@@ -9,7 +9,8 @@
  * 設計：docs/features/28-meegle.md「批量評論」
  */
 import { Router, type Request, type Response } from 'express'
-import { existsSync } from 'fs'
+import { createReadStream, existsSync } from 'fs'
+import { createHash } from 'crypto'
 import { z } from 'zod'
 import { getAuthAccount } from '../auth-session.js'
 import { accountHasPermission, addHistory, db, getClientIP, hasJiraDelegation, log, matchAccountsByPersonName, writeLimiter } from '../shared.js'
@@ -18,7 +19,7 @@ import { getAccountRow } from '../meegle-account-service.js'
 import { decryptMeegleToken } from '../meegle-token-crypto.js'
 import { addComment, classifyRemote, commentCandidates, descHash, getDescription, listComments, setDescription, uploadFile } from '../meegle-comment-ops.js'
 import {
-  expireStaleSteps, getCommentRow, getSnapshot, getSteps, initMeegleCommentSchema, listPreviousForSource, resolveUnknownStep, type StepRow,
+  expireStaleSteps, getCommentRow, getSnapshot, getSteps, initMeegleCommentSchema, listPreviousForSource, resolveUnknownStep, setSnapshot, stepData, type StepRow,
 } from '../meegle-comment-store.js'
 import { runCommentRow, writebackComment, type RunDeps } from '../meegle-comment-run.js'
 import { resolveDetailUrlBase } from '../meegle-workitem.js'
@@ -60,7 +61,61 @@ function identityFor(actor: string, asEmail: string): Identity {
 }
 
 function publicSteps(steps: StepRow[]) {
-  return steps.map(s => ({ step: s.step, phase: s.phase, message: s.message, attemptAt: s.attempt_at }))
+  // name：影片步驟的檔名（步驟本身用內容 hash 命名，畫面要顯示檔名）
+  return steps.map(s => ({ step: s.step, phase: s.phase, message: s.message, attemptAt: s.attempt_at, name: typeof stepData(s).name === 'string' ? stepData(s).name as string : undefined }))
+}
+
+/** 影片的穩定識別：檔案內容 sha256 前 16 碼（重新下載 cacheId 會變、排序會變，內容不會）——CodeX review 64f53aa [P1] */
+function fileKey(path: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const h = createHash('sha256')
+    createReadStream(path).on('data', d => h.update(d)).on('error', reject).on('end', () => resolve(h.digest('hex').slice(0, 16)))
+  })
+}
+
+type RowContent = {
+  sheetUrl: string; sheetRow: number; summary: string; workItemId: string; asEmail: string
+  description: string; images: Array<{ cacheId: string; name: string }>; commentText: string
+  videos: Array<{ cacheId: string; name: string }>; reviewText: string | null
+}
+
+/** 送出一列（/row 與 /row/continue 共用）。身分、附件快取、租約都在這裡處理 */
+async function executeRow(req: Request, ctx: Ctx, batchId: string, c: RowContent, opts: { expectedRemoteHash: string; confirmedRemoteHash: string | null; allowRepeat: boolean }) {
+  const id = identityFor(ctx.email, c.asEmail)
+  if ('code' in id) return { status: 403, body: { ok: false, code: id.code, message: id.message } }
+  const files = [...c.images, ...c.videos]
+  const missing = files.filter(f => !existsSync(cachePath(f.cacheId)))
+  if (missing.length) return { status: 410, body: { ok: false, code: 'ATTACHMENT_EXPIRED', message: `附件快取已過期：${missing.map(m => m.name).join('、')}，請回 ③ 重新產生預覽` } }
+  for (const f of files) touchCacheFile(cachePath(f.cacheId))
+  expireStaleSteps(db, STALE_MS)
+  const lease = holdLease(files.map(f => f.cacheId))
+  try {
+    const videos = await Promise.all(c.videos.map(async f => ({ name: f.name, path: cachePath(f.cacheId), key: await fileKey(cachePath(f.cacheId)) })))
+    const writer = larkWritebackDeps()
+    const deps: RunDeps = {
+      db,
+      getDescription: wid => getDescription(id.token, wid),
+      setDescription: (wid, md) => setDescription(id.token, wid, md),
+      uploadFile: (wid, path, name, kind) => uploadFile(id.token, wid, path, name, kind),
+      addComment: (wid, content, tok) => addComment(id.token, wid, content, tok),
+      readRowCells: larkReadRowCells,
+      // 同一份 Sheet 的回填跟開單回填排同一條隊（欄位不存在時會建欄，不能兩個同時建）
+      writeRow: (key, row, cols) => withSheetLock(key, () => writer.writeRow(key, row, cols)),
+      fmtTime,
+    }
+    const result = await runCommentRow(deps, {
+      batchId, workItemId: c.workItemId, sourceKey: sheetSourceKey(c.sheetUrl), sheetUrl: c.sheetUrl, sheetRow: c.sheetRow, summary: c.summary,
+      ownerEmail: ctx.email, asEmail: id.email === ctx.email ? '' : id.email, withReview: c.reviewText != null, allowRepeat: opts.allowRepeat,
+      // 內容整包存起來：「繼續送出」從這裡拿，不靠前端草稿
+      payload: JSON.stringify(c),
+      description: c.description, images: c.images.map(f => ({ name: f.name, path: cachePath(f.cacheId) })),
+      commentText: c.commentText, videos, reviewText: c.reviewText,
+      expectedRemoteHash: opts.expectedRemoteHash, confirmedRemoteHash: opts.confirmedRemoteHash,
+    })
+    const failedStep = result.steps.find(st => st.phase === 'failed' || st.phase === 'unknown')
+    log(failedStep ? 'warn' : 'ok', getClientIP(req), ctx.email, 'Meegle 評論', `#${c.workItemId}${id.email !== ctx.email ? `（以 ${id.email} 身分）` : ''} ${failedStep ? `${failedStep.step}：${failedStep.phase}` : '完成'}`)
+    return { status: 200, body: { ok: true, claim: result.claim, steps: publicSteps(result.steps) } }
+  } finally { lease.release() }
 }
 
 // POST /api/meegle/comment/meta —— 單子網址的前綴（空間簡稱／類型名稱）。不能在前端寫死：CLI 回的 project_key 網址點不開（v4.269.1）
@@ -151,7 +206,7 @@ router.post('/api/meegle/comment/previous', (req, res, next) => {
     const { sheetUrl } = z.object({ sheetUrl: z.string().min(1).max(2000) }).parse(req.body)
     expireStaleSteps(db, STALE_MS)
     const rows = listPreviousForSource(db, sheetSourceKey(sheetUrl))
-    res.json({ ok: true, rows: rows.map(r => ({ batchId: r.batch_id, workItemId: r.work_item_id, sheetRow: r.sheet_row, owner: r.owner_email, mine: r.owner_email === ctx.email, asEmail: r.as_email, steps: publicSteps(r.steps) })) })
+    res.json({ ok: true, rows: rows.map(r => ({ batchId: r.batch_id, workItemId: r.work_item_id, sheetRow: r.sheet_row, summary: r.summary, owner: r.owner_email, mine: r.owner_email === ctx.email, asEmail: r.as_email, hasPayload: !!r.payload, steps: publicSteps(r.steps) })) })
   } catch (e) { next(e) }
 })
 
@@ -170,41 +225,26 @@ router.post('/api/meegle/comment/row', writeLimiter, async (req, res, next) => {
       expectedRemoteHash: z.string().regex(/^[0-9a-f]{64}$/), confirmedRemoteHash: z.string().regex(/^[0-9a-f]{64}$/).nullable().default(null),
       allowRepeat: z.boolean().default(false),
     }).parse(req.body)
-    const id = identityFor(ctx.email, body.asEmail)
-    if ('code' in id) return res.status(403).json({ ok: false, code: id.code, message: id.message })
-    const files = [...body.images, ...body.videos]
-    const missing = files.filter(f => !existsSync(cachePath(f.cacheId)))
-    if (missing.length) return res.status(410).json({ ok: false, code: 'ATTACHMENT_EXPIRED', message: `附件快取已過期：${missing.map(m => m.name).join('、')}，請回 ③ 重新載入附件` })
-    for (const f of files) touchCacheFile(cachePath(f.cacheId))
-    expireStaleSteps(db, STALE_MS)
+    const { batchId, expectedRemoteHash, confirmedRemoteHash, allowRepeat, ...content } = body
+    const r = await executeRow(req, ctx, batchId, content, { expectedRemoteHash, confirmedRemoteHash, allowRepeat })
+    res.status(r.status).json(r.body)
+  } catch (e) { next(e) }
+})
 
-    const lease = holdLease(files.map(f => f.cacheId))
-    try {
-      const sourceKey = sheetSourceKey(body.sheetUrl)
-      const writer = larkWritebackDeps()
-      const deps: RunDeps = {
-        db,
-        getDescription: wid => getDescription(id.token, wid),
-        setDescription: (wid, md) => setDescription(id.token, wid, md),
-        uploadFile: (wid, path, name, kind) => uploadFile(id.token, wid, path, name, kind),
-        addComment: (wid, content, tok) => addComment(id.token, wid, content, tok),
-        readRowCells: larkReadRowCells,
-        // 同一份 Sheet 的回填跟開單回填排同一條隊（欄位不存在時會建欄，不能兩個同時建）
-        writeRow: (key, row, cols) => withSheetLock(key, () => writer.writeRow(key, row, cols)),
-        fmtTime,
-      }
-      const result = await runCommentRow(deps, {
-        batchId: body.batchId, workItemId: body.workItemId, sourceKey, sheetUrl: body.sheetUrl, sheetRow: body.sheetRow, summary: body.summary,
-        ownerEmail: ctx.email, asEmail: id.email === ctx.email ? '' : id.email, videoCount: body.videos.length, withReview: body.reviewText != null,
-        allowRepeat: body.allowRepeat,
-        description: body.description, images: body.images.map(f => ({ name: f.name, path: cachePath(f.cacheId) })),
-        commentText: body.commentText, videos: body.videos.map(f => ({ name: f.name, path: cachePath(f.cacheId) })),
-        reviewText: body.reviewText, expectedRemoteHash: body.expectedRemoteHash, confirmedRemoteHash: body.confirmedRemoteHash,
-      })
-      const failedStep = result.steps.find(s => s.phase === 'failed' || s.phase === 'unknown')
-      log(failedStep ? 'warn' : 'ok', getClientIP(req), ctx.email, 'Meegle 評論', `#${body.workItemId}${id.email !== ctx.email ? `（以 ${id.email} 身分）` : ''} ${failedStep ? `${failedStep.step}：${failedStep.phase}` : '完成'}`)
-      res.json({ ok: true, claim: result.claim, steps: publicSteps(result.steps) })
-    } finally { lease.release() }
+// POST /api/meegle/comment/row/continue —— 接著做還沒做的步驟（用上次存的內容，不靠前端草稿；重整頁面後也能按）
+// 測試說明還沒成功的列不能用這個：要重新預覽（送前要拿最新的遠端版本比對）
+router.post('/api/meegle/comment/row/continue', writeLimiter, async (req, res, next) => {
+  try {
+    const ctx = requireLogin(req, res); if (!ctx) return
+    const body = z.object({ batchId: z.string().uuid(), rowKey: z.string().regex(/^\d{5,}$/) }).parse(req.body)
+    const row = ownedRow(req, res, ctx, body.batchId, body.rowKey); if (!row) return
+    const desc = getSteps(db, body.batchId, body.rowKey).find(st => st.step === 'desc')
+    if (desc?.phase !== 'done') return res.status(409).json({ ok: false, message: '測試說明還沒成功寫入，請回 ③ 重新預覽這一列再送' })
+    let content: RowContent
+    try { content = JSON.parse(row.payload ?? '') as RowContent } catch { return res.status(409).json({ ok: false, message: '找不到上次送出的內容，請回 ③ 重新預覽這一列再送' }) }
+    // desc 已完成，runner 不會再比遠端 hash；這裡給一個不會被用到的值
+    const r = await executeRow(req, ctx, body.batchId, content, { expectedRemoteHash: '0'.repeat(64), confirmedRemoteHash: null, allowRepeat: true })
+    res.status(r.status).json(r.body)
   } catch (e) { next(e) }
 })
 
@@ -218,7 +258,7 @@ function ownedRow(req: Request, res: Response, ctx: Ctx, batchId: string, rowKey
 router.post('/api/meegle/comment/row/candidates', async (req, res, next) => {
   try {
     const ctx = requireLogin(req, res); if (!ctx) return
-    const body = z.object({ batchId: z.string().uuid(), rowKey: z.string().regex(/^\d{5,}$/), step: z.string().regex(/^(comment|review|video:\d+)$/), content: z.string().max(20000).default('') }).parse(req.body)
+    const body = z.object({ batchId: z.string().uuid(), rowKey: z.string().regex(/^\d{5,}$/), step: z.string().regex(/^(comment|review|video:[0-9a-f]+)$/), content: z.string().max(20000).default('') }).parse(req.body)
     const row = ownedRow(req, res, ctx, body.batchId, body.rowKey); if (!row) return
     const step = getSteps(db, body.batchId, body.rowKey).find(s => s.step === body.step)
     if (!step || step.phase !== 'unknown') return res.status(409).json({ ok: false, message: '這一步不是「結果不明」' })
@@ -230,7 +270,8 @@ router.post('/api/meegle/comment/row/candidates', async (req, res, next) => {
     if (list.kind !== 'ok') return res.status(502).json({ ok: false, message: `查不到評論清單（維持待確認）：${list.message}` })
     const candidates = body.step.startsWith('video:')
       ? list.value.filter(c => c.fileUrl && (!id.userKey || c.creator === id.userKey))
-      : commentCandidates(list.value, { creator: id.userKey, sinceMs: since + 120_000, content: body.content })
+      // 正文用送出當下存在後端的那份（重整後前端草稿沒了也查得到——CodeX review 64f53aa [P2]）
+      : commentCandidates(list.value, { creator: id.userKey, sinceMs: since + 120_000, content: typeof stepData(step).content === 'string' ? stepData(step).content as string : body.content })
     res.json({ ok: true, candidates })
   } catch (e) { next(e) }
 })
@@ -239,10 +280,17 @@ router.post('/api/meegle/comment/row/candidates', async (req, res, next) => {
 router.post('/api/meegle/comment/row/resolve', writeLimiter, async (req, res, next) => {
   try {
     const ctx = requireLogin(req, res); if (!ctx) return
-    const body = z.object({ batchId: z.string().uuid(), rowKey: z.string().regex(/^\d{5,}$/), step: z.string().regex(/^(desc|comment|review|video:\d+)$/), outcome: z.enum(['done', 'failed']) }).parse(req.body)
-    if (!ownedRow(req, res, ctx, body.batchId, body.rowKey)) return
+    const body = z.object({ batchId: z.string().uuid(), rowKey: z.string().regex(/^\d{5,}$/), step: z.string().regex(/^(desc|comment|review|writeback|video:[0-9a-f]+)$/), outcome: z.enum(['done', 'failed']) }).parse(req.body)
+    const row = ownedRow(req, res, ctx, body.batchId, body.rowKey); if (!row) return
     if (!resolveUnknownStep(db, body.batchId, body.rowKey, body.step, body.outcome, `${ctx.email} 確認：${body.outcome === 'done' ? '已送出' : '沒有送出'}`)) {
       return res.status(409).json({ ok: false, message: '這一步已經不是「結果不明」' })
+    }
+    if (body.step === 'desc' && body.outcome === 'done') {
+      const id = identityFor(ctx.email, row.as_email)
+      if (!('code' in id)) {
+        const cur = await getDescription(id.token, row.work_item_id)
+        if (cur.kind === 'ok') setSnapshot(db, row.work_item_id, descHash(cur.value), ctx.email)
+      }
     }
     log('ok', getClientIP(req), ctx.email, 'Meegle 評論', `#${body.rowKey} ${body.step} 人工確認為 ${body.outcome}`)
     res.json({ ok: true, steps: publicSteps(getSteps(db, body.batchId, body.rowKey)) })

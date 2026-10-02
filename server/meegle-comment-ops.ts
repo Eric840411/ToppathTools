@@ -98,6 +98,31 @@ export function normalizeDesc(s: string): string {
     .trim()
 }
 
+/**
+ * 「讀回來的是不是我剛送的」用這個比：**只比看得到的文字**，不比 Markdown 格式。
+ *
+ * 2026-10-02 使用者真送兩張全被判「讀回不一致」，實測 Meegle 存檔時會把 Markdown 解析再重新輸出
+ * （server/__fixtures__/meegle-md-sent.txt → meegle-md-back.txt）：清單重新編號、`*`→`-`、子清單縮排改 4 格、
+ * `1)`→`1.`、`__粗__`→`**粗**`、部分換行合併、`<tag>` 被拿掉、引用區塊延續到後面幾行。
+ * 只處理「已知改寫」的 normalizeDesc 追不完這些，所以改成：拿掉清單／標題／引用標記、強調符號、反引號、HTML 標籤、所有空白後比對。
+ * 會忽略的只有格式差異（粗體與否、清單符號、縮排、換行）；字有任何增刪改都比得出來——同時被人改內容仍會判不一致。
+ */
+export function textFingerprint(s: string): string {
+  return s
+    .replace(/\r\n/g, '\n')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/!\[[^\]]*\]\(/g, '![](')          // 圖片替代文字會被 Meegle 拿掉
+    .replace(/<\/?[A-Za-z][^>]*>/g, '')
+    .split('\n')
+    .map(l => l
+      .replace(/^[\s>]*/, '')                  // 引用、縮排
+      .replace(/^#{1,6}\s+/, '')               // 標題
+      .replace(/^(?:[-*+]|\d+[.)])\s+/, ''))   // 清單符號／編號（Meegle 會重新編號）
+    .join('')
+    .replace(/[*_`]/g, '')
+    .replace(/\s+/g, '')
+}
+
 export function descHash(s: string): string {
   return createHash('sha256').update(normalizeDesc(s)).digest('hex')
 }

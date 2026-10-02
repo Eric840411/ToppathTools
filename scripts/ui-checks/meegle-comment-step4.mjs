@@ -31,6 +31,8 @@ await ctx.route('**/api/meegle/comment/row/candidates', async r => { calls.push(
 await ctx.route('**/api/meegle/comment/row/resolve', async r => { const b = r.request().postDataJSON(); calls.push(`resolve:${b.step}:${b.outcome}`); await r.fulfill({ json: { ok: true, steps: [S('desc', 'done'), S('comment', 'done'), S('review', 'skipped'), S('writeback', 'none')] } }) })
 await ctx.route('**/api/meegle/comment/row/writeback', async r => { calls.push('writeback'); await r.fulfill({ json: { ok: true, steps: [S('desc', 'done'), S('comment', 'done'), S('review', 'skipped'), S('writeback', 'done')] } }) })
 await ctx.route('**/api/meegle/comment/finish', r => { calls.push('finish'); return r.fulfill({ json: { ok: true } }) })
+let aiCalls = 0
+await ctx.route('**/api/meegle/comment/ai', async r => { aiCalls++; const b = r.request().postDataJSON(); await r.fulfill({ json: { ok: true, text: '【驗證結果】\n- AI 整理（假）', review: b.review ? '假分析' : null } }) })
 const page = await ctx.newPage()
 const errors = []
 page.on('pageerror', e => errors.push(String(e)))
@@ -49,10 +51,21 @@ for (const mode of ['classic', 'xianxia']) {
   for (const cb of await page.locator('.mb-table tbody input[type=checkbox]').all()) if (!(await cb.isChecked())) await cb.check()
   await page.getByRole('button', { name: '下一步' }).click()
   await page.locator('.mb-field').filter({ hasText: '評論內容欄' }).locator('select').selectOption('備註')
+  const aiBox = page.locator('.mc-switch').filter({ hasText: 'AI 整理測試說明' }).locator('input')
+  if (await aiBox.count()) await aiBox.check()
+  aiCalls = 0
   await page.getByRole('button', { name: '產生預覽' }).click()
-  await page.waitForFunction(() => [...document.querySelectorAll('.mc-dot')].length > 0 && [...document.querySelectorAll('.mc-dot')].every(d => !/讀取中/.test(d.textContent || '')), null, { timeout: 120000 })
+  const settled = () => page.waitForFunction(() => [...document.querySelectorAll('.mc-dot')].length > 0 && [...document.querySelectorAll('.mc-dot')].every(d => !/讀取中|AI/.test(d.textContent || '')), null, { timeout: 120000 })
+  await settled()
+  const firstAi = aiCalls
+  check('進 ③ 每列跑一次 AI', firstAi === 3, String(firstAi))
+  await page.locator('.mc-foot').getByRole('button', { name: '上一步' }).click()
+  await page.getByRole('button', { name: '產生預覽' }).click()
+  await settled()
+  check('上一步再回來：不重跑 AI（使用者 10/02：不要白燒）', aiCalls === firstAi, String(aiCalls))
   await page.getByRole('button', { name: '前往送出' }).click()
-  await page.locator('.mb-result').nth(2).waitFor({ timeout: 30000 })
+  await page.locator('.mb-done-line', { hasText: '處理完成 3 / 3' }).waitFor({ timeout: 60000 })
+  await page.waitForTimeout(500)
   check('④ 三列都送了', calls.filter(c => c.startsWith('row:')).length === 3, calls.join(','))
   check('④ 結束後寫操作紀錄', calls.includes('finish'))
   const tally = await page.locator('.mb-tally').innerText()

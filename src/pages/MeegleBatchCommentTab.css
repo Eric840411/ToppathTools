@@ -90,3 +90,4 @@
 :root[data-theme-mode="xianxia"] .mc-list,
 :root[data-theme-mode="xianxia"] .mc-ai { border-color: rgba(201, 168, 92, .35); }
 :root[data-theme-mode="xianxia"] .mc-overwrite { background: rgba(192, 64, 64, .16); border-color: rgba(214, 104, 92, .65); }
+.mc-att-error { flex-direction: column; gap: 6px; }
