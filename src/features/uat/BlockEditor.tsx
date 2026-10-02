@@ -74,7 +74,7 @@ function nudge(tree: AutoStep[], parentId: string | null, id: string, delta: num
  * 一致——不一致的症狀是「畫面沒標紅、按執行才被擋」，或更糟的反過來。
  * 後端才是說了算的那一份；這裡只是提早顯示。
  */
-const TC_REQUIRED_ACTIONS = new Set(['assert_visible', 'assert_api_called', 'find_baseline_scroll', 'screenshot', 'assert_pc_scene', 'assert_pc_node', 'assert_ws_called', 'assert_text', 'assert_compare', 'assert_row_match', 'assert_video_playing'])
+const TC_REQUIRED_ACTIONS = new Set(['assert_visible', 'assert_api_called', 'find_baseline_scroll', 'screenshot', 'assert_pc_scene', 'assert_pc_node', 'assert_ws_called', 'assert_text', 'assert_compare', 'assert_row_match', 'assert_video_playing', 'read_value'])
 export function needsTc(action: string) { return TC_REQUIRED_ACTIONS.has(action) }
 
 function StepList({ items, parentId, selectedId, onSelect, onChange, tree, xianxia, labelFor, tcLabel }: {

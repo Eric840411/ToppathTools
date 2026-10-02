@@ -62,3 +62,20 @@ if (closure.status !== 0) {
   console.error('[build:server] 請把上面列出的檔案加進 server/routes/machine-test.ts 的 AGENT_SOURCE_WHITELIST。')
   process.exit(1)
 }
+
+/**
+ * 「哪些積木一定要指定所屬 TC」前後端一致——同樣是**守門早就存在、沒人記得跑**。
+ *
+ * v4.244.0 加的 read_value（category 'read'）後端會擋、編輯器卻不標紅，
+ * 2026-10-02 才被發現：畫面看起來沒問題，按執行才被「請指定所屬 TC」擋下來。
+ */
+const tsxBin = join('node_modules', '.bin', process.platform === 'win32' ? 'tsx.cmd' : 'tsx')
+const parity = spawnSync(tsxBin, [join('scripts', 'ui-checks', 'uat-tc-ownership-parity.test.ts')], {
+  cwd: root, encoding: 'utf8', shell: process.platform === 'win32',
+})
+if (parity.status !== 0) {
+  process.stdout.write(parity.stdout || '')
+  process.stderr.write(parity.stderr || '')
+  console.error('[build:server] BlockEditor.tsx 的 TC_REQUIRED_ACTIONS 跟 frontend-tc-engine.js 的積木分類對不上。')
+  process.exit(1)
+}
