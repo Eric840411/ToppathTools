@@ -2,6 +2,7 @@
  * server/routes/permissions.ts
  * Account management and role-permission matrix (admin only).
  */
+import { DELEGATION_SCOPE_KEYS } from '../../shared/delegation-scopes.js'
 import { Router, type Request, type Response, type NextFunction } from 'express'
 import { z } from 'zod'
 import {
@@ -241,7 +242,7 @@ router.post('/api/admin/jira-delegates', requireAdmin, writeLimiter, (req, res) 
   const parsed = z.object({
     actorEmail: z.string().min(1),
     targetEmail: z.string().min(1),
-    scope: z.enum(['jira.comment.batch', 'jira.read.asOther']).default('jira.comment.batch'),
+    scope: z.enum(DELEGATION_SCOPE_KEYS).default('jira.comment.batch'),
     /** 到期時間（毫秒 epoch）。不給＝長期有效，需要時再手動撤銷。 */
     expiresAt: z.number().int().positive().nullable().optional(),
   }).safeParse(req.body)

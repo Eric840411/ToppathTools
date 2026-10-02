@@ -27,6 +27,10 @@ if (tabId === 'jira') return permissions.includes('jira-qa')
 
 > 已驗證 7 項（`scripts/ui-checks/jira-perm-merge-check.mjs`，跑完會完整還原 role_permissions）：合併結果等於三個舊 key 的 OR｜**PM 沒有被誤撤權限**｜重跑兩次不重複插入｜**手動調整過的 `jira` 列不被 migration 推翻**｜舊 key 資料仍保留。
 
+# 代理授權用途共用清單（2026-10-02，v4.270.2）
+
+用途（scope）清單在 `shared/delegation-scopes.ts`，授權頁選項、表格標籤、後端 zod 白名單都從這裡來。新增 `meegle.comment.batch`（Meegle 批量評論：用他綁定的 Meegle 帳號覆寫測試說明＋上傳附件＋評論）。**每種用途獨立，不互相繼承**——同表 `jira_account_delegates` 只是共用存放與 `hasJiraDelegation()` 的四個有效條件。
+
 # 批量評論預覽表的「填寫人」欄（2026-08-21，v4.17.0）
 
 批量評論 Step 3 的預覽表每一列多一欄「填寫人（以誰的身分送出）」，顯示這一列實際會用哪個帳號張貼，並可用下拉**逐列調整**。三條規則：

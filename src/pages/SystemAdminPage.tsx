@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { DELEGATION_SCOPES, delegationScopeShort, type DelegationScope } from '../../shared/delegation-scopes'
 import { MeegleIdentityOverridesPanel } from '../components/MeegleIdentityOverridesPanel'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -107,7 +108,7 @@ export function SystemAdminPage() {
   // 用途（scope）原本寫死成 'jira.comment.batch'，所以畫面上根本開不出「跨帳號讀取」那種授權——
   // 但週報的 Jira 撈單要的正是後者。表格那邊早就會顯示兩種用途了，只有新增這邊漏掉（2026-08-27
   // 使用者實際去開授權才發現：開好了、狀態也是有效，但用途不對所以撈單還是被擋）。
-  const [delScope, setDelScope] = useState<'jira.comment.batch' | 'jira.read.asOther'>('jira.comment.batch')
+  const [delScope, setDelScope] = useState<DelegationScope>('jira.comment.batch')
   const [delMsg, setDelMsg] = useState('')
   const [cultivationInfo, setCultivationInfo] = useState<{ level: string; activeDays: number } | null>(null)
   const [cultivationDaysInput, setCultivationDaysInput] = useState(0)
@@ -742,10 +743,11 @@ export function SystemAdminPage() {
 
           {/* Jira 代理張貼授權 */}
           <div style={{ borderTop: '1px solid #2d3f55', marginTop: 24, paddingTop: 20 }}>
-            <h3 style={{ fontSize: 15, fontWeight: 600, color: '#e2e8f0', margin: '0 0 4px' }}>Jira 代理張貼授權</h3>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: '#e2e8f0', margin: '0 0 4px' }}>代理張貼授權（Jira／Meegle）</h3>
             <p style={{ fontSize: 12, color: '#94a3b8', margin: '0 0 14px' }}>
-              指定「誰可以用誰的身分做事」。<b>兩種用途是分開的，開了一種不會涵蓋另一種</b>——
-              「批量評論」是<b>寫入</b>（用他的身分張貼留言），「跨帳號讀取」是<b>讀取</b>（週報撈他的 Jira 單）。<br />
+              指定「誰可以用誰的身分做事」。<b>每種用途是分開的，開了一種不會涵蓋另一種</b>——
+              「批量評論」是<b>寫入</b>（用他的身分張貼 Jira 留言），「跨帳號讀取」是<b>讀取</b>（週報撈他的 Jira 單），
+              「Meegle 批量評論」是用他綁定的 Meegle 帳號<b>覆寫測試說明、上傳附件、留評論</b>（他要先在個人帳號綁 Meegle）。<br />
               被授權的人在批量評論會多出「以誰的身分送出」下拉；
               Jira 上只會顯示被代理的帳號，系統內部的操作紀錄仍會記下實際操作者。撤銷後保留紀錄可查。
             </p>
@@ -760,10 +762,9 @@ export function SystemAdminPage() {
                 {accounts.map(a => <option key={a.email} value={a.email}>{a.label}</option>)}
               </select>
               <span style={{ color: '#64748b', fontSize: 12 }}>用途</span>
-              <select style={{ ...inputStyle, width: 190, margin: 0 }} value={delScope}
+              <select style={{ ...inputStyle, minWidth: 190, width: "auto", margin: 0 }} value={delScope}
                 onChange={e => setDelScope(e.target.value as typeof delScope)}>
-                <option value="jira.comment.batch">批量評論（用他的身分張貼）</option>
-                <option value="jira.read.asOther">跨帳號讀取（週報撈單用）</option>
+                {DELEGATION_SCOPES.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
               </select>
               <button type="button" style={btnPrimary} onClick={addDelegate}>新增授權</button>
               {delMsg && <span style={{ fontSize: 12, color: delMsg.startsWith('通過') ? '#4ade80' : '#f87171' }}>{delMsg}</span>}
@@ -786,7 +787,7 @@ export function SystemAdminPage() {
                     <tr key={d.id}>
                       <td style={tdLeft}>{d.actor_email}</td>
                       <td style={tdLeft}>{d.target_email}</td>
-                      <td style={{ ...td, fontSize: 11, color: '#94a3b8' }}>{d.scope === 'jira.comment.batch' ? '批量評論' : '跨帳號讀取'}</td>
+                      <td style={{ ...td, fontSize: 11, color: '#94a3b8' }}>{delegationScopeShort(d.scope)}</td>
                       <td style={{ ...td, fontSize: 11, color: active ? '#4ade80' : '#94a3b8' }}>
                         {active ? '有效' : d.revoked_at ? '已撤銷' : expired ? '已過期' : '停用'}
                       </td>

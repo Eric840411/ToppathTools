@@ -2,6 +2,7 @@
  * server/shared.ts
  * Shared utilities, DB instance, helpers, and types used across all route files.
  */
+import type { DelegationScope } from '../shared/delegation-scopes.js'
 import Bottleneck from 'bottleneck'
 import { createHash, createHmac, createSign, randomBytes, timingSafeEqual, randomUUID } from 'crypto'
 import Database from 'better-sqlite3'
@@ -2779,7 +2780,8 @@ export function authEmailFromRequest(req: express.Request): string | null {
 
 /** 代理授權的用途分類。寫入與讀取刻意分成兩個 scope——有人可以幫忙代發評論，不代表可以拿別人的
  *  token 讀他看得到的所有單子，反之亦然。 */
-export type JiraDelegationScope = 'jira.comment.batch' | 'jira.read.asOther'
+// 用途清單在 shared/delegation-scopes.ts（前後端共用一份）；名字保留 JiraDelegationScope 是為了不動既有呼叫端
+export type JiraDelegationScope = DelegationScope
 
 /** 代理關係是否「現在有效」。四個條件集中在這裡，不要散到各個 route 各判一次（CodeX review 建議）。 */
 export function hasJiraDelegation(actorEmail: string, targetEmail: string, scope: JiraDelegationScope): boolean {
