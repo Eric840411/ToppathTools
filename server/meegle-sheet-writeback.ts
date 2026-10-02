@@ -149,13 +149,14 @@ export function larkWritebackDeps(): WritebackDeps {
   return {
     async readRowNames(sheetKey, rowIndex) {
       // integrations 很重，用到才載入
-      const { resolveSheetHeaders, colIndexToLetter } = await import('./routes/integrations.js')
+      const { resolveSheetHeaders, colIndexToLetter, normalizeColName } = await import('./routes/integrations.js')
       const { getLarkToken } = await import('./shared.js')
       const [, spreadsheetToken, sheetId] = sheetKey.split(':')
       const token = await getLarkToken()
       const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
       const { headerCandidates } = await resolveSheetHeaders(base, token, spreadsheetToken, sheetId)
-      const idx = (name: string) => headerCandidates.findIndex(c => c.some(h => h.trim() === name))
+      // 欄名比對跟寫入 helper 用同一支 normalizeColName——各寫一套的話讀寫會認到不同欄（CodeX review 0e11d3a）
+      const idx = (name: string) => headerCandidates.findIndex(c => c.some(h => normalizeColName(h) === normalizeColName(name)))
       const read = async (i: number) => {
         if (i < 0) return ''
         const L = colIndexToLetter(i)
@@ -169,7 +170,7 @@ export function larkWritebackDeps(): WritebackDeps {
       }
       const si = idx('摘要'), ti = idx('標題')
       if (si < 0 && ti < 0) return null
-      const pi = headerCandidates.findIndex(c => c.some(h => h.replace(/[\s↓]+/g, '') === '單子標題貼這'))
+      const pi = idx(WB_COLUMNS.title)
       return { summary: await read(si), title: await read(ti), pasted: await read(pi) }
     },
     async writeRow(sheetKey, rowIndex, columns) {

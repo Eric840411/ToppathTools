@@ -862,7 +862,8 @@ export async function resolveSheetHeaders(base: string, token: string, spreadshe
   return { headerCandidates, nextAppendColIdx: lastNonEmpty + 1 }
 }
 
-const normalizeColName = (s: string) => s.replace(/[\s\n↓↑→←]+/g, '').toLowerCase()
+/** 欄名正規化（忽略空白、換行、箭頭、大小寫）。回填讀表頭也要用這一支——讀寫各自比對的話，「單子標題貼這→」讀的時候找不到、寫的時候找得到（CodeX review 0e11d3a） */
+export const normalizeColName = (s: string) => s.replace(/[\s\n↓↑→←]+/g, '').toLowerCase()
 
 /**
  * 批次版的多欄回寫：用 Lark `values_batch_update` 一次送多個 range。
