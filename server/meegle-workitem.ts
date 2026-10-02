@@ -39,7 +39,7 @@ export const MEEGLE_ROLES = [
 export type MeegleRoleKey = typeof MEEGLE_ROLES[number]['key']
 
 export type Runner = (args: string[], token: string) => Promise<CliResult>
-const defaultRunner: Runner = (args, token) => runMeegle(args, token, { timeoutMs: 45_000 })
+export const defaultRunner: Runner = (args, token) => runMeegle(args, token, { timeoutMs: 45_000 })
 
 /** 呼叫結果分三類：成功、確定失敗（伺服器明確拒絕，沒有副作用）、結果不明（逾時、連不上）。 */
 export type CallOutcome<T> =
@@ -80,7 +80,7 @@ function cleanMessage(m: string): string {
   return m.replace(/\nlogid:.*$/s, '').replace(/,retriable=(true|false)/i, '').trim()
 }
 
-async function call(runner: Runner, args: string[], token: string): Promise<CallOutcome<unknown>> {
+export async function call(runner: Runner, args: string[], token: string): Promise<CallOutcome<unknown>> {
   try {
     return interpretCli(await runner([...args, '--format', 'json'], token))
   } catch (e) {

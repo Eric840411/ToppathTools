@@ -29,7 +29,8 @@ import {
   matchAccountsByPersonName,
   hasJiraDelegation,
 } from '../shared.js'
-import { callLLM, readGeminiPrompts, renderPrompt } from './gemini.js'
+import { callLLM } from './gemini.js'
+import { buildCompletenessPrompt, buildSpecContext, formatCommentWithAI } from '../comment-ai.js'
 import { multiWritebackLark, multiWritebackLarkBatch, type MultiWrite } from './integrations.js'
 import { getAuthAccount } from '../auth-session.js'
 import { withRequestOperation } from '../request-context.js'
@@ -325,18 +326,6 @@ async function transitionIssueToStatus(baseUrl: string, auth: string, issueKey: 
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-interface CommentContext {
-  rawText: string
-  promptId?: string
-  environment?: string
-  version?: string
-  platform?: string
-  machineId?: string
-  gameMode?: string
-  specContext?: string
-  modelSpec?: string
-}
-
 /** 遞歸抽取 Atlassian Document Format (ADF) 純文字 */
 export function extractAdfText(node: unknown): string {
   if (!node || typeof node !== 'object') return ''
@@ -461,34 +450,8 @@ async function downloadGoogleDriveFile(fileId: string): Promise<DownloadedFile> 
   return downloadToCache(resp, `gdrive_${fileId}`, 'application/octet-stream')
 }
 
-const formatCommentWithGemini = async (ctx: CommentContext): Promise<string> => {
-  const { rawText, promptId, environment = '', version = '', platform = '', machineId = '', gameMode = '', specContext = '', modelSpec } = ctx
-
-  const envBlock = [
-    `測試環境：${environment || '未指定'}`,
-    `版本號：${version || '未指定'}`,
-    `測試平台：${platform || '未指定'}`,
-    machineId ? `機台編號：${machineId}` : '',
-    gameMode ? `遊戲模式：${gameMode}` : '',
-  ].filter(Boolean).join('\n')
-
-  const prompts = readGeminiPrompts()
-  const tpl = (promptId ? prompts.find(p => p.id === promptId) : null) ?? prompts.find(p => p.id === 'default') ?? prompts[0]
-  if (!tpl) throw new Error('找不到可用的 Prompt 模板')
-
-  const prompt = renderPrompt(tpl.template, {
-    rawText,
-    envBlock,
-    environment: environment || '未指定',
-    version: version || '未指定',
-    platform: platform || '未指定',
-    machineId: machineId || '',
-    gameMode: gameMode || '',
-    specContext: specContext || '',
-  })
-
-  return callLLM(prompt, modelSpec)
-}
+// 排版與完整性分析的 prompt 在 server/comment-ai.ts（Meegle 批量評論共用同一份）
+const formatCommentWithGemini = formatCommentWithAI
 
 /** 從 Gemini 回傳中抽取第一個 JSON 物件或陣列 */
 function extractJsonBlock(raw: string): string {
@@ -2298,23 +2261,13 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
       let stoppedByAi: string | null = null
 
       // 組合知識庫內容 + 手動 specContext
-      let effectiveSpecContext = body.specContext ?? ''
-      if (body.knowledgeDocIds && body.knowledgeDocIds.length > 0) {
-        const parts: string[] = []
-        for (const docId of body.knowledgeDocIds) {
-          const doc = db.prepare('SELECT name, content_cache FROM knowledge_docs WHERE id = ?').get(docId) as { name: string; content_cache: string | null } | undefined
-          if (doc?.content_cache) {
-            parts.push(`=== 知識庫：${doc.name} ===\n${doc.content_cache.slice(0, 12000)}`)
-          }
-        }
-        if (parts.length > 0) {
-          const kbBlock = parts.join('\n\n')
-          effectiveSpecContext = effectiveSpecContext.trim()
-            ? `${kbBlock}\n\n=== 補充說明 ===\n${effectiveSpecContext}`
-            : kbBlock
-          console.log(`[batch-comment] 已注入知識庫 ${parts.length} 份文件，共 ${kbBlock.length} 字`)
-        }
-      }
+      // 組法在 server/comment-ai.ts（Meegle 批量評論共用同一份）
+      const kbDocs = (body.knowledgeDocIds ?? [])
+        .map(docId => db.prepare('SELECT name, content_cache FROM knowledge_docs WHERE id = ?').get(docId) as { name: string; content_cache: string | null } | undefined)
+        .filter((d): d is { name: string; content_cache: string } => !!d?.content_cache)
+        .map(d => ({ name: d.name, content: d.content_cache }))
+      const effectiveSpecContext = buildSpecContext(kbDocs, body.specContext ?? '')
+      if (kbDocs.length) console.log(`[batch-comment] 已注入知識庫 ${kbDocs.length} 份文件，共 ${effectiveSpecContext.length} 字`)
 
       const total = body.comments.length
 
@@ -2496,23 +2449,7 @@ router.post('/api/jira/batch-comment', async (req, res, next) => {
               try {
                 const summary = item.issueSummary?.trim() || '（無摘要）'
                 const description = item.issueDescription?.trim() || '（無描述）'
-                const analysisPrompt = `你是 QA 評審員，請分析以下測試評論的完整性。
-
-【Issue 摘要】
-${summary}
-
-【Issue 描述】
-${description}
-
-【測試者評論】
-${commentText}
-
-請用繁體中文，以三點條列方式回覆：
-1️⃣ **已涵蓋的重點**：評論中已說明清楚的部分
-2️⃣ **可能遺漏或不足之處**：對照規格和評論格式要求，尚未說明或需補充的地方
-3️⃣ **整體評估**：完整性評分 X/10，以及改善建議
-
-格式簡潔，每點 2-3 句即可。`
+                const analysisPrompt = buildCompletenessPrompt(summary, description, commentText)
                 console.log(`[batch-comment] ${item.issueKey} 發送 AI 分析評論...`)
                 const analysisText = await withRequestOperation(
                   `Jira AI 分析評論（${item.issueKey}）`,

@@ -397,3 +397,23 @@ runner 回報 exit code、agent 回 `backend_uat_done`、本機 child 結束、�
 而 session 沒有匯出。所以那一段是**接線檢查**——讀原始碼確認兩條斷線路徑都帶
 `false`、放鎖那行確實包在 `if (confirmedStopped)` 裡。**它驗的是接線不是執行結果**，
 檔案裡已標明，不要當成「跑過一次斷線」。
+
+## 2026-10-02 Meegle 批量評論：AI 在③預覽時跑，不在送出時跑
+
+**決定**：Meegle 批量評論的「AI 排版」「AI 完整性分析」在③逐列預覽時就呼叫（`POST /api/meegle/comment/ai`），
+送出的是使用者最後看到、可手改的內容；**送出時不再跑 AI**。Jira 批量評論維持原本「送出時在後端改寫」，兩邊時機不同。
+
+**為什麼**：Meegle 版有預覽步驟，內容要整格覆寫「測試說明」——送出時才改寫，等於使用者沒看過就覆蓋。
+（使用者選 B、CodeX 同意，2026-10-02。）
+
+**共用與不共用**：排版 prompt、完整性分析 prompt、知識庫組法在 `server/comment-ai.ts` 一份（Jira 那邊已改成呼叫它，
+抽出前後用原文逐字比對過一致）；平台格式（Jira wiki markup／Meegle Markdown）各自處理。
+
+**規則（CodeX）**：預覽 API 依登入 session 分驗 jira-ai-format／jira-ai-review；先排版再分析排版結果；
+手改正文後舊分析標「需重新分析」，晚回的舊 AI 結果不能蓋新稿；AI 失敗明示，不默默當成功。
+
+## 2026-10-02 Meegle 批量評論：覆寫測試說明擋不住「讀完到寫入之間」的修改
+
+**限制（記錄在案，不是已解決）**：Meegle 的 `workitem update` 沒有條件式更新（沒有 if-match／版本號）。
+我們做了：預覽時讀、送出前再讀一次比 hash、寫完讀回比對（不一致標待確認、不更新基準）——
+但**送出前那次讀完、到 update 送達之間**別人改的內容仍會被蓋掉。這個空窗在 Meegle API 提供條件式更新前無法關閉。

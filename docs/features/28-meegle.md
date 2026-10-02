@@ -182,3 +182,34 @@
 ### 單子網址要自己組（v4.269.1）
 
 CLI `workitem create` 回傳的 `url` 是 `https://project.larksuite.com/{project_key}/{type_key}/detail/{id}`，**點開不會跳到那張單**（使用者 2026-10-02 實測）。Meegle 網頁認的是 `/{空間 simple_name}/{類型 api_name}/detail/{id}`（測試空間＝`/3kvkm7/task_normal/`）。`simple_name` 從 `project search --project-key` 取、`api_name` 從 `workitem meta-types` 取（`resolveDetailUrlBase`，成功才快取）。查不到時網址存空字串——畫面與 Sheet 顯示「#單號」純文字，**不退回 CLI 的壞網址**（壞連結看起來正常、點了才發現）。v4.263～4.269.0 開的 3 張單已用 `scripts/meegle-fix-detail-urls.ts` 修正（DB、操作紀錄、Sheet force 重寫）。
+
+## 28c. Meegle 批量評論（Jira 頁「Meegle 評論」分頁，v4.270.3 後端／v4.271.0 分頁）
+
+取代 Jira 批量評論，**Sheet 不用改**（使用者：無痛轉移）。Jira 評論要求的五區塊【功能目的】【前置條件】【測試步驟】【說明與備註】【驗證結果】
+正好是 Meegle 任務項「測試頁 → 測試說明」（field_89ff93）的範本，所以「評論內容欄」整格寫進測試說明（使用者選：整格換掉）。
+
+**每列送出做的事**（`server/meegle-comment-run.ts`，順序固定，前一步沒成功就停在那一列）：
+1. 覆寫測試說明：送出前讀現況 → 跟預覽看到的 hash 不同就停；被人改過（有基準且不同）而沒在預覽確認就停 → 圖片傳成富文本圖片（resource-type 16）嵌在最後 → 寫入 → **讀回比對**（只做 Meegle 已知改寫的正規化：空行、圖片 uuid 註解）一致才更新基準
+2. 評論（使用者要 Comments 也留一則）
+3. 每支影片各一則評論附件（resource-type 13）——實測評論帶附件會拆成兩則、兩個 file-token 只生效一個
+4. AI 完整性分析（有開才做，沒開記 skipped）
+5. 全部成功才回填 Sheet「處理階段＝添加評論」＋處理時間；寫之前讀那一列的「Meegle 單號」，第一個字不是這張單就不寫
+
+**防重送**（`server/meegle-comment-store.ts`）：每步 none → creating → done／failed／unknown。creating／unknown 一律擋（含跨批次，認領在 IMMEDIATE 交易）。
+評論不回 comment_id、HTML 註解會被剝掉（藏不了標記）→ 結果不明時只列「候選評論」（同建立者＋時間之後＋內文相同）**讓人確認**，絕不自動判成功或重送。
+跨批次已 comment=done 視為已評論，要再送一輪必須明確勾選。列鍵＝Meegle 單號＋Sheet 來源鍵（不靠列號）；同 Sheet 兩列指同單在預覽就擋。
+
+**覆寫判斷**（使用者選 B）：empty（空白／純範本）、same（跟上次工具寫入讀回值相同）→ 直接覆寫；changed（有基準且不同）→ 預覽顯示原文／新版、要確認；
+has-content（沒有基準、有內容）→ 只標「已有內容」，不宣稱被改過、不強制確認。確認綁定當下的遠端 hash，送出前後端再比。
+
+**身分**：可用「填寫人」身分送出：對方綁了 Meegle（綁定有效）＋操作者有 `meegle.comment.batch` 代理授權（獨立權限，不繼承 Jira）。每列送出前後端重驗。
+
+**AI**：③預覽時跑（決策紀錄見 docs/decisions.md），prompt 與 Jira 版共用 `server/comment-ai.ts`。
+
+**API**：`/api/meegle/comment/` identities、remote、ai、previous、row、row/candidates、row/resolve、row/writeback、finish（操作紀錄 feature＝`meegle-batch-comment`）。
+
+**已知限制**：Meegle 沒有條件式更新，送出前最後一次讀到寫入之間被改的內容會被蓋掉（docs/decisions.md）。
+
+| 操作 | 說明 |
+|---|---|
+| 測試 | `npx tsx server/meegle-comment-ops.test.ts`（37）、`meegle-comment-store.test.ts`（30）、`meegle-comment-run.test.ts`（30），安全規則逐條拿掉都會紅 |

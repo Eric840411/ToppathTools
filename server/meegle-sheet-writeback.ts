@@ -44,11 +44,11 @@ export function rowNameFromCells(c: { summary: string; title: string }): string 
   return normName(c.summary) || normName(c.title)
 }
 
-const fmtTime = (ms: number) => new Date(ms).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })
+export const fmtTime = (ms: number) => new Date(ms).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })
 
 /** 每份 Sheet 一條佇列：同一份 Sheet 的回填一個接一個，不同 Sheet 互不影響 */
 const queues = new Map<string, Promise<unknown>>()
-function withSheetLock<T>(sheetKey: string, fn: () => Promise<T>): Promise<T> {
+export function withSheetLock<T>(sheetKey: string, fn: () => Promise<T>): Promise<T> {
   const prev = queues.get(sheetKey) ?? Promise.resolve()
   const next = prev.catch(() => {}).then(fn)
   queues.set(sheetKey, next.catch(() => {}))
@@ -143,6 +143,33 @@ function cellText(c: unknown): string {
   if (Array.isArray(c)) return c.map(x => (x && typeof x === 'object' && 'text' in x ? String((x as { text?: unknown }).text ?? '') : '')).join('')
   if (typeof c === 'object' && 'text' in (c as object)) return String((c as { text?: unknown }).text ?? '')
   return ''
+}
+
+/**
+ * 讀某一列的幾個欄位（依欄名找欄，FormattedValue）。欄名都找不到回 null；個別找不到的欄回空字串。
+ * 給 Meegle 批量評論回填前核對「這一列的 Meegle 單號還是不是這張單」用。
+ */
+export async function larkReadRowCells(sheetKey: string, rowIndex: number, names: string[]): Promise<Record<string, string> | null> {
+  const { resolveSheetHeaders, colIndexToLetter, normalizeColName } = await import('./routes/integrations.js')
+  const { getLarkToken } = await import('./shared.js')
+  const [, spreadsheetToken, sheetId] = sheetKey.split(':')
+  const token = await getLarkToken()
+  const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
+  const { headerCandidates } = await resolveSheetHeaders(base, token, spreadsheetToken, sheetId)
+  const idxs = names.map(name => headerCandidates.findIndex(c => c.some(h => normalizeColName(h) === normalizeColName(name))))
+  if (idxs.every(i => i < 0)) return null
+  const out: Record<string, string> = {}
+  for (let k = 0; k < names.length; k++) {
+    const i = idxs[k]
+    if (i < 0) { out[names[k]] = ''; continue }
+    const L = colIndexToLetter(i)
+    const range = sheetId ? `${sheetId}!${L}${rowIndex}:${L}${rowIndex}` : `${L}${rowIndex}:${L}${rowIndex}`
+    const resp = await fetch(`${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${range}?valueRenderOption=FormattedValue`, { headers: { Authorization: `Bearer ${token}` } })
+    const j = await resp.json() as { code?: number; msg?: string; data?: { valueRange?: { values?: unknown[][] } } }
+    if (!resp.ok || j.code !== 0) throw new Error(`Lark 讀取失敗：HTTP ${resp.status} code ${j.code} ${j.msg ?? ''}`)
+    out[names[k]] = cellText(j.data?.valueRange?.values?.[0]?.[0])
+  }
+  return out
 }
 
 export function larkWritebackDeps(): WritebackDeps {
