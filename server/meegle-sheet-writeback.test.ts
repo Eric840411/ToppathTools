@@ -46,6 +46,7 @@ eq('名稱缺時用 key', writebackStageText({ target_state: 'BAOjDk8Pv', target
   eq('寫在開單時的那一列', writes[0].rowIndex, 5)
   eq('單號是超連結（richtext segments；url 型別會被 Lark 拒絕）', writes[0].columns['Meegle 單號'], { type: 'richtext', segments: [{ text: '#15191459', link: 'https://meegle/x/15191459' }] })
   eq('處理階段', writes[0].columns['處理階段'], '已開單（Meegle）')
+  eq('單子標題貼這：跟 Jira 同格式（單號超連結＋換行＋任務名稱）', writes[0].columns['單子標題貼這'], { type: 'richtext', segments: [{ text: '#15191459', link: 'https://meegle/x/15191459' }, { text: '\n修正登入驗證失敗' }] })
   eq('已經 done 再呼叫 → 跳過不重寫', (await writebackRow(db, 'B', '5', deps)).phase, 'skipped')
   eq('補寫回（force）會再寫一次', [(await writebackRow(db, 'B', '5', deps, { force: true })).phase, writes.length], ['done', 2])
 }

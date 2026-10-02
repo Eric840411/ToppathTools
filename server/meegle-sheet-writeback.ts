@@ -20,7 +20,8 @@ import { finishWriteback, getBatchRow, writebackStageText, type BatchRow } from 
 
 type DB = Database.Database
 
-export const WB_COLUMNS = { id: 'Meegle 單號', stage: '處理階段', time: '處理時間' } as const
+/** 回填的欄位。「單子標題貼這」跟 Jira 回填同格式（使用者要求）：單號超連結＋換行＋任務名稱；欄名比對會忽略空白與 ↓ */
+export const WB_COLUMNS = { id: 'Meegle 單號', stage: '處理階段', time: '處理時間', title: '單子標題貼這' } as const
 
 /** 超連結一定要用 richtext 的 segments 形式——{ type:'url', text, link } 會被 Lark 拒絕（實測 code 90204 invalid cell type） */
 export type SheetCell = string | { type: 'richtext'; segments: Array<{ text: string; link?: string }> }
@@ -86,6 +87,8 @@ export async function writebackRow(db: DB, batchId: string, rowKey: string, deps
       [WB_COLUMNS.id]: row.url ? { type: 'richtext', segments: [{ text: `#${row.work_item_id}`, link: row.url }] } : `#${row.work_item_id}`,
       [WB_COLUMNS.stage]: writebackStageText(row),
       [WB_COLUMNS.time]: fmtTime(now),
+      // 跟 Jira 回填（routes/jira.ts）同一個格式：第一段是單號超連結，第二段換行接任務名稱
+      [WB_COLUMNS.title]: { type: 'richtext', segments: [row.url ? { text: `#${row.work_item_id}`, link: row.url } : { text: `#${row.work_item_id}` }, { text: `\n${normName(row.name)}` }] },
     }
     let r: { ok: boolean; error?: string }
     try { r = await deps.writeRow(row.sheet_url, rowIndex, columns) } catch (e) { r = { ok: false, error: (e as Error).message } }
