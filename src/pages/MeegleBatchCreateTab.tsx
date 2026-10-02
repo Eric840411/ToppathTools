@@ -599,7 +599,9 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
                       <div className="mb-result-sub">
                         {res.workItemId ? (res.url ? <a href={res.url} target="_blank" rel="noreferrer">#{res.workItemId}</a> : `#${res.workItemId}`) : `第 ${idx} 列`}
                         <span className={`mb-badge mb-badge--${label.tone}`}>{label.text}</span>
-                        {res.createPhase === 'created' && res.writebackPhase === 'done' && <span className="mb-wb mb-wb--done">已寫回 Sheet</span>}
+                        {res.createPhase === 'created' && res.writebackPhase === 'done' && (res.writebackMsg
+                          ? <span className="mb-wb mb-wb--pending" title={res.writebackMsg}>已寫回 Sheet（{res.writebackMsg}）</span>
+                          : <span className="mb-wb mb-wb--done">已寫回 Sheet</span>)}
                         {res.createPhase === 'created' && res.writebackPhase === 'pending' && <span className="mb-wb mb-wb--pending">待寫回 Sheet</span>}
                         {res.createPhase === 'created' && res.writebackPhase === 'failed' && <span className="mb-wb mb-wb--bad" title={res.writebackMsg ?? ''}>回填失敗：{res.writebackMsg}</span>}
                         {(rowNote[idx] || res.message) && <span className="mb-msg">{rowNote[idx] || res.message}</span>}

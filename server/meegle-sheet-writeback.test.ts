@@ -21,7 +21,7 @@ function setup(name = '修正登入驗證失敗', target = '', targetName = '') 
   finishCreate(db, 'B', '5', { phase: 'created', workItemId: '15191459', url: 'https://meegle/x/15191459' }, 2000)
   return db
 }
-function fakeDeps(rowOnSheet: { summary: string; title: string } | null, writeResult = { ok: true } as { ok: boolean; error?: string }) {
+function fakeDeps(rowOnSheet: { summary: string; title: string; pasted?: string } | null, writeResult = { ok: true } as { ok: boolean; error?: string }) {
   const writes: Array<{ rowIndex: number; columns: Record<string, SheetCell> }> = []
   const deps: WritebackDeps = {
     readRowNames: async () => rowOnSheet,
@@ -132,6 +132,41 @@ eq('名稱正規化', normName('  a\r\nb   c '), 'a b c')
   const withExisting = [...near.slice(0, 5), ['處理階段'], ['處理時間']]
   eq('已存在的欄位用原位置、只新建缺的', planColumns(withExisting, 7, names), { ok: true, idx: { 'Meegle 單號': 7, '處理階段': 5, '處理時間': 6 } })
   eq('欄名比對忽略空白與箭頭（跟 helper 一致）', (planColumns([['處理 階段↓']], 1, ['處理階段']) as { idx: Record<string, number> }).idx['處理階段'], 0)
+}
+
+// ── CodeX review 15ba814：「單子標題貼這」已有別張單時不覆蓋 ──
+{
+  const db = setup()
+  const { deps, writes } = fakeDeps({ summary: '修正登入驗證失敗', title: '', pasted: 'CGFB-50\nFree Bet Record頁面內 缺少文字' })
+  const r = await writebackRow(db, 'B', '5', deps)
+  eq('已有 Jira 單 → 其他欄照寫、標 done', [r.phase, getBatchRow(db, 'B', '5')?.writeback_phase], ['done', 'done'])
+  eq('單子標題貼這不寫（保留 Jira 原值）', 'Meegle 單號' in writes[0].columns && !('單子標題貼這' in writes[0].columns), true)
+  eq('留下附註說明為什麼沒寫', getBatchRow(db, 'B', '5')?.writeback_msg?.includes('CGFB-50'), true)
+}
+{
+  const db = setup()
+  const { deps, writes } = fakeDeps({ summary: '修正登入驗證失敗', title: '', pasted: '#15191459\n修正登入驗證失敗' })
+  await writebackRow(db, 'B', '5', deps)
+  eq('本來就是同一張 Meegle 單（補寫回）→ 照寫', '單子標題貼這' in writes[0].columns, true)
+}
+{
+  const db = setup()
+  const { deps, writes } = fakeDeps({ summary: '修正登入驗證失敗', title: '', pasted: '   ' })
+  await writebackRow(db, 'B', '5', deps)
+  eq('空白 → 照寫', ['單子標題貼這' in writes[0].columns, getBatchRow(db, 'B', '5')?.writeback_msg], [true, null])
+}
+{
+  const db = setup()
+  const { deps, writes } = fakeDeps({ summary: '修正登入驗證失敗', title: '', pasted: '#15191458\n別的 Meegle 單' })
+  await writebackRow(db, 'B', '5', deps)
+  eq('別張 Meegle 單（號碼不同）→ 也不覆蓋', '單子標題貼這' in writes[0].columns, false)
+}
+
+{
+  const db = setup()
+  const { deps, writes } = fakeDeps({ summary: '修正登入驗證失敗', title: '', pasted: '#151914590\n更長的單號' })
+  await writebackRow(db, 'B', '5', deps)
+  eq('單號是前綴但不是同一張（#151914590）→ 不覆蓋', '單子標題貼這' in writes[0].columns, false)
 }
 
 console.log(`\n${pass} 通過，${fails.length} 失敗`)

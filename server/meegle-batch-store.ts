@@ -263,8 +263,9 @@ export function writebackStageText(row: Pick<BatchRow, 'target_state' | 'target_
  */
 export function finishWriteback(db: DB, batchId: string, rowKey: string, seenRev: number, ok: boolean, message: string | null, now = Date.now()): void {
   if (ok) {
-    db.prepare(`UPDATE meegle_batch_rows SET writeback_phase = 'done', writeback_msg = NULL, writeback_at = ?
-      WHERE batch_id = ? AND row_key = ? AND writeback_rev = ?`).run(now, batchId, rowKey, seenRev)
+    // 成功時 message 是附註（例如「單子標題貼這已有別張單，保留原值」），不是錯誤
+    db.prepare(`UPDATE meegle_batch_rows SET writeback_phase = 'done', writeback_msg = ?, writeback_at = ?
+      WHERE batch_id = ? AND row_key = ? AND writeback_rev = ?`).run(message, now, batchId, rowKey, seenRev)
   } else {
     // 失敗也一樣：狀態在寫的途中又變了，代表已經排了一次新的回填，這次的失敗不要蓋掉那個 pending
     db.prepare(`UPDATE meegle_batch_rows SET writeback_phase = 'failed', writeback_msg = ?, writeback_at = ?

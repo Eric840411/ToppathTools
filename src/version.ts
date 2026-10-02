@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.267.3'
+export const APP_VERSION = '4.267.4'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.267.4', date: '2026-10-02', changes: ['fix(Meegle)：**「單子標題貼這」已經有別張單時會被覆蓋**（CodeX）——例如這列之前用 Jira 開過（CGFB-50），回填會把它換成 Meegle 單號。現在只有空白或同一張 Meegle 單才寫，其他情況保留原值，其他三欄照寫，④ 與操作紀錄顯示附註', 'test(Meegle)：回填 31 → 38 條（Jira 單、別張 Meegle 單、單號前綴、空白、同一張），拿掉檢查紅 4 條、改回前綴比對紅 1 條'] },
   { version: '4.267.3', date: '2026-10-02', changes: ['feat(Meegle)：回填多寫「單子標題貼這↓」，**跟 Jira 回填同格式**（使用者要求）——單號超連結＋換行＋任務名稱，沿用表上既有那一欄。Jira 開單頁本來就會跳過這欄有值的列，所以 Meegle 開過的不會被 Jira 再開一次', 'test(Meegle)：回填 30 → 31 條；真 Sheet 第 2 列實測寫入、隔壁列沒動、沒有多建一欄'] },
   { version: '4.267.2', date: '2026-10-02', changes: ['fix(Meegle)：**ZZ 上限的檢查放錯層**（CodeX [P2]）——v4.267.1 只在呼叫前先讀一次表頭預檢，但寫入的共用函式會再讀一次；兩次之間表頭被人塞滿，照樣寫到 AAA 之後、回傳成功。現在上限檢查放進共用函式自己最後一次讀表頭之後（新選項，不給的既有呼叫端行為不變）', 'test(Meegle)：新增 adapter 層測試，用假的 Lark 重現「兩次讀表頭之間被塞滿」，斷言零寫入；拿掉關卡紅 2 條。真 Sheet 重跑回填成功'] },
   { version: '4.267.1', date: '2026-10-02', changes: ['fix(Meegle)：**表頭已經滿到 ZZ 欄時，回填會寫到看不到的 AAA 欄、可能蓋掉資料**（CodeX [P2]）——寫入前先算好每欄位置，任何一欄超過 ZZ 就整筆不寫並說明原因', 'fix(Meegle)：**同一毫秒的兩次更新會讓回填誤標成已完成**（CodeX [P2]）——版本改用每次 +1 的整數，不再比時間戳；否則 Sheet 留著舊的「未完成」、下一次卻被當成已寫過而跳過', 'test(Meegle)：回填 24 → 30 條（同毫秒、ZZ 邊界），兩個防線拿掉各紅 2 條；真 Sheet 重跑回填成功'] },

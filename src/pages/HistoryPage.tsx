@@ -444,7 +444,7 @@ function MeegleBatchHistory({ detail }: { detail: Record<string, unknown> }) {
                 <td style={cell}>{r.requirementName || (r.requirementId ? `#${r.requirementId}` : '—')}</td>
                 <td style={cell}>{r.stage || (r.message ? <span style={{ color: '#f87171' }}>{r.message}</span> : '—')}</td>
                 <td style={{ ...cell, color: r.writeback === 'failed' ? '#f87171' : r.writeback === 'done' ? '#94a3b8' : '#fbbf24' }} title={r.writebackMsg ?? ''}>
-                  {MEEGLE_WB[r.writeback ?? 'none'] ?? '—'}{r.writeback === 'failed' && r.writebackMsg ? `：${r.writebackMsg}` : ''}
+                  {MEEGLE_WB[r.writeback ?? 'none'] ?? '—'}{r.writebackMsg ? `：${r.writebackMsg}` : ''}
                 </td>
               </tr>
             ))}

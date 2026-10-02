@@ -27,8 +27,8 @@ export const WB_COLUMNS = { id: 'Meegle 單號', stage: '處理階段', time: '�
 export type SheetCell = string | { type: 'richtext'; segments: Array<{ text: string; link?: string }> }
 
 export type WritebackDeps = {
-  /** 讀這一列的摘要、標題（讀不到回 null） */
-  readRowNames: (sheetKey: string, rowIndex: number) => Promise<{ summary: string; title: string } | null>
+  /** 讀這一列的摘要、標題，以及「單子標題貼這」目前的內容（讀不到回 null；沒有那欄 pasted 就是空字串） */
+  readRowNames: (sheetKey: string, rowIndex: number) => Promise<{ summary: string; title: string; pasted?: string } | null>
   /** 寫一列多欄；欄位不存在就建 */
   writeRow: (sheetKey: string, rowIndex: number, columns: Record<string, SheetCell>) => Promise<{ ok: boolean; error?: string }>
   now?: () => number
@@ -75,7 +75,7 @@ export async function writebackRow(db: DB, batchId: string, rowKey: string, deps
     const fail = (message: string): WritebackOutcome => { finishWriteback(db, batchId, rowKey, seen, false, message, now); return { phase: 'failed', message } }
     if (!Number.isInteger(rowIndex) || rowIndex < 2) return fail(`列號不合法：${row.row_key}`)
 
-    let cells: { summary: string; title: string } | null
+    let cells: { summary: string; title: string; pasted?: string } | null
     try { cells = await deps.readRowNames(row.sheet_url, rowIndex) } catch (e) { return fail(`讀不到 Sheet 第 ${rowIndex} 列：${(e as Error).message}`) }
     if (!cells) return fail(`讀不到 Sheet 第 ${rowIndex} 列的摘要／標題`)
     const onSheet = rowNameFromCells(cells)
@@ -90,10 +90,21 @@ export async function writebackRow(db: DB, batchId: string, rowKey: string, deps
       // 跟 Jira 回填（routes/jira.ts）同一個格式：第一段是單號超連結，第二段換行接任務名稱
       [WB_COLUMNS.title]: { type: 'richtext', segments: [row.url ? { text: `#${row.work_item_id}`, link: row.url } : { text: `#${row.work_item_id}` }, { text: `\n${normName(row.name)}` }] },
     }
+    /**
+     * 「單子標題貼這」已經有**別張單**（例如 Jira 的 CGFB-50）就不覆蓋，保留原值（CodeX review 15ba814）。
+     * 只有空白、或本來就是同一張 Meegle 單（補寫回）才寫。其他三欄照寫。
+     */
+    let note: string | null = null
+    const pasted = normName(cells.pasted ?? '')
+    // 比對第一個字（單號）要完全相同——用 startsWith 的話 #151914590 也會被當成 #15191459
+    if (pasted && pasted.split(' ')[0] !== `#${row.work_item_id}`) {
+      delete columns[WB_COLUMNS.title]
+      note = `「單子標題貼這」已經有別張單（${pasted.split(' ')[0]}），保留原值沒有覆蓋`
+    }
     let r: { ok: boolean; error?: string }
     try { r = await deps.writeRow(row.sheet_url, rowIndex, columns) } catch (e) { r = { ok: false, error: (e as Error).message } }
-    finishWriteback(db, batchId, rowKey, seen, r.ok, r.ok ? null : `寫入 Sheet 失敗：${r.error ?? '未知錯誤'}`, now)
-    return r.ok ? { phase: 'done' } : { phase: 'failed', message: r.error }
+    finishWriteback(db, batchId, rowKey, seen, r.ok, r.ok ? note : `寫入 Sheet 失敗：${r.error ?? '未知錯誤'}`, now)
+    return r.ok ? { phase: 'done', ...(note ? { message: note } : {}) } : { phase: 'failed', message: r.error }
   })
 }
 
@@ -158,7 +169,8 @@ export function larkWritebackDeps(): WritebackDeps {
       }
       const si = idx('摘要'), ti = idx('標題')
       if (si < 0 && ti < 0) return null
-      return { summary: await read(si), title: await read(ti) }
+      const pi = headerCandidates.findIndex(c => c.some(h => h.replace(/[\s↓]+/g, '') === '單子標題貼這'))
+      return { summary: await read(si), title: await read(ti), pasted: await read(pi) }
     },
     async writeRow(sheetKey, rowIndex, columns) {
       const { multiWritebackLarkBatch, resolveSheetHeaders } = await import('./routes/integrations.js')
