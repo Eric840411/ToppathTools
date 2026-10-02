@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.276.0'
+export const APP_VERSION = '4.277.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.277.0', date: '2026-10-02', changes: ['feat(Meegle 狀態)：Jira 頁新增「**Meegle 狀態**」分頁（CodeX 設計圖 1:1，普通／修仙兩版）。① 讀 Lark Sheet、用 Meegle 單號認單 ② 整批目標狀態＋Sheet 覆寫欄，日期三選一（保留原值／用自動帶入／指定日期：每個日期欄可選 Sheet 欄與整批同一天，優先序 Sheet ＞ 整批 ＞ 保留原值，格式錯擋列——CodeX 同意）③ 清單逐列可改目標、來源標「預覽／Sheet／預設」、單列詳情只顯示會被動到的那個日期（原值→預計值）④ 三步結果、日期待確認黃標、「只補日期」／補寫回。真頁面走過兩種主題（scripts/ui-checks/meegle-status-walkthrough.mjs，送出用假的）'] },
   { version: '4.276.0', date: '2026-10-02', changes: ['feat(Meegle 狀態)：批量更新狀態**後端**（分頁等 CodeX 設計圖）。目標狀態優先序：預覽手改＞Sheet「目標狀態」欄＞整批預設，對不到擋列。轉到 C服／完成 時 Meegle 自動化會在 1～5 秒後把上C服時間／上線時間改成今天、蓋掉手填值（實測）→ 日期三選一：保留原值（預設，等自動化跑完再寫回並讀回驗證）／用自動帶入／指定日期；看不到自動化跑完就標「日期待確認」不覆寫。狀態／日期／回填分步記錄，重試只補失敗那步、日期沿用第一次讀到的原值。新增 meegle-status.test.ts 59 條（四個突變皆紅）'] },
   { version: '4.275.0', date: '2026-10-02', changes: ['feat(Meegle 評論)：③ 每列**常駐「重新載入附件」**（使用者要求）——原本只有偵測到失敗才出現，Sheet 有附件卻讀成 0 個時不報錯、也沒地方重抓。按鈕旁明寫：重載＝從 Sheet 重抓，預覽時手動移除的會回來、手動新增的保留。頂部「重新載入失敗的附件」維持只在有失敗時出現，不做全域常駐（會默默復原所有列的移除、影片重抓成本大）。CodeX 同意並補兩點：頂部重試排除正在載入的列；同一列同時只跑一個請求（疊兩個時先回來的會提早解除送出限制）。另外重建預覽後舊請求晚回來不蓋新清單'] },
   { version: '4.274.7', date: '2026-10-02', changes: ['fix(批量評論格式檢查)：**AI 整理後的測試說明每一項都被報「缺欄位」**（使用者回報 #15194994）——檢查只認行首「目的：」，但 Meegle 測試說明範本與 AI 產出都是「1. 目的：」編號格式。比對前先剝掉行首清單符號（1. 1、 1) 1） (1) （1） - * •；CodeX 同意此規則），欄位名稱與「冒號後空白算沒填」不變。Jira／Meegle 評論共用同一份；新增 comment-text.test.ts 15 條（拿掉剝除會紅 14 條）'] },

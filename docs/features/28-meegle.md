@@ -241,7 +241,7 @@ has-content（沒有基準、有內容）→ 只標「已有內容」，不宣�
 使用者回報③有時附件載入失敗、沒有備案。查 log 找到兩個原因：① Sheet「插入 → 附件」的檔案 records 只留檔名（v4.272.1 已修，改走 medias 下載）；② 伺服器重啟的時候，整批預載請求被中斷——原本**所有列一個請求**，所以一斷就全部失敗。
 改成**一列一個請求、同時 2 列**：壞一列不影響別列；每列有「重新載入附件」、頂部有「重新載入失敗的附件」；錯誤訊息逐個列出檔名與原因；載入中的列不能送；使用者手動加的附件（manual）重新載入時保留。驗證：`node scripts/ui-checks/meegle-comment-attachments.mjs`（假的預載第一次失敗、第二次成功）。
 
-## 28d. Meegle 批量更新狀態（Jira 頁「Meegle 狀態」分頁，開發中：後端 v4.276.0）
+## 28d. Meegle 批量更新狀態（Jira 頁「Meegle 狀態」分頁，後端 v4.276.0／分頁 v4.277.0）
 
 取代 Jira 批量更新狀態，**Sheet 不用改**，用「Meegle 單號」欄認單。身分只用登入者本人的綁定（跟 Jira 版一樣沒有代理）。
 後端：`server/routes/meegle-status.ts`（路由）、`server/meegle-status-run.ts`（流程）、`server/meegle-status-store.ts`（分步紀錄）、
@@ -263,3 +263,19 @@ has-content（沒有基準、有內容）→ 只標「已有內容」，不宣�
 - 判斷「變了沒」的基準是**這次轉換前**重讀的值，不是第一次存的原值——重試時中間有人改過，拿舊原值比會誤判成「已經變了」而太早寫（測試抓到的）
 - 日期欄存「台北當天 00:00」毫秒；**MQL 的 string_value 是 UTC 會差一天**，讀日期要用 `workitem get` 的 timestamp；`update` 的 field_value 必須是**字串**
 - 突變驗證：轉完立刻寫／逾時當成跑完／重試重讀原值／baseline 用第一次原值，四個都會紅
+
+### 批量修改前置實測（2026-10-02，#15190441，CLI 1.0.23）——還沒開始做，先記錄
+- **清空**：text／multi-text／select（含優先順序）／date 都是 `field_value: ""`。⚠️ 日期給 `"0"` 不會報錯，但讀回變成 `{}`（壞值），不要用
+- select 寫 **option_id**（優先順序 `option_1/2/3`＝P0/P1/P2；退件、嚴重性(QA) 的 id 是亂碼），選項清單用 `workitem meta-fields --field-keys <key>`（不帶 `--field-keys` 時不回 option）
+- **角色不能用 `role_owners` 改**（建單可以、update 回 `role_owners field is not allowed in update`）→ 用 `--role-operate '{"op":"add|remove","role_key":"role_xxx","user_keys":[...]}'`
+- 角色**只有 add／remove**，沒有 update／replace → 「換人」＝先 remove 舊的再 add 新的，**不是原子操作**，中間失敗會留下半套，一定要讀回驗證
+
+### 分頁（v4.277.0，CodeX 設計圖 1:1）與使用者操作
+`src/pages/MeegleBatchStatusTab.tsx`（＋`.css`，外框／步驟列沿用開單、評論的樣式）。
+| 步驟 | 使用者可以做 |
+|---|---|
+| ① 讀取與選列 | 貼 Lark Sheet 網址讀清單；缺單號、重複單號擋列；處理階段已是「已切換狀態」的預設不勾；上次日期待確認的列會標出來並接回 ④ |
+| ② 狀態與日期 | 整批目標狀態、Sheet 覆寫欄（預設找「目標狀態」欄）；日期三選一。**指定日期**：上C服／上線各自可選 Sheet 欄＋整批同一天，優先序 **該列 Sheet 有填 ＞ 整批同一天 ＞ 保留原值**；Sheet 或整批日期格式錯都**擋列**，不默默退回（使用者要兩種都給、CodeX 補擋列） |
+| ③ 逐列預覽 | 每列「目前 → 目標」可直接改（預覽手改＝最高優先）；來源標「預覽／Sheet／預設」；點列看單列詳情：只顯示這次會被動到的那個日期的原值→預計值（轉 C服 只動上C服、轉完成只動上線）；原值空白＋保留＝「今天（原本空白，用自動帶入）」 |
+| ④ 送出結果 | 同時最多 3 列；每列 轉狀態／日期／Sheet 回填；日期待確認黃標＋「只補日期」、回填失敗「補寫回」、其他失敗「重試」 |
+- 驗證：`node scripts/ui-checks/meegle-status-walkthrough.mjs`（真 Sheet、真讀 Meegle 現況，送出用假的，兩種主題各 11 條）

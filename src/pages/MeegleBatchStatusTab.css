@@ -1,0 +1,57 @@
+/* Meegle 批量更新狀態（Jira 頁「Meegle 狀態」分頁）
+   版面：CodeX 2026-10-02 設計圖（使用者確認 1:1）。外框、步驟列、按鈕、表格沿用 MeegleBatchCreateTab.css／MeegleBatchCommentTab.css，
+   這裡只放這個分頁特有的：② 日期區塊、③ 清單＋單列詳情、底部「已選／可送／受阻」。修仙版只換配色。 */
+
+.ms-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 16px; }
+
+/* ② 日期處理 */
+.ms-date-box { border: 1px solid var(--mb-border); border-radius: 10px; padding: 12px 14px; background: var(--mb-card2); margin-top: 6px; }
+.ms-date-head { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; margin-bottom: 10px; }
+.ms-radios { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.ms-radio { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; cursor: pointer; }
+.ms-radio input { margin-top: 3px; accent-color: var(--mb-primary); }
+.ms-radio span { display: flex; flex-direction: column; gap: 2px; }
+.ms-radio b { font-size: 13.5px; }
+.ms-radio small { font-size: 12px; color: var(--mb-muted); }
+.ms-radio.is-on { border-color: var(--mb-border-strong); background: rgba(47, 127, 240, .07); }
+.ms-date-field { display: grid; grid-template-columns: 90px minmax(0, 1fr) minmax(0, 1fr); gap: 0 12px; align-items: end; }
+.ms-date-label { font-weight: 700; font-size: 13px; padding-bottom: 20px; }
+
+/* ③ 清單＋單列詳情 */
+.ms-preview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 300px); gap: 12px; align-items: start; }
+.ms-table tbody tr { cursor: pointer; }
+.ms-table tr.is-focus td { background: rgba(47, 127, 240, .14); }
+.ms-table tr.is-blocked-soft td { opacity: .7; }
+.ms-transition { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.ms-from { color: var(--mb-muted); }
+.ms-target { min-width: 120px; padding: 4px 8px; font-size: 13px; }
+.ms-src--preview { color: var(--mb-info); border-color: rgba(90, 167, 255, .4); background: rgba(90, 167, 255, .08); }
+.ms-src--sheet { color: var(--mb-ok); border-color: rgba(63, 208, 127, .4); background: rgba(63, 208, 127, .08); }
+.ms-src--default { color: var(--mb-muted); border-color: var(--mb-border-strong); }
+.ms-table .mb-badge { white-space: nowrap; }
+.ms-same { margin-left: 6px; }
+.ms-detail { position: sticky; top: 8px; }
+.ms-detail-trans { display: flex; align-items: center; gap: 8px; font-size: 17px; padding: 6px 0 10px; border-bottom: 1px solid var(--mb-border); }
+.ms-detail-date { display: flex; flex-direction: column; gap: 4px; padding-top: 4px; }
+.ms-detail-vals { display: flex; align-items: center; gap: 8px; font-size: 17px; white-space: nowrap; }
+.ms-detail-none { padding-top: 6px; }
+.ms-foot .ms-n-sel { color: var(--mb-info); }
+.ms-foot .ms-n-ok { color: var(--mb-ok); }
+.ms-foot .ms-n-bad { color: var(--mb-bad); }
+
+/* ④ */
+.ms-chip--pending { border-color: rgba(245, 183, 59, .5); color: var(--mb-warn); background: rgba(245, 183, 59, .08); }
+.ms-btn-date { border-color: var(--mb-warn) !important; color: var(--mb-warn) !important; }
+
+@media (max-width: 900px) {
+  .ms-preview { grid-template-columns: 1fr; }
+  .ms-detail { position: static; }
+  .ms-date-field { grid-template-columns: 1fr; }
+  .ms-date-label { padding-bottom: 4px; }
+}
+
+/* ══════════ 修仙版 ══════════ */
+:root[data-theme-mode="xianxia"] .ms-radio.is-on { background: rgba(31, 176, 140, .08); }
+:root[data-theme-mode="xianxia"] .ms-table tr.is-focus td { background: rgba(31, 176, 140, .14); }
+:root[data-theme-mode="xianxia"] .ms-foot .ms-n-sel { color: #6fe3c3; }
+:root[data-theme-mode="xianxia"] .ms-btn-date { border-color: #e6c77f !important; color: #f0d28a !important; }

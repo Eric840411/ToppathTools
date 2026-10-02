@@ -11,6 +11,7 @@ import { JiraBatchUpdateTab } from './JiraBatchUpdateTab'
 import { JiraBatchEditTab } from './JiraBatchEditTab'
 import { MeegleBatchCreateTab } from './MeegleBatchCreateTab'
 import { MeegleBatchCommentTab } from './MeegleBatchCommentTab'
+import { MeegleBatchStatusTab } from './MeegleBatchStatusTab'
 import { JiraCreateStep12 } from './JiraCreateStep12'
 import { JiraCreateStep3 } from './JiraCreateStep3'
 import { isJiraFieldRequired } from '../../shared/jira-required-fields.js'
@@ -418,7 +419,7 @@ export function EditUserPicker({ members, loading, value, label, onChange }: {
 
 export function JiraPage({ account = null, isAdmin = false, permissions = [] }: JiraPageProps) {
   const isGame = useIsGameMode()
-  const [qaSubMode, setQaSubMode] = useState<'create' | 'comment' | 'update' | 'edit' | 'meegle' | 'meegle-comment'>('create')
+  const [qaSubMode, setQaSubMode] = useState<'create' | 'comment' | 'update' | 'edit' | 'meegle' | 'meegle-comment' | 'meegle-status'>('create')
   const [step, setStep] = useState<Step>(1)
   const [showAccountModal, setShowAccountModal] = useState(false)
   const [currentAccount, setCurrentAccount] = useState<AccountInfo | null>(account)
@@ -3155,7 +3156,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
     <div className="page-layout">
       {/* QA sub-tabs */}
       <div style={{ display: 'flex', gap: 8, padding: '6px 0 2px', flexWrap: 'wrap' }}>
-        {(['create', 'comment', 'update', 'edit', 'meegle', 'meegle-comment'] as const).map(sub => (
+        {(['create', 'comment', 'update', 'edit', 'meegle', 'meegle-comment', 'meegle-status'] as const).map(sub => (
           <button
             key={sub}
             type="button"
@@ -3167,13 +3168,13 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
               color: qaSubMode === sub ? '#93c5fd' : '#64748b',
             }}
           >
-            {sub === 'create' ? '批量開單' : sub === 'comment' ? '批量評論' : sub === 'update' ? '批量更新狀態' : sub === 'edit' ? '批量修改' : sub === 'meegle' ? 'Meegle 開單' : 'Meegle 評論'}
+            {sub === 'create' ? '批量開單' : sub === 'comment' ? '批量評論' : sub === 'update' ? '批量更新狀態' : sub === 'edit' ? '批量修改' : sub === 'meegle' ? 'Meegle 開單' : sub === 'meegle-comment' ? 'Meegle 評論' : 'Meegle 狀態'}
           </button>
         ))}
       </div>
 
       {/* Top bar（Meegle 開單分頁自己有 01/02/03 三塊，不用步驟列）*/}
-      {qaSubMode !== 'meegle' && qaSubMode !== 'meegle-comment' && <div className="page-topbar">
+      {qaSubMode !== 'meegle' && qaSubMode !== 'meegle-comment' && qaSubMode !== 'meegle-status' && <div className="page-topbar">
         <div className="step-indicator">
           {qaSubMode === 'create'
             ? ([1, 2, 3, 4] as Step[]).map(s => <StepDot key={s} s={s} />)
@@ -3217,6 +3218,7 @@ export function JiraPage({ account = null, isAdmin = false, permissions = [] }: 
 
       {qaSubMode === 'meegle' && <MeegleBatchCreateTab initialSheetUrl={lastSheetUrl} />}
       {qaSubMode === 'meegle-comment' && <MeegleBatchCommentTab initialSheetUrl={lastSheetUrl} canAiFormat={canAiFormat} canAiReview={canAiReview} />}
+      {qaSubMode === 'meegle-status' && <MeegleBatchStatusTab initialSheetUrl={lastSheetUrl} />}
 
       {/* ── Update Mode (inside QA) ── */}
       {qaSubMode === 'update' && (
