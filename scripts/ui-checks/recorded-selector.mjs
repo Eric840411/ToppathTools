@@ -311,6 +311,22 @@ try {
   eq('頁面已變動回 unknown（不是失敗）',
     (await verifyRecordedSelectorLive(rec, { ...step2, recordedUrl: 'https://somewhere-else.example/' }))?.status, 'unknown');
   eq('沒有 verifyId 就不驗', await verifyRecordedSelectorLive(rec, { selector: 'button' }), null);
+  // 2026-10-02 使用者回報「正常錄製就一堆 mismatch」：Element UI 按鈕是 <button><span>文字</span></button>，
+  // 標記在 button、`text=文字` 命中的是裡面的 span——點 span 就是點那顆按鈕，必須算 ok
+  {
+    const pgS = await ctx.newPage()
+    await pgS.setContent('<div><button class="el-button" id="bb"><span>Batch Set Jackpot Model</span></button><button class="el-button" id="b2"><span>Add</span></button><input name="x"><input name="y"></div>')
+    const mark = async (sel, id) => pgS.evaluate(([s, i]) => { document.querySelectorAll('[data-toppath-rec-target]').forEach(n => n.removeAttribute('data-toppath-rec-target')); document.querySelector(s).setAttribute('data-toppath-rec-target', i) }, [sel, id])
+    await mark('#bb', 'vbtn1')
+    eq('命中標記那顆「裡面」的元素（按鈕的 span）→ ok，不是 mismatch',
+      (await verifyRecordedSelectorLive(pgS, { verifyId: 'vbtn1', selector: 'text=Batch Set Jackpot Model', recordedUrl: pgS.url() }))?.status, 'ok')
+    eq('命中另一顆按鈕裡的 span → 仍是 mismatch',
+      (await verifyRecordedSelectorLive(pgS, { verifyId: 'vbtn1', selector: 'text=Add', recordedUrl: pgS.url() }))?.status, 'mismatch')
+    await mark('[name="x"]', 'vin1')
+    eq('命中標記「外面」的別顆 → 仍是 mismatch',
+      (await verifyRecordedSelectorLive(pgS, { verifyId: 'vin1', selector: '[name="y"]', recordedUrl: pgS.url() }))?.status, 'mismatch')
+    await pgS.close()
+  }
 
   // ── (e2) 走**產品的點擊流程**，驗歧義不會掉進任何備援 ──────────
   //

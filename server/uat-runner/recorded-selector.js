@@ -164,8 +164,15 @@ export async function verifyRecordedSelectorLive(page, step) {
 
     // 沒有那個屬性回 ''（這就是 mismatch），evaluate 本身挂掉才回 null（無法確認）。
     // 兩者不能用同一個值表示，否則「點到別顆」會被當成「不確定」静静放過。
+    // 命中的是標記那顆、**或在它裡面**都算同一顆（2026-10-02 使用者回報「正常錄製就一堆 mismatch」）：
+    // Element UI 的按鈕是 <button><span>文字</span></button>，標記在 button 上，`text=文字` 命中的卻是裡面的 span——
+    // 點 span 就是點那顆按鈕，不能說「點到別的東西」。只有命中標記**外面**的元素才是真的點錯。
     const hit = await probe.locator
-      .evaluate(node => node.getAttribute('data-toppath-rec-target') ?? '')
+      .evaluate((node, id) => {
+        if (node.getAttribute('data-toppath-rec-target') === id) return id;
+        const owner = node.closest ? node.closest('[data-toppath-rec-target]') : null;
+        return owner && owner.getAttribute('data-toppath-rec-target') === id ? id : '';
+      }, verifyId)
       .catch(() => null);
     if (hit === null) return { verifyId, status: 'unknown', count: 1 };
     return { verifyId, status: hit === verifyId ? 'ok' : 'mismatch', count: 1 };

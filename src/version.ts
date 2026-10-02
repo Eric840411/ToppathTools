@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.272.7'
+export const APP_VERSION = '4.272.8'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.272.8', date: '2026-10-02', changes: ['fix(UAT 錄製)：**正常錄製也跳一堆「命中的不是你剛才點的那一個元素」**（使用者回報）——錄製驗證把標記留在按鈕上，但文字選擇器命中的是按鈕裡的 span（Element UI 按鈕都是 <button><span>文字</span></button>），點 span 就是點那顆按鈕卻被判成點錯。改成命中標記那顆或在它裡面都算同一顆；命中標記外面的別顆仍判 mismatch。recorded-selector 檢查 159 → 162 條'] },
   { version: '4.272.7', date: '2026-10-02', changes: ['fix(UAT 錄製)：**H5 錄製視窗底部被切的真正原因**——視窗外框是在開了手機模擬「之後」才用 outerHeight − innerHeight 量，這時 innerHeight 回的是模擬值（877），算出來是負數被當成 0，視窗就被設成剛好 877 高（含外框約 95px），頁面只剩約 780px 可見。v4.272.5 加的回報抓到：使用者 Mac 螢幕可用 1920x1055，根本不需要縮放，還是被切。改成在開模擬前量真實外框記住，視窗＝頁面高×比例＋真實外框。實測 Windows：外框 95、視窗 972，整頁含底部導覽列完整'] },
   { version: '4.272.6', date: '2026-10-02', changes: ['style(Meegle)：開單 ①②、評論 ② 改滿版（原本限寬 560px，右邊空一大塊）；四個預設欄位寬螢幕排成一列，按鈕不拉滿整排'] },
   { version: '4.272.5', date: '2026-10-02', changes: ['chore(UAT 錄製)：錄製視窗把量到的螢幕可用大小、外框、縮放比例、實際視窗大小回報給伺服器（worker log「[UAT 錄製視窗]」）——Mac 上 v4.272.3 的縮放沒生效，agent 的 console 伺服器看不到，用這個查原因'] },
