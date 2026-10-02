@@ -20,11 +20,25 @@ import {
   matchesAutoImportTarget, groupJiraIssuesToDrafts, DEFAULT_TAB_DATE_PROJECT_NAME, matchLarkProjectByJiraName,
   type DraftItem as SharedDraftItem, type FlatItem,
 } from '../../shared/weekly-report-rules.js'
-import { fetchMeegleWeek, resolveCronActor, resolveMeeglePerson } from '../meegle-weekly.js'
+import { fetchMeegleWeek, resolveCronActor, resolveMeeglePerson, weeklyGateProblem } from '../meegle-weekly.js'
 import { getAccountRow } from '../meegle-account-service.js'
 import { decryptMeegleToken } from '../meegle-token-crypto.js'
 
 export const router = Router()
+
+/**
+ * 週報所有 API 的後端關卡（CodeX review 2afdaeb [P1]）：原本只有前端擋頁面，`batch-submit` 等端點
+ * 沒登入／停權／沒週報權限也能直接呼叫，而且是用服務端的 Lark token 寫入。
+ * 放在 router 最前面、掛在路徑前綴上——新加的端點自動受管，不靠每支 handler 自己記得檢查。
+ * 檢查順序跟排程授權人一樣逐關短路：登入 → 帳號存在且未停權 → 有週報權限。
+ */
+router.use('/api/weekly-report', (req, res, next) => {
+  const me = getAuthAccount(req)
+  const acc = me ? readAccounts().find(a => a.email === me.email) : undefined
+  const problem = weeklyGateProblem(acc && me ? { email: acc.email, role: acc.role, status: acc.status } : null, () => accountHasPermission(acc!.email, acc!.role, 'weekly-report'))
+  if (problem) return res.status(problem.status).json({ ok: false, message: problem.message })
+  next()
+})
 
 
 /** Lark Sheets API 儲存格可能是字串/數字/布林/富文本陣列/物件，統一抽出純文字（跟 jira.ts 的 extractCell 同一套邏輯） */

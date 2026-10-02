@@ -30,7 +30,10 @@
 - **卡片內容不另寫一份**：各功能照舊組 Discord embed，`notify-outlet.ts` 的 `embedToLarkCard()` 轉成 Lark 卡片（標題色、inline 欄位兩兩一列、頁尾變 note）。Discord 專用的 `<@id>`、`<t:…>` 會被轉掉
 - **@人**：帳號 email → `contact/v3/users/batch_get_id` 查 open_id，需要應用有 `contact:user.id:readonly`。**2026-10-03 實測 OSM QA 沒有這個權限**（code 99991672）→ 設定頁顯示「缺少權限」，通知只寫「@名字」、不會真的 @ 到人。使用者之後會去開權限，開完按「重新配對」
 - **AutoSpin 進度卡**：同一台機台的狀態更新會改同一則訊息。兩邊各記各的 message id（`discordNotifyState` 的 `messageId`／`larkMessageId`），某一邊改不動（訊息被刪）只在那一邊重發新的一則
-- **補送佇列**：`settings.notify_retry_queue`（server 與 worker 兩個 process 都會發通知，記憶體佇列重啟就沒了）。取佇列用 transaction「讀出＋清空」，兩邊同時 flush 不會重送。補送**不看目前出口設定**（排進去時要送的那邊就是要送）。10 次或 24 小時仍失敗就放棄並寫 warn log。
+- **補送佇列**：`settings.notify_retry_queue`（server 與 worker 兩個 process 都會發通知，記憶體佇列重啟就沒了）。
+  **領取用持久化租約**（v5.1.1，CodeX review）：在 transaction 裡標 `leaseUntil`（5 分鐘），**成功才刪、失敗放回**（次數 +1、解除租約）；process 送到一半死掉，租約過期後任一個 process 會重新領取。v5.1.0 是「讀出＋清空再送」，中途 crash 整批遺失。代價是極少數情況重送一次（至少一次，不會漏）。
+  **期限在領取時檢查**（10 次或排了 24 小時）：過期的直接移除、不送、寫 warn log。v5.1.0 是先送才檢查，25 小時的項目仍會送出。
+  補送**不看目前出口設定**（排進去時要送的那邊就是要送）。
   只有**最終狀態**（AutoSpin 完成／失敗／停止、Live Ledger 告警）才排補送；AutoSpin 中途狀態與定時彙總報告不排（下一次更新／下一期本來就會來）。沒設定（沒憑證、沒選群）標 skipped 不排——排了也不會好
 - **Live Ledger**：兩邊都失敗＝這批不標「已通知」、下一輪整批重送（原本的行為）；只有一邊失敗＝標已通知、失敗那邊排補送
 
@@ -46,7 +49,7 @@
 
 ### 測試
 
-- `npx tsx server/notify-outlet.test.ts`：17 條，走測試縫、不寫正式設定。突變驗過：補送時拿掉「只送失敗那邊」、拿掉「沒設定不排補送」都會紅
+- `npx tsx server/notify-outlet.test.ts`：24 條，走測試縫、不寫正式設定。突變驗過：補送時拿掉「只送失敗那邊」、拿掉「沒設定不排補送」、改回「先清空再送」、拿掉「送前檢查期限」、不接例外，都會紅在斷言上
 - `node scripts/ui-checks/lark-notify-live-check.mjs`：打真的伺服器 26 項——沒登入 6 支 API 全 403、錯 Secret 被拒、存進去是密文、試發真的進群、不存在的群回失敗、三個功能切 Lark 真的發出（結束還原出口）、API 回應／pm2 log／歷史紀錄都沒有 Secret
 - `node scripts/ui-checks/lark-notify-walkthrough.mjs`：頁面兩種主題走查（試發攔下來不真的送）。包含「儲存鈕出現在畫面上時都沒被右下角 AI Agent 浮窗蓋住」——第一版的儲存列是 sticky，正好被浮窗蓋住；只量捲到底量不出來（sticky 在底部會歸位），要每個捲動位置都量
 

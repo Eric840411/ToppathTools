@@ -61,6 +61,14 @@ export function cronActorProblem(actor: { email: string; status?: string | null 
   return null
 }
 
+/** 週報 API 的請求關卡（登入 → 未停權 → 有週報權限，逐關短路；停權判斷跟排程授權人同一條：不是 active 就算停權） */
+export function weeklyGateProblem(account: { email: string; role: string; status?: string | null } | null | undefined, hasPermission: () => boolean): { status: number; message: string } | null {
+  if (!account) return { status: 401, message: '請先登入' }
+  if ((account.status ?? 'active') !== 'active') return { status: 403, message: '帳號已停權' }
+  if (!hasPermission()) return { status: 403, message: '沒有「週報彙整」權限' }
+  return null
+}
+
 /**
  * 排程的授權人關卡（帳號 → 權限 → Meegle 綁定，依序；前面不過就不往下，**不會碰到 Meegle**）。
  * 拆成可注入的函式，測試才驗得到「失效時沒有呼叫 Meegle、沒有換人」（CodeX review [P1]）

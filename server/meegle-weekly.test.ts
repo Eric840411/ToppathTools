@@ -1,5 +1,5 @@
 /** 週報撈 Meegle：週期邊界與專案判斷。跑法：npx tsx server/meegle-weekly.test.ts */
-import { createdDayVerdict, cronActorProblem, fetchMeegleWeek, parseMqlUtc, projectFromTitle, resolveCronActor, weekBounds } from './meegle-weekly.js'
+import { createdDayVerdict, cronActorProblem, fetchMeegleWeek, parseMqlUtc, projectFromTitle, resolveCronActor, weekBounds, weeklyGateProblem } from './meegle-weekly.js'
 
 let pass = 0, fail = 0
 function eq(name: string, got: unknown, want: unknown) {
@@ -63,5 +63,12 @@ const r3 = await fetchMeegleWeek('tok', who, '2026-09-25', '2026-10-01', fakeRun
 eq('邊界單建立在週期內（台北 10/1 18:00）→ 收進來', r3.kind === 'ok' && r3.value.map(i => i.key), ['#15190441'])
 const r4 = await fetchMeegleWeek('tok', who, '2026-09-25', '2026-10-01', fakeRunner('2026-10-01T17:00:00Z') as never)
 eq('邊界單建立在週期外（台北 10/2 01:00）→ 不收', r4.kind === 'ok' && r4.value.length, 0)
+
+// CodeX review 2afdaeb [P1]：週報 API 後端關卡
+{ let asked = 0; const perm = (v: boolean) => () => { asked++; return v }
+  eq('關卡：沒登入 → 401', weeklyGateProblem(null, perm(true))?.status, 401)
+  eq('關卡：停權 → 403、不查權限', [weeklyGateProblem({ email: 'a', role: 'qa', status: 'disabled' }, perm(true))?.message, asked], ['帳號已停權', 0])
+  eq('關卡：沒週報權限 → 403', weeklyGateProblem({ email: 'a', role: 'qa', status: 'active' }, perm(false))?.message, '沒有「週報彙整」權限')
+  eq('關卡：status 是 null（舊帳號）當成 active', weeklyGateProblem({ email: 'a', role: 'qa', status: null }, perm(true)), null) }
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

@@ -17,7 +17,9 @@ export const router = Router()
 
 function requireAdmin(req: Request, res: Response) {
   const account = getAuthAccount(req)
-  if (!account || account.role !== 'admin') { res.status(403).json({ ok: false, message: '需要管理員權限' }); return null }
+  // 停權的管理員也擋（getAuthAccount 不看 status；跟週報關卡同一條：不是 active 就算停權）
+  const status = account ? readAccounts().find(a => a.email === account.email)?.status : undefined
+  if (!account || account.role !== 'admin' || (status ?? 'active') !== 'active') { res.status(403).json({ ok: false, message: '需要管理員權限' }); return null }
   return account
 }
 

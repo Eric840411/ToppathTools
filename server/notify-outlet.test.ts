@@ -69,14 +69,55 @@ await flushNotifyRetries(() => 'http://hook')
 eq('補送仍失敗 → 留在佇列、次數 +1', [queue.length, queue[0]?.tries], [1, 1])
 queue[0].tries = 9
 await flushNotifyRetries(() => 'http://hook')
-eq('第 10 次仍失敗 → 放棄，不無限重試', queue.length, 0)
+eq('第 10 次失敗 → 次數到 10、先留著', queue[0]?.tries, 10)
+larkSent.length = 0
+await flushNotifyRetries(() => 'http://hook')
+eq('…下一輪領取時判定用完次數 → 移除且**沒有再送**', [queue.length, larkSent.length], [0, 0])
 
 reset(); outlet = 'discord'; larkOk = false
 const r5 = await deliverNotice(input, sendDiscord); queueFailedSides(input, r5)
 eq('補送不看目前出口設定（設定改回 discord 後，原本排的 Lark 仍補送）', [r5.lark, queue.length], [undefined, 0])
-queue = [{ feature: 'autospin', side: 'lark', embed: { title: 'old' }, firstAt: Date.now(), tries: 0 }]; larkOk = true
+queue = [{ id: 'q1', feature: 'autospin', side: 'lark', embed: { title: 'old' }, firstAt: Date.now(), tries: 0 }]; larkOk = true
 await flushNotifyRetries(() => 'http://hook')
 eq('…佇列裡的 Lark 項目照樣送出', [larkSent.length, queue.length], [1, 0])
+
+// ── CodeX review [P2]：期限在發送前檢查 ──
+reset()
+queue = [{ id: 'old', feature: 'autospin', side: 'lark', embed: { title: '25 小時前' }, firstAt: Date.now() - 25 * 3600_000, tries: 0 }]
+const f2 = await flushNotifyRetries(() => 'http://hook')
+eq('排了 25 小時的項目 → 不送、直接移除', [larkSent.length, queue.length, f2.dropped], [0, 0, 1])
+
+// ── CodeX review [P1]：領取是租約，送完才刪 ──
+reset()
+let release: () => void = () => {}
+const realSend = d.sendLark
+d.sendLark = async (c, card) => { await new Promise<void>(r => { release = r }); return realSend(c, card) }
+queue = [{ id: 'a', feature: 'autospin', side: 'lark', embed: { title: 'a' }, firstAt: Date.now(), tries: 0 }]
+const inflight = flushNotifyRetries(() => 'http://hook')
+await new Promise(r => setTimeout(r, 10))
+eq('送到一半（process 這時死掉的話）→ 項目還在佇列、只是標了租約', [queue.length, queue[0]?.id, typeof queue[0]?.leaseUntil], [1, 'a', 'number'])
+release(); await inflight
+d.sendLark = realSend
+eq('送成功後才刪', queue.length, 0)
+
+reset()
+const t0 = Date.now()
+queue = [
+  { id: 'dead-lease', feature: 'autospin', side: 'lark', embed: { title: '租約過期' }, firstAt: t0, tries: 0, leaseUntil: t0 - 1 },
+  { id: 'live-lease', feature: 'autospin', side: 'lark', embed: { title: '別人正在送' }, firstAt: t0, tries: 0, leaseUntil: t0 + 60_000 },
+]
+await flushNotifyRetries(() => 'http://hook')
+eq('租約過期的（之前那個 process 死了）→ 重新領取送出；別人租約還在的 → 不碰', [larkSent.length, queue.map(q => q.id)], [1, ['live-lease']])
+
+reset()
+const realMention = d.mention
+d.mention = async () => { throw new Error('boom') }
+queue = [{ id: 'x', feature: 'autospin', side: 'lark', embed: { title: 'x' }, firstAt: Date.now(), tries: 0 }]
+let threw = false
+try { await flushNotifyRetries(() => 'http://hook') } catch { threw = true }
+d.mention = realMention
+eq('送的時候拋例外 → flush 自己接住、不往外拋', threw, false)
+eq('送的時候拋例外 → 不會整批消失，放回佇列、次數 +1、解除租約', [queue.length, queue[0]?.tries, queue[0]?.leaseUntil], [1, 1, undefined])
 
 Object.assign(d, __notifyTestSeam.original)
 console.log(`\n${pass} passed, ${fail} failed`)

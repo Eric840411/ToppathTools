@@ -216,3 +216,5 @@
 
 
 > **v5.1.0 起**：週報提醒可以改發 Lark（見 `29-lark-notify.md`）。Lark 卡片沒有「確認送出」按鈕，改成「開啟週報頁確認送出」連結（`工具網址/?page=weekly-report`），在頁面上送出、照樣檢查登入與權限。
+
+> **v5.1.1 後端關卡**（CodeX review [P1]，既有漏洞）：`/api/weekly-report/*` 原本後端完全沒檢查登入與權限（只靠前端擋頁面），`batch-submit` 直接呼叫就能用服務端 Lark token 寫入。現在 router 最前面掛一個前綴關卡：登入（401）→ 未停權（403）→ 有「週報彙整」權限（403），逐關短路；規則在 `meegle-weekly.ts` 的 `weeklyGateProblem`，跟排程授權人同一條停權判斷。新端點自動受管。驗證：`node scripts/ui-checks/weekly-gate-live-check.mjs`（真伺服器 17 項；拿掉關卡 13 項變紅）。

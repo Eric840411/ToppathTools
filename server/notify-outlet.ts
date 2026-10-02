@@ -152,11 +152,15 @@ export async function deliverNotice(p: DeliverInput, sendDiscord: (body: object,
 // ─── 只重試失敗那一邊（CodeX）────────────────────────────────────────────────
 // 雙發時一邊成功一邊失敗：成功那邊不能重發（會重複），失敗那邊排進佇列，之後只往那邊補送。
 // 存在 settings（server 與 worker 兩個 process 都會發通知，記憶體佇列重啟就沒了、也看不到對方的）。
-// 取佇列用一個 transaction「讀出＋清空」，兩個 process 同時 flush 也不會重送同一則。
-export type RetryItem = { feature: NotifyFeature; side: 'discord' | 'lark'; embed: DiscordEmbed; discordContent?: string; mentionLabels?: string[]; firstAt: number; tries: number; lastError?: string }
+// 領取用**持久化租約**（CodeX review 2afdaeb [P1]）：原本「讀出＋清空再送」，送到一半 crash／例外，
+// 還沒送的整批消失。現在領取＝在 transaction 裡標 leaseUntil，**成功才刪、失敗才放回**；
+// process 中途死掉的話租約過期，下一次 flush（任一個 process）會重新領取。代價是極少數情況會重送一次（至少一次，不會漏）。
+// 期限在**發送前**檢查（CodeX [P2]：原本先送才檢查，25 小時的項目仍會送出）。
+export type RetryItem = { id: string; feature: NotifyFeature; side: 'discord' | 'lark'; embed: DiscordEmbed; discordContent?: string; mentionLabels?: string[]; firstAt: number; tries: number; lastError?: string; leaseUntil?: number }
 const RETRY_KEY = 'notify_retry_queue'
 const RETRY_MAX_TRIES = 10
 const RETRY_MAX_AGE_MS = 24 * 3600_000
+const RETRY_LEASE_MS = 5 * 60_000
 function readQueueDb(): RetryItem[] {
   const raw = (db.prepare('SELECT value FROM settings WHERE key = ?').get(RETRY_KEY) as { value?: string } | undefined)?.value
   try { const v = raw ? JSON.parse(raw) : []; return Array.isArray(v) ? v : [] } catch { return [] }
@@ -165,8 +169,9 @@ function writeQueueDb(q: RetryItem[]) { db.prepare('INSERT OR REPLACE INTO setti
 const readQueue = () => deps.readQueue()
 const writeQueue = (q: RetryItem[]) => deps.writeQueue(q)
 
-export function enqueueRetry(item: Omit<RetryItem, 'firstAt' | 'tries'>) {
-  deps.tx(() => { const q = readQueue(); q.push({ ...item, firstAt: Date.now(), tries: 0 }); writeQueue(q.slice(-200)) })
+export function enqueueRetry(item: Omit<RetryItem, 'id' | 'firstAt' | 'tries' | 'leaseUntil'>) {
+  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+  deps.tx(() => { const q = readQueue(); q.push({ ...item, id, firstAt: Date.now(), tries: 0 }); writeQueue(q.slice(-200)) })
 }
 export function retryQueueSize(): number { return readQueue().length }
 
@@ -179,23 +184,39 @@ export function queueFailedSides(p: DeliverInput, r: DeliverResult) {
 }
 
 let flushing = false
-export async function flushNotifyRetries(getWebhookUrl: () => string): Promise<{ sent: number; dropped: number; left: number }> {
+const expired = (it: RetryItem, now: number) => it.tries >= RETRY_MAX_TRIES || now - it.firstAt > RETRY_MAX_AGE_MS
+export async function flushNotifyRetries(getWebhookUrl: () => string, now = () => Date.now()): Promise<{ sent: number; dropped: number; left: number }> {
   if (flushing) return { sent: 0, dropped: 0, left: 0 }
   flushing = true
   try {
-    const taken = deps.tx(() => { const q = readQueue(); if (q.length) writeQueue([]); return q })
-    let sent = 0, dropped = 0
-    const keep: RetryItem[] = []
-    for (const it of taken) {
-      const r = await deliverNotice({ feature: it.feature, embed: it.embed, discordContent: it.discordContent, mentionLabels: it.mentionLabels, only: [it.side], ignoreOutlet: true }, deps.discordSender(getWebhookUrl()))
-      const s = r[it.side]
-      if (s?.ok) { sent++; continue }
-      const next = { ...it, tries: it.tries + 1, lastError: s?.message }
-      if (next.tries >= RETRY_MAX_TRIES || Date.now() - it.firstAt > RETRY_MAX_AGE_MS) { dropped++; console.warn(`[notify:${it.feature}] ${it.side} 補送放棄（${next.tries} 次）：${it.embed.title ?? ''}｜${next.lastError ?? ''}`) }
-      else keep.push(next)
+    // 領取：過期的直接移除（不送）；其餘沒人租或租約已過期的標上租約
+    const dead: RetryItem[] = []
+    const claimed = deps.tx(() => {
+      const t = now(), q = readQueue(), mine: RetryItem[] = [], rest: RetryItem[] = []
+      for (const it of q) {
+        if (expired(it, t)) { dead.push(it); continue }
+        if (!it.leaseUntil || it.leaseUntil <= t) { const leased = { ...it, leaseUntil: t + RETRY_LEASE_MS }; mine.push(leased); rest.push(leased) }
+        else rest.push(it)
+      }
+      if (mine.length || dead.length) writeQueue(rest)
+      return mine
+    })
+    for (const it of dead) console.warn(`[notify:${it.feature}] ${it.side} 補送放棄（${it.tries} 次、排了 ${Math.round((now() - it.firstAt) / 3600_000)} 小時）：${it.embed.title ?? ''}｜${it.lastError ?? ''}`)
+    let sent = 0
+    for (const it of claimed) {
+      let s: SideResult | undefined
+      try {
+        const r = await deliverNotice({ feature: it.feature, embed: it.embed, discordContent: it.discordContent, mentionLabels: it.mentionLabels, only: [it.side], ignoreOutlet: true }, deps.discordSender(getWebhookUrl()))
+        s = r[it.side]
+      } catch (e) { s = { ok: false, message: (e as Error).message } }
+      // 成功＝刪；失敗＝放回（次數 +1、解除租約），下一輪再領。下一輪領取時才判過期，所以不會「先送才檢查」
+      deps.tx(() => {
+        const q = readQueue()
+        writeQueue(s?.ok ? q.filter(x => x.id !== it.id) : q.map(x => x.id === it.id ? { ...x, tries: x.tries + 1, lastError: s?.message, leaseUntil: undefined } : x))
+      })
+      if (s?.ok) sent++
     }
-    if (keep.length) deps.tx(() => writeQueue([...readQueue(), ...keep].slice(-200)))
-    return { sent, dropped, left: keep.length }
+    return { sent, dropped: dead.length, left: readQueue().length }
   } finally { flushing = false }
 }
 
