@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.0.3'
+export const APP_VERSION = '5.1.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.1.0', date: '2026-10-03', changes: ['feat(Lark 通知)：工具的通知可以改發到 **Lark**。側邊欄新增「Lark 通知」設定頁（CodeX 設計稿，普通／修仙兩版；只限管理員，後端檢查）：①機器人憑證——App ID／Secret 在頁面填，Secret 用伺服器金鑰加密、只顯示尾碼、留空保留原值，沒設 MEEGLE_TOKEN_KEY 就拒存 ②目標群組——從機器人已加入的群挑（處理分頁）或手填 chat ID，可試發 ③各功能通知出口——AutoSpin／Live Ledger／週報提醒各自選 Discord／Lark／雙發，預設 Discord（沒切的行為不變）④@人對照——帳號 email 查 Lark 使用者，機器人缺 contact 權限時明講、通知只寫名字不 @。原本的 Discord 卡片自動轉成 Lark 卡片（同一份內容）；AutoSpin 進度卡兩邊各改各的那一則；**雙發時一邊失敗只補送失敗那邊**（存在設定表，server／worker 共用、10 次或 24 小時放棄）。週報提醒的 Lark 卡片是「開啟週報頁確認送出」連結（工具只發不收，不跟 Claude 搶 Lark 長連線），網址 ?page=weekly-report 直接開到週報頁、照樣檢查登入與權限。CodeX bridge 仍在 Discord。測試：notify-outlet.test.ts 17 條（三個突變皆紅）、真伺服器 26 項（真的發到 OSM的秘密群）、頁面走查兩種主題'] },
   { version: '5.0.3', date: '2026-10-03', changes: ['remove(Discord)：停用並刪除「工具人Ryan」Discord 遠端指令 bot（!run 執行 PowerShell 等；使用者：用不到）。能在主機跑任意指令、風險高，Claude 已改在 Lark 上。週報那支 Discord bot 不受影響'] },
   { version: '5.0.2', date: '2026-10-02', changes: ['refactor(週報定時提醒)：授權人關卡嚴格逐關短路——帳號不存在或停權時連權限都不查（CodeX 建議）；補「帳號不存在時不讀 token」測試'] },
   { version: '5.0.1', date: '2026-10-02', changes: ['fix(週報定時提醒)：授權人**停權或被拿掉週報權限後，只要 Meegle token 還有效，背景仍會撈單**（CodeX review [P1]）→ 每次執行依序重查帳號存在、未停權、有週報權限、綁定有效，任何一項不過就整段跳過、不呼叫 Meegle、不換人', 'fix(週報撈 Meegle)：週期邊界的單讀得到卻沒有建立時間時會被**默默排除**（CodeX review [P2]）→ 整批報錯並指出單號'] },

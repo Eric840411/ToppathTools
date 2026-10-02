@@ -489,3 +489,6 @@ session 在那個空窗裡看起來就像不存在。
 | 設定帳號 Discord Tag 對照表 | Discord 通知設定頁「帳號 → Discord Tag 對照表」卡片，維護「帳號名稱 → Discord User ID」清單，AutoSpin 通知（即時彙報 + 定時彙總報告）依 session 是哪個帳號派工啟動的查表，找得到就在訊息開頭 @ 那個人；存在 `settings` 表 `autospin_discord_user_map`（JSON 陣列，這個本來就是每個帳號各自一條，維持不變），對應 `GET/POST /api/autospin/discord-user-map` |
 
 ---
+
+
+> **v5.1.0 起**：通知（執行進度卡、定時彙總報告、Live Ledger 告警）可以改發 Lark 或雙發，見 `29-lark-notify.md`。預設仍是 Discord，以下 Discord 相關說明照舊適用。

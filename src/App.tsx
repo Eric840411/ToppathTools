@@ -23,6 +23,7 @@ const GsBonusV2Page = lazy(() => import('./pages/gs/GsBonusV2Page').then(m => ({
 const SystemAdminPage = lazy(() => import('./pages/SystemAdminPage').then(m => ({ default: m.SystemAdminPage })))
 const KnowledgePage = lazy(() => import('./pages/KnowledgePage').then(m => ({ default: m.KnowledgePage })))
 const UiScreenshotPage = lazy(() => import('./pages/UiScreenshotPage').then(m => ({ default: m.UiScreenshotPage })))
+const LarkNotifySettingsPage = lazy(() => import('./pages/LarkNotifySettingsPage').then(m => ({ default: m.LarkNotifySettingsPage })))
 const DiscordNotifySettingsPage = lazy(() => import('./pages/DiscordNotifySettingsPage').then(m => ({ default: m.DiscordNotifySettingsPage })))
 const CultivationLeaderboardPage = lazy(() => import('./pages/CultivationLeaderboardPage').then(m => ({ default: m.CultivationLeaderboardPage })))
 const XianxiaQuotesPage = lazy(() => import('./pages/XianxiaQuotesPage').then(m => ({ default: m.XianxiaQuotesPage })))
@@ -47,8 +48,8 @@ import './App.css'
 
 type TabId = 'jira' | 'lark' | 'osm' | 'machinetest' | 'imagecheck' | 'history'
   | 'gs-imgcompare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config' | 'autospin' | 'url-pool' | 'osm-uat' | 'jackpot'
-  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'meter-reconcile' | 'egm-daycount' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report' | 'account'
-type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge' | 'discord-notify' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report' | 'account'
+  | 'scripted-bet' | 'local-agent' | 'sysadmin' | 'changelog' | 'knowledge' | 'dashboard' | 'ui-screenshot' | 'discord-notify' | 'lark-notify' | 'meter-reconcile' | 'egm-daycount' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report' | 'account'
+type GroupId = 'dashboard' | 'jira' | 'lark' | 'osm-tools' | 'color-game' | 'settings' | 'history' | 'sysadmin' | 'changelog' | 'knowledge' | 'discord-notify' | 'lark-notify' | 'cultivation-board' | 'xianxia-quotes' | 'weekly-report' | 'account'
 
 type SubTab = {
   id: TabId
@@ -290,6 +291,16 @@ const discordNotifyGroup: Group = {
   description: '設定 AutoSpin 執行狀態即時彙報用的 Discord Webhook',
 }
 
+const larkNotifyGroup: Group = {
+  id: 'lark-notify',
+  label: 'Lark 通知',
+  themeLabel: '飛書傳訊',
+  icon: 'N',
+  iconClass: 'tab-icon--history',
+  tab: 'lark-notify',
+  description: '設定 Lark 通知機器人、目標群組，以及各功能通知要發到 Discord、Lark 或兩邊',
+}
+
 const cultivationBoardGroup: Group = {
   id: 'cultivation-board',
   label: '境界排行榜',
@@ -347,7 +358,7 @@ function navIconName(id: string, iconClass: string): XianxiaIconName {
   if (id === 'dashboard') return 'overview'
   if (id === 'history') return 'history'
   if (id === 'knowledge') return 'knowledge'
-  if (id === 'discord-notify') return 'notification'
+  if (id === 'discord-notify' || id === 'lark-notify') return 'notification'
   if (id === 'settings' || id === 'sysadmin' || id.includes('config')) return 'settings'
   if (id === 'jira') return 'document'
   if (id === 'lark') return 'ai'
@@ -387,6 +398,18 @@ function App() {
     if (previewRealm) setBreakthroughLevel(previewRealm.name)
     params.delete('breakthrough-preview')
     params.delete('breakthrough-hold')
+    const query = params.toString()
+    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`)
+  }, [])
+
+  // 外部連結直接開到某一頁（?page=weekly-report，Lark 週報提醒卡片的按鈕用）。
+  // 沒權限的頁面會被下面「目前頁不可見就退回第一頁」那段擋掉，這裡不另外判斷
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const page = params.get('page')
+    if (page !== 'weekly-report') return
+    setActiveGroup('weekly-report'); setActiveTab('weekly-report')
+    params.delete('page')
     const query = params.toString()
     window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`)
   }, [])
@@ -561,10 +584,11 @@ function App() {
   const visibleHistory = filterGroup(historyGroup)
   const visibleKnowledge = filterGroup(knowledgeGroup)
   const visibleDiscordNotify = filterGroup(discordNotifyGroup)
+  const visibleLarkNotify = filterGroup(larkNotifyGroup)
   const visibleCultivationBoard = themeMode === 'xianxia' ? filterGroup(cultivationBoardGroup) : null
   const visibleXianxiaQuotes = themeMode === 'xianxia' ? filterGroup(xianxiaQuotesGroup) : null
   const visibleSysadmin = canAccess('sysadmin') ? sysadminGroup : null
-  const allVisible = [dashboardGroup, ...visibleGroups, ...(visibleSettings ? [visibleSettings] : []), ...(visibleHistory ? [visibleHistory] : []), ...(visibleKnowledge ? [visibleKnowledge] : []), ...(visibleDiscordNotify ? [visibleDiscordNotify] : []), ...(visibleCultivationBoard ? [visibleCultivationBoard] : []), ...(visibleXianxiaQuotes ? [visibleXianxiaQuotes] : []), accountGroup, ...(visibleSysadmin ? [visibleSysadmin] : [])]
+  const allVisible = [dashboardGroup, ...visibleGroups, ...(visibleSettings ? [visibleSettings] : []), ...(visibleHistory ? [visibleHistory] : []), ...(visibleKnowledge ? [visibleKnowledge] : []), ...(visibleDiscordNotify ? [visibleDiscordNotify] : []), ...(visibleLarkNotify ? [visibleLarkNotify] : []), ...(visibleCultivationBoard ? [visibleCultivationBoard] : []), ...(visibleXianxiaQuotes ? [visibleXianxiaQuotes] : []), accountGroup, ...(visibleSysadmin ? [visibleSysadmin] : [])]
 
   // Redirect activeGroup/activeTab if current selection is no longer accessible
   const currentGroup = allVisible.find(g => g.id === activeGroup) ?? allVisible[0]
@@ -734,6 +758,17 @@ function App() {
             >
               <span className={`tab-icon ${discordNotifyGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="notification" size={18} /> : discordNotifyGroup.icon}</span>
               <NavLabel group={discordNotifyGroup} classic={themeMode === 'classic'} />
+            </button>
+          )}
+
+          {visibleLarkNotify && (
+            <button
+              type="button"
+              className={`sidebar-nav-item${currentGroup?.id === larkNotifyGroup.id ? ' sidebar-nav-item--active' : ''}`}
+              onClick={() => handleGroupClick(larkNotifyGroup)}
+            >
+              <span className={`tab-icon ${larkNotifyGroup.iconClass}`}>{themeMode === 'xianxia' ? <XianxiaIcon name="notification" size={18} /> : larkNotifyGroup.icon}</span>
+              <NavLabel group={larkNotifyGroup} classic={themeMode === 'classic'} />
             </button>
           )}
 
@@ -964,6 +999,7 @@ function App() {
             {currentGroup?.id === 'osm-tools' && effectiveTab === 'egm-daycount' && <EgmDayCountPage />}
             {currentGroup?.id === 'settings' && effectiveTab === 'local-agent' && <LocalAgentPage currentAccount={globalAccount} />}
             {currentGroup?.id === 'discord-notify' && <DiscordNotifySettingsPage />}
+            {currentGroup?.id === 'lark-notify' && <LarkNotifySettingsPage />}
             {currentGroup?.id === 'cultivation-board' && <CultivationLeaderboardPage currentEmail={globalAccount?.email ?? null} onPreviewRealm={setBreakthroughLevel} />}
             {currentGroup?.id === 'xianxia-quotes' && <XianxiaQuotesPage />}
             {currentGroup?.id === 'history' && <HistoryPage />}

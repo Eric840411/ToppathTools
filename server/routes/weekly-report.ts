@@ -1110,11 +1110,18 @@ async function buildReminderPreview(): Promise<{ fields: Array<{ name: string; v
   }
 }
 
-/** 送出提醒到 Discord。webhook URL 沿用 AutoSpin 那組全域設定（同一個頻道，不另外設一份）。*/
+/**
+ * 送出提醒。出口看「Lark 通知設定」頁（預設 Discord）：
+ *  - Discord：webhook URL 沿用 AutoSpin 那組全域設定；有週報 bot 就帶「確認送出」按鈕
+ *  - Lark：一張卡片＋「開啟週報頁確認送出」連結按鈕。**不做卡片上直接送出**——工具不接 Lark 事件
+ *    （OSM QA 應用的長連線被 Claude 佔著，搶事件會隨機漏），而且開頁面送出會重新走登入與權限檢查
+ */
 async function sendWeeklyReminder(): Promise<{ sent: boolean; message: string }> {
+  const { usesDiscord, usesLark } = await import('../notify-outlet.js')
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get('discord_webhook_url') as { value: string } | undefined
   const webhookUrl = row?.value ?? ''
-  if (!webhookUrl) return { sent: false, message: '尚未設定 Discord Webhook URL（在「Discord 通知」設定頁）' }
+  const toDiscord = usesDiscord('weekly-reminder'), toLark = usesLark('weekly-reminder')
+  if (toDiscord && !toLark && !webhookUrl) return { sent: false, message: '尚未設定 Discord Webhook URL（在「Discord 通知」設定頁）' }
 
   const cfg = getReminderConfig()
   const { startLabel, endLabel } = getFridayAnchoredWeekRange()
@@ -1167,22 +1174,47 @@ async function sendWeeklyReminder(): Promise<{ sent: boolean; message: string }>
   }))
 
 
-  // 優先用 bot 發——只有 application 發的訊息才帶得動按鈕（webhook 送 components 會被
-  // Discord 靜默丟掉，已實測）。bot 沒設定或還沒連上就退回 webhook：**沒有按鈕總比
-  // 整則提醒都不見了好**。
-  const { sendWeeklyReminderWithButton } = await import('../weekly-report-bot.js')
-  if (await sendWeeklyReminderWithButton({ content, embeds })) {
-    return { sent: true, message: '已送出提醒（帶按鈕）' }
+  const results: string[] = []
+  let anySent = false
+  if (toLark) {
+    const r = await sendWeeklyReminderToLark(embeds, cfg.mentionAll)
+    results.push(r.ok ? 'Lark 已送出' : `Lark 沒送出：${r.message}`)
+    anySent ||= r.ok
   }
-  await fetch(webhookUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      content,
-      embeds,
-    }),
-  })
-  return { sent: true, message: '已送出提醒' }
+  if (toDiscord) {
+    if (!webhookUrl) results.push('Discord 沒送出：尚未設定 Webhook URL')
+    else {
+      // 優先用 bot 發——只有 application 發的訊息才帶得動按鈕（webhook 送 components 會被
+      // Discord 靜默丟掉，已實測）。bot 沒設定或還沒連上就退回 webhook：**沒有按鈕總比
+      // 整則提醒都不見了好**。
+      const { sendWeeklyReminderWithButton } = await import('../weekly-report-bot.js')
+      if (await sendWeeklyReminderWithButton({ content, embeds })) { results.push('Discord 已送出（帶按鈕）'); anySent = true }
+      else {
+        const r = await fetch(webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content, embeds }) }).catch(e => e as Error)
+        if (r instanceof Response && r.ok) { results.push('Discord 已送出'); anySent = true }
+        else results.push(`Discord 沒送出：${r instanceof Response ? `webhook 回 ${r.status}` : r.message}`)
+      }
+    }
+  }
+  return { sent: anySent, message: results.join('；') }
+}
+
+/** 週報提醒的 Lark 版：所有續頁欄位併成一張卡片，最後放「開啟週報頁」連結 */
+async function sendWeeklyReminderToLark(embeds: Array<{ title?: string; description?: string; color?: number; fields?: Array<{ name: string; value: string; inline: boolean }>; footer?: { text: string } }>, mentionAll: boolean): Promise<{ ok: boolean; message: string }> {
+  const { embedToLarkCard, larkMentionLine } = await import('../notify-outlet.js')
+  const { sendLarkCard, larkNotifyChatId, larkToolUrl } = await import('../lark-notify.js')
+  const { getDiscordUserMap } = await import('../discord-webhook.js')
+  const merged = { ...embeds[0], title: embeds[0]?.title ?? '週報備稿提醒', fields: embeds.flatMap(e => e.fields ?? []), footer: embeds[embeds.length - 1]?.footer, timestamp: new Date().toISOString(),
+    description: '開週報彙整頁確認後送出（頁面會重新檢查你的登入與權限）。\n**手動指派與比對不到專案的項目不會被送出**，會列在下面。' }
+  // @ 全部人：沿用通知對照表裡登記過的帳號（跟 Discord 那邊同一批人）
+  const mention = mentionAll ? (await larkMentionLine(getDiscordUserMap().map(e => e.userLabel))).line : ''
+  const card = embedToLarkCard(merged, mention ? `${mention} 📋 該備週報了` : '📋 該備週報了') as { elements: object[] }
+  const toolUrl = larkToolUrl()
+  card.elements.push(toolUrl
+    ? { tag: 'action', actions: [{ tag: 'button', type: 'primary', text: { tag: 'plain_text', content: '開啟週報頁確認送出' }, url: `${toolUrl}/?page=weekly-report` }] }
+    : { tag: 'note', elements: [{ tag: 'plain_text', content: '（還沒在「Lark 通知設定」填工具網址，所以沒有連結按鈕）' }] })
+  const r = await sendLarkCard(larkNotifyChatId(), card)
+  return r.ok ? { ok: true, message: '已送出' } : { ok: false, message: r.message }
 }
 
 /** 重新套用排程。設定改動後要呼叫，模組載入時也會跑一次。*/

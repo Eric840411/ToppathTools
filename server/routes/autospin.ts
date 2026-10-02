@@ -8,6 +8,7 @@ import { overview as ledgerOverview, ledgerRows, ledgerDetail } from '../live-le
 //    這裡原本各留了一份 private getter，Live Ledger 的告警要用同一組設定時
 //    複製第三份出去就會開始各發各的——見該檔檔頭。
 import { getDiscordWebhookUrl, getDiscordUserMap, mentionForUserLabel } from '../discord-webhook.js'
+import { deliverNotice, discordWebhookSender, queueFailedSides, usesDiscord, usesLark } from '../notify-outlet.js'
 
 /**
  * 連續幾筆觀測落庫失敗。⚠️ fire-and-forget 不代表不留痕——
@@ -875,7 +876,7 @@ router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
 
   const webhookUrl = getDiscordWebhookUrl()
   const userLabel = s?.userLabel ?? ''
-  if (!webhookUrl || !isDiscordNotifyEnabled(userLabel) || !getStatusReportEnabled(userLabel)) return
+  if ((!webhookUrl && !usesLark('autospin')) || !isDiscordNotifyEnabled(userLabel) || !getStatusReportEnabled(userLabel)) return
 
   const aiAnalysis = getStatusReportAiEnabled(userLabel)
     ? await generateStatusReportAiAnalysis(req, machineType, periodMinutes ?? 0, cumulative, period, uptimeMinutes)
@@ -916,13 +917,10 @@ router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
     sls: slsStatus,
   })
 
-  const mention = mentionForUserLabel(userLabel)
+  // 定時報告失敗不排補送：下一期本來就會再來一份（累計數字也包含在內），補送舊的只會讓頻道多一則過期資料
   try {
-    await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: mention || undefined, embeds: [embed] }),
-    })
+    const r = await deliverNotice({ feature: 'autospin', embed, discordContent: mentionForUserLabel(userLabel), mentionLabels: userLabel ? [userLabel] : [] }, discordWebhookSender(webhookUrl))
+    for (const side of ['discord', 'lark'] as const) if (r[side] && !r[side]!.ok) console.warn(`[autospin] 定時彙總報告 ${side} 發送失敗：${r[side]!.message}`)
   } catch (e) {
     console.warn('[autospin] 定時彙總報告發送失敗:', e)
   }
@@ -931,7 +929,7 @@ router.post('/api/autospin/agent/:id/status-report', async (req, res) => {
 // POST /api/autospin/status-report-test — 用假資料試發送一則彙總報告，確認格式與 webhook 是否正常（不受啟用開關影響）
 router.post('/api/autospin/status-report-test', async (req, res) => {
   const webhookUrl = getDiscordWebhookUrl()
-  if (!webhookUrl) return res.status(400).json({ ok: false, message: '尚未設定 Discord Webhook URL' })
+  if (!webhookUrl && usesDiscord('autospin')) return res.status(400).json({ ok: false, message: '尚未設定 Discord Webhook URL' })
   const userLabel = (req.headers['x-user-label'] as string) || ''
 
   const now = Date.now()
@@ -997,16 +995,12 @@ router.post('/api/autospin/status-report-test', async (req, res) => {
     },
   })
 
+  // 試發照「AutoSpin」的出口設定送（設成 Lark 就試 Lark、兩邊就兩邊），哪邊失敗講哪邊
   try {
-    const r = await fetch(`${webhookUrl}?wait=true`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: mention || undefined, embeds: [embed] }),
-    })
-    if (!r.ok) {
-      const txt = await r.text().catch(() => '')
-      return res.status(400).json({ ok: false, message: `Discord API 錯誤 ${r.status}: ${txt.slice(0, 200)}` })
-    }
+    const opLabel = userLabel || getOperatorFromContext()?.name || ''
+    const r = await deliverNotice({ feature: 'autospin', embed, discordContent: mention, mentionLabels: opLabel ? [opLabel] : [] }, discordWebhookSender(webhookUrl))
+    const bad = (['discord', 'lark'] as const).filter(k => r[k] && !r[k]!.ok).map(k => `${k === 'lark' ? 'Lark' : 'Discord'}：${r[k]!.message}`)
+    if (bad.length) return res.status(400).json({ ok: false, message: bad.join('；') })
     res.json({ ok: true })
   } catch (e) {
     res.status(500).json({ ok: false, message: `送出失敗: ${e}` })
@@ -1394,7 +1388,8 @@ const NOTIFY_STATUS_META: Record<NotifyStatus, { label: string; color: number; e
   failed: { label: '失敗', color: 0xef4444, emoji: '❌' },
   stopped: { label: '已停止', color: 0x9ca3af, emoji: '⏹️' },
 }
-const discordNotifyState = new Map<string, { messageId: string; status: NotifyStatus }>()
+/** messageId＝Discord 那則（沒有就是空字串）、larkMessageId＝Lark 那則 */
+const discordNotifyState = new Map<string, { messageId: string; larkMessageId?: string; status: NotifyStatus }>()
 
 function buildDiscordEmbed(
   status: NotifyStatus, machineType: string,
@@ -1442,45 +1437,40 @@ async function finalizeSessionNotifications(sessionId: string) {
   }
 }
 
-/** 建立或更新（同一則訊息）指定機台的 Discord 通知。webhook 未設定或開關關閉時直接跳過。 */
+/**
+ * 建立或更新（同一則訊息）指定機台的通知。出口（Discord／Lark／兩邊）看「Lark 通知設定」頁，預設 Discord。
+ * 兩邊各記各的 message id、各自更新；某一邊改不動（訊息被刪）就只在那一邊重發一則，另一邊照常改原本那則。
+ * 最終狀態（完成／失敗／停止）送不出去的那一邊排進補送佇列——中途狀態不排，下一次狀態更新自然會再試。
+ */
 async function notifyDiscord(
   sessionId: string, machineType: string, status: NotifyStatus,
   opts: { gameUrl?: string; spinCount?: number; errorSummary?: string; screenshotUrl?: string } = {},
 ) {
   const webhookUrl = getDiscordWebhookUrl()
   const userLabel = agentSessions.get(sessionId)?.userLabel ?? ''
-  if (!webhookUrl || !isDiscordNotifyEnabled(userLabel)) return
+  if (!isDiscordNotifyEnabled(userLabel)) return
+  if (!webhookUrl && !usesLark('autospin')) return
   const key = `${sessionId}:${machineType}`
   const existing = discordNotifyState.get(key)
-  const embed = buildDiscordEmbed(status, machineType, opts, userLabel)
-  const mention = mentionForUserLabel(userLabel)
+  const input = {
+    feature: 'autospin' as const,
+    embed: buildDiscordEmbed(status, machineType, opts, userLabel),
+    discordContent: mentionForUserLabel(userLabel),
+    mentionLabels: userLabel ? [userLabel] : [],
+  }
   try {
-    if (existing) {
-      const r = await fetch(`${webhookUrl}/messages/${existing.messageId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: mention || undefined, embeds: [embed] }),
-      })
-      if (r.ok) {
-        existing.status = status
-      } else {
-        // 訊息可能已被刪除，改發一則新的
-        discordNotifyState.delete(key)
-        await notifyDiscord(sessionId, machineType, status, opts)
-      }
-    } else {
-      const r = await fetch(`${webhookUrl}?wait=true`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: mention || undefined, embeds: [embed] }),
-      })
-      if (r.ok) {
-        const data = await r.json() as { id?: string }
-        if (data.id) discordNotifyState.set(key, { messageId: data.id, status })
-      }
-    }
+    const r = await deliverNotice({ ...input, update: { discordMessageId: existing?.messageId, larkMessageId: existing?.larkMessageId } }, discordWebhookSender(webhookUrl))
+    // 改不動的那邊（訊息可能被刪）→ 只在那邊發新的一則
+    const redo: Array<'discord' | 'lark'> = []
+    if (existing?.messageId && r.discord && !r.discord.ok && !r.discord.skipped) redo.push('discord')
+    if (existing?.larkMessageId && r.lark && !r.lark.ok && !r.lark.skipped) redo.push('lark')
+    if (redo.length) Object.assign(r, await deliverNotice({ ...input, only: redo }, discordWebhookSender(webhookUrl)))
+    const next = { messageId: r.discord?.ok ? r.discord.messageId ?? '' : existing?.messageId ?? '', larkMessageId: r.lark?.ok ? r.lark.messageId : existing?.larkMessageId, status }
+    if (next.messageId || next.larkMessageId) discordNotifyState.set(key, next)
+    if (status === 'success' || status === 'failed' || status === 'stopped') queueFailedSides(input, r)
+    for (const side of ['discord', 'lark'] as const) if (r[side] && !r[side]!.ok && !r[side]!.skipped) console.warn(`[autospin] ${side} 通知失敗：${r[side]!.message}`)
   } catch (e) {
-    console.warn('[autospin] Discord 通知失敗:', e)
+    console.warn('[autospin] 通知失敗:', e)
   }
 }
 

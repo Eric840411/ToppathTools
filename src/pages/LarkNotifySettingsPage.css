@@ -1,0 +1,105 @@
+/* Lark 通知設定。版面：CodeX 2026-10-03 設計稿（四張卡＋底部儲存列）。
+   配色沿用 Discord 通知設定頁的深底；修仙版只換配色（青玉＋鎏金），結構不變。 */
+
+.ln-page {
+  --ln-card: #162032; --ln-border: #2d3f55; --ln-input: #0f172a; --ln-input-border: #334155;
+  --ln-text: #e2e8f0; --ln-muted: #8a9bb2; --ln-primary: #3b82f6; --ln-primary-text: #fff;
+  --ln-ok: #34d399; --ln-warn: #f5b73b; --ln-bad: #f87171; --ln-head-row: #1b2940;
+  display: flex; flex-direction: column; gap: 14px; padding: 0 0 96px; color: var(--ln-text);
+}
+.ln-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.ln-sub { margin: 0; color: var(--ln-muted); font-size: 13px; }
+.ln-pill { font-size: 12.5px; font-weight: 700; padding: 5px 14px; border-radius: 999px; border: 1px solid var(--ln-input-border); color: var(--ln-muted); }
+
+.ln-card { background: var(--ln-card); border: 1px solid var(--ln-border); border-radius: 10px; padding: 16px 18px; }
+.ln-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ln-card-title { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; font-size: 16px; font-weight: 800; color: var(--ln-text); }
+.ln-card-head .ln-card-title { margin-bottom: 12px; }
+
+.ln-chip { font-size: 12px; font-weight: 700; padding: 2px 12px; border-radius: 999px; border: 1px solid rgba(90, 167, 255, .5); color: #7fb6ff; background: rgba(90, 167, 255, .1); }
+.ln-chip--ok { border-color: rgba(52, 211, 153, .5); color: var(--ln-ok); background: rgba(52, 211, 153, .08); }
+.ln-chip--warn { border-color: rgba(245, 183, 59, .5); color: var(--ln-warn); background: rgba(245, 183, 59, .08); }
+
+.ln-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.ln-label { flex: 0 0 90px; color: var(--ln-muted); font-size: 13.5px; }
+.ln-input { flex: 1 1 260px; min-width: 0; padding: 9px 12px; border: 1px solid var(--ln-input-border); border-radius: 7px; background: var(--ln-input); color: var(--ln-text); font-size: 13.5px; box-sizing: border-box; }
+.ln-input:focus { outline: none; border-color: var(--ln-primary); }
+.ln-input[readonly] { opacity: .8; }
+.ln-input--static { letter-spacing: .5px; font-variant-numeric: tabular-nums; }
+select.ln-input { cursor: pointer; }
+
+.ln-btn { padding: 8px 16px; border-radius: 7px; font-size: 13px; font-weight: 700; cursor: pointer; border: 1px solid var(--ln-input-border); background: #263345; color: #cbd5e1; white-space: nowrap; }
+.ln-btn--outline { background: transparent; border-color: var(--ln-primary); color: #7fb6ff; }
+.ln-btn--primary { background: var(--ln-primary); border-color: var(--ln-primary); color: var(--ln-primary-text); }
+.ln-btn:disabled { opacity: .45; cursor: not-allowed; }
+.ln-btn:not(:disabled):hover { filter: brightness(1.12); }
+
+.ln-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.ln-hint { color: var(--ln-muted); font-size: 12.5px; }
+.ln-hint--under { display: block; margin-top: 6px; }
+.ln-row + .ln-hint--under { padding-left: 0; }
+
+.ln-state { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; }
+.ln-state i { width: 9px; height: 9px; border-radius: 50%; background: currentColor; }
+.ln-state--ok { color: var(--ln-ok); }
+.ln-state--warn { color: var(--ln-warn); }
+.ln-state--bad { color: var(--ln-bad); }
+.ln-state--muted { color: var(--ln-muted); }
+
+.ln-msg { font-size: 12.5px; line-height: 1.6; margin-top: 10px; }
+.ln-msg--ok, .ln-ok { color: var(--ln-ok); }
+.ln-msg--error, .ln-bad { color: var(--ln-bad); }
+.ln-banner { margin: 0 0 6px; padding: 8px 12px; border-radius: 7px; border: 1px solid rgba(248, 113, 113, .35); background: rgba(248, 113, 113, .07); }
+
+.ln-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--ln-border); margin-bottom: 4px; }
+.ln-tab { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 18px; color: var(--ln-muted); font-size: 13.5px; font-weight: 700; cursor: pointer; margin-bottom: -1px; }
+.ln-tab.is-active { color: #7fb6ff; border-bottom-color: var(--ln-primary); }
+.ln-row--nolabel .ln-input { flex: 0 1 380px; }
+
+.ln-result { flex: 1 1 200px; font-size: 13px; font-weight: 700; padding: 8px 12px; border-radius: 7px; border: 1px solid; overflow-wrap: anywhere; }
+.ln-result--ok { color: var(--ln-ok); border-color: rgba(52, 211, 153, .35); background: rgba(52, 211, 153, .07); }
+.ln-result--bad { color: var(--ln-bad); border-color: rgba(248, 113, 113, .35); background: rgba(248, 113, 113, .07); }
+
+.ln-table { width: 100%; border-collapse: collapse; font-size: 13.5px; border: 1px solid var(--ln-border); border-radius: 8px; overflow: hidden; }
+.ln-table th { text-align: left; background: var(--ln-head-row); color: var(--ln-muted); font-weight: 700; padding: 8px 12px; }
+.ln-table td { padding: 7px 12px; border-top: 1px solid var(--ln-border); overflow-wrap: anywhere; }
+.ln-table th:first-child, .ln-table td:first-child { width: 34%; }
+
+.ln-seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--ln-input-border); border-radius: 7px; overflow: hidden; max-width: 460px; }
+.ln-seg-btn { background: transparent; border: 0; border-left: 1px solid var(--ln-input-border); color: var(--ln-muted); padding: 6px 10px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.ln-seg-btn:first-child { border-left: 0; }
+.ln-seg-btn.is-on { background: var(--ln-primary); color: var(--ln-primary-text); }
+
+.ln-note { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; padding: 10px 14px; border-radius: 8px; border: 1px solid var(--ln-border); background: rgba(90, 167, 255, .06); }
+.ln-note b { color: #7fb6ff; font-size: 13.5px; }
+.ln-note-icon { color: #7fb6ff; font-weight: 800; }
+
+/* 不用 sticky：右下角有常駐的「AI Agent 監控」浮窗，黏在底部會把儲存鈕蓋住（走查截圖看到的） */
+.ln-savebar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 18px; background: var(--ln-card); border: 1px solid var(--ln-border); border-radius: 10px; }
+.ln-savebar-actions { display: flex; gap: 10px; }
+.ln-savebar .ln-btn { min-width: 90px; }
+
+@media (max-width: 640px) {
+  .ln-label { flex-basis: 100%; }
+  .ln-seg { max-width: none; }
+}
+
+/* ── 修仙版：只換配色（青玉＋鎏金） ── */
+:root[data-theme-mode="xianxia"] .ln-page {
+  --ln-card: rgba(8, 28, 26, .82); --ln-border: rgba(214, 178, 94, .35); --ln-input: rgba(3, 16, 15, .75); --ln-input-border: rgba(111, 227, 195, .28);
+  --ln-text: #e8efe9; --ln-muted: #9bb5ab; --ln-primary: #2bc59f; --ln-primary-text: #06110e; --ln-head-row: rgba(14, 44, 40, .9);
+  --ln-ok: #6fe3c3; --ln-warn: #e6c77f;
+}
+:root[data-theme-mode="xianxia"] .ln-card { box-shadow: inset 0 0 0 1px rgba(214, 178, 94, .08); }
+:root[data-theme-mode="xianxia"] .ln-btn { background: transparent; border-color: rgba(214, 178, 94, .55); color: #e6c77f; }
+:root[data-theme-mode="xianxia"] .ln-btn--outline { border-color: rgba(214, 178, 94, .7); color: #e6c77f; }
+:root[data-theme-mode="xianxia"] .ln-btn--primary,
+:root[data-theme-mode="xianxia"] .ln-seg-btn.is-on { background: linear-gradient(180deg, #43dcb2, #12896b); border-color: #2bc59f; color: #06110e; }
+:root[data-theme-mode="xianxia"] .ln-pill { border-color: rgba(214, 178, 94, .7); color: #e6c77f; }
+:root[data-theme-mode="xianxia"] .ln-chip { border-color: rgba(111, 227, 195, .5); color: #6fe3c3; background: rgba(111, 227, 195, .08); }
+:root[data-theme-mode="xianxia"] .ln-chip--warn { border-color: rgba(230, 199, 127, .55); color: #e6c77f; background: rgba(230, 199, 127, .08); }
+:root[data-theme-mode="xianxia"] .ln-tab.is-active { color: #6fe3c3; border-bottom-color: #2bc59f; }
+:root[data-theme-mode="xianxia"] .ln-note { background: rgba(43, 197, 159, .06); }
+:root[data-theme-mode="xianxia"] .ln-note b,
+:root[data-theme-mode="xianxia"] .ln-note-icon { color: #e6c77f; }
+:root[data-theme-mode="xianxia"] .ln-state--ok i { box-shadow: 0 0 8px currentColor; }

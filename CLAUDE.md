@@ -83,6 +83,7 @@ The Express backend is split into route modules. All live under `server/`:
 | `routes/sheets.ts` | `/api/lark/sheets/*`（讀／回寫 Lark Sheet，Meegle 工具共用） |
 | `routes/attachments.ts` | 附件 `/api/attachments/*`（舊 `/api/jira/attachment-*` 同一個 handler）；下載邏輯在 `attachment-downloads.ts` |
 | `routes/meegle*.ts` | Meegle 綁定、開單、評論、狀態、修改、補回填（`docs/features/28-meegle.md`） |
+| `routes/lark-notify.ts` | `/api/lark-notify/*`：Lark 通知設定（只限管理員；發送邏輯在 `lark-notify.ts`、出口在 `notify-outlet.ts`） |
 | `routes/gemini.ts` | `/api/gemini/*`, `/api/history` + exported Gemini helpers |
 | `routes/osm.ts` | `/api/osm/*`, `/api/luckylink/*`, `/api/toppath/*`, cron alert |
 | `routes/integrations.ts` | `/api/integrations/*`, `/api/google/sheets/*`, `/api/sheets/writeback-multi` |
@@ -125,6 +126,7 @@ When adding a new route:
 | 23 | 週報彙整（批次掃描、Discord 按鈕送出、定時提醒） | `docs/features/23-weekly-report.md` |
 | 24–27 | **OSM UAT 整合測試**（Agent 派工、網路量測、積木化、錄製、按鈕配色慣例） | `docs/features/24-27-uat.md` |
 | 28 | **Meegle 個人綁定＋批量開單**（Jira 退場；token 加密、CLI 沒帶 token 會沿用主機登入、防重複開單、人員對照表） | `docs/features/28-meegle.md` |
+| 29 | **Lark 通知**（通知出口 Discord／Lark／雙發、embed 轉卡片、只補送失敗那邊、只發不收） | `docs/features/29-lark-notify.md` |
 
 > **維護規則**：每次新增或修改功能，必須同步更新對應的 `docs/features/*.md`；新增功能要在上表加一列。
 > 記錄格式不變：功能說明 + 使用者可執行的操作清單。

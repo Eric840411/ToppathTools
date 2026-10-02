@@ -28,6 +28,7 @@
 import { db } from './shared.js'
 import { type ReconEnv, noteSourceHealth, reconSetting } from './live-ledger.js'
 import { getDiscordWebhookUrl, mentionsForUserLabels } from './discord-webhook.js'
+import { deliverNotice, discordWebhookSender, flushNotifyRetries, queueFailedSides, usesDiscord, type DiscordEmbed } from './notify-outlet.js'
 
 /** 一則訊息最多列幾筆明細（其餘只給總數）。Discord 單一 embed field 有 1024 字元上限。 */
 const MAX_EXAMPLES_PER_GROUP = 4
@@ -306,11 +307,15 @@ export async function runNotifyCycle(
   }
 
   const webhookUrl = opts.webhookUrl ?? getDiscordWebhookUrl()
-  if (!webhookUrl) {
+  // 出口設成只發 Lark 時不需要 webhook；Lark 沒設定會在送出時回失敗（skipped）並記在健康列
+  if (!webhookUrl && usesDiscord('live-ledger')) {
     noteSourceHealth(env, source, false, 'not_configured',
       '尚未設定 Discord Webhook URL（AutoSpin 的通知設定頁），對帳告警無處可送')
     return { sent: 0, skipped: 'not_configured' }
   }
+
+  // 上一輪雙發時失敗的那一邊，先補送（只補那一邊，成功的那邊不重發）
+  await flushNotifyRetries(() => opts.webhookUrl ?? getDiscordWebhookUrl()).catch(e => console.warn('[live-ledger] 補送失敗', e))
 
   // 水位線要在這裡先建立：webhook 設好之前累積的 finding 不補送。
   notifyWatermark(env, now)
@@ -328,18 +333,21 @@ export async function runNotifyCycle(
 
   const batch = buildBatch(env, rows, now)
   try {
-    const r = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: batch.content || undefined, embeds: [batch.embed] }),
-    })
-    // ⚠️ fetch 不會對 4xx/5xx 拋錯。少了這一段，webhook 被撤銷（404）時
+    const input = { feature: 'live-ledger' as const, embed: batch.embed as DiscordEmbed, discordContent: batch.content, mentionLabels: [...new Set(rows.map(r => r.userLabel).filter(Boolean))] }
+    const r = await deliverNotice(input, discordWebhookSender(webhookUrl))
+    // ⚠️ 每一邊都要看 ok——fetch 不會對 4xx/5xx 拋錯，少了這段 webhook 被撤銷（404）時
     //    每一筆都會被標成「已通知」，而且完全沒有徵兆。
-    if (!r.ok) {
-      const body = (await r.text().catch(() => '')).slice(0, 200)
-      const msg = `webhook 回 ${r.status}${body ? `：${body}` : ''}`
+    //    雙發時：兩邊都失敗＝這批不標記、下一輪整批重送；只有一邊失敗＝標記已通知、失敗那邊排補送
+    const sides = (['discord', 'lark'] as const).filter(k => r[k])
+    const failed = sides.filter(k => !r[k]!.ok)
+    if (sides.length && failed.length === sides.length) {
+      const msg = failed.map(k => `${k === 'lark' ? 'Lark' : 'webhook'}：${r[k]!.message ?? ''}`).join('；')
       noteSourceHealth(env, source, false, 'send_failed', msg)
       return { sent: 0, skipped: null, failed: msg }
+    }
+    if (failed.length) {
+      queueFailedSides(input, r)
+      console.warn(`[live-ledger] ${env} 告警有一邊沒送出、已排補送：${failed.map(k => `${k} ${r[k]!.message ?? ''}`).join('；')}`)
     }
   } catch (e) {
     const msg = `送出失敗：${String(e).slice(0, 200)}`
@@ -366,7 +374,7 @@ export async function runNotifyCycle(
  */
 export async function sendNotifyTest(env: ReconEnv, now = Date.now()): Promise<{ ok: boolean; message: string }> {
   const webhookUrl = getDiscordWebhookUrl()
-  if (!webhookUrl) return { ok: false, message: '尚未設定 Discord Webhook URL' }
+  if (!webhookUrl && usesDiscord('live-ledger')) return { ok: false, message: '尚未設定 Discord Webhook URL' }
 
   // ⚠️ join 條件跟 `pendingFindings()` 必須一致——測試發送長得跟真的不一樣的話，
   //    測試通過只證明「webhook 通」，證明不了真正的告警長什麼樣（這裡就曾經兩邊不同）。
@@ -410,14 +418,10 @@ export async function sendNotifyTest(env: ReconEnv, now = Date.now()): Promise<{
   const embed = { ...(batch.embed as Record<string, unknown>) }
   embed.title = `${String(embed.title)}（測試發送，未標記為已通知）`
   try {
-    const r = await fetch(webhookUrl, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ embeds: [embed] }),
-    })
-    if (!r.ok) {
-      const body = (await r.text().catch(() => '')).slice(0, 200)
-      return { ok: false, message: `webhook 回 ${r.status}${body ? `：${body}` : ''}` }
-    }
+    // 照 Live Ledger 的出口設定送；測試不 @ 人（跟原本一樣）
+    const r = await deliverNotice({ feature: 'live-ledger', embed: embed as DiscordEmbed }, discordWebhookSender(webhookUrl))
+    const bad = (['discord', 'lark'] as const).filter(k => r[k] && !r[k]!.ok).map(k => `${k === 'lark' ? 'Lark' : 'webhook'}：${r[k]!.message ?? ''}`)
+    if (bad.length) return { ok: false, message: bad.join('；') }
     return { ok: true, message: rows.length ? `已送出（取最近 ${rows.length} 筆未解決告警當樣本）` : '已送出測試訊息' }
   } catch (e) {
     return { ok: false, message: `送出失敗：${String(e).slice(0, 200)}` }
