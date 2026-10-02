@@ -243,7 +243,9 @@ router.post('/api/meegle/comment/row/continue', writeLimiter, async (req, res, n
     let content: RowContent
     try { content = JSON.parse(row.payload ?? '') as RowContent } catch { return res.status(409).json({ ok: false, message: '找不到上次送出的內容，請回 ③ 重新預覽這一列再送' }) }
     // desc 已完成，runner 不會再比遠端 hash；這裡給一個不會被用到的值
-    const r = await executeRow(req, ctx, body.batchId, content, { expectedRemoteHash: '0'.repeat(64), confirmedRemoteHash: null, allowRepeat: true })
+    // allowRepeat 一律 false：同批次接著做不受影響（已評論檢查只看別的批次）；別的批次已經評論完這張單 → 擋下，
+    // 不然舊的、沒做完的批次按「繼續送出」會在新批次之後再貼一次評論
+    const r = await executeRow(req, ctx, body.batchId, content, { expectedRemoteHash: '0'.repeat(64), confirmedRemoteHash: null, allowRepeat: false })
     res.status(r.status).json(r.body)
   } catch (e) { next(e) }
 })

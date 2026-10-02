@@ -58,6 +58,13 @@ for (const mode of ['classic', 'xianxia']) {
   const dots = await page.locator('.mc-dot').allInnerTexts()
   check('③ 每列都讀完 Meegle 現況（沒有卡在讀取中）', dots.every(d => d !== '讀取中'), dots.join(','))
   check('③ 有測試說明內容', (await page.locator('textarea[aria-label="測試說明內容"]').inputValue()).length > 0)
+  const desc = page.locator('textarea[aria-label="測試說明內容"]'), cmt = page.locator('textarea[aria-label="評論內容"]')
+  check('③ 評論預設＝測試說明內容（使用者 10/02）', (await cmt.inputValue()) === (await desc.inputValue()))
+  await desc.fill((await desc.inputValue()) + '\n補一句')
+  check('③ 改測試說明 → 評論跟著變', (await cmt.inputValue()).endsWith('補一句'))
+  await cmt.fill('我自己寫的評論')
+  await desc.fill((await desc.inputValue()) + '\n再補')
+  check('③ 手改過評論後，改測試說明不會蓋掉評論', (await cmt.inputValue()) === '我自己寫的評論')
   check('③ 底部顯示可送出 N 列', /可送出 \d+ \/ \d+ 列/.test(await page.locator('.mc-foot').innerText()), await page.locator('.mb-foot-sum').innerText())
   await page.screenshot({ path: path.join(root, `mc-step3-${mode}.png`), fullPage: true })
 }

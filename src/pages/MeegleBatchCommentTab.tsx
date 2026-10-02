@@ -29,6 +29,8 @@ type Previous = { batchId: string; workItemId: string; sheetRow: number; summary
 type Item = {
   rowIndex: number; workItemId: string; summary: string; person: string; asEmail: string
   text: string; commentText: string; images: Att[]; videos: Att[]; attError: string
+  /** 使用者手改過評論 → 之後改測試說明（含 AI 整理）不再自動同步評論 */
+  commentEdited: boolean
   /** 附件有沒載到的，使用者明確勾「不帶這些附件送出」才放行（CodeX review 64f53aa [P1]：原本失敗的附件直接消失、照樣送） */
   skipMissingAtt: boolean
   /** queued＝開了 AI 但還沒輪到：跟 running 一樣不能送（CodeX review 64f53aa [P2]：原本排隊中的列會直接送原文） */
@@ -70,11 +72,12 @@ const STEP_LABEL: Record<string, string> = { desc: '覆寫測試說明', comment
 const stepLabel = (s: string, name?: string) => STEP_LABEL[s] ?? (s.startsWith('video:') ? `影片${name ? ` ${name}` : ''}` : s)
 const PHASE_TEXT: Record<Phase, string> = { none: '未執行', creating: '處理中', done: '完成', failed: '失敗', unknown: '待確認', skipped: '略過' }
 
-/** 評論預設內容：一行說明＋【驗證結果】那段（使用者要 Comments 也留一則） */
+/**
+ * 評論預設內容＝測試說明的內容（使用者 10/02：評論跟測試說明輸出一樣，不要另外加「QA 已更新測試頁」那句）。
+ * 之後若不再覆寫測試說明、只留評論，評論本身就是完整內容。
+ */
 function defaultComment(text: string): string {
-  const i = text.indexOf('【驗證結果】')
-  const verify = i >= 0 ? text.slice(i).split(/\n(?=【)/)[0].trim() : ''
-  return `QA 已更新測試頁「測試說明」。${verify ? `\n\n${verify}` : ''}`
+  return text
 }
 
 const rowDone = (steps: StepInfo[]) => steps.length > 0 && steps.every(s => s.phase === 'done' || s.phase === 'skipped')
@@ -228,7 +231,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
       const id = rowIdentity(personOf(r.rec))
       return {
         rowIndex: r.rowIndex, workItemId: r.workItemId!, summary: r.summary, person: personOf(r.rec), asEmail: id.email,
-        text, commentText: defaultComment(text), images: [], videos: [], attError: '', skipMissingAtt: false,
+        text, commentText: defaultComment(text), commentEdited: false, images: [], videos: [], attError: '', skipMissingAtt: false,
         ai: useAiFormat || useAiReview ? 'queued' : 'idle', aiError: '', aiFormatted: false, review: null, reviewStale: false,
         remote: { status: 'idle' }, confirmHash: null, rev: 0,
       }
@@ -298,7 +301,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
         // 這段期間使用者手改過 → AI 結果不套用（不蓋新稿），只把狀態收掉
         if (x.rev !== startRev) return { ...x, ai: 'done', reviewStale: x.review != null || review }
         const text = format ? j.text : x.text
-        return { ...x, ai: 'done', text, aiFormatted: format || x.aiFormatted, commentText: format ? defaultComment(text) : x.commentText, review: review ? j.review : x.review, reviewStale: false }
+        return { ...x, ai: 'done', text, aiFormatted: format || x.aiFormatted, commentText: format && !x.commentEdited ? defaultComment(text) : x.commentText, review: review ? j.review : x.review, reviewStale: false }
       }))
     } catch (e) {
       // AI 失敗要明示，不默默當成功（CodeX）
@@ -620,7 +623,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
                     </div>
                     {cur.ai === 'error' && <div className="mb-alert mb-alert--bad">AI 失敗：{cur.aiError}（內容維持原文，可重試）
                       <button type="button" className="mb-btn mb-btn--small mb-btn--outline" onClick={() => void runAi(cur.rowIndex, useAiFormat, useAiReview, true)}>重試</button></div>}
-                    <textarea className="mc-text" value={cur.text} onChange={e => editItem(cur.rowIndex, { text: e.target.value }, true)} rows={14} aria-label="測試說明內容" />
+                    <textarea className="mc-text" value={cur.text} onChange={e => editItem(cur.rowIndex, { text: e.target.value, ...(cur.commentEdited ? {} : { commentText: defaultComment(e.target.value) }) }, true)} rows={14} aria-label="測試說明內容" />
                     {missing.length > 0 && <div className="mc-missing"><Icon name="warn" /> 格式不完整（仍可送出）：{missing.join('、')}</div>}
                     {cur.images.length > 0 && (
                       <div className="mc-thumbs">
@@ -637,7 +640,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
                   </section>
                   <section className="mc-panel">
                     <div className="mc-panel-head"><Icon name="chat" /> Comments</div>
-                    <textarea className="mc-text mc-text--short" value={cur.commentText} onChange={e => editItem(cur.rowIndex, { commentText: e.target.value })} rows={4} aria-label="評論內容" />
+                    <textarea className="mc-text mc-text--short" value={cur.commentText} onChange={e => editItem(cur.rowIndex, { commentText: e.target.value, commentEdited: true })} rows={4} aria-label="評論內容" />
                     <div className="mc-sub-head">影片附件
                       <label className="mb-btn mb-btn--small mb-btn--outline mc-upload"><Icon name="upload" /> 新增附件
                         <input type="file" hidden onChange={e => { const f = e.target.files?.[0]; if (f) void addAttachment(cur.rowIndex, f); e.target.value = '' }} />
