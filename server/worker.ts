@@ -788,6 +788,8 @@ wss.on('connection', (ws, req) => {
         const ev = (msg as { type: string; sessionId: string; event: Record<string, unknown> }).event
         const sess = uatAgentSessions.get(msg.sessionId)
         if (!sess || !ev) return
+        // 錄製視窗縮放的實測數字（agent 的 console 伺服器看不到，2026-10-02 查 Mac 縮放沒生效時加的）
+        if (ev.kind === 'viewport') { console.log(`[UAT 錄製視窗] ${msg.sessionId} ${JSON.stringify(ev)}`); return }
         if (ev.kind === 'capture') {
           // 錄製時的 console／network／pinus。stats 是統計過的固定大小，整包覆蓋；
           // console 是 agent 端只送新增的那幾筆，這裡接上去再裁到上限。

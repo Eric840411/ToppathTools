@@ -2055,7 +2055,10 @@ function recordableWindowSize(width: number, height: number) {
   }
 }
 
-async function syncUatViewport(sess: UatRecSession) {
+/** 錄製視窗量到的數字回報給伺服器（2026-10-02 Mac 上縮放沒生效，伺服器這邊看不到 agent 的 console，只能這樣查） */
+type ViewportReport = { platform: string; screenAvail: { w: number; h: number } | null; frame: { width: number; height: number }; scale: number; page: { width: number; height: number }; windowAfter?: unknown; error?: string }
+
+async function syncUatViewport(sess: UatRecSession, report?: (r: ViewportReport) => void) {
   if (!sess.cdpSend) return
   // 螢幕放不下設定的尺寸時縮小顯示（頁面 CSS 尺寸不變，錄到的座標照樣對）——理由見 uat-runner/record-window.js
   if (!sess.screenAvail) {
@@ -2074,6 +2077,12 @@ async function syncUatViewport(sess: UatRecSession) {
     mobile: sess.platform === 'h5',
     ...(scale < 1 ? { scale } : {}),
   })
+  const sendReport = async (wid?: number) => {
+    if (!report) return
+    let windowAfter: unknown
+    try { if (typeof wid === 'number') windowAfter = (await sess.cdpSend!('Browser.getWindowBounds', { windowId: wid })).result } catch {}
+    report({ platform: process.platform, screenAvail: sess.screenAvail ?? null, frame, scale, page: { width: sess.width, height: sess.height }, windowAfter })
+  }
   if (scale < 1) {
     // 縮小時視窗照「縮完的大小＋外框」設；量 outer−inner 在縮放下不準，用平台外框常數
     const b = await sess.cdpSend('Browser.getWindowForTarget')
@@ -2081,8 +2090,10 @@ async function syncUatViewport(sess: UatRecSession) {
     if (typeof wid === 'number') {
       await sess.cdpSend('Browser.setWindowBounds', { windowId: wid, bounds: { width: Math.round(sess.width * scale) + frame.width, height: Math.round(sess.height * scale) + frame.height } })
     }
+    await sendReport(wid)
     return
   }
+  void sendReport()
   const size = await sess.cdpSend('Runtime.evaluate', {
     expression: '({ dw: Math.max(0, window.outerWidth - window.innerWidth), dh: Math.max(0, window.outerHeight - window.innerHeight) })',
     returnByValue: true,
@@ -2179,7 +2190,7 @@ function connectUatRecorder(sess: UatRecSession, port: number, serverWs: WebSock
             try {
               await send('Runtime.enable')
               await send('Page.enable')
-              await syncUatViewport(sess)
+              await syncUatViewport(sess, r => { if (serverWs.readyState === serverWs.OPEN) serverWs.send(JSON.stringify({ type: 'uat_record_event', sessionId: sess.sessionId, event: { kind: 'viewport', ...r } })) })
               // ⚠️ **這兩行一定要帶 sess**（CodeX 2026-09-18 覆核指出）。漏傳的話注入的是
               //    預設主題，而且 `__toppathRecorderInstalled` 那道防重複會讓後面帶 sess 的
               //    重注入變成 no-op——修仙版的面板**永遠不會出現**，也不會有任何錯誤。
@@ -2252,7 +2263,7 @@ function connectUatRecorder(sess: UatRecSession, port: number, serverWs: WebSock
                 syncUatPanel(sess)
               }
               if (msg.method === 'Page.loadEventFired') {
-                void syncUatViewport(sess)
+                void syncUatViewport(sess, r => { if (serverWs.readyState === serverWs.OPEN) serverWs.send(JSON.stringify({ type: 'uat_record_event', sessionId: sess.sessionId, event: { kind: 'viewport', ...r } })) })
                 // 宣告式 closed shadow root 只有 CDP 看得到，所以每次載入完成查一次。
                 // 查到就叫頁面停止宣稱「選擇器驗過」——理由見 frontend-recorder.js。
                 void flagShadowCompleteness(send)
