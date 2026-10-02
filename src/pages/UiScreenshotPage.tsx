@@ -291,7 +291,6 @@ export function UiScreenshotPage() {
   /** Machine Model 資料最後同步時間（機台版本 Dashboard 的 OSM 同步）；null＝從沒同步過 */
   const [osmSyncedAt, setOsmSyncedAt] = useState<number | null>(null)
   const [osmSyncing, setOsmSyncing] = useState(false)
-  const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set())
   /** 個別 Machine Model 是否展開 gmid 清單（key = model key + MM_SEP + machineType；未同步用 '_'） */
   const [expandedMMs, setExpandedMMs] = useState<Set<string>>(new Set())
   const [unparsed, setUnparsed] = useState<Array<{ gmid: string; text: string }>>([])
@@ -550,19 +549,21 @@ export function UiScreenshotPage() {
     } catch (e) { setScanMsg(String(e)) } finally { setOsmSyncing(false) }
   }
 
-  /** 有 Machine Model 資料的 model：主列（全選／半選）＋展開後每個 Machine Model 一列，列出它的 gmid（紅字＝被佔用） */
+  /**
+   * 有 Machine Model 資料的 model：主列（全選／半選）＋底下每個 Machine Model 一列，各自點開才列 gmid（紅字＝被佔用）。
+   * 2026-10-02 使用者：不用先展開遊戲就要能點 Machine Model；只有一個 Machine Model 時主列的勾就夠了，子列不再放勾。
+   */
   function renderMMModel(m: ScanModel) {
     const groups = m.machineModels ?? []
     const keys = selectableMMs(m).map(g => mmKey(m.key, g.machineType!))
     const picked = keys.filter(k => selectedModels.includes(k)).length
     const all = keys.length > 0 && picked === keys.length
-    const open = expandedModels.has(m.key)
     const toggleAll = (on: boolean) => setSelectedModels(prev => on ? [...new Set([...prev, ...keys])] : prev.filter(k => !keys.includes(k)))
+    // 可勾的 Machine Model 只有一個 → 主列的勾就等於勾它，子列不重複放
+    const subCheck = keys.length > 1
     return (
       <div key={m.key} className={`ui-ss-mm${picked ? ' is-on' : ''}`}>
         <div className="ui-ss-mm-row">
-          <button type="button" className="ui-ss-mm-caret" aria-expanded={open} aria-label={open ? '收合' : '展開'}
-            onClick={() => setExpandedModels(prev => { const n = new Set(prev); if (n.has(m.key)) n.delete(m.key); else n.add(m.key); return n })}>{open ? '▾' : '▸'}</button>
           <input type="checkbox" checked={all} disabled={!keys.length}
             ref={el => { if (el) el.indeterminate = picked > 0 && !all }}
             onChange={e => toggleAll(e.target.checked)} aria-label={`選取 ${m.key} 底下全部 Machine Model`} />
@@ -570,40 +571,34 @@ export function UiScreenshotPage() {
           <span className="ui-ss-mm-name">{m.model}</span>
           <span className={`ui-ss-mm-cnt${m.free === 0 ? ' is-full' : ''}`}>{m.total} 台・可用 {m.free}</span>
         </div>
-        {!open && groups.length > 0 && (
-          <div className="ui-ss-mm-tags">
-            {groups.map(g => <span key={g.machineType ?? '_'} className={`ui-ss-mm-tag${g.machineType ? '' : ' is-unsynced'}`}>{g.machineType ?? '未同步'}</span>)}
-          </div>
-        )}
-        {open && (
-          <div className="ui-ss-mm-sub">
-            {groups.map(g => {
-              const k = g.machineType ? mmKey(m.key, g.machineType) : ''
-              const on = !!k && selectedModels.includes(k)
-              const ek = mmKey(m.key, g.machineType ?? '_')
-              const mmOpen = expandedMMs.has(ek)
-              return (
-                <div key={g.machineType ?? '_'} className={`ui-ss-mm-item${g.machineType ? '' : ' is-unsynced'}`}>
-                  <div className="ui-ss-mm-item-row">
-                    <button type="button" className="ui-ss-mm-caret" aria-expanded={mmOpen} aria-label={mmOpen ? '收合 gmid' : '展開 gmid'}
-                      onClick={() => setExpandedMMs(prev => { const n = new Set(prev); if (n.has(ek)) n.delete(ek); else n.add(ek); return n })}>{mmOpen ? '▾' : '▸'}</button>
+        <div className="ui-ss-mm-sub">
+          {groups.map(g => {
+            const k = g.machineType ? mmKey(m.key, g.machineType) : ''
+            const on = !!k && selectedModels.includes(k)
+            const ek = mmKey(m.key, g.machineType ?? '_')
+            const mmOpen = expandedMMs.has(ek)
+            const toggleOpen = () => setExpandedMMs(prev => { const n = new Set(prev); if (n.has(ek)) n.delete(ek); else n.add(ek); return n })
+            return (
+              <div key={g.machineType ?? '_'} className={`ui-ss-mm-item${g.machineType ? '' : ' is-unsynced'}`}>
+                <div className="ui-ss-mm-item-row">
+                  <button type="button" className="ui-ss-mm-caret" aria-expanded={mmOpen} aria-label={mmOpen ? '收合 gmid' : '展開 gmid'} onClick={toggleOpen}>{mmOpen ? '▾' : '▸'}</button>
+                  {subCheck && (
                     <input type="checkbox" checked={on} disabled={!g.machineType} aria-label={`選取 ${g.machineType ?? '未同步'}`}
                       onChange={e => setSelectedModels(prev => e.target.checked ? [...prev, k] : prev.filter(x => x !== k))} />
-                    <button type="button" className="ui-ss-mm-tag ui-ss-mm-tag-btn"
-                      onClick={() => setExpandedMMs(prev => { const n = new Set(prev); if (n.has(ek)) n.delete(ek); else n.add(ek); return n })}>{g.machineType ?? '未同步'}</button>
-                    <span className={`ui-ss-mm-cnt${g.free === 0 ? ' is-full' : ''}`}>{g.total} 台・可用 {g.free}</span>
-                  </div>
-                  {mmOpen && (
-                    <div className="ui-ss-mm-gmids">
-                      {g.machines.map((x, i) => <span key={x.gmid} className={x.occupied ? 'is-busy' : ''}>{i ? '、' : ''}{x.gmid}</span>)}
-                      {!g.machineType && <em>（機台版本 Dashboard 查不到這幾台，先重新同步）</em>}
-                    </div>
                   )}
+                  <button type="button" className="ui-ss-mm-tag ui-ss-mm-tag-btn" onClick={toggleOpen}>{g.machineType ?? '未同步'}</button>
+                  <span className={`ui-ss-mm-cnt${g.free === 0 ? ' is-full' : ''}`}>{g.total} 台・可用 {g.free}</span>
                 </div>
-              )
-            })}
-          </div>
-        )}
+                {mmOpen && (
+                  <div className="ui-ss-mm-gmids">
+                    {g.machines.map((x, i) => <span key={x.gmid} className={x.occupied ? 'is-busy' : ''}>{i ? '、' : ''}{x.gmid}</span>)}
+                    {!g.machineType && <em>（機台版本 Dashboard 查不到這幾台，先重新同步）</em>}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
       </div>
     )
   }
@@ -1528,8 +1523,8 @@ export function UiScreenshotPage() {
                 只選有空機（{visibleModels.filter(m => m.free > 0).length}）
               </button>
               <button className="btn-ghost" type="button" style={{ fontSize: 12 }}
-                onClick={() => setExpandedModels(prev => prev.size ? new Set() : new Set(visibleModels.filter(m => m.machineModels).map(m => m.key)))}>
-                {expandedModels.size ? '全部收合' : '全部展開'}
+                onClick={() => setExpandedMMs(prev => prev.size ? new Set() : new Set(visibleModels.flatMap(m => (m.machineModels ?? []).map(g => mmKey(m.key, g.machineType ?? '_')))))}>
+                {expandedMMs.size ? '全部收合' : '全部展開'}
               </button>
               <button className="btn-ghost" type="button" style={{ fontSize: 12 }} onClick={() => setSelectedModels([])}>清除</button>
             </div>

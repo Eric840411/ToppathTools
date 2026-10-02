@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.268.3'
+export const APP_VERSION = '4.269.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.269.0', date: '2026-10-02', changes: ['feat(UI 截圖)：**不用先展開遊戲就能點 Machine Model**——遊戲底下一律列出各 Machine Model（名稱＋台數），點 ▸ 或名稱各自展開 gmid；「全部展開／收合」改成一次開關所有 gmid', 'feat(UI 截圖)：**勾勾減量**——遊戲只有一個 Machine Model 時子列不再放勾，主列的勾就是選它；有多個 Machine Model 時子列仍可單獨勾'] },
   { version: '4.268.3', date: '2026-10-02', changes: ['style(Meegle)：④ 底部多出來的空白拿掉——原本是留給固定進度列的 96px，④ 已不顯示固定列'] },
   { version: '4.268.2', date: '2026-10-02', changes: ['fix(Meegle)：**④ 保留頁面內的進度條、改成不顯示下方固定進度列**（使用者：v4.268.1 刪反了）。固定進度列在 ①～③ 照常顯示，「看結果」跳到 ④'] },
   { version: '4.268.1', date: '2026-10-02', changes: ['fix(Meegle)：**④ 送出結果出現兩條進度條、「看結果」按了沒反應**（使用者回報）——④ 拿掉頁面內那條，進度只看下方固定進度列（結果列多時仍看得到）；已經在 ④ 時不顯示「看結果」，只留關閉'] },
