@@ -50,6 +50,32 @@ export function projectFromTitle(title: string): string {
   return /^\s*\[([^\]]+)\]/.exec(title)?.[1]?.trim() ?? ''
 }
 
+/**
+ * 定時提醒的授權人每次執行都要重查：帳號還在、沒停權、還有「週報彙整」權限（CodeX review [P1]：
+ * 原本只看 Meegle 綁定，停權後只要 token 還有效背景仍會撈單）。有問題回原因，呼叫端整段跳過、不呼叫 Meegle、不換人
+ */
+export function cronActorProblem(actor: { email: string; status?: string | null } | undefined, hasWeeklyReportPermission: boolean): string | null {
+  if (!actor) return '授權人帳號不存在（可能已刪除）'
+  if ((actor.status ?? 'active') !== 'active') return '授權人帳號已停權'
+  if (!hasWeeklyReportPermission) return '授權人沒有「週報彙整」權限'
+  return null
+}
+
+/**
+ * 排程的授權人關卡（帳號 → 權限 → Meegle 綁定，依序；前面不過就不往下，**不會碰到 Meegle**）。
+ * 拆成可注入的函式，測試才驗得到「失效時沒有呼叫 Meegle、沒有換人」（CodeX review [P1]）
+ */
+export function resolveCronActor(
+  actor: string,
+  deps: { findAccount: (email: string) => { email: string; status?: string | null; role?: string | null } | undefined; hasPermission: (email: string, role: string) => boolean; tokenOf: (email: string) => { token: string } | { reason: string } },
+): { token: string } | { reason: string } {
+  const acc = deps.findAccount(actor)
+  const problem = cronActorProblem(acc, !!acc && deps.hasPermission(acc.email, acc.role ?? 'qa'))
+  if (problem) return { reason: `${problem}（${actor}）` }
+  const t = deps.tokenOf(actor)
+  return 'reason' in t ? { reason: `授權人 ${actor} ${t.reason}` } : t
+}
+
 export type MeeglePerson = { userKey: string; name: string }
 export type PersonResolution = { ok: true; person: MeeglePerson; via: 'binding' | 'map' | 'search' } | { ok: false; reason: string }
 
@@ -100,7 +126,9 @@ export async function fetchMeegleWeek(token: string, person: MeeglePerson, start
       if (g.kind !== 'ok') return { kind: g.kind, message: `讀不到 #${id} 的建立時間：${g.message}` }
       createdIso = String((g.value as { work_item_attribute?: { create_time?: unknown } })?.work_item_attribute?.create_time ?? '')
       const c = Date.parse(createdIso)
-      inRange = !Number.isNaN(c) && c >= b.fromMs && c < b.toMs
+      // 讀成功卻沒有／看不懂建立時間：不能當成「不在週期內」默默排除（CodeX review [P2]）→ 整批停、講是哪張
+      if (!createdIso || Number.isNaN(c)) return { kind: 'unknown', message: `#${id} 的建立時間讀不到或看不懂（「${createdIso || '空白'}」），為了不漏單整批停止` }
+      inRange = c >= b.fromMs && c < b.toMs
     }
     if (!inRange) continue
     // 用 MQL 回的角色成員判斷這張單是因為哪個角色被撈出來

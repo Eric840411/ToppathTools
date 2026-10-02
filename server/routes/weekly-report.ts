@@ -11,7 +11,7 @@ import { createHash } from 'crypto'
 import { getAuthAccount } from '../auth-session.js'
 import {
   addHistory, db, getLarkToken, mustEnv, userJiraAuth, parseLarkSheetUrl,
-  hasJiraDelegation, jiraAuthForAccount, readAccounts, authEmailFromRequest,
+  hasJiraDelegation, jiraAuthForAccount, readAccounts, authEmailFromRequest, accountHasPermission,
 } from '../shared.js'
 // 週報呈現規則前後端共用同一份——server 這邊要算出「跟頁面一模一樣的內容」才能讓 Discord
 // 按鈕直接送出。複製一份到 server 的話，之後改規則會漏一邊，症狀是送出去的跟看到的不一樣。
@@ -20,7 +20,7 @@ import {
   matchesAutoImportTarget, groupJiraIssuesToDrafts, DEFAULT_TAB_DATE_PROJECT_NAME, matchLarkProjectByJiraName,
   type DraftItem as SharedDraftItem, type FlatItem,
 } from '../../shared/weekly-report-rules.js'
-import { fetchMeegleWeek, resolveMeeglePerson } from '../meegle-weekly.js'
+import { fetchMeegleWeek, resolveCronActor, resolveMeeglePerson } from '../meegle-weekly.js'
 import { getAccountRow } from '../meegle-account-service.js'
 import { decryptMeegleToken } from '../meegle-token-crypto.js'
 
@@ -703,9 +703,14 @@ async function fetchJiraDraftsForCron(
   // Jira 停用後改撈 Meegle（2026-10-02，CodeX）：排程固定用「授權人（actor）自己的 Meegle 綁定」查，
   // 目標人只當篩選條件，不再借對方的 token、也不需要 jira.read.asOther。每次執行都重查授權人的綁定；
   // 失效就整段跳過並講清楚，**不換別人頂替**
-  const actorToken = meegleTokenOf(actor)
+  // 每次執行都重查：帳號還在、沒停權、有週報權限、Meegle 綁定有效（CodeX review [P1]）；不過就整段跳過、不換人
+  const actorToken = resolveCronActor(actor, {
+    findAccount: e => readAccounts().find(a => a.email.toLowerCase() === e),
+    hasPermission: (e, role) => accountHasPermission(e, role, 'weekly-report'),
+    tokenOf: meegleTokenOf,
+  })
   if ('reason' in actorToken) {
-    out.skipped.push({ label: 'Meegle', reason: `授權人 ${actor} ${actorToken.reason}——請本人到個人帳號頁綁定，或在定時提醒設定換一位授權人` })
+    out.skipped.push({ label: 'Meegle', reason: `${actorToken.reason}，這次沒有撈單——請本人到個人帳號頁綁定，或在定時提醒設定換一位授權人` })
     return out
   }
   const byIssue = new Map<string, { key: string; summary: string; jiraProjectName: string; accountLabels: string[] }>()

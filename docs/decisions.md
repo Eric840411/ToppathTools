@@ -424,3 +424,16 @@ runner 回報 exit code、agent 回 `backend_uat_done`、本機 child 結束、�
 **為什麼改**：使用者真送兩張全被判待確認。實測 Meegle 會把 Markdown 解析後重新輸出，改寫種類多到列不完（見 28-meegle.md v4.272.0）。
 **現在**：`textFingerprint` 拿掉 Markdown 標記與空白後比對。放寬的只有「格式」；文字的任何增刪改仍判不一致，所以「同時被人改內容」照樣擋得住。
 真實送出／讀回 fixture：`server/__fixtures__/meegle-md-*`。
+
+## 2026-10-02 移除 Jira（v4.281.0～v5.0.1）
+
+**決策**：Jira 停用（使用者確認沒人用），分三步移除：① 先把 Meegle 也在用的東西搬出 Jira 程式（行為不變）② 週報、TestCase 改讀 Meegle ③ 刪 Jira 程式。不藏一版（使用者確認沒人用）；資料表保留。
+- **帳號表沿用 `jira_accounts`，不另開新表**（CodeX）：另開新表只複製一次，上線後新增帳號、改 PIN、停權會跟舊表分歧，退版時停權帳號可能復活。最後才改名。
+- **權限 key 不改，只改顯示名**（CodeX）：Meegle 工具已在用 `jira`、`jira-ai-*`，改 key 會讓角色預設與個人覆寫跑掉。
+- **新舊路徑掛同一個 handler，不用轉址**（CodeX）：`/api/accounts`＝`/api/jira/accounts`、`/api/attachments/*`＝`/api/jira/attachment-*`。
+- **週報用登入者自己的 Meegle 綁定查，目標人只當篩選條件**（CodeX）：不再借對方 token，`jira.read.asOther` 用不到。不能因為某個 token 查得到全空間就假設所有 token 都能。
+- **排程的授權人每次重查**：帳號存在、未停權、有週報權限、Meegle 綁定有效，依序檢查，不過就整段跳過、**不呼叫 Meegle、不換人**（CodeX review [P1]，v5.0.1 補上；原本只看綁定，停權後 token 仍有效就還會撈）。
+- **邊界單讀不到建立時間就整批報錯**（CodeX review [P2]，v5.0.1）：不能當成「不在週期內」默默排除。
+- 已知限制：「更新」只看最後一次更新時間，補查舊週會漏掉之後又更新的單（畫面會提示）。
+- **重看條件**：要做資料表改名、刪 shared.ts 的 Jira helper、代理授權頁 Jira 用途時（第 ④ 步）。
+- 驗證：`scripts/ui-checks/jira-removal-live-check.mjs`（真伺服器 24 條）、Meegle 四支走查、`server/meegle-weekly.test.ts`（27 條，拿掉授權人關卡／改回默默排除各紅 2 條）、`server/account-store.test.ts`。build 通過；**server 型別錯誤 53 條（全是既有的，不代表 typecheck 通過）**，移除前後逐條比對無新增。
