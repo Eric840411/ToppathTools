@@ -8,6 +8,8 @@
  *   4 有多個 Machine Model 的遊戲：子列有勾，不展開也能直接勾
  *   5 只有一個 Machine Model 的遊戲：子列沒有勾，主列的勾就會選到它
  *   6「全部展開」會打開所有 gmid
+ *   7 同一款遊戲排在一起（掃描回來是 WLZBHELIX、BZZF、WLZBHELIX）
+ *   8「完成」按鈕不折行
  * 兩種主題各截一張圖。
  *
  * 跑法：node scripts/ui-checks/ui-screenshot-mm-expand.mjs（本機 server 在 3000）
@@ -46,6 +48,11 @@ const scan = {
       key: 'BZZF::Purple Celebration', game: 'BZZF', model: 'Purple Celebration', total: 2, free: 1, machines: bz,
       machineModels: [{ machineType: 'bzzf1', machines: bz, total: 2, free: 1 }],
     },
+    // 故意放在 BZZF 後面：排序要把它拉回 WLZBHELIX 那一群
+    {
+      key: 'WLZBHELIX::Magic Flower', game: 'WLZBHELIX', model: 'Magic Flower', total: 1, free: 1, machines: [{ gmid: '4182-WLZBHELIX-2152', occupied: false }],
+      machineModels: [{ machineType: 'wlzbhelix16', machines: [{ gmid: '4182-WLZBHELIX-2152', occupied: false }], total: 1, free: 1 }],
+    },
   ],
 }
 
@@ -75,7 +82,12 @@ for (const mode of ['classic', 'xianxia']) {
   await page.getByRole('button', { name: '掃描大廳' }).click()
   await page.getByRole('button', { name: /選擇 model/ }).click()
 
-  const mm = page.locator('.ui-ss-mm').nth(0)
+  const games = await page.locator('.ui-ss-mm .ui-ss-mm-game').allInnerTexts()
+  check('同一款遊戲排在一起', JSON.stringify(games) === JSON.stringify(['BZZF', 'WLZBHELIX', 'WLZBHELIX']), games.join(','))
+  const done = await page.getByRole('button', { name: '完成', exact: true }).boundingBox()
+  check('「完成」不折行（高度 < 40px）', !!done && done.height < 40, done ? `${Math.round(done.height)}px` : '找不到')
+
+  const mm = page.locator('.ui-ss-mm').filter({ hasText: 'wlzbhelix9' })
   const items = mm.locator('.ui-ss-mm-item')
   // 刻意不點任何遊戲層的東西：使用者要的是「沒全部展開也能點 Machine Model」
   check('不展開遊戲就列出 2 個 Machine Model', await items.count() === 2)
@@ -96,7 +108,7 @@ for (const mode of ['classic', 'xianxia']) {
   await cb.check()
   check('不展開也能勾選', await cb.isChecked() && await items.nth(1).locator('.ui-ss-mm-gmids').count() === 0)
 
-  const single = page.locator('.ui-ss-mm').nth(1)
+  const single = page.locator('.ui-ss-mm').filter({ hasText: 'bzzf1' })
   check('只有一個 Machine Model：子列沒有勾', await single.locator('.ui-ss-mm-item input[type=checkbox]').count() === 0)
   await single.locator('.ui-ss-mm-row input[type=checkbox]').check()
   check('主列的勾選到它（已選 2 個 model）', await page.getByText('已選 2 個 model').count() >= 1)
@@ -105,7 +117,7 @@ for (const mode of ['classic', 'xianxia']) {
   await items.nth(0).locator('.ui-ss-mm-caret').click()
   check('都收起來時按鈕顯示「全部展開」', await page.getByRole('button', { name: '全部展開' }).count() === 1)
   await page.getByRole('button', { name: '全部展開' }).click()
-  check('全部展開打開 3 組 gmid', await page.locator('.ui-ss-mm-gmids').count() === 3)
+  check('全部展開打開 4 組 gmid', await page.locator('.ui-ss-mm-gmids').count() === 4)
   await page.screenshot({ path: path.join(root, `ui-ss-mm-expand-${mode}.png`) })
   await page.getByRole('button', { name: '全部收合' }).click()
   check('全部收合', await page.locator('.ui-ss-mm-gmids').count() === 0)

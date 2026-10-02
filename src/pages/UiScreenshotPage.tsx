@@ -528,6 +528,8 @@ export function UiScreenshotPage() {
     const q = modelFilter.trim().toLowerCase()
     return !q || m.key.toLowerCase().includes(q) || (m.machineModels ?? []).some(g => (g.machineType ?? '').toLowerCase().includes(q))
   })
+    // 同一款遊戲排在一起（使用者 10/02：WLZBHELIX 散在各處不好找）；sort 是穩定排序，同遊戲內維持掃描回來的順序
+    .sort((a, b) => a.game.localeCompare(b.game))
   // 已選的統計：Machine Model 選項各自是一個任務
   const selectedMMCount = selectedModels.filter(k => k.includes(MM_SEP)).length
   const selectedModelCount = new Set(selectedModels.map(k => k.split(MM_SEP)[0])).size
@@ -1594,7 +1596,7 @@ export function UiScreenshotPage() {
                 </b> 分鐘
               </span>
               <span style={{ fontSize: 11, color: '#64748b' }}>「可用」是掃描當下的狀態，實際跑時可能已被佔走（會自動換同 model 的另一台；勾了 Machine Model 的只會在那組裡換，全被佔就該項失敗）</span>
-              <button className="submit-btn submit-btn--sm" style={{ marginLeft: 'auto', fontSize: 12, padding: '6px 16px' }}
+              <button className="submit-btn submit-btn--sm" style={{ marginLeft: 'auto', fontSize: 12, padding: '6px 16px', whiteSpace: 'nowrap', flexShrink: 0 }}
                 onClick={() => setShowModelPicker(false)}>完成</button>
             </div>
           </div>
