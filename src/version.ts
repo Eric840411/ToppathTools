@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.280.0'
+export const APP_VERSION = '4.280.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.280.1', date: '2026-10-02', changes: ['style(Meegle 補回填)：逐列結果的成功／略過／失敗標籤貼在表頭上（使用者回報）→ 標題列與表格之間留 16px'] },
   { version: '4.280.0', date: '2026-10-02', changes: ['feat(Meegle 補回填)：Jira 頁新增「**Meegle 補回填**」分頁（CodeX 設計圖 1:1）。列出開單／評論／狀態／修改四個工具裡 Meegle 已完成、只剩 Sheet 回填失敗或卡住的列，可篩選工具／Sheet、只看我的或（admin）全部人，勾選後一次補寫回；補寫一律走各工具原本的回填（同樣先核對那一列），執行時後端再確認仍在待補清單。只做待補記錄、不做標題對帳（使用者選 B）'] },
   { version: '4.279.0', date: '2026-10-02', changes: ['feat(Meegle 修改)：Jira 頁新增「**Meegle 修改**」分頁（CodeX 設計圖 1:1，普通／修仙兩版）。② 7 組 15 欄每欄 不修改／Sheet 欄／固定值／明確清空＋圖片欄，人員對照未對到標紅、可從已對照的人挑；③ 左清單＋右「原值→新值」由後端算，換不出來的欄位紅字列出原因、✎ 可只改這一列或這列不改這欄；④ 逐列四步、重試失敗步驟、回填失敗補寫回。真頁面兩種主題走過（scripts/ui-checks/meegle-edit-walkthrough.mjs，送出用假的）'] },
   { version: '4.278.0', date: '2026-10-02', changes: ['feat(Meegle 修改)：批量修改**後端**（分頁接著做）。欄位全照 Jira 版（任務名稱、描述＋圖片、優先順序、五個角色、測試頁六欄、開發說明、Gitlab），每欄 不修改／Sheet 欄／固定值／明確清空。預覽與送出都由後端算（不收前端給的 option_id／user_key），計畫在預覽後變了就要求重新預覽；覆寫保護只接受預覽原值或新值；角色只能 add／remove，做到一半重試會先核對再續做；圖片上傳後網址存起來重試沿用，讀回驗圖片；回填失敗只補回填。CodeX 同意＋四點必修都做了。測試 48 條、五個突變皆紅；真 API 在測試單改過再改回'] },

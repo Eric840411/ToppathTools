@@ -3,6 +3,8 @@
 
 .bf-page { gap: 14px; }
 .bf-head { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; }
+/* 逐列結果：標題列（含成功／略過／失敗）跟下面的表格要隔開，不然 chip 會貼在表頭上（使用者 10/02） */
+.bf-head + .mb-table-wrap { margin-top: 16px; }
 .bf-count { color: var(--mb-muted); font-size: 15px; }
 .bf-count b { font-size: 19px; margin: 0 2px; }
 .bf-n-warn { color: var(--mb-warn); }
