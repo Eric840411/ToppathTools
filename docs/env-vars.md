@@ -17,10 +17,10 @@
 
 | 變數 | 說明 |
 |------|------|
-| `DISCORD_BOT_TOKEN` | Discord Bot Token |
+| ~~`DISCORD_BOT_TOKEN`~~ | 已停用（2026-10-03 刪除「工具人Ryan」遠端指令 bot）；設了也不會啟動 |
 | `DISCORD_GUILD_ID` | Discord 伺服器 ID |
-| `DISCORD_CURSOR_CHANNEL_ID` | Bot 監聽的頻道 ID |
-| `DISCORD_ALLOWED_USER_IDS` | 允許遠端控制的 User ID（逗號分隔） |
+| ~~`DISCORD_CURSOR_CHANNEL_ID`~~ | 已停用（同上） |
+| ~~`DISCORD_ALLOWED_USER_IDS`~~ | 已停用（同上） |
 
 ---
 

@@ -82,9 +82,6 @@ const gracefulShutdown = (signal: string) => {
   console.log('[Shutdown] stopping cron...')
   activeCronTask?.stop()
 
-  // 3. Destroy Discord bot connection
-  console.log('[Shutdown] stopping discord bot...')
-  stopDiscordBotRef?.()
 
   // 4. Close HTTP server — closeAllConnections() force-closes SSE & keep-alive
   console.log('[Shutdown] closing http server...')
@@ -106,7 +103,6 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
 process.on('SIGINT',  () => gracefulShutdown('SIGINT'))
 const serverStartedAt = Date.now()
 const serverBootId = `${process.pid}-${serverStartedAt}`
-let stopDiscordBotRef: (() => void) | null = null
 let integrationsRouterPromise: Promise<express.Router> | null = null
 
 function shouldProxyPathToWorker(p: string): boolean {
@@ -461,15 +457,8 @@ server.listen(port, '0.0.0.0', () => {
   // 啟動定時告警
   restartCron()
 
-  // 啟動 Discord Bot
-  if (process.env.DISCORD_BOT_TOKEN) {
-    import('./discord-bot.js')
-      .then(({ startDiscordBot, stopDiscordBot }) => {
-        stopDiscordBotRef = stopDiscordBot
-        startDiscordBot()
-      })
-      .catch((error) => console.error('[Discord] lazy load failed:', error))
-  }
+  // 「工具人Ryan」Discord 遠端指令 bot（!run 執行 PowerShell 等）已停用並刪除（使用者 2026-10-03：用不到；
+  // 能在主機跑任意指令風險高，Claude 已經在 Lark 上）。週報那支 Discord bot 是另一支，下面照舊
 
   // 啟動週報 Discord Bot（跟上面那支是不同的機器人、不同 token，刻意分開避免動到既有行為）。
   // 沒設 token 就不啟動——這是選配功能，不該讓 server 起不來。
