@@ -1,4 +1,4 @@
-export const APP_VERSION = '5.1.1'
+export const APP_VERSION = '5.1.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '5.1.2', date: '2026-10-03', changes: ['fix(Lark 通知補送)：v5.1.0 排進佇列的舊項目沒有 id，成功刪除時用 id 比對會**整批誤刪**、失敗也放不回（CodeX review [P1]）→ 領取前在同一個 transaction 補上唯一 id 並寫回', 'fix(Lark 通知補送)：整批領取時才判期限，前面送得慢的話後面的項目輪到時已過期仍會送出（CodeX [P2]）→ 每筆發送前再判一次'] },
   { version: '5.1.1', date: '2026-10-03', changes: ['fix(週報，既有漏洞)：週報所有 API **後端沒有檢查登入與權限**（CodeX review [P1]）——batch-submit 沒登入也能直接呼叫、用服務端 Lark token 寫入，前端擋頁面擋不了。改成 /api/weekly-report/* 一律先過關卡：登入 → 未停權 → 有週報權限（逐關短路）；新端點自動受管。真伺服器 17 項（拿掉關卡 13 項變紅）', 'fix(Lark 通知補送)：佇列原本「先清空再送」，送到一半 crash／例外會整批遺失（CodeX [P1]）→ 改成持久化租約：領取時標租約、成功才刪、失敗放回，process 死掉租約過期後任一邊會重新領取', 'fix(Lark 通知補送)：超過 24 小時的項目仍會送出——原本先送才檢查期限（CodeX [P2]）→ 改成領取時就判過期、不送直接移除', 'fix(Lark 通知設定)：停權的管理員也擋'] },
   { version: '5.1.0', date: '2026-10-03', changes: ['feat(Lark 通知)：工具的通知可以改發到 **Lark**。側邊欄新增「Lark 通知」設定頁（CodeX 設計稿，普通／修仙兩版；只限管理員，後端檢查）：①機器人憑證——App ID／Secret 在頁面填，Secret 用伺服器金鑰加密、只顯示尾碼、留空保留原值，沒設 MEEGLE_TOKEN_KEY 就拒存 ②目標群組——從機器人已加入的群挑（處理分頁）或手填 chat ID，可試發 ③各功能通知出口——AutoSpin／Live Ledger／週報提醒各自選 Discord／Lark／雙發，預設 Discord（沒切的行為不變）④@人對照——帳號 email 查 Lark 使用者，機器人缺 contact 權限時明講、通知只寫名字不 @。原本的 Discord 卡片自動轉成 Lark 卡片（同一份內容）；AutoSpin 進度卡兩邊各改各的那一則；**雙發時一邊失敗只補送失敗那邊**（存在設定表，server／worker 共用、10 次或 24 小時放棄）。週報提醒的 Lark 卡片是「開啟週報頁確認送出」連結（工具只發不收，不跟 Claude 搶 Lark 長連線），網址 ?page=weekly-report 直接開到週報頁、照樣檢查登入與權限。CodeX bridge 仍在 Discord。測試：notify-outlet.test.ts 17 條（三個突變皆紅）、真伺服器 26 項（真的發到 OSM的秘密群）、頁面走查兩種主題'] },
   { version: '5.0.3', date: '2026-10-03', changes: ['remove(Discord)：停用並刪除「工具人Ryan」Discord 遠端指令 bot（!run 執行 PowerShell 等；使用者：用不到）。能在主機跑任意指令、風險高，Claude 已改在 Lark 上。週報那支 Discord bot 不受影響'] },

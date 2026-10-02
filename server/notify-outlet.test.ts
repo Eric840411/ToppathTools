@@ -119,6 +119,33 @@ d.mention = realMention
 eq('送的時候拋例外 → flush 自己接住、不往外拋', threw, false)
 eq('送的時候拋例外 → 不會整批消失，放回佇列、次數 +1、解除租約', [queue.length, queue[0]?.tries, queue[0]?.leaseUntil], [1, 1, undefined])
 
+// ── CodeX review 7027e12 [P1]：v5.1.0 的舊項目沒有 id ──
+reset()
+let call = 0
+const realSend2 = d.sendLark
+d.sendLark = async (c, card) => { call++; larkOk = call === 1; return realSend2(c, card) }   // 第一筆成功、第二筆失敗
+queue = [
+  { feature: 'autospin', side: 'lark', embed: { title: '舊1' }, firstAt: Date.now(), tries: 0 },
+  { feature: 'autospin', side: 'lark', embed: { title: '舊2' }, firstAt: Date.now(), tries: 0 },
+] as unknown as RetryItem[]
+await flushNotifyRetries(() => 'http://hook')
+d.sendLark = realSend2
+eq('兩筆沒 id 的舊項目：第一筆成功只刪它、第二筆失敗放回（不整批誤刪）', [queue.length, queue[0]?.embed.title, queue[0]?.tries, !!queue[0]?.id], [1, '舊2', 1, true])
+
+// ── CodeX review 7027e12 [P2]：批次途中過期 ──
+reset()
+let fake = Date.now()
+const born = fake - 24 * 3600_000 + 1000   // 再 1 秒就滿 24 小時
+const slow = d.sendLark
+d.sendLark = async (c, card) => { fake += 2000; return slow(c, card) }   // 每筆送 2 秒
+queue = [
+  { id: 'p1', feature: 'autospin', side: 'lark', embed: { title: '先送' }, firstAt: fake, tries: 0 },
+  { id: 'p2', feature: 'autospin', side: 'lark', embed: { title: '快過期' }, firstAt: born, tries: 0 },
+]
+const f3 = await flushNotifyRetries(() => 'http://hook', () => fake)
+d.sendLark = slow
+eq('第二筆輪到時已過期 → 不送、移除', [larkSent.length, queue.length, f3.dropped], [1, 0, 1])
+
 Object.assign(d, __notifyTestSeam.original)
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) process.exit(1)

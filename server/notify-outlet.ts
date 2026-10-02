@@ -169,9 +169,9 @@ function writeQueueDb(q: RetryItem[]) { db.prepare('INSERT OR REPLACE INTO setti
 const readQueue = () => deps.readQueue()
 const writeQueue = (q: RetryItem[]) => deps.writeQueue(q)
 
+const newRetryId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
 export function enqueueRetry(item: Omit<RetryItem, 'id' | 'firstAt' | 'tries' | 'leaseUntil'>) {
-  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-  deps.tx(() => { const q = readQueue(); q.push({ ...item, id, firstAt: Date.now(), tries: 0 }); writeQueue(q.slice(-200)) })
+  deps.tx(() => { const q = readQueue(); q.push({ ...item, id: newRetryId(), firstAt: Date.now(), tries: 0 }); writeQueue(q.slice(-200)) })
 }
 export function retryQueueSize(): number { return readQueue().length }
 
@@ -192,18 +192,29 @@ export async function flushNotifyRetries(getWebhookUrl: () => string, now = () =
     // 領取：過期的直接移除（不送）；其餘沒人租或租約已過期的標上租約
     const dead: RetryItem[] = []
     const claimed = deps.tx(() => {
-      const t = now(), q = readQueue(), mine: RetryItem[] = [], rest: RetryItem[] = []
+      const t = now(), mine: RetryItem[] = [], rest: RetryItem[] = []
+      // v5.1.0 排進來的項目沒有 id（全是 undefined），成功刪除時會用 id 比對而整批誤刪（CodeX review 7027e12 [P1]）
+      // → 領取前在同一個 transaction 裡補上唯一 id 並寫回
+      let patched = false
+      const q = readQueue().map(it => { if (it.id) return it; patched = true; return { ...it, id: newRetryId() } })
       for (const it of q) {
         if (expired(it, t)) { dead.push(it); continue }
         if (!it.leaseUntil || it.leaseUntil <= t) { const leased = { ...it, leaseUntil: t + RETRY_LEASE_MS }; mine.push(leased); rest.push(leased) }
         else rest.push(it)
       }
-      if (mine.length || dead.length) writeQueue(rest)
+      if (mine.length || dead.length || patched) writeQueue(rest)
       return mine
     })
     for (const it of dead) console.warn(`[notify:${it.feature}] ${it.side} 補送放棄（${it.tries} 次、排了 ${Math.round((now() - it.firstAt) / 3600_000)} 小時）：${it.embed.title ?? ''}｜${it.lastError ?? ''}`)
     let sent = 0
     for (const it of claimed) {
+      // 每筆發送前再判一次期限（CodeX [P2]）：整批領取時還沒過期，前面幾筆送得慢的話輪到它時可能已經過期
+      if (expired(it, now())) {
+        deps.tx(() => writeQueue(readQueue().filter(x => x.id !== it.id)))
+        dead.push(it)
+        console.warn(`[notify:${it.feature}] ${it.side} 補送放棄（輪到時已過期）：${it.embed.title ?? ''}`)
+        continue
+      }
       let s: SideResult | undefined
       try {
         const r = await deliverNotice({ feature: it.feature, embed: it.embed, discordContent: it.discordContent, mentionLabels: it.mentionLabels, only: [it.side], ignoreOutlet: true }, deps.discordSender(getWebhookUrl()))
