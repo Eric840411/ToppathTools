@@ -36,7 +36,7 @@ const plan = [
 ]
 const calls = []
 let others = 0
-await ctx.route('**/api/jira/attachment-prefetch', async r => {
+await ctx.route('**/api/attachments/prefetch', async r => {
   const b = r.request().postDataJSON()
   const rows = b.groups.map(g => g.rowIndex)
   if (!rows.includes(TARGET)) { others++; return r.fulfill({ status: 500, json: { ok: false, message: '模擬：別列失敗' } }) }
@@ -51,7 +51,7 @@ ctx.on('request', r => { if (r.method() === 'POST' && /meegle\/comment\/(row|sen
 
 const page = await ctx.newPage()
 await page.goto(`http://${HOST}:3000/`, { waitUntil: 'networkidle' })
-await page.getByText(/^(Jira 批量開單|卷宗管理)$/).first().click()
+await page.getByText(/^(Meegle 批量工具|Jira 批量開單|卷宗管理)$/).first().click()
 await page.getByRole('button', { name: 'Meegle 評論' }).click()
 await page.locator('.mc-loadbar .mb-input').fill(SHEET)
 await page.getByRole('button', { name: /讀取 Sheet/ }).click()

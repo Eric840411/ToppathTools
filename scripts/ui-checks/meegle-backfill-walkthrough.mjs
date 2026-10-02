@@ -28,7 +28,7 @@ for (const theme of ['classic', 'xianxia']) {
   if (theme === 'classic') {
     // 先打一次真的：本機沒有待補的列 → 空清單
     await page.goto(`http://${HOST}:3000/`, { waitUntil: 'networkidle' })
-    await page.getByText(/^(Jira 批量開單|卷宗管理)$/).first().click()
+    await page.getByText(/^(Meegle 批量工具|Jira 批量開單|卷宗管理)$/).first().click()
     await page.getByRole('button', { name: 'Meegle 補回填' }).click()
     await page.getByText('沒有待補的列').waitFor({ timeout: 30000 })
     check('真的清單：空的時候顯示「沒有待補的列」、補寫按鈕停用', await page.getByRole('button', { name: /補寫回 0 筆/ }).isDisabled())
@@ -45,7 +45,7 @@ for (const theme of ['classic', 'xianxia']) {
     ] } })
   })
   await page.goto(`http://${HOST}:3000/`, { waitUntil: 'networkidle' })
-  await page.getByText(/^(Jira 批量開單|卷宗管理)$/).first().click()
+  await page.getByText(/^(Meegle 批量工具|Jira 批量開單|卷宗管理)$/).first().click()
   await page.getByRole('button', { name: 'Meegle 補回填' }).click()
   await page.locator('.bf-table tbody tr').nth(3).waitFor({ timeout: 30000 })
   check('清單四種來源標籤都在', (await page.locator('.bf-tool').allInnerTexts()).join(',') === '開單,評論,狀態,修改')

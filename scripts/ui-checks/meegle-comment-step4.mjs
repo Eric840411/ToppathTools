@@ -43,7 +43,7 @@ for (const mode of ['classic', 'xianxia']) {
   await page.goto(`http://${HOST}:3000/`, { waitUntil: 'networkidle' })
   await page.evaluate(m => localStorage.setItem('toppath-theme-mode', m), mode)
   await page.reload({ waitUntil: 'networkidle' })
-  await page.getByText(/^(Jira 批量開單|卷宗管理)$/).first().click()
+  await page.getByText(/^(Meegle 批量工具|Jira 批量開單|卷宗管理)$/).first().click()
   await page.getByRole('button', { name: 'Meegle 評論' }).click()
   await page.locator('.mc-loadbar .mb-input').fill(SHEET)
   await page.getByRole('button', { name: /讀取 Sheet/ }).click()

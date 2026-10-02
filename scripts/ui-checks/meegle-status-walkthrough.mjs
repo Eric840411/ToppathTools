@@ -34,7 +34,7 @@ for (const theme of ['classic', 'xianxia']) {
   await ctx.route('**/api/meegle/status/finish', r => r.fulfill({ json: { ok: true } }))
   const page = await ctx.newPage()
   await page.goto(`http://${HOST}:3000/`, { waitUntil: 'networkidle' })
-  await page.getByText(/^(Jira 批量開單|卷宗管理)$/).first().click()
+  await page.getByText(/^(Meegle 批量工具|Jira 批量開單|卷宗管理)$/).first().click()
   await page.getByRole('button', { name: 'Meegle 狀態' }).click()
   await page.locator('.mc-loadbar .mb-input').fill(SHEET)
   await page.getByRole('button', { name: /讀取清單/ }).click()

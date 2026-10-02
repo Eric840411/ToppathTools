@@ -18,7 +18,7 @@ const ctx = await browser.newContext({ viewport: { width: 1500, height: 1000 } }
 await ctx.addCookies([{ name: 'toppath_auth', value: sid, domain: HOST, path: '/' }])
 const prefetch = []
 let failedOnce = false
-await ctx.route('**/api/jira/attachment-prefetch', async r => {
+await ctx.route('**/api/attachments/prefetch', async r => {
   const b = r.request().postDataJSON()
   const rows = b.groups.map(g => g.rowIndex)
   prefetch.push(rows.join('+'))
@@ -29,7 +29,7 @@ let posted = 0
 ctx.on('request', r => { if (r.method() === 'POST' && /comment\/row/.test(r.url())) posted++ })
 const page = await ctx.newPage()
 await page.goto(`http://${HOST}:3000/`, { waitUntil: 'networkidle' })
-await page.getByText(/^(Jira 批量開單|卷宗管理)$/).first().click()
+await page.getByText(/^(Meegle 批量工具|Jira 批量開單|卷宗管理)$/).first().click()
 await page.getByRole('button', { name: 'Meegle 評論' }).click()
 await page.locator('.mc-loadbar .mb-input').fill(SHEET)
 await page.getByRole('button', { name: /讀取 Sheet/ }).click()
