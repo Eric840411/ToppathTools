@@ -75,3 +75,12 @@ test('goto：settleMs=0 完全不等（截載入畫面用）', async () => {
   await runFrontendStep({ action: 'goto', settleMs: 0 }, baseCtx({ page }))
   assert.deepEqual(page.waits, [])
 })
+
+import { h5InGame } from './h5-seat.js'
+test('h5InGame：UAT 的 uat-h5 網域也要認得（不然收尾退出機台在 UAT 永遠不生效）', () => {
+  const p = u => ({ url: () => u })
+  assert.equal(h5InGame(p('https://uat-h5.osmslot.org/game?gmid=1')), true)
+  assert.equal(h5InGame(p('https://osm-h5.osmslot.org/game')), true)
+  assert.equal(h5InGame(p('https://uat-h5.osmslot.org/lobby')), false)
+  assert.equal(h5InGame(p('https://example.com/game')), false)
+})

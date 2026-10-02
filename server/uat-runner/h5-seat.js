@@ -28,7 +28,9 @@
 export function h5InGame(page) {
   let u = ''
   try { u = page?.url?.() ?? '' } catch { return false }
-  return /osm-h5[.\w-]*\.osmslot\.org/.test(u) && u.includes('/game')
+  // ⚠️ UAT 的 H5 是 `uat-h5.osmslot.org`（不含 osm-h5）——原本只認 osm-h5，UAT 上這顆永遠 false，
+  //    收尾的「退出機台」從來沒在 UAT 生效過，帳號會一直卡在座位上（2026-10-02 AI T-002 發現）
+  return /(?:osm|uat)-h5[.\w-]*\.osmslot\.org/.test(u) && u.includes('/game')
 }
 
 /**
