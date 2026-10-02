@@ -294,7 +294,7 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
       }
     : {
         title: '週報彙整',
-        sub: '每週貼上當週 Lark Base 網址，批次掃描來源 Sheet／Jira 依成員拆分後一次送出',
+        sub: '每週貼上當週 Lark Base 網址，批次掃描來源 Sheet／Meegle 依成員拆分後一次送出',
         step1: '貼上本週 Lark Base 網址', step1Sub: '每週表格不同，貼上網址後自動讀取欄位選項',
         reload: '重新讀取', parseOkPrefix: '已讀取表格', projectLabel: '專案選項', memberLabel: '成員選項',
       }
@@ -669,13 +669,14 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
     try {
       const selected = jiraAccountList.filter(a => jiraSelectedEmails.has(a.email))
       const results = await Promise.all(selected.map(async acc => {
-        const r = await fetch('/api/weekly-report/jira-by-range', {
+        const r = await fetch('/api/weekly-report/meegle-by-range', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-jira-email': acc.email },
-          body: JSON.stringify({ startDate: weekRangeInfo.startDate, endDate: weekRangeInfo.endDate }),
+          // Jira 停用後改撈 Meegle：用登入者自己的綁定查，acc.email 只是「撈誰」（2026-10-02）
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ startDate: weekRangeInfo.startDate, endDate: weekRangeInfo.endDate, email: acc.email }),
         })
-        const d = await r.json() as { ok: boolean; message?: string; issues?: RangeIssue[] }
-        return { account: acc, ok: d.ok, message: d.message, issues: d.issues ?? [] }
+        const d = await r.json() as { ok: boolean; message?: string; note?: string; issues?: RangeIssue[] }
+        return { account: acc, ok: d.ok, message: d.message, note: d.note, issues: d.issues ?? [] }
       }))
       const failed = results.filter(r => !r.ok)
       const merged = new Map<string, RangeIssue & { accountLabels: string[] }>()
@@ -691,6 +692,8 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
       setJiraIssues(issues)
       setJiraChecked(new Set(issues.map(i => i.key)))
       if (failed.length > 0) setJiraMsg(`${failed.map(f => f.account.label).join('、')} 查詢失敗：${failed[0].message}`)
+      // 補查舊週的提醒（「更新」只看最後一次更新時間——CodeX）
+      else if (results.some(r => r.note)) setJiraMsg(results.find(r => r.note)!.note!)
     } catch (e) {
       setJiraMsg(`查詢失敗：${e instanceof Error ? e.message : String(e)}`)
     } finally {
@@ -983,13 +986,14 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
 
         setJiraLoading(true)
         const results = await Promise.all(matchedAccounts.map(async acc => {
-          const r = await fetch('/api/weekly-report/jira-by-range', {
+          const r = await fetch('/api/weekly-report/meegle-by-range', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'x-jira-email': acc.email },
-            body: JSON.stringify({ startDate: weekRangeInfo.startDate, endDate: weekRangeInfo.endDate }),
+            // Jira 停用後改撈 Meegle：用登入者自己的綁定查，acc.email 只是「撈誰」（2026-10-02）
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ startDate: weekRangeInfo.startDate, endDate: weekRangeInfo.endDate, email: acc.email }),
           })
-          const d = await r.json() as { ok: boolean; message?: string; issues?: RangeIssue[] }
-          return { account: acc, ok: d.ok, message: d.message, issues: d.issues ?? [] }
+          const d = await r.json() as { ok: boolean; message?: string; note?: string; issues?: RangeIssue[] }
+          return { account: acc, ok: d.ok, message: d.message, note: d.note, issues: d.issues ?? [] }
         }))
         const failed = results.filter(r => !r.ok)
         const merged = new Map<string, RangeIssue & { accountLabels: string[] }>()
@@ -1005,6 +1009,8 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
         setJiraIssues(issues)
         setJiraChecked(new Set(issues.map(i => i.key)))
         if (failed.length > 0) setJiraMsg(`${failed.map(f => f.account.label).join('、')} 查詢失敗：${failed[0].message}`)
+      // 補查舊週的提醒（「更新」只看最後一次更新時間——CodeX）
+      else if (results.some(r => r.note)) setJiraMsg(results.find(r => r.note)!.note!)
 
         if (!parsed) return
         // keyword → 目標 Lark 成員名字（用同一個關鍵字分別在帳號清單/成員清單各自找第一個符合的）
@@ -1146,8 +1152,8 @@ export function WeeklyReportPage({ themeMode }: { themeMode: 'classic' | 'xianxi
             {reminder && reminderMeta && (
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #263345' }}>
                 <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.7, marginBottom: 8 }}>
-                  <b style={{ color: '#e2e8f0' }}>以誰的身分撈 Jira</b>——排程沒有登入者，要有一個人明確授權。
-                  撈別人的單仍需要「Jira 代理張貼授權」，沒有的話那個帳號會被跳過並在訊息裡標明。
+                  <b style={{ color: '#e2e8f0' }}>以誰的身分撈 Meegle</b>——排程沒有登入者，要有一個人明確授權（用他自己的 Meegle 綁定查）。
+                  別人只是查詢條件，不用借對方的帳號；授權人沒綁定或綁定失效時整段跳過並標明，不會換人頂替。
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <select value={reminder.jiraActorEmail ?? ''} onChange={e => saveReminder({ jiraActorEmail: e.target.value })}
@@ -1388,11 +1394,11 @@ function BatchScanSection({
       {/* 依時間範圍撈 Jira 單（可多選帳號）*/}
       <div style={{ border: '1px solid #2d3f55', borderRadius: 10, background: '#10182a', padding: '18px 20px' }}>
         <button onClick={openJiraPanel} style={{ padding: '6px 12px', fontSize: 12, fontWeight: 700, borderRadius: 7, background: jiraPanelOpen ? 'var(--cr-cyan-soft)' : 'transparent', color: 'var(--cr-cyan)', border: '1px solid var(--cr-cyan-border, transparent)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <CalendarIcon /> 依時間範圍撈 Jira 單（可多選帳號）
+          <CalendarIcon /> 依時間範圍撈 Meegle 單（可多選人）
         </button>
         {jiraPanelOpen && (
           <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 10 }}>帳號只是用來查詢 Jira（各自的 token 在後端），撈完之後手動選要塞進哪個人的哪個新項目，不會自動用帳號名字判斷歸屬</div>
+            <div style={{ fontSize: 11, color: '#64748b', marginBottom: 10 }}>用你自己的 Meegle 綁定查「回報者／受托人／QA 驗證是這個人、且週期內有建立或更新」的任務項；專案取標題第一個中括號。撈完之後手動選要塞進哪個人的哪個新項目，不會自動用帳號名字判斷歸屬</div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
               {jiraAccountList.map(a => {
                 const checked = jiraSelectedEmails.has(a.email)
@@ -1426,7 +1432,7 @@ function BatchScanSection({
             )}
             {jiraMsg && <div style={{ fontSize: 11, color: jiraMsg.startsWith('已自動加入') ? 'var(--cr-cyan)' : 'var(--cr-rose)', marginBottom: 10 }}>{jiraMsg}</div>}
 
-            {jiraIssues && jiraIssues.length === 0 && <div style={{ fontSize: 11.5, color: '#64748b' }}>這段時間內沒有符合條件的 Jira 單</div>}
+            {jiraIssues && jiraIssues.length === 0 && <div style={{ fontSize: 11.5, color: '#64748b' }}>這段時間內沒有符合條件的 Meegle 單</div>}
             {jiraIssues && jiraIssues.length > 0 && (
               <>
                 <div style={{ maxHeight: 260, overflowY: 'auto', border: '1px solid #263345', borderRadius: 7 }}>
@@ -1679,7 +1685,7 @@ function BatchScanSection({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#94a3b8', cursor: 'pointer' }}>
                     <input type="checkbox" checked={mergeJiraTags} onChange={e => toggleMergeJiraTags(e.target.checked)} />
-                    <span>Jira 單依標題中括號標籤歸集（[OSM][GM] + [OSM][後端] → OSM相關需求測試）</span>
+                    <span>Meegle 單依標題中括號標籤歸集（[OSM][GM] + [OSM][後端] → OSM相關需求測試）</span>
                   </label>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, color: '#94a3b8', cursor: 'pointer' }}>
                     <input type="checkbox" checked={mergeOsm} onChange={e => toggleMergeOsm(e.target.checked)} />
@@ -1759,9 +1765,9 @@ function BatchScanSection({
           有項目就即時同步，沒有項目顯示空狀態，不管是來自 Sheet 掃描還是 Jira 撈單都一樣會反映在這裡 */}
       <div style={{ border: '1px solid #2d3f55', borderRadius: 10, background: '#10182a', padding: '18px 20px' }}>
         <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 4 }}>預期結果（唯讀）</div>
-        <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12 }}>跟實際會寫進 Lark 的列一模一樣，編輯上面的清單、或用 Jira 撈單套用後這裡會即時同步</div>
+        <div style={{ fontSize: 11, color: '#64748b', marginBottom: 12 }}>跟實際會寫進 Lark 的列一模一樣，編輯上面的清單、或用 Meegle 撈單套用後這裡會即時同步</div>
         {flatPreviewItems.length === 0 ? (
-          <div style={{ fontSize: 11.5, color: '#64748b', padding: '10px 0' }}>尚無草稿項目——執行 Sheet 掃描或用上方「依時間範圍撈 Jira 單」加入項目後，這裡會即時顯示</div>
+          <div style={{ fontSize: 11.5, color: '#64748b', padding: '10px 0' }}>尚無草稿項目——執行 Sheet 掃描或用上方「依時間範圍撈 Meegle 單」加入項目後，這裡會即時顯示</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>

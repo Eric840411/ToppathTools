@@ -201,3 +201,15 @@
 | 呈報宗門 | 缺專案時鎖住送出；送出後顯示成功/失敗筆數 |
 
 ---
+
+## 依時間撈單改撈 Meegle（2026-10-02，v4.283.0；移除 Jira 第 2 步）
+
+使用者：Jira 已沒人用，週報改撈 Meegle（選 A）；專案用標題第一個中括號（選 A）。規則跟 CodeX 對過：
+- 新端點 `POST /api/weekly-report/meegle-by-range`（body：startDate、endDate、email）。**用登入者自己的 Meegle 綁定查**，`email` 只是「撈誰」的篩選條件——不再借對方的 token，也不需要 `jira.read.asOther` 代理
+- 條件：任務項的 回報者／受托人／QA 驗證人員 含此人，且「建立」或「更新」落在週期（台北，週五～週四）內；MQL 完整翻頁
+- 人員對應要唯一：本人的 Meegle 綁定 → 人員對照（email 唯一）→ user search；找不到或多個都回錯誤，不猜
+- 回傳形狀沿用 jira-by-range（`key`＝`#單號`、`jiraProjectName`＝標題第一個中括號），草稿分組 `groupJiraIssuesToDrafts` 與 Base 專案比對不用改；對不到專案選項就留空
+- **補查舊週**會帶 `note`：「更新」只看最後一次更新時間，這週之後又被更新的單不會出現（CodeX）
+- **定時提醒**：排程固定用「授權人」自己的 Meegle 綁定查；每次執行都重查綁定，沒綁或失效就整段跳過並寫明，**不換人頂替**
+- ⚠️ Meegle 實測：MQL 人員只認 `'名字<id:user_key>'`（只給名字遇到同名回 3012）；日期條件只收 `YYYY-MM-DD`；回來的時間是 UTC、建立時間只有日期 → 查詢放寬一天再用台北時間精準過濾，建立日落在邊界的單用 `workitem get` 讀精確建立時間（`server/meegle-weekly.ts`，測試 `server/meegle-weekly.test.ts` 15 條）
+- 真 Meegle 實測：Eric 9/25～10/1 撈到 5 張，台北 10/1 晚上建立（UTC 仍是 10/1）的有收進來，10/2 建立的沒收

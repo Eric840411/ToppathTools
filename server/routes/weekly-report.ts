@@ -20,6 +20,9 @@ import {
   matchesAutoImportTarget, groupJiraIssuesToDrafts, DEFAULT_TAB_DATE_PROJECT_NAME, matchLarkProjectByJiraName,
   type DraftItem as SharedDraftItem, type FlatItem,
 } from '../../shared/weekly-report-rules.js'
+import { fetchMeegleWeek, resolveMeeglePerson } from '../meegle-weekly.js'
+import { getAccountRow } from '../meegle-account-service.js'
+import { decryptMeegleToken } from '../meegle-token-crypto.js'
 
 export const router = Router()
 
@@ -225,7 +228,46 @@ router.post('/api/weekly-report/parse', async (req, res) => {
   res.json({ ok: true, appToken: result.appToken, tableId: result.tableId, members: result.members, projects: result.projects })
 })
 
-// POST /api/weekly-report/jira-by-range — 依時間範圍撈這個人的 Jira 單
+/** 某個登入帳號的 Meegle token（綁定有效才回）。週報前景與排程共用 */
+function meegleTokenOf(email: string): { token: string } | { reason: string } {
+  const row = getAccountRow(db, email.toLowerCase())
+  if (!row) return { reason: '還沒綁定 Meegle' }
+  if (row.status !== 'valid') return { reason: '的 Meegle 綁定已失效' }
+  try { return { token: decryptMeegleToken(row.token_enc) } } catch { return { reason: '的 Meegle token 解不開' } }
+}
+
+// POST /api/weekly-report/meegle-by-range —— 依週期撈某個人的 Meegle 任務項（取代 jira-by-range，2026-10-02）
+// 用**登入者自己的 Meegle 綁定**查；body.email 是要撈誰（只當篩選條件，不借對方的 token——CodeX）。
+// 回傳形狀沿用 jira-by-range（key／summary／status／created／updated／role／jiraProjectName），草稿分組不用改；
+// 專案＝標題第一個中括號（使用者選 A），對不到 Base 專案選項時由原本的 matchLarkProjectByJiraName 留空
+router.post('/api/weekly-report/meegle-by-range', async (req, res) => {
+  try {
+    const me = getAuthAccount(req)
+    if (!me) return res.status(401).json({ ok: false, message: '請先登入' })
+    const { startDate, endDate, email } = z.object({
+      startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      email: z.string().min(3).max(200),
+    }).parse(req.body)
+    const tok = meegleTokenOf(me.email)
+    if ('reason' in tok) return res.json({ ok: false, message: `你${tok.reason}（個人帳號頁綁定後才能撈 Meegle）` })
+    const who = await resolveMeeglePerson(db, tok.token, email)
+    if ('reason' in who) return res.json({ ok: false, message: who.reason })
+    const got = await fetchMeegleWeek(tok.token, who.person, startDate, endDate)
+    if (got.kind !== 'ok') return res.json({ ok: false, message: `Meegle 查詢失敗：${got.message}` })
+    // 補查舊週：「更新」只看最後一次更新時間，之後又被更新的單會漏掉（CodeX）
+    const todayTaipei = new Date(Date.now() + 8 * 3600_000).toISOString().slice(0, 10)
+    const note = endDate < todayTaipei ? '注意：「更新」只看最後一次更新時間，這週之後又被更新過的單不會出現在這裡' : ''
+    res.json({
+      ok: true, note,
+      issues: got.value.map(i => ({ key: i.key, summary: i.summary, status: i.status, created: i.created, updated: i.updated, role: i.role, jiraProjectName: i.projectName })),
+    })
+  } catch (e) {
+    res.status(500).json({ ok: false, message: `查詢失敗：${e instanceof Error ? e.message : String(e)}` })
+  }
+})
+
+// POST /api/weekly-report/jira-by-range — 依時間範圍撈這個人的 Jira 單（Jira 已停用，前端改用 meegle-by-range；第 3 步整支刪）
 // 2026-08-11 討論結論：拿掉原本設計的 operation_history 來源（雜訊太多），改成單純撈
 // Jira——reporter 是這個人「或」QA驗證人員是這個人，符合其一即列出；created 或 updated
 // 落在時間範圍內都算，不限工作流程階段。驗證人員欄位沿用 jira.ts 批次開單時寫入的同一個
@@ -802,28 +844,25 @@ async function fetchJiraDraftsForCron(
     return out
   }
 
+  // Jira 停用後改撈 Meegle（2026-10-02，CodeX）：排程固定用「授權人（actor）自己的 Meegle 綁定」查，
+  // 目標人只當篩選條件，不再借對方的 token、也不需要 jira.read.asOther。每次執行都重查授權人的綁定；
+  // 失效就整段跳過並講清楚，**不換別人頂替**
+  const actorToken = meegleTokenOf(actor)
+  if ('reason' in actorToken) {
+    out.skipped.push({ label: 'Meegle', reason: `授權人 ${actor} ${actorToken.reason}——請本人到個人帳號頁綁定，或在定時提醒設定換一位授權人` })
+    return out
+  }
   const byIssue = new Map<string, { key: string; summary: string; jiraProjectName: string; accountLabels: string[] }>()
   for (const acc of candidates) {
     const label = acc.label || acc.email
-    const isSelf = acc.email.toLowerCase() === actor
-    // 「預設帳號」只代表要嘗試撈誰，不代表有權撈誰
-    if (!isSelf && !hasJiraDelegation(actor, acc.email, 'jira.read.asOther')) {
-      out.skipped.push({ label, reason: '沒有代理讀取授權（請管理員到「Jira 代理張貼授權」開通）' })
-      continue
-    }
-    const auth = jiraAuthForAccount(acc.email)
-    if (!auth) {
-      out.skipped.push({ label, reason: '這個帳號還沒建 Jira API Token' })
-      continue
-    }
-    try {
-      for (const iss of await fetchJiraIssuesInRange(auth.auth, startDate, endDate)) {
-        const existing = byIssue.get(iss.key)
-        if (existing) { if (!existing.accountLabels.includes(label)) existing.accountLabels.push(label) }
-        else byIssue.set(iss.key, { ...iss, accountLabels: [label] })
-      }
-    } catch (e) {
-      out.skipped.push({ label, reason: e instanceof Error ? e.message : String(e) })
+    const who = await resolveMeeglePerson(db, actorToken.token, acc.email)
+    if ('reason' in who) { out.skipped.push({ label, reason: who.reason }); continue }
+    const got = await fetchMeegleWeek(actorToken.token, who.person, startDate, endDate)
+    if (got.kind !== 'ok') { out.skipped.push({ label, reason: `Meegle 查詢失敗：${got.message}` }); continue }
+    for (const iss of got.value) {
+      const existing = byIssue.get(iss.key)
+      if (existing) { if (!existing.accountLabels.includes(label)) existing.accountLabels.push(label) }
+      else byIssue.set(iss.key, { key: iss.key, summary: iss.summary, jiraProjectName: iss.projectName, accountLabels: [label] })
     }
   }
 

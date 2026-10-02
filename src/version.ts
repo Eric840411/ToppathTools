@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.282.0'
+export const APP_VERSION = '4.283.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.283.0', date: '2026-10-02', changes: ['change(週報彙整)：「依時間範圍撈單」與定時提醒草稿從 Jira 改撈 **Meegle**（移除 Jira 第 2 步）。用你自己的 Meegle 綁定查「回報者／受托人／QA 驗證是這個人、且週期內建立或更新」的任務項，不再借別人的帳號；專案取標題第一個中括號。定時提醒固定授權人、綁定失效就跳過並寫明。補查舊週會提醒「更新只看最後一次」。台北時區邊界精準過濾（測試 15 條、真 Meegle 實測）'] },
   { version: '4.282.0', date: '2026-10-02', changes: ['change(TestCase 生成)：參考單從 Jira 改成 **Meegle 單號**（移除 Jira 第 2 步，使用者選改讀 Meegle）。可填單號、#單號或單子網址，用你自己的 Meegle 綁定讀名稱／描述／測試說明／狀態；看不懂的單號、讀不到任何一張都整批擋下並講是哪張（少一張 AI 不會知道）。輸出的「JIRA對應單號」欄名不改（Sheet 相容），內容改放 Meegle 單號'] },
   { version: '4.281.0', date: '2026-10-02', changes: ['refactor(移除 Jira 第 1 步：解綁)：**建帳號不再要 Jira Token**（登入畫面自助新增只填 Email／名稱／PIN）。帳號、讀 Lark Sheet、附件上傳下載從 Jira 的程式搬到獨立模組，新路徑 /api/accounts、/api/attachments 跟舊路徑共用同一份程式，Meegle 工具改用新路徑；畫面行為不變。', 'fix(帳號)：管理員改帳號名稱／角色／狀態會**把那個人的 PIN 清掉**（INSERT OR REPLACE 整列重寫）→ 只更新帶到的欄位（CodeX 抓到，測試：改回舊寫法會紅）'] },
   { version: '4.280.2', date: '2026-10-02', changes: ['fix(Meegle 狀態／修改)：**Sheet 日期欄讀成 Lark 序列數字（例如 46289）會被當成看不懂而擋列**——使用者那份 Sheet 的「日期」欄就是這樣。改成跟週報同一個換算（1899-12-30 起算，可帶小數＝時間只取日），只收 2000～2100 年避免把一般數字當日期。狀態工具「指定日期」與修改工具的日期欄共用這一支'] },

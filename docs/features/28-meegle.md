@@ -337,3 +337,7 @@ has-content（沒有基準、有內容）→ 只標「已有內容」，不宣�
 - 代理授權：中性名稱 `hasDelegation`（表仍是 `jira_account_delegates`）
 - 權限 key（`jira`、`jira-ai-*`）**不改**，只改顯示名（Meegle 在用這些 key，改了大家權限會跑掉）
 - 型別檢查：搬家後 server 錯誤 59 → 58，逐條比對過：沒有新增，少的那條是搬過去的帳號路由 `req.params` 型別問題被順手修掉（不是檢查器提早中斷）
+
+### ② 週報、TestCase 改讀 Meegle（v4.282.0 TestCase／v4.283.0 週報）
+- TestCase：參考單改填 Meegle 單號（`shared/meegle-ref.ts` 解析、`server/meegle-ref-fetch.ts` 讀），用自己的綁定；看不懂或讀不到任何一張整批擋下；輸出欄名「JIRA對應單號」不改
+- 週報：見 `docs/features/23-weekly-report.md`「依時間撈單改撈 Meegle」
