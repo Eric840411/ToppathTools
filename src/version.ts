@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.269.2'
+export const APP_VERSION = '4.270.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.270.0', date: '2026-10-02', changes: ['feat(UI 截圖)：選 model 視窗**同分類（灰字遊戲代碼）併成一張卡**——例如 WLZBHELIX 底下的 WLZBHELIX、Magic Flower，ALLABOARD 底下的 Dynamite Dash Dual、Piggy Pennies Dual，兩邊遊戲名稱都保留、各自的 Machine Model 列在下面', 'feat(UI 截圖)：分類的勾＝底下全部遊戲；每款遊戲名稱可單獨收合；Machine Model 照舊各自展開 gmid。只是顯示分組，送出的白名單不變'] },
   { version: '4.269.2', date: '2026-10-02', changes: ['fix(UI 截圖)：選 model 視窗裡**同一款遊戲排在一起**（例如 WLZBHELIX 的 Fortune King Deluxe／Golden Prosperity／Magic Flower 原本散在各處）；同遊戲內維持掃描順序', 'fix(UI 截圖)：選 model 視窗底部「完成」按鈕被說明文字擠成兩行（完／成），改成不折行'] },
   { version: '4.269.1', date: '2026-10-02', changes: ['fix(Meegle)：**開單後的單號連結點了不會跳到單**（使用者回報）——之前直接用 CLI 建單回傳的網址（/project_key/type_key/detail/…），Meegle 網頁認的是空間簡稱＋類型名稱（/3kvkm7/task_normal/detail/…）。現在自己查這兩個名字組網址；查不到就只寫「#單號」不放連結，不退回壞網址', 'fix(Meegle)：已開的 3 張單（#15191459、#15194994、#15194995）連結已修正：開單紀錄、操作紀錄、Sheet 回填都重寫過（scripts/meegle-fix-detail-urls.ts）', 'test(Meegle)：meegle-workitem 48 → 55 條（網址組法、快取、查不到回空字串、失敗不進快取），改回 project_key/type_key 會紅 3 條'] },
   { version: '4.269.0', date: '2026-10-02', changes: ['feat(UI 截圖)：**不用先展開遊戲就能點 Machine Model**——遊戲底下一律列出各 Machine Model（名稱＋台數），點 ▸ 或名稱各自展開 gmid；「全部展開／收合」改成一次開關所有 gmid', 'feat(UI 截圖)：**勾勾減量**——遊戲只有一個 Machine Model 時子列不再放勾，主列的勾就是選它；有多個 Machine Model 時子列仍可單獨勾'] },

@@ -293,6 +293,8 @@ export function UiScreenshotPage() {
   const [osmSyncing, setOsmSyncing] = useState(false)
   /** 個別 Machine Model 是否展開 gmid 清單（key = model key + MM_SEP + machineType；未同步用 '_'） */
   const [expandedMMs, setExpandedMMs] = useState<Set<string>>(new Set())
+  /** 同分類多款遊戲時，各遊戲名稱底下的 Machine Model 清單可以收起來（預設展開；key = model key） */
+  const [collapsedGames, setCollapsedGames] = useState<Set<string>>(new Set())
   const [unparsed, setUnparsed] = useState<Array<{ gmid: string; text: string }>>([])
   const [selectedModels, setSelectedModels] = useState<string[]>([])
   const [showModelPicker, setShowModelPicker] = useState(false)
@@ -551,56 +553,102 @@ export function UiScreenshotPage() {
     } catch (e) { setScanMsg(String(e)) } finally { setOsmSyncing(false) }
   }
 
-  /**
-   * 有 Machine Model 資料的 model：主列（全選／半選）＋底下每個 Machine Model 一列，各自點開才列 gmid（紅字＝被佔用）。
-   * 2026-10-02 使用者：不用先展開遊戲就要能點 Machine Model；只有一個 Machine Model 時主列的勾就夠了，子列不再放勾。
-   */
-  function renderMMModel(m: ScanModel) {
+  /** 一個 model 底下的 Machine Model 列：各自點開才列 gmid（紅字＝被佔用）；只有一個可勾的 Machine Model 時不放子勾 */
+  function renderMMItems(m: ScanModel) {
     const groups = m.machineModels ?? []
-    const keys = selectableMMs(m).map(g => mmKey(m.key, g.machineType!))
+    const subCheck = selectableMMs(m).length > 1
+    return (
+      <div className="ui-ss-mm-sub">
+        {groups.map(g => {
+          const k = g.machineType ? mmKey(m.key, g.machineType) : ''
+          const on = !!k && selectedModels.includes(k)
+          const ek = mmKey(m.key, g.machineType ?? '_')
+          const mmOpen = expandedMMs.has(ek)
+          const toggleOpen = () => setExpandedMMs(prev => { const n = new Set(prev); if (n.has(ek)) n.delete(ek); else n.add(ek); return n })
+          return (
+            <div key={g.machineType ?? '_'} className={`ui-ss-mm-item${g.machineType ? '' : ' is-unsynced'}`}>
+              <div className="ui-ss-mm-item-row">
+                <button type="button" className="ui-ss-mm-caret" aria-expanded={mmOpen} aria-label={mmOpen ? '收合 gmid' : '展開 gmid'} onClick={toggleOpen}>{mmOpen ? '▾' : '▸'}</button>
+                {subCheck && (
+                  <input type="checkbox" checked={on} disabled={!g.machineType} aria-label={`選取 ${g.machineType ?? '未同步'}`}
+                    onChange={e => setSelectedModels(prev => e.target.checked ? [...prev, k] : prev.filter(x => x !== k))} />
+                )}
+                <button type="button" className="ui-ss-mm-tag ui-ss-mm-tag-btn" onClick={toggleOpen}>{g.machineType ?? '未同步'}</button>
+                <span className={`ui-ss-mm-cnt${g.free === 0 ? ' is-full' : ''}`}>{g.total} 台・可用 {g.free}</span>
+              </div>
+              {mmOpen && (
+                <div className="ui-ss-mm-gmids">
+                  {g.machines.map((x, i) => <span key={x.gmid} className={x.occupied ? 'is-busy' : ''}>{i ? '、' : ''}{x.gmid}</span>)}
+                  {!g.machineType && <em>（機台版本 Dashboard 查不到這幾台，先重新同步）</em>}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
+  /** 三態勾選框：keys 全選＝勾、部分＝半勾；勾／取消一次處理全部 keys */
+  function triBox(keys: string[], label: string) {
     const picked = keys.filter(k => selectedModels.includes(k)).length
     const all = keys.length > 0 && picked === keys.length
-    const toggleAll = (on: boolean) => setSelectedModels(prev => on ? [...new Set([...prev, ...keys])] : prev.filter(k => !keys.includes(k)))
-    // 可勾的 Machine Model 只有一個 → 主列的勾就等於勾它，子列不重複放
-    const subCheck = keys.length > 1
     return (
-      <div key={m.key} className={`ui-ss-mm${picked ? ' is-on' : ''}`}>
+      <input type="checkbox" checked={all} disabled={!keys.length} aria-label={label}
+        ref={el => { if (el) el.indeterminate = picked > 0 && !all }}
+        onChange={e => { const on = e.target.checked; setSelectedModels(prev => on ? [...new Set([...prev, ...keys])] : prev.filter(k => !keys.includes(k))) }} />
+    )
+  }
+
+  /**
+   * 同一個分類（灰字遊戲代碼）一張卡。2026-10-02 需求方：同分類的排在一起、兩邊遊戲名稱都保留、各自的 Machine Model 在底下。
+   * - 只有一款遊戲：分類＋名稱同一列（跟以前一樣）
+   * - 多款遊戲：分類一列（勾＝全部）＋每款遊戲名稱一列（可收合，勾＝這款全部）＋各自的 Machine Model
+   * 只是顯示分組，勾選的 key 還是「model＋Machine Model」，送出的白名單不變。
+   */
+  function renderMMCategory(cat: string, ms: ScanModel[]) {
+    const keysOf = (m: ScanModel) => selectableMMs(m).map(g => mmKey(m.key, g.machineType!))
+    const allKeys = ms.flatMap(keysOf)
+    const anyOn = allKeys.some(k => selectedModels.includes(k))
+    const total = ms.reduce((n, m) => n + m.total, 0)
+    const free = ms.reduce((n, m) => n + m.free, 0)
+    if (ms.length === 1) {
+      const m = ms[0]
+      return (
+        <div key={m.key} className={`ui-ss-mm${anyOn ? ' is-on' : ''}`}>
+          <div className="ui-ss-mm-row">
+            {triBox(allKeys, `選取 ${m.key} 底下全部 Machine Model`)}
+            <span className="ui-ss-mm-game">{m.game}</span>
+            <span className="ui-ss-mm-name">{m.model}</span>
+            <span className={`ui-ss-mm-cnt${m.free === 0 ? ' is-full' : ''}`}>{m.total} 台・可用 {m.free}</span>
+          </div>
+          {renderMMItems(m)}
+        </div>
+      )
+    }
+    return (
+      <div key={`cat:${cat}`} className={`ui-ss-mm ui-ss-mm-cat${anyOn ? ' is-on' : ''}`}>
         <div className="ui-ss-mm-row">
-          <input type="checkbox" checked={all} disabled={!keys.length}
-            ref={el => { if (el) el.indeterminate = picked > 0 && !all }}
-            onChange={e => toggleAll(e.target.checked)} aria-label={`選取 ${m.key} 底下全部 Machine Model`} />
-          <span className="ui-ss-mm-game">{m.game}</span>
-          <span className="ui-ss-mm-name">{m.model}</span>
-          <span className={`ui-ss-mm-cnt${m.free === 0 ? ' is-full' : ''}`}>{m.total} 台・可用 {m.free}</span>
+          {triBox(allKeys, `選取分類 ${cat} 全部遊戲`)}
+          <span className="ui-ss-mm-game">{cat}</span>
+          <span className="ui-ss-mm-catnote">{ms.length} 款遊戲</span>
+          <span className={`ui-ss-mm-cnt${free === 0 ? ' is-full' : ''}`}>{total} 台・可用 {free}</span>
         </div>
-        <div className="ui-ss-mm-sub">
-          {groups.map(g => {
-            const k = g.machineType ? mmKey(m.key, g.machineType) : ''
-            const on = !!k && selectedModels.includes(k)
-            const ek = mmKey(m.key, g.machineType ?? '_')
-            const mmOpen = expandedMMs.has(ek)
-            const toggleOpen = () => setExpandedMMs(prev => { const n = new Set(prev); if (n.has(ek)) n.delete(ek); else n.add(ek); return n })
-            return (
-              <div key={g.machineType ?? '_'} className={`ui-ss-mm-item${g.machineType ? '' : ' is-unsynced'}`}>
-                <div className="ui-ss-mm-item-row">
-                  <button type="button" className="ui-ss-mm-caret" aria-expanded={mmOpen} aria-label={mmOpen ? '收合 gmid' : '展開 gmid'} onClick={toggleOpen}>{mmOpen ? '▾' : '▸'}</button>
-                  {subCheck && (
-                    <input type="checkbox" checked={on} disabled={!g.machineType} aria-label={`選取 ${g.machineType ?? '未同步'}`}
-                      onChange={e => setSelectedModels(prev => e.target.checked ? [...prev, k] : prev.filter(x => x !== k))} />
-                  )}
-                  <button type="button" className="ui-ss-mm-tag ui-ss-mm-tag-btn" onClick={toggleOpen}>{g.machineType ?? '未同步'}</button>
-                  <span className={`ui-ss-mm-cnt${g.free === 0 ? ' is-full' : ''}`}>{g.total} 台・可用 {g.free}</span>
-                </div>
-                {mmOpen && (
-                  <div className="ui-ss-mm-gmids">
-                    {g.machines.map((x, i) => <span key={x.gmid} className={x.occupied ? 'is-busy' : ''}>{i ? '、' : ''}{x.gmid}</span>)}
-                    {!g.machineType && <em>（機台版本 Dashboard 查不到這幾台，先重新同步）</em>}
-                  </div>
-                )}
+        {ms.map(m => {
+          const open = !collapsedGames.has(m.key)
+          return (
+            <div key={m.key} className="ui-ss-mm-sec">
+              <div className="ui-ss-mm-row ui-ss-mm-title">
+                <button type="button" className="ui-ss-mm-caret" aria-expanded={open} aria-label={open ? `收合 ${m.model}` : `展開 ${m.model}`}
+                  onClick={() => setCollapsedGames(prev => { const n = new Set(prev); if (n.has(m.key)) n.delete(m.key); else n.add(m.key); return n })}>{open ? '▾' : '▸'}</button>
+                {triBox(keysOf(m), `選取 ${m.model} 底下全部 Machine Model`)}
+                <span className="ui-ss-mm-name">{m.model}</span>
+                <span className={`ui-ss-mm-cnt${m.free === 0 ? ' is-full' : ''}`}>{m.total} 台・可用 {m.free}</span>
               </div>
-            )
-          })}
-        </div>
+              {open && renderMMItems(m)}
+            </div>
+          )
+        })}
       </div>
     )
   }
@@ -1549,8 +1597,15 @@ export function UiScreenshotPage() {
             {/* 清單本身：兩欄、名稱完整顯示不截斷 */}
             <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '10px 16px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '2px 16px' }}>
-                {visibleModels.map(m => {
-                  if (m.machineModels) return renderMMModel(m)
+                {visibleModels.flatMap((m, i) => {
+                  if (m.machineModels) {
+                    // visibleModels 已依分類排序：同分類只在第一個出現時畫一張卡，後面的併進去
+                    const prev = visibleModels[i - 1]
+                    if (prev?.machineModels && prev.game === m.game) return []
+                    const same: ScanModel[] = []
+                    for (let j = i; j < visibleModels.length && visibleModels[j].game === m.game && visibleModels[j].machineModels; j++) same.push(visibleModels[j])
+                    return [renderMMCategory(m.game, same)]
+                  }
                   const checked = selectedModels.includes(m.key)
                   return (
                     <label key={m.key} style={{

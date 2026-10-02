@@ -5106,6 +5106,11 @@
 .ui-ss-mm-caret { background: none; border: 0; color: #64748b; font-size: 11px; width: 14px; padding: 0; cursor: pointer; }
 .ui-ss-mm-game { color: #64748b; font-family: monospace; font-size: 11px; width: 110px; flex-shrink: 0; }
 .ui-ss-mm-name { color: #e2e8f0; flex: 1; }
+/* 同分類多款遊戲（v4.270.0）：分類一列、每款遊戲名稱一列，各自的 Machine Model 縮在底下 */
+.ui-ss-mm-catnote { color: #64748b; font-size: 11px; flex: 1; }
+.ui-ss-mm-sec { margin: 6px 0 0 8px; }
+.ui-ss-mm-title .ui-ss-mm-name { font-weight: 600; }
+.ui-ss-mm-sec .ui-ss-mm-sub { margin-left: 22px; }
 .ui-ss-mm-cnt { color: #94a3b8; font-size: 11px; white-space: nowrap; margin-left: auto; }
 .ui-ss-mm-cnt.is-full { color: #f87171; }
 .ui-ss-mm-tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px 32px; }

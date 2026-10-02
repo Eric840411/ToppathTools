@@ -445,6 +445,7 @@ model 選單每個「遊戲 / model」底下，按 OSM 的 **Machine Model**（e
 | Machine Model 列（v4.269.0） | 遊戲底下**一律**列出各 Machine Model（名稱＋台數），不用先展開遊戲（使用者：沒全部展開也要能點） |
 | 展開／收合（Machine Model） | 每個 Machine Model 預設不列 gmid；點 ▸ 或名稱才列出底下的 gmid（紅字＝掃描當下被佔用）。「全部展開／收合」一次開關所有 gmid |
 | 排序（v4.269.2） | 同一款遊戲排在一起（依遊戲名稱），同遊戲內維持掃描回來的順序 |
+| 分類卡（v4.270.0） | 同分類（灰字遊戲代碼）多款遊戲併成一張卡：分類一列（勾＝全部）＋每款遊戲名稱一列（可收合，勾＝這款全部）＋各自的 Machine Model。只有一款時維持一列。**只是顯示分組**，勾選 key 仍是 model＋Machine Model，白名單不變 |
 | 子列勾選（v4.269.0） | 只有一個 Machine Model 的遊戲，子列**不放勾**（主列的勾就是選它）；多個 Machine Model 時子列可單獨勾，不用先展開 |
 | 勾 Machine Model | 每個勾選的 Machine Model ＝ 一個任務：**只從那組 gmid 挑空機**，每個解析度各拍一次；全被佔用就該項失敗，**不換到別的 Machine Model** |
 | 勾 model 主列 | 全選／半選底下所有 Machine Model |

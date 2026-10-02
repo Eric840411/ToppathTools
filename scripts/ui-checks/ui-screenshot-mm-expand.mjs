@@ -8,7 +8,8 @@
  *   4 有多個 Machine Model 的遊戲：子列有勾，不展開也能直接勾
  *   5 只有一個 Machine Model 的遊戲：子列沒有勾，主列的勾就會選到它
  *   6「全部展開」會打開所有 gmid
- *   7 同一款遊戲排在一起（掃描回來是 WLZBHELIX、BZZF、WLZBHELIX）
+ *   7 同分類（灰字）排在一起、併成一張卡，兩款遊戲名稱都保留（掃描回來是 WLZBHELIX、BZZF、WLZBHELIX）（v4.270.0）
+ *   7b 分類的勾＝底下全部；每款遊戲名稱可單獨收合
  *   8「完成」按鈕不折行
  * 兩種主題各截一張圖。
  *
@@ -34,23 +35,24 @@ const bz = [
   { gmid: '4175-BZZF-0017', occupied: true },
   { gmid: '4175-BZZF-0151', occupied: false },
 ]
+// key 格式跟 agent-runner 一樣是「遊戲 / 名稱」——別用 '::'，那是頁面拿來接 Machine Model 的分隔字，會讓已選數量算錯
 const scan = {
   ok: true, cardCount: 6, features: ['ui-ss-pool'], osmSyncedAt: Date.now(), unparsed: [],
   models: [
     {
-      key: 'WLZBHELIX', game: 'WLZBHELIX', model: 'WLZBHELIX', total: 4, free: 3, machines: wl,
+      key: 'WLZBHELIX / WLZBHELIX', game: 'WLZBHELIX', model: 'WLZBHELIX', total: 4, free: 3, machines: wl,
       machineModels: [
         { machineType: 'wlzbhelix9', machines: wl.slice(0, 3), total: 3, free: 2 },
         { machineType: 'wlzbhelix5', machines: wl.slice(3), total: 1, free: 1 },
       ],
     },
     {
-      key: 'BZZF::Purple Celebration', game: 'BZZF', model: 'Purple Celebration', total: 2, free: 1, machines: bz,
+      key: 'BZZF / Purple Celebration', game: 'BZZF', model: 'Purple Celebration', total: 2, free: 1, machines: bz,
       machineModels: [{ machineType: 'bzzf1', machines: bz, total: 2, free: 1 }],
     },
     // 故意放在 BZZF 後面：排序要把它拉回 WLZBHELIX 那一群
     {
-      key: 'WLZBHELIX::Magic Flower', game: 'WLZBHELIX', model: 'Magic Flower', total: 1, free: 1, machines: [{ gmid: '4182-WLZBHELIX-2152', occupied: false }],
+      key: 'WLZBHELIX / Magic Flower', game: 'WLZBHELIX', model: 'Magic Flower', total: 1, free: 1, machines: [{ gmid: '4182-WLZBHELIX-2152', occupied: false }],
       machineModels: [{ machineType: 'wlzbhelix16', machines: [{ gmid: '4182-WLZBHELIX-2152', occupied: false }], total: 1, free: 1 }],
     },
   ],
@@ -82,12 +84,14 @@ for (const mode of ['classic', 'xianxia']) {
   await page.getByRole('button', { name: '掃描大廳' }).click()
   await page.getByRole('button', { name: /選擇 model/ }).click()
 
-  const games = await page.locator('.ui-ss-mm .ui-ss-mm-game').allInnerTexts()
-  check('同一款遊戲排在一起', JSON.stringify(games) === JSON.stringify(['BZZF', 'WLZBHELIX', 'WLZBHELIX']), games.join(','))
+  const cats = await page.locator('.ui-ss-mm > .ui-ss-mm-row .ui-ss-mm-game').allInnerTexts()
+  check('同分類併成一張卡（BZZF、WLZBHELIX 各一張）', JSON.stringify(cats) === JSON.stringify(['BZZF', 'WLZBHELIX']), cats.join(','))
+  const names = await page.locator('.ui-ss-mm-cat .ui-ss-mm-title .ui-ss-mm-name').allInnerTexts()
+  check('兩款遊戲名稱都保留', JSON.stringify(names) === JSON.stringify(['WLZBHELIX', 'Magic Flower']), names.join(','))
   const done = await page.getByRole('button', { name: '完成', exact: true }).boundingBox()
   check('「完成」不折行（高度 < 40px）', !!done && done.height < 40, done ? `${Math.round(done.height)}px` : '找不到')
 
-  const mm = page.locator('.ui-ss-mm').filter({ hasText: 'wlzbhelix9' })
+  const mm = page.locator('.ui-ss-mm-sec').filter({ hasText: 'wlzbhelix9' })
   const items = mm.locator('.ui-ss-mm-item')
   // 刻意不點任何遊戲層的東西：使用者要的是「沒全部展開也能點 Machine Model」
   check('不展開遊戲就列出 2 個 Machine Model', await items.count() === 2)
@@ -112,6 +116,15 @@ for (const mode of ['classic', 'xianxia']) {
   check('只有一個 Machine Model：子列沒有勾', await single.locator('.ui-ss-mm-item input[type=checkbox]').count() === 0)
   await single.locator('.ui-ss-mm-row input[type=checkbox]').check()
   check('主列的勾選到它（已選 2 個 model）', await page.getByText('已選 2 個 model').count() >= 1)
+
+  const mf = page.locator('.ui-ss-mm-sec').filter({ hasText: 'Magic Flower' })
+  await mf.locator('.ui-ss-mm-title .ui-ss-mm-caret').click()
+  check('遊戲名稱可單獨收合', await mf.locator('.ui-ss-mm-item').count() === 0 && await mm.locator('.ui-ss-mm-item').count() === 2)
+  await mf.locator('.ui-ss-mm-title .ui-ss-mm-caret').click()
+  check('再點展開', await mf.locator('.ui-ss-mm-item').count() === 1)
+  await page.locator('.ui-ss-mm-cat > .ui-ss-mm-row input[type=checkbox]').check()
+  check('分類勾完：已選 3 個 model（bzzf1、WLZBHELIX、Magic Flower）', await page.getByText(/已選 3 個 model/).count() >= 1)
+  check('分類的勾＝底下全部（Magic Flower 也勾上、wlzbhelix9 也勾上）', await mf.locator('.ui-ss-mm-title input[type=checkbox]').isChecked() && await items.nth(0).locator('input[type=checkbox]').isChecked())
 
   // 還有任何一組開著時按鈕是「全部收合」——先把 wlzbhelix9 收起來
   await items.nth(0).locator('.ui-ss-mm-caret').click()
