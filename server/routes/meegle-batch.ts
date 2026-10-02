@@ -13,11 +13,17 @@ import { z } from 'zod'
 import { getAuthAccount } from '../auth-session.js'
 import { accountHasPermission, addHistory, db, getClientIP, log, writeLimiter } from '../shared.js'
 import { sheetSourceKey } from '../../shared/lark-sheet-url.js'
+import { larkWritebackDeps, writebackRow } from '../meegle-sheet-writeback.js'
+
+/** 回填 Sheet（失敗不影響開單；結果落在 writeback_phase，④ 顯示、可補寫回） */
+async function writeback(batchId: string, rowKey: string, force = false) {
+  try { await writebackRow(db, batchId, rowKey, larkWritebackDeps(), { force }) } catch (e) { console.warn('[Meegle] 回填 Sheet 失敗：', e) }
+}
 import { getAccountRow } from '../meegle-account-service.js'
 import { decryptMeegleToken } from '../meegle-token-crypto.js'
 import {
   adoptTarget, claimRow, expireStaleCreating, finishCreate, finishState, getBatchRow, getPersonMap, initMeegleBatchSchema,
-  listPersonMap, listRowsFromSheet, needsStatePush, resolveUnknown, upsertPersonMap, type BatchRow,
+  listPersonMap, listRowsFromSheet, needsStatePush, resolveUnknown, writebackStageText, upsertPersonMap, type BatchRow,
 } from '../meegle-batch-store.js'
 import {
   confirmRequirement, createTask, findTasksByName, findUserViaParticipants, listRequirements, listTaskStates,
@@ -60,7 +66,7 @@ function requireCtx(req: Request, res: Response): Ctx | null {
 function publicRow(r: BatchRow | undefined) {
   if (!r) return null
   // targetStateKey 一律回紀錄裡的，前端不自己記（CodeX review 4bc4fa9 [P2]）
-  return { batchId: r.batch_id, rowKey: r.row_key, targetStateKey: r.target_state, createPhase: r.create_phase, workItemId: r.work_item_id, url: r.url, statePhase: r.state_phase, message: r.message }
+  return { batchId: r.batch_id, rowKey: r.row_key, targetStateKey: r.target_state, writebackPhase: r.writeback_phase, writebackMsg: r.writeback_msg, createPhase: r.create_phase, workItemId: r.work_item_id, url: r.url, statePhase: r.state_phase, message: r.message }
 }
 
 // GET /api/meegle/batch/meta —— 需求清單、可推到的狀態、目標空間
@@ -133,6 +139,8 @@ const rowSchema = z.object({
   // 值是 Sheet 上的人名；伺服器自己查對照表換成 user_key，不收前端給的 user_key
   roles: z.record(z.enum(MEEGLE_ROLE_DEFS.map(r => r.key) as [MeegleRoleKey, ...MeegleRoleKey[]]), z.array(z.string().max(100)).max(20)),
   targetStateKey: z.string().max(100).optional().default(''),
+  /** 目標狀態的顯示名稱，只用在回填 Sheet「處理階段」的文字 */
+  targetStateName: z.string().max(100).optional().default(''),
 })
 
 async function pushState(ctx: Ctx, batchId: string, rowKey: string, workItemId: string, targetStateKey: string) {
@@ -150,7 +158,7 @@ router.post('/api/meegle/batch/row', writeLimiter, async (req, res, next) => {
     const body = rowSchema.parse(req.body)
     expireStaleCreating(db, STALE_CREATING_MS)
 
-    const claim = claimRow(db, { batchId: body.batchId, rowKey: body.rowKey, ownerEmail: ctx.email, sheetUrl: sheetSourceKey(body.sheetUrl), name: body.name, requirementId: body.requirementId, targetState: body.targetStateKey })
+    const claim = claimRow(db, { batchId: body.batchId, rowKey: body.rowKey, ownerEmail: ctx.email, sheetUrl: sheetSourceKey(body.sheetUrl), name: body.name, requirementId: body.requirementId, targetState: body.targetStateKey, targetStateName: body.targetStateName })
     if (claim.kind === 'source-mismatch') return res.status(409).json({ ok: false, code: 'SOURCE_MISMATCH', message: '這個批次是另一份 Sheet 的，請重新讀取 Sheet 後再送' })
     if (claim.kind === 'not-owner') return res.status(403).json({ ok: false, message: '這一列是別人送出的' })
     if (claim.kind === 'busy') return res.json({ ok: true, row: publicRow(claim.row) })
@@ -194,6 +202,8 @@ router.post('/api/meegle/batch/row', writeLimiter, async (req, res, next) => {
     finishCreate(db, body.batchId, body.rowKey, { phase: 'created', workItemId: created.value.workItemId, url: created.value.url })
     log('ok', getClientIP(req), ctx.email, 'Meegle 開單', `#${created.value.workItemId} ${body.name}${unmapped.length ? `（未對照留空：${[...new Set(unmapped)].join('、')}）` : ''}`)
     await pushState(ctx, body.batchId, body.rowKey, created.value.workItemId, body.targetStateKey)
+    // 推完狀態才寫，「處理階段」才寫得對（已推到 X／推到 X 未完成）
+    await writeback(body.batchId, body.rowKey)
     res.json({ ok: true, row: publicRow(getBatchRow(db, body.batchId, body.rowKey)), unmapped: [...new Set(unmapped)] })
   } catch (e) { next(e) }
 })
@@ -203,13 +213,14 @@ router.post('/api/meegle/batch/row/retry-state', writeLimiter, async (req, res, 
   try {
     const ctx = requireCtx(req, res)
     if (!ctx) return
-    const body = z.object({ batchId: z.string().uuid(), rowKey: z.string().min(1).max(40), targetStateKey: z.string().max(100).optional().default('') }).parse(req.body)
+    const body = z.object({ batchId: z.string().uuid(), rowKey: z.string().min(1).max(40), targetStateKey: z.string().max(100).optional().default(''), targetStateName: z.string().max(100).optional().default('') }).parse(req.body)
     const row = getBatchRow(db, body.batchId, body.rowKey)
     if (!row || row.owner_email !== ctx.email) return res.status(404).json({ ok: false, message: '找不到這一列' })
     if (row.create_phase !== 'created' || !row.work_item_id) return res.status(409).json({ ok: false, message: '這一列還沒開單成功' })
-    const target = adoptTarget(db, body.batchId, body.rowKey, body.targetStateKey)
+    const target = adoptTarget(db, body.batchId, body.rowKey, body.targetStateKey, Date.now(), body.targetStateName)
     if (!target) return res.status(400).json({ ok: false, message: '這一列沒有目標狀態，請先在「開單後推到」選一個' })
     await pushState(ctx, body.batchId, body.rowKey, row.work_item_id, target)
+    await writeback(body.batchId, body.rowKey)
     res.json({ ok: true, row: publicRow(getBatchRow(db, body.batchId, body.rowKey)) })
   } catch (e) { next(e) }
 })
@@ -225,6 +236,7 @@ router.post('/api/meegle/batch/row/confirm', writeLimiter, async (req, res, next
     if (!row || row.owner_email !== ctx.email) return res.status(404).json({ ok: false, message: '找不到這一列' })
     if (row.create_phase !== 'unknown') {
       if (needsStatePush(row)) await pushState(ctx, row.batch_id, row.row_key, row.work_item_id!, row.target_state)
+      if (row.create_phase === 'created') await writeback(body.batchId, body.rowKey)
       return res.json({ ok: true, row: publicRow(getBatchRow(db, body.batchId, body.rowKey)) })
     }
 
@@ -242,6 +254,7 @@ router.post('/api/meegle/batch/row/confirm', writeLimiter, async (req, res, next
       // 查回來的單還沒推過狀態，照原本送出時的目標補推（CodeX review 999f895 [P2]）
       const after = getBatchRow(db, body.batchId, body.rowKey)
       if (after && needsStatePush(after)) await pushState(ctx, after.batch_id, after.row_key, after.work_item_id!, after.target_state)
+      await writeback(body.batchId, body.rowKey)
     } else if (candidates.length === 0) {
       resolveUnknown(db, body.batchId, body.rowKey, null)
     } else {
@@ -252,15 +265,44 @@ router.post('/api/meegle/batch/row/confirm', writeLimiter, async (req, res, next
   } catch (e) { next(e) }
 })
 
+// POST /api/meegle/batch/row/writeback —— 補寫回 Sheet（只用已存的單號，不重開單）
+router.post('/api/meegle/batch/row/writeback', writeLimiter, async (req, res, next) => {
+  try {
+    const ctx = requireCtx(req, res)
+    if (!ctx) return
+    const body = z.object({ batchId: z.string().uuid(), rowKey: z.string().min(1).max(40) }).parse(req.body)
+    const row = getBatchRow(db, body.batchId, body.rowKey)
+    if (!row || row.owner_email !== ctx.email) return res.status(404).json({ ok: false, message: '找不到這一列' })
+    if (row.create_phase !== 'created') return res.status(409).json({ ok: false, message: '這一列還沒開單成功，沒有東西可以寫回' })
+    await writeback(body.batchId, body.rowKey, true)
+    res.json({ ok: true, row: publicRow(getBatchRow(db, body.batchId, body.rowKey)) })
+  } catch (e) { next(e) }
+})
+
 // POST /api/meegle/batch/finish —— 一批送完，寫一筆操作歷史
 router.post('/api/meegle/batch/finish', writeLimiter, (req, res) => {
   const account = getAuthAccount(req)
   if (!account) return res.status(401).json({ ok: false, message: '請先登入' })
-  const { batchId } = z.object({ batchId: z.string().uuid() }).parse(req.body)
+  const { batchId, sheetUrl, requirementNames } = z.object({
+    batchId: z.string().uuid(),
+    /** 原始 Sheet 網址（紀錄裡放連結用；DB 只存識別值） */
+    sheetUrl: z.string().max(2000).optional().default(''),
+    /** 需求 ID → 名稱，紀錄裡顯示用 */
+    requirementNames: z.record(z.string(), z.string().max(200)).optional().default({}),
+  }).parse(req.body)
   const rows = db.prepare('SELECT * FROM meegle_batch_rows WHERE batch_id = ? AND owner_email = ?').all(batchId, account.email.toLowerCase()) as BatchRow[]
   const count = (p: string) => rows.filter(r => r.create_phase === p).length
   addHistory('meegle-batch-create', 'Meegle 批次開單',
     `開單 ${count('created')} 筆${count('unknown') ? `，待確認 ${count('unknown')} 筆` : ''}${count('failed') ? `，失敗 ${count('failed')} 筆` : ''}`,
-    { batchId, rows: rows.map(r => ({ row: r.row_key, phase: r.create_phase, workItemId: r.work_item_id, state: r.state_phase, message: r.message })) })
+    // 追溯用（使用者要求「看得到從哪一列開成哪張單」）：Sheet 連結＋每列的名稱、單號連結、關聯需求、處理階段、回填結果
+    {
+      batchId, sheetUrl,
+      rows: rows.map(r => ({
+        row: r.row_key, name: r.name, phase: r.create_phase, workItemId: r.work_item_id, url: r.url,
+        requirementId: r.requirement_id, requirementName: requirementNames[r.requirement_id] ?? '',
+        state: r.state_phase, stage: r.create_phase === 'created' ? writebackStageText(r) : '',
+        writeback: r.writeback_phase, writebackMsg: r.writeback_msg, message: r.message,
+      })),
+    })
   res.json({ ok: true })
 })

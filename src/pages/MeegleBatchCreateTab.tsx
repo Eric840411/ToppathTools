@@ -17,7 +17,7 @@ type SheetRecord = Record<string, unknown> & { _rowIndex: number }
 type Person = MappedPerson & { alias: string }
 type Meta = { requirements: Requirement[]; states: Array<{ key: string; name: string }>; statesError: string | null }
 // targetStateKey：伺服器紀錄裡這列的目標狀態（伺服器回什麼就是什麼，前端不自己記——CodeX review 4bc4fa9 [P2]）
-type RowResult = { batchId: string; rowKey: string; targetStateKey?: string; createPhase: 'creating' | 'created' | 'failed' | 'unknown'; workItemId: string | null; url: string | null; statePhase: 'none' | 'done' | 'failed' | 'unknown'; message: string | null }
+type RowResult = { batchId: string; rowKey: string; targetStateKey?: string; createPhase: 'creating' | 'created' | 'failed' | 'unknown'; workItemId: string | null; url: string | null; statePhase: 'none' | 'done' | 'failed' | 'unknown'; message: string | null; writebackPhase?: 'none' | 'pending' | 'done' | 'failed'; writebackMsg?: string | null }
 type Previous = RowResult & { name: string; owner: string }
 type Override = { requirementId?: string; roles?: Partial<Record<MeegleRoleKey, string[]>> }
 
@@ -136,7 +136,8 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
       setBatchId('')
       // 上次送出還沒收尾的列（待確認、或已開單但狀態沒推完）：接回原批次與原目標，才有「查詢結果」「重推狀態」可按
       const pending: Record<number, RowResult> = {}
-      for (const p of prev.rows) if (isRestorablePrevious(p)) pending[Number(p.rowKey)] = p
+      // 回填 Sheet 沒完成（失敗／待寫）的也接回來，才有「補寫回」可以按
+      for (const p of prev.rows) if (isRestorablePrevious(p) || p.writebackPhase === 'failed' || p.writebackPhase === 'pending') pending[Number(p.rowKey)] = p
       setOverrides({}); setResults(pending); setRowNote({}); setPage(1)
       setSelected(new Set())  // 下面的 effect 依規則重新預選
       setNeedsPreselect(true)
@@ -223,7 +224,7 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
   function rowPayload(r: typeof rows[number]) {
     const roles = {} as Record<MeegleRoleKey, string[]>
     for (const d of MEEGLE_ROLE_DEFS) roles[d.key] = r.plan.roles[d.key].aliases
-    return { rowKey: String(r.rec._rowIndex), sheetUrl: loadedUrl, name: r.plan.name, description: r.plan.description, requirementId: r.plan.requirement!.id, roles, targetStateKey }
+    return { rowKey: String(r.rec._rowIndex), sheetUrl: loadedUrl, name: r.plan.name, description: r.plan.description, requirementId: r.plan.requirement!.id, roles, targetStateKey, targetStateName: meta?.states.find(x => x.key === targetStateKey)?.name ?? '' }
   }
 
   function ensureBatch() {
@@ -249,17 +250,17 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
       setProgress(p => ({ ...p, done: p.done + 1 }))
     }
     setRunning(false)
-    void api('/api/meegle/batch/finish', { batchId: id }).catch(() => {})
+    void api('/api/meegle/batch/finish', { batchId: id, sheetUrl: loadedUrl, requirementNames: Object.fromEntries(requirements.map(q => [q.id, q.name])) }).catch(() => {})
   }
 
-  async function rowAction(rowIndex: number, kind: 'retry-state' | 'confirm') {
+  async function rowAction(rowIndex: number, kind: 'retry-state' | 'confirm' | 'writeback') {
     setRowBusy(b => ({ ...b, [rowIndex]: true })); setRowNote(n => ({ ...n, [rowIndex]: '' }))
     try {
       // 用這一列自己的批次（可能是重整前的舊批次）
       const prevResult = results[rowIndex]
       const rowBatch = prevResult?.batchId || batchId
       // 畫面上選的目標只是「紀錄沒有目標時」的備案，伺服器以紀錄為準
-      const j = await api<{ row: RowResult | null; message?: string }>(`/api/meegle/batch/row/${kind}`, { batchId: rowBatch, rowKey: String(rowIndex), ...(kind === 'retry-state' ? { targetStateKey } : {}) })
+      const j = await api<{ row: RowResult | null; message?: string }>(`/api/meegle/batch/row/${kind}`, { batchId: rowBatch, rowKey: String(rowIndex), ...(kind === 'retry-state' ? { targetStateKey, targetStateName: meta?.states.find(x => x.key === targetStateKey)?.name ?? '' } : {}) })
       if (j.row) setResults(m => ({ ...m, [rowIndex]: j.row! }))
       if (j.message) setRowNote(n => ({ ...n, [rowIndex]: j.message! }))
     } catch (e) { setRowNote(n => ({ ...n, [rowIndex]: (e as Error).message })) } finally { setRowBusy(b => ({ ...b, [rowIndex]: false })) }
@@ -598,12 +599,16 @@ export function MeegleBatchCreateTab({ initialSheetUrl }: { initialSheetUrl: str
                       <div className="mb-result-sub">
                         {res.workItemId ? (res.url ? <a href={res.url} target="_blank" rel="noreferrer">#{res.workItemId}</a> : `#${res.workItemId}`) : `第 ${idx} 列`}
                         <span className={`mb-badge mb-badge--${label.tone}`}>{label.text}</span>
+                        {res.createPhase === 'created' && res.writebackPhase === 'done' && <span className="mb-wb mb-wb--done">已寫回 Sheet</span>}
+                        {res.createPhase === 'created' && res.writebackPhase === 'pending' && <span className="mb-wb mb-wb--pending">待寫回 Sheet</span>}
+                        {res.createPhase === 'created' && res.writebackPhase === 'failed' && <span className="mb-wb mb-wb--bad" title={res.writebackMsg ?? ''}>回填失敗：{res.writebackMsg}</span>}
                         {(rowNote[idx] || res.message) && <span className="mb-msg">{rowNote[idx] || res.message}</span>}
                       </div>
                     </div>
                     <div className="mb-result-actions">
                       {label.tone === 'warn' && <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={rowBusy[idx] || !(res.targetStateKey || targetStateKey)} onClick={() => void rowAction(idx, 'retry-state')}>重推狀態</button>}
                       {label.tone === 'pending' && <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={rowBusy[idx]} onClick={() => void rowAction(idx, 'confirm')}>查詢結果</button>}
+                      {res.createPhase === 'created' && (res.writebackPhase === 'failed' || res.writebackPhase === 'pending') && <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={rowBusy[idx]} onClick={() => void rowAction(idx, 'writeback')}>補寫回</button>}
                       {label.tone === 'bad' && <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={rowBusy[idx] || !!r.plan.blocks.length} onClick={() => void resendFailed(idx)}>修正後重送</button>}
                       {res.url && label.tone === 'ok' && <a className="mb-btn mb-btn--small mb-btn--outline" href={res.url} target="_blank" rel="noreferrer">開啟</a>}
                     </div>

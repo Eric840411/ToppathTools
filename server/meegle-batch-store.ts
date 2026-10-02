@@ -31,9 +31,17 @@ export type BatchRow = {
   url: string | null
   state_phase: StatePhase
   message: string | null
+  /** 目標狀態的顯示名稱（回填 Sheet「處理階段」用）；key 才是判斷依據 */
+  target_state_name: string
+  /** 回填 Sheet：none（還不用）／pending（要寫）／done／failed */
+  writeback_phase: WritebackPhase
+  writeback_msg: string | null
+  writeback_at: number | null
   created_at: number
   updated_at: number
 }
+
+export type WritebackPhase = 'none' | 'pending' | 'done' | 'failed'
 
 export function initMeegleBatchSchema(db: DB) {
   db.exec(`
@@ -64,6 +72,12 @@ export function initMeegleBatchSchema(db: DB) {
       updated_at      INTEGER NOT NULL
     );
   `)
+  // v4.267.0 回填 Sheet：舊表補欄位
+  const cols = (db.prepare('PRAGMA table_info(meegle_batch_rows)').all() as { name: string }[]).map(c => c.name)
+  if (!cols.includes('target_state_name')) db.exec("ALTER TABLE meegle_batch_rows ADD COLUMN target_state_name TEXT NOT NULL DEFAULT ''")
+  if (!cols.includes('writeback_phase')) db.exec("ALTER TABLE meegle_batch_rows ADD COLUMN writeback_phase TEXT NOT NULL DEFAULT 'none'")
+  if (!cols.includes('writeback_msg')) db.exec('ALTER TABLE meegle_batch_rows ADD COLUMN writeback_msg TEXT')
+  if (!cols.includes('writeback_at')) db.exec('ALTER TABLE meegle_batch_rows ADD COLUMN writeback_at INTEGER')
 }
 
 /**
@@ -98,7 +112,7 @@ export type ClaimResult =
  * - **同一份 Sheet 同一列，任何批次還在開單中／待確認 → busy**。batchId 只活在前端記憶體，重整後換新，
  *   只看 (batchId, 列號) 擋不住「重整後再按一次送出」。
  */
-export function claimRow(db: DB, input: { batchId: string; rowKey: string; ownerEmail: string; sheetUrl?: string; name: string; requirementId: string; targetState: string }, now = Date.now()): ClaimResult {
+export function claimRow(db: DB, input: { batchId: string; rowKey: string; ownerEmail: string; sheetUrl?: string; name: string; requirementId: string; targetState: string; targetStateName?: string }, now = Date.now()): ClaimResult {
   const owner = input.ownerEmail.trim().toLowerCase()
   return db.transaction((): ClaimResult => {
     const sheetUrl = input.sheetUrl ?? ''
@@ -119,14 +133,14 @@ export function claimRow(db: DB, input: { batchId: string; rowKey: string; owner
       if (existing.create_phase === 'created') return { kind: 'already-created', row: existing }
       if (existing.create_phase === 'creating' || existing.create_phase === 'unknown') return { kind: 'busy', row: existing }
       // failed → 重新認領，內容以這次為準
-      db.prepare(`UPDATE meegle_batch_rows SET name = ?, requirement_id = ?, target_state = ?, create_phase = 'creating',
+      db.prepare(`UPDATE meegle_batch_rows SET name = ?, requirement_id = ?, target_state = ?, target_state_name = ?, create_phase = 'creating',
         state_phase = 'none', message = NULL, updated_at = ? WHERE batch_id = ? AND row_key = ? AND create_phase = 'failed'`)
-        .run(input.name, input.requirementId, input.targetState, now, input.batchId, input.rowKey)
+        .run(input.name, input.requirementId, input.targetState, input.targetStateName ?? '', now, input.batchId, input.rowKey)
       return { kind: 'claimed' }
     }
-    db.prepare(`INSERT INTO meegle_batch_rows (batch_id, row_key, owner_email, sheet_url, name, requirement_id, target_state, create_phase, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'creating', ?, ?)`)
-      .run(input.batchId, input.rowKey, owner, sheetUrl, input.name, input.requirementId, input.targetState, now, now)
+    db.prepare(`INSERT INTO meegle_batch_rows (batch_id, row_key, owner_email, sheet_url, name, requirement_id, target_state, target_state_name, create_phase, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'creating', ?, ?)`)
+      .run(input.batchId, input.rowKey, owner, sheetUrl, input.name, input.requirementId, input.targetState, input.targetStateName ?? '', now, now)
     return { kind: 'claimed' }
   }).immediate()
 }
@@ -135,7 +149,8 @@ export function claimRow(db: DB, input: { batchId: string; rowKey: string; owner
 export function finishCreate(db: DB, batchId: string, rowKey: string,
   result: { phase: 'created'; workItemId: string; url: string } | { phase: 'failed' | 'unknown'; message: string }, now = Date.now()) {
   if (result.phase === 'created') {
-    db.prepare(`UPDATE meegle_batch_rows SET create_phase = 'created', work_item_id = ?, url = ?, message = NULL, updated_at = ?
+    // 回填 pending 跟「開單成功」同一筆 UPDATE 落地（CodeX）：程序在兩者之間掛掉的話，重啟後仍知道要補寫
+    db.prepare(`UPDATE meegle_batch_rows SET create_phase = 'created', work_item_id = ?, url = ?, message = NULL, writeback_phase = 'pending', writeback_msg = NULL, updated_at = ?
       WHERE batch_id = ? AND row_key = ? AND create_phase = 'creating'`).run(result.workItemId, result.url, now, batchId, rowKey)
   } else {
     db.prepare(`UPDATE meegle_batch_rows SET create_phase = ?, message = ?, updated_at = ?
@@ -157,18 +172,19 @@ export function needsStatePush(row: Pick<BatchRow, 'create_phase' | 'work_item_i
  * 為什麼（CodeX review 4bc4fa9 [P2]）：同帳號兩個分頁，A 送出目標「可本機測試」、B 選「完成」送同一列收到 busy，
  * B 的結果接回 A 的批次卻帶著 B 的目標，之後按重推就把 A 開的單推到「完成」。目標只能有一個來源。
  */
-export function adoptTarget(db: DB, batchId: string, rowKey: string, requested: string, now = Date.now()): string {
+export function adoptTarget(db: DB, batchId: string, rowKey: string, requested: string, now = Date.now(), requestedName = ''): string {
   const row = getBatchRow(db, batchId, rowKey)
   if (!row) return ''
   if (row.target_state) return row.target_state
   if (!requested) return ''
-  db.prepare(`UPDATE meegle_batch_rows SET target_state = ?, updated_at = ? WHERE batch_id = ? AND row_key = ? AND target_state = ''`)
-    .run(requested, now, batchId, rowKey)
+  db.prepare(`UPDATE meegle_batch_rows SET target_state = ?, target_state_name = ?, updated_at = ? WHERE batch_id = ? AND row_key = ? AND target_state = ''`)
+    .run(requested, requestedName, now, batchId, rowKey)
   return getBatchRow(db, batchId, rowKey)?.target_state ?? ''
 }
 
 export function finishState(db: DB, batchId: string, rowKey: string, phase: StatePhase, message: string | null, now = Date.now()) {
-  db.prepare(`UPDATE meegle_batch_rows SET state_phase = ?, message = ?, updated_at = ?
+  // 狀態變了 → Sheet「處理階段」也要跟著改，同一筆 UPDATE 標 pending
+  db.prepare(`UPDATE meegle_batch_rows SET state_phase = ?, message = ?, writeback_phase = 'pending', updated_at = ?
     WHERE batch_id = ? AND row_key = ? AND create_phase = 'created'`).run(phase, message, now, batchId, rowKey)
 }
 
@@ -179,7 +195,7 @@ export function finishState(db: DB, batchId: string, rowKey: string, phase: Stat
 export function resolveUnknown(db: DB, batchId: string, rowKey: string,
   found: { workItemId: string; url: string } | null, now = Date.now()): boolean {
   const r = found
-    ? db.prepare(`UPDATE meegle_batch_rows SET create_phase = 'created', work_item_id = ?, url = ?, message = NULL, updated_at = ?
+    ? db.prepare(`UPDATE meegle_batch_rows SET create_phase = 'created', work_item_id = ?, url = ?, message = NULL, writeback_phase = 'pending', writeback_msg = NULL, updated_at = ?
         WHERE batch_id = ? AND row_key = ? AND create_phase = 'unknown'`).run(found.workItemId, found.url, now, batchId, rowKey)
     : db.prepare(`UPDATE meegle_batch_rows SET create_phase = 'failed', message = '確認過 Meegle 沒有這張單，可以重送', updated_at = ?
         WHERE batch_id = ? AND row_key = ? AND create_phase = 'unknown'`).run(now, batchId, rowKey)
@@ -223,4 +239,32 @@ export function upsertPersonMap(db: DB, alias: string, person: { userKey: string
 
 export function deletePersonMap(db: DB, alias: string): boolean {
   return db.prepare('DELETE FROM meegle_person_map WHERE alias = ?').run(normAlias(alias)).changes === 1
+}
+
+// ─── 回填 Sheet ─────────────────────────────────────────────────────────────
+
+/**
+ * 「處理階段」要寫的字。**只有 state_phase=done 才寫「已推到 X」**（CodeX）——推失敗或還沒推時寫成已推，
+ * Sheet 上看起來完成了、Meegle 上其實沒有。
+ */
+export function writebackStageText(row: Pick<BatchRow, 'target_state' | 'target_state_name' | 'state_phase'>): string {
+  if (!row.target_state) return '已開單（Meegle）'
+  const name = row.target_state_name || row.target_state
+  if (row.state_phase === 'done') return `已開單（Meegle）・已推到${name}`
+  return `已開單（Meegle）・推到${name}未完成`
+}
+
+/**
+ * 寫完回報結果。只有在寫入前讀到的版本（updated_at）沒變時才標 done——
+ * 寫的途中狀態又變了（例如重推成功），這次寫的已經是舊內容，要維持 pending 讓下一次補上（成功、失敗都一樣）。
+ */
+export function finishWriteback(db: DB, batchId: string, rowKey: string, seenUpdatedAt: number, ok: boolean, message: string | null, now = Date.now()): void {
+  if (ok) {
+    db.prepare(`UPDATE meegle_batch_rows SET writeback_phase = 'done', writeback_msg = NULL, writeback_at = ?
+      WHERE batch_id = ? AND row_key = ? AND updated_at = ?`).run(now, batchId, rowKey, seenUpdatedAt)
+  } else {
+    // 失敗也一樣：狀態在寫的途中又變了，代表已經排了一次新的回填，這次的失敗不要蓋掉那個 pending
+    db.prepare(`UPDATE meegle_batch_rows SET writeback_phase = 'failed', writeback_msg = ?, writeback_at = ?
+      WHERE batch_id = ? AND row_key = ? AND updated_at = ?`).run(message, now, batchId, rowKey, seenUpdatedAt)
+  }
 }

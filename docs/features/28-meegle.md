@@ -153,7 +153,26 @@
 - `npx tsx server/meegle-workitem.test.ts`（48）、`npx tsx server/meegle-batch-store.test.ts`（40）、`npx tsx shared/meegle-batch-rules.test.ts`（38）
 - 突變都紅在對應那幾條：相信外層 retryable、翻頁每頁重讀 session、沒單號當失敗、逾時列可重新認領、晚到結果蓋掉 created
 
+### 回填 Sheet 與操作紀錄（v4.267.0，使用者要求追溯、CodeX 設計 review）
+開單成功後**伺服器端**馬上回填三欄：「**Meegle 單號**」（超連結）、「**處理階段**」（已開單（Meegle）／已開單（Meegle）・已推到 X／…推到 X 未完成）、「**處理時間**」。欄位不存在就自動加在最右邊（使用者選 A）。實作：`server/meegle-sheet-writeback.ts`
+
+| 規則 | 為什麼 |
+|---|---|
+| 回填 pending 跟「開單成功／查回成功／推狀態結果」**同一筆 UPDATE** 落地 | 程序在中間掛掉也知道要補寫（CodeX） |
+| **寫入前讀那一列的摘要／標題，跟開單時的名稱不同就不寫**（標「列已變動」） | 列號是讀 Sheet 當下的，之後插列／刪列就會寫到別列。⚠️ 只是防呆：同名列被刪、另一筆補到同位置照樣會過；讀完到寫入之間插列也擋不住（CodeX）。可靠的做法是「來源列 UUID」欄，下一版選項 |
+| 讀那一列要用 `valueRenderOption=FormattedValue` | **「摘要」常是公式**（實測 `"["&F2&"]["&E2&"]"&I2`），預設回公式原文，每列都會被當成列已變動 |
+| 超連結用 richtext segments | `{type:'url',text,link}` 會被 Lark 拒絕（實測 code 90204 invalid cell type） |
+| 寫入沿用 `multiWritebackLarkBatch` | 已處理表頭 A1:ZZ2、AA 以後欄位字母、缺欄位自動建、檢查 Lark 回應 code（Lark 失敗常回 HTTP 200）。舊 Jira 回填只看 A1:Z1、用 fromCharCode，超過 Z 會寫錯欄 |
+| 同一份 Sheet 用行程內的鎖排隊；**拿到鎖才從 DB 讀最新狀態**組內容；寫完版本（updated_at）沒變才標 done／failed | 舊回填不會蓋掉新狀態（例如重推成功）。meegle-batch 只跑在主程序，所以行程內鎖就夠 |
+| 只有 state_phase=done 才寫「已推到 X」 | 推失敗時寫成已推到，Sheet 上看起來完成了、Meegle 上沒有 |
+| 回填失敗不影響開單；④ 顯示「已寫回／待寫回／回填失敗」，可按「補寫回」（只用已存單號，不重開） | |
+| `/row`、`/confirm`、`/retry-state`、`/row/writeback` 都接回填 | CodeX |
+
+**操作歷史紀錄**：篩選多「Meegle 開單」；明細改成表格——來源 Sheet 連結 → 每列：列號、任務名稱、Meegle 單號（可點）、關聯需求、處理階段、回填結果。舊紀錄缺的欄位顯示「—」。
+
+**驗證**：`npx tsx server/meegle-sheet-writeback.test.ts`（24）：不寫到別列、讀不到不寫、Lark 失敗留原因、寫途中狀態變了維持 pending、同 Sheet 排隊、只有推成功寫已推到；突變三個（拿掉名稱核對／版本檢查／鎖）都紅。**真 Sheet 實測**：使用者那份表第 2 列（真單 #15191459）回填成功——新欄「Meegle 單號」建一次、第 2 列寫入超連結＋處理階段＋時間、第 3 列沒動；第一版用 url 型別被 Lark 拒（90204）、公式摘要讀成原文對不上，兩個都是實測才抓到。瀏覽器看過歷史表格。
+
 ### 還沒做
-- 開單後回寫 Lark Sheet（Meegle 單號、處理階段）——要先跟使用者確認欄位
+- 來源列 UUID（可靠對應插列／排序後的列；要在 Sheet 多一欄、防重複鍵一起換）
 - 附件（Sheet 的圖、測試附件）沒有帶進 Meegle
 - Google Sheets 來源

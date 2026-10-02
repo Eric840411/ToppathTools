@@ -813,7 +813,7 @@ function serializeLarkValue(value: LarkCellValue): unknown {
 }
 
 /** 0-based column index → A1 notation letter (supports AA–AZ) */
-function colIndexToLetter(idx: number): string {
+export function colIndexToLetter(idx: number): string {
   let result = ''
   let n = idx + 1
   while (n > 0) {
@@ -832,7 +832,7 @@ function colIndexToLetter(idx: number): string {
  *    等批次版在 reconcile 上跑穩了，再回頭讓舊的也切過來（那時才一併驗證）。
  *    在那之前這兩份是已知的重複，不是疏忽。
  */
-async function resolveSheetHeaders(base: string, token: string, spreadsheetToken: string, sheetId: string) {
+export async function resolveSheetHeaders(base: string, token: string, spreadsheetToken: string, sheetId: string) {
   const headerRange = sheetId ? `${sheetId}!A1:ZZ2` : 'A1:ZZ2'
   const resp = await fetch(
     `${base}/open-apis/sheets/v2/spreadsheets/${spreadsheetToken}/values/${headerRange}`,

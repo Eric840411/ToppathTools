@@ -86,7 +86,7 @@ interface HistoryRecord {
 }
 
 type DaysFilter = 1 | 3 | 7
-type FeatureFilter = 'all' | 'testcase' | 'machine-test' | 'ui-screenshot' | 'scripted-bet' | 'jira' | 'jira-comment' | 'osm-sync' | 'osm-components' | 'luckylink-components' | 'luckylink-protocol-versions' | 'toppath-components' | 'osm-alert' | 'imagerecon' | 'image-check' | 'gs-pdf-testcase' | 'gs-img-compare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config-compare'
+type FeatureFilter = 'all' | 'testcase' | 'machine-test' | 'ui-screenshot' | 'scripted-bet' | 'jira' | 'jira-comment' | 'osm-sync' | 'osm-components' | 'luckylink-components' | 'luckylink-protocol-versions' | 'toppath-components' | 'osm-alert' | 'imagerecon' | 'image-check' | 'gs-pdf-testcase' | 'gs-img-compare' | 'gs-logchecker' | 'gs-bonusv2' | 'osm-config-compare' | 'meegle-batch-create'
 
 const FEATURE_LABELS: Record<string, string> = {
   'testcase': 'TestCase 生成',
@@ -108,9 +108,11 @@ const FEATURE_LABELS: Record<string, string> = {
   'gs-logchecker': 'GS Log 攔截',
   'gs-bonusv2': 'GS Bonus V2 統計',
   'osm-config-compare': 'Config 比對',
+  'meegle-batch-create': 'Meegle 開單',
 }
 
 const FEATURE_COLORS: Record<string, string> = {
+  'meegle-batch-create': '#14b8a6',
   'testcase': '#6366f1',
   'machine-test': '#0891b2',
   'ui-screenshot': '#0d9488',
@@ -210,7 +212,7 @@ export function HistoryPage() {
 
         {/* Feature */}
         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          {(['all', 'jira', 'jira-comment', 'testcase', 'machine-test', 'ui-screenshot', 'scripted-bet', 'image-check', 'osm-sync', 'osm-components', 'luckylink-components', 'luckylink-protocol-versions', 'toppath-components', 'osm-alert', 'imagerecon', 'gs-pdf-testcase', 'gs-img-compare', 'gs-logchecker', 'gs-bonusv2', 'osm-config-compare'] as FeatureFilter[]).map(f => (
+          {(['all', 'jira', 'jira-comment', 'meegle-batch-create', 'testcase', 'machine-test', 'ui-screenshot', 'scripted-bet', 'image-check', 'osm-sync', 'osm-components', 'luckylink-components', 'luckylink-protocol-versions', 'toppath-components', 'osm-alert', 'imagerecon', 'gs-pdf-testcase', 'gs-img-compare', 'gs-logchecker', 'gs-bonusv2', 'osm-config-compare'] as FeatureFilter[]).map(f => (
             <button
               key={f}
               onClick={() => setFeature(f)}
@@ -348,9 +350,13 @@ export function HistoryPage() {
                           </a>
                         </div>
                       )}
-                      <pre style={{ margin: 0, fontSize: 11, color: '#cbd5e1', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 400, overflowY: 'auto' }}>
-                        {JSON.stringify(detail, null, 2)}
-                      </pre>
+                      {rec.feature === 'meegle-batch-create' && Array.isArray(detail.rows)
+                        ? <MeegleBatchHistory detail={detail} />
+                        : (
+                          <pre style={{ margin: 0, fontSize: 11, color: '#cbd5e1', overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 400, overflowY: 'auto' }}>
+                            {JSON.stringify(detail, null, 2)}
+                          </pre>
+                        )}
                     </div>
                   )}
                 </div>
@@ -398,6 +404,53 @@ export function HistoryPage() {
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Meegle 開單的歷史明細（v4.267.0，使用者要求「看得到從哪一列開成哪張單」）：
+ * Sheet 連結 → 每列：列號、任務名稱、Meegle 單號（可點）、關聯需求、處理階段、回填 Sheet 結果。
+ * 舊紀錄（v4.267.0 之前）只有 row／phase／workItemId，欄位缺的就顯示「—」。
+ */
+type MeegleHistRow = {
+  row?: string; name?: string; phase?: string; workItemId?: string | null; url?: string | null
+  requirementId?: string; requirementName?: string; stage?: string; writeback?: string; writebackMsg?: string | null; message?: string | null
+}
+const MEEGLE_PHASE: Record<string, string> = { created: '已開單', failed: '開單失敗', unknown: '結果待確認', creating: '開單中' }
+const MEEGLE_WB: Record<string, string> = { done: '已寫回', pending: '待寫回', failed: '回填失敗', none: '—' }
+function MeegleBatchHistory({ detail }: { detail: Record<string, unknown> }) {
+  const rows = (detail.rows as MeegleHistRow[]).slice().sort((a, b) => Number(a.row) - Number(b.row))
+  const sheetUrl = typeof detail.sheetUrl === 'string' ? detail.sheetUrl : ''
+  const cell: React.CSSProperties = { padding: '6px 8px', borderBottom: '1px solid #1e293b', verticalAlign: 'top' }
+  return (
+    <div style={{ fontSize: 12, color: '#cbd5e1' }}>
+      <div style={{ marginBottom: 8 }}>
+        來源 Sheet：{sheetUrl ? <a href={sheetUrl} target="_blank" rel="noreferrer" style={{ color: '#2dd4bf', wordBreak: 'break-all' }}>{sheetUrl}</a> : <span style={{ color: '#64748b' }}>（舊紀錄沒有記）</span>}
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead><tr style={{ color: '#94a3b8', textAlign: 'left' }}>
+            {['列', '任務名稱', 'Meegle 單號', '關聯需求', '處理階段', '回填 Sheet'].map(h => <th key={h} style={{ ...cell, fontWeight: 600, whiteSpace: 'nowrap' }}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={String(r.row)}>
+                <td style={{ ...cell, color: '#94a3b8' }}>{r.row ?? '—'}</td>
+                <td style={cell}>{r.name || '—'}</td>
+                <td style={{ ...cell, whiteSpace: 'nowrap' }}>
+                  {r.workItemId ? (r.url ? <a href={r.url} target="_blank" rel="noreferrer" style={{ color: '#2dd4bf' }}>#{r.workItemId}</a> : `#${r.workItemId}`) : <span style={{ color: '#f87171' }}>{MEEGLE_PHASE[r.phase ?? ''] ?? r.phase ?? '—'}</span>}
+                </td>
+                <td style={cell}>{r.requirementName || (r.requirementId ? `#${r.requirementId}` : '—')}</td>
+                <td style={cell}>{r.stage || (r.message ? <span style={{ color: '#f87171' }}>{r.message}</span> : '—')}</td>
+                <td style={{ ...cell, color: r.writeback === 'failed' ? '#f87171' : r.writeback === 'done' ? '#94a3b8' : '#fbbf24' }} title={r.writebackMsg ?? ''}>
+                  {MEEGLE_WB[r.writeback ?? 'none'] ?? '—'}{r.writeback === 'failed' && r.writebackMsg ? `：${r.writebackMsg}` : ''}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

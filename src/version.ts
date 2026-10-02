@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.266.2'
+export const APP_VERSION = '4.267.0'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.267.0', date: '2026-10-02', changes: ['feat(Meegle)：**開單結果回填 Sheet**（使用者要求追溯）——每開成一張就寫「Meegle 單號」（點了開那張單）、「處理階段」（已開單／已推到 X）、「處理時間」；欄位不存在自動加在最右邊。④ 顯示已寫回／待寫回／回填失敗，可按「補寫回」', 'feat(Meegle)：**操作歷史紀錄看得到開單路徑**——篩選多「Meegle 開單」，明細是表格：來源 Sheet → 第幾列 → 任務名稱 → Meegle 單號（可點）→ 關聯需求 → 處理階段 → 回填結果', 'fix(Meegle)：避開以前回填踩過的坑——欄位超過 Z、寫入前核對那一列還是不是同一筆（有人插列就不寫，標「列已變動」）、舊回填不蓋新狀態、Lark 失敗也回 HTTP 200；另外實測抓到兩個新坑：摘要是公式時要讀計算後的值、超連結要用 richtext 格式', 'test(Meegle)：回填 24 條（突變三個都紅）；用使用者的真 Sheet 實測回填第 2 列成功、隔壁列沒動'] },
   { version: '4.266.2', date: '2026-10-02', changes: ['fix(UI 截圖)：**快速模式（不每個解析度重新載入）進場失敗會留著座位**（CodeX [P2]）——退出機台寫在最後一步，進場後名稱對不上一丟錯就整段跳過，外層只關瀏覽器、也沒有兜底。改成一律在 finally 收尾：先看還坐不坐著，坐著才退，退不掉記進「座位不明」回報'] },
   { version: '4.266.1', date: '2026-10-02', changes: ['fix(UI 截圖)：**進場後沒確認是不是挑的那一台**（CodeX [P1]）——被送回白名單外的機台時，畫面就緒照樣拍、還記成白名單內的機號。現在挑機時記下卡片名稱，進場後畫面上找不到同樣的名字就這張失敗、不拍，下一張不再挑那台', 'fix(UI 截圖)：**三段任務漏帶白名單會退回不限 Machine Model**（CodeX [P2]）——前端沒帶 pools、帶 {}、少一組都能通過。現在只要任務名稱是三段就一定要有自己的白名單', 'test(UI 截圖)：shared 17 → 21、真 server 15 → 18（拿掉新檢查 5 條紅）。⚠️ 進場後名稱比對要真 agent 對真大廳才驗得到'] },
   { version: '4.266.0', date: '2026-10-02', changes: ['feat(UI 截圖)：**model 選單可以選到 Machine Model**（需求方要求）——每個 model 底下按 OSM 的 machineType（例如 wlzbhelix9）列出 gmid，可以只勾某幾個；開跑時**只從勾選的那組挑空機**，全被佔用就該項失敗、不換到別的 Machine Model。OSM 查不到的歸「未同步」不能選，按「重新同步」重新分組', 'feat(UI 截圖)：OSM 同步結果落 DB（`osm_machine_types`）——同步在主程序、截圖在 worker，記憶體不共用（CodeX）', 'fix(UI 截圖)：**舊 agent 會默默拍到別的 Machine Model**——新 agent 回報 `ui-ss-pool`，沒有的帶白名單一律 409；agent 端挑機、重載捷徑、PC／大廳入口都守白名單；資料夾撞名擋下；報表認三段名稱（CodeX review）', '⚠️ 各台 Local Agent 要按「更新程式碼」並重新連線才能選 Machine Model', 'test(UI 截圖)：shared 17 條、真 server＋假 agent 15 條（拿掉 capability 檢查 4 條紅）；瀏覽器區網 IP 驗過選單與送出內容。⚠️ agent 對真大廳挑機尚未驗'] },

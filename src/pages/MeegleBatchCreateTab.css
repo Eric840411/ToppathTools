@@ -300,3 +300,9 @@
 .mb-hint--warn { color: var(--mb-warn); }
 /* ④ 底部固定進度列會蓋住最後幾列，結果區底部留出空間 */
 .mb-pane:has(.mb-results) { padding-bottom: 96px; }
+
+/* ④ 回填 Sheet 的狀態（v4.267.0） */
+.mb-wb { font-size: 11.5px; padding: 0 7px; border-radius: 5px; border: 1px solid; line-height: 1.6; }
+.mb-wb--done { color: var(--mb-muted); border-color: var(--mb-border-strong); }
+.mb-wb--pending { color: var(--mb-warn); border-color: rgba(245, 183, 59, .45); }
+.mb-wb--bad { color: var(--mb-bad); border-color: rgba(242, 107, 107, .45); max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
