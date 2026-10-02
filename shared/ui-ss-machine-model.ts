@@ -48,13 +48,21 @@ export function poolTarget(game: string, model: string, machineType: string): st
   return `${game} / ${model} / ${machineType}`
 }
 
+/** 三段的任務名稱（遊戲 / model / Machine Model）一定要帶白名單 */
+export function isPoolTarget(target: string): boolean {
+  return target.split('/').length === 3
+}
+
 /**
  * 檢查要送出的白名單。回傳錯誤訊息清單，空陣列＝通過。
  * ⚠️ 有錯就整個 run 不建，不能「跳過有問題的那個、其他照跑」——使用者會以為全部都有拍。
  */
 export function validatePools(targets: string[], pools: Record<string, unknown> | undefined): string[] {
-  if (!pools) return []
   const errs: string[] = []
+  // 每個三段任務都要有自己的白名單（CodeX review d3082af [P2]）：漏帶、帶 {}、少一組的話，
+  // 那個任務到 agent 會被當成「遊戲 / model」比對 → 退回不限 Machine Model
+  for (const t of targets) if (isPoolTarget(t) && !(pools && Object.prototype.hasOwnProperty.call(pools, t))) errs.push(`${t} 沒有帶 Machine Model 白名單`)
+  if (!pools) return errs
   for (const [target, list] of Object.entries(pools)) {
     if (!targets.includes(target)) errs.push(`白名單對應的任務不存在：${target}`)
     if (!Array.isArray(list) || list.length === 0) { errs.push(`${target} 的白名單是空的`); continue }

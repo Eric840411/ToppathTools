@@ -452,6 +452,8 @@ model 選單每個「遊戲 / model」底下，按 OSM 的 **Machine Model**（e
 - **OSM 資料跨程序**：OSM 同步在主程序、截圖路由在 worker，記憶體不共用。`syncOsmChannel()` 成功時把該渠道的 machineName→machineType 整批寫進 `osm_machine_types`（`server/osm-machine-types.ts`），worker 從 DB 讀。同步失敗保留上次資料
 - **白名單是快照**：建 run 時固定在 `options.targetPools`，每個 task 帶同一份 `allowedGmids`（各解析度共用、重試不重算）。任務名稱 `遊戲 / model / machineType`
 - **舊 agent 一律擋**：舊 agent 會把三段名稱當兩段比對，**默默拍到別的 Machine Model**。新 agent 在 `agent_ready.capabilities` 回報 `ui-ss-pool`（跟著這次連線，重連降版也會被擋）；`/start` 帶白名單但沒有這項 → 409 `AGENT_TOO_OLD`。空白名單、PC 版、非自動選機、白名單有非 gmid 值 → 400。**不會退回不限 Machine Model**
+- **進場後確認真的是挑的那一台**（v4.266.1，CodeX review `d3082af` [P1]）：`enterUiScreenshotMachine` 可能回 already-in-game 或被送回別台，只看推流就緒會把池外機台的畫面記成白名單內的機號。挑機時記下卡片名稱（例如 `Hyper Horse-TBR2052`），進場後畫面上必須有完全相同的文字，否則這張失敗、不拍，該台記進 brokenMachines 下一張不再挑；座位照常由外層收尾
+- **每個三段任務都要有白名單**（v4.266.1，CodeX [P2]）：只要任務名稱是三段就走白名單關卡；pools 缺省、`{}`、少一組都 400——否則那個任務到 agent 會被當成兩段比對、退回不限 Machine Model
 - **agent 端每個入口都守**：`pickUiScreenshotMachine` 有白名單時只比對白名單 gmid；「重新載入後已在機台內」的捷徑只比 model 名稱，有白名單時不走；PC／大廳／非自動選機收到白名單 → 整組回報失敗、不拍
 - **資料夾撞名**：任務名稱同時是資料夾名，`safeSegment()` 會把特殊字元換成 `_`、截到 120 字。同一個 run 裡兩個名稱撞成同一個資料夾 → 400（不然後拍的蓋掉先拍的）
 - **報表／Sheet**：報表 `classify()` 認三段，名稱顯示「model ・ machineType」；Sheet 照舊一台實際機台一列，沒拿到機台號的列名是完整三段名稱＋「（未取得機台號）」，不用候選機號補
@@ -460,7 +462,7 @@ model 選單每個「遊戲 / model」底下，按 OSM 的 **Machine Model**（e
 **⚠️ 各台 Local Agent 要按「更新程式碼」並重新連線**，才會回報 `ui-ss-pool`；沒更新的 agent 選單只能選 model（畫面會提示）。
 
 **驗證**
-- `npx tsx shared/ui-ss-machine-model.test.ts`（17）：分組、自然排序、未同步不猜、白名單檢查、DB 對照（同渠道重同步整批換、別渠道不受影響）
-- `node scripts/ui-checks/ui-screenshot-machine-model.mjs`（15，打真 server＋假 agent）：舊 agent 409、派工帶同一份白名單、快照、空白名單／PC／非自動選機／非 gmid／資料夾撞名都擋、重連降版 409。拿掉 capability 檢查 → 4 條紅
+- `npx tsx shared/ui-ss-machine-model.test.ts`（21）：分組、自然排序、未同步不猜、白名單檢查、DB 對照（同渠道重同步整批換、別渠道不受影響）
+- `node scripts/ui-checks/ui-screenshot-machine-model.mjs`（18，含 G：三段任務漏帶／空／少一組白名單；拿掉檢查 5 條紅；打真 server＋假 agent）：舊 agent 409、派工帶同一份白名單、快照、空白名單／PC／非自動選機／非 gmid／資料夾撞名都擋、重連降版 409。拿掉 capability 檢查 → 4 條紅
 - 瀏覽器（區網 IP、mock 掃描結果）：分組、未同步不能勾、半選、送出的任務名稱與白名單正確
-- ⚠️ **沒驗到的**：agent 端挑機（池內全忙但池外有空機、重載跑錯台）要真 agent 對真大廳跑，本機沒做
+- ⚠️ **沒驗到的**：agent 端挑機（池內全忙但池外有空機、重載跑錯台）與**進場後名稱比對**要真 agent 對真大廳跑，本機沒做——尤其「卡片名稱＝機台內名稱」是從既有程式（`readInGameMachineName` 的格式）推的，真大廳第一次跑要看 log 有沒有出現「已確認在白名單內」

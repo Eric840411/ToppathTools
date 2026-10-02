@@ -494,6 +494,8 @@ function resolveIsPc(clientType: 'h5' | 'pc' | undefined, url: string, where: st
 /** 大廳上的一張機台卡片。`occupied` 直接讀 DOM，不用點進去才知道。 */
 interface LobbyCard {
   gmid: string; game: string; model: string; occupied: boolean
+  /** 卡片上的機台名稱原文（例如 `Hyper Horse-TBR2052`）。進機台後畫面上也是這個名字，用來確認真的進了這一台 */
+  name: string
   /** 卡片上有「預約資訊」。實測 3 張有、而且同時都是 occupied——留著當獨立訊號，不混進 occupied */
   reserved: boolean
 }
@@ -527,7 +529,7 @@ async function scanUiScreenshotLobby(page: Page): Promise<LobbyCard[]> {
   })
   // model 的解析放在 node 這端做，跟掃描用同一份規則（瀏覽器端再寫一份遲早會漂掉）
   return raw.map(c => ({
-    gmid: c.gmid, game: c.game, model: parseUiScreenshotModel(c.text),
+    gmid: c.gmid, game: c.game, model: parseUiScreenshotModel(c.text), name: c.text,
     occupied: c.occupied, reserved: c.reserved,
   }))
 }
@@ -591,7 +593,7 @@ async function ensureUiScreenshotLobby(page: Page, label: string, dismissPopup: 
  */
 async function pickUiScreenshotMachine(
   page: Page, target: string, preferred?: string, exclude: Set<string> = new Set(), pool?: Set<string>,
-): Promise<{ gmid: string; totalOfTarget: number; freeOfTarget: number }> {
+): Promise<{ gmid: string; name: string; totalOfTarget: number; freeOfTarget: number }> {
   /**
    * pool：Machine Model 白名單（伺服器派工時帶的 allowedGmids，大寫）。有給就**只**比對白名單裡的 gmid，
    * 不再看 model 名稱——同一個 model 底下有好幾種 Machine Model（例如 wlzbhelix9／10／11），
@@ -620,7 +622,8 @@ async function pickUiScreenshotMachine(
       : `No free machine for: ${target} (${matches.length} total, all occupied or already tried)`)
   }
   const chosen = (preferred && free.find(c => c.gmid === preferred)) ? preferred : free[0].gmid
-  return { gmid: chosen, totalOfTarget: matches.length, freeOfTarget: free.length }
+  const chosenName = free.find(c => c.gmid === chosen)?.name ?? ''
+  return { gmid: chosen, name: chosenName, totalOfTarget: matches.length, freeOfTarget: free.length }
 }
 
 /**
@@ -1306,9 +1309,11 @@ async function runUiScreenshotInner(runConfig: UiScreenshotRunConfig, serverBase
         await ensureUiScreenshotLobby(page, gmid, options.dismissPopup !== false)
 
         let target = gmid
+        let expectName = ''
         if (autoPick) {
           const picked = await pickUiScreenshotMachine(page, gmid, lastUsedMachine, brokenMachines, pool)
           target = picked.gmid
+          expectName = picked.name
           console.log(`[UI-SS] ${gmid} auto-picked ${target} (${picked.freeOfTarget}/${picked.totalOfTarget} free)`)
         }
 
@@ -1317,6 +1322,23 @@ async function runUiScreenshotInner(runConfig: UiScreenshotRunConfig, serverBase
         console.log(`[UI-SS] ${target} entry=${entryState}`)
         const ready = await waitForUiScreenshotReady(page)
         if (ready) console.log(`[UI-SS] ${gmid} — stream ready`)
+        /**
+         * 白名單模式：截圖前確認**真的進了挑的那一台**（CodeX review d3082af [P1]）。
+         * `enterUiScreenshotMachine` 可能回 already-in-game（根本沒站在大廳），或被送回別台——
+         * 只看推流就緒的話，會把池外機台的畫面記成白名單內的機號上傳。
+         * 卡片名稱與機台內顯示的名稱是同一個字串（例如 `Hyper Horse-TBR2052`）：畫面上找不到就失敗，不拍。
+         */
+        if (pool) {
+          const want = expectName.replace(/\s+/g, ' ').trim()
+          const shown = want ? await page.getByText(want, { exact: true }).first().isVisible().catch(() => false) : false
+          if (!shown) {
+            const seen = await readInGameMachineName(page)
+            // 這台不算數：下一個解析度不要再挑它（座位的收尾交給外層 finally／兜底，照常退出）
+            brokenMachines.add(target)
+            throw new Error(`進場後無法確認是 Machine Model 白名單內的 ${target}（預期畫面上有「${want || '（挑機時沒讀到卡片名稱）'}」，實際看到「${seen || '讀不到'}」，entry=${entryState}）——不拍，避免記錯機號`)
+          }
+          console.log(`[UI-SS] ${gmid} — 已確認在白名單內的 ${target}（畫面上有「${want}」）`)
+        }
         if (screenshotDelaySeconds > 0) {
           console.log(`[UI-SS] ${gmid} waiting ${screenshotDelaySeconds}s before screenshot`)
           await page.waitForTimeout(screenshotDelaySeconds * 1000)

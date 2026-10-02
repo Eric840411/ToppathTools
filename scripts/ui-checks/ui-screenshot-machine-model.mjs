@@ -95,6 +95,10 @@ try {
   check('C PC 版 → 400', (await start({ clientType: 'pc' })).status, 400)
   check('C 非自動選機 → 400', (await start({ options: {} })).status, 400)
   check('C 白名單有非 gmid 值 → 400', (await start({ pools: { [T9]: ['WLZBHELIX'], [T10]: ['4182-WLZBHELIX-2136'] } })).status, 400)
+  // G 三段任務漏帶白名單（CodeX review d3082af [P2]）
+  check('G 三段任務、完全沒帶 pools → 400', (await start({ pools: undefined })).status, 400)
+  check('G 三段任務、pools 是 {} → 400', (await start({ pools: {} })).status, 400)
+  check('G 兩個三段任務只帶一組 → 400', (await start({ pools: { [T9]: POOLS[T9] } })).status, 400)
   // E 資料夾撞名（safeSegment 會把 : 換成 _）
   const e = await start({ gmids: ['G / A:B / x1', 'G / A_B / x1'], pools: { 'G / A:B / x1': ['1-G-1'], 'G / A_B / x1': ['1-G-2'] } })
   check('E 兩個名稱資料夾相同 → 400', e.status, 400)

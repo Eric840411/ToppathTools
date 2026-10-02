@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.266.0'
+export const APP_VERSION = '4.266.1'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.266.1', date: '2026-10-02', changes: ['fix(UI 截圖)：**進場後沒確認是不是挑的那一台**（CodeX [P1]）——被送回白名單外的機台時，畫面就緒照樣拍、還記成白名單內的機號。現在挑機時記下卡片名稱，進場後畫面上找不到同樣的名字就這張失敗、不拍，下一張不再挑那台', 'fix(UI 截圖)：**三段任務漏帶白名單會退回不限 Machine Model**（CodeX [P2]）——前端沒帶 pools、帶 {}、少一組都能通過。現在只要任務名稱是三段就一定要有自己的白名單', 'test(UI 截圖)：shared 17 → 21、真 server 15 → 18（拿掉新檢查 5 條紅）。⚠️ 進場後名稱比對要真 agent 對真大廳才驗得到'] },
   { version: '4.266.0', date: '2026-10-02', changes: ['feat(UI 截圖)：**model 選單可以選到 Machine Model**（需求方要求）——每個 model 底下按 OSM 的 machineType（例如 wlzbhelix9）列出 gmid，可以只勾某幾個；開跑時**只從勾選的那組挑空機**，全被佔用就該項失敗、不換到別的 Machine Model。OSM 查不到的歸「未同步」不能選，按「重新同步」重新分組', 'feat(UI 截圖)：OSM 同步結果落 DB（`osm_machine_types`）——同步在主程序、截圖在 worker，記憶體不共用（CodeX）', 'fix(UI 截圖)：**舊 agent 會默默拍到別的 Machine Model**——新 agent 回報 `ui-ss-pool`，沒有的帶白名單一律 409；agent 端挑機、重載捷徑、PC／大廳入口都守白名單；資料夾撞名擋下；報表認三段名稱（CodeX review）', '⚠️ 各台 Local Agent 要按「更新程式碼」並重新連線才能選 Machine Model', 'test(UI 截圖)：shared 17 條、真 server＋假 agent 15 條（拿掉 capability 檢查 4 條紅）；瀏覽器區網 IP 驗過選單與送出內容。⚠️ agent 對真大廳挑機尚未驗'] },
   { version: '4.265.1', date: '2026-10-01', changes: ['fix(Meegle)：**修仙版 100% 進度條爆出卡片**（使用者回報）——靈脈條右端的發散素材會從填滿處再往外凸約 30px，條子拉滿整張卡時就戳出邊框。修仙版右邊預留凸出寬度；實測 100% 時發散右緣 1117px、卡片內緣 1120px', 'fix(Meegle)：**④ 送出結果時固定進度列消失**（CodeX [P2]）——送出會切到 ④，但固定列在 ④ 被藏起來，結果列多時 ④ 自己那條進度在最下面看不到。現在 ④ 也保留，「看結果」改成捲到結果區頂端', 'style(Meegle)：原生 emoji（🔗⚙⤓⌕⚠️）換成線條 SVG 圖示，跟著主題配色（CodeX [P3]）'] },
   { version: '4.265.0', date: '2026-10-01', changes: ['feat(Meegle)：**開單畫面改成分步驟**（使用者選 A、CodeX 出圖、要求 1:1 還原）——① 讀取與預設 → ② 人員對照 → ③ 預覽與勾選 → ④ 送出結果，一次只顯示一步，不再一路往下長。全員已對照會自動跳過 ②（仍可點回）；上一步保留設定、勾選與驗證；③ 有未對照的名字會提示回 ②；送出後自動切到 ④，底部進度列跨步驟保留', 'feat(Meegle)：③ 篩選多「已開過」；檢查欄改成單行狀態（綠點可送出／黃三角警告／紅色被擋／藍 i 已開過）；底部「勾選・可送・被擋」計數；逐列編輯併入批量設定（只勾一列＝單列修改）。修仙版：墨綠底、金線外框與角飾、青玉主按鈕，匯出叫「封存玉簡」', 'fix(Meegle)：**同一份 Sheet 換個網址尾巴（`&from=share`）可以繞過防重複**（CodeX [P2]）——改用 token＋sheet id 當來源識別值，舊紀錄啟動時自動換；網址解析抽到 `shared/lark-sheet-url.ts` 共用', 'fix(Meegle)：**撞到別人已開的單時，會用我的 token 推別人的單**、**原本刻意不推狀態的單被另一分頁的目標推走**（CodeX [P2]×2）——送出撞到「已開過」一律不在這裡推狀態，要補推只能走「重推狀態」', 'fix(Meegle)：**重複標題列判斷誤殺真資料**（CodeX [P2]）——部門欄填「RD」「QA」剛好等於欄名就被整列擋掉。改成摘要／標題也是欄名、或過半欄位等於欄名才算', 'test(Meegle)：store 40 → 47、rules 38 → 41（含接線檢查：「已開過」分支不推狀態，注入會紅）；區網 IP 瀏覽器兩個模式走完四步驟'] },

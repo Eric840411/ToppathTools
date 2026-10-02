@@ -35,6 +35,11 @@ eq('沒有白名單 → 通過（舊行為）', validatePools(['JJBX / Endless T
 eq('空白名單 → 擋（不能變成不限 Machine Model）', validatePools([t9], { [t9]: [] }).length, 1)
 eq('白名單對應的任務不在清單 → 擋', validatePools(['X'], { [t9]: ['4182-WLZBHELIX-2133'] }).length > 0, true)
 eq('白名單裡有不是 gmid 的值 → 擋', validatePools([t9], { [t9]: ['WLZBHELIX / 5 Dragons Gold'] }).length, 1)
+eq('三段任務沒帶白名單（pools 缺省）→ 擋', validatePools([t9], undefined).length, 1)
+eq('三段任務、pools 是 {} → 擋', validatePools([t9], {}).length, 1)
+const t10 = poolTarget('WLZBHELIX', '5 Dragons Gold', 'wlzbhelix10')
+eq('兩個三段任務只帶一組 → 擋少的那個', validatePools([t9, t10], { [t9]: ['4182-WLZBHELIX-2133'] }), [`${t10} 沒有帶 Machine Model 白名單`])
+eq('兩段的舊任務混在一起不受影響', validatePools(['JJBX / Endless Treasure', t9], { [t9]: ['4182-WLZBHELIX-2133'] }), [])
 eq('任務名稱不是三段 → 擋', validatePools(['WLZBHELIX / 5 Dragons Gold'], { 'WLZBHELIX / 5 Dragons Gold': ['4182-WLZBHELIX-2133'] }).length, 1)
 
 // ── DB 對照（OSM 同步在主程序寫，截圖路由在 worker 讀）──

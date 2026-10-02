@@ -17,7 +17,7 @@ import { buildReportModel, renderReportHtml, type ReportTask } from '../lib/ui-s
 import { buildSheetLayout, type SheetTask } from '../lib/ui-screenshot-sheet.js'
 import { createStoreZip } from '../lib/zip-store.js'
 import { lookupMachineTypes } from '../osm-machine-types.js'
-import { groupByMachineModel, validatePools, type LobbyMachine, type MachineModelGroup } from '../../shared/ui-ss-machine-model.js'
+import { groupByMachineModel, isPoolTarget, validatePools, type LobbyMachine, type MachineModelGroup } from '../../shared/ui-ss-machine-model.js'
 import { uploadFileToLarkFolder, parseLarkFolderToken } from '../lib/lark-drive.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -528,7 +528,8 @@ router.post('/start', (req, res) => {
   const opts = options ?? {}
 
   // ── Machine Model 白名單的關卡（CodeX review 2026-10-02）：任何一條不過就整個 run 不建，不退回「不限 Machine Model」──
-  const hasPools = !!pools && Object.keys(pools).length > 0
+  // 有任何三段任務名稱就一定要走白名單關卡——不能因為前端漏帶 pools 就跳過檢查（CodeX review d3082af [P2]）
+  const hasPools = (!!pools && Object.keys(pools).length > 0) || gmids.some(isPoolTarget)
   if (hasPools) {
     // 舊 agent 會把「遊戲 / model / machineType」當成「遊戲 / model」比對 → 默默拍到別的 Machine Model。
     // capabilities 是這次連線 agent_ready 帶的，重連會重新回報，降版也會被擋
@@ -569,7 +570,7 @@ router.post('/start', (req, res) => {
   const tasks: Array<{ id: string; gmid: string; resolution: string; allowedGmids?: string[] }> = []
   for (const gmid of gmids) {
     // 白名單在這裡固定成快照（存進 run 的 options.targetPools），每個解析度的任務都帶同一份
-    const allowed = hasPools ? pools![gmid]?.map(g => g.trim().toUpperCase()) : undefined
+    const allowed = hasPools && isPoolTarget(gmid) ? pools![gmid].map(g => g.trim().toUpperCase()) : undefined
     for (const resolution of resolutions) {
       const taskId = randomUUID()
       insertTask.run(taskId, runId, gmid, resolution)
