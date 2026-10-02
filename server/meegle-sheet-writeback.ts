@@ -168,8 +168,14 @@ export function larkWritebackDeps(): WritebackDeps {
       const plan = planColumns(headerCandidates, nextAppendColIdx, Object.keys(columns))
       // server tsconfig 沒開 strictNullChecks，聯集要用 'error' in 縮小
       if ('error' in plan) return { ok: false, error: plan.error }
-      const [res] = await multiWritebackLarkBatch(sheetKeyToUrl(sheetKey), [{ rowIndex, columns }])
-      return res ? { ok: res.ok, error: res.error } : { ok: false, error: '沒有回傳結果' }
+      // 上面的預檢只是給好懂的錯誤訊息；**真正的關卡是 maxColIdx**——helper 會再讀一次表頭，
+      // 兩次之間被塞滿的話，只有它自己最後那次的檢查擋得住（CodeX review bca81a7 [P2]）
+      try {
+        const [res] = await multiWritebackLarkBatch(sheetKeyToUrl(sheetKey), [{ rowIndex, columns }], { maxColIdx: MAX_COL_IDX })
+        return res ? { ok: res.ok, error: res.error } : { ok: false, error: '沒有回傳結果' }
+      } catch (e) {
+        return { ok: false, error: (e as Error).message }
+      }
     },
   }
 }

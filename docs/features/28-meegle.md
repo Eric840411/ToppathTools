@@ -162,7 +162,7 @@
 | **寫入前讀那一列的摘要／標題，跟開單時的名稱不同就不寫**（標「列已變動」） | 列號是讀 Sheet 當下的，之後插列／刪列就會寫到別列。⚠️ 只是防呆：同名列被刪、另一筆補到同位置照樣會過；讀完到寫入之間插列也擋不住（CodeX）。可靠的做法是「來源列 UUID」欄，下一版選項 |
 | 讀那一列要用 `valueRenderOption=FormattedValue` | **「摘要」常是公式**（實測 `"["&F2&"]["&E2&"]"&I2`），預設回公式原文，每列都會被當成列已變動 |
 | 超連結用 richtext segments | `{type:'url',text,link}` 會被 Lark 拒絕（實測 code 90204 invalid cell type） |
-| **任何一欄會落在 ZZ 之後就整筆拒寫**（v4.267.1，`planColumns()`，CodeX [P2]） | helper 本身不擋：表頭滿到 ZZ 時會照樣寫到 AAA～AAC、回傳成功，那幾欄有資料就被蓋掉 |
+| **任何一欄會落在 ZZ 之後就整筆拒寫**：關卡在 `multiWritebackLarkBatch` 的 `maxColIdx` 選項——**它自己最後一次讀表頭之後、任何寫入之前**檢查（v4.267.2，CodeX review `bca81a7` [P2]）。`planColumns()` 預檢只負責給好懂的訊息 | helper 本身原本不擋：表頭滿到 ZZ 時會寫到 AAA～AAC、回傳成功。v4.267.1 只做呼叫端預檢不夠——helper 會再讀一次表頭，兩次之間被塞滿照樣寫過去。`maxColIdx` 不給＝舊行為，批次開單／對帳等既有呼叫端不受影響 |
 | 寫入沿用 `multiWritebackLarkBatch` | 已處理表頭 A1:ZZ2、AA 以後欄位字母、缺欄位自動建、檢查 Lark 回應 code（Lark 失敗常回 HTTP 200）。舊 Jira 回填只看 A1:Z1、用 fromCharCode，超過 Z 會寫錯欄 |
 | 同一份 Sheet 用行程內的鎖排隊；**拿到鎖才從 DB 讀最新狀態**組內容；寫完**回填版本 `writeback_rev`** 沒變才標 done／failed（v4.267.1 起；原本比 updated_at，同一毫秒的兩次更新會一樣而誤標 done——CodeX review `d7d2d20` [P2]） | 舊回填不會蓋掉新狀態（例如重推成功）。meegle-batch 只跑在主程序，所以行程內鎖就夠 |
 | 只有 state_phase=done 才寫「已推到 X」 | 推失敗時寫成已推到，Sheet 上看起來完成了、Meegle 上沒有 |
@@ -171,7 +171,7 @@
 
 **操作歷史紀錄**：篩選多「Meegle 開單」；明細改成表格——來源 Sheet 連結 → 每列：列號、任務名稱、Meegle 單號（可點）、關聯需求、處理階段、回填結果。舊紀錄缺的欄位顯示「—」。
 
-**驗證**：`npx tsx server/meegle-sheet-writeback.test.ts`（30，含同毫秒更新、ZZ 邊界；改回 updated_at／拿掉 ZZ 檢查各紅 2 條）：不寫到別列、讀不到不寫、Lark 失敗留原因、寫途中狀態變了維持 pending、同 Sheet 排隊、只有推成功寫已推到；突變三個（拿掉名稱核對／版本檢查／鎖）都紅。**真 Sheet 實測**：使用者那份表第 2 列（真單 #15191459）回填成功——新欄「Meegle 單號」建一次、第 2 列寫入超連結＋處理階段＋時間、第 3 列沒動；第一版用 url 型別被 Lark 拒（90204）、公式摘要讀成原文對不上，兩個都是實測才抓到。瀏覽器看過歷史表格。
+**驗證**：`npx tsx server/meegle-sheet-writeback.test.ts`（30，含同毫秒更新、ZZ 邊界；改回 updated_at／拿掉 ZZ 檢查各紅 2 條）＋ `server/meegle-sheet-writeback.adapter.test.ts`（5，假 fetch 走真 adapter：兩次讀表頭之間被塞滿 → **零寫入**；拿掉 maxColIdx 紅 2 條）：不寫到別列、讀不到不寫、Lark 失敗留原因、寫途中狀態變了維持 pending、同 Sheet 排隊、只有推成功寫已推到；突變三個（拿掉名稱核對／版本檢查／鎖）都紅。**真 Sheet 實測**：使用者那份表第 2 列（真單 #15191459）回填成功——新欄「Meegle 單號」建一次、第 2 列寫入超連結＋處理階段＋時間、第 3 列沒動；第一版用 url 型別被 Lark 拒（90204）、公式摘要讀成原文對不上，兩個都是實測才抓到。瀏覽器看過歷史表格。
 
 ### 還沒做
 - 來源列 UUID（可靠對應插列／排序後的列；要在 Sheet 多一欄、防重複鍵一起換）

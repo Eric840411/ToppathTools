@@ -1,4 +1,4 @@
-export const APP_VERSION = '4.267.1'
+export const APP_VERSION = '4.267.2'
 
 export interface ChangelogEntry {
   version: string
@@ -7,6 +7,7 @@ export interface ChangelogEntry {
 }
 
 export const CHANGELOG: ChangelogEntry[] = [
+  { version: '4.267.2', date: '2026-10-02', changes: ['fix(Meegle)：**ZZ 上限的檢查放錯層**（CodeX [P2]）——v4.267.1 只在呼叫前先讀一次表頭預檢，但寫入的共用函式會再讀一次；兩次之間表頭被人塞滿，照樣寫到 AAA 之後、回傳成功。現在上限檢查放進共用函式自己最後一次讀表頭之後（新選項，不給的既有呼叫端行為不變）', 'test(Meegle)：新增 adapter 層測試，用假的 Lark 重現「兩次讀表頭之間被塞滿」，斷言零寫入；拿掉關卡紅 2 條。真 Sheet 重跑回填成功'] },
   { version: '4.267.1', date: '2026-10-02', changes: ['fix(Meegle)：**表頭已經滿到 ZZ 欄時，回填會寫到看不到的 AAA 欄、可能蓋掉資料**（CodeX [P2]）——寫入前先算好每欄位置，任何一欄超過 ZZ 就整筆不寫並說明原因', 'fix(Meegle)：**同一毫秒的兩次更新會讓回填誤標成已完成**（CodeX [P2]）——版本改用每次 +1 的整數，不再比時間戳；否則 Sheet 留著舊的「未完成」、下一次卻被當成已寫過而跳過', 'test(Meegle)：回填 24 → 30 條（同毫秒、ZZ 邊界），兩個防線拿掉各紅 2 條；真 Sheet 重跑回填成功'] },
   { version: '4.267.0', date: '2026-10-02', changes: ['feat(Meegle)：**開單結果回填 Sheet**（使用者要求追溯）——每開成一張就寫「Meegle 單號」（點了開那張單）、「處理階段」（已開單／已推到 X）、「處理時間」；欄位不存在自動加在最右邊。④ 顯示已寫回／待寫回／回填失敗，可按「補寫回」', 'feat(Meegle)：**操作歷史紀錄看得到開單路徑**——篩選多「Meegle 開單」，明細是表格：來源 Sheet → 第幾列 → 任務名稱 → Meegle 單號（可點）→ 關聯需求 → 處理階段 → 回填結果', 'fix(Meegle)：避開以前回填踩過的坑——欄位超過 Z、寫入前核對那一列還是不是同一筆（有人插列就不寫，標「列已變動」）、舊回填不蓋新狀態、Lark 失敗也回 HTTP 200；另外實測抓到兩個新坑：摘要是公式時要讀計算後的值、超連結要用 richtext 格式', 'test(Meegle)：回填 24 條（突變三個都紅）；用使用者的真 Sheet 實測回填第 2 列成功、隔壁列沒動'] },
   { version: '4.266.2', date: '2026-10-02', changes: ['fix(UI 截圖)：**快速模式（不每個解析度重新載入）進場失敗會留著座位**（CodeX [P2]）——退出機台寫在最後一步，進場後名稱對不上一丟錯就整段跳過，外層只關瀏覽器、也沒有兜底。改成一律在 finally 收尾：先看還坐不坐著，坐著才退，退不掉記進「座位不明」回報'] },

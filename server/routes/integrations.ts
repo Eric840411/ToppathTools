@@ -890,6 +890,13 @@ export const multiWritebackLarkBatch = async (
     /** 每寫完一列就回報一次，讓呼叫端能即時落 DB——不要只靠最後的回傳值，
      *  連線斷掉時那個回傳值根本送不出去 */
     onRowResult?: (r: { rowIndex: number; ok: boolean; error?: string }) => void
+    /**
+     * 欄位上限（0-based，ZZ＝701）。給了就在**這支自己最後一次讀表頭之後、任何寫入之前**檢查：
+     * 有任何一欄會落在上限之後就整個不寫、直接丟錯。不給＝舊行為（批次開單／對帳等既有呼叫端不受影響）。
+     * 為什麼要放在這裡（CodeX review bca81a7 [P2]）：呼叫端自己先讀表頭預檢不夠——這支會再讀一次，
+     * 兩次之間表頭可能被人或其他入口塞滿，結果照樣寫到 AAA 之後、回傳成功。
+     */
+    maxColIdx?: number
   } = {},
 ): Promise<{ rowIndex: number; ok: boolean; error?: string }[]> => {
   const { spreadsheetToken, sheetId } = parseLarkSheetUrl(sheetUrl)
@@ -903,6 +910,14 @@ export const multiWritebackLarkBatch = async (
   let appendIdx = nextAppendColIdx
   const colIdxOf = new Map<string, number>()
   const allColNames = [...new Set(writes.flatMap(w => Object.keys(w.columns)))]
+  if (opts.maxColIdx !== undefined) {
+    let next = nextAppendColIdx
+    const over = allColNames.filter(colName => {
+      const found = headerCandidates.findIndex(c => c.some(h => normalizeColName(h) === normalizeColName(colName)))
+      return (found !== -1 ? found : next++) > opts.maxColIdx!
+    })
+    if (over.length) throw new Error(`欄位超過上限（${over.join('、')} 會落在第 ${opts.maxColIdx + 1} 欄之後），為了不蓋到看不到的欄位，沒有寫入任何東西`)
+  }
   for (const colName of allColNames) {
     const found = headerCandidates.findIndex(c => c.some(h => normalizeColName(h) === normalizeColName(colName)))
     if (found !== -1) { colIdxOf.set(colName, found); continue }
