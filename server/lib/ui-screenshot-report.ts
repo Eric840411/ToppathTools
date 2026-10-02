@@ -74,8 +74,10 @@ function classify(key: string): { kind: ReportGroup['kind']; game: string; name:
   if (key === '__LOBBY__') return { kind: 'lobby', game: '', name: '大廳' }
   if (key.startsWith('__FEATURE__')) return { kind: 'feature', game: '', name: key.replace('__FEATURE__', '').replace(/^[:/]/, '') || '功能頁' }
   if (key.includes('/')) {
-    const [g, m] = key.split('/')
-    return { kind: 'model', game: g.trim(), name: m.trim() }
+    // 「遊戲 / model / Machine Model」三段（Machine Model 白名單任務）：名稱要帶上 Machine Model，
+    // 不然同一個 model 底下兩個 Machine Model 會在報表上顯示成同一個名字（CodeX 2026-10-02）
+    const [g, m, mt] = key.split('/').map(x => x.trim())
+    return { kind: 'model', game: g, name: mt ? `${m} ・ ${mt}` : m }
   }
   // 指定機台號的情況：機台號本身就是名字
   return { kind: 'model', game: (/^\d+-([A-Z0-9]+)-/.exec(key.toUpperCase()) ?? [])[1] ?? '', name: key }

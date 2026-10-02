@@ -61,7 +61,9 @@ const AGENT_ID = `${AGENT_LABEL}_${process.pid}`
 const AGENT_OWNER_KEY = (process.env.AGENT_OWNER_KEY ?? '').trim()
 const AGENT_OWNER_NAME = (process.env.AGENT_OWNER_NAME ?? AGENT_OWNER_KEY).trim()
 const AGENT_TOKEN = (process.env.AGENT_TOKEN ?? '').trim()
-const AGENT_CAPABILITIES = (process.env.AGENT_CAPABILITIES ?? 'machine-test,scripted-bet,uat-record,uat-run,uat-run-tc,autospin,backend-uat')
+// ui-ss-pool：UI 截圖支援「只從指定 gmid 白名單挑機」（Machine Model 選擇）。伺服器看到沒有這項就不派白名單任務——
+// 舊 agent 會把 `遊戲 / model / machineType` 當成 `遊戲 / model` 比對，默默拍到別的 Machine Model（CodeX 2026-10-02）
+const AGENT_CAPABILITIES = (process.env.AGENT_CAPABILITIES ?? 'machine-test,scripted-bet,uat-record,uat-run,uat-run-tc,autospin,backend-uat,ui-ss-pool')
   .split(',')
   .map(value => value.trim())
   .filter(Boolean)
@@ -254,7 +256,7 @@ interface UiScreenshotStartMessage {
   run: {
     id: string
     gameUrlTemplate: string
-    tasks: Array<{ id: string; gmid: string; resolution: string }>
+    tasks: Array<{ id: string; gmid: string; resolution: string; allowedGmids?: string[] }>
     options: Record<string, boolean | number>
     concurrency: number
     /** 使用者在畫面上選的客戶端 */
@@ -416,7 +418,7 @@ const uiScreenshotRuns = new Map<string, { stopped: boolean }>()
 interface UiScreenshotRunConfig {
   id: string
   gameUrlTemplate: string
-  tasks: Array<{ id: string; gmid: string; resolution: string }>
+  tasks: Array<{ id: string; gmid: string; resolution: string; allowedGmids?: string[] }>
   options: Record<string, boolean | number>
   concurrency: number
   /** 使用者在畫面上選的客戶端。舊版 server 不會帶，那時才退回 `isPcClientUrl` */
@@ -588,22 +590,35 @@ async function ensureUiScreenshotLobby(page: Page, label: string, dismissPopup: 
  * @param exclude   這一輪已經試過且失敗的機台
  */
 async function pickUiScreenshotMachine(
-  page: Page, target: string, preferred?: string, exclude: Set<string> = new Set(),
+  page: Page, target: string, preferred?: string, exclude: Set<string> = new Set(), pool?: Set<string>,
 ): Promise<{ gmid: string; totalOfTarget: number; freeOfTarget: number }> {
+  /**
+   * pool：Machine Model 白名單（伺服器派工時帶的 allowedGmids，大寫）。有給就**只**比對白名單裡的 gmid，
+   * 不再看 model 名稱——同一個 model 底下有好幾種 Machine Model（例如 wlzbhelix9／10／11），
+   * 用名稱比對會拍到使用者沒勾的那種。白名單內全被佔用就失敗，**不會**退回同 model 的其他台。
+   */
+  const matchOf = (c: LobbyCard) => pool ? pool.has(c.gmid.toUpperCase()) : uiScreenshotTargetMatches(target, c)
   let cards = await scanUiScreenshotLobby(page)
-  let matches = cards.filter(c => uiScreenshotTargetMatches(target, c))
+  let matches = cards.filter(matchOf)
   // ⚠️ 卡片元素出現不代表名稱已經渲染好（`.grid-item-name` 會晚一點）。
   //    掃到 0 筆先等一下重掃一次，不要馬上下「查無此 model」的結論
   if (matches.length === 0) {
     await page.waitForTimeout(2500)
     cards = await scanUiScreenshotLobby(page)
-    matches = cards.filter(c => uiScreenshotTargetMatches(target, c))
+    matches = cards.filter(matchOf)
   }
   const free = matches.filter(c => !c.occupied && !exclude.has(c.gmid))
+  if (matches.length === 0 && pool) {
+    throw new Error(`Lobby has none of the Machine Model pool: ${target}（白名單 ${pool.size} 台都不在大廳上）`)
+  }
   if (matches.length === 0) {
     throw new Error(`Lobby has no machine matching: ${target}（大廳共 ${cards.length} 張卡片、其中 ${cards.filter(c => c.model).length} 張讀得到名稱）`)
   }
-  if (free.length === 0) throw new Error(`No free machine for: ${target} (${matches.length} total, all occupied or already tried)`)
+  if (free.length === 0) {
+    throw new Error(pool
+      ? `No free machine in Machine Model pool: ${target}（白名單 ${pool.size} 台，大廳看到 ${matches.length} 台，全部被佔用或已試過；不會換到其他 Machine Model）`
+      : `No free machine for: ${target} (${matches.length} total, all occupied or already tried)`)
+  }
   const chosen = (preferred && free.find(c => c.gmid === preferred)) ? preferred : free[0].gmid
   return { gmid: chosen, totalOfTarget: matches.length, freeOfTarget: free.length }
 }
@@ -657,7 +672,7 @@ async function scanUiScreenshotModels(page: Page) {
       }
     }).filter(c => c.gmid)
   })
-  const groups = new Map<string, { game: string; model: string; total: number; free: number; sample: string }>()
+  const groups = new Map<string, { game: string; model: string; total: number; free: number; sample: string; machines: Array<{ gmid: string; occupied: boolean }> }>()
   const unparsed: Array<{ gmid: string; text: string }> = []
   for (const c of cards) {
     const m = /^\d+-([A-Z0-9]+)-/.exec(c.gmid.toUpperCase())
@@ -665,14 +680,17 @@ async function scanUiScreenshotModels(page: Page) {
     const model = parseUiScreenshotModel(c.text)
     if (!game || !model) { unparsed.push({ gmid: c.gmid, text: c.text }); continue }
     const key = `${game} / ${model}`
-    const g = groups.get(key) ?? { game, model, total: 0, free: 0, sample: '' }
+    const g = groups.get(key) ?? { game, model, total: 0, free: 0, sample: '', machines: [] }
     g.total++
     if (!c.occupied) { g.free++; if (!g.sample) g.sample = c.gmid }
+    // 整組 gmid 都帶回去，伺服器才能對到 Machine Model（原本只回第一台空機 sample）
+    g.machines.push({ gmid: c.gmid, occupied: c.occupied })
     groups.set(key, g)
   }
   return {
     scannedAt: Date.now(),
     cardCount: cards.length,
+    features: ['ui-ss-pool'],
     models: [...groups.entries()].map(([key, g]) => ({ key, ...g })).sort((a, b) => b.total - a.total),
     unparsed,
   }
@@ -1058,6 +1076,16 @@ async function runUiScreenshotInner(runConfig: UiScreenshotRunConfig, serverBase
      */
     const autoPick = options.autoPickByGame === true
     const isLobbyTarget = gmid === '__LOBBY__'
+    // Machine Model 白名單（整組解析度共用同一池；伺服器建 run 時就固定，不會中途重算）
+    const poolList = gmidTasks[0]?.allowedGmids
+    const pool = Array.isArray(poolList) ? new Set(poolList.map(g => String(g).trim().toUpperCase()).filter(Boolean)) : undefined
+    if (pool && (pool.size === 0 || isPc || !autoPick || isLobbyTarget)) {
+      // 白名單只支援 H5 自動選機；其他情況照字面跑會不受白名單限制，所以整組直接失敗、不拍
+      const why = pool.size === 0 ? '白名單是空的' : isPc ? 'PC 版不支援 Machine Model 白名單' : isLobbyTarget ? '大廳不能帶白名單' : '白名單只能用在自動選機'
+      console.warn(`[UI-SS] ${gmid} — ${why}，整組不拍`)
+      for (const t of gmidTasks) await postStatus(t.id, 'err', `${why}（不會改成不限 Machine Model）`)
+      continue
+    }
     let lastUsedMachine: string | undefined
     /**
      * 這一張截圖在準備過程中被關掉的錯誤提示（例如 `CODE: ERR_NETWORK`）。
@@ -1258,7 +1286,8 @@ async function runUiScreenshotInner(runConfig: UiScreenshotRunConfig, serverBase
         }
 
         const inLobby = (await page.locator('#grid_gm_item').count().catch(() => 0)) > 0
-        if (!inLobby && lastUsedMachine) {
+        // 有白名單時不走「重新載入後已在機台內」的捷徑：那段只比對 model 名稱，可能落在白名單外的同 model 機台（CodeX 2026-10-02）
+        if (!inLobby && lastUsedMachine && !pool) {
           const ready = await waitForUiScreenshotReady(page)
           const wantModel = gmid.includes('/') ? gmid.split('/')[1].trim().toUpperCase() : ''
           const seen = (await readInGameMachineName(page)).toUpperCase()
@@ -1278,7 +1307,7 @@ async function runUiScreenshotInner(runConfig: UiScreenshotRunConfig, serverBase
 
         let target = gmid
         if (autoPick) {
-          const picked = await pickUiScreenshotMachine(page, gmid, lastUsedMachine, brokenMachines)
+          const picked = await pickUiScreenshotMachine(page, gmid, lastUsedMachine, brokenMachines, pool)
           target = picked.gmid
           console.log(`[UI-SS] ${gmid} auto-picked ${target} (${picked.freeOfTarget}/${picked.totalOfTarget} free)`)
         }

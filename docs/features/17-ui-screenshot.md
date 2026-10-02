@@ -435,3 +435,32 @@ CodeX 2026-09-21 指出的界線，寫在這裡免得日後誤以為驗過了：
 > **狀態（2026-09-24，CodeX 同意）：修正完成，待真 agent 驗收**。驗收項目：
 > ① agent 視窗出現「收尾完成，伺服器已釋放」② 該機台座位確實已釋放 ③ 下一輪能馬上開始。
 > 另案追蹤：agent 卡死一直忙碌；重啟換 agentId 會繞過 hold（座位未必已釋放）。
+
+### Machine Model 選擇（v4.266.0，2026-10-02，需求方確認草稿＋CodeX 架構 review）
+
+model 選單每個「遊戲 / model」底下，按 OSM 的 **Machine Model**（egmList 的 `machineType`，例如 wlzbhelix9）分組列出 gmid，可以只勾某幾個 Machine Model。
+
+| 操作 | 說明 |
+|------|------|
+| 展開／收合 | 收合時只顯示 Machine Model 標籤；展開列出每組 gmid（紅字＝掃描當下被佔用） |
+| 勾 Machine Model | 每個勾選的 Machine Model ＝ 一個任務：**只從那組 gmid 挑空機**，每個解析度各拍一次；全被佔用就該項失敗，**不換到別的 Machine Model** |
+| 勾 model 主列 | 全選／半選底下所有 Machine Model |
+| 未同步 | OSM 查不到的 gmid 歸黃色「未同步」，**不能選**（不猜）。按「重新同步」跑一次 OSM 同步後重新分組，不用再掃大廳 |
+| 搜尋 | 也能搜 Machine Model（例如 wlzbhelix9） |
+
+**架構（CodeX review 定案）**
+- **OSM 資料跨程序**：OSM 同步在主程序、截圖路由在 worker，記憶體不共用。`syncOsmChannel()` 成功時把該渠道的 machineName→machineType 整批寫進 `osm_machine_types`（`server/osm-machine-types.ts`），worker 從 DB 讀。同步失敗保留上次資料
+- **白名單是快照**：建 run 時固定在 `options.targetPools`，每個 task 帶同一份 `allowedGmids`（各解析度共用、重試不重算）。任務名稱 `遊戲 / model / machineType`
+- **舊 agent 一律擋**：舊 agent 會把三段名稱當兩段比對，**默默拍到別的 Machine Model**。新 agent 在 `agent_ready.capabilities` 回報 `ui-ss-pool`（跟著這次連線，重連降版也會被擋）；`/start` 帶白名單但沒有這項 → 409 `AGENT_TOO_OLD`。空白名單、PC 版、非自動選機、白名單有非 gmid 值 → 400。**不會退回不限 Machine Model**
+- **agent 端每個入口都守**：`pickUiScreenshotMachine` 有白名單時只比對白名單 gmid；「重新載入後已在機台內」的捷徑只比 model 名稱，有白名單時不走；PC／大廳／非自動選機收到白名單 → 整組回報失敗、不拍
+- **資料夾撞名**：任務名稱同時是資料夾名，`safeSegment()` 會把特殊字元換成 `_`、截到 120 字。同一個 run 裡兩個名稱撞成同一個資料夾 → 400（不然後拍的蓋掉先拍的）
+- **報表／Sheet**：報表 `classify()` 認三段，名稱顯示「model ・ machineType」；Sheet 照舊一台實際機台一列，沒拿到機台號的列名是完整三段名稱＋「（未取得機台號）」，不用候選機號補
+- 共用規則：`shared/ui-ss-machine-model.ts`（分組、任務名稱、白名單檢查）
+
+**⚠️ 各台 Local Agent 要按「更新程式碼」並重新連線**，才會回報 `ui-ss-pool`；沒更新的 agent 選單只能選 model（畫面會提示）。
+
+**驗證**
+- `npx tsx shared/ui-ss-machine-model.test.ts`（17）：分組、自然排序、未同步不猜、白名單檢查、DB 對照（同渠道重同步整批換、別渠道不受影響）
+- `node scripts/ui-checks/ui-screenshot-machine-model.mjs`（15，打真 server＋假 agent）：舊 agent 409、派工帶同一份白名單、快照、空白名單／PC／非自動選機／非 gmid／資料夾撞名都擋、重連降版 409。拿掉 capability 檢查 → 4 條紅
+- 瀏覽器（區網 IP、mock 掃描結果）：分組、未同步不能勾、半選、送出的任務名稱與白名單正確
+- ⚠️ **沒驗到的**：agent 端挑機（池內全忙但池外有空機、重載跑錯台）要真 agent 對真大廳跑，本機沒做

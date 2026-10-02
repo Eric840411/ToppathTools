@@ -16,6 +16,8 @@ import { getOperatorFromContext } from '../request-context.js'
 import { buildReportModel, renderReportHtml, type ReportTask } from '../lib/ui-screenshot-report.js'
 import { buildSheetLayout, type SheetTask } from '../lib/ui-screenshot-sheet.js'
 import { createStoreZip } from '../lib/zip-store.js'
+import { lookupMachineTypes } from '../osm-machine-types.js'
+import { groupByMachineModel, validatePools, type LobbyMachine, type MachineModelGroup } from '../../shared/ui-ss-machine-model.js'
 import { uploadFileToLarkFolder, parseLarkFolderToken } from '../lib/lark-drive.js'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -428,8 +430,12 @@ interface ScanResult {
   message?: string
   scannedAt?: number
   cardCount?: number
-  models?: Array<{ key: string; game: string; model: string; total: number; free: number; sample: string }>
+  models?: Array<{ key: string; game: string; model: string; total: number; free: number; sample: string; machines?: LobbyMachine[]; machineModels?: MachineModelGroup[] }>
   unparsed?: Array<{ gmid: string; text: string }>
+  /** 新版 agent 才會回報；有 'ui-ss-pool' 才能用 Machine Model 白名單 */
+  features?: string[]
+  /** Machine Model 資料最後一次同步時間（機台版本 Dashboard 的 OSM 同步）；null＝從沒同步過 */
+  osmSyncedAt?: number | null
 }
 
 /** scanId → 等著結果的 resolver。⚠️ 一定要設逾時，否則 Agent 掛掉時這個請求會永遠掛著 */
@@ -464,10 +470,27 @@ router.post('/scan-lobby', async (req, res, next) => {
       // 而掃描原本寫死 headless，導致畫面上的開關對掃描完全沒作用
       agent.ws.send(JSON.stringify({ type: 'ui_screenshot_scan', scanId, gameUrlTemplate, headed: !!headed, clientType: client }))
     })
+    // 新版 agent 會帶整組 gmid：按 OSM 的 Machine Model 分組（資料從 DB 讀——OSM 同步在主程序，這裡是 worker）
+    if (result.ok && result.models?.some(m => Array.isArray(m.machines))) {
+      const all = result.models.flatMap(m => m.machines ?? []).map(x => x.gmid)
+      const { types, syncedAt } = lookupMachineTypes(db, all)
+      for (const m of result.models) if (m.machines) m.machineModels = groupByMachineModel(m.machines, types)
+      result.osmSyncedAt = syncedAt
+    }
     res.json(result)
   } catch (err) {
     next(err)
   }
+})
+
+/**
+ * POST /machine-types { gmids } → 每台的 Machine Model 與最後同步時間。
+ * 給畫面上「重新同步 OSM」之後重新分組用，不必再叫 agent 掃一次大廳。
+ */
+router.post('/machine-types', (req, res) => {
+  const gmids = Array.isArray(req.body?.gmids) ? (req.body.gmids as unknown[]).filter((g): g is string => typeof g === 'string').slice(0, 5000) : []
+  const { types, syncedAt } = lookupMachineTypes(db, gmids)
+  res.json({ ok: true, types: Object.fromEntries(types), syncedAt })
 })
 
 /** Agent 掃完之後回報結果 */
@@ -479,7 +502,7 @@ router.post('/scan-result/:scanId', (req, res) => {
 })
 
 router.post('/start', (req, res) => {
-  const { wikiUrl, gameUrlTemplate, gmids, resolutions, concurrency, options, agentId, clientType } = req.body as {
+  const { wikiUrl, gameUrlTemplate, gmids, resolutions, concurrency, options, agentId, clientType, pools } = req.body as {
     wikiUrl: string
     gameUrlTemplate: string
     gmids: string[]
@@ -489,6 +512,8 @@ router.post('/start', (req, res) => {
     agentId: string
     /** 使用者在畫面上選的客戶端。不給就讓 agent 自己判，不要在這裡補預設 */
     clientType?: 'h5' | 'pc'
+    /** Machine Model 白名單：任務名稱（遊戲 / model / machineType）→ 只能從這些 gmid 挑機 */
+    pools?: Record<string, string[]>
   }
   const client = clientType === 'pc' || clientType === 'h5' ? clientType : undefined
 
@@ -500,10 +525,33 @@ router.post('/start', (req, res) => {
   if (!agent || agent.busy) {
     return res.status(409).json({ ok: false, message: '指定 Agent 不存在或正在忙碌' })
   }
+  const opts = options ?? {}
+
+  // ── Machine Model 白名單的關卡（CodeX review 2026-10-02）：任何一條不過就整個 run 不建，不退回「不限 Machine Model」──
+  const hasPools = !!pools && Object.keys(pools).length > 0
+  if (hasPools) {
+    // 舊 agent 會把「遊戲 / model / machineType」當成「遊戲 / model」比對 → 默默拍到別的 Machine Model。
+    // capabilities 是這次連線 agent_ready 帶的，重連會重新回報，降版也會被擋
+    if (!(agent.capabilities ?? []).includes('ui-ss-pool')) {
+      return res.status(409).json({ ok: false, code: 'AGENT_TOO_OLD', message: '這台 Local Agent 版本太舊，不支援 Machine Model 選擇。請更新 agent 後重新連線，或改回只選 model' })
+    }
+    if (client === 'pc') return res.status(400).json({ ok: false, message: 'PC 版不支援 Machine Model 選擇' })
+    if (opts.autoPickByGame !== true) return res.status(400).json({ ok: false, message: 'Machine Model 選擇只能用在自動選機模式' })
+    const errs = validatePools(gmids, pools)
+    if (errs.length) return res.status(400).json({ ok: false, message: errs.join('；') })
+  }
+  // 任務名稱同時是資料夾名稱：safeSegment 會把特殊字元換成 _、截到 120 字，兩個不同的名稱可能變成同一個資料夾，
+  // 後拍的會蓋掉先拍的。撞到就不建 run（CodeX 2026-10-02）
+  const seg = new Map<string, string>()
+  for (const g of gmids) {
+    const k = safeSegment(g)
+    const prev = seg.get(k)
+    if (prev !== undefined && prev !== g) return res.status(400).json({ ok: false, message: `「${prev}」和「${g}」的資料夾名稱相同，請改選其中一個` })
+    seg.set(k, g)
+  }
 
   const runId = randomUUID()
   const now = Date.now()
-  const opts = options ?? {}
   const conc = concurrency ?? 3
 
   // Create run
@@ -511,19 +559,21 @@ router.post('/start', (req, res) => {
   db.prepare(`
     INSERT INTO ui_screenshot_runs (id, status, wiki_url, game_url_template, gmids, resolutions, concurrency, options, agent_id, operator_key, operator_name, created_at)
     VALUES (?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(runId, wikiUrl ?? '', gameUrlTemplate, JSON.stringify(gmids), JSON.stringify(resolutions), conc, JSON.stringify({ ...opts, clientType: client ?? null }), agentId, runOperator?.key ?? '', runOperator?.name ?? '', now)
+  `).run(runId, wikiUrl ?? '', gameUrlTemplate, JSON.stringify(gmids), JSON.stringify(resolutions), conc, JSON.stringify({ ...opts, clientType: client ?? null, ...(hasPools ? { targetPools: pools } : {}) }), agentId, runOperator?.key ?? '', runOperator?.name ?? '', now)
 
   // Create tasks
   const insertTask = db.prepare(`
     INSERT INTO ui_screenshot_tasks (id, run_id, gmid, resolution, status)
     VALUES (?, ?, ?, ?, 'pending')
   `)
-  const tasks: Array<{ id: string; gmid: string; resolution: string }> = []
+  const tasks: Array<{ id: string; gmid: string; resolution: string; allowedGmids?: string[] }> = []
   for (const gmid of gmids) {
+    // 白名單在這裡固定成快照（存進 run 的 options.targetPools），每個解析度的任務都帶同一份
+    const allowed = hasPools ? pools![gmid]?.map(g => g.trim().toUpperCase()) : undefined
     for (const resolution of resolutions) {
       const taskId = randomUUID()
       insertTask.run(taskId, runId, gmid, resolution)
-      tasks.push({ id: taskId, gmid, resolution })
+      tasks.push({ id: taskId, gmid, resolution, ...(allowed ? { allowedGmids: allowed } : {}) })
     }
   }
 

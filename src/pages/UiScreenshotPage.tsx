@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { groupByMachineModel, poolTarget, type LobbyMachine, type MachineModelGroup } from '../../shared/ui-ss-machine-model'
 import Portal from '../components/Portal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -256,6 +257,18 @@ function ResCheckbox({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+/** 掃描回來的一個「遊戲 / model」。新版 agent 會帶整組機台，伺服器再按 Machine Model 分組 */
+type ScanModel = { key: string; game: string; model: string; total: number; free: number; sample: string; machines?: LobbyMachine[]; machineModels?: MachineModelGroup[] }
+
+/**
+ * 選取清單裡的一項：沒有 Machine Model 資料的 model 直接是 `遊戲 / model`；
+ * 有的話是 `遊戲 / model::machineType`（每個 Machine Model 一個任務，只從那組 gmid 挑機）
+ */
+const MM_SEP = '::'
+const mmKey = (modelKey: string, machineType: string) => `${modelKey}${MM_SEP}${machineType}`
+/** 可以勾的 Machine Model（未同步的那組不能選——不猜） */
+const selectableMMs = (m: ScanModel) => (m.machineModels ?? []).filter(g => g.machineType)
+
 export function UiScreenshotPage() {
   const init = loadSettings()
 
@@ -272,7 +285,13 @@ export function UiScreenshotPage() {
   const [captureLobby, setCaptureLobby] = useState(init.captureLobby)
   const [scanning, setScanning] = useState(false)
   const [scanMsg, setScanMsg] = useState<string | null>(null)
-  const [models, setModels] = useState<Array<{ key: string; game: string; model: string; total: number; free: number; sample: string }>>([])
+  const [models, setModels] = useState<ScanModel[]>([])
+  /** 這次掃描的 agent 支不支援 Machine Model 白名單（舊 agent 只能選 model） */
+  const [poolSupported, setPoolSupported] = useState(false)
+  /** Machine Model 資料最後同步時間（機台版本 Dashboard 的 OSM 同步）；null＝從沒同步過 */
+  const [osmSyncedAt, setOsmSyncedAt] = useState<number | null>(null)
+  const [osmSyncing, setOsmSyncing] = useState(false)
+  const [expandedModels, setExpandedModels] = useState<Set<string>>(new Set())
   const [unparsed, setUnparsed] = useState<Array<{ gmid: string; text: string }>>([])
   const [selectedModels, setSelectedModels] = useState<string[]>([])
   const [showModelPicker, setShowModelPicker] = useState(false)
@@ -506,8 +525,77 @@ export function UiScreenshotPage() {
 
   const visibleModels = models.filter(m => {
     const q = modelFilter.trim().toLowerCase()
-    return !q || m.key.toLowerCase().includes(q)
+    return !q || m.key.toLowerCase().includes(q) || (m.machineModels ?? []).some(g => (g.machineType ?? '').toLowerCase().includes(q))
   })
+  // 已選的統計：Machine Model 選項各自是一個任務
+  const selectedMMCount = selectedModels.filter(k => k.includes(MM_SEP)).length
+  const selectedModelCount = new Set(selectedModels.map(k => k.split(MM_SEP)[0])).size
+
+  /** 重新同步 OSM（機台版本 Dashboard 那一套），再把目前掃到的機台重新分組——不用再叫 agent 掃一次大廳 */
+  async function resyncMachineModels() {
+    setOsmSyncing(true)
+    try {
+      const r = await fetch('/api/osm/sync', { method: 'POST' })
+      if (!r.ok && r.status !== 429) throw new Error(`OSM 同步失敗（HTTP ${r.status}）`)
+      const gmids = models.flatMap(m => (m.machines ?? []).map(x => x.gmid))
+      const t = await fetch('/api/ui-screenshot/machine-types', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gmids }) })
+      const d = await t.json() as { ok: boolean; types: Record<string, string>; syncedAt: number | null }
+      if (d.ok) {
+        setModels(prev => prev.map(m => m.machines ? { ...m, machineModels: groupByMachineModel(m.machines, d.types) } : m))
+        setOsmSyncedAt(d.syncedAt)
+        setSelectedModels([])
+      }
+    } catch (e) { setScanMsg(String(e)) } finally { setOsmSyncing(false) }
+  }
+
+  /** 有 Machine Model 資料的 model：主列（全選／半選）＋展開後每個 Machine Model 一列，列出它的 gmid（紅字＝被佔用） */
+  function renderMMModel(m: ScanModel) {
+    const groups = m.machineModels ?? []
+    const keys = selectableMMs(m).map(g => mmKey(m.key, g.machineType!))
+    const picked = keys.filter(k => selectedModels.includes(k)).length
+    const all = keys.length > 0 && picked === keys.length
+    const open = expandedModels.has(m.key)
+    const toggleAll = (on: boolean) => setSelectedModels(prev => on ? [...new Set([...prev, ...keys])] : prev.filter(k => !keys.includes(k)))
+    return (
+      <div key={m.key} className={`ui-ss-mm${picked ? ' is-on' : ''}`}>
+        <div className="ui-ss-mm-row">
+          <button type="button" className="ui-ss-mm-caret" aria-expanded={open} aria-label={open ? '收合' : '展開'}
+            onClick={() => setExpandedModels(prev => { const n = new Set(prev); if (n.has(m.key)) n.delete(m.key); else n.add(m.key); return n })}>{open ? '▾' : '▸'}</button>
+          <input type="checkbox" checked={all} disabled={!keys.length}
+            ref={el => { if (el) el.indeterminate = picked > 0 && !all }}
+            onChange={e => toggleAll(e.target.checked)} aria-label={`選取 ${m.key} 底下全部 Machine Model`} />
+          <span className="ui-ss-mm-game">{m.game}</span>
+          <span className="ui-ss-mm-name">{m.model}</span>
+          <span className={`ui-ss-mm-cnt${m.free === 0 ? ' is-full' : ''}`}>{m.total} 台・可用 {m.free}</span>
+        </div>
+        {!open && groups.length > 0 && (
+          <div className="ui-ss-mm-tags">
+            {groups.map(g => <span key={g.machineType ?? '_'} className={`ui-ss-mm-tag${g.machineType ? '' : ' is-unsynced'}`}>{g.machineType ?? '未同步'}</span>)}
+          </div>
+        )}
+        {open && (
+          <div className="ui-ss-mm-sub">
+            {groups.map(g => {
+              const k = g.machineType ? mmKey(m.key, g.machineType) : ''
+              const on = !!k && selectedModels.includes(k)
+              return (
+                <label key={g.machineType ?? '_'} className={`ui-ss-mm-item${g.machineType ? '' : ' is-unsynced'}`}>
+                  <input type="checkbox" checked={on} disabled={!g.machineType}
+                    onChange={e => setSelectedModels(prev => e.target.checked ? [...prev, k] : prev.filter(x => x !== k))} />
+                  <span className="ui-ss-mm-tag">{g.machineType ?? '未同步'}</span>
+                  <span className="ui-ss-mm-gmids">
+                    {g.machines.map((x, i) => <span key={x.gmid} className={x.occupied ? 'is-busy' : ''}>{i ? '、' : ''}{x.gmid}</span>)}
+                    {!g.machineType && <em>（機台版本 Dashboard 查不到這幾台，先重新同步）</em>}
+                  </span>
+                  <span className={`ui-ss-mm-cnt${g.free === 0 ? ' is-full' : ''}`}>{g.total} 台・可用 {g.free}</span>
+                </label>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   /**
    * 產生驗收報告；`upload` 為 true 時連同原圖 zip 一起送到 Lark 雲端資料夾。
@@ -581,11 +669,17 @@ export function UiScreenshotPage() {
       })
       const data = await r.json() as {
         ok: boolean; message?: string; cardCount?: number
-        models?: Array<{ key: string; game: string; model: string; total: number; free: number; sample: string }>
+        models?: ScanModel[]
         unparsed?: Array<{ gmid: string; text: string }>
+        features?: string[]
+        osmSyncedAt?: number | null
       }
       if (!data.ok) { setScanMsg(data.message ?? '掃描失敗'); return }
       setModels(data.models ?? [])
+      setPoolSupported((data.features ?? []).includes('ui-ss-pool'))
+      setOsmSyncedAt(data.osmSyncedAt ?? null)
+      // 換了一批掃描結果：舊的勾選可能對不上（Machine Model 分組會變），清掉重選，不要留著看不見的勾
+      setSelectedModels([])
       setUnparsed(data.unparsed ?? [])
       setScanMsg(`掃描完成：${data.cardCount ?? 0} 台、${(data.models ?? []).length} 個 model`)
     } catch {
@@ -632,7 +726,19 @@ export function UiScreenshotPage() {
       .filter(s => s.length > 0)
 
     // 自動選機模式：清單放「遊戲 / model」，實際機台由 Agent 在大廳當下決定
-    const targets = autoPickByGame ? [...selectedModels] : parsedGmids
+    // Machine Model 選項 → 任務名稱「遊戲 / model / machineType」＋白名單（那組 gmid）
+    const pools: Record<string, string[]> = {}
+    const pickedTargets = selectedModels.map(k => {
+      if (!k.includes(MM_SEP)) return k
+      const [modelKey, mt] = k.split(MM_SEP)
+      const m = models.find(x => x.key === modelKey)
+      const g = m?.machineModels?.find(x => x.machineType === mt)
+      if (!m || !g) return ''
+      const target = poolTarget(m.game, m.model, mt)
+      pools[target] = g.machines.map(x => x.gmid)
+      return target
+    }).filter(Boolean)
+    const targets = autoPickByGame ? pickedTargets : parsedGmids
     if (captureLobby) targets.unshift('__LOBBY__')
     if (targets.length === 0) {
       setError(autoPickByGame ? '請先掃描大廳並勾選要拍的 model（或勾「也拍大廳」）' : '請輸入至少一個 gmid')
@@ -653,6 +759,7 @@ export function UiScreenshotPage() {
         concurrency: 1,
         options: { dismissPopup, waitForVideo, headedMode, screenshotDelaySeconds, reloadPerResolution, autoPickByGame },
         agentId: selectedAgentId,
+        ...(autoPickByGame && Object.keys(pools).length ? { pools } : {}),
       }
       const r = await fetch('/api/ui-screenshot/start', {
         method: 'POST',
@@ -917,7 +1024,7 @@ export function UiScreenshotPage() {
 
                 {models.length > 0 && (
                   <div style={{ fontSize: 11.5, color: '#94a3b8', lineHeight: 1.9 }}>
-                    已選 <b style={{ color: '#e2e8f0' }}>{selectedModels.length}</b> / {models.length} 個 model
+                    已選 <b style={{ color: '#e2e8f0' }}>{selectedModelCount}</b> / {models.length} 個 model{selectedMMCount > 0 && <> ・ <b style={{ color: '#e2e8f0' }}>{selectedMMCount}</b> 種 Machine Model</>}
                     ｜預估約 <b style={{ color: '#e2e8f0' }}>
                       {Math.round(selectedModels.length * selectedResolutions.length * (reloadPerResolution ? 25 : 3) / 60)}
                     </b> 分鐘（粗估，不含找台與失敗重試）
@@ -1390,7 +1497,7 @@ export function UiScreenshotPage() {
               <span style={{ fontWeight: 700, color: '#f1f5f9' }}>
                 選擇要拍的 model
                 <span style={{ fontWeight: 400, fontSize: 12, color: '#94a3b8', marginLeft: 10 }}>
-                  已選 {selectedModels.length} / {models.length}
+                  已選 {selectedModelCount} 個 model{selectedMMCount > 0 ? ` ・ ${selectedMMCount} 種 Machine Model` : ''}
                 </span>
               </span>
               <button className="btn-ghost" style={{ padding: '4px 10px', fontSize: 11 }} onClick={() => setShowModelPicker(false)}>關閉</button>
@@ -1404,18 +1511,38 @@ export function UiScreenshotPage() {
                 style={{ flex: '1 1 220px', fontSize: 12, padding: '5px 10px', borderRadius: 6 }}
               />
               <button className="btn-ghost" type="button" style={{ fontSize: 12 }}
-                onClick={() => setSelectedModels(visibleModels.map(m => m.key))}>全選（{visibleModels.length}）</button>
+                onClick={() => setSelectedModels(visibleModels.flatMap(m => selectableMMs(m).length ? selectableMMs(m).map(g => mmKey(m.key, g.machineType!)) : (m.machineModels ? [] : [m.key])))}>全選（{visibleModels.length}）</button>
               <button className="btn-ghost" type="button" style={{ fontSize: 12 }}
-                onClick={() => setSelectedModels(visibleModels.filter(m => m.free > 0).map(m => m.key))}>
+                onClick={() => setSelectedModels(visibleModels.flatMap(m => m.machineModels ? selectableMMs(m).filter(g => g.free > 0).map(g => mmKey(m.key, g.machineType!)) : (m.free > 0 ? [m.key] : [])))}>
                 只選有空機（{visibleModels.filter(m => m.free > 0).length}）
               </button>
+              <button className="btn-ghost" type="button" style={{ fontSize: 12 }}
+                onClick={() => setExpandedModels(prev => prev.size ? new Set() : new Set(visibleModels.filter(m => m.machineModels).map(m => m.key)))}>
+                {expandedModels.size ? '全部收合' : '全部展開'}
+              </button>
               <button className="btn-ghost" type="button" style={{ fontSize: 12 }} onClick={() => setSelectedModels([])}>清除</button>
+            </div>
+
+            {/* Machine Model 來源：機台版本 Dashboard 的 OSM 同步。舊 agent 沒有整組 gmid，只能選 model */}
+            <div className="ui-ss-mm-sync">
+              {poolSupported ? (
+                <>
+                  <span className={`ui-ss-mm-dot${osmSyncedAt ? '' : ' is-off'}`} />
+                  Machine Model 來源：機台版本 Dashboard，{osmSyncedAt ? `最近同步 ${new Date(osmSyncedAt).toLocaleString('zh-TW', { hour12: false })}` : '還沒同步過（全部會是「未同步」）'}
+                  <button className="btn-ghost" type="button" style={{ fontSize: 11, padding: '2px 10px' }} disabled={osmSyncing} onClick={() => void resyncMachineModels()}>
+                    {osmSyncing ? '同步中…' : '重新同步'}
+                  </button>
+                </>
+              ) : (
+                <span style={{ color: '#eab308' }}>這台 Local Agent 版本較舊，只能選 model。更新 agent 後重新掃描，才能選 Machine Model。</span>
+              )}
             </div>
 
             {/* 清單本身：兩欄、名稱完整顯示不截斷 */}
             <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '10px 16px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '2px 16px' }}>
                 {visibleModels.map(m => {
+                  if (m.machineModels) return renderMMModel(m)
                   const checked = selectedModels.includes(m.key)
                   return (
                     <label key={m.key} style={{
@@ -1460,7 +1587,7 @@ export function UiScreenshotPage() {
                   {Math.round(selectedModels.length * selectedResolutions.length * (reloadPerResolution ? 25 : 3) / 60)}
                 </b> 分鐘
               </span>
-              <span style={{ fontSize: 11, color: '#64748b' }}>「可用」是掃描當下的狀態，實際跑時可能已被佔走（會自動換同 model 的另一台）</span>
+              <span style={{ fontSize: 11, color: '#64748b' }}>「可用」是掃描當下的狀態，實際跑時可能已被佔走（會自動換同 model 的另一台；勾了 Machine Model 的只會在那組裡換，全被佔就該項失敗）</span>
               <button className="submit-btn submit-btn--sm" style={{ marginLeft: 'auto', fontSize: 12, padding: '6px 16px' }}
                 onClick={() => setShowModelPicker(false)}>完成</button>
             </div>

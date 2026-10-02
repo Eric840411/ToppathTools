@@ -5096,6 +5096,31 @@
   justify-content: space-between;
   gap: 16px;
 }
+/* UI 截圖：Machine Model 選擇（v4.266.0，草稿經需求方確認）。model 主列＋展開後每個 Machine Model 一列 */
+.ui-ss-mm-sync { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid #2d3f55; font-size: 12px; color: #94a3b8; }
+.ui-ss-mm-dot { width: 7px; height: 7px; border-radius: 50%; background: #4ade80; display: inline-block; }
+.ui-ss-mm-dot.is-off { background: #64748b; }
+.ui-ss-mm { border-radius: 8px; padding: 6px 8px; }
+.ui-ss-mm.is-on { background: rgba(59, 130, 246, .08); }
+.ui-ss-mm-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.ui-ss-mm-caret { background: none; border: 0; color: #64748b; font-size: 11px; width: 14px; padding: 0; cursor: pointer; }
+.ui-ss-mm-game { color: #64748b; font-family: monospace; font-size: 11px; width: 110px; flex-shrink: 0; }
+.ui-ss-mm-name { color: #e2e8f0; flex: 1; }
+.ui-ss-mm-cnt { color: #94a3b8; font-size: 11px; white-space: nowrap; margin-left: auto; }
+.ui-ss-mm-cnt.is-full { color: #f87171; }
+.ui-ss-mm-tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px 32px; }
+.ui-ss-mm-tag { font-family: monospace; font-size: 11px; color: #7dd3fc; background: rgba(125, 211, 252, .08); border: 1px solid rgba(125, 211, 252, .3); border-radius: 4px; padding: 0 6px; white-space: nowrap; }
+.ui-ss-mm-tag.is-unsynced, .ui-ss-mm-item.is-unsynced .ui-ss-mm-tag { color: #fbbf24; border-color: rgba(251, 191, 36, .35); background: rgba(251, 191, 36, .08); }
+.ui-ss-mm-sub { margin: 4px 0 4px 32px; padding-left: 10px; border-left: 2px solid #2d3f55; display: flex; flex-direction: column; gap: 2px; }
+.ui-ss-mm-item { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; padding: 3px 0; cursor: pointer; }
+.ui-ss-mm-item.is-unsynced { cursor: not-allowed; opacity: .8; }
+.ui-ss-mm-gmids { color: #94a3b8; font-family: monospace; font-size: 11px; line-height: 1.7; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.ui-ss-mm-gmids .is-busy { color: #f87171; }
+.ui-ss-mm-gmids em { font-style: normal; color: #fbbf24; font-family: inherit; }
+:root[data-theme-mode="xianxia"] .ui-ss-mm.is-on { background: rgba(98, 198, 165, .08); }
+:root[data-theme-mode="xianxia"] .ui-ss-mm-tag { color: #62C6A5; background: rgba(98, 198, 165, .08); border-color: rgba(98, 198, 165, .35); }
+:root[data-theme-mode="xianxia"] .ui-ss-mm-sub { border-left-color: rgba(163, 130, 63, .45); }
+
 .ui-ss-modal-body {
   padding: 16px;
   overflow: auto;

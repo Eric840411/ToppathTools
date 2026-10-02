@@ -26,6 +26,7 @@ import {
   LUCKYLINK_VERSION_ORDER,
 } from '../shared.js'
 import { callGeminiWithRotation } from './gemini.js'
+import { initOsmMachineTypes, saveChannelMachineTypes } from '../osm-machine-types.js'
 
 export const router = Router()
 
@@ -105,6 +106,8 @@ export function readOsmChannels(): OsmChannel[] {
   }))
 }
 
+initOsmMachineTypes(db)
+
 export async function syncOsmChannel(channel: OsmChannel): Promise<OsmChannelResult> {
   const baseUrl = process.env.OSM_BASE_URL ?? 'https://backendserver.osmplay.com'
   const syncTime = new Date().toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false })
@@ -166,6 +169,9 @@ export async function syncOsmChannel(channel: OsmChannel): Promise<OsmChannelRes
       `[OSM] ${channel.name} onlineState sample:`,
       machines.slice(0, 5).map(m => m.onlineState),
     )
+    // 落 DB 給 UI 截圖的 Machine Model 用（截圖路由在 worker，讀不到這個程序的 osmChannelCache）。
+    // 寫失敗不能讓同步本身失敗——Dashboard 照常顯示，只是截圖那邊會是「未同步」
+    try { saveChannelMachineTypes(db, channel.name, machines) } catch (e) { console.warn(`[OSM] ${channel.name} Machine Model 落 DB 失敗：`, e) }
     return { name: channel.name, channelId: channel.channelId, machines, syncTime }
   } catch (err) {
     console.error(`[OSM] ${channel.name} 同步失敗：`, err)
