@@ -32,6 +32,9 @@ function stubBrowser({ locatorCount = 1, failOn = null } = {}) {
     count: async () => (selector.includes('password') || selector.includes('user') ? 1 : locatorCount),
     first() { return this },
     fill: async (value) => { state.filled.push([selector, value]) },
+    // 登入改成逐字輸入、先等密碼欄出現（v4.274.2），假物件跟著補
+    pressSequentially: async (value) => { state.filled.push([selector, value]) },
+    waitFor: async () => {},
     click: async () => {
       if (failOn && selector.includes(failOn)) throw new Error(`點不到 ${selector}`);
       state.clicked.push(selector);
@@ -45,6 +48,7 @@ function stubBrowser({ locatorCount = 1, failOn = null } = {}) {
     waitForLoadState: async () => {},
     waitForTimeout: async () => {},
     keyboard: { press: async () => {} },
+    url: () => 'https://cp.example/dashboards',
   };
   const browser = {
     newContext: async () => {
@@ -90,7 +94,10 @@ function stubBrowser({ locatorCount = 1, failOn = null } = {}) {
       page.locator = (selector) => {
         const base = realLocator(selector);
         if (selector.includes('password')) {
-          return { ...base, fill: async (value) => { throw new Error(`locator.fill: value="${value}" timeout`) } };
+          const boom = async (value) => { throw new Error(`locator.fill: value="${value}" timeout`) };
+          const broken = { ...base, fill: boom, pressSequentially: boom };
+          broken.first = () => broken;
+          return broken;
         }
         return base;
       };
@@ -179,6 +186,36 @@ function stubBrowser({ locatorCount = 1, failOn = null } = {}) {
     BACKEND_OP_ACTIONS.join(','));
   check('⑦ 開關要在（不然這個功能沒有意義）', BACKEND_OP_ACTIONS.includes('set_checked'));
   check('⑦ 空動作名也算不支援', unsupportedBackendOps([{ action: '' }]).length === 1);
+}
+
+// ── ⑧ 登入（v4.274.2）：還停在登入頁＝失敗；帳密欄位沒出現又在 /login＝失敗 ───────
+{
+  const { browser, page } = stubBrowser();
+  page.url = () => 'https://cp.example/login?redirect=%2F';
+  const result = await runBackendOps(browser, {
+    backendUrl: 'https://cp.example/', username: USERNAME, password: PASSWORD, title: 't',
+    steps: [{ action: 'set_checked', selector: '#sw', checked: true }],
+  });
+  check('⑧ ⚠️ 按了登入還在 /login → 片段失敗（不能當登入成功往下跑）',
+    result.ok === false && result.fails.some(f => f.includes('登入失敗')), JSON.stringify(result.fails));
+}
+{
+  const { browser, page } = stubBrowser();
+  page.url = () => 'https://cp.example/login';
+  const realLocator = page.locator;
+  page.locator = (selector) => {
+    const base = realLocator(selector);
+    if (!selector.includes('password')) return base;
+    const never = { ...base, waitFor: async () => { throw new Error('timeout') } };
+    never.first = () => never;
+    return never;
+  };
+  const result = await runBackendOps(browser, {
+    backendUrl: 'https://cp.example/', username: USERNAME, password: PASSWORD, title: 't',
+    steps: [{ action: 'set_checked', selector: '#sw', checked: true }],
+  });
+  check('⑧ ⚠️ 在 /login 卻等不到帳密欄位 → 失敗（原本會誤判成已登入）',
+    result.ok === false && result.fails.some(f => f.includes('沒有出現帳密欄位')), JSON.stringify(result.fails));
 }
 
 const failed = results.filter(r => !r.ok).length;
