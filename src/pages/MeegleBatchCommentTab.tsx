@@ -217,6 +217,9 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
    */
   const previewKeyRef = useRef('')
   const aiCacheRef = useRef(new Map<string, { text: string; review: string | null }>())
+  // 同一列同時只跑一個附件請求（CodeX 10/02）：疊兩個時先回來的會提早把 attLoading 清掉、解除送出限制
+  // 重建預覽（例如換了附件欄）就換一組：舊請求晚回來不蓋新清單、也不擋新請求
+  const attInflightRef = useRef(new Set<number>())
   const previewKey = JSON.stringify({ rows: chosen.map(r => r.rowIndex), commentColumn, attachmentColumn, personColumn, useAiFormat, useAiReview, promptId, model, loadedUrl })
   function goPreview() {
     if (items.length && previewKeyRef.current === previewKey) { setStep(3); return }
@@ -226,6 +229,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
   // ── ③ 建預覽：附件預載 → 逐列讀遠端 → 逐列跑 AI ──
   async function buildPreview() {
     previewKeyRef.current = previewKey
+    attInflightRef.current = new Set()
     setPreparing(true); setPrepError('')
     const recs = chosen
     const base: Item[] = recs.map(r => {
@@ -254,7 +258,10 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
   /** 載入（或重新載入）一列的附件。失敗原因逐個列出來，要使用者明確略過或重試 */
   async function loadAttachments(rowIndex: number) {
     const r = records?.find(x => x._rowIndex === rowIndex)
-    if (!r || !attachmentColumn) return
+    const inflight = attInflightRef.current
+    if (!r || !attachmentColumn || inflight.has(rowIndex)) return
+    inflight.add(rowIndex)
+    const stale = () => attInflightRef.current !== inflight
     setItems(prev => prev.map(it => it.rowIndex === rowIndex ? { ...it, attLoading: true } : it))
     const colIdx = headers.indexOf(attachmentColumn)
     let letter = ''
@@ -263,6 +270,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
     const groups = [{ rowIndex, urls: src ? src.split(/[\n,]/).map(x => x.trim()).filter(Boolean) : [] }]
     try {
       const d = await api<{ result?: Array<{ rowIndex: number; attachments: Att[] }> }>('/api/jira/attachment-prefetch', { groups, larkSheetContext: colIdx >= 0 ? { sheetUrl: loadedUrl, columnLetter: letter } : undefined })
+      if (stale()) return
       const atts = d.result?.find(g => g.rowIndex === rowIndex)?.attachments ?? []
       const ok = atts.filter(x => x.cacheId && !x.error)
       const bad = atts.filter(x => x.error || !x.cacheId)
@@ -274,7 +282,10 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
         attError: bad.length ? `${bad.length} 個附件沒載到：${bad.map(x => `${x.filename}${x.error ? `（${x.error}）` : ''}`).join('、').slice(0, 300)}` : '',
       }))
     } catch (e) {
+      if (stale()) return
       setItems(prev => prev.map(it => it.rowIndex === rowIndex ? { ...it, attLoading: false, skipMissingAtt: false, attError: `附件載入失敗：${(e as Error).message}` } : it))
+    } finally {
+      inflight.delete(rowIndex)
     }
   }
 
@@ -614,7 +625,7 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
             {prepError && <div className="mb-alert mb-alert--warn">{prepError}</div>}
             {items.some(it => it.attError && !it.attLoading) && (
               <div className="mb-alert mb-alert--warn mc-att-banner"><Icon name="warn" /> {items.filter(it => it.attError).length} 列有附件沒載到
-                <button type="button" className="mb-btn mb-btn--small mb-btn--outline" onClick={() => { for (const it of items.filter(x => x.attError)) void loadAttachments(it.rowIndex) }}>重新載入失敗的附件</button>
+                <button type="button" className="mb-btn mb-btn--small mb-btn--outline" onClick={() => { for (const it of items.filter(x => x.attError && !x.attLoading)) void loadAttachments(it.rowIndex) }}>重新載入失敗的附件</button>
               </div>
             )}
             <div className="mc-preview">
@@ -658,10 +669,17 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
                     <div className="mc-panel-head"><Icon name="chat" /> Comments</div>
                     <textarea className="mc-text mc-text--short" value={cur.commentText} onChange={e => editItem(cur.rowIndex, { commentText: e.target.value, commentEdited: true })} rows={4} aria-label="評論內容" />
                     <div className="mc-sub-head">影片附件
-                      <label className="mb-btn mb-btn--small mb-btn--outline mc-upload"><Icon name="upload" /> 新增附件
-                        <input type="file" hidden onChange={e => { const f = e.target.files?.[0]; if (f) void addAttachment(cur.rowIndex, f); e.target.value = '' }} />
-                      </label>
+                      <span className="mc-sub-actions">
+                        {/* 常駐（使用者 10/02）：Sheet 有附件卻讀成 0 個時不會報錯，沒有這顆就沒地方重抓。只做每列、不做全域——重載會把清單換回 Sheet 版本 */}
+                        {attachmentColumn && (
+                          <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={cur.attLoading} onClick={() => void loadAttachments(cur.rowIndex)}><Icon name="refresh" /> {cur.attLoading ? '載入中…' : '重新載入附件'}</button>
+                        )}
+                        <label className="mb-btn mb-btn--small mb-btn--outline mc-upload"><Icon name="upload" /> 新增附件
+                          <input type="file" hidden onChange={e => { const f = e.target.files?.[0]; if (f) void addAttachment(cur.rowIndex, f); e.target.value = '' }} />
+                        </label>
+                      </span>
                     </div>
+                    {attachmentColumn && <p className="mb-hint mc-reload-hint">重新載入＝從 Sheet 重抓圖片與影片：預覽時手動移除的會回來，手動新增的保留。</p>}
                     {cur.attLoading && <div className="mb-muted mc-empty">附件載入中…</div>}
                     {!cur.attLoading && cur.videos.length === 0 && <div className="mb-muted mc-empty">沒有影片</div>}
                     {cur.videos.map(a => (
@@ -672,7 +690,6 @@ export function MeegleBatchCommentTab({ initialSheetUrl, canAiFormat, canAiRevie
                       <div className="mc-missing mc-att-error">
                         <span><Icon name="warn" /> {cur.attError}</span>
                         <div className="mc-att-actions">
-                          <button type="button" className="mb-btn mb-btn--small mb-btn--outline" disabled={cur.attLoading} onClick={() => void loadAttachments(cur.rowIndex)}><Icon name="refresh" /> {cur.attLoading ? '載入中…' : '重新載入附件'}</button>
                           <label className="mc-switch"><input type="checkbox" checked={cur.skipMissingAtt} onChange={e => editItem(cur.rowIndex, { skipMissingAtt: e.target.checked })} /> 不帶這些附件送出</label>
                         </div>
                       </div>

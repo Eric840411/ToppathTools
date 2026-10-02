@@ -41,6 +41,8 @@
 .mc-panel { border: 1px solid var(--mb-border); border-radius: 10px; padding: 10px 12px 12px; background: var(--mb-card2); display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .mc-panel-head { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; }
 .mc-sub-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-weight: 600; font-size: 13px; margin-top: 4px; }
+.mc-sub-actions { display: flex; gap: 6px; }
+.mc-reload-hint { margin: 0; }
 .mc-text { width: 100%; box-sizing: border-box; resize: vertical; font: 13px/1.6 inherit; font-family: inherit; color: var(--mb-text);
   background: rgba(0, 0, 0, .22); border: 1px solid var(--mb-border); border-radius: 8px; padding: 10px 12px; min-height: 240px; }
 .mc-text--short { min-height: 90px; }
