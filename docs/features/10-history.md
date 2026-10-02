@@ -32,6 +32,7 @@
 | `meegle-batch-create` | Meegle 批次開單（一批送完寫一筆：開單／待確認／失敗筆數；明細有來源 Sheet 連結與每列的名稱、單號連結、關聯需求、處理階段、回填結果，歷史頁顯示成表格） |
 | `meegle-batch-comment` | Meegle 批量評論（一批送完寫一筆：完成／待確認張數；明細有來源 Sheet、每列的單號、列號、代理身分、各步驟結果） |
 | `meegle-batch-status` | Meegle 批量更新狀態（一批送完寫一筆：完成／日期待確認張數；明細有來源 Sheet、每列的單號、列號、目標狀態、日期模式、各步驟結果與日期原值→預計值） |
+| `meegle-batch-edit` | Meegle 批量修改（一批送完寫一筆：完成張數；明細有來源 Sheet、每列的單號、列號、改了哪些欄位（含清空）、各步驟結果） |
 | `machine-test` | 機台自動化測試結果 / 設定檔儲存 |
 | `autospin` | AutoSpin session 結束 |
 | `gs-stats` | Game Show 500x 機率統計 |
