@@ -429,3 +429,8 @@ Step 3 動態欄位模式的必填驗證（`validateDynamicFields()`，`JiraPage
 - effect 本體抽到 `shared/transition-selection.ts` 的 `startTransitionReload()`，測試用迷你版 React（依賴變動就先跑 cleanup 再跑新的）重現 A→B→A
 
 > 驗證：測試 9 → 14 條（A 讀好、切 B 讀取中且擋送出、A→B→A 後 loading 為 false、B 遲到的回應被丟掉、回到 A 可送出）；突變：拿掉 loading 重設 → 2 條紅。瀏覽器重跑：選項仍跟著勾選切換。
+
+
+# Sheet「插入 → 附件」檔案自動下載（2026-10-02，v4.272.1）
+
+原本以為 Lark API 拿不到儲存格附件的 token（prefetch 對「只有檔名」的儲存格會標成 video/link、請使用者手動上傳）。實測 v2 values API 其實回 `[{type:'attachment', fileToken, mimeType, size, text}]`，是 `/api/lark/sheets/records` 的 extractCell 把它攤平成只剩檔名。現在 `extractCellUrls` 會把附件轉成 `lark-media://{fileToken}/{檔名}` 放進 `欄名__url`；`attachment-prefetch` 認得這個 scheme，用 **`drive/v1/medias/{token}/download`** 下載（`drive/v1/files` 會 403）。所有吃 `__url` 的附件流程（Jira 開單／評論／修改、Meegle 評論）一起受惠；Jira key 偵測只比對 browse URL，不受影響。

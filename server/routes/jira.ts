@@ -389,6 +389,24 @@ async function downloadLarkFile(fileToken: string, larkToken: string): Promise<D
   return downloadToCache(resp, `file_${fileToken}`, 'application/octet-stream')
 }
 
+/**
+ * Sheet 儲存格裡「插入 → 附件」的檔案（例如影片）。records 會把它轉成 `lark-media://{fileToken}/{檔名}` 放進 `欄名__url`。
+ * 2026-10-02 實測：v2 values API 回 `[{type:'attachment', fileToken, mimeType, size, text}]`，
+ * 要用 **medias** 下載（drive/v1/files 會 403）。原本以為 API 拿不到 token、只能手動上傳——其實拿得到，只是 records 把它攤平成檔名了。
+ */
+export const LARK_MEDIA_SCHEME = 'lark-media://'
+async function downloadLarkMedia(ref: string, larkToken: string): Promise<DownloadedFile> {
+  const rest = ref.slice(LARK_MEDIA_SCHEME.length)
+  const slash = rest.indexOf('/')
+  const fileToken = slash < 0 ? rest : rest.slice(0, slash)
+  const name = slash < 0 ? '' : decodeURIComponent(rest.slice(slash + 1))
+  if (!/^[A-Za-z0-9_-]+$/.test(fileToken)) throw new Error('附件 token 不合法')
+  const base = process.env.LARK_BASE_URL ?? 'https://open.larksuite.com'
+  const resp = await fetch(`${base}/open-apis/drive/v1/medias/${fileToken}/download`, { headers: { Authorization: `Bearer ${larkToken}` } })
+  if (!resp.ok) throw new Error(`Lark 附件下載失敗：HTTP ${resp.status}`)
+  return downloadToCache(resp, name || `media_${fileToken}`, 'application/octet-stream')
+}
+
 /** 判斷 URL 是否為 Lark embed-image 內嵌圖片 URL（非 Drive 下載路徑） */
 function isLarkEmbedImageUrl(url: string): boolean {
   return url.includes('mount_point=sheet_image') || url.includes('/space/api/box/stream/download/')
@@ -1033,6 +1051,9 @@ router.post('/api/jira/attachment-prefetch', async (req, res, next) => {
               continue
             }
             file = await downloadGoogleDriveFile(fileId)
+          } else if (trimmed.startsWith(LARK_MEDIA_SCHEME)) {
+            if (!larkToken) larkToken = await getLarkToken()
+            file = await downloadLarkMedia(trimmed, larkToken)
           } else if (isLarkEmbedImageUrl(trimmed)) {
             if (!larkToken) larkToken = await getLarkToken()
             file = await downloadLarkEmbedImage(trimmed, larkToken)
@@ -1159,8 +1180,12 @@ router.post('/api/lark/sheets/records', async (req, res, next) => {
     const extractCellUrls = (cell: unknown): string[] => {
       if (!Array.isArray(cell)) return []
       const urls: string[] = []
-      for (const run of cell as Array<{ text?: string; link?: string; type?: string }>) {
+      for (const run of cell as Array<{ text?: string; link?: string; type?: string; fileToken?: string }>) {
         if (typeof run.link === 'string' && run.link.startsWith('http')) urls.push(run.link)
+        // 「插入 → 附件」的檔案：保留 fileToken，附件預載才下載得到（原本攤平成只剩檔名）
+        else if (run.type === 'attachment' && typeof run.fileToken === 'string' && run.fileToken) {
+          urls.push(`${LARK_MEDIA_SCHEME}${run.fileToken}/${encodeURIComponent(run.text ?? '')}`)
+        }
       }
       return urls
     }
